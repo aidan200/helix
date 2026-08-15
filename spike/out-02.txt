@@ -1,0 +1,65 @@
+[+     1ms | 2026-08-15T13:24:44.325Z] 02.steer/script scenario-start {"desc":"工具 sleep 10 执行中 steer×2，观察 drain 时机与边界"}
+[+     1ms | 2026-08-15T13:24:44.325Z] 02.steer/agent agent_start
+[+     2ms | 2026-08-15T13:24:44.326Z] 02.steer/agent turn_start
+[+     2ms | 2026-08-15T13:24:44.326Z] 02.steer/agent message_start {user:"Run this exact command with the bash tool: sleep 10 && echo "}
+[+     2ms | 2026-08-15T13:24:44.326Z] 02.steer/agent message_end {user:"Run this exact command with the bash tool: sleep 10 && echo "}
+[+   783ms | 2026-08-15T13:24:45.107Z] 02.steer/agent message_start {assistant(stop=pending):""}
+[+  1747ms | 2026-08-15T13:24:46.071Z] 02.steer/agent message_end {assistant(stop=toolUse):"[thinking]|[toolCall:bash]"}
+[+  1747ms | 2026-08-15T13:24:46.071Z] 02.steer/agent tool_execution_start {"tool":"bash","id":"call_e27","args":{"command":"sleep 10 && echo SLOW_DONE","timeout":30}}
+[+  1752ms | 2026-08-15T13:24:46.076Z] 02.steer/agent tool_execution_update
+[+  1790ms | 2026-08-15T13:24:46.114Z] 02.steer/script tool-running {"afterToolStartMs":43}
+[+  3292ms | 2026-08-15T13:24:47.616Z] 02.steer/script steer#1-enqueued {"duringToolExec":true,"hasQueued":true}
+[+  3793ms | 2026-08-15T13:24:48.117Z] 02.steer/script steer#2-enqueued {"duringToolExec":true,"hasQueued":true}
+[+ 11767ms | 2026-08-15T13:24:56.091Z] 02.steer/agent tool_execution_update
+[+ 11768ms | 2026-08-15T13:24:56.092Z] 02.steer/agent tool_execution_update
+[+ 11768ms | 2026-08-15T13:24:56.092Z] 02.steer/agent tool_execution_end {bash#call_e27 isError=false result="SLOW_DONE
+"}
+[+ 11768ms | 2026-08-15T13:24:56.092Z] 02.steer/agent message_start {toolResult(stop=?):"SLOW_DONE
+"}
+[+ 11768ms | 2026-08-15T13:24:56.092Z] 02.steer/agent message_end {toolResult(stop=?):"SLOW_DONE
+"}
+[+ 11768ms | 2026-08-15T13:24:56.092Z] 02.steer/agent turn_end {assistant:assistant(stop=toolUse):"[thinking]|[toolCall:bash]", toolResults:1}
+[+ 11768ms | 2026-08-15T13:24:56.092Z] 02.steer/agent turn_start
+[+ 11768ms | 2026-08-15T13:24:56.092Z] 02.steer/agent message_start {user:"STEER_1: stop waiting on slow commands. Do not call any more"}
+[+ 11768ms | 2026-08-15T13:24:56.092Z] 02.steer/agent message_end {user:"STEER_1: stop waiting on slow commands. Do not call any more"}
+[+ 12352ms | 2026-08-15T13:24:56.676Z] 02.steer/agent message_start {assistant(stop=pending):""}
+[+ 13251ms | 2026-08-15T13:24:57.575Z] 02.steer/agent message_end {assistant(stop=stop):"[thinking]|PIVOTED"}
+[+ 13251ms | 2026-08-15T13:24:57.575Z] 02.steer/agent turn_end {assistant:assistant(stop=stop):"[thinking]|PIVOTED", toolResults:0}
+[+ 13251ms | 2026-08-15T13:24:57.575Z] 02.steer/agent turn_start
+[+ 13251ms | 2026-08-15T13:24:57.575Z] 02.steer/agent message_start {user:"STEER_2: acknowledge briefly that you saw this second steeri"}
+[+ 13251ms | 2026-08-15T13:24:57.575Z] 02.steer/agent message_end {user:"STEER_2: acknowledge briefly that you saw this second steeri"}
+[+ 13809ms | 2026-08-15T13:24:58.133Z] 02.steer/agent message_start {assistant(stop=pending):""}
+[+ 14337ms | 2026-08-15T13:24:58.661Z] 02.steer/agent message_end {assistant(stop=stop):"[thinking]|Acknowledged — I've seen the second steering note"}
+[+ 14337ms | 2026-08-15T13:24:58.661Z] 02.steer/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Acknowledged — I've seen the second steering note", toolResults:0}
+[+ 14337ms | 2026-08-15T13:24:58.661Z] 02.steer/agent agent_end {messages:7}
+[+ 14337ms | 2026-08-15T13:24:58.661Z] 02.steer/script scenario-end {"toolDurationMs":10021,"marks":"","finalMessages":7,"lastAssistant":"[{\"type\":\"thinking\",\"thinking\":\"The user asked me to acknowledge briefly that I saw the second steering note. I should do that without calling tools.\",\"thinking"}
+[+     1ms | 2026-08-15T13:24:58.662Z] 02.abort/script scenario-start {"desc":"工具 sleep 15 执行中 abort，验证会话非销毁可继续"}
+[+     1ms | 2026-08-15T13:24:58.662Z] 02.abort/agent agent_start
+[+     1ms | 2026-08-15T13:24:58.662Z] 02.abort/agent turn_start
+[+     1ms | 2026-08-15T13:24:58.662Z] 02.abort/agent message_start {user:"Run this exact command with the bash tool: sleep 15 && echo "}
+[+     1ms | 2026-08-15T13:24:58.662Z] 02.abort/agent message_end {user:"Run this exact command with the bash tool: sleep 15 && echo "}
+[+   746ms | 2026-08-15T13:24:59.407Z] 02.abort/agent message_start {assistant(stop=pending):""}
+[+  3339ms | 2026-08-15T13:25:02.000Z] 02.abort/agent message_end {assistant(stop=toolUse):"[thinking]|[toolCall:bash]"}
+[+  3339ms | 2026-08-15T13:25:02.000Z] 02.abort/agent tool_execution_start {"tool":"bash","id":"call_205","args":{"command":"sleep 15 && echo NEVER_SEE_THIS","timeout":60}}
+[+  3339ms | 2026-08-15T13:25:02.000Z] 02.abort/agent tool_execution_update
+[+  5363ms | 2026-08-15T13:25:04.024Z] 02.abort/script abort() {"duringToolExec":true}
+[+  5365ms | 2026-08-15T13:25:04.026Z] 02.abort/agent tool_execution_update
+[+  5365ms | 2026-08-15T13:25:04.026Z] 02.abort/agent tool_execution_end {bash#call_205 isError=true result="Command aborted"}
+[+  5365ms | 2026-08-15T13:25:04.026Z] 02.abort/agent message_start {toolResult(stop=?):"Command aborted"}
+[+  5365ms | 2026-08-15T13:25:04.026Z] 02.abort/agent message_end {toolResult(stop=?):"Command aborted"}
+[+  5365ms | 2026-08-15T13:25:04.026Z] 02.abort/agent turn_end {assistant:assistant(stop=toolUse):"[thinking]|[toolCall:bash]", toolResults:1}
+[+  5365ms | 2026-08-15T13:25:04.026Z] 02.abort/agent turn_start
+[+  5365ms | 2026-08-15T13:25:04.026Z] 02.abort/agent message_start {assistant(stop=error):""}
+[+  5366ms | 2026-08-15T13:25:04.027Z] 02.abort/agent message_end {assistant(stop=error):""}
+[+  5366ms | 2026-08-15T13:25:04.027Z] 02.abort/agent turn_end {assistant:assistant(stop=error):"", toolResults:0}
+[+  5366ms | 2026-08-15T13:25:04.027Z] 02.abort/agent agent_end {messages:4}
+[+  5366ms | 2026-08-15T13:25:04.027Z] 02.abort/script after-abort {"isStreaming":false,"messages":4,"errorMessage":"The operation was aborted."}
+[+  5366ms | 2026-08-15T13:25:04.027Z] 02.abort/agent agent_start
+[+  5366ms | 2026-08-15T13:25:04.027Z] 02.abort/agent turn_start
+[+  5366ms | 2026-08-15T13:25:04.027Z] 02.abort/agent message_start {user:"Reply with exactly: STILL_ALIVE"}
+[+  5366ms | 2026-08-15T13:25:04.027Z] 02.abort/agent message_end {user:"Reply with exactly: STILL_ALIVE"}
+[+  9224ms | 2026-08-15T13:25:07.885Z] 02.abort/agent message_start {assistant(stop=pending):""}
+[+  9228ms | 2026-08-15T13:25:07.889Z] 02.abort/agent message_end {assistant(stop=stop):"STILL_ALIVE"}
+[+  9228ms | 2026-08-15T13:25:07.889Z] 02.abort/agent turn_end {assistant:assistant(stop=stop):"STILL_ALIVE", toolResults:0}
+[+  9228ms | 2026-08-15T13:25:07.889Z] 02.abort/agent agent_end {messages:2}
+[+  9228ms | 2026-08-15T13:25:07.889Z] 02.abort/script scenario-end {"postAbortReply":"[{\"type\":\"text\",\"text\":\"STILL_ALIVE\"}]","conversationContinues":true,"finalMessages":6}

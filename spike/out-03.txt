@@ -1,0 +1,164 @@
+[+     2ms | 2026-08-15T14:01:46.470Z] 03/script start {"model":"zai-coding-cn/glm-5.3","realContextWindow":1000000,"effectiveContextWindow":12000,"defaultSettings":{"enabled":true,"reserveTokens":16384,"keepRecentTokens":20000},"spikeSettings":{"enabled":true,"reserveTokens":2048,"keepRecentTokens":1500},"shouldCompactFormula":"contextTokens > contextWindow - reserveTokens"}
+[+     2ms | 2026-08-15T14:01:46.470Z] 03/agent agent_start
+[+     2ms | 2026-08-15T14:01:46.470Z] 03/agent turn_start
+[+     2ms | 2026-08-15T14:01:46.470Z] 03/agent message_start {user:"Remember this for the whole conversation: my secret project "}
+[+     2ms | 2026-08-15T14:01:46.470Z] 03/agent message_end {user:"Remember this for the whole conversation: my secret project "}
+[+  2728ms | 2026-08-15T14:01:49.196Z] 03/agent message_start {assistant(stop=pending):""}
+[+  2840ms | 2026-08-15T14:01:49.308Z] 03/agent message_end {assistant(stop=stop):"[thinking]|NOTED"}
+[+  2840ms | 2026-08-15T14:01:49.308Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|NOTED", toolResults:0}
+[+  2840ms | 2026-08-15T14:01:49.308Z] 03/agent agent_end {messages:2}
+[+  2840ms | 2026-08-15T14:01:49.308Z] 03/script round-measure {"round":0,"estimateTokens":89,"usageTokens":89,"messageCount":2,"threshold":9952}
+[+  2840ms | 2026-08-15T14:01:49.308Z] 03/agent agent_start
+[+  2840ms | 2026-08-15T14:01:49.308Z] 03/agent turn_start
+[+  2840ms | 2026-08-15T14:01:49.308Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about distr"}
+[+  2840ms | 2026-08-15T14:01:49.308Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about distr"}
+[+  6809ms | 2026-08-15T14:01:53.277Z] 03/agent message_start {assistant(stop=pending):""}
+[+ 36766ms | 2026-08-15T14:02:23.234Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Distributed consensus enables a set of unreliable"}
+[+ 36766ms | 2026-08-15T14:02:23.234Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Distributed consensus enables a set of unreliable", toolResults:0}
+[+ 36766ms | 2026-08-15T14:02:23.234Z] 03/agent agent_end {messages:2}
+[+ 36767ms | 2026-08-15T14:02:23.235Z] 03/script round-measure {"round":1,"estimateTokens":3325,"usageTokens":3325,"messageCount":4,"threshold":9952}
+[+ 36767ms | 2026-08-15T14:02:23.235Z] 03/agent agent_start
+[+ 36767ms | 2026-08-15T14:02:23.235Z] 03/agent turn_start
+[+ 36767ms | 2026-08-15T14:02:23.235Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about LSM t"}
+[+ 36767ms | 2026-08-15T14:02:23.235Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about LSM t"}
+[+ 39873ms | 2026-08-15T14:02:26.341Z] 03/agent message_start {assistant(stop=pending):""}
+[+ 68105ms | 2026-08-15T14:02:54.573Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Log-structured merge trees organize storage aroun"}
+[+ 68105ms | 2026-08-15T14:02:54.573Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Log-structured merge trees organize storage aroun", toolResults:0}
+[+ 68106ms | 2026-08-15T14:02:54.574Z] 03/agent agent_end {messages:2}
+[+ 68106ms | 2026-08-15T14:02:54.574Z] 03/script round-measure {"round":2,"estimateTokens":3228,"usageTokens":3228,"messageCount":6,"threshold":9952}
+[+ 68106ms | 2026-08-15T14:02:54.574Z] 03/agent agent_start
+[+ 68106ms | 2026-08-15T14:02:54.574Z] 03/agent turn_start
+[+ 68106ms | 2026-08-15T14:02:54.574Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about type "}
+[+ 68106ms | 2026-08-15T14:02:54.574Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about type "}
+[+ 69269ms | 2026-08-15T14:02:55.737Z] 03/agent message_start {assistant(stop=pending):""}
+[+102930ms | 2026-08-15T14:03:29.398Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Type inference allows compilers to deduce the typ"}
+[+102930ms | 2026-08-15T14:03:29.398Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Type inference allows compilers to deduce the typ", toolResults:0}
+[+102930ms | 2026-08-15T14:03:29.398Z] 03/agent agent_end {messages:2}
+[+102930ms | 2026-08-15T14:03:29.398Z] 03/script round-measure {"round":3,"estimateTokens":3737,"usageTokens":3737,"messageCount":8,"threshold":9952}
+[+102930ms | 2026-08-15T14:03:29.398Z] 03/agent agent_start
+[+102930ms | 2026-08-15T14:03:29.398Z] 03/agent turn_start
+[+102930ms | 2026-08-15T14:03:29.398Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about vecto"}
+[+102930ms | 2026-08-15T14:03:29.398Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about vecto"}
+[+103539ms | 2026-08-15T14:03:30.007Z] 03/agent message_start {assistant(stop=pending):""}
+[+156078ms | 2026-08-15T14:04:22.546Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Vector clocks track causality in distributed syst"}
+[+156079ms | 2026-08-15T14:04:22.547Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Vector clocks track causality in distributed syst", toolResults:0}
+[+156079ms | 2026-08-15T14:04:22.547Z] 03/agent agent_end {messages:2}
+[+156079ms | 2026-08-15T14:04:22.547Z] 03/script round-measure {"round":4,"estimateTokens":6429,"usageTokens":6429,"messageCount":10,"threshold":9952}
+[+156080ms | 2026-08-15T14:04:22.548Z] 03/agent agent_start
+[+156080ms | 2026-08-15T14:04:22.548Z] 03/agent turn_start
+[+156080ms | 2026-08-15T14:04:22.548Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about WAL w"}
+[+156080ms | 2026-08-15T14:04:22.548Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about WAL w"}
+[+156683ms | 2026-08-15T14:04:23.151Z] 03/agent message_start {assistant(stop=pending):""}
+[+190101ms | 2026-08-15T14:04:56.569Z] 03/agent message_end {assistant(stop=stop):"[thinking]|The write-ahead log enforces durability by persis"}
+[+190102ms | 2026-08-15T14:04:56.570Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|The write-ahead log enforces durability by persis", toolResults:0}
+[+190102ms | 2026-08-15T14:04:56.570Z] 03/agent agent_end {messages:2}
+[+190102ms | 2026-08-15T14:04:56.570Z] 03/script round-measure {"round":5,"estimateTokens":4784,"usageTokens":4784,"messageCount":12,"threshold":9952}
+[+190102ms | 2026-08-15T14:04:56.570Z] 03/agent agent_start
+[+190102ms | 2026-08-15T14:04:56.570Z] 03/agent turn_start
+[+190102ms | 2026-08-15T14:04:56.570Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about compi"}
+[+190102ms | 2026-08-15T14:04:56.570Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about compi"}
+[+190760ms | 2026-08-15T14:04:57.228Z] 03/agent message_start {assistant(stop=pending):""}
+[+222764ms | 2026-08-15T14:05:29.232Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Compilers translate source programs into executab"}
+[+222764ms | 2026-08-15T14:05:29.232Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Compilers translate source programs into executab", toolResults:0}
+[+222764ms | 2026-08-15T14:05:29.232Z] 03/agent agent_end {messages:2}
+[+222765ms | 2026-08-15T14:05:29.233Z] 03/script round-measure {"round":6,"estimateTokens":4787,"usageTokens":4787,"messageCount":14,"threshold":9952}
+[+222765ms | 2026-08-15T14:05:29.233Z] 03/agent agent_start
+[+222765ms | 2026-08-15T14:05:29.233Z] 03/agent turn_start
+[+222765ms | 2026-08-15T14:05:29.233Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about TCP c"}
+[+222765ms | 2026-08-15T14:05:29.233Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about TCP c"}
+[+223471ms | 2026-08-15T14:05:29.939Z] 03/agent message_start {assistant(stop=pending):""}
+[+253362ms | 2026-08-15T14:05:59.830Z] 03/agent message_end {assistant(stop=stop):"[thinking]|TCP congestion control balances throughput agains"}
+[+253362ms | 2026-08-15T14:05:59.830Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|TCP congestion control balances throughput agains", toolResults:0}
+[+253362ms | 2026-08-15T14:05:59.830Z] 03/agent agent_end {messages:2}
+[+253362ms | 2026-08-15T14:05:59.830Z] 03/script round-measure {"round":7,"estimateTokens":4902,"usageTokens":4902,"messageCount":16,"threshold":9952}
+[+253362ms | 2026-08-15T14:05:59.830Z] 03/agent agent_start
+[+253362ms | 2026-08-15T14:05:59.830Z] 03/agent turn_start
+[+253362ms | 2026-08-15T14:05:59.830Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about garba"}
+[+253362ms | 2026-08-15T14:05:59.830Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about garba"}
+[+256972ms | 2026-08-15T14:06:03.440Z] 03/agent message_start {assistant(stop=pending):""}
+[+290244ms | 2026-08-15T14:06:36.712Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Garbage collection reclaims memory automatically "}
+[+290244ms | 2026-08-15T14:06:36.712Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Garbage collection reclaims memory automatically ", toolResults:0}
+[+290244ms | 2026-08-15T14:06:36.712Z] 03/agent agent_end {messages:2}
+[+290244ms | 2026-08-15T14:06:36.712Z] 03/script round-measure {"round":8,"estimateTokens":5619,"usageTokens":5619,"messageCount":18,"threshold":9952}
+[+290244ms | 2026-08-15T14:06:36.712Z] 03/agent agent_start
+[+290244ms | 2026-08-15T14:06:36.712Z] 03/agent turn_start
+[+290244ms | 2026-08-15T14:06:36.712Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about CRDTs"}
+[+290244ms | 2026-08-15T14:06:36.712Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about CRDTs"}
+[+291407ms | 2026-08-15T14:06:37.875Z] 03/agent message_start {assistant(stop=pending):""}
+[+331583ms | 2026-08-15T14:07:18.051Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Conflict-free replicated data types guarantee con"}
+[+331583ms | 2026-08-15T14:07:18.051Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Conflict-free replicated data types guarantee con", toolResults:0}
+[+331583ms | 2026-08-15T14:07:18.051Z] 03/agent agent_end {messages:2}
+[+331584ms | 2026-08-15T14:07:18.052Z] 03/script round-measure {"round":9,"estimateTokens":6648,"usageTokens":6648,"messageCount":20,"threshold":9952}
+[+331584ms | 2026-08-15T14:07:18.052Z] 03/agent agent_start
+[+331584ms | 2026-08-15T14:07:18.052Z] 03/agent turn_start
+[+331584ms | 2026-08-15T14:07:18.052Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about B-tre"}
+[+331584ms | 2026-08-15T14:07:18.052Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about B-tre"}
+[+343705ms | 2026-08-15T14:07:30.173Z] 03/agent message_start {assistant(stop=pending):""}
+[+352948ms | 2026-08-15T14:07:39.416Z] 03/agent message_end {assistant(stop=stop):"[thinking]|B-tree splits maintain the balanced structure tha"}
+[+352948ms | 2026-08-15T14:07:39.416Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|B-tree splits maintain the balanced structure tha", toolResults:0}
+[+352948ms | 2026-08-15T14:07:39.416Z] 03/agent agent_end {messages:2}
+[+352948ms | 2026-08-15T14:07:39.416Z] 03/script round-measure {"round":10,"estimateTokens":3172,"usageTokens":3172,"messageCount":22,"threshold":9952}
+[+352948ms | 2026-08-15T14:07:39.416Z] 03/agent agent_start
+[+352948ms | 2026-08-15T14:07:39.416Z] 03/agent turn_start
+[+352948ms | 2026-08-15T14:07:39.416Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about memor"}
+[+352948ms | 2026-08-15T14:07:39.416Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about memor"}
+[+353751ms | 2026-08-15T14:07:40.219Z] 03/agent message_start {assistant(stop=pending):""}
+[+385398ms | 2026-08-15T14:08:11.866Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Memory models define which values a read may lega"}
+[+385398ms | 2026-08-15T14:08:11.866Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Memory models define which values a read may lega", toolResults:0}
+[+385398ms | 2026-08-15T14:08:11.866Z] 03/agent agent_end {messages:2}
+[+385399ms | 2026-08-15T14:08:11.867Z] 03/script round-measure {"round":11,"estimateTokens":6266,"usageTokens":6266,"messageCount":24,"threshold":9952}
+[+385399ms | 2026-08-15T14:08:11.867Z] 03/agent agent_start
+[+385399ms | 2026-08-15T14:08:11.867Z] 03/agent turn_start
+[+385399ms | 2026-08-15T14:08:11.867Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about strea"}
+[+385399ms | 2026-08-15T14:08:11.867Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about strea"}
+[+387774ms | 2026-08-15T14:08:14.242Z] 03/agent message_start {assistant(stop=pending):""}
+[+422386ms | 2026-08-15T14:08:48.854Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Streaming joins combine unbounded inputs where da"}
+[+422386ms | 2026-08-15T14:08:48.854Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Streaming joins combine unbounded inputs where da", toolResults:0}
+[+422386ms | 2026-08-15T14:08:48.854Z] 03/agent agent_end {messages:2}
+[+422386ms | 2026-08-15T14:08:48.854Z] 03/script round-measure {"round":12,"estimateTokens":6893,"usageTokens":6893,"messageCount":26,"threshold":9952}
+[+422386ms | 2026-08-15T14:08:48.854Z] 03/agent agent_start
+[+422386ms | 2026-08-15T14:08:48.854Z] 03/agent turn_start
+[+422386ms | 2026-08-15T14:08:48.854Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about raft "}
+[+422386ms | 2026-08-15T14:08:48.854Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about raft "}
+[+423092ms | 2026-08-15T14:08:49.560Z] 03/agent message_start {assistant(stop=pending):""}
+[+504041ms | 2026-08-15T14:10:10.509Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Raft elects a leader through randomized timeouts "}
+[+504041ms | 2026-08-15T14:10:10.509Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Raft elects a leader through randomized timeouts ", toolResults:0}
+[+504041ms | 2026-08-15T14:10:10.509Z] 03/agent agent_end {messages:2}
+[+504041ms | 2026-08-15T14:10:10.509Z] 03/script round-measure {"round":13,"estimateTokens":12008,"usageTokens":12008,"messageCount":28,"threshold":9952}
+[+504041ms | 2026-08-15T14:10:10.509Z] 03/script compaction-threshold-reached {"tokensBefore":12008,"round":13}
+[+504043ms | 2026-08-15T14:10:10.511Z] 03/script prepareCompaction-ok {"messagesToSummarize":26,"turnPrefixMessages":1,"retainedTail":1,"isSplitTurn":true,"tokensBefore":12008,"fileOps":{"read":0,"written":0,"edited":0}}
+[+504044ms | 2026-08-15T14:10:10.512Z] 03/script compact-failed {"error":"{\"code\":\"summarization_failed\",\"name\":\"CompactionError\"}"}
+590637ms | 2026-08-15T14:04:37.527Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Cache eviction policies decide which entries to r"}
+[+590637ms | 2026-08-15T14:04:37.527Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Cache eviction policies decide which entries to r", toolResults:0}
+[+590637ms | 2026-08-15T14:04:37.527Z] 03/agent agent_end {messages:2}
+[+590638ms | 2026-08-15T14:04:37.528Z] 03/script round-measure {"round":14,"estimateTokens":7724,"usageTokens":7724,"messageCount":30,"threshold":9952}
+[+590638ms | 2026-08-15T14:04:37.528Z] 03/agent agent_start
+[+590638ms | 2026-08-15T14:04:37.528Z] 03/agent turn_start
+[+590638ms | 2026-08-15T14:04:37.528Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about sprea"}
+[+590638ms | 2026-08-15T14:04:37.528Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about sprea"}
+[+591384ms | 2026-08-15T14:04:38.274Z] 03/agent message_start {assistant(stop=pending):""}
+[+598627ms | 2026-08-15T14:04:45.517Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Spreadsheets organize data into a rectangular gri"}
+[+598627ms | 2026-08-15T14:04:45.517Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Spreadsheets organize data into a rectangular gri", toolResults:0}
+[+598627ms | 2026-08-15T14:04:45.517Z] 03/agent agent_end {messages:2}
+[+598628ms | 2026-08-15T14:04:45.518Z] 03/script round-measure {"round":15,"estimateTokens":4731,"usageTokens":4731,"messageCount":32,"threshold":9952}
+[+598628ms | 2026-08-15T14:04:45.518Z] 03/agent agent_start
+[+598628ms | 2026-08-15T14:04:45.518Z] 03/agent turn_start
+[+598628ms | 2026-08-15T14:04:45.518Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about regul"}
+[+598628ms | 2026-08-15T14:04:45.518Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about regul"}
+[+599348ms | 2026-08-15T14:04:46.238Z] 03/agent message_start {assistant(stop=pending):""}
+[+638639ms | 2026-08-15T14:05:25.529Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Regular expressions describe formal languages thr"}
+[+638639ms | 2026-08-15T14:05:25.529Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Regular expressions describe formal languages thr", toolResults:0}
+[+638639ms | 2026-08-15T14:05:25.529Z] 03/agent agent_end {messages:2}
+[+638639ms | 2026-08-15T14:05:25.529Z] 03/script round-measure {"round":16,"estimateTokens":8775,"usageTokens":8775,"messageCount":34,"threshold":9952}
+[+638640ms | 2026-08-15T14:05:25.530Z] 03/agent agent_start
+[+638640ms | 2026-08-15T14:05:25.530Z] 03/agent turn_start
+[+638640ms | 2026-08-15T14:05:25.530Z] 03/agent message_start {user:"Write a technical paragraph of exactly 220 words about digit"}
+[+638640ms | 2026-08-15T14:05:25.530Z] 03/agent message_end {user:"Write a technical paragraph of exactly 220 words about digit"}
+[+650859ms | 2026-08-15T14:05:37.749Z] 03/agent message_start {assistant(stop=pending):""}
+[+697882ms | 2026-08-15T14:06:24.772Z] 03/agent message_end {assistant(stop=stop):"[thinking]|Digital twins are virtual representations of phys"}
+[+697883ms | 2026-08-15T14:06:24.773Z] 03/agent turn_end {assistant:assistant(stop=stop):"[thinking]|Digital twins are virtual representations of phys", toolResults:0}
+[+697883ms | 2026-08-15T14:06:24.773Z] 03/agent agent_end {messages:2}
+[+697883ms | 2026-08-15T14:06:24.773Z] 03/script round-measure {"round":17,"estimateTokens":10079,"usageTokens":10079,"messageCount":36,"threshold":9952}
+[+697883ms | 2026-08-15T14:06:24.773Z] 03/script compaction-threshold-reached {"tokensBefore":10079,"round":17}
+[+697884ms | 2026-08-15T14:06:24.774Z] 03/script prepareCompaction-ok {"messagesToSummarize":34,"turnPrefixMessages":1,"retainedTail":1,"isSplitTurn":true,"tokensBefore":10079,"fileOps":{"read":0,"written":0,"edited":0}}
+[+697887ms | 2026-08-15T14:06:24.777Z] 03/script compact-failed {"error":"{\"code\":\"summarization_failed\",\"name\":\"CompactionError\"}"}
