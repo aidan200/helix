@@ -19,8 +19,10 @@ export interface DaemonConfig {
   model?: string;
   /** provider → apiKey 映射，显式传入 pi-ai 工厂函数（与环境变量彻底无缘，AD-11/13）。 */
   apiKeys?: Record<string, string>;
-  /** WS 端口，默认 7333。 */
+  /** WS 端口，默认 7333；0 = 随机（启动日志输出实际端口，test-design §5.4）。 */
   port: number;
+  /** 前端构建产物目录（static-serve；缺省不激活，daemon 照常启动）。 */
+  staticDir?: string;
 }
 
 /** 默认端口（§7.2 示例值）。 */
@@ -78,15 +80,25 @@ export function loadConfig(configFilePath: string): DaemonConfig {
 
   let port: number = DEFAULT_PORT;
   if (obj.port !== undefined) {
-    if (typeof obj.port !== "number" || !Number.isInteger(obj.port)) {
+    if (typeof obj.port !== "number" || !Number.isInteger(obj.port) || obj.port < 0 || obj.port > 65535) {
       throw new Error(
-        `配置文件字段 port 格式错误：${configFilePath}，应为整数（默认 ${DEFAULT_PORT}）。`,
+        `配置文件字段 port 格式错误：${configFilePath}，应为 0–65535 整数（0 = 随机端口；默认 ${DEFAULT_PORT}）。`,
       );
     }
     port = obj.port;
   }
 
-  return { model: obj.model, apiKeys, port };
+  let staticDir: string | undefined;
+  if (obj.staticDir !== undefined) {
+    if (typeof obj.staticDir !== "string" || obj.staticDir.trim() === "") {
+      throw new Error(
+        `配置文件字段 staticDir 格式错误：${configFilePath}，应为非空字符串（前端构建产物目录）。`,
+      );
+    }
+    staticDir = obj.staticDir;
+  }
+
+  return { model: obj.model, apiKeys, port, staticDir };
 }
 
 /** config.json 文件权限（含 apiKeys 敏感信息，AG-09）。 */

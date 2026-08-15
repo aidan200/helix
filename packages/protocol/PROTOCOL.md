@@ -11,9 +11,9 @@
 | 项 | 值 |
 |---|---|
 | 传输 | WebSocket（daemon 侧 Bun.serve websocket 原生实现，不引入 ws npm 包） |
-| 地址 | `ws://127.0.0.1:{port}`，port 取 `~/.helix/config.json` 的 `port` 字段（默认 7333） |
+| 地址 | `ws://127.0.0.1:{port}`，port 取 `~/.helix/config.json` 的 `port` 字段（默认 7333；0 = 随机，启动日志输出实际监听地址） |
 | 绑定 | **仅 127.0.0.1 回环**，禁止 0.0.0.0 / :: |
-| 认证 | 握手 hello 携带 dev token（daemon 启动时生成并写入 `~/.helix/dev-token`） |
+| 认证 | 握手 hello 携带 dev token（daemon 每次启动生成并重写 `~/.helix/dev-token`，0600）；浏览器侧获取通道见 §9 |
 
 ## 2. 握手时序（F(6).2）
 
@@ -35,8 +35,8 @@
 ```
 
 - **重连恢复 = 快照 + 增量**（AD-16）：重连后重新握手 → 收快照重建投影 → 续增量；首连空会话 = `snapshot.entries` 为空数组。
-- **拒绝三分支**（TP-CL6-5）：无 `token` 字段 → `auth.missing_token`；token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`；`protocolVersion ≠ 0` → `protocol.version_unsupported`。
-- 客户端浏览器侧获取 dev token 的方式（vite dev 期注入为首选）由 T1.6 落地时定并回填集成契约 §8（架构 §10-1 缺口）。
+- **拒绝三分支**（TP-CL6-5）：无 `token` 字段 → `auth.missing_token`；token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`；`protocolVersion ≠ 0`（含信封 `v ≠ 0`）→ `protocol.version_unsupported`。
+- 客户端浏览器侧获取 dev token 的机制已由 T1.6 钉死：daemon HTTP 端点 `GET /helix-dev-token`（见 §9）。
 
 ## 3. 统一信封
 
@@ -159,3 +159,32 @@ export interface ToolCallEntryDto {
   `session.unsubscribe` 仅保通路语义（v0 主会话默认订阅）。
 - 前端重连语义（状态机转换规则 = 契约，节奏实现自定）：断线 → 自动重连
   （指数退避）→ 重新握手 → 收快照重建投影 → 续增量（前端零权威状态，AD-16）。
+
+## 9. dev token 浏览器侧获取（T1.6 定稿，架构 §10-1 缺口回填）
+
+浏览器无法直接读文件 `<home>/dev-token`，获取通道统一为 daemon HTTP 端点：
+
+```
+GET http://127.0.0.1:{port}/helix-dev-token
+→ 200 text/plain，响应体即 token（与 <home>/dev-token 文件内容一致）
+```
+
+处置规则（服务端已实现，TP-CL6 系列测试守护）：
+
+- **无 Origin 头**（curl / 本地进程 / Node 客户端）→ 200 直接返回；
+- **loopback 开发 Origin**（`http://localhost:*` / `http://127.0.0.1:*` / `http://[::1]:*`，
+  即 vite dev 等）→ 200 且反射 `Access-Control-Allow-Origin: <origin>`；
+- **其他 Origin**（任意外部站点）→ 403（防恶意网页窃取 token 接管本机 agent）。
+
+两种前端形态共用同一机制（AG-13 同源基线的自然延伸）：
+
+| 形态 | token 获取 | 前端资源来源 |
+|---|---|---|
+| vite dev（开发期） | `fetch("http://127.0.0.1:{port}/helix-dev-token")`（跨端口 fetch，ACAO 反射放行） | vite dev server |
+| static-serve（生产形态） | 同一端点（同源 fetch，无 CORS 问题） | daemon `staticDir` 构建产物 |
+
+选型说明：契约草案曾以「vite dev 插件读文件注入 env」为首选，T1.6 落地时定稿为
+**daemon 端点方案**——两种形态同一通路、零 vite 侧插件代码、生产/开发行为一致；
+WS 连接本身不受 CORS 约束（浏览器允许跨源 WS），仅 token 的 HTTP 获取需上述
+Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重写，前端握手
+失败即重新拉取）。
