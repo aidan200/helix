@@ -8,6 +8,7 @@ import type { Models } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { AgentRuntime } from "./runtime/AgentRuntime";
 import type { AgentProfile } from "./runtime/AgentProfile";
+import type { AgentRuntimeDeps } from "./runtime/AgentRuntime";
 import { buildModels, createStreamFn, explicitGetApiKey, resolveModel } from "./model-provider";
 import { stopReasonOf, textOfContent, textOfMessage } from "./mappers/SessionMapper";
 
@@ -30,6 +31,8 @@ export interface PiEngineOptions {
   readonly models?: Models;
   /** 流式函数覆盖（测试注入 FakeLLM 剧本，M2 级 mock）。 */
   readonly streamFnOverride?: StreamFn;
+  /** 工具集装配器（T1.5：CoreToolExecutor.resolveTools，组合根接线）。 */
+  readonly resolveTools?: AgentRuntimeDeps["resolveTools"];
 }
 
 export class PiAgentEngineAdapter implements AgentEnginePort {
@@ -44,6 +47,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
       streamFn: options.streamFnOverride ?? createStreamFn(models),
       model: resolveModel(models, options.modelStr),
       getApiKey: explicitGetApiKey(options.apiKeys),
+      resolveTools: options.resolveTools,
     });
     this.runtime.subscribe((event) => this.onPiEvent(event));
   }
