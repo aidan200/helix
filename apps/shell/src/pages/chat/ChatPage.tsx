@@ -1,5 +1,6 @@
 /**
- * 聊天页（pages/chat 组装件）：应用壳 100dvh = header → conn-banner →
+ * 聊天页（pages/chat 组装件）：产品氛围层 scanline-overlay（fixed 全屏，
+ * 暗色常驻/亮色关闭见 tokens.css）+ 应用壳 100dvh = header → conn-banner →
  * 消息流（含连接覆盖层/失败卡）→ composer。data-conn / data-session 驱动
  * 全部状态表象（四态互斥 CSS 门控）；恢复 toast 由 restoreToast 投影触发。
  */
@@ -34,15 +35,20 @@ const ChatPage = function ChatPage() {
   const empty = selectIsEmpty(state);
 
   return (
-    <div className="app" data-conn={state.conn} data-session={empty ? "empty" : "active"}>
-      <AppHeader />
-      <ConnBanner />
-      <MessageFlow>
-        <ConnOverlay />
-        <ErrorCard />
-      </MessageFlow>
-      <Composer />
-    </div>
+    <>
+      {/* 产品氛围层（原型 P-1 L545：body 首子元素、.app 之前；元素本身
+          fixed + pointer-events:none，DOM 序序对齐原型便于对照） */}
+      <div className="scanline-overlay" aria-hidden="true" />
+      <div className="app" data-conn={state.conn} data-session={empty ? "empty" : "active"}>
+        <AppHeader />
+        <ConnBanner />
+        <MessageFlow>
+          <ConnOverlay />
+          <ErrorCard />
+        </MessageFlow>
+        <Composer />
+      </div>
+    </>
   );
 };
 

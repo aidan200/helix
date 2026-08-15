@@ -5,11 +5,10 @@
  * 重启 → 前端自动重连（disconnected 横幅 → connecting 覆盖层 → connected +
  * 恢复 toast N 条重建）→ 视图断言 → 续发新消息验证活会话。
  *
- * 已知 critical 缺陷 D-1（ISSUE-D1-snapshot-toolcall-missing，契约审阅确认）：
- * session.snapshot 永不含 tool-call 条目（DtoMapper.messageEntryDto 对非
- * user/assistant 角色返回 []）→ 重启后工具卡预期消失。按 Brief 要求拆分独立
- * 用例：工具卡一致用例**保持正确口径断言、预期红**（真实证据确认 D-1，
- * 不放宽不删除）；若实测工具卡居然还在，以实测为准如实报告。
+ * 历史缺陷 D-1（ISSUE-D1-snapshot-toolcall-missing，契约审阅确认）已于
+ * 回退修复中解决：session.snapshot 现携带 tool-call 条目（SessionStateView
+ * 消息+工具记录按 ts 合并；DtoMapper 三态映射），重启后工具卡随快照重建。
+ * 本用例按正确口径断言（视图与重启前一致）。
  *
  * daemon 侧恢复语义（优雅/强杀 TP-CL8-6/7）已由 bun test 覆盖，此处只验
  * 浏览器侧表现；断言源 = requirements §3.8 验收标准 + review.md SM-1/SM-2。
@@ -109,7 +108,7 @@ test.describe("TC4.1 CL-7×CL-8 重启恢复端到端（真 daemon，TP-CL8-8 / 
     );
   });
 
-  test("重启恢复：工具卡视图一致【D-1 已知缺陷，预期红——不放宽口径】", async ({ e2e, page }) => {
+  test("重启恢复：工具卡视图一致（快照合并重建，D-1 已修复）", async ({ e2e, page }) => {
     test.setTimeout(120_000);
     const home = prepHome("tools");
     const script: DaemonScript = {
@@ -140,33 +139,41 @@ test.describe("TC4.1 CL-7×CL-8 重启恢复端到端（真 daemon，TP-CL8-8 / 
     const d2 = await e2e.startDaemon({ script, home, retries: 8 });
     expect(d2.home).toBe(home);
     await e2e.waitForConnected(page, 30_000);
-    // 真实计数 5 条 = user(读取) + assistant([toolCall:read] 占位) + assistant(续写)
-    //              + user(第一轮) + assistant(第一轮回复)。
-    // 第 2 条是 E 层新发现的缺陷（E-2）：工具轮的 toolCall 消息经
-    // SessionMapper.textOfContent 映射为「[toolCall:read]」占位文本并作为普通
-    // assistant 条目落盘/恢复（F 层 mock 不产生该事件，故 TS2 未暴露）。
-    // 此处按真实行为断言计数（缺陷另记 finding，不在本用例口径内放宽/收紧）。
+    // 计数 5 条（D-1 修复后构成）= user(读取) + assistant(续写) + tool(read)
+    //              + user(第一轮) + assistant(第一轮回复)——工具调用以
+    // tool-call 条目并入快照（不再产生 assistant 占位文本条目，TS3-a）。
     await expect(page.locator(".toast.ok").locator(".t-sub")).toContainText("5 条投影已重建", {
       timeout: 10_000,
     });
-    await shotEvidence(page, "restart-recovery-after-toolcard", "CL-7-CL-8"); // 重启后现场（证据：对照）
+    await shotEvidence(page, "restart-recovery-after-toolcard", "CL-7-CL-8"); // 重启后：工具卡随快照重建
 
     writeEvidence(
       "restart-recovery-toolcard",
       "txt",
       [
-        "TC4.1-b 重启后工具卡一致：预期红（D-1 / ISSUE-D1-snapshot-toolcall-missing）",
+        "TC4.1-b 重启后工具卡一致：PASS（D-1 已于回退修复中解决）",
         "重启前: .tool-card.done ×1（read，展开结果含 " + READ_MARKER + "）",
-        "重启后: 快照 5 条重建（含 [toolCall:read] 占位气泡——E-2 缺陷），工具卡来自",
-        "  tool.call.started/result 事件——重启后无事件重放 → 卡片消失",
-        "断言口径（不放宽）: 重启后 .tool-card 应保持 1 张（done，含真实结果）",
+        "重启后: 快照 5 条重建 = user(读取)+assistant(续写)+tool(read)+user(第一轮)",
+        "  +assistant(第一轮回复)——工具条目并入快照（SessionStateView 合并投影）",
+        "断言: .tool-card ×1（done，t-name=read），展开结果含真实文件内容（" + READ_MARKER + "）",
       ].join("\n"),
       "CL-7-CL-8",
     );
 
-    // 正确口径断言（TP-CL8-8：视图与重启前一致）——D-1 下此处失败即缺陷实证
-    await expect(page.locator(".tool-card")).toHaveCount(1, { timeout: 4_000 });
-    await expect(page.locator(".tool-card.done").locator(".t-name")).toHaveText("read");
+    // 视图与重启前一致（TP-CL8-8）：工具卡随快照重建，一张 done 卡、
+    // 名称 read，展开后结果 pre 含真实文件内容。注：快照条目 id 与重启前
+    // 一致（D-2 预分配/工具记录 id 持久化）→ React 复用组件实例，重启前
+    // 已展开的卡可能仍展开——展开动作幂等（已展开则不再点）。
+    const restored = page.locator(".tool-card");
+    await expect(restored).toHaveCount(1, { timeout: 10_000 });
+    await expect(restored.locator(".t-name")).toHaveText("read");
+    await expect(restored).toHaveClass(/done/);
+    const head = restored.locator(".t-head");
+    if ((await head.getAttribute("aria-expanded")) !== "true") {
+      await head.click();
+    }
+    await expect(restored).toHaveClass(/open/);
+    await expect(restored.locator(".t-section").nth(1).locator(".t-pre")).toContainText(READ_MARKER);
   });
 
   test("重启恢复：恢复后可续对话（活会话，新消息流式往返）", async ({ e2e, page }) => {

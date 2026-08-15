@@ -145,10 +145,21 @@ test.describe("TC2.1 R-02 双主题（token 注册表 / localStorage / 亮色降
     expect(light.headerBlur).toContain("4px");
     expect(light.glowCyan).toContain("0.2)");
     expect(light.glowCyan).not.toContain("0.25)");
-    // 扫描线：亮色必须关闭（display:none）；暗色常驻为产品氛围层
-    // 注：实现当前未渲染 .scanline-overlay 元素（与原型 P-1 L545 对照为差距，
-    // 见 findings）；此断言口径 = 「若存在则必须关闭」
-    for (const display of light.scanlines) expect(display).toBe("none");
+    // 扫描线：暗色常驻（元素在场且可见），亮色必须关闭（display:none）。
+    // 回退修复 TS2 后元素已渲染（原型 P-1 L545）——恒真断言（非「若存在」）。
+    expect(dark.scanlines.length).toBe(1);
+    expect(dark.scanlines[0]).not.toBe("none");
+    expect(light.scanlines).toEqual(["none"]);
+
+    // reduced-motion：扫描线动画关闭（全局兜底 app.css；基线无动画时同成立）
+    await page.locator("#btn-dark").click();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    try {
+      const rmAnimation = await computed(page, ".scanline-overlay", "animation-name");
+      expect(rmAnimation).toBe("none");
+    } finally {
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+    }
     writeEvidence(
       "fidelity-layout-theme-ambience",
       "txt",
@@ -156,10 +167,11 @@ test.describe("TC2.1 R-02 双主题（token 注册表 / localStorage / 亮色降
         `dark:  body-bg=${dark.bodyBg}`,
         `dark:  header-blur=${dark.headerBlur}`,
         `dark:  glow-cyan=${dark.glowCyan}`,
+        `dark:  scanline ×${dark.scanlines.length} display=${dark.scanlines.join("|")}`,
         `light: body-bg=${light.bodyBg}`,
         `light: header-blur=${light.headerBlur}`,
         `light: glow-cyan=${light.glowCyan}`,
-        `scanline elements: ${light.scanlines.length}`,
+        `light: scanline display=${light.scanlines.join("|")}`,
       ].join("\n"),
     );
   });

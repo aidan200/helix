@@ -147,12 +147,10 @@ test.describe("TC3.2 CL-7 E 层五工具卡端到端（真 daemon + FakeLLM 工�
     await errCard.locator(".t-head").click();
     const errSections = errCard.locator(".t-section");
     // 真实错误文案（pi bash）：Command exited with code 7 —— pre 为真实结果全文。
-    // 注：sec-label 显示「结果 · exit 1」而非 exit 7 —— extractExitCode 的
-    // /exit (\d+)/ 匹配不上 pi 真实文案「exited with code N」→ 回落默认 1。
-    // 这是 E 层暴露的真实显示缺陷（F 层 mock 文案掩盖），已记 issue，不放宽
-    // 对 pre（真实数据）的断言口径。
+    // 徽标 exit code 由 extractExitCode 双文案兼容提取（回退修复 TS3-b：
+    // /exited with code N/ 优先、/exit N/ 回退），与真实退出码一致。
     await expect(errSections.nth(1).locator(".t-sec-label")).toContainText("结果 · exit");
-    expect(await errSections.nth(1).locator(".t-sec-label").textContent()).toBe("结果 · exit 1");
+    expect(await errSections.nth(1).locator(".t-sec-label").textContent()).toBe(`结果 · exit ${FAIL_CODE}`);
     await expect(errSections.nth(1).locator(".t-pre")).toContainText(`Command exited with code ${FAIL_CODE}`);
     // 模型看到真实错误并续写（错误结果也回注）
     await e2e.waitForAssistantText(page, `Command exited with code ${FAIL_CODE}`);
@@ -178,8 +176,7 @@ test.describe("TC3.2 CL-7 E 层五工具卡端到端（真 daemon + FakeLLM 工�
         "grep: 命中行 grep-source.ts:1（真实执行）",
         "bash(sleep 1.2): running 态结构契约（执行中徽标+spinner+不可展开）→ done + t-dur",
         `bash(exit ${FAIL_CODE}): error 卡；pre 真实结果「Command exited with code ${FAIL_CODE}」`,
-        "  ⚠ 显示缺陷: sec-label 为「结果 · exit 1」——extractExitCode(/exit (\\d+)/) 不匹配",
-        "  pi 真实文案「exited with code N」→ 回落默认 1（F 层 mock 文案掩盖，E 层暴露）",
+        `  徽标「结果 · exit ${FAIL_CODE}」与真实退出码一致（extractExitCode 双文案兼容）`,
         "七卡齐全（read/bash×3/write/edit/grep）；done=6 error=1 running=0",
         "结果: PASS",
       ].join("\n"),
