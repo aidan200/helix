@@ -1,0 +1,119 @@
+import { describe, expect, test } from "bun:test";
+import { Session } from "../../src/domain/session/Session";
+import type { SessionSnapshot } from "../../src/domain/session/SessionSnapshot";
+
+/**
+ * TP-CL4-1 / TP-CL4-5（U 半）：会话聚合行为——
+ * ① appendUserEntry→beginTurn→completeTurn→toSnapshot 往返；
+ * ② restoreFrom(snapshot) 重建等价（重启恢复语义，AD-16）；
+ * ③ 同 lane 防重入：open turn 未收尾前 beginTurn 抛领域错误；
+ * ④ applySteer→SteerQueue 入队→turn 边界 drain 全链。
+ */
+
+describe("Session 会话聚合（TP-CL4-1 ①③）", () => {
+  test("appendUserEntry 生成关联 entry；beginTurn 后重入抛错；completeTurn 收尾", () => {
+    const s = Session.create("s-1");
+    const user = s.appendUserEntry("你好");
+    expect(user.role).toBe("user");
+    expect(user.text).toBe("你好");
+
+    const turn = s.beginTurn(user.id);
+    expect(turn.inputEntryId).toBe(user.id);
+    expect(turn.status).toBe("generating");
+
+    // 同 lane 防重入：open turn 未 complete 前再 beginTurn 抛错
+    expect(() => s.beginTurn("e-x")).toThrow();
+
+    s.appendAssistantEntry("你好，有什么可以帮你？");
+    const done = s.completeTurn();
+    expect(done.status).toBe("completed");
+
+    // 收尾后可开新轮
+    const user2 = s.appendUserEntry("再来一轮");
+    s.beginTurn(user2.id);
+    s.completeTurn();
+    expect(s.turnCount).toBe(2);
+  });
+
+  test("interruptTurn 把 open turn 标记中断（abort 语义）", () => {
+    const s = Session.create("s-2");
+    const u = s.appendUserEntry("长问题");
+    s.beginTurn(u.id);
+    const t = s.interruptTurn();
+    expect(t.status).toBe("interrupted");
+    expect(() => s.completeTurn()).toThrow(); // 已收尾
+  });
+
+  test("无 open turn 时 completeTurn/interruptTurn 抛错", () => {
+    const s = Session.create("s-3");
+    expect(() => s.completeTurn()).toThrow();
+    expect(() => s.interruptTurn()).toThrow();
+  });
+});
+
+describe("Session steer 全链（TP-CL4-1 ④）", () => {
+  test("applySteer 入队（isSteer entry + SteerQueue 可观测）→ drain 逐条消费", () => {
+    const s = Session.create("s-4");
+    const u = s.appendUserEntry("写一首诗");
+    s.beginTurn(u.id);
+
+    const st1 = s.applySteer("改成散文");
+    const st2 = s.applySteer("加上月亮");
+    expect(st1.isSteer).toBe(true);
+    expect(s.steerQueueSize).toBe(2);
+
+    // one-at-a-time drain：turn 边界逐条取
+    const d1 = s.dequeueSteer();
+    expect(d1?.entryId).toBe(st1.id);
+    expect(s.steerQueueSize).toBe(1);
+
+    s.appendAssistantEntry("（按注入调整后的回复）");
+    s.completeTurn();
+    expect(s.steerQueueSize).toBe(1); // 未消费的保留（等下一轮）
+
+    // drainAll：turn 完成后可整批取余
+    expect(s.drainAllSteer().map((x) => x.entryId)).toEqual([st2.id]);
+    expect(s.steerQueueSize).toBe(0);
+  });
+
+  test("无 open turn 时 applySteer 抛错（steer 只在运行中合法）", () => {
+    const s = Session.create("s-5");
+    expect(() => s.applySteer("没有轮次")).toThrow();
+  });
+});
+
+describe("Session 快照往返（TP-CL4-1 ①②）", () => {
+  test("toSnapshot→restoreFrom 重建等价（entries/turns/steer 队列/计数器）", () => {
+    const s = Session.create("s-snap");
+    const u1 = s.appendUserEntry("第一问");
+    s.beginTurn(u1.id);
+    const st = s.applySteer("补充一点");
+    s.appendAssistantEntry("第一答");
+    s.completeTurn();
+    const u2 = s.appendUserEntry("第二问");
+    s.beginTurn(u2.id);
+    s.appendAssistantEntry("第二答（进行到一半）");
+
+    const snap: SessionSnapshot = s.toSnapshot();
+
+    const restored = Session.restoreFrom(snap);
+    expect(restored.id).toBe(s.id);
+    expect(restored.toSnapshot()).toEqual(snap); // 重建后再快照 → 深等价
+
+    // 重建后行为延续：计数器不回卷、可继续完成中断的轮次
+    const r2 = restored.completeTurn();
+    expect(r2.status).toBe("completed");
+    const u3 = restored.appendUserEntry("恢复后的新消息");
+    expect(u3.id).not.toBe(u2.id); // id 序列延续
+    restored.beginTurn(u3.id);
+    expect(restored.turnCount).toBe(3);
+
+    // steer 队列经快照存活（spike ④：steerQueueSurvivesCrash）
+    const s2 = Session.create("s-snap2");
+    const u = s2.appendUserEntry("x");
+    s2.beginTurn(u.id);
+    const queued = s2.applySteer("等恢复后注入");
+    expect(Session.restoreFrom(s2.toSnapshot()).dequeueSteer()?.entryId).toBe(queued.id);
+    expect(st.isSteer).toBe(true);
+  });
+});
