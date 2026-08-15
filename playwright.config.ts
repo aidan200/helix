@@ -1,0 +1,37 @@
+/**
+ * Playwright 配置（verification TS1；CL-7 F 层还原度套件）。
+ *
+ * - webServer：vite dev（源码直跑，验证待合并 dev 代码），--host 127.0.0.1
+ *   + strictPort 5199（显式 IPv4 loopback，避免 localhost 解析到 ::1 时
+ *   探测失败）；mock mode 下无 daemon（fake WebSocket 注入 + dev-token
+ *   端点 HTTP 拦截，见 e2e/harness/）。
+ * - trace retain-on-failure；截图证据由各 spec 显式落 evidence/e2e/。
+ */
+import { defineConfig, devices } from "@playwright/test";
+
+const PORT = 5199;
+const HOST = "127.0.0.1";
+
+export default defineConfig({
+  testDir: "./e2e",
+  timeout: 30_000,
+  expect: { timeout: 5_000 },
+  fullyParallel: true,
+  retries: 0,
+  workers: 4,
+  reporter: [["list"]],
+  use: {
+    baseURL: `http://${HOST}:${PORT}`,
+    trace: "retain-on-failure",
+  },
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], locale: "zh-CN" } }],
+  webServer: {
+    command: `bunx vite --host ${HOST} --port ${PORT} --strictPort`,
+    cwd: "apps/shell",
+    url: `http://${HOST}:${PORT}`,
+    reuseExistingServer: false,
+    timeout: 60_000,
+    stdout: "pipe",
+    stderr: "pipe",
+  },
+});
