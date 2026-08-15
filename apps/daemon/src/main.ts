@@ -21,7 +21,7 @@ async function main(): Promise<void> {
 
   let daemon;
   try {
-    daemon = createDaemon({ home: explicitHome });
+    daemon = await createDaemon({ home: explicitHome });
   } catch (err) {
     console.error(`[helix-daemon] 启动失败：${(err as Error).message}`);
     process.exit(1);

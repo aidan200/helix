@@ -5,7 +5,7 @@ import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../ports/outbound/ClockPort";
 import { AgentLifecycle, type AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
 import { Session } from "../../domain/session/Session";
-import { ToolCallRecord } from "../../domain/tools/ToolCallRecord";
+import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import type {
   AgentStateChangedPayload,
   DomainEvent,
@@ -54,6 +54,8 @@ export interface ChatServiceDeps {
   readonly clock: ClockPort;
   /** 恢复场景传入重建聚合（T1.8 RestoreService）；默认新建会话。 */
   readonly session?: Session;
+  /** 恢复场景传入历史工具调用记录（重启后工具历史随快照延续，避免整体替换写抹掉）。 */
+  readonly restoredToolCalls?: readonly ToolCallRecordData[];
 }
 
 export class ChatService implements ChatPort {
@@ -66,6 +68,9 @@ export class ChatService implements ChatPort {
 
   constructor(private readonly deps: ChatServiceDeps) {
     this.session = deps.session ?? Session.create();
+    for (const data of deps.restoredToolCalls ?? []) {
+      this.toolCalls.set(data.id, ToolCallRecord.restore(data));
+    }
   }
 
   // ── 观测面（SessionService/SystemPort 经组合根取，不走私有状态） ──
@@ -82,6 +87,14 @@ export class ChatService implements ChatPort {
   }
   get sessionSnapshot() {
     return this.session.toSnapshot();
+  }
+  /** 领域状态整体（持久化载荷，F(8).1 标准 1）：会话聚合 + 生命周期 + 工具记录。 */
+  get persistedState() {
+    return {
+      session: this.session.toSnapshot(),
+      agentState: this.lifecycle.current,
+      toolCalls: [...this.toolCalls.values()].map((r) => r.toData()),
+    };
   }
 
   // ── ChatPort 实现 ────────────────────────────────────────
@@ -261,7 +274,7 @@ export class ChatService implements ChatPort {
     }
   }
 
-  /** run 结束统一收口：Turn 终态 + 生命周期 idle + 快照落盘。 */
+  /** run 结束统一收口：Turn 终态 + 生命周期 idle（每个里程碑事件在 publish 内已 write-through 落盘）。 */
   private settleRunEnd(reason: TurnCompletedPayload["reason"]): void {
     if (this.session.openTurn) {
       if (reason === "aborted") {
@@ -277,8 +290,6 @@ export class ChatService implements ChatPort {
     if (this.lifecycle.current !== "idle" && this.lifecycle.canTransition("idle")) {
       this.setLifecycle("idle");
     }
-    // write-through：领域状态整体快照持久化（T1.8 前为 InMemory）
-    void this.deps.repository.save(this.session.toSnapshot());
   }
 
   // ── 私有工具 ────────────────────────────────────────────
@@ -321,6 +332,10 @@ export class ChatService implements ChatPort {
       payload,
       occurredAt: this.now(),
     });
+    // write-through（AD-16 §5.2）：每个里程碑领域事件后即落领域状态整体
+    //（事件行经 fan-out 持久化目标入同一写队列，先事件后状态，全局 FIFO）。
+    // 单次落盘失败不阻断会话（WriteQueue onError 上报）。
+    void this.deps.repository.save(this.persistedState);
   }
 
   private now(): string {

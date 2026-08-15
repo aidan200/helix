@@ -21,7 +21,7 @@ describe("createDaemon 组合根装配", () => {
     const home = tmpHome();
     try {
       const engine = new FakeAgentEngine({ replies: [{ text: "组合根装配下的回复。" }] });
-      const daemon = createDaemon({
+      const daemon = await createDaemon({
         home,
         engine,
         skipConfig: true,
@@ -50,11 +50,12 @@ describe("createDaemon 组合根装配", () => {
       expect(status.home).toBe(home);
       expect(status.agentState).toBe("idle");
 
-      // home 内产物：锁文件 + config 模板（0600）+ 日志
+      // home 内产物：锁文件 + config 模板（0600）+ 日志 + SQLite 库（T1.8 write-through）
       const names = readdirSync(home);
       expect(names).toContain("daemon.lock");
       expect(names).toContain("config.json");
       expect(names).toContain("logs");
+      expect(names).toContain("helix.db");
 
       await daemon.shutdown();
       expect(readdirSync(home)).not.toContain("daemon.lock"); // 锁已释放

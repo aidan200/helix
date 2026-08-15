@@ -5,7 +5,7 @@ import path from "node:path";
 /**
  * 架构守护（AG）源码扫描套件 —— test-design §3 的 A 通道落地（Bun test）。
  * 本文件覆盖：AG-01（port 只接口）、AG-02（依赖方向矩阵）、AG-04（pi import 域）、
- * AG-08（与环境变量无缘）、AG-10 + TP-CL4-3（runtime 无编排模式分支）、
+ * AG-08（与环境变量无缘）、AG-10 + TP-CL4-3（runtime 无编排模式分支）、AG-06（SQLite 写点唯一）、
  * TP-CL4-5-A（runtime 不自持领域状态副本）。
  * AG-11（新增 profile 不改 runtime）为行为级验证，见 integration/test-profile.test.ts。
  */
@@ -81,7 +81,7 @@ describe("AG-02：依赖方向矩阵", () => {
   });
 
   test("④ 组合根外不 new 具体 adapter/service 实现（pi-engine 内部装配与 domain 聚合除外）", () => {
-    const concrete = /(ChatService|SessionService|RestoreService|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine)\s*\(/;
+    const concrete = /(ChatService|SessionService|RestoreService|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine|WriteQueue|SqliteSessionRepository)\s*\(/;
     const scanDirs = ["adapters/driving", "application", "domain"];
     for (const dir of scanDirs) {
       for (const rel of listFiles(path.join(srcRoot, ...dir.split("/")))) {
@@ -113,6 +113,37 @@ describe("AG-04：pi import 只允许出现在 adapters/driven/pi-engine/", () =
         }
       }
     }
+  });
+});
+
+describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", () => {
+  const writePatterns: [string, RegExp][] = [
+    ["new Database", /new\s+Database\s*\(/],
+    ["db.exec 调用", /\.exec\s*\(/],
+    ["INSERT INTO", /\bINSERT\s+INTO\b/i],
+    ["DELETE FROM", /\bDELETE\s+FROM\b/i],
+    ["UPDATE … SET", /\bUPDATE\s+\w+\s+SET\b/i],
+  ];
+  const writeQueueRel = path.join("adapters", "driven", "sqlite-session", "WriteQueue.ts");
+
+  test("① src 内 SQLite 写操作调用点仅存在于 sqlite-session/WriteQueue.ts", () => {
+    for (const rel of listFiles(srcRoot)) {
+      const src = read(rel);
+      const isWriteQueue = rel === writeQueueRel;
+      for (const [label, pattern] of writePatterns) {
+        const hit = src.match(pattern);
+        expect(
+          hit === null || isWriteQueue,
+          `${rel} 出现 SQLite 写点「${label}」（仅 WriteQueue 允许）`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  test("② 组合根全局单写队列：container.ts 仅 new 一个 WriteQueue，仓库经它写", () => {
+    const src = read(path.join("infrastructure", "container.ts"));
+    expect(src.match(/new\s+WriteQueue\(/g)?.length).toBe(1);
+    expect(src.match(/new\s+SqliteSessionRepository\(/g)?.length).toBe(1);
   });
 });
 

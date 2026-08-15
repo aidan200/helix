@@ -8,6 +8,18 @@ import { DomainError } from "../DomainError";
  */
 export type ToolCallStatus = "pending" | "running" | "completed" | "failed";
 
+/** 工具调用记录的可序列化只读视图（快照/持久化载荷，贫血形状）。 */
+export interface ToolCallRecordData {
+  readonly id: string;
+  readonly toolName: string;
+  readonly args: unknown;
+  readonly status: ToolCallStatus;
+  readonly result?: string;
+  readonly error?: string;
+  readonly startedAt?: string;
+  readonly endedAt?: string;
+}
+
 export class ToolCallRecord {
   private constructor(
     readonly id: string,
@@ -22,6 +34,20 @@ export class ToolCallRecord {
 
   static create(id: string, toolName: string, args: unknown): ToolCallRecord {
     return new ToolCallRecord(id, toolName, args, "pending");
+  }
+
+  /** 从持久化数据重建（恢复路径：不算状态迁移，直接置位；行为与终态一致）。 */
+  static restore(data: ToolCallRecordData): ToolCallRecord {
+    return new ToolCallRecord(
+      data.id,
+      data.toolName,
+      data.args,
+      data.status,
+      data.result,
+      data.error,
+      data.startedAt,
+      data.endedAt,
+    );
   }
 
   get status(): ToolCallStatus {
@@ -72,7 +98,7 @@ export class ToolCallRecord {
   }
 
   /** 快照用：只读数据。 */
-  toData() {
+  toData(): ToolCallRecordData {
     return {
       id: this.id,
       toolName: this.toolName,

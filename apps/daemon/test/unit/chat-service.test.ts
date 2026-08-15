@@ -79,7 +79,7 @@ describe("① 空闲 sendMessage 驱动新 turn（TP-CL4-1）", () => {
     const snap = chat.sessionSnapshot;
     expect(snap.entries.map((e) => e.role)).toEqual(["user", "assistant"]);
     expect(snap.turns[0]!.status).toBe("completed");
-    expect((await repo.restore(chat.sessionId))?.entries.length).toBe(2);
+    expect((await repo.restore(chat.sessionId))?.session.entries.length).toBe(2);
   });
 });
 
