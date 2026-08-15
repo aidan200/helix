@@ -11,6 +11,18 @@ digest: 写 daemon 代码、加 adapter、动分层边界时
 derivedFrom:
   - AD-12
   - AD-17
+anchors:
+  implementedBy:
+    - apps/daemon/src/domain/
+    - apps/daemon/src/application/
+    - apps/daemon/src/adapters/
+    - apps/daemon/src/infrastructure/
+  testedBy:
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
+relations:
+  governs:
+    - E-AgentRuntime
+    - E-会话聚合
 updatedIn: iter-20260815-6tss
 ```
 
@@ -39,11 +51,21 @@ digest: 新增或修改 port、接线 adapter 与 service 时
 derivedFrom:
   - AD-17
   - AD-12
+anchors:
+  implementedBy:
+    - apps/daemon/src/application/ports/
+  testedBy:
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
+relations:
+  governs:
+    - E-领域事件与单写队列
+    - E-会话聚合
+    - E-AgentRuntime
 updatedIn: iter-20260815-6tss
 ```
 
 ## 规则
-application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 实现、driving adapter 调用）与 outbound/（出口端口：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort，由 service 调用、driven adapter 实现）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
+application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 实现、driving adapter 调用）与 outbound/（出口端口 6 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、SystemPort、ClockPort，由 service 调用）。outbound port 的实现允许三类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）；PathsPort 为定义后悬空的待决接口（零实现零消费，M2 裁决删除或接线）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
 
 ## 理由
 port 是 adapter↔application 两个方向的唯一衔接契约（AD-17 条 2/3）；契约里混入实现即产生第二事实源，driving/driven 的可替换性（换 WS、换引擎、换存储）即刻失效。
@@ -67,6 +89,14 @@ digest: 定义 domain 聚合、写持久化行模型或 DTO 时
 derivedFrom:
   - AD-17
   - AD-16
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/sqlite-session/rows/RowMapper.ts
+  testedBy:
+    - apps/daemon/test/unit/session-mapper-roundtrip.test.ts
+relations:
+  governs:
+    - E-会话聚合
 updatedIn: iter-20260815-6tss
 ```
 
@@ -160,6 +190,15 @@ digest: 加配置项、定位数据文件、解析任何路径时
 derivedFrom:
   - AD-13
   - AD-14
+anchors:
+  implementedBy:
+    - apps/daemon/src/infrastructure/paths.ts
+  testedBy:
+    - apps/daemon/test/unit/paths.test.ts
+    - apps/daemon/test/unit/config.test.ts
+relations:
+  governs:
+    - E-领域事件与单写队列
 updatedIn: iter-20260815-6tss
 ```
 
@@ -189,11 +228,20 @@ derivedFrom:
   - AD-2
   - AD-10
   - AD-11
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/pi-engine/
+    - apps/daemon/src/adapters/driven/tools/
+  testedBy:
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
+relations:
+  governs:
+    - E-AgentRuntime
 updatedIn: iter-20260815-6tss
 ```
 
 ## 规则
-daemon 运行时依赖仅限 @earendil-works/pi-agent-core 与 @earendil-works/pi-ai 两包，零 pi-coding-agent import。工具集 = bash/edit/read/write 四个 core 内置工具 + 自写 grep（走 core 的 Tool 接口 + ExecutionEnv 抽象，封装边界留 adapters/driven/tools，日后可换）。pi 库 import 只允许出现在 adapters/driven/pi-engine。import 通道红线：真实 provider 必须经 `@earendil-works/pi-ai/providers/all` 子路径（主入口 side-effect-free 拿不到真实 provider）；Node 执行环境必须经 `@earendil-works/pi-agent-core/node` 子入口。模型接入 = pi-ai + 显式 apiKeys（AD-13），弃 pi 的 SettingsManager/auth.json/models.json 体系；模型能力（provider 目录/refresh/OAuth）全部来自 pi-ai 内置，daemon 仅在 config.json 写一个 model 字符串。
+daemon 运行时依赖仅限 @earendil-works/pi-agent-core 与 @earendil-works/pi-ai 两包，零 pi-coding-agent import。工具集 = bash/edit/read/write 四个 core 内置工具 + 自写 grep（走 core 的 Tool 接口 + ExecutionEnv 抽象，封装边界留 adapters/driven/tools，日后可换）。pi 库 import 只允许出现在 adapters/driven/pi-engine 与 adapters/driven/tools（工具接线域：core Tool 接口/ExecutionEnv 封装的必然导入，AD-10 工具封装条款；守护测试 AG-04 同口径）。import 通道红线：真实 provider 必须经 `@earendil-works/pi-ai/providers/all` 子路径（主入口 side-effect-free 拿不到真实 provider）；Node 执行环境必须经 `@earendil-works/pi-agent-core/node` 子入口。模型接入 = pi-ai + 显式 apiKeys（AD-13），弃 pi 的 SettingsManager/auth.json/models.json 体系；模型能力（provider 目录/refresh/OAuth）全部来自 pi-ai 内置，daemon 仅在 config.json 写一个 model 字符串。
 
 ## 理由
 extension 身份是 v1 兼容成本根源，pi 降为库（AD-2）；F-7 实读证明 core 已自带四工具（「pi-coding-agent 当工具箱」前提被证伪，AD-10）；依赖最小化既定原则；主入口/子入口陷阱是 pi 源码实读结论（F-7）。
@@ -217,6 +265,14 @@ digest: 写前端组件、搬 desk 切片、加文案或主题时
 derivedFrom:
   - AD-12
   - AD-18
+anchors:
+  implementedBy:
+    - apps/shell/src/
+  testedBy:
+    - apps/shell/src/tests/ag-scans.test.ts
+relations:
+  governs:
+    - E-会话聚合
 updatedIn: iter-20260815-6tss
 ```
 
@@ -245,6 +301,15 @@ digest: 写 application service、评审编排逻辑时
 derivedFrom:
   - AD-17
   - AD-18
+anchors:
+  implementedBy:
+    - apps/daemon/src/application/services/ChatService.ts
+  testedBy:
+    - apps/daemon/test/unit/chat-service.test.ts
+relations:
+  governs:
+    - E-SteerQueue
+    - E-会话聚合
 updatedIn: iter-20260815-6tss
 ```
 
@@ -259,3 +324,185 @@ application/services/ 全部实现；service 代码评审检查项；daemon 日�
 
 ## 反例
 ws-server adapter 的 message handler 里就地编排「查会话→调引擎→写事件→推 WS」全流程（编排泄漏进 driving adapter），或 ChatService 只写一行 `// orchestrate the chat` 英文注释交差。
+
+```kg-node
+id: TR-AD-10
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: 壳是薄监督者，业务不回流壳
+status: active
+digest: 搬 Rust 资产进壳、写壳侧代码、接 Tauri 打包时
+derivedFrom:
+  - AD-4
+  - AD-5
+anchors:
+  implementedBy:
+    - apps/shell/src-tauri/
+    - apps/daemon/src/adapters/driving/ws-server/WsServerAdapter.ts
+relations:
+  governs:
+    - E-AgentRuntime
+updatedIn: iter-20260815-6tss
+```
+
+## 规则
+Tauri 壳只承载三类监督者职责：进程看护（sidecar spawn/重启）、窗口、trust（desk 现成 Rust 资产按此边界搬运）；壳与 daemon 的 stdio 只走生命周期信号（ready/token）。desk Rust 侧的 RPC 桥、SQLite、watcher、kg 查询等业务职责全部归 daemon（TS），禁止搬运回壳；壳需要任何业务数据一律经 WS 协议（127.0.0.1:port + token）向 daemon 查询。壳仅保留自身 bundle 资源定位（sidecar 二进制/前端静态产物），不解析业务路径（路径切面见 TR-AD-6）。
+
+## 理由
+AD-4（daemon 即后端，Rust 业务层消解）：常驻 TS 编排进程既定，Rust 业务耦合最重的部分已有了更好归宿；壳做业务 = Rust 业务回流 + dev 期（壳缺席，AD-8）功能双轨——同一功能打包形态有、开发形态无。v1 desk 的 Rust 10.8k LOC 桥接层是已验证的反面教材。
+
+## 适用范围
+M3 Tauri 壳搬运与 sidecar 打包链路；任何壳侧（src-tauri/）新增 Rust 代码的职责边界评审；壳与 daemon 通信面设计。
+
+## 反例
+搬 desk 的 Rust SQLite 查询代码进 src-tauri 供托盘「历史会话」菜单用——业务回流壳：dev 形态（无壳）下该功能不存在，双形态行为分叉；正确做法是经 WS session.subscribe 获取快照数据。
+
+```kg-node
+id: TR-AD-11
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: daemon 全局单例与幂等锁
+status: active
+digest: 写 daemon 生命周期、加进程入口、处理二启/多实例时
+derivedFrom:
+  - AD-7
+anchors:
+  implementedBy:
+    - apps/daemon/src/infrastructure/lifecycle.ts
+    - apps/daemon/src/infrastructure/container.ts
+  testedBy:
+    - apps/daemon/test/integration/singleton-process.test.ts
+    - apps/daemon/test/integration/singleton.test.ts
+relations:
+  governs:
+    - E-领域事件与单写队列
+updatedIn: iter-20260815-6tss
+```
+
+## 规则
+daemon 是全局单例进程（不是 per-workspace daemon）：同一 home（默认 ~/.helix，可 --home 覆盖）下二次启动必须被幂等单例锁拒绝（锁文件落 home 内，acquireSingletonLock fail-fast）；workspace 是 daemon 内部分组概念，禁止以多开 daemon 进程实现多 workspace。所有 daemon 启动路径共用 createDaemon 组合根（锁语义唯一实现点），新增入口不得绕过。
+
+## 理由
+AD-7（daemon 全局单例）：唯一事实源与 SubAgent 全局并发预算都要求单例；per-workspace daemon = N 个 helix.db、N 份 dev-token/端口，事实源分裂。锁经 home 定位使 --home 测试隔离天然获得独立锁域。
+
+## 适用范围
+infrastructure/lifecycle.ts 及任何生命周期改动；新增 daemon 启动入口/运行模式；M3 sidecar 看护重启逻辑（重启须先释放旧锁或检测陈旧锁）。
+
+## 反例
+为同时开发两个 workspace 起两个 daemon 进程各绑一个目录——两份 helix.db 与恢复语义分叉；正确做法是单 daemon + workspace 分组（协议 WorkspaceRoute 预留位）。
+
+```kg-node
+id: TR-AD-12
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: 双形态零迁移：前端永远连 127.0.0.1:port+token
+status: active
+digest: 接壳 WebView、配打包部署、写前端连接配置时
+derivedFrom:
+  - AD-8
+  - AD-9
+anchors:
+  implementedBy:
+    - apps/shell/src/shared/api/helix-ws.ts
+    - apps/daemon/src/adapters/driving/ws-server/WsServerAdapter.ts
+  testedBy:
+    - e2e/CL-6-CL-7-dual-base.spec.ts
+relations:
+  governs:
+    - E-会话聚合
+updatedIn: iter-20260815-6tss
+```
+
+## 规则
+前端（浏览器 dev 形态与 Tauri WebView 打包形态同构）连的永远是 daemon 的 WS 端点 127.0.0.1:port + token，容器形态对 daemon 不可见。禁止为任一形态开设特化通道：不得用 Tauri invoke 直调 daemon、不得在壳内嵌 HTTP 直连绕过 WS 协议、不得按形态分支连接逻辑。协议面（packages/protocol）是两种形态的唯一契约；dev token 经 daemon 端点 GET /helix-dev-token（loopback Origin 反射 ACAO）获取，两种形态同一通路。
+
+## 理由
+AD-8（monorepo 单仓，开发/打包双形态零迁移）：连接方式完全一致是零迁移的结构保证；任何形态特化通道都会造成 dev/打包行为分叉，且打破 AD-16 前端纯投影（WS 事件流是唯一领域状态入口）。双基线行为指纹一致（TP-CL6-7 E2E）是该约束的验收形态。
+
+## 适用范围
+M3 Tauri 壳 WebView 接线与 externalBin/sidecar 配置；apps/shell shared/api 连接配置；打包链路（bun build --compile / vite build）评审。
+
+## 反例
+打包形态下为「省一层 WS」让前端经 Tauri invoke 直调 daemon 内部函数——dev 形态无此通道，双基线守护（TP-CL6-7）的行为指纹即刻分叉，且绕过了协议版本握手。
+
+
+```kg-node
+id: TR-AD-13
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: 单写通道模式（进程内唯一写点）
+status: active
+digest: 写任何落盘通道、加持久化写路径、做产物文件写入时
+derivedFrom:
+  - AD-5
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/sqlite-session/WriteQueue.ts
+  testedBy:
+    - apps/daemon/test/integration/sqlite-persistence.test.ts
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
+relations:
+  governs:
+    - E-领域事件与单写队列
+updatedIn: iter-20260815-6tss
+```
+
+## 规则
+进程内任何「唯一写点」场景（领域事件落盘、未来的产物文件写入通道）一律复用 WriteQueue 单写通道模式：FIFO promise 链串行化保证顺序；onError 不中断链（单条失败可观测、队列存活继续消费）；close = drain 排空 + 关闭且幂等。禁止在队列之外直写 SQLite/文件（写路径唯一由守护测试 AG-06 扫描固化）。新写点接入 = 往同一队列追加 handler，不开第二条队列。
+
+## 理由
+T1.8 实证模式：事件顺序即事实源顺序（TR-AD-5 恢复语义的前提）；多写点必然产生交错与半写状态；FIFO promise 链 + 不断链 + 幂等 close 三件套是崩溃一致性的最小实现（无外部依赖）。
+
+## 适用范围
+apps/daemon 任何新增持久化/文件写入路径；WriteQueue 自身维护；M2+ 产物文件写入通道设计。
+
+## 反例
+service 为省一次排队直接 db.insert 写 domain_events——绕过队列后守护测试 AG-06 红，且崩溃时事件交错顺序不可重建。
+
+```kg-node
+id: TR-AD-14
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: RowMapper 充血↔贫血转换模板
+status: active
+digest: 加行模型映射、写持久化 DTO 转换、引入 pi-session-backend 时
+derivedFrom:
+  - AD-5
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/sqlite-session/rows/RowMapper.ts
+  testedBy:
+    - apps/daemon/test/unit/session-mapper-roundtrip.test.ts
+    - apps/daemon/test/integration/sqlite-persistence.test.ts
+relations:
+  governs:
+    - E-会话聚合
+updatedIn: iter-20260815-6tss
+```
+
+## 规则
+domain 聚合（充血）与 SQLite 行模型（贫血）之间的转换一律经 RowMapper 模板（sqlite-session/rows/RowMapper.ts 为范本）：toRow(domain)→行模型（JSON 字段显式序列化、时间戳统一口径）；fromRow(row)→domain（默认值兜底 + 前向兼容）；行模型不外泄出 driven adapter（domain 层零感知存储形态，TR-AD-3 模型隔离）。往返一致性必须有专项单测（session-mapper-roundtrip 同构）。未来引入 pi-session-backend 时按此模板复制 RowMapper，不共用行模型。
+
+## 理由
+T1.8 实证模式：聚合演进不改 schema 面即可控；转换集中一处可被 roundtrip 单测机械守护；TR-AD-3 转换归属 adapter 在持久化切面的具体化。
+
+## 适用范围
+新增/修改任何 SQLite 表与行模型；pi-session-backend 若引入时；持久化 schema 演进评审。
+
+## 反例
+service 读出行后手工 new Session(...) 散落三处——schema 加一列要改三个调用点，且漏改处静默用默认值。

@@ -7,6 +7,12 @@ stack: backend
 name: AgentRuntime
 status: active
 digest: 写 agent 装配、动驱动循环、排查 agent 生命周期时
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/AgentRuntime.ts
+  testedBy:
+    - apps/daemon/test/integration/test-profile.test.ts
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
 updatedIn: iter-20260815-6tss
 ```
 
@@ -31,6 +37,12 @@ stack: backend
 name: AgentProfile
 status: active
 digest: 加 agent 类型、配系统提示或工具集、定生命周期时
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/AgentProfile.ts
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile.ts
+  testedBy:
+    - apps/daemon/test/integration/test-profile.test.ts
 updatedIn: iter-20260815-6tss
 ```
 
@@ -55,6 +67,11 @@ stack: backend
 name: HookSet
 status: active
 digest: 扩编排能力、写钩子处理器、调作用域时
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/HookSet.ts
+  testedBy:
+    - apps/daemon/test/integration/test-profile.test.ts
 updatedIn: iter-20260815-6tss
 ```
 
@@ -79,6 +96,13 @@ stack: backend
 name: 会话聚合
 status: active
 digest: 动会话数据、加轮次或工具调用记录、写恢复时
+anchors:
+  implementedBy:
+    - apps/daemon/src/domain/session/Session.ts
+    - apps/daemon/src/domain/tools/ToolCallRecord.ts
+  testedBy:
+    - apps/daemon/test/unit/domain-session.test.ts
+    - apps/daemon/test/integration/restore-restart.test.ts
 updatedIn: iter-20260815-6tss
 ```
 
@@ -103,6 +127,12 @@ stack: backend
 name: 领域事件与单写队列
 status: active
 digest: 加领域事件、动单写队列、扩订阅扇出时
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/sqlite-session/WriteQueue.ts
+    - apps/daemon/src/domain/events/DomainEvent.ts
+  testedBy:
+    - apps/daemon/test/integration/sqlite-persistence.test.ts
 updatedIn: iter-20260815-6tss
 ```
 
@@ -127,6 +157,12 @@ stack: backend
 name: SteerQueue
 status: active
 digest: 写 steer 打断、turn 间消息注入、并发语义时
+anchors:
+  implementedBy:
+    - apps/daemon/src/domain/agent/SteerQueue.ts
+  testedBy:
+    - apps/daemon/test/unit/domain-agent.test.ts
+    - apps/daemon/test/unit/chat-service.test.ts
 updatedIn: iter-20260815-6tss
 ```
 
