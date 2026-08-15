@@ -14,6 +14,9 @@ const HOST = "127.0.0.1";
 
 export default defineConfig({
   testDir: "./e2e",
+  // E 层套件（真 daemon + FakeLLM）归 playwright.e2e.config.ts 专属入口
+  // （需 VITE_HELIX_PORT=5333 的 vite 与 daemon fixture），默认入口只跑 F 层。
+  testIgnore: /(CL-7-e2e-.*|CL-6-CL-7-dual-base.*|CL-7-CL-8-restart-recovery.*)\.spec\.ts/,
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: true,
