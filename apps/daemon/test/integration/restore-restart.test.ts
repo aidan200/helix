@@ -59,9 +59,15 @@ describe("TP-CL8-6 优雅变体：SIGTERM 语义停机 → 重启恢复一致", 
         cliOutput: new PassThrough(),
       });
       await d1.chat.sendMessage("跑个工具");
-      const snapBefore = structuredClone(d1.session.getSnapshot());
-      expect(snapBefore.entries.map((e) => e.role)).toEqual(["user", "assistant"]);
-      expect(snapBefore.turns[0]!.status).toBe("completed");
+      const viewBefore = structuredClone(d1.session.getSnapshot());
+      expect(viewBefore.session.entries.map((e) => e.role)).toEqual(["user", "assistant"]);
+      expect(viewBefore.session.turns[0]!.status).toBe("completed");
+      // D-1 修复（原固化缺口断言改写为固化正确行为）：含工具轮对话后
+      // 快照视图携带工具调用记录（工具卡随快照恢复，契约 §6）
+      expect(viewBefore.toolCalls).toHaveLength(1);
+      expect(viewBefore.toolCalls[0]!.toolName).toBe("bash");
+      expect(viewBefore.toolCalls[0]!.status).toBe("completed");
+      expect(viewBefore.toolCalls[0]!.result).toBe("hi");
       expect(d1.system.getStatus().agentState).toBe("idle");
 
       await d1.shutdown(); // 优雅退出：drain 单写队列
@@ -76,16 +82,17 @@ describe("TP-CL8-6 优雅变体：SIGTERM 语义停机 → 重启恢复一致", 
         cliInput: new PassThrough(),
         cliOutput: new PassThrough(),
       });
-      expect(d2.session.getSnapshot()).toEqual(snapBefore); // 快照与停前一致
-      expect(d2.system.getStatus().sessionId).toBe(snapBefore.sessionId); // 同一会话延续
+      expect(d2.session.getSnapshot()).toEqual(viewBefore); // 快照（聚合+工具记录）与停前一致
+      expect(d2.system.getStatus().sessionId).toBe(viewBefore.session.sessionId); // 同一会话延续
 
       // TP-CL8-7：恢复的是活会话——续发消息正常流式回复
       const outcome = await d2.chat.sendMessage("重启后继续问");
       expect(outcome.mode).toBe("turn");
       const snapAfter = d2.session.getSnapshot();
-      expect(snapAfter.entries.length).toBe(snapBefore.entries.length + 2);
-      expect(snapAfter.entries.at(-1)!.text).toBe("重启后的新回复。");
-      expect(snapAfter.turns.every((t) => t.status === "completed")).toBe(true);
+      expect(snapAfter.session.entries.length).toBe(viewBefore.session.entries.length + 2);
+      expect(snapAfter.session.entries.at(-1)!.text).toBe("重启后的新回复。");
+      expect(snapAfter.session.turns.every((t) => t.status === "completed")).toBe(true);
+      expect(snapAfter.toolCalls).toHaveLength(1); // 工具记录随恢复延续
       await d2.shutdown();
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -115,7 +122,10 @@ describe("TP-CL8-6 强杀变体：kill -9 → 恢复到最后一致里程碑", (
         ["user", "流式中注入的一条消息"],
       ]);
       expect(crashed!.session.turns[0]!.status).toBe("generating"); // run 未收尾
-      expect(crashed!.session.pendingSteer).toEqual([{ entryId: "e2", text: "流式中注入的一条消息" }]); // 未消费 steer 已落盘
+      expect(crashed!.session.pendingSteer).toHaveLength(1); // 未消费 steer 已落盘
+      expect(crashed!.session.pendingSteer[0]!.text).toBe("流式中注入的一条消息");
+      // D-2 后 entry 序号含流式预分配（id 序列相关），断言形状不固化序号
+      expect(crashed!.session.pendingSteer[0]!.entryId).toMatch(/^e\d+$/);
       expect(crashed!.agentState).toBe("steering"); // 生命周期最后状态
       await readQueue.close();
 
@@ -131,16 +141,17 @@ describe("TP-CL8-6 强杀变体：kill -9 → 恢复到最后一致里程碑", (
       });
       const snap = daemon.session.getSnapshot();
       // 恢复语义：已完成条目保留；未完成 turn 收口 interrupted（半截流式按语义丢弃）
-      expect(snap.sessionId).toBe(crashed!.session.sessionId);
-      expect(snap.entries.map((e) => e.role)).toEqual(["user", "user"]); // 无半截 assistant
-      expect(snap.turns[0]!.status).toBe("interrupted");
-      expect(snap.pendingSteer).toEqual([{ entryId: "e2", text: "流式中注入的一条消息" }]); // steer 队列随会话保留
+      expect(snap.session.sessionId).toBe(crashed!.session.sessionId);
+      expect(snap.session.entries.map((e) => e.role)).toEqual(["user", "user"]); // 无半截 assistant
+      expect(snap.session.turns[0]!.status).toBe("interrupted");
+      expect(snap.session.pendingSteer).toEqual(crashed!.session.pendingSteer); // steer 队列随会话保留
       expect(daemon.system.getStatus().agentState).toBe("idle"); // 重启后无 run 在飞
+      expect(snap.toolCalls).toEqual([]); // 本现场无工具轮：工具记录面为空
 
       // 活会话：收口后的会话可继续对话（open turn 已收口不阻塞新输入）
       const outcome = await daemon.chat.sendMessage("强杀重启后的新问题");
       expect(outcome.mode).toBe("turn");
-      expect(daemon.session.getSnapshot().entries.at(-1)!.text).toBe("强杀重启后的回复。");
+      expect(daemon.session.getSnapshot().session.entries.at(-1)!.text).toBe("强杀重启后的回复。");
       await daemon.shutdown();
     } finally {
       rmSync(home, { recursive: true, force: true });

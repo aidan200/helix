@@ -65,11 +65,24 @@ export class ChatService implements ChatPort {
   private readonly toolCalls = new Map<string, ToolCallRecord>();
   /** 当前 run 的引擎事件监听器（start 时传入，run 内复用）。 */
   private listener: ((e: AgentEngineEvent) => void) | null = null;
+  /** 流式期间预分配的 assistant entry id（D-2：delta.messageId 对齐最终 entry id）。 */
+  private streamEntryId: string | null = null;
 
   constructor(private readonly deps: ChatServiceDeps) {
     this.session = deps.session ?? Session.create();
     for (const data of deps.restoredToolCalls ?? []) {
-      this.toolCalls.set(data.id, ToolCallRecord.restore(data));
+      const record = ToolCallRecord.restore(data);
+      // D-1 恢复收口：非终态（pending/running）记录重启后不可能继续跑，
+      // 收口 failed（前端不再渲染永不完结的 spinner 卡；与 open turn 收口
+      // interrupted 同构：恢复到最后一致里程碑）。pending 先经 markRunning
+      // 保持迁移合法性，running 直接 fail。
+      if (data.status === "pending") {
+        record.markRunning();
+        record.fail("daemon 重启，工具调用未完成（恢复时收口）");
+      } else if (data.status === "running") {
+        record.fail("daemon 重启，工具调用未完成（恢复时收口）");
+      }
+      this.toolCalls.set(data.id, record);
     }
   }
 
@@ -95,6 +108,10 @@ export class ChatService implements ChatPort {
       agentState: this.lifecycle.current,
       toolCalls: [...this.toolCalls.values()].map((r) => r.toData()),
     };
+  }
+  /** 工具调用记录只读观测面（D-1：SessionService 快照取数经组合根接线）。 */
+  get toolCallData(): readonly ToolCallRecordData[] {
+    return [...this.toolCalls.values()].map((r) => r.toData());
   }
 
   // ── ChatPort 实现 ────────────────────────────────────────
@@ -182,15 +199,22 @@ export class ChatService implements ChatPort {
 
   private onEngineEvent(e: AgentEngineEvent): void {
     switch (e.type) {
-      // 流式增量：直达事件流（中间态，不落盘、不改聚合）
+      // 流式增量：直达事件流（中间态，不落盘、不改聚合）。messageId 用
+      // message_start 时预分配的最终 assistant entry id（D-2：与契约 §5
+      // 字段语义对齐；fallback 仅防御，正常路径必有预留）
       case "message_update":
-        this.deps.events.publishDelta({ messageId: this.currentTurnId(), delta: e.delta });
+        this.deps.events.publishDelta({ messageId: this.streamEntryId ?? this.currentTurnId(), delta: e.delta });
         break;
 
       // turn 边界的 steer drain（§5.3：turn_end 后、turn_start 前）：
       // 引擎把注入消息作为新 turn 首条 user 消息回放——此处收口旧 Turn
       //（reason=steerDrained）并以注入消息开新 Turn，同时 domain 队列出账。
       case "message_start":
+        if (e.role === "assistant") {
+          // D-2：assistant 流开始即预分配最终 entry id（放弃不回收——工具轮
+          // 空消息的预留自然作废，计数器空洞无害）
+          this.streamEntryId = this.session.reserveEntryId();
+        }
         if (e.role === "user" && e.source === "steer-drain") {
           this.finishOpenTurn("steerDrained");
           const item = this.session.dequeueSteer();
@@ -208,9 +232,12 @@ export class ChatService implements ChatPort {
       // 消息完成：assistant 回复落聚合 + 广播（abort 的 stop=error 空消息不落——
       // 空文本不是语义单元；user/toolResult 消息已在注入/工具事件中落账，不重复）
       case "message_end":
-        if (e.role === "assistant" && e.text.trim() !== "") {
-          const entry = this.session.appendAssistantEntry(e.text, this.now());
-          this.publishMessageCompleted(entry.id, "assistant", e.text, false);
+        if (e.role === "assistant") {
+          if (e.text.trim() !== "") {
+            const entry = this.session.appendAssistantEntry(e.text, this.now(), this.streamEntryId ?? undefined);
+            this.publishMessageCompleted(entry.id, "assistant", e.text, false);
+          }
+          this.streamEntryId = null; // 预留消耗完毕（空文本/abort 轮同样清空）
         }
         break;
 

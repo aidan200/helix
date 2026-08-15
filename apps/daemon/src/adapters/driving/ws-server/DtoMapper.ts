@@ -10,6 +10,7 @@ import type {
   ChatTurnCompletedEvent,
   ChatMessageCompletedEvent,
   EventEnvelope,
+  EntryDto,
   MessageEntryDto,
   SessionSnapshotDto,
   ToolCallEntryDto,
@@ -17,8 +18,9 @@ import type {
   ToolCallStartedEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
-import type { SessionSnapshot } from "../../../domain/session/SessionSnapshot";
+import type { SessionStateView } from "../../../application/ports/inbound/SessionPort";
 import type { EntryData } from "../../../domain/session/Entry";
+import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 import type {
   AgentStateChangedPayload,
   DomainEvent,
@@ -40,22 +42,30 @@ export interface EventMapContext {
 // ── 快照 ────────────────────────────────────────────────────
 
 /**
- * SessionSnapshot（domain）→ SessionSnapshotDto（协议）。
- * revision 取 entries.length（v0 无逐事件序号，以落盘条目数为增量基线，
- * 单调且可复算）；model/agentState 来自组合根注入的 system 状态（domain 快照不含）。
+ * SessionStateView（domain）→ SessionSnapshotDto（协议）。
+ * D-1：消息条目与工具调用记录按 ts 时间序合并（重连/重启后工具卡随快照
+ * 恢复，契约 §6）；revision 取合并后总条数（v0 无逐事件序号，以条目数为
+ * 增量基线，单调且可复算）；model/agentState 来自组合根注入的 system 状态
+ * （domain 快照不含）。
  */
 export function toSnapshotDto(
-  snapshot: SessionSnapshot,
+  view: SessionStateView,
   model: string,
   agentState: AgentStateDto,
 ): SessionSnapshotDto {
+  const snapshot = view.session;
   const queuedSteer = new Set(snapshot.pendingSteer.map((item) => item.entryId));
+  // 升序稳定排序：时间并列保持组内原序（entries 原序 / toolCalls 迭代序）
+  const entries: EntryDto[] = [
+    ...snapshot.entries.flatMap((entry) => messageEntryDto(entry, queuedSteer)),
+    ...view.toolCalls.map((record) => toolCallEntryDto(record)),
+  ].sort((a, b) => a.ts - b.ts);
   return {
     sessionId: snapshot.sessionId,
     model,
     agentState,
-    revision: snapshot.entries.length,
-    entries: snapshot.entries.flatMap((entry) => messageEntryDto(entry, queuedSteer)),
+    revision: entries.length,
+    entries,
   };
 }
 
@@ -73,6 +83,35 @@ function messageEntryDto(entry: EntryData, queuedSteer: Set<string>): MessageEnt
     dto.steerState = queuedSteer.has(entry.id) ? "queued" : "drained";
   }
   return [dto];
+}
+
+/** 单条 ToolCallRecordData → ToolCallEntryDto（D-1：快照侧工具条目）。
+ *  三态映射与事件侧（tool.call.started/result）口径一致；result 恒发、
+ *  isError 区分——completed→result、failed→error 文案（无 error 回退
+ *  result）、running 无；durationMs 仅起止齐备时携带。 */
+function toolCallEntryDto(record: ToolCallRecordData): ToolCallEntryDto {
+  const dto: ToolCallEntryDto = {
+    kind: "tool-call",
+    id: record.id,
+    name: record.toolName,
+    args: safeJson(record.args),
+    state: record.status === "completed" ? "done" : record.status === "failed" ? "error" : "running",
+    ts: record.startedAt !== undefined
+      ? Date.parse(record.startedAt)
+      : record.endedAt !== undefined
+        ? Date.parse(record.endedAt)
+        : 0,
+  };
+  if (record.status === "completed") {
+    if (record.result !== undefined) dto.result = record.result;
+  } else if (record.status === "failed") {
+    const result = record.error ?? record.result;
+    if (result !== undefined) dto.result = result;
+  }
+  if (record.startedAt !== undefined && record.endedAt !== undefined) {
+    dto.durationMs = Math.max(0, Date.parse(record.endedAt) - Date.parse(record.startedAt));
+  }
+  return dto;
 }
 
 // ── 领域事件 → 协议事件帧 ─────────────────────────────────────

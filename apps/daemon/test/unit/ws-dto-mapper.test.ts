@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionSnapshot } from "../../src/domain/session/SessionSnapshot";
+import type { SessionStateView } from "../../src/application/ports/inbound/SessionPort";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { toSnapshotDto, domainEventToEnvelope } from "../../src/adapters/driving/ws-server/DtoMapper";
 
 /**
  * DtoMapper 单测（AD-17.5：domain 充血 → protocol DTO 贫血，转换在 adapter）。
  * ① 快照映射：steerState（pendingSteer → queued，isSteer 已出队 → drained）、
- *    ts 线格式 number（epoch ms）、revision = entries.length；
+ *    ts 线格式 number（epoch ms）、revision = 合并后总条数；
+ * ①-b D-1：SessionStateView（会话聚合 + 工具调用记录）合并映射；
  * ② 领域事件 → 协议事件映射：reason 词汇表（done/steerDrained → completed、
  *    turn.interrupted → aborted）、engine.error 无协议对应 → null（v0 边界）。
  */
@@ -27,9 +29,13 @@ function snap(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
   };
 }
 
+function view(overrides: Partial<SessionSnapshot> = {}, toolCalls: SessionStateView["toolCalls"] = []): SessionStateView {
+  return { session: snap(overrides), toolCalls };
+}
+
 describe("① 快照 → SessionSnapshotDto", () => {
   test("steerState 两态 + ts 为 epoch 毫秒 + revision 基线", () => {
-    const dto = toSnapshotDto(snap(), "anthropic/test-model", "running");
+    const dto = toSnapshotDto(view(), "anthropic/test-model", "running");
     expect(dto.sessionId).toBe("s-1");
     expect(dto.model).toBe("anthropic/test-model");
     expect(dto.agentState).toBe("running");
@@ -47,12 +53,92 @@ describe("① 快照 → SessionSnapshotDto", () => {
 
   test("首连空会话：entries 为空数组", () => {
     const dto = toSnapshotDto(
-      snap({ entries: [], pendingSteer: [] }),
+      view({ entries: [], pendingSteer: [] }),
       "",
       "idle",
     );
     expect(dto.entries).toEqual([]);
     expect(dto.revision).toBe(0);
+  });
+});
+
+describe("①-b D-1：快照合并工具调用记录（SessionStateView → 时间序 entries）", () => {
+  test("工具条目按 ts 插入正确位置（user→tool→assistant）+ revision = 合并总数 + durationMs", () => {
+    const dto = toSnapshotDto(
+      view(
+        {
+          entries: [
+            { id: "e1", role: "user", text: "跑个命令", turnId: null, isSteer: false, createdAt: "2026-08-15T00:00:01.000Z" },
+            { id: "e2", role: "assistant", text: "结果如下。", turnId: "t1", isSteer: false, createdAt: "2026-08-15T00:00:03.000Z" },
+          ],
+        },
+        [
+          {
+            id: "tc-1",
+            toolName: "bash",
+            args: { command: "echo hi" },
+            status: "completed",
+            result: "hi",
+            startedAt: "2026-08-15T00:00:02.000Z",
+            endedAt: "2026-08-15T00:00:02.500Z",
+          },
+        ],
+      ),
+      "m",
+      "idle",
+    );
+    expect(dto.entries.map((e) => `${e.kind}:${e.id}`)).toEqual(["message:e1", "tool-call:tc-1", "message:e2"]);
+    expect(dto.revision).toBe(3); // 合并后总条数（原为消息数 2）
+    expect(dto.entries[1]).toMatchObject({
+      kind: "tool-call",
+      id: "tc-1",
+      name: "bash",
+      args: '{"command":"echo hi"}',
+      state: "done",
+      result: "hi",
+      durationMs: 500,
+      ts: Date.parse("2026-08-15T00:00:02.000Z"),
+    });
+  });
+
+  test("三态映射：failed→error+result=error 文案；running→running 无 result/durationMs", () => {
+    const dto = toSnapshotDto(
+      view(
+        { entries: [] },
+        [
+          { id: "tc-f", toolName: "bash", args: {}, status: "failed", error: "exit 1", startedAt: "2026-08-15T00:00:01.000Z", endedAt: "2026-08-15T00:00:01.200Z" },
+          { id: "tc-r", toolName: "grep", args: {}, status: "running", startedAt: "2026-08-15T00:00:02.000Z" },
+        ],
+      ),
+      "m",
+      "running",
+    );
+    const failed = dto.entries[0] as Extract<(typeof dto.entries)[number], { state: string }>;
+    const running = dto.entries[1] as Extract<(typeof dto.entries)[number], { state: string }>;
+    expect(failed).toMatchObject({ kind: "tool-call", id: "tc-f", state: "error", result: "exit 1", durationMs: 200 });
+    expect(running).toMatchObject({ kind: "tool-call", id: "tc-r", state: "running", ts: Date.parse("2026-08-15T00:00:02.000Z") });
+    expect(running).not.toHaveProperty("result");
+    expect(running).not.toHaveProperty("durationMs");
+  });
+
+  test("failed 且无 error 时回退 result 字段；ts 并列时消息在前、工具间保持迭代序（稳定排序）", () => {
+    const dto = toSnapshotDto(
+      view(
+        {
+          entries: [
+            { id: "e1", role: "user", text: "q", turnId: null, isSteer: false, createdAt: "2026-08-15T00:00:01.000Z" },
+          ],
+        },
+        [
+          { id: "tc-a", toolName: "x", args: {}, status: "failed", result: "仅 result 字段的失败", startedAt: "2026-08-15T00:00:01.000Z", endedAt: "2026-08-15T00:00:01.100Z" },
+          { id: "tc-b", toolName: "y", args: {}, status: "running", startedAt: "2026-08-15T00:00:01.000Z" },
+        ],
+      ),
+      "m",
+      "idle",
+    );
+    expect(dto.entries.map((e) => e.id)).toEqual(["e1", "tc-a", "tc-b"]);
+    expect(dto.entries[1]).toMatchObject({ state: "error", result: "仅 result 字段的失败" });
   });
 });
 

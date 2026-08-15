@@ -47,3 +47,38 @@ describe("TP-CL8-4：SessionMapper 往返 roundtrip", () => {
     expect(textOfMessage(toolResult)).toBe("工具输出文本");
   });
 });
+
+describe("TS3-a：textOfContent 的 toolCall 块贡献空串", () => {
+  test("纯 text 块拼接；string 内容直通", () => {
+    expect(textOfContent([{ type: "text", text: "甲" }, { type: "text", text: "乙" }])).toBe("甲乙");
+    expect(textOfContent("直接字符串")).toBe("直接字符串");
+  });
+
+  test("toolCall-only → 空串（占位文本不产生，经空文本守卫不落 Entry）", () => {
+    expect(textOfContent([{ type: "toolCall", name: "bash" }])).toBe("");
+    expect(
+      textOfMessage({
+        role: "assistant",
+        content: [
+          { type: "toolCall", name: "grep", arguments: { q: "x" } },
+          { type: "toolCall", name: "bash" },
+        ],
+      } as unknown as AgentMessage),
+    ).toBe("");
+  });
+
+  test("text+toolCall 混合 → 仅 text", () => {
+    expect(
+      textOfContent([
+        { type: "text", text: "先说结论。" },
+        { type: "toolCall", name: "grep" },
+        { type: "text", text: "补充。" },
+      ]),
+    ).toBe("先说结论。补充。");
+  });
+
+  test("其余非 text 块类型的 [type] 占位行为保持不变", () => {
+    expect(textOfContent([{ type: "thinking" }])).toBe("[thinking]");
+    expect(textOfContent([{}])).toBe("[unknown]");
+  });
+});

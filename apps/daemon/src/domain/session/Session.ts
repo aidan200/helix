@@ -35,6 +35,15 @@ export class Session {
 
   // ── Entry 追加 ──────────────────────────────────────────────
 
+  /**
+   * 预分配 entry id（D-2：assistant 流开始即确定最终 entry id，使
+   * delta.messageId 与最终 entry id 对齐）。放弃不回收——只保证唯一性，
+   * 计数器空洞无害（restoreFrom 按 max 重建）。
+   */
+  reserveEntryId(): string {
+    return `e${this.nextEntrySeq++}`;
+  }
+
   /** 追加一条用户消息（仅无 open turn 时合法；运行中注入请用 applySteer）。 */
   appendUserEntry(text: string, at?: string): Entry {
     if (this.currentTurn !== null) {
@@ -45,10 +54,14 @@ export class Session {
     return this.pushEntry("user", text, null, false, at);
   }
 
-  /** 追加一条 assistant 消息（要求 open turn——回复总属于某个轮次）。 */
-  appendAssistantEntry(text: string, at?: string): Entry {
+  /**
+   * 追加一条 assistant 消息（要求 open turn——回复总属于某个轮次）。
+   * reservedId：流式期间经 reserveEntryId() 预分配的最终 entry id
+   * （D-2：与 delta.messageId 同源；正常路径必传，缺省时由聚合分配）。
+   */
+  appendAssistantEntry(text: string, at?: string, reservedId?: string): Entry {
     const turn = this.requireOpenTurn("appendAssistantEntry");
-    return this.pushEntry("assistant", text, turn.id, false, at);
+    return this.pushEntry("assistant", text, turn.id, false, at, reservedId);
   }
 
   /** 运行中注入 steer：落 isSteer entry + 入 SteerQueue（drain 前 domain 可观测）。 */
@@ -68,9 +81,10 @@ export class Session {
     turnId: string | null,
     isSteer: boolean,
     at?: string,
+    reservedId?: string,
   ): Entry {
     const entry = Entry.create({
-      id: `e${this.nextEntrySeq++}`,
+      id: reservedId ?? `e${this.nextEntrySeq++}`,
       role,
       text,
       turnId,

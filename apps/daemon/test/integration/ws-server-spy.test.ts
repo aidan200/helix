@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ChatPort, SendOutcome } from "../../src/application/ports/inbound/ChatPort";
-import type { SessionPort, SessionStreamEvent } from "../../src/application/ports/inbound/SessionPort";
+import type { SessionPort, SessionStateView, SessionStreamEvent } from "../../src/application/ports/inbound/SessionPort";
 import type { SystemPort } from "../../src/application/ports/inbound/SystemPort";
-import type { SessionSnapshot } from "../../src/domain/session/SessionSnapshot";
 import { WsServerAdapter } from "../../src/adapters/driving/ws-server/WsServerAdapter";
 import { EventStream } from "../../src/adapters/driving/ws-server/EventStream";
 import type { EventEnvelope } from "@helix/protocol";
@@ -14,15 +13,18 @@ import type { EventEnvelope } from "@helix/protocol";
  * （A 半：import 白名单扫描见 arch-guard.test.ts AG-12/AG-13。）
  */
 
-function fakeSnapshot(): SessionSnapshot {
+function fakeView(): SessionStateView {
   return {
-    sessionId: "spy-s1",
-    createdAt: "2026-08-15T00:00:00.000Z",
-    entries: [
-      { id: "e1", role: "user", text: "历史消息", turnId: null, isSteer: false, createdAt: "2026-08-15T00:00:01.000Z" },
-    ],
-    turns: [],
-    pendingSteer: [],
+    session: {
+      sessionId: "spy-s1",
+      createdAt: "2026-08-15T00:00:00.000Z",
+      entries: [
+        { id: "e1", role: "user", text: "历史消息", turnId: null, isSteer: false, createdAt: "2026-08-15T00:00:01.000Z" },
+      ],
+      turns: [],
+      pendingSteer: [],
+    },
+    toolCalls: [],
   };
 }
 
@@ -46,7 +48,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
     const session: SessionPort = {
       getSnapshot: () => {
         snapshotCalls++;
-        return fakeSnapshot();
+        return fakeView();
       },
       subscribe: (_l: (e: SessionStreamEvent) => void) => () => {},
     };

@@ -385,6 +385,52 @@ describe("TP-CL6-6：static-serve 前端产物", () => {
   });
 });
 
+describe("D-1：快照含工具调用条目（tool-call 变体，重连/重启恢复语义）", () => {
+  test("含工具轮对话后新客户端握手 → snapshot.entries 含 kind=tool-call（state done、含 result）", async () => {
+    const rig = await makeRig({
+      replies: [
+        {
+          toolCalls: [{ toolName: "bash", args: { command: "echo hi" }, result: "hi" }],
+          text: "工具已执行。",
+        },
+      ],
+    });
+    const warmup = new TestClient(rig.url);
+    try {
+      await warmup.open();
+      warmup.send({ v: 0, type: "hello", payload: { token: rig.token, protocolVersion: 0 } });
+      await warmup.expect("session.snapshot");
+      warmup.send({ v: 0, type: "chat.send", payload: { text: "跑个工具" } });
+      await until(
+        () => warmup.frames.some((f) => f.type === "agent.state.changed" && (f.payload as { state: string }).state === "idle"),
+        5000,
+        "等待工具轮结束回 idle",
+      );
+
+      // 新客户端（重连语义）：握手后的快照应含工具条目（原缺口：entries 只有 user/assistant 消息）
+      const reconnect = new TestClient(rig.url);
+      await reconnect.open();
+      reconnect.send({ v: 0, type: "hello", payload: { token: rig.token, protocolVersion: 0 } });
+      await reconnect.expect("connection.welcome");
+      const snap = await reconnect.expect("session.snapshot");
+      const entries = (
+        snap.payload.snapshot as {
+          entries: { kind: string; id: string; name?: string; state?: string; result?: string; role?: string }[];
+        }
+      ).entries;
+      expect(entries.map((e) => e.kind)).toEqual(["message", "tool-call", "message"]);
+      expect(entries[0]).toMatchObject({ role: "user", content: "跑个工具" });
+      expect(entries[1]).toMatchObject({ kind: "tool-call", name: "bash", state: "done", result: "hi" });
+      expect(typeof entries[1]!.id).toBe("string");
+      expect(entries[2]).toMatchObject({ role: "assistant", content: "工具已执行。" });
+      await reconnect.close();
+    } finally {
+      await warmup.close();
+      await rig.dispose();
+    }
+  }, 15000);
+});
+
 describe("session.subscribe / unsubscribe（v0 保通路语义）", () => {
   test("subscribe 重推 session.snapshot；unsubscribe 后停止事件推送", async () => {
     const rig = await makeRig({ replies: [{ text: "回复甲" }] });

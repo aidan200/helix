@@ -40,9 +40,10 @@ describe("createDaemon 组合根装配", () => {
       expect(received.some((e) => "type" in e && e.type === "message.completed")).toBe(true);
       expect(received.some((e) => "delta" in e)).toBe(true);
 
-      // 快照面（SessionPort）
+      // 快照面（SessionPort；D-1：会话聚合 + 工具记录双面）
       const snap = daemon.session.getSnapshot();
-      expect(snap.entries.map((e) => e.role)).toEqual(["user", "assistant"]);
+      expect(snap.session.entries.map((e) => e.role)).toEqual(["user", "assistant"]);
+      expect(snap.toolCalls).toEqual([]); // 无工具轮：工具记录面为空
 
       // 状态面（SystemPort）
       const status = daemon.system.getStatus();

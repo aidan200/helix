@@ -76,6 +76,7 @@ export interface Envelope<T = unknown> {
 - 联合类型 `CommandEnvelope`；目录常量 `COMMAND_TYPES`（与联合一致性由测试守护）。
 - 握手期专用 `hello`（`HelloCommand` / `HelloPayload`）**不在命令目录内**，见 §2。
 - **命令错误回执**：未知 type → `connection.error { code:"command.unknown" }`；payload 不符 → `connection.error { code:"command.invalid_payload" }`；两者均**不关闭连接**。
+- **daemon 实现超集注记（D-4）**：`session.subscribe` 的 daemon 实现会在订阅恢复时**重推全量 `session.snapshot`**（快照恢复公式，AD-16）；`session.unsubscribe` 只关流不回推。行为严于「仅保通路」，属良性扩展。
 
 ## 5. 事件目录（S→C，12 个）
 
@@ -150,6 +151,10 @@ export interface ToolCallEntryDto {
 | `command.unknown` | 命令：未知 type | 发 error 帧，**连接保持** |
 | `command.invalid_payload` | 命令：payload 不符 | 发 error 帧，**连接保持** |
 | （连接层异常） | 非 WS 帧垃圾数据等 | 不发帧直接 close，前端走重连状态机 |
+
+- **daemon 实现超集注记（D-3）**：daemon 握手期**同时校验**信封 `v ≠ 0` 与
+  `hello.protocolVersion ≠ 0`，两者均以 `protocol.version_unsupported` 同码拒绝
+  （实现严于本文档仅列 `protocolVersion` 的口径，属良性收紧）。
 
 ## 8. 版本与演进
 

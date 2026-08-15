@@ -197,7 +197,10 @@ describe("TP-CL8-2 I 半 + TP-CL8-3 + TP-CL4-10：daemon 落盘接线", () => {
       const pendingRows = (
         probe.prepare("SELECT entry_id, text FROM steer_queue").all() as { entry_id: string; text: string }[]
       ).map((r) => [r.entry_id, r.text]);
-      expect(pendingRows).toEqual([["e2", "改一下"]]);
+      // D-2 后 entry 序号含预分配（流开始即消耗），id 值序列相关——断言形状+文本，不固化序号
+      expect(pendingRows).toHaveLength(1);
+      expect(pendingRows[0]![0]).toMatch(/^e\d+$/);
+      expect(pendingRows[0]![1]).toBe("改一下");
 
       await run; // 整个 run（含 drain 轮）结束
       // drain 后 steer 队列出账

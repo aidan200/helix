@@ -42,6 +42,7 @@ function makeCli(engine: FakeAgentEngine) {
   const session = new SessionService({
     getSession: () => chat.sessionView,
     getAgentState: () => chat.agentState,
+    getToolCalls: () => chat.toolCallData, // D-1：快照取数面扩展（与组合根同构）
   });
   const publisher = new StdoutEventPublisher(output);
   targets.push(publisher, {

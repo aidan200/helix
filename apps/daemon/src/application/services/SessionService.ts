@@ -1,7 +1,7 @@
-import type { SessionPort, SessionStreamEvent } from "../ports/inbound/SessionPort";
+import type { SessionPort, SessionStateView, SessionStreamEvent } from "../ports/inbound/SessionPort";
 import type { Session } from "../../domain/session/Session";
 import type { AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
-import type { SessionSnapshot } from "../../domain/session/SessionSnapshot";
+import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 
 /**
  * SessionService —— 会话状态入口（architecture.md §3.4）。
@@ -20,6 +20,9 @@ export interface SessionServiceDeps {
   readonly getSession: () => Session;
   /** 取 agent 生命周期状态（同上，共享 ChatService 的生命周期事实）。 */
   readonly getAgentState: () => AgentLifecycleState;
+  /** 取工具调用记录（D-1：快照取数面扩展——记录在 ChatService.toolCalls，
+   *  经组合根注入只读观测面，不搬进 Session 聚合）。 */
+  readonly getToolCalls: () => readonly ToolCallRecordData[];
 }
 
 export class SessionService implements SessionPort {
@@ -27,8 +30,8 @@ export class SessionService implements SessionPort {
 
   constructor(private readonly deps: SessionServiceDeps) {}
 
-  getSnapshot(): SessionSnapshot {
-    return this.deps.getSession().toSnapshot();
+  getSnapshot(): SessionStateView {
+    return { session: this.deps.getSession().toSnapshot(), toolCalls: this.deps.getToolCalls() };
   }
 
   subscribe(listener: (event: SessionStreamEvent) => void): () => void {

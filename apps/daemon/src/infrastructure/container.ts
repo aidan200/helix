@@ -138,6 +138,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   const sessionService = new SessionService({
     getSession: () => chatService.sessionView,
     getAgentState: () => chatService.agentState,
+    getToolCalls: () => chatService.toolCallData, // D-1：快照取数面扩展（工具记录随快照恢复）
   });
 
   // ── driving：CLI（stdout 事件发布器由组合根构造并注入两侧） ─────

@@ -82,6 +82,51 @@ describe("Session steer 全链（TP-CL4-1 ④）", () => {
   });
 });
 
+describe("D-2：entry id 预分配（reserveEntryId / appendAssistantEntry reservedId）", () => {
+  test("reserveEntryId 唯一，后续 appendUserEntry 得到下一个 id（预分配不碰撞）", () => {
+    const s = Session.create("s-reserve");
+    const r1 = s.reserveEntryId();
+    const r2 = s.reserveEntryId();
+    expect(r1).not.toBe(r2);
+
+    const u = s.appendUserEntry("紧跟的输入");
+    expect(u.id).not.toBe(r1);
+    expect(u.id).not.toBe(r2); // 预分配消耗的序号不复用
+    expect(Number.parseInt(u.id.slice(1), 10)).toBeGreaterThan(Number.parseInt(r2.slice(1), 10));
+  });
+
+  test("appendAssistantEntry(text, at, reservedId) 以 reservedId 落条目", () => {
+    const s = Session.create("s-reserve2");
+    const u = s.appendUserEntry("问");
+    s.beginTurn(u.id);
+    const reserved = s.reserveEntryId();
+    const a = s.appendAssistantEntry("答", "2026-08-15T00:00:01.000Z", reserved);
+    expect(a.id).toBe(reserved);
+    expect(a.createdAt).toBe("2026-08-15T00:00:01.000Z");
+    expect(s.entryList().at(-1)!.id).toBe(reserved);
+    s.completeTurn();
+
+    // 预分配之后正常续分配不碰撞
+    const u2 = s.appendUserEntry("再问");
+    expect(u2.id).not.toBe(reserved);
+  });
+
+  test("id 空洞（放弃的预留不回收）下 restoreFrom 计数器重建正常", () => {
+    const s = Session.create("s-hole");
+    const u = s.appendUserEntry("q"); // e1
+    s.beginTurn(u.id);
+    s.reserveEntryId(); // e2 放弃（空洞）
+    s.reserveEntryId(); // e3 放弃（空洞）
+    s.appendAssistantEntry("a"); // e4
+    s.completeTurn();
+
+    const restored = Session.restoreFrom(s.toSnapshot());
+    const next = restored.appendUserEntry("重启后的新输入");
+    expect(next.id).toBe("e5"); // 从 max(e4) 重建，不复用空洞
+    expect(restored.entryList().map((e) => e.id)).toEqual(["e1", "e4", "e5"]);
+  });
+});
+
 describe("Session 快照往返（TP-CL4-1 ①②）", () => {
   test("toSnapshot→restoreFrom 重建等价（entries/turns/steer 队列/计数器）", () => {
     const s = Session.create("s-snap");

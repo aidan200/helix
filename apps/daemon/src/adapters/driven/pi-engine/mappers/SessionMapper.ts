@@ -11,14 +11,16 @@ import type { EntryData } from "../../../../domain/session/Entry";
  * T1.8（SQLite 落盘）扩展。
  */
 
-/** 内容块 → 纯文本（text 块拼接，其余类型以占位标记）。 */
+/** 内容块 → 纯文本（text 块拼接；toolCall 块贡献空串——TS3-a：工具轮
+ *  占位文本不产生，toolCall-only 消息经空文本守卫不落账；其余非 text
+ *  块类型以占位标记，行为不变）。 */
 export function textOfContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
       .map((block: { type?: string; text?: string }) => {
         if (block?.type === "text") return block.text ?? "";
-        if (block?.type === "toolCall") return `[toolCall:${(block as { name?: string }).name ?? "?"}]`;
+        if (block?.type === "toolCall") return "";
         return `[${block?.type ?? "unknown"}]`;
       })
       .join("");
