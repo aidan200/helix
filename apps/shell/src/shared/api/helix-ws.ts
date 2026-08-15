@@ -192,7 +192,7 @@ export class HelixWsClient {
     try {
       token = await this.opts.getToken(this.opts.port);
     } catch (err) {
-      this.lastErrorMessage = `无法获取 dev token（${(err as Error).message}）`;
+      this.lastErrorMessage = `dev-token fetch failed (${(err as Error).message})`;
       this.handleFailure();
       return;
     }
@@ -257,7 +257,7 @@ export class HelixWsClient {
       this.phase = "stopped";
       this.emitConn({
         kind: "gave-up",
-        message: this.lastErrorMessage ?? "连接失败（重试已耗尽）",
+        message: this.lastErrorMessage ?? "connection failed (retries exhausted)",
         attempts: this.attempts,
       });
       return;

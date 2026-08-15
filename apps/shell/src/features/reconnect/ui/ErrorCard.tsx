@@ -19,7 +19,9 @@ const ErrorCard = function ErrorCard() {
         <div className="err-desc">
           {t("chat.error.desc", { n: attempts })}
           <br />
-          <span className="addr">{WS_ADDR}</span>
+          <span className="addr">
+            {[state.connError?.message, WS_ADDR].filter(Boolean).join(" · ")}
+          </span>
         </div>
         <button className="hud-btn hud-btn-cyan" id="btn-retry" type="button" onClick={retry}>
           {t("chat.error.retry")}
