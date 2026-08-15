@@ -1,0 +1,14 @@
+{
+  "name": "@helix/protocol",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "echo \"[@helix/protocol] 纯类型包（源码即产物，无需构建输出）；W2/CL-2 已落位协议 v0 全部类型（PROTOCOL.md 成文）\""
+  }
+}

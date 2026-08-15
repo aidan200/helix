@@ -1,0 +1,4 @@
+/* Tailwind 管线接线（tokens.md §13：preflight 关闭，reset 自持有于 app.css；
+   组件类主体为自研 HUD 类，工具类按需生成） */
+@tailwind components;
+@tailwind utilities;

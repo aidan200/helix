@@ -1,0 +1,5 @@
+node_modules/
+# 本地 fixture home：含真实 apiKeys，绝不入库（AD-13：key 只经 <home>/config.json 显式传入）
+.home/
+# 脚本输出（时序日志等）
+out/

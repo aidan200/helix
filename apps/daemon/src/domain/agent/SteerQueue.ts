@@ -1,0 +1,57 @@
+/**
+ * steer 待注入消息（领域值对象）：applySteer 时生成，drain 时消费。
+ *
+ * entryId 指向 Session 内已落地的 user entry（isSteer=true），
+ * text 是注入内容——两者一起进队列，drain 方既知道注入什么、也知道关联哪条 entry
+ * （前端 steer 徽标「已入队 → 已注入」的两态都靠 entryId 观测）。
+ */
+export interface SteerItem {
+  readonly entryId: string;
+  readonly text: string;
+}
+
+/**
+ * steer 队列（architecture.md §3.3）：运行中注入的消息在此排队，
+ * turn 边界 drain（spike §5.3 时序契约：drain 边界 = turn_end 之后、turn_start 之前）。
+ *
+ * 默认消费语义 one-at-a-time：drain 点只取最旧一条（dequeue），
+ * 其余留给后续 drain 点按入队顺序逐条消费；drain() 整批取出用于终局收口。
+ */
+export class SteerQueue {
+  private readonly items: SteerItem[] = [];
+
+  /** 入队（运行中注入即时可见，hasQueued 观测点）。 */
+  enqueue(item: SteerItem): void {
+    this.items.push(item);
+  }
+
+  /** 取最旧一条（one-at-a-time）；空队列返回 undefined。 */
+  dequeue(): SteerItem | undefined {
+    return this.items.shift();
+  }
+
+  /** 整批取出并清空（按入队顺序）。 */
+  drain(): SteerItem[] {
+    return this.items.splice(0, this.items.length);
+  }
+
+  isEmpty(): boolean {
+    return this.items.length === 0;
+  }
+
+  size(): number {
+    return this.items.length;
+  }
+
+  /** 快照用：只读视图（不暴露内部数组）。 */
+  toData(): SteerItem[] {
+    return this.items.map((i) => ({ ...i }));
+  }
+
+  /** 恢复用：从快照重建（重启后未消费的 steer 仍可注入，spike ④）。 */
+  static fromData(items: SteerItem[]): SteerQueue {
+    const q = new SteerQueue();
+    for (const i of items) q.enqueue({ entryId: i.entryId, text: i.text });
+    return q;
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "helix",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun apps/daemon/src/main.ts",
+    "dev:shell": "bun --cwd apps/shell run dev",
+    "test": "bun test apps/daemon",
+    "test:shell": "vitest run apps/shell"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/bun": "^1.3.14",
+    "typescript": "^5.9.3",
+    "vitest": "^2.0.5"
+  }
+}
