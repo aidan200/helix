@@ -1,0 +1,10 @@
+{
+  "name": "@helix/shell",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo \"[@helix/shell] dev 占位：vite + React 脚手架自 W7/CL-7 起搭建（当前为空模板，AD-5）\"",
+    "build": "echo \"[@helix/shell] build 占位：前端构建自 W7 起实现\""
+  }
+}

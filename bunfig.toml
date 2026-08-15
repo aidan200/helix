@@ -1,0 +1,9 @@
+# Bun 配置（monorepo 根，各 workspace 共享）
+# workspaces 解析由根 package.json 的 "workspaces" 字段定义（apps/* + packages/*）。
+
+[install]
+# lockfile（bun.lock）提交入库，固定依赖树。
+
+[test]
+# 测试运行：根脚本 `bun test apps/daemon` 已显式限定范围；
+# AG（架构守护）完整套件自 M2 起常驻，当前以简单结构断言测试代位。

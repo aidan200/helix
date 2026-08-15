@@ -1,0 +1,16 @@
+{
+  "name": "helix",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun apps/daemon/src/main.ts",
+    "test": "bun test apps/daemon"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^5.9.3"
+  }
+}
