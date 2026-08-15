@@ -54,6 +54,8 @@ export interface FakeAgentEngineOptions {
   steerReplies?: ScriptedTurn[];
   /** 剧本耗尽时的默认回复生成器。 */
   defaultReply?: (userText: string) => string;
+  /** 全局默认流式分片间隔 ms（剧本回合未自带时生效）。 */
+  chunkDelayMs?: number;
 }
 
 const DEFAULT_CHUNK_DELAY_MS = 8;
@@ -75,11 +77,14 @@ export class FakeAgentEngine implements AgentEnginePort {
   /** 全量已发事件（时序断言源：tests 直接对 events 做序断言）。 */
   readonly events: AgentEngineEvent[] = [];
 
+  private readonly defaultChunkDelayMs: number;
+
   constructor(options: FakeAgentEngineOptions = {}) {
     this.replies = [...(options.replies ?? [])];
     this.steerReplies = [...(options.steerReplies ?? [])];
     this.defaultReply =
       options.defaultReply ?? ((userText: string) => `（fake 回复）已收到：${userText.slice(0, 30)}`);
+    this.defaultChunkDelayMs = options.chunkDelayMs ?? DEFAULT_CHUNK_DELAY_MS;
   }
 
   // ── 状态观测面（§5.4） ────────────────────────────────────
@@ -131,7 +136,7 @@ export class FakeAgentEngine implements AgentEnginePort {
     if (this.abortRequested && this.steerQueue.length > 0) {
       const drained = this.steerQueue.shift()!;
       this.emit({ type: "turn_start" });
-      this.emitUserMessage(drained.text, "steer-drain");
+      this.emitUserMessage(drained, "steer-drain");
       this.emit({ type: "message_start", role: "assistant", source: "steer-drain" });
       this.emit({ type: "message_end", role: "assistant", text: "", stopReason: "error" });
       this.emit({ type: "turn_end", toolResultCount: 0 });
@@ -223,7 +228,7 @@ export class FakeAgentEngine implements AgentEnginePort {
     // assistant 流式生成（分片 message_update）
     const text = script.text ?? this.defaultReply(user.text);
     const chunks = splitChunks(text);
-    const delayMs = script.chunkDelayMs ?? DEFAULT_CHUNK_DELAY_MS;
+    const delayMs = script.chunkDelayMs ?? this.defaultChunkDelayMs;
     this.emit({ type: "message_start", role: "assistant", source: user.source });
     for (const chunk of chunks) {
       await delay(delayMs);

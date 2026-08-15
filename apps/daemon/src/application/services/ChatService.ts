@@ -76,6 +76,10 @@ export class ChatService implements ChatPort {
   get agentState(): AgentLifecycleState {
     return this.lifecycle.current;
   }
+  /** 聚合只读访问（SessionService 快照取数；组合根接线用）。 */
+  get sessionView() {
+    return this.session;
+  }
   get sessionSnapshot() {
     return this.session.toSnapshot();
   }
@@ -223,6 +227,7 @@ export class ChatService implements ChatPort {
         this.publish<ToolResultPayload>("tool.call.result", {
           toolCallId: e.toolCallId,
           toolName: e.toolName,
+          args: record?.args,
           isError: e.isError,
           result: e.result,
         });

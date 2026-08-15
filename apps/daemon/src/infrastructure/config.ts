@@ -1,11 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import path from "node:path";
 
 /**
  * 配置加载（AD-13，architecture.md §7.2）：读取 `<home>/config.json`。
  *
- * 本任务只读不写——config.json 的 0600 写入语义归 T1.4（首次创建）与 AG-09。
- * 字段面（§10-3：端口等其余字段随实现补全）：本任务只定 model / apiKeys /
- * port 三字段 + 默认值语义。
+ * 写入语义（T1.4 补齐，AG-09）：首次创建（文件不存在）时由
+ * ensureConfigTemplate 生成模板并以 0600 权限落盘（apiKeys 属敏感信息）；
+ * 任何写回都经 writeConfig，统一 chmod 0600。
  *
  * 报错语义（daemon 启动期 fail-fast）：
  * - 文件缺失 → 不抛错，返回默认值（port 7333，model 为 undefined）；
@@ -86,4 +87,34 @@ export function loadConfig(configFilePath: string): DaemonConfig {
   }
 
   return { model: obj.model, apiKeys, port };
+}
+
+/** config.json 文件权限（含 apiKeys 敏感信息，AG-09）。 */
+export const CONFIG_FILE_MODE = 0o600;
+
+/**
+ * 写入配置文件（统一 0600：新建与覆盖同权限）。
+ * 父目录不存在则创建；写入后显式 chmod（覆盖既有宽权限文件时同样收严）。
+ */
+export function writeConfig(configFilePath: string, config: DaemonConfig): void {
+  mkdirSync(path.dirname(configFilePath), { recursive: true });
+  const body =
+    `{
+` +
+    `  "model": ${JSON.stringify(config.model ?? "")},\n` +
+    `  "apiKeys": ${JSON.stringify(config.apiKeys ?? {}, null, 0).replace(/,/g, ", ")},\n` +
+    `  "port": ${config.port}\n` +
+    `}\n`;
+  writeFileSync(configFilePath, body, { encoding: "utf8" });
+  chmodSync(configFilePath, CONFIG_FILE_MODE);
+}
+
+/**
+ * 首次创建配置模板（0600）：文件已存在则不动（幂等）。
+ * 模板 model 为空串——随后 loadConfig 会以 fail-fast 中文错误引导用户填写。
+ */
+export function ensureConfigTemplate(configFilePath: string): { created: boolean } {
+  if (existsSync(configFilePath)) return { created: false };
+  writeConfig(configFilePath, { model: "", apiKeys: {}, port: DEFAULT_PORT });
+  return { created: true };
 }

@@ -24,6 +24,8 @@ export interface HelixPaths {
   readonly logsDir: () => string;
   /** 系统 SQLite：`<home>/helix.db`（领域状态持久化，WAL）。 */
   readonly dbPath: () => string;
+  /** 单例幂等锁：`<home>/daemon.lock`（AG-17，同 --home 二启拒绝）。 */
+  readonly lockPath: () => string;
 }
 
 /**
@@ -43,5 +45,6 @@ export function createPaths(explicitHome?: string): HelixPaths {
     devTokenPath: () => path.join(home, "dev-token"),
     logsDir: () => path.join(home, "logs"),
     dbPath: () => path.join(home, "helix.db"),
+    lockPath: () => path.join(home, "daemon.lock"),
   };
 }

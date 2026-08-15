@@ -1,15 +1,13 @@
-import { loadConfig } from "./infrastructure/config";
-import { createPaths } from "./infrastructure/paths";
+import { createDaemon } from "./infrastructure/container";
 
 /**
  * daemon 入口（architecture.md §3.6）：解析 `--home <dir>` 等 argv →
- * 调 paths/config → 启动日志。
+ * 组合根启动（配置/锁/装配）→ CLI 主循环。
  *
- * 本任务（T1.1 / CL-1）为占位启动：打印就绪信息后正常退出（退出码 0）；
- * 真正的常驻进程（WS 服务/组合根装配）自 T1.4+ 落地。
+ * 启动期 fail-fast（中文报错 + 退出码 1）：
+ * - 同 --home 已有实例运行（单例锁，AG-17）；
+ * - config.json 缺 model 等（首次运行会先生成 0600 模板再引导填写）。
  */
-
-/** 从 argv 中解析 `--home <dir>`；未提供时返回 undefined（走默认 ~/.helix）。 */
 function parseHomeArg(argv: readonly string[]): string | undefined {
   const i = argv.indexOf("--home");
   if (i !== -1 && i + 1 < argv.length) {
@@ -18,18 +16,29 @@ function parseHomeArg(argv: readonly string[]): string | undefined {
   return undefined;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const explicitHome = parseHomeArg(process.argv);
-  const paths = createPaths(explicitHome);
-  const config = loadConfig(paths.configPath());
 
-  console.log("[helix-daemon] 就绪（占位模式：常驻进程自 T1.4 起实现）");
-  console.log(`[helix-daemon] home:   ${paths.home}`);
-  console.log(`[helix-daemon] config: ${paths.configPath()}`);
-  console.log(`[helix-daemon] db:     ${paths.dbPath()}`);
-  console.log(`[helix-daemon] logs:   ${paths.logsDir()}`);
-  console.log(`[helix-daemon] token:  ${paths.devTokenPath()}`);
-  console.log(`[helix-daemon] port:   ${config.port}${config.model ? "" : "（config.json 缺失，默认值；model 未配置）"}`);
+  let daemon;
+  try {
+    daemon = createDaemon({ home: explicitHome });
+  } catch (err) {
+    console.error(`[helix-daemon] 启动失败：${(err as Error).message}`);
+    process.exit(1);
+  }
+
+  // SIGTERM：优雅退出（停输入 → 释放锁）；SIGINT 由 CLI 适配器接管
+  // （生成中 → abort；空闲 → 退出）
+  process.on("SIGTERM", () => {
+    void daemon!.shutdown().then(() => process.exit(0));
+  });
+
+  try {
+    await daemon.runCli();
+  } finally {
+    await daemon.shutdown();
+  }
+  process.exit(0);
 }
 
-main();
+void main();
