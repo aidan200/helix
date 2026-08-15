@@ -12,6 +12,9 @@
     "apps/daemon": {
       "name": "@helix/daemon",
       "version": "0.0.0",
+      "dependencies": {
+        "@helix/protocol": "workspace:*",
+      },
     },
     "apps/shell": {
       "name": "@helix/shell",

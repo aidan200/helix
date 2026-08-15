@@ -12,6 +12,10 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["@types/bun"]
+    "types": ["@types/bun"],
+    "baseUrl": ".",
+    "paths": {
+      "@helix/protocol": ["packages/protocol/src/index.ts"]
+    }
   }
 }
