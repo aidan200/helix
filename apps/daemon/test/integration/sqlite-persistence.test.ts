@@ -137,6 +137,7 @@ describe("TP-CL8-2 I 半 + TP-CL8-3 + TP-CL4-10：daemon 落盘接线", () => {
         home,
         engine,
         skipConfig: true,
+        port: 0, // 随机端口：并行测试不撞 7333（T1.6 WS 装配后必传）
         skipLock: true,
         cliInput: new PassThrough(),
         cliOutput: new PassThrough(),

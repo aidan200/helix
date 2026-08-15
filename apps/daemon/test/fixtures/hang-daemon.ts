@@ -34,6 +34,7 @@ const daemon = await createDaemon({
   home,
   engine,
   skipConfig: true,
+  port: 0, // 随机端口：并行测试不撞 7333（T1.6 WS 装配后必传）
   cliInput: new PassThrough(),
   cliOutput: new PassThrough(),
 });

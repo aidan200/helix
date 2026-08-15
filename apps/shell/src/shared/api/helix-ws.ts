@@ -94,6 +94,7 @@ export class HelixWsClient {
     HelixWsClientOptions & { backoff: BackoffOptions };
   private phase: Phase = "stopped";
   private attempts = 0;
+  private generation = 0; // stop() 递增：天折在逯的异步尝试（token fetch 竞态）
   private transport: Transport | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private lastErrorMessage: string | null = null;
@@ -133,13 +134,15 @@ export class HelixWsClient {
   /** 启动（幂等）：立即开始首次连接。 */
   start(): void {
     if (this.phase !== "stopped") return;
+    this.clearTimer();
     this.attempts = 0;
     void this.attemptConnect();
   }
 
-  /** 用户主动关闭：不再重连。 */
+  /** 用户主动关闭：不再重连（在逯 token fetch 一并天折）。 */
   stop(): void {
     this.clearTimer();
+    this.generation += 1;
     this.phase = "stopped";
     this.transport?.close();
     this.transport = null;
@@ -148,6 +151,7 @@ export class HelixWsClient {
   /** 手动重试（error 态失败卡按钮）：清零尝试计数并立即重连。 */
   retry(): void {
     if (this.phase !== "stopped") return;
+    this.clearTimer();
     this.attempts = 0;
     void this.attemptConnect();
   }
@@ -184,6 +188,7 @@ export class HelixWsClient {
   }
 
   private async attemptConnect(): Promise<void> {
+    const gen = this.generation;
     this.attempts += 1;
     this.phase = "connecting";
     this.emitConn({ kind: "connecting", attempt: this.attempts });
@@ -196,6 +201,7 @@ export class HelixWsClient {
       this.handleFailure();
       return;
     }
+    if (gen !== this.generation) return; // stop() 已天折本次尝试
 
     const url = `ws://127.0.0.1:${this.opts.port}`;
     const transport = this.opts.transportFactory(url, {

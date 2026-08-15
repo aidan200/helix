@@ -54,6 +54,7 @@ describe("TP-CL8-6 优雅变体：SIGTERM 语义停机 → 重启恢复一致", 
         home,
         engine: engine1,
         skipConfig: true,
+        port: 0, // 随机端口：并行测试不撞 7333（T1.6 WS 装配后必传）
         cliInput: new PassThrough(),
         cliOutput: new PassThrough(),
       });
@@ -71,6 +72,7 @@ describe("TP-CL8-6 优雅变体：SIGTERM 语义停机 → 重启恢复一致", 
         home,
         engine: engine2,
         skipConfig: true,
+        port: 0, // 随机端口：并行测试不撞 7333（T1.6 WS 装配后必传）
         cliInput: new PassThrough(),
         cliOutput: new PassThrough(),
       });
@@ -123,6 +125,7 @@ describe("TP-CL8-6 强杀变体：kill -9 → 恢复到最后一致里程碑", (
         home,
         engine,
         skipConfig: true,
+        port: 0, // 随机端口：并行测试不撞 7333（T1.6 WS 装配后必传）
         cliInput: new PassThrough(),
         cliOutput: new PassThrough(),
       });
