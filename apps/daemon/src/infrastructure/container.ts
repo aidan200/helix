@@ -79,6 +79,9 @@ export interface Daemon {
  */
 export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon> {
   const paths = createPaths(options.home);
+  // 首启序：目录补建必须先于锁获取（daemon.lock 是首个写盘动作，
+  // 目录不存在则 ENOENT）——ensureHome 是 home 目录创建的单点（TR-AD-6）。
+  paths.ensureHome();
   const lock: SingletonLock | undefined = options.skipLock ? undefined : acquireSingletonLock(paths.lockPath());
   const logger = createFileLogger(paths.logsDir());
 

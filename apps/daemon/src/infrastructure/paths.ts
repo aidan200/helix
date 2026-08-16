@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { mkdirSync } from "node:fs";
 
 /**
  * 路径解析单点（AD-14，architecture.md §7.3）。
@@ -26,6 +27,8 @@ export interface HelixPaths {
   readonly dbPath: () => string;
   /** 单例幂等锁：`<home>/daemon.lock`（AG-17，同 --home 二启拒绝）。 */
   readonly lockPath: () => string;
+  /** 确保主目录存在（递归创建；首启目录不存在时的目录补建单点）。 */
+  readonly ensureHome: () => void;
 }
 
 /**
@@ -46,5 +49,6 @@ export function createPaths(explicitHome?: string): HelixPaths {
     logsDir: () => path.join(home, "logs"),
     dbPath: () => path.join(home, "helix.db"),
     lockPath: () => path.join(home, "daemon.lock"),
+    ensureHome: () => mkdirSync(home, { recursive: true }),
   };
 }

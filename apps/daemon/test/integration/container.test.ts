@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -64,6 +64,27 @@ describe("createDaemon 组合根装配", () => {
       expect(daemon.system.getStatus().running).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("首启 home 目录不存在 → 递归补建 + 锁落盘正常启动（回归：锁获取先于目录创建曾 ENOENT）", async () => {
+    const base = mkdtempSync(path.join(tmpdir(), "helix-first-run-"));
+    const home = path.join(base, "nested", ".helix"); // 首启前不存在的深层路径
+    try {
+      const engine = new FakeAgentEngine({ replies: [{ text: "首启补建目录后的回复。" }] });
+      const daemon = await createDaemon({
+        home,
+        engine,
+        skipConfig: true,
+        port: 0,
+        cliInput: new PassThrough(),
+        cliOutput: new PassThrough(),
+      });
+      // 目录已被单点补建，锁文件成功落盘（首启 ENOENT 回归点）
+      expect(existsSync(path.join(home, "daemon.lock"))).toBe(true);
+      await daemon.shutdown();
+    } finally {
+      rmSync(base, { recursive: true, force: true });
     }
   });
 });
