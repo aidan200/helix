@@ -18,10 +18,10 @@ import { MAIN_INSTANCE_ID } from "@/entities/session/model/session-reducer";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
 import MessageBubble from "./MessageBubble";
 import SubAgentCard from "./SubAgentCard";
-import ToolCard from "./ToolCard";
+import ToolCard from "@/shared/ui/ToolCard";
 import SessionEmpty from "./SessionEmpty";
 import CompactionBar from "./CompactionBar";
-import { ThinkingEntryView, ThinkingLiveView } from "./ThinkingBlock";
+import { ThinkingEntryView, ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
 
 function EntryView({ entry }: { entry: EntryDto }) {
   // 正向穷尽分发（EntryDto 四成员；新增 kind 时 default 分支编译报错）

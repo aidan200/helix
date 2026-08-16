@@ -9,8 +9,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import type { ReactNode } from "react";
 import { PROTOCOL_VERSION } from "@helix/protocol";
+import type { EventEnvelope } from "@helix/protocol";
 import { HelixWsClient } from "@/shared/api/helix-ws";
-import { DAEMON_PORT } from "@/shared/config/env";
+import { DAEMON_PORT, isDev } from "@/shared/config/env";
 import {
   createInitialSessionState,
   selectIsGenerating,
@@ -35,6 +36,17 @@ interface SessionContextValue {
   consumeRestoreToast: () => void;
   /** spawn 秒回 toast 消费（ChatPage 渲染后置空；F1.5，v0.1） */
   consumeSpawnToast: () => void;
+  /** kill toast 消费（ChatPage 渲染后置空；agent.killed 终止链末端，T4.3） */
+  consumeKillToast: () => void;
+  /** agent.kill 命令（抽屉两步确认后发送；终态回流经 agent.killed 事件，契约 §4） */
+  killInstance: (agentId: string) => void;
+  /** agent.subscribe（抽屉打开；v0.1 通路语义，契约 §8-1） */
+  subscribeInstance: (agentId: string) => void;
+  /** agent.unsubscribe（抽屉关闭/换订） */
+  unsubscribeInstance: (agentId: string) => void;
+  /** dev 演示控件专用：合成协议事件直投 reducer（isDev 门控；prod 零路径）。
+   *  与 fake transport 同构的帧注入点（F 层剧本驱动面），走真实投影路径。 */
+  devDispatchEvent: (event: EventEnvelope) => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -51,7 +63,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const client = clientRef.current!;
-    const offFrame = client.onFrame((event) => dispatch({ type: "event", event }));
+    // ts 随 action 注入（重放确定性：同序列同帧；channel 时间戳展示面，T4.3）
+    const offFrame = client.onFrame((event) => dispatch({ type: "event", event, ts: Date.now() }));
     const offConn = client.onConn((c) => {
       switch (c.kind) {
         case "connecting":
@@ -102,9 +115,60 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const consumeKillToast = useCallback(
+    () => dispatch({ type: "ui/consume-kill-toast" }),
+    [],
+  );
+
+  const sendAgentCommand = useCallback(
+    (type: "agent.kill" | "agent.subscribe" | "agent.unsubscribe", agentId: string) => {
+      clientRef.current!.send({ v: PROTOCOL_VERSION, type, payload: { agentId } });
+    },
+    [],
+  );
+
+  const killInstance = useCallback((agentId: string) => sendAgentCommand("agent.kill", agentId), [sendAgentCommand]);
+  const subscribeInstance = useCallback(
+    (agentId: string) => sendAgentCommand("agent.subscribe", agentId),
+    [sendAgentCommand],
+  );
+  const unsubscribeInstance = useCallback(
+    (agentId: string) => sendAgentCommand("agent.unsubscribe", agentId),
+    [sendAgentCommand],
+  );
+
+  const devDispatchEvent = useCallback((event: EventEnvelope) => {
+    if (!isDev()) return; // prod 零路径（演示控件门控）
+    dispatch({ type: "event", event, ts: Date.now() });
+  }, []);
+
   const value = useMemo(
-    () => ({ state, setDraft, submit, retry, consumeRestoreToast, consumeSpawnToast }),
-    [state, setDraft, submit, retry, consumeRestoreToast, consumeSpawnToast],
+    () => ({
+      state,
+      setDraft,
+      submit,
+      retry,
+      consumeRestoreToast,
+      consumeSpawnToast,
+      consumeKillToast,
+      killInstance,
+      subscribeInstance,
+      unsubscribeInstance,
+      devDispatchEvent,
+    }),
+    [
+      state,
+      setDraft,
+      submit,
+      retry,
+      consumeRestoreToast,
+      consumeSpawnToast,
+      consumeKillToast,
+      killInstance,
+      subscribeInstance,
+      unsubscribeInstance,
+      devDispatchEvent,
+    ],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

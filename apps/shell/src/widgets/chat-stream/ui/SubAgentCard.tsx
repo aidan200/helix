@@ -18,7 +18,8 @@
  */
 import { memo, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
-import { formatDuration, formatTs } from "@/shared/lib/format";
+import { formatTs } from "@/shared/lib/format";
+import { useRunningElapsed } from "@/shared/lib/useRunningElapsed";
 import { cn } from "@/shared/lib/cn";
 import type { InstanceCardState } from "@/entities/session/model/session-reducer";
 
@@ -28,22 +29,10 @@ interface SubAgentCardProps {
   onOpenDrawer: (instanceId: string) => void;
 }
 
-/** running 态耗时展示（视图本地计时；1s 步进，纯信息量非动效，reduced-motion 不豁免）。 */
-function useRunningElapsed(active: boolean): string {
-  const [now, setNow] = useState(() => Date.now());
-  const startRef = useRef<number | null>(null);
-  if (active && startRef.current === null) startRef.current = Date.now();
-  if (!active) startRef.current = null;
-  useEffect(() => {
-    if (!active) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [active]);
-  return startRef.current === null ? "0.0s" : formatDuration(now - startRef.current);
-}
-
-/** 终态收口时间捕获（视图本地；仅在本组件生命周期内观察到 running→终态转换时
- *  才捕——快照重建直接以终态挂载的卡无权威时间，退化为无时间脚注，避免误显重连时刻）。 */
+/** 视图本地态（非投影）：终态收口时间捕获——协议
+ * DTO 不携带 startedAt/closure 时间戳，此处为展示层 best-effort（快照重建
+ * 后无值，脚注退化为无时间变体）。
+ * 耗时计时 hook 已提取 shared/lib/useRunningElapsed（卡片与抽屉共用，T4.3）。 */
 function useTerminalAt(terminal: boolean): number | null {
   const atRef = useRef<number | null>(null);
   /** 首帧判定：终态挂载（快照恢复）→ false（永不捕）；非终态挂载 → true（可捕） */

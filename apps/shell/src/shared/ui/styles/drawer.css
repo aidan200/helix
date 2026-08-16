@@ -1,0 +1,234 @@
+/* ════════════════════════════════════════════════════════════════
+   P-2 SubAgent 抽屉样式（widgets/subagent-drawer；prototype/P-2 组件契约移植）
+   - 载体：右侧覆盖 overlay（min(540px,100vw)；popover-fill+blur 14px+左边线）；
+     背板 void/0.55 点击关闭；衬底 = 真实 P-1 弱化（.app[data-drawer] opacity 0.85）；
+   - 全部色值/字号/圆角/间距走 tokens.css 注册表变量（零散 hex 零容忍）；
+   - 动效仅 transform/opacity，honor prefers-reduced-motion（含 kill 确认脉冲）；
+   - 原型演示控制台（data-demo/dp-note）不进实现；dev 注入控件 isDev() 门控。
+   ════════════════════════════════════════════════════════════════ */
+
+/* 衬底弱化：抽屉打开时 P-1 退为 0.85（原型 .behind 口径；opacity 动效合规）*/
+.app[data-drawer="1"] { opacity: 0.85; transition: opacity 0.2s ease-out; }
+
+.drawer-backdrop {
+  position: fixed; inset: 0; z-index: 40;
+  border: none; padding: 0; background: rgb(var(--void-rgb) / 0.55);
+  cursor: pointer;
+  animation: drawer-fade-in 0.2s ease-out;
+}
+@keyframes drawer-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 46;
+  width: min(540px, 100vw);
+  display: flex; flex-direction: column;
+  background: var(--popover-fill);
+  backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+  animation: drawer-in 0.24s ease-out;
+}
+@keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ── 抽屉头（hud-corners 一等实体签名，与 P-1 卡片同语言）── */
+.d-head {
+  position: relative; flex-shrink: 0; padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.d-head::before, .d-head::after {
+  content: ""; position: absolute; width: 7px; height: 7px;
+  border-color: var(--accent); border-style: solid; border-width: 0;
+  pointer-events: none; opacity: 0.7;
+}
+.d-head::before { top: 0; left: 0; border-top-width: 1px; border-left-width: 1px; }
+.d-head::after { bottom: 0; right: 0; border-bottom-width: 1px; border-right-width: 1px; }
+.d-top { display: flex; align-items: center; gap: 10px; }
+.d-close {
+  width: 26px; height: 26px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgb(var(--edge-rgb) / 0.12); border-radius: 6px;
+  background: transparent; color: var(--text-dim); cursor: pointer;
+  font-size: var(--text-body); font-family: var(--font-mono);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.d-close:hover { border-color: rgb(var(--accent-rgb) / 0.3); color: var(--text); background: var(--bg-hover); }
+.d-close:active { transform: translateY(1px); }
+.d-av {
+  width: 28px; height: 28px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; border-radius: 6px;
+  border: 1px solid rgb(var(--violet-rgb) / 0.4); background: rgb(var(--violet-rgb) / 0.1);
+  color: var(--violet); font-size: var(--text-micro); font-weight: 700;
+}
+.d-title { min-width: 0; flex: 1; }
+.d-id { font-size: var(--text-title); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-id .prof { color: var(--text-dim); font-weight: 400; font-size: var(--text-body); }
+/* F1.2 kill 按钮：danger 族 + 两步确认（仅 running 启用，终态禁用）*/
+.d-kill {
+  flex-shrink: 0; display: inline-flex; height: 28px; align-items: center;
+  padding: 0 12px; border-radius: 6px; cursor: pointer;
+  border: 1px solid rgb(var(--error-rgb) / 0.3); background: rgb(var(--error-rgb) / 0.06); color: var(--error);
+  font-family: var(--font-mono); font-size: var(--text-cap); font-weight: 500; letter-spacing: 0.04em;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.d-kill:hover:not(:disabled) { background: rgb(var(--error-rgb) / 0.12); }
+.d-kill:active:not(:disabled) { transform: translateY(1px); }
+.d-kill:disabled { opacity: 0.35; cursor: default; }
+.d-kill.confirm {
+  border-color: var(--error); background: rgb(var(--error-rgb) / 0.18);
+  animation: hud-pulse 1.2s ease-in-out infinite;
+}
+.d-sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.d-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px;
+  border: 1px solid rgb(var(--edge-rgb) / 0.1); border-radius: 999px;
+  font-size: var(--text-micro); color: var(--text-dim); font-variant-numeric: tabular-nums;
+}
+.d-status {
+  display: inline-flex; align-items: center; gap: 6px; padding: 1px 7px; border-radius: 4px;
+  font-size: var(--text-micro); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.d-status .hud-dot { width: 5px; height: 5px; background: currentColor; }
+.d-status.running { border: 1px solid rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.1); color: var(--accent); }
+.d-status.done { border: 1px solid rgb(var(--success-rgb) / 0.3); background: rgb(var(--success-rgb) / 0.08); color: var(--success); }
+.d-status.failed { border: 1px solid rgb(var(--error-rgb) / 0.35); background: rgb(var(--error-rgb) / 0.1); color: var(--error); }
+.d-status.queued, .d-status.cancelled {
+  border: 1px solid rgb(var(--edge-rgb) / 0.1); background: rgb(var(--edge-rgb) / 0.05); color: var(--text-dim);
+}
+/* F1.8 stalled 警示徽标（仅 running 显示；警示不自动杀）*/
+.d-stalled {
+  display: none; align-items: center; gap: 6px; padding: 1px 7px; border-radius: 4px;
+  border: 1px solid rgb(var(--warning-rgb) / 0.35); background: rgb(var(--warning-rgb) / 0.1);
+  color: var(--warning); font-size: var(--text-micro); font-weight: 500;
+  letter-spacing: 0.08em; text-transform: uppercase; font-variant-numeric: tabular-nums;
+}
+.d-stalled.show { display: inline-flex; }
+.d-stalled .hud-dot { width: 5px; height: 5px; background: var(--warning); }
+
+/* ── 任务段与 channel 滚动区 ── */
+.d-task { flex-shrink: 0; padding: 10px 16px 0; }
+.d-seclabel {
+  display: flex; align-items: center; gap: 8px;
+  font-size: var(--text-micro); font-weight: 500; text-transform: uppercase; letter-spacing: 0.2em;
+  color: var(--text-dim); margin-bottom: 6px;
+}
+.d-seclabel::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
+.d-task .task-text { font-size: var(--text-body); color: var(--text); line-height: 1.6; }
+.d-task .task-meta { margin-top: 3px; font-size: var(--text-micro); color: var(--text-faint); }
+.d-body { flex: 1; overflow-y: auto; padding: 12px 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.d-channel { display: flex; flex-direction: column; gap: 10px; }
+.ch-item { animation: ch-in 0.2s ease-out; }
+@keyframes ch-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* lifecycle 事件行（warn/err 变色）*/
+.lc-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 8px; margin-left: 4px;
+  border-left: 2px solid rgb(var(--edge-rgb) / 0.12);
+  font-size: var(--text-cap); color: var(--text-dim);
+}
+.lc-row .lc-dot { width: 5px; height: 5px; border-radius: 999px; background: var(--text-dim); flex-shrink: 0; }
+.lc-row .lc-ts { margin-left: auto; color: var(--text-faint); font-size: var(--text-micro); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.lc-row.warn { color: var(--warning); border-left-color: rgb(var(--warning-rgb) / 0.5); }
+.lc-row.warn .lc-dot { background: var(--warning); }
+.lc-row.err { color: var(--error); border-left-color: rgb(var(--error-rgb) / 0.5); }
+.lc-row.err .lc-dot { background: var(--error); }
+
+/* channel 内 SA 消息（22px 紧凑 avatar + violet 气泡）*/
+.ch-msg { display: flex; gap: 8px; }
+.ch-msg .avatar {
+  margin-top: 2px; flex-shrink: 0; width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center; border-radius: 6px;
+  border: 1px solid rgb(var(--violet-rgb) / 0.4); background: rgb(var(--violet-rgb) / 0.1);
+  color: var(--violet); font-size: var(--text-micro); font-weight: 700;
+}
+.ch-msg .col { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.ch-msg .meta { display: flex; align-items: baseline; gap: 7px; }
+.ch-msg .who { font-size: var(--text-micro); color: var(--text-faint); letter-spacing: 0.1em; text-transform: uppercase; }
+.ch-msg .ts { font-size: var(--text-micro); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.ch-msg .bubble {
+  padding: 6px 10px; font-size: var(--text-body); line-height: 1.6;
+  border-radius: 2px 8px 8px 8px;
+  border: 1px solid rgb(var(--violet-rgb) / 0.18);
+  background: rgb(var(--violet-rgb) / 0.05);
+  color: var(--text); white-space: pre-wrap; word-break: break-word;
+}
+.ch-msg .stream-cursor { background: rgb(var(--violet-rgb) / 0.75); }
+
+/* steer 注入标记（主线 → 实例）*/
+.steer-mark {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 6px 10px; border: 1px dashed rgb(var(--violet-rgb) / 0.35); border-radius: 6px;
+  background: rgb(var(--violet-rgb) / 0.05);
+}
+.steer-mark .sm-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--violet); font-size: var(--text-micro); letter-spacing: 0.1em; text-transform: uppercase;
+}
+.steer-mark .sm-label .hud-dot { width: 5px; height: 5px; background: var(--violet); }
+.steer-mark .sm-text { font-size: var(--text-body); color: var(--text-muted); line-height: 1.55; }
+.steer-mark .sm-ts { font-size: var(--text-micro); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+/* closure 卡（AD-8 五字段：status/summary/reportPath/findings/taskId）*/
+.closure-card {
+  position: relative;
+  border: 1px solid rgb(var(--success-rgb) / 0.3); border-radius: 8px;
+  background: rgb(var(--success-rgb) / 0.04);
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+}
+.closure-card.failed { border-color: rgb(var(--error-rgb) / 0.4); background: rgb(var(--error-rgb) / 0.04); }
+.closure-card::before, .closure-card::after {
+  content: ""; position: absolute; width: 7px; height: 7px;
+  border-color: var(--success); border-style: solid; border-width: 0; pointer-events: none; opacity: 0.7;
+}
+.closure-card::before { top: 0; left: 0; border-top-width: 1px; border-left-width: 1px; }
+.closure-card::after { bottom: 0; right: 0; border-bottom-width: 1px; border-right-width: 1px; }
+.closure-card.failed::before, .closure-card.failed::after { border-color: var(--error); }
+.cl-head { display: flex; align-items: center; gap: 8px; }
+.cl-head .cl-t { font-size: var(--text-body); font-weight: 600; }
+.cl-summary { font-size: var(--text-body); color: var(--text); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.cl-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: var(--text-micro); color: var(--text-faint); }
+.cl-meta .k { color: var(--text-dim); }
+
+/* queued 实例空 channel 产品空态 */
+.ch-hint {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-radius: 8px;
+  border: 1px dashed rgb(var(--edge-rgb) / 0.12);
+  color: var(--text-dim); font-size: var(--text-body);
+}
+.ch-hint .hud-dot { width: 6px; height: 6px; background: var(--text-dim); }
+
+/* 抽屉脚（done/failed 实例 reportPath）*/
+.d-foot {
+  flex-shrink: 0; display: none; align-items: center; gap: 8px;
+  padding: 8px 16px; border-top: 1px solid var(--border);
+  font-size: var(--text-micro); color: var(--text-faint);
+  word-break: break-all;
+}
+.d-foot.show { display: flex; }
+.d-foot .k { color: var(--text-dim); flex-shrink: 0; }
+.d-foot .foot-note { margin-left: auto; flex-shrink: 0; }
+
+/* dev 注入控件（演示控件 isDev() 门控；prod 零渲染；非还原项）*/
+.drawer-dev {
+  display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+  padding: 3px 9px; border-radius: 5px; cursor: pointer;
+  border: 1px solid rgb(var(--warning-rgb) / 0.35); background: rgb(var(--void-rgb) / 0.4);
+  font-family: var(--font-mono); font-size: var(--text-micro); letter-spacing: 0.08em;
+  color: var(--warning); text-transform: uppercase;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.drawer-dev:hover { border-color: rgb(var(--warning-rgb) / 0.6); color: var(--text); }
+.drawer-dev:active { transform: translateY(1px); }
+
+/* reduced-motion：进入/脉冲全关（含 kill 确认脉冲）*/
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .drawer-backdrop, .ch-item { animation: none !important; }
+  .d-kill.confirm, .d-stalled .hud-dot, .steer-mark .hud-dot { animation: none !important; }
+}
+
+/* 窄屏：抽屉全宽（min(540px,100vw) 天然覆盖）；chips 收敛 */
+@media (max-width: 720px) {
+  .d-sub .d-chip[data-chip="model"] { display: none; }
+}

@@ -1,15 +1,12 @@
 // @vitest-environment jsdom
 /**
- * thinking 块组件测试（F2.3/F2.4；test-design §2.2 F2.3 UI 行）。
+ * MessageFlow 挂载测试（thinking 三态分流；消费 T4.1 槽位）。
  *
- * 三态渲染面：streaming（think-live muted 流式+光标+「思考中」标签）/
- * complete（💭 折叠条 Ns·N tokens+实例 chip，点击展开/收起 aria-expanded 同步）/
- * 无块零渲染（MessageFlow 挂载判定：无 thinking entry 且流式槽位空 → 零渲染）。
- * 三态互斥与 complete 不可逆的 reducer 面已由 session-reducer-v01.test.ts 守护，
- * 此处消费 T4.1 槽位做渲染断言（mock 帧驱动，不依赖 daemon 事件源）。
+ * 自 ThinkingBlock.test.tsx 拆出（T4.3：ThinkingBlock 上移 shared/ui 后，
+ * MessageFlow 集成断言按 FSD 分层归位 widgets/chat-stream）。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import type { EventEnvelope, ThinkingEntryDto } from "@helix/protocol";
 import { createInitialSessionState, sessionReducer, type SessionState } from "@/entities/session/model/session-reducer";
@@ -22,7 +19,6 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
 });
 
 import MessageFlow from "./MessageFlow";
-import { ThinkingEntryView, ThinkingLiveView } from "./ThinkingBlock";
 
 function ui(node: React.ReactElement) {
   return render(<I18nProvider>{node}</I18nProvider>);
@@ -45,48 +41,6 @@ afterEach(cleanup);
 
 // jsdom navigator.language 默认 en-US：钉 zh-CN（产品断言语言，AG-14 白名单键）
 localStorage.setItem("helix-lang", "zh-CN");
-
-describe("ThinkingLiveView（streaming 态）", () => {
-  it("muted 流式块：「思考中」标签 + accent 脉冲点 + 累积文本 + 光标", () => {
-    ui(<ThinkingLiveView text="先拆任务" />);
-    const live = document.querySelector(".think-live");
-    expect(live).not.toBeNull();
-    expect(live!.querySelector(".tl-label .hud-dot-pulse")).not.toBeNull();
-    expect(screen.getByText("思考中")).toBeTruthy();
-    expect(screen.getByText("先拆任务")).toBeTruthy();
-    expect(live!.querySelector(".stream-cursor")).not.toBeNull();
-  });
-});
-
-describe("ThinkingEntryView（complete 折叠条）", () => {
-  it("「💭 已思考 12s · 847 tokens」+ 实例 chip；duration 取整秒、<1k 原值", () => {
-    ui(<ThinkingEntryView entry={thinkEntry()} />);
-    expect(screen.getByText("已思考 12s · 847 tokens")).toBeTruthy();
-    expect(screen.getByText("main", { selector: ".who-chip" })).toBeTruthy();
-  });
-
-  it("tokens 走 fmtTokens 档位（8400 → 8k）", () => {
-    ui(<ThinkingEntryView entry={thinkEntry({ reasoningTokens: 8_400 })} />);
-    expect(screen.getByText("已思考 12s · 8k tokens")).toBeTruthy();
-  });
-
-  it("点击展开全文回看再收起：aria-expanded 与 .open 同步（F2.4）", () => {
-    ui(<ThinkingEntryView entry={thinkEntry()} />);
-    const btn = screen.getByRole("button", { name: /已思考 12s/ });
-    expect(btn.getAttribute("aria-expanded")).toBe("false");
-    const wrap = document.querySelector('.fb-wrap[data-kind="thinking"]');
-    expect(wrap!.className).not.toContain("open");
-
-    fireEvent.click(btn);
-    expect(btn.getAttribute("aria-expanded")).toBe("true");
-    expect(wrap!.className).toContain("open");
-    expect(screen.getByText(/盘点当前态/)).toBeTruthy();
-
-    fireEvent.click(btn);
-    expect(btn.getAttribute("aria-expanded")).toBe("false");
-    expect(wrap!.className).not.toContain("open");
-  });
-});
 
 describe("MessageFlow 挂载（三态分流；消费 T4.1 槽位）", () => {
   const welcome: EventEnvelope = {

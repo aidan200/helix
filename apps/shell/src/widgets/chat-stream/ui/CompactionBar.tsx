@@ -11,7 +11,7 @@ import { memo, useState } from "react";
 import type { CompactionEntryDto } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { fmtTokens, formatTs } from "@/shared/lib/format";
-import FlowBar from "./FlowBar";
+import FlowBar from "@/shared/ui/FlowBar";
 
 const CompactionBar = memo(function CompactionBar({ entry }: { entry: CompactionEntryDto }) {
   const { t } = useI18n();

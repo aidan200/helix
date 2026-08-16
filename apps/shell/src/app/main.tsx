@@ -4,6 +4,7 @@ import App from "./App";
 import { applyThemeInitial } from "@/shared/ui/theme";
 import "@/shared/ui/styles/tokens.css";
 import "@/shared/ui/styles/app.css";
+import "@/shared/ui/styles/drawer.css";
 import "@/shared/ui/styles/index.css";
 
 // 首帧前应用持久化主题（避免亮色用户暗帧闪烁）

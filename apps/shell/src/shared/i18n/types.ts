@@ -120,6 +120,39 @@ export interface ChatTranslations {
     kindSub: string;
     kindCompact: string;
   };
+  /** SubAgent 抽屉（P-2；review.md drawer 清单 + T4.3 补齐 close/slot 声明键；CL-1 F1.2/F1.8） */
+  drawer: {
+    /** ✕/背板关闭 aria 标签 */
+    close: string;
+    task: string;
+    channel: string;
+    kill: string;
+    killConfirm: string;
+    killedToast: string;
+    killedToastSub: string;
+    stalled: string;
+    stalledLc: string;
+    steerMark: string;
+    steerToast: string;
+    steerToastSub: string;
+    steerOnlyRunning: string;
+    steerOnlyRunningSub: string;
+    queuedHint: string;
+    reportFoot: string;
+    instanceMeta: string;
+    /** 模型解析行槽位描述（profile.model 声明/缺省继承，AD-6） */
+    slotDeclared: string;
+    slotInherited: string;
+    lc: {
+      spawned: string;
+      modelResolved: string;
+      crashed: string;
+      terminated: string;
+    };
+    closure: {
+      title: string;
+    };
+  };
   theme: {
     dark: string;
     light: string;
