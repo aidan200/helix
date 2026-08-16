@@ -38,8 +38,8 @@ export interface SessionSnapshot {
   readonly instances?: readonly AgentInstanceData[];
 
   /**
-   * 会话账目聚合（徽标/popover 数据源）。入账链路（T3.x usage ledger）
-   * 建成前缺省不携带；形状与契约 SessionUsageDto 对齐。
+   * 会话账目聚合（徽标/popover 数据源）。T3.2：UsageLedger 投影真值装配
+   *（组合根 getUsage 单点）；形状与契约 SessionUsageDto 对齐。
    */
   readonly usage?: SessionUsageSummary;
 }

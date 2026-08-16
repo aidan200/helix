@@ -14,7 +14,13 @@ import type { InstanceRunner } from "../application/services/InstanceRunner";
 import { SchedulingPolicy, DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 import { MAIN_INSTANCE_ID } from "../domain/agent/AgentInstance";
 import type { InstanceSnapshotEntry } from "../application/ports/inbound/SessionPort";
-import type { SessionUsageSummary } from "../domain/session/SessionSnapshot";
+import {
+  aggregateSession,
+  applyUsage,
+  emptyUsageLedger,
+  instanceUsageOf,
+} from "../domain/session/UsageLedger";
+import type { UsageRecordedPayload } from "../domain/events/DomainEvent";
 import { Session } from "../domain/session/Session";
 import path from "node:path";
 import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAdapter";
@@ -131,6 +137,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   const clock: ClockPort = { now: () => new Date().toISOString() };
   const restored = await new RestoreService({ repository, clock }).restoreLatest();
   const session = restored?.session ?? Session.create();
+  // 会话账本（T3.2，AD-4）：权威源 = usage.recorded 事件（事件即账），
+  // 运行期唯一写点 = 下方 fan-out 投影目标（重启基线来自 RestoreService 重放）
+  let usageLedger = restored?.usage ?? emptyUsageLedger();
   if (restored) {
     logger.info(
       `已恢复会话 ${restored.session.id}（entries=${restored.session.entryList().length}，` +
@@ -224,7 +233,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     getSession: () => chatService.sessionView,
     getAgentState: () => chatService.agentState,
     getToolCalls: () => chatService.toolCallData, // D-1：快照取数面扩展（工具记录随快照恢复）
-    // T2.4 快照组装面：主实例条目（常驻，窗口永不终态）+ 调度器注册表观测
+    // T2.4 快照组装面：主实例条目（常驻，窗口永不终态）+ 调度器注册表观测；
+    // T3.2：每实例附账目小计（UsageLedger per-instance 投影，popover 行源）
     getInstances: () => [
       {
         instanceId: MAIN_INSTANCE_ID,
@@ -233,11 +243,15 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
         sessionId: session.id,
         state: "running",
         createdAt: session.createdAt,
+        usage: instanceUsageOf(usageLedger, MAIN_INSTANCE_ID),
       },
-      ...scheduler.snapshotInstances(),
+      ...scheduler.snapshotInstances().map((instance) => ({
+        ...instance,
+        usage: instanceUsageOf(usageLedger, instance.instanceId),
+      })),
     ] satisfies InstanceSnapshotEntry[],
-    // T2.4 占位装配：T3.2 入账链路（usage ledger）落地后由真值替换
-    getUsage: () => ZERO_USAGE_SUMMARY,
+    // T3.2：快照 usage 聚合 = 账本投影（徽标数据源；替换 T2.4 空聚合占位）
+    getUsage: () => aggregateSession(usageLedger),
   });
 
   // ── driving：CLI（stdout 事件发布器由组合根构造并注入两侧） ─────
@@ -264,6 +278,18 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       publishDelta: (delta) => sessionService.notify(delta),
     },
     eventStream,
+    {
+      // T3.2 账本投影（AD-4 事件即账）：任一源头发出的 usage.recorded
+      //（ChatService 主线 turn/compaction、SchedulerService SubAgent turn）
+      // 在此单点入账——无事件即无账（结构性一致，恢复重放同函数）
+      publish: (event) => {
+        if (event.type === "usage.recorded") {
+          const p = event.payload as UsageRecordedPayload;
+          usageLedger = applyUsage(usageLedger, p.instanceId, p.usage, p.source);
+        }
+      },
+      publishDelta: () => undefined,
+    },
     {
       publish: (event) => {
         void writeQueue.appendEvent(
@@ -343,9 +369,3 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     shutdown: system.shutdown,
   };
 }
-
-/** T2.4 占位空账面（七字段全 0；T3.2 usage ledger 落地后移除）。 */
-const ZERO_USAGE_SUMMARY: SessionUsageSummary = {
-  total: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0, cost: 0 },
-  compaction: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0, cost: 0 },
-};

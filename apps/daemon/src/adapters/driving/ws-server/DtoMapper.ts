@@ -103,7 +103,7 @@ export function toSnapshotDto(
   };
 }
 
-/** InstanceSnapshotEntry（domain）→ AgentInstanceDto（协议；task/closure 同构直映射）。 */
+/** InstanceSnapshotEntry（domain）→ AgentInstanceDto（协议；task/closure/usage 同构直映射）。 */
 function instanceDto(entry: InstanceSnapshotEntry): AgentInstanceDto {
   return {
     instanceId: entry.instanceId,
@@ -112,6 +112,7 @@ function instanceDto(entry: InstanceSnapshotEntry): AgentInstanceDto {
     state: entry.state,
     createdAt: entry.createdAt,
     ...(entry.task !== undefined ? { task: entry.task } : {}),
+    ...(entry.usage !== undefined ? { usage: usageTotal(entry.usage) } : {}),
     ...(entry.closure !== undefined
       ? {
           closure: {

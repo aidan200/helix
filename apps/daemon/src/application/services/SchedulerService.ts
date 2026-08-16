@@ -14,6 +14,7 @@ import type {
   InstanceClosurePayload,
   ToolCallPayload,
   ToolResultPayload,
+  UsageRecordedPayload,
 } from "../../domain/events/DomainEvent";
 import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../ports/outbound/ClockPort";
@@ -301,6 +302,8 @@ export class SchedulerService implements AgentOrchestrationPort {
    * 引擎事件增量：刷新 lastEventAt（stalled 判定输入）；未知/终态实例忽略。
    * T2.3：携事件本体时，SubAgent 内部工具调用转 per-instance 领域事件
    * （tool.call.*，挂 instanceId）——不进主线聚合（AD-8 铁律）。
+   * T3.2：message_end(assistant, usage) 转 usage.recorded（source=turn，
+   * 子进程引擎事件上行同链入账——实例小计进会话账本）。
    */
   private onInstanceEvent(instanceId: string, event?: AgentEngineEvent): void {
     const instance = this.registry.findInstance(instanceId);
@@ -327,6 +330,16 @@ export class SchedulerService implements AgentOrchestrationPort {
         isError: event.isError,
         result: event.result,
       } satisfies ToolResultPayload);
+      return;
+    }
+    if (event.type === "message_end" && event.role === "assistant" && event.usage !== undefined) {
+      // T3.2 turn 入账：事件即账（AD-4）——账本投影在组合根 fan-out 单点接入；
+      // 工具批中间 message_end(无 usage)/delta 不入账（结构性零账）
+      this.publish(instance, "usage.recorded", {
+        instanceId,
+        usage: event.usage,
+        source: "turn",
+      } satisfies UsageRecordedPayload);
       return;
     }
     // 其余引擎事件：观测面增量已计（lastEventAt 刷新），无 per-instance 领域动作

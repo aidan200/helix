@@ -9,6 +9,7 @@ import type { ThinkingEntryData } from "../../domain/session/ThinkingEntry";
 import { MAIN_INSTANCE_ID } from "../../domain/agent/AgentInstance";
 import type { UsageSummary } from "../../domain/session/SessionSnapshot";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
+import { ZERO_USAGE } from "../../domain/session/UsageLedger";
 import type {
   AgentStateChangedPayload,
   CompactionCompletedPayload,
@@ -299,6 +300,18 @@ export class ChatService implements ChatPort {
             const entry = this.session.appendAssistantEntry(e.text, this.now(), this.streamEntryId ?? undefined);
             this.publishMessageCompleted(entry.id, "assistant", e.text, false);
           }
+          // T3.2：turn 入账（message_end 携带 usage 即一条 usage.recorded，
+          // source=turn；AD-4：事件即账——账本投影在组合根 fan-out 单点接入）。
+          // 流式 delta 分支结构性不触此处（零账目事件）；工具轮中间
+          // message_end(stopReason=toolUse) 不携带 usage，不入账
+          if (e.usage !== undefined) {
+            this.publish<UsageRecordedPayload>(
+              "usage.recorded",
+              { instanceId: MAIN_INSTANCE_ID, usage: e.usage, source: "turn" },
+              undefined,
+              MAIN_INSTANCE_ID,
+            );
+          }
           this.streamEntryId = null; // 预留消耗完毕（空文本/abort 轮同样清空）
         }
         break;
@@ -504,14 +517,3 @@ export class ChatService implements ChatPort {
     return this.deps.clock.now();
   }
 }
-
-/** provider 未报用量时的零值占位（七字段全 0；账目行保持完整，AD-9③）。 */
-const ZERO_USAGE: UsageSummary = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  reasoning: 0,
-  totalTokens: 0,
-  cost: 0,
-};

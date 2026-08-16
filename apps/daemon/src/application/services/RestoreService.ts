@@ -2,9 +2,15 @@ import type { SessionRepositoryPort, ClosureRecordData } from "../ports/outbound
 import type { ClockPort } from "../ports/outbound/ClockPort";
 import type { AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
 import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
-import type { InstanceClosurePayload, DomainEvent, AgentSpawnedPayload } from "../../domain/events/DomainEvent";
+import type {
+  InstanceClosurePayload,
+  DomainEvent,
+  AgentSpawnedPayload,
+  UsageRecordedPayload,
+} from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
 import { AgentInstance, MAIN_INSTANCE_ID, type InstanceState } from "../../domain/agent/AgentInstance";
+import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "../../domain/session/UsageLedger";
 
 /**
  * RestoreService —— 重启恢复（architecture.md §3.4 / §5.4 / §8.2，F(8).2）。
@@ -36,8 +42,11 @@ import { AgentInstance, MAIN_INSTANCE_ID, type InstanceState } from "../../domai
  *   不自动重派。
  * - done/failed/cancelled 终态：原样恢复（closure 从 closure_records 最新行
  *   读回）——重启幂等（上次收口行不再重复收口/注入）。
- * - 账目（usage）：T3.2 入账链路落地前 session_state 快照无 usage 字段——
- *   恢复对其容忍（缺省不携带，下发组装时空聚合占位）。
+ *
+ * 【账目恢复（T3.2，AD-4 事件即账）】session_state 快照不落账目（写面
+ * 结构不动，无新列）——权威源 = domain_events 的 usage.recorded 行，
+ * 重放 applyUsage 重建账本（合计 + per-instance 明细）；运行期快照聚合
+ * 字段与事件流的一致性由 integration 双源核对（重启前后快照相等）保证。
  */
 export interface RestoreServiceDeps {
   readonly repository: SessionRepositoryPort;
@@ -72,6 +81,8 @@ export interface RestoredDomainState {
   readonly instances: readonly RestoredInstance[];
   /** 已用最大 agent-N 序号（重启后 spawn 续基线不撞号，K5）。 */
   readonly maxAgentSeq: number;
+  /** 会话账本（T3.2：usage.recorded 事件流重放重建；组合根快照聚合/实例小计源）。 */
+  readonly usage: UsageLedgerData;
 }
 
 /** agent_lifecycle 行中 SubAgent 实例的可恢复状态集（main 行不在此列）。 */
@@ -101,7 +112,26 @@ export class RestoreService {
       toolCalls: state.toolCalls,
       instances: instances.list,
       maxAgentSeq: instances.maxSeq,
+      usage: this.restoreUsageLedger(latest),
     };
+  }
+
+  // ── 账目重建（T3.2，AD-4 事件即账） ─────────────────────
+
+  /**
+   * usage.recorded 事件流重放 → 账本（合计 + per-instance 明细 + compaction
+   * 小计）。事件即账：重放即重建，与停机前快照聚合双源一致（integration
+   * 核对）；旧库无账目行 → 空账本（零值形状）。
+   */
+  private restoreUsageLedger(sessionId: string): UsageLedgerData {
+    const events = this.deps.repository.queryEvents({ sessionId, type: "usage.recorded" });
+    let ledger = emptyUsageLedger();
+    for (const event of events) {
+      const payload = event.payload as Partial<UsageRecordedPayload> | undefined;
+      if (payload?.usage === undefined || payload.source === undefined) continue; // 损坏行防御：跳过不崩
+      ledger = applyUsage(ledger, payload.instanceId ?? event.instanceId ?? MAIN_INSTANCE_ID, payload.usage, payload.source);
+    }
+    return ledger;
   }
 
   // ── 实例注册表/closure 恢复（AD-10） ───────────────────────

@@ -152,3 +152,49 @@ describe("T3.1 快照：entries 合并 thinking/compaction 变体（重启回放
     expect(c.tokensAfter).toBe(20000);
   });
 });
+
+describe("T3.2 快照：usage 聚合 + instances[].usage 小计 DTO 映射（契约 §6.2）", () => {
+  test("view.usage → SessionUsageDto{total,compaction}；instances[].usage → AgentInstanceDto.usage 七字段不变形", () => {
+    const usage = { input: 11, output: 26, cacheRead: 0, cacheWrite: 0, reasoning: 5, totalTokens: 81, cost: 0.04 };
+    const view = {
+      session: {
+        sessionId: "s-1",
+        createdAt: new Date(0).toISOString(),
+        entries: [],
+        turns: [],
+        pendingSteer: [],
+      },
+      toolCalls: [],
+      instances: [
+        {
+          instanceId: "main",
+          kind: "main" as const,
+          profileKind: "main-session",
+          sessionId: "s-1",
+          state: "running" as const,
+          createdAt: new Date(0).toISOString(),
+          usage,
+        },
+        {
+          instanceId: "agent-1",
+          kind: "subagent" as const,
+          profileKind: "subagent-worker",
+          sessionId: "s-1",
+          state: "done" as const,
+          createdAt: new Date(1).toISOString(),
+          usage: { input: 100, output: 200, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 300, cost: 0.1 },
+        },
+      ],
+      usage: {
+        total: { input: 111, output: 226, cacheRead: 0, cacheWrite: 0, reasoning: 5, totalTokens: 381, cost: 0.14 },
+        compaction: { input: 40, output: 6, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 46, cost: 0.01 },
+      },
+    };
+    const dto = toSnapshotDto(view, "anthropic/fake", "idle");
+
+    expect(dto.usage).toEqual(view.usage); // SessionUsageDto 同构直映射
+    expect(dto.instances).toHaveLength(2);
+    expect(dto.instances![0]!.usage).toEqual(usage); // 七字段不变形
+    expect(dto.instances![1]!.usage!.totalTokens).toBe(300);
+  });
+});
