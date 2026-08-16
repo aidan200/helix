@@ -18,6 +18,7 @@ describe("TP-CL8-4：SessionMapper 往返 roundtrip", () => {
       text: "帮我写一段介绍",
       turnId: "t1",
       isSteer: false,
+      instanceId: "main",
       createdAt: "2024-01-01T00:00:01.000Z",
     };
     const msg = userMessage(data.text);
@@ -77,8 +78,8 @@ describe("TS3-a：textOfContent 的 toolCall 块贡献空串", () => {
     ).toBe("先说结论。补充。");
   });
 
-  test("其余非 text 块类型的 [type] 占位行为保持不变", () => {
-    expect(textOfContent([{ type: "thinking" }])).toBe("[thinking]");
+  test("thinking 块贡献空串（T3.1 一等通道化：独立 Entry，不再占位污染正文）；未知块 [type] 占位保持", () => {
+    expect(textOfContent([{ type: "thinking", thinking: "思考" }])).toBe("");
     expect(textOfContent([{}])).toBe("[unknown]");
   });
 });

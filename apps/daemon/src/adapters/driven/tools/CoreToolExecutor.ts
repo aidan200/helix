@@ -17,7 +17,9 @@ import type {
   ToolExecutionResult,
   ToolExecutorPort,
 } from "../../../application/ports/outbound/ToolExecutorPort";
+import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import { createGrepTool } from "./GrepTool";
+import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool } from "./agent/AgentOrchestrationTools";
 
 /**
  * CoreToolExecutor —— ToolExecutorPort 的真实现（architecture.md §3.4，
@@ -60,6 +62,12 @@ export interface CoreToolExecutorOptions {
   /** shell 覆盖（透传 NodeExecutionEnv；测试/特殊环境用）。 */
   readonly shellPath?: string;
   readonly shellEnv?: Record<string, string>;
+  /**
+   * 编排端口（T2.3）：提供则注册 agent_spawn/agent_send/agent_status 三工具
+   * （经 port 回 SchedulerService，TR-AD-9）；缺省不注册（SubAgent 子进程
+   * 装配/无编排场景的 profile 不声明这三名）。
+   */
+  readonly orchestration?: AgentOrchestrationPort;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -80,6 +88,13 @@ export class CoreToolExecutor implements ToolExecutorPort {
       createEditTool(),
       createGrepTool(),
     ];
+    if (options.orchestration !== undefined) {
+      tools.push(
+        createAgentSpawnTool(options.orchestration),
+        createAgentSendTool(options.orchestration),
+        createAgentStatusTool(options.orchestration),
+      );
+    }
     const registry = new Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>();
     for (const tool of tools) registry.set(tool.name, tool);
     this.registry = registry;

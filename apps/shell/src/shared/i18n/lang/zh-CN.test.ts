@@ -9,7 +9,10 @@ import { enUS } from "./en-US";
 import { t } from "@/shared/i18n";
 import type { Translations } from "@/shared/i18n/types";
 
-/** review.md「P-1 文案 key 清单」全集（逐行登记，缺一即失败）。 */
+/** review.md「P-1 文案 key 清单」全集（逐行登记，缺一即失败）；v0.1 追加
+ *  sa.card 与 sa.spawn 词条及 cancelled 恢复态（AD-10，无原型演示位、清单外新增）；
+ *  T4.2 追加 think/compact/stats 词条（16 key，含清单外新增 mainRunning/
+ *  mainIdle/kind* 展示键，沿 cancelled 先例）。 */
 const REQUIRED_KEYS = [
   "chat.header.session",
   "chat.header.home",
@@ -53,6 +56,62 @@ const REQUIRED_KEYS = [
   "chat.theme.dark",
   "chat.theme.light",
   "chat.tsFormat",
+  "chat.sa.card.queued",
+  "chat.sa.card.waiting",
+  "chat.sa.card.queueFoot",
+  "chat.sa.card.running",
+  "chat.sa.card.channelSub",
+  "chat.sa.card.doneBadge",
+  "chat.sa.card.failedBadge",
+  "chat.sa.card.cancelledBadge",
+  "chat.sa.card.cancelledSub",
+  "chat.sa.card.failedFoot",
+  "chat.sa.card.injectedMain",
+  "chat.sa.card.injectedMainNoTime",
+  "chat.sa.card.openDrawer",
+  "chat.sa.spawn.toast",
+  "chat.sa.spawn.toastSub",
+  "chat.think.streaming",
+  "chat.think.done",
+  "chat.compact.bar",
+  "chat.compact.note",
+  "chat.stats.badge",
+  "chat.stats.popTitle",
+  "chat.stats.total",
+  "chat.stats.footNote",
+  "chat.stats.cacheSub",
+  "chat.stats.reasoningSub",
+  "chat.stats.compactSub",
+  "chat.stats.mainRunning",
+  "chat.stats.mainIdle",
+  "chat.stats.kindMain",
+  "chat.stats.kindSub",
+  "chat.stats.kindCompact",
+  // T4.3（P-2 抽屉；review.md drawer 清单 20 key + 补齐 close/slot 两声明键）
+  "chat.drawer.close",
+  "chat.drawer.task",
+  "chat.drawer.channel",
+  "chat.drawer.kill",
+  "chat.drawer.killConfirm",
+  "chat.drawer.killedToast",
+  "chat.drawer.killedToastSub",
+  "chat.drawer.stalled",
+  "chat.drawer.stalledLc",
+  "chat.drawer.steerMark",
+  "chat.drawer.steerToast",
+  "chat.drawer.steerToastSub",
+  "chat.drawer.steerOnlyRunning",
+  "chat.drawer.steerOnlyRunningSub",
+  "chat.drawer.queuedHint",
+  "chat.drawer.reportFoot",
+  "chat.drawer.instanceMeta",
+  "chat.drawer.slotDeclared",
+  "chat.drawer.slotInherited",
+  "chat.drawer.lc.spawned",
+  "chat.drawer.lc.modelResolved",
+  "chat.drawer.lc.crashed",
+  "chat.drawer.lc.terminated",
+  "chat.drawer.closure.title",
 ] as const;
 
 function flatten(obj: unknown, prefix = ""): Map<string, string> {
@@ -71,7 +130,7 @@ function flatten(obj: unknown, prefix = ""): Map<string, string> {
 describe("AG-16-② zh-CN 词条完备性", () => {
   const flat = flatten(zhCN);
 
-  it("覆盖 review.md 全部 42 个 key（≥40 口径）", () => {
+  it("覆盖 review.md 全部 42 + 17（T4.1）+ 16（T4.2）个 v0.1 新 key（≥40 口径）", () => {
     expect(REQUIRED_KEYS.length).toBeGreaterThanOrEqual(40);
     const missing = REQUIRED_KEYS.filter((k) => !flat.has(k));
     expect(missing).toEqual([]);

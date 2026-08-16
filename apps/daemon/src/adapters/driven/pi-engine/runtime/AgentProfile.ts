@@ -39,4 +39,11 @@ export interface AgentProfile {
   readonly hooks: readonly HookSet[];
   /** compaction 参数声明（可选；缺省 DEFAULT_COMPACTION）。 */
   readonly compaction?: CompactionSettings;
+  /**
+   * 模型槽位（AD-6，T2.2）："provider/model-id"；缺省 undefined = 继承
+   * config 解析出的完整 Model 对象（同引用透传，非按 id 重建，F-14）。
+   * 声明值在装配期经 registry 解析（失败 fail-fast 含 id）——解析单点
+   * resolveModelSlot（model-provider）。
+   */
+  readonly model?: string;
 }

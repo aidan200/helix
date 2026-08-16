@@ -3,6 +3,9 @@
  *
  * 每个 fixture 注入后：app 的 HelixWsClient 在 fake transport 上真实跑
  * （握手 hello / 退避重连 / gave-up 全真），spec 只控制网络事件时序。
+ *
+ * T4.4 起控制面 window.__helixMock 由应用侧 fake 模块注册（标准注入点，
+ * 非首帧前 addInitScript）——首个控制面调用前 awaitReady() 兼容启动竞态。
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect } from "@playwright/test";
@@ -24,33 +27,50 @@ export class MockController {
 
   // ── 网络事件驱动 ──────────────────────────────────────────
 
+  // ── 控制面就绪（T4.4：应用侧注册，非 addInitScript 前置）──
+
+  /** 等待应用侧 fake 模块挂载（window.__helixMock 就绪；app 启动竞态兼容）。 */
+  async awaitReady(): Promise<void> {
+    await expect
+      .poll(() => this.page.evaluate(() => Boolean(window.__helixMock)), { timeout: 10_000 })
+      .toBe(true);
+  }
+
   /** 触发 transport open → 生产客户端立即发送 hello 首帧。 */
-  open(): Promise<void> {
+  async open(): Promise<void> {
+    await this.awaitReady();
     return this.page.evaluate(() => window.__helixMock!.open());
   }
 
-  emit(frame: EventEnvelope): Promise<void> {
+  async emit(frame: EventEnvelope): Promise<void> {
+    await this.awaitReady();
     return this.page.evaluate((f) => window.__helixMock!.emit(f), frame);
   }
 
-  emitAll(frames: EventEnvelope[]): Promise<void> {
+  async emitAll(frames: EventEnvelope[]): Promise<void> {
+    await this.awaitReady();
     return this.page.evaluate((fs) => window.__helixMock!.emitAll(fs), frames);
   }
 
   /** 已建立连接的意外断开（code 1006）。 */
-  netClose(code = 1006): Promise<void> {
+  async netClose(code = 1006): Promise<void> {
+    await this.awaitReady();
     return this.page.evaluate((c) => window.__helixMock!.netClose(c), code);
   }
 
   /** 握手期失败（onerror + close，无 welcome）。 */
-  failHandshake(): Promise<void> {
+  async failHandshake(): Promise<void> {
+    await this.awaitReady();
     return this.page.evaluate(() => window.__helixMock!.failHandshake());
   }
 
   // ── C→S 帧观测 ────────────────────────────────────────────
 
   async clientFrames(): Promise<ClientFrame[]> {
-    const frames = await this.page.evaluate(() => window.__helixMock!.clientFrames());
+    // 控制面未就绪（app 启动竞态）返回空——waitForCommand 的 poll 继续
+    const frames = await this.page.evaluate(() =>
+      window.__helixMock ? window.__helixMock.clientFrames() : [],
+    );
     return frames.filter((f): f is ClientFrame => f !== null);
   }
 

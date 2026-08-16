@@ -7,10 +7,16 @@
  * 契约 §5 注记，T1.2 定稿纳入）。
  */
 import type { Envelope } from "./envelope";
-import type { AgentStateDto } from "./types/agent";
+import type { AgentStateDto, ClosureDto } from "./types/agent";
 import type { TurnCompletionReason } from "./types/chat";
 import type { ErrorCode } from "./types/error";
-import type { EntryDto, SessionSnapshotDto } from "./types/session";
+import type {
+  CompactionEntryDto,
+  EntryDto,
+  SessionSnapshotDto,
+  ThinkingEntryDto,
+} from "./types/session";
+import type { UsageDto } from "./types/usage";
 
 // ── payload ──────────────────────────────────────────────────
 
@@ -78,6 +84,78 @@ export interface AgentStateChangedPayload {
   state: AgentStateDto;
 }
 
+// ── v0.1 新增 payload：编排生命周期族（契约 protocol-v0.1.md §5.1；AD-7） ──
+
+/** agent.spawned：spawn 工具秒回出卡（不等执行，AD-8 异步交付） */
+export interface AgentSpawnedPayload {
+  agentId: string;
+  task: string;
+  profileKind: string;
+  /** "provider/model-id"；未声明时缺省继承当前模型（AD-6） */
+  model?: string;
+}
+
+/** agent.queued：超限 FIFO 入队（AD-7②）；position 随出队递减重发 */
+export interface AgentQueuedPayload {
+  agentId: string;
+  position: number;
+}
+
+/** agent.started：出队/预算内直跑（卡片 running 态） */
+export interface AgentStartedPayload {
+  agentId: string;
+}
+
+/** agent.stalled：idle 超阈值无事件增量（AD-7④ 警示不自动杀；可再次发生，非状态迁移） */
+export interface AgentStalledPayload {
+  agentId: string;
+  idleMs: number;
+}
+
+/** agent.completed：自然收口 done（closure 同源卡片/抽屉，AD-8） */
+export interface AgentCompletedPayload {
+  agentId: string;
+  closure: ClosureDto;
+}
+
+/** agent.failed：崩溃/异常收口 failed（closure.status="failed"） */
+export interface AgentFailedPayload {
+  agentId: string;
+  error: string;
+  closure: ClosureDto;
+}
+
+/** agent.killed：用户 kill 收口（closure.status="failed"，lifecycle terminated） */
+export interface AgentKilledPayload {
+  agentId: string;
+  closure: ClosureDto;
+}
+
+// ── v0.1 新增 payload：通道族（契约 protocol-v0.1.md §5.2；AD-3/AD-9） ──
+
+/** thinking.stream.delta：thinking 流式增量（中间态不落盘，TR-AD-5） */
+export interface ThinkingStreamDeltaPayload {
+  instanceId: string;
+  delta: string;
+}
+
+/** thinking.completed：thinking 完成落 Entry */
+export interface ThinkingCompletedPayload {
+  entry: ThinkingEntryDto;
+}
+
+/** compaction.completed：compaction 完成（含 usage，AD-9③） */
+export interface CompactionCompletedPayload {
+  entry: CompactionEntryDto;
+}
+
+/** usage.recorded：turn 完成 / compaction 摘要调用完成（流式中不发，AD-4） */
+export interface UsageRecordedPayload {
+  instanceId: string;
+  usage: UsageDto;
+  source: "turn" | "compaction";
+}
+
 // ── 信封（判别式联合成员） ────────────────────────────────────
 
 export interface ConnectionWelcomeEvent
@@ -126,7 +204,46 @@ export interface AgentStateChangedEvent
   type: "agent.state.changed";
 }
 
-/** 事件信封联合（判别式：type 字段窄化） */
+// ── v0.1 新增信封（契约 protocol-v0.1.md §5） ──
+
+export interface AgentSpawnedEvent extends Envelope<AgentSpawnedPayload> {
+  type: "agent.spawned";
+}
+export interface AgentQueuedEvent extends Envelope<AgentQueuedPayload> {
+  type: "agent.queued";
+}
+export interface AgentStartedEvent extends Envelope<AgentStartedPayload> {
+  type: "agent.started";
+}
+export interface AgentStalledEvent extends Envelope<AgentStalledPayload> {
+  type: "agent.stalled";
+}
+export interface AgentCompletedEvent extends Envelope<AgentCompletedPayload> {
+  type: "agent.completed";
+}
+export interface AgentFailedEvent extends Envelope<AgentFailedPayload> {
+  type: "agent.failed";
+}
+export interface AgentKilledEvent extends Envelope<AgentKilledPayload> {
+  type: "agent.killed";
+}
+export interface ThinkingStreamDeltaEvent
+  extends Envelope<ThinkingStreamDeltaPayload> {
+  type: "thinking.stream.delta";
+}
+export interface ThinkingCompletedEvent
+  extends Envelope<ThinkingCompletedPayload> {
+  type: "thinking.completed";
+}
+export interface CompactionCompletedEvent
+  extends Envelope<CompactionCompletedPayload> {
+  type: "compaction.completed";
+}
+export interface UsageRecordedEvent extends Envelope<UsageRecordedPayload> {
+  type: "usage.recorded";
+}
+
+/** 事件信封联合（判别式：type 字段窄化；v0.1：12 → 23） */
 export type EventEnvelope =
   | ConnectionWelcomeEvent
   | ConnectionErrorEvent
@@ -139,7 +256,18 @@ export type EventEnvelope =
   | SteerDrainedEvent
   | ToolCallStartedEvent
   | ToolCallResultEvent
-  | AgentStateChangedEvent;
+  | AgentStateChangedEvent
+  | AgentSpawnedEvent
+  | AgentQueuedEvent
+  | AgentStartedEvent
+  | AgentStalledEvent
+  | AgentCompletedEvent
+  | AgentFailedEvent
+  | AgentKilledEvent
+  | ThinkingStreamDeltaEvent
+  | ThinkingCompletedEvent
+  | CompactionCompletedEvent
+  | UsageRecordedEvent;
 
 /** 事件目录常量（运行时可用；与 EventEnvelope 联合由测试双向一致性守护） */
 export const EVENT_TYPES = [
@@ -155,6 +283,17 @@ export const EVENT_TYPES = [
   "tool.call.started",
   "tool.call.result",
   "agent.state.changed",
+  "agent.spawned",
+  "agent.queued",
+  "agent.started",
+  "agent.stalled",
+  "agent.completed",
+  "agent.failed",
+  "agent.killed",
+  "thinking.stream.delta",
+  "thinking.completed",
+  "compaction.completed",
+  "usage.recorded",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

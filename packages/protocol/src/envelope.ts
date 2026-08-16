@@ -33,4 +33,11 @@ export interface Envelope<T = unknown> {
   payload: T;
   /** workspace 路由预留字段：可选；v0 无路由语义，通常不携带 */
   workspace?: WorkspaceRoute;
+  /**
+   * 实例归属（v0.1 新增，AD-3）：可选；**缺省 = 主实例（"main"）**。
+   * 仅事件侧使用——全部 S→C 事件广播携带，前端按 id 分流投影
+   * （主线进消息流；SubAgent 增量只更新卡片 streaming 行）。
+   * 命令不携带实例维度（见 PROTOCOL.md §10.1）。
+   */
+  instanceId?: string;
 }

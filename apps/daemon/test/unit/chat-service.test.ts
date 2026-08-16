@@ -77,7 +77,7 @@ describe("① 空闲 sendMessage 驱动新 turn（TP-CL4-1）", () => {
 
     // 聚合落账：user + assistant entry，turn completed；快照已 save
     const snap = chat.sessionSnapshot;
-    expect(snap.entries.map((e) => e.role)).toEqual(["user", "assistant"]);
+    expect(snap.entries.filter((e): e is (typeof snap.entries)[number] & { role: "user" | "assistant" } => "role" in e).map((e) => e.role)).toEqual(["user", "assistant"]);
     expect(snap.turns[0]!.status).toBe("completed");
     expect((await repo.restore(chat.sessionId))?.session.entries.length).toBe(2);
   });
@@ -109,8 +109,8 @@ describe("② 运行中 sendMessage 转 steer（TP-CL4-8 U 半）", () => {
     expect(types.indexOf("steer.drained")).toBeGreaterThan(types.indexOf("steer.queued"));
 
     const snap = chat.sessionSnapshot;
-    expect(snap.entries.filter((e) => e.isSteer).length).toBe(1); // isSteer entry
-    expect(snap.entries.at(-1)!.text).toBe("（已按注入调整）好的，改用简洁风格。");
+    expect(snap.entries.filter((e) => "role" in e && e.isSteer).length).toBe(1); // isSteer entry
+    expect(snap.entries.filter((e) => "role" in e).at(-1)!.text).toBe("（已按注入调整）好的，改用简洁风格。");
     expect(snap.turns.length).toBe(2); // 原 turn（steerDrained 收口）+ 注入驱动的新 turn
     expect(snap.turns.every((t) => t.status === "completed")).toBe(true);
 
@@ -156,7 +156,7 @@ describe("③ abort 转发与非销毁（TP-CL4-9 U 半）", () => {
     const snap = chat.sessionSnapshot;
     expect(snap.turns[0]!.status).toBe("interrupted");
     expect(snap.turns[1]!.status).toBe("completed");
-    expect(snap.entries.at(-1)!.text).toBe("abort 后的第二次回复。");
+    expect(snap.entries.filter((e) => "role" in e).at(-1)!.text).toBe("abort 后的第二次回复。");
   });
 
   test("空闲 abort 幂等（无状态变更）", () => {
@@ -185,7 +185,7 @@ describe("④ 工具轮领域事件（TP-CL4-1）", () => {
     expect(types.indexOf("tool.call.result")).toBeGreaterThan(types.indexOf("tool.call.started"));
     const snap = chat.sessionSnapshot;
     expect(snap.turns[0]!.status).toBe("completed");
-    expect(snap.entries.at(-1)!.text).toBe("工具结果已处理。");
+    expect(snap.entries.filter((e) => "role" in e).at(-1)!.text).toBe("工具结果已处理。");
   });
 });
 

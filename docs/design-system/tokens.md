@@ -64,10 +64,16 @@
 | `--text-muted-rgb` | `148 163 184` | `71 85 105` | 次要文字通道 |
 | `--text-dim` | `#64748B`（slate-500） | `#64748B`（slate-500，双主题同值） | 说明 / 辅助（输入 placeholder、hud-label） |
 | `--text-dim-rgb` | `100 116 139` | `100 116 139` | 同值 |
-| `--text-faint` | `#475569`（slate-600） | `#94A3B8`（slate-400） | 痕迹文字（时间戳 / var 名标注；弱化档，豁免 AA） |
-| `--text-faint-rgb` | `71 85 105` | `148 163 184` | 痕迹文字通道 |
+| `--text-faint` | `#728299`（见 F4.2 调值注） | `#5B6B81`（见 F4.2 调值注） | 痕迹文字（时间戳 / var 名标注；AA 达标档，F-6①/F-9 兑现） |
+| `--text-faint-rgb` | `114 130 153` | `91 107 129` | 痕迹文字通道 |
 
-镜像关系：暗 muted（`#94A3B8`）= 亮 faint、暗 faint（`#475569`）= 亮 muted、dim 两主题同值。同一套 slate 色阶明暗互用，切换主题 = 明度换挡。
+生成关系：dim 双主题同值（slate-500）；faint = 各主题 muted → dim 方向 70% 处的 sRGB 插值。同一套 slate 色阶明暗互用，切换主题 = 明度换挡。
+
+**F4.2 a11y 调值（F-6①/F-9 延后裁决兑现，2026-08-16，CL-4）**：原值暗 `#475569` / 亮 `#94A3B8` 对各自主题底色仅 **2.63:1 / 2.56:1**，低于 WCAG AA 4.5:1。新值计算（WCAG 2.x：sRGB 分量 `((c/255+0.055)/1.055)^2.4` 线性化，L = 0.2126R + 0.7152G + 0.0722B，对比度 `(L1+0.05)/(L2+0.05)`）：
+- 暗列 `#728299` = muted `#94A3B8` → dim `#64748B` 方向 70% 插值（114 130 153），L = 0.218；对 `--void #060910`（L = 0.003）= **5.09:1** ✓（对 `--bg #0a0e16` 亦 4.94:1，页面底同样达标）
+- 亮列 `#5B6B81` = muted `#475569` → dim `#64748B` 方向 70% 插值（91 107 129），L = 0.109；对 `--bg #FFFFFF` = **5.43:1** ✓
+- 取舍：slate 标准阶梯内无「达标且不撞档」的值（暗列 slate-500 4.19 ✗、slate-400 7.77 ✓但撞暗 muted；亮列 slate-500 4.76 ✓但撞 dim、slate-600 7.58 ✓但撞亮 muted），故取同族插值。达标后 faint 与 dim 明度关系交叉（暗列 faint 略亮于 dim、亮列略深），是 AA 硬约束下四档体系的固有代价；档位规则改为「faint = muted 向 dim 方向 70%」。调值前两列为明暗镜像（暗 muted = 亮 faint、暗 faint = 亮 muted），AA 达标后镜像让位于对称插值规则（两列均 70% 处，对比度 5.09/5.43 双余量）。
+- 断言：`e2e/CL-4-a11y-contrast.spec.ts` 读本注册表计算对比度（token 再调自动跟随），已进 playwright.config（F 层 fidelity CI）。
 
 ### 05 色彩 - 品牌与状态
 
@@ -156,6 +162,8 @@ Tailwind 映射：`text-micro / text-cap / text-body / text-main / text-title / 
 | `--shadow-inset-hud` | `inset 0 1px 0 rgba(255,255,255,0.04), inset 0 0 24px rgba(2,6,16,0.6)` | `inset 0 1px 0 rgba(255,255,255,0.9), inset 0 0 24px rgba(15,23,42,0.05)` | HUD 面板内嵌氛围（亮色：顶部高光 + 极淡 slate 内晕） |
 | hud-card 静态投影 | 无（暗色靠辉光分层） | `0 1px 3px rgba(15,23,42,0.06)` | 亮色靠软投影分层 |
 | hud-popover 投影 | 无（0.8 实底自带压制） | `0 8px 24px rgba(15,23,42,0.12)` | 亮色浮层投影 |
+| `--shadow-card`（v0.1 变量化） | `none` | `0 1px 3px rgba(15,23,42,0.06)` | hud-card 静态投影的 token 载体（SubAgent 卡片亮色软投影，iter-20260816-uzvg T4.1） |
+| `--shadow-pop`（v0.1 变量化） | `none` | `0 8px 24px rgba(15,23,42,0.12)` | hud-popover 投影的 token 载体（统计 popover / 抽屉浮层，T4.2/T4.3 消费） |
 
 ### 11 动效时长（跨主题同值，registry 登记 + 后续升变量约定）
 

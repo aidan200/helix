@@ -1,8 +1,11 @@
 import { DomainError } from "../DomainError";
 import { Entry, type EntryData } from "./Entry";
+import { ThinkingEntry, type ThinkingEntryData } from "./ThinkingEntry";
+import { CompactionEntry, type CompactionEntryData } from "./CompactionEntry";
+import type { SessionEntryData, SessionSnapshot } from "./SessionSnapshot";
 import { Turn, type TurnData } from "./Turn";
-import type { SessionSnapshot } from "./SessionSnapshot";
 import { SteerQueue, type SteerItem } from "../agent/SteerQueue";
+import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
 
 /**
  * 会话聚合根（architecture.md §3.3，AD-16：domain 层唯一权威状态）。
@@ -17,7 +20,7 @@ import { SteerQueue, type SteerItem } from "../agent/SteerQueue";
  * 重启恢复（RestoreService）的统一载荷，重建后行为延续（计数器不回卷）。
  */
 export class Session {
-  private readonly entries: Entry[] = [];
+  private readonly entries: (Entry | ThinkingEntry | CompactionEntry)[] = [];
   private readonly turns: Turn[] = [];
   private readonly steerQueue = new SteerQueue();
   private currentTurn: Turn | null = null;
@@ -64,14 +67,38 @@ export class Session {
     return this.pushEntry("assistant", text, turn.id, false, at, reservedId);
   }
 
-  /** 运行中注入 steer：落 isSteer entry + 入 SteerQueue（drain 前 domain 可观测）。 */
-  applySteer(text: string, at?: string): Entry {
+  /**
+   * 运行中注入 steer：落 isSteer entry + 入 SteerQueue（drain 前 domain 可观测）。
+   * T2.3 source：注入来源标记（user=用户输入；closure=SubAgent 收口注入，AD-8）。
+   */
+  applySteer(text: string, at?: string, source?: "user" | "closure"): Entry {
     const turn = this.requireOpenTurn("applySteer");
     if (!turn.isSteerable()) {
       throw new DomainError(`轮次 ${turn.id} 状态 ${turn.status} 不允许注入 steer（须为 generating/toolRunning）`);
     }
-    const entry = this.pushEntry("user", text, turn.id, true, at);
-    this.steerQueue.enqueue({ entryId: entry.id, text });
+    return this.steerEntry(text, at, source, turn.id);
+  }
+
+  /**
+   * 恢复场景注入（T2.4，AD-10）：无 open turn（重启收口后）时把 closure 注入
+   * SteerQueue——与运行中注入同队列同语义（下轮 turn 边界消费，FIFO），但不
+   * 驱动引擎（「不自动续跑」：零新事件流，恢复代码零 spawn）。entry 不挂轮次
+   * （turnId=null，待下轮 drain 时作为新 turn 输入回放）。
+   */
+  restoreSteer(text: string, at?: string, source?: "user" | "closure"): Entry {
+    if (this.currentTurn !== null) {
+      throw new DomainError(
+        `会话 ${this.id} 轮次 ${this.currentTurn.id} 进行中，恢复注入不适用（请用 applySteer）`,
+      );
+    }
+    return this.steerEntry(text, at, source, null);
+  }
+
+  private steerEntry(text: string, at: string | undefined, source: "user" | "closure" | undefined, turnId: string | null): Entry {
+    const entry = this.pushEntry("user", text, turnId, true, at);
+    // source 仅 closure 注入携带（用户 steer 保持旧形状——快照/投影行往返等价）；
+    // T2.3：SubAgent 收口注入与用户输入同队列可区分（AD-8 双通道）
+    this.steerQueue.enqueue({ entryId: entry.id, text, ...(source !== undefined ? { source } : {}) });
     return entry;
   }
 
@@ -89,8 +116,23 @@ export class Session {
       text,
       turnId,
       isSteer,
+      instanceId: MAIN_INSTANCE_ID, // 主实例固定 id（O-4）；SubAgent 追加路径 T2.x 接
       createdAt: at ?? new Date().toISOString(),
     });
+    this.entries.push(entry);
+    return entry;
+  }
+
+  /** 追加 thinking 完成态条目（T3.1；id 同计数器；turn 关联在领域事件 turnId 侧）。 */
+  appendThinkingEntry(data: Omit<ThinkingEntryData, "id">): ThinkingEntry {
+    const entry = ThinkingEntry.create({ ...data, id: `e${this.nextEntrySeq++}` });
+    this.entries.push(entry);
+    return entry;
+  }
+
+  /** 追加 compaction 里程碑条目（T3.1；会话级事件，不挂 turn）。 */
+  appendCompactionEntry(data: Omit<CompactionEntryData, "id">): CompactionEntry {
+    const entry = CompactionEntry.create({ ...data, id: `e${this.nextEntrySeq++}` });
     this.entries.push(entry);
     return entry;
   }
@@ -166,7 +208,7 @@ export class Session {
   get openTurn(): Turn | null {
     return this.currentTurn;
   }
-  entryList(): EntryData[] {
+  entryList(): SessionEntryData[] {
     return this.entries.map((e) => e.toData());
   }
   turnList(): TurnData[] {
@@ -189,7 +231,15 @@ export class Session {
   static restoreFrom(snapshot: SessionSnapshot): Session {
     const s = new Session(snapshot.sessionId, snapshot.createdAt);
     for (const e of snapshot.entries) {
-      s.entries.push(Entry.create({ ...e }));
+      // 旧版快照 entries 无 instanceId（列前时代）：兜底回填主实例（TR-AD-14
+      // 同精神——fromRow/restore 对旧行数据前向兼容，回填常量与 O-3 一致）
+      if ("role" in e) {
+        s.entries.push(Entry.create({ ...e, instanceId: e.instanceId ?? MAIN_INSTANCE_ID }));
+      } else if (e.kind === "thinking") {
+        s.entries.push(ThinkingEntry.create(e));
+      } else {
+        s.entries.push(CompactionEntry.create(e));
+      }
     }
     for (const t of snapshot.turns) {
       s.turns.push(Turn.create({ ...t }));

@@ -44,7 +44,7 @@
   --text: #E2E8F0;
   --text-muted: #94A3B8;
   --text-dim: #64748B;
-  --text-faint: #475569;
+  --text-faint: #728299;
 
   --search: #F97316;
   --panel-solid: #0B1120;
@@ -53,6 +53,10 @@
   --shadow-inset-hud: inset 0 1px 0 rgba(255, 255, 255, 0.04), inset 0 0 24px rgba(2, 6, 16, 0.6);
   --glow-cyan: 0 0 0 1px rgb(var(--accent-rgb) / 0.25), 0 0 18px rgb(var(--accent-rgb) / 0.18);
   --glow-violet: 0 0 0 1px rgb(var(--violet-rgb) / 0.25), 0 0 18px rgb(var(--violet-rgb) / 0.18);
+  /* v0.1 新增（TR-AD-8 双主题两列）：暗色靠辉光分层无投影，亮色软投影——
+     值与 tokens.md 10 节「hud-card 静态投影 / hud-popover 投影」行一致（变量化提升）*/
+  --shadow-card: none;
+  --shadow-pop: none;
 
   /* 通道变量（改色必须与上方成对同步，tokens.md「通道同步铁律」）*/
   --void-rgb: 6 9 16;
@@ -64,7 +68,7 @@
   --text-rgb: 226 232 240;
   --text-muted-rgb: 148 163 184;
   --text-dim-rgb: 100 116 139;
-  --text-faint-rgb: 71 85 105;
+  --text-faint-rgb: 114 130 153;
   --search-rgb: 249 115 22;
   --panel-solid-rgb: 11 17 32;
   --edge-rgb: 255 255 255;
@@ -89,8 +93,8 @@ html.light {
   --text-muted-rgb: 71 85 105;
   --text-dim: #64748B;
   --text-dim-rgb: 100 116 139;
-  --text-faint: #94A3B8;
-  --text-faint-rgb: 148 163 184;
+  --text-faint: #5B6B81;
+  --text-faint-rgb: 91 107 129;
   --accent: #2563EB;
   --accent-rgb: 37 99 235;
   --accent-hover: #1D4ED8;
@@ -107,6 +111,8 @@ html.light {
   --shadow-inset-hud: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 0 24px rgba(15, 23, 42, 0.05);
   --glow-cyan: 0 0 0 1px rgb(var(--accent-rgb) / 0.2), 0 0 18px rgb(var(--accent-rgb) / 0.1);
   --glow-violet: 0 0 0 1px rgb(var(--violet-rgb) / 0.2), 0 0 18px rgb(var(--violet-rgb) / 0.1);
+  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-pop: 0 8px 24px rgba(15, 23, 42, 0.12);
 }
 
 /* ── 亮色氛围降档（tokens.md 07 节：扫描线关 / 网格淡 / blur 降档；
@@ -127,4 +133,5 @@ html.light .composer-wrap {
 html.light .msg.assistant .avatar { color: var(--accent); }
 html.light .msg.user .avatar { color: var(--violet); }
 html.light .hud-btn-cyan { color: var(--accent); }
-html.light .toast { box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12); }
+html.light .toast { box-shadow: var(--shadow-pop); } /* v0.1：值与 --shadow-pop 一致，token 化对齐原型 */
+html.light .sa-card { box-shadow: var(--shadow-card); }

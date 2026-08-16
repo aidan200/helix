@@ -7,7 +7,7 @@ import type { Page } from "@playwright/test";
 
 const EVIDENCE_DIR = path.resolve(
   __dirname,
-  "../../../../docs/iterations/iter-20260815-6tss/evidence/e2e",
+  "../../../../docs/iterations/iter-20260816-uzvg/evidence/e2e",
 );
 
 /**

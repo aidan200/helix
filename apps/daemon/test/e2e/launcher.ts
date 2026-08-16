@@ -21,8 +21,12 @@ import { PassThrough } from "node:stream";
 import { createDaemon } from "../../src/infrastructure/container";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
+import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
-import type { DaemonScript, DaemonScriptEntry } from "../../../../e2e/harness/daemon-script";
+import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
+import type { AgentOrchestrationPort, SpawnOutcome, SendOutcome, KillOutcome, AgentInstanceStatus } from "../../src/application/ports/inbound/AgentOrchestrationPort";
+import type { DaemonScript, DaemonScriptEntry, SubagentScript } from "../../../../e2e/harness/daemon-script";
 import type { Api, AssistantMessage, Context, Model, Models } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
@@ -38,11 +42,13 @@ function argOf(flag: string): string | undefined {
 const home = argOf("--home");
 const port = Number(argOf("--port") ?? "0");
 const scriptPath = argOf("--script");
+const subagentScriptPath = argOf("--subagent-script");
+const subagentEngineScriptPath = argOf("--subagent-engine-script");
 const staticDir = argOf("--static-dir");
 const toolCwd = argOf("--tool-cwd");
 
 if (!home || !scriptPath || !Number.isFinite(port)) {
-  console.error("##HELIX-DAEMON## fatal 用法: launcher.ts --home <dir> --port <n> --script <json> [--static-dir <dir>] [--tool-cwd <dir>]");
+  console.error("##HELIX-DAEMON## fatal 用法: launcher.ts --home <dir> --port <n> --script <json> [--subagent-script <json>] [--static-dir <dir>] [--tool-cwd <dir>>");
   process.exit(1);
 }
 
@@ -71,20 +77,35 @@ const fakeModels = {
   },
 } as unknown as Models;
 
-function baseAssistant(content: AssistantMessage["content"], stopReason: string): AssistantMessage {
+function baseAssistant(content: AssistantMessage["content"], stopReason: string, usage?: AssistantMessage["usage"]): AssistantMessage {
   return {
     role: "assistant",
     content,
     api: "anthropic-messages",
     provider: "fake",
     model: "model",
-    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    usage: usage ?? { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
     stopReason: stopReason as AssistantMessage["stopReason"],
     timestamp: Date.now(),
   } as unknown as AssistantMessage;
 }
 
-function textMessage(text: string): AssistantMessage {
+/** 带 thinking 块的回复消息（T5.3 R4）：usage 附 reasoning=7 / totalTokens=9
+ *  （与剧本每轮固定用量同风格——reasoning 维度可断言且数值可预期）。 */
+function thinkingTextMessage(thinking: string, text: string): AssistantMessage {
+  return baseAssistant(
+    [
+      { type: "thinking", thinking },
+      { type: "text", text },
+    ],
+    "stop",
+    { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 7, totalTokens: 9, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+  );
+}
+
+/** 带思考块的纯文本回复（无 thinking 参数时退化为纯文本）。 */
+function textMessage(text: string, thinking?: string): AssistantMessage {
+  if (thinking !== undefined && thinking !== "") return thinkingTextMessage(thinking, text);
   return baseAssistant([{ type: "text", text }], "stop");
 }
 
@@ -114,23 +135,35 @@ function makeScriptedStreamFn(entries: readonly DaemonScriptEntry[]): StreamFn {
   return (_model, context, _options) => {
     const entry = queue.shift() ?? { kind: "reply" as const, text: "（剧本耗尽）" };
     const isTool = entry.kind === "tool";
+    const reply = entry.kind === "tool" ? undefined : (entry as { text?: string; thinking?: string; template?: string; chunkSize?: number; chunkDelayMs?: number });
+    const text = isTool ? "" : entry.kind === "replyFromResult" ? resolveText(entry, context as Context) : (entry as { text: string }).text;
+    const thinking = !isTool && entry.kind === "reply" ? ((entry as { thinking?: string }).thinking ?? "") : "";
     const message = isTool
       ? toolCallMessage(`call-${++seq}`, entry.toolName, entry.args)
-      : textMessage(resolveText(entry, context as Context));
-    const chunkSize = entry.kind === "tool" ? 0 : (entry.chunkSize ?? 0);
-    const chunkDelayMs = entry.kind === "tool" ? 0 : (entry.chunkDelayMs ?? 0);
-    const text = isTool ? "" : resolveText(entry, context as Context);
+      : textMessage(text, thinking);
+    const chunkSize = reply?.chunkSize ?? 0;
+    const chunkDelayMs = reply?.chunkDelayMs ?? 0;
 
     const stream = createAssistantMessageEventStream();
     void (async () => {
       stream.push({ type: "start", partial: message });
+      // thinking 块（contentIndex 0，T5.3 R4）：先于正文流式分片发出
+      if (!isTool && thinking !== "") {
+        stream.push({ type: "thinking_start", contentIndex: 0, partial: message });
+        for (let i = 0; i < thinking.length; i += Math.max(chunkSize, 1)) {
+          await new Promise((r) => setTimeout(r, Math.max(chunkDelayMs, 1)));
+          stream.push({ type: "thinking_delta", contentIndex: 0, delta: thinking.slice(i, i + Math.max(chunkSize, 1)), partial: message });
+        }
+        stream.push({ type: "thinking_end", contentIndex: 0, content: thinking, partial: message });
+      }
+      const textIndex = thinking !== "" ? 1 : 0;
       if (!isTool && chunkSize > 0 && chunkDelayMs > 0 && text.length > chunkSize) {
         // 逐段流式：制造可观测的 streaming 窗口（chat.stream.delta 逐帧下发）
         for (let i = 0; i < text.length; i += chunkSize) {
           await new Promise((r) => setTimeout(r, chunkDelayMs));
-          stream.push({ type: "text_delta", contentIndex: 0, delta: text.slice(i, i + chunkSize), partial: message });
+          stream.push({ type: "text_delta", contentIndex: textIndex, delta: text.slice(i, i + chunkSize), partial: message });
         }
-        stream.push({ type: "text_end", contentIndex: 0, content: text, partial: message });
+        stream.push({ type: "text_end", contentIndex: textIndex, content: text, partial: message });
       }
       stream.push({ type: "done", reason: "stop", message });
     })();
@@ -138,14 +171,74 @@ function makeScriptedStreamFn(entries: readonly DaemonScriptEntry[]): StreamFn {
   };
 }
 
+// ── ScriptedSubagentRunner（T2.4 E 层 R1~R3）：按剧本驱动实例收口 ──
+// launch 次序消费剧本条目：有形条目 delayMs 后收口（closure 回调）；null/
+// 耗尽 = 挂起（保持 running——重启收口场景的现场构造）。kill 通道可选不实现
+// （E 层 R1~R3 不涉 kill）。
+class ScriptedSubagentRunner implements InstanceRunner {
+  private callbacks?: InstanceRunnerCallbacks;
+  private idx = 0;
+  private readonly script: SubagentScript;
+  constructor(script: SubagentScript) {
+    this.script = script;
+  }
+  setCallbacks(callbacks: InstanceRunnerCallbacks): void {
+    this.callbacks = callbacks;
+  }
+  launch(instance: { instanceId: string }, _task: string): void {
+    void _task;
+    const entry = this.script[this.idx++];
+    if (entry === null || entry === undefined || this.callbacks === undefined) return;
+    const outcome: InstanceClosureOutcome =
+      entry.result === "done"
+        ? { result: "done", closure: { status: "done", summary: entry.summary, reportPath: null, findings: null, taskId: null } }
+        : { result: "failed", error: entry.summary, closure: { status: "failed", summary: entry.summary, reportPath: null, findings: null, taskId: null } };
+    setTimeout(() => this.callbacks?.onInstanceClosure(instance.instanceId, outcome), entry.delayMs);
+  }
+}
+
+// ── 延迟编排代理（T2.4 E 层）：agent_spawn 等编排工具需回口真调度器，
+// 而调度器在 createDaemon 内部装配（引擎先建）——工具执行时才解引用
+// （首个工具调用必然发生在 daemon 装配完成后）。 ────────────────────
+let orchestrationRef: AgentOrchestrationPort | undefined;
+const lazyOrchestration: AgentOrchestrationPort = {
+  spawn(task, profileKind): SpawnOutcome {
+    return orchestrationRef!.spawn(task, profileKind);
+  },
+  send(agentId, message): SendOutcome {
+    return orchestrationRef!.send(agentId, message);
+  },
+  status(agentId?): AgentInstanceStatus[] {
+    return orchestrationRef!.status(agentId);
+  },
+  kill(agentId): KillOutcome {
+    return orchestrationRef!.kill(agentId);
+  },
+};
+
 // ── 装配与生命周期 ──────────────────────────────────────────
 
 async function main(): Promise<void> {
   const script = JSON.parse(readFileSync(scriptPath!, "utf8")) as DaemonScript;
-  const executor = new CoreToolExecutor({ cwd: toolCwd ?? process.cwd() });
+  const subagentScript: SubagentScript = subagentScriptPath
+    ? (JSON.parse(readFileSync(subagentScriptPath, "utf8")) as SubagentScript)
+    : [];
+  const executor = new CoreToolExecutor({ cwd: toolCwd ?? process.cwd(), orchestration: lazyOrchestration });
+  // SubAgent runner（T5.2）：真子进程模式（--subagent-engine-script，K3 剧本
+  // 引擎注入真 SubagentLauncher——agent_spawn 真实 spawn detached 子进程，
+  // teardown 兜底回收观测面）优先；缺省进程内剧本 runner（R1~R3 无子进程）。
+  const subagentRunner: InstanceRunner = subagentEngineScriptPath
+    ? new SubagentLauncher({
+        profile: SubAgentProfile,
+        model: fakeModel,
+        apiKeys: { fake: "explicit-key" },
+        toolCwd: toolCwd ?? process.cwd(),
+        fakeEngineScript: subagentEngineScriptPath,
+      })
+    : new ScriptedSubagentRunner(subagentScript);
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,
-    modelStr: "fake/model",
+    model: fakeModel,
     apiKeys: { fake: "explicit-key" },
     models: fakeModels,
     streamFnOverride: makeScriptedStreamFn(script.entries),
@@ -159,11 +252,13 @@ async function main(): Promise<void> {
     port,
     staticDir,
     toolCwd,
+    subagentRunner,
     cliInput: new PassThrough(), // 隔离 stdio：事件 publisher 落 PassThrough，stdout 只留控制行
     cliOutput: new PassThrough(),
   });
 
   console.log(`##HELIX-DAEMON## ready ${JSON.stringify({ port: daemon.ws.port })}`);
+  orchestrationRef = daemon.orchestration; // 编排工具回口真调度器（延迟绑定）
 
   process.on("SIGTERM", () => {
     void (async () => {

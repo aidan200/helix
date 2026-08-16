@@ -15,6 +15,13 @@ export function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/** token 档位格式化（F3.3 统计徽标；T4.2 消费）：≥1M 一位小数 M；≥1k 取整 k；否则原值。 */
+export function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
+}
+
 /** 工具参数 JSON 字符串 → 展开后的 pretty JSON（解析失败回退原文）。 */
 export function prettyJsonArgs(args: string): string {
   try {

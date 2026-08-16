@@ -36,6 +36,36 @@ export function resolveModel(models: Models, modelStr: string): Model<any> {
   return model;
 }
 
+/**
+ * config model 解析收束单点（F-14 红线，T2.2）：config.json 的 model 字符串
+ * 在此一次解析为完整 Model 对象，此后全链路（主引擎/SubAgent 子进程）只拿
+ * 对象透传，不散落读字符串/按 id 重建。缺失/为空 → 中文 fail-fast。
+ * 目录缺省 builtinModels()；测试注入受控 fake catalog。
+ */
+export function resolveConfigModel(modelStr: string | undefined, models?: Models): Model<any> {
+  if (modelStr === undefined || modelStr.trim() === "") {
+    throw new Error(
+      `config.json 缺少 model 配置：请填写 "provider/model-id"（如 "anthropic/claude-sonnet-4-5"）后重启 daemon` +
+        `（模型解析收束单点 fail-fast，F-14）。`,
+    );
+  }
+  return resolveModel(models ?? buildModels(), modelStr);
+}
+
+/**
+ * 模型槽位解析（AD-6，T2.2）：profile 未声明 → 继承 base 完整对象
+ * （同引用透传，非按 id 重建——base 可来自目录之外，重建会失败）；
+ * 声明 "provider/model-id" → registry 解析（失败 fail-fast 含 id）。
+ */
+export function resolveModelSlot(
+  slot: string | undefined,
+  base: Model<any>,
+  models: Models,
+): Model<any> {
+  if (slot === undefined) return base;
+  return resolveModel(models, slot);
+}
+
 /** 流式补全函数工厂（Models.streamSimple 满足 Agent 的 StreamFn 契约）。 */
 export function createStreamFn(models: Models): StreamFn {
   return (model, context, options) => models.streamSimple(model, context, options);

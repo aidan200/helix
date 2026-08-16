@@ -1,9 +1,11 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Database, type Statement } from "bun:sqlite";
 import { SCHEMA_SQL } from "./schema";
 import { persistedStateToRows, domainEventToRow } from "./rows/RowMapper";
+import { MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
+import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type { PersistedDomainState } from "../../../application/ports/outbound/SessionRepositoryPort";
 
 /**
@@ -33,7 +35,28 @@ export interface WriteQueueOptions {
 
 type WriteJob =
   | { readonly kind: "event"; readonly event: DomainEvent; readonly agentKind: string }
-  | { readonly kind: "state"; readonly state: PersistedDomainState };
+  | { readonly kind: "state"; readonly state: PersistedDomainState }
+  | {
+      readonly kind: "agentLifecycle";
+      readonly sessionId: string;
+      readonly instanceId: string;
+      readonly state: string;
+    }
+  | {
+      /** T2.3 O-5：closure 记录行（任务报告本体，SQLite 追加行）。 */
+      readonly kind: "closureRecord";
+      readonly sessionId: string;
+      readonly agentId: string;
+      readonly result: "done" | "failed" | "killed";
+      readonly closure: InstanceClosurePayload;
+      readonly occurredAt: string;
+    }
+  | {
+      /** T2.3 O-5：reportPath 文件产物（markdown；TR-AD-13 同队列原子写）。 */
+      readonly kind: "reportFile";
+      readonly reportPath: string;
+      readonly content: string;
+    };
 
 export class WriteQueue {
   private readonly db: Database;
@@ -49,16 +72,20 @@ export class WriteQueue {
   private readonly insertSteer!: Statement;
   private readonly clearToolCalls!: Statement;
   private readonly insertToolCall!: Statement;
+  private readonly insertClosureRecord!: Statement;
 
   constructor(dbPath: string, options: WriteQueueOptions = {}) {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL;");
+    // 守护式 schema 演进先于建表：旧库先补列/重建 PK，SCHEMA_SQL 随后幂等
+    // 直建新库（新列在 CREATE TABLE 内，索引依赖的列此时必然已存在）。
+    ensureSchemaEvolved(this.db);
     this.db.exec(SCHEMA_SQL);
     this.onError = options.onError;
 
     this.insertEvent = this.db.prepare(
-      "INSERT INTO domain_events (session_id, agent_kind, type, payload, ts) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO domain_events (session_id, agent_kind, agent_instance_id, type, payload, ts) VALUES (?, ?, ?, ?, ?, ?)",
     );
     this.upsertSession = this.db.prepare(
       "INSERT INTO session_state (session_id, created_at, entries, turns, updated_at) VALUES (?, ?, ?, ?, ?) " +
@@ -66,8 +93,8 @@ export class WriteQueue {
         "turns = excluded.turns, updated_at = excluded.updated_at",
     );
     this.upsertLifecycle = this.db.prepare(
-      "INSERT INTO agent_lifecycle (session_id, state, updated_at) VALUES (?, ?, ?) " +
-        "ON CONFLICT(session_id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at",
+      "INSERT INTO agent_lifecycle (session_id, instance_id, state, updated_at) VALUES (?, ?, ?, ?) " +
+        "ON CONFLICT(session_id, instance_id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at",
     );
     this.clearSteer = this.db.prepare("DELETE FROM steer_queue WHERE session_id = ?");
     this.insertSteer = this.db.prepare(
@@ -75,7 +102,11 @@ export class WriteQueue {
     );
     this.clearToolCalls = this.db.prepare("DELETE FROM tool_calls WHERE session_id = ?");
     this.insertToolCall = this.db.prepare(
-      "INSERT INTO tool_calls (id, session_id, tool_name, args, status, result, error, started_at, ended_at) " +
+      "INSERT INTO tool_calls (id, session_id, instance_id, tool_name, args, status, result, error, started_at, ended_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    this.insertClosureRecord = this.db.prepare(
+      "INSERT INTO closure_records (session_id, agent_id, result, status, summary, report_path, findings, task_id, created_at) " +
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
   }
@@ -92,6 +123,37 @@ export class WriteQueue {
   /** 领域状态整体入队（投影行整体替换：内存是权威，磁盘是投影缓存）。 */
   saveState(state: PersistedDomainState): Promise<void> {
     return this.enqueue({ kind: "state", state });
+  }
+
+  /**
+   * 实例生命周期投影行入队（agent_lifecycle upsert；T2.1 调度器扩列写面：
+   * SubAgent 实例状态迁移与主实例会话状态同表同 FIFO，保序落盘）。
+   */
+  saveAgentLifecycle(sessionId: string, instanceId: string, state: string): Promise<void> {
+    return this.enqueue({ kind: "agentLifecycle", sessionId, instanceId, state });
+  }
+
+  /**
+   * closure 记录行入队（T2.3 O-5：任务报告本体 SQLite 行，追加重；
+   * findings 保 JSON，重启后经读面完整可读）。
+   */
+  saveClosureRecord(
+    sessionId: string,
+    agentId: string,
+    result: "done" | "failed" | "killed",
+    closure: InstanceClosurePayload,
+    occurredAt: string = new Date().toISOString(),
+  ): Promise<void> {
+    return this.enqueue({ kind: "closureRecord", sessionId, agentId, result, closure, occurredAt });
+  }
+
+  /**
+   * 报告文件产物入队（T2.3 O-5：markdown 摘要+findings 落
+   * <home>/reports/<session>/<agentId>.md；与 SQLite 写同链串行——
+   * tmp 写入 + rename 原子替换，崩溃不留半文件）。
+   */
+  saveReportFile(reportPath: string, content: string): Promise<void> {
+    return this.enqueue({ kind: "reportFile", reportPath, content });
   }
 
   /** 等待已入队 job 全部落盘（测试/优雅退出用）。 */
@@ -124,9 +186,40 @@ export class WriteQueue {
   }
 
   private apply(job: WriteJob): void {
+    if (job.kind === "agentLifecycle") {
+      this.upsertLifecycle.run(job.sessionId, job.instanceId, job.state, new Date().toISOString());
+      return;
+    }
+    if (job.kind === "closureRecord") {
+      this.insertClosureRecord.run(
+        job.sessionId,
+        job.agentId,
+        job.result,
+        job.closure.status,
+        job.closure.summary,
+        job.closure.reportPath ?? null,
+        job.closure.findings === null || job.closure.findings === undefined ? null : JSON.stringify(job.closure.findings),
+        job.closure.taskId ?? null,
+        job.occurredAt,
+      );
+      return;
+    }
+    if (job.kind === "reportFile") {
+      mkdirSync(path.dirname(job.reportPath), { recursive: true });
+      writeFileSync(`${job.reportPath}.tmp`, job.content, "utf8");
+      renameSync(`${job.reportPath}.tmp`, job.reportPath); // 同目录 rename 原子替换
+      return;
+    }
     if (job.kind === "event") {
       const row = domainEventToRow(job.event, job.agentKind);
-      this.insertEvent.run(row.session_id, row.agent_kind, row.type, row.payload, row.ts);
+      this.insertEvent.run(
+        row.session_id,
+        row.agent_kind,
+        row.agent_instance_id,
+        row.type,
+        row.payload,
+        row.ts,
+      );
       return;
     }
     const rows = persistedStateToRows(job.state);
@@ -138,7 +231,12 @@ export class WriteQueue {
       rows.session.turns,
       rows.session.updated_at,
     );
-    this.upsertLifecycle.run(rows.lifecycle.session_id, rows.lifecycle.state, rows.lifecycle.updated_at);
+    this.upsertLifecycle.run(
+      rows.lifecycle.session_id,
+      rows.lifecycle.instance_id,
+      rows.lifecycle.state,
+      rows.lifecycle.updated_at,
+    );
     // 队列/记录行整体替换（投影语义：与内存当前态一致，顺序保持入队序）
     this.clearSteer.run(sessionId);
     for (const s of rows.steer) this.insertSteer.run(s.session_id, s.entry_id, s.text);
@@ -147,6 +245,7 @@ export class WriteQueue {
       this.insertToolCall.run(
         t.id,
         t.session_id,
+        t.instance_id,
         t.tool_name,
         t.args,
         t.status,
@@ -157,4 +256,63 @@ export class WriteQueue {
       );
     }
   }
+}
+
+// ── O-3 守护式 schema 演进（architecture.md §8.1，AG-06 唯一写点内） ──
+
+/**
+ * 启动期列级演进（幂等，每次打开执行，已演进则全部 no-op）：
+ *
+ * - domain_events.agent_instance_id / tool_calls.instance_id 缺列 →
+ *   ALTER TABLE ADD COLUMN TEXT NOT NULL DEFAULT 'main'——SQLite 对
+ *   NOT NULL 补列强制要求 DEFAULT，恰好即 O-3 裁决的旧行回填机制：
+ *   存量行自动落 'main'（主实例固定 id，与 O-4 同源），新行恒显式写入。
+ * - agent_lifecycle 单列 PK → (session_id, instance_id)：SQLite 无法
+ *   ALTER 主键，走守护式重建（rename→create→copy→drop，事务包裹原子；
+ *   旧行 instance_id 回填 'main'）。重建表形状与 schema.ts 新建表一致。
+ *
+ * 不做迁移框架（迭代边界）：无版本表、无回滚——检测即修，崩溃安全靠事务。
+ */
+function ensureSchemaEvolved(db: Database): void {
+  if (!hasColumn(db, "domain_events", "agent_instance_id")) {
+    db.exec("ALTER TABLE domain_events ADD COLUMN agent_instance_id TEXT NOT NULL DEFAULT 'main'");
+  }
+  if (!hasColumn(db, "tool_calls", "instance_id")) {
+    db.exec("ALTER TABLE tool_calls ADD COLUMN instance_id TEXT NOT NULL DEFAULT 'main'");
+  }
+  const lifecycleCols = tableColumns(db, "agent_lifecycle");
+  if (lifecycleCols.length > 0 && !lifecycleCols.includes("instance_id")) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec("DROP TABLE IF EXISTS agent_lifecycle_rebuild"); // 上次崩溃残留防御（事务内不可达，保险）
+      db.exec("ALTER TABLE agent_lifecycle RENAME TO agent_lifecycle_rebuild");
+      db.exec(
+        "CREATE TABLE agent_lifecycle (" +
+          "session_id TEXT NOT NULL, " +
+          `instance_id TEXT NOT NULL DEFAULT '${MAIN_INSTANCE_ID}', ` +
+          "state TEXT NOT NULL, " +
+          "updated_at TEXT NOT NULL, " +
+          "PRIMARY KEY (session_id, instance_id))",
+      );
+      db.exec(
+        "INSERT INTO agent_lifecycle (session_id, instance_id, state, updated_at) " +
+          `SELECT session_id, '${MAIN_INSTANCE_ID}', state, updated_at FROM agent_lifecycle_rebuild`,
+      );
+      db.exec("DROP TABLE agent_lifecycle_rebuild");
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error; // 迁移失败快速失败：daemon 不带病启动
+    }
+  }
+}
+
+/** 列存在性（表不存在视为"无需演进"——随后的 CREATE TABLE 直建新形状）。 */
+function hasColumn(db: Database, table: string, column: string): boolean {
+  const cols = tableColumns(db, table);
+  return cols.length === 0 || cols.includes(column);
+}
+
+function tableColumns(db: Database, table: string): string[] {
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
 }

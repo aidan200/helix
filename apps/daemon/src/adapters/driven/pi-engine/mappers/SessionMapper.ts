@@ -1,6 +1,8 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Usage, UserMessage } from "@earendil-works/pi-ai";
+import { MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
 import type { EntryData } from "../../../../domain/session/Entry";
+import type { AgentEngineUsage } from "../../../../application/ports/outbound/AgentEnginePort";
 
 /**
  * SessionMapper —— pi 消息 ↔ domain 聚合的薄映射（architecture.md §3.5/§5.5）。
@@ -11,9 +13,9 @@ import type { EntryData } from "../../../../domain/session/Entry";
  * T1.8（SQLite 落盘）扩展。
  */
 
-/** 内容块 → 纯文本（text 块拼接；toolCall 块贡献空串——TS3-a：工具轮
- *  占位文本不产生，toolCall-only 消息经空文本守卫不落账；其余非 text
- *  块类型以占位标记，行为不变）。 */
+/** 内容块 → 纯文本（text 块拼接；toolCall/thinking 块贡献空串——TS3-a：
+ *  工具轮占位文本不产生；thinking 自 T3.1 起为一等通道（独立 Entry），
+ *  不再以占位标记污染消息正文；其余非 text 块类型以占位标记）。 */
 export function textOfContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -21,6 +23,7 @@ export function textOfContent(content: unknown): string {
       .map((block: { type?: string; text?: string }) => {
         if (block?.type === "text") return block.text ?? "";
         if (block?.type === "toolCall") return "";
+        if (block?.type === "thinking") return "";
         return `[${block?.type ?? "unknown"}]`;
       })
       .join("");
@@ -52,8 +55,26 @@ export function stopReasonOf(message: AgentMessage): string | undefined {
   return (message as AssistantMessage).stopReason;
 }
 
+/** pi Usage → 七字段防腐（T3.1 挂点：提取本体轻量，账目深化归 T3.2）。
+ *  cost 拍平取 total；reasoning 未报时 0。消息不携带 usage → undefined。 */
+export function usageOf(message: AgentMessage): AgentEngineUsage | undefined {
+  const usage = (message as { usage?: Usage }).usage;
+  if (usage === undefined) return undefined;
+  return {
+    input: usage.input,
+    output: usage.output,
+    cacheRead: usage.cacheRead,
+    cacheWrite: usage.cacheWrite,
+    reasoning: usage.reasoning ?? 0,
+    totalTokens: usage.totalTokens,
+    cost: usage.cost.total,
+  };
+}
+
 /** pi 消息 → domain Entry 数据形状（工具结果归 tool；custom 消息忽略）。
- *  本任务供引擎事件侧薄映射；完整 Entry 树映射 T1.8 扩展。 */
+ *  实例归属恒为主实例（pi-engine 映射的是主会话引擎流；SubAgent 侧
+ *  映射归 T2.x 子进程 adapter）。本任务供引擎事件侧薄映射；完整 Entry
+ *  树映射 T1.8 扩展。 */
 export function entryDataOf(message: AgentMessage, fallbackTurnId: string | null): EntryData | null {
   const m = message as { role: string; content: unknown };
   if (m.role === "user") {
@@ -63,6 +84,7 @@ export function entryDataOf(message: AgentMessage, fallbackTurnId: string | null
       text: textOfContent(m.content),
       turnId: fallbackTurnId,
       isSteer: false,
+      instanceId: MAIN_INSTANCE_ID,
       createdAt: new Date().toISOString(),
     };
   }
@@ -73,6 +95,7 @@ export function entryDataOf(message: AgentMessage, fallbackTurnId: string | null
       text: textOfContent(m.content),
       turnId: fallbackTurnId,
       isSteer: false,
+      instanceId: MAIN_INSTANCE_ID,
       createdAt: new Date().toISOString(),
     };
   }

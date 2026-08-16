@@ -1,9 +1,15 @@
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
+import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type {
+  AgentLifecycleRowData,
+  ClosureRecordData,
+  DomainEventQuery,
+  InstanceState,
   PersistedDomainState,
   SessionRepositoryPort,
 } from "../../../application/ports/outbound/SessionRepositoryPort";
 import type { WriteQueue } from "./WriteQueue";
+import { MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
 import { rowToDomainEvent, rowsToPersistedState } from "./rows/RowMapper";
 import type {
   AgentLifecycleRow,
@@ -12,6 +18,20 @@ import type {
   SteerQueueRow,
   ToolCallRow,
 } from "./rows/Rows";
+
+/** closure_records 行投影（读面；findings 为 JSON 串，由消费方解析）。 */
+export interface ClosureRecordRow {
+  readonly id: number;
+  readonly session_id: string;
+  readonly agent_id: string;
+  readonly result: "done" | "failed" | "killed";
+  readonly status: "done" | "failed";
+  readonly summary: string;
+  readonly report_path: string | null;
+  readonly findings: string | null;
+  readonly task_id: string | null;
+  readonly created_at: string;
+}
 
 /**
  * SqliteSessionRepository —— SessionRepositoryPort 的 SQLite 实现
@@ -25,15 +45,6 @@ import type {
  * session/agent/类型/时间四维过滤 domain_events——只留数据不留 API，
  * 不对协议/前端暴露。
  */
-export interface DomainEventQuery {
-  readonly sessionId?: string;
-  readonly agentKind?: string;
-  readonly type?: string;
-  /** ISO 8601 下界（含）。 */
-  readonly since?: string;
-  /** ISO 8601 上界（含）。 */
-  readonly until?: string;
-}
 
 export class SqliteSessionRepository implements SessionRepositoryPort {
   constructor(private readonly queue: WriteQueue) {}
@@ -48,15 +59,19 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .prepare("SELECT session_id, created_at, entries, turns, updated_at FROM session_state WHERE session_id = ?")
       .get(sessionId) as SessionStateRow | null;
     if (!session) return undefined;
+    // agent_lifecycle 已是每实例一行（复合 PK）：主会话运行态取 main 实例行；
+    // SubAgent 实例行由编排侧（T2.x）消费，此处不混合读取
     const lifecycle = db
-      .prepare("SELECT session_id, state, updated_at FROM agent_lifecycle WHERE session_id = ?")
-      .get(sessionId) as AgentLifecycleRow | null;
+      .prepare(
+        "SELECT session_id, instance_id, state, updated_at FROM agent_lifecycle WHERE session_id = ? AND instance_id = ?",
+      )
+      .get(sessionId, MAIN_INSTANCE_ID) as AgentLifecycleRow | null;
     const steer = db
       .prepare("SELECT seq, session_id, entry_id, text FROM steer_queue WHERE session_id = ? ORDER BY seq")
       .all(sessionId) as SteerQueueRow[];
     const toolCalls = db
       .prepare(
-        "SELECT id, session_id, tool_name, args, status, result, error, started_at, ended_at " +
+        "SELECT id, session_id, instance_id, tool_name, args, status, result, error, started_at, ended_at " +
           "FROM tool_calls WHERE session_id = ? ORDER BY rowid",
       )
       .all(sessionId) as ToolCallRow[];
@@ -68,6 +83,57 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .prepare("SELECT session_id FROM session_state ORDER BY created_at, rowid")
       .all() as { session_id: string }[];
     return rows.map((r) => r.session_id);
+  }
+
+  /** 实例生命周期投影行（T2.1 调度器写面：经 WriteQueue 单写通道串行落盘）。 */
+  async saveAgentLifecycle(sessionId: string, instanceId: string, state: InstanceState): Promise<void> {
+    await this.queue.saveAgentLifecycle(sessionId, instanceId, state);
+  }
+
+  /** closure 记录行（T2.3 O-5 任务报告本体；追加重，经单写通道）。 */
+  async saveClosureRecord(
+    sessionId: string,
+    agentId: string,
+    result: "done" | "failed" | "killed",
+    closure: InstanceClosurePayload,
+  ): Promise<void> {
+    await this.queue.saveClosureRecord(sessionId, agentId, result, closure);
+  }
+
+  /** 报告文件产物（T2.3 O-5：markdown 摘要+findings；同队列原子写）。 */
+  async saveReportFile(reportPath: string, content: string): Promise<void> {
+    await this.queue.saveReportFile(reportPath, content);
+  }
+
+  /** closure 记录行读面（按会话/实例过滤，落盘序；T2.4 恢复读入点，findings 解析为值）。 */
+  queryClosureRecords(sessionId: string, agentId?: string): ClosureRecordData[] {
+    const sql =
+      "SELECT id, session_id, agent_id, result, status, summary, report_path, findings, task_id, created_at " +
+      "FROM closure_records WHERE session_id = ?" + (agentId !== undefined ? " AND agent_id = ?" : "") +
+      " ORDER BY id";
+    const stmt = this.queue.database.prepare(sql);
+    const rows =
+      agentId !== undefined
+        ? (stmt.all(sessionId, agentId) as unknown as ClosureRecordRow[])
+        : (stmt.all(sessionId) as unknown as ClosureRecordRow[]);
+    return rows.map((r) => ({
+      agentId: r.agent_id,
+      result: r.result,
+      status: r.status,
+      summary: r.summary,
+      reportPath: r.report_path,
+      findings: r.findings === null ? null : (JSON.parse(r.findings) as unknown[]),
+      taskId: r.task_id,
+      createdAt: r.created_at,
+    }));
+  }
+
+  /** 实例生命周期行读面（T2.4：agent_lifecycle 每实例行，注册表重建数据源）。 */
+  async queryAgentLifecycles(sessionId: string): Promise<readonly AgentLifecycleRowData[]> {
+    const rows = this.queue.database
+      .prepare("SELECT instance_id, state, updated_at FROM agent_lifecycle WHERE session_id = ? ORDER BY rowid")
+      .all(sessionId) as { instance_id: string; state: string; updated_at: string }[];
+    return rows.map((r) => ({ instanceId: r.instance_id, state: r.state, updatedAt: r.updated_at }));
   }
 
   /** 四维过滤查询（trace 数据面，v0 无对外 API——内部能力 + 测试证明）。 */
@@ -82,6 +148,10 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       where.push("agent_kind = ?");
       params.push(query.agentKind);
     }
+    if (query.instanceId !== undefined) {
+      where.push("agent_instance_id = ?");
+      params.push(query.instanceId);
+    }
     if (query.type !== undefined) {
       where.push("type = ?");
       params.push(query.type);
@@ -95,7 +165,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       params.push(query.until);
     }
     const sql =
-      "SELECT id, session_id, agent_kind, type, payload, ts FROM domain_events" +
+      "SELECT id, session_id, agent_kind, agent_instance_id, type, payload, ts FROM domain_events" +
       (where.length > 0 ? ` WHERE ${where.join(" AND ")}` : "") +
       " ORDER BY id";
     const rows = this.queue.database.prepare(sql).all(...params) as DomainEventRow[];

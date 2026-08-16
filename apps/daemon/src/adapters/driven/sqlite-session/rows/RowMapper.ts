@@ -1,6 +1,8 @@
 import type { DomainEvent } from "../../../../domain/events/DomainEvent";
 import type { AgentLifecycleState } from "../../../../domain/agent/AgentLifecycle";
+import { MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
 import type { ToolCallRecordData, ToolCallStatus } from "../../../../domain/tools/ToolCallRecord";
+import type { SessionEntryData } from "../../../../domain/session/SessionSnapshot";
 import type { PersistedDomainState } from "../../../../application/ports/outbound/SessionRepositoryPort";
 import type {
   AgentLifecycleRow,
@@ -22,6 +24,8 @@ export function domainEventToRow(event: DomainEvent, agentKind: string): DomainE
   return {
     session_id: event.sessionId,
     agent_kind: agentKind,
+    // 缺省 = 主实例（契约 §1 同语义）；落盘列值显式化（trace 四维可查）
+    agent_instance_id: event.instanceId ?? MAIN_INSTANCE_ID,
     type: event.type,
     payload: JSON.stringify(event.payload),
     ts: event.occurredAt,
@@ -32,6 +36,8 @@ export function rowToDomainEvent(row: DomainEventRow): DomainEvent {
   return {
     type: row.type as DomainEvent["type"],
     sessionId: row.session_id,
+    // 旧行兜底（TR-AD-14：列前时代的行/未回填连接读到的空值）——主实例语义
+    instanceId: row.agent_instance_id ?? MAIN_INSTANCE_ID,
     payload: JSON.parse(row.payload) as unknown,
     occurredAt: row.ts,
   };
@@ -57,7 +63,7 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
       turns: JSON.stringify(state.session.turns),
       updated_at: now,
     },
-    lifecycle: { session_id: sessionId, state: state.agentState, updated_at: now },
+    lifecycle: { session_id: sessionId, instance_id: MAIN_INSTANCE_ID, state: state.agentState, updated_at: now },
     steer: state.session.pendingSteer.map((item) => ({
       session_id: sessionId,
       entry_id: item.entryId,
@@ -66,6 +72,7 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
     toolCalls: state.toolCalls.map((t) => ({
       id: t.id,
       session_id: sessionId,
+      instance_id: MAIN_INSTANCE_ID, // 工具记录 domain 侧挂 id 归 T2.x；行级先落主实例
       tool_name: t.toolName,
       args: JSON.stringify(t.args ?? null),
       status: t.status,
@@ -87,7 +94,12 @@ export function rowsToPersistedState(
     session: {
       sessionId: session.session_id,
       createdAt: session.created_at,
-      entries: JSON.parse(session.entries),
+      // 旧库 entries JSON 无 instanceId（列前时代）→ fromRow 兜底回填主实例（TR-AD-14）；
+      // T3.1：entries 为 message/thinking/compaction 混排联合（kind 判别），三类都挂 instanceId
+      entries: (JSON.parse(session.entries) as SessionEntryData[]).map((e) => ({
+        ...e,
+        instanceId: e.instanceId ?? MAIN_INSTANCE_ID,
+      })),
       turns: JSON.parse(session.turns),
       pendingSteer: steer.map((s) => ({ entryId: s.entry_id, text: s.text })),
     },

@@ -1,4 +1,9 @@
-import type { AgentEngineEvent, AgentEngineListener, AgentEnginePort } from "../../src/application/ports/outbound/AgentEnginePort";
+import type {
+  AgentEngineEvent,
+  AgentEngineListener,
+  AgentEnginePort,
+  AgentEngineUsage,
+} from "../../src/application/ports/outbound/AgentEnginePort";
 
 /**
  * FakeAgentEngine —— AgentEnginePort 的契约等价 mock（M1，test-design §5.1）。
@@ -34,6 +39,10 @@ import type { AgentEngineEvent, AgentEngineListener, AgentEnginePort } from "../
 export interface ScriptedTurn {
   /** assistant 回复文本（按 3~5 字符分片流式发出）。 */
   text?: string;
+  /** thinking 块全文（先于文本流分片发出：thinking_started/delta×N/end，T3.1）。 */
+  thinking?: string;
+  /** 本 turn 用量（挂 message_end(assistant).usage；缺省字段零填，T3.1）。 */
+  usage?: Partial<AgentEngineUsage>;
   /** 工具批：先于文本发出（模拟 stopReason=toolUse 的工具轮）。 */
   toolCalls?: {
     toolName: string;
@@ -45,6 +54,15 @@ export interface ScriptedTurn {
   }[];
   /** 流式分片间隔 ms（默认 8；调大以便测试在流式中段注入 steer/abort）。 */
   chunkDelayMs?: number;
+  /** turn 边界 compaction 产物（turn_end 后、下一 turn 前 emit compaction_completed，T3.1）。 */
+  compaction?: {
+    tokensBefore: number;
+    tokensAfter: number;
+    summary: string;
+    usage?: Partial<AgentEngineUsage>;
+  };
+  /** turn 边界 compaction 失败注入（emit engine_error，会话继续，T3.1）。 */
+  compactionError?: string;
 }
 
 export interface FakeAgentEngineOptions {
@@ -61,6 +79,19 @@ export interface FakeAgentEngineOptions {
 const DEFAULT_CHUNK_DELAY_MS = 8;
 const DEFAULT_TOOL_DURATION_MS = 30;
 const ABORT_MESSAGE = "The operation was aborted.";
+
+/** 剧本用量零填（缺省字段补 0——FakeAgentEngine 只关心挂载，不复制账目语义）。 */
+function fullUsage(partial?: Partial<AgentEngineUsage>): AgentEngineUsage {
+  return {
+    input: partial?.input ?? 0,
+    output: partial?.output ?? 0,
+    cacheRead: partial?.cacheRead ?? 0,
+    cacheWrite: partial?.cacheWrite ?? 0,
+    reasoning: partial?.reasoning ?? 0,
+    totalTokens: partial?.totalTokens ?? 0,
+    cost: partial?.cost ?? 0,
+  };
+}
 
 export class FakeAgentEngine implements AgentEnginePort {
   private replies: ScriptedTurn[];
@@ -127,6 +158,9 @@ export class FakeAgentEngine implements AgentEnginePort {
       const user = currentUser;
       const script = this.pickScript(user);
       await this.runConversationTurn(user, script);
+      // T3.1 turn 边界 compaction（prepareNextTurn 挂点镜像：turn_end 后、
+      // drain/下一 turn 前；失败 emit engine_error 不中断后续 drain）
+      this.emitTurnBoundaryCompaction(script);
       // §5.3-2/4：turn 边界 drain——每条 steer 独占一个 turn，按序消费
       const next = this.steerQueue.shift();
       currentUser = next === undefined ? null : { text: next, source: "steer-drain" };
@@ -225,11 +259,23 @@ export class FakeAgentEngine implements AgentEnginePort {
       this.emit({ type: "turn_start" });
     }
 
-    // assistant 流式生成（分片 message_update）
+    // assistant 流式生成（thinking 块先行 → 分片 message_update；T3.1）
     const text = script.text ?? this.defaultReply(user.text);
     const chunks = splitChunks(text);
     const delayMs = script.chunkDelayMs ?? this.defaultChunkDelayMs;
     this.emit({ type: "message_start", role: "assistant", source: user.source });
+    const thinking = script.thinking ?? "";
+    if (thinking !== "") {
+      this.emit({ type: "thinking_started", contentIndex: 0 });
+      for (const chunk of splitChunks(thinking)) {
+        await delay(delayMs);
+        if (this.settled()) break;
+        this.emit({ type: "thinking_delta", contentIndex: 0, delta: chunk });
+      }
+      if (!this.settled()) {
+        this.emit({ type: "thinking_end", contentIndex: 0, content: thinking });
+      }
+    }
     for (const chunk of chunks) {
       await delay(delayMs);
       if (this.settled()) break; // §5.1 abort 轮：剩余分片丢弃
@@ -238,9 +284,27 @@ export class FakeAgentEngine implements AgentEnginePort {
     if (this.settled()) {
       this.emit({ type: "message_end", role: "assistant", text: "", stopReason: "error" });
     } else {
-      this.emit({ type: "message_end", role: "assistant", text, stopReason: "stop" });
+      const usage = script.usage !== undefined ? fullUsage(script.usage) : undefined;
+      this.emit({ type: "message_end", role: "assistant", text, stopReason: "stop", ...(usage !== undefined ? { usage } : {}) });
     }
     this.emit({ type: "turn_end", toolResultCount: 0 });
+  }
+
+  /** T3.1：turn 边界 compaction 剧本（成功 emit compaction_completed / 失败 emit engine_error）。 */
+  private emitTurnBoundaryCompaction(script: ScriptedTurn): void {
+    if (script.compaction !== undefined) {
+      const usage = fullUsage(script.compaction.usage);
+      this.emit({
+        type: "compaction_completed",
+        tokensBefore: script.compaction.tokensBefore,
+        tokensAfter: script.compaction.tokensAfter,
+        summary: script.compaction.summary,
+        usage,
+      });
+    }
+    if (script.compactionError !== undefined) {
+      this.emit({ type: "engine_error", message: script.compactionError });
+    }
   }
 
   // ── 内部工具 ─────────────────────────────────────────────

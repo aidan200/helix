@@ -103,15 +103,22 @@ describe("AG-02：依赖方向矩阵", () => {
   });
 });
 
-describe("AG-04：pi import 只允许出现在 adapters/driven/pi-engine/ 与 adapters/driven/tools/", () => {
+describe("AG-04：pi import 只允许出现在 driven 域（pi-engine/tools/subagent）", () => {
   test("src 其余目录零 @earendil-works/pi-* import", () => {
     const all = listFiles(srcRoot);
-    const allowedRoots = [path.join("adapters", "driven", "pi-engine"), path.join("adapters", "driven", "tools")];
+    // T2.2：subagent/ 是 pi driven 域的子进程形态（launcher 透传 Model、
+    // ChildMain 复用 pi-engine 防腐墙、剧本引擎用 pi-ai 流原语）——TR-AD-7
+    // 「pi import 只在 driven 域」语义不变，白名单新增第三个 driven 根。
+    const allowedRoots = [
+      path.join("adapters", "driven", "pi-engine"),
+      path.join("adapters", "driven", "tools"),
+      path.join("adapters", "driven", "subagent"),
+    ];
     for (const rel of all) {
       const isAllowed = allowedRoots.some((root) => rel.startsWith(root));
       for (const spec of importSpecifiers(read(rel))) {
         if (spec.startsWith("@earendil-works/pi")) {
-          expect(isAllowed, `${rel} 出现 pi import（仅 pi-engine 与 tools 允许）：${spec}`).toBe(true);
+          expect(isAllowed, `${rel} 出现 pi import（仅 driven 域 pi-engine/tools/subagent 允许）：${spec}`).toBe(true);
         }
       }
     }
@@ -220,11 +227,44 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     expect(src.match(/new\s+WriteQueue\(/g)?.length).toBe(1);
     expect(src.match(/new\s+SqliteSessionRepository\(/g)?.length).toBe(1);
   });
+
+  test("③ T2.3 closure 写面收敛：closure_records/reports 写语句只在 WriteQueue，DDL 只在 schema", () => {
+    // closure_records 的 SQL 写语句（INSERT/DELETE/UPDATE）只允许 WriteQueue；
+    // DDL 只允许 schema.ts；服务层注释提及表名不算写点（扫 SQL 而非词面）
+    const closureSql = /(INSERT\s+INTO|DELETE\s+FROM|UPDATE)\s+closure_records/i;
+    for (const rel of listFiles(srcRoot)) {
+      const src = read(rel);
+      const isWriteQueue = rel === writeQueueRel;
+      const isSchema = rel === path.join("adapters", "driven", "sqlite-session", "schema.ts");
+      if (closureSql.test(src)) {
+        expect(isWriteQueue, `${rel} 出现 closure_records SQL 写语句（只允许 WriteQueue）`).toBe(true);
+      }
+      if (/CREATE\s+TABLE[^;]*closure_records/i.test(src)) {
+        expect(isSchema, `${rel} 出现 closure_records DDL（只允许 schema.ts）`).toBe(true);
+      }
+      if (/renameSync/.test(src)) {
+        expect(isWriteQueue, `${rel} 出现原子替换写（reportFile 专属，只允许 WriteQueue）`).toBe(true);
+      }
+    }
+    // 两写面真实存在（扫描面与实现同步扩——防扫描空转）
+    const wq = read(writeQueueRel);
+    expect(wq).toContain('"closureRecord"');
+    expect(wq).toContain('"reportFile"');
+    expect(wq).toContain("INSERT INTO closure_records");
+    expect(read(path.join("adapters", "driven", "sqlite-session", "schema.ts"))).toContain(
+      "CREATE TABLE IF NOT EXISTS closure_records",
+    );
+  });
 });
 
 describe("AG-08：与环境变量无缘（apiKeys 只来自 config.json）", () => {
-  test("src 全量无 process.env 读取", () => {
+  test("src 全量无 process.env 读取（subagent/ 除外——env 是父子进程 IPC 通道，非配置源）", () => {
+    // T2.2：SubAgent 子进程的 argv/env 由父进程（组合根，config.json 数据源）
+    // 显式注入（HELIX_MODEL_JSON/HELIX_API_KEYS_JSON 等）——env 在 subagent/
+    // 内是父子 IPC 传输通道，不是配置来源；apiKeys 源头仍且仅是 config.json。
+    const whitelistRoot = path.join("adapters", "driven", "subagent");
     for (const rel of listFiles(srcRoot)) {
+      if (rel.startsWith(whitelistRoot)) continue;
       expect(read(rel).includes("process.env"), `${rel} 读取了环境变量（AG-08）`).toBe(false);
     }
   });

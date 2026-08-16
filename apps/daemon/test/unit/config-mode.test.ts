@@ -8,6 +8,7 @@ import {
   loadConfig,
   writeConfig,
 } from "../../src/infrastructure/config";
+import { DEFAULT_SCHEDULING } from "../../src/domain/agent/SchedulingPolicy";
 
 /**
  * AG-09：config.json 写入权限 0600（含 apiKeys 敏感信息）——
@@ -37,12 +38,20 @@ describe("config.json 0600 写入语义（AG-09）", () => {
     try {
       const file = path.join(dir, "config.json");
       writeFileSync(file, '{"model":"old"}', { mode: 0o644 });
-      writeConfig(file, { model: "anthropic/claude-x", apiKeys: { anthropic: "sk-1" }, port: DEFAULT_PORT });
+      writeConfig(file, {
+        model: "anthropic/claude-x",
+        apiKeys: { anthropic: "sk-1" },
+        port: DEFAULT_PORT,
+        maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent,
+        maxQueued: DEFAULT_SCHEDULING.maxQueued,
+      });
       expect(statSync(file).mode & 0o777).toBe(0o600);
       expect(loadConfig(file)).toEqual({
         model: "anthropic/claude-x",
         apiKeys: { anthropic: "sk-1" },
         port: DEFAULT_PORT,
+        maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent,
+        maxQueued: DEFAULT_SCHEDULING.maxQueued,
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
