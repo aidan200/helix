@@ -159,12 +159,12 @@ describe("① closure 注入驱动主线新 turn（idle 语义）", () => {
     // idle 注入 = 立即新 turn（sendMessage 路径）→ run 结束回 idle
     await until(() => rig.daemon.system.getStatus().agentState === "idle", 5000, "closure 注入新 turn 完成");
     const entries = snapshot(rig).session.entries;
-    const closureEntry = entries.find((e) => e.text.includes("agent-1 closure: done — 调研完成，结论 X"));
+    const closureEntry = entries.find((e): e is (typeof entries)[number] & { role: "user" | "assistant"; text: string } => "role" in e && e.text.includes("agent-1 closure: done — 调研完成，结论 X"));
     expect(closureEntry).toBeDefined(); // MainAgent 下一 turn 上下文含注入
     expect(closureEntry?.role).toBe("user");
     // 新 turn 确实执行了（assistant 回复在 closure entry 之后）
     const idx = entries.findIndex((e) => e === closureEntry);
-    expect(entries.slice(idx + 1).some((e) => e.role === "assistant")).toBe(true);
+    expect(entries.slice(idx + 1).some((e) => "role" in e && e.role === "assistant")).toBe(true);
   }, 12000);
 });
 
@@ -329,7 +329,7 @@ describe("⑤ kill 全链（FB-3：runner.kill 先行 + closure failed 注入主
     expect(closure["summary"]).toBe("已由用户终止（kill）");
 
     // kill 收口同样注入主线（idle → 立即新 turn）
-    await until(() => snapshot(rig).session.entries.some((e) => e.text.includes("agent-1 closure: failed — 已由用户终止")), 5000, "kill closure 注入主线");
+    await until(() => snapshot(rig).session.entries.some((e) => "role" in e && e.text.includes("agent-1 closure: failed — 已由用户终止")), 5000, "kill closure 注入主线");
     // kill 终态也有报告产物（O-5 对三收口路径一致）
     expect(existsSync(path.join(rig.home, "reports", rig.sessionId, "agent-1.md"))).toBe(true);
 

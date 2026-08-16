@@ -5,6 +5,10 @@
  * 边界（AD-16）：流式中间态（token 级 delta）**不是**领域事件，
  * 不进本类型、不落盘（走 EventPublisherPort 的流式通道直达前端）。
  */
+import type { ThinkingEntryData } from "../session/ThinkingEntry";
+import type { CompactionEntryData } from "../session/CompactionEntry";
+import type { UsageSummary } from "../session/SessionSnapshot";
+
 export type DomainEventType =
   | "turn.started"
   | "turn.completed"
@@ -23,14 +27,18 @@ export type DomainEventType =
   | "agent.stalled"
   | "agent.completed"
   | "agent.failed"
-  | "agent.killed";
+  | "agent.killed"
+  // ── 通道族（iter-20260816-uzvg T3.1，契约 protocol-v0.1.md §5.2；AD-3/AD-9）──
+  // thinking.stream.delta 是流式中间态不入本表（TR-AD-5，走流式通道）
+  | "thinking.completed"
+  | "compaction.completed"
+  | "usage.recorded";
 
 export interface DomainEvent<P = unknown> {
   readonly type: DomainEventType;
   readonly sessionId: string;
   /** 关联轮次（轮次级事件必填；会话级可空）。 */
-  readonly turnId?: string;
-  /**
+  readonly turnId?: string;  /**
    * 实例归属（AD-3，iter-20260816-uzvg T1.2）：缺省 = 主实例（协议同语义，
    * 契约 §1）。SubAgent 实例事件携带 agent-N；发布侧挂 id 由 T2.3/T3.x 接。
    */
@@ -129,4 +137,24 @@ export interface AgentFailedPayload {
 export interface AgentKilledPayload {
   readonly agentId: string;
   readonly closure: InstanceClosurePayload;
+}
+
+// ── 通道族载荷（T3.1，契约 §5.2/§6.1）────────────────────
+// 字段名用 instanceId（通道族视角；instanceId ≡ agentId 同一标识空间，契约 §2）。
+
+/** thinking 完成（一个 thinking 块 → 一条 ThinkingEntry；payload 携带全字段条目）。 */
+export interface ThinkingCompletedPayload {
+  readonly entry: ThinkingEntryData;
+}
+
+/** compaction 完成（tokensBefore/tokensAfter/summary/usage 全字段条目）。 */
+export interface CompactionCompletedPayload {
+  readonly entry: CompactionEntryData;
+}
+
+/** 用量入账（turn 完成 / compaction 摘要调用；流式中不发，AD-4）。 */
+export interface UsageRecordedPayload {
+  readonly instanceId: string;
+  readonly usage: UsageSummary;
+  readonly source: "turn" | "compaction";
 }

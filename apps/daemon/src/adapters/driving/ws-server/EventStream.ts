@@ -14,7 +14,7 @@
  */
 import type { EventPublisherPort, StreamDelta } from "../../../application/ports/outbound/EventPublisherPort";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
-import type { ChatStreamDeltaEvent, EventEnvelope } from "@helix/protocol";
+import type { ChatStreamDeltaEvent, EventEnvelope, ThinkingStreamDeltaEvent } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import { domainEventToEnvelope } from "./DtoMapper";
 
@@ -77,6 +77,19 @@ export class EventStream implements EventPublisherPort {
   }
 
   publishDelta(delta: StreamDelta): void {
+    // T3.1：thinking 通道增量 → thinking.stream.delta（instanceId 挂帧与载荷；
+    // 同样不落盘，TR-AD-5）；缺省通道保持 chat.stream.delta 原形状
+    if (delta.channel === "thinking") {
+      const instanceId = delta.instanceId ?? "main";
+      const frame: ThinkingStreamDeltaEvent = {
+        v: PROTOCOL_VERSION,
+        type: "thinking.stream.delta",
+        instanceId,
+        payload: { instanceId, delta: delta.delta },
+      };
+      this.push(frame);
+      return;
+    }
     const frame: ChatStreamDeltaEvent = {
       v: PROTOCOL_VERSION,
       type: "chat.stream.delta",

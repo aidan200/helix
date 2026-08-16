@@ -153,9 +153,9 @@ function lastToolResult(events: DomainEvent[], toolName: string) {
 }
 
 function assistantTexts(chat: ChatService): string[] {
-  return chat.sessionSnapshot.entries
-    .filter((e) => e.role === "assistant")
-    .map((e) => e.text);
+  return chat.sessionSnapshot.entries.flatMap((e) =>
+      "role" in e && e.role === "assistant" ? [e.text] : [],
+    );
 }
 
 // ── S2：五工具逐一闭环 + bash exit≠0 变体 ──────────────────────

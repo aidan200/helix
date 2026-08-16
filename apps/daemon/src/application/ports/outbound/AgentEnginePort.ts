@@ -15,7 +15,23 @@
  *   → turn_end{toolResultCount:0} → agent_end；
  * - steer drain 边界 = turn_end 之后、下一 turn_start 之前（§5.3）；
  * - abort 轮以 message_end(assistant, stopReason="error") 收尾（§5.1）。
+ *
+ * T3.1 通道族 additive：thinking 三事件（assistant 消息内的 thinking 块流，
+ * 先于文本 delta）、message_end 载荷 +usage?（七字段防腐提取，账目本体
+ * 归 T3.2）、compaction_completed（turn 边界压缩产物，tokensAfter 为压缩后
+ * estimateContextTokens 复算值）。
  */
+
+/** 引擎侧用量（契约 §6.2 UsageDto 的 port 镜像：七字段全显式，cost 拍平为 number）。 */
+export interface AgentEngineUsage {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+  readonly reasoning: number;
+  readonly totalTokens: number;
+  readonly cost: number;
+}
 export type AgentEngineEvent =
   | { readonly type: "agent_start" }
   | { readonly type: "agent_end"; readonly messageCount: number }
@@ -29,11 +45,30 @@ export type AgentEngineEvent =
     }
   | { readonly type: "message_update"; readonly delta: string }
   | {
+      /** thinking 块流开始（assistant 消息内，先于文本 delta；contentIndex 对应块位）。 */
+      readonly type: "thinking_started";
+      readonly contentIndex: number;
+    }
+  | {
+      /** thinking 块流增量（中间态，不落盘——经流式通道直达前端）。 */
+      readonly type: "thinking_delta";
+      readonly contentIndex: number;
+      readonly delta: string;
+    }
+  | {
+      /** thinking 块完成（content 为该块全文；完成态由上层落 ThinkingEntry）。 */
+      readonly type: "thinking_end";
+      readonly contentIndex: number;
+      readonly content: string;
+    }
+  | {
       readonly type: "message_end";
       readonly role: "user" | "assistant" | "toolResult";
       readonly text: string;
       /** assistant 消息的停止原因（abort/错误时 "error"，正常 "stop"/"toolUse" 等）。 */
       readonly stopReason?: string;
+      /** 本 turn 用量（assistant 消息携带时提取；七字段，cost 拍平——账目归 T3.2）。 */
+      readonly usage?: AgentEngineUsage;
     }
   | {
       readonly type: "tool_execution_start";
@@ -47,6 +82,15 @@ export type AgentEngineEvent =
       readonly toolName: string;
       readonly isError: boolean;
       readonly result: string;
+    }
+  | {
+      /** turn 边界 compaction 完成（CompactResult 防腐映射；tokensAfter = 压缩后复算）。 */
+      readonly type: "compaction_completed";
+      readonly tokensBefore: number;
+      readonly tokensAfter: number;
+      readonly summary: string;
+      /** 摘要调用量（provider 上报时携带；缺省 = 未报）。 */
+      readonly usage?: AgentEngineUsage;
     }
   | { readonly type: "engine_error"; readonly message: string };
 

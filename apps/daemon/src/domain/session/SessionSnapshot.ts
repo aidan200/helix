@@ -2,6 +2,14 @@ import type { EntryData } from "./Entry";
 import type { TurnData } from "./Turn";
 import type { SteerItem } from "../agent/SteerQueue";
 import type { AgentInstanceData } from "../agent/AgentInstance";
+import type { ThinkingEntryData } from "./ThinkingEntry";
+import type { CompactionEntryData } from "./CompactionEntry";
+
+/**
+ * 会话条目数据联合（T3.1）：message（EntryData）/ thinking / compaction
+ * 三类变体同树混排（判别键 kind——message 变体无 kind，以 "role" in 判别）。
+ */
+export type SessionEntryData = EntryData | ThinkingEntryData | CompactionEntryData;
 
 /**
  * 会话快照（architecture.md §3.3，值对象）：domain 聚合的可序列化全量视图。
@@ -13,8 +21,8 @@ import type { AgentInstanceData } from "../agent/AgentInstance";
 export interface SessionSnapshot {
   readonly sessionId: string;
   readonly createdAt: string;
-  /** 全量条目（语义单元，不含流式中间态；每条挂 instanceId，AD-3）。 */
-  readonly entries: readonly EntryData[];
+  /** 全量条目（语义单元，不含流式中间态；message/thinking/compaction 混排，每条挂 instanceId，AD-3）。 */
+  readonly entries: readonly SessionEntryData[];
   /** 全量轮次。 */
   readonly turns: readonly TurnData[];
   /** 未消费的 steer 队列（重启后仍可注入，spike ④）。 */

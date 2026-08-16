@@ -5,15 +5,21 @@ import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../ports/outbound/ClockPort";
 import { AgentLifecycle, type AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
 import { Session } from "../../domain/session/Session";
+import type { ThinkingEntryData } from "../../domain/session/ThinkingEntry";
+import { MAIN_INSTANCE_ID } from "../../domain/agent/AgentInstance";
+import type { UsageSummary } from "../../domain/session/SessionSnapshot";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import type {
   AgentStateChangedPayload,
+  CompactionCompletedPayload,
   DomainEvent,
   MessageCompletedPayload,
   SteerPayload,
+  ThinkingCompletedPayload,
   ToolCallPayload,
   ToolResultPayload,
   TurnCompletedPayload,
+  UsageRecordedPayload,
 } from "../../domain/events/DomainEvent";
 
 /**
@@ -71,6 +77,9 @@ export class ChatService implements ChatPort {
   private listener: ((e: AgentEngineEvent) => void) | null = null;
   /** 流式期间预分配的 assistant entry id（D-2：delta.messageId 对齐最终 entry id）。 */
   private streamEntryId: string | null = null;
+  /** 本 assistant 消息内在途的 thinking 块（contentIndex → 块序号计时；message_end 时落 Entry）。 */
+  private readonly thinkingStarts = new Map<number, string>();
+  private pendingThinking: { contentIndex: number; text: string; startedAt: string }[] = [];
 
   constructor(private readonly deps: ChatServiceDeps) {
     this.session = deps.session ?? Session.create();
@@ -259,6 +268,9 @@ export class ChatService implements ChatPort {
           // D-2：assistant 流开始即预分配最终 entry id（放弃不回收——工具轮
           // 空消息的预留自然作废，计数器空洞无害）
           this.streamEntryId = this.session.reserveEntryId();
+          // T3.1：新 assistant 消息开始，在途 thinking 块计时/累积重置
+          this.thinkingStarts.clear();
+          this.pendingThinking = [];
         }
         if (e.role === "user" && e.source === "steer-drain") {
           this.finishOpenTurn("steerDrained");
@@ -275,9 +287,14 @@ export class ChatService implements ChatPort {
         break;
 
       // 消息完成：assistant 回复落聚合 + 广播（abort 的 stop=error 空消息不落——
-      // 空文本不是语义单元；user/toolResult 消息已在注入/工具事件中落账，不重复）
+      // 空文本不是语义单元；user/toolResult 消息已在注入/工具事件中落账，不重复）。
+      // T3.1：本消息内的 thinking 块在此时落 Entry（reasoningTokens 取本
+      // turn usage.reasoning——thinking_end 早于 message_end，关联在此收口）
       case "message_end":
         if (e.role === "assistant") {
+          // T3.1：thinking 块先落（流序对齐契约 §5.2：delta×N → thinking.completed
+          // → 消息完成；reasoningTokens 取本 turn usage.reasoning 收口）
+          this.flushPendingThinking(e.usage?.reasoning ?? 0);
           if (e.text.trim() !== "") {
             const entry = this.session.appendAssistantEntry(e.text, this.now(), this.streamEntryId ?? undefined);
             this.publishMessageCompleted(entry.id, "assistant", e.text, false);
@@ -285,6 +302,54 @@ export class ChatService implements ChatPort {
           this.streamEntryId = null; // 预留消耗完毕（空文本/abort 轮同样清空）
         }
         break;
+
+      // ── T3.1 通道族：thinking 三事件 + compaction ─────────────
+
+      // thinking 块流：中间态不落盘（TR-AD-5）——delta 直达流式通道，
+      // start 记墙钟起点（durationMs = start→end，ClockPort）；end 暂存
+      // 完成块，待 message_end 关联本 turn reasoningTokens 后落 Entry
+      case "thinking_started":
+        this.thinkingStarts.set(e.contentIndex, this.now());
+        break;
+
+      case "thinking_delta":
+        this.deps.events.publishDelta({
+          messageId: this.streamEntryId ?? this.currentTurnId(),
+          delta: e.delta,
+          channel: "thinking",
+          instanceId: MAIN_INSTANCE_ID,
+        });
+        break;
+
+      case "thinking_end": {
+        const startedAt = this.thinkingStarts.get(e.contentIndex);
+        this.thinkingStarts.delete(e.contentIndex);
+        this.pendingThinking.push({ contentIndex: e.contentIndex, text: e.content, startedAt: startedAt ?? this.now() });
+        break;
+      }
+
+      // compaction 完成：CompactionEntry 落树 + 里程碑事件 + usage 入账
+      //（source=compaction，AD-9③；provider 未报 usage 时零值占位仍入账——
+      // 账目行完整，聚合本体归 T3.2）
+      case "compaction_completed": {
+        const entry = this.session.appendCompactionEntry({
+          kind: "compaction",
+          instanceId: MAIN_INSTANCE_ID,
+          tokensBefore: e.tokensBefore,
+          tokensAfter: e.tokensAfter,
+          summary: e.summary,
+          usage: e.usage ?? ZERO_USAGE,
+          createdAt: this.now(),
+        });
+        this.publish<CompactionCompletedPayload>("compaction.completed", { entry: entry.toData() }, undefined, MAIN_INSTANCE_ID);
+        this.publish<UsageRecordedPayload>(
+          "usage.recorded",
+          { instanceId: MAIN_INSTANCE_ID, usage: entry.toData().usage, source: "compaction" },
+          undefined,
+          MAIN_INSTANCE_ID,
+        );
+        break;
+      }
 
       // 工具调用开始：建记录（pending→running）、轮次切 toolRunning、广播
       case "tool_execution_start": {
@@ -382,6 +447,25 @@ export class ChatService implements ChatPort {
     return this.session.openTurn?.id ?? "idle";
   }
 
+  /** 落 pending 的 thinking 块：每块一条 ThinkingEntry + thinking.completed 事件
+   *  （T3.1；reasoningTokens 为本 turn 关联值——块间共享，账目归 T3.2）。 */
+  private flushPendingThinking(reasoningTokens: number): void {
+    const blocks = this.pendingThinking;
+    this.pendingThinking = [];
+    for (const block of blocks) {
+      const entry = this.session.appendThinkingEntry({
+        kind: "thinking",
+        instanceId: MAIN_INSTANCE_ID,
+        text: block.text,
+        durationMs: Math.max(0, Date.parse(this.now()) - Date.parse(block.startedAt)),
+        reasoningTokens,
+        createdAt: this.now(),
+      });
+      const data: ThinkingEntryData = entry.toData();
+      this.publish<ThinkingCompletedPayload>("thinking.completed", { entry: data }, undefined, MAIN_INSTANCE_ID);
+    }
+  }
+
   private setLifecycle(to: AgentLifecycleState): void {
     this.lifecycle.transition(to);
     this.publish<AgentStateChangedPayload>("agent.state.changed", { state: to });
@@ -396,11 +480,17 @@ export class ChatService implements ChatPort {
     this.publish<MessageCompletedPayload>("message.completed", { entryId, role, text, isSteer });
   }
 
-  private publish<P>(type: DomainEvent["type"], payload: P, turnId?: string): void {
+  private publish<P>(
+    type: DomainEvent["type"],
+    payload: P,
+    turnId?: string,
+    instanceId?: string,
+  ): void {
     this.deps.events.publish({
       type,
       sessionId: this.session.id,
       turnId: turnId ?? this.session.openTurn?.id,
+      ...(instanceId !== undefined ? { instanceId } : {}),
       payload,
       occurredAt: this.now(),
     });
@@ -414,3 +504,14 @@ export class ChatService implements ChatPort {
     return this.deps.clock.now();
   }
 }
+
+/** provider 未报用量时的零值占位（七字段全 0；账目行保持完整，AD-9③）。 */
+const ZERO_USAGE: UsageSummary = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  reasoning: 0,
+  totalTokens: 0,
+  cost: 0,
+};

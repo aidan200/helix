@@ -42,7 +42,7 @@ describe("createDaemon 组合根装配", () => {
 
       // 快照面（SessionPort；D-1：会话聚合 + 工具记录双面）
       const snap = daemon.session.getSnapshot();
-      expect(snap.session.entries.map((e) => e.role)).toEqual(["user", "assistant"]);
+      expect(snap.session.entries.filter((e): e is (typeof snap.session.entries)[number] & { role: "user" | "assistant" } => "role" in e).map((e) => e.role)).toEqual(["user", "assistant"]);
       expect(snap.toolCalls).toEqual([]); // 无工具轮：工具记录面为空
 
       // 状态面（SystemPort）

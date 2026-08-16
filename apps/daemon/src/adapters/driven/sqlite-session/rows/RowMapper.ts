@@ -2,7 +2,7 @@ import type { DomainEvent } from "../../../../domain/events/DomainEvent";
 import type { AgentLifecycleState } from "../../../../domain/agent/AgentLifecycle";
 import { MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
 import type { ToolCallRecordData, ToolCallStatus } from "../../../../domain/tools/ToolCallRecord";
-import type { EntryData } from "../../../../domain/session/Entry";
+import type { SessionEntryData } from "../../../../domain/session/SessionSnapshot";
 import type { PersistedDomainState } from "../../../../application/ports/outbound/SessionRepositoryPort";
 import type {
   AgentLifecycleRow,
@@ -94,8 +94,9 @@ export function rowsToPersistedState(
     session: {
       sessionId: session.session_id,
       createdAt: session.created_at,
-      // 旧库 entries JSON 无 instanceId（列前时代）→ fromRow 兜底回填主实例（TR-AD-14）
-      entries: (JSON.parse(session.entries) as EntryData[]).map((e) => ({
+      // 旧库 entries JSON 无 instanceId（列前时代）→ fromRow 兜底回填主实例（TR-AD-14）；
+      // T3.1：entries 为 message/thinking/compaction 混排联合（kind 判别），三类都挂 instanceId
+      entries: (JSON.parse(session.entries) as SessionEntryData[]).map((e) => ({
         ...e,
         instanceId: e.instanceId ?? MAIN_INSTANCE_ID,
       })),

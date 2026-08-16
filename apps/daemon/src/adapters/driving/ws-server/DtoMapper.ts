@@ -15,6 +15,8 @@ import type {
   MessageEntryDto,
   SessionSnapshotDto,
   SessionUsageDto,
+  ThinkingEntryDto,
+  CompactionEntryDto,
   ToolCallEntryDto,
   ToolCallResultEvent,
   ToolCallStartedEvent,
@@ -26,10 +28,16 @@ import type {
   AgentCompletedEvent,
   AgentFailedEvent,
   AgentKilledEvent,
+  ThinkingCompletedEvent,
+  CompactionCompletedEvent,
+  UsageRecordedEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { SessionStateView, InstanceSnapshotEntry } from "../../../application/ports/inbound/SessionPort";
 import type { EntryData } from "../../../domain/session/Entry";
+import type { SessionEntryData } from "../../../domain/session/SessionSnapshot";
+import type { ThinkingEntryData } from "../../../domain/session/ThinkingEntry";
+import type { CompactionEntryData } from "../../../domain/session/CompactionEntry";
 import type { SessionUsageSummary, UsageSummary } from "../../../domain/session/SessionSnapshot";
 import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 import type {
@@ -37,6 +45,9 @@ import type {
   DomainEvent,
   MessageCompletedPayload,
   SteerPayload,
+  ThinkingCompletedPayload,
+  CompactionCompletedPayload,
+  UsageRecordedPayload,
   ToolCallPayload,
   ToolResultPayload,
   TurnCompletedPayload,
@@ -76,10 +87,11 @@ export function toSnapshotDto(
   const snapshot = view.session;
   const queuedSteer = new Set(snapshot.pendingSteer.map((item) => item.entryId));
   // 升序稳定排序：时间并列保持组内原序（entries 原序 / toolCalls 迭代序）
+  // T3.1：entries 为 message/thinking/compaction 混排联合，各变体同表合并
   const entries: EntryDto[] = [
-    ...snapshot.entries.flatMap((entry) => messageEntryDto(entry, queuedSteer)),
+    ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer)),
     ...view.toolCalls.map((record) => toolCallEntryDto(record)),
-  ].sort((a, b) => a.ts - b.ts);
+  ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
   return {
     sessionId: snapshot.sessionId,
     model,
@@ -129,6 +141,48 @@ function usageTotal(u: UsageSummary): UsageDto {
 
 function usageDto(summary: SessionUsageSummary): SessionUsageDto {
   return { total: usageTotal(summary.total), compaction: usageTotal(summary.compaction) };
+}
+
+/** 排序统一键：message/tool 用 ts（epoch ms）；thinking/compaction 用
+ *  createdAt（ISO，契约 §6.1）——两类字段同一时间轴。 */
+function entrySortKey(entry: EntryDto): number {
+  return "ts" in entry ? entry.ts : Date.parse(entry.createdAt);
+}
+
+/** 单条 SessionEntryData → 对应 EntryDto（T3.1：message/thinking/compaction
+ *  分派；thinking/compaction 变体 createdAt 保持 ISO 字符串，契约 §6.1）。 */
+function sessionEntryDto(entry: SessionEntryData, queuedSteer: Set<string>): EntryDto[] {
+  if ("kind" in entry) {
+    return entry.kind === "thinking" ? [thinkingEntryDto(entry)] : [compactionEntryDto(entry)];
+  }
+  return messageEntryDto(entry, queuedSteer);
+}
+
+/** domain ThinkingEntryData → ThinkingEntryDto（全字段同形）。 */
+function thinkingEntryDto(entry: ThinkingEntryData): ThinkingEntryDto {
+  return {
+    kind: "thinking",
+    id: entry.id,
+    instanceId: entry.instanceId,
+    text: entry.text,
+    durationMs: entry.durationMs,
+    reasoningTokens: entry.reasoningTokens,
+    createdAt: entry.createdAt,
+  };
+}
+
+/** domain CompactionEntryData → CompactionEntryDto（usage 七字段同形）。 */
+function compactionEntryDto(entry: CompactionEntryData): CompactionEntryDto {
+  return {
+    kind: "compaction",
+    id: entry.id,
+    instanceId: entry.instanceId,
+    tokensBefore: entry.tokensBefore,
+    tokensAfter: entry.tokensAfter,
+    summary: entry.summary,
+    usage: entry.usage,
+    createdAt: entry.createdAt,
+  };
 }
 
 /** 单条 EntryData → MessageEntryDto（tool 角色当前领域侧不产生，防御跳过）。 */
@@ -368,6 +422,38 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         v: PROTOCOL_VERSION,
         type: "agent.killed",
         payload: { agentId: p.agentId, closure: p.closure },
+      };
+      return frame;
+    }
+
+    // ── 通道族（T3.1，契约 §5.2；payload 对齐协议 DTO，instanceId 挂帧） ──
+
+    case "thinking.completed": {
+      const p = event.payload as ThinkingCompletedPayload;
+      const frame: ThinkingCompletedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "thinking.completed",
+        payload: { entry: thinkingEntryDto(p.entry) },
+      };
+      return frame;
+    }
+
+    case "compaction.completed": {
+      const p = event.payload as CompactionCompletedPayload;
+      const frame: CompactionCompletedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "compaction.completed",
+        payload: { entry: compactionEntryDto(p.entry) },
+      };
+      return frame;
+    }
+
+    case "usage.recorded": {
+      const p = event.payload as UsageRecordedPayload;
+      const frame: UsageRecordedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "usage.recorded",
+        payload: { instanceId: p.instanceId, usage: p.usage, source: p.source },
       };
       return frame;
     }

@@ -1,7 +1,9 @@
 import { DomainError } from "../DomainError";
 import { Entry, type EntryData } from "./Entry";
+import { ThinkingEntry, type ThinkingEntryData } from "./ThinkingEntry";
+import { CompactionEntry, type CompactionEntryData } from "./CompactionEntry";
+import type { SessionEntryData, SessionSnapshot } from "./SessionSnapshot";
 import { Turn, type TurnData } from "./Turn";
-import type { SessionSnapshot } from "./SessionSnapshot";
 import { SteerQueue, type SteerItem } from "../agent/SteerQueue";
 import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
 
@@ -18,7 +20,7 @@ import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
  * 重启恢复（RestoreService）的统一载荷，重建后行为延续（计数器不回卷）。
  */
 export class Session {
-  private readonly entries: Entry[] = [];
+  private readonly entries: (Entry | ThinkingEntry | CompactionEntry)[] = [];
   private readonly turns: Turn[] = [];
   private readonly steerQueue = new SteerQueue();
   private currentTurn: Turn | null = null;
@@ -121,6 +123,20 @@ export class Session {
     return entry;
   }
 
+  /** 追加 thinking 完成态条目（T3.1；id 同计数器；turn 关联在领域事件 turnId 侧）。 */
+  appendThinkingEntry(data: Omit<ThinkingEntryData, "id">): ThinkingEntry {
+    const entry = ThinkingEntry.create({ ...data, id: `e${this.nextEntrySeq++}` });
+    this.entries.push(entry);
+    return entry;
+  }
+
+  /** 追加 compaction 里程碑条目（T3.1；会话级事件，不挂 turn）。 */
+  appendCompactionEntry(data: Omit<CompactionEntryData, "id">): CompactionEntry {
+    const entry = CompactionEntry.create({ ...data, id: `e${this.nextEntrySeq++}` });
+    this.entries.push(entry);
+    return entry;
+  }
+
   // ── Turn 生命周期（聚合中介，Service 不直接摸 Turn 状态迁移） ──
 
   /** 开新轮次；open turn 未收尾（completed/interrupted）前抛错（防重入）。 */
@@ -192,7 +208,7 @@ export class Session {
   get openTurn(): Turn | null {
     return this.currentTurn;
   }
-  entryList(): EntryData[] {
+  entryList(): SessionEntryData[] {
     return this.entries.map((e) => e.toData());
   }
   turnList(): TurnData[] {
@@ -217,7 +233,13 @@ export class Session {
     for (const e of snapshot.entries) {
       // 旧版快照 entries 无 instanceId（列前时代）：兜底回填主实例（TR-AD-14
       // 同精神——fromRow/restore 对旧行数据前向兼容，回填常量与 O-3 一致）
-      s.entries.push(Entry.create({ ...e, instanceId: e.instanceId ?? MAIN_INSTANCE_ID }));
+      if ("role" in e) {
+        s.entries.push(Entry.create({ ...e, instanceId: e.instanceId ?? MAIN_INSTANCE_ID }));
+      } else if (e.kind === "thinking") {
+        s.entries.push(ThinkingEntry.create(e));
+      } else {
+        s.entries.push(CompactionEntry.create(e));
+      }
     }
     for (const t of snapshot.turns) {
       s.turns.push(Turn.create({ ...t }));

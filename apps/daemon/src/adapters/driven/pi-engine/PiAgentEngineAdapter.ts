@@ -10,7 +10,7 @@ import { AgentRuntime } from "./runtime/AgentRuntime";
 import type { AgentProfile } from "./runtime/AgentProfile";
 import type { AgentRuntimeDeps } from "./runtime/AgentRuntime";
 import { buildModels, createStreamFn, explicitGetApiKey, resolveModelSlot } from "./model-provider";
-import { stopReasonOf, textOfContent, textOfMessage } from "./mappers/SessionMapper";
+import { stopReasonOf, textOfContent, textOfMessage, usageOf } from "./mappers/SessionMapper";
 
 /**
  * PiAgentEngineAdapter —— AgentEnginePort 的 pi 实现（防腐墙本体，§3.5）。
@@ -50,8 +50,19 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     this.runtime = new AgentRuntime(options.profile, {
       streamFn: options.streamFnOverride ?? createStreamFn(models),
       model: resolveModelSlot(options.profile.model, options.model, models),
+      models,
       getApiKey: explicitGetApiKey(options.apiKeys),
       resolveTools: options.resolveTools,
+      // T3.1：turn 边界 compaction 产物 → port 事件（失败走 engine_error，不崩会话）
+      onCompactionCompleted: (r) =>
+        this.listener?.({
+          type: "compaction_completed",
+          tokensBefore: r.tokensBefore,
+          tokensAfter: r.tokensAfter,
+          summary: r.summary,
+          ...(r.usage !== undefined ? { usage: r.usage } : {}),
+        }),
+      onCompactionFailed: (message) => this.listener?.({ type: "engine_error", message }),
     });
     this.runtime.subscribe((event) => this.onPiEvent(event));
   }
@@ -105,19 +116,29 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         return emit({ type: "message_start", role, source });
       }
       case "message_update": {
-        // 只透传文本增量（thinking 等块不构成对话流；契约见 port 注释）
-        if (event.assistantMessageEvent.type === "text_delta") {
-          emit({ type: "message_update", delta: event.assistantMessageEvent.delta });
+        // 文本增量透传对话流；thinking 块流透传通道族（T3.1：不再丢弃）
+        const ame = event.assistantMessageEvent;
+        if (ame.type === "text_delta") {
+          emit({ type: "message_update", delta: ame.delta });
+        } else if (ame.type === "thinking_start") {
+          emit({ type: "thinking_started", contentIndex: ame.contentIndex });
+        } else if (ame.type === "thinking_delta") {
+          emit({ type: "thinking_delta", contentIndex: ame.contentIndex, delta: ame.delta });
+        } else if (ame.type === "thinking_end") {
+          emit({ type: "thinking_end", contentIndex: ame.contentIndex, content: ame.content });
         }
         return;
       }
       case "message_end": {
         const role = event.message.role as "user" | "assistant" | "toolResult";
+        // T3.1：assistant 消息携带 usage 时提取（七字段防腐；账目本体 T3.2）
+        const usage = role === "assistant" ? usageOf(event.message) : undefined;
         return emit({
           type: "message_end",
           role,
           text: textOfMessage(event.message),
           stopReason: role === "assistant" ? stopReasonOf(event.message) : undefined,
+          ...(usage !== undefined ? { usage } : {}),
         });
       }
       case "tool_execution_start":
