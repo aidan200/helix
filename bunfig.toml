@@ -5,5 +5,8 @@
 # lockfile（bun.lock）提交入库，固定依赖树。
 
 [test]
-# 测试运行：根脚本 `bun test apps/daemon` 已显式限定范围；
-# AG（架构守护）完整套件自 M2 起常驻，当前以简单结构断言测试代位。
+# 测试运行器四层分离（TR-TEST-1）：裸 `bun test`（含相位门控）= daemon 单测；
+# protocol 守护测试在 packages/protocol 内自跑（cwd 子目录不受本 root 限制）；
+# shell = vitest（jsdom 组件环境）；e2e = playwright（.spec.ts 不入 bun 收集面）。
+# root 限定使 bun 不误收集 vitest-only shell 测试与 playwright spec（环境性失败）。
+root = "apps/daemon"
