@@ -88,7 +88,7 @@ updatedIn: iter-20260816-uzvg
 ```
 
 ## 描述
-domain 层权威状态的主体聚合（充血模型：属性 + 行为，framework-free）：Entry 树（语义会话——消息/工具调用/thinking/compaction，每条挂 instanceId）、轮次生命周期、工具调用记录（含实例归属）；agent 生命周期/实例注册表、调度队列语义、usage 账目、closure 记录同为 domain 权威状态，随同一单写路径持久化。M2 起聚合是跨实例持续追加的会话级单位（AD-1）：实例窗口（LLM 上下文）销毁重建时聚合不重建、显示层连续——SubAgent Entry 亦入聚合、按 instanceId 归属查询（主线视图只取主实例 Entry + 卡片，抽屉取单实例全流）。对外只经 application service（ChatService/SessionService/RestoreService/SchedulerService）读写；持久化经 SessionRepositoryPort 转 贫血行模型（RowMapper）；推前端经 ws-server adapter 转 protocol DTO。
+domain 层权威状态的主体聚合（充血模型：属性 + 行为，framework-free）：Entry 树（语义会话——消息/工具调用/thinking/compaction，每条挂 instanceId）、轮次生命周期、工具调用记录（含实例归属）；agent 生命周期/实例注册表、调度队列语义、usage 账目、closure 记录同为 domain 权威状态，随同一单写路径持久化。M2 起聚合是跨实例持续追加的会话级单位（AD-1）：实例窗口（LLM 上下文）销毁重建时聚合不重建、显示层连续——SubAgent 内容以挂 instanceId 的领域事件行入会话级存储（domain_events，trace 四维可查；抽屉消费 per-instance 事件流），聚合 Entry 树 v0.1 仅主实例（closure 注入以 isSteer entry、main 归属落树；SubAgent Entry 进聚合与恢复重放为 M3+ 子项，见 TR-AD-15 边界声明）；主线视图只取主实例 Entry + 卡片，抽屉取单实例全流。对外只经 application service（ChatService/SessionService/RestoreService/SchedulerService）读写；持久化经 SessionRepositoryPort 转 贫血行模型（RowMapper）；推前端经 ws-server adapter 转 protocol DTO。
 
 ## 规则
 是会话数据的唯一持有者（内存 = 磁盘投影缓存，无第二事实源）；每条 Entry 挂 instanceId（TR-AD-15 全链路）；thinking 完成态与 compaction 里程碑为一等 Entry 成员（流式中间态仍不落盘，TR-AD-5）；状态变更以领域事件表达并交单写队列落盘；崩溃恢复 = 读盘重建聚合 → 快照推前端（快照含 instances 清单与 usage 聚合字段）；不 import pi 类型（Entry/LaneRecord 经 pi-engine 薄防腐映射）、不 import protocol 类型。
@@ -169,7 +169,7 @@ updatedIn: iter-20260816-uzvg
 agent 实例一等概念（AD-3 trace 实例同构）：{instanceId, kind: "main"|"subagent", profileKind, sessionId, 实例状态机, createdAt}。主会话实例与 SubAgent 同为 AgentInstance——机制同构（同 AgentRuntime 驱动、同 AgentProfile 声明机制、同事件通道、同 trace/统计/持久化路径），编排分层仅经 profile 生命周期声明表达：main = persistent（常驻多轮、用户对话锚点，re-profile 时销毁重建）；subagent = single-shot（单轮收敛、closure 回主线后销毁）。实例创建/销毁/re-profile 是一等操作（非线性红线）。SubAgent 实例的 instanceId 即编排工具寻址的 agentId（同一标识空间，分配即定）；主实例在会话创建时分配固定 id。
 
 ## 规则
-每条领域事件与聚合 Entry 挂 instanceId；trace 四维查询 session × instance × type × time；SubAgent 实例状态机 queued{位次} → running → stalled（警示可恢复）/done/failed/killed，重启清队标 cancelled；实例窗口销毁重建而会话聚合跨实例持续追加（执行层全切/交接层受控注入/显示层连续）；调度器与状态机不假设单实例线性推进。
+每条领域事件与聚合 Entry 挂 instanceId；trace 四维查询 session × instance × type × time；SubAgent 实例状态机 queued{位次} → running → stalled（警示可恢复）/done/failed（kill 收口 = failed 单一终态，无独立 killed 态），重启清队标 cancelled；实例窗口销毁重建而会话聚合跨实例持续追加（执行层全切/交接层受控注入/显示层连续）；调度器与状态机不假设单实例线性推进。
 
 ## 禁忌
 不按 kind 分叉机制通道（事件/持久化/统计/驱动路径必须同构）；不假设一个会话单实例到底；不在实例对象外维护第二实例注册表。
@@ -217,7 +217,7 @@ updatedIn: iter-20260816-uzvg
 SubAgent 收口记录（AD-8，结构承接 v1）：{status: done|failed, summary, reportPath?, findings?, taskId?}。SubAgent 系统提示约定以此结构收口，子进程出口（ChildMain）解析回传；经 daemon 单写队列落 SQLite（closure 抗重启）；双通道消费——SteerQueue 注入 MainAgent 下轮上下文（唯一主线入口）+ agent.completed 事件完成卡片（用户消费，可回溯）。findings 字段保留（kg 自动落账 v2 重生长时接，M4+）。重启后 running 实例收口 failed、closure failed 注入主线（AD-10）。
 
 ## 规则
-closure 是 SubAgent 结果回主线的唯一结构；记录经单写队列持久化（不开第二写通道，TR-AD-13）；报告文件产物落点遵循 ~/.helix 单点（TR-AD-6）；同一事实单一呈现面（注入文本供 LLM、完成卡片供用户，不重复渲染）；reportPath 产物形态待开发裁决（O-5）。
+closure 是 SubAgent 结果回主线的唯一结构；记录经单写队列持久化（不开第二写通道，TR-AD-13）；报告文件产物落点遵循 ~/.helix 单点（TR-AD-6）；同一事实单一呈现面（注入文本供 LLM、完成卡片供用户，不重复渲染）；reportPath 产物形态已裁决（O-5 双产物）：closure_records 记录行 + <home>/reports/<session>/<agentId>.md 文件产物（reportsDir 未配置时不产文件，reportPath=null）。
 
 ## 禁忌
 不绕过单写队列落 closure；不把 SubAgent 内部工具调用塞进 closure 或主线（内部流只进 per-instance 事件与抽屉）；不在恢复代码里自动重派任务（重试归编排层决策，AD-10）。

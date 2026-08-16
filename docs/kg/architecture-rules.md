@@ -23,11 +23,11 @@ relations:
   governs:
     - E-AgentRuntime
     - E-会话聚合
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260816-uzvg
 ```
 
 ## 规则
-daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号）→ application/（ports/：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort + services/：ChatService、SessionService、RestoreService；只依赖 domain 与自有 port，禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、static-serve，实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：DI 装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点）。新增代码先定层再写文件。
+daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号）→ application/（ports/ 按 inbound/outbound 双向组织——inbound：AgentOrchestrationPort、SystemPort 等（接口由 service 或组合根实现）；outbound：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort 等（由 service 调用；双向清单详见 TR-AD-2）+ services/：ChatService、SessionService、RestoreService、SchedulerService；只依赖 domain 与自有 port，禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、subagent（SubAgent 子进程 launcher/child/transport）、static-serve，实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：DI 装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点）。新增代码先定层再写文件。
 
 ## 理由
 六边形与 daemon「唯一事实源 + 端口适配」职责天然契合——pi 引擎/SQLite/WS 都是可替换端口（AD-12）；单向依赖保证防腐：换引擎、换存储、换前端均不动 domain 与 application（AD-17）；业务逻辑 framework-free 才能零依赖单测。
@@ -61,11 +61,11 @@ relations:
     - E-领域事件与单写队列
     - E-会话聚合
     - E-AgentRuntime
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260816-uzvg
 ```
 
 ## 规则
-application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 实现、driving adapter 调用）与 outbound/（出口端口 6 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、SystemPort、ClockPort，由 service 调用）。outbound port 的实现允许三类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）；PathsPort 为定义后悬空的待决接口（零实现零消费，M2 裁决删除或接线）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
+application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 或组合根实现——AgentOrchestrationPort 由 SchedulerService 实现、经 driven 编排工具（agent_spawn/send/status）回口调用；SystemPort 由组合根内联实现、driving ws-server 调用）与 outbound/（出口端口生效 5 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort，由 service 调用；SystemPort 自创建起即位于 inbound/）。outbound port 的实现允许三类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）；PathsPort 为定义后悬空的待决接口（零实现零消费，M2 裁决删除或接线）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
 
 ## 理由
 port 是 adapter↔application 两个方向的唯一衔接契约（AD-17 条 2/3）；契约里混入实现即产生第二事实源，driving/driven 的可替换性（换 WS、换引擎、换存储）即刻失效。
@@ -232,22 +232,23 @@ anchors:
   implementedBy:
     - apps/daemon/src/adapters/driven/pi-engine/
     - apps/daemon/src/adapters/driven/tools/
+    - apps/daemon/src/adapters/driven/subagent/
   testedBy:
     - apps/daemon/test/arch-guard/arch-guard.test.ts
 relations:
   governs:
     - E-AgentRuntime
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260816-uzvg
 ```
 
 ## 规则
-daemon 运行时依赖仅限 @earendil-works/pi-agent-core 与 @earendil-works/pi-ai 两包，零 pi-coding-agent import。工具集 = bash/edit/read/write 四个 core 内置工具 + 自写 grep（走 core 的 Tool 接口 + ExecutionEnv 抽象，封装边界留 adapters/driven/tools，日后可换）。pi 库 import 只允许出现在 adapters/driven/pi-engine 与 adapters/driven/tools（工具接线域：core Tool 接口/ExecutionEnv 封装的必然导入，AD-10 工具封装条款；守护测试 AG-04 同口径）。import 通道红线：真实 provider 必须经 `@earendil-works/pi-ai/providers/all` 子路径（主入口 side-effect-free 拿不到真实 provider）；Node 执行环境必须经 `@earendil-works/pi-agent-core/node` 子入口。模型接入 = pi-ai + 显式 apiKeys（AD-13），弃 pi 的 SettingsManager/auth.json/models.json 体系；模型能力（provider 目录/refresh/OAuth）全部来自 pi-ai 内置，daemon 仅在 config.json 写一个 model 字符串。
+daemon 运行时依赖仅限 @earendil-works/pi-agent-core 与 @earendil-works/pi-ai 两包，零 pi-coding-agent import。工具集 = bash/edit/read/write 四个 core 内置工具 + 自写 grep + 编排三工具（agent_spawn/agent_send/agent_status，tools/agent/AgentOrchestrationTools 薄转投 AgentOrchestrationPort，注册进 MainSessionProfile）。pi 库 import 只允许出现在 adapters/driven/pi-engine、adapters/driven/tools（工具接线域：core Tool 接口/ExecutionEnv 封装的必然导入，AD-10 工具封装条款）与 adapters/driven/subagent（SubAgent 子进程形态：launcher 透传 Model、child 复用 pi-engine 防腐墙、剧本引擎用 pi-ai 流原语；T2.2 新增第三域；守护测试 AG-04 三根同口径）。import 通道红线：真实 provider 必须经 `@earendil-works/pi-ai/providers/all` 子路径（主入口 side-effect-free 拿不到真实 provider）；Node 执行环境必须经 `@earendil-works/pi-agent-core/node` 子入口。模型接入 = pi-ai + 显式 apiKeys（AD-13），弃 pi 的 SettingsManager/auth.json/models.json 体系；模型能力（provider 目录/refresh/OAuth）全部来自 pi-ai 内置，daemon 仅在 config.json 写一个 model 字符串。
 
 ## 理由
 extension 身份是 v1 兼容成本根源，pi 降为库（AD-2）；F-7 实读证明 core 已自带四工具（「pi-coding-agent 当工具箱」前提被证伪，AD-10）；依赖最小化既定原则；主入口/子入口陷阱是 pi 源码实读结论（F-7）。
 
 ## 适用范围
-新增任何 pi 相关依赖或 import、接模型 provider、实现 CL-5 工具集、评审 adapters/driven/pi-engine 与 adapters/driven/tools。
+新增任何 pi 相关依赖或 import、接模型 provider、实现工具集、评审 adapters/driven 的 pi-engine/tools/subagent 三域。
 
 ## 反例
 从 pi-ai 主入口 import 模型工厂（side-effect-free 导出为空实现，运行时才炸），或为省两行代码 import pi-coding-agent 的 write 工具工厂。
@@ -532,8 +533,8 @@ updatedIn: iter-20260816-uzvg
 主会话实例与 SubAgent 同为 AgentInstance（domain/agent/AgentInstance：instanceId、kind: "main"|"subagent"、profileKind、sessionId、实例状态机、createdAt），机制同构——同 AgentRuntime 驱动、同 AgentProfile 声明机制、同事件通道、同 trace/统计/持久化路径；编排分层只经 profile 生命周期声明表达（main = persistent 常驻多轮、用户对话锚点，re-profile 时销毁重建；subagent = single-shot 单轮收敛、closure 回主线后销毁）。「同构」只发生在机制层，禁止按 kind 分叉任何机制通道。
 每条领域事件与聚合 Entry（消息/工具调用/thinking/compaction）一律挂 instanceId；持久化兑现 trace 四维查询 session × instance × type × time：domain_events 增 agent_instance_id 列 + 索引（agent_kind 保留为冗余快速过滤维度）、agent_lifecycle 主键扩为 (session_id, instance_id)、tool_calls 增实例归属列；协议信封 Envelope 增可选 instanceId? 字段，缺省 = 主实例（向后兼容），快照增 instances 实例清单。
 SubAgent 实例的 instanceId 即 agent_spawn 返回、agent_send/agent_status/agent.kill 寻址的 agentId（同一标识空间的两个视角，分配即定）；主实例在会话创建时分配固定 id。
-会话聚合与 agent 实例窗口分离（三层模型）：聚合是全历史 Entry 树、跨实例持续追加（UI/持久化单位，实例切换或收口时不重建）；实例窗口是 LLM 上下文、销毁重建（执行层全切、交接层受控注入、显示层连续）。实例创建/销毁/re-profile 是一等操作，调度器与状态机不得假设一个会话单实例线性推进。
-UI 时间线按实例分段：主线视图默认只渲染主实例 Entry + SubAgent 卡片 + 里程碑标记，抽屉视图 = 按实例过滤的全流；重启后按 Entry 的 instanceId 归属恢复各实例全流。
+会话聚合与 agent 实例窗口分离（三层模型）：聚合是全历史 Entry 树、跨实例持续追加（UI/持久化单位，实例切换或收口时不重建）；实例窗口是 LLM 上下文、销毁重建（执行层全切、交接层受控注入、显示层连续）。实例创建/销毁/re-profile 是一等操作，调度器与状态机不得假设一个会话单实例线性推进。【v0.1 实现边界（M2 终验 L3 复核登记）：聚合 Entry 树当前仅主实例（Session.ts 硬编码 MAIN_INSTANCE_ID）；SubAgent 内容以挂 instanceId 的领域事件行入 domain_events（trace 四维可查），抽屉读面 = per-instance 事件流（与 AD-8 决策一致）。「SubAgent Entry 进聚合 + 恢复重放进快照 entries」为 M3+ 行为面子项（与 OI-2 pendingSteer 消费触发点同批），届时撤本边界声明。】
+UI 时间线按实例分段：主线视图默认只渲染主实例 Entry + SubAgent 卡片 + 里程碑标记，抽屉视图 = 按实例过滤的全流（v0.1 全流载体 = per-instance 事件流，见上边界声明）；重启后恢复实例骨架/closure/账目（SubAgent 全流重放同属 M3+ 子项）。
 
 ## 理由
 F-12 实锤现状只有 agent_kind 无实例 id，同类型多实例不可区分、协议事件无任何 agent 标识（单 agent 假设）；主会话即使不 spawn SubAgent 也会因 re-profile 存在多实例（用户在 grilling 指出）。机制同构才能统一 trace/统计/事件通道（AD-3）；聚合与窗口分离是相位模式在 v2 重新生长的地基（AD-1），M2 主实例 + N 个 SubAgent 已在事实层面运行该模型。
@@ -642,7 +643,7 @@ updatedIn: iter-20260816-uzvg
 三通道（thinking/usage/compaction）统一链路模式：pi 引擎事件/产物（thinking_start/delta/end、message_end 携带的 Usage、CompactResult）→ PiAgentEngineAdapter 防腐转发或提取（挂 instanceId）→ 领域事件 → Entry/账目（domain 权威状态）→ WS 事件与快照；对 pi 符号的 import 只在 pi-engine 防腐域（TR-AD-7 同口径）。
 thinking：流式 delta 为中间态不落盘（TR-AD-5 原则不变）；完成态 ThinkingEntry{instanceId, text, durationMs, reasoningTokens} 全量落盘进聚合（重启可回看）；reasoning tokens 随 usage 入账（计费自洽）。
 usage：turn 完成从 message_end 提取完整 Usage（input/output/cacheRead/cacheWrite/reasoning/totalTokens/cost）挂 instanceId 入事件流（usage.recorded）；per-instance 小计 → per-session 聚合（主线+委托合计）；compaction 摘要调用成本（CompactResult.usage）同通道入账——一切真实 LLM 成本不漏账；流式中不动账、turn 完成入账。
-compaction：由驱动层（AgentRuntime）turn 间按 profile.compaction 参数接线 pi 的 shouldCompact/compact 独立函数族（loop 不自动跑，驱动层 turn 间调用）；CompactionEntry{instanceId, tokensBefore, summary, usage} 进该实例 pi session Entry 树与领域聚合，UI 里程碑折叠条可见（复用 thinking 组件模式：折叠条 + 点击展开 summary）；接线不感知 profile.kind——主实例与 SubAgent 实例同路径获得 compaction；失败走既有 engine_error 不崩会话路径 + 失败注入测试守护。
+compaction：由驱动层（AgentRuntime）turn 间按 profile.compaction 参数接线 pi 的 shouldCompact/compact 独立函数族（loop 不自动跑，驱动层 turn 间调用）；CompactionEntry{instanceId, tokensBefore, summary, usage} 进该实例 pi session Entry 树与领域聚合，UI 里程碑折叠条可见（复用 thinking 组件模式：折叠条 + 点击展开 summary）；接线不感知 profile.kind——主实例与 SubAgent 实例同路径可装配 compaction（profile 声明 compaction 参数即获得；SubAgentProfile 当前未声明，SubAgent 实例实际未装配）；失败走既有 engine_error 不崩会话路径 + 失败注入测试守护。
 协议演进 v0 → v0.1 additive 纪律：①判别式联合只增不删不改（既有事件 type 字面量与 payload 形状不动）；②可选字段带缺省语义（Envelope.instanceId? 缺省 = 主实例、message_end 的 usage? 缺省 = 未携带，旧剧本兼容）；③EntryDto 联合新增 kind: "thinking" | "compaction" 成员，旧 kind 不动，旧消费者忽略未知 kind；④快照 additive（新增可选 instances/usage 字段，既有字段不动）；⑤增量演进保持 v=0 不 bump，破坏性变更（删字段/改判别值）才 bump PROTOCOL_VERSION；守护测试「目录常量 ↔ 联合双向一致性」随新增成员同步扩；落盘行模型前向兼容走 RowMapper fromRow 默认值兑底（TR-AD-14）。
 
 ## 理由
@@ -677,7 +678,7 @@ updatedIn: iter-20260816-uzvg
 重启后：running 态 SubAgent 实例收口为 failed（「daemon 重启，任务未完成」——与首迭代 D-1 工具卡收口同构），历史保留可回放，closure failed 经 SteerQueue 注入主线，不自动续跑；queued 态任务清队不落盘（调度队列持久化边界 = 不持久化），快照标 cancelled（区别于 failed），不自动重派。
 重试是编排决策而非恢复机制：MainAgent 收到 failed closure 后自主决定（spawn 新实例重试/转述用户/放弃），决策点在编排层（LLM + 系统提示），不在恢复代码——恢复代码不执行任何东西。
 正常运行期 SubAgent 崩溃同语义：崩溃隔离（子进程崩溃不伤 daemon 主线），closure failed 通道回主线。
-恢复重建面（重启 daemon 全部恢复）：实例注册表（agent_lifecycle per-instance）→ 卡片/抽屉骨架；Entry 树（含 thinking/compaction/各实例 Entry，按 instanceId 归属）→ 主线视图 + 抽屉全流；usage 聚合 → header 合计与下钻明细；closure 记录 → 终态卡片与账目；全部经快照推前端纯投影重建（前端零自恢复，TR-AD-5）。
+恢复重建面（重启 daemon 全部恢复）：实例注册表（agent_lifecycle per-instance）→ 卡片/抽屉骨架；Entry 树（主实例 thinking/compaction/message Entry）→ 主线视图（v0.1 边界：SubAgent Entry 未进聚合，抽屉全流重放为 M3+ 子项，见 TR-AD-15 边界声明——重启后抽屉 = 卡片骨架 + closure 尾卡）；usage 聚合 → header 合计与下钻明细；closure 记录 → 终态卡片与账目；全部经快照推前端纯投影重建（前端零自恢复，TR-AD-5）。
 
 ## 理由
 AD-10（Q-13=A）确定性优先：自动续跑 = 不知情时执行带旧状态的重试，错误根源在任务时会重演且烧钱；failed 收口不执行任何东西，故不需要「保证不再错」；v1 D-1 已验证同构收口模式；cancelled 与 failed 区分忠实反映「未启动被取消」与「执行中断」两种事实。
@@ -687,3 +688,44 @@ RestoreService 恢复扩展、快照 instances 字段设计（cancelled/failed �
 
 ## 反例
 重启时扫描出 running 任务自动重新 spawn「接着跑」——不知情重试带旧状态，错误根源重演且烧钱（已裁不自动续跑）；或把 queued 任务也标 failed——与「未启动即被取消」事实不符（已裁为 cancelled 且区别于 failed）；或在 RestoreService 里内置「失败任务自动重派 N 次」策略——重试决策已裁归编排层（MainAgent），恢复代码越权执行。
+
+```kg-node
+id: TR-AD-20
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: 能力边界分层约束（bash 现实主义：白名单+审批为硬，SOP+审计为软）
+status: active
+digest: 配 profile 工具集、写工具审批挂起、做能力边界或相位锁设计时
+derivedFrom:
+  - AD-2
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/AgentProfile.ts
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile.ts
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile.ts
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/HookSet.ts
+  testedBy:
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
+relations:
+  governs:
+    - E-AgentProfile
+    - E-HookSet
+updatedIn: iter-20260816-uzvg
+```
+
+## 规则
+能力边界分两层表达，硬软分明：硬层 = 注册工具白名单（profile.tools 按名声明，工具不在白名单即不注册）+ 敏感操作 beforeToolCall 审批挂起（HookSet 钩子位）；软层 = bash 内行为靠 SOP 系统提示约束 + 越界审计（事后可观测），不追求对 bash 硬拦截。
+bash 是基础工具永远在场，属白名单决策项而非逃生舱——裁剪边界 = 从 tools 白名单移除，不是给 bash 加命令级拦截。v1 相位锁拦不住 bash 内行为是既有事实，v2 的进步点在 SOP 残留不叠加污染（AD-1 re-profile）与交接协议化，不在把软约束伪装成硬约束。
+落位节奏：M2 profile 结构以 tools 白名单表达能力边界（subagent-worker 裁决取全工具集，Q-6=A——白名单机制在而取全集是决策不是缺失）；相位级白名单与审批挂起随 M4 phase profile 落（beforeToolCall 钩子位已备）；越界审计随 SOP 系统提示完善。禁止提前实现无裁决的相位锁/审批策略（无场景不预做）。
+
+## 理由
+AD-2（grilling 裁决）：v1 相位锁同样拦不住 bash 内行为（编码绕行/间接调用），硬拦截 bash 会催生绕行反而制造假安全性；误伤合法长任务（编译/脚本）的成本高于软约束漏网。分层表达使「能做什么」（硬，可静态审计）与「该做什么」（软，可事后追责）各得其所。
+
+## 适用范围
+M4 相位 profile 工具集定义与审批挂起钩子实现；任何新增 profile（agent 类型）的能力边界声明评审；越界审计设计；工具集裁剪决策（白名单决策项口径）；SubAgent/未来 worker profile 的工具授权评审。
+
+## 反例
+在 bash 工具内做命令静态分析硬拦截「危险操作」（编码绕行拦不住、合法长任务被误杀，且把边界语义从 profile 声明泄漏进工具实现）；或把能力边界实现为按 agent 类型的目录级工具隔离而 profile 无白名单声明（v1 双轨复发、白名单不可静态审计）；或 M2 就为无竞争场景提前实现相位锁（无裁决不预做）。

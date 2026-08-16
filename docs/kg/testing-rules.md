@@ -48,19 +48,15 @@ derivedFrom:
   - AD-15
   - AD-16
   - AD-17
-anchors:
-  implementedBy:
-    - apps/daemon/test/arch-guard/arch-guard.test.ts
-    - apps/shell/src/tests/ag-scans.test.ts
 relations:
   governs:
     - E-AgentRuntime
     - E-领域事件与单写队列
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260816-uzvg
 ```
 
 ## 规则
-AD 架构纪律以自动化守护测试固化，随代码同仓、破坏即红：①依赖方向扫描——domain 不 import application/adapters/infrastructure 与 pi 库；application 不 import adapters 与 pi 库；pi 库 import 仅出现在 adapters/driven/pi-engine 与 adapters/driven/tools（工具接线域，与 TR-AD-7 同口径）；②port 零实现——application/ports/ 文件静态检查不得含实现代码、工厂或实例化；③写路径唯一——领域事件落盘仅经单写队列，扫描绕过队列的 SQLite 直写；④扩展公式验证——用一个 TestProfile（模拟 M2 SubAgent 形态：不同钩子装配 + 单轮收敛策略）验证不改 AgentRuntime 源码即可装配并跑通。
+AD 架构纪律以自动化守护测试固化，随代码同仓、破坏即红：①依赖方向扫描——domain 不 import application/adapters/infrastructure 与 pi 库；application 不 import adapters 与 pi 库；pi 库 import 仅出现在 adapters/driven/pi-engine、adapters/driven/tools（工具接线域）与 adapters/driven/subagent（SubAgent 子进程形态：launcher 透传 Model、child 复用 pi-engine 防腐墙、剧本引擎用 pi-ai 流原语；T2.2 新增，与 TR-AD-7 三根同口径）；②port 零实现——application/ports/ 文件静态检查不得含实现代码、工厂或实例化；③写路径唯一——领域事件落盘仅经单写队列，扫描绕过队列的 SQLite 直写；④扩展公式验证——用一个 TestProfile（模拟 M2 SubAgent 形态：不同钩子装配 + 单轮收敛策略）验证不改 AgentRuntime 源码即可装配并跑通。
 
 ## 理由
 分层、port 零实现、单写路径、扩展公式是 AD-12/15/16/17 的机械可判纪律，人审会漏、测试不会；TestProfile 是「新增 profile 不改 runtime」公式的回归锚点。
@@ -159,19 +155,6 @@ digest: 写表现验证 e2e、接 mock 注入点、装配真 daemon 测试时
 derivedFrom:
   - F4.4
   - F-6
-anchors:
-  implementedBy:
-    - e2e/harness/mock-init.ts
-    - e2e/harness/protocol.ts
-    - e2e/harness/daemon-fixture.ts
-    - e2e/harness/daemon-script.ts
-    - apps/daemon/test/e2e/launcher.ts
-    - playwright.e2e.config.ts
-  testedBy:
-    - e2e/CL-7-fidelity-layout-theme.spec.ts
-    - e2e/CL-7-fidelity-toolcard.spec.ts
-    - e2e/CL-7-e2e-chat.spec.ts
-    - e2e/CL-7-CL-8-restart-recovery.spec.ts
 relations:
   governs:
     - E-会话聚合
@@ -181,7 +164,7 @@ updatedIn: iter-20260816-uzvg
 ## 规则
 浏览器表现验证固定双层装配，后续迭代同构迁移（换剧本即扩展）：
 F 层（mock mode）——经 SessionProvider 标准化注入点切换 fake transport（env VITE_HELIX_FAKE_TRANSPORT / URL 参数，F4.4）：产品代码内一等注入点，F 层纯浏览器跑、无 daemon，生产连接代码（连接状态机/退避/握手）全真跑；替换实现必须保留 WebSocket.OPEN/CONNECTING 等静态常量（browserTransportFactory.send 以 readyState 门控，缺失静默吞帧）；vite HMR 的 WebSocket 透传原生；帧构造类型直引 @helix/protocol（与真实协议零漂移）。
-E 层（真 daemon）——bun 子进程 launcher（stdout 控制行协议 + SIGTERM 优雅停机）；DaemonProcess fixture 以 --home mkdtemp tmp 隔离（真实 ~/.helix 零触碰）、端口预检 fail-fast、全 argv 传参零 env 配置，并负责 SubAgent 子进程树与端口的彻底清理（与 TR-TEST-6 teardown 纪律联动）；剧本 JSON 契约（reply/replyFromResult/tool + 流式分片可打入窗口）；globalSetup 端口预检 + VITE_HELIX_PORT 烘焙 dist。真实 LLM 联调形态换 streamFnOverride 实现即可。
+E 层（真 daemon）——bun 子进程 launcher（stdout 控制行协议 + SIGTERM 优雅停机）；DaemonProcess fixture 以 --home mkdtemp tmp 隔离（真实 ~/.helix 零触碰）、端口占用重试缓冲、全 argv 传参零 env 配置，并负责 SubAgent 子进程树与端口的彻底清理（与 TR-TEST-6 teardown 纪律联动；端口预检 fail-fast 在 globalSetup）；剧本 JSON 契约（reply/replyFromResult/tool + 流式分片可打入窗口）；globalSetup 端口预检 fail-fast + VITE_HELIX_PORT 烘焙 dist。真实 LLM 联调形态换 streamFnOverride 实现即可。
 
 ## 理由
 F 层给前端投影与还原度最快反馈（无 daemon），E 层验证真 daemon 全链路闭环（持久化/恢复语义）；两层共享协议类型面与剧本形态，TR-TEST-3 契约等价贯穿。F4.4 裁决：SessionProvider env/URL 注入点使 mock 形态成为产品代码的可寻址能力而非 harness 侧 hack（F-6 首迭代建议的兑现），F 层剧本服务 CL-1/2/3 三类新 UI 验证。静态常量坑与隔离纪律是两轮实测提炼。

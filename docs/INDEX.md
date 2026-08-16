@@ -12,13 +12,13 @@ docs:
     updatedAt: 2026-08-15T11:25:13.254Z
   - name: kg/domain.md
     purpose: 领域模型（业务实体）
-    updatedAt: 2026-08-16T03:18:05.421Z
+    updatedAt: 2026-08-16T11:25:47.903Z
   - name: kg/architecture-rules.md
     purpose: 架构规则（技术规则 TR-AD-N）
-    updatedAt: 2026-08-16T03:16:46.501Z
+    updatedAt: 2026-08-16T11:26:22.008Z
   - name: kg/testing-rules.md
     purpose: 测试规则（技术规则 TR-TEST-N）
-    updatedAt: 2026-08-16T03:17:01.039Z
+    updatedAt: 2026-08-16T11:25:47.912Z
 ---
 
 # helix 文档索引
