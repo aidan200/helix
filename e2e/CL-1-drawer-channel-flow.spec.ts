@@ -12,7 +12,9 @@
  * steer 拒绝走 dev 注入控件（演示控件 isDev 门控，F 层 dev server 可见）。
  */
 import { test, expect } from "./harness/fixtures";
+import { shotEvidence, writeEvidence } from "./harness/evidence";
 import {
+  agentFailed,
   agentKilled,
   agentSpawned,
   agentStalled,
@@ -227,5 +229,49 @@ test.describe("T4.4 S2 CL-1 抽屉全流（五物种 + kill + stalled + steer）
     await expect(reject).toBeVisible();
     await expect(reject).toContainText("排队/终态实例无活动上下文");
     await expect(drawer.locator('.steer-mark[data-kind="steer-mark"]')).toHaveCount(steerCount);
+
+    await shotEvidence(page, "drawer-kill-two-step", "CL-1");
+    writeEvidence(
+      "drawer-channel-flow",
+      "txt",
+      [
+        "T4.4 S2 CL-1 抽屉全流（五物种 + kill 两步 + stalled + steer）",
+        "断言: 键盘开抽屉/agent.subscribe 退订/五物种回放/stalled warn 行/",
+        "  kill 两步确认→agent.killed 回流双视图+closure 五字段/steer 拒绝",
+        "结果: PASS",
+      ].join("\n"),
+      "CL-1",
+    );
+  });
+
+  test("OI-7 lc.crashed 文案：agent.failed → channel err 行（crashed · 错误原文透传）+ closure 卡", async ({
+    mock,
+    page,
+  }) => {
+    const CRASH_ERROR = "子进程非零退出（exit 137）";
+    const CRASH_CLOSURE = {
+      status: "failed" as const,
+      summary: "引擎崩溃，任务未完成。",
+      reportPath: null,
+      findings: null,
+      taskId: null,
+    };
+
+    await page.locator(".sa-card").click();
+    const drawer = page.locator(`.drawer[data-instance="${DRAWER_AGENT}"]`);
+    await expect(drawer).toBeVisible();
+
+    await mock.emit(agentFailed(DRAWER_AGENT, CRASH_ERROR, CRASH_CLOSURE));
+
+    // lc.crashed 文案（zh-CN 词条 + error 原文透传——领域数据不 i18n）
+    const row = drawer.locator('.lc-row[data-lc="crashed"]');
+    await expect(row).toHaveClass(/err/);
+    await expect(row).toContainText(`crashed · ${CRASH_ERROR}`);
+    // failed 终态：状态 chip + closure 卡同帧
+    await expect(drawer.locator(".d-status")).toHaveAttribute("data-status", "failed");
+    const closureCard = drawer.locator('.closure-card[data-kind="closure"]');
+    await expect(closureCard.locator(".cl-summary")).toHaveText(CRASH_CLOSURE.summary);
+
+    await shotEvidence(page, "drawer-lc-crashed", "CL-1");
   });
 });

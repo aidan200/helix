@@ -11,6 +11,7 @@
  * 前端零自恢复：全部产物 = 快照字段纯投影（AD-16），断言即重建正确性。
  */
 import { test, expect } from "./harness/fixtures";
+import { shotEvidence, writeEvidence } from "./harness/evidence";
 import {
   msgEntry,
   snapshot,
@@ -154,5 +155,18 @@ test.describe("T4.4 S6 快照投影重建（卡片/thinking/账目/抽屉回放�
     await expect(closureCard.locator(".cl-meta")).toContainText("taskId T-44");
     // queued 空态不渲染（done 实例）
     await expect(channel.locator('[data-kind="queued-hint"]')).toHaveCount(0);
+
+    await shotEvidence(page, "snapshot-rebuild-mixed", "CL-1-CL-2-CL-3");
+    writeEvidence(
+      "snapshot-rebuild",
+      "txt",
+      [
+        "T4.4 S6 快照投影重建（CL-1 卡片 + CL-2 thinking + CL-3 账目混合闭环）",
+        "断言: 折叠可展开/卡片终态/账目明细合计自洽/抽屉 channel 历史回放六物种",
+        "  /queued 空态不渲染",
+        "结果: PASS",
+      ].join("\n"),
+      "CL-1-CL-2-CL-3",
+    );
   });
 });

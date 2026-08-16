@@ -10,6 +10,7 @@
  * 数字自洽：main turn 2_200 + compaction 1_800 = 4_000（显示 2k + 2k = 4k）。
  */
 import { test, expect } from "./harness/fixtures";
+import { shotEvidence, writeEvidence } from "./harness/evidence";
 import { compactionCompleted, messageCompleted, msgEntry, usageRecorded } from "./harness/protocol";
 import { fmtTokens } from "../apps/shell/src/shared/lib/format";
 import { COMPACT_ENTRY, COMPACT_MAIN_TURN } from "./harness/scenarios";
@@ -124,5 +125,19 @@ test.describe("T4.4 S5 CL-4 compaction 里程碑与账目行", () => {
       .toBeLessThan(720); // 底边进入视口
     const rect = (await last.boundingBox())!;
     expect(rect.y).toBeGreaterThan(40); // 在 msg-flow 可视带（header 48px 以下）
+
+    await shotEvidence(page, "compaction-milestone-anchor", "CL-4");
+    writeEvidence(
+      "compaction-milestone",
+      "txt",
+      [
+        "T4.4 S5 CL-4 compaction 里程碑与账目行",
+        "断言: 里程碑条折叠/展开+usage meta/compact.note 尾注文案/",
+        "  popover compaction 独立行+归属 main 说明+main 行不吸收（防双计）/",
+        "  行尾点击锚点滚动",
+        "结果: PASS",
+      ].join("\n"),
+      "CL-4",
+    );
   });
 });

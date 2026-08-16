@@ -108,6 +108,7 @@ class EngineInstanceRunner implements InstanceRunner {
 function makeHarness(options: {
   policy?: SchedulingPolicy;
   hangMs?: number;
+  clock?: ClockPort;
 }): Harness {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t21-sched-"));
   const writeQueue = new WriteQueue(path.join(home, "helix.db"));
@@ -121,7 +122,7 @@ function makeHarness(options: {
     },
     publishDelta: () => undefined,
   };
-  const clock: ClockPort = { now: () => FIXED_NOW };
+  const clock: ClockPort = options.clock ?? { now: () => FIXED_NOW, nowMs: () => Date.now() };
   const runner = new EngineInstanceRunner(options.hangMs ?? HANG_MS);
   const scheduler = new SchedulerService({
     policy: options.policy ?? new SchedulingPolicy(),
@@ -309,7 +310,6 @@ describe("⑤ stalled 警示（不自动杀，可重复推）", () => {
     }));
     h.scheduler.spawn("长任务");
     await sleep(260); // 轮询 40ms × 数轮：launch 后长工具静默 → idle 持续超阈值
-
     const stalled = payloadsOf(h.events, "agent.stalled", "agent-1") as { agentId: string; idleMs: number }[];
     expect(stalled.length).toBeGreaterThanOrEqual(2); // 可重复推（§8.3）
     expect(stalled[0]?.agentId).toBe("agent-1");
@@ -326,6 +326,36 @@ describe("⑤ stalled 警示（不自动杀，可重复推）", () => {
     const countAfterRefresh = payloadsOf(h.events, "agent.stalled", "agent-1").length;
     await sleep(90); // < 阈值窗口
     expect(payloadsOf(h.events, "agent.stalled", "agent-1").length).toBe(countAfterRefresh);
+  });
+  test("双时间源统一（T1.3）：stalled 判定走注入时钟 nowMs——时钟推进超阈即警示，idleMs 精确、无需真实等待", async () => {
+    // 注入可变时钟：lastEventAt 记录与 stalled 判定全部读 clock.nowMs()（非 Date.now）——
+    // idleMs = 注入时钟差值，确定可断（真实墙钟则为 ~1.7e12 epoch，一眼可辨）
+    let ms = 1_000_000;
+    const h = (current = makeHarness({
+      policy: new SchedulingPolicy({ stalledThresholdMs: 100 }),
+      hangMs: 5_000,
+      clock: { now: () => FIXED_NOW, nowMs: () => ms },
+    }));
+    h.scheduler.spawn("注入时钟长任务"); // startInstance → lastEventAt = 1_000_000
+    ms += 150; // 时钟推进超阈（150 > 100），真实墙钟零流逝
+    await waitForCondition(() => payloadsOf(h.events, "agent.stalled", "agent-1").length >= 1);
+
+    const stalled = payloadsOf(h.events, "agent.stalled", "agent-1") as { agentId: string; idleMs: number }[];
+    expect(stalled[0]!.idleMs).toBe(150); // 注入时钟差值（非 Date.now epoch）
+    expect(h.scheduler.instance("agent-1")?.state).toBe("running"); // 警示非迁移
+
+    // 事件增量刷新后基准重置：推进 30ms（< 阈值）不再推；再推 150ms 复现
+    h.runner.emitEvent("agent-1"); // → lastEventAt = 1_000_150
+    const base = payloadsOf(h.events, "agent.stalled", "agent-1").length;
+    ms += 30;
+    await sleep(60);
+    expect(payloadsOf(h.events, "agent.stalled", "agent-1").length).toBe(base);
+    ms += 150;
+    await waitForCondition(
+      () => payloadsOf(h.events, "agent.stalled", "agent-1").length >= base + 1,
+    );
+    const refreshed = payloadsOf(h.events, "agent.stalled", "agent-1") as { agentId: string; idleMs: number }[];
+    expect(refreshed[refreshed.length - 1]!.idleMs).toBe(180); // 自刷新基准（1_000_150 → 1_000_330）
   });
 });
 
@@ -469,4 +499,13 @@ describe("F1.9 非线性红线：乱序/交织/幂等", () => {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 轮询等待条件成立（测试侧墙钟；超时地 2s）。 */
+async function waitForCondition(pred: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const t0 = Date.now();
+  while (!pred()) {
+    if (Date.now() - t0 > timeoutMs) throw new Error("waitForCondition 超时");
+    await sleep(10);
+  }
 }

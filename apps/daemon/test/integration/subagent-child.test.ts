@@ -347,7 +347,7 @@ describe("⑦ 与 T2.1 SchedulerService 组装（InstanceRunner 真体）", () =
     const repository = new SqliteSessionRepository(writeQueue);
     const events: DomainEvent[] = [];
     const publisher: EventPublisherPort = { publish: (e) => events.push(e), publishDelta: () => undefined };
-    const clock: ClockPort = { now: () => FIXED_NOW };
+    const clock: ClockPort = { now: () => FIXED_NOW, nowMs: () => Date.parse(FIXED_NOW) };
     const launcher = new SubagentLauncher({
       profile: SubAgentProfile,
       model: fakeModel,

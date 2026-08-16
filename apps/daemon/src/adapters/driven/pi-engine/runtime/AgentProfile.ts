@@ -37,7 +37,9 @@ export interface AgentProfile {
   readonly lifecycle: { readonly mode: LifecycleMode };
   /** 钩子装配（装配即启用，§4.2）。 */
   readonly hooks: readonly HookSet[];
-  /** compaction 参数声明（可选；缺省 DEFAULT_COMPACTION）。 */
+  /** compaction 参数声明（可选；undefined = 不装配 CompactionHook，无 fallback——
+   *  实装见 AgentRuntime.compactionHooks（声明 enabled 才装配）；DEFAULT_COMPACTION
+   *  仅为 MainSessionProfile 的声明值非缺省行为；SubAgentProfile 未声明即无压缩）。 */
   readonly compaction?: CompactionSettings;
   /**
    * 模型槽位（AD-6，T2.2）："provider/model-id"；缺省 undefined = 继承

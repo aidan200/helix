@@ -86,7 +86,7 @@ export interface SchedulerServiceDeps {
   readonly events: EventPublisherPort;
   /** 持久化（closure 记录行/报告文件/agent_lifecycle 投影，经 WriteQueue 单写通道）。 */
   readonly repository: SessionRepositoryPort;
-  /** 时间源（领域事件 occurredAt / 实例 createdAt，测试可控）。 */
+  /** 时间源（领域事件 occurredAt / 实例 createdAt / stalled 毫秒判定，测试可控）。 */
   readonly clock: ClockPort;
   /** 实例归属会话（领域事件挂 sessionId）。 */
   readonly sessionId: string;
@@ -308,7 +308,7 @@ export class SchedulerService implements AgentOrchestrationPort {
   private onInstanceEvent(instanceId: string, event?: AgentEngineEvent): void {
     const instance = this.registry.findInstance(instanceId);
     if (!instance || instance.isTerminal) return; // 迟到/乱序事件：不崩不计
-    this.lastEventAtMs.set(instanceId, Date.now());
+    this.lastEventAtMs.set(instanceId, this.deps.clock.nowMs());
     if (event === undefined) return;
 
     if (event.type === "tool_execution_start") {
@@ -418,7 +418,7 @@ export class SchedulerService implements AgentOrchestrationPort {
 
   private startInstance(instance: AgentInstance): void {
     instance.markRunning();
-    this.lastEventAtMs.set(instance.instanceId, Date.now());
+    this.lastEventAtMs.set(instance.instanceId, this.deps.clock.nowMs());
     this.persistLifecycle(instance); // running 投影（重启 running→failed 收口的读面，AD-10）
     this.publish(instance, "agent.started", { agentId: instance.instanceId } satisfies AgentStartedPayload);
     this.deps.runner.launch(instance, this.tasks.get(instance.instanceId) ?? "");
@@ -448,7 +448,7 @@ export class SchedulerService implements AgentOrchestrationPort {
 
   /** stalled 轮询：running 实例 idle 超阈值 → 警示事件可重复推，不改状态。 */
   private checkStalled(): void {
-    const now = Date.now();
+    const now = this.deps.clock.nowMs();
     for (const instance of this.registry.listInstances()) {
       if (instance.current !== "running") continue; // 终态不推（前端徽标仅 running）
       const last = this.lastEventAtMs.get(instance.instanceId);

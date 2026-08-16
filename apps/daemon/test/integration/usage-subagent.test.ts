@@ -75,7 +75,7 @@ describe("T3.2 SubAgent turn usage 入账（T2.2 上行链路）", () => {
       runner,
       events: publisher,
       repository,
-      clock: { now: () => new Date(0).toISOString() },
+      clock: { now: () => new Date(0).toISOString(), nowMs: () => 0 },
       sessionId: SESSION_ID,
     });
     try {

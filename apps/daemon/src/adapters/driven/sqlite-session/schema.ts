@@ -7,7 +7,8 @@
  *
  * 表清单：
  * - domain_events：领域事件流（trace 数据面，四维可查询——session/instance/类型/时间）；
- * - session_state：会话聚合快照投影（Entry 树/轮次/instances/usage，贫血 JSON 行）；
+ * - session_state：会话聚合快照投影（entries/turns 贫血 JSON 行；instances/usage
+ *   由领域事件流投影重建，非本表列）；
  * - agent_lifecycle：实例生命周期投影（每会话每实例一行，PK (session_id, instance_id)）；
  * - steer_queue：steer 待注入队列投影（未消费项）；
  * - tool_calls：工具调用记录投影（pending/running/completed/failed 全态，挂实例）；

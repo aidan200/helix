@@ -59,7 +59,7 @@ export const enUS: Translations = {
     },
     restore: {
       toast: "Session restored",
-      toastSub: "daemon snapshot + event replay · {n} entries rebuilt",
+      toastSub: "daemon snapshot + event replay · {n} messages · instance/channel/usage projections rebuilt",
     },
     msg: {
       you: "You",

@@ -135,7 +135,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 
   // ── 重启恢复（F(8).2）：读盘重建聚合；首启无持久化 → 新建会话 ──────
   // 会话聚合在此显式创建/恢复（T2.3 构造序：调度器需要 sessionId，先于引擎装配）
-  const clock: ClockPort = { now: () => new Date().toISOString() };
+  const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
   const restored = await new RestoreService({ repository, clock }).restoreLatest();
   const session = restored?.session ?? Session.create();
   // 会话账本（T3.2，AD-4）：权威源 = usage.recorded 事件（事件即账），

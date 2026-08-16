@@ -166,3 +166,16 @@ describe("t() 插值", () => {
     expect(t(translations, "chat.not.exists.key")).toBe("chat.not.exists.key");
   });
 });
+
+describe("OI-7 restore.toastSub 投影面枚举（T1.3）", () => {
+  it("文案枚举快照重建四面投影：消息（entries 计数）+ 实例/通道/账目", () => {
+    const translations = zhCN as unknown as Translations;
+    const text = t(translations, "chat.restore.toastSub", { n: 42 });
+    // 四面 = snapshot case 重建的 entries/instances/instanceChannels/usage；
+    // {n} 仅承载 entries 计数（snapshot.ts restoreToast.count），其余三面枚举入文案
+    expect(text).toContain("消息 42 条");
+    expect(text).toContain("实例");
+    expect(text).toContain("通道");
+    expect(text).toContain("账目");
+  });
+});

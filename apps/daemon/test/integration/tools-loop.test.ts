@@ -139,7 +139,7 @@ function makeHarness(scripts: ScriptEntry[]): LoopHarness {
     engine,
     repository: new InMemorySessionRepository(),
     events: publisher,
-    clock: { now: () => "2026-08-15T00:00:00.000Z" },
+    clock: { now: () => "2026-08-15T00:00:00.000Z", nowMs: () => Date.parse("2026-08-15T00:00:00.000Z") },
   });
   return { chat, events, cwd };
 }

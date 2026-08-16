@@ -13,6 +13,7 @@
  * ④ 会话不崩：turn 收口、agentState 回 idle、零值 usage 不入账、下一轮正常。
  */
 import { test, expect } from "./harness/daemon-fixture";
+import { shotEvidence, writeEvidence } from "./harness/evidence";
 import { errorReply, slowReply, type DaemonScript } from "./harness/daemon-script";
 
 const ERROR_TEXT = "429: {\"code\":\"1308\",\"message\":\"已达到 5 小时的使用上限。\"}";
@@ -53,5 +54,17 @@ test.describe("终验热修 engine.error 透传（真 daemon + FakeLLM）", () =
     const reply = page.locator(".msg.assistant:not(.streaming)").last();
     await expect(reply).toContainText("已恢复，这是重试后的正常回复", { timeout: 20_000 });
     await expect(page.locator("#msg-input")).toBeEnabled({ timeout: 15_000 });
+
+    await shotEvidence(page, "e2e-engine-error-recovered");
+    writeEvidence(
+      "e2e-engine-error",
+      "txt",
+      [
+        "终验热修 engine.error 透传链路（真 daemon + FakeLLM error 剧本 + 真 WS）",
+        "断言: 流内 error 帧→错误卡（原文透传+重试 hint）/轮清除恢复闭环/",
+        "  retry 后正常回复",
+        "结果: PASS",
+      ].join("\n"),
+    );
   });
 });

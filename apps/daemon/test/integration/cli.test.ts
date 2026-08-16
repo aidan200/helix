@@ -37,7 +37,7 @@ function makeCli(engine: FakeAgentEngine) {
     engine,
     repository: new InMemorySessionRepository(),
     events: fanout, // 先接 fan-out，目标在下面装配（与组合根同构）
-    clock: { now: () => new Date().toISOString() },
+    clock: { now: () => new Date().toISOString(), nowMs: () => Date.now() },
   });
   const session = new SessionService({
     getSession: () => chat.sessionView,

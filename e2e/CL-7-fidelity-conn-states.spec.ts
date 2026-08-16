@@ -107,7 +107,7 @@ test.describe("TC2.5 R-09~R-14/SM-1/SM-2 连接四态（S5）", () => {
     const toast = page.locator(".toast.ok");
     await expect(toast).toBeVisible();
     await expect(toast).toContainText("会话已恢复");
-    await expect(toast.locator(".t-sub")).toContainText("daemon 快照 + 增量事件重放 · 2 条投影已重建");
+    await expect(toast.locator(".t-sub")).toContainText("daemon 快照 + 增量事件重放 · 消息 2 条 · 实例/通道/账目投影已重建");
     await expect(page.locator(".conn-banner")).toBeHidden();
     await expect(page.locator(".conn-overlay")).toBeHidden();
     await expect(page.locator(".msg")).toHaveCount(2);

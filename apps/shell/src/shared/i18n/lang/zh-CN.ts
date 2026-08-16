@@ -61,7 +61,7 @@ export const zhCN: Translations = {
     },
     restore: {
       toast: "会话已恢复",
-      toastSub: "daemon 快照 + 增量事件重放 · {n} 条投影已重建",
+      toastSub: "daemon 快照 + 增量事件重放 · 消息 {n} 条 · 实例/通道/账目投影已重建",
     },
     msg: {
       you: "用户",

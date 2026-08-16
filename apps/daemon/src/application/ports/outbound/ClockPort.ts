@@ -7,6 +7,9 @@
  * 本文件只有接口定义（AG-01）。
  */
 export interface ClockPort {
-  /** 当前时刻（ISO 8601 字符串）。 */
+  /** 当前时刻（ISO 8601 字符串；领域事件 occurredAt / 实例 createdAt）。 */
   now(): string;
+  /** 当前时刻（epoch 毫秒；时间差判定（如 stalled 轮询 idle 阈值）统一取本面，
+   *  避免毫秒级路径直调 Date.now 造成双时间源（T1.3）。 */
+  nowMs(): number;
 }

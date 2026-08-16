@@ -9,6 +9,7 @@
  * token 档位显示：fmtTokens 整数 k 档（1_200 → 1k）；秒取整（3_200ms → 3s）。
  */
 import { test, expect } from "./harness/fixtures";
+import { shotEvidence, writeEvidence } from "./harness/evidence";
 import {
   messageCompleted,
   msgEntry,
@@ -97,5 +98,17 @@ test.describe("T4.4 S3 CL-2 thinking 三态", () => {
     await expect(page.locator(".msg.assistant", { hasText: THINK_TURN2_REPLY })).toBeVisible();
     await expect(page.locator(".think-live")).toHaveCount(0);
     await expect(page.locator('.fb-wrap[data-kind="thinking"]')).toHaveCount(1); // 仅第一轮历史
+
+    await shotEvidence(page, "thinking-states-three", "CL-2");
+    writeEvidence(
+      "thinking-states",
+      "txt",
+      [
+        "T4.4 S3 CL-2 thinking 三态（streaming/折叠/无块）",
+        "断言: delta 逐帧+光标/completed 折叠不可逆+展开回看/下一轮无 thinking 零渲染",
+        "结果: PASS",
+      ].join("\n"),
+      "CL-2",
+    );
   });
 });

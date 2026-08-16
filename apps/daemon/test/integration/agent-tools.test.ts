@@ -82,7 +82,7 @@ interface ToolHarness {
 function makeToolHarness(policy?: SchedulingPolicy): ToolHarness {
   const events: DomainEvent[] = [];
   const publisher: EventPublisherPort = { publish: (e) => void events.push(e), publishDelta: () => undefined };
-  const clock: ClockPort = { now: () => FIXED_NOW };
+  const clock: ClockPort = { now: () => FIXED_NOW, nowMs: () => Date.parse(FIXED_NOW) };
   const runner = new HangRunner();
   const scheduler = new SchedulerService({
     policy: policy ?? new SchedulingPolicy(),
@@ -203,7 +203,7 @@ describe("② agent_send 经 SchedulerService.send → 子进程 stdin → Agent
     const writeQueue = new WriteQueue(path.join(home, "helix.db"));
     const events: DomainEvent[] = [];
     const publisher: EventPublisherPort = { publish: (e) => void events.push(e), publishDelta: () => undefined };
-    const clock: ClockPort = { now: () => FIXED_NOW };
+    const clock: ClockPort = { now: () => FIXED_NOW, nowMs: () => Date.parse(FIXED_NOW) };
     const lines: { instanceId: string; line: ChildOutboundLine }[] = [];
     const launcher = new SubagentLauncher({
       profile: SubAgentProfile,

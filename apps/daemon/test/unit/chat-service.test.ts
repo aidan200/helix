@@ -31,6 +31,9 @@ class FixedClock {
   now(): string {
     return new Date(this.t++).toISOString();
   }
+  nowMs(): number {
+    return this.t++;
+  }
 }
 
 /** 轮询等待条件成立（时序测试用）。 */

@@ -82,7 +82,7 @@ describe("AG-02：依赖方向矩阵", () => {
   });
 
   test("④ 组合根外不 new 具体 adapter/service 实现（pi-engine 内部装配与 domain 聚合除外）", () => {
-    const concrete = /(ChatService|SessionService|RestoreService|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine|WsServerAdapter|EventStream|StaticServe|WriteQueue|SqliteSessionRepository|CoreToolExecutor)\s*\(/;
+    const concrete = /(ChatService|SessionService|RestoreService|SchedulerService|SubagentLauncher|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine|WsServerAdapter|EventStream|StaticServe|WriteQueue|SqliteSessionRepository|CoreToolExecutor)\s*\(/;
     const scanDirs = ["adapters/driving", "application", "domain"];
     for (const dir of scanDirs) {
       for (const rel of listFiles(path.join(srcRoot, ...dir.split("/")))) {
