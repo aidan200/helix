@@ -193,3 +193,124 @@ GET http://127.0.0.1:{port}/helix-dev-token
 WS 连接本身不受 CORS 约束（浏览器允许跨源 WS），仅 token 的 HTTP 获取需上述
 Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重写，前端握手
 失败即重新拉取）。
+
+## 10. v0.1 additive 演进（协议 v0.1；版本位不 bump）
+
+> 本章为 v0.1 additive 追加（集成契约 `contracts/protocol-v0.1.md`；迭代
+> iter-20260816-uzvg）。**版本位不 bump**：`PROTOCOL_VERSION = 0` 保持
+> （0.1 语义；破坏性变更才 bump，TR-AD-18）。§1–§9 为 v0 基线，**零改动**：
+> 既有 5 命令 / 12 事件的 type 字面量与 payload 形状一律不动，全部新成员
+> 只追加；既有消费方（daemon / shell / e2e harness）不改动仍编译通过
+> （additive 兼容）。
+
+### 10.1 标识空间与 instanceId 缺省语义（AD-3）
+
+- **instanceId ≡ agentId**：同一标识空间的两个视角——编排事件族（`agent.*`）
+  用字段名 `agentId`；通道事件（thinking / compaction / usage）与 Entry 归属
+  用字段名 `instanceId`。前端 reducer 统一按同一 id 处理。
+- **分配格式（O-4 裁决建议，T1.2 定稿）**：主实例固定 `main`；SubAgent =
+  `agent-N`（daemon 内递增序号；持久化基线取 `agent_lifecycle` 已有
+  max(N)+1，重启不重复、剧本可预期）。
+- **信封 `instanceId?`**（§3 信封新增可选字段，**仅事件侧使用**）：
+  **缺省 = 主实例（`main`）**——`chat.stream.delta` 等既有事件不携带即归属
+  主线；SubAgent 实例的事件携带对应 instanceId，前端按 id 分流投影
+  （主线增量进消息流；SubAgent 增量只更新卡片 streaming 摘要行，不进消息流）。
+  命令不携带实例维度（`agentId` 在 payload 内）。
+
+### 10.2 命令目录 v0.1（5 → 8）
+
+新增 3 个编排命令（payload 均为 `{ agentId: string }`）：
+
+| type | payload 类型 | payload | 语义 | 错误模型 |
+|---|---|---|---|---|
+| `agent.kill` | `AgentKillPayload` | `{ agentId }` | 用户终止实例（抽屉 kill 两步确认后发送） | 目标不存在 / 已终态 → `connection.error` 回执（message 中文说明）；正常 → `agent.killed` 事件 |
+| `agent.subscribe` | `AgentSubscribePayload` | `{ agentId }` | 订阅实例全流（v0.1 通路语义，§10.6-①） | 同 `session.subscribe` 现状口径 |
+| `agent.unsubscribe` | `AgentUnsubscribePayload` | `{ agentId }` | 退订实例全流（同上） | 同上 |
+
+- 完整命令目录（8 个）：§4 的 5 个（`chat.send` / `chat.steer` / `chat.abort` /
+  `session.subscribe` / `session.unsubscribe`）+ 上述 3 个。
+- 联合类型 `CommandEnvelope` 与目录常量 `COMMAND_TYPES` 同步扩（三层一致性
+  由守护测试守护：类型级双向 Equal + switch 穷尽 + 运行时目录恰等）。
+
+### 10.3 事件目录 v0.1（12 → 23）
+
+**编排生命周期族（7 个）**：
+
+| type | payload 类型 | payload | 语义 |
+|---|---|---|---|
+| `agent.spawned` | `AgentSpawnedPayload` | `{ agentId, task, profileKind, model? }` | spawn 工具秒回出卡（不等执行） |
+| `agent.queued` | `AgentQueuedPayload` | `{ agentId, position }` | 超限入队；position 随出队递减重发 |
+| `agent.started` | `AgentStartedPayload` | `{ agentId }` | 出队 / 预算内直跑 |
+| `agent.stalled` | `AgentStalledPayload` | `{ agentId, idleMs }` | idle>阈值无事件增量（警示不自动杀；可再次发生） |
+| `agent.completed` | `AgentCompletedPayload` | `{ agentId, closure }` | 自然收口 done |
+| `agent.failed` | `AgentFailedPayload` | `{ agentId, error, closure }` | 崩溃/异常收口 failed（closure.status="failed"） |
+| `agent.killed` | `AgentKilledPayload` | `{ agentId, closure }` | 用户 kill 收口（closure.status="failed"，lifecycle terminated） |
+
+**通道族（4 个）**：
+
+| type | payload 类型 | payload | 语义 |
+|---|---|---|---|
+| `thinking.stream.delta` | `ThinkingStreamDeltaPayload` | `{ instanceId, delta }` | thinking 流式增量（中间态不落盘，TR-AD-5） |
+| `thinking.completed` | `ThinkingCompletedPayload` | `{ entry: ThinkingEntryDto }` | thinking 完成落 Entry |
+| `compaction.completed` | `CompactionCompletedPayload` | `{ entry: CompactionEntryDto }` | compaction 完成（含 usage） |
+| `usage.recorded` | `UsageRecordedPayload` | `{ instanceId, usage: UsageDto, source: "turn"\|"compaction" }` | turn 完成 / compaction 摘要调用完成（流式中不发） |
+
+- 三个终态事件（completed / failed / killed）都携带完整 `ClosureDto`
+  （前端卡片 / 抽屉 closure 卡同源同构）。
+- 完整事件目录（23 个）：§5 的 12 个 + 上述 11 个；`EventEnvelope` 联合与
+  `EVENT_TYPES` 常量同步扩（三层一致性守护同上）。
+- 命名说明：计划文字中的「agent.running」统一为 **`agent.started`**（与架构
+  §3、test-design S1、原型状态模型一致——`agent.started` 触发卡片 running 态）。
+
+### 10.4 ClosureDto（AD-8，承接 v1 结构）
+
+```ts
+interface ClosureDto {
+  status: "done" | "failed";
+  summary: string;
+  reportPath?: string | null;   // 缺失字段显式 null（全字段必发纪律，test-design §4.3）
+  findings?: unknown[] | null;  // v2 重生长时接 kg；本迭代透传
+  taskId?: string | null;
+}
+```
+
+- 类型层为 `?: ... | null`；**线格式全字段必发**——缺失时显式发 `null`，
+  不允许字段缺席（daemon 侧义务）。
+
+### 10.5 EntryDto 联合与快照 additive 字段
+
+- **EntryDto 四成员**：`message | tool-call | thinking | compaction`
+  （v0 的 message / tool-call 两变体形状不动）；`MessageEntryDto` /
+  `ToolCallEntryDto` 增可选 `instanceId?: string`（缺省 = 主实例）。
+- **ThinkingEntryDto**：`{ kind:"thinking", id, instanceId, text, durationMs,
+  reasoningTokens, createdAt }`（text = 完成态全文；流式走
+  `thinking.stream.delta`）。
+- **CompactionEntryDto**：`{ kind:"compaction", id, instanceId, tokensBefore,
+  tokensAfter, summary, usage: UsageDto, createdAt }`（tokensAfter = 压缩后
+  上下文 tokens，原型「340k→20k」的 20k；usage = 摘要调用成本，AD-9③）。
+- **SessionSnapshotDto 增可选字段**：`instances?: AgentInstanceDto[]`（重启
+  恢复卡片 / 抽屉骨架）与 `usage?: SessionUsageDto`（账目聚合）；缺省 =
+  未携带（旧剧本兼容）。
+- **AgentInstanceDto**：`{ instanceId, kind: "main"|"subagent", profileKind,
+  state: InstanceState, task?, model?, queuedPosition?, createdAt, closure?,
+  usage? }`；主实例 `instanceId = "main"`；`queuedPosition` 仅 state=queued 携带。
+- **InstanceState** = `"queued" | "running" | "done" | "failed" | "cancelled"`
+  （cancelled 仅重启恢复时 queued 收口使用，AD-10）。
+- **UsageDto 七字段**（pi Usage 防腐映射，cost 拍平为 number）：`{ input,
+  output, cacheRead, cacheWrite, reasoning, totalTokens, cost }`；
+  **SessionUsageDto** = `{ total: UsageDto, compaction: UsageDto }`（total =
+  各实例行合计徽标值，数字自洽；compaction = 摘要小计独立行 + 归属说明）。
+- 落盘不涉协议：持久化走领域事件与行模型（TR-AD-14 兜底），协议 DTO 不直接落盘。
+
+### 10.6 v0.1 设计取舍记录（三条）
+
+1. **订阅路由最小化**：`agent.subscribe` / `agent.unsubscribe` 为**通路语义**
+   （daemon 记录订阅表、EventStream 数据结构加 instance 维度），但**不做事件
+   过滤**——全部事件广播携带 instanceId，前端按 id 分流投影；按需过滤路由
+   （F-3⑤ 完整体）留 M3 多会话时兑现。理由：M2 单用户本地，全广播零带宽
+   压力；避免 daemon 侧路由复杂度先于多会话需求。
+2. **kill 终态语义**：kill → `agent.killed`（closure failed）**单一终态事件**；
+   卡片渲染 failed 态 + 「terminated」lifecycle 交代（P-2），不引入独立
+   killed 卡片态（卡片状态机四态不变）。
+3. **stalled 可重复**：`agent.stalled` 非状态迁移（实例仍 running），可随
+   idle 持续再次推送；前端仅 running 态显示徽标。

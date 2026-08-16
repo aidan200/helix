@@ -11,8 +11,16 @@ import ToolCard from "./ToolCard";
 import SessionEmpty from "./SessionEmpty";
 
 function EntryView({ entry }: { entry: EntryDto }) {
-  if (entry.kind === "tool-call") return <ToolCard entry={entry} />;
-  return <MessageBubble entry={entry} />;
+  // v0.1（T1.1）注：EntryDto 扩四成员后改为正向穷尽分发；thinking/compaction
+  // 的可见性投影（折叠条/展开全文）由 T4.x（F2.3/F4.1）落位，协议期不渲染。
+  switch (entry.kind) {
+    case "tool-call":
+      return <ToolCard entry={entry} />;
+    case "message":
+      return <MessageBubble entry={entry} />;
+    default:
+      return null;
+  }
 }
 
 const MessageFlow = function MessageFlow({ children }: { children?: ReactNode }) {

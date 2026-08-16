@@ -13,4 +13,5 @@ export * from "./types/agent";
 export * from "./types/chat";
 export * from "./types/tool";
 export * from "./types/session";
+export * from "./types/usage";
 export * from "./types/error";

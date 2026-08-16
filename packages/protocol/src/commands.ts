@@ -39,13 +39,44 @@ export interface SessionUnsubscribeCommand extends Envelope<EmptyPayload> {
   type: "session.unsubscribe";
 }
 
-/** 命令信封联合（判别式：type 字段窄化） */
+// ── v0.1 新增（契约 protocol-v0.1.md §4；AD-7 手动终止权在用户） ──
+
+/** agent.kill 载荷：用户终止实例（抽屉 kill 两步确认后发送） */
+export interface AgentKillPayload {
+  agentId: string;
+}
+/** agent.subscribe 载荷：订阅实例全流（v0.1 通路语义，不做事件过滤） */
+export interface AgentSubscribePayload {
+  agentId: string;
+}
+/** agent.unsubscribe 载荷：退订实例全流（同上） */
+export interface AgentUnsubscribePayload {
+  agentId: string;
+}
+
+/** 用户终止实例；正常路径回执 agent.killed 事件（单一终态） */
+export interface AgentKillCommand extends Envelope<AgentKillPayload> {
+  type: "agent.kill";
+}
+/** 订阅实例事件流（v0.1 通路语义：订阅表 + 全广播，见 PROTOCOL.md §10.6） */
+export interface AgentSubscribeCommand extends Envelope<AgentSubscribePayload> {
+  type: "agent.subscribe";
+}
+/** 退订实例事件流（v0.1 通路语义） */
+export interface AgentUnsubscribeCommand extends Envelope<AgentUnsubscribePayload> {
+  type: "agent.unsubscribe";
+}
+
+/** 命令信封联合（判别式：type 字段窄化；v0.1：5 → 8） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
   | ChatAbortCommand
   | SessionSubscribeCommand
-  | SessionUnsubscribeCommand;
+  | SessionUnsubscribeCommand
+  | AgentKillCommand
+  | AgentSubscribeCommand
+  | AgentUnsubscribeCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
@@ -54,6 +85,9 @@ export const COMMAND_TYPES = [
   "chat.abort",
   "session.subscribe",
   "session.unsubscribe",
+  "agent.kill",
+  "agent.subscribe",
+  "agent.unsubscribe",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];

@@ -28,4 +28,6 @@ export interface MessageEntryDto {
   /** 创建时间（epoch 毫秒）——T1.2 定稿：线格式为 number（回填契约 §9） */
   ts: number;
   steerState?: SteerState;
+  /** 实例归属（v0.1 新增，AD-3）：可选；缺省 = 主实例（"main"） */
+  instanceId?: string;
 }
