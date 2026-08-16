@@ -1,6 +1,5 @@
 import type { ChatPort, SendOutcome } from "../ports/inbound/ChatPort";
 import type { AgentEngineEvent, AgentEnginePort } from "../ports/outbound/AgentEnginePort";
-import type { SessionRepositoryPort } from "../ports/outbound/SessionRepositoryPort";
 import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../ports/outbound/ClockPort";
 import { AgentLifecycle, type AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
@@ -52,15 +51,14 @@ import type {
  * 全部聚合在 domain，本服务只编排不改写规则；引擎侧状态（pi Agent.state）
  * 仅经事件回流投影到聚合。流式中间态（delta）不是领域事件、不落盘。
  *
- * 【持久化钩子】agent_end 后整体快照经 SessionRepositoryPort 落盘
- * （write-through，T1.8 接 SQLite 单写队列；当前 InMemory）。
+ * 【持久化】（T2.1 AD-3 §3.2②）：write-through 触发点已迁至会话投影消费者
+ * （SessionProjection——组合根 fan-out 目标）；本服务只产事件，每个里程碑
+ * 领域事件发布后由投影落领域状态整体（先事件行后状态行，全局 FIFO）。
  */
 export interface ChatServiceDeps {
   /** agent 引擎（pi 防腐墙后的驱动出口）。 */
   readonly engine: AgentEnginePort;
-  /** 领域状态持久化（write-through）。 */
-  readonly repository: SessionRepositoryPort;
-  /** 事件流发布（领域事件 + 流式 delta）。 */
+  /** 事件流发布（领域事件 + 流式 delta；write-through 归会话投影消费者）。 */
   readonly events: EventPublisherPort;
   /** 时间源（领域事件/条目时间戳，测试可控）。 */
   readonly clock: ClockPort;
@@ -259,7 +257,11 @@ export class ChatService implements ChatPort {
       // message_start 时预分配的最终 assistant entry id（D-2：与契约 §5
       // 字段语义对齐；fallback 仅防御，正常路径必有预留）
       case "message_update":
-        this.deps.events.publishDelta({ messageId: this.streamEntryId ?? this.currentTurnId(), delta: e.delta });
+        this.deps.events.publishDelta({
+          messageId: this.streamEntryId ?? this.currentTurnId(),
+          delta: e.delta,
+          sessionId: this.session.id, // v0.2 信封 sessionId 必发纪律（章印在 EventStream）
+        });
         break;
 
       // turn 边界的 steer drain（§5.3：turn_end 后、turn_start 前）：
@@ -334,6 +336,7 @@ export class ChatService implements ChatPort {
           delta: e.delta,
           channel: "thinking",
           instanceId: MAIN_INSTANCE_ID,
+          sessionId: this.session.id,
         });
         break;
 
@@ -502,6 +505,9 @@ export class ChatService implements ChatPort {
     turnId?: string,
     instanceId?: string,
   ): void {
+    // T2.1（AD-3）：只产事件——write-through 由会话投影消费者（SessionProjection）
+    // 在 fan-out 末端触发（先事件行后状态行，全局 FIFO；原此处的 repository.save
+    // 迁移至投影，「ChatService 只产事件」）。
     this.deps.events.publish({
       type,
       sessionId: this.session.id,
@@ -510,10 +516,6 @@ export class ChatService implements ChatPort {
       payload,
       occurredAt: this.now(),
     });
-    // write-through（AD-16 §5.2）：每个里程碑领域事件后即落领域状态整体
-    //（事件行经 fan-out 持久化目标入同一写队列，先事件后状态，全局 FIFO）。
-    // 单次落盘失败不阻断会话（WriteQueue onError 上报）。
-    void this.deps.repository.save(this.persistedState);
   }
 
   private now(): string {

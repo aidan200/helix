@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ChatService } from "../../src/application/services/ChatService";
+import { SessionProjection } from "../../src/application/services/SessionProjection";
 import type { EventPublisherPort, StreamDelta } from "../../src/application/ports/outbound/EventPublisherPort";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
@@ -24,11 +25,17 @@ type MessageEntry = Extract<SessionEntryData, { role: string }>;
 class RecordingPublisher implements EventPublisherPort {
   readonly domainEvents: DomainEvent[] = [];
   readonly deltas: StreamDelta[] = [];
+  private readonly targets: EventPublisherPort[] = [];
+  addTarget(target: EventPublisherPort): void {
+    this.targets.push(target);
+  }
   publish(event: DomainEvent): void {
     this.domainEvents.push(event);
+    for (const t of this.targets) t.publish(event);
   }
   publishDelta(delta: StreamDelta): void {
     this.deltas.push(delta);
+    for (const t of this.targets) t.publishDelta(delta);
   }
 }
 
@@ -45,7 +52,14 @@ class FixedClock {
 function makeChat(engine: FakeAgentEngine) {
   const publisher = new RecordingPublisher();
   const repo = new InMemorySessionRepository();
-  const chat = new ChatService({ engine, repository: repo, events: publisher, clock: new FixedClock() });
+  const chat = new ChatService({ engine, events: publisher, clock: new FixedClock() });
+  // T2.1：write-through 归会话投影（ChatService 只产事件）——装配面镜像组合根
+  const projection = new SessionProjection({
+    repository: repo,
+    getSession: () => chat.sessionView,
+    getMainState: () => ({ agentState: chat.agentState, toolCalls: chat.toolCallData }),
+  });
+  publisher.addTarget(projection);
   return { chat, publisher, repo };
 }
 

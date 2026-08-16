@@ -12,6 +12,7 @@ import type {
   ChatMessageCompletedEvent,
   EventEnvelope,
   EntryDto,
+  InstanceChannelHistory,
   MessageEntryDto,
   SessionSnapshotDto,
   SessionUsageDto,
@@ -32,8 +33,9 @@ import type {
   CompactionCompletedEvent,
   UsageRecordedEvent,
   EngineErrorEvent,
+  EventType,
 } from "@helix/protocol";
-import { PROTOCOL_VERSION } from "@helix/protocol";
+import { PROTOCOL_VERSION, EVENT_CHANNELS, MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { SessionStateView, InstanceSnapshotEntry } from "../../../application/ports/inbound/SessionPort";
 import type { EntryData } from "../../../domain/session/Entry";
 import type { SessionEntryData } from "../../../domain/session/SessionSnapshot";
@@ -79,6 +81,9 @@ export interface EventMapContext {
  * （domain 快照不含）。
  * T2.4：instances/usage additive 装配（契约 §6.2）——视图携带才下发，
  * domain↔协议同构字段直映射（closure/usage 七字段不变形）。
+ * T2.1（AD-3/F-14⑤）：SubAgent 过程历史按实例分组进 instances[].channels
+ * （v0.2 additive；主时间轴 entries 仍全量携带 instanceId——前端 F1.6 分流
+ * 依据，尾窗切法与主实例 channels 归 T2.2）。
  */
 export function toSnapshotDto(
   view: SessionStateView,
@@ -99,13 +104,35 @@ export function toSnapshotDto(
     agentState,
     revision: entries.length,
     entries,
-    ...(view.instances !== undefined ? { instances: view.instances.map(instanceDto) } : {}),
+    ...(view.instances !== undefined
+      ? { instances: view.instances.map((instance) => instanceDto(instance, instanceChannels(entries, instance.instanceId))) }
+      : {}),
     ...(view.usage !== undefined ? { usage: usageDto(view.usage) } : {}),
   };
 }
 
-/** InstanceSnapshotEntry（domain）→ AgentInstanceDto（协议；task/closure/usage 同构直映射）。 */
-function instanceDto(entry: InstanceSnapshotEntry): AgentInstanceDto {
+/**
+ * 实例通道历史分组（T2.1 AD-3：SubAgent Entry 按实例归组——thinking/messages/
+ * tools 三槽，契约 §6.2 InstanceChannelHistory）。主实例不分组（主时间轴
+ * entries 全量即主实例历史；尾窗与 main channels 归 T2.2）。
+ */
+function instanceChannels(entries: readonly EntryDto[], instanceId: string): InstanceChannelHistory | undefined {
+  if (instanceId === MAIN_INSTANCE_ID) return undefined;
+  let channels: InstanceChannelHistory | undefined;
+  for (const entry of entries) {
+    if ((entry.instanceId ?? MAIN_INSTANCE_ID) !== instanceId) continue;
+    channels ??= {};
+    if (entry.kind === "message") channels.messages = [...(channels.messages ?? []), entry];
+    else if (entry.kind === "thinking") channels.thinking = [...(channels.thinking ?? []), entry];
+    else if (entry.kind === "tool-call") channels.tools = [...(channels.tools ?? []), entry];
+    // compaction：会话级里程碑（仅主实例产生），不进实例通道
+  }
+  return channels;
+}
+
+/** InstanceSnapshotEntry（domain）→ AgentInstanceDto（协议；task/closure/usage 同构直映射）。
+ *  T2.1：channels 携带时附加（SubAgent 通道历史分组，AD-3/F-14⑤）。 */
+function instanceDto(entry: InstanceSnapshotEntry, channels?: InstanceChannelHistory): AgentInstanceDto {
   return {
     instanceId: entry.instanceId,
     kind: entry.kind,
@@ -114,6 +141,7 @@ function instanceDto(entry: InstanceSnapshotEntry): AgentInstanceDto {
     createdAt: entry.createdAt,
     ...(entry.task !== undefined ? { task: entry.task } : {}),
     ...(entry.usage !== undefined ? { usage: usageTotal(entry.usage) } : {}),
+    ...(channels !== undefined ? { channels } : {}),
     ...(entry.closure !== undefined
       ? {
           closure: {
@@ -187,7 +215,9 @@ function compactionEntryDto(entry: CompactionEntryData): CompactionEntryDto {
   };
 }
 
-/** 单条 EntryData → MessageEntryDto（tool 角色当前领域侧不产生，防御跳过）。 */
+/** 单条 EntryData → MessageEntryDto（tool 角色当前领域侧不产生，防御跳过）。
+ *  T2.1（AD-3）：SubAgent 条目携带 instanceId（前端 F1.6 分流依据）；主实例
+ *  省略（缺省 = main，线格式保持 v0/v0.1 形状）。 */
 function messageEntryDto(entry: EntryData, queuedSteer: Set<string>): MessageEntryDto[] {
   if (entry.role !== "user" && entry.role !== "assistant") return [];
   const dto: MessageEntryDto = {
@@ -200,6 +230,7 @@ function messageEntryDto(entry: EntryData, queuedSteer: Set<string>): MessageEnt
   if (entry.role === "user" && entry.isSteer) {
     dto.steerState = queuedSteer.has(entry.id) ? "queued" : "drained";
   }
+  if (entry.instanceId !== MAIN_INSTANCE_ID) dto.instanceId = entry.instanceId;
   return [dto];
 }
 
@@ -220,6 +251,10 @@ function toolCallEntryDto(record: ToolCallRecordData): ToolCallEntryDto {
         ? Date.parse(record.endedAt)
         : 0,
   };
+  // T2.1（AD-3）：行级归属透传（SubAgent 工具卡归实例 channel；主实例省略）
+  if (record.instanceId !== undefined && record.instanceId !== MAIN_INSTANCE_ID) {
+    dto.instanceId = record.instanceId;
+  }
   if (record.status === "completed") {
     if (record.result !== undefined) dto.result = record.result;
   } else if (record.status === "failed") {
@@ -238,11 +273,17 @@ function toolCallEntryDto(record: ToolCallRecordData): ToolCallEntryDto {
  * DomainEvent → EventEnvelope。返回 null = 协议目录无对应事件。
  * v0.1：事件携带 instanceId（agent.* 编排族 + SubAgent 工具事件）时帧同值
  * 挂 instanceId（缺省 = 主实例，契约 §1/§2）——前端按 id 分流投影。
+ * v0.2（T2.1，AD-3/AD-4 统一信封）：全部帧章印 sessionId（事件归属会话）+
+ * channel（EVENT_CHANNELS 单点登记）；instanceId 携带时透传。
  * 终验热修：engine.error 下发（provider 失败透传，原 v0 边界注记作废）。
  */
 export function domainEventToEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope | null {
   const frame = buildEnvelope(event, ctx);
   if (frame === null) return null;
+  // v0.2 统一信封全量章印：sessionId 必发 + channel 按 EVENT_CHANNELS 判别
+  // （payload 语义零变更——新增字段仅信封层，契约 A §1.2/§2）
+  frame.sessionId = event.sessionId;
+  frame.channel = EVENT_CHANNELS[frame.type as EventType];
   if (event.instanceId !== undefined) frame.instanceId = event.instanceId;
   return frame;
 }
@@ -291,6 +332,10 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         ts,
       };
       if (p.role === "user" && p.isSteer) entry.steerState = "queued"; // 事件时点刚入队
+      // T2.1（AD-3）：SubAgent 消息帧携带条目 instanceId（前端实例分流）
+      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
+        entry.instanceId = event.instanceId;
+      }
       const frame: ChatMessageCompletedEvent = {
         v: PROTOCOL_VERSION,
         type: "chat.message.completed",
@@ -319,6 +364,11 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         state: "running",
         ts,
       };
+      // T2.1（AD-3）：SubAgent 工具卡归实例 channel（载荷内嵌 instanceId 与
+      // v0.1 通道族并存口径一致；信封位为路由权威）
+      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
+        entry.instanceId = event.instanceId;
+      }
       const frame: ToolCallStartedEvent = {
         v: PROTOCOL_VERSION,
         type: "tool.call.started",
@@ -338,6 +388,9 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         state: p.isError ? "error" : "done",
         ts,
       };
+      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
+        entry.instanceId = event.instanceId;
+      }
       if (ctx?.durationMs !== undefined) entry.durationMs = ctx.durationMs;
       const frame: ToolCallResultEvent = {
         v: PROTOCOL_VERSION,

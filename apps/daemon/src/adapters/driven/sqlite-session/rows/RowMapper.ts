@@ -73,7 +73,9 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
     toolCalls: state.toolCalls.map((t) => ({
       id: t.id,
       session_id: sessionId,
-      instance_id: MAIN_INSTANCE_ID, // 工具记录 domain 侧挂 id 归 T2.x；行级先落主实例
+      // T2.1（AD-3）：行级归属透传（SubAgent 工具行挂 agent-N；旧载荷
+      // 无字段时回填主实例，TR-AD-14 前向兼容）
+      instance_id: t.instanceId ?? MAIN_INSTANCE_ID,
       tool_name: t.toolName,
       args: JSON.stringify(t.args ?? null),
       status: t.status,
@@ -107,6 +109,9 @@ export function rowsToPersistedState(
     agentState: (lifecycle?.state ?? "idle") as AgentLifecycleState,
     toolCalls: toolCalls.map((t) => ({
       id: t.id,
+      // T2.1（AD-3）：行级归属透传往返（写入侧对称；主实例省略字段保持
+      // v0/v0.1 载荷形状）
+      ...(t.instance_id !== MAIN_INSTANCE_ID ? { instanceId: t.instance_id } : {}),
       toolName: t.tool_name,
       args: JSON.parse(t.args),
       status: t.status as ToolCallStatus,

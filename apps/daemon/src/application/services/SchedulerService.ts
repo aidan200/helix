@@ -12,6 +12,8 @@ import type {
   AgentStalledPayload,
   DomainEvent,
   InstanceClosurePayload,
+  MessageCompletedPayload,
+  ThinkingCompletedPayload,
   ToolCallPayload,
   ToolResultPayload,
   UsageRecordedPayload,
@@ -64,9 +66,12 @@ import type { RestoredInstance } from "./RestoreService";
  * 吞）、重派 = 新 instanceId 新实例。状态权威在 AgentInstance 状态机，
  * 本服务只编排不改写规则。
  *
- * 【SubAgent 内部工具事件】（AD-8 铁律）：runner 上行的 tool_execution_*
- * 引擎事件转 tool.call.* 领域事件（挂 instanceId 落盘+广播，per-instance
- * 事件流）——不进主线 Session/Entry 聚合、不进 MainAgent 上下文。
+ * 【SubAgent 实例事件】（AD-8 → AD-3 演进，T2.1）：runner 上行的引擎事件
+ * 全部转领域事件/流式 delta（thinking 累积 / message 落树含 message_update
+ * 流式 / tool 记录 / usage 入账）——本服务只产事件不写聚合（守护断言见
+ * integration/session-projection）；会话投影消费者落 Session 聚合
+ * （Entry.instanceId 归属 agent-N）；MainAgent 上下文仍零混入（closure
+ * 注入 SteerQueue 是唯一入口，AD-8 铁律不变量部分）。
  *
  * 【id 分配】agent-N（N = daemon 内递增序号）。序号仅内存维护——重启基线
  * （agent_lifecycle max(N)+1）与恢复语义归 T2.4。
@@ -117,6 +122,15 @@ export class SchedulerService implements AgentOrchestrationPort {
   private readonly closures = new Map<string, InstanceClosurePayload>();
   /** SubAgent 工具调用 → args（result 事件载荷回填；start→end 间短暂驻留）。 */
   private readonly subToolArgs = new Map<string, unknown>();
+  // ── SubAgent 流式/落树事件生产状态（T2.1 AD-3：本服务只产事件，聚合写归会话投影） ──
+  /** 实例 → 预分配 assistant 消息 entry id（流式 messageId 与最终 entry 同源，D-2 同构）。 */
+  private readonly streamEntryIds = new Map<string, string>();
+  /** 实例 → agent 作用域 entry 序号（id 形如 `${instanceId}#N`，不占会话主计数器）。 */
+  private readonly entrySeqs = new Map<string, number>();
+  /** 实例 → thinking 块开始时刻（epoch ms；durationMs = start→end）。 */
+  private readonly thinkingStartsMs = new Map<string, Map<number, number>>();
+  /** 实例 → 在途 thinking 块（message_end 时关联 reasoningTokens 后产事件）。 */
+  private readonly pendingThinking = new Map<string, { contentIndex: number; text: string; startedMs: number }[]>();
   /** agent-N 序号（daemon 内递增）。 */
   private seq = 0;
   private monitor: ReturnType<typeof setInterval> | undefined;
@@ -300,10 +314,17 @@ export class SchedulerService implements AgentOrchestrationPort {
 
   /**
    * 引擎事件增量：刷新 lastEventAt（stalled 判定输入）；未知/终态实例忽略。
-   * T2.3：携事件本体时，SubAgent 内部工具调用转 per-instance 领域事件
-   * （tool.call.*，挂 instanceId）——不进主线聚合（AD-8 铁律）。
-   * T3.2：message_end(assistant, usage) 转 usage.recorded（source=turn，
-   * 子进程引擎事件上行同链入账——实例小计进会话账本）。
+   * T2.3：SubAgent 内部工具调用转 per-instance 领域事件（tool.call.*，挂
+   * instanceId）——不进主线聚合（AD-8 铁律）。
+   * T3.2：message_end(assistant, usage) 转 usage.recorded（source=turn）。
+   *
+   * T2.1（AD-3 职责回归）：**只产事件，不写聚合**——thinking 累积 / message
+   * 落树（含 message_update 流式 delta 转发）/ tool 记录全部经事件总线发布；
+   * 会话投影消费者（SessionProjection）消费事件后落 Session 聚合
+   * （SubAgent Entry 进聚合，instanceId 归属；MainAgent 上下文零混入——
+   * closure 注入仍是唯一入口）。事件载荷携完整条目数据（id 为 agent 作用域
+   * `${instanceId}#N`，与流式 messageId 同源）。流序对齐主线：thinking 块先
+   * 于消息完成（delta×N → thinking.completed → message.completed → usage）。
    */
   private onInstanceEvent(instanceId: string, event?: AgentEngineEvent): void {
     const instance = this.registry.findInstance(instanceId);
@@ -332,14 +353,92 @@ export class SchedulerService implements AgentOrchestrationPort {
       } satisfies ToolResultPayload);
       return;
     }
-    if (event.type === "message_end" && event.role === "assistant" && event.usage !== undefined) {
-      // T3.2 turn 入账：事件即账（AD-4）——账本投影在组合根 fan-out 单点接入；
-      // 工具批中间 message_end(无 usage)/delta 不入账（结构性零账）
-      this.publish(instance, "usage.recorded", {
+
+    // ── T2.1（AD-3）：SubAgent 消息流 + thinking 块流（镜像主线时序） ──
+    if (event.type === "message_start" && event.role === "assistant") {
+      // 预分配 agent 作用域 entry id（流式 messageId = 最终 entry id，D-2 同构；
+      // 投影落树沿用同一 id）——与主线不同：不触碰会话聚合计数器
+      this.streamEntryIds.set(instanceId, this.nextEntryId(instanceId));
+      this.thinkingStartsMs.set(instanceId, new Map());
+      this.pendingThinking.set(instanceId, []);
+      return;
+    }
+    if (event.type === "message_update") {
+      const messageId = this.streamEntryIds.get(instanceId);
+      if (messageId === undefined) return; // 未预留（乱序/非 assistant 流）：丢弃
+      this.deps.events.publishDelta({
+        messageId,
+        delta: event.delta,
+        sessionId: this.deps.sessionId,
+        instanceId, // 帧实例维：前端路由至实例 channel（真供给线）
+      });
+      return;
+    }
+    if (event.type === "thinking_started") {
+      const starts = this.thinkingStartsMs.get(instanceId) ?? new Map();
+      starts.set(event.contentIndex, this.deps.clock.nowMs());
+      this.thinkingStartsMs.set(instanceId, starts);
+      return;
+    }
+    if (event.type === "thinking_delta") {
+      this.deps.events.publishDelta({
+        messageId: this.streamEntryIds.get(instanceId) ?? instanceId,
+        delta: event.delta,
+        channel: "thinking",
+        sessionId: this.deps.sessionId,
         instanceId,
-        usage: event.usage,
-        source: "turn",
-      } satisfies UsageRecordedPayload);
+      });
+      return;
+    }
+    if (event.type === "thinking_end") {
+      const starts = this.thinkingStartsMs.get(instanceId);
+      const startedMs = starts?.get(event.contentIndex) ?? this.deps.clock.nowMs();
+      starts?.delete(event.contentIndex);
+      const pending = this.pendingThinking.get(instanceId) ?? [];
+      pending.push({ contentIndex: event.contentIndex, text: event.content, startedMs });
+      this.pendingThinking.set(instanceId, pending);
+      return;
+    }
+    if (event.type === "message_end" && event.role === "assistant") {
+      // ① thinking 块先落（reasoningTokens 关联本消息 usage.reasoning 收口）
+      const reasoning = event.usage?.reasoning ?? 0;
+      for (const block of this.pendingThinking.get(instanceId) ?? []) {
+        if (block.text.trim() === "") continue;
+        this.publish(instance, "thinking.completed", {
+          entry: {
+            kind: "thinking",
+            id: this.nextEntryId(instanceId),
+            instanceId,
+            text: block.text,
+            durationMs: Math.max(0, this.deps.clock.nowMs() - block.startedMs),
+            reasoningTokens: reasoning,
+            createdAt: this.deps.clock.now(),
+          },
+        } satisfies ThinkingCompletedPayload);
+      }
+      this.pendingThinking.delete(instanceId);
+      this.thinkingStartsMs.delete(instanceId);
+      // ② 消息完成（空文本不落——空文本不是语义单元，与主线同口径）
+      const reserved = this.streamEntryIds.get(instanceId);
+      if (event.text.trim() !== "" && reserved !== undefined) {
+        this.publish(instance, "message.completed", {
+          entryId: reserved,
+          role: "assistant",
+          text: event.text,
+          isSteer: false,
+        } satisfies MessageCompletedPayload);
+      }
+      this.streamEntryIds.delete(instanceId);
+      // ③ turn 入账（事件即账，AD-4——账本投影在 SessionProjection 单点接入；
+      // 工具批中间 message_end(无 usage)/delta 不入账；error 轮零值 usage
+      // 不入账（零成本不是真实计费调用，与主线终验热修同口径））
+      if (event.usage !== undefined && event.stopReason !== "error") {
+        this.publish(instance, "usage.recorded", {
+          instanceId,
+          usage: event.usage,
+          source: "turn",
+        } satisfies UsageRecordedPayload);
+      }
       return;
     }
     // 其余引擎事件：观测面增量已计（lastEventAt 刷新），无 per-instance 领域动作
@@ -349,6 +448,12 @@ export class SchedulerService implements AgentOrchestrationPort {
   private onInstanceClosure(instanceId: string, outcome: InstanceClosureOutcome): void {
     const instance = this.registry.findInstance(instanceId);
     if (!instance || instance.isTerminal) return; // kill 与自然收口竞态：后到者吞
+
+    // 流式/落树事件生产状态清理（T2.1：终态后迟到引擎事件不再产条目事件）
+    this.streamEntryIds.delete(instanceId);
+    this.entrySeqs.delete(instanceId);
+    this.thinkingStartsMs.delete(instanceId);
+    this.pendingThinking.delete(instanceId);
 
     // 状态机迁移（非法迁移不可达：queued/running 均可收口 failed/killed；
     // done 仅自 running——queued 实例重外部已完成时补记 running 再收口，
@@ -486,6 +591,13 @@ export class SchedulerService implements AgentOrchestrationPort {
   /** agent_lifecycle 投影行落盘（单写通道；失败不崩——WriteQueue onError 上报）。 */
   private persistLifecycle(instance: AgentInstance): void {
     void this.deps.repository.saveAgentLifecycle(instance.sessionId, instance.instanceId, instance.current);
+  }
+
+  /** agent 作用域 entry id 分配（`${instanceId}#N`；与流式 messageId 同源，不占会话主计数器）。 */
+  private nextEntryId(instanceId: string): string {
+    const n = (this.entrySeqs.get(instanceId) ?? 0) + 1;
+    this.entrySeqs.set(instanceId, n);
+    return `${instanceId}#${n}`;
   }
 
   private publish<P>(instance: AgentInstance, type: DomainEvent["type"], payload: P): void {

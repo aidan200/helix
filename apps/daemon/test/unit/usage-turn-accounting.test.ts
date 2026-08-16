@@ -51,7 +51,6 @@ function makeChat(engine: FakeAgentEngine) {
   const publisher = new RecordingPublisher();
   const chat = new ChatService({
     engine,
-    repository: new InMemorySessionRepository(),
     events: publisher,
     clock: new FixedClock(),
   });

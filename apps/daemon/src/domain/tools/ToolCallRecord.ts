@@ -1,4 +1,7 @@
 import { DomainError } from "../DomainError";
+// 实例归属常量：domain 内部值锚点（AG-02；线上权威导出在 @helix/protocol，
+// 双源相等性由 protocol-import.test.ts 守护）
+import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
 
 /**
  * 工具调用记录（architecture.md §3.3）：pending→running→completed/failed。
@@ -13,6 +16,8 @@ export interface ToolCallRecordData {
   readonly id: string;
   readonly toolName: string;
   readonly args: unknown;
+  /** 实例归属（T2.1 AD-3）：缺省 = 主实例（旧载荷/旧行前向兼容）；SubAgent = agent-N。 */
+  readonly instanceId?: string;
   readonly status: ToolCallStatus;
   readonly result?: string;
   readonly error?: string;
@@ -25,6 +30,7 @@ export class ToolCallRecord {
     readonly id: string,
     readonly toolName: string,
     readonly args: unknown,
+    private readonly instanceId: string,
     private _status: ToolCallStatus,
     private _result?: string,
     private _error?: string,
@@ -32,8 +38,8 @@ export class ToolCallRecord {
     private _endedAt?: string,
   ) {}
 
-  static create(id: string, toolName: string, args: unknown): ToolCallRecord {
-    return new ToolCallRecord(id, toolName, args, "pending");
+  static create(id: string, toolName: string, args: unknown, instanceId: string = MAIN_INSTANCE_ID): ToolCallRecord {
+    return new ToolCallRecord(id, toolName, args, instanceId, "pending");
   }
 
   /** 从持久化数据重建（恢复路径：不算状态迁移，直接置位；行为与终态一致）。 */
@@ -42,6 +48,7 @@ export class ToolCallRecord {
       data.id,
       data.toolName,
       data.args,
+      data.instanceId ?? MAIN_INSTANCE_ID,
       data.status,
       data.result,
       data.error,
@@ -103,6 +110,8 @@ export class ToolCallRecord {
       id: this.id,
       toolName: this.toolName,
       args: this.args,
+      // T2.1：行级归属透传（主实例缺省省略——线格式保持 v0/v0.1 形状）
+      ...(this.instanceId !== MAIN_INSTANCE_ID ? { instanceId: this.instanceId } : {}),
       status: this._status,
       result: this._result,
       error: this._error,

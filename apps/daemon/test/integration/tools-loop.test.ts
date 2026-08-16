@@ -8,7 +8,6 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { ChatService } from "../../src/application/services/ChatService";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import type { EventPublisherPort } from "../../src/application/ports/outbound/EventPublisherPort";
-import { InMemorySessionRepository } from "../mocks/InMemorySessionRepository";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
@@ -137,7 +136,6 @@ function makeHarness(scripts: ScriptEntry[]): LoopHarness {
   };
   const chat = new ChatService({
     engine,
-    repository: new InMemorySessionRepository(),
     events: publisher,
     clock: { now: () => "2026-08-15T00:00:00.000Z", nowMs: () => Date.parse("2026-08-15T00:00:00.000Z") },
   });

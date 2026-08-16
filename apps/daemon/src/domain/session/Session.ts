@@ -109,6 +109,7 @@ export class Session {
     isSteer: boolean,
     at?: string,
     reservedId?: string,
+    instanceId: string = MAIN_INSTANCE_ID,
   ): Entry {
     const entry = Entry.create({
       id: reservedId ?? `e${this.nextEntrySeq++}`,
@@ -116,16 +117,42 @@ export class Session {
       text,
       turnId,
       isSteer,
-      instanceId: MAIN_INSTANCE_ID, // 主实例固定 id（O-4）；SubAgent 追加路径 T2.x 接
+      // T2.1（AD-3）：实例归属参数化——主线条目缺省 main；SubAgent 条目经
+      // appendInstanceMessage 携带 agent-N（会话投影消费事件后落树）
+      instanceId,
       createdAt: at ?? new Date().toISOString(),
     });
     this.entries.push(entry);
     return entry;
   }
 
-  /** 追加 thinking 完成态条目（T3.1；id 同计数器；turn 关联在领域事件 turnId 侧）。 */
-  appendThinkingEntry(data: Omit<ThinkingEntryData, "id">): ThinkingEntry {
-    const entry = ThinkingEntry.create({ ...data, id: `e${this.nextEntrySeq++}` });
+  /**
+   * SubAgent 实例消息落树（T2.1 会话投影，AD-3：SubAgent Entry 进聚合）：
+   * id 由事件发布侧分配（agent 作用域 `${instanceId}#N`，不占主计数器）；
+   * 不挂主线轮次（turnId=null——实例条目与主线 Turn 无关，MainAgent 上下文
+   * 零混入）；归属 instanceId 必填（区别于主线条目的 main 缺省）。
+   */
+  appendInstanceMessage(data: {
+    readonly id: string;
+    readonly instanceId: string;
+    readonly text: string;
+    readonly createdAt: string;
+  }): Entry {
+    if (data.instanceId === MAIN_INSTANCE_ID) {
+      throw new DomainError(
+        `主实例条目请走 appendUserEntry/appendAssistantEntry（轮次关联由主线编排管），appendInstanceMessage 仅限 SubAgent 实例条目`,
+      );
+    }
+    return this.pushEntry("assistant", data.text, null, false, data.createdAt, data.id, data.instanceId);
+  }
+
+  /**
+   * 追加 thinking 完成态条目（T3.1；id 同计数器；turn 关联在领域事件 turnId 侧）。
+   * T2.1：id 可显式携带（SubAgent 条目——事件发布侧 agent 作用域分配，
+   * 投影/恢复回放落树时保持与事件载荷同 id；主线条目缺省内部计数器）。
+   */
+  appendThinkingEntry(data: Omit<ThinkingEntryData, "id"> & { id?: string }): ThinkingEntry {
+    const entry = ThinkingEntry.create({ ...data, id: data.id ?? `e${this.nextEntrySeq++}` });
     this.entries.push(entry);
     return entry;
   }

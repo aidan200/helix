@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ChatService } from "../../src/application/services/ChatService";
+import { SessionProjection } from "../../src/application/services/SessionProjection";
 import type { EventPublisherPort, StreamDelta } from "../../src/application/ports/outbound/EventPublisherPort";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
@@ -14,15 +15,25 @@ import { InMemorySessionRepository } from "../mocks/InMemorySessionRepository";
  * ⑤ FakeAgentEngine 时序契约自检（spike §5.1/5.3/5.4 等价）。
  */
 
-/** 录音式 EventPublisherPort：记录领域事件与流式 delta（断言源）。 */
+/** 录音式 EventPublisherPort：记录领域事件与流式 delta（断言源）。
+ *  T2.1：write-through 迁会话投影——装配面镜像组合根（录音 + 投影双目标）
+ *  使「快照已 save」断言沿用。 */
 class RecordingPublisher implements EventPublisherPort {
   readonly domainEvents: DomainEvent[] = [];
   readonly deltas: StreamDelta[] = [];
+  private readonly targets: EventPublisherPort[] = [];
+
+  addTarget(target: EventPublisherPort): void {
+    this.targets.push(target);
+  }
+
   publish(event: DomainEvent): void {
     this.domainEvents.push(event);
+    for (const t of this.targets) t.publish(event);
   }
   publishDelta(delta: StreamDelta): void {
     this.deltas.push(delta);
+    for (const t of this.targets) t.publishDelta(delta);
   }
 }
 
@@ -48,8 +59,15 @@ async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
 function makeChat(engine: FakeAgentEngine) {
   const publisher = new RecordingPublisher();
   const repo = new InMemorySessionRepository();
-  const chat = new ChatService({ engine, repository: repo, events: publisher, clock: new FixedClock() });
-  return { chat, publisher, repo };
+  // T2.1：write-through 归会话投影（ChatService 只产事件）——装配面镜像组合根
+  const chat = new ChatService({ engine, events: publisher, clock: new FixedClock() });
+  const projection = new SessionProjection({
+    repository: repo,
+    getSession: () => chat.sessionView,
+    getMainState: () => ({ agentState: chat.agentState, toolCalls: chat.toolCallData }),
+  });
+  publisher.addTarget(projection);
+  return { chat, publisher, repo, projection };
 }
 
 describe("① 空闲 sendMessage 驱动新 turn（TP-CL4-1）", () => {
@@ -237,7 +255,6 @@ describe("⑥ 回退修复①（verif-rollback）：D-1 观测面 / D-2 messageI
     const engine = new FakeAgentEngine();
     const chat = new ChatService({
       engine,
-      repository: new InMemorySessionRepository(),
       events: new RecordingPublisher(),
       clock: new FixedClock(),
       restoredToolCalls: [

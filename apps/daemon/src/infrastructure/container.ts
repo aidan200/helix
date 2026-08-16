@@ -10,18 +10,12 @@ import { ChatService } from "../application/services/ChatService";
 import { SessionService } from "../application/services/SessionService";
 import { RestoreService } from "../application/services/RestoreService";
 import { SchedulerService } from "../application/services/SchedulerService";
+import { SessionProjection } from "../application/services/SessionProjection";
 import type { InstanceRunner } from "../application/services/InstanceRunner";
 import { SchedulingPolicy, DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 // MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { InstanceSnapshotEntry } from "../application/ports/inbound/SessionPort";
-import {
-  aggregateSession,
-  applyUsage,
-  emptyUsageLedger,
-  instanceUsageOf,
-} from "../domain/session/UsageLedger";
-import type { UsageRecordedPayload } from "../domain/events/DomainEvent";
 import { Session } from "../domain/session/Session";
 import path from "node:path";
 import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAdapter";
@@ -138,9 +132,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
   const restored = await new RestoreService({ repository, clock }).restoreLatest();
   const session = restored?.session ?? Session.create();
-  // 会话账本（T3.2，AD-4）：权威源 = usage.recorded 事件（事件即账），
-  // 运行期唯一写点 = 下方 fan-out 投影目标（重启基线来自 RestoreService 重放）
-  let usageLedger = restored?.usage ?? emptyUsageLedger();
+  // 会话账本基线（T3.2，AD-4）：权威源 = usage.recorded 事件（事件即账），
+  // 运行期入账/观测面归会话投影（SessionProjection，重启基线来自重放）
   if (restored) {
     logger.info(
       `已恢复会话 ${restored.session.id}（entries=${restored.session.entryList().length}，` +
@@ -224,35 +217,51 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   // ── services：对话编排 + 会话状态（共享同一聚合访问器） ──────────
   const chatService = new ChatService({
     engine,
-    repository,
     events: fanout,
     clock,
     session,
     restoredToolCalls: restored?.toolCalls,
   });
+
+  // ── 会话投影消费者（T2.1，AD-3 §3.2②）：SubAgent Entry 落聚合 + 账本
+  // 入账 + write-through（原 ChatService 落盘点与组合根 usageLedger 内联
+  // 闭包并入；fan-out 末端装配——先事件行后状态行，全局 FIFO） ──────
+  const projection = new SessionProjection({
+    repository,
+    getSession: () => chatService.sessionView,
+    getMainState: () => ({ agentState: chatService.agentState, toolCalls: chatService.toolCallData }),
+    initialUsage: restored?.usage,
+  });
+
   const sessionService = new SessionService({
     getSession: () => chatService.sessionView,
     getAgentState: () => chatService.agentState,
-    getToolCalls: () => chatService.toolCallData, // D-1：快照取数面扩展（工具记录随快照恢复）
+    // D-1：快照取数面（工具记录随快照恢复）；T2.1：主线记录（ChatService，
+    // 含恢复载荷）+ SubAgent 运行期记录（投影）合并——重启前后读面一致
+    getToolCalls: () => [...chatService.toolCallData, ...projection.subAgentToolCallData()],
     // T2.4 快照组装面：主实例条目（常驻，窗口永不终态）+ 调度器注册表观测；
-    // T3.2：每实例附账目小计（UsageLedger per-instance 投影，popover 行源）
+    // T3.2：每实例附账目小计（投影账本 per-instance 面，popover 行源）
     getInstances: () => [
       {
         instanceId: MAIN_INSTANCE_ID,
         kind: "main",
         profileKind: "main-session",
         sessionId: session.id,
-        state: "running",
+        // T2.1：读 AgentLifecycle（原硬编码 "running" 失真）——InstanceState
+        // 表实例生命周期（无常驻待命态），daemon 存续期 main 恒存活（running）；
+        // stopped 仅 shutdown 后（此后不再服务快照）。会话运行态由快照顶层
+        // agentState 表达（InstanceState 无 idle 词汇缺口见任务 findings）
+        state: chatService.agentState === "stopped" ? "cancelled" : "running",
         createdAt: session.createdAt,
-        usage: instanceUsageOf(usageLedger, MAIN_INSTANCE_ID),
+        usage: projection.instanceUsage(MAIN_INSTANCE_ID),
       },
       ...scheduler.snapshotInstances().map((instance) => ({
         ...instance,
-        usage: instanceUsageOf(usageLedger, instance.instanceId),
+        usage: projection.instanceUsage(instance.instanceId),
       })),
     ] satisfies InstanceSnapshotEntry[],
-    // T3.2：快照 usage 聚合 = 账本投影（徽标数据源；替换 T2.4 空聚合占位）
-    getUsage: () => aggregateSession(usageLedger),
+    // T3.2：快照 usage 聚合 = 投影账本（徽标数据源）
+    getUsage: () => projection.usageSummary(),
   });
 
   // ── driving：CLI（stdout 事件发布器由组合根构造并注入两侧） ─────
@@ -265,8 +274,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     output: options.cliOutput,
   });
 
-  // ── driving：WS 事件流（EventPublisherPort 实现，fan-out 目标之一）──
-  const eventStream = new EventStream();
+  // ── driving：WS 事件流（EventPublisherPort 实现，fan-out 目标之一——
+  //    WS 推送显式消费者：统一信封章印 + 按 sessionId 路由，T2.1 AD-3） ──
+  const eventStream = new EventStream({ defaultSessionId: session.id });
 
   // fan-out 目标装配：CLI stdout + SessionService 订阅者回灌 + WS 事件流
   // + 写队列持久化目标（领域事件行入同一 FIFO 队列；流式 delta 不落盘，
@@ -280,18 +290,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     },
     eventStream,
     {
-      // T3.2 账本投影（AD-4 事件即账）：任一源头发出的 usage.recorded
-      //（ChatService 主线 turn/compaction、SchedulerService SubAgent turn）
-      // 在此单点入账——无事件即无账（结构性一致，恢复重放同函数）
-      publish: (event) => {
-        if (event.type === "usage.recorded") {
-          const p = event.payload as UsageRecordedPayload;
-          usageLedger = applyUsage(usageLedger, p.instanceId, p.usage, p.source);
-        }
-      },
-      publishDelta: () => undefined,
-    },
-    {
+      // 事件行持久化：行级四维落位（session_id 列 = 事件携带 sessionId——
+      // 多会话 T2.2 起每会话独立分仓的行级路由位；agent_kind 按实例维判
+      // main/subagent——SubAgent 实例事件（instanceId ≠ main）落 subagent 仓）
       publish: (event) => {
         void writeQueue.appendEvent(
           event,
@@ -302,6 +303,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       },
       publishDelta: () => undefined,
     },
+    // 会话投影消费者（T2.1 AD-3：SubAgent Entry 落聚合 + 账本入账 +
+    // write-through；最末装配——先事件行后状态行，全局 FIFO 保序）
+    projection,
   );
 
   let running = true;

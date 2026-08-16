@@ -16,8 +16,8 @@ import type { ChatPort } from "../../../application/ports/inbound/ChatPort";
 import type { SessionPort } from "../../../application/ports/inbound/SessionPort";
 import type { SystemPort } from "../../../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
-import type { AgentStateDto, ConnectionErrorEvent, EventEnvelope, FrameVersion } from "@helix/protocol";
-import { PROTOCOL_VERSION } from "@helix/protocol";
+import type { AgentStateDto, ConnectionErrorEvent, ConnectionWelcomeEvent, EventEnvelope, FrameVersion, SessionSnapshotEvent } from "@helix/protocol";
+import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { ServerWebSocket } from "bun";
 import { EventStream, type FrameSender } from "./EventStream";
 import { toSnapshotDto } from "./DtoMapper";
@@ -139,7 +139,7 @@ export class WsServerAdapter {
   }
 
   private onMessage(ws: ServerWebSocket<ConnState>, data: string | Buffer): void {
-    let envelope: { v: FrameVersion | number | string; type: unknown; payload: unknown };
+    let envelope: { v: FrameVersion | number | string; type: unknown; payload: unknown; sessionId?: unknown };
     try {
       envelope = JSON.parse(String(data));
     } catch {
@@ -162,6 +162,8 @@ export class WsServerAdapter {
     const reject = (code: ConnectionErrorEvent["payload"]["code"], message: string): void => {
       this.sendNow(this.rawSender(ws), {
         v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "notification",
         type: "connection.error",
         payload: { code, message },
       });
@@ -186,32 +188,42 @@ export class WsServerAdapter {
       return;
     }
 
-    // 通过：注册事件流 + welcome + 立即推快照（重连恢复语义）
+    // 通过：注册事件流（默认订阅当前单会话，v0 语义保持）+ welcome + 立即推快照（重连恢复语义）
     ws.data.authed = true;
     const sender = this.rawSender(ws);
     ws.data.sender = sender;
-    this.deps.events.attach(sender);
-
     const status = this.deps.system.getStatus();
+    this.deps.events.attach(sender, status.sessionId);
+
     const agentState = status.agentState as AgentStateDto;
     const model = status.model ?? "";
-    this.sendNow(sender, {
+    const welcome: ConnectionWelcomeEvent = {
       v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID, // 会话无关系统事件（notification 通道，契约 A §3）
+      channel: "notification",
       type: "connection.welcome",
       payload: { sessionId: status.sessionId, model, agentState },
-    });
-    this.sendNow(sender, {
+    };
+    this.sendNow(sender, welcome);
+    this.sendNow(sender, this.snapshotFrame(status, model, agentState));
+  }
+
+  /** session.snapshot 帧（v0.2 章印：sessionId = 会话归属 + channel=session）。 */
+  private snapshotFrame(status: { sessionId: string; model?: string }, model: string, agentState: AgentStateDto): SessionSnapshotEvent {
+    return {
       v: PROTOCOL_VERSION,
+      sessionId: status.sessionId,
+      channel: "session",
       type: "session.snapshot",
       payload: { snapshot: toSnapshotDto(this.deps.session.getSnapshot(), model, agentState) },
-    });
+    };
   }
 
   // ── 命令路由（只转发不决策，TP-CL6-3） ───────────────────────
 
   private routeCommand(
     ws: ServerWebSocket<ConnState>,
-    envelope: { v: FrameVersion | number | string; type: unknown; payload: unknown },
+    envelope: { v: FrameVersion | number | string; type: unknown; payload: unknown; sessionId?: unknown },
   ): void {
     const type = typeof envelope.type === "string" ? envelope.type : "";
     const payload = (envelope.payload ?? {}) as Record<string, unknown>;
@@ -238,25 +250,26 @@ export class WsServerAdapter {
       case "session.subscribe": {
         const sender = ws.data.sender;
         if (!sender) return;
-        this.deps.events.setSubscribed(sender, true);
-        // 通路语义：重新订阅 = 重推全量快照（快照恢复公式，AD-16）
+        // v0.2（T2.1 定稿）：per-session 订阅（AD-4）——信封 sessionId 指定目标
+        // 会话；v0 兼容：不带信封位 = 当前单会话（缺省订阅语义不变）
+        const target = this.resolveTargetSession(ws, envelope, type);
+        if (target === undefined) return; // 不存在会话：已回 connection.error
+        this.deps.events.subscribeSession(sender, target);
+        // 重新订阅 = 重推该会话全量快照（快照恢复公式，AD-16）
         const status = this.deps.system.getStatus();
-        this.sendNow(sender, {
-          v: PROTOCOL_VERSION,
-          type: "session.snapshot",
-          payload: {
-            snapshot: toSnapshotDto(
-              this.deps.session.getSnapshot(),
-              status.model ?? "",
-              status.agentState as AgentStateDto,
-            ),
-          },
-        });
+        this.sendNow(
+          sender,
+          this.snapshotFrame(status, status.model ?? "", status.agentState as AgentStateDto),
+        );
         return;
       }
       case "session.unsubscribe": {
         const sender = ws.data.sender;
-        if (sender) this.deps.events.setSubscribed(sender, false);
+        // T2.1 定稿（T1.2 boundary 遗留）：对称 per-session 退订——与 subscribe
+        // 同一目标会话解析规则（信封 sessionId / v0 缺省当前单会话）；退订后
+        // 该会话帧停发，其余订阅会话不受影响（多会话 T2.2 兑现）
+        const target = this.resolveTargetSession(ws, envelope, type);
+        if (sender && target !== undefined) this.deps.events.unsubscribeSession(sender, target);
         return;
       }
       // ── v0.1 编排命令（T2.3，契约 §4；只转发不决策，TP-CL6-3） ──
@@ -313,6 +326,27 @@ export class WsServerAdapter {
     }
   }
 
+  /**
+   * 会话作用域命令的目标会话解析（session.subscribe/unsubscribe 共用）：
+   * 信封 sessionId（v0.2 路由位）→ 缺省当前单会话（v0/v0.1 兼容——不带
+   * 信封位的旧客户端缺省订阅语义不变）；指向不存在会话 → connection.error。
+   */
+  private resolveTargetSession(
+    ws: ServerWebSocket<ConnState>,
+    envelope: { sessionId?: unknown },
+    type: string,
+  ): string | undefined {
+    const current = this.deps.system.getStatus().sessionId;
+    if (envelope.sessionId === undefined || envelope.sessionId === null || envelope.sessionId === "") {
+      return current; // v0 兼容：缺省当前单会话
+    }
+    if (typeof envelope.sessionId !== "string" || envelope.sessionId !== current) {
+      this.commandError(ws, type, "command.invalid_payload", `目标会话不存在（单会话运行期仅 ${current}）`);
+      return undefined;
+    }
+    return envelope.sessionId;
+  }
+
   private commandError(
     ws: ServerWebSocket<ConnState>,
     type: string,
@@ -321,6 +355,8 @@ export class WsServerAdapter {
   ): void {
     this.sendNow(this.rawSender(ws), {
       v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID, // 会话无关系统事件（notification 通道）
+      channel: "notification",
       type: "connection.error",
       payload: { code, message: `${message}（命令 ${type}）` },
     });
