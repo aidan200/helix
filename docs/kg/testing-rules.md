@@ -146,7 +146,6 @@ integration/fidelity/e2e 测试的 setup/teardown；测试内任何路径拼接�
 ## 反例
 integration 测试忘了传 --home，直接把开发机 ~/.helix/helix.db 里的真实会话写花——本地数据被测试污染。
 
-
 ```kg-node
 id: TR-TEST-5
 kind: rule
@@ -154,13 +153,12 @@ graph: tech
 layer: common
 scope: domain
 stack: shared
-name: 表现验证双层装配纪律（F 层 mock 挂点 + E 层真 daemon）
+name: 表现验证双层装配纪律（F 层标准化注入点 + E 层真 daemon）
 status: active
-digest: 写表现验证 e2e、mock WebSocket 挂点、装配真 daemon 测试时
+digest: 写表现验证 e2e、接 mock 注入点、装配真 daemon 测试时
 derivedFrom:
-  - AD-12
-  - AD-13
-  - AD-14
+  - F4.4
+  - F-6
 anchors:
   implementedBy:
     - e2e/harness/mock-init.ts
@@ -177,17 +175,48 @@ anchors:
 relations:
   governs:
     - E-会话聚合
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260816-uzvg
 ```
 
 ## 规则
-浏览器表现验证固定双层装配，后续迭代同构迁移（换剧本即扩展）：F 层（mock mode）——page.addInitScript 替换 window.WebSocket 实现剧本回放注入（连接状态机/退避/握手生产代码全真跑）；替换实现必须保留 WebSocket.OPEN/CONNECTING 等静态常量（browserTransportFactory.send 以 readyState 门控，缺失静默吞帧）；vite HMR 的 WebSocket 透传原生；帧构造类型直引 @helix/protocol（与真实协议零漂移）。E 层（真 daemon）——bun 子进程 launcher（stdout 控制行协议 + SIGTERM 优雅停机）；DaemonProcess fixture 以 --home mkdtemp tmp 隔离（真实 ~/.helix 零触碰）、端口预检 fail-fast、全 argv 传参零 env 配置；剧本 JSON 契约（reply/replyFromResult/tool + 流式分片可打入窗口）；globalSetup 端口预检 + VITE_HELIX_PORT 烘焙 dist。真实 LLM 联调形态换 streamFnOverride 实现即可。
+浏览器表现验证固定双层装配，后续迭代同构迁移（换剧本即扩展）：
+F 层（mock mode）——经 SessionProvider 标准化注入点切换 fake transport（env VITE_HELIX_FAKE_TRANSPORT / URL 参数，F4.4）：产品代码内一等注入点，F 层纯浏览器跑、无 daemon，生产连接代码（连接状态机/退避/握手）全真跑；替换实现必须保留 WebSocket.OPEN/CONNECTING 等静态常量（browserTransportFactory.send 以 readyState 门控，缺失静默吞帧）；vite HMR 的 WebSocket 透传原生；帧构造类型直引 @helix/protocol（与真实协议零漂移）。
+E 层（真 daemon）——bun 子进程 launcher（stdout 控制行协议 + SIGTERM 优雅停机）；DaemonProcess fixture 以 --home mkdtemp tmp 隔离（真实 ~/.helix 零触碰）、端口预检 fail-fast、全 argv 传参零 env 配置，并负责 SubAgent 子进程树与端口的彻底清理（与 TR-TEST-6 teardown 纪律联动）；剧本 JSON 契约（reply/replyFromResult/tool + 流式分片可打入窗口）；globalSetup 端口预检 + VITE_HELIX_PORT 烘焙 dist。真实 LLM 联调形态换 streamFnOverride 实现即可。
 
 ## 理由
-F 层给前端投影与还原度最快反馈（无 daemon），E 层验证真 daemon 全链路闭环（持久化/恢复语义）；两层共享协议类型面与剧本形态，TR-TEST-3 契约等价贯穿；静态常量坑与隔离纪律是两轮实测提炼。
+F 层给前端投影与还原度最快反馈（无 daemon），E 层验证真 daemon 全链路闭环（持久化/恢复语义）；两层共享协议类型面与剧本形态，TR-TEST-3 契约等价贯穿。F4.4 裁决：SessionProvider env/URL 注入点使 mock 形态成为产品代码的可寻址能力而非 harness 侧 hack（F-6 首迭代建议的兑现），F 层剧本服务 CL-1/2/3 三类新 UI 验证。静态常量坑与隔离纪律是两轮实测提炼。
 
 ## 适用范围
-e2e/harness 维护；新表现验证场景接入；真实 LLM 联调；M2+ 任何浏览器级 E2E 扩展。
+e2e/harness 维护；新表现验证场景接入（M2 SubAgent 卡片/抽屉、thinking 块、usage popover 的 F 层剧本）；真实 LLM 联调；M2+ 任何浏览器级 E2E 扩展。
 
 ## 反例
-fake WebSocket 忘带 WebSocket.OPEN 静态常量——readyState 门控静默吞帧，剧本回放失灵且无报错；或 E 层 fixture 不传 --home——污染开发者真实 ~/.helix。
+fake transport 忘带 WebSocket.OPEN 静态常量——readyState 门控静默吞帧，剧本回放失灵且无报错；或 E 层 fixture 不传 --home——污染开发者真实 ~/.helix；或 F 层剧本绕过注入点直接在 spec 里猴补 window.WebSocket——注入点标准化失效，每个剧本自带挂点副本漂移。
+
+```kg-node
+id: TR-TEST-6
+kind: rule
+graph: tech
+layer: common
+scope: domain
+stack: shared
+name: e2e/integration teardown 纪律（零残留）
+status: active
+digest: 写 e2e harness 或 fixture、配 CI 连跑、排查测试残留时
+derivedFrom:
+  - F4.3
+  - F4.5
+updatedIn: iter-20260816-uzvg
+```
+
+## 规则
+任何起进程/占端口/建 tmp 的测试（integration/fidelity/e2e）teardown 三件套彻底清理：tmp 目录（--home 注入的 mkdtemp 全删）、子进程（daemon 及其派生的 SubAgent 子进程树——SIGTERM 优雅停机 + 超时升级强杀，不留孤儿进程）、端口（结束释放验证）。
+以「同一套件连跑两轮零残留」断言机械化守护：残留检测任一命中即红（tmp 未删/进程存活/端口占用）；CI 必须包含连跑两轮形态。fixture（daemon-fixture/mock-init）是清理责任的唯一归属——测试用例不得自带旁路清理逻辑。
+
+## 理由
+TR-TEST-4 只裁隔离注入（--home tmp），未覆盖进程/端口残留；F4.3 实锤 e2e teardown 残留（首迭代遗留项）；残留会让下一轮测试假红/假绿并污染开发机，连跑两轮断言把「零残留」从纪律变为机械判据。F4.5 裁决将本纪律落为 testing-rules.md 新 TR。
+
+## 适用范围
+e2e/harness（daemon-fixture/mock-init）维护；新 fixture 接入；CI 配置；integration 测试 teardown；M2+ 任何新增子进程/端口资源的测试（SubAgent 子进程 fixture 同纳入）。
+
+## 反例
+daemon-fixture 只 kill 直接子进程，SubAgent 子进程成孤儿继续占端口/预算——第二轮连跑端口冲突假红；或测试用例末尾自己 process.kill 补刀——清理责任旁路出 fixture，新用例接入时漏复制即残留复发。

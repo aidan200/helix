@@ -506,3 +506,184 @@ T1.8 实证模式：聚合演进不改 schema 面即可控；转换集中一处�
 
 ## 反例
 service 读出行后手工 new Session(...) 散落三处——schema 加一列要改三个调用点，且漏改处静默用默认值。
+
+```kg-node
+id: TR-AD-15
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: AgentInstance 一等概念与 instanceId 全链路
+status: active
+digest: 写领域事件或聚合 Entry、加协议事件字段、做实例分段渲染时
+derivedFrom:
+  - AD-3
+  - AD-1
+relations:
+  governs:
+    - E-AgentInstance
+    - E-会话聚合
+    - E-领域事件与单写队列
+updatedIn: iter-20260816-uzvg
+```
+
+## 规则
+主会话实例与 SubAgent 同为 AgentInstance（domain/agent/AgentInstance：instanceId、kind: "main"|"subagent"、profileKind、sessionId、实例状态机、createdAt），机制同构——同 AgentRuntime 驱动、同 AgentProfile 声明机制、同事件通道、同 trace/统计/持久化路径；编排分层只经 profile 生命周期声明表达（main = persistent 常驻多轮、用户对话锚点，re-profile 时销毁重建；subagent = single-shot 单轮收敛、closure 回主线后销毁）。「同构」只发生在机制层，禁止按 kind 分叉任何机制通道。
+每条领域事件与聚合 Entry（消息/工具调用/thinking/compaction）一律挂 instanceId；持久化兑现 trace 四维查询 session × instance × type × time：domain_events 增 agent_instance_id 列 + 索引（agent_kind 保留为冗余快速过滤维度）、agent_lifecycle 主键扩为 (session_id, instance_id)、tool_calls 增实例归属列；协议信封 Envelope 增可选 instanceId? 字段，缺省 = 主实例（向后兼容），快照增 instances 实例清单。
+SubAgent 实例的 instanceId 即 agent_spawn 返回、agent_send/agent_status/agent.kill 寻址的 agentId（同一标识空间的两个视角，分配即定）；主实例在会话创建时分配固定 id。
+会话聚合与 agent 实例窗口分离（三层模型）：聚合是全历史 Entry 树、跨实例持续追加（UI/持久化单位，实例切换或收口时不重建）；实例窗口是 LLM 上下文、销毁重建（执行层全切、交接层受控注入、显示层连续）。实例创建/销毁/re-profile 是一等操作，调度器与状态机不得假设一个会话单实例线性推进。
+UI 时间线按实例分段：主线视图默认只渲染主实例 Entry + SubAgent 卡片 + 里程碑标记，抽屉视图 = 按实例过滤的全流；重启后按 Entry 的 instanceId 归属恢复各实例全流。
+
+## 理由
+F-12 实锤现状只有 agent_kind 无实例 id，同类型多实例不可区分、协议事件无任何 agent 标识（单 agent 假设）；主会话即使不 spawn SubAgent 也会因 re-profile 存在多实例（用户在 grilling 指出）。机制同构才能统一 trace/统计/事件通道（AD-3）；聚合与窗口分离是相位模式在 v2 重新生长的地基（AD-1），M2 主实例 + N 个 SubAgent 已在事实层面运行该模型。
+
+## 适用范围
+M2+ 写任何领域事件、聚合 Entry、持久化 schema（domain_events/agent_lifecycle/tool_calls）时；协议事件/快照字段扩展时；SubAgent 编排（调度/收口/kill 寻址）实现时；UI 时间线实例分段与抽屉过滤渲染时；trace 四维查询与账目分实例统计时。schema 列级演进走建表幂等 + 守护式补列，RowMapper fromRow 默认值兑底（TR-AD-14 同口径）。
+（待开发裁决，不作规则化：O-3 agent_instance_id 旧数据回填值与补列机制细节；O-4 instanceId 分配格式与 agent-N 序号的持久化范围。）
+
+## 反例
+领域事件只带 agent_kind 不带 agent_instance_id——两个并行的 subagent-worker 事件流、账目、抽屉内容全部串台不可区分；或 SchedulerService 给 SubAgent 另建一条事件通道/另一套持久化路径（「同构」退化为双轨）；或 UI 把所有实例 Entry 平铺进主线聊天流——SubAgent 内部工具调用刷屏主线，违背隔离初衷。
+
+```kg-node
+id: TR-AD-16
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: SubAgent 调度预算与排队语义
+status: active
+digest: 写调度或并发预算代码、扩编排工具、动排队与 stalled 判定时
+derivedFrom:
+  - AD-7
+  - AD-5
+relations:
+  governs:
+    - E-调度器
+    - E-AgentInstance
+updatedIn: iter-20260816-uzvg
+```
+
+## 规则
+预算语义：maxConcurrent=3 为 daemon 全局运行中 SubAgent 实例上限（config.json 可配，缺省 3；全局预算依赖 daemon 全局单例，per-workspace 多开会使预算碎片化）；超限请求不拒绝不抛错，FIFO 入队（maxQueued=8），queued 状态事件（含位次）推 UI；队列达上限才向 LLM 报错（预算真实耗尽）——排队语义取代 v1 的并发抛错。
+超时分级：idle > 5min 无事件增量 → stalled 警示事件推 UI（警示不自动杀，可恢复继续 running）；hard 无上限不自动杀；终止权手动在用户（抽屉 kill 按钮 → agent.kill 命令 → launcher 终止；信号序列待开发裁决 O-6）。优先级本迭代不做（无竞争场景），M4 DAG 依赖调度时引入。
+编排三工具注册进 MainSessionProfile 工具集：agent_spawn(task, profile?)（预算判定后秒回 {agentId, spawned} 不挂起当前 turn，超限返回 queued 事实——异步交付语义见 TR-AD-17）、agent_send(agentId, msg)（经 transport 转投目标实例 Agent.steer()，内建队列使 send-kill 链从根上消失）、agent_status(agentId?)（无参返回全部实例概要、有参单实例详情）。
+非线性红线：实例创建/销毁/re-profile 是一等操作；队列与状态机对「任意实例任意时刻到达任意状态」保持正确，不假设线性推进。
+落位分层：SchedulingPolicy 为 domain 纯语义（预算/上限/stalled 阈值，纯数据 + 判定，可零依赖单测）；SchedulerService 为 application 编排（预算判定/出队/stalled 监视/closure 收口/账目扇出）；编排工具实现只 import inbound AgentOrchestrationPort 接口（与 ws-server 调 inbound port 同一模式，引用由组合根注入），不 import 任何其他 adapter。
+
+## 理由
+AD-7 整包裁决：v1 超限抛错问题（F-3②）由排队语义消除；自动杀误伤成本 > 保守等待，故 stalled 只警示；优先级无真实竞争场景不预做。AD-5 承载性约束④要求调度器不假设线性推进，为 M4 DAG/phase 状态机预留正确性。
+
+## 适用范围
+M2+ 调度器/池/队列实现与评审；编排工具（agent_spawn/send/status）扩展；SubAgent 并发行为调参（maxConcurrent/maxQueued/stalled 阈值经 config.json 配置）；M4 DAG 依赖调度生长时的基线约束。SubAgent 子进程启动形态（O-7）与 kill 信号序列（O-6）待开发裁决，不在此规则化。
+
+## 反例
+spawn 超过 3 个运行实例即向 LLM 抛并发错误——v1 抛错行为复发，排队语义被绕过；或 stalled 5 分钟后自动 SIGKILL「清理僵尸」——误伤合法长任务（如长时间 bash 编译），终止权已裁在用户；或在编排工具实现里直接 import SubagentLauncher 驱动子进程——adapter 间互相 import 绕过 application，编排泄漏。
+
+```kg-node
+id: TR-AD-17
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: closure 双通道分发与异步交付
+status: active
+digest: 动 closure 收口或注入链路、写 SubAgent 完成卡片时
+derivedFrom:
+  - AD-8
+relations:
+  governs:
+    - E-SteerQueue
+    - E-ClosureRecord
+updatedIn: iter-20260816-uzvg
+```
+
+## 规则
+closure 结构承接 v1：{status: done|failed, summary, reportPath?, findings?, taskId?}；findings 字段保留（kg 自动落账 v2 重生长时接，M4+ 事项不在本规则范围）。
+异步交付语义：agent_spawn 工具秒回 {agentId, spawned} 不挂起当前 turn；closure 到达驱动 MainAgent 新 turn（不是被动等待）；等待期用户 steer 与 closure 注入同队列 FIFO（SteerQueue 一等机制，替代 v1 customPrompt hack）。
+closure 到达时双通道分发：①上下文通道——SteerQueue.enqueue（「agent-N closure: done — <summary>」），唯一入口进 MainAgent 窗口，turn 边界 drain；②用户通道——领域事件 agent.completed{agentId, closure} → WS → 聊天流 SubAgent 完成卡片（summary + 状态徽标 + 抽屉入口，可回溯）。同一事实单一呈现面：注入文本进 MainAgent 上下文供 LLM 消费，前端以完成卡片呈现同一事实，不作为普通用户气泡重复渲染。
+SubAgent 内部工具调用不回主线：只进 per-instance 事件流（落盘为挂 instanceId 的 Entry）→ UI 抽屉消费。
+closure 记录与任务报告经 daemon 单写队列落 SQLite（closure 抗重启），不开第二写通道（TR-AD-13 同口径）；报告若为文件产物则经单写通道原子写、落点遵循 ~/.helix 单点（TR-AD-6）。
+
+## 理由
+AD-8（Q-9 修正版）：v1 已验证同构双消费（LLM 上下文 + 用户界面）；异步注入是「主会话不阻塞」的完整语义；SubAgent 内部工具若回主线会撑爆主线窗口，违背隔离初衷。
+
+## 适用范围
+closure 收口解析（SubAgent 系统提示约定的结构）、SteerQueue 注入消费、agent.completed 事件与完成卡片渲染、任务报告落盘路径设计、M4+ kg 自动落账接入时的结构约束。
+（reportPath 产物形态待开发裁决 O-5，不作规则化。）
+
+## 反例
+closure 到达直接拼进 MainAgent 当前生成中的流（绕过 SteerQueue，FIFO 语义与 turn 边界丢失）；或 SubAgent 每个工具调用都转发主线聊天流——主线窗口被撑爆、隔离失效；或前端把注入文本再渲染成一条用户气泡——同一事实双呈现。
+
+```kg-node
+id: TR-AD-18
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: thinking/usage/compaction 三通道与协议 additive 演进
+status: active
+digest: 加协议 entry 或事件、扩引擎事件联合、动 EntryDto 时
+derivedFrom:
+  - AD-4
+  - AD-9
+  - AD-3
+relations:
+  governs:
+    - E-会话聚合
+    - E-UsageLedger
+updatedIn: iter-20260816-uzvg
+```
+
+## 规则
+三通道（thinking/usage/compaction）统一链路模式：pi 引擎事件/产物（thinking_start/delta/end、message_end 携带的 Usage、CompactResult）→ PiAgentEngineAdapter 防腐转发或提取（挂 instanceId）→ 领域事件 → Entry/账目（domain 权威状态）→ WS 事件与快照；对 pi 符号的 import 只在 pi-engine 防腐域（TR-AD-7 同口径）。
+thinking：流式 delta 为中间态不落盘（TR-AD-5 原则不变）；完成态 ThinkingEntry{instanceId, text, durationMs, reasoningTokens} 全量落盘进聚合（重启可回看）；reasoning tokens 随 usage 入账（计费自洽）。
+usage：turn 完成从 message_end 提取完整 Usage（input/output/cacheRead/cacheWrite/reasoning/totalTokens/cost）挂 instanceId 入事件流（usage.recorded）；per-instance 小计 → per-session 聚合（主线+委托合计）；compaction 摘要调用成本（CompactResult.usage）同通道入账——一切真实 LLM 成本不漏账；流式中不动账、turn 完成入账。
+compaction：由驱动层（AgentRuntime）turn 间按 profile.compaction 参数接线 pi 的 shouldCompact/compact 独立函数族（loop 不自动跑，驱动层 turn 间调用）；CompactionEntry{instanceId, tokensBefore, summary, usage} 进该实例 pi session Entry 树与领域聚合，UI 里程碑折叠条可见（复用 thinking 组件模式：折叠条 + 点击展开 summary）；接线不感知 profile.kind——主实例与 SubAgent 实例同路径获得 compaction；失败走既有 engine_error 不崩会话路径 + 失败注入测试守护。
+协议演进 v0 → v0.1 additive 纪律：①判别式联合只增不删不改（既有事件 type 字面量与 payload 形状不动）；②可选字段带缺省语义（Envelope.instanceId? 缺省 = 主实例、message_end 的 usage? 缺省 = 未携带，旧剧本兼容）；③EntryDto 联合新增 kind: "thinking" | "compaction" 成员，旧 kind 不动，旧消费者忽略未知 kind；④快照 additive（新增可选 instances/usage 字段，既有字段不动）；⑤增量演进保持 v=0 不 bump，破坏性变更（删字段/改判别值）才 bump PROTOCOL_VERSION；守护测试「目录常量 ↔ 联合双向一致性」随新增成员同步扩；落盘行模型前向兼容走 RowMapper fromRow 默认值兑底（TR-AD-14）。
+
+## 理由
+thinking/usage 是首迭代有意裁剪的通道（F-10/F-11 核实：上游能力完整、非 bug），接入成本低；压缩对用户不可见是缺陷（usage 突变无解释）且摘要调用计费不能漏（AD-9）；monorepo 同仓同版本发布使 additive 演进协商成本为零（架构文档 §7.4）。
+
+## 适用范围
+M2+ 新增任何协议 entry/事件/快照字段、扩展 AgentEnginePort 事件联合（FakeAgentEngine 同步扩——TR-TEST-3 契约等价）时；三通道实现与守护测试；UI 三态渲染（thinking 流式/完成折叠/无块）与 compaction 里程碑条；协议版本位与守护测试维护。
+
+## 反例
+为 thinking 流式 delta 开第二条落盘通道（违背流式中间态不落盘，恢复语义分叉）；或直接修改既有 message entry 的 payload 结构塞 thinking 字段（破坏性变更应 bump 版本，旧消费者解析炸裂）；或 compaction 摘要调用的 usage 不入账——header 合计与真实账单对不上。
+
+```kg-node
+id: TR-AD-19
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: SubAgent 重启恢复语义（failed 收口不自动续跑）
+status: active
+digest: 写恢复或收口代码、动快照实例字段、处理崩溃重启边界时
+derivedFrom:
+  - AD-10
+relations:
+  governs:
+    - E-AgentInstance
+    - E-调度器
+updatedIn: iter-20260816-uzvg
+```
+
+## 规则
+重启后：running 态 SubAgent 实例收口为 failed（「daemon 重启，任务未完成」——与首迭代 D-1 工具卡收口同构），历史保留可回放，closure failed 经 SteerQueue 注入主线，不自动续跑；queued 态任务清队不落盘（调度队列持久化边界 = 不持久化），快照标 cancelled（区别于 failed），不自动重派。
+重试是编排决策而非恢复机制：MainAgent 收到 failed closure 后自主决定（spawn 新实例重试/转述用户/放弃），决策点在编排层（LLM + 系统提示），不在恢复代码——恢复代码不执行任何东西。
+正常运行期 SubAgent 崩溃同语义：崩溃隔离（子进程崩溃不伤 daemon 主线），closure failed 通道回主线。
+恢复重建面（重启 daemon 全部恢复）：实例注册表（agent_lifecycle per-instance）→ 卡片/抽屉骨架；Entry 树（含 thinking/compaction/各实例 Entry，按 instanceId 归属）→ 主线视图 + 抽屉全流；usage 聚合 → header 合计与下钻明细；closure 记录 → 终态卡片与账目；全部经快照推前端纯投影重建（前端零自恢复，TR-AD-5）。
+
+## 理由
+AD-10（Q-13=A）确定性优先：自动续跑 = 不知情时执行带旧状态的重试，错误根源在任务时会重演且烧钱；failed 收口不执行任何东西，故不需要「保证不再错」；v1 D-1 已验证同构收口模式；cancelled 与 failed 区分忠实反映「未启动被取消」与「执行中断」两种事实。
+
+## 适用范围
+RestoreService 恢复扩展、快照 instances 字段设计（cancelled/failed 终态标记）、E 层重启恢复 E2E 增例、P-1/P-2 的 failed/cancelled 态渲染、调度队列持久化边界评审。
+
+## 反例
+重启时扫描出 running 任务自动重新 spawn「接着跑」——不知情重试带旧状态，错误根源重演且烧钱（已裁不自动续跑）；或把 queued 任务也标 failed——与「未启动即被取消」事实不符（已裁为 cancelled 且区别于 failed）；或在 RestoreService 里内置「失败任务自动重派 N 次」策略——重试决策已裁归编排层（MainAgent），恢复代码越权执行。
