@@ -66,6 +66,10 @@ export function applyConnEvent(s: SessionState, event: EventEnvelope, _ts?: numb
         sessionId: event.payload.sessionId,
         model: event.payload.model,
         agentState: event.payload.agentState,
+        // 首连两阶段（P-1s）：welcome 即就绪可发（快照随后重建内容并再次确认
+        // ready）；切换路径的 loading 骨架只由 session.snapshot 解除（同连
+        // 接不重握手，welcome 不会再到）
+        view: "ready",
       };
     }
     case "connection.error":

@@ -1,13 +1,16 @@
 /**
- * dispatcher —— 事件消费者注册表骨架（AD-3 前端形态；architecture.md §3.4；
- * C2 拆分 T1.1）。
+ * dispatcher —— 事件消费者注册表（AD-3 前端形态；architecture.md §3.4；
+ * C2 拆分 T1.1；v0.2 接线 T3.1）。
  *
- * 纯映射：event.type → 已注册消费者 handler（register(type → handler) 形态，
- * brief 决策消解的机械判据）。本任务只搭壳——不接 WS 帧（帧 → sessionId
- * 路由 → store 分发归 T3.1 接线），也不做多会话 store 拓扑（stores/ 归 T3.1）。
+ * 两层结构：
+ * - 注册表（本文件）：event.type → 已注册消费者 handler（register(type →
+ *   handler) 形态）。会话 store 级消费者（五族 + model/history）操作活跃
+ *   SessionState；清单族（directory）为拓扑级消费者（操作 TopologyState，
+ *   经 dispatcher/frame.ts 路由前置判定，不入本注册表）。
+ * - 帧入口（dispatcher/frame.ts）：v0.2 统一信封解析（sessionId/channel/
+ *   type）→ 按 sessionId 路由（活跃完整 store / 后台轻量 store / 系统帧）
+ *   → 按 type 交本注册表 / directory 消费者。
  * 未注册 type 由调用方保持原状态（原 applyEvent default 分支语义）。
- * v0.2 新增 session.list_changed / model.changed 预埋 no-op 占位消费者
- * （守护不变量「EVENT_TYPES 全类型已路由」；真实消费接线归 T3.1）。
  * 纯函数纪律（AG-14）：无 React / 无 IO / 无 Date.now。
  */
 import type { EventEnvelope } from "@helix/protocol";
@@ -20,6 +23,8 @@ import {
   THINKING_USAGE_EVENT_TYPES,
 } from "../consumers/thinking-usage";
 import { applySnapshotEvent, SNAPSHOT_EVENT_TYPES } from "../consumers/snapshot";
+import { applyHistoryEvent, HISTORY_EVENT_TYPES } from "../consumers/history";
+import { applyModelChangedEvent, MODEL_EVENT_TYPES } from "../consumers/model";
 
 /** 消费者事件处理面（帧驱动；ts 由 provider 注入保持 reducer 纯）。 */
 export type SessionEventHandler = (
@@ -54,18 +59,13 @@ register({ types: AGENT_EVENT_TYPES, apply: applyAgentEvent });
 register({ types: THINKING_USAGE_EVENT_TYPES, apply: applyThinkingUsageEvent });
 register({ types: SNAPSHOT_EVENT_TYPES, apply: applySnapshotEvent });
 
-// ── v0.2 新增事件占位（session 族结果/通知；T3.1 接线）──
-// no-op 占位消费者：保持原状态（与未注册 type 的 default 语义一致），仅维持
-// 「EVENT_TYPES 全类型已路由」守护不变量；会话清单投影 / 换模生效 UI 消费
-// 归 T3.1 接线实现（届时替换为真消费者，勿删占位以外的守护面）。
-// T2.2 新增 session.list.result / session.loadHistory.result（命令结果点对点
-// 回执，daemon 侧已落地；前端消费随 T3.1/T3.2 接线）。
-register({
-  types: [
-    "session.list_changed",
-    "model.changed",
-    "session.list.result",
-    "session.loadHistory.result",
-  ],
-  apply: (s) => s,
-});
+// ── v0.2 新增事件真消费（T3.1 接线；替换 T1.1/T2.2 no-op 占位）──
+// model.changed：会话 model 态（活跃 store 徽标数据源）
+register({ types: MODEL_EVENT_TYPES, apply: applyModelChangedEvent });
+// session.loadHistory.result：历史前插 + 翻页位（仅活跃会话路由至此）
+register({ types: HISTORY_EVENT_TYPES, apply: applyHistoryEvent });
+// session.list.result / session.list_changed：拓扑级清单消费者
+// （consumers/directory.ts，操作 TopologyState——经 dispatcher/frame.ts
+// 的 isDirectoryEventType 前置路由，不入本注册表；「EVENT_TYPES 全类型
+// 已消费」守护 = route(type) ?? isDirectoryEventType(type)，见
+// dispatcher.test.ts / frame-dispatch.test.ts）。

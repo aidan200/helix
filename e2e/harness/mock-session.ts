@@ -64,7 +64,23 @@ export class MockController {
     return this.page.evaluate(() => window.__helixMock!.failHandshake());
   }
 
-  // ── C→S 帧观测 ────────────────────────────────────────────
+  // ── C→S 帧观测与多会话寻址（T3.1）───────────────────
+
+  /**
+   * 读/设连接当前订阅会话：客户端 session.subscribe/unsubscribe 命令自动
+   * 跟随；显式传参可切换（mock 侧簿记，不影响帧下发）。单连接订阅单活跃
+   * 会话（与 T2.2 daemon subscribe 语义对齐）。
+   */
+  async activeSession(sessionId?: string): Promise<string | null> {
+    await this.awaitReady();
+    return this.page.evaluate((sid) => window.__helixMock!.activeSession(sid), sessionId);
+  }
+
+  /** 剧本会话台账（emit 按信封 sessionId 路由累计；后台续跑活动断言面）。 */
+  async scenarioSession(sessionId: string): Promise<{ sessionId: string; eventCount: number } | null> {
+    await this.awaitReady();
+    return this.page.evaluate((sid) => window.__helixMock!.scenarioSession(sid), sessionId);
+  }
 
   async clientFrames(): Promise<ClientFrame[]> {
     // 控制面未就绪（app 启动竞态）返回空——waitForCommand 的 poll 继续

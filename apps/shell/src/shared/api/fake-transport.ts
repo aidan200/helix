@@ -15,18 +15,30 @@
  * 控制面 `window.__helixMock`：与首迭代 addInitScript 版（harness/mock-init.ts，
  * 现退役为兼容路径）API 完全一致（open/emit/emitAll/netClose/failHandshake/
  * clientFrames/activeCount），spec 经 page.evaluate 驱动剧本回放；连接状态机/
- * 退避/握手全部走生产 HelixWsClient 真实路径。
+ * 退避/握手全部走生产 HelixWsClient 真实路径。T3.1 多会话寻址扩展：
+ * activeSession（读/设连接订阅会话；客户端 session.subscribe/unsubscribe
+ * 命令自动跟随）+ scenarioSession（emit 按信封 sessionId 路由的剧本会话
+ * 台账）——单连接订阅单活跃会话假设保持（与 T2.2 daemon subscribe 语义
+ * 对齐）。
  *
  * 剧本模块（URL 形态）：`?fakeTransport=<module-url>` 时加载该 ES 模块，
  * default export 收到控制面 API（自动剧本驱动器；如 smoke 的 auto-connect）。
  */
 import type { CommandEnvelope, EventEnvelope } from "@helix/protocol";
+import { SYSTEM_SESSION_ID } from "@helix/protocol";
 import { browserTransportFactory, type Transport, type TransportFactory, type TransportHandlers } from "./helix-ws";
 
 /** daemon 回环地址前缀（非该前缀 → 真实 WebSocket 透传，HMR 不受扰）。 */
 const DAEMON_WS_PREFIX = "ws://127.0.0.1:";
 
 // ── 控制面（window.__helixMock；API 与 mock-init 兼容路径逐字对齐）────
+
+/** 剧本会话台账（按信封 sessionId 寻址；后台续跑剧本的活动断言面）。 */
+export interface ScenarioSessionState {
+  sessionId: string;
+  /** 该会话累计下发事件数（后台执行/未读剧本的活动脉冲源） */
+  eventCount: number;
+}
 
 export interface HelixMockApi {
   open(): Promise<void>;
@@ -36,6 +48,14 @@ export interface HelixMockApi {
   failHandshake(): Promise<void>;
   clientFrames(): (CommandEnvelope | null)[];
   activeCount(): number;
+  /**
+   * 按 sessionId 寻址（T3.1 多会话剧本）：读/设连接当前订阅会话。
+   * 客户端 session.subscribe/unsubscribe 命令自动跟随（单连接订阅单活跃
+   * 会话——与 T2.2 daemon subscribe 语义对齐）；控制面可显式切换。
+   */
+  activeSession(sessionId?: string): Promise<string | null>;
+  /** 剧本会话台账读取（emit 按信封 sessionId 路由累计）。 */
+  scenarioSession(sessionId: string): Promise<ScenarioSessionState | null>;
 }
 
 interface ClientWaiter {
@@ -72,6 +92,16 @@ class FakeSocket {
       frame = null;
     }
     this.registry.clientFrames.push(frame);
+    // 订阅簿记（daemon subscribeSession 语义镜像：单连接订阅单活跃会话）
+    if (frame?.type === "session.subscribe" && typeof frame.sessionId === "string" && frame.sessionId !== "") {
+      this.registry.subscribedSessionId = frame.sessionId;
+    } else if (
+      frame?.type === "session.unsubscribe" &&
+      typeof frame.sessionId === "string" &&
+      frame.sessionId === this.registry.subscribedSessionId
+    ) {
+      this.registry.subscribedSessionId = null;
+    }
     const hit: ClientWaiter[] = [];
     const rest: ClientWaiter[] = [];
     for (const w of this.registry.commandWaiters) (w.type === frame?.type ? hit : rest).push(w);
@@ -111,6 +141,10 @@ class Registry {
   readonly clientFrames: (CommandEnvelope | null)[] = [];
   commandWaiters: ClientWaiter[] = [];
   private instanceWaiters: ((inst: FakeSocket) => void)[] = [];
+  /** 连接当前订阅会话（按 sessionId 寻址；客户端命令自动跟随，控制面可显式切换）。 */
+  subscribedSessionId: string | null = null;
+  /** 剧本会话台账（emit 按信封 sessionId 路由累计）。 */
+  readonly scenarioSessions = new Map<string, ScenarioSessionState>();
 
   activeInstance(): FakeSocket | null {
     const alive = this.instances.filter((i) => i.readyState !== FakeSocket.CLOSED);
@@ -128,6 +162,14 @@ class Registry {
   register(inst: FakeSocket): void {
     this.instances.push(inst);
     for (const w of this.instanceWaiters.splice(0)) w(inst);
+  }
+
+  /** emit 按信封 sessionId 路由到对应剧本会话台账（系统帧不入台账）。 */
+  trackScenarioSession(frame: EventEnvelope): void {
+    const sid = frame.sessionId;
+    if (typeof sid !== "string" || sid === "" || sid === SYSTEM_SESSION_ID) return;
+    const prev = this.scenarioSessions.get(sid);
+    this.scenarioSessions.set(sid, { sessionId: sid, eventCount: (prev?.eventCount ?? 0) + 1 });
   }
 }
 
@@ -153,11 +195,15 @@ const mockApi: HelixMockApi = {
     (await registry.nextActive()).fireOpen();
   },
   async emit(frame) {
+    registry.trackScenarioSession(frame);
     (await registry.nextActive()).fireMessage(frame);
   },
   async emitAll(frames) {
     const inst = await registry.nextActive();
-    for (const f of frames) inst.fireMessage(f);
+    for (const f of frames) {
+      registry.trackScenarioSession(f);
+      inst.fireMessage(f);
+    }
   },
   async netClose(code) {
     (await registry.nextActive()).fireClose(code == null ? 1006 : code);
@@ -172,6 +218,13 @@ const mockApi: HelixMockApi = {
   },
   activeCount() {
     return registry.instances.filter((i) => i.readyState !== FakeSocket.CLOSED).length;
+  },
+  async activeSession(sessionId) {
+    if (sessionId !== undefined) registry.subscribedSessionId = sessionId;
+    return registry.subscribedSessionId;
+  },
+  async scenarioSession(sessionId) {
+    return registry.scenarioSessions.get(sessionId) ?? null;
   },
 };
 

@@ -80,22 +80,29 @@ describe("AG-14 前端零权威状态", () => {
   const MODEL_DIR = join(SRC_ROOT, "entities/session/model");
   const reducerPureFiles = walk(MODEL_DIR).filter((f) => !/\.(test|spec)\.[jt]sx?$/.test(f));
 
-  /** C2 拆分落位清单（brief T1.1）：dispatcher 壳 + 五块消费者 + 状态/共享工具。 */
+  /** C2 拆分落位清单（brief T1.1 + T3.1 拓扑/路由扩展）：dispatcher 壳与
+   * 帧入口 + 五块消费者（+ directory/history/model v0.2 真消费）+ 状态/
+   * 共享工具 + store 拓扑层。 */
   const C2_SPLIT_FILES = [
     "entities/session/model/session-reducer.ts",
     "entities/session/model/state.ts",
     "entities/session/model/entries.ts",
     "entities/session/model/channel.ts",
     "entities/session/model/instance-cards.ts",
+    "entities/session/model/topology.ts",
     "entities/session/model/dispatcher/index.ts",
+    "entities/session/model/dispatcher/frame.ts",
     "entities/session/model/consumers/conn.ts",
     "entities/session/model/consumers/chat.ts",
     "entities/session/model/consumers/agent.ts",
     "entities/session/model/consumers/thinking-usage.ts",
     "entities/session/model/consumers/snapshot.ts",
+    "entities/session/model/consumers/directory.ts",
+    "entities/session/model/consumers/history.ts",
+    "entities/session/model/consumers/model.ts",
   ];
 
-  it("AG-14 纯函数扫描覆盖 C2 拆分落位清单（dispatcher/五块消费者/状态与共享工具）", () => {
+  it("AG-14 纯函数扫描覆盖 C2 拆分落位清单（dispatcher/五块消费者/拓扑层与 v0.2 新消费者）", () => {
     const scanned = new Set(reducerPureFiles.map(rel));
     for (const p of C2_SPLIT_FILES) {
       expect(scanned.has(p), `纯函数面未覆盖拆分落位文件：${p}`).toBe(true);

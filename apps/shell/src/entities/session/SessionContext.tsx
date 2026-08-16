@@ -1,10 +1,16 @@
 /**
- * entities/session —— 会话上下文（reducer × WS 客户端接线）。
+ * entities/session —— 会话上下文（store 拓扑 reducer × WS 客户端接线）。
  *
- * 会话投影唯一入口：useSession() 暴露纯投影 state 与三类意图动作
- * （setDraft / submit / retry）。发送语义按生成态自动分流：
- * 空闲 → chat.send（气泡由 daemon 事件投影）；生成中 → chat.steer
- * （本地 echo + STEER 徽标，对账靠 steer.queued/drained 事件）。
+ * 拓扑（AD-3 §3.4，T3.1）：TopologyState = 活跃会话完整 store（state 字段，
+ * 既有消费面零改动）× 后台会话轻量 store × 会话清单。帧经 dispatcher
+ * （dispatchFrame）按信封 sessionId 路由；切换 = unsubscribe 旧 + subscribe
+ * 新（契约 B §1.2 定稿形态——daemon subscribeSession 为订阅集累加，须显式
+ * 退订旧会话）+ 目标尾窗重建（P-1s 两阶段）。
+ *
+ * 发送语义按生成态自动分流：空闲 → chat.send（气泡由 daemon 事件投影）；
+ * 生成中 → chat.steer（本地 echo + STEER 徽标）。v0.2 起命令带信封
+ * sessionId（活跃会话）；无会话上下文（草稿）首条消息 = draft:true +
+ * 无信封 sessionId（契约 B §1.5）。
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import type { ReactNode } from "react";
@@ -12,11 +18,25 @@ import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { EventEnvelope } from "@helix/protocol";
 import { HelixWsClient } from "@/shared/api/helix-ws";
 import type { Transport, TransportFactory } from "@/shared/api/helix-ws";
+import {
+  chatAbortCommand,
+  chatSendCommand,
+  chatSendDraftCommand,
+  chatSteerCommand,
+  sessionListCommand,
+  sessionLoadHistoryCommand,
+  sessionSubscribeCommand,
+  sessionUnsubscribeCommand,
+} from "@/shared/api/commands";
 import { DAEMON_PORT, FAKE_TRANSPORT_DEFINE, fakeTransportScript, isDev } from "@/shared/config/env";
 import {
-  createInitialSessionState,
+  createInitialTopologyState,
+  selectCanLoadEarlier,
+  topologyReducer,
+  type TopologyState,
+} from "./model/topology";
+import {
   selectIsGenerating,
-  sessionReducer,
   type SessionState,
 } from "./model/session-reducer";
 
@@ -26,14 +46,27 @@ export {
   selectIsEmpty,
   selectIsGenerating,
 } from "./model/session-reducer";
+export { selectCanLoadEarlier } from "./model/topology";
+export type { BackgroundSessionState, TopologyState } from "./model/topology";
 
 interface SessionContextValue {
+  /** 活跃会话完整 store（既有消费面；= topology.active） */
   state: SessionState;
+  /** store 拓扑（后台轻量 store / 会话清单——T3.2 侧栏消费面） */
+  topology: TopologyState;
   setDraft: (text: string) => void;
-  /** 提交输入：生成中自动转 steer（F(7).3），否则 chat.send */
+  /** 提交输入：生成中自动转 steer（F(7).3），否则 chat.send（草稿 = draft:true 建会话） */
   submit: (text: string) => void;
   /** 失败卡「重试连接」（仅 error 态有意义；SM-2 手动重试路径） */
   retry: () => void;
+  /** 中断当前生成（chat.abort 信封 sessionId；T3.2 停止按钮消费） */
+  abort: () => void;
+  /** 切换会话（unsubscribe 旧 + subscribe 新 + 尾窗重建 loading→success） */
+  switchSession: (sessionId: string) => void;
+  /** 滚动到顶加载更早历史（selectCanLoadEarlier 门控；发 session.loadHistory） */
+  loadEarlierHistory: () => void;
+  /** 拉取会话清单（session.list 全局命令；结果 = session.list.result 点对点回推） */
+  requestSessionList: () => void;
   consumeRestoreToast: () => void;
   /** spawn 秒回 toast 消费（ChatPage 渲染后置空；F1.5，v0.1） */
   consumeSpawnToast: () => void;
@@ -79,10 +112,15 @@ function fakeTransportEntry(script: string): TransportFactory {
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(sessionReducer, undefined, createInitialSessionState);
+  // v0.2（T3.1）：useReducer 挂拓扑根——帧经 dispatcher 按 sessionId 路由
+  //（活跃完整 store / 后台轻量 store / 系统帧）；conn/ui action 透传活跃 store
+  const [topology, dispatch] = useReducer(topologyReducer, undefined, createInitialTopologyState);
   const clientRef = useRef<HelixWsClient | null>(null);
+  // 命令构造读点（发送面需要当前活跃会话 id / 分页游标；避免 effect 链）
+  const topologyRef = useRef(topology);
+  topologyRef.current = topology;
   const generatingRef = useRef(false);
-  generatingRef.current = selectIsGenerating(state);
+  generatingRef.current = selectIsGenerating(topology.active);
 
   if (clientRef.current === null) {
     // prod define 摇除：FAKE_TRANSPORT_DEFINE 构建期为 "" 字面量 → 本比较折叠
@@ -129,16 +167,55 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!text) return;
     const mode = generatingRef.current ? "steer" : "turn";
     dispatch({ type: "ui/send", text, mode, ts: Date.now() });
-    clientRef.current!.send({
-      v: PROTOCOL_VERSION,
-      type: mode === "steer" ? "chat.steer" : "chat.send",
-      payload: { text },
-    });
+    const { sessionId } = topologyRef.current.active;
+    if (mode === "steer") {
+      // 生成中注入：活跃会话信封（理论上必有会话；防御性缺省 = daemon 当前会话）
+      clientRef.current!.send(
+        sessionId !== null
+          ? chatSteerCommand(text, sessionId)
+          : { v: PROTOCOL_VERSION, type: "chat.steer", payload: { text } },
+      );
+    } else if (sessionId === null) {
+      // 草稿首条消息（契约 B §1.5）：无信封 sessionId + draft:true →
+      // daemon 建聚合 + list_changed{created} + 订阅切换 + 新会话快照回推
+      clientRef.current!.send(chatSendDraftCommand(text));
+    } else {
+      clientRef.current!.send(chatSendCommand(text, sessionId));
+    }
   }, []);
 
   const retry = useCallback(() => {
     dispatch({ type: "conn/manual-retry" });
     clientRef.current!.retry();
+  }, []);
+
+  const abort = useCallback(() => {
+    const { sessionId } = topologyRef.current.active;
+    if (sessionId !== null) clientRef.current!.send(chatAbortCommand(sessionId));
+  }, []);
+
+  const switchSession = useCallback((sessionId: string) => {
+    const prev = topologyRef.current.active.sessionId;
+    if (prev === sessionId) return;
+    // 契约 B §1.2 定稿：unsubscribe 旧 + subscribe 新（daemon subscribeSession
+    // 为订阅集累加，不显式退订会继续收旧会话帧）；subscribe 触发 daemon 重推
+    // 目标会话全量快照（尾窗）——loading 骨架随之转 success（P-1s 两阶段）
+    if (prev !== null) clientRef.current!.send(sessionUnsubscribeCommand(prev));
+    clientRef.current!.send(sessionSubscribeCommand(sessionId));
+    dispatch({ type: "session/switch-started", sessionId });
+  }, []);
+
+  const loadEarlierHistory = useCallback(() => {
+    const active = topologyRef.current.active;
+    if (!selectCanLoadEarlier(active)) return; // hasMore=false 禁用 / 在途去重
+    const cursor = active.history.nextCursor;
+    if (cursor === null || active.sessionId === null) return;
+    clientRef.current!.send(sessionLoadHistoryCommand(active.sessionId, cursor));
+    dispatch({ type: "ui/load-earlier" });
+  }, []);
+
+  const requestSessionList = useCallback(() => {
+    clientRef.current!.send(sessionListCommand());
   }, []);
 
   const consumeRestoreToast = useCallback(
@@ -178,12 +255,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "event", event, ts: Date.now() });
   }, []);
 
+  const state = topology.active;
   const value = useMemo(
     () => ({
       state,
+      topology,
       setDraft,
       submit,
       retry,
+      abort,
+      switchSession,
+      loadEarlierHistory,
+      requestSessionList,
       consumeRestoreToast,
       consumeSpawnToast,
       consumeKillToast,
@@ -194,9 +277,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }),
     [
       state,
+      topology,
       setDraft,
       submit,
       retry,
+      abort,
+      switchSession,
+      loadEarlierHistory,
+      requestSessionList,
       consumeRestoreToast,
       consumeSpawnToast,
       consumeKillToast,

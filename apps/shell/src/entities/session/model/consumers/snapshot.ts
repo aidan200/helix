@@ -1,13 +1,22 @@
 /**
- * snapshot 消费者 —— 快照重建（session.snapshot；C2 拆分，AD-3，T1.1）。
+ * snapshot 消费者 —— 快照重建（session.snapshot；C2 拆分，AD-3，T1.1；
+ * v0.2 尾窗口径升级 T3.1）。
  *
  * 快照为落盘终态权威：entries 整体替换（重连恢复全量来自 daemon，无本地
- * 补齐）；F1.6 分流（main 条目 + compaction 归 main 流；SubAgent 条目归实例
- * channel 重建）；重连合入（事件流构建的 channel 保留，含 stalled 等仅存于
- * 事件流的行；快照未列实例的 channel 丢弃）；instances/usage additive 重建
- * （无字段旧剧本兼容 → 空卡/零账面）；流式中间态不落盘（streaming/
- * thinkingStreams/channelStreams 重建后清空）；nextChannelSeq 重算（全局
- * 单调——React key 稳定前提；跨实例 seq 语义 T3.1 再决策，本任务保持现状）。
+ * 补齐）；F1.6 分流（main 条目 + compaction 归 main 流）；重连合入（事件流
+ * 构建的 channel 保留，含 stalled 等仅存于事件流的行；快照未列实例的
+ * channel 丢弃）；instances/usage additive 重建；流式中间态不落盘
+ * （streaming/thinkingStreams/channelStreams 重建后清空）；nextChannelSeq
+ * 重算（per-store 单调——T3.1 定稿：切换重建时从快照重算，旧 store 值
+ * 不带入；React key 稳定前提在同一 store 内成立）。
+ *
+ * v0.2 尾窗字段升级（AD-1，契约 B §2.2）：
+ * - view：快照到达即转 ready（P-1s 两阶段 success 位；首连/切换共用）；
+ * - history：tailStartCursor 初始化向上分页游标（null/缺省 = 已含全部
+ *   历史 → hasMore=false；旧快照无尾窗字段兼容同判）；
+ * - instances[].channels：per-instance 完整历史分组重建 channel（F-14⑤
+ *   硬约束：SubAgent 历史不随主时间轴尾窗截断）；无 channels 字段时回落
+ *   entries 归组路径（v0/v0.1 旧快照兼容）。
  */
 import type {
   AgentInstanceDto,
@@ -25,7 +34,6 @@ import {
   type SessionState,
   type SessionUsageProjection,
 } from "../state";
-
 /** 本块承接的帧事件 type（dispatcher 注册面）。 */
 export const SNAPSHOT_EVENT_TYPES = ["session.snapshot"] as const;
 
@@ -76,7 +84,33 @@ function entryToChannelItem(entry: EntryDto, seq: number): ChannelItem | null {
   }
 }
 
-/** 快照 → channel 重建（spawned/模型解析行 + entries 归流 + closure 尾卡；AD-10 历史保留）。 */
+/** channel 条目时间戳归一（message/tool = number；thinking/compaction = ISO createdAt）。 */
+function entryTimelineKey(entry: EntryDto): number {
+  if (entry.kind === "thinking" || entry.kind === "compaction") return Date.parse(entry.createdAt);
+  return entry.ts;
+}
+
+/**
+ * 实例通道历史分组（v0.2 instances[].channels；F-14⑤ 完整保留不截断）→
+ * 单一时间线条目：三组各按到达序，合并后按时间戳稳定排序（同刻保组内序）。
+ */
+function groupedChannelItems(dto: AgentInstanceDto, next: () => number): ChannelItem[] {
+  const ch = dto.channels;
+  const merged: EntryDto[] = ch
+    ? [...(ch.messages ?? []), ...(ch.tools ?? []), ...(ch.thinking ?? [])].sort(
+        (a, b) => entryTimelineKey(a) - entryTimelineKey(b),
+      )
+    : [];
+  const items: ChannelItem[] = [];
+  for (const e of merged) {
+    const item = entryToChannelItem(e, next());
+    if (item) items.push(item);
+  }
+  return items;
+}
+
+/** 快照 → channel 重建（spawned/模型解析行 + 实例历史归流 + closure 尾卡；AD-10 历史保留）。
+ *  实例历史源优先级：v0.2 dto.channels（完整分组）> snap.entries 归组（旧快照兼容）。 */
 function channelsFromSnapshot(
   dtos: AgentInstanceDto[],
   entriesByInstance: Map<string, EntryDto[]>,
@@ -93,9 +127,14 @@ function channelsFromSnapshot(
         slot: dto.model !== undefined ? "declared" : "inherited",
       })(seq++),
     ];
-    for (const e of entriesByInstance.get(dto.instanceId) ?? []) {
-      const item = entryToChannelItem(e, seq++);
-      if (item) items.push(item);
+    if (dto.channels !== undefined) {
+      // v0.2 完整分组（F-14⑤：不随主时间轴尾窗截断）
+      items.push(...groupedChannelItems(dto, () => seq++));
+    } else {
+      for (const e of entriesByInstance.get(dto.instanceId) ?? []) {
+        const item = entryToChannelItem(e, seq++);
+        if (item) items.push(item);
+      }
     }
     if (dto.closure) items.push({ kind: "closure", seq: seq++, closure: dto.closure });
     channels[dto.instanceId] = items;
@@ -134,6 +173,9 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
       for (const items of Object.values(merged)) {
         for (const i of items) nextSeq = Math.max(nextSeq, i.seq + 1);
       }
+      // AD-1 尾窗分页游标：tailStartCursor 携带且有交 → hasMore；缺省/null =
+      // 已含全部历史（v0/v0.1 旧快照兼容同判）
+      const startCursor = snap.tailStartCursor ?? null;
       return {
         ...s,
         entries: mainEntries, // 整体替换：重连恢复全量来自 daemon（无本地补齐）；F1.6 分流见上
@@ -151,6 +193,8 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         killToast: null,
         restoreToast: s.toastPending ? { kind: s.toastPending, count: snap.entries.length } : s.restoreToast,
         toastPending: null,
+        view: "ready", // P-1s 两阶段：快照到达即 success（输入恢复判据）
+        history: { hasMore: startCursor !== null, nextCursor: startCursor, loading: false },
       };
     }
     default:

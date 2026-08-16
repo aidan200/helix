@@ -15,8 +15,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import type { EntryDto } from "@helix/protocol";
 import { MAIN_INSTANCE_ID } from "@/entities/session/model/session-reducer";
-import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
-import MessageBubble from "./MessageBubble";
+import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";import MessageBubble from "./MessageBubble";
 import SubAgentCard from "./SubAgentCard";
 import ToolCard from "@/shared/ui/ToolCard";
 import SessionEmpty from "./SessionEmpty";
@@ -51,7 +50,7 @@ interface MessageFlowProps {
 }
 
 const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: MessageFlowProps) {
-  const { state } = useSession();
+  const { state, loadEarlierHistory } = useSession();
   const flowRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -64,6 +63,19 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
     state.thinkingStreams[MAIN_INSTANCE_ID],
     state.engineError !== null, // 终验热修：错误卡出入视口同样贴底
   ]);
+
+  // 向上滚动到顶 → 加载更早历史（AD-1 分页；selectCanLoadEarlier 门控在
+  // provider 侧：hasMore=false 禁用 / 在途去重。P-1s「加载更早」指示器与
+  // 骨架 UI 归 T3.2，本挂点为滚动触发的最小接线）
+  useEffect(() => {
+    const el = flowRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (el.scrollTop <= 0) loadEarlierHistory();
+    };
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [loadEarlierHistory]);
 
   const empty = selectIsEmpty(state);
 

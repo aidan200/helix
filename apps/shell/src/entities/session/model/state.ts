@@ -13,14 +13,21 @@ import type {
   EntryDto,
   EventEnvelope,
   InstanceState,
+  SessionMeta,
   SessionUsageDto,
   ThinkingEntryDto,
   ToolCallEntryDto,
   UsageDto,
 } from "@helix/protocol";
+import { MAIN_INSTANCE_ID as PROTOCOL_MAIN_INSTANCE_ID } from "@helix/protocol";
 
-/** 主实例标识（信封 instanceId 缺省语义，契约 §3）。 */
-export const MAIN_INSTANCE_ID = "main";
+/**
+ * 主实例标识（信封 instanceId 缺省语义，契约 §3）。
+ * T1.2 延后项（T3.1 顺手收敛）：改引 @helix/protocol 单一导出（OI 收口
+ * F-2⑬）——本地 re-export 保持既有导入路径（@/entities/session/model/
+ * session-reducer）零消费方改动；线上权威 = 协议常量。
+ */
+export const MAIN_INSTANCE_ID = PROTOCOL_MAIN_INSTANCE_ID;
 
 /** 本地 steer echo id 前缀（确定性 id，保证重放幂等；消费：chat 消费者对账 + ui/send echo）。 */
 export const LOCAL_PREFIX = "local:";
@@ -87,6 +94,54 @@ export interface SpawnToast {
 /** kill 到达 toast（agent.killed 置位，UI 消费后置空；F1.2 终止链末端交代）。 */
 export interface KillToast {
   instanceId: string;
+}
+
+// ── v0.2 store 拓扑（AD-3 §3.4；T3.1）──────────────────
+
+/**
+ * 切换两阶段（原型 P-1s 状态模型）：loading 骨架 ↔ ready(success) 互斥；
+ * 快照到达即转 ready + 输入恢复。首连/切换共用同一状态位。
+ */
+export type SessionViewPhase = "loading" | "ready";
+
+/** 向上分页状态（AD-1）：hasMore=false 禁用加载更早（不再发命令）。 */
+export interface HistoryPaging {
+  hasMore: boolean;
+  /** 下一页游标（= 快照 tailStartCursor / 上一页 nextCursor）；null = 已含全部 */
+  nextCursor: string | null;
+  /** 在途分页请求（loading 中不重复触发） */
+  loading: boolean;
+}
+
+/**
+ * 后台会话轻量 store（AD-3 §3.4：标题/运行态徽标/未读，**不存 entries**——
+ * 类型级机械判据：键集恰为轻量五字段，无 entries/channelStreams）。
+ * 数据源：session.list/list_changed 元数据 + 该会话事件帧驱动（未读 +1、
+ * runState 投影）；切回该会话时移除（转活跃完整 store，未读随之消解）。
+ */
+export interface BackgroundSessionState {
+  sessionId: string;
+  title: string;
+  /** 运行态徽标三态（SessionMeta.runState 同源） */
+  runState: "idle" | "streaming" | "subagent_running";
+  /** epoch ms（session.list/list_changed 元数据同源） */
+  lastActivityAt: number;
+  /** 未读计数：该会话事件帧 +1（收帧驱动；不渲染 entries 只计数） */
+  unread: number;
+}
+
+/**
+ * store 拓扑根（AD-3 §3.4）：活跃会话完整 store + 后台会话轻量 store +
+ * 会话清单数据面（session.list.result / session.list_changed 维护）。
+ * 帧经 dispatcher（dispatcher/frame.ts dispatchFrame）按信封 sessionId 路由。
+ */
+export interface TopologyState {
+  /** 活跃会话完整 store（现 SessionState 全量） */
+  active: SessionState;
+  /** 后台会话轻量 store（sessionId → 轻量态；不含活跃会话） */
+  background: Record<string, BackgroundSessionState>;
+  /** 会话清单（按 lastActivityAt 降序；T3.2 侧栏数据面） */
+  list: SessionMeta[];
 }
 
 // ── v0.1 per-instance channel（P-2 抽屉单一时间线；T4.3）────────
@@ -171,6 +226,10 @@ export interface SessionState {
   spawnToast: SpawnToast | null;
   /** kill 到达 toast（一次性，UI 消费；agent.killed 终止链末端） */
   killToast: KillToast | null;
+  /** 切换两阶段（P-1s）：loading 骨架 ↔ ready 互斥；快照到达即转 ready */
+  view: SessionViewPhase;
+  /** 向上分页状态（AD-1；快照 tailStartCursor 初始化，loadHistory.result 推进） */
+  history: HistoryPaging;
 }
 
 export type SessionAction =
@@ -193,7 +252,13 @@ export type SessionAction =
   /** spawn toast 消费（ChatPage 渲染后置空；v0.1） */
   | { type: "ui/consume-spawn-toast" }
   /** kill toast 消费（ChatPage 渲染后置空；T4.3） */
-  | { type: "ui/consume-kill-toast" };
+  | { type: "ui/consume-kill-toast" }
+  // ── v0.2 store 拓扑 action（T3.1；由 topologyReducer 承接）──
+  /** 切换会话开始（provider 已发 unsubscribe 旧 + subscribe 新；旧活跃转轻量、
+   *  目标尾窗重建 loading——P-1s 两阶段） */
+  | { type: "session/switch-started"; sessionId: string }
+  /** 滚动到顶触发加载更早历史（hasMore 门控；provider 据此发 loadHistory 命令） */
+  | { type: "ui/load-earlier" };
 
 /** 零账面（UsageDto 七字段全零；只读基线，累加永远产生新对象）。 */
 export const ZERO_USAGE: UsageDto = {
@@ -231,5 +296,12 @@ export function createInitialSessionState(): SessionState {
     usage: { total: ZERO_USAGE, compaction: ZERO_USAGE, byInstance: {} },
     spawnToast: null,
     killToast: null,
+    view: "loading",
+    history: { hasMore: false, nextCursor: null, loading: false },
   };
+}
+
+/** store 拓扑初始态（T3.1）：活跃完整 store（首连前 loading）+ 空后台/清单。 */
+export function createInitialTopologyState(): TopologyState {
+  return { active: createInitialSessionState(), background: {}, list: [] };
 }

@@ -15,6 +15,7 @@ import ErrorCard from "@/features/reconnect/ui/ErrorCard";
 import AppHeader from "./ui/AppHeader";
 import ConnBanner from "./ui/ConnBanner";
 import ConnOverlay from "./ui/ConnOverlay";
+import SessionTopologyProbe from "./ui/SessionTopologyProbe";
 
 const ChatPage = function ChatPage() {
   const { t } = useI18n();
@@ -79,6 +80,9 @@ const ChatPage = function ChatPage() {
         </MessageFlow>
         <Composer />
       </div>
+      {/* T3.1 store 拓扑最小验证入口（isDev 门控，.app 之外——不扰动布局
+          还原守护；P-2 侧栏归 T3.2 替换） */}
+      <SessionTopologyProbe />
       {/* P-2 抽屉：页内 overlay（非路由）；衬底 = 真实 P-1 弱化（data-drawer 门控） */}
       {selectedAgentId && (
         <SubagentDrawer agentId={selectedAgentId} onClose={closeDrawer} />

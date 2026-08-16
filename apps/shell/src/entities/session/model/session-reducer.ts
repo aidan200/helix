@@ -59,9 +59,12 @@ export function selectIsGenerating(s: SessionState): boolean {
   );
 }
 
-/** 发送前置条件 = connected（SM 规则 6：非 connected 不给出可发入口）。 */
+/**
+ * 发送前置条件 = connected 且视图就绪（SM 规则 6：非 connected 不给出可发
+ * 入口；P-1s 两阶段：切换 loading 骨架期间输入禁用，快照到达恢复）。
+ */
 export function selectCanSend(s: SessionState): boolean {
-  return s.conn === "connected";
+  return s.conn === "connected" && s.view === "ready";
 }
 
 // ── reducer ─────────────────────────────────────────────────
