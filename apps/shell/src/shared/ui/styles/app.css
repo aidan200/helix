@@ -254,6 +254,73 @@ html.light .bubble code.inline { color: var(--accent); }
 .tool-card.error .t-pre { border-color: rgb(var(--error-rgb) / 0.25); color: var(--error); }
 .t-dur { color: var(--text-faint); }
 
+/* ═══ SubAgent 卡片（CL-1 F1.1：聊天流内嵌四态状态机；第三物种）═══
+   hud-corners 四角描线 = HUD 一等实体签名；violet 28px SA 头像跨态不变；
+   状态语言与工具卡同源（边框/角标/StatusDot）；取消态 = 中性收口（AD-10）*/
+.sa-cards { display: flex; flex-direction: column; gap: 14px; }
+.sa-card {
+  display: block; width: 100%; position: relative;
+  padding: 10px 12px; border-radius: 8px;
+  border: 1px solid rgb(var(--edge-rgb) / 0.12);
+  background: var(--card-fill);
+  text-decoration: none; color: var(--text); cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  animation: log-rise 0.24s ease-out;
+}
+.sa-card::before, .sa-card::after {
+  content: ""; position: absolute; width: 7px; height: 7px;
+  border-color: var(--accent); border-style: solid; border-width: 0;
+  pointer-events: none; opacity: 0.7;
+}
+.sa-card::before { top: 0; left: 0; border-top-width: 1px; border-left-width: 1px; }
+.sa-card::after { bottom: 0; right: 0; border-bottom-width: 1px; border-right-width: 1px; }
+.sa-card:hover { border-color: var(--border-strong); box-shadow: var(--glow-cyan); background: var(--bg-selected); }
+.sa-card:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--glow-cyan); }
+.sa-card.running { border-color: rgb(var(--accent-rgb) / 0.3); }
+.sa-card.done { border-color: rgb(var(--success-rgb) / 0.25); }
+.sa-card.done::before, .sa-card.done::after { border-color: var(--success); }
+.sa-card.failed { border-color: rgb(var(--error-rgb) / 0.4); }
+.sa-card.failed::before, .sa-card.failed::after { border-color: var(--error); }
+.sa-card.queued::before, .sa-card.queued::after { opacity: 0.35; }
+.sa-card.cancelled { border-color: rgb(var(--text-dim-rgb) / 0.35); }
+.sa-card.cancelled::before, .sa-card.cancelled::after { border-color: var(--text-dim); opacity: 0.4; }
+.sa-head { display: flex; align-items: center; gap: 10px; }
+.sa-av {
+  width: 28px; height: 28px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; border-radius: 6px;
+  border: 1px solid rgb(var(--violet-rgb) / 0.4); background: rgb(var(--violet-rgb) / 0.1);
+  color: var(--violet); font-size: var(--text-micro); font-weight: 700;
+}
+.sa-card.queued .sa-av { opacity: 0.55; }
+.sa-meta { flex: 1; min-width: 0; }
+.sa-id { font-size: var(--text-body); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sa-id .prof { color: var(--text-dim); font-weight: 400; }
+.sa-task { font-size: var(--text-cap); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.sa-state { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-micro); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.sa-card.running .sa-state { color: var(--accent); }
+.sa-card.running .sa-state .hud-dot { background: var(--accent); }
+.sa-card.done .sa-state { color: var(--success); }
+.sa-card.failed .sa-state { color: var(--error); }
+.sa-card.queued .sa-state { color: var(--text-dim); }
+.cl-badge {
+  display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 4px;
+  border: 1px solid rgb(var(--success-rgb) / 0.3); background: rgb(var(--success-rgb) / 0.08);
+  color: var(--success); font-size: var(--text-micro); font-weight: 500;
+}
+.cl-badge.bad { border-color: rgb(var(--error-rgb) / 0.35); background: rgb(var(--error-rgb) / 0.1); color: var(--error); }
+.cl-badge.off { border-color: rgb(var(--text-dim-rgb) / 0.35); background: rgb(var(--text-dim-rgb) / 0.08); color: var(--text-muted); }
+.sa-sub {
+  margin-top: 8px; padding-top: 7px;
+  border-top: 1px dashed rgb(var(--edge-rgb) / 0.08);
+  font-size: var(--text-cap); color: var(--text-muted); line-height: 1.6;
+}
+.sa-sub .hl { color: var(--text); }
+.sa-card.failed .sa-sub { color: var(--error); }
+.sa-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: var(--text-micro); color: var(--text-faint); }
+.sa-foot .go { margin-left: auto; color: var(--accent); letter-spacing: 0.06em; }
+.sa-card:hover .sa-foot .go { text-decoration: underline; }
+.sa-stream { color: var(--text-muted); }
+
 /* ═══ 连接中覆盖层（F(7).4 重连：投影暂停，恢复 = 快照 + 增量）═══ */
 .conn-overlay {
   position: absolute; inset: 0; z-index: 10;
@@ -376,6 +443,8 @@ html.light .bubble code.inline { color: var(--accent); }
 .toast.warn .t-dot { background: var(--warning); }
 .toast.err { border-color: rgb(var(--error-rgb) / 0.35); }
 .toast.err .t-dot { background: var(--error); }
+.toast.violet { border-color: rgb(var(--violet-rgb) / 0.35); }
+.toast.violet .t-dot { background: var(--violet); }
 .toast .t-dot { width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0; }
 .toast .t-sub { display: block; font-size: var(--text-cap); color: var(--text-dim); margin-top: 1px; }
 
@@ -383,7 +452,7 @@ html.light .bubble code.inline { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .hud-dot-pulse, .stream-cursor, .empty-cursor, .empty-await,
   .t-spinner, .conn-spinner, .scanline-overlay, .steer-badge .q-dot, .steer-hint .q-dot { animation: none !important; }
-  .msg, .tool-card, .conn-banner, .toast, .t-body { animation: none !important; }
+  .msg, .tool-card, .conn-banner, .toast, .t-body, .sa-card { animation: none !important; }
 }
 
 /* 窄屏折叠：气泡放宽、模型徽标隐藏 */

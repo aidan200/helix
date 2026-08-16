@@ -9,7 +9,8 @@ import { enUS } from "./en-US";
 import { t } from "@/shared/i18n";
 import type { Translations } from "@/shared/i18n/types";
 
-/** review.md「P-1 文案 key 清单」全集（逐行登记，缺一即失败）。 */
+/** review.md「P-1 文案 key 清单」全集（逐行登记，缺一即失败）；v0.1 追加
+ *  sa.card 与 sa.spawn 词条及 cancelled 恢复态（AD-10，无原型演示位、清单外新增）。 */
 const REQUIRED_KEYS = [
   "chat.header.session",
   "chat.header.home",
@@ -53,6 +54,21 @@ const REQUIRED_KEYS = [
   "chat.theme.dark",
   "chat.theme.light",
   "chat.tsFormat",
+  "chat.sa.card.queued",
+  "chat.sa.card.waiting",
+  "chat.sa.card.queueFoot",
+  "chat.sa.card.running",
+  "chat.sa.card.channelSub",
+  "chat.sa.card.doneBadge",
+  "chat.sa.card.failedBadge",
+  "chat.sa.card.cancelledBadge",
+  "chat.sa.card.cancelledSub",
+  "chat.sa.card.failedFoot",
+  "chat.sa.card.injectedMain",
+  "chat.sa.card.injectedMainNoTime",
+  "chat.sa.card.openDrawer",
+  "chat.sa.spawn.toast",
+  "chat.sa.spawn.toastSub",
 ] as const;
 
 function flatten(obj: unknown, prefix = ""): Map<string, string> {
@@ -71,7 +87,7 @@ function flatten(obj: unknown, prefix = ""): Map<string, string> {
 describe("AG-16-② zh-CN 词条完备性", () => {
   const flat = flatten(zhCN);
 
-  it("覆盖 review.md 全部 42 个 key（≥40 口径）", () => {
+  it("覆盖 review.md 全部 42 + 17 个 v0.1 新 key（≥40 口径）", () => {
     expect(REQUIRED_KEYS.length).toBeGreaterThanOrEqual(40);
     const missing = REQUIRED_KEYS.filter((k) => !flat.has(k));
     expect(missing).toEqual([]);

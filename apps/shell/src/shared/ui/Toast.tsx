@@ -4,7 +4,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-export type ToastKind = "ok" | "warn" | "err";
+export type ToastKind = "ok" | "warn" | "err" | "violet";
 
 export interface ToastItem {
   id: number;

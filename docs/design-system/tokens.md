@@ -162,6 +162,8 @@ Tailwind 映射：`text-micro / text-cap / text-body / text-main / text-title / 
 | `--shadow-inset-hud` | `inset 0 1px 0 rgba(255,255,255,0.04), inset 0 0 24px rgba(2,6,16,0.6)` | `inset 0 1px 0 rgba(255,255,255,0.9), inset 0 0 24px rgba(15,23,42,0.05)` | HUD 面板内嵌氛围（亮色：顶部高光 + 极淡 slate 内晕） |
 | hud-card 静态投影 | 无（暗色靠辉光分层） | `0 1px 3px rgba(15,23,42,0.06)` | 亮色靠软投影分层 |
 | hud-popover 投影 | 无（0.8 实底自带压制） | `0 8px 24px rgba(15,23,42,0.12)` | 亮色浮层投影 |
+| `--shadow-card`（v0.1 变量化） | `none` | `0 1px 3px rgba(15,23,42,0.06)` | hud-card 静态投影的 token 载体（SubAgent 卡片亮色软投影，iter-20260816-uzvg T4.1） |
+| `--shadow-pop`（v0.1 变量化） | `none` | `0 8px 24px rgba(15,23,42,0.12)` | hud-popover 投影的 token 载体（统计 popover / 抽屉浮层，T4.2/T4.3 消费） |
 
 ### 11 动效时长（跨主题同值，registry 登记 + 后续升变量约定）
 

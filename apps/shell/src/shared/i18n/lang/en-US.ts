@@ -69,6 +69,27 @@ export const enUS: Translations = {
       result: "Result",
       resultFailed: "Result · exit {code}",
     },
+    sa: {
+      card: {
+        queued: "Queued #{n}",
+        waiting: "Awaiting a slot · starts when a prior instance frees up",
+        queueFoot: "FIFO queue · position decrements on dequeue",
+        running: "Running · {elapsed}",
+        channelSub: "per-instance channel subscribed",
+        doneBadge: "closure · done",
+        failedBadge: "failed",
+        cancelledBadge: "cancelled",
+        cancelledSub: "daemon restart · queued task closed",
+        failedFoot: "closure failed injected into next mainline turn",
+        injectedMain: "closure injected into next mainline turn · {time}",
+        injectedMainNoTime: "closure injected into next mainline turn",
+        openDrawer: "Instance stream →",
+      },
+      spawn: {
+        toast: "spawn acknowledged",
+        toastSub: "{id} · {profile} · executes within budget",
+      },
+    },
     theme: {
       dark: "DARK",
       light: "LIGHT",

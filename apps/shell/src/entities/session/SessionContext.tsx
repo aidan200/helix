@@ -33,6 +33,8 @@ interface SessionContextValue {
   /** 失败卡「重试连接」（仅 error 态有意义；SM-2 手动重试路径） */
   retry: () => void;
   consumeRestoreToast: () => void;
+  /** spawn 秒回 toast 消费（ChatPage 渲染后置空；F1.5，v0.1） */
+  consumeSpawnToast: () => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -95,9 +97,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const consumeSpawnToast = useCallback(
+    () => dispatch({ type: "ui/consume-spawn-toast" }),
+    [],
+  );
+
   const value = useMemo(
-    () => ({ state, setDraft, submit, retry, consumeRestoreToast }),
-    [state, setDraft, submit, retry, consumeRestoreToast],
+    () => ({ state, setDraft, submit, retry, consumeRestoreToast, consumeSpawnToast }),
+    [state, setDraft, submit, retry, consumeRestoreToast, consumeSpawnToast],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

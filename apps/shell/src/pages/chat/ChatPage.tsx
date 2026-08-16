@@ -15,10 +15,13 @@ import AppHeader from "./ui/AppHeader";
 import ConnBanner from "./ui/ConnBanner";
 import ConnOverlay from "./ui/ConnOverlay";
 
+/** 开实例抽屉（T4.3 接线占位：抽屉本体与 selectedAgentId 组件态归 pages 层）。 */
+const noopOpenInstance = (_instanceId: string) => {};
+
 const ChatPage = function ChatPage() {
   const { t } = useI18n();
   const toast = useToast();
-  const { state, consumeRestoreToast } = useSession();
+  const { state, consumeRestoreToast, consumeSpawnToast } = useSession();
 
   // 恢复 toast：重连/手动重试成功后由快照条数填满（F(7).4，一次性消费）
   useEffect(() => {
@@ -32,6 +35,18 @@ const ChatPage = function ChatPage() {
     consumeRestoreToast();
   }, [state.restoreToast, toast, t, consumeRestoreToast]);
 
+  // spawn 秒回 toast（F1.5）：agent.spawned 事件即出卡即提示，不等 closure
+  useEffect(() => {
+    const s = state.spawnToast;
+    if (!s) return;
+    toast.push(
+      "violet",
+      t("chat.sa.spawn.toast"),
+      t("chat.sa.spawn.toastSub", { id: s.instanceId, profile: s.profileKind }),
+    );
+    consumeSpawnToast();
+  }, [state.spawnToast, toast, t, consumeSpawnToast]);
+
   const empty = selectIsEmpty(state);
 
   return (
@@ -42,7 +57,7 @@ const ChatPage = function ChatPage() {
       <div className="app" data-conn={state.conn} data-session={empty ? "empty" : "active"}>
         <AppHeader />
         <ConnBanner />
-        <MessageFlow>
+        <MessageFlow onOpenInstance={noopOpenInstance}>
           <ConnOverlay />
           <ErrorCard />
         </MessageFlow>

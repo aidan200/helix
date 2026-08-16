@@ -71,6 +71,27 @@ export const zhCN: Translations = {
       result: "结果",
       resultFailed: "结果 · exit {code}",
     },
+    sa: {
+      card: {
+        queued: "排队 #{n}",
+        waiting: "等待空位 · 前方实例释放后自动出队",
+        queueFoot: "FIFO 队列 · 位次随出队递减",
+        running: "执行中 · {elapsed}",
+        channelSub: "per-instance channel 订阅中",
+        doneBadge: "closure · done",
+        failedBadge: "failed",
+        cancelledBadge: "cancelled",
+        cancelledSub: "daemon 重启 · 排队任务收口",
+        failedFoot: "closure failed 已注入主线下轮",
+        injectedMain: "closure 已注入主线下轮 · {time}",
+        injectedMainNoTime: "closure 已注入主线下轮",
+        openDrawer: "实例全流 →",
+      },
+      spawn: {
+        toast: "spawn 秒回",
+        toastSub: "{id} · {profile} · 预算内立即执行",
+      },
+    },
     theme: {
       dark: "DARK",
       light: "LIGHT",
