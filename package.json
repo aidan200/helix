@@ -11,7 +11,8 @@
     "test": "bun test apps/daemon",
     "test:shell": "vitest run apps/shell",
     "test:e2e": "playwright test -c playwright.e2e.config.ts",
-    "test:e2e:x2": "playwright test -c playwright.e2e.config.ts && playwright test -c playwright.e2e.config.ts"
+    "test:e2e:x2": "playwright test -c playwright.e2e.config.ts && playwright test -c playwright.e2e.config.ts",
+    "test:protocol": "cd packages/protocol && bun test"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
