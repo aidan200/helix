@@ -2,6 +2,17 @@
 
 ## pending
 
+### TR-AD-18-r2
+- changeType: 修改
+- targetNode: TR-AD-18
+- scope: docs/kg/architecture-rules.md TR-AD-18（三通道与协议 additive 演进）或新条目；错误链路实现/评审/测试剧本编写时的规则依据面
+- project: helix
+- reason: 热修后新增设计事实：①provider 失败的协议形态——pi-ai 将 HTTP 失败规范化为流内 error 帧（非异常），errorMessage 含 provider 原文；引擎错误经 engine.error 事件透传前端（错误卡）；②error 轮语义——不产 assistant 气泡、turn 收口、全零 usage 不入账（零成本非真实计费）；③mock 契约等价的错误面——FakeLLM/剧本须覆盖 error 帧路径（TR-TEST-3 等价原则的错误维度，E 层 errorReply 剧本为断言面）。建议并入 TR-AD-18（三通道→含错误通道）或独立条目，由下迭代终验人审裁决
+- evidence: docs/hotfixes/2026-08-16-engine-error.md；packages/protocol/src/events.ts（engine.error 第 24 事件）；PiAgentEngineAdapter.ts message_end stopReason=error 分支；ChatService.ts error 轮零账不入账；e2e/CL-7-e2e-engine-error.spec.ts（FakeLLM errorReply 剧本与真实 pi-ai 失败帧同构）；现场验证：真 z.ai 429 → engine.error 帧含 provider 原文
+- implementationStatus: 完整实现
+- sourceTask: post-iteration 热修（MainAgent，2026-08-16，docs/hotfixes/2026-08-16-engine-error.md；用户现场报障驱动）
+- createdIn: iter-20260816-uzvg
+
 ## deferred
 
 ## applied
