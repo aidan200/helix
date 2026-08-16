@@ -77,20 +77,35 @@ const fakeModels = {
   },
 } as unknown as Models;
 
-function baseAssistant(content: AssistantMessage["content"], stopReason: string): AssistantMessage {
+function baseAssistant(content: AssistantMessage["content"], stopReason: string, usage?: AssistantMessage["usage"]): AssistantMessage {
   return {
     role: "assistant",
     content,
     api: "anthropic-messages",
     provider: "fake",
     model: "model",
-    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    usage: usage ?? { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
     stopReason: stopReason as AssistantMessage["stopReason"],
     timestamp: Date.now(),
   } as unknown as AssistantMessage;
 }
 
-function textMessage(text: string): AssistantMessage {
+/** 带 thinking 块的回复消息（T5.3 R4）：usage 附 reasoning=7 / totalTokens=9
+ *  （与剧本每轮固定用量同风格——reasoning 维度可断言且数值可预期）。 */
+function thinkingTextMessage(thinking: string, text: string): AssistantMessage {
+  return baseAssistant(
+    [
+      { type: "thinking", thinking },
+      { type: "text", text },
+    ],
+    "stop",
+    { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 7, totalTokens: 9, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+  );
+}
+
+/** 带思考块的纯文本回复（无 thinking 参数时退化为纯文本）。 */
+function textMessage(text: string, thinking?: string): AssistantMessage {
+  if (thinking !== undefined && thinking !== "") return thinkingTextMessage(thinking, text);
   return baseAssistant([{ type: "text", text }], "stop");
 }
 
@@ -120,23 +135,35 @@ function makeScriptedStreamFn(entries: readonly DaemonScriptEntry[]): StreamFn {
   return (_model, context, _options) => {
     const entry = queue.shift() ?? { kind: "reply" as const, text: "（剧本耗尽）" };
     const isTool = entry.kind === "tool";
+    const reply = entry.kind === "tool" ? undefined : (entry as { text?: string; thinking?: string; template?: string; chunkSize?: number; chunkDelayMs?: number });
+    const text = isTool ? "" : entry.kind === "replyFromResult" ? resolveText(entry, context as Context) : (entry as { text: string }).text;
+    const thinking = !isTool && entry.kind === "reply" ? ((entry as { thinking?: string }).thinking ?? "") : "";
     const message = isTool
       ? toolCallMessage(`call-${++seq}`, entry.toolName, entry.args)
-      : textMessage(resolveText(entry, context as Context));
-    const chunkSize = entry.kind === "tool" ? 0 : (entry.chunkSize ?? 0);
-    const chunkDelayMs = entry.kind === "tool" ? 0 : (entry.chunkDelayMs ?? 0);
-    const text = isTool ? "" : resolveText(entry, context as Context);
+      : textMessage(text, thinking);
+    const chunkSize = reply?.chunkSize ?? 0;
+    const chunkDelayMs = reply?.chunkDelayMs ?? 0;
 
     const stream = createAssistantMessageEventStream();
     void (async () => {
       stream.push({ type: "start", partial: message });
+      // thinking 块（contentIndex 0，T5.3 R4）：先于正文流式分片发出
+      if (!isTool && thinking !== "") {
+        stream.push({ type: "thinking_start", contentIndex: 0, partial: message });
+        for (let i = 0; i < thinking.length; i += Math.max(chunkSize, 1)) {
+          await new Promise((r) => setTimeout(r, Math.max(chunkDelayMs, 1)));
+          stream.push({ type: "thinking_delta", contentIndex: 0, delta: thinking.slice(i, i + Math.max(chunkSize, 1)), partial: message });
+        }
+        stream.push({ type: "thinking_end", contentIndex: 0, content: thinking, partial: message });
+      }
+      const textIndex = thinking !== "" ? 1 : 0;
       if (!isTool && chunkSize > 0 && chunkDelayMs > 0 && text.length > chunkSize) {
         // 逐段流式：制造可观测的 streaming 窗口（chat.stream.delta 逐帧下发）
         for (let i = 0; i < text.length; i += chunkSize) {
           await new Promise((r) => setTimeout(r, chunkDelayMs));
-          stream.push({ type: "text_delta", contentIndex: 0, delta: text.slice(i, i + chunkSize), partial: message });
+          stream.push({ type: "text_delta", contentIndex: textIndex, delta: text.slice(i, i + chunkSize), partial: message });
         }
-        stream.push({ type: "text_end", contentIndex: 0, content: text, partial: message });
+        stream.push({ type: "text_end", contentIndex: textIndex, content: text, partial: message });
       }
       stream.push({ type: "done", reason: "stop", message });
     })();

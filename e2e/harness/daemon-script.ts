@@ -5,6 +5,8 @@
  * 对齐 apps/daemon/test/integration 的 makeFakeLLM / makeToolScriptedLLM 模式
  * （test-profile.test.ts / tools-loop.test.ts，M2 级 mock）：
  * - reply：纯文本剧本，可指定分片大小/间隔（制造可观测的流式窗口）；
+ *   thinking 字段（T5.3 R4）：思考块先行（thinking_start/delta×N/end，
+ *   contentIndex 0），usage 附 reasoning=7（reasoning 入账可断言）；
  * - replyFromResult：基于真实工具结果续写（{last} = 最近一次 toolResult 文本，
  *   工具「执行与回注」为真——闭环成立的证明面）；
  * - tool：发起工具调用（真实执行走 CoreToolExecutor，tmp 沙箱 cwd）。
@@ -20,7 +22,7 @@ export interface ReplyTiming {
 }
 
 export type DaemonScriptEntry =
-  | ({ kind: "reply"; text: string } & ReplyTiming)
+  | ({ kind: "reply"; text: string; thinking?: string } & ReplyTiming)
   | ({ kind: "replyFromResult"; template: string } & ReplyTiming)
   | { kind: "tool"; toolName: string; args: Record<string, unknown> };
 
@@ -45,6 +47,12 @@ export type SubagentScript = readonly (SubagentScriptEntry | null)[];
 /** 便捷构造：慢速流式回复（默认分片，制造可断言的 streaming 窗口）。 */
 export function slowReply(text: string, chunkDelayMs = 40, chunkSize = 8): DaemonScriptEntry {
   return { kind: "reply", text, chunkSize, chunkDelayMs };
+}
+
+/** 便捷构造：带 thinking 块的慢速回复（T5.3 R4 思考回看剧本）。
+ *  thinking 全文先于正文流式分片发出；usage 附 reasoning=7。 */
+export function thinkingReply(thinking: string, text: string, chunkDelayMs = 30, chunkSize = 6): DaemonScriptEntry {
+  return { kind: "reply", text, thinking, chunkSize, chunkDelayMs };
 }
 
 /** 工具调用剧本条目。 */
