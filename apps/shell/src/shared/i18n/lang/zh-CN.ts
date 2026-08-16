@@ -42,6 +42,10 @@ export const zhCN: Translations = {
         grep: "搜下握手相关的 TODO",
       },
     },
+    engineError: {
+      title: "生成失败",
+      hint: "可稍后重试发送；错误详情可在 daemon 日志查看",
+    },
     composer: {
       placeholder: "输入消息，Enter 发送",
       placeholderConnecting: "正在建立连接…",

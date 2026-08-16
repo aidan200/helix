@@ -55,6 +55,16 @@ export function stopReasonOf(message: AgentMessage): string | undefined {
   return (message as AssistantMessage).stopReason;
 }
 
+/** assistant 错误描述（stopReason=error 时 pi 已归一化的 provider 原文，
+ *  终验热修：错误透传链路的数据源——如 "429: {\"code\":\"1308\"…}"；
+ *  无错误描述时回退通用文案）。 */
+export function errorMessageOf(message: AgentMessage): string {
+  const am = message as AssistantMessage;
+  return typeof am.errorMessage === "string" && am.errorMessage.trim() !== ""
+    ? am.errorMessage
+    : "模型调用失败（provider 未返回错误详情）";
+}
+
 /** pi Usage → 七字段防腐（T3.1 挂点：提取本体轻量，账目深化归 T3.2）。
  *  cost 拍平取 total；reasoning 未报时 0。消息不携带 usage → undefined。 */
 export function usageOf(message: AgentMessage): AgentEngineUsage | undefined {

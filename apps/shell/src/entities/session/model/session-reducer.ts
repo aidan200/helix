@@ -145,6 +145,9 @@ export interface SessionState {
   connAttempts: number;
   /** error 态失败卡数据（gave-up 时由客户端填入真实错误信息） */
   connError: { message: string; attempts: number } | null;
+  /** 引擎/模型调用失败（终验热修：engine.error 帧 → 聊天流错误卡片；
+   *  瞬态不落盘——新轮开始即清；持久事实在 daemon 日志与领域事件流） */
+  engineError: { message: string } | null;
   /** 手动重试挂起（welcome 后 toast 走 retry 文案而非 restore） */
   pendingManualRetry: boolean;
   /** 是否曾连接成功过（区分首连与重连：仅重连触发恢复 toast） */
@@ -219,6 +222,7 @@ export function createInitialSessionState(): SessionState {
     conn: "connecting",
     connAttempts: 1,
     connError: null,
+    engineError: null,
     pendingManualRetry: false,
     hasConnected: false,
     toastPending: null,
@@ -633,13 +637,18 @@ function applyEvent(s: SessionState, event: EventEnvelope, ts?: number): Session
       return { ...s, entries: upsertEntry(s.entries, entry), streaming: cleared };
     }
     case "chat.turn.started":
-      return s; // 轮次里程碑（v0 无 UI 投影面）
+      // 新轮开始：清上一轮的引擎错误卡（瞬态语义，终验热修）
+      return { ...s, engineError: null }; // 轮次里程碑（v0 无 UI 投影面）
     case "chat.turn.completed":
       return { ...s, streaming: null };
     case "steer.queued":
       return { ...s, entries: confirmSteerEcho(s.entries, event.payload.entryId) };
     case "steer.drained":
       return { ...s, entries: drainSteer(s.entries, event.payload.entryId) };
+    // 终验热修：引擎/模型调用失败 → 错误卡片数据（provider 原文透传；
+    // 随后的 turn.completed 收流，新 turn.started 清除——瞬态不落盘）
+    case "engine.error":
+      return { ...s, engineError: { message: event.payload.message } };
     case "tool.call.started":
     case "tool.call.result": {
       const entry = event.payload.entry;

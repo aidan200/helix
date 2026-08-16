@@ -126,6 +126,6 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     // 类型引用发生在模块顶层（_TypeSurface）；此处仅锚定运行时常量存在
     expect(protocol.PROTOCOL_VERSION).toBe(0);
     expect(protocol.COMMAND_TYPES.length).toBe(8); // v0.1：5 → 8
-    expect(protocol.EVENT_TYPES.length).toBe(23); // v0.1：12 → 23
+    expect(protocol.EVENT_TYPES.length).toBe(24); // v0.1：12 → 23；终验热修 +engine.error
   });
 });

@@ -10,7 +10,7 @@ import { AgentRuntime } from "./runtime/AgentRuntime";
 import type { AgentProfile } from "./runtime/AgentProfile";
 import type { AgentRuntimeDeps } from "./runtime/AgentRuntime";
 import { buildModels, createStreamFn, explicitGetApiKey, resolveModelSlot } from "./model-provider";
-import { stopReasonOf, textOfContent, textOfMessage, usageOf } from "./mappers/SessionMapper";
+import { stopReasonOf, errorMessageOf, textOfContent, textOfMessage, usageOf } from "./mappers/SessionMapper";
 
 /**
  * PiAgentEngineAdapter —— AgentEnginePort 的 pi 实现（防腐墙本体，§3.5）。
@@ -133,13 +133,20 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         const role = event.message.role as "user" | "assistant" | "toolResult";
         // T3.1：assistant 消息携带 usage 时提取（七字段防腐；账目本体 T3.2）
         const usage = role === "assistant" ? usageOf(event.message) : undefined;
-        return emit({
+        const stopReason = role === "assistant" ? stopReasonOf(event.message) : undefined;
+        emit({
           type: "message_end",
           role,
           text: textOfMessage(event.message),
-          stopReason: role === "assistant" ? stopReasonOf(event.message) : undefined,
+          stopReason,
           ...(usage !== undefined ? { usage } : {}),
         });
+        // 终验热修：模型调用失败（stopReason=error，pi 归一化帧/消息）→
+        // engine_error 事件透传 provider 原文（adapter 不吞错，不崩会话）。
+        if (role === "assistant" && stopReason === "error") {
+          emit({ type: "engine_error", message: errorMessageOf(event.message) });
+        }
+        return;
       }
       case "tool_execution_start":
         return emit({

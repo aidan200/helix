@@ -238,12 +238,12 @@ describe("② 领域事件 → 协议事件帧", () => {
     expect(failed).toMatchObject({ payload: { entry: { state: "error" } } });
   });
 
-  test("agent.state.changed 直接映射；engine.error 无协议对应 → null（v0 边界）", () => {
+  test("agent.state.changed 直接映射；engine.error 透传下发（终验热修，v0 丢弃边界作废）", () => {
     const st = domainEventToEnvelope({ ...base, type: "agent.state.changed", payload: { state: "running" } });
     expect(st).toMatchObject({ type: "agent.state.changed", payload: { state: "running" } });
 
-    const err = domainEventToEnvelope({ ...base, type: "engine.error", payload: { message: "x" } });
-    expect(err).toBeNull();
+    const err = domainEventToEnvelope({ ...base, type: "engine.error", payload: { message: "429: 限额已满" } });
+    expect(err).toMatchObject({ type: "engine.error", payload: { message: "429: 限额已满" } });
   });
 });
 

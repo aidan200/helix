@@ -54,6 +54,12 @@ export interface ChatTurnCompletedPayload {
   reason: TurnCompletionReason;
 }
 
+/** 引擎/模型调用失败（终验热修：provider 错误透传——stopReason=error 的模型调用失败经此帧下发，不崩会话）。 */
+export interface EngineErrorPayload {
+  /** 错误描述（provider 原文透传，如 429 限额/鉴权失败；前端错误卡片正文） */
+  message: string;
+}
+
 /** 一条消息完成（落盘事件；entry 为 kind="message" 且含最终 content） */
 export interface ChatMessageCompletedPayload {
   entry: EntryDto;
@@ -242,6 +248,9 @@ export interface CompactionCompletedEvent
 export interface UsageRecordedEvent extends Envelope<UsageRecordedPayload> {
   type: "usage.recorded";
 }
+export interface EngineErrorEvent extends Envelope<EngineErrorPayload> {
+  type: "engine.error";
+}
 
 /** 事件信封联合（判别式：type 字段窄化；v0.1：12 → 23） */
 export type EventEnvelope =
@@ -267,7 +276,8 @@ export type EventEnvelope =
   | ThinkingStreamDeltaEvent
   | ThinkingCompletedEvent
   | CompactionCompletedEvent
-  | UsageRecordedEvent;
+  | UsageRecordedEvent
+  | EngineErrorEvent;
 
 /** 事件目录常量（运行时可用；与 EventEnvelope 联合由测试双向一致性守护） */
 export const EVENT_TYPES = [
@@ -294,6 +304,7 @@ export const EVENT_TYPES = [
   "thinking.completed",
   "compaction.completed",
   "usage.recorded",
+  "engine.error",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

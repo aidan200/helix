@@ -521,6 +521,26 @@ html.light .bubble code.inline { color: var(--accent); }
 .err-title { font-size: var(--text-title); font-weight: 600; color: var(--text); }
 .err-desc { font-size: var(--text-body); color: var(--text-muted); line-height: 1.6; }
 .err-desc .addr { color: var(--text-faint); }
+
+/* ═══ 引擎错误卡（终验热修：engine.error 帧 → 聊天流内联失败卡）═══ */
+.engine-error-card {
+  margin: 8px 0; border: 1px solid rgb(var(--error-rgb) / 0.3); border-radius: 10px;
+  background: rgb(var(--error-rgb) / 0.05); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 6px; max-width: 72%; margin-left: auto;
+}
+.ee-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: var(--text-body); font-weight: 600; color: var(--error);
+}
+.ee-dot {
+  width: 8px; height: 8px; border-radius: 2px; background: var(--error);
+  box-shadow: 0 0 6px rgb(var(--error-rgb) / 0.5); flex: none;
+}
+.ee-body {
+  font-size: var(--text-body); color: var(--text); line-height: 1.55;
+  word-break: break-word; white-space: pre-wrap; font-family: var(--font-mono, monospace);
+}
+.ee-hint { font-size: var(--text-small); color: var(--text-faint); }
 .hud-btn {
   display: inline-flex; height: 32px; align-items: center; justify-content: center; gap: 6px;
   padding: 0 14px; border-radius: 6px;

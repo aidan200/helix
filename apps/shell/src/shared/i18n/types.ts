@@ -34,6 +34,11 @@ export interface ChatTranslations {
       grep: string;
     };
   };
+  /** 终验热修：引擎错误卡（engine.error 帧投影） */
+  engineError: {
+    title: string;
+    hint: string;
+  };
   composer: {
     placeholder: string;
     placeholderConnecting: string;

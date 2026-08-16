@@ -40,6 +40,10 @@ export const enUS: Translations = {
         grep: "Search handshake TODOs",
       },
     },
+    engineError: {
+      title: "Generation failed",
+      hint: "You can retry later; details are in the daemon log",
+    },
     composer: {
       placeholder: "Type a message, Enter to send",
       placeholderConnecting: "Establishing connection…",

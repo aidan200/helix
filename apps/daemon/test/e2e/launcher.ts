@@ -113,6 +113,14 @@ function toolCallMessage(id: string, name: string, args: Record<string, unknown>
   return baseAssistant([{ type: "toolCall", id, name, arguments: args }], "toolUse");
 }
 
+/** provider 失败消息（终验热修）：空 content + stopReason=error + errorMessage
+ *  + 全零 usage——与真实失败形态逐字段对齐（pi-ai 429 路径实测形状）。 */
+function errorMessage(text: string): AssistantMessage {
+  const m = baseAssistant([], "error", { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
+  (m as AssistantMessage & { errorMessage?: string }).errorMessage = text;
+  return m;
+}
+
 /** context 中全部 toolResult 文本（结果回注可观测面）。 */
 function toolResultTexts(context: Context): string[] {
   return context.messages
@@ -135,6 +143,13 @@ function makeScriptedStreamFn(entries: readonly DaemonScriptEntry[]): StreamFn {
   return (_model, context, _options) => {
     const entry = queue.shift() ?? { kind: "reply" as const, text: "（剧本耗尽）" };
     const isTool = entry.kind === "tool";
+    // 终验热修：provider 失败剧本——只发 error 帧（与真实 pi-ai 失败路径
+    // 同构：无 start/无 delta，agentLoop 收口 stopReason=error）
+    if (entry.kind === "error") {
+      const stream = createAssistantMessageEventStream();
+      stream.push({ type: "error", reason: "error", error: errorMessage(entry.message) });
+      return stream;
+    }
     const reply = entry.kind === "tool" ? undefined : (entry as { text?: string; thinking?: string; template?: string; chunkSize?: number; chunkDelayMs?: number });
     const text = isTool ? "" : entry.kind === "replyFromResult" ? resolveText(entry, context as Context) : (entry as { text: string }).text;
     const thinking = !isTool && entry.kind === "reply" ? ((entry as { thinking?: string }).thinking ?? "") : "";

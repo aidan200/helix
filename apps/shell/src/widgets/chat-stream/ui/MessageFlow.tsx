@@ -21,6 +21,7 @@ import SubAgentCard from "./SubAgentCard";
 import ToolCard from "@/shared/ui/ToolCard";
 import SessionEmpty from "./SessionEmpty";
 import CompactionBar from "./CompactionBar";
+import EngineErrorCard from "./EngineErrorCard";
 import { ThinkingEntryView, ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
 
 function EntryView({ entry }: { entry: EntryDto }) {
@@ -61,6 +62,7 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
     state.streaming?.text,
     state.instances.length,
     state.thinkingStreams[MAIN_INSTANCE_ID],
+    state.engineError !== null, // 终验热修：错误卡出入视口同样贴底
   ]);
 
   const empty = selectIsEmpty(state);
@@ -88,6 +90,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
               streamingText={state.streaming.text}
             />
           )}
+          {/* 终验热修：引擎/模型失败卡（瞬态；随轮清除） */}
+          <EngineErrorCard />
           {state.instances.length > 0 && (
             <div className="sa-cards">
               {state.instances.map((card) => (

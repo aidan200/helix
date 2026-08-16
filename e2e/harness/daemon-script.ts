@@ -24,7 +24,11 @@ export interface ReplyTiming {
 export type DaemonScriptEntry =
   | ({ kind: "reply"; text: string; thinking?: string } & ReplyTiming)
   | ({ kind: "replyFromResult"; template: string } & ReplyTiming)
-  | { kind: "tool"; toolName: string; args: Record<string, unknown> };
+  | { kind: "tool"; toolName: string; args: Record<string, unknown> }
+  /** 终验热修：模拟 provider 失败（如 429/鉴权错）——走真实错误链路：
+   *  error 帧 → agentLoop 收口 stopReason=error → adapter engine_error →
+   *  engine.error 帧 → 前端错误卡片（修复前该链路四层全断，静默无响应）。 */
+  | { kind: "error"; message: string };
 
 export interface DaemonScript {
   entries: DaemonScriptEntry[];
@@ -63,4 +67,9 @@ export function toolCall(toolName: string, args: Record<string, unknown>): Daemo
 /** 基于最近一次真实工具结果的续写（{last} 占位符替换）。 */
 export function replyFromResult(template: string, timing: ReplyTiming = {}): DaemonScriptEntry {
   return { kind: "replyFromResult", template, ...timing };
+}
+
+/** provider 失败剧本条目（终验热修：engine.error 透传链路的 E 层断言面）。 */
+export function errorReply(message: string): DaemonScriptEntry {
+  return { kind: "error", message };
 }

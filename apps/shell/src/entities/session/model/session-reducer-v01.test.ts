@@ -583,3 +583,39 @@ describe("重放幂等（v0.1 全事件面）", () => {
     expect(merged.streaming).toBeNull();
   });
 });
+
+// ── 终验热修：engine.error 帧投影（瞬态错误卡数据源）──────────
+
+describe("engine.error 帧投影（终验热修）", () => {
+  it("帧到达 → engineError 槽位携带 provider 原文；turn.completed 不清除（卡片存续到下一轮）", () => {
+    const state = sessionReducer(base(), ev({
+      v: 0,
+      type: "engine.error",
+      payload: { message: '429: {"code":"1308","message":"已达到 5 小时的使用上限。"}' },
+    }));
+    expect(state.engineError).toEqual({ message: '429: {"code":"1308","message":"已达到 5 小时的使用上限。"}' });
+    // turn 收口不清错误卡（错误属于刚结束的轮，需留存到用户看到为止）
+    const afterTurn = sessionReducer(state, ev({ v: 0, type: "chat.turn.completed", payload: { turnId: "t1", reason: "completed" } }));
+    expect(afterTurn.engineError).not.toBeNull();
+  });
+
+  it("新轮 turn.started → engineError 清除（瞬态语义）", () => {
+    const state = sessionReducer(createInitialSessionState(), ev({
+      v: 0,
+      type: "engine.error",
+      payload: { message: "boom" },
+    }));
+    const next = sessionReducer(state, ev({ v: 0, type: "chat.turn.started", payload: { turnId: "t2" } }));
+    expect(next.engineError).toBeNull();
+  });
+
+  it("快照重建不影响 engineError（瞬态不落盘；整页刷新经 initial state 天然清零，同页重连卡片存续供用户确认）", () => {
+    const errored = sessionReducer(createInitialSessionState(), ev({
+      v: 0,
+      type: "engine.error",
+      payload: { message: "boom" },
+    }));
+    const restored = sessionReducer(errored, snapshotOf([], {}));
+    expect(restored.engineError).toEqual({ message: "boom" }); // 同页重连保留；新页初始态为 null
+  });
+});

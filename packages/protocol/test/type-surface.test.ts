@@ -225,6 +225,8 @@ const v01Events: EventEnvelope[] = [
   { v: 0, type: "thinking.completed", payload: { entry: thinkingEntry } },
   { v: 0, type: "compaction.completed", payload: { entry: compactionEntry } },
   { v: 0, type: "usage.recorded", payload: { instanceId: "main", usage: sampleUsage, source: "turn" } },
+  // 终验热修：引擎错误透传（provider 失败不静默）
+  { v: 0, type: "engine.error", payload: { message: "429: 已达到 5 小时的使用上限" } },
 ];
 
 /** 信封 instanceId（v0.1 新增可选，AD-3）：事件侧可携带；既有帧缺省 = 主实例 */
@@ -323,6 +325,8 @@ function summarizeEvent(event: EventEnvelope): string {
       return `compaction:${event.payload.entry.id}:${event.payload.entry.tokensBefore}:${event.payload.entry.tokensAfter}`;
     case "usage.recorded":
       return `usage:${event.payload.instanceId}:${event.payload.usage.totalTokens}:${event.payload.source}`;
+    case "engine.error":
+      return `engine-error:${event.payload.message.slice(0, 20)}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -497,7 +501,7 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
     );
   });
 
-  test("事件目录恰为 23 个 type（v0 12 + v0.1 11）", () => {
+  test("事件目录恰为 24 个 type（v0 12 + v0.1 11 + 热修 engine.error）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -515,6 +519,7 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
         "compaction.completed",
         "connection.error",
         "connection.welcome",
+        "engine.error",
         "session.snapshot",
         "steer.drained",
         "steer.queued",
@@ -541,7 +546,7 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
     ]);
   });
 
-  test("全部 23 个事件信封可构造且窄化分发正确", () => {
+  test("全部 24 个事件信封可构造且窄化分发正确", () => {
     const out = [...sampleEvents, ...v01Events].map(summarizeEvent);
     expect(out).toEqual([
       "welcome:sess-1:kimi-k2:running",
@@ -569,6 +574,7 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
       "think-done:tk-1:900",
       "compaction:cp-1:340000:20000",
       "usage:main:11640:turn",
+      "engine-error:429: 已达到 5 小时的使用上限",
     ]);
   });
 });

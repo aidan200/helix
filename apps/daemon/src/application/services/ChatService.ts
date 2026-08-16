@@ -303,8 +303,10 @@ export class ChatService implements ChatPort {
           // T3.2：turn 入账（message_end 携带 usage 即一条 usage.recorded，
           // source=turn；AD-4：事件即账——账本投影在组合根 fan-out 单点接入）。
           // 流式 delta 分支结构性不触此处（零账目事件）；工具轮中间
-          // message_end(stopReason=toolUse) 不携带 usage，不入账
-          if (e.usage !== undefined) {
+          // message_end(stopReason=toolUse) 不携带 usage，不入账。
+          // 终验热修：error 轮的零值 usage（provider 失败时 pi 填全零）不入账——
+          // 零成本不是真实计费调用，入账只产噪声（账目面保持「不漏真实账」）。
+          if (e.usage !== undefined && e.stopReason !== "error") {
             this.publish<UsageRecordedPayload>(
               "usage.recorded",
               { instanceId: MAIN_INSTANCE_ID, usage: e.usage, source: "turn" },

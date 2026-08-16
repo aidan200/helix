@@ -31,6 +31,7 @@ import type {
   ThinkingCompletedEvent,
   CompactionCompletedEvent,
   UsageRecordedEvent,
+  EngineErrorEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { SessionStateView, InstanceSnapshotEntry } from "../../../application/ports/inbound/SessionPort";
@@ -234,10 +235,10 @@ function toolCallEntryDto(record: ToolCallRecordData): ToolCallEntryDto {
 // ── 领域事件 → 协议事件帧 ─────────────────────────────────────
 
 /**
- * DomainEvent → EventEnvelope。返回 null = 协议 v0 目录无对应事件
- * （engine.error：不下发，见 PROTOCOL.md §8 边界注记）。
+ * DomainEvent → EventEnvelope。返回 null = 协议目录无对应事件。
  * v0.1：事件携带 instanceId（agent.* 编排族 + SubAgent 工具事件）时帧同值
  * 挂 instanceId（缺省 = 主实例，契约 §1/§2）——前端按 id 分流投影。
+ * 终验热修：engine.error 下发（provider 失败透传，原 v0 边界注记作废）。
  */
 export function domainEventToEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope | null {
   const frame = buildEnvelope(event, ctx);
@@ -459,8 +460,19 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       return frame;
     }
 
+    // 终验热修：provider/引擎失败透传（错误卡片数据源；不崩会话，见 ChatService engine_error）
+    case "engine.error": {
+      const p = event.payload as { message: string };
+      const frame: EngineErrorEvent = {
+        v: PROTOCOL_VERSION,
+        type: "engine.error",
+        payload: { message: p.message },
+      };
+      return frame;
+    }
+
     default:
-      // engine.error：协议 v0 12 事件无对应（领域侧可观测，协议侧丢弃）
+      // 协议目录外领域事件（当前无——目录由 type-surface 双向一致性守护）
       return null;
   }
 }
