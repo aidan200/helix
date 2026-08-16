@@ -75,16 +75,16 @@ describe("HelixWsClient", () => {
     return { client, transports, conn, frames };
   }
 
-  it("start → connecting(1) → open 后发送 hello 首帧（token + protocolVersion 0）", async () => {
+  it("start → connecting(1) → open 后发送 hello 首帧（token + protocolVersion 0.2）", async () => {
     const { transports } = await setup();
     expect(transports).toHaveLength(1);
     expect(transports[0]!.url).toBe("ws://127.0.0.1:7333");
     transports[0]!.open();
     expect(transports[0]!.sent).toHaveLength(1);
     expect(JSON.parse(transports[0]!.sent[0]!)).toEqual({
-      v: 0,
+      v: "0.2",
       type: "hello",
-      payload: { token: "dev-token", protocolVersion: 0 },
+      payload: { token: "dev-token", protocolVersion: "0.2" },
     });
   });
 

@@ -6,6 +6,8 @@
  * brief 决策消解的机械判据）。本任务只搭壳——不接 WS 帧（帧 → sessionId
  * 路由 → store 分发归 T3.1 接线），也不做多会话 store 拓扑（stores/ 归 T3.1）。
  * 未注册 type 由调用方保持原状态（原 applyEvent default 分支语义）。
+ * v0.2 新增 session.list_changed / model.changed 预埋 no-op 占位消费者
+ * （守护不变量「EVENT_TYPES 全类型已路由」；真实消费接线归 T3.1）。
  * 纯函数纪律（AG-14）：无 React / 无 IO / 无 Date.now。
  */
 import type { EventEnvelope } from "@helix/protocol";
@@ -51,3 +53,12 @@ register({ types: CHAT_EVENT_TYPES, apply: applyChatEvent });
 register({ types: AGENT_EVENT_TYPES, apply: applyAgentEvent });
 register({ types: THINKING_USAGE_EVENT_TYPES, apply: applyThinkingUsageEvent });
 register({ types: SNAPSHOT_EVENT_TYPES, apply: applySnapshotEvent });
+
+// ── v0.2 新增事件占位（session.list_changed / model.changed；T3.1 接线）──
+// no-op 占位消费者：保持原状态（与未注册 type 的 default 语义一致），仅维持
+// 「EVENT_TYPES 全类型已路由」守护不变量；会话清单投影 / 换模生效 UI 消费
+// 归 T3.1 接线实现（届时替换为真消费者，勿删占位以外的守护面）。
+register({
+  types: ["session.list_changed", "model.changed"],
+  apply: (s) => s,
+});
