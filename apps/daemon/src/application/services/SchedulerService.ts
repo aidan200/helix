@@ -27,6 +27,8 @@ import type {
   SpawnOutcome,
 } from "../ports/inbound/AgentOrchestrationPort";
 import type { InstanceClosureOutcome, InstanceRunner } from "./InstanceRunner";
+import type { InstanceSnapshotEntry } from "../ports/inbound/SessionPort";
+import type { RestoredInstance } from "./RestoreService";
 
 /**
  * SchedulerService —— SubAgent 调度编排（architecture.md §4，AD-7/C-7）。
@@ -149,6 +151,46 @@ export class SchedulerService implements AgentOrchestrationPort {
       return one ? [this.toStatus(one)] : [];
     }
     return this.registry.listInstances().map((i) => this.toStatus(i));
+  }
+
+  /** 快照观测面（T2.4）：instances[] 装配载荷（注册表 + task + closure；DtoMapper 转协议）。 */
+  snapshotInstances(): InstanceSnapshotEntry[] {
+    return this.registry.listInstances().map((instance) => {
+      const task = this.tasks.get(instance.instanceId);
+      const closure = this.closures.get(instance.instanceId);
+      return {
+        ...instance.toData(),
+        ...(task !== undefined ? { task } : {}),
+        ...(closure !== undefined ? { closure } : {}),
+      };
+    });
+  }
+
+  // ── 重启恢复（T2.4，AD-10：注册表/闭包/任务/序号基线重建） ─────
+
+  /**
+   * 恢复产物注入（组合根装配后调用一次）：RestoreService 收口后的实例
+   * 清单登记进注册表（终态/快照态原样）、closure/task 回填观测面、
+   * agent-N 序号续基线（重启不重复分配，K5）。恢复不重放：不发布事件、
+   * 不落盘（RestoreService 已收口落盘）、不触发 launch（不自动续跑）。
+   */
+  restoreInstances(instances: readonly RestoredInstance[]): void {
+    for (const item of instances) {
+      this.registry.registerInstance(
+        AgentInstance.restore({
+          instanceId: item.instanceId,
+          kind: item.kind,
+          profileKind: item.profileKind,
+          sessionId: item.sessionId,
+          state: item.state,
+          createdAt: item.createdAt,
+        }),
+      );
+      if (item.task !== undefined) this.tasks.set(item.instanceId, item.task);
+      if (item.closure !== undefined) this.closures.set(item.instanceId, item.closure);
+      const seq = agentSeqOf(item.instanceId);
+      if (seq > this.seq) this.seq = seq;
+    }
   }
 
   // ── 编排入口 ──────────────────────────────────────────────
@@ -453,6 +495,12 @@ function normalizeClosure(c: InstanceClosurePayload, reportPath: string | null):
     findings: c.findings ?? null,
     taskId: c.taskId ?? null,
   };
+}
+
+/** "agent-N" → N（非该形式返回 0——序号基线不参与）。 */
+function agentSeqOf(instanceId: string): number {
+  const n = Number.parseInt(instanceId.slice("agent-".length), 10);
+  return instanceId.startsWith("agent-") && Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /**

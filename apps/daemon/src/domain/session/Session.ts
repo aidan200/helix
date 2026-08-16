@@ -74,7 +74,26 @@ export class Session {
     if (!turn.isSteerable()) {
       throw new DomainError(`轮次 ${turn.id} 状态 ${turn.status} 不允许注入 steer（须为 generating/toolRunning）`);
     }
-    const entry = this.pushEntry("user", text, turn.id, true, at);
+    return this.steerEntry(text, at, source, turn.id);
+  }
+
+  /**
+   * 恢复场景注入（T2.4，AD-10）：无 open turn（重启收口后）时把 closure 注入
+   * SteerQueue——与运行中注入同队列同语义（下轮 turn 边界消费，FIFO），但不
+   * 驱动引擎（「不自动续跑」：零新事件流，恢复代码零 spawn）。entry 不挂轮次
+   * （turnId=null，待下轮 drain 时作为新 turn 输入回放）。
+   */
+  restoreSteer(text: string, at?: string, source?: "user" | "closure"): Entry {
+    if (this.currentTurn !== null) {
+      throw new DomainError(
+        `会话 ${this.id} 轮次 ${this.currentTurn.id} 进行中，恢复注入不适用（请用 applySteer）`,
+      );
+    }
+    return this.steerEntry(text, at, source, null);
+  }
+
+  private steerEntry(text: string, at: string | undefined, source: "user" | "closure" | undefined, turnId: string | null): Entry {
+    const entry = this.pushEntry("user", text, turnId, true, at);
     // source 仅 closure 注入携带（用户 steer 保持旧形状——快照/投影行往返等价）；
     // T2.3：SubAgent 收口注入与用户输入同队列可区分（AD-8 双通道）
     this.steerQueue.enqueue({ entryId: entry.id, text, ...(source !== undefined ? { source } : {}) });

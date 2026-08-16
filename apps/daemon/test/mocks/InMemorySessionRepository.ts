@@ -1,9 +1,12 @@
 import type {
+  AgentLifecycleRowData,
+  ClosureRecordData,
+  DomainEventQuery,
   InstanceState,
   PersistedDomainState,
   SessionRepositoryPort,
 } from "../../src/application/ports/outbound/SessionRepositoryPort";
-import type { InstanceClosurePayload } from "../../src/domain/events/DomainEvent";
+import type { DomainEvent, InstanceClosurePayload } from "../../src/domain/events/DomainEvent";
 
 /**
  * InMemorySessionRepository —— SessionRepositoryPort 的内存假实现
@@ -21,6 +24,10 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
     result: "done" | "failed" | "killed";
     closure: InstanceClosurePayload;
   }[] = [];
+
+  /** 事件流内存副本（T2.4 读面兼容：生产链事件经 WriteQueue 落盘不经本 mock，
+   *  此处仅存测试显式注入的事件，供 queryEvents 过滤）。 */
+  private events: DomainEvent[] = [];
 
   async save(state: PersistedDomainState): Promise<void> {
     this.store.set(state.session.sessionId, structuredClone(state));
@@ -59,5 +66,46 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
 
   async listSessionIds(): Promise<string[]> {
     return [...this.store.keys()];
+  }
+
+  async queryAgentLifecycles(sessionId: string): Promise<readonly AgentLifecycleRowData[]> {
+    return [...this.lifecycles]
+      .filter(([key]) => key.startsWith(`${sessionId}/`))
+      .map(([key, state]) => ({
+        instanceId: key.slice(sessionId.length + 1),
+        state,
+        updatedAt: new Date(0).toISOString(),
+      }));
+  }
+
+  queryClosureRecords(sessionId: string, agentId?: string): readonly ClosureRecordData[] {
+    return this.closureRecords
+      .filter((r) => r.sessionId === sessionId && (agentId === undefined || r.agentId === agentId))
+      .map((r, i) => ({
+        agentId: r.agentId,
+        result: r.result,
+        status: r.closure.status,
+        summary: r.closure.summary,
+        reportPath: r.closure.reportPath ?? null,
+        findings: r.closure.findings ?? null,
+        taskId: r.closure.taskId ?? null,
+        createdAt: new Date(i).toISOString(),
+      }));
+  }
+
+  queryEvents(query: DomainEventQuery = {}): readonly DomainEvent[] {
+    return this.events.filter(
+      (e) =>
+        (query.sessionId === undefined || e.sessionId === query.sessionId) &&
+        (query.instanceId === undefined || (e.instanceId ?? "main") === query.instanceId) &&
+        (query.type === undefined || e.type === query.type) &&
+        (query.since === undefined || e.occurredAt >= query.since) &&
+        (query.until === undefined || e.occurredAt <= query.until),
+    );
+  }
+
+  /** 测试辅助：事件注入（生产链不走；queryEvents 消费用的数据源）。 */
+  pushEvents(events: readonly DomainEvent[]): void {
+    this.events.push(...events.map((e) => ({ ...e })));
   }
 }

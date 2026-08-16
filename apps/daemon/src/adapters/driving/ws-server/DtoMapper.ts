@@ -7,15 +7,18 @@
  */
 import type {
   AgentStateDto,
+  AgentInstanceDto,
   ChatTurnCompletedEvent,
   ChatMessageCompletedEvent,
   EventEnvelope,
   EntryDto,
   MessageEntryDto,
   SessionSnapshotDto,
+  SessionUsageDto,
   ToolCallEntryDto,
   ToolCallResultEvent,
   ToolCallStartedEvent,
+  UsageDto,
   AgentSpawnedEvent,
   AgentQueuedEvent,
   AgentStartedEvent,
@@ -25,8 +28,9 @@ import type {
   AgentKilledEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
-import type { SessionStateView } from "../../../application/ports/inbound/SessionPort";
+import type { SessionStateView, InstanceSnapshotEntry } from "../../../application/ports/inbound/SessionPort";
 import type { EntryData } from "../../../domain/session/Entry";
+import type { SessionUsageSummary, UsageSummary } from "../../../domain/session/SessionSnapshot";
 import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 import type {
   AgentStateChangedPayload,
@@ -61,6 +65,8 @@ export interface EventMapContext {
  * 恢复，契约 §6）；revision 取合并后总条数（v0 无逐事件序号，以条目数为
  * 增量基线，单调且可复算）；model/agentState 来自组合根注入的 system 状态
  * （domain 快照不含）。
+ * T2.4：instances/usage additive 装配（契约 §6.2）——视图携带才下发，
+ * domain↔协议同构字段直映射（closure/usage 七字段不变形）。
  */
 export function toSnapshotDto(
   view: SessionStateView,
@@ -80,7 +86,49 @@ export function toSnapshotDto(
     agentState,
     revision: entries.length,
     entries,
+    ...(view.instances !== undefined ? { instances: view.instances.map(instanceDto) } : {}),
+    ...(view.usage !== undefined ? { usage: usageDto(view.usage) } : {}),
   };
+}
+
+/** InstanceSnapshotEntry（domain）→ AgentInstanceDto（协议；task/closure 同构直映射）。 */
+function instanceDto(entry: InstanceSnapshotEntry): AgentInstanceDto {
+  return {
+    instanceId: entry.instanceId,
+    kind: entry.kind,
+    profileKind: entry.profileKind,
+    state: entry.state,
+    createdAt: entry.createdAt,
+    ...(entry.task !== undefined ? { task: entry.task } : {}),
+    ...(entry.closure !== undefined
+      ? {
+          closure: {
+            status: entry.closure.status,
+            summary: entry.closure.summary,
+            reportPath: entry.closure.reportPath ?? null,
+            findings: entry.closure.findings ?? null,
+            taskId: entry.closure.taskId ?? null,
+          },
+        }
+      : {}),
+  };
+}
+
+/** UsageSummary（domain 七字段）→ UsageDto（协议；cost 拍平同形）。 */
+function usageTotal(u: UsageSummary): UsageDto {
+  return {
+    input: u.input,
+    output: u.output,
+    cacheRead: u.cacheRead,
+    cacheWrite: u.cacheWrite,
+    reasoning: u.reasoning,
+    totalTokens: u.totalTokens,
+    cost: u.cost,
+  };
+}
+
+function usageDto(summary: SessionUsageSummary): SessionUsageDto {
+  return { total: usageTotal(summary.total), compaction: usageTotal(summary.compaction) };
 }
 
 /** 单条 EntryData → MessageEntryDto（tool 角色当前领域侧不产生，防御跳过）。 */

@@ -1,6 +1,9 @@
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type {
+  AgentLifecycleRowData,
+  ClosureRecordData,
+  DomainEventQuery,
   InstanceState,
   PersistedDomainState,
   SessionRepositoryPort,
@@ -42,17 +45,6 @@ export interface ClosureRecordRow {
  * session/agent/类型/时间四维过滤 domain_events——只留数据不留 API，
  * 不对协议/前端暴露。
  */
-export interface DomainEventQuery {
-  readonly sessionId?: string;
-  readonly agentKind?: string;
-  /** 实例维（F1.7：trace 四维 session × instance × type × time）。 */
-  readonly instanceId?: string;
-  readonly type?: string;
-  /** ISO 8601 下界（含）。 */
-  readonly since?: string;
-  /** ISO 8601 上界（含）。 */
-  readonly until?: string;
-}
 
 export class SqliteSessionRepository implements SessionRepositoryPort {
   constructor(private readonly queue: WriteQueue) {}
@@ -113,8 +105,8 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
     await this.queue.saveReportFile(reportPath, content);
   }
 
-  /** closure 记录行读面（按会话/实例过滤，落盘序；重启恢复/T2.4 读入点）。 */
-  queryClosureRecords(sessionId: string, agentId?: string): ClosureRecordRow[] {
+  /** closure 记录行读面（按会话/实例过滤，落盘序；T2.4 恢复读入点，findings 解析为值）。 */
+  queryClosureRecords(sessionId: string, agentId?: string): ClosureRecordData[] {
     const sql =
       "SELECT id, session_id, agent_id, result, status, summary, report_path, findings, task_id, created_at " +
       "FROM closure_records WHERE session_id = ?" + (agentId !== undefined ? " AND agent_id = ?" : "") +
@@ -124,7 +116,24 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       agentId !== undefined
         ? (stmt.all(sessionId, agentId) as unknown as ClosureRecordRow[])
         : (stmt.all(sessionId) as unknown as ClosureRecordRow[]);
-    return rows;
+    return rows.map((r) => ({
+      agentId: r.agent_id,
+      result: r.result,
+      status: r.status,
+      summary: r.summary,
+      reportPath: r.report_path,
+      findings: r.findings === null ? null : (JSON.parse(r.findings) as unknown[]),
+      taskId: r.task_id,
+      createdAt: r.created_at,
+    }));
+  }
+
+  /** 实例生命周期行读面（T2.4：agent_lifecycle 每实例行，注册表重建数据源）。 */
+  async queryAgentLifecycles(sessionId: string): Promise<readonly AgentLifecycleRowData[]> {
+    const rows = this.queue.database
+      .prepare("SELECT instance_id, state, updated_at FROM agent_lifecycle WHERE session_id = ? ORDER BY rowid")
+      .all(sessionId) as { instance_id: string; state: string; updated_at: string }[];
+    return rows.map((r) => ({ instanceId: r.instance_id, state: r.state, updatedAt: r.updated_at }));
   }
 
   /** 四维过滤查询（trace 数据面，v0 无对外 API——内部能力 + 测试证明）。 */

@@ -22,7 +22,9 @@ import { createDaemon } from "../../src/infrastructure/container";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
-import type { DaemonScript, DaemonScriptEntry } from "../../../../e2e/harness/daemon-script";
+import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
+import type { AgentOrchestrationPort, SpawnOutcome, SendOutcome, KillOutcome, AgentInstanceStatus } from "../../src/application/ports/inbound/AgentOrchestrationPort";
+import type { DaemonScript, DaemonScriptEntry, SubagentScript } from "../../../../e2e/harness/daemon-script";
 import type { Api, AssistantMessage, Context, Model, Models } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
@@ -38,11 +40,12 @@ function argOf(flag: string): string | undefined {
 const home = argOf("--home");
 const port = Number(argOf("--port") ?? "0");
 const scriptPath = argOf("--script");
+const subagentScriptPath = argOf("--subagent-script");
 const staticDir = argOf("--static-dir");
 const toolCwd = argOf("--tool-cwd");
 
 if (!home || !scriptPath || !Number.isFinite(port)) {
-  console.error("##HELIX-DAEMON## fatal 用法: launcher.ts --home <dir> --port <n> --script <json> [--static-dir <dir>] [--tool-cwd <dir>]");
+  console.error("##HELIX-DAEMON## fatal 用法: launcher.ts --home <dir> --port <n> --script <json> [--subagent-script <json>] [--static-dir <dir>] [--tool-cwd <dir>>");
   process.exit(1);
 }
 
@@ -138,11 +141,59 @@ function makeScriptedStreamFn(entries: readonly DaemonScriptEntry[]): StreamFn {
   };
 }
 
+// ── ScriptedSubagentRunner（T2.4 E 层 R1~R3）：按剧本驱动实例收口 ──
+// launch 次序消费剧本条目：有形条目 delayMs 后收口（closure 回调）；null/
+// 耗尽 = 挂起（保持 running——重启收口场景的现场构造）。kill 通道可选不实现
+// （E 层 R1~R3 不涉 kill）。
+class ScriptedSubagentRunner implements InstanceRunner {
+  private callbacks?: InstanceRunnerCallbacks;
+  private idx = 0;
+  private readonly script: SubagentScript;
+  constructor(script: SubagentScript) {
+    this.script = script;
+  }
+  setCallbacks(callbacks: InstanceRunnerCallbacks): void {
+    this.callbacks = callbacks;
+  }
+  launch(instance: { instanceId: string }, _task: string): void {
+    void _task;
+    const entry = this.script[this.idx++];
+    if (entry === null || entry === undefined || this.callbacks === undefined) return;
+    const outcome: InstanceClosureOutcome =
+      entry.result === "done"
+        ? { result: "done", closure: { status: "done", summary: entry.summary, reportPath: null, findings: null, taskId: null } }
+        : { result: "failed", error: entry.summary, closure: { status: "failed", summary: entry.summary, reportPath: null, findings: null, taskId: null } };
+    setTimeout(() => this.callbacks?.onInstanceClosure(instance.instanceId, outcome), entry.delayMs);
+  }
+}
+
+// ── 延迟编排代理（T2.4 E 层）：agent_spawn 等编排工具需回口真调度器，
+// 而调度器在 createDaemon 内部装配（引擎先建）——工具执行时才解引用
+// （首个工具调用必然发生在 daemon 装配完成后）。 ────────────────────
+let orchestrationRef: AgentOrchestrationPort | undefined;
+const lazyOrchestration: AgentOrchestrationPort = {
+  spawn(task, profileKind): SpawnOutcome {
+    return orchestrationRef!.spawn(task, profileKind);
+  },
+  send(agentId, message): SendOutcome {
+    return orchestrationRef!.send(agentId, message);
+  },
+  status(agentId?): AgentInstanceStatus[] {
+    return orchestrationRef!.status(agentId);
+  },
+  kill(agentId): KillOutcome {
+    return orchestrationRef!.kill(agentId);
+  },
+};
+
 // ── 装配与生命周期 ──────────────────────────────────────────
 
 async function main(): Promise<void> {
   const script = JSON.parse(readFileSync(scriptPath!, "utf8")) as DaemonScript;
-  const executor = new CoreToolExecutor({ cwd: toolCwd ?? process.cwd() });
+  const subagentScript: SubagentScript = subagentScriptPath
+    ? (JSON.parse(readFileSync(subagentScriptPath, "utf8")) as SubagentScript)
+    : [];
+  const executor = new CoreToolExecutor({ cwd: toolCwd ?? process.cwd(), orchestration: lazyOrchestration });
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,
     model: fakeModel,
@@ -159,11 +210,13 @@ async function main(): Promise<void> {
     port,
     staticDir,
     toolCwd,
+    subagentRunner: new ScriptedSubagentRunner(subagentScript),
     cliInput: new PassThrough(), // 隔离 stdio：事件 publisher 落 PassThrough，stdout 只留控制行
     cliOutput: new PassThrough(),
   });
 
   console.log(`##HELIX-DAEMON## ready ${JSON.stringify({ port: daemon.ws.port })}`);
+  orchestrationRef = daemon.orchestration; // 编排工具回口真调度器（延迟绑定）
 
   process.on("SIGTERM", () => {
     void (async () => {

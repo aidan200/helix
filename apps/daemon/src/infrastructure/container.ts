@@ -13,6 +13,8 @@ import { SchedulerService } from "../application/services/SchedulerService";
 import type { InstanceRunner } from "../application/services/InstanceRunner";
 import { SchedulingPolicy, DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 import { MAIN_INSTANCE_ID } from "../domain/agent/AgentInstance";
+import type { InstanceSnapshotEntry } from "../application/ports/inbound/SessionPort";
+import type { SessionUsageSummary } from "../domain/session/SessionSnapshot";
 import { Session } from "../domain/session/Session";
 import path from "node:path";
 import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAdapter";
@@ -132,7 +134,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   if (restored) {
     logger.info(
       `已恢复会话 ${restored.session.id}（entries=${restored.session.entryList().length}，` +
-        `工具记录=${restored.toolCalls.length}，停机前 agentState=${restored.agentState}）`,
+        `工具记录=${restored.toolCalls.length}，实例=${restored.instances.length}（其中重启收口见 agent_lifecycle），` +
+        `停机前 agentState=${restored.agentState}）`,
     );
   }
 
@@ -186,6 +189,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     // 在 spawn 之后（装配窗口内不会被调）
     injectClosure: (agentId, message) => chatService.injectClosure(message),
   });
+  // T2.4 重启恢复：实例注册表/闭包/任务/序号基线注入调度器（终态与快照态
+  // 原样登记；running/queued 已由 RestoreService 收口落盘——此处零 spawn/零事件）
+  scheduler.restoreInstances(restored?.instances ?? []);
 
   // ── driven：工具执行器（八工具注册表：四内置 + grep + 编排三工具） ──
   const toolExecutor = new CoreToolExecutor({
@@ -218,6 +224,20 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     getSession: () => chatService.sessionView,
     getAgentState: () => chatService.agentState,
     getToolCalls: () => chatService.toolCallData, // D-1：快照取数面扩展（工具记录随快照恢复）
+    // T2.4 快照组装面：主实例条目（常驻，窗口永不终态）+ 调度器注册表观测
+    getInstances: () => [
+      {
+        instanceId: MAIN_INSTANCE_ID,
+        kind: "main",
+        profileKind: "main-session",
+        sessionId: session.id,
+        state: "running",
+        createdAt: session.createdAt,
+      },
+      ...scheduler.snapshotInstances(),
+    ] satisfies InstanceSnapshotEntry[],
+    // T2.4 占位装配：T3.2 入账链路（usage ledger）落地后由真值替换
+    getUsage: () => ZERO_USAGE_SUMMARY,
   });
 
   // ── driving：CLI（stdout 事件发布器由组合根构造并注入两侧） ─────
@@ -323,3 +343,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     shutdown: system.shutdown,
   };
 }
+
+/** T2.4 占位空账面（七字段全 0；T3.2 usage ledger 落地后移除）。 */
+const ZERO_USAGE_SUMMARY: SessionUsageSummary = {
+  total: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0, cost: 0 },
+  compaction: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0, cost: 0 },
+};

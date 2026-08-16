@@ -1,5 +1,11 @@
-import type { SessionPort, SessionStateView, SessionStreamEvent } from "../ports/inbound/SessionPort";
+import type {
+  InstanceSnapshotEntry,
+  SessionPort,
+  SessionStateView,
+  SessionStreamEvent,
+} from "../ports/inbound/SessionPort";
 import type { Session } from "../../domain/session/Session";
+import type { SessionUsageSummary } from "../../domain/session/SessionSnapshot";
 import type { AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
 import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 
@@ -23,6 +29,10 @@ export interface SessionServiceDeps {
   /** 取工具调用记录（D-1：快照取数面扩展——记录在 ChatService.toolCalls，
    *  经组合根注入只读观测面，不搬进 Session 聚合）。 */
   readonly getToolCalls: () => readonly ToolCallRecordData[];
+  /** 取实例清单（T2.4 快照组装面：调度器注册表观测 + 主实例条目；缺省不携带）。 */
+  readonly getInstances?: () => readonly InstanceSnapshotEntry[];
+  /** 取账目聚合（T2.4 占位装配：T3.2 入账链路后由 ledger 真值替换；缺省不携带）。 */
+  readonly getUsage?: () => SessionUsageSummary;
 }
 
 export class SessionService implements SessionPort {
@@ -31,7 +41,13 @@ export class SessionService implements SessionPort {
   constructor(private readonly deps: SessionServiceDeps) {}
 
   getSnapshot(): SessionStateView {
-    return { session: this.deps.getSession().toSnapshot(), toolCalls: this.deps.getToolCalls() };
+    return {
+      session: this.deps.getSession().toSnapshot(),
+      toolCalls: this.deps.getToolCalls(),
+      // T2.4 快照 additive：注入点缺省时快照不携带（旧组装点兼容）
+      ...(this.deps.getInstances !== undefined ? { instances: this.deps.getInstances() } : {}),
+      ...(this.deps.getUsage !== undefined ? { usage: this.deps.getUsage() } : {}),
+    };
   }
 
   subscribe(listener: (event: SessionStreamEvent) => void): () => void {

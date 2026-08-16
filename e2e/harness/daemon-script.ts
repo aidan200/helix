@@ -28,6 +28,20 @@ export interface DaemonScript {
   entries: DaemonScriptEntry[];
 }
 
+/**
+ * SubAgent 剧本条目（T2.4 E 层 R1~R3）：按 launch 次序消费。
+ * - 有形条目：launch 后 delayMs 到点以指定 result/summary 收口（closure 回调）；
+ * - null：挂起（不收口——实例保持 running，供重启收口场景 R2/R3 构造）。
+ * 剧本耗尽或未携带 = 同 null（挂起）。
+ */
+export interface SubagentScriptEntry {
+  readonly delayMs: number;
+  readonly result: "done" | "failed";
+  readonly summary: string;
+}
+
+export type SubagentScript = readonly (SubagentScriptEntry | null)[];
+
 /** 便捷构造：慢速流式回复（默认分片，制造可断言的 streaming 窗口）。 */
 export function slowReply(text: string, chunkDelayMs = 40, chunkSize = 8): DaemonScriptEntry {
   return { kind: "reply", text, chunkSize, chunkDelayMs };

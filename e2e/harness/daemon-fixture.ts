@@ -16,7 +16,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import type { DaemonScript } from "./daemon-script";
+import type { DaemonScript, SubagentScript } from "./daemon-script";
 
 const WORKTREE_ROOT = path.resolve(__dirname, "..", "..");
 const LAUNCHER = path.join(WORKTREE_ROOT, "apps", "daemon", "test", "e2e", "launcher.ts");
@@ -38,6 +38,8 @@ const FATAL_PREFIX = "##HELIX-DAEMON## fatal ";
 export interface DaemonStartOptions {
   /** FakeLLM 剧本（随本进程消费；重启进程从头消费） */
   script: DaemonScript;
+  /** SubAgent 剧本（T2.4：按 launch 次序收口/挂起；缺省全部挂起） */
+  subagentScript?: SubagentScript;
   /** static serve 目录（TC3.4 基线 B 用；缺省不 serve） */
   staticDir?: string;
   /** spawn 重试次数（同端口重启时端口短暂占用的缓冲） */
@@ -61,6 +63,8 @@ export class DaemonProcess {
     mkdirSync(toolCwd, { recursive: true });
     const scriptFile = path.join(home, "llm-script.json");
     writeFileSync(scriptFile, JSON.stringify(opts.script), "utf8");
+    const subagentScriptFile = path.join(home, "subagent-script.json");
+    writeFileSync(subagentScriptFile, JSON.stringify(opts.subagentScript ?? []), "utf8");
 
     const args = [
       LAUNCHER,
@@ -70,6 +74,8 @@ export class DaemonProcess {
       String(E2E_DAEMON_PORT),
       "--script",
       scriptFile,
+      "--subagent-script",
+      subagentScriptFile,
       "--tool-cwd",
       toolCwd,
     ];
