@@ -20,9 +20,11 @@ import type {
   ToolCallEntryDto,
   ToolCallState,
   UsageDto,
-} from "../../packages/protocol/src/index";
+} from "@helix/protocol";
+import { PROTOCOL_VERSION } from "@helix/protocol";
 
-const V = 0;
+/** 帧版本位单点（F-2⑭ 收口：v0.2 起改引协议常量，零字面量） */
+const V = PROTOCOL_VERSION;
 
 // ── entry 构造 ──────────────────────────────────────────────
 

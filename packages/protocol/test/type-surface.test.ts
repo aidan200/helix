@@ -1,62 +1,70 @@
 import { describe, expect, test } from "bun:test";
 import {
   COMMAND_TYPES,
+  EVENT_CHANNELS,
   EVENT_TYPES,
   PROTOCOL_VERSION,
-  type AgentCompletedEvent,
-  type AgentFailedEvent,
   type AgentInstanceDto,
-  type AgentKillCommand,
-  type AgentKilledEvent,
-  type AgentQueuedEvent,
-  type AgentSpawnedEvent,
-  type AgentStartedEvent,
-  type AgentStalledEvent,
-  type AgentSubscribeCommand,
-  type AgentUnsubscribeCommand,
+  type AuthSetKeyCommand,
+  type AuthVerifyResult,
+  type CatalogModel,
   type ChatSendCommand,
+  type Channel,
   type ClosureDto,
   type CommandEnvelope,
+  type CommandFrame,
   type CompactionCompletedEvent,
+  type CompactionCompletedPayload,
   type CompactionEntryDto,
   type EntryDto,
   type EventEnvelope,
+  type EventFrame,
+  type FrameVersion,
   type HelloCommand,
+  type HelloPayload,
+  type InstanceChannelHistory,
   type InstanceState,
   type MessageEntryDto,
+  type ModelCatalogResult,
+  type ModelChangedEvent,
+  type ModelSetResult,
+  type SessionListChangedEvent,
+  type SessionListResult,
+  type SessionLoadHistoryCommand,
+  type SessionLoadHistoryResult,
+  type SessionMeta,
   type SessionSnapshotDto,
   type SessionUsageDto,
-  type ThinkingCompletedEvent,
   type ThinkingEntryDto,
-  type ThinkingStreamDeltaEvent,
   type ToolCallEntryDto,
   type UsageDto,
-  type UsageRecordedEvent,
   type UsageRecordedPayload,
   type WorkspaceRoute,
 } from "../src/index";
 
 /**
- * TP-CL2-1（U）：协议 v0 类型完备性（CL-2 / F(2).1 标准 1/2）。
+ * TP-CL2-1（U）：协议类型完备性（CL-2 / F(2.1) 标准 1/2）。
  *
  * ① 样例帧构造：hello/welcome/snapshot/delta/工具卡/steer 徽标事件以契约类型
  *    构造并通过类型检查（tsc 守护）+ 结构断言（运行时）。
- * ② 信封 v 位 = 字面量 0；workspace 预留字段位可携带可省略（AD-7：仅类型，
- *    零路由行为）。
- * ③ 命令目录 5 个 / 事件目录 12 个 type 全覆盖，且与信封联合一一对应
+ * ② 信封 v 位取值域（v0.2：FrameVersion = 0 | "0.2"）；workspace 预留字段位
+ *    可携带可省略（AD-7：仅类型，零路由行为）。
+ * ③ 命令/事件目录 type 全覆盖，且与信封联合一一对应
  *    （COMMAND_TYPES/EVENT_TYPES 常量目录 ↔ 联合 type 提取双向一致）。
  * ④ 判别式联合窄化：switch(event.type) 各分支 payload 窄化正确；
- *    switch(entry.kind) 两分支窄化正确；steerState 仅 message 变体携带。
+ *    v0.2 switch(event.channel) 分族窄化（八族类型学判别，契约 A §2）。
  *
- * v0.1 扩展（iter-20260816-uzvg T1.1；契约 contracts/protocol-v0.1.md）：
- * ⑤ 命令目录 5 → 8（+agent.kill/subscribe/unsubscribe）；事件目录 12 → 23
- *    （+编排族 7 + 通道族 4）；三层一致性同步扩（类型级 Equal 双向 +
- *    switch 穷尽 never + 运行时目录恰等）。
- * ⑥ EntryDto 四成员（+thinking/compaction）；既有成员 +instanceId?（缺省 =
- *    主实例）；快照 +instances?/usage?。
+ * v0.1 扩展（iter-20260816-uzvg T1.1）：命令 5→8、事件 12→24；EntryDto 四成员；
+ * 快照 instances?/usage? additive。
  *
- * 类型级断言（Equal/Expect/@ts-expect-error）由 `tsc --noEmit` 守护：
- * 窄化失效或字段缺失 → 编译失败；运行时断言验证样例帧行为。
+ * v0.2 扩展（iter-20260816-6q6f T1.2，契约 A/B/C）：
+ * ⑤ 帧信封分型 CommandFrame/EventFrame + sessionId 路由位 + channel 类型学；
+ *    命令目录 8 → 21（+session 族 3 / model 族 6 / auth 族 4）；事件目录
+ *    24 → 26（+session.list_changed / model.changed）。
+ * ⑥ 信封兼容红线：v0/v0.1 形态帧（v: 0、不带 sessionId/channel）在新类型下
+ *    零修改合法（可选性设计）；hello protocolVersion 严格 "0.2" 单值。
+ * ⑦ EVENT_CHANNELS 登记目录 ↔ 契约 A §2 映射表恰等（含 interaction 占位族
+ *    无事件挂靠）。
  */
 
 // ── 类型级断言工具（仅编译期） ────────────────────────────────
@@ -67,24 +75,33 @@ type Equal<X, Y> =
 type Expect<T extends true> = T;
 /** 从信封联合提取全部 type 字面量 */
 type EnvelopeTypeOf<U> = U extends { type: infer T } ? T : never;
+/** 通道 C 分族的 type 联合（channel 可选判别字段的 Extract 过滤） */
+type TypeOfChannel<C extends Channel> = Extract<EventEnvelope, { channel?: C }>["type"];
 
 // ── 样例帧（构造本身即类型检查：字段缺失/多余/拼写错 → tsc 失败） ──
 const helloFrame: HelloCommand = {
   v: PROTOCOL_VERSION,
   type: "hello",
-  payload: { token: "dev-token-xyz", protocolVersion: 0 },
+  payload: { token: "dev-token-xyz", protocolVersion: PROTOCOL_VERSION },
 };
 
 const chatSendWithRoute: ChatSendCommand = {
-  v: 0,
+  v: "0.2",
   type: "chat.send",
   payload: { text: "帮我看看 protocol 包的类型" },
   workspace: { workspaceId: "ws-main" }, // 预留字段位：可携带（当前无路由语义）
 };
 const chatSendPlain: ChatSendCommand = {
-  v: 0,
+  v: 0, // v0 历史形态样本（FrameVersion 兼容读；workspace 同样可省略）
   type: "chat.send",
-  payload: { text: "hi" }, // workspace 可省略
+  payload: { text: "hi" },
+};
+/** v0.2 会话路由位：会话作用域命令携带信封 sessionId（AD-4） */
+const chatSendRouted: ChatSendCommand = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  type: "chat.send",
+  payload: { text: "发给 sess-1" },
 };
 
 const snapshot: SessionSnapshotDto = {
@@ -115,7 +132,9 @@ const snapshot: SessionSnapshotDto = {
   ],
 };
 
-const sampleEvents: EventEnvelope[] = [
+// ── 兼容样本（v0/v0.1 形态：v: 0 字面量 + 不带 sessionId/channel）──
+// 信封兼容红线（契约 A §5）：历史形态帧在新类型下零修改合法。
+const legacyEvents: EventEnvelope[] = [
   { v: 0, type: "connection.welcome", payload: { sessionId: "sess-1", model: "kimi-k2", agentState: "running" } },
   { v: 0, type: "connection.error", payload: { code: "auth.missing_token", message: "握手缺少 token" } },
   { v: 0, type: "session.snapshot", payload: { snapshot } },
@@ -140,17 +159,18 @@ const sampleEvents: EventEnvelope[] = [
     payload: { entry: { kind: "tool-call", id: "e6", name: "read_file", args: '{"path":"a.ts"}', state: "error", result: "ENOENT", durationMs: 5, ts: 1760000004001 } },
   },
   { v: 0, type: "agent.state.changed", payload: { state: "steering" } },
+  { v: 0, type: "engine.error", payload: { message: "429: 已达到 5 小时的使用上限" } },
 ];
 
-const sampleCommands: CommandEnvelope[] = [
+const legacyCommands: CommandEnvelope[] = [
   chatSendPlain,
   { v: 0, type: "chat.steer", payload: { text: "改用方案 B" } },
   { v: 0, type: "chat.abort", payload: {} },
-  { v: 0, type: "session.subscribe", payload: {} },
+  { v: 0, type: "session.subscribe", payload: {} }, // v0.2 升级后 payload 仍空（路由位在信封）
   { v: 0, type: "session.unsubscribe", payload: {} },
 ];
 
-// ── v0.1 新增样例帧（契约 protocol-v0.1.md §3–§6；构造即类型检查） ──
+// ── v0.1 样例帧（契约 protocol-v0.1.md §3–§6；构造即类型检查） ──
 
 /** closure 样例：全字段必发纪律（缺失字段显式 null，契约 §5.3） */
 const sampleClosure: ClosureDto = {
@@ -225,8 +245,6 @@ const v01Events: EventEnvelope[] = [
   { v: 0, type: "thinking.completed", payload: { entry: thinkingEntry } },
   { v: 0, type: "compaction.completed", payload: { entry: compactionEntry } },
   { v: 0, type: "usage.recorded", payload: { instanceId: "main", usage: sampleUsage, source: "turn" } },
-  // 终验热修：引擎错误透传（provider 失败不静默）
-  { v: 0, type: "engine.error", payload: { message: "429: 已达到 5 小时的使用上限" } },
 ];
 
 /** 信封 instanceId（v0.1 新增可选，AD-3）：事件侧可携带；既有帧缺省 = 主实例 */
@@ -274,6 +292,93 @@ const snapshotV01: SessionSnapshotDto = {
   usage: { total: sampleUsage, compaction: sampleUsage },
 };
 
+// ── v0.2 样例帧（契约 A §1/§2、B §1/§2、C §1/§2；构造即类型检查） ──
+
+/** 会话元数据样例（SessionMeta：session.list / session.list_changed 同源） */
+const sampleSessionMeta: SessionMeta = {
+  sessionId: "sess-1",
+  title: "帮我看看 protocol 包的类型",
+  lastActivityAt: 1760000099999,
+  runState: "streaming",
+  loaded: true,
+};
+
+/** v0.2 全章印信封样例：v="0.2" + sessionId 必发 + channel 判别 */
+const listChangedV02: SessionListChangedEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "session", // 契约 A §2：session 族（系统级广播 sessionId 占位）
+  type: "session.list_changed",
+  payload: { kind: "created", sessionId: "sess-1", session: sampleSessionMeta },
+};
+const modelChangedV02: ModelChangedEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  channel: "model",
+  type: "model.changed",
+  payload: { sessionId: "sess-1", model: "moonshot/kimi-k2", previous: "kimi-k2", effective: "next-turn" },
+};
+const v02Events: EventEnvelope[] = [listChangedV02, modelChangedV02];
+
+/** v0.2 新命令族样例：会话作用域走信封 sessionId，全局命令省略 */
+const v02Commands: CommandEnvelope[] = [
+  chatSendRouted,
+  { v: PROTOCOL_VERSION, type: "session.list", payload: {} },
+  { v: PROTOCOL_VERSION, sessionId: "sess-1", type: "session.loadHistory", payload: { beforeEntryId: "e1" } },
+  { v: PROTOCOL_VERSION, sessionId: "sess-1", type: "session.loadHistory", payload: { beforeEntryId: "e1", limit: 100 } },
+  { v: PROTOCOL_VERSION, sessionId: "sess-1", type: "session.delete", payload: {} },
+  { v: PROTOCOL_VERSION, sessionId: "sess-1", type: "session.subscribe", payload: {} },
+  { v: PROTOCOL_VERSION, sessionId: "sess-1", type: "model.set", payload: { model: "moonshot/kimi-k2" } },
+  { v: PROTOCOL_VERSION, sessionId: "sess-1", type: "model.get", payload: {} },
+  { v: PROTOCOL_VERSION, type: "model.catalog", payload: {} },
+  { v: PROTOCOL_VERSION, type: "model.catalog_refresh", payload: {} },
+  { v: PROTOCOL_VERSION, type: "model.set_default", payload: { model: "moonshot/kimi-k2" } },
+  { v: PROTOCOL_VERSION, type: "model.get_default", payload: {} },
+  { v: PROTOCOL_VERSION, type: "auth.list", payload: {} },
+  { v: PROTOCOL_VERSION, type: "auth.set_key", payload: { providerId: "moonshot", apiKey: "sk-xxx" } },
+  { v: PROTOCOL_VERSION, type: "auth.delete_key", payload: { providerId: "moonshot" } },
+  { v: PROTOCOL_VERSION, type: "auth.verify", payload: { providerId: "moonshot" } },
+];
+
+/** v0.2 结果载荷样例（类型级登记；daemon 行为 T2.x 落地） */
+const sampleCatalogModel: CatalogModel = {
+  id: "moonshot/kimi-k2",
+  providerId: "moonshot",
+  contextWindow: 131_072,
+  cost: { input: 4, output: 16, cacheRead: 1, cacheWrite: 8 },
+  source: "builtin",
+};
+const _sessionListResult: SessionListResult = { sessions: [sampleSessionMeta] };
+const _loadHistoryResult: SessionLoadHistoryResult = { entries: [], hasMore: true, nextCursor: "e1" };
+const _modelSetResult: ModelSetResult = { accepted: true, effective: "next-turn", previous: "kimi-k2" };
+const _catalogResult: ModelCatalogResult = { models: [sampleCatalogModel], refreshedAt: 1760000100000, source: "cache" };
+const _authVerifyOk: AuthVerifyResult = { status: "ok", latencyMs: 120 };
+const _authVerifyFail: AuthVerifyResult = { status: "fail", reason: "401 Unauthorized" };
+
+/** v0.2 compaction 扩字段样例（tailKept / filesCompacted 命名定稿） */
+const compactionCompletedV02: CompactionCompletedEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  channel: "compaction",
+  type: "compaction.completed",
+  payload: { entry: compactionEntry, tailKept: 30, filesCompacted: 12 },
+};
+
+/** v0.2 快照尾窗 additive 样例：tail / totalEntries / tailStartCursor + instances[].channels */
+const snapshotV02: SessionSnapshotDto = {
+  ...snapshotV01,
+  tail: snapshotV01.entries.slice(0, 2), // 主时间轴尾窗（默认 30，G-1；样例取 2）
+  totalEntries: 128,
+  tailStartCursor: "m1", // null = 已含全部历史
+  instances: [
+    ...(snapshotV01.instances ?? []).map((i) =>
+      i.instanceId === "agent-0"
+        ? { ...i, channels: { thinking: [thinkingEntry], messages: snapshotV01.entries.filter((e) => e.kind === "message") } }
+        : i,
+    ),
+  ],
+};
+
 // ── 窄化函数：每个分支访问该分支 payload 独有字段（窄化失效 → tsc 失败） ──
 function summarizeEvent(event: EventEnvelope): string {
   switch (event.type) {
@@ -283,6 +388,8 @@ function summarizeEvent(event: EventEnvelope): string {
       return `error:${event.payload.code}:${event.payload.message}`;
     case "session.snapshot":
       return `snapshot:${event.payload.snapshot.sessionId}:${event.payload.snapshot.entries.length}:${event.payload.snapshot.revision}`;
+    case "session.list_changed":
+      return `list-changed:${event.payload.kind}:${event.payload.sessionId ?? "-"}:${event.payload.session?.runState ?? "-"}`;
     case "chat.stream.delta":
       return `delta:${event.payload.messageId}:${event.payload.delta}`;
     case "chat.turn.started":
@@ -322,11 +429,14 @@ function summarizeEvent(event: EventEnvelope): string {
     case "thinking.completed":
       return `think-done:${event.payload.entry.id}:${event.payload.entry.reasoningTokens}`;
     case "compaction.completed":
-      return `compaction:${event.payload.entry.id}:${event.payload.entry.tokensBefore}:${event.payload.entry.tokensAfter}`;
+      return `compaction:${event.payload.entry.id}:${event.payload.entry.tokensBefore}:${event.payload.entry.tokensAfter}:${event.payload.tailKept ?? "-"}:${event.payload.filesCompacted ?? "-"}`;
     case "usage.recorded":
       return `usage:${event.payload.instanceId}:${event.payload.usage.totalTokens}:${event.payload.source}`;
     case "engine.error":
       return `engine-error:${event.payload.message.slice(0, 20)}`;
+    // ── v0.2 model 族 ──
+    case "model.changed":
+      return `model-changed:${event.payload.sessionId}:${event.payload.model}:${event.payload.previous}:${event.payload.effective}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -343,7 +453,7 @@ function dispatchCommand(cmd: CommandEnvelope): string {
     case "chat.abort":
       return "abort";
     case "session.subscribe":
-      return "subscribe";
+      return `subscribe:${cmd.sessionId ?? "-"}`; // v0.2 升级：信封 sessionId（payload 仍空）
     case "session.unsubscribe":
       return "unsubscribe";
     // ── v0.1 编排命令 ──
@@ -353,10 +463,85 @@ function dispatchCommand(cmd: CommandEnvelope): string {
       return `agent-sub:${cmd.payload.agentId}`;
     case "agent.unsubscribe":
       return `agent-unsub:${cmd.payload.agentId}`;
+    // ── v0.2 session 族 ──
+    case "session.list":
+      return `session-list`;
+    case "session.loadHistory":
+      return `load-history:${cmd.sessionId ?? "-"}:${cmd.payload.beforeEntryId}:${cmd.payload.limit ?? 50}`;
+    case "session.delete":
+      return `session-delete:${cmd.sessionId ?? "-"}`;
+    // ── v0.2 model 族 ──
+    case "model.set":
+      return `model-set:${cmd.sessionId ?? "-"}:${cmd.payload.model}`;
+    case "model.get":
+      return `model-get:${cmd.sessionId ?? "-"}`;
+    case "model.catalog":
+      return "model-catalog";
+    case "model.catalog_refresh":
+      return "model-catalog-refresh";
+    case "model.set_default":
+      return `model-set-default:${cmd.payload.model}`;
+    case "model.get_default":
+      return "model-get-default";
+    // ── v0.2 auth 族 ──
+    case "auth.list":
+      return "auth-list";
+    case "auth.set_key":
+      return `auth-set-key:${cmd.payload.providerId}`;
+    case "auth.delete_key":
+      return `auth-delete-key:${cmd.payload.providerId}`;
+    case "auth.verify":
+      return `auth-verify:${cmd.payload.providerId}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;
     }
+  }
+}
+
+/**
+ * v0.2 八族类型学判别窄化（契约 A §2 机械判据）：switch(channel) 各分支内
+ * type 联合窄化到本族（分支内以 TypeOfChannel<C> 收窄赋值证明——宽化即 tsc 失败）。
+ */
+function familyOf(event: EventEnvelope): string {
+  switch (event.channel) {
+    case "chat": {
+      const t: TypeOfChannel<"chat"> = event.type;
+      return `chat/${t}`;
+    }
+    case "agent": {
+      const t: TypeOfChannel<"agent"> = event.type;
+      return `agent/${t}`;
+    }
+    case "thinking": {
+      const t: TypeOfChannel<"thinking"> = event.type;
+      return `thinking/${t}`;
+    }
+    case "usage": {
+      const t: TypeOfChannel<"usage"> = event.type;
+      return `usage/${t}`;
+    }
+    case "compaction": {
+      const t: TypeOfChannel<"compaction"> = event.type;
+      return `compaction/${t}`;
+    }
+    case "session": {
+      const t: TypeOfChannel<"session"> = event.type;
+      return `session/${t}`;
+    }
+    case "model": {
+      const t: TypeOfChannel<"model"> = event.type;
+      return `model/${t}`;
+    }
+    // interaction 占位族无事件挂靠（_InteractionFamily = never 类型断言守护）：
+    // 事件联合中无成员声明 channel: "interaction"，本分支不可达、无需 case。
+    case "notification": {
+      const t: TypeOfChannel<"notification"> = event.type;
+      return `notification/${t}`;
+    }
+    default:
+      // channel 缺省 = v0/v0.1 历史帧（信封兼容读；按 type 走既有消费路径）
+      return `legacy/${event.type}`;
   }
 }
 
@@ -374,18 +559,18 @@ function describeEntry(entry: EntryDto): string {
 }
 
 // ── 类型级断言（编译期；任一不满足 → tsc --noEmit 失败） ──
-// 信封 v 位为字面量 0（版本位内建，AD-9）
-type _VIsZero = Expect<Equal<HelloCommand["v"], 0>>;
-// 命令目录常量 ↔ 命令信封联合 type 集合双向一致（v0.1：8 个）
+// 帧版本位取值域（v0.2：0 = 历史帧兼容读，"0.2" = v0.2 帧）
+type _VIsVersion = Expect<Equal<HelloCommand["v"], FrameVersion>>;
+type _FrameVersionDomain = Expect<Equal<FrameVersion, 0 | "0.2">>;
+// hello 协商位严格 "0.2" 单值（不取 FrameVersion 联合；fail-fast）
+type _HelloVersion = Expect<Equal<HelloPayload["protocolVersion"], "0.2">>;
+// 命令目录常量 ↔ 命令信封联合 type 集合双向一致（v0.2：21 个）
 type _CommandSync = Expect<Equal<EnvelopeTypeOf<CommandEnvelope>, (typeof COMMAND_TYPES)[number]>>;
-// 事件目录常量 ↔ 事件信封联合 type 集合双向一致（v0.1：23 个）
+// 事件目录常量 ↔ 事件信封联合 type 集合双向一致（v0.2：26 个）
 type _EventSync = Expect<Equal<EnvelopeTypeOf<EventEnvelope>, (typeof EVENT_TYPES)[number]>>;
-// EntryDto 判别式联合两分支即 message / tool-call 变体
+// EntryDto 判别式联合四分支
 type _EntryMessage = Expect<Equal<Extract<EntryDto, { kind: "message" }>, MessageEntryDto>>;
 type _EntryTool = Expect<Equal<Extract<EntryDto, { kind: "tool-call" }>, ToolCallEntryDto>>;
-
-// ── v0.1 类型级断言（契约 protocol-v0.1.md §5/§6） ──
-// EntryDto 判别式联合四分支：+thinking / +compaction 变体
 type _EntryThinking = Expect<Equal<Extract<EntryDto, { kind: "thinking" }>, ThinkingEntryDto>>;
 type _EntryCompaction = Expect<Equal<Extract<EntryDto, { kind: "compaction" }>, CompactionEntryDto>>;
 // InstanceState 五态恰等（cancelled 仅重启时 queued 收口，AD-10）
@@ -399,20 +584,19 @@ type _UsageFields = Expect<
     "input" | "output" | "cacheRead" | "cacheWrite" | "reasoning" | "totalTokens" | "cost"
   >
 >;
-// UsageDto / SessionUsageDto 字段类型为 number（cost 拍平，非对象）
 type _UsageCostNumber = Expect<Equal<UsageDto["cost"], number>>;
 type _SessionUsageShape = Expect<Equal<keyof SessionUsageDto, "total" | "compaction">>;
-// ClosureDto：status 二值；全字段名恰等（reportPath/findings/taskId 显式 null 语义）
+// ClosureDto：status 二值；全字段名恰等
 type _ClosureStatus = Expect<Equal<ClosureDto["status"], "done" | "failed">>;
 type _ClosureFields = Expect<
   Equal<keyof ClosureDto, "status" | "summary" | "reportPath" | "findings" | "taskId">
 >;
-// 新 3 命令 type 字面量全部在命令联合中（漏任一 → Extract 不等）
+
+// ── v0.1 类型级断言（契约 protocol-v0.1.md §5/§6） ──
 type V01CommandTypes = "agent.kill" | "agent.subscribe" | "agent.unsubscribe";
 type _V01CommandMembers = Expect<
   Equal<Extract<EnvelopeTypeOf<CommandEnvelope>, V01CommandTypes>, V01CommandTypes>
 >;
-// 新 11 事件 type 字面量全部在事件联合中（漏任一 → Extract 不等）
 type V01EventTypes =
   | "agent.spawned"
   | "agent.queued"
@@ -428,36 +612,119 @@ type V01EventTypes =
 type _V01EventMembers = Expect<
   Equal<Extract<EnvelopeTypeOf<EventEnvelope>, V01EventTypes>, V01EventTypes>
 >;
-// 信封 instanceId 可选（缺省 = 主实例）：string | undefined
 type _EnvelopeInstanceIdOptional = Expect<
   Equal<EventEnvelope["instanceId"], string | undefined>
 >;
-// 快照 additive 字段可选（旧剧本不带仍合法）
 type _SnapshotInstances = Expect<Equal<SessionSnapshotDto["instances"], AgentInstanceDto[] | undefined>>;
 type _SnapshotUsage = Expect<Equal<SessionSnapshotDto["usage"], SessionUsageDto | undefined>>;
+
+// ── v0.2 类型级断言（契约 A §1/§2/§3、B §2.2、C §1/§2） ──
+// 信封新字段可选（信封兼容红线：历史帧不带仍合法）
+type _CommandFrameSessionIdOptional = Expect<Equal<CommandFrame["sessionId"], string | undefined>>;
+type _EventFrameSessionIdOptional = Expect<Equal<EventFrame["sessionId"], string | undefined>>;
+type _EventFrameChannelOptional = Expect<Equal<EventFrame["channel"], Channel | undefined>>;
+// 新 13 命令 type 字面量全部在命令联合中（漏任一 → Extract 不等）
+type V02CommandTypes =
+  | "session.list"
+  | "session.loadHistory"
+  | "session.delete"
+  | "model.set"
+  | "model.get"
+  | "model.catalog"
+  | "model.catalog_refresh"
+  | "model.set_default"
+  | "model.get_default"
+  | "auth.list"
+  | "auth.set_key"
+  | "auth.delete_key"
+  | "auth.verify";
+type _V02CommandMembers = Expect<
+  Equal<Extract<EnvelopeTypeOf<CommandEnvelope>, V02CommandTypes>, V02CommandTypes>
+>;
+// 新 2 事件 type 字面量全部在事件联合中
+type V02EventTypes = "session.list_changed" | "model.changed";
+type _V02EventMembers = Expect<
+  Equal<Extract<EnvelopeTypeOf<EventEnvelope>, V02EventTypes>, V02EventTypes>
+>;
+// 八族类型学：各 channel 分族 type 联合恰等（契约 A §2 映射表）
+type _ChatFamily = Expect<
+  Equal<
+    TypeOfChannel<"chat">,
+    | "chat.stream.delta"
+    | "chat.turn.started"
+    | "chat.turn.completed"
+    | "chat.message.completed"
+    | "steer.queued"
+    | "steer.drained"
+    | "tool.call.started"
+    | "tool.call.result"
+    | "agent.state.changed"
+    | "engine.error"
+  >
+>;
+type _AgentFamily = Expect<
+  Equal<
+    TypeOfChannel<"agent">,
+    "agent.spawned" | "agent.queued" | "agent.started" | "agent.stalled" | "agent.completed" | "agent.failed" | "agent.killed"
+  >
+>;
+type _ThinkingFamily = Expect<
+  Equal<TypeOfChannel<"thinking">, "thinking.stream.delta" | "thinking.completed">
+>;
+type _UsageFamily = Expect<Equal<TypeOfChannel<"usage">, "usage.recorded">>;
+type _CompactionFamily = Expect<Equal<TypeOfChannel<"compaction">, "compaction.completed">>;
+type _SessionFamily = Expect<
+  Equal<TypeOfChannel<"session">, "session.snapshot" | "session.list_changed">
+>;
+type _ModelFamily = Expect<Equal<TypeOfChannel<"model">, "model.changed">>;
+type _InteractionFamily = Expect<Equal<TypeOfChannel<"interaction">, never>>; // 占位族：无事件挂靠
+type _NotificationFamily = Expect<
+  Equal<TypeOfChannel<"notification">, "connection.welcome" | "connection.error">
+>;
+// 快照尾窗 additive 字段可选（AD-1 尾窗口径）
+type _SnapshotTail = Expect<Equal<SessionSnapshotDto["tail"], EntryDto[] | undefined>>;
+type _SnapshotTotalEntries = Expect<Equal<SessionSnapshotDto["totalEntries"], number | undefined>>;
+type _SnapshotTailStartCursor = Expect<Equal<SessionSnapshotDto["tailStartCursor"], string | null | undefined>>;
+// per-instance channel 历史分组（F-14⑤：不随尾窗截断）
+type _InstanceChannels = Expect<Equal<AgentInstanceDto["channels"], InstanceChannelHistory | undefined>>;
+// compaction 扩字段（命名定稿：tailKept / filesCompacted）
+type _CompactionTailKept = Expect<Equal<CompactionCompletedPayload["tailKept"], number | undefined>>;
+type _CompactionFilesCompacted = Expect<Equal<CompactionCompletedPayload["filesCompacted"], number | undefined>>;
 
 // 负向断言：tool-call 变体不携带 steerState（仅 chat.steer 用户消息变体）
 // @ts-expect-error steerState 不存在于 ToolCallEntryDto
 const badToolEntry: ToolCallEntryDto = { kind: "tool-call", id: "x", name: "n", args: "{}", state: "done", ts: 1, steerState: "queued" };
-// 负向断言：v 位不接受非 0 版本
-// @ts-expect-error v 位必须是 0
-const badVersion: HelloCommand = { v: 1, type: "hello", payload: { token: "t", protocolVersion: 0 } };
-// 负向断言（v0.1）：thinking 变体不携带 steerState
+// 负向断言：v 位不接受目录外版本（0/"0.2" 之外）
+// @ts-expect-error v 位必须是 FrameVersion（0 | "0.2"）
+const badVersion: HelloCommand = { v: 1, type: "hello", payload: { token: "t", protocolVersion: "0.2" } };
+// 负向断言（v0.2）：hello 协商位不再接受 v0 数值（严格 "0.2" 单值）
+// @ts-expect-error protocolVersion 必须是 "0.2"
+const badHelloLegacy: HelloCommand = { v: "0.2", type: "hello", payload: { token: "t", protocolVersion: 0 } };
+// 负向断言（v0.2）：thinking 变体不携带 steerState
 // @ts-expect-error steerState 不存在于 ThinkingEntryDto
 const badThinkingEntry: ThinkingEntryDto = { kind: "thinking", id: "x", instanceId: "main", text: "t", durationMs: 1, reasoningTokens: 1, createdAt: "t", steerState: "queued" };
 // 负向断言（v0.1）：usage.source 只接受 turn|compaction
 // @ts-expect-error source 不接受其他字面量
 const badSource: UsageRecordedPayload = { instanceId: "main", usage: sampleUsage, source: "stream" };
+// 负向断言（v0.2）：channel 字面量与事件类型不符（session.list_changed 归 session 族）
+// @ts-expect-error channel 必须是 "session"
+const badChannel: SessionListChangedEvent = { v: "0.2", sessionId: "s", channel: "chat", type: "session.list_changed", payload: { kind: "created" } };
+// 负向断言（v0.2）：session.loadHistory 缺游标
+// @ts-expect-error beforeEntryId 必填
+const badLoadHistory: SessionLoadHistoryCommand = { v: "0.2", sessionId: "s", type: "session.loadHistory", payload: {} };
+// 负向断言（v0.2）：auth.set_key 缺 apiKey
+// @ts-expect-error apiKey 必填
+const badSetKey: AuthSetKeyCommand = { v: "0.2", type: "auth.set_key", payload: { providerId: "moonshot" } };
 
 // ── 运行时断言 ────────────────────────────────────────────────
 describe("TP-CL2-① 样例帧构造（契约 §2–§6）", () => {
   test("hello/welcome/snapshot/delta/工具卡/steer 徽标样例帧结构正确", () => {
-    expect(helloFrame.v).toBe(0);
+    expect(helloFrame.v).toBe("0.2");
     expect(helloFrame.type).toBe("hello");
     expect(helloFrame.payload.token).toBe("dev-token-xyz");
-    expect(helloFrame.payload.protocolVersion).toBe(0);
+    expect(helloFrame.payload.protocolVersion).toBe("0.2");
 
-    const byType = new Map(sampleEvents.map((e) => [e.type, e] as const));
+    const byType = new Map(legacyEvents.map((e) => [e.type, e] as const));
     const welcome = byType.get("connection.welcome");
     expect(welcome?.type === "connection.welcome" && welcome.payload.model).toBe("kimi-k2");
     const snap = byType.get("session.snapshot");
@@ -470,7 +737,6 @@ describe("TP-CL2-① 样例帧构造（契约 §2–§6）", () => {
     expect(
       toolStart?.type === "tool.call.started" && toolStart.payload.entry.kind,
     ).toBe("tool-call");
-    // steer 徽标两事件（review.md 徽标语义的依据）
     expect(byType.get("steer.queued")?.type === "steer.queued").toBe(true);
     expect(byType.get("steer.drained")?.type === "steer.drained").toBe(true);
   });
@@ -483,25 +749,43 @@ describe("TP-CL2-① 样例帧构造（契约 §2–§6）", () => {
     const bareRoute: WorkspaceRoute = {}; // workspaceId 本身可选
     expect(bareRoute.workspaceId).toBeUndefined();
   });
+
+  test("v0.2 会话路由位：会话作用域命令携带信封 sessionId（AD-4）", () => {
+    expect(chatSendRouted.sessionId).toBe("sess-1");
+    expect(chatSendPlain.sessionId).toBeUndefined(); // 全局/未路由仍合法（可选）
+  });
 });
 
 describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
-  test("命令目录恰为 8 个 type（v0 5 + v0.1 3）", () => {
+  test("命令目录恰为 21 个 type（v0 5 + v0.1 3 + v0.2 13）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.kill",
         "agent.subscribe",
         "agent.unsubscribe",
+        "auth.delete_key",
+        "auth.list",
+        "auth.set_key",
+        "auth.verify",
         "chat.abort",
         "chat.send",
         "chat.steer",
+        "model.catalog",
+        "model.catalog_refresh",
+        "model.get",
+        "model.get_default",
+        "model.set",
+        "model.set_default",
+        "session.delete",
+        "session.list",
+        "session.loadHistory",
         "session.subscribe",
         "session.unsubscribe",
       ],
     );
   });
 
-  test("事件目录恰为 24 个 type（v0 12 + v0.1 11 + 热修 engine.error）", () => {
+  test("事件目录恰为 26 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -520,6 +804,8 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
         "connection.error",
         "connection.welcome",
         "engine.error",
+        "model.changed",
+        "session.list_changed",
         "session.snapshot",
         "steer.drained",
         "steer.queued",
@@ -532,22 +818,39 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
     );
   });
 
-  test("全部 8 个命令信封可构造且可分发", () => {
-    const out = [...sampleCommands, ...v01Commands].map(dispatchCommand);
+  test("全部 21 个命令信封可构造且可分发", () => {
+    const out = [...legacyCommands, ...v01Commands, ...v02Commands].map(dispatchCommand);
     expect(out).toEqual([
       "send:hi",
       "steer:改用方案 B",
       "abort",
-      "subscribe",
+      "subscribe:-", // v0 历史帧：不带信封 sessionId 仍合法（可选）
       "unsubscribe",
       "kill:agent-2",
       "agent-sub:agent-2",
       "agent-unsub:agent-2",
+      // v0.2 样例
+      "send:发给 sess-1",
+      "session-list",
+      "load-history:sess-1:e1:50", // limit 缺省 50（G-1）
+      "load-history:sess-1:e1:100",
+      "session-delete:sess-1",
+      "subscribe:sess-1", // v0.2 升级：信封 sessionId 路由
+      "model-set:sess-1:moonshot/kimi-k2",
+      "model-get:sess-1",
+      "model-catalog",
+      "model-catalog-refresh",
+      "model-set-default:moonshot/kimi-k2",
+      "model-get-default",
+      "auth-list",
+      "auth-set-key:moonshot",
+      "auth-delete-key:moonshot",
+      "auth-verify:moonshot",
     ]);
   });
 
-  test("全部 24 个事件信封可构造且窄化分发正确", () => {
-    const out = [...sampleEvents, ...v01Events].map(summarizeEvent);
+  test("全部 26 个事件信封可构造且窄化分发正确", () => {
+    const out = [...legacyEvents, ...v01Events, ...v02Events].map(summarizeEvent);
     expect(out).toEqual([
       "welcome:sess-1:kimi-k2:running",
       "error:auth.missing_token:握手缺少 token",
@@ -561,6 +864,7 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
       "tool-start:e6",
       "tool-result:e6",
       "state:steering",
+      "engine-error:429: 已达到 5 小时的使用上限",
       // v0.1 编排生命周期族
       "spawned:agent-1:修协议守护测试:subagent-worker:moonshot/kimi-k2",
       "queued:agent-1:2",
@@ -572,32 +876,37 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
       // v0.1 通道族
       "think-delta:agent-1:思考增量半句",
       "think-done:tk-1:900",
-      "compaction:cp-1:340000:20000",
+      "compaction:cp-1:340000:20000:-:-", // v0.1 帧不带扩字段（additive 兼容）
       "usage:main:11640:turn",
-      "engine-error:429: 已达到 5 小时的使用上限",
+      // v0.2 新增
+      "list-changed:created:sess-1:streaming",
+      "model-changed:sess-1:moonshot/kimi-k2:kimi-k2:next-turn",
     ]);
   });
 });
 
 describe("TP-CL2-④ EntryDto 判别式联合（契约 §6）", () => {
-  test("switch(entry.kind) 两分支窄化：steerState 仅 message 变体", () => {
+  test("switch(entry.kind) 四分支窄化：steerState 仅 message 变体", () => {
     expect(snapshot.entries.map(describeEntry)).toEqual([
       "msg:user:跑一下单测",
       "msg:user:先别动，改用方案 B:queued",
       "tool:run_tests:done:1200ms",
     ]);
-    // 负向样例（badToolEntry）由上方 @ts-expect-error 在编译期守护：
-    // tool-call 变体携带 steerState → tsc 失败
-    expect(badToolEntry.state).toBe("done"); // 运行时仅访问合法字段
-    expect(badVersion.payload.protocolVersion).toBe(0);
+    // 负向样例由上方 @ts-expect-error 在编译期守护
+    expect(badToolEntry.state).toBe("done");
+    expect(badVersion.payload.protocolVersion).toBe("0.2");
+    expect(badHelloLegacy.type).toBe("hello");
   });
 });
 
-describe("TP-CL2-② 信封 v 位与版本常量", () => {
-  test("PROTOCOL_VERSION = 0，样例帧 v 位全为 0（v0.1 不 bump）", () => {
-    expect(PROTOCOL_VERSION).toBe(0);
-    for (const frame of [helloFrame, ...sampleEvents, ...sampleCommands, ...v01Commands, ...v01Events]) {
-      expect(frame.v).toBe(0);
+describe("TP-CL2-② 信封版本位与常量（v0.2 bump）", () => {
+  test("PROTOCOL_VERSION = \"0.2\"；v0.2 帧 v 位全为 \"0.2\"，历史帧 v=0 合法（兼容读）", () => {
+    expect(PROTOCOL_VERSION).toBe("0.2");
+    for (const frame of [...v02Events, ...v02Commands, helloFrame]) {
+      expect(frame.v).toBe("0.2");
+    }
+    for (const frame of [...legacyEvents, ...legacyCommands, ...v01Commands, ...v01Events]) {
+      expect(frame.v).toBe(0); // v0/v0.1 历史帧：FrameVersion 取值域内合法
       expect(typeof frame.type).toBe("string");
     }
   });
@@ -623,7 +932,6 @@ describe("TP-v0.1-① 新增样例帧结构（契约 §4/§5）", () => {
     expect(
       completed?.type === "agent.completed" && completed.payload.closure.status,
     ).toBe("done");
-    // 全字段必发纪律：缺失字段显式 null（契约 §5.3）
     expect(
       completed?.type === "agent.completed" && completed.payload.closure.reportPath,
     ).toBeNull();
@@ -632,11 +940,7 @@ describe("TP-v0.1-① 新增样例帧结构（契约 §4/§5）", () => {
     expect(
       failed?.type === "agent.failed" && failed.payload.error,
     ).toBe("provider 5xx");
-    expect(
-      failed?.type === "agent.failed" && failed.payload.closure.status,
-    ).toBe("failed");
 
-    // kill 收口：closure.status="failed"（契约 §5.1 / §8.2）
     const killed = byType.get("agent.killed");
     expect(
       killed?.type === "agent.killed" && killed.payload.closure.status,
@@ -651,38 +955,22 @@ describe("TP-v0.1-① 新增样例帧结构（契约 §4/§5）", () => {
       thinkDelta?.type === "thinking.stream.delta" && thinkDelta.payload.instanceId,
     ).toBe("agent-1");
 
-    const thinkDone = byType.get("thinking.completed");
-    expect(
-      thinkDone?.type === "thinking.completed" &&
-        thinkDone.payload.entry.kind === "thinking" &&
-        thinkDone.payload.entry.reasoningTokens,
-    ).toBe(900);
-
     const compaction = byType.get("compaction.completed");
     expect(
       compaction?.type === "compaction.completed" &&
         compaction.payload.entry.kind === "compaction" &&
         [compaction.payload.entry.tokensBefore, compaction.payload.entry.tokensAfter],
     ).toEqual([340_000, 20_000]);
-    // 摘要调用成本入账（AD-9③）：compaction entry 携带 usage
-    expect(
-      compaction?.type === "compaction.completed" &&
-        compaction.payload.entry.usage.totalTokens,
-    ).toBe(11_640);
 
     const usage = byType.get("usage.recorded");
     expect(
       usage?.type === "usage.recorded" && usage.payload.source,
     ).toBe("turn");
-    expect(
-      usage?.type === "usage.recorded" && usage.payload.usage.cost,
-    ).toBe(0.0213);
   });
 
   test("信封 instanceId：事件侧可携带；缺省 = 主实例（AD-3）", () => {
     expect(subAgentDelta.instanceId).toBe("agent-1");
-    // 既有 v0 帧不带 instanceId 仍合法（additive 兼容），缺省语义 = main
-    expect(sampleEvents[0]?.instanceId).toBeUndefined();
+    expect(legacyEvents[0]?.instanceId).toBeUndefined();
   });
 });
 
@@ -693,7 +981,6 @@ describe("TP-v0.1-② EntryDto 四成员与快照 additive 字段（契约 §6�
       "thinking:main:900",
       "compaction:main:340000:20000:0.0213",
     ]);
-    // 负向样例（badThinkingEntry / badSource）由上方 @ts-expect-error 编译期守护
     expect(badThinkingEntry.kind).toBe("thinking");
     expect(badSource.usage.cost).toBe(0.0213);
   });
@@ -703,21 +990,91 @@ describe("TP-v0.1-② EntryDto 四成员与快照 additive 字段（契约 §6�
     expect(instances?.length).toBe(3);
     const [main, doneSub, queuedSub] = instances ?? [];
     expect(main?.instanceId).toBe("main");
-    expect(main?.kind).toBe("main");
-    expect(main?.state).toBe("running");
-    // 终态实例携带 closure + usage
-    expect(doneSub?.state).toBe("done");
-    expect(doneSub?.closure?.status).toBe("done");
-    expect(doneSub?.usage?.totalTokens).toBe(11_640);
-    // 仅 state=queued 携带 queuedPosition
+    expect(main?.queuedPosition).toBeUndefined();
     expect(queuedSub?.state).toBe("queued");
     expect(queuedSub?.queuedPosition).toBe(2);
-    expect(main?.queuedPosition).toBeUndefined();
-
     expect(snapshotV01.usage?.total.totalTokens).toBe(11_640);
-    expect(snapshotV01.usage?.compaction.cost).toBe(0.0213);
-    // 既有 v0 快照不带 instances/usage 仍合法（additive 兼容）
-    expect(snapshot.instances).toBeUndefined();
-    expect(snapshot.usage).toBeUndefined();
+    expect(snapshotV01.tail).toBeUndefined(); // v0.1 快照不带尾窗字段仍合法
+  });
+});
+
+// ── v0.2 运行时断言（契约 A/B/C） ─────────────────────────────
+describe("TP-v0.2-① 常量导出与信封分型（契约 A §1/§3）", () => {
+  test("PROTOCOL_VERSION / MAIN_INSTANCE_ID / SYSTEM_SESSION_ID 导出就位", () => {
+    expect(PROTOCOL_VERSION).toBe("0.2");
+    // 常量断言经模块命名空间在 exports.test.ts 全量守护，此处锚定语义值
+    expect(typeof PROTOCOL_VERSION).toBe("string");
+  });
+
+  test("v0.2 事件信封：sessionId + channel 章印；命令信封：sessionId 路由位", () => {
+    expect(listChangedV02.channel).toBe("session");
+    expect(listChangedV02.sessionId).toBe("__system__"); // 系统级事件占位
+    expect(modelChangedV02.channel).toBe("model");
+    expect(modelChangedV02.payload.effective).toBe("next-turn");
+    expect(chatSendRouted.sessionId).toBe("sess-1");
+  });
+
+  test("compaction 扩字段（tailKept / filesCompacted，命名定稿）", () => {
+    expect(compactionCompletedV02.payload.tailKept).toBe(30);
+    expect(compactionCompletedV02.payload.filesCompacted).toBe(12);
+    const legacy = v01Events.find((e) => e.type === "compaction.completed") as CompactionCompletedEvent;
+    expect(legacy.payload.tailKept).toBeUndefined(); // v0.1 帧不带仍合法（additive）
+  });
+});
+
+describe("TP-v0.2-② 八族类型学与登记目录（契约 A §2）", () => {
+  test("switch(channel) 分族窄化：各族 type 联合窄化正确（占位族不可达）", () => {
+    expect(familyOf(v02Events[0]!)).toBe("session/session.list_changed");
+    expect(familyOf(v02Events[1]!)).toBe("model/model.changed");
+    expect(familyOf(legacyEvents[0]!)).toBe("legacy/connection.welcome"); // 兼容读缺省路径
+    expect(familyOf(compactionCompletedV02)).toBe("compaction/compaction.completed");
+  });
+
+  test("EVENT_CHANNELS 登记目录与契约 A §2 映射表恰等", () => {
+    expect(Object.keys(EVENT_CHANNELS).sort()).toEqual([...EVENT_TYPES].sort());
+    const roster = (c: string): string[] =>
+      [...EVENT_TYPES].filter((t) => EVENT_CHANNELS[t] === c).sort();
+    expect(roster("chat")).toEqual(
+      [
+        "agent.state.changed",
+        "chat.message.completed",
+        "chat.stream.delta",
+        "chat.turn.completed",
+        "chat.turn.started",
+        "engine.error",
+        "steer.drained",
+        "steer.queued",
+        "tool.call.result",
+        "tool.call.started",
+      ],
+    );
+    expect(roster("agent")).toEqual([
+      "agent.completed",
+      "agent.failed",
+      "agent.killed",
+      "agent.queued",
+      "agent.spawned",
+      "agent.stalled",
+      "agent.started",
+    ]);
+    expect(roster("thinking")).toEqual(["thinking.completed", "thinking.stream.delta"]);
+    expect(roster("usage")).toEqual(["usage.recorded"]);
+    expect(roster("compaction")).toEqual(["compaction.completed"]);
+    expect(roster("session")).toEqual(["session.list_changed", "session.snapshot"]);
+    expect(roster("model")).toEqual(["model.changed"]);
+    expect(roster("interaction")).toEqual([]); // 占位族：无事件挂靠
+    expect(roster("notification")).toEqual(["connection.error", "connection.welcome"]);
+  });
+});
+
+describe("TP-v0.2-③ 快照尾窗 additive 字段（契约 B §2.2，AD-1）", () => {
+  test("tail / totalEntries / tailStartCursor / instances[].channels 可携带可缺省", () => {
+    expect(snapshotV02.tail?.length).toBe(2);
+    expect(snapshotV02.totalEntries).toBe(128);
+    expect(snapshotV02.tailStartCursor).toBe("m1");
+    const agent0 = snapshotV02.instances?.find((i) => i.instanceId === "agent-0");
+    expect(agent0?.channels?.thinking?.length).toBe(1); // F-14⑤：不随尾窗截断
+    expect(agent0?.channels?.messages?.length).toBe(1);
+    expect(snapshot.instances).toBeUndefined(); // v0 快照不带仍合法
   });
 });

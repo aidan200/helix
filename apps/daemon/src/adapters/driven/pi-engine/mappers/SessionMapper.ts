@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Usage, UserMessage } from "@earendil-works/pi-ai";
-import { MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
+// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { EntryData } from "../../../../domain/session/Entry";
 import type { AgentEngineUsage } from "../../../../application/ports/outbound/AgentEnginePort";
 

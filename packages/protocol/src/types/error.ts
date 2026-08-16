@@ -11,4 +11,6 @@ export type ErrorCode =
   | "auth.invalid_token"
   | "protocol.version_unsupported"
   | "command.unknown"
-  | "command.invalid_payload";
+  | "command.invalid_payload"
+  /** v0.2 新增（契约 A 登记批）：命令 type 已在目录中、daemon 行为未落地（T2.x）——占位路由回执，连接保持 */
+  | "command.unimplemented";

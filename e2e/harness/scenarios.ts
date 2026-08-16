@@ -14,7 +14,7 @@ import {
   usageDto,
   type ClientFrame,
 } from "./protocol";
-import type { EntryDto, SessionUsageDto } from "../../packages/protocol/src/index";
+import type { EntryDto, SessionUsageDto } from "@helix/protocol";
 
 // ── S1 多轮流式：富 markdown 回复（加粗/行内 code/列表/代码块）──────
 

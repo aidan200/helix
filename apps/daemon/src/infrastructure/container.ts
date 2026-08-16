@@ -12,7 +12,8 @@ import { RestoreService } from "../application/services/RestoreService";
 import { SchedulerService } from "../application/services/SchedulerService";
 import type { InstanceRunner } from "../application/services/InstanceRunner";
 import { SchedulingPolicy, DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
-import { MAIN_INSTANCE_ID } from "../domain/agent/AgentInstance";
+// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { InstanceSnapshotEntry } from "../application/ports/inbound/SessionPort";
 import {
   aggregateSession,

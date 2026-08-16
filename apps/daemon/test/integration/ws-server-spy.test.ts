@@ -4,7 +4,7 @@ import type { SessionPort, SessionStateView, SessionStreamEvent } from "../../sr
 import type { SystemPort } from "../../src/application/ports/inbound/SystemPort";
 import { WsServerAdapter } from "../../src/adapters/driving/ws-server/WsServerAdapter";
 import { EventStream } from "../../src/adapters/driving/ws-server/EventStream";
-import type { EventEnvelope } from "@helix/protocol";
+import { PROTOCOL_VERSION, type EventEnvelope } from "@helix/protocol";
 
 /**
  * TP-CL6-3（I 半）：编排在 service——ws-server driving 只转发不决策。
@@ -91,7 +91,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       await opened;
 
       // 握手
-      ws.send(JSON.stringify({ v: 0, type: "hello", payload: { token: "spy-token", protocolVersion: 0 } }));
+      ws.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "hello", payload: { token: "spy-token", protocolVersion: PROTOCOL_VERSION } }));
       await until(() => frames.some((f) => f.type === "connection.welcome"));
       // welcome 后快照（取自 SessionPort）
       await until(() => frames.some((f) => f.type === "session.snapshot"));

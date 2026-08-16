@@ -212,10 +212,15 @@ Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重�
   `agent-N`（daemon 内递增序号；持久化基线取 `agent_lifecycle` 已有
   max(N)+1，重启不重复、剧本可预期）。
 - **信封 `instanceId?`**（§3 信封新增可选字段，**仅事件侧使用**）：
-  **缺省 = 主实例（`main`）**——`chat.stream.delta` 等既有事件不携带即归属
-  主线；SubAgent 实例的事件携带对应 instanceId，前端按 id 分流投影
+  **缺省 = 主实例（`main`）**——v0 事件族（`chat.stream.delta` 等）主线事件
+  不携带即归属主线；v0.1 通道族主线事件（`usage.recorded` /
+  `compaction.completed` / `thinking.completed` / `thinking.stream.delta`）
+  由 daemon **显式携带 `instanceId: "main"`**（线格式两种形态均合法，
+  前端等价处理）；SubAgent 实例的事件携带对应 instanceId，前端按 id 分流投影
   （主线增量进消息流；SubAgent 增量只更新卡片 streaming 摘要行，不进消息流）。
   命令不携带实例维度（`agentId` 在 payload 内）。
+  （v0.2 措辞修正回填：本条原文「主线事件缺省不挂 instanceId」对 v0.1
+  通道族不精确——OI-5 处置，iter-20260816-6q6f T1.2。）
 
 ### 10.2 命令目录 v0.1（5 → 8）
 
@@ -314,3 +319,62 @@ interface ClosureDto {
    killed 卡片态（卡片状态机四态不变）。
 3. **stalled 可重复**：`agent.stalled` 非状态迁移（实例仍 running），可随
    idle 持续再次推送；前端仅 running 态显示徽标。
+
+## 11. v0.2 登记批（协议 v0.2；一次 bump）
+
+> 本章为 v0.2 登记（迭代 iter-20260816-6q6f T1.2；集成契约
+> `development/contracts/protocol-v0.2-envelope.md` + `session-commands.md` +
+> `model-auth-commands.md`——实现规范以契约文档为准，本节为导读）。
+> **版本位 bump**：`PROTOCOL_VERSION = "0.2"`（§10 的「版本位不 bump」口径
+> 至 v0.1 为止；v0.2 起版本位为字符串）。handshake 严格单值 fail-fast：
+> `protocolVersion ≠ "0.2"` 即 `protocol.version_unsupported` 拒绝。
+
+### 11.1 帧信封分型（envelope.ts）
+
+- C→S `CommandFrame` / S→C `EventFrame`（v0 的共用 `Envelope` 拆分）。
+- **命令信封 sessionId 路由位**（AD-4，可选）：会话作用域命令必填
+  （chat.* / session.loadHistory / session.delete / session.subscribe /
+  model.set / model.get），全局命令（session.list / model 默认值与目录 /
+  auth.*）省略。
+- **事件信封 sessionId + channel**（AD-3/AD-4，类型层可选、v0.2 daemon
+  运行时必发）：sessionId = 事件归属会话（会话无关系统事件用
+  `SYSTEM_SESSION_ID` 占位）；channel = 事件类型学通道（§11.3）。
+- **兼容红线（信封兼容读）**：新增字段全部可选 + 帧版本位取值域
+  `FrameVersion = 0 | "0.2"`（0 = v0/v0.1 历史帧）——v0/v0.1 形态帧与
+  payload 语义零变更（§10.1 各族 payload 原样）。
+
+### 11.2 常量导出（OI 收口）
+
+| 常量 | 值 | 说明 |
+|---|---|---|
+| `PROTOCOL_VERSION` | `"0.2"` | handshake 协商；harness V 字面量收敛（F-2⑭） |
+| `MAIN_INSTANCE_ID` | `"main"` | 双侧手写收敛（F-2⑬；daemon 经 AgentInstance re-export，shell 随 T3.1） |
+| `SYSTEM_SESSION_ID` | `"__system__"` | 会话无关系统事件（connection.*）sessionId 占位 |
+
+### 11.3 事件类型学（八族 + 系统通道）
+
+`channel` 判别字段按事件登记（events.ts 字面量 + `EVENT_CHANNELS` 运行时
+目录，daemon 下发侧单点消费）：chat（v0 chat 族 10，含 engine.error 热修）/
+agent（编排族 7）/ thinking（2）/ usage（1）/ compaction（1）/ session
+（snapshot + 新增 `session.list_changed`）/ model（新增 `model.changed`）/
+interaction（占位，无事件挂靠）/ notification（connection.* 系统事件）。
+
+### 11.4 命令目录 v0.2（8 → 21）
+
+新增 13：session 族 `session.list` / `session.loadHistory` / `session.delete`
+（+ `session.subscribe` 升级为按会话订阅：信封 sessionId 必填，payload 保持
+空）；model 族 `model.set` / `model.get` / `model.catalog` /
+`model.catalog_refresh` / `model.set_default` / `model.get_default`；auth 族
+`auth.list` / `auth.set_key` / `auth.delete_key` / `auth.verify`。
+payload/响应形状与错误模型见契约 B/C；daemon 行为由 T2.1/T2.2/T2.3 落地
+（登记期未知实现 → `command.unimplemented` 占位回执，新错误码见 §7 注）。
+
+### 11.5 DTO additive 扩展
+
+- `SessionSnapshotDto`：`tail?` / `totalEntries?` / `tailStartCursor?`
+  （AD-1 尾窗口径；尾窗只作用于主时间轴，per-instance channel 分组
+  `instances[].channels?` 完整保留——F-14⑤ 硬约束）。
+- `AgentInstanceDto`：`channels?: InstanceChannelHistory`；`queuedPosition?`
+  （OI-4）与 `model?`（OI-3）v0.1 已登记，v0.2 起快照填充口径成立。
+- `CompactionCompletedPayload`：`tailKept?` / `filesCompacted?`
+  （命名定稿，OI 收口）。

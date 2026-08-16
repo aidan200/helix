@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { PROTOCOL_VERSION } from "@helix/protocol";
 import { domainEventToEnvelope, toSnapshotDto } from "../../src/adapters/driving/ws-server/DtoMapper";
 import { EventStream, type FrameSender } from "../../src/adapters/driving/ws-server/EventStream";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
@@ -46,7 +47,7 @@ describe("T3.1 DtoMapper：通道族事件 → WS 帧", () => {
       payload: { entry: thinkingEntry },
     } as DomainEvent);
     expect(frame).toEqual({
-      v: 0,
+      v: PROTOCOL_VERSION,
       type: "thinking.completed",
       instanceId: "main",
       payload: {
@@ -87,7 +88,7 @@ describe("T3.1 DtoMapper：通道族事件 → WS 帧", () => {
       },
     } as DomainEvent);
     expect(frame).toEqual({
-      v: 0,
+      v: PROTOCOL_VERSION,
       type: "usage.recorded",
       instanceId: "main",
       payload: {
@@ -111,7 +112,7 @@ describe("T3.1 EventStream：thinking delta 流式帧（不落盘通道）", () 
 
     expect(frames).toHaveLength(2);
     expect(frames[0]).toEqual({
-      v: 0,
+      v: PROTOCOL_VERSION,
       type: "thinking.stream.delta",
       instanceId: "main",
       payload: { instanceId: "main", delta: "思" },

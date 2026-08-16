@@ -6,7 +6,8 @@ import type { ClockPort } from "../ports/outbound/ClockPort";
 import { AgentLifecycle, type AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
 import { Session } from "../../domain/session/Session";
 import type { ThinkingEntryData } from "../../domain/session/ThinkingEntry";
-import { MAIN_INSTANCE_ID } from "../../domain/agent/AgentInstance";
+// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { UsageSummary } from "../../domain/session/SessionSnapshot";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { ZERO_USAGE } from "../../domain/session/UsageLedger";

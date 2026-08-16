@@ -9,7 +9,8 @@ import type {
   SessionRepositoryPort,
 } from "../../../application/ports/outbound/SessionRepositoryPort";
 import type { WriteQueue } from "./WriteQueue";
-import { MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
+// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import { rowToDomainEvent, rowsToPersistedState } from "./rows/RowMapper";
 import type {
   AgentLifecycleRow,

@@ -1,19 +1,66 @@
 /**
- * 统一信封与 workspace 路由预留（契约 §3；architecture.md §6.3/§6.4）。
+ * 帧信封（契约 A §1；architecture.md §6.3/§6.4；v0.2 登记：iter-20260816-6q6f T1.2）。
  *
- * v0 全部 C→S / S→C 消息共用一个信封形状；具体命令/事件信封
- * （commands.ts / events.ts / handshake.ts）以 `type` 字面量细分，
- * 构成判别式联合，两端 switch 窄化可用（AD-9：版本位内建）。
+ * v0.2 起帧信封分型：C→S 命令信封（CommandFrame）与 S→C 事件信封（EventFrame）。
+ * 具体命令/事件信封（commands.ts / events.ts）以 `type`（+事件侧 `channel`）
+ * 字面量细分构成判别式联合，两端 switch 窄化可用。
+ *
+ * 兼容红线（契约 A §5，信封兼容读）：新增字段（sessionId / channel）在类型层
+ * 全部可选——v0/v0.1 形态帧（不携带新字段、v 位为 0）在新类型下零修改合法；
+ * v0.2 daemon 运行时对 S→C 事件必发 sessionId/channel（T2.x 落地），payload
+ * 语义与 v0/v0.1 完全一致（AD-3 取代边界）。
  */
 
-/** 协议版本位。v0 全部信封 `v` 恒为 0；升级协议时 bump 此常量并扩类型。 */
-export const PROTOCOL_VERSION = 0 as const;
+/** 协议版本位。v0.2 帧 `v` 恒为 "0.2"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
+export const PROTOCOL_VERSION = "0.2" as const;
+
+/**
+ * 帧版本位取值域："0.2" = v0.2 帧；`0` = v0/v0.1 历史帧（v0.1 未 bump 版本位，
+ * 全部历史帧与既有测试/剧本字面量为 0——信封兼容读的类型面）。
+ * handshake 的 HelloPayload.protocolVersion 不取联合（严格 "0.2" 单值）。
+ */
+export type FrameVersion = 0 | typeof PROTOCOL_VERSION;
+
+/**
+ * 主实例固定 id（OI 收口 / F-2⑬：双侧手写收敛为协议导出常量）。
+ * daemon 侧经 domain/agent/AgentInstance.ts re-export（消费点 import 不变）；
+ * shell 侧改引随 T3.1（session-reducer.ts 本地定义暂留，迭代内收敛）。
+ */
+export const MAIN_INSTANCE_ID = "main" as const;
+
+/**
+ * 会话无关系统级事件的 sessionId 占位（契约 A §3）。
+ * connection.*（notification 通道）事件归属系统而非具体会话，v0.2 daemon
+ * 下发时以本常量填充信封 sessionId（T2.x 落地）。
+ */
+export const SYSTEM_SESSION_ID = "__system__" as const;
+
+/**
+ * 事件类型学通道（契约 A §2；八族数据/会话通道 + notification 系统通道）。
+ *
+ * chat / agent / thinking / usage / compaction 为 v0/v0.1 既有五族归位；
+ * session / model 为 v0.2 新增两族；interaction 为占位族（仅类型定义，
+ * 无事件挂靠）；notification 承载会话无关系统事件（connection.*，
+ * sessionId = SYSTEM_SESSION_ID）。每事件所属 channel 在 events.ts 以
+ * 判别字面量登记（EVENT_CHANNELS 为运行时目录，daemon 下发侧消费）。
+ * 扩展纪律：新增族 = additive，不动分发器（TR-AD-18 同构口径）。
+ */
+export type Channel =
+  | "chat"
+  | "agent"
+  | "thinking"
+  | "usage"
+  | "compaction"
+  | "session"
+  | "model"
+  | "interaction"
+  | "notification";
 
 /**
  * workspace 路由（AD-7 预留）。
  *
  * ⚠️ 当前为预留语义，无路由实现：daemon 全局单例、workspace 是其内部分组
- * 概念，多窗口/workspace 实现留 M3+。本迭代仅类型与信封字段位存在，
+ * 概念，多窗口/workspace 实现留 M3+。仅类型与信封字段位存在，
  * 不含任何 workspaceId 校验/分发行为（见 PROTOCOL.md §3）。
  */
 export interface WorkspaceRoute {
@@ -21,23 +68,59 @@ export interface WorkspaceRoute {
 }
 
 /**
- * 统一信封。`type` 在基类型上为 string；各具体命令/事件信封接口以
- * 字面量收窄 `type` 并实例化 `payload`，联合后即判别式联合。
+ * C→S 命令信封基型（契约 A §1.1）。具体命令信封以 `type` 字面量收窄并
+ * 实例化 `payload`（commands.ts），联合后即判别式联合。
  */
-export interface Envelope<T = unknown> {
-  /** 协议版本位，v0 恒为 0 */
-  v: typeof PROTOCOL_VERSION;
-  /** 消息目录名（如 "chat.send" / "chat.stream.delta"） */
+export interface CommandFrame<T = unknown> {
+  /** 协议版本位（FrameVersion：v0.2 帧 "0.2"；0 = v0/v0.1 历史帧兼容读） */
+  v: FrameVersion;
+  /** 消息目录名（如 "chat.send" / "session.loadHistory"） */
   type: string;
   /** 消息载荷，形状由 type 决定 */
   payload: T;
-  /** workspace 路由预留字段：可选；v0 无路由语义，通常不携带 */
-  workspace?: WorkspaceRoute;
   /**
-   * 实例归属（v0.1 新增，AD-3）：可选；**缺省 = 主实例（"main"）**。
-   * 仅事件侧使用——全部 S→C 事件广播携带，前端按 id 分流投影
-   * （主线进消息流；SubAgent 增量只更新卡片 streaming 行）。
-   * 命令不携带实例维度（见 PROTOCOL.md §10.1）。
+   * 会话路由位（v0.2 新增，AD-4）：**会话作用域命令必填**（chat.* /
+   * session.loadHistory / session.delete / session.subscribe / model.set /
+   * model.get——daemon 按此路由到目标会话）；全局命令（session.list /
+   * model.set_default / model.get_default / auth.*）省略。类型层可选
+   * （v0/v0.1 命令帧不带仍合法），必填纪律由 v0.2 客户端保证。
+   */
+  sessionId?: string;
+  /** 实例归属预留位：命令侧不消费（agentId 在 payload 内；PROTOCOL.md §10.1） */
+  instanceId?: string;
+  /** workspace 路由预留字段：可选；v0.2 仍不消费 */
+  workspace?: WorkspaceRoute;
+}
+
+/**
+ * S→C 事件信封基型（v0.2 统一事件信封，契约 A §1.2；AD-3/AD-4）。
+ * 统一信封即帧信封本身（帧 = 信封）：前端 dispatcher 按 `sessionId` 路由 →
+ * 按 `channel` 分族 → 按 `type` 交消费者注册表。
+ */
+export interface EventFrame<T = unknown> {
+  /** 协议版本位（FrameVersion：v0.2 帧 "0.2"；0 = v0/v0.1 历史帧兼容读） */
+  v: FrameVersion;
+  /**
+   * 事件归属会话（v0.2 新增，AD-4）：S→C 运行时必发——会话无关系统事件
+   * （connection.*）以 SYSTEM_SESSION_ID 占位。类型层可选（信封兼容红线：
+   * v0/v0.1 帧不带仍合法，消费端缺省 = 单会话语义）；v0.2 daemon 下发
+   * 侧必填纪律由 T2.x 落地。
+   */
+  sessionId?: string;
+  /**
+   * 实例归属（v0.1 起）：可选；**缺省 = 主实例（MAIN_INSTANCE_ID）**。
+   * payload 兼容红线优先（v0.1 通道族 payload 内嵌 instanceId 并存保留），
+   * 信封位为路由权威（契约 A §1.2）。
    */
   instanceId?: string;
+  /**
+   * 事件类型学通道（v0.2 新增，AD-3 八族+系统通道）：每事件在 events.ts
+   * 以字面量登记所属族（判别字段）。类型层可选（信封兼容红线）；v0.2
+   * daemon 下发侧必发（EVENT_CHANNELS 单点登记，T2.x 消费）。
+   */
+  channel?: Channel;
+  /** 消息目录名（如 "chat.stream.delta" / "session.list_changed"） */
+  type: string;
+  /** 消息载荷，形状由 type 决定；语义与 v0/v0.1 完全一致（AD-3 取代边界） */
+  payload: T;
 }

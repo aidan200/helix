@@ -9,7 +9,9 @@ import type {
   UsageRecordedPayload,
 } from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
-import { AgentInstance, agentSeqOf, MAIN_INSTANCE_ID, type InstanceState } from "../../domain/agent/AgentInstance";
+import { AgentInstance, agentSeqOf, type InstanceState } from "../../domain/agent/AgentInstance";
+// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "../../domain/session/UsageLedger";
 
 /**

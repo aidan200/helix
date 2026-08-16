@@ -3,7 +3,8 @@ import path from "node:path";
 import { Database, type Statement } from "bun:sqlite";
 import { SCHEMA_SQL } from "./schema";
 import { persistedStateToRows, domainEventToRow } from "./rows/RowMapper";
-import { MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
+// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type { PersistedDomainState } from "../../../application/ports/outbound/SessionRepositoryPort";

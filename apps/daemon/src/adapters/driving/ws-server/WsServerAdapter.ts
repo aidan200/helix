@@ -16,7 +16,7 @@ import type { ChatPort } from "../../../application/ports/inbound/ChatPort";
 import type { SessionPort } from "../../../application/ports/inbound/SessionPort";
 import type { SystemPort } from "../../../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
-import type { AgentStateDto, ConnectionErrorEvent, EventEnvelope } from "@helix/protocol";
+import type { AgentStateDto, ConnectionErrorEvent, EventEnvelope, FrameVersion } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { ServerWebSocket } from "bun";
 import { EventStream, type FrameSender } from "./EventStream";
@@ -139,7 +139,7 @@ export class WsServerAdapter {
   }
 
   private onMessage(ws: ServerWebSocket<ConnState>, data: string | Buffer): void {
-    let envelope: { v: number; type: unknown; payload: unknown };
+    let envelope: { v: FrameVersion | number | string; type: unknown; payload: unknown };
     try {
       envelope = JSON.parse(String(data));
     } catch {
@@ -157,7 +157,7 @@ export class WsServerAdapter {
 
   private handleHandshake(
     ws: ServerWebSocket<ConnState>,
-    envelope: { v: number; type: unknown; payload: unknown },
+    envelope: { v: FrameVersion | number | string; type: unknown; payload: unknown },
   ): void {
     const reject = (code: ConnectionErrorEvent["payload"]["code"], message: string): void => {
       this.sendNow(this.rawSender(ws), {
@@ -211,7 +211,7 @@ export class WsServerAdapter {
 
   private routeCommand(
     ws: ServerWebSocket<ConnState>,
-    envelope: { v: number; type: unknown; payload: unknown },
+    envelope: { v: FrameVersion | number | string; type: unknown; payload: unknown },
   ): void {
     const type = typeof envelope.type === "string" ? envelope.type : "";
     const payload = (envelope.payload ?? {}) as Record<string, unknown>;
@@ -288,6 +288,26 @@ export class WsServerAdapter {
         if (sender) this.deps.events.unsubscribeInstance(sender, payload.agentId);
         return;
       }
+      // ── v0.2 登记占位（契约 B §1 / C §1；iter-20260816-6q6f T1.2）──
+      // 命令 type 已在协议目录登记、daemon 行为由 T2.1/T2.2/T2.3 落地：
+      // 显式 case + command.unimplemented 占位回执（避免 default 兜底误报
+      // command.unknown——区分「目录外」与「已登记未实现」）。既有 8 命令行为不变。
+      case "session.list":
+      case "session.loadHistory":
+      case "session.delete":
+        return this.commandError(ws, type, "command.unimplemented", `命令 ${type} 已登记（v0.2），daemon 行为待实现`);
+      case "model.set":
+      case "model.get":
+      case "model.catalog":
+      case "model.catalog_refresh":
+      case "model.set_default":
+      case "model.get_default":
+        return this.commandError(ws, type, "command.unimplemented", `命令 ${type} 已登记（v0.2），daemon 行为待实现`);
+      case "auth.list":
+      case "auth.set_key":
+      case "auth.delete_key":
+      case "auth.verify":
+        return this.commandError(ws, type, "command.unimplemented", `命令 ${type} 已登记（v0.2），daemon 行为待实现`);
       default:
         this.commandError(ws, type, "command.unknown", `未知命令：${type}`);
     }

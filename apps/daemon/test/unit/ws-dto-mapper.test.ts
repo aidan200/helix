@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { SessionSnapshot } from "../../src/domain/session/SessionSnapshot";
 import type { SessionStateView } from "../../src/application/ports/inbound/SessionPort";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
@@ -151,7 +152,7 @@ describe("② 领域事件 → 协议事件帧", () => {
 
   test("turn.started → chat.turn.started；done/steerDrained → completed；interrupted → aborted", () => {
     const started = domainEventToEnvelope({ ...base, type: "turn.started", payload: { turnId: "t9" } });
-    expect(started).toMatchObject({ v: 0, type: "chat.turn.started", payload: { turnId: "t9" } });
+    expect(started).toMatchObject({ v: PROTOCOL_VERSION, type: "chat.turn.started", payload: { turnId: "t9" } });
 
     const done = domainEventToEnvelope({ ...base, type: "turn.completed", payload: { reason: "done" } });
     expect(done).toMatchObject({ type: "chat.turn.completed", payload: { turnId: "t1", reason: "completed" } });
@@ -262,7 +263,7 @@ describe("③ agent.* 编排生命周期族 → 协议事件帧（T2.3，契约 
       payload: { agentId: "agent-2", task: "调研 X", profileKind: "subagent-worker" },
     });
     expect(spawned).toMatchObject({
-      v: 0,
+      v: PROTOCOL_VERSION,
       type: "agent.spawned",
       instanceId: "agent-2",
       payload: { agentId: "agent-2", task: "调研 X", profileKind: "subagent-worker" },

@@ -9,7 +9,7 @@
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect } from "@playwright/test";
-import type { EventEnvelope } from "../../packages/protocol/src/index";
+import type { EventEnvelope } from "@helix/protocol";
 import { snapshot, welcome, type ClientFrame } from "./protocol";
 
 interface HelixMockGlobal {

@@ -1,6 +1,7 @@
 import type { DomainEvent } from "../../../../domain/events/DomainEvent";
 import type { AgentLifecycleState } from "../../../../domain/agent/AgentLifecycle";
-import { MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
+// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { ToolCallRecordData, ToolCallStatus } from "../../../../domain/tools/ToolCallRecord";
 import type { SessionEntryData } from "../../../../domain/session/SessionSnapshot";
 import type { PersistedDomainState } from "../../../../application/ports/outbound/SessionRepositoryPort";
