@@ -23,6 +23,7 @@ import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type {
   ChatStreamDeltaEvent,
   EventEnvelope,
+  ModelChangedEvent,
   SessionListChangedEvent,
   ThinkingStreamDeltaEvent,
 } from "@helix/protocol";
@@ -126,6 +127,22 @@ export class EventStream implements EventPublisherPort {
         ...(change.sessionId !== undefined ? { sessionId: change.sessionId } : {}),
         ...(change.session !== undefined ? { session: sessionMetaDto(change.session) } : {}),
       },
+    };
+    this.push(frame);
+  }
+
+  /**
+   * model.changed 广播（T2.3 AD-2，契约 C §2.1）：运行期换模生效通知——
+   * channel=model，信封 sessionId = 目标会话（push 按 per-session 订阅路由：
+   * 只有订阅该会话的连接收到）。
+   */
+  broadcastModelChanged(payload: { sessionId: string; model: string; previous: string; effective: "next-turn" }): void {
+    const frame: ModelChangedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: payload.sessionId,
+      channel: "model",
+      type: "model.changed",
+      payload: { ...payload },
     };
     this.push(frame);
   }

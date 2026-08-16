@@ -115,6 +115,8 @@ export class SchedulerService implements AgentOrchestrationPort {
   private readonly queue: string[] = [];
   /** 实例 → task（出队时 launch 入参；报告/观测面留档）。 */
   private readonly tasks = new Map<string, string>();
+  /** spawn 时刻的会话当前模型（T2.3：AgentInstanceDto.model 空槽位填充链——出卡即知）。 */
+  private readonly spawnModels = new Map<string, string>();
   /** 实例 → 最近引擎事件时间戳（epoch ms；stalled 判定输入）。 */
   private readonly lastEventAtMs = new Map<string, number>();
   /** 实例 → 收口 closure（agent_status 摘要/观测面留档；终态后保留）。 */
@@ -176,10 +178,12 @@ export class SchedulerService implements AgentOrchestrationPort {
       .map((instance) => {
         const task = this.tasks.get(instance.instanceId);
         const closure = this.closures.get(instance.instanceId);
+        const model = this.spawnModels.get(instance.instanceId);
         return {
           ...instance.toData(),
           ...(task !== undefined ? { task } : {}),
           ...(closure !== undefined ? { closure } : {}),
+          ...(model !== undefined ? { model } : {}),
         };
       });
   }
@@ -257,7 +261,7 @@ export class SchedulerService implements AgentOrchestrationPort {
    * T2.2（AD-4 多会话）：sessionId 显式入参（实例归属会话；组合根经当前会话
    * 门面/会话绑定工具注入，全局预算不随会话数分裂——TR-AD-11/16）。
    */
-  spawn(sessionId: string, task: string, profileKind?: string): SpawnOutcome {
+  spawn(sessionId: string, task: string, profileKind?: string, model?: string): SpawnOutcome {
     const decision = this.deps.policy.decideSpawn(this.runningCount(), this.queue.length);
     if (decision.action === "reject") {
       return {
@@ -279,11 +283,13 @@ export class SchedulerService implements AgentOrchestrationPort {
     });
     this.registry.registerInstance(instance);
     this.tasks.set(agentId, task);
+    if (model !== undefined) this.spawnModels.set(agentId, model); // T2.3：spawn 时透传当前模型
     // 出卡事件：预算内直跑也会先发 spawned（卡片进入），再由 started 转 running
     this.publish(instance, "agent.spawned", {
       agentId,
       task,
       profileKind: instance.profileKind,
+      ...(model !== undefined ? { model } : {}),
     } satisfies AgentSpawnedPayload);
 
     if (decision.action === "run") {

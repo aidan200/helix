@@ -209,6 +209,7 @@ function instanceDto(entry: InstanceSnapshotEntry, channels?: InstanceChannelHis
     createdAt: entry.createdAt,
     ...(entry.task !== undefined ? { task: entry.task } : {}),
     ...(entry.usage !== undefined ? { usage: usageTotal(entry.usage) } : {}),
+    ...(entry.model !== undefined ? { model: entry.model } : {}),
     ...(channels !== undefined ? { channels } : {}),
     ...(entry.closure !== undefined
       ? {

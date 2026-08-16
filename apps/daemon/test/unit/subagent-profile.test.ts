@@ -7,7 +7,6 @@ import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/pro
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SteerHooks } from "../../src/adapters/driven/pi-engine/runtime/hooks/SteerHooks";
 import { resolveConfigModel, resolveModelSlot } from "../../src/adapters/driven/pi-engine/model-provider";
-import { loadConfig, writeConfig } from "../../src/infrastructure/config";
 
 /**
  * T2.2 单测：SubAgentProfile 结构（AD-2/AD-3）+ AgentProfile.model 槽位与
@@ -110,15 +109,11 @@ describe("resolveConfigModel：config model 解析收束单点（T2.2，F-14）"
     expect(resolved).toEqual(fakeModel);
   });
 
-  test("K4：tmp home config.json 覆写 → loadConfig → resolveConfigModel 全链", () => {
-    const home = mkdtempSync(path.join(tmpdir(), "helix-t22-model-"));
-    tmpDirs.push(home);
-    const file = path.join(home, "config.json");
-    writeConfig(file, { model: "fake/model", apiKeys: { fake: "k" }, port: 7333, maxConcurrent: 3, maxQueued: 8 });
-
-    const config = loadConfig(file);
-    expect(config.model).toBe("fake/model");
-    const resolved = resolveConfigModel(config.model, fakeModels);
+  test("K4：默认模型字符串（T2.3 迁 SQLite 后的组合根入参）→ resolveConfigModel 全链", () => {
+    // T2.3（AD-2）：model 位不在 config.json——组合根从默认模型存储取字符串
+    // （此处直接以字符串模拟 DefaultModelStore.current() 产物）→ 解析单点
+    const defaultModelStr = "fake/model";
+    const resolved = resolveConfigModel(defaultModelStr, fakeModels);
     expect(resolved).toEqual(fakeModel); // 完整对象（此后全链路透传，不再散落读字符串）
   });
 

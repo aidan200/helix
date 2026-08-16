@@ -66,7 +66,7 @@ export interface SessionMeta {
 
 export interface SessionSnapshotDto {
   sessionId: string;
-  /** 展示用模型名（P-1 header 模型徽标；来自 ~/.helix/config.json 的 model） */
+  /** 展示用模型名（P-1 header 模型徽标；T2.3（AD-2）：会话级模型——引擎观测值，缺省回退 SQLite 默认表 + builtin 兜底） */
   model: string;
   agentState: AgentStateDto;
   /** 增量基线序号：快照之后的增量事件续接于此 */

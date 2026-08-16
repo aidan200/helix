@@ -18,7 +18,6 @@ import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { AgentInstance } from "../../src/domain/agent/AgentInstance";
 import type { ChildOutboundLine } from "../../src/adapters/driven/subagent/transport/wire";
 import { createDaemon } from "../../src/infrastructure/container";
-import { writeConfig } from "../../src/infrastructure/config";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { PassThrough } from "node:stream";
 
@@ -294,16 +293,8 @@ describe("⑥ 崩溃检测（exit 非 0 → failed 上报）", () => {
 });
 
 describe("⑧ container 组合根装配（SubagentLauncher 真体接入点）", () => {
-  test("生产路径（config 含 model）→ subagentLauncher 真体装配；skipConfig → 不装配（占位替身）", async () => {
+  test("生产路径（未注入 engine，T2.3 判定重定义）→ subagentLauncher 真体装配；注入 engine（Fake）→ 不装配（占位替身）", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-t22-cont-"));
-    const file = path.join(home, "config.json");
-    writeConfig(file, {
-      model: "anthropic/claude-haiku-4-5", // builtin 目录真实条目（离线解析，无网络）
-      apiKeys: { anthropic: "k" },
-      port: 0,
-      maxConcurrent: 3,
-      maxQueued: 8,
-    });
     const daemon = await createDaemon({
       home,
       port: 0,
@@ -312,7 +303,8 @@ describe("⑧ container 组合根装配（SubagentLauncher 真体接入点）", 
     });
     try {
       expect(daemon.subagentLauncher).toBeInstanceOf(SubagentLauncher); // 真体接入 T2.1 调度
-      expect((daemon.config as { model?: string }).model).toBe("anthropic/claude-haiku-4-5");
+      // T2.3（AD-2）：模型位迁 SQLite 默认表——默认模型可读（builtin 兜底）
+      expect(daemon.model.getDefault().model).toBe("anthropic/claude-sonnet-4-5");
     } finally {
       await daemon.shutdown();
       rmSync(home, { recursive: true, force: true });
@@ -328,7 +320,7 @@ describe("⑧ container 组合根装配（SubagentLauncher 真体接入点）", 
       cliOutput: new PassThrough(),
     });
     try {
-      expect(fake.subagentLauncher).toBeUndefined(); // skipConfig 无 model → 占位替身（T2.1 行为保留）
+      expect(fake.subagentLauncher).toBeUndefined(); // engine 注入 = 测试 Fake 形态 → 占位替身（T2.3 判定）
     } finally {
       await fake.shutdown();
       rmSync(fakeHome, { recursive: true, force: true });

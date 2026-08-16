@@ -74,6 +74,8 @@ export interface FakeAgentEngineOptions {
   defaultReply?: (userText: string) => string;
   /** 全局默认流式分片间隔 ms（剧本回合未自带时生效）。 */
   chunkDelayMs?: number;
+  /** 初始模型 id（T2.3 currentModel/setModel 契约等价面；缺省 undefined）。 */
+  initialModel?: string;
 }
 
 const DEFAULT_CHUNK_DELAY_MS = 8;
@@ -104,6 +106,8 @@ export class FakeAgentEngine implements AgentEnginePort {
   private readonly steerQueue: string[] = [];
   private listener: AgentEngineListener | null = null;
   private toolCallSeq = 0;
+  /** 当前模型（T2.3：setModel 直改可观测——与真引擎 AgentState.model 同构）。 */
+  private model: string | undefined;
 
   /** 全量已发事件（时序断言源：tests 直接对 events 做序断言）。 */
   readonly events: AgentEngineEvent[] = [];
@@ -116,6 +120,7 @@ export class FakeAgentEngine implements AgentEnginePort {
     this.defaultReply =
       options.defaultReply ?? ((userText: string) => `（fake 回复）已收到：${userText.slice(0, 30)}`);
     this.defaultChunkDelayMs = options.chunkDelayMs ?? DEFAULT_CHUNK_DELAY_MS;
+    this.model = options.initialModel;
   }
 
   // ── 状态观测面（§5.4） ────────────────────────────────────
@@ -123,6 +128,17 @@ export class FakeAgentEngine implements AgentEnginePort {
   isStreaming(): boolean {
     return this.streaming;
   }
+
+  // ── T2.3 模型族（port 域内扩面与真引擎契约等价：setModel 即时改观测值） ──
+
+  currentModel(): string | undefined {
+    return this.model;
+  }
+
+  setModel(modelId: string): void {
+    this.model = modelId;
+  }
+
   /** 最近一次 abort 的错误信息（abort 非销毁的观测点）。 */
   get lastErrorMessage(): string | undefined {
     return this.errorMessage;

@@ -113,6 +113,24 @@ export class ChatService implements ChatPort {
   get agentState(): AgentLifecycleState {
     return this.lifecycle.current;
   }
+  /**
+   * 会话当前模型 id（T2.3 AD-2："provider/model-id"；引擎不暴露时
+   * undefined——调用方回退全局默认）。快照/徽标 model 位数据源。
+   */
+  get currentModel(): string | undefined {
+    return this.deps.engine.currentModel?.();
+  }
+  /**
+   * 运行期换模（T2.3 AD-2：经 AgentEnginePort.setModel 域内扩面，下一
+   * turn 生效；per-session——本服务实例即会话维）。引擎不支持即抛错
+   * （不静默吞——调用方可观测）。
+   */
+  setModel(modelId: string): void {
+    if (this.deps.engine.setModel === undefined) {
+      throw new Error(`引擎未实现运行期换模接口（AgentEnginePort.setModel），无法切换到 ${modelId}`);
+    }
+    this.deps.engine.setModel(modelId);
+  }
   /** 聚合只读访问（SessionService 快照取数；组合根接线用）。 */
   get sessionView() {
     return this.session;

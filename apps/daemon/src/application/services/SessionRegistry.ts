@@ -431,6 +431,10 @@ export class SessionRegistry implements SessionDirectoryPort {
           state: runtime.chatService.agentState === "stopped" ? "cancelled" : "running",
           createdAt: session.createdAt,
           usage: runtime.projection.instanceUsage(MAIN_INSTANCE_ID),
+          // T2.3：主实例槽位 = 会话当前模型（引擎可观测面；undefined = 引擎未暴露）
+          ...(runtime.chatService.currentModel !== undefined
+            ? { model: runtime.chatService.currentModel }
+            : {}),
         },
         ...this.deps.scheduler.snapshotInstances(runtime.sessionId).map((instance) => ({
           ...instance,

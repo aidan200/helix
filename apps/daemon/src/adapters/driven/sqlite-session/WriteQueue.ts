@@ -62,6 +62,11 @@ type WriteJob =
       /** T2.2（AD-4）：会话删除——六表按 session_id 清行（删除收口链的删库步）。 */
       readonly kind: "deleteSession";
       readonly sessionId: string;
+    }
+  | {
+      /** T2.3（AD-2）：全局默认模型 upsert（default_model 单行表，无会话维——全局链）。 */
+      readonly kind: "defaultModel";
+      readonly model: string;
     };
 
 export class WriteQueue {
@@ -92,6 +97,7 @@ export class WriteQueue {
   private readonly deleteSessionSteer!: Statement;
   private readonly deleteSessionToolCalls!: Statement;
   private readonly deleteSessionClosures!: Statement;
+  private readonly upsertDefaultModel!: Statement;
 
   constructor(dbPath: string, options: WriteQueueOptions = {}) {
     mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -134,6 +140,10 @@ export class WriteQueue {
     this.deleteSessionSteer = this.db.prepare("DELETE FROM steer_queue WHERE session_id = ?");
     this.deleteSessionToolCalls = this.db.prepare("DELETE FROM tool_calls WHERE session_id = ?");
     this.deleteSessionClosures = this.db.prepare("DELETE FROM closure_records WHERE session_id = ?");
+    this.upsertDefaultModel = this.db.prepare(
+      "INSERT INTO default_model (id, model, updated_at) VALUES (1, ?, ?) " +
+        "ON CONFLICT(id) DO UPDATE SET model = excluded.model, updated_at = excluded.updated_at",
+    );
   }
   /** 读侧共用连接（SqliteSessionRepository 只读 SELECT；写仍唯一走本队列）。 */
   get database(): Database {
@@ -187,6 +197,14 @@ export class WriteQueue {
    */
   deleteSession(sessionId: string): Promise<void> {
     return this.enqueue({ kind: "deleteSession", sessionId });
+  }
+
+  /**
+   * 全局默认模型 upsert 入队（T2.3 AD-2：default_model 单行表；无会话维 →
+   * 全局链 FIFO，与仓间写互不阻塞）。
+   */
+  saveDefaultModel(model: string): Promise<void> {
+    return this.enqueue({ kind: "defaultModel", model });
   }
 
   /** 等待已入队 job 全部落盘（测试/优雅退出用；分仓后 = 全部仓位 drain）。 */
@@ -260,6 +278,10 @@ export class WriteQueue {
       this.deleteSessionSteer.run(job.sessionId);
       this.deleteSessionToolCalls.run(job.sessionId);
       this.deleteSessionClosures.run(job.sessionId);
+      return;
+    }
+    if (job.kind === "defaultModel") {
+      this.upsertDefaultModel.run(job.model, new Date().toISOString());
       return;
     }
     if (job.kind === "closureRecord") {

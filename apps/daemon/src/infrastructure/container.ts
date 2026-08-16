@@ -25,13 +25,18 @@ import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { PiAgentEngineAdapter } from "../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
-import { resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
+import { DEFAULT_MODEL_ID, resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
+import { ModelCatalog } from "../adapters/driven/pi-engine/model-catalog";
+import { DefaultModelStore } from "../adapters/driven/sqlite-session/DefaultModelStore";
+import { AuthStore } from "./auth-store";
+import { ModelService } from "../application/services/ModelService";
+import type { ModelPort } from "../application/ports/inbound/ModelPort";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CoreToolExecutor } from "../adapters/driven/tools/CoreToolExecutor";
 import { WriteQueue, MAIN_AGENT_KIND } from "../adapters/driven/sqlite-session/WriteQueue";
 import { SqliteSessionRepository } from "../adapters/driven/sqlite-session/SqliteSessionRepository";
 import { createPaths, type HelixPaths } from "./paths";
-import { ensureConfigTemplate, loadConfig, type DaemonConfig } from "./config";
+import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig } from "./config";
 import { ensureDevToken } from "./dev-token";
 import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
@@ -83,7 +88,13 @@ export interface DaemonOptions {
   readonly staticDir?: string;
   /** 跳过单例锁（单测并行用；生产不得关闭）。 */
   readonly skipLock?: boolean;
-  /** 跳过 config 加载（FakeAgentEngine 演示不需要真实模型配置）。 */
+  /**
+   * 跳过 config 加载与旧格式迁移（FakeAgentEngine 演示/单测注入；生产不得
+   * 关闭）。T2.3（AD-2）判定重定义：本开关只管 config 文件读面；「真引擎
+   * 模式」（SubagentLauncher 真体装配）改由 options.engine 是否注入判定
+   * ——注入 = 测试 Fake 形态（无子进程），缺省 = 生产（真引擎 + SQLite
+   * 默认模型 + auth.json key 源）。
+   */
   readonly skipConfig?: boolean;
   /** 工具沙箱 cwd 覆盖（测试指向 tmp；缺省为进程工作区）。 */
   readonly toolCwd?: string;
@@ -113,6 +124,8 @@ export interface Daemon {
   readonly subagentLauncher: SubagentLauncher | undefined;
   /** 编排入口（T2.3：spawn/send/status/kill；三工具与 WS 命令的公共回口）。 */
   readonly orchestration: AgentOrchestrationPort;
+  /** 模型/认证管理入口（T2.3 AD-2：model 族与 auth 族命令公共回口）。 */
+  readonly model: ModelPort;
   /** 会话目录入口（T2.2 AD-4：list/loadHistory/delete/草稿/懒加载取数面）。 */
   readonly directory: SessionDirectoryPort;
   /** 多会话容器（T2.2：生命周期编排观测面——测试断言懒加载/卸载用）。 */
@@ -134,11 +147,16 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   const lock: SingletonLock | undefined = options.skipLock ? undefined : acquireSingletonLock(paths.lockPath());
   const logger = createFileLogger(paths.logsDir());
 
-  // 配置：首次创建模板（0600，AG-09）+ 加载（fail-fast）
+  // 配置：首次创建模板（0600，AG-09）+ 加载（T2.3 瘦身：纯运行参数；旧
+  // 格式 model/apiKeys 读入 legacy 由下方迁移落新位）
   ensureConfigTemplate(paths.configPath());
-  const config = options.skipConfig
-    ? { port: 7333, maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent, maxQueued: DEFAULT_SCHEDULING.maxQueued }
+  const loaded = options.skipConfig
+    ? {
+        config: { port: 7333, maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent, maxQueued: DEFAULT_SCHEDULING.maxQueued },
+        legacy: {},
+      }
     : loadConfig(paths.configPath());
+  const config = loaded.config;
 
   // ── 持久化（T1.8）：SQLite WAL + 单写队列（AG-06 唯一写通道；T2.2 分仓） ──
   const writeQueue = new WriteQueue(paths.dbPath(), {
@@ -146,6 +164,26 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   });
   const repository: SessionRepositoryPort = new SqliteSessionRepository(writeQueue);
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
+
+  // ── AD-2 模型模块地基：auth.json / 默认模型表 / 合并目录 ──────────
+  const authStore = new AuthStore(paths.authPath());
+  const defaultModel = new DefaultModelStore(writeQueue, DEFAULT_MODEL_ID);
+  const catalog = new ModelCatalog({ storePath: paths.modelsStorePath() });
+
+  // ── 旧格式迁移（T2.3，一次性，幂等）：config.json 含 model/apiKeys →
+  //    写新位（auth.json / SQLite 默认表）+ config.json 重写瘦身形态 ──
+  if (!options.skipConfig && (loaded.legacy.model !== undefined || loaded.legacy.apiKeys !== undefined)) {
+    const legacy = loaded.legacy;
+    for (const [providerId, apiKey] of Object.entries(legacy.apiKeys ?? {})) {
+      await authStore.setKey(providerId, apiKey);
+    }
+    if (legacy.model !== undefined) await defaultModel.set(legacy.model);
+    writeConfig(paths.configPath(), config);
+    logger.info(
+      `已迁移旧配置：model → SQLite 默认模型表（${legacy.model ?? "无"}）；` +
+        `apiKeys → ${paths.authPath()}（${Object.keys(legacy.apiKeys ?? {}).length} 项）；config.json 已重写瘦身形态`,
+    );
+  }
 
   // ── 事件 fan-out（先建目标容器，服务构造即依赖它） ──────────────
   const publisherTargets: EventPublisherPort[] = [];
@@ -159,22 +197,25 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   };
 
   // ── driven：SubAgent 子进程运行器（T2.2：SubagentLauncher 真体，O-7 候选 A）──
-  // 生产路径（config.model 必填）装配子进程真体（F-14 同一解析单点经 env
-  // 透传子进程）；skipConfig（测试 Fake 模式）无 model 配置 → 退回占位替身
-  // （launch 告警不执行）；options.subagentRunner 为测试注入口。
+  // T2.3（AD-2）装配判定重定义：生产模式 = 未注入 engine（options.engine
+  // 缺省）——真子进程 runner + SQLite 默认模型源 + auth.json key 源；
+  // 测试注入 engine（Fake 形态）→ 不装真体，退回占位告警替身。
+  // options.subagentRunner 为测试注入口（优先级最高）。
   const subagentLauncher =
-    config.model !== undefined
+    options.engine === undefined
       ? new SubagentLauncher({
           profile: SubAgentProfile,
-          model: resolveConfigModel(config.model), // 同一解析单点（F-14）
-          apiKeys: config.apiKeys ?? {},
+          // 注入源切换（T2.3）：默认模型存储现值解析（set_default 后新子进程跟随）
+          model: () => resolveConfigModel(defaultModel.current(), catalog.modelsView()),
+          // 注入源切换（T2.3）：auth.json 现值快照（换 key 后新子进程跟随）
+          apiKeys: () => authStore.apiKeysSnapshot(),
           toolCwd: options.toolCwd ?? process.cwd(),
         })
       : undefined;
   const subagentRunner: InstanceRunner = options.subagentRunner ?? subagentLauncher ?? {
     launch: (instance) =>
       logger.warn(
-        `SubAgent 实例 ${instance.instanceId} 的子进程 runner 未装配（skipConfig 无 model 配置），任务未执行`,
+        `SubAgent 实例 ${instance.instanceId} 的子进程 runner 未装配（测试 Fake 引擎形态），任务未执行`,
       ),
     setCallbacks: () => undefined,
   };
@@ -220,6 +261,13 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   // 会话绑定引擎工厂：测试注入实例 = 全部会话共享（单会话测试形态）；
   // 工厂 = 每会话独立；生产路径 = 真引擎 + 会话绑定工具执行器（编排三工具
   // 回口携带会话归属——agent_spawn 经此路由到目标会话的调度入参）。
+  // T2.3（AD-2）：新会话模型 = 构建期解析当前默认（set_default 后新建
+  // 会话跟随新值；既有会话不跟随——per-session）；apiKey 经 getter 读
+  // auth.json 现值（换 key 下一请求生效）；resolveModelById = 目录活解析
+  // 面（运行期换模 overlay 模型可达）。
+  // currentModelOf：spawn 时透传当前模型（AgentInstanceDto.model 填充链）
+  // ——注册表装配后回填（引擎闭包调用发生在运行时，回填前安全缺省）。
+  let currentModelOf: (sessionId: string) => string | undefined = () => undefined;
   const engineFor =
     typeof options.engine === "function"
       ? options.engine
@@ -227,7 +275,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
         ? () => options.engine as AgentEnginePort
         : (sessionId: string): AgentEnginePort => {
             const sessionOrchestration: AgentOrchestrationPort = {
-              spawn: (task, profileKind) => scheduler.spawn(sessionId, task, profileKind),
+              spawn: (task, profileKind) =>
+                scheduler.spawn(sessionId, task, profileKind, currentModelOf(sessionId)),
               send: (agentId, message) => scheduler.send(agentId, message),
               status: (agentId) => scheduler.status(agentId),
               kill: (agentId) => scheduler.kill(agentId),
@@ -236,11 +285,13 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
               cwd: options.toolCwd ?? process.cwd(),
               orchestration: sessionOrchestration,
             });
-            // F-14 单点：config.model 在此解析为完整 Model 对象（缺配置 fail-fast）
+            // F-14 单点：当前默认模型解析为完整 Model 对象（新会话继承默认）
             return new PiAgentEngineAdapter({
               profile: MainSessionProfile,
-              model: resolveConfigModel(config.model),
-              apiKeys: config.apiKeys ?? {},
+              model: resolveConfigModel(defaultModel.current(), catalog.modelsView()),
+              apiKeys: () => authStore.apiKeysSnapshot(),
+              models: catalog.modelsView(),
+              resolveModelById: (modelId) => resolveConfigModel(modelId, catalog.modelsView()),
               resolveTools: (names) => toolExecutor.resolveTools(names),
             });
           };
@@ -281,6 +332,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   //    读面），当前会话（最近活动）显式热加载（同步读面/CLI 兼容）；restoreLatest
   //    ids.at(-1) 单会话末位语义废弃。首启无持久化 → 新建空会话。 ──
   await registry.initialize();
+
+  // T2.3：currentModelOf 回填（spawn 透传链——注册表装配完成，热会话可观测）
+  currentModelOf = (sessionId: string) => registry.peek(sessionId)?.chatService.currentModel;
 
   // ── services：会话状态入口（当前会话读面，经注册表组装） ──────────
   const sessionService = new SessionService({
@@ -365,6 +419,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 
   let running = true;
   let wsServer: WsServerAdapter | undefined;
+  // T2.3（AD-2）：model 位数据源改会话级（AD-3 model 族）——当前会话
+  // 引擎观测值；冷会话/引擎未暴露 → 全局默认（SQLite 读面 + builtin 兑底）
   const system: SystemPort = {
     getStatus(): DaemonStatus {
       const sessionId = registry.currentSessionId();
@@ -375,7 +431,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
         sessionId,
         // 冷当前会话（被空闲卸载）无执行载体 → idle
         agentState: registry.peek(sessionId)?.chatService.agentState ?? "idle",
-        model: config.model,
+        model: registry.peek(sessionId)?.chatService.currentModel ?? defaultModel.current(),
       };
     },
     async shutdown(): Promise<void> {
@@ -396,18 +452,35 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   const token = ensureDevToken(paths.devTokenPath());
   const staticServe = new StaticServe(options.staticDir ?? config.staticDir);
   // 当前会话绑定编排门面（T2.2）：Daemon.orchestration / WS 编排命令共用——
-  // spawn 携带当前会话归属（既有测试口径不变）；kill/send/status 按 agentId 全局寻址
+  // spawn 携带当前会话归属 + 当前模型透传（T2.3 AgentInstanceDto.model
+  // 填充链）；kill/send/status 按 agentId 全局寻址
   const currentOrchestration: AgentOrchestrationPort = {
-    spawn: (task, profileKind) => scheduler.spawn(registry.currentSessionId(), task, profileKind),
+    spawn: (task, profileKind) =>
+      scheduler.spawn(
+        registry.currentSessionId(),
+        task,
+        profileKind,
+        currentModelOf(registry.currentSessionId()),
+      ),
     send: (agentId, message) => scheduler.send(agentId, message),
     status: (agentId) => scheduler.status(agentId),
     kill: (agentId) => scheduler.kill(agentId),
   };
+  // 模型/认证管理门面（T2.3 AD-2）：WS model.*/auth.* 命令族回口；
+  // model.changed 经 EventStream 广播（channel=model，订阅路由）
+  const modelService = new ModelService({
+    registry,
+    catalog,
+    auth: authStore,
+    defaultModel,
+    onModelChanged: (payload) => eventStream.broadcastModelChanged(payload),
+  });
   const ws = new WsServerAdapter({
     chat: chatRouter,
     directory: registry,
     system,
     orchestration: currentOrchestration, // T2.3：agent.kill 命令链回调度
+    model: modelService, // T2.3（AD-2）：model.*/auth.* 命令族回口
     events: eventStream,
     token,
     port: options.port ?? config.port,
@@ -425,7 +498,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       `；dev token 已写入 ${paths.devTokenPath()}（浏览器侧获取：GET http://127.0.0.1:${ws.port}/helix-dev-token）`,
   );
 
-  logger.info(`daemon 启动：home=${paths.home} model=${config.model ?? "(未配置)"}`);
+  logger.info(`daemon 启动：home=${paths.home} 默认模型=${defaultModel.current()}（模型位已迁 SQLite 默认表 + auth.json，config.json 瘦身）`);
 
   return {
     paths,
@@ -437,6 +510,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     ws,
     subagentLauncher,
     orchestration: currentOrchestration,
+    model: modelService,
     directory: registry,
     registry,
     runCli: () => cli.run(),

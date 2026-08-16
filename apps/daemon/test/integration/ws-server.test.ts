@@ -319,7 +319,7 @@ describe("命令错误回执（不关连接）", () => {
     }
   });
 
-  test("v0.2 已登记命令 → command.unimplemented 占位回执；目录外仍 command.unknown（T1.2）", async () => {
+  test("v0.2 model/auth 族真行为回执（T2.3）：非法载荷回 invalid_payload；目录外仍 command.unknown", async () => {
     const rig = await makeRig();
     const client = new TestClient(rig.url);
     try {
@@ -327,29 +327,50 @@ describe("命令错误回执（不关连接）", () => {
       client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
       await client.expect("session.snapshot");
 
-      // 新命令族占位：已登记未实现（T2.2 后 session 族已落地真行为——
-      // 此处只抽样 model/auth 族占位回执；session 族行为由专门用例覆盖）
-      const newCommands = ["model.set", "model.get", "model.catalog", "model.set_default", "auth.list", "auth.set_key", "auth.verify"];
-      for (const type of newCommands) {
-        client.send({ v: PROTOCOL_VERSION, sessionId: "sess-1", type, payload: type === "model.set" ? { model: "m/x" } : type === "auth.verify" ? { providerId: "p" } : {} });
-      }
-      await new Promise((r) => setTimeout(r, 150));
-      const unimplemented = client.frames.filter((f) => f.type === "connection.error" && f.payload.code === "command.unimplemented");
-      expect(unimplemented).toHaveLength(newCommands.length); // model/auth 族抽样 7 个
-      for (const type of newCommands) {
-        expect(unimplemented.some((f) => String(f.payload.message).includes(type))).toBe(true);
-      }
+      // T2.3（AD-2）：model/auth 族已落地真行为——占位回执（command.unimplemented）
+      // 不再出现；非法载荷/非法值回 command.invalid_payload（中文说明）
+      //（不触发 catalog/verify：二者含真实网络请求，专测在 model-catalog.test）
+      client.send({ v: PROTOCOL_VERSION, sessionId: "sess-x", type: "model.set", payload: { model: "m/x" } });
+      const setErr = await client.waitFor(
+        (f) => f.type === "connection.error" && f.payload.code === "command.invalid_payload" && String(f.payload.message).includes("model.set"),
+        "model.set 非法模型回 invalid_payload",
+      );
+      expect(String(setErr.payload.message)).toMatch(/不在目录/);
+      client.send({ v: PROTOCOL_VERSION, type: "model.set_default", payload: {} });
+      await client.waitFor(
+        (f) => f.type === "connection.error" && f.payload.code === "command.invalid_payload" && String(f.payload.message).includes("model.set_default"),
+        "model.set_default 缺字段回 invalid_payload",
+      );
+      client.send({ v: PROTOCOL_VERSION, type: "auth.set_key", payload: { providerId: "anthropic", apiKey: "" } });
+      await client.waitFor(
+        (f) => f.type === "connection.error" && f.payload.code === "command.invalid_payload" && String(f.payload.message).includes("auth.set_key"),
+        "auth.set_key 空 key 回 invalid_payload（契约 C §1.3）",
+      );
+      client.send({ v: PROTOCOL_VERSION, type: "auth.set_key", payload: { providerId: "no-such-provider", apiKey: "k" } });
+      await client.waitFor(
+        (f) => f.type === "connection.error" && f.payload.code === "command.invalid_payload" && String(f.payload.message).includes("no-such-provider"),
+        "auth.set_key 未知 provider 回 invalid_payload（provider_not_found 语义）",
+      );
 
-      // 目录外命令仍走 unknown 语义（区分「目录外」与「已登记未实现」）
+      // 真实副作用链（结果帧 v0.2 未登记——副作用生效 + daemon 日志，T2.3 finding）：
+      // auth.set_key 真写 auth.json（0600）
+      client.send({ v: PROTOCOL_VERSION, type: "auth.set_key", payload: { providerId: "anthropic", apiKey: "sk-ws-1234" } });
+      await new Promise((r) => setTimeout(r, 200));
+      expect(existsSync(path.join(rig.home, "auth.json"))).toBe(true);
+      const authFile = JSON.parse(readFileSync(path.join(rig.home, "auth.json"), "utf8")) as Record<string, unknown>;
+      expect(authFile.anthropic).toEqual({ type: "api_key", key: "sk-ws-1234" });
+
+      // 目录外命令仍走 unknown 语义
       client.send({ v: PROTOCOL_VERSION, type: "bogus.command", payload: {} });
       await new Promise((r) => setTimeout(r, 100));
       const unknown = client.frames.filter((f) => f.type === "connection.error" && f.payload.code === "command.unknown");
       expect(unknown).toHaveLength(1);
       expect(String(unknown[0]?.payload.message)).toContain("bogus.command");
 
-      // 连接保持：既有命令仍可用
+      // 连接保持：既有命令仍可用（unimplemented 计数恒 0——model/auth 全部真行为）
       client.send({ v: PROTOCOL_VERSION, type: "chat.abort", payload: {} });
       await new Promise((r) => setTimeout(r, 50));
+      expect(client.frames.filter((f) => f.type === "connection.error" && f.payload.code === "command.unimplemented")).toHaveLength(0);
       expect(client.frames.filter((f) => f.type === "connection.error" && f.payload.code === "command.unknown")).toHaveLength(1);
     } finally {
       await client.close();

@@ -369,7 +369,7 @@ describe("K4：maxConcurrent/maxQueued 经 tmp home config.json 覆写生效", (
       );
       // 动态 import 避免与本文件顶部静态导入顺序耦合
       const { loadConfig } = require("../../src/infrastructure/config");
-      const cfg = loadConfig(path.join(home, "config.json"));
+      const cfg = loadConfig(path.join(home, "config.json")).config; // T2.3：{config, legacy} 形态
       expect(cfg.maxConcurrent).toBe(2);
       expect(cfg.maxQueued).toBe(4);
 

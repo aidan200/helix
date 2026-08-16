@@ -9,7 +9,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { AgentRuntime } from "./runtime/AgentRuntime";
 import type { AgentProfile } from "./runtime/AgentProfile";
 import type { AgentRuntimeDeps } from "./runtime/AgentRuntime";
-import { buildModels, createStreamFn, explicitGetApiKey, resolveModelSlot } from "./model-provider";
+import { buildModels, createStreamFn, explicitGetApiKey, resolveModel, resolveModelSlot } from "./model-provider";
 import { stopReasonOf, errorMessageOf, textOfContent, textOfMessage, usageOf } from "./mappers/SessionMapper";
 
 /**
@@ -29,10 +29,18 @@ export interface PiEngineOptions {
    * 未声明则同引用透传本对象（缺省继承，AD-6）。
    */
   readonly model: Model<any>;
-  /** provider → apiKey（config.json 显式传入，AD-11/13）。 */
-  readonly apiKeys: Record<string, string>;
+  /**
+   * provider → apiKey（AD-11/13 显式传值）。T2.3（AD-2）：数据源改 auth.json
+   * ——接受静态表或 getter（getter 每请求读现值，换 key 后下一请求生效）。
+   */
+  readonly apiKeys: Record<string, string> | (() => Record<string, string>);
   /** provider 目录（缺省 builtinModels()；测试注入 fake catalog）。 */
   readonly models?: Models;
+  /**
+   * 运行期换模解析器（T2.3：setModel 按 id 解析完整 Model 对象；组合根
+   * 注入 catalog 活解析面——overlay 刷新后新模型可达；缺省 = 静态 models）。
+   */
+  readonly resolveModelById?: (modelId: string) => Model<any>;
   /** 流式函数覆盖（测试注入 FakeLLM 剧本，M2 级 mock）。 */
   readonly streamFnOverride?: StreamFn;
   /** 工具集装配器（T1.5：CoreToolExecutor.resolveTools，组合根接线）。 */
@@ -44,9 +52,12 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
   private listener: AgentEngineListener | null = null;
   /** 已 steer 的文本（FIFO）：drain 边界的 user 消息据此判别来源。 */
   private readonly steeredTexts: string[] = [];
+  /** setModel 解析面（T2.3：catalog 活解析优先，静态 models 兑底）。 */
+  private readonly resolveById: (modelId: string) => Model<any>;
 
   constructor(options: PiEngineOptions) {
     const models = options.models ?? buildModels();
+    this.resolveById = options.resolveModelById ?? ((id) => resolveModel(models, id));
     this.runtime = new AgentRuntime(options.profile, {
       streamFn: options.streamFnOverride ?? createStreamFn(models),
       model: resolveModelSlot(options.profile.model, options.model, models),
@@ -87,6 +98,20 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
 
   isStreaming(): boolean {
     return this.runtime.isStreaming();
+  }
+
+  /** 当前模型 id（T2.3 可观测面：快照/徽标 model 位数据源）。 */
+  currentModel(): string {
+    const m = this.runtime.stateModel;
+    return `${m.provider}/${m.id}`;
+  }
+
+  /**
+   * 运行期换模（T2.3 AD-2）：按 id 解析完整 Model（目录/catalog 面）后
+   * 直改 AgentState.model——下一 turn 生效，in-flight run 不受影响。
+   */
+  setModel(modelId: string): void {
+    this.runtime.setModel(this.resolveById(modelId));
   }
 
   /** pi AgentEvent → port 引擎事件（时序契约 §5 等价的真引擎侧）。 */

@@ -22,6 +22,7 @@ import type { SessionChatPort } from "../../../application/ports/inbound/ChatPor
 import type { SystemPort } from "../../../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import type { SessionDirectoryPort } from "../../../application/ports/inbound/SessionDirectoryPort";
+import type { ModelPort } from "../../../application/ports/inbound/ModelPort";
 import type {
   AgentStateDto,
   ConnectionErrorEvent,
@@ -64,6 +65,13 @@ export interface WsServerAdapterDeps {
   readonly system: SystemPort;
   /** 编排入口（T2.3）：agent.kill 终止链回 SchedulerService（只转发不决策）。 */
   readonly orchestration: AgentOrchestrationPort;
+  /**
+   * 模型/认证管理入口（T2.3 AD-2）：model 族与 auth 族命令回口（只转发
+   * 不决策）。注：v0.2 协议事件目录未登记这些命令的 result 帧（登记批
+   * 待补）——除 model.set（ack = model.changed 广播）外，命令副作用真实
+   * 生效、结果值暂记 daemon 日志（finding 已登记）。
+   */
+  readonly model: ModelPort;
   /** 事件流（组合根构造并装配进 fan-out 的 EventPublisherPort 实现）。 */
   readonly events: EventStream;
   /** 本次启动生成的 dev token（与 <home>/dev-token 文件内容一致）。 */
@@ -437,19 +445,111 @@ export class WsServerAdapter {
         if (sender) this.deps.events.unsubscribeInstance(sender, payload.agentId);
         return;
       }
-      // ── v0.2 登记占位（契约 C §1；iter-20260816-6q6f T1.2）──
-      case "model.set":
-      case "model.get":
-      case "model.catalog":
-      case "model.catalog_refresh":
-      case "model.set_default":
-      case "model.get_default":
-        return this.commandError(ws, type, "command.unimplemented", `命令 ${type} 已登记（v0.2），daemon 行为待实现（T2.3）`);
-      case "auth.list":
-      case "auth.set_key":
-      case "auth.delete_key":
-      case "auth.verify":
-        return this.commandError(ws, type, "command.unimplemented", `命令 ${type} 已登记（v0.2），daemon 行为待实现`);
+      // ── v0.2 model 族（T2.3 AD-2，契约 C §1；真行为回口） ──────────
+      case "model.set": {
+        // 会话作用域命令：信封 sessionId（per-session）；缺省回退当前会话（v0 兼容读）
+        const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
+        if (typeof payload.model !== "string" || payload.model.trim() === "") {
+          return this.commandError(ws, type, "command.invalid_payload", "payload.model 应为非空 string（\"provider/model-id\"）");
+        }
+        // ack = model.changed 广播（ModelService 内发；订阅该会话的连接即时收到
+        // model/previous/effective——契约 C §1.1「即时 ack + 广播」）
+        void this.deps.model
+          .setModel(sid ?? this.deps.system.getStatus().sessionId, payload.model)
+          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
+        return;
+      }
+      case "model.get": {
+        const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
+        void this.deps.model
+          .getModel(sid ?? this.deps.system.getStatus().sessionId)
+          .then((info) => console.info(`[ws] model.get（结果帧未登记，仅日志）：${JSON.stringify(info)}`))
+          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
+        return;
+      }
+      case "model.catalog": {
+        void this.deps.model
+          .catalog()
+          .then((snapshot) => console.info(`[ws] model.catalog（结果帧未登记，仅日志）：${snapshot.models.length} 模型，source=${snapshot.source}`))
+          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
+        return;
+      }
+      case "model.catalog_refresh": {
+        void this.deps.model
+          .catalogRefresh()
+          .then((snapshot) =>
+            console.info(
+              `[ws] model.catalog_refresh（结果帧未登记，仅日志）：${snapshot.models.length} 模型，source=${snapshot.source}` +
+                (snapshot.degraded.length > 0 ? `，降级：${snapshot.degraded.slice(0, 3).join("; ")}${snapshot.degraded.length > 3 ? " …" : ""}` : ""),
+            ),
+          )
+          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
+        return;
+      }
+      case "model.set_default": {
+        if (typeof payload.model !== "string" || payload.model.trim() === "") {
+          return this.commandError(ws, type, "command.invalid_payload", "payload.model 应为非空 string（\"provider/model-id\"）");
+        }
+        void this.deps.model
+          .setDefault(payload.model)
+          .then((r) => console.info(`[ws] model.set_default（结果帧未登记，仅日志）：${r.previous} → ${payload.model}`))
+          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
+        return;
+      }
+      case "model.get_default": {
+        const r = this.deps.model.getDefault();
+        console.info(`[ws] model.get_default（结果帧未登记，仅日志）：${r.model}`);
+        return;
+      }
+      // ── v0.2 auth 管理族（T2.3 AD-2，契约 C §1.3；真行为回口） ──────
+      case "auth.list": {
+        void this.deps.model
+          .authList()
+          .then((providers) =>
+            console.info(
+              `[ws] auth.list（结果帧未登记，仅日志）：${providers.length} providers，已配置 ${providers.filter((x) => x.configured).length}`,
+            ),
+          )
+          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
+        return;
+      }
+      case "auth.set_key": {
+        if (typeof payload.providerId !== "string" || payload.providerId === "") {
+          return this.commandError(ws, type, "command.invalid_payload", "payload.providerId 应为非空 string");
+        }
+        if (typeof payload.apiKey !== "string" || payload.apiKey.trim() === "") {
+          return this.commandError(ws, type, "command.invalid_payload", "payload.apiKey 应为非空 string（空值 = 协议层 error，契约 C §1.3）");
+        }
+        void this.deps.model
+          .authSetKey(payload.providerId, payload.apiKey)
+          .then((r) => console.info(`[ws] auth.set_key（结果帧未登记，仅日志）：${payload.providerId} → ${r.keyMasked}`))
+          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
+        return;
+      }
+      case "auth.delete_key": {
+        if (typeof payload.providerId !== "string" || payload.providerId === "") {
+          return this.commandError(ws, type, "command.invalid_payload", "payload.providerId 应为非空 string");
+        }
+        void this.deps.model
+          .authDeleteKey(payload.providerId)
+          .then(() => console.info(`[ws] auth.delete_key（结果帧未登记，仅日志）：${payload.providerId} 已移除`))
+          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
+        return;
+      }
+      case "auth.verify": {
+        if (typeof payload.providerId !== "string" || payload.providerId === "") {
+          return this.commandError(ws, type, "command.invalid_payload", "payload.providerId 应为非空 string");
+        }
+        void this.deps.model
+          .authVerify(payload.providerId)
+          .then((r) =>
+            console.info(
+              `[ws] auth.verify（结果帧未登记，仅日志）：${payload.providerId} ${r.status === "ok" ? `ok（${r.latencyMs}ms）` : `fail（${r.reason}）`}`,
+            ),
+          )
+          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
+        return;
+      }
       default:
         this.commandError(ws, type, "command.unknown", `未知命令：${type}`);
     }
@@ -474,6 +574,16 @@ export class WsServerAdapter {
       this.commandError(ws, type, "session.not_found", (err as Error).message);
       return undefined;
     }
+  }
+
+  /**
+   * 模型/认证命令错误映射（契约 C §4 语义；专用错误码 v0.2 未登记 →
+   * command.invalid_payload 携带中文说明；会话不存在 → session.not_found）。
+   */
+  private modelErrorCode(err: Error): ConnectionErrorEvent["payload"]["code"] {
+    const name = (err as Error).name;
+    if (name === "SessionNotFoundError") return "session.not_found";
+    return "command.invalid_payload";
   }
 
   private commandError(

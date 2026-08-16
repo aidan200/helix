@@ -108,4 +108,16 @@ export interface AgentEnginePort {
   abort(): void;
   /** 是否正在 run 中。 */
   isStreaming(): boolean;
+  /**
+   * 当前模型 id（"provider/model-id"；T2.3 模型族可观测面——徽标/快照
+   * model 位数据源）。未实现/引擎未装配模型 → undefined（调用方回退默认）。
+   */
+  currentModel?(): string | undefined;
+  /**
+   * 运行期换模（T2.3 AD-2：AgentState.model 直改，下一 turn 生效——
+   * in-flight run 不受影响（run 级 loop config 已快照模型）；不走
+   * prepareNextTurn 链（CompactionHook 占用且首个非空短路）。实现体在
+   * pi-engine 域（TR-AD-2 域内扩 port 面）。
+   */
+  setModel?(modelId: string): void;
 }

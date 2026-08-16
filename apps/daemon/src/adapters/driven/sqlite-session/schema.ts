@@ -13,7 +13,9 @@
  * - steer_queue：steer 待注入队列投影（未消费项）；
  * - tool_calls：工具调用记录投影（pending/running/completed/failed 全态，挂实例）；
  * - closure_records：实例收口记录行（T2.3 O-5 任务报告本体：closure 五字段
- *   + findings JSON；每收口一行，追加重语义）。
+ *   + findings JSON；每收口一行，追加重语义）；
+ * - default_model：全局默认模型单行表（AD-2 auth 分层：经常变的状态不进
+ *   JSON，进 SQLite；id 固定 1 行，CHECK 约束钉死单值）。
  *
  * iter-20260816-uzvg T1.2 演进：agent_instance_id / instance_id 列与复合 PK；
  * DEFAULT 'main' = 主实例固定 id（O-4），与旧行回填常量同源（O-3）。
@@ -86,4 +88,10 @@ CREATE TABLE IF NOT EXISTS closure_records (
 );
 CREATE INDEX IF NOT EXISTS idx_closure_records_session ON closure_records(session_id);
 CREATE INDEX IF NOT EXISTS idx_closure_records_agent ON closure_records(session_id, agent_id);
+
+CREATE TABLE IF NOT EXISTS default_model (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  model TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `;

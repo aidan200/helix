@@ -19,6 +19,10 @@ export interface HelixPaths {
   readonly home: string;
   /** 主配置文件：`<home>/config.json`。 */
   readonly configPath: () => string;
+  /** provider API key 凭据文件：`<home>/auth.json`（AD-2 auth 分层，0600+文件锁）。 */
+  readonly authPath: () => string;
+  /** ModelCatalog 落盘兑底缓存：`<home>/models-store.json`（AD-2 目录 overlay 持久化）。 */
+  readonly modelsStorePath: () => string;
   /** dev token 固定文件：`<home>/dev-token`（WS 握手用）。 */
   readonly devTokenPath: () => string;
   /** 运行日志目录：`<home>/logs/`。 */
@@ -45,6 +49,8 @@ export function createPaths(explicitHome?: string): HelixPaths {
   return {
     home,
     configPath: () => path.join(home, "config.json"),
+    authPath: () => path.join(home, "auth.json"),
+    modelsStorePath: () => path.join(home, "models-store.json"),
     devTokenPath: () => path.join(home, "dev-token"),
     logsDir: () => path.join(home, "logs"),
     dbPath: () => path.join(home, "helix.db"),

@@ -243,7 +243,15 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
         expect(isSchema, `${rel} 出现 closure_records DDL（只允许 schema.ts）`).toBe(true);
       }
       if (/renameSync/.test(src)) {
-        expect(isWriteQueue, `${rel} 出现原子替换写（reportFile 专属，只允许 WriteQueue）`).toBe(true);
+        // T2.3（AD-2）：原子替换写新增两合法面——auth.json（infrastructure/
+        // auth-store.ts，0600+锁）与 models-store.json（pi-engine/model-
+        // catalog.ts 落盘兑底）；SQLite reportFile 原子写仍只允许 WriteQueue
+        const isAuthStore = rel === path.join("infrastructure", "auth-store.ts");
+        const isModelCatalog = rel === path.join("adapters", "driven", "pi-engine", "model-catalog.ts");
+        expect(
+          isWriteQueue || isAuthStore || isModelCatalog,
+          `${rel} 出现原子替换写（只允许 WriteQueue reportFile / auth-store / model-catalog）`,
+        ).toBe(true);
       }
     }
     // 两写面真实存在（扫描面与实现同步扩——防扫描空转）
