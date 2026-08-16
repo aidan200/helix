@@ -227,6 +227,34 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     expect(src.match(/new\s+WriteQueue\(/g)?.length).toBe(1);
     expect(src.match(/new\s+SqliteSessionRepository\(/g)?.length).toBe(1);
   });
+
+  test("③ T2.3 closure 写面收敛：closure_records/reports 写语句只在 WriteQueue，DDL 只在 schema", () => {
+    // closure_records 的 SQL 写语句（INSERT/DELETE/UPDATE）只允许 WriteQueue；
+    // DDL 只允许 schema.ts；服务层注释提及表名不算写点（扫 SQL 而非词面）
+    const closureSql = /(INSERT\s+INTO|DELETE\s+FROM|UPDATE)\s+closure_records/i;
+    for (const rel of listFiles(srcRoot)) {
+      const src = read(rel);
+      const isWriteQueue = rel === writeQueueRel;
+      const isSchema = rel === path.join("adapters", "driven", "sqlite-session", "schema.ts");
+      if (closureSql.test(src)) {
+        expect(isWriteQueue, `${rel} 出现 closure_records SQL 写语句（只允许 WriteQueue）`).toBe(true);
+      }
+      if (/CREATE\s+TABLE[^;]*closure_records/i.test(src)) {
+        expect(isSchema, `${rel} 出现 closure_records DDL（只允许 schema.ts）`).toBe(true);
+      }
+      if (/renameSync/.test(src)) {
+        expect(isWriteQueue, `${rel} 出现原子替换写（reportFile 专属，只允许 WriteQueue）`).toBe(true);
+      }
+    }
+    // 两写面真实存在（扫描面与实现同步扩——防扫描空转）
+    const wq = read(writeQueueRel);
+    expect(wq).toContain('"closureRecord"');
+    expect(wq).toContain('"reportFile"');
+    expect(wq).toContain("INSERT INTO closure_records");
+    expect(read(path.join("adapters", "driven", "sqlite-session", "schema.ts"))).toContain(
+      "CREATE TABLE IF NOT EXISTS closure_records",
+    );
+  });
 });
 
 describe("AG-08：与环境变量无缘（apiKeys 只来自 config.json）", () => {

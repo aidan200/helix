@@ -1,4 +1,5 @@
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
+import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type {
   InstanceState,
   PersistedDomainState,
@@ -14,6 +15,20 @@ import type {
   SteerQueueRow,
   ToolCallRow,
 } from "./rows/Rows";
+
+/** closure_records 行投影（读面；findings 为 JSON 串，由消费方解析）。 */
+export interface ClosureRecordRow {
+  readonly id: number;
+  readonly session_id: string;
+  readonly agent_id: string;
+  readonly result: "done" | "failed" | "killed";
+  readonly status: "done" | "failed";
+  readonly summary: string;
+  readonly report_path: string | null;
+  readonly findings: string | null;
+  readonly task_id: string | null;
+  readonly created_at: string;
+}
 
 /**
  * SqliteSessionRepository —— SessionRepositoryPort 的 SQLite 实现
@@ -81,6 +96,35 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
   /** 实例生命周期投影行（T2.1 调度器写面：经 WriteQueue 单写通道串行落盘）。 */
   async saveAgentLifecycle(sessionId: string, instanceId: string, state: InstanceState): Promise<void> {
     await this.queue.saveAgentLifecycle(sessionId, instanceId, state);
+  }
+
+  /** closure 记录行（T2.3 O-5 任务报告本体；追加重，经单写通道）。 */
+  async saveClosureRecord(
+    sessionId: string,
+    agentId: string,
+    result: "done" | "failed" | "killed",
+    closure: InstanceClosurePayload,
+  ): Promise<void> {
+    await this.queue.saveClosureRecord(sessionId, agentId, result, closure);
+  }
+
+  /** 报告文件产物（T2.3 O-5：markdown 摘要+findings；同队列原子写）。 */
+  async saveReportFile(reportPath: string, content: string): Promise<void> {
+    await this.queue.saveReportFile(reportPath, content);
+  }
+
+  /** closure 记录行读面（按会话/实例过滤，落盘序；重启恢复/T2.4 读入点）。 */
+  queryClosureRecords(sessionId: string, agentId?: string): ClosureRecordRow[] {
+    const sql =
+      "SELECT id, session_id, agent_id, result, status, summary, report_path, findings, task_id, created_at " +
+      "FROM closure_records WHERE session_id = ?" + (agentId !== undefined ? " AND agent_id = ?" : "") +
+      " ORDER BY id";
+    const stmt = this.queue.database.prepare(sql);
+    const rows =
+      agentId !== undefined
+        ? (stmt.all(sessionId, agentId) as unknown as ClosureRecordRow[])
+        : (stmt.all(sessionId) as unknown as ClosureRecordRow[]);
+    return rows;
   }
 
   /** 四维过滤查询（trace 数据面，v0 无对外 API——内部能力 + 测试证明）。 */

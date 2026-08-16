@@ -4,10 +4,17 @@
  * entryId 指向 Session 内已落地的 user entry（isSteer=true），
  * text 是注入内容——两者一起进队列，drain 方既知道注入什么、也知道关联哪条 entry
  * （前端 steer 徽标「已入队 → 已注入」的两态都靠 entryId 观测）。
+ *
+ * T2.3 +source：注入来源可区分（AD-8 双通道）——user=用户输入转投；
+ * closure=SubAgent 收口注入（`agent-N closure: …`，下轮 turn 边界 drain
+ * 驱动 MainAgent 新 turn）。FIFO 机制不变（同队列同语义，只加来源字段）。
+ * 注：source 不进 SQLite 投影行（重启后未消费项回填为无来源语义，恢复归 T2.4）。
  */
 export interface SteerItem {
   readonly entryId: string;
   readonly text: string;
+  /** 注入来源（缺省 user——旧调用方/恢复重建兼容）。 */
+  readonly source?: "user" | "closure";
 }
 
 /**
@@ -51,7 +58,7 @@ export class SteerQueue {
   /** 恢复用：从快照重建（重启后未消费的 steer 仍可注入，spike ④）。 */
   static fromData(items: SteerItem[]): SteerQueue {
     const q = new SteerQueue();
-    for (const i of items) q.enqueue({ entryId: i.entryId, text: i.text });
+    for (const i of items) q.enqueue({ ...i }); // 全字段保留（含 source——closure 注入重建后仍可区分）
     return q;
   }
 }

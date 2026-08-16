@@ -1,10 +1,11 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Database, type Statement } from "bun:sqlite";
 import { SCHEMA_SQL } from "./schema";
 import { persistedStateToRows, domainEventToRow } from "./rows/RowMapper";
 import { MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
+import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type { PersistedDomainState } from "../../../application/ports/outbound/SessionRepositoryPort";
 
 /**
@@ -40,6 +41,21 @@ type WriteJob =
       readonly sessionId: string;
       readonly instanceId: string;
       readonly state: string;
+    }
+  | {
+      /** T2.3 O-5：closure 记录行（任务报告本体，SQLite 追加行）。 */
+      readonly kind: "closureRecord";
+      readonly sessionId: string;
+      readonly agentId: string;
+      readonly result: "done" | "failed" | "killed";
+      readonly closure: InstanceClosurePayload;
+      readonly occurredAt: string;
+    }
+  | {
+      /** T2.3 O-5：reportPath 文件产物（markdown；TR-AD-13 同队列原子写）。 */
+      readonly kind: "reportFile";
+      readonly reportPath: string;
+      readonly content: string;
     };
 
 export class WriteQueue {
@@ -56,6 +72,7 @@ export class WriteQueue {
   private readonly insertSteer!: Statement;
   private readonly clearToolCalls!: Statement;
   private readonly insertToolCall!: Statement;
+  private readonly insertClosureRecord!: Statement;
 
   constructor(dbPath: string, options: WriteQueueOptions = {}) {
     mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -88,6 +105,10 @@ export class WriteQueue {
       "INSERT INTO tool_calls (id, session_id, instance_id, tool_name, args, status, result, error, started_at, ended_at) " +
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
+    this.insertClosureRecord = this.db.prepare(
+      "INSERT INTO closure_records (session_id, agent_id, result, status, summary, report_path, findings, task_id, created_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
   }
   /** 读侧共用连接（SqliteSessionRepository 只读 SELECT；写仍唯一走本队列）。 */
   get database(): Database {
@@ -110,6 +131,29 @@ export class WriteQueue {
    */
   saveAgentLifecycle(sessionId: string, instanceId: string, state: string): Promise<void> {
     return this.enqueue({ kind: "agentLifecycle", sessionId, instanceId, state });
+  }
+
+  /**
+   * closure 记录行入队（T2.3 O-5：任务报告本体 SQLite 行，追加重；
+   * findings 保 JSON，重启后经读面完整可读）。
+   */
+  saveClosureRecord(
+    sessionId: string,
+    agentId: string,
+    result: "done" | "failed" | "killed",
+    closure: InstanceClosurePayload,
+    occurredAt: string = new Date().toISOString(),
+  ): Promise<void> {
+    return this.enqueue({ kind: "closureRecord", sessionId, agentId, result, closure, occurredAt });
+  }
+
+  /**
+   * 报告文件产物入队（T2.3 O-5：markdown 摘要+findings 落
+   * <home>/reports/<session>/<agentId>.md；与 SQLite 写同链串行——
+   * tmp 写入 + rename 原子替换，崩溃不留半文件）。
+   */
+  saveReportFile(reportPath: string, content: string): Promise<void> {
+    return this.enqueue({ kind: "reportFile", reportPath, content });
   }
 
   /** 等待已入队 job 全部落盘（测试/优雅退出用）。 */
@@ -144,6 +188,26 @@ export class WriteQueue {
   private apply(job: WriteJob): void {
     if (job.kind === "agentLifecycle") {
       this.upsertLifecycle.run(job.sessionId, job.instanceId, job.state, new Date().toISOString());
+      return;
+    }
+    if (job.kind === "closureRecord") {
+      this.insertClosureRecord.run(
+        job.sessionId,
+        job.agentId,
+        job.result,
+        job.closure.status,
+        job.closure.summary,
+        job.closure.reportPath ?? null,
+        job.closure.findings === null || job.closure.findings === undefined ? null : JSON.stringify(job.closure.findings),
+        job.closure.taskId ?? null,
+        job.occurredAt,
+      );
+      return;
+    }
+    if (job.kind === "reportFile") {
+      mkdirSync(path.dirname(job.reportPath), { recursive: true });
+      writeFileSync(`${job.reportPath}.tmp`, job.content, "utf8");
+      renameSync(`${job.reportPath}.tmp`, job.reportPath); // 同目录 rename 原子替换
       return;
     }
     if (job.kind === "event") {

@@ -65,14 +65,19 @@ export class Session {
     return this.pushEntry("assistant", text, turn.id, false, at, reservedId);
   }
 
-  /** 运行中注入 steer：落 isSteer entry + 入 SteerQueue（drain 前 domain 可观测）。 */
-  applySteer(text: string, at?: string): Entry {
+  /**
+   * 运行中注入 steer：落 isSteer entry + 入 SteerQueue（drain 前 domain 可观测）。
+   * T2.3 source：注入来源标记（user=用户输入；closure=SubAgent 收口注入，AD-8）。
+   */
+  applySteer(text: string, at?: string, source?: "user" | "closure"): Entry {
     const turn = this.requireOpenTurn("applySteer");
     if (!turn.isSteerable()) {
       throw new DomainError(`轮次 ${turn.id} 状态 ${turn.status} 不允许注入 steer（须为 generating/toolRunning）`);
     }
     const entry = this.pushEntry("user", text, turn.id, true, at);
-    this.steerQueue.enqueue({ entryId: entry.id, text });
+    // source 仅 closure 注入携带（用户 steer 保持旧形状——快照/投影行往返等价）；
+    // T2.3：SubAgent 收口注入与用户输入同队列可区分（AD-8 双通道）
+    this.steerQueue.enqueue({ entryId: entry.id, text, ...(source !== undefined ? { source } : {}) });
     return entry;
   }
 

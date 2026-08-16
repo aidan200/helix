@@ -111,7 +111,17 @@ interface LoopHarness {
 
 function makeHarness(scripts: ScriptEntry[]): LoopHarness {
   const cwd = mkdtempSync(join(tmpdir(), "helix-t15-loop-"));
-  const executor = new CoreToolExecutor({ cwd });
+  const executor = new CoreToolExecutor({
+    cwd,
+    orchestration: {
+      // T2.3：MainSessionProfile 声明编排三工具——工具循环测试不驱动调度，
+      // 注入 no-op 编排口保持 resolveTools 可装配
+      spawn: () => ({ status: "rejected", error: "工具循环测试不驱动调度" }),
+      send: () => ({ delivered: false, detail: "工具循环测试不驱动调度" }),
+      status: () => [],
+      kill: () => ({ killed: false, error: "工具循环测试不驱动调度" }),
+    },
+  });
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,
     model: fakeModel,

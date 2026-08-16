@@ -36,6 +36,10 @@ import type {
  *   Turn 置 interrupted、生命周期回 idle——**abort 非销毁**，后续
  *   sendMessage 正常开新轮（spike §2 场景 2 实测语义）。
  *
+ *   closure 注入（T2.3 injectClosure，AD-8 双通道之一；组合根接
+ *   SchedulerService 收口回调）：SubAgent 收口消息与用户 steer 同队列
+ *   同语义——idle 立即新 turn / running 下轮 turn 边界 drain（FIFO 保序）。
+ *
  * 【状态所有权】（AD-16）：Session/AgentLifecycle/SteerQueue/ToolCallRecord
  * 全部聚合在 domain，本服务只编排不改写规则；引擎侧状态（pi Agent.state）
  * 仅经事件回流投影到聚合。流式中间态（delta）不是领域事件、不落盘。
@@ -184,6 +188,47 @@ export class ChatService implements ChatPort {
     if (this.lifecycle.current === "running" || this.lifecycle.current === "steering") {
       this.setLifecycle("aborting");
       this.deps.engine.abort();
+    }
+  }
+
+  /**
+   * closure 注入主线（T2.3，AD-8 双通道之一；组合根接 SchedulerService
+   * 的 injectClosure 回调，非 ChatPort 成员——不面向 driving 侧）：
+   * - idle：立即触发新 turn（注入消息作为新 turn 输入，等价即刻 drain）；
+   * - running/steering：与用户 steer 同队列同语义入队（source=closure，
+   *   FIFO 保序，下轮 turn 边界 drain）；
+   * - aborting/stopped：无法注入（abort 收尾窗口/已停机），可观测丢弃。
+   *
+   * 同步方法（调度侧收口回调链不 await）；新 turn 驱动异步火灾不管（fire-
+   * and-forget），异常经 engine.error 可观测不崩会话。
+   */
+  injectClosure(text: string): void {
+    switch (this.lifecycle.current) {
+      case "idle":
+        void this.sendMessage(text).catch((err) => {
+          this.publish("engine.error", { message: `closure 注入失败：${(err as Error).message}` });
+        });
+        return;
+      case "running":
+      case "steering": {
+        try {
+          const entry = this.session.applySteer(text, this.now(), "closure");
+          if (this.lifecycle.current === "running") {
+            this.setLifecycle("steering"); // 同用户 steer：有注入待 drain
+          }
+          this.publish<SteerPayload>("steer.queued", { entryId: entry.id, text });
+          this.deps.engine.steer(text);
+        } catch (err) {
+          this.publish("engine.error", { message: `closure 注入失败：${(err as Error).message}` });
+        }
+        return;
+      }
+      case "aborting":
+      case "stopped":
+        this.publish("engine.error", {
+          message: `closure 注入被丢弃（生命周期 ${this.lifecycle.current}）：${text.slice(0, 80)}`,
+        });
+        return;
     }
   }
 

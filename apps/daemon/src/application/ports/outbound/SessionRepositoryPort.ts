@@ -1,6 +1,7 @@
 import type { SessionSnapshot } from "../../../domain/session/SessionSnapshot";
 import type { AgentLifecycleState } from "../../../domain/agent/AgentLifecycle";
 import type { InstanceState } from "../../../domain/agent/AgentInstance";
+import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 
 export type { InstanceState };
@@ -38,4 +39,19 @@ export interface SessionRepositoryPort {
    * 调度器对实例状态迁移的 write-through；经单写通道串行保序）。
    */
   saveAgentLifecycle(sessionId: string, instanceId: string, state: InstanceState): Promise<void>;
+  /**
+   * closure 记录行落盘（closure_records 追加行，T2.3 O-5：任务报告本体 =
+   * SQLite 行 + findings JSON；经单写通道串行保序，抗重启）。
+   */
+  saveClosureRecord(
+    sessionId: string,
+    agentId: string,
+    result: "done" | "failed" | "killed",
+    closure: InstanceClosurePayload,
+  ): Promise<void>;
+  /**
+   * 任务报告文件产物落盘（T2.3 O-5：<home>/reports/<session>/<agentId>.md；
+   * TR-AD-13 同一 WriteQueue 队列原子写——报告文件与 SQLite 写同链串行）。
+   */
+  saveReportFile(reportPath: string, content: string): Promise<void>;
 }

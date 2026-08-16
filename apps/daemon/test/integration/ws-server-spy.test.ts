@@ -69,6 +69,13 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       chat,
       session,
       system,
+      orchestration: {
+        // T2.3：命令路由只转发不决策——spy 用 no-op 编排口验证帧推送
+        spawn: () => ({ status: "rejected", error: "spy 不装配调度" }),
+        send: () => ({ delivered: false, detail: "spy" }),
+        status: () => [],
+        kill: () => ({ killed: false, error: "spy 不装配调度" }),
+      },
       events: eventStream,
       token: "spy-token",
       port: 0,

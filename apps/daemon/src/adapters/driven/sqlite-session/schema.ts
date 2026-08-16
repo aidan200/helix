@@ -10,7 +10,9 @@
  * - session_state：会话聚合快照投影（Entry 树/轮次/instances/usage，贫血 JSON 行）；
  * - agent_lifecycle：实例生命周期投影（每会话每实例一行，PK (session_id, instance_id)）；
  * - steer_queue：steer 待注入队列投影（未消费项）；
- * - tool_calls：工具调用记录投影（pending/running/completed/failed 全态，挂实例）。
+ * - tool_calls：工具调用记录投影（pending/running/completed/failed 全态，挂实例）；
+ * - closure_records：实例收口记录行（T2.3 O-5 任务报告本体：closure 五字段
+ *   + findings JSON；每收口一行，追加重语义）。
  *
  * iter-20260816-uzvg T1.2 演进：agent_instance_id / instance_id 列与复合 PK；
  * DEFAULT 'main' = 主实例固定 id（O-4），与旧行回填常量同源（O-3）。
@@ -68,4 +70,19 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   ended_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tool_calls_session ON tool_calls(session_id);
+
+CREATE TABLE IF NOT EXISTS closure_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  result TEXT NOT NULL,
+  status TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  report_path TEXT,
+  findings TEXT,
+  task_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_closure_records_session ON closure_records(session_id);
+CREATE INDEX IF NOT EXISTS idx_closure_records_agent ON closure_records(session_id, agent_id);
 `;

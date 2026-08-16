@@ -1,5 +1,6 @@
 import type { AgentInstance } from "../../domain/agent/AgentInstance";
 import type { InstanceClosurePayload } from "../../domain/events/DomainEvent";
+import type { AgentEngineEvent } from "../ports/outbound/AgentEnginePort";
 
 /**
  * InstanceRunner —— SubAgent 实例运行器接缝（application 内部接口，T2.1）。
@@ -29,8 +30,12 @@ export interface InstanceRunnerCallbacks {
   /**
    * 实例引擎事件增量到达（任意事件类型）：刷新该实例 lastEventAt——
    * stalled 判定的唯一输入。未知/已终态实例的迟到事件被调度侧忽略。
+   *
+   * T2.3：携帯引擎事件本体（可选——SubAgent 内部工具调用据此转 per-instance
+   * 领域事件，挂 instanceId 落盘+广播；不进主线聚合，AD-8 铁律）。
+   * 缺省 undefined = 仅增量记号（T2.1 替身/测试驱动面兼容）。
    */
-  onInstanceEvent(instanceId: string): void;
+  onInstanceEvent(instanceId: string, event?: AgentEngineEvent): void;
   /**
    * 实例收口（done/failed/killed）。调度侧幂等：对已终态实例的重复/迟到
    * 回调为 no-op（kill 与自然收口竞态的后到者被吞）。
@@ -49,4 +54,18 @@ export interface InstanceRunner {
    * 实现方保存并在引擎事件/收口时回调）。
    */
   setCallbacks(callbacks: InstanceRunnerCallbacks): void;
+  /**
+   * steer 转投通道（T2.3，AD-7⑤）：SchedulerService.send → 本方法 →
+   * transport → 子进程 stdin send 行 → Agent.steer()。未知/已收口实例
+   * 静默忽略。可选成员——未实现者（占位替身）不支持注入。
+   */
+  send?(instanceId: string, text: string): void;
+  /**
+   * kill 通道（T2.3 对齐，FB-3 修复）：SchedulerService.kill 在收口前调用，
+   * 通知 runner 终止子进程（O-6 序列）——否则用户 kill 后子进程跑到自然
+   * 收口（幂等吞迟到回调但进程仍耗资源）。可选成员——未实现者仅收口不
+   * 发终止信号（与 T2.1 替身行为一致）。返回值仅诊断用（如 graceful/
+   * escalated），调度侧不依赖。
+   */
+  kill?(instanceId: string): void | Promise<unknown>;
 }

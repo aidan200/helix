@@ -20,10 +20,9 @@ import type { ChildOutboundLine } from "./transport/wire";
  * InstanceRunnerCallbacks 异步上报，AD-8）；崩溃检测 = exit 非 0 且未回传
  * closure → failed 收口；kill = O-6 序列（transport 承载）。
  *
- * 与 T2.1 InstanceRunner 接口的对接说明：接口当前只有 launch/setCallbacks；
- * 子进程终止信号（kill）与观测面（send/childPid 等）是本类的扩展方法——
- * 接口扩展（kill 通道：SchedulerService.kill → runner.kill）在汇流任务
- * T2.3 对齐（见任务报告）。
+ * 与 T2.1 InstanceRunner 接口的对接说明（T2.3 已对齐）：接口成员 =
+ * launch/setCallbacks/send?/kill?（send/kill 原为接口外扩展方法，T2.3
+ * 收进接缝；FB-3 kill 通道经此由 SchedulerService.kill 触发）。
  */
 
 /** ChildMain 入口路径（与 Launcher 同目录树；bun 直跑 .ts）。 */
@@ -95,7 +94,7 @@ export class SubagentLauncher implements InstanceRunner {
     })();
   }
 
-  // ── 扩展观测/控制面（InstanceRunner 接口外；T2.3 对齐点） ──
+  // ── 观测/控制面（send/kill 已收进 InstanceRunner 接缝，T2.3；其余为观测面） ──
 
   /** steer 注入经 stdin send 行（AD-7⑤）。未知/已收口实例静默忽略。 */
   send(instanceId: string, text: string): void {
@@ -138,7 +137,8 @@ export class SubagentLauncher implements InstanceRunner {
   private onChildLine(id: string, line: ChildOutboundLine): void {
     this.deps.onLine?.(id, line);
     if (line.type === "event") {
-      this.callbacks?.onInstanceEvent(id); // stalled 判定输入（增量到达即刷新）
+      // T2.3：携事件本体上行（SubAgent 工具调用转 per-instance 领域事件）
+      this.callbacks?.onInstanceEvent(id, line.event);
       return;
     }
     if (line.type === "closure") {

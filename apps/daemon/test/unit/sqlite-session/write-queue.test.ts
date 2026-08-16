@@ -181,3 +181,79 @@ describe("WriteQueue 状态保存（saveState 投影行）", () => {
     }
   });
 });
+
+describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产物（O-5）", () => {
+  test("saveClosureRecord 落盘后重开（进程内级重启）可读回；findings 保 JSON", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      await queue.saveClosureRecord("s-1", "agent-3", "done", {
+        status: "done",
+        summary: "任务完成",
+        reportPath: "/tmp/reports/s-1/agent-3.md",
+        findings: [{ kind: "sediment", desc: "x" }],
+        taskId: "T2.3",
+      });
+      await queue.saveClosureRecord("s-1", "agent-4", "killed", {
+        status: "failed",
+        summary: "已由用户终止（kill）",
+        reportPath: null,
+        findings: null,
+        taskId: null,
+      });
+      await queue.close(); // 优雅退出（drain 后关连接）
+
+      // 重启（进程内级）：新 WriteQueue 实例同一路径读回
+      const reopened = new WriteQueue(dbPath);
+      const rows = reopened.database
+        .prepare(
+          "SELECT agent_id, result, status, summary, report_path, findings, task_id FROM closure_records WHERE session_id = ? ORDER BY id",
+        )
+        .all("s-1") as {
+        agent_id: string;
+        result: string;
+        status: string;
+        summary: string;
+        report_path: string | null;
+        findings: string | null;
+        task_id: string | null;
+      }[];
+      await reopened.close();
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatchObject({
+        agent_id: "agent-3",
+        result: "done",
+        status: "done",
+        summary: "任务完成",
+        report_path: "/tmp/reports/s-1/agent-3.md",
+        task_id: "T2.3",
+      });
+      expect(JSON.parse(rows[0]!.findings!)).toEqual([{ kind: "sediment", desc: "x" }]);
+      expect(rows[1]).toMatchObject({ agent_id: "agent-4", result: "killed", status: "failed", report_path: null, findings: null, task_id: null });
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  test("saveReportFile：报告 markdown 经同队列落盘（flush 后文件可读、重启后仍在）", async () => {
+    const dbPath = tmpDbPath();
+    const reportPath = path.join(path.dirname(dbPath), "reports", "s-1", "agent-3.md");
+    try {
+      const queue = new WriteQueue(dbPath);
+      await queue.saveReportFile(reportPath, "# 任务报告：agent-3\n\n- 收口：done\n");
+      await queue.flush();
+      expect(existsSync(reportPath)).toBe(true);
+      await queue.close();
+
+      // “重启”（进程内级）：新实例不碰报告文件，但文件已在磁盘上
+      const reopened = new WriteQueue(dbPath);
+      await reopened.close();
+      const content = await Bun.file(reportPath).text();
+      expect(content).toContain("agent-3");
+      expect(content).toContain("done");
+      expect(existsSync(reportPath + ".tmp")).toBe(false); // 临时文件不残留
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});

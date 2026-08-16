@@ -246,3 +246,93 @@ describe("② 领域事件 → 协议事件帧", () => {
     expect(err).toBeNull();
   });
 });
+
+describe("③ agent.* 编排生命周期族 → 协议事件帧（T2.3，契约 §5.1）", () => {
+  /** 编排事件公共底：instanceId ≡ agentId（契约 §2），四维路由/落盘同源。 */
+  const agentBase = {
+    sessionId: "s-1",
+    instanceId: "agent-2",
+    occurredAt: "2026-08-16T00:00:05.000Z",
+  };
+
+  test("spawned/queued/started/stalled 四过程事件 payload 直映射 + envelope 挂 instanceId", () => {
+    const spawned = domainEventToEnvelope({
+      ...agentBase,
+      type: "agent.spawned",
+      payload: { agentId: "agent-2", task: "调研 X", profileKind: "subagent-worker" },
+    });
+    expect(spawned).toMatchObject({
+      v: 0,
+      type: "agent.spawned",
+      instanceId: "agent-2",
+      payload: { agentId: "agent-2", task: "调研 X", profileKind: "subagent-worker" },
+    });
+
+    const queued = domainEventToEnvelope({
+      ...agentBase,
+      type: "agent.queued",
+      payload: { agentId: "agent-2", position: 3 },
+    });
+    expect(queued).toMatchObject({ type: "agent.queued", instanceId: "agent-2", payload: { agentId: "agent-2", position: 3 } });
+
+    const started = domainEventToEnvelope({ ...agentBase, type: "agent.started", payload: { agentId: "agent-2" } });
+    expect(started).toMatchObject({ type: "agent.started", instanceId: "agent-2", payload: { agentId: "agent-2" } });
+
+    const stalled = domainEventToEnvelope({
+      ...agentBase,
+      type: "agent.stalled",
+      payload: { agentId: "agent-2", idleMs: 1200 },
+    });
+    expect(stalled).toMatchObject({ type: "agent.stalled", instanceId: "agent-2", payload: { agentId: "agent-2", idleMs: 1200 } });
+  });
+
+  test("三终态事件携带五字段 ClosureDto（缺失字段显式 null）+ envelope 挂 instanceId", () => {
+    const closure = { status: "done" as const, summary: "任务完成", reportPath: null, findings: [{ kind: "sediment" }], taskId: null };
+    const completed = domainEventToEnvelope({
+      ...agentBase,
+      type: "agent.completed",
+      payload: { agentId: "agent-2", closure },
+    });
+    expect(completed).toMatchObject({ type: "agent.completed", instanceId: "agent-2" });
+    expect(completed?.payload).toEqual({ agentId: "agent-2", closure });
+
+    const failed = domainEventToEnvelope({
+      ...agentBase,
+      type: "agent.failed",
+      payload: { agentId: "agent-2", error: "引擎崩溃", closure: { ...closure, status: "failed" } },
+    });
+    expect(failed?.payload).toEqual({
+      agentId: "agent-2",
+      error: "引擎崩溃",
+      closure: { status: "failed", summary: "任务完成", reportPath: null, findings: [{ kind: "sediment" }], taskId: null },
+    });
+
+    const killed = domainEventToEnvelope({
+      ...agentBase,
+      type: "agent.killed",
+      payload: { agentId: "agent-2", closure: { status: "failed", summary: "已由用户终止（kill）", reportPath: null, findings: null, taskId: null } },
+    });
+    expect(killed).toMatchObject({ type: "agent.killed", instanceId: "agent-2" });
+    expect(killed?.payload).toEqual({
+      agentId: "agent-2",
+      closure: { status: "failed", summary: "已由用户终止（kill）", reportPath: null, findings: null, taskId: null },
+    });
+  });
+
+  test("SubAgent 工具事件（tool.call.* 挂 instanceId）→ 帧挂 instanceId；主线事件不挂（缺省 main）", () => {
+    const sub = domainEventToEnvelope({
+      ...agentBase,
+      type: "tool.call.started",
+      payload: { toolCallId: "tc-9", toolName: "grep", args: { pattern: "x" } },
+    });
+    expect(sub).toMatchObject({ type: "tool.call.started", instanceId: "agent-2", payload: { entry: { id: "tc-9" } } });
+
+    const mainline = domainEventToEnvelope({
+      sessionId: "s-1",
+      type: "tool.call.started",
+      payload: { toolCallId: "tc-1", toolName: "grep", args: {} },
+      occurredAt: agentBase.occurredAt,
+    });
+    expect(mainline?.instanceId).toBeUndefined(); // 缺省 = 主实例（契约 §1）
+  });
+});

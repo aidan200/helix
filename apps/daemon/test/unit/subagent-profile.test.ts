@@ -52,8 +52,10 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     expect(SubAgentProfile.model).toBeUndefined();
   });
 
-  test("全工具集：照抄 MainSessionProfile 工具名清单（不新增工具）", () => {
-    expect(SubAgentProfile.tools).toEqual(MainSessionProfile.tools);
+  test("全工具集：照抄 MainSessionProfile 工具名清单（去编排三工具，不新增工具）", () => {
+    // T2.3：Main 增 agent_spawn/agent_send/agent_status（编排回口）；SubAgent
+    // 不 spawn 孙进程（单层编排），工具集 = Main 清单去编排三工具
+    expect(SubAgentProfile.tools).toEqual(MainSessionProfile.tools.filter((t) => !t.startsWith("agent_")));
     expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep"]);
   });
 

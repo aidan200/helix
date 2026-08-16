@@ -16,6 +16,13 @@ import type {
   ToolCallEntryDto,
   ToolCallResultEvent,
   ToolCallStartedEvent,
+  AgentSpawnedEvent,
+  AgentQueuedEvent,
+  AgentStartedEvent,
+  AgentStalledEvent,
+  AgentCompletedEvent,
+  AgentFailedEvent,
+  AgentKilledEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { SessionStateView } from "../../../application/ports/inbound/SessionPort";
@@ -29,6 +36,13 @@ import type {
   ToolCallPayload,
   ToolResultPayload,
   TurnCompletedPayload,
+  AgentCompletedPayload,
+  AgentFailedPayload,
+  AgentKilledPayload,
+  AgentQueuedPayload,
+  AgentSpawnedPayload,
+  AgentStartedPayload,
+  AgentStalledPayload,
 } from "../../../domain/events/DomainEvent";
 
 /** 事件映射所需的投影上下文（由 EventStream 维护，见 EventStream.ts）。 */
@@ -119,8 +133,17 @@ function toolCallEntryDto(record: ToolCallRecordData): ToolCallEntryDto {
 /**
  * DomainEvent → EventEnvelope。返回 null = 协议 v0 目录无对应事件
  * （engine.error：不下发，见 PROTOCOL.md §8 边界注记）。
+ * v0.1：事件携带 instanceId（agent.* 编排族 + SubAgent 工具事件）时帧同值
+ * 挂 instanceId（缺省 = 主实例，契约 §1/§2）——前端按 id 分流投影。
  */
 export function domainEventToEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope | null {
+  const frame = buildEnvelope(event, ctx);
+  if (frame === null) return null;
+  if (event.instanceId !== undefined) frame.instanceId = event.instanceId;
+  return frame;
+}
+
+function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope | null {
   const ts = Date.parse(event.occurredAt);
   switch (event.type) {
     case "turn.started":
@@ -227,6 +250,78 @@ export function domainEventToEnvelope(event: DomainEvent, ctx?: EventMapContext)
         type: "agent.state.changed",
         payload: { state: p.state },
       };
+    }
+
+    // ── agent.* 编排生命周期族（T2.3，契约 §5.1；AD-7/AD-8） ──
+
+    case "agent.spawned": {
+      const p = event.payload as AgentSpawnedPayload;
+      const frame: AgentSpawnedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.spawned",
+        payload: { agentId: p.agentId, task: p.task, profileKind: p.profileKind, ...(p.model !== undefined ? { model: p.model } : {}) },
+      };
+      return frame;
+    }
+
+    case "agent.queued": {
+      const p = event.payload as AgentQueuedPayload;
+      const frame: AgentQueuedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.queued",
+        payload: { agentId: p.agentId, position: p.position },
+      };
+      return frame;
+    }
+
+    case "agent.started": {
+      const p = event.payload as AgentStartedPayload;
+      const frame: AgentStartedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.started",
+        payload: { agentId: p.agentId },
+      };
+      return frame;
+    }
+
+    case "agent.stalled": {
+      const p = event.payload as AgentStalledPayload;
+      const frame: AgentStalledEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.stalled",
+        payload: { agentId: p.agentId, idleMs: p.idleMs },
+      };
+      return frame;
+    }
+
+    case "agent.completed": {
+      const p = event.payload as AgentCompletedPayload;
+      const frame: AgentCompletedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.completed",
+        payload: { agentId: p.agentId, closure: p.closure },
+      };
+      return frame;
+    }
+
+    case "agent.failed": {
+      const p = event.payload as AgentFailedPayload;
+      const frame: AgentFailedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.failed",
+        payload: { agentId: p.agentId, error: p.error, closure: p.closure },
+      };
+      return frame;
+    }
+
+    case "agent.killed": {
+      const p = event.payload as AgentKilledPayload;
+      const frame: AgentKilledEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.killed",
+        payload: { agentId: p.agentId, closure: p.closure },
+      };
+      return frame;
     }
 
     default:

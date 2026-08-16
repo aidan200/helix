@@ -15,6 +15,7 @@
 import type { ChatPort } from "../../../application/ports/inbound/ChatPort";
 import type { SessionPort } from "../../../application/ports/inbound/SessionPort";
 import type { SystemPort } from "../../../application/ports/inbound/SystemPort";
+import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import type { AgentStateDto, ConnectionErrorEvent, EventEnvelope } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { ServerWebSocket } from "bun";
@@ -38,6 +39,8 @@ export interface WsServerAdapterDeps {
   readonly chat: ChatPort;
   readonly session: SessionPort;
   readonly system: SystemPort;
+  /** 编排入口（T2.3）：agent.kill 终止链回 SchedulerService（只转发不决策）。 */
+  readonly orchestration: AgentOrchestrationPort;
   /** 事件流（组合根构造并装配进 fan-out 的 EventPublisherPort 实现）。 */
   readonly events: EventStream;
   /** 本次启动生成的 dev token（与 <home>/dev-token 文件内容一致）。 */
@@ -254,6 +257,35 @@ export class WsServerAdapter {
       case "session.unsubscribe": {
         const sender = ws.data.sender;
         if (sender) this.deps.events.setSubscribed(sender, false);
+        return;
+      }
+      // ── v0.1 编排命令（T2.3，契约 §4；只转发不决策，TP-CL6-3） ──
+      case "agent.kill": {
+        if (typeof payload.agentId !== "string" || payload.agentId === "") {
+          return this.commandError(ws, type, "command.invalid_payload", "payload.agentId 应为非空 string");
+        }
+        // 错误模型（契约 §4）：目标不存在/已终态 → connection.error 回执（中文说明）；
+        // 正常路径回执 agent.killed 事件（经事件流广播，单一终态语义）
+        const outcome = this.deps.orchestration.kill(payload.agentId);
+        if (!outcome.killed) {
+          this.commandError(ws, type, "command.invalid_payload", outcome.error);
+        }
+        return;
+      }
+      case "agent.subscribe": {
+        const sender = ws.data.sender;
+        if (typeof payload.agentId !== "string" || payload.agentId === "") {
+          return this.commandError(ws, type, "command.invalid_payload", "payload.agentId 应为非空 string");
+        }
+        if (sender) this.deps.events.subscribeInstance(sender, payload.agentId); // 通路语义（§8-1，不过滤）
+        return;
+      }
+      case "agent.unsubscribe": {
+        const sender = ws.data.sender;
+        if (typeof payload.agentId !== "string" || payload.agentId === "") {
+          return this.commandError(ws, type, "command.invalid_payload", "payload.agentId 应为非空 string");
+        }
+        if (sender) this.deps.events.unsubscribeInstance(sender, payload.agentId);
         return;
       }
       default:
