@@ -21,6 +21,8 @@ import { PassThrough } from "node:stream";
 import { createDaemon } from "../../src/infrastructure/container";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
+import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import type { AgentOrchestrationPort, SpawnOutcome, SendOutcome, KillOutcome, AgentInstanceStatus } from "../../src/application/ports/inbound/AgentOrchestrationPort";
@@ -41,6 +43,7 @@ const home = argOf("--home");
 const port = Number(argOf("--port") ?? "0");
 const scriptPath = argOf("--script");
 const subagentScriptPath = argOf("--subagent-script");
+const subagentEngineScriptPath = argOf("--subagent-engine-script");
 const staticDir = argOf("--static-dir");
 const toolCwd = argOf("--tool-cwd");
 
@@ -194,6 +197,18 @@ async function main(): Promise<void> {
     ? (JSON.parse(readFileSync(subagentScriptPath, "utf8")) as SubagentScript)
     : [];
   const executor = new CoreToolExecutor({ cwd: toolCwd ?? process.cwd(), orchestration: lazyOrchestration });
+  // SubAgent runner（T5.2）：真子进程模式（--subagent-engine-script，K3 剧本
+  // 引擎注入真 SubagentLauncher——agent_spawn 真实 spawn detached 子进程，
+  // teardown 兜底回收观测面）优先；缺省进程内剧本 runner（R1~R3 无子进程）。
+  const subagentRunner: InstanceRunner = subagentEngineScriptPath
+    ? new SubagentLauncher({
+        profile: SubAgentProfile,
+        model: fakeModel,
+        apiKeys: { fake: "explicit-key" },
+        toolCwd: toolCwd ?? process.cwd(),
+        fakeEngineScript: subagentEngineScriptPath,
+      })
+    : new ScriptedSubagentRunner(subagentScript);
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,
     model: fakeModel,
@@ -210,7 +225,7 @@ async function main(): Promise<void> {
     port,
     staticDir,
     toolCwd,
-    subagentRunner: new ScriptedSubagentRunner(subagentScript),
+    subagentRunner,
     cliInput: new PassThrough(), // 隔离 stdio：事件 publisher 落 PassThrough，stdout 只留控制行
     cliOutput: new PassThrough(),
   });

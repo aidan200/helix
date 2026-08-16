@@ -9,14 +9,23 @@
  * - LLM 为 FakeLLM（launcher 内 streamFnOverride），零真实网络；
  * - 端口固定 5333（避开 daemon 默认 7333 与 vite 5199/5210），workers=1 串行
  *   复用；重启场景同 home 同端口（端口被占时自动重试 spawn）。
+ *
+ * teardown 零残留纪律（TR-TEST-6 / T5.2）：fixture 是清理责任的唯一归属——
+ * ①tmp home 全删（含 spec 自建 home，旁路清理收编）；②SubAgent 子进程树
+ * 兜底回收（daemon SIGTERM 后 ps 特征扫描，SIGTERM→3s 超时 SIGKILL——
+ * 独立于 Launcher O-6 业务路径的双层兜底）；③端口释放验证（bind 探测）。
+ * 任一命中即红（非软警告），由 CL-4-teardown-residue.spec + 本 fixture 的
+ * teardown 断言机械化守护（连跑两轮判据）。
  */
 import { test as base, expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import * as net from "node:net";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import type { DaemonScript, SubagentScript } from "./daemon-script";
+import type { FakeEngineScript } from "../../apps/daemon/src/adapters/driven/subagent/child/scriptedEngine";
 
 const WORKTREE_ROOT = path.resolve(__dirname, "..", "..");
 const LAUNCHER = path.join(WORKTREE_ROOT, "apps", "daemon", "test", "e2e", "launcher.ts");
@@ -46,6 +55,10 @@ export interface DaemonStartOptions {
   retries?: number;
   /** 复用已存在的 home（TS4 重启语义：同 --home 重建） */
   home?: string;
+  /** 真子进程 SubAgent 模式（T5.2）：注入真 SubagentLauncher + K3 剧本引擎——
+   *  agent_spawn 真实 spawn detached 子进程（teardown 兜底回收的观测面）。
+   *  缺省用 ScriptedSubagentRunner（进程内剧本，无子进程）。 */
+  realSubagent?: { engineScript: FakeEngineScript };
 }
 
 /** 一个 daemon 子进程的句柄。 */
@@ -65,6 +78,11 @@ export class DaemonProcess {
     writeFileSync(scriptFile, JSON.stringify(opts.script), "utf8");
     const subagentScriptFile = path.join(home, "subagent-script.json");
     writeFileSync(subagentScriptFile, JSON.stringify(opts.subagentScript ?? []), "utf8");
+    let subagentEngineScriptFile: string | undefined;
+    if (opts.realSubagent) {
+      subagentEngineScriptFile = path.join(home, "subagent-engine-script.json");
+      writeFileSync(subagentEngineScriptFile, JSON.stringify(opts.realSubagent.engineScript), "utf8");
+    }
 
     const args = [
       LAUNCHER,
@@ -79,6 +97,7 @@ export class DaemonProcess {
       "--tool-cwd",
       toolCwd,
     ];
+    if (subagentEngineScriptFile) args.push("--subagent-engine-script", subagentEngineScriptFile);
     if (opts.staticDir) args.push("--static-dir", opts.staticDir);
 
     try {
@@ -175,6 +194,101 @@ async function waitFor(cond: () => boolean, timeoutMs: number, what: string): Pr
   while (!cond()) {
     if (Date.now() - t0 > timeoutMs) throw new Error(what);
     await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+// ── TR-TEST-6 零残留纪律：残留探测 / 兜底回收 / 端口验证 ─────
+
+/** E 层 fixture tmp 基目录前缀（fixture 自建 + spec 自建 home 统一形态）。 */
+export const E2E_TMP_PREFIX = "helix-e2e-";
+
+/** 残留进程特征：本 worktree 内的 daemon launcher / SubAgent ChildMain。 */
+const RESIDUE_COMMAND_FEATURES = [/launcher\.ts/, /ChildMain\.ts/];
+
+export interface ResidueProcess {
+  readonly pid: number;
+  readonly pgid: number;
+  readonly command: string;
+}
+
+/** ps 特征扫描：命令行含本 worktree 路径 + launcher/ChildMain 特征的进程
+ *  （daemon 与其派生的 SubAgent 子进程树——含孤儿化后 reparent 的成员）。 */
+export function findResidueProcesses(): ResidueProcess[] {
+  const out = execSync("ps axo pid=,pgid=,command=", {
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const hits: ResidueProcess[] = [];
+  for (const line of out.split("\n")) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    if (pid === process.pid) continue; // 自身（spec 进程命令行可能含 worktree 路径）
+    const command = m[3]!.trim();
+    if (!command.includes(WORKTREE_ROOT)) continue; // 只回收本 worktree 的
+    if (!RESIDUE_COMMAND_FEATURES.some((re) => re.test(command))) continue;
+    hits.push({ pid, pgid: Number(m[2]), command });
+  }
+  return hits;
+}
+
+/** tmp 基目录残留清单（helix-e2e-* 前缀；空 = 三面之一干净）。 */
+export function listE2eTmpResidue(): string[] {
+  return readdirSync(tmpdir()).filter((name) => name.startsWith(E2E_TMP_PREFIX));
+}
+
+/** 兜底回收残留子进程树（独立于 Launcher O-6 业务路径的双层兜底）：
+ *  SIGTERM（detached 子进程为组长——负 pid 命中全组含工具孙进程）→
+ *  graceMs 超时 SIGKILL。返回仍未退出者（空 = 回收干净）。 */
+export async function recoverResidueProcesses(graceMs = 3000): Promise<ResidueProcess[]> {
+  let targets = findResidueProcesses();
+  if (targets.length === 0) return [];
+  for (const t of targets) killResidue(t, "SIGTERM");
+  if (await waitResidueGone(graceMs)) return [];
+  targets = findResidueProcesses();
+  for (const t of targets) killResidue(t, "SIGKILL");
+  if (await waitResidueGone(2000)) return [];
+  return findResidueProcesses();
+}
+
+function killResidue(t: ResidueProcess, sig: NodeJS.Signals): void {
+  try {
+    // 组长（pgid===pid，detached spawn 形态）→ 负 pid 组杀；否则单 pid
+    // （避免误伤与 runner 同组的无关进程）
+    if (t.pgid === t.pid) process.kill(-t.pid, sig);
+    else process.kill(t.pid, sig);
+  } catch {
+    /* ESRCH：目标已退出 */
+  }
+}
+
+async function waitResidueGone(timeoutMs: number): Promise<boolean> {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 100));
+    if (findResidueProcesses().length === 0) return true;
+  }
+  return findResidueProcesses().length === 0;
+}
+
+/** 端口可 bind 探测（true = 已释放）。 */
+export async function canBindPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => server.close(() => resolve(true)));
+  });
+}
+
+/** 端口释放验证（三件套之三）：timeoutMs 内 bind 探测成功才算释放，
+ *  超时抛错（→ 断言红）。 */
+export async function waitForPortFree(port: number, timeoutMs = 5000): Promise<void> {
+  const t0 = Date.now();
+  while (!(await canBindPort(port))) {
+    if (Date.now() - t0 > timeoutMs) {
+      throw new Error(`端口 127.0.0.1:${port} 在 ${timeoutMs}ms 内未释放（残留 daemon？）`);
+    }
+    await new Promise((r) => setTimeout(r, 100));
   }
 }
 
