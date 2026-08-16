@@ -1,8 +1,14 @@
 /**
- * Mock mode 注入脚本（M3 前端 transport mock 的浏览器侧挂点）。
+ * Mock mode 注入脚本（首迭代直替方案；T4.4 起退役为兼容路径）。
  *
- * 原理：生产 HelixWsClient 经 browserTransportFactory 持有 `new WebSocket(url)`
- * ——本脚本在应用任何代码执行前替换 window.WebSocket：
+ * 【退役备注（T4.4）】标准入口 = VITE_HELIX_FAKE_TRANSPORT / ?fakeTransport
+ * → SessionProvider 经既有 TransportFactory 接缝装配应用侧 fake 模块
+ * （apps/shell/src/shared/api/fake-transport.ts，控制面 API 与本脚本逐字
+ * 对齐）；fixtures.ts 已切标准入口。本文件保留作兼容路径/降级备注，不再
+ * 挂默认 fixture。
+ *
+ * 原理（直替方案）：生产 HelixWsClient 经 browserTransportFactory 持有
+ * `new WebSocket(url)` ——本脚本在应用任何代码执行前替换 window.WebSocket：
  *   - daemon 地址（ws://127.0.0.1:7333）→ 剧本回放 fake transport（等价于
  *     TransportFactory 注入 fake transport；连接状态机/退避/握手全部真实跑）；
  *   - 其余地址（vite HMR 等）→ 透传原生 WebSocket，不影响 dev server。

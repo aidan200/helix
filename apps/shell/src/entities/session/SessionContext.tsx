@@ -11,7 +11,8 @@ import type { ReactNode } from "react";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { EventEnvelope } from "@helix/protocol";
 import { HelixWsClient } from "@/shared/api/helix-ws";
-import { DAEMON_PORT, isDev } from "@/shared/config/env";
+import type { Transport, TransportFactory } from "@/shared/api/helix-ws";
+import { DAEMON_PORT, FAKE_TRANSPORT_DEFINE, fakeTransportScript, isDev } from "@/shared/config/env";
 import {
   createInitialSessionState,
   selectIsGenerating,
@@ -51,6 +52,32 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+/** fake transport 懒装配（T4.4 标准注入点）：占位 transport 先行，mock 模块
+ *  异步加载后接管（首次连接前就绪；spec 驱动面 __helixMock 就绪前
+ *  MockController 会 await）。模块不进生产 bundle——define 摇除后调用点
+ *  编译期消除（见 SessionProvider 内 FAKE_TRANSPORT_DEFINE 门控），动态
+ *  import 站点随分支 treeshake（生产构建零 mock 代码路径，T4.4 验收项）。 */
+function fakeTransportEntry(script: string): TransportFactory {
+  return (url, handlers) => {
+    let impl: Transport | null = null;
+    void import("@/shared/api/fake-transport").then((m) => {
+      impl = m.createFakeTransport(script)(url, handlers);
+      impl.connect();
+    });
+    return {
+      connect() {
+        /* 就绪由模块接管（见上） */
+      },
+      send(data) {
+        impl?.send(data);
+      },
+      close() {
+        impl?.close();
+      },
+    };
+  };
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(sessionReducer, undefined, createInitialSessionState);
   const clientRef = useRef<HelixWsClient | null>(null);
@@ -58,7 +85,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   generatingRef.current = selectIsGenerating(state);
 
   if (clientRef.current === null) {
-    clientRef.current = new HelixWsClient({ port: DAEMON_PORT });
+    // prod define 摇除：FAKE_TRANSPORT_DEFINE 构建期为 "" 字面量 → 本比较折叠
+    // 为 false → fakeTransportScript() 调用点消除 → fake 模块动态 import 站点
+    // treeshake（生产 bundle 零 mock 代码路径，T4.4 验收项）。
+    const fakeScript = FAKE_TRANSPORT_DEFINE !== "" ? fakeTransportScript() : null;
+    clientRef.current = new HelixWsClient({
+      port: DAEMON_PORT,
+      // mock mode 标准注入点（T4.4）：经既有 TransportFactory 接缝注入 fake
+      // transport（env/URL 双形态解析见 env.fakeTransportScript）
+      ...(fakeScript !== null ? { transportFactory: fakeTransportEntry(fakeScript) } : {}),
+    });
   }
 
   useEffect(() => {
