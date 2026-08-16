@@ -35,6 +35,16 @@ export interface SessionRepositoryPort {
   /** 已持久化的会话 id 列表（恢复入口用，按创建序）。 */
   listSessionIds(): Promise<string[]>;
   /**
+   * 会话元数据轻量读面（T2.2 AD-4，session.list 数据源）：全部会话的
+   * id/创建时间/最后更新时间/首条用户消息文本（title 推导源）；不加载聚合。
+   */
+  listSessionMetadata(): Promise<readonly SessionMetadataRow[]>;
+  /**
+   * 会话删除（T2.2 AD-4，删除收口链的删库步）：六表按 session_id 清行，
+   * 经单写通道串行（同会话仓内 FIFO——先于本调用的写全部先落盘）。
+   */
+  deleteSession(sessionId: string): Promise<void>;
+  /**
    * 实例生命周期投影行落盘（agent_lifecycle upsert，iter-20260816-uzvg T2.1：
    * 调度器对实例状态迁移的 write-through；经单写通道串行保序）。
    */
@@ -76,6 +86,15 @@ export interface AgentLifecycleRowData {
   readonly instanceId: string;
   readonly state: string;
   readonly updatedAt: string;
+}
+
+/** 会话元数据行（session_state 轻量读面，T2.2；title = firstUserText 截 20 码点推导）。 */
+export interface SessionMetadataRow {
+  readonly sessionId: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  /** 首条用户消息全文（title 推导源）；无用户消息的持久化会话为 null。 */
+  readonly firstUserText: string | null;
 }
 
 /** 领域事件四维过滤查询（trace 数据面；v0 无对外 API——内部能力 + 测试证明）。 */

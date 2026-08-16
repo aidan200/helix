@@ -80,6 +80,12 @@ export class ChatService implements ChatPort {
   /** 本 assistant 消息内在途的 thinking 块（contentIndex → 块序号计时；message_end 时落 Entry）。 */
   private readonly thinkingStarts = new Map<number, string>();
   private pendingThinking: { contentIndex: number; text: string; startedAt: string }[] = [];
+  /**
+   * 当前在飞 run 的 promise（T2.2 AD-4 删除收口链）：sendMessage idle 分支
+   * 开 run 时登记、收口时清空——whenSettled() 供注册表删除前等待主线收口
+   * （「取消完成 → 删库」的完成判据）。
+   */
+  private activeRun: Promise<void> | null = null;
 
   constructor(private readonly deps: ChatServiceDeps) {
     this.session = deps.session ?? Session.create();
@@ -150,12 +156,20 @@ export class ChatService implements ChatPort {
         // ③ 生命周期 idle→running，驱动引擎（await 到整个 run 结束：
         //    含工具轮与 steer drain 轮——run 内的后续动作都由引擎事件回流驱动）
         this.setLifecycle("running");
+        const run = (async () => {
+          try {
+            await this.deps.engine.start(text, (e) => this.onEngineEvent(e));
+          } catch (err) {
+            // 引擎异常不崩会话：可观测（engine.error 事件）+ 轮次收口为中断 + 回 idle
+            this.publish("engine.error", { message: (err as Error).message });
+            this.settleRunEnd("aborted");
+          }
+        })();
+        this.activeRun = run; // T2.2：在飞 run 登记（whenSettled 等待面）
         try {
-          await this.deps.engine.start(text, (e) => this.onEngineEvent(e));
-        } catch (err) {
-          // 引擎异常不崩会话：可观测（engine.error 事件）+ 轮次收口为中断 + 回 idle
-          this.publish("engine.error", { message: (err as Error).message });
-          this.settleRunEnd("aborted");
+          await run;
+        } finally {
+          if (this.activeRun === run) this.activeRun = null;
         }
         return { mode: "turn", turnId: turn.id, entryId: entry.id };
       }
@@ -246,6 +260,16 @@ export class ChatService implements ChatPort {
     if (this.lifecycle.current !== "stopped") {
       this.lifecycle.transition("stopped");
       this.publish<AgentStateChangedPayload>("agent.state.changed", { state: "stopped" });
+    }
+  }
+
+  /**
+   * 等待在飞 run 收口（T2.2 AD-4 删除收口链）：无 run 时立即 resolve。
+   * 注意仅等待主线引擎 run；SubAgent 执行由调度器 cancelSession 同步收口。
+   */
+  async whenSettled(): Promise<void> {
+    while (this.activeRun !== null) {
+      await this.activeRun;
     }
   }
 

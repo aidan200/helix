@@ -93,13 +93,12 @@ export interface SchedulerServiceDeps {
   readonly repository: SessionRepositoryPort;
   /** 时间源（领域事件 occurredAt / 实例 createdAt / stalled 毫秒判定，测试可控）。 */
   readonly clock: ClockPort;
-  /** 实例归属会话（领域事件挂 sessionId）。 */
-  readonly sessionId: string;
   /**
-   * 任务报告目录（O-5：<home>/reports/<session>；缺省不产报告文件，
-   * closure.reportPath 为 null——T2.1 既有测试口径）。
+   * 任务报告目录（O-5：<home>/reports/<session>；**多会话（T2.2）**：调度器
+   * daemon 全局一份，报告目录按实例归属会话解析——注入 (sessionId) => dir；
+   * 缺省不产报告文件（closure.reportPath 为 null——T1.1 既有测试口径）。
    */
-  readonly reportsDir?: string;
+  readonly reportsDirFor?: (sessionId: string) => string;
   /**
    * closure 注入主线回调（AD-8 双通道之一；组合根接 ChatService.injectClosure）。
    * 可选——无主线编排场景（纯调度 integration）不注入。
@@ -168,39 +167,80 @@ export class SchedulerService implements AgentOrchestrationPort {
     return this.registry.listInstances().map((i) => this.toStatus(i));
   }
 
-  /** 快照观测面（T2.4）：instances[] 装配载荷（注册表 + task + closure；DtoMapper 转协议）。 */
-  snapshotInstances(): InstanceSnapshotEntry[] {
-    return this.registry.listInstances().map((instance) => {
-      const task = this.tasks.get(instance.instanceId);
-      const closure = this.closures.get(instance.instanceId);
-      return {
-        ...instance.toData(),
-        ...(task !== undefined ? { task } : {}),
-        ...(closure !== undefined ? { closure } : {}),
-      };
-    });
+  /** 快照观测面（T2.4）：instances[] 装配载荷（注册表 + task + closure；DtoMapper 转协议）。
+   *  T2.2（AD-4 多会话）：可选 sessionId 过滤——只取归属会话的实例（快照按会话组装）。 */
+  snapshotInstances(sessionId?: string): InstanceSnapshotEntry[] {
+    return this.registry
+      .listInstances()
+      .filter((instance) => sessionId === undefined || instance.sessionId === sessionId)
+      .map((instance) => {
+        const task = this.tasks.get(instance.instanceId);
+        const closure = this.closures.get(instance.instanceId);
+        return {
+          ...instance.toData(),
+          ...(task !== undefined ? { task } : {}),
+          ...(closure !== undefined ? { closure } : {}),
+        };
+      });
+  }
+
+  /** 会话是否有活跃实例（T2.2：运行态观测/空闲卸载判定——queued/running 均算活跃）。 */
+  hasActiveInstances(sessionId: string): boolean {
+    return this.registry
+      .listInstances()
+      .some((i) => i.sessionId === sessionId && (i.current === "running" || i.current === "queued"));
+  }
+
+  /**
+   * 会话级取消（T2.2 AD-4 删除收口链第①步）：该会话全部实例收口终态——
+   * queued → cancelled（摘队位次递减，无 closure 行——与重启清队同口径）；
+   * running → kill（终止信号先行 + killed 收口，单一终态语义）。
+   * 同步完成（收口链内联）；终态实例跳过（幂等）。
+   */
+  cancelSession(sessionId: string): void {
+    for (const instance of this.registry.listInstances()) {
+      if (instance.sessionId !== sessionId || instance.isTerminal) continue;
+      if (instance.current === "queued") {
+        const idx = this.queue.indexOf(instance.instanceId);
+        if (idx >= 0) {
+          this.queue.splice(idx, 1);
+          this.republishPositions();
+        }
+        instance.cancel();
+        this.lastEventAtMs.delete(instance.instanceId);
+        this.persistLifecycle(instance);
+      } else {
+        this.kill(instance.instanceId);
+      }
+    }
   }
 
   // ── 重启恢复（T2.4，AD-10：注册表/闭包/任务/序号基线重建） ─────
 
   /**
-   * 恢复产物注入（组合根装配后调用一次）：RestoreService 收口后的实例
-   * 清单登记进注册表（终态/快照态原样）、closure/task 回填观测面、
-   * agent-N 序号续基线（重启不重复分配，K5）。恢复不重放：不发布事件、
-   * 不落盘（RestoreService 已收口落盘）、不触发 launch（不自动续跑）。
+   * 恢复产物注入（组合根装配后调用；T2.2 多会话下懒加载会话逐个注入）：
+   * RestoreService 收口后的实例清单登记进注册表（终态/快照态原样）、
+   * closure/task 回填观测面、agent-N 序号续基线（重启不重复分配，K5）。
+   * 恢复不重放：不发布事件、不落盘（RestoreService 已收口落盘）、不触发
+   * launch（不自动续跑）。
+   *
+   * T2.2 幂等注记：卸载后重载的会话实例仍在注册表（终态实例不出册）——
+   * 已登记的 instanceId 跳过重注册（task/closure/序号仍刷新）。
    */
   restoreInstances(instances: readonly RestoredInstance[]): void {
     for (const item of instances) {
-      this.registry.registerInstance(
-        AgentInstance.restore({
-          instanceId: item.instanceId,
-          kind: item.kind,
-          profileKind: item.profileKind,
-          sessionId: item.sessionId,
-          state: item.state,
-          createdAt: item.createdAt,
-        }),
-      );
+      if (this.registry.findInstance(item.instanceId) === undefined) {
+        this.registry.registerInstance(
+          AgentInstance.restore({
+            instanceId: item.instanceId,
+            kind: item.kind,
+            profileKind: item.profileKind,
+            sessionId: item.sessionId,
+            state: item.state,
+            createdAt: item.createdAt,
+          }),
+        );
+      }
       if (item.task !== undefined) this.tasks.set(item.instanceId, item.task);
       if (item.closure !== undefined) this.closures.set(item.instanceId, item.closure);
       const seq = agentSeqOf(item.instanceId);
@@ -213,8 +253,11 @@ export class SchedulerService implements AgentOrchestrationPort {
   /**
    * spawn：预算判定 → 直跑/入队/拒绝。同步秒回（不等执行收口，AD-8 异步交付）。
    * rejected 时调用方（agent_spawn 工具/WS）把错误字符串回 LLM/前端。
+   *
+   * T2.2（AD-4 多会话）：sessionId 显式入参（实例归属会话；组合根经当前会话
+   * 门面/会话绑定工具注入，全局预算不随会话数分裂——TR-AD-11/16）。
    */
-  spawn(task: string, profileKind?: string): SpawnOutcome {
+  spawn(sessionId: string, task: string, profileKind?: string): SpawnOutcome {
     const decision = this.deps.policy.decideSpawn(this.runningCount(), this.queue.length);
     if (decision.action === "reject") {
       return {
@@ -231,7 +274,7 @@ export class SchedulerService implements AgentOrchestrationPort {
       instanceId: agentId,
       kind: "subagent",
       profileKind: profileKind ?? DEFAULT_PROFILE_KIND,
-      sessionId: this.deps.sessionId,
+      sessionId,
       createdAt: this.deps.clock.now(),
     });
     this.registry.registerInstance(instance);
@@ -369,7 +412,7 @@ export class SchedulerService implements AgentOrchestrationPort {
       this.deps.events.publishDelta({
         messageId,
         delta: event.delta,
-        sessionId: this.deps.sessionId,
+        sessionId: instance.sessionId, // 实例归属会话（T2.2 多会话）
         instanceId, // 帧实例维：前端路由至实例 channel（真供给线）
       });
       return;
@@ -385,7 +428,7 @@ export class SchedulerService implements AgentOrchestrationPort {
         messageId: this.streamEntryIds.get(instanceId) ?? instanceId,
         delta: event.delta,
         channel: "thinking",
-        sessionId: this.deps.sessionId,
+        sessionId: instance.sessionId, // 实例归属会话（T2.2 多会话）
         instanceId,
       });
       return;
@@ -478,23 +521,22 @@ export class SchedulerService implements AgentOrchestrationPort {
       this.republishPositions();
     }
 
-    // ── closure 收口链（T2.3，AD-8 双通道 + O-5 双产物） ──
+    // ── closure 收口链（T2.3，AD-8 双通道 + O-5 双产物；T2.2 多会话：报告/记录行按实例归属会话路由） ──
     // ① 报告双产物：closure_records 记录行（SQLite，任务报告本体）+
     //    reportPath 文件（markdown 摘要+findings）——均经 WriteQueue 单写
     //    队列原子写（TR-AD-6/13），重启后报告完整可读
+    const reportsDir = this.deps.reportsDirFor?.(instance.sessionId);
     const reportPath =
-      this.deps.reportsDir !== undefined
-        ? join(this.deps.reportsDir, `${instanceId}.md`)
-        : (outcome.closure.reportPath ?? null);
+      reportsDir !== undefined ? join(reportsDir, `${instanceId}.md`) : (outcome.closure.reportPath ?? null);
     const closure = normalizeClosure(outcome.closure, reportPath);
-    if (this.deps.reportsDir !== undefined && reportPath !== null) {
+    if (reportsDir !== undefined && reportPath !== null) {
       void this.deps.repository.saveReportFile(
         reportPath,
         renderClosureReport(instanceId, this.tasks.get(instanceId) ?? "", closure),
       );
     }
     this.closures.set(instanceId, closure);
-    void this.deps.repository.saveClosureRecord(this.deps.sessionId, instanceId, outcome.result, closure);
+    void this.deps.repository.saveClosureRecord(instance.sessionId, instanceId, outcome.result, closure);
 
     // ② agent_lifecycle 投影 + ③ 终态领域事件（closure 归一后全字段必发）
     this.persistLifecycle(instance);
@@ -603,7 +645,7 @@ export class SchedulerService implements AgentOrchestrationPort {
   private publish<P>(instance: AgentInstance, type: DomainEvent["type"], payload: P): void {
     this.deps.events.publish({
       type,
-      sessionId: this.deps.sessionId,
+      sessionId: instance.sessionId, // T2.2 多会话：事件归属 = 实例归属会话
       instanceId: instance.instanceId, // ≡ agentId（契约 §2）：落盘/路由四维用
       payload,
       occurredAt: this.deps.clock.now(),

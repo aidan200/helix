@@ -54,11 +54,18 @@ register({ types: AGENT_EVENT_TYPES, apply: applyAgentEvent });
 register({ types: THINKING_USAGE_EVENT_TYPES, apply: applyThinkingUsageEvent });
 register({ types: SNAPSHOT_EVENT_TYPES, apply: applySnapshotEvent });
 
-// ── v0.2 新增事件占位（session.list_changed / model.changed；T3.1 接线）──
+// ── v0.2 新增事件占位（session 族结果/通知；T3.1 接线）──
 // no-op 占位消费者：保持原状态（与未注册 type 的 default 语义一致），仅维持
 // 「EVENT_TYPES 全类型已路由」守护不变量；会话清单投影 / 换模生效 UI 消费
 // 归 T3.1 接线实现（届时替换为真消费者，勿删占位以外的守护面）。
+// T2.2 新增 session.list.result / session.loadHistory.result（命令结果点对点
+// 回执，daemon 侧已落地；前端消费随 T3.1/T3.2 接线）。
 register({
-  types: ["session.list_changed", "model.changed"],
+  types: [
+    "session.list_changed",
+    "model.changed",
+    "session.list.result",
+    "session.loadHistory.result",
+  ],
   apply: (s) => s,
 });

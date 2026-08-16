@@ -4,6 +4,7 @@ import type {
   DomainEventQuery,
   InstanceState,
   PersistedDomainState,
+  SessionMetadataRow,
   SessionRepositoryPort,
 } from "../../src/application/ports/outbound/SessionRepositoryPort";
 import type { DomainEvent, InstanceClosurePayload } from "../../src/domain/events/DomainEvent";
@@ -18,7 +19,7 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
   /** agent_lifecycle 投影行（内存记录，T2.1；键 `${sessionId}/${instanceId}`）。 */
   private readonly lifecycles = new Map<string, InstanceState>();
   /** closure 记录行（内存追加，T2.3；报告文件假实现同目录落盘）。 */
-  private readonly closureRecords: {
+  private closureRecords: {
     sessionId: string;
     agentId: string;
     result: "done" | "failed" | "killed";
@@ -66,6 +67,31 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
 
   async listSessionIds(): Promise<string[]> {
     return [...this.store.keys()];
+  }
+
+  /** T2.2 元数据读面：title 推导源 = 快照首条 user entry（真实仓 json_extract 对位）。 */
+  async listSessionMetadata(): Promise<readonly SessionMetadataRow[]> {
+    const rows: SessionMetadataRow[] = [];
+    for (const state of this.store.values()) {
+      const first = state.session.entries.find((e): e is (typeof e) & { role?: string; text?: string } => "role" in e);
+      rows.push({
+        sessionId: state.session.sessionId,
+        createdAt: state.session.createdAt,
+        updatedAt: state.session.entries.at(-1)?.createdAt ?? state.session.createdAt,
+        firstUserText: first?.role === "user" ? ((first as { text: string }).text ?? null) : null,
+      });
+    }
+    return rows;
+  }
+
+  /** T2.2 会话删除：内存仓同步清行。 */
+  async deleteSession(sessionId: string): Promise<void> {
+    this.store.delete(sessionId);
+    for (const key of [...this.lifecycles.keys()]) {
+      if (key.startsWith(`${sessionId}/`)) this.lifecycles.delete(key);
+    }
+    this.closureRecords = this.closureRecords.filter((r) => r.sessionId !== sessionId);
+    this.events = this.events.filter((e) => e.sessionId !== sessionId);
   }
 
   async queryAgentLifecycles(sessionId: string): Promise<readonly AgentLifecycleRowData[]> {

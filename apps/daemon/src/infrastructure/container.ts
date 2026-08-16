@@ -1,7 +1,8 @@
-import type { ChatPort } from "../application/ports/inbound/ChatPort";
+import type { ChatPort, SessionChatPort, SendOutcome } from "../application/ports/inbound/ChatPort";
 import type { SessionPort } from "../application/ports/inbound/SessionPort";
 import type { SystemPort, DaemonStatus } from "../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../application/ports/inbound/AgentOrchestrationPort";
+import type { SessionDirectoryPort } from "../application/ports/inbound/SessionDirectoryPort";
 import type { AgentEnginePort } from "../application/ports/outbound/AgentEnginePort";
 import type { SessionRepositoryPort } from "../application/ports/outbound/SessionRepositoryPort";
 import type { EventPublisherPort } from "../application/ports/outbound/EventPublisherPort";
@@ -11,12 +12,11 @@ import { SessionService } from "../application/services/SessionService";
 import { RestoreService } from "../application/services/RestoreService";
 import { SchedulerService } from "../application/services/SchedulerService";
 import { SessionProjection } from "../application/services/SessionProjection";
+import { SessionRegistry, type SessionRuntime } from "../application/services/SessionRegistry";
 import type { InstanceRunner } from "../application/services/InstanceRunner";
 import { SchedulingPolicy, DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 // MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
-import type { InstanceSnapshotEntry } from "../application/ports/inbound/SessionPort";
-import { Session } from "../domain/session/Session";
 import path from "node:path";
 import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAdapter";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
@@ -41,30 +41,39 @@ import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
  * 依赖图在这里闭合：driven adapter → service → driving adapter 接线，
  * 四层内部只见接口。
  *
+ * T2.2（AD-4）组合根工厂化：会话相关件（Session 聚合 + ChatService 族 +
+ * 会话投影 + 会话绑定引擎/工具）经 SessionRegistry 按需创建/卸载（本文件
+ * 的 buildRuntime/engineFor 工厂是唯一 new 面）；会话无关全局件（调度器/
+ * 事件总线/存储/WS 服务器/静态服务）保持单例——调度预算 daemon 全局一份
+ * 不随会话数分裂（TR-AD-11/16）。ChatService:Session 1:1 与 write-through
+ * 机制不变（AD-4 取代边界）。
+ *
  * 事件接线：fan-out publisher 先建（ChatService/SchedulerService 依赖它构造），
  * 目标（CLI stdout publisher、SessionService 订阅回灌、WS 事件流、WriteQueue
- * 持久化目标）装配后追加——无需构造后回写依赖。
+ * 持久化目标、会话投影路由、清单运行态桥）装配后追加——无需构造后回写依赖。
  *
- * 构造序（T2.3 重排）：持久化 → 恢复/会话聚合 → fan-out → SubAgent runner
- * → SchedulerService → 工具执行器（编排三工具经 AgentOrchestrationPort 持
- * 调度器引用）→ 引擎 → ChatService。调度器先于工具执行器是闭环要求：
- * agent_spawn 等工具回口编排，而调度器需要会话 id（聚合已先建）。
- * injectClosure 闭包解引用 ChatService（收口只发生在 spawn 之后，装配窗口
- * 内不会被调）。
+ * injectClosure（T2.2 会话反向查找）：调度器收口回调按实例归属会话寻址
+ * 目标 ChatService（原单线闭包指向唯一 ChatService 的形态废弃）；注册表
+ * 在调度器之后装配（收口只发生在 spawn 之后，装配窗口内不会被调）。
  *
- * 持久化（T1.8）：SQLite WAL `<home>/helix.db`；WriteQueue 是 daemon 内唯一
- * SQLite 写通道（AG-06）；启动时 RestoreService 读盘重建聚合（首启无持久化
- * 则新建）；shutdown 先 drain 写队列再释放锁（优雅退出）。
+ * 持久化（T1.8 + T2.2 分仓）：SQLite WAL `<home>/helix.db`；WriteQueue 是
+ * daemon 内唯一 SQLite 写通道（AG-06），每会话独立仓位按 session_id 路由；
+ * shutdown 先 drain 写队列再释放锁（优雅退出）。
  *
- * 测试注入口（不进生产路径）：engine（FakeAgentEngine）、subagentRunner
- * （T2.3：integration 驱动收口时序）、CLI 输入输出流（PassThrough）、
- * skipLock/skipConfig（单测并行与 Fake 演示）。
+ * 测试注入口（不进生产路径）：engine（FakeAgentEngine 单实例或按会话工厂）、
+ * subagentRunner（integration 驱动收口时序）、CLI 输入输出流（PassThrough）、
+ * skipLock/skipConfig（单测并行与 Fake 演示）、sessionTailSize /
+ * sessionIdleUnloadMs（G-1/G-5 测试注入面）。
  */
 export interface DaemonOptions {
   /** 显式 home（main.ts 已解析 --home；测试指向 tmp 目录）。 */
   readonly home?: string;
-  /** 引擎覆盖（测试注入 FakeAgentEngine；缺省装配真 pi 引擎）。 */
-  readonly engine?: AgentEnginePort;
+  /**
+   * 引擎覆盖（测试注入 FakeAgentEngine；缺省装配真 pi 引擎）。
+   * T2.2 多会话：传实例 = 全部会话共享（单会话既有测试形态）；传工厂 =
+   * 每会话独立引擎（多会话并行测试形态——引擎持有单 run 状态不可并发共享）。
+   */
+  readonly engine?: AgentEnginePort | ((sessionId: string) => AgentEnginePort);
   /** CLI 输入/输出流覆盖（测试注入 PassThrough）。 */
   readonly cliInput?: NodeJS.ReadableStream;
   readonly cliOutput?: NodeJS.WritableStream;
@@ -83,6 +92,12 @@ export interface DaemonOptions {
    * 收口时序；缺省装配 SubagentLauncher 真体 / skipConfig 占位替身）。
    */
   readonly subagentRunner?: InstanceRunner;
+  /** 主时间轴尾窗大小（G-1：缺省 30；测试注入面）。 */
+  readonly sessionTailSize?: number;
+  /** 空闲卸载窗口 ms（G-5：缺省 30min；测试注入缩短到秒级）。 */
+  readonly sessionIdleUnloadMs?: number;
+  /** 空闲卸载轮询间隔 ms（测试注入面；缺省 min(60s, 窗口/10)）。 */
+  readonly sessionIdlePollMs?: number;
 }
 
 export interface Daemon {
@@ -98,6 +113,10 @@ export interface Daemon {
   readonly subagentLauncher: SubagentLauncher | undefined;
   /** 编排入口（T2.3：spawn/send/status/kill；三工具与 WS 命令的公共回口）。 */
   readonly orchestration: AgentOrchestrationPort;
+  /** 会话目录入口（T2.2 AD-4：list/loadHistory/delete/草稿/懒加载取数面）。 */
+  readonly directory: SessionDirectoryPort;
+  /** 多会话容器（T2.2：生命周期编排观测面——测试断言懒加载/卸载用）。 */
+  readonly registry: SessionRegistry;
   /** CLI 主循环（阻塞至 /exit/EOF/二次 Ctrl-C）。 */
   runCli(): Promise<void>;
   /** 优雅关闭：停 WS、停输入、释放锁。 */
@@ -121,26 +140,12 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     ? { port: 7333, maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent, maxQueued: DEFAULT_SCHEDULING.maxQueued }
     : loadConfig(paths.configPath());
 
-  // ── 持久化（T1.8）：SQLite WAL + 单写队列（AG-06 唯一写通道） ────
+  // ── 持久化（T1.8）：SQLite WAL + 单写队列（AG-06 唯一写通道；T2.2 分仓） ──
   const writeQueue = new WriteQueue(paths.dbPath(), {
     onError: (error, job) => logger.error(`落盘失败（${job.kind}）：${(error as Error).message}`),
   });
   const repository: SessionRepositoryPort = new SqliteSessionRepository(writeQueue);
-
-  // ── 重启恢复（F(8).2）：读盘重建聚合；首启无持久化 → 新建会话 ──────
-  // 会话聚合在此显式创建/恢复（T2.3 构造序：调度器需要 sessionId，先于引擎装配）
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
-  const restored = await new RestoreService({ repository, clock }).restoreLatest();
-  const session = restored?.session ?? Session.create();
-  // 会话账本基线（T3.2，AD-4）：权威源 = usage.recorded 事件（事件即账），
-  // 运行期入账/观测面归会话投影（SessionProjection，重启基线来自重放）
-  if (restored) {
-    logger.info(
-      `已恢复会话 ${restored.session.id}（entries=${restored.session.entryList().length}，` +
-        `工具记录=${restored.toolCalls.length}，实例=${restored.instances.length}（其中重启收口见 agent_lifecycle），` +
-        `停机前 agentState=${restored.agentState}）`,
-    );
-  }
 
   // ── 事件 fan-out（先建目标容器，服务构造即依赖它） ──────────────
   const publisherTargets: EventPublisherPort[] = [];
@@ -156,8 +161,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   // ── driven：SubAgent 子进程运行器（T2.2：SubagentLauncher 真体，O-7 候选 A）──
   // 生产路径（config.model 必填）装配子进程真体（F-14 同一解析单点经 env
   // 透传子进程）；skipConfig（测试 Fake 模式）无 model 配置 → 退回占位替身
-  // （launch 告警不执行，与 T2.1 行为一致）；options.subagentRunner 为测试
-  // 注入口（T2.3：integration 驱动收口时序，优先于真体/替身）。
+  // （launch 告警不执行）；options.subagentRunner 为测试注入口。
   const subagentLauncher =
     config.model !== undefined
       ? new SubagentLauncher({
@@ -175,8 +179,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     setCallbacks: () => undefined,
   };
 
-  // ── service：SubAgent 调度编排（T2.1/T2.3；先于工具执行器——编排三工具经
-  // AgentOrchestrationPort 持本实例引用，TR-AD-9 编排收敛） ─────────────
+  // ── service：SubAgent 调度编排（T2.2 多会话共用：构造期绑死 sessionId 废弃；
+  //    实例归属经 spawn 入参/AgentInstanceData.sessionId；全局预算不分裂） ──
+  const restoreService = new RestoreService({ repository, clock });
   const scheduler = new SchedulerService({
     policy: new SchedulingPolicy({
       maxConcurrent: config.maxConcurrent,
@@ -186,113 +191,153 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     events: fanout,
     repository,
     clock,
-    sessionId: session.id,
-    reportsDir: path.join(paths.home, "reports", session.id), // O-5：<home>/reports/<session>/<agentId>.md
-    // closure 注入主线（AD-8 双通道）：闭包解引用 ChatService——收口只发生
-    // 在 spawn 之后（装配窗口内不会被调）
-    injectClosure: (agentId, message) => chatService.injectClosure(message),
-  });
-  // T2.4 重启恢复：实例注册表/闭包/任务/序号基线注入调度器（终态与快照态
-  // 原样登记；running/queued 已由 RestoreService 收口落盘——此处零 spawn/零事件）
-  scheduler.restoreInstances(restored?.instances ?? []);
-
-  // ── driven：工具执行器（八工具注册表：四内置 + grep + 编排三工具） ──
-  const toolExecutor = new CoreToolExecutor({
-    cwd: options.toolCwd ?? process.cwd(),
-    orchestration: scheduler, // T2.3：agent_spawn/agent_send/agent_status 经 port 回调度
-  });
-
-  // ── driven：agent 引擎（pi 防腐墙后；测试可注入 Fake） ──────────
-  // F-14 单点：config.model 字符串在此解析为完整 Model 对象，此后全链路
-  // （主引擎/SubAgent 子进程）只透传对象，不散落读字符串。
-  const engine: AgentEnginePort =
-    options.engine ??
-    new PiAgentEngineAdapter({
-      profile: MainSessionProfile,
-      model: resolveConfigModel(config.model), // 缺 model 配置 → fail-fast（中文指引）
-      apiKeys: config.apiKeys ?? {},
-      resolveTools: (names) => toolExecutor.resolveTools(names),
-    });
-
-  // ── services：对话编排 + 会话状态（共享同一聚合访问器） ──────────
-  const chatService = new ChatService({
-    engine,
-    events: fanout,
-    clock,
-    session,
-    restoredToolCalls: restored?.toolCalls,
+    // O-5：<home>/reports/<session>/<agentId>.md——按实例归属会话解析
+    reportsDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
+    // closure 注入主线（AD-8 双通道；T2.2 会话反向查找：实例归属会话 → 注册表
+    // 寻址目标 ChatService）。热会话同步直达（收口链时序不变）；冷会话（理论
+    // 不可达——活跃实例的会话不会卸载）异步恢复后补投。注册表在下方装配
+    //（收口只发生在 spawn 之后，装配窗口内不会被调）。
+    injectClosure: (agentId, message) => {
+      const sessionId = scheduler.instance(agentId)?.sessionId;
+      if (sessionId === undefined) return;
+      const hot = registry.peek(sessionId);
+      if (hot !== undefined) {
+        hot.chatService.injectClosure(message);
+        return;
+      }
+      void registry
+        .get(sessionId)
+        .then((runtime) => runtime.chatService.injectClosure(message))
+        .catch(() => undefined); // 会话已删等竞态：静默丢弃
+    },
   });
 
-  // ── 会话投影消费者（T2.1，AD-3 §3.2②）：SubAgent Entry 落聚合 + 账本
-  // 入账 + write-through（原 ChatService 落盘点与组合根 usageLedger 内联
-  // 闭包并入；fan-out 末端装配——先事件行后状态行，全局 FIFO） ──────
-  const projection = new SessionProjection({
+  // ── driving：WS 事件流（EventPublisherPort 实现，fan-out 目标之一——
+  //    WS 推送显式消费者：统一信封章印 + 按 sessionId 路由，T2.1 AD-3） ──
+  const eventStream = new EventStream();
+
+  // ── service：多会话容器（T2.2 AD-4 主承载） ─────────────────────
+  // 会话绑定引擎工厂：测试注入实例 = 全部会话共享（单会话测试形态）；
+  // 工厂 = 每会话独立；生产路径 = 真引擎 + 会话绑定工具执行器（编排三工具
+  // 回口携带会话归属——agent_spawn 经此路由到目标会话的调度入参）。
+  const engineFor =
+    typeof options.engine === "function"
+      ? options.engine
+      : options.engine !== undefined
+        ? () => options.engine as AgentEnginePort
+        : (sessionId: string): AgentEnginePort => {
+            const sessionOrchestration: AgentOrchestrationPort = {
+              spawn: (task, profileKind) => scheduler.spawn(sessionId, task, profileKind),
+              send: (agentId, message) => scheduler.send(agentId, message),
+              status: (agentId) => scheduler.status(agentId),
+              kill: (agentId) => scheduler.kill(agentId),
+            };
+            const toolExecutor = new CoreToolExecutor({
+              cwd: options.toolCwd ?? process.cwd(),
+              orchestration: sessionOrchestration,
+            });
+            // F-14 单点：config.model 在此解析为完整 Model 对象（缺配置 fail-fast）
+            return new PiAgentEngineAdapter({
+              profile: MainSessionProfile,
+              model: resolveConfigModel(config.model),
+              apiKeys: config.apiKeys ?? {},
+              resolveTools: (names) => toolExecutor.resolveTools(names),
+            });
+          };
+
+  const registry = new SessionRegistry({
     repository,
-    getSession: () => chatService.sessionView,
-    getMainState: () => ({ agentState: chatService.agentState, toolCalls: chatService.toolCallData }),
-    initialUsage: restored?.usage,
+    clock,
+    scheduler,
+    restore: (sessionId) => restoreService.restore(sessionId),
+    // 会话运行时工厂（组合根唯一 new 面）：Session + ChatService 族 + 投影绑定
+    buildRuntime: (material): SessionRuntime => {
+      const engine = engineFor(material.session.id);
+      const chatService = new ChatService({
+        engine,
+        events: fanout,
+        clock,
+        session: material.session,
+        restoredToolCalls: material.toolCalls,
+      });
+      // 会话投影消费者（T2.1 AD-3 §3.2②；T2.2 多会话 = 按 sessionId 分实例化，
+      // architecture-feedback #20 建议采纳）：SubAgent Entry 落聚合 + 账本入账
+      // + write-through（fan-out 投影路由按事件 sessionId 分发到本投影）。
+      const projection = new SessionProjection({
+        repository,
+        getSession: () => chatService.sessionView,
+        getMainState: () => ({ agentState: chatService.agentState, toolCalls: chatService.toolCallData }),
+        initialUsage: material.usage,
+      });
+      return { sessionId: material.session.id, chatService, projection };
+    },
+    onListChanged: (change) => eventStream.broadcastListChanged(change),
+    idleUnloadMs: options.sessionIdleUnloadMs,
+    idlePollMs: options.sessionIdlePollMs,
+    logger,
   });
 
+  // ── 启动恢复（T2.2 全量元数据 + 懒加载）：全部会话元数据可见（session.list
+  //    读面），当前会话（最近活动）显式热加载（同步读面/CLI 兼容）；restoreLatest
+  //    ids.at(-1) 单会话末位语义废弃。首启无持久化 → 新建空会话。 ──
+  await registry.initialize();
+
+  // ── services：会话状态入口（当前会话读面，经注册表组装） ──────────
   const sessionService = new SessionService({
-    getSession: () => chatService.sessionView,
-    getAgentState: () => chatService.agentState,
-    // D-1：快照取数面（工具记录随快照恢复）；T2.1：主线记录（ChatService，
-    // 含恢复载荷）+ SubAgent 运行期记录（投影）合并——重启前后读面一致
-    getToolCalls: () => [...chatService.toolCallData, ...projection.subAgentToolCallData()],
-    // T2.4 快照组装面：主实例条目（常驻，窗口永不终态）+ 调度器注册表观测；
-    // T3.2：每实例附账目小计（投影账本 per-instance 面，popover 行源）
-    getInstances: () => [
-      {
-        instanceId: MAIN_INSTANCE_ID,
-        kind: "main",
-        profileKind: "main-session",
-        sessionId: session.id,
-        // T2.1：读 AgentLifecycle（原硬编码 "running" 失真）——InstanceState
-        // 表实例生命周期（无常驻待命态），daemon 存续期 main 恒存活（running）；
-        // stopped 仅 shutdown 后（此后不再服务快照）。会话运行态由快照顶层
-        // agentState 表达（InstanceState 无 idle 词汇缺口见任务 findings）
-        state: chatService.agentState === "stopped" ? "cancelled" : "running",
-        createdAt: session.createdAt,
-        usage: projection.instanceUsage(MAIN_INSTANCE_ID),
-      },
-      ...scheduler.snapshotInstances().map((instance) => ({
-        ...instance,
-        usage: projection.instanceUsage(instance.instanceId),
-      })),
-    ] satisfies InstanceSnapshotEntry[],
-    // T3.2：快照 usage 聚合 = 投影账本（徽标数据源）
-    getUsage: () => projection.usageSummary(),
+    getView: () => registry.currentView(),
+    getAgentState: () => registry.currentRuntime().chatService.agentState,
   });
+
+  // ── 会话路由对话入口（T2.2）：CLI / WS 共用——sessionId 缺省 = 当前会话 ──
+  const chatRouter: SessionChatPort = {
+    sendMessage: async (text: string, sessionId?: string): Promise<SendOutcome> => {
+      const target = sessionId ?? registry.currentSessionId();
+      const runtime = registry.peek(target) ?? (await registry.get(target));
+      return runtime.chatService.sendMessage(text);
+    },
+    steer: async (text: string, sessionId?: string): Promise<{ entryId: string }> => {
+      const target = sessionId ?? registry.currentSessionId();
+      const runtime = registry.peek(target) ?? (await registry.get(target));
+      return runtime.chatService.steer(text);
+    },
+    abort: (sessionId?: string): void => {
+      // 冷会话无在飞 run（卸载前置条件 = idle）——热会话直接中断
+      const target = sessionId ?? registry.currentSessionId();
+      registry.peek(target)?.chatService.abort();
+    },
+  };
 
   // ── driving：CLI（stdout 事件发布器由组合根构造并注入两侧） ─────
   const stdoutPublisher = new StdoutEventPublisher(options.cliOutput ?? process.stdout);
   const cli = new CliAdapter({
-    chat: chatService,
+    chat: chatRouter,
     session: sessionService,
     events: stdoutPublisher,
     input: options.cliInput,
     output: options.cliOutput,
   });
 
-  // ── driving：WS 事件流（EventPublisherPort 实现，fan-out 目标之一——
-  //    WS 推送显式消费者：统一信封章印 + 按 sessionId 路由，T2.1 AD-3） ──
-  const eventStream = new EventStream({ defaultSessionId: session.id });
-
-  // fan-out 目标装配：CLI stdout + SessionService 订阅者回灌 + WS 事件流
-  // + 写队列持久化目标（领域事件行入同一 FIFO 队列；流式 delta 不落盘，
-  // publishDelta 无入队动作——AD-16 §5.3）。SubAgent 实例事件
-  // （instanceId ≠ main）落行 agent_kind=subagent（四维可查口径）。
+  // fan-out 目标装配（序：CLI stdout → CLI 事件回灌（当前会话过滤）→ WS 事件流
+  // → 写队列持久化（事件行，行级 session_id 分仓路由）→ 会话投影路由（先事件行
+  // 后状态行，同会话仓内 FIFO 保序）→ 清单运行态桥（活动标记 + state_changed）。
+  // SubAgent 实例事件（instanceId ≠ main）落行 agent_kind=subagent（四维可查口径）。
   publisherTargets.push(
     stdoutPublisher,
     {
-      publish: (event) => sessionService.notify(event),
-      publishDelta: (delta) => sessionService.notify(delta),
+      // CLI 单会话 UX：只回灌当前会话事件（多会话事件经 WS 按订阅分发）
+      publish: (event) => {
+        if (event.sessionId === registry.currentSessionId()) sessionService.notify(event);
+      },
+      publishDelta: (delta) => {
+        if ((delta.sessionId ?? registry.currentSessionId()) === registry.currentSessionId()) {
+          sessionService.notify(delta);
+        }
+      },
     },
     eventStream,
     {
       // 事件行持久化：行级四维落位（session_id 列 = 事件携带 sessionId——
-      // 多会话 T2.2 起每会话独立分仓的行级路由位；agent_kind 按实例维判
-      // main/subagent——SubAgent 实例事件（instanceId ≠ main）落 subagent 仓）
+      // WriteQueue 分仓路由位；agent_kind 按实例维判 main/subagent）
       publish: (event) => {
         void writeQueue.appendEvent(
           event,
@@ -303,31 +348,44 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       },
       publishDelta: () => undefined,
     },
-    // 会话投影消费者（T2.1 AD-3：SubAgent Entry 落聚合 + 账本入账 +
-    // write-through；最末装配——先事件行后状态行，全局 FIFO 保序）
-    projection,
+    // 会话投影路由（T2.1 AD-3 + T2.2 多会话）：事件 → 归属会话运行时的投影
+    // 消费者（SubAgent Entry 落聚合 + 账本入账 + write-through；卸载会话无
+    // 投影——零动作）
+    {
+      publish: (event) => registry.projectEvent(event),
+      publishDelta: () => undefined,
+    },
+    // 清单运行态桥（T2.2）：活动标记（卸载计时/当前会话轮换）+ runState 变化
+    // 推 session.list_changed{state_changed}（注册表内去重）
+    {
+      publish: (event) => registry.onDomainEvent(event),
+      publishDelta: (delta) => registry.touchActivity(delta.sessionId),
+    },
   );
 
   let running = true;
   let wsServer: WsServerAdapter | undefined;
   const system: SystemPort = {
     getStatus(): DaemonStatus {
+      const sessionId = registry.currentSessionId();
       return {
         running,
         locked: lock !== undefined,
         home: paths.home,
-        sessionId: chatService.sessionId,
-        agentState: chatService.agentState,
+        sessionId,
+        // 冷当前会话（被空闲卸载）无执行载体 → idle
+        agentState: registry.peek(sessionId)?.chatService.agentState ?? "idle",
         model: config.model,
       };
     },
     async shutdown(): Promise<void> {
       running = false;
       wsServer?.stop(); // 先停 WS（不再接受新连接/命令），再收尾业务
-      scheduler.stop(); // T2.1：停 stalled 监视定时器（否则活跃 interval 阻止进程退出）
+      registry.stop(); // T2.2：停空闲卸载监视定时器
+      scheduler.stop(); // T2.1：停 stalled 监视定时器
+      registry.sealAll(); // T2.2：全部热会话封口（stopped 里程碑 write-through 落盘）
       await subagentLauncher?.dispose(); // T2.2：O-6 序列回收全部存活子进程（零孤儿）
-      chatService.stop(); // stopped 里程碑 write-through 落盘
-      await writeQueue.close(); // 优雅退出：drain 单写队列后关连接（lifecycle 挂点）
+      await writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
       lock?.release();
       logger.info("daemon 已关闭");
     },
@@ -337,15 +395,24 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   // dev token 每次启动重写（<home>/dev-token，0600）；静态产物缺失不影响启动
   const token = ensureDevToken(paths.devTokenPath());
   const staticServe = new StaticServe(options.staticDir ?? config.staticDir);
+  // 当前会话绑定编排门面（T2.2）：Daemon.orchestration / WS 编排命令共用——
+  // spawn 携带当前会话归属（既有测试口径不变）；kill/send/status 按 agentId 全局寻址
+  const currentOrchestration: AgentOrchestrationPort = {
+    spawn: (task, profileKind) => scheduler.spawn(registry.currentSessionId(), task, profileKind),
+    send: (agentId, message) => scheduler.send(agentId, message),
+    status: (agentId) => scheduler.status(agentId),
+    kill: (agentId) => scheduler.kill(agentId),
+  };
   const ws = new WsServerAdapter({
-    chat: chatService,
-    session: sessionService,
+    chat: chatRouter,
+    directory: registry,
     system,
-    orchestration: scheduler, // T2.3：agent.kill 命令链回调度
+    orchestration: currentOrchestration, // T2.3：agent.kill 命令链回调度
     events: eventStream,
     token,
     port: options.port ?? config.port,
     staticHandler: (req) => staticServe.handle(req),
+    tailSize: options.sessionTailSize,
   });
   wsServer = ws;
   if (!staticServe.active) {
@@ -363,13 +430,15 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   return {
     paths,
     config,
-    chat: chatService,
+    chat: chatRouter,
     session: sessionService,
     system,
     logger,
     ws,
     subagentLauncher,
-    orchestration: scheduler,
+    orchestration: currentOrchestration,
+    directory: registry,
+    registry,
     runCli: () => cli.run(),
     shutdown: system.shutdown,
   };

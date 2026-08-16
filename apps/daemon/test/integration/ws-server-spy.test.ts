@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ChatPort, SendOutcome } from "../../src/application/ports/inbound/ChatPort";
-import type { SessionPort, SessionStateView, SessionStreamEvent } from "../../src/application/ports/inbound/SessionPort";
+import type { SessionStateView, SessionStreamEvent } from "../../src/application/ports/inbound/SessionPort";
+import type { SessionDirectoryPort } from "../../src/application/ports/inbound/SessionDirectoryPort";
 import type { SystemPort } from "../../src/application/ports/inbound/SystemPort";
 import { WsServerAdapter } from "../../src/adapters/driving/ws-server/WsServerAdapter";
 import { EventStream } from "../../src/adapters/driving/ws-server/EventStream";
@@ -45,12 +46,23 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       },
     };
     let snapshotCalls = 0;
-    const session: SessionPort = {
-      getSnapshot: () => {
+    // T2.2：WsServerAdapter 取数面改接 SessionDirectoryPort（原 SessionPort
+    // 直取形态废弃）；spy 记录调用，快照取数返回固定视图
+    const directory: SessionDirectoryPort = {
+      listSessions: async () => [],
+      sessionExists: async (id: string) => id === "spy-s1",
+      resolveTarget: async (id?: string) => id ?? "spy-s1",
+      getSessionView: async () => {
         snapshotCalls++;
         return fakeView();
       },
-      subscribe: (_l: (e: SessionStreamEvent) => void) => () => {},
+      startDraftSession: async () => {
+        throw new Error("spy 不装配草稿链");
+      },
+      deleteSession: async () => {
+        throw new Error("spy 不装配删除链");
+      },
+      currentSessionId: () => "spy-s1",
     };
     const system: SystemPort = {
       getStatus: () => ({
@@ -67,7 +79,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
     const eventStream = new EventStream();
     const adapter = new WsServerAdapter({
       chat,
-      session,
+      directory,
       system,
       orchestration: {
         // T2.3：命令路由只转发不决策——spy 用 no-op 编排口验证帧推送
@@ -104,7 +116,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       ws.send(JSON.stringify({ v: 0, type: "chat.steer", payload: { text: "原文二" } }));
       ws.send(JSON.stringify({ v: 0, type: "chat.abort", payload: {} }));
       ws.send(JSON.stringify({ v: 0, type: "session.subscribe", payload: {} }));
-      await until(() => snapshotCalls === 2); // subscribe 重推快照（经 SessionPort 取数）
+      await until(() => snapshotCalls === 2); // subscribe 重推快照（经 SessionDirectoryPort 取数）
       ws.send(JSON.stringify({ v: 0, type: "session.unsubscribe", payload: {} }));
       await new Promise((r) => setTimeout(r, 100));
 

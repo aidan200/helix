@@ -327,14 +327,15 @@ describe("命令错误回执（不关连接）", () => {
       client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
       await client.expect("session.snapshot");
 
-      // 新命令族占位：已登记未实现（行为由 T2.1/T2.2/T2.3 落地）
-      const newCommands = ["session.list", "session.loadHistory", "session.delete", "model.set", "model.catalog", "auth.list", "auth.verify"];
+      // 新命令族占位：已登记未实现（T2.2 后 session 族已落地真行为——
+      // 此处只抽样 model/auth 族占位回执；session 族行为由专门用例覆盖）
+      const newCommands = ["model.set", "model.get", "model.catalog", "model.set_default", "auth.list", "auth.set_key", "auth.verify"];
       for (const type of newCommands) {
-        client.send({ v: PROTOCOL_VERSION, sessionId: "sess-1", type, payload: type === "model.set" ? { model: "m/x" } : type === "auth.verify" ? { providerId: "p" } : type === "session.loadHistory" ? { beforeEntryId: "e1" } : {} });
+        client.send({ v: PROTOCOL_VERSION, sessionId: "sess-1", type, payload: type === "model.set" ? { model: "m/x" } : type === "auth.verify" ? { providerId: "p" } : {} });
       }
       await new Promise((r) => setTimeout(r, 150));
       const unimplemented = client.frames.filter((f) => f.type === "connection.error" && f.payload.code === "command.unimplemented");
-      expect(unimplemented).toHaveLength(newCommands.length); // 全部 13 新命令中抽样 7 个
+      expect(unimplemented).toHaveLength(newCommands.length); // model/auth 族抽样 7 个
       for (const type of newCommands) {
         expect(unimplemented.some((f) => String(f.payload.message).includes(type))).toBe(true);
       }
@@ -484,7 +485,10 @@ describe("session.subscribe / unsubscribe（v0 保通路语义）", () => {
       await new Promise((r) => setTimeout(r, 100));
       client.send({ v: 0, type: "chat.send", payload: { text: "静默消息" } });
       await new Promise((r) => setTimeout(r, 500));
-      expect(client.frames.length).toBe(baseline); // 无新帧（连错误都没有）
+      // T2.2（AD-4）：退订后该会话事件帧停收；session.list_changed 是 daemon
+      // 级清单广播（runState 变化 idle→streaming→idle），与连接订阅集无关
+      const nonList = client.frames.slice(baseline).filter((f) => f.type !== "session.list_changed");
+      expect(nonList).toHaveLength(0); // 无会话帧（连错误都没有）
 
       // subscribe → 恢复 + 重推快照（快照恢复语义；取 baseline 之后的新快照帧）
       client.send({ v: 0, type: "session.subscribe", payload: {} });

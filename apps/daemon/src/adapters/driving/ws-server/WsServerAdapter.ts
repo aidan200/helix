@@ -10,17 +10,38 @@
  *   命令帧路由到 inbound port（只转发不决策，AG-12/TP-CL6-3）→
  *   事件经 EventStream（EventPublisherPort 实现）下发。
  *
+ * T2.2（AD-4 多会话）：会话作用域命令按信封 sessionId 路由（缺省 = 当前
+ * 会话，v0/v0.1 兼容）经 SessionDirectoryPort/SessionChatPort 解析目标会话；
+ * session 族命令（list/loadHistory/delete）+ 草稿建会话链（chat.send 信封
+ * 省略 sessionId + payload.draft=true，契约 B §1.5）在此落地；握手 welcome
+ * 快照升级为「当前订阅会话」（当前会话 = 注册表最近活跃会话）。
+ *
  * 绑定纪律（TP-CL6-1）：仅 127.0.0.1，禁止 0.0.0.0/::——构造期即钉死。
  */
-import type { ChatPort } from "../../../application/ports/inbound/ChatPort";
-import type { SessionPort } from "../../../application/ports/inbound/SessionPort";
+import type { SessionChatPort } from "../../../application/ports/inbound/ChatPort";
 import type { SystemPort } from "../../../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
-import type { AgentStateDto, ConnectionErrorEvent, ConnectionWelcomeEvent, EventEnvelope, FrameVersion, SessionSnapshotEvent } from "@helix/protocol";
+import type { SessionDirectoryPort } from "../../../application/ports/inbound/SessionDirectoryPort";
+import type {
+  AgentStateDto,
+  ConnectionErrorEvent,
+  ConnectionWelcomeEvent,
+  EventEnvelope,
+  FrameVersion,
+  SessionListResultEvent,
+  SessionLoadHistoryResultEvent,
+  SessionSnapshotEvent,
+} from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { ServerWebSocket } from "bun";
 import { EventStream, type FrameSender } from "./EventStream";
-import { toSnapshotDto } from "./DtoMapper";
+import { historyPage, toSnapshotDto } from "./DtoMapper";
+import type { SessionStateView } from "../../../application/ports/inbound/SessionPort";
+import {
+  HISTORY_PAGE_DEFAULT,
+  HISTORY_PAGE_MAX,
+  TAIL_WINDOW_SIZE,
+} from "./DtoMapper";
 
 /** 浏览器侧 token 获取端点路径（vite dev 与 static-serve 生产共用同一机制）。 */
 export const DEV_TOKEN_PATH = "/helix-dev-token";
@@ -36,8 +57,10 @@ interface ConnState {
 }
 
 export interface WsServerAdapterDeps {
-  readonly chat: ChatPort;
-  readonly session: SessionPort;
+  /** 会话路由对话入口（T2.2：组合根 ChatRouter——按信封 sessionId 分发）。 */
+  readonly chat: SessionChatPort;
+  /** 会话目录（T2.2 AD-4：list/loadHistory/delete/草稿/目标解析）。 */
+  readonly directory: SessionDirectoryPort;
   readonly system: SystemPort;
   /** 编排入口（T2.3）：agent.kill 终止链回 SchedulerService（只转发不决策）。 */
   readonly orchestration: AgentOrchestrationPort;
@@ -49,6 +72,8 @@ export interface WsServerAdapterDeps {
   readonly port: number;
   /** 静态产物 handler（组合根注入 driven StaticServe；未配置时缺省）。 */
   readonly staticHandler?: (req: Request) => Promise<Response | null> | Response | null;
+  /** 主时间轴尾窗大小（G-1：缺省 30；组合根/测试注入面）。 */
+  readonly tailSize?: number;
 }
 
 export class WsServerAdapter {
@@ -147,7 +172,7 @@ export class WsServerAdapter {
       return;
     }
     if (!ws.data.authed) {
-      this.handleHandshake(ws, envelope);
+      void this.handleHandshake(ws, envelope);
       return;
     }
     this.routeCommand(ws, envelope);
@@ -155,10 +180,10 @@ export class WsServerAdapter {
 
   // ── 握手（TP-CL6-5 三分支） ──────────────────────────────────
 
-  private handleHandshake(
+  private async handleHandshake(
     ws: ServerWebSocket<ConnState>,
     envelope: { v: FrameVersion | number | string; type: unknown; payload: unknown },
-  ): void {
+  ): Promise<void> {
     const reject = (code: ConnectionErrorEvent["payload"]["code"], message: string): void => {
       this.sendNow(this.rawSender(ws), {
         v: PROTOCOL_VERSION,
@@ -188,7 +213,8 @@ export class WsServerAdapter {
       return;
     }
 
-    // 通过：注册事件流（默认订阅当前单会话，v0 语义保持）+ welcome + 立即推快照（重连恢复语义）
+    // 通过：注册事件流（T2.2 定稿：默认订阅「当前订阅会话」= 注册表当前会话，
+    // 即最近活跃会话——冷则懒加载）+ welcome + 立即推快照（重连恢复语义）
     ws.data.authed = true;
     const sender = this.rawSender(ws);
     ws.data.sender = sender;
@@ -205,17 +231,25 @@ export class WsServerAdapter {
       payload: { sessionId: status.sessionId, model, agentState },
     };
     this.sendNow(sender, welcome);
-    this.sendNow(sender, this.snapshotFrame(status, model, agentState));
+    try {
+      const view = await this.deps.directory.getSessionView(status.sessionId);
+      this.sendNow(sender, this.snapshotFrame(view, model, agentState));
+    } catch (err) {
+      // 快照组装失败不发垃圾帧（连接保持，客户端可 session.list 自取）
+      console.warn(`[ws] 握手快照组装失败（会话 ${status.sessionId}）：${(err as Error).message}`);
+    }
   }
 
-  /** session.snapshot 帧（v0.2 章印：sessionId = 会话归属 + channel=session）。 */
-  private snapshotFrame(status: { sessionId: string; model?: string }, model: string, agentState: AgentStateDto): SessionSnapshotEvent {
+  /** session.snapshot 帧（v0.2 章印：sessionId = 会话归属 + channel=session；AD-1 尾窗口径）。 */
+  private snapshotFrame(view: SessionStateView, model: string, agentState: AgentStateDto): SessionSnapshotEvent {
     return {
       v: PROTOCOL_VERSION,
-      sessionId: status.sessionId,
+      sessionId: view.session.sessionId,
       channel: "session",
       type: "session.snapshot",
-      payload: { snapshot: toSnapshotDto(this.deps.session.getSnapshot(), model, agentState) },
+      payload: {
+        snapshot: toSnapshotDto(view, model, agentState, { tailSize: this.deps.tailSize ?? TAIL_WINDOW_SIZE }),
+      },
     };
   }
 
@@ -231,45 +265,147 @@ export class WsServerAdapter {
     switch (type) {
       case "chat.send": {
         if (typeof payload.text !== "string") return this.commandError(ws, type, "command.invalid_payload", "payload.text 应为 string");
-        // 空文本等业务拒绝属 service 规则；adapter 原样转发（结果经事件流可观测）
-        void this.deps.chat.sendMessage(payload.text).catch((err) => {
+        // 草稿建会话链（契约 B §1.5 定稿）：信封省略 sessionId + payload.draft
+        // → daemon 建新会话（首条消息落库 + created 广播）+ 本连接订阅新会话
+        // + 快照（客户端据此切换）；draft 标记与显式 sessionId 同现时以 sessionId 为准。
+        const hasSessionRoute =
+          typeof envelope.sessionId === "string" && envelope.sessionId !== "";
+        if (payload.draft === true && !hasSessionRoute) {
+          const sender = ws.data.sender;
+          void this.deps.directory
+            .startDraftSession(payload.text)
+            .then(({ sessionId }) => {
+              if (!sender) return;
+              this.deps.events.subscribeSession(sender, sessionId);
+              return this.deps.directory.getSessionView(sessionId).then((view) => {
+                const status = this.deps.system.getStatus();
+                this.sendNow(sender, this.snapshotFrame(view, status.model ?? "", status.agentState as AgentStateDto));
+              });
+            })
+            .catch((err) => {
+              console.warn(`[ws] 草稿建会话失败：${(err as Error).message}`);
+            });
+          return;
+        }
+        // 既有会话发送：信封 sessionId 路由（缺省当前会话，v0 兼容）
+        const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
+        void this.deps.chat.sendMessage(payload.text, sid).catch((err) => {
           console.warn(`[ws] chat.send 处理失败：${(err as Error).message}`);
         });
         return;
       }
       case "chat.steer": {
         if (typeof payload.text !== "string") return this.commandError(ws, type, "command.invalid_payload", "payload.text 应为 string");
-        void this.deps.chat.steer(payload.text).catch((err) => {
+        const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
+        void this.deps.chat.steer(payload.text, sid).catch((err) => {
           console.warn(`[ws] chat.steer 处理失败：${(err as Error).message}`);
         });
         return;
       }
-      case "chat.abort":
-        this.deps.chat.abort();
+      case "chat.abort": {
+        const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
+        this.deps.chat.abort(sid);
         return;
+      }
       case "session.subscribe": {
         const sender = ws.data.sender;
         if (!sender) return;
-        // v0.2（T2.1 定稿）：per-session 订阅（AD-4）——信封 sessionId 指定目标
-        // 会话；v0 兼容：不带信封位 = 当前单会话（缺省订阅语义不变）
-        const target = this.resolveTargetSession(ws, envelope, type);
-        if (target === undefined) return; // 不存在会话：已回 connection.error
-        this.deps.events.subscribeSession(sender, target);
-        // 重新订阅 = 重推该会话全量快照（快照恢复公式，AD-16）
-        const status = this.deps.system.getStatus();
-        this.sendNow(
-          sender,
-          this.snapshotFrame(status, status.model ?? "", status.agentState as AgentStateDto),
-        );
+        // v0.2（T2.1/T2.2）：per-session 订阅——信封 sessionId 指定目标会话；
+        // v0 兼容：不带信封位 = 当前会话（缺省订阅语义不变）
+        void this.resolveTargetSession(ws, envelope, type).then((target) => {
+          if (target === undefined) return; // 不存在会话：已回 connection.error
+          this.deps.events.subscribeSession(sender, target);
+          // 重新订阅 = 重推该会话全量快照（快照恢复公式，AD-16）
+          const status = this.deps.system.getStatus();
+          void this.deps.directory
+            .getSessionView(target)
+            .then((view) => this.sendNow(sender, this.snapshotFrame(view, status.model ?? "", status.agentState as AgentStateDto)))
+            .catch((err) => console.warn(`[ws] 订阅快照组装失败：${(err as Error).message}`));
+        });
         return;
       }
       case "session.unsubscribe": {
         const sender = ws.data.sender;
-        // T2.1 定稿（T1.2 boundary 遗留）：对称 per-session 退订——与 subscribe
-        // 同一目标会话解析规则（信封 sessionId / v0 缺省当前单会话）；退订后
-        // 该会话帧停发，其余订阅会话不受影响（多会话 T2.2 兑现）
-        const target = this.resolveTargetSession(ws, envelope, type);
-        if (sender && target !== undefined) this.deps.events.unsubscribeSession(sender, target);
+        // T2.1 定稿：对称 per-session 退订——与 subscribe 同一目标会话解析规则
+        void this.resolveTargetSession(ws, envelope, type).then((target) => {
+          if (sender && target !== undefined) this.deps.events.unsubscribeSession(sender, target);
+        });
+        return;
+      }
+      // ── session 族（T2.2，契约 B §1；全局命令 result 点对点回执） ──
+      case "session.list": {
+        const sender = ws.data.sender ?? this.rawSender(ws);
+        void this.deps.directory
+          .listSessions()
+          .then((sessions) => {
+            const frame: SessionListResultEvent = {
+              v: PROTOCOL_VERSION,
+              sessionId: SYSTEM_SESSION_ID, // 全局命令结果：会话无关
+              channel: "session",
+              type: "session.list.result",
+              payload: { sessions: sessions.map((s) => ({ ...s })) },
+            };
+            this.sendNow(sender, frame);
+          })
+          .catch((err) => console.warn(`[ws] session.list 处理失败：${(err as Error).message}`));
+        return;
+      }
+      case "session.loadHistory": {
+        const sender = ws.data.sender ?? this.rawSender(ws);
+        if (typeof payload.beforeEntryId !== "string" || payload.beforeEntryId === "") {
+          return this.commandError(ws, type, "command.invalid_payload", "payload.beforeEntryId 应为非空 string");
+        }
+        const rawLimit = payload.limit;
+        if (rawLimit !== undefined && (typeof rawLimit !== "number" || !Number.isInteger(rawLimit) || rawLimit < 1)) {
+          return this.commandError(ws, type, "command.invalid_payload", "payload.limit 应为正整数");
+        }
+        const beforeEntryId = payload.beforeEntryId;
+        const limit = rawLimit === undefined ? HISTORY_PAGE_DEFAULT : Math.min(rawLimit, HISTORY_PAGE_MAX);
+        const target = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
+        void (async () => {
+          try {
+            const sessionId = await this.deps.directory.resolveTarget(target);
+            const view = await this.deps.directory.getSessionView(sessionId);
+            const page = historyPage(view, beforeEntryId, limit);
+            const frame: SessionLoadHistoryResultEvent = {
+              v: PROTOCOL_VERSION,
+              sessionId, // 目标会话归属
+              channel: "session",
+              type: "session.loadHistory.result",
+              payload: { entries: page.entries, hasMore: page.hasMore, nextCursor: page.nextCursor },
+            };
+            this.sendNow(sender, frame);
+          } catch (err) {
+            const code =
+              (err as Error).name === "SessionNotFoundError" ? "session.not_found" : "session.invalid_cursor";
+            this.commandError(ws, type, code, (err as Error).message);
+          }
+        })();
+        return;
+      }
+      case "session.delete": {
+        const target = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
+        if (target === undefined) {
+          return this.commandError(ws, type, "command.invalid_payload", "session.delete 信封 sessionId 必填");
+        }
+        void this.deps.directory
+          .deleteSession(target)
+          .then(() => {
+            // 删除回执 = list_changed{deleted} 广播（契约 B §1.4 ack 形态；
+            // 取消/删库失败经 catch 回 error）
+          })
+          .catch((err) => {
+            // 契约 B §1.4：取消失败或删库失败时 error（含 reason）；已知错误
+            // 精确回码，其余（库删除失败等）以通用命令错误回执携带原因
+            const name = (err as Error).name;
+            const code =
+              name === "SessionDeleteInProgressError"
+                ? "session.delete_in_progress"
+                : name === "SessionNotFoundError"
+                  ? "session.not_found"
+                  : "command.invalid_payload";
+            this.commandError(ws, type, code, (err as Error).message);
+          });
         return;
       }
       // ── v0.1 编排命令（T2.3，契约 §4；只转发不决策，TP-CL6-3） ──
@@ -301,21 +437,14 @@ export class WsServerAdapter {
         if (sender) this.deps.events.unsubscribeInstance(sender, payload.agentId);
         return;
       }
-      // ── v0.2 登记占位（契约 B §1 / C §1；iter-20260816-6q6f T1.2）──
-      // 命令 type 已在协议目录登记、daemon 行为由 T2.1/T2.2/T2.3 落地：
-      // 显式 case + command.unimplemented 占位回执（避免 default 兜底误报
-      // command.unknown——区分「目录外」与「已登记未实现」）。既有 8 命令行为不变。
-      case "session.list":
-      case "session.loadHistory":
-      case "session.delete":
-        return this.commandError(ws, type, "command.unimplemented", `命令 ${type} 已登记（v0.2），daemon 行为待实现`);
+      // ── v0.2 登记占位（契约 C §1；iter-20260816-6q6f T1.2）──
       case "model.set":
       case "model.get":
       case "model.catalog":
       case "model.catalog_refresh":
       case "model.set_default":
       case "model.get_default":
-        return this.commandError(ws, type, "command.unimplemented", `命令 ${type} 已登记（v0.2），daemon 行为待实现`);
+        return this.commandError(ws, type, "command.unimplemented", `命令 ${type} 已登记（v0.2），daemon 行为待实现（T2.3）`);
       case "auth.list":
       case "auth.set_key":
       case "auth.delete_key":
@@ -327,24 +456,24 @@ export class WsServerAdapter {
   }
 
   /**
-   * 会话作用域命令的目标会话解析（session.subscribe/unsubscribe 共用）：
-   * 信封 sessionId（v0.2 路由位）→ 缺省当前单会话（v0/v0.1 兼容——不带
-   * 信封位的旧客户端缺省订阅语义不变）；指向不存在会话 → connection.error。
+   * 会话作用域命令的目标会话解析（session.subscribe/unsubscribe/loadHistory
+   * 共用）：信封 sessionId（v0.2 路由位）→ 缺省当前会话（v0/v0.1 兼容）；
+   * 不存在（热/冷均无）→ connection.error（session.not_found）。
+   * T2.2：冷会话经注册表懒加载后即为合法目标。
    */
-  private resolveTargetSession(
+  private async resolveTargetSession(
     ws: ServerWebSocket<ConnState>,
     envelope: { sessionId?: unknown },
     type: string,
-  ): string | undefined {
-    const current = this.deps.system.getStatus().sessionId;
-    if (envelope.sessionId === undefined || envelope.sessionId === null || envelope.sessionId === "") {
-      return current; // v0 兼容：缺省当前单会话
-    }
-    if (typeof envelope.sessionId !== "string" || envelope.sessionId !== current) {
-      this.commandError(ws, type, "command.invalid_payload", `目标会话不存在（单会话运行期仅 ${current}）`);
+  ): Promise<string | undefined> {
+    const sid =
+      typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
+    try {
+      return await this.deps.directory.resolveTarget(sid);
+    } catch (err) {
+      this.commandError(ws, type, "session.not_found", (err as Error).message);
       return undefined;
     }
-    return envelope.sessionId;
   }
 
   private commandError(

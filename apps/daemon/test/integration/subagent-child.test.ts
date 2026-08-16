@@ -362,11 +362,10 @@ describe("⑦ 与 T2.1 SchedulerService 组装（InstanceRunner 真体）", () =
       events: publisher,
       repository,
       clock,
-      sessionId: SESSION_ID,
-      stalledPollMs: 100,
+        stalledPollMs: 100,
     });
 
-    const outcome = scheduler.spawn("调度组装任务");
+    const outcome = scheduler.spawn(SESSION_ID, "调度组装任务");
     expect(outcome.status).toBe("run");
 
     await until(() => events.some((e) => e.type === "agent.completed"), 15000, "等待 agent.completed");

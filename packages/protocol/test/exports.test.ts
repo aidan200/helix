@@ -172,12 +172,12 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（v0.2：命令 21 / 事件 26）", () => {
+  test("② 常量语义值 + 目录计数（v0.2：命令 21 / 事件 28）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.2");
     expect(protocol.MAIN_INSTANCE_ID).toBe("main");
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
     expect(protocol.COMMAND_TYPES.length).toBe(21); // v0.1：5 → 8；v0.2：+13
-    expect(protocol.EVENT_TYPES.length).toBe(26); // v0.1：12 → 24；v0.2：+2
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(26); // 登记目录恰等
+    expect(protocol.EVENT_TYPES.length).toBe(28); // v0.1：12 → 24；v0.2：+2；T2.2：+2（命令结果回执）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(28); // 登记目录恰等
   });
 });

@@ -98,31 +98,29 @@ export class RestoreService {
   constructor(private readonly deps: RestoreServiceDeps) {}
 
   /**
-   * 恢复最近一次持久化的会话；无持久化（首启）返回 undefined，
-   * 调用方（组合根）据此新建会话。
+   * 恢复指定会话（T2.2 AD-4：多会话按 id 恢复——原 restoreLatest 取
+   * ids.at(-1) 的末位语义废弃，目标会话由调用方（SessionRegistry 懒加载/
+   * 组合根启动取当前会话）决定）；不存在返回 undefined。
    */
-  async restoreLatest(): Promise<RestoredDomainState | undefined> {
-    const ids = await this.deps.repository.listSessionIds();
-    const latest = ids.at(-1);
-    if (!latest) return undefined;
-    const state = await this.deps.repository.restore(latest);
+  async restore(sessionId: string): Promise<RestoredDomainState | undefined> {
+    const state = await this.deps.repository.restore(sessionId);
     if (!state) return undefined;
     const session = Session.restoreFrom(state.session);
     if (session.openTurn) {
       session.interruptTurn(this.deps.clock.now()); // 悬挂收口：重启无 run 在飞
     }
-    const instances = await this.restoreInstances(latest, session);
+    const instances = await this.restoreInstances(sessionId, session);
     // T2.1（AD-3）：SubAgent 历史重放——事件流 agent_kind=subagent 全量补齐
     //（投影落库前的旧库升级路径 + 事件行先于状态行的崩溃窗口自愈；
     // 快照已有的条目按 id 去重，零事件流零落盘——恢复不重放铁律保持）
-    const toolCalls = this.replaySubAgentHistory(latest, session, state.toolCalls);
+    const toolCalls = this.replaySubAgentHistory(sessionId, session, state.toolCalls);
     return {
       session,
       agentState: state.agentState,
       toolCalls,
       instances: instances.list,
       maxAgentSeq: instances.maxSeq,
-      usage: this.restoreUsageLedger(latest),
+      usage: this.restoreUsageLedger(sessionId),
     };
   }
 

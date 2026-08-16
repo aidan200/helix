@@ -6,6 +6,7 @@ import type {
   DomainEventQuery,
   InstanceState,
   PersistedDomainState,
+  SessionMetadataRow,
   SessionRepositoryPort,
 } from "../../../application/ports/outbound/SessionRepositoryPort";
 import type { WriteQueue } from "./WriteQueue";
@@ -84,6 +85,39 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .prepare("SELECT session_id FROM session_state ORDER BY created_at, rowid")
       .all() as { session_id: string }[];
     return rows.map((r) => r.session_id);
+  }
+
+  /**
+   * 会话元数据轻量读面（T2.2 AD-4）：json_extract 只取首条 entry 的
+   * role/text（不整体反序列化 entries——session.list 读面不随会话体量线性
+   * 传输）；首条非 user entry（理论不可达：会话首条必为用户消息）防御 null。
+   */
+  async listSessionMetadata(): Promise<readonly SessionMetadataRow[]> {
+    const rows = this.queue.database
+      .prepare(
+        "SELECT session_id, created_at, updated_at, " +
+          "json_extract(entries, '$[0].role') AS first_role, " +
+          "json_extract(entries, '$[0].text') AS first_text " +
+          "FROM session_state ORDER BY updated_at DESC",
+      )
+      .all() as {
+        session_id: string;
+        created_at: string;
+        updated_at: string;
+        first_role: string | null;
+        first_text: string | null;
+      }[];
+    return rows.map((r) => ({
+      sessionId: r.session_id,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      firstUserText: r.first_role === "user" ? r.first_text : null,
+    }));
+  }
+
+  /** 会话删除（T2.2 AD-4）：六表清行经单写通道（同会话仓内 FIFO 保序）。 */
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.queue.deleteSession(sessionId);
   }
 
   /** 实例生命周期投影行（T2.1 调度器写面：经 WriteQueue 单写通道串行落盘）。 */

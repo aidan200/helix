@@ -234,12 +234,13 @@ describe("T2.1 ③ 恢复重放含 SubAgent 历史（重启后快照/抽屉读�
     expect(agent!.channels?.thinking?.length).toBe(1);
     expect(agent!.channels?.tools?.length).toBe(1);
     expect(agent!.channels?.tools?.[0]).toMatchObject({ kind: "tool-call", name: "grep" });
-    // 主实例条目不带 channels（尾窗切法 T2.2；主时间轴 entries 全量携带）
+    // 主实例条目不带 channels（主时间轴 entries 即主实例历史）
     const main = dto.instances?.find((i) => i.instanceId === "main");
     expect(main?.channels).toBeUndefined();
-    // SubAgent 消息 entry 携带 instanceId（前端 F1.6 分流依据）
+    // T2.2（AD-1 尾窗口径）：主时间轴 entries 只含主实例条目——SubAgent
+    // 消息不进主轴（per-instance channels 完整保留，不按全局时间序切尾）
     const subMessage = dto.entries.find((e) => e.kind === "message" && e.instanceId === "agent-1");
-    expect(subMessage).toBeDefined();
+    expect(subMessage).toBeUndefined();
   }, 15000);
 });
 
@@ -326,20 +327,41 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
       expect(tool.instanceId).toBe("agent-1");
       await client.expect("agent.completed");
 
+      // closure 注入驱动的后续主线 turn（agent.completed 后自动开启）收口后再取
+      // baseline——否则在飞帧与 baseline 竞态（既有 flake 根因：退订前合法帧
+      // 被计入退订后断言窗口）
+      const completedAt = client.frames.length;
+      await until(
+        () =>
+          client.frames.slice(completedAt).some(
+            (f) => f.type === "agent.state.changed" && (f.payload as { state?: string }).state === "idle",
+          ),
+        5000,
+        "closure 注入 turn 收口",
+      );
+
       // per-session 退订（v0 兼容：不带信封 sessionId = 当前单会话）→ 停收
       const baseline = client.frames.length;
       client.send({ v: 0, type: "session.unsubscribe", payload: {} });
       await new Promise((r) => setTimeout(r, 150));
       rig.daemon.orchestration.spawn("第二个任务");
       await new Promise((r) => setTimeout(r, 400));
-      expect(client.frames.slice(baseline)).toEqual([]);
+      // T2.2（AD-4）：退订后该会话事件帧停收；session.list_changed 是 daemon
+      // 级清单广播（SYSTEM_SESSION_ID，与连接订阅集无关）仍可达
+      const after = client.frames.slice(baseline).filter((f) => f.type !== "session.list_changed");
+      expect(after).toEqual([]);
 
       // 重订 → 快照重推（含 SubAgent 历史）
       client.send({ v: PROTOCOL_VERSION, type: "session.subscribe", payload: {}, sessionId: rig.sessionId });
       const snap2 = await client.expectAfter("session.snapshot", baseline);
       expect(snap2.sessionId).toBe(rig.sessionId);
-      const entries = (snap2.payload.snapshot as { entries: { instanceId?: string }[] }).entries;
-      expect(entries.some((e) => e.instanceId === "agent-1")).toBe(true);
+      // T2.2（AD-1）：SubAgent 历史在 per-instance channels（主轴尾窗不含）
+      const snapshot2 = snap2.payload.snapshot as {
+        entries: { instanceId?: string }[];
+        instances?: { instanceId: string; channels?: { messages?: unknown[] } }[];
+      };
+      expect(snapshot2.entries.some((e) => e.instanceId === "agent-1")).toBe(false);
+      expect(snapshot2.instances?.find((i) => i.instanceId === "agent-1")?.channels?.messages?.length).toBeGreaterThan(0);
     } finally {
       await client.close();
     }

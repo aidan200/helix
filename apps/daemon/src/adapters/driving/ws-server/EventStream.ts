@@ -20,9 +20,15 @@
  */
 import type { EventPublisherPort, StreamDelta } from "../../../application/ports/outbound/EventPublisherPort";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
-import type { ChatStreamDeltaEvent, EventEnvelope, ThinkingStreamDeltaEvent } from "@helix/protocol";
+import type {
+  ChatStreamDeltaEvent,
+  EventEnvelope,
+  SessionListChangedEvent,
+  ThinkingStreamDeltaEvent,
+} from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
-import { domainEventToEnvelope } from "./DtoMapper";
+import { domainEventToEnvelope, sessionMetaDto } from "./DtoMapper";
+import type { SessionListChange } from "../../../application/ports/inbound/SessionDirectoryPort";
 
 /** 单连接的协议帧发送端（WsServerAdapter 按连接构造，内含 readyState 守卫）。 */
 export type FrameSender = (frame: EventEnvelope) => void;
@@ -46,7 +52,9 @@ interface ConnProjection {
 
 export class EventStream implements EventPublisherPort {
   private readonly connections = new Map<FrameSender, ConnProjection>();
-  private lastTurnId = "";
+  /** T2.2 多会话：轮次上下文按会话分仓（turn id 序号各会话独立递增）。 */
+  private readonly lastTurnIds = new Map<string, string>();
+  /** 工具耗时上下文（起止差值）；键 `${sessionId}:${toolCallId}`（跨会话 toolCallId 可重号）。 */
   private readonly toolStartedAt = new Map<string, number>();
 
   constructor(private readonly deps: EventStreamDeps = {}) {}
@@ -102,10 +110,33 @@ export class EventStream implements EventPublisherPort {
     return conn ? [...conn.sessionIds] : [];
   }
 
+  /**
+   * 会话清单变化广播（T2.2 AD-4，契约 B §2.1）：session.list_changed 系统
+   * 级帧（sessionId = SYSTEM_SESSION_ID）发全部连接——清单是 daemon 级视图，
+   * 与连接订阅集无关。
+   */
+  broadcastListChanged(change: SessionListChange): void {
+    const frame: SessionListChangedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "session",
+      type: "session.list_changed",
+      payload: {
+        kind: change.kind,
+        ...(change.sessionId !== undefined ? { sessionId: change.sessionId } : {}),
+        ...(change.session !== undefined ? { session: sessionMetaDto(change.session) } : {}),
+      },
+    };
+    this.push(frame);
+  }
+
   publish(event: DomainEvent): void {
     const duration = this.takeDuration(event); // 先取差值（内部一并清理起点记录）
     this.trackProjectionContext(event);
-    const envelope = domainEventToEnvelope(event, { fallbackTurnId: this.lastTurnId, ...duration });
+    const envelope = domainEventToEnvelope(event, {
+      fallbackTurnId: this.lastTurnIds.get(event.sessionId) ?? "",
+      ...duration,
+    });
     if (envelope === null) return;
     this.push(envelope);
   }
@@ -141,15 +172,15 @@ export class EventStream implements EventPublisherPort {
 
   // ── 内部 ────────────────────────────────────────────────────
 
-  /** 维护协议帧填充所需的轮次/工具上下文（先于映射执行）。 */
+  /** 维护协议帧填充所需的轮次/工具上下文（先于映射执行；T2.2 按会话分仓）。 */
   private trackProjectionContext(event: DomainEvent): void {
     switch (event.type) {
       case "turn.started":
-        this.lastTurnId = (event.payload as { turnId: string }).turnId;
+        this.lastTurnIds.set(event.sessionId, (event.payload as { turnId: string }).turnId);
         break;
       case "tool.call.started":
         this.toolStartedAt.set(
-          (event.payload as { toolCallId: string }).toolCallId,
+          `${event.sessionId}:${(event.payload as { toolCallId: string }).toolCallId}`,
           Date.parse(event.occurredAt),
         );
         break;
@@ -162,9 +193,10 @@ export class EventStream implements EventPublisherPort {
   private takeDuration(event: DomainEvent): { durationMs?: number } {
     if (event.type !== "tool.call.result") return {};
     const id = (event.payload as { toolCallId: string }).toolCallId;
-    const started = this.toolStartedAt.get(id);
+    const key = `${event.sessionId}:${id}`;
+    const started = this.toolStartedAt.get(key);
     if (started === undefined) return {};
-    this.toolStartedAt.delete(id);
+    this.toolStartedAt.delete(key);
     return { durationMs: Math.max(0, Date.parse(event.occurredAt) - started) };
   }
 

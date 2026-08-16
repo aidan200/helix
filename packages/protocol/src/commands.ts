@@ -17,6 +17,12 @@ import type { EntryDto, SessionMeta } from "./types/session";
 /** chat.send 载荷：发送用户消息（新输入，ChatPort.sendMessage） */
 export interface ChatSendPayload {
   text: string;
+  /**
+   * 草稿建会话标记（v0.2 新增，契约 B §1.5 定稿）：draft=true 且信封 sessionId
+   * 省略 → daemon 新建会话聚合落库（首条用户消息即建会话）；sessionId 携带
+   * 时忽略本标记（既有会话内发送）。
+   */
+  draft?: boolean;
 }
 
 /** chat.steer 载荷：生成中注入消息（ChatPort.steer → SteerQueue.enqueue） */

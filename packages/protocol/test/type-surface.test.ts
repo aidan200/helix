@@ -437,6 +437,11 @@ function summarizeEvent(event: EventEnvelope): string {
     // ── v0.2 model 族 ──
     case "model.changed":
       return `model-changed:${event.payload.sessionId}:${event.payload.model}:${event.payload.previous}:${event.payload.effective}`;
+    // ── v0.2 session 族命令结果（T2.2 点对点回执）──
+    case "session.list.result":
+      return `list-result:${event.payload.sessions.length}:${event.payload.sessions[0]?.sessionId ?? "-"}`;
+    case "session.loadHistory.result":
+      return `history-result:${event.payload.entries.length}:${event.payload.hasMore}:${event.payload.nextCursor ?? "-"}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -641,8 +646,12 @@ type V02CommandTypes =
 type _V02CommandMembers = Expect<
   Equal<Extract<EnvelopeTypeOf<CommandEnvelope>, V02CommandTypes>, V02CommandTypes>
 >;
-// 新 2 事件 type 字面量全部在事件联合中
-type V02EventTypes = "session.list_changed" | "model.changed";
+// 新 4 事件 type 字面量全部在事件联合中（T2.2 定稿：+session.list.result / session.loadHistory.result）
+type V02EventTypes =
+  | "session.list_changed"
+  | "model.changed"
+  | "session.list.result"
+  | "session.loadHistory.result";
 type _V02EventMembers = Expect<
   Equal<Extract<EnvelopeTypeOf<EventEnvelope>, V02EventTypes>, V02EventTypes>
 >;
@@ -674,7 +683,10 @@ type _ThinkingFamily = Expect<
 type _UsageFamily = Expect<Equal<TypeOfChannel<"usage">, "usage.recorded">>;
 type _CompactionFamily = Expect<Equal<TypeOfChannel<"compaction">, "compaction.completed">>;
 type _SessionFamily = Expect<
-  Equal<TypeOfChannel<"session">, "session.snapshot" | "session.list_changed">
+  Equal<
+    TypeOfChannel<"session">,
+    "session.snapshot" | "session.list_changed" | "session.list.result" | "session.loadHistory.result"
+  >
 >;
 type _ModelFamily = Expect<Equal<TypeOfChannel<"model">, "model.changed">>;
 type _InteractionFamily = Expect<Equal<TypeOfChannel<"interaction">, never>>; // 占位族：无事件挂靠
@@ -785,7 +797,7 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
     );
   });
 
-  test("事件目录恰为 26 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2）", () => {
+  test("事件目录恰为 28 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2 + T2.2 命令结果 2）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -805,7 +817,9 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
         "connection.welcome",
         "engine.error",
         "model.changed",
+        "session.list.result",
         "session.list_changed",
+        "session.loadHistory.result",
         "session.snapshot",
         "steer.drained",
         "steer.queued",
@@ -1060,7 +1074,12 @@ describe("TP-v0.2-② 八族类型学与登记目录（契约 A §2）", () => {
     expect(roster("thinking")).toEqual(["thinking.completed", "thinking.stream.delta"]);
     expect(roster("usage")).toEqual(["usage.recorded"]);
     expect(roster("compaction")).toEqual(["compaction.completed"]);
-    expect(roster("session")).toEqual(["session.list_changed", "session.snapshot"]);
+    expect(roster("session")).toEqual([
+      "session.list.result",
+      "session.list_changed",
+      "session.loadHistory.result",
+      "session.snapshot",
+    ]);
     expect(roster("model")).toEqual(["model.changed"]);
     expect(roster("interaction")).toEqual([]); // 占位族：无事件挂靠
     expect(roster("notification")).toEqual(["connection.error", "connection.welcome"]);

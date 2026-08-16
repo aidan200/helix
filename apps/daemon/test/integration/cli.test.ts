@@ -38,9 +38,9 @@ function makeCli(engine: FakeAgentEngine) {
     clock: { now: () => new Date().toISOString(), nowMs: () => Date.now() },
   });
   const session = new SessionService({
-    getSession: () => chat.sessionView,
+    // T2.2：SessionService 取数面改接视图组装（与组合根同构）
+    getView: () => ({ session: chat.sessionView.toSnapshot(), toolCalls: chat.toolCallData }),
     getAgentState: () => chat.agentState,
-    getToolCalls: () => chat.toolCallData, // D-1：快照取数面扩展（与组合根同构）
   });
   const publisher = new StdoutEventPublisher(output);
   targets.push(publisher, {

@@ -257,3 +257,52 @@ describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产
     }
   });
 });
+
+describe("T2.2 分仓（AD-4）：每会话独立仓位按 session_id 路由 + 会话删除", () => {
+  test("两会话并发写入各自仓内保序；互不丢行；deleteSession 后全表清行且先于删除的写全落", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      // 两会话并发混排入队（不 await——在飞交错）
+      const jobs: Promise<void>[] = [];
+      for (let i = 0; i < 30; i++) {
+        jobs.push(queue.appendEvent(ev(i, "sA")));
+        jobs.push(queue.appendEvent(ev(i, "sB")));
+        if (i % 10 === 0) jobs.push(queue.saveState(stateOf("sA")));
+        if (i % 7 === 0) jobs.push(queue.saveState(stateOf("sB")));
+      }
+      await queue.flush();
+      await Promise.all(jobs);
+
+      const db = new Database(dbPath, { readonly: true });
+      const rowsA = db
+        .prepare("SELECT payload FROM domain_events WHERE session_id = ? ORDER BY id")
+        .all("sA") as { payload: string }[];
+      const rowsB = db
+        .prepare("SELECT payload FROM domain_events WHERE session_id = ? ORDER BY id")
+        .all("sB") as { payload: string }[];
+      // 各自仓内 FIFO 保序（跨会话无序约束——仓间互不阻塞）
+      expect(rowsA.map((r) => JSON.parse(r.payload!).n)).toEqual(Array.from({ length: 30 }, (_, i) => i));
+      expect(rowsB.map((r) => JSON.parse(r.payload!).n)).toEqual(Array.from({ length: 30 }, (_, i) => i));
+      const stateRows = db.prepare("SELECT session_id FROM session_state").all() as { session_id: string }[];
+      expect(stateRows.map((r) => r.session_id).sort()).toEqual(["sA", "sB"]);
+      db.close();
+
+      // 删除 sA：先于删除的写（同仓 FIFO）全部落盘，随后六表清行；sB 不受影响
+      jobs.push(queue.appendEvent(ev(99, "sA")));
+      await Promise.all(jobs);
+      await queue.deleteSession("sA");
+      await queue.flush();
+
+      const db2 = new Database(dbPath, { readonly: true });
+      expect(db2.prepare("SELECT COUNT(*) AS n FROM session_state WHERE session_id = ?").get("sA")).toEqual({ n: 0 });
+      expect(db2.prepare("SELECT COUNT(*) AS n FROM domain_events WHERE session_id = ?").get("sA")).toEqual({ n: 0 });
+      expect(db2.prepare("SELECT COUNT(*) AS n FROM domain_events WHERE session_id = ?").get("sB")).toEqual({ n: 30 });
+      expect(db2.prepare("SELECT COUNT(*) AS n FROM session_state WHERE session_id = ?").get("sB")).toEqual({ n: 1 });
+      db2.close();
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});
