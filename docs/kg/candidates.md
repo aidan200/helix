@@ -2,6 +2,16 @@
 
 ## pending
 
+### TR-TEST-6
+- changeType: 修改
+- targetNode: TR-TEST-6
+- scope: GC 正确性类检出
+- project: helix
+- reason: rotten-pointer: anchor → e2e/CL-4-teardown-residue.spec.ts (docs/kg/testing-rules.md)
+- evidence: kg gc_report
+- sourceTask: kg-gc
+- createdIn: (gc-report)
+
 ## deferred
 
 ### TR-TEST-4
