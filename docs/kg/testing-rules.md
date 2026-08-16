@@ -205,6 +205,12 @@ digest: 写 e2e harness 或 fixture、配 CI 连跑、排查测试残留时
 derivedFrom:
   - F4.3
   - F4.5
+anchors:
+  implementedBy:
+    - e2e/harness/daemon-fixture.ts
+    - playwright.e2e.config.ts
+  testedBy:
+    - e2e/CL-4-teardown-residue.spec.ts
 updatedIn: iter-20260816-uzvg
 ```
 
