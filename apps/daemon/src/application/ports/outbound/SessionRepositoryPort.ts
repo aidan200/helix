@@ -1,6 +1,9 @@
 import type { SessionSnapshot } from "../../../domain/session/SessionSnapshot";
 import type { AgentLifecycleState } from "../../../domain/agent/AgentLifecycle";
+import type { InstanceState } from "../../../domain/agent/AgentInstance";
 import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
+
+export type { InstanceState };
 
 /**
  * 领域状态持久化出口端口（outbound，architecture.md §3.4 / §5.2）。
@@ -30,4 +33,9 @@ export interface SessionRepositoryPort {
   restore(sessionId: string): Promise<PersistedDomainState | undefined>;
   /** 已持久化的会话 id 列表（恢复入口用，按创建序）。 */
   listSessionIds(): Promise<string[]>;
+  /**
+   * 实例生命周期投影行落盘（agent_lifecycle upsert，iter-20260816-uzvg T2.1：
+   * 调度器对实例状态迁移的 write-through；经单写通道串行保序）。
+   */
+  saveAgentLifecycle(sessionId: string, instanceId: string, state: InstanceState): Promise<void>;
 }

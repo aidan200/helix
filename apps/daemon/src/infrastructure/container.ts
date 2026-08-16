@@ -8,6 +8,9 @@ import type { ClockPort } from "../application/ports/outbound/ClockPort";
 import { ChatService } from "../application/services/ChatService";
 import { SessionService } from "../application/services/SessionService";
 import { RestoreService } from "../application/services/RestoreService";
+import { SchedulerService } from "../application/services/SchedulerService";
+import type { InstanceRunner } from "../application/services/InstanceRunner";
+import { SchedulingPolicy, DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAdapter";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { EventStream } from "../adapters/driving/ws-server/EventStream";
@@ -87,7 +90,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 
   // 配置：首次创建模板（0600，AG-09）+ 加载（fail-fast）
   ensureConfigTemplate(paths.configPath());
-  const config = options.skipConfig ? { port: 7333 } : loadConfig(paths.configPath());
+  const config = options.skipConfig
+    ? { port: 7333, maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent, maxQueued: DEFAULT_SCHEDULING.maxQueued }
+    : loadConfig(paths.configPath());
 
   // ── driven：工具执行器（五工具注册表：四内置 + grep；沙箱 cwd） ──
   const toolExecutor = new CoreToolExecutor({ cwd: options.toolCwd ?? process.cwd() });
@@ -144,6 +149,29 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     getToolCalls: () => chatService.toolCallData, // D-1：快照取数面扩展（工具记录随快照恢复）
   });
 
+  // ── services：SubAgent 调度（T2.1：SchedulingPolicy + SchedulerService 装配）──
+  // runner 是 T2.2 接入点：SubagentLauncher（子进程真体）落地前以占位替身
+  // 装配（launch 到达即告警不执行；T2.3 编排工具接线前无调用方）。
+  // 事件经 fanout 自动送达全部目标（stdout/订阅者/WS/落盘）；队列不落盘（AD-10）。
+  const subagentRunner: InstanceRunner = {
+    launch: (instance) =>
+      logger.warn(
+        `SubAgent 实例 ${instance.instanceId} 的子进程 runner 尚未接入（T2.2 SubagentLauncher），任务未执行`,
+      ),
+    setCallbacks: () => undefined,
+  };
+  const scheduler = new SchedulerService({
+    policy: new SchedulingPolicy({
+      maxConcurrent: config.maxConcurrent,
+      maxQueued: config.maxQueued,
+    }),
+    runner: subagentRunner,
+    events: fanout,
+    repository,
+    clock,
+    sessionId: chatService.sessionId,
+  });
+
   // ── driving：CLI（stdout 事件发布器由组合根构造并注入两侧） ─────
   const stdoutPublisher = new StdoutEventPublisher(options.cliOutput ?? process.stdout);
   const cli = new CliAdapter({
@@ -191,6 +219,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     async shutdown(): Promise<void> {
       running = false;
       wsServer?.stop(); // 先停 WS（不再接受新连接/命令），再收尾业务
+      scheduler.stop(); // T2.1：停 stalled 监视定时器（否则活跃 interval 阻止进程退出）
       chatService.stop(); // stopped 里程碑 write-through 落盘
       await writeQueue.close(); // 优雅退出：drain 单写队列后关连接（lifecycle 挂点）
       lock?.release();

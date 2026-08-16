@@ -15,7 +15,15 @@ export type DomainEventType =
   | "tool.call.started"
   | "tool.call.result"
   | "agent.state.changed"
-  | "engine.error";
+  | "engine.error"
+  // ── agent.* 编排生命周期族（iter-20260816-uzvg T2.1，契约 protocol-v0.1.md §5.1）──
+  | "agent.spawned"
+  | "agent.queued"
+  | "agent.started"
+  | "agent.stalled"
+  | "agent.completed"
+  | "agent.failed"
+  | "agent.killed";
 
 export interface DomainEvent<P = unknown> {
   readonly type: DomainEventType;
@@ -64,4 +72,61 @@ export interface ToolResultPayload extends ToolCallPayload {
 
 export interface AgentStateChangedPayload {
   readonly state: "idle" | "running" | "steering" | "aborting" | "stopped";
+}
+
+// ── agent.* 编排生命周期族载荷（T2.1，契约 §5.1/§5.3） ─────────────
+// 字段名用 agentId（编排族视角；instanceId ≡ agentId 同一标识空间，契约 §2）；
+// envelope.instanceId 由发布侧同值携带（domain_events 落列 trace 四维用）。
+
+export interface AgentSpawnedPayload {
+  readonly agentId: string;
+  readonly task: string;
+  readonly profileKind: string;
+  /** "provider/model-id"；缺省继承当前模型（解析归 T2.2，此处可选）。 */
+  readonly model?: string;
+}
+
+export interface AgentQueuedPayload {
+  readonly agentId: string;
+  /** FIFO 位次（1 起；仅出队触发递减重发）。 */
+  readonly position: number;
+}
+
+export interface AgentStartedPayload {
+  readonly agentId: string;
+}
+
+/** stalled 非状态迁移（实例仍 running），可随 idle 持续重复推送（契约 §8.3）。 */
+export interface AgentStalledPayload {
+  readonly agentId: string;
+  readonly idleMs: number;
+}
+
+/**
+ * 实例收口记录（结构承接 v1 / 协议 ClosureDto，AD-8）：kill 收口 status
+ * 同为 "failed"（单一终态语义）。可选字段缺失时显式 null（全字段必发纪律，
+ * test-design §4.3）——由 SchedulerService 收口入口统一归一。
+ */
+export interface InstanceClosurePayload {
+  readonly status: "done" | "failed";
+  readonly summary: string;
+  readonly reportPath?: string | null;
+  readonly findings?: unknown[] | null;
+  readonly taskId?: string | null;
+}
+
+export interface AgentCompletedPayload {
+  readonly agentId: string;
+  readonly closure: InstanceClosurePayload;
+}
+
+export interface AgentFailedPayload {
+  readonly agentId: string;
+  readonly error: string;
+  readonly closure: InstanceClosurePayload;
+}
+
+export interface AgentKilledPayload {
+  readonly agentId: string;
+  readonly closure: InstanceClosurePayload;
 }

@@ -1,5 +1,6 @@
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type {
+  InstanceState,
   PersistedDomainState,
   SessionRepositoryPort,
 } from "../../../application/ports/outbound/SessionRepositoryPort";
@@ -75,6 +76,11 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .prepare("SELECT session_id FROM session_state ORDER BY created_at, rowid")
       .all() as { session_id: string }[];
     return rows.map((r) => r.session_id);
+  }
+
+  /** 实例生命周期投影行（T2.1 调度器写面：经 WriteQueue 单写通道串行落盘）。 */
+  async saveAgentLifecycle(sessionId: string, instanceId: string, state: InstanceState): Promise<void> {
+    await this.queue.saveAgentLifecycle(sessionId, instanceId, state);
   }
 
   /** 四维过滤查询（trace 数据面，v0 无对外 API——内部能力 + 测试证明）。 */

@@ -34,7 +34,13 @@ export interface WriteQueueOptions {
 
 type WriteJob =
   | { readonly kind: "event"; readonly event: DomainEvent; readonly agentKind: string }
-  | { readonly kind: "state"; readonly state: PersistedDomainState };
+  | { readonly kind: "state"; readonly state: PersistedDomainState }
+  | {
+      readonly kind: "agentLifecycle";
+      readonly sessionId: string;
+      readonly instanceId: string;
+      readonly state: string;
+    };
 
 export class WriteQueue {
   private readonly db: Database;
@@ -98,6 +104,14 @@ export class WriteQueue {
     return this.enqueue({ kind: "state", state });
   }
 
+  /**
+   * 实例生命周期投影行入队（agent_lifecycle upsert；T2.1 调度器扩列写面：
+   * SubAgent 实例状态迁移与主实例会话状态同表同 FIFO，保序落盘）。
+   */
+  saveAgentLifecycle(sessionId: string, instanceId: string, state: string): Promise<void> {
+    return this.enqueue({ kind: "agentLifecycle", sessionId, instanceId, state });
+  }
+
   /** 等待已入队 job 全部落盘（测试/优雅退出用）。 */
   async flush(): Promise<void> {
     await this.tail;
@@ -128,6 +142,10 @@ export class WriteQueue {
   }
 
   private apply(job: WriteJob): void {
+    if (job.kind === "agentLifecycle") {
+      this.upsertLifecycle.run(job.sessionId, job.instanceId, job.state, new Date().toISOString());
+      return;
+    }
     if (job.kind === "event") {
       const row = domainEventToRow(job.event, job.agentKind);
       this.insertEvent.run(

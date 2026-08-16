@@ -1,4 +1,8 @@
-import type { PersistedDomainState, SessionRepositoryPort } from "../../src/application/ports/outbound/SessionRepositoryPort";
+import type {
+  InstanceState,
+  PersistedDomainState,
+  SessionRepositoryPort,
+} from "../../src/application/ports/outbound/SessionRepositoryPort";
 
 /**
  * InMemorySessionRepository —— SessionRepositoryPort 的内存假实现
@@ -7,9 +11,15 @@ import type { PersistedDomainState, SessionRepositoryPort } from "../../src/appl
  */
 export class InMemorySessionRepository implements SessionRepositoryPort {
   private readonly store = new Map<string, PersistedDomainState>();
+  /** agent_lifecycle 投影行（内存记录，T2.1；键 `${sessionId}/${instanceId}`）。 */
+  private readonly lifecycles = new Map<string, InstanceState>();
 
   async save(state: PersistedDomainState): Promise<void> {
     this.store.set(state.session.sessionId, structuredClone(state));
+  }
+
+  async saveAgentLifecycle(sessionId: string, instanceId: string, state: InstanceState): Promise<void> {
+    this.lifecycles.set(`${sessionId}/${instanceId}`, state);
   }
 
   async restore(sessionId: string): Promise<PersistedDomainState | undefined> {

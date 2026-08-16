@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import path from "node:path";
+import { DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 
 /**
  * 配置加载（AD-13，architecture.md §7.2）：读取 `<home>/config.json`。
@@ -21,6 +22,10 @@ export interface DaemonConfig {
   apiKeys?: Record<string, string>;
   /** WS 端口，默认 7333；0 = 随机（启动日志输出实际端口，test-design §5.4）。 */
   port: number;
+  /** SubAgent 并发上限（daemon 全局，AD-7①；缺省 3，与 SchedulingPolicy 同源）。 */
+  maxConcurrent: number;
+  /** SubAgent FIFO 队列上限（AD-7②；缺省 8，队列满才报错回 LLM）。 */
+  maxQueued: number;
   /** 前端构建产物目录（static-serve；缺省不激活，daemon 照常启动）。 */
   staticDir?: string;
 }
@@ -35,7 +40,11 @@ export const DEFAULT_PORT = 7333;
 export function loadConfig(configFilePath: string): DaemonConfig {
   if (!existsSync(configFilePath)) {
     // 文件缺失 → 全默认值（首次启动场景；真正需要 model 时由调用方 fail-fast）
-    return { port: DEFAULT_PORT };
+    return {
+      port: DEFAULT_PORT,
+      maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent,
+      maxQueued: DEFAULT_SCHEDULING.maxQueued,
+    };
   }
 
   const raw = readFileSync(configFilePath, "utf8");
@@ -53,7 +62,7 @@ export function loadConfig(configFilePath: string): DaemonConfig {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error(
       `配置文件格式错误：${configFilePath}，应为 JSON 对象 ` +
-        `{ model, apiKeys?, port? }，实际不是对象。`,
+        `{ model, apiKeys?, port?, maxConcurrent?, maxQueued? }，实际不是对象。`,
     );
   }
 
@@ -88,6 +97,29 @@ export function loadConfig(configFilePath: string): DaemonConfig {
     port = obj.port;
   }
 
+  // SubAgent 调度预算（T2.1，K4：AD-7①②；非法值 fail-fast，缺省与 domain 同源）
+  let maxConcurrent: number = DEFAULT_SCHEDULING.maxConcurrent;
+  if (obj.maxConcurrent !== undefined) {
+    if (typeof obj.maxConcurrent !== "number" || !Number.isInteger(obj.maxConcurrent) || obj.maxConcurrent < 1) {
+      throw new Error(
+        `配置文件字段 maxConcurrent 格式错误：${configFilePath}，应为 ≥ 1 的整数` +
+          `（SubAgent 并发上限，默认 ${DEFAULT_SCHEDULING.maxConcurrent}）。`,
+      );
+    }
+    maxConcurrent = obj.maxConcurrent;
+  }
+
+  let maxQueued: number = DEFAULT_SCHEDULING.maxQueued;
+  if (obj.maxQueued !== undefined) {
+    if (typeof obj.maxQueued !== "number" || !Number.isInteger(obj.maxQueued) || obj.maxQueued < 0) {
+      throw new Error(
+        `配置文件字段 maxQueued 格式错误：${configFilePath}，应为 ≥ 0 的整数` +
+          `（SubAgent FIFO 队列上限，默认 ${DEFAULT_SCHEDULING.maxQueued}）。`,
+      );
+    }
+    maxQueued = obj.maxQueued;
+  }
+
   let staticDir: string | undefined;
   if (obj.staticDir !== undefined) {
     if (typeof obj.staticDir !== "string" || obj.staticDir.trim() === "") {
@@ -98,7 +130,7 @@ export function loadConfig(configFilePath: string): DaemonConfig {
     staticDir = obj.staticDir;
   }
 
-  return { model: obj.model, apiKeys, port, staticDir };
+  return { model: obj.model, apiKeys, port, maxConcurrent, maxQueued, staticDir };
 }
 
 /** config.json 文件权限（含 apiKeys 敏感信息，AG-09）。 */
@@ -127,6 +159,12 @@ export function writeConfig(configFilePath: string, config: DaemonConfig): void 
  */
 export function ensureConfigTemplate(configFilePath: string): { created: boolean } {
   if (existsSync(configFilePath)) return { created: false };
-  writeConfig(configFilePath, { model: "", apiKeys: {}, port: DEFAULT_PORT });
+  writeConfig(configFilePath, {
+    model: "",
+    apiKeys: {},
+    port: DEFAULT_PORT,
+    maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent,
+    maxQueued: DEFAULT_SCHEDULING.maxQueued,
+  });
   return { created: true };
 }
