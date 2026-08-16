@@ -383,8 +383,49 @@ export const test = base.extend<{ e2e: E2eContext }>({
       },
     };
     await use(ctx);
+    // ── teardown 三件套（TR-TEST-6；任一命中即红，非软警告）──
+    // 旧 teardown 只 SIGTERM（TR-TEST-4 残留实锤）：tmp home 不删、子进程树不
+    // 回收、端口不验——现由 fixture 統一收编（含 spec 自建 home 的旁路清理）。
+    const failures: string[] = [];
+    // ① 停机：SIGTERM 15s 优雅 → 未退出（挂起剧本等）SIGKILL 升级兑底
     for (const d of started.reverse()) {
-      if (d.running) await d.stop().catch(() => undefined);
+      try {
+        if (d.running) await d.stop();
+      } catch {
+        /* 超时/挂起：走下方 kill 升级 */
+      }
+      try {
+        if (d.running) await d.kill();
+      } catch (err) {
+        failures.push(`daemon(${d.home}) SIGKILL 升级后仍存活：${err}`);
+      }
+    }
+    // ② 子进程树兑底回收（独立于 Launcher O-6：注入 runner 的子进程不在
+    //    daemon dispose 范围，daemon 异常退出时真体同样失守——双层兑底）
+    const residue = await recoverResidueProcesses();
+    if (residue.length > 0) {
+      failures.push(
+        `残留进程未回收：${residue.map((r) => `pid=${r.pid} pgid=${r.pgid} ${r.command}`).join("；")}`,
+      );
+    }
+    // ③ tmp home 全删（fixture 自建 + spec 自建一并收编——旁路清理归一）
+    for (const home of [...new Set(started.map((d) => d.home))]) {
+      try {
+        rmSync(home, { recursive: true, force: true });
+      } catch (err) {
+        failures.push(`tmp home 删除失败 ${home}：${err}`);
+      }
+    }
+    // ④ 端口释放验证（bind 探测成功才算释放）
+    try {
+      await waitForPortFree(E2E_DAEMON_PORT, 5000);
+    } catch (err) {
+      failures.push(String(err));
+    }
+    if (failures.length > 0) {
+      throw new Error(
+        `【TR-TEST-6】E 层 teardown 零残留断言失败：\n- ${failures.join("\n- ")}`,
+      );
     }
   },
 });
