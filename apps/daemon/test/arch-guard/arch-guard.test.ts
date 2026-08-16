@@ -103,15 +103,22 @@ describe("AG-02：依赖方向矩阵", () => {
   });
 });
 
-describe("AG-04：pi import 只允许出现在 adapters/driven/pi-engine/ 与 adapters/driven/tools/", () => {
+describe("AG-04：pi import 只允许出现在 driven 域（pi-engine/tools/subagent）", () => {
   test("src 其余目录零 @earendil-works/pi-* import", () => {
     const all = listFiles(srcRoot);
-    const allowedRoots = [path.join("adapters", "driven", "pi-engine"), path.join("adapters", "driven", "tools")];
+    // T2.2：subagent/ 是 pi driven 域的子进程形态（launcher 透传 Model、
+    // ChildMain 复用 pi-engine 防腐墙、剧本引擎用 pi-ai 流原语）——TR-AD-7
+    // 「pi import 只在 driven 域」语义不变，白名单新增第三个 driven 根。
+    const allowedRoots = [
+      path.join("adapters", "driven", "pi-engine"),
+      path.join("adapters", "driven", "tools"),
+      path.join("adapters", "driven", "subagent"),
+    ];
     for (const rel of all) {
       const isAllowed = allowedRoots.some((root) => rel.startsWith(root));
       for (const spec of importSpecifiers(read(rel))) {
         if (spec.startsWith("@earendil-works/pi")) {
-          expect(isAllowed, `${rel} 出现 pi import（仅 pi-engine 与 tools 允许）：${spec}`).toBe(true);
+          expect(isAllowed, `${rel} 出现 pi import（仅 driven 域 pi-engine/tools/subagent 允许）：${spec}`).toBe(true);
         }
       }
     }
@@ -223,8 +230,13 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
 });
 
 describe("AG-08：与环境变量无缘（apiKeys 只来自 config.json）", () => {
-  test("src 全量无 process.env 读取", () => {
+  test("src 全量无 process.env 读取（subagent/ 除外——env 是父子进程 IPC 通道，非配置源）", () => {
+    // T2.2：SubAgent 子进程的 argv/env 由父进程（组合根，config.json 数据源）
+    // 显式注入（HELIX_MODEL_JSON/HELIX_API_KEYS_JSON 等）——env 在 subagent/
+    // 内是父子 IPC 传输通道，不是配置来源；apiKeys 源头仍且仅是 config.json。
+    const whitelistRoot = path.join("adapters", "driven", "subagent");
     for (const rel of listFiles(srcRoot)) {
+      if (rel.startsWith(whitelistRoot)) continue;
       expect(read(rel).includes("process.env"), `${rel} 读取了环境变量（AG-08）`).toBe(false);
     }
   });

@@ -145,7 +145,7 @@ async function main(): Promise<void> {
   const executor = new CoreToolExecutor({ cwd: toolCwd ?? process.cwd() });
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,
-    modelStr: "fake/model",
+    model: fakeModel,
     apiKeys: { fake: "explicit-key" },
     models: fakeModels,
     streamFnOverride: makeScriptedStreamFn(script.entries),

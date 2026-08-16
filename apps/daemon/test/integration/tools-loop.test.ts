@@ -114,7 +114,7 @@ function makeHarness(scripts: ScriptEntry[]): LoopHarness {
   const executor = new CoreToolExecutor({ cwd });
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,
-    modelStr: "fake/model",
+    model: fakeModel,
     apiKeys: { fake: "explicit-key" },
     models: fakeModels,
     streamFnOverride: makeToolScriptedLLM(scripts),
