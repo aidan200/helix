@@ -17,6 +17,9 @@ import { EventStream } from "../adapters/driving/ws-server/EventStream";
 import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { PiAgentEngineAdapter } from "../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
+import { SubAgentProfile } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import { resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
+import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CoreToolExecutor } from "../adapters/driven/tools/CoreToolExecutor";
 import { WriteQueue } from "../adapters/driven/sqlite-session/WriteQueue";
 import { SqliteSessionRepository } from "../adapters/driven/sqlite-session/SqliteSessionRepository";
@@ -71,6 +74,8 @@ export interface Daemon {
   readonly logger: Logger;
   /** WS 服务（127.0.0.1；实际监听端口/地址可观测，TP-CL6-1）。 */
   readonly ws: WsServerAdapter;
+  /** SubAgent 子进程运行器（T2.2；skipConfig 无 model 配置时不装配）。 */
+  readonly subagentLauncher: SubagentLauncher | undefined;
   /** CLI 主循环（阻塞至 /exit/EOF/二次 Ctrl-C）。 */
   runCli(): Promise<void>;
   /** 优雅关闭：停 WS、停输入、释放锁。 */
@@ -98,11 +103,13 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   const toolExecutor = new CoreToolExecutor({ cwd: options.toolCwd ?? process.cwd() });
 
   // ── driven：agent 引擎（pi 防腐墙后；测试可注入 Fake） ──────────
+  // F-14 单点：config.model 字符串在此解析为完整 Model 对象，此后全链路
+  // （主引擎/SubAgent 子进程）只透传对象，不散落读字符串。
   const engine: AgentEnginePort =
     options.engine ??
     new PiAgentEngineAdapter({
       profile: MainSessionProfile,
-      modelStr: config.model ?? "",
+      model: resolveConfigModel(config.model), // 缺 model 配置 → fail-fast（中文指引）
       apiKeys: config.apiKeys ?? {},
       resolveTools: (names) => toolExecutor.resolveTools(names),
     });
@@ -149,14 +156,23 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     getToolCalls: () => chatService.toolCallData, // D-1：快照取数面扩展（工具记录随快照恢复）
   });
 
-  // ── services：SubAgent 调度（T2.1：SchedulingPolicy + SchedulerService 装配）──
-  // runner 是 T2.2 接入点：SubagentLauncher（子进程真体）落地前以占位替身
-  // 装配（launch 到达即告警不执行；T2.3 编排工具接线前无调用方）。
-  // 事件经 fanout 自动送达全部目标（stdout/订阅者/WS/落盘）；队列不落盘（AD-10）。
-  const subagentRunner: InstanceRunner = {
+  // ── driven：SubAgent 子进程运行器（T2.2：SubagentLauncher 真体，O-7 候选 A）──
+  // 生产路径（config.model 必填）装配子进程真体（F-14 同一解析单点经 env
+  // 透传子进程）；skipConfig（测试 Fake 模式）无 model 配置 → 退回占位替身
+  // （launch 告警不执行，与 T2.1 行为一致；编排工具接线归 T2.3）。
+  const subagentLauncher =
+    config.model !== undefined
+      ? new SubagentLauncher({
+          profile: SubAgentProfile,
+          model: resolveConfigModel(config.model), // 同一解析单点（F-14）
+          apiKeys: config.apiKeys ?? {},
+          toolCwd: options.toolCwd ?? process.cwd(),
+        })
+      : undefined;
+  const subagentRunner: InstanceRunner = subagentLauncher ?? {
     launch: (instance) =>
       logger.warn(
-        `SubAgent 实例 ${instance.instanceId} 的子进程 runner 尚未接入（T2.2 SubagentLauncher），任务未执行`,
+        `SubAgent 实例 ${instance.instanceId} 的子进程 runner 未装配（skipConfig 无 model 配置），任务未执行`,
       ),
     setCallbacks: () => undefined,
   };
@@ -220,6 +236,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       running = false;
       wsServer?.stop(); // 先停 WS（不再接受新连接/命令），再收尾业务
       scheduler.stop(); // T2.1：停 stalled 监视定时器（否则活跃 interval 阻止进程退出）
+      await subagentLauncher?.dispose(); // T2.2：O-6 序列回收全部存活子进程（零孤儿）
       chatService.stop(); // stopped 里程碑 write-through 落盘
       await writeQueue.close(); // 优雅退出：drain 单写队列后关连接（lifecycle 挂点）
       lock?.release();
@@ -261,6 +278,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     system,
     logger,
     ws,
+    subagentLauncher,
     runCli: () => cli.run(),
     shutdown: system.shutdown,
   };
