@@ -5,11 +5,11 @@ import type { CatalogSnapshot, AuthVerifyOutcome } from "../outbound/ModelCatalo
  * 契约 C §1 全表）。WS 驱动侧只转发不决策（AG-12）；实现体 =
  * application/services/ModelService.ts。
  *
- * 错误语义（service 层抛、driving 层映射回执）：
- * - ModelNotFoundError / ProviderNotFoundError：校验失败（契约 C §4 语义；
- *   协议错误码面 v0.2 未登记专用码，回执经 command.invalid_payload 携带
- *   中文说明——登记批待补）；
- * - SessionNotFoundError（SessionRegistry 既有）：会话不存在。
+ * 错误语义（service 层抛、driving 层映射回执；微批 T2.3-result-frames
+ * 已登记专用错误码，契约 C §4 与实现对齐）：
+ * - ModelNotFoundError → model_not_found；ProviderNotFoundError →
+ *   provider_not_found（catalog/catalog_refresh 通路另用 catalog_unreachable）；
+ * - SessionNotFoundError（SessionRegistry 既有）：会话不存在 → session.not_found。
  */
 export interface ModelPort {
   /** model.set：运行期切换（per-session，下一 turn 生效；成功即触发 model.changed 广播）。 */

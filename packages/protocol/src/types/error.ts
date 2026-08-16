@@ -19,4 +19,10 @@ export type ErrorCode =
   /** v0.2 新增（契约 B §3，AD-1）：loadHistory 游标非法（不在目标会话主时间轴内） */
   | "session.invalid_cursor"
   /** v0.2 新增（契约 B §3，Q-4④）：同会话删除进行中（重复 delete 请求） */
-  | "session.delete_in_progress";
+  | "session.delete_in_progress"
+  /** v0.2 新增（契约 C §4，T2.3-result-frames 微批）：model.set/set_default 的 model id 不在合并目录 */
+  | "model_not_found"
+  /** v0.2 新增（契约 C §4）：auth.* 的 providerId 不在目录 provider 全集 */
+  | "provider_not_found"
+  /** v0.2 新增（契约 C §4）：目录拉取失败（catalog/catalog_refresh 通路；降级快照仍可用，列表不空） */
+  | "catalog_unreachable";

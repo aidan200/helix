@@ -5,8 +5,12 @@ import {
   EVENT_TYPES,
   PROTOCOL_VERSION,
   type AgentInstanceDto,
+  type AuthDeleteKeyResultEvent,
+  type AuthListResultEvent,
   type AuthSetKeyCommand,
+  type AuthSetKeyResultEvent,
   type AuthVerifyResult,
+  type AuthVerifyResultEvent,
   type CatalogModel,
   type ChatSendCommand,
   type Channel,
@@ -25,8 +29,13 @@ import {
   type InstanceChannelHistory,
   type InstanceState,
   type MessageEntryDto,
+  type ModelCatalogRefreshResultEvent,
   type ModelCatalogResult,
+  type ModelCatalogResultEvent,
   type ModelChangedEvent,
+  type ModelGetDefaultResultEvent,
+  type ModelGetResultEvent,
+  type ModelSetDefaultResultEvent,
   type ModelSetResult,
   type SessionListChangedEvent,
   type SessionListResult,
@@ -60,7 +69,9 @@ import {
  * v0.2 扩展（iter-20260816-6q6f T1.2，契约 A/B/C）：
  * ⑤ 帧信封分型 CommandFrame/EventFrame + sessionId 路由位 + channel 类型学；
  *    命令目录 8 → 21（+session 族 3 / model 族 6 / auth 族 4）；事件目录
- *    24 → 26（+session.list_changed / model.changed）。
+ *    24 → 26（+session.list_changed / model.changed）；T2.2：+2 命令结果
+ *    （session.list.result / session.loadHistory.result）；T2.3-result-frames
+ *    微批：+9 model/auth 命令结果帧（契约 C §2.2，26 → 37）。
  * ⑥ 信封兼容红线：v0/v0.1 形态帧（v: 0、不带 sessionId/channel）在新类型下
  *    零修改合法（可选性设计）；hello protocolVersion 严格 "0.2" 单值。
  * ⑦ EVENT_CHANNELS 登记目录 ↔ 契约 A §2 映射表恰等（含 interaction 占位族
@@ -355,6 +366,23 @@ const _catalogResult: ModelCatalogResult = { models: [sampleCatalogModel], refre
 const _authVerifyOk: AuthVerifyResult = { status: "ok", latencyMs: 120 };
 const _authVerifyFail: AuthVerifyResult = { status: "fail", reason: "401 Unauthorized" };
 
+/**
+ * v0.2 model/auth 命令结果帧样例（T2.3-result-frames 微批；点对点回执 +
+ * channel=model；model.get.result 信封 sessionId = 目标会话 id，全局命令 =
+ * SYSTEM_SESSION_ID——与 session 族结果帧同构，契约 C §2.2）。
+ */
+const v02ResultEvents: EventEnvelope[] = [
+  { v: PROTOCOL_VERSION, sessionId: "sess-1", channel: "model", type: "model.get.result", payload: { model: "moonshot/kimi-k2", isDefault: false, defaultModel: "anthropic/claude-sonnet-4-5" } },
+  { v: PROTOCOL_VERSION, sessionId: "__system__", channel: "model", type: "model.catalog.result", payload: { models: [sampleCatalogModel], refreshedAt: 1_760_000_100_000, source: "builtin" } },
+  { v: PROTOCOL_VERSION, sessionId: "__system__", channel: "model", type: "model.catalog_refresh.result", payload: { models: [sampleCatalogModel], refreshedAt: 1_760_000_100_000, source: "builtin", degraded: ["moonshot: 拉取失败：ENOTFOUND"] } },
+  { v: PROTOCOL_VERSION, sessionId: "__system__", channel: "model", type: "model.set_default.result", payload: { previous: "anthropic/claude-sonnet-4-5" } },
+  { v: PROTOCOL_VERSION, sessionId: "__system__", channel: "model", type: "model.get_default.result", payload: { model: "anthropic/claude-sonnet-4-5" } },
+  { v: PROTOCOL_VERSION, sessionId: "__system__", channel: "model", type: "auth.list.result", payload: { providers: [{ providerId: "moonshot", configured: true, keyMasked: "····7f3a" }] } },
+  { v: PROTOCOL_VERSION, sessionId: "__system__", channel: "model", type: "auth.set_key.result", payload: { keyMasked: "····7f3a" } },
+  { v: PROTOCOL_VERSION, sessionId: "__system__", channel: "model", type: "auth.delete_key.result", payload: {} },
+  { v: PROTOCOL_VERSION, sessionId: "__system__", channel: "model", type: "auth.verify.result", payload: { status: "fail", reason: "provider \"moonshot\" 未录入 API key" } },
+];
+
 /** v0.2 compaction 扩字段样例（tailKept / filesCompacted 命名定稿） */
 const compactionCompletedV02: CompactionCompletedEvent = {
   v: PROTOCOL_VERSION,
@@ -442,6 +470,25 @@ function summarizeEvent(event: EventEnvelope): string {
       return `list-result:${event.payload.sessions.length}:${event.payload.sessions[0]?.sessionId ?? "-"}`;
     case "session.loadHistory.result":
       return `history-result:${event.payload.entries.length}:${event.payload.hasMore}:${event.payload.nextCursor ?? "-"}`;
+    // ── v0.2 model/auth 命令结果帧（T2.3-result-frames 微批，契约 C §2.2）──
+    case "model.get.result":
+      return `model-get-result:${event.payload.model}:${event.payload.isDefault}:${event.payload.defaultModel}`;
+    case "model.catalog.result":
+      return `model-catalog-result:${event.payload.models.length}:${event.payload.source}`;
+    case "model.catalog_refresh.result":
+      return `model-catalog-refresh-result:${event.payload.models.length}:${event.payload.source}:${event.payload.degraded.length}`;
+    case "model.set_default.result":
+      return `model-set-default-result:${event.payload.previous}`;
+    case "model.get_default.result":
+      return `model-get-default-result:${event.payload.model}`;
+    case "auth.list.result":
+      return `auth-list-result:${event.payload.providers.length}:${event.payload.providers[0]?.configured ?? "-"}`;
+    case "auth.set_key.result":
+      return `auth-set-key-result:${event.payload.keyMasked}`;
+    case "auth.delete_key.result":
+      return "auth-delete-key-result";
+    case "auth.verify.result":
+      return `auth-verify-result:${event.payload.status}:${event.payload.status === "ok" ? event.payload.latencyMs : event.payload.reason}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -655,6 +702,20 @@ type V02EventTypes =
 type _V02EventMembers = Expect<
   Equal<Extract<EnvelopeTypeOf<EventEnvelope>, V02EventTypes>, V02EventTypes>
 >;
+// 微批 9 结果事件 type 字面量全部在事件联合中（T2.3-result-frames；漏任一 → Extract 不等）
+type V02ResultEventTypes =
+  | "model.get.result"
+  | "model.catalog.result"
+  | "model.catalog_refresh.result"
+  | "model.set_default.result"
+  | "model.get_default.result"
+  | "auth.list.result"
+  | "auth.set_key.result"
+  | "auth.delete_key.result"
+  | "auth.verify.result";
+type _V02ResultEventMembers = Expect<
+  Equal<Extract<EnvelopeTypeOf<EventEnvelope>, V02ResultEventTypes>, V02ResultEventTypes>
+>;
 // 八族类型学：各 channel 分族 type 联合恰等（契约 A §2 映射表）
 type _ChatFamily = Expect<
   Equal<
@@ -688,7 +749,21 @@ type _SessionFamily = Expect<
     "session.snapshot" | "session.list_changed" | "session.list.result" | "session.loadHistory.result"
   >
 >;
-type _ModelFamily = Expect<Equal<TypeOfChannel<"model">, "model.changed">>;
+type _ModelFamily = Expect<
+  Equal<
+    TypeOfChannel<"model">,
+    | "model.changed"
+    | "model.get.result"
+    | "model.catalog.result"
+    | "model.catalog_refresh.result"
+    | "model.set_default.result"
+    | "model.get_default.result"
+    | "auth.list.result"
+    | "auth.set_key.result"
+    | "auth.delete_key.result"
+    | "auth.verify.result"
+  >
+>;
 type _InteractionFamily = Expect<Equal<TypeOfChannel<"interaction">, never>>; // 占位族：无事件挂靠
 type _NotificationFamily = Expect<
   Equal<TypeOfChannel<"notification">, "connection.welcome" | "connection.error">
@@ -797,7 +872,7 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
     );
   });
 
-  test("事件目录恰为 28 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2 + T2.2 命令结果 2）", () => {
+  test("事件目录恰为 37 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2 + T2.2 命令结果 2 + 微批结果帧 9）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -808,6 +883,10 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
         "agent.stalled",
         "agent.started",
         "agent.state.changed",
+        "auth.delete_key.result",
+        "auth.list.result",
+        "auth.set_key.result",
+        "auth.verify.result",
         "chat.message.completed",
         "chat.stream.delta",
         "chat.turn.completed",
@@ -816,7 +895,12 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
         "connection.error",
         "connection.welcome",
         "engine.error",
+        "model.catalog.result",
+        "model.catalog_refresh.result",
         "model.changed",
+        "model.get.result",
+        "model.get_default.result",
+        "model.set_default.result",
         "session.list.result",
         "session.list_changed",
         "session.loadHistory.result",
@@ -863,8 +947,8 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
     ]);
   });
 
-  test("全部 26 个事件信封可构造且窄化分发正确", () => {
-    const out = [...legacyEvents, ...v01Events, ...v02Events].map(summarizeEvent);
+  test("全部 35 个事件信封可构造且窄化分发正确", () => {
+    const out = [...legacyEvents, ...v01Events, ...v02Events, ...v02ResultEvents].map(summarizeEvent);
     expect(out).toEqual([
       "welcome:sess-1:kimi-k2:running",
       "error:auth.missing_token:握手缺少 token",
@@ -895,6 +979,16 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
       // v0.2 新增
       "list-changed:created:sess-1:streaming",
       "model-changed:sess-1:moonshot/kimi-k2:kimi-k2:next-turn",
+      // 微批 9 结果帧（T2.3-result-frames）
+      "model-get-result:moonshot/kimi-k2:false:anthropic/claude-sonnet-4-5",
+      "model-catalog-result:1:builtin",
+      "model-catalog-refresh-result:1:builtin:1",
+      "model-set-default-result:anthropic/claude-sonnet-4-5",
+      "model-get-default-result:anthropic/claude-sonnet-4-5",
+      "auth-list-result:1:true",
+      "auth-set-key-result:····7f3a",
+      "auth-delete-key-result",
+      "auth-verify-result:fail:provider \"moonshot\" 未录入 API key",
     ]);
   });
 });
@@ -916,7 +1010,7 @@ describe("TP-CL2-④ EntryDto 判别式联合（契约 §6）", () => {
 describe("TP-CL2-② 信封版本位与常量（v0.2 bump）", () => {
   test("PROTOCOL_VERSION = \"0.2\"；v0.2 帧 v 位全为 \"0.2\"，历史帧 v=0 合法（兼容读）", () => {
     expect(PROTOCOL_VERSION).toBe("0.2");
-    for (const frame of [...v02Events, ...v02Commands, helloFrame]) {
+    for (const frame of [...v02Events, ...v02ResultEvents, ...v02Commands, helloFrame]) {
       expect(frame.v).toBe("0.2");
     }
     for (const frame of [...legacyEvents, ...legacyCommands, ...v01Commands, ...v01Events]) {
@@ -1080,7 +1174,18 @@ describe("TP-v0.2-② 八族类型学与登记目录（契约 A §2）", () => {
       "session.loadHistory.result",
       "session.snapshot",
     ]);
-    expect(roster("model")).toEqual(["model.changed"]);
+    expect(roster("model")).toEqual([
+      "auth.delete_key.result",
+      "auth.list.result",
+      "auth.set_key.result",
+      "auth.verify.result",
+      "model.catalog.result",
+      "model.catalog_refresh.result",
+      "model.changed",
+      "model.get.result",
+      "model.get_default.result",
+      "model.set_default.result",
+    ]);
     expect(roster("interaction")).toEqual([]); // 占位族：无事件挂靠
     expect(roster("notification")).toEqual(["connection.error", "connection.welcome"]);
   });

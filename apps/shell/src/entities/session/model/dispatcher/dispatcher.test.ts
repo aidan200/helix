@@ -74,4 +74,24 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     expect(route("session.list.result")).toBeUndefined();
     expect(route("session.list_changed")).toBeUndefined();
   });
+
+  it("v0.2 model/auth 命令结果帧（T2.3-result-frames 微批）：no-op 占位——已路由且保持原状态（T3.3 接真消费）", () => {
+    const placeholderTypes = [
+      "model.get.result",
+      "model.catalog.result",
+      "model.catalog_refresh.result",
+      "model.set_default.result",
+      "model.get_default.result",
+      "auth.list.result",
+      "auth.set_key.result",
+      "auth.delete_key.result",
+      "auth.verify.result",
+    ];
+    const s = {} as SessionState; // no-op 语义只验「同引用返回」，不触碰字段
+    for (const type of placeholderTypes) {
+      const handler = route(type);
+      expect(handler, `未注册占位：${type}`).toBeDefined();
+      expect(handler!(s, { type } as EventEnvelope, 0)).toBe(s); // 保持原状态（default 语义）
+    }
+  });
 });

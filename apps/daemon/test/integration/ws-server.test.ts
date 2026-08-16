@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { createDaemon } from "../../src/infrastructure/container";
+import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 import { FakeAgentEngine, type ScriptedTurn } from "../mocks/FakeAgentEngine";
 
@@ -20,7 +21,7 @@ import { FakeAgentEngine, type ScriptedTurn } from "../mocks/FakeAgentEngine";
 
 /** 收集帧的 loopback WS 测试客户端（Bun 内建 WebSocket）。 */
 class TestClient {
-  readonly frames: { v: FrameVersion; type: string; payload: Record<string, unknown> }[] = [];
+  readonly frames: { v: FrameVersion; type: string; payload: Record<string, unknown>; sessionId?: string; channel?: string }[] = [];
   private readonly ws: WebSocket;
   private closedAt = 0;
 
@@ -43,7 +44,7 @@ class TestClient {
   }
 
   /** 等待出现指定 type 的帧并返回之。 */
-  async expect(type: string, timeoutMs = 3000): Promise<{ v: FrameVersion; type: string; payload: Record<string, unknown> }> {
+  async expect(type: string, timeoutMs = 3000): Promise<{ v: FrameVersion; type: string; payload: Record<string, unknown>; sessionId?: string; channel?: string }> {
     await until(() => this.frames.some((f) => f.type === type), timeoutMs, `等待帧 ${type}（已收：${this.frames.map((f) => f.type).join(",")}）`);
     return this.frames.find((f) => f.type === type)!;
   }
@@ -53,7 +54,7 @@ class TestClient {
     type: string,
     afterIndex: number,
     timeoutMs = 3000,
-  ): Promise<{ v: FrameVersion; type: string; payload: Record<string, unknown> }> {
+  ): Promise<{ v: FrameVersion; type: string; payload: Record<string, unknown>; sessionId?: string; channel?: string }> {
     await until(
       () => this.frames.slice(afterIndex).some((f) => f.type === type),
       timeoutMs,
@@ -67,7 +68,7 @@ class TestClient {
     pred: (f: { v: FrameVersion; type: string; payload: Record<string, unknown> }) => boolean,
     what: string,
     timeoutMs = 3000,
-  ): Promise<{ v: FrameVersion; type: string; payload: Record<string, unknown> }> {
+  ): Promise<{ v: FrameVersion; type: string; payload: Record<string, unknown>; sessionId?: string; channel?: string }> {
     await until(() => this.frames.some(pred), timeoutMs, `等待帧（${what}）`);
     return this.frames.find(pred)!;
   }
@@ -99,6 +100,19 @@ function tmpHome(): string {
   return mkdtempSync(path.join(tmpdir(), "helix-ws-it-"));
 }
 
+/**
+ * 预播种 models-store.json（全部 builtin provider checkedAt=now，models 空）
+ * → catalog() 走 4h 缓存读面，零网络（hermetic：测试不依赖 pi.dev 可达性）。
+ */
+function seedCatalogCache(home: string): void {
+  const now = Date.now();
+  const providers: Record<string, { models: unknown[]; checkedAt: number; lastModified: number }> = {};
+  for (const p of builtinModels().getProviders()) {
+    providers[p.id] = { models: [], checkedAt: now, lastModified: 0 };
+  }
+  writeFileSync(path.join(home, "models-store.json"), JSON.stringify({ version: 1, providers }), "utf8");
+}
+
 interface Rig {
   home: string;
   engine: FakeAgentEngine;
@@ -109,8 +123,9 @@ interface Rig {
 }
 
 /** 组合根全链装配（随机端口、tmp home、Fake 引擎）。 */
-async function makeRig(opts: { staticDir?: string; replies?: ScriptedTurn[] } = {}): Promise<Rig> {
+async function makeRig(opts: { staticDir?: string; replies?: ScriptedTurn[]; seedCatalog?: boolean } = {}): Promise<Rig> {
   const home = tmpHome();
+  if (opts.seedCatalog) seedCatalogCache(home);
   const engine = new FakeAgentEngine(opts.replies ? { replies: opts.replies } : {});
   const daemon = await createDaemon({
     home,
@@ -328,12 +343,13 @@ describe("命令错误回执（不关连接）", () => {
       await client.expect("session.snapshot");
 
       // T2.3（AD-2）：model/auth 族已落地真行为——占位回执（command.unimplemented）
-      // 不再出现；非法载荷/非法值回 command.invalid_payload（中文说明）
-      //（不触发 catalog/verify：二者含真实网络请求，专测在 model-catalog.test）
+      // 不再出现；非法载荷回 command.invalid_payload（中文说明）；
+      // 微批（T2.3-result-frames）：非法值回专用错误码 model_not_found /
+      // provider_not_found（契约 C §4，替换降级的 invalid_payload 携带说明）
       client.send({ v: PROTOCOL_VERSION, sessionId: "sess-x", type: "model.set", payload: { model: "m/x" } });
       const setErr = await client.waitFor(
-        (f) => f.type === "connection.error" && f.payload.code === "command.invalid_payload" && String(f.payload.message).includes("model.set"),
-        "model.set 非法模型回 invalid_payload",
+        (f) => f.type === "connection.error" && f.payload.code === "model_not_found" && String(f.payload.message).includes("model.set"),
+        "model.set 非法模型回 model_not_found",
       );
       expect(String(setErr.payload.message)).toMatch(/不在目录/);
       client.send({ v: PROTOCOL_VERSION, type: "model.set_default", payload: {} });
@@ -348,12 +364,11 @@ describe("命令错误回执（不关连接）", () => {
       );
       client.send({ v: PROTOCOL_VERSION, type: "auth.set_key", payload: { providerId: "no-such-provider", apiKey: "k" } });
       await client.waitFor(
-        (f) => f.type === "connection.error" && f.payload.code === "command.invalid_payload" && String(f.payload.message).includes("no-such-provider"),
-        "auth.set_key 未知 provider 回 invalid_payload（provider_not_found 语义）",
+        (f) => f.type === "connection.error" && f.payload.code === "provider_not_found" && String(f.payload.message).includes("no-such-provider"),
+        "auth.set_key 未知 provider 回 provider_not_found（契约 C §4）",
       );
 
-      // 真实副作用链（结果帧 v0.2 未登记——副作用生效 + daemon 日志，T2.3 finding）：
-      // auth.set_key 真写 auth.json（0600）
+      // 真实副作用链：auth.set_key 真写 auth.json（0600）+ 结果帧回执（微批）
       client.send({ v: PROTOCOL_VERSION, type: "auth.set_key", payload: { providerId: "anthropic", apiKey: "sk-ws-1234" } });
       await new Promise((r) => setTimeout(r, 200));
       expect(existsSync(path.join(rig.home, "auth.json"))).toBe(true);
@@ -377,6 +392,82 @@ describe("命令错误回执（不关连接）", () => {
       await rig.dispose();
     }
   });
+
+  test("v0.2 model/auth 命令结果帧点对点回执（T2.3-result-frames 微批）：真 WS 客户端收帧", async () => {
+    // hermetic：预播种目录缓存 → catalog 走 4h 缓存读面零网络；verify 未录入
+    // key → fail 结果帧（无网络）；真容器全链（ModelService + auth.json + SQLite）
+    const rig = await makeRig({ seedCatalog: true });
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
+      await client.expect("session.snapshot");
+
+      // ① model.catalog（抽样）：合并目录快照 + channel/sessionId 章印
+      client.send({ v: PROTOCOL_VERSION, type: "model.catalog", payload: {} });
+      const catalog = await client.expect("model.catalog.result");
+      expect(catalog.channel).toBe("model");
+      expect(catalog.sessionId).toBe("__system__"); // 全局命令：会话无关
+      const models = catalog.payload.models as { id: string; providerId: string; contextWindow: number }[];
+      expect(models.length).toBeGreaterThan(0);
+      expect(catalog.payload.source).toBe("builtin"); // 播种空 overlay → builtin 快照
+      expect(typeof catalog.payload.refreshedAt).toBe("number");
+      expect(models[0]!.id).toContain("/"); // "provider/model-id"
+      const anyModelId = models[0]!.id;
+
+      // ② model.get：会话当前模型（信封 sessionId 缺省 = 当前会话归属）
+      client.send({ v: PROTOCOL_VERSION, type: "model.get", payload: {} });
+      const get = await client.expect("model.get.result");
+      expect(get.channel).toBe("model");
+      expect(get.sessionId).not.toBe("__system__"); // per-session 命令：目标会话 id（loadHistory 同构）
+      expect(typeof get.payload.model).toBe("string");
+      expect(typeof get.payload.isDefault).toBe("boolean");
+      expect(get.payload.model).toBe(get.payload.defaultModel); // 新会话继承全局默认
+
+      // ③ model.get_default / set_default / get_default 链（SQLite 单写）
+      client.send({ v: PROTOCOL_VERSION, type: "model.get_default", payload: {} });
+      const getDefault1 = await client.expect("model.get_default.result");
+      const previousDefault = String(getDefault1.payload.model);
+      client.send({ v: PROTOCOL_VERSION, type: "model.set_default", payload: { model: anyModelId } });
+      const setDefault = await client.expect("model.set_default.result");
+      expect(setDefault.payload.previous).toBe(previousDefault);
+      const afterSetDefault = client.frames.length;
+      client.send({ v: PROTOCOL_VERSION, type: "model.get_default", payload: {} });
+      const getDefault2 = await client.expectAfter("model.get_default.result", afterSetDefault);
+      expect(getDefault2.payload.model).toBe(anyModelId);
+
+      // ④ auth.verify（抽样；未录入 key → fail 结果帧而非 error 帧，零网络）
+      client.send({ v: PROTOCOL_VERSION, type: "auth.verify", payload: { providerId: "openai" } });
+      const verify = await client.expect("auth.verify.result");
+      expect(verify.channel).toBe("model");
+      expect(verify.payload.status).toBe("fail");
+      expect(String(verify.payload.reason)).toContain("未录入");
+
+      // ⑤ auth.set_key → 掩码回执；auth.list（抽样）状态翻转；auth.delete_key → 空回执
+      client.send({ v: PROTOCOL_VERSION, type: "auth.set_key", payload: { providerId: "anthropic", apiKey: "sk-ws-9876" } });
+      const setKey = await client.expect("auth.set_key.result");
+      expect(setKey.payload.keyMasked).toBe("····9876"); // 尾 4 位掩码
+      client.send({ v: PROTOCOL_VERSION, type: "auth.list", payload: {} });
+      const list = await client.expect("auth.list.result");
+      const providers = list.payload.providers as { providerId: string; configured: boolean; keyMasked?: string }[];
+      expect(providers.length).toBeGreaterThan(0); // 目录 provider 全集
+      const anthropic = providers.find((p) => p.providerId === "anthropic")!;
+      expect(anthropic.configured).toBe(true);
+      expect(anthropic.keyMasked).toBe("····9876");
+
+      client.send({ v: PROTOCOL_VERSION, type: "auth.delete_key", payload: { providerId: "anthropic" } });
+      const deleteKey = await client.expect("auth.delete_key.result");
+      expect(deleteKey.payload).toEqual({}); // 契约 C §1.3：响应 `{}`
+      const afterDelete = client.frames.length;
+      client.send({ v: PROTOCOL_VERSION, type: "auth.list", payload: {} });
+      const list2 = await client.expectAfter("auth.list.result", afterDelete);
+      const anthropic2 = (list2.payload.providers as { providerId: string; configured: boolean }[]).find((p) => p.providerId === "anthropic")!;
+      expect(anthropic2.configured).toBe(false);
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  }, 15000);
 });
 
 describe("GET /helix-dev-token（浏览器侧获取机制，T1.6 钉死）", () => {
