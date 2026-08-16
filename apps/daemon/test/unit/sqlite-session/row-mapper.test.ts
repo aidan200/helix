@@ -2,8 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import * as RowMapper from "../../../src/adapters/driven/sqlite-session/rows/RowMapper";
+import type { AgentLifecycleRow } from "../../../src/adapters/driven/sqlite-session/rows/Rows";
 import type { PersistedDomainState } from "../../../src/application/ports/outbound/SessionRepositoryPort";
 import { Session } from "../../../src/domain/session/Session";
+import type { SessionSnapshot } from "../../../src/domain/session/SessionSnapshot";
+import type { SessionUsageSummary } from "../../../src/domain/session/SessionSnapshot";
+import type { AgentInstanceData } from "../../../src/domain/agent/AgentInstance";
 import { ToolCallRecord } from "../../../src/domain/tools/ToolCallRecord";
 import type { DomainEvent } from "../../../src/domain/events/DomainEvent";
 
@@ -97,5 +101,90 @@ describe("TP-CL8-5（A 半）：模型隔离", () => {
       if (src.includes("/adapters/") || src.includes("/rows/")) offenders.push(rel);
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+/** TR-AD-14（iter-20260816-uzvg T1.2）：instanceId 新列往返与旧行兜底。 */
+describe("F1.7：instanceId 新列 RowMapper 往返（TR-AD-14）", () => {
+  test("① DomainEvent 带 instanceId → 行带 agent_instance_id；缺省 → main（缺省=主实例）", () => {
+    const sub: DomainEvent = {
+      type: "message.completed",
+      sessionId: "s-rm",
+      instanceId: "agent-3",
+      turnId: "t1",
+      payload: { entryId: "e9" },
+      occurredAt: "2024-01-01T00:00:08.000Z",
+    };
+    const subRow = RowMapper.domainEventToRow(sub, "subagent");
+    expect(subRow.agent_instance_id).toBe("agent-3");
+
+    const main = { ...sub, instanceId: undefined };
+    const mainRow = RowMapper.domainEventToRow(main, "main");
+    expect(mainRow.agent_instance_id).toBe("main"); // O-3/O-4：缺省回填主实例固定 id
+  });
+
+  test("② 行 → 事件：agent_instance_id 往返；旧行无列值 → fromRow 兜底 main", () => {
+    const row = {
+      session_id: "s-rm",
+      agent_kind: "main",
+      agent_instance_id: "agent-3",
+      type: "tool.call.result",
+      payload: JSON.stringify({ toolCallId: "tc-1" }),
+      ts: "2024-01-01T00:00:08.000Z",
+    };
+    const back = RowMapper.rowToDomainEvent(row);
+    expect(back.instanceId).toBe("agent-3");
+
+    // 旧行（升级前写入，无 agent_instance_id 值）：fromRow 默认值兜底（TR-AD-14）
+    const legacyRow = { ...row, agent_instance_id: undefined } as unknown as typeof row;
+    expect(RowMapper.rowToDomainEvent(legacyRow).instanceId).toBe("main");
+  });
+
+  test("③ agent_lifecycle 复合 PK 行：toRow 写 main 实例行；旧单列行 → 兜底 main", () => {
+    const state = richState();
+    const rows = RowMapper.persistedStateToRows(state);
+    expect(rows.lifecycle.instance_id).toBe("main"); // 主会话状态投影到 main 实例行
+
+    // 旧行形状（v0 单列 PK 时代）：无 instance_id 列值 → 兜底 main
+    const back = RowMapper.rowsToPersistedState(
+      rows.session,
+      { session_id: "s-rm", state: "idle", updated_at: "2024-01-01T00:00:00.000Z" } as unknown as AgentLifecycleRow,
+      [],
+      [],
+    );
+    expect(back.agentState).toBe("idle");
+  });
+
+  test("④ tool_calls.instance_id：toRow 写 main；旧行无列值 → 兜底 main", () => {
+    const state = richState();
+    const rows = RowMapper.persistedStateToRows(state);
+    expect(rows.toolCalls.every((t) => t.instance_id === "main")).toBe(true);
+
+    const back = RowMapper.rowsToPersistedState(
+      rows.session,
+      rows.lifecycle,
+      [],
+      rows.toolCalls.map((t) => ({ ...t, instance_id: undefined }) as unknown as typeof t),
+    );
+    expect(back.toolCalls).toHaveLength(3); // 兜底不丢行（instance_id 由默认值补齐）
+  });
+
+  test("⑤ 快照占位字段 instances/usage：形状对齐契约 §6.2，不阻断聚合重建（装配与落盘归 T2.x）", () => {
+    const state = richState();
+    const usage: SessionUsageSummary = {
+      total: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, reasoning: 10, totalTokens: 160, cost: 0.5 },
+      compaction: { input: 20, output: 5, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 25, cost: 0.1 },
+    };
+    const instances: readonly AgentInstanceData[] = [
+      { instanceId: "main", kind: "main", profileKind: "main-session", sessionId: "s-rm", state: "running", createdAt: "2024-01-01T00:00:00.000Z" },
+      { instanceId: "agent-1", kind: "subagent", profileKind: "subagent-worker", sessionId: "s-rm", state: "done", createdAt: "2024-01-01T00:00:05.000Z" },
+    ];
+    const snapshot: SessionSnapshot = { ...state.session, instances, usage };
+
+    // 占位字段在快照上合法携带；聚合重建不受影响（Entry 树带 instanceId 可查）
+    const restored = Session.restoreFrom(snapshot);
+    expect(restored.entryList().every((e) => e.instanceId === "main")).toBe(true);
+    expect(restored.entryList().map((e) => e.id)).toEqual(["e1", "e2", "e3"]);
+    // T1.2 边界：instances 清单的权威投影在 agent_lifecycle 每实例行；快照装配/落盘由 T2.x 接
   });
 });

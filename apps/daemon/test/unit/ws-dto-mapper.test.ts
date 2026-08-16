@@ -18,10 +18,10 @@ function snap(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
     sessionId: "s-1",
     createdAt: "2026-08-15T00:00:00.000Z",
     entries: [
-      { id: "e1", role: "user", text: "你好", turnId: null, isSteer: false, createdAt: "2026-08-15T00:00:01.000Z" },
-      { id: "e2", role: "assistant", text: "在的", turnId: "t1", isSteer: false, createdAt: "2026-08-15T00:00:02.000Z" },
-      { id: "e3", role: "user", text: "补充一下", turnId: "t2", isSteer: true, createdAt: "2026-08-15T00:00:03.000Z" },
-      { id: "e4", role: "user", text: "已注入的那条", turnId: "t3", isSteer: true, createdAt: "2026-08-15T00:00:04.000Z" },
+      { id: "e1", role: "user", text: "你好", turnId: null, isSteer: false, instanceId: "main", createdAt: "2026-08-15T00:00:01.000Z" },
+      { id: "e2", role: "assistant", text: "在的", turnId: "t1", isSteer: false, instanceId: "main", createdAt: "2026-08-15T00:00:02.000Z" },
+      { id: "e3", role: "user", text: "补充一下", turnId: "t2", isSteer: true, instanceId: "main", createdAt: "2026-08-15T00:00:03.000Z" },
+      { id: "e4", role: "user", text: "已注入的那条", turnId: "t3", isSteer: true, instanceId: "main", createdAt: "2026-08-15T00:00:04.000Z" },
     ],
     turns: [],
     pendingSteer: [{ entryId: "e3", text: "补充一下" }],
@@ -68,8 +68,8 @@ describe("①-b D-1：快照合并工具调用记录（SessionStateView → 时�
       view(
         {
           entries: [
-            { id: "e1", role: "user", text: "跑个命令", turnId: null, isSteer: false, createdAt: "2026-08-15T00:00:01.000Z" },
-            { id: "e2", role: "assistant", text: "结果如下。", turnId: "t1", isSteer: false, createdAt: "2026-08-15T00:00:03.000Z" },
+            { id: "e1", role: "user", text: "跑个命令", turnId: null, isSteer: false, instanceId: "main", createdAt: "2026-08-15T00:00:01.000Z" },
+            { id: "e2", role: "assistant", text: "结果如下。", turnId: "t1", isSteer: false, instanceId: "main", createdAt: "2026-08-15T00:00:03.000Z" },
           ],
         },
         [
@@ -126,7 +126,7 @@ describe("①-b D-1：快照合并工具调用记录（SessionStateView → 时�
       view(
         {
           entries: [
-            { id: "e1", role: "user", text: "q", turnId: null, isSteer: false, createdAt: "2026-08-15T00:00:01.000Z" },
+            { id: "e1", role: "user", text: "q", turnId: null, isSteer: false, instanceId: "main", createdAt: "2026-08-15T00:00:01.000Z" },
           ],
         },
         [

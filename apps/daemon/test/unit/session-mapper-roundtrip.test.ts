@@ -18,6 +18,7 @@ describe("TP-CL8-4：SessionMapper 往返 roundtrip", () => {
       text: "帮我写一段介绍",
       turnId: "t1",
       isSteer: false,
+      instanceId: "main",
       createdAt: "2024-01-01T00:00:01.000Z",
     };
     const msg = userMessage(data.text);

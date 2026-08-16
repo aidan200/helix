@@ -22,6 +22,11 @@ export interface DomainEvent<P = unknown> {
   readonly sessionId: string;
   /** 关联轮次（轮次级事件必填；会话级可空）。 */
   readonly turnId?: string;
+  /**
+   * 实例归属（AD-3，iter-20260816-uzvg T1.2）：缺省 = 主实例（协议同语义，
+   * 契约 §1）。SubAgent 实例事件携带 agent-N；发布侧挂 id 由 T2.3/T3.x 接。
+   */
+  readonly instanceId?: string;
   readonly payload: P;
   /** 发生时刻（ISO 8601，来自 ClockPort——测试可控）。 */
   readonly occurredAt: string;

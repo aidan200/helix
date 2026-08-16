@@ -3,6 +3,7 @@ import { Entry, type EntryData } from "./Entry";
 import { Turn, type TurnData } from "./Turn";
 import type { SessionSnapshot } from "./SessionSnapshot";
 import { SteerQueue, type SteerItem } from "../agent/SteerQueue";
+import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
 
 /**
  * 会话聚合根（architecture.md §3.3，AD-16：domain 层唯一权威状态）。
@@ -89,6 +90,7 @@ export class Session {
       text,
       turnId,
       isSteer,
+      instanceId: MAIN_INSTANCE_ID, // 主实例固定 id（O-4）；SubAgent 追加路径 T2.x 接
       createdAt: at ?? new Date().toISOString(),
     });
     this.entries.push(entry);
@@ -189,7 +191,9 @@ export class Session {
   static restoreFrom(snapshot: SessionSnapshot): Session {
     const s = new Session(snapshot.sessionId, snapshot.createdAt);
     for (const e of snapshot.entries) {
-      s.entries.push(Entry.create({ ...e }));
+      // 旧版快照 entries 无 instanceId（列前时代）：兜底回填主实例（TR-AD-14
+      // 同精神——fromRow/restore 对旧行数据前向兼容，回填常量与 O-3 一致）
+      s.entries.push(Entry.create({ ...e, instanceId: e.instanceId ?? MAIN_INSTANCE_ID }));
     }
     for (const t of snapshot.turns) {
       s.turns.push(Turn.create({ ...t }));

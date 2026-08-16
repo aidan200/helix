@@ -19,7 +19,7 @@ function fakeView(): SessionStateView {
       sessionId: "spy-s1",
       createdAt: "2026-08-15T00:00:00.000Z",
       entries: [
-        { id: "e1", role: "user", text: "历史消息", turnId: null, isSteer: false, createdAt: "2026-08-15T00:00:01.000Z" },
+        { id: "e1", role: "user", text: "历史消息", turnId: null, isSteer: false, instanceId: "main", createdAt: "2026-08-15T00:00:01.000Z" },
       ],
       turns: [],
       pendingSteer: [],

@@ -261,4 +261,56 @@ describe("TP-CL8-9：domain_events 四维过滤查询", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test("F1.7：instance 维过滤（session × instance × type × time 四维可查）", async () => {
+    const home = tmpHome();
+    try {
+      const queue = new WriteQueue(path.join(home, "helix.db"));
+      const repo = new SqliteSessionRepository(queue);
+
+      const at = (n: number) => new Date(Date.parse("2024-01-01T00:00:00.000Z") + n * 1000).toISOString();
+      const mk = (type: string, sessionId: string, n: number, instanceId?: string): DomainEvent => ({
+        type: type as DomainEvent["type"],
+        sessionId,
+        instanceId,
+        payload: { n },
+        occurredAt: at(n),
+      });
+
+      // 主实例（缺省 = main）与两个 SubAgent 交错产生事件
+      await queue.appendEvent(mk("message.completed", "s1", 1)); // main（缺省）
+      await queue.appendEvent(mk("message.completed", "s1", 2, "agent-1"));
+      await queue.appendEvent(mk("tool.call.started", "s1", 3, "agent-1"));
+      await queue.appendEvent(mk("message.completed", "s1", 4, "agent-2"));
+      await queue.appendEvent(mk("turn.completed", "s1", 5)); // main
+      await queue.appendEvent(mk("message.completed", "s2", 6, "agent-1")); // 跨会话同实例
+
+      // instance 维单查：agent-1 三条（跨会话）
+      const a1 = repo.queryEvents({ instanceId: "agent-1" });
+      expect(a1.map((e) => (e.payload as { n: number }).n)).toEqual([2, 3, 6]);
+      expect(a1.every((e) => e.instanceId === "agent-1")).toBe(true);
+      // 缺省事件落 main 列值，可按 main 反查
+      expect(repo.queryEvents({ instanceId: "main" }).map((e) => (e.payload as { n: number }).n)).toEqual([1, 5]);
+
+      // 契约验收口径：WHERE agent_instance_id = 'agent-1' AND type = 'message.completed'
+      expect(
+        repo.queryEvents({ instanceId: "agent-1", type: "message.completed" }).map((e) => (e.payload as { n: number }).n),
+      ).toEqual([2, 6]);
+
+      // 四维组合：session × instance × type × time
+      expect(
+        repo
+          .queryEvents({ sessionId: "s1", instanceId: "agent-1", type: "message.completed", since: at(2), until: at(2) })
+          .map((e) => (e.payload as { n: number }).n),
+      ).toEqual([2]);
+
+      // 同类型多实例可区分：message.completed 在 agent-1/agent-2/main 三份互不混淆
+      expect(
+        repo.queryEvents({ sessionId: "s1", type: "message.completed" }).map((e) => e.instanceId),
+      ).toEqual(["main", "agent-1", "agent-2"]);
+      await queue.close();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });

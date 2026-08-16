@@ -3,6 +3,7 @@ import path from "node:path";
 import { Database, type Statement } from "bun:sqlite";
 import { SCHEMA_SQL } from "./schema";
 import { persistedStateToRows, domainEventToRow } from "./rows/RowMapper";
+import { MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { PersistedDomainState } from "../../../application/ports/outbound/SessionRepositoryPort";
 
@@ -54,11 +55,14 @@ export class WriteQueue {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL;");
+    // 守护式 schema 演进先于建表：旧库先补列/重建 PK，SCHEMA_SQL 随后幂等
+    // 直建新库（新列在 CREATE TABLE 内，索引依赖的列此时必然已存在）。
+    ensureSchemaEvolved(this.db);
     this.db.exec(SCHEMA_SQL);
     this.onError = options.onError;
 
     this.insertEvent = this.db.prepare(
-      "INSERT INTO domain_events (session_id, agent_kind, type, payload, ts) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO domain_events (session_id, agent_kind, agent_instance_id, type, payload, ts) VALUES (?, ?, ?, ?, ?, ?)",
     );
     this.upsertSession = this.db.prepare(
       "INSERT INTO session_state (session_id, created_at, entries, turns, updated_at) VALUES (?, ?, ?, ?, ?) " +
@@ -66,8 +70,8 @@ export class WriteQueue {
         "turns = excluded.turns, updated_at = excluded.updated_at",
     );
     this.upsertLifecycle = this.db.prepare(
-      "INSERT INTO agent_lifecycle (session_id, state, updated_at) VALUES (?, ?, ?) " +
-        "ON CONFLICT(session_id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at",
+      "INSERT INTO agent_lifecycle (session_id, instance_id, state, updated_at) VALUES (?, ?, ?, ?) " +
+        "ON CONFLICT(session_id, instance_id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at",
     );
     this.clearSteer = this.db.prepare("DELETE FROM steer_queue WHERE session_id = ?");
     this.insertSteer = this.db.prepare(
@@ -75,8 +79,8 @@ export class WriteQueue {
     );
     this.clearToolCalls = this.db.prepare("DELETE FROM tool_calls WHERE session_id = ?");
     this.insertToolCall = this.db.prepare(
-      "INSERT INTO tool_calls (id, session_id, tool_name, args, status, result, error, started_at, ended_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO tool_calls (id, session_id, instance_id, tool_name, args, status, result, error, started_at, ended_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
   }
   /** 读侧共用连接（SqliteSessionRepository 只读 SELECT；写仍唯一走本队列）。 */
@@ -126,7 +130,14 @@ export class WriteQueue {
   private apply(job: WriteJob): void {
     if (job.kind === "event") {
       const row = domainEventToRow(job.event, job.agentKind);
-      this.insertEvent.run(row.session_id, row.agent_kind, row.type, row.payload, row.ts);
+      this.insertEvent.run(
+        row.session_id,
+        row.agent_kind,
+        row.agent_instance_id,
+        row.type,
+        row.payload,
+        row.ts,
+      );
       return;
     }
     const rows = persistedStateToRows(job.state);
@@ -138,7 +149,12 @@ export class WriteQueue {
       rows.session.turns,
       rows.session.updated_at,
     );
-    this.upsertLifecycle.run(rows.lifecycle.session_id, rows.lifecycle.state, rows.lifecycle.updated_at);
+    this.upsertLifecycle.run(
+      rows.lifecycle.session_id,
+      rows.lifecycle.instance_id,
+      rows.lifecycle.state,
+      rows.lifecycle.updated_at,
+    );
     // 队列/记录行整体替换（投影语义：与内存当前态一致，顺序保持入队序）
     this.clearSteer.run(sessionId);
     for (const s of rows.steer) this.insertSteer.run(s.session_id, s.entry_id, s.text);
@@ -147,6 +163,7 @@ export class WriteQueue {
       this.insertToolCall.run(
         t.id,
         t.session_id,
+        t.instance_id,
         t.tool_name,
         t.args,
         t.status,
@@ -157,4 +174,63 @@ export class WriteQueue {
       );
     }
   }
+}
+
+// ── O-3 守护式 schema 演进（architecture.md §8.1，AG-06 唯一写点内） ──
+
+/**
+ * 启动期列级演进（幂等，每次打开执行，已演进则全部 no-op）：
+ *
+ * - domain_events.agent_instance_id / tool_calls.instance_id 缺列 →
+ *   ALTER TABLE ADD COLUMN TEXT NOT NULL DEFAULT 'main'——SQLite 对
+ *   NOT NULL 补列强制要求 DEFAULT，恰好即 O-3 裁决的旧行回填机制：
+ *   存量行自动落 'main'（主实例固定 id，与 O-4 同源），新行恒显式写入。
+ * - agent_lifecycle 单列 PK → (session_id, instance_id)：SQLite 无法
+ *   ALTER 主键，走守护式重建（rename→create→copy→drop，事务包裹原子；
+ *   旧行 instance_id 回填 'main'）。重建表形状与 schema.ts 新建表一致。
+ *
+ * 不做迁移框架（迭代边界）：无版本表、无回滚——检测即修，崩溃安全靠事务。
+ */
+function ensureSchemaEvolved(db: Database): void {
+  if (!hasColumn(db, "domain_events", "agent_instance_id")) {
+    db.exec("ALTER TABLE domain_events ADD COLUMN agent_instance_id TEXT NOT NULL DEFAULT 'main'");
+  }
+  if (!hasColumn(db, "tool_calls", "instance_id")) {
+    db.exec("ALTER TABLE tool_calls ADD COLUMN instance_id TEXT NOT NULL DEFAULT 'main'");
+  }
+  const lifecycleCols = tableColumns(db, "agent_lifecycle");
+  if (lifecycleCols.length > 0 && !lifecycleCols.includes("instance_id")) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec("DROP TABLE IF EXISTS agent_lifecycle_rebuild"); // 上次崩溃残留防御（事务内不可达，保险）
+      db.exec("ALTER TABLE agent_lifecycle RENAME TO agent_lifecycle_rebuild");
+      db.exec(
+        "CREATE TABLE agent_lifecycle (" +
+          "session_id TEXT NOT NULL, " +
+          `instance_id TEXT NOT NULL DEFAULT '${MAIN_INSTANCE_ID}', ` +
+          "state TEXT NOT NULL, " +
+          "updated_at TEXT NOT NULL, " +
+          "PRIMARY KEY (session_id, instance_id))",
+      );
+      db.exec(
+        "INSERT INTO agent_lifecycle (session_id, instance_id, state, updated_at) " +
+          `SELECT session_id, '${MAIN_INSTANCE_ID}', state, updated_at FROM agent_lifecycle_rebuild`,
+      );
+      db.exec("DROP TABLE agent_lifecycle_rebuild");
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error; // 迁移失败快速失败：daemon 不带病启动
+    }
+  }
+}
+
+/** 列存在性（表不存在视为"无需演进"——随后的 CREATE TABLE 直建新形状）。 */
+function hasColumn(db: Database, table: string, column: string): boolean {
+  const cols = tableColumns(db, table);
+  return cols.length === 0 || cols.includes(column);
+}
+
+function tableColumns(db: Database, table: string): string[] {
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
 }

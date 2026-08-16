@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, UserMessage } from "@earendil-works/pi-ai";
+import { MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
 import type { EntryData } from "../../../../domain/session/Entry";
 
 /**
@@ -53,7 +54,9 @@ export function stopReasonOf(message: AgentMessage): string | undefined {
 }
 
 /** pi 消息 → domain Entry 数据形状（工具结果归 tool；custom 消息忽略）。
- *  本任务供引擎事件侧薄映射；完整 Entry 树映射 T1.8 扩展。 */
+ *  实例归属恒为主实例（pi-engine 映射的是主会话引擎流；SubAgent 侧
+ *  映射归 T2.x 子进程 adapter）。本任务供引擎事件侧薄映射；完整 Entry
+ *  树映射 T1.8 扩展。 */
 export function entryDataOf(message: AgentMessage, fallbackTurnId: string | null): EntryData | null {
   const m = message as { role: string; content: unknown };
   if (m.role === "user") {
@@ -63,6 +66,7 @@ export function entryDataOf(message: AgentMessage, fallbackTurnId: string | null
       text: textOfContent(m.content),
       turnId: fallbackTurnId,
       isSteer: false,
+      instanceId: MAIN_INSTANCE_ID,
       createdAt: new Date().toISOString(),
     };
   }
@@ -73,6 +77,7 @@ export function entryDataOf(message: AgentMessage, fallbackTurnId: string | null
       text: textOfContent(m.content),
       turnId: fallbackTurnId,
       isSteer: false,
+      instanceId: MAIN_INSTANCE_ID,
       createdAt: new Date().toISOString(),
     };
   }

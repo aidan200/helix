@@ -10,6 +10,8 @@ export interface DomainEventRow {
   readonly id?: number;
   readonly session_id: string;
   readonly agent_kind: string;
+  /** 实例归属（T1.2；旧列前时代的行由守护补列回填 'main'，O-3）。 */
+  readonly agent_instance_id: string;
   readonly type: string;
   readonly payload: string;
   readonly ts: string;
@@ -24,9 +26,10 @@ export interface SessionStateRow {
   readonly updated_at: string;
 }
 
-/** agent_lifecycle 行（每会话一行，最后状态）。 */
+/** agent_lifecycle 行（每会话每实例一行，复合 PK (session_id, instance_id)）。 */
 export interface AgentLifecycleRow {
   readonly session_id: string;
+  readonly instance_id: string;
   readonly state: string;
   readonly updated_at: string;
 }
@@ -39,10 +42,12 @@ export interface SteerQueueRow {
   readonly text: string;
 }
 
-/** tool_calls 行（args 为 JSON 文本；result/error/时间可空）。 */
+/** tool_calls 行（args 为 JSON 文本；result/error/时间可空；挂实例归属）。 */
 export interface ToolCallRow {
   readonly id: string;
   readonly session_id: string;
+  /** 工具调用归属实例（T1.2；domain 侧 ToolCallRecord 挂 id 归 T2.x）。 */
+  readonly instance_id: string;
   readonly tool_name: string;
   readonly args: string;
   readonly status: string;

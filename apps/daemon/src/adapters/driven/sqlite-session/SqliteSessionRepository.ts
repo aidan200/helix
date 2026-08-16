@@ -4,6 +4,7 @@ import type {
   SessionRepositoryPort,
 } from "../../../application/ports/outbound/SessionRepositoryPort";
 import type { WriteQueue } from "./WriteQueue";
+import { MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
 import { rowToDomainEvent, rowsToPersistedState } from "./rows/RowMapper";
 import type {
   AgentLifecycleRow,
@@ -28,6 +29,8 @@ import type {
 export interface DomainEventQuery {
   readonly sessionId?: string;
   readonly agentKind?: string;
+  /** 实例维（F1.7：trace 四维 session × instance × type × time）。 */
+  readonly instanceId?: string;
   readonly type?: string;
   /** ISO 8601 下界（含）。 */
   readonly since?: string;
@@ -48,15 +51,19 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .prepare("SELECT session_id, created_at, entries, turns, updated_at FROM session_state WHERE session_id = ?")
       .get(sessionId) as SessionStateRow | null;
     if (!session) return undefined;
+    // agent_lifecycle 已是每实例一行（复合 PK）：主会话运行态取 main 实例行；
+    // SubAgent 实例行由编排侧（T2.x）消费，此处不混合读取
     const lifecycle = db
-      .prepare("SELECT session_id, state, updated_at FROM agent_lifecycle WHERE session_id = ?")
-      .get(sessionId) as AgentLifecycleRow | null;
+      .prepare(
+        "SELECT session_id, instance_id, state, updated_at FROM agent_lifecycle WHERE session_id = ? AND instance_id = ?",
+      )
+      .get(sessionId, MAIN_INSTANCE_ID) as AgentLifecycleRow | null;
     const steer = db
       .prepare("SELECT seq, session_id, entry_id, text FROM steer_queue WHERE session_id = ? ORDER BY seq")
       .all(sessionId) as SteerQueueRow[];
     const toolCalls = db
       .prepare(
-        "SELECT id, session_id, tool_name, args, status, result, error, started_at, ended_at " +
+        "SELECT id, session_id, instance_id, tool_name, args, status, result, error, started_at, ended_at " +
           "FROM tool_calls WHERE session_id = ? ORDER BY rowid",
       )
       .all(sessionId) as ToolCallRow[];
@@ -82,6 +89,10 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       where.push("agent_kind = ?");
       params.push(query.agentKind);
     }
+    if (query.instanceId !== undefined) {
+      where.push("agent_instance_id = ?");
+      params.push(query.instanceId);
+    }
     if (query.type !== undefined) {
       where.push("type = ?");
       params.push(query.type);
@@ -95,7 +106,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       params.push(query.until);
     }
     const sql =
-      "SELECT id, session_id, agent_kind, type, payload, ts FROM domain_events" +
+      "SELECT id, session_id, agent_kind, agent_instance_id, type, payload, ts FROM domain_events" +
       (where.length > 0 ? ` WHERE ${where.join(" AND ")}` : "") +
       " ORDER BY id";
     const rows = this.queue.database.prepare(sql).all(...params) as DomainEventRow[];
