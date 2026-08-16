@@ -35,20 +35,23 @@ export type {
   TopologyState,
 } from "./state";
 
+/** 活跃会话运行态投影（侧栏活跃卡片徽标与 demoteToBackground 同源）：
+ *  有非终态 SubAgent → subagent_running；agentState 流式/转向 → streaming；
+ *  否则 idle。纯函数（AG-14）。 */
+export function selectActiveRunState(active: SessionState): BackgroundSessionState["runState"] {
+  const subagentActive = active.instances.some((c) => !isTerminal(c.state));
+  if (subagentActive) return "subagent_running";
+  return active.agentState === "idle" ? "idle" : "streaming";
+}
+
 /** 旧活跃 store → 后台轻量态（标题/运行态取清单元数据；未读从零起算）。 */
 function demoteToBackground(active: SessionState, list: SessionMeta[]): BackgroundSessionState | null {
   if (active.sessionId === null) return null; // 无会话上下文（草稿/首连前）：无轻量态可转
   const meta = list.find((m) => m.sessionId === active.sessionId);
-  const subagentActive = active.instances.some((c) => !isTerminal(c.state));
-  const runState: BackgroundSessionState["runState"] = subagentActive
-    ? "subagent_running"
-    : active.agentState === "idle"
-      ? "idle"
-      : "streaming";
   return {
     sessionId: active.sessionId,
     title: meta?.title ?? "",
-    runState,
+    runState: selectActiveRunState(active),
     lastActivityAt: meta?.lastActivityAt ?? 0,
     unread: 0,
   };
@@ -66,6 +69,19 @@ function freshLoadingActive(prev: SessionState, target: string): SessionState {
   };
 }
 
+/** 草稿态活跃 store（F(1.2).1）：无会话上下文、无快照在途 → view=ready
+ *  （空态直接可见、输入可用）；连接态字段保留（同一 WS）。 */
+function freshDraftActive(prev: SessionState): SessionState {
+  return {
+    ...createInitialSessionState(),
+    conn: prev.conn,
+    connAttempts: prev.connAttempts,
+    connError: prev.connError,
+    hasConnected: prev.hasConnected,
+    view: "ready",
+  };
+}
+
 /** 切换会话（provider 已发 unsubscribe 旧 + subscribe 新后 dispatch）。 */
 function switchActiveSession(topo: TopologyState, target: string): TopologyState {
   if (topo.active.sessionId === target) return topo; // 同会话重复切换：原样
@@ -74,6 +90,16 @@ function switchActiveSession(topo: TopologyState, target: string): TopologyState
   if (demoted !== null) background[demoted.sessionId] = demoted;
   delete background[target]; // 目标会话轻量态移除（转活跃；未读随之消解）
   return { ...topo, background, active: freshLoadingActive(topo.active, target) };
+}
+
+/** 新建草稿（provider 已发 unsubscribe 旧会话后 dispatch）：活跃转轻量照常
+ *  执行（后台照跑，F(1.0).5），活跃 store 置草稿态。重复新建（已草稿）原样。 */
+function startNewDraft(topo: TopologyState): TopologyState {
+  if (topo.active.sessionId === null) return topo;
+  const background = { ...topo.background };
+  const demoted = demoteToBackground(topo.active, topo.list);
+  if (demoted !== null) background[demoted.sessionId] = demoted;
+  return { ...topo, background, active: freshDraftActive(topo.active) };
 }
 
 /** 滚动到顶加载更早（门控：hasMore && !loading；命令发送判据归 provider）。 */
@@ -93,6 +119,8 @@ export function topologyReducer(topo: TopologyState, action: SessionAction): Top
       return dispatchFrame(topo, action.event, action.ts);
     case "session/switch-started":
       return switchActiveSession(topo, action.sessionId);
+    case "session/new-draft":
+      return startNewDraft(topo);
     case "ui/load-earlier": {
       const active = beginLoadEarlier(topo.active);
       return active === topo.active ? topo : { ...topo, active };

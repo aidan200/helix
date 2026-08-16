@@ -169,7 +169,8 @@ describe("loadHistory 向上分页门控", () => {
       ev(snapshotFrame(A, [msg("e3", "user", "三", 3)], { totalEntries: 5, tailStartCursor: "e3" })),
     ];
     let topo = setup.reduce(topologyReducer, createInitialTopologyState());
-    expect(topo.active.history).toEqual({ hasMore: true, nextCursor: "e3", loading: false });
+    // T3.2：total = 快照 totalEntries（胶囊分母）；paged = 曾有更早历史（胶囊可见）
+    expect(topo.active.history).toEqual({ hasMore: true, nextCursor: "e3", loading: false, total: 5, paged: true });
     expect(selectCanLoadEarlier(topo.active)).toBe(true);
     topo = topologyReducer(topo, { type: "ui/load-earlier" });
     expect(topo.active.history.loading).toBe(true);
@@ -191,7 +192,7 @@ describe("loadHistory 向上分页门控", () => {
     }));
     // 前插升序 + e2 去重
     expect(topo.active.entries.map((e) => e.id)).toEqual(["e1", "e3", "e2"]);
-    expect(topo.active.history).toEqual({ hasMore: false, nextCursor: null, loading: false });
+    expect(topo.active.history).toEqual({ hasMore: false, nextCursor: null, loading: false, total: 3, paged: true });
     expect(selectCanLoadEarlier(topo.active)).toBe(false);
     // 禁用后 load-earlier 不再置 loading（不再发命令的数据面）
     expect(topologyReducer(topo, { type: "ui/load-earlier" })).toBe(topo);
@@ -200,6 +201,45 @@ describe("loadHistory 向上分页门控", () => {
   it("无尾窗字段的旧快照（v0/v0.1 兼容）→ hasMore=false（全量已含）", () => {
     const topo = [ev(welcome(A)), ev(snapshotFrame(A, [msg("e1", "user", "一", 1)]))].reduce(topologyReducer, createInitialTopologyState());
     expect(topo.active.history.hasMore).toBe(false);
+  });
+});
+
+// ── ⑤ 新建草稿（F(1.2).1；T3.2）─────────────────────
+
+describe("新建草稿（session/new-draft）", () => {
+  it("活跃会话转后台轻量照常执行 + 活跃 store 置草稿态（sessionId=null + view=ready + 输入可用）", () => {
+    const topo = base();
+    const next = topologyReducer(topo, { type: "session/new-draft" });
+    // 旧活跃转后台轻量（标题/运行态取清单元数据）
+    expect(next.background[A]).toBeDefined();
+    expect(next.background[A]!.title).toBe(META_A.title);
+    // 草稿态：无会话上下文、就绪可发（空态直接可见，无快照在途）
+    expect(next.active.sessionId).toBeNull();
+    expect(next.active.view).toBe("ready");
+    expect(next.active.entries).toEqual([]);
+    expect(selectCanSend(next.active)).toBe(true);
+    // 连接态保留（同一 WS）
+    expect(next.active.conn).toBe("connected");
+    // 清单不动（草稿不入 session.list——前端零权威）
+    expect(next.list).toEqual(topo.list);
+  });
+
+  it("已在草稿：原样（引用相等，无动作）；草稿建会话后再次新建 → 新会话转后台", () => {
+    const draft = topologyReducer(base(), { type: "session/new-draft" });
+    expect(topologyReducer(draft, { type: "session/new-draft" })).toBe(draft);
+    // 草稿 → 首条消息建会话（list_changed created + 快照转活跃）→ 再新建：新会话转后台
+    const created: SessionMeta = { sessionId: "sess-new", title: "新会话标题", lastActivityAt: 999, runState: "streaming", loaded: true };
+    const withNew = topologyReducer(draft, ev(listResult([created, META_A, META_B])));
+    const active = topologyReducer(withNew, ev(snapshotFrame("sess-new", [msg("n1", "user", "首条", 1)])));
+    expect(active.active.sessionId).toBe("sess-new");
+    const again = topologyReducer(active, { type: "session/new-draft" });
+    expect(again.background["sess-new"]).toBeDefined();
+    expect(again.active.sessionId).toBeNull();
+  });
+
+  it("首连前（sessionId=null）新建：无轻量态可转，原样引用保持", () => {
+    const initial = createInitialTopologyState();
+    expect(topologyReducer(initial, { type: "session/new-draft" })).toBe(initial);
   });
 });
 

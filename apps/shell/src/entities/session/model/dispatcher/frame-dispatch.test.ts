@@ -162,7 +162,8 @@ describe("dispatcher 帧路由（v0.2 信封 sessionId）", () => {
       nextCursor: null,
     }, { sessionId: A, channel: "session" }), 0);
     expect(next.active.entries.map((e) => e.id)).toEqual(["e1", "e3", "e2"]);
-    expect(next.active.history).toEqual({ hasMore: false, nextCursor: null, loading: false });
+    // T3.2：total 沿自快照（未携带 = null）；paged 置位（分页胶囊可见性）
+    expect(next.active.history).toEqual({ hasMore: false, nextCursor: null, loading: false, total: null, paged: true });
   });
 
   it("session.snapshot 到达 → background 同名会话清理（草稿建会话链：list_changed 先到）", () => {

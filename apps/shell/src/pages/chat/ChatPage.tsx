@@ -1,23 +1,31 @@
 /**
- * 聊天页（pages/chat 组装件）：产品氛围层 scanline-overlay（fixed 全屏，
- * 暗色常驻/亮色关闭见 tokens.css）+ 应用壳 100dvh = header → conn-banner →
- * 消息流（含连接覆盖层/失败卡）→ composer。data-conn / data-session 驱动
- * 全部状态表象（四态互斥 CSS 门控）；恢复 toast 由 restoreToast 投影触发。
+ * 聊天页（pages/chat 组装件）：P-1 工作台三区骨架（侧栏 + 主区 + 抽屉竖条，
+ * F(2.1).1）内无损迁入既有聊天/抽屉装配。主区 .app = header → conn-banner →
+ * 消息流（含连接覆盖层/失败卡/恢复骨架）→ composer；data-conn /
+ * data-session / data-view / data-drawer 驱动全部状态表象（四态互斥 CSS
+ * 门控）；恢复 toast 由 restoreToast 投影触发。
  */
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
 import MessageFlow from "@/widgets/chat-stream/ui/MessageFlow";
+import RestoreSkeleton from "@/widgets/chat-stream/ui/P-1s-restore-skeleton";
 import SubagentDrawer from "@/widgets/subagent-drawer/ui/SubagentDrawer";
 import Composer from "@/features/send-message/ui/Composer";
 import ErrorCard from "@/features/reconnect/ui/ErrorCard";
-import AppHeader from "./ui/AppHeader";
+import AppHeader from "@/widgets/top-bar/ui/P-1-top-bar";
 import ConnBanner from "./ui/ConnBanner";
 import ConnOverlay from "./ui/ConnOverlay";
 import SessionTopologyProbe from "./ui/SessionTopologyProbe";
+import Workbench from "./ui/P-1-workbench";
 
-const ChatPage = function ChatPage() {
+export interface ChatPageProps {
+  /** P-4 路由入口（F(2.1).4 齿轮；app 路由层注入；缺省 no-op 供单测装配） */
+  onOpenSettings?: () => void;
+}
+
+const ChatPage = function ChatPage({ onOpenSettings }: ChatPageProps = {}) {
   const { t } = useI18n();
   const toast = useToast();
   const { state, consumeRestoreToast, consumeSpawnToast, consumeKillToast } = useSession();
@@ -66,22 +74,28 @@ const ChatPage = function ChatPage() {
       {/* 产品氛围层（原型 P-1 L545：body 首子元素、.app 之前；元素本身
           fixed + pointer-events:none，DOM 序序对齐原型便于对照） */}
       <div className="scanline-overlay" aria-hidden="true" />
-      <div
-        className="app"
-        data-conn={state.conn}
-        data-session={empty ? "empty" : "active"}
-        data-drawer={selectedAgentId ? "1" : undefined}
-      >
-        <AppHeader onOpenInstance={openInstance} />
-        <ConnBanner />
-        <MessageFlow onOpenInstance={openInstance}>
-          <ConnOverlay />
-          <ErrorCard />
-        </MessageFlow>
-        <Composer />
-      </div>
+      <Workbench onOpenInstance={openInstance}>
+        <div
+          className="app"
+          data-conn={state.conn}
+          data-session={empty ? "empty" : "active"}
+          data-view={state.view}
+          data-drawer={selectedAgentId ? "1" : undefined}
+        >
+          <AppHeader onOpenInstance={openInstance} onOpenSettings={onOpenSettings} />
+          <ConnBanner />
+          <MessageFlow onOpenInstance={openInstance}>
+            <ConnOverlay />
+            <ErrorCard />
+            {/* P-1s 切换两阶段：loading 骨架（CSS 门控 data-view，与
+                success 内容互斥） */}
+            <RestoreSkeleton />
+          </MessageFlow>
+          <Composer />
+        </div>
+      </Workbench>
       {/* T3.1 store 拓扑最小验证入口（isDev 门控，.app 之外——不扰动布局
-          还原守护；P-2 侧栏归 T3.2 替换） */}
+          还原守护；F 层剧本断言面，P-2 侧栏已上线仍保留双保险） */}
       <SessionTopologyProbe />
       {/* P-2 抽屉：页内 overlay（非路由）；衬底 = 真实 P-1 弱化（data-drawer 门控） */}
       {selectedAgentId && (

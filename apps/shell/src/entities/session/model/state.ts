@@ -104,13 +104,22 @@ export interface KillToast {
  */
 export type SessionViewPhase = "loading" | "ready";
 
-/** 向上分页状态（AD-1）：hasMore=false 禁用加载更早（不再发命令）。 */
+/**
+ * 向上分页状态（AD-1）：hasMore=false 禁用加载更早（不再发命令）。
+ * v0.2（T3.2）：total = 快照 totalEntries（「已载 N / M」胶囊的分母；
+ * null = 旧快照未携带 → 不渲染胶囊）；paged = 曾有更早历史可载（胶囊
+ * 可见性判据：加载尽后保留禁用态胶囊，从未有则不性渲染）。
+ */
 export interface HistoryPaging {
   hasMore: boolean;
   /** 下一页游标（= 快照 tailStartCursor / 上一页 nextCursor）；null = 已含全部 */
   nextCursor: string | null;
   /** 在途分页请求（loading 中不重复触发） */
   loading: boolean;
+  /** 快照 totalEntries（分页胶囊分母；null = 未携带（v0/v0.1 旧快照兼容）） */
+  total: number | null;
+  /** 曾有更早历史（P-1s 分页胶囊可见性：加载尽保留禁用态） */
+  paged: boolean;
 }
 
 /**
@@ -257,6 +266,9 @@ export type SessionAction =
   /** 切换会话开始（provider 已发 unsubscribe 旧 + subscribe 新；旧活跃转轻量、
    *  目标尾窗重建 loading——P-1s 两阶段） */
   | { type: "session/switch-started"; sessionId: string }
+  /** 新建草稿（F(1.2).1）：活跃会话转后台轻量照常执行，活跃 store 置空
+   *  草稿态（sessionId=null + view=ready；provider 已发 unsubscribe 旧会话） */
+  | { type: "session/new-draft" }
   /** 滚动到顶触发加载更早历史（hasMore 门控；provider 据此发 loadHistory 命令） */
   | { type: "ui/load-earlier" };
 
@@ -297,7 +309,7 @@ export function createInitialSessionState(): SessionState {
     spawnToast: null,
     killToast: null,
     view: "loading",
-    history: { hasMore: false, nextCursor: null, loading: false },
+    history: { hasMore: false, nextCursor: null, loading: false, total: null, paged: false },
   };
 }
 

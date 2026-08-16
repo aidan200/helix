@@ -194,7 +194,14 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         restoreToast: s.toastPending ? { kind: s.toastPending, count: snap.entries.length } : s.restoreToast,
         toastPending: null,
         view: "ready", // P-1s 两阶段：快照到达即 success（输入恢复判据）
-        history: { hasMore: startCursor !== null, nextCursor: startCursor, loading: false },
+        // total = 分页胶囊分母（totalEntries）；paged = 曾有更早历史可载
+        history: {
+          hasMore: startCursor !== null,
+          nextCursor: startCursor,
+          loading: false,
+          total: snap.totalEntries ?? null,
+          paged: startCursor !== null,
+        },
       };
     }
     default:

@@ -23,6 +23,7 @@ import {
   chatSendCommand,
   chatSendDraftCommand,
   chatSteerCommand,
+  sessionDeleteCommand,
   sessionListCommand,
   sessionLoadHistoryCommand,
   sessionSubscribeCommand,
@@ -63,6 +64,12 @@ interface SessionContextValue {
   abort: () => void;
   /** 切换会话（unsubscribe 旧 + subscribe 新 + 尾窗重建 loading→success） */
   switchSession: (sessionId: string) => void;
+  /** 新建草稿（F(1.2).1）：unsubscribe 旧会话 + 活跃 store 置草稿态（零建会话
+   *  帧——首条消息发送时才 chat.send{draft:true}）；旧会话转后台照常执行 */
+  newDraft: () => void;
+  /** 删除会话（F(1.2).4）：发 session.delete（daemon 取消全部执行 → 删库 →
+   *  list_changed{deleted}）；删活跃会话则本地先切草稿态（视图即转空态） */
+  deleteSession: (sessionId: string) => void;
   /** 滚动到顶加载更早历史（selectCanLoadEarlier 门控；发 session.loadHistory） */
   loadEarlierHistory: () => void;
   /** 拉取会话清单（session.list 全局命令；结果 = session.list.result 点对点回推） */
@@ -205,6 +212,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "session/switch-started", sessionId });
   }, []);
 
+  const newDraft = useCallback(() => {
+    const prev = topologyRef.current.active.sessionId;
+    if (prev === null) return; // 已在草稿：原样（无帧无动作）
+    // 退订旧会话（不再收帧；后台轻量 store 由清单元数据 + 广播驱动）
+    clientRef.current!.send(sessionUnsubscribeCommand(prev));
+    dispatch({ type: "session/new-draft" });
+  }, []);
+
+  const deleteSession = useCallback((sessionId: string) => {
+    // daemon 顺序：取消全部执行 → 删库 → list_changed{deleted}（前端零权威：
+    // 卡片移除由事件驱动）；删的是活跃会话 → 本地先切草稿态（原型 F(1.2).4：
+    // 视图即转空态，不等事件）
+    if (topologyRef.current.active.sessionId === sessionId) {
+      dispatch({ type: "session/new-draft" });
+    }
+    clientRef.current!.send(sessionDeleteCommand(sessionId));
+  }, []);
+
   const loadEarlierHistory = useCallback(() => {
     const active = topologyRef.current.active;
     if (!selectCanLoadEarlier(active)) return; // hasMore=false 禁用 / 在途去重
@@ -265,6 +290,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       retry,
       abort,
       switchSession,
+      newDraft,
+      deleteSession,
       loadEarlierHistory,
       requestSessionList,
       consumeRestoreToast,
@@ -283,6 +310,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       retry,
       abort,
       switchSession,
+      newDraft,
+      deleteSession,
       loadEarlierHistory,
       requestSessionList,
       consumeRestoreToast,

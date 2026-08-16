@@ -13,6 +13,7 @@
   "dependencies": {
     "@helix/protocol": "workspace:*",
     "clsx": "^2.1.1",
+    "lucide-react": "^1.31.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",

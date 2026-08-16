@@ -25,7 +25,9 @@ export function applyHistoryEvent(s: SessionState, event: EventEnvelope, _ts?: n
       return {
         ...s,
         entries: [...fresh, ...s.entries],
-        history: { hasMore, nextCursor, loading: false },
+        // total 沿自快照（result 不携带全量计数）；paged 置位（曾分页，胶囊
+        // 加载尽后保留禁用态）
+        history: { hasMore, nextCursor, loading: false, total: s.history.total, paged: true },
       };
     }
     default:

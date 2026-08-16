@@ -14,6 +14,7 @@ import type {
   ChatAbortCommand,
   ChatSendCommand,
   ChatSteerCommand,
+  SessionDeleteCommand,
   SessionListCommand,
   SessionLoadHistoryCommand,
   SessionSubscribeCommand,
@@ -53,6 +54,12 @@ export function sessionUnsubscribeCommand(sessionId: string): SessionUnsubscribe
 /** session.list：全局命令（无信封 sessionId；结果 = session.list.result 点对点回推）。 */
 export function sessionListCommand(): SessionListCommand {
   return { v: PROTOCOL_VERSION, type: "session.list", payload: {} };
+}
+
+/** session.delete（Q-4④）：信封 sessionId 必填；daemon 取消全部执行 → 删库 →
+ *  广播 session.list_changed{deleted}（前端零权威：卡片移除由事件驱动）。 */
+export function sessionDeleteCommand(sessionId: string): SessionDeleteCommand {
+  return { v: PROTOCOL_VERSION, type: "session.delete", sessionId, payload: {} };
 }
 
 /**

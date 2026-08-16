@@ -334,6 +334,13 @@ export const MULTI_B_MSG_ID = "bg-stream-1";
 /** B 会话切回时尾窗内容（重建可见性） */
 export const MULTI_B_TAIL_TEXT = "后台会话尾窗首条（切换重建可见）";
 
+/** 草稿建会话剧本（CL-2 F(1.2).1；T3.2）：首条消息 → list_changed{created}
+ *  + 快照转活跃；标题 = daemon 命名规则（首条用户消息前 20 字符，Unicode
+ *  码点）的 mock 镜像（断言取本常量，不凭空构造）。 */
+export const MULTI_NEW_SESSION = "sess-created-1";
+export const MULTI_DRAFT_TEXT = "把调度器竞态修复落进 SchedulerService 并补 F 层回归剧本";
+export const MULTI_DRAFT_TITLE = Array.from(MULTI_DRAFT_TEXT).slice(0, 20).join("");
+
 // ── M3 模型族（T3.1；目录数据 = 契约 C CatalogModel 字段结构；P-3/P-4 载体）──
 
 /**

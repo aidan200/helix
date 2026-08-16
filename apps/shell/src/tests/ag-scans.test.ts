@@ -60,9 +60,10 @@ describe("AG-13 两端协议同源（前端半）", () => {
 // ── AG-14 前端零权威状态 ────────────────────────────────────
 
 describe("AG-14 前端零权威状态", () => {
-  const LOCALSTORAGE_KEYS = new Set(["helix-theme", "helix-lang"]);
+  // T3.2：+ helix-sidebar-collapsed（侧栏折叠记忆——纯 UI 布局偏好，非业务状态）
+  const LOCALSTORAGE_KEYS = new Set(["helix-theme", "helix-lang", "helix-sidebar-collapsed"]);
 
-  it("localStorage 键白名单：仅主题与 i18n（无业务状态持久化）", () => {
+  it("localStorage 键白名单：主题 / i18n / 侧栏折叠（无业务状态持久化）", () => {
     const offenders: string[] = [];
     for (const f of allFiles) {
       if (f.endsWith(".test.ts") || f.endsWith(".test.tsx")) continue;
