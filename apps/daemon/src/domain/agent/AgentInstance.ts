@@ -24,6 +24,16 @@ import { DomainError } from "../DomainError";
 /** 主实例固定 id（O-4 裁决：会话创建即分配；持久化旧行回填常量与之同源，O-3）。 */
 export const MAIN_INSTANCE_ID = "main";
 
+/**
+ * "agent-N" → N（非该形式返回 0——序号基线不参与）。
+ * SubAgent id 序号解析单点（C2/T1.1 收敛：原 SchedulerService / RestoreService
+ * 两处逐字重复实现收敛至此；id 分配规则语义不变）。
+ */
+export function agentSeqOf(instanceId: string): number {
+  const n = Number.parseInt(instanceId.slice("agent-".length), 10);
+  return instanceId.startsWith("agent-") && Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 export type InstanceKind = "main" | "subagent";
 
 /**

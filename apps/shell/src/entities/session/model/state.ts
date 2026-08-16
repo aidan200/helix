@@ -1,0 +1,235 @@
+/**
+ * entities/session —— 会话状态面（类型 / 常量 / 初始状态工厂）。
+ *
+ * C2 拆分（AD-3 前端形态，T1.1）自 session-reducer.ts 迁出的状态契约单点：
+ * 消费者模块与 dispatcher 共同依赖的类型 / 常量 / 工厂落此，主文件经组合
+ * 导出保持原导入路径（@/entities/session/model/session-reducer）不变，
+ * 零消费方改动。纯函数纪律（AG-14）不变：无 React / 无 IO / 无 Date.now。
+ */
+import type {
+  AgentInstanceDto,
+  AgentStateDto,
+  ClosureDto,
+  EntryDto,
+  EventEnvelope,
+  InstanceState,
+  SessionUsageDto,
+  ThinkingEntryDto,
+  ToolCallEntryDto,
+  UsageDto,
+} from "@helix/protocol";
+
+/** 主实例标识（信封 instanceId 缺省语义，契约 §3）。 */
+export const MAIN_INSTANCE_ID = "main";
+
+/** 本地 steer echo id 前缀（确定性 id，保证重放幂等；消费：chat 消费者对账 + ui/send echo）。 */
+export const LOCAL_PREFIX = "local:";
+
+/** 连接四态（互斥；SM-1）。loading = connecting 的可视形态，不设第五态。 */
+export type ConnState = "connecting" | "connected" | "disconnected" | "error";
+
+/** 流式中间态投影（chat.stream.delta 累积；不落盘语义的前端侧镜像）。 */
+export interface StreamingState {
+  messageId: string;
+  text: string;
+}
+
+/** 恢复 toast（重连成功后由快照条数填满，UI 消费后置空）。 */
+export interface RestoreToast {
+  kind: "restore" | "retry";
+  count: number;
+}
+
+/**
+ * SubAgent 卡片投影（agent.* 编排事件族驱动；快照 instances 重建）。
+ * 四态互斥单值；终态（done/failed/cancelled）吸收后续事件（F1.9：
+ * 实例不复活，重派 = 新 agentId 新卡）；cancelled 仅快照恢复态（AD-10）。
+ */
+export interface InstanceCardState {
+  instanceId: string;
+  /** 四态 + cancelled（恢复态）；互斥单值 */
+  state: InstanceState;
+  /** spawn 携带的任务描述 */
+  task: string;
+  profileKind: string;
+  /** "provider/model-id"；未声明时缺省继承当前模型（AD-6） */
+  model?: string;
+  /** 仅 state=queued；位次随出队递减由 agent.queued 重发驱动（不自行计算） */
+  queuedPosition?: number;
+  /** agent.failed 错误行文本 */
+  error?: string;
+  /** 终态收口（agent.completed/failed/killed；快照终态实例） */
+  closure?: ClosureDto;
+  /** agent.killed → failed 渲染 + terminated 交代（P-2 消费，不设第五态） */
+  terminated?: boolean;
+  /** agent.stalled 最近一次 idle 毫秒（非状态迁移；仅 running 态有意义） */
+  stalledMs?: number;
+  /** running 态 streaming 摘要尾窗（该实例 assistant delta 的尾段，滚动截断） */
+  streamSummary: string;
+}
+
+/** 会话账目投影（F3.3/F3.4；渲染归 T4.2）。 */
+export interface SessionUsageProjection {
+  /** 徽标值 = 各实例行合计 + compaction 行（popover 行自洽） */
+  total: UsageDto;
+  /** compaction 摘要调用小计（popover 独立行） */
+  compaction: UsageDto;
+  /** per-instance 小计（popover 行数据） */
+  byInstance: Record<string, UsageDto>;
+}
+
+/** spawn 秒回 toast（agent.spawned 置位，UI 消费后置空；F1.5）。 */
+export interface SpawnToast {
+  instanceId: string;
+  profileKind: string;
+}
+
+/** kill 到达 toast（agent.killed 置位，UI 消费后置空；F1.2 终止链末端交代）。 */
+export interface KillToast {
+  instanceId: string;
+}
+
+// ── v0.1 per-instance channel（P-2 抽屉单一时间线；T4.3）────────
+
+/** lifecycle 行键（视图映射 drawer.lc.* 词条；reducer 不持渲染文本）。 */
+export type ChannelLcKey = "spawned" | "modelResolved" | "stalled" | "crashed" | "terminated";
+
+/**
+ * channel 条目物种（F1.2 五物种）：lifecycle 行 / SA 消息 / steer 注入标记 /
+ * thinking 完成块 / 工具卡 / closure 卡。纯投影（agent.* 事件族 + 通道事件
+ * instanceId 分流 + 快照重建），视图零权威；seq 单调递增（React key / 到达序）。
+ */
+export type ChannelItem =
+  | {
+      kind: "lifecycle";
+      seq: number;
+      lc: ChannelLcKey;
+      tone: "info" | "warn" | "err";
+      /** 事件到达时间（调用方注入，重放确定性；快照重建行无 → 视图省略时间戳） */
+      ts?: number;
+      /** modelResolved：解析值（声明值或继承的会话模型）与槽位来源 */
+      model?: string;
+      slot?: "declared" | "inherited";
+      /** stalled：idle 毫秒（视图 formatDuration 消费） */
+      idleMs?: number;
+      /** crashed：daemon error 原文透传（领域数据） */
+      error?: string;
+    }
+  | { kind: "message"; seq: number; text: string; ts?: number }
+  | { kind: "steer"; seq: number; text: string; ts?: number }
+  | { kind: "thinking-entry"; seq: number; entry: ThinkingEntryDto }
+  | { kind: "tool"; seq: number; entry: ToolCallEntryDto }
+  | { kind: "closure"; seq: number; closure: ClosureDto };
+
+/** channel 流式消息中间态（SubAgent assistant delta 镜像；完成即清，不落盘语义）。 */
+export interface ChannelStream {
+  messageId: string;
+  text: string;
+}
+
+export interface SessionState {
+  /** 连接态（SM-1 四态互斥） */
+  conn: ConnState;
+  /** 当前重连尝试次数（横幅「第 n 次尝试」） */
+  connAttempts: number;
+  /** error 态失败卡数据（gave-up 时由客户端填入真实错误信息） */
+  connError: { message: string; attempts: number } | null;
+  /** 引擎/模型调用失败（终验热修：engine.error 帧 → 聊天流错误卡片；
+   *  瞬态不落盘——新轮开始即清；持久事实在 daemon 日志与领域事件流） */
+  engineError: { message: string } | null;
+  /** 手动重试挂起（welcome 后 toast 走 retry 文案而非 restore） */
+  pendingManualRetry: boolean;
+  /** 是否曾连接成功过（区分首连与重连：仅重连触发恢复 toast） */
+  hasConnected: boolean;
+  /** welcome/snapshot 待填的 toast 类型（快照到达时取条数） */
+  toastPending: "restore" | "retry" | null;
+  /** 恢复 toast（一次性，UI 消费） */
+  restoreToast: RestoreToast | null;
+  sessionId: string | null;
+  model: string;
+  agentState: AgentStateDto;
+  /** 会话投影（daemon 权威；快照整体替换 + 增量事件 upsert） */
+  entries: EntryDto[];
+  streaming: StreamingState | null;
+  /** 输入草稿（纯 UI 态；跨连接态保留，发送成功才清空） */
+  draft: string;
+  /** 本地 steer echo 序号（确定性 id，保证重放幂等） */
+  nextLocalSeq: number;
+  /** SubAgent 卡片投影（agent.* 事件族 + 快照 instances；v0.1） */
+  instances: InstanceCardState[];
+  /** per-instance channel 单一时间线（P-2 抽屉消费；五物种；T4.3） */
+  instanceChannels: Record<string, ChannelItem[]>;
+  /** channel 流式消息中间态（实例 assistant delta 镜像；完成即清） */
+  channelStreams: Record<string, ChannelStream>;
+  /** channel 条目序号（单调递增；重放确定性） */
+  nextChannelSeq: number;
+  /** thinking 流式槽位（按 instanceId 累积；completed 落 Entry 并清槽；渲染归 T4.2） */
+  thinkingStreams: Record<string, string>;
+  /** 账目投影（usage.recorded/快照驱动；流式中冻结；渲染归 T4.2） */
+  usage: SessionUsageProjection;
+  /** spawn 秒回 toast（一次性，UI 消费） */
+  spawnToast: SpawnToast | null;
+  /** kill 到达 toast（一次性，UI 消费；agent.killed 终止链末端） */
+  killToast: KillToast | null;
+}
+
+export type SessionAction =
+  // ── 连接态（shared/api 客户端驱动；SM-1/2 转换矩阵）──
+  /** 一次连接尝试开始（首连 attempt=1；自动重连递增） */
+  | { type: "conn/connecting"; attempt: number }
+  /** 已建立的连接意外断开（自动重连序列随后启动） */
+  | { type: "conn/disconnected" }
+  /** 自动重试耗尽 / 握手持续被拒（失败卡；等待手动重试） */
+  | { type: "conn/gave-up"; message: string; attempts: number }
+  /** 用户点击失败卡「重试连接」（error → connecting） */
+  | { type: "conn/manual-retry" }
+  // ── 协议事件（唯一领域数据来源）──
+  | { type: "event"; event: EventEnvelope; ts?: number }
+  // ── 纯 UI 态 ──
+  | { type: "ui/set-draft"; text: string }
+  /** 发送提交（turn = chat.send / steer = chat.steer；ts 由调用方注入保证重放确定） */
+  | { type: "ui/send"; text: string; mode: "turn" | "steer"; ts: number }
+  | { type: "ui/consume-restore-toast" }
+  /** spawn toast 消费（ChatPage 渲染后置空；v0.1） */
+  | { type: "ui/consume-spawn-toast" }
+  /** kill toast 消费（ChatPage 渲染后置空；T4.3） */
+  | { type: "ui/consume-kill-toast" };
+
+/** 零账面（UsageDto 七字段全零；只读基线，累加永远产生新对象）。 */
+export const ZERO_USAGE: UsageDto = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  reasoning: 0,
+  totalTokens: 0,
+  cost: 0,
+};
+
+export function createInitialSessionState(): SessionState {
+  return {
+    conn: "connecting",
+    connAttempts: 1,
+    connError: null,
+    engineError: null,
+    pendingManualRetry: false,
+    hasConnected: false,
+    toastPending: null,
+    restoreToast: null,
+    sessionId: null,
+    model: "",
+    agentState: "idle",
+    entries: [],
+    streaming: null,
+    draft: "",
+    nextLocalSeq: 1,
+    instances: [],
+    instanceChannels: {},
+    channelStreams: {},
+    nextChannelSeq: 1,
+    thinkingStreams: {},
+    usage: { total: ZERO_USAGE, compaction: ZERO_USAGE, byInstance: {} },
+    spawnToast: null,
+    killToast: null,
+  };
+}

@@ -9,7 +9,7 @@ import type {
   UsageRecordedPayload,
 } from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
-import { AgentInstance, MAIN_INSTANCE_ID, type InstanceState } from "../../domain/agent/AgentInstance";
+import { AgentInstance, agentSeqOf, MAIN_INSTANCE_ID, type InstanceState } from "../../domain/agent/AgentInstance";
 import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "../../domain/session/UsageLedger";
 
 /**
@@ -231,10 +231,4 @@ export class RestoreService {
     }
     return map;
   }
-}
-
-/** "agent-N" → N（非该形式返回 0——序号基线不参与）。 */
-function agentSeqOf(instanceId: string): number {
-  const n = Number.parseInt(instanceId.slice("agent-".length), 10);
-  return instanceId.startsWith("agent-") && Number.isFinite(n) && n > 0 ? n : 0;
 }

@@ -75,9 +75,40 @@ describe("AG-14 前端零权威状态", () => {
     expect(offenders).toEqual([]);
   });
 
+  /** C2 拆分（AD-3/T1.1）后 reducer 纯函数面 = entities/session/model 全目录非测试 TS
+   *  （主文件 + 状态/共享投影工具 + dispatcher + consumers；后续新文件自动入列）。 */
+  const MODEL_DIR = join(SRC_ROOT, "entities/session/model");
+  const reducerPureFiles = walk(MODEL_DIR).filter((f) => !/\.(test|spec)\.[jt]sx?$/.test(f));
+
+  /** C2 拆分落位清单（brief T1.1）：dispatcher 壳 + 五块消费者 + 状态/共享工具。 */
+  const C2_SPLIT_FILES = [
+    "entities/session/model/session-reducer.ts",
+    "entities/session/model/state.ts",
+    "entities/session/model/entries.ts",
+    "entities/session/model/channel.ts",
+    "entities/session/model/instance-cards.ts",
+    "entities/session/model/dispatcher/index.ts",
+    "entities/session/model/consumers/conn.ts",
+    "entities/session/model/consumers/chat.ts",
+    "entities/session/model/consumers/agent.ts",
+    "entities/session/model/consumers/thinking-usage.ts",
+    "entities/session/model/consumers/snapshot.ts",
+  ];
+
+  it("AG-14 纯函数扫描覆盖 C2 拆分落位清单（dispatcher/五块消费者/状态与共享工具）", () => {
+    const scanned = new Set(reducerPureFiles.map(rel));
+    for (const p of C2_SPLIT_FILES) {
+      expect(scanned.has(p), `纯函数面未覆盖拆分落位文件：${p}`).toBe(true);
+    }
+  });
+
   it("reducer 纯函数面无任何 storage / fetch / Date.now 访问（重放确定性的静态面）", () => {
-    const src = stripComments(sourceOf(join(SRC_ROOT, "entities/session/model/session-reducer.ts")));
-    expect(src).not.toMatch(/localStorage|sessionStorage|fetch\(|Date\.now/);
+    const offenders: string[] = [];
+    for (const f of reducerPureFiles) {
+      const src = stripComments(sourceOf(f));
+      if (/localStorage|sessionStorage|fetch\(|Date\.now/.test(src)) offenders.push(rel(f));
+    }
+    expect(offenders).toEqual([]);
   });
 });
 

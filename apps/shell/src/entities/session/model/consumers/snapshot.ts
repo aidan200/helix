@@ -1,0 +1,159 @@
+/**
+ * snapshot 消费者 —— 快照重建（session.snapshot；C2 拆分，AD-3，T1.1）。
+ *
+ * 快照为落盘终态权威：entries 整体替换（重连恢复全量来自 daemon，无本地
+ * 补齐）；F1.6 分流（main 条目 + compaction 归 main 流；SubAgent 条目归实例
+ * channel 重建）；重连合入（事件流构建的 channel 保留，含 stalled 等仅存于
+ * 事件流的行；快照未列实例的 channel 丢弃）；instances/usage additive 重建
+ * （无字段旧剧本兼容 → 空卡/零账面）；流式中间态不落盘（streaming/
+ * thinkingStreams/channelStreams 重建后清空）；nextChannelSeq 重算（全局
+ * 单调——React key 稳定前提；跨实例 seq 语义 T3.1 再决策，本任务保持现状）。
+ */
+import type {
+  AgentInstanceDto,
+  EntryDto,
+  EventEnvelope,
+  SessionUsageDto,
+  UsageDto,
+} from "@helix/protocol";
+import { lcItem } from "../channel";
+import {
+  MAIN_INSTANCE_ID,
+  ZERO_USAGE,
+  type ChannelItem,
+  type InstanceCardState,
+  type SessionState,
+  type SessionUsageProjection,
+} from "../state";
+
+/** 本块承接的帧事件 type（dispatcher 注册面）。 */
+export const SNAPSHOT_EVENT_TYPES = ["session.snapshot"] as const;
+
+/** 快照 instances → 卡片重建（subagent 过滤；主实例非卡片；DTO 无摘要字段 → 空串复位）。 */
+function instancesFromSnapshot(dtos: AgentInstanceDto[]): InstanceCardState[] {
+  return dtos
+    .filter((d) => d.kind === "subagent")
+    .map((d) => ({
+      instanceId: d.instanceId,
+      state: d.state,
+      task: d.task ?? "",
+      profileKind: d.profileKind,
+      ...(d.model !== undefined ? { model: d.model } : {}),
+      ...(d.state === "queued" && d.queuedPosition !== undefined
+        ? { queuedPosition: d.queuedPosition }
+        : {}),
+      ...(d.closure ? { closure: d.closure } : {}),
+      streamSummary: "",
+    }));
+}
+
+/** 快照 usage/instances → 账目重建（快照为权威；缺省 = 零账面/无实例，旧剧本兼容）。 */
+function usageFromSnapshot(
+  usageDto: SessionUsageDto | undefined,
+  instances: AgentInstanceDto[] | undefined,
+): SessionUsageProjection {
+  const byInstance: Record<string, UsageDto> = {};
+  for (const d of instances ?? []) {
+    if (d.usage) byInstance[d.instanceId] = d.usage;
+  }
+  if (!usageDto) return { total: ZERO_USAGE, compaction: ZERO_USAGE, byInstance };
+  return { total: usageDto.total, compaction: usageDto.compaction, byInstance };
+}
+
+/** 快照 entries → 实例 channel 条目（user 消息 → steer 标记；compaction 不入 channel，M2 main 语义）。 */
+function entryToChannelItem(entry: EntryDto, seq: number): ChannelItem | null {
+  switch (entry.kind) {
+    case "message":
+      return entry.role === "user"
+        ? { kind: "steer", seq, text: entry.content, ts: entry.ts }
+        : { kind: "message", seq, text: entry.content, ts: entry.ts };
+    case "tool-call":
+      return { kind: "tool", seq, entry };
+    case "thinking":
+      return { kind: "thinking-entry", seq, entry };
+    default:
+      return null;
+  }
+}
+
+/** 快照 → channel 重建（spawned/模型解析行 + entries 归流 + closure 尾卡；AD-10 历史保留）。 */
+function channelsFromSnapshot(
+  dtos: AgentInstanceDto[],
+  entriesByInstance: Map<string, EntryDto[]>,
+  sessionModel: string,
+): Record<string, ChannelItem[]> {
+  const channels: Record<string, ChannelItem[]> = {};
+  let seq = 1;
+  for (const dto of dtos) {
+    if (dto.kind !== "subagent") continue;
+    const items: ChannelItem[] = [
+      lcItem("spawned")(seq++),
+      lcItem("modelResolved", {
+        model: dto.model ?? sessionModel,
+        slot: dto.model !== undefined ? "declared" : "inherited",
+      })(seq++),
+    ];
+    for (const e of entriesByInstance.get(dto.instanceId) ?? []) {
+      const item = entryToChannelItem(e, seq++);
+      if (item) items.push(item);
+    }
+    if (dto.closure) items.push({ kind: "closure", seq: seq++, closure: dto.closure });
+    channels[dto.instanceId] = items;
+  }
+  return channels;
+}
+
+export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: number): SessionState {
+  switch (event.type) {
+    case "session.snapshot": {
+      const snap = event.payload.snapshot;
+      // F1.6 分流（快照面）：main 条目进主消息流；SubAgent 条目归实例 channel
+      // （重建用）；compaction 归 main 流（M2 语义）
+      const mainEntries: EntryDto[] = [];
+      const entriesByInstance = new Map<string, EntryDto[]>();
+      for (const e of snap.entries) {
+        const iid = e.instanceId ?? MAIN_INSTANCE_ID;
+        if (iid === MAIN_INSTANCE_ID || e.kind === "compaction") {
+          mainEntries.push(e);
+          continue;
+        }
+        const list = entriesByInstance.get(iid) ?? [];
+        list.push(e);
+        entriesByInstance.set(iid, list);
+      }
+      const dtos = snap.instances ?? [];
+      const rebuilt = channelsFromSnapshot(dtos, entriesByInstance, snap.model);
+      // 重连合入：已有事件流构建的 channel 保留（含 stalled 等仅存于事件流的行）；
+      // 重启恢复（空状态起）= 全量重建；快照未列实例的 channel 丢弃（卡片已不存）
+      const merged: Record<string, ChannelItem[]> = {};
+      for (const dto of dtos) {
+        if (dto.kind !== "subagent") continue;
+        merged[dto.instanceId] = s.instanceChannels[dto.instanceId] ?? rebuilt[dto.instanceId] ?? [];
+      }
+      let nextSeq = s.nextChannelSeq;
+      for (const items of Object.values(merged)) {
+        for (const i of items) nextSeq = Math.max(nextSeq, i.seq + 1);
+      }
+      return {
+        ...s,
+        entries: mainEntries, // 整体替换：重连恢复全量来自 daemon（无本地补齐）；F1.6 分流见上
+        model: snap.model,
+        agentState: snap.agentState,
+        sessionId: snap.sessionId,
+        streaming: null, // 快照为落盘终态；进行中的流随重连作废
+        thinkingStreams: {}, // 同上：thinking 流式中间态不落盘，重建后由后续 delta 重新累积
+        channelStreams: {}, // 同上：channel 流式消息为不落盘中间态
+        instances: snap.instances ? instancesFromSnapshot(dtos) : [], // additive：实例清单重建卡片（无字段旧剧本兼容 → 空）
+        instanceChannels: merged,
+        nextChannelSeq: nextSeq,
+        usage: usageFromSnapshot(snap.usage, snap.instances), // additive：账目重建（权威）
+        spawnToast: null, // 快照为新会话视图；旧 toast 不跨会话残留
+        killToast: null,
+        restoreToast: s.toastPending ? { kind: s.toastPending, count: snap.entries.length } : s.restoreToast,
+        toastPending: null,
+      };
+    }
+    default:
+      return s;
+  }
+}

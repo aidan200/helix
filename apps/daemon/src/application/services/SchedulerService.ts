@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { AgentInstance, type AgentInstanceData } from "../../domain/agent/AgentInstance";
+import { AgentInstance, agentSeqOf, type AgentInstanceData } from "../../domain/agent/AgentInstance";
 import { AgentLifecycle } from "../../domain/agent/AgentLifecycle";
 import type { SchedulingPolicy } from "../../domain/agent/SchedulingPolicy";
 import type {
@@ -508,12 +508,6 @@ function normalizeClosure(c: InstanceClosurePayload, reportPath: string | null):
     findings: c.findings ?? null,
     taskId: c.taskId ?? null,
   };
-}
-
-/** "agent-N" → N（非该形式返回 0——序号基线不参与）。 */
-function agentSeqOf(instanceId: string): number {
-  const n = Number.parseInt(instanceId.slice("agent-".length), 10);
-  return instanceId.startsWith("agent-") && Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /**
