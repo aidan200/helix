@@ -55,7 +55,7 @@ const ChatPage = function ChatPage() {
           fixed + pointer-events:none，DOM 序序对齐原型便于对照） */}
       <div className="scanline-overlay" aria-hidden="true" />
       <div className="app" data-conn={state.conn} data-session={empty ? "empty" : "active"}>
-        <AppHeader />
+        <AppHeader onOpenInstance={noopOpenInstance} />
         <ConnBanner />
         <MessageFlow onOpenInstance={noopOpenInstance}>
           <ConnOverlay />

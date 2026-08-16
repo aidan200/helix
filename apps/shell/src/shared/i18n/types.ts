@@ -88,6 +88,38 @@ export interface ChatTranslations {
       toastSub: string;
     };
   };
+  /** thinking 块三态（F2.3/F2.4）与 compaction 里程碑条（F4.1）词条
+   *  （review.md think/compact 清单；CL-2/CL-4） */
+  think: {
+    /** streaming 态微标签（accent 脉冲点旁） */
+    streaming: string;
+    /** complete 折叠条标题（s = 取整秒，n = tokens 档位） */
+    done: string;
+  };
+  compact: {
+    /** 里程碑条标题（before/after = fmtTokens 档位） */
+    bar: string;
+    /** 展开 summary 后的保留注（v0.1 DTO 无尾部/文件计数字段 → 无数字变体） */
+    note: string;
+  };
+  /** 统计徽标与 usage popover（F3.3/F3.4；review.md stats 清单 + 清单外新增
+   *  mainRunning/mainIdle/kind* 展示键，沿 T4.1 cancelled 先例） */
+  stats: {
+    badge: string;
+    popTitle: string;
+    total: string;
+    footNote: string;
+    cacheSub: string;
+    reasoningSub: string;
+    compactSub: string;
+    /** main 行状态 chip（SubAgent/compaction 行用协议状态字面量，领域词汇不进词条） */
+    mainRunning: string;
+    mainIdle: string;
+    /** 行 kind 标签（main/SubAgent/compaction） */
+    kindMain: string;
+    kindSub: string;
+    kindCompact: string;
+  };
   theme: {
     dark: string;
     light: string;

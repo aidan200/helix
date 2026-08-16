@@ -5,25 +5,39 @@
  *
  * 卡片区插位（F1.1）：entries → 主线 streaming 气泡 → SA 卡片区（spawn 时序
  * 追加，新卡 log-rise 进入；同一事实单一呈现面——closure 注入文本不占消息位）。
+ *
+ * v0.1（T4.2）：EntryDto 正向穷尽分发——thinking 落 💭 折叠条（F2.3 complete
+ * 态）、compaction 落 ⇄ 里程碑条（F4.1）；主线 thinking 流式块（F2.3
+ * streaming 态）插在 entries 之后、streaming 气泡之前（思考先于回复的伴随
+ * 块语义）；SubAgent 实例 thinking 流式槽位归抽屉消费（F1.6 实例分流），
+ * 主消息流只渲染 main 实例的流式块。
  */
 import { useEffect, useRef, type ReactNode } from "react";
 import type { EntryDto } from "@helix/protocol";
+import { MAIN_INSTANCE_ID } from "@/entities/session/model/session-reducer";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
 import MessageBubble from "./MessageBubble";
 import SubAgentCard from "./SubAgentCard";
 import ToolCard from "./ToolCard";
 import SessionEmpty from "./SessionEmpty";
+import CompactionBar from "./CompactionBar";
+import { ThinkingEntryView, ThinkingLiveView } from "./ThinkingBlock";
 
 function EntryView({ entry }: { entry: EntryDto }) {
-  // v0.1（T1.1）注：EntryDto 扩四成员后改为正向穷尽分发；thinking/compaction
-  // 的可见性投影（折叠条/展开全文）由 T4.x（F2.3/F4.1）落位，协议期不渲染。
+  // 正向穷尽分发（EntryDto 四成员；新增 kind 时 default 分支编译报错）
   switch (entry.kind) {
     case "tool-call":
       return <ToolCard entry={entry} />;
     case "message":
       return <MessageBubble entry={entry} />;
-    default:
-      return null;
+    case "thinking":
+      return <ThinkingEntryView entry={entry} />;
+    case "compaction":
+      return <CompactionBar entry={entry} />;
+    default: {
+      const exhaustive: never = entry;
+      return exhaustive;
+    }
   }
 }
 
@@ -42,7 +56,12 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
   useEffect(() => {
     const el = flowRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [state.entries.length, state.streaming?.text, state.instances.length]);
+  }, [
+    state.entries.length,
+    state.streaming?.text,
+    state.instances.length,
+    state.thinkingStreams[MAIN_INSTANCE_ID],
+  ]);
 
   const empty = selectIsEmpty(state);
 
@@ -53,6 +72,9 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
           {state.entries.map((entry) => (
             <EntryView key={entry.id} entry={entry} />
           ))}
+          {state.thinkingStreams[MAIN_INSTANCE_ID] !== undefined && (
+            <ThinkingLiveView text={state.thinkingStreams[MAIN_INSTANCE_ID]} />
+          )}
           {state.streaming && (
             <MessageBubble
               entry={{

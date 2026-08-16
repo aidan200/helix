@@ -90,6 +90,28 @@ export const enUS: Translations = {
         toastSub: "{id} · {profile} · executes within budget",
       },
     },
+    think: {
+      streaming: "Thinking",
+      done: "Thought for {s}s · {n} tokens",
+    },
+    compact: {
+      bar: "Context compacted {before}→{after}",
+      note: "Tail messages and SubAgent card states retained · summary call usage accounted (see popover compaction row)",
+    },
+    stats: {
+      badge: "{tokens} tok · ${cost}",
+      popTitle: "Session usage · by instance",
+      total: "{tokens} tok · ${cost}",
+      footNote: "Refreshed on turn completion · frozen while streaming · compaction summary calls included",
+      cacheSub: "cache R {r} · W {w}",
+      reasoningSub: "reasoning {n}",
+      compactSub: "main {before}→{after}",
+      mainRunning: "Generating",
+      mainIdle: "Idle",
+      kindMain: "Main session",
+      kindSub: "SubAgent",
+      kindCompact: "compaction",
+    },
     theme: {
       dark: "DARK",
       light: "LIGHT",

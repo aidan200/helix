@@ -92,6 +92,28 @@ export const zhCN: Translations = {
         toastSub: "{id} · {profile} · 预算内立即执行",
       },
     },
+    think: {
+      streaming: "思考中",
+      done: "已思考 {s}s · {n} tokens",
+    },
+    compact: {
+      bar: "上下文已压缩 {before}→{after}",
+      note: "保留尾部消息与 SubAgent 卡片状态 · 摘要调用 usage 已入账（见账目 popover compaction 行）",
+    },
+    stats: {
+      badge: "{tokens} tok · ${cost}",
+      popTitle: "会话账目 · 分实例",
+      total: "{tokens} tok · ${cost}",
+      footNote: "turn 完成时刷新 · 流式中账面冻结 · 含 compaction 摘要调用",
+      cacheSub: "cache R {r} · W {w}",
+      reasoningSub: "reasoning {n}",
+      compactSub: "main {before}→{after}",
+      mainRunning: "生成中",
+      mainIdle: "空闲",
+      kindMain: "主会话",
+      kindSub: "SubAgent",
+      kindCompact: "compaction",
+    },
     theme: {
       dark: "DARK",
       light: "LIGHT",
