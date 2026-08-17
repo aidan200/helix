@@ -1,11 +1,13 @@
 /**
  * P-3 模型菜单可用性过滤单测（T5.3：configured join / 当前模型兜底 /
  * auth 未到达不过滤 / 搜索在过滤后集合 / 零可用空集）。
+ * T5.4 热修：跨厂商同名 provider 维度（sameModel / resolveCatalogMatch /
+ * 兜底仅保留目标 provider 当前项 / 短 id 歧义宁可不标）。
  */
 import { describe, expect, it } from "vitest";
 import type { CatalogModel } from "@helix/protocol";
 import type { AuthProviderEntry } from "@/entities/session/model/state";
-import { filterAvailableModels, sameModel } from "./available-models";
+import { filterAvailableModels, resolveCatalogMatch, sameModel } from "./available-models";
 
 function model(id: string): CatalogModel {
   const providerId = id.split("/")[0] ?? id;
@@ -41,6 +43,49 @@ describe("sameModel 双形态匹配", () => {
     expect(sameModel("openai/gpt-5.2", "openai/gpt-5.2")).toBe(true);
     expect(sameModel("gpt-5.2", "openai/gpt-5.2")).toBe(true);
     expect(sameModel("gpt-5-mini", "openai/gpt-5.2")).toBe(false);
+  });
+});
+
+describe("sameModel provider 维度（T5.4 热修）", () => {
+  it("跨厂商同名：短 id 相等但两侧 provider 均可确定且不等 → 不匹配", () => {
+    expect(sameModel("anthropic/claude-haiku-4-5", "xai/claude-haiku-4-5")).toBe(false);
+    expect(sameModel("xai/claude-haiku-4-5", "anthropic/claude-haiku-4-5")).toBe(false);
+  });
+
+  it("同 provider 完整 id 命中 / 短 id 单侧未知兼容保留（不牺牲 provider 区分度）", () => {
+    expect(sameModel("anthropic/claude-haiku-4-5", "anthropic/claude-haiku-4-5")).toBe(true);
+    // 单侧 provider 不可确定（legacy 短 id）：仅短 id 命中，目录侧消歧归 resolveCatalogMatch
+    expect(sameModel("claude-haiku-4-5", "anthropic/claude-haiku-4-5")).toBe(true);
+    expect(sameModel("anthropic/claude-haiku-4-5", "claude-haiku-4-5")).toBe(true);
+  });
+});
+
+describe("resolveCatalogMatch 目录解析（T5.4）", () => {
+  const DUP = [
+    model("anthropic/claude-haiku-4-5"),
+    model("xai/claude-haiku-4-5"),
+    model("xai/grok-4"),
+  ];
+
+  it("完整 id：跨厂商同名仅命中目标 provider 项", () => {
+    expect(resolveCatalogMatch("xai/claude-haiku-4-5", DUP)?.id).toBe("xai/claude-haiku-4-5");
+    expect(resolveCatalogMatch("anthropic/claude-haiku-4-5", DUP)?.id).toBe(
+      "anthropic/claude-haiku-4-5",
+    );
+  });
+
+  it("短 id 唯一命中：welcome 短 id 兼容命中目标 provider 项", () => {
+    expect(resolveCatalogMatch("grok-4", DUP)?.id).toBe("xai/grok-4");
+  });
+
+  it("短 id 跨厂商歧义：宁可不标也不错标 → undefined", () => {
+    expect(resolveCatalogMatch("claude-haiku-4-5", DUP)).toBeUndefined();
+  });
+
+  it("undefined / 空串 / 零命中 → undefined", () => {
+    expect(resolveCatalogMatch(undefined, DUP)).toBeUndefined();
+    expect(resolveCatalogMatch("", DUP)).toBeUndefined();
+    expect(resolveCatalogMatch("other/nope", DUP)).toBeUndefined();
   });
 });
 
@@ -121,6 +166,32 @@ describe("filterAvailableModels 可用性口径（T5.3）", () => {
       auth,
       authLoaded: true,
       currentModel: "test/not-in-catalog",
+      query: "",
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("兜底 provider 维度（T5.4）：current 未 configured 时仅保留该 provider 当前项，不带出其他厂商同名项", () => {
+    const catalog = [model("anthropic/claude-haiku-4-5"), model("xai/claude-haiku-4-5")];
+    const auth = authOf({ anthropic: false, xai: false });
+    const out = filterAvailableModels({
+      models: catalog,
+      auth,
+      authLoaded: true,
+      currentModel: "xai/claude-haiku-4-5",
+      query: "",
+    });
+    expect(ids(out)).toEqual(["xai/claude-haiku-4-5"]);
+  });
+
+  it("兜底短 id 歧义（T5.4）：current 短 id 跨厂商同名 → 不带出任何同名项（宁可不标也不错标）", () => {
+    const catalog = [model("anthropic/claude-haiku-4-5"), model("xai/claude-haiku-4-5")];
+    const auth = authOf({ anthropic: false, xai: false });
+    const out = filterAvailableModels({
+      models: catalog,
+      auth,
+      authLoaded: true,
+      currentModel: "claude-haiku-4-5",
       query: "",
     });
     expect(out).toEqual([]);

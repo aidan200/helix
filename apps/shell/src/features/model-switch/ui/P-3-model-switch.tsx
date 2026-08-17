@@ -28,7 +28,7 @@ import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
-import { filterAvailableModels, sameModel } from "../model/available-models";
+import { filterAvailableModels, resolveCatalogMatch, sameModel } from "../model/available-models";
 
 /** ctx chip 档位（200k / 400k / 1M…）。 */
 function fmtContext(tokens: number): string {
@@ -75,9 +75,10 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: Mo
   }, [onClose]);
 
   /** 可用性过滤（T5.3）+ 搜索 + provider 分组（组内序与组间序保持目录顺序）。 */
-  const groups = useMemo(() => {
+  const { groups, currentHit, defaultHit } = useMemo(() => {
+    const models = mc.catalog?.models ?? [];
     const visible = filterAvailableModels({
-      models: mc.catalog?.models ?? [],
+      models,
       auth: mc.auth,
       authLoaded: mc.authLoaded,
       currentModel: state.model,
@@ -89,8 +90,13 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: Mo
       if (list) list.push(m);
       else byProvider.set(m.providerId, [m]);
     }
-    return [...byProvider.entries()];
-  }, [mc.catalog, mc.auth, mc.authLoaded, state.model, query]);
+    return {
+      groups: [...byProvider.entries()],
+      // T5.4：选中态/默认徽标走目录解析（provider 维度；短 id 跨厂商歧义不标）
+      currentHit: resolveCatalogMatch(state.model, models),
+      defaultHit: mc.defaultModel === "" ? undefined : resolveCatalogMatch(mc.defaultModel, models),
+    };
+  }, [mc.catalog, mc.auth, mc.authLoaded, mc.defaultModel, state.model, query]);
 
   const hasResults = groups.length > 0;
   const empty = query.trim() !== "" && !hasResults; // 搜索零命中空态（与列表互斥）
@@ -126,8 +132,8 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: Mo
             <div className="mm-group" data-group={providerId} key={providerId}>
               <div className="mm-glabel">{providerId}</div>
               {models.map((m) => {
-                const sel = state.model !== undefined && sameModel(state.model, m.id);
-                const isDefault = mc.defaultModel !== "" && sameModel(mc.defaultModel, m.id);
+                const sel = currentHit === m;
+                const isDefault = defaultHit === m;
                 return (
                   <button
                     className={cn("mm-item", sel && "sel")}
