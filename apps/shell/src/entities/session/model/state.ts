@@ -200,6 +200,9 @@ export interface ModelConfigState {
   defaultModel: string;
   /** provider 凭据行（auth.list 整体替换 + verify/set_key/delete_key 增量） */
   auth: Record<string, AuthProviderEntry>;
+  /** auth.list 首批到达标记（T5.3：P-3 可用性过滤在首批到达前不生效，
+   *  避免菜单开启瞬间误闪零可用空态） */
+  authLoaded: boolean;
   /** auth.verify in-flight（结果帧归属锁定；串行单值） */
   verifyInflight: string | null;
   /** auth.set_key in-flight（同上） */
@@ -218,6 +221,7 @@ export function createInitialModelConfigState(): ModelConfigState {
     catalog: null,
     defaultModel: "",
     auth: {},
+    authLoaded: false,
     verifyInflight: null,
     setKeyInflight: null,
     deleteKeyInflight: null,

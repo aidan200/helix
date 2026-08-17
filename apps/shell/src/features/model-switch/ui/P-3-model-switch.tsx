@@ -12,9 +12,14 @@
  * - F(3.3).1 分组渲染（provider 序沿目录）+ 当前高亮 + 搜索过滤（命中
  *   模型名/provider 名；零命中空态与列表互斥；清空恢复）；
  * - F(3.3).2 选中即切 + 不关菜单（连续比对）+ in-flight 提示文案；
- * - F(3.3).3 重置为默认：会话模型 ≠ 全局默认时显示（相等隐藏）。
+ * - F(3.3).3 重置为默认：会话模型 ≠ 全局默认时显示（相等隐藏）；
+ * - T5.3 可用性口径（用户裁决，覆盖原型“全目录”）：打开补发 auth.list；
+ *   仅显示 provider configured 的模型（verifyStatus 不参与）；当前会话
+ *   模型兑底（无论 provider 是否 configured 都保留）；未配置分组整体
+ *   隐藏；零可用（无 configured 且当前模型不在目录）给配置引导空态。
  * 状态模型：菜单 open|closed（点外/Esc 关闭；开合归 TopBar 徽标）；
- * 搜索 results|empty 互斥（切空态先清列表渲染）。
+ * 搜索 results|empty 互斥（切空态先清列表渲染）；零可用空态与搜索空态
+ * 互斥（搜索词为空才可能出现零可用）。
  */
 import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronRight, RotateCcw, Search } from "lucide-react";
@@ -23,19 +28,12 @@ import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
+import { filterAvailableModels, sameModel } from "../model/available-models";
 
 /** ctx chip 档位（200k / 400k / 1M…）。 */
 function fmtContext(tokens: number): string {
   if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M`;
   return `${Math.round(tokens / 1_000)}k`;
-}
-
-/** 模型 id 双形态匹配（welcome 短 id / model.changed 完整 id 兼容）。 */
-function sameModel(a: string, b: string): boolean {
-  if (a === b) return true;
-  const sa = a.split("/").pop() ?? a;
-  const sb = b.split("/").pop() ?? b;
-  return sa !== "" && sa === sb;
 }
 
 export interface ModelSwitchMenuProps {
@@ -47,14 +45,16 @@ export interface ModelSwitchMenuProps {
 const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: ModelSwitchMenuProps) {
   const { t } = useI18n();
   const toast = useToast();
-  const { state, topology, setSessionModel, requestModelConfig } = useSession();
+  const { state, topology, setSessionModel, requestModelConfig, requestAuthList } = useSession();
   const [query, setQuery] = useState("");
   const mc = topology.modelConfig;
 
   // 打开即拉目录 + 全局默认（requestModelConfig 未请求态才发——重复打开零重发）
+  // + auth.list（T5.3 可用性过滤数据源；每次打开都刷新凭据面）
   useEffect(() => {
     requestModelConfig();
-  }, [requestModelConfig]);
+    requestAuthList();
+  }, [requestModelConfig, requestAuthList]);
 
   // 点外关闭 / Esc（徽标点击归 TopBar toggle，不在此误关）
   useEffect(() => {
@@ -74,21 +74,30 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: Mo
     };
   }, [onClose]);
 
-  /** 搜索过滤 + provider 分组（组内序与组间序保持目录顺序）。 */
+  /** 可用性过滤（T5.3）+ 搜索 + provider 分组（组内序与组间序保持目录顺序）。 */
   const groups = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const visible = filterAvailableModels({
+      models: mc.catalog?.models ?? [],
+      auth: mc.auth,
+      authLoaded: mc.authLoaded,
+      currentModel: state.model,
+      query,
+    });
     const byProvider = new Map<string, CatalogModel[]>();
-    for (const m of mc.catalog?.models ?? []) {
-      if (q && !m.id.toLowerCase().includes(q) && !m.providerId.toLowerCase().includes(q)) continue;
+    for (const m of visible) {
       const list = byProvider.get(m.providerId);
       if (list) list.push(m);
       else byProvider.set(m.providerId, [m]);
     }
     return [...byProvider.entries()];
-  }, [mc.catalog, query]);
+  }, [mc.catalog, mc.auth, mc.authLoaded, state.model, query]);
 
   const hasResults = groups.length > 0;
   const empty = query.trim() !== "" && !hasResults; // 搜索零命中空态（与列表互斥）
+  // 零可用空态（T5.3：目录与 auth 均已到达、无 configured provider 且当前
+  // 模型不在目录；与搜索空态互斥——搜索词为空才判定）
+  const noAvailable =
+    query.trim() === "" && !hasResults && mc.catalog !== null && mc.authLoaded;
   // F(3.3).3：会话模型 ≠ 全局默认才显示重置入口（相等隐藏）
   const showReset = mc.defaultModel !== "" && !sameModel(state.model ?? "", mc.defaultModel);
 
@@ -148,6 +157,12 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: Mo
         <div className="mm-empty show" data-mm-empty>
           <span>{t("chat.modelSwitch.emptyTitle")}</span>
           <span className="me-sub">{t("chat.modelSwitch.emptySub")}</span>
+        </div>
+      )}
+      {noAvailable && (
+        <div className="mm-empty show" data-mm-empty data-mm-no-available>
+          <span>{t("chat.modelSwitch.noProviderTitle")}</span>
+          <span className="me-sub">{t("chat.modelSwitch.noProviderSub")}</span>
         </div>
       )}
       <div className="mm-foot">

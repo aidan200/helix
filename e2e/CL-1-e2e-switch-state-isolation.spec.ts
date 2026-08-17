@@ -15,7 +15,7 @@
 import { test, expect } from "./harness/daemon-fixture";
 import { shotEvidence, writeEvidence } from "./harness/evidence";
 import { reply, slowReply, type DaemonScript } from "./harness/daemon-script";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
@@ -25,10 +25,16 @@ const B_FIRST = "乙会话首条消息";
 const A_SECOND = "甲回合二的输入";
 const A_SLOW = `甲后台长回复：切换后本 turn 继续执行。${"流式占位".repeat(70)}（完S1）`;
 
-/** 通用前置：建 home+沙箱。 */
+/** 通用前置：建 home+沙箱；预置 anthropic 凭据（T5.3 菜单可用性口径——
+ *  provider 未配置的模型不在 P-3 菜单显示，TARGET 所属 anthropic 需已配）。 */
 function prepHome(): string {
   const home = mkdtempSync(path.join(tmpdir(), "helix-e2e-cl1-stamp-"));
   mkdirSync(path.join(home, "sandbox"), { recursive: true });
+  writeFileSync(
+    path.join(home, "auth.json"),
+    JSON.stringify({ anthropic: { type: "api_key", key: "sk-e2e-seed-stamp" } }),
+    { mode: 0o600 },
+  );
   return home;
 }
 

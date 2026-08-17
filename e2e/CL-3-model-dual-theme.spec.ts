@@ -36,13 +36,18 @@ test.describe("T3.3 CL-3 双主题关键态（P-3/P-4）", () => {
         await expect(page.locator("html")).toHaveClass("light");
       }
 
-      // P-3 弹出态
+      // P-3 弹出态（T5.3：打开补发 auth.list；可用性过滤后 configured
+      // 三组 anthropic 3 + google 2 + openai 2 = 7 行）
       await page.locator("[data-model-badge]").click();
       await mock.waitForCommand("model.catalog");
       await mock.waitForCommand("model.get_default");
+      await mock.waitForCommand("auth.list");
       await mock.emit(modelCatalogResult(MODEL_CATALOG, { refreshedAt: Date.now() - 12 * 60_000, source: "cache" }));
       await mock.emit(modelGetDefaultResult(DEFAULT_MODEL));
-      await expect(page.locator(".mm-item")).toHaveCount(11);
+      await mock.emit(authListResult(PROVIDERS));
+      await expect(page.locator(".mm-item")).toHaveCount(7);
+      // 未配置分组整体隐藏（mistral/xai）
+      await expect(page.locator('[data-group="xai"]')).toHaveCount(0);
 
       // token 派生：选中行左边条 = accent 注册表通道
       const accentChannel = await page.evaluate(() =>
