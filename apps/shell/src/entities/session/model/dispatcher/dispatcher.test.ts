@@ -15,6 +15,7 @@ import { EVENT_TYPES } from "@helix/protocol";
 import type { EventEnvelope } from "@helix/protocol";
 import { route, register } from "./index";
 import { SESSION_DIRECTORY_EVENT_TYPES } from "../consumers/directory";
+import { MODEL_CONFIG_EVENT_TYPES } from "../consumers/model-config";
 import type { SessionState } from "../state";
 import { applyConnEvent } from "../consumers/conn";
 import { applyChatEvent } from "../consumers/chat";
@@ -25,11 +26,12 @@ import { applyHistoryEvent } from "../consumers/history";
 import { applyModelChangedEvent } from "../consumers/model";
 
 describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
-  it("协议全部事件 type（EVENT_TYPES）均被消费：route（会话 store 级）或 directory（拓扑级）", () => {
+  it("协议全部事件 type（EVENT_TYPES）均被消费：route（会话 store 级）或 directory/modelConfig（拓扑级）", () => {
     const directoryTypes = new Set<string>(SESSION_DIRECTORY_EVENT_TYPES);
+    const modelConfigTypes = new Set<string>(MODEL_CONFIG_EVENT_TYPES);
     for (const type of EVENT_TYPES) {
       expect(
-        route(type) !== undefined || directoryTypes.has(type),
+        route(type) !== undefined || directoryTypes.has(type) || modelConfigTypes.has(type),
         `未消费事件 type：${type}`,
       ).toBe(true);
     }
@@ -73,25 +75,9 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     // 拓扑级清单族（directory）：不入本注册表，经 dispatcher/frame.ts 前置路由
     expect(route("session.list.result")).toBeUndefined();
     expect(route("session.list_changed")).toBeUndefined();
-  });
-
-  it("v0.2 model/auth 命令结果帧（T2.3-result-frames 微批）：no-op 占位——已路由且保持原状态（T3.3 接真消费）", () => {
-    const placeholderTypes = [
-      "model.get.result",
-      "model.catalog.result",
-      "model.catalog_refresh.result",
-      "model.set_default.result",
-      "model.get_default.result",
-      "auth.list.result",
-      "auth.set_key.result",
-      "auth.delete_key.result",
-      "auth.verify.result",
-    ];
-    const s = {} as SessionState; // no-op 语义只验「同引用返回」，不触碰字段
-    for (const type of placeholderTypes) {
-      const handler = route(type);
-      expect(handler, `未注册占位：${type}`).toBeDefined();
-      expect(handler!(s, { type } as EventEnvelope, 0)).toBe(s); // 保持原状态（default 语义）
+    // 拓扑级模型/厂商配置族（model-config；T3.3 真消费）：同上前置路由
+    for (const type of MODEL_CONFIG_EVENT_TYPES) {
+      expect(route(type), `配置族不应注册会话 store 面：${type}`).toBeUndefined();
     }
   });
 });

@@ -26,6 +26,7 @@ import {
   type TopologyState,
 } from "./state";
 import { dispatchFrame } from "./dispatcher/frame";
+import { applyModelConfigAction } from "./consumers/model-config";
 
 export { createInitialTopologyState };
 export type {
@@ -114,6 +115,11 @@ export function selectCanLoadEarlier(s: SessionState): boolean {
 }
 
 export function topologyReducer(topo: TopologyState, action: SessionAction): TopologyState {
+  // 模型/厂商配置 action（T3.3）：仅触碰 modelConfig 面（活跃 store 引用不变）
+  if (action.type.startsWith("model/")) {
+    const modelConfig = applyModelConfigAction(topo.modelConfig, action);
+    return modelConfig === topo.modelConfig ? topo : { ...topo, modelConfig };
+  }
   switch (action.type) {
     case "event":
       return dispatchFrame(topo, action.event, action.ts);

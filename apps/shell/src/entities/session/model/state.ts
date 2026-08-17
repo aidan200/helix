@@ -9,6 +9,7 @@
 import type {
   AgentInstanceDto,
   AgentStateDto,
+  CatalogModel,
   ClosureDto,
   EntryDto,
   EventEnvelope,
@@ -151,6 +152,78 @@ export interface TopologyState {
   background: Record<string, BackgroundSessionState>;
   /** 会话清单（按 lastActivityAt 降序；T3.2 侧栏数据面） */
   list: SessionMeta[];
+  /** 模型/厂商全局配置面（model/auth 结果帧拓扑级消费；T3.3 P-3/P-4 数据源） */
+  modelConfig: ModelConfigState;
+}
+
+/**
+ * provider 连通徽标四态（review.md §6 状态模型：互斥）。
+ * verifying 为前端 in-flight 态（auth.verify 结果帧到达即转 ok/fail）；
+ * unverified/ok/fail 由帧驱动（auth.list / auth.verify.result）。
+ */
+export type VerifyBadgeState = "unverified" | "verifying" | "ok" | "fail";
+
+/** 单 provider 凭据状态（auth.list.result 行 + 本地 verify 派生；P-4 列表行数据）。 */
+export interface AuthProviderEntry {
+  providerId: string;
+  configured: boolean;
+  /** 掩码（如 `····7f3a`；daemon 权威） */
+  keyMasked?: string;
+  /** 连通徽标四态（互斥单值） */
+  verifyStatus: VerifyBadgeState;
+  /** ok 态延迟（ms；auth.verify.result） */
+  latencyMs?: number;
+  /** fail 态原因（auth.verify.result；如 `401 · key 无效`） */
+  failReason?: string;
+}
+
+/** 目录快照（model.catalog / model.catalog_refresh 结果面）。 */
+export interface ModelCatalogState {
+  models: CatalogModel[];
+  /** 上次远端核对（epoch ms；0 = 无 overlay 历史） */
+  refreshedAt: number;
+  source: "cache" | "builtin" | "remote";
+  /** 刷新降级说明（仅 catalog_refresh 携带；空 = 全部成功） */
+  degraded: string[];
+}
+
+/**
+ * 模型/厂商全局配置面（channel="model" 结果帧拓扑级消费者维护；T3.3）。
+ *
+ * 结果帧 payload 无 providerId 回携（契约 C §2.2）——归属经 in-flight 单值
+ * 锁定（UI 串行化：同类 in-flight 期间其余入口禁用），stale 帧丢弃。
+ */
+export interface ModelConfigState {
+  /** 目录快照（null = 未请求；P-3 打开 / P-4 进入时拉取） */
+  catalog: ModelCatalogState | null;
+  /** 全局默认模型（"" = 未请求；model.get_default / set_default 乐观同步） */
+  defaultModel: string;
+  /** provider 凭据行（auth.list 整体替换 + verify/set_key/delete_key 增量） */
+  auth: Record<string, AuthProviderEntry>;
+  /** auth.verify in-flight（结果帧归属锁定；串行单值） */
+  verifyInflight: string | null;
+  /** auth.set_key in-flight（同上） */
+  setKeyInflight: string | null;
+  /** auth.delete_key in-flight（同上） */
+  deleteKeyInflight: string | null;
+  /** model.set_default 乐观值回执锁定（result.previous 到达即清） */
+  setDefaultInflight: string | null;
+  /** 目录强制刷新 in-flight（按钮转动反馈；catalog_refresh.result 到达即清） */
+  catalogRefreshing: boolean;
+}
+
+/** 初始配置面（未请求态；数据由命令结果帧驱动填充）。 */
+export function createInitialModelConfigState(): ModelConfigState {
+  return {
+    catalog: null,
+    defaultModel: "",
+    auth: {},
+    verifyInflight: null,
+    setKeyInflight: null,
+    deleteKeyInflight: null,
+    setDefaultInflight: null,
+    catalogRefreshing: false,
+  };
 }
 
 // ── v0.1 per-instance channel（P-2 抽屉单一时间线；T4.3）────────
@@ -270,7 +343,18 @@ export type SessionAction =
    *  草稿态（sessionId=null + view=ready；provider 已发 unsubscribe 旧会话） */
   | { type: "session/new-draft" }
   /** 滚动到顶触发加载更早历史（hasMore 门控；provider 据此发 loadHistory 命令） */
-  | { type: "ui/load-earlier" };
+  | { type: "ui/load-earlier" }
+  // ── 模型/厂商配置 action（T3.3；UI 命令发送同刻 dispatch，终态由结果帧驱动）──
+  /** 点击「测试连通」：目标 provider 置 verifying（先清旧 ok/fail）+ in-flight 锁定 */
+  | { type: "model/verify-started"; providerId: string }
+  /** key 弹层保存：in-flight 锁定（脱敏更新由 auth.set_key.result 驱动） */
+  | { type: "model/set-key-started"; providerId: string }
+  /** 删除二击确认：in-flight 锁定（转未配置由 auth.delete_key.result 驱动） */
+  | { type: "model/delete-key-started"; providerId: string }
+  /** 默认模型选择：乐观更新 defaultModel + in-flight（set_default.result 清） */
+  | { type: "model/set-default-started"; model: string }
+  /** 刷新目录：置 catalogRefreshing（catalog_refresh.result 到达即清） */
+  | { type: "model/catalog-refresh-started" };
 
 /** 零账面（UsageDto 七字段全零；只读基线，累加永远产生新对象）。 */
 export const ZERO_USAGE: UsageDto = {
@@ -315,5 +399,10 @@ export function createInitialSessionState(): SessionState {
 
 /** store 拓扑初始态（T3.1）：活跃完整 store（首连前 loading）+ 空后台/清单。 */
 export function createInitialTopologyState(): TopologyState {
-  return { active: createInitialSessionState(), background: {}, list: [] };
+  return {
+    active: createInitialSessionState(),
+    background: {},
+    list: [],
+    modelConfig: createInitialModelConfigState(),
+  };
 }

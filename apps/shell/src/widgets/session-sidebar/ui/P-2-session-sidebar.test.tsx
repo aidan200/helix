@@ -14,6 +14,7 @@ import { ThemeProvider } from "@/shared/ui/theme";
 import { ToastProvider } from "@/shared/ui/Toast";
 import type { SessionMeta } from "@helix/protocol";
 import { createInitialSessionState, sessionReducer, type SessionState } from "@/entities/session/model/session-reducer";
+import { createInitialModelConfigState } from "@/entities/session/model/state";
 import type { TopologyState } from "@/entities/session/model/topology";
 
 const switchSession = vi.fn();
@@ -94,6 +95,7 @@ describe("P-2 会话侧栏", () => {
       active: stateRef.current,
       background: { s2: { sessionId: "s2", title: LIST[1]!.title, runState: "idle", lastActivityAt: 5_000, unread: 3 } },
       list: LIST,
+      modelConfig: createInitialModelConfigState(),
     };
     ui();
     expect(screen.queryByTestId("draft")).toBeNull();
@@ -108,7 +110,7 @@ describe("P-2 会话侧栏", () => {
 
   it("草稿态（sessionId=null + connected）：草稿卡在顶 + 新建按钮走 newDraft", () => {
     stateRef.current = makeState(null);
-    topologyRef.current = { active: stateRef.current, background: {}, list: [] };
+    topologyRef.current = { active: stateRef.current, background: {}, list: [], modelConfig: createInitialModelConfigState() };
     ui();
     const draft = document.querySelector('[data-session-card="draft"]');
     expect(draft).not.toBeNull();
@@ -120,7 +122,7 @@ describe("P-2 会话侧栏", () => {
 
   it("删除二次确认：trash 进入 confirming（单值互斥——另一卡进入时前卡退出）；取消复原", () => {
     stateRef.current = makeState("s1");
-    topologyRef.current = { active: stateRef.current, background: {}, list: LIST };
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState() };
     ui();
     const cards = screen.getAllByText("修复调度器竞态问题")[0]!.closest("[data-session-card]")!;
     const card2 = screen.getAllByText("重构事件分发架构")[0]!.closest("[data-session-card]")!;
@@ -139,7 +141,7 @@ describe("P-2 会话侧栏", () => {
 
   it("确认删除：发 deleteSession（活跃会话同链——切草稿归 provider 面）；折叠记忆写入 localStorage", () => {
     stateRef.current = makeState("s1");
-    topologyRef.current = { active: stateRef.current, background: {}, list: LIST };
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState() };
     ui();
     const card = screen.getAllByText("修复调度器竞态问题")[0]!.closest("[data-session-card]")!;
     fireEvent.click(card.querySelector(".ses-del")!);

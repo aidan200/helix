@@ -70,23 +70,9 @@ register({ types: HISTORY_EVENT_TYPES, apply: applyHistoryEvent });
 // 已消费」守护 = route(type) ?? isDirectoryEventType(type)，见
 // dispatcher.test.ts / frame-dispatch.test.ts）。
 
-// ── v0.2 新增事件占位（model/auth 命令结果帧；T2.3-result-frames 微批）──
-// no-op 占位消费者：保持原状态（与未注册 type 的 default 语义一致），仅维持
-// 「EVENT_TYPES 全类型已路由」守护不变量；P-4 设置页真消费归 T3.3 接线
-//（届时替换为真消费者，勿删占位以外的守护面）。信封 sessionId：
-// model.get.result = 目标会话 id（活跃会话路由至注册表），其余 8 类 =
-// SYSTEM_SESSION_ID（系统帧路由至注册表，不入 directory 前置）。
-register({
-  types: [
-    "model.get.result",
-    "model.catalog.result",
-    "model.catalog_refresh.result",
-    "model.set_default.result",
-    "model.get_default.result",
-    "auth.list.result",
-    "auth.set_key.result",
-    "auth.delete_key.result",
-    "auth.verify.result",
-  ],
-  apply: (s) => s,
-});
+// ── model/auth 9 类 *.result（T2.3-result-frames 微批占位 → T3.3 真消费）──
+// 拓扑级前置路由（consumers/model-config.ts，操作 TopologyState.modelConfig
+// ——P-3/P-4 数据源；目录/凭据/默认为全局数据，不入活跃会话 store）。「EVENT_TYPES
+// 全类型已路由」守护扩展 = route(type) ?? isDirectoryEventType(type) ??
+// isModelConfigEventType(type)（dispatcher.test.ts）。本注册表不再持有
+// 9 类占位（no-op 注册会拦截前置路由之后的语义路径，占位已由真消费取代）。

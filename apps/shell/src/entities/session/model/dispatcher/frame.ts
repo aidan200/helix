@@ -22,6 +22,10 @@ import { SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { EventEnvelope } from "@helix/protocol";
 import type { BackgroundSessionState, TopologyState } from "../state";
 import { applyDirectoryEvent, isDirectoryEventType } from "../consumers/directory";
+import {
+  applyModelConfigEvent,
+  isModelConfigEventType,
+} from "../consumers/model-config";
 import { route } from "./index";
 
 /** v0.2 统一信封帧入口：拓扑状态 + 事件帧 → 新拓扑状态。 */
@@ -43,6 +47,12 @@ export function dispatchFrame(topo: TopologyState, frame: EventEnvelope, ts?: nu
   // ② 拓扑级清单族（session.list.result 点对点结果 / session.list_changed 广播）
   if (isDirectoryEventType(frame.type)) {
     return applyDirectoryEvent(topo, frame);
+  }
+  // ②′ 拓扑级模型/厂商配置族（model/auth 9 类 *.result；T3.3 前置——含
+  //    model.get.result（信封 sessionId=目标会话，活跃会话查询无路由问题）
+  //    与 8 类全局结果帧；在活跃 store 注册表之前，全局数据不入会话 store）
+  if (isModelConfigEventType(frame.type)) {
+    return applyModelConfigEvent(topo, frame);
   }
   // ③ 活跃完整 store 消费者注册表（未注册 type 保持原状态）
   const handler = route(frame.type);
