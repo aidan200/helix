@@ -13,6 +13,18 @@
 - sourceTask: post-iteration 热修（MainAgent，2026-08-16，docs/hotfixes/2026-08-16-engine-error.md；用户现场报障驱动）
 - createdIn: iter-20260816-uzvg
 
+### AD-3
+- changeType: 修改
+- targetNode: AD-3
+- scope: apps/daemon 全链路；apps/shell src 与 e2e/ 零触碰
+- project: helix
+- reason: AD-3 daemon 侧落地（与既有 AD-3 类型登记候选同目标、不同实施面，终验合并裁决）：①SchedulerService 只产事件零聚合写（守护断言入集成测试）；②SessionProjection 会话投影消费者（SubAgent Entry 落聚合 instanceId 归属 + usageLedger 并入 + write-through 迁入）；③WS 统一信封 sessionId 路由 + EVENT_CHANNELS 章印；④恢复重放含 SubAgent 历史；⑤RowMapper/DtoMapper instanceId 行级对称透传。E 层断言定稿 daemon 级证据，E 层归 T4.2。
+- evidence: SessionProjection.ts（新，187 行）；SchedulerService 零聚合写守护（test/integration/session-projection.test.ts ②）；EventStream 按 sessionId 路由；RestoreService.replaySubAgentHistory；bun test apps/daemon 313 pass；MainAgent 统一回归 F 65 / E 15 全绿
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/SessionProjection.ts（新）；SchedulerService.ts onInstanceEvent；EventStream.ts/WsServerAdapter.ts；DtoMapper.ts；RestoreService.ts；Session.ts；container.ts
+- sourceTask: task-T2.1-report.md
+- createdIn: iter-20260816-6q6f
+
 ## deferred
 
 ## applied
