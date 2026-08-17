@@ -38,11 +38,11 @@ button { font-family: inherit; }
   mix-blend-mode: screen;
 }
 
-/* ═══ 应用布局（header / conn-banner / 消息流 / composer）═══ */
+/* ═══ 应用布局（conn-banner / 消息流 / composer；header 归 workbench 顶层）═══ */
 .app {
   position: relative; z-index: 2;
   display: flex; flex-direction: column;
-  height: 100dvh;
+  min-height: 0;
 }
 .app-header {
   display: flex; align-items: center; gap: 12px;
@@ -51,8 +51,8 @@ button { font-family: inherit; }
   backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%);
   border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: baseline; gap: 2px; font-weight: 700; font-size: var(--text-head); letter-spacing: 0.06em; }
-.brand .b2 { color: var(--accent); }
+/* T5.2：品牌位 = 渐变 helix SVG 图标（HelixLogo；原 HELiX·2 文字退役） */
+.brand { display: flex; align-items: center; flex-shrink: 0; }
 .hud-chip {
   display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;
   padding: 1px 6px; border: 1px solid var(--border); border-radius: 999px;
@@ -619,7 +619,7 @@ html.light .bubble code.inline { color: var(--accent); }
 
 /* 窄屏折叠：气泡放宽、模型徽标隐藏 */
 @media (max-width: 720px) {
-  .app { height: auto; min-height: 100dvh; overflow: visible; }
+  .app { height: auto; min-height: calc(100dvh - 48px); overflow: visible; }
   body { overflow: auto; }
   .msg-flow { overflow: visible; }
   .msg .col { max-width: 88%; }

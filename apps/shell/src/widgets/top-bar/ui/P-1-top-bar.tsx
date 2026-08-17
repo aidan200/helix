@@ -1,7 +1,8 @@
 /**
  * P-1 顶栏（F(2.1).3 信息区；CL-2；widgets/top-bar）。
  *
- * 左 = brand + 会话标题（随切换同步；草稿态取词条）+ main-session/~/.helix
+ * 左 = 品牌位（T5.2：渐变 helix SVG 图标，shared/ui/HelixLogo）+ 会话标题
+ * （随切换同步；草稿态取词条）+ main-session/~/.helix
  * chip + daemon 状态徽标（连接语义沿既有连接状态剧本 F(7).4 四态）；右 =
  * 统计徽标（F3.3）+ 模型徽标位（P-3 入口——本任务渲染 topology 面 model
  * 态，点击行为 T3.3）+ 主题切换 + 设置齿轮（P-4 路由入口 F(2.1).4）。
@@ -17,6 +18,7 @@ import { useTheme } from "@/shared/ui/theme";
 import { useSession, type ConnState } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
 import ModelSwitchMenu from "@/features/model-switch/ui/P-3-model-switch";
+import HelixLogo from "@/shared/ui/HelixLogo";
 import { StatsBadge, UsagePopover } from "./SessionStats";
 
 /** 连接 dot 类名（F(7).4 四态：绿常亮/黄脉冲/红脉冲/红常亮）。 */
@@ -61,7 +63,7 @@ const AppHeader = function AppHeader({ onOpenInstance = noop, onOpenSettings = n
     <>
       <header className="app-header">
         <div className="brand">
-          HELiX<span className="b2">·2</span>
+          <HelixLogo size={20} />
         </div>
         <span className="tb-title" data-session-title title={sessionTitle}>
           {sessionTitle}

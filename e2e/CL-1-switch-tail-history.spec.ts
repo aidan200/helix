@@ -12,8 +12,9 @@
  * ④ B 快照到达 → success（输入恢复）+ mock 订阅簿记跟随（activeSession）。
  *
  * 断言纪律：断言值全部取自 harness/scenarios（K-4：断言相对参数）；
- * probe（isDev 门控最小验证入口，T3.1）为 store 层断言面——P-2 侧栏 UI
- * 归 T3.2 后替换为真实组件断言。
+ * T5.2 起 probe（isDev 调试面）退役，断言面 = 正式 UI（.app data-view /
+ * 侧栏会话卡 data-session-card · data-active · data-run-state /
+ * 分页胶囊 .load-earlier data-state）。
  */
 import { test, expect } from "./harness/fixtures";
 import { loadHistoryResult, sessionListResult, v02Snapshot, welcome } from "./harness/protocol";
@@ -44,10 +45,12 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
     ]);
     await mock.waitForConn("connected");
 
-    const probe = page.locator("[data-topology]");
-    await expect(probe).toHaveAttribute("data-active-session", MULTI_SESSION_A);
-    await expect(probe).toHaveAttribute("data-view", "ready");
-    await expect(probe).toHaveAttribute("data-history", "more");
+    const app = page.locator(".app");
+    await expect(app).toHaveAttribute("data-session", "active");
+    await expect(app).toHaveAttribute("data-view", "ready");
+    // 分页胶囊（正式 UI 面）：快照携带 tailStartCursor → 有更早历史可载
+    const pill = page.locator(".load-earlier");
+    await expect(pill).toHaveAttribute("data-state", "more");
     // 尾窗重建：只渲染尾窗 30 条（不含更早历史）
     await expect(page.locator(".msg-flow .msg")).toHaveCount(MULTI_TAIL_WINDOW);
     // 输入可用（ready）
@@ -61,7 +64,7 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
     const historyCmd = await mock.waitForCommand("session.loadHistory");
     expect(historyCmd.sessionId).toBe(MULTI_SESSION_A);
     expect((historyCmd.payload as { beforeEntryId: string }).beforeEntryId).toBe(tailStartCursor);
-    await expect(probe).toHaveAttribute("data-history", "loading");
+    await expect(pill).toHaveAttribute("data-state", "loading");
 
     // ── ③ result 到达：历史前插（升序在前）+ 重复条目去重 → hasMore=false ──
     const earlier = history.slice(0, MULTI_HISTORY_TOTAL - MULTI_TAIL_WINDOW);
@@ -75,7 +78,7 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
     );
     await expect(page.locator(".msg-flow .msg")).toHaveCount(MULTI_HISTORY_TOTAL); // 30 尾窗 + 15 更早，零重复
     await expect(page.locator(".msg-flow .msg").first()).toContainText(`历史第 1 条（共 ${MULTI_HISTORY_TOTAL} 条）`);
-    await expect(probe).toHaveAttribute("data-history", "exhausted");
+    await expect(pill).toHaveAttribute("data-state", "exhausted");
 
     // hasMore=false 禁用：再次滚顶不再发命令（数据面断言）
     const historyCmdCount = (await mock.clientFrames()).filter((f) => f.type === "session.loadHistory").length;
@@ -87,7 +90,7 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
 
     // ── ④ 清单下发 → 切换 B：两阶段互斥（loading 骨架，旧内容不渲染）──
     await mock.emit(sessionListResult(multiSessionList()));
-    const rowB = page.locator(`[data-bg-session="${MULTI_SESSION_B}"]`);
+    const rowB = page.locator(`[data-session-card="${MULTI_SESSION_B}"]`);
     await expect(rowB).toHaveCount(1);
     await expect(rowB).toHaveAttribute("data-run-state", "streaming");
 
@@ -101,9 +104,10 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
     // mock 订阅簿记跟随（daemon subscribeSession 语义镜像）
     await expect(mock.activeSession()).resolves.toBe(MULTI_SESSION_B);
     // loading 骨架：success 内容不渲染（互斥）+ 输入禁用
-    await expect(probe).toHaveAttribute("data-view", "loading");
-    await expect(probe).toHaveAttribute("data-active-session", MULTI_SESSION_B);
-    await expect(page.locator(".app")).toHaveAttribute("data-session", "empty");
+    await expect(app).toHaveAttribute("data-view", "loading");
+    // 活跃卡即刻切换到 B（侧栏正式 UI 面）
+    await expect(rowB).toHaveAttribute("data-active", "1");
+    await expect(app).toHaveAttribute("data-session", "empty");
     await expect(page.locator("#msg-input")).toBeDisabled();
 
     // ── ⑤ B 快照到达 → success：尾窗重建可见 + 输入恢复 ──
@@ -116,10 +120,10 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
         tailStartCursor: null,
       }),
     );
-    await expect(probe).toHaveAttribute("data-view", "ready");
+    await expect(app).toHaveAttribute("data-view", "ready");
     await expect(page.locator(".msg.user", { hasText: MULTI_B_TAIL_TEXT })).toBeVisible();
     await expect(page.locator("#msg-input")).toBeEnabled();
-    // 无更早历史：分页禁用（tailStartCursor=null）
-    await expect(probe).toHaveAttribute("data-history", "exhausted");
+    // 无更早历史：分页胶囊不渲染（tailStartCursor=null → paged=false）
+    await expect(page.locator("[data-load-earlier]")).toHaveCount(0);
   });
 });

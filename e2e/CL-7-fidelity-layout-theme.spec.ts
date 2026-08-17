@@ -11,13 +11,16 @@ import { cssVar, computed } from "./harness/style-utils";
 import { shotEvidence, writeEvidence } from "./harness/evidence";
 
 test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
-  test("100dvh 应用壳：header 48px → 消息流 → composer，页面无滚动", async ({ mock, page }) => {
+  test("100dvh 应用壳：header 48px 全宽置顶 → 消息流 → composer，页面无滚动", async ({ mock, page }) => {
     await mock.connect();
 
-    // 100dvh：.app 高度 = viewport 内高（非滚动页）
-    const appH = parseFloat(await computed(page, ".app", "height"));
+    // 100dvh：.workbench 高度 = viewport 内高（非滚动页）；T5.2 重组后
+    // header 提升为布局顶层，.app = 视口高 - header 48px
+    const wbH = parseFloat(await computed(page, ".workbench", "height"));
     const innerH = await page.evaluate(() => window.innerHeight);
-    expect(appH).toBe(innerH);
+    expect(wbH).toBe(innerH);
+    const appH = parseFloat(await computed(page, ".app", "height"));
+    expect(appH).toBe(innerH - 48);
 
     // 页面无滚动（body overflow hidden）
     expect(await computed(page, "body", "overflow")).toBe("hidden");
@@ -29,7 +32,8 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
     // header 48px
     expect(parseFloat(await computed(page, ".app-header", "height"))).toBe(48);
 
-    // 壳层级：header → conn-banner 槽位 → msg-flow → composer
+    // 壳层级（T5.2 重组）：workbench = app-header（全宽）→ wb-body
+    // （sidebar → app）；.app 内 = conn-banner 槽位 → msg-flow → composer
     await expect(page.locator(".app-header")).toBeVisible();
     await expect(page.locator(".msg-flow")).toBeVisible();
     await expect(page.locator(".composer-wrap")).toBeVisible();
@@ -37,13 +41,34 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
         const app = document.querySelector(".app")!;
         return Array.from(app.children).map((c) => c.className.split(" ")[0]);
       });
-    expect(order).toEqual(["app-header", "conn-banner", "msg-flow", "composer-wrap"]);
+    expect(order).toEqual(["conn-banner", "msg-flow", "composer-wrap"]);
+    const shell = await page.evaluate(() => {
+        const wb = document.querySelector(".workbench")!;
+        const body = document.querySelector(".wb-body")!;
+        return {
+          wb: Array.from(wb.children).map((c) => c.className.split(" ")[0]),
+          body: Array.from(body.children).map((c) => c.className.split(" ")[0]),
+        };
+      });
+    expect(shell.wb).toEqual(["app-header", "wb-body"]);
+    expect(shell.body).toEqual(["sidebar", "app"]);
   });
 
-  test("header 内容：brand + session/home chip + 模型徽标 + 连接状态 + 主题切换", async ({ mock, page }) => {
+  test("header 内容：渐变 helix 图标品牌位 + session/home chip + 模型徽标 + 连接状态 + 主题切换", async ({ mock, page }) => {
     await mock.connect();
-    await expect(page.locator(".brand")).toContainText("HELiX");
-    await expect(page.locator(".brand .b2")).toHaveText("·2");
+    // T5.2 品牌位：渐变 helix SVG 图标（HELiX·2 文字退役）；渐变口径 =
+    // accent→violet token（stopColor var() 引用，随主题切换自动适配）
+    const logo = page.locator(".brand [data-brand-logo]");
+    await expect(logo).toBeVisible();
+    const stopColors = () =>
+      page.evaluate(() =>
+        Array.from(document.querySelectorAll(".brand [data-brand-logo] stop")).map(
+          (s) => getComputedStyle(s).stopColor,
+        ),
+      );
+    // 暗色：accent rgb(34, 211, 238) → violet rgb(168, 85, 247)
+    expect(await stopColors()).toEqual(["rgb(34, 211, 238)", "rgb(168, 85, 247)"]);
+    await shotEvidence(page, "header-brand-dark");
     const chips = page.locator(".app-header .hud-chip");
     await expect(chips).toHaveCount(2);
     await expect(chips.nth(0)).toHaveText("main-session");
@@ -54,6 +79,12 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
     await expect(page.locator(".conn-status")).toBeVisible();
     await expect(page.locator(".theme-toggle #btn-dark")).toBeVisible();
     await expect(page.locator(".theme-toggle #btn-light")).toBeVisible();
+    // 亮主题：图标渐变随 token 亮列自动适配（accent/violet 亮值）
+    await page.locator("#btn-light").click();
+    await expect(page.locator("html")).toHaveClass("light");
+    expect(await stopColors()).toEqual(["rgb(37, 99, 235)", "rgb(147, 51, 234)"]);
+    await shotEvidence(page, "header-brand-light");
+    await page.locator("#btn-dark").click();
   });
 
   test("消息流版心 860px 且居中于主区（P-1 三区骨架：侧栏占左 264px，T3.2）；composer 输入条与发送按钮在位", async ({ mock, page }) => {

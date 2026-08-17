@@ -51,7 +51,7 @@ test.describe("T5.1 CL-1 切换快照盖章回归（真 daemon）", () => {
     await e2e.openApp(page);
     await e2e.waitForConnected(page);
     const badge = page.locator("[data-model-badge]");
-    const probe = page.locator("[data-topology]");
+    const app = page.locator(".app");
 
     // ── A 建会话 + 首轮 + per-session 切模型 ─────────────────
     await page.locator("#btn-new-session").click();
@@ -87,15 +87,15 @@ test.describe("T5.1 CL-1 切换快照盖章回归（真 daemon）", () => {
 
     // ── 切回 A → 发慢速轮 → A 流式中 ─────────────────────────
     await cardA.click();
-    await expect(probe).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
+    await expect(app).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
     await expect(badge).toHaveText(TARGET); // per-session 区分成立（②的非平凡前提）
     await e2e.send(page, A_SECOND);
     await expect(cardA).toHaveAttribute("data-run-state", "streaming", { timeout: 10_000 });
 
     // ── A 流式中切到 idle 热会话 B：三面断言 ──────────────────
     await cardB.click();
-    await expect(probe).toHaveAttribute("data-active-session", (await cardB.getAttribute("data-session-card"))!, { timeout: 10_000 });
-    await expect(probe).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
+    await expect(cardB).toHaveAttribute("data-active", "1", { timeout: 10_000 });
+    await expect(app).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
     await expect(page.locator(".msg.user", { hasText: B_FIRST })).toBeVisible(); // B 视图本体正确
     await expect(cardB).toHaveAttribute("data-run-state", "idle"); // ① B 活跃卡 = B 自身态
     await expect(badge).toHaveText("fake/model"); // ② 顶栏模型徽标 = B 的模型

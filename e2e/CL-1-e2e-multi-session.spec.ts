@@ -126,9 +126,8 @@ test.describe("T4.2 CL-1 多会话闭环（真 daemon）", () => {
     await expect(cardB).toHaveAttribute("data-run-state", "streaming", { timeout: 10_000 });
     await cardA.click();
     // 切换两阶段：loading → ready（快照尾窗重建甲视图）
-    const probe = page.locator("[data-topology]");
-    await expect(probe).toHaveAttribute("data-active-session", (await cardA.getAttribute("data-session-card"))!, { timeout: 10_000 });
-    await expect(probe).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
+    await expect(cardA).toHaveAttribute("data-active", "1", { timeout: 10_000 });
+    await expect(page.locator(".app")).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
     // 甲视图完整：首轮 user + assistant 在场（切换恢复）
     await expect(page.locator(".msg.user", { hasText: A_FIRST })).toBeVisible();
     await expect(page.locator(".msg.assistant", { hasText: "（完E0）" })).toBeVisible();
@@ -141,14 +140,13 @@ test.describe("T4.2 CL-1 多会话闭环（真 daemon）", () => {
 
     // ── ③ 切换恢复：乙尾窗 + per-instance + 向上分页 ───────────
     await cardB.click();
-    await expect(probe).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
-    const sessionIdB = (await cardB.getAttribute("data-session-card"))!;
-    await expect(probe).toHaveAttribute("data-active-session", sessionIdB);
+    await expect(page.locator(".app")).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
+    await expect(cardB).toHaveAttribute("data-active", "1");
     // 后台完成的 turn16 完整可见（切走后照常执行 + 落库 + 切回快照重建）
     await expect(page.locator(".msg.user", { hasText: "乙回合十六的输入" })).toBeVisible();
     await expect(page.locator(".msg.assistant", { hasText: B_SLOW_END })).toBeVisible();
     // 尾窗：16 轮（含 closure 注入轮）> 30 条主时间轴 → 有更早历史
-    await expect(probe).toHaveAttribute("data-history", "more");
+    await expect(page.locator(".load-earlier")).toHaveAttribute("data-state", "more");
     // per-instance 恢复：done 卡（closure 记录随快照重建；running 卡在下方
     // turn17 spawn 后断言）
     await expect(page.locator(".sa-card.done")).toHaveCount(1, { timeout: 10_000 });
@@ -180,7 +178,6 @@ test.describe("T4.2 CL-1 多会话闭环（真 daemon）", () => {
     // loading 为瞬态（本地 daemon 往返快于轮询——F 层已覆盖），直接断言
     // 结果面：更早历史前插（首条 = 乙首条）→ exhausted 禁用
     await expect(page.locator(".msg-flow .msg").first()).toContainText(B_FIRST, { timeout: 10_000 });
-    await expect(probe).toHaveAttribute("data-history", "exhausted", { timeout: 10_000 });
     const afterCount = await page.locator(".msg-flow .msg").count();
     expect(afterCount).toBeGreaterThan(beforeCount);
     await expect(page.locator(".load-earlier")).toHaveAttribute("data-state", "exhausted");
@@ -198,7 +195,7 @@ test.describe("T4.2 CL-1 多会话闭环（真 daemon）", () => {
 
     // 甲仍可切换恢复（删乙不动甲）
     await cardA.click();
-    await expect(probe).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
+    await expect(page.locator(".app")).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
     await expect(page.locator(".msg.user", { hasText: A_FIRST })).toBeVisible();
     await expect(page.locator(".msg.assistant", { hasText: "（完E0）" })).toBeVisible();
 
@@ -211,7 +208,7 @@ test.describe("T4.2 CL-1 多会话闭环（真 daemon）", () => {
         "① 草稿建会话: draft 卡 → chat.send{draft:true} → 甲卡出现（title 截断）+ 首轮往返",
         "② 并行两会话: 乙 17 轮（含两次 agent_spawn）+ 慢速末轮流式中切回甲;",
         "   乙后台续跑数据面: 乙卡 runState streaming → idle（list_changed{state_changed} 广播）",
-        "③ 切换恢复: 乙尾窗快照（data-history=more）+ turn17 完整可见 + sa-card done/running",
+        "③ 切换恢复: 乙尾窗快照（分页胶囊 data-state=more）+ turn17 完整可见 + sa-card done/running",
         "   + 抽屉 spawned/modelResolved/closure 尾卡; 滚顶分页前插（首条 = 乙首条）→ exhausted",
         "④ 删除收口: 挂起 SubAgent 随删 kill 收口 → 乙卡移除 → 转草稿态 → 甲仍可恢复",
       ].join("\n"),
