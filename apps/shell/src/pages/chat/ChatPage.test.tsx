@@ -19,6 +19,10 @@ const subscribeInstance = vi.fn();
 const unsubscribeInstance = vi.fn();
 const devDispatchEvent = vi.fn();
 const consumeKillToast = vi.fn();
+const switchSession = vi.fn();
+const newDraft = vi.fn();
+const deleteSession = vi.fn();
+const requestSessionList = vi.fn();
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
@@ -26,6 +30,12 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     ...orig,
     useSession: () => ({
       state: stateRef.current,
+      // 拓扑面（T3.2 侧栏/顶栏消费面）：活跃即 mock state
+      topology: { active: stateRef.current, background: {}, list: [] },
+      switchSession,
+      newDraft,
+      deleteSession,
+      requestSessionList,
       killInstance,
       subscribeInstance,
       unsubscribeInstance,

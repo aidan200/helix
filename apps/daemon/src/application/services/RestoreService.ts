@@ -6,10 +6,16 @@ import type {
   InstanceClosurePayload,
   DomainEvent,
   AgentSpawnedPayload,
+  MessageCompletedPayload,
+  ThinkingCompletedPayload,
+  ToolCallPayload,
+  ToolResultPayload,
   UsageRecordedPayload,
 } from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
-import { AgentInstance, MAIN_INSTANCE_ID, type InstanceState } from "../../domain/agent/AgentInstance";
+import { AgentInstance, agentSeqOf, type InstanceState } from "../../domain/agent/AgentInstance";
+// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "../../domain/session/UsageLedger";
 
 /**
@@ -92,27 +98,29 @@ export class RestoreService {
   constructor(private readonly deps: RestoreServiceDeps) {}
 
   /**
-   * 恢复最近一次持久化的会话；无持久化（首启）返回 undefined，
-   * 调用方（组合根）据此新建会话。
+   * 恢复指定会话（T2.2 AD-4：多会话按 id 恢复——原 restoreLatest 取
+   * ids.at(-1) 的末位语义废弃，目标会话由调用方（SessionRegistry 懒加载/
+   * 组合根启动取当前会话）决定）；不存在返回 undefined。
    */
-  async restoreLatest(): Promise<RestoredDomainState | undefined> {
-    const ids = await this.deps.repository.listSessionIds();
-    const latest = ids.at(-1);
-    if (!latest) return undefined;
-    const state = await this.deps.repository.restore(latest);
+  async restore(sessionId: string): Promise<RestoredDomainState | undefined> {
+    const state = await this.deps.repository.restore(sessionId);
     if (!state) return undefined;
     const session = Session.restoreFrom(state.session);
     if (session.openTurn) {
       session.interruptTurn(this.deps.clock.now()); // 悬挂收口：重启无 run 在飞
     }
-    const instances = await this.restoreInstances(latest, session);
+    const instances = await this.restoreInstances(sessionId, session);
+    // T2.1（AD-3）：SubAgent 历史重放——事件流 agent_kind=subagent 全量补齐
+    //（投影落库前的旧库升级路径 + 事件行先于状态行的崩溃窗口自愈；
+    // 快照已有的条目按 id 去重，零事件流零落盘——恢复不重放铁律保持）
+    const toolCalls = this.replaySubAgentHistory(sessionId, session, state.toolCalls);
     return {
       session,
       agentState: state.agentState,
-      toolCalls: state.toolCalls,
+      toolCalls,
       instances: instances.list,
       maxAgentSeq: instances.maxSeq,
-      usage: this.restoreUsageLedger(latest),
+      usage: this.restoreUsageLedger(sessionId),
     };
   }
 
@@ -132,6 +140,100 @@ export class RestoreService {
       ledger = applyUsage(ledger, payload.instanceId ?? event.instanceId ?? MAIN_INSTANCE_ID, payload.usage, payload.source);
     }
     return ledger;
+  }
+
+  // ── SubAgent 历史重放（T2.1，AD-3） ─────────────────────
+
+  /**
+   * 事件流 agent_kind=subagent 全量重放 → 聚合条目/工具记录补齐：
+   * - thinking.completed / message.completed（role=assistant）→ Session 聚合
+   *   SubAgent Entry（幂等：快照已有条目按 id 去重）；
+   * - tool.call.started/result → 工具记录（未收口→ running，交 ChatService
+   *   恢复收口链收口 failed——与主线工具记录同构）；
+   * - 其余事件（agent.族 / usage.recorded）不重放（实例注册表经 agent_lifecycle
+   *   三源恢复、账本经 restoreUsageLedger 重放，各自单点）。
+   *
+   * 双源关系：session_state 快照是第一源（正常路径已含全部条目）；事件流
+   * 重放是补齐源（旧库升级：投影落库前的历史只有事件行；崩溃窗口：事件
+   * 行先于状态行落盘）。恢复不重放铁律保持：零新事件流、零落盘。
+   */
+  private replaySubAgentHistory(
+    sessionId: string,
+    session: Session,
+    persistedToolCalls: readonly ToolCallRecordData[],
+  ): readonly ToolCallRecordData[] {
+    const subEvents = this.deps.repository.queryEvents({ sessionId, agentKind: "subagent" });
+    if (subEvents.length === 0) return persistedToolCalls;
+
+    const knownEntryIds = new Set(session.entryList().map((e) => e.id));
+    const knownToolIds = new Set(persistedToolCalls.map((t) => t.id));
+    /** 重放态工具记录（未配对 result = running，交恢复收口链收口 failed）。 */
+    const replayedTools = new Map<string, ToolCallRecordData>();
+
+    for (const event of subEvents) {
+      const instanceId = event.instanceId ?? MAIN_INSTANCE_ID;
+      if (instanceId === MAIN_INSTANCE_ID) continue; // 防御：agent_kind 误标行
+      switch (event.type) {
+        case "thinking.completed": {
+          const p = event.payload as Partial<ThinkingCompletedPayload>;
+          if (p?.entry?.id === undefined || knownEntryIds.has(p.entry.id)) break;
+          if (p.entry.text?.trim() === "") break; // 空块防御
+          // 显式 id：与事件载荷同源（Partial 载荷已逐字段校验，收窄交领域构造器）
+          session.appendThinkingEntry({ ...p.entry, id: p.entry.id } as Parameters<
+            typeof session.appendThinkingEntry
+          >[0]);
+          knownEntryIds.add(p.entry.id);
+          break;
+        }
+        case "message.completed": {
+          const p = event.payload as Partial<MessageCompletedPayload>;
+          if (p?.entryId === undefined || p.role !== "assistant" || p.text?.trim() === "") break;
+          if (knownEntryIds.has(p.entryId)) break;
+          session.appendInstanceMessage({
+            id: p.entryId,
+            instanceId,
+            text: p.text as string, // 上方非空校验收窄
+            createdAt: event.occurredAt,
+          });
+          knownEntryIds.add(p.entryId);
+          break;
+        }
+        case "tool.call.started": {
+          const p = event.payload as Partial<ToolCallPayload>;
+          if (p?.toolCallId === undefined || knownToolIds.has(p.toolCallId)) break;
+          replayedTools.set(p.toolCallId, {
+            id: p.toolCallId,
+            toolName: p.toolName ?? "(unknown)",
+            args: p.args,
+            ...(instanceId !== MAIN_INSTANCE_ID ? { instanceId } : {}),
+            status: "running",
+            startedAt: event.occurredAt,
+          });
+          break;
+        }
+        case "tool.call.result": {
+          const p = event.payload as Partial<ToolResultPayload>;
+          if (p?.toolCallId === undefined || knownToolIds.has(p.toolCallId)) break;
+          const started = replayedTools.get(p.toolCallId);
+          replayedTools.set(p.toolCallId, {
+            id: p.toolCallId,
+            toolName: started?.toolName ?? p.toolName ?? "(unknown)",
+            args: started?.args ?? p.args,
+            ...(instanceId !== MAIN_INSTANCE_ID ? { instanceId } : {}),
+            status: p.isError ? "failed" : "completed",
+            ...(p.result !== undefined ? { result: p.result } : {}),
+            ...(p.isError ? { error: p.result } : {}),
+            startedAt: started?.startedAt,
+            endedAt: event.occurredAt,
+          });
+          break;
+        }
+        default:
+          break; // agent.族 / usage.recorded 等不走本重放面（各自单点）
+      }
+    }
+    if (replayedTools.size === 0) return persistedToolCalls;
+    return [...persistedToolCalls, ...replayedTools.values()];
   }
 
   // ── 实例注册表/closure 恢复（AD-10） ───────────────────────
@@ -231,10 +333,4 @@ export class RestoreService {
     }
     return map;
   }
-}
-
-/** "agent-N" → N（非该形式返回 0——序号基线不参与）。 */
-function agentSeqOf(instanceId: string): number {
-  const n = Number.parseInt(instanceId.slice("agent-".length), 10);
-  return instanceId.startsWith("agent-") && Number.isFinite(n) && n > 0 ? n : 0;
 }

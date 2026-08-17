@@ -3,7 +3,8 @@ import path from "node:path";
 import { Database, type Statement } from "bun:sqlite";
 import { SCHEMA_SQL } from "./schema";
 import { persistedStateToRows, domainEventToRow } from "./rows/RowMapper";
-import { MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
+// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type { PersistedDomainState } from "../../../application/ports/outbound/SessionRepositoryPort";
@@ -56,12 +57,29 @@ type WriteJob =
       readonly kind: "reportFile";
       readonly reportPath: string;
       readonly content: string;
+    }
+  | {
+      /** T2.2（AD-4）：会话删除——六表按 session_id 清行（删除收口链的删库步）。 */
+      readonly kind: "deleteSession";
+      readonly sessionId: string;
+    }
+  | {
+      /** T2.3（AD-2）：全局默认模型 upsert（default_model 单行表，无会话维——全局链）。 */
+      readonly kind: "defaultModel";
+      readonly model: string;
     };
 
 export class WriteQueue {
   private readonly db: Database;
   private readonly onError?: (error: unknown, job: WriteJob) => void;
-  private tail: Promise<void> = Promise.resolve();
+  /**
+   * 分仓 FIFO（T2.2 AD-4，architecture-feedback #19 结构性落位）：每会话独立
+   * 仓位/消费者按 session_id 路由——仓内严格 FIFO（同会话事件行先于状态行、
+   * 删除行晚于一切写），仓间互不阻塞（A 会话的写高峰不队头阻塞 B 会话）；
+   * 无会话维度的 job（reportFile）走全局链。
+   */
+  private readonly sessionTails = new Map<string, Promise<void>>();
+  private globalTail: Promise<void> = Promise.resolve();
   private closed = false;
 
   // 全部写语句在此 prepare（AG-06：src 内唯一 SQLite 写点集合；构造体内赋值）
@@ -73,6 +91,13 @@ export class WriteQueue {
   private readonly clearToolCalls!: Statement;
   private readonly insertToolCall!: Statement;
   private readonly insertClosureRecord!: Statement;
+  private readonly deleteSessionState!: Statement;
+  private readonly deleteSessionEvents!: Statement;
+  private readonly deleteSessionLifecycle!: Statement;
+  private readonly deleteSessionSteer!: Statement;
+  private readonly deleteSessionToolCalls!: Statement;
+  private readonly deleteSessionClosures!: Statement;
+  private readonly upsertDefaultModel!: Statement;
 
   constructor(dbPath: string, options: WriteQueueOptions = {}) {
     mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -108,6 +133,16 @@ export class WriteQueue {
     this.insertClosureRecord = this.db.prepare(
       "INSERT INTO closure_records (session_id, agent_id, result, status, summary, report_path, findings, task_id, created_at) " +
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    this.deleteSessionState = this.db.prepare("DELETE FROM session_state WHERE session_id = ?");
+    this.deleteSessionEvents = this.db.prepare("DELETE FROM domain_events WHERE session_id = ?");
+    this.deleteSessionLifecycle = this.db.prepare("DELETE FROM agent_lifecycle WHERE session_id = ?");
+    this.deleteSessionSteer = this.db.prepare("DELETE FROM steer_queue WHERE session_id = ?");
+    this.deleteSessionToolCalls = this.db.prepare("DELETE FROM tool_calls WHERE session_id = ?");
+    this.deleteSessionClosures = this.db.prepare("DELETE FROM closure_records WHERE session_id = ?");
+    this.upsertDefaultModel = this.db.prepare(
+      "INSERT INTO default_model (id, model, updated_at) VALUES (1, ?, ?) " +
+        "ON CONFLICT(id) DO UPDATE SET model = excluded.model, updated_at = excluded.updated_at",
     );
   }
   /** 读侧共用连接（SqliteSessionRepository 只读 SELECT；写仍唯一走本队列）。 */
@@ -156,21 +191,53 @@ export class WriteQueue {
     return this.enqueue({ kind: "reportFile", reportPath, content });
   }
 
-  /** 等待已入队 job 全部落盘（测试/优雅退出用）。 */
+  /**
+   * 会话删除入队（T2.2 AD-4 删除收口链的删库步）：六表按 session_id 清行；
+   * 入本会话仓位尾部（此前已入队的写全部先落盘——删除不会被早到的状态写复活）。
+   */
+  deleteSession(sessionId: string): Promise<void> {
+    return this.enqueue({ kind: "deleteSession", sessionId });
+  }
+
+  /**
+   * 全局默认模型 upsert 入队（T2.3 AD-2：default_model 单行表；无会话维 →
+   * 全局链 FIFO，与仓间写互不阻塞）。
+   */
+  saveDefaultModel(model: string): Promise<void> {
+    return this.enqueue({ kind: "defaultModel", model });
+  }
+
+  /** 等待已入队 job 全部落盘（测试/优雅退出用；分仓后 = 全部仓位 drain）。 */
   async flush(): Promise<void> {
-    await this.tail;
+    await this.drainAll();
   }
 
   /** 优雅退出：drain 全部 job 后关闭连接（幂等）。 */
   async close(): Promise<void> {
-    await this.tail;
+    await this.drainAll();
     if (!this.closed) {
       this.closed = true;
       this.db.close();
     }
   }
 
-  // ── 内部：FIFO 串行链 ────────────────────────────────────
+  // ── 内部：分仓 FIFO 串行链 ──────────────────────────────
+
+  /** job → 仓位键（session 维 job 入会话仓；无会话维 job 入全局链）。 */
+  private chainKeyOf(job: WriteJob): string | undefined {
+    switch (job.kind) {
+      case "event":
+        return job.event.sessionId;
+      case "state":
+        return job.state.session.sessionId;
+      case "agentLifecycle":
+      case "closureRecord":
+      case "deleteSession":
+        return job.sessionId;
+      default:
+        return undefined; // reportFile：无会话维（文件产物，行序不受仓内 FIFO 约束）
+    }
+  }
 
   private enqueue(job: WriteJob): Promise<void> {
     if (this.closed) {
@@ -178,16 +245,43 @@ export class WriteQueue {
       this.onError?.(new Error("WriteQueue 已关闭，job 被丢弃"), job);
       return Promise.resolve();
     }
-    const done = this.tail.then(() => this.apply(job)).catch((error: unknown) => {
+    const key = this.chainKeyOf(job);
+    const prev = key === undefined ? this.globalTail : (this.sessionTails.get(key) ?? Promise.resolve());
+    const done = prev.then(() => this.apply(job)).catch((error: unknown) => {
       this.onError?.(error, job); // 上报但不断链：单 job 失败不阻断后续落盘
     });
-    this.tail = done;
+    if (key === undefined) this.globalTail = done;
+    else this.sessionTails.set(key, done);
     return done;
+  }
+
+  /** 全部仓位 drain；循环至稳定（drain 期间新入队的 job 一并等待）。 */
+  private async drainAll(): Promise<void> {
+    for (;;) {
+      const globalBefore = this.globalTail;
+      const sizeBefore = this.sessionTails.size;
+      await Promise.all([this.globalTail, ...this.sessionTails.values()]);
+      if (this.globalTail === globalBefore && this.sessionTails.size === sizeBefore) return;
+    }
   }
 
   private apply(job: WriteJob): void {
     if (job.kind === "agentLifecycle") {
       this.upsertLifecycle.run(job.sessionId, job.instanceId, job.state, new Date().toISOString());
+      return;
+    }
+    if (job.kind === "deleteSession") {
+      // 六表清行（同仓 FIFO：此前同会话全部写先落盘，删除不会被复活）
+      this.deleteSessionState.run(job.sessionId);
+      this.deleteSessionEvents.run(job.sessionId);
+      this.deleteSessionLifecycle.run(job.sessionId);
+      this.deleteSessionSteer.run(job.sessionId);
+      this.deleteSessionToolCalls.run(job.sessionId);
+      this.deleteSessionClosures.run(job.sessionId);
+      return;
+    }
+    if (job.kind === "defaultModel") {
+      this.upsertDefaultModel.run(job.model, new Date().toISOString());
       return;
     }
     if (job.kind === "closureRecord") {

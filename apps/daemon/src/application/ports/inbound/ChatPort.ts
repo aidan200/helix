@@ -22,3 +22,14 @@ export interface ChatPort {
   /** 中断当前生成（abort 非销毁：会话仍可继续新消息）。空闲时幂等忽略。 */
   abort(): void;
 }
+
+/**
+ * 会话路由版 ChatPort（T2.2 AD-4，driving 侧路由面）：sessionId 可选入参
+ * 缺省 = 当前会话；多会话路由由实现（组合根 ChatRouter）解析目标运行时。
+ * 少参实现（ChatService）天然可赋值（TS 参数逆变兼容）——单会话场景零改造。
+ */
+export interface SessionChatPort extends ChatPort {
+  sendMessage(text: string, sessionId?: string): Promise<SendOutcome>;
+  steer(text: string, sessionId?: string): Promise<{ entryId: string }>;
+  abort(sessionId?: string): void;
+}

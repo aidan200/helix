@@ -75,11 +75,10 @@ describe("T3.2 SubAgent turn usage 入账（T2.2 上行链路）", () => {
       runner,
       events: publisher,
       repository,
-      clock: { now: () => new Date(0).toISOString() },
-      sessionId: SESSION_ID,
-    });
+      clock: { now: () => new Date(0).toISOString(), nowMs: () => 0 },
+      });
     try {
-      const outcome = scheduler.spawn("统计一下文件数");
+      const outcome = scheduler.spawn(SESSION_ID, "统计一下文件数");
       expect(outcome.status).toBe("run");
       // 剧本 runner 异步驱动：轮询至实例收口
       await waitFor(() => scheduler.status("agent-1")![0]!.state === "done", 2000);

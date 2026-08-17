@@ -1,5 +1,6 @@
 /**
  * 证据工具 —— 截图 / 断言输出落 evidence/e2e/（文件名含 CL-7，门控识别）。
+ * 证据归属：当前迭代目录（T1.3 OI-6 收敛——迭代目录随迭代迁移时仪改本常量单点）。
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -7,7 +8,7 @@ import type { Page } from "@playwright/test";
 
 const EVIDENCE_DIR = path.resolve(
   __dirname,
-  "../../../../docs/iterations/iter-20260816-uzvg/evidence/e2e",
+  "../../../../docs/iterations/iter-20260816-6q6f/evidence/e2e",
 );
 
 /**

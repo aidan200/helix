@@ -4,6 +4,7 @@ import App from "./App";
 import { applyThemeInitial } from "@/shared/ui/theme";
 import "@/shared/ui/styles/tokens.css";
 import "@/shared/ui/styles/app.css";
+import "@/shared/ui/styles/workbench.css";
 import "@/shared/ui/styles/drawer.css";
 import "@/shared/ui/styles/index.css";
 

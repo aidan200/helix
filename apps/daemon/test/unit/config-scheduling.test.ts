@@ -29,7 +29,7 @@ afterAll(() => {
 
 describe("config maxConcurrent/maxQueued（T2.1，K4）", () => {
   test("① 字段缺省 → 3/8（与 domain 缺省同源）", () => {
-    const cfg = loadConfig(configPath(JSON.stringify({ model: "anthropic/claude-sonnet-4-5" })));
+    const cfg = loadConfig(configPath(JSON.stringify({}))).config;
     expect(cfg.maxConcurrent).toBe(3);
     expect(cfg.maxQueued).toBe(8);
     expect(cfg.maxConcurrent).toBe(DEFAULT_SCHEDULING.maxConcurrent);
@@ -37,21 +37,17 @@ describe("config maxConcurrent/maxQueued（T2.1，K4）", () => {
   });
 
   test("② 覆写生效（2/4）", () => {
-    const cfg = loadConfig(
-      configPath(
-        JSON.stringify({ model: "anthropic/claude-sonnet-4-5", maxConcurrent: 2, maxQueued: 4 }),
-      ),
-    );
+    const cfg = loadConfig(configPath(JSON.stringify({ maxConcurrent: 2, maxQueued: 4 }))).config;
     expect(cfg.maxConcurrent).toBe(2);
     expect(cfg.maxQueued).toBe(4);
   });
 
   test("③ 非法值 → 中文 fail-fast", () => {
-    const file1 = configPath(JSON.stringify({ model: "m", maxConcurrent: 0 }));
+    const file1 = configPath(JSON.stringify({ maxConcurrent: 0 }));
     expect(() => loadConfig(file1)).toThrow(/maxConcurrent/);
-    const file2 = configPath(JSON.stringify({ model: "m", maxQueued: -1 }));
+    const file2 = configPath(JSON.stringify({ maxQueued: -1 }));
     expect(() => loadConfig(file2)).toThrow(/maxQueued/);
-    const file3 = configPath(JSON.stringify({ model: "m", maxConcurrent: 1.5 }));
+    const file3 = configPath(JSON.stringify({ maxConcurrent: 1.5 }));
     expect(() => loadConfig(file3)).toThrow(/maxConcurrent/);
     try {
       loadConfig(file1);
@@ -63,7 +59,7 @@ describe("config maxConcurrent/maxQueued（T2.1，K4）", () => {
   });
 
   test("④ 文件缺失 → 缺省 3/8（不抛错）", () => {
-    const cfg = loadConfig(configPath());
+    const cfg = loadConfig(configPath()).config;
     expect(cfg.maxConcurrent).toBe(3);
     expect(cfg.maxQueued).toBe(8);
   });

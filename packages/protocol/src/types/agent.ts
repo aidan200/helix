@@ -1,3 +1,4 @@
+import type { EntryDto } from "./session";
 import type { UsageDto } from "./usage";
 
 /**
@@ -55,4 +56,17 @@ export interface AgentInstanceDto {
   closure?: ClosureDto;
   /** 该实例累计（popover 行数据） */
   usage?: UsageDto;
+  /**
+   * per-instance channel 完整历史（v0.2 新增，AD-1 硬约束，additive）：
+   * **不随主时间轴尾窗截断**——SubAgent 及主实例非主时间轴 channel 的
+   * 历史按实例分组完整保留（F-14⑤）。缺省 = 未携带（旧剧本兼容）。
+   */
+  channels?: InstanceChannelHistory;
+}
+
+/** 实例通道历史分组（AgentInstanceDto.channels 载体；EntryDto 归 kind 分组） */
+export interface InstanceChannelHistory {
+  thinking?: EntryDto[];
+  messages?: EntryDto[];
+  tools?: EntryDto[];
 }

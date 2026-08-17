@@ -21,8 +21,26 @@ import { DomainError } from "../DomainError";
  * （序号基线 agent_lifecycle max(N)+1，分配消费方 T2.2）。
  */
 
-/** 主实例固定 id（O-4 裁决：会话创建即分配；持久化旧行回填常量与之同源，O-3）。 */
+/**
+ * 主实例固定 id（O-4 裁决：会话创建即分配；持久化旧行回填常量与之同源，O-3）。
+ *
+ * v0.2 OI 收口（F-2⑬，iter-20260816-6q6f T1.2）注记：线上权威导出在
+ * 协议包（@helix/protocol envelope.ts MAIN_INSTANCE_ID），非 domain 消费点
+ * （adapters/application/infrastructure）改引协议导出；本文件因 AG-02
+ * （domain 禁 import 协议包）保留 domain 内部值语义锚点，两定义相等性由
+ * protocol-import.test.ts 守护断言。shell 侧改引随 T3.1。
+ */
 export const MAIN_INSTANCE_ID = "main";
+
+/**
+ * "agent-N" → N（非该形式返回 0——序号基线不参与）。
+ * SubAgent id 序号解析单点（C2/T1.1 收敛：原 SchedulerService / RestoreService
+ * 两处逐字重复实现收敛至此；id 分配规则语义不变）。
+ */
+export function agentSeqOf(instanceId: string): number {
+  const n = Number.parseInt(instanceId.slice("agent-".length), 10);
+  return instanceId.startsWith("agent-") && Number.isFinite(n) && n > 0 ? n : 0;
+}
 
 export type InstanceKind = "main" | "subagent";
 

@@ -11,6 +11,7 @@
  * 4_000→4k，行显示之和 = 徽标显示 12k，双层级自洽）。
  */
 import { test, expect } from "./harness/fixtures";
+import { shotEvidence, writeEvidence } from "./harness/evidence";
 import {
   agentCompleted,
   agentSpawned,
@@ -158,5 +159,18 @@ test.describe("T4.4 S4 CL-3 usage 徽标与 popover", () => {
 
     await mock.emit(messageCompleted(msgEntry("m-chip-1", "assistant", "生成中……（完）")));
     await expect(chip).toHaveText("空闲");
+
+    await shotEvidence(page, "usage-badge-popover", "CL-3");
+    writeEvidence(
+      "usage-badge-popover",
+      "txt",
+      [
+        "T4.4 S4 CL-3 usage 账目（徽标/冻结/刷新+flash/popover）",
+        "断言: 徽标格式档位取整/流式冻结 turn 完成刷新+flash/popover 分组行+",
+        "  cache/reasoning sub+合计自洽+行尾跳转/main 生成中·空闲 chip",
+        "结果: PASS",
+      ].join("\n"),
+      "CL-3",
+    );
   });
 });

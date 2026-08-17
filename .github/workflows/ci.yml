@@ -1,0 +1,109 @@
+# CI 首条流水线（T4.1 / CL-4 / F(4.0).4；Q-8 裁决：typecheck + 三运行器单测 + x2 双跑，依赖审计延后第二条）。
+#
+# 设计要点（探查报告 4 §C）：
+# - 单 job 串行：E 层端口三处硬编码（daemon 5333 / E 层 vite 5210 / F 层 vite 5199），
+#   串行执行天然不冲突，不做端口环境变量化（最小改动定稿）。
+# - 三运行器格局不动（F-11②）：bun test（daemon，root bunfig 限定）/
+#   bun test（protocol，cwd 子目录自跑）/ vitest（shell，jsdom 靠 docblock）/ playwright 双配置互斥正则。
+# - daemon-fixture 的 `ps axo` 为 Unix-only，ubuntu 原生兼容；HELIX_E2E_BUN 缺省 "bun"
+#   已在 PATH（setup-bun 安装），无需显式设置。
+# - bun 版本锁定：setup-bun bun-version + 根 package.json packageManager 双声明。
+# - 产物：playwright trace（test-results/，retain-on-failure）+ spec 显式落盘的
+#   evidence/e2e/ 截图（evidence 目录不入库，由 e2e/harness/evidence.ts 运行时 mkdirSync 创建）。
+#
+# OI-CI-1（方案 B）：本仓库暂无 git 远端，GitHub Actions 无法触发——workflow 先行交付，
+# 本地等价证据（typecheck 三包 + 三套单测）已落
+# docs/iterations/iter-20260816-6q6f/evidence/green-t41-ci-pipeline-local.md；
+# 远端接入后首次全绿 run 链接回填任务报告。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+
+# 并发控制：同 ref 新提交取消旧 run（防重复跑 + 端口独占策略下避免资源浪费）
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: typecheck + unit + e2e (serial, single job)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup bun (版本锁定)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache bun dependencies (bun.lock)
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # ---- typecheck 三包（各自 tsc --noEmit，逐步骤失败归属清晰）。----
+      # 注意：bun 的 --cwd 是 run 子命令 flag，必须写成 `bun run --cwd=<dir> <script>`；
+      # `bun --cwd <dir> run <script>` 会静默打印 usage 且退出码 0（假绿陷阱，勿用）。
+      - name: Typecheck daemon
+        run: bun run --cwd=apps/daemon typecheck
+
+      - name: Typecheck shell
+        run: bun run --cwd=apps/shell typecheck
+
+      - name: Typecheck protocol
+        run: bun run --cwd=packages/protocol typecheck
+
+      # ---- 三运行器单测 ----
+      - name: Unit tests daemon (bun test)
+        run: bun test apps/daemon
+
+      - name: Unit tests protocol (bun test, cwd 子目录)
+        run: cd packages/protocol && bun test
+
+      - name: Unit tests shell (vitest)
+        run: npx vitest run apps/shell
+
+      # ---- playwright：浏览器安装 + F 层 + E 层 ×2 ----
+      - name: Install Playwright browsers (chromium)
+        run: bunx playwright install chromium --with-deps
+
+      # F 层（mock mode，71 + CL-1/2/3 新剧本；vite 5199）
+      - name: E2E F 层 (playwright, mock mode)
+        run: bunx playwright test -c playwright.config.ts
+
+      # E 层 ×2（真 daemon + FakeLLM，串行 workers=1；第二轮 CL-4-teardown-residue
+      # 断言第一轮全量残留——TR-TEST-6 连跑零残留守护）
+      - name: E2E E 层 ×2 (real daemon, test:e2e:x2)
+        run: bun run test:e2e:x2
+
+      # ---- 产物上传（失败也上传，便于排障）----
+      - name: Upload playwright artifacts (trace/test-results)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload evidence (iteration artifacts)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-iter-20260816-6q6f
+          path: docs/iterations/iter-20260816-6q6f/evidence/
+          if-no-files-found: warn
+          retention-days: 14

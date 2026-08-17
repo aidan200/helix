@@ -18,6 +18,7 @@
  * steer 拒绝规则，非还原项）。
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { EventEnvelope } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
@@ -135,7 +136,7 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
     // running：合成 agent_send 转投回放事件，经 devDispatchEvent 走真实投影路径
     const now = Date.now();
     const synthetic: EventEnvelope = {
-      v: 0,
+      v: PROTOCOL_VERSION,
       type: "chat.message.completed",
       instanceId: agentId,
       payload: {

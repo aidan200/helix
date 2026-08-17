@@ -5,7 +5,6 @@ import { SessionService } from "../../src/application/services/SessionService";
 import { CliAdapter } from "../../src/adapters/driving/cli/CliAdapter";
 import { StdoutEventPublisher } from "../../src/adapters/driving/cli/CliAdapter";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
-import { InMemorySessionRepository } from "../mocks/InMemorySessionRepository";
 
 /**
  * TP-CL4-6（I）：CLI 多轮常驻——FakeAgentEngine 剧本 S1（≥3 轮「输入→流式→
@@ -35,14 +34,13 @@ function makeCli(engine: FakeAgentEngine) {
   };
   const chat = new ChatService({
     engine,
-    repository: new InMemorySessionRepository(),
     events: fanout, // 先接 fan-out，目标在下面装配（与组合根同构）
-    clock: { now: () => new Date().toISOString() },
+    clock: { now: () => new Date().toISOString(), nowMs: () => Date.now() },
   });
   const session = new SessionService({
-    getSession: () => chat.sessionView,
+    // T2.2：SessionService 取数面改接视图组装（与组合根同构）
+    getView: () => ({ session: chat.sessionView.toSnapshot(), toolCalls: chat.toolCallData }),
     getAgentState: () => chat.agentState,
-    getToolCalls: () => chat.toolCallData, // D-1：快照取数面扩展（与组合根同构）
   });
   const publisher = new StdoutEventPublisher(output);
   targets.push(publisher, {

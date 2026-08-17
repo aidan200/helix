@@ -162,6 +162,125 @@ export interface ChatTranslations {
     dark: string;
     light: string;
   };
+  /** P-2 会话列表（widgets/session-sidebar；CL-1 F(1.2)/F(2.1).2；T3.2） */
+  sidebar: {
+    /** 「新建会话」按钮（新建草稿，本地态零 daemon 帧） */
+    newSession: string;
+    /** 列表分区标签 Sessions */
+    sessions: string;
+    /** 草稿卡片时间位文案（未发送） */
+    notSent: string;
+    /** 草稿徽标 */
+    draft: string;
+    /** 运行态徽标三态 + 草稿（SessionMeta.runState 同源） */
+    runStreaming: string;
+    runSubagent: string;
+    runIdle: string;
+    /** 折叠/展开侧栏（icon 按钮 title） */
+    collapse: string;
+    expand: string;
+    /** 删除入口（trash 按钮 title）与二次确认条 */
+    deleteTitle: string;
+    deleteConfirmText: string;
+    deleteConfirm: string;
+    deleteCancel: string;
+    /** 删除命令交代 toast（确认后即时反馈；daemon 取消链异步收口） */
+    deleteToast: string;
+    deleteToastSub: string;
+    /** 相对时间档位（relativeTimeSpan 档位 → 文案） */
+    timeJustNow: string;
+    timeMinutes: string;
+    timeHours: string;
+    timeYesterday: string;
+    timeDays: string;
+  };
+  /** 顶栏信息区（widgets/top-bar；F(2.1).3；T3.2） */
+  topbar: {
+    /** 草稿态会话标题 */
+    draftTitle: string;
+    /** 模型徽标（P-3 入口位；点击行为 T3.3） */
+    modelTitle: string;
+    /** 设置齿轮（P-4 路由入口） */
+    settingsTitle: string;
+  };
+  /** P-1s 切换两阶段 + 分页（F(1.2).3；T3.2） */
+  paging: {
+    /** 恢复骨架状态行（n = 尾窗条数） */
+    status: string;
+    /** 输入禁用 placeholder */
+    placeholder: string;
+    /** 分页胶囊（n = 已载 / m = 全量）；加载尽后禁用态同文案 */
+    loadEarlier: string;
+    loadedCount: string;
+  };
+  /** 草稿空态（F(1.2).1：新建后主区空白聊天区） */
+  draftEmpty: {
+    title: string;
+    hint: string;
+  };
+  /** SubAgent 抽屉收起竖条（P-1 抽屉关闭态；M2 既有能力的入口位） */
+  rail: {
+    label: string;
+    open: string;
+  };
+  /** P-4 模型/厂商配置路由壳（页面本体 T3.3；本任务仅返回壳） */
+  settings: {
+    back: string;
+    title: string;
+  };
+  /** P-3 模型切换弹出菜单（features/model-switch；CL-3 F(3.3).1-F(3.3).3；T3.3） */
+  modelSwitch: {
+    searchPlaceholder: string;
+    emptyTitle: string;
+    emptySub: string;
+    resetToDefault: string;
+    effectiveHint: string;
+    configEntry: string;
+    defaultBadge: string;
+    switchedToast: string;
+    resetToast: string;
+  };
+  /** P-4 模型与厂商配置页（pages/settings；CL-3 F(3.4).1-F(3.4).6；T3.3） */
+  modelsConfig: {
+    subtitle: string;
+    defaultLabel: string;
+    defaultHint: string;
+    refresh: string;
+    refreshedJustNow: string;
+    refreshedAt: string;
+    authPathHint: string;
+    providersLabel: string;
+    unconfigured: string;
+    connUnverified: string;
+    connVerifying: string;
+    connOk: string;
+    connFail: string;
+    test: string;
+    changeKey: string;
+    deleteKey: string;
+    confirmDelete: string;
+    configureKey: string;
+    colModel: string;
+    colContext: string;
+    colInput: string;
+    colOutput: string;
+    colCacheRead: string;
+    colCacheWrite: string;
+    tableCaption: string;
+    defaultChip: string;
+    modalTitle: string;
+    modalSub: string;
+    apiKeyLabel: string;
+    apiKeyPlaceholder: string;
+    apiKeyEmptyErr: string;
+    modalHint: string;
+    cancel: string;
+    save: string;
+    keySavedToast: string;
+    keyDeletedToast: string;
+    refreshedToast: string;
+    defaultUpdatedToast: string;
+  };
   /** 时间戳格式（"HH:mm"） */
   tsFormat: string;
 }

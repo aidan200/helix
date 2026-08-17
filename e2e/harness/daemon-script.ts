@@ -53,6 +53,13 @@ export function slowReply(text: string, chunkDelayMs = 40, chunkSize = 8): Daemo
   return { kind: "reply", text, chunkSize, chunkDelayMs };
 }
 
+/** 便捷构造：纯回复（仍走最小分片流——真 daemon 帧序与 slowReply 同构，
+ *  T4.2 多会话/模型链路剧本用；无分片的即时回复会与草稿建会话链的快照
+ *  时序竞态，帧序统一走分片路径）。 */
+export function reply(text: string): DaemonScriptEntry {
+  return { kind: "reply", text, chunkSize: 12, chunkDelayMs: 25 };
+}
+
 /** 便捷构造：带 thinking 块的慢速回复（T5.3 R4 思考回看剧本）。
  *  thinking 全文先于正文流式分片发出；usage 附 reasoning=7。 */
 export function thinkingReply(thinking: string, text: string, chunkDelayMs = 30, chunkSize = 6): DaemonScriptEntry {

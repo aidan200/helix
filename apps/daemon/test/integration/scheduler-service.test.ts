@@ -108,6 +108,7 @@ class EngineInstanceRunner implements InstanceRunner {
 function makeHarness(options: {
   policy?: SchedulingPolicy;
   hangMs?: number;
+  clock?: ClockPort;
 }): Harness {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t21-sched-"));
   const writeQueue = new WriteQueue(path.join(home, "helix.db"));
@@ -121,7 +122,7 @@ function makeHarness(options: {
     },
     publishDelta: () => undefined,
   };
-  const clock: ClockPort = { now: () => FIXED_NOW };
+  const clock: ClockPort = options.clock ?? { now: () => FIXED_NOW, nowMs: () => Date.now() };
   const runner = new EngineInstanceRunner(options.hangMs ?? HANG_MS);
   const scheduler = new SchedulerService({
     policy: options.policy ?? new SchedulingPolicy(),
@@ -129,7 +130,6 @@ function makeHarness(options: {
     events: publisher,
     repository,
     clock,
-    sessionId: SESSION_ID,
     stalledPollMs: 40, // 小轮询：stalled 测试可控（K1 阈值注入配套）
   });
   return {
@@ -185,7 +185,7 @@ describe("① 预算内直跑 + ⑥ spawn 秒回（F1.3/F1.5）", () => {
   test("spawn 同步返回 run；spawned/started 事件即时发出；closure 未到（不等待）", () => {
     const h = (current = makeHarness({}));
     const t0 = Date.now();
-    const outcome = h.scheduler.spawn("调研调度器现状");
+    const outcome = h.scheduler.spawn(SESSION_ID, "调研调度器现状");
     expect(Date.now() - t0).toBeLessThan(50); // 秒回：不等 closure（挂起剧本 5s）
 
     expect(outcome).toEqual({ status: "run", agentId: "agent-1" });
@@ -201,7 +201,7 @@ describe("① 预算内直跑 + ⑥ spawn 秒回（F1.3/F1.5）", () => {
 
   test("profileKind 可指定（spawn 第二参）", () => {
     const h = (current = makeHarness({}));
-    h.scheduler.spawn("任务", "subagent-researcher");
+    h.scheduler.spawn(SESSION_ID, "任务", "subagent-researcher");
     expect(payloadsOf(h.events, "agent.spawned", "agent-1")[0]).toMatchObject({
       profileKind: "subagent-researcher",
     });
@@ -211,13 +211,13 @@ describe("① 预算内直跑 + ⑥ spawn 秒回（F1.3/F1.5）", () => {
 describe("② 第 4 个入队 + 位次递减重发（F1.3）", () => {
   test("3 running 后第 4 个 queued{position:1}；出队后位次整体递减且队首 started", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) expect(h.scheduler.spawn(`任务${i}`).status).toBe("run");
-    const fourth = h.scheduler.spawn("任务4");
+    for (let i = 1; i <= 3; i++) expect(h.scheduler.spawn(SESSION_ID, `任务${i}`).status).toBe("run");
+    const fourth = h.scheduler.spawn(SESSION_ID, "任务4");
     expect(fourth).toEqual({ status: "queued", agentId: "agent-4", position: 1 });
     expect(payloadsOf(h.events, "agent.queued", "agent-4")).toEqual([
       { agentId: "agent-4", position: 1 },
     ]);
-    const fifth = h.scheduler.spawn("任务5");
+    const fifth = h.scheduler.spawn(SESSION_ID, "任务5");
     expect(fifth).toEqual({ status: "queued", agentId: "agent-5", position: 2 });
 
     // 收口释放空位 → 队首出队 started；剩余位次递减重发（仅出队触发）
@@ -235,10 +235,10 @@ describe("② 第 4 个入队 + 位次递减重发（F1.3）", () => {
 describe("③ 队列满 reject（预算真实耗尽）", () => {
   test("3 running + 8 queued 后第 12 个 spawn 返回错误字符串；daemon 不崩且调度仍可用", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 11; i++) h.scheduler.spawn(`任务${i}`);
+    for (let i = 1; i <= 11; i++) h.scheduler.spawn(SESSION_ID, `任务${i}`);
     expect(h.scheduler.instance("agent-11")?.state).toBe("queued");
 
-    const rejected = h.scheduler.spawn("任务12");
+    const rejected = h.scheduler.spawn(SESSION_ID, "任务12");
     expect(rejected.status).toBe("rejected");
     if (rejected.status === "rejected") {
       expect(rejected.error).toContain("maxConcurrent");
@@ -257,10 +257,10 @@ describe("③ 队列满 reject（预算真实耗尽）", () => {
 describe("④ 收口事件 + agent_lifecycle 落盘（F1.8）", () => {
   test("done/failed 收口发 completed/failed 事件（closure 全字段）+ 生命周期行落盘", async () => {
     const h = (current = makeHarness({}));
-    h.scheduler.spawn("任务1");
-    h.scheduler.spawn("任务2");
-    h.scheduler.spawn("任务3");
-    h.scheduler.spawn("任务4"); // queued
+    h.scheduler.spawn(SESSION_ID, "任务1");
+    h.scheduler.spawn(SESSION_ID, "任务2");
+    h.scheduler.spawn(SESSION_ID, "任务3");
+    h.scheduler.spawn(SESSION_ID, "任务4"); // queued
 
     // 收口前读：queued 态投影已落盘（AD-10 指队列数据不落盘；生命周期行含 queued 投影）
     const beforeRows = await lifecycleRows(h);
@@ -290,7 +290,7 @@ describe("④ 收口事件 + agent_lifecycle 落盘（F1.8）", () => {
 
   test("领域事件行落 domain_events 且挂实例维（四维可查）", async () => {
     const h = (current = makeHarness({}));
-    h.scheduler.spawn("任务1");
+    h.scheduler.spawn(SESSION_ID, "任务1");
     h.runner.forceClosure("agent-1", { result: "done", closure: DONE_CLOSURE("ok") });
     await h.writeQueue.flush();
     const rows = h.writeQueue.database
@@ -307,9 +307,8 @@ describe("⑤ stalled 警示（不自动杀，可重复推）", () => {
       policy: new SchedulingPolicy({ stalledThresholdMs: 100 }),
       hangMs: 5_000,
     }));
-    h.scheduler.spawn("长任务");
+    h.scheduler.spawn(SESSION_ID, "长任务");
     await sleep(260); // 轮询 40ms × 数轮：launch 后长工具静默 → idle 持续超阈值
-
     const stalled = payloadsOf(h.events, "agent.stalled", "agent-1") as { agentId: string; idleMs: number }[];
     expect(stalled.length).toBeGreaterThanOrEqual(2); // 可重复推（§8.3）
     expect(stalled[0]?.agentId).toBe("agent-1");
@@ -327,6 +326,36 @@ describe("⑤ stalled 警示（不自动杀，可重复推）", () => {
     await sleep(90); // < 阈值窗口
     expect(payloadsOf(h.events, "agent.stalled", "agent-1").length).toBe(countAfterRefresh);
   });
+  test("双时间源统一（T1.3）：stalled 判定走注入时钟 nowMs——时钟推进超阈即警示，idleMs 精确、无需真实等待", async () => {
+    // 注入可变时钟：lastEventAt 记录与 stalled 判定全部读 clock.nowMs()（非 Date.now）——
+    // idleMs = 注入时钟差值，确定可断（真实墙钟则为 ~1.7e12 epoch，一眼可辨）
+    let ms = 1_000_000;
+    const h = (current = makeHarness({
+      policy: new SchedulingPolicy({ stalledThresholdMs: 100 }),
+      hangMs: 5_000,
+      clock: { now: () => FIXED_NOW, nowMs: () => ms },
+    }));
+    h.scheduler.spawn(SESSION_ID, "注入时钟长任务"); // startInstance → lastEventAt = 1_000_000
+    ms += 150; // 时钟推进超阈（150 > 100），真实墙钟零流逝
+    await waitForCondition(() => payloadsOf(h.events, "agent.stalled", "agent-1").length >= 1);
+
+    const stalled = payloadsOf(h.events, "agent.stalled", "agent-1") as { agentId: string; idleMs: number }[];
+    expect(stalled[0]!.idleMs).toBe(150); // 注入时钟差值（非 Date.now epoch）
+    expect(h.scheduler.instance("agent-1")?.state).toBe("running"); // 警示非迁移
+
+    // 事件增量刷新后基准重置：推进 30ms（< 阈值）不再推；再推 150ms 复现
+    h.runner.emitEvent("agent-1"); // → lastEventAt = 1_000_150
+    const base = payloadsOf(h.events, "agent.stalled", "agent-1").length;
+    ms += 30;
+    await sleep(60);
+    expect(payloadsOf(h.events, "agent.stalled", "agent-1").length).toBe(base);
+    ms += 150;
+    await waitForCondition(
+      () => payloadsOf(h.events, "agent.stalled", "agent-1").length >= base + 1,
+    );
+    const refreshed = payloadsOf(h.events, "agent.stalled", "agent-1") as { agentId: string; idleMs: number }[];
+    expect(refreshed[refreshed.length - 1]!.idleMs).toBe(180); // 自刷新基准（1_000_150 → 1_000_330）
+  });
 });
 
 describe("K4：maxConcurrent/maxQueued 经 tmp home config.json 覆写生效", () => {
@@ -340,18 +369,18 @@ describe("K4：maxConcurrent/maxQueued 经 tmp home config.json 覆写生效", (
       );
       // 动态 import 避免与本文件顶部静态导入顺序耦合
       const { loadConfig } = require("../../src/infrastructure/config");
-      const cfg = loadConfig(path.join(home, "config.json"));
+      const cfg = loadConfig(path.join(home, "config.json")).config; // T2.3：{config, legacy} 形态
       expect(cfg.maxConcurrent).toBe(2);
       expect(cfg.maxQueued).toBe(4);
 
       const h = (current = makeHarness({
         policy: new SchedulingPolicy({ maxConcurrent: cfg.maxConcurrent!, maxQueued: cfg.maxQueued! }),
       }));
-      expect(h.scheduler.spawn("a").status).toBe("run");
-      expect(h.scheduler.spawn("b").status).toBe("run");
-      expect(h.scheduler.spawn("c")).toEqual({ status: "queued", agentId: "agent-3", position: 1 });
-      for (let i = 4; i <= 6; i++) expect(h.scheduler.spawn(`t${i}`).status).toBe("queued");
-      expect(h.scheduler.spawn("g").status).toBe("rejected"); // 2 running + 4 queued
+      expect(h.scheduler.spawn(SESSION_ID, "a").status).toBe("run");
+      expect(h.scheduler.spawn(SESSION_ID, "b").status).toBe("run");
+      expect(h.scheduler.spawn(SESSION_ID, "c")).toEqual({ status: "queued", agentId: "agent-3", position: 1 });
+      for (let i = 4; i <= 6; i++) expect(h.scheduler.spawn(SESSION_ID, `t${i}`).status).toBe("queued");
+      expect(h.scheduler.spawn(SESSION_ID, "g").status).toBe("rejected"); // 2 running + 4 queued
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -361,9 +390,9 @@ describe("K4：maxConcurrent/maxQueued 经 tmp home config.json 覆写生效", (
 describe("F1.9 非线性红线：乱序/交织/幂等", () => {
   test("queued 直接收口 failed：摘队、位次递减、不释放空位（仍 3 running）", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) h.scheduler.spawn(`任务${i}`);
-    h.scheduler.spawn("任务4"); // pos 1
-    h.scheduler.spawn("任务5"); // pos 2
+    for (let i = 1; i <= 3; i++) h.scheduler.spawn(SESSION_ID, `任务${i}`);
+    h.scheduler.spawn(SESSION_ID, "任务4"); // pos 1
+    h.scheduler.spawn(SESSION_ID, "任务5"); // pos 2
 
     h.runner.forceClosure("agent-4", {
       result: "failed",
@@ -382,10 +411,10 @@ describe("F1.9 非线性红线：乱序/交织/幂等", () => {
 
   test("running 收口后同任务新 id 重派：新实例新 id，终态实例不复活", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) h.scheduler.spawn("同任务");
+    for (let i = 1; i <= 3; i++) h.scheduler.spawn(SESSION_ID, "同任务");
     h.runner.forceClosure("agent-1", { result: "done", closure: DONE_CLOSURE("第一轮完成") });
 
-    const re = h.scheduler.spawn("同任务");
+    const re = h.scheduler.spawn(SESSION_ID, "同任务");
     expect(re).toEqual({ status: "run", agentId: "agent-4" }); // 新 id（重派 = 新实例，第 4 次 spawn）
     expect(h.scheduler.instance("agent-4")?.state).toBe("running");
     expect(h.scheduler.instance("agent-1")?.state).toBe("done"); // 终态保持
@@ -400,8 +429,8 @@ describe("F1.9 非线性红线：乱序/交织/幂等", () => {
 
   test("kill 路径：running kill 收口 killed（closure failed）+ 释放空位；迟到自然收口幂等", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) h.scheduler.spawn(`任务${i}`);
-    h.scheduler.spawn("任务4"); // queued
+    for (let i = 1; i <= 3; i++) h.scheduler.spawn(SESSION_ID, `任务${i}`);
+    h.scheduler.spawn(SESSION_ID, "任务4"); // queued
 
     h.scheduler.kill("agent-2");
     expect(payloadsOf(h.events, "agent.killed", "agent-2").length).toBe(1);
@@ -419,9 +448,9 @@ describe("F1.9 非线性红线：乱序/交织/幂等", () => {
 
   test("kill 非线性边界：queued 可 kill（摘队）；未知 id/已终态 kill 幂等不崩", async () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) h.scheduler.spawn(`任务${i}`);
-    h.scheduler.spawn("任务4");
-    h.scheduler.spawn("任务5");
+    for (let i = 1; i <= 3; i++) h.scheduler.spawn(SESSION_ID, `任务${i}`);
+    h.scheduler.spawn(SESSION_ID, "任务4");
+    h.scheduler.spawn(SESSION_ID, "任务5");
 
     h.scheduler.kill("agent-4"); // queued 状态被销毁
     expect(h.scheduler.instance("agent-4")?.state).toBe("failed");
@@ -443,8 +472,8 @@ describe("F1.9 非线性红线：乱序/交织/幂等", () => {
 
   test("多实例事件交织：事件增量/收口交错不崩、无非法半态、每实例恰一个终态", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) h.scheduler.spawn(`任务${i}`);
-    h.scheduler.spawn("任务4");
+    for (let i = 1; i <= 3; i++) h.scheduler.spawn(SESSION_ID, `任务${i}`);
+    h.scheduler.spawn(SESSION_ID, "任务4");
 
     // 交织：running 实例事件增量交错 + 部分收口 + 排队实例事件（防御：未知/终态忽略）
     h.runner.emitEvent("agent-1");
@@ -469,4 +498,13 @@ describe("F1.9 非线性红线：乱序/交织/幂等", () => {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 轮询等待条件成立（测试侧墙钟；超时地 2s）。 */
+async function waitForCondition(pred: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const t0 = Date.now();
+  while (!pred()) {
+    if (Date.now() - t0 > timeoutMs) throw new Error("waitForCondition 超时");
+    await sleep(10);
+  }
 }

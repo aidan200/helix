@@ -73,7 +73,7 @@ test.describe("TC4.1 CL-7×CL-8 重启恢复端到端（真 daemon，TP-CL8-8 / 
     const toast = page.locator(".toast.ok");
     await expect(toast).toBeVisible({ timeout: 10_000 });
     await expect(toast).toContainText("会话已恢复");
-    await expect(toast.locator(".t-sub")).toContainText("4 条投影已重建");
+    await expect(toast.locator(".t-sub")).toContainText("消息 4 条 · 实例/通道/账目投影已重建");
     await expect(page.locator(".conn-banner")).toBeHidden();
     await expect(page.locator(".conn-overlay")).toBeHidden();
 
@@ -101,7 +101,7 @@ test.describe("TC4.1 CL-7×CL-8 重启恢复端到端（真 daemon，TP-CL8-8 / 
       [
         "TC4.1-a 重启后消息视图一致：PASS",
         `conn 序列: ${seq.join(" → ")}`,
-        "恢复 toast: 会话已恢复 / 4 条投影已重建",
+        "恢复 toast: 会话已恢复 / 消息 4 条 · 实例/通道/账目投影已重建",
         "两轮 user+assistant 消息重启后全部在场",
       ].join("\n"),
       "CL-7-CL-8",
@@ -142,7 +142,7 @@ test.describe("TC4.1 CL-7×CL-8 重启恢复端到端（真 daemon，TP-CL8-8 / 
     // 计数 5 条（D-1 修复后构成）= user(读取) + assistant(续写) + tool(read)
     //              + user(第一轮) + assistant(第一轮回复)——工具调用以
     // tool-call 条目并入快照（不再产生 assistant 占位文本条目，TS3-a）。
-    await expect(page.locator(".toast.ok").locator(".t-sub")).toContainText("5 条投影已重建", {
+    await expect(page.locator(".toast.ok").locator(".t-sub")).toContainText("消息 5 条 · 实例/通道/账目投影已重建", {
       timeout: 10_000,
     });
     await shotEvidence(page, "restart-recovery-after-toolcard", "CL-7-CL-8"); // 重启后：工具卡随快照重建

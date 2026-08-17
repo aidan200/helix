@@ -13,6 +13,7 @@
  * harness/protocol.ts 直引 @helix/protocol 类型。
  */
 import { test, expect } from "./harness/fixtures";
+import { shotEvidence, writeEvidence } from "./harness/evidence";
 import {
   agentCompleted,
   agentFailed,
@@ -168,5 +169,18 @@ test.describe("T4.4 S1 CL-1 编排主线（四态卡/排队/秒回/done·failed�
     await expect(page.locator(".sa-card.running")).toHaveCount(1);
     await mock.emit(messageCompleted(msgEntry("m-main-1", "assistant", "编排事件族驱动卡片，通道族驱动账目。（完）")));
     await expect(page.locator(".msg.assistant", { hasText: "通道族驱动账目" })).toBeVisible();
+
+    await shotEvidence(page, "orchestration-mainline-coexist", "CL-1");
+    writeEvidence(
+      "orchestration-mainline",
+      "txt",
+      [
+        "T4.4 S1 CL-1 编排主线（四态卡/排队/秒回/done·failed）",
+        "断言: 四态互斥清点/closure 双通道（注入文本不占 UI 位）/位次递减重发/",
+        "  spawn 秒回 toast/主线与实例流共存",
+        "结果: PASS",
+      ].join("\n"),
+      "CL-1",
+    );
   });
 });

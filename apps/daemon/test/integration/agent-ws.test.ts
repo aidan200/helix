@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { createDaemon } from "../../src/infrastructure/container";
+import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 import type { Daemon } from "../../src/infrastructure/container";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import type { AgentEngineEvent } from "../../src/application/ports/outbound/AgentEnginePort";
@@ -48,13 +49,13 @@ class KillableRunner implements InstanceRunner {
 
 /** 收集帧的 loopback WS 测试客户端（Bun 内建 WebSocket）。 */
 class TestClient {
-  readonly frames: { v: number; type: string; instanceId?: string; payload: Record<string, unknown> }[] = [];
+  readonly frames: { v: FrameVersion; type: string; instanceId?: string; payload: Record<string, unknown> }[] = [];
   private readonly ws: WebSocket;
 
   constructor(url: string, token: string) {
     this.ws = new WebSocket(url);
     this.ws.onopen = () => {
-      this.ws.send(JSON.stringify({ v: 0, type: "hello", payload: { token, protocolVersion: 0 } }));
+      this.ws.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "hello", payload: { token, protocolVersion: PROTOCOL_VERSION } }));
     };
     this.ws.onmessage = (ev: MessageEvent) => {
       this.frames.push(JSON.parse(String(ev.data)));

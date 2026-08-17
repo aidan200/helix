@@ -35,9 +35,11 @@ const Composer = function Composer() {
 
   const placeholder = canSend
     ? t("chat.composer.placeholder")
-    : state.conn === "connecting"
-      ? t("chat.composer.placeholderConnecting")
-      : t("chat.composer.placeholderWaiting");
+    : state.conn === "connected" && state.view === "loading"
+      ? t("chat.paging.placeholder") // P-1s 切换恢复：输入禁用占位（快照到达恢复）
+      : state.conn === "connecting"
+        ? t("chat.composer.placeholderConnecting")
+        : t("chat.composer.placeholderWaiting");
 
   const onSend = useCallback(() => {
     if (!canSend) return;

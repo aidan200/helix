@@ -14,7 +14,8 @@ import {
   usageDto,
   type ClientFrame,
 } from "./protocol";
-import type { EntryDto, SessionUsageDto } from "../../packages/protocol/src/index";
+import type { CatalogModel, EntryDto, SessionMeta, SessionUsageDto } from "@helix/protocol";
+import { catalogModel, sessionMeta } from "./protocol";
 
 // ── S1 多轮流式：富 markdown 回复（加粗/行内 code/列表/代码块）──────
 
@@ -277,3 +278,89 @@ export const REBUILD_USAGE: SessionUsageDto = {
 export function findCommand(frames: ClientFrame[], type: string): ClientFrame | undefined {
   return frames.find((f) => f && f.type === type);
 }
+
+// ── M3 多会话族（T3.1；test-design §4.2 扩展点；CL-1 F(1.2)/F(1.0).5）──
+// 纪律：断言值全部取自本文件（不凭空构造）；K-4 参数注入——尾窗/分页按
+// 参数构造（N > 尾窗），断言相对参数而非绝对值。
+
+/** 剧本尾窗参数（G-1 对齐 daemon 默认；断言相对本参数） */
+export const MULTI_TAIL_WINDOW = 30;
+/** 超尾窗历史总量（N > 尾窗：切换/分页剧本构造） */
+export const MULTI_HISTORY_TOTAL = MULTI_TAIL_WINDOW + 15;
+
+export const MULTI_SESSION_A = "sess-multi-a";
+export const MULTI_SESSION_B = "sess-multi-b";
+export const MULTI_TITLE_A = "主线会话（活跃）";
+export const MULTI_TITLE_B = "后台续跑会话";
+
+/** 会话清单（session.list.result 载荷；A 活跃在前） */
+export function multiSessionList(): SessionMeta[] {
+  return [
+    sessionMeta(MULTI_SESSION_A, { title: MULTI_TITLE_A, lastActivityAt: 2_000, runState: "idle" }),
+    sessionMeta(MULTI_SESSION_B, { title: MULTI_TITLE_B, lastActivityAt: 1_500, runState: "streaming", loaded: false }),
+  ];
+}
+
+/** 超尾窗历史构造（user/assistant 交替，id = e{n} 升序，ts 递增；参数注入）。 */
+export function multiHistoryEntries(total: number): EntryDto[] {
+  return Array.from({ length: total }, (_, i) => {
+    const n = i + 1;
+    return msgEntry(`e${n}`, n % 2 === 1 ? "user" : "assistant", `历史第 ${n} 条（共 ${total} 条）`, {
+      ts: 1_000 + n,
+    });
+  });
+}
+
+/** 按尾窗参数切尾（与 daemon toSnapshotDto 切法对齐：主轴末 tailSize 条）。 */
+export function multiTail(
+  entries: EntryDto[],
+  tailSize: number = MULTI_TAIL_WINDOW,
+): { tail: EntryDto[]; totalEntries: number; tailStartCursor: string | null } {
+  const tail = entries.length > tailSize ? entries.slice(entries.length - tailSize) : entries;
+  return {
+    tail,
+    totalEntries: entries.length,
+    tailStartCursor: entries.length > tail.length ? (tail[0]?.id ?? null) : null,
+  };
+}
+
+/** B 会话后台流式帧段（未读跳动驱动面；收帧计数） */
+export const MULTI_B_DELTAS = [
+  "后台第一段增量：调度器仍在跑。",
+  "后台第二段增量：预算内继续。",
+  "后台第三段增量：接近收口。",
+];
+export const MULTI_B_MSG_ID = "bg-stream-1";
+/** B 会话切回时尾窗内容（重建可见性） */
+export const MULTI_B_TAIL_TEXT = "后台会话尾窗首条（切换重建可见）";
+
+/** 草稿建会话剧本（CL-2 F(1.2).1；T3.2）：首条消息 → list_changed{created}
+ *  + 快照转活跃；标题 = daemon 命名规则（首条用户消息前 20 字符，Unicode
+ *  码点）的 mock 镜像（断言取本常量，不凭空构造）。 */
+export const MULTI_NEW_SESSION = "sess-created-1";
+export const MULTI_DRAFT_TEXT = "把调度器竞态修复落进 SchedulerService 并补 F 层回归剧本";
+export const MULTI_DRAFT_TITLE = Array.from(MULTI_DRAFT_TEXT).slice(0, 20).join("");
+
+// ── M3 模型族（T3.1；目录数据 = 契约 C CatalogModel 字段结构；P-3/P-4 载体）──
+
+/**
+ * 目录合并剧本（P-3 mock 载体 6 provider × 11 模型同构；provider/model-id
+ * 完整 id + ctx chip + 四费率 $/1M）。来源混合：builtin 静态表 + overlay。
+ */
+export const MODEL_CATALOG: CatalogModel[] = [
+  catalogModel("anthropic/claude-opus-4-1", 200_000, { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 }),
+  catalogModel("anthropic/claude-sonnet-4-5", 200_000, { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }),
+  catalogModel("anthropic/claude-haiku-4", 200_000, { input: 0.8, output: 4 }, "overlay"),
+  catalogModel("openai/gpt-5.2", 400_000, { input: 1.25, output: 10, cacheRead: 0.125 }),
+  catalogModel("openai/gpt-5-mini", 400_000, { input: 0.25, output: 2 }),
+  catalogModel("google/gemini-3-pro", 1_000_000, { input: 2, output: 12 }, "overlay"),
+  catalogModel("google/gemini-2.5-flash", 1_000_000, { input: 0.3, output: 2.5 }),
+  catalogModel("deepseek/deepseek-v3.2", 128_000, { input: 0.27, output: 1.1 }),
+  catalogModel("deepseek/deepseek-reasoner", 128_000, { input: 0.55, output: 2.19 }),
+  catalogModel("moonshot/kimi-k2", 256_000, { input: 0.6, output: 2.5 }),
+  catalogModel("xai/grok-4", 256_000, { input: 3, output: 15 }, "overlay"),
+];
+
+/** model.changed 剧本（运行期换模：徽标即时同步数据源） */
+export const MODEL_FROM = "anthropic/claude-sonnet-4-5";
+export const MODEL_TO = "openai/gpt-5.2";

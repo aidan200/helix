@@ -92,6 +92,21 @@ export class AgentRuntime {
     return this.agent.state.isStreaming;
   }
 
+  /**
+   * 运行期换模（T2.3 AD-2）：AgentState.model 直改——pi 语义「Active model
+   * used for future turns」：in-flight run 的 loop config 已快照模型不受影响，
+   * 下一 run（drive）起生效。不走 prepareNextTurn 链（CompactionHook 占用
+   * 且「首个非空生效」会短路，换模与压缩同 turn 触发会丢失——机械裁决）。
+   */
+  setModel(model: Model<any>): void {
+    this.agent.state.model = model;
+  }
+
+  /** 当前模型（可观测面：快照/徽标数据源）。 */
+  get stateModel(): Model<any> {
+    return this.agent.state.model;
+  }
+
   /** 事件订阅（转发 pi AgentEvent；退订函数返回）。 */
   subscribe(listener: (event: AgentEvent, signal: AbortSignal) => void): () => void {
     return this.agent.subscribe(listener);

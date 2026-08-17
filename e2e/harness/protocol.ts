@@ -7,12 +7,18 @@
 import type {
   AgentInstanceDto,
   AgentStateDto,
+  CatalogModel,
   ChatRole,
   ClosureDto,
   CompactionEntryDto,
   EntryDto,
   EventEnvelope,
   MessageEntryDto,
+  ModelChangedEvent,
+  SessionListChangedEvent,
+  SessionListResultEvent,
+  SessionLoadHistoryResultEvent,
+  SessionMeta,
   SessionSnapshotDto,
   SessionUsageDto,
   SteerState,
@@ -20,9 +26,11 @@ import type {
   ToolCallEntryDto,
   ToolCallState,
   UsageDto,
-} from "../../packages/protocol/src/index";
+} from "@helix/protocol";
+import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 
-const V = 0;
+/** 帧版本位单点（F-2⑭ 收口：v0.2 起改引协议常量，零字面量） */
+const V = PROTOCOL_VERSION;
 
 // ── entry 构造 ──────────────────────────────────────────────
 
@@ -310,10 +318,267 @@ export function usageRecorded(
   return { v: V, type: "usage.recorded", payload: { instanceId, usage, source } };
 }
 
-// ── C→S 命令帧形状（断言 hello / chat.send / chat.steer 用）────
+// ── v0.2 多会话/模型族构造（T3.1；信封 sessionId/channel 章印与 daemon 下发侧同构）──
+
+/** 会话清单元数据（session.list / list_changed 元素；契约 B §1.1）。 */
+export function sessionMeta(
+  sessionId: string,
+  opts: { title?: string; lastActivityAt?: number; runState?: SessionMeta["runState"]; loaded?: boolean } = {},
+): SessionMeta {
+  return {
+    sessionId,
+    title: opts.title ?? sessionId,
+    lastActivityAt: opts.lastActivityAt ?? 1_000,
+    runState: opts.runState ?? "idle",
+    loaded: opts.loaded ?? true,
+  };
+}
+
+/** session.list.result（点对点回执；信封 sessionId = SYSTEM_SESSION_ID）。 */
+export function sessionListResult(sessions: SessionMeta[]): SessionListResultEvent {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "session",
+    type: "session.list.result",
+    payload: { sessions },
+  };
+}
+
+/** session.list_changed（系统级广播；契约 B §2.1）。 */
+export function sessionListChanged(
+  kind: "created" | "deleted" | "state_changed",
+  opts: { sessionId?: string; session?: SessionMeta } = {},
+): SessionListChangedEvent {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "session",
+    type: "session.list_changed",
+    payload: { kind, ...(opts.sessionId !== undefined ? { sessionId: opts.sessionId } : {}), ...(opts.session !== undefined ? { session: opts.session } : {}) },
+  };
+}
+
+/**
+ * v0.2 尾窗快照（AD-1，契约 B §2.2）：信封章印 + 尾窗分页指示
+ * （totalEntries/tailStartCursor）+ 可选 instances[].channels（F-14⑤）。
+ */
+export function v02Snapshot(
+  sessionId: string,
+  opts: {
+    model?: string;
+    agentState?: AgentStateDto;
+    /** 主时间轴尾窗条目（快照 entries 与 tail 同源，契约 B §2.2） */
+    tail?: EntryDto[];
+    /** 全量计数（分页指示） */
+    totalEntries?: number;
+    /** 尾窗最早 entry id；null = 已含全部历史（禁用加载更早） */
+    tailStartCursor?: string | null;
+    instances?: AgentInstanceDto[];
+    usage?: SessionUsageDto;
+  } = {},
+): EventEnvelope {
+  const tail = opts.tail ?? [];
+  const snap: SessionSnapshotDto = {
+    sessionId,
+    model: opts.model ?? "claude-sonnet-4-5",
+    agentState: opts.agentState ?? "idle",
+    revision: tail.length,
+    entries: tail,
+    tail,
+    ...(opts.totalEntries !== undefined ? { totalEntries: opts.totalEntries } : {}),
+    ...(opts.tailStartCursor !== undefined ? { tailStartCursor: opts.tailStartCursor } : {}),
+    ...(opts.instances !== undefined ? { instances: opts.instances } : {}),
+    ...(opts.usage !== undefined ? { usage: opts.usage } : {}),
+  };
+  return {
+    v: V,
+    sessionId,
+    channel: "session",
+    type: "session.snapshot",
+    payload: { snapshot: snap },
+  };
+}
+
+/** session.loadHistory.result（点对点回执；信封 sessionId = 目标会话）。 */
+export function loadHistoryResult(
+  sessionId: string,
+  payload: { entries: EntryDto[]; hasMore: boolean; nextCursor: string | null },
+): SessionLoadHistoryResultEvent {
+  return {
+    v: V,
+    sessionId,
+    channel: "session",
+    type: "session.loadHistory.result",
+    payload,
+  };
+}
+
+/** model.changed（运行期换模生效广播；契约 C §2.1）。 */
+export function modelChanged(sessionId: string, model: string, previous: string): ModelChangedEvent {
+  return {
+    v: V,
+    sessionId,
+    channel: "model",
+    type: "model.changed",
+    payload: { sessionId, model, previous, effective: "next-turn" },
+  };
+}
+
+// ── model / auth 命令结果帧（契约 C §1/§2.2；T3.3 P-3/P-4 剧本回放面）────
+// 信封惯例：全局命令结果 sessionId = SYSTEM_SESSION_ID；model.get.result
+// 例外（会话级——信封 sessionId = 目标会话，与 loadHistoryResult 同构）。
+
+/** model.get.result（会话当前模型 + 与全局默认关系；信封 sessionId = 目标会话）。 */
+export function modelGetResult(
+  sessionId: string,
+  payload: { model: string; isDefault: boolean; defaultModel: string },
+): EventEnvelope {
+  return { v: V, sessionId, channel: "model", type: "model.get.result", payload };
+}
+
+/** model.catalog.result（目录快照；4h 缓存口径）。 */
+export function modelCatalogResult(
+  models: CatalogModel[],
+  opts: { refreshedAt?: number; source?: "cache" | "builtin" | "remote" } = {},
+): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "model.catalog.result",
+    payload: { models, refreshedAt: opts.refreshedAt ?? Date.now(), source: opts.source ?? "builtin" },
+  };
+}
+
+/** model.catalog_refresh.result（强制刷新快照 + degraded 降级明细）。 */
+export function modelCatalogRefreshResult(
+  models: CatalogModel[],
+  opts: { refreshedAt?: number; source?: "cache" | "builtin" | "remote"; degraded?: string[] } = {},
+): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "model.catalog_refresh.result",
+    payload: {
+      models,
+      refreshedAt: opts.refreshedAt ?? Date.now(),
+      source: opts.source ?? "remote",
+      degraded: opts.degraded ?? [],
+    },
+  };
+}
+
+/** model.get_default.result（全局默认读面；SQLite）。 */
+export function modelGetDefaultResult(model: string): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "model.get_default.result",
+    payload: { model },
+  };
+}
+
+/** model.set_default.result（全局默认变更回执；previous = 变更前默认）。 */
+export function modelSetDefaultResult(previous: string): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "model.set_default.result",
+    payload: { previous },
+  };
+}
+
+/** auth.list.result（provider 凭据清单；脱敏）。 */
+export function authListResult(
+  providers: { providerId: string; configured: boolean; keyMasked?: string; verifyStatus?: "ok" | "fail" | "unverified" }[],
+): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "auth.list.result",
+    payload: { providers },
+  };
+}
+
+/** auth.set_key.result（写入回执；掩码形式）。 */
+export function authSetKeyResult(keyMasked: string): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "auth.set_key.result",
+    payload: { keyMasked },
+  };
+}
+
+/** auth.delete_key.result（无数据体）。 */
+export function authDeleteKeyResult(): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "auth.delete_key.result",
+    payload: {},
+  };
+}
+
+/** auth.verify.result（连通验证；fail 为正常结果非 error）。 */
+export function authVerifyResult(
+  result: { status: "ok"; latencyMs: number } | { status: "fail"; reason: string },
+): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "auth.verify.result",
+    payload: result,
+  };
+}
+
+/** 后台会话流式帧（chat.stream.delta 带信封 sessionId 章印——未读跳动驱动面）。 */
+export function backgroundStreamDelta(sessionId: string, messageId: string, delta: string): EventEnvelope {
+  return {
+    v: V,
+    sessionId,
+    channel: "chat",
+    type: "chat.stream.delta",
+    payload: { messageId, delta },
+  };
+}
+
+/** 模型目录剧本数据构造（契约 C §1.2 CatalogModel 字段结构；P-3/P-4 载体）。 */
+export function catalogModel(
+  id: string,
+  contextWindow: number,
+  cost: { input: number; output: number; cacheRead?: number; cacheWrite?: number },
+  source: "builtin" | "overlay" = "builtin",
+): CatalogModel {
+  const [providerId, ...rest] = id.split("/");
+  return {
+    id,
+    providerId: rest.length > 0 ? providerId! : id,
+    contextWindow,
+    cost: {
+      input: cost.input,
+      output: cost.output,
+      cacheRead: cost.cacheRead ?? 0,
+      cacheWrite: cost.cacheWrite ?? 0,
+    },
+    source,
+  };
+}
+
+// ── C→S 命令帧形状（断言 hello / chat.send / chat.steer / session.* 用）────
 
 export interface ClientFrame {
   v: number;
   type: string;
   payload: unknown;
+  /** 会话路由位（v0.2，AD-4）：会话作用域命令必填；全局命令缺省 */
+  sessionId?: string;
 }

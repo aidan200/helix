@@ -276,8 +276,8 @@ describe("③ 用户 steer 与 closure 注入混序 FIFO（同队列按序 drain
   }, 20000);
 });
 
-describe("④ SubAgent 内部工具调用只进 per-instance 事件流（AD-8 铁律）", () => {
-  test("工具事件挂 instanceId 落盘广播；主线聚合与 MainAgent 上下文零混入", async () => {
+describe("④ SubAgent 实例事件进 per-instance 面（AD-8 → AD-3 演进，T2.1）", () => {
+  test("工具事件挂 instanceId 落盘广播 + 会话投影落记录；主线 turn 与 MainAgent 上下文零混入", async () => {
     const rig = (current = await makeRig());
     rig.daemon.orchestration.spawn("用工具调研");
     expect(rig.runner.launched.length).toBe(1);
@@ -305,11 +305,20 @@ describe("④ SubAgent 内部工具调用只进 per-instance 事件流（AD-8 �
     expect(started.payload).toMatchObject({ toolCallId: "sub-tc-1", toolName: "grep" });
     expect(result.payload).toMatchObject({ toolCallId: "sub-tc-1", args: { pattern: "closure" }, result: "closure-chain.test.ts:1", isError: false });
 
-    // 主线聚合零混入：主线工具记录空、会话 Entry 无 SubAgent 工具条目
-    expect(snapshot(rig).toolCalls).toEqual([]);
-    expect(snapshot(rig).session.entries.filter((e) => e.instanceId === "agent-1")).toEqual([]);
-    // MainAgent 上下文：主线未开任何 turn（注入未发生）
+    // T2.1（AD-3）：会话投影消费工具事件 → SubAgent 工具记录进快照取数面
+    //（instanceId 行级归属 agent-1；主线工具记录仍在 ChatService——此处主线
+    // 无工具，故快照 toolCalls 恰为该 SubAgent 记录）
+    const toolCalls = snapshot(rig).toolCalls;
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]!.id).toBe("sub-tc-1");
+    expect(toolCalls[0]!.instanceId).toBe("agent-1");
+    expect(toolCalls[0]!.status).toBe("completed");
+
+    // MainAgent 上下文零混入：SubAgent 消息 Entry 不挂主线 turn；主线未开任何
+    // turn（closure 未发生）——工具记录经 per-instance 面（instances[].channels/
+    // 实例抽屉），不进主线消息流
     expect(snapshot(rig).session.turns).toEqual([]);
+    expect(snapshot(rig).session.entries.filter((e) => e.instanceId === "agent-1")).toEqual([]);
   }, 12000);
 });
 

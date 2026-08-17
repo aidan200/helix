@@ -53,11 +53,18 @@ describe("② 显式传参（spy 断言）", () => {
     expect(() => resolveModel(spyModels, "x/unknown")).toThrow(/不在 pi-ai 静态目录/);
   });
 
-  test("explicitGetApiKey 返回 config.json 的 key（显式传值，缺 key fail-fast）", () => {
+  test("explicitGetApiKey 返回显式 key（静态表或 auth.json getter；缺 key fail-fast）", () => {
     const getApiKey = explicitGetApiKey({ anthropic: "sk-test-123" });
     // spy：返回值即被显式放进 stream options.apiKey 的值（AD-11/13 链路）
     expect(getApiKey("anthropic")).toBe("sk-test-123");
-    expect(() => getApiKey("openai")).toThrow(/config\.json 的 apiKeys/);
+    // T2.3（AD-2）：数据源改 auth.json——getter 形态读现值（换 key 下一请求生效）
+    let table = { anthropic: "sk-live-1" };
+    const liveGetApiKey = explicitGetApiKey(() => table);
+    expect(liveGetApiKey("anthropic")).toBe("sk-live-1");
+    table = { anthropic: "sk-live-2" };
+    expect(liveGetApiKey("anthropic")).toBe("sk-live-2");
+    expect(() => liveGetApiKey("openai")).toThrow(/auth\.json/);
+    expect(() => getApiKey("openai")).toThrow(/auth\.json/);
   });
 });
 

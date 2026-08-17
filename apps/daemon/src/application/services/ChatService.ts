@@ -1,12 +1,12 @@
 import type { ChatPort, SendOutcome } from "../ports/inbound/ChatPort";
 import type { AgentEngineEvent, AgentEnginePort } from "../ports/outbound/AgentEnginePort";
-import type { SessionRepositoryPort } from "../ports/outbound/SessionRepositoryPort";
 import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../ports/outbound/ClockPort";
 import { AgentLifecycle, type AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
 import { Session } from "../../domain/session/Session";
 import type { ThinkingEntryData } from "../../domain/session/ThinkingEntry";
-import { MAIN_INSTANCE_ID } from "../../domain/agent/AgentInstance";
+// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { UsageSummary } from "../../domain/session/SessionSnapshot";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { ZERO_USAGE } from "../../domain/session/UsageLedger";
@@ -51,15 +51,14 @@ import type {
  * 全部聚合在 domain，本服务只编排不改写规则；引擎侧状态（pi Agent.state）
  * 仅经事件回流投影到聚合。流式中间态（delta）不是领域事件、不落盘。
  *
- * 【持久化钩子】agent_end 后整体快照经 SessionRepositoryPort 落盘
- * （write-through，T1.8 接 SQLite 单写队列；当前 InMemory）。
+ * 【持久化】（T2.1 AD-3 §3.2②）：write-through 触发点已迁至会话投影消费者
+ * （SessionProjection——组合根 fan-out 目标）；本服务只产事件，每个里程碑
+ * 领域事件发布后由投影落领域状态整体（先事件行后状态行，全局 FIFO）。
  */
 export interface ChatServiceDeps {
   /** agent 引擎（pi 防腐墙后的驱动出口）。 */
   readonly engine: AgentEnginePort;
-  /** 领域状态持久化（write-through）。 */
-  readonly repository: SessionRepositoryPort;
-  /** 事件流发布（领域事件 + 流式 delta）。 */
+  /** 事件流发布（领域事件 + 流式 delta；write-through 归会话投影消费者）。 */
   readonly events: EventPublisherPort;
   /** 时间源（领域事件/条目时间戳，测试可控）。 */
   readonly clock: ClockPort;
@@ -81,6 +80,12 @@ export class ChatService implements ChatPort {
   /** 本 assistant 消息内在途的 thinking 块（contentIndex → 块序号计时；message_end 时落 Entry）。 */
   private readonly thinkingStarts = new Map<number, string>();
   private pendingThinking: { contentIndex: number; text: string; startedAt: string }[] = [];
+  /**
+   * 当前在飞 run 的 promise（T2.2 AD-4 删除收口链）：sendMessage idle 分支
+   * 开 run 时登记、收口时清空——whenSettled() 供注册表删除前等待主线收口
+   * （「取消完成 → 删库」的完成判据）。
+   */
+  private activeRun: Promise<void> | null = null;
 
   constructor(private readonly deps: ChatServiceDeps) {
     this.session = deps.session ?? Session.create();
@@ -107,6 +112,24 @@ export class ChatService implements ChatPort {
   }
   get agentState(): AgentLifecycleState {
     return this.lifecycle.current;
+  }
+  /**
+   * 会话当前模型 id（T2.3 AD-2："provider/model-id"；引擎不暴露时
+   * undefined——调用方回退全局默认）。快照/徽标 model 位数据源。
+   */
+  get currentModel(): string | undefined {
+    return this.deps.engine.currentModel?.();
+  }
+  /**
+   * 运行期换模（T2.3 AD-2：经 AgentEnginePort.setModel 域内扩面，下一
+   * turn 生效；per-session——本服务实例即会话维）。引擎不支持即抛错
+   * （不静默吞——调用方可观测）。
+   */
+  setModel(modelId: string): void {
+    if (this.deps.engine.setModel === undefined) {
+      throw new Error(`引擎未实现运行期换模接口（AgentEnginePort.setModel），无法切换到 ${modelId}`);
+    }
+    this.deps.engine.setModel(modelId);
   }
   /** 聚合只读访问（SessionService 快照取数；组合根接线用）。 */
   get sessionView() {
@@ -151,12 +174,20 @@ export class ChatService implements ChatPort {
         // ③ 生命周期 idle→running，驱动引擎（await 到整个 run 结束：
         //    含工具轮与 steer drain 轮——run 内的后续动作都由引擎事件回流驱动）
         this.setLifecycle("running");
+        const run = (async () => {
+          try {
+            await this.deps.engine.start(text, (e) => this.onEngineEvent(e));
+          } catch (err) {
+            // 引擎异常不崩会话：可观测（engine.error 事件）+ 轮次收口为中断 + 回 idle
+            this.publish("engine.error", { message: (err as Error).message });
+            this.settleRunEnd("aborted");
+          }
+        })();
+        this.activeRun = run; // T2.2：在飞 run 登记（whenSettled 等待面）
         try {
-          await this.deps.engine.start(text, (e) => this.onEngineEvent(e));
-        } catch (err) {
-          // 引擎异常不崩会话：可观测（engine.error 事件）+ 轮次收口为中断 + 回 idle
-          this.publish("engine.error", { message: (err as Error).message });
-          this.settleRunEnd("aborted");
+          await run;
+        } finally {
+          if (this.activeRun === run) this.activeRun = null;
         }
         return { mode: "turn", turnId: turn.id, entryId: entry.id };
       }
@@ -250,6 +281,16 @@ export class ChatService implements ChatPort {
     }
   }
 
+  /**
+   * 等待在飞 run 收口（T2.2 AD-4 删除收口链）：无 run 时立即 resolve。
+   * 注意仅等待主线引擎 run；SubAgent 执行由调度器 cancelSession 同步收口。
+   */
+  async whenSettled(): Promise<void> {
+    while (this.activeRun !== null) {
+      await this.activeRun;
+    }
+  }
+
   // ── 引擎事件回流 → 领域状态变更 + 领域事件（编排核心） ───────
 
   private onEngineEvent(e: AgentEngineEvent): void {
@@ -258,7 +299,11 @@ export class ChatService implements ChatPort {
       // message_start 时预分配的最终 assistant entry id（D-2：与契约 §5
       // 字段语义对齐；fallback 仅防御，正常路径必有预留）
       case "message_update":
-        this.deps.events.publishDelta({ messageId: this.streamEntryId ?? this.currentTurnId(), delta: e.delta });
+        this.deps.events.publishDelta({
+          messageId: this.streamEntryId ?? this.currentTurnId(),
+          delta: e.delta,
+          sessionId: this.session.id, // v0.2 信封 sessionId 必发纪律（章印在 EventStream）
+        });
         break;
 
       // turn 边界的 steer drain（§5.3：turn_end 后、turn_start 前）：
@@ -333,6 +378,7 @@ export class ChatService implements ChatPort {
           delta: e.delta,
           channel: "thinking",
           instanceId: MAIN_INSTANCE_ID,
+          sessionId: this.session.id,
         });
         break;
 
@@ -501,6 +547,9 @@ export class ChatService implements ChatPort {
     turnId?: string,
     instanceId?: string,
   ): void {
+    // T2.1（AD-3）：只产事件——write-through 由会话投影消费者（SessionProjection）
+    // 在 fan-out 末端触发（先事件行后状态行，全局 FIFO；原此处的 repository.save
+    // 迁移至投影，「ChatService 只产事件」）。
     this.deps.events.publish({
       type,
       sessionId: this.session.id,
@@ -509,10 +558,6 @@ export class ChatService implements ChatPort {
       payload,
       occurredAt: this.now(),
     });
-    // write-through（AD-16 §5.2）：每个里程碑领域事件后即落领域状态整体
-    //（事件行经 fan-out 持久化目标入同一写队列，先事件后状态，全局 FIFO）。
-    // 单次落盘失败不阻断会话（WriteQueue onError 上报）。
-    void this.deps.repository.save(this.persistedState);
   }
 
   private now(): string {

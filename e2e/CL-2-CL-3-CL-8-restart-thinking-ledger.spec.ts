@@ -102,8 +102,8 @@ test.describe("T5.3 CL-2×CL-3×CL-8 重启恢复增例（R4/R5）", () => {
     expect(d2.home).toBe(home);
     await e2e.waitForConnected(page, 30_000);
     await expect(page.locator(".toast.ok")).toBeVisible({ timeout: 10_000 });
-    // 快照重建 6 条投影：2 user + 2 assistant + 2 thinking（thinking 随快照在场）
-    await expect(page.locator(".toast.ok").locator(".t-sub")).toContainText("6 条投影已重建");
+    // 快照重建消息 6 条：2 user + 2 assistant + 2 thinking（thinking 随快照在场）
+    await expect(page.locator(".toast.ok").locator(".t-sub")).toContainText("消息 6 条 · 实例/通道/账目投影已重建");
 
     // 折叠条在场（数量一致，不可逆折叠态）
     const bars = page.locator('.fb-wrap[data-kind="thinking"]');

@@ -10,6 +10,7 @@ import { SchedulingPolicy } from "../../src/domain/agent/SchedulingPolicy";
 import { SchedulerService } from "../../src/application/services/SchedulerService";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
+import type { AgentOrchestrationPort } from "../../src/application/ports/inbound/AgentOrchestrationPort";
 import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
@@ -82,7 +83,7 @@ interface ToolHarness {
 function makeToolHarness(policy?: SchedulingPolicy): ToolHarness {
   const events: DomainEvent[] = [];
   const publisher: EventPublisherPort = { publish: (e) => void events.push(e), publishDelta: () => undefined };
-  const clock: ClockPort = { now: () => FIXED_NOW };
+  const clock: ClockPort = { now: () => FIXED_NOW, nowMs: () => Date.parse(FIXED_NOW) };
   const runner = new HangRunner();
   const scheduler = new SchedulerService({
     policy: policy ?? new SchedulingPolicy(),
@@ -90,9 +91,15 @@ function makeToolHarness(policy?: SchedulingPolicy): ToolHarness {
     events: publisher,
     repository: new InMemorySessionRepository(),
     clock,
-    sessionId: SESSION_ID,
   });
-  const executor = new CoreToolExecutor({ cwd: tmpdir(), orchestration: scheduler });
+  // T2.2 多会话：spawn 携带会话归属（工具经会话绑定门面回口调度器）
+  const orchestration: AgentOrchestrationPort = {
+    spawn: (task, profileKind) => scheduler.spawn(SESSION_ID, task, profileKind),
+    send: (agentId, message) => scheduler.send(agentId, message),
+    status: (agentId) => scheduler.status(agentId),
+    kill: (agentId) => scheduler.kill(agentId),
+  };
+  const executor = new CoreToolExecutor({ cwd: tmpdir(), orchestration });
   return { executor, scheduler, runner, events };
 }
 
@@ -203,7 +210,7 @@ describe("② agent_send 经 SchedulerService.send → 子进程 stdin → Agent
     const writeQueue = new WriteQueue(path.join(home, "helix.db"));
     const events: DomainEvent[] = [];
     const publisher: EventPublisherPort = { publish: (e) => void events.push(e), publishDelta: () => undefined };
-    const clock: ClockPort = { now: () => FIXED_NOW };
+    const clock: ClockPort = { now: () => FIXED_NOW, nowMs: () => Date.parse(FIXED_NOW) };
     const lines: { instanceId: string; line: ChildOutboundLine }[] = [];
     const launcher = new SubagentLauncher({
       profile: SubAgentProfile,
@@ -219,8 +226,7 @@ describe("② agent_send 经 SchedulerService.send → 子进程 stdin → Agent
       events: publisher,
       repository: new SqliteSessionRepository(writeQueue),
       clock,
-      sessionId: SESSION_ID,
-    });
+      });
     const executor = new CoreToolExecutor({ cwd: home, orchestration: scheduler });
     try {
       // spawn（经工具链路：agent_spawn → port → scheduler → 真子进程）

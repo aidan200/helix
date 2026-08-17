@@ -31,10 +31,17 @@ const CHILD_MAIN_PATH = join(import.meta.dir, "child", "ChildMain.ts");
 export interface SubagentLauncherDeps {
   /** SubAgent profile 声明（装配进子进程；kind 不分支——声明同构，TR-AD-4）。 */
   readonly profile: AgentProfile;
-  /** 已解析的完整模型对象（F-14：config 解析单点产物，经 env JSON 透传子进程）。 */
-  readonly model: Model<any>;
-  /** provider → apiKey（子进程显式传入，AD-11/13）。 */
-  readonly apiKeys: Record<string, string>;
+  /**
+   * 已解析的完整模型对象（F-14：解析单点产物，经 env JSON 透传子进程）。
+   * T2.3（AD-2）：注入源改默认模型存储——接受 getter（每次 launch 读现值，
+   * set_default 后新子进程跟随）或静态对象。
+   */
+  readonly model: Model<any> | (() => Model<any>);
+  /**
+   * provider → apiKey（子进程显式传入，AD-11/13）。T2.3：注入源改 auth.json
+   * ——接受 getter（每次 launch 读现值快照）或静态表。
+   */
+  readonly apiKeys: Record<string, string> | (() => Record<string, string>);
   /** 工具沙箱 cwd（子进程 CoreToolExecutor 用）。 */
   readonly toolCwd: string;
   /** O-6 SIGKILL 升级阈值 ms（缺省 3000；测试注入小值）。 */
@@ -65,13 +72,16 @@ export class SubagentLauncher implements InstanceRunner {
   launch(instance: AgentInstance, task: string): void {
     const id = instance.instanceId;
     if (this.children.has(id)) return;
+    // T2.3：model/apiKeys 读现值（getter 注入源 = 默认模型存储 + auth.json）
+    const model = typeof this.deps.model === "function" ? this.deps.model() : this.deps.model;
+    const apiKeys = typeof this.deps.apiKeys === "function" ? this.deps.apiKeys() : this.deps.apiKeys;
     const proc = Bun.spawn({
       cmd: [process.execPath, CHILD_MAIN_PATH, "--task", task],
       env: {
         ...process.env,
         HELIX_INSTANCE_ID: id,
-        HELIX_MODEL_JSON: JSON.stringify(this.deps.model), // F-14 完整对象透传
-        HELIX_API_KEYS_JSON: JSON.stringify(this.deps.apiKeys),
+        HELIX_MODEL_JSON: JSON.stringify(model), // F-14 完整对象透传
+        HELIX_API_KEYS_JSON: JSON.stringify(apiKeys),
         HELIX_TOOL_CWD: this.deps.toolCwd,
         ...(this.deps.fakeEngineScript !== undefined
           ? { HELIX_FAKE_ENGINE_SCRIPT: this.deps.fakeEngineScript }

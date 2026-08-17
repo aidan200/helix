@@ -56,12 +56,15 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
     await expect(page.locator(".theme-toggle #btn-light")).toBeVisible();
   });
 
-  test("消息流版心 860px 且水平居中；composer 输入条与发送按钮在位", async ({ mock, page }) => {
+  test("消息流版心 860px 且居中于主区（P-1 三区骨架：侧栏占左 264px，T3.2）；composer 输入条与发送按钮在位", async ({ mock, page }) => {
     await mock.connect();
     expect(await computed(page, ".flow-inner", "max-width")).toBe("860px");
+    // T3.2 三区骨架：版心居中基准从 viewport 改为主区（.app 列——
+    // 侧栏 264px 在左，原 viewport 居中断言几何上不再成立；意图保持：版心居中）
     const centered = await page.evaluate(() => {
+      const flow = document.querySelector(".msg-flow")!.getBoundingClientRect();
       const r = document.querySelector(".flow-inner")!.getBoundingClientRect();
-      return Math.abs(r.left - (window.innerWidth - r.right)) < 1;
+      return Math.abs(r.left - flow.left - (flow.right - r.right)) < 1;
     });
     expect(centered).toBe(true);
     // composer：输入 + 发送按钮（R-01/R-16 交互入口）

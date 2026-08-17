@@ -21,6 +21,12 @@ export interface StreamDelta {
   readonly channel?: "message" | "thinking";
   /** 实例归属（thinking 通道携带；缺省主实例）。 */
   readonly instanceId?: string;
+  /**
+   * 会话归属（T2.1 v0.2 信封 sessionId 必发纪律）：生产侧携带，WS 推送侧
+   * 章印进帧（EventStream defaultSessionId 兑底）；类型层可选与信封兼容
+   * 红线同口径（契约 A §1.2）。
+   */
+  readonly sessionId?: string;
 }
 
 export interface EventPublisherPort {

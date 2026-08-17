@@ -8,12 +8,19 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
  * 接入纪律（F-7 / AD-11 / AD-13，spike 坑 2）：
  * - provider **必须**经 `pi-ai/providers/all` 子路径——主入口
  *   side-effect-free，走主入口拿不到 provider 实现；
- * - model/apiKeys 只来自 `<home>/config.json`，apiKey **显式传**入
- *   getApiKey 钩子（agent-loop 内部把它作为 options.apiKey 传给
- *   streamSimple）——与环境变量彻底无缘（AG-08）；
+ * - apiKey **显式传**入 getApiKey 钩子（agent-loop 内部把它作为
+ *   options.apiKey 传给 streamSimple）——与环境变量彻底无缘（AG-08）；
+ *   T2.3（AD-2）：key 数据源改 auth.json（组合根传 getter——换 key 后
+ *   下一请求即生效，无需重建引擎）；
  * - 本文件不读文件、不看 env：参数全部由调用方（组合根）显式传入，
  *   依赖注入面即测试断言面（TP-CL4-7 spy 可断言）。
  */
+
+/**
+ * builtin 默认模型（AD-2：config 瘦身后 model 位迁 SQLite 默认表，
+ * 未设置时的 builtin 兜底；config.json 模板示例同源）。
+ */
+export const DEFAULT_MODEL_ID = "anthropic/claude-sonnet-4-5";
 
 /** 构建全部静态 provider 目录（builtinModels，providers/all）。 */
 export function buildModels(): Models {
@@ -37,15 +44,16 @@ export function resolveModel(models: Models, modelStr: string): Model<any> {
 }
 
 /**
- * config model 解析收束单点（F-14 红线，T2.2）：config.json 的 model 字符串
- * 在此一次解析为完整 Model 对象，此后全链路（主引擎/SubAgent 子进程）只拿
- * 对象透传，不散落读字符串/按 id 重建。缺失/为空 → 中文 fail-fast。
+ * 默认模型解析收束单点（F-14 红线，T2.2/T2.3）：model 字符串（SQLite
+ * 默认模型 / builtin 兜底）在此一次解析为完整 Model 对象，此后全链路
+ * （主引擎/SubAgent 子进程）只拿对象透传，不散落读字符串/按 id 重建。
+ * 缺失/为空 → 中文 fail-fast。
  * 目录缺省 builtinModels()；测试注入受控 fake catalog。
  */
 export function resolveConfigModel(modelStr: string | undefined, models?: Models): Model<any> {
   if (modelStr === undefined || modelStr.trim() === "") {
     throw new Error(
-      `config.json 缺少 model 配置：请填写 "provider/model-id"（如 "anthropic/claude-sonnet-4-5"）后重启 daemon` +
+      `默认模型未配置：请经 model.set_default 写入 "provider/model-id"` +
         `（模型解析收束单点 fail-fast，F-14）。`,
     );
   }
@@ -73,15 +81,20 @@ export function createStreamFn(models: Models): StreamFn {
 
 /**
  * 显式 key 查询钩子：返回值在 agent-loop 内被放进 stream options 的
- * apiKey 字段。缺 key 即抛错（fail-fast，指明 config.json apiKeys 字段）。
+ * apiKey 字段（每请求按当前模型 provider 取 key——换 provider 后 key
+ * 自动跟随）。T2.3（AD-2）：数据源改 auth.json——组合根传入 getter
+ * （或静态表），缺 key 即抛错（fail-fast，指明 auth.set_key 录入路径）。
  */
 export function explicitGetApiKey(
-  apiKeys: Record<string, string>,
+  getApiKeys: Record<string, string> | (() => Record<string, string>),
 ): (provider: string) => string | undefined {
   return (provider: string): string | undefined => {
+    const apiKeys = typeof getApiKeys === "function" ? getApiKeys() : getApiKeys;
     const key = apiKeys[provider];
     if (!key) {
-      throw new Error(`config.json 的 apiKeys 中没有 provider "${provider}" 的 key（显式传入，不走环境变量）`);
+      throw new Error(
+        `auth.json 中没有 provider "${provider}" 的 API key（请经设置页 auth.set_key 录入；显式传入，不走环境变量）`,
+      );
     }
     return key;
   };

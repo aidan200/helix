@@ -16,14 +16,16 @@
  *
  * 本文件是测试基建（不属于生产路径）；daemon src 只读引用。
  */
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
+import * as path_posix from "node:path";
 import { createDaemon } from "../../src/infrastructure/container";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
+import { buildModels } from "../../src/adapters/driven/pi-engine/model-provider";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import type { AgentOrchestrationPort, SpawnOutcome, SendOutcome, KillOutcome, AgentInstanceStatus } from "../../src/application/ports/inbound/AgentOrchestrationPort";
 import type { DaemonScript, DaemonScriptEntry, SubagentScript } from "../../../../e2e/harness/daemon-script";
@@ -137,10 +139,29 @@ function resolveText(entry: DaemonScriptEntry, context: Context): string {
   return "";
 }
 
-function makeScriptedStreamFn(entries: readonly DaemonScriptEntry[]): StreamFn {
+/** 任意目录 id → 合成 fake Model（T4.2 模型链：model.set 目标可为真实 builtin
+ *  id——引擎侧解析到携带该 provider/id 的 fake 对象，流式仍走剧本 FakeLLM，
+ *  每 turn 实际请求的 model 可经记录面观测）。 */
+function fakeModelFor(modelId: string): Model<any> {
+  const slash = modelId.indexOf("/");
+  const provider = slash > 0 ? modelId.slice(0, slash) : "fake";
+  const id = slash > 0 ? modelId.slice(slash + 1) : modelId;
+  return { ...fakeModel, provider, id } as unknown as Model<any>;
+}
+
+function makeScriptedStreamFn(entries: readonly DaemonScriptEntry[], modelLogPath?: string): StreamFn {
   const queue = [...entries];
   let seq = 0;
-  return (_model, context, _options) => {
+  return (model, context, _options) => {
+    // T4.2 模型感知记录：每次 LLM 调用（= 一个 turn 的真实请求面）追加一行
+    // ——set_model 下一 turn 生效 / in-flight 不变的机械判据数据源
+    if (modelLogPath !== undefined) {
+      appendFileSync(
+        modelLogPath,
+        `${JSON.stringify({ model: `${(model as { provider: string }).provider}/${(model as { id: string }).id}`, at: Date.now() })}\n`,
+        "utf8",
+      );
+    }
     const entry = queue.shift() ?? { kind: "reply" as const, text: "（剧本耗尽）" };
     const isTool = entry.kind === "tool";
     // 终验热修：provider 失败剧本——只发 error 帧（与真实 pi-ai 失败路径
@@ -251,18 +272,33 @@ async function main(): Promise<void> {
         fakeEngineScript: subagentEngineScriptPath,
       })
     : new ScriptedSubagentRunner(subagentScript);
-  const engine = new PiAgentEngineAdapter({
-    profile: MainSessionProfile,
-    model: fakeModel,
-    apiKeys: { fake: "explicit-key" },
-    models: fakeModels,
-    streamFnOverride: makeScriptedStreamFn(script.entries),
-    resolveTools: (names) => executor.resolveTools(names),
-  });
+  // T4.2（多会话 E 层）：engine 以工厂形态注入——每会话独立引擎实例
+  // （FakeLLM 剧本队列 per-session 从头消费；两会话可并行驱动 turn，与生产
+  // engineFor 工厂同构）。既有单会话 spec 行为不变（单会话仅建一次引擎，
+  // 剧本消费序与共享实例形态一致）。模型链（T4.2）：每 turn 实际请求的
+  // model 追加记录 <home>/llm-model-log.jsonl；set_model 目标 id 经
+  // fakeModelFor 解析（catalog 校验 → 引擎 AgentState.model 直改全链真跑）。
+  const modelLogPath = path_posix.join(home!, "llm-model-log.jsonl");
+  // T4.2 模型链：set_model 目标可为任意 builtin provider——显式 key 表覆盖
+  // 全部 provider（否则引擎按 provider 取 key 时 fail-fast，切模后 turn 直接
+  // 引擎错误——与生产 auth.json 源同接口的测试注入形态）
+  const fakeApiKeys: Record<string, string> = Object.fromEntries(
+    ["fake", ...buildModels().getProviders().map((p) => p.id)].map((p) => [p, "explicit-key"]),
+  );
+  const engineFor = (): PiAgentEngineAdapter =>
+    new PiAgentEngineAdapter({
+      profile: MainSessionProfile,
+      model: fakeModel,
+      apiKeys: fakeApiKeys,
+      models: fakeModels,
+      streamFnOverride: makeScriptedStreamFn(script.entries, modelLogPath),
+      resolveModelById: fakeModelFor,
+      resolveTools: (names) => executor.resolveTools(names),
+    });
 
   const daemon = await createDaemon({
     home: home!,
-    engine,
+    engine: engineFor,
     skipConfig: true,
     port,
     staticDir,

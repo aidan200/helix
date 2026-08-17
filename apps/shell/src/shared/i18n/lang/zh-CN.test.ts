@@ -112,6 +112,40 @@ const REQUIRED_KEYS = [
   "chat.drawer.lc.crashed",
   "chat.drawer.lc.terminated",
   "chat.drawer.closure.title",
+  // T3.2（P-1 工作台 + P-2 侧栏 + P-1s 两阶段/分页 + P-4 路由壳）
+  "chat.sidebar.newSession",
+  "chat.sidebar.sessions",
+  "chat.sidebar.notSent",
+  "chat.sidebar.draft",
+  "chat.sidebar.runStreaming",
+  "chat.sidebar.runSubagent",
+  "chat.sidebar.runIdle",
+  "chat.sidebar.collapse",
+  "chat.sidebar.expand",
+  "chat.sidebar.deleteTitle",
+  "chat.sidebar.deleteConfirmText",
+  "chat.sidebar.deleteConfirm",
+  "chat.sidebar.deleteCancel",
+  "chat.sidebar.deleteToast",
+  "chat.sidebar.deleteToastSub",
+  "chat.sidebar.timeJustNow",
+  "chat.sidebar.timeMinutes",
+  "chat.sidebar.timeHours",
+  "chat.sidebar.timeYesterday",
+  "chat.sidebar.timeDays",
+  "chat.topbar.draftTitle",
+  "chat.topbar.modelTitle",
+  "chat.topbar.settingsTitle",
+  "chat.paging.status",
+  "chat.paging.placeholder",
+  "chat.paging.loadEarlier",
+  "chat.paging.loadedCount",
+  "chat.draftEmpty.title",
+  "chat.draftEmpty.hint",
+  "chat.rail.label",
+  "chat.rail.open",
+  "chat.settings.back",
+  "chat.settings.title",
 ] as const;
 
 function flatten(obj: unknown, prefix = ""): Map<string, string> {
@@ -164,5 +198,18 @@ describe("t() 插值", () => {
       "ws://127.0.0.1:7333",
     );
     expect(t(translations, "chat.not.exists.key")).toBe("chat.not.exists.key");
+  });
+});
+
+describe("OI-7 restore.toastSub 投影面枚举（T1.3）", () => {
+  it("文案枚举快照重建四面投影：消息（entries 计数）+ 实例/通道/账目", () => {
+    const translations = zhCN as unknown as Translations;
+    const text = t(translations, "chat.restore.toastSub", { n: 42 });
+    // 四面 = snapshot case 重建的 entries/instances/instanceChannels/usage；
+    // {n} 仅承载 entries 计数（snapshot.ts restoreToast.count），其余三面枚举入文案
+    expect(text).toContain("消息 42 条");
+    expect(text).toContain("实例");
+    expect(text).toContain("通道");
+    expect(text).toContain("账目");
   });
 });

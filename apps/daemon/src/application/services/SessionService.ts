@@ -1,13 +1,5 @@
-import type {
-  InstanceSnapshotEntry,
-  SessionPort,
-  SessionStateView,
-  SessionStreamEvent,
-} from "../ports/inbound/SessionPort";
-import type { Session } from "../../domain/session/Session";
-import type { SessionUsageSummary } from "../../domain/session/SessionSnapshot";
+import type { SessionPort, SessionStateView, SessionStreamEvent } from "../ports/inbound/SessionPort";
 import type { AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
-import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 
 /**
  * SessionService —— 会话状态入口（architecture.md §3.4）。
@@ -22,17 +14,15 @@ import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
  * （CLI stdout publisher 与本服务订阅者并列，互不感知）。
  */
 export interface SessionServiceDeps {
-  /** 取当前会话聚合（组合根注入 ChatService 持有的同一实例）。 */
-  readonly getSession: () => Session;
+  /**
+   * 取当前会话快照视图（T2.2 多会话：组合根注入注册表当前会话组装面
+   * SessionRegistry——聚合/工具记录/实例清单/账目整体取数）。当前会话冷
+   * （被空闲卸载）时抛错——同步读面仅限热会话（CLI/既有测试路径），异步
+   * 读面走 SessionDirectoryPort.getSessionView（懒加载）。
+   */
+  readonly getView: () => SessionStateView;
   /** 取 agent 生命周期状态（同上，共享 ChatService 的生命周期事实）。 */
   readonly getAgentState: () => AgentLifecycleState;
-  /** 取工具调用记录（D-1：快照取数面扩展——记录在 ChatService.toolCalls，
-   *  经组合根注入只读观测面，不搬进 Session 聚合）。 */
-  readonly getToolCalls: () => readonly ToolCallRecordData[];
-  /** 取实例清单（T2.4 快照组装面：调度器注册表观测 + 主实例条目；缺省不携带）。 */
-  readonly getInstances?: () => readonly InstanceSnapshotEntry[];
-  /** 取账目聚合（T2.4 占位装配：T3.2 入账链路后由 ledger 真值替换；缺省不携带）。 */
-  readonly getUsage?: () => SessionUsageSummary;
 }
 
 export class SessionService implements SessionPort {
@@ -41,13 +31,7 @@ export class SessionService implements SessionPort {
   constructor(private readonly deps: SessionServiceDeps) {}
 
   getSnapshot(): SessionStateView {
-    return {
-      session: this.deps.getSession().toSnapshot(),
-      toolCalls: this.deps.getToolCalls(),
-      // T2.4 快照 additive：注入点缺省时快照不携带（旧组装点兼容）
-      ...(this.deps.getInstances !== undefined ? { instances: this.deps.getInstances() } : {}),
-      ...(this.deps.getUsage !== undefined ? { usage: this.deps.getUsage() } : {}),
-    };
+    return this.deps.getView();
   }
 
   subscribe(listener: (event: SessionStreamEvent) => void): () => void {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   AgentInstance,
+  agentSeqOf,
   MAIN_INSTANCE_ID,
   type AgentInstanceData,
 } from "../../src/domain/agent/AgentInstance";
@@ -223,5 +224,16 @@ describe("⑤ AgentLifecycle 注册表语义（AD-3：会话内实例注册表�
     lc.transition("running"); // 既有主状态机行为不变
     expect(lc.current).toBe("running");
     expect(lc.instanceCount).toBe(2);
+  });
+});
+
+describe("⑦ agentSeqOf（SubAgent id 序号解析单点；C2/T1.1 收敛）", () => {
+  test("agent-N → N；非该形式返回 0（序号基线不参与）", () => {
+    expect(agentSeqOf("agent-1")).toBe(1);
+    expect(agentSeqOf("agent-42")).toBe(42);
+    expect(agentSeqOf("main")).toBe(0); // 主实例非 agent-N 形式
+    expect(agentSeqOf("agent-0")).toBe(0); // 0 不参与序号基线
+    expect(agentSeqOf("agent-abc")).toBe(0); // 非数字后缀
+    expect(agentSeqOf("agent--3")).toBe(0); // 负数不参与
   });
 });

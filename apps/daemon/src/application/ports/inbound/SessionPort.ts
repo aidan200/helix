@@ -30,12 +30,14 @@ export interface SessionStateView {
   readonly usage?: SessionUsageSummary;
 }
 
-/** 实例快照条目（AgentInstanceData + task/closure/usage；契约 AgentInstanceDto 的 domain 侧镜像）。 */
+/** 实例快照条目（AgentInstanceData + task/closure/usage/model；契约 AgentInstanceDto 的 domain 侧镜像）。 */
 export interface InstanceSnapshotEntry extends AgentInstanceData {
   readonly task?: string;
   readonly closure?: InstanceClosurePayload;
   /** 该实例账目小计（T3.2：UsageLedger per-instance 投影；缺省 = 未携带）。 */
   readonly usage?: UsageSummary;
+  /** spawn 时刻模型（T2.3：AgentInstanceDto.model 空槽位填充链；主实例 = 会话当前模型）。 */
+  readonly model?: string;
 }
 
 export interface SessionPort {

@@ -11,6 +11,7 @@
  *   「open → welcome → snapshot」——spec 零手动驱动，仅断言产物。
  */
 import { test, expect } from "./harness/fixtures";
+import { shotEvidence, writeEvidence } from "./harness/evidence";
 import { messageCompleted, msgEntry } from "./harness/protocol";
 
 test.describe("T4.4 fake transport 标准入口 smoke（env/URL 双形态）", () => {
@@ -27,6 +28,18 @@ test.describe("T4.4 fake transport 标准入口 smoke（env/URL 双形态）", (
     // （帧构造经 harness/protocol 直引 @helix/protocol，零字面量 type）
     await mockEnv.emit(messageCompleted(msgEntry("smoke-env-1", "assistant", "env 形态增量可用")));
     await expect(page.locator(".msg.assistant", { hasText: "env 形态增量可用" })).toBeVisible();
+
+    await shotEvidence(page, "fake-entry-smoke-env");
+    writeEvidence(
+      "fake-entry-smoke",
+      "txt",
+      [
+        "T4.4 fake transport 标准入口 smoke（env/URL 双形态）",
+        "断言: env 形态 define 烘焙装配+握手/快照/增量全链/",
+        "  URL 剧本模块形态 auto-connect 自动驱动建连",
+        "结果: PASS",
+      ].join("\n"),
+    );
   });
 
   test("URL 剧本模块形态：auto-connect 模块自动驱动建连（spec 零手动驱动）", async ({ mockScript }) => {
@@ -34,5 +47,6 @@ test.describe("T4.4 fake transport 标准入口 smoke（env/URL 双形态）", (
     // ——断言产物：connected + 空会话引导页（快照空投影）
     await expect(mockScript.locator(".app")).toHaveAttribute("data-conn", "connected", { timeout: 10_000 });
     await expect(mockScript.locator(".session-empty")).toBeVisible({ timeout: 10_000 });
+    await shotEvidence(mockScript, "fake-entry-smoke-url-script");
   });
 });
