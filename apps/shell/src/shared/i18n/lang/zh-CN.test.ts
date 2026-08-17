@@ -100,8 +100,6 @@ const REQUIRED_KEYS = [
   "chat.drawer.steerMark",
   "chat.drawer.steerToast",
   "chat.drawer.steerToastSub",
-  "chat.drawer.steerOnlyRunning",
-  "chat.drawer.steerOnlyRunningSub",
   "chat.drawer.queuedHint",
   "chat.drawer.reportFoot",
   "chat.drawer.instanceMeta",
@@ -144,6 +142,9 @@ const REQUIRED_KEYS = [
   "chat.draftEmpty.hint",
   "chat.rail.label",
   "chat.rail.open",
+  "chat.rail.expand",
+  "chat.rail.collapse",
+  "chat.rail.typeSubagent",
   "chat.settings.back",
   "chat.settings.title",
 ] as const;

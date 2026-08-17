@@ -10,7 +10,9 @@
  * ④ mock 剧本台账（scenarioSession）= 后台续跑活动断言面（daemon 侧视角）；
  * ⑤ 切回 B → 轻量态移除（未读消解）——双 store 拓扑的活跃/后台转换。
  *
- * probe（isDev 门控最小验证入口）为 store 层断言面；P-2 侧栏 UI 归 T3.2。
+ * probe（isDev 调试面）已于 T5.2 退役：断言面 = P-2 侧栏会话卡
+ * （data-session-card · data-run-state · data-unread · data-active）与
+ * .app data-view（正式 UI 面）。
  */
 import { test, expect } from "./harness/fixtures";
 import {
@@ -38,7 +40,7 @@ test.describe("T3.1 CL-1 后台轻量 store（徽标脉冲 + 未读跳动）", (
 
     // ── ① 清单下发 → B 轻量行播种（unread=0）──
     await mock.emit(sessionListResult(multiSessionList()));
-    const rowB = page.locator(`[data-bg-session="${MULTI_SESSION_B}"]`);
+    const rowB = page.locator(`[data-session-card="${MULTI_SESSION_B}"]`);
     await expect(rowB).toHaveCount(1);
     await expect(rowB).toHaveAttribute("data-unread", "0");
     await expect(rowB).toHaveAttribute("data-run-state", "streaming");
@@ -79,16 +81,18 @@ test.describe("T3.1 CL-1 后台轻量 store（徽标脉冲 + 未读跳动）", (
     // ── ⑤ 切回 B → 轻量态移除（转活跃，未读消解）；旧活跃 A 转轻量 ──
     await rowB.click();
     await expect(mock.activeSession()).resolves.toBe(MULTI_SESSION_B);
-    await expect(page.locator(`[data-bg-session="${MULTI_SESSION_B}"]`)).toHaveCount(0);
-    const rowA = page.locator(`[data-bg-session="${MULTI_SESSION_A}"]`);
+    await expect(rowB).toHaveAttribute("data-active", "1"); // B 转活跃
+    await expect(rowB).toHaveAttribute("data-unread", "0"); // 未读随活跃消解
+    const rowA = page.locator(`[data-session-card="${MULTI_SESSION_A}"]`);
     await expect(rowA).toHaveCount(1); // A 转后台轻量
+    await expect(rowA).not.toHaveAttribute("data-active", "1");
     // B 快照到达 → 重建完成（收尾断言：两阶段闭合）
     await mock.emit(
       v02Snapshot(MULTI_SESSION_B, {
         tail: [{ kind: "message", id: "b-1", role: "user", content: "B 重建完成", ts: 1 }],
       }),
     );
-    await expect(page.locator("[data-topology]")).toHaveAttribute("data-view", "ready");
-    await expect(page.locator("[data-topology]")).toHaveAttribute("data-active-session", MULTI_SESSION_B);
+    await expect(page.locator(".app")).toHaveAttribute("data-view", "ready");
+    await expect(rowB).toHaveAttribute("data-active", "1");
   });
 });

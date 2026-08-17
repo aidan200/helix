@@ -15,7 +15,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import type { ReactNode } from "react";
 import { PROTOCOL_VERSION } from "@helix/protocol";
-import type { EventEnvelope } from "@helix/protocol";
 import { HelixWsClient } from "@/shared/api/helix-ws";
 import type { Transport, TransportFactory } from "@/shared/api/helix-ws";
 import {
@@ -38,7 +37,7 @@ import {
   sessionSubscribeCommand,
   sessionUnsubscribeCommand,
 } from "@/shared/api/commands";
-import { DAEMON_PORT, FAKE_TRANSPORT_DEFINE, fakeTransportScript, isDev } from "@/shared/config/env";
+import { DAEMON_PORT, FAKE_TRANSPORT_DEFINE, fakeTransportScript } from "@/shared/config/env";
 import {
   createInitialTopologyState,
   selectCanLoadEarlier,
@@ -94,9 +93,6 @@ interface SessionContextValue {
   subscribeInstance: (agentId: string) => void;
   /** agent.unsubscribe（抽屉关闭/换订） */
   unsubscribeInstance: (agentId: string) => void;
-  /** dev 演示控件专用：合成协议事件直投 reducer（isDev 门控；prod 零路径）。
-   *  与 fake transport 同构的帧注入点（F 层剧本驱动面），走真实投影路径。 */
-  devDispatchEvent: (event: EventEnvelope) => void;
   // ── model / auth 命令面板（契约 C；T3.3 P-3/P-4）──
   /** 会话模型运行期切换（P-3 选中即切 / 重置为默认；下一 turn 生效）。 */
   setSessionModel: (model: string) => void;
@@ -301,11 +297,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [sendAgentCommand],
   );
 
-  const devDispatchEvent = useCallback((event: EventEnvelope) => {
-    if (!isDev()) return; // prod 零路径（演示控件门控）
-    dispatch({ type: "event", event, ts: Date.now() });
-  }, []);
-
   // ── model / auth 命令面板（T3.3）：命令发送同刻 dispatch started action
   //（in-flight 锁定 + 乐观面；结果帧到达由 model-config 消费者接管）──
   const setSessionModel = useCallback((model: string) => {
@@ -370,7 +361,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       killInstance,
       subscribeInstance,
       unsubscribeInstance,
-      devDispatchEvent,
       setSessionModel,
       requestModelConfig,
       requestAuthList,
@@ -398,7 +388,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       killInstance,
       subscribeInstance,
       unsubscribeInstance,
-      devDispatchEvent,
       setSessionModel,
       requestModelConfig,
       requestAuthList,

@@ -1,22 +1,27 @@
 /**
- * 消息流（widgets/chat-stream 聚合件）：投影 entries + 流式尾部气泡 + SubAgent
- * 卡片区 + empty 态 + P-1s 分页胶囊（T3.2）。滚动语义照原型：新内容贴底
+ * 消息流（widgets/chat-stream 聚合件）：投影 entries + SubAgent 时间轴内联卡
+ * + 流式尾部气泡 + empty 态 + P-1s 分页胶囊（T3.2）。滚动语义照原型：新内容贴底
  * （scrollTop 直设，无滚动监听）；历史前插保持视口锚定（增量在上方时按
  * 高度差补偿，不跳底）；连接覆盖层等页面浮层经 children 挂进滚动容器
  * （pages 层组装）。
  *
- * 卡片区插位（F1.1）：entries → 主线 streaming 气泡 → SA 卡片区（spawn 时序
- * 追加，新卡 log-rise 进入；同一事实单一呈现面——closure 注入文本不占消息位）。
+ * SubAgent 卡片插位（F1.1 + T5.5 时间轴内联）：卡片按 spawn 锚点
+ * （anchorEntryId）交织进 entries 序列原位渲染——锚点 id 引用抗分页前插；
+ * 状态原位更新（queued→running→终态），终态卡留原位作历史；同锚点多卡保
+ * spawn 先后序（instances 数组序）；锚点 id 缺失（理论不可达）兜底尾部。
+ * 同一事实单一呈现面——closure 注入文本不占消息位。
  *
  * v0.2（T3.2）：sessionId === null 的空态 = 草稿空态（P-1 draft-empty，呼吸
  * 文案 + 建会话提示）；有会话上下文的空态 = 既有 SessionEmpty 引导面。
  * 主线 thinking 流式块（F2.3 streaming 态）插在 entries 之后、streaming 气泡
  * 之前；SubAgent 实例 thinking 流式槽位归抽屉消费（F1.6 实例分流）。
  */
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, Fragment, type ReactNode } from "react";
 import type { EntryDto } from "@helix/protocol";
 import { MAIN_INSTANCE_ID } from "@/entities/session/model/session-reducer";
-import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";import MessageBubble from "./MessageBubble";
+import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
+import type { InstanceCardState } from "@/entities/session/model/session-reducer";
+import MessageBubble from "./MessageBubble";
 import SubAgentCard from "./SubAgentCard";
 import ToolCard from "@/shared/ui/ToolCard";
 import SessionEmpty from "./SessionEmpty";
@@ -96,6 +101,28 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
 
   const empty = selectIsEmpty(state);
 
+  // ── T5.5 时间轴内联：按 spawn 锚点把卡片交织进 entries 序列 ──
+  // head = 流首锚点（null）；byAnchor = entry id → 该 entry 之后渲染的卡；
+  // tail = 锚点 id 不在当前 entries（理论不可达）的兜底，保 spawn 序。
+  const headCards: InstanceCardState[] = [];
+  const tailCards: InstanceCardState[] = [];
+  const byAnchor = new Map<string, InstanceCardState[]>();
+  const entryIds = new Set(state.entries.map((e) => e.id));
+  for (const card of state.instances) {
+    if (card.anchorEntryId === null) {
+      headCards.push(card);
+    } else if (entryIds.has(card.anchorEntryId)) {
+      const list = byAnchor.get(card.anchorEntryId) ?? [];
+      list.push(card);
+      byAnchor.set(card.anchorEntryId, list);
+    } else {
+      tailCards.push(card);
+    }
+  }
+  const renderCard = (card: InstanceCardState) => (
+    <SubAgentCard key={card.instanceId} card={card} onOpenDrawer={onOpenInstance} />
+  );
+
   return (
     <main className="msg-flow" ref={flowRef}>
       <div className="flow-inner">
@@ -108,9 +135,14 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
             total={state.history.total}
             onLoad={loadEarlierHistory}
           />
+          {headCards.map(renderCard)}
           {state.entries.map((entry) => (
-            <EntryView key={entry.id} entry={entry} />
+            <Fragment key={entry.id}>
+              <EntryView entry={entry} />
+              {byAnchor.get(entry.id)?.map(renderCard)}
+            </Fragment>
           ))}
+          {tailCards.map(renderCard)}
           {state.thinkingStreams[MAIN_INSTANCE_ID] !== undefined && (
             <ThinkingLiveView text={state.thinkingStreams[MAIN_INSTANCE_ID]} />
           )}
@@ -129,13 +161,6 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
           )}
           {/* 终验热修：引擎/模型失败卡（瞬态；随轮清除） */}
           <EngineErrorCard />
-          {state.instances.length > 0 && (
-            <div className="sa-cards">
-              {state.instances.map((card) => (
-                <SubAgentCard key={card.instanceId} card={card} onOpenDrawer={onOpenInstance} />
-              ))}
-            </div>
-          )}
         </div>
         {empty && (state.sessionId === null ? <DraftEmpty /> : <SessionEmpty />)}
       </div>

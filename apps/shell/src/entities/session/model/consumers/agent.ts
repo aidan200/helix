@@ -51,6 +51,8 @@ export function applyAgentEvent(s: SessionState, event: EventEnvelope, ts?: numb
         profileKind,
         ...(model !== undefined ? { model } : {}),
         streamSummary: "",
+        // T5.5 时间轴锚点：插入位 = 当时最后一条 main entry 之后（无 entries = 流首）
+        anchorEntryId: s.entries.length > 0 ? s.entries[s.entries.length - 1]!.id : null,
       };
       const withCard: SessionState = {
         ...s,

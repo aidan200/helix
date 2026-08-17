@@ -273,6 +273,20 @@ export class WsServerAdapter {
     };
   }
 
+  /**
+   * per-session 快照盖章（T5.1 热修）：agentState/model 取视图归属会话自身
+   * （注册表 buildView 随视图同源组装）；model 缺省（引擎未暴露）回退全局
+   * 默认——与 getStatus() 回退口径一致（container.ts defaultModel.current()
+   * ≡ ModelPort.getDefault() SQLite 读面）。禁止改用 system.getStatus()：
+   * 那是全局最近活跃投影，多会话下与快照本体错配（串台根因）。
+   */
+  private sessionStamp(view: SessionStateView): { model: string; agentState: AgentStateDto } {
+    return {
+      model: view.model ?? this.deps.model.getDefault().model,
+      agentState: (view.agentState ?? "idle") as AgentStateDto,
+    };
+  }
+
   // ── 命令路由（只转发不决策，TP-CL6-3） ───────────────────────
 
   private routeCommand(
@@ -298,8 +312,11 @@ export class WsServerAdapter {
               if (!sender) return;
               this.deps.events.subscribeSession(sender, sessionId);
               return this.deps.directory.getSessionView(sessionId).then((view) => {
-                const status = this.deps.system.getStatus();
-                this.sendNow(sender, this.snapshotFrame(view, status.model ?? "", status.agentState as AgentStateDto));
+                // T5.1：草稿快照盖新会话自身章（竞态窗口关闭：A 后台流式事件
+                // 可在 register 后立即把 current 拉回 A，getStatus() 不可用作
+                // per-session 帧盖章源）
+                const stamp = this.sessionStamp(view);
+                this.sendNow(sender, this.snapshotFrame(view, stamp.model, stamp.agentState));
               });
             })
             .catch((err) => {
@@ -336,10 +353,15 @@ export class WsServerAdapter {
           if (target === undefined) return; // 不存在会话：已回 connection.error
           this.deps.events.subscribeSession(sender, target);
           // 重新订阅 = 重推该会话全量快照（快照恢复公式，AD-16）
-          const status = this.deps.system.getStatus();
+          // T5.1 热修：agentState/model 取目标会话 runtime（随视图同源组装），
+          // 不经 system.getStatus()（全局最近活跃投影——多会话下 current 恒被
+          // 后台流式会话锚定，盖目标会话快照即串台）
           void this.deps.directory
             .getSessionView(target)
-            .then((view) => this.sendNow(sender, this.snapshotFrame(view, status.model ?? "", status.agentState as AgentStateDto)))
+            .then((view) => {
+              const stamp = this.sessionStamp(view);
+              this.sendNow(sender, this.snapshotFrame(view, stamp.model, stamp.agentState));
+            })
             .catch((err) => console.warn(`[ws] 订阅快照组装失败：${(err as Error).message}`));
         });
         return;

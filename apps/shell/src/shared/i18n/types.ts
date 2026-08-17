@@ -140,8 +140,6 @@ export interface ChatTranslations {
     steerMark: string;
     steerToast: string;
     steerToastSub: string;
-    steerOnlyRunning: string;
-    steerOnlyRunningSub: string;
     queuedHint: string;
     reportFoot: string;
     instanceMeta: string;
@@ -218,10 +216,13 @@ export interface ChatTranslations {
     title: string;
     hint: string;
   };
-  /** SubAgent 抽屉收起竖条（P-1 抽屉关闭态；M2 既有能力的入口位） */
+  /** 活跃事件条（T5.5：右侧活跃事件条；折叠/展开两态 + 类型注册表标签） */
   rail: {
     label: string;
     open: string;
+    expand: string;
+    collapse: string;
+    typeSubagent: string;
   };
   /** P-4 模型/厂商配置路由壳（页面本体 T3.3；本任务仅返回壳） */
   settings: {
@@ -237,18 +238,18 @@ export interface ChatTranslations {
     effectiveHint: string;
     configEntry: string;
     defaultBadge: string;
+    /** 零可用（无任何 configured provider 且当前模型不在目录）空态引导（T5.3） */
+    noProviderTitle: string;
+    noProviderSub: string;
     switchedToast: string;
     resetToast: string;
   };
   /** P-4 模型与厂商配置页（pages/settings；CL-3 F(3.4).1-F(3.4).6；T3.3） */
   modelsConfig: {
-    subtitle: string;
     defaultLabel: string;
-    defaultHint: string;
     refresh: string;
     refreshedJustNow: string;
     refreshedAt: string;
-    authPathHint: string;
     providersLabel: string;
     unconfigured: string;
     connUnverified: string;
@@ -273,7 +274,6 @@ export interface ChatTranslations {
     apiKeyLabel: string;
     apiKeyPlaceholder: string;
     apiKeyEmptyErr: string;
-    modalHint: string;
     cancel: string;
     save: string;
     keySavedToast: string;

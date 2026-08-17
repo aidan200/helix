@@ -74,6 +74,13 @@ export interface InstanceCardState {
   stalledMs?: number;
   /** running 态 streaming 摘要尾窗（该实例 assistant delta 的尾段，滚动截断） */
   streamSummary: string;
+  /**
+   * spawn 时间轴锚点（T5.5）：卡片渲染插入位 = 该 id 的 main entry 之后
+   * （null = 流首）。id 引用天然抗分页前插（prepend 不改 id）；spawn 时取
+   * 当时最后一条 main entry；快照恢复 = 实例首 Entry 前最后一条 main entry
+   * （无实例 Entry = 尾部）；同会话重连合入保留 live 锚点（重放幂等）。
+   */
+  anchorEntryId: string | null;
 }
 
 /** 会话账目投影（F3.3/F3.4；渲染归 T4.2）。 */
@@ -200,6 +207,9 @@ export interface ModelConfigState {
   defaultModel: string;
   /** provider 凭据行（auth.list 整体替换 + verify/set_key/delete_key 增量） */
   auth: Record<string, AuthProviderEntry>;
+  /** auth.list 首批到达标记（T5.3：P-3 可用性过滤在首批到达前不生效，
+   *  避免菜单开启瞬间误闪零可用空态） */
+  authLoaded: boolean;
   /** auth.verify in-flight（结果帧归属锁定；串行单值） */
   verifyInflight: string | null;
   /** auth.set_key in-flight（同上） */
@@ -218,6 +228,7 @@ export function createInitialModelConfigState(): ModelConfigState {
     catalog: null,
     defaultModel: "",
     auth: {},
+    authLoaded: false,
     verifyInflight: null,
     setKeyInflight: null,
     deleteKeyInflight: null,

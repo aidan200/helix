@@ -13,8 +13,10 @@
 .route-layer { min-height: 0; }
 .route-layer[data-route="off"] { display: none; }
 
-/* ── 三区骨架 ── */
-.workbench { position: relative; z-index: 2; display: flex; height: 100dvh; }
+/* ── 骨架（T5.2 重组：header 全宽置顶；侧栏/主区/竖条同处 header 之下）── */
+.workbench { position: relative; z-index: 2; display: flex; flex-direction: column; height: 100dvh; }
+/* header 之下横排：侧栏 → 主区 .app →（抽屉竖条 absolute 叠右缘） */
+.wb-body { position: relative; flex: 1 1 auto; display: flex; min-height: 0; }
 /* 主区：版心径向微光（原型 .chat-area；.app 直系子序保持既有断言面） */
 .app {
   flex: 1 1 auto; min-width: 0;
@@ -87,7 +89,7 @@
 }
 .sb-foot .foot-note { font-size: var(--text-micro); color: var(--text-faint); letter-spacing: 0.06em; }
 
-/* 折叠态图标条（含每会话状态点小方块） */
+/* 折叠窄条（T5.2 去 session 按钮化：仅 mini logo + 新建 + 展开把手） */
 .sb-mini { flex-direction: column; align-items: center; padding: 12px 0; gap: 8px; height: 100%; width: 100%; }
 .mini-item {
   position: relative; width: 32px; height: 32px; padding: 0;
@@ -98,12 +100,6 @@
 }
 .mini-item:hover { border-color: rgb(var(--accent-rgb) / 0.35); color: var(--text); }
 .mini-item.active, .mini-item.accent { border-color: rgb(var(--accent-rgb) / 0.45); background: var(--bg-selected); color: var(--accent); }
-.mini-item .md {
-  position: absolute; right: -1px; bottom: -1px;
-  width: 7px; height: 7px; border-radius: 999px;
-  border: 2px solid var(--bg); background: var(--accent);
-}
-.mini-item .md.violet { background: var(--violet); }
 .mini-spacer { flex: 1; }
 
 /* ── P-2 会话卡片（F(1.2).2 信息密度 / F(1.2).4 删除确认）── */
@@ -205,22 +201,70 @@
 .app[data-session="empty"][data-conn="connected"] .draft-empty { display: flex; }
 .empty-hint { font-size: var(--text-cap); color: var(--text-dim); font-family: var(--font-sans); }
 
-/* ── P-1 抽屉关闭态竖条（右侧 26px；点击展开 M2 既有抽屉）── */
+/* ── P-1 活跃事件条（T5.5 重设计：右侧折叠 26px 竖条 ↔ 展开简介列表；
+   类型着色槽位 data-color，本期 subagent=violet；无活跃事件不渲染）── */
 .drawer-rail {
-  position: absolute; top: 0; bottom: 0; right: 0; width: 26px; z-index: 5;
-  display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0 0;
-  border: none; border-left: 1px solid var(--border);
-  background: var(--bg-panel); cursor: pointer; color: var(--text-faint);
-  transition: color 0.15s, border-color 0.15s;
+  position: absolute; top: 0; bottom: 0; right: 0; z-index: 5;
+  display: flex; flex-direction: column;
+  border-left: 1px solid var(--border); background: var(--bg-panel);
 }
-.drawer-rail:hover { color: var(--accent); border-left-color: var(--border-strong); }
-.rail-label { writing-mode: vertical-rl; font-size: var(--text-micro); letter-spacing: 0.28em; text-transform: uppercase; }
-.rail-count {
-  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px;
-  background: rgb(var(--violet-rgb) / 0.16); border: 1px solid rgb(var(--violet-rgb) / 0.35);
-  color: var(--violet); font-size: var(--text-micro); font-weight: 600;
+.drawer-rail[data-rail-state="collapsed"] {
+  width: 26px; align-items: center; gap: 10px; padding: 14px 0 0;
+}
+.drawer-rail[data-rail-state="expanded"] { width: 224px; gap: 8px; padding: 10px; }
+.rail-toggle {
   display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; flex-shrink: 0;
+  border-radius: 4px; border: 1px solid transparent; background: transparent;
+  color: var(--text-faint); cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
+.rail-toggle:hover { color: var(--accent); border-color: var(--border-strong); background: var(--bg-hover); }
+.rail-toggle:active { transform: translateY(1px); }
+/* 折叠态：每活跃事件一个类型着色标识（圆点；running 脉冲=存活动机） */
+.rail-marker {
+  width: 12px; height: 12px; padding: 0; border-radius: 999px; cursor: pointer;
+  border: 1px solid transparent; background: transparent;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.rail-marker[data-color="violet"] {
+  background: rgb(var(--violet-rgb) / 0.2); border-color: rgb(var(--violet-rgb) / 0.45);
+}
+.rail-marker[data-color="violet"]:hover { box-shadow: var(--glow-violet); transform: scale(1.15); }
+.rail-marker[data-color="violet"][data-state="running"] { background: var(--violet); animation: rail-pulse 1.6s ease-in-out infinite; }
+.rail-marker[data-color="violet"][data-state="running"]:hover { box-shadow: var(--glow-violet); }
+@keyframes rail-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+/* 展开态：头行（标签 + 计数 + 收起把手）+ 每活跃事件一行简介 */
+.rail-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 0 2px 6px; border-bottom: 1px solid var(--border);
+}
+.rail-title {
+  font-size: var(--text-micro); letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-faint); font-weight: 600;
+}
+.rail-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: transparent; cursor: pointer; text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.rail-row:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+.rail-row:active { transform: translateY(1px); }
+.rail-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0;
+}
+.rail-row[data-color="violet"] .rail-badge {
+  background: rgb(var(--violet-rgb) / 0.16); border: 1px solid rgb(var(--violet-rgb) / 0.35);
+  color: var(--violet);
+}
+.rail-row-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-body); color: var(--text);
+}
+.rail-row-status { flex-shrink: 0; font-size: var(--text-micro); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.rail-row[data-state="running"] .rail-row-status { color: var(--accent); }
 
 /* ── P-4 路由壳（页面本体 T3.3；返回工作台入口）── */
 .p4-page { position: relative; height: 100dvh; background: var(--bg); overflow-y: auto; }
@@ -303,17 +347,13 @@ html.light .p4-head { background: rgba(255, 255, 255, 0.6); }
 /* ════════════════════════════════════════════════════════
    P-4 模型与厂商配置页（prototype/P-4-models-config.html 组件契约
    移植；T3.3）。独立路由版心 940px；头部沿用 p4-head 48px 壳（既有
-   断言面 #btn-p4-back），副题/主题切换并入版心头部行。
+   断言面 #btn-p4-back）；T5.3 移除副题/页内主题切换（全局切换归 chat
+   header），版心直起工具卡。
    ════════════════════════════════════════════════════════ */
 .pg {
   position: relative; z-index: 2;
-  max-width: 940px; margin: 0 auto; padding: 0 28px 96px;
+  max-width: 940px; margin: 0 auto; padding: 24px 28px 96px;
 }
-.pg-sub { font-size: var(--text-cap); color: var(--text-dim); margin-top: 3px; font-family: var(--font-sans); }
-.pg-headrow {
-  display: flex; align-items: center; gap: 12px; padding: 16px 0 18px;
-}
-.pg-headrow .grow { flex: 1; }
 .section-label {
   font-size: var(--text-cap); font-weight: 500; text-transform: uppercase;
   letter-spacing: 0.25em; color: rgb(var(--accent-rgb) / 0.8);
@@ -330,7 +370,6 @@ html.light .p4-head { background: rgba(255, 255, 255, 0.6); }
 .hud-card:hover { border-color: var(--border-strong); }
 .toolbar { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
 .toolbar .fld { min-width: 260px; }
-.fld-hint { font-size: var(--text-micro); color: var(--text-faint); margin-top: 5px; font-family: var(--font-sans); }
 .toolbar-right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .catalog-meta {
   font-size: var(--text-cap); color: var(--text-faint);
@@ -432,13 +471,13 @@ html.light .p4-head { background: rgba(255, 255, 255, 0.6); }
   font-size: var(--text-cap); color: var(--error); font-family: var(--font-sans);
 }
 .form-err.show { display: inline-flex; }
-.modal-hint { font-size: var(--text-micro); color: var(--text-faint); margin-top: 10px; font-family: var(--font-sans); line-height: 1.6; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
 /* ── reduced-motion（本表动效全关；其余归 app.css 全局兜底）── */
 @media (prefers-reduced-motion: reduce) {
-  .ses-unread.pulse, .skel::after { animation: none !important; }
+  .ses-unread.pulse, .skel::after, .rail-marker { animation: none !important; }
   .ses, .mini-item, .model-badge, .drawer-rail, .icon-btn, .load-earlier, .ses-del { transition: none !important; }
+  .rail-toggle, .rail-row { transition: none !important; }
   .model-menu, .hud-toast, .modal-backdrop, .hud-modal, .pc-chev { transition: none !important; animation: none !important; }
   .spin { animation: none !important; }
 }
@@ -446,6 +485,7 @@ html.light .p4-head { background: rgba(255, 255, 255, 0.6); }
 /* ── 窄屏折叠：侧栏/竖条让位（M3 验收口径为桌面形态；沿用既有 <720 降级）── */
 @media (max-width: 720px) {
   .workbench { display: block; height: auto; min-height: 100dvh; }
+  .wb-body { display: block; }
   .sidebar, .drawer-rail { display: none; }
   .tb-title { display: none; }
 }

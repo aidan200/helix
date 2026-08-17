@@ -55,8 +55,8 @@ test.describe("T3.2 CL-2 路由（工作台 ↔ P-4）", () => {
     await expect(page.locator("#msg-input")).toHaveValue("路由往返后必须保留的输入草稿");
     const scrollTopAfter = await page.locator(".msg-flow").evaluate((el) => el.scrollTop);
     expect(scrollTopAfter).toBe(scrollTopBefore);
-    // 活跃会话保留（probe 数据面）
-    await expect(page.locator("[data-topology]")).toHaveAttribute("data-active-session", MULTI_SESSION_A);
+    // 活跃会话保留（侧栏活跃卡数据面）
+    await expect(page.locator(`[data-session-card="${MULTI_SESSION_A}"]`)).toHaveAttribute("data-active", "1");
     // 路由往返零新 hello（同一 WS，不重建连接）
     const helloCountAfter = (await mock.clientFrames()).filter((f) => f.type === "hello").length;
     expect(helloCountAfter).toBe(helloCountBefore);

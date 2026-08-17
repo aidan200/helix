@@ -1,9 +1,10 @@
 /**
- * 聊天页（pages/chat 组装件）：P-1 工作台三区骨架（侧栏 + 主区 + 抽屉竖条，
- * F(2.1).1）内无损迁入既有聊天/抽屉装配。主区 .app = header → conn-banner →
- * 消息流（含连接覆盖层/失败卡/恢复骨架）→ composer；data-conn /
- * data-session / data-view / data-drawer 驱动全部状态表象（四态互斥 CSS
- * 门控）；恢复 toast 由 restoreToast 投影触发。
+ * 聊天页（pages/chat 组装件）：P-1 工作台骨架（header 全宽置顶 + 侧栏/
+ * 主区/抽屉竖条同处 header 之下，F(2.1).1；T5.2 布局重组——header 由
+ * Workbench 顶层渲染）内无损迁入既有聊天/抽屉装配。主区 .app =
+ * conn-banner → 消息流（含连接覆盖层/失败卡/恢复骨架）→ composer；
+ * data-conn / data-session / data-view / data-drawer 驱动全部状态表象
+ * （四态互斥 CSS 门控）；恢复 toast 由 restoreToast 投影触发。
  */
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "@/shared/i18n";
@@ -14,10 +15,8 @@ import RestoreSkeleton from "@/widgets/chat-stream/ui/P-1s-restore-skeleton";
 import SubagentDrawer from "@/widgets/subagent-drawer/ui/SubagentDrawer";
 import Composer from "@/features/send-message/ui/Composer";
 import ErrorCard from "@/features/reconnect/ui/ErrorCard";
-import AppHeader from "@/widgets/top-bar/ui/P-1-top-bar";
 import ConnBanner from "./ui/ConnBanner";
 import ConnOverlay from "./ui/ConnOverlay";
-import SessionTopologyProbe from "./ui/SessionTopologyProbe";
 import Workbench from "./ui/P-1-workbench";
 
 export interface ChatPageProps {
@@ -74,7 +73,7 @@ const ChatPage = function ChatPage({ onOpenSettings }: ChatPageProps = {}) {
       {/* 产品氛围层（原型 P-1 L545：body 首子元素、.app 之前；元素本身
           fixed + pointer-events:none，DOM 序序对齐原型便于对照） */}
       <div className="scanline-overlay" aria-hidden="true" />
-      <Workbench onOpenInstance={openInstance}>
+      <Workbench onOpenInstance={openInstance} onOpenSettings={onOpenSettings}>
         <div
           className="app"
           data-conn={state.conn}
@@ -82,7 +81,6 @@ const ChatPage = function ChatPage({ onOpenSettings }: ChatPageProps = {}) {
           data-view={state.view}
           data-drawer={selectedAgentId ? "1" : undefined}
         >
-          <AppHeader onOpenInstance={openInstance} onOpenSettings={onOpenSettings} />
           <ConnBanner />
           <MessageFlow onOpenInstance={openInstance}>
             <ConnOverlay />
@@ -94,9 +92,6 @@ const ChatPage = function ChatPage({ onOpenSettings }: ChatPageProps = {}) {
           <Composer />
         </div>
       </Workbench>
-      {/* T3.1 store 拓扑最小验证入口（isDev 门控，.app 之外——不扰动布局
-          还原守护；F 层剧本断言面，P-2 侧栏已上线仍保留双保险） */}
-      <SessionTopologyProbe />
       {/* P-2 抽屉：页内 overlay（非路由）；衬底 = 真实 P-1 弱化（data-drawer 门控） */}
       {selectedAgentId && (
         <SubagentDrawer agentId={selectedAgentId} onClose={closeDrawer} />

@@ -59,7 +59,6 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       killInstance: vi.fn(),
       subscribeInstance: vi.fn(),
       unsubscribeInstance: vi.fn(),
-      devDispatchEvent: vi.fn(),
       consumeRestoreToast: () => {},
       consumeSpawnToast: () => {},
       consumeKillToast: () => {},

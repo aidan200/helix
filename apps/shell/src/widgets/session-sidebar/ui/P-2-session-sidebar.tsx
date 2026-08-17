@@ -11,8 +11,11 @@
  * - 新建草稿（newDraft）：unsubscribe 旧 + 置草稿态（零建会话帧）；
  * - 删除（F(1.2).4）：confirmingId 单值互斥（进入前清他卡）；删活跃会话
  *   由 deleteSession 内部切草稿态；
- * - 折叠（F(2.1).2）：localStorage(helix-sidebar-collapsed) 记忆；只做
- *   display 切换（sb-full/sb-mini）不动 width 过渡（transform/opacity 纪律）。
+ * - 折叠（F(2.1).2；T5.2 去按钮化裁决）：localStorage(helix-sidebar-
+ *   collapsed) 记忆；只做 display 切换（sb-full/sb-mini）不动 width 过渡
+ *   （transform/opacity 纪律）。折叠窄条 = 最小控件集（mini logo + 新建
+ *   会话按钮 + 展开把手），不渲染每会话入口——折叠态不可切会话，展开
+ *   即可（用户裁决：折叠后不该像导航）。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
@@ -22,7 +25,7 @@ import { cn } from "@/shared/lib/cn";
 import { relativeTimeSpan } from "@/shared/lib/format";
 import { useSession } from "@/entities/session/SessionContext";
 import { selectActiveRunState } from "@/entities/session/model/topology";
-import SessionCard, { runBadgeOf } from "./P-2-session-card";
+import SessionCard from "./P-2-session-card";
 
 /** 侧栏折叠记忆键（AG-14 白名单：纯 UI 布局偏好，非业务状态）。 */
 const SIDEBAR_KEY = "helix-sidebar-collapsed";
@@ -210,7 +213,7 @@ const SessionSidebar = function SessionSidebar() {
         </div>
       </div>
 
-      {/* 折叠态：56px 图标条（含每会话状态点小方块，F(2.1).2） */}
+      {/* 折叠态：56px 窄条（T5.2 最小控件集：新建 + 展开把手；无会话入口） */}
       <div className="sb-mini">
         <span className="sb-logo mini">H</span>
         <button
@@ -222,32 +225,6 @@ const SessionSidebar = function SessionSidebar() {
         >
           <Plus size={16} strokeWidth={1.75} />
         </button>
-        {draftVisible && (
-          <button
-            className="mini-item active"
-            type="button"
-            title={t("chat.topbar.draftTitle")}
-            onClick={focusInput}
-          >
-            <span>{t("chat.topbar.draftTitle").slice(0, 1)}</span>
-          </button>
-        )}
-        {cards.map((c) => (
-          <button
-            key={c.key}
-            className={cn("mini-item", c.active && "active")}
-            type="button"
-            data-mini-session={c.sessionId}
-            data-run-state={c.runState}
-            title={`${c.title} · ${t(runBadgeOf(c.runState).labelKey)}`}
-            onClick={() => onCardSwitch(c.sessionId)}
-          >
-            <span>{Array.from(c.title)[0] ?? "·"}</span>
-            {(c.runState === "streaming" || c.runState === "subagent_running") && (
-              <span className={cn("md", c.runState === "subagent_running" && "violet")} />
-            )}
-          </button>
-        ))}
         <span className="mini-spacer" />
         <button
           className="mini-item"

@@ -113,14 +113,13 @@ test.describe("T4.2 CL-1×CL-8 重启恢复全部会话 + SubAgent 历史", () =
     // ── ① session.list 全量：甲乙双卡在场 ────────────────────
     await expect(cardA).toBeVisible({ timeout: 10_000 });
     await expect(cardB).toBeVisible({ timeout: 10_000 });
-    const probe = page.locator("[data-topology]");
 
     // ── ② 显式切乙：快照恢复主线 + sa-card.done ───────────────
     //（welcome 恢复目标 = 重启时最近活动会话，不在此钉死；两会话恢复
     //  完整性由显式切换逐一验证——「重启恢复全部会话」的判据）
     await cardB.click();
-    await expect(probe).toHaveAttribute("data-view", "ready", { timeout: 15_000 });
-    await expect(probe).toHaveAttribute("data-active-session", (await cardB.getAttribute("data-session-card"))!);
+    await expect(page.locator(".app")).toHaveAttribute("data-view", "ready", { timeout: 15_000 });
+    await expect(cardB).toHaveAttribute("data-active", "1");
     await expect(page.locator(".msg.user", { hasText: "乙会话首轮" })).toBeVisible();
     await expect(page.locator(".msg.assistant", { hasText: "（完B1）" })).toBeVisible();
     await expect(page.locator(".sa-card.done")).toHaveCount(1, { timeout: 10_000 });
@@ -142,7 +141,7 @@ test.describe("T4.2 CL-1×CL-8 重启恢复全部会话 + SubAgent 历史", () =
 
     // ── ④ 切甲：完整对话恢复 ─────────────────────────────────
     await cardA.click();
-    await expect(probe).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
+    await expect(page.locator(".app")).toHaveAttribute("data-view", "ready", { timeout: 10_000 });
     await expect(page.locator(".msg.user", { hasText: A_T1 })).toBeVisible();
     await expect(page.locator(".msg.user", { hasText: A_T2 })).toBeVisible();
     await expect(page.locator(".msg.assistant", { hasText: "（完S1）" })).toBeVisible();

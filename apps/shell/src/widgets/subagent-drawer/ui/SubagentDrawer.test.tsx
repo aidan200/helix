@@ -8,8 +8,6 @@
  *   折叠/工具卡/steer 标记/closure 卡（done 绿 failed 红）；queued 空态 ch-hint；
  * - kill 两步状态机：首击确认态（3s 复原）/再击发 agent.kill/终态禁用优先；
  * - stalled 徽标：仅 running 显示（活动恢复/终态隐藏）；channel 对应 warn 行；
- * - steer 拒绝：非 running 注入尝试 err toast 不清旧态（规则面；真实注入经
- *   主线 agent_send 事件回放）；
  * - 实例切换：channel 全量重渲染无残留。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -29,7 +27,6 @@ import {
 const killInstance = vi.fn();
 const subscribeInstance = vi.fn();
 const unsubscribeInstance = vi.fn();
-const devDispatchEvent = vi.fn();
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
@@ -40,7 +37,6 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       killInstance,
       subscribeInstance,
       unsubscribeInstance,
-      devDispatchEvent,
     }),
   };
 });
@@ -368,46 +364,5 @@ describe("stalled 徽标（F1.8）", () => {
     // 无倒计时/自动终止：stalled 后 channel 仍只有事件驱动的行
     const lcRows = document.querySelectorAll(".lc-row").length;
     expect(lcRows).toBeGreaterThanOrEqual(3); // spawned/模型解析/terminated（无自动终止行）
-  });
-});
-
-// ── steer 拒绝（F1.2 状态转换规则）────────────────────────
-
-describe("steer 注入规则（F1.2）", () => {
-  it("非 running 实例注入尝试 → err toast，旧状态不清（channel 不变）", () => {
-    stateRef.current = play([...runningScenario(), complete("agent-run")]);
-    const before = document;
-    ui("agent-run");
-    const devBtn = screen.getByRole("button", { name: /dev · inject steer/i });
-    const rowsBefore = document.querySelectorAll(".d-body > *").length;
-    void before;
-    fireEvent.click(devBtn);
-    expect(screen.getByText("仅运行中实例可注入")).toBeTruthy();
-    expect(screen.getByText(/排队\/终态实例无活动上下文/)).toBeTruthy();
-    expect(killInstance).not.toHaveBeenCalled();
-    // 不清旧态：closure 卡仍在、状态 chip 仍 done
-    expect(document.querySelector(".closure-card")).toBeTruthy();
-    expect(document.querySelector(".d-status.done")).toBeTruthy();
-    expect(document.querySelectorAll(".d-body > *").length).toBe(rowsBefore);
-  });
-
-  it("running 实例：注入经 dev 合成事件走真实投影路径（steer 标记进入时间线）+ violet toast", () => {
-    stateRef.current = play(runningScenario());
-    const { rerender } = ui("agent-run");
-    const marksBefore = document.querySelectorAll(".steer-mark").length;
-    fireEvent.click(screen.getByRole("button", { name: /dev · inject steer/i }));
-    expect(devDispatchEvent).toHaveBeenCalledTimes(1);
-    // 合成事件回放（同一 reducer 路径）后 rerender：steer 标记新增 + violet toast
-    const synthetic = devDispatchEvent.mock.calls[0]![0] as EventEnvelope;
-    stateRef.current = sessionReducer(stateRef.current, { type: "event", event: synthetic, ts: Date.now() });
-    rerender(
-      <I18nProvider>
-        <ToastProvider>
-          <SubagentDrawer agentId="agent-run" onClose={vi.fn()} />
-        </ToastProvider>
-      </I18nProvider>,
-    );
-    expect(document.querySelectorAll(".steer-mark").length).toBe(marksBefore + 1);
-    expect(screen.getByText("steer 已注入实例")).toBeTruthy();
   });
 });

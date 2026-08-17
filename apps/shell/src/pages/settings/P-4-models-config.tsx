@@ -17,10 +17,11 @@
  *   重测先清旧态（store 层 started action 已处理）；
  * - F(3.4).4 展开 provider 模型表：id / 上下文 / 四费率（$ / 1M tokens，
  *   tabular-nums）；默认行高亮 + DEFAULT chip；
- * - F(3.4).5 刷新目录：绕过 4h 缓存强制拉（图标转动 → 结果帧清 in-flight
- *   → 时间戳更新）；
- * - F(3.4).6 全局默认选择器：写 SQLite（model.set_default 乐观更新）；
- *   新会话/草稿继承提示。
+ * - F(3.4).5 刷新目录：catalog_refresh 强制拉（图标转动 → 结果帧清
+ *   in-flight → 时间戳更新）；
+ * - F(3.4).6 全局默认选择器：写 SQLite（model.set_default 乐观更新）。
+ * T5.3 热修：机制说明文案（副题/默认继承提示/auth 路径/modal 机制说明）
+ * 与页内主题切换移除（全局切换归 chat header）；文案只留用户操作语义。
  * 状态模型：连通徽标四态互斥；弹层 open|closed；校验 clean|error；删除
  * normal|armed（单值，超时复原）。
  */
@@ -38,7 +39,6 @@ import type { AuthProviderEntry, ModelConfigState } from "@/entities/session/mod
 import type { CatalogModel } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
-import { useTheme } from "@/shared/ui/theme";
 import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
 import { relativeTimeSpan } from "@/shared/lib/format";
@@ -115,7 +115,6 @@ function ConnBadge({ entry }: { entry: AuthProviderEntry }) {
 const P4ModelsConfig = function P4ModelsConfig({ onBack }: P4ModelsConfigProps) {
   const { t } = useI18n();
   const toast = useToast();
-  const { theme, setTheme } = useTheme();
   const {
     topology,
     requestModelConfig,
@@ -228,31 +227,7 @@ const P4ModelsConfig = function P4ModelsConfig({ onBack }: P4ModelsConfigProps) 
       </header>
 
       <div className="pg">
-        {/* 头部行：副题（数据来源交代）+ 主题切换（独立路由无侧栏脚部入口） */}
-        <div className="pg-headrow">
-          <p className="pg-sub">{t("chat.modelsConfig.subtitle")}</p>
-          <div className="grow" />
-          <div className="theme-toggle" role="group" aria-label="theme">
-            <button
-              id="btn-dark"
-              className={cn("tt-btn", theme === "dark" && "on")}
-              type="button"
-              onClick={() => setTheme("dark")}
-            >
-              {t("chat.theme.dark")}
-            </button>
-            <button
-              id="btn-light"
-              className={cn("tt-btn", theme === "light" && "on")}
-              type="button"
-              onClick={() => setTheme("light")}
-            >
-              {t("chat.theme.light")}
-            </button>
-          </div>
-        </div>
-
-        {/* 工具卡：全局默认选择器（F(3.4).6）+ 目录刷新（F(3.4).5）+ auth 路径交代 */}
+        {/* 工具卡：全局默认选择器（F(3.4).6）+ 目录刷新（F(3.4).5） */}
         <div className="hud-card">
           <div className="toolbar">
             <div className="fld">
@@ -287,7 +262,6 @@ const P4ModelsConfig = function P4ModelsConfig({ onBack }: P4ModelsConfigProps) 
                   <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
                 </span>
               </div>
-              <p className="fld-hint">{t("chat.modelsConfig.defaultHint")}</p>
             </div>
             <div className="toolbar-right">
               <button
@@ -317,9 +291,6 @@ const P4ModelsConfig = function P4ModelsConfig({ onBack }: P4ModelsConfigProps) 
               </span>
             </div>
           </div>
-          <p className="fld-hint" style={{ marginTop: 12 }}>
-            {t("chat.modelsConfig.authPathHint")}
-          </p>
         </div>
 
         <h2 className="section-label">{t("chat.modelsConfig.providersLabel", { n: providers.reduce((n, g) => n + g.rows.length, 0) })}</h2>
@@ -500,7 +471,6 @@ const P4ModelsConfig = function P4ModelsConfig({ onBack }: P4ModelsConfigProps) 
                 <AlertCircle size={14} strokeWidth={1.75} aria-hidden="true" />
                 {t("chat.modelsConfig.apiKeyEmptyErr")}
               </span>
-              <p className="modal-hint">{t("chat.modelsConfig.modalHint")}</p>
             </div>
             <div className="modal-foot">
               <button

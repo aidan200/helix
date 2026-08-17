@@ -17,7 +17,6 @@ import { createInitialSessionState, sessionReducer, type SessionAction, type Ses
 const killInstance = vi.fn();
 const subscribeInstance = vi.fn();
 const unsubscribeInstance = vi.fn();
-const devDispatchEvent = vi.fn();
 const consumeKillToast = vi.fn();
 const switchSession = vi.fn();
 const newDraft = vi.fn();
@@ -39,7 +38,6 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       killInstance,
       subscribeInstance,
       unsubscribeInstance,
-      devDispatchEvent,
       consumeRestoreToast: () => {},
       consumeSpawnToast: () => {},
       consumeKillToast,

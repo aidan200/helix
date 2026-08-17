@@ -66,7 +66,7 @@ function replaceAuth(
   if (inflight !== null && auth[inflight] !== undefined) {
     auth[inflight] = { ...auth[inflight], verifyStatus: "verifying" };
   }
-  return { ...mc, auth };
+  return { ...mc, auth, authLoaded: true };
 }
 
 /** 单 provider 条目更新（不可变）。 */

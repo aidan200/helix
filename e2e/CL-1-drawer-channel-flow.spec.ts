@@ -1,6 +1,6 @@
 /**
  * T4.4 S2 —— CL-1 抽屉全流（F1.2 channel 五物种 / kill 两步 / F1.8 stalled /
- * steer 注入与拒绝 / 卡片↔抽屉联动）。
+ * steer 注入回放 / 卡片↔抽屉联动）。
  *
  * 剧本（契约 §5.1/§5.2，test-design §4.2 S2）：
  * 点击卡（键盘路径）→ agent.subscribe → 五物种回放（lc spawned/模型解析、
@@ -8,8 +8,9 @@
  * T4.3 投影规则、closure 五字段）→ agent.stalled → agent.kill 两步确认 →
  * agent.killed → 状态回流 P-1 卡片（同一状态源双视图同帧）。
  *
- * 断言纪律：语义类 + data-lc/data-status/data-kind 锚点 + zh-CN 词条；
- * steer 拒绝走 dev 注入控件（演示控件 isDev 门控，F 层 dev server 可见）。
+ * 断言纪律：语义类 + data-lc/data-status/data-kind 锚点 + zh-CN 词条。
+ * steer 注入走 daemon 帧回放（harness 直注 chat.message.completed）；真 steer
+ * 行为由 E 层 CL-7-e2e-steer 覆盖。
  */
 import { test, expect } from "./harness/fixtures";
 import { shotEvidence, writeEvidence } from "./harness/evidence";
@@ -222,22 +223,14 @@ test.describe("T4.4 S2 CL-1 抽屉全流（五物种 + kill + stalled + steer）
     await expect(card).toHaveCount(1);
     await expect(card.locator(".cl-badge")).toHaveText("failed");
 
-    // steer 拒绝（状态转换规则）：终态实例注入 → err toast，零新 channel 条目
-    const steerCount = await drawer.locator('.steer-mark[data-kind="steer-mark"]').count();
-    await drawer.locator(".drawer-dev").click();
-    const reject = page.locator(".toast.err", { hasText: "仅运行中实例可注入" });
-    await expect(reject).toBeVisible();
-    await expect(reject).toContainText("排队/终态实例无活动上下文");
-    await expect(drawer.locator('.steer-mark[data-kind="steer-mark"]')).toHaveCount(steerCount);
-
     await shotEvidence(page, "drawer-kill-two-step", "CL-1");
     writeEvidence(
       "drawer-channel-flow",
       "txt",
       [
-        "T4.4 S2 CL-1 抽屉全流（五物种 + kill 两步 + stalled + steer）",
+        "T4.4 S2 CL-1 抽屉全流（五物种 + kill 两步 + stalled + steer 回放）",
         "断言: 键盘开抽屉/agent.subscribe 退订/五物种回放/stalled warn 行/",
-        "  kill 两步确认→agent.killed 回流双视图+closure 五字段/steer 拒绝",
+        "  kill 两步确认→agent.killed 回流双视图+closure 五字段",
         "结果: PASS",
       ].join("\n"),
       "CL-1",

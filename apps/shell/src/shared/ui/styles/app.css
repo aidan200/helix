@@ -3,7 +3,7 @@
    - 布局/气泡/工具卡/steer/连接态/composer/toast 逐块对照原型；
    - 全部色值/字号/圆角/间距走 tokens.css 注册表变量（零散 hex 零容忍）；
    - 动效仅 transform/opacity，全部 honor prefers-reduced-motion；
-   - 原型「演示控制台」（data-demo）为演示控件，不进实现（review.md 原型标注剥离）。
+   - 原型「演示控制台」为演示控件，不进实现（review.md 原型标注剥离）。
    ════════════════════════════════════════════════════════════════ */
 
 /* ── 基础重置与全局（preflight 关闭，自持有 reset）── */
@@ -38,11 +38,11 @@ button { font-family: inherit; }
   mix-blend-mode: screen;
 }
 
-/* ═══ 应用布局（header / conn-banner / 消息流 / composer）═══ */
+/* ═══ 应用布局（conn-banner / 消息流 / composer；header 归 workbench 顶层）═══ */
 .app {
   position: relative; z-index: 2;
   display: flex; flex-direction: column;
-  height: 100dvh;
+  min-height: 0;
 }
 .app-header {
   display: flex; align-items: center; gap: 12px;
@@ -51,8 +51,8 @@ button { font-family: inherit; }
   backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%);
   border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: baseline; gap: 2px; font-weight: 700; font-size: var(--text-head); letter-spacing: 0.06em; }
-.brand .b2 { color: var(--accent); }
+/* T5.2：品牌位 = 渐变 helix SVG 图标（HelixLogo；原 HELiX·2 文字退役） */
+.brand { display: flex; align-items: center; flex-shrink: 0; }
 .hud-chip {
   display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;
   padding: 1px 6px; border: 1px solid var(--border); border-radius: 999px;
@@ -397,8 +397,8 @@ html.light .bubble code.inline { color: var(--accent); }
 
 /* ═══ SubAgent 卡片（CL-1 F1.1：聊天流内嵌四态状态机；第三物种）═══
    hud-corners 四角描线 = HUD 一等实体签名；violet 28px SA 头像跨态不变；
-   状态语言与工具卡同源（边框/角标/StatusDot）；取消态 = 中性收口（AD-10）*/
-.sa-cards { display: flex; flex-direction: column; gap: 14px; }
+   状态语言与工具卡同源（边框/角标/StatusDot）；取消态 = 中性收口（AD-10）；
+   T5.5：末尾 .sa-cards 汇聚块移除，卡片按 spawn 锚点内联进 entries 序列 */
 .sa-card {
   display: block; width: 100%; position: relative;
   padding: 10px 12px; border-radius: 8px;
@@ -619,7 +619,7 @@ html.light .bubble code.inline { color: var(--accent); }
 
 /* 窄屏折叠：气泡放宽、模型徽标隐藏 */
 @media (max-width: 720px) {
-  .app { height: auto; min-height: 100dvh; overflow: visible; }
+  .app { height: auto; min-height: calc(100dvh - 48px); overflow: visible; }
   body { overflow: auto; }
   .msg-flow { overflow: visible; }
   .msg .col { max-width: 88%; }
