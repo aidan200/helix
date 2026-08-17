@@ -59,6 +59,9 @@ export interface DaemonStartOptions {
    *  agent_spawn 真实 spawn detached 子进程（teardown 兜底回收的观测面）。
    *  缺省用 ScriptedSubagentRunner（进程内剧本，无子进程）。 */
   realSubagent?: { engineScript: FakeEngineScript };
+  /** 额外环境变量（T4.2 模型链：注入死代理 HTTP(S)_PROXY 使 ModelCatalog
+   *  刷新快速失败 → builtin fallback 无外网断言，K-1）。 */
+  env?: Record<string, string>;
 }
 
 /** 一个 daemon 子进程的句柄。 */
@@ -101,7 +104,7 @@ export class DaemonProcess {
     if (opts.staticDir) args.push("--static-dir", opts.staticDir);
 
     try {
-      return await spawnAndWait(home, toolCwd, args);
+      return await spawnAndWait(home, toolCwd, args, opts.env);
     } catch (err) {
       if (retries > 0) {
         // 同端口重启时旧监听可能尚未释放（TIME_WAIT/收尾竞态）：退避重试
@@ -135,12 +138,12 @@ export class DaemonProcess {
   }
 }
 
-function spawnAndWait(home: string, toolCwd: string, args: string[]): Promise<DaemonProcess> {
+function spawnAndWait(home: string, toolCwd: string, args: string[], spawnEnv?: Record<string, string>): Promise<DaemonProcess> {
   return new Promise((resolve, reject) => {
     const proc = spawn(BUN, args, {
       cwd: WORKTREE_ROOT,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env },
+      env: { ...process.env, ...spawnEnv },
     });
     let stdout = "";
     let stderr = "";
