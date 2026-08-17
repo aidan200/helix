@@ -4,7 +4,7 @@
      背板 void/0.55 点击关闭；衬底 = 真实 P-1 弱化（.app[data-drawer] opacity 0.85）；
    - 全部色值/字号/圆角/间距走 tokens.css 注册表变量（零散 hex 零容忍）；
    - 动效仅 transform/opacity，honor prefers-reduced-motion（含 kill 确认脉冲）；
-   - 原型演示控制台（data-demo/dp-note）不进实现；dev 注入控件 isDev() 门控。
+   - 原型演示控制台/说明文案不进实现（review.md 原型标注剥离）。
    ════════════════════════════════════════════════════════════════ */
 
 /* 衬底弱化：抽屉打开时 P-1 退为 0.85（原型 .behind 口径；opacity 动效合规）*/
@@ -209,18 +209,6 @@
 .d-foot.show { display: flex; }
 .d-foot .k { color: var(--text-dim); flex-shrink: 0; }
 .d-foot .foot-note { margin-left: auto; flex-shrink: 0; }
-
-/* dev 注入控件（演示控件 isDev() 门控；prod 零渲染；非还原项）*/
-.drawer-dev {
-  display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
-  padding: 3px 9px; border-radius: 5px; cursor: pointer;
-  border: 1px solid rgb(var(--warning-rgb) / 0.35); background: rgb(var(--void-rgb) / 0.4);
-  font-family: var(--font-mono); font-size: var(--text-micro); letter-spacing: 0.08em;
-  color: var(--warning); text-transform: uppercase;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-}
-.drawer-dev:hover { border-color: rgb(var(--warning-rgb) / 0.6); color: var(--text); }
-.drawer-dev:active { transform: translateY(1px); }
 
 /* reduced-motion：进入/脉冲全关（含 kill 确认脉冲）*/
 @media (prefers-reduced-motion: reduce) {

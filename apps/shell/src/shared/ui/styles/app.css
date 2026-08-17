@@ -3,7 +3,7 @@
    - 布局/气泡/工具卡/steer/连接态/composer/toast 逐块对照原型；
    - 全部色值/字号/圆角/间距走 tokens.css 注册表变量（零散 hex 零容忍）；
    - 动效仅 transform/opacity，全部 honor prefers-reduced-motion；
-   - 原型「演示控制台」（data-demo）为演示控件，不进实现（review.md 原型标注剥离）。
+   - 原型「演示控制台」为演示控件，不进实现（review.md 原型标注剥离）。
    ════════════════════════════════════════════════════════════════ */
 
 /* ── 基础重置与全局（preflight 关闭，自持有 reset）── */

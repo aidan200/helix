@@ -131,8 +131,6 @@ export const zhCN: Translations = {
       steerMark: "⇦ 主线 steer 注入",
       steerToast: "steer 已注入实例",
       steerToastSub: "{id} · 经 Agent.steer() 转投",
-      steerOnlyRunning: "仅运行中实例可注入",
-      steerOnlyRunningSub: "排队/终态实例无活动上下文",
       queuedHint: "排队中 · 空位释放后自动开始执行，channel 将在此展开",
       reportFoot: "任务报告经 daemon 单写队列落盘",
       instanceMeta: "spawn 由主线 agent_spawn 发起 · 事件挂 instanceId（AD-3 trace 四维）",

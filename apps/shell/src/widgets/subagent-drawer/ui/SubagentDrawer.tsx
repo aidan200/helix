@@ -13,27 +13,19 @@
  * 订阅（契约 §4/§8-1）：打开发 agent.subscribe{agentId}、关闭 unsubscribe
  * （v0.1 通路语义；事件全广播前端按 instanceId 分流投影）。
  *
- * 原型标注剥离（review.md）：演示控制台/衬底说明文案/dp-note 不进实现；
- * dev 注入控件为演示控件（isDev() 门控，prod 零渲染——供 F 层剧本驱动
- * steer 拒绝规则，非还原项）。
+ * 原型标注剥离（review.md）：演示控制台/衬底说明文案/dp-note 不进实现。
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { PROTOCOL_VERSION } from "@helix/protocol";
-import type { EventEnvelope } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { formatDuration } from "@/shared/lib/format";
 import { useRunningElapsed } from "@/shared/lib/useRunningElapsed";
 import { cn } from "@/shared/lib/cn";
-import { isDev } from "@/shared/config/env";
 import { useSession } from "@/entities/session/SessionContext";
 import ChannelTimeline from "./ChannelTimeline";
 
 /** kill 确认窗口（决策消解：3s 未确认自动复原；终态禁用优先于确认态）。 */
 const KILL_CONFIRM_MS = 3_000;
-
-/** dev 注入控件的合成文本（非产品文案；仅 dev 可见）。 */
-const DEV_STEER_TEXT = "dev steer injection";
 
 export interface SubagentDrawerProps {
   agentId: string;
@@ -48,7 +40,6 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
     killInstance,
     subscribeInstance,
     unsubscribeInstance,
-    devDispatchEvent,
   } = useSession();
 
   const card = state.instances.find((c) => c.instanceId === agentId);
@@ -125,33 +116,6 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
     }
     el.scrollTop = el.scrollHeight;
   }, [agentId, items.length, stream?.text, thinkingLive]);
-
-  // ── dev 注入控件（演示控件 isDev() 门控；steer 拒绝规则的 F 层驱动面）──
-  const onDevSteer = () => {
-    if (!running) {
-      // 状态转换规则（还原契约）：非 running 拒绝，err toast 不清旧态（零 reducer 动作）
-      toast.push("err", t("chat.drawer.steerOnlyRunning"), t("chat.drawer.steerOnlyRunningSub"));
-      return;
-    }
-    // running：合成 agent_send 转投回放事件，经 devDispatchEvent 走真实投影路径
-    const now = Date.now();
-    const synthetic: EventEnvelope = {
-      v: PROTOCOL_VERSION,
-      type: "chat.message.completed",
-      instanceId: agentId,
-      payload: {
-        entry: {
-          kind: "message",
-          id: `dev-steer-${now}`,
-          role: "user",
-          content: DEV_STEER_TEXT,
-          ts: now,
-          instanceId: agentId,
-        },
-      },
-    };
-    devDispatchEvent(synthetic);
-  };
 
   if (!card) return null; // 防御：实例不在状态源（正常流经卡片/行尾寻址，不达此分支）
 
@@ -240,11 +204,6 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
             thinkingLive={thinkingLive}
             queued={card.state === "queued"}
           />
-          {isDev() && (
-            <button className="drawer-dev" type="button" data-demo onClick={onDevSteer}>
-              dev · inject steer
-            </button>
-          )}
         </div>
 
         {card.closure?.reportPath ? (

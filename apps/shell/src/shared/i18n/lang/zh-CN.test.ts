@@ -100,8 +100,6 @@ const REQUIRED_KEYS = [
   "chat.drawer.steerMark",
   "chat.drawer.steerToast",
   "chat.drawer.steerToastSub",
-  "chat.drawer.steerOnlyRunning",
-  "chat.drawer.steerOnlyRunningSub",
   "chat.drawer.queuedHint",
   "chat.drawer.reportFoot",
   "chat.drawer.instanceMeta",

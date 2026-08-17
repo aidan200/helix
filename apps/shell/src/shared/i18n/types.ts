@@ -140,8 +140,6 @@ export interface ChatTranslations {
     steerMark: string;
     steerToast: string;
     steerToastSub: string;
-    steerOnlyRunning: string;
-    steerOnlyRunningSub: string;
     queuedHint: string;
     reportFoot: string;
     instanceMeta: string;

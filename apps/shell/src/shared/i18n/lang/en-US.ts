@@ -129,8 +129,6 @@ export const enUS: Translations = {
       steerMark: "⇦ main steer injection",
       steerToast: "steer injected into instance",
       steerToastSub: "{id} · via Agent.steer()",
-      steerOnlyRunning: "Only running instances accept injection",
-      steerOnlyRunningSub: "queued/terminal instances have no active context",
       queuedHint: "Queued · starts automatically when a slot frees up, channel unfolds here",
       reportFoot: "task report persisted via daemon single-writer queue",
       instanceMeta: "spawned by main via agent_spawn · events carry instanceId (AD-3 trace)",
