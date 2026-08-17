@@ -25,6 +25,17 @@
 - sourceTask: task-T2.1-report.md
 - createdIn: iter-20260816-6q6f
 
+### CL-iter-20260816-6q6f-1786980800604
+- changeType: 新增
+- scope: verification 阶段回归取证（零生产代码改动，纯证据落盘）
+- project: helix
+- reason: M5 热修复批次六提交（d3ed899/c487c95/5959533/23f6043/55ac055/9936d48）Round-2 独立回归验收记录：F 层 91/91 全绿零回退 + E 层 20/20×2 双跑全绿（T5.1 switch-state-isolation 修复回归成立），T5.1-T5.6 修复要点全部应答（含 T5.6 dev 控件 grep 零残留复核）。作为迭代验收留痕候选供终验人审裁决。
+- evidence: evidence/e2e/verification-r2-CL-all-f-20260817T152736Z.txt「M5 六提交复核要点应答」节 + 4 张 verification-r2-CL-1-f-shot-*.png；E 层配套 evidence/e2e/verification-r2-CL-e-layer-round{1,2}-*.txt
+- implementationStatus: 完整实现
+- implementedCode: e2e/CL-1-activity-rail-inline.spec.ts:31（T5.5 新剧本）；e2e/CL-3-model-menu.spec.ts:144,159（T5.3 断言）；worktree HEAD 9936d48
+- sourceTask: development/task-TC6.1-report.md
+- createdIn: iter-20260816-6q6f
+
 ## deferred
 
 ## applied
