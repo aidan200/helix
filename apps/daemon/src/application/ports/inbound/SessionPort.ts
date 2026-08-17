@@ -1,4 +1,5 @@
 import type { SessionSnapshot, SessionUsageSummary, UsageSummary } from "../../../domain/session/SessionSnapshot";
+import type { AgentLifecycleState } from "../../../domain/agent/AgentLifecycle";
 import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 import type { DomainEvent, InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type { StreamDelta } from "../outbound/EventPublisherPort";
@@ -28,6 +29,16 @@ export interface SessionStateView {
   readonly instances?: readonly InstanceSnapshotEntry[];
   /** 会话账目聚合（T3.2：UsageLedger 投影；缺省 = 未携带）。 */
   readonly usage?: SessionUsageSummary;
+  /**
+   * 会话自身运行态（T5.1 热修，AD-2/AD-4：per-session 盖章数据源）——快照
+   * agentState 由组装面（注册表 buildView）从目标会话 runtime 直读，不再经
+   * system.getStatus() 全局最近活跃投影（多会话下 current ≠ 目标会话 →
+   * 串台，RCA debug/session-switch-state-overwrite-root-cause.md）。
+   * 缺省 = 旧组装点未携带（additive 演进）。
+   */
+  readonly agentState?: AgentLifecycleState;
+  /** 会话当前模型（per-session，AD-2；undefined = 引擎未暴露 → 调用方回退全局默认）。 */
+  readonly model?: string;
 }
 
 /** 实例快照条目（AgentInstanceData + task/closure/usage/model；契约 AgentInstanceDto 的 domain 侧镜像）。 */

@@ -419,6 +419,12 @@ export class SessionRegistry implements SessionDirectoryPort {
     return {
       session: session.toSnapshot(),
       toolCalls: [...runtime.chatService.toolCallData, ...runtime.projection.subAgentToolCallData()],
+      // T5.1 热修：per-session 盖章数据源（快照 agentState/model 随视图同源
+      // 组装——subscribe/draft 快照不再经 system.getStatus() 全局投影）
+      agentState: runtime.chatService.agentState,
+      ...(runtime.chatService.currentModel !== undefined
+        ? { model: runtime.chatService.currentModel }
+        : {}),
       instances: [
         {
           instanceId: MAIN_INSTANCE_ID,

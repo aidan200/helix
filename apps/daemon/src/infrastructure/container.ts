@@ -422,6 +422,11 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   // T2.3（AD-2）：model 位数据源改会话级（AD-3 model 族）——当前会话
   // 引擎观测值；冷会话/引擎未暴露 → 全局默认（SQLite 读面 + builtin 兑底）
   const system: SystemPort = {
+    // T5.1：getStatus() 是系统级/「当前会话」（注册表最近活跃）读面——仅用于
+    // welcome 单会话握手等自洽场景；per-session 帧（session.subscribe / draft
+    // 建会话快照）禁止用它盖章（多会话下 current ≠ 目标会话 → 串台，RCA
+    // debug/session-switch-state-overwrite-root-cause.md；per-session 帧章
+    // 改由 SessionStateView.agentState/model 随视图同源组装）。
     getStatus(): DaemonStatus {
       const sessionId = registry.currentSessionId();
       return {
