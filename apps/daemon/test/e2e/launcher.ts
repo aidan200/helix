@@ -251,18 +251,23 @@ async function main(): Promise<void> {
         fakeEngineScript: subagentEngineScriptPath,
       })
     : new ScriptedSubagentRunner(subagentScript);
-  const engine = new PiAgentEngineAdapter({
-    profile: MainSessionProfile,
-    model: fakeModel,
-    apiKeys: { fake: "explicit-key" },
-    models: fakeModels,
-    streamFnOverride: makeScriptedStreamFn(script.entries),
-    resolveTools: (names) => executor.resolveTools(names),
-  });
+  // T4.2（多会话 E 层）：engine 以工厂形态注入——每会话独立引擎实例
+  // （FakeLLM 剧本队列 per-session 从头消费；两会话可并行驱动 turn，与生产
+  // engineFor 工厂同构）。既有单会话 spec 行为不变（单会话仅建一次引擎，
+  // 剧本消费序与共享实例形态一致）。
+  const engineFor = (): PiAgentEngineAdapter =>
+    new PiAgentEngineAdapter({
+      profile: MainSessionProfile,
+      model: fakeModel,
+      apiKeys: { fake: "explicit-key" },
+      models: fakeModels,
+      streamFnOverride: makeScriptedStreamFn(script.entries),
+      resolveTools: (names) => executor.resolveTools(names),
+    });
 
   const daemon = await createDaemon({
     home: home!,
-    engine,
+    engine: engineFor,
     skipConfig: true,
     port,
     staticDir,
