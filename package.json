@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "dev": "bun apps/daemon/src/main.ts",
-    "dev:shell": "bun --cwd apps/shell run dev",
+    "dev:shell": "bun run --cwd=apps/shell dev",
     "test": "bun test apps/daemon",
     "test:shell": "vitest run apps/shell",
     "test:e2e": "playwright test -c playwright.e2e.config.ts",
