@@ -18,7 +18,7 @@ export default defineConfig({
   testDir: "./e2e",
   // E 层套件（真 daemon + FakeLLM）归 playwright.e2e.config.ts 专属入口
   // （需 VITE_HELIX_PORT=5333 的 vite 与 daemon fixture），默认入口只跑 F 层。
-  testIgnore: /(CL-7-e2e-.*|CL-6-CL-7-dual-base.*|CL-7-CL-8-restart-recovery.*|CL-1-CL-8-restart-orchestration.*|CL-2-CL-3-CL-8-restart-thinking-ledger.*|CL-4-teardown-residue.*)\.spec\.ts/,
+  testIgnore: /(CL-7-e2e-.*|CL-6-CL-7-dual-base.*|CL-7-CL-8-restart-recovery.*|CL-1-CL-8-restart-orchestration.*|CL-2-CL-3-CL-8-restart-thinking-ledger.*|CL-4-teardown-residue.*|CL-1-e2e-.*|CL-3-e2e-.*)\.spec\.ts/,
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: true,
