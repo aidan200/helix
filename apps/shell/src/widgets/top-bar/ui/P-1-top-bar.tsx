@@ -16,6 +16,7 @@ import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/ui/theme";
 import { useSession, type ConnState } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
+import ModelSwitchMenu from "@/features/model-switch/ui/P-3-model-switch";
 import { StatsBadge, UsagePopover } from "./SessionStats";
 
 /** 连接 dot 类名（F(7).4 四态：绿常亮/黄脉冲/红脉冲/红常亮）。 */
@@ -46,6 +47,8 @@ const AppHeader = function AppHeader({ onOpenInstance = noop, onOpenSettings = n
   const { state, topology } = useSession();
   const { theme, setTheme } = useTheme();
   const [statsOpen, setStatsOpen] = useState(false);
+  // P-3 模型菜单开合（F(3.3).1：徽标点击 toggle；点外/Esc 关闭归菜单组件）
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
 
   const connLabel = t(`chat.conn.${state.conn}`);
   // 会话标题（F(2.1).3 左区）：清单元数据；草稿态取词条
@@ -69,11 +72,17 @@ const AppHeader = function AppHeader({ onOpenInstance = noop, onOpenSettings = n
           <StatsBadge open={statsOpen} onToggle={() => setStatsOpen((v) => !v)} />
           {state.model && (
             <button
-              className="hud-badge model-badge"
+              className={cn("hud-badge model-badge", modelMenuOpen && "open")}
               type="button"
               data-model-badge
               title={t("chat.topbar.modelTitle")}
               aria-label={t("chat.topbar.modelTitle")}
+              aria-expanded={modelMenuOpen}
+              aria-haspopup="menu"
+              onClick={(e) => {
+                e.stopPropagation();
+                setModelMenuOpen((v) => !v);
+              }}
             >
               <span className="mb-dot" aria-hidden="true" />
               {state.model}
@@ -117,6 +126,10 @@ const AppHeader = function AppHeader({ onOpenInstance = noop, onOpenSettings = n
       </header>
       {statsOpen && (
         <UsagePopover onClose={() => setStatsOpen(false)} onOpenInstance={onOpenInstance} />
+      )}
+      {/* P-3 模型切换菜单（.app 直系子元素——backdrop-filter 包含块约束） */}
+      {modelMenuOpen && (
+        <ModelSwitchMenu onClose={() => setModelMenuOpen(false)} onOpenSettings={onOpenSettings} />
       )}
     </>
   );

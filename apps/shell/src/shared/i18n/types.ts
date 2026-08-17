@@ -228,6 +228,59 @@ export interface ChatTranslations {
     back: string;
     title: string;
   };
+  /** P-3 模型切换弹出菜单（features/model-switch；CL-3 F(3.3).1-F(3.3).3；T3.3） */
+  modelSwitch: {
+    searchPlaceholder: string;
+    emptyTitle: string;
+    emptySub: string;
+    resetToDefault: string;
+    effectiveHint: string;
+    configEntry: string;
+    defaultBadge: string;
+    switchedToast: string;
+    resetToast: string;
+  };
+  /** P-4 模型与厂商配置页（pages/settings；CL-3 F(3.4).1-F(3.4).6；T3.3） */
+  modelsConfig: {
+    subtitle: string;
+    defaultLabel: string;
+    defaultHint: string;
+    refresh: string;
+    refreshedJustNow: string;
+    refreshedAt: string;
+    authPathHint: string;
+    providersLabel: string;
+    unconfigured: string;
+    connUnverified: string;
+    connVerifying: string;
+    connOk: string;
+    connFail: string;
+    test: string;
+    changeKey: string;
+    deleteKey: string;
+    confirmDelete: string;
+    configureKey: string;
+    colModel: string;
+    colContext: string;
+    colInput: string;
+    colOutput: string;
+    colCacheRead: string;
+    colCacheWrite: string;
+    tableCaption: string;
+    defaultChip: string;
+    modalTitle: string;
+    modalSub: string;
+    apiKeyLabel: string;
+    apiKeyPlaceholder: string;
+    apiKeyEmptyErr: string;
+    modalHint: string;
+    cancel: string;
+    save: string;
+    keySavedToast: string;
+    keyDeletedToast: string;
+    refreshedToast: string;
+    defaultUpdatedToast: string;
+  };
   /** 时间戳格式（"HH:mm"） */
   tsFormat: string;
 }

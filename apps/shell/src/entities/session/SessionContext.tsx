@@ -19,10 +19,19 @@ import type { EventEnvelope } from "@helix/protocol";
 import { HelixWsClient } from "@/shared/api/helix-ws";
 import type { Transport, TransportFactory } from "@/shared/api/helix-ws";
 import {
+  authDeleteKeyCommand,
+  authListCommand,
+  authSetKeyCommand,
+  authVerifyCommand,
   chatAbortCommand,
   chatSendCommand,
   chatSendDraftCommand,
   chatSteerCommand,
+  modelCatalogCommand,
+  modelCatalogRefreshCommand,
+  modelGetDefaultCommand,
+  modelSetCommand,
+  modelSetDefaultCommand,
   sessionDeleteCommand,
   sessionListCommand,
   sessionLoadHistoryCommand,
@@ -88,6 +97,23 @@ interface SessionContextValue {
   /** dev 演示控件专用：合成协议事件直投 reducer（isDev 门控；prod 零路径）。
    *  与 fake transport 同构的帧注入点（F 层剧本驱动面），走真实投影路径。 */
   devDispatchEvent: (event: EventEnvelope) => void;
+  // ── model / auth 命令面板（契约 C；T3.3 P-3/P-4）──
+  /** 会话模型运行期切换（P-3 选中即切 / 重置为默认；下一 turn 生效）。 */
+  setSessionModel: (model: string) => void;
+  /** 目录 + 全局默认拉取（P-3 打开 / P-4 进入；未请求态才发，重复打开零重发）。 */
+  requestModelConfig: () => void;
+  /** provider 凭据清单拉取（P-4 进入；auth.list 全局命令）。 */
+  requestAuthList: () => void;
+  /** 目录强制刷新（P-4 刷新按钮；绕过 4h 缓存）。 */
+  refreshModelCatalog: () => void;
+  /** 全局默认写入（P-4 选择器；乐观更新 + 回执锁定）。 */
+  setDefaultModel: (model: string) => void;
+  /** 连通验证（P-4 测试连通；started 先清旧态）。 */
+  verifyProvider: (providerId: string) => void;
+  /** key 保存（P-4 弹层；写 ~/.helix/auth.json）。 */
+  setProviderKey: (providerId: string, apiKey: string) => void;
+  /** key 删除（P-4 两段式二击；回执后转未配置）。 */
+  deleteProviderKey: (providerId: string) => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -280,6 +306,50 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "event", event, ts: Date.now() });
   }, []);
 
+  // ── model / auth 命令面板（T3.3）：命令发送同刻 dispatch started action
+  //（in-flight 锁定 + 乐观面；结果帧到达由 model-config 消费者接管）──
+  const setSessionModel = useCallback((model: string) => {
+    const { sessionId } = topologyRef.current.active;
+    if (sessionId === null) return; // 草稿无会话上下文：零帧零动作
+    clientRef.current!.send(modelSetCommand(model, sessionId));
+  }, []);
+
+  const requestModelConfig = useCallback(() => {
+    const mc = topologyRef.current.modelConfig;
+    if (mc.catalog === null) clientRef.current!.send(modelCatalogCommand());
+    if (mc.defaultModel === "") clientRef.current!.send(modelGetDefaultCommand());
+  }, []);
+
+  const requestAuthList = useCallback(() => {
+    clientRef.current!.send(authListCommand());
+  }, []);
+
+  const refreshModelCatalog = useCallback(() => {
+    if (topologyRef.current.modelConfig.catalogRefreshing) return; // 在途去重
+    dispatch({ type: "model/catalog-refresh-started" });
+    clientRef.current!.send(modelCatalogRefreshCommand());
+  }, []);
+
+  const setDefaultModel = useCallback((model: string) => {
+    dispatch({ type: "model/set-default-started", model }); // 乐观更新（选择器即时反映）
+    clientRef.current!.send(modelSetDefaultCommand(model));
+  }, []);
+
+  const verifyProvider = useCallback((providerId: string) => {
+    dispatch({ type: "model/verify-started", providerId }); // 先清旧态置 verifying
+    clientRef.current!.send(authVerifyCommand(providerId));
+  }, []);
+
+  const setProviderKey = useCallback((providerId: string, apiKey: string) => {
+    dispatch({ type: "model/set-key-started", providerId });
+    clientRef.current!.send(authSetKeyCommand(providerId, apiKey));
+  }, []);
+
+  const deleteProviderKey = useCallback((providerId: string) => {
+    dispatch({ type: "model/delete-key-started", providerId });
+    clientRef.current!.send(authDeleteKeyCommand(providerId));
+  }, []);
+
   const state = topology.active;
   const value = useMemo(
     () => ({
@@ -301,6 +371,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       subscribeInstance,
       unsubscribeInstance,
       devDispatchEvent,
+      setSessionModel,
+      requestModelConfig,
+      requestAuthList,
+      refreshModelCatalog,
+      setDefaultModel,
+      verifyProvider,
+      setProviderKey,
+      deleteProviderKey,
     }),
     [
       state,
@@ -321,6 +399,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       subscribeInstance,
       unsubscribeInstance,
       devDispatchEvent,
+      setSessionModel,
+      requestModelConfig,
+      requestAuthList,
+      refreshModelCatalog,
+      setDefaultModel,
+      verifyProvider,
+      setProviderKey,
+      deleteProviderKey,
     ],
   );
 

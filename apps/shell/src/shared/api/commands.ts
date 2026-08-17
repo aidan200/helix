@@ -11,9 +11,18 @@
  */
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type {
+  AuthDeleteKeyCommand,
+  AuthListCommand,
+  AuthSetKeyCommand,
+  AuthVerifyCommand,
   ChatAbortCommand,
   ChatSendCommand,
   ChatSteerCommand,
+  ModelCatalogCommand,
+  ModelCatalogRefreshCommand,
+  ModelGetDefaultCommand,
+  ModelSetCommand,
+  ModelSetDefaultCommand,
   SessionDeleteCommand,
   SessionListCommand,
   SessionLoadHistoryCommand,
@@ -74,4 +83,51 @@ export function sessionLoadHistoryCommand(sessionId: string, beforeEntryId: stri
     sessionId,
     payload: { beforeEntryId },
   };
+}
+
+// ── model / auth 命令族（契约 C §1；T3.3 P-3/P-4）────────
+
+/** model.set：运行期切换（P-3 选中即切；信封 sessionId 必填，下一 turn 生效）。 */
+export function modelSetCommand(model: string, sessionId: string): ModelSetCommand {
+  return { v: PROTOCOL_VERSION, type: "model.set", sessionId, payload: { model } };
+}
+
+/** model.catalog：目录快照（全局命令，4h 缓存口径；P-3 打开 / P-4 进入拉取）。 */
+export function modelCatalogCommand(): ModelCatalogCommand {
+  return { v: PROTOCOL_VERSION, type: "model.catalog", payload: {} };
+}
+
+/** model.catalog_refresh：绕过 4h 缓存强制拉 pi.dev（P-4 刷新按钮）。 */
+export function modelCatalogRefreshCommand(): ModelCatalogRefreshCommand {
+  return { v: PROTOCOL_VERSION, type: "model.catalog_refresh", payload: {} };
+}
+
+/** model.get_default：全局默认读面（全局命令；P-3 DEFAULT 徽标 / 重置入口数据源）。 */
+export function modelGetDefaultCommand(): ModelGetDefaultCommand {
+  return { v: PROTOCOL_VERSION, type: "model.get_default", payload: {} };
+}
+
+/** model.set_default：写全局默认（全局命令；P-4 选择器）。 */
+export function modelSetDefaultCommand(model: string): ModelSetDefaultCommand {
+  return { v: PROTOCOL_VERSION, type: "model.set_default", payload: { model } };
+}
+
+/** auth.list：provider 凭据清单（全局命令；P-4 列表数据）。 */
+export function authListCommand(): AuthListCommand {
+  return { v: PROTOCOL_VERSION, type: "auth.list", payload: {} };
+}
+
+/** auth.set_key：写 ~/.helix/auth.json（全局命令；P-4 key 弹层保存）。 */
+export function authSetKeyCommand(providerId: string, apiKey: string): AuthSetKeyCommand {
+  return { v: PROTOCOL_VERSION, type: "auth.set_key", payload: { providerId, apiKey } };
+}
+
+/** auth.delete_key：删 key（全局命令；P-4 两段式删除二击）。 */
+export function authDeleteKeyCommand(providerId: string): AuthDeleteKeyCommand {
+  return { v: PROTOCOL_VERSION, type: "auth.delete_key", payload: { providerId } };
+}
+
+/** auth.verify：连通验证（全局命令；P-4 测试连通）。 */
+export function authVerifyCommand(providerId: string): AuthVerifyCommand {
+  return { v: PROTOCOL_VERSION, type: "auth.verify", payload: { providerId } };
 }

@@ -425,6 +425,121 @@ export function modelChanged(sessionId: string, model: string, previous: string)
   };
 }
 
+// ── model / auth 命令结果帧（契约 C §1/§2.2；T3.3 P-3/P-4 剧本回放面）────
+// 信封惯例：全局命令结果 sessionId = SYSTEM_SESSION_ID；model.get.result
+// 例外（会话级——信封 sessionId = 目标会话，与 loadHistoryResult 同构）。
+
+/** model.get.result（会话当前模型 + 与全局默认关系；信封 sessionId = 目标会话）。 */
+export function modelGetResult(
+  sessionId: string,
+  payload: { model: string; isDefault: boolean; defaultModel: string },
+): EventEnvelope {
+  return { v: V, sessionId, channel: "model", type: "model.get.result", payload };
+}
+
+/** model.catalog.result（目录快照；4h 缓存口径）。 */
+export function modelCatalogResult(
+  models: CatalogModel[],
+  opts: { refreshedAt?: number; source?: "cache" | "builtin" | "remote" } = {},
+): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "model.catalog.result",
+    payload: { models, refreshedAt: opts.refreshedAt ?? Date.now(), source: opts.source ?? "builtin" },
+  };
+}
+
+/** model.catalog_refresh.result（强制刷新快照 + degraded 降级明细）。 */
+export function modelCatalogRefreshResult(
+  models: CatalogModel[],
+  opts: { refreshedAt?: number; source?: "cache" | "builtin" | "remote"; degraded?: string[] } = {},
+): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "model.catalog_refresh.result",
+    payload: {
+      models,
+      refreshedAt: opts.refreshedAt ?? Date.now(),
+      source: opts.source ?? "remote",
+      degraded: opts.degraded ?? [],
+    },
+  };
+}
+
+/** model.get_default.result（全局默认读面；SQLite）。 */
+export function modelGetDefaultResult(model: string): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "model.get_default.result",
+    payload: { model },
+  };
+}
+
+/** model.set_default.result（全局默认变更回执；previous = 变更前默认）。 */
+export function modelSetDefaultResult(previous: string): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "model.set_default.result",
+    payload: { previous },
+  };
+}
+
+/** auth.list.result（provider 凭据清单；脱敏）。 */
+export function authListResult(
+  providers: { providerId: string; configured: boolean; keyMasked?: string; verifyStatus?: "ok" | "fail" | "unverified" }[],
+): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "auth.list.result",
+    payload: { providers },
+  };
+}
+
+/** auth.set_key.result（写入回执；掩码形式）。 */
+export function authSetKeyResult(keyMasked: string): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "auth.set_key.result",
+    payload: { keyMasked },
+  };
+}
+
+/** auth.delete_key.result（无数据体）。 */
+export function authDeleteKeyResult(): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "auth.delete_key.result",
+    payload: {},
+  };
+}
+
+/** auth.verify.result（连通验证；fail 为正常结果非 error）。 */
+export function authVerifyResult(
+  result: { status: "ok"; latencyMs: number } | { status: "fail"; reason: string },
+): EventEnvelope {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "auth.verify.result",
+    payload: result,
+  };
+}
+
 /** 后台会话流式帧（chat.stream.delta 带信封 sessionId 章印——未读跳动驱动面）。 */
 export function backgroundStreamDelta(sessionId: string, messageId: string, delta: string): EventEnvelope {
   return {
