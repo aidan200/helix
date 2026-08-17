@@ -74,6 +74,13 @@ export interface InstanceCardState {
   stalledMs?: number;
   /** running 态 streaming 摘要尾窗（该实例 assistant delta 的尾段，滚动截断） */
   streamSummary: string;
+  /**
+   * spawn 时间轴锚点（T5.5）：卡片渲染插入位 = 该 id 的 main entry 之后
+   * （null = 流首）。id 引用天然抗分页前插（prepend 不改 id）；spawn 时取
+   * 当时最后一条 main entry；快照恢复 = 实例首 Entry 前最后一条 main entry
+   * （无实例 Entry = 尾部）；同会话重连合入保留 live 锚点（重放幂等）。
+   */
+  anchorEntryId: string | null;
 }
 
 /** 会话账目投影（F3.3/F3.4；渲染归 T4.2）。 */

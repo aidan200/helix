@@ -218,10 +218,13 @@ export interface ChatTranslations {
     title: string;
     hint: string;
   };
-  /** SubAgent 抽屉收起竖条（P-1 抽屉关闭态；M2 既有能力的入口位） */
+  /** 活跃事件条（T5.5：右侧活跃事件条；折叠/展开两态 + 类型注册表标签） */
   rail: {
     label: string;
     open: string;
+    expand: string;
+    collapse: string;
+    typeSubagent: string;
   };
   /** P-4 模型/厂商配置路由壳（页面本体 T3.3；本任务仅返回壳） */
   settings: {

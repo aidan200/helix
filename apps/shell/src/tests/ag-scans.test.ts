@@ -61,7 +61,13 @@ describe("AG-13 两端协议同源（前端半）", () => {
 
 describe("AG-14 前端零权威状态", () => {
   // T3.2：+ helix-sidebar-collapsed（侧栏折叠记忆——纯 UI 布局偏好，非业务状态）
-  const LOCALSTORAGE_KEYS = new Set(["helix-theme", "helix-lang", "helix-sidebar-collapsed"]);
+  // T5.5：+ helix-activity-rail-collapsed（活跃事件条折叠记忆——同上模式）
+  const LOCALSTORAGE_KEYS = new Set([
+    "helix-theme",
+    "helix-lang",
+    "helix-sidebar-collapsed",
+    "helix-activity-rail-collapsed",
+  ]);
 
   it("localStorage 键白名单：主题 / i18n / 侧栏折叠（无业务状态持久化）", () => {
     const offenders: string[] = [];

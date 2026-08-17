@@ -190,8 +190,11 @@ export const zhCN: Translations = {
       hint: "草稿会话 · 发送第一条消息后将创建会话",
     },
     rail: {
-      label: "Sub-Agents",
-      open: "展开 SubAgent 抽屉",
+      label: "活跃事件",
+      open: "打开 SubAgent 抽屉",
+      expand: "展开事件条",
+      collapse: "收起事件条",
+      typeSubagent: "SubAgent",
     },
     settings: {
       back: "返回工作台",

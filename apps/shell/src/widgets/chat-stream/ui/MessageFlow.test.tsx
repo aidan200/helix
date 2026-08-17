@@ -42,6 +42,84 @@ afterEach(cleanup);
 // jsdom navigator.language 默认 en-US：钉 zh-CN（产品断言语言，AG-14 白名单键）
 localStorage.setItem("helix-lang", "zh-CN");
 
+/**
+ * 消息流 SubAgent 卡片时间轴内联（T5.5；task brief §4.2）：卡片按 spawn 锚点
+ * 交织进 entries 序列原位渲染（替代末尾 .sa-cards 汇聚块）；状态原位更新、
+ * 终态留原位；同锚点多卡保 spawn 先后序。
+ */
+describe("MessageFlow SubAgent 卡片时间轴内联（T5.5）", () => {
+  const welcome: EventEnvelope = {
+    v: 0,
+    type: "connection.welcome",
+    payload: { sessionId: "s1", model: "claude-sonnet-4-5", agentState: "idle" },
+  };
+  const completedMsg = (id: string): EventEnvelope => ({
+    v: 0,
+    type: "chat.message.completed",
+    payload: { entry: { kind: "message", id, role: "assistant", content: `text-${id}`, ts: 1 } },
+  });
+  const spawn = (agentId: string): EventEnvelope => ({
+    v: 0,
+    type: "agent.spawned",
+    payload: { agentId, task: `task-${agentId}`, profileKind: "subagent-worker" },
+  });
+  const play = (events: EventEnvelope[]): SessionState =>
+    events.reduce((s, e) => sessionReducer(s, { type: "event", event: e }), createInitialSessionState());
+
+  /** .session-active 内目标元素的文档序（entries 与卡片交织断言） */
+  const orderOf = (el: Element): number => {
+    const kids = Array.from(document.querySelector(".session-active")!.children);
+    return kids.findIndex((k) => k === el || k.contains(el));
+  };
+  const entryEl = (id: string) => screen.getByText(`text-${id}`).closest(".msg")!;
+  const cardEl = (id: string) => document.querySelector(`.sa-card[data-instance="${id}"]`)!;
+
+  it("卡片按 spawn 锚点交织进 entries 序列（m1 → 卡 → m2）", () => {
+    stateRef.current = play([welcome, completedMsg("m1"), spawn("a1"), completedMsg("m2")]);
+    ui(<MessageFlow />);
+    expect(orderOf(entryEl("m1"))).toBeLessThan(orderOf(cardEl("a1")));
+    expect(orderOf(cardEl("a1"))).toBeLessThan(orderOf(entryEl("m2")));
+  });
+
+  it("状态原位更新：running→done 终态卡留原位", () => {
+    stateRef.current = play([
+      welcome,
+      completedMsg("m1"),
+      spawn("a1"),
+      completedMsg("m2"),
+      {
+        v: 0,
+        type: "agent.completed",
+        payload: { agentId: "a1", closure: { status: "done", summary: "收口" } },
+      } as EventEnvelope,
+    ]);
+    ui(<MessageFlow />);
+    const card = cardEl("a1");
+    expect(card.classList.contains("done")).toBe(true);
+    expect(orderOf(entryEl("m1"))).toBeLessThan(orderOf(card));
+    expect(orderOf(card)).toBeLessThan(orderOf(entryEl("m2")));
+  });
+
+  it("末尾 .sa-cards 汇聚块已移除", () => {
+    stateRef.current = play([welcome, completedMsg("m1"), spawn("a1")]);
+    ui(<MessageFlow />);
+    expect(document.querySelector(".sa-cards")).toBeNull();
+  });
+
+  it("无 entries 时 spawn 卡片渲染在后续 entries 之前（流首锚点）", () => {
+    stateRef.current = play([welcome, spawn("a1"), completedMsg("m1")]);
+    ui(<MessageFlow />);
+    expect(orderOf(cardEl("a1"))).toBeLessThan(orderOf(entryEl("m1")));
+  });
+
+  it("同锚点多卡按 spawn 先后排序", () => {
+    stateRef.current = play([welcome, completedMsg("m1"), spawn("a1"), spawn("a2"), completedMsg("m2")]);
+    ui(<MessageFlow />);
+    expect(orderOf(cardEl("a1"))).toBeLessThan(orderOf(cardEl("a2")));
+    expect(orderOf(cardEl("a2"))).toBeLessThan(orderOf(entryEl("m2")));
+  });
+});
+
 describe("MessageFlow 挂载（三态分流；消费 T4.1 槽位）", () => {
   const welcome: EventEnvelope = {
     v: 0,

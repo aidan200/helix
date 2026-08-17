@@ -58,7 +58,8 @@ test.describe("T3.2 CL-2 三区骨架 + 折叠记忆", () => {
     await shotEvidence(page, "workbench-layout-light");
     await page.locator("#btn-dark").click();
 
-    // ── 抽屉关闭态竖条（P-1 布局构成：实例在场时 26px rail + 计数；点击展开 M2 抽屉）──
+    // ── 活跃事件条（T5.5 重设计：活跃实例在场时 26px rail（默认折叠）+ 活跃计数；
+    //    running=violet 脉冲标识；点击标识展开 M2 抽屉）──
     await mock.emit(
       v02Snapshot("sess-e2e", {
         instances: [agentInstance("agent-rail", { state: "running", task: "抽屉竖条验证实例" })],
@@ -66,10 +67,12 @@ test.describe("T3.2 CL-2 三区骨架 + 折叠记忆", () => {
     );
     const rail = page.locator("[data-drawer-rail]");
     await expect(rail).toBeVisible();
-    await expect(rail).toHaveAttribute("data-rail-count", "1");
+    await expect(rail).toHaveAttribute("data-rail-count", "1"); // 活跃数（非累计总数）
+    await expect(rail).toHaveAttribute("data-rail-state", "collapsed"); // 缺省折叠
     expect(parseFloat(await computed(page, ".drawer-rail", "width"))).toBe(26);
-    await expect(rail.locator(".rail-count"));
-    await rail.click();
+    await expect(rail.locator(".rail-marker")).toHaveCount(1);
+    await expect(rail.locator(".rail-marker")).toHaveAttribute("data-activity-type", "subagent");
+    await rail.locator(".rail-marker").click();
     await expect(page.locator(".drawer")).toBeVisible(); // M2 既有抽屉展开
     await page.locator(".d-close").click();
     await expect(page.locator(".drawer")).toHaveCount(0);

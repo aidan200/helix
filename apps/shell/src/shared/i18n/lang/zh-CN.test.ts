@@ -144,6 +144,9 @@ const REQUIRED_KEYS = [
   "chat.draftEmpty.hint",
   "chat.rail.label",
   "chat.rail.open",
+  "chat.rail.expand",
+  "chat.rail.collapse",
+  "chat.rail.typeSubagent",
   "chat.settings.back",
   "chat.settings.title",
 ] as const;

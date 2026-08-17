@@ -201,22 +201,70 @@
 .app[data-session="empty"][data-conn="connected"] .draft-empty { display: flex; }
 .empty-hint { font-size: var(--text-cap); color: var(--text-dim); font-family: var(--font-sans); }
 
-/* ── P-1 抽屉关闭态竖条（右侧 26px；点击展开 M2 既有抽屉）── */
+/* ── P-1 活跃事件条（T5.5 重设计：右侧折叠 26px 竖条 ↔ 展开简介列表；
+   类型着色槽位 data-color，本期 subagent=violet；无活跃事件不渲染）── */
 .drawer-rail {
-  position: absolute; top: 0; bottom: 0; right: 0; width: 26px; z-index: 5;
-  display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0 0;
-  border: none; border-left: 1px solid var(--border);
-  background: var(--bg-panel); cursor: pointer; color: var(--text-faint);
-  transition: color 0.15s, border-color 0.15s;
+  position: absolute; top: 0; bottom: 0; right: 0; z-index: 5;
+  display: flex; flex-direction: column;
+  border-left: 1px solid var(--border); background: var(--bg-panel);
 }
-.drawer-rail:hover { color: var(--accent); border-left-color: var(--border-strong); }
-.rail-label { writing-mode: vertical-rl; font-size: var(--text-micro); letter-spacing: 0.28em; text-transform: uppercase; }
-.rail-count {
-  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px;
-  background: rgb(var(--violet-rgb) / 0.16); border: 1px solid rgb(var(--violet-rgb) / 0.35);
-  color: var(--violet); font-size: var(--text-micro); font-weight: 600;
+.drawer-rail[data-rail-state="collapsed"] {
+  width: 26px; align-items: center; gap: 10px; padding: 14px 0 0;
+}
+.drawer-rail[data-rail-state="expanded"] { width: 224px; gap: 8px; padding: 10px; }
+.rail-toggle {
   display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; flex-shrink: 0;
+  border-radius: 4px; border: 1px solid transparent; background: transparent;
+  color: var(--text-faint); cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
+.rail-toggle:hover { color: var(--accent); border-color: var(--border-strong); background: var(--bg-hover); }
+.rail-toggle:active { transform: translateY(1px); }
+/* 折叠态：每活跃事件一个类型着色标识（圆点；running 脉冲=存活动机） */
+.rail-marker {
+  width: 12px; height: 12px; padding: 0; border-radius: 999px; cursor: pointer;
+  border: 1px solid transparent; background: transparent;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.rail-marker[data-color="violet"] {
+  background: rgb(var(--violet-rgb) / 0.2); border-color: rgb(var(--violet-rgb) / 0.45);
+}
+.rail-marker[data-color="violet"]:hover { box-shadow: var(--glow-violet); transform: scale(1.15); }
+.rail-marker[data-color="violet"][data-state="running"] { background: var(--violet); animation: rail-pulse 1.6s ease-in-out infinite; }
+.rail-marker[data-color="violet"][data-state="running"]:hover { box-shadow: var(--glow-violet); }
+@keyframes rail-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+/* 展开态：头行（标签 + 计数 + 收起把手）+ 每活跃事件一行简介 */
+.rail-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 0 2px 6px; border-bottom: 1px solid var(--border);
+}
+.rail-title {
+  font-size: var(--text-micro); letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-faint); font-weight: 600;
+}
+.rail-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: transparent; cursor: pointer; text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.rail-row:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+.rail-row:active { transform: translateY(1px); }
+.rail-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0;
+}
+.rail-row[data-color="violet"] .rail-badge {
+  background: rgb(var(--violet-rgb) / 0.16); border: 1px solid rgb(var(--violet-rgb) / 0.35);
+  color: var(--violet);
+}
+.rail-row-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-body); color: var(--text);
+}
+.rail-row-status { flex-shrink: 0; font-size: var(--text-micro); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.rail-row[data-state="running"] .rail-row-status { color: var(--accent); }
 
 /* ── P-4 路由壳（页面本体 T3.3；返回工作台入口）── */
 .p4-page { position: relative; height: 100dvh; background: var(--bg); overflow-y: auto; }
@@ -427,8 +475,9 @@ html.light .p4-head { background: rgba(255, 255, 255, 0.6); }
 
 /* ── reduced-motion（本表动效全关；其余归 app.css 全局兜底）── */
 @media (prefers-reduced-motion: reduce) {
-  .ses-unread.pulse, .skel::after { animation: none !important; }
+  .ses-unread.pulse, .skel::after, .rail-marker { animation: none !important; }
   .ses, .mini-item, .model-badge, .drawer-rail, .icon-btn, .load-earlier, .ses-del { transition: none !important; }
+  .rail-toggle, .rail-row { transition: none !important; }
   .model-menu, .hud-toast, .modal-backdrop, .hud-modal, .pc-chev { transition: none !important; animation: none !important; }
   .spin { animation: none !important; }
 }

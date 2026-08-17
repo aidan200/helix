@@ -188,8 +188,11 @@ export const enUS: Translations = {
       hint: "Draft session · a session is created on first message",
     },
     rail: {
-      label: "Sub-Agents",
+      label: "Activity",
       open: "Open SubAgent drawer",
+      expand: "Expand activity rail",
+      collapse: "Collapse activity rail",
+      typeSubagent: "SubAgent",
     },
     settings: {
       back: "Back to workbench",
