@@ -269,7 +269,7 @@ export function lastMainAnchorId(entries: readonly AnchorScanEntry[], end: numbe
 
 /**
  * spawn 锚权威计算（契约 v0.3 §1 三分支机械判定；纯函数——同输入同输出；
- * 与前端的 anchorFromSnapshot 逐条件同规上收，snapshot.ts:41-58）：
+ * 原前端快照推导同规上收 daemon，T3.1 起 shell 零推导直读 DTO）：
  * ① 实例已有 Entry → 首条非 compaction 归属 Entry 前最后一条 main/compaction
  *    entry id（无 → null 流首）；首 Entry 后 append 的 main entry 不影响锚
  *   （append-only，[0, firstIdx) 稳定域）；

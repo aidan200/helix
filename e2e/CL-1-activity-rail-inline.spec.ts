@@ -41,10 +41,10 @@ test.describe("T5.5 活跃事件条 + 消息流卡片时间轴内联", () => {
     // ── ① 折叠态：三个活跃事件（running ×2 + queued #1）──
     await mock.emitAll([
       messageCompleted(msgEntry("m1", "assistant", "第一条主线回复")),
-      agentSpawned("a1", "盘点 session reducer 测试面"),
-      agentSpawned("a2", "补齐 daemon 单测"),
+      agentSpawned("a1", "盘点 session reducer 测试面", { anchorEntryId: "m1" }),
+      agentSpawned("a2", "补齐 daemon 单测", { anchorEntryId: "m1" }),
       agentQueued("a2", 1),
-      agentSpawned("a3", "巡检 e2e 证据面"),
+      agentSpawned("a3", "巡检 e2e 证据面", { anchorEntryId: "m1" }),
     ]);
     const rail = page.locator("[data-drawer-rail]");
     await expect(rail).toBeVisible();

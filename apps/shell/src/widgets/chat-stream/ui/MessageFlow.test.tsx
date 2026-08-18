@@ -58,10 +58,10 @@ describe("MessageFlow SubAgent 卡片时间轴内联（T5.5）", () => {
     type: "chat.message.completed",
     payload: { entry: { kind: "message", id, role: "assistant", content: `text-${id}`, ts: 1 } },
   });
-  const spawn = (agentId: string): EventEnvelope => ({
+  const spawn = (agentId: string, anchorEntryId: string | null): EventEnvelope => ({
     v: 0,
     type: "agent.spawned",
-    payload: { agentId, task: `task-${agentId}`, profileKind: "subagent-worker" },
+    payload: { agentId, task: `task-${agentId}`, profileKind: "subagent-worker", anchorEntryId },
   });
   const play = (events: EventEnvelope[]): SessionState =>
     events.reduce((s, e) => sessionReducer(s, { type: "event", event: e }), createInitialSessionState());
@@ -75,7 +75,7 @@ describe("MessageFlow SubAgent 卡片时间轴内联（T5.5）", () => {
   const cardEl = (id: string) => document.querySelector(`.sa-card[data-instance="${id}"]`)!;
 
   it("卡片按 spawn 锚点交织进 entries 序列（m1 → 卡 → m2）", () => {
-    stateRef.current = play([welcome, completedMsg("m1"), spawn("a1"), completedMsg("m2")]);
+    stateRef.current = play([welcome, completedMsg("m1"), spawn("a1", "m1"), completedMsg("m2")]);
     ui(<MessageFlow />);
     expect(orderOf(entryEl("m1"))).toBeLessThan(orderOf(cardEl("a1")));
     expect(orderOf(cardEl("a1"))).toBeLessThan(orderOf(entryEl("m2")));
@@ -85,7 +85,7 @@ describe("MessageFlow SubAgent 卡片时间轴内联（T5.5）", () => {
     stateRef.current = play([
       welcome,
       completedMsg("m1"),
-      spawn("a1"),
+      spawn("a1", "m1"),
       completedMsg("m2"),
       {
         v: 0,
@@ -101,19 +101,19 @@ describe("MessageFlow SubAgent 卡片时间轴内联（T5.5）", () => {
   });
 
   it("末尾 .sa-cards 汇聚块已移除", () => {
-    stateRef.current = play([welcome, completedMsg("m1"), spawn("a1")]);
+    stateRef.current = play([welcome, completedMsg("m1"), spawn("a1", "m1")]);
     ui(<MessageFlow />);
     expect(document.querySelector(".sa-cards")).toBeNull();
   });
 
   it("无 entries 时 spawn 卡片渲染在后续 entries 之前（流首锚点）", () => {
-    stateRef.current = play([welcome, spawn("a1"), completedMsg("m1")]);
+    stateRef.current = play([welcome, spawn("a1", null), completedMsg("m1")]);
     ui(<MessageFlow />);
     expect(orderOf(cardEl("a1"))).toBeLessThan(orderOf(entryEl("m1")));
   });
 
   it("同锚点多卡按 spawn 先后排序", () => {
-    stateRef.current = play([welcome, completedMsg("m1"), spawn("a1"), spawn("a2"), completedMsg("m2")]);
+    stateRef.current = play([welcome, completedMsg("m1"), spawn("a1", "m1"), spawn("a2", "m1"), completedMsg("m2")]);
     ui(<MessageFlow />);
     expect(orderOf(cardEl("a1"))).toBeLessThan(orderOf(cardEl("a2")));
     expect(orderOf(cardEl("a2"))).toBeLessThan(orderOf(entryEl("m2")));

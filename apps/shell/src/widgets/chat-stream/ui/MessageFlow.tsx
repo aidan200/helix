@@ -5,10 +5,12 @@
  * 高度差补偿，不跳底）；连接覆盖层等页面浮层经 children 挂进滚动容器
  * （pages 层组装）。
  *
- * SubAgent 卡片插位（F1.1 + T5.5 时间轴内联）：卡片按 spawn 锚点
- * （anchorEntryId）交织进 entries 序列原位渲染——锚点 id 引用抗分页前插；
- * 状态原位更新（queued→running→终态），终态卡留原位作历史；同锚点多卡保
- * spawn 先后序（instances 数组序）；锚点 id 缺失（理论不可达）兜底尾部。
+ * SubAgent 卡片插位（F1.1 + CL-1 v0.3 时间轴内联）：卡片按 DTO spawn 锚点
+ * （anchorEntryId；daemon 组装期权威计算，shell 零推导）交织进 entries 序列
+ * 原位渲染——锚点 id 引用抗分页前插；状态原位更新（queued→running→终态），
+ * 终态卡留原位作历史；同锚点多卡保 spawn 先后序（instances 数组序）；锚 entry
+ * 不在当前装载窗口（尾窗截断/翻页出窗）→ 卡片不渲染（Q-1b：无钉窗底、无
+ * 占位、无补偿 UI）。
  * 同一事实单一呈现面——closure 注入文本不占消息位。
  *
  * v0.2（T3.2）：sessionId === null 的空态 = 草稿空态（P-1 draft-empty，呼吸
@@ -101,11 +103,10 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
 
   const empty = selectIsEmpty(state);
 
-  // ── T5.5 时间轴内联：按 spawn 锚点把卡片交织进 entries 序列 ──
+  // ── CL-1 v0.3 时间轴内联：按 DTO spawn 锚点把卡片交织进 entries 序列 ──
   // head = 流首锚点（null）；byAnchor = entry id → 该 entry 之后渲染的卡；
-  // tail = 锚点 id 不在当前 entries（理论不可达）的兜底，保 spawn 序。
+  // 锚 entry ∉ 当前装载窗口（尾窗截断/翻页出窗）→ 不进任何桶，卡片不渲染。
   const headCards: InstanceCardState[] = [];
-  const tailCards: InstanceCardState[] = [];
   const byAnchor = new Map<string, InstanceCardState[]>();
   const entryIds = new Set(state.entries.map((e) => e.id));
   for (const card of state.instances) {
@@ -115,9 +116,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
       const list = byAnchor.get(card.anchorEntryId) ?? [];
       list.push(card);
       byAnchor.set(card.anchorEntryId, list);
-    } else {
-      tailCards.push(card);
     }
+    // else：锚出窗 → 卡片不渲染（无兜底桶）
   }
   const renderCard = (card: InstanceCardState) => (
     <SubAgentCard key={card.instanceId} card={card} onOpenDrawer={onOpenInstance} />
@@ -142,7 +142,6 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
               {byAnchor.get(entry.id)?.map(renderCard)}
             </Fragment>
           ))}
-          {tailCards.map(renderCard)}
           {state.thinkingStreams[MAIN_INSTANCE_ID] !== undefined && (
             <ThinkingLiveView text={state.thinkingStreams[MAIN_INSTANCE_ID]} />
           )}
