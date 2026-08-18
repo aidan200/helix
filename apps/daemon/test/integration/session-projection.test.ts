@@ -329,23 +329,25 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
 
       // closure 注入驱动的后续主线 turn（agent.completed 后自动开启）收口后再取
       // baseline——否则在飞帧与 baseline 竞态（既有 flake 根因：退订前合法帧
-      // 被计入退订后断言窗口）
-      const completedAt = client.frames.length;
+      // 被计入退订后断言窗口）。切片基准 = agent.completed 帧下标（非事后采样
+      // frames.length——负载下 idle 帧可能先于采样到达，落入前缀永等不到，
+      // 2026-08-18 OI-DEV-1 根治）
+      const completedIdx = client.frames.findLastIndex((f) => f.type === "agent.completed");
       try {
         await until(
           () =>
-            client.frames.slice(completedAt).some(
+            client.frames.slice(completedIdx + 1).some(
               (f) => f.type === "agent.state.changed" && (f.payload as { state?: string }).state === "idle",
             ),
-          30000,
+          15000,
           "closure 注入 turn 收口",
         );
       } catch (err) {
-        // 超时诊断：dump completedAt 之后的帧序列（负载敏感既有 flake 排查面，OI-DEV-1）
+        // 超时诊断：dump completed 帧之后的帧序列（OI-DEV-1 排查面）
         console.log(
           "closure 收口超时帧诊断:",
           client.frames
-            .slice(completedAt)
+            .slice(completedIdx + 1)
             .map((f) => `${f.type}${(f.payload as { state?: string }).state ? `:${(f.payload as { state?: string }).state}` : ""}`),
         );
         throw err;

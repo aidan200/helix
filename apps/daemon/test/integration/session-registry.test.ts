@@ -158,8 +158,10 @@ describe("T2.2 ① 注册表生命周期（懒加载 / 空闲卸载 / 执行中�
       const viewBefore = structuredClone(await dir.getSessionView(a.sessionId));
 
       // 空闲卸载（G-5 注入短窗口）：两会话均 idle → 注册表移除
+      //（A/B 均用 until 等待——瞬时硬断言 B 会与 poll 周期竞态：A 先卸载时 B
+      //  的空闲窗口可能尚未走满，OI-DEV-1 根治 2026-08-18）
       await until(() => rig.daemon.registry.peek(a.sessionId) === undefined, 3000, "A 空闲卸载");
-      expect(rig.daemon.registry.peek(b.sessionId)).toBeUndefined();
+      await until(() => rig.daemon.registry.peek(b.sessionId) === undefined, 3000, "B 空闲卸载");
 
       // 卸载后再进：懒加载恢复，视图等价（快照 + 事件流重放）
       const runtime = await rig.daemon.registry.get(a.sessionId);
