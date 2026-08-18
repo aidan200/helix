@@ -1,0 +1,118 @@
+/* ════════════════════════════════════════════════════════════════
+   P-4 全局导航壳样式（prototype/P-4-iconrail-nav.html 组件契约移植；T3.4）
+   - IconRail（F(4.4).1）：64px glass 竖条（glass-fill + blur 6px，亮色降
+     4px；右边线 accent/0.12）+ 激活态三件套（cyan 发光底 + 左 2px 指示条
+     + BorderBeam conic 巡游 6s，@supports 兜底纯发光、reduced-motion 关停）；
+   - 施工牌（F(4.4).3）：虚线围挡 + HUD 角标 + 64px 图标格 + hud-badge-cyan
+     「规划中」徽标（hud-badge-cyan 本文件首定义，P-4 连通徽标同步受益）；
+   - 全部色值/字号/圆角走 tokens.css 注册表变量（零散 hex 零容忍）；
+   - 原型标注（proto-note / 施工牌 vs 断连态对照块）不进实现。
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── 应用壳：IconRail 64px 常驻 + 页面域 ── */
+.app-shell { display: flex; height: 100dvh; }
+.page-area { flex: 1; min-width: 0; position: relative; height: 100dvh; }
+
+/* ═══ F(4.4).1 IconRail：64px glass 竖条 ═══ */
+.icon-rail {
+  width: 64px; flex-shrink: 0; z-index: 10;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 16px 0; border-right: 1px solid rgb(var(--accent-rgb) / 0.12);
+  background: var(--glass-fill);
+  backdrop-filter: blur(6px) saturate(115%); -webkit-backdrop-filter: blur(6px) saturate(115%);
+}
+html.light .icon-rail {
+  backdrop-filter: blur(4px) saturate(110%); -webkit-backdrop-filter: blur(4px) saturate(110%);
+}
+.rail-logo {
+  position: relative; margin-bottom: 24px;
+  width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; border: 1px solid rgb(var(--accent-rgb) / 0.4);
+  background: rgb(var(--void-rgb) / 0.6); box-shadow: var(--glow-cyan);
+}
+.rail-logo span {
+  font-size: var(--text-title); font-weight: 700; letter-spacing: -0.02em;
+  background: linear-gradient(90deg, var(--accent), var(--violet));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.rail-nav { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 8px; }
+.rail-btn {
+  position: relative; width: 40px; height: 40px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; border: 1px solid transparent; background: transparent;
+  color: var(--text-dim);
+  transition: color 0.2s, border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+.rail-btn:hover { color: var(--text); border-color: rgb(var(--accent-rgb) / 0.2); }
+.rail-btn:active { transform: translateY(1px); }
+/* 激活态：cyan 发光底 + 左侧 2px 指示条 + BorderBeam 巡游 */
+.rail-btn.on {
+  color: var(--accent);
+  border-color: rgb(var(--accent-rgb) / 0.5);
+  background: rgb(var(--accent-rgb) / 0.1);
+  box-shadow: var(--glow-cyan);
+}
+.rail-btn.on::before {
+  content: ""; position: absolute; left: -13px; top: 50%; transform: translateY(-50%);
+  width: 2px; height: 20px; border-radius: 999px;
+  background: var(--accent); box-shadow: var(--glow-cyan);
+}
+@property --beam-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.rail-btn.on::after {
+  content: ""; position: absolute; inset: -1px; border-radius: 9px; padding: 1px;
+  background: conic-gradient(from var(--beam-angle), transparent 0 70%, var(--accent) 82%, var(--violet) 90%, transparent 98%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: beam-rotate 6s linear infinite;
+  pointer-events: none;
+}
+@keyframes beam-rotate { to { --beam-angle: 360deg; } }
+/* WKWebView 降级：@supports 兜底纯发光底（无 BorderBeam） */
+@supports not (background: conic-gradient(from var(--beam-angle), red, blue)) {
+  .rail-btn.on::after { display: none; }
+}
+.rail-avatar {
+  margin-top: 16px; width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; border: 1px solid rgb(var(--violet-rgb) / 0.3);
+  background: rgb(var(--violet-rgb) / 0.1); color: var(--violet);
+  font-size: var(--text-main); font-weight: 500;
+}
+
+/* ═══ F(4.4).3 占位页施工态：静态施工牌 ═══ */
+.construction {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  padding: 40px 24px;
+  background: radial-gradient(circle at 50% 20%, rgb(var(--accent-rgb) / 0.05), transparent 60%);
+}
+.construction-frame {
+  position: relative; max-width: 440px; width: 100%;
+  border: 1px dashed rgb(var(--edge-rgb) / 0.18); border-radius: 12px;
+  background: var(--card-fill);
+  padding: 44px 36px 36px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center;
+}
+/* HUD 角标（左上 + 右下两角 cyan 描线，沿原型两角口径） */
+.construction-frame::before, .construction-frame::after {
+  content: ""; position: absolute; width: 7px; height: 7px;
+  border-color: var(--accent); border-style: solid; border-width: 0;
+  pointer-events: none; opacity: 0.7;
+}
+.construction-frame::before { top: 0; left: 0; border-top-width: 1px; border-left-width: 1px; }
+.construction-frame::after { bottom: 0; right: 0; border-bottom-width: 1px; border-right-width: 1px; }
+.cs-icon {
+  width: 64px; height: 64px; display: flex; align-items: center; justify-content: center;
+  border: 1px dashed rgb(var(--accent-rgb) / 0.4); border-radius: 12px;
+  background: rgb(var(--accent-rgb) / 0.05); color: var(--accent);
+}
+.cs-name { font-size: var(--text-head); font-weight: 600; color: var(--text); letter-spacing: 0.02em; }
+.cs-route { font-size: var(--text-micro); color: var(--text-faint); letter-spacing: 0.08em; }
+.cs-preview { font-size: var(--text-body); color: var(--text-muted); max-width: 32ch; }
+
+/* hud-badge-cyan（原型 hud-badge 族 accent 变体；施工牌「规划中」徽标，
+   P-4 连通徽标 verifying 态同源受益） */
+.hud-badge-cyan { border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.1); color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-btn.on::after { animation: none !important; }
+}

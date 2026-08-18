@@ -237,7 +237,7 @@ test.describe("T3.3 CL-3 P-3 模型切换菜单", () => {
     await page.locator("[data-model-badge]").click();
     await mock.waitForCommand("model.catalog");
     await page.locator("[data-mm-more]").click();
-    await expect(page).toHaveURL(/\/settings\/models$/);
+    await expect(page).toHaveURL(/\/models$/);
     await expect(page.locator("[data-model-menu]")).toHaveCount(0);
     await expect(page.locator("[data-p4-page]")).toBeVisible();
 

@@ -229,6 +229,22 @@ export interface ChatTranslations {
     back: string;
     title: string;
   };
+  /** IconRail 导航壳 + 四占位页施工牌（widgets/nav-rail + pages/*；CL-4 F(4.4).1/F(4.4).3；T3.4） */
+  nav: {
+    /** 主导航 aria-label */
+    railLabel: string;
+    /** 施工牌「规划中」徽标（hud-badge-cyan） */
+    plannedBadge: string;
+    pages: {
+      chat: { label: string };
+      models: { label: string };
+      /** 占位页：label = 页名；preview = 一句话能力预告（≤32ch，无时间承诺词） */
+      skills: { label: string; preview: string };
+      trace: { label: string; preview: string };
+      project: { label: string; preview: string };
+      settings: { label: string; preview: string };
+    };
+  };
   /** P-3 模型切换弹出菜单（features/model-switch；CL-3 F(3.3).1-F(3.3).3；T3.3） */
   modelSwitch: {
     searchPlaceholder: string;
@@ -244,7 +260,7 @@ export interface ChatTranslations {
     switchedToast: string;
     resetToast: string;
   };
-  /** P-4 模型与厂商配置页（pages/settings；CL-3 F(3.4).1-F(3.4).6；T3.3） */
+  /** P-4 模型与厂商配置页（pages/models，T3.4 自 pages/settings 迁移；CL-3 F(3.4).1-F(3.4).6；T3.3） */
   modelsConfig: {
     defaultLabel: string;
     refresh: string;

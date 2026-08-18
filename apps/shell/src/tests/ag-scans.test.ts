@@ -165,6 +165,49 @@ describe("AG-15 FSD 依赖方向", () => {
   });
 });
 
+// ── AG-17 页面域/会话域分离（TP-CL4-8；TR-AD-8 修订条款）────────
+
+describe("AG-17 页面域/会话域分离", () => {
+  /** FSD 层内合法但架构 §4.1 禁止的依赖（页面域读会话 store 内部）。 */
+  const sessionInternal = /from\s+["']@\/entities\/session/;
+
+  it("nav-rail 与四占位页已落地（守护对象存在）", () => {
+    for (const p of [
+      "widgets/nav-rail/ui/IconRail.tsx",
+      "pages/skills/SkillsPage.tsx",
+      "pages/trace/TracePage.tsx",
+      "pages/project/ProjectPage.tsx",
+      "pages/settings/SettingsPage.tsx",
+    ]) {
+      expect(allFiles.map(rel).includes(p), `守护对象缺失：${p}`).toBe(true);
+    }
+  });
+
+  it("nav-rail 不 import entities/session 内部（纯展示组件，路由态由 app 层注入）", () => {
+    const offenders = allFiles
+      .filter((f) => rel(f).startsWith("widgets/nav-rail/"))
+      .filter((f) => sessionInternal.test(stripComments(sourceOf(f))));
+    expect(offenders.map(rel)).toEqual([]);
+  });
+
+  it("四占位页不 import entities/session（施工牌全静态零数据面）", () => {
+    const offenders = allFiles
+      .filter((f) =>
+        /pages\/(skills|trace|project)\//.test(rel(f)) ||
+        rel(f) === "pages/settings/SettingsPage.tsx",
+      )
+      .filter((f) => sessionInternal.test(stripComments(sourceOf(f))));
+    expect(offenders.map(rel)).toEqual([]);
+  });
+
+  it("SessionProvider 不 import app/route（会话域不感知路由状态）", () => {
+    const offenders = allFiles
+      .filter((f) => rel(f).startsWith("entities/session/"))
+      .filter((f) => /from\s+["']@\/app/.test(stripComments(sourceOf(f))));
+    expect(offenders.map(rel)).toEqual([]);
+  });
+});
+
 // ── AG-16 i18n 纪律 ────────────────────────────────────────
 
 describe("AG-16 i18n key 纪律（前端半）", () => {

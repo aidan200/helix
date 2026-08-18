@@ -196,6 +196,18 @@ export const enUS: Translations = {
       back: "Back to workbench",
       title: "Models and providers",
     },
+    nav: {
+      railLabel: "Primary navigation",
+      plannedBadge: "Planned",
+      pages: {
+        chat: { label: "Chat" },
+        models: { label: "Models" },
+        skills: { label: "Skills", preview: "View and manage the skills agents can call." },
+        trace: { label: "Trace", preview: "Replay event streams and instance call chains." },
+        project: { label: "Project", preview: "Workspace docs, knowledge graph, iteration state." },
+        settings: { label: "Settings", preview: "Theme, notifications, and local preferences." },
+      },
+    },
     modelSwitch: {
       searchPlaceholder: "Search models or providers",
       emptyTitle: "No matching models",

@@ -198,6 +198,18 @@ export const zhCN: Translations = {
       back: "返回工作台",
       title: "模型与厂商",
     },
+    nav: {
+      railLabel: "主导航",
+      plannedBadge: "规划中",
+      pages: {
+        chat: { label: "聊天 chat" },
+        models: { label: "模型 models" },
+        skills: { label: "技能 skills", preview: "查看与管理可被 Agent 调用的技能集合。" },
+        trace: { label: "追踪 trace", preview: "回放事件流与实例调用链，定位每一次执行的来路。" },
+        project: { label: "项目 project", preview: "工作区文档、知识图谱与迭代状态的总览入口。" },
+        settings: { label: "设置 settings", preview: "主题、通知与本地偏好选项。" },
+      },
+    },
     modelSwitch: {
       searchPlaceholder: "搜索模型或 provider",
       emptyTitle: "未找到匹配的模型",
