@@ -21,6 +21,7 @@ import path from "node:path";
 import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAdapter";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { EventStream } from "../adapters/driving/ws-server/EventStream";
+import { lastMainAnchorId } from "../adapters/driving/ws-server/DtoMapper";
 import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { PiAgentEngineAdapter } from "../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
@@ -234,6 +235,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     clock,
     // O-5：<home>/reports/<session>/<agentId>.md——按实例归属会话解析
     reportsDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
+    // T2.1 契约 v0.3 §1 规则②：spawn 时刻锚（聚合视图读面；内存携带不落盘）
+    spawnAnchorFor: (sessionId) => computeSpawnAnchor(sessionId),
     // closure 注入主线（AD-8 双通道；T2.2 会话反向查找：实例归属会话 → 注册表
     // 寻址目标 ChatService）。热会话同步直达（收口链时序不变）；冷会话（理论
     // 不可达——活跃实例的会话不会卸载）异步恢复后补投。注册表在下方装配
@@ -255,7 +258,10 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 
   // ── driving：WS 事件流（EventPublisherPort 实现，fan-out 目标之一——
   //    WS 推送显式消费者：统一信封章印 + 按 sessionId 路由，T2.1 AD-3） ──
-  const eventStream = new EventStream();
+  const eventStream = new EventStream({
+    // T2.1 契约 v0.3 §1：agent.spawned 帧锚点 enrichment（调度器内存携带面值）
+    spawnAnchorFor: (instanceId) => scheduler.spawnAnchorOf(instanceId),
+  });
 
   // ── service：多会话容器（T2.2 AD-4 主承载） ─────────────────────
   // 会话绑定引擎工厂：测试注入实例 = 全部会话共享（单会话测试形态）；
@@ -268,6 +274,10 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   // currentModelOf：spawn 时透传当前模型（AgentInstanceDto.model 填充链）
   // ——注册表装配后回填（引擎闭包调用发生在运行时，回填前安全缺省）。
   let currentModelOf: (sessionId: string) => string | undefined = () => undefined;
+  // computeSpawnAnchor：spawn 时刻锚计算（T2.1 契约 v0.3 §1 规则②）——读目标
+  // 会话聚合 entries（数组序最后一条 main/compaction entry；无 → null 流首）。
+  // 与 currentModelOf 同式回填（注册表装配后；回填前安全缺省 null 流首）。
+  let computeSpawnAnchor: (sessionId: string) => string | null = () => null;
   const engineFor =
     typeof options.engine === "function"
       ? options.engine
@@ -335,6 +345,13 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 
   // T2.3：currentModelOf 回填（spawn 透传链——注册表装配完成，热会话可观测）
   currentModelOf = (sessionId: string) => registry.peek(sessionId)?.chatService.currentModel;
+  // T2.1：spawn 锚计算回填（规则②读面——目标会话聚合 entries 数组序扫描；
+  // 冷会话理论不可达（spawn 必经热会话门面），防御 null 流首）
+  computeSpawnAnchor = (sessionId: string) => {
+    const runtime = registry.peek(sessionId);
+    if (runtime === undefined) return null;
+    return lastMainAnchorId(runtime.chatService.sessionView.toSnapshot().entries);
+  };
 
   // ── services：会话状态入口（当前会话读面，经注册表组装） ──────────
   const sessionService = new SessionService({

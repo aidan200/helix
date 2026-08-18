@@ -149,6 +149,7 @@ describe("agent.* 事件经真实 WS 连接可被订阅方收到（契约 §5.1/
       agentId: "agent-1",
       task: "WS 序列验证任务",
       profileKind: "subagent-worker",
+      anchorEntryId: null, // v0.3（T2.1 契约 §1 规则②）：流首 spawn（无任何 main entry）→ null
     });
 
     const started = await rig.client.expect("agent.started");

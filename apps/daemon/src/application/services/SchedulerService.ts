@@ -106,6 +106,13 @@ export interface SchedulerServiceDeps {
   readonly injectClosure?: (agentId: string, message: string) => void;
   /** stalled 轮询间隔 ms（缺省 阈值/2；测试注入小值）。 */
   readonly stalledPollMs?: number;
+  /**
+   * spawn 锚计算（T2.1 契约 v0.3 §1 规则②，AD-5）：spawn 时刻聚合内最后一条
+   * main/compaction entry 的 id（无 → null 流首）。组合根注入（会话聚合视图
+   * 读面）；spawn 处理点计算一次，随实例视图内存携带（派生值不落盘，无第二
+   * 事实源——E-AgentInstance 禁忌）；缺省 = 纯调度测试形态（锚点面缺席）。
+   */
+  readonly spawnAnchorFor?: (sessionId: string) => string | null;
 }
 
 export class SchedulerService implements AgentOrchestrationPort {
@@ -134,6 +141,8 @@ export class SchedulerService implements AgentOrchestrationPort {
   private readonly pendingThinking = new Map<string, { contentIndex: number; text: string; startedMs: number }[]>();
   /** agent-N 序号（daemon 内递增）。 */
   private seq = 0;
+  /** 实例 → spawn 时刻锚（规则②内存携带；含 null 流首——has 判定区分未装配）。 */
+  private readonly spawnAnchors = new Map<string, string | null>();
   private monitor: ReturnType<typeof setInterval> | undefined;
 
   constructor(private readonly deps: SchedulerServiceDeps) {
@@ -184,8 +193,18 @@ export class SchedulerService implements AgentOrchestrationPort {
           ...(task !== undefined ? { task } : {}),
           ...(closure !== undefined ? { closure } : {}),
           ...(model !== undefined ? { model } : {}),
+          // T2.1 契约 v0.3 §1 规则②：spawn 时值随实例视图携带（含 null 流首；
+          // 恢复实例无此值 → 组装面退化尾部推导，契约记录在案边界）
+          ...(this.spawnAnchors.has(instance.instanceId)
+            ? { spawnAnchorEntryId: this.spawnAnchors.get(instance.instanceId)! }
+            : {}),
         };
       });
+  }
+
+  /** spawn 时刻锚观测面（T2.1：agent.spawned 增量帧 enrichment 读面；未登记 undefined）。 */
+  spawnAnchorOf(instanceId: string): string | null | undefined {
+    return this.spawnAnchors.get(instanceId);
   }
 
   /** 会话是否有活跃实例（T2.2：运行态观测/空闲卸载判定——queued/running 均算活跃）。 */
@@ -284,6 +303,12 @@ export class SchedulerService implements AgentOrchestrationPort {
     this.registry.registerInstance(instance);
     this.tasks.set(agentId, task);
     if (model !== undefined) this.spawnModels.set(agentId, model); // T2.3：spawn 时透传当前模型
+    // T2.1 契约 v0.3 §1 规则②：spawn 时刻锚计算一次（聚合内最后一条
+    // main/compaction entry；无 → null 流首），内存携带——后续快照组装不按
+    // 当前尾部重算；不落盘（派生值，重启后按规则①重建/尾部推导边界）
+    if (this.deps.spawnAnchorFor !== undefined) {
+      this.spawnAnchors.set(agentId, this.deps.spawnAnchorFor(sessionId));
+    }
     // 出卡事件：预算内直跑也会先发 spawned（卡片进入），再由 started 转 running
     this.publish(instance, "agent.spawned", {
       agentId,

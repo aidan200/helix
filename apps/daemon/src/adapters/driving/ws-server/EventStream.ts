@@ -41,6 +41,12 @@ export interface EventStreamDeps {
    * 全量携带后本兜底退化为防御位）。
    */
   readonly defaultSessionId?: string;
+  /**
+   * agent.spawned 帧 spawn 锚查值（T2.1 契约 v0.3 §1 规则②）：组合根接
+   * SchedulerService.spawnAnchorOf（实例 spawn 时值内存携带）；返回值含 null
+   * （流首有效锚），undefined = 未登记（帧不携带锚字段——旧组装点兼容）。
+   */
+  readonly spawnAnchorFor?: (instanceId: string) => string | null | undefined;
 }
 
 /** 单连接投影状态：会话订阅表 + v0.1 实例订阅表（通路语义，不过滤）。 */
@@ -150,9 +156,16 @@ export class EventStream implements EventPublisherPort {
   publish(event: DomainEvent): void {
     const duration = this.takeDuration(event); // 先取差值（内部一并清理起点记录）
     this.trackProjectionContext(event);
+    // T2.1 契约 v0.3 §1：agent.spawned 帧锚点 enrichment——spawn 时值查调度器
+    // 内存携带面（领域事件载荷不携带，不落 domain_events；E-AgentInstance 禁忌）
+    const spawnAnchor =
+      event.type === "agent.spawned" && event.instanceId !== undefined
+        ? this.deps.spawnAnchorFor?.(event.instanceId)
+        : undefined;
     const envelope = domainEventToEnvelope(event, {
       fallbackTurnId: this.lastTurnIds.get(event.sessionId) ?? "",
       ...duration,
+      ...(spawnAnchor !== undefined ? { spawnAnchor } : {}),
     });
     if (envelope === null) return;
     this.push(envelope);

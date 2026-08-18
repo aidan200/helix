@@ -49,6 +49,13 @@ export interface InstanceSnapshotEntry extends AgentInstanceData {
   readonly usage?: UsageSummary;
   /** spawn 时刻模型（T2.3：AgentInstanceDto.model 空槽位填充链；主实例 = 会话当前模型）。 */
   readonly model?: string;
+  /**
+   * spawn 时刻锚（T2.1 契约 v0.3 §1 规则②）：spawn 处理点计算一次的聚合内
+   * 最后一条 main/compaction entry id（null = 流首）。内存携带不落盘（派生
+   * 值无第二事实源）；缺省 = 恢复实例 spawn 时值不可重建 → 组装面退化尾部
+   * 推导（契约记录在案边界）。
+   */
+  readonly spawnAnchorEntryId?: string | null;
 }
 
 export interface SessionPort {
