@@ -97,6 +97,10 @@ interface SessionContextValue {
   subscribeInstance: (agentId: string) => void;
   /** agent.unsubscribe（抽屉关闭/换订） */
   unsubscribeInstance: (agentId: string) => void;
+  /** 抽屉定向 steer（CL-3 F(3.3).3，契约 v0.3 §3.3）：chat.steer 携带
+   *  instanceId 定向寻址 + 本地 echo 双投影（主轴细条 + 实例 channel 标记）；
+   *  发送即清空无阻塞态——失败回执（connection.error）走既有错误提示通道 */
+  steerInstance: (text: string, instanceId: string) => void;
   // ── model / auth 命令面板（契约 C；T3.3 P-3/P-4）──
   /** 会话模型运行期切换（P-3 选中即切 / 重置为默认；下一 turn 生效）。 */
   setSessionModel: (model: string) => void;
@@ -350,6 +354,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [sendAgentCommand],
   );
 
+  // 抽屉定向 steer（CL-3）：echo 先进共享 store（双处立即可见）再发出站帧；
+  // 草稿无会话上下文 = 零帧零动作（抽屉在正常流中不会处于草稿态，防御分支）
+  const steerInstance = useCallback((raw: string, instanceId: string) => {
+    const text = raw.trim();
+    if (text === "") return;
+    const { sessionId } = topologyRef.current.active;
+    if (sessionId === null) return;
+    dispatch({ type: "ui/steer-instance", text, instanceId, ts: Date.now() });
+    clientRef.current!.send(chatSteerCommand(text, sessionId, instanceId));
+  }, []);
+
   // ── model / auth 命令面板（T3.3）：命令发送同刻 dispatch started action
   //（in-flight 锁定 + 乐观面；结果帧到达由 model-config 消费者接管）──
   const setSessionModel = useCallback((model: string) => {
@@ -414,6 +429,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       killInstance,
       subscribeInstance,
       unsubscribeInstance,
+      steerInstance,
       setSessionModel,
       requestModelConfig,
       requestAuthList,
@@ -441,6 +457,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       killInstance,
       subscribeInstance,
       unsubscribeInstance,
+      steerInstance,
       setSessionModel,
       requestModelConfig,
       requestAuthList,

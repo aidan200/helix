@@ -58,6 +58,7 @@ export const zhCN: Translations = {
       hint: "主会话生成中 · 发送的消息进入 steer 队列，本轮结束后注入",
       queued: "STEER · 已入队",
       drained: "已注入 · 本轮结束",
+      directedChip: "steer → {id}",
     },
     restore: {
       toast: "会话已恢复",
@@ -131,6 +132,9 @@ export const zhCN: Translations = {
       steerMark: "⇦ 主线 steer 注入",
       steerToast: "steer 已注入实例",
       steerToastSub: "{id} · 经 Agent.steer() 转投",
+      steerTarget: "steer target",
+      steerPlaceholder: "给 {id} 一条纠偏指令",
+      steerInputLabel: "steer 指令输入",
       queuedHint: "排队中 · 空位释放后自动开始执行，channel 将在此展开",
       reportFoot: "任务报告经 daemon 单写队列落盘",
       instanceMeta: "spawn 由主线 agent_spawn 发起 · 事件挂 instanceId（AD-3 trace 四维）",

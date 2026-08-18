@@ -210,6 +210,40 @@
 .d-foot .k { color: var(--text-dim); flex-shrink: 0; }
 .d-foot .foot-note { margin-left: auto; flex-shrink: 0; }
 
+/* ═══ 抽屉底部 steer 输入栏（CL-3 F(3.3).3；P-3 原型 .steer-composer——
+   主输入区复合条形态 violet 变体；仅 running 实例渲染，Q-3b）═══ */
+.steer-composer {
+  flex-shrink: 0; border-top: 1px solid var(--border);
+  padding: 10px 16px 14px; background: rgb(var(--void-rgb) / 0.3);
+}
+.sc-target { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sc-target .lab {
+  font-size: var(--text-micro); color: var(--text-dim);
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+.sc-target .tgt {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 8px; border-radius: 999px;
+  border: 1px solid rgb(var(--violet-rgb) / 0.4); background: rgb(var(--violet-rgb) / 0.1);
+  font-size: var(--text-cap); color: var(--violet); font-weight: 500;
+}
+.sc-bar {
+  display: flex; gap: 8px; align-items: center;
+  border: 1px solid rgb(var(--violet-rgb) / 0.3); border-radius: 8px;
+  background: rgb(var(--void-rgb) / 0.5); padding: 7px 8px 7px 12px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.sc-bar:focus-within { border-color: rgb(var(--violet-rgb) / 0.6); box-shadow: var(--glow-violet); }
+.sc-bar input {
+  flex: 1; background: none; border: none; outline: none;
+  font-family: var(--font-mono); font-size: var(--text-main); color: var(--text);
+}
+.sc-bar input::placeholder { color: var(--text-dim); }
+.sc-bar .kbd {
+  flex-shrink: 0; font-size: var(--text-micro); color: var(--text-faint);
+  border: 1px solid rgb(var(--edge-rgb) / 0.14); border-radius: 4px; padding: 1px 6px;
+}
+
 /* reduced-motion：进入/脉冲全关（含 kill 确认脉冲）*/
 @media (prefers-reduced-motion: reduce) {
   .drawer, .drawer-backdrop, .ch-item { animation: none !important; }

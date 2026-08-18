@@ -132,8 +132,14 @@ export function messageCompleted(entry: MessageEntryDto, opts: { instanceId?: st
   };
 }
 
-export function steerQueued(entryId: string): EventEnvelope {
-  return { v: V, type: "steer.queued", payload: { entryId } };
+export function steerQueued(entryId: string, opts: { instanceId?: string } = {}): EventEnvelope {
+  // v0.3（契约 §3.2，T2.3）：定向 steer 的 steer.queued 帧信封挂 instanceId=目标
+  return {
+    v: V,
+    type: "steer.queued",
+    payload: { entryId },
+    ...(opts.instanceId !== undefined ? { instanceId: opts.instanceId } : {}),
+  };
 }
 
 export function steerDrained(entryId: string): EventEnvelope {

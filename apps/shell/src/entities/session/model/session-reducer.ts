@@ -19,6 +19,7 @@
  */
 import type { EventEnvelope, MessageEntryDto } from "@helix/protocol";
 import { applyConnAction, isConnAction } from "./consumers/conn";
+import { channelOf } from "./channel";
 import { route } from "./dispatcher";
 import { LOCAL_PREFIX, type SessionAction, type SessionState } from "./state";
 
@@ -105,6 +106,37 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       }
       // turn 模式不做本地 echo：气泡由 daemon 的 chat.message.completed 投影
       return { ...state, draft: "" };
+    }
+    case "ui/steer-instance": {
+      const text = action.text.trim();
+      if (text === "") return state; // 空输入零动作（Q-3b：不触发任何转换）
+      // 定向 steer 本地 echo（契约 v0.3 §3.2 Q-3a 双处可见）：
+      // ① 主轴定向 entry（isSteer 语义 = user+steerState，instanceId=目标——
+      //    时间轴细条即时可见；steer.queued 信封 instanceId=目标到达后对账 id）；
+      // ② 目标实例 channel steer-directed 标记（抽屉 feed 即时可见；快照重建
+      //    为权威归组，echo 与事件流 channel 随合并保留、重启后由快照单源重建）。
+      const echo: MessageEntryDto = {
+        kind: "message",
+        id: `${LOCAL_PREFIX}${state.nextLocalSeq}`,
+        role: "user",
+        content: text,
+        ts: action.ts,
+        steerState: "queued",
+        instanceId: action.instanceId,
+      };
+      return {
+        ...state,
+        entries: [...state.entries, echo],
+        nextLocalSeq: state.nextLocalSeq + 1,
+        nextChannelSeq: state.nextChannelSeq + 1,
+        instanceChannels: {
+          ...state.instanceChannels,
+          [action.instanceId]: [
+            ...channelOf(state.instanceChannels, action.instanceId),
+            { kind: "steer-directed", seq: state.nextChannelSeq, text, ts: action.ts, target: action.instanceId },
+          ],
+        },
+      };
     }
     case "ui/consume-restore-toast":
       return { ...state, restoreToast: null };

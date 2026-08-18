@@ -265,6 +265,10 @@ export type ChannelItem =
     }
   | { kind: "message"; seq: number; text: string; ts?: number }
   | { kind: "steer"; seq: number; text: string; ts?: number }
+  /** 定向 steer 标记（CL-3，契约 v0.3 §3.2 Q-3a 抽屉侧投影）：user+isSteer
+   *  且 instanceId=本实例的干预条目——与时间轴侧同物种（violet 细条 +
+   *  「steer → {target}」chip + 正文）；target = 归属实例（= 本 channel）。 */
+  | { kind: "steer-directed"; seq: number; text: string; ts?: number; target: string }
   | { kind: "thinking-entry"; seq: number; entry: ThinkingEntryDto }
   | { kind: "tool"; seq: number; entry: ToolCallEntryDto }
   | { kind: "closure"; seq: number; closure: ClosureDto };
@@ -341,6 +345,10 @@ export type SessionAction =
   | { type: "ui/set-draft"; text: string }
   /** 发送提交（turn = chat.send / steer = chat.steer；ts 由调用方注入保证重放确定） */
   | { type: "ui/send"; text: string; mode: "turn" | "steer"; ts: number }
+  /** 抽屉定向 steer 提交（CL-3）：本地 echo 双投影——主轴定向 entry（时间轴
+   *  细条即时可见）+ 目标实例 channel steer-directed 标记（抽屉 feed 即时
+   *  可见）；daemon steer.queued（信封 instanceId=目标）到达后对账 */
+  | { type: "ui/steer-instance"; text: string; instanceId: string; ts: number }
   | { type: "ui/consume-restore-toast" }
   /** spawn toast 消费（ChatPage 渲染后置空；v0.1） */
   | { type: "ui/consume-spawn-toast" }

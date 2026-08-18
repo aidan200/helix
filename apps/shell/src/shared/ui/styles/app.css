@@ -334,6 +334,24 @@ html.light .bubble code.inline { color: var(--accent); }
 .steer-badge.drained { border-color: rgb(var(--success-rgb) / 0.35); background: rgb(var(--success-rgb) / 0.08); color: var(--success); }
 .steer-badge .q-dot { width: 5px; height: 5px; border-radius: 999px; background: currentColor; animation: hud-pulse 2s ease-in-out infinite; }
 
+/* ═══ 定向 steer 细条（CL-3，Q-3a 双处同构物种：时间轴主轴 + 抽屉实例 feed；
+   violet 2px 左边线 + 目标 chip + 正文，非气泡——P-3 原型 .steer-directed）═══ */
+.steer-directed {
+  display: flex; align-items: baseline; gap: 8px;
+  border-left: 2px solid rgb(var(--violet-rgb) / 0.55);
+  background: rgb(var(--violet-rgb) / 0.04);
+  border-radius: 0 6px 6px 0;
+  padding: 6px 10px; font-size: var(--text-body);
+  animation: log-rise 0.24s ease-out;
+}
+.steer-directed .sd-chip {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 6px; border-radius: 999px;
+  border: 1px solid rgb(var(--violet-rgb) / 0.4); background: rgb(var(--violet-rgb) / 0.1);
+  font-size: var(--text-micro); color: var(--violet); letter-spacing: 0.04em; white-space: nowrap;
+}
+.steer-directed .sd-text { color: var(--text); min-width: 0; word-break: break-word; }
+
 /* ═══ 工具调用卡（F(7).2 三态，tokens.md 14 节形态契约）═══ */
 .tool-card {
   width: 100%; border-radius: 8px; border: 1px solid rgb(var(--accent-rgb) / 0.2);

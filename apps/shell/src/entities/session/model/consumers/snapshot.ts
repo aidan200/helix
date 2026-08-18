@@ -73,13 +73,19 @@ function usageFromSnapshot(
   return { total: usageDto.total, compaction: usageDto.compaction, byInstance };
 }
 
-/** 快照 entries → 实例 channel 条目（user 消息 → steer 标记；compaction 不入 channel，M2 main 语义）。 */
+/** 快照 entries → 实例 channel 条目（user 消息 → steer 标记；compaction 不入 channel，M2 main 语义）。
+ *  CL-3：定向 steer 干预条目（user + steerState + instanceId=本实例，契约 §3.2
+ *  Q-3a 双投影）→ steer-directed 物种（与时间轴侧同构）；主线 agent_send
+ *  转投回放（普通 user 无 steerState）→ 既有 steer 注入标记。 */
 function entryToChannelItem(entry: EntryDto, seq: number): ChannelItem | null {
   switch (entry.kind) {
     case "message":
-      return entry.role === "user"
-        ? { kind: "steer", seq, text: entry.content, ts: entry.ts }
-        : { kind: "message", seq, text: entry.content, ts: entry.ts };
+      if (entry.role === "user") {
+        return entry.steerState !== undefined && entry.instanceId !== undefined
+          ? { kind: "steer-directed", seq, text: entry.content, ts: entry.ts, target: entry.instanceId }
+          : { kind: "steer", seq, text: entry.content, ts: entry.ts };
+      }
+      return { kind: "message", seq, text: entry.content, ts: entry.ts };
     case "tool-call":
       return { kind: "tool", seq, entry };
     case "thinking":
@@ -153,13 +159,21 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
       const snap = event.payload.snapshot;
       // F1.6 分流（快照面）：main 条目进主消息流；SubAgent 条目归实例 channel
       // （重建用）；compaction 归 main 流（M2 语义）
+      // CL-3（契约 §3.2 Q-3a）：定向 steer 干预条目（user+steerState 且
+      // instanceId≠main）双投影——进主流（daemon isMainAxisEntry 同规，恢复
+      // 重放保留）同时保留归组（dto.channels 缺省时的 channel 重建 fallback 面）
       const mainEntries: EntryDto[] = [];
       const entriesByInstance = new Map<string, EntryDto[]>();
       for (const e of snap.entries) {
         const iid = e.instanceId ?? MAIN_INSTANCE_ID;
-        if (iid === MAIN_INSTANCE_ID || e.kind === "compaction") {
+        const directedSteer =
+          iid !== MAIN_INSTANCE_ID &&
+          e.kind === "message" &&
+          e.role === "user" &&
+          e.steerState !== undefined;
+        if (iid === MAIN_INSTANCE_ID || e.kind === "compaction" || directedSteer) {
           mainEntries.push(e);
-          continue;
+          if (!directedSteer) continue;
         }
         const list = entriesByInstance.get(iid) ?? [];
         list.push(e);

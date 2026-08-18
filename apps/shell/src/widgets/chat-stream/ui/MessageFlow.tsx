@@ -26,6 +26,7 @@ import type { InstanceCardState } from "@/entities/session/model/session-reducer
 import MessageBubble from "./MessageBubble";
 import SubAgentCard from "./SubAgentCard";
 import ToolCard from "@/shared/ui/ToolCard";
+import DirectedSteer from "@/shared/ui/DirectedSteer";
 import SessionEmpty from "./SessionEmpty";
 import DraftEmpty from "./P-1-draft-empty";
 import LoadEarlier from "./P-1s-load-earlier";
@@ -39,6 +40,18 @@ function EntryView({ entry }: { entry: EntryDto }) {
     case "tool-call":
       return <ToolCard entry={entry} />;
     case "message":
+      // CL-3 定向 steer（契约 §3.2 Q-3a 时间轴侧）：isSteer（DTO 面 = user +
+      // steerState 携带）且 instanceId≠main → 定向细条（非气泡；判别用
+      // instanceId≠main，不用 steerState——定向 entry steerState 恒 drained，
+      // T2.3 边界注记）；主线 steer / 普通消息沿既有气泡形态
+      if (
+        entry.role === "user" &&
+        entry.steerState !== undefined &&
+        entry.instanceId !== undefined &&
+        entry.instanceId !== MAIN_INSTANCE_ID
+      ) {
+        return <DirectedSteer target={entry.instanceId} text={entry.content} />;
+      }
       return <MessageBubble entry={entry} />;
     case "thinking":
       return <ThinkingEntryView entry={entry} />;

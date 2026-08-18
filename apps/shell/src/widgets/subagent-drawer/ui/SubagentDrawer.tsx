@@ -23,6 +23,7 @@ import { useRunningElapsed } from "@/shared/lib/useRunningElapsed";
 import { cn } from "@/shared/lib/cn";
 import { useSession } from "@/entities/session/SessionContext";
 import ChannelTimeline from "./ChannelTimeline";
+import SteerComposer from "./SteerComposer";
 
 /** kill 确认窗口（决策消解：3s 未确认自动复原；终态禁用优先于确认态）。 */
 const KILL_CONFIRM_MS = 3_000;
@@ -213,6 +214,10 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
             <span className="foot-note">{t("chat.drawer.reportFoot")}</span>
           </div>
         ) : null}
+
+        {/* CL-3 F(3.3).3 底部 steer 输入栏（Q-3b）：rendered iff running——
+            queued/completed/failed/killed 静默不渲染（DOM 不存在） */}
+        {running && <SteerComposer instanceId={card.instanceId} />}
       </aside>
     </>
   );

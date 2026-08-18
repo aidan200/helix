@@ -52,6 +52,8 @@ export interface ChatTranslations {
     hint: string;
     queued: string;
     drained: string;
+    /** 定向 steer chip（CL-3 双处同构细条：「steer → {id}」） */
+    directedChip: string;
   };
   restore: {
     toast: string;
@@ -140,6 +142,11 @@ export interface ChatTranslations {
     steerMark: string;
     steerToast: string;
     steerToastSub: string;
+    /** 底部 steer 输入栏（CL-3 F(3.3).3，仅 running 渲染）：目标行标签 /
+     *  输入占位（{id} = 绑定实例）/ 输入框 aria 标签 */
+    steerTarget: string;
+    steerPlaceholder: string;
+    steerInputLabel: string;
     queuedHint: string;
     reportFoot: string;
     instanceMeta: string;
