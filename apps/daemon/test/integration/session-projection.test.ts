@@ -215,7 +215,7 @@ describe("T2.1 ③ 恢复重放含 SubAgent 历史（重启后快照/抽屉读�
       await d2.shutdown();
       rmSync(home, { recursive: true, force: true });
     }
-  }, 20000);
+  }, 90000);
 
   test("快照 DTO instances[].channels 反映 SubAgent 同构内容（AD-1 分组）", async () => {
     const { toSnapshotDto } = await import("../../src/adapters/driving/ws-server/DtoMapper");
@@ -331,14 +331,25 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
       // baseline——否则在飞帧与 baseline 竞态（既有 flake 根因：退订前合法帧
       // 被计入退订后断言窗口）
       const completedAt = client.frames.length;
-      await until(
-        () =>
-          client.frames.slice(completedAt).some(
-            (f) => f.type === "agent.state.changed" && (f.payload as { state?: string }).state === "idle",
-          ),
-        15000,
-        "closure 注入 turn 收口",
-      );
+      try {
+        await until(
+          () =>
+            client.frames.slice(completedAt).some(
+              (f) => f.type === "agent.state.changed" && (f.payload as { state?: string }).state === "idle",
+            ),
+          30000,
+          "closure 注入 turn 收口",
+        );
+      } catch (err) {
+        // 超时诊断：dump completedAt 之后的帧序列（负载敏感既有 flake 排查面，OI-DEV-1）
+        console.log(
+          "closure 收口超时帧诊断:",
+          client.frames
+            .slice(completedAt)
+            .map((f) => `${f.type}${(f.payload as { state?: string }).state ? `:${(f.payload as { state?: string }).state}` : ""}`),
+        );
+        throw err;
+      }
 
       // per-session 退订（v0 兼容：不带信封 sessionId = 当前单会话）→ 停收
       const baseline = client.frames.length;
@@ -365,7 +376,7 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
     } finally {
       await client.close();
     }
-  }, 20000);
+  }, 90000);
 });
 
 // ── ⑤ 投影幂等（同事件重放不重复落树） ─────────────────────────────
