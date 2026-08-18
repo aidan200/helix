@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Api, AssistantMessage, Context, Model, Models } from "@earendil-works/pi-ai";
@@ -108,8 +108,12 @@ interface LoopHarness {
   cwd: string;
 }
 
+/** 本次进程创建的沙箱目录（afterAll 统一回收——TR-TEST-6 零残留，T4.3 补）。 */
+const sandboxes: string[] = [];
+
 function makeHarness(scripts: ScriptEntry[]): LoopHarness {
   const cwd = mkdtempSync(join(tmpdir(), "helix-t15-loop-"));
+  sandboxes.push(cwd);
   const executor = new CoreToolExecutor({
     cwd,
     orchestration: {
@@ -269,4 +273,8 @@ describe("TP-CL5-3：剧本 S2 —— 五工具「调用→真实执行→回注
     expect(lastToolResult(events, "read")?.payload.isError).toBe(false);
     expect(lastToolResult(events, "bash")?.payload.isError).toBe(false);
   });
+});
+
+afterAll(() => {
+  for (const dir of sandboxes) rmSync(dir, { recursive: true, force: true });
 });
