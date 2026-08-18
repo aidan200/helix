@@ -5,9 +5,9 @@
  * 接入面（test-design §3 映射表 13 项 G✓ 全登记）：
  * - 实跑 10 项（实现已落地）：R-P1-1/R-P1-3/R-P1-4/R-P1-6、R-P2-1/R-P2-3/
  *   R-P2-4、R-P3-1、R-P4-1/R-P4-4；
- * - 登记 pending 4 项（依赖并行 T3.3 定向 steer 投影面，落地后翻 run）：
- *   R-P1-5（主区定向细条）、R-P3-2（输入栏显隐）、R-P3-4（抽屉侧同构）、
- *   R-P3-5（三态互斥含输入面规则）。
+ * - T4.2 翻 run 4 项（T3.3 定向 steer 投影面已交付，pending → 实跑）：
+ *   R-P1-5（主区定向细条）、R-P3-2（输入栏显隐/目标绑定）、R-P3-4（抽屉侧
+ *   同构）、R-P3-5（三态互斥含输入面规则）。
  * 行为/状态类断言仍留各 CL spec（test-design §5 注记 8：避免双重维护）；
  * 本 spec 承载形态/结构/同构类还原断言。断言纪律沿既有：语义类选择器 +
  * token 派生值（不做像素 diff）。
@@ -17,10 +17,14 @@ import * as path from "node:path";
 import { test, expect } from "./harness/fixtures";
 import { computed } from "./harness/style-utils";
 import {
+  agentCompleted,
   agentInstance,
+  agentQueued,
   agentSpawned,
+  agentStarted,
   agentStateChanged,
   backgroundMessageCompleted,
+  closure,
   msgEntry,
   sessionListResult,
   sessionMeta,
@@ -85,7 +89,7 @@ test.describe("T4.1 G11 工具自测（TP-CL5-5）", () => {
 // ── P-1 工作台主区时间轴（review.md §3） ──────────────────
 
 test.describe("G11 P-1 主区时间轴还原清单", () => {
-  test("R-P1-1/3/4/6 实跑 + R-P1-5 登记", async ({ mock, page }) => {
+  test("R-P1-1/3/4/5/6 实跑（R-P1-5 由 T4.2 翻 run）", async ({ mock, page }) => {
     await mock.open();
     await mock.waitForCommand("hello");
     await mock.emitAll([
@@ -95,8 +99,10 @@ test.describe("G11 P-1 主区时间轴还原清单", () => {
           msgEntry("e1", "user", "用户消息样例"),
           msgEntry("e2", "assistant", "助手回复样例"),
           toolEntry("e3", "read", "src/main.ts", "done", { result: "ok", durationMs: 240 }),
+          // R-P1-5 素材：定向 steer entry（user + steerState + instanceId≠main）
+          msgEntry("e4", "user", "定向干预样例", { steerState: "drained", instanceId: "a1" }),
         ],
-        totalEntries: 3,
+        totalEntries: 4,
         tailStartCursor: null,
         instances: [agentInstance("a1", { state: "running", task: "还原度验证实例", anchorEntryId: "e2" })],
       }),
@@ -152,9 +158,20 @@ test.describe("G11 P-1 主区时间轴还原清单", () => {
       },
       {
         id: "R-P1-5",
-        title: "定向消息投影（主区侧）：violet 左边线细条 + steer chip（T3.3 并行面，落地后翻 run）",
-        status: "pending",
-        run: () => {},
+        title: "定向消息投影（主区侧）：violet 2px 左边线细条 + steer chip + 正文，非气泡",
+        run: async () => {
+          const strip = page.locator('.msg-flow .steer-directed[data-target="a1"]');
+          await expect(strip).toHaveCount(1);
+          // violet 左边线（token 派生值：2px solid rgb(var(--violet-rgb) / 0.55)）
+          expect(await computed(page, ".msg-flow .steer-directed", "border-left-width")).toBe("2px");
+          expect(
+            await strip.evaluate((el) => getComputedStyle(el).borderLeftColor),
+          ).toBe("rgba(168, 85, 247, 0.55)");
+          await expect(strip.locator(".sd-chip")).toHaveText("steer → a1");
+          await expect(strip.locator(".sd-text")).toHaveText("定向干预样例");
+          // 非气泡形态（行内细条不渲染为 user 气泡）
+          await expect(page.locator(".msg-flow .msg.user", { hasText: "定向干预样例" })).toHaveCount(0);
+        },
       },
       {
         id: "R-P1-6",
@@ -260,7 +277,7 @@ test.describe("G11 P-2 侧边栏未读还原清单", () => {
 // ── P-3 SubAgent 抽屉（review.md §5） ─────────────────────
 
 test.describe("G11 P-3 抽屉还原清单", () => {
-  test("R-P3-1 实跑 + R-P3-2/4/5 登记（T3.3 并行面）", async ({ mock, page }) => {
+  test("R-P3-1/2/4/5 实跑（T3.3 面已交付，T4.2 翻 run）", async ({ mock, page }) => {
     await mock.connect();
     await mock.emit(agentSpawned("a1", "还原度抽屉验证", { model: "anthropic/claude-sonnet-4-5" }));
     await expect(page.locator('.sa-card[data-instance="a1"]')).toHaveCount(1);
@@ -279,26 +296,68 @@ test.describe("G11 P-3 抽屉还原清单", () => {
           await expect(drawer.locator('.d-chip[data-chip="model"]')).toHaveText("anthropic/claude-sonnet-4-5");
           await expect(drawer.locator(".d-close")).toBeVisible();
           await expect(drawer.locator(".d-channel")).toBeVisible();
-          // 底部 steer 输入栏段 = R-P3-2 登记项承载（T3.3 落地后并入实跑）
+          // 底部 steer 输入栏段 = R-P3-2 实跑项承载（T4.2 翻 run）
         },
       },
       {
         id: "R-P3-2",
-        title: "抽屉底部输入栏：仅 running 渲染 + 目标 chip 绑定（T3.3 并行面，落地后翻 run）",
-        status: "pending",
-        run: () => {},
+        title: "抽屉底部输入栏：仅 running 渲染 + 目标 chip 绑定当前展开实例（无选择器）",
+        run: async () => {
+          const composer = drawer.locator('.steer-composer[data-kind="steer-composer"]');
+          await expect(composer).toHaveCount(1);
+          await expect(composer.locator(".sc-target .tgt")).toHaveText("→ a1");
+          await expect(composer.locator("select")).toHaveCount(0);
+          await expect(composer.locator('[role="combobox"]')).toHaveCount(0);
+          await expect(composer.locator(".sc-bar input")).toBeEnabled(); // 无阻塞发送态
+        },
       },
       {
         id: "R-P3-4",
-        title: "定向消息投影（抽屉侧）：实例 feed 与时间轴同构（T3.3 并行面，落地后翻 run）",
-        status: "pending",
-        run: () => {},
+        title: "定向消息投影（抽屉侧）：实例 feed 与时间轴同构（同物种 violet 细条 + chip + 正文）",
+        run: async () => {
+          const input = drawer.locator(".steer-composer .sc-bar input");
+          await input.fill("抽屉侧定向干预");
+          await input.press("Enter");
+          const feedStrip = drawer.locator('.steer-directed[data-target="a1"]');
+          const axisStrip = page.locator('.msg-flow .steer-directed[data-target="a1"]');
+          await expect(feedStrip).toHaveCount(1);
+          await expect(axisStrip).toHaveCount(1);
+          for (const strip of [feedStrip, axisStrip]) {
+            await expect(strip.locator(".sd-chip")).toHaveText("steer → a1");
+            await expect(strip.locator(".sd-text")).toHaveText("抽屉侧定向干预");
+          }
+          // 同构机械化：两侧同组件同类名
+          expect(await feedStrip.evaluate((el) => el.className)).toBe(
+            await axisStrip.evaluate((el) => el.className),
+          );
+        },
       },
       {
         id: "R-P3-5",
-        title: "三态呈现：running/queued/completed 互斥 + 无输入面静默不渲染（T3.3 并行面，落地后翻 run）",
-        status: "pending",
-        run: () => {},
+        title: "三态呈现：running（输入栏）/ queued（排队说明卡）/ completed（closure 卡）互斥，无输入面静默不渲染",
+        run: async () => {
+          const composer = drawer.locator(".steer-composer");
+          const queuedHint = drawer.locator('.ch-hint[data-kind="queued-hint"]');
+          const closureCard = drawer.locator('.closure-card[data-kind="closure"]');
+          // running：仅输入栏
+          await expect(composer).toHaveCount(1);
+          await expect(queuedHint).toHaveCount(0);
+          await expect(closureCard).toHaveCount(0);
+          // queued：输入栏静默摘除（DOM 不存在）+ 排队说明卡
+          await mock.emit(agentQueued("a1", 2));
+          await expect(composer).toHaveCount(0);
+          await expect(queuedHint).toBeVisible();
+          await expect(closureCard).toHaveCount(0);
+          // 回 running → completed：closure 末尾卡，无输入面
+          await mock.emit(agentStarted("a1"));
+          await expect(composer).toHaveCount(1);
+          await mock.emit(
+            agentCompleted("a1", closure("done", "三态互斥验证收口。", { reportPath: "reports/sess-e2e/a1.md" })),
+          );
+          await expect(composer).toHaveCount(0);
+          await expect(queuedHint).toHaveCount(0);
+          await expect(closureCard).toHaveCount(1);
+        },
       },
     ];
     assertFidelityGreen(await checkPrototypeFidelity(checks));
