@@ -381,6 +381,18 @@ describe("AG-13：协议两端同源基线（@helix/protocol 唯一权威源）"
   });
 });
 
+describe("AG-14 / TP-CL2-3（守护半）：monitor 白名单过滤唯一位于 EventStream 分发层", () => {
+  test("白名单常量/tier 表符号不出现在 EventStream.ts 之外（service/DtoMapper/adapter 零过滤逻辑，TR-AD-23③）", () => {
+    const offenders: string[] = [];
+    for (const rel of listFiles(srcRoot)) {
+      if (rel === path.join("adapters", "driving", "ws-server", "EventStream.ts")) continue;
+      const src = read(rel);
+      if (/MONITOR_TIER_EVENT_TYPES|sessionTiers|SubscriptionTier/.test(src)) offenders.push(rel);
+    }
+    expect(offenders, `白名单/tier 符号散落：${offenders.join(", ")}`).toEqual([]);
+  });
+});
+
 /** 判断某说明符是否仅以 `import type` 形式被引入。 */
 function typeOnly(spec: string, source: string): boolean {
   const typeRe = new RegExp(
