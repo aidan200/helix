@@ -40,7 +40,6 @@ import {
   type ModelGetDefaultResultEvent,
   type ModelGetResultEvent,
   type ModelSetDefaultResultEvent,
-  type ModelSetResult,
   type SessionListChangedEvent,
   type SessionListResult,
   type SessionLoadHistoryCommand,
@@ -380,7 +379,6 @@ const sampleCatalogModel: CatalogModel = {
 };
 const _sessionListResult: SessionListResult = { sessions: [sampleSessionMeta] };
 const _loadHistoryResult: SessionLoadHistoryResult = { entries: [], hasMore: true, nextCursor: "e1" };
-const _modelSetResult: ModelSetResult = { accepted: true, effective: "next-turn", previous: "kimi-k2" };
 const _catalogResult: ModelCatalogResult = { models: [sampleCatalogModel], refreshedAt: 1760000100000, source: "cache" };
 const _authVerifyOk: AuthVerifyResult = { status: "ok", latencyMs: 120 };
 const _authVerifyFail: AuthVerifyResult = { status: "fail", reason: "401 Unauthorized" };
@@ -709,7 +707,7 @@ type _FrameVersionDomain = Expect<Equal<FrameVersion, 0 | "0.3">>;
 type _HelloVersion = Expect<Equal<HelloPayload["protocolVersion"], "0.3">>;
 // 命令目录常量 ↔ 命令信封联合 type 集合双向一致（v0.2：21 个）
 type _CommandSync = Expect<Equal<EnvelopeTypeOf<CommandEnvelope>, (typeof COMMAND_TYPES)[number]>>;
-// 事件目录常量 ↔ 事件信封联合 type 集合双向一致（v0.2：26 个）
+// 事件目录常量 ↔ 事件信封联合 type 集合双向一致（v0.3 口径：37 个）
 type _EventSync = Expect<Equal<EnvelopeTypeOf<EventEnvelope>, (typeof EVENT_TYPES)[number]>>;
 // EntryDto 判别式联合四分支
 type _EntryMessage = Expect<Equal<Extract<EntryDto, { kind: "message" }>, MessageEntryDto>>;

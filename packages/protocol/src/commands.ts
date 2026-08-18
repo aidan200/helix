@@ -1,5 +1,5 @@
 /**
- * 命令目录（C→S，契约 §4 + 契约 B §1 / 契约 C §1；architecture.md §6.3）。
+ * 命令目录（C→S，契约 §4 + 契约 B §1 / 契约 C §1；目录文档见同包 PROTOCOL.md）。
  *
  * 共 21 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
  * auth 族 4）；v0.3 零新增——三处扩展全部为可选参数/字段（tier /
@@ -12,9 +12,10 @@
  * v0.2 已登记未实现命令 → command.unimplemented，T2.x 前占位回执）。
  */
 import type { CommandFrame } from "./envelope";
+import type { SessionListResultPayload } from "./events";
 import type { AuthProviderInfo } from "./types/auth";
 import type { CatalogModel } from "./types/model";
-import type { EntryDto, SessionMeta } from "./types/session";
+import type { EntryDto } from "./types/session";
 
 /** chat.send 载荷：发送用户消息（新输入，ChatPort.sendMessage） */
 export interface ChatSendPayload {
@@ -102,11 +103,13 @@ export interface AgentUnsubscribeCommand extends CommandFrame<AgentUnsubscribePa
 
 // ── v0.2 新增：session 族（契约 B §1；AD-1 / AD-4） ──
 
-/** 会话清单条目响应（session.list 结果载荷；SessionMeta 同源） */
-export interface SessionListResult {
-  /** 按 lastActivityAt 降序 */
-  sessions: SessionMeta[];
-}
+/**
+ * 会话清单条目响应（session.list 结果载荷；SessionMeta 同源）。
+ * T4.1（CL-5 漂移合一）：与 events.ts SessionListResultPayload 同形双定义收敛为
+ * 单定义——权威位 = 事件线形 SessionListResultPayload（session.list.result 实帧
+ * 载荷），本名为兼容别名（协议面 additive 纪律 TR-AD-18，不删导出名）。
+ */
+export type SessionListResult = SessionListResultPayload;
 
 /** session.list 载荷：全局命令（信封 sessionId 省略） */
 export interface SessionListCommand extends CommandFrame<EmptyPayload> {
@@ -146,13 +149,6 @@ export interface SessionDeleteCommand extends CommandFrame<EmptyPayload> {
 }
 
 // ── v0.2 新增：model 族（契约 C §1；AD-2，G-6 定名） ──
-
-/** model.set 结果载荷（即时 ack；model.changed 随后广播） */
-export interface ModelSetResult {
-  accepted: true;
-  effective: "next-turn";
-  previous: string;
-}
 
 /** model.set 载荷：运行期切换（P-3，F(3.3).2）——信封 sessionId 必填（per-session），下一 turn 生效 */
 export interface ModelSetPayload {

@@ -1,5 +1,5 @@
 /**
- * 事件目录（S→C，契约 A §2；architecture.md §6.3）。
+ * 事件目录（S→C，契约 A §2；目录文档见同包 PROTOCOL.md）。
  *
  * 共 37 个事件：v0 12 + v0.1 编排族 7 + v0.1 通道族 4 + 热修 engine.error 1
  * + v0.2 新增 2（session.list_changed / model.changed）+ T2.2 命令结果 2

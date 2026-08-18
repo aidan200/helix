@@ -1,5 +1,5 @@
 /**
- * 帧信封（契约 A §1；architecture.md §6.3/§6.4；v0.2 登记：iter-20260816-6q6f T1.2）。
+ * 帧信封（契约 A §1；目录文档见同包 PROTOCOL.md；v0.2 登记：iter-20260816-6q6f T1.2）。
  *
  * v0.2 起帧信封分型：C→S 命令信封（CommandFrame）与 S→C 事件信封（EventFrame）。
  * 具体命令/事件信封（commands.ts / events.ts）以 `type`（+事件侧 `channel`）

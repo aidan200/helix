@@ -54,7 +54,6 @@ type _TypeSurface = [
   // 命令目录 v0.2 新增——model 族（契约 C §1）
   protocol.ModelSetPayload,
   protocol.ModelSetCommand,
-  protocol.ModelSetResult,
   protocol.ModelGetCommand,
   protocol.ModelGetResult,
   protocol.ModelCatalogCommand,
