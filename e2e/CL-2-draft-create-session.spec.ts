@@ -1,11 +1,12 @@
 /**
  * T3.2 —— CL-2 草稿 → 首条消息建会话（F(1.2).1；契约 B §1.5）。
  *
- * 链路：活跃会话 → 新建草稿（本地态，clientFrames 断言零建会话命令——仅
- * unsubscribe 旧会话）→ 主区草稿空态（呼吸文案 + violet 光标 + 建会话提示）
- * → 首条消息 = chat.send{draft:true} 无信封 sessionId（clientFrames 断言）
- * → list_changed{created} + 新会话快照 → 草稿卡消失 + 新卡片（标题 = 首
- * 条消息前 20 字符，daemon 命名规则的 mock 镜像）+ 顶栏标题同步。
+ * 链路：活跃会话 → 新建草稿（本地态；v0.3 = 旧活跃降 monitor 档——后台
+ * 照跑 + 未读徽标语义，零建会话命令）→ 主区草稿空态（呼吸文案 + violet
+ * 光标 + 建会话提示）→ 首条消息 = chat.send{draft:true} 无信封 sessionId
+ *（clientFrames 断言）→ list_changed{created}（补订 monitor）+ 新会话
+ * 快照（激活升 full）→ 草稿卡消失 + 新卡片（标题 = 首条消息前 20 字符，
+ * daemon 命名规则的 mock 镜像）+ 顶栏标题同步。
  */
 import { test, expect } from "./harness/fixtures";
 import { sessionListChanged, sessionListResult, v02Snapshot, welcome } from "./harness/protocol";
@@ -32,15 +33,17 @@ test.describe("T3.2 CL-2 草稿建会话", () => {
     await mock.waitForConn("connected");
     await expect(page.locator('[data-session-card="draft"]')).toHaveCount(0);
 
-    // ── 新建草稿：本地态，零建会话命令（仅 unsubscribe 旧会话）──
+    // ── 新建草稿：本地态，零建会话命令（v0.3：唯一新帧 = 旧活跃降 monitor）──
     const before = (await mock.clientFrames()).length;
     await page.locator("#btn-new-session").click();
     const after = await mock.clientFrames();
-    expect(after.length - before).toBe(1); // 点击产生的唯一新帧 = unsubscribe 旧会话
-    // 命令断言：unsubscribe A 在场；无 subscribe / 无 chat.send / 无建会话类命令
-    const unsub = after.slice(before).find((f) => f.type === "session.unsubscribe");
-    expect(unsub?.sessionId).toBe(MULTI_SESSION_A);
-    const createLike = after.filter((f) => f.type.startsWith("session.create") || f.type === "session.subscribe");
+    expect(after.length - before).toBe(1); // 点击产生的唯一新帧 = subscribe(A, monitor) 降档
+    // 命令断言：A 降 monitor 在场；无 unsubscribe / 无 chat.send / 无建会话类命令
+    const demote = after.slice(before).find((f) => f.type === "session.subscribe");
+    expect(demote?.sessionId).toBe(MULTI_SESSION_A);
+    expect((demote?.payload as { tier?: string }).tier).toBe("monitor");
+    expect(after.some((f) => f.type === "session.unsubscribe")).toBe(false);
+    const createLike = after.filter((f) => f.type.startsWith("session.create"));
     expect(createLike).toHaveLength(0);
 
     // 草稿卡片 + 草稿空态（F(1.2).1）：呼吸文案 + violet 方块光标 + 建会话提示
@@ -97,8 +100,12 @@ test.describe("T3.2 CL-2 草稿建会话", () => {
     await expect(page.locator(".session-active .msg")).toHaveCount(2);
     // 旧会话 A 卡片在场（转后台照常执行，F(1.0).5 呈现面归徽标剧本）
     await expect(page.locator(`[data-session-card="${MULTI_SESSION_A}"]`)).toHaveCount(1);
-    // 草稿建会话链客户端不发 subscribe（契约 B §1.5：daemon 侧订阅切换 + 快照回推）
-    expect((await mock.clientFrames()).filter((f) => f.type === "session.subscribe")).toHaveLength(0);
+    // 草稿建会话链订阅面（v0.3）：created → 补订 monitor；快照激活 → 升 full
+    //（契约 B §1.5 daemon 订阅切换 + 契约 v0.3 §2.3 客户端全图订阅收敛）
+    const newSubs = (await mock.clientFrames())
+      .filter((f) => f.type === "session.subscribe" && f.sessionId === MULTI_NEW_SESSION)
+      .map((f) => (f.payload as { tier?: string }).tier);
+    expect(newSubs).toEqual(["monitor", "full"]);
     // 清单未重拉场景下 A 标题仍取自既有清单（multiSessionList）
     await expect(page.locator(`[data-session-card="${MULTI_SESSION_A}"] .ses-title`)).toHaveText(MULTI_TITLE_A);
   });

@@ -38,8 +38,19 @@ test.describe("T3.2 CL-1 切换两阶段 UI + 分页胶囊", () => {
     const history = multiHistoryEntries(MULTI_HISTORY_TOTAL);
     const { tail, totalEntries, tailStartCursor } = multiTail(history);
     await page.locator(`[data-session-card="${MULTI_SESSION_B}"]`).click();
-    const switchCmd = await mock.waitForCommand("session.subscribe");
-    expect(switchCmd.sessionId).toBe(MULTI_SESSION_B);
+    // v0.3 先升后降：切换命令 = subscribe(B, full)（启动全图订阅的 subscribe
+    // 帧在前——按 sessionId+tier 定位切换升档帧，不取首帧）
+    await expect
+      .poll(async () =>
+        (await mock.clientFrames())
+          .filter((f) => f.type === "session.subscribe")
+          .map((f) => [f.sessionId, (f.payload as { tier?: string }).tier] as const),
+      )
+      .toEqual([
+        [MULTI_SESSION_A, "full"],
+        [MULTI_SESSION_B, "monitor"],
+        [MULTI_SESSION_B, "full"],
+      ]);
 
     // loading 骨架：与最终布局同构（骨架行在场）+ 状态行（cyan 脉冲点 + 尾窗 30）
     const skeleton = page.locator("[data-restore-skeleton]");

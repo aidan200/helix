@@ -16,10 +16,12 @@
  * 现退役为兼容路径）API 完全一致（open/emit/emitAll/netClose/failHandshake/
  * clientFrames/activeCount），spec 经 page.evaluate 驱动剧本回放；连接状态机/
  * 退避/握手全部走生产 HelixWsClient 真实路径。T3.1 多会话寻址扩展：
- * activeSession（读/设连接订阅会话；客户端 session.subscribe/unsubscribe
- * 命令自动跟随）+ scenarioSession（emit 按信封 sessionId 路由的剧本会话
- * 台账）——单连接订阅单活跃会话假设保持（与 T2.2 daemon subscribe 语义
- * 对齐）。
+ * activeSession（读/设连接 full 档会话）+ scenarioSession（emit 按信封
+ * sessionId 路由的剧本会话台账）。v0.3（T3.2，契约 v0.3 §2）订阅簿记升级为
+ * map<sessionId, tier>（取代单值）+ monitor 档白名单过滤模拟（TR-TEST-3
+ * 契约等价：与 daemon EventStream MONITOR_TIER_EVENT_TYPES 同规 3 事件，
+ * monitor 档会话的非白名单帧整帧丢弃不下发）；断连即清表（TR-AD-23③
+ * daemon 不持跨连接状态的 mock 镜像）。
  *
  * 剧本模块（URL 形态）：`?fakeTransport=<module-url>` 时加载该 ES 模块，
  * default export 收到控制面 API（自动剧本驱动器；如 smoke 的 auto-connect）。
@@ -30,6 +32,18 @@ import { browserTransportFactory, type Transport, type TransportFactory, type Tr
 
 /** daemon 回环地址前缀（非该前缀 → 真实 WebSocket 透传，HMR 不受扰）。 */
 const DAEMON_WS_PREFIX = "ws://127.0.0.1:";
+
+/** 订阅档位（v0.3，契约 §2.1；与 protocol SessionSubscribePayload.tier 同义）。 */
+type SubscriptionTier = "full" | "monitor";
+
+/** monitor 档白名单（契约 v0.3 §2.2 机械定义；TR-TEST-3：与 daemon
+ *  EventStream.MONITOR_TIER_EVENT_TYPES 同规 3 事件——shell 侧禁引 daemon
+ *  代码，按契约镜像，漂移由契约评审收口）。 */
+const MONITOR_TIER_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "chat.turn.started",
+  "chat.turn.completed",
+  "chat.message.completed",
+]);
 
 // ── 控制面（window.__helixMock；API 与 mock-init 兼容路径逐字对齐）────
 
@@ -49,9 +63,9 @@ export interface HelixMockApi {
   clientFrames(): (CommandEnvelope | null)[];
   activeCount(): number;
   /**
-   * 按 sessionId 寻址（T3.1 多会话剧本）：读/设连接当前订阅会话。
-   * 客户端 session.subscribe/unsubscribe 命令自动跟随（单连接订阅单活跃
-   * 会话——与 T2.2 daemon subscribe 语义对齐）；控制面可显式切换。
+   * 按 sessionId 寻址（T3.1 多会话剧本；v0.3 重定义）：读 = 连接 full 档会话
+   * （无则 null）；设 = 该会话升 full、其余降 monitor（客户端先升后降的
+   * 结果面镜像）。客户端 session.subscribe/unsubscribe 命令自动跟随簿记。
    */
   activeSession(sessionId?: string): Promise<string | null>;
   /** 剧本会话台账读取（emit 按信封 sessionId 路由累计）。 */
@@ -92,15 +106,16 @@ class FakeSocket {
       frame = null;
     }
     this.registry.clientFrames.push(frame);
-    // 订阅簿记（daemon subscribeSession 语义镜像：单连接订阅单活跃会话）
+    // 订阅簿记（v0.3 map<sessionId, tier>：daemon EventStream.sessionTiers
+    // 语义镜像——subscribe 幂等覆盖（payload.tier 缺省 full）；unsubscribe 删档）
     if (frame?.type === "session.subscribe" && typeof frame.sessionId === "string" && frame.sessionId !== "") {
-      this.registry.subscribedSessionId = frame.sessionId;
-    } else if (
-      frame?.type === "session.unsubscribe" &&
-      typeof frame.sessionId === "string" &&
-      frame.sessionId === this.registry.subscribedSessionId
-    ) {
-      this.registry.subscribedSessionId = null;
+      const tierRaw = (frame.payload as { tier?: unknown } | undefined)?.tier;
+      const tier: SubscriptionTier = tierRaw === "monitor" ? "monitor" : "full";
+      this.registry.sessionTiers.set(frame.sessionId, tier);
+      if (tier === "full") this.registry.lastFullSessionId = frame.sessionId;
+    } else if (frame?.type === "session.unsubscribe" && typeof frame.sessionId === "string") {
+      this.registry.sessionTiers.delete(frame.sessionId);
+      if (this.registry.lastFullSessionId === frame.sessionId) this.registry.lastFullSessionId = null;
     }
     const hit: ClientWaiter[] = [];
     const rest: ClientWaiter[] = [];
@@ -127,6 +142,9 @@ class FakeSocket {
 
   fireClose(code: number): void {
     this.readyState = FakeSocket.CLOSED;
+    // 断连即清 tier 表（TR-AD-23③ daemon 不持跨连接状态的 mock 镜像）
+    this.registry.sessionTiers.clear();
+    this.registry.lastFullSessionId = null;
     this.handlers.onClose({ code, reason: "" });
   }
 
@@ -141,10 +159,26 @@ class Registry {
   readonly clientFrames: (CommandEnvelope | null)[] = [];
   commandWaiters: ClientWaiter[] = [];
   private instanceWaiters: ((inst: FakeSocket) => void)[] = [];
-  /** 连接当前订阅会话（按 sessionId 寻址；客户端命令自动跟随，控制面可显式切换）。 */
-  subscribedSessionId: string | null = null;
-  /** 剧本会话台账（emit 按信封 sessionId 路由累计）。 */
+  /** 连接订阅簿记（v0.3：map<sessionId, tier>，取代单值 subscribedSessionId）。 */
+  readonly sessionTiers = new Map<string, SubscriptionTier>();
+  /** 最近升 full 的会话（activeSession 读面；瞬时双 full 窗口的消歧位）。 */
+  lastFullSessionId: string | null = null;
+  /** 剧本会话台账（emit 按信封 sessionId 路由累计；monitor 档被过滤帧不入账）。 */
   readonly scenarioSessions = new Map<string, ScenarioSessionState>();
+
+  /**
+   * monitor 档白名单过滤（daemon EventStream.push 单点过滤的 mock 镜像，
+   * TR-TEST-3 契约等价）：帧信封 sessionId 命中 monitor 档且类型不在白名单
+   * → 整帧丢弃（不下发不入台账）。未订阅/full 档/系统帧照常放行；点对点
+   * 回执（session.snapshot / *.result——daemon 走 sendNow 直发不过滤）豁免。
+   */
+  passTierFilter(frame: EventEnvelope): boolean {
+    if (frame.type === "session.snapshot" || frame.type.endsWith(".result")) return true; // sendNow 点对点回执
+    const sid = frame.sessionId;
+    if (typeof sid !== "string" || sid === "" || sid === SYSTEM_SESSION_ID) return true;
+    if (this.sessionTiers.get(sid) !== "monitor") return true;
+    return MONITOR_TIER_EVENT_TYPES.has(frame.type);
+  }
 
   activeInstance(): FakeSocket | null {
     const alive = this.instances.filter((i) => i.readyState !== FakeSocket.CLOSED);
@@ -195,12 +229,14 @@ const mockApi: HelixMockApi = {
     (await registry.nextActive()).fireOpen();
   },
   async emit(frame) {
+    if (!registry.passTierFilter(frame)) return; // monitor 档白名单过滤（契约 §2.2）
     registry.trackScenarioSession(frame);
     (await registry.nextActive()).fireMessage(frame);
   },
   async emitAll(frames) {
     const inst = await registry.nextActive();
     for (const f of frames) {
+      if (!registry.passTierFilter(f)) continue; // monitor 档白名单过滤
       registry.trackScenarioSession(f);
       inst.fireMessage(f);
     }
@@ -220,8 +256,22 @@ const mockApi: HelixMockApi = {
     return registry.instances.filter((i) => i.readyState !== FakeSocket.CLOSED).length;
   },
   async activeSession(sessionId) {
-    if (sessionId !== undefined) registry.subscribedSessionId = sessionId;
-    return registry.subscribedSessionId;
+    if (sessionId !== undefined) {
+      // 显式切换：目标升 full、其余降 monitor（先升后降结果面镜像）
+      for (const [sid] of registry.sessionTiers) {
+        if (sid !== sessionId) registry.sessionTiers.set(sid, "monitor");
+      }
+      registry.sessionTiers.set(sessionId, "full");
+      registry.lastFullSessionId = sessionId;
+    }
+    // 读面 = 最近升 full 且仍为 full 的会话（瞬时双 full 窗口消歧）
+    if (registry.lastFullSessionId !== null && registry.sessionTiers.get(registry.lastFullSessionId) === "full") {
+      return registry.lastFullSessionId;
+    }
+    for (const [sid, tier] of registry.sessionTiers) {
+      if (tier === "full") return sid;
+    }
+    return null;
   },
   async scenarioSession(sessionId) {
     return registry.scenarioSessions.get(sessionId) ?? null;

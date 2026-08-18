@@ -50,9 +50,18 @@ export function chatAbortCommand(sessionId: string): ChatAbortCommand {
   return { v: PROTOCOL_VERSION, type: "chat.abort", sessionId, payload: {} };
 }
 
-/** session.subscribe：切换/建连订阅（信封 sessionId 必填；daemon 重推该会话全量快照）。 */
-export function sessionSubscribeCommand(sessionId: string): SessionSubscribeCommand {
-  return { v: PROTOCOL_VERSION, type: "session.subscribe", sessionId, payload: {} };
+/** session.subscribe：切换/建连订阅（信封 sessionId 必填；daemon 重推该会话全量快照 = ack，
+ *  契约 v0.3 §2.1）。v0.3 扩 tier：缺省 full（既有语义不变）；monitor = 白名单 3 事件档。 */
+export function sessionSubscribeCommand(
+  sessionId: string,
+  tier?: "full" | "monitor",
+): SessionSubscribeCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "session.subscribe",
+    sessionId,
+    payload: tier === undefined ? {} : { tier },
+  };
 }
 
 /** session.unsubscribe：退订（与 subscribe 同一目标会话解析规则，契约 B §1.2）。 */

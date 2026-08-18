@@ -7,7 +7,7 @@
  * list_changed created/state_changed/deleted 三类增量更新。
  */
 import { test, expect } from "./harness/fixtures";
-import { backgroundStreamDelta, sessionListChanged, sessionListResult, v02Snapshot, welcome } from "./harness/protocol";
+import { backgroundMessageCompleted, msgEntry, sessionListChanged, sessionListResult, v02Snapshot, welcome } from "./harness/protocol";
 import { sessionMeta } from "./harness/protocol";
 import { MULTI_SESSION_A, MULTI_SESSION_B } from "./harness/scenarios";
 
@@ -46,9 +46,9 @@ test.describe("T3.2 CL-2 会话列表徽标 + list_changed 三类推", () => {
     await expect(cardA.locator(".hud-badge")).toContainText("空闲");
     await expect(cardA.locator(".hud-dot-pulse")).toHaveCount(0);
 
-    // ── 后台帧驱动未读（F(1.0).5 呈现面）：B 收 2 帧内容 → pill 2 + badge-pop ──
-    await mock.emit(backgroundStreamDelta(MULTI_SESSION_B, "bg-1", "后台增量一"));
-    await mock.emit(backgroundStreamDelta(MULTI_SESSION_B, "bg-2", "后台增量二"));
+    // ── 后台帧驱动未读（F(1.0).5 呈现面；v0.3 monitor 档白名单 = message_end）：B 收 2 帧内容 → pill 2 + badge-pop ──
+    await mock.emit(backgroundMessageCompleted(MULTI_SESSION_B, msgEntry("bg-1", "assistant", "后台消息一", { ts: 11 })));
+    await mock.emit(backgroundMessageCompleted(MULTI_SESSION_B, msgEntry("bg-2", "assistant", "后台消息二", { ts: 12 })));
     await expect(cardB.locator(".ses-unread")).toHaveCount(1);
     await expect(cardB.locator(".ses-unread")).toHaveText("2");
     await expect(cardB.locator(".ses-unread.pulse")).toHaveCount(1); // badge-pop（纯 transform）
