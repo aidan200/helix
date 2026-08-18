@@ -137,21 +137,21 @@ scope: domain
 stack: backend
 name: SteerQueue
 status: active
-digest: 写 steer 打断、turn 间消息注入、closure 注入主线时
-updatedIn: iter-20260816-uzvg
+digest: 写 steer 打断、turn 间消息注入、closure 注入主线、用户定向干预实例时
+updatedIn: iter-20260818-mq5a
 ```
 
 ## 描述
-steer 打断与主线注入的领域语义载体：生成中的用户消息与 SubAgent closure 消息进入 steering 队列，在 turn 边界 drain 注入下一轮（pi-agent-core Agent.steer() 内建 PendingMessageQueue 的领域化封装）。属领域权威状态（framework-free）。与 abort 区分：steer = 注入后续轮次，abort = 中断当前执行。M2 起 closure 注入复用同队列（AD-8）：closure 到达 enqueue（「agent-N closure: …」），与等待期用户 steer 同队列 FIFO、记录含来源可区分；closure 注入驱动 MainAgent 新 turn；本队列是外部消息进 MainAgent 窗口的唯一入口（替代 v1 customPrompt hack）。
+steer 打断与主线注入的领域语义载体：生成中的用户消息与 SubAgent closure 消息进入 steering 队列，在 turn 边界 drain 注入下一轮（pi-agent-core Agent.steer() 内建 PendingMessageQueue 的领域化封装）。属领域权威状态（framework-free）。与 abort 区分：steer = 注入后续轮次，abort = 中断当前执行。M2 起 closure 注入复用同队列（AD-8）：closure 到达 enqueue（「agent-N closure: …」），与等待期用户 steer 同队列 FIFO、记录含来源可区分；closure 注入驱动 MainAgent 新 turn；本队列是外部消息进 MainAgent 窗口的唯一入口（替代 v1 customPrompt hack）。M4 起用户 steer 可定向 SubAgent 实例：chat.steer 扩可选 instanceId，daemon 路由目标实例的本队列（复用 agent_send 通道：ChatService 判定 → AgentOrchestrationPort.send → InstanceRunner → transport → 子进程 Agent.steer()），缺省无 instanceId = 主实例（既有语义不变）；定向干预消息同构落 Entry（标注目标实例）经会话投影，恢复重放完整。
 
 ## 规则
-steer 消息不直接插入当前正在生成的流，经队列在 turn 间注入；closure 注入与用户 steer 同队列 FIFO，不设旁路；队列记录按来源可区分（用户 steer / closure 注入）；对外经 service 暴露 steer/abort 入口（driving adapter 只转发命令）；状态属 domain 聚合（framework-free），pi 语义经 pi-engine 防腐映射。
+steer 消息不直接插入当前正在生成的流，经队列在 turn 间注入；closure 注入与用户 steer 同队列 FIFO，不设旁路；队列记录按来源可区分（用户 steer / closure 注入；用户定向 steer 按目标实例标注）；对外经 service 暴露 steer/abort 入口（driving adapter 只转发命令，路由判定归 application service）；状态属 domain 聚合（framework-free），pi 语义经 pi-engine 防腐映射；用户干预消息一律落 Entry 同构投影，不设不投影例外通道。
 
 ## 禁忌
-不在 adapter 或前端实现 steer/closure 注入编排；不绕过队列直接改写当前生成中的轮次；closure 不走第二条注入通道直插主线窗口。
+不在 adapter 或前端实现 steer/closure 注入编排；不绕过队列直接改写当前正在生成中的轮次；closure 不走第二条注入通道直插主线窗口；定向 steer 不走旁路通道直投子进程而不落 Entry（干预历史恢复后消失）。
 
 ## 关系
-注入会话聚合（E-会话聚合）的后续轮次；由 AgentRuntime（E-AgentRuntime）经 Agent.steer() 驱动；closure 注入来自调度器（E-调度器）收口（载荷结构 ClosureRecord，E-ClosureRecord）；前端打断入口经 WS 命令 → service → 本队列。
+注入会话聚合（E-会话聚合）的后续轮次（干预消息落 Entry 挂目标 instanceId 经会话投影）；由 AgentRuntime（E-AgentRuntime）经 Agent.steer() 驱动；closure 注入来自调度器（E-调度器）收口（载荷结构 ClosureRecord，E-ClosureRecord）；用户定向入口经 WS chat.steer{instanceId}（复用编排 agent_send 通道），寻址目标 AgentInstance（E-AgentInstance）；前端打断入口经 WS 命令 → service → 本队列。
 
 ```kg-node
 id: E-AgentInstance
@@ -161,21 +161,21 @@ scope: domain
 stack: backend
 name: AgentInstance
 status: active
-digest: 写实例生命周期、挂 instanceId、区分主/Sub 实例时
-updatedIn: iter-20260816-uzvg
+digest: 写实例生命周期、挂 instanceId、区分主/Sub 实例、供 spawn 锚点时
+updatedIn: iter-20260818-mq5a
 ```
 
 ## 描述
-agent 实例一等概念（AD-3 trace 实例同构）：{instanceId, kind: "main"|"subagent", profileKind, sessionId, 实例状态机, createdAt}。主会话实例与 SubAgent 同为 AgentInstance——机制同构（同 AgentRuntime 驱动、同 AgentProfile 声明机制、同事件通道、同 trace/统计/持久化路径），编排分层仅经 profile 生命周期声明表达：main = persistent（常驻多轮、用户对话锚点，re-profile 时销毁重建）；subagent = single-shot（单轮收敛、closure 回主线后销毁）。实例创建/销毁/re-profile 是一等操作（非线性红线）。SubAgent 实例的 instanceId 即编排工具寻址的 agentId（同一标识空间，分配即定）；主实例在会话创建时分配固定 id。
+agent 实例一等概念（AD-3 trace 实例同构）：{instanceId, kind: "main"|"subagent", profileKind, sessionId, 实例状态机, createdAt}。主会话实例与 SubAgent 同为 AgentInstance——机制同构（同 AgentRuntime 驱动、同 AgentProfile 声明机制、同事件通道、同 trace/统计/持久化路径），编排分层仅经 profile 生命周期声明表达：main = persistent（常驻多轮、用户对话锚点，re-profile 时销毁重建）；subagent = single-shot（单轮收敛、closure 回主线后销毁）。实例创建/销毁/re-profile 是一等操作（非线性红线）。SubAgent 实例的 instanceId 即编排工具寻址的 agentId（同一标识空间，分配即定）；主实例在会话创建时分配固定 id。M4 起实例携带 spawn 锚点：daemon 快照组装面权威计算 spawn 关联 entry 稳定标识（复用 EntryDto.id 体系——主实例 e{N} / SubAgent {instanceId}#N，会话级唯一即够、与分页游标 tailStartCursor 同源；语义 = 实例首 Entry 前最后一条 main/compaction 归属 entry id），经 instances DTO 锚点字段（additive）下发；锚点是组装期派生值不持久化（无第二事实源）。
 
 ## 规则
-每条领域事件与聚合 Entry 挂 instanceId；trace 四维查询 session × instance × type × time；SubAgent 实例状态机 queued{位次} → running → stalled（警示可恢复）/done/failed（kill 收口 = failed 单一终态，无独立 killed 态），重启清队标 cancelled；实例窗口销毁重建而会话聚合跨实例持续追加（执行层全切/交接层受控注入/显示层连续）；调度器与状态机不假设单实例线性推进。
+每条领域事件与聚合 Entry 挂 instanceId；trace 四维查询 session × instance × type × time；SubAgent 实例状态机 queued{位次} → running → stalled（警示可恢复）/done/failed（kill 收口 = failed 单一终态，无独立 killed 态），重启清队标 cancelled；实例窗口销毁重建而会话聚合跨实例持续追加（执行层全切/交接层受控注入/显示层连续）；调度器与状态机不假设单实例线性推进；spawn 锚点由 daemon 权威计算（快照组装面确定性派生，每次组装同值），前端纯消费零推导——锚在装载窗口外卡片不渲染（纯锚驱动，运行中实例感知归抽屉全量列表；摘要徽标留作未来增强 additive）。
 
 ## 禁忌
-不按 kind 分叉机制通道（事件/持久化/统计/驱动路径必须同构）；不假设一个会话单实例到底；不在实例对象外维护第二实例注册表。
+不按 kind 分叉机制通道（事件/持久化/统计/驱动路径必须同构）；不假设一个会话单实例到底；不在实例对象外维护第二实例注册表；不在前端推导锚点（best-effort 推导已随 v0.3 撤除，禁止复发）；不把锚点持久化为独立状态列（派生值落盘 = 第二事实源）。
 
 ## 关系
-由 AgentProfile（E-AgentProfile）声明装配（生命周期声明即编排分层唯一表达）；生命周期受调度器（E-调度器）管理（spawn/预算/收口/kill）；事件与 Entry 进会话聚合（E-会话聚合）按 instanceId 归属；持久化投影 agent_lifecycle（主键 (session_id, instance_id)），重启经 RestoreService 重建实例注册表（恢复语义见 TR-AD-19）。
+由 AgentProfile（E-AgentProfile）声明装配（生命周期声明即编排分层唯一表达）；生命周期受调度器（E-调度器）管理（spawn/预算/收口/kill）；事件与 Entry 进会话聚合（E-会话聚合）按 instanceId 归属（锚点即聚合 Entry id 的引用，经会话投影与 DtoMapper 组装进 instances DTO）；持久化投影 agent_lifecycle（主键 (session_id, instance_id)），重启经 RestoreService 重建实例注册表（恢复语义见 TR-AD-19）；用户定向 steer 寻址本实例（E-SteerQueue）。
 
 ```kg-node
 id: E-调度器

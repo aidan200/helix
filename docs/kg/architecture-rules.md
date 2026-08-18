@@ -300,10 +300,12 @@ scope: domain
 stack: frontend
 name: 前端 FSD 五层与主题/i18n 纪律
 status: active
-digest: 写前端组件、搬 desk 切片、加文案或主题时
+digest: 写前端组件、动路由或导航壳、搬 desk 切片、加文案或主题时
 derivedFrom:
   - AD-12
   - AD-18
+  - AD-1（M4 导航框架范围：只做框架不做填充）
+  - CL-4 裁决（M4：Q-4a IconRail 形态 / Q-4b 六页签与路径路由 / Q-4c 占位施工牌）
 anchors:
   implementedBy:
     - apps/shell/src/
@@ -312,20 +314,21 @@ anchors:
 relations:
   governs:
     - E-会话聚合
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260818-mq5a
 ```
 
 ## 规则
 前端采用标准 FSD 五层（app/pages/widgets/features/entities + shared）；WS 客户端落 shared/api（transport 缝隙集中于此）；Cyber HUD 设计 token 落 shared/ui：CSS 变量 :root 唯一真源 + rgb(var(--x)/<alpha-value>) alpha 修饰符模式；原子组件自持有（shadcn 哲学：Magic UI 等按需 copy-in，无全量库依赖）。主题用注册表机制：每主题 = 同名语义 token 变量块不同值（暗色挂 :root 为默认，追加主题以 html class 挂载），后期整体调整只改主题块不动组件；主题是纯前端 concern，daemon 无主题概念；用户偏好 localStorage 持久化。文案全 key 纪律：P-1 页面所有 UI 文案走搬入的 desk 轻量 i18n（React context + localStorage 持久化 + navigator.language 检测，zh-CN/en-US 双语言包），无硬编码文案；协议 DTO 不含语言字段，中英文本传原始内容，语言选择是前端渲染 concern。
+页面域与会话域分离：路由层（app/route.ts + useAppRoute + IconRail 导航壳）表达页面域（六页签 chat/models/skills/trace/project/settings 终态；手写路径路由 / /models /skills /trace /project /settings，不采 ?page= 深链；未知路径回落工作台），SessionProvider 及其内（会话侧栏/主区/dispatcher/consumers）表达会话域；SessionProvider 在路由层之上（切页零 WS 影响），IconRail 不读会话 store、会话域组件不感知路由状态。chat 页常驻 DOM（route-layer + data-route display 切换保流式），其余页条件渲染离开卸载。页面回填 additive：未来功能页填充不动导航壳与路由骨架（新增页面 = 路由位 + 页组件 + IconRail 图标三项 additive）；旧路径迁移（/settings/models → /models）单仓同发一步完成不保兼容。占位页 = 静态施工牌（图标 + 页名 + 一句话能力预告 + 「规划中」徽标，复用 Cyber HUD 空态语言），不绑路线图（不做时间/顺序暗示，避免隐性承诺），与断连态视觉区分。
 
 ## 理由
-desk 前端本就 FSD 五层，切片搬运成本最低（F-6）；desk i18n 方案已验证且轻量（~1.7k LOC，F-8）；daemon 是开发者面向、统一中文不做 i18n（AD-18）；主题注册表避免后期主题级调整侵入每个组件（Q-7 裁决）。
+desk 前端本就 FSD 五层，切片搬运成本最低（F-6）；desk i18n 方案已验证且轻量（~1.7k LOC，F-8）；daemon 是开发者面向、统一中文不做 i18n（AD-18）；主题注册表避免后期主题级调整侵入每个组件（Q-7 裁决）。M4 AD-1 + Q-4a/b/c：框架先行解耦交付（页面内容随功能推进）；域分离是「chat 页常驻 DOM 保流式」与「页面自由扩展」两个不变量的结构基础——任何一侧感知另一侧都会在页面增长后产生耦合反噬；施工牌不绑路线图避免把迭代规划泄漏成对用户的隐性承诺。
 
 ## 适用范围
-CL-7 前端聊天流切片搬运与 P-1 页面开发；新增任何前端组件、文案、主题 token；shared/api 的 WS transport 改造。
+CL-7 前端聊天流切片搬运与 P-1 页面开发；新增任何前端组件、文案、主题 token；shared/api 的 WS transport 改造。M4+ 新增或填充任何页面（skills/trace/project/settings 回填）；动 App.tsx 装配序或路由常量；IconRail/导航壳演进评审；占位页与施工态设计。
 
 ## 反例
-组件里写死「发送」二字不走 i18n key，或卡片组件内硬编码 rgb(0,255,255) 色值绕过主题变量——换主题即漏色。
+组件里写死「发送」二字不走 i18n key，或卡片组件内硬编码 rgb(0,255,255) 色值绕过主题变量——换主题即漏色。新功能页组件 import 会话 store 内部（页面域污染会话域——页面卸载时会话态被误清或页面状态残留）；或占位页写「即将上线 / Q4 推出」时间暗示（隐性承诺）；或页面填充时改 IconRail 骨架/路由结构（回填必须 additive）；或把 IconRail 放进 SessionProvider 内部依赖活跃会话渲染。
 
 ```kg-node
 id: TR-AD-9
@@ -555,16 +558,19 @@ scope: domain
 stack: shared
 name: AgentInstance 一等概念与 instanceId 全链路
 status: active
-digest: 写领域事件或聚合 Entry、加协议事件字段、做实例分段渲染时
+digest: 写领域事件或聚合 Entry、加协议事件字段、做实例分段渲染、动用户干预通道时
 derivedFrom:
   - AD-3
   - AD-1
+  - CL-3 裁决（M4：Q-3a 消息双处可见 / Q-3b 抽屉输入栏）
+  - AD-5（M4 契约 v0.3 一次定形）
 relations:
   governs:
     - E-AgentInstance
     - E-会话聚合
     - E-领域事件与单写队列
-updatedIn: iter-20260816-6q6f
+    - E-SteerQueue
+updatedIn: iter-20260818-mq5a
 ```
 
 ## 规则
@@ -573,16 +579,16 @@ updatedIn: iter-20260816-6q6f
 SubAgent 实例的 instanceId 即 agent_spawn 返回、agent_send/agent_status/agent.kill 寻址的 agentId（同一标识空间的两个视角，分配即定）；主实例在会话创建时分配固定 id。
 会话聚合与 agent 实例窗口分离（三层模型）：聚合是全历史 Entry 树、跨实例持续追加（UI/持久化单位，实例切换或收口时不重建）；实例窗口是 LLM 上下文、销毁重建（执行层全切、交接层受控注入、显示层连续）。实例创建/销毁/re-profile 是一等操作，调度器与状态机不得假设一个会话单实例线性推进。聚合 Entry 树含 SubAgent 归属条目（Entry.instanceId；经会话投影 SessionProjection 落树；恢复重放进快照 entries——RestoreService.replaySubAgentHistory，agent_kind=subagent 事件流补齐）。
 UI 时间线按实例分段：主线视图默认只渲染主实例 Entry + SubAgent 卡片 + 里程碑标记，抽屉视图 = 按实例过滤的全流（全流载体 = 聚合 Entry per-instance channel + 恢复重放，SubAgent 历史含在内）；重启后恢复实例骨架/closure/账目/SubAgent 全流历史。
+用户干预消息同构落 Entry：chat.steer 产生的用户干预消息（缺省主实例 / 定向实例）一律落 Entry（标注目标实例 instanceId）经会话投影进时间轴，恢复重放完整保留干预历史；定向路径复用 agent_send 通道（ChatService 判定 instanceId → AgentOrchestrationPort.send → InstanceRunner → transport → 子进程 Agent.steer()），路由判定归 application service、driving adapter 只透传；不设「不投影」例外通道（旁路直投实例流不进聚合 = 干预历史在恢复重放中消失）。UI 双处可见：主线时间轴定向消息轻量渲染 + 抽屉实例 feed；协议面仅 ChatSteerPayload 扩可选 instanceId（缺省 = 主实例，additive）。
 
 ## 理由
-F-12 实锤现状只有 agent_kind 无实例 id，同类型多实例不可区分、协议事件无任何 agent 标识（单 agent 假设）；主会话即使不 spawn SubAgent 也会因 re-profile 存在多实例（用户在 grilling 指出）。机制同构才能统一 trace/统计/事件通道（AD-3）；聚合与窗口分离是相位模式在 v2 重新生长的地基（AD-1），M2 主实例 + N 个 SubAgent 已在事实层面运行该模型。
+F-12 实锤现状只有 agent_kind 无实例 id，同类型多实例不可区分、协议事件无任何 agent 标识（单 agent 假设）；主会话即使不 spawn SubAgent 也会因 re-profile 存在多实例（用户在 grilling 指出）。机制同构才能统一 trace/统计/事件通道（AD-3）；聚合与窗口分离是相位模式在 v2 重新生长的地基（AD-1），M2 主实例 + N 个 SubAgent 已在事实层面运行该模型。M4 CL-3（Q-3a）：主 Agent steer 既有落 Entry 投影语义（M2），定向 SubAgent steer 同构才不产生「部分干预可回放、部分不可回放」的历史分叉；复用 agent_send 通道是机制同构（TR-AD-4 扩展公式）的又一次运用——零新通道。
 
 ## 适用范围
-M2+ 写任何领域事件、聚合 Entry、持久化 schema（domain_events/agent_lifecycle/tool_calls）时；协议事件/快照字段扩展时；SubAgent 编排（调度/收口/kill 寻址）实现时；UI 时间线实例分段与抽屉过滤渲染时；trace 四维查询与账目分实例统计时。schema 列级演进走建表幂等 + 守护式补列，RowMapper fromRow 默认值兑底（TR-AD-14 同口径）。
-（待开发裁决，不作规则化：O-3 agent_instance_id 旧数据回填值与补列机制细节；O-4 instanceId 分配格式与 agent-N 序号的持久化范围。）
+M2+ 写任何领域事件、聚合 Entry、持久化 schema（domain_events/agent_lifecycle/tool_calls）时；协议事件/快照字段扩展时；SubAgent 编排（调度/收口/kill 寻址）实现时；UI 时间线实例分段与抽屉过滤渲染时；trace 四维查询与账目分实例统计时。schema 列级演进走建表幂等 + 守护式补列，RowMapper fromRow 默认值兑底（TR-AD-14 同口径）。M4+ 写任何用户干预入口（主 Composer / 抽屉输入栏 / 未来 phase 干预面）；动 steer 路由或 SteerQueue 注入链路；定向消息渲染；恢复重放验证干预历史完整性的测试面。
 
 ## 反例
-领域事件只带 agent_kind 不带 agent_instance_id——两个并行的 subagent-worker 事件流、账目、抽屉内容全部串台不可区分；或 SchedulerService 给 SubAgent 另建一条事件通道/另一套持久化路径（「同构」退化为双轨）；或 UI 把所有实例 Entry 平铺进主线聊天流——SubAgent 内部工具调用刷屏主线，违背隔离初衷。
+领域事件只带 agent_kind 不带 agent_instance_id——两个并行的 subagent-worker 事件流、账目、抽屉内容全部串台不可区分；或 SchedulerService 给 SubAgent 另建一条事件通道/另一套持久化路径（「同构」退化为双轨）；或 UI 把所有实例 Entry 平铺进主线聊天流——SubAgent 内部工具调用刷屏主线，违背隔离初衷。定向 steer 走旁路通道直投子进程 stdin 而不落 Entry（恢复后干预历史消失，重放不完整）；或路由判定写在 WsServerAdapter case 内（编排泄漏进 driving adapter，TR-AD-9 反例同构）；或前端把定向消息渲染成完整用户气泡占主线版面（已裁「轻量渲染」）。
 
 ```kg-node
 id: TR-AD-16
@@ -843,3 +849,38 @@ updatedIn: iter-20260816-6q6f
 
 ## 反例
 把后台会话也建完整 store（entries 全量驻留，内存随会话数无界增长）；或 dispatcher 单层平铺全部状态（跨会话拓扑与单会话状态耦合，切换会话时误清拓扑/误留会话态）；或 SchedulerService 里顺手写聚合（零聚合写守护即红）。
+
+```kg-node
+id: TR-AD-23
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: 协议演进 additive 模式与订阅状态连接级隔离
+status: active
+digest: 扩协议命令或字段、定契约版本批次、动订阅或连接状态时
+derivedFrom:
+  - AD-2（M4 monitor 档，Q-2b 机制定案）
+  - AD-5（M4 契约 v0.3 一次定形）
+  - Q-1c（M4 一步替换无协商）
+relations:
+  governs:
+    - E-领域事件与单写队列
+updatedIn: iter-20260818-mq5a
+```
+
+## 规则
+协议能力演进三定律：
+①可选参数扩展优先于新命令对——同一命令能以可选参数承载的语义（session.subscribe 扩 tier、chat.steer 扩 instanceId）不新增命令对；仅当载荷形态无法容纳才新增（届时按 TR-AD-21 整链登记模式）。可选参数必带缺省语义（缺省 = 既有行为，旧剧本兼容），事件类型判别式只增不删不改（TR-AD-18 同源纪律）。
+②契约版本一次定形——同一批协议演进收拢为一次契约版本定形后铺开（v0.3 = spawn 锚点 DTO + tier 订阅 + steer 寻址三处同批）；EVENT_TYPES/EVENT_CHANNELS 守护计数与 type-surface 穷尽断言同步一次扩。单仓同发（protocol + daemon + shell 同 commit 发版）无跨版本组合场景：PROTOCOL_VERSION 是批次集合标记而非协商位；批内破坏性清理（删 dead 类型 / 路径迁移 / 旧推导代码删除）一步完成不留双轨。
+③订阅状态连接级隔离——daemon 订阅状态（Map<sessionId, tier>，tier = full | monitor）是连接私有状态，由 EventStream 按连接持有；daemon 不持跨连接全局订阅知识（拒绝「daemon 知道哪些会话活跃」的中心化换档）；断连即丢、重连由客户端重放全订阅图。N 窗口 = N 连接 = N 独立订阅图，多窗口/多客户端在协议层零改动扩展。档位过滤（monitor 白名单）在事件分发层一处完成，不散落 service。
+
+## 理由
+Q-2b 定案：连接级单档 Map 消除双集交集歧义，切换先升后降保证不丢帧不串台；拒绝 daemon 持活跃会话知识（原子换档方案）保持去中心化订阅模型——多窗口协议层零改动是结构红利而非补丁。Q-1c：单仓同发使协商成本为零，拆多次小版本只产生多次守护计数扰动；可选参数承载使守护面与 shell dispatcher 路由面零新增。
+
+## 适用范围
+M4+ 新增任何协议命令/事件/DTO 字段时；契约版本批次规划（同批演进收集后一次定形）；动 EventStream 订阅结构或连接状态时；多窗口/多客户端形态演进评审。
+
+## 反例
+为 monitor 档新增 session.subscribe_monitor / unsubscribe_monitor 命令对（可选参数即可承载，徒增命令目录与 dispatcher 路由面）；或 daemon 维护全局活跃会话表做原子换档（第二连接连入即污染第一连接订阅图，多窗口被迫开协议协商）；或 v0.3 拆三次小版本铺开（三次守护计数扰动）；或 monitor 白名单散落各 service 各写一份（口径漂移，过滤必须事件分发层一处）。
