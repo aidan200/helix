@@ -1,4 +1,5 @@
 import type { ChatPort, SendOutcome } from "../ports/inbound/ChatPort";
+import type { AgentOrchestrationPort } from "../ports/inbound/AgentOrchestrationPort";
 import type { AgentEngineEvent, AgentEnginePort } from "../ports/outbound/AgentEnginePort";
 import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../ports/outbound/ClockPort";
@@ -66,6 +67,25 @@ export interface ChatServiceDeps {
   readonly session?: Session;
   /** 恢复场景传入历史工具调用记录（重启后工具历史随快照延续，避免整体替换写抹掉）。 */
   readonly restoredToolCalls?: readonly ToolCallRecordData[];
+  /**
+   * 定向 steer 转投面（T2.3，契约 v0.3 §3.2）：组合根接 SchedulerService.send
+   * （AgentOrchestrationPort.send 同链路）；目标状态前置判定（state=running）
+   * 归调度侧既有 send 链——delivered=false 同步返回时本服务抛
+   * SteerTargetNotRunningError（不落 Entry 不入队）。
+   */
+  readonly sendToInstance?: AgentOrchestrationPort["send"];
+}
+
+/**
+ * 定向 steer 目标非运行中（T2.3 契约 v0.3 §3.2 回执裁决）：WS 侧据 name 判别
+ * 转 connection.error 点对点回执（TR-AD-21，同 agent.kill 形态）；message 直
+ * 复用 SendOutcome.detail 中文文案（SchedulerService 前置判定产出）。
+ */
+export class SteerTargetNotRunningError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SteerTargetNotRunningError";
+  }
 }
 
 export class ChatService implements ChatPort {
@@ -205,12 +225,17 @@ export class ChatService implements ChatPort {
   }
 
   /**
-   * 显式 steer 注入：要求正在运行中。
-   * 领域侧先入队（applySteer 落 isSteer entry + SteerQueue.enqueue），
-   * 再转发引擎——两队列各自独立可观测（domain SteerQueue 是权威，
-   * 引擎队列是执行机制），drain 回流时以 domain 队列出账。
+   * 显式 steer 注入。
+   * - instanceId 缺省/显式 main：主实例路径（要求正在运行中）——领域侧先入队
+   *   （applySteer 落 isSteer entry + SteerQueue.enqueue），再转发引擎——两队列
+   *   各自独立可观测（domain SteerQueue 是权威，引擎队列是执行机制），drain
+   *   回流时以 domain 队列出账。既有五跳路径逐字节不变。
+   * - instanceId = SubAgent id：定向分支（T2.3 契约 v0.3 §3.2，见 steerInstance）。
    */
-  async steer(text: string): Promise<{ entryId: string }> {
+  async steer(text: string, instanceId?: string): Promise<{ entryId: string }> {
+    if (instanceId !== undefined && instanceId !== MAIN_INSTANCE_ID) {
+      return this.steerInstance(instanceId, text);
+    }
     this.lifecycle.assertIn("running", "steering");
     const entry = this.session.applySteer(text, this.now());
     if (this.lifecycle.current === "running") {
@@ -218,6 +243,31 @@ export class ChatService implements ChatPort {
     }
     this.publish<SteerPayload>("steer.queued", { entryId: entry.id, text });
     this.deps.engine.steer(text);
+    return { entryId: entry.id };
+  }
+
+  /**
+   * 定向 steer 分支（T2.3 契约 v0.3 §3.2，Q-3a）：
+   * ① 转投 AgentOrchestrationPort.send（agent_send 同链路：SchedulerService 前
+   *   置判定 state=running → runner → transport → 子进程 Agent.steer()）；
+   * ② 非运行中（delivered=false 同步返回）→ SteerTargetNotRunningError，
+   *   **不落 Entry 不入队**（回执形态由 driving 侧点对点下发，TR-AD-21）；
+   * ③ 已投递 → 干预消息落主时间轴 Entry（Session.applyDirectedSteer：与
+   *   applySteer 同构 user+isSteer，instanceId=目标；不入主 SteerQueue、不双
+   *   写实例 channel）+ steer.queued 事件信封挂 instanceId=目标（channel=chat
+   *   走 session 订阅面——前端时间轴/抽屉双处可见的数据面；恢复重放完整，
+   *   Entry 已持久化即天然完整）。
+   */
+  private steerInstance(instanceId: string, text: string): { entryId: string } {
+    if (this.deps.sendToInstance === undefined) {
+      throw new Error("定向 steer 通道未装配（ChatServiceDeps.sendToInstance 未注入，契约 v0.3 §3.2）");
+    }
+    const outcome = this.deps.sendToInstance(instanceId, text);
+    if (!outcome.delivered) {
+      throw new SteerTargetNotRunningError(outcome.detail);
+    }
+    const entry = this.session.applyDirectedSteer(text, instanceId, this.now());
+    this.publish<SteerPayload>("steer.queued", { entryId: entry.id, text }, undefined, instanceId);
     return { entryId: entry.id };
   }
 

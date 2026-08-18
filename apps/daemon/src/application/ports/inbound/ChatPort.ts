@@ -17,8 +17,13 @@ export interface ChatPort {
    * 生成中自动转为 steer 注入（入队可观测，turn 边界 drain）。
    */
   sendMessage(text: string): Promise<SendOutcome>;
-  /** 显式注入（要求正在运行中；空闲时是业务错误，走 sendMessage）。 */
-  steer(text: string): Promise<{ entryId: string }>;
+  /**
+   * 显式注入。instanceId 缺省/=main = 主实例（要求正在运行中；空闲时是业务
+   * 错误，走 sendMessage）；携带 SubAgent id = 定向 steer（T2.3 契约 v0.3
+   * §3.2：转投 AgentOrchestrationPort.send，目标非运行中抛
+   * SteerTargetNotRunningError，不落 Entry 不入队）。
+   */
+  steer(text: string, instanceId?: string): Promise<{ entryId: string }>;
   /** 中断当前生成（abort 非销毁：会话仍可继续新消息）。空闲时幂等忽略。 */
   abort(): void;
 }
@@ -30,6 +35,7 @@ export interface ChatPort {
  */
 export interface SessionChatPort extends ChatPort {
   sendMessage(text: string, sessionId?: string): Promise<SendOutcome>;
-  steer(text: string, sessionId?: string): Promise<{ entryId: string }>;
+  /** sessionId = 会话路由位；instanceId = 定向 steer 目标（v0.3 §3.2，透传位）。 */
+  steer(text: string, sessionId?: string, instanceId?: string): Promise<{ entryId: string }>;
   abort(sessionId?: string): void;
 }

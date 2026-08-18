@@ -115,7 +115,8 @@ export interface DaemonOptions {
 export interface Daemon {
   readonly paths: HelixPaths;
   readonly config: DaemonConfig;
-  readonly chat: ChatPort;
+  /** 会话路由对话入口（chatRouter 本体；SessionChatPort = ChatPort 超集）。 */
+  readonly chat: SessionChatPort;
   readonly session: SessionPort;
   readonly system: SystemPort;
   readonly logger: Logger;
@@ -320,6 +321,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
         clock,
         session: material.session,
         restoredToolCalls: material.toolCalls,
+        // T2.3（契约 v0.3 §3.2）：定向 steer 转投面——AgentOrchestrationPort.send
+        // 同链路（目标状态前置判定归调度侧既有 send 链，编排泄零入 driving）
+        sendToInstance: (agentId, message) => scheduler.send(agentId, message),
       });
       // 会话投影消费者（T2.1 AD-3 §3.2②；T2.2 多会话 = 按 sessionId 分实例化，
       // architecture-feedback #20 建议采纳）：SubAgent Entry 落聚合 + 账本入账
@@ -366,10 +370,11 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       const runtime = registry.peek(target) ?? (await registry.get(target));
       return runtime.chatService.sendMessage(text);
     },
-    steer: async (text: string, sessionId?: string): Promise<{ entryId: string }> => {
+    steer: async (text: string, sessionId?: string, instanceId?: string): Promise<{ entryId: string }> => {
       const target = sessionId ?? registry.currentSessionId();
       const runtime = registry.peek(target) ?? (await registry.get(target));
-      return runtime.chatService.steer(text);
+      // T2.3（契约 v0.3 §3.2）：instanceId 透传——定向/主实例分流判定归 ChatService
+      return runtime.chatService.steer(text, instanceId);
     },
     abort: (sessionId?: string): void => {
       // 冷会话无在飞 run（卸载前置条件 = idle）——热会话直接中断

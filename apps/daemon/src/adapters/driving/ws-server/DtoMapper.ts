@@ -132,8 +132,8 @@ export function toSnapshotDto(
     ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer)),
     ...view.toolCalls.map((record) => toolCallEntryDto(record)),
   ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
-  // 主时间轴 = 主实例条目（instanceId 缺省/ main）；尾窗只作用于主轴（AD-1）
-  const mainAxis = merged.filter((entry) => (entry.instanceId ?? MAIN_INSTANCE_ID) === MAIN_INSTANCE_ID);
+  // 主时间轴 = 主实例条目 + 定向 steer 干预条目（T2.3 契约 v0.3 §3.2）；尾窗只作用于主轴（AD-1）
+  const mainAxis = merged.filter(isMainAxisEntry);
   const tailSize = opts.tailSize ?? TAIL_WINDOW_SIZE;
   const tail = mainAxis.length > tailSize ? mainAxis.slice(mainAxis.length - tailSize) : mainAxis;
   return {
@@ -173,7 +173,7 @@ export function historyPage(
     ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer)),
     ...view.toolCalls.map((record) => toolCallEntryDto(record)),
   ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
-  const mainAxis = merged.filter((entry) => (entry.instanceId ?? MAIN_INSTANCE_ID) === MAIN_INSTANCE_ID);
+  const mainAxis = merged.filter(isMainAxisEntry);
   const cursorIndex = mainAxis.findIndex((entry) => entry.id === beforeEntryId);
   if (cursorIndex < 0) {
     throw new Error(`游标 ${beforeEntryId} 不在会话 ${snapshot.sessionId} 主时间轴内`);
@@ -323,6 +323,17 @@ function usageDto(summary: SessionUsageSummary): SessionUsageDto {
  *  createdAt（ISO，契约 §6.1）——两类字段同一时间轴。 */
 function entrySortKey(entry: EntryDto): number {
   return "ts" in entry ? entry.ts : Date.parse(entry.createdAt);
+}
+
+/**
+ * 主轴归属判定（T2.3 契约 v0.3 §3.2，Q-3a 双处可见的时间轴侧）：主实例条目
+ * （instanceId 缺省/main）+ 定向 steer 干预条目（user + isSteer 且 instanceId=
+ * 目标 SubAgent——干预消息一律落主时间轴，尾窗/翻页内自然渲染为定向细条；
+ * 同一 entry 同时经 instanceChannels 进抽屉 feed 快照面，单事实源视图双投影）。
+ */
+function isMainAxisEntry(entry: EntryDto): boolean {
+  if ((entry.instanceId ?? MAIN_INSTANCE_ID) === MAIN_INSTANCE_ID) return true;
+  return entry.kind === "message" && entry.role === "user" && entry.steerState !== undefined;
 }
 
 /** 单条 SessionEntryData → 对应 EntryDto（T3.1：message/thinking/compaction

@@ -345,7 +345,17 @@ export class WsServerAdapter {
       case "chat.steer": {
         if (typeof payload.text !== "string") return this.commandError(ws, type, "command.invalid_payload", "payload.text 应为 string");
         const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
-        void this.deps.chat.steer(payload.text, sid).catch((err) => {
+        // T2.3（契约 v0.3 §3.2）：instanceId 只透传（路由判定归 ChatService，TR-AD-9）。
+        // 回执裁决（T2.3，TR-AD-21）：定向目标非运行中 → ChatService 抛
+        // SteerTargetNotRunningError → connection.error 点对点回执（同 agent.kill
+        // 形态，复用 SendOutcome.detail 文案）；其余异常维持既有 console.warn。
+        const instanceId =
+          typeof payload.instanceId === "string" && payload.instanceId !== "" ? payload.instanceId : undefined;
+        void this.deps.chat.steer(payload.text, sid, instanceId).catch((err) => {
+          if ((err as Error).name === "SteerTargetNotRunningError") {
+            this.commandError(ws, type, "command.invalid_payload", (err as Error).message);
+            return;
+          }
           console.warn(`[ws] chat.steer 处理失败：${(err as Error).message}`);
         });
         return;
@@ -358,11 +368,18 @@ export class WsServerAdapter {
       case "session.subscribe": {
         const sender = ws.data.sender;
         if (!sender) return;
+        // v0.3（T2.2，契约 §2.1）：payload.tier 可选档位——缺省 full（既有语义
+        // 不变，TR-AD-23① 可选参数带缺省语义）；目录外值回 invalid_payload
+        const tierRaw = payload.tier;
+        if (tierRaw !== undefined && tierRaw !== "full" && tierRaw !== "monitor") {
+          return this.commandError(ws, type, "command.invalid_payload", 'payload.tier 应为 "full" | "monitor"');
+        }
+        const tier: "full" | "monitor" = tierRaw === "monitor" ? "monitor" : "full";
         // v0.2（T2.1/T2.2）：per-session 订阅——信封 sessionId 指定目标会话；
         // v0 兼容：不带信封位 = 当前会话（缺省订阅语义不变）
         void this.resolveTargetSession(ws, envelope, type).then((target) => {
           if (target === undefined) return; // 不存在会话：已回 connection.error
-          this.deps.events.subscribeSession(sender, target);
+          this.deps.events.subscribeSession(sender, target, tier);
           // 重新订阅 = 重推该会话全量快照（快照恢复公式，AD-16）
           // T5.1 热修：agentState/model 取目标会话 runtime（随视图同源组装），
           // 不经 system.getStatus()（全局最近活跃投影——多会话下 current 恒被
