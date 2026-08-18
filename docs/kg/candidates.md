@@ -2,40 +2,6 @@
 
 ## pending
 
-### TR-AD-18-r2
-- changeType: 修改
-- targetNode: TR-AD-18
-- scope: docs/kg/architecture-rules.md TR-AD-18（三通道与协议 additive 演进）或新条目；错误链路实现/评审/测试剧本编写时的规则依据面
-- project: helix
-- reason: 热修后新增设计事实：①provider 失败的协议形态——pi-ai 将 HTTP 失败规范化为流内 error 帧（非异常），errorMessage 含 provider 原文；引擎错误经 engine.error 事件透传前端（错误卡）；②error 轮语义——不产 assistant 气泡、turn 收口、全零 usage 不入账（零成本非真实计费）；③mock 契约等价的错误面——FakeLLM/剧本须覆盖 error 帧路径（TR-TEST-3 等价原则的错误维度，E 层 errorReply 剧本为断言面）。建议并入 TR-AD-18（三通道→含错误通道）或独立条目，由下迭代终验人审裁决
-- evidence: docs/hotfixes/2026-08-16-engine-error.md；packages/protocol/src/events.ts（engine.error 第 24 事件）；PiAgentEngineAdapter.ts message_end stopReason=error 分支；ChatService.ts error 轮零账不入账；e2e/CL-7-e2e-engine-error.spec.ts（FakeLLM errorReply 剧本与真实 pi-ai 失败帧同构）；现场验证：真 z.ai 429 → engine.error 帧含 provider 原文
-- implementationStatus: 完整实现
-- sourceTask: post-iteration 热修（MainAgent，2026-08-16，docs/hotfixes/2026-08-16-engine-error.md；用户现场报障驱动）
-- createdIn: iter-20260816-uzvg
-
-### AD-3
-- changeType: 修改
-- targetNode: AD-3
-- scope: apps/daemon 全链路；apps/shell src 与 e2e/ 零触碰
-- project: helix
-- reason: AD-3 daemon 侧落地（与既有 AD-3 类型登记候选同目标、不同实施面，终验合并裁决）：①SchedulerService 只产事件零聚合写（守护断言入集成测试）；②SessionProjection 会话投影消费者（SubAgent Entry 落聚合 instanceId 归属 + usageLedger 并入 + write-through 迁入）；③WS 统一信封 sessionId 路由 + EVENT_CHANNELS 章印；④恢复重放含 SubAgent 历史；⑤RowMapper/DtoMapper instanceId 行级对称透传。E 层断言定稿 daemon 级证据，E 层归 T4.2。
-- evidence: SessionProjection.ts（新，187 行）；SchedulerService 零聚合写守护（test/integration/session-projection.test.ts ②）；EventStream 按 sessionId 路由；RestoreService.replaySubAgentHistory；bun test apps/daemon 313 pass；MainAgent 统一回归 F 65 / E 15 全绿
-- implementationStatus: 完整实现
-- implementedCode: apps/daemon/src/application/services/SessionProjection.ts（新）；SchedulerService.ts onInstanceEvent；EventStream.ts/WsServerAdapter.ts；DtoMapper.ts；RestoreService.ts；Session.ts；container.ts
-- sourceTask: task-T2.1-report.md
-- createdIn: iter-20260816-6q6f
-
-### CL-iter-20260816-6q6f-1786980800604
-- changeType: 新增
-- scope: verification 阶段回归取证（零生产代码改动，纯证据落盘）
-- project: helix
-- reason: M5 热修复批次六提交（d3ed899/c487c95/5959533/23f6043/55ac055/9936d48）Round-2 独立回归验收记录：F 层 91/91 全绿零回退 + E 层 20/20×2 双跑全绿（T5.1 switch-state-isolation 修复回归成立），T5.1-T5.6 修复要点全部应答（含 T5.6 dev 控件 grep 零残留复核）。作为迭代验收留痕候选供终验人审裁决。
-- evidence: evidence/e2e/verification-r2-CL-all-f-20260817T152736Z.txt「M5 六提交复核要点应答」节 + 4 张 verification-r2-CL-1-f-shot-*.png；E 层配套 evidence/e2e/verification-r2-CL-e-layer-round{1,2}-*.txt
-- implementationStatus: 完整实现
-- implementedCode: e2e/CL-1-activity-rail-inline.spec.ts:31（T5.5 新剧本）；e2e/CL-3-model-menu.spec.ts:144,159（T5.3 断言）；worktree HEAD 9936d48
-- sourceTask: development/task-TC6.1-report.md
-- createdIn: iter-20260816-6q6f
-
 ## deferred
 
 ## applied
@@ -218,6 +184,234 @@
 - sourceTask: final-verification L3 语义复核·新增/修订规则面（phase-reviewer agt_SJ9V8S3XEMC0，2026-08-16，DONE 12 节点 9 一致 3 不一致）
 - createdIn: iter-20260816-uzvg
 - decisionLog: 终验决策 A（用户批准终验报告 §七，2026-08-16）：L3 语义复核判 Important 未兑现面——恢复重建面「各实例 Entry→抽屉全流」与 TR-AD-15 同根因未兑现（RestoreService.ts:31-45 恢复面不含 SubAgent Entry 重放）。修正：恢复重建面段声明 v0.1 边界（重启后抽屉=卡片骨架+closure 尾卡，全流重放 M3+ 子项，引用 TR-AD-15 边界声明）。主体恢复语义（failed 收口/queued→cancelled/不自动续跑/三源）复核一致。改文本级。
+
+### TR-AD-5
+- changeType: 修改
+- targetNode: TR-AD-5
+- scope: apps/daemon WS 快照组装面 + SessionPort/SessionRegistry；docs/kg/architecture-rules.md TR-AD-5
+- project: helix
+- reason: TR-AD-5 修改（T5.1 热修沉淀，OI-VER-5 根因修复后的新边界）：新增 per-session 帧章纪律——system.getStatus() 是系统级/最近活跃会话投影读面，仅用于 welcome 单会话握手等自洽场景；per-session 帧（session.subscribe / draft 建会话快照）禁止用它盖章（多会话下 current ≠ 目标会话即串台）。per-session 帧章由 SessionStateView.agentState/model 随视图同源组装（SessionRegistry.buildView 从目标会话 runtime 直读）
+- evidence: commit d3ed899；E 层 CL-1-e2e-switch-state-isolation 三面断言绿（R1 9.1s / R2 9.2s 双跑）；reviews/task-T5.1-review.md 通过
+- implementationStatus: 完整实现
+- implementedCode: WsServerAdapter.ts（sessionStamp）；SessionPort.ts（SessionStateView.agentState/model）；SessionRegistry.ts（buildView）；container.ts（getStatus 注释）
+- sourceTask: task-T5.1-report.md（architecture-feedback「T5.1 热修 sediment 留档」节）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #7，2026-08-17）：T5.1 热修（OI-VER-5 critical 根因修复）沉淀 per-session 帧章纪律——新增段落 + anchors 扩 ws-server/switch-isolation + 反例补串台场景；规则本体不动。formalId=TR-AD-5。
+
+### TR-AD-6
+- changeType: 修改
+- targetNode: TR-AD-6
+- scope: docs/kg/architecture-rules.md TR-AD-6（config 清单句修订）
+- project: helix
+- reason: TR-AD-6 文本修订（G-3）：config.json 清单句——T2.3 瘦身后 provider API keys 迁 ~/.helix/auth.json、默认模型迁 SQLite default_model 表、ModelCatalog 缓存落盘（models-store.json）；TR-AD-6 正文中 config.json 内容清单句需同步修订（models 数据面迁出，config.json 仅剩 daemon 配置面）；新增 auth.json/models-store 路径必须经 paths.ts 单点派生（勿复制 container.ts:196 reports 旁路先例）
+- evidence: t2.3-config-migration-notes.md（迁移映射 + 幂等断言）；config-migration.test；verification TS5 契约对齐三契约盖章
+- implementationStatus: 完整实现
+- implementedCode: config 读面瘦身（b820874）；auth-store.ts/model-catalog.ts 路径经 paths.ts
+- sourceTask: task-T4.2-brief.md §5（G-3 候选材料，T2.3 落账 id 冲突留档）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #11，2026-08-17）：G-3 文本修订——config.json 清单句按 T2.3 瘦身后实况改写（模型数据面迁出，auth.json/models-store.json/default_model 表落位），新增路径单点派生要求；anchors 扩 auth-store/model-catalog。formalId=TR-AD-6。
+
+### E-认证凭据
+- changeType: 新增
+- scope: docs/kg/domain.md（业务实体新增）
+- project: helix
+- reason: 新业务实体候选：E-认证凭据（auth.json，正式名待人审签发）——Record<providerId, type-tagged Credential 联合>（pi 生态格式等价）；0600 权限 + pid 文件锁 + 原子写；独立生命周期（key 增删/验证态）、唯一标识、多模块消费（auth 命令族 + 连通验证 verify + set_model apiKey 跟随 + E 层 seed 面与 E-模型目录关联）
+- evidence: auth-store.test（类型级等价断言 + 0600 权限）；e2e/CL-3-e2e-model-chain（auth.json 0600 断言）；E 层 prepHome seed 先例（{provider:{type:api_key,key}}）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/infrastructure/auth-store.ts（0600+pid 锁+原子写）；路径经 paths.ts 单点派生
+- sourceTask: verification/kg-inspection.md（entity 覆盖率审计候选 ②，建议终验落账）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #16，2026-08-17）：verification entity 覆盖率审计候选 ② 落库——新业务实体 E-认证凭据（四节完整），TR-AD-6/TR-AD-7/AD-2 联动。formalId=E-认证凭据。
+
+### E-模型目录
+- changeType: 新增
+- scope: docs/kg/domain.md（业务实体新增）
+- project: helix
+- reason: 新业务实体候选：E-模型目录（ModelCatalog，正式名待人审签发）——builtin 39 providers 静态表 + pi.dev overlay 合并（ETag 条件刷新/4h 缓存）+ 落盘兜底（models-store.json）+ 防降级；独立生命周期（缓存刷新）、唯一标识（ETag/缓存文件）、多模块消费（daemon ModelCatalogPort/ModelService + shell P-3/P-4 + protocol model 族）。默认模型（SQLite default_model 表）为其附属状态，关系节提及即可
+- evidence: model-catalog.test（builtin 39/overlay ETag 三分支/防降级/落盘兜底）；e2e/CL-3-e2e-model-chain；无外网单测覆盖（离线保缓存/兜底 builtin）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/model-catalog.ts；ModelCatalogPort；shell P-3/P-4 消费
+- sourceTask: verification/kg-inspection.md（entity 覆盖率审计候选 ①，建议终验落账）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #15，2026-08-17）：verification entity 覆盖率审计候选 ① 落库——新业务实体 E-模型目录（四节完整），与 E-认证凭据/TR-AD-6/TR-AD-7 联动。formalId=E-模型目录。
+
+### TR-AD-21
+- changeType: 新增
+- scope: packages/protocol 事件目录 + daemon WS 发帧面 + shell dispatcher（模式规则）
+- project: helix
+- reason: 点对点命令结果帧模式（三度同构，建议新 TR，正式号待人审签发）：命令结果 = 点对点结果帧（*.result 事件类型 + WsServerAdapter.sendNow 直发发起连接，不经 EventStream 广播）；状态变化 = 广播（EventStream 章印路由）。新增命令族直接套用：EVENT_TYPES/EVENT_CHANNELS/守护计数同步 + shell dispatcher 先 no-op 占位后接真消费。源决策 = 契约 B §2.3 机制注记 / AD-4
+- evidence: T2.2 session 族 2 帧（session.list.result/loadHistory.result）+ 微批 model/auth 族 9 帧完全同构；契约 B/C 已回填；type-surface 守护计数同步；TS5 契约对齐 PASS
+- implementationStatus: 完整实现
+- implementedCode: WsServerAdapter.sendNow；EVENT_TYPES/EVENT_CHANNELS/exports 计数；shell dispatcher 占位→真消费两阶段
+- sourceTask: architecture-feedback.md #41（T2.3-result-frames sediment 候选）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #13，2026-08-17）：点对点命令结果帧模式三度同构（T2.2×2 + 微批×9）规则化，签发新号 TR-AD-21。formalId=TR-AD-21。
+
+### TR-AD-22
+- changeType: 新增
+- scope: daemon SessionProjection + shell dispatcher/store 拓扑（模式规则）
+- project: helix
+- reason: 事件分发两层拓扑模式（daemon/shell 同构，建议新 TR，正式号待人审签发）：daemon 侧 SessionProjection（fan-out 显式消费者 + 共享聚合访问器 + 幂等去重集 + persistedState 组合面，经 SessionRegistry 按会话实例化）与 shell 侧 dispatcher 两层（会话 store 级 SessionState 域 + 拓扑级 directory 消费者 TopologyState 域；三向路由：活跃完整 store / 后台轻量 store / 系统帧）完全同构——按 sessionId 分实例化，新增事件族 = additive 扩展面
+- evidence: SessionProjection.ts 187 行（daemon）；dispatcher.ts 两层消费者（shell）；双端零漂移三层守护（type-surface 恰等 + dispatcher 全类型消费恰等 + routeCommand 21 case 对齐）；session-projection.test / session-store.test
+- implementationStatus: 完整实现
+- implementedCode: application/services/SessionProjection.ts；shell src shared/protocol dispatcher（会话 store 级 + 拓扑级两层消费者）+ 三向路由 dispatchFrame
+- sourceTask: architecture-feedback.md #20/#23/#31（T2.1/T2.2/T3.1 sediment 候选）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #14，2026-08-17）：事件分发两层拓扑（daemon SessionProjection ↔ shell dispatcher/store 同构，#20/#23/#31 三度沉淀合并）规则化，签发新号 TR-AD-22。formalId=TR-AD-22。
+
+### TR-AD-18-r2
+- changeType: 修改
+- targetNode: TR-AD-18
+- scope: docs/kg/architecture-rules.md TR-AD-18（三通道与协议 additive 演进）或新条目；错误链路实现/评审/测试剧本编写时的规则依据面
+- project: helix
+- reason: 热修后新增设计事实：①provider 失败的协议形态——pi-ai 将 HTTP 失败规范化为流内 error 帧（非异常），errorMessage 含 provider 原文；引擎错误经 engine.error 事件透传前端（错误卡）；②error 轮语义——不产 assistant 气泡、turn 收口、全零 usage 不入账（零成本非真实计费）；③mock 契约等价的错误面——FakeLLM/剧本须覆盖 error 帧路径（TR-TEST-3 等价原则的错误维度，E 层 errorReply 剧本为断言面）。建议并入 TR-AD-18（三通道→含错误通道）或独立条目，由下迭代终验人审裁决
+- evidence: docs/hotfixes/2026-08-16-engine-error.md；packages/protocol/src/events.ts（engine.error 第 24 事件）；PiAgentEngineAdapter.ts message_end stopReason=error 分支；ChatService.ts error 轮零账不入账；e2e/CL-7-e2e-engine-error.spec.ts（FakeLLM errorReply 剧本与真实 pi-ai 失败帧同构）；现场验证：真 z.ai 429 → engine.error 帧含 provider 原文
+- implementationStatus: 完整实现
+- sourceTask: post-iteration 热修（MainAgent，2026-08-16，docs/hotfixes/2026-08-16-engine-error.md；用户现场报障驱动）
+- createdIn: iter-20260816-uzvg
+- decisionLog: 终验裁决（用户批准终验报告 §六 #1，2026-08-17）：错误通道三设计事实并入 TR-AD-18（三通道→四通道，更名 + 错误轮语义段落）。因 formalId=TR-AD-18 与台账既有 applied 条目撞号（同节点二次修改超出 kg apply 流转支持面），按 desk 先例由 MainAgent 人审直写落盘（formalId=TR-AD-18，节点 id 稳定不变）。
+
+### AD-3
+- changeType: 修改
+- targetNode: AD-3
+- scope: apps/daemon 全链路；apps/shell src 与 e2e/ 零触碰
+- project: helix
+- reason: AD-3 daemon 侧落地（与既有 AD-3 类型登记候选同目标、不同实施面，终验合并裁决）：①SchedulerService 只产事件零聚合写（守护断言入集成测试）；②SessionProjection 会话投影消费者（SubAgent Entry 落聚合 instanceId 归属 + usageLedger 并入 + write-through 迁入）；③WS 统一信封 sessionId 路由 + EVENT_CHANNELS 章印；④恢复重放含 SubAgent 历史；⑤RowMapper/DtoMapper instanceId 行级对称透传。E 层断言定稿 daemon 级证据，E 层归 T4.2。
+- evidence: SessionProjection.ts（新，187 行）；SchedulerService 零聚合写守护（test/integration/session-projection.test.ts ②）；EventStream 按 sessionId 路由；RestoreService.replaySubAgentHistory；bun test apps/daemon 313 pass；MainAgent 统一回归 F 65 / E 15 全绿
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/SessionProjection.ts（新）；SchedulerService.ts onInstanceEvent；EventStream.ts/WsServerAdapter.ts；DtoMapper.ts；RestoreService.ts；Session.ts；container.ts
+- sourceTask: task-T2.1-report.md
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #2，2026-08-17）：事件分发统一信封路由落地定稿落 docs/kg/decisions.md 决策档案 AD-3（上下文/选项/裁决与理由/结局四节，kg A-1 模型决策非图节点）。因 kind=decision 不在 kg apply block 流转支持面 + targetNode 无既有节点块，按 desk 先例由 MainAgent 人审直写落盘（formalId=AD-3）。
+
+### CL-iter-20260816-6q6f-1786980800604
+- changeType: 新增
+- scope: verification 阶段回归取证（零生产代码改动，纯证据落盘）
+- project: helix
+- reason: M5 热修复批次六提交（d3ed899/c487c95/5959533/23f6043/55ac055/9936d48）Round-2 独立回归验收记录：F 层 91/91 全绿零回退 + E 层 20/20×2 双跑全绿（T5.1 switch-state-isolation 修复回归成立），T5.1-T5.6 修复要点全部应答（含 T5.6 dev 控件 grep 零残留复核）。作为迭代验收留痕候选供终验人审裁决。
+- evidence: evidence/e2e/verification-r2-CL-all-f-20260817T152736Z.txt「M5 六提交复核要点应答」节 + 4 张 verification-r2-CL-1-f-shot-*.png；E 层配套 evidence/e2e/verification-r2-CL-e-layer-round{1,2}-*.txt
+- implementationStatus: 完整实现
+- implementedCode: e2e/CL-1-activity-rail-inline.spec.ts:31（T5.5 新剧本）；e2e/CL-3-model-menu.spec.ts:144,159（T5.3 断言）；worktree HEAD 9936d48
+- sourceTask: development/task-TC6.1-report.md
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #3，2026-08-17）：M5 六提交 Round-2 回归验收留痕——不立 kg 节点（非规则/实体/决策形态），留痕由 ITERATIONS.md 迭代条目 + verification-report Round-2 节 + evidence/e2e/verification-r2-* 承载。台账直接流转 applied。
+
+### TR-AD-15-revoke
+- changeType: 修改
+- targetNode: TR-AD-15
+- scope: docs/kg/architecture-rules.md TR-AD-15（撤 v0.1 边界段）
+- project: helix
+- reason: TR-AD-15 撤边界（#45 草案）：删去「v0.1 实现边界（M2 终验 L3 复核登记）……届时撤本边界声明」整段；规则本体（instanceId 全链路/机制同构/三层模型）不动，被会话投影强化。条件成就：①聚合 Entry 树已含 SubAgent 条目（Entry.instanceId 归属，Session.pushEntry 参数化）②恢复重放进快照 entries（RestoreService.replaySubAgentHistory，agent_kind=subagent 事件流补齐）③前端归流既有
+- evidence: e2e/CL-1-e2e-restart-restore-all.spec.ts + e2e/CL-1-e2e-subagent-stream.spec.ts + session-projection.test ③；architecture-feedback #45 草案原文
+- implementationStatus: 完整实现
+- implementedCode: Session.pushEntry（instanceId 参数化）；RestoreService.replaySubAgentHistory
+- sourceTask: task-T4.2-report.md（architecture-feedback #45 留档）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #4，2026-08-17）：撤 v0.1 边界段（条件成就：SubAgent Entry 进聚合 + 恢复重放，E 层证据在档）。因 formalId=TR-AD-15 与台账既有 applied 条目撞号（同节点二次修改超出 kg apply 流转支持面），按 desk 先例由 MainAgent 人审直写落盘（formalId=TR-AD-15，节点 id 稳定不变）。
+
+### TR-AD-19-revoke
+- changeType: 修改
+- targetNode: TR-AD-19
+- scope: docs/kg/architecture-rules.md TR-AD-19（恢复重建面撤 v0.1 边界）
+- project: helix
+- reason: TR-AD-19 撤边界（#46 草案）：恢复重建面删去括注「v0.1 边界：SubAgent Entry 未进聚合，抽屉全流重放为 M3+ 子项……重启后抽屉 = 卡片骨架 + closure 尾卡」，改写为「Entry 树（主实例主轴 + SubAgent per-instance channel）→ 主线视图 + 抽屉全流重放（SubAgent 历史含在内）」。规则本体（failed 收口不自动续跑/cancelled 区分/重试归编排层）不动
+- evidence: e2e/CL-1-e2e-restart-restore-all.spec.ts（重启后抽屉历史可见）；session-registry.test ③（删除会话 queued→cancelled/running→kill 复用终态语义）；architecture-feedback #46 草案原文
+- implementationStatus: 完整实现
+- implementedCode: RestoreService.replaySubAgentHistory（agent_kind=subagent 事件流补齐重放）
+- sourceTask: task-T4.2-report.md（architecture-feedback #46 留档）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #5，2026-08-17）：恢复重建面撤 v0.1 边界括注（与 TR-AD-15 联动）。因 formalId=TR-AD-19 与台账既有 applied 条目撞号（同节点二次修改超出 kg apply 流转支持面），按 desk 先例由 MainAgent 人审直写落盘（formalId=TR-AD-19，节点 id 稳定不变）。
+
+### E-会话聚合-r2
+- changeType: 修改
+- targetNode: E-会话聚合
+- scope: docs/kg/domain.md E-会话聚合（描述联动）
+- project: helix
+- reason: E-会话聚合 描述联动（#47 草案，三处联动之三）：domain.md E-会话聚合节「聚合 Entry 树 v0.1 仅主实例……见 TR-AD-15 边界声明」句改写为「聚合 Entry 树含主实例主轴 + SubAgent per-instance 归属条目（Entry.instanceId；经会话投影 SessionProjection 落树）；快照尾窗切法保留 per-instance channel 完整性（AD-1 硬约束）」。与 TR-AD-15/19 撤边界同批联动
+- evidence: e2e/CL-1-e2e-multi-session.spec.ts；session-registry.test ④；architecture-feedback #47 草案原文
+- implementationStatus: 完整实现
+- implementedCode: Session.pushEntry；SessionProjection.ts；SessionRegistry.buildView（尾窗切法）
+- sourceTask: task-T4.2-report.md（architecture-feedback #47 留档）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #6，2026-08-17）：描述联动（聚合 Entry 树含 SubAgent 归属条目，三处联动之三）。因 formalId=E-会话聚合 与台账既有 applied 条目撞号（同节点二次修改超出 kg apply 流转支持面），按 desk 先例由 MainAgent 人审直写落盘（formalId=E-会话聚合，节点 id 稳定不变）。
+
+### AD-1-finalize
+- changeType: 修改
+- targetNode: AD-1
+- scope: AD-1（尾窗+分页决策）落地形态回写
+- project: helix
+- reason: AD-1 落地定稿（task-T2.2 sediment 留档）：尾窗+分页参数定稿——快照尾窗 30 条（per-instance channel 完整性硬约束）；loadHistory 游标分页 50 上限 200；草稿建会话链 draft:true 标记；清单/历史结果 = 点对点结果帧（session.list.result / session.loadHistory.result，连接私有读面不广播，契约 B 已回填）；恢复重放含 SubAgent 历史（RestoreService.replaySubAgentHistory）
+- evidence: 契约 B §1.3/§1.4/§2.3 已回填（verification TS5 契约对齐 PASS 盖章）；session-registry 集成断言；e2e/CL-1-e2e-multi-session.spec.ts 分页断言
+- implementationStatus: 完整实现
+- implementedCode: SessionRegistry（尾窗/卸载/收口）；EventStream/WsServerAdapter（点对点结果帧）
+- sourceTask: task-T2.2-report.md（propose 落账阻断留档，OI-VER-1 ①）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #8，2026-08-17）：AD-1 落地定稿落 docs/kg/decisions.md 决策档案 AD-1（上下文/选项/裁决与理由/结局四节，kg A-1 模型决策非图节点；尾窗 30/分页 50 上限 200/点对点结果帧/恢复重放）。因 kind=decision 不在 kg apply 支持面 + targetNode 无既有节点块，按 desk 先例由 MainAgent 人审直写落盘（formalId=AD-1）。
+
+### AD-2-finalize
+- changeType: 修改
+- targetNode: AD-2
+- scope: AD-2（模型模块决策）落地形态回写
+- project: helix
+- reason: AD-2 落地定稿（task-T2.3 sediment 留档）：①auth.json（Record<providerId, Credential 联合>，0600+pid 锁+原子写，路径经 paths.ts 单点派生）②默认模型 SQLite 单写③ModelCatalog 自实现（builtin 39 静态表 + pi.dev overlay ETag 三分支/防降级/落盘兜底，零 pi-coding-agent，落位 driven 而非 application——AG-04 合规）④set_model 链：AgentState.model 直改（in-flight 不变，下一 turn 生效）⑤config 瘦身迁移幂等（skipConfig 重定义：真引擎模式 = options.engine 缺省，skipConfig 只跳过 config 读面）
+- evidence: auth-store.test（类型级等价断言 + 0600）；model-catalog.test（ETag 三分支/防降级）；set_model 真引擎序列断言；config-migration.test 幂等；e2e/CL-3-e2e-model-chain（auth.json 0600 + builtin fallback）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/infrastructure/auth-store.ts；pi-engine/model-catalog.ts（driven 落位）；ModelService；SQLite default_model 表
+- sourceTask: task-T2.3-report.md（propose 落账阻断留档，OI-VER-1 ②）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #9，2026-08-17）：AD-2 落地定稿落 docs/kg/decisions.md 决策档案 AD-2（上下文/选项/裁决与理由/结局四节，kg A-1 模型决策非图节点；auth.json 0600/SQLite 默认/ModelCatalog driven/set_model 链/config 瘦身）。因 kind=decision 不在 kg apply 支持面 + targetNode 无既有节点块，按 desk 先例由 MainAgent 人审直写落盘（formalId=AD-2）。
+
+### AD-4-finalize
+- changeType: 修改
+- targetNode: AD-4
+- scope: AD-4（SessionRegistry 决策）落地形态回写
+- project: helix
+- reason: AD-4 落地定稿（task-T2.2 sediment 留档）：SessionRegistry 落地形态——①生命周期（懒加载/30min 空闲卸载/执行中不卸载）②组合根工厂化（1:1 与 write-through 保持）③调度器多会话共用全局预算④启动全量元数据（restoreLatest 废弃）⑤草稿建会话链 20 字符命名⑥删除六表清行按序收口（whenSettled+settleTimeoutMs 5s 超时防御上界）⑦WriteQueue 分仓（chainKeyOf(session_id) 路由，仓间互不阻塞）⑧引擎多会话并发前提注入（DaemonOptions.engine 工厂形态）
+- evidence: session-registry.test 全套（生命周期/删除收口/分仓）；调度器多会话共用预算集成断言；daemon 324 单测绿；E 层 CL-1-e2e-multi-session/restart-restore-all
+- implementationStatus: 完整实现
+- implementedCode: SessionRegistry.ts；container.ts（组合根工厂化 + engine 工厂注入）；WriteQueue（sessionTails 分仓）；SchedulerService（全局预算）
+- sourceTask: task-T2.2-report.md（propose 落账阻断留档，OI-VER-1 ①）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #10，2026-08-17）：AD-4 落地定稿落 docs/kg/decisions.md 决策档案 AD-4（上下文/选项/裁决与理由/结局四节，kg A-1 模型决策非图节点；生命周期/工厂化/全局预算/删除收口/WriteQueue 分仓/引擎工厂）。因 kind=decision 不在 kg apply 支持面 + targetNode 无既有节点块，按 desk 先例由 MainAgent 人审直写落盘（formalId=AD-4）。
+
+### TR-AD-7-r3
+- changeType: 修改
+- targetNode: TR-AD-7
+- scope: docs/kg/architecture-rules.md TR-AD-7（模型能力来源句 + auth.json 格式句修订）
+- project: helix
+- reason: TR-AD-7 文本修订（G-3）：①模型能力来源句——模型目录来源 = builtin 39 providers 静态表 + pi.dev overlay 合并（自实现 ModelCatalog，零 pi-coding-agent 依赖），正文「模型能力来源」句需同步；②auth.json 格式句——Record<providerId, type-tagged Credential 联合>（pi 生态等价，0600+pid 锁），OAuth 类型面支持、登录流不做
+- evidence: model-catalog.test（builtin 39/overlay/防降级/落盘兜底）；auth-store.test（Credential 联合类型级等价断言）
+- implementationStatus: 完整实现
+- implementedCode: pi-engine/model-catalog.ts（自实现，零 pi-coding-agent）；infrastructure/auth-store.ts
+- sourceTask: task-T4.2-brief.md §5（G-3 候选材料，T2.3 落账 id 冲突留档——discarded 已有 TR-AD-7-r2）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #12，2026-08-17）：模型能力来源句 + auth.json 格式句修订（G-3）。因 formalId=TR-AD-7 与台账既有 applied 条目撞号（同节点二次修改超出 kg apply 流转支持面），按 desk 先例由 MainAgent 人审直写落盘（formalId=TR-AD-7，节点 id 稳定不变）。
+
+### TR-AD-2-r3
+- changeType: 修改
+- targetNode: TR-AD-2
+- scope: docs/kg/architecture-rules.md TR-AD-2（落位枚举补 infrastructure 形态）
+- project: helix
+- reason: TR-AD-2 落位枚举缺口（终验全局审计 N1）：AuthStorePort 实现落 infrastructure/auth-store.ts（独立模块），不属规则文本「三类落位」（driven/driving/组合根内联）任一，属第四形态「infrastructure 纯技术文件 port」（与 dev-token/config 同类）。实现是有意裁决（AG-06③ renameSync 白名单显式列名 + 组合根装配），规约文本未覆盖——修订 TR-AD-2 补第四类落位
+- evidence: docs/kg/architecture-rules.md TR-AD-2 规则段「三类落位」句 vs apps/daemon/src/infrastructure/auth-store.ts:97（export class AuthStore implements AuthStorePort）+ arch-guard.test.ts AG-06③（renameSync 白名单 isAuthStore）；审计报告 §1.4 N1
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/infrastructure/auth-store.ts:1-244（AuthStore implements AuthStorePort）
+- sourceTask: final-verification/architecture-audit-20260817.md（phase-architect findings，自动落账异常手动补）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #17，2026-08-17）：落位枚举补第四类（infrastructure 纯技术文件 port）。与 TR-AD-2-r4 同节点合并修订一次落盘。因 formalId=TR-AD-2 与台账既有 applied 条目撞号（同节点二次修改超出 kg apply 流转支持面），按 desk 先例由 MainAgent 人审直写落盘（formalId=TR-AD-2，节点 id 稳定不变）。
+
+### TR-AD-2-r4
+- changeType: 修改
+- targetNode: TR-AD-2
+- scope: docs/kg/architecture-rules.md TR-AD-2（outbound/inbound 端口枚举计数句）
+- project: helix
+- reason: TR-AD-2 端口枚举计数修订（L3 复核判不一致项）：正文「outbound port 生效 5 个」滞后于 T2.3 模型迁移实况——实际生效 8 个（9 文件 − PathsPort 悬空），新增 AuthStorePort/DefaultModelPort/ModelCatalogPort 三 outbound + inbound 新增 ModelPort/SessionDirectoryPort。核心断言（双向结构/AG-01 port 零实现/PathsPort 悬空注记）全部吻合，仅枚举清单滞后。与 TR-AD-2-r3（落位第四形态）同节点不同修订面，建议 apply 时合并修订
+- evidence: docs/kg/architecture-rules.md TR-AD-2 规则段「出口端口生效 5 个」vs apps/daemon/src/application/ports/outbound/（9 文件）；arch-guard.test.ts:39 断言 ports 文件数 ≥9（守护已更新、文本未跟进）；bun test arch-guard 22/22 pass
+- implementationStatus: 完整实现
+- implementedCode: ports/outbound/AuthStorePort.ts（实现在 infrastructure/auth-store.ts:151）；ports/outbound/DefaultModelPort.ts（sqlite-session/DefaultModelStore.ts:13）；ports/outbound/ModelCatalogPort.ts（pi-engine/model-catalog.ts:117）；inbound 新增 ModelPort/SessionDirectoryPort
+- sourceTask: reviews/l3-semantic-review-batch1.md（L3 复核批次 1 findings，自动落账 id 撞号手动另立）
+- createdIn: iter-20260816-6q6f
+- decisionLog: 终验裁决（用户批准终验报告 §六 #18，2026-08-17）：端口枚举计数修订（outbound 5→8 + inbound 新增 ModelPort/SessionDirectoryPort），与 TR-AD-2-r3 合并落盘于同一次 TR-AD-2 块修订。同上 MainAgent 直写（formalId=TR-AD-2）。
 
 ## discarded
 

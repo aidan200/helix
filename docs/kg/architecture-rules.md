@@ -61,11 +61,11 @@ relations:
     - E-领域事件与单写队列
     - E-会话聚合
     - E-AgentRuntime
-updatedIn: iter-20260816-uzvg
+updatedIn: iter-20260816-6q6f
 ```
 
 ## 规则
-application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 或组合根实现——AgentOrchestrationPort 由 SchedulerService 实现、经 driven 编排工具（agent_spawn/send/status）回口调用；SystemPort 由组合根内联实现、driving ws-server 调用）与 outbound/（出口端口生效 5 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort，由 service 调用；SystemPort 自创建起即位于 inbound/）。outbound port 的实现允许三类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）；PathsPort 为定义后悬空的待决接口（零实现零消费，M2 裁决删除或接线）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
+application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 或组合根实现——AgentOrchestrationPort 由 SchedulerService 实现、经 driven 编排工具（agent_spawn/send/status）回口调用；SystemPort 由组合根内联实现、driving ws-server 调用；ModelPort 由 ModelService 实现、SessionDirectoryPort 由 SessionRegistry 实现（T2.3 模型模块新增））与 outbound/（出口端口生效 8 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort + T2.3 新增 AuthStorePort、DefaultModelPort、ModelCatalogPort，由 service 调用；SystemPort 自创建起即位于 inbound/；守护测试断言 ports 文件数 ≥9）。outbound port 的实现允许四类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）、infrastructure 纯技术文件 port（AuthStore——纯文件读写无 driving/driven 语义，落 infrastructure/auth-store.ts，AG-06③ 原子写白名单显式列名，与 dev-token/config 同类）；PathsPort 为定义后悬空的待决接口（零实现零消费，M2 裁决删除或接线）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
 
 ## 理由
 port 是 adapter↔application 两个方向的唯一衔接契约（AD-17 条 2/3）；契约里混入实现即产生第二事实源，driving/driven 的可替换性（换 WS、换引擎、换存储）即刻失效。
@@ -157,13 +157,33 @@ status: active
 digest: 动状态流、加持久化、处理重连恢复时
 derivedFrom:
   - AD-16
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/sqlite-session/WriteQueue.ts
+    - apps/daemon/src/adapters/driving/ws-server/WsServerAdapter.ts
+  testedBy:
+    - apps/daemon/test/integration/sqlite-persistence.test.ts
+    - e2e/CL-1-e2e-switch-state-isolation.spec.ts
 relations:
   governs:
     - E-会话聚合
     - E-领域事件与单写队列
     - E-SteerQueue
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260816-6q6f
 ```
+
+## 规则
+daemon domain 层持有全部权威状态（会话聚合 Entry 树/轮次、agent 生命周期状态、steer 队列、工具调用记录），framework-free；前端零权威状态，只是纯事件投影（WS 事件流→reducer→视图状态，本地仅存纯 UI 态如输入草稿/折叠）。落盘唯一路径是 write-through 单写队列：领域事件 → application 单写队列 → SQLite WAL（~/.helix/helix.db）；内存 = 磁盘的投影缓存，无第二事实源；流式中间态不落盘（崩溃丢当前流，恢复到最后一致里程碑，与 pi LaneRecord 同语义）。重连恢复 = daemon 推快照 + 续增量事件，禁止前端自恢复。domain 定义自己的聚合类型，pi 的 Entry/LaneRecord 经 adapters/driven/pi-engine 薄防腐映射，domain 不 import pi 类型。
+per-session 帧章纪律（T5.1 热修沉淀，OI-VER-5 根因）：system.getStatus() 是系统级「当前会话」（注册表最近活跃会话投影）读面，仅限 welcome 单会话握手等自洽场景；per-session 帧（session.subscribe 快照、draft 建会话快照）禁止用它盖章——多会话下 current ≠ 目标会话即状态串台；per-session 帧章由 SessionStateView.agentState/model 随视图同源组装（SessionRegistry.buildView 从目标会话 runtime 直读，sessionStamp 每帧同源）。
+
+## 理由
+v1 双轨病根 = 前端状态副本 + DB 双写（F-2 desk 实锤）；D7 唯一事实源决策的领域层落地；write-through + WAL 让崩溃恢复语义简单（AD-16）。帧章同源是 per-session 状态语义（AD-2）的快照面延伸——全局投影盖 per-session 帧在多会话下必然串台（用户实机 OI-VER-5 实锤）。
+
+## 适用范围
+CL-8 持久化与恢复实现；CL-7 F(7).4 重连逻辑；任何新增领域状态的归属与落盘决策；WS 快照组装（welcome/session.snapshot/draft 建会话）的盖章数据源选择。
+
+## 反例
+前端把会话历史再存一份 IndexedDB 并做双向同步，或某 adapter 绕过单写队列直写 helix.db——第二事实源出现，重启后两边状态分叉；或 session.subscribe 快照的 agentState/model 取 system.getStatus()（全局最近活跃投影）——A 流式中切到空闲 B，B 显示 A 的状态（串台，E 层 switch-state-isolation 三面断言锁定）。
 
 ## 规则
 daemon domain 层持有全部权威状态（会话聚合 Entry 树/轮次、agent 生命周期状态、steer 队列、工具调用记录），framework-free；前端零权威状态，只是纯事件投影（WS 事件流→reducer→视图状态，本地仅存纯 UI 态如输入草稿/折叠）。落盘唯一路径是 write-through 单写队列：领域事件 → application 单写队列 → SQLite WAL（~/.helix/helix.db）；内存 = 磁盘的投影缓存，无第二事实源；流式中间态不落盘（崩溃丢当前流，恢复到最后一致里程碑，与 pi LaneRecord 同语义）。重连恢复 = daemon 推快照 + 续增量事件，禁止前端自恢复。domain 定义自己的聚合类型，pi 的 Entry/LaneRecord 经 adapters/driven/pi-engine 薄防腐映射，domain 不 import pi 类型。
@@ -193,14 +213,30 @@ derivedFrom:
 anchors:
   implementedBy:
     - apps/daemon/src/infrastructure/paths.ts
+    - apps/daemon/src/infrastructure/auth-store.ts
+    - apps/daemon/src/adapters/driven/pi-engine/model-catalog.ts
   testedBy:
     - apps/daemon/test/unit/paths.test.ts
     - apps/daemon/test/unit/config.test.ts
+    - apps/daemon/test/unit/auth-store.test.ts
 relations:
   governs:
     - E-领域事件与单写队列
-updatedIn: iter-20260815-6tss
+    - E-认证凭据
+updatedIn: iter-20260816-6q6f
 ```
+
+## 规则
+~/.helix 是 daemon 唯一配置/数据/日志主目录，全部自有状态进 home，不用环境变量：config.json（daemon 配置面：端口、调度预算等——T2.3 瘦身后模型数据面已迁出：provider API keys → auth.json、默认模型 → helix.db default_model 表、模型目录缓存 → models-store.json，旧格式幂等迁移）、auth.json（provider 凭据，0600，格式见 TR-AD-7）、dev-token（CL-6）、logs/、helix.db（SQLite WAL）、models-store.json（ModelCatalog 落盘兜底）。所有业务路径解析收束于 infrastructure/paths.ts 单一模块：home 展开的跨平台处理（os.homedir + path，Windows 差异同处收束）、各文件相对 home 的定位；新增 auth.json/models-store 路径必须经 paths.ts 单点派生（勿复制 container.ts reports 旁路先例）；支持可选 `--home <dir>` 启动参数覆盖（测试指向 tmp 目录用）。任何模块不得自行拼接 ~/.helix 子路径，也不得经环境变量取配置；壳零参与路径解析（需要业务路径时向 daemon 查询；壳仅保留自身 bundle 资源定位：sidecar 二进制/前端静态产物）。
+
+## 理由
+单一事实源原则的文件系统延伸；daemon 全局单例（AD-7）与全局 home 目录天然对应；dev 期壳缺席（AD-8）而路径逻辑放壳会造成 dev/打包双轨（AD-14）；路径解析收束一处才 framework-free 可测试；模型数据面迁出 config.json 是 AD-2 落地（T2.3）的文件布局面。
+
+## 适用范围
+CL-1 配置模块设计、CL-6 token 落点、CL-8 db 路径、测试注入 home 目录；任何新增自有状态文件的落点决策；模型模块（auth.json/models-store.json/default_model）文件布局评审。
+
+## 反例
+ws-server adapter 里自己写 `path.join(os.homedir(), '.helix', 'dev-token')` 读 token，或用 `process.env.HELIX_DB` 指定数据库路径——绕过 paths.ts 单点，--home 覆盖对它失效；或 auth-store 自行拼接 ~/.helix/auth.json 路径而不经 paths.ts——测试 home 注入对该文件失效。
 
 ## 规则
 ~/.helix 是 daemon 唯一配置/数据/日志主目录，全部自有状态进 home，不用环境变量：config.json（全部自有配置：model 字符串、端口等；apiKeys 字段文件权限 0600，daemon 读取后显式传入 pi-ai 工厂函数，不走其 env 解析路径）、dev-token（CL-6）、logs/、helix.db（SQLite WAL）。所有业务路径解析收束于 infrastructure/paths.ts 单一模块：home 展开的跨平台处理（os.homedir + path，Windows 差异同处收束）、各文件相对 home 的定位；支持可选 `--home <dir>` 启动参数覆盖（测试指向 tmp 目录用）。任何模块不得自行拼接 ~/.helix 子路径，也不得经环境变量取配置；壳零参与路径解析（需要业务路径时向 daemon 查询；壳仅保留自身 bundle 资源定位：sidecar 二进制/前端静态产物）。
@@ -238,11 +274,13 @@ anchors:
 relations:
   governs:
     - E-AgentRuntime
-updatedIn: iter-20260816-uzvg
+    - E-模型目录
+    - E-认证凭据
+updatedIn: iter-20260816-6q6f
 ```
 
 ## 规则
-daemon 运行时依赖仅限 @earendil-works/pi-agent-core 与 @earendil-works/pi-ai 两包，零 pi-coding-agent import。工具集 = bash/edit/read/write 四个 core 内置工具 + 自写 grep + 编排三工具（agent_spawn/agent_send/agent_status，tools/agent/AgentOrchestrationTools 薄转投 AgentOrchestrationPort，注册进 MainSessionProfile）。pi 库 import 只允许出现在 adapters/driven/pi-engine、adapters/driven/tools（工具接线域：core Tool 接口/ExecutionEnv 封装的必然导入，AD-10 工具封装条款）与 adapters/driven/subagent（SubAgent 子进程形态：launcher 透传 Model、child 复用 pi-engine 防腐墙、剧本引擎用 pi-ai 流原语；T2.2 新增第三域；守护测试 AG-04 三根同口径）。import 通道红线：真实 provider 必须经 `@earendil-works/pi-ai/providers/all` 子路径（主入口 side-effect-free 拿不到真实 provider）；Node 执行环境必须经 `@earendil-works/pi-agent-core/node` 子入口。模型接入 = pi-ai + 显式 apiKeys（AD-13），弃 pi 的 SettingsManager/auth.json/models.json 体系；模型能力（provider 目录/refresh/OAuth）全部来自 pi-ai 内置，daemon 仅在 config.json 写一个 model 字符串。
+daemon 运行时依赖仅限 @earendil-works/pi-agent-core 与 @earendil-works/pi-ai 两包，零 pi-coding-agent import。工具集 = bash/edit/read/write 四个 core 内置工具 + 自写 grep + 编排三工具（agent_spawn/agent_send/agent_status，tools/agent/AgentOrchestrationTools 薄转投 AgentOrchestrationPort，注册进 MainSessionProfile）。pi 库 import 只允许出现在 adapters/driven/pi-engine、adapters/driven/tools（工具接线域：core Tool 接口/ExecutionEnv 封装的必然导入，AD-10 工具封装条款）与 adapters/driven/subagent（SubAgent 子进程形态：launcher 透传 Model、child 复用 pi-engine 防腐墙、剧本引擎用 pi-ai 流原语；T2.2 新增第三域；守护测试 AG-04 三根同口径）。import 通道红线：真实 provider 必须经 `@earendil-works/pi-ai/providers/all` 子路径（主入口 side-effect-free 拿不到真实 provider）；Node 执行环境必须经 `@earendil-works/pi-agent-core/node` 子入口。模型接入 = pi-ai + 显式凭据（AD-13；凭据存 ~/.helix/auth.json：Record<providerId, type-tagged Credential 联合>（pi 生态格式等价），0600 + pid 文件锁 + 原子写，OAuth 类型面支持、登录流不做，格式详见 E-认证凭据），弃 pi 的 SettingsManager 体系；模型能力来源 = daemon 自实现 ModelCatalog（builtin 39 providers 静态表 + pi.dev overlay 合并，ETag 条件刷新/4h 缓存/防降级/落盘兑底，零 pi-coding-agent import，落位 driven，详见 E-模型目录）；默认模型存 SQLite default_model 表（非 config.json）。
 
 ## 理由
 extension 身份是 v1 兼容成本根源，pi 降为库（AD-2）；F-7 实读证明 core 已自带四工具（「pi-coding-agent 当工具箱」前提被证伪，AD-10）；依赖最小化既定原则；主入口/子入口陷阱是 pi 源码实读结论（F-7）。
@@ -526,15 +564,15 @@ relations:
     - E-AgentInstance
     - E-会话聚合
     - E-领域事件与单写队列
-updatedIn: iter-20260816-uzvg
+updatedIn: iter-20260816-6q6f
 ```
 
 ## 规则
 主会话实例与 SubAgent 同为 AgentInstance（domain/agent/AgentInstance：instanceId、kind: "main"|"subagent"、profileKind、sessionId、实例状态机、createdAt），机制同构——同 AgentRuntime 驱动、同 AgentProfile 声明机制、同事件通道、同 trace/统计/持久化路径；编排分层只经 profile 生命周期声明表达（main = persistent 常驻多轮、用户对话锚点，re-profile 时销毁重建；subagent = single-shot 单轮收敛、closure 回主线后销毁）。「同构」只发生在机制层，禁止按 kind 分叉任何机制通道。
 每条领域事件与聚合 Entry（消息/工具调用/thinking/compaction）一律挂 instanceId；持久化兑现 trace 四维查询 session × instance × type × time：domain_events 增 agent_instance_id 列 + 索引（agent_kind 保留为冗余快速过滤维度）、agent_lifecycle 主键扩为 (session_id, instance_id)、tool_calls 增实例归属列；协议信封 Envelope 增可选 instanceId? 字段，缺省 = 主实例（向后兼容），快照增 instances 实例清单。
 SubAgent 实例的 instanceId 即 agent_spawn 返回、agent_send/agent_status/agent.kill 寻址的 agentId（同一标识空间的两个视角，分配即定）；主实例在会话创建时分配固定 id。
-会话聚合与 agent 实例窗口分离（三层模型）：聚合是全历史 Entry 树、跨实例持续追加（UI/持久化单位，实例切换或收口时不重建）；实例窗口是 LLM 上下文、销毁重建（执行层全切、交接层受控注入、显示层连续）。实例创建/销毁/re-profile 是一等操作，调度器与状态机不得假设一个会话单实例线性推进。【v0.1 实现边界（M2 终验 L3 复核登记）：聚合 Entry 树当前仅主实例（Session.ts 硬编码 MAIN_INSTANCE_ID）；SubAgent 内容以挂 instanceId 的领域事件行入 domain_events（trace 四维可查），抽屉读面 = per-instance 事件流（与 AD-8 决策一致）。「SubAgent Entry 进聚合 + 恢复重放进快照 entries」为 M3+ 行为面子项（与 OI-2 pendingSteer 消费触发点同批），届时撤本边界声明。】
-UI 时间线按实例分段：主线视图默认只渲染主实例 Entry + SubAgent 卡片 + 里程碑标记，抽屉视图 = 按实例过滤的全流（v0.1 全流载体 = per-instance 事件流，见上边界声明）；重启后恢复实例骨架/closure/账目（SubAgent 全流重放同属 M3+ 子项）。
+会话聚合与 agent 实例窗口分离（三层模型）：聚合是全历史 Entry 树、跨实例持续追加（UI/持久化单位，实例切换或收口时不重建）；实例窗口是 LLM 上下文、销毁重建（执行层全切、交接层受控注入、显示层连续）。实例创建/销毁/re-profile 是一等操作，调度器与状态机不得假设一个会话单实例线性推进。聚合 Entry 树含 SubAgent 归属条目（Entry.instanceId；经会话投影 SessionProjection 落树；恢复重放进快照 entries——RestoreService.replaySubAgentHistory，agent_kind=subagent 事件流补齐）。
+UI 时间线按实例分段：主线视图默认只渲染主实例 Entry + SubAgent 卡片 + 里程碑标记，抽屉视图 = 按实例过滤的全流（全流载体 = 聚合 Entry per-instance channel + 恢复重放，SubAgent 历史含在内）；重启后恢复实例骨架/closure/账目/SubAgent 全流历史。
 
 ## 理由
 F-12 实锤现状只有 agent_kind 无实例 id，同类型多实例不可区分、协议事件无任何 agent 标识（单 agent 假设）；主会话即使不 spawn SubAgent 也会因 re-profile 存在多实例（用户在 grilling 指出）。机制同构才能统一 trace/统计/事件通道（AD-3）；聚合与窗口分离是相位模式在 v2 重新生长的地基（AD-1），M2 主实例 + N 个 SubAgent 已在事实层面运行该模型。
@@ -625,7 +663,7 @@ graph: tech
 layer: arch
 scope: domain
 stack: shared
-name: thinking/usage/compaction 三通道与协议 additive 演进
+name: thinking/usage/compaction/error 四通道与协议 additive 演进
 status: active
 digest: 加协议 entry 或事件、扩引擎事件联合、动 EntryDto 时
 derivedFrom:
@@ -636,7 +674,7 @@ relations:
   governs:
     - E-会话聚合
     - E-UsageLedger
-updatedIn: iter-20260816-uzvg
+updatedIn: iter-20260816-6q6f
 ```
 
 ## 规则
@@ -645,6 +683,7 @@ thinking：流式 delta 为中间态不落盘（TR-AD-5 原则不变）；完成
 usage：turn 完成从 message_end 提取完整 Usage（input/output/cacheRead/cacheWrite/reasoning/totalTokens/cost）挂 instanceId 入事件流（usage.recorded）；per-instance 小计 → per-session 聚合（主线+委托合计）；compaction 摘要调用成本（CompactResult.usage）同通道入账——一切真实 LLM 成本不漏账；流式中不动账、turn 完成入账。
 compaction：由驱动层（AgentRuntime）turn 间按 profile.compaction 参数接线 pi 的 shouldCompact/compact 独立函数族（loop 不自动跑，驱动层 turn 间调用）；CompactionEntry{instanceId, tokensBefore, summary, usage} 进该实例 pi session Entry 树与领域聚合，UI 里程碑折叠条可见（复用 thinking 组件模式：折叠条 + 点击展开 summary）；接线不感知 profile.kind——主实例与 SubAgent 实例同路径可装配 compaction（profile 声明 compaction 参数即获得；SubAgentProfile 当前未声明，SubAgent 实例实际未装配）；失败走既有 engine_error 不崩会话路径 + 失败注入测试守护。
 协议演进 v0 → v0.1 additive 纪律：①判别式联合只增不删不改（既有事件 type 字面量与 payload 形状不动）；②可选字段带缺省语义（Envelope.instanceId? 缺省 = 主实例、message_end 的 usage? 缺省 = 未携带，旧剧本兼容）；③EntryDto 联合新增 kind: "thinking" | "compaction" 成员，旧 kind 不动，旧消费者忽略未知 kind；④快照 additive（新增可选 instances/usage 字段，既有字段不动）；⑤增量演进保持 v=0 不 bump，破坏性变更（删字段/改判别值）才 bump PROTOCOL_VERSION；守护测试「目录常量 ↔ 联合双向一致性」随新增成员同步扩；落盘行模型前向兼容走 RowMapper fromRow 默认值兑底（TR-AD-14）。
+错误通道（engine.error，热修沉淀并入）：pi-ai 将 provider HTTP 失败规范化为流内 error 帧（非异常，errorMessage 含 provider 原文）；引擎错误经 engine.error 协议事件透传前端（错误卡）。error 轮语义：不产 assistant 气泡、turn 正常收口、全零 usage 不入账（零成本非真实计费）。mock 契约等价的错误面：FakeLLM/剧本须覆盖 error 帧路径（TR-TEST-3 等价原则的错误维度，errorReply 剧本为断言面，与真实 pi-ai 失败帧同构）。
 
 ## 理由
 thinking/usage 是首迭代有意裁剪的通道（F-10/F-11 核实：上游能力完整、非 bug），接入成本低；压缩对用户不可见是缺陷（usage 突变无解释）且摘要调用计费不能漏（AD-9）；monorepo 同仓同版本发布使 additive 演进协商成本为零（架构文档 §7.4）。
@@ -671,14 +710,14 @@ relations:
   governs:
     - E-AgentInstance
     - E-调度器
-updatedIn: iter-20260816-uzvg
+updatedIn: iter-20260816-6q6f
 ```
 
 ## 规则
 重启后：running 态 SubAgent 实例收口为 failed（「daemon 重启，任务未完成」——与首迭代 D-1 工具卡收口同构），历史保留可回放，closure failed 经 SteerQueue 注入主线，不自动续跑；queued 态任务清队不落盘（调度队列持久化边界 = 不持久化），快照标 cancelled（区别于 failed），不自动重派。
 重试是编排决策而非恢复机制：MainAgent 收到 failed closure 后自主决定（spawn 新实例重试/转述用户/放弃），决策点在编排层（LLM + 系统提示），不在恢复代码——恢复代码不执行任何东西。
 正常运行期 SubAgent 崩溃同语义：崩溃隔离（子进程崩溃不伤 daemon 主线），closure failed 通道回主线。
-恢复重建面（重启 daemon 全部恢复）：实例注册表（agent_lifecycle per-instance）→ 卡片/抽屉骨架；Entry 树（主实例 thinking/compaction/message Entry）→ 主线视图（v0.1 边界：SubAgent Entry 未进聚合，抽屉全流重放为 M3+ 子项，见 TR-AD-15 边界声明——重启后抽屉 = 卡片骨架 + closure 尾卡）；usage 聚合 → header 合计与下钻明细；closure 记录 → 终态卡片与账目；全部经快照推前端纯投影重建（前端零自恢复，TR-AD-5）。
+恢复重建面（重启 daemon 全部恢复）：实例注册表（agent_lifecycle per-instance）→ 卡片/抽屉骨架；Entry 树（主实例主轴 + SubAgent per-instance channel）→ 主线视图 + 抽屉全流重放（SubAgent 历史含在内，恢复重放见 RestoreService.replaySubAgentHistory）；usage 聚合 → header 合计与下钻明细；closure 记录 → 终态卡片与账目；全部经快照推前端纯投影重建（前端零自恢复，TR-AD-5）。
 
 ## 理由
 AD-10（Q-13=A）确定性优先：自动续跑 = 不知情时执行带旧状态的重试，错误根源在任务时会重演且烧钱；failed 收口不执行任何东西，故不需要「保证不再错」；v1 D-1 已验证同构收口模式；cancelled 与 failed 区分忠实反映「未启动被取消」与「执行中断」两种事实。
@@ -729,3 +768,78 @@ M4 相位 profile 工具集定义与审批挂起钩子实现；任何新增 prof
 
 ## 反例
 在 bash 工具内做命令静态分析硬拦截「危险操作」（编码绕行拦不住、合法长任务被误杀，且把边界语义从 profile 声明泄漏进工具实现）；或把能力边界实现为按 agent 类型的目录级工具隔离而 profile 无白名单声明（v1 双轨复发、白名单不可静态审计）；或 M2 就为无竞争场景提前实现相位锁（无裁决不预做）。
+
+```kg-node
+id: TR-AD-21
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: 命令结果 = 点对点结果帧；状态变化 = 广播
+status: active
+digest: 加命令族、写命令结果回执、看点对点发帧时
+derivedFrom:
+  - AD-4
+  - AD-1
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driving/ws-server/WsServerAdapter.ts
+    - packages/protocol/src/events.ts
+  testedBy:
+    - packages/protocol/test/type-surface.test.ts
+    - apps/shell/src/entities/session/model/dispatcher/dispatcher.test.ts
+relations:
+  governs:
+    - E-领域事件与单写队列
+updatedIn: iter-20260816-6q6f
+```
+
+## 规则
+命令的结果载荷与领域状态变化的分发通道二分：命令结果 = 点对点结果帧（`*.result` 事件类型，WsServerAdapter.sendNow 直发发起连接，不经 EventStream 广播——清单/分页等连接私有读面广播即泄漏他连接数据且浪费）；领域状态变化 = 广播帧（EventStream 章印路由，按订阅集过滤）。新增命令族套用固定模式：①协议登记 `*.result` 事件（EVENT_TYPES/EVENT_CHANNELS/exports 计数与 type-surface 穷尽守护同步扩）；②daemon routeCommand case 内组帧 sendNow；③shell dispatcher 先 no-op 占位（保持「全类型已路由」守护绿）后接真消费（T1.2 先例）。错误回执同帧直发（command.invalid_payload 等错误码或命令族专码）。
+
+## 理由
+T2.2 session 族 2 帧（session.list.result/loadHistory.result）+ T2.3 微批 model/auth 族 9 帧三度同构实证（三度同构即规则）；连接私有读面广播浪费且泄漏；占位先例使协议面与 shell 面可异步接线（并行任务不互锁）。源决策 = 契约 B §2.3 机制注记 / AD-4。
+
+## 适用范围
+新增任何命令族的结果回执设计；EVENT_TYPES 事件目录扩员；dispatcher 消费者接线；协议契约文档（契约 B/C）的结果帧章节维护。
+
+## 反例
+session.list 结果经 EventStream 广播——所有连接收到他连接的会话清单（泄漏）；或命令发完无结果帧、结果只写 daemon 日志（T2.3 曾短暂如此）——前端永久等不到回执只能超时。
+
+```kg-node
+id: TR-AD-22
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: 事件分发两层拓扑（daemon 投影 ↔ shell dispatcher 同构）
+status: active
+digest: 扩事件消费者、动 store 拓扑、加投影或路由时
+derivedFrom:
+  - AD-3
+anchors:
+  implementedBy:
+    - apps/daemon/src/application/services/SessionProjection.ts
+    - apps/shell/src/entities/session/model/dispatcher/
+  testedBy:
+    - apps/daemon/test/integration/session-projection.test.ts
+    - apps/shell/src/entities/session/model/dispatcher/dispatcher.test.ts
+relations:
+  governs:
+    - E-会话聚合
+updatedIn: iter-20260816-6q6f
+```
+
+## 规则
+事件消费按 sessionId 分实例化的两层拓扑，daemon 与 shell 同构：daemon 侧 SessionProjection = fan-out 显式消费者 + 共享聚合访问器 + 幂等去重集（projectedEntryIds）+ persistedState 组合面，经 SessionRegistry 按会话实例化（SubAgent Entry 落聚合 instanceId 归属 + usageLedger 并入 + write-through 迁入）；SchedulerService 只产事件零聚合写（守护断言在集成测试）。shell 侧 dispatcher 两层 = 会话 store 级消费者（SessionState 域）+ 拓扑级 directory 消费者（TopologyState 域），帧入口三向路由（活跃完整 store / 后台轻量 store / 系统帧；session.snapshot 例外优先路由活跃——连接级重建指令）。新增事件族 = additive 扩展面（新消费者注册，不动拓扑骨架）。
+
+## 理由
+多会话下投影按会话隔离才不串台（SessionRegistry 分实例化）；两层（会话内状态 vs 跨会话拓扑）职责分离使后台轻量跟踪成为可能——后台会话不建完整 store，内存随会话数有界；daemon/shell 同构使协议事件族扩展的双端接线模式固定（新增族双端同构扩）。
+
+## 适用范围
+扩展事件消费者；动 store 拓扑或 SessionProjection；新增事件族的分发接线（daemon 消费者 + shell 消费者注册）；后台轻量 store 的字段取舍评审。
+
+## 反例
+把后台会话也建完整 store（entries 全量驻留，内存随会话数无界增长）；或 dispatcher 单层平铺全部状态（跨会话拓扑与单会话状态耦合，切换会话时误清拓扑/误留会话态）；或 SchedulerService 里顺手写聚合（零聚合写守护即红）。

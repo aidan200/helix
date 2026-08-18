@@ -194,7 +194,11 @@ anchors:
     - playwright.e2e.config.ts
   testedBy:
     - e2e/CL-4-teardown-residue.spec.ts
-updatedIn: iter-20260816-uzvg
+relations:
+  dependsOn:
+    - TR-TEST-4
+    - TR-TEST-5
+updatedIn: iter-20260816-6q6f
 ```
 
 ## 规则

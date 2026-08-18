@@ -84,11 +84,11 @@ stack: backend
 name: 会话聚合
 status: active
 digest: 动会话数据、加 Entry 或工具记录、跨实例聚合、写恢复时
-updatedIn: iter-20260816-uzvg
+updatedIn: iter-20260816-6q6f
 ```
 
 ## 描述
-domain 层权威状态的主体聚合（充血模型：属性 + 行为，framework-free）：Entry 树（语义会话——消息/工具调用/thinking/compaction，每条挂 instanceId）、轮次生命周期、工具调用记录（含实例归属）；agent 生命周期/实例注册表、调度队列语义、usage 账目、closure 记录同为 domain 权威状态，随同一单写路径持久化。M2 起聚合是跨实例持续追加的会话级单位（AD-1）：实例窗口（LLM 上下文）销毁重建时聚合不重建、显示层连续——SubAgent 内容以挂 instanceId 的领域事件行入会话级存储（domain_events，trace 四维可查；抽屉消费 per-instance 事件流），聚合 Entry 树 v0.1 仅主实例（closure 注入以 isSteer entry、main 归属落树；SubAgent Entry 进聚合与恢复重放为 M3+ 子项，见 TR-AD-15 边界声明）；主线视图只取主实例 Entry + 卡片，抽屉取单实例全流。对外只经 application service（ChatService/SessionService/RestoreService/SchedulerService）读写；持久化经 SessionRepositoryPort 转 贫血行模型（RowMapper）；推前端经 ws-server adapter 转 protocol DTO。
+domain 层权威状态的主体聚合（充血模型：属性 + 行为，framework-free）：Entry 树（语义会话——消息/工具调用/thinking/compaction，每条挂 instanceId）、轮次生命周期、工具调用记录（含实例归属）；agent 生命周期/实例注册表、调度队列语义、usage 账目、closure 记录同为 domain 权威状态，随同一单写路径持久化。M2 起聚合是跨实例持续追加的会话级单位（AD-1）：实例窗口（LLM 上下文）销毁重建时聚合不重建、显示层连续——SubAgent 内容以挂 instanceId 的领域事件行入会话级存储（domain_events，trace 四维可查），聚合 Entry 树含主实例主轴 + SubAgent per-instance 归属条目（Entry.instanceId；经会话投影 SessionProjection 落树）；快照尾窗切法保留 per-instance channel 完整性（AD-1 硬约束）；主线视图只取主实例 Entry + 卡片，抽屉取单实例全流。对外只经 application service（ChatService/SessionService/RestoreService/SchedulerService）读写；持久化经 SessionRepositoryPort 转 贫血行模型（RowMapper）；推前端经 ws-server adapter 转 protocol DTO。
 
 ## 规则
 是会话数据的唯一持有者（内存 = 磁盘投影缓存，无第二事实源）；每条 Entry 挂 instanceId（TR-AD-15 全链路）；thinking 完成态与 compaction 里程碑为一等 Entry 成员（流式中间态仍不落盘，TR-AD-5）；状态变更以领域事件表达并交单写队列落盘；崩溃恢复 = 读盘重建聚合 → 快照推前端（快照含 instances 清单与 usage 聚合字段）；不 import pi 类型（Entry/LaneRecord 经 pi-engine 薄防腐映射）、不 import protocol 类型。
@@ -248,3 +248,63 @@ token/费用账目（AD-4）：turn 完成从 message_end 提取完整 Usage（i
 
 ## 关系
 记录归属 AgentInstance（E-AgentInstance）；扇出与落盘经领域事件与单写队列（E-领域事件与单写队列）；compaction 成本来自 AgentRuntime（E-AgentRuntime）接线产物；UI 投影经 ws-server DTO（UsageDto）。
+
+```kg-node
+id: E-认证凭据
+kind: entity
+graph: business
+scope: domain
+stack: backend
+name: 认证凭据（auth.json）
+status: active
+digest: 写 auth.json、动凭据存取、加 provider key 管理时
+anchors:
+  implementedBy:
+    - apps/daemon/src/infrastructure/auth-store.ts
+  testedBy:
+    - apps/daemon/test/unit/auth-store.test.ts
+    - e2e/CL-3-e2e-model-chain.spec.ts
+updatedIn: iter-20260816-6q6f
+```
+
+## 描述
+provider API keys 的唯一存储（~/.helix/auth.json，路径经 paths.ts 单点派生）：Record<providerId, type-tagged Credential 联合>（pi 生态格式等价；OAuth 类型面支持、登录流不做）；文件权限 0600；跨进程 pid 文件锁 + 进程内 opQueue 串行；原子写（tmp+rename，AG-06③ 白名单显式列名）。auth 命令族（auth.list/set_key/delete_key/verify）与 set_model 的 apiKey 跟随均以此为源；连通验证（verify）经 pi-ai streamSimple 最小 completion（maxTokens=1）真探活——done → ok+latency / error → fail+reason。
+
+## 规则
+0600 权限是硬约束（E 层断言背书）；写必经原子写 + 锁（无并发半写）；凭据不进 config.json、不落日志、不外传协议原文（前端脱敏 key 尾 4 位）；认证面是第四类 port 落位（infrastructure 纯技术文件 port，TR-AD-2）。
+
+## 禁忌
+不以明文回显完整 key（协议/日志/UI 均脱敏）；不绕过锁并发写；不把凭据写进 SQLite 或 config.json；不复制 pi 的 SettingsManager 凭据体系（自有 auth.json 独立管理）。
+
+## 关系
+E-模型目录 的可用性过滤（P-3 菜单 configured 判定）以本实体的已配置 provider 集为判据；verify 连通三态供 P-4 展示；E 层测试以 prepHome 预置 auth.json seed（0600）为标准注入面。
+
+```kg-node
+id: E-模型目录
+kind: entity
+graph: business
+scope: domain
+stack: backend
+name: 模型目录（ModelCatalog）
+status: active
+digest: 动模型目录、扩 provider、调缓存刷新或落盘兜底时
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/pi-engine/model-catalog.ts
+  testedBy:
+    - apps/daemon/test/unit/model-catalog.test.ts
+    - e2e/CL-3-e2e-model-chain.spec.ts
+updatedIn: iter-20260816-6q6f
+```
+
+## 描述
+可用模型清单的权威供给面：builtin 39 providers 静态表 + pi.dev overlay 在线目录合并（ETag 条件刷新，缓存 4h；304 未变更不落盘）；防降级（新目录不得清空既有 overlay）；落盘兜底（~/.helix/models-store.json，离线启动用缓存，路径经 paths.ts 单点派生）。经 ModelCatalogPort（outbound）供 ModelService 消费；前端 P-3/P-4 经协议 model.catalog 命令族读取。默认模型（SQLite default_model 表）为其附属状态，不独立成实体。
+
+## 规则
+builtin 表是离线兜底基线永不失效；overlay 刷新走 ETag 条件请求，失败保缓存不报错（无外网可用）；目录合并幂等；落盘经 paths.ts + 原子写（AG-06③ 白名单）；零 pi-coding-agent import（TR-AD-7 红线，G-2 裁决自实现）。
+
+## 禁忌
+不因网络失败清空或降级目录（防降级硬约束）；不在 daemon 外（前端）自拉 pi.dev；不经 config.json 携带模型清单；不 import pi-coding-agent 的目录能力。
+
+## 关系
+P-3 菜单可用性过滤以 E-认证凭据 的已配置 provider 集为判据（前端 join，协议不加可用性字段）；短 id 跨厂商歧义宁可不标（T5.4 resolveCatalogMatch 裁决）；catalog_refresh 命令触发同步刷新（延迟可能高，后台预刷新未做）。

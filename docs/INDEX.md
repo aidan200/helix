@@ -19,6 +19,9 @@ docs:
   - name: kg/testing-rules.md
     purpose: 测试规则（技术规则 TR-TEST-N）
     updatedAt: 2026-08-16T11:25:47.912Z
+  - name: kg/decisions.md
+    purpose: 架构决策节点（AD-N，上下文/选项/裁决与理由/结局四节；终验沉淀跨迭代有效的设计事实）
+    updatedAt: 2026-08-18T00:10:44.340Z
 ---
 
 # helix 文档索引
@@ -31,6 +34,7 @@ docs:
 | [kg/domain.md](kg/domain.md) | 领域模型（业务实体） |
 | [kg/architecture-rules.md](kg/architecture-rules.md) | 架构规则（技术规则 TR-AD-N） |
 | [kg/testing-rules.md](kg/testing-rules.md) | 测试规则（技术规则 TR-TEST-N） |
+| [kg/decisions.md](kg/decisions.md) | 架构决策节点（AD-N，上下文/选项/裁决与理由/结局四节；终验沉淀跨迭代有效的设计事实） |
 
 ## 迭代历史
 见 [ITERATIONS.md](ITERATIONS.md)
