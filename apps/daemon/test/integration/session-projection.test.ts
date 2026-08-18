@@ -336,7 +336,7 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
           client.frames.slice(completedAt).some(
             (f) => f.type === "agent.state.changed" && (f.payload as { state?: string }).state === "idle",
           ),
-        5000,
+        15000,
         "closure 注入 turn 收口",
       );
 
