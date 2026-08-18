@@ -311,15 +311,23 @@ describe("TP-CL4-5（A 半）：runtime 不自持领域状态副本", () => {
 describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白名单）", () => {
   const wsDir = path.join(srcRoot, "adapters", "driving", "ws-server");
 
-  /** 运行时 import 允许集：ports（in/out）+ @helix/protocol + Bun/Node 内建 + 目录内。 */
-  function runtimeAllowed(spec: string): boolean {
-    return (
+  /** 运行时 import 允许集：ports（in/out）+ @helix/protocol + Bun/Node 内建 + 目录内。
+   * 目录内 = 相对导入解析后不逃出 ws-server 目录树（T1.1 AD-3：handlers/ 子目录
+   * 回引 ../EventStream 等同属目录内；语义不变，仅路径感知化）。 */
+  function runtimeAllowed(rel: string, spec: string): boolean {
+    if (
       spec === "@helix/protocol" ||
       spec.startsWith("node:") ||
       spec === "bun" ||
-      /^\.\//.test(spec) ||
       /\/ports\/(inbound|outbound)\//.test(spec)
-    );
+    ) {
+      return true;
+    }
+    if (spec.startsWith("./") || spec.startsWith("../")) {
+      const resolved = path.normalize(path.join(path.dirname(rel), spec));
+      return resolved !== ".." && !resolved.startsWith(`..${path.sep}`);
+    }
+    return false;
   }
 
   test("运行时 import ⊆ {inbound/outbound ports, @helix/protocol, Bun 内建, 目录内}；domain 仅 type-only（AD-17.5 转换）", () => {
@@ -333,7 +341,7 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
           // domain 只允许 type-only import（无运行时耦合，无业务规则调用）
           expect(typeOnly(spec, src), `ws-server/${rel} 对 domain 只允许 import type：${spec}`).toBe(true);
         } else {
-          expect(runtimeAllowed(spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
+          expect(runtimeAllowed(rel, spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
         }
       }
       // 白名单的否定面：禁 services/infrastructure/driven
