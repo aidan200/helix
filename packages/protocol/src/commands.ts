@@ -2,7 +2,9 @@
  * 命令目录（C→S，契约 §4 + 契约 B §1 / 契约 C §1；architecture.md §6.3）。
  *
  * 共 21 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
- * auth 族 4）。`CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
+ * auth 族 4）；v0.3 零新增——三处扩展全部为可选参数/字段（tier /
+ * instanceId / anchorEntryId，TR-AD-23① 可选参数优先于新命令对）。
+ * `CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
  * 分发。会话作用域命令的信封 sessionId 必填（AD-4 路由位，类型层可选、
  * 客户端纪律保证）；全局命令（session.list / model.set_default /
  * model.get_default / model.catalog* / auth.*）省略。未知 type / payload
@@ -28,6 +30,8 @@ export interface ChatSendPayload {
 /** chat.steer 载荷：生成中注入消息（ChatPort.steer → SteerQueue.enqueue） */
 export interface ChatSteerPayload {
   text: string;
+  /** 目标实例（v0.3 新增，契约 v0.3 §3）：缺省 = 主实例（既有语义不变）；携带时路由归 ChatService（TR-AD-9） */
+  instanceId?: string;
 }
 
 /** 无载荷命令的空 payload */
@@ -44,11 +48,23 @@ export interface ChatAbortCommand extends CommandFrame<EmptyPayload> {
   type: "chat.abort";
 }
 /**
+ * session.subscribe 载荷（v0.3 新增，契约 v0.3 §2，Q-2b②）：订阅档位。
+ * 缺省 full（既有语义不变）；monitor 档白名单过滤归 daemon 事件分发层
+ * 一处（T2.2 落地，协议面仅类型）。同连接同会话重复 subscribe 换 tier =
+ * 幂等更新，不新增命令对（TR-AD-23①）。
+ */
+export interface SessionSubscribePayload {
+  /** 订阅档位：full = 全量（缺省）；monitor = 3 事件白名单（Q-2a 消息档） */
+  tier?: "full" | "monitor";
+}
+
+/**
  * 订阅会话事件流。v0.2 升级语义（契约 B §1.2，AD-4）：从「连接级全量广播
  * 开关」升级为「按会话订阅」——**信封 sessionId 必填**，连接订阅某会话后
- * 只收该会话（+系统级）事件帧；payload 保持空（路由位在信封）。
+ * 只收该会话（+系统级）事件帧；v0.3 起 payload 携带可选 tier 档位
+ * （SessionSubscribePayload，缺省 full；原 EmptyPayload 形态仍合法）。
  */
-export interface SessionSubscribeCommand extends CommandFrame<EmptyPayload> {
+export interface SessionSubscribeCommand extends CommandFrame<SessionSubscribePayload> {
   type: "session.subscribe";
 }
 /** 退订会话事件流（v0 通路语义保留；per-session 语义随 T2.1 定稿） */

@@ -5,6 +5,7 @@ import {
   EVENT_TYPES,
   PROTOCOL_VERSION,
   type AgentInstanceDto,
+  type AgentSpawnedPayload,
   type AuthDeleteKeyResultEvent,
   type AuthListResultEvent,
   type AuthSetKeyCommand,
@@ -13,6 +14,8 @@ import {
   type AuthVerifyResultEvent,
   type CatalogModel,
   type ChatSendCommand,
+  type ChatSteerCommand,
+  type ChatSteerPayload,
   type Channel,
   type ClosureDto,
   type CommandEnvelope,
@@ -20,6 +23,7 @@ import {
   type CompactionCompletedEvent,
   type CompactionCompletedPayload,
   type CompactionEntryDto,
+  type EmptyPayload,
   type EntryDto,
   type EventEnvelope,
   type EventFrame,
@@ -43,6 +47,9 @@ import {
   type SessionLoadHistoryResult,
   type SessionMeta,
   type SessionSnapshotDto,
+  type SessionSubscribeCommand,
+  type SessionSubscribePayload,
+  type SessionUnsubscribeCommand,
   type SessionUsageDto,
   type ThinkingEntryDto,
   type ToolCallEntryDto,
@@ -76,6 +83,18 @@ import {
  *    零修改合法（可选性设计）；hello protocolVersion 严格 "0.2" 单值。
  * ⑦ EVENT_CHANNELS 登记目录 ↔ 契约 A §2 映射表恰等（含 interaction 占位族
  *    无事件挂靠）。
+ *
+ * v0.3 扩展（iter-20260818-mq5a T1.2，契约 = contract-v0.3.md；AD-5 三合一
+ * additive 一次定形）：
+ * ⑧ CL-1 spawn 锚点：AgentInstanceDto / AgentSpawnedPayload 增可选
+ *    anchorEntryId?: string | null（null = 流首有效值；缺省 = 主实例不携带）。
+ * ⑨ CL-2 monitor 档：session.subscribe payload 从 EmptyPayload 换
+ *    SessionSubscribePayload { tier?: "full" | "monitor" }（缺省 full；
+ *    session.unsubscribe 保持 EmptyPayload 不动）。
+ * ⑩ CL-3 steer 定向寻址：ChatSteerPayload 增可选 instanceId（缺省 = 主实例）。
+ *    PROTOCOL_VERSION "0.2" → "0.3"（批次标记非协商位，Q-1c 单仓同发一步
+ *    替换）；EVENT_TYPES(37) / EVENT_CHANNELS / COMMAND_TYPES(21) 计数不动
+ *    断言保持（零新增守护，TR-AD-23①/②）。
  */
 
 // ── 类型级断言工具（仅编译期） ────────────────────────────────
@@ -97,7 +116,7 @@ const helloFrame: HelloCommand = {
 };
 
 const chatSendWithRoute: ChatSendCommand = {
-  v: "0.2",
+  v: "0.3",
   type: "chat.send",
   payload: { text: "帮我看看 protocol 包的类型" },
   workspace: { workspaceId: "ws-main" }, // 预留字段位：可携带（当前无路由语义）
@@ -314,7 +333,7 @@ const sampleSessionMeta: SessionMeta = {
   loaded: true,
 };
 
-/** v0.2 全章印信封样例：v="0.2" + sessionId 必发 + channel 判别 */
+/** 全章印信封样例：v="0.3"（随 PROTOCOL_VERSION v0.3 bump）+ sessionId 必发 + channel 判别 */
 const listChangedV02: SessionListChangedEvent = {
   v: PROTOCOL_VERSION,
   sessionId: "__system__",
@@ -406,6 +425,78 @@ const snapshotV02: SessionSnapshotDto = {
     ),
   ],
 };
+
+// ── v0.3 样例帧（契约 = contract-v0.3.md §1/§2/§3；构造即类型检查） ──
+
+/** CL-1 spawn 锚点：agent.spawned 增量帧三形态（string 锚 / null 流首 / 缺省主实例） */
+const spawnedAnchored: EventEnvelope = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  channel: "agent",
+  type: "agent.spawned",
+  payload: { agentId: "agent-1", task: "契约 v0.3 定形", profileKind: "subagent-worker", anchorEntryId: "e12" },
+};
+const spawnedStreamHead: EventEnvelope = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  channel: "agent",
+  type: "agent.spawned",
+  payload: { agentId: "agent-0", task: "流首锚点", profileKind: "subagent-worker", anchorEntryId: null }, // null = 流首（有效值）
+};
+/** CL-1 快照面：instances[].anchorEntryId（与 agent.spawned 增量帧同源供给） */
+const instanceAnchored: AgentInstanceDto = {
+  instanceId: "agent-1",
+  kind: "subagent",
+  profileKind: "subagent-worker",
+  state: "running",
+  createdAt: "2026-08-18T12:00:00.000Z",
+  anchorEntryId: "e12",
+};
+const instanceMainNoAnchor: AgentInstanceDto = {
+  instanceId: "main",
+  kind: "main",
+  profileKind: "main-session",
+  state: "running",
+  createdAt: "2026-08-18T11:00:00.000Z", // 主实例：缺省不携带（undefined）
+};
+
+/** CL-2 monitor 档订阅：payload 从 EmptyPayload 换 SessionSubscribePayload（tier 可选；缺省 full） */
+const subscribeMonitor: SessionSubscribeCommand = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  type: "session.subscribe",
+  payload: { tier: "monitor" },
+};
+const subscribeTierDefault: SessionSubscribeCommand = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  type: "session.subscribe",
+  payload: {}, // 缺省 full（既有语义不变；空 payload 仍合法）
+};
+/** session.unsubscribe 不动：payload 保持 EmptyPayload */
+const unsubscribeUnchanged: SessionUnsubscribeCommand = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  type: "session.unsubscribe",
+  payload: {},
+};
+
+/** CL-3 steer 定向寻址：可选 instanceId（缺省 = 主实例） */
+const steerTargeted: ChatSteerCommand = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  type: "chat.steer",
+  payload: { text: "定向注入 agent-1", instanceId: "agent-1" },
+};
+const steerMainDefault: ChatSteerCommand = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  type: "chat.steer",
+  payload: { text: "主实例缺省路径" },
+};
+
+const v03Commands: CommandEnvelope[] = [subscribeMonitor, subscribeTierDefault, steerTargeted];
+const v03Events: EventEnvelope[] = [spawnedAnchored, spawnedStreamHead];
 
 // ── 窄化函数：每个分支访问该分支 payload 独有字段（窄化失效 → tsc 失败） ──
 function summarizeEvent(event: EventEnvelope): string {
@@ -501,11 +592,11 @@ function dispatchCommand(cmd: CommandEnvelope): string {
     case "chat.send":
       return `send:${cmd.payload.text}`;
     case "chat.steer":
-      return `steer:${cmd.payload.text}`;
+      return `steer:${cmd.payload.text}:${cmd.payload.instanceId ?? "main"}`; // v0.3：可选定向（缺省 = 主实例）
     case "chat.abort":
       return "abort";
     case "session.subscribe":
-      return `subscribe:${cmd.sessionId ?? "-"}`; // v0.2 升级：信封 sessionId（payload 仍空）
+      return `subscribe:${cmd.sessionId ?? "-"}:${cmd.payload.tier ?? "full"}`; // v0.2 信封路由 + v0.3 tier（缺省 full）
     case "session.unsubscribe":
       return "unsubscribe";
     // ── v0.1 编排命令 ──
@@ -611,11 +702,11 @@ function describeEntry(entry: EntryDto): string {
 }
 
 // ── 类型级断言（编译期；任一不满足 → tsc --noEmit 失败） ──
-// 帧版本位取值域（v0.2：0 = 历史帧兼容读，"0.2" = v0.2 帧）
+// 帧版本位取值域（v0.3：0 = v0/v0.1 历史帧兼容读，"0.3" = 当前批帧）
 type _VIsVersion = Expect<Equal<HelloCommand["v"], FrameVersion>>;
-type _FrameVersionDomain = Expect<Equal<FrameVersion, 0 | "0.2">>;
-// hello 协商位严格 "0.2" 单值（不取 FrameVersion 联合；fail-fast）
-type _HelloVersion = Expect<Equal<HelloPayload["protocolVersion"], "0.2">>;
+type _FrameVersionDomain = Expect<Equal<FrameVersion, 0 | "0.3">>;
+// hello 协商位严格 "0.3" 单值（不取 FrameVersion 联合；fail-fast）
+type _HelloVersion = Expect<Equal<HelloPayload["protocolVersion"], "0.3">>;
 // 命令目录常量 ↔ 命令信封联合 type 集合双向一致（v0.2：21 个）
 type _CommandSync = Expect<Equal<EnvelopeTypeOf<CommandEnvelope>, (typeof COMMAND_TYPES)[number]>>;
 // 事件目录常量 ↔ 事件信封联合 type 集合双向一致（v0.2：26 个）
@@ -778,15 +869,52 @@ type _InstanceChannels = Expect<Equal<AgentInstanceDto["channels"], InstanceChan
 type _CompactionTailKept = Expect<Equal<CompactionCompletedPayload["tailKept"], number | undefined>>;
 type _CompactionFilesCompacted = Expect<Equal<CompactionCompletedPayload["filesCompacted"], number | undefined>>;
 
+// ── v0.3 类型级断言（契约 = contract-v0.3.md §1–§4；三合一 additive） ──
+// CL-1 spawn 锚点：可选 string | null（null = 流首有效值；缺省 = 主实例不携带）
+type _InstanceAnchorOptional = Expect<
+  Equal<AgentInstanceDto["anchorEntryId"], string | null | undefined>
+>;
+type _SpawnedAnchorOptional = Expect<
+  Equal<AgentSpawnedPayload["anchorEntryId"], string | null | undefined>
+>;
+// CL-2 subscribe payload 换 SessionSubscribePayload（tier 二值可选；缺省 full）
+type _SubscribeTierDomain = Expect<
+  Equal<SessionSubscribePayload["tier"], "full" | "monitor" | undefined>
+>;
+type _SubscribePayloadSwapped = Expect<
+  Equal<SessionSubscribeCommand["payload"], SessionSubscribePayload>
+>;
+type _UnsubscribePayloadKeptEmpty = Expect<
+  Equal<SessionUnsubscribeCommand["payload"], EmptyPayload>
+>;
+// CL-3 steer 定向寻址：可选 instanceId（缺省 = 主实例）
+type _SteerInstanceOptional = Expect<
+  Equal<ChatSteerPayload["instanceId"], string | undefined>
+>;
+// ④ 版本位批次标记："0.3"（typeof PROTOCOL_VERSION 单值；FrameVersion / hello 联动见上）
+type _ProtocolVersionV03 = Expect<Equal<typeof PROTOCOL_VERSION, "0.3">>;
+
 // 负向断言：tool-call 变体不携带 steerState（仅 chat.steer 用户消息变体）
 // @ts-expect-error steerState 不存在于 ToolCallEntryDto
 const badToolEntry: ToolCallEntryDto = { kind: "tool-call", id: "x", name: "n", args: "{}", state: "done", ts: 1, steerState: "queued" };
-// 负向断言：v 位不接受目录外版本（0/"0.2" 之外）
-// @ts-expect-error v 位必须是 FrameVersion（0 | "0.2"）
-const badVersion: HelloCommand = { v: 1, type: "hello", payload: { token: "t", protocolVersion: "0.2" } };
-// 负向断言（v0.2）：hello 协商位不再接受 v0 数值（严格 "0.2" 单值）
-// @ts-expect-error protocolVersion 必须是 "0.2"
-const badHelloLegacy: HelloCommand = { v: "0.2", type: "hello", payload: { token: "t", protocolVersion: 0 } };
+// 负向断言：v 位不接受目录外版本（0/"0.3" 之外）
+// @ts-expect-error v 位必须是 FrameVersion（0 | "0.3"）
+const badVersion: HelloCommand = { v: 1, type: "hello", payload: { token: "t", protocolVersion: "0.3" } };
+// 负向断言（v0.2 起保持）：hello 协商位不接受 v0 数值（严格 "0.3" 单值）
+// @ts-expect-error protocolVersion 必须是 "0.3"
+const badHelloLegacy: HelloCommand = { v: "0.3", type: "hello", payload: { token: "t", protocolVersion: 0 } };
+// 负向断言（v0.3）：tier 只接受 full | monitor 两档
+// @ts-expect-error tier 目录外字面量
+const badTier: SessionSubscribeCommand = { v: PROTOCOL_VERSION, sessionId: "s", type: "session.subscribe", payload: { tier: "lite" } };
+// 负向断言（v0.3）：unsubscribe 不接受 tier（保持 EmptyPayload 不动）
+// @ts-expect-error unsubscribe payload 仍为 EmptyPayload
+const badUnsubscribeTier: SessionUnsubscribeCommand = { v: PROTOCOL_VERSION, sessionId: "s", type: "session.unsubscribe", payload: { tier: "monitor" } };
+// 负向断言（v0.3）：anchorEntryId 必须是 string | null
+// @ts-expect-error anchorEntryId 不接受数值
+const badAnchor: AgentInstanceDto = { instanceId: "agent-1", kind: "subagent", profileKind: "subagent-worker", state: "running", createdAt: "t", anchorEntryId: 12 };
+// 负向断言（v0.3）：steer instanceId 必须是 string
+// @ts-expect-error instanceId 不接受数值
+const badSteerTarget: ChatSteerCommand = { v: PROTOCOL_VERSION, sessionId: "s", type: "chat.steer", payload: { text: "t", instanceId: 3 } };
 // 负向断言（v0.2）：thinking 变体不携带 steerState
 // @ts-expect-error steerState 不存在于 ThinkingEntryDto
 const badThinkingEntry: ThinkingEntryDto = { kind: "thinking", id: "x", instanceId: "main", text: "t", durationMs: 1, reasoningTokens: 1, createdAt: "t", steerState: "queued" };
@@ -795,21 +923,21 @@ const badThinkingEntry: ThinkingEntryDto = { kind: "thinking", id: "x", instance
 const badSource: UsageRecordedPayload = { instanceId: "main", usage: sampleUsage, source: "stream" };
 // 负向断言（v0.2）：channel 字面量与事件类型不符（session.list_changed 归 session 族）
 // @ts-expect-error channel 必须是 "session"
-const badChannel: SessionListChangedEvent = { v: "0.2", sessionId: "s", channel: "chat", type: "session.list_changed", payload: { kind: "created" } };
+const badChannel: SessionListChangedEvent = { v: "0.3", sessionId: "s", channel: "chat", type: "session.list_changed", payload: { kind: "created" } };
 // 负向断言（v0.2）：session.loadHistory 缺游标
 // @ts-expect-error beforeEntryId 必填
-const badLoadHistory: SessionLoadHistoryCommand = { v: "0.2", sessionId: "s", type: "session.loadHistory", payload: {} };
+const badLoadHistory: SessionLoadHistoryCommand = { v: "0.3", sessionId: "s", type: "session.loadHistory", payload: {} };
 // 负向断言（v0.2）：auth.set_key 缺 apiKey
 // @ts-expect-error apiKey 必填
-const badSetKey: AuthSetKeyCommand = { v: "0.2", type: "auth.set_key", payload: { providerId: "moonshot" } };
+const badSetKey: AuthSetKeyCommand = { v: "0.3", type: "auth.set_key", payload: { providerId: "moonshot" } };
 
 // ── 运行时断言 ────────────────────────────────────────────────
 describe("TP-CL2-① 样例帧构造（契约 §2–§6）", () => {
   test("hello/welcome/snapshot/delta/工具卡/steer 徽标样例帧结构正确", () => {
-    expect(helloFrame.v).toBe("0.2");
+    expect(helloFrame.v).toBe("0.3");
     expect(helloFrame.type).toBe("hello");
     expect(helloFrame.payload.token).toBe("dev-token-xyz");
-    expect(helloFrame.payload.protocolVersion).toBe("0.2");
+    expect(helloFrame.payload.protocolVersion).toBe("0.3");
 
     const byType = new Map(legacyEvents.map((e) => [e.type, e] as const));
     const welcome = byType.get("connection.welcome");
@@ -916,13 +1044,13 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
     );
   });
 
-  test("全部 21 个命令信封可构造且可分发", () => {
-    const out = [...legacyCommands, ...v01Commands, ...v02Commands].map(dispatchCommand);
+  test("全部 21 个命令信封可构造且可分发（含 v0.3 扩展形态）", () => {
+    const out = [...legacyCommands, ...v01Commands, ...v02Commands, ...v03Commands].map(dispatchCommand);
     expect(out).toEqual([
       "send:hi",
-      "steer:改用方案 B",
+      "steer:改用方案 B:main",
       "abort",
-      "subscribe:-", // v0 历史帧：不带信封 sessionId 仍合法（可选）
+      "subscribe:-:full", // v0 历史帧：不带信封 sessionId / tier 仍合法（可选缺省）
       "unsubscribe",
       "kill:agent-2",
       "agent-sub:agent-2",
@@ -933,7 +1061,7 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
       "load-history:sess-1:e1:50", // limit 缺省 50（G-1）
       "load-history:sess-1:e1:100",
       "session-delete:sess-1",
-      "subscribe:sess-1", // v0.2 升级：信封 sessionId 路由
+      "subscribe:sess-1:full", // v0.2 信封 sessionId 路由 + v0.3 tier 缺省 full
       "model-set:sess-1:moonshot/kimi-k2",
       "model-get:sess-1",
       "model-catalog",
@@ -944,6 +1072,10 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
       "auth-set-key:moonshot",
       "auth-delete-key:moonshot",
       "auth-verify:moonshot",
+      // v0.3 样例（tier / instanceId 扩展形态）
+      "subscribe:sess-1:monitor",
+      "subscribe:sess-1:full",
+      "steer:定向注入 agent-1:agent-1",
     ]);
   });
 
@@ -1002,16 +1134,16 @@ describe("TP-CL2-④ EntryDto 判别式联合（契约 §6）", () => {
     ]);
     // 负向样例由上方 @ts-expect-error 在编译期守护
     expect(badToolEntry.state).toBe("done");
-    expect(badVersion.payload.protocolVersion).toBe("0.2");
+    expect(badVersion.payload.protocolVersion).toBe("0.3");
     expect(badHelloLegacy.type).toBe("hello");
   });
 });
 
 describe("TP-CL2-② 信封版本位与常量（v0.2 bump）", () => {
-  test("PROTOCOL_VERSION = \"0.2\"；v0.2 帧 v 位全为 \"0.2\"，历史帧 v=0 合法（兼容读）", () => {
-    expect(PROTOCOL_VERSION).toBe("0.2");
-    for (const frame of [...v02Events, ...v02ResultEvents, ...v02Commands, helloFrame]) {
-      expect(frame.v).toBe("0.2");
+  test("PROTOCOL_VERSION = \"0.3\"；当前批帧 v 位全为 \"0.3\"，历史帧 v=0 合法（兼容读）", () => {
+    expect(PROTOCOL_VERSION).toBe("0.3");
+    for (const frame of [...v02Events, ...v02ResultEvents, ...v02Commands, ...v03Commands, ...v03Events, helloFrame]) {
+      expect(frame.v).toBe("0.3");
     }
     for (const frame of [...legacyEvents, ...legacyCommands, ...v01Commands, ...v01Events]) {
       expect(frame.v).toBe(0); // v0/v0.1 历史帧：FrameVersion 取值域内合法
@@ -1109,7 +1241,7 @@ describe("TP-v0.1-② EntryDto 四成员与快照 additive 字段（契约 §6�
 // ── v0.2 运行时断言（契约 A/B/C） ─────────────────────────────
 describe("TP-v0.2-① 常量导出与信封分型（契约 A §1/§3）", () => {
   test("PROTOCOL_VERSION / MAIN_INSTANCE_ID / SYSTEM_SESSION_ID 导出就位", () => {
-    expect(PROTOCOL_VERSION).toBe("0.2");
+    expect(PROTOCOL_VERSION).toBe("0.3");
     // 常量断言经模块命名空间在 exports.test.ts 全量守护，此处锚定语义值
     expect(typeof PROTOCOL_VERSION).toBe("string");
   });
@@ -1200,5 +1332,65 @@ describe("TP-v0.2-③ 快照尾窗 additive 字段（契约 B §2.2，AD-1）", 
     expect(agent0?.channels?.thinking?.length).toBe(1); // F-14⑤：不随尾窗截断
     expect(agent0?.channels?.messages?.length).toBe(1);
     expect(snapshot.instances).toBeUndefined(); // v0 快照不带仍合法
+  });
+});
+
+// ── v0.3 运行时断言（契约 = contract-v0.3.md §1–§4） ──────────
+describe("TP-v0.3-① 三合一 additive 字段形态（契约 v0.3 §1/§2/§3）", () => {
+  test("CL-1 anchorEntryId：agent.spawned 增量帧携带锚（string / null 流首）", () => {
+    expect(spawnedAnchored.channel).toBe("agent");
+    expect(
+      spawnedAnchored.type === "agent.spawned" && spawnedAnchored.payload.anchorEntryId,
+    ).toBe("e12");
+    expect(
+      spawnedStreamHead.type === "agent.spawned" && spawnedStreamHead.payload.anchorEntryId,
+    ).toBeNull(); // null = 流首锚点（有效值，非缺失）
+  });
+
+  test("CL-1 anchorEntryId：instances DTO 快照面同源供给（主实例缺省不携带）", () => {
+    expect(instanceAnchored.anchorEntryId).toBe("e12");
+    expect(instanceMainNoAnchor.anchorEntryId).toBeUndefined(); // kind=main：无卡片无锚
+    expect(instanceMainNoAnchor.kind).toBe("main");
+  });
+
+  test("CL-2 tier：monitor / 缺省 full 两形态；unsubscribe payload 保持空不动", () => {
+    expect(subscribeMonitor.payload.tier).toBe("monitor");
+    expect(subscribeTierDefault.payload.tier).toBeUndefined(); // 缺省 = full（既有语义不变）
+    expect(unsubscribeUnchanged.payload).toEqual({}); // EmptyPayload 不动
+    expect(unsubscribeUnchanged.sessionId).toBe("sess-1"); // 信封路由位不变
+  });
+
+  test("CL-3 instanceId：定向寻址 / 缺省主实例两形态（dispatch 窄化消费）", () => {
+    expect(steerTargeted.payload.instanceId).toBe("agent-1");
+    expect(steerMainDefault.payload.instanceId).toBeUndefined(); // 缺省 = 主实例
+    expect(dispatchCommand(steerTargeted)).toBe("steer:定向注入 agent-1:agent-1");
+    expect(dispatchCommand(steerMainDefault)).toBe("steer:主实例缺省路径:main");
+  });
+
+  test("负向样例仅以 @ts-expect-error 守护（运行时字面量回读，读取侧宽化转型）", () => {
+    expect((badTier.payload as Record<string, unknown>).tier).toBe("lite");
+    expect((badUnsubscribeTier.payload as Record<string, unknown>).tier).toBe("monitor");
+    expect(badAnchor.anchorEntryId as unknown).toBe(12);
+    expect((badSteerTarget.payload as unknown as Record<string, unknown>).instanceId).toBe(3);
+  });
+});
+
+describe("TP-v0.3-② 版本位 bump 与目录计数不动（契约 v0.3 §0/§4）", () => {
+  test("PROTOCOL_VERSION = \"0.3\"；hello 协商位单值联动；v0.3 帧 v 位全 \"0.3\"", () => {
+    expect(PROTOCOL_VERSION).toBe("0.3");
+    expect(helloFrame.payload.protocolVersion).toBe("0.3");
+    for (const frame of [...v03Commands, ...v03Events]) {
+      expect(frame.v).toBe("0.3");
+    }
+    for (const frame of v03Events) {
+      expect(frame.channel).toBe("agent"); // 增量帧仍走 agent 族（零新增事件类型）
+    }
+  });
+
+  test("事件/命令目录零新增：EVENT_TYPES 37 / EVENT_CHANNELS 37 键 / COMMAND_TYPES 21（TR-AD-23①/②）", () => {
+    expect(EVENT_TYPES.length).toBe(37); // v0.3：零新增（守护计数不动）
+    expect(new Set(EVENT_TYPES).size).toBe(37); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(37); // 登记目录恰等不动
+    expect(COMMAND_TYPES.length).toBe(21); // 可选参数扩展优先于新命令对
   });
 });

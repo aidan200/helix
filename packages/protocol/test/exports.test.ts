@@ -33,6 +33,7 @@ type _TypeSurface = [
   protocol.ChatSteerCommand,
   protocol.ChatAbortCommand,
   protocol.SessionSubscribeCommand,
+  protocol.SessionSubscribePayload,
   protocol.SessionUnsubscribeCommand,
   protocol.CommandEnvelope,
   protocol.CommandType,
@@ -195,12 +196,12 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（v0.2：命令 21 / 事件 37）", () => {
-    expect(protocol.PROTOCOL_VERSION).toBe("0.2");
+  test("② 常量语义值 + 目录计数（v0.3：命令 21 / 事件 37 零新增；PROTOCOL_VERSION bump）", () => {
+    expect(protocol.PROTOCOL_VERSION).toBe("0.3"); // v0.3 bump（iter-20260818-mq5a T1.2，批次标记）
     expect(protocol.MAIN_INSTANCE_ID).toBe("main");
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(21); // v0.1：5 → 8；v0.2：+13
-    expect(protocol.EVENT_TYPES.length).toBe(37); // v0.1：12 → 24；v0.2：+2；T2.2：+2；微批：+9 结果帧
+    expect(protocol.COMMAND_TYPES.length).toBe(21); // v0.1：5 → 8；v0.2：+13；v0.3：零新增（可选参数扩展）
+    expect(protocol.EVENT_TYPES.length).toBe(37); // v0.1：12 → 24；v0.2：+2；T2.2：+2；微批：+9；v0.3：零新增
     expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(37); // 登记目录恰等
   });
 });

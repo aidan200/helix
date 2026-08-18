@@ -15,14 +15,14 @@ import { MAIN_INSTANCE_ID as DOMAIN_MAIN_INSTANCE_ID } from "../../src/domain/ag
  */
 describe("@helix/protocol 工作区解析（TP-CL2-2 基线）", () => {
   test("daemon 侧 import 同一协议包并使用其类型", () => {
-    expect(PROTOCOL_VERSION).toBe("0.2"); // v0.2 bump（iter-20260816-6q6f T1.2）
+    expect(PROTOCOL_VERSION).toBe("0.3"); // v0.3 bump（iter-20260818-mq5a T1.2，批次标记）
 
     const cmd: ChatSendCommand = { v: PROTOCOL_VERSION, type: "chat.send", payload: { text: "ping" } };
     expect(cmd.type).toBe("chat.send");
     expect(cmd.payload.text).toBe("ping");
 
     const evt: EventEnvelope = {
-      v: 0, // v0/v0.1 历史帧兼容读（FrameVersion = 0 | "0.2"）
+      v: 0, // v0/v0.1 历史帧兼容读（FrameVersion = 0 | "0.3"）
       type: "agent.state.changed",
       payload: { state: "idle" },
     };
