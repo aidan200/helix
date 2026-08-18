@@ -138,6 +138,17 @@ stack: backend
 name: SteerQueue
 status: active
 digest: 写 steer 打断、turn 间消息注入、closure 注入主线、用户定向干预实例时
+anchors:
+  implementedBy:
+    - apps/daemon/src/domain/session/Session.ts#applySteer
+    - apps/daemon/src/domain/session/Session.ts#steerEntry
+    - apps/daemon/src/domain/session/Session.ts#applyDirectedSteer
+    - apps/daemon/src/domain/agent/SteerQueue.ts#SteerQueue
+    - apps/daemon/src/application/services/ChatService.ts#steer
+    - apps/daemon/src/application/services/ChatService.ts#steerInstance
+  testedBy:
+    - apps/daemon/test/unit/chat-service.test.ts
+    - apps/daemon/test/unit/domain-session.test.ts
 updatedIn: iter-20260818-mq5a
 ```
 
@@ -162,6 +173,21 @@ stack: backend
 name: AgentInstance
 status: active
 digest: 写实例生命周期、挂 instanceId、区分主/Sub 实例、供 spawn 锚点时
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts#computeAnchorEntryId
+    - apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts#lastMainAnchorId
+    - apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts#AnchorScanEntry
+    - apps/daemon/src/application/services/SchedulerService.ts#spawnAnchors
+    - apps/daemon/src/application/services/SchedulerService.ts#spawnAnchorOf
+    - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#publish
+    - apps/shell/src/entities/session/model/consumers/snapshot.ts
+    - apps/shell/src/widgets/chat-stream/ui/MessageFlow.tsx
+  testedBy:
+    - apps/daemon/test/integration/spawn-anchor.test.ts
+    - apps/shell/src/entities/session/model/instance-anchors.test.ts
+    - apps/shell/src/widgets/chat-stream/ui/MessageFlow.test.tsx
+    - apps/daemon/test/integration/agent-ws.test.ts
 updatedIn: iter-20260818-mq5a
 ```
 

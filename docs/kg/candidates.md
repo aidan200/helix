@@ -514,3 +514,18 @@
 - createdIn: iter-20260815-6tss
 - decisionLog: 终验决策 B（用户批准 2026-08-16）：deferred 候选的修正方向已由本迭代 T5.2 teardown 三件套完整兑现并固化为 TR-TEST-6（daemon-fixture teardown 统一 rmSync + 三面断言 + x2 连跑零残留，E 层 14 passed 证据）——「测试结束清理 tmp」字面纪律现为真实现。候选使命完成，discard 保留审计痕（上迭代 iter-20260815-6tss 遗留收口）。
 - deferHistory: [iter-20260815-6tss]
+
+### CL-iter-20260818-mq5a-1
+- changeType: 修改
+- targetNode: TR-TEST-6
+- placement: docs/kg/testing-rules.md TR-TEST-6 节点（正文增补外补条目 + anchors 扩充）
+- scope: docs/kg/testing-rules.md TR-TEST-6 节点正文增补外补条目 + anchors 扩充；影响下游 kg-inspection 判据口径声明
+- project: helix
+- reason: CL-7 裁决（Q-5 全收）「判据入 TR-TEST-6 外补条目」：判据已完整实现并接线，但 testing-rules.md 正文零变更、全仓搜「外补」零命中——迭代产物（verification-report.md:93 / kg-inspection.md:33）声称已落与 main 现状矛盾（声明性漂移）。L3 复核（phase-reviewer 批 3）判 TR-TEST-6 不一致并产四节 update 草案
+- evidence: git log -- docs/kg/testing-rules.md 末次 2308bc2（上迭代终验沉淀），本迭代零变更；grep「外补|TMPDIR|预检|卫生」testing-rules.md 仅 TR-TEST-5 端口预检（:167）无关命中；task-T4.3-brief.md:8,15（CL-7/Q-5 裁决「判据入 TR-TEST-6 外补条目」）；task-T4.3-report.md:6（外补草稿待落 kg）；verification-report.md:93 / kg-inspection.md:33（声称已落，与 main 现状矛盾——声明性漂移）
+- nodeDraft: {"anchors":{"implementedBy":["e2e/harness/tmp-hygiene.ts","e2e/harness/e2e-global-setup.ts"],"testedBy":["e2e/CL-4-teardown-residue.spec.ts"]},"derivedFrom":["CL-7（Q-5 全收）"],"digest":"写 e2e harness、新增临时目录前缀、配 CI 连跑、排查测试残留时","graph":"tech","kind":"rule","layer":"common","name":"TR-TEST-6 外补条目（TMPDIR 全前缀卫生预检判据）","sections":{"counterExample":"预检只进 spec 不进 globalSetup（spec 内预检已晚于构建，拦不住本轮污染）；afterAll 回收旁路散点化（各测试自记自删，漏一处即破坏断言面）","rationale":"连跑两轮断言（test:e2e:x2）只证本轮零残留，防不了外部残留污染断言面；跑前预检把「进入断言面前先证清白」机制化为 fail-fast，红/绿双路径已在 iter-20260818-mq5a 实证（首跑拦截 896 条开发阶段中断遗留）","rule":"外补条目（iter-20260818-mq5a CL-7）：E 层 globalSetup 首步执行 TMPDIR 全前缀卫生预检（helix-* 前缀残留=0 才放行，非零 fail-fast 报清单，先于端口预检与构建）；残留断言面前缀面扩至 helix-* 全前缀（不限于单一迭代前缀）；bun test 侧自建沙箱 afterAll 统一回收"},"status":"active","updatedIn":"iter-20260818-mq5a"}
+- implementationStatus: 完整实现
+- implementedCode: e2e/harness/tmp-hygiene.ts（全文件：HELIX_TMP_PREFIX/listHelixTmpResidue/assertTmpHygiene + CLI 红绿自证）；e2e/harness/e2e-global-setup.ts:15,34（globalSetup 首步接线）；e2e/CL-4-teardown-residue.spec.ts:102-119（三面断言扩 helix-* 全前缀）；apps/daemon/test/integration/tools-loop.test.ts:111,278（afterAll 沙箱回收）；package.json:17（test:e2e:x2）
+- sourceTask: final-verification/l3-semantic-review-batch3-shell-lifecycle-persistence-profile-testing.md（phase-reviewer 批 3 L3 语义复核）
+- createdIn: iter-20260818-mq5a
+- decisionLog: 终验人审 apply 执行记录（用户批准终验报告 2026-08-18，裁决①=采纳修正）：TR-TEST-6 外补条目内容已由 project_write_tech_rules 直接落库（testing-rules.md TR-TEST-6：正文增补外补条款「globalSetup 首步 TMPDIR 全前缀卫生预检 + 断言面前缀面扩展 + afterAll 沙箱回收」+ anchors 扩充 tmp-hygiene.ts/e2e-global-setup.ts + relations dependsOn TR-TEST-4/5 保留 + updatedIn=iter-20260818-mq5a）。正式号 TR-TEST-6 与上迭代（6q6f 终验决策 B）discarded 条目撞号——台账 id 唯一性缺口：propose 侧已用临时号 CL-iter-20260818-mq5a-1 绕过，apply 侧 ledgerHas 查重含 discarded 分区不可绕。按 6q6f 终验决策 A 同款处置：discard 留审计痕，修正事实以本条目 + testing-rules.md TR-TEST-6 现文为准。知识不丢失；修复 verification-report.md:93 声明性漂移。来源：L3 语义复核批 3（phase-reviewer）。撞号工具缺口记优化机会 #13（扩 apply 侧）。

@@ -308,8 +308,13 @@ derivedFrom:
   - CL-4 裁决（M4：Q-4a IconRail 形态 / Q-4b 六页签与路径路由 / Q-4c 占位施工牌）
 anchors:
   implementedBy:
-    - apps/shell/src/
+    - apps/shell/src/app/route.ts#routeOfPath
+    - apps/shell/src/app/useAppRoute.ts
+    - apps/shell/src/app/App.tsx
+    - apps/shell/src/widgets/nav-rail/ui/IconRail.tsx
+    - apps/shell/src/shared/ui/ConstructionBoard.tsx
   testedBy:
+    - apps/shell/src/app/route.test.ts
     - apps/shell/src/tests/ag-scans.test.ts
 relations:
   governs:
@@ -564,6 +569,17 @@ derivedFrom:
   - AD-1
   - CL-3 裁决（M4：Q-3a 消息双处可见 / Q-3b 抽屉输入栏）
   - AD-5（M4 契约 v0.3 一次定形）
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts#isMainAxisEntry
+    - apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts#instanceChannels
+    - apps/daemon/src/domain/session/Session.ts#applyDirectedSteer
+    - apps/shell/src/widgets/chat-stream/ui/MessageFlow.tsx
+    - apps/shell/src/entities/session/model/session-reducer.ts
+  testedBy:
+    - apps/daemon/test/unit/chat-service.test.ts
+    - apps/shell/src/entities/session/model/session-reducer-drawer.test.ts
+    - apps/daemon/test/integration/ws-server-spy.test.ts
 relations:
   governs:
     - E-AgentInstance
@@ -588,7 +604,7 @@ F-12 实锤现状只有 agent_kind 无实例 id，同类型多实例不可区分
 M2+ 写任何领域事件、聚合 Entry、持久化 schema（domain_events/agent_lifecycle/tool_calls）时；协议事件/快照字段扩展时；SubAgent 编排（调度/收口/kill 寻址）实现时；UI 时间线实例分段与抽屉过滤渲染时；trace 四维查询与账目分实例统计时。schema 列级演进走建表幂等 + 守护式补列，RowMapper fromRow 默认值兑底（TR-AD-14 同口径）。M4+ 写任何用户干预入口（主 Composer / 抽屉输入栏 / 未来 phase 干预面）；动 steer 路由或 SteerQueue 注入链路；定向消息渲染；恢复重放验证干预历史完整性的测试面。
 
 ## 反例
-领域事件只带 agent_kind 不带 agent_instance_id——两个并行的 subagent-worker 事件流、账目、抽屉内容全部串台不可区分；或 SchedulerService 给 SubAgent 另建一条事件通道/另一套持久化路径（「同构」退化为双轨）；或 UI 把所有实例 Entry 平铺进主线聊天流——SubAgent 内部工具调用刷屏主线，违背隔离初衷。定向 steer 走旁路通道直投子进程 stdin 而不落 Entry（恢复后干预历史消失，重放不完整）；或路由判定写在 WsServerAdapter case 内（编排泄漏进 driving adapter，TR-AD-9 反例同构）；或前端把定向消息渲染成完整用户气泡占主线版面（已裁「轻量渲染」）。
+领域事件只带 agent_kind 不带 agent_instance_id——两个并行的 subagent-worker 事件流、账目、抽屉内容全部串台不可区分；或 SchedulerService 给 SubAgent 另建一条事件通道/另一套持久化路径（「同构」退化为双轨）；或 UI 把所有实例 Entry 平铺进主线聊天流——SubAgent 内部工具调用刷屏主线，违背隔离初衷。定向 steer 走旁路通道直投子进程 stdin 而不落 Entry（干预历史在恢复重放中消失）。
 
 ```kg-node
 id: TR-AD-16
@@ -864,6 +880,20 @@ derivedFrom:
   - AD-2（M4 monitor 档，Q-2b 机制定案）
   - AD-5（M4 契约 v0.3 一次定形）
   - Q-1c（M4 一步替换无协商）
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#MONITOR_TIER_EVENT_TYPES
+    - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#push
+    - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#ConnProjection
+    - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#subscribeSession
+    - packages/protocol/src/commands.ts#SessionSubscribePayload
+    - packages/protocol/src/envelope.ts#PROTOCOL_VERSION
+    - apps/shell/src/entities/session/model/subscription-ledger.ts
+  testedBy:
+    - apps/daemon/test/integration/ws-server-spy.test.ts
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
+    - packages/protocol/test/type-surface.test.ts
+    - apps/shell/src/entities/session/model/subscription-ledger.test.ts
 relations:
   governs:
     - E-领域事件与单写队列

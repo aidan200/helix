@@ -15,3 +15,8 @@
 - 主体：M3 面板线落地（CL-1 多会话管理 / CL-2 核心面板聚合 / CL-3 模型模块 auth+目录+切换 / CL-4 工程批次）+ 契约 v0.2（统一信封 sessionId 路由 + 八族 37 事件 + 点对点结果帧）+ AD-1~4 落地（尾窗分页/模型模块/事件分发/SessionRegistry）+ M5 热修六提交（T5.1 多会话切换串台 critical 修复）；验证两轮全绿（Round-1 F 36/E 19×2，Round-2 M5 复核 F 91/E 20×2 零回退）；终验通过（生产就绪四基线 PASS + 全局审计 PASS-with-notes + L3 复核 20 节点 19 一致），用户批准 18 条候选裁决（apply：撤边界×2/落地定稿/文本修订/新增 TR-AD-21·22 + E-模型目录·E-认证凭据；AD-1~4 决策档案入 docs/kg/decisions.md——kg A-1 模型决策非图节点，溯源由 TR derivedFrom 承载）。kg 终态 40 节点 / pending 清空。遗留：优化机会清单 17 项（vite/vitest dev 依赖升级、暗主题 text-dim 对比度、backlog #58 四项转下迭代）。
 - 触及：TR-AD-5, TR-AD-6, E-认证凭据, E-模型目录, TR-AD-21, TR-AD-22, TR-AD-15, TR-AD-19, E-会话聚合, TR-AD-7, TR-AD-18, TR-AD-2, AD-1, AD-2, AD-3, AD-4
 - 状态：已沉淀
+
+## iter-20260818-mq5a — helix M4：SubAgent spawn 锚点 + monitor 档订阅 + 定向 steer + 多页面导航（CL-1~7 / AD-1~5）
+- 主体：M4 SubAgent 交互面落地：spawn 锚点（anchorEntryId 组装期派生不落库）+ monitor 档订阅（连接级 tier + 白名单单点）+ 定向 steer（agent_send 通道复用 + 同构落 Entry）+ 多页面导航框架（页面域/会话域分离）；契约 v0.3 一次定形（三处 additive 零新命令对）+ 工程卫生批次（audit:assert/a11y 判据化 + TMPDIR 卫生预检）。验证 F 层 118/0 + E 层 21/1 known-flake + 契约对齐 8 组同构 + 还原度 19/19；终验通过（生产就绪四基线 LCP 0.11s/CLS 0.0849/双主题对比度全过/零漏洞 + 全局审计 0 BLOCKER + L3 复核 19 节点 18 一致），用户批准全部裁决。kg 终态：41 节点 / 锚定 58.5%→68.3% / TR-TEST-6 外补落库（撞号走 6q6f 决策 A 同款 direct-write+discard 留痕）+ 六节点补锚 / pending 清空。遗留：优化机会 13 项（PROTOCOL.md v0.3 升版、SchedulerService/DtoMapper/type-surface 拆分候选、E 层 flake 收尾）。
+- 触及：TR-TEST-6, TR-TEST-3, TR-AD-15, TR-AD-23, TR-AD-8, E-AgentInstance, E-SteerQueue
+- 状态：已沉淀

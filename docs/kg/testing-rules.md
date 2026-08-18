@@ -84,13 +84,14 @@ derivedFrom:
 anchors:
   implementedBy:
     - e2e/harness/protocol.ts
+    - apps/daemon/test/mocks/FakeAgentEngine.ts
   testedBy:
     - apps/daemon/test/integration/test-profile.test.ts
     - apps/daemon/test/integration/tools-loop.test.ts
 relations:
   governs:
     - E-AgentRuntime
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260818-mq5a
 ```
 
 ## 规则
@@ -188,28 +189,32 @@ digest: 写 e2e harness 或 fixture、配 CI 连跑、排查测试残留时
 derivedFrom:
   - F4.3
   - F4.5
+  - CL-7（M4 环境治理，Q-5 全收）
 anchors:
   implementedBy:
     - e2e/harness/daemon-fixture.ts
     - playwright.e2e.config.ts
+    - e2e/harness/tmp-hygiene.ts
+    - e2e/harness/e2e-global-setup.ts
   testedBy:
     - e2e/CL-4-teardown-residue.spec.ts
 relations:
   dependsOn:
     - TR-TEST-4
     - TR-TEST-5
-updatedIn: iter-20260816-6q6f
+updatedIn: iter-20260818-mq5a
 ```
 
 ## 规则
 任何起进程/占端口/建 tmp 的测试（integration/fidelity/e2e）teardown 三件套彻底清理：tmp 目录（--home 注入的 mkdtemp 全删）、子进程（daemon 及其派生的 SubAgent 子进程树——SIGTERM 优雅停机 + 超时升级强杀，不留孤儿进程）、端口（结束释放验证）。
 以「同一套件连跑两轮零残留」断言机械化守护：残留检测任一命中即红（tmp 未删/进程存活/端口占用）；CI 必须包含连跑两轮形态。fixture（daemon-fixture/mock-init）是清理责任的唯一归属——测试用例不得自带旁路清理逻辑。
+外补条目（iter-20260818-mq5a CL-7/Q-5）：E 层 globalSetup 首步执行 TMPDIR 全前缀卫生预检（helix-* 前缀残留=0 才放行，非零 fail-fast 报清单，先于端口预检与构建）；残留断言面前缀面扩至 helix-* 全前缀（不限于单一迭代前缀）；bun test 侧自建沙箱 afterAll 统一回收。
 
 ## 理由
-TR-TEST-4 只裁隔离注入（--home tmp），未覆盖进程/端口残留；F4.3 实锤 e2e teardown 残留（首迭代遗留项）；残留会让下一轮测试假红/假绿并污染开发机，连跑两轮断言把「零残留」从纪律变为机械判据。F4.5 裁决将本纪律落为 testing-rules.md 新 TR。
+TR-TEST-4 只裁隔离注入（--home tmp），未覆盖进程/端口残留；F4.3 实锤 e2e teardown 残留（首迭代遗留项）；残留会让下一轮测试假红/假绿并污染开发机，连跑两轮断言把「零残留」从纪律变为机械判据。F4.5 裁决将本纪律落为 testing-rules.md 新 TR。M4 CL-7（Q-5）：连跑两轮断言只证本轮零残留，防不了外部残留污染断言面；跑前预检把「进入断言面前先证清白」机制化为 fail-fast，红/绿双路径已在 iter-20260818-mq5a 实证（首跑拦截 896 条开发阶段中断遗留）。
 
 ## 适用范围
-e2e/harness（daemon-fixture/mock-init）维护；新 fixture 接入；CI 配置；integration 测试 teardown；M2+ 任何新增子进程/端口资源的测试（SubAgent 子进程 fixture 同纳入）。
+e2e/harness（daemon-fixture/mock-init/tmp-hygiene）维护；新 fixture 接入；CI 配置；integration 测试 teardown；M2+ 任何新增子进程/端口资源的测试（SubAgent 子进程 fixture 同纳入）；M4+ 新临时目录前缀纳入残留预检评审面；bun test 侧自建沙箱回收模式。
 
 ## 反例
-daemon-fixture 只 kill 直接子进程，SubAgent 子进程成孤儿继续占端口/预算——第二轮连跑端口冲突假红；或测试用例末尾自己 process.kill 补刀——清理责任旁路出 fixture，新用例接入时漏复制即残留复发。
+daemon-fixture 只 kill 直接子进程，SubAgent 子进程成孤儿继续占端口/预算——第二轮连跑端口冲突假红；或测试用例末尾自己 process.kill 补刀——清理责任旁路出 fixture，新用例接入时漏复制即残留复发。预检只进 spec 不进 globalSetup（spec 内预检已晚于构建，拦不住本轮污染）；afterAll 回收旁路散点化（各测试自记自删，漏一处即破坏断言面）。

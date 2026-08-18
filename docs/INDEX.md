@@ -12,13 +12,13 @@ docs:
     updatedAt: 2026-08-15T11:25:13.254Z
   - name: kg/domain.md
     purpose: 领域模型（业务实体）
-    updatedAt: 2026-08-18T03:43:24.878Z
+    updatedAt: 2026-08-18T17:04:17.118Z
   - name: kg/architecture-rules.md
     purpose: 架构规则（技术规则 TR-AD-N）
-    updatedAt: 2026-08-18T03:43:24.873Z
+    updatedAt: 2026-08-18T17:04:59.075Z
   - name: kg/testing-rules.md
     purpose: 测试规则（技术规则 TR-TEST-N）
-    updatedAt: 2026-08-16T11:25:47.912Z
+    updatedAt: 2026-08-18T17:18:32.570Z
   - name: kg/decisions.md
     purpose: 架构决策节点（AD-N，上下文/选项/裁决与理由/结局四节；终验沉淀跨迭代有效的设计事实）
     updatedAt: 2026-08-18T00:10:44.340Z
