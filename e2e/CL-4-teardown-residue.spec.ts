@@ -25,6 +25,7 @@ import {
   waitForPortFree,
 } from "./harness/daemon-fixture";
 import { writeEvidence } from "./harness/evidence";
+import { listHelixTmpResidue } from "./harness/tmp-hygiene";
 import { slowReply, toolCall, type DaemonScript } from "./harness/daemon-script";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -100,20 +101,21 @@ test.describe("T5.2 CL-4 teardown 零残留纪律（TR-TEST-6）", () => {
 
   test("三面零残留（连跑两轮判据：tmp 基目录/进程/端口）", async () => {
     // 套件级断言：本轮（或上一轮连跑）任何 test 的 teardown 泄漏在此变红
-    const tmpResidue = listE2eTmpResidue();
+    // T4.3：tmp 面从 helix-e2e-* 扩展为 helix-* 全前缀面（TR-TEST-6 外补判据）
+    const tmpResidue = listHelixTmpResidue();
     const procResidue = findResidueProcesses();
     const portFree = await canBindPort(E2E_DAEMON_PORT);
     writeEvidence(
       "teardown-three-faces",
       "txt",
       [
-        `① tmp 基目录残留（${tmpdir()} 下 ${"helix-e2e-"}*）：${JSON.stringify(tmpResidue)}`,
+        `① tmp 基目录残留（${tmpdir()} 下 helix-* 全前缀）：${JSON.stringify(tmpResidue)}`,
         `② 残留进程（launcher/ChildMain 特征）：${JSON.stringify(procResidue, null, 2)}`,
         `③ 端口 ${E2E_DAEMON_PORT} 可 bind：${portFree}`,
       ].join("\n"),
       "CL-4",
     );
-    expect(tmpResidue, "① tmp 基目录应为空（teardown 三件套之一）").toEqual([]);
+    expect(tmpResidue, "① tmp 基目录应为空（helix-* 全前缀零残留）").toEqual([]);
     expect(procResidue, "② 不应有 daemon/SubAgent 残留进程（teardown 三件套之二）").toEqual([]);
     expect(portFree, "③ 端口应可 bind（teardown 三件套之三）").toBe(true);
     await expect(waitForPortFree(E2E_DAEMON_PORT, 5000)).resolves.toBeUndefined();

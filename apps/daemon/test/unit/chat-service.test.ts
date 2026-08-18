@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ChatService } from "../../src/application/services/ChatService";
+import { ChatService, SteerTargetNotRunningError } from "../../src/application/services/ChatService";
 import { SessionProjection } from "../../src/application/services/SessionProjection";
 import type { EventPublisherPort, StreamDelta } from "../../src/application/ports/outbound/EventPublisherPort";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
@@ -331,5 +331,122 @@ describe("⑤ FakeAgentEngine 时序契约自检（spike §5 等价）", () => {
 
     await engine.start("q2", () => {}); // 同实例继续——非销毁
     expect(engine.events.at(-1)!.type).toBe("agent_end");
+  });
+});
+
+describe("⑦ 定向 steer 路由（T2.3 契约 v0.3 §3.2，TP-CL3-2 U 半）", () => {
+  /**
+   * 带定向转投面的装配（sendToInstance spy 记录调用；delivered 模拟
+   * SchedulerService.send 前置判定结果——判定本体归调度侧既有 send 链）。
+   */
+  function makeDirected(engine: FakeAgentEngine, delivered: boolean, detail?: string) {
+    const publisher = new RecordingPublisher();
+    const repo = new InMemorySessionRepository();
+    const sent: { instanceId: string; text: string }[] = [];
+    const chat = new ChatService({
+      engine,
+      events: publisher,
+      clock: new FixedClock(),
+      sendToInstance: (instanceId: string, text: string) => {
+        sent.push({ instanceId, text });
+        return {
+          delivered,
+          detail: detail ?? (delivered ? `已注入 ${instanceId}（turn 边界生效）` : `实例 ${instanceId} 已终态（completed），消息未投递`),
+        };
+      },
+    });
+    const projection = new SessionProjection({
+      repository: repo,
+      getSession: () => chat.sessionView,
+      getMainState: () => ({ agentState: chat.agentState, toolCalls: chat.toolCallData }),
+    });
+    publisher.addTarget(projection);
+    return { chat, publisher, repo, sent };
+  }
+
+  test("携带 instanceId 且目标运行中 → 转投 send 链 + 主轴落 isSteer Entry（instanceId=目标）+ steer.queued 信封挂 instanceId", async () => {
+    const engine = new FakeAgentEngine();
+    const { chat, publisher, repo, sent } = makeDirected(engine, true);
+
+    const outcome = await chat.steer("注意边界情况", "agent-1");
+
+    // ① 转投 AgentOrchestrationPort.send 链（同参直证）
+    expect(sent).toEqual([{ instanceId: "agent-1", text: "注意边界情况" }]);
+    // ② 干预消息落主时间轴 Entry：user + isSteer + instanceId=目标（与 applySteer 同构）
+    const entry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.id === outcome.entryId);
+    expect(entry).toMatchObject({ role: "user", text: "注意边界情况", isSteer: true, instanceId: "agent-1" });
+    // 不入主 SteerQueue（目标是 SubAgent，不经主线 turn 边界 drain）
+    expect(chat.sessionSnapshot.pendingSteer).toHaveLength(0);
+    // ③ steer.queued 事件信封挂 instanceId=目标（payload 语义不变）
+    const queued = publisher.domainEvents.find((e) => e.type === "steer.queued");
+    expect(queued).toBeDefined();
+    expect(queued!.instanceId).toBe("agent-1");
+    expect((queued!.payload as { entryId: string; text: string })).toEqual({ entryId: outcome.entryId, text: "注意边界情况" });
+    // 主线引擎零触碰（不驱动主实例 steer）、主生命周期不动
+    expect(engine.queuedCount).toBe(0);
+    expect(chat.agentState).toBe("idle");
+    // write-through 落盘（会话投影消费者持久化 → 恢复重放的事实源）
+    expect((await repo.restore(chat.sessionId))?.session.entries.length).toBe(1);
+  });
+
+  test("携带 instanceId 且目标非运行中 → SteerTargetNotRunningError；零 Entry 零队列零事件", async () => {
+    const engine = new FakeAgentEngine();
+    const { chat, publisher, repo, sent } = makeDirected(engine, false, "实例 agent-2 已终态（completed），消息未投递");
+
+    await expect(chat.steer("迟到了", "agent-2")).rejects.toThrow(SteerTargetNotRunningError);
+
+    // 前置判定经 send 链（delivered=false 同步返回），但不落 Entry 不入队不广播
+    expect(sent).toEqual([{ instanceId: "agent-2", text: "迟到了" }]);
+    expect(chat.sessionSnapshot.entries).toHaveLength(0);
+    expect(chat.sessionSnapshot.pendingSteer).toHaveLength(0);
+    expect(publisher.domainEvents).toHaveLength(0);
+    expect(engine.queuedCount).toBe(0);
+    expect((await repo.restore(chat.sessionId))?.session.entries ?? []).toHaveLength(0);
+  });
+
+  test("缺省 instanceId → 主实例路径不变（sendToInstance 零调用 + 入主 SteerQueue + 事件不挂 instanceId）", async () => {
+    const engine = new FakeAgentEngine({
+      replies: [{ text: "足够长的回复留出注入窗口。", chunkDelayMs: 12 }],
+      steerReplies: [{ text: "注入后的答。" }],
+    });
+    const { chat, publisher, sent } = makeDirected(engine, true);
+
+    const run = chat.sendMessage("开始生成");
+    await until(() => publisher.deltas.length >= 2);
+    await chat.steer("主实例注入");
+
+    expect(sent).toHaveLength(0); // 缺省不触定向面
+    expect(chat.sessionSnapshot.pendingSteer).toHaveLength(1); // 入主 SteerQueue（既有语义）
+    const queued = publisher.domainEvents.find((e) => e.type === "steer.queued");
+    expect(queued!.instanceId).toBeUndefined(); // 主实例缺省语义（信封不挂）
+    expect(engine.queuedCount).toBe(1); // 引擎即时入队（既有语义）
+    await run;
+  });
+
+  test("显式 instanceId=main → 主实例路径（缺省语义等价；idle 时与既有同错）", async () => {
+    const engine = new FakeAgentEngine();
+    const { chat, sent } = makeDirected(engine, true);
+    await expect(chat.steer("没在运行", "main")).rejects.toThrow();
+    expect(sent).toHaveLength(0);
+    expect(chat.sessionSnapshot.entries).toHaveLength(0);
+  });
+
+  test("主线运行中定向 steer：Entry turnId 挂当前 open turn（applySteer 同构语义），主 run 不受影响", async () => {
+    const engine = new FakeAgentEngine({ replies: [{ text: "足够长的回复留出窗口。", chunkDelayMs: 12 }] });
+    const { chat, publisher, sent } = makeDirected(engine, true);
+
+    const run = chat.sendMessage("主线任务");
+    await until(() => publisher.deltas.length >= 1);
+    const { entryId } = await chat.steer("给子代理的干预", "agent-7");
+
+    const entry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.id === entryId)!;
+    expect(entry).toMatchObject({ role: "user", isSteer: true, instanceId: "agent-7" });
+    expect((entry as { turnId: string | null }).turnId).toBe(chat.sessionSnapshot.turns[0]!.id);
+    expect(sent).toEqual([{ instanceId: "agent-7", text: "给子代理的干预" }]);
+
+    await run; // 主 run 正常收口（无 drain 轮、无第二 turn）
+    expect(chat.sessionSnapshot.turns).toHaveLength(1);
+    expect(chat.sessionSnapshot.turns[0]!.status).toBe("completed");
+    expect(publisher.domainEvents.some((e) => e.type === "steer.drained")).toBe(false);
   });
 });

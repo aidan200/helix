@@ -67,9 +67,9 @@ export class MockController {
   // ── C→S 帧观测与多会话寻址（T3.1）───────────────────
 
   /**
-   * 读/设连接当前订阅会话：客户端 session.subscribe/unsubscribe 命令自动
-   * 跟随；显式传参可切换（mock 侧簿记，不影响帧下发）。单连接订阅单活跃
-   * 会话（与 T2.2 daemon subscribe 语义对齐）。
+   * 读/设连接 full 档会话（v0.3 订阅簿记 map<sessionId, tier> 投影；客户端
+   * session.subscribe/unsubscribe 命令自动跟随；设 = 目标升 full 其余降
+   * monitor）。无 full 档会话时读为 null。
    */
   async activeSession(sessionId?: string): Promise<string | null> {
     await this.awaitReady();

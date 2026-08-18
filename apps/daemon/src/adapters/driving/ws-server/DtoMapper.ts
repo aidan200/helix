@@ -71,6 +71,12 @@ export interface EventMapContext {
   readonly fallbackTurnId?: string;
   /** tool.call.result 的耗时（协议要求；由 start/result 两次 occurredAt 差值算出）。 */
   readonly durationMs?: number;
+  /**
+   * agent.spawned 帧的 spawn 锚（T2.1 契约 v0.3 §1 规则②）：spawn 时值由组合根
+   * 查值（SchedulerService 内存携带）经本上下文注入——**不进领域事件载荷**
+   * （不落 domain_events，派生值无第二事实源）；含 null 流首（有效值）。
+   */
+  readonly spawnAnchor?: string | null;
 }
 
 // ── 尾窗/分页参数（G-1 钦死：契约 B §4；daemon 侧可注入） ───────────
@@ -126,8 +132,8 @@ export function toSnapshotDto(
     ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer)),
     ...view.toolCalls.map((record) => toolCallEntryDto(record)),
   ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
-  // 主时间轴 = 主实例条目（instanceId 缺省/ main）；尾窗只作用于主轴（AD-1）
-  const mainAxis = merged.filter((entry) => (entry.instanceId ?? MAIN_INSTANCE_ID) === MAIN_INSTANCE_ID);
+  // 主时间轴 = 主实例条目 + 定向 steer 干预条目（T2.3 契约 v0.3 §3.2）；尾窗只作用于主轴（AD-1）
+  const mainAxis = merged.filter(isMainAxisEntry);
   const tailSize = opts.tailSize ?? TAIL_WINDOW_SIZE;
   const tail = mainAxis.length > tailSize ? mainAxis.slice(mainAxis.length - tailSize) : mainAxis;
   return {
@@ -140,7 +146,11 @@ export function toSnapshotDto(
     totalEntries: mainAxis.length,
     tailStartCursor: mainAxis.length > tail.length ? (tail[0]?.id ?? null) : null,
     ...(view.instances !== undefined
-      ? { instances: view.instances.map((instance) => instanceDto(instance, instanceChannels(merged, instance.instanceId))) }
+      ? {
+          instances: view.instances.map((instance) =>
+            instanceDto(instance, instanceChannels(merged, instance.instanceId), computeAnchorEntryId(merged, instance)),
+          ),
+        }
       : {}),
     ...(view.usage !== undefined ? { usage: usageDto(view.usage) } : {}),
   };
@@ -163,7 +173,7 @@ export function historyPage(
     ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer)),
     ...view.toolCalls.map((record) => toolCallEntryDto(record)),
   ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
-  const mainAxis = merged.filter((entry) => (entry.instanceId ?? MAIN_INSTANCE_ID) === MAIN_INSTANCE_ID);
+  const mainAxis = merged.filter(isMainAxisEntry);
   const cursorIndex = mainAxis.findIndex((entry) => entry.id === beforeEntryId);
   if (cursorIndex < 0) {
     throw new Error(`游标 ${beforeEntryId} 不在会话 ${snapshot.sessionId} 主时间轴内`);
@@ -199,8 +209,14 @@ function instanceChannels(entries: readonly EntryDto[], instanceId: string): Ins
 }
 
 /** InstanceSnapshotEntry（domain）→ AgentInstanceDto（协议；task/closure/usage 同构直映射）。
- *  T2.1：channels 携带时附加（SubAgent 通道历史分组，AD-3/F-14⑤）。 */
-function instanceDto(entry: InstanceSnapshotEntry, channels?: InstanceChannelHistory): AgentInstanceDto {
+ *  T2.1：channels 携带时附加（SubAgent 通道历史分组，AD-3/F-14⑤）。
+ *  T2.1（契约 v0.3 §1，AD-5）：anchor 由 computeAnchorEntryId 权威计算后传入——
+ *  undefined = 主实例不携带；null = 流首锚（有效值）。 */
+function instanceDto(
+  entry: InstanceSnapshotEntry,
+  channels?: InstanceChannelHistory,
+  anchor?: string | null,
+): AgentInstanceDto {
   return {
     instanceId: entry.instanceId,
     kind: entry.kind,
@@ -211,6 +227,7 @@ function instanceDto(entry: InstanceSnapshotEntry, channels?: InstanceChannelHis
     ...(entry.usage !== undefined ? { usage: usageTotal(entry.usage) } : {}),
     ...(entry.model !== undefined ? { model: entry.model } : {}),
     ...(channels !== undefined ? { channels } : {}),
+    ...(anchor !== undefined ? { anchorEntryId: anchor } : {}),
     ...(entry.closure !== undefined
       ? {
           closure: {
@@ -223,6 +240,55 @@ function instanceDto(entry: InstanceSnapshotEntry, channels?: InstanceChannelHis
         }
       : {}),
   };
+}
+
+// ── spawn 锚权威计算（T2.1 契约 v0.3 §1，AD-5/Q-1a） ──────────────
+
+/** 锚点扫描基元结构最小型——DTO（EntryDto）与 domain 条目数据（SessionEntryData）共用。 */
+export interface AnchorScanEntry {
+  readonly id: string;
+  readonly instanceId?: string;
+  readonly kind?: string;
+}
+
+/**
+ * 锚点扫描基元（纯函数）：entries[0, end) 内按数组序最后一条 main 归属或
+ * compaction entry 的 id（无 → null 流首）。只用聚合 entries 数组序，不掺
+ * ts 排序（explorer 排序陷阱注记：并列稳定问题规避）。
+ */
+export function lastMainAnchorId(entries: readonly AnchorScanEntry[], end: number = entries.length): string | null {
+  let anchor: string | null = null;
+  for (let i = 0; i < end; i++) {
+    const e = entries[i]!;
+    if ((e.instanceId ?? MAIN_INSTANCE_ID) === MAIN_INSTANCE_ID || e.kind === "compaction") {
+      anchor = e.id;
+    }
+  }
+  return anchor;
+}
+
+/**
+ * spawn 锚权威计算（契约 v0.3 §1 三分支机械判定；纯函数——同输入同输出；
+ * 原前端快照推导同规上收 daemon，T3.1 起 shell 零推导直读 DTO）：
+ * ① 实例已有 Entry → 首条非 compaction 归属 Entry 前最后一条 main/compaction
+ *    entry id（无 → null 流首）；首 Entry 后 append 的 main entry 不影响锚
+ *   （append-only，[0, firstIdx) 稳定域）；
+ * ② 实例尚无 Entry → spawn 时值（视图携带，不按当前尾部重算）；
+ * ③ 主实例 → 不携带（undefined）。
+ * 恢复边界（契约记录在案）：重启后仍无 Entry 的实例 spawn 时值不可重建
+ * （视图缺省），退化为规则①的尾部推导值（best-effort）。
+ */
+export function computeAnchorEntryId(
+  entries: readonly AnchorScanEntry[],
+  instance: InstanceSnapshotEntry,
+): string | null | undefined {
+  if (instance.kind === "main") return undefined; // 规则③
+  const firstIdx = entries.findIndex(
+    (e) => e.kind !== "compaction" && (e.instanceId ?? MAIN_INSTANCE_ID) === instance.instanceId,
+  );
+  if (firstIdx >= 0) return lastMainAnchorId(entries, firstIdx); // 规则①
+  if (instance.spawnAnchorEntryId !== undefined) return instance.spawnAnchorEntryId; // 规则②
+  return lastMainAnchorId(entries); // 恢复边界：spawn 时值缺位 → 尾部推导
 }
 
 /** UsageSummary（domain 七字段）→ UsageDto（协议；cost 拍平同形）。 */
@@ -257,6 +323,17 @@ function usageDto(summary: SessionUsageSummary): SessionUsageDto {
  *  createdAt（ISO，契约 §6.1）——两类字段同一时间轴。 */
 function entrySortKey(entry: EntryDto): number {
   return "ts" in entry ? entry.ts : Date.parse(entry.createdAt);
+}
+
+/**
+ * 主轴归属判定（T2.3 契约 v0.3 §3.2，Q-3a 双处可见的时间轴侧）：主实例条目
+ * （instanceId 缺省/main）+ 定向 steer 干预条目（user + isSteer 且 instanceId=
+ * 目标 SubAgent——干预消息一律落主时间轴，尾窗/翻页内自然渲染为定向细条；
+ * 同一 entry 同时经 instanceChannels 进抽屉 feed 快照面，单事实源视图双投影）。
+ */
+function isMainAxisEntry(entry: EntryDto): boolean {
+  if ((entry.instanceId ?? MAIN_INSTANCE_ID) === MAIN_INSTANCE_ID) return true;
+  return entry.kind === "message" && entry.role === "user" && entry.steerState !== undefined;
 }
 
 /** 单条 SessionEntryData → 对应 EntryDto（T3.1：message/thinking/compaction
@@ -496,7 +573,15 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       const frame: AgentSpawnedEvent = {
         v: PROTOCOL_VERSION,
         type: "agent.spawned",
-        payload: { agentId: p.agentId, task: p.task, profileKind: p.profileKind, ...(p.model !== undefined ? { model: p.model } : {}) },
+        payload: {
+          agentId: p.agentId,
+          task: p.task,
+          profileKind: p.profileKind,
+          ...(p.model !== undefined ? { model: p.model } : {}),
+          // T2.1 契约 v0.3 §1：spawn 锚经 ctx 注入（组合根查 SchedulerService
+          // 内存携带的 spawn 时值）——领域事件载荷不携带（不落 domain_events）
+          ...(ctx?.spawnAnchor !== undefined ? { anchorEntryId: ctx.spawnAnchor } : {}),
+        },
       };
       return frame;
     }

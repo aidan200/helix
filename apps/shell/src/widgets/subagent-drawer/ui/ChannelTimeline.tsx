@@ -17,6 +17,7 @@ import { formatDuration, formatTs } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 import ThinkingEntryView, { ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
 import ToolCard from "@/shared/ui/ToolCard";
+import DirectedSteer from "@/shared/ui/DirectedSteer";
 import type {
   ChannelItem,
   ChannelLcKey,
@@ -114,6 +115,10 @@ const ChannelTimeline = memo(function ChannelTimeline({
                 )}
               </div>
             );
+          case "steer-directed":
+            // 定向 steer 物种（CL-3 契约 §3.2 Q-3a 抽屉侧）：与时间轴侧同构
+            // （同一 DirectedSteer 组件——violet 细条 + 目标 chip + 正文，非气泡）
+            return <DirectedSteer key={item.seq} target={item.target} text={item.text} />;
           case "thinking-entry":
             return <ThinkingEntryView key={item.seq} entry={item.entry} />;
           case "tool":

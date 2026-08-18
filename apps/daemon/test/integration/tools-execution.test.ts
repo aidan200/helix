@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
@@ -11,10 +11,19 @@ import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecut
  * 断言见 arch-guard（TP-CL5-1-A）。
  */
 
+/** 本次进程创建的沙箱目录（afterAll 统一回收——TR-TEST-6 零残留，T4.3 补）。 */
+const sandboxes: string[] = [];
+
 /** 建一次性 tmp 沙箱（cwd 即沙箱根，工具用相对路径操作）。 */
 function makeSandbox(): string {
-  return mkdtempSync(join(tmpdir(), "helix-t15-exec-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-t15-exec-"));
+  sandboxes.push(dir);
+  return dir;
 }
+
+afterAll(() => {
+  for (const dir of sandboxes) rmSync(dir, { recursive: true, force: true });
+});
 
 describe("TP-CL5-1（I）：四工具 tmp 沙箱真实执行", () => {
   test("bash：命令真实执行，stdout 回传", async () => {

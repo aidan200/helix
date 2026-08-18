@@ -37,37 +37,11 @@ import {
 /** 本块承接的帧事件 type（dispatcher 注册面）。 */
 export const SNAPSHOT_EVENT_TYPES = ["session.snapshot"] as const;
 
-/**
- * 快照恢复锚点（T5.5）：= 实例首 Entry 前最后一条 main entry（F1.6 同规：
- * main 归属或 compaction 归主流）；无实例 Entry = 尾部（最后一条 main
- * entry）；首 Entry 前无 main entry / 无实例 Entry 且无 main entry = null（流首）。
- */
-function anchorFromSnapshot(dto: AgentInstanceDto, entries: EntryDto[]): string | null {
-  const firstIdx = entries.findIndex(
-    (e) => e.kind !== "compaction" && (e.instanceId ?? MAIN_INSTANCE_ID) === dto.instanceId,
-  );
-  const scanEnd = firstIdx === -1 ? entries.length : firstIdx;
-  let anchor: string | null = null;
-  for (let i = 0; i < scanEnd; i++) {
-    const e = entries[i]!;
-    if ((e.instanceId ?? MAIN_INSTANCE_ID) === MAIN_INSTANCE_ID || e.kind === "compaction") {
-      anchor = e.id;
-    }
-  }
-  return anchor;
-}
-
 /** 快照 instances → 卡片重建（subagent 过滤；主实例非卡片；DTO 无摘要字段 → 空串复位）。
- *  锚点幂等（T5.5 AG-14）：同会话重连合入保留 live 记录的 spawn 锚点
- *  （事件流记录的插入位是权威，快照推导仅是冷启动 best-effort）；切换/首连
- *  时 prev 为空（freshLoadingActive 清零），全量走快照推导——两条路径收敛
- *  保证「前缀投影 + 快照 + 增量 ≡ 纯重放」。 */
-function instancesFromSnapshot(
-  dtos: AgentInstanceDto[],
-  entries: EntryDto[],
-  prev: InstanceCardState[],
-): InstanceCardState[] {
-  const liveAnchor = new Map(prev.map((c) => [c.instanceId, c.anchorEntryId]));
+ *  锚点（CL-1 v0.3，契约 §1；Q-1c）：anchorEntryId 直读 DTO 为唯一权威——
+ *  快照与 agent.spawned 帧均由 daemon 组装期计算下发，shell 零推导、无
+ *  live 锚点双轨；null = 流首有效锚（显式保留，不回落）。 */
+function instancesFromSnapshot(dtos: AgentInstanceDto[]): InstanceCardState[] {
   return dtos
     .filter((d) => d.kind === "subagent")
     .map((d) => ({
@@ -81,11 +55,8 @@ function instancesFromSnapshot(
         : {}),
       ...(d.closure ? { closure: d.closure } : {}),
       streamSummary: "",
-      // T5.5 时间轴锚点：已跟踪实例保留 live 锚点（has 判定——null 流首锚点
-      // 也是有效值，不可用 ?? 回落）；新实例走快照推导位
-      anchorEntryId: liveAnchor.has(d.instanceId)
-        ? liveAnchor.get(d.instanceId)!
-        : anchorFromSnapshot(d, entries),
+      // DTO 锚点直读（null 流首有效，不吞）；缺省不携带 = 主实例（已被过滤）
+      anchorEntryId: d.anchorEntryId ?? null,
     }));
 }
 
@@ -102,13 +73,19 @@ function usageFromSnapshot(
   return { total: usageDto.total, compaction: usageDto.compaction, byInstance };
 }
 
-/** 快照 entries → 实例 channel 条目（user 消息 → steer 标记；compaction 不入 channel，M2 main 语义）。 */
+/** 快照 entries → 实例 channel 条目（user 消息 → steer 标记；compaction 不入 channel，M2 main 语义）。
+ *  CL-3：定向 steer 干预条目（user + steerState + instanceId=本实例，契约 §3.2
+ *  Q-3a 双投影）→ steer-directed 物种（与时间轴侧同构）；主线 agent_send
+ *  转投回放（普通 user 无 steerState）→ 既有 steer 注入标记。 */
 function entryToChannelItem(entry: EntryDto, seq: number): ChannelItem | null {
   switch (entry.kind) {
     case "message":
-      return entry.role === "user"
-        ? { kind: "steer", seq, text: entry.content, ts: entry.ts }
-        : { kind: "message", seq, text: entry.content, ts: entry.ts };
+      if (entry.role === "user") {
+        return entry.steerState !== undefined && entry.instanceId !== undefined
+          ? { kind: "steer-directed", seq, text: entry.content, ts: entry.ts, target: entry.instanceId }
+          : { kind: "steer", seq, text: entry.content, ts: entry.ts };
+      }
+      return { kind: "message", seq, text: entry.content, ts: entry.ts };
     case "tool-call":
       return { kind: "tool", seq, entry };
     case "thinking":
@@ -182,13 +159,21 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
       const snap = event.payload.snapshot;
       // F1.6 分流（快照面）：main 条目进主消息流；SubAgent 条目归实例 channel
       // （重建用）；compaction 归 main 流（M2 语义）
+      // CL-3（契约 §3.2 Q-3a）：定向 steer 干预条目（user+steerState 且
+      // instanceId≠main）双投影——进主流（daemon isMainAxisEntry 同规，恢复
+      // 重放保留）同时保留归组（dto.channels 缺省时的 channel 重建 fallback 面）
       const mainEntries: EntryDto[] = [];
       const entriesByInstance = new Map<string, EntryDto[]>();
       for (const e of snap.entries) {
         const iid = e.instanceId ?? MAIN_INSTANCE_ID;
-        if (iid === MAIN_INSTANCE_ID || e.kind === "compaction") {
+        const directedSteer =
+          iid !== MAIN_INSTANCE_ID &&
+          e.kind === "message" &&
+          e.role === "user" &&
+          e.steerState !== undefined;
+        if (iid === MAIN_INSTANCE_ID || e.kind === "compaction" || directedSteer) {
           mainEntries.push(e);
-          continue;
+          if (!directedSteer) continue;
         }
         const list = entriesByInstance.get(iid) ?? [];
         list.push(e);
@@ -219,7 +204,7 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         streaming: null, // 快照为落盘终态；进行中的流随重连作废
         thinkingStreams: {}, // 同上：thinking 流式中间态不落盘，重建后由后续 delta 重新累积
         channelStreams: {}, // 同上：channel 流式消息为不落盘中间态
-        instances: snap.instances ? instancesFromSnapshot(dtos, snap.entries, s.instances) : [], // additive：实例清单重建卡片（无字段旧剧本兼容 → 空）
+        instances: snap.instances ? instancesFromSnapshot(dtos) : [], // additive：实例清单重建卡片（无字段旧剧本兼容 → 空）
         instanceChannels: merged,
         nextChannelSeq: nextSeq,
         usage: usageFromSnapshot(snap.usage, snap.instances), // additive：账目重建（权威）

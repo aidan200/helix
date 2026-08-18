@@ -20,6 +20,11 @@
  * sendNow 直发（契约 C §2.2，与 session 族结果帧同构；model.set 的 ack
  * 仍为 model.changed 广播不动）；错误分支启用专用错误码（契约 C §4）。
  *
+ * T1.1（AD-3 handler 模块化）：model 族 6 case + auth 族 4 case 的 case 体
+ * 机械迁出 handlers/{model,auth}.ts（语义逐字节等价）；routeCommand 对应
+ * case 一行转发（commandContext 供出依赖面：ModelPort + system.getStatus()
+ * 缺省回退 + 4 个共享辅助）；sessionStamp/snapshotFrame 盖章链与其余族不动。
+ *
  * 绑定纪律（TP-CL6-1）：仅 127.0.0.1，禁止 0.0.0.0/::——构造期即钉死。
  */
 import type { SessionChatPort } from "../../../application/ports/inbound/ChatPort";
@@ -29,19 +34,10 @@ import type { SessionDirectoryPort } from "../../../application/ports/inbound/Se
 import type { ModelPort } from "../../../application/ports/inbound/ModelPort";
 import type {
   AgentStateDto,
-  AuthDeleteKeyResultEvent,
-  AuthListResultEvent,
-  AuthSetKeyResultEvent,
-  AuthVerifyResultEvent,
   ConnectionErrorEvent,
   ConnectionWelcomeEvent,
   EventEnvelope,
   FrameVersion,
-  ModelCatalogRefreshResultEvent,
-  ModelCatalogResultEvent,
-  ModelGetDefaultResultEvent,
-  ModelGetResultEvent,
-  ModelSetDefaultResultEvent,
   SessionListResultEvent,
   SessionLoadHistoryResultEvent,
   SessionSnapshotEvent,
@@ -56,6 +52,21 @@ import {
   HISTORY_PAGE_MAX,
   TAIL_WINDOW_SIZE,
 } from "./DtoMapper";
+import {
+  handleModelCatalog,
+  handleModelCatalogRefresh,
+  handleModelGet,
+  handleModelGetDefault,
+  handleModelSet,
+  handleModelSetDefault,
+} from "./handlers/model";
+import type { WsCommandContext } from "./handlers/model";
+import {
+  handleAuthDeleteKey,
+  handleAuthList,
+  handleAuthSetKey,
+  handleAuthVerify,
+} from "./handlers/auth";
 
 /** 浏览器侧 token 获取端点路径（vite dev 与 static-serve 生产共用同一机制）。 */
 export const DEV_TOKEN_PATH = "/helix-dev-token";
@@ -63,8 +74,8 @@ export const DEV_TOKEN_PATH = "/helix-dev-token";
 /** loopback 开发 Origin（vite dev 等）匹配：localhost / 127.0.0.1 / [::1] 任意端口。 */
 const LOOPBACK_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 
-/** 每连接状态（Bun.serve 泛型，经 server.upgrade 的 data 携带）。 */
-interface ConnState {
+/** 每连接状态（Bun.serve 泛型，经 server.upgrade 的 data 携带；handlers/ 共用型）。 */
+export interface ConnState {
   authed: boolean;
   /** 认证通过后构造的协议帧发送端（EventStream 注册键）。 */
   sender: FrameSender | null;
@@ -334,7 +345,17 @@ export class WsServerAdapter {
       case "chat.steer": {
         if (typeof payload.text !== "string") return this.commandError(ws, type, "command.invalid_payload", "payload.text 应为 string");
         const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
-        void this.deps.chat.steer(payload.text, sid).catch((err) => {
+        // T2.3（契约 v0.3 §3.2）：instanceId 只透传（路由判定归 ChatService，TR-AD-9）。
+        // 回执裁决（T2.3，TR-AD-21）：定向目标非运行中 → ChatService 抛
+        // SteerTargetNotRunningError → connection.error 点对点回执（同 agent.kill
+        // 形态，复用 SendOutcome.detail 文案）；其余异常维持既有 console.warn。
+        const instanceId =
+          typeof payload.instanceId === "string" && payload.instanceId !== "" ? payload.instanceId : undefined;
+        void this.deps.chat.steer(payload.text, sid, instanceId).catch((err) => {
+          if ((err as Error).name === "SteerTargetNotRunningError") {
+            this.commandError(ws, type, "command.invalid_payload", (err as Error).message);
+            return;
+          }
           console.warn(`[ws] chat.steer 处理失败：${(err as Error).message}`);
         });
         return;
@@ -347,11 +368,18 @@ export class WsServerAdapter {
       case "session.subscribe": {
         const sender = ws.data.sender;
         if (!sender) return;
+        // v0.3（T2.2，契约 §2.1）：payload.tier 可选档位——缺省 full（既有语义
+        // 不变，TR-AD-23① 可选参数带缺省语义）；目录外值回 invalid_payload
+        const tierRaw = payload.tier;
+        if (tierRaw !== undefined && tierRaw !== "full" && tierRaw !== "monitor") {
+          return this.commandError(ws, type, "command.invalid_payload", 'payload.tier 应为 "full" | "monitor"');
+        }
+        const tier: "full" | "monitor" = tierRaw === "monitor" ? "monitor" : "full";
         // v0.2（T2.1/T2.2）：per-session 订阅——信封 sessionId 指定目标会话；
         // v0 兼容：不带信封位 = 当前会话（缺省订阅语义不变）
         void this.resolveTargetSession(ws, envelope, type).then((target) => {
           if (target === undefined) return; // 不存在会话：已回 connection.error
-          this.deps.events.subscribeSession(sender, target);
+          this.deps.events.subscribeSession(sender, target, tier);
           // 重新订阅 = 重推该会话全量快照（快照恢复公式，AD-16）
           // T5.1 热修：agentState/model 取目标会话 runtime（随视图同源组装），
           // 不经 system.getStatus()（全局最近活跃投影——多会话下 current 恒被
@@ -480,198 +508,57 @@ export class WsServerAdapter {
         return;
       }
       // ── v0.2 model 族（T2.3 AD-2，契约 C §1；真行为回口。微批：结果帧点对点回执）──
-      case "model.set": {
-        // 会话作用域命令：信封 sessionId（per-session）；缺省回退当前会话（v0 兼容读）
-        const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
-        if (typeof payload.model !== "string" || payload.model.trim() === "") {
-          return this.commandError(ws, type, "command.invalid_payload", "payload.model 应为非空 string（\"provider/model-id\"）");
-        }
-        // ack = model.changed 广播（ModelService 内发；订阅该会话的连接即时收到
-        // model/previous/effective——契约 C §1.1「即时 ack + 广播」，微批不动）
-        void this.deps.model
-          .setModel(sid ?? this.deps.system.getStatus().sessionId, payload.model)
-          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
-        return;
-      }
-      case "model.get": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
-        const target = sid ?? this.deps.system.getStatus().sessionId;
-        void this.deps.model
-          .getModel(target)
-          .then((info) => {
-            const frame: ModelGetResultEvent = {
-              v: PROTOCOL_VERSION,
-              sessionId: target, // per-session 命令：目标会话归属（loadHistory.result 同构）
-              channel: "model",
-              type: "model.get.result",
-              payload: { model: info.model, isDefault: info.isDefault, defaultModel: info.defaultModel },
-            };
-            this.sendNow(sender, frame);
-          })
-          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
-        return;
-      }
-      case "model.catalog": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        void this.deps.model
-          .catalog()
-          .then((snapshot) => {
-            const frame: ModelCatalogResultEvent = {
-              v: PROTOCOL_VERSION,
-              sessionId: SYSTEM_SESSION_ID, // 全局命令：会话无关（session.list.result 同构）
-              channel: "model",
-              type: "model.catalog.result",
-              payload: {
-                models: snapshot.models.map((m) => ({ ...m, cost: { ...m.cost } })),
-                refreshedAt: snapshot.refreshedAt,
-                source: snapshot.source,
-              },
-            };
-            this.sendNow(sender, frame);
-          })
-          .catch((err) => this.commandError(ws, type, "catalog_unreachable", (err as Error).message));
-        return;
-      }
-      case "model.catalog_refresh": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        void this.deps.model
-          .catalogRefresh()
-          .then((snapshot) => {
-            const frame: ModelCatalogRefreshResultEvent = {
-              v: PROTOCOL_VERSION,
-              sessionId: SYSTEM_SESSION_ID,
-              channel: "model",
-              type: "model.catalog_refresh.result",
-              payload: {
-                models: snapshot.models.map((m) => ({ ...m, cost: { ...m.cost } })),
-                refreshedAt: snapshot.refreshedAt,
-                source: snapshot.source,
-                degraded: [...snapshot.degraded], // 降级说明（单 provider 拉取失败明细）
-              },
-            };
-            this.sendNow(sender, frame);
-          })
-          .catch((err) => this.commandError(ws, type, "catalog_unreachable", (err as Error).message));
-        return;
-      }
-      case "model.set_default": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        if (typeof payload.model !== "string" || payload.model.trim() === "") {
-          return this.commandError(ws, type, "command.invalid_payload", "payload.model 应为非空 string（\"provider/model-id\"）");
-        }
-        void this.deps.model
-          .setDefault(payload.model)
-          .then((r) => {
-            const frame: ModelSetDefaultResultEvent = {
-              v: PROTOCOL_VERSION,
-              sessionId: SYSTEM_SESSION_ID,
-              channel: "model",
-              type: "model.set_default.result",
-              payload: { previous: r.previous },
-            };
-            this.sendNow(sender, frame);
-          })
-          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
-        return;
-      }
-      case "model.get_default": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        const r = this.deps.model.getDefault();
-        const frame: ModelGetDefaultResultEvent = {
-          v: PROTOCOL_VERSION,
-          sessionId: SYSTEM_SESSION_ID,
-          channel: "model",
-          type: "model.get_default.result",
-          payload: { model: r.model },
-        };
-        this.sendNow(sender, frame);
-        return;
-      }
+      // T1.1（AD-3）：case 体机械迁出 handlers/model.ts（语义逐字节等价），此处一行转发
+      case "model.set":
+        return handleModelSet(this.commandContext(ws, type, payload, envelope));
+      case "model.get":
+        return handleModelGet(this.commandContext(ws, type, payload, envelope));
+      case "model.catalog":
+        return handleModelCatalog(this.commandContext(ws, type, payload, envelope));
+      case "model.catalog_refresh":
+        return handleModelCatalogRefresh(this.commandContext(ws, type, payload, envelope));
+      case "model.set_default":
+        return handleModelSetDefault(this.commandContext(ws, type, payload, envelope));
+      case "model.get_default":
+        return handleModelGetDefault(this.commandContext(ws, type, payload, envelope));
       // ── v0.2 auth 管理族（T2.3 AD-2，契约 C §1.3；真行为回口 + 结果帧）──
-      case "auth.list": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        void this.deps.model
-          .authList()
-          .then((providers) => {
-            const frame: AuthListResultEvent = {
-              v: PROTOCOL_VERSION,
-              sessionId: SYSTEM_SESSION_ID,
-              channel: "model",
-              type: "auth.list.result",
-              payload: { providers: providers.map((p) => ({ ...p })) },
-            };
-            this.sendNow(sender, frame);
-          })
-          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
-        return;
-      }
-      case "auth.set_key": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        if (typeof payload.providerId !== "string" || payload.providerId === "") {
-          return this.commandError(ws, type, "command.invalid_payload", "payload.providerId 应为非空 string");
-        }
-        if (typeof payload.apiKey !== "string" || payload.apiKey.trim() === "") {
-          return this.commandError(ws, type, "command.invalid_payload", "payload.apiKey 应为非空 string（空值 = 协议层 error，契约 C §1.3）");
-        }
-        void this.deps.model
-          .authSetKey(payload.providerId, payload.apiKey)
-          .then((r) => {
-            const frame: AuthSetKeyResultEvent = {
-              v: PROTOCOL_VERSION,
-              sessionId: SYSTEM_SESSION_ID,
-              channel: "model",
-              type: "auth.set_key.result",
-              payload: { keyMasked: r.keyMasked },
-            };
-            this.sendNow(sender, frame);
-          })
-          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
-        return;
-      }
-      case "auth.delete_key": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        if (typeof payload.providerId !== "string" || payload.providerId === "") {
-          return this.commandError(ws, type, "command.invalid_payload", "payload.providerId 应为非空 string");
-        }
-        void this.deps.model
-          .authDeleteKey(payload.providerId)
-          .then(() => {
-            const frame: AuthDeleteKeyResultEvent = {
-              v: PROTOCOL_VERSION,
-              sessionId: SYSTEM_SESSION_ID,
-              channel: "model",
-              type: "auth.delete_key.result",
-              payload: {}, // 契约 C §1.3：响应 `{}`（成功回执即帧本身）
-            };
-            this.sendNow(sender, frame);
-          })
-          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
-        return;
-      }
-      case "auth.verify": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        if (typeof payload.providerId !== "string" || payload.providerId === "") {
-          return this.commandError(ws, type, "command.invalid_payload", "payload.providerId 应为非空 string");
-        }
-        void this.deps.model
-          .authVerify(payload.providerId)
-          .then((r) => {
-            const frame: AuthVerifyResultEvent = {
-              v: PROTOCOL_VERSION,
-              sessionId: SYSTEM_SESSION_ID,
-              channel: "model",
-              type: "auth.verify.result",
-              payload: r.status === "ok" ? { status: "ok", latencyMs: r.latencyMs } : { status: "fail", reason: r.reason }, // fail 是正常结果非 error
-            };
-            this.sendNow(sender, frame);
-          })
-          .catch((err) => this.commandError(ws, type, this.modelErrorCode(err), (err as Error).message));
-        return;
-      }
+      // T1.1（AD-3）：case 体机械迁出 handlers/auth.ts（语义逐字节等价），此处一行转发
+      case "auth.list":
+        return handleAuthList(this.commandContext(ws, type, payload, envelope));
+      case "auth.set_key":
+        return handleAuthSetKey(this.commandContext(ws, type, payload, envelope));
+      case "auth.delete_key":
+        return handleAuthDeleteKey(this.commandContext(ws, type, payload, envelope));
+      case "auth.verify":
+        return handleAuthVerify(this.commandContext(ws, type, payload, envelope));
       default:
         this.commandError(ws, type, "command.unknown", `未知命令：${type}`);
     }
+  }
+
+  /**
+   * model/auth 族命令处理上下文（T1.1 AD-3）：handlers/ 模块的依赖面注入——
+   * ModelPort + system.getStatus() 缺省回退 + 4 个共享辅助（本连接绑定，
+   * 语义 = 本类同名私有方法，机械转发零行为差）。
+   */
+  private commandContext(
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+    envelope: { sessionId?: unknown },
+  ): WsCommandContext {
+    return {
+      ws,
+      type,
+      payload,
+      envelope,
+      model: this.deps.model,
+      system: this.deps.system,
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+      modelErrorCode: (err) => this.modelErrorCode(err),
+      rawSender: () => this.rawSender(ws),
+      sendNow: (sender, frame) => this.sendNow(sender, frame),
+    };
   }
 
   /**

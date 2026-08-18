@@ -56,6 +56,7 @@ export const enUS: Translations = {
       hint: "Agent generating · queued messages inject after this turn",
       queued: "STEER · queued",
       drained: "Injected · turn ended",
+      directedChip: "steer → {id}",
     },
     restore: {
       toast: "Session restored",
@@ -129,6 +130,9 @@ export const enUS: Translations = {
       steerMark: "⇦ main steer injection",
       steerToast: "steer injected into instance",
       steerToastSub: "{id} · via Agent.steer()",
+      steerTarget: "steer target",
+      steerPlaceholder: "Steer instruction for {id}",
+      steerInputLabel: "steer instruction input",
       queuedHint: "Queued · starts automatically when a slot frees up, channel unfolds here",
       reportFoot: "task report persisted via daemon single-writer queue",
       instanceMeta: "spawned by main via agent_spawn · events carry instanceId (AD-3 trace)",
@@ -195,6 +199,18 @@ export const enUS: Translations = {
     settings: {
       back: "Back to workbench",
       title: "Models and providers",
+    },
+    nav: {
+      railLabel: "Primary navigation",
+      plannedBadge: "Planned",
+      pages: {
+        chat: { label: "Chat" },
+        models: { label: "Models" },
+        skills: { label: "Skills", preview: "View and manage the skills agents can call." },
+        trace: { label: "Trace", preview: "Replay event streams and instance call chains." },
+        project: { label: "Project", preview: "Workspace docs, knowledge graph, iteration state." },
+        settings: { label: "Settings", preview: "Theme, notifications, and local preferences." },
+      },
     },
     modelSwitch: {
       searchPlaceholder: "Search models or providers",

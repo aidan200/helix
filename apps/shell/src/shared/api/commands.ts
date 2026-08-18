@@ -40,9 +40,16 @@ export function chatSendDraftCommand(text: string): ChatSendCommand {
   return { v: PROTOCOL_VERSION, type: "chat.send", payload: { text, draft: true } };
 }
 
-/** chat.steer：生成中注入（信封 sessionId = 活跃会话）。 */
-export function chatSteerCommand(text: string, sessionId: string): ChatSteerCommand {
-  return { v: PROTOCOL_VERSION, type: "chat.steer", sessionId, payload: { text } };
+/** chat.steer：生成中注入（信封 sessionId = 活跃会话）。v0.3（契约 §3.1，
+ *  CL-3）：instanceId 可选——携带 = 定向寻址目标 SubAgent 实例（抽屉 steer
+ *  输入栏）；缺省 = 主实例（主 Composer 既有语义零变更，payload 不携带 key）。 */
+export function chatSteerCommand(text: string, sessionId: string, instanceId?: string): ChatSteerCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "chat.steer",
+    sessionId,
+    payload: instanceId === undefined ? { text } : { text, instanceId },
+  };
 }
 
 /** chat.abort：中断当前生成（信封 sessionId = 活跃会话）。 */
@@ -50,9 +57,18 @@ export function chatAbortCommand(sessionId: string): ChatAbortCommand {
   return { v: PROTOCOL_VERSION, type: "chat.abort", sessionId, payload: {} };
 }
 
-/** session.subscribe：切换/建连订阅（信封 sessionId 必填；daemon 重推该会话全量快照）。 */
-export function sessionSubscribeCommand(sessionId: string): SessionSubscribeCommand {
-  return { v: PROTOCOL_VERSION, type: "session.subscribe", sessionId, payload: {} };
+/** session.subscribe：切换/建连订阅（信封 sessionId 必填；daemon 重推该会话全量快照 = ack，
+ *  契约 v0.3 §2.1）。v0.3 扩 tier：缺省 full（既有语义不变）；monitor = 白名单 3 事件档。 */
+export function sessionSubscribeCommand(
+  sessionId: string,
+  tier?: "full" | "monitor",
+): SessionSubscribeCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "session.subscribe",
+    sessionId,
+    payload: tier === undefined ? {} : { tier },
+  };
 }
 
 /** session.unsubscribe：退订（与 subscribe 同一目标会话解析规则，契约 B §1.2）。 */

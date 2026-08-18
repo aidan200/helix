@@ -58,12 +58,21 @@ describe("AG-02：依赖方向矩阵", () => {
     }
   });
 
-  test("② application 只 import port + domain（禁 adapters/infrastructure/包外）", () => {
+  test("② application 包外 import 显式白名单 = {@helix/protocol, node:path}（禁 adapters/infrastructure）", () => {
+    // T4.1（TP-CL5-2，CL-5 裁决）：白名单是断言数据不是注释——新增包外
+    // import 未进白名单 = 测试红（防复发）。旧实现以 `continue` 静默放行
+    // 非相对 import + 恒真断言（死代码），与实有 4 处包外 import
+    // （3 × @helix/protocol MAIN_INSTANCE_ID + 1 × node:path join）不符。
+    const PACKAGE_WHITELIST: ReadonlySet<string> = new Set(["@helix/protocol", "node:path"]);
     for (const rel of listFiles(path.join(srcRoot, "application"))) {
       for (const spec of importSpecifiers(read(path.join("application", rel)))) {
-        if (!spec.startsWith(".")) continue; // 纯类型 import 已由 AG-01 覆盖 ports；此处允许的包外为空集
         expect(spec, `application/${rel} 禁止引到 adapters/infrastructure：${spec}`).not.toMatch(/adapters|infrastructure/);
-        expect(spec.startsWith("."), `application/${rel} 不得 import 包外符号：${spec}`).toBe(true);
+        if (!spec.startsWith(".")) {
+          expect(
+            PACKAGE_WHITELIST.has(spec),
+            `application/${rel} 包外 import 越出白名单 {@helix/protocol, node:path}：${spec}`,
+          ).toBe(true);
+        }
       }
     }
   });
@@ -265,11 +274,13 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
   });
 });
 
-describe("AG-08：与环境变量无缘（apiKeys 只来自 config.json）", () => {
+describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () => {
   test("src 全量无 process.env 读取（subagent/ 除外——env 是父子进程 IPC 通道，非配置源）", () => {
-    // T2.2：SubAgent 子进程的 argv/env 由父进程（组合根，config.json 数据源）
-    // 显式注入（HELIX_MODEL_JSON/HELIX_API_KEYS_JSON 等）——env 在 subagent/
-    // 内是父子 IPC 传输通道，不是配置来源；apiKeys 源头仍且仅是 config.json。
+    // T2.2：SubAgent 子进程的 argv/env 由父进程（组合根）显式注入
+    // （HELIX_MODEL_JSON/HELIX_API_KEYS_JSON 等）——env 在 subagent/ 内是
+    // 父子 IPC 传输通道，不是配置来源。T2.3（AD-2 auth 分层）起 apiKeys
+    // 源头仍且仅是 auth.json（AuthStore，0600+文件锁；旧 config.json 含
+    // apiKeys 字段时启动迁移，见 infrastructure/config.ts）。
     const whitelistRoot = path.join("adapters", "driven", "subagent");
     for (const rel of listFiles(srcRoot)) {
       if (rel.startsWith(whitelistRoot)) continue;
@@ -311,15 +322,23 @@ describe("TP-CL4-5（A 半）：runtime 不自持领域状态副本", () => {
 describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白名单）", () => {
   const wsDir = path.join(srcRoot, "adapters", "driving", "ws-server");
 
-  /** 运行时 import 允许集：ports（in/out）+ @helix/protocol + Bun/Node 内建 + 目录内。 */
-  function runtimeAllowed(spec: string): boolean {
-    return (
+  /** 运行时 import 允许集：ports（in/out）+ @helix/protocol + Bun/Node 内建 + 目录内。
+   * 目录内 = 相对导入解析后不逃出 ws-server 目录树（T1.1 AD-3：handlers/ 子目录
+   * 回引 ../EventStream 等同属目录内；语义不变，仅路径感知化）。 */
+  function runtimeAllowed(rel: string, spec: string): boolean {
+    if (
       spec === "@helix/protocol" ||
       spec.startsWith("node:") ||
       spec === "bun" ||
-      /^\.\//.test(spec) ||
       /\/ports\/(inbound|outbound)\//.test(spec)
-    );
+    ) {
+      return true;
+    }
+    if (spec.startsWith("./") || spec.startsWith("../")) {
+      const resolved = path.normalize(path.join(path.dirname(rel), spec));
+      return resolved !== ".." && !resolved.startsWith(`..${path.sep}`);
+    }
+    return false;
   }
 
   test("运行时 import ⊆ {inbound/outbound ports, @helix/protocol, Bun 内建, 目录内}；domain 仅 type-only（AD-17.5 转换）", () => {
@@ -333,7 +352,7 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
           // domain 只允许 type-only import（无运行时耦合，无业务规则调用）
           expect(typeOnly(spec, src), `ws-server/${rel} 对 domain 只允许 import type：${spec}`).toBe(true);
         } else {
-          expect(runtimeAllowed(spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
+          expect(runtimeAllowed(rel, spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
         }
       }
       // 白名单的否定面：禁 services/infrastructure/driven
@@ -345,6 +364,25 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
 });
 
 describe("AG-13：协议两端同源基线（@helix/protocol 唯一权威源）", () => {
+  test("MAIN_INSTANCE_ID 取源单源：application 层 import 仅来自 @helix/protocol（TP-CL5-3 grep 守护）", () => {
+    // T4.1（CL-5）：SessionRegistry 曾取 domain 本地定义（其余 service 全取
+    // 协议导出）——守护 application 层 MAIN_INSTANCE_ID import 来源唯一；
+    // domain 本地值锚点保留（AG-02 禁 domain import 协议包），双源相等由
+    // test/unit/protocol-import.test.ts 断言。
+    const importRe = /^\s*import\s+[^;'"]*MAIN_INSTANCE_ID[^;'"]*from\s+['"]([^'"]+)['"]/gm;
+    const offenders: string[] = [];
+    let hits = 0;
+    for (const rel of listFiles(path.join(srcRoot, "application"))) {
+      const src = read(path.join("application", rel));
+      for (const m of src.matchAll(importRe)) {
+        hits++;
+        if (m[1] !== "@helix/protocol") offenders.push(`${rel} → ${m[1]}`);
+      }
+    }
+    expect(hits).toBeGreaterThan(0); // 扫描面非空转
+    expect(offenders, `application 层 MAIN_INSTANCE_ID 取源越出 @helix/protocol：${offenders.join(", ")}`).toEqual([]);
+  });
+
   test("ws-server 正向 import @helix/protocol（协议类型不得本地重写）", () => {
     const wsDir = path.join(srcRoot, "adapters", "driving", "ws-server");
     const all = listFiles(wsDir)
@@ -370,6 +408,18 @@ describe("AG-13：协议两端同源基线（@helix/protocol 唯一权威源）"
         expect(src.match(re), `${rel} 平行手写协议类型：${re.source}`).toBeNull();
       }
     }
+  });
+});
+
+describe("AG-14 / TP-CL2-3（守护半）：monitor 白名单过滤唯一位于 EventStream 分发层", () => {
+  test("白名单常量/tier 表符号不出现在 EventStream.ts 之外（service/DtoMapper/adapter 零过滤逻辑，TR-AD-23③）", () => {
+    const offenders: string[] = [];
+    for (const rel of listFiles(srcRoot)) {
+      if (rel === path.join("adapters", "driving", "ws-server", "EventStream.ts")) continue;
+      const src = read(rel);
+      if (/MONITOR_TIER_EVENT_TYPES|sessionTiers|SubscriptionTier/.test(src)) offenders.push(rel);
+    }
+    expect(offenders, `白名单/tier 符号散落：${offenders.join(", ")}`).toEqual([]);
   });
 });
 

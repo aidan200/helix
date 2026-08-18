@@ -3,9 +3,13 @@
  *
  * 拓扑（AD-3 §3.4，T3.1）：TopologyState = 活跃会话完整 store（state 字段，
  * 既有消费面零改动）× 后台会话轻量 store × 会话清单。帧经 dispatcher
- * （dispatchFrame）按信封 sessionId 路由；切换 = unsubscribe 旧 + subscribe
- * 新（契约 B §1.2 定稿形态——daemon subscribeSession 为订阅集累加，须显式
- * 退订旧会话）+ 目标尾窗重建（P-1s 两阶段）。
+ * （dispatchFrame）按信封 sessionId 路由；v0.3（T3.2，契约 v0.3 §2）订阅
+ * 生命周期 = 全图订阅模型：启动 list 后活跃 full + 其余全部 monitor /
+ * created 补订 monitor / deleted 退订 / 切换先升后降（subscribe(new,full)
+ * ack——session.snapshot 帧——后才 subscribe(old,monitor)，瞬时双 full）/
+ * 断连重连重放全订阅图（helix-ws onReconnect 挂点）。簿记归
+ * model/subscription-ledger（纯函数可单测）；daemon 对每次 subscribe 重推
+ * 快照，monitor 档 ack 快照经 ledger 判定吞帧（不进 dispatcher 防串台）。
  *
  * 发送语义按生成态自动分流：空闲 → chat.send（气泡由 daemon 事件投影）；
  * 生成中 → chat.steer（本地 echo + STEER 徽标）。v0.2 起命令带信封
@@ -15,6 +19,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import type { ReactNode } from "react";
 import { PROTOCOL_VERSION } from "@helix/protocol";
+import type { CommandEnvelope, EventEnvelope } from "@helix/protocol";
 import { HelixWsClient } from "@/shared/api/helix-ws";
 import type { Transport, TransportFactory } from "@/shared/api/helix-ws";
 import {
@@ -34,8 +39,6 @@ import {
   sessionDeleteCommand,
   sessionListCommand,
   sessionLoadHistoryCommand,
-  sessionSubscribeCommand,
-  sessionUnsubscribeCommand,
 } from "@/shared/api/commands";
 import { DAEMON_PORT, FAKE_TRANSPORT_DEFINE, fakeTransportScript } from "@/shared/config/env";
 import {
@@ -44,6 +47,7 @@ import {
   topologyReducer,
   type TopologyState,
 } from "./model/topology";
+import { SubscriptionLedger } from "./model/subscription-ledger";
 import {
   selectIsGenerating,
   type SessionState,
@@ -93,6 +97,10 @@ interface SessionContextValue {
   subscribeInstance: (agentId: string) => void;
   /** agent.unsubscribe（抽屉关闭/换订） */
   unsubscribeInstance: (agentId: string) => void;
+  /** 抽屉定向 steer（CL-3 F(3.3).3，契约 v0.3 §3.3）：chat.steer 携带
+   *  instanceId 定向寻址 + 本地 echo 双投影（主轴细条 + 实例 channel 标记）；
+   *  发送即清空无阻塞态——失败回执（connection.error）走既有错误提示通道 */
+  steerInstance: (text: string, instanceId: string) => void;
   // ── model / auth 命令面板（契约 C；T3.3 P-3/P-4）──
   /** 会话模型运行期切换（P-3 选中即切 / 重置为默认；下一 turn 生效）。 */
   setSessionModel: (model: string) => void;
@@ -148,6 +156,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // 命令构造读点（发送面需要当前活跃会话 id / 分页游标；避免 effect 链）
   const topologyRef = useRef(topology);
   topologyRef.current = topology;
+  // v0.3 订阅图簿记（T3.2）：全图订阅生命周期唯一权威（见 model/subscription-ledger）
+  const ledgerRef = useRef<SubscriptionLedger | null>(null);
+  if (ledgerRef.current === null) ledgerRef.current = new SubscriptionLedger();
   const generatingRef = useRef(false);
   generatingRef.current = selectIsGenerating(topology.active);
 
@@ -158,6 +169,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const fakeScript = FAKE_TRANSPORT_DEFINE !== "" ? fakeTransportScript() : null;
     clientRef.current = new HelixWsClient({
       port: DAEMON_PORT,
+      // 重连挂点（TR-AD-5）：daemon 不持跨连接订阅状态 → 重放全订阅图
+      // （幂等 subscribe 天然收敛；侧栏 session.list 重拉后 syncList 兜底对齐）
+      onReconnect: () => {
+        const ledger = ledgerRef.current!;
+        for (const cmd of ledger.replay()) {
+          clientRef.current!.send(cmd);
+        }
+      },
       // mock mode 标准注入点（T4.4）：经既有 TransportFactory 接缝注入 fake
       // transport（env/URL 双形态解析见 env.fakeTransportScript）
       ...(fakeScript !== null ? { transportFactory: fakeTransportEntry(fakeScript) } : {}),
@@ -166,8 +185,41 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const client = clientRef.current!;
+    // v0.3 订阅生命周期副作用（T3.2）：帧 → ledger 簿记/出站命令 → 吞帧判定
+    // → dispatch。返 true = monitor 档 ack 快照（纯回执噪声，不进 dispatcher）。
+    const applySubscriptionSideEffects = (event: EventEnvelope): boolean => {
+      const ledger = ledgerRef.current!;
+      const sendAll = (cmds: readonly CommandEnvelope[]) => {
+        for (const c of cmds) client.send(c);
+      };
+      switch (event.type) {
+        case "session.list.result":
+          // 启动/重连全图订阅（活跃 full 先行 + 其余 monitor + 清单外退订）
+          sendAll(ledger.syncList(event.payload.sessions.map((s) => s.sessionId)));
+          return false;
+        case "session.list_changed": {
+          const { kind, sessionId } = event.payload;
+          if (typeof sessionId !== "string" || sessionId === "") return false;
+          if (kind === "created") sendAll(ledger.addCreated(sessionId)); // 补订 monitor
+          else if (kind === "deleted") sendAll(ledger.removeDeleted(sessionId)); // 退订
+          return false;
+        }
+        case "session.snapshot": {
+          // 快照 = subscribe 回执（ack）：先升后降收口 / 激活升档 / monitor 档吞帧
+          const sid = typeof event.sessionId === "string" ? event.sessionId : event.payload.snapshot.sessionId;
+          const verdict = ledger.onSnapshot(sid);
+          sendAll(verdict.commands);
+          return !verdict.dispatch;
+        }
+        default:
+          return false;
+      }
+    };
     // ts 随 action 注入（重放确定性：同序列同帧；channel 时间戳展示面，T4.3）
-    const offFrame = client.onFrame((event) => dispatch({ type: "event", event, ts: Date.now() }));
+    const offFrame = client.onFrame((event) => {
+      if (applySubscriptionSideEffects(event)) return; // 吞帧（monitor 档 ack 快照）
+      dispatch({ type: "event", event, ts: Date.now() });
+    });
     const offConn = client.onConn((c) => {
       switch (c.kind) {
         case "connecting":
@@ -226,19 +278,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const switchSession = useCallback((sessionId: string) => {
     const prev = topologyRef.current.active.sessionId;
     if (prev === sessionId) return;
-    // 契约 B §1.2 定稿：unsubscribe 旧 + subscribe 新（daemon subscribeSession
-    // 为订阅集累加，不显式退订会继续收旧会话帧）；subscribe 触发 daemon 重推
-    // 目标会话全量快照（尾窗）——loading 骨架随之转 success（P-1s 两阶段）
-    if (prev !== null) clientRef.current!.send(sessionUnsubscribeCommand(prev));
-    clientRef.current!.send(sessionSubscribeCommand(sessionId));
+    // v0.3 先升后降（契约 §2.3 / Q-2b③）：subscribe(new, full) 立即发；旧活跃
+    // 降档 subscribe(old, monitor) 挂起至 ack（session.snapshot 帧到达，见
+    // 上方 onFrame 快照分支）——瞬时双 full 窗口内旧会话帧不丢。subscribe
+    // 触发 daemon 重推目标全量快照（尾窗）→ loading 骨架转 success（P-1s）
+    for (const cmd of ledgerRef.current!.switchTo(sessionId)) {
+      clientRef.current!.send(cmd);
+    }
     dispatch({ type: "session/switch-started", sessionId });
   }, []);
 
   const newDraft = useCallback(() => {
     const prev = topologyRef.current.active.sessionId;
     if (prev === null) return; // 已在草稿：原样（无帧无动作）
-    // 退订旧会话（不再收帧；后台轻量 store 由清单元数据 + 广播驱动）
-    clientRef.current!.send(sessionUnsubscribeCommand(prev));
+    // 旧活跃即降 monitor（v0.3：后台照跑 + 未读徽标语义；取代旧 unsubscribe）
+    for (const cmd of ledgerRef.current!.newDraft()) {
+      clientRef.current!.send(cmd);
+    }
     dispatch({ type: "session/new-draft" });
   }, []);
 
@@ -247,6 +303,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // 卡片移除由事件驱动）；删的是活跃会话 → 本地先切草稿态（原型 F(1.2).4：
     // 视图即转空态，不等事件）
     if (topologyRef.current.active.sessionId === sessionId) {
+      ledgerRef.current!.dropActive(); // 订阅簿记活跃位置零（退订归 deleted 帧驱动）
       dispatch({ type: "session/new-draft" });
     }
     clientRef.current!.send(sessionDeleteCommand(sessionId));
@@ -296,6 +353,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     (agentId: string) => sendAgentCommand("agent.unsubscribe", agentId),
     [sendAgentCommand],
   );
+
+  // 抽屉定向 steer（CL-3）：echo 先进共享 store（双处立即可见）再发出站帧；
+  // 草稿无会话上下文 = 零帧零动作（抽屉在正常流中不会处于草稿态，防御分支）
+  const steerInstance = useCallback((raw: string, instanceId: string) => {
+    const text = raw.trim();
+    if (text === "") return;
+    const { sessionId } = topologyRef.current.active;
+    if (sessionId === null) return;
+    dispatch({ type: "ui/steer-instance", text, instanceId, ts: Date.now() });
+    clientRef.current!.send(chatSteerCommand(text, sessionId, instanceId));
+  }, []);
 
   // ── model / auth 命令面板（T3.3）：命令发送同刻 dispatch started action
   //（in-flight 锁定 + 乐观面；结果帧到达由 model-config 消费者接管）──
@@ -361,6 +429,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       killInstance,
       subscribeInstance,
       unsubscribeInstance,
+      steerInstance,
       setSessionModel,
       requestModelConfig,
       requestAuthList,
@@ -388,6 +457,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       killInstance,
       subscribeInstance,
       unsubscribeInstance,
+      steerInstance,
       setSessionModel,
       requestModelConfig,
       requestAuthList,

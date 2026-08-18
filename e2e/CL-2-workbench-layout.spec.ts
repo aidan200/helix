@@ -4,6 +4,8 @@
  * 同处 header 之下；折叠 = 56px 窄条最小控件集（新建 + 展开把手，无每
  * 会话入口——折叠态不可切会话）；localStorage 记忆；折叠只 display 切
  * 换不做 width 过渡。
+ * T3.4（CL-4）：工作台外套应用壳——IconRail 64px 常驻左缘，header/侧栏/
+ * 主区随之右移 64px（「全宽」口径 = 页面域全宽，几何断言随迁）。
  */
 import { test, expect } from "./harness/fixtures";
 import { computed } from "./harness/style-utils";
@@ -40,8 +42,9 @@ test.describe("T3.2 CL-2 三区骨架 + 折叠记忆", () => {
         innerWidth: window.innerWidth,
       };
     });
-    expect(geom.headerLeft).toBe(0);
-    expect(geom.headerWidth).toBe(geom.innerWidth); // header 全宽（横跨侧栏）
+    // T3.4：IconRail 64px 常驻左缘——header 从 rail 右缘起横跨页面域全宽
+    expect(geom.headerLeft).toBe(64);
+    expect(geom.headerWidth).toBe(geom.innerWidth - 64); // header 页面域全宽（横跨侧栏）
     expect(geom.sbTop).toBe(48); // 侧栏在 header 之下
     expect(geom.appTop).toBe(48); // 主区同处 header 之下
     expect(geom.headerBottom).toBe(48);

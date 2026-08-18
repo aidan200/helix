@@ -1,5 +1,7 @@
 /**
  * E 层 globalSetup（TS3/TS4）：
+ * 0. 预检：TMPDIR 卫生审计（helix-* 全前缀零命中，T4.3/TR-TEST-6 外补——
+ *    中断遗留/历史残留 fail-fast 拦截，报清单）；
  * 1. 预检：E 层 daemon 端口（5333）未被占用（占用即 fail-fast，避免误连
  *    环境里的其他服务）；
  * 2. 构建前端静态产物（VITE_HELIX_PORT=5333 烘焙 daemon 地址）——dist 属
@@ -10,6 +12,7 @@ import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
+import { assertTmpHygiene } from "./tmp-hygiene";
 
 const WORKTREE_ROOT = path.resolve(__dirname, "..", "..");
 const DAEMON_PORT = 5333;
@@ -28,6 +31,7 @@ function portInUse(port: number): Promise<boolean> {
 }
 
 export default async function globalSetup(): Promise<() => Promise<void> | void> {
+  assertTmpHygiene();
   if (await portInUse(DAEMON_PORT)) {
     throw new Error(
       `E 层 daemon 端口 127.0.0.1:${DAEMON_PORT} 已被占用——E 层套件需要独占该端口（真实 daemon 串行复用）。`,

@@ -1,5 +1,5 @@
 /**
- * 事件目录（S→C，契约 A §2；architecture.md §6.3）。
+ * 事件目录（S→C，契约 A §2；目录文档见同包 PROTOCOL.md）。
  *
  * 共 37 个事件：v0 12 + v0.1 编排族 7 + v0.1 通道族 4 + 热修 engine.error 1
  * + v0.2 新增 2（session.list_changed / model.changed）+ T2.2 命令结果 2
@@ -108,6 +108,12 @@ export interface AgentSpawnedPayload {
   profileKind: string;
   /** "provider/model-id"；未声明时缺省继承当前模型（AD-6） */
   model?: string;
+  /**
+   * spawn 锚（v0.3 新增，契约 v0.3 §1）：spawn 时刻聚合内最后一条 main/
+   * compaction entry 的 id（无 → null = 流首）。与快照 instances 清单同源
+   * 同值；缺省不携带 = 主实例。
+   */
+  anchorEntryId?: string | null;
 }
 
 /** agent.queued：超限 FIFO 入队（AD-7②）；position 随出队递减重发 */

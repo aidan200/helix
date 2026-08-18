@@ -2,7 +2,8 @@ import type { SessionRepositoryPort, SessionMetadataRow } from "../ports/outboun
 import type { ClockPort } from "../ports/outbound/ClockPort";
 import type { DomainEvent } from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
-import { MAIN_INSTANCE_ID } from "../../domain/agent/AgentInstance";
+// MAIN_INSTANCE_ID 引协议导出（v0.2 OI 收口 F-2⑬；与其余 service 同源）
+import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import type { UsageLedgerData } from "../../domain/session/UsageLedger";
 import type { InstanceSnapshotEntry, SessionStateView } from "../ports/inbound/SessionPort";

@@ -36,10 +36,16 @@ export const CHAT_EVENT_TYPES = [
   "agent.state.changed",
 ] as const;
 
-/** steer.queued：把最早的未确认本地 echo 换成 daemon entryId（确认对账）。 */
-function confirmSteerEcho(entries: EntryDto[], entryId: string): EntryDto[] {
+/** steer.queued：把最早的未确认本地 echo 换成 daemon entryId（确认对账）。
+ *  v0.3（CL-3 契约 §3.2）：定向 steer 帧信封挂 instanceId=目标——echo 匹配
+ *  限定同目标（缺省/main 帧只认无 instanceId 的主线 echo，防并发 echo 错位）。 */
+function confirmSteerEcho(entries: EntryDto[], entryId: string, instanceId?: string): EntryDto[] {
   const idx = entries.findIndex(
-    (e) => e.kind === "message" && e.id.startsWith(LOCAL_PREFIX) && e.steerState === "queued",
+    (e) =>
+      e.kind === "message" &&
+      e.id.startsWith(LOCAL_PREFIX) &&
+      e.steerState === "queued" &&
+      (instanceId === undefined ? e.instanceId === undefined : e.instanceId === instanceId),
   );
   if (idx === -1) return entries; // 无 echo（他端发送等场景）：等快照对账
   const next = entries.slice();
@@ -92,7 +98,12 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
         delete streams[iid];
         const item: ChannelItem =
           entry.role === "user"
-            ? { kind: "steer", seq: s.nextChannelSeq, text: entry.content, ts: entry.ts }
+            ? entry.steerState !== undefined
+              ? // 定向 steer 干预条目（CL-3，契约 §3.2 Q-3a 抽屉侧投影激活——
+                // user+isSteer 且 instanceId=目标）：与主线 agent_send 转投回放
+                //（普通 user，无 steerState）分物种
+                { kind: "steer-directed", seq: s.nextChannelSeq, text: entry.content, ts: entry.ts, target: iid }
+              : { kind: "steer", seq: s.nextChannelSeq, text: entry.content, ts: entry.ts }
             : { kind: "message", seq: s.nextChannelSeq, text: entry.content, ts: entry.ts };
         return {
           ...s,
@@ -114,8 +125,18 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
       return { ...s, engineError: null }; // 轮次里程碑（v0 无 UI 投影面）
     case "chat.turn.completed":
       return { ...s, streaming: null };
-    case "steer.queued":
-      return { ...s, entries: confirmSteerEcho(s.entries, event.payload.entryId) };
+    case "steer.queued": {
+      // 定向帧（T2.3：信封 instanceId=目标）只认同目标 echo；缺省 = 主线 echo
+      const iid = event.instanceId;
+      return {
+        ...s,
+        entries: confirmSteerEcho(
+          s.entries,
+          event.payload.entryId,
+          iid !== undefined && iid !== MAIN_INSTANCE_ID ? iid : undefined,
+        ),
+      };
+    }
     case "steer.drained":
       return { ...s, entries: drainSteer(s.entries, event.payload.entryId) };
     // 终验热修：引擎/模型调用失败 → 错误卡片数据（provider 原文透传；

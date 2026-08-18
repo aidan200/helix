@@ -43,6 +43,7 @@ const REQUIRED_KEYS = [
   "chat.steer.hint",
   "chat.steer.queued",
   "chat.steer.drained",
+  "chat.steer.directedChip",
   "chat.restore.toast",
   "chat.restore.toastSub",
   "chat.msg.you",
@@ -101,6 +102,9 @@ const REQUIRED_KEYS = [
   "chat.drawer.steerToast",
   "chat.drawer.steerToastSub",
   "chat.drawer.queuedHint",
+  "chat.drawer.steerTarget",
+  "chat.drawer.steerPlaceholder",
+  "chat.drawer.steerInputLabel",
   "chat.drawer.reportFoot",
   "chat.drawer.instanceMeta",
   "chat.drawer.slotDeclared",
@@ -147,6 +151,19 @@ const REQUIRED_KEYS = [
   "chat.rail.typeSubagent",
   "chat.settings.back",
   "chat.settings.title",
+  // T3.4（CL-4 IconRail 导航壳 + 四占位页施工牌；review.md §6 R-P4-1/4）
+  "chat.nav.railLabel",
+  "chat.nav.plannedBadge",
+  "chat.nav.pages.chat.label",
+  "chat.nav.pages.models.label",
+  "chat.nav.pages.skills.label",
+  "chat.nav.pages.skills.preview",
+  "chat.nav.pages.trace.label",
+  "chat.nav.pages.trace.preview",
+  "chat.nav.pages.project.label",
+  "chat.nav.pages.project.preview",
+  "chat.nav.pages.settings.label",
+  "chat.nav.pages.settings.preview",
 ] as const;
 
 function flatten(obj: unknown, prefix = ""): Map<string, string> {

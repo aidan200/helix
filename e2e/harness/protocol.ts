@@ -132,8 +132,14 @@ export function messageCompleted(entry: MessageEntryDto, opts: { instanceId?: st
   };
 }
 
-export function steerQueued(entryId: string): EventEnvelope {
-  return { v: V, type: "steer.queued", payload: { entryId } };
+export function steerQueued(entryId: string, opts: { instanceId?: string } = {}): EventEnvelope {
+  // v0.3（契约 §3.2，T2.3）：定向 steer 的 steer.queued 帧信封挂 instanceId=目标
+  return {
+    v: V,
+    type: "steer.queued",
+    payload: { entryId },
+    ...(opts.instanceId !== undefined ? { instanceId: opts.instanceId } : {}),
+  };
 }
 
 export function steerDrained(entryId: string): EventEnvelope {
@@ -227,7 +233,7 @@ export function compactionEntry(
   };
 }
 
-/** AgentInstanceDto（快照实例清单；main/subagent + 状态/账目/closure）。 */
+/** AgentInstanceDto（快照实例清单；main/subagent + 状态/账目/closure + v0.3 spawn 锚）。 */
 export function agentInstance(
   instanceId: string,
   opts: {
@@ -239,6 +245,8 @@ export function agentInstance(
     queuedPosition?: number;
     closure?: ClosureDto;
     usage?: UsageDto;
+    /** v0.3（契约 v0.3 §1）：spawn 锚 entry id；null = 流首有效锚（显式传 null 携带） */
+    anchorEntryId?: string | null;
   } = {},
 ): AgentInstanceDto {
   return {
@@ -251,6 +259,7 @@ export function agentInstance(
     ...(opts.queuedPosition !== undefined ? { queuedPosition: opts.queuedPosition } : {}),
     ...(opts.closure !== undefined ? { closure: opts.closure } : {}),
     ...(opts.usage !== undefined ? { usage: opts.usage } : {}),
+    ...(opts.anchorEntryId !== undefined ? { anchorEntryId: opts.anchorEntryId } : {}),
     createdAt: new Date().toISOString(),
   };
 }
@@ -260,7 +269,7 @@ export function agentInstance(
 export function agentSpawned(
   agentId: string,
   task: string,
-  opts: { profileKind?: string; model?: string } = {},
+  opts: { profileKind?: string; model?: string; anchorEntryId?: string | null } = {},
 ): EventEnvelope {
   return {
     v: V,
@@ -270,6 +279,8 @@ export function agentSpawned(
       task,
       profileKind: opts.profileKind ?? "subagent-worker",
       ...(opts.model !== undefined ? { model: opts.model } : {}),
+      // v0.3（契约 v0.3 §1）：spawn 锚随帧携带；null = 流首有效锚
+      ...(opts.anchorEntryId !== undefined ? { anchorEntryId: opts.anchorEntryId } : {}),
     },
   };
 }
@@ -549,6 +560,23 @@ export function backgroundStreamDelta(sessionId: string, messageId: string, delt
     type: "chat.stream.delta",
     payload: { messageId, delta },
   };
+}
+
+// ── v0.3 monitor 档白名单帧（T3.2，契约 v0.3 §2.2：turn 生命周期 + message_end）──
+
+/** 后台会话 message_end（chat.message.completed 信封章印——monitor 档未读真链路驱动面）。 */
+export function backgroundMessageCompleted(sessionId: string, entry: EntryDto): EventEnvelope {
+  return { v: V, sessionId, channel: "chat", type: "chat.message.completed", payload: { entry } };
+}
+
+/** 后台会话 turn 起点（monitor 档白名单①）。 */
+export function backgroundTurnStarted(sessionId: string, turnId: string): EventEnvelope {
+  return { v: V, sessionId, channel: "chat", type: "chat.turn.started", payload: { turnId } };
+}
+
+/** 后台会话 turn 收口（monitor 档白名单②；reason 缺省 completed）。 */
+export function backgroundTurnCompleted(sessionId: string, turnId: string): EventEnvelope {
+  return { v: V, sessionId, channel: "chat", type: "chat.turn.completed", payload: { turnId, reason: "completed" } };
 }
 
 /** 模型目录剧本数据构造（契约 C §1.2 CatalogModel 字段结构；P-3/P-4 载体）。 */

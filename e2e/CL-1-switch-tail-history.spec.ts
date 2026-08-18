@@ -7,9 +7,11 @@
  * ② 滚动到顶 → session.loadHistory 命令（clientFrames 断言命令 + 游标 +
  *    信封 sessionId）→ result 前插（含重复条目去重）→ hasMore=false 禁用
  *    （再次滚顶不再发命令）；
- * ③ 清单下发 → probe 后台行出现；点击切换 → unsubscribe 旧 + subscribe 新
- *    （clientFrames 断言）+ loading 骨架（旧内容不渲染——互斥）；
- * ④ B 快照到达 → success（输入恢复）+ mock 订阅簿记跟随（activeSession）。
+ * ③ 清单下发 → probe 后台行出现；点击切换 → subscribe(新, full) 先升
+ *    （v0.3 契约 §2.3 先升后降；clientFrames 断言）+ loading 骨架（旧内容
+ *    不渲染——互斥）；
+ * ④ B 快照到达（= subscribe ack）→ subscribe(旧, monitor) 降档收口 +
+ *    success（输入恢复）+ mock 订阅簿记跟随（activeSession）。
  *
  * 断言纪律：断言值全部取自 harness/scenarios（K-4：断言相对参数）；
  * T5.2 起 probe（isDev 调试面）退役，断言面 = 正式 UI（.app data-view /
@@ -95,13 +97,20 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
     await expect(rowB).toHaveAttribute("data-run-state", "streaming");
 
     await rowB.click();
-    // 命令断言：unsubscribe 旧 + subscribe 新（契约 B §1.2 定稿形态）
+    // 命令断言（v0.3 先升后降，契约 §2.3）：subscribe(B, full) 先升；零 unsubscribe；
+    // 启动全图订阅已发 subscribe(A, full) + subscribe(B, monitor)
     const frames = await mock.clientFrames();
-    const unsub = frames.find((f) => f.type === "session.unsubscribe");
-    const sub = frames.find((f) => f.type === "session.subscribe");
-    expect(unsub?.sessionId).toBe(MULTI_SESSION_A);
-    expect(sub?.sessionId).toBe(MULTI_SESSION_B);
-    // mock 订阅簿记跟随（daemon subscribeSession 语义镜像）
+    const subs = frames
+      .filter((f) => f.type === "session.subscribe")
+      .map((f) => [f.sessionId, (f.payload as { tier?: string }).tier] as const);
+    expect(subs).toEqual([
+      [MULTI_SESSION_A, "full"],
+      [MULTI_SESSION_B, "monitor"],
+      [MULTI_SESSION_B, "full"],
+    ]);
+    // ack（快照）未达：旧活跃不降档（瞬时双 full 窗口）
+    expect(frames.some((f) => f.type === "session.unsubscribe")).toBe(false);
+    // mock 订阅簿记跟随（v0.3：full 档会话 = 切换目标）
     await expect(mock.activeSession()).resolves.toBe(MULTI_SESSION_B);
     // loading 骨架：success 内容不渲染（互斥）+ 输入禁用
     await expect(app).toHaveAttribute("data-view", "loading");
@@ -110,7 +119,7 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
     await expect(app).toHaveAttribute("data-session", "empty");
     await expect(page.locator("#msg-input")).toBeDisabled();
 
-    // ── ⑤ B 快照到达 → success：尾窗重建可见 + 输入恢复 ──
+    // ── ⑤ B 快照到达（= subscribe ack）→ success + 先升后降降档收口 ──
     await mock.emit(
       v02Snapshot(MULTI_SESSION_B, {
         tail: [
@@ -120,6 +129,19 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
         tailStartCursor: null,
       }),
     );
+    // ack 后才 subscribe(A, monitor)（严格序断言面）
+    await expect
+      .poll(async () =>
+        (await mock.clientFrames())
+          .filter((f) => f.type === "session.subscribe")
+          .map((f) => [f.sessionId, (f.payload as { tier?: string }).tier] as const),
+      )
+      .toEqual([
+        [MULTI_SESSION_A, "full"],
+        [MULTI_SESSION_B, "monitor"],
+        [MULTI_SESSION_B, "full"],
+        [MULTI_SESSION_A, "monitor"],
+      ]);
     await expect(app).toHaveAttribute("data-view", "ready");
     await expect(page.locator(".msg.user", { hasText: MULTI_B_TAIL_TEXT })).toBeVisible();
     await expect(page.locator("#msg-input")).toBeEnabled();

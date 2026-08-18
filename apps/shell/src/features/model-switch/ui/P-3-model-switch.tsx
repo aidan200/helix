@@ -38,7 +38,7 @@ function fmtContext(tokens: number): string {
 
 export interface ModelSwitchMenuProps {
   onClose: () => void;
-  /** P-3 → P-4 流转入口（顶栏注入 navigate(ROUTE_SETTINGS_MODELS)） */
+  /** P-3 → P-4 流转入口（顶栏注入 navigate(ROUTE_MODELS)；T3.4 迁移后路由位） */
   onOpenSettings: () => void;
 }
 

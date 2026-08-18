@@ -3,8 +3,9 @@
  * 标准形态，与 CLI 的 StdoutEventPublisher 同构；architecture.md §3.4）。
  * 组合根把本实例作为 fan-out 目标装配（WS 推送显式消费者，AD-3 T2.1）。
  *
- * 领域事件 → 协议事件帧，按会话订阅路由推送（v0.2 AD-4：单连接订阅会话集，
- * 帧按信封 sessionId 分发——多连接可各订各的）；流式 delta →
+ * 领域事件 → 协议事件帧，按会话订阅路由推送（v0.2 AD-4：连接级订阅表，
+ * 帧按信封 sessionId 分发——多连接可各订各的；v0.3 T2.2：订阅表升级为
+ * Map<sessionId, tier>，monitor 档按白名单在 push 一处过滤）；流式 delta →
  * chat.stream.delta / thinking.stream.delta。
  *
  * v0.2 统一信封（T2.1，契约 A §1.2/§2）：EventStream 发出的帧全部章印
@@ -41,15 +42,35 @@ export interface EventStreamDeps {
    * 全量携带后本兜底退化为防御位）。
    */
   readonly defaultSessionId?: string;
+  /**
+   * agent.spawned 帧 spawn 锚查值（T2.1 契约 v0.3 §1 规则②）：组合根接
+   * SchedulerService.spawnAnchorOf（实例 spawn 时值内存携带）；返回值含 null
+   * （流首有效锚），undefined = 未登记（帧不携带锚字段——旧组装点兼容）。
+   */
+  readonly spawnAnchorFor?: (instanceId: string) => string | null | undefined;
 }
 
-/** 单连接投影状态：会话订阅表 + v0.1 实例订阅表（通路语义，不过滤）。 */
+/** 单连接投影状态：会话订阅 tier 表 + v0.1 实例订阅表（通路语义，不过滤）。 */
 interface ConnProjection {
-  /** 已订阅会话 id 集（v0.2 per-session 路由，AD-4；空 = 不收任何会话帧）。 */
-  readonly sessionIds: Set<string>;
+  /** 已订阅会话 → 档位（v0.3 T2.2，契约 §2.1 连接级 Map 取代 v0.2 Set，Q-2b①：一会话一连接一档）。 */
+  readonly sessionTiers: Map<string, SubscriptionTier>;
   /** agent.subscribe 登记的实例 id 集（契约 §8-1：v0.1 只记录不过滤，M3 多会话再兑现路由）。 */
   readonly instances: Set<string>;
 }
+
+/** 订阅档位（契约 v0.3 §2.1，Q-2b②）：full = 全量（缺省既有语义）；monitor = 白名单 3 事件。 */
+export type SubscriptionTier = "full" | "monitor";
+
+/**
+ * monitor 档白名单（Q-2a 消息档，契约 v0.3 §2.2 机械定义，**唯一出处**）：
+ * monitor 档连接只放行以下 3 个 session 订阅面事件类型；过滤判定唯一位于
+ * EventStream.push（不散落 service/DtoMapper/WsServerAdapter，TR-AD-23③）。
+ */
+export const MONITOR_TIER_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "chat.turn.started",
+  "chat.turn.completed",
+  "chat.message.completed",
+]);
 
 export class EventStream implements EventPublisherPort {
   private readonly connections = new Map<FrameSender, ConnProjection>();
@@ -66,24 +87,28 @@ export class EventStream implements EventPublisherPort {
    * （显式 session.subscribe 后才开始收帧）。
    */
   attach(sender: FrameSender, sessionId?: string): void {
-    const sessionIds = new Set<string>();
-    if (sessionId !== undefined) sessionIds.add(sessionId);
-    this.connections.set(sender, { sessionIds, instances: new Set() });
+    const sessionTiers = new Map<string, SubscriptionTier>();
+    if (sessionId !== undefined) sessionTiers.set(sessionId, "full"); // 握手默认档 = full（既有语义不变）
+    this.connections.set(sender, { sessionTiers, instances: new Set() });
   }
 
-  /** 连接关闭/断开后注销。 */
+  /** 连接关闭/断开后注销（tier 表随连接销毁即丢——daemon 不持跨连接状态，TR-AD-23③）。 */
   detach(sender: FrameSender): void {
     this.connections.delete(sender);
   }
 
-  /** session.subscribe（v0.2 AD-4 per-session 语义）：连接订阅指定会话。 */
-  subscribeSession(sender: FrameSender, sessionId: string): void {
-    this.connections.get(sender)?.sessionIds.add(sessionId);
+  /**
+   * session.subscribe（v0.2 AD-4 per-session 语义 + v0.3 T2.2 档位）：连接订阅
+   * 指定会话；tier 缺省 full（契约 §2.1）。重复 subscribe 换 tier = 幂等更新
+   * （Map.set 覆盖语义天然幂等，不报错无副作用）。
+   */
+  subscribeSession(sender: FrameSender, sessionId: string, tier: SubscriptionTier = "full"): void {
+    this.connections.get(sender)?.sessionTiers.set(sessionId, tier);
   }
 
   /** session.unsubscribe（T2.1 定稿：对称 per-session 退订——见 WsServerAdapter）。 */
   unsubscribeSession(sender: FrameSender, sessionId: string): void {
-    this.connections.get(sender)?.sessionIds.delete(sessionId);
+    this.connections.get(sender)?.sessionTiers.delete(sessionId);
   }
 
   /**
@@ -108,7 +133,7 @@ export class EventStream implements EventPublisherPort {
   /** 观测面：某连接已订阅的会话 id 集（测试/诊断）。 */
   subscribedSessions(sender: FrameSender): readonly string[] {
     const conn = this.connections.get(sender);
-    return conn ? [...conn.sessionIds] : [];
+    return conn ? [...conn.sessionTiers.keys()] : [];
   }
 
   /**
@@ -150,9 +175,16 @@ export class EventStream implements EventPublisherPort {
   publish(event: DomainEvent): void {
     const duration = this.takeDuration(event); // 先取差值（内部一并清理起点记录）
     this.trackProjectionContext(event);
+    // T2.1 契约 v0.3 §1：agent.spawned 帧锚点 enrichment——spawn 时值查调度器
+    // 内存携带面（领域事件载荷不携带，不落 domain_events；E-AgentInstance 禁忌）
+    const spawnAnchor =
+      event.type === "agent.spawned" && event.instanceId !== undefined
+        ? this.deps.spawnAnchorFor?.(event.instanceId)
+        : undefined;
     const envelope = domainEventToEnvelope(event, {
       fallbackTurnId: this.lastTurnIds.get(event.sessionId) ?? "",
       ...duration,
+      ...(spawnAnchor !== undefined ? { spawnAnchor } : {}),
     });
     if (envelope === null) return;
     this.push(envelope);
@@ -220,17 +252,18 @@ export class EventStream implements EventPublisherPort {
   /**
    * 按 sessionId 路由分发（v0.2 AD-4）：会话帧只发订阅了该会话的连接；
    * 系统级帧（SYSTEM_SESSION_ID——connection.族 / session.list_changed）发全部
-   * 连接（会话无关）；无 sessionId 帧（防御）发全部已订阅连接（兼容读）。
+   * 连接（会话无关，不受 tier 影响）；无 sessionId 帧（防御）发全部已订阅连接
+   * （兼容读）。
+   * v0.3 档位过滤（T2.2，契约 §2.2，唯一判定单点）：session 订阅面事件按连接
+   * 查 tier——full 全量；monitor 只放行 MONITOR_TIER_EVENT_TYPES 白名单 3 类型。
    * 单连接异常不扩散到其他连接（事件流健壮性）。
    */
   private push(frame: EventEnvelope): void {
     for (const [sender, conn] of this.connections) {
-      if (
-        frame.sessionId !== undefined &&
-        frame.sessionId !== SYSTEM_SESSION_ID &&
-        !conn.sessionIds.has(frame.sessionId)
-      ) {
-        continue;
+      if (frame.sessionId !== undefined && frame.sessionId !== SYSTEM_SESSION_ID) {
+        const tier = conn.sessionTiers.get(frame.sessionId);
+        if (tier === undefined) continue; // 未订阅该会话
+        if (tier === "monitor" && !MONITOR_TIER_EVENT_TYPES.has(frame.type)) continue; // monitor 档白名单
       }
       try {
         sender(frame);

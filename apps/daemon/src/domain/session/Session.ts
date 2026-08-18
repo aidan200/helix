@@ -94,6 +94,22 @@ export class Session {
     return this.steerEntry(text, at, source, null);
   }
 
+  /**
+   * 定向 steer 落主时间轴（T2.3，契约 v0.3 §3.2，Q-3a）：与 applySteer 同构的
+   * user + isSteer entry，instanceId=目标实例（标注干预对象）；turnId 语义同
+   * applySteer（挂当前 open turn，无 open turn → null）。**不入主 SteerQueue**
+   * （目标是 SubAgent，不经主线 turn 边界 drain——投递由 agent_send 链即时完成）、
+   * **不双写实例 channel**（appendInstanceMessage 不用于 user steer，单事实源）。
+   */
+  applyDirectedSteer(text: string, instanceId: string, at?: string): Entry {
+    if (instanceId === MAIN_INSTANCE_ID) {
+      throw new DomainError(
+        `主实例 steer 请走 applySteer（需 open turn 且入 SteerQueue），applyDirectedSteer 仅限 SubAgent 目标`,
+      );
+    }
+    return this.pushEntry("user", text, this.currentTurn?.id ?? null, true, at, undefined, instanceId);
+  }
+
   private steerEntry(text: string, at: string | undefined, source: "user" | "closure" | undefined, turnId: string | null): Entry {
     const entry = this.pushEntry("user", text, turnId, true, at);
     // source 仅 closure 注入携带（用户 steer 保持旧形状——快照/投影行往返等价）；

@@ -58,6 +58,7 @@ export const zhCN: Translations = {
       hint: "主会话生成中 · 发送的消息进入 steer 队列，本轮结束后注入",
       queued: "STEER · 已入队",
       drained: "已注入 · 本轮结束",
+      directedChip: "steer → {id}",
     },
     restore: {
       toast: "会话已恢复",
@@ -131,6 +132,9 @@ export const zhCN: Translations = {
       steerMark: "⇦ 主线 steer 注入",
       steerToast: "steer 已注入实例",
       steerToastSub: "{id} · 经 Agent.steer() 转投",
+      steerTarget: "steer target",
+      steerPlaceholder: "给 {id} 一条纠偏指令",
+      steerInputLabel: "steer 指令输入",
       queuedHint: "排队中 · 空位释放后自动开始执行，channel 将在此展开",
       reportFoot: "任务报告经 daemon 单写队列落盘",
       instanceMeta: "spawn 由主线 agent_spawn 发起 · 事件挂 instanceId（AD-3 trace 四维）",
@@ -197,6 +201,18 @@ export const zhCN: Translations = {
     settings: {
       back: "返回工作台",
       title: "模型与厂商",
+    },
+    nav: {
+      railLabel: "主导航",
+      plannedBadge: "规划中",
+      pages: {
+        chat: { label: "聊天 chat" },
+        models: { label: "模型 models" },
+        skills: { label: "技能 skills", preview: "查看与管理可被 Agent 调用的技能集合。" },
+        trace: { label: "追踪 trace", preview: "回放事件流与实例调用链，定位每一次执行的来路。" },
+        project: { label: "项目 project", preview: "工作区文档、知识图谱与迭代状态的总览入口。" },
+        settings: { label: "设置 settings", preview: "主题、通知与本地偏好选项。" },
+      },
     },
     modelSwitch: {
       searchPlaceholder: "搜索模型或 provider",

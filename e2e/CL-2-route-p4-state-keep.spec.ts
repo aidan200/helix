@@ -37,7 +37,7 @@ test.describe("T3.2 CL-2 路由（工作台 ↔ P-4）", () => {
 
     // ── 齿轮 → P-4：独立 URL + 返回壳；工作台隐藏但常驻 DOM ──
     await page.locator("#btn-settings").click();
-    await expect(page).toHaveURL(/\/settings\/models$/);
+    await expect(page).toHaveURL(/\/models$/);
     await expect(page.locator("[data-p4-page]")).toBeVisible();
     await expect(page.locator("#btn-p4-back")).toBeVisible();
     // 工作台常驻 DOM（display 切换，非卸载）
@@ -63,10 +63,10 @@ test.describe("T3.2 CL-2 路由（工作台 ↔ P-4）", () => {
 
     // ── 独立 URL 直接可达：P-4 路由下刷新仍是 P-4（SPA 回退 + 路由初始化）──
     await page.locator("#btn-settings").click();
-    await expect(page).toHaveURL(/\/settings\/models$/);
+    await expect(page).toHaveURL(/\/models$/);
     await page.reload();
     await mock.awaitReady();
-    await expect(page).toHaveURL(/\/settings\/models$/);
+    await expect(page).toHaveURL(/\/models$/);
     await expect(page.locator("[data-p4-page]")).toBeVisible();
   });
 });

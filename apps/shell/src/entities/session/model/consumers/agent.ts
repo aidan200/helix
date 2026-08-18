@@ -28,7 +28,7 @@ export const AGENT_EVENT_TYPES = [
 export function applyAgentEvent(s: SessionState, event: EventEnvelope, ts?: number): SessionState {
   switch (event.type) {
     case "agent.spawned": {
-      const { agentId, task, profileKind, model } = event.payload;
+      const { agentId, task, profileKind, model, anchorEntryId } = event.payload;
       const existing = s.instances.find((c) => c.instanceId === agentId);
       if (existing) {
         // 终态吸收（重派 = 新 agentId 新卡）；非终态重发仅刷新任务面（channel 不重复开行）
@@ -51,8 +51,9 @@ export function applyAgentEvent(s: SessionState, event: EventEnvelope, ts?: numb
         profileKind,
         ...(model !== undefined ? { model } : {}),
         streamSummary: "",
-        // T5.5 时间轴锚点：插入位 = 当时最后一条 main entry 之后（无 entries = 流首）
-        anchorEntryId: s.entries.length > 0 ? s.entries[s.entries.length - 1]!.id : null,
+        // CL-1 v0.3 时间轴锚点：DTO 帧直读为唯一权威（daemon spawn 时刻计算下发；
+        // null = 流首有效锚，不回落）；shell 零推导（Q-1c）
+        anchorEntryId: anchorEntryId ?? null,
       };
       const withCard: SessionState = {
         ...s,

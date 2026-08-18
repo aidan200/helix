@@ -62,6 +62,14 @@ export interface AgentInstanceDto {
    * 历史按实例分组完整保留（F-14⑤）。缺省 = 未携带（旧剧本兼容）。
    */
   channels?: InstanceChannelHistory;
+  /**
+   * spawn 锚（v0.3 新增，契约 v0.3 §1，Q-1a）：卡片插入位的权威 entry id
+   * （复用 EntryDto.id 体系）。daemon 组装期权威计算（派生值不持久化，无
+   * 第二事实源）；快照组装面与 agent.spawned 增量帧同源供给。
+   * null = 流首锚点（有效值：实例首条 Entry 之前无 main/compaction entry，
+   * 卡片渲染流首）；缺省不携带 = 主实例（kind=main，无卡片无锚）。
+   */
+  anchorEntryId?: string | null;
 }
 
 /** 实例通道历史分组（AgentInstanceDto.channels 载体；EntryDto 归 kind 分组） */

@@ -1,14 +1,19 @@
 /**
  * T3.1 —— CL-1 多会话 mock：后台徽标脉冲 + 未读跳动（F(1.0).5 后台续跑；
- * AD-3 轻量 store 收帧驱动；契约 B §1.1/§2.1）。
+ * AD-3 轻量 store 收帧驱动；契约 B §1.1/§2.1）。v0.3（T3.2，契约 §2）同步：
+ * 后台会话 = monitor 档订阅（启动 list 后全图订阅落地），未读真链路驱动面
+ * = 白名单 message_end 帧（stream.delta 不进 monitor 档，过滤归 daemon/
+ * fake 簿记）。
  *
- * 剧本：A 活跃 + B 后台（清单播种）→
- * ① session.list.result → B 轻量行（标题/运行态徽标，unread=0）；
- * ② B 会话内容帧（信封 sessionId=B）→ 未读计数跳动（收帧驱动 +N）；
- *    活跃主消息流零污染（不渲染后台 entries）；
+ * 剧本：A 活跃 + B 后台（清单播种 + 全图订阅）→
+ * ① session.list.result → B 轻量行（标题/运行态徽标，unread=0）+ 出站全图
+ *    订阅（A full / B monitor）；
+ * ② B 会话 message_end 帧（monitor 档白名单，信封 sessionId=B）→ 未读计数
+ *    跳动（收帧驱动 +N）；活跃主消息流零污染（不渲染后台 entries）；
  * ③ session.list_changed{state_changed} → 运行态徽标翻转（元数据权威）；
  * ④ mock 剧本台账（scenarioSession）= 后台续跑活动断言面（daemon 侧视角）；
- * ⑤ 切回 B → 轻量态移除（未读消解）——双 store 拓扑的活跃/后台转换。
+ * ⑤ 切回 B → 轻量态移除（未读消解）——双 store 拓扑的活跃/后台转换
+ *    （v0.3 先升后降：subscribe(B, full) → 快照 ack → subscribe(A, monitor)）。
  *
  * probe（isDev 调试面）已于 T5.2 退役：断言面 = P-2 侧栏会话卡
  * （data-session-card · data-run-state · data-unread · data-active）与
@@ -16,7 +21,8 @@
  */
 import { test, expect } from "./harness/fixtures";
 import {
-  backgroundStreamDelta,
+  backgroundMessageCompleted,
+  msgEntry,
   sessionListChanged,
   sessionListResult,
   v02Snapshot,
@@ -45,9 +51,9 @@ test.describe("T3.1 CL-1 后台轻量 store（徽标脉冲 + 未读跳动）", (
     await expect(rowB).toHaveAttribute("data-unread", "0");
     await expect(rowB).toHaveAttribute("data-run-state", "streaming");
 
-    // ── ② B 会话内容帧（信封 sessionId 章印）→ 未读跳动（收帧驱动）──
+    // ── ② B 会话 message_end 帧（monitor 档白名单；信封 sessionId 章印）→ 未读跳动（收帧驱动）──
     for (const [i, delta] of MULTI_B_DELTAS.entries()) {
-      await mock.emit(backgroundStreamDelta(MULTI_SESSION_B, MULTI_B_MSG_ID, delta));
+      await mock.emit(backgroundMessageCompleted(MULTI_SESSION_B, msgEntry(`${MULTI_B_MSG_ID}-${i}`, "assistant", delta, { ts: 100 + i })));
       await expect(rowB).toHaveAttribute("data-unread", String(i + 1));
     }
     // 帧驱动运行态投影：streaming（徽标脉冲源）
@@ -75,10 +81,11 @@ test.describe("T3.1 CL-1 后台轻量 store（徽标脉冲 + 未读跳动）", (
     // ── ④ mock 剧本台账：后台续跑活动（daemon 侧视角断言面）──
     const ledger = await mock.scenarioSession(MULTI_SESSION_B);
     expect(ledger).toEqual({ sessionId: MULTI_SESSION_B, eventCount: MULTI_B_DELTAS.length });
-    // 连接订阅簿记：未切换（首连不显式 subscribe）
-    await expect(mock.activeSession()).resolves.toBeNull();
+    // 连接订阅簿记：v0.3 启动全图订阅（A full 为 full 档会话；B monitor）
+    await expect(mock.activeSession()).resolves.toBe(MULTI_SESSION_A);
 
     // ── ⑤ 切回 B → 轻量态移除（转活跃，未读消解）；旧活跃 A 转轻量 ──
+    //（v0.3 先升后降：click → subscribe(B, full)；快照 ack 后 subscribe(A, monitor)）
     await rowB.click();
     await expect(mock.activeSession()).resolves.toBe(MULTI_SESSION_B);
     await expect(rowB).toHaveAttribute("data-active", "1"); // B 转活跃

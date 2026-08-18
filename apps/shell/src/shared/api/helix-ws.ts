@@ -4,7 +4,7 @@
  * 职责（替换 desk shared/api 的三缝隙，不搬运）：
  * - token 获取：GET http://127.0.0.1:{port}/helix-dev-token（loopback Origin
  *   反射放行，vite dev 直用；§9）；
- * - 握手：WS open 后首帧 hello { token, protocolVersion: "0.2" }（T1.2 v0.2 bump 机械跟随）；
+ * - 握手：WS open 后首帧 hello { token, protocolVersion: "0.3" }（T1.2 v0.3 bump 机械跟随，iter-20260818-mq5a）；
  * - 重连退避状态机：断线 → 指数退避自动重连 → 重新握手 → 收快照（恢复语义
  *   在 reducer：快照 + 增量，本客户端只管连接生命周期）；
  * - transport 注入点：transportFactory 可注入 fake transport（M3 mock 挂点，
@@ -85,6 +85,13 @@ export interface HelixWsClientOptions {
   getToken?: (port: number) => Promise<string>;
   transportFactory?: TransportFactory;
   backoff?: Partial<BackoffOptions>;
+  /**
+   * 重连挂点（v0.3 T3.2，TR-AD-5）：握手通过（welcome）且本客户端此前已成功
+   * 连接过时触发（首连不触发）。daemon 不持跨连接订阅状态（TR-AD-23③），
+   * 消费方（SessionContext）在此重放全订阅图。同步调用点 phase 已置
+   *   connected（send 可用）。
+   */
+  onReconnect?: () => void;
 }
 
 type Phase = "stopped" | "connecting" | "connected";
@@ -98,6 +105,8 @@ export class HelixWsClient {
   private transport: Transport | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private lastErrorMessage: string | null = null;
+  /** 曾成功握手标记：welcome 再临 = 重连（onReconnect 挂点判定） */
+  private connectedOnce = false;
   private readonly frameHandlers = new Set<(e: EventEnvelope) => void>();
   private readonly connHandlers = new Set<(c: ClientConnEvent) => void>();
 
@@ -237,6 +246,8 @@ export class HelixWsClient {
     }
     if (frame?.type === "connection.welcome") {
       this.phase = "connected"; // 握手通过（快照将随后到达）
+      if (this.connectedOnce) this.opts.onReconnect?.(); // 重连挂点（T3.2 全订阅图重放）
+      this.connectedOnce = true;
     }
     if (frame?.type === "connection.error") {
       const message = (frame.payload as { message?: string })?.message;
