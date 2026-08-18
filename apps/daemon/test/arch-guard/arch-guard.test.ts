@@ -364,6 +364,25 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
 });
 
 describe("AG-13：协议两端同源基线（@helix/protocol 唯一权威源）", () => {
+  test("MAIN_INSTANCE_ID 取源单源：application 层 import 仅来自 @helix/protocol（TP-CL5-3 grep 守护）", () => {
+    // T4.1（CL-5）：SessionRegistry 曾取 domain 本地定义（其余 service 全取
+    // 协议导出）——守护 application 层 MAIN_INSTANCE_ID import 来源唯一；
+    // domain 本地值锚点保留（AG-02 禁 domain import 协议包），双源相等由
+    // test/unit/protocol-import.test.ts 断言。
+    const importRe = /^\s*import\s+[^;'"]*MAIN_INSTANCE_ID[^;'"]*from\s+['"]([^'"]+)['"]/gm;
+    const offenders: string[] = [];
+    let hits = 0;
+    for (const rel of listFiles(path.join(srcRoot, "application"))) {
+      const src = read(path.join("application", rel));
+      for (const m of src.matchAll(importRe)) {
+        hits++;
+        if (m[1] !== "@helix/protocol") offenders.push(`${rel} → ${m[1]}`);
+      }
+    }
+    expect(hits).toBeGreaterThan(0); // 扫描面非空转
+    expect(offenders, `application 层 MAIN_INSTANCE_ID 取源越出 @helix/protocol：${offenders.join(", ")}`).toEqual([]);
+  });
+
   test("ws-server 正向 import @helix/protocol（协议类型不得本地重写）", () => {
     const wsDir = path.join(srcRoot, "adapters", "driving", "ws-server");
     const all = listFiles(wsDir)
