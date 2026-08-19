@@ -914,3 +914,39 @@ M4+ 新增任何协议命令/事件/DTO 字段时；契约版本批次规划（�
 
 ## 反例
 为 monitor 档新增 session.subscribe_monitor / unsubscribe_monitor 命令对（可选参数即可承载，徒增命令目录与 dispatcher 路由面）；或 daemon 维护全局活跃会话表做原子换档（第二连接连入即污染第一连接订阅图，多窗口被迫开协议协商）；或 v0.3 拆三次小版本铺开（三次守护计数扰动）；或 monitor 白名单散落各 service 各写一份（口径漂移，过滤必须事件分发层一处）。
+
+```kg-node
+id: TR-AD-24
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: SubAgent 模型三级解析链（profile > 会话快照 > 全局兜底）
+status: active
+digest: 动 SubAgent 模型来源、写 spawn 模型透传管线、配 profile 模型槽位、调全局兜底语义时
+derivedFrom:
+  - AD-3（iter-20260819-erio：用户裁决「按优先级，profile > 会话模型 > 全局默认」）
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
+    - apps/daemon/src/application/services/SchedulerService.ts
+    - apps/daemon/src/infrastructure/container.ts
+relations:
+  governs:
+    - E-AgentProfile
+    - E-调度器
+updatedIn: iter-20260819-erio
+```
+
+## 规则
+SubAgent 实例的模型来源按三级优先级解析：①SubAgentProfile.model 真实槽位（装配期 resolveModelSlot 解析，声明即最高优先级）→ ②spawn 时快照的会话模型（spawnModels 管线：agent_spawn 经 AgentOrchestrationPort.spawn 透传会话现值，SchedulerService.spawn 时刻快照入 spawnModels，此后主实例再切模型不影响在跑/排队实例）→ ③全局兜底（默认模型存储现值 getter，container 组合根注入，语义 = 「全局兜底」而非「SubAgent 默认来源」）。launch 段是三级链的唯一消费点：SubagentLauncher.launch 携带解析结果，子进程 HELIX_MODEL_JSON 仍为完整 Model 对象透传（防 registry 不含的红线不变）。取代边界：本规则取代 M2 AD-6「SubAgent 缺省继承全局默认」中「SubAgent 模型源 = 全局默认表」的解析规则；不取代会话级 model.set 内存态语义（主实例模型仍为 AgentState.model 内存态，重启/卸载回退全局默认）。
+
+## 理由
+M4 终验后真机 7 连败根因之一：会话内 model.set 只切主实例，SubAgent 模型源仍是全局默认（zai 配额耗尽后子进程 429 静默失败）。用户裁决三级优先级原话「profile > 会话模型 > 全局默认」。spawnModels 半截管线已存在（透传与存储段在线、launch 段未消费），改动面集中于 launch 签名与 model getter，无需新建通道。spawn 时快照（而非 launch 时读会话现值）保证排队实例的模型语义在 spawn 时刻确定、可观测（status 读面已携带 model）。
+
+## 适用范围
+SubAgent spawn/launch 链路实现与评审；profile model 槽位声明（代码层入口，UI 管理归 skills 页下迭代）；default_model 相关文案/注释口径调整；模型切换链路的 E 层与真机验证；未来新增 profile 类型时模型槽位语义评审。
+
+## 反例
+SubagentLauncher 每次 launch 直接读全局默认 getter（单级解析回退——会话内切模型后 SubAgent 仍用旧全局默认，7 连败根因复发）；或 launch 时才读会话现值而不在 spawn 时快照（排队实例模型随主实例后续切换漂移，spawn 语义不可观测）。

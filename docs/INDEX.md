@@ -12,10 +12,10 @@ docs:
     updatedAt: 2026-08-15T11:25:13.254Z
   - name: kg/domain.md
     purpose: 领域模型（业务实体）
-    updatedAt: 2026-08-18T17:04:17.118Z
+    updatedAt: 2026-08-19T10:38:59.168Z
   - name: kg/architecture-rules.md
     purpose: 架构规则（技术规则 TR-AD-N）
-    updatedAt: 2026-08-18T17:04:59.075Z
+    updatedAt: 2026-08-19T10:38:51.287Z
   - name: kg/testing-rules.md
     purpose: 测试规则（技术规则 TR-TEST-N）
     updatedAt: 2026-08-18T17:18:32.570Z
