@@ -83,7 +83,7 @@ import {
  * ⑦ EVENT_CHANNELS 登记目录 ↔ 契约 A §2 映射表恰等（含 interaction 占位族
  *    无事件挂靠）。
  *
- * v0.3 扩展（iter-20260818-mq5a T1.2，契约 = contract-v0.3.md；AD-5 三合一
+ * v0.3 扩展（契约 = PROTOCOL.md §12；AD-5 三合一
  * additive 一次定形）：
  * ⑧ CL-1 spawn 锚点：AgentInstanceDto / AgentSpawnedPayload 增可选
  *    anchorEntryId?: string | null（null = 流首有效值；缺省 = 主实例不携带）。
@@ -424,7 +424,7 @@ const snapshotV02: SessionSnapshotDto = {
   ],
 };
 
-// ── v0.3 样例帧（契约 = contract-v0.3.md §1/§2/§3；构造即类型检查） ──
+// ── v0.3 样例帧（契约 = PROTOCOL.md §12.1/§12.2/§12.3；构造即类型检查） ──
 
 /** CL-1 spawn 锚点：agent.spawned 增量帧三形态（string 锚 / null 流首 / 缺省主实例） */
 const spawnedAnchored: EventEnvelope = {
@@ -867,7 +867,7 @@ type _InstanceChannels = Expect<Equal<AgentInstanceDto["channels"], InstanceChan
 type _CompactionTailKept = Expect<Equal<CompactionCompletedPayload["tailKept"], number | undefined>>;
 type _CompactionFilesCompacted = Expect<Equal<CompactionCompletedPayload["filesCompacted"], number | undefined>>;
 
-// ── v0.3 类型级断言（契约 = contract-v0.3.md §1–§4；三合一 additive） ──
+// ── v0.3 类型级断言（契约 = PROTOCOL.md §12；三合一 additive） ──
 // CL-1 spawn 锚点：可选 string | null（null = 流首有效值；缺省 = 主实例不携带）
 type _InstanceAnchorOptional = Expect<
   Equal<AgentInstanceDto["anchorEntryId"], string | null | undefined>
@@ -1333,7 +1333,7 @@ describe("TP-v0.2-③ 快照尾窗 additive 字段（契约 B §2.2，AD-1）", 
   });
 });
 
-// ── v0.3 运行时断言（契约 = contract-v0.3.md §1–§4） ──────────
+// ── v0.3 运行时断言（契约 = PROTOCOL.md §12） ──────────
 describe("TP-v0.3-① 三合一 additive 字段形态（契约 v0.3 §1/§2/§3）", () => {
   test("CL-1 anchorEntryId：agent.spawned 增量帧携带锚（string / null 流首）", () => {
     expect(spawnedAnchored.channel).toBe("agent");

@@ -1,4 +1,7 @@
-# Helix WS 协议 v0
+# Helix WS 协议 v0.3
+
+> 当前版本位 `PROTOCOL_VERSION = "0.3"`（envelope.ts）；§1–§9 为 v0 基线，
+> §10–§12 为 v0.1–v0.3 演进登记（v0.3 = 当前，见 §12）。
 
 > 包：`@helix/protocol`（本目录）。类型唯一权威源——daemon（T1.6）与前端
 > shell（T1.7）共同 import，**仓库内禁止平行手写协议类型**（AD-8 / AG-13）。
@@ -20,22 +23,22 @@
 ```
 客户端                                        daemon (ws-server)
   │ ── WS connect ws://127.0.0.1:port ─────→ │  TCP / HTTP 升级
-  │ ── { v:0, type:"hello",                   │  校验 token（与 ~/.helix/dev-token 比对）
-  │      payload:{ token, protocolVersion:0 } │  校验 protocolVersion = 0
-  │    } ───────────────────────────────────→ │
+  │ ── { v:"0.3", type:"hello",               │  校验 token（与 ~/.helix/dev-token 比对）
+  │      payload:{ token,                     │  校验 protocolVersion = "0.3"
+  │             protocolVersion:"0.3" } } ───→ │
   │                                           │
-  │ ←─ { v:0, type:"connection.welcome",      │  通过：sessionId / model / agentState
+  │ ←─ { v:"0.3", type:"connection.welcome",  │  通过：sessionId / model / agentState
   │      payload:{ sessionId, model,          │
   │               agentState } } ────────────│
-  │ ←─ { v:0, type:"session.snapshot",        │  随后立即推全量快照
+  │ ←─ { v:"0.3", type:"session.snapshot",    │  随后立即推全量快照
   │      payload:{ snapshot: SessionSnapshotDto } } │
   │                                           │
-  │ ←─ { v:0, type:"connection.error",        │  拒绝：先发 error 帧再 close
+  │ ←─ { v:"0.3", type:"connection.error",    │  拒绝：先发 error 帧再 close
   │      payload:{ code, message } } ────────│
 ```
 
 - **重连恢复 = 快照 + 增量**（AD-16）：重连后重新握手 → 收快照重建投影 → 续增量；首连空会话 = `snapshot.entries` 为空数组。
-- **拒绝三分支**（TP-CL6-5）：无 `token` 字段 → `auth.missing_token`；token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`；`protocolVersion ≠ 0`（含信封 `v ≠ 0`）→ `protocol.version_unsupported`。
+- **拒绝三分支**（TP-CL6-5）：无 `token` 字段 → `auth.missing_token`；token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`；`protocolVersion ≠ "0.3"`（含信封 `v ≠ "0.3"`）→ `protocol.version_unsupported`。
 - 客户端浏览器侧获取 dev token 的机制已由 T1.6 钉死：daemon HTTP 端点 `GET /helix-dev-token`（见 §9）。
 
 ## 3. 统一信封
@@ -147,19 +150,24 @@ export interface ToolCallEntryDto {
 |---|---|---|
 | `auth.missing_token` | 握手：无 token 字段 | 发 error 帧后 **close** |
 | `auth.invalid_token` | 握手：token 与 dev-token 不符 | 发 error 帧后 **close** |
-| `protocol.version_unsupported` | 握手：protocolVersion ≠ 0 | 发 error 帧后 **close** |
+| `protocol.version_unsupported` | 握手：protocolVersion ≠ 当前版本位（"0.3"） | 发 error 帧后 **close** |
 | `command.unknown` | 命令：未知 type | 发 error 帧，**连接保持** |
 | `command.invalid_payload` | 命令：payload 不符 | 发 error 帧，**连接保持** |
 | （连接层异常） | 非 WS 帧垃圾数据等 | 不发帧直接 close，前端走重连状态机 |
 
-- **daemon 实现超集注记（D-3）**：daemon 握手期**同时校验**信封 `v ≠ 0` 与
-  `hello.protocolVersion ≠ 0`，两者均以 `protocol.version_unsupported` 同码拒绝
-  （实现严于本文档仅列 `protocolVersion` 的口径，属良性收紧）。
+- **daemon 实现超集注记（D-3）**：daemon 握手期**同时校验**信封 `v` 与
+  `hello.protocolVersion` 不等于当前版本位（"0.3"），两者均以
+  `protocol.version_unsupported` 同码拒绝（实现严于本文档仅列
+  `protocolVersion` 的口径，属良性收紧）。
 
 ## 8. 版本与演进
 
-- 版本位内建（AD-9）：`v: 0`；协议不兼容变更时 bump `PROTOCOL_VERSION`
-  并同步本包类型与本文档，旧版本以 `protocol.version_unsupported` 拒绝。
+- 版本位内建（AD-9）：`v: "0.3"`（当前）；协议不兼容变更时 bump
+  `PROTOCOL_VERSION` 并同步本包类型与本文档，旧版本以
+  `protocol.version_unsupported` 拒绝。
+- 演进登记：v0.1 additive（§10，未 bump 版本位）；v0.2 一次 bump、版本位转
+  字符串（§11）；**v0.3 = 当前**（§12：三处 additive 可选字段扩展 + 版本位
+  `"0.2" → "0.3"`，批次集合标记非协商位）。
 - v0 语义边界：workspace 路由**仅类型预留**（§3）；`session.subscribe` /
   `session.unsubscribe` 仅保通路语义（v0 主会话默认订阅）。
 - 前端重连语义（状态机转换规则 = 契约，节奏实现自定）：断线 → 自动重连
@@ -378,3 +386,93 @@ payload/响应形状与错误模型见契约 B/C；daemon 行为由 T2.1/T2.2/T2
   （OI-4）与 `model?`（OI-3）v0.1 已登记，v0.2 起快照填充口径成立。
 - `CompactionCompletedPayload`：`tailKept?` / `filesCompacted?`
   （命名定稿，OI 收口）。
+
+## 12. v0.3 登记批（协议 v0.3；一次 bump）
+
+> 本章为 v0.3 补登（历史对齐：实现于迭代 iter-20260818-mq5a，当期集成契约
+> 为该迭代 `development/contracts/contract-v0.3.md`；本章起契约 SoT 归本文档，
+> CL-2）。**版本位 bump**：`PROTOCOL_VERSION = "0.3"`（envelope.ts）——版本位
+> 是批次集合标记非协商位（Q-1c 单仓同发一步替换，仓内无 "0.2" 帧存量；
+> `FrameVersion = 0 | "0.3"`）。handshake 严格单值 fail-fast：
+> `protocolVersion ≠ "0.3"` 即 `protocol.version_unsupported` 拒绝。
+> 三处全部为 additive 可选字段扩展（TR-AD-18：只增不改、可选字段带缺省语义）：
+> **零新增事件类型**（`EVENT_TYPES` 37 / `EVENT_CHANNELS` 计数不动）、
+> **零新增命令对**（`COMMAND_TYPES` 21 不动；TR-AD-23① 可选参数优先于新命令对）。
+
+### 12.1 spawn 锚点 anchorEntryId（AgentInstanceDto / AgentSpawnedPayload 扩展）
+
+```ts
+// types/agent.ts — AgentInstanceDto 新增
+anchorEntryId?: string | null;
+
+// events.ts — AgentSpawnedPayload 新增（增量分发点，与快照同源供给）
+anchorEntryId?: string | null;
+```
+
+- **语义**：spawn 锚 = 卡片插入位的权威 entry id（复用 EntryDto.id 体系）。
+  `null` = 流首锚点（有效值：spawn 前无任何 main/compaction entry，卡片渲染
+  流首）；缺省不携带 = 主实例（kind=main，无卡片无锚）。daemon 组装期权威
+  计算（派生值不持久化，无第二事实源）；快照（`session.snapshot` 的 instances
+  清单）与增量分发点（`agent.spawned` 帧）同源供给——同聚合状态多次组装同值。
+- **计算规则（机械判定）**：
+  1. **实例已有 Entry** → anchor = 实例首条非 compaction 归属 Entry 之前、按
+     聚合顺序最后一条 main 归属或 compaction entry 的 id；范围内无 → `null`
+     （流首）。首 Entry 之后新增的 main entry 不影响锚（append-only）。
+  2. **实例尚无 Entry**（spawn 后未产出首 Entry）→ anchor = spawn 时刻聚合内
+     最后一条 main/compaction entry 的 id（无 → null）；随实例视图携带，
+     不按当前尾部重算。
+  3. **主实例**（kind=main）→ 不携带（undefined）。
+- 恢复重放边界（记录在案）：重启恢复后仍无 Entry 的实例，spawn 时值不可
+  重建，退化为规则 1 的尾部推导值（best-effort；实例首 Entry 到达后锚即
+  稳定，不另建持久化事实源）。
+
+### 12.2 monitor 档订阅 tier（SessionSubscribePayload 扩展）
+
+```ts
+// commands.ts — SessionSubscribePayload（原 EmptyPayload 形态仍合法）
+export interface SessionSubscribePayload {
+  /** 订阅档位（v0.3，Q-2b②）：缺省 full（既有语义不变） */
+  tier?: "full" | "monitor";
+}
+```
+
+- 信封 `sessionId` 必填不变（v0.2 路由位，§11.1）；`session.unsubscribe`
+  保持 `EmptyPayload` 不动。同一连接对同一会话重复 subscribe 换 tier =
+  **幂等更新**（不新增命令对、不报错）。
+- **monitor 档白名单（Q-2a 消息档，机械定义）**：连接只收
+  `chat.turn.started` / `chat.turn.completed` / `chat.message.completed`
+  三个事件类型；其余 session 订阅面事件（`chat.stream.delta`、`tool.call.*`、
+  `agent.*`、`thinking.*`、`compaction.completed`、`steer.queued/drained`、
+  `usage.recorded` 等）不进 monitor 档；full 档全量照旧。过滤位置 = daemon
+  事件分发层**一处完成**。系统级事件（`connection.*`、`session.list_changed`
+  等非 per-session 帧）不受 tier 影响。
+- **快照回推（daemon 既有行为明示）**：daemon 对任意档位的 subscribe 均重推
+  该会话全量快照（快照恢复公式，§4 D-4 注记的按会话化延伸）。
+- **连接级隔离**：daemon 每连接维护 `Map<sessionId, tier>`；N 连接 = N 独立
+  表；断连即丢，daemon 不持跨连接状态。
+- **ack 形态**：沿既有命令回执通道（点对点 result），形态不变、不携带
+  tier 回显。
+
+### 12.3 steer 定向寻址 instanceId（ChatSteerPayload 扩展）
+
+```ts
+// commands.ts — ChatSteerPayload 扩展
+export interface ChatSteerPayload {
+  text: string;
+  /** 目标实例（v0.3，可选）：缺省 = 主实例（既有语义不变） */
+  instanceId?: string;
+}
+```
+
+- **路由**：`instanceId` 缺省 → 主实例 SteerQueue（既有路径零改动）；携带 →
+  `AgentOrchestrationPort.send` 同链路，路由判定归 ChatService（TR-AD-9），
+  WsServerAdapter 只透传。`steer.queued` 帧的 instanceId 挂**信封位**
+  （`EventFrame.instanceId`，路由权威），payload（SteerQueuedPayload）零变更。
+- **干预消息一律落 Entry（Q-3a）**：定向 steer 落主时间轴 Entry
+  （role=user、标注目标实例 id），**不双写实例 channel**（单事实源）；
+  恢复重放完整保留（主轴 Entry 在尾窗/翻页内）。
+- **错误模型**：目标为非运行中实例（queued/completed/failed/killed/unknown）
+  → `connection.error` 点对点回执（`code="command.invalid_payload"`，与
+  agent.kill 目标不存在/已终态同码同形态，错误码面零新增）；非运行中
+  **不落 Entry 不入队**（先判定后落账：send 判定 → Entry → steer.queued
+  事件）。目标主实例仍走既有 lifecycle 判定（行为不变、无回执升级）。

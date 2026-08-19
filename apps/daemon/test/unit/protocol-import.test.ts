@@ -15,7 +15,7 @@ import { MAIN_INSTANCE_ID as DOMAIN_MAIN_INSTANCE_ID } from "../../src/domain/ag
  */
 describe("@helix/protocol 工作区解析（TP-CL2-2 基线）", () => {
   test("daemon 侧 import 同一协议包并使用其类型", () => {
-    expect(PROTOCOL_VERSION).toBe("0.3"); // v0.3 bump（iter-20260818-mq5a T1.2，批次标记）
+    expect(PROTOCOL_VERSION).toBe("0.3"); // v0.3 bump（批次标记；契约 = PROTOCOL.md §12）
 
     const cmd: ChatSendCommand = { v: PROTOCOL_VERSION, type: "chat.send", payload: { text: "ping" } };
     expect(cmd.type).toBe("chat.send");

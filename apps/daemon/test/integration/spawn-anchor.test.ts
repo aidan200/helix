@@ -17,7 +17,7 @@ import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 import { FakeAgentEngine, type ScriptedTurn } from "../mocks/FakeAgentEngine";
 
 /**
- * T2.1 RED（iter-20260818-mq5a，契约 v0.3 §1 spawn 锚点权威组装；test-design
+ * T2.1 RED（契约 = PROTOCOL.md §12.1 spawn 锚点权威组装；test-design
  * TP-CL1-2/TP-CL1-3；真 SQLite tmp + FakeAgentEngine）：
  *
  * 三分支机械规则（DtoMapper.instanceDto 组装链路 + agent.spawned 增量帧）：
