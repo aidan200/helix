@@ -6,6 +6,7 @@ import {
   assembleInstancePanel,
   hasMoreBefore,
   normalizeTraceQuery,
+  type InstanceAggregateRow,
   type TraceEventRowData,
 } from "../../src/domain/trace/TraceQuery";
 
@@ -150,7 +151,7 @@ describe("② assembleExecutionContext 纯 fold", () => {
 });
 
 describe("③ assembleInstancePanel 面板 fold", () => {
-  const aggregates = [
+  const aggregates: InstanceAggregateRow[] = [
     { instanceId: "main", agentKind: "main", firstTs: "2026-08-19T00:00:01.000Z", lastTs: "2026-08-19T00:00:30.000Z", eventCount: 12 },
     { instanceId: "agent-1", agentKind: "subagent", firstTs: "2026-08-19T00:00:05.000Z", lastTs: "2026-08-19T00:00:20.000Z", eventCount: 7 },
     { instanceId: "agent-2", agentKind: "subagent", firstTs: "2026-08-19T00:00:06.000Z", lastTs: "2026-08-19T00:00:25.000Z", eventCount: 3 },

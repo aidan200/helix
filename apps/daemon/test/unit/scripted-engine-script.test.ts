@@ -52,7 +52,7 @@ function withScriptFile(json: unknown, fn: (path: string) => void): void {
 
 async function collectEvents(script: unknown): Promise<AssistantMessageEvent[]> {
   const streamFn = makeScriptedStreamFn(script as Parameters<typeof makeScriptedStreamFn>[0], fakeModel);
-  const stream = streamFn(fakeModel, { messages: [] } as unknown as Context, undefined);
+  const stream = await streamFn(fakeModel, { messages: [] } as unknown as Context, undefined);
   const events: AssistantMessageEvent[] = [];
   for await (const e of stream) events.push(e);
   return events;
