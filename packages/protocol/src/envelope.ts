@@ -41,7 +41,8 @@ export const SYSTEM_SESSION_ID = "__system__" as const;
  * 事件类型学通道（契约 A §2；八族数据/会话通道 + notification 系统通道）。
  *
  * chat / agent / thinking / usage / compaction 为 v0/v0.1 既有五族归位；
- * session / model 为 v0.2 新增两族；interaction 为占位族（仅类型定义，
+ * session / model 为 v0.2 新增两族；trace 为 v0.4 新增族（trace.query.result
+ * 点对点结果帧，iter-20260819-erio T2.1）；interaction 为占位族（仅类型定义，
  * 无事件挂靠）；notification 承载会话无关系统事件（connection.*，
  * sessionId = SYSTEM_SESSION_ID）。每事件所属 channel 在 events.ts 以
  * 判别字面量登记（EVENT_CHANNELS 为运行时目录，daemon 下发侧消费）。
@@ -55,6 +56,7 @@ export type Channel =
   | "compaction"
   | "session"
   | "model"
+  | "trace"
   | "interaction"
   | "notification";
 

@@ -12,10 +12,13 @@ import type { UsageSummary } from "../../domain/session/SessionSnapshot";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { ZERO_USAGE } from "../../domain/session/UsageLedger";
 import type {
+  AgentInstantiatedPayload,
+  AgentModelChangedPayload,
   AgentStateChangedPayload,
   CompactionCompletedPayload,
   DomainEvent,
   MessageCompletedPayload,
+  ProfileSnapshotData,
   SteerPayload,
   ThinkingCompletedPayload,
   ToolCallPayload,
@@ -74,6 +77,19 @@ export interface ChatServiceDeps {
    * SteerTargetNotRunningError（不落 Entry 不入队）。
    */
   readonly sendToInstance?: AgentOrchestrationPort["send"];
+  /**
+   * 模型回退读面（T2.1，F5.9/AD-6）：agent.model.changed 的 from 兜底——引擎
+   * 未暴露 currentModel 时取全局默认（与 ModelService previous 口径一致）；
+   * 组合根接 defaultModel.current()。
+   */
+  readonly modelFallback?: () => string;
+  /**
+   * 主实例 instantiated 快照供给（T2.1，F5.7/AD-5，契约 v0.4 §2）：会话
+   * 创建时刻发布的 profile 快照数据源——profile 常量全文（systemPrompt/
+   * 工具集/compaction/hooks 名）与会话当前模型均归组合根装配（driven
+   * 常量不进 application）；缺省 = 不发布（纯测试形态）。
+   */
+  readonly instantiatedSnapshot?: () => ProfileSnapshotData;
 }
 
 /**
@@ -141,15 +157,44 @@ export class ChatService implements ChatPort {
     return this.deps.engine.currentModel?.();
   }
   /**
+   * 主实例 agent.instantiated 发布（T2.1，F5.7/AD-5，契约 v0.4 §2）：会话
+   * 创建时刻由注册表 createFresh 触发一次（恢复路径不调——历史快照经
+   * trace.query 查询面直读，不重发）；只落盘不广播（DtoMapper 无 case）。
+   * re-profile 不存在（记录在案）——发布点只有会话创建。
+   */
+  publishInstantiated(): void {
+    if (this.deps.instantiatedSnapshot === undefined) return;
+    this.publish<AgentInstantiatedPayload>(
+      "agent.instantiated",
+      {
+        instanceId: MAIN_INSTANCE_ID,
+        profileKind: "main-session",
+        profileSnapshot: this.deps.instantiatedSnapshot(),
+      },
+      undefined,
+      MAIN_INSTANCE_ID,
+    );
+  }
+  /**
    * 运行期换模（T2.3 AD-2：经 AgentEnginePort.setModel 域内扩面，下一
    * turn 生效；per-session——本服务实例即会话维）。引擎不支持即抛错
    * （不静默吞——调用方可观测）。
+   * T2.1（F5.9/AD-6，契约 v0.4 §3）：换模成功同点发布 agent.model.changed
+   * （from = 切换前引擎观测值，缺省回退全局默认；只落盘不广播——DtoMapper
+   * 无 case，模型时间线经 trace.query 查询面可读）。
    */
   setModel(modelId: string): void {
     if (this.deps.engine.setModel === undefined) {
       throw new Error(`引擎未实现运行期换模接口（AgentEnginePort.setModel），无法切换到 ${modelId}`);
     }
+    const from = this.deps.engine.currentModel?.() ?? this.deps.modelFallback?.() ?? modelId;
     this.deps.engine.setModel(modelId);
+    this.publish<AgentModelChangedPayload>(
+      "agent.model.changed",
+      { instanceId: MAIN_INSTANCE_ID, from, to: modelId },
+      undefined,
+      MAIN_INSTANCE_ID,
+    );
   }
   /** 聚合只读访问（SessionService 快照取数；组合根接线用）。 */
   get sessionView() {

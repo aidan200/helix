@@ -24,8 +24,8 @@ import { EventStream } from "../adapters/driving/ws-server/EventStream";
 import { lastMainAnchorId } from "../adapters/driving/ws-server/DtoMapper";
 import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { PiAgentEngineAdapter } from "../adapters/driven/pi-engine/PiAgentEngineAdapter";
-import { MainSessionProfile } from "../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
-import { SubAgentProfile } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
+import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { DEFAULT_MODEL_ID, resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
 import { ModelCatalog } from "../adapters/driven/pi-engine/model-catalog";
 import { DefaultModelStore } from "../adapters/driven/sqlite-session/DefaultModelStore";
@@ -36,6 +36,9 @@ import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CoreToolExecutor } from "../adapters/driven/tools/CoreToolExecutor";
 import { WriteQueue, MAIN_AGENT_KIND } from "../adapters/driven/sqlite-session/WriteQueue";
 import { SqliteSessionRepository } from "../adapters/driven/sqlite-session/SqliteSessionRepository";
+import { SqliteTraceQueryAdapter } from "../adapters/driven/sqlite-session/SqliteTraceQueryAdapter";
+import type { TraceQueryPort } from "../domain/trace/TraceQueryPort";
+import type { ProfileSnapshotData } from "../domain/events/DomainEvent";
 import { createPaths, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig } from "./config";
 import { ensureDevToken } from "./dev-token";
@@ -165,6 +168,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     onError: (error, job) => logger.error(`落盘失败（${job.kind}）：${(error as Error).message}`),
   });
   const repository: SessionRepositoryPort = new SqliteSessionRepository(writeQueue);
+  // T2.1（CL-5/F5.6，architecture.md §3.5b）：trace 读面 port 手工装配（AF-3：
+  // 仓内无 container.bind，同式命名常量）；同库同表只读面，不经单写队列。
+  const traceQuery: TraceQueryPort = new SqliteTraceQueryAdapter(writeQueue);
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
 
   // ── AD-2 模型模块地基：auth.json / 默认模型表 / 合并目录 ──────────
@@ -240,6 +246,16 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     reportsDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
     // T2.1 契约 v0.3 §1 规则②：spawn 时刻锚（聚合视图读面；内存携带不落盘）
     spawnAnchorFor: (sessionId) => computeSpawnAnchor(sessionId),
+    // T2.1（F5.7/AD-5，契约 v0.4 §2）：Sub instantiated 快照供给——profile
+    // 常量全文 + model 三级链解析 id 形态（profile 槽位 ?? spawn 会话快照 ??
+    // 全局兜底；与该实例 launch 实际用模同源同时点——launch 侧 resolveModelFor
+    // 同序同值，仅 id → Model 对象的解析在 launcher，AD-3 联动）。
+    subagentSnapshotFor: (spawnModel): ProfileSnapshotData => ({
+      systemPrompt: SUBAGENT_SYSTEM_PROMPT,
+      tools: [...SubAgentProfile.tools],
+      model: SubAgentProfile.model ?? spawnModel ?? defaultModel.current(),
+      hooks: SubAgentProfile.hooks.map((h) => h.name),
+    }),
     // closure 注入主线（AD-8 双通道；T2.2 会话反向查找：实例归属会话 → 注册表
     // 寻址目标 ChatService）。热会话同步直达（收口链时序不变）；冷会话（理论
     // 不可达——活跃实例的会话不会卸载）异步恢复后补投。注册表在下方装配
@@ -335,6 +351,21 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
         // T2.3（契约 v0.3 §3.2）：定向 steer 转投面——AgentOrchestrationPort.send
         // 同链路（目标状态前置判定归调度侧既有 send 链，编排泄零入 driving）
         sendToInstance: (agentId, message) => scheduler.send(agentId, message),
+        // T2.1（F5.9/AD-6）：model.changed 的 from 兜底（引擎未暴露观测值时
+        // 回退全局默认，与 ModelService previous 口径一致）
+        modelFallback: () => defaultModel.current(),
+        // T2.1（F5.7/AD-5，契约 v0.4 §2）：主实例 instantiated 快照供给——
+        // profile 常量全文 + 会话当前模型（引擎观测值 ?? 全局默认）；发布
+        // 触发在注册表 createFresh（恢复路径不重发）。
+        instantiatedSnapshot: (): ProfileSnapshotData => ({
+          systemPrompt: MAIN_SESSION_SYSTEM_PROMPT,
+          tools: [...MainSessionProfile.tools],
+          model: engine.currentModel?.() ?? defaultModel.current(),
+          ...(MainSessionProfile.compaction !== undefined
+            ? { compaction: MainSessionProfile.compaction }
+            : {}),
+          hooks: MainSessionProfile.hooks.map((h) => h.name),
+        }),
       });
       // 会话投影消费者（T2.1 AD-3 §3.2②；T2.2 多会话 = 按 sessionId 分实例化，
       // architecture-feedback #20 建议采纳）：SubAgent Entry 落聚合 + 账本入账
@@ -352,21 +383,6 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     idlePollMs: options.sessionIdlePollMs,
     logger,
   });
-
-  // ── 启动恢复（T2.2 全量元数据 + 懒加载）：全部会话元数据可见（session.list
-  //    读面），当前会话（最近活动）显式热加载（同步读面/CLI 兼容）；restoreLatest
-  //    ids.at(-1) 单会话末位语义废弃。首启无持久化 → 新建空会话。 ──
-  await registry.initialize();
-
-  // T2.3：currentModelOf 回填（spawn 透传链——注册表装配完成，热会话可观测）
-  currentModelOf = (sessionId: string) => registry.peek(sessionId)?.chatService.currentModel;
-  // T2.1：spawn 锚计算回填（规则②读面——目标会话聚合 entries 数组序扫描；
-  // 冷会话理论不可达（spawn 必经热会话门面），防御 null 流首）
-  computeSpawnAnchor = (sessionId: string) => {
-    const runtime = registry.peek(sessionId);
-    if (runtime === undefined) return null;
-    return lastMainAnchorId(runtime.chatService.sessionView.toSnapshot().entries);
-  };
 
   // ── services：会话状态入口（当前会话读面，经注册表组装） ──────────
   const sessionService = new SessionService({
@@ -450,6 +466,24 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     },
   );
 
+  // ── 启动恢复（T2.2 全量元数据 + 懒加载）：全部会话元数据可见（session.list
+  //    读面），当前会话（最近活动）显式热加载（同步读面/CLI 兼容）；restoreLatest
+  //    ids.at(-1) 单会话末位语义废弃。首启无持久化 → 新建空会话。 ──
+  // T2.1（F5.7/AD-5）：initialize 须在 fan-out 目标装配**之后**——首启
+  // createFresh 发布主实例 agent.instantiated，目标未装配则事件丢失
+  //（中间构造块 sessionService/chatRouter/cli 均为惰性闭包，不依赖 initialize）。
+  await registry.initialize();
+
+  // T2.3：currentModelOf 回填（spawn 透传链——注册表装配完成，热会话可观测）
+  currentModelOf = (sessionId: string) => registry.peek(sessionId)?.chatService.currentModel;
+  // T2.1：spawn 锚计算回填（规则②读面——目标会话聚合 entries 数组序扫描；
+  // 冷会话理论不可达（spawn 必经热会话门面），防御 null 流首）
+  computeSpawnAnchor = (sessionId: string) => {
+    const runtime = registry.peek(sessionId);
+    if (runtime === undefined) return null;
+    return lastMainAnchorId(runtime.chatService.sessionView.toSnapshot().entries);
+  };
+
   let running = true;
   let wsServer: WsServerAdapter | undefined;
   // T2.3（AD-2）：model 位数据源改会话级（AD-3 model 族）——当前会话
@@ -519,6 +553,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     system,
     orchestration: currentOrchestration, // T2.3：agent.kill 命令链回调度
     model: modelService, // T2.3（AD-2）：model.*/auth.* 命令族回口
+    traceQuery, // T2.1（CL-5/F5.6）：trace.query 命令回口（只读面）
     events: eventStream,
     token,
     port: options.port ?? config.port,

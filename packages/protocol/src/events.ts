@@ -1,10 +1,12 @@
 /**
  * 事件目录（S→C，契约 A §2；目录文档见同包 PROTOCOL.md）。
  *
- * 共 37 个事件：v0 12 + v0.1 编排族 7 + v0.1 通道族 4 + 热修 engine.error 1
+ * 共 40 个事件：v0 12 + v0.1 编排族 7 + v0.1 通道族 4 + 热修 engine.error 1
  * + v0.2 新增 2（session.list_changed / model.changed）+ T2.2 命令结果 2
  * （session.list.result / session.loadHistory.result）+ T2.3-result-frames
- * 微批 9（model/auth 命令结果帧，契约 C §2.2）。`EventEnvelope` 为
+ * 微批 9（model/auth 命令结果帧，契约 C §2.2）+ v0.4 新增 3
+ * （trace.query.result / agent.instantiated / agent.model.changed，契约 v0.4，
+ * iter-20260819-erio T2.1）。`EventEnvelope` 为
  * 判别式联合，前端 switch(event.type) 窄化各分支 payload（投影 reducer）。
  *
  * v0.2 事件类型学（AD-3，契约 A §2）：每事件以 `channel` 字面量登记所属通道
@@ -26,6 +28,12 @@ import type {
   ThinkingEntryDto,
 } from "./types/session";
 import type { UsageDto } from "./types/usage";
+import type {
+  TraceEventRow,
+  TraceInstanceRecord,
+  TraceProfileSnapshot,
+  TraceQueryFilterEcho,
+} from "./types/trace";
 
 // ── payload ──────────────────────────────────────────────────
 
@@ -265,6 +273,49 @@ export type AuthVerifyResultPayload =
   | { status: "ok"; latencyMs: number }
   | { status: "fail"; reason: string };
 
+// ── v0.4 新增 payload：trace 命令族 + agent 执行上下文面（契约 v0.4 §1/§2/§3；iter-20260819-erio T2.1） ──
+
+/** trace.query.result：会话历史事件查询结果（点对点回执；instances 面板恒为全会话 fold，AF-5） */
+export interface TraceQueryResultPayload {
+  /** 实际生效的过滤条件回显（normalize 后形态；缺省维归一 null）。 */
+  filterEcho: TraceQueryFilterEcho;
+  /** 实例面板摘要块（会话级，不受 events 过滤维影响）。 */
+  instances: TraceInstanceRecord[];
+  /** 本页事件行（id 降序 = 最新在前）。 */
+  events: TraceEventRow[];
+  page: {
+    /** 本页实载行数。 */
+    loaded: number;
+    /** 同过滤条件（不含游标/限量）总行数。 */
+    total: number;
+    /** rows.length === limit（可能还有更早页；恰整除时末页多一次空载，记录在案）。 */
+    hasMore: boolean;
+  };
+}
+
+/**
+ * agent.instantiated：实例化时刻 profile 快照落盘（AD-5；执行上下文卡数据源）。
+ * **只落盘不广播**（AF-6：DtoMapper 无 case → default → null；协议登记供
+ * trace.query 结果 payload 类型化与守护一致性）。
+ */
+export interface AgentInstantiatedPayload {
+  instanceId: string;
+  profileKind: string;
+  profileSnapshot: TraceProfileSnapshot;
+}
+
+/**
+ * agent.model.changed：运行期换模的模型时间线落盘（AD-6；from/to 与
+ * model.changed 广播帧 previous/model 同源同值）。**只落盘不广播**（同 AF-6）。
+ */
+export interface AgentModelChangedPayload {
+  instanceId: string;
+  /** 旧模型标识（"provider/model-id"）。 */
+  from: string;
+  /** 新模型标识。 */
+  to: string;
+}
+
 // ── 信封（判别式联合成员；channel 字面量 = 事件类型学登记，契约 A §2） ──
 
 export interface ConnectionWelcomeEvent
@@ -480,6 +531,28 @@ export interface AuthVerifyResultEvent extends EventFrame<AuthVerifyResultPayloa
   type: "auth.verify.result";
 }
 
+// ── v0.4 新增信封（契约 v0.4；iter-20260819-erio T2.1） ──
+
+/**
+ * trace.query.result：trace 查询命令结果（点对点回执——仅发给发起
+ * trace.query 命令的连接，不经 EventStream 广播；TR-AD-21 同构）。
+ * 信封 sessionId = 目标会话 id；channel = "trace"（v0.4 新族）。
+ */
+export interface TraceQueryResultEvent extends EventFrame<TraceQueryResultPayload> {
+  channel?: "trace";
+  type: "trace.query.result";
+}
+/** agent.instantiated：实例化快照（只落盘不广播；登记供类型化/守护，AF-6） */
+export interface AgentInstantiatedEvent extends EventFrame<AgentInstantiatedPayload> {
+  channel?: "agent";
+  type: "agent.instantiated";
+}
+/** agent.model.changed：模型时间线落盘事件（只落盘不广播；同上） */
+export interface AgentModelChangedEvent extends EventFrame<AgentModelChangedPayload> {
+  channel?: "agent";
+  type: "agent.model.changed";
+}
+
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
 export type EventEnvelope =
   | ConnectionWelcomeEvent
@@ -518,7 +591,10 @@ export type EventEnvelope =
   | AuthListResultEvent
   | AuthSetKeyResultEvent
   | AuthDeleteKeyResultEvent
-  | AuthVerifyResultEvent;
+  | AuthVerifyResultEvent
+  | TraceQueryResultEvent
+  | AgentInstantiatedEvent
+  | AgentModelChangedEvent;
 
 /** 事件目录常量（运行时可用；与 EventEnvelope 联合由测试双向一致性守护） */
 export const EVENT_TYPES = [
@@ -559,6 +635,9 @@ export const EVENT_TYPES = [
   "auth.set_key.result",
   "auth.delete_key.result",
   "auth.verify.result",
+  "trace.query.result",
+  "agent.instantiated",
+  "agent.model.changed",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -607,4 +686,7 @@ export const EVENT_CHANNELS = {
   "auth.set_key.result": "model",
   "auth.delete_key.result": "model",
   "auth.verify.result": "model",
+  "trace.query.result": "trace",
+  "agent.instantiated": "agent",
+  "agent.model.changed": "agent",
 } as const satisfies Record<EventType, Channel>;

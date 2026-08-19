@@ -17,3 +17,4 @@ export * from "./types/usage";
 export * from "./types/error";
 export * from "./types/model";
 export * from "./types/auth";
+export * from "./types/trace";

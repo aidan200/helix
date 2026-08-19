@@ -72,6 +72,8 @@ export interface RestoredInstance {
   readonly state: InstanceState;
   readonly createdAt: string;
   readonly task?: string;
+  /** spawn 时刻会话模型快照（T2.1 F5.8：agent.spawned 载荷 model；恢复回填源）。 */
+  readonly model?: string;
   /** 终态实例（done/failed）closure；cancelled 不携带。 */
   readonly closure?: InstanceClosurePayload;
 }
@@ -268,6 +270,8 @@ export class RestoreService {
         sessionId,
         createdAt: spawn?.createdAt ?? row.updatedAt,
         ...(spawn?.task !== undefined ? { task: spawn.task } : {}),
+        // T2.1（F5.8）：spawn 时刻模型快照随恢复产物回填（调度器 spawnModels）
+        ...(spawn?.model !== undefined ? { model: spawn.model } : {}),
       };
       if (row.state === "running") {
         // running → failed 收口（D-1 同构）：状态机迁移经 domain 权威校验
@@ -317,9 +321,9 @@ export class RestoreService {
     return { list, maxSeq };
   }
 
-  /** agent.spawned 事件流索引（instanceId → task/profileKind/createdAt）。 */
-  private indexSpawned(sessionId: string): Map<string, { task?: string; profileKind?: string; createdAt: string }> {
-    const map = new Map<string, { task?: string; profileKind?: string; createdAt: string }>();
+  /** agent.spawned 事件流索引（instanceId → task/profileKind/model/createdAt）。 */
+  private indexSpawned(sessionId: string): Map<string, { task?: string; profileKind?: string; model?: string; createdAt: string }> {
+    const map = new Map<string, { task?: string; profileKind?: string; model?: string; createdAt: string }>();
     const events = this.deps.repository.queryEvents({ sessionId, type: "agent.spawned" }) as readonly DomainEvent[];
     for (const event of events) {
       const payload = event.payload as Partial<AgentSpawnedPayload> | undefined;
@@ -327,6 +331,7 @@ export class RestoreService {
         map.set(payload.agentId, {
           ...(payload.task !== undefined ? { task: payload.task } : {}),
           ...(payload.profileKind !== undefined ? { profileKind: payload.profileKind } : {}),
+          ...(payload.model !== undefined ? { model: payload.model } : {}), // T2.1 F5.8
           createdAt: event.occurredAt,
         });
       }

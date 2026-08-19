@@ -1,9 +1,10 @@
 /**
  * 命令目录（C→S，契约 §4 + 契约 B §1 / 契约 C §1；目录文档见同包 PROTOCOL.md）。
  *
- * 共 21 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
+ * 共 22 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
  * auth 族 4）；v0.3 零新增——三处扩展全部为可选参数/字段（tier /
- * instanceId / anchorEntryId，TR-AD-23① 可选参数优先于新命令对）。
+ * instanceId / anchorEntryId，TR-AD-23① 可选参数优先于新命令对）；
+ * v0.4 新增 1（trace 族 trace.query，契约 v0.4 §1，iter-20260819-erio T2.1）。
  * `CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
  * 分发。会话作用域命令的信封 sessionId 必填（AD-4 路由位，类型层可选、
  * 客户端纪律保证）；全局命令（session.list / model.set_default /
@@ -16,6 +17,7 @@ import type { SessionListResultPayload } from "./events";
 import type { AuthProviderInfo } from "./types/auth";
 import type { CatalogModel } from "./types/model";
 import type { EntryDto } from "./types/session";
+import type { TraceQueryPageInput, TraceTimeRange } from "./types/trace";
 
 /** chat.send 载荷：发送用户消息（新输入，ChatPort.sendMessage） */
 export interface ChatSendPayload {
@@ -258,7 +260,33 @@ export interface AuthVerifyCommand extends CommandFrame<AuthVerifyPayload> {
   type: "auth.verify";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21） */
+// ── v0.4 新增：trace 族（契约 v0.4 §1；iter-20260819-erio T2.1，CL-5/F5.6） ──
+
+/**
+ * trace.query 载荷：会话历史事件查询（连接私有读面——直查 domain_events，
+ * 目标会话可为冷会话，不触发懒加载）。payload.sessionId 必填；信封
+ * sessionId 位不消费（查询目标在 payload 内）。
+ * 结果帧 = trace.query.result 点对点回执（TR-AD-21；帧形状见 events.ts）。
+ */
+export interface TraceQueryPayload {
+  /** 目标会话（必填，非空 string）。 */
+  sessionId: string;
+  /** 实例多选：缺省 = 全部实例；空数组 = 空结果（显式语义，非「全部」）。 */
+  instanceIds?: string[];
+  /** 实例种类过滤。 */
+  agentKind?: "main" | "subagent";
+  /** 事件类型多选：缺省 = 全部类型；空数组 = 空结果（同 instanceIds 口径）。 */
+  types?: string[];
+  /** 时间窗（ISO 8601 文本，含起含止；from > to = 校验拒绝）。 */
+  timeRange?: TraceTimeRange;
+  page?: TraceQueryPageInput;
+}
+
+export interface TraceQueryCommand extends CommandFrame<TraceQueryPayload> {
+  type: "trace.query";
+}
+
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -280,7 +308,8 @@ export type CommandEnvelope =
   | AuthListCommand
   | AuthSetKeyCommand
   | AuthDeleteKeyCommand
-  | AuthVerifyCommand;
+  | AuthVerifyCommand
+  | TraceQueryCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
@@ -305,6 +334,7 @@ export const COMMAND_TYPES = [
   "auth.set_key",
   "auth.delete_key",
   "auth.verify",
+  "trace.query",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];

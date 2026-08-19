@@ -5,6 +5,8 @@ import {
   EVENT_TYPES,
   PROTOCOL_VERSION,
   type AgentInstanceDto,
+  type AgentInstantiatedEvent,
+  type AgentModelChangedEvent,
   type AgentSpawnedPayload,
   type AuthDeleteKeyResultEvent,
   type AuthListResultEvent,
@@ -52,6 +54,8 @@ import {
   type SessionUsageDto,
   type ThinkingEntryDto,
   type ToolCallEntryDto,
+  type TraceQueryCommand,
+  type TraceQueryResultEvent,
   type UsageDto,
   type UsageRecordedPayload,
   type WorkspaceRoute,
@@ -496,6 +500,108 @@ const steerMainDefault: ChatSteerCommand = {
 const v03Commands: CommandEnvelope[] = [subscribeMonitor, subscribeTierDefault, steerTargeted];
 const v03Events: EventEnvelope[] = [spawnedAnchored, spawnedStreamHead];
 
+// ── v0.4 样例帧（契约 v0.4 §1/§2/§3；iter-20260819-erio T2.1；构造即类型检查） ──
+
+/** trace.query：全过滤维形态 + 缺省形态（缺省 = 全部实例/全部类型/limit 50） */
+const traceQueryFull: TraceQueryCommand = {
+  v: PROTOCOL_VERSION,
+  type: "trace.query",
+  payload: {
+    sessionId: "sess-1",
+    instanceIds: ["main", "agent-1"],
+    agentKind: "main",
+    types: ["message.completed", "agent.instantiated"],
+    timeRange: { from: "2026-08-19T00:00:00.000Z", to: "2026-08-19T23:59:59.999Z" },
+    page: { limit: 100, beforeId: 428 },
+  },
+};
+const traceQueryDefault: TraceQueryCommand = {
+  v: PROTOCOL_VERSION,
+  type: "trace.query",
+  payload: { sessionId: "sess-1" }, // 全缺省（可选字段带缺省语义，TR-AD-18）
+};
+
+/** trace.query.result：点对点结果帧（filterEcho 缺省维归一 null；instances 面板块） */
+const traceQueryResult: TraceQueryResultEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  channel: "trace",
+  type: "trace.query.result",
+  payload: {
+    filterEcho: {
+      sessionId: "sess-1",
+      instanceIds: null,
+      agentKind: null,
+      types: null,
+      timeRange: null,
+      page: { limit: 50, beforeId: null },
+    },
+    instances: [
+      {
+        instanceId: "main",
+        agentKind: "main",
+        profileKind: "main-session",
+        model: "zhipu/glm-4.6",
+        status: "running",
+        startedAt: "2026-08-19T13:47:57.802Z",
+        eventCount: 12,
+        snapshot: {
+          systemPrompt: "你是 helix 的主会话助手。",
+          tools: ["bash", "read"],
+          model: "zhipu/glm-4.6",
+          compaction: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 },
+        },
+        snapshotMissing: false,
+        modelTimeline: [{ from: "zhipu/glm-4.6", to: "deepseek/deepseek-chat", at: "2026-08-19T14:27:05.310Z" }],
+        currentModel: "deepseek/deepseek-chat",
+      },
+    ],
+    events: [
+      {
+        id: 428,
+        ts: "2026-08-19T14:27:05.310Z",
+        sessionId: "sess-1",
+        instanceId: "main",
+        agentKind: "main",
+        type: "agent.model.changed",
+        payload: { instanceId: "main", from: "zhipu/glm-4.6", to: "deepseek/deepseek-chat" },
+      },
+    ],
+    page: { loaded: 1, total: 12, hasMore: false },
+  },
+};
+
+/** agent.instantiated：实例化快照（只落盘不广播；channel = agent 族，AF-6） */
+const agentInstantiated: AgentInstantiatedEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  channel: "agent",
+  type: "agent.instantiated",
+  instanceId: "agent-1",
+  payload: {
+    instanceId: "agent-1",
+    profileKind: "subagent-worker",
+    profileSnapshot: {
+      systemPrompt: "你是 helix 的 SubAgent worker。",
+      tools: ["bash", "read", "write", "edit", "grep"],
+      model: "zai/glm-5.3", // 三级链解析结果（AD-3 联动，spawn 时刻求值）
+    },
+  },
+};
+
+/** agent.model.changed：模型时间线落盘（只落盘不广播；channel = agent 族） */
+const agentModelChanged: AgentModelChangedEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "sess-1",
+  channel: "agent",
+  type: "agent.model.changed",
+  instanceId: "main",
+  payload: { instanceId: "main", from: "zhipu/glm-4.6", to: "deepseek/deepseek-chat" },
+};
+
+const v04Commands: CommandEnvelope[] = [traceQueryFull, traceQueryDefault];
+const v04Events: EventEnvelope[] = [traceQueryResult, agentInstantiated, agentModelChanged];
+
 // ── 窄化函数：每个分支访问该分支 payload 独有字段（窄化失效 → tsc 失败） ──
 function summarizeEvent(event: EventEnvelope): string {
   switch (event.type) {
@@ -578,6 +684,13 @@ function summarizeEvent(event: EventEnvelope): string {
       return "auth-delete-key-result";
     case "auth.verify.result":
       return `auth-verify-result:${event.payload.status}:${event.payload.status === "ok" ? event.payload.latencyMs : event.payload.reason}`;
+    // ── v0.4 trace 命令族 + agent 执行上下文面 ──
+    case "trace.query.result":
+      return `trace-result:${event.payload.events.length}:${event.payload.instances.length}:${event.payload.page.loaded}:${event.payload.page.total}:${event.payload.page.hasMore}`;
+    case "agent.instantiated":
+      return `instantiated:${event.payload.instanceId}:${event.payload.profileKind}:${event.payload.profileSnapshot.model}`;
+    case "agent.model.changed":
+      return `model-timeline:${event.payload.instanceId}:${event.payload.from}:${event.payload.to}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -633,6 +746,9 @@ function dispatchCommand(cmd: CommandEnvelope): string {
       return `auth-delete-key:${cmd.payload.providerId}`;
     case "auth.verify":
       return `auth-verify:${cmd.payload.providerId}`;
+    // ── v0.4 trace 族 ──
+    case "trace.query":
+      return `trace-query:${cmd.payload.sessionId}:${cmd.payload.instanceIds?.length ?? "all"}:${cmd.payload.page?.limit ?? 50}:${cmd.payload.page?.beforeId ?? "-"}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;
@@ -674,6 +790,10 @@ function familyOf(event: EventEnvelope): string {
       const t: TypeOfChannel<"model"> = event.type;
       return `model/${t}`;
     }
+    case "trace": {
+      const t: TypeOfChannel<"trace"> = event.type;
+      return `trace/${t}`;
+    }
     // interaction 占位族无事件挂靠（_InteractionFamily = never 类型断言守护）：
     // 事件联合中无成员声明 channel: "interaction"，本分支不可达、无需 case。
     case "notification": {
@@ -709,6 +829,7 @@ type _HelloVersion = Expect<Equal<HelloPayload["protocolVersion"], "0.3">>;
 type _CommandSync = Expect<Equal<EnvelopeTypeOf<CommandEnvelope>, (typeof COMMAND_TYPES)[number]>>;
 // 事件目录常量 ↔ 事件信封联合 type 集合双向一致（v0.3 口径：37 个）
 type _EventSync = Expect<Equal<EnvelopeTypeOf<EventEnvelope>, (typeof EVENT_TYPES)[number]>>;
+// v0.4 trace 族帧构造即类型检查（样例帧见上方 v04Commands/v04Events）
 // EntryDto 判别式联合四分支
 type _EntryMessage = Expect<Equal<Extract<EntryDto, { kind: "message" }>, MessageEntryDto>>;
 type _EntryTool = Expect<Equal<Extract<EntryDto, { kind: "tool-call" }>, ToolCallEntryDto>>;
@@ -824,9 +945,18 @@ type _ChatFamily = Expect<
 type _AgentFamily = Expect<
   Equal<
     TypeOfChannel<"agent">,
-    "agent.spawned" | "agent.queued" | "agent.started" | "agent.stalled" | "agent.completed" | "agent.failed" | "agent.killed"
+    | "agent.spawned"
+    | "agent.queued"
+    | "agent.started"
+    | "agent.stalled"
+    | "agent.completed"
+    | "agent.failed"
+    | "agent.killed"
+    | "agent.instantiated"
+    | "agent.model.changed"
   >
 >;
+type _TraceFamily = Expect<Equal<TypeOfChannel<"trace">, "trace.query.result">>;
 type _ThinkingFamily = Expect<
   Equal<TypeOfChannel<"thinking">, "thinking.stream.delta" | "thinking.completed">
 >;
@@ -970,7 +1100,7 @@ describe("TP-CL2-① 样例帧构造（契约 §2–§6）", () => {
 });
 
 describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
-  test("命令目录恰为 21 个 type（v0 5 + v0.1 3 + v0.2 13）", () => {
+  test("命令目录恰为 22 个 type（v0 5 + v0.1 3 + v0.2 13 + v0.4 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.kill",
@@ -994,16 +1124,19 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
         "session.loadHistory",
         "session.subscribe",
         "session.unsubscribe",
+        "trace.query",
       ],
     );
   });
 
-  test("事件目录恰为 37 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2 + T2.2 命令结果 2 + 微批结果帧 9）", () => {
+  test("事件目录恰为 40 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2 + T2.2 命令结果 2 + 微批结果帧 9 + v0.4 3）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
         "agent.failed",
+        "agent.instantiated",
         "agent.killed",
+        "agent.model.changed",
         "agent.queued",
         "agent.spawned",
         "agent.stalled",
@@ -1037,13 +1170,14 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
         "thinking.stream.delta",
         "tool.call.result",
         "tool.call.started",
+        "trace.query.result",
         "usage.recorded",
       ],
     );
   });
 
-  test("全部 21 个命令信封可构造且可分发（含 v0.3 扩展形态）", () => {
-    const out = [...legacyCommands, ...v01Commands, ...v02Commands, ...v03Commands].map(dispatchCommand);
+  test("全部 22 个命令信封可构造且可分发（含 v0.3/v0.4 扩展形态）", () => {
+    const out = [...legacyCommands, ...v01Commands, ...v02Commands, ...v03Commands, ...v04Commands].map(dispatchCommand);
     expect(out).toEqual([
       "send:hi",
       "steer:改用方案 B:main",
@@ -1074,6 +1208,9 @@ describe("TP-CL2-③ 命令/事件目录完备性（契约 §4/§5）", () => {
       "subscribe:sess-1:monitor",
       "subscribe:sess-1:full",
       "steer:定向注入 agent-1:agent-1",
+      // v0.4 样例（trace.query 全过滤维 / 全缺省）
+      "trace-query:sess-1:2:100:428",
+      "trace-query:sess-1:all:50:-",
     ]);
   });
 
@@ -1266,6 +1403,7 @@ describe("TP-v0.2-② 八族类型学与登记目录（契约 A §2）", () => {
     expect(familyOf(v02Events[1]!)).toBe("model/model.changed");
     expect(familyOf(legacyEvents[0]!)).toBe("legacy/connection.welcome"); // 兼容读缺省路径
     expect(familyOf(compactionCompletedV02)).toBe("compaction/compaction.completed");
+    expect(familyOf(traceQueryResult)).toBe("trace/trace.query.result"); // v0.4 新族窄化
   });
 
   test("EVENT_CHANNELS 登记目录与契约 A §2 映射表恰等", () => {
@@ -1289,7 +1427,9 @@ describe("TP-v0.2-② 八族类型学与登记目录（契约 A §2）", () => {
     expect(roster("agent")).toEqual([
       "agent.completed",
       "agent.failed",
+      "agent.instantiated",
       "agent.killed",
+      "agent.model.changed",
       "agent.queued",
       "agent.spawned",
       "agent.stalled",
@@ -1317,6 +1457,7 @@ describe("TP-v0.2-② 八族类型学与登记目录（契约 A §2）", () => {
       "model.set_default.result",
     ]);
     expect(roster("interaction")).toEqual([]); // 占位族：无事件挂靠
+    expect(roster("trace")).toEqual(["trace.query.result"]); // v0.4 新族（点对点结果帧）
     expect(roster("notification")).toEqual(["connection.error", "connection.welcome"]);
   });
 });
@@ -1373,7 +1514,7 @@ describe("TP-v0.3-① 三合一 additive 字段形态（契约 v0.3 §1/§2/§3�
   });
 });
 
-describe("TP-v0.3-② 版本位 bump 与目录计数不动（契约 v0.3 §0/§4）", () => {
+describe("TP-v0.3-② 版本位 bump 与目录计数（v0.3 不动 → v0.4 一批次扩）", () => {
   test("PROTOCOL_VERSION = \"0.3\"；hello 协商位单值联动；v0.3 帧 v 位全 \"0.3\"", () => {
     expect(PROTOCOL_VERSION).toBe("0.3");
     expect(helloFrame.payload.protocolVersion).toBe("0.3");
@@ -1385,10 +1526,57 @@ describe("TP-v0.3-② 版本位 bump 与目录计数不动（契约 v0.3 §0/§4
     }
   });
 
-  test("事件/命令目录零新增：EVENT_TYPES 37 / EVENT_CHANNELS 37 键 / COMMAND_TYPES 21（TR-AD-23①/②）", () => {
-    expect(EVENT_TYPES.length).toBe(37); // v0.3：零新增（守护计数不动）
-    expect(new Set(EVENT_TYPES).size).toBe(37); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(37); // 登记目录恰等不动
-    expect(COMMAND_TYPES.length).toBe(21); // 可选参数扩展优先于新命令对
+  test("v0.4 目录计数：EVENT_TYPES 40 / EVENT_CHANNELS 40 键 / COMMAND_TYPES 22（trace 族 + agent 执行上下文面）", () => {
+    expect(EVENT_TYPES.length).toBe(40); // v0.4：+3（trace.query.result / agent.instantiated / agent.model.changed）
+    expect(new Set(EVENT_TYPES).size).toBe(40); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(40); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(22); // v0.4：+1（trace.query）
+  });
+});
+
+describe("TP-v0.4-① trace 命令族 + agent 执行上下文面样例帧（契约 v0.4）", () => {
+  test("trace.query 命令两形态（全过滤维 / 全缺省）经 dispatchCommand 窄化", () => {
+    expect(v04Commands.map(dispatchCommand)).toEqual([
+      "trace-query:sess-1:2:100:428",
+      "trace-query:sess-1:all:50:-",
+    ]);
+  });
+
+  test("trace.query.result / agent.instantiated / agent.model.changed 经 summarizeEvent 窄化", () => {
+    expect(v04Events.map(summarizeEvent)).toEqual([
+      "trace-result:1:1:1:12:false",
+      "instantiated:agent-1:subagent-worker:zai/glm-5.3",
+      "model-timeline:main:zhipu/glm-4.6:deepseek/deepseek-chat",
+    ]);
+  });
+
+  test("v0.4 帧 v 位与 channel 章印（trace 新族 / agent 族挂两新事件）", () => {
+    for (const frame of [...v04Commands, ...v04Events]) {
+      expect(frame.v).toBe("0.3"); // PROTOCOL_VERSION 不动（批次登记归 T3.2）
+    }
+    expect(traceQueryResult.channel).toBe("trace");
+    expect(agentInstantiated.channel).toBe("agent");
+    expect(agentModelChanged.channel).toBe("agent");
+    expect(EVENT_CHANNELS["trace.query.result"]).toBe("trace");
+    expect(EVENT_CHANNELS["agent.instantiated"]).toBe("agent");
+    expect(EVENT_CHANNELS["agent.model.changed"]).toBe("agent");
+  });
+
+  test("结果帧形状：filterEcho 缺省维归一 null + instances 面板块 + page 三字段", () => {
+    if (traceQueryResult.type !== "trace.query.result") throw new Error("窄化失败");
+    const p = traceQueryResult.payload;
+    expect(p.filterEcho).toEqual({
+      sessionId: "sess-1",
+      instanceIds: null,
+      agentKind: null,
+      types: null,
+      timeRange: null,
+      page: { limit: 50, beforeId: null },
+    });
+    expect(p.instances[0]?.snapshotMissing).toBe(false);
+    expect(p.instances[0]?.modelTimeline?.[0]?.to).toBe("deepseek/deepseek-chat");
+    expect(p.instances[0]?.currentModel).toBe("deepseek/deepseek-chat");
+    expect(p.events[0]?.id).toBe(428); // id 游标锚
+    expect(p.page).toEqual({ loaded: 1, total: 12, hasMore: false });
   });
 });

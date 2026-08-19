@@ -32,7 +32,10 @@ export type DomainEventType =
   // thinking.stream.delta 是流式中间态不入本表（TR-AD-5，走流式通道）
   | "thinking.completed"
   | "compaction.completed"
-  | "usage.recorded";
+  | "usage.recorded"
+  // ── v0.4 执行上下文面（iter-20260819-erio T2.1，AD-5/AD-6；只落盘不广播）──
+  | "agent.instantiated"
+  | "agent.model.changed";
 
 export interface DomainEvent<P = unknown> {
   readonly type: DomainEventType;
@@ -157,4 +160,39 @@ export interface UsageRecordedPayload {
   readonly instanceId: string;
   readonly usage: UsageSummary;
   readonly source: "turn" | "compaction";
+}
+
+// ── v0.4 执行上下文面载荷（iter-20260819-erio T2.1，契约 v0.4 §2/§3；AD-5/AD-6）──
+// 两事件只落盘不广播（AF-6：DtoMapper 无 case → default → null；协议登记供
+// trace.query 结果 payload 类型化与守护一致性）。
+
+/**
+ * profile 快照（装配结果全文，非 profileKind 引用——拼接时代回溯面，AD-5
+ * 演进预留）；形状与协议 TraceProfileSnapshot 同构（compaction 声明原样携带）。
+ */
+export interface ProfileSnapshotData {
+  readonly systemPrompt: string;
+  readonly tools: readonly string[];
+  /** "provider/model-id"（与 agent.spawned payload.model 同形态）。 */
+  readonly model: string;
+  readonly compaction?: {
+    readonly enabled: boolean;
+    readonly reserveTokens: number;
+    readonly keepRecentTokens: number;
+  };
+  readonly hooks?: readonly string[];
+}
+
+/** agent.instantiated：实例化时刻 profile 快照落盘（主=会话创建；Sub=spawn 同批）。 */
+export interface AgentInstantiatedPayload {
+  readonly instanceId: string;
+  readonly profileKind: string;
+  readonly profileSnapshot: ProfileSnapshotData;
+}
+
+/** agent.model.changed：运行期换模的模型时间线落盘（from/to 与 model.changed 广播帧同源）。 */
+export interface AgentModelChangedPayload {
+  readonly instanceId: string;
+  readonly from: string;
+  readonly to: string;
 }

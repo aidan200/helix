@@ -339,6 +339,11 @@ export class SessionRegistry implements SessionDirectoryPort {
     const session = Session.create(undefined, this.deps.clock.now());
     const runtime = this.deps.buildRuntime({ session, toolCalls: [], usage: undefined });
     this.register(runtime);
+    // T2.1（F5.7/AD-5，契约 v0.4 §2）：主实例 instantiated 发布点 = 会话创建
+    //（恢复路径 load() 不调——历史快照经查询面直读；快照缺省供给时 no-op）。
+    // 须在 register 之后：fan-out 消费者（CLI 回灌/清单桥）会读
+    // currentSessionId()，未登记时触发 createFresh 递归。
+    runtime.chatService.publishInstantiated();
     return runtime;
   }
 

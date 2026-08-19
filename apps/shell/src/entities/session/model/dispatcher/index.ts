@@ -76,3 +76,14 @@ register({ types: HISTORY_EVENT_TYPES, apply: applyHistoryEvent });
 // 全类型已路由」守护扩展 = route(type) ?? isDirectoryEventType(type) ??
 // isModelConfigEventType(type)（dispatcher.test.ts）。本注册表不再持有
 // 9 类占位（no-op 注册会拦截前置路由之后的语义路径，占位已由真消费取代）。
+
+// ── v0.4 trace 族 + agent 执行上下文面（T2.1 契约 v0.4 no-op 占位；T1.2 先例，
+//    T2.2 TracePage 接真消费，architecture.md §3.4）──
+// trace.query.result：连接私有读面（点对点结果帧），真消费归 TracePage 查询链
+// （shared/api transport 一次性查询，不建会话 store 副本）；agent.instantiated /
+// agent.model.changed 只落盘不广播（daemon DtoMapper 零 case），正常路径不可达。
+// 注册仅保「EVENT_TYPES 全类型已路由」守护绿，主 reducer 原状态返回。
+register({
+  types: ["trace.query.result", "agent.instantiated", "agent.model.changed"],
+  apply: (s) => s,
+});
