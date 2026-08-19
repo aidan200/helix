@@ -80,6 +80,19 @@ export function parseClosureBlock(text: string): ParsedClosure | undefined {
   }
 }
 
+// ── closure 兜底摘要（F1.2：并入 engine 错误原因） ─────────
+
+/**
+ * 兜底 closure 摘要组装（T1.2）：有 engine_error 原因时并入
+ * 「（engine: <原因>）」段（原因不截断，透传 provider 原文）；无原因时
+ * 保持现状格式逐字节不变（非错误轮回归锚定）。80 截断仅施于
+ * lastAssistantText。
+ */
+export function buildFallbackSummary(lastAssistantText: string, lastEngineError: string | undefined): string {
+  const reason = lastEngineError !== undefined ? `（engine: ${lastEngineError}）` : "";
+  return `未按 closure 协议收口${reason}：${lastAssistantText.slice(0, 80)}`;
+}
+
 // ── stdin send 行读取（AD-7⑤：send → Agent.steer()） ──────
 
 function readStdin(instanceId: string, onSend: (line: SendLine) => void): void {
@@ -136,6 +149,7 @@ async function main(): Promise<void> {
   });
 
   let lastAssistantText = "";
+  let lastEngineError: string | undefined; // F1.2：多轮错误取末条 engine_error message（单变量覆盖）
   writeLine({ type: "started", instanceId, pid: process.pid, model });
   readStdin(instanceId, (send) => engine.steer(send.text));
 
@@ -143,6 +157,9 @@ async function main(): Promise<void> {
   await engine.start(task, (event) => {
     if (event.type === "message_end" && event.role === "assistant" && event.stopReason !== "error") {
       lastAssistantText = event.text;
+    }
+    if (event.type === "engine_error") {
+      lastEngineError = event.message;
     }
     writeLine({ type: "event", instanceId, event });
   });
@@ -157,7 +174,7 @@ async function main(): Promise<void> {
       }
     : (parseClosureBlock(lastAssistantText) ?? {
         status: "failed",
-        summary: `未按 closure 协议收口：${lastAssistantText.slice(0, 80)}`,
+        summary: buildFallbackSummary(lastAssistantText, lastEngineError),
         reportPath: null,
         findings: null,
         taskId: null,
