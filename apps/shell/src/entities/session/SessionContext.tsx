@@ -19,7 +19,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import type { ReactNode } from "react";
 import { PROTOCOL_VERSION } from "@helix/protocol";
-import type { CommandEnvelope, EventEnvelope } from "@helix/protocol";
+import type { CommandEnvelope, EventEnvelope, TraceQueryPayload } from "@helix/protocol";
 import { HelixWsClient } from "@/shared/api/helix-ws";
 import type { Transport, TransportFactory } from "@/shared/api/helix-ws";
 import {
@@ -39,6 +39,7 @@ import {
   sessionDeleteCommand,
   sessionListCommand,
   sessionLoadHistoryCommand,
+  traceQueryCommand,
 } from "@/shared/api/commands";
 import { DAEMON_PORT, FAKE_TRANSPORT_DEFINE, fakeTransportScript } from "@/shared/config/env";
 import {
@@ -118,6 +119,12 @@ interface SessionContextValue {
   setProviderKey: (providerId: string, apiKey: string) => void;
   /** key 删除（P-4 两段式二击；回执后转未配置）。 */
   deleteProviderKey: (providerId: string) => void;
+  // ── trace 查询面（CL-5，T2.2；连接私有读面）──
+  /** 发送 trace.query（点对点回执；send 失败返回 false）。单飞纪律在页面侧。 */
+  sendTraceQuery: (payload: TraceQueryPayload) => boolean;
+  /** 订阅 trace 族点对点回执（trace.query.result；另转发 connection.error
+   *  供在途查询错误态判定——关联靠页面单飞：仅在 pending 非空时消费）。 */
+  subscribeTraceFrames: (listener: (e: EventEnvelope) => void) => () => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -161,6 +168,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   if (ledgerRef.current === null) ledgerRef.current = new SubscriptionLedger();
   const generatingRef = useRef(false);
   generatingRef.current = selectIsGenerating(topology.active);
+  // trace 族点对点回执订阅表（T2.2；页面私有消费，不进会话 store）
+  const traceListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
 
   if (clientRef.current === null) {
     // prod define 摇除：FAKE_TRANSPORT_DEFINE 构建期为 "" 字面量 → 本比较折叠
@@ -218,6 +227,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // ts 随 action 注入（重放确定性：同序列同帧；channel 时间戳展示面，T4.3）
     const offFrame = client.onFrame((event) => {
       if (applySubscriptionSideEffects(event)) return; // 吞帧（monitor 档 ack 快照）
+      // trace 族点对点回执转发（T2.2）：页面私有 reducer 消费；dispatcher 侧
+      // 保持 no-op 注册（守护绿），会话 store 零写入
+      if (event.type === "trace.query.result" || event.type === "connection.error") {
+        for (const l of traceListenersRef.current) l(event);
+      }
       dispatch({ type: "event", event, ts: Date.now() });
     });
     const offConn = client.onConn((c) => {
@@ -320,6 +334,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const requestSessionList = useCallback(() => {
     clientRef.current!.send(sessionListCommand());
+  }, []);
+
+  // trace 查询面（T2.2；连接私有读面——直发命令 + 订阅点对点回执）
+  const sendTraceQuery = useCallback(
+    (payload: TraceQueryPayload) => clientRef.current!.send(traceQueryCommand(payload)),
+    [],
+  );
+  const subscribeTraceFrames = useCallback((listener: (e: EventEnvelope) => void) => {
+    traceListenersRef.current.add(listener);
+    return () => {
+      traceListenersRef.current.delete(listener);
+    };
   }, []);
 
   const consumeRestoreToast = useCallback(
@@ -438,6 +464,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       verifyProvider,
       setProviderKey,
       deleteProviderKey,
+      sendTraceQuery,
+      subscribeTraceFrames,
     }),
     [
       state,
@@ -466,6 +494,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       verifyProvider,
       setProviderKey,
       deleteProviderKey,
+      sendTraceQuery,
+      subscribeTraceFrames,
     ],
   );
 

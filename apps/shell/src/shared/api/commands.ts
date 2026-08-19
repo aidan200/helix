@@ -28,6 +28,8 @@ import type {
   SessionLoadHistoryCommand,
   SessionSubscribeCommand,
   SessionUnsubscribeCommand,
+  TraceQueryCommand,
+  TraceQueryPayload,
 } from "@helix/protocol";
 
 /** chat.send：既有会话发送（信封 sessionId = 活跃会话）。 */
@@ -146,4 +148,12 @@ export function authDeleteKeyCommand(providerId: string): AuthDeleteKeyCommand {
 /** auth.verify：连通验证（全局命令；P-4 测试连通）。 */
 export function authVerifyCommand(providerId: string): AuthVerifyCommand {
   return { v: PROTOCOL_VERSION, type: "auth.verify", payload: { providerId } };
+}
+
+// ── trace 命令族（契约 v0.4 §1；T2.2 P-1 TracePage）────────
+
+/** trace.query：会话历史事件查询（连接私有读面；信封 sessionId 位不消费，
+ *  目标会话在 payload.sessionId；结果 = trace.query.result 点对点回执）。 */
+export function traceQueryCommand(payload: TraceQueryPayload): TraceQueryCommand {
+  return { v: PROTOCOL_VERSION, type: "trace.query", payload };
 }
