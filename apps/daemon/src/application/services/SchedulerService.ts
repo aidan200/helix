@@ -169,6 +169,15 @@ export class SchedulerService implements AgentOrchestrationPort {
     return this.registry.findInstance(agentId)?.toData();
   }
 
+  /**
+   * spawn 时刻会话模型快照只读通道（AD-3 三级链第二级，TR-AD-24）：
+   * SubagentLauncher 经 container 晚绑消费（launch 段唯一消费点）；
+   * 只读——不改变 spawnModels Map 生命周期（恢复不回填归 T2.1/F5.8）。
+   */
+  spawnModelOf(instanceId: string): string | undefined {
+    return this.spawnModels.get(instanceId);
+  }
+
   /** AgentOrchestrationPort.status：无参全量（状态/位次/摘要）/有参单实例。 */
   status(agentId?: string): AgentInstanceStatus[] {
     if (agentId !== undefined) {

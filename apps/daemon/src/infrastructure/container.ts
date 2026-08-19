@@ -207,8 +207,10 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     options.engine === undefined
       ? new SubagentLauncher({
           profile: SubAgentProfile,
-          // 注入源切换（T2.3）：默认模型存储现值解析（set_default 后新子进程跟随）
+          // 三级链第三级（AD-3）：全局兜底现值解析（set_default 后新子进程跟随）
           model: () => resolveConfigModel(defaultModel.current(), catalog.modelsView()),
+          // profile.model 槽位解析目录（AD-3 第一级声明时启用；生产未声明）
+          models: catalog.modelsView(),
           // 注入源切换（T2.3）：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
           toolCwd: options.toolCwd ?? process.cwd(),
@@ -255,6 +257,15 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
         .then((runtime) => runtime.chatService.injectClosure(message))
         .catch(() => undefined); // 会话已删等竞态：静默丢弃
     },
+  });
+
+  // AD-3（F1.3）三级链第二级晚绑：launcher 先于 scheduler 构造（scheduler 依赖
+  // runner），scheduler 就绪后一行绑定 spawn 会话快照读取通道（手工装配先例
+  // :167/:498-504；解析逻辑收束 launcher 单点，不进 domain）。快照 id → 完整
+  // Model 经 resolveConfigModel 解析（F-14 解析单点同源）。
+  subagentLauncher?.bindSpawnModelSource((id) => {
+    const snapshot = scheduler.spawnModelOf(id);
+    return snapshot === undefined ? undefined : resolveConfigModel(snapshot, catalog.modelsView());
   });
 
   // ── driving：WS 事件流（EventPublisherPort 实现，fan-out 目标之一——
