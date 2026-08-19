@@ -515,6 +515,13 @@ export class SchedulerService implements AgentOrchestrationPort {
       }
       return;
     }
+    if (event.type === "engine_error") {
+      // F1.1（AD-1 事件数据面）：SubAgent 引擎错误不再静默——mirror 主线
+      // ChatService engine_error（只发领域事件，不落 Entry、不动投影）；
+      // WS 帧广播由 DtoMapper SubAgent 守卫抑制（AF-1，防错位弹主聊天流）。
+      this.publishEngineError(instance, event.message);
+      return;
+    }
     // 其余引擎事件：观测面增量已计（lastEventAt 刷新），无 per-instance 领域动作
   }
 
@@ -671,6 +678,11 @@ export class SchedulerService implements AgentOrchestrationPort {
     const n = (this.entrySeqs.get(instanceId) ?? 0) + 1;
     this.entrySeqs.set(instanceId, n);
     return `${instanceId}#${n}`;
+  }
+
+  /** F1.1：engine_error → 挂 instanceId 的领域事件（事件即数据面；payload 仅原文）。 */
+  private publishEngineError(instance: AgentInstance, message: string): void {
+    this.publish(instance, "engine.error", { message });
   }
 
   private publish<P>(instance: AgentInstance, type: DomainEvent["type"], payload: P): void {

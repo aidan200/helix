@@ -246,6 +246,27 @@ describe("② 领域事件 → 协议事件帧", () => {
     const err = domainEventToEnvelope({ ...base, type: "engine.error", payload: { message: "429: 限额已满" } });
     expect(err).toMatchObject({ type: "engine.error", payload: { message: "429: 限额已满" } });
   });
+
+  test("engine.error SubAgent 帧守卫（T1.1/F1.1 + AF-1）：instanceId≠main → null（不广播）；main/缺省 → 帧不变", () => {
+    // SubAgent 实例帧抑制：shell consumers/chat.ts 的 engine.error case 无
+    // instanceId 分流，不守卫会错位弹主聊天流（AD-1 前端零改动的守护面）
+    const sub = domainEventToEnvelope({
+      ...base,
+      type: "engine.error",
+      instanceId: "agent-2",
+      payload: { message: "provider boom" },
+    });
+    expect(sub).toBeNull();
+
+    // 主线负例守护：instanceId = main（显式）仍产出 EngineErrorEvent
+    const mainline = domainEventToEnvelope({
+      ...base,
+      type: "engine.error",
+      instanceId: "main",
+      payload: { message: "provider boom" },
+    });
+    expect(mainline).toMatchObject({ type: "engine.error", payload: { message: "provider boom" } });
+  });
 });
 
 describe("③ agent.* 编排生命周期族 → 协议事件帧（T2.3，契约 §5.1）", () => {
