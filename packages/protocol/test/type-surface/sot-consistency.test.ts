@@ -16,14 +16,14 @@
  * 解析失败必须红（禁止静默通过）：以下全部解析 helper 在结构缺失时 throw
  * （标题/节标题/计数声明行/登记锚/族小节缺失 → 测试失败），永真断言 = 未生效。
  *
- * 暂位 test/ 根（brief 裁决）；T3.4 随迁 test/type-surface/。
+ * 位于 test/type-surface/（T3.4 随迁自 test/ 根；断言与解析逻辑原样）。
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { COMMAND_TYPES, EVENT_CHANNELS, EVENT_TYPES, PROTOCOL_VERSION } from "../src/index";
+import { COMMAND_TYPES, EVENT_CHANNELS, EVENT_TYPES, PROTOCOL_VERSION } from "../../src/index";
 
-const DOC = fileURLToPath(new URL("../PROTOCOL.md", import.meta.url));
+const DOC = fileURLToPath(new URL("../../PROTOCOL.md", import.meta.url));
 
 /** 读入文档（文件缺失/不可读 → throw = 红）。 */
 function loadDoc(): string {
