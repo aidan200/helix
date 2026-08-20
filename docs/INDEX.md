@@ -15,7 +15,7 @@ docs:
     updatedAt: 2026-08-20T05:05:00.000Z
   - name: kg/architecture-rules.md
     purpose: 架构规则（技术规则 TR-AD-N）
-    updatedAt: 2026-08-20T05:05:00.000Z
+    updatedAt: 2026-08-20T08:07:14.840Z
   - name: kg/testing-rules.md
     purpose: 测试规则（技术规则 TR-TEST-N）
     updatedAt: 2026-08-18T17:18:32.570Z

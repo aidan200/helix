@@ -940,3 +940,88 @@ SubAgent spawn/launch 链路实现与评审；profile model 槽位声明（代�
 
 ## 反例
 SubagentLauncher 每次 launch 直接读全局默认 getter（单级解析回退——会话内切模型后 SubAgent 仍用旧全局默认，7 连败根因复发）；或 launch 时才读会话现值而不在 spawn 时快照（排队实例模型随主实例后续切换漂移，spawn 语义不可观测）。
+
+```kg-node
+id: TR-AD-25
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: 源码体量双线与触发式拆分（700 预警 / 1000 强制）
+status: active
+digest: 新增代码使文件超 700 行、审计体量热点、拆分裁决时
+derivedFrom:
+  - iter-20260820-qhv8 AD-3
+  - iter-20260820-qhv8 F-9
+  - "iter-20260819-erio 优化池 #1/#2/#3"
+anchors:
+  implementedBy:
+    - scripts/audit-assert.ts#SIZE_GATE
+    - .github/workflows/ci.yml#Engineering hygiene gate
+    - apps/daemon/src/application/services/scheduler/
+    - apps/daemon/src/adapters/driving/ws-server/handlers/
+    - packages/protocol/src/events/
+    - packages/protocol/test/type-surface/
+  testedBy:
+    - bun run audit:assert
+    - apps/daemon/test/integration/session-projection.test.ts
+    - packages/protocol/test/exports.test.ts
+updatedIn: iter-20260820-qhv8
+```
+
+## 规则
+源码与测试文件的体量双线：700 行预警 / 1000 行强制，作用于 apps/** 与 packages/** 的 .ts 文件（文档与 git 管理的产物不在此列）。四条执行律：①强制线机械阻断——超过 1000 行的文件使 audit:assert 非零退出（CI 红），非协商、不豁免于「临时」理由；本仓唯一豁免通道 = audit-assert.ts 内显式豁免清单（文件 + 一行理由），禁止上调阈值（阈值是裁决值，蠕变即策略失效）。②预警线审计可见——≥700 行在 audit:assert 输出汇总（文件 + 行数），进优化池登记，不阻断；新增代码使既有文件越过预警线时，同批内要么拆分要么登记（不许静默增长）。③触发式还债——400–700 段的登记热点（F-9 的 16 个）不主动拆；被触碰（新增功能/修缺陷需改该文件）时先还债（拆分或明确豁免登记）再加码。④拆分纪律——拆分一律机械迁移：函数/case 体逐行搬移 + 仅机械代换（this.deps.X → ctx.X / import 路径），不改分支、字符串、回执时序；拆分 = 独立 commit + 拆分前后对应包全量测试绿；行为变化与结构搬移不得混入同一 commit。
+
+## 理由
+iter-20260820-qhv8 全库盘点（F-9）实证体量走势零收敛：五个已知热点无一收敛（WsServerAdapter +13、events.ts +6），且 400–700 段新增 16 个——靠「批次集中治理」无法对抗每次迭代 +N 行的增量惯性，必须常设化。双线设计把「何时必须拆」从评审争论变成机械判定（1000 线由脚本红绿裁决）；700 线只登记不阻断，避免治理本身成为功能迭代摩擦源。触发式还债（用户 AD-3 裁决）平衡「彻底治理」与「本期不扩散拆分面」：16 个热点未来触碰时还债，未触碰不投入。type-surface.test.ts 1582 行（上迭代优化池 #1）证明测试文件与源码同线同责——守护网自身也会腐化。拆分纪律四条来自 T1.1 handler 模块化的成功先例（diff 逐行对照可行），是行为等价（AD-1）在结构治理面的落地。
+
+## 适用范围
+新增或扩写任何 apps/**、packages/** 的 .ts 文件时（源码与测试同线）；工程审计与 audit:assert CI step 的口径评审；拆分方案设计评审（接缝选择、目录落位、commit 划分）；豁免清单增删裁决。
+
+## 反例
+「这次先加上去、下迭代一起拆」使文件突破 1000 强制线（强制线不接受排期豁免——豁免清单是唯一通道且须附理由）；或为过线把一个内聚模块切成三个互相 import 的小文件（假拆分：文件行数达标但耦合面反向加深，madge 环数上升即证伪）；或把 1000 调到 1200 应付审计（阈值蠕变）；或拆分 commit 里顺手修一个「看到的小 bug」（行为变化混入机械迁移，diff 审查失效——缺陷走独立 commit + 白名单留痕，AD-1/AD-2）。
+
+```kg-node
+id: TR-AD-26
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: 契约 SoT 完整性（PROTOCOL.md 正文登记 + type-surface 一致性断言）
+status: active
+digest: 加命令/事件、改 payload 字段、升契约版本时
+derivedFrom:
+  - iter-20260820-qhv8 AD-4
+  - TR-AD-23
+  - iter-20260820-qhv8 F-5
+anchors:
+  implementedBy:
+    - packages/protocol/PROTOCOL.md#§15
+    - packages/protocol/PROTOCOL.md#§16
+    - packages/protocol/PROTOCOL.md#§17
+    - packages/protocol/src/envelope.ts#PROTOCOL_VERSION
+    - scripts/perf-a11y-audit.mjs#V
+    - apps/shell/src/shared/api/fake-transport.ts#buildTraceReply
+  testedBy:
+    - packages/protocol/test/type-surface/sot-consistency.test.ts
+    - packages/protocol/test/type-surface/catalog.test.ts
+    - apps/shell/src/pages/trace/model/trace-model.test.ts
+relations:
+  governs:
+    - E-领域事件与单写队列
+updatedIn: iter-20260820-qhv8
+```
+
+## 规则
+PROTOCOL.md 是 WS 契约的唯一事实源，且该地位必须机械可验证。四条执行律：①payload 形状正文登记——所有命令/事件的 payload 形状必须登记在 PROTOCOL.md 正文（§15 命令全集 / §16 事件全集，按通道族组织，与 packages/protocol/src/events/ 族拆分、type-surface 族测试三面同构）；禁止委托仓外文档或「以代码为文档」。additive 可选字段（TR-AD-23① 口径）同样必须落字段行登记（含缺省语义），新增命令/事件不同步登记即守护红。②版本位单点——PROTOCOL_VERSION 唯一定义在 packages/protocol/src/envelope.ts；任何脚本/文档/测试引用版本一律从单点读或由断言守护，禁止手写字面量。③一致性断言守护——sot-consistency.test.ts 五条机械断言：文档版本位 == 单点导出值；COMMAND_TYPES/EVENT_TYPES 每字面量有正文登记锚；文档计数 == 常量目录长度；关键 additive 字段 presence；§16 族小节 == EVENT_CHANNELS 通道归属。断言粒度边界：字段级逐形状 diff 属生成式基建（AD-4 选项 C，入池），本期不建。④mock 契约等价联动（TR-TEST-3 延伸）——fake-transport 等契约 mock 的校验口径对齐真实 daemon normalize 实现，不弱于、也不私设口径；验证链三层闭合：文档 ↔ 类型（sot-consistency）↔ daemon normalize（integration）↔ mock（shell 测试）。
+
+## 理由
+一致性审计（F-5）实证了「口头 SoT」的三种腐化形态：版本字面量漂移（脚本 0.3 vs 实值 0.4，audit:a11y 持续发非法帧）、正文登记缺口（welcome.draft 零登记）、历史形态残留（§3 信封代码块展示已删除的接口）——以及结构性的第四种：v0.2 起 13 命令 + 11 结果帧 payload 形状委托仓外文档，与 §12「SoT 归本文档」声明直接相悖。结论：SoT 声明若不可机械验证，漂移只是时间问题；回迁正文 + 五条 presence 级断言以最小成本（无生成式基建）把声明变成红绿事实。mock 联动律来自优化池 #8 的教训：mock 侧校验缺口会让 mock 测试绿而真机行为偏离——mock 是契约的第三投影面，必须与 daemon 同口径。版本批次语义（一次定形、批次标记非协商位）仍归 TR-AD-23②，本规则只管「登记完整 + 不漂移」。
+
+## 适用范围
+新增任何协议命令/事件/DTO 字段时（含 additive 微批——登记与代码同 commit）；契约版本升位（v0.5 起）；修改任何 payload 字段形状/可选性时；编写或修改契约 mock（fake-transport / e2e mock-session）校验分支时；PROTOCOL.md 结构调整评审；perf-a11y 等引用协议版本的脚本与文档维护。
+
+## 反例
+payload 形状只写在 events.ts/commands.ts 的接口注释里、PROTOCOL.md 只列目录不列字段（前端/工具链被迫翻代码猜字段）；或脚本里手写 const V = "0.3" 而注释声称「来自单点」（登记在案的漂移反例）；或升 v0.5 只改 envelope.ts 不动文档标题与 §3 代码块（sot-consistency 断言①红）；或加 chat.send.payload.draft 字段但 §15.1 无字段行（draft 零登记复发，断言④红）；或 mock 的 trace.query 忽略 agentKind 过滤维只回显（mock 与 daemon normalize 口径分裂，TR-TEST-3 违例）。
