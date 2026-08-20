@@ -313,6 +313,15 @@ export class SessionRegistry implements SessionDirectoryPort {
     return this.runtimes.get(sessionId);
   }
 
+  /**
+   * 全部热会话运行时快照（M6 T2：kind 变更→刷新活跃 runtime 的遍历入口，
+   * 组合根 refreshAssembly 消费；均为主会话型——SubAgent 实例是独立子进程
+   * （spawn 时刻定格，代际生效，不在本注册表）。供 T3 WS 命令复用。
+   */
+  hotRuntimes(): readonly SessionRuntime[] {
+    return [...this.runtimes.values()];
+  }
+
   /** 当前会话热运行时（SessionService 同步读面；不存在抛——调用方保证热）。 */
   currentRuntime(): SessionRuntime {
     const rt = this.runtimes.get(this.currentSessionId());

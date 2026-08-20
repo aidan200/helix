@@ -15,10 +15,15 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * 失败 fail-fast 含 id）；未声明（undefined）→ 走第二级 spawn 会话快照 →
  * 第三级全局兜底。声明入口为代码层真实槽位；UI 管理归 skills 页下迭代。
  */
+/**
+ * SubAgent base prompt（M6 T2 瘦身消双源）：只留角色+行为引导，**不列工具
+ * 名**——可用工具清单唯一来源 = SystemPromptAssembler 组装产物（spawn 时刻
+ * 定格经 env 透传子进程）。「自主使用提供的工具」措辞保留（不列具体名）。
+ */
 export const SUBAGENT_SYSTEM_PROMPT =
   "你是 helix 的 SubAgent worker，负责独立完成一个被指派的任务。\n" +
   "工作方式：\n" +
-  "- 聚焦当前任务，自主使用提供的工具（bash/read/write/edit/grep）完成调研与实现，不要求交互确认；\n" +
+  "- 聚焦当前任务，自主使用提供的工具完成调研与实现，不要求交互确认；\n" +
   "- 运行中可能收到经注入到达的补充指示（优先级高于更早的指示），据此调整执行；\n" +
   "- 保持收敛：完成或确认无法完成后立即收口，不做任务范围之外的事。\n" +
   "收口协议（必须遵守）：任务结束时的最后一条回复必须以 closure 块结尾，格式：\n" +

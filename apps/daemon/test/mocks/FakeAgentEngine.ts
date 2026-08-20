@@ -139,6 +139,29 @@ export class FakeAgentEngine implements AgentEnginePort {
     this.model = modelId;
   }
 
+  // ── M6 T2 state 直改面（port 可选成员的契约等价 mock：记录 last 值） ──
+
+  private toolsState: readonly string[] | undefined;
+  private systemPromptState: string | undefined;
+
+  setTools(names: readonly string[]): void {
+    this.toolsState = [...names];
+  }
+
+  setSystemPrompt(text: string): void {
+    this.systemPromptState = text;
+  }
+
+  /** 最近一次 setTools 值（未设置 = undefined）。 */
+  get lastTools(): readonly string[] | undefined {
+    return this.toolsState;
+  }
+
+  /** 最近一次 setSystemPrompt 值（未设置 = undefined）。 */
+  get lastSystemPrompt(): string | undefined {
+    return this.systemPromptState;
+  }
+
   /** 最近一次 abort 的错误信息（abort 非销毁的观测点）。 */
   get lastErrorMessage(): string | undefined {
     return this.errorMessage;

@@ -206,6 +206,30 @@ export class ChatService implements ChatPort {
       MAIN_INSTANCE_ID,
     );
   }
+  /**
+   * 运行期改生效工具集（M6 T2，setModel 同构六层链的 per-session 入口）：
+   * 直达 AgentEnginePort.setTools（引擎侧 resolveTools 重解析后直改
+   * AgentState.tools——能力+提示双料，下一 turn 生效）；per-session——本服务
+   * 实例即会话维。引擎不支持即抛错（不静默吞）。契约广播（config.changed）
+   * 归 T3，此处不发布领域事件。
+   */
+  setTools(names: readonly string[]): void {
+    if (this.deps.engine.setTools === undefined) {
+      throw new Error(`引擎未实现运行期工具集直改接口（AgentEnginePort.setTools），无法设置为 ${names.join(", ")}`);
+    }
+    this.deps.engine.setTools(names);
+  }
+  /**
+   * 运行期改系统提示（M6 T2，setModel 同构）：直达 AgentEnginePort
+   * .setSystemPrompt（AgentState.systemPrompt 直改，下一 turn 生效）；入参
+   * = SystemPromptAssembler 三段组装产物（组合根在 kind 维刷新链中调用）。
+   */
+  setSystemPrompt(text: string): void {
+    if (this.deps.engine.setSystemPrompt === undefined) {
+      throw new Error("引擎未实现运行期系统提示直改接口（AgentEnginePort.setSystemPrompt），无法刷新提示");
+    }
+    this.deps.engine.setSystemPrompt(text);
+  }
   /** 聚合只读访问（SessionService 快照取数；组合根接线用）。 */
   get sessionView() {
     return this.session;
