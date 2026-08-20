@@ -29,6 +29,10 @@ import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../adapters/driven/pi-e
 import { DEFAULT_MODEL_ID, resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
 import { ModelCatalog } from "../adapters/driven/pi-engine/model-catalog";
 import { DefaultModelStore } from "../adapters/driven/sqlite-session/DefaultModelStore";
+import { ResourceStateStore } from "../adapters/driven/sqlite-session/ResourceStateStore";
+import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
+import { ResourceService } from "../application/services/ResourceService";
+import type { ProfileKind } from "../application/ports/outbound/ResourceStatePort";
 import { AuthStore } from "./auth-store";
 import { ModelService } from "../application/services/ModelService";
 import type { ModelPort } from "../application/ports/inbound/ModelPort";
@@ -131,6 +135,8 @@ export interface Daemon {
   readonly orchestration: AgentOrchestrationPort;
   /** 模型/认证管理入口（T2.3 AD-2：model 族与 auth 族命令公共回口）。 */
   readonly model: ModelPort;
+  /** 资源配置入口（M6 T1：kind 维工具/技能启停 + model 槽位的数据与合取计算面）。 */
+  readonly resource: ResourceService;
   /** 会话目录入口（T2.2 AD-4：list/loadHistory/delete/草稿/懒加载取数面）。 */
   readonly directory: SessionDirectoryPort;
   /** 多会话容器（T2.2：生命周期编排观测面——测试断言懒加载/卸载用）。 */
@@ -178,6 +184,26 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   const defaultModel = new DefaultModelStore(writeQueue, DEFAULT_MODEL_ID);
   const catalog = new ModelCatalog({ storePath: paths.modelsStorePath() });
 
+  // ── M6 T1 资源数据域：resource_state 差异行 + 双层技能扫描 + 合取服务 ──
+  // tools 全集从两 profile 声明面构建注入（AG-02：application 不得反向
+  // import driven 层 profiles——组合根单向传映射表）；project 层技能根
+  // 与 toolCwd 同款工作区型判定（启动时定格，不做监听）。
+  const toolCwd = options.toolCwd ?? process.cwd();
+  const resourceState = new ResourceStateStore(writeQueue);
+  const skillScanner = new SkillScanner({
+    userSkillsDir: paths.skillsHome(),
+    projectSkillsDir: path.join(toolCwd, ".helix", "skills"),
+    cwd: toolCwd,
+  });
+  const resourceService = new ResourceService({
+    store: resourceState,
+    skills: skillScanner,
+    toolsCatalog: {
+      "main-session": MainSessionProfile.tools,
+      "subagent-worker": SubAgentProfile.tools,
+    } satisfies Record<ProfileKind, readonly string[]>,
+  });
+
   // ── 旧格式迁移（T2.3，一次性，幂等）：config.json 含 model/apiKeys →
   //    写新位（auth.json / SQLite 默认表）+ config.json 重写瘦身形态 ──
   if (!options.skipConfig && (loaded.legacy.model !== undefined || loaded.legacy.apiKeys !== undefined)) {
@@ -219,7 +245,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
           models: catalog.modelsView(),
           // 注入源切换（T2.3）：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
-          toolCwd: options.toolCwd ?? process.cwd(),
+          toolCwd,
         })
       : undefined;
   const subagentRunner: InstanceRunner = options.subagentRunner ?? subagentLauncher ?? {
@@ -320,7 +346,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
               kill: (agentId) => scheduler.kill(agentId),
             };
             const toolExecutor = new CoreToolExecutor({
-              cwd: options.toolCwd ?? process.cwd(),
+              cwd: toolCwd,
               orchestration: sessionOrchestration,
             });
             // F-14 单点：当前默认模型解析为完整 Model 对象（新会话继承默认）
@@ -588,6 +614,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     subagentLauncher,
     orchestration: currentOrchestration,
     model: modelService,
+    resource: resourceService,
     directory: registry,
     registry,
     runCli: () => cli.run(),

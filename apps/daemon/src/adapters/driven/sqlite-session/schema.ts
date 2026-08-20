@@ -15,7 +15,10 @@
  * - closure_records：实例收口记录行（T2.3 O-5 任务报告本体：closure 五字段
  *   + findings JSON；每收口一行，追加重语义）；
  * - default_model：全局默认模型单行表（AD-2 auth 分层：经常变的状态不进
- *   JSON，进 SQLite；id 固定 1 行，CHECK 约束钉死单值）。
+ *   JSON，进 SQLite；id 固定 1 行，CHECK 约束钉死单值）；
+ * - resource_state：profile kind 维资源启停差异行（M6 T1，主键
+ *   (profile_kind, resource_type, name)；缺省无记录 = 启用的语义在 service
+ *   层——本表只存用户显式选择过的差异，零配置兼容现状、存量零迁移）。
  *
  * iter-20260816-uzvg T1.2 演进：agent_instance_id / instance_id 列与复合 PK；
  * DEFAULT 'main' = 主实例固定 id（O-4），与旧行回填常量同源（O-3）。
@@ -94,4 +97,14 @@ CREATE TABLE IF NOT EXISTS default_model (
   model TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS resource_state (
+  profile_kind TEXT NOT NULL,
+  resource_type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  enabled INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (profile_kind, resource_type, name)
+);
+CREATE INDEX IF NOT EXISTS idx_resource_state_kind ON resource_state(profile_kind, resource_type);
 `;

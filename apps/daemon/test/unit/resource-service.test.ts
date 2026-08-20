@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ResourceService } from "../../src/application/services/ResourceService";
-import type {
-  ProfileKind,
-  ResourceStateData,
-  ResourceStatePort,
-} from "../../src/application/ports/outbound/ResourceStatePort";
+import type { ProfileKind, ResourceStateData, ResourceStatePort, ResourceType } from "../../src/application/ports/outbound/ResourceStatePort";
 import type {
   SkillDescriptor,
   SkillScanResult,
@@ -40,7 +36,7 @@ class InMemoryResourceState implements ResourceStatePort {
     return `${kind}|${type}|${name}`;
   }
 
-  async upsert(kind, resourceType, name, enabled): Promise<void> {
+  async upsert(kind: ProfileKind, resourceType: ResourceType, name: string, enabled: boolean): Promise<void> {
     this.rows.set(this.key(kind, resourceType, name), {
       profileKind: kind,
       resourceType,
@@ -50,26 +46,26 @@ class InMemoryResourceState implements ResourceStatePort {
     });
   }
 
-  get(kind, resourceType, name): ResourceStateData | undefined {
+  get(kind: ProfileKind, resourceType: ResourceType, name: string): ResourceStateData | undefined {
     return this.rows.get(this.key(kind, resourceType, name));
   }
 
-  list(kind, resourceType?): readonly ResourceStateData[] {
+  list(kind: ProfileKind, resourceType?: ResourceType): readonly ResourceStateData[] {
     return [...this.rows.values()].filter(
       (r) => r.profileKind === kind && (resourceType === undefined || r.resourceType === resourceType),
     );
   }
 
-  async setModelSlot(kind, model): Promise<void> {
+  async setModelSlot(kind: ProfileKind, model: string): Promise<void> {
     for (const r of this.list(kind, "model")) this.rows.delete(this.key(kind, "model", r.name));
     await this.upsert(kind, "model", model, true);
   }
 
-  async clearModelSlot(kind): Promise<void> {
+  async clearModelSlot(kind: ProfileKind): Promise<void> {
     for (const r of this.list(kind, "model")) this.rows.delete(this.key(kind, "model", r.name));
   }
 
-  modelSlot(kind): string | undefined {
+  modelSlot(kind: ProfileKind): string | undefined {
     return this.list(kind, "model")[0]?.name;
   }
 }
