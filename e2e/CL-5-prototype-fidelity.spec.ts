@@ -375,7 +375,9 @@ test.describe("G11 P-4 导航壳还原清单", () => {
     { id: "project", path: "/project" },
     { id: "settings", path: "/settings" },
   ] as const;
-  const PLACEHOLDERS = PAGES.slice(2);
+  // 施工牌 ×3（trace 已换真 TracePage——契约依据 f413587；真页还原清单
+  // 归 CL-5-fidelity-trace-page 套件背书，此处只断真页锚在场 + 施工牌遇位）
+  const PLACEHOLDERS = PAGES.slice(2).filter((p) => p.id !== "trace");
 
   test("R-P4-1/4 实跑", async ({ mock, page }) => {
     await mock.connect();
@@ -396,7 +398,7 @@ test.describe("G11 P-4 导航壳还原清单", () => {
       },
       {
         id: "R-P4-4",
-        title: "施工牌 ×4 同构：虚线围挡 + 图标格 + 页名 + 路由行 + 预告 + 「规划中」徽标 + 无操作入口",
+        title: "施工牌 ×3 同构：虚线围挡 + 图标格 + 页名 + 路由行 + 预告 + 「规划中」徽标 + 无操作入口（trace 已换真页）",
         run: async () => {
           const signatures: string[] = [];
           for (const p of PLACEHOLDERS) {
@@ -420,6 +422,10 @@ test.describe("G11 P-4 导航壳还原清单", () => {
             );
           }
           expect(new Set(signatures).size).toBe(1);
+          // trace = 真 TracePage（契约依据 f413587）：真页锚在场 + 施工牌遇位
+          await page.goto("/trace?fakeTransport=1");
+          await expect(page.locator('[data-trace-page="/trace"]')).toBeVisible();
+          await expect(page.locator('[data-construction="/trace"]')).toHaveCount(0);
         },
       },
     ];
