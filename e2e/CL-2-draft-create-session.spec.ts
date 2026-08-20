@@ -33,11 +33,20 @@ test.describe("T3.2 CL-2 草稿建会话", () => {
     await mock.waitForConn("connected");
     await expect(page.locator('[data-session-card="draft"]')).toHaveCount(0);
 
-    // ── 新建草稿：本地态，零建会话命令（v0.3：唯一新帧 = 旧活跃降 monitor）──
+    // ── 新建草稿：本地态，零建会话命令（v0.3：新帧 = 旧活跃降 monitor +
+    //    草稿徽标 defaultModel fallback 加载链两帧——契约依据 a4a182e；
+    //    实跑帧序：subscribe(A, monitor) → model.catalog → model.get_default）──
     const before = (await mock.clientFrames()).length;
     await page.locator("#btn-new-session").click();
+    // 三帧陆续出（降档同步发；模型两帧经 useEffect 异步）→ poll 收敛断言
+    await expect
+      .poll(async () =>
+        (await mock.clientFrames())
+          .slice(before)
+          .map((f) => f.type),
+      )
+      .toEqual(["session.subscribe", "model.catalog", "model.get_default"]);
     const after = await mock.clientFrames();
-    expect(after.length - before).toBe(1); // 点击产生的唯一新帧 = subscribe(A, monitor) 降档
     // 命令断言：A 降 monitor 在场；无 unsubscribe / 无 chat.send / 无建会话类命令
     const demote = after.slice(before).find((f) => f.type === "session.subscribe");
     expect(demote?.sessionId).toBe(MULTI_SESSION_A);
