@@ -1,7 +1,8 @@
 # Helix WS 协议 v0.4
 
 > 当前版本位 `PROTOCOL_VERSION = "0.4"`（envelope.ts）；§1–§9 为 v0 基线，
-> §10–§13 为 v0.1–v0.4 演进登记（v0.4 = 当前，见 §13）。
+> §10–§14 为 v0.1–v0.4 演进登记与微批备案（v0.4 = 当前，见 §13/§14）；
+> §15–§17 为现状全集总登记（22 命令 / 40 事件 payload 形状）与 SoT 守护口径。
 
 > 包：`@helix/protocol`（本目录）。类型唯一权威源——daemon（T1.6）与前端
 > shell（T1.7）共同 import，**仓库内禁止平行手写协议类型**（AD-8 / AG-13）。
@@ -372,7 +373,8 @@ interface ClosureDto {
 
 > 本章为 v0.2 登记（迭代 iter-20260816-6q6f T1.2；集成契约
 > `development/contracts/protocol-v0.2-envelope.md` + `session-commands.md` +
-> `model-auth-commands.md`——实现规范以契约文档为准，本节为导读）。
+> `model-auth-commands.md`——三契约为历史定形档案（仓外参考）；实现规范以
+> 本文档为准（§15/§16 现状全集 + 本节演进备案））。
 > **版本位 bump**：`PROTOCOL_VERSION = "0.2"`（§10 的「版本位不 bump」口径
 > 至 v0.1 为止；v0.2 起版本位为字符串）。handshake 严格单值 fail-fast：
 > `protocolVersion ≠ "0.2"` 即 `protocol.version_unsupported` 拒绝。
@@ -414,7 +416,8 @@ interaction（占位，无事件挂靠）/ notification（connection.* 系统事
 空）；model 族 `model.set` / `model.get` / `model.catalog` /
 `model.catalog_refresh` / `model.set_default` / `model.get_default`；auth 族
 `auth.list` / `auth.set_key` / `auth.delete_key` / `auth.verify`。
-payload/响应形状与错误模型见契约 B/C；daemon 行为由 T2.1/T2.2/T2.3 落地
+payload/响应形状总登记见 §15.2/§15.4/§15.5 与 §16.2/§16.6（契约 B/C 降为历史
+定形档案）；daemon 行为由 T2.1/T2.2/T2.3 落地
 （登记期未知实现 → `command.unimplemented` 占位回执，新错误码见 §7 注）。
 
 ### 11.5 DTO additive 扩展
@@ -520,9 +523,9 @@ export interface ChatSteerPayload {
 ## 13. v0.4 登记批（协议 v0.4；一次 bump）
 
 > 本章为 v0.4 登记（迭代 iter-20260819-erio：契约 T2.1 定形、版本位 T3.2
-> 统一升位；集成契约 `development/contracts/contract-v0.4.md`——实现规范
-> 以契约文档为准，本节为登记导读，字段形状与 packages/protocol 实际类型
-> 逐项对齐）。**版本位 bump**：`PROTOCOL_VERSION = "0.4"`（envelope.ts）——
+> 统一升位；集成契约 `development/contracts/contract-v0.4.md` 为历史定形
+> 档案（仓外参考）；实现规范以本文档为准（§15/§16 现状全集 + 本节演进备案），
+> 字段形状与 packages/protocol 实际类型逐项对齐）。**版本位 bump**：`PROTOCOL_VERSION = "0.4"`（envelope.ts）——
 > 批次集合标记非协商位（Q-1c 单仓同发一步替换，仓内无 `"0.3"` 帧存量；
 > `FrameVersion = 0 | "0.4"`）。handshake 严格单值 fail-fast：
 > `protocolVersion ≠ "0.4"` 即 `protocol.version_unsupported` 拒绝。
@@ -648,6 +651,11 @@ export interface AgentModelChangedPayload {
 
 > 本批为内存草稿「不可见 + 转正」语义（bug1/bug4 daemon 侧）的协议面
 > additive 登记（TR-AD-23①：可选字段带缺省语义，旧客户端忽略行为不变）。
+>
+> **收敛说明（v0.5 收口）**：本节三字段随 v0.5 批次一次定形登记
+>（TR-AD-23②「版本一次定形」）——正文形状以 §15.1（`chat.send` 的
+> draft/model 字段行）与 §16.1（`connection.welcome` 的 draft 字段行）为
+> 准；本节保留为演进备案（何时/为何引入），不再承担形状登记职责。
 
 ### 14.1 `ConnectionWelcomePayload.draft?: boolean`（events.ts）
 
@@ -679,3 +687,654 @@ export interface AgentModelChangedPayload {
 - `chat.send{draft:true}` 命中零条目当前草稿 → 同 id 转正复用（不裂变
   新会话）；转正恰好一次 `agent.instantiated` + `list_changed{created}`
   （draft 链显式广播与补广播去重，不双发）。
+
+## 15. 命令 payload 形状总登记（C→S，22 命令全集）
+
+> **计数声明：22 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 3 +
+> 15.4 model 6 + 15.5 auth 4 + 15.6 trace 1）——与 `COMMAND_TYPES` 常量恰等
+>（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
+> AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
+> 文档与其逐项对齐（AD-1）；仓外契约文档降为历史定形档案（§17.1）。
+>
+> 登记锚格式：每命令一个 `#### \`<type>\`` 锚 + payload 字段表
+>（字段 / 类型 / 可选性 / 登记版本 / 语义）。空载荷命令（`EmptyPayload =
+> Record<string, never>`）以「（无字段）」一行明示。引用 DTO 定义指针：§6
+> （EntryDto / AgentStateDto / SessionSnapshotDto）、§10.4（ClosureDto）、
+> §10.5（ThinkingEntryDto / CompactionEntryDto / UsageDto / AgentInstanceDto）、
+> §13.2（TraceEventRow / TraceInstanceRecord / TraceProfileSnapshot /
+> TraceQueryFilterEcho）；`SessionMeta` / `AuthProviderInfo` / `CatalogModel` /
+> `TraceTimeRange` / `TraceQueryPageInput` 定义于 `src/types/`（session / auth /
+> model / trace.ts），形状字段行内联要点。信封公共字段（v / sessionId /
+> instanceId / workspace）见 §3，不逐条重复。
+
+### 15.1 chat 族（3）
+
+#### `chat.send`
+
+发送用户消息（新输入 → ChatPort.sendMessage）。路由：会话作用域命令，信封
+sessionId 必填（`draft:true` 建会话链省略）；无专属结果帧，回执走 chat 事件流。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `text` | `string` | 必填 | v0 | 用户消息文本 |
+| `draft` | `boolean` | 可选 | v0.2 引入 / v0.5 定形登记（§14.3） | 草稿建会话标记：true 且信封 sessionId 省略 → daemon 新建会话聚合落库（首条用户消息即建会话）；sessionId 携带时忽略；缺省 = 既有会话内发送 |
+| `model` | `string` | 可选 | v0.5 定形登记（§14.2） | 建会话模型：仅 `draft:true` 链消费（用户建会话前选定的模型，失败降级全局默认不阻断）；缺省 = 全局默认（不换模） |
+
+#### `chat.steer`
+
+生成中注入消息（ChatPort.steer → SteerQueue.enqueue）。路由：信封 sessionId
+必填。回执：`steer.queued` / `steer.drained` 事件；目标实例非运行中 →
+`connection.error{code:"command.invalid_payload"}`（不落 Entry 不入队）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `text` | `string` | 必填 | v0 | 注入消息文本 |
+| `instanceId` | `string` | 可选 | v0.3 | 目标实例（定向寻址，路由归 ChatService）；缺省 = 主实例（既有语义不变） |
+
+#### `chat.abort`
+
+中断当前生成（ChatPort.abort）。路由：信封 sessionId 必填。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | v0 | 空载荷 |
+
+### 15.2 session 族（5）
+
+#### `session.subscribe`
+
+订阅会话事件流（v0.2 起按会话订阅：连接只收该会话 + 系统级事件帧；v0.3
+起可携带 tier 档位，重复 subscribe 换 tier = 幂等更新）。路由：信封
+sessionId **必填**。回执：daemon 重推该会话全量 `session.snapshot`（快照恢复
+公式，§4 D-4）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `tier` | `"full" \| "monitor"` | 可选 | v0.3 | 订阅档位：full = 全量（缺省）；monitor = 3 事件白名单（chat.turn.started / chat.turn.completed / chat.message.completed） |
+
+#### `session.unsubscribe`
+
+退订会话事件流（只关流不回推）。路由：信封 sessionId 必填。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | v0 | 空载荷 |
+
+#### `session.list`
+
+会话清单查询。路由：全局命令（信封 sessionId 省略）。结果帧：
+`session.list.result`（点对点，§16.2）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | v0.2 | 空载荷 |
+
+#### `session.loadHistory`
+
+分页历史回溯（AD-1）：返回 beforeEntryId 之前的更早历史（时间升序）。
+路由：信封 sessionId **必填**。结果帧：`session.loadHistory.result`
+（点对点，§16.2）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `beforeEntryId` | `string` | 必填 | v0.2 | 游标：当前最早 entry id；首页 = 尾窗最早 entry id（快照 DTO 下发） |
+| `limit` | `number` | 可选 | v0.2 | 缺省 50（分页大小），上限 200（防滥用） |
+
+#### `session.delete`
+
+删除会话（payload 空，路由位在信封；daemon 顺序：取消全部执行 → 删库 →
+注册表移除 → 广播 `session.list_changed{deleted}`）。路由：信封 sessionId
+**必填**。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | v0.2 | 空载荷（目标会话在信封 sessionId） |
+
+### 15.3 agent 族（3）
+
+#### `agent.kill`
+
+用户终止实例（抽屉 kill 两步确认后发送）。正常路径回执 `agent.killed`
+事件（单一终态）；目标不存在 / 已终态 → `connection.error` 回执。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | v0.1 | 目标实例 id（instanceId ≡ agentId 同一标识空间，§10.1） |
+
+#### `agent.subscribe`
+
+订阅实例全流（v0.1 通路语义：订阅表 + 全广播，不做事件过滤，§10.6-①）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | v0.1 | 目标实例 id |
+
+#### `agent.unsubscribe`
+
+退订实例全流（v0.1 通路语义）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | v0.1 | 目标实例 id |
+
+### 15.4 model 族（6）
+
+#### `model.set`
+
+运行期切换模型（per-session，下一 turn 生效）。路由：信封 sessionId **必填**。
+回执：`model.changed` 广播（§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `model` | `string` | 必填 | v0.2 | "provider/model-id" 完整 id |
+
+#### `model.get`
+
+查询会话当前模型与全局默认关系。路由：信封 sessionId **必填**。结果帧：
+`model.get.result`（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | v0.2 | 空载荷 |
+
+#### `model.catalog`
+
+合并模型目录查询（4h 缓存口径）。路由：全局命令。结果帧：
+`model.catalog.result`（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | v0.2 | 空载荷 |
+
+#### `model.catalog_refresh`
+
+绕过 4h 缓存强制拉远端目录（失败降级 builtin，结果含 degraded 明细）。
+路由：全局命令。结果帧：`model.catalog_refresh.result`（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | v0.2 | 空载荷 |
+
+#### `model.set_default`
+
+设置全局默认模型（SQLite 读面）。路由：全局命令（无信封 sessionId）。
+结果帧：`model.set_default.result`（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `model` | `string` | 必填 | v0.2 | "provider/model-id" 完整 id |
+
+#### `model.get_default`
+
+查询全局默认模型。路由：全局命令。结果帧：`model.get_default.result`
+（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | v0.2 | 空载荷 |
+
+### 15.5 auth 族（4）
+
+#### `auth.list`
+
+provider 全集 × 凭据状态查询（脱敏）。路由：全局命令。结果帧：
+`auth.list.result`（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | v0.2 | 空载荷 |
+
+#### `auth.set_key`
+
+录入 provider API key（daemon 写 `~/.helix/auth.json`，0600 + 文件锁）。
+路由：全局命令。结果帧：`auth.set_key.result`（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `providerId` | `string` | 必填 | v0.2 | provider 标识 |
+| `apiKey` | `string` | 必填 | v0.2 | 明文 key（空串 = 协议层 `command.invalid_payload` 拒绝） |
+
+#### `auth.delete_key`
+
+删除 provider 凭据。路由：全局命令。结果帧：`auth.delete_key.result`
+（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `providerId` | `string` | 必填 | v0.2 | provider 标识 |
+
+#### `auth.verify`
+
+连通验证（不缓存，每次真实请求 provider 最小探活；fail 为正常结果非
+error）。路由：全局命令。结果帧：`auth.verify.result`（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `providerId` | `string` | 必填 | v0.2 | provider 标识 |
+
+### 15.6 trace 族（1）
+
+#### `trace.query`
+
+会话历史事件查询（连接私有读面——直查 domain_events，目标可为冷会话，
+不触发懒加载）。路由：目标会话在 **payload.sessionId**；信封 sessionId 位
+**不消费**。结果帧：`trace.query.result`（点对点，§16.7）；校验失败 →
+`connection.error{code:"command.invalid_payload"}`（连接保持）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `sessionId` | `string` | 必填 | v0.4 | 目标会话（非空 string） |
+| `instanceIds` | `string[]` | 可选 | v0.4 | 实例多选：缺省 = 全部实例；空数组 = 空结果（显式语义，非「全部」） |
+| `agentKind` | `"main" \| "subagent"` | 可选 | v0.4 | 实例种类过滤 |
+| `types` | `string[]` | 可选 | v0.4 | 事件类型多选：缺省 = 全部类型；空数组 = 空结果（同 instanceIds 口径） |
+| `timeRange` | `TraceTimeRange`（`{ from?: string; to?: string }`） | 可选 | v0.4 | 时间窗（ISO 8601 文本，含起含止；from > to = 校验拒绝） |
+| `page` | `TraceQueryPageInput`（`{ limit?: number; beforeId?: number }`） | 可选 | v0.4 | 分页：limit 缺省 50、上限 200（超限钳到 200 不报错；非正整数拒绝）；beforeId = id 游标（返回 id < beforeId 的更早页） |
+
+## 16. 事件 payload 形状总登记（S→C，40 事件全集）
+
+> **计数声明：40 事件全集**（16.1 notification 2 + 16.2 session 4 +
+> 16.3 chat 10 + 16.4 agent 9 + 16.5 thinking·compaction·usage 4 +
+> 16.6 model 10 + 16.7 trace 1）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
+> 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
+>（三面同构，守护断言⑤口径）；auth 族 4 结果帧按 `EVENT_CHANNELS` 登记挂
+> **model 通道**（§16.6 内）。登记锚格式同 §15（`#### \`<type>\`` 锚 +
+> payload 字段表）。类型权威源 = `packages/protocol/src/events/`，文档与其
+> 逐项对齐（AD-1）。点对点结果帧（`*.result` 11 + `trace.query.result`）
+> 仅发发起命令的连接，不经 EventStream 广播（TR-AD-21 先例）。
+
+### 16.1 notification 族（2；信封 sessionId = SYSTEM_SESSION_ID）
+
+#### `connection.welcome`
+
+握手通过回执（notification 通道，会话无关系统事件）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `sessionId` | `string` | 必填 | v0 | 当前会话 id |
+| `model` | `string` | 必填 | v0 | 当前模型（展示用徽标） |
+| `agentState` | `AgentStateDto` | 必填 | v0 | 主实例状态（§6） |
+| `draft` | `boolean` | 可选 | v0.5 定形登记（§14.1） | 草稿标记：true = 当前会话是零条目内存草稿（未落盘、不进清单；握手不 attach 不推快照）；缺省 = 现状握手（attach + 立即快照） |
+
+#### `connection.error`
+
+握手拒绝 / 命令错误回执（notification 通道）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `code` | `ErrorCode` | 必填 | v0 | 错误码（全集见 §7） |
+| `message` | `string` | 必填 | v0 | 错误描述（中文说明） |
+
+### 16.2 session 族（4）
+
+#### `session.snapshot`
+
+全量快照（握手后 / 重连后；AD-16 快照+增量；v0.2 尾窗口径 additive，§11.5）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `snapshot` | `SessionSnapshotDto` | 必填 | v0 | 全量快照（§6；additive 扩展 §10.5 / §11.5） |
+
+#### `session.list_changed`
+
+会话清单变化广播（新建 / 删除 / 运行态变化 / 标题更新触发）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `kind` | `"created" \| "deleted" \| "state_changed"` | 必填 | v0.2 | 变化种类 |
+| `sessionId` | `string` | 可选 | v0.2 | 目标会话；列表级批量变化可省略 |
+| `session` | `SessionMeta` | 可选 | v0.2 | created/state_changed 携带最新元数据（同 session.list 元素形状：`{ sessionId, title, lastActivityAt, runState, loaded }`） |
+
+#### `session.list.result`
+
+会话清单命令结果（点对点回执；信封 sessionId = SYSTEM_SESSION_ID）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `sessions` | `SessionMeta[]` | 必填 | v0.2 | 会话清单（按 lastActivityAt 降序） |
+
+#### `session.loadHistory.result`
+
+分页历史命令结果（点对点回执；信封 sessionId = 目标会话 id）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `entries` | `EntryDto[]` | 必填 | v0.2 | beforeEntryId 之前的更早历史（时间升序） |
+| `hasMore` | `boolean` | 必填 | v0.2 | 是否还有更早页 |
+| `nextCursor` | `string \| null` | 必填 | v0.2 | 下一页游标（无更早页 = null） |
+
+### 16.3 chat 族（10）
+
+#### `chat.stream.delta`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `messageId` | `string` | 必填 | v0 | 所属消息 id |
+| `delta` | `string` | 必填 | v0 | 流式增量文本（中间态，**不落盘**，AD-16） |
+
+#### `chat.turn.started`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `turnId` | `string` | 必填 | v0 | 轮次里程碑（落盘事件） |
+
+#### `chat.turn.completed`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `turnId` | `string` | 必填 | v0 | 轮次 id |
+| `reason` | `TurnCompletionReason`（`"completed" \| "aborted"`） | 必填 | v0 | 结束原因（正常完成 / 中断） |
+
+#### `chat.message.completed`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `entry` | `EntryDto` | 必填 | v0 | 完成消息（kind="message" 且含最终 content；落盘事件） |
+
+#### `steer.queued`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `entryId` | `string` | 必填 | v0 | 入队消息 entry id（前端「STEER·已入队」徽标依据） |
+
+#### `steer.drained`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `entryId` | `string` | 必填 | v0 | turn 边界 drain 注入（徽标转「已注入·本轮结束」依据） |
+
+#### `tool.call.started`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `entry` | `EntryDto` | 必填 | v0 | 工具调用开始（tool-call 变体，state="running"） |
+
+#### `tool.call.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `entry` | `EntryDto` | 必填 | v0 | 工具调用结果（tool-call 变体，state="done"\|"error"，含 result 与 durationMs） |
+
+#### `agent.state.changed`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `state` | `AgentStateDto` | 必填 | v0 | agent 生命周期状态变更（chat 通道主线状态） |
+
+#### `engine.error`
+
+引擎/模型调用失败透传（终验热修：provider 错误不崩会话，经此帧下发；
+reducer 现归类走 chat 消费路径）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `message` | `string` | 必填 | v0（热修） | 错误描述（provider 原文透传；前端错误卡片正文） |
+
+### 16.4 agent 族（9）
+
+#### `agent.spawned`
+
+spawn 工具秒回出卡（不等执行，AD-8 异步交付）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | v0.1 | 新实例 id |
+| `task` | `string` | 必填 | v0.1 | 任务描述 |
+| `profileKind` | `string` | 必填 | v0.1 | profile 种类 |
+| `model` | `string` | 可选 | v0.1 | "provider/model-id"；缺省继承当前模型（AD-6） |
+| `anchorEntryId` | `string \| null` | 可选 | v0.3 | spawn 锚（卡片插入位权威 entry id；null = 流首；缺省不携带 = 主实例；计算规则见 §12.1） |
+
+#### `agent.queued`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | v0.1 | 实例 id |
+| `position` | `number` | 必填 | v0.1 | FIFO 队列位置（随出队递减重发） |
+
+#### `agent.started`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | v0.1 | 实例 id（出队 / 预算内直跑，卡片 running 态） |
+
+#### `agent.stalled`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | v0.1 | 实例 id |
+| `idleMs` | `number` | 必填 | v0.1 | idle 毫秒数（超阈值警示不自动杀；可再次发生，非状态迁移） |
+
+#### `agent.completed`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | v0.1 | 实例 id |
+| `closure` | `ClosureDto` | 必填 | v0.1 | 自然收口 done（线格式全字段必发，§10.4） |
+
+#### `agent.failed`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | v0.1 | 实例 id |
+| `error` | `string` | 必填 | v0.1 | 错误描述 |
+| `closure` | `ClosureDto` | 必填 | v0.1 | 崩溃/异常收口（closure.status="failed"） |
+
+#### `agent.killed`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | v0.1 | 实例 id |
+| `closure` | `ClosureDto` | 必填 | v0.1 | 用户 kill 收口（closure.status="failed"，lifecycle terminated） |
+
+#### `agent.instantiated`
+
+实例化时刻 profile 快照落盘（**只落盘不广播**，AF-6；登记供 trace.query
+结果类型化与守护一致性）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `instanceId` | `string` | 必填 | v0.4 | "main" \| agent-N |
+| `profileKind` | `string` | 必填 | v0.4 | profile 种类（自由字符串，无注册表） |
+| `profileSnapshot` | `TraceProfileSnapshot` | 必填 | v0.4 | 注入快照（systemPrompt 全文 + tools + model + compaction? + hooks?，§13.2） |
+
+#### `agent.model.changed`
+
+运行期换模的模型时间线落盘（**只落盘不广播**，AF-6；from/to 与
+`model.changed` 广播帧 previous/model 同源同值）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `instanceId` | `string` | 必填 | v0.4 | 实例 id（当前仅主实例） |
+| `from` | `string` | 必填 | v0.4 | 旧模型标识（"provider/model-id"） |
+| `to` | `string` | 必填 | v0.4 | 新模型标识 |
+
+### 16.5 thinking · compaction · usage 通道族（4）
+
+#### `thinking.stream.delta`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `instanceId` | `string` | 必填 | v0.1 | 归属实例 |
+| `delta` | `string` | 必填 | v0.1 | thinking 流式增量（中间态不落盘，TR-AD-5） |
+
+#### `thinking.completed`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `entry` | `ThinkingEntryDto` | 必填 | v0.1 | thinking 完成落 Entry（§10.5） |
+
+#### `compaction.completed`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `entry` | `CompactionEntryDto` | 必填 | v0.1 | compaction 完成（含 usage，AD-9③；§10.5） |
+| `tailKept` | `number` | 可选 | v0.2 | 压缩后保留的尾部条目数（尾窗口径对账） |
+| `filesCompacted` | `number` | 可选 | v0.2 | 纳入压缩的上下文文件数 |
+
+#### `usage.recorded`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `instanceId` | `string` | 必填 | v0.1 | 归属实例 |
+| `usage` | `UsageDto` | 必填 | v0.1 | 七字段用量（§10.5） |
+| `source` | `"turn" \| "compaction"` | 必填 | v0.1 | 来源（turn 完成 / compaction 摘要调用完成；流式中不发） |
+
+### 16.6 model 族（10；含 model/auth 9 结果帧——auth 结果帧按 EVENT_CHANNELS 挂 model 通道）
+
+#### `model.changed`
+
+运行期换模生效广播（下一 turn 生效）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `sessionId` | `string` | 必填 | v0.2 | 目标会话（信封同步携带；payload 内嵌一份供消费者免读信封） |
+| `model` | `string` | 必填 | v0.2 | 新模型（"provider/model-id"） |
+| `previous` | `string` | 必填 | v0.2 | 旧模型 |
+| `effective` | `"next-turn"` | 必填 | v0.2 | 生效时点（恒为下一 turn） |
+
+#### `model.get.result`
+
+会话当前模型命令结果（点对点回执；信封 sessionId = 目标会话 id）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `model` | `string` | 必填 | v0.2 | 会话当前模型 |
+| `isDefault` | `boolean` | 必填 | v0.2 | 会话模型是否即全局默认 |
+| `defaultModel` | `string` | 必填 | v0.2 | 全局默认模型 |
+
+#### `model.catalog.result`
+
+合并目录快照命令结果（点对点回执；信封 sessionId = SYSTEM_SESSION_ID）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `models` | `CatalogModel[]` | 必填 | v0.2 | 合并目录（`{ id, providerId, contextWindow, cost, ... }`，types/model.ts） |
+| `refreshedAt` | `number` | 必填 | v0.2 | 上次远端核对时间（epoch ms；无 overlay 历史 → 0） |
+| `source` | `"cache" \| "builtin" \| "remote"` | 必填 | v0.2 | 快照数据来源 |
+
+#### `model.catalog_refresh.result`
+
+强制刷新快照 + 降级明细（点对点回执；全局命令）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `models` | `CatalogModel[]` | 必填 | v0.2 | 同 `model.catalog.result` |
+| `refreshedAt` | `number` | 必填 | v0.2 | 同上 |
+| `source` | `"cache" \| "builtin" \| "remote"` | 必填 | v0.2 | 同上 |
+| `degraded` | `string[]` | 必填 | v0.2 | 拉取失败的 provider 明细（全部成功 = 空数组；快照仍可用） |
+
+#### `model.set_default.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `previous` | `string` | 必填 | v0.2 | 变更前全局默认 |
+
+#### `model.get_default.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `model` | `string` | 必填 | v0.2 | 全局默认模型（SQLite 读面，builtin 兜底） |
+
+#### `auth.list.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `providers` | `AuthProviderInfo[]` | 必填 | v0.2 | provider 全集 × 凭据状态（脱敏：`{ providerId, configured, keyMasked?, verifiedAt?, ... }`，types/auth.ts） |
+
+#### `auth.set_key.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `keyMasked` | `string` | 必填 | v0.2 | 写入回执（掩码形式，如 `····7f3a`） |
+
+#### `auth.delete_key.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `Record<string, never>` | — | v0.2 | 成功回执即帧本身（无数据体） |
+
+#### `auth.verify.result`
+
+连通验证回执（点对点；fail 为正常结果非 error）。payload 为判别联合：
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `status` | `"ok" \| "fail"` | 必填 | v0.2 | 验证结果判别位 |
+| `latencyMs` | `number` | ok 分支必填 | v0.2 | 探活延迟（status="ok" 时存在） |
+| `reason` | `string` | fail 分支必填 | v0.2 | 失败原因（status="fail" 时存在） |
+
+### 16.7 trace 族（1）
+
+#### `trace.query.result`
+
+trace 查询命令结果（点对点回执；信封 sessionId = 目标会话 id；channel =
+"trace"）。语义判据（含起含止 / 空数组即空结果 / limit 钳制 / hasMore /
+total / 模型同源）见 §13.4。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `filterEcho` | `TraceQueryFilterEcho` | 必填 | v0.4 | 实际生效过滤条件回显（normalize 后形态；缺省维归一 null） |
+| `instances` | `TraceInstanceRecord[]` | 必填 | v0.4 | 实例面板摘要块（会话级 fold，不受 events 过滤维影响） |
+| `events` | `TraceEventRow[]` | 必填 | v0.4 | 本页事件行（id 降序 = 最新在前） |
+| `page.loaded` | `number` | 必填 | v0.4 | 本页实载行数 |
+| `page.total` | `number` | 必填 | v0.4 | 同过滤条件（不含游标/限量）总行数 |
+| `page.hasMore` | `boolean` | 必填 | v0.4 | rows.length === limit（恰整除时末页多一次空载，记录在案） |
+
+## 17. SoT 声明与守护口径（v0.5 收口）
+
+### 17.1 SoT 声明
+
+**本文档是 Helix WS 契约的唯一事实源（SoT）**：22 命令 / 40 事件的 payload
+形状全部登记正文（§15 / §16），仓外契约文档（iter-20260816-6q6f /
+iter-20260819-erio 的 `development/contracts/`）降为**历史定形档案**，不再
+作为实现规范依据——§12 起「契约 SoT 归本文档」的口头声明自此由机械口径
+兜底（AD-4 选项 B 全量回迁收口）。类型权威源 = `packages/protocol` TS 定义
+（仓内禁止平行手写协议类型，AD-8 / AG-13）；文档与类型逐项对齐，运行时
+行为零变更（AD-1）。
+
+### 17.2 登记纪律（TR-AD-26 ①② 律）
+
+- **① payload 形状正文登记律**：新增 / 变更命令·事件·payload 字段（含
+  additive 可选字段，TR-AD-23① 口径）必须**同 commit** 在 §15/§16 落
+  `#### \`<type>\`` 锚 + 字段行（含可选性、缺省语义与登记版本）；禁止委托
+  仓外文档或「以代码为文档」。新增命令/事件不同步登记即守护红（断言②③）。
+- **② 版本位单点律**：`PROTOCOL_VERSION` 唯一定义于
+  `packages/protocol/src/envelope.ts`；任何脚本 / 文档 / 测试引用版本一律
+  从单点读或由断言守护，禁止手写字面量（perf-a11y `V = "0.3"` 漂移为
+  登记在案反例，F(2).1 已修为单点读取）。
+- 版本批次语义（一次定形、批次集合标记非协商位）归 TR-AD-23②：§14 微批
+  字段（welcome.draft / chat.send.model / chat.send.draft）随 v0.5 批次
+  定形登记，本批零新增命令/事件（22/40 计数不变）。
+
+### 17.3 sot-consistency 断言口径（五条）
+
+落位 `packages/protocol/test/type-surface/sot-consistency.test.ts`
+（T2.4；断言粒度 = presence 级，文档 ↔ 代码不一致即红）：
+
+1. **版本位一致**：本文档标题行与 §3 代码块中的版本字面量 ==
+   `PROTOCOL_VERSION` 导出值（防版本字面量漂移的文档面复发）。
+2. **类型 presence**：`COMMAND_TYPES` / `EVENT_TYPES` 每个字面量在 §15/§16
+   有对应 `#### \`<type>\`` 登记锚（新增命令/事件不登记即红）。
+3. **计数一致**：§15/§16 计数声明行（22 命令全集 / 40 事件全集）== 常量
+   目录长度（后续演进随断言同步）。
+4. **additive 字段 presence**：v0.3/v0.4/§14 批次新增可选字段
+   （anchorEntryId / tier / instanceId / draft / model）在登记表中有字段行
+   （防 draft 零登记复发）。
+5. **通道归属一致**：§16 各族小节内的事件 type 集合 == `EVENT_CHANNELS`
+   对应通道值域（防文档族结构与代码类型学漂移）。
+
+### 17.4 生成式基建边界（AD-4 选项 C 转池声明）
+
+字段级逐形状 diff（文档表 ↔ TS 接口全字段等价比较）属**生成式文档工具**
+（AD-4 选项 C），已裁决**转池不做**；本期断言粒度 = 类型 presence + 版本位
++ 计数 + 关键字段 presence（§17.3），以最小成本把 SoT 声明变成红绿事实。
+
+### 17.5 v0.5 批次登记
+
+v0.5 = payload 全量回迁（§15/§16 新增，13 命令 + 11 结果帧仓外委托清零）
++ SoT 守护口径（本节）+ §14 微批字段随批次定形；**零新增命令/事件**
+（`COMMAND_TYPES` 22 / `EVENT_TYPES` 40 计数不变，additive 纪律）。版本位
+`"0.4" → "0.5"`（envelope.ts 单点；批次集合标记非协商位，Q-1c 单仓同发
+一步替换，运行时代码与测试零 `"0.4"` 残留——豁免：§1–§13 演进备案节的
+历史版本登记字面量合法保留）；`FrameVersion = 0 | "0.5"`。handshake 严格
+单值 fail-fast：`protocolVersion ≠ "0.5"` 即 `protocol.version_unsupported`
+拒绝。
