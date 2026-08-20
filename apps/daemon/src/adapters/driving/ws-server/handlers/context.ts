@@ -7,15 +7,32 @@
  * type 导入，回边）。两个类型定义上收本模块后，handlers/* 只依赖本模块
  * （type-only），不再有指回 WsServerAdapter 的边，环解。
  *
+ * T3.2 handler 化：session/chat/agent/trace 族上下文类型同承本模块——12 个
+ * 内联 case 体自 WsServerAdapter.routeCommand 机械迁出（AD-1），依赖面经
+ * 对应族上下文由 adapter 解构供出（T1.1 commandContext 先例模式）；快照
+ * 盖章链（snapshotFrame/sessionStamp）留 adapter，session/chat handler 经
+ * 上下文回调机械引用零行为差（不为省行数造成第二份）。
+ *
  * 本模块依赖纪律：只 import @helix/protocol 类型 + ../EventStream 类型 +
- * application/ports 类型 + bun ServerWebSocket 类型——全部 type-only，
- * 自身不成为任何环的节点。
+ * application/ports 类型 + bun ServerWebSocket 类型（另 trace 族依赖
+ * domain/trace/TraceQueryPort——AG-12 既有 type-only 口径，domain 无回边）
+ * ——全部 type-only，自身不成为任何环的节点。
  */
 import type { ServerWebSocket } from "bun";
-import type { ConnectionErrorEvent, EventEnvelope } from "@helix/protocol";
+import type {
+  AgentStateDto,
+  ConnectionErrorEvent,
+  EventEnvelope,
+  SessionSnapshotEvent,
+} from "@helix/protocol";
 import type { ModelPort } from "../../../../application/ports/inbound/ModelPort";
 import type { SystemPort } from "../../../../application/ports/inbound/SystemPort";
-import type { FrameSender } from "../EventStream";
+import type { SessionDirectoryPort } from "../../../../application/ports/inbound/SessionDirectoryPort";
+import type { SessionChatPort } from "../../../../application/ports/inbound/ChatPort";
+import type { AgentOrchestrationPort } from "../../../../application/ports/inbound/AgentOrchestrationPort";
+import type { SessionStateView } from "../../../../application/ports/inbound/SessionPort";
+import type { EventStream, FrameSender } from "../EventStream";
+import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
 
 /** 每连接状态（Bun.serve 泛型，经 server.upgrade 的 data 携带；handlers/ 共用型）。 */
 export interface ConnState {
@@ -23,6 +40,16 @@ export interface ConnState {
   /** 认证通过后构造的协议帧发送端（EventStream 注册键）。 */
   sender: FrameSender | null;
 }
+
+/** per-session 快照盖章（语义 = WsServerAdapter.sessionStamp：view 同源组装，禁 getStatus 串台——T5.1）。 */
+export type SessionStamp = (view: SessionStateView) => { model: string; agentState: AgentStateDto };
+
+/** session.snapshot 组帧（语义 = WsServerAdapter.snapshotFrame：AD-1 尾窗口径；实现留 adapter）。 */
+export type SnapshotFrame = (
+  view: SessionStateView,
+  model: string,
+  agentState: AgentStateDto,
+) => SessionSnapshotEvent;
 
 /**
  * model/auth 族命令处理上下文（WsServerAdapter.routeCommand 解构后供出）。
@@ -46,6 +73,108 @@ export interface WsCommandContext {
   /** 模型/认证命令错误码映射（契约 C §4；语义 = WsServerAdapter.modelErrorCode）。 */
   modelErrorCode(err: Error): ConnectionErrorEvent["payload"]["code"];
   /** 构造本连接协议帧发送端（readyState 守卫；语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/**
+ * session 族命令处理上下文（list / loadHistory / delete / subscribe /
+ * unsubscribe，T2.2 契约 B §1）：SessionDirectoryPort（目录/视图/删除）+
+ * EventStream 订阅面（重新订阅重推快照链）+ 快照盖章链回调 + 共享辅助。
+ * 目标会话解析（resolveTargetSession）随族迁 handlers/session.ts 模块内。
+ */
+export interface SessionCommandContext {
+  /** 命令来源连接（sender = ws.data.sender；list/loadHistory 回退 rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record）。 */
+  readonly payload: Record<string, unknown>;
+  /** 命令信封（会话作用域命令的 sessionId 路由位，v0.2）。 */
+  readonly envelope: { sessionId?: unknown };
+  /** 会话目录（list/loadHistory/delete/目标解析/视图取数）。 */
+  readonly directory: SessionDirectoryPort;
+  /** 事件流（订阅/退订 + 重推快照经 sender）。 */
+  readonly events: EventStream;
+  /** per-session 快照盖章回调（语义 = WsServerAdapter.sessionStamp）。 */
+  readonly sessionStamp: SessionStamp;
+  /** session.snapshot 组帧回调（语义 = WsServerAdapter.snapshotFrame）。 */
+  readonly snapshotFrame: SnapshotFrame;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/**
+ * chat 族命令处理上下文（send 含草稿建会话链 / steer / abort）：ChatPort
+ * 发送面 + SessionDirectoryPort（草稿建会话/视图取数）+ EventStream（建会话
+ * 订阅）+ 快照盖章链回调（草稿快照盖新会话自身章，T5.1）+ 共享辅助。
+ */
+export interface ChatCommandContext {
+  /** 命令来源连接（草稿链快照回执端 = ws.data.sender）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record）。 */
+  readonly payload: Record<string, unknown>;
+  /** 命令信封（会话作用域命令的 sessionId 路由位，v0.2）。 */
+  readonly envelope: { sessionId?: unknown };
+  /** 会话路由对话入口（T2.2：组合根 ChatRouter——按信封 sessionId 分发）。 */
+  readonly chat: SessionChatPort;
+  /** 会话目录（草稿建会话链 startDraftSession + getSessionView）。 */
+  readonly directory: SessionDirectoryPort;
+  /** 事件流（草稿建会话后本连接订阅该会话）。 */
+  readonly events: EventStream;
+  /** per-session 快照盖章回调（语义 = WsServerAdapter.sessionStamp）。 */
+  readonly sessionStamp: SessionStamp;
+  /** session.snapshot 组帧回调（语义 = WsServerAdapter.snapshotFrame）。 */
+  readonly snapshotFrame: SnapshotFrame;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/**
+ * agent 族命令处理上下文（kill / subscribe / unsubscribe，契约 §4）：
+ * AgentOrchestrationPort（kill 终止链回 SchedulerService）+ EventStream
+ * （实例订阅通路，§8-1 通路语义不过滤）+ commandError。
+ */
+export interface AgentCommandContext {
+  /** 命令来源连接（subscribe/unsubscribe 的 sender = ws.data.sender）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record）。 */
+  readonly payload: Record<string, unknown>;
+  /** 编排入口（agent.kill 终止链，只转发不决策）。 */
+  readonly orchestration: AgentOrchestrationPort;
+  /** 事件流（实例订阅/退订通路）。 */
+  readonly events: EventStream;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+}
+
+/**
+ * trace 族命令处理上下文（trace.query，T2.1 契约 v0.4 §1）：trace 读面
+ * （未装配 → undefined，handler 回 command.unimplemented——连接私有读面）。
+ */
+export interface TraceCommandContext {
+  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record；目标会话在 payload.sessionId）。 */
+  readonly payload: Record<string, unknown>;
+  /** trace 读面（deps.traceQuery 可选装配面直传）。 */
+  readonly traceQuery: TraceQueryPort | undefined;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
   rawSender(): FrameSender;
   /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
   sendNow(sender: FrameSender, frame: EventEnvelope): void;

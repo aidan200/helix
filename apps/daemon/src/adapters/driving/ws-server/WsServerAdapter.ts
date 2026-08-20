@@ -24,7 +24,15 @@
  * T1.1（AD-3 handler 模块化）：model 族 6 case + auth 族 4 case 的 case 体
  * 机械迁出 handlers/{model,auth}.ts（语义逐字节等价）；routeCommand 对应
  * case 一行转发（commandContext 供出依赖面：ModelPort + system.getStatus()
- * 缺省回退 + 4 个共享辅助）；sessionStamp/snapshotFrame 盖章链与其余族不动。
+ * 缺省回退 + 4 个共享辅助）。
+ *
+ * T3.2（F(3).4 handler 化收口 + F-8 解环）：其余 12 case（chat/session/
+ * agent/trace 族）case 体机械迁出 handlers/{chat,session,agent,trace}.ts
+ * （语义逐字节等价；traceInstanceRecordToDto / resolveTargetSession 随族
+ * 迁出）；routeCommand 全 22 case 一行转发；族上下文类型承 handlers/
+ * context.ts（ConnState/WsCommandContext 上收，F-8 三模块环解）；
+ * sessionStamp/snapshotFrame 盖章链留本类，session/chat handler 经上下文
+ * 回调机械引用零行为差（不为省行数造成第二份）。
  *
  * 绑定纪律（TP-CL6-1）：仅 127.0.0.1，禁止 0.0.0.0/::——构造期即钉死。
  */
@@ -39,27 +47,38 @@ import type {
   ConnectionWelcomeEvent,
   EventEnvelope,
   FrameVersion,
-  SessionListResultEvent,
-  SessionLoadHistoryResultEvent,
   SessionSnapshotEvent,
-  TraceInstanceRecord,
-  TraceQueryResultEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { TraceQueryPort } from "../../../domain/trace/TraceQueryPort";
 // AG-12：ws-server 对 domain 仅 type-only——normalize 校验收口在 driven
 // adapter 入口（architecture.md §3.5b「调仓储前」；AF-9 记录在案）
-import type { TraceInstanceRecord as DomainInstanceRecord } from "../../../domain/trace/TraceQuery";
 import type { ServerWebSocket } from "bun";
 import { EventStream, type FrameSender } from "./EventStream";
-import { historyPage, toSnapshotDto } from "./DtoMapper";
+import { toSnapshotDto, TAIL_WINDOW_SIZE } from "./DtoMapper";
 import type { SessionStateView } from "../../../application/ports/inbound/SessionPort";
+import type {
+  AgentCommandContext,
+  ChatCommandContext,
+  ConnState,
+  SessionCommandContext,
+  TraceCommandContext,
+  WsCommandContext,
+} from "./handlers/context";
 import {
-  HISTORY_PAGE_DEFAULT,
-  HISTORY_PAGE_MAX,
-  TAIL_WINDOW_SIZE,
-} from "./DtoMapper";
-import type { ConnState, WsCommandContext } from "./handlers/context";
+  handleAgentKill,
+  handleAgentSubscribe,
+  handleAgentUnsubscribe,
+} from "./handlers/agent";
+import { handleChatAbort, handleChatSend, handleChatSteer } from "./handlers/chat";
+import {
+  handleSessionDelete,
+  handleSessionLoadHistory,
+  handleSessionList,
+  handleSessionSubscribe,
+  handleSessionUnsubscribe,
+} from "./handlers/session";
+import { handleTraceQuery } from "./handlers/trace";
 import {
   handleModelCatalog,
   handleModelCatalogRefresh,
@@ -321,247 +340,34 @@ export class WsServerAdapter {
     const payload = (envelope.payload ?? {}) as Record<string, unknown>;
 
     switch (type) {
-      case "chat.send": {
-        if (typeof payload.text !== "string") return this.commandError(ws, type, "command.invalid_payload", "payload.text 应为 string");
-        // 草稿建会话链（契约 B §1.5 定稿 + T4 转正复用）：信封省略 sessionId
-        // + payload.draft → daemon 建会话（零条目当前草稿直接转正复用同 id，
-        // 否则新建；首条消息落库 + created 广播）+ 本连接订阅该会话 + 快照
-        //（客户端据此切换）；draft 标记与显式 sessionId 同现时以 sessionId 为准。
-        const hasSessionRoute =
-          typeof envelope.sessionId === "string" && envelope.sessionId !== "";
-        if (payload.draft === true && !hasSessionRoute) {
-          const sender = ws.data.sender;
-          // T4：payload.model 可选透传（建会话前用户选定模型；缺省 = 全局默认）
-          const draftModel =
-            typeof payload.model === "string" && payload.model !== "" ? payload.model : undefined;
-          void this.deps.directory
-            .startDraftSession(payload.text, draftModel)
-            .then(({ sessionId }) => {
-              if (!sender) return;
-              this.deps.events.subscribeSession(sender, sessionId);
-              return this.deps.directory.getSessionView(sessionId).then((view) => {
-                // T5.1：草稿快照盖新会话自身章（竞态窗口关闭：A 后台流式事件
-                // 可在 register 后立即把 current 拉回 A，getStatus() 不可用作
-                // per-session 帧盖章源）
-                const stamp = this.sessionStamp(view);
-                this.sendNow(sender, this.snapshotFrame(view, stamp.model, stamp.agentState));
-              });
-            })
-            .catch((err) => {
-              console.warn(`[ws] 草稿建会话失败：${(err as Error).message}`);
-            });
-          return;
-        }
-        // 既有会话发送：信封 sessionId 路由（缺省当前会话，v0 兼容）
-        const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
-        void this.deps.chat.sendMessage(payload.text, sid).catch((err) => {
-          console.warn(`[ws] chat.send 处理失败：${(err as Error).message}`);
-        });
-        return;
-      }
-      case "chat.steer": {
-        if (typeof payload.text !== "string") return this.commandError(ws, type, "command.invalid_payload", "payload.text 应为 string");
-        const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
-        // T2.3（契约 v0.3 §3.2）：instanceId 只透传（路由判定归 ChatService，TR-AD-9）。
-        // 回执裁决（T2.3，TR-AD-21）：定向目标非运行中 → ChatService 抛
-        // SteerTargetNotRunningError → connection.error 点对点回执（同 agent.kill
-        // 形态，复用 SendOutcome.detail 文案）；其余异常维持既有 console.warn。
-        const instanceId =
-          typeof payload.instanceId === "string" && payload.instanceId !== "" ? payload.instanceId : undefined;
-        void this.deps.chat.steer(payload.text, sid, instanceId).catch((err) => {
-          if ((err as Error).name === "SteerTargetNotRunningError") {
-            this.commandError(ws, type, "command.invalid_payload", (err as Error).message);
-            return;
-          }
-          console.warn(`[ws] chat.steer 处理失败：${(err as Error).message}`);
-        });
-        return;
-      }
-      case "chat.abort": {
-        const sid = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
-        this.deps.chat.abort(sid);
-        return;
-      }
-      case "session.subscribe": {
-        const sender = ws.data.sender;
-        if (!sender) return;
-        // v0.3（T2.2，契约 §2.1）：payload.tier 可选档位——缺省 full（既有语义
-        // 不变，TR-AD-23① 可选参数带缺省语义）；目录外值回 invalid_payload
-        const tierRaw = payload.tier;
-        if (tierRaw !== undefined && tierRaw !== "full" && tierRaw !== "monitor") {
-          return this.commandError(ws, type, "command.invalid_payload", 'payload.tier 应为 "full" | "monitor"');
-        }
-        const tier: "full" | "monitor" = tierRaw === "monitor" ? "monitor" : "full";
-        // v0.2（T2.1/T2.2）：per-session 订阅——信封 sessionId 指定目标会话；
-        // v0 兼容：不带信封位 = 当前会话（缺省订阅语义不变）
-        void this.resolveTargetSession(ws, envelope, type).then((target) => {
-          if (target === undefined) return; // 不存在会话：已回 connection.error
-          this.deps.events.subscribeSession(sender, target, tier);
-          // 重新订阅 = 重推该会话全量快照（快照恢复公式，AD-16）
-          // T5.1 热修：agentState/model 取目标会话 runtime（随视图同源组装），
-          // 不经 system.getStatus()（全局最近活跃投影——多会话下 current 恒被
-          // 后台流式会话锚定，盖目标会话快照即串台）
-          void this.deps.directory
-            .getSessionView(target)
-            .then((view) => {
-              const stamp = this.sessionStamp(view);
-              this.sendNow(sender, this.snapshotFrame(view, stamp.model, stamp.agentState));
-            })
-            .catch((err) => console.warn(`[ws] 订阅快照组装失败：${(err as Error).message}`));
-        });
-        return;
-      }
-      case "session.unsubscribe": {
-        const sender = ws.data.sender;
-        // T2.1 定稿：对称 per-session 退订——与 subscribe 同一目标会话解析规则
-        void this.resolveTargetSession(ws, envelope, type).then((target) => {
-          if (sender && target !== undefined) this.deps.events.unsubscribeSession(sender, target);
-        });
-        return;
-      }
-      // ── session 族（T2.2，契约 B §1；全局命令 result 点对点回执） ──
-      case "session.list": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        void this.deps.directory
-          .listSessions()
-          .then((sessions) => {
-            const frame: SessionListResultEvent = {
-              v: PROTOCOL_VERSION,
-              sessionId: SYSTEM_SESSION_ID, // 全局命令结果：会话无关
-              channel: "session",
-              type: "session.list.result",
-              payload: { sessions: sessions.map((s) => ({ ...s })) },
-            };
-            this.sendNow(sender, frame);
-          })
-          .catch((err) => console.warn(`[ws] session.list 处理失败：${(err as Error).message}`));
-        return;
-      }
-      case "session.loadHistory": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        if (typeof payload.beforeEntryId !== "string" || payload.beforeEntryId === "") {
-          return this.commandError(ws, type, "command.invalid_payload", "payload.beforeEntryId 应为非空 string");
-        }
-        const rawLimit = payload.limit;
-        if (rawLimit !== undefined && (typeof rawLimit !== "number" || !Number.isInteger(rawLimit) || rawLimit < 1)) {
-          return this.commandError(ws, type, "command.invalid_payload", "payload.limit 应为正整数");
-        }
-        const beforeEntryId = payload.beforeEntryId;
-        const limit = rawLimit === undefined ? HISTORY_PAGE_DEFAULT : Math.min(rawLimit, HISTORY_PAGE_MAX);
-        const target = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
-        void (async () => {
-          try {
-            const sessionId = await this.deps.directory.resolveTarget(target);
-            const view = await this.deps.directory.getSessionView(sessionId);
-            const page = historyPage(view, beforeEntryId, limit);
-            const frame: SessionLoadHistoryResultEvent = {
-              v: PROTOCOL_VERSION,
-              sessionId, // 目标会话归属
-              channel: "session",
-              type: "session.loadHistory.result",
-              payload: { entries: page.entries, hasMore: page.hasMore, nextCursor: page.nextCursor },
-            };
-            this.sendNow(sender, frame);
-          } catch (err) {
-            const code =
-              (err as Error).name === "SessionNotFoundError" ? "session.not_found" : "session.invalid_cursor";
-            this.commandError(ws, type, code, (err as Error).message);
-          }
-        })();
-        return;
-      }
-      case "session.delete": {
-        const target = typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
-        if (target === undefined) {
-          return this.commandError(ws, type, "command.invalid_payload", "session.delete 信封 sessionId 必填");
-        }
-        void this.deps.directory
-          .deleteSession(target)
-          .then(() => {
-            // 删除回执 = list_changed{deleted} 广播（契约 B §1.4 ack 形态；
-            // 取消/删库失败经 catch 回 error）
-          })
-          .catch((err) => {
-            // 契约 B §1.4：取消失败或删库失败时 error（含 reason）；已知错误
-            // 精确回码，其余（库删除失败等）以通用命令错误回执携带原因
-            const name = (err as Error).name;
-            const code =
-              name === "SessionDeleteInProgressError"
-                ? "session.delete_in_progress"
-                : name === "SessionNotFoundError"
-                  ? "session.not_found"
-                  : "command.invalid_payload";
-            this.commandError(ws, type, code, (err as Error).message);
-          });
-        return;
-      }
-      // ── v0.1 编排命令（T2.3，契约 §4；只转发不决策，TP-CL6-3） ──
-      case "agent.kill": {
-        if (typeof payload.agentId !== "string" || payload.agentId === "") {
-          return this.commandError(ws, type, "command.invalid_payload", "payload.agentId 应为非空 string");
-        }
-        // 错误模型（契约 §4）：目标不存在/已终态 → connection.error 回执（中文说明）；
-        // 正常路径回执 agent.killed 事件（经事件流广播，单一终态语义）
-        const outcome = this.deps.orchestration.kill(payload.agentId);
-        if (!outcome.killed) {
-          this.commandError(ws, type, "command.invalid_payload", outcome.error);
-        }
-        return;
-      }
-      case "agent.subscribe": {
-        const sender = ws.data.sender;
-        if (typeof payload.agentId !== "string" || payload.agentId === "") {
-          return this.commandError(ws, type, "command.invalid_payload", "payload.agentId 应为非空 string");
-        }
-        if (sender) this.deps.events.subscribeInstance(sender, payload.agentId); // 通路语义（§8-1，不过滤）
-        return;
-      }
-      case "agent.unsubscribe": {
-        const sender = ws.data.sender;
-        if (typeof payload.agentId !== "string" || payload.agentId === "") {
-          return this.commandError(ws, type, "command.invalid_payload", "payload.agentId 应为非空 string");
-        }
-        if (sender) this.deps.events.unsubscribeInstance(sender, payload.agentId);
-        return;
-      }
-      // ── v0.4 trace 族（T2.1，契约 v0.4 §1；session 族先例 inline：校验→normalize→port→组帧→点对点） ──
-      case "trace.query": {
-        const sender = ws.data.sender ?? this.rawSender(ws);
-        if (this.deps.traceQuery === undefined) {
-          return this.commandError(ws, type, "command.unimplemented", "trace 读面未装配");
-        }
-        // normalize 校验收口在 adapter 入口（§3.5b「调仓储前」；本层对 domain
-        // 仅 type-only，AG-12）；校验失败 DomainError → 既有错误回帧模式。
-        // 目标会话在 payload.sessionId（信封位不消费——直查 domain_events，冷会话可查）
-        try {
-          const result = this.deps.traceQuery.queryTrace(payload);
-          const filter = result.filter;
-          const frame: TraceQueryResultEvent = {
-            v: PROTOCOL_VERSION,
-            sessionId: filter.sessionId, // 目标会话归属
-            channel: "trace",
-            type: "trace.query.result",
-            payload: {
-              // filterEcho：实际生效过滤条件回显（AF-5；readonly → 帧侧可变拷贝）
-              filterEcho: {
-                sessionId: filter.sessionId,
-                instanceIds: filter.instanceIds === null ? null : [...filter.instanceIds],
-                agentKind: filter.agentKind,
-                types: filter.types === null ? null : [...filter.types],
-                timeRange: filter.timeRange === null ? null : { ...filter.timeRange },
-                page: { ...filter.page },
-              },
-              instances: result.instances.map(traceInstanceRecordToDto),
-              events: result.rows.map((row) => ({ ...row })),
-              page: { loaded: result.rows.length, total: result.total, hasMore: result.hasMore },
-            },
-          };
-          this.sendNow(sender, frame); // 点对点（TR-AD-21，不经广播）
-        } catch (err) {
-          this.commandError(ws, type, "command.invalid_payload", (err as Error).message);
-        }
-        return;
-      }
+      // ── chat 族（T3.2 AD-1：case 体机械迁出 handlers/chat.ts，此处一行转发）──
+      case "chat.send":
+        return handleChatSend(this.chatContext(ws, type, payload, envelope));
+      case "chat.steer":
+        return handleChatSteer(this.chatContext(ws, type, payload, envelope));
+      case "chat.abort":
+        return handleChatAbort(this.chatContext(ws, type, payload, envelope));
+      // ── session 族（T2.2，契约 B §1；T3.2 AD-1 迁出 handlers/session.ts）──
+      case "session.subscribe":
+        return handleSessionSubscribe(this.sessionContext(ws, type, payload, envelope));
+      case "session.unsubscribe":
+        return handleSessionUnsubscribe(this.sessionContext(ws, type, payload, envelope));
+      case "session.list":
+        return handleSessionList(this.sessionContext(ws, type, payload, envelope));
+      case "session.loadHistory":
+        return handleSessionLoadHistory(this.sessionContext(ws, type, payload, envelope));
+      case "session.delete":
+        return handleSessionDelete(this.sessionContext(ws, type, payload, envelope));
+      // ── v0.1 编排命令（T2.3，契约 §4；T3.2 AD-1 迁出 handlers/agent.ts）──
+      case "agent.kill":
+        return handleAgentKill(this.agentContext(ws, type, payload));
+      case "agent.subscribe":
+        return handleAgentSubscribe(this.agentContext(ws, type, payload));
+      case "agent.unsubscribe":
+        return handleAgentUnsubscribe(this.agentContext(ws, type, payload));
+      // ── v0.4 trace 族（T2.1，契约 v0.4 §1；T3.2 AD-1 迁出 handlers/trace.ts）──
+      case "trace.query":
+        return handleTraceQuery(this.traceContext(ws, type, payload));
       // ── v0.2 model 族（T2.3 AD-2，契约 C §1；真行为回口。微批：结果帧点对点回执）──
       // T1.1（AD-3）：case 体机械迁出 handlers/model.ts（语义逐字节等价），此处一行转发
       case "model.set":
@@ -617,24 +423,87 @@ export class WsServerAdapter {
   }
 
   /**
-   * 会话作用域命令的目标会话解析（session.subscribe/unsubscribe/loadHistory
-   * 共用）：信封 sessionId（v0.2 路由位）→ 缺省当前会话（v0/v0.1 兼容）；
-   * 不存在（热/冷均无）→ connection.error（session.not_found）。
-   * T2.2：冷会话经注册表懒加载后即为合法目标。
+   * chat 族命令处理上下文（T3.2 AD-1，同 commandContext 模式）：ChatPort
+   * + SessionDirectoryPort（草稿建会话链）+ EventStream（建会话订阅）+
+   * 快照盖章链回调（sessionStamp/snapshotFrame 留本类，机械转发零行为差）。
    */
-  private async resolveTargetSession(
+  private chatContext(
     ws: ServerWebSocket<ConnState>,
-    envelope: { sessionId?: unknown },
     type: string,
-  ): Promise<string | undefined> {
-    const sid =
-      typeof envelope.sessionId === "string" && envelope.sessionId !== "" ? envelope.sessionId : undefined;
-    try {
-      return await this.deps.directory.resolveTarget(sid);
-    } catch (err) {
-      this.commandError(ws, type, "session.not_found", (err as Error).message);
-      return undefined;
-    }
+    payload: Record<string, unknown>,
+    envelope: { sessionId?: unknown },
+  ): ChatCommandContext {
+    return {
+      ws,
+      type,
+      payload,
+      envelope,
+      chat: this.deps.chat,
+      directory: this.deps.directory,
+      events: this.deps.events,
+      sessionStamp: (view) => this.sessionStamp(view),
+      snapshotFrame: (view, model, agentState) => this.snapshotFrame(view, model, agentState),
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+      sendNow: (sender, frame) => this.sendNow(sender, frame),
+    };
+  }
+
+  /**
+   * session 族命令处理上下文（T3.2 AD-1）：SessionDirectoryPort（目录/视图/
+   * 删除/目标解析）+ EventStream 订阅面 + 快照盖章链回调 + 共享辅助。
+   */
+  private sessionContext(
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+    envelope: { sessionId?: unknown },
+  ): SessionCommandContext {
+    return {
+      ws,
+      type,
+      payload,
+      envelope,
+      directory: this.deps.directory,
+      events: this.deps.events,
+      sessionStamp: (view) => this.sessionStamp(view),
+      snapshotFrame: (view, model, agentState) => this.snapshotFrame(view, model, agentState),
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+      rawSender: () => this.rawSender(ws),
+      sendNow: (sender, frame) => this.sendNow(sender, frame),
+    };
+  }
+
+  /** agent 族命令处理上下文（T3.2 AD-1）：AgentOrchestrationPort + EventStream 实例订阅。 */
+  private agentContext(
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+  ): AgentCommandContext {
+    return {
+      ws,
+      type,
+      payload,
+      orchestration: this.deps.orchestration,
+      events: this.deps.events,
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+    };
+  }
+
+  /** trace 族命令处理上下文（T3.2 AD-1）：trace 读面（未装配 → undefined，handler 回 command.unimplemented）。 */
+  private traceContext(
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+  ): TraceCommandContext {
+    return {
+      ws,
+      type,
+      payload,
+      traceQuery: this.deps.traceQuery,
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+      rawSender: () => this.rawSender(ws),
+      sendNow: (sender, frame) => this.sendNow(sender, frame),
+    };
   }
 
   /**
@@ -678,37 +547,4 @@ export class WsServerAdapter {
   private sendNow(sender: FrameSender, frame: EventEnvelope): void {
     sender(frame);
   }
-}
-
-/** domain 实例面板记录 → 协议 DTO（readonly 数组/对象转可变帧形态；逐字段直拷）。 */
-function traceInstanceRecordToDto(record: DomainInstanceRecord): TraceInstanceRecord {
-  return {
-    instanceId: record.instanceId,
-    agentKind: record.agentKind,
-    profileKind: record.profileKind,
-    ...(record.model !== undefined ? { model: record.model } : {}),
-    status: record.status,
-    ...(record.startedAt !== undefined ? { startedAt: record.startedAt } : {}),
-    ...(record.endedAt !== undefined ? { endedAt: record.endedAt } : {}),
-    ...(record.task !== undefined ? { task: record.task } : {}),
-    eventCount: record.eventCount,
-    ...(record.snapshot !== undefined
-      ? {
-          snapshot: {
-            systemPrompt: record.snapshot.systemPrompt,
-            tools: [...record.snapshot.tools],
-            model: record.snapshot.model,
-            ...(record.snapshot.compaction !== undefined
-              ? { compaction: { ...record.snapshot.compaction } }
-              : {}),
-            ...(record.snapshot.hooks !== undefined ? { hooks: [...record.snapshot.hooks] } : {}),
-          },
-        }
-      : {}),
-    snapshotMissing: record.snapshotMissing,
-    ...(record.modelTimeline !== undefined
-      ? { modelTimeline: record.modelTimeline.map((c) => ({ ...c })) }
-      : {}),
-    ...(record.currentModel !== undefined ? { currentModel: record.currentModel } : {}),
-  };
 }
