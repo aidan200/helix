@@ -7,7 +7,8 @@
  *
  * 剧本：A 活跃 + B 后台（清单播种 + 全图订阅）→
  * ① session.list.result → B 轻量行（标题/运行态徽标，unread=0）+ 出站全图
- *    订阅（A full / B monitor）；
+ *    订阅（A full 为 welcome attach 静默登记零命令——契约依据 a4a182e；
+ *    仅 B 补订 monitor 在命令流）；
  * ② B 会话 message_end 帧（monitor 档白名单，信封 sessionId=B）→ 未读计数
  *    跳动（收帧驱动 +N）；活跃主消息流零污染（不渲染后台 entries）；
  * ③ session.list_changed{state_changed} → 运行态徽标翻转（元数据权威）；
@@ -81,16 +82,24 @@ test.describe("T3.1 CL-1 后台轻量 store（徽标脉冲 + 未读跳动）", (
     // ── ④ mock 剧本台账：后台续跑活动（daemon 侧视角断言面）──
     const ledger = await mock.scenarioSession(MULTI_SESSION_B);
     expect(ledger).toEqual({ sessionId: MULTI_SESSION_B, eventCount: MULTI_B_DELTAS.length });
-    // 连接订阅簿记：v0.3 启动全图订阅（A full 为 full 档会话；B monitor）
-    await expect(mock.activeSession()).resolves.toBe(MULTI_SESSION_A);
+    // 连接订阅契约（a4a182e：welcome attach 静默登记活跃 full——零命令）：启动
+    // 期命令流仅含非活跃补订 monitor，无 subscribe(A, full)；mock 侧命令驱动
+    // 簿记因此读不到 full 档（activeSession()=null 属正确行为），活跃断言改读
+    // welcome-attach 后 UI 态（侧栏正式面）。
+    const startupSubs = (await mock.clientFrames())
+      .filter((f) => f.type === "session.subscribe")
+      .map((f) => [f.sessionId, (f.payload as { tier?: string }).tier] as const);
+    expect(startupSubs).toEqual([[MULTI_SESSION_B, "monitor"]]);
+    const rowA = page.locator(`[data-session-card="${MULTI_SESSION_A}"]`);
+    await expect(rowA).toHaveAttribute("data-active", "1");
 
     // ── ⑤ 切回 B → 轻量态移除（转活跃，未读消解）；旧活跃 A 转轻量 ──
     //（v0.3 先升后降：click → subscribe(B, full)；快照 ack 后 subscribe(A, monitor)）
     await rowB.click();
+    // 切换命令真实在发（subscribe(B, full)）→ mock 侧命令驱动簿记恢复可读
     await expect(mock.activeSession()).resolves.toBe(MULTI_SESSION_B);
     await expect(rowB).toHaveAttribute("data-active", "1"); // B 转活跃
     await expect(rowB).toHaveAttribute("data-unread", "0"); // 未读随活跃消解
-    const rowA = page.locator(`[data-session-card="${MULTI_SESSION_A}"]`);
     await expect(rowA).toHaveCount(1); // A 转后台轻量
     await expect(rowA).not.toHaveAttribute("data-active", "1");
     // B 快照到达 → 重建完成（收尾断言：两阶段闭合）

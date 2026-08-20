@@ -38,8 +38,9 @@ test.describe("T3.2 CL-1 切换两阶段 UI + 分页胶囊", () => {
     const history = multiHistoryEntries(MULTI_HISTORY_TOTAL);
     const { tail, totalEntries, tailStartCursor } = multiTail(history);
     await page.locator(`[data-session-card="${MULTI_SESSION_B}"]`).click();
-    // v0.3 先升后降：切换命令 = subscribe(B, full)（启动全图订阅的 subscribe
-    // 帧在前——按 sessionId+tier 定位切换升档帧，不取首帧）
+    // v0.3 先升后降：切换命令 = subscribe(B, full)（启动订阅图仅 B monitor——
+    // A full 为 welcome attach 静默登记零命令，契约依据 a4a182e；按 sessionId+tier
+    // 定位切换升档帧，不取首帧）
     await expect
       .poll(async () =>
         (await mock.clientFrames())
@@ -47,7 +48,6 @@ test.describe("T3.2 CL-1 切换两阶段 UI + 分页胶囊", () => {
           .map((f) => [f.sessionId, (f.payload as { tier?: string }).tier] as const),
       )
       .toEqual([
-        [MULTI_SESSION_A, "full"],
         [MULTI_SESSION_B, "monitor"],
         [MULTI_SESSION_B, "full"],
       ]);

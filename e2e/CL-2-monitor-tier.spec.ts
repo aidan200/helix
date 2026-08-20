@@ -4,8 +4,9 @@
  *
  * 断言纪律：F 层出站命令序断言（fake transport clientFrames 簿记），不得以
  * UI 副作用推断顺序。四态剧本：
- * ① 启动：session.list.result → 全图订阅（活跃 full 先行 + 其余全部
- *    monitor，逐会话命令断言）；monitor 档 subscribe 的回推快照 = 纯 ack
+ * ① 启动：session.list.result → 全图订阅（welcome attach 静默登记活跃 full
+ *    零命令——契约依据 a4a182e + subscription-ledger 单测；其余全部 monitor，
+ *    逐会话命令断言）；monitor 档 subscribe 的回推快照 = 纯 ack
  *    噪声 → 吞帧（后台会话不被顶成活跃）；created 补订 monitor /
  *    deleted 退订；
  * ② 切换先升后降：subscribe(new, full) 立即发 →（快照 ack 到达）→
@@ -82,7 +83,9 @@ test.describe("T3.2 CL-2 monitor 档订阅生命周期（契约 v0.3 §2）", ()
     // 清单未达：零 subscribe（启动不盲目订阅）
     expect(await subscriptionFrames(mock)).toEqual([]);
 
-    // ── ① list 后全图订阅：活跃 full 先行 + 其余按清单序 monitor ──
+    // ── ① list 后全图订阅：welcome attach 静默登记活跃 full（零命令——契约
+    //    依据 a4a182e：daemon attach 本就是 full，重发 = 冗余噪声）+ 其余按
+    //    清单序 monitor ──
     await mock.emit(
       sessionListResult([
         sessionMeta(MULTI_SESSION_A, { title: "活跃会话 A", lastActivityAt: 3_000, runState: "idle" }),
@@ -91,7 +94,6 @@ test.describe("T3.2 CL-2 monitor 档订阅生命周期（契约 v0.3 §2）", ()
       ]),
     );
     await expectSubscriptions(mock, [
-      ["session.subscribe", MULTI_SESSION_A, "full"],
       ["session.subscribe", MULTI_SESSION_B, "monitor"],
       ["session.subscribe", SESSION_C, "monitor"],
     ]);
@@ -106,9 +108,8 @@ test.describe("T3.2 CL-2 monitor 档订阅生命周期（契约 v0.3 §2）", ()
     await expect(page.locator(`[data-session-card="${MULTI_SESSION_A}"]`)).toHaveAttribute("data-active", "1");
     await expect(page.locator(`[data-session-card="${MULTI_SESSION_B}"]`)).not.toHaveAttribute("data-active", "1");
     await expect(page.locator(".app")).toHaveAttribute("data-view", "ready");
-    // 吞帧不触发升档：无 subscribe(B, full) 抢发
+    // 吞帧不触发升档：无 subscribe(B, full) 抢发（A full = 静默登记，零命令——a4a182e）
     expect(await subscriptionFrames(mock)).toEqual([
-      ["session.subscribe", MULTI_SESSION_A, "full"],
       ["session.subscribe", MULTI_SESSION_B, "monitor"],
       ["session.subscribe", SESSION_C, "monitor"],
     ]);
@@ -121,7 +122,6 @@ test.describe("T3.2 CL-2 monitor 档订阅生命周期（契约 v0.3 §2）", ()
       }),
     );
     await expectSubscriptions(mock, [
-      ["session.subscribe", MULTI_SESSION_A, "full"],
       ["session.subscribe", MULTI_SESSION_B, "monitor"],
       ["session.subscribe", SESSION_C, "monitor"],
       ["session.subscribe", SESSION_D, "monitor"],
@@ -130,7 +130,6 @@ test.describe("T3.2 CL-2 monitor 档订阅生命周期（契约 v0.3 §2）", ()
 
     await mock.emit(sessionListChanged("deleted", { sessionId: SESSION_D }));
     await expectSubscriptions(mock, [
-      ["session.subscribe", MULTI_SESSION_A, "full"],
       ["session.subscribe", MULTI_SESSION_B, "monitor"],
       ["session.subscribe", SESSION_C, "monitor"],
       ["session.subscribe", SESSION_D, "monitor"],
@@ -143,8 +142,9 @@ test.describe("T3.2 CL-2 monitor 档订阅生命周期（契约 v0.3 §2）", ()
     await setupActiveA(mock, [
       sessionMeta(MULTI_SESSION_B, { title: "后台会话 B", lastActivityAt: 2_000, runState: "idle", loaded: false }),
     ]);
+    // 启动订阅图：welcome attach 静默登记 A=full（零 subscribe(A,full) 帧——
+    // 契约依据 a4a182e）+ B 补订 monitor
     await expectSubscriptions(mock, [
-      ["session.subscribe", MULTI_SESSION_A, "full"],
       ["session.subscribe", MULTI_SESSION_B, "monitor"],
     ]);
 
@@ -158,7 +158,6 @@ test.describe("T3.2 CL-2 monitor 档订阅生命周期（契约 v0.3 §2）", ()
     // ── 点击切换：subscribe(B, full) 立即发；ack 前零降档（严格序）──
     await cardB.click();
     await expectSubscriptions(mock, [
-      ["session.subscribe", MULTI_SESSION_A, "full"],
       ["session.subscribe", MULTI_SESSION_B, "monitor"],
       ["session.subscribe", MULTI_SESSION_B, "full"],
     ]);
@@ -177,7 +176,6 @@ test.describe("T3.2 CL-2 monitor 档订阅生命周期（契约 v0.3 §2）", ()
       }),
     );
     await expectSubscriptions(mock, [
-      ["session.subscribe", MULTI_SESSION_A, "full"],
       ["session.subscribe", MULTI_SESSION_B, "monitor"],
       ["session.subscribe", MULTI_SESSION_B, "full"],
       ["session.subscribe", MULTI_SESSION_A, "monitor"],
@@ -247,7 +245,6 @@ test.describe("T3.2 CL-2 monitor 档订阅生命周期（契约 v0.3 §2）", ()
       }),
     );
     await expectSubscriptions(mock, [
-      ["session.subscribe", MULTI_SESSION_A, "full"],
       ["session.subscribe", MULTI_SESSION_B, "monitor"],
       ["session.subscribe", MULTI_SESSION_B, "full"],
       ["session.subscribe", MULTI_SESSION_A, "monitor"],
@@ -263,12 +260,12 @@ test.describe("T3.2 CL-2 monitor 档订阅生命周期（契约 v0.3 §2）", ()
       .poll(async () => (await mock.clientFrames()).filter((f) => f.type === "hello").length, { timeout: 5_000 })
       .toBe(2);
     await mock.emit(welcome({ sessionId: MULTI_SESSION_B })); // daemon 自动 attach 当前会话
+    // 重放无条件重发（daemon tier 表随连接销毁 → 全图重建，幂等收敛；
+    // a4a182e 只改首连 attach 静默登记，不影响重连重放）
     await expectSubscriptions(mock, [
-      ["session.subscribe", MULTI_SESSION_A, "full"],
       ["session.subscribe", MULTI_SESSION_B, "monitor"],
       ["session.subscribe", MULTI_SESSION_B, "full"],
       ["session.subscribe", MULTI_SESSION_A, "monitor"],
-      // 重放（daemon tier 表随连接销毁 → 全图重建，幂等收敛）
       ["session.subscribe", MULTI_SESSION_B, "full"],
       ["session.subscribe", MULTI_SESSION_A, "monitor"],
     ]);
