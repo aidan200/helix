@@ -36,6 +36,7 @@ import type { Page } from "@playwright/test";
 import { test, expect } from "./harness/daemon-fixture";
 import { reply, toolCall, type DaemonScript } from "./harness/daemon-script";
 import { computed } from "./harness/style-utils";
+import { shotEvidence, writeEvidence } from "./harness/evidence";
 
 const BUN = process.env.HELIX_E2E_BUN ?? "bun";
 
@@ -68,23 +69,14 @@ function prepHome(prefix: string): string {
   return home;
 }
 
-/** 证据落本迭代 evidence/e2e（harness/evidence.ts 的 EVIDENCE_DIR 滞留前迭代
- *  目录——architecture-feedback 已记录；与 fidelity 套件同口径本地落盘）。 */
-const EVIDENCE_DIR = path.resolve(
-  __dirname,
-  "../../../docs/iterations/iter-20260819-erio/evidence/e2e",
-);
-
+/** 证据落当前迭代 evidence/e2e（T4.2 / F(5).1：统一走 harness/evidence.ts
+ *  迭代感知单点，本地 helper 仅透传闭环 id 前缀）。 */
 async function shotLocal(page: Page, name: string): Promise<void> {
-  fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  await page.screenshot({ path: path.join(EVIDENCE_DIR, `CL-5-${name}-${stamp}.png`), fullPage: false });
+  await shotEvidence(page, name, "CL-5");
 }
 
 function writeLocalEvidence(name: string, content: string): void {
-  fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  fs.writeFileSync(path.join(EVIDENCE_DIR, `CL-5-${name}-${stamp}.txt`), content, "utf8");
+  writeEvidence(name, "txt", content, "CL-5");
 }
 
 /** IconRail 进 /trace 并等自动查询收口（success：行在场 + 分页脚全载）。 */
