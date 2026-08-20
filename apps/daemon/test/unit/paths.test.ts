@@ -10,6 +10,8 @@ import { createPaths, resolveHome } from "../../src/infrastructure/paths";
  *
  * 注：测试用 os.homedir() 计算期望值（src/ 内唯一调用点仍收束于 paths.ts，
  * 由 structure.test.ts 的 AG-07 断言守护）。
+ * M6 T1：skillsHome（~/.helix/skills）入派生集——helix 技能双层目录的 user 层锚点
+ * （project 层 = <工作区>/.helix/skills，工具 cwd 同款判定，不入本单点）。
  */
 describe("paths（TP-CL1-3，AD-14）", () => {
   test("① 默认展开 ~/.helix", () => {
@@ -25,6 +27,7 @@ describe("paths（TP-CL1-3，AD-14）", () => {
     expect(p.devTokenPath()).toBe(path.join("/tmp/x", "dev-token"));
     expect(p.logsDir()).toBe(path.join("/tmp/x", "logs"));
     expect(p.dbPath()).toBe(path.join("/tmp/x", "helix.db"));
+    expect(p.skillsHome()).toBe(path.join("/tmp/x", "skills"));
   });
 
   test("③ 派生路径为 path.join 产物（分隔符合法、绝对路径）", () => {
@@ -35,6 +38,7 @@ describe("paths（TP-CL1-3，AD-14）", () => {
       p.devTokenPath(),
       p.logsDir(),
       p.dbPath(),
+      p.skillsHome(),
     ];
     for (const d of derived) {
       expect(path.isAbsolute(d)).toBe(true);
