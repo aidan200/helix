@@ -68,7 +68,7 @@ function patchSpawn(capture: SpawnCall[]): void {
   };
 }
 
-function restoreSpawn(real: ReturnType<typeof Bun.spawn>): void {
+function restoreSpawn(real: typeof Bun.spawn): void {
   (Bun as unknown as { spawn: unknown }).spawn = real;
 }
 

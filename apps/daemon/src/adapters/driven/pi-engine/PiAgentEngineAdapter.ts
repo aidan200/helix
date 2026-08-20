@@ -54,10 +54,13 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
   private readonly steeredTexts: string[] = [];
   /** setModel 解析面（T2.3：catalog 活解析优先，静态 models 兑底）。 */
   private readonly resolveById: (modelId: string) => Model<any>;
+  /** setTools 装配面（M6 T2：CoreToolExecutor.resolveTools 既有注入路径）。 */
+  private readonly resolveToolsFn: AgentRuntimeDeps["resolveTools"];
 
   constructor(options: PiEngineOptions) {
     const models = options.models ?? buildModels();
     this.resolveById = options.resolveModelById ?? ((id) => resolveModel(models, id));
+    this.resolveToolsFn = options.resolveTools;
     this.runtime = new AgentRuntime(options.profile, {
       streamFn: options.streamFnOverride ?? createStreamFn(models),
       model: resolveModelSlot(options.profile.model, options.model, models),
@@ -112,6 +115,26 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
    */
   setModel(modelId: string): void {
     this.runtime.setModel(this.resolveById(modelId));
+  }
+
+  /**
+   * 运行期改生效工具集（M6 T2，setModel 同构）：names 经注入的 resolveTools
+   * （CoreToolExecutor 既有路径）重解析成 AgentTool[] 后直改 AgentState.tools
+   * ——能力+提示双料同源，下一 turn 生效。未注入 resolveTools（纯测试形态）
+   * → fail-fast 不静默。
+   */
+  setTools(names: readonly string[]): void {
+    if (this.resolveToolsFn === undefined) {
+      throw new Error(
+        `引擎未注入 resolveTools 装配面（PiEngineOptions.resolveTools），无法运行期改工具集：${names.join(", ")}`,
+      );
+    }
+    this.runtime.setTools(this.resolveToolsFn(names));
+  }
+
+  /** 运行期改系统提示（M6 T2，setModel 同构）：直改 AgentState.systemPrompt，下一 turn 生效。 */
+  setSystemPrompt(text: string): void {
+    this.runtime.setSystemPrompt(text);
   }
 
   /** pi AgentEvent → port 引擎事件（时序契约 §5 等价的真引擎侧）。 */

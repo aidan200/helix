@@ -75,16 +75,17 @@ const TestProfile: AgentProfile = {
   hooks: [new MinimalHooks()],
 };
 
+const tmpRoots: string[] = [];
+const tmpCwd = (): string => {
+  const dir = mkdtempSync(path.join(tmpdir(), "helix-t2-state-"));
+  tmpRoots.push(dir);
+  return dir;
+};
+afterAll(() => {
+  for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
+});
+
 describe("AgentRuntime state 直改（setTools/setSystemPrompt，M6 T2）", () => {
-  const tmpRoots: string[] = [];
-  const tmpCwd = (): string => {
-    const dir = mkdtempSync(path.join(tmpdir(), "helix-t2-state-"));
-    tmpRoots.push(dir);
-    return dir;
-  };
-  afterAll(() => {
-    for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
-  });
 
   test("① 初始装配：profile.systemPrompt + resolveTools(names) 进入 llmContext", async () => {
     const executor = new CoreToolExecutor({ cwd: tmpCwd() });

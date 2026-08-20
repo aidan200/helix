@@ -26,8 +26,9 @@ import type { ChildOutboundLine } from "./transport/wire";
  * 收进接缝；FB-3 kill 通道经此由 SchedulerService.kill 触发）。
  *
  * AD-3（F1.3，TR-AD-24）：launch 段是模型三级解析链唯一消费点——
- * ①profile.model（声明即最高）→ ②spawn 会话快照（spawnModelFor 晚绑
- * 回调）→ ③全局兜底（deps.model getter，T2.3 注入源模式保留）。
+ * ①profile.model（声明即最高）→ ②uiModelSlot（M6 T2：resource_state kind
+ * 槽位 UI 化）→ ③spawn 会话快照（spawnModelFor 晚绑回调）→ ④全局兜底
+ * （deps.model getter，T2.3 注入源模式保留）。
  */
 
 /** ChildMain 入口路径（与 Launcher 同目录树；bun 直跑 .ts）。 */
@@ -61,6 +62,23 @@ export interface SubagentLauncherDeps {
   readonly apiKeys: Record<string, string> | (() => Record<string, string>);
   /** 工具沙箱 cwd（子进程 CoreToolExecutor 用）。 */
   readonly toolCwd: string;
+  /**
+   * M6 T2 spawn 快照（代际生效，TR-AD-24 同构）：launch 时刻读一次的组装
+   * 产物缓存（组合根在启动与 toggle applied 后刷新；systemPrompt = base +
+   * 生效工具清单 + 生效技能段，tools = getEffectiveTools 生效集）。透传
+   * env（HELIX_SYSTEM_PROMPT / HELIX_TOOLS_JSON），子进程定格消费；缺省
+   * 不注入（既有测试形态回退 profile 声明面）。
+   */
+  readonly spawnSnapshot?: () => {
+    readonly tools: readonly string[];
+    readonly systemPrompt: string;
+  };
+  /**
+   * M6 T2 模型槽位（三级链第一级 UI 化）：resource_state kind 槽位读面
+   * （组合根注入——槽位 id → 完整 Model 对象解析后返回；未设 = undefined
+   * 走后续档）。launch 时刻读取定格（同 spawn 快照语义）。
+   */
+  readonly uiModelSlot?: () => Model<any> | undefined;
   /** O-6 SIGKILL 升级阈值 ms（缺省 3000；测试注入小值）。 */
   readonly graceMs?: number;
   /** K3 剧本文件路径（测试注入；生产 undefined → 子进程用真实 streamFn）。 */
@@ -98,10 +116,12 @@ export class SubagentLauncher implements InstanceRunner {
   }
 
   /**
-   * AD-3 三级模型解析单点（F1.3，TR-AD-24）：
+   * AD-3 三级模型解析单点（F1.3，TR-AD-24；M6 T2 扩第一级 UI 槽位）：
    * ①profile.model（真实槽位，声明即最高优先级，装配期 resolveModel 解析）
-   * → ②spawnModelFor（spawn 时刻会话快照）→ ③deps.model（全局兜底 getter）。
-   * 高档有值即短路（低档不调用）；返回完整 Model 对象（F-14 透传形态）。
+   * → ②uiModelSlot（resource_state kind 槽位，M6 T2 UI 化的第一级，launch
+   * 时刻读取）→ ③spawnModelFor（spawn 时刻会话快照）→ ④deps.model（全局
+   * 兕底 getter）。高档有值即短路（低档不调用）；返回完整 Model 对象
+   * （F-14 透传形态）。
    */
   resolveModelFor(instanceId: string): Model<any> {
     const slot = this.deps.profile.model;
@@ -114,6 +134,8 @@ export class SubagentLauncher implements InstanceRunner {
       }
       return resolveModel(this.deps.models, slot); // 失败 fail-fast 含 id（resolveModel 契约）
     }
+    const uiSlot = this.deps.uiModelSlot?.();
+    if (uiSlot !== undefined) return uiSlot;
     const spawned = this.spawnModelFor?.(instanceId);
     if (spawned !== undefined) return spawned;
     return typeof this.deps.model === "function" ? this.deps.model() : this.deps.model;
@@ -127,6 +149,9 @@ export class SubagentLauncher implements InstanceRunner {
     // apiKeys 读现值（getter 注入源 = auth.json，T2.3）
     const model = this.resolveModelFor(id);
     const apiKeys = typeof this.deps.apiKeys === "function" ? this.deps.apiKeys() : this.deps.apiKeys;
+    // M6 T2 spawn 快照：launch 时刻读一次（toggle 后新 spawn 跟随新值，已
+    // spawn 实例 env 已定格不受影响——代际生效）
+    const snapshot = this.deps.spawnSnapshot?.();
     const proc = Bun.spawn({
       cmd: [process.execPath, CHILD_MAIN_PATH, "--task", task],
       env: {
@@ -135,6 +160,12 @@ export class SubagentLauncher implements InstanceRunner {
         HELIX_MODEL_JSON: JSON.stringify(model), // F-14 完整对象透传
         HELIX_API_KEYS_JSON: JSON.stringify(apiKeys),
         HELIX_TOOL_CWD: this.deps.toolCwd,
+        ...(snapshot !== undefined
+          ? {
+              HELIX_SYSTEM_PROMPT: snapshot.systemPrompt,
+              HELIX_TOOLS_JSON: JSON.stringify(snapshot.tools),
+            }
+          : {}),
         ...(this.deps.fakeEngineScript !== undefined
           ? { HELIX_FAKE_ENGINE_SCRIPT: this.deps.fakeEngineScript }
           : {}), // K3：剧本 env 注入

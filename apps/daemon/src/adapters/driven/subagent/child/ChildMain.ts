@@ -118,6 +118,26 @@ function readStdin(instanceId: string, onSend: (line: SendLine) => void): void {
   })();
 }
 
+// ── spawn 快照 env 解析（M6 T2） ───────────────────────
+
+/**
+ * 父进程 spawn 快照 env（HELIX_SYSTEM_PROMPT / HELIX_TOOLS_JSON）→ profile
+ * 声明面覆盖（组合根在 launch 时刻组装定格透传；快照语义——spawn 后主会话
+ * toggle 不影响本实例）。缺席（既有测试形态/未接线）→ 空覆盖，回退
+ * SubAgentProfile 静态声明。非法 JSON 抛错（父进程恒写合法 JSON，出现即
+ * bug——crash 行可见）。
+ */
+export function spawnOverridesFromEnv(
+  env: Record<string, string | undefined>,
+): { systemPrompt?: string; tools?: readonly string[] } {
+  const systemPrompt = env["HELIX_SYSTEM_PROMPT"];
+  const toolsJson = env["HELIX_TOOLS_JSON"];
+  return {
+    ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+    ...(toolsJson !== undefined ? { tools: JSON.parse(toolsJson) as string[] } : {}),
+  };
+}
+
 // ── 主流程 ─────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -132,9 +152,17 @@ async function main(): Promise<void> {
   const script: FakeEngineScript | undefined = scriptPath !== undefined ? loadFakeEngineScript(scriptPath) : undefined;
 
   // 装配（TR-AD-4：与主引擎同一防腐墙同一 runtime，仅 profile 声明不同）
+  // M6 T2：spawn 快照 env 覆盖（systemPrompt 三段组装产物 + 生效工具集，
+  // launch 时刻定格）；缺席回退 SubAgentProfile 静态声明面
+  const spawnOverrides = spawnOverridesFromEnv(process.env as Record<string, string | undefined>);
+  const profile: typeof SubAgentProfile = {
+    ...SubAgentProfile,
+    ...(spawnOverrides.systemPrompt !== undefined ? { systemPrompt: spawnOverrides.systemPrompt } : {}),
+    ...(spawnOverrides.tools !== undefined ? { tools: spawnOverrides.tools } : {}),
+  };
   const executor = new CoreToolExecutor({ cwd: toolCwd });
   const engine = new PiAgentEngineAdapter({
-    profile: SubAgentProfile,
+    profile,
     model, // F-14：env JSON 解析的完整对象透传（与父侧深度相等）
     apiKeys,
     ...(script ? { streamFnOverride: makeScriptedStreamFn(script, model) } : {}),

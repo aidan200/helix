@@ -120,4 +120,16 @@ export interface AgentEnginePort {
    * pi-engine 域（TR-AD-2 域内扩 port 面）。
    */
   setModel?(modelId: string): void;
+  /**
+   * 运行期改生效工具集（M6 T2，setModel 同构）：names 经引擎侧 resolveTools
+   * 重解析成 AgentTool[] 后直改 AgentState.tools（能力+提示双料事实源），
+   * 下一 turn 生效（in-flight 不变）。入参 = ResourceService.getEffectiveTools
+   * 生效集（resolveTools 产物同源派生）。
+   */
+  setTools?(names: readonly string[]): void;
+  /**
+   * 运行期改系统提示（M6 T2，setModel 同构）：AgentState.systemPrompt 直改，
+   * 下一 turn 生效。入参 = SystemPromptAssembler 三段组装产物。
+   */
+  setSystemPrompt?(text: string): void;
 }

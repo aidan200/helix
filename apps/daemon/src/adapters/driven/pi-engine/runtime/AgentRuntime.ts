@@ -102,6 +102,28 @@ export class AgentRuntime {
     this.agent.state.model = model;
   }
 
+  /**
+   * 运行期改生效工具集（M6 T2，setModel 同构）：AgentState.tools 直改——
+   * state.tools 是能力+提示双料事实源（provider function calling 面与分发
+   * 面读同一数组，agent-loop「not found」兑底），移除即双断。入参须是已
+   * resolve 的 AgentTool[]（调用方组合根经 CoreToolExecutor.resolveTools
+   * 产物同源派生）。in-flight run 的 context snapshot 已定格不受影响，
+   * 下一 run 起生效。
+   */
+  setTools(tools: AgentTool<any>[]): void {
+    this.agent.state.tools = tools;
+  }
+
+  /**
+   * 运行期改系统提示（M6 T2，setModel 同构）：AgentState.systemPrompt 直改，
+   * 下一 run 起生效（不走 prepareNextTurn 链——同 setModel 机械裁决）。
+   * 已知边界（M6 §六登记）：run 中 compaction 与配置变更并发时，压缩 turn
+   * 透传新 systemPrompt（run 内提前生效）——方向与意图一致，无害。
+   */
+  setSystemPrompt(systemPrompt: string): void {
+    this.agent.state.systemPrompt = systemPrompt;
+  }
+
   /** 当前模型（可观测面：快照/徽标数据源）。 */
   get stateModel(): Model<any> {
     return this.agent.state.model;

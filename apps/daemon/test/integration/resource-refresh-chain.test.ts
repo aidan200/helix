@@ -50,8 +50,14 @@ function installSkill(home: string, name: string, description: string): string {
   return skillDir;
 }
 
-/** 捕获型 FakeLLM 引擎（真适配器 + 真 CoreToolExecutor resolve 注入）。 */
+/** 捕获型 FakeLLM 引擎（真适配器 + 真 CoreToolExecutor resolve 注入；编排口桩使 8 工具全注册——镜像生产 engineFor 接线）。 */
 function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[] }>, toolCwd: string): PiAgentEngineAdapter {
+  const orchestration = {
+    spawn: (task: string) => ({ status: "rejected", error: `测试桩不 spawn：${task}` }) as const,
+    send: (agentId: string, message: string) => ({ delivered: false, detail: `测试桩不投递：${agentId} ${message}` }),
+    status: () => [],
+    kill: (agentId: string) => ({ killed: false, error: `测试桩不 kill：${agentId}` }),
+  };
   const streamFn: StreamFn = (model: Model<any>, context) => {
     const ctx = context as unknown as { systemPrompt?: string; tools?: Array<{ name: string }> };
     seen.push({ systemPrompt: ctx.systemPrompt, tools: (ctx.tools ?? []).map((t) => t.name) });
@@ -73,7 +79,7 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
     })();
     return stream;
   };
-  const executor = new CoreToolExecutor({ cwd: toolCwd });
+  const executor = new CoreToolExecutor({ cwd: toolCwd, orchestration });
   return new PiAgentEngineAdapter({
     profile: MainSessionProfile,
     model: resolveConfigModel("anthropic/claude-sonnet-4-5", buildModels()),
@@ -103,12 +109,12 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
       toolCwd: workspace,
     });
     try {
-      // run 1：缺省全启用——base 段 + 8 工具扁平清单；无技能（无技能目录）
+      // run 1：注入引擎形态的初始提示 = 测试 profile 常量（瘦身 base，无工具
+      // 清单——生产 engineFor 在装配时即读组装快照，注入形态由 toggle 刷新链
+      // 推送组装产物，见 run 2）
       await daemon.chat.sendMessage("first");
       expect(seen[0]!.systemPrompt).toContain("主会话助手");
-      expect(seen[0]!.systemPrompt).toContain(`- grep: ${TOOL_PROMPT_SNIPPETS["grep"]!}`);
-      expect(seen[0]!.systemPrompt).toContain(`- agent_spawn: ${TOOL_PROMPT_SNIPPETS["agent_spawn"]!}`);
-      expect(seen[0]!.systemPrompt).not.toContain("可用技能");
+      expect(seen[0]!.systemPrompt).not.toContain("可用工具");
       expect(seen[0]!.tools).toEqual(MAIN_TOOLS);
 
       // toggle 关 grep → 活跃 runtime 直改（systemPrompt 重算 + tools 重 resolve）
@@ -117,7 +123,9 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
       await daemon.chat.sendMessage("second");
       expect(seen[1]!.systemPrompt).not.toContain("- grep:");
       expect(seen[1]!.systemPrompt).toContain(`- bash: ${TOOL_PROMPT_SNIPPETS["bash"]!}`);
+      expect(seen[1]!.systemPrompt).toContain(`- agent_spawn: ${TOOL_PROMPT_SNIPPETS["agent_spawn"]!}`);
       expect(seen[1]!.systemPrompt).toContain("主会话助手"); // base 段不动
+      expect(seen[1]!.systemPrompt).not.toContain("可用技能"); // 无技能目录
       expect(seen[1]!.tools).toEqual(MAIN_TOOLS.filter((t) => t !== "grep")); // 能力+提示双断
 
       // 未知名 toggle → skipped，不触发刷新（下一 run 提示不变）
@@ -147,23 +155,23 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
       toolCwd: workspace,
     });
     try {
-      // run 1：技能启用——三段齐（base + 工具 + 技能）
+      // run 1：注入引擎形态初始 = base 常量（无段落）
       await daemon.chat.sendMessage("first");
-      expect(seen[0]!.systemPrompt).toContain("可用技能");
-      expect(seen[0]!.systemPrompt).toContain("- name: hello-skill");
-      expect(seen[0]!.systemPrompt).toMatch(/全文/); // 引导语在
+      expect(seen[0]!.systemPrompt).not.toContain("可用技能");
 
-      // 关技能 → 技能段整体省略
+      // 关技能 → 刷新推送组装产物：技能段整体省略，工具段在（工具 toggle 不涉）
       await daemon.resource.toggle("main-session", "skill", "hello-skill", false);
       await daemon.chat.sendMessage("second");
       expect(seen[1]!.systemPrompt).not.toContain("可用技能");
       expect(seen[1]!.systemPrompt).not.toContain("hello-skill");
       expect(seen[1]!.systemPrompt).toContain("可用工具"); // 工具段不受技能 toggle 影响
 
-      // 重开 → 技能段恢复
+      // 重开 → 技能段恢复（引导语 + name 子块）
       await daemon.resource.toggle("main-session", "skill", "hello-skill", true);
       await daemon.chat.sendMessage("third");
+      expect(seen[2]!.systemPrompt).toContain("可用技能");
       expect(seen[2]!.systemPrompt).toContain("- name: hello-skill");
+      expect(seen[2]!.systemPrompt).toMatch(/全文/); // 引导语在
     } finally {
       await daemon.shutdown();
     }
@@ -187,7 +195,7 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
       await daemon.chat.sendMessage("first");
       await daemon.resource.toggle("subagent-worker", "tool", "grep", false);
       await daemon.chat.sendMessage("second");
-      // main 会话不受 subagent kind 变更影响
+      // main 会话不受 subagent kind 变更影响：toggle 前后两 run 提示逐字相同
       expect(seen[1]!.systemPrompt).toBe(seen[0]!.systemPrompt);
       expect(seen[1]!.tools).toEqual(MAIN_TOOLS);
     } finally {

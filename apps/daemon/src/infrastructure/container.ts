@@ -32,6 +32,8 @@ import { DefaultModelStore } from "../adapters/driven/sqlite-session/DefaultMode
 import { ResourceStateStore } from "../adapters/driven/sqlite-session/ResourceStateStore";
 import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { ResourceService } from "../application/services/ResourceService";
+import { SystemPromptAssembler } from "../application/services/SystemPromptAssembler";
+import { TOOL_PROMPT_SNIPPETS } from "../adapters/driven/tools/ToolPromptSnippets";
 import type { ProfileKind } from "../application/ports/outbound/ResourceStatePort";
 import { AuthStore } from "./auth-store";
 import { ModelService } from "../application/services/ModelService";
@@ -202,7 +204,49 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       "main-session": MainSessionProfile.tools,
       "subagent-worker": SubAgentProfile.tools,
     } satisfies Record<ProfileKind, readonly string[]>,
+    // M6 T2 生效链：toggle applied → 重算该 kind 组装快照 + 刷新活跃 runtime
+    // （main 直改 systemPrompt/tools；subagent 只更新快照缓存，spawn 时刻消费）。
+    // refreshAssembly 在下方定义（闭包晚绑——toggle 只发生在运行期，TDZ 安全）。
+    onApplied: (kind) => refreshAssembly(kind),
   });
+
+  // ── M6 T2 提示组装：三段组装器 + 两 kind 组装快照（启动时定格，toggle 刷新） ──
+  // base = 瘦身后 profile 常量（无工具清单，消双源）；工具段从生效集（resolveTools
+  // 产物同源）派生；技能段从扫描生效集派生。main 快照供 engineFor（新会话装配
+  // 读现值）+ 活跃 runtime 直改推送；subagent 快照供 SubagentLauncher spawn 定格
+  // （launch 同步秒回——技能扫描异步，故缓存式：启动与 toggle applied 时重算；
+  // resource_state 读面同步读不受此限——已知边界：无 toggle 的技能文件增删要
+  // 下次 toggle/重启才进提示，M6 §六「profile 全集变更不触发运行期刷新」同族）。
+  const promptAssembler = new SystemPromptAssembler({ toolSnippets: TOOL_PROMPT_SNIPPETS });
+  const assemblyBase = (kind: ProfileKind): string =>
+    kind === "main-session" ? MAIN_SESSION_SYSTEM_PROMPT : SUBAGENT_SYSTEM_PROMPT;
+  const computeAssembly = async (
+    kind: ProfileKind,
+  ): Promise<{ readonly tools: readonly string[]; readonly systemPrompt: string }> => {
+    const tools = resourceService.getEffectiveTools(kind);
+    const skills = await resourceService.getEffectiveSkills(kind);
+    return {
+      tools,
+      systemPrompt: promptAssembler.assemble({ basePrompt: assemblyBase(kind), toolNames: tools, skills }),
+    };
+  };
+  let mainAssembly = await computeAssembly("main-session");
+  let subagentAssembly = await computeAssembly("subagent-worker");
+  /** toggle applied 后的重算入口（T3 WS 命令复用面：命令只调 toggle，刷新单点在此）。 */
+  const refreshAssembly = async (kind: ProfileKind): Promise<void> => {
+    const next = await computeAssembly(kind);
+    if (kind === "main-session") {
+      mainAssembly = next;
+      // 活跃 runtime 直改（setModel 同构）：systemPrompt 重算 + tools 重 resolve，
+      // 下一 turn 生效（in-flight 不变）。model 槽位不在此链（读面生效，见 engineFor）。
+      for (const runtime of registry.hotRuntimes()) {
+        runtime.chatService.setSystemPrompt(next.systemPrompt);
+        runtime.chatService.setTools(next.tools);
+      }
+    } else {
+      subagentAssembly = next; // 已 spawn 实例 env 已定格（代际生效，零刷新）
+    }
+  };
 
   // ── 旧格式迁移（T2.3，一次性，幂等）：config.json 含 model/apiKeys →
   //    写新位（auth.json / SQLite 默认表）+ config.json 重写瘦身形态 ──
@@ -243,6 +287,14 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
           model: () => resolveConfigModel(defaultModel.current(), catalog.modelsView()),
           // profile.model 槽位解析目录（AD-3 第一级声明时启用；生产未声明）
           models: catalog.modelsView(),
+          // M6 T2 模型槽位（三级链第一级 UI 化）：resource_state kind 槽位现值
+          // （launch 时刻读取定格；未设 → 后续档）
+          uiModelSlot: () => {
+            const slot = resourceService.modelSlot("subagent-worker");
+            return slot === undefined ? undefined : resolveConfigModel(slot, catalog.modelsView());
+          },
+          // M6 T2 spawn 快照：组装产物缓存（启动/toggle 后重算，launch 读现值定格）
+          spawnSnapshot: () => subagentAssembly,
           // 注入源切换（T2.3）：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
           toolCwd,
@@ -321,10 +373,10 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   // 会话绑定引擎工厂：测试注入实例 = 全部会话共享（单会话测试形态）；
   // 工厂 = 每会话独立；生产路径 = 真引擎 + 会话绑定工具执行器（编排三工具
   // 回口携带会话归属——agent_spawn 经此路由到目标会话的调度入参）。
-  // T2.3（AD-2）：新会话模型 = 构建期解析当前默认（set_default 后新建
-  // 会话跟随新值；既有会话不跟随——per-session）；apiKey 经 getter 读
-  // auth.json 现值（换 key 下一请求生效）；resolveModelById = 目录活解析
-  // 面（运行期换模 overlay 模型可达）。
+  // T2.3（AD-2）+ M6 T2：新会话模型 = 构建期解析 kind 槽位 ?? 当前默认
+  //（set_default/槽位 set 后新建会话跟随新值；既有会话不跟随——per-session
+  // 覆盖链不变）；apiKey 经 getter 读 auth.json 现值（换 key 下一请求生效）；
+  // resolveModelById = 目录活解析面（运行期换模 overlay 模型可达）。
   // currentModelOf：spawn 时透传当前模型（AgentInstanceDto.model 填充链）
   // ——注册表装配后回填（引擎闭包调用发生在运行时，回填前安全缺省）。
   let currentModelOf: (sessionId: string) => string | undefined = () => undefined;
@@ -349,10 +401,20 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
               cwd: toolCwd,
               orchestration: sessionOrchestration,
             });
-            // F-14 单点：当前默认模型解析为完整 Model 对象（新会话继承默认）
+            // M6 T2：新会话装配读组装快照现值（瘦身后 base + 生效工具清单 +
+            // 生效技能段；toggle 后新会话/重建会话跟随）；model 四级链读面——
+            // kind 槽位 > default_model（per-session 覆盖 = 既有 setModel 直改链）。
+            // 活跃 runtime 不随槽位变更强推模型（下一装配生效——实现取舍见任务 report）。
             return new PiAgentEngineAdapter({
-              profile: MainSessionProfile,
-              model: resolveConfigModel(defaultModel.current(), catalog.modelsView()),
+              profile: {
+                ...MainSessionProfile,
+                systemPrompt: mainAssembly.systemPrompt,
+                tools: mainAssembly.tools,
+              },
+              model: resolveConfigModel(
+                resourceService.modelSlot("main-session") ?? defaultModel.current(),
+                catalog.modelsView(),
+              ),
               apiKeys: () => authStore.apiKeysSnapshot(),
               models: catalog.modelsView(),
               resolveModelById: (modelId) => resolveConfigModel(modelId, catalog.modelsView()),

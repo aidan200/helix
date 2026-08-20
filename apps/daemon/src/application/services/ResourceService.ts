@@ -31,6 +31,13 @@ export class ResourceService {
       readonly skills: SkillSourcePort;
       /** kind → tools 全集（组合根从两 profile 声明面构建）。 */
       readonly toolsCatalog: Readonly<Record<ProfileKind, readonly string[]>>;
+      /**
+       * 生效集变更回调（M6 T2）：toggle applied 后同步触发（await 链）——
+       * 组合根接「重算该 kind 组装快照 + 刷新活跃 runtime（main）/spawn
+       * 快照缓存（subagent）」；未知名 skipped 不触发。供 T3 WS 命令复用
+       * （命令只调 toggle，刷新链单点在本回调）。
+       */
+      readonly onApplied?: (kind: ProfileKind) => void | Promise<void>;
     },
   ) {}
 
@@ -76,6 +83,7 @@ export class ResourceService {
         : (await this.deps.skills.scan()).skills.some((s) => s.name === name);
     if (!known) return { status: "skipped", reason: "unknown-name" };
     await this.deps.store.upsert(kind, resourceType, name, enabled);
+    await this.deps.onApplied?.(kind); // M6 T2：落库后同步刷新（读面四级链 write-through 语义）
     return { status: "applied" };
   }
 
