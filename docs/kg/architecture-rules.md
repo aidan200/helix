@@ -185,18 +185,6 @@ CL-8 持久化与恢复实现；CL-7 F(7).4 重连逻辑；任何新增领域状
 ## 反例
 前端把会话历史再存一份 IndexedDB 并做双向同步，或某 adapter 绕过单写队列直写 helix.db——第二事实源出现，重启后两边状态分叉；或 session.subscribe 快照的 agentState/model 取 system.getStatus()（全局最近活跃投影）——A 流式中切到空闲 B，B 显示 A 的状态（串台，E 层 switch-state-isolation 三面断言锁定）。
 
-## 规则
-daemon domain 层持有全部权威状态（会话聚合 Entry 树/轮次、agent 生命周期状态、steer 队列、工具调用记录），framework-free；前端零权威状态，只是纯事件投影（WS 事件流→reducer→视图状态，本地仅存纯 UI 态如输入草稿/折叠）。落盘唯一路径是 write-through 单写队列：领域事件 → application 单写队列 → SQLite WAL（~/.helix/helix.db）；内存 = 磁盘的投影缓存，无第二事实源；流式中间态不落盘（崩溃丢当前流，恢复到最后一致里程碑，与 pi LaneRecord 同语义）。重连恢复 = daemon 推快照 + 续增量事件，禁止前端自恢复。domain 定义自己的聚合类型，pi 的 Entry/LaneRecord 经 adapters/driven/pi-engine 薄防腐映射，domain 不 import pi 类型。
-
-## 理由
-v1 双轨病根 = 前端状态副本 + DB 双写（F-2 desk 实锤）；D7 唯一事实源决策的领域层落地；write-through + WAL 让崩溃恢复语义简单（AD-16）。
-
-## 适用范围
-CL-8 持久化与恢复实现；CL-7 F(7).4 重连逻辑；任何新增领域状态的归属与落盘决策。
-
-## 反例
-前端把会话历史再存一份 IndexedDB 并做双向同步，或某 adapter 绕过单写队列直写 helix.db——第二事实源出现，重启后两边状态分叉。
-
 ```kg-node
 id: TR-AD-6
 kind: rule
@@ -658,7 +646,7 @@ relations:
   governs:
     - E-SteerQueue
     - E-ClosureRecord
-updatedIn: iter-20260816-uzvg
+updatedIn: iter-20260819-erio
 ```
 
 ## 规则
@@ -674,6 +662,7 @@ AD-8（Q-9 修正版）：v1 已验证同构双消费（LLM 上下文 + 用户�
 ## 适用范围
 closure 收口解析（SubAgent 系统提示约定的结构）、SteerQueue 注入消费、agent.completed 事件与完成卡片渲染、任务报告落盘路径设计、M4+ kg 自动落账接入时的结构约束。
 （reportPath 产物形态待开发裁决 O-5，不作规则化。）
+SubAgent 错误呈现面 = agent.failed error 字段（iter-20260819-erio AD-1/AF-1 留痕）：engine.error 帧对 SubAgent 实例由 DtoMapper 守卫抑制不广播，用户可见错误原文经 closure 兼容摘要第四消费面透出（agent.failed error → SubAgentCard 展示链），不占主聊天流。
 
 ## 反例
 closure 到达直接拼进 MainAgent 当前生成中的流（绕过 SteerQueue，FIFO 语义与 turn 边界丢失）；或 SubAgent 每个工具调用都转发主线聊天流——主线窗口被撑爆、隔离失效；或前端把注入文本再渲染成一条用户气泡——同一事实双呈现。
@@ -880,6 +869,7 @@ derivedFrom:
   - AD-2（M4 monitor 档，Q-2b 机制定案）
   - AD-5（M4 契约 v0.3 一次定形）
   - Q-1c（M4 一步替换无协商）
+  - AD-4（iter-20260819-erio 契约 v0.4 批次定形）
 anchors:
   implementedBy:
     - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#MONITOR_TIER_EVENT_TYPES
@@ -897,13 +887,13 @@ anchors:
 relations:
   governs:
     - E-领域事件与单写队列
-updatedIn: iter-20260818-mq5a
+updatedIn: iter-20260819-erio
 ```
 
 ## 规则
 协议能力演进三定律：
 ①可选参数扩展优先于新命令对——同一命令能以可选参数承载的语义（session.subscribe 扩 tier、chat.steer 扩 instanceId）不新增命令对；仅当载荷形态无法容纳才新增（届时按 TR-AD-21 整链登记模式）。可选参数必带缺省语义（缺省 = 既有行为，旧剧本兼容），事件类型判别式只增不删不改（TR-AD-18 同源纪律）。
-②契约版本一次定形——同一批协议演进收拢为一次契约版本定形后铺开（v0.3 = spawn 锚点 DTO + tier 订阅 + steer 寻址三处同批）；EVENT_TYPES/EVENT_CHANNELS 守护计数与 type-surface 穷尽断言同步一次扩。单仓同发（protocol + daemon + shell 同 commit 发版）无跨版本组合场景：PROTOCOL_VERSION 是批次集合标记而非协商位；批内破坏性清理（删 dead 类型 / 路径迁移 / 旧推导代码删除）一步完成不留双轨。
+②契约版本一次定形——同一批协议演进收拢为一次契约版本定形后铺开（v0.3 = spawn 锚点 DTO + tier 订阅 + steer 寻址三处同批；v0.4 = trace.query 命令族 + agent.instantiated/model.changed 落盘事件 + engine.error SubAgent 抑制守卫同批，iter-20260819-erio）；EVENT_TYPES/EVENT_CHANNELS 守护计数与 type-surface 穷尽断言同步一次扩。单仓同发（protocol + daemon + shell 同 commit 发版）无跨版本组合场景：PROTOCOL_VERSION 是批次集合标记而非协商位；批内破坏性清理（删 dead 类型 / 路径迁移 / 旧推导代码删除）一步完成不留双轨。
 ③订阅状态连接级隔离——daemon 订阅状态（Map<sessionId, tier>，tier = full | monitor）是连接私有状态，由 EventStream 按连接持有；daemon 不持跨连接全局订阅知识（拒绝「daemon 知道哪些会话活跃」的中心化换档）；断连即丢、重连由客户端重放全订阅图。N 窗口 = N 连接 = N 独立订阅图，多窗口/多客户端在协议层零改动扩展。档位过滤（monitor 白名单）在事件分发层一处完成，不散落 service。
 
 ## 理由

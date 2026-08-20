@@ -413,6 +413,19 @@
 - createdIn: iter-20260816-6q6f
 - decisionLog: 终验裁决（用户批准终验报告 §六 #18，2026-08-17）：端口枚举计数修订（outbound 5→8 + inbound 新增 ModelPort/SessionDirectoryPort），与 TR-AD-2-r3 合并落盘于同一次 TR-AD-2 块修订。同上 MainAgent 直写（formalId=TR-AD-2）。
 
+### TR-AD-23
+- changeType: 修改
+- targetNode: TR-AD-23
+- scope: 协议契约文档面：TR-AD-23 规则②例证与 updatedIn 元数据
+- project: helix
+- reason: TR-AD-23 规则②「契约版本一次定形」正文仅以 v0.3 为批次例证；本迭代契约 v0.4（trace.query 命令族 + agent.instantiated/model.changed 事件 + engine.error 抑制守卫）已按同一 additive/一次定形律落地且代码侧完整实现，建议将 v0.4 补为规则②第二例证并推进 updatedIn 元数据。
+- evidence: packages/protocol/src/envelope.ts:15 PROTOCOL_VERSION="0.4"；packages/protocol/src/events.ts:8 v0.4 新增清单；apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts:681-688 engine.error 抑制守卫
+- implementationStatus: 完整实现
+- implementedCode: packages/protocol/src/envelope.ts:15；packages/protocol/src/events.ts:8,278,537-543,638,689；packages/protocol/src/commands.ts:266
+- sourceTask: l3-semantic-review (phase-reviewer agt_BF0QPNMSKF6R)
+- createdIn: iter-20260819-erio
+- decisionLog: 终验裁决（用户批准终验报告 §六 #1，2026-08-20）：规则②「契约版本一次定形」补 v0.4 为第二例证（trace.query 命令族 + agent.instantiated/model.changed 落盘事件 + engine.error SubAgent 抑制守卫同批，iter-20260819-erio）；derivedFrom 增 AD-4；updatedIn 推进 iter-20260819-erio。证据：envelope.ts:15 PROTOCOL_VERSION="0.4"、events.ts:8 v0.4 清单、DtoMapper.ts:681-688 抑制守卫。formalId=TR-AD-23。
+
 ## discarded
 
 ### SPEC-iter-20260815-6tss-2

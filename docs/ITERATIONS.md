@@ -20,3 +20,8 @@
 - 主体：M4 SubAgent 交互面落地：spawn 锚点（anchorEntryId 组装期派生不落库）+ monitor 档订阅（连接级 tier + 白名单单点）+ 定向 steer（agent_send 通道复用 + 同构落 Entry）+ 多页面导航框架（页面域/会话域分离）；契约 v0.3 一次定形（三处 additive 零新命令对）+ 工程卫生批次（audit:assert/a11y 判据化 + TMPDIR 卫生预检）。验证 F 层 118/0 + E 层 21/1 known-flake + 契约对齐 8 组同构 + 还原度 19/19；终验通过（生产就绪四基线 LCP 0.11s/CLS 0.0849/双主题对比度全过/零漏洞 + 全局审计 0 BLOCKER + L3 复核 19 节点 18 一致），用户批准全部裁决。kg 终态：41 节点 / 锚定 58.5%→68.3% / TR-TEST-6 外补落库（撞号走 6q6f 决策 A 同款 direct-write+discard 留痕）+ 六节点补锚 / pending 清空。遗留：优化机会 16 项，含 P0 三项（终验后用户实测发现 SubAgent 真机 7 连败：A engine_error 错误透传接线 + B closure 摘要并入错误原因 + C 模型解析链改 profile>会话>全局默认，用户裁决转下迭代；另 PROTOCOL.md v0.3 升版、拆分候选、E 层 flake 收尾）。
 - 触及：TR-TEST-6, TR-TEST-3, TR-AD-15, TR-AD-23, TR-AD-8, E-AgentInstance, E-SteerQueue
 - 状态：已沉淀
+
+## iter-20260819-erio — SubAgent 可观测性（P0 可靠性修复 + trace 页完整版 + 契约 v0.4）
+- 主体：M5 SubAgent 可观测性：P0 三项真机修复（engine.error 呈现面通路 + closure 兜底原因 + spawn 模型三级解析链 TR-AD-24 落库）+ trace 页完整版（P-1，trace.query 命令族 + agent.instantiated/model.changed 落盘事件）+ PROTOCOL.md v0.4 收口。验证全绿：E 层 27/0 零 flake、CL-5 E2E 10/10、fidelity 8/8、契约类型层零漂移；终验生产就绪四项 PASS、全局审计 PASS-with-notes 无阻塞、L3 复核 15/15。
+- 触及：TR-AD-23
+- 状态：已沉淀
