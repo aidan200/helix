@@ -64,14 +64,14 @@ anchors:
     - apps/daemon/src/adapters/driven/pi-engine/runtime/HookSet.ts
   testedBy:
     - apps/daemon/test/integration/test-profile.test.ts
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260820-qhv8
 ```
 
 ## 描述
-可组合的钩子处理器单元，编排能力的原子载体：beforeToolCall（工具审批/相位锁挂起）、prepareNextTurn（自定义提示注入）、transformContext（kg 注入等上下文变换）、shouldStopAfterTurn（调度时机）、事件流处理器等。编排能力（相位锁/kg 注入/closure 协议）= 钩子处理器组合，profile 装配即启用。作用域是钩子处理器的属性：daemon 全局 / workspace / agent 实例。
+可组合的钩子处理器单元，编排能力的原子载体：beforeToolCall（工具审批/相位锁挂起）、prepareNextTurn（自定义提示注入）、transformContext（kg 注入等上下文变换）三处理器槽位 + bind() 装配回调（事件流处理器的实际承载面）+ SteerCapable steer/abort 能力面；shouldStopAfterTurn 为 pi 侧可用、helix 未接线的扩展位（iter-20260820-qhv8 终验 L3 复核校正：全仓零接线，勿当现有能力引用）。编排能力（相位锁/kg 注入/closure 协议）= 钩子处理器组合，profile 装配即启用。作用域是钩子处理器的属性：daemon 全局 / workspace / agent 实例。
 
 ## 规则
-每个处理器单一职责、可独立组合复用；钩子语义映射到 pi-agent-core Agent 的对应钩子位（相位锁→beforeToolCall、customPrompt→prepareNextTurn、kg 注入→transformContext、调度时机→shouldStopAfterTurn、send 矛盾→steer()）；M2+ 编排能力以新 HookSet 在 v2 重新生长，不搬 v1 的目录概念划分。
+每个处理器单一职责、可独立组合复用；钩子语义映射到 pi-agent-core Agent 的对应钩子位（相位锁→beforeToolCall、customPrompt→prepareNextTurn、kg 注入→transformContext、send 矛盾→steer()；调度时机→shouldStopAfterTurn 属 pi 侧可用、helix 未接线扩展位，接线时再入正规则）；M2+ 编排能力以新 HookSet 在 v2 重新生长，不搬 v1 的目录概念划分。
 
 ## 禁忌
 不把编排逻辑硬编码进 AgentRuntime；不用目录结构表达作用域（作用域 = 处理器属性）。
@@ -179,11 +179,11 @@ status: active
 digest: 写实例生命周期、挂 instanceId、区分主/Sub 实例、供 spawn 锚点时
 anchors:
   implementedBy:
-    - apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts#computeAnchorEntryId
-    - apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts#lastMainAnchorId
-    - apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts#AnchorScanEntry
-    - apps/daemon/src/application/services/SchedulerService.ts#spawnAnchors
-    - apps/daemon/src/application/services/SchedulerService.ts#spawnAnchorOf
+    - apps/daemon/src/adapters/driving/ws-server/SpawnAnchor.ts#computeAnchorEntryId
+    - apps/daemon/src/adapters/driving/ws-server/SpawnAnchor.ts#lastMainAnchorId
+    - apps/daemon/src/adapters/driving/ws-server/SpawnAnchor.ts#AnchorScanEntry
+    - apps/daemon/src/application/services/scheduler/SchedulerService.ts#spawnAnchors
+    - apps/daemon/src/application/services/scheduler/SchedulerService.ts#spawnAnchorOf
     - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#publish
     - apps/shell/src/entities/session/model/consumers/snapshot.ts
     - apps/shell/src/widgets/chat-stream/ui/MessageFlow.tsx
@@ -192,14 +192,14 @@ anchors:
     - apps/shell/src/entities/session/model/instance-anchors.test.ts
     - apps/shell/src/widgets/chat-stream/ui/MessageFlow.test.tsx
     - apps/daemon/test/integration/agent-ws.test.ts
-updatedIn: iter-20260818-mq5a
+updatedIn: iter-20260820-qhv8
 ```
 
 ## 描述
 agent 实例一等概念（AD-3 trace 实例同构）：{instanceId, kind: "main"|"subagent", profileKind, sessionId, 实例状态机, createdAt}。主会话实例与 SubAgent 同为 AgentInstance——机制同构（同 AgentRuntime 驱动、同 AgentProfile 声明机制、同事件通道、同 trace/统计/持久化路径），编排分层仅经 profile 生命周期声明表达：main = persistent（常驻多轮、用户对话锚点，re-profile 时销毁重建）；subagent = single-shot（单轮收敛、closure 回主线后销毁）。实例创建/销毁/re-profile 是一等操作（非线性红线）。SubAgent 实例的 instanceId 即编排工具寻址的 agentId（同一标识空间，分配即定）；主实例在会话创建时分配固定 id。M4 起实例携带 spawn 锚点：daemon 快照组装面权威计算 spawn 关联 entry 稳定标识（复用 EntryDto.id 体系——主实例 e{N} / SubAgent {instanceId}#N，会话级唯一即够、与分页游标 tailStartCursor 同源；语义 = 实例首 Entry 前最后一条 main/compaction 归属 entry id），经 instances DTO 锚点字段（additive）下发；锚点是组装期派生值不持久化（无第二事实源）。
 
 ## 规则
-每条领域事件与聚合 Entry 挂 instanceId；trace 四维查询 session × instance × type × time；SubAgent 实例状态机 queued{位次} → running → stalled（警示可恢复）/done/failed（kill 收口 = failed 单一终态，无独立 killed 态），重启清队标 cancelled；实例窗口销毁重建而会话聚合跨实例持续追加（执行层全切/交接层受控注入/显示层连续）；调度器与状态机不假设单实例线性推进；spawn 锚点由 daemon 权威计算（快照组装面确定性派生，每次组装同值），前端纯消费零推导——锚在装载窗口外卡片不渲染（纯锚驱动，运行中实例感知归抽屉全量列表；摘要徽标留作未来增强 additive）。
+每条领域事件与聚合 Entry 挂 instanceId；trace 四维查询 session × instance × type × time；SubAgent 实例状态机 queued{位次} → running → done/failed（kill 收口 = failed 单一终态，无独立 killed 态）；stalled 为 running 态上的可重复警示事件（agent.stalled，非状态迁移，实例保持 running——iter-20260820-qhv8 终验 L3 复核校正），重启清队标 cancelled；实例窗口销毁重建而会话聚合跨实例持续追加（执行层全切/交接层受控注入/显示层连续）；调度器与状态机不假设单实例线性推进；spawn 锚点由 daemon 权威计算（快照组装面确定性派生，每次组装同值），前端纯消费零推导——锚在装载窗口外卡片不渲染（纯锚驱动，运行中实例感知归抽屉全量列表；摘要徽标留作未来增强 additive）。
 
 ## 禁忌
 不按 kind 分叉机制通道（事件/持久化/统计/驱动路径必须同构）；不假设一个会话单实例到底；不在实例对象外维护第二实例注册表；不在前端推导锚点（best-effort 推导已随 v0.3 撤除，禁止复发）；不把锚点持久化为独立状态列（派生值落盘 = 第二事实源）。
@@ -324,11 +324,11 @@ anchors:
   testedBy:
     - apps/daemon/test/unit/model-catalog.test.ts
     - e2e/CL-3-e2e-model-chain.spec.ts
-updatedIn: iter-20260816-6q6f
+updatedIn: iter-20260820-qhv8
 ```
 
 ## 描述
-可用模型清单的权威供给面：builtin 39 providers 静态表 + pi.dev overlay 在线目录合并（ETag 条件刷新，缓存 4h；304 未变更不落盘）；防降级（新目录不得清空既有 overlay）；落盘兜底（~/.helix/models-store.json，离线启动用缓存，路径经 paths.ts 单点派生）。经 ModelCatalogPort（outbound）供 ModelService 消费；前端 P-3/P-4 经协议 model.catalog 命令族读取。默认模型（SQLite default_model 表）为其附属状态，不独立成实体。
+可用模型清单的权威供给面：builtin 39 providers 静态表 + pi.dev overlay 在线目录合并（ETag 条件刷新，缓存 4h；304 只挪 checkedAt——目录数据不变，刷新轮统一 best-effort 落盘含元数据（4h 窗口跨重启所必需，iter-20260820-qhv8 终验 L3 复核校正））；防降级（新目录不得清空既有 overlay）；落盘兜底（~/.helix/models-store.json，离线启动用缓存，路径经 paths.ts 单点派生）。经 ModelCatalogPort（outbound）供 ModelService 消费；前端 P-3/P-4 经协议 model.catalog 命令族读取。默认模型（SQLite default_model 表）为其附属状态，不独立成实体。
 
 ## 规则
 builtin 表是离线兜底基线永不失效；overlay 刷新走 ETag 条件请求，失败保缓存不报错（无外网可用）；目录合并幂等；落盘经 paths.ts + 原子写（AG-06③ 白名单）；零 pi-coding-agent import（TR-AD-7 红线，G-2 裁决自实现）。

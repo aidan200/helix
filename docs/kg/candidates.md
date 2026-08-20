@@ -581,3 +581,215 @@
 - sourceTask: hotfix-20260820 task-T4（default-coder agt_3KJRVXQTNT1H，DONE）
 - createdIn: hotfix-20260820
 - decisionLog: 用户批准同步（2026-08-20）：apply——例证已补入规则①正文（纯文本例证增补，规则语义不变）
+
+### TR-AD-26
+- changeType: 修改
+- targetNode: TR-AD-26
+- scope: GC 正确性类检出
+- project: helix
+- reason: rotten-pointer: anchor → apps/shell/src/pages/trace/model/trace-model.test.ts (docs/kg/architecture-rules.md)；rotten-pointer: anchor → packages/protocol/test/type-surface/catalog.test.ts (docs/kg/architecture-rules.md)；rotten-pointer: anchor → packages/protocol/test/type-surface/sot-consistency.test.ts (docs/kg/architecture-rules.md)
+- evidence: kg gc_report
+- sourceTask: kg-gc
+- createdIn: (gc-report)
+- decisionLog: 终验决策（用户批准终验报告 §五，2026-08-20）：过期候选 discard——合并后 6 腐烂锚全部自愈（锚已指向 type-surface/ 新路径），候选描述的锚路径问题已不存在；锚修订事实由 149a5f2 + 合并承载。
+
+### TR-TEST-3
+- changeType: 修改
+- targetNode: TR-TEST-3
+- scope: GC 正确性类检出
+- project: helix
+- reason: rotten-pointer: anchor → apps/shell/src/shared/api/fake-transport.test.ts (docs/kg/testing-rules.md)
+- evidence: kg gc_report
+- sourceTask: kg-gc
+- createdIn: (gc-report)
+- decisionLog: 终验决策（用户批准终验报告 §五，2026-08-20）：过期候选 discard——合并后锚自愈（fake-transport.test.ts 锚有效），候选描述问题已不存在。
+
+### TR-AD-24
+- changeType: 修改
+- targetNode: TR-AD-24
+- scope: GC 正确性类检出
+- project: helix
+- reason: rotten-pointer: anchor → apps/daemon/src/application/services/SchedulerService.ts (docs/kg/architecture-rules.md)
+- evidence: kg gc_report
+- sourceTask: kg-gc
+- createdIn: (gc-report)
+- decisionLog: 终验决策（用户批准终验报告 §五 A 类，2026-08-20）：锚修订已直写落库（architecture-rules.md TR-AD-24 implementedBy → scheduler/SchedulerService.ts，updatedIn=iter-20260820-qhv8；kg rebuild 后 gc correctness=0 实证）——正式号 TR-AD-24 无撞号但正文零变化纯锚维护，按 desk 先例 discard 留审计痕，修正事实以现行文档为准，知识不丢失。
+
+### TR-AD-21-r2
+- changeType: 修改
+- targetNode: TR-AD-21
+- scope: GC 正确性类检出（gc 工具链缺陷手动补）
+- project: helix
+- reason: rotten-pointer ×2（活跃）：anchor → packages/protocol/src/events.ts（已拆为 events/ 八族，应改 events/index.ts）；anchor → packages/protocol/test/type-surface.test.ts（已拆为 type-surface/，应改 catalog.test.ts）。gc 因 id 判重误报未生成候选，手动纳入终验裁决
+- evidence: kg gc_report（终验复跑）；packages/protocol/src/events/（8 文件）；packages/protocol/test/type-surface/（9 test + samples）
+- sourceTask: verification/kg-inspection.md 追记（gc 未自动入账，验证报告 §七.1② 显式移交终验）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 A 类，2026-08-20）：锚修订已直写落库（TR-AD-21 anchors → events/index.ts + type-surface/catalog.test.ts，updatedIn=iter-20260820-qhv8）——正式号 TR-AD-21 与台账既有 applied 条目撞号，按 desk 先例 discard 留审计痕，修正事实以现行文档为准，知识不丢失。
+
+### TR-AD-15-r2
+- changeType: 修改
+- targetNode: TR-AD-15
+- scope: domain
+- project: helix
+- reason: 锚点跟随（正文零变化）：TR-AD-15 两符号锚半失效——DtoMapper.ts 已变为 18 行常设 barrel，isMainAxisEntry 定义迁 EntryDtoMapper.ts:34（经 barrel 仍可导入，锚半有效）、instanceChannels 为私有函数迁 SnapshotMapper.ts:139（锚导航失准）。修订：DtoMapper.ts#isMainAxisEntry → EntryDtoMapper.ts#isMainAxisEntry；DtoMapper.ts#instanceChannels → SnapshotMapper.ts#instanceChannels；其余锚不变。批次C 判正文一致（锚腐不影响语义）
+- evidence: drafts/tr-audit-drafts.md 修订 3；EntryDtoMapper.ts:34（isMainAxisEntry）；SnapshotMapper.ts:139（instanceChannels，私有）；DtoMapper.ts 现 18 行 barrel
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driving/ws-server/EntryDtoMapper.ts#isMainAxisEntry；SnapshotMapper.ts#instanceChannels
+- sourceTask: final-verification 全局审计（phase-architect agt_FN9T9KTS00W6，drafts/tr-audit-drafts.md 修订 3；批次C 附注同发现）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 A 类，2026-08-20）：锚修订已直写落库（TR-AD-15 两符号锚 → EntryDtoMapper.ts#isMainAxisEntry / SnapshotMapper.ts#instanceChannels）——正式号 TR-AD-15 与既有 applied 条目（TR-AD-15-revoke）撞号，按 desk 先例 discard 留审计痕，知识不丢失。
+
+### TR-AD-1-r2
+- changeType: 修改
+- targetNode: TR-AD-1
+- scope: domain
+- project: helix
+- reason: L3 语义复核判局部不一致：正文 application 子句「只依赖 domain 与自有 port」与现行守护口径不符——CL-5 裁决（T4.1，8059972）后 AG-02② 白名单固化为 {domain, 自有 port, @helix/protocol, node:path}（4 文件 import MAIN_INSTANCE_ID + ClosureRecorder import node:path）。按现文本执行会误判 5 处违规并与 AG-13 取源单源守护冲突。修改：依赖面枚举改「domain + 自有 port + @helix/protocol（MAIN_INSTANCE_ID 单源）+ node:path（ClosureRecorder 产物路径）」并注明以 AG-02② 白名单为准。四层结构/domain 零外依赖/禁 adapters/pi/组合根装配等核心约束全部成立
+- evidence: docs/kg/architecture-rules.md:31；apps/daemon/test/arch-guard/arch-guard.test.ts:78-96（AG-02② 白名单）；git 8059972（CL-5 白名单化，晚于节点 updatedIn）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/{ChatService,RestoreService,SessionRegistry,SessionProjection}.ts（MAIN_INSTANCE_ID）；scheduler/ClosureRecorder.ts（node:path）；守护 arch-guard.test.ts:78 AG-02②
+- sourceTask: final-verification L3 语义复核·规则面（批次B，phase-reviewer agt_KWBREVB1SE5Z；sedimentLedger 自动落账异常，MainAgent 手动补）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 B 类，2026-08-20）：L3 文本修正已直写落库（TR-AD-1 application 依赖面补 CL-5 白名单 @helix/protocol MAIN_INSTANCE_ID + node:path，注明以 AG-02② 为准）——正式号 TR-AD-1 与既有 applied 条目撞号，按 desk 先例 discard 留审计痕，知识不丢失。
+
+### TR-AD-2-r5
+- changeType: 修改
+- targetNode: TR-AD-2
+- scope: domain
+- project: helix
+- reason: L3 语义复核判两处子句漂移：①「PathsPort 定义后悬空待决」已过期——PathsPort 已被 F-7 删除（620fbe3，outbound/README.md:4 残留一次词面提及）；②四类落位枚举缺第五落位——SessionProjection（application service）自 T2.1 起 implements EventPublisherPort 作为 fan-out 投影目标（container.ts:377 装配），服务消费面 = 组合根内联 fanout（container.ts:198）。修改：PathsPort 句改「已删除（F-7）」；落位枚举补注 EventPublisherPort 的 application 侧投影实现。ports 接口纯度/双向结构/8 出口/≥9 守护全部核实成立
+- evidence: docs/kg/architecture-rules.md:68；git 620fbe3（F-7 删 PathsPort）；SessionProjection.ts:61（implements EventPublisherPort）；container.ts:197-204,377-386；git e0e9ad1（T2.1 会话投影）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/ports/outbound/（现 8 port 无 PathsPort）；application/services/SessionProjection.ts:61；infrastructure/container.ts:198,377
+- sourceTask: final-verification L3 语义复核·规则面（批次B，phase-reviewer agt_KWBREVB1SE5Z；sedimentLedger 自动落账异常，MainAgent 手动补）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 B 类，2026-08-20）：L3 文本修正已直写落库（TR-AD-2：PathsPort 句改「已删除（F-7）」+ 落位枚举补第五类 application service 投影实现 SessionProjection）——正式号 TR-AD-2 与既有 applied 条目撞号（r3/r4 先例同），按 desk 先例 discard 留审计痕，知识不丢失。
+
+### TR-AD-6-r2
+- changeType: 修改
+- targetNode: TR-AD-6
+- scope: domain
+- project: helix
+- reason: L3 语义复核判编辑事故：节点正文含两组完整四节——第二组（architecture-rules.md:229-238）为 T2.3 更新前旧版残留（08-16 更新时旧四节未删），旧版宣称 config.json 含 apiKeys 0600，与现行（apiKeys→auth.json、默认模型→default_model 表、模型目录→models-store.json）直接矛盾；kg 解析时旧版内容可能并入检索面产生第二事实源。修改：删除 229-238 旧版四节（第一组 217-226 与代码完全一致，保留）
+- evidence: docs/kg/architecture-rules.md:229-238（旧版四节）；对照 paths.ts:22-24、container.ts:190-196、WriteQueue.ts:238-241、test/unit/{paths,config,auth-store}.test.ts 18/18 绿
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/infrastructure/paths.ts:21-24,51-53；infrastructure/auth-store.ts；pi-engine/model-catalog.ts
+- sourceTask: final-verification L3 语义复核·规则面（批次B，phase-reviewer agt_KWBREVB1SE5Z；sedimentLedger 自动落账异常，MainAgent 手动补）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 B 类，2026-08-20）：编辑事故修正已直写落库（TR-AD-6 删除 T2.3 前旧版四节残留，消除第二事实源；新版四节保留）——正式号 TR-AD-6 与既有 applied 条目撞号，按 desk 先例 discard 留审计痕，知识不丢失。
+
+### E-AgentInstance-r2
+- changeType: 修改
+- targetNode: E-AgentInstance
+- scope: domain
+- project: helix
+- reason: L3 语义复核判两处不一致（文本+锚元数据，代码无改动需求）：①状态机口径失真——规则节把 stalled 列入状态机迁移目标，但 InstanceState 无 stalled（queued/running/done/failed/cancelled），agent.stalled 为可重复警示事件且状态保持 running（SchedulerService.ts:55「警示可重复推，不自动杀」；protocol agent.ts:33「非状态迁移」）。修改：改「queued{位次} → running → done/failed；stalled 为 running 态上的可重复警示事件（非状态迁移）」。②anchors 迁移未同步——computeAnchorEntryId/lastMainAnchorId/AnchorScanEntry 已自 DtoMapper.ts 迁 SpawnAnchor.ts（TR-AD-25④ 四域拆分）；SchedulerService.ts 路径已变 scheduler/ 子目录。其余主张（kill=failed 单一终态/重启清队 cancelled/PK(session_id,instance_id)/e{N} id 体系/daemon 权威计算）全部成立
+- evidence: AgentInstance.ts:53,:10-14,:70-71；scheduler/SchedulerService.ts:55；packages/protocol/src/events/agent.ts:33；SpawnAnchor.ts:1-56；scheduler/SchedulerService.ts:136/:219；docs/kg/domain.md E-AgentInstance 节
+- implementationStatus: 完整实现
+- implementedCode: SpawnAnchor.ts:27-56 computeAnchorEntryId；AgentInstance.ts:53-77 InstanceState 状态机；scheduler/SchedulerService.ts:136/219 spawnAnchors/spawnAnchorOf
+- sourceTask: final-verification L3 语义复核·实体面（批次A重派，phase-reviewer agt_5PS876EC5PVA；自动落账 id 判重失败，MainAgent 手动补）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 A/B 类，2026-08-20）：修正已直写落库（E-AgentInstance：状态机 stalled 改警示事件口径 + anchors 随迁 SpawnAnchor.ts/scheduler/）——正式号 E-AgentInstance 与既有 applied 条目撞号，按 desk 先例 discard 留审计痕，知识不丢失。
+
+### E-HookSet-r2
+- changeType: 修改
+- targetNode: E-HookSet
+- scope: domain
+- project: helix
+- reason: L3 语义复核判不一致：描述/规则两节宣称 shouldStopAfterTurn 为 HookSet 处理器槽位，但代码 HookSet 接口仅 name/bind/beforeToolCall/prepareNextTurn/transformContext，组合器仅三个，全仓零引用（仅 docs 命中；pi 侧钩子位存在但未接线）。「事件流处理器」实由 bind() 装配回调承载。修改：槽位清单收敛为实际面（beforeToolCall/prepareNextTurn/transformContext + bind 装配回调 + SteerCapable steer/abort 能力面），shouldStopAfterTurn 显式标注「pi 侧可用、helix 未接线」扩展位；**同源联动修正 TR-AD-4 正文槽位枚举**（architecture-rules.md:137 同表述）。代码无改动需求
+- evidence: HookSet.ts:15-61；AgentRuntime.ts:65-67,:118-148；全仓 grep shouldStopAfterTurn → 仅 docs/kg/domain.md:71/:74、architecture-rules.md:137；pi-agent-core@0.84.2 dist/types.d.ts:191（钩子位存在未接线）
+- implementationStatus: 完整实现
+- implementedCode: HookSet.ts:15-61（HookSet 接口 + SteerCapable）；AgentRuntime.ts:52-70；hooks/{MinimalHooks,SteerHooks,CompactionHook}.ts
+- sourceTask: final-verification L3 语义复核·实体面（批次A重派，phase-reviewer agt_5PS876EC5PVA；自动落账未持久化，MainAgent 手动补）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 B 类，2026-08-20）：修正已直写落库（E-HookSet 槽位清单收敛为实际面 + shouldStopAfterTurn 标注未接线扩展位；联动修正 TR-AD-4 正文同源槽位枚举）——正式号 E-HookSet，按 desk 先例 discard 留审计痕，知识不丢失。
+
+### E-模型目录-r2
+- changeType: 修改
+- targetNode: E-模型目录
+- scope: domain
+- project: helix
+- reason: L3 语义复核判单点低危不一致：描述节「304 未变更不落盘」与实现不符——refreshAll 刷新轮（含全 304）结束后无条件 persistStore 落盘（仅 checkedAt 元数据前移，4h 窗口跨重启所必需）；目录数据面「304 不重拉不丢失」成立。修改：「304 只挪 checkedAt（目录数据不变）；刷新轮统一 best-effort 落盘（含 checkedAt 元数据）」。其余主张全部成立
+- evidence: model-catalog.ts（refreshAll 末行无条件 persistStore；304 分支只更新 checkedAt）；model-catalog.test.ts:178-198；node 实测 MODELS 静态键=39
+- implementationStatus: 完整实现
+- implementedCode: model-catalog.ts：ModelCatalog.refreshAll/refreshProvider（304 分支）/persistStore（tmp+rename 原子写）
+- sourceTask: final-verification L3 语义复核·实体面（批次A重派，phase-reviewer agt_5PS876EC5PVA；自动落账未持久化，MainAgent 手动补）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 B 类，2026-08-20）：修正已直写落库（E-模型目录：304 落盘语义改「只挪 checkedAt + 刷新轮统一 best-effort 落盘」）——正式号 E-模型目录 与既有 applied 条目撞号（2026-08-17 新增条目），按 desk 先例 discard 留审计痕，知识不丢失。
+
+### TR-AD-26-r2
+- changeType: 修改
+- targetNode: TR-AD-26
+- scope: domain
+- project: helix
+- reason: TR-AD-26 ②律实现证据补充：node 直跑脚本引用 workspace TS 包时包入口无扩展名 re-export 无法解析（node 24 type-stripping），落地为直读自包含源文件（envelope.ts）import。建议在 TR-AD-26 规则②补一句实现注记（锚 perf-a11y-audit.mjs#V 已在场）
+- evidence: commit 279713c；scripts/perf-a11y-audit.mjs:23,30
+- implementationStatus: 完整实现
+- implementedCode: scripts/perf-a11y-audit.mjs:23,30
+- sourceTask: development/kg-sediment-backlog.md A1（task-T2.2-report deviation）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 C 类 A1，2026-08-20）：知识沉淀已直写落库（TR-AD-26 ②律补 node 直跑脚本实现注记：优先 import 自包含单文件源）——正式号 TR-AD-26 与既有 pending gc 条目同节点，按 desk 先例 discard 留审计痕，知识不丢失。
+
+### TR-AD-23-r2
+- changeType: 修改
+- targetNode: TR-AD-23
+- scope: domain
+- project: helix
+- reason: TR-AD-23②「契约版本一次定形」例证链补 v0.5 批次：payload 形状全量回迁正文 + §14 微批字段定形 + SoT 五断言同批（iter-20260820-qhv8）。正文例证追加属语义变化，留人审裁决
+- evidence: commits b141211 + 2280c93；evidence/dev/T2.3/
+- implementationStatus: 完整实现
+- implementedCode: packages/protocol/PROTOCOL.md §15/§16/§17；packages/protocol/test/type-surface/sot-consistency.test.ts
+- sourceTask: development/kg-sediment-backlog.md A2（task-T2.3-report sediment）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 C 类 A2，2026-08-20）：知识沉淀已直写落库（TR-AD-23 ②律例证链补 v0.5 批次：payload 全量回迁 + §14 微批定形 + 五断言同批）——正式号 TR-AD-23 与既有 applied 条目撞号（erio 条目），按 desk 先例 discard 留审计痕，知识不丢失。
+
+### SPEC-iter-20260820-qhv8-1
+- changeType: 新增
+- scope: domain
+- project: helix
+- reason: 解环验证纪律（建议新 TR-TEST-7）：循环依赖解环时回边常为 import type（编译期擦除、运行时不构成环但静态面是环）；验证工具必须统计 type import 且先做阳性对照（以已知环复现确认灵敏度，再宣称消环）。T3.2 实证；下迭代 madge 常设挂接（优化池 N2）时为直接消费点
+- evidence: evidence/dev/T3.2/madge-circular.md（三环复现→F-8 消失/F-11 仍在）；evidence/regression/10-madge-circular.txt
+- implementationStatus: 完整实现
+- implementedCode: evidence/dev/T3.2/madge-circular.md；bunx madge --circular --extensions ts
+- sourceTask: development/kg-sediment-backlog.md B1（task-T3.2-report）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 C 类 B1，2026-08-20）：正式号签发 TR-TEST-7（循环依赖解环验证纪律：type 回边统计 + 阳性对照先行），已经 project_write_tech_rules 落库 testing-rules.md（INDEX 已注册，kg nodes=45 实证）——临时号候选按流程 discard 归档，知识不丢失。
+
+### TR-TEST-2-r3
+- changeType: 修改
+- targetNode: TR-TEST-2
+- scope: domain
+- project: helix
+- reason: 守护面随被守护代码迁移原则（建议 TR-TEST-2 补⑤条）：源码路径字符串型守护断言（如 session-projection 零聚合写守护直读源码断言）在守护对象拆分时必须随迁扩展至全部产物（守护面 = 目录全部产物），防拆分绕过守护。T3.3 实证：事件翻译逻辑拆出后守护圈扩 scheduler/ 三文件，否则「只产事件不写聚合」对 translator 失效——守护语义跟随被守护代码，而非跟随文件名
+- evidence: git 17b97f1 -- apps/daemon/test/integration/session-projection.test.ts
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/test/integration/session-projection.test.ts（守护面随 scheduler/ 三文件扩展）；apps/daemon/test/arch-guard/structure.test.ts
+- sourceTask: development/kg-sediment-backlog.md B2（task-T3.3-report sediment）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 C 类 B2，2026-08-20）：知识沉淀已直写落库（TR-TEST-2 补⑤守护面随迁条 + anchors 补 arch-guard/session-projection）——正式号 TR-TEST-2 与 discarded 历史条目（TR-TEST-2-r2）撞号，按 desk 先例 discard 留审计痕，知识不丢失。
+
+### TR-TEST-6-r2
+- changeType: 修改
+- targetNode: TR-TEST-6
+- scope: domain
+- project: helix
+- reason: TR-TEST-6 补 EVIDENCE_DIR 迭代感知三态契约（锚+一句正文）：env HELIX_EVIDENCE_ITER 优先 → git 分支 dev-<iterId> → 报错兜底（无静默兜底）；工作区根向上查 docs/iterations 祖先穿透 .worktrees。TMPDIR 预检排除表白名单化不弱化检出力。正文已隐含覆盖，纯锄补充+一句契约声明可 apply
+- evidence: commits 5710f88/a5b7072；双向验证证据在 task-T4.2-report
+- implementationStatus: 完整实现
+- implementedCode: e2e/harness/evidence.ts（三态解析单点）；e2e/harness/tmp-hygiene.ts:30（前缀白名单）；.github/workflows/ci.yml（upload 跟随面）
+- sourceTask: development/kg-sediment-backlog.md B3（task-T4.2-report sediment ×2）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 C 类 B3，2026-08-20）：知识沉淀已直写落库（TR-TEST-6 补 EVIDENCE_DIR 三态契约段 + anchors 补 evidence.ts）——正式号 TR-TEST-6，按 desk 先例 discard 留审计痕，知识不丢失。
+
+### TR-AD-25-r2
+- changeType: 修改
+- targetNode: TR-AD-25
+- scope: domain
+- project: helix
+- reason: TR-AD-25 孤儿节点补挂 governs 边（候选：E-调度器/E-会话聚合/E-领域事件与单写队列——本批四拆分产物所在域）+ derivedFrom F-9 计数更正（16 个 → 收口复测 20 .ts + 2 .tsx，热修批后测试自然增长所致，T4.3 复测与 T4.1 实测恰等）
+- evidence: docs/kg/architecture-rules.md TR-AD-25（governs 空）；evidence/regression/09b-size-pool-recheck.txt（20 .ts 与 T4.1 实测恰等）
+- implementationStatus: 完整实现
+- implementedCode: scripts/audit-assert.ts；.github/workflows/ci.yml；scheduler//handlers//events//type-surface/ 四拆分产物
+- sourceTask: verification/kg-inspection.md §三（orphan 建议补挂 governs 边）+ development/optimization-opportunities.md §6（F-9 计数更正）
+- createdIn: iter-20260820-qhv8
+- decisionLog: 终验决策（用户批准终验报告 §五 C 类，2026-08-20）：修正已直写落库（TR-AD-25 补挂 governs 三边消除 orphan——kg rebuild 后 hygiene=0 实证 + derivedFrom 补 F-9 计数更正条 + ③律计数同步 20+2）——正式号 TR-AD-25，按 desk 先例 discard 留审计痕，知识不丢失。

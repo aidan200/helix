@@ -18,7 +18,7 @@ docs:
     updatedAt: 2026-08-20T12:16:39.758Z
   - name: kg/testing-rules.md
     purpose: 测试规则（技术规则 TR-TEST-N）
-    updatedAt: 2026-08-20T12:16:16.543Z
+    updatedAt: 2026-08-20T14:52:09.603Z
   - name: kg/decisions.md
     purpose: 架构决策节点（AD-N，上下文/选项/裁决与理由/结局四节；终验沉淀跨迭代有效的设计事实）
     updatedAt: 2026-08-20T05:05:00.000Z

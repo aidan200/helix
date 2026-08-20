@@ -27,7 +27,7 @@ updatedIn: iter-20260816-uzvg
 ```
 
 ## 规则
-daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号）→ application/（ports/ 按 inbound/outbound 双向组织——inbound：AgentOrchestrationPort、SystemPort 等（接口由 service 或组合根实现）；outbound：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort 等（由 service 调用；双向清单详见 TR-AD-2）+ services/：ChatService、SessionService、RestoreService、SchedulerService；只依赖 domain 与自有 port，禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、subagent（SubAgent 子进程 launcher/child/transport）、static-serve，实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：DI 装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点）。新增代码先定层再写文件。
+daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号）→ application/（ports/ 按 inbound/outbound 双向组织——inbound：AgentOrchestrationPort、SystemPort 等（接口由 service 或组合根实现）；outbound：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort 等（由 service 调用；双向清单详见 TR-AD-2）+ services/：ChatService、SessionService、RestoreService、SchedulerService；只依赖 domain 与自有 port + 白名单两项（@helix/protocol——仅 MAIN_INSTANCE_ID 取源单点，AG-13 裁决；node:path——scheduler/ClosureRecorder 产物路径；以守护 AG-02② 白名单为准，iter-20260820-qhv8 终验同步），禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、subagent（SubAgent 子进程 launcher/child/transport）、static-serve，实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：DI 装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点）。新增代码先定层再写文件。
 
 ## 理由
 六边形与 daemon「唯一事实源 + 端口适配」职责天然契合——pi 引擎/SQLite/WS 都是可替换端口（AD-12）；单向依赖保证防腐：换引擎、换存储、换前端均不动 domain 与 application（AD-17）；业务逻辑 framework-free 才能零依赖单测。
@@ -65,7 +65,7 @@ updatedIn: iter-20260816-6q6f
 ```
 
 ## 规则
-application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 或组合根实现——AgentOrchestrationPort 由 SchedulerService 实现、经 driven 编排工具（agent_spawn/send/status）回口调用；SystemPort 由组合根内联实现、driving ws-server 调用；ModelPort 由 ModelService 实现、SessionDirectoryPort 由 SessionRegistry 实现（T2.3 模型模块新增））与 outbound/（出口端口生效 8 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort + T2.3 新增 AuthStorePort、DefaultModelPort、ModelCatalogPort，由 service 调用；SystemPort 自创建起即位于 inbound/；守护测试断言 ports 文件数 ≥9）。outbound port 的实现允许四类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）、infrastructure 纯技术文件 port（AuthStore——纯文件读写无 driving/driven 语义，落 infrastructure/auth-store.ts，AG-06③ 原子写白名单显式列名，与 dev-token/config 同类）；PathsPort 为定义后悬空的待决接口（零实现零消费，M2 裁决删除或接线）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
+application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 或组合根实现——AgentOrchestrationPort 由 SchedulerService 实现、经 driven 编排工具（agent_spawn/send/status）回口调用；SystemPort 由组合根内联实现、driving ws-server 调用；ModelPort 由 ModelService 实现、SessionDirectoryPort 由 SessionRegistry 实现（T2.3 模型模块新增））与 outbound/（出口端口生效 8 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort + T2.3 新增 AuthStorePort、DefaultModelPort、ModelCatalogPort，由 service 调用；SystemPort 自创建起即位于 inbound/；守护测试断言 ports 文件数 ≥9）。outbound port 的实现允许四类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）、infrastructure 纯技术文件 port（AuthStore——纯文件读写无 driving/driven 语义，落 infrastructure/auth-store.ts，AG-06③ 原子写白名单显式列名，与 dev-token/config 同类）、application service（EventPublisherPort 的会话投影实现 SessionProjection——fan-out 投影目标，经 container 装配进 publisherTargets，服务消费面 = 组合根内联 fanout，iter-20260820-qhv8 终验补记）；PathsPort 已删除（iter-20260820-qhv8 F-7 死代码清理，零实现零消费）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
 
 ## 理由
 port 是 adapter↔application 两个方向的唯一衔接契约（AD-17 条 2/3）；契约里混入实现即产生第二事实源，driving/driven 的可替换性（换 WS、换引擎、换存储）即刻失效。
@@ -134,7 +134,7 @@ updatedIn: iter-20260815-6tss
 ```
 
 ## 规则
-所有 agent 走同一条实现路径，扩展遵循固定公式：新编排能力 = 新 HookSet（钩子处理器组合）+ 新 AgentProfile（声明式规格），AgentRuntime 零改动。三层职责：AgentRuntime 是 daemon 唯一驱动层（组装 pi-agent-core 的 Agent、注入钩子语义、驱动执行、管理生命周期），不感知任何具体编排模式；AgentProfile 是声明式规格（kind、系统提示、工具集、钩子装配、生命周期策略：常驻多轮 vs 单轮收敛），主会话 = MainSessionProfile，M2 SubAgent = SubAgentProfile（新增 profile，不改 runtime）；HookSet 是可组合钩子处理器（beforeToolCall/prepareNextTurn/transformContext/shouldStopAfterTurn/事件流），作用域（daemon 全局/workspace/agent 实例）是钩子处理器的属性而非目录结构。loop 本体（流式/工具批执行/截断）用 pi-agent-core 的 Agent+agentLoop 一行不重写，自建仅百行级驱动层；对 pi 库的 import 只允许出现在 adapters/driven/pi-engine。
+所有 agent 走同一条实现路径，扩展遵循固定公式：新编排能力 = 新 HookSet（钩子处理器组合）+ 新 AgentProfile（声明式规格），AgentRuntime 零改动。三层职责：AgentRuntime 是 daemon 唯一驱动层（组装 pi-agent-core 的 Agent、注入钩子语义、驱动执行、管理生命周期），不感知任何具体编排模式；AgentProfile 是声明式规格（kind、系统提示、工具集、钩子装配、生命周期策略：常驻多轮 vs 单轮收敛），主会话 = MainSessionProfile，M2 SubAgent = SubAgentProfile（新增 profile，不改 runtime）；HookSet 是可组合钩子处理器（beforeToolCall/prepareNextTurn/transformContext 三槽位 + bind() 装配回调（事件流处理器的实际承载面）+ SteerCapable steer/abort 能力面；shouldStopAfterTurn 为 pi 侧可用、helix 未接线的扩展位——iter-20260820-qhv8 终验 L3 复核校正），作用域（daemon 全局/workspace/agent 实例）是钩子处理器的属性而非目录结构。loop 本体（流式/工具批执行/截断）用 pi-agent-core 的 Agent+agentLoop 一行不重写，自建仅百行级驱动层；对 pi 库的 import 只允许出现在 adapters/driven/pi-engine。
 
 ## 理由
 v1 的 MainAgent/SubAgent 双轨是 pi CLI 寄生限制的产物，v2 无此限制（AD-15）；循环所有权——编排内核的心脏不能长在别人身上，自建 = 方向盘和油门而非重造 loop（AD-3）；扩展公式保证 M2+（SubAgent/phase/kg）不碰 runtime 核心。
@@ -211,7 +211,7 @@ relations:
   governs:
     - E-领域事件与单写队列
     - E-认证凭据
-updatedIn: iter-20260816-6q6f
+updatedIn: iter-20260820-qhv8
 ```
 
 ## 规则
@@ -225,18 +225,6 @@ CL-1 配置模块设计、CL-6 token 落点、CL-8 db 路径、测试注入 home
 
 ## 反例
 ws-server adapter 里自己写 `path.join(os.homedir(), '.helix', 'dev-token')` 读 token，或用 `process.env.HELIX_DB` 指定数据库路径——绕过 paths.ts 单点，--home 覆盖对它失效；或 auth-store 自行拼接 ~/.helix/auth.json 路径而不经 paths.ts——测试 home 注入对该文件失效。
-
-## 规则
-~/.helix 是 daemon 唯一配置/数据/日志主目录，全部自有状态进 home，不用环境变量：config.json（全部自有配置：model 字符串、端口等；apiKeys 字段文件权限 0600，daemon 读取后显式传入 pi-ai 工厂函数，不走其 env 解析路径）、dev-token（CL-6）、logs/、helix.db（SQLite WAL）。所有业务路径解析收束于 infrastructure/paths.ts 单一模块：home 展开的跨平台处理（os.homedir + path，Windows 差异同处收束）、各文件相对 home 的定位；支持可选 `--home <dir>` 启动参数覆盖（测试指向 tmp 目录用）。任何模块不得自行拼接 ~/.helix 子路径，也不得经环境变量取配置；壳零参与路径解析（需要业务路径时向 daemon 查询；壳仅保留自身 bundle 资源定位：sidecar 二进制/前端静态产物）。
-
-## 理由
-单一事实源原则的文件系统延伸；daemon 全局单例（AD-7）与全局 home 目录天然对应；dev 期壳缺席（AD-8）而路径逻辑放壳会造成 dev/打包双轨（AD-14）；路径解析收束一处才 framework-free 可测试。
-
-## 适用范围
-CL-1 配置模块设计、CL-6 token 落点、CL-8 db 路径、测试注入 home 目录；任何新增自有状态文件的落点决策。
-
-## 反例
-ws-server adapter 里自己写 `path.join(os.homedir(), '.helix', 'dev-token')` 读 token，或用 `process.env.HELIX_DB` 指定数据库路径——绕过 paths.ts 单点，--home 覆盖对它失效。
 
 ```kg-node
 id: TR-AD-7
@@ -559,8 +547,8 @@ derivedFrom:
   - AD-5（M4 契约 v0.3 一次定形）
 anchors:
   implementedBy:
-    - apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts#isMainAxisEntry
-    - apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts#instanceChannels
+    - apps/daemon/src/adapters/driving/ws-server/EntryDtoMapper.ts#isMainAxisEntry
+    - apps/daemon/src/adapters/driving/ws-server/SnapshotMapper.ts#instanceChannels
     - apps/daemon/src/domain/session/Session.ts#applyDirectedSteer
     - apps/shell/src/widgets/chat-stream/ui/MessageFlow.tsx
     - apps/shell/src/entities/session/model/session-reducer.ts
@@ -796,14 +784,14 @@ derivedFrom:
 anchors:
   implementedBy:
     - apps/daemon/src/adapters/driving/ws-server/WsServerAdapter.ts
-    - packages/protocol/src/events.ts
+    - packages/protocol/src/events/index.ts
   testedBy:
-    - packages/protocol/test/type-surface.test.ts
+    - packages/protocol/test/type-surface/catalog.test.ts
     - apps/shell/src/entities/session/model/dispatcher/dispatcher.test.ts
 relations:
   governs:
     - E-领域事件与单写队列
-updatedIn: iter-20260816-6q6f
+updatedIn: iter-20260820-qhv8
 ```
 
 ## 规则
@@ -894,7 +882,7 @@ updatedIn: iter-20260820-qhv8
 ## 规则
 协议能力演进三定律：
 ①可选参数扩展优先于新命令对——同一命令能以可选参数承载的语义（session.subscribe 扩 tier、chat.steer 扩 instanceId、welcome 扩 draft 标记、chat.send 扩 draft 建会话 model——hotfix-20260820 例证）不新增命令对；仅当载荷形态无法容纳才新增（届时按 TR-AD-21 整链登记模式）。可选参数必带缺省语义（缺省 = 既有行为，旧剧本兼容），事件类型判别式只增不删不改（TR-AD-18 同源纪律）。
-②契约版本一次定形——同一批协议演进收拢为一次契约版本定形后铺开（v0.3 = spawn 锚点 DTO + tier 订阅 + steer 寻址三处同批；v0.4 = trace.query 命令族 + agent.instantiated/model.changed 落盘事件 + engine.error SubAgent 抑制守卫同批，iter-20260819-erio）；EVENT_TYPES/EVENT_CHANNELS 守护计数与 type-surface 穷尽断言同步一次扩。单仓同发（protocol + daemon + shell 同 commit 发版）无跨版本组合场景：PROTOCOL_VERSION 是批次集合标记而非协商位；批内破坏性清理（删 dead 类型 / 路径迁移 / 旧推导代码删除）一步完成不留双轨。
+②契约版本一次定形——同一批协议演进收拢为一次契约版本定形后铺开（v0.3 = spawn 锚点 DTO + tier 订阅 + steer 寻址三处同批；v0.4 = trace.query 命令族 + agent.instantiated/model.changed 落盘事件 + engine.error SubAgent 抑制守卫同批，iter-20260819-erio；v0.5 = payload 形状全量回迁正文（13 命令 + 11 结果帧 + draft 字段登记）+ §14 微批字段定形 + SoT 五断言同批，iter-20260820-qhv8，执行律详见 TR-AD-26）；EVENT_TYPES/EVENT_CHANNELS 守护计数与 type-surface 穷尽断言同步一次扩。单仓同发（protocol + daemon + shell 同 commit 发版）无跨版本组合场景：PROTOCOL_VERSION 是批次集合标记而非协商位；批内破坏性清理（删 dead 类型 / 路径迁移 / 旧推导代码删除）一步完成不留双轨。
 ③订阅状态连接级隔离——daemon 订阅状态（Map<sessionId, tier>，tier = full | monitor）是连接私有状态，由 EventStream 按连接持有；daemon 不持跨连接全局订阅知识（拒绝「daemon 知道哪些会话活跃」的中心化换档）；断连即丢、重连由客户端重放全订阅图。N 窗口 = N 连接 = N 独立订阅图，多窗口/多客户端在协议层零改动扩展。档位过滤（monitor 白名单）在事件分发层一处完成，不散落 service。
 
 ## 理由
@@ -921,13 +909,13 @@ derivedFrom:
 anchors:
   implementedBy:
     - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
-    - apps/daemon/src/application/services/SchedulerService.ts
+    - apps/daemon/src/application/services/scheduler/SchedulerService.ts
     - apps/daemon/src/infrastructure/container.ts
 relations:
   governs:
     - E-AgentProfile
     - E-调度器
-updatedIn: iter-20260819-erio
+updatedIn: iter-20260820-qhv8
 ```
 
 ## 规则
@@ -956,6 +944,12 @@ derivedFrom:
   - AD-3（iter-20260820-qhv8：越线才修 + 常设策略落规则，用户 2026-08-20 裁决）
   - F-9（全库体量盘点：5 热点零收敛 + 400–700 段新增 16 个）
   - "F-2 #1/#2/#3（上迭代终验优化池：type-surface 1582 越强制线 + 三大文件 700+ + events.ts 贴线）"
+  - "F-9 计数更正（终验 TR-AD-25-r2：审计时 16 个 → 收口复测 20 .ts + 2 .tsx 登记——热修批后测试自然增长，T4.3 复测与 T4.1 实测恰等）"
+relations:
+  governs:
+    - E-调度器
+    - E-会话聚合
+    - E-领域事件与单写队列
 anchors:
   implementedBy:
     - scripts/audit-assert.ts#SIZE_FAIL_LINES
@@ -973,7 +967,7 @@ updatedIn: iter-20260820-qhv8
 ```
 
 ## 规则
-源码与测试文件的体量双线：700 行预警 / 1000 行强制，作用于 apps/** 与 packages/** 的 .ts 文件（文档与 git 管理的产物不在此列）。四条执行律：①强制线机械阻断——超过 1000 行的文件使 audit:assert 非零退出（CI 红），非协商、不豁免于「临时」理由；本仓唯一豁免通道 = audit-assert.ts 内显式豁免清单（文件 + 一行理由），禁止上调阈值（阈值是裁决值，蠕变即策略失效）。②预警线审计可见——≥700 行在 audit:assert 输出汇总（文件 + 行数），进优化池登记，不阻断；新增代码使既有文件越过预警线时，同批内要么拆分要么登记（不许静默增长）。③触发式还债——400–700 段的登记热点（F-9 的 16 个）不主动拆；被触碰（新增功能/修缺陷需改该文件）时先还债（拆分或明确豁免登记）再加码。④拆分纪律——拆分一律机械迁移：函数/case 体逐行搬移 + 仅机械代换（this.deps.X → ctx.X / import 路径），不改分支、字符串、回执时序；拆分 = 独立 commit + 拆分前后对应包全量测试绿；行为变化与结构搬移不得混入同一 commit。
+源码与测试文件的体量双线：700 行预警 / 1000 行强制，作用于 apps/** 与 packages/** 的 .ts 文件（文档与 git 管理的产物不在此列）。四条执行律：①强制线机械阻断——超过 1000 行的文件使 audit:assert 非零退出（CI 红），非协商、不豁免于「临时」理由；本仓唯一豁免通道 = audit-assert.ts 内显式豁免清单（文件 + 一行理由），禁止上调阈值（阈值是裁决值，蠕变即策略失效）。②预警线审计可见——≥700 行在 audit:assert 输出汇总（文件 + 行数），进优化池登记，不阻断；新增代码使既有文件越过预警线时，同批内要么拆分要么登记（不许静默增长）。③触发式还债——400–700 段的登记热点（F-9 审计 16 个，收口复测 20 .ts + 2 .tsx 登记）不主动拆；被触碰（新增功能/修缺陷需改该文件）时先还债（拆分或明确豁免登记）再加码。④拆分纪律——拆分一律机械迁移：函数/case 体逐行搬移 + 仅机械代换（this.deps.X → ctx.X / import 路径），不改分支、字符串、回执时序；拆分 = 独立 commit + 拆分前后对应包全量测试绿；行为变化与结构搬移不得混入同一 commit。
 
 ## 理由
 iter-20260820-qhv8 全库盘点（F-9）实证体量走势零收敛：五个已知热点无一收敛（WsServerAdapter +13、events.ts +6），且 400–700 段新增 16 个——靠「批次集中治理」无法对抗每次迭代 +N 行的增量惯性，必须常设化。双线设计把「何时必须拆」从评审争论变成机械判定（1000 线由脚本红绿裁决）；700 线只登记不阻断，避免治理本身成为功能迭代摩擦源。触发式还债（用户 AD-3 裁决）平衡「彻底治理」与「本期不扩散拆分面」：16 个热点未来触碰时还债，未触碰不投入。type-surface.test.ts 1582 行（上迭代优化池 #1）证明测试文件与源码同线同责——守护网自身也会腐化。拆分纪律四条来自 T1.1 handler 模块化的成功先例（diff 逐行对照可行），是行为等价（AD-1）在结构治理面的落地。
@@ -1017,7 +1011,7 @@ updatedIn: iter-20260820-qhv8
 ```
 
 ## 规则
-PROTOCOL.md 是 WS 契约的唯一事实源，且该地位必须机械可验证。四条执行律：①payload 形状正文登记——所有命令/事件的 payload 形状必须登记在 PROTOCOL.md 正文（§15 命令全集 / §16 事件全集，按通道族组织，与 packages/protocol/src/events/ 族拆分、type-surface 族测试三面同构）；禁止委托仓外文档或「以代码为文档」。additive 可选字段（TR-AD-23① 口径）同样必须落字段行登记（含缺省语义），新增命令/事件不同步登记即守护红。②版本位单点——PROTOCOL_VERSION 唯一定义在 packages/protocol/src/envelope.ts；任何脚本/文档/测试引用版本一律从单点读或由断言守护，禁止手写字面量。③一致性断言守护——sot-consistency.test.ts 五条机械断言：文档版本位 == 单点导出值；COMMAND_TYPES/EVENT_TYPES 每字面量有正文登记锚；文档计数 == 常量目录长度；关键 additive 字段 presence；§16 族小节 == EVENT_CHANNELS 通道归属。断言粒度边界：字段级逐形状 diff 属生成式基建（AD-4 选项 C，入池），本期不建。④mock 契约等价联动（TR-TEST-3 延伸）——fake-transport 等契约 mock 的校验口径对齐真实 daemon normalize 实现，不弱于、也不私设口径；验证链三层闭合：文档 ↔ 类型（sot-consistency）↔ daemon normalize（integration）↔ mock（shell 测试）。
+PROTOCOL.md 是 WS 契约的唯一事实源，且该地位必须机械可验证。四条执行律：①payload 形状正文登记——所有命令/事件的 payload 形状必须登记在 PROTOCOL.md 正文（§15 命令全集 / §16 事件全集，按通道族组织，与 packages/protocol/src/events/ 族拆分、type-surface 族测试三面同构）；禁止委托仓外文档或「以代码为文档」。additive 可选字段（TR-AD-23① 口径）同样必须落字段行登记（含缺省语义），新增命令/事件不同步登记即守护红。②版本位单点——PROTOCOL_VERSION 唯一定义在 packages/protocol/src/envelope.ts；任何脚本/文档/测试引用版本一律从单点读或由断言守护，禁止手写字面量。实现注记（node 直跑脚本，T2.2 落地先例）：引用 workspace TS 包时优先 import 自包含单文件源（perf-a11y-audit.mjs 直读 envelope.ts）——包入口 index.ts 的无扩展名 re-export 在 node 24 type-stripping 下不可解析，勿走包入口。③一致性断言守护——sot-consistency.test.ts 五条机械断言：文档版本位 == 单点导出值；COMMAND_TYPES/EVENT_TYPES 每字面量有正文登记锚；文档计数 == 常量目录长度；关键 additive 字段 presence；§16 族小节 == EVENT_CHANNELS 通道归属。断言粒度边界：字段级逐形状 diff 属生成式基建（AD-4 选项 C，入池），本期不建。④mock 契约等价联动（TR-TEST-3 延伸）——fake-transport 等契约 mock 的校验口径对齐真实 daemon normalize 实现，不弱于、也不私设口径；验证链三层闭合：文档 ↔ 类型（sot-consistency）↔ daemon normalize（integration）↔ mock（shell 测试）。
 
 ## 理由
 一致性审计（F-5）实证了「口头 SoT」的三种腐化形态：版本字面量漂移（脚本 0.3 vs 实值 0.4，audit:a11y 持续发非法帧）、正文登记缺口（welcome.draft 零登记）、历史形态残留（§3 信封代码块展示已删除的接口）——以及结构性的第四种：v0.2 起 13 命令 + 11 结果帧 payload 形状委托仓外文档，与 §12「SoT 归本文档」声明直接相悖。结论：SoT 声明若不可机械验证，漂移只是时间问题；回迁正文 + 五条 presence 级断言以最小成本（无生成式基建）把声明变成红绿事实。mock 联动律来自优化池 #8 的教训：mock 侧校验缺口会让 mock 测试绿而真机行为偏离——mock 是契约的第三投影面，必须与 daemon 同口径。版本批次语义（一次定形、批次标记非协商位）仍归 TR-AD-23②，本规则只管「登记完整 + 不漂移」。

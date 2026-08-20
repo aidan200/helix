@@ -48,15 +48,19 @@ derivedFrom:
   - AD-15
   - AD-16
   - AD-17
+anchors:
+  implementedBy:
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
+    - apps/daemon/test/integration/session-projection.test.ts
 relations:
   governs:
     - E-AgentRuntime
     - E-领域事件与单写队列
-updatedIn: iter-20260816-uzvg
+updatedIn: iter-20260820-qhv8
 ```
 
 ## 规则
-AD 架构纪律以自动化守护测试固化，随代码同仓、破坏即红：①依赖方向扫描——domain 不 import application/adapters/infrastructure 与 pi 库；application 不 import adapters 与 pi 库；pi 库 import 仅出现在 adapters/driven/pi-engine、adapters/driven/tools（工具接线域）与 adapters/driven/subagent（SubAgent 子进程形态：launcher 透传 Model、child 复用 pi-engine 防腐墙、剧本引擎用 pi-ai 流原语；T2.2 新增，与 TR-AD-7 三根同口径）；②port 零实现——application/ports/ 文件静态检查不得含实现代码、工厂或实例化；③写路径唯一——领域事件落盘仅经单写队列，扫描绕过队列的 SQLite 直写；④扩展公式验证——用一个 TestProfile（模拟 M2 SubAgent 形态：不同钩子装配 + 单轮收敛策略）验证不改 AgentRuntime 源码即可装配并跑通。
+AD 架构纪律以自动化守护测试固化，随代码同仓、破坏即红：①依赖方向扫描——domain 不 import application/adapters/infrastructure 与 pi 库；application 不 import adapters 与 pi 库；pi 库 import 仅出现在 adapters/driven/pi-engine、adapters/driven/tools（工具接线域）与 adapters/driven/subagent（SubAgent 子进程形态：launcher 透传 Model、child 复用 pi-engine 防腐墙、剧本引擎用 pi-ai 流原语；T2.2 新增，与 TR-AD-7 三根同口径）；②port 零实现——application/ports/ 文件静态检查不得含实现代码、工厂或实例化；③写路径唯一——领域事件落盘仅经单写队列，扫描绕过队列的 SQLite 直写；④扩展公式验证——用一个 TestProfile（模拟 M2 SubAgent 形态：不同钩子装配 + 单轮收敛策略）验证不改 AgentRuntime 源码即可装配并跑通。⑤守护面随迁——源码路径字符串型守护断言（直读源码断言型，如 session-projection 零聚合写守护）在守护对象拆分/迁移时必须随迁扩展至全部产物（守护面 = 目录全部产物），防「拆分绕过守护」——守护语义跟随被守护代码，而非跟随文件名（iter-20260820-qhv8 scheduler/ 三分实证：事件翻译逻辑拆出后守护圈同步扩展至三文件）。
 
 ## 理由
 分层、port 零实现、单写路径、扩展公式是 AD-12/15/16/17 的机械可判纪律，人审会漏、测试不会；TestProfile 是「新增 profile 不改 runtime」公式的回归锚点。
@@ -198,19 +202,20 @@ anchors:
     - playwright.e2e.config.ts
     - e2e/harness/tmp-hygiene.ts
     - e2e/harness/e2e-global-setup.ts
+    - e2e/harness/evidence.ts
   testedBy:
     - e2e/CL-4-teardown-residue.spec.ts
 relations:
   dependsOn:
     - TR-TEST-4
     - TR-TEST-5
-updatedIn: iter-20260818-mq5a
+updatedIn: iter-20260820-qhv8
 ```
 
 ## 规则
 任何起进程/占端口/建 tmp 的测试（integration/fidelity/e2e）teardown 三件套彻底清理：tmp 目录（--home 注入的 mkdtemp 全删）、子进程（daemon 及其派生的 SubAgent 子进程树——SIGTERM 优雅停机 + 超时升级强杀，不留孤儿进程）、端口（结束释放验证）。
 以「同一套件连跑两轮零残留」断言机械化守护：残留检测任一命中即红（tmp 未删/进程存活/端口占用）；CI 必须包含连跑两轮形态。fixture（daemon-fixture/mock-init）是清理责任的唯一归属——测试用例不得自带旁路清理逻辑。
-外补条目（iter-20260818-mq5a CL-7/Q-5）：E 层 globalSetup 首步执行 TMPDIR 全前缀卫生预检（helix-* 前缀残留=0 才放行，非零 fail-fast 报清单，先于端口预检与构建）；残留断言面前缀面扩至 helix-* 全前缀（不限于单一迭代前缀）；bun test 侧自建沙箱 afterAll 统一回收。
+外补条目（iter-20260818-mq5a CL-7/Q-5）：E 层 globalSetup 首步执行 TMPDIR 全前缀卫生预检（helix-* 前缀残留=0 才放行，非零 fail-fast 报清单，先于端口预检与构建）；残留断言面前缀面扩至 helix-* 全前缀（不限于单一迭代前缀）；bun test 侧自建沙箱 afterAll 统一回收。EVIDENCE_DIR 迭代感知三态契约（iter-20260820-qhv8 F(5).1）：env HELIX_EVIDENCE_ITER 优先 → git 分支 dev-<iterId> → 报错兜底（无静默兜底），工作区根向上查 docs/iterations 祖先穿透 .worktrees——e2e 证据自动落当前迭代目录，单点 e2e/harness/evidence.ts；TMPDIR 预检排除表（长驻应用前缀白名单）不弱化检出力。
 
 ## 理由
 TR-TEST-4 只裁隔离注入（--home tmp），未覆盖进程/端口残留；F4.3 实锤 e2e teardown 残留（首迭代遗留项）；残留会让下一轮测试假红/假绿并污染开发机，连跑两轮断言把「零残留」从纪律变为机械判据。F4.5 裁决将本纪律落为 testing-rules.md 新 TR。M4 CL-7（Q-5）：连跑两轮断言只证本轮零残留，防不了外部残留污染断言面；跑前预检把「进入断言面前先证清白」机制化为 fail-fast，红/绿双路径已在 iter-20260818-mq5a 实证（首跑拦截 896 条开发阶段中断遗留）。
@@ -220,3 +225,37 @@ e2e/harness（daemon-fixture/mock-init/tmp-hygiene）维护；新 fixture 接入
 
 ## 反例
 daemon-fixture 只 kill 直接子进程，SubAgent 子进程成孤儿继续占端口/预算——第二轮连跑端口冲突假红；或测试用例末尾自己 process.kill 补刀——清理责任旁路出 fixture，新用例接入时漏复制即残留复发。预检只进 spec 不进 globalSetup（spec 内预检已晚于构建，拦不住本轮污染）；afterAll 回收旁路散点化（各测试自记自删，漏一处即破坏断言面）。
+
+```kg-node
+id: TR-TEST-7
+kind: rule
+graph: tech
+layer: common
+scope: domain
+stack: shared
+name: 循环依赖解环验证纪律（type 回边 + 阳性对照）
+status: active
+digest: 解循环依赖、配 madge 环检测、宣称消环时
+derivedFrom:
+  - iter-20260820-qhv8 T3.2（F-8 解环实证）
+  - F-11（保留作常设反向对照）
+anchors:
+  testedBy:
+    - bunx madge --circular --extensions ts .（ad-hoc 命令口径，T3.2 钉契约；常设挂接评估见优化池 N2）
+relations:
+  governs:
+    - E-领域事件与单写队列
+updatedIn: iter-20260820-qhv8
+```
+
+## 规则
+解环验证双纪律：①type 回边统计——循环依赖的回边常为 import type（编译期擦除、运行时不构成环，但静态面是环）；环检测工具必须统计 type import（madge 需 --extensions ts 且确认其含 type 边，跑全仓口径），否则「消环」声明对 type-only 环失明。②阳性对照先行——宣称消环前，先以已知环复现确认工具灵敏度（红灯基线），再验证目标环消失——未经阳性对照的「零环」输出不可信。F-11 两个域内 type-only 环保留为常设反向对照（灵敏度基准）。
+
+## 理由
+T3.2 解 F-8 环实证：madge 首跑漏 type 边险些误判消环；以三环复现（含两个 type-only 环）确认灵敏度后，「F-8 消失 / F-11 仍在」的结论才成立。解环声明 = 工具灵敏度 × 目标环消失的合取，缺一即假绿。
+
+## 适用范围
+任何循环依赖解环任务的验证设计；madge/环检测工具接入 CI 或 audit:assert（优化池 N2）时的口径评审；新依赖边引入时的环风险检查。
+
+## 反例
+用只统计值导入的工具跑出「零环」即宣称解环成功（type-only 环全程不可见——F-11 两环恰为此形态）；或工具配置变更后不重跑阳性对照直接采信零环输出（配置漂移使灵敏度静默下降）。
