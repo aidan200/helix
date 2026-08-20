@@ -17,6 +17,7 @@ import type { EventEnvelope, SessionMeta } from "@helix/protocol";
 import { dispatchFrame } from "./frame";
 import { createInitialTopologyState, type TopologyState } from "../state";
 import { sessionReducer } from "../session-reducer";
+import { topologyReducer } from "../topology";
 
 // ── 帧构造（v0.2 信封章印；daemon 下发侧同构）──────────────
 
@@ -195,5 +196,41 @@ describe("dispatcher 与既有 reducer 组合面", () => {
     const viaDispatcher = dispatchFrame(createInitialTopologyState(), legacy, 0);
     const viaReducer = sessionReducer(createInitialTopologyState().active, { type: "event", event: legacy, ts: 0 });
     expect(viaDispatcher.active.streaming).toEqual(viaReducer.streaming);
+  });
+});
+
+describe("草稿态帧路由（bug3 流式串台修复：后台路由不依赖 activeId 非空）", () => {
+  /** 草稿态拓扑：A 流式中用户新建草稿（A 转后台轻量已播种，active.sessionId=null）。 */
+  function draftTopology(): TopologyState {
+    const topo = topologyReducer(topologyWithBackground(), { type: "session/new-draft" });
+    expect(topo.active.sessionId).toBeNull();
+    expect(topo.background[A]).toBeDefined();
+    return topo;
+  }
+
+  it("a. 草稿态收到后台已播种会话的 chat.stream.delta → 后台轻量消费，活跃草稿 store 零改动", () => {
+    const topo = draftTopology();
+    const before = topo.active;
+    const next = dispatchFrame(topo, frame("chat.stream.delta", { messageId: "m1", delta: "旧会话流式" }, { sessionId: A, channel: "chat" }), 0);
+    expect(next.background[A]!.unread).toBe(1);
+    expect(next.background[A]!.runState).toBe("streaming");
+    // 串台修复：旧会话流式帧不写入活跃草稿 store（引用不变 + streaming 仍 null）
+    expect(next.active).toBe(before);
+    expect(next.active.streaming).toBeNull();
+  });
+
+  it("b. 草稿态收到未知会话帧 → 原样丢弃（多会话隔离语义不变）", () => {
+    const topo = draftTopology();
+    const next = dispatchFrame(topo, frame("chat.stream.delta", { messageId: "x", delta: "陌生会话" }, { sessionId: "sess-unknown", channel: "chat" }), 0);
+    expect(next).toBe(topo);
+  });
+
+  it("c. 草稿态收到 model.get.result（信封 sid=目标会话）→ modelConfig 面正常消费（防回归：配置族前置）", () => {
+    const topo = draftTopology();
+    const next = dispatchFrame(topo, frame("model.get.result", { defaultModel: "openai/gpt-5.2" }, { sessionId: A, channel: "model" }), 0);
+    expect(next.modelConfig.defaultModel).toBe("openai/gpt-5.2");
+    // 拓扑级消费：活跃草稿 store 与后台轻量态均不被误写（配置族不入后台未读）
+    expect(next.active).toBe(topo.active);
+    expect(next.background[A]!.unread).toBe(0);
   });
 });

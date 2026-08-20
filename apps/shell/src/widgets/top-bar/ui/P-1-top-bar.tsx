@@ -11,7 +11,7 @@
  * 断言面）；usage popover 仍以 .app 直接子元素渲染（backdrop-filter 包含
  * 块约束，与原型 DOM 同构）。
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, Settings } from "lucide-react";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/ui/theme";
@@ -46,7 +46,7 @@ const noop = () => {};
 
 const AppHeader = function AppHeader({ onOpenInstance = noop, onOpenSettings = noop }: TopBarProps = {}) {
   const { t } = useI18n();
-  const { state, topology } = useSession();
+  const { state, topology, requestModelConfig } = useSession();
   const { theme, setTheme } = useTheme();
   const [statsOpen, setStatsOpen] = useState(false);
   // P-3 模型菜单开合（F(3.3).1：徽标点击 toggle；点外/Esc 关闭归菜单组件）
@@ -58,6 +58,23 @@ const AppHeader = function AppHeader({ onOpenInstance = noop, onOpenSettings = n
     state.sessionId === null
       ? t("chat.topbar.draftTitle")
       : (topology.list.find((m) => m.sessionId === state.sessionId)?.title ?? "");
+  // 草稿态徽标数据源（T3，bug4）：sessionId===null + view ready + connected 时
+  // state.model（本地暂存所选）空 → 回退全局默认模型；两者皆空才不显示。
+  // 其余态维持现状（state.model 空不显示）。
+  const isDraftReady =
+    state.sessionId === null && state.view === "ready" && state.conn === "connected";
+  const badgeModel = isDraftReady
+    ? state.model || topology.modelConfig.defaultModel
+    : state.model;
+
+  // 草稿徽标 fallback 加载链（bug4 追修）：草稿态展示模型为空且全局默认
+  // 未加载时主动拉取——新建草稿不经菜单/模型页，defaultModel 可能从未
+  // 请求过（provider 侧幂等：defaultModel 非空零重发）。
+  useEffect(() => {
+    if (isDraftReady && !state.model && topology.modelConfig.defaultModel === "") {
+      requestModelConfig();
+    }
+  }, [isDraftReady, state.model, topology.modelConfig.defaultModel, requestModelConfig]);
 
   return (
     <>
@@ -72,7 +89,7 @@ const AppHeader = function AppHeader({ onOpenInstance = noop, onOpenSettings = n
         <span className="hud-chip">{t("chat.header.home")}</span>
         <div className="header-right">
           <StatsBadge open={statsOpen} onToggle={() => setStatsOpen((v) => !v)} />
-          {state.model && (
+          {badgeModel && (
             <button
               className={cn("hud-badge model-badge", modelMenuOpen && "open")}
               type="button"
@@ -87,7 +104,7 @@ const AppHeader = function AppHeader({ onOpenInstance = noop, onOpenSettings = n
               }}
             >
               <span className="mb-dot" aria-hidden="true" />
-              {state.model}
+              {badgeModel}
               <ChevronDown className="mb-chev" size={14} strokeWidth={1.75} aria-hidden="true" />
             </button>
           )}

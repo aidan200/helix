@@ -343,6 +343,10 @@ export type SessionAction =
   | { type: "event"; event: EventEnvelope; ts?: number }
   // ── 纯 UI 态 ──
   | { type: "ui/set-draft"; text: string }
+  /** 草稿模型本地暂存（T3，bug4）：仅 sessionId===null（草稿态）生效置
+   *  state.model（徽标/首条 chat.send{draft:true, model} 数据源）；真实会话
+   *  原样（防御——真实会话换模走 model.set 帧语义） */
+  | { type: "ui/set-draft-model"; model: string }
   /** 发送提交（turn = chat.send / steer = chat.steer；ts 由调用方注入保证重放确定） */
   | { type: "ui/send"; text: string; mode: "turn" | "steer"; ts: number }
   /** 抽屉定向 steer 提交（CL-3）：本地 echo 双投影——主轴定向 entry（时间轴

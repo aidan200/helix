@@ -272,8 +272,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       );
     } else if (sessionId === null) {
       // 草稿首条消息（契约 B §1.5）：无信封 sessionId + draft:true →
-      // daemon 建聚合 + list_changed{created} + 订阅切换 + 新会话快照回推
-      clientRef.current!.send(chatSendDraftCommand(text));
+      // daemon 建聚合 + list_changed{created} + 订阅切换 + 新会话快照回推。
+      // T3（bug4）：草稿所选模型（ui/set-draft-model 本地暂存）随首条上送；
+      // 未选（空串）→ 不携带 model（daemon 用全局默认）
+      const draftModel = topologyRef.current.active.model;
+      clientRef.current!.send(chatSendDraftCommand(text, draftModel === "" ? undefined : draftModel));
     } else {
       clientRef.current!.send(chatSendCommand(text, sessionId));
     }
@@ -395,7 +398,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   //（in-flight 锁定 + 乐观面；结果帧到达由 model-config 消费者接管）──
   const setSessionModel = useCallback((model: string) => {
     const { sessionId } = topologyRef.current.active;
-    if (sessionId === null) return; // 草稿无会话上下文：零帧零动作
+    if (sessionId === null) {
+      // 草稿无会话上下文（T3，bug4）：本地暂存（ui/set-draft-model）——
+      // 徽标即时反映，随首条 chat.send{draft:true, model} 上送生效
+      dispatch({ type: "ui/set-draft-model", model });
+      return;
+    }
     clientRef.current!.send(modelSetCommand(model, sessionId));
   }, []);
 

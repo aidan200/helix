@@ -29,22 +29,24 @@ function proj(cmds: readonly { type: string; sessionId?: string; payload?: unkno
   ]);
 }
 
-/** 首连激活（daemon 自动 attach 快照 → 活跃位建立；tier 未簿记零命令）。 */
+/** 首连激活（daemon 自动 attach 快照 → 活跃位建立 + 静默簿记 full；零命令——daemon attach 本就是 full）。 */
 function activateFirst(l: SubscriptionLedger, sessionId: string): void {
   const v = l.onSnapshot(sessionId);
   if (!v.dispatch || v.commands.length !== 0) throw new Error("首连激活前置失败");
 }
 
 describe("SubscriptionLedger —— 启动全图订阅（syncList）", () => {
-  test("活跃 full 先行，其余按清单序 monitor；幂等收敛零重发", () => {
+  test("活跃已 full 簿记零重发（自动 attach 静默登记），其余按清单序 monitor；幂等收敛零重发", () => {
     const l = new SubscriptionLedger();
-    activateFirst(l, "a"); // daemon 自动 attach 快照（tier 未簿记 → 零命令）
+    activateFirst(l, "a"); // daemon 自动 attach 快照（静默簿记 a=full → 零命令）
     const cmds = l.syncList(["a", "b", "c"]);
+    // a 簿记已是 full（daemon attach 本就是 full）→ 重发 = 冗余噪声（且 daemon
+    // 对每次 subscribe 均重推快照）→ 幂等语义下不再发出；仅补订 b/c monitor
     expect(proj(cmds)).toEqual([
-      ["session.subscribe", "a", "full"],
       ["session.subscribe", "b", "monitor"],
       ["session.subscribe", "c", "monitor"],
     ]);
+    expect(l.tierOf("a")).toBe("full");
     // 幂等：同清单同活跃 → 零命令
     expect(l.syncList(["a", "b", "c"])).toEqual([]);
   });
@@ -187,6 +189,17 @@ describe("SubscriptionLedger —— 快照路由判定（onSnapshot）", () => {
     const r = l.onSnapshot("n");
     expect(r.dispatch).toBe(true);
     expect(proj(r.commands)).toEqual([["session.subscribe", "n", "full"]]);
+  });
+
+  test("welcome 自动 attach 会话静默簿记 full → 随后 newDraft 发出降档命令（bug3 根因②修复）", () => {
+    const l = new SubscriptionLedger();
+    // 首连：daemon 自动 attach 当前会话并重推快照（本连接未发任何 subscribe，tiers 空）
+    const v = l.onSnapshot("a");
+    expect(v).toEqual({ commands: [], dispatch: true }); // 静默登记：零命令冗余噪声
+    expect(l.tierOf("a")).toBe("full"); // 激活同刻簿记 full（daemon attach 本就是 full）
+    // 用户新建草稿：簿记在册 → 对旧会话发出降档命令
+    // （修复前簿记为空 → 零命令 → daemon 侧 full 订阅持续全量推流，流量放大）
+    expect(proj(l.newDraft())).toEqual([["session.subscribe", "a", "monitor"]]);
   });
 
   test("dropActive（删活跃本地转草稿）：活跃位置零，零命令；退订归 removeDeleted", () => {

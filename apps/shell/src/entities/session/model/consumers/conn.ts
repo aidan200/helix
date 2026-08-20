@@ -57,6 +57,23 @@ export function applyConnEvent(s: SessionState, event: EventEnvelope, _ts?: numb
         : s.hasConnected
           ? ("restore" as const)
           : null;
+      // 草稿标记承接（T3，bug1 前端半面；TR-AD-23①）：draft===true = daemon
+      // 当前会话是零条目内存草稿（握手不 attach 不推快照）→ 前端落草稿态：
+      // sessionId 保持 null（不激活幻影会话）、view=ready、model 落 store
+      // （daemon 全局默认——草稿徽标数据源）；草稿态断连重连天然规避「welcome
+      // 把草稿顶回 daemon 当前会话」裂缝。agentState 不动（草稿无代理态）。
+      if (event.payload.draft === true) {
+        return {
+          ...s,
+          conn: "connected",
+          hasConnected: true,
+          pendingManualRetry: false,
+          toastPending,
+          sessionId: null,
+          model: event.payload.model,
+          view: "ready",
+        };
+      }
       return {
         ...s,
         conn: "connected",

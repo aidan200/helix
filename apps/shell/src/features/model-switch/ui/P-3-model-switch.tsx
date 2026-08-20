@@ -74,6 +74,11 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: Mo
     };
   }, [onClose]);
 
+  // 草稿态 currentModel 回退解析（T3，bug4）：state.model（本地暂存所选）
+  // 空 → 全局默认——选中态/徽标同源（顶栏徽标同一回退口径）；非草稿不变。
+  const currentModel =
+    state.sessionId === null ? state.model || mc.defaultModel : state.model;
+
   /** 可用性过滤（T5.3）+ 搜索 + provider 分组（组内序与组间序保持目录顺序）。 */
   const { groups, currentHit, defaultHit } = useMemo(() => {
     const models = mc.catalog?.models ?? [];
@@ -81,7 +86,7 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: Mo
       models,
       auth: mc.auth,
       authLoaded: mc.authLoaded,
-      currentModel: state.model,
+      currentModel,
       query,
     });
     const byProvider = new Map<string, CatalogModel[]>();
@@ -93,10 +98,10 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: Mo
     return {
       groups: [...byProvider.entries()],
       // T5.4：选中态/默认徽标走目录解析（provider 维度；短 id 跨厂商歧义不标）
-      currentHit: resolveCatalogMatch(state.model, models),
+      currentHit: resolveCatalogMatch(currentModel, models),
       defaultHit: mc.defaultModel === "" ? undefined : resolveCatalogMatch(mc.defaultModel, models),
     };
-  }, [mc.catalog, mc.auth, mc.authLoaded, mc.defaultModel, state.model, query]);
+  }, [mc.catalog, mc.auth, mc.authLoaded, mc.defaultModel, currentModel, query]);
 
   const hasResults = groups.length > 0;
   const empty = query.trim() !== "" && !hasResults; // 搜索零命中空态（与列表互斥）
@@ -105,7 +110,7 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: Mo
   const noAvailable =
     query.trim() === "" && !hasResults && mc.catalog !== null && mc.authLoaded;
   // F(3.3).3：会话模型 ≠ 全局默认才显示重置入口（相等隐藏）
-  const showReset = mc.defaultModel !== "" && !sameModel(state.model ?? "", mc.defaultModel);
+  const showReset = mc.defaultModel !== "" && !sameModel(currentModel, mc.defaultModel);
 
   /** F(3.3).2 选中即切：发 model.set + toast 交代；不关菜单（连续比对）。 */
   const pick = (model: string, label: string) => {

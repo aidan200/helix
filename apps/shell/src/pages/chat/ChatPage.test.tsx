@@ -13,6 +13,7 @@ import { ThemeProvider } from "@/shared/ui/theme";
 import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
 import { createInitialSessionState, sessionReducer, type SessionAction, type SessionState } from "@/entities/session/model/session-reducer";
+import { createInitialTopologyState } from "@/entities/session/model/state";
 
 const killInstance = vi.fn();
 const subscribeInstance = vi.fn();
@@ -29,12 +30,19 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     ...orig,
     useSession: () => ({
       state: stateRef.current,
-      // 拓扑面（T3.2 侧栏/顶栏消费面）：活跃即 mock state
-      topology: { active: stateRef.current, background: {}, list: [] },
+      // 拓扑面（T3.2 侧栏/顶栏消费面）：活跃即 mock state；modelConfig 为
+      // 初始零态（顶栏草稿徽标 fallback 读取 defaultModel）
+      topology: {
+        ...createInitialTopologyState(),
+        active: stateRef.current,
+        background: {},
+        list: [],
+      },
       switchSession,
       newDraft,
       deleteSession,
       requestSessionList,
+      requestModelConfig: () => {},
       killInstance,
       subscribeInstance,
       unsubscribeInstance,

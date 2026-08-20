@@ -37,9 +37,15 @@ export function chatSendCommand(text: string, sessionId: string): ChatSendComman
   return { v: PROTOCOL_VERSION, type: "chat.send", sessionId, payload: { text } };
 }
 
-/** chat.send 草稿首条消息：无信封 sessionId + draft:true（契约 B §1.5）。 */
-export function chatSendDraftCommand(text: string): ChatSendCommand {
-  return { v: PROTOCOL_VERSION, type: "chat.send", payload: { text, draft: true } };
+/** chat.send 草稿首条消息：无信封 sessionId + draft:true（契约 B §1.5）。
+ *  T3（bug4）：model 可选——仅非空时携带（ChatSendPayload.model?，仅
+ *  draft:true 建会话链消费；缺省 = 全局默认不换模）。 */
+export function chatSendDraftCommand(text: string, model?: string): ChatSendCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "chat.send",
+    payload: model === undefined ? { text, draft: true } : { text, draft: true, model },
+  };
 }
 
 /** chat.steer：生成中注入（信封 sessionId = 活跃会话）。v0.3（契约 §3.1，

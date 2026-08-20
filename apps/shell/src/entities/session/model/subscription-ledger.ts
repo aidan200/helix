@@ -7,7 +7,9 @@
  * - activeId：活跃会话内部镜像。store 经 React dispatch 异步更新（同 tick
  *   批处理时 topologyRef 滞后），而快照→清单等同 tick 帧链需要同步判据——
  *   故活跃位由本簿随 switchTo/newDraft/onSnapshot(激活) 同步推进；
- * - tiers：本连接已发出档位（last-sent；幂等语义 = Map.set 覆盖收敛）；
+ * - tiers：本连接已发出档位（last-sent；幂等语义 = Map.set 覆盖收敛）+ 首连
+ *   自动 attach 的静默登记（daemon attach 即 full，簿记对齐——否则 newDraft
+ *   对该会话零降档命令，流量放大）；
  * - pending：切换「先升后降」挂起——subscribe(new, full) 立即发，旧活跃
  *   （及连切链上的中间目标）降档延迟至 ack（= session.snapshot 帧到达，
  *   contract §2.1 回执形态）才发出，瞬时双 full 窗口内不丢帧不串台。
@@ -160,8 +162,8 @@ export class SubscriptionLedger {
    * ① 命中挂起 target → 先升后降收口（demote 链逐一降 monitor）；
    * ② 激活判定：快照目标 ≠ 当前活跃且（挂起 target / 无活跃——草稿链/首连）
    *    → 进 dispatcher（目标转活跃）+ monitor 档位补升 full（草稿链 created
-   *    先补订 monitor 的升级点；tier 未簿记 = daemon 自动 attach，归 syncList
-   *    对齐不重复发）；
+   *    先补订 monitor 的升级点）；首连自动 attach（tier 簿为空）静默登记 full
+   *    （daemon attach 即 full，零命令冗余噪声）；
    * ③ 其余（monitor 档 subscribe 的回推快照）→ 纯 ack 噪声吞帧（dispatch=false）。
    */
   onSnapshot(sessionId: string): SnapshotVerdict {
@@ -183,14 +185,23 @@ export class SubscriptionLedger {
     }
     // 无活跃三分支：
     // ① 草稿链激活（created 补订登记在册）→ 进 dispatcher + monitor 升 full；
-    // ② 首连自动 attach（本连接未发任何 subscribe，tier 簿为空）→ 既有兜底激活；
+    // ② 首连自动 attach（本连接未发任何 subscribe，tier 簿为空）→ 既有兜底激活
+    //    + 静默登记 full（只簿记不发命令——daemon attach 本就是 full，发命令是
+    //    冗余噪声；bug3 根因②修复：不登记则后续 newDraft 对该会话零降档命令，
+    //    daemon 侧 full 订阅持续全量推流，流量放大）；
     // ③ 其余 = 降档/补订 ack 噪声（daemon 对每次 subscribe 均重推快照——如
     //    newDraft 降 monitor 的回推）→ 吞帧保草稿（E 层实查：若激活会把草稿
     //    顶回旧会话，首条消息误发旧会话）。
-    if (this.pendingActivation.has(sessionId) || this.tiers.size === 0) {
+    if (this.pendingActivation.has(sessionId)) {
       this.pendingActivation.delete(sessionId);
       this.activeId = sessionId;
       if (this.tiers.get(sessionId) === "monitor") commands.push(this.set(sessionId, "full"));
+      return { commands, dispatch: true };
+    }
+    if (this.tiers.size === 0) {
+      // 先判 tiers.size === 0 再登记（登记后簿非空，顺序不可颠倒）
+      this.activeId = sessionId;
+      this.tiers.set(sessionId, "full"); // 静默簿记（零命令；见模块头/上注）
       return { commands, dispatch: true };
     }
     return { commands, dispatch: false };

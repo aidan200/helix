@@ -5,12 +5,19 @@
  * dispatchFrame（纯函数）：帧 → 解析信封（sessionId/channel/type）→ 按
  * sessionId 路由 → 按 type 交消费者：
  *
+ * ⓪ 拓扑级模型/厂商配置族（model/auth 9 类 *.result）→ modelConfig 面
+ *    ——先于后台路由：model.get.result 等结果帧信封 sid=目标会话，草稿态
+ *    （activeId=null）下若先过后台守卫会被误吞进后台路径；拓扑级消费提前安全；
  * ① 后台会话帧（信封 sessionId 命中后台轻量 store）→ 轻量消费（运行态徽标
  *    投影 + 未读计数；不渲染 entries）——活跃完整 store 引用保持不变；
- *    session.snapshot 除外（见②）：快照是连接级重建指令，目标会话转活跃；
- * ② 系统帧（sessionId = SYSTEM_SESSION_ID / 缺省——v0/v0.1 兼容单会话语义 /
- *    活跃会话未建立前的帧 / session.snapshot）→ 清单族（directory 拓扑级
- *    消费者）→ 活跃完整 store 消费者注册表（五族 + model/history）；
+ *    路由不依赖 activeId 非空（草稿态 activeId 可为 null——bug3 修复：
+ *    旧守卫「activeId!==null」让草稿态下旧会话流式帧绕过后台路由直落
+ *    活跃草稿 store，串台）；session.snapshot 除外（见②）：快照是连接级
+ *    重建指令，目标会话转活跃；
+ * ② 系统帧（sessionId = SYSTEM_SESSION_ID / 缺省——v0/v0.1 兼容单会话语义，
+ *    仅覆盖**无信封 sessionId** 的帧落活跃 / session.snapshot）→ 清单族
+ *    （directory 拓扑级消费者）→ 活跃完整 store 消费者注册表（五族 +
+ *    model/history）；
  * ③ 未知会话帧（既非活跃也非后台）→ 原样丢弃（多会话隔离，不误写活跃 store）。
  *
  * session.snapshot 应用后清理 background 同名轻量态（草稿建会话链：
@@ -32,14 +39,23 @@ import { route } from "./index";
 export function dispatchFrame(topo: TopologyState, frame: EventEnvelope, ts?: number): TopologyState {
   const sid = frame.sessionId;
   const activeId = topo.active.sessionId;
-  // ① 后台会话帧：轻量 store 消费（activeId 未建立时缺省按活跃/系统处理——v0.1 兼容）。
+  // ⓪ 拓扑级模型/厂商配置族（model/auth 9 类 *.result；T3.3 前置——含
+  //    model.get.result（信封 sessionId=目标会话）。先于后台路由：草稿态
+  //    （activeId=null）下结果帧若先过后台守卫会被误吞进后台路径；model 配置
+  //    族是拓扑级消费，提前安全；全局数据不入会话 store）
+  if (isModelConfigEventType(frame.type)) {
+    return applyModelConfigEvent(topo, frame);
+  }
+  // ① 后台会话帧：轻量 store 消费。草稿态 activeId 可为 null——后台路由不
+  //    依赖 activeId 非空（bug3 修复：旧守卫「activeId!==null」是 v0.1 兼容
+  //    缺省，其「activeId 为 null 只发生在首连前」假设已被草稿态打破；v0.1
+  //    兼容仅覆盖**无信封 sessionId** 的帧落活跃）。
   //    session.snapshot 例外：连接级重建指令（草稿建会话链/订阅切换/重连）——
   //    无论目标会话是否在后台，一律路由活跃完整 store（目标转活跃）
   if (
     sid !== undefined &&
     sid !== SYSTEM_SESSION_ID &&
     frame.type !== "session.snapshot" &&
-    activeId !== null &&
     sid !== activeId
   ) {
     return applyBackgroundFrame(topo, frame);
@@ -47,12 +63,6 @@ export function dispatchFrame(topo: TopologyState, frame: EventEnvelope, ts?: nu
   // ② 拓扑级清单族（session.list.result 点对点结果 / session.list_changed 广播）
   if (isDirectoryEventType(frame.type)) {
     return applyDirectoryEvent(topo, frame);
-  }
-  // ②′ 拓扑级模型/厂商配置族（model/auth 9 类 *.result；T3.3 前置——含
-  //    model.get.result（信封 sessionId=目标会话，活跃会话查询无路由问题）
-  //    与 8 类全局结果帧；在活跃 store 注册表之前，全局数据不入会话 store）
-  if (isModelConfigEventType(frame.type)) {
-    return applyModelConfigEvent(topo, frame);
   }
   // ③ 活跃完整 store 消费者注册表（未注册 type 保持原状态）
   const handler = route(frame.type);

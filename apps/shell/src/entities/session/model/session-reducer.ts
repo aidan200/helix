@@ -84,6 +84,9 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return applyEvent(state, action.event, action.ts);
     case "ui/set-draft":
       return { ...state, draft: action.text };
+    case "ui/set-draft-model":
+      // 草稿模型本地暂存（T3）：仅草稿态生效；真实会话原样（防御）
+      return state.sessionId === null ? { ...state, model: action.model } : state;
     case "ui/send": {
       const text = action.text.trim();
       if (!selectCanSend(state) || text === "") return state; // SM 规则 6：非 connected 拒发
