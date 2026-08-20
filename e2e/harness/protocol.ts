@@ -437,16 +437,7 @@ export function modelChanged(sessionId: string, model: string, previous: string)
 }
 
 // ── model / auth 命令结果帧（契约 C §1/§2.2；T3.3 P-3/P-4 剧本回放面）────
-// 信封惯例：全局命令结果 sessionId = SYSTEM_SESSION_ID；model.get.result
-// 例外（会话级——信封 sessionId = 目标会话，与 loadHistoryResult 同构）。
-
-/** model.get.result（会话当前模型 + 与全局默认关系；信封 sessionId = 目标会话）。 */
-export function modelGetResult(
-  sessionId: string,
-  payload: { model: string; isDefault: boolean; defaultModel: string },
-): EventEnvelope {
-  return { v: V, sessionId, channel: "model", type: "model.get.result", payload };
-}
+// 信封惯例：全局命令结果 sessionId = SYSTEM_SESSION_ID。
 
 /** model.catalog.result（目录快照；4h 缓存口径）。 */
 export function modelCatalogResult(
