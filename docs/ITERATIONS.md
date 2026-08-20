@@ -25,3 +25,7 @@
 - 主体：M5 SubAgent 可观测性：P0 三项真机修复（engine.error 呈现面通路 + closure 兜底原因 + spawn 模型三级解析链 TR-AD-24 落库）+ trace 页完整版（P-1，trace.query 命令族 + agent.instantiated/model.changed 落盘事件）+ PROTOCOL.md v0.4 收口。验证全绿：E 层 27/0 零 flake、CL-5 E2E 10/10、fidelity 8/8、契约类型层零漂移；终验生产就绪四项 PASS、全局审计 PASS-with-notes 无阻塞、L3 复核 15/15。
 - 触及：TR-AD-23
 - 状态：已沉淀
+
+## iter-20260820-qhv8 — 工程治理批次（审计冻结→拆分→契约 SoT v0.5→清理→测试基建）
+- 主体：纯工程治理批（零功能零 UI）：五热点拆分（type-surface 1582→15 文件、SchedulerService/DtoMapper/WsServerAdapter/events 拆分 + F-8 解环）+ 契约 SoT v0.5 收口（payload 全量回迁 + sot 五断言 + mock 织密）+ 死代码清理 + dev 升级 latest；退出基线全绿（daemon 453/0、shell 305/0、protocol 38/0、E 层 27/0、F 层 123/0、audit:assert ①-④）。终验：生产就绪四项全过、L3 复核 29 节点（6 文本漂移修正落库）、kg 裁决 17 候选清空（新增 TR-TEST-7 解环验证纪律），优化池移交 20+2 热点/N7-N11。
+- 状态：已沉淀
