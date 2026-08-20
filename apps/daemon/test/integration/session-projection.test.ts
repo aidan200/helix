@@ -332,7 +332,7 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
       // 被计入退订后断言窗口）。切片基准 = agent.completed 帧下标（非事后采样
       // frames.length——负载下 idle 帧可能先于采样到达，落入前缀永等不到，
       // 2026-08-18 OI-DEV-1 根治）
-      const completedIdx = client.frames.findLastIndex((f) => f.type === "agent.completed");
+      const completedIdx = client.frames.map((f) => f.type).lastIndexOf("agent.completed"); // es2022 lib 无 findLastIndex（OI-DEV-1 收口：等价语义零行为变更）
       try {
         await until(
           () =>

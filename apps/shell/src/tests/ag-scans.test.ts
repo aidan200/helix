@@ -171,7 +171,7 @@ describe("AG-17 页面域/会话域分离", () => {
   /** FSD 层内合法但架构 §4.1 禁止的依赖（页面域读会话 store 内部）。 */
   const sessionInternal = /from\s+["']@\/entities\/session/;
 
-  it("nav-rail 与四占位页已落地（守护对象存在）", () => {
+  it("nav-rail 与三占位页 + trace 实页已落地（守护对象存在）", () => {
     for (const p of [
       "widgets/nav-rail/ui/IconRail.tsx",
       "pages/skills/SkillsPage.tsx",
@@ -190,10 +190,13 @@ describe("AG-17 页面域/会话域分离", () => {
     expect(offenders.map(rel)).toEqual([]);
   });
 
-  it("四占位页不 import entities/session（施工牌全静态零数据面）", () => {
+  /** 施工牌占位页清单（T2.2 起 trace 实页出列——useSession 公开 provider seam
+   *  与 M3 models 实页（P-4-models-config.tsx:40）同型，architecture.md §4.4 禁放
+   *  的是会话 store 内部深层 import，非公开 seam；校准依据 = AF-10）。 */
+  it("三占位页不 import entities/session（施工牌全静态零数据面）", () => {
     const offenders = allFiles
       .filter((f) =>
-        /pages\/(skills|trace|project)\//.test(rel(f)) ||
+        /pages\/(skills|project)\//.test(rel(f)) ||
         rel(f) === "pages/settings/SettingsPage.tsx",
       )
       .filter((f) => sessionInternal.test(stripComments(sourceOf(f))));

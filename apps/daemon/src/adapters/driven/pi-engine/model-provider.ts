@@ -53,7 +53,7 @@ export function resolveModel(models: Models, modelStr: string): Model<any> {
 export function resolveConfigModel(modelStr: string | undefined, models?: Models): Model<any> {
   if (modelStr === undefined || modelStr.trim() === "") {
     throw new Error(
-      `默认模型未配置：请经 model.set_default 写入 "provider/model-id"` +
+      `全局兜底模型未配置：请经 model.set_default 写入 "provider/model-id"` +
         `（模型解析收束单点 fail-fast，F-14）。`,
     );
   }

@@ -680,6 +680,11 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
 
     // 终验热修：provider/引擎失败透传（错误卡片数据源；不崩会话，见 ChatService engine_error）
     case "engine.error": {
+      // T1.1（F1.1 + AF-1）：SubAgent 实例的 engine.error 只落 domain_events
+      //（trace 数据面，WriteQueue 在 DtoMapper 之外），不产 WS 帧——shell
+      // consumers/chat.ts 的 engine.error case 无 instanceId 分流，不抑制会
+      // 错位弹主聊天流（AD-1 前端零改动的守护面）；主线帧行为不变。
+      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) return null;
       const p = event.payload as { message: string };
       const frame: EngineErrorEvent = {
         v: PROTOCOL_VERSION,

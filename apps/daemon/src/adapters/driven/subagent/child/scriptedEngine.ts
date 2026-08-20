@@ -19,13 +19,23 @@ export interface FakeEngineScript {
   readonly chunkDelayMs?: number;
   /** 模拟不可中断引擎（O-6 SIGKILL 升级路径）：忽略 abort 信号。 */
   readonly ignoreAbort?: boolean;
+  /**
+   * provider 错误形态（F1.4）：每 turn 均产出与真引擎 error 轮同构的单帧
+   * { type:"error", reason:"error", error }——逐字段 mirror 主线 E 层剧本
+   * （apps/daemon/test/e2e/launcher.ts errorMessage + kind:"error" 分支）。
+   */
+  readonly error?: { readonly message: string };
 }
 
 /** 读取并校验剧本文件（非法即抛错 → ChildMain crash 路径 exit(1)）。 */
 export function loadFakeEngineScript(path: string): FakeEngineScript {
   const raw = JSON.parse(readFileSync(path, "utf8")) as FakeEngineScript;
   if (typeof raw !== "object" || raw === null || !Array.isArray(raw.replies)) {
-    throw new Error(`剧本文件格式错误：${path}（应为 { replies: string[], chunkDelayMs?, ignoreAbort? }）`);
+    throw new Error(`剧本文件格式错误：${path}（应为 { replies: string[], chunkDelayMs?, ignoreAbort?, error? }）`);
+  }
+  const err = (raw as { error?: unknown }).error;
+  if (err !== undefined && (typeof err !== "object" || err === null || typeof (err as { message?: unknown }).message !== "string")) {
+    throw new Error(`剧本文件格式错误：${path}（error 应为 { message: string }）`);
   }
   return raw;
 }
@@ -43,6 +53,23 @@ function assistantMessage(modelId: string, text: string, stopReason: "stop" | "a
   } as unknown as AssistantMessage;
 }
 
+/** provider 失败消息：空 content + stopReason=error + errorMessage 原文 +
+ *  全零 usage（含 reasoning=0）——与 launcher.ts errorMessage 逐字段对齐。 */
+function errorAssistantMessage(modelId: string, message: string): AssistantMessage {
+  const m = {
+    role: "assistant",
+    content: [],
+    api: "anthropic-messages",
+    provider: "anthropic",
+    model: modelId,
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: "error",
+    timestamp: Date.now(),
+  } as unknown as AssistantMessage;
+  (m as AssistantMessage & { errorMessage?: string }).errorMessage = message;
+  return m;
+}
+
 /**
  * 剧本化 StreamFn（FakeLLM 同构）：按 4 字符分片流出 replies 中的下一条，
  * 信号感知（abort → aborted 消息收尾；ignoreAbort 时忽略——模拟真实
@@ -53,6 +80,14 @@ export function makeScriptedStreamFn(script: FakeEngineScript, model: Model<any>
   const replies = [...script.replies];
   const chunkDelayMs = script.chunkDelayMs ?? 6;
   return (_m, _ctx, opts) => {
+    // provider 错误形态：每 turn 均为同一单帧 error（无 start/delta 前导帧，
+    // 与真实 pi-ai 失败路径同构；agentLoop 收口 stopReason=error →
+    // PiAgentEngineAdapter message_end + engine_error 连发）。
+    if (script.error !== undefined) {
+      const stream = createAssistantMessageEventStream();
+      stream.push({ type: "error", reason: "error", error: errorAssistantMessage(modelId, script.error.message) });
+      return stream;
+    }
     const reply = replies.shift() ?? "（剧本耗尽）";
     const signal = script.ignoreAbort ? undefined : (opts as { signal?: AbortSignal } | undefined)?.signal;
     const stream = createAssistantMessageEventStream();

@@ -22,7 +22,7 @@ const HOST = "127.0.0.1";
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: /(CL-7-e2e-.*|CL-6-CL-7-dual-base.*|CL-7-CL-8-restart-recovery.*|CL-1-CL-8-restart-orchestration.*|CL-2-CL-3-CL-8-restart-thinking-ledger.*|CL-4-teardown-residue.*|CL-1-e2e-.*|CL-2-e2e-.*|CL-3-e2e-.*)\.spec\.ts/,
+  testMatch: /(CL-7-e2e-.*|CL-6-CL-7-dual-base.*|CL-7-CL-8-restart-recovery.*|CL-1-CL-8-restart-orchestration.*|CL-2-CL-3-CL-8-restart-thinking-ledger.*|CL-4-teardown-residue.*|CL-1-e2e-.*|CL-2-e2e-.*|CL-3-e2e-.*|CL-5-e2e-.*)\.spec\.ts/,
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,

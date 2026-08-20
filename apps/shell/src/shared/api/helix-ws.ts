@@ -4,7 +4,7 @@
  * 职责（替换 desk shared/api 的三缝隙，不搬运）：
  * - token 获取：GET http://127.0.0.1:{port}/helix-dev-token（loopback Origin
  *   反射放行，vite dev 直用；§9）；
- * - 握手：WS open 后首帧 hello { token, protocolVersion: "0.3" }（T1.2 v0.3 bump 机械跟随，iter-20260818-mq5a）；
+ * - 握手：WS open 后首帧 hello { token, protocolVersion: "0.4" }（v0.4 bump 机械跟随；契约 = PROTOCOL.md §2/§12）；
  * - 重连退避状态机：断线 → 指数退避自动重连 → 重新握手 → 收快照（恢复语义
  *   在 reducer：快照 + 增量，本客户端只管连接生命周期）；
  * - transport 注入点：transportFactory 可注入 fake transport（M3 mock 挂点，

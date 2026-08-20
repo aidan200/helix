@@ -91,6 +91,10 @@ export class SessionProjection implements EventPublisherPort {
 
   publish(event: DomainEvent): void {
     if (event.sessionId !== this.deps.getSession().id) return; // 会话归属（T2.2 分仓前置语义）
+    // T2.1（契约 v0.4 §2/§3）：agent.instantiated / agent.model.changed 只落盘
+    //（domain_events 事件行经 fan-out WriteQueue 目标直写）——零投影且**不触发**
+    // write-through 状态写（否则草稿会话被提前落库，破坏「首条消息才落库」语义）。
+    if (event.type === "agent.instantiated" || event.type === "agent.model.changed") return;
     this.project(event);
     // write-through（AD-3 §3.2②）：每个里程碑领域事件后落领域状态整体
     //（事件行经持久化目标先入同一 FIFO，先事件后状态，全局保序）。

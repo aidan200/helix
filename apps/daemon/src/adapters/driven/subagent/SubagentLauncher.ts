@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model, Models } from "@earendil-works/pi-ai";
+import { resolveModel } from "../pi-engine/model-provider";
 import type { AgentInstance } from "../../../domain/agent/AgentInstance";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type {
@@ -23,6 +24,10 @@ import type { ChildOutboundLine } from "./transport/wire";
  * 与 T2.1 InstanceRunner 接口的对接说明（T2.3 已对齐）：接口成员 =
  * launch/setCallbacks/send?/kill?（send/kill 原为接口外扩展方法，T2.3
  * 收进接缝；FB-3 kill 通道经此由 SchedulerService.kill 触发）。
+ *
+ * AD-3（F1.3，TR-AD-24）：launch 段是模型三级解析链唯一消费点——
+ * ①profile.model（声明即最高）→ ②spawn 会话快照（spawnModelFor 晚绑
+ * 回调）→ ③全局兜底（deps.model getter，T2.3 注入源模式保留）。
  */
 
 /** ChildMain 入口路径（与 Launcher 同目录树；bun 直跑 .ts）。 */
@@ -32,11 +37,23 @@ export interface SubagentLauncherDeps {
   /** SubAgent profile 声明（装配进子进程；kind 不分支——声明同构，TR-AD-4）。 */
   readonly profile: AgentProfile;
   /**
-   * 已解析的完整模型对象（F-14：解析单点产物，经 env JSON 透传子进程）。
-   * T2.3（AD-2）：注入源改默认模型存储——接受 getter（每次 launch 读现值，
+   * 全局兜底模型完整对象（F-14：解析单点产物，经 env JSON 透传子进程）。
+   * T2.3（AD-2）：注入源改全局兜底模型存储——接受 getter（每次 launch 读现值，
    * set_default 后新子进程跟随）或静态对象。
+   * AD-3（F1.3）：三级解析链第三级（profile.model ?? spawn 快照 ?? 本项）。
    */
   readonly model: Model<any> | (() => Model<any>);
+  /**
+   * AD-3 三级链第二级：spawn 会话快照读取回调（per-instance 解析形态）。
+   * 生产由 container 在 scheduler 构造后经 bindSpawnModelSource 晚绑
+   * （装配序：launcher 先于 scheduler）；deps 直注为测试便捷口。
+   */
+  readonly spawnModelFor?: (instanceId: string) => Model<any> | undefined;
+  /**
+   * 模型目录（仅当 profile.model 声明时用于槽位解析——resolveModel 同源；
+   * 未声明 profile.model 时不需要）。
+   */
+  readonly models?: Models;
   /**
    * provider → apiKey（子进程显式传入，AD-11/13）。T2.3：注入源改 auth.json
    * ——接受 getter（每次 launch 读现值快照）或静态表。
@@ -61,19 +78,54 @@ interface ChildEntry {
 export class SubagentLauncher implements InstanceRunner {
   private callbacks: InstanceRunnerCallbacks | undefined;
   private readonly children = new Map<string, ChildEntry>();
+  /** AD-3 第二级读取回调（deps.spawnModelFor 初始化；bindSpawnModelSource 晚绑覆盖）。 */
+  private spawnModelFor: ((instanceId: string) => Model<any> | undefined) | undefined;
 
-  constructor(private readonly deps: SubagentLauncherDeps) {}
+  constructor(private readonly deps: SubagentLauncherDeps) {
+    this.spawnModelFor = deps.spawnModelFor;
+  }
 
   setCallbacks(callbacks: InstanceRunnerCallbacks): void {
     this.callbacks = callbacks;
+  }
+
+  /**
+   * spawn 会话快照源晚绑（AD-3；container 手工装配：launcher 先于
+   * scheduler 构造，scheduler 就绪后一行绑定——遵循组合根手工装配先例）。
+   */
+  bindSpawnModelSource(source: (instanceId: string) => Model<any> | undefined): void {
+    this.spawnModelFor = source;
+  }
+
+  /**
+   * AD-3 三级模型解析单点（F1.3，TR-AD-24）：
+   * ①profile.model（真实槽位，声明即最高优先级，装配期 resolveModel 解析）
+   * → ②spawnModelFor（spawn 时刻会话快照）→ ③deps.model（全局兜底 getter）。
+   * 高档有值即短路（低档不调用）；返回完整 Model 对象（F-14 透传形态）。
+   */
+  resolveModelFor(instanceId: string): Model<any> {
+    const slot = this.deps.profile.model;
+    if (slot !== undefined) {
+      if (this.deps.models === undefined) {
+        throw new Error(
+          `SubAgentProfile.model 声明了 "${slot}"，但 SubagentLauncher 未注入 models 目录` +
+            `（profile 槽位解析面缺失，组合根装配遗漏）。`,
+        );
+      }
+      return resolveModel(this.deps.models, slot); // 失败 fail-fast 含 id（resolveModel 契约）
+    }
+    const spawned = this.spawnModelFor?.(instanceId);
+    if (spawned !== undefined) return spawned;
+    return typeof this.deps.model === "function" ? this.deps.model() : this.deps.model;
   }
 
   /** 启动实例执行（秒回：spawn + 接线，不 await 收口）。同一实例不重复 launch。 */
   launch(instance: AgentInstance, task: string): void {
     const id = instance.instanceId;
     if (this.children.has(id)) return;
-    // T2.3：model/apiKeys 读现值（getter 注入源 = 默认模型存储 + auth.json）
-    const model = typeof this.deps.model === "function" ? this.deps.model() : this.deps.model;
+    // AD-3：三级解析单点（profile > spawn 会话快照 > 全局兜底 getter）；
+    // apiKeys 读现值（getter 注入源 = auth.json，T2.3）
+    const model = this.resolveModelFor(id);
     const apiKeys = typeof this.deps.apiKeys === "function" ? this.deps.apiKeys() : this.deps.apiKeys;
     const proc = Bun.spawn({
       cmd: [process.execPath, CHILD_MAIN_PATH, "--task", task],

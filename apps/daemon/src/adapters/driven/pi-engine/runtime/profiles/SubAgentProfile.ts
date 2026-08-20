@@ -10,9 +10,10 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * 「单轮收敛」由 ChildMain 消费——驱动一次 run、解析 closure、exit；
  * runtime 侧不感知（AG-10 零 kind 分支）。
  *
- * model 缺省继承（AD-6）：undefined → 继承 config 解析出的完整 Model 对象
- * （F-14 透传）；需要廉价模型时在此声明 "provider/model-id"（装配期经
- * registry 解析，失败 fail-fast 含 id）。
+ * model 槽位（AD-3 三级链第一级，TR-AD-24）：声明即最高优先级
+ * （SubagentLauncher.resolveModelFor 解析单点，装配期 resolveModel 解析，
+ * 失败 fail-fast 含 id）；未声明（undefined）→ 走第二级 spawn 会话快照 →
+ * 第三级全局兜底。声明入口为代码层真实槽位；UI 管理归 skills 页下迭代。
  */
 export const SUBAGENT_SYSTEM_PROMPT =
   "你是 helix 的 SubAgent worker，负责独立完成一个被指派的任务。\n" +
@@ -34,5 +35,6 @@ export const SubAgentProfile: AgentProfile = {
   tools: ["bash", "read", "write", "edit", "grep"], // 与 MainSessionProfile 同清单（装配经 CoreToolExecutor.resolveTools）
   lifecycle: { mode: "single-shot" },
   hooks: [new SteerHooks(), new MinimalHooks()],
-  model: undefined, // AD-6：缺省继承（config 解析对象透传，F-14）
+  // AD-3：真实声明槽位——声明即最高优先级；生产默认不设值（走会话快照/全局兜底；UI 管理归 skills 页下迭代）
+  model: undefined,
 };

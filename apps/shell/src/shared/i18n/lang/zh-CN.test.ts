@@ -164,6 +164,81 @@ const REQUIRED_KEYS = [
   "chat.nav.pages.project.preview",
   "chat.nav.pages.settings.label",
   "chat.nav.pages.settings.preview",
+  // T2.2（CL-5 P-1 TracePage；原型 P-1-trace.html 文案清单）
+  "trace.title",
+  "trace.sub",
+  "trace.controls.ariaLabel",
+  "trace.controls.session",
+  "trace.controls.range",
+  "trace.controls.types",
+  "trace.controls.typesGroup",
+  "trace.controls.rangeAll",
+  "trace.controls.range1h",
+  "trace.controls.range15m",
+  "trace.controls.range5m",
+  "trace.panel.ariaLabel",
+  "trace.panel.title",
+  "trace.panel.count",
+  "trace.panel.all",
+  "trace.panel.allSub",
+  "trace.panel.eventCount",
+  "trace.panel.empty",
+  "trace.panel.mainName",
+  "trace.panel.statusRunning",
+  "trace.panel.statusCompleted",
+  "trace.panel.statusFailed",
+  "trace.panel.statusKilled",
+  "trace.panel.timeRunning",
+  "trace.ctx.ariaLabel",
+  "trace.ctx.title",
+  "trace.ctx.source",
+  "trace.ctx.taskCite",
+  "trace.ctx.model",
+  "trace.ctx.tools",
+  "trace.ctx.compaction",
+  "trace.ctx.compactionValue",
+  "trace.ctx.compactionOff",
+  "trace.ctx.baseModel",
+  "trace.ctx.prompt",
+  "trace.ctx.promptChars",
+  "trace.ctx.expand",
+  "trace.ctx.collapse",
+  "trace.ctx.timeline",
+  "trace.ctx.current",
+  "trace.ctx.compactionMilestone",
+  "trace.ctx.compactionEvent",
+  "trace.ctx.snapshotMissing",
+  "trace.ctx.snapshotMissingHint",
+  "trace.table.time",
+  "trace.table.instance",
+  "trace.table.type",
+  "trace.table.summary",
+  "trace.table.hit",
+  "trace.table.copyJson",
+  "trace.table.copied",
+  "trace.table.copyFailed",
+  "trace.table.payloadHead",
+  "trace.paging.meta",
+  "trace.paging.more",
+  "trace.paging.allLoaded",
+  "trace.state.emptySession",
+  "trace.state.emptySessionHint",
+  "trace.state.emptyFiltered",
+  "trace.state.emptyFilteredHint",
+  "trace.state.errorTitle",
+  "trace.state.retry",
+  "trace.state.connTitle",
+  "trace.state.connDesc",
+  "trace.state.reconnect",
+  "trace.state.reconnectedToast",
+  "trace.state.notConnected",
+  "trace.demo.title",
+  "trace.demo.state",
+  "trace.demo.viewSuccess",
+  "trace.demo.viewLoading",
+  "trace.demo.viewEmpty",
+  "trace.demo.viewError",
+  "trace.demo.viewConn",
 ] as const;
 
 function flatten(obj: unknown, prefix = ""): Map<string, string> {
@@ -193,10 +268,10 @@ describe("AG-16-② zh-CN 词条完备性", () => {
     expect(empty).toEqual([]);
   });
 
-  it("zh-CN 词条不含多余分支（裁剪版，不搬 desk 全量）", () => {
-    // P-1 只需要 chat.* 一族（header 名与发送 hint 等），顶层不应出现 desk 的
-    // sidebar/settings/trace/kg 等非 P-1 命名空间。
-    expect(Object.keys(zhCN)).toEqual(["chat"]);
+  it("zh-CN 词条只含 chat + trace 两族（裁剪版，不搬 desk 全量）", () => {
+    // P-1 工作台一族（chat.*）+ CL-5 TracePage 一族（trace.*，T2.2）；顶层
+    // 不应出现 desk 的 sidebar/settings/kg 等非本仓命名空间。
+    expect(Object.keys(zhCN)).toEqual(["chat", "trace"]);
   });
 });
 

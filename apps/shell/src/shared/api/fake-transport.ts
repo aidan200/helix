@@ -25,9 +25,26 @@
  *
  * 剧本模块（URL 形态）：`?fakeTransport=<module-url>` 时加载该 ES 模块，
  * default export 收到控制面 API（自动剧本驱动器；如 smoke 的 auto-connect）。
+ *
+ * trace.query 自动剧本（T2.2/CL-5 例外条款）：mock daemon 读面镜像——真实
+ * daemon 恒应答 trace.query（点对点结果帧 / 校验失败 connection.error），
+ * 故 fake 实例对 trace.query 命令自动回放确定性场景（主 + 多 Sub 实例、
+ * engine.error 行、可翻页事件量），过滤/分页/filterEcho normalize 按契约
+ * v0.4 §1/§4 机械口径执行，支撑 T2.3 fidelity 五态触发面（success/empty
+ * 经过滤器、error 经非法 payload、loading 经 120ms 延迟、断连经 netClose）。
+ * 「本模块零帧知识」纪律的单一例外：帧类型直引 @helix/protocol（TR-TEST-3
+ * 类型即守护），不引 daemon 代码。
  */
-import type { CommandEnvelope, EventEnvelope } from "@helix/protocol";
-import { SYSTEM_SESSION_ID } from "@helix/protocol";
+import type {
+  CommandEnvelope,
+  EventEnvelope,
+  TraceEventRow,
+  TraceInstanceRecord,
+  TraceQueryFilterEcho,
+  TraceQueryPayload,
+  TraceQueryResultPayload,
+} from "@helix/protocol";
+import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import { browserTransportFactory, type Transport, type TransportFactory, type TransportHandlers } from "./helix-ws";
 
 /** daemon 回环地址前缀（非该前缀 → 真实 WebSocket 透传，HMR 不受扰）。 */
@@ -77,6 +94,226 @@ interface ClientWaiter {
   resolve(frame: CommandEnvelope): void;
 }
 
+// ── trace.query 自动剧本（T2.2/CL-5；mock daemon 读面镜像，契约 v0.4 §1/§4）──
+
+/** 查询应答延迟（loading 态触发面：真实请求有可观测在途窗）。 */
+const TRACE_MOCK_LATENCY_MS = 120;
+/** 场景时间零点（确定性：同剧本同帧序列，重放可比）。 */
+const TRACE_MOCK_BASE_MS = Date.parse("2026-08-19T13:47:57.802+08:00");
+/** 契约 §4：缺省 limit 50，上限鉗制 200。 */
+const TRACE_MOCK_MAX_PAGE = 200;
+
+const TRACE_MAIN_ID = "main";
+const TRACE_SUB_A = "agt_F1X2E88DQ9LM"; // phase-coder · failed（engine.error 行）
+const TRACE_SUB_B = "agt_K65K629RNMQG"; // phase-explorer · completed · 快照缺失降级面
+const TRACE_SUB_C = "agt_P70SC41BE0K2"; // phase-coder · completed（单发 Sub 纯快照面）
+
+const TRACE_MAIN_PROMPT = [
+  "You are the main-session assistant of the helix workbench, running in the user's local workspace. The user issues engineering tasks through the chat UI; you understand intent, break down steps, invoke tools, and deliver results on the main line.",
+  "",
+  "How you work:",
+  "- Scan the available skill list before every action; when one matches, use it; rigid skills are never shortcut, simplified, or skipped.",
+  "- Use read for reading, edit for precise changes, write only for new files or full rewrites.",
+  "- Compact automatically per compaction params when context nears the threshold; record key conclusions in docs before continuing.",
+].join("\n");
+
+const TRACE_SUB_PROMPT = [
+  "You are a SubAgent dispatched by the main line, owning the single task assigned in your brief. You have an independent context and do not talk to the user directly: all of your output serves the MainAgent task closure.",
+  "",
+  "Closure protocol:",
+  "- Call submit_result exactly once when done: status + summary + acceptance + findings.",
+  "- Answer every acceptance criterion in acceptance; findings is required, an empty array explicitly declares no findings.",
+].join("\n");
+
+/** 确定性场景（主 + 三 Sub；事件量 > PAGE_SIZE 50 以支撑翻叶面）。 */
+function traceScenario(sessionId: string): {
+  instances: TraceInstanceRecord[];
+  events: TraceEventRow[];
+} {
+  const events: TraceEventRow[] = [];
+  let id = 0;
+  const push = (
+    offsetMs: number,
+    instanceId: string,
+    agentKind: "main" | "subagent",
+    type: string,
+    payload: unknown,
+  ): void => {
+    id += 1;
+    events.push({
+      id,
+      ts: new Date(TRACE_MOCK_BASE_MS + offsetMs).toISOString(),
+      sessionId,
+      instanceId,
+      agentKind,
+      type,
+      payload,
+    });
+  };
+
+  const mainSnapshot = {
+    systemPrompt: TRACE_MAIN_PROMPT,
+    tools: ["read", "write", "edit", "bash", "grep", "find", "codegraph", "kg_query"],
+    model: "zhipu/glm-4.6",
+    compaction: { enabled: true, reserveTokens: 96000, keepRecentTokens: 32000 },
+  };
+  const subSnapshot = (model: string) => ({
+    systemPrompt: TRACE_SUB_PROMPT,
+    tools: ["read", "write", "edit", "bash", "grep", "find"],
+    model,
+  });
+
+  // 实例化与 spawn 族（主 = 会话创建时；Sub = spawn 紧随其后）
+  push(0, TRACE_MAIN_ID, "main", "agent.instantiated", { instanceId: TRACE_MAIN_ID, profileKind: "main-session", profileSnapshot: mainSnapshot });
+  push(2_000, TRACE_MAIN_ID, "main", "agent.spawned", { instanceId: TRACE_SUB_A, profile: "phase-coder", model: "zai/glm-5.3" });
+  push(2_200, TRACE_SUB_A, "subagent", "agent.instantiated", { instanceId: TRACE_SUB_A, profileKind: "phase-coder", profileSnapshot: subSnapshot("zai/glm-5.3") });
+  push(3_000, TRACE_MAIN_ID, "main", "agent.spawned", { instanceId: TRACE_SUB_B, profile: "phase-explorer", model: "zhipu/glm-4.6" });
+  push(4_000, TRACE_MAIN_ID, "main", "agent.spawned", { instanceId: TRACE_SUB_C, profile: "phase-coder", model: "zhipu/glm-4.6" });
+  push(4_200, TRACE_SUB_C, "subagent", "agent.instantiated", { instanceId: TRACE_SUB_C, profileKind: "phase-coder", profileSnapshot: subSnapshot("zhipu/glm-4.6") });
+
+  // 主线 8 轮对话（turn/message/thinking/tool/usage 全类覆盖）
+  for (let turn = 1; turn <= 8; turn += 1) {
+    const base = 10_000 + turn * 60_000;
+    push(base, TRACE_MAIN_ID, "main", "turn.started", { turn });
+    push(base + 100, TRACE_MAIN_ID, "main", "message.completed", { role: "user", text: `main turn ${turn} instruction`, turn });
+    push(base + 400, TRACE_MAIN_ID, "main", "thinking.completed", { text: `turn ${turn} reasoning summary`, turn });
+    push(base + 800, TRACE_MAIN_ID, "main", "tool.call.started", { toolName: "read", turn });
+    push(base + 900, TRACE_MAIN_ID, "main", "tool.call.result", { toolName: "read", isError: false, turn });
+    push(base + 1_500, TRACE_MAIN_ID, "main", "message.completed", { role: "assistant", text: `turn ${turn} delivery summary`, turn });
+    push(base + 1_600, TRACE_MAIN_ID, "main", "usage.recorded", { input: 12_000 + turn * 640, output: 800 + turn * 32, cost: 0.012 * turn, turn });
+    push(base + 1_700, TRACE_MAIN_ID, "main", "turn.completed", { turn });
+  }
+
+  // Sub 事件流（含 engine.error + 终态）
+  push(12_000, TRACE_SUB_A, "subagent", "message.completed", { role: "assistant", text: "extend error schema variants" });
+  push(18_000, TRACE_SUB_B, "subagent", "message.completed", { role: "assistant", text: "data-plane exploration findings" });
+  push(420_000, TRACE_SUB_B, "subagent", "agent.completed", { reason: "closure submitted" });
+  push(500_000, TRACE_SUB_C, "subagent", "agent.completed", { reason: "closure submitted" });
+  push(1_800_000, TRACE_SUB_A, "subagent", "engine.error", { provider: "zai", model: "glm-5.3", status: 429, message: "account quota exhausted", retriable: false });
+  push(1_800_100, TRACE_SUB_A, "subagent", "agent.failed", { reason: "engine: zai 429 account quota exhausted" });
+
+  // 主实例变更轨迹数据源：compaction + model.changed
+  push(2_300_000, TRACE_MAIN_ID, "main", "compaction.completed", { tokensBefore: 96_412, tokensAfter: 38_200 });
+  push(2_320_000, TRACE_MAIN_ID, "main", "agent.model.changed", { from: "zhipu/glm-4.6", to: "deepseek/deepseek-chat" });
+
+  const countOf = (iid: string) => events.filter((e) => e.instanceId === iid).length;
+  const instances: TraceInstanceRecord[] = [
+    {
+      instanceId: TRACE_MAIN_ID,
+      agentKind: "main",
+      profileKind: "main-session",
+      model: "zhipu/glm-4.6",
+      status: "running",
+      startedAt: new Date(TRACE_MOCK_BASE_MS).toISOString(),
+      eventCount: countOf(TRACE_MAIN_ID),
+      snapshot: mainSnapshot,
+      snapshotMissing: false,
+      modelTimeline: [
+        { from: "zhipu/glm-4.6", to: "deepseek/deepseek-chat", at: new Date(TRACE_MOCK_BASE_MS + 2_320_000).toISOString() },
+      ],
+      currentModel: "deepseek/deepseek-chat",
+    },
+    {
+      instanceId: TRACE_SUB_A,
+      agentKind: "subagent",
+      profileKind: "phase-coder",
+      model: "zai/glm-5.3",
+      status: "failed",
+      startedAt: new Date(TRACE_MOCK_BASE_MS + 2_200).toISOString(),
+      endedAt: new Date(TRACE_MOCK_BASE_MS + 1_800_100).toISOString(),
+      task: "Extend FakeEngineScript error variants in scriptedEngine, aligned with the main scenario.",
+      eventCount: countOf(TRACE_SUB_A),
+      snapshot: subSnapshot("zai/glm-5.3"),
+      snapshotMissing: false,
+    },
+    {
+      instanceId: TRACE_SUB_B,
+      agentKind: "subagent",
+      profileKind: "phase-explorer",
+      status: "completed",
+      startedAt: new Date(TRACE_MOCK_BASE_MS + 3_000).toISOString(),
+      endedAt: new Date(TRACE_MOCK_BASE_MS + 420_000).toISOString(),
+      eventCount: countOf(TRACE_SUB_B),
+      snapshotMissing: true, // 降级面：本迭代前创建的历史实例（无 instantiated 快照）
+    },
+    {
+      instanceId: TRACE_SUB_C,
+      agentKind: "subagent",
+      profileKind: "phase-coder",
+      model: "zhipu/glm-4.6",
+      status: "completed",
+      startedAt: new Date(TRACE_MOCK_BASE_MS + 4_200).toISOString(),
+      endedAt: new Date(TRACE_MOCK_BASE_MS + 500_000).toISOString(),
+      task: "Contract v0.4 porting registry and anchor inventory.",
+      eventCount: countOf(TRACE_SUB_C),
+      snapshot: subSnapshot("zhipu/glm-4.6"),
+      snapshotMissing: false,
+    },
+  ];
+  return { instances, events };
+}
+
+/** trace.query 应答组装（契约 §4 机械口径：含起含止 / id 游标 / hasMore / total / 空数组即空结果）。 */
+function buildTraceReply(raw: unknown): EventEnvelope {
+  const p = (raw ?? {}) as Partial<TraceQueryPayload>;
+  if (typeof p.sessionId !== "string" || p.sessionId === "") {
+    return {
+      v: PROTOCOL_VERSION,
+      type: "connection.error",
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "notification",
+      payload: { code: "command.invalid_payload", message: "trace.query: sessionId is required (non-empty string)" },
+    };
+  }
+  const limitRaw = p.page?.limit ?? 50;
+  if (!Number.isInteger(limitRaw) || limitRaw <= 0) {
+    return {
+      v: PROTOCOL_VERSION,
+      type: "connection.error",
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "notification",
+      payload: { code: "command.invalid_payload", message: "trace.query: page.limit must be a positive integer" },
+    };
+  }
+  const limit = Math.min(limitRaw, TRACE_MOCK_MAX_PAGE);
+  const beforeId = p.page?.beforeId ?? null;
+  const sessionId = p.sessionId;
+  const { instances, events } = traceScenario(sessionId);
+
+  const from = p.timeRange?.from ?? null;
+  const to = p.timeRange?.to ?? null;
+  const matched = events
+    .filter((e) => p.instanceIds === undefined || p.instanceIds.includes(e.instanceId))
+    .filter((e) => p.types === undefined || p.types.includes(e.type))
+    .filter((e) => from === null || e.ts >= from)
+    .filter((e) => to === null || e.ts <= to)
+    .sort((a, b) => b.id - a.id);
+  const total = matched.length;
+  const paged = matched.filter((e) => beforeId === null || e.id < beforeId).slice(0, limit);
+
+  const filterEcho: TraceQueryFilterEcho = {
+    sessionId,
+    instanceIds: p.instanceIds ?? null,
+    agentKind: p.agentKind ?? null,
+    types: p.types ?? null,
+    timeRange: p.timeRange === undefined ? null : { from, to },
+    page: { limit, beforeId },
+  };
+  const payload: TraceQueryResultPayload = {
+    filterEcho,
+    instances,
+    events: paged,
+    page: { loaded: paged.length, total, hasMore: paged.length === limit },
+  };
+  return {
+    v: PROTOCOL_VERSION,
+    type: "trace.query.result",
+    sessionId,
+    channel: "trace",
+    payload,
+  };
+}
+
 /** fake 实例（WebSocket 形状：readyState + 静态常量 + send 门控）。 */
 class FakeSocket {
   /** WebSocket 静态常量必须保留：readyState 门控按此判（TR-TEST-5）。 */
@@ -122,6 +359,13 @@ class FakeSocket {
     for (const w of this.registry.commandWaiters) (w.type === frame?.type ? hit : rest).push(w);
     this.registry.commandWaiters = rest;
     for (const w of hit) w.resolve(frame!);
+    // trace.query 自动应答（mock daemon 读面镜像；点对点回执，延迟 = loading 态触发面）
+    if (frame?.type === "trace.query") {
+      const reply = buildTraceReply(frame.payload);
+      setTimeout(() => {
+        if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
+      }, TRACE_MOCK_LATENCY_MS);
+    }
   }
 
   /** 用户侧主动关闭（stop/retry）：不出网络事件（与 mock-init 口径一致）。 */

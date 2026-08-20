@@ -151,7 +151,12 @@ test.describe("T4.2 CL-1 多会话闭环（真 daemon）", () => {
     // turn17 spawn 后断言）
     await expect(page.locator(".sa-card.done")).toHaveCount(1, { timeout: 10_000 });
     // 抽屉骨架：done 实例 spawned/模型解析行 + closure 尾卡（per-instance 全流）
-    await page.locator(".sa-card.done").click();
+    // T4.1：dispatchEvent 代替 click——click 的 scrollIntoViewIfNeeded 会把这张
+    // 近顶部卡滚动入视口，msg-flow scrollTop 触 ≤0 时滚动监听（MessageFlow
+    // onScroll）自动触发 loadEarlierHistory，在下方手动滚顶分页前把仅剩的
+    // 更早页提前载完（pill 提前 exhausted → beforeCount 竞态的真实源头，
+    // OI-VER-1/OI-DEV-1④）。抽屉行为断言（开/关/内容）语义不变。
+    await page.locator(".sa-card.done").dispatchEvent("click");
     const drawer = page.locator(".drawer");
     await expect(drawer).toBeVisible();
     await expect(drawer.locator('.lc-row[data-lc="spawned"]')).toHaveCount(1);
@@ -171,9 +176,31 @@ test.describe("T4.2 CL-1 多会话闭环（真 daemon）", () => {
 
     // 向上分页：滚顶 → loadHistory（更早历史前插）→ exhausted 禁用
     const flow = page.locator(".msg-flow");
-    const beforeCount = await page.locator(".msg-flow .msg").count();
-    await flow.evaluate((el) => {
+    const msgSel = page.locator(".msg-flow .msg");
+    // 时序锚定（T4.1）：捕获与触发间加同步屏障，根治 beforeCount 竞态——
+    // 屏障① 分页胶囊就位：load-earlier 渲染条件 = paged（存在更早页），
+    //   仅证明可分页，不证明尾窗计数已稳定；先锚定其 data-state=more。
+    await expect(page.locator(".load-earlier")).toHaveAttribute("data-state", "more");
+    // 屏障② 计数稳定采样：连续两次 poll 采样（间隔 ≥ poll 周期）相等才视为
+    //   稳定（复用 harness expect.poll 收敛原语，无裸 sleep）——turn17 落库后
+    //   尾窗裁剪/追加的异步 DOM 变动全部落定后，才允许进入捕获。
+    let prevCount = -1;
+    await expect
+      .poll(
+        async () => {
+          const cur = await msgSel.count();
+          const stable = cur > 0 && cur === prevCount;
+          prevCount = cur;
+          return stable;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+    // 屏障③ 捕获即触发：beforeCount 与滚顶在同一 evaluate 内原子完成，
+    //   两者之间零间隙（不存在可被异步渲染插入的窗口）。
+    const beforeCount = await flow.evaluate((el) => {
       el.scrollTop = 0;
+      return el.querySelectorAll(".msg").length;
     });
     // loading 为瞬态（本地 daemon 往返快于轮询——F 层已覆盖），直接断言
     // 结果面：更早历史前插（首条 = 乙首条）→ exhausted 禁用

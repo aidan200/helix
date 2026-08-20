@@ -5,6 +5,7 @@ import type { SchedulingPolicy } from "../../domain/agent/SchedulingPolicy";
 import type {
   AgentCompletedPayload,
   AgentFailedPayload,
+  AgentInstantiatedPayload,
   AgentKilledPayload,
   AgentQueuedPayload,
   AgentSpawnedPayload,
@@ -113,6 +114,14 @@ export interface SchedulerServiceDeps {
    * 事实源——E-AgentInstance 禁忌）；缺省 = 纯调度测试形态（锚点面缺席）。
    */
   readonly spawnAnchorFor?: (sessionId: string) => string | null;
+  /**
+   * Sub 实例化快照供给（T2.1，F5.7/AD-5，契约 v0.4 §2）：spawn 时与
+   * agent.spawned 同批发布 agent.instantiated 的快照数据源——profile 常量
+   * （systemPrompt 全文/工具集/hooks 名）与模型三级链解析（profile 槽位 ??
+   *   spawn 会话快照 ?? 全局兜底，AD-3 联动）均归组合根装配（driven 常量
+   *   不进 application）；缺省 = 纯调度测试形态，不发布 instantiated。
+   */
+  readonly subagentSnapshotFor?: (spawnModel: string | undefined) => AgentInstantiatedPayload["profileSnapshot"];
 }
 
 export class SchedulerService implements AgentOrchestrationPort {
@@ -167,6 +176,15 @@ export class SchedulerService implements AgentOrchestrationPort {
   /** 按 id 查实例值形状（不存在/已销毁窗口返回 undefined）。 */
   instance(agentId: string): AgentInstanceData | undefined {
     return this.registry.findInstance(agentId)?.toData();
+  }
+
+  /**
+   * spawn 时刻会话模型快照只读通道（AD-3 三级链第二级，TR-AD-24）：
+   * SubagentLauncher 经 container 晚绑消费（launch 段唯一消费点）；
+   * 只读——不改变 spawnModels Map 生命周期（恢复不回填归 T2.1/F5.8）。
+   */
+  spawnModelOf(instanceId: string): string | undefined {
+    return this.spawnModels.get(instanceId);
   }
 
   /** AgentOrchestrationPort.status：无参全量（状态/位次/摘要）/有参单实例。 */
@@ -266,6 +284,9 @@ export class SchedulerService implements AgentOrchestrationPort {
       }
       if (item.task !== undefined) this.tasks.set(item.instanceId, item.task);
       if (item.closure !== undefined) this.closures.set(item.instanceId, item.closure);
+      // T2.1（F5.8）：spawnModels 回填——重启后恢复实例 model 字段不缺失
+      //（快照 instances[] 组装面透出；数据源 = agent.spawned 载荷 model）
+      if (item.model !== undefined) this.spawnModels.set(item.instanceId, item.model);
       const seq = agentSeqOf(item.instanceId);
       if (seq > this.seq) this.seq = seq;
     }
@@ -316,6 +337,16 @@ export class SchedulerService implements AgentOrchestrationPort {
       profileKind: instance.profileKind,
       ...(model !== undefined ? { model } : {}),
     } satisfies AgentSpawnedPayload);
+    // T2.1（F5.7/AD-5，契约 v0.4 §2）：同批发布实例化快照（紧随其后）——
+    // 快照 model = 三级链解析结果（spawn 时刻求值，与该实例 launch 实际使用
+    // 模型同源）；只落盘不广播（DtoMapper 无 case）。
+    if (this.deps.subagentSnapshotFor !== undefined) {
+      this.publish(instance, "agent.instantiated", {
+        instanceId: agentId,
+        profileKind: instance.profileKind,
+        profileSnapshot: this.deps.subagentSnapshotFor(model),
+      } satisfies AgentInstantiatedPayload);
+    }
 
     if (decision.action === "run") {
       this.startInstance(instance);
@@ -515,6 +546,13 @@ export class SchedulerService implements AgentOrchestrationPort {
       }
       return;
     }
+    if (event.type === "engine_error") {
+      // F1.1（AD-1 事件数据面）：SubAgent 引擎错误不再静默——mirror 主线
+      // ChatService engine_error（只发领域事件，不落 Entry、不动投影）；
+      // WS 帧广播由 DtoMapper SubAgent 守卫抑制（AF-1，防错位弹主聊天流）。
+      this.publishEngineError(instance, event.message);
+      return;
+    }
     // 其余引擎事件：观测面增量已计（lastEventAt 刷新），无 per-instance 领域动作
   }
 
@@ -671,6 +709,11 @@ export class SchedulerService implements AgentOrchestrationPort {
     const n = (this.entrySeqs.get(instanceId) ?? 0) + 1;
     this.entrySeqs.set(instanceId, n);
     return `${instanceId}#${n}`;
+  }
+
+  /** F1.1：engine_error → 挂 instanceId 的领域事件（事件即数据面；payload 仅原文）。 */
+  private publishEngineError(instance: AgentInstance, message: string): void {
+    this.publish(instance, "engine.error", { message });
   }
 
   private publish<P>(instance: AgentInstance, type: DomainEvent["type"], payload: P): void {

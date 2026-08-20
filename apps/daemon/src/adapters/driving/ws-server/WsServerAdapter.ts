@@ -41,8 +41,14 @@ import type {
   SessionListResultEvent,
   SessionLoadHistoryResultEvent,
   SessionSnapshotEvent,
+  TraceInstanceRecord,
+  TraceQueryResultEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
+import type { TraceQueryPort } from "../../../domain/trace/TraceQueryPort";
+// AG-12：ws-server 对 domain 仅 type-only——normalize 校验收口在 driven
+// adapter 入口（architecture.md §3.5b「调仓储前」；AF-9 记录在案）
+import type { TraceInstanceRecord as DomainInstanceRecord } from "../../../domain/trace/TraceQuery";
 import type { ServerWebSocket } from "bun";
 import { EventStream, type FrameSender } from "./EventStream";
 import { historyPage, toSnapshotDto } from "./DtoMapper";
@@ -105,6 +111,11 @@ export interface WsServerAdapterDeps {
   readonly staticHandler?: (req: Request) => Promise<Response | null> | Response | null;
   /** 主时间轴尾窗大小（G-1：缺省 30；组合根/测试注入面）。 */
   readonly tailSize?: number;
+  /**
+   * trace 读面（T2.1，CL-5/F5.6，契约 v0.4 §1）：trace.query 命令回口
+   * （只读 domain_events，连接私有读面）；未装配 → command.unimplemented 回执。
+   */
+  readonly traceQuery?: TraceQueryPort;
 }
 
 export class WsServerAdapter {
@@ -507,6 +518,44 @@ export class WsServerAdapter {
         if (sender) this.deps.events.unsubscribeInstance(sender, payload.agentId);
         return;
       }
+      // ── v0.4 trace 族（T2.1，契约 v0.4 §1；session 族先例 inline：校验→normalize→port→组帧→点对点） ──
+      case "trace.query": {
+        const sender = ws.data.sender ?? this.rawSender(ws);
+        if (this.deps.traceQuery === undefined) {
+          return this.commandError(ws, type, "command.unimplemented", "trace 读面未装配");
+        }
+        // normalize 校验收口在 adapter 入口（§3.5b「调仓储前」；本层对 domain
+        // 仅 type-only，AG-12）；校验失败 DomainError → 既有错误回帧模式。
+        // 目标会话在 payload.sessionId（信封位不消费——直查 domain_events，冷会话可查）
+        try {
+          const result = this.deps.traceQuery.queryTrace(payload);
+          const filter = result.filter;
+          const frame: TraceQueryResultEvent = {
+            v: PROTOCOL_VERSION,
+            sessionId: filter.sessionId, // 目标会话归属
+            channel: "trace",
+            type: "trace.query.result",
+            payload: {
+              // filterEcho：实际生效过滤条件回显（AF-5；readonly → 帧侧可变拷贝）
+              filterEcho: {
+                sessionId: filter.sessionId,
+                instanceIds: filter.instanceIds === null ? null : [...filter.instanceIds],
+                agentKind: filter.agentKind,
+                types: filter.types === null ? null : [...filter.types],
+                timeRange: filter.timeRange === null ? null : { ...filter.timeRange },
+                page: { ...filter.page },
+              },
+              instances: result.instances.map(traceInstanceRecordToDto),
+              events: result.rows.map((row) => ({ ...row })),
+              page: { loaded: result.rows.length, total: result.total, hasMore: result.hasMore },
+            },
+          };
+          this.sendNow(sender, frame); // 点对点（TR-AD-21，不经广播）
+        } catch (err) {
+          this.commandError(ws, type, "command.invalid_payload", (err as Error).message);
+        }
+        return;
+      }
       // ── v0.2 model 族（T2.3 AD-2，契约 C §1；真行为回口。微批：结果帧点对点回执）──
       // T1.1（AD-3）：case 体机械迁出 handlers/model.ts（语义逐字节等价），此处一行转发
       case "model.set":
@@ -623,4 +672,37 @@ export class WsServerAdapter {
   private sendNow(sender: FrameSender, frame: EventEnvelope): void {
     sender(frame);
   }
+}
+
+/** domain 实例面板记录 → 协议 DTO（readonly 数组/对象转可变帧形态；逐字段直拷）。 */
+function traceInstanceRecordToDto(record: DomainInstanceRecord): TraceInstanceRecord {
+  return {
+    instanceId: record.instanceId,
+    agentKind: record.agentKind,
+    profileKind: record.profileKind,
+    ...(record.model !== undefined ? { model: record.model } : {}),
+    status: record.status,
+    ...(record.startedAt !== undefined ? { startedAt: record.startedAt } : {}),
+    ...(record.endedAt !== undefined ? { endedAt: record.endedAt } : {}),
+    ...(record.task !== undefined ? { task: record.task } : {}),
+    eventCount: record.eventCount,
+    ...(record.snapshot !== undefined
+      ? {
+          snapshot: {
+            systemPrompt: record.snapshot.systemPrompt,
+            tools: [...record.snapshot.tools],
+            model: record.snapshot.model,
+            ...(record.snapshot.compaction !== undefined
+              ? { compaction: { ...record.snapshot.compaction } }
+              : {}),
+            ...(record.snapshot.hooks !== undefined ? { hooks: [...record.snapshot.hooks] } : {}),
+          },
+        }
+      : {}),
+    snapshotMissing: record.snapshotMissing,
+    ...(record.modelTimeline !== undefined
+      ? { modelTimeline: record.modelTimeline.map((c) => ({ ...c })) }
+      : {}),
+    ...(record.currentModel !== undefined ? { currentModel: record.currentModel } : {}),
+  };
 }

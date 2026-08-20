@@ -308,8 +308,103 @@ export interface ChatTranslations {
   tsFormat: string;
 }
 
+/** P-1 TracePage 文案命名空间（CL-5，T2.2；原型 P-1-trace.html 文案逐条对齐）。 */
+export interface TraceTranslations {
+  title: string;
+  sub: string;
+  controls: {
+    ariaLabel: string;
+    session: string;
+    range: string;
+    types: string;
+    typesGroup: string;
+    rangeAll: string;
+    range1h: string;
+    range15m: string;
+    range5m: string;
+  };
+  panel: {
+    ariaLabel: string;
+    title: string;
+    count: string;
+    all: string;
+    allSub: string;
+    eventCount: string;
+    empty: string;
+    mainName: string;
+    statusRunning: string;
+    statusCompleted: string;
+    statusFailed: string;
+    statusKilled: string;
+    /** running 实例起止时间行（{start} = 起时，{dur} = 已运行时长） */
+    timeRunning: string;
+  };
+  ctx: {
+    ariaLabel: string;
+    title: string;
+    /** agent.instantiated 来源行（{time} = 起时） */
+    source: string;
+    taskCite: string;
+    model: string;
+    tools: string;
+    compaction: string;
+    compactionValue: string;
+    compactionOff: string;
+    baseModel: string;
+    prompt: string;
+    promptChars: string;
+    expand: string;
+    collapse: string;
+    timeline: string;
+    current: string;
+    compactionMilestone: string;
+    compactionEvent: string;
+    snapshotMissing: string;
+    snapshotMissingHint: string;
+  };
+  table: {
+    time: string;
+    instance: string;
+    type: string;
+    summary: string;
+    hit: string;
+    copyJson: string;
+    copied: string;
+    copyFailed: string;
+    payloadHead: string;
+  };
+  paging: {
+    meta: string;
+    more: string;
+    allLoaded: string;
+  };
+  state: {
+    emptySession: string;
+    emptySessionHint: string;
+    emptyFiltered: string;
+    emptyFilteredHint: string;
+    errorTitle: string;
+    retry: string;
+    connTitle: string;
+    connDesc: string;
+    reconnect: string;
+    reconnectedToast: string;
+    notConnected: string;
+  };
+  demo: {
+    title: string;
+    state: string;
+    viewSuccess: string;
+    viewLoading: string;
+    viewEmpty: string;
+    viewError: string;
+    viewConn: string;
+  };
+}
+
 export interface Translations {
   chat: ChatTranslations;
+  trace: TraceTranslations;
 }
 
 export type Lang = "zh-CN" | "en-US";
