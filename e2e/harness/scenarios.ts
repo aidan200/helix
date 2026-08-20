@@ -12,7 +12,6 @@ import {
   thinkingEntry,
   toolEntry,
   usageDto,
-  type ClientFrame,
 } from "./protocol";
 import type { CatalogModel, EntryDto, SessionMeta, SessionUsageDto } from "@helix/protocol";
 import { catalogModel, sessionMeta } from "./protocol";
@@ -273,12 +272,6 @@ export const REBUILD_USAGE: SessionUsageDto = {
   compaction: REBUILD_COMPACT_ENTRY.usage,
 };
 
-// ── 发送命令帧校验 helper（Node 侧）─────────────────────────
-
-export function findCommand(frames: ClientFrame[], type: string): ClientFrame | undefined {
-  return frames.find((f) => f && f.type === type);
-}
-
 // ── M3 多会话族（T3.1；test-design §4.2 扩展点；CL-1 F(1.2)/F(1.0).5）──
 // 纪律：断言值全部取自本文件（不凭空构造）；K-4 参数注入——尾窗/分页按
 // 参数构造（N > 尾窗），断言相对参数而非绝对值。
@@ -360,7 +353,3 @@ export const MODEL_CATALOG: CatalogModel[] = [
   catalogModel("moonshot/kimi-k2", 256_000, { input: 0.6, output: 2.5 }),
   catalogModel("xai/grok-4", 256_000, { input: 3, output: 15 }, "overlay"),
 ];
-
-/** model.changed 剧本（运行期换模：徽标即时同步数据源） */
-export const MODEL_FROM = "anthropic/claude-sonnet-4-5";
-export const MODEL_TO = "openai/gpt-5.2";

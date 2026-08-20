@@ -16,8 +16,8 @@
  *   vite /@fs 的 URL>`）——剧本模块 default export 自动驱动建连剧本（无需
  *   spec 手动 open/emit），入口 smoke 消费。
  *
- * 旧 addInitScript 直替方案（mock-init.ts）退役为兼容路径：代码保留，
- * 不再挂默认 fixture；新剧本一律标准入口。
+ * 旧 addInitScript 直替方案（mock-init.ts）已删除（M6 N1）：mock 模式唯一
+ * 入口 = 标准入口；mock-init.ts 仅存 DAEMON_PORT 常量。
  *
  * 其余兜底不变：dev-token HTTP 端点拦截（loopback 语义保真：CORS 放行）+
  * 外部字体离线化 + 打开 P-1 页面。

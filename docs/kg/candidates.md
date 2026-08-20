@@ -102,7 +102,7 @@
 - reason: L3 语义复核判不一致：节点文本把 kill（动作）列为状态机独立终态 killed；实现为 InstanceState 无 killed（AgentInstance.ts:33-35），running→仅 done|failed（:60-62），kill 收口=failed 单一终态（SchedulerService.ts:286-293 closure.status="failed"）。修正方向：文本改为「done/failed（kill 收口=failed 单一终态）」——改文本级，零改码/零改锚
 - evidence: domain.md:196 文本 vs AgentInstance.ts:60-62/SchedulerService.ts:286-293/DomainEvent.ts:114-115 实现
 - implementationStatus: 完整实现
-- implementedCode: apps/daemon/src/domain/agent/AgentInstance.ts:33-35,57-63; apps/daemon/src/application/services/SchedulerService.ts:286-293
+- implementedCode: apps/daemon/src/domain/agent/AgentInstance.ts:33-35,57-63; apps/daemon/src/application/services/scheduler/SchedulerService.ts:286-293
 - sourceTask: final-verification L3 语义复核·实体面（phase-reviewer agt_0H70KD8HXWB9，2026-08-16，DONE 8 节点 5 一致 3 不一致）
 - createdIn: iter-20260816-uzvg
 - decisionLog: 终验决策 A（用户批准终验报告 §七，2026-08-16）：L3 语义复核判文本漂移——节点文本把 kill（动作）列为独立终态 killed；实现 kill 收口=failed 单一终态（AgentInstance.ts:60-62 / SchedulerService.ts:286-293）。修正：状态机行改「done/failed（kill 收口 = failed 单一终态，无独立 killed 态）」。改文本级，零改码零改锚。
@@ -115,7 +115,7 @@
 - reason: L3 语义复核判不一致：「SubAgent Entry 亦入聚合」宣称 SubAgent 条目进聚合 Entry 树；实现中 SubAgent 内容只进 domain_events 挂 instanceId 事件行（SchedulerService.onInstanceEvent 转 tool.call.*/usage.recorded，抽屉读面=per-instance 事件流），聚合 Entry 树仅主实例（Session.ts:119 硬编码 MAIN_INSTANCE_ID）——与 AD-8 决策原文一致、与节点文本不符。修正方向：改为「SubAgent 内容以挂 instanceId 的领域事件入会话级存储（domain_events，trace 四维可查，抽屉消费）；聚合 Entry 树当前仅主实例（closure 注入以 isSteer entry、main 归属落树）」——改文本级
 - evidence: domain.md:91 vs Session.ts:119 / RowMapper.ts:75 / SchedulerService.onInstanceEvent / decision-register.md AD-8
 - implementationStatus: 完整实现
-- implementedCode: apps/daemon/src/domain/session/Session.ts:119; apps/daemon/src/application/services/SchedulerService.ts onInstanceEvent; apps/daemon/src/adapters/driven/sqlite-session/rows/RowMapper.ts:75
+- implementedCode: apps/daemon/src/domain/session/Session.ts:119; apps/daemon/src/application/services/scheduler/SchedulerService.ts onInstanceEvent; apps/daemon/src/adapters/driven/sqlite-session/rows/RowMapper.ts:75
 - sourceTask: final-verification L3 语义复核·实体面（phase-reviewer agt_0H70KD8HXWB9，2026-08-16，DONE 8 节点 5 一致 3 不一致）
 - createdIn: iter-20260816-uzvg
 - decisionLog: 终验决策 A（用户批准终验报告 §七，2026-08-16）：L3 语义复核判文本漂移——「SubAgent Entry 亦入聚合」与实现及 AD-8 决策原文不符（SubAgent 内容走 domain_events 挂 instanceId 事件行，聚合 Entry 树仅主实例 Session.ts:119）。修正：载体表述改事件行口径 + 声明 v0.1 边界（SubAgent Entry 进聚合与恢复重放为 M3+ 子项，与 TR-AD-15 边界声明联动）。改文本级。
@@ -128,7 +128,7 @@
 - reason: L3 语义复核判不一致：节点规则行「reportPath 产物形态待开发裁决（O-5）」已过期——O-5 已在 T2.3 裁决双产物并实现（closure_records 记录行 + <home>/reports/<session>/<agentId>.md，container.ts:196 生产装配 reportsDir，green-t23 证据通过）。修正方向：改为「O-5 已裁决双产物：closure_records 行 + reports/<session>/<agentId>.md（reportsDir 未配置时不产文件，reportPath=null）」——改文本级
 - evidence: domain.md:215 vs SchedulerService.ts 收口链①/container.ts:196/evidence/green-t23-closure-orchestration.md:28
 - implementationStatus: 完整实现
-- implementedCode: apps/daemon/src/application/services/SchedulerService.ts onInstanceClosure ①双产物; apps/daemon/src/infrastructure/container.ts:196
+- implementedCode: apps/daemon/src/application/services/scheduler/SchedulerService.ts onInstanceClosure ①双产物; apps/daemon/src/infrastructure/container.ts:196
 - sourceTask: final-verification L3 语义复核·实体面（phase-reviewer agt_0H70KD8HXWB9，2026-08-16，DONE 8 节点 5 一致 3 不一致）
 - createdIn: iter-20260816-uzvg
 - decisionLog: 终验决策 A（用户批准终验报告 §七，2026-08-16）：L3 语义复核判文本时效过期——「reportPath 产物形态待开发裁决（O-5）」已被 T2.3 裁决双产物并实现（closure_records 行 + reports/<session>/<agentId>.md，container.ts:196，green-t23 证据）。修正：改「已裁决（O-5 双产物）」+ reportsDir 未配置兜底语义。改文本级。
@@ -218,7 +218,7 @@
 - reason: 新业务实体候选：E-认证凭据（auth.json，正式名待人审签发）——Record<providerId, type-tagged Credential 联合>（pi 生态格式等价）；0600 权限 + pid 文件锁 + 原子写；独立生命周期（key 增删/验证态）、唯一标识、多模块消费（auth 命令族 + 连通验证 verify + set_model apiKey 跟随 + E 层 seed 面与 E-模型目录关联）
 - evidence: auth-store.test（类型级等价断言 + 0600 权限）；e2e/CL-3-e2e-model-chain（auth.json 0600 断言）；E 层 prepHome seed 先例（{provider:{type:api_key,key}}）
 - implementationStatus: 完整实现
-- implementedCode: apps/daemon/src/adapters/driven/infrastructure/auth-store.ts（0600+pid 锁+原子写）；路径经 paths.ts 单点派生
+- implementedCode: apps/daemon/src/infrastructure/auth-store.ts（0600+pid 锁+原子写）；路径经 paths.ts 单点派生
 - sourceTask: verification/kg-inspection.md（entity 覆盖率审计候选 ②，建议终验落账）
 - createdIn: iter-20260816-6q6f
 - decisionLog: 终验裁决（用户批准终验报告 §六 #16，2026-08-17）：verification entity 覆盖率审计候选 ② 落库——新业务实体 E-认证凭据（四节完整），TR-AD-6/TR-AD-7/AD-2 联动。formalId=E-认证凭据。
@@ -265,7 +265,7 @@
 - scope: docs/kg/architecture-rules.md TR-AD-18（三通道与协议 additive 演进）或新条目；错误链路实现/评审/测试剧本编写时的规则依据面
 - project: helix
 - reason: 热修后新增设计事实：①provider 失败的协议形态——pi-ai 将 HTTP 失败规范化为流内 error 帧（非异常），errorMessage 含 provider 原文；引擎错误经 engine.error 事件透传前端（错误卡）；②error 轮语义——不产 assistant 气泡、turn 收口、全零 usage 不入账（零成本非真实计费）；③mock 契约等价的错误面——FakeLLM/剧本须覆盖 error 帧路径（TR-TEST-3 等价原则的错误维度，E 层 errorReply 剧本为断言面）。建议并入 TR-AD-18（三通道→含错误通道）或独立条目，由下迭代终验人审裁决
-- evidence: docs/hotfixes/2026-08-16-engine-error.md；packages/protocol/src/events.ts（engine.error 第 24 事件）；PiAgentEngineAdapter.ts message_end stopReason=error 分支；ChatService.ts error 轮零账不入账；e2e/CL-7-e2e-engine-error.spec.ts（FakeLLM errorReply 剧本与真实 pi-ai 失败帧同构）；现场验证：真 z.ai 429 → engine.error 帧含 provider 原文
+- evidence: docs/hotfixes/2026-08-16-engine-error.md；packages/protocol/src/events/chat.ts（engine.error 第 24 事件，EngineErrorEvent:105）；PiAgentEngineAdapter.ts message_end stopReason=error 分支；ChatService.ts error 轮零账不入账；e2e/CL-7-e2e-engine-error.spec.ts（FakeLLM errorReply 剧本与真实 pi-ai 失败帧同构）；现场验证：真 z.ai 429 → engine.error 帧含 provider 原文
 - implementationStatus: 完整实现
 - sourceTask: post-iteration 热修（MainAgent，2026-08-16，docs/hotfixes/2026-08-16-engine-error.md；用户现场报障驱动）
 - createdIn: iter-20260816-uzvg
@@ -356,7 +356,7 @@
 - reason: AD-2 落地定稿（task-T2.3 sediment 留档）：①auth.json（Record<providerId, Credential 联合>，0600+pid 锁+原子写，路径经 paths.ts 单点派生）②默认模型 SQLite 单写③ModelCatalog 自实现（builtin 39 静态表 + pi.dev overlay ETag 三分支/防降级/落盘兜底，零 pi-coding-agent，落位 driven 而非 application——AG-04 合规）④set_model 链：AgentState.model 直改（in-flight 不变，下一 turn 生效）⑤config 瘦身迁移幂等（skipConfig 重定义：真引擎模式 = options.engine 缺省，skipConfig 只跳过 config 读面）
 - evidence: auth-store.test（类型级等价断言 + 0600）；model-catalog.test（ETag 三分支/防降级）；set_model 真引擎序列断言；config-migration.test 幂等；e2e/CL-3-e2e-model-chain（auth.json 0600 + builtin fallback）
 - implementationStatus: 完整实现
-- implementedCode: apps/daemon/src/adapters/driven/infrastructure/auth-store.ts；pi-engine/model-catalog.ts（driven 落位）；ModelService；SQLite default_model 表
+- implementedCode: apps/daemon/src/infrastructure/auth-store.ts；pi-engine/model-catalog.ts（driven 落位）；ModelService；SQLite default_model 表
 - sourceTask: task-T2.3-report.md（propose 落账阻断留档，OI-VER-1 ②）
 - createdIn: iter-20260816-6q6f
 - decisionLog: 终验裁决（用户批准终验报告 §六 #9，2026-08-17）：AD-2 落地定稿落 docs/kg/decisions.md 决策档案 AD-2（上下文/选项/裁决与理由/结局四节，kg A-1 模型决策非图节点；auth.json 0600/SQLite 默认/ModelCatalog driven/set_model 链/config 瘦身）。因 kind=decision 不在 kg apply 支持面 + targetNode 无既有节点块，按 desk 先例由 MainAgent 人审直写落盘（formalId=AD-2）。
@@ -419,12 +419,12 @@
 - scope: 协议契约文档面：TR-AD-23 规则②例证与 updatedIn 元数据
 - project: helix
 - reason: TR-AD-23 规则②「契约版本一次定形」正文仅以 v0.3 为批次例证；本迭代契约 v0.4（trace.query 命令族 + agent.instantiated/model.changed 事件 + engine.error 抑制守卫）已按同一 additive/一次定形律落地且代码侧完整实现，建议将 v0.4 补为规则②第二例证并推进 updatedIn 元数据。
-- evidence: packages/protocol/src/envelope.ts:15 PROTOCOL_VERSION="0.4"；packages/protocol/src/events.ts:8 v0.4 新增清单；apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts:681-688 engine.error 抑制守卫
+- evidence: packages/protocol/src/envelope.ts:15 PROTOCOL_VERSION="0.4"；packages/protocol/src/events/index.ts:8 v0.4 新增清单；apps/daemon/src/adapters/driving/ws-server/DtoMapper.ts:681-688 engine.error 抑制守卫
 - implementationStatus: 完整实现
-- implementedCode: packages/protocol/src/envelope.ts:15；packages/protocol/src/events.ts:8,278,537-543,638,689；packages/protocol/src/commands.ts:266
+- implementedCode: packages/protocol/src/envelope.ts:15；packages/protocol/src/events/index.ts:8（v0.4 清单；旧单文件行号列 278,537-543,638,689 随拆分失效，文件级锚随 TR-AD-21-r2 处方）；packages/protocol/src/commands.ts:266
 - sourceTask: l3-semantic-review (phase-reviewer agt_BF0QPNMSKF6R)
 - createdIn: iter-20260819-erio
-- decisionLog: 终验裁决（用户批准终验报告 §六 #1，2026-08-20）：规则②「契约版本一次定形」补 v0.4 为第二例证（trace.query 命令族 + agent.instantiated/model.changed 落盘事件 + engine.error SubAgent 抑制守卫同批，iter-20260819-erio）；derivedFrom 增 AD-4；updatedIn 推进 iter-20260819-erio。证据：envelope.ts:15 PROTOCOL_VERSION="0.4"、events.ts:8 v0.4 清单、DtoMapper.ts:681-688 抑制守卫。formalId=TR-AD-23。
+- decisionLog: 终验裁决（用户批准终验报告 §六 #1，2026-08-20）：规则②「契约版本一次定形」补 v0.4 为第二例证（trace.query 命令族 + agent.instantiated/model.changed 落盘事件 + engine.error SubAgent 抑制守卫同批，iter-20260819-erio）；derivedFrom 增 AD-4；updatedIn 推进 iter-20260819-erio。证据：envelope.ts:15 PROTOCOL_VERSION="0.4"、events/index.ts:8 v0.4 清单、DtoMapper.ts:681-688 抑制守卫。formalId=TR-AD-23。
 
 ## discarded
 
@@ -577,7 +577,7 @@
 - reason: hotfix-20260820 契约 additive 两字段（ConnectionWelcomePayload.draft?、ChatSendPayload.model?）为规则①「可选参数扩展优先于新命令对」新例证（与 subscribe 扩 tier、steer 扩 instanceId 同模式）；规则①文本补例证；updatedIn 推进 hotfix-20260820
 - evidence: packages/protocol events.ts/commands.ts diff；PROTOCOL.md §14 additive 登记；test:protocol 33/0
 - implementationStatus: 完整实现
-- implementedCode: packages/protocol/src/events.ts（ConnectionWelcomePayload.draft?）、packages/protocol/src/commands.ts（ChatSendPayload.model?）、packages/protocol/PROTOCOL.md
+- implementedCode: packages/protocol/src/events/notification.ts:8（ConnectionWelcomePayload.draft?）、packages/protocol/src/commands.ts（ChatSendPayload.model?）、packages/protocol/PROTOCOL.md
 - sourceTask: hotfix-20260820 task-T4（default-coder agt_3KJRVXQTNT1H，DONE）
 - createdIn: hotfix-20260820
 - decisionLog: 用户批准同步（2026-08-20）：apply——例证已补入规则①正文（纯文本例证增补，规则语义不变）
@@ -763,7 +763,7 @@
 - reason: 守护面随被守护代码迁移原则（建议 TR-TEST-2 补⑤条）：源码路径字符串型守护断言（如 session-projection 零聚合写守护直读源码断言）在守护对象拆分时必须随迁扩展至全部产物（守护面 = 目录全部产物），防拆分绕过守护。T3.3 实证：事件翻译逻辑拆出后守护圈扩 scheduler/ 三文件，否则「只产事件不写聚合」对 translator 失效——守护语义跟随被守护代码，而非跟随文件名
 - evidence: git 17b97f1 -- apps/daemon/test/integration/session-projection.test.ts
 - implementationStatus: 完整实现
-- implementedCode: apps/daemon/test/integration/session-projection.test.ts（守护面随 scheduler/ 三文件扩展）；apps/daemon/test/arch-guard/structure.test.ts
+- implementedCode: apps/daemon/test/integration/session-projection.test.ts（守护面随 scheduler/ 三文件扩展）；apps/daemon/test/unit/structure.test.ts
 - sourceTask: development/kg-sediment-backlog.md B2（task-T3.3-report sediment）
 - createdIn: iter-20260820-qhv8
 - decisionLog: 终验决策（用户批准终验报告 §五 C 类 B2，2026-08-20）：知识沉淀已直写落库（TR-TEST-2 补⑤守护面随迁条 + anchors 补 arch-guard/session-projection）——正式号 TR-TEST-2 与 discarded 历史条目（TR-TEST-2-r2）撞号，按 desk 先例 discard 留审计痕，知识不丢失。

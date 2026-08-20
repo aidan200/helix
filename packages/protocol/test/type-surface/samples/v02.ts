@@ -4,14 +4,10 @@ import type {
   CommandEnvelope,
   CompactionCompletedEvent,
   EventEnvelope,
-  ModelCatalogResult,
   ModelChangedEvent,
   SessionListChangedEvent,
-  SessionListResult,
-  SessionLoadHistoryResult,
   SessionMeta,
   SessionSnapshotDto,
-  AuthVerifyResult,
 } from "../../../src/index";
 import { chatSendRouted } from "./v0";
 import { compactionEntry, snapshotV01, thinkingEntry } from "./v01";
@@ -76,11 +72,6 @@ export const sampleCatalogModel: CatalogModel = {
   cost: { input: 4, output: 16, cacheRead: 1, cacheWrite: 8 },
   source: "builtin",
 };
-export const _sessionListResult: SessionListResult = { sessions: [sampleSessionMeta] };
-export const _loadHistoryResult: SessionLoadHistoryResult = { entries: [], hasMore: true, nextCursor: "e1" };
-export const _catalogResult: ModelCatalogResult = { models: [sampleCatalogModel], refreshedAt: 1760000100000, source: "cache" };
-export const _authVerifyOk: AuthVerifyResult = { status: "ok", latencyMs: 120 };
-export const _authVerifyFail: AuthVerifyResult = { status: "fail", reason: "401 Unauthorized" };
 
 /**
  * v0.2 model/auth 命令结果帧样例（T2.3-result-frames 微批；点对点回执 +
