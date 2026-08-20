@@ -41,18 +41,9 @@ const _setEnabledFull: AgentConfigSetEnabledPayload = {
   enabled: false,
 };
 // @ts-expect-error 缺 enabled → 编译期拒绝（enabled 是 set/clear 判别位）
-const _setEnabledNoEnabled: AgentConfigSetEnabledPayload = {
-  profileKind: "main-session",
-  resourceType: "tool",
-  name: "grep",
-};
-// @ts-expect-error resourceType 只接受 tool/skill/model
-const _setEnabledBadType: AgentConfigSetEnabledPayload = {
-  profileKind: "main-session",
-  resourceType: "hook",
-  name: "steer",
-  enabled: true,
-};
+const _setEnabledNoEnabled: AgentConfigSetEnabledPayload = { profileKind: "main-session", resourceType: "tool", name: "grep" };
+// @ts-expect-error resourceType 只接受 tool/skill/model（越界字面量编译期拒绝）
+const _setEnabledBadType: AgentConfigSetEnabledPayload = { profileKind: "main-session", resourceType: "hook", name: "steer", enabled: true };
 
 describe("agent.config 命令族 payload（v0.6）", () => {
   test("list：缺省全 kind / 单 kind 两形态可构造且 v 位为当前版本", () => {

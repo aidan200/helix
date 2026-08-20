@@ -329,9 +329,16 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     // 全局兜底；与该实例 launch 实际用模同源同时点——launch 侧 resolveModelFor
     // 同序同值，仅 id → Model 对象的解析在 launcher，AD-3 联动）。
     subagentSnapshotFor: (spawnModel): ProfileSnapshotData => ({
-      systemPrompt: SUBAGENT_SYSTEM_PROMPT,
-      tools: [...SubAgentProfile.tools],
-      model: SubAgentProfile.model ?? spawnModel ?? defaultModel.current(),
+      // M6 T3：快照供给改读组装缓存（消观测漂移——与 launch 实际注入同源
+      // 同时点）；model 链与 launcher resolveModelFor 同序：profile 槽位 ??
+      // kind 槽位（uiModelSlot）?? spawn 快照 ?? 全局兑底
+      systemPrompt: subagentAssembly.systemPrompt,
+      tools: [...subagentAssembly.tools],
+      model:
+        SubAgentProfile.model ??
+        resourceService.modelSlot("subagent-worker") ??
+        spawnModel ??
+        defaultModel.current(),
       hooks: SubAgentProfile.hooks.map((h) => h.name),
     }),
     // closure 注入主线（AD-8 双通道；T2.2 会话反向查找：实例归属会话 → 注册表
@@ -442,12 +449,13 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
         // T2.1（F5.9/AD-6）：model.changed 的 from 兜底（引擎未暴露观测值时
         // 回退全局默认，与 ModelService previous 口径一致）
         modelFallback: () => defaultModel.current(),
-        // T2.1（F5.7/AD-5，契约 v0.4 §2）：主实例 instantiated 快照供给——
-        // profile 常量全文 + 会话当前模型（引擎观测值 ?? 全局默认）；T4 起发布
-        // 触发在注册表 promoteDraft（转正：首个用户条目；恢复路径不重发）。
+        // T2.1（F5.7/AD-5）：主实例 instantiated 快照供给——M6 T3 改读组装
+        // 缓存（与 engineFor 实际装配同源，消观测漂移；模型仍取创建时引擎
+        // 观测值 ?? 全局默认）；T4 起发布触发在注册表 promoteDraft（转正：
+        // 首个用户条目；恢复路径不重发）。
         instantiatedSnapshot: (): ProfileSnapshotData => ({
-          systemPrompt: MAIN_SESSION_SYSTEM_PROMPT,
-          tools: [...MainSessionProfile.tools],
+          systemPrompt: mainAssembly.systemPrompt,
+          tools: [...mainAssembly.tools],
           model: engine.currentModel?.() ?? defaultModel.current(),
           ...(MainSessionProfile.compaction !== undefined
             ? { compaction: MainSessionProfile.compaction }
@@ -645,6 +653,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     system,
     orchestration: currentOrchestration, // T2.3：agent.kill 命令链回调度
     model: modelService, // T2.3（AD-2）：model.*/auth.* 命令族回口
+    resource: resourceService, // M6 T3（契约 v0.6）：agent.config 命令族回口
+    hasModel: (id) => catalog.hasModel(id), // M6 T3：model 型 set 前置校验
     traceQuery, // T2.1（CL-5/F5.6）：trace.query 命令回口（只读面）
     events: eventStream,
     token,

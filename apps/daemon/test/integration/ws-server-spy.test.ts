@@ -106,6 +106,14 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         authDeleteKey: async () => {},
         authVerify: async () => ({ status: "fail", reason: "spy" }),
       },
+      resource: {
+        // M6 T3（契约 v0.6）：agent.config 族 spy 回口——不触发真实配置链
+        list: async () => { throw new Error("spy 不装配资源配置链"); },
+        setEnabled: async () => { throw new Error("spy 不装配资源配置链"); },
+        setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+        clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+      },
+      hasModel: () => false,
       events: eventStream,
       token: "spy-token",
       port: 0,
@@ -245,6 +253,14 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         kill: () => ({ killed: false, error: "spy 不装配调度" }),
       },
       model,
+      resource: {
+        // M6 T3（契约 v0.6）：agent.config 族 spy 回口——不触发真实配置链
+        list: async () => { throw new Error("spy 不装配资源配置链"); },
+        setEnabled: async () => { throw new Error("spy 不装配资源配置链"); },
+        setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+        clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+      },
+      hasModel: () => false,
       events: new EventStream(),
       token: "spy-token",
       port: 0,
@@ -350,6 +366,14 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
       authDeleteKey: async () => {},
       authVerify: async () => ({ status: "fail", reason: "spy" }),
     },
+    resource: {
+      // M6 T3（契约 v0.6）：agent.config 族 spy 回口——不触发真实配置链
+      list: async () => { throw new Error("spy 不装配资源配置链"); },
+      setEnabled: async () => { throw new Error("spy 不装配资源配置链"); },
+      setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+      clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+    },
+    hasModel: () => false,
     events,
     token: "spy-token",
     port: 0,

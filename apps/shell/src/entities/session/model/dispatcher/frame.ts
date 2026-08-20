@@ -33,6 +33,10 @@ import {
   applyModelConfigEvent,
   isModelConfigEventType,
 } from "../consumers/model-config";
+import {
+  applyAgentConfigEvent,
+  isAgentConfigEventType,
+} from "../consumers/agent-config";
 import { route } from "./index";
 
 /** v0.2 统一信封帧入口：拓扑状态 + 事件帧 → 新拓扑状态。 */
@@ -45,6 +49,12 @@ export function dispatchFrame(topo: TopologyState, frame: EventEnvelope, ts?: nu
   //    族是拓扑级消费，提前安全；全局数据不入会话 store）
   if (isModelConfigEventType(frame.type)) {
     return applyModelConfigEvent(topo, frame);
+  }
+  // ⓪′ 拓扑级 agent.config 配置族（v0.6 agent.config.changed，M6 T3 占位）：
+  //    daemon 级全局广播（信封 sessionId = SYSTEM_SESSION_ID）——先于后台/系统
+  //    路由的拓扑级消费（model 族两层拓扑同构）；T4 接真消费
+  if (isAgentConfigEventType(frame.type)) {
+    return applyAgentConfigEvent(topo, frame);
   }
   // ① 后台会话帧：轻量 store 消费。草稿态 activeId 可为 null——后台路由不
   //    依赖 activeId 非空（bug3 修复：旧守卫「activeId!==null」是 v0.1 兼容

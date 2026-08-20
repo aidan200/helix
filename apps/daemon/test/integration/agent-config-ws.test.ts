@@ -80,6 +80,13 @@ class TestClient {
   }
 }
 
+/** hello 握手（T4：命中零条目内存草稿 → welcome.draft 时不推快照，显式订阅；同 ws-server.test 先例）。 */
+async function helloHandshake(client: TestClient, token: string): Promise<void> {
+  client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token, protocolVersion: PROTOCOL_VERSION } });
+  await client.expect("connection.welcome");
+  client.send({ v: 0, type: "session.subscribe", payload: {} });
+}
+
 async function until(cond: () => boolean, timeoutMs: number, what: string): Promise<void> {
   const t0 = Date.now();
   while (!cond()) {
@@ -159,8 +166,7 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
-      await client.expect("connection.welcome");
+      await helloHandshake(client, rig.token);
       await client.expect("session.snapshot");
 
       client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: {} });
@@ -206,8 +212,7 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
-      await client.expect("connection.welcome");
+      await helloHandshake(client, rig.token);
 
       client.send({
         v: PROTOCOL_VERSION,
@@ -232,8 +237,7 @@ describe("agent.config.set_enabled（v0.6 全局命令；四路径回执形态�
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
-      await client.expect("connection.welcome");
+      await helloHandshake(client, rig.token);
 
       client.send({
         v: PROTOCOL_VERSION,
@@ -266,8 +270,7 @@ describe("agent.config.set_enabled（v0.6 全局命令；四路径回执形态�
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
-      await client.expect("connection.welcome");
+      await helloHandshake(client, rig.token);
 
       client.send({
         v: PROTOCOL_VERSION,
@@ -289,8 +292,7 @@ describe("agent.config.set_enabled（v0.6 全局命令；四路径回执形态�
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
-      await client.expect("connection.welcome");
+      await helloHandshake(client, rig.token);
 
       client.send({
         v: PROTOCOL_VERSION,
@@ -313,8 +315,7 @@ describe("agent.config.set_enabled（v0.6 全局命令；四路径回执形态�
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
-      await client.expect("connection.welcome");
+      await helloHandshake(client, rig.token);
 
       // set 槽位
       client.send({
@@ -380,8 +381,7 @@ describe("agent.config.set_enabled（v0.6 全局命令；四路径回执形态�
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
-      await client.expect("connection.welcome");
+      await helloHandshake(client, rig.token);
 
       client.send({
         v: PROTOCOL_VERSION,
@@ -410,8 +410,7 @@ describe("agent.config 前置校验（payload 形状）", () => {
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
-      await client.expect("connection.welcome");
+      await helloHandshake(client, rig.token);
 
       client.send({
         v: PROTOCOL_VERSION,

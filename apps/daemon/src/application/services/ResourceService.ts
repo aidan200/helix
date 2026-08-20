@@ -7,6 +7,11 @@ import type {
   SkillDescriptor,
   SkillSourcePort,
 } from "../ports/outbound/SkillSourcePort";
+import type {
+  ResourceConfigBlock,
+  ResourceConfigPort,
+  ResourceToggleOutcome,
+} from "../ports/inbound/ResourceConfigPort";
 
 /**
  * ResourceService —— profile kind 维资源启停的合取计算层（M6 T1，数据域
@@ -23,8 +28,12 @@ import type {
  *
  * 【toggle 未知名】显式跳过不落库（{ status: "skipped" }）：全集之外的名
  * （如 subagent 禁 agent_spawn）无生效面，落库只会制造永不生效的差异行。
+ *
+ * M6 T3：结构满足 ResourceConfigPort（agent.config 命令族回口，AG-12
+ * driving 只 import ports）；list 增透传扫描诊断（契约读面），toggle 以
+ * setEnabled 别名暴露（模型槽位写面分流在 driving 层）。
  */
-export class ResourceService {
+export class ResourceService implements ResourceConfigPort {
   constructor(
     private readonly deps: {
       readonly store: ResourceStatePort;
@@ -48,32 +57,30 @@ export class ResourceService {
 
   /**
    * 三类资源合并视图（UI/契约读面）：tools = 全集 + 启停行；skills = 扫描
-   * 全集 + 启停行；model = 槽位现值（未设 → undefined）。
+   * 全集 + 启停行（含扫描诊断透传，坏文件上抛不炸）；model = 槽位现值
+   * （未设 → undefined）。
    */
-  async list(kind: ProfileKind): Promise<{
-    readonly tools: ReadonlyArray<{ name: string; enabled: boolean }>;
-    readonly skills: ReadonlyArray<SkillDescriptor & { enabled: boolean }>;
-    readonly model: string | undefined;
-  }> {
+  async list(kind: ProfileKind): Promise<ResourceConfigBlock> {
     const tools = this.deps.toolsCatalog[kind].map((name) => ({
       name,
       enabled: this.enabledOf(kind, "tool", name),
     }));
     const scanned = await this.deps.skills.scan();
     const skills = scanned.skills.map((s) => ({ ...s, enabled: this.enabledOf(kind, "skill", s.name) }));
-    return { tools, skills, model: this.deps.store.modelSlot(kind) };
+    return { profileKind: kind, tools, skills, diagnostics: scanned.diagnostics, model: this.deps.store.modelSlot(kind) };
   }
 
   /**
    * 启停写面：全集内 → 落库差异行；全集外（或 model 型——model 走
    * setModel/clearModel 槽位 API，不承载启停语义）→ 显式跳过。
+   * （ResourceConfigPort.setEnabled 的实现面；toggle 为同名语义保留名。）
    */
-  async toggle(
+  async setEnabled(
     kind: ProfileKind,
     resourceType: ResourceType,
     name: string,
     enabled: boolean,
-  ): Promise<{ status: "applied" } | { status: "skipped"; reason: string }> {
+  ): Promise<ResourceToggleOutcome> {
     if (resourceType === "model") {
       return { status: "skipped", reason: "model-uses-slot-api" };
     }
@@ -107,12 +114,27 @@ export class ResourceService {
   }
 
   /** model 槽位写（store 层原子替换：清旧行 + 新行 enabled 恒 1）。 */
-  async setModel(kind: ProfileKind, model: string): Promise<void> {
+  async setModelSlot(kind: ProfileKind, model: string): Promise<void> {
     await this.deps.store.setModelSlot(kind, model);
   }
 
   /** model 槽位清除（删除行 = 未设）。 */
-  async clearModel(kind: ProfileKind): Promise<void> {
+  async clearModelSlot(kind: ProfileKind): Promise<void> {
     await this.deps.store.clearModelSlot(kind);
+  }
+
+  /** 同义保留名（T1 起）：ResourceConfigPort.setEnabled 的旧调用面。 */
+  toggle(kind: ProfileKind, resourceType: ResourceType, name: string, enabled: boolean): Promise<ResourceToggleOutcome> {
+    return this.setEnabled(kind, resourceType, name, enabled);
+  }
+
+  /** model 槽位写（T1 起保留名）：setModelSlot 同义。 */
+  setModel(kind: ProfileKind, model: string): Promise<void> {
+    return this.setModelSlot(kind, model);
+  }
+
+  /** model 槽位清除（T1 起保留名）：clearModelSlot 同义。 */
+  clearModel(kind: ProfileKind): Promise<void> {
+    return this.clearModelSlot(kind);
   }
 }

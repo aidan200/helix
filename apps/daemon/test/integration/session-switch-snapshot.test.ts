@@ -215,7 +215,14 @@ describe("T5.1：多会话切换快照盖章 = 目标会话自身状态（串台
         kill: () => ({ killed: false, error: "spy" }),
       },
       model,
-      events: new EventStream(),
+      resource: {
+        // M6 T3（契约 v0.6）：agent.config 族 spy 回口——不触发真实配置链
+        list: async () => { throw new Error("spy 不装配资源配置链"); },
+        setEnabled: async () => { throw new Error("spy 不装配资源配置链"); },
+        setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+        clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+      },
+      hasModel: () => false,      events: new EventStream(),
       token: "spy-token",
       port: 0,
     });

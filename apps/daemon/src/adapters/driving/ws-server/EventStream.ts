@@ -22,6 +22,7 @@
 import type { EventPublisherPort, StreamDelta } from "../../../application/ports/outbound/EventPublisherPort";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type {
+  AgentConfigChangedEvent,
   ChatStreamDeltaEvent,
   EventEnvelope,
   ModelChangedEvent,
@@ -167,6 +168,28 @@ export class EventStream implements EventPublisherPort {
       sessionId: payload.sessionId,
       channel: "model",
       type: "model.changed",
+      payload: { ...payload },
+    };
+    this.push(frame);
+  }
+
+  /**
+   * agent.config.changed 广播（v0.6，M6 T3）：资源配置变更通知——
+   * daemon 级全局配置（信封 sessionId = SYSTEM_SESSION_ID → 全连接下发，
+   * 与 broadcastListChanged 同构；订阅无关）。skills/tools 同构；model 型
+   * name = 模型 id 或 null（clear）。
+   */
+  broadcastAgentConfigChanged(payload: {
+    profileKind: "main-session" | "subagent-worker";
+    resourceType: "tool" | "skill" | "model";
+    name: string | null;
+    enabled: boolean;
+  }): void {
+    const frame: AgentConfigChangedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "agent",
+      type: "agent.config.changed",
       payload: { ...payload },
     };
     this.push(frame);
