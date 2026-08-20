@@ -45,22 +45,59 @@
 ## 3. 统一信封
 
 ```ts
-export const PROTOCOL_VERSION = 0 as const;
+// 本代码块为 packages/protocol/src/envelope.ts 现行定义的忠实呈现（F(2).2 对齐，逐项抄源）。
 
-export interface WorkspaceRoute { workspaceId?: string }
+/** 协议版本位。v0.4 帧 `v` 恒为 "0.4"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
+export const PROTOCOL_VERSION = "0.4" as const;
 
-export interface Envelope<T = unknown> {
-  v: typeof PROTOCOL_VERSION;   // 版本位：v0 恒为 0（AD-9）
-  type: string;                 // 目录名，具体信封接口以字面量收窄
-  payload: T;                   // 载荷形状由 type 决定
-  workspace?: WorkspaceRoute;   // 预留字段位，通常不携带
+/**
+ * 帧版本位取值域："0.4" = 当前批（v0.4）帧；`0` = v0/v0.1 历史帧（信封兼容读
+ * 的类型面）。handshake 的 HelloPayload.protocolVersion 不取联合（严格 "0.4" 单值）。
+ */
+export type FrameVersion = 0 | typeof PROTOCOL_VERSION;
+
+/** workspace 路由（AD-7 预留）：仅类型与信封字段位存在，无路由实现（见下条声明）。 */
+export interface WorkspaceRoute {
+  workspaceId?: string;
+}
+
+/** C→S 命令信封基型（契约 A §1.1）。具体命令信封以 `type` 字面量收窄并实例化 `payload`。 */
+export interface CommandFrame<T = unknown> {
+  /** 协议版本位（FrameVersion：当前批帧 "0.4"；0 = v0/v0.1 历史帧兼容读） */
+  v: FrameVersion;
+  /** 消息目录名（如 "chat.send" / "session.loadHistory"） */
+  type: string;
+  /** 消息载荷，形状由 type 决定 */
+  payload: T;
+  /** 会话路由位（v0.2 新增，AD-4）：会话作用域命令必填；全局命令省略；类型层可选 */
+  sessionId?: string;
+  /** 实例归属预留位：命令侧不消费（agentId 在 payload 内；§10.1） */
+  instanceId?: string;
+  /** workspace 路由预留字段：可选；v0.2 仍不消费 */
+  workspace?: WorkspaceRoute;
+}
+
+/** S→C 事件信封基型（v0.2 统一事件信封，契约 A §1.2；AD-3/AD-4）。 */
+export interface EventFrame<T = unknown> {
+  /** 协议版本位（FrameVersion：当前批帧 "0.4"；0 = v0/v0.1 历史帧兼容读） */
+  v: FrameVersion;
+  /** 事件归属会话（v0.2 新增，AD-4）：S→C 运行时必发；系统事件以 SYSTEM_SESSION_ID 占位 */
+  sessionId?: string;
+  /** 实例归属（v0.1 起）：可选；缺省 = 主实例（MAIN_INSTANCE_ID） */
+  instanceId?: string;
+  /** 事件类型学通道（v0.2 新增，AD-3）：events.ts 字面量登记所属族 */
+  channel?: Channel;
+  /** 消息目录名（如 "chat.stream.delta" / "session.list_changed"） */
+  type: string;
+  /** 消息载荷，形状由 type 决定 */
+  payload: T;
 }
 ```
 
 - 具体命令/事件信封（`ChatSendCommand`、`ChatStreamDeltaEvent`…）继承
-  `Envelope<载荷>` 并以 `type` 字面量收窄；联合（`CommandEnvelope` /
-  `EventEnvelope`）即**判别式联合**——两端 `switch(frame.type)` 直接窄化
-  payload，无需运行时 type-guard。
+  `CommandFrame<载荷>` / `EventFrame<载荷>` 并以 `type` 字面量收窄；联合
+  （`CommandEnvelope` / `EventEnvelope`）即**判别式联合**——两端
+  `switch(frame.type)` 直接窄化 payload，无需运行时 type-guard。
 - **⚠️ workspace 预留声明（AD-7，架构 §6.4）**：`workspace` 字段与
   `WorkspaceRoute` 类型当前为**预留语义，无路由实现**——daemon 全局单例、
   workspace 是其内部分组概念；本迭代不含任何 workspaceId 校验/分发行为，
@@ -607,7 +644,7 @@ export interface AgentModelChangedPayload {
   roster(agent) +2、roster("trace") 新族、三新帧样例构造断言——既有
   命令/事件/帧形态零变更（additive 纪律，守护全绿即证）。
 
-## 14. v0.4 后 additive 微批（T4：welcome.draft + chat.send.model；版本位不 bump）
+## 14. v0.4 后 additive 微批（T4：welcome.draft + chat.send.model + chat.send.draft 补登；版本位不 bump）
 
 > 本批为内存草稿「不可见 + 转正」语义（bug1/bug4 daemon 侧）的协议面
 > additive 登记（TR-AD-23①：可选字段带缺省语义，旧客户端忽略行为不变）。
@@ -627,7 +664,15 @@ export interface AgentModelChangedPayload {
   会话/复用后、首条消息发送前 `setModel`（引擎不支持等失败 → 降级全局
   默认，不阻断）；缺省 = 全局默认（不换模）。
 
-### 14.3 配套 daemon 语义（本批同发）
+### 14.3 `ChatSendPayload.draft?: boolean`（commands.ts；v0.4 内补登记，F(2).3）
+
+- `draft:true` 且信封 sessionId 省略 → daemon 新建会话聚合落库（首条用户
+  消息即建会话）；sessionId 携带时忽略本标记（既有会话内发送）。
+  缺省 = 不触发建会话链（既有会话内发送，现状语义不变）。
+  （字段本身 v0.2 引入——commands.ts 注明「契约 B §1.5 定稿」，§11 登记批
+  未逐字段展开；本行为 v0.4 内补登记，零行为变更。）
+
+### 14.4 配套 daemon 语义（本批同发）
 
 - 零条目内存草稿双面不可见：不进 `session.list` 清单、`createFresh` 不再
   写 `agent.instantiated`（发布点推迟到转正，见 §13.3 修正）；

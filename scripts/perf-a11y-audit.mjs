@@ -18,13 +18,16 @@ import { spawn } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
+// 协议版本位单点化（F(2).1）：直读 envelope.ts 源文件（node ≥22.18 原生
+// type-stripping，envelope.ts 自包含零依赖可独立加载；加载失败即抛错退出）。
+import { PROTOCOL_VERSION } from "../packages/protocol/src/envelope.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SHELL = path.join(ROOT, "apps", "shell");
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.AUDIT_PORT || 4178);
 const BASE = `http://${HOST}:${PORT}`;
-const V = "0.3"; // PROTOCOL_VERSION（packages/protocol envelope.ts 单点）
+const V = PROTOCOL_VERSION; // 帧 v 位唯一事实源：packages/protocol/src/envelope.ts
 
 const failures = [];
 function gate(name, ok, detail = "") {
