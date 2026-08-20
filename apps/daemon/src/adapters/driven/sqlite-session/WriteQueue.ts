@@ -67,6 +67,27 @@ type WriteJob =
       /** T2.3（AD-2）：全局默认模型 upsert（default_model 单行表，无会话维——全局链）。 */
       readonly kind: "defaultModel";
       readonly model: string;
+    }
+  | {
+      /** M6 T1：资源启停差异行 upsert（resource_state 全局表，无会话维——全局链）。 */
+      readonly kind: "resourceState";
+      readonly profileKind: string;
+      readonly resourceType: string;
+      readonly name: string;
+      readonly enabled: boolean;
+    }
+  | {
+      /** M6 T1：清空某 (profile_kind, resource_type) 全部差异行（model 槽位 clear）。 */
+      readonly kind: "clearResourceState";
+      readonly profileKind: string;
+      readonly resourceType: string;
+    }
+  | {
+      /** M6 T1：model 槽位原子替换（先清该 kind 全部 model 行再插入新行，
+       *  enabled 恒 1——model 型行不承载启停语义，删除行 = 未设）。 */
+      readonly kind: "modelSlot";
+      readonly profileKind: string;
+      readonly model: string;
     };
 
 export class WriteQueue {
@@ -98,6 +119,8 @@ export class WriteQueue {
   private readonly deleteSessionToolCalls!: Statement;
   private readonly deleteSessionClosures!: Statement;
   private readonly upsertDefaultModel!: Statement;
+  private readonly upsertResourceState!: Statement;
+  private readonly clearResourceStateByType!: Statement;
 
   constructor(dbPath: string, options: WriteQueueOptions = {}) {
     mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -143,6 +166,14 @@ export class WriteQueue {
     this.upsertDefaultModel = this.db.prepare(
       "INSERT INTO default_model (id, model, updated_at) VALUES (1, ?, ?) " +
         "ON CONFLICT(id) DO UPDATE SET model = excluded.model, updated_at = excluded.updated_at",
+    );
+    this.upsertResourceState = this.db.prepare(
+      "INSERT INTO resource_state (profile_kind, resource_type, name, enabled, updated_at) VALUES (?, ?, ?, ?, ?) " +
+        "ON CONFLICT(profile_kind, resource_type, name) DO UPDATE SET enabled = excluded.enabled, " +
+        "updated_at = excluded.updated_at",
+    );
+    this.clearResourceStateByType = this.db.prepare(
+      "DELETE FROM resource_state WHERE profile_kind = ? AND resource_type = ?",
     );
   }
   /** 读侧共用连接（SqliteSessionRepository 只读 SELECT；写仍唯一走本队列）。 */
@@ -207,6 +238,32 @@ export class WriteQueue {
     return this.enqueue({ kind: "defaultModel", model });
   }
 
+  /**
+   * 资源启停差异行 upsert 入队（M6 T1：resource_state 全局表；无会话维 →
+   * 全局链 FIFO——勿入 sessionTails 分仓）。
+   */
+  saveResourceState(
+    profileKind: string,
+    resourceType: string,
+    name: string,
+    enabled: boolean,
+  ): Promise<void> {
+    return this.enqueue({ kind: "resourceState", profileKind, resourceType, name, enabled });
+  }
+
+  /** 清空某 (profile_kind, resource_type) 全部差异行（model 槽位 clear 语义）。 */
+  clearResourceState(profileKind: string, resourceType: string): Promise<void> {
+    return this.enqueue({ kind: "clearResourceState", profileKind, resourceType });
+  }
+
+  /**
+   * model 槽位原子替换入队（M6 T1：同 job 内先清该 kind 全部 model 行再
+   * 插入新行——主键含 name，非原子替换会遗留旧行破坏单行不变式）。
+   */
+  saveModelSlot(profileKind: string, model: string): Promise<void> {
+    return this.enqueue({ kind: "modelSlot", profileKind, model });
+  }
+
   /** 等待已入队 job 全部落盘（测试/优雅退出用；分仓后 = 全部仓位 drain）。 */
   async flush(): Promise<void> {
     await this.drainAll();
@@ -235,7 +292,7 @@ export class WriteQueue {
       case "deleteSession":
         return job.sessionId;
       default:
-        return undefined; // reportFile：无会话维（文件产物，行序不受仓内 FIFO 约束）
+        return undefined; // reportFile/defaultModel/resource_state 族：无会话维（全局链）
     }
   }
 
@@ -282,6 +339,26 @@ export class WriteQueue {
     }
     if (job.kind === "defaultModel") {
       this.upsertDefaultModel.run(job.model, new Date().toISOString());
+      return;
+    }
+    if (job.kind === "resourceState") {
+      this.upsertResourceState.run(
+        job.profileKind,
+        job.resourceType,
+        job.name,
+        job.enabled ? 1 : 0,
+        new Date().toISOString(),
+      );
+      return;
+    }
+    if (job.kind === "clearResourceState") {
+      this.clearResourceStateByType.run(job.profileKind, job.resourceType);
+      return;
+    }
+    if (job.kind === "modelSlot") {
+      // 原子替换：同 job 先清旧行再插新行（单行不变式不依赖调用方时序）
+      this.clearResourceStateByType.run(job.profileKind, "model");
+      this.upsertResourceState.run(job.profileKind, "model", job.model, 1, new Date().toISOString());
       return;
     }
     if (job.kind === "closureRecord") {
