@@ -9,7 +9,7 @@ import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLau
 import { parseClosureBlock } from "../../src/adapters/driven/subagent/child/ChildMain";
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { SchedulingPolicy } from "../../src/domain/agent/SchedulingPolicy";
-import { SchedulerService } from "../../src/application/services/SchedulerService";
+import { SchedulerService } from "../../src/application/services/scheduler/SchedulerService";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
 import { SqliteSessionRepository } from "../../src/adapters/driven/sqlite-session/SqliteSessionRepository";
 import type { EventPublisherPort } from "../../src/application/ports/outbound/EventPublisherPort";

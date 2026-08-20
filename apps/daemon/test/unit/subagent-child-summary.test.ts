@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildFallbackSummary } from "../../src/adapters/driven/subagent/child/ChildMain";
-import { SchedulerService } from "../../src/application/services/SchedulerService";
+import { SchedulerService } from "../../src/application/services/scheduler/SchedulerService";
 import type { InstanceRunner, InstanceRunnerCallbacks } from "../../src/application/services/InstanceRunner";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
 import { SqliteSessionRepository } from "../../src/adapters/driven/sqlite-session/SqliteSessionRepository";

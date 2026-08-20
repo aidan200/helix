@@ -7,7 +7,7 @@ import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import type { EventPublisherPort } from "../../src/application/ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../../src/application/ports/outbound/ClockPort";
 import { SchedulingPolicy } from "../../src/domain/agent/SchedulingPolicy";
-import { SchedulerService } from "../../src/application/services/SchedulerService";
+import { SchedulerService } from "../../src/application/services/scheduler/SchedulerService";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import type { AgentOrchestrationPort } from "../../src/application/ports/inbound/AgentOrchestrationPort";

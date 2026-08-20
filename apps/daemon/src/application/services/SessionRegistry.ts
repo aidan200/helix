@@ -15,7 +15,7 @@ import type {
 } from "../ports/inbound/SessionDirectoryPort";
 import type { ChatService } from "./ChatService";
 import type { SessionProjection } from "./SessionProjection";
-import type { SchedulerService } from "./SchedulerService";
+import type { SchedulerService } from "./scheduler/SchedulerService";
 import type { RestoredDomainState } from "./RestoreService";
 
 /**

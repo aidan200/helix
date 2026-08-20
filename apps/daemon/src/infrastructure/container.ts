@@ -10,7 +10,7 @@ import type { ClockPort } from "../application/ports/outbound/ClockPort";
 import { ChatService } from "../application/services/ChatService";
 import { SessionService } from "../application/services/SessionService";
 import { RestoreService } from "../application/services/RestoreService";
-import { SchedulerService } from "../application/services/SchedulerService";
+import { SchedulerService } from "../application/services/scheduler/SchedulerService";
 import { SessionProjection } from "../application/services/SessionProjection";
 import { SessionRegistry, type SessionRuntime } from "../application/services/SessionRegistry";
 import type { InstanceRunner } from "../application/services/InstanceRunner";
