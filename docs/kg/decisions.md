@@ -85,3 +85,21 @@
 - **选项**：① 切换时覆写 instantiated 快照；② 新增 agent.model.changed 事件（{instanceId, from, to}）记变更轨迹。
 - **裁决与理由**：选 ②——与 AD-5 同模式同批进 v0.4；发布点 = ChatService model.set 处理路径（主实例原地换引擎时；单发 SubAgent spawn 后不改模型无此事件）；消费面 = trace 页模型时间线（from→to 序列 + 当前生效值高亮）；上下文卡双段渲染 = 基准快照（instantiated）+ 变更轨迹（model.changed 序列 + compaction.completed 里程碑），单发 SubAgent 退化为纯快照零额外成本。
 - **结局**：已落地并验证（CL-5 E2E 模型时间线高亮断言 + 重启一致性逐行相等 33 行）。
+
+## AD-1 草稿会话生命周期：内存草稿「不可见 + 转正」（hotfix-20260820 / 用户定稿）
+
+**digest**：动草稿会话、session.list 可见性、agent.instantiated 发布点、welcome 握手、draft 建会话链时读本文。
+
+- **上下文**（用户实测四 bug 同根因）：草稿会话从未设计生命周期——daemon「恒有当前会话」的内存草稿经两面泄漏可见（listSessions 合并零条目热会话；createFresh 即写 agent.instantiated 事件），用户视角「空草稿被保存」；删除活跃会话硬编码转草稿；welcome attach 内存草稿被前端当真实会话激活；草稿态旧会话流式帧串台（frame.ts 守卫 activeId!==null 的 v0.1 假设被草稿态打破）。
+- **选项**：① daemon 改「可无当前会话」+ 前端新增 none 视图态（welcome.sessionId 可空）；② 恒有会话不变——内存草稿有 id 但不落盘不可见、首个用户条目「转正」（同 id 复用不裂变），前端草稿保持 null-id。
+- **裁决与理由**：用户选 ②——前后端逻辑统一（皆「恒有会话」，唯一区别 = 是否落盘）且协议纯 additive（TR-AD-23①）。定稿形态：a) listSessions 跳过零条目热会话；b) **instantiated 发布点 = 转正**（首个用户条目，promoteDraft 单点恰好一次 + created 补广播去重；draft 链显式 created 广播保持同步先于 sendMessage 防快照吞帧竞态）——取代 AD-5（M5）「会话创建即发布」；c) chat.send{draft:true} 命中零条目当前草稿 → 同 id 转正复用，不预建下一个草稿（懒建归 initialize/rotateCurrent 既有点）；d) 握手命中零条目草稿 → welcome.draft:true + 不 attach 不推快照，前端落草稿态（sessionId=null）；e) 无 none 态——删除活跃会话落草稿即统一的无会话表示（用户确认）；f) chat.send 加可选 model（建会话后首条消息前 setModel；同模型短路零事件，异模型先 promoteDraft 保 instantiated→model.changed 次序）；g) 前端串台双修：frame.ts 后台路由去 activeId!==null（model 配置族前置防误吞）+ ledger welcome attach 静默登记 full 档。
+- **结局**：已落地并验证（daemon 453/0、shell 284/0、protocol 33/0、e2e 27/0；T4b 追修 CL-5 trace e2e 次序回归 2 例；热修记录 docs/hotfixes/2026-08-20-draft-session-lifecycle.md）。边界备案：忽略 welcome.draft 的旧客户端草稿握手后须显式 subscribe；set_default 后复用路径不隐式换新默认；零条目会话定向 steer 落盘不触发转正（稀有路径）。
+
+## AD-2 trace 页应用式固定壳布局（hotfix-20260820 / 用户裁决）
+
+**digest**：动 trace 页布局/滚动、评审原型残留、新增页面滚动模式时读本文。
+
+- **上下文**：trace 页原型残留（DemoConsole 五态切换器 + 说明文案 + 路由文本 dev 实际可见）；详情列表无滚动容器无限延伸（body→.p1-page→.p1-tbody 高度链断裂）；布局沿用原型 sticky/页级滚动，与客户端形态冲突。
+- **选项**：① 页级滚动（.p4-page 惯例：页面本体 overflow-y，页头随内容滚走）；② 应用式固定壳（页头/控制条/IconRail 固定不出窗口，仅结果框内滚）。
+- **裁决与理由**：用户选 ②——「项目未来主要是客户端，不能让 header 或菜单栏滑出窗口」。定稿：DemoConsole 全链移除（组件/dev 管道/样式/i18n）；高度链 .p1-page→.p1-body→.p1-main→.p1-table-card→.p1-tbody 全程 flex+min-height:0，结果框内滚且高度随窗口自适应；实例面板固定栏 + .ip-list 自滚；上下文卡限高 42% 自滚防挤占；原型残留文案（trace.sub/route）清除；chevron 12px 居中方盒消非方盒旋转位移。
+- **结局**：已落地并验证（F 层 fidelity 5/5——R-P1-1 断言按新裁决改写为固定壳契约成回归守护；E 层 4/4；shell 单测 284/0）。

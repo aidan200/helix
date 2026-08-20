@@ -542,3 +542,42 @@
 - sourceTask: final-verification/l3-semantic-review-batch3-shell-lifecycle-persistence-profile-testing.md（phase-reviewer 批 3 L3 语义复核）
 - createdIn: iter-20260818-mq5a
 - decisionLog: 终验人审 apply 执行记录（用户批准终验报告 2026-08-18，裁决①=采纳修正）：TR-TEST-6 外补条目内容已由 project_write_tech_rules 直接落库（testing-rules.md TR-TEST-6：正文增补外补条款「globalSetup 首步 TMPDIR 全前缀卫生预检 + 断言面前缀面扩展 + afterAll 沙箱回收」+ anchors 扩充 tmp-hygiene.ts/e2e-global-setup.ts + relations dependsOn TR-TEST-4/5 保留 + updatedIn=iter-20260818-mq5a）。正式号 TR-TEST-6 与上迭代（6q6f 终验决策 B）discarded 条目撞号——台账 id 唯一性缺口：propose 侧已用临时号 CL-iter-20260818-mq5a-1 绕过，apply 侧 ledgerHas 查重含 discarded 分区不可绕。按 6q6f 终验决策 A 同款处置：discard 留审计痕，修正事实以本条目 + testing-rules.md TR-TEST-6 现文为准。知识不丢失；修复 verification-report.md:93 声明性漂移。来源：L3 语义复核批 3（phase-reviewer）。撞号工具缺口记优化机会 #13（扩 apply 侧）。
+
+### E-会话聚合
+- changeType: 修改
+- targetNode: E-会话聚合
+- scope: domain
+- project: helix
+- reason: hotfix-20260820 草稿会话生命周期定稿（用户实测四 bug 同根因，用户选「恒有会话 + 内存草稿不可见/转正」方案）：E-会话聚合 描述补内存草稿语义（零条目草稿有 id 不落盘、双面不可见、首个用户条目经 promoteDraft 转正）；规则补「草稿不进清单不写事件、首条消息才落库并转正」；digest 补「动草稿会话转正时」；updatedIn 推进 hotfix-20260820
+- evidence: docs/hotfixes/2026-08-20-draft-session-lifecycle.md；SessionRegistry.ts listSessions/promoteDraft/probeCurrentDraft/startDraftSession；draft-promotion.test.ts + session-registry-draft.test.ts 14 用例全绿；daemon 453/0
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/SessionRegistry.ts（listSessions 零条目跳过/promoteDraft 转正单点/startDraftSession 复用/probeCurrentDraft 握手探测）、ChatService.ts onFirstUserEntry、WsServerAdapter.ts 握手 draft 分支、packages/protocol events.ts（welcome.draft）/commands.ts（chat.send.model）
+- sourceTask: hotfix-20260820 task-T4（default-coder agt_3KJRVXQTNT1H，DONE；sediment 候选因无活跃迭代未自动落账，MainAgent 手动补录）
+- createdIn: hotfix-20260820
+- decisionLog: 用户批准同步（2026-08-20「把一些修改更新到文档和图谱」）：apply——节点正文已直接修订；决策语义档案落 decisions.md hotfix-20260820 AD-1（含取代 AD-5 M5「会话创建即发布」的发布点变更与全部边界备案）
+
+### TR-AD-22
+- changeType: 修改
+- targetNode: TR-AD-22
+- scope: domain
+- project: helix
+- reason: hotfix-20260820 bug3（草稿态流式串台）修复触及规则描述的帧路由事实：frame.ts 后台路由守卫原含 activeId!==null（v0.1 假设「activeId null 仅首连前」），被草稿态（active.sessionId===null）打破——旧会话帧绕过路由直写草稿 store。规则正文补「后台路由不依赖 activeId 非空 + model 配置族前置拓扑级消费防误吞」；updatedIn 推进 hotfix-20260820
+- evidence: frame-dispatch.test.ts 新增 3 用例（草稿态后台帧轻量消费/未知丢弃/model.get.result 不吞）RED→GREEN；subscription-ledger welcome attach 静默登记 full 档；shell 284/0
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/entities/session/model/dispatcher/frame.ts（守卫修正+族序调整）、subscription-ledger.ts（onSnapshot 首连分支 tiers 登记）
+- sourceTask: hotfix-20260820 task-T2（default-coder agt_Y7J5DA6B4FWS，DONE）
+- createdIn: hotfix-20260820
+- decisionLog: 用户批准同步（2026-08-20）：apply——规则正文已直接修订；路由假设废止事实同录 decisions.md hotfix-20260820 AD-1(g)
+
+### TR-AD-23
+- changeType: 修改
+- targetNode: TR-AD-23
+- scope: domain
+- project: helix
+- reason: hotfix-20260820 契约 additive 两字段（ConnectionWelcomePayload.draft?、ChatSendPayload.model?）为规则①「可选参数扩展优先于新命令对」新例证（与 subscribe 扩 tier、steer 扩 instanceId 同模式）；规则①文本补例证；updatedIn 推进 hotfix-20260820
+- evidence: packages/protocol events.ts/commands.ts diff；PROTOCOL.md §14 additive 登记；test:protocol 33/0
+- implementationStatus: 完整实现
+- implementedCode: packages/protocol/src/events.ts（ConnectionWelcomePayload.draft?）、packages/protocol/src/commands.ts（ChatSendPayload.model?）、packages/protocol/PROTOCOL.md
+- sourceTask: hotfix-20260820 task-T4（default-coder agt_3KJRVXQTNT1H，DONE）
+- createdIn: hotfix-20260820
+- decisionLog: 用户批准同步（2026-08-20）：apply——例证已补入规则①正文（纯文本例证增补，规则语义不变）

@@ -840,11 +840,11 @@ anchors:
 relations:
   governs:
     - E-会话聚合
-updatedIn: iter-20260816-6q6f
+updatedIn: hotfix-20260820
 ```
 
 ## 规则
-事件消费按 sessionId 分实例化的两层拓扑，daemon 与 shell 同构：daemon 侧 SessionProjection = fan-out 显式消费者 + 共享聚合访问器 + 幂等去重集（projectedEntryIds）+ persistedState 组合面，经 SessionRegistry 按会话实例化（SubAgent Entry 落聚合 instanceId 归属 + usageLedger 并入 + write-through 迁入）；SchedulerService 只产事件零聚合写（守护断言在集成测试）。shell 侧 dispatcher 两层 = 会话 store 级消费者（SessionState 域）+ 拓扑级 directory 消费者（TopologyState 域），帧入口三向路由（活跃完整 store / 后台轻量 store / 系统帧；session.snapshot 例外优先路由活跃——连接级重建指令）。新增事件族 = additive 扩展面（新消费者注册，不动拓扑骨架）。
+事件消费按 sessionId 分实例化的两层拓扑，daemon 与 shell 同构：daemon 侧 SessionProjection = fan-out 显式消费者 + 共享聚合访问器 + 幂等去重集（projectedEntryIds）+ persistedState 组合面，经 SessionRegistry 按会话实例化（SubAgent Entry 落聚合 instanceId 归属 + usageLedger 并入 + write-through 迁入）；SchedulerService 只产事件零聚合写（守护断言在集成测试）。shell 侧 dispatcher 两层 = 会话 store 级消费者（SessionState 域）+ 拓扑级 directory 消费者（TopologyState 域），帧入口三向路由（活跃完整 store / 后台轻量 store / 系统帧；session.snapshot 例外优先路由活跃——连接级重建指令）。后台路由不依赖 activeId 非空（hotfix-20260820：「activeId null 仅首连前」的 v0.1 假设被草稿态废止——草稿态旧会话帧一律进后台轻量/未知会话丢弃，model 配置族前置拓扑级消费防误吞）。新增事件族 = additive 扩展面（新消费者注册，不动拓扑骨架）。
 
 ## 理由
 多会话下投影按会话隔离才不串台（SessionRegistry 分实例化）；两层（会话内状态 vs 跨会话拓扑）职责分离使后台轻量跟踪成为可能——后台会话不建完整 store，内存随会话数有界；daemon/shell 同构使协议事件族扩展的双端接线模式固定（新增族双端同构扩）。
@@ -887,12 +887,12 @@ anchors:
 relations:
   governs:
     - E-领域事件与单写队列
-updatedIn: iter-20260819-erio
+updatedIn: hotfix-20260820
 ```
 
 ## 规则
 协议能力演进三定律：
-①可选参数扩展优先于新命令对——同一命令能以可选参数承载的语义（session.subscribe 扩 tier、chat.steer 扩 instanceId）不新增命令对；仅当载荷形态无法容纳才新增（届时按 TR-AD-21 整链登记模式）。可选参数必带缺省语义（缺省 = 既有行为，旧剧本兼容），事件类型判别式只增不删不改（TR-AD-18 同源纪律）。
+①可选参数扩展优先于新命令对——同一命令能以可选参数承载的语义（session.subscribe 扩 tier、chat.steer 扩 instanceId、welcome 扩 draft 标记、chat.send 扩 draft 建会话 model——hotfix-20260820 例证）不新增命令对；仅当载荷形态无法容纳才新增（届时按 TR-AD-21 整链登记模式）。可选参数必带缺省语义（缺省 = 既有行为，旧剧本兼容），事件类型判别式只增不删不改（TR-AD-18 同源纪律）。
 ②契约版本一次定形——同一批协议演进收拢为一次契约版本定形后铺开（v0.3 = spawn 锚点 DTO + tier 订阅 + steer 寻址三处同批；v0.4 = trace.query 命令族 + agent.instantiated/model.changed 落盘事件 + engine.error SubAgent 抑制守卫同批，iter-20260819-erio）；EVENT_TYPES/EVENT_CHANNELS 守护计数与 type-surface 穷尽断言同步一次扩。单仓同发（protocol + daemon + shell 同 commit 发版）无跨版本组合场景：PROTOCOL_VERSION 是批次集合标记而非协商位；批内破坏性清理（删 dead 类型 / 路径迁移 / 旧推导代码删除）一步完成不留双轨。
 ③订阅状态连接级隔离——daemon 订阅状态（Map<sessionId, tier>，tier = full | monitor）是连接私有状态，由 EventStream 按连接持有；daemon 不持跨连接全局订阅知识（拒绝「daemon 知道哪些会话活跃」的中心化换档）；断连即丢、重连由客户端重放全订阅图。N 窗口 = N 连接 = N 独立订阅图，多窗口/多客户端在协议层零改动扩展。档位过滤（monitor 白名单）在事件分发层一处完成，不散落 service。
 
