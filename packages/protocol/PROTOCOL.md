@@ -1,8 +1,9 @@
-# Helix WS 协议 v0.4
+# Helix WS 协议 v0.5
 
-> 当前版本位 `PROTOCOL_VERSION = "0.4"`（envelope.ts）；§1–§9 为 v0 基线，
-> §10–§14 为 v0.1–v0.4 演进登记与微批备案（v0.4 = 当前，见 §13/§14）；
-> §15–§17 为现状全集总登记（22 命令 / 40 事件 payload 形状）与 SoT 守护口径。
+> 当前版本位 `PROTOCOL_VERSION = "0.5"`（envelope.ts）；§1–§9 为 v0 基线，
+> §10–§14 为 v0.1–v0.4 演进登记与微批备案（历史批）；
+> §15–§17 为现状全集总登记（22 命令 / 40 事件 payload 形状）与 SoT 守护口径
+>（v0.5 = 当前，见 §17.5）。
 
 > 包：`@helix/protocol`（本目录）。类型唯一权威源——daemon（T1.6）与前端
 > shell（T1.7）共同 import，**仓库内禁止平行手写协议类型**（AD-8 / AG-13）。
@@ -24,23 +25,23 @@
 ```
 客户端                                        daemon (ws-server)
   │ ── WS connect ws://127.0.0.1:port ─────→ │  TCP / HTTP 升级
-  │ ── { v:"0.4", type:"hello",               │  校验 token（与 ~/.helix/dev-token 比对）
-  │      payload:{ token,                     │  校验 protocolVersion = "0.4"
-  │             protocolVersion:"0.4" } } ───→ │
+  │ ── { v:"0.5", type:"hello",               │  校验 token（与 ~/.helix/dev-token 比对）
+  │      payload:{ token,                     │  校验 protocolVersion = "0.5"
+  │             protocolVersion:"0.5" } } ───→ │
   │                                           │
-  │ ←─ { v:"0.4", type:"connection.welcome",  │  通过：sessionId / model / agentState
+  │ ←─ { v:"0.5", type:"connection.welcome",  │  通过：sessionId / model / agentState
   │      payload:{ sessionId, model,          │
   │               agentState } } ────────────│
-  │ ←─ { v:"0.4", type:"session.snapshot",    │  随后立即推全量快照
+  │ ←─ { v:"0.5", type:"session.snapshot",    │  随后立即推全量快照
   │      payload:{ snapshot: SessionSnapshotDto } } │
   │                                           │
-  │ ←─ { v:"0.4", type:"connection.error",    │  拒绝：先发 error 帧再 close
+  │ ←─ { v:"0.5", type:"connection.error",    │  拒绝：先发 error 帧再 close
   │      payload:{ code, message } } ────────│
 ```
 
 - **重连恢复 = 快照 + 增量**（AD-16）：重连后重新握手 → 收快照重建投影 → 续增量；首连空会话 = `snapshot.entries` 为空数组。
 - **草稿握手分支（T4，§14.1）**：当前会话为零条目内存草稿时 welcome 携带 `draft:true`，不 attach 不推快照；真实会话握手维持上图时序。
-- **拒绝三分支**（TP-CL6-5）：无 `token` 字段 → `auth.missing_token`；token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`；`protocolVersion ≠ "0.4"`（含信封 `v ≠ "0.4"`）→ `protocol.version_unsupported`。
+- **拒绝三分支**(TP-CL6-5):无 `token` 字段 → `auth.missing_token`;token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`;`protocolVersion ≠ "0.5"`（含信封 `v ≠ "0.5"`）→ `protocol.version_unsupported`。
 - 客户端浏览器侧获取 dev token 的机制已由 T1.6 钉死：daemon HTTP 端点 `GET /helix-dev-token`（见 §9）。
 
 ## 3. 统一信封
@@ -48,12 +49,12 @@
 ```ts
 // 本代码块为 packages/protocol/src/envelope.ts 现行定义的忠实呈现（F(2).2 对齐，逐项抄源）。
 
-/** 协议版本位。v0.4 帧 `v` 恒为 "0.4"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
-export const PROTOCOL_VERSION = "0.4" as const;
+/** 协议版本位。v0.5 帧 `v` 恒为 "0.5"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
+export const PROTOCOL_VERSION = "0.5" as const;
 
 /**
- * 帧版本位取值域："0.4" = 当前批（v0.4）帧；`0` = v0/v0.1 历史帧（信封兼容读
- * 的类型面）。handshake 的 HelloPayload.protocolVersion 不取联合（严格 "0.4" 单值）。
+ * 帧版本位取值域："0.5" = 当前批（v0.5）帧；`0` = v0/v0.1 历史帧（信封兼容读
+ * 的类型面）。handshake 的 HelloPayload.protocolVersion 不取联合（严格 "0.5" 单值）。
  */
 export type FrameVersion = 0 | typeof PROTOCOL_VERSION;
 
@@ -64,7 +65,7 @@ export interface WorkspaceRoute {
 
 /** C→S 命令信封基型（契约 A §1.1）。具体命令信封以 `type` 字面量收窄并实例化 `payload`。 */
 export interface CommandFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.4"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：当前批帧 "0.5"；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /** 消息目录名（如 "chat.send" / "session.loadHistory"） */
   type: string;
@@ -80,7 +81,7 @@ export interface CommandFrame<T = unknown> {
 
 /** S→C 事件信封基型（v0.2 统一事件信封，契约 A §1.2；AD-3/AD-4）。 */
 export interface EventFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.4"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：当前批帧 "0.5"；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /** 事件归属会话（v0.2 新增，AD-4）：S→C 运行时必发；系统事件以 SYSTEM_SESSION_ID 占位 */
   sessionId?: string;
@@ -189,26 +190,27 @@ export interface ToolCallEntryDto {
 |---|---|---|
 | `auth.missing_token` | 握手：无 token 字段 | 发 error 帧后 **close** |
 | `auth.invalid_token` | 握手：token 与 dev-token 不符 | 发 error 帧后 **close** |
-| `protocol.version_unsupported` | 握手：protocolVersion ≠ 当前版本位（"0.4"） | 发 error 帧后 **close** |
+| `protocol.version_unsupported` | 握手：protocolVersion ≠ 当前版本位（"0.5"） | 发 error 帧后 **close** |
 | `command.unknown` | 命令：未知 type | 发 error 帧，**连接保持** |
 | `command.invalid_payload` | 命令：payload 不符 | 发 error 帧，**连接保持** |
 | （连接层异常） | 非 WS 帧垃圾数据等 | 不发帧直接 close，前端走重连状态机 |
 
 - **daemon 实现超集注记（D-3）**：daemon 握手期**同时校验**信封 `v` 与
-  `hello.protocolVersion` 不等于当前版本位（"0.4"），两者均以
+  `hello.protocolVersion` 不等于当前版本位（"0.5"），两者均以
   `protocol.version_unsupported` 同码拒绝（实现严于本文档仅列
   `protocolVersion` 的口径，属良性收紧）。
 
 ## 8. 版本与演进
 
-- 版本位内建（AD-9）：`v: "0.4"`（当前）；协议不兼容变更时 bump
+- 版本位内建（AD-9）：`v: "0.5"`（当前）；协议不兼容变更时 bump
   `PROTOCOL_VERSION` 并同步本包类型与本文档，旧版本以
   `protocol.version_unsupported` 拒绝。
 - 演进登记：v0.1 additive（§10，未 bump 版本位）；v0.2 一次 bump、版本位转
   字符串（§11）；v0.3 三处 additive 可选字段扩展 + bump（§12）；
-  **v0.4 = 当前**（§13：trace.query 命令族 + agent.instantiated /
-  agent.model.changed 两落盘事件 additive 登记 + 版本位 `"0.3" → "0.4"`，
-  批次集合标记非协商位）。
+  v0.4（§13：trace.query 命令族 + agent.instantiated /
+  agent.model.changed 两落盘事件 additive 登记 + 版本位 `"0.3" → "0.4"`,
+  批次集合标记非协商位）；**v0.5 = 当前**（§17.5：payload 全量回迁 §15/§16 +
+  SoT 守护口径 + 版本位 `"0.4" → "0.5"`，零新增命令/事件）。
 - v0 语义边界：workspace 路由**仅类型预留**（§3）；`session.subscribe` /
   `session.unsubscribe` 仅保通路语义（v0 主会话默认订阅）。
 - 前端重连语义（状态机转换规则 = 契约，节奏实现自定）：断线 → 自动重连

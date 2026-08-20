@@ -119,7 +119,7 @@ const helloFrame: HelloCommand = {
 };
 
 const chatSendWithRoute: ChatSendCommand = {
-  v: "0.4",
+  v: "0.5",
   type: "chat.send",
   payload: { text: "帮我看看 protocol 包的类型" },
   workspace: { workspaceId: "ws-main" }, // 预留字段位：可携带（当前无路由语义）
@@ -336,7 +336,7 @@ const sampleSessionMeta: SessionMeta = {
   loaded: true,
 };
 
-/** 全章印信封样例：v="0.4"（随 PROTOCOL_VERSION bump，当前 v0.4）+ sessionId 必发 + channel 判别 */
+/** 全章印信封样例：v="0.5"（随 PROTOCOL_VERSION bump，当前 v0.5）+ sessionId 必发 + channel 判别 */
 const listChangedV02: SessionListChangedEvent = {
   v: PROTOCOL_VERSION,
   sessionId: "__system__",
@@ -820,11 +820,11 @@ function describeEntry(entry: EntryDto): string {
 }
 
 // ── 类型级断言（编译期；任一不满足 → tsc --noEmit 失败） ──
-// 帧版本位取值域（v0.4：0 = v0/v0.1 历史帧兼容读，"0.4" = 当前批帧）
+// 帧版本位取值域（v0.5：0 = v0/v0.1 历史帧兼容读，"0.5" = 当前批帧）
 type _VIsVersion = Expect<Equal<HelloCommand["v"], FrameVersion>>;
-type _FrameVersionDomain = Expect<Equal<FrameVersion, 0 | "0.4">>;
-// hello 协商位严格 "0.4" 单值（不取 FrameVersion 联合；fail-fast）
-type _HelloVersion = Expect<Equal<HelloPayload["protocolVersion"], "0.4">>;
+type _FrameVersionDomain = Expect<Equal<FrameVersion, 0 | "0.5">>;
+// hello 协商位严格 "0.5" 单值（不取 FrameVersion 联合；fail-fast）
+type _HelloVersion = Expect<Equal<HelloPayload["protocolVersion"], "0.5">>;
 // 命令目录常量 ↔ 命令信封联合 type 集合双向一致（v0.4：22 个）
 type _CommandSync = Expect<Equal<EnvelopeTypeOf<CommandEnvelope>, (typeof COMMAND_TYPES)[number]>>;
 // 事件目录常量 ↔ 事件信封联合 type 集合双向一致（v0.4 口径：40 个）
@@ -1019,18 +1019,18 @@ type _UnsubscribePayloadKeptEmpty = Expect<
 type _SteerInstanceOptional = Expect<
   Equal<ChatSteerPayload["instanceId"], string | undefined>
 >;
-// ④ 版本位批次标记："0.4"（typeof PROTOCOL_VERSION 单值；FrameVersion / hello 联动见上）
-type _ProtocolVersionV03 = Expect<Equal<typeof PROTOCOL_VERSION, "0.4">>;
+// ④ 版本位批次标记："0.5"（typeof PROTOCOL_VERSION 单值；FrameVersion / hello 联动见上）
+type _ProtocolVersionV03 = Expect<Equal<typeof PROTOCOL_VERSION, "0.5">>;
 
 // 负向断言：tool-call 变体不携带 steerState（仅 chat.steer 用户消息变体）
 // @ts-expect-error steerState 不存在于 ToolCallEntryDto
 const badToolEntry: ToolCallEntryDto = { kind: "tool-call", id: "x", name: "n", args: "{}", state: "done", ts: 1, steerState: "queued" };
-// 负向断言：v 位不接受目录外版本（0/"0.4" 之外）
-// @ts-expect-error v 位必须是 FrameVersion（0 | "0.4"）
-const badVersion: HelloCommand = { v: 1, type: "hello", payload: { token: "t", protocolVersion: "0.4" } };
-// 负向断言（v0.2 起保持）：hello 协商位不接受 v0 数值（严格 "0.4" 单值）
-// @ts-expect-error protocolVersion 必须是 "0.4"
-const badHelloLegacy: HelloCommand = { v: "0.4", type: "hello", payload: { token: "t", protocolVersion: 0 } };
+// 负向断言：v 位不接受目录外版本（0/"0.5" 之外）
+// @ts-expect-error v 位必须是 FrameVersion（0 | "0.5"）
+const badVersion: HelloCommand = { v: 1, type: "hello", payload: { token: "t", protocolVersion: "0.5" } };
+// 负向断言（v0.2 起保持）：hello 协商位不接受 v0 数值（严格 "0.5" 单值）
+// @ts-expect-error protocolVersion 必须是 "0.5"
+const badHelloLegacy: HelloCommand = { v: "0.5", type: "hello", payload: { token: "t", protocolVersion: 0 } };
 // 负向断言（v0.3）：tier 只接受 full | monitor 两档
 // @ts-expect-error tier 目录外字面量
 const badTier: SessionSubscribeCommand = { v: PROTOCOL_VERSION, sessionId: "s", type: "session.subscribe", payload: { tier: "lite" } };
@@ -1051,21 +1051,21 @@ const badThinkingEntry: ThinkingEntryDto = { kind: "thinking", id: "x", instance
 const badSource: UsageRecordedPayload = { instanceId: "main", usage: sampleUsage, source: "stream" };
 // 负向断言（v0.2）：channel 字面量与事件类型不符（session.list_changed 归 session 族）
 // @ts-expect-error channel 必须是 "session"
-const badChannel: SessionListChangedEvent = { v: "0.4", sessionId: "s", channel: "chat", type: "session.list_changed", payload: { kind: "created" } };
+const badChannel: SessionListChangedEvent = { v: "0.5", sessionId: "s", channel: "chat", type: "session.list_changed", payload: { kind: "created" } };
 // 负向断言（v0.2）：session.loadHistory 缺游标
 // @ts-expect-error beforeEntryId 必填
-const badLoadHistory: SessionLoadHistoryCommand = { v: "0.4", sessionId: "s", type: "session.loadHistory", payload: {} };
+const badLoadHistory: SessionLoadHistoryCommand = { v: "0.5", sessionId: "s", type: "session.loadHistory", payload: {} };
 // 负向断言（v0.2）：auth.set_key 缺 apiKey
 // @ts-expect-error apiKey 必填
-const badSetKey: AuthSetKeyCommand = { v: "0.4", type: "auth.set_key", payload: { providerId: "moonshot" } };
+const badSetKey: AuthSetKeyCommand = { v: "0.5", type: "auth.set_key", payload: { providerId: "moonshot" } };
 
 // ── 运行时断言 ────────────────────────────────────────────────
 describe("TP-CL2-① 样例帧构造（契约 §2–§6）", () => {
   test("hello/welcome/snapshot/delta/工具卡/steer 徽标样例帧结构正确", () => {
-    expect(helloFrame.v).toBe("0.4");
+    expect(helloFrame.v).toBe("0.5");
     expect(helloFrame.type).toBe("hello");
     expect(helloFrame.payload.token).toBe("dev-token-xyz");
-    expect(helloFrame.payload.protocolVersion).toBe("0.4");
+    expect(helloFrame.payload.protocolVersion).toBe("0.5");
 
     const byType = new Map(legacyEvents.map((e) => [e.type, e] as const));
     const welcome = byType.get("connection.welcome");
@@ -1269,16 +1269,16 @@ describe("TP-CL2-④ EntryDto 判别式联合（契约 §6）", () => {
     ]);
     // 负向样例由上方 @ts-expect-error 在编译期守护
     expect(badToolEntry.state).toBe("done");
-    expect(badVersion.payload.protocolVersion).toBe("0.4");
+    expect(badVersion.payload.protocolVersion).toBe("0.5");
     expect(badHelloLegacy.type).toBe("hello");
   });
 });
 
 describe("TP-CL2-② 信封版本位与常量（v0.2 bump）", () => {
-  test("PROTOCOL_VERSION = \"0.4\"；当前批帧 v 位全为 \"0.4\"，历史帧 v=0 合法（兼容读）", () => {
-    expect(PROTOCOL_VERSION).toBe("0.4");
+  test("PROTOCOL_VERSION = \"0.5\"；当前批帧 v 位全为 \"0.5\"，历史帧 v=0 合法（兼容读）", () => {
+    expect(PROTOCOL_VERSION).toBe("0.5");
     for (const frame of [...v02Events, ...v02ResultEvents, ...v02Commands, ...v03Commands, ...v03Events, helloFrame]) {
-      expect(frame.v).toBe("0.4");
+      expect(frame.v).toBe("0.5");
     }
     for (const frame of [...legacyEvents, ...legacyCommands, ...v01Commands, ...v01Events]) {
       expect(frame.v).toBe(0); // v0/v0.1 历史帧：FrameVersion 取值域内合法
@@ -1376,7 +1376,7 @@ describe("TP-v0.1-② EntryDto 四成员与快照 additive 字段（契约 §6�
 // ── v0.2 运行时断言（契约 A/B/C） ─────────────────────────────
 describe("TP-v0.2-① 常量导出与信封分型（契约 A §1/§3）", () => {
   test("PROTOCOL_VERSION / MAIN_INSTANCE_ID / SYSTEM_SESSION_ID 导出就位", () => {
-    expect(PROTOCOL_VERSION).toBe("0.4");
+    expect(PROTOCOL_VERSION).toBe("0.5");
     // 常量断言经模块命名空间在 exports.test.ts 全量守护，此处锚定语义值
     expect(typeof PROTOCOL_VERSION).toBe("string");
   });
@@ -1515,11 +1515,11 @@ describe("TP-v0.3-① 三合一 additive 字段形态（契约 v0.3 §1/§2/§3�
 });
 
 describe("TP-v0.3-② 版本位 bump 与目录计数（v0.4 批次升位收口，T3.2）", () => {
-  test("PROTOCOL_VERSION = \"0.4\"；hello 协商位单值联动；当前批帧 v 位全 \"0.4\"", () => {
-    expect(PROTOCOL_VERSION).toBe("0.4");
-    expect(helloFrame.payload.protocolVersion).toBe("0.4");
+  test("PROTOCOL_VERSION = \"0.5\"；hello 协商位单值联动；当前批帧 v 位全 \"0.5\"", () => {
+    expect(PROTOCOL_VERSION).toBe("0.5");
+    expect(helloFrame.payload.protocolVersion).toBe("0.5");
     for (const frame of [...v03Commands, ...v03Events]) {
-      expect(frame.v).toBe("0.4");
+      expect(frame.v).toBe("0.5");
     }
     for (const frame of v03Events) {
       expect(frame.channel).toBe("agent"); // 增量帧仍走 agent 族（零新增事件类型）
@@ -1550,9 +1550,9 @@ describe("TP-v0.4-① trace 命令族 + agent 执行上下文面样例帧（契�
     ]);
   });
 
-  test("v0.4 帧 v 位与 channel 章印（trace 新族 / agent 族挂两新事件）", () => {
+  test("当前批帧 v 位与 channel 章印（trace 新族 / agent 族挂两新事件，v0.4 批引入）", () => {
     for (const frame of [...v04Commands, ...v04Events]) {
-      expect(frame.v).toBe("0.4"); // T3.2 统一升位 v0.4（批次集合标记）
+      expect(frame.v).toBe("0.5"); // v0.5 升位（T2.3；批次集合标记）
     }
     expect(traceQueryResult.channel).toBe("trace");
     expect(agentInstantiated.channel).toBe("agent");
