@@ -84,6 +84,12 @@ describe("新会话继承默认（daemon 集成，真引擎构造期解析）", 
       expect(daemon.registry.peek(firstSession)!.chatService.currentModel).toBe("anthropic/claude-sonnet-4-5");
 
       // 新草稿会话 → 继承新默认（engineFor 构建期解析当前默认）
+      // T4 转正复用注记：startDraftSession 命中零条目当前草稿时直接复用
+      //（其引擎在构建期解析的是旧默认；客户端另可经 chat.send draft 的
+      // model 字段显式选定）。本用例验证「新建会话继承新默认」，故先把
+      // firstSession 变为有内容会话（聚合直追加——本测试为生产模式真引擎
+      // 装配，不发消息不联网），使 draft 链走 createFresh 新建路径。
+      daemon.registry.peek(firstSession)!.chatService.sessionView.appendUserEntry("让首个会话脱离零条目草稿态");
       const { sessionId } = await daemon.directory.startDraftSession("继承默认测试");
       await until(() => daemon.registry.peek(sessionId) !== undefined);
       expect(daemon.registry.peek(sessionId)!.chatService.currentModel).toBe("anthropic/claude-haiku-4-5");

@@ -148,6 +148,11 @@ describe("TP-CL3-2/3：chat.steer 定向路由（契约 v0.3 §3.2）", () => {
     try {
       await client.open();
       client.send(hello(rig.token));
+      // T4：零条目草稿握手不 attach 不推快照——显式订阅当前会话（v0 兼容面）
+      const welcome0 = await client.expect("connection.welcome");
+      if (welcome0.payload.draft === true) {
+        client.send({ v: 0, type: "session.subscribe", payload: {} });
+      }
       const snap0 = await client.expect("session.snapshot");
       const sessionId = snap0.sessionId!;
 
@@ -239,6 +244,11 @@ describe("TP-CL3-2/3：chat.steer 定向路由（契约 v0.3 §3.2）", () => {
     try {
       await client.open();
       client.send(hello(rig.token));
+      // T4：零条目草稿握手不 attach 不推快照——显式订阅当前会话（v0 兼容面）
+      const welcome0 = await client.expect("connection.welcome");
+      if (welcome0.payload.draft === true) {
+        client.send({ v: 0, type: "session.subscribe", payload: {} });
+      }
       const snap0 = await client.expect("session.snapshot");
       const sessionId = snap0.sessionId!;
 

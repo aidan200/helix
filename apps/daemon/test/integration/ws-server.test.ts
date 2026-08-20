@@ -96,6 +96,23 @@ async function until(cond: () => boolean, timeoutMs: number, what: string): Prom
   }
 }
 
+/**
+ * T4 迁移辅助：hello 握手并等待 welcome；命中零条目内存草稿（welcome.draft
+ * === true）时显式 session.subscribe 订阅当前会话（T4 新语义：草稿握手不
+ * attach 不推快照，v0 兼容订阅面）；真实会话握手维持现状。
+ */
+async function helloHandshake(
+  client: TestClient,
+  token: string,
+): Promise<{ v: FrameVersion; type: string; payload: Record<string, unknown>; sessionId?: string; channel?: string }> {
+  client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token, protocolVersion: PROTOCOL_VERSION } });
+  const welcome = await client.expect("connection.welcome");
+  if (welcome.payload.draft === true) {
+    client.send({ v: 0, type: "session.subscribe", payload: {} });
+  }
+  return welcome;
+}
+
 function tmpHome(): string {
   return mkdtempSync(path.join(tmpdir(), "helix-ws-it-"));
 }
@@ -175,14 +192,13 @@ describe("TP-CL6-2/TP-CL6-4：握手 + 命令上行/事件下行往返", () => {
       expect(rig.token.length).toBeGreaterThan(0);
 
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
-
-      const welcome = await client.expect("connection.welcome");
+      const welcome = await helloHandshake(client, rig.token);
       expect(welcome.v).toBe(PROTOCOL_VERSION);
       expect(typeof welcome.payload.sessionId).toBe("string");
       expect(welcome.payload.agentState).toBe("idle");
 
-      // welcome 后立即推快照（重连恢复语义；首连空会话 entries=[]）
+      // welcome 后推快照（重连恢复语义；首连空会话 entries=[]——T4：草稿
+      // 握手经 session.subscribe 显式订阅后重推，同上空快照语义）
       const snap = await client.expect("session.snapshot");
       const snapshot = snap.payload.snapshot as { entries: unknown[]; model: string; agentState: string };
       expect(snapshot.entries).toEqual([]);
@@ -231,7 +247,7 @@ describe("TP-CL6-2/TP-CL6-4：握手 + 命令上行/事件下行往返", () => {
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
+      await helloHandshake(client, rig.token);
       await client.expect("session.snapshot");
 
       client.send({ v: 0, type: "chat.send", payload: { text: "开始生成" } });
@@ -297,7 +313,7 @@ describe("命令错误回执（不关连接）", () => {
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
+      await helloHandshake(client, rig.token);
       await client.expect("session.snapshot");
 
       client.send({ v: 0, type: "bogus.command", payload: {} });
@@ -318,7 +334,7 @@ describe("命令错误回执（不关连接）", () => {
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
+      await helloHandshake(client, rig.token);
       await client.expect("session.snapshot");
 
       client.send({ v: 0, type: "chat.send", payload: { text: 42 } }); // text 非 string
@@ -339,7 +355,7 @@ describe("命令错误回执（不关连接）", () => {
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
+      await helloHandshake(client, rig.token);
       await client.expect("session.snapshot");
 
       // T2.3（AD-2）：model/auth 族已落地真行为——占位回执（command.unimplemented）
@@ -400,7 +416,7 @@ describe("命令错误回执（不关连接）", () => {
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
+      await helloHandshake(client, rig.token);
       await client.expect("session.snapshot");
 
       // ① model.catalog（抽样）：合并目录快照 + channel/sessionId 章印
@@ -549,7 +565,7 @@ describe("D-1：快照含工具调用条目（tool-call 变体，重连/重启�
     const warmup = new TestClient(rig.url);
     try {
       await warmup.open();
-      warmup.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
+      await helloHandshake(warmup, rig.token);
       await warmup.expect("session.snapshot");
       warmup.send({ v: 0, type: "chat.send", payload: { text: "跑个工具" } });
       await until(
@@ -588,7 +604,7 @@ describe("session.subscribe / unsubscribe（v0 保通路语义）", () => {
     const client = new TestClient(rig.url);
     try {
       await client.open();
-      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: rig.token, protocolVersion: PROTOCOL_VERSION } });
+      await helloHandshake(client, rig.token);
       await client.expect("session.snapshot");
       const baseline = client.frames.length;
 

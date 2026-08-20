@@ -292,7 +292,11 @@ describe("T2.2 ③ 删除取消链（顺序硬约束）+ list_changed 三类推"
       // WS 客户端：观察 created / state_changed / deleted 三类广播
       const token = (await (await fetch(`http://127.0.0.1:${rig.daemon.ws.port}/helix-dev-token`)).text()).trim();
       const client = new TestClient(rig.daemon.ws.url, token);
-      await client.expect("connection.welcome");
+      const welcome0 = await client.expect("connection.welcome");
+      // T4：零条目草稿握手不 attach 不推快照——显式订阅当前会话（v0 兼容面）
+      if (welcome0.payload.draft === true) {
+        client.send({ v: 0, type: "session.subscribe", payload: {} });
+      }
       await client.expect("session.snapshot");
 
       const a = await dir.startDraftSession("广播观测会话");

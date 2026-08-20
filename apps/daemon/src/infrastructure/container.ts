@@ -355,8 +355,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
         // 回退全局默认，与 ModelService previous 口径一致）
         modelFallback: () => defaultModel.current(),
         // T2.1（F5.7/AD-5，契约 v0.4 §2）：主实例 instantiated 快照供给——
-        // profile 常量全文 + 会话当前模型（引擎观测值 ?? 全局默认）；发布
-        // 触发在注册表 createFresh（恢复路径不重发）。
+        // profile 常量全文 + 会话当前模型（引擎观测值 ?? 全局默认）；T4 起发布
+        // 触发在注册表 promoteDraft（转正：首个用户条目；恢复路径不重发）。
         instantiatedSnapshot: (): ProfileSnapshotData => ({
           systemPrompt: MAIN_SESSION_SYSTEM_PROMPT,
           tools: [...MainSessionProfile.tools],
@@ -366,6 +366,10 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
             : {}),
           hooks: MainSessionProfile.hooks.map((h) => h.name),
         }),
+        // T4 转正单点触发面：零条目草稿首个用户条目落聚合 → 注册表
+        // promoteDraft（恰好一次 instantiated + 补 created；闭包引用 registry
+        // 在注册表装配后才被调用——createFresh 发生在 initialize/运行期，TDZ 安全）
+        onFirstUserEntry: () => registry.promoteDraft(material.session.id),
       });
       // 会话投影消费者（T2.1 AD-3 §3.2②；T2.2 多会话 = 按 sessionId 分实例化，
       // architecture-feedback #20 建议采纳）：SubAgent Entry 落聚合 + 账本入账
@@ -469,9 +473,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   // ── 启动恢复（T2.2 全量元数据 + 懒加载）：全部会话元数据可见（session.list
   //    读面），当前会话（最近活动）显式热加载（同步读面/CLI 兼容）；restoreLatest
   //    ids.at(-1) 单会话末位语义废弃。首启无持久化 → 新建空会话。 ──
-  // T2.1（F5.7/AD-5）：initialize 须在 fan-out 目标装配**之后**——首启
-  // createFresh 发布主实例 agent.instantiated，目标未装配则事件丢失
-  //（中间构造块 sessionService/chatRouter/cli 均为惰性闭包，不依赖 initialize）。
+  // T4：initialize 仍在 fan-out 目标装配**之后**（惯例保持——T4 起 createFresh
+  // 不再发布 instantiated，但转正 promoteDraft / created 补广播等运行期事件
+  // 同样依赖目标已装配；中间构造块 sessionService/chatRouter/cli 均为惰性闭包）。
   await registry.initialize();
 
   // T2.3：currentModelOf 回填（spawn 透传链——注册表装配完成，热会话可观测）

@@ -30,6 +30,13 @@ import type { RestoredDomainState } from "./RestoreService";
  *   write-through 落盘（卸载零丢失）；执行中会话不卸载；
  * - **草稿建会话**（契约 B §1.5 定稿）：首条用户消息建聚合——注册表登记
  *   热运行时（未落库），首事件 write-through 才 INSERT session_state；
+ * - **内存草稿「不可见 + 转正」**（T4，bug1/bug4 daemon 侧）：零条目热
+ *   草稿（initialize 空库 / rotateCurrent 删空后 createFresh 的恒有当前
+ *   会话）对外不可见——不进 listSessions 清单、createFresh 不写
+ *   agent.instantiated（trace 查询面无幻影）；任何路径让零条目热会话获
+ *   首个用户条目时经转正单点 promoteDraft 恰好一次：① 发布
+ *   agent.instantiated；② 未广播过 list_changed{created} 则补广播
+ *   （createdAnnounced 去重——draft 链的显式即知广播不双发）。
  * - **删除收口链**（顺序硬约束）：取消全部执行**完成** → 删库 → 注册表
  *   移除 → list_changed{deleted}。
  *
@@ -127,6 +134,10 @@ export class SessionRegistry implements SessionDirectoryPort {
   private current: string | undefined;
   private monitor: ReturnType<typeof setInterval> | undefined;
   private readonly idleUnloadMs: number;
+  /** 未转正内存草稿（T4：createFresh 登记；首个用户条目经 promoteDraft 转正后移除）。 */
+  private readonly unpromotedDrafts = new Set<string>();
+  /** 已广播 list_changed{created} 的会话（T4：draft 链显式广播与转正补广播的去重基线）。 */
+  private readonly createdAnnounced = new Set<string>();
 
   constructor(private readonly deps: SessionRegistryDeps) {
     this.idleUnloadMs = deps.idleUnloadMs ?? DEFAULT_IDLE_UNLOAD_MS;
@@ -169,7 +180,10 @@ export class SessionRegistry implements SessionDirectoryPort {
     const metas: SessionMetaView[] = rows.map((row) => this.metaFromRow(row));
     for (const [sessionId, runtime] of this.runtimes) {
       if (rows.some((r) => r.sessionId === sessionId)) continue;
-      // 热未落库会话（草稿）：DB 无行，从运行时取（title 空串/未命名草稿）
+      // T4：零条目热草稿不可见（未落盘内存草稿不进清单——bug1 泄漏面封堵，
+      // 与 sealAll 跳过零条目会话同哲学：空草稿自然消亡不污染清单）；
+      // 有内容的热未落库会话仍合并（回归）。
+      if (runtime.chatService.sessionView.entryList().length === 0) continue;
       metas.push(this.metaFromRuntime(runtime));
     }
     metas.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
@@ -198,16 +212,51 @@ export class SessionRegistry implements SessionDirectoryPort {
     return this.buildView(runtime);
   }
 
-  async startDraftSession(text: string): Promise<{ sessionId: string }> {
-    const runtime = this.createFresh();
-    // 建会话广播（created）：title = 首条用户消息截断（此刻即知——不等落库）
+  async startDraftSession(text: string, model?: string): Promise<{ sessionId: string }> {
+    // T4 转正复用：当前会话命中零条目热草稿 → 直接转正复用（同 id，不裂变
+    // 新会话；转正后不立刻新建下一个内存草稿——下一个由 initialize/
+    // rotateCurrent 等既有点懒建）；当前会话有内容 → 维持 createFresh。
+    const currentId = this.currentSessionId();
+    const hotCurrent = this.runtimes.get(currentId);
+    const runtime =
+      hotCurrent !== undefined && hotCurrent.chatService.sessionView.entryList().length === 0
+        ? hotCurrent
+        : this.createFresh();
+    // 建会话广播（created）：title = 首条用户消息截断（此刻即知——不等落库）。
+    // 时序硬约束：必须同步先于 sendMessage（前端先登记 pendingActivation 再收
+    // 快照，推迟会产生快照被吞的竞态）；登记 createdAnnounced 使转正单点的
+    // 补广播去重（不双发）。T4b：提到模型处理之前——异模型路径先转正
+    // （promoteDraft）时其 created 补广播经 createdAnnounced 去重，title 仍取
+    // 本处显式广播的首条消息截断（转正补广播此刻无条目可推导 title）。
+    this.createdAnnounced.add(runtime.sessionId);
     this.deps.onListChanged({
       kind: "created",
       sessionId: runtime.sessionId,
       session: this.metaFromRuntime(runtime, deriveTitle(text)),
     });
+    // T4：建会话前用户选定模型（chat.send draft 链透传；引擎不支持等抛错
+    // → warn 降级全局默认，不阻断首条消息）
+    // T4b 追修（CL-5 trace e2e 回归两根因）：
+    // ① 同模型短路——引擎观测值与选定一致（currentModel === model）→ 跳过
+    //   setModel：零调用零事件（同模型值也发布 agent.model.changed[from===to]
+    //   会产生无意义的「已切换」记录；只落在 draft 建会话路径，不改
+    //   ChatService.setModel 全局语义/model.set 命令路径）；
+    // ② 确需换模时先转正——setModel 之前显式 promoteDraft（unpromotedDrafts
+    //   集合守卫幂等，随后 sendMessage 首条目回调自然 no-op），保证事件次序
+    //   = instantiated → model.changed → 首个用户条目。
+    if (model !== undefined && runtime.chatService.currentModel !== model) {
+      this.promoteDraft(runtime.sessionId);
+      try {
+        runtime.chatService.setModel(model);
+      } catch (err) {
+        this.deps.logger?.warn(
+          `草稿会话 ${runtime.sessionId} 建会话前换模 ${model} 失败（降级全局默认）：${(err as Error).message}`,
+        );
+      }
+    }
     // 首条消息发送（fire-and-forget）：首个里程碑事件（user entry）经投影
     // write-through INSERT session_state——「daemon 收首条消息才落库」。
+    // 首个用户条目落聚合时经转正单点恰好一次发布 agent.instantiated（T4）。
     void runtime.chatService.sendMessage(text).catch((err) => {
       this.deps.logger?.warn(`草稿会话 ${runtime.sessionId} 首条消息发送失败：${(err as Error).message}`);
     });
@@ -237,6 +286,8 @@ export class SessionRegistry implements SessionDirectoryPort {
       this.runtimes.delete(sessionId);
       this.lastActivityMs.delete(sessionId);
       this.lastBroadcastRunState.delete(sessionId);
+      this.unpromotedDrafts.delete(sessionId); // T4：草稿转台账清理
+      this.createdAnnounced.delete(sessionId);
       if (this.current === sessionId) {
         await this.rotateCurrent();
       }
@@ -339,12 +390,54 @@ export class SessionRegistry implements SessionDirectoryPort {
     const session = Session.create(undefined, this.deps.clock.now());
     const runtime = this.deps.buildRuntime({ session, toolCalls: [], usage: undefined });
     this.register(runtime);
-    // T2.1（F5.7/AD-5，契约 v0.4 §2）：主实例 instantiated 发布点 = 会话创建
-    //（恢复路径 load() 不调——历史快照经查询面直读；快照缺省供给时 no-op）。
-    // 须在 register 之后：fan-out 消费者（CLI 回灌/清单桥）会读
-    // currentSessionId()，未登记时触发 createFresh 递归。
-    runtime.chatService.publishInstantiated();
+    // T4（bug1/bug4 daemon 侧）：agent.instantiated 发布点从「会话创建」推迟到
+    // 「转正」（首个用户条目，promoteDraft）——零条目内存草稿不写 domain_events
+    //（trace 查询面无幻影）；恢复路径 load() 不调（历史快照经查询面直读；
+    // 快照缺省供给时 no-op）。
+    this.unpromotedDrafts.add(runtime.sessionId);
     return runtime;
+  }
+
+  /**
+   * 转正单点（T4）：零条目热草稿获首个用户条目时恰好一次——
+   * ① 发布 agent.instantiated（chatService.publishInstantiated，只落盘不广播）；
+   * ② 尚未广播过 list_changed{created} 则补广播（metaFromRuntime 此刻可从
+   *   entries 推导 title；draft 链显式广播经 createdAnnounced 去重不双发）。
+   * 触发面：ChatService 首个用户条目落聚合回调（组合根接线，覆盖 draft 链 /
+   * v0 兼容路由 / CLI 等一切 sendMessage 路径）；未转正草稿集合守卫幂等。
+   */
+  promoteDraft(sessionId: string): void {
+    if (!this.unpromotedDrafts.has(sessionId)) return;
+    this.unpromotedDrafts.delete(sessionId);
+    const runtime = this.runtimes.get(sessionId);
+    if (runtime === undefined) return; // 已卸载/删除竞态（防御）
+    runtime.chatService.publishInstantiated();
+    if (!this.createdAnnounced.has(sessionId)) {
+      this.createdAnnounced.add(sessionId);
+      this.deps.onListChanged({ kind: "created", sessionId, session: this.metaFromRuntime(runtime) });
+    }
+  }
+
+  /**
+   * 握手草稿探测（T4，WsServerAdapter 握手面）：当前会话是零条目热草稿 →
+   * true（welcome.draft + 不 attach 会话不推快照）；current 残骸（热运行时
+   * 被空闲卸载且库无行——不可恢复的零条目草稿）→ 丢弃该 current 并
+   * createFresh 新草稿（避免握手快照 SessionNotFoundError 噪声），新草稿
+   * 同样是零条目草稿 → true；真实会话（含被卸载可懒加载恢复的）→ false。
+   */
+  async probeCurrentDraft(): Promise<boolean> {
+    const id = this.currentSessionId();
+    const hot = this.runtimes.get(id);
+    if (hot !== undefined) {
+      return hot.chatService.sessionView.entryList().length === 0;
+    }
+    if (!(await this.sessionExists(id))) {
+      // current 残骸清理：换新草稿（createFresh 内 touch 轮换 current）
+      this.deps.logger?.warn(`当前会话 ${id} 为不可恢复草稿残骸（热缺失且库无行），已丢弃并新建草稿`);
+      this.createFresh();
+      return true;
+    }
+    return false; // 真实会话被空闲卸载——握手快照经懒加载恢复（现状路径）
   }
 
   private register(runtime: SessionRuntime): void {
@@ -374,6 +467,7 @@ export class SessionRegistry implements SessionDirectoryPort {
       if (this.deps.scheduler.hasActiveInstances(sessionId)) continue; // 执行中不卸载（SubAgent）
       this.runtimes.delete(sessionId);
       this.lastActivityMs.delete(sessionId);
+      this.unpromotedDrafts.delete(sessionId); // T4：卸载即不可恢复（零条目草稿无库行），台账同步清理
       this.deps.logger?.info(`会话 ${sessionId} 空闲超过 ${Math.round(this.idleUnloadMs / 1000)}s，已卸载（快照已落盘，再进懒加载恢复）`);
     }
   }

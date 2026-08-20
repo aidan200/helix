@@ -137,6 +137,10 @@ class TestClient {
     return this.frames.find((f) => f.type === type)!;
   }
 
+  send(obj: unknown): void {
+    this.ws.send(JSON.stringify(obj));
+  }
+
   async close(): Promise<void> {
     if (this.ws.readyState === WebSocket.OPEN) await this.ws.close();
   }
@@ -228,6 +232,11 @@ describe("T2.1 agent.spawned 增量帧锚点（真实 WS 连接）", () => {
     // ① 流首 spawn → null
     const c1 = new TestClient(rig.daemon.ws.url, token);
     try {
+      // T4：零条目草稿握手不 attach——显式订阅当前会话后再观测 spawn 帧
+      const welcome1 = await c1.expect("connection.welcome");
+      if (welcome1.payload.draft === true) {
+        c1.send({ v: 0, type: "session.subscribe", payload: {} });
+      }
       await c1.expect("session.snapshot");
       rig.daemon.orchestration.spawn("流首 WS 任务");
       const spawnedNull = await c1.expect("agent.spawned");

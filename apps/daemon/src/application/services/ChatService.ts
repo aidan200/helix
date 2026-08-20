@@ -90,6 +90,14 @@ export interface ChatServiceDeps {
    * 常量不进 application）；缺省 = 不发布（纯测试形态）。
    */
   readonly instantiatedSnapshot?: () => ProfileSnapshotData;
+  /**
+   * 首个用户条目落聚合回调（T4 转正单点触发面，bug1/bug4 daemon 侧）：
+   * sendMessage 空闲分支把零条目会话的首个 user Entry 落聚合后、
+   * message.completed 发布前同步触发一次——组合根接 SessionRegistry
+   * .promoteDraft（恰好一次 instantiated + 补 created 广播；恢复会话
+   * 已有条目结构性不触发）。缺省 = 无转正编排（纯测试形态）。
+   */
+  readonly onFirstUserEntry?: () => void;
 }
 
 /**
@@ -157,10 +165,12 @@ export class ChatService implements ChatPort {
     return this.deps.engine.currentModel?.();
   }
   /**
-   * 主实例 agent.instantiated 发布（T2.1，F5.7/AD-5，契约 v0.4 §2）：会话
-   * 创建时刻由注册表 createFresh 触发一次（恢复路径不调——历史快照经
+   * 主实例 agent.instantiated 发布（T4 转正语义，原 T2.1 F5.7/AD-5 契约
+   * v0.4 §2）：发布点 = 会话**转正**（零条目热草稿获首个用户条目，注册表
+   * promoteDraft 触发一次；原「会话创建即发布」废弃——内存草稿不写
+   * domain_events，trace 查询面无幻影）；恢复路径不调（历史快照经
    * trace.query 查询面直读，不重发）；只落盘不广播（DtoMapper 无 case）。
-   * re-profile 不存在（记录在案）——发布点只有会话创建。
+   * re-profile 不存在（记录在案）——发布点只有转正。
    */
   publishInstantiated(): void {
     if (this.deps.instantiatedSnapshot === undefined) return;
@@ -231,7 +241,11 @@ export class ChatService implements ChatPort {
     switch (this.lifecycle.current) {
       case "idle": {
         // ① 消息落聚合：user Entry（此刻起领域状态与引擎状态开始对齐）
+        // T4：零条目会话的首个用户条目 → 落聚合后同步触发转正回调（注册表
+        // promoteDraft：instantiated 先于本条 message.completed 落盘）
+        const isFirstEntry = this.session.entryList().length === 0;
         const entry = this.session.appendUserEntry(text, this.now());
+        if (isFirstEntry) this.deps.onFirstUserEntry?.();
         this.publishMessageCompleted(entry.toData().id, "user", text, false);
         // ② 开新轮次（Turn=generating）并广播开始
         const turn = this.session.beginTurn(entry.id, this.now());

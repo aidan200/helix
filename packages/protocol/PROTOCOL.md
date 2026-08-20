@@ -38,6 +38,7 @@
 ```
 
 - **重连恢复 = 快照 + 增量**（AD-16）：重连后重新握手 → 收快照重建投影 → 续增量；首连空会话 = `snapshot.entries` 为空数组。
+- **草稿握手分支（T4，§14.1）**：当前会话为零条目内存草稿时 welcome 携带 `draft:true`，不 attach 不推快照；真实会话握手维持上图时序。
 - **拒绝三分支**（TP-CL6-5）：无 `token` 字段 → `auth.missing_token`；token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`；`protocolVersion ≠ "0.4"`（含信封 `v ≠ "0.4"`）→ `protocol.version_unsupported`。
 - 客户端浏览器侧获取 dev token 的机制已由 T1.6 钉死：daemon HTTP 端点 `GET /helix-dev-token`（见 §9）。
 
@@ -570,8 +571,10 @@ export interface AgentModelChangedPayload {
 }
 ```
 
-- **发布时点**：`agent.instantiated`——主实例在会话创建（引擎装配路径）；
-  SubAgent 在 SchedulerService.spawn，与 `agent.spawned` 同批紧随其后，
+- **发布时点**：`agent.instantiated`——主实例在会话**转正**（T4 修正：
+  零条目内存草稿获首个用户条目时恰好一次发布；原「会话创建即发布」
+  废弃——内存草稿不写 domain_events，trace 查询面无幻影）；SubAgent 在
+  SchedulerService.spawn，与 `agent.spawned` 同批紧随其后，
   snapshot.model = spawn 时刻**三级链求值结果**（profile.model ?? spawn
   会话快照 ?? 全局兜底，AD-3 联动）。`agent.model.changed`——
   ChatService.setModel（engine.setModel 成功后同点发布）；from = 切换前
@@ -603,3 +606,31 @@ export interface AgentModelChangedPayload {
 - 守护同步（type-surface.test.ts / exports.test.ts）：目录计数断言 22/40、
   roster(agent) +2、roster("trace") 新族、三新帧样例构造断言——既有
   命令/事件/帧形态零变更（additive 纪律，守护全绿即证）。
+
+## 14. v0.4 后 additive 微批（T4：welcome.draft + chat.send.model；版本位不 bump）
+
+> 本批为内存草稿「不可见 + 转正」语义（bug1/bug4 daemon 侧）的协议面
+> additive 登记（TR-AD-23①：可选字段带缺省语义，旧客户端忽略行为不变）。
+
+### 14.1 `ConnectionWelcomePayload.draft?: boolean`（events.ts）
+
+- `true` = 握手时当前会话是**零条目内存草稿**（未落盘、不进 session.list
+  清单）；此时 daemon 握手**不 attach 该会话、不立即推 session.snapshot**
+  （连接仍注册——draft 建会话链的 subscribeSession/快照推送照常可用），
+  前端按草稿态显示。
+- 缺省 = 现状握手（attach 当前会话 + 立即推快照，重连恢复 = 快照+增量
+  语义不变）。
+
+### 14.2 `ChatSendPayload.model?: string`（commands.ts）
+
+- 仅 `draft:true` 建会话链消费：用户建会话前选定的模型——daemon 在建
+  会话/复用后、首条消息发送前 `setModel`（引擎不支持等失败 → 降级全局
+  默认，不阻断）；缺省 = 全局默认（不换模）。
+
+### 14.3 配套 daemon 语义（本批同发）
+
+- 零条目内存草稿双面不可见：不进 `session.list` 清单、`createFresh` 不再
+  写 `agent.instantiated`（发布点推迟到转正，见 §13.3 修正）；
+- `chat.send{draft:true}` 命中零条目当前草稿 → 同 id 转正复用（不裂变
+  新会话）；转正恰好一次 `agent.instantiated` + `list_changed{created}`
+  （draft 链显式广播与补广播去重，不双发）。

@@ -16,8 +16,9 @@ import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
  *   结果帧形态（filterEcho/instances/events/page）与过滤语义（instanceIds 多选
  *   /agentKind/types/timeRange 含起含止/空数组=空结果/缺省全量）；
  * - ② 分页：id 游标遍历不重不漏 + hasMore 收口；
- * - ③ 三发布点：会话创建→主 instantiated（systemPrompt 全文）；spawn→Sub
- *   instantiated（model=三级链解析结果）；model.set→model.changed（from/to）；
+ * - ③ 三发布点：会话转正（首个用户条目）→主 instantiated（systemPrompt
+ *   全文）；spawn→Sub instantiated（model=三级链解析结果）；
+ *   model.set→model.changed（from/to）；
  * - ④ 实例面板 fold：主+多 Sub 混合会话 → InstanceRecord 字段齐全；
  * - ⑤ 重启回填：spawn（带 model）→ 重启恢复 → instances[] model 非缺失 +
  *   instantiated/model.changed 可查；
@@ -145,6 +146,13 @@ async function makeRig(home: string, opts: { initialModel?: string; replies?: { 
   const client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);
   await client.open();
   client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token, protocolVersion: PROTOCOL_VERSION } });
+  // T4：握手命中零条目内存草稿（welcome.draft）时不 attach 不推快照——显式
+  // session.subscribe 订阅当前会话（v0 兼容面）；重启恢复的真实会话握手维持现状。
+  await until(() => client.frames.some((f) => f.type === "connection.welcome"), 3000, "握手 welcome");
+  const welcome = client.frames.find((f) => f.type === "connection.welcome")!;
+  if (welcome.payload.draft === true) {
+    client.send({ v: 0, type: "session.subscribe", payload: {} });
+  }
   await until(() => client.frames.some((f) => f.type === "session.snapshot"), 3000, "握手快照");
   return { home, daemon, client, sessionId: daemon.registry.currentSessionId() };
 }
@@ -348,8 +356,8 @@ describe("② 分页：id 游标遍历不重不漏 + hasMore 收口（契约 §4
   });
 });
 
-describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1）", () => {
-  test("会话创建→主 instantiated（systemPrompt 全文）；spawn→Sub instantiated（model=三级链结果）；model.set→model.changed", async () => {
+describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 instantiated 发布点 = 转正）", () => {
+  test("会话转正→主 instantiated（systemPrompt 全文）；spawn→Sub instantiated（model=三级链结果）；model.set→model.changed", async () => {
     const home = tmpHome();
     const rig = await makeRig(home, { replies: [{ text: "回复。" }] });
     try {

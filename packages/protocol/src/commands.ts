@@ -28,6 +28,11 @@ export interface ChatSendPayload {
    * 时忽略本标记（既有会话内发送）。
    */
   draft?: boolean;
+  /**
+   * 建会话模型（T4，additive）：仅 draft:true 建会话链消费——用户建会话前
+   * 选定的模型；缺省 = 全局默认（不换模）。
+   */
+  model?: string;
 }
 
 /** chat.steer 载荷：生成中注入消息（ChatPort.steer → SteerQueue.enqueue） */

@@ -302,7 +302,11 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
     try {
       await client.open();
       client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token, protocolVersion: PROTOCOL_VERSION } });
-      await client.expect("connection.welcome");
+      const welcome = await client.expect("connection.welcome");
+      // T4：零条目草稿握手不 attach 不推快照——显式订阅当前会话（v0 兼容面）
+      if (welcome.payload.draft === true) {
+        client.send({ v: 0, type: "session.subscribe", payload: {} });
+      }
       const snap = await client.expect("session.snapshot");
       expect(snap.sessionId).toBe(rig.sessionId);
       expect(snap.channel).toBe("session");

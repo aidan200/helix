@@ -6,7 +6,8 @@
  *   反射，见 PROTOCOL.md §9）+ 前端静态产物（组合根注入 driven StaticServe
  *   的 handler，driving 不 import driven——AG-02③）；
  * - WS 面：hello 握手 token 校验（三分支拒绝：发 error 帧后 close）→
- *   welcome + 立即推 session.snapshot（重连恢复 = 快照+增量，AD-16）→
+ *   welcome + 立即推 session.snapshot（重连恢复 = 快照+增量，AD-16；
+ *   T4：当前会话命中零条目内存草稿 → welcome.draft + 不 attach 不推快照）→
  *   命令帧路由到 inbound port（只转发不决策，AG-12/TP-CL6-3）→
  *   事件经 EventStream（EventPublisherPort 实现）下发。
  *
@@ -255,13 +256,20 @@ export class WsServerAdapter {
       return;
     }
 
-    // 通过：注册事件流（T2.2 定稿：默认订阅「当前订阅会话」= 注册表当前会话，
-    // 即最近活跃会话——冷则懒加载）+ welcome + 立即推快照（重连恢复语义）
+    // 通过：注册事件流 + welcome（T4：命中零条目内存草稿 → welcome.draft +
+    // 不 attach 会话不推快照——attach() 无参注册连接，draft 链 subscribeSession
+    // 仍可用；残骸清理由 probeCurrentDraft 侧完成，getStatus 取清理后现值）
     ws.data.authed = true;
     const sender = this.rawSender(ws);
     ws.data.sender = sender;
+    const isDraft = (await this.deps.directory.probeCurrentDraft?.()) ?? false;
     const status = this.deps.system.getStatus();
-    this.deps.events.attach(sender, status.sessionId);
+    if (isDraft) {
+      this.deps.events.attach(sender); // 注册连接但不订阅草稿会话（草稿态无可推增量）
+    } else {
+      // T2.2 定稿：默认订阅「当前订阅会话」= 注册表当前会话（冷则懒加载）
+      this.deps.events.attach(sender, status.sessionId);
+    }
 
     const agentState = status.agentState as AgentStateDto;
     const model = status.model ?? "";
@@ -270,9 +278,10 @@ export class WsServerAdapter {
       sessionId: SYSTEM_SESSION_ID, // 会话无关系统事件（notification 通道，契约 A §3）
       channel: "notification",
       type: "connection.welcome",
-      payload: { sessionId: status.sessionId, model, agentState },
+      payload: { sessionId: status.sessionId, model, agentState, ...(isDraft ? { draft: true } : {}) },
     };
     this.sendNow(sender, welcome);
+    if (isDraft) return; // T4：草稿握手不推快照（前端按草稿态显示；建会话链另推）
     try {
       const view = await this.deps.directory.getSessionView(status.sessionId);
       this.sendNow(sender, this.snapshotFrame(view, model, agentState));
@@ -321,15 +330,19 @@ export class WsServerAdapter {
     switch (type) {
       case "chat.send": {
         if (typeof payload.text !== "string") return this.commandError(ws, type, "command.invalid_payload", "payload.text 应为 string");
-        // 草稿建会话链（契约 B §1.5 定稿）：信封省略 sessionId + payload.draft
-        // → daemon 建新会话（首条消息落库 + created 广播）+ 本连接订阅新会话
-        // + 快照（客户端据此切换）；draft 标记与显式 sessionId 同现时以 sessionId 为准。
+        // 草稿建会话链（契约 B §1.5 定稿 + T4 转正复用）：信封省略 sessionId
+        // + payload.draft → daemon 建会话（零条目当前草稿直接转正复用同 id，
+        // 否则新建；首条消息落库 + created 广播）+ 本连接订阅该会话 + 快照
+        //（客户端据此切换）；draft 标记与显式 sessionId 同现时以 sessionId 为准。
         const hasSessionRoute =
           typeof envelope.sessionId === "string" && envelope.sessionId !== "";
         if (payload.draft === true && !hasSessionRoute) {
           const sender = ws.data.sender;
+          // T4：payload.model 可选透传（建会话前用户选定模型；缺省 = 全局默认）
+          const draftModel =
+            typeof payload.model === "string" && payload.model !== "" ? payload.model : undefined;
           void this.deps.directory
-            .startDraftSession(payload.text)
+            .startDraftSession(payload.text, draftModel)
             .then(({ sessionId }) => {
               if (!sender) return;
               this.deps.events.subscribeSession(sender, sessionId);

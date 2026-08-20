@@ -42,6 +42,12 @@ export interface ConnectionWelcomePayload {
   sessionId: string;
   model: string;
   agentState: AgentStateDto;
+  /**
+   * 草稿标记（T4，additive，TR-AD-23①）：true = 当前会话是零条目内存草稿
+   * （未落盘、不进清单）；握手不 attach 不推快照，前端按草稿态显示；
+   * 缺省/旧客户端忽略本字段行为不变（现状握手：attach + 立即快照）。
+   */
+  draft?: boolean;
 }
 
 /** connection.error：握手拒绝 / 命令错误回执（notification 通道） */

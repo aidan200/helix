@@ -198,6 +198,12 @@ describe("model.changed 广播（WS 集成，契约 C §2.1）", () => {
       ws.onmessage = (ev) => frames.push(JSON.parse(String(ev.data)));
       await until(() => ws!.readyState === WebSocket.OPEN);
       ws.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "hello", payload: { token, protocolVersion: PROTOCOL_VERSION } }));
+      // T4：零条目草稿握手不 attach 不推快照——显式订阅当前会话（v0 兼容面）
+      await until(() => frames.some((f) => f.type === "connection.welcome"));
+      const welcome = frames.find((f) => f.type === "connection.welcome")!;
+      if ((welcome.payload as { draft?: boolean }).draft === true) {
+        ws.send(JSON.stringify({ v: 0, type: "session.subscribe", payload: {} }));
+      }
       await until(() => frames.some((f) => f.type === "session.snapshot"));
       const sid = daemon.registry.currentSessionId();
 

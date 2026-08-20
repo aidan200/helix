@@ -96,6 +96,10 @@ describe("T5.1：多会话切换快照盖章 = 目标会话自身状态（串台
       client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token, protocolVersion: PROTOCOL_VERSION } });
       const welcome = await client.waitFor((f) => f.type === "connection.welcome", "welcome");
       const sessionA = welcome.payload.sessionId as string;
+      // T4：零条目草稿握手不 attach 不推快照——显式订阅当前会话 A（v0 兼容面）
+      if (welcome.payload.draft === true) {
+        client.send({ v: 0, type: "session.subscribe", payload: {} });
+      }
       await client.waitFor((f) => f.type === "session.snapshot", "A 初始快照");
 
       // A 进入长流式（≈3s 窗口：80 分片 × 40ms）

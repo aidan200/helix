@@ -115,6 +115,12 @@ async function makeRig(): Promise<Rig> {
   });
   const token = readFileSync(path.join(home, "dev-token"), "utf8").trim();
   const client = new TestClient(daemon.ws.url, token);
+  // T4：握手命中零条目内存草稿（welcome.draft）时不 attach 不推快照——显式
+  // session.subscribe 订阅当前会话（v0 兼容面）；真实会话握手维持现状。
+  const welcome = await client.expect("connection.welcome", 3000);
+  if (welcome.payload.draft === true) {
+    client.send({ v: 0, type: "session.subscribe", payload: {} });
+  }
   await client.expect("session.snapshot", 3000); // 握手通过（welcome + snapshot）
   return {
     home,
