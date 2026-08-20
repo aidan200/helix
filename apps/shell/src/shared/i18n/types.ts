@@ -311,7 +311,6 @@ export interface ChatTranslations {
 /** P-1 TracePage 文案命名空间（CL-5，T2.2；原型 P-1-trace.html 文案逐条对齐）。 */
 export interface TraceTranslations {
   title: string;
-  sub: string;
   controls: {
     ariaLabel: string;
     session: string;
@@ -390,15 +389,6 @@ export interface TraceTranslations {
     reconnect: string;
     reconnectedToast: string;
     notConnected: string;
-  };
-  demo: {
-    title: string;
-    state: string;
-    viewSuccess: string;
-    viewLoading: string;
-    viewEmpty: string;
-    viewError: string;
-    viewConn: string;
   };
 }
 

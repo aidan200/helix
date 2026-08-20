@@ -12,7 +12,7 @@
  *
  * 状态模型（review.md §四）：loading / error / empty / success 互斥 +
  * 断连 overlay 正交；任何新查询先清旧态；重连后重查（filter 域重查，
- * 面板保留防闪烁）。演示控制台 isDev() 门控（prod 不渲染）。
+ * 面板保留防闪烁）。
  *
  * 视觉与行为基准 = prototype/P-1-trace.html（还原清单见 review.md §四
  * 「必须还原」8 项）；风格 token 零 delta（hud-* 类名 + CSS 变量，
@@ -36,7 +36,6 @@ import TraceControls from "./ui/P-1-trace-controls";
 import InstancePanel from "./ui/P-1-instance-panel";
 import ContextCard from "./ui/P-1-context-card";
 import EventTable from "./ui/P-1-event-table";
-import DemoConsole from "./ui/P-1-demo-console";
 import { ConnOverlay, EmptyPane, ErrorPane, TableSkeleton } from "./ui/P-1-state-panes";
 
 const TracePage = function TracePage({ path }: { path: string }) {
@@ -201,7 +200,7 @@ const TracePage = function TracePage({ path }: { path: string }) {
   // ── 展示派生 ─────────────────────────────────────────────
   const view = selectTraceView(state);
   const detail = state.filter.instanceId !== null;
-  const connOff = state.devForceConn || conn === "disconnected" || conn === "error";
+  const connOff = conn === "disconnected" || conn === "error";
   const selectedRecord = detail
     ? state.instances.find((r) => r.instanceId === state.filter.instanceId) ?? null
     : null;
@@ -214,10 +213,6 @@ const TracePage = function TracePage({ path }: { path: string }) {
       <header className="p1-head">
         <div className="p1-title-block">
           <h1 className="p1-title">{t("trace.title")}</h1>
-          <p className="p1-sub">{t("trace.sub")}</p>
-        </div>
-        <div className="p1-head-right">
-          <span className="p1-route">{path}</span>
         </div>
       </header>
 
@@ -277,13 +272,6 @@ const TracePage = function TracePage({ path }: { path: string }) {
         {/* 断连 overlay：正交层（压住内容区，重连入口） */}
         {connOff && <ConnOverlay onReconnect={retry} />}
       </section>
-
-      <DemoConsole
-        view={view}
-        connOff={connOff}
-        onForceView={(v) => dispatch({ type: "dev-set-view", view: v })}
-        onForceConn={(off) => dispatch({ type: "dev-set-conn", off })}
-      />
     </div>
   );
 };

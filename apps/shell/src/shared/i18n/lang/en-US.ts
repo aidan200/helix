@@ -265,7 +265,6 @@ export const enUS: Translations = {
   },
   trace: {
     title: "Trace",
-    sub: "Instance execution overview: its config, its instructions, and what it did",
     controls: {
       ariaLabel: "Filter controls",
       session: "Session",
@@ -342,15 +341,6 @@ export const enUS: Translations = {
       reconnect: "Reconnect",
       reconnectedToast: "Reconnected to daemon",
       notConnected: "Not connected to daemon",
-    },
-    demo: {
-      title: "PROTO CONSOLE",
-      state: "STATE",
-      viewSuccess: "OK",
-      viewLoading: "LOAD",
-      viewEmpty: "EMPTY",
-      viewError: "ERR",
-      viewConn: "CONN",
     },
   },
 };

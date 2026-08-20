@@ -166,7 +166,6 @@ const REQUIRED_KEYS = [
   "chat.nav.pages.settings.preview",
   // T2.2（CL-5 P-1 TracePage；原型 P-1-trace.html 文案清单）
   "trace.title",
-  "trace.sub",
   "trace.controls.ariaLabel",
   "trace.controls.session",
   "trace.controls.range",
@@ -232,13 +231,6 @@ const REQUIRED_KEYS = [
   "trace.state.reconnect",
   "trace.state.reconnectedToast",
   "trace.state.notConnected",
-  "trace.demo.title",
-  "trace.demo.state",
-  "trace.demo.viewSuccess",
-  "trace.demo.viewLoading",
-  "trace.demo.viewEmpty",
-  "trace.demo.viewError",
-  "trace.demo.viewConn",
 ] as const;
 
 function flatten(obj: unknown, prefix = ""): Map<string, string> {

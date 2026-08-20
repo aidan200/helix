@@ -354,16 +354,4 @@ describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）",
     const sent = mock.sentQueries[1]!;
     expect(sent.types).toEqual(["engine.error"]); // 下推：types 进查询 payload
   });
-
-  it("演示控制台 isDev 门控渲染（vitest DEV 态）：STATE seg 强制视图不污染底层态", () => {
-    ui();
-    act(() => feedResult());
-    const console_ = document.querySelector(".demo-console");
-    expect(console_).toBeTruthy();
-    const btns = within(console_ as HTMLElement).getAllByRole("button");
-    fireEvent.click(btns.find((b) => b.textContent === "错误")!);
-    expect(screen.getByRole("alert").textContent).toContain("事件查询失败");
-    fireEvent.click(btns.find((b) => b.textContent === "成功")!);
-    expect(screen.getByText(/msg-3/)).toBeTruthy();
-  });
 });

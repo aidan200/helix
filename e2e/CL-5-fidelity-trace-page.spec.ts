@@ -6,7 +6,9 @@
  * 「必须还原」清单 8 项（注意：与本仓既有 CL-5-prototype-fidelity.spec.ts 的
  * R-P1~R-P4 编号不同源——那是前迭代 mq5a 的工作台四页清单；本文件
  * R-P1-1~R-P1-8 专指本迭代 review.md §四 必须还原 8 条目的序）：
- *   R-P1-1 布局：IconRail 壳 + 控制条 + 双栏主体（面板 264px sticky 左栏）
+ *   R-P1-1 布局：IconRail 壳 + 控制条 + 双栏主体（面板 264px 固定左栏）
+ *        + 应用式固定壳（页面不出窗口，仅结果框内滚——用户裁决取代原型
+ *        sticky/页级滚动：客户端形态 header/菜单栏不可滑出窗口）
  *   R-P1-2 F5.1 实例面板（徽标/模型/状态/起止时长/计数 + 全部实例混排入口）
  *   R-P1-3 F5.2 执行上下文卡（快照折叠/工具 chips/模型/compaction 主有 Sub 无
  *          /spawn task blockquote + 变更轨迹时间线 + 快照缺失降级 + 纯快照）
@@ -18,9 +20,11 @@
  *   R-P1-8 双主题 token 引用（无硬编码 hex 扫描）+ IconRail /trace 高亮
  *
  * 断言边界（test-design §三）：原型标注 data-proto-annotation 应已剥离
- * （断言其不存在，不期待其存在）；演示控制台 = isDev 门控的 dev 机制，
- * 仅作状态面触发驱动器使用（mock mode 可用性顺带验证），不作还原目标；
- * 空态双文案（会话无事件 vs 筛选后空）属产品内容，纳入 empty 断言。
+ * （断言其不存在，不期待其存在）；原型演示控制台已全链移除（T5：
+ * 组件/dev 管道/样式/i18n 清零，右下角不再有 PROTO CONSOLE）；
+ * 空态双文案（会话无事件 vs 筛选后空）属产品内容，纳入 empty 断言
+ * （session flavor 与 error 态断言下沉 TracePage.test.tsx 单测层——
+ * fake 剧本对任意 sessionId 同构返回 78 条，无法以协议驱动会话空态）。
  *
  * mock 剧本常量（fake-transport traceScenario 确定性场景）：主 + 三 Sub
  * （A=failed 含 engine.error / B=快照缺失 / C=纯快照），总事件 78 条
@@ -122,7 +126,7 @@ test.describe("T2.3 CL-5 fidelity：结构还原（R-P1-1~4）", () => {
     const checks: FidelityCheck[] = [
       {
         id: "R-P1-1",
-        title: "布局：IconRail 壳 + 控制条四件 + 双栏主体（面板 264px sticky 左栏）",
+        title: "布局：IconRail 壳 + 控制条四件 + 双栏主体（面板 264px 固定左栏 + 结果框内滚）",
         run: async () => {
           await expect(page.locator("nav.icon-rail")).toBeVisible();
           await expect(page.locator(".p1-title")).toHaveText("事件追溯");
@@ -134,10 +138,12 @@ test.describe("T2.3 CL-5 fidelity：结构还原（R-P1-1~4）", () => {
           await expect(chips.first()).toBeEnabled();
           // 第四件 = 实例选择面（实例面板 全部实例/实例项均可点）
           await expect(page.locator(".ip-item.ip-all")).toBeEnabled();
-          // 双栏主体：264px 左栏 + sticky
+          // 双栏主体：264px 左栏；应用式固定壳（用户裁决取代原型 sticky：
+          // 页面本体不出窗口，仅结果框 .p1-tbody 内滚，高度随窗口自适应）
           const cols = await computed(page, ".p1-body", "grid-template-columns");
           expect(cols.startsWith("264px")).toBe(true);
-          expect(await computed(page, ".inst-panel", "position")).toBe("sticky");
+          expect(await computed(page, ".p1-page", "overflow-y")).toBe("hidden");
+          expect(await computed(page, ".p1-tbody", "overflow-y")).toBe("auto");
         },
       },
       {
@@ -432,53 +438,6 @@ test.describe("T2.3 CL-5 fidelity：状态面（R-P1-7）", () => {
     await expect(page.locator(".p1-conn")).toHaveCount(0);
     await expect(page.locator(".p1-thead .hit")).toHaveText("命中 18 条"); // 重查回收（筛选保留）
     await shotLocal(page, "fidelity-trace-states");
-  });
-
-  test("控制台驱动（dev 机制）：会话空态文案 + error role=alert 重试 + 强制断连 overlay 正交", async ({
-    mock,
-    page,
-  }) => {
-    // 独立页面态：emptyFlavor 为初始 session（未被筛选后空污染）——控制台仅作
-    // 五态触发驱动器（isDev 门控可用性顺带验证），断言目标仍是状态面本体。
-    await openTrace(mock, page);
-
-    const checks: FidelityCheck[] = [
-      {
-        id: "R-P1-7b",
-        title: "状态面（控制台驱动）：空态会话文案 + error role=alert + 重试 + 断连 overlay 正交压住内容",
-        run: async () => {
-          const console_ = page.locator(".demo-console");
-          await expect(console_).toBeVisible(); // isDev 门控在 mock dev 下可用（非还原目标）
-
-          // empty（session flavor = 无事件会话文案）
-          await console_.locator("button", { hasText: "空态" }).click();
-          await expect(page.locator(".p1-empty .e-title")).toContainText("该会话暂无事件记录");
-          await expect(page.locator(".p1-empty .e-hint")).toContainText("事件随执行产生");
-          await assertMutualExclusion(page, "empty");
-
-          // error：role=alert + 重试入口
-          await console_.locator("button", { hasText: "错误" }).click();
-          const errPane = page.locator(".p1-error");
-          await expect(errPane).toBeVisible();
-          expect(await errPane.getAttribute("role")).toBe("alert");
-          await expect(errPane.locator(".hud-btn")).toContainText("重试");
-          await expect(errPane.locator(".hud-btn")).toBeEnabled();
-          await assertMutualExclusion(page, "error");
-
-          // 断连 overlay：正交层压住内容（成功态内容仍在 DOM）
-          await console_.locator("button", { hasText: "断连" }).click();
-          const overlay = page.locator(".p1-conn");
-          await expect(overlay).toBeVisible();
-          expect(await overlay.getAttribute("role")).toBe("alert");
-          await expect(overlay.locator(".hud-btn")).toContainText("重新连接");
-          await expect(page.locator(".p1-tbody .p1-entry").first()).toBeAttached();
-          await console_.locator("button", { hasText: "成功" }).click();
-          await expect(overlay).toHaveCount(0);
-          await assertMutualExclusion(page, "success");
-        },
-      },
-    ];
-    assertFidelityGreen(await checkPrototypeFidelity(checks));
   });
 });
 

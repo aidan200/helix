@@ -394,10 +394,6 @@ export interface TracePageState {
   pending: TraceQueryFilterEcho | null;
   /** 时间窗参考零点（最近一次无筛选 fresh 结果的 rows[0].ts）。 */
   latestEventTs: string | null;
-  /** 演示控制台强制视图（isDev 门控；不污染底层 view）。 */
-  devForceView: TraceView | null;
-  /** 演示控制台强制断连 overlay（isDev 门控）。 */
-  devForceConn: boolean;
 }
 
 export function createTracePageState(): TracePageState {
@@ -415,8 +411,6 @@ export function createTracePageState(): TracePageState {
     promptOpen: false,
     pending: null,
     latestEventTs: null,
-    devForceView: null,
-    devForceConn: false,
   };
 }
 
@@ -438,13 +432,11 @@ export type TraceAction =
     }
   | { type: "query-failed"; reason: string }
   | { type: "toggle-row"; id: number }
-  | { type: "toggle-prompt" }
-  | { type: "dev-set-view"; view: TraceView | null }
-  | { type: "dev-set-conn"; off: boolean };
+  | { type: "toggle-prompt" };
 
-/** 展示视图（演示控制台覆盖层优先；底层态不污染）。 */
+/** 展示视图（五态互斥状态机的当前态）。 */
 export function selectTraceView(s: TracePageState): TraceView {
-  return s.devForceView ?? s.view;
+  return s.view;
 }
 
 function isUnfilteredEcho(echo: TraceQueryFilterEcho): boolean {
@@ -511,10 +503,6 @@ export function traceReducer(s: TracePageState, a: TraceAction): TracePageState 
       return { ...s, openId: s.openId === a.id ? null : a.id };
     case "toggle-prompt":
       return { ...s, promptOpen: !s.promptOpen };
-    case "dev-set-view":
-      return { ...s, devForceView: a.view };
-    case "dev-set-conn":
-      return { ...s, devForceConn: a.off };
     default:
       return s;
   }

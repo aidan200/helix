@@ -2,7 +2,7 @@
  * P-1 TracePage 页面私有状态模型纯单测（CL-5；T2.2 RED）。
  *
  * 测试点映射（task-T2.2-brief RED 清单 1-6）：
- * 1. 五态互斥转换 + 新查询清旧态（loading/error/empty/success + devForce 覆盖；
+ * 1. 五态互斥转换 + 新查询清旧态（loading/error/empty/success；
  *    断连 overlay 正交 = conn 不进本 reducer，由组件从会话门面派生）；
  * 2. 组合过滤交集语义（类型类目 toggle 映射）+ 单飞 filterEcho 迟到结果丢弃；
  * 3. 分页游标步进 / hasMore 收口 / 筛选变更重置（游标 + 展开态 + 提示词折叠）；
@@ -157,15 +157,6 @@ describe("1. 五态互斥转换与新查询清旧态", () => {
     const s2 = startQuery(s1);
     expect(s2.view).toBe("loading");
     expect(s2.errorReason).toBeNull();
-  });
-
-  it("dev-set-view 覆盖 selectTraceView；null 解除（演示控制台门控面）", () => {
-    const s0 = feedResult(startQuery(createTracePageState()));
-    const s1 = traceReducer(s0, { type: "dev-set-view", view: "loading" });
-    expect(selectTraceView(s1)).toBe("loading");
-    expect(s1.view).toBe("success"); // 底层态不被演示控件污染
-    const s2 = traceReducer(s1, { type: "dev-set-view", view: null });
-    expect(selectTraceView(s2)).toBe("success");
   });
 });
 

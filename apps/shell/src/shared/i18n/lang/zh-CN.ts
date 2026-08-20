@@ -267,7 +267,6 @@ export const zhCN: Translations = {
   },
   trace: {
     title: "事件追溯",
-    sub: "实例执行全貌：它是什么配置、被给了什么指令、然后做了什么",
     controls: {
       ariaLabel: "筛选控制条",
       session: "会话",
@@ -344,15 +343,6 @@ export const zhCN: Translations = {
       reconnect: "重新连接",
       reconnectedToast: "已重新连接 daemon",
       notConnected: "未连接 daemon",
-    },
-    demo: {
-      title: "PROTO CONSOLE",
-      state: "STATE",
-      viewSuccess: "成功",
-      viewLoading: "加载",
-      viewEmpty: "空态",
-      viewError: "错误",
-      viewConn: "断连",
     },
   },
 };
