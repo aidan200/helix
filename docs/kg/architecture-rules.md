@@ -882,12 +882,13 @@ anchors:
   testedBy:
     - apps/daemon/test/integration/ws-server-spy.test.ts
     - apps/daemon/test/arch-guard/arch-guard.test.ts
-    - packages/protocol/test/type-surface.test.ts
+    - packages/protocol/test/type-surface/catalog.test.ts
+    - packages/protocol/test/type-surface/sot-consistency.test.ts
     - apps/shell/src/entities/session/model/subscription-ledger.test.ts
 relations:
   governs:
     - E-领域事件与单写队列
-updatedIn: hotfix-20260820
+updatedIn: iter-20260820-qhv8
 ```
 
 ## 规则
@@ -952,12 +953,13 @@ name: 源码体量双线与触发式拆分（700 预警 / 1000 强制）
 status: active
 digest: 新增代码使文件超 700 行、审计体量热点、拆分裁决时
 derivedFrom:
-  - iter-20260820-qhv8 AD-3
-  - iter-20260820-qhv8 F-9
-  - "iter-20260819-erio 优化池 #1/#2/#3"
+  - AD-3（iter-20260820-qhv8：越线才修 + 常设策略落规则，用户 2026-08-20 裁决）
+  - F-9（全库体量盘点：5 热点零收敛 + 400–700 段新增 16 个）
+  - "F-2 #1/#2/#3（上迭代终验优化池：type-surface 1582 越强制线 + 三大文件 700+ + events.ts 贴线）"
 anchors:
   implementedBy:
-    - scripts/audit-assert.ts#SIZE_GATE
+    - scripts/audit-assert.ts#SIZE_FAIL_LINES
+    - scripts/audit-assert.ts#SIZE_EXEMPT
     - .github/workflows/ci.yml#Engineering hygiene gate
     - apps/daemon/src/application/services/scheduler/
     - apps/daemon/src/adapters/driving/ws-server/handlers/

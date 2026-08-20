@@ -85,26 +85,28 @@ anchors:
   implementedBy:
     - e2e/harness/protocol.ts
     - apps/daemon/test/mocks/FakeAgentEngine.ts
+    - apps/shell/src/shared/api/fake-transport.ts#buildTraceReply
   testedBy:
     - apps/daemon/test/integration/test-profile.test.ts
     - apps/daemon/test/integration/tools-loop.test.ts
+    - apps/shell/src/shared/api/fake-transport.test.ts
 relations:
   governs:
     - E-AgentRuntime
-updatedIn: iter-20260818-mq5a
+updatedIn: iter-20260820-qhv8
 ```
 
 ## 规则
-mock 与真实实现保持契约等价：FakeAgentEngine 等 outbound port 替身必须与真实 driven adapter（adapters/driven/pi-engine）实现同一 AgentEnginePort 接口与事件语义（编译期同 interface 强制，port 变更则 mock 同步变更）；LLM 剧本 mock 只 mock 模型响应层，必须保留真实 runtime 钩子链、WS 协议、持久化链路（fidelity/e2e 层的存在意义即链路保真）。禁止为方便测试在 mock 里放宽契约（少发事件、改字段名、吞错误）。
+mock 与真实实现保持契约等价：FakeAgentEngine 等 outbound port 替身必须与真实 driven adapter（adapters/driven/pi-engine）实现同一 AgentEnginePort 接口与事件语义（编译期同 interface 强制，port 变更则 mock 同步变更）；LLM 剧本 mock 只 mock 模型响应层，必须保留真实 runtime 钩子链、WS 协议、持久化链路（fidelity/e2e 层的存在意义即链路保真）。禁止为方便测试在 mock 里放宽契约（少发事件、改字段名、吞错误）。fake-transport 等契约 mock 的校验口径（过滤维、枚举、交叉校验、必发字段）对齐真实 daemon normalize 实现，不弱于、也不私设口径（iter-20260820-qhv8 TR-AD-26 ④律同源）。
 
 ## 理由
 契约漂移的 mock 会让测试全绿而线上炸；port 是唯一契约（AD-12/AD-17），mock 与真实实现同源于此；统一 runtime 与持久化链路正是 fidelity 层要保真的对象（AD-15/AD-16）。
 
 ## 适用范围
-写或改任何测试替身（FakeAgentEngine、FakeRepository、LLM 剧本）；评审 mock 是否放宽契约。
+写或改任何测试替身（FakeAgentEngine、FakeRepository、LLM 剧本、fake-transport 契约 mock）；评审 mock 是否放宽契约。
 
 ## 反例
-FakeAgentEngine 漏发 toolCallEnd 事件「因为测试用不到」——前端工具卡片在真引擎下有、测试替身下没有，工具调用渲染回归漏检。
+FakeAgentEngine 漏发 toolCallEnd 事件「因为测试用不到」——前端工具卡片在真引擎下有、测试替身下没有，工具调用渲染回归漏检。或 mock 的 trace.query 忽略 agentKind 过滤维只回显（mock 与 daemon normalize 口径分裂，iter-20260820-qhv8 F(2).7 登记在案反例）。
 
 ```kg-node
 id: TR-TEST-4
