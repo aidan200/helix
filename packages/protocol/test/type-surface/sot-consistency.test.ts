@@ -150,6 +150,16 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       { registry: "evt", anchor: "agent.model.changed", field: "instanceId" }, // §13.3
       { registry: "evt", anchor: "connection.welcome", field: "draft" }, // §14.1
       { registry: "evt", anchor: "connection.welcome", field: "model" }, // v0 首登（draft 同批位对照）
+      // v0.6 批次（M6 T3 agent.config 族）：首登必填字段 presence（防零登记复发）
+      { registry: "cmd", anchor: "agent.config.list", field: "profileKind" },
+      { registry: "cmd", anchor: "agent.config.set_enabled", field: "profileKind" },
+      { registry: "cmd", anchor: "agent.config.set_enabled", field: "resourceType" },
+      { registry: "cmd", anchor: "agent.config.set_enabled", field: "name" },
+      { registry: "cmd", anchor: "agent.config.set_enabled", field: "enabled" },
+      { registry: "evt", anchor: "agent.config.changed", field: "profileKind" },
+      { registry: "evt", anchor: "agent.config.changed", field: "resourceType" },
+      { registry: "evt", anchor: "agent.config.changed", field: "name" },
+      { registry: "evt", anchor: "agent.config.changed", field: "enabled" },
     ];
     const missing: string[] = [];
     for (const item of required) {

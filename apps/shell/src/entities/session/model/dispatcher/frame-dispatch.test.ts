@@ -103,6 +103,14 @@ describe("dispatcher 帧路由（v0.2 信封 sessionId）", () => {
     expect(next).toBe(topo);
   });
 
+  it("agent.config.changed（v0.6 系统级广播）→ 拓扑级占位消费：拓扑原引用（T4 接真消费）", () => {
+    const topo = connectedTopology();
+    const activeBefore = topo.active;
+    const next = dispatchFrame(topo, frame("agent.config.changed", { profileKind: "main-session", resourceType: "tool", name: "grep", enabled: false }, { sessionId: SYSTEM_SESSION_ID, channel: "agent" }), 0);
+    expect(next).toBe(topo); // M6 T3 占位 no-op：帧到达不炸不写
+    expect(next.active).toBe(activeBefore); // 活跃会话 store 不被配置广播误写
+  });
+
   it("session.list.result → 会话清单数据面 + 后台轻量 store 播种（活跃会话不播种）", () => {
     const topo = connectedTopology();
     const next = dispatchFrame(topo, frame("session.list.result", { sessions: [

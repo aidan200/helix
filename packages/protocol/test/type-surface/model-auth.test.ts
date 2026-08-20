@@ -28,4 +28,4 @@ type _ModelFamily = Expect<
 // ── 负向断言（编译期守护指令；运行时字面量回读见对应 test） ──
 // 负向断言（v0.2）：auth.set_key 缺 apiKey
 // @ts-expect-error apiKey 必填
-const badSetKey: AuthSetKeyCommand = { v: "0.5", type: "auth.set_key", payload: { providerId: "moonshot" } };
+const badSetKey: AuthSetKeyCommand = { v: "0.6", type: "auth.set_key", payload: { providerId: "moonshot" } };

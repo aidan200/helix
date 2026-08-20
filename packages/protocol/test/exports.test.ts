@@ -179,6 +179,18 @@ type _TypeSurface = [
   protocol.CatalogModel,
   protocol.CatalogModelCostRates,
   protocol.AuthProviderInfo,
+  // 命令/事件目录 v0.6 新增——agent.config 族（M6 T3 智能体配置页；经 index 可达性断言）
+  protocol.AgentConfigListPayload,
+  protocol.AgentConfigListCommand,
+  protocol.AgentConfigSetEnabledPayload,
+  protocol.AgentConfigSetEnabledCommand,
+  protocol.AgentConfigProfileBlock,
+  protocol.AgentConfigListResultPayload,
+  protocol.AgentConfigListResultEvent,
+  protocol.AgentConfigChangedPayload,
+  protocol.AgentConfigChangedEvent,
+  protocol.AgentConfigSetEnabledResultPayload,
+  protocol.AgentConfigSetEnabledResultEvent,
   // 错误模型（契约 §7；v0.2 +command.unimplemented）
   protocol.ErrorCode,
 ];
@@ -195,12 +207,12 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（v0.4：命令 22 / 事件 40；PROTOCOL_VERSION T3.2 升位收口）", () => {
-    expect(protocol.PROTOCOL_VERSION).toBe("0.5"); // v0.5 批次版本位（T2.3 payload 回迁批次升位，AD-4；契约 = PROTOCOL.md §17.5）
+  test("② 常量语义值 + 目录计数（v0.6：命令 24 / 事件 43；PROTOCOL_VERSION v0.6 批次升位）", () => {
+    expect(protocol.PROTOCOL_VERSION).toBe("0.6"); // v0.6 批次版本位（M6 T3 agent.config 族批次升位，AD-4；契约 = PROTOCOL.md §17.6）
     expect(protocol.MAIN_INSTANCE_ID).toBe("main");
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(22); // v0.4：+1（trace.query，契约 v0.4 §1）
-    expect(protocol.EVENT_TYPES.length).toBe(40); // v0.4：+3（trace.query.result / agent.instantiated / agent.model.changed）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(40); // 登记目录恰等
+    expect(protocol.COMMAND_TYPES.length).toBe(24); // v0.6：+2（agent.config.list / agent.config.set_enabled）
+    expect(protocol.EVENT_TYPES.length).toBe(43); // v0.6：+3（agent.config.changed / agent.config.list.result / agent.config.set_enabled.result）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(43); // 登记目录恰等
   });
 });
