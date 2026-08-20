@@ -16,11 +16,6 @@ export const DAEMON_PORT = resolvePort();
 /** WS 地址（PROTOCOL.md §1：仅 127.0.0.1 回环）。 */
 export const WS_ADDR = `ws://127.0.0.1:${DAEMON_PORT}`;
 
-/** 开发模式（原型演示控制台等按 isDev 门控；prod 不渲染）。 */
-export function isDev(): boolean {
-  return Boolean(import.meta.env.DEV);
-}
-
 // ── fake transport 标准入口（T4.4；F 层 mock mode）──────────
 
 /** 构建期 define 原始值（"" = 未启用）。摇除锚点：define 是字面量替换，
