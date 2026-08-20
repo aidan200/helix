@@ -247,7 +247,7 @@ export interface ChatTranslations {
       models: { label: string };
       /** 占位页：label = 页名；preview = 一句话能力预告（≤32ch，无时间承诺词） */
       skills: { label: string; preview: string };
-      trace: { label: string; preview: string };
+      trace: { label: string };
       project: { label: string; preview: string };
       settings: { label: string; preview: string };
     };
@@ -265,7 +265,6 @@ export interface ChatTranslations {
     noProviderTitle: string;
     noProviderSub: string;
     switchedToast: string;
-    resetToast: string;
   };
   /** P-4 模型与厂商配置页（pages/models，T3.4 自 pages/settings 迁移；CL-3 F(3.4).1-F(3.4).6；T3.3） */
   modelsConfig: {
@@ -299,7 +298,6 @@ export interface ChatTranslations {
     apiKeyEmptyErr: string;
     cancel: string;
     save: string;
-    keySavedToast: string;
     keyDeletedToast: string;
     refreshedToast: string;
     defaultUpdatedToast: string;

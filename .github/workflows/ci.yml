@@ -64,6 +64,12 @@ jobs:
       - name: Typecheck protocol
         run: bun run --cwd=packages/protocol typecheck
 
+      # ---- 工程卫生 gate（T4.1 / CL-3 / F(3.6) / TR-AD-25：本地与 CI 同一命令，
+      # audit-assert ①②③④ 全断言：bun audit 零漏洞 + vite/vitest 地板 +
+      # 生产面零敏感包 + 体量双线 >1000 fail / ≥700 warn）----
+      - name: Engineering hygiene gate (audit-assert)
+        run: bun run audit:assert
+
       # ---- 三运行器单测 ----
       - name: Unit tests daemon (bun test)
         run: bun test apps/daemon
@@ -103,7 +109,9 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: evidence-iter-20260816-6q6f
-          path: docs/iterations/iter-20260816-6q6f/evidence/
+          # T4.2 / F(5).1：每迭代跟随 evidence.ts 单点语义维护（CI 为本地执行
+          # OI-CI-1 备案，无法运行时解析 git 分支，字面量 + 注释是机械跟随面）
+          name: evidence-iter-20260820-qhv8
+          path: docs/iterations/iter-20260820-qhv8/evidence/
           if-no-files-found: warn
           retention-days: 14

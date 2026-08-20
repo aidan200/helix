@@ -160,17 +160,22 @@ describe("T2.1 ① 会话投影：SubAgent thinking/message/tool 进聚合（ins
 
 describe("T2.1 ② SchedulerService 零聚合写守护（test-design §6 ①）", () => {
   test("源码对 Session 聚合写方法调用为零 + 不 import Session 聚合", async () => {
-    const source = await Bun.file(
-      path.resolve(import.meta.dir, "../../src/application/services/SchedulerService.ts"),
-    ).text();
-    // 聚合写方法调用零（grep 断言；注释中的方法名不以「(」紧跟调用形态出现）
-    const aggregateWriteCalls = source.match(
-      /\.(pushEntry|appendUserEntry|appendAssistantEntry|appendThinkingEntry|appendCompactionEntry|appendInstanceMessage|reserveEntryId|beginTurn|applySteer|completeTurn|interruptTurn)\s*\(/g,
-    );
-    expect(aggregateWriteCalls).toBeNull();
-    expect(source).not.toMatch(/from\s+"[^"]*domain\/session\/Session"/);
-    // SubAgent 事件经事件总线：publish 通路在场（onInstanceEvent 只产事件）
-    expect(source).toContain("this.publish(instance");
+    // T3.3：SchedulerService 拆分 scheduler/ 三文件——守护面随迁移覆盖全部产物
+    //（门面 + 事件翻译器 + 收口记录器；只增不减）
+    const files = ["SchedulerService.ts", "SubagentEventTranslator.ts", "ClosureRecorder.ts"];
+    for (const file of files) {
+      const source = await Bun.file(
+        path.resolve(import.meta.dir, "../../src/application/services/scheduler", file),
+      ).text();
+      // 聚合写方法调用零（grep 断言；注释中的方法名不以「(」紧跟调用形态出现）
+      const aggregateWriteCalls = source.match(
+        /\.(pushEntry|appendUserEntry|appendAssistantEntry|appendThinkingEntry|appendCompactionEntry|appendInstanceMessage|reserveEntryId|beginTurn|applySteer|completeTurn|interruptTurn)\s*\(/g,
+      );
+      expect(aggregateWriteCalls, `${file} 出现 Session 聚合写调用`).toBeNull();
+      expect(source).not.toMatch(/from\s+"[^"]*domain\/session\/Session"/);
+      // SubAgent 事件经事件总线：publish 通路在场（onInstanceEvent 只产事件）
+      expect(source).toContain("this.publish(instance");
+    }
   });
 });
 

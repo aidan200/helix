@@ -7,7 +7,7 @@ import { mkdirSync } from "node:fs";
  *
  * 全仓唯一 `os.homedir()` 调用点（AG-07）：`~/.helix` home 展开的跨平台处理
  * 全部收束于本模块，其余任何模块不得直接展开用户主目录；所有路径消费者
- * 经本模块（后续任务经 PathsPort 注入）取路径，framework-free 可测。
+ * 经本模块取路径，framework-free 可测。
  *
  * 支持 `--home <dir>` 启动参数覆盖：main.ts 解析 argv 后显式传入，
  * 测试/集成测指向 tmp 目录，不碰真实 home（§7.3）。

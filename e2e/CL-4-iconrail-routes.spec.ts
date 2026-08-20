@@ -7,7 +7,9 @@
  * - TP-CL4-3 IconRail 形态与序（64px glass 竖条 + 六钮序 + lucide 同名图标）；
  * - TP-CL4-4 激活态三件套静态特征 + 恰一激活 + hover 提亮 + 点击迁移
  *   （reduced-motion 关停 BorderBeam；不做帧级动画断言）；
- * - TP-CL4-5/6 施工牌 ×4 同构 + 无路线暗示文案 + 与断连态三重区分；
+ * - TP-CL4-5/6 施工牌 ×3 同构 + 无路线暗示文案 + 与断连态三重区分
+ *   （trace 已换真 TracePage——契约依据 f413587，真页还原归
+ *   CL-5-fidelity-trace-page 套件背书）；
  * - TP-CL4-7 双主题（DARK/LIGHT 渲染正常）。
  * TP-CL4-8 页面域/会话域分离守护落 arch-guard（apps/shell/src/tests/ag-scans.test.ts）。
  */
@@ -24,16 +26,18 @@ const PAGES = [
   { id: "settings", path: "/settings", icon: "settings" },
 ] as const;
 
-/** 四占位页（施工牌）。 */
-const PLACEHOLDERS = PAGES.slice(2);
+/** 三占位页（施工牌；trace 已换真 TracePage——契约依据 f413587）。 */
+const PLACEHOLDERS = PAGES.slice(2).filter((p) => p.id !== "trace");
 
 /** fake transport 标准入口（URL 形态默认剧本，spec 手动驱动）。 */
 const FAKE = "?fakeTransport=1";
 
-/** 路由位 → 页面可见锚（chat = 既有工作台；models = 迁移后 P-4；占位 = 施工牌）。 */
+/** 路由位 → 页面可见锚（chat = 既有工作台；models = 迁移后 P-4；trace =
+ *  真 TracePage（契约依据 f413587）；其余占位 = 施工牌）。 */
 function pageAnchor(path: string): string {
   if (path === "/") return ".workbench";
   if (path === "/models") return "[data-p4-page]";
+  if (path === "/trace") return `[data-trace-page="${path}"]`;
   return `[data-construction="${path}"]`;
 }
 
@@ -60,16 +64,18 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
       }
     }
 
-    // 旧路径 /settings/models 不保兼容 → 回落工作台（Q-4b：不出现 models 页）
+    // 旧路径 /settings/models 不保兼容 → 回落工作台（Q-4b：不出现 models/trace 页）
     await page.goto(`/settings/models${FAKE}`);
     await expect(page.locator(".workbench")).toBeVisible();
     await expect(page.locator("[data-p4-page]")).toHaveCount(0);
+    await expect(page.locator("[data-trace-page]")).toHaveCount(0);
     await expect(page.locator("[data-construction]")).toHaveCount(0);
 
     // 未知路径回落工作台（F-9 既有语义）
     await page.goto(`/nope${FAKE}`);
     await expect(page.locator(".workbench")).toBeVisible();
     await expect(page.locator("[data-p4-page]")).toHaveCount(0);
+    await expect(page.locator("[data-trace-page]")).toHaveCount(0);
     await expect(page.locator("[data-construction]")).toHaveCount(0);
   });
 
@@ -189,7 +195,7 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
     expect(await helloCount()).toBe(helloBefore);
   });
 
-  test("TP-CL4-5/6 施工牌 ×4 同构 + 预告无时间承诺词 + 与断连态三重区分", async ({ mock, page }) => {
+  test("TP-CL4-5/6 施工牌 ×3 同构 + 预告无时间承诺词 + 与断连态三重区分", async ({ mock, page }) => {
     await mock.awaitReady();
     // 路线暗示黑名单（Q-4c：不做时间承诺）
     const BLACKLIST = /即将|下版本|下一版|敬请期待|Q[1-4]|coming\s*soon|roadmap/i;

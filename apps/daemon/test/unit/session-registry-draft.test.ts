@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { SessionRegistry, type SessionRuntime } from "../../src/application/services/SessionRegistry";
 import type { SessionRepositoryPort } from "../../src/application/ports/outbound/SessionRepositoryPort";
-import type { SchedulerService } from "../../src/application/services/SchedulerService";
+import type { SchedulerService } from "../../src/application/services/scheduler/SchedulerService";
 import type { ChatService } from "../../src/application/services/ChatService";
 import type { SessionProjection } from "../../src/application/services/SessionProjection";
 import type { SendOutcome } from "../../src/application/ports/inbound/ChatPort";

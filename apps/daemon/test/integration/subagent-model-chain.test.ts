@@ -6,7 +6,7 @@ import type { Model, Models } from "@earendil-works/pi-ai";
 import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { resolveConfigModel } from "../../src/adapters/driven/pi-engine/model-provider";
-import { SchedulerService } from "../../src/application/services/SchedulerService";
+import { SchedulerService } from "../../src/application/services/scheduler/SchedulerService";
 import { SchedulingPolicy } from "../../src/domain/agent/SchedulingPolicy";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
 import { SqliteSessionRepository } from "../../src/adapters/driven/sqlite-session/SqliteSessionRepository";

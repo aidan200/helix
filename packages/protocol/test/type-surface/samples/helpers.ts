@@ -1,0 +1,236 @@
+import type { Channel, CommandEnvelope, EntryDto, EventEnvelope } from "../../../src/index";
+
+/**
+ * type-surface 守护共用资产（T3.4 自 test/type-surface.test.ts 迁出，语义原样）：
+ * ① 类型级断言工具（Equal/Expect/EnvelopeTypeOf/TypeOfChannel，仅编译期）；
+ * ② 四个窄化函数（summarizeEvent/dispatchCommand/familyOf/describeEntry）——
+ *    每个分支访问该分支 payload 独有字段，窄化失效 → tsc 失败。
+ */
+// ── 类型级断言工具（仅编译期） ────────────────────────────────
+export type Equal<X, Y> =
+  (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
+    ? true
+    : false;
+export type Expect<T extends true> = T;
+/** 从信封联合提取全部 type 字面量 */
+export type EnvelopeTypeOf<U> = U extends { type: infer T } ? T : never;
+/** 通道 C 分族的 type 联合（channel 可选判别字段的 Extract 过滤） */
+export type TypeOfChannel<C extends Channel> = Extract<EventEnvelope, { channel?: C }>["type"];
+
+
+// ── 窄化函数：每个分支访问该分支 payload 独有字段（窄化失效 → tsc 失败） ──
+export function summarizeEvent(event: EventEnvelope): string {
+  switch (event.type) {
+    case "connection.welcome":
+      return `welcome:${event.payload.sessionId}:${event.payload.model}:${event.payload.agentState}`;
+    case "connection.error":
+      return `error:${event.payload.code}:${event.payload.message}`;
+    case "session.snapshot":
+      return `snapshot:${event.payload.snapshot.sessionId}:${event.payload.snapshot.entries.length}:${event.payload.snapshot.revision}`;
+    case "session.list_changed":
+      return `list-changed:${event.payload.kind}:${event.payload.sessionId ?? "-"}:${event.payload.session?.runState ?? "-"}`;
+    case "chat.stream.delta":
+      return `delta:${event.payload.messageId}:${event.payload.delta}`;
+    case "chat.turn.started":
+      return `turn-start:${event.payload.turnId}`;
+    case "chat.turn.completed":
+      return `turn-end:${event.payload.turnId}:${event.payload.reason}`;
+    case "chat.message.completed":
+      return `msg:${event.payload.entry.id}`;
+    case "steer.queued":
+      return `steer-q:${event.payload.entryId}`;
+    case "steer.drained":
+      return `steer-d:${event.payload.entryId}`;
+    case "tool.call.started":
+      return `tool-start:${event.payload.entry.id}`;
+    case "tool.call.result":
+      return `tool-result:${event.payload.entry.id}`;
+    case "agent.state.changed":
+      return `state:${event.payload.state}`;
+    // ── v0.1 编排生命周期族 ──
+    case "agent.spawned":
+      return `spawned:${event.payload.agentId}:${event.payload.task}:${event.payload.profileKind}:${event.payload.model ?? "inherit"}`;
+    case "agent.queued":
+      return `queued:${event.payload.agentId}:${event.payload.position}`;
+    case "agent.started":
+      return `started:${event.payload.agentId}`;
+    case "agent.stalled":
+      return `stalled:${event.payload.agentId}:${event.payload.idleMs}`;
+    case "agent.completed":
+      return `completed:${event.payload.agentId}:${event.payload.closure.status}`;
+    case "agent.failed":
+      return `failed:${event.payload.agentId}:${event.payload.error}:${event.payload.closure.status}`;
+    case "agent.killed":
+      return `killed:${event.payload.agentId}:${event.payload.closure.status}`;
+    // ── v0.1 通道族 ──
+    case "thinking.stream.delta":
+      return `think-delta:${event.payload.instanceId}:${event.payload.delta}`;
+    case "thinking.completed":
+      return `think-done:${event.payload.entry.id}:${event.payload.entry.reasoningTokens}`;
+    case "compaction.completed":
+      return `compaction:${event.payload.entry.id}:${event.payload.entry.tokensBefore}:${event.payload.entry.tokensAfter}:${event.payload.tailKept ?? "-"}:${event.payload.filesCompacted ?? "-"}`;
+    case "usage.recorded":
+      return `usage:${event.payload.instanceId}:${event.payload.usage.totalTokens}:${event.payload.source}`;
+    case "engine.error":
+      return `engine-error:${event.payload.message.slice(0, 20)}`;
+    // ── v0.2 model 族 ──
+    case "model.changed":
+      return `model-changed:${event.payload.sessionId}:${event.payload.model}:${event.payload.previous}:${event.payload.effective}`;
+    // ── v0.2 session 族命令结果（T2.2 点对点回执）──
+    case "session.list.result":
+      return `list-result:${event.payload.sessions.length}:${event.payload.sessions[0]?.sessionId ?? "-"}`;
+    case "session.loadHistory.result":
+      return `history-result:${event.payload.entries.length}:${event.payload.hasMore}:${event.payload.nextCursor ?? "-"}`;
+    // ── v0.2 model/auth 命令结果帧（T2.3-result-frames 微批，契约 C §2.2）──
+    case "model.get.result":
+      return `model-get-result:${event.payload.model}:${event.payload.isDefault}:${event.payload.defaultModel}`;
+    case "model.catalog.result":
+      return `model-catalog-result:${event.payload.models.length}:${event.payload.source}`;
+    case "model.catalog_refresh.result":
+      return `model-catalog-refresh-result:${event.payload.models.length}:${event.payload.source}:${event.payload.degraded.length}`;
+    case "model.set_default.result":
+      return `model-set-default-result:${event.payload.previous}`;
+    case "model.get_default.result":
+      return `model-get-default-result:${event.payload.model}`;
+    case "auth.list.result":
+      return `auth-list-result:${event.payload.providers.length}:${event.payload.providers[0]?.configured ?? "-"}`;
+    case "auth.set_key.result":
+      return `auth-set-key-result:${event.payload.keyMasked}`;
+    case "auth.delete_key.result":
+      return "auth-delete-key-result";
+    case "auth.verify.result":
+      return `auth-verify-result:${event.payload.status}:${event.payload.status === "ok" ? event.payload.latencyMs : event.payload.reason}`;
+    // ── v0.4 trace 命令族 + agent 执行上下文面 ──
+    case "trace.query.result":
+      return `trace-result:${event.payload.events.length}:${event.payload.instances.length}:${event.payload.page.loaded}:${event.payload.page.total}:${event.payload.page.hasMore}`;
+    case "agent.instantiated":
+      return `instantiated:${event.payload.instanceId}:${event.payload.profileKind}:${event.payload.profileSnapshot.model}`;
+    case "agent.model.changed":
+      return `model-timeline:${event.payload.instanceId}:${event.payload.from}:${event.payload.to}`;
+    default: {
+      const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
+      return `unhandled:${String(_exhaustive)}`;
+    }
+  }
+}
+
+export function dispatchCommand(cmd: CommandEnvelope): string {
+  switch (cmd.type) {
+    case "chat.send":
+      return `send:${cmd.payload.text}`;
+    case "chat.steer":
+      return `steer:${cmd.payload.text}:${cmd.payload.instanceId ?? "main"}`; // v0.3：可选定向（缺省 = 主实例）
+    case "chat.abort":
+      return "abort";
+    case "session.subscribe":
+      return `subscribe:${cmd.sessionId ?? "-"}:${cmd.payload.tier ?? "full"}`; // v0.2 信封路由 + v0.3 tier（缺省 full）
+    case "session.unsubscribe":
+      return "unsubscribe";
+    // ── v0.1 编排命令 ──
+    case "agent.kill":
+      return `kill:${cmd.payload.agentId}`;
+    case "agent.subscribe":
+      return `agent-sub:${cmd.payload.agentId}`;
+    case "agent.unsubscribe":
+      return `agent-unsub:${cmd.payload.agentId}`;
+    // ── v0.2 session 族 ──
+    case "session.list":
+      return `session-list`;
+    case "session.loadHistory":
+      return `load-history:${cmd.sessionId ?? "-"}:${cmd.payload.beforeEntryId}:${cmd.payload.limit ?? 50}`;
+    case "session.delete":
+      return `session-delete:${cmd.sessionId ?? "-"}`;
+    // ── v0.2 model 族 ──
+    case "model.set":
+      return `model-set:${cmd.sessionId ?? "-"}:${cmd.payload.model}`;
+    case "model.get":
+      return `model-get:${cmd.sessionId ?? "-"}`;
+    case "model.catalog":
+      return "model-catalog";
+    case "model.catalog_refresh":
+      return "model-catalog-refresh";
+    case "model.set_default":
+      return `model-set-default:${cmd.payload.model}`;
+    case "model.get_default":
+      return "model-get-default";
+    // ── v0.2 auth 族 ──
+    case "auth.list":
+      return "auth-list";
+    case "auth.set_key":
+      return `auth-set-key:${cmd.payload.providerId}`;
+    case "auth.delete_key":
+      return `auth-delete-key:${cmd.payload.providerId}`;
+    case "auth.verify":
+      return `auth-verify:${cmd.payload.providerId}`;
+    // ── v0.4 trace 族 ──
+    case "trace.query":
+      return `trace-query:${cmd.payload.sessionId}:${cmd.payload.instanceIds?.length ?? "all"}:${cmd.payload.page?.limit ?? 50}:${cmd.payload.page?.beforeId ?? "-"}`;
+    default: {
+      const _exhaustive: never = cmd;
+      return `unhandled:${String(_exhaustive)}`;
+    }
+  }
+}
+
+/**
+ * v0.2 八族类型学判别窄化（契约 A §2 机械判据）：switch(channel) 各分支内
+ * type 联合窄化到本族（分支内以 TypeOfChannel<C> 收窄赋值证明——宽化即 tsc 失败）。
+ */
+export function familyOf(event: EventEnvelope): string {
+  switch (event.channel) {
+    case "chat": {
+      const t: TypeOfChannel<"chat"> = event.type;
+      return `chat/${t}`;
+    }
+    case "agent": {
+      const t: TypeOfChannel<"agent"> = event.type;
+      return `agent/${t}`;
+    }
+    case "thinking": {
+      const t: TypeOfChannel<"thinking"> = event.type;
+      return `thinking/${t}`;
+    }
+    case "usage": {
+      const t: TypeOfChannel<"usage"> = event.type;
+      return `usage/${t}`;
+    }
+    case "compaction": {
+      const t: TypeOfChannel<"compaction"> = event.type;
+      return `compaction/${t}`;
+    }
+    case "session": {
+      const t: TypeOfChannel<"session"> = event.type;
+      return `session/${t}`;
+    }
+    case "model": {
+      const t: TypeOfChannel<"model"> = event.type;
+      return `model/${t}`;
+    }
+    case "trace": {
+      const t: TypeOfChannel<"trace"> = event.type;
+      return `trace/${t}`;
+    }
+    // interaction 占位族无事件挂靠（_InteractionFamily = never 类型断言守护）：
+    // 事件联合中无成员声明 channel: "interaction"，本分支不可达、无需 case。
+    case "notification": {
+      const t: TypeOfChannel<"notification"> = event.type;
+      return `notification/${t}`;
+    }
+    default:
+      // channel 缺省 = v0/v0.1 历史帧（信封兼容读；按 type 走既有消费路径）
+      return `legacy/${event.type}`;
+  }
+}
+
+export function describeEntry(entry: EntryDto): string {
+  switch (entry.kind) {
+    case "message":
+      return `msg:${entry.role}:${entry.content}${entry.steerState ? `:${entry.steerState}` : ""}`;
+    case "tool-call":
+      return `tool:${entry.name}:${entry.state}${entry.durationMs ? `:${entry.durationMs}ms` : ""}`;
+    case "thinking":
+      return `thinking:${entry.instanceId}:${entry.reasoningTokens}`;
+    case "compaction":
+      return `compaction:${entry.instanceId}:${entry.tokensBefore}:${entry.tokensAfter}:${entry.usage.cost}`;
+  }
+}

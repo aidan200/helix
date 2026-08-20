@@ -196,7 +196,7 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
   });
 
   test("② 常量语义值 + 目录计数（v0.4：命令 22 / 事件 40；PROTOCOL_VERSION T3.2 升位收口）", () => {
-    expect(protocol.PROTOCOL_VERSION).toBe("0.4"); // v0.4 批次版本位 bump（T3.2 统一登记，AD-4）
+    expect(protocol.PROTOCOL_VERSION).toBe("0.5"); // v0.5 批次版本位（T2.3 payload 回迁批次升位，AD-4；契约 = PROTOCOL.md §17.5）
     expect(protocol.MAIN_INSTANCE_ID).toBe("main");
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
     expect(protocol.COMMAND_TYPES.length).toBe(22); // v0.4：+1（trace.query，契约 v0.4 §1）

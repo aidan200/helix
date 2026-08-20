@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SchedulingPolicy } from "../../src/domain/agent/SchedulingPolicy";
-import { SchedulerService } from "../../src/application/services/SchedulerService";
+import { SchedulerService } from "../../src/application/services/scheduler/SchedulerService";
 import type {
   InstanceRunner,
   InstanceRunnerCallbacks,

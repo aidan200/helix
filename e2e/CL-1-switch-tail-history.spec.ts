@@ -98,13 +98,13 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
 
     await rowB.click();
     // 命令断言（v0.3 先升后降，契约 §2.3）：subscribe(B, full) 先升；零 unsubscribe；
-    // 启动全图订阅已发 subscribe(A, full) + subscribe(B, monitor)
+    // 启动订阅图仅 subscribe(B, monitor)（A full = welcome attach 静默登记
+    // 零命令——契约依据 a4a182e）
     const frames = await mock.clientFrames();
     const subs = frames
       .filter((f) => f.type === "session.subscribe")
       .map((f) => [f.sessionId, (f.payload as { tier?: string }).tier] as const);
     expect(subs).toEqual([
-      [MULTI_SESSION_A, "full"],
       [MULTI_SESSION_B, "monitor"],
       [MULTI_SESSION_B, "full"],
     ]);
@@ -129,7 +129,8 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
         tailStartCursor: null,
       }),
     );
-    // ack 后才 subscribe(A, monitor)（严格序断言面）
+    // ack 后才 subscribe(A, monitor)（严格序断言面；A 降档命令可达 = 启动期
+    // 静默登记 full 的簿记在生效——a4a182e）
     await expect
       .poll(async () =>
         (await mock.clientFrames())
@@ -137,7 +138,6 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
           .map((f) => [f.sessionId, (f.payload as { tier?: string }).tier] as const),
       )
       .toEqual([
-        [MULTI_SESSION_A, "full"],
         [MULTI_SESSION_B, "monitor"],
         [MULTI_SESSION_B, "full"],
         [MULTI_SESSION_A, "monitor"],

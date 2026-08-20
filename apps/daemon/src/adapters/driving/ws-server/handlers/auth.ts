@@ -9,7 +9,8 @@
  * channel=model、sessionId=SYSTEM_SESSION_ID（全局管理命令，会话无关）。
  *
  * 仍在 driving adapter 内（TR-AD-1 分层不变，零新 port）；上下文契约复用
- * handlers/model.ts 的 WsCommandContext（auth 族同经 ModelPort，依赖面一致）。
+ * handlers/context.ts 的 WsCommandContext（T3.2 F-8 解环上收；auth 族同经
+ * ModelPort，依赖面一致）。
  */
 import type {
   AuthDeleteKeyResultEvent,
@@ -18,7 +19,7 @@ import type {
   AuthVerifyResultEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
-import type { WsCommandContext } from "./model";
+import type { WsCommandContext } from "./context";
 
 /** auth.list（provider 凭据清单）：auth.list.result 点对点回执。 */
 export function handleAuthList(ctx: WsCommandContext): void {

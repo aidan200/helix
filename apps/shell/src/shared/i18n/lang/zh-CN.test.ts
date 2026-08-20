@@ -159,7 +159,6 @@ const REQUIRED_KEYS = [
   "chat.nav.pages.skills.label",
   "chat.nav.pages.skills.preview",
   "chat.nav.pages.trace.label",
-  "chat.nav.pages.trace.preview",
   "chat.nav.pages.project.label",
   "chat.nav.pages.project.preview",
   "chat.nav.pages.settings.label",

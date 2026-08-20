@@ -19,8 +19,6 @@ import type { BackgroundSessionState, TopologyState } from "../state";
 /** 本块承接的帧事件 type（拓扑级注册面；dispatcher/frame.ts 消费）。 */
 export const SESSION_DIRECTORY_EVENT_TYPES = ["session.list.result", "session.list_changed"] as const;
 
-export type DirectoryEventConsumer = (topo: TopologyState, frame: EventEnvelope) => TopologyState;
-
 /** 是否清单族事件（dispatcher 路由前置判定）。 */
 export function isDirectoryEventType(type: string): type is (typeof SESSION_DIRECTORY_EVENT_TYPES)[number] {
   return (SESSION_DIRECTORY_EVENT_TYPES as readonly string[]).includes(type);

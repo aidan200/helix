@@ -1,0 +1,338 @@
+/**
+ * EnvelopeMapper —— 领域事件 → 协议事件帧（domainEventToEnvelope /
+ * buildEnvelope / EventMapContext）。条目级 thinking/compaction 转换与
+ * safeJson 复用 EntryDtoMapper（依赖方向 EnvelopeMapper → EntryDtoMapper，
+ * 无环）。自 DtoMapper.ts 四域拆分落位（T3.1，TR-AD-25④ 逐行搬移）。
+ */
+import type {
+  ChatTurnCompletedEvent,
+  ChatMessageCompletedEvent,
+  EventEnvelope,
+  MessageEntryDto,
+  ToolCallEntryDto,
+  ToolCallResultEvent,
+  ToolCallStartedEvent,
+  AgentSpawnedEvent,
+  AgentQueuedEvent,
+  AgentStartedEvent,
+  AgentStalledEvent,
+  AgentCompletedEvent,
+  AgentFailedEvent,
+  AgentKilledEvent,
+  ThinkingCompletedEvent,
+  CompactionCompletedEvent,
+  UsageRecordedEvent,
+  EngineErrorEvent,
+  EventType,
+} from "@helix/protocol";
+import { PROTOCOL_VERSION, EVENT_CHANNELS, MAIN_INSTANCE_ID } from "@helix/protocol";
+import type {
+  AgentStateChangedPayload,
+  DomainEvent,
+  MessageCompletedPayload,
+  SteerPayload,
+  ThinkingCompletedPayload,
+  CompactionCompletedPayload,
+  UsageRecordedPayload,
+  ToolCallPayload,
+  ToolResultPayload,
+  TurnCompletedPayload,
+  AgentCompletedPayload,
+  AgentFailedPayload,
+  AgentKilledPayload,
+  AgentQueuedPayload,
+  AgentSpawnedPayload,
+  AgentStartedPayload,
+  AgentStalledPayload,
+} from "../../../domain/events/DomainEvent";
+import { compactionEntryDto, safeJson, thinkingEntryDto } from "./EntryDtoMapper";
+
+/** 事件映射所需的投影上下文（由 EventStream 维护，见 EventStream.ts）。 */
+export interface EventMapContext {
+  /** 领域 turn.completed 事件不带 turnId（发布时聚合轮次已收口）→ 以最近轮次补齐。 */
+  readonly fallbackTurnId?: string;
+  /** tool.call.result 的耗时（协议要求；由 start/result 两次 occurredAt 差值算出）。 */
+  readonly durationMs?: number;
+  /**
+   * agent.spawned 帧的 spawn 锚（T2.1 契约 v0.3 §1 规则②）：spawn 时值由组合根
+   * 查值（SchedulerService 内存携带）经本上下文注入——**不进领域事件载荷**
+   * （不落 domain_events，派生值无第二事实源）；含 null 流首（有效值）。
+   */
+  readonly spawnAnchor?: string | null;
+}
+
+// ── 领域事件 → 协议事件帧 ─────────────────────────────────────
+
+/**
+ * DomainEvent → EventEnvelope。返回 null = 协议目录无对应事件。
+ * v0.1：事件携带 instanceId（agent.* 编排族 + SubAgent 工具事件）时帧同值
+ * 挂 instanceId（缺省 = 主实例，契约 §1/§2）——前端按 id 分流投影。
+ * v0.2（T2.1，AD-3/AD-4 统一信封）：全部帧章印 sessionId（事件归属会话）+
+ * channel（EVENT_CHANNELS 单点登记）；instanceId 携带时透传。
+ * 终验热修：engine.error 下发（provider 失败透传，原 v0 边界注记作废）。
+ */
+export function domainEventToEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope | null {
+  const frame = buildEnvelope(event, ctx);
+  if (frame === null) return null;
+  // v0.2 统一信封全量章印：sessionId 必发 + channel 按 EVENT_CHANNELS 判别
+  // （payload 语义零变更——新增字段仅信封层，契约 A §1.2/§2）
+  frame.sessionId = event.sessionId;
+  frame.channel = EVENT_CHANNELS[frame.type as EventType];
+  if (event.instanceId !== undefined) frame.instanceId = event.instanceId;
+  return frame;
+}
+
+function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope | null {
+  const ts = Date.parse(event.occurredAt);
+  switch (event.type) {
+    case "turn.started":
+      return {
+        v: PROTOCOL_VERSION,
+        type: "chat.turn.started",
+        payload: { turnId: (event.payload as { turnId: string }).turnId },
+      };
+
+    case "turn.completed": {
+      const p = event.payload as TurnCompletedPayload;
+      const frame: ChatTurnCompletedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "chat.turn.completed",
+        payload: {
+          turnId: event.turnId ?? ctx?.fallbackTurnId ?? "",
+          // 领域 done/steerDrained → 协议 completed（steerDrained 是正常收口）
+          reason: p.reason === "aborted" ? "aborted" : "completed",
+        },
+      };
+      return frame;
+    }
+
+    case "turn.interrupted": {
+      const frame: ChatTurnCompletedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "chat.turn.completed",
+        payload: { turnId: event.turnId ?? ctx?.fallbackTurnId ?? "", reason: "aborted" },
+      };
+      return frame;
+    }
+
+    case "message.completed": {
+      const p = event.payload as MessageCompletedPayload;
+      if (p.role !== "user" && p.role !== "assistant") return null; // tool 角色无协议对应
+      const entry: MessageEntryDto = {
+        kind: "message",
+        id: p.entryId,
+        role: p.role,
+        content: p.text,
+        ts,
+      };
+      if (p.role === "user" && p.isSteer) entry.steerState = "queued"; // 事件时点刚入队
+      // T2.1（AD-3）：SubAgent 消息帧携带条目 instanceId（前端实例分流）
+      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
+        entry.instanceId = event.instanceId;
+      }
+      const frame: ChatMessageCompletedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "chat.message.completed",
+        payload: { entry },
+      };
+      return frame;
+    }
+
+    case "steer.queued":
+    case "steer.drained": {
+      const p = event.payload as SteerPayload;
+      return {
+        v: PROTOCOL_VERSION,
+        type: event.type,
+        payload: { entryId: p.entryId },
+      };
+    }
+
+    case "tool.call.started": {
+      const p = event.payload as ToolCallPayload;
+      const entry: ToolCallEntryDto = {
+        kind: "tool-call",
+        id: p.toolCallId,
+        name: p.toolName,
+        args: safeJson(p.args),
+        state: "running",
+        ts,
+      };
+      // T2.1（AD-3）：SubAgent 工具卡归实例 channel（载荷内嵌 instanceId 与
+      // v0.1 通道族并存口径一致；信封位为路由权威）
+      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
+        entry.instanceId = event.instanceId;
+      }
+      const frame: ToolCallStartedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "tool.call.started",
+        payload: { entry },
+      };
+      return frame;
+    }
+
+    case "tool.call.result": {
+      const p = event.payload as ToolResultPayload;
+      const entry: ToolCallEntryDto = {
+        kind: "tool-call",
+        id: p.toolCallId,
+        name: p.toolName,
+        args: safeJson(p.args),
+        result: p.result,
+        state: p.isError ? "error" : "done",
+        ts,
+      };
+      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
+        entry.instanceId = event.instanceId;
+      }
+      if (ctx?.durationMs !== undefined) entry.durationMs = ctx.durationMs;
+      const frame: ToolCallResultEvent = {
+        v: PROTOCOL_VERSION,
+        type: "tool.call.result",
+        payload: { entry },
+      };
+      return frame;
+    }
+
+    case "agent.state.changed": {
+      const p = event.payload as AgentStateChangedPayload;
+      return {
+        v: PROTOCOL_VERSION,
+        type: "agent.state.changed",
+        payload: { state: p.state },
+      };
+    }
+
+    // ── agent.* 编排生命周期族（T2.3，契约 §5.1；AD-7/AD-8） ──
+
+    case "agent.spawned": {
+      const p = event.payload as AgentSpawnedPayload;
+      const frame: AgentSpawnedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.spawned",
+        payload: {
+          agentId: p.agentId,
+          task: p.task,
+          profileKind: p.profileKind,
+          ...(p.model !== undefined ? { model: p.model } : {}),
+          // T2.1 契约 v0.3 §1：spawn 锚经 ctx 注入（组合根查 SchedulerService
+          // 内存携带的 spawn 时值）——领域事件载荷不携带（不落 domain_events）
+          ...(ctx?.spawnAnchor !== undefined ? { anchorEntryId: ctx.spawnAnchor } : {}),
+        },
+      };
+      return frame;
+    }
+
+    case "agent.queued": {
+      const p = event.payload as AgentQueuedPayload;
+      const frame: AgentQueuedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.queued",
+        payload: { agentId: p.agentId, position: p.position },
+      };
+      return frame;
+    }
+
+    case "agent.started": {
+      const p = event.payload as AgentStartedPayload;
+      const frame: AgentStartedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.started",
+        payload: { agentId: p.agentId },
+      };
+      return frame;
+    }
+
+    case "agent.stalled": {
+      const p = event.payload as AgentStalledPayload;
+      const frame: AgentStalledEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.stalled",
+        payload: { agentId: p.agentId, idleMs: p.idleMs },
+      };
+      return frame;
+    }
+
+    case "agent.completed": {
+      const p = event.payload as AgentCompletedPayload;
+      const frame: AgentCompletedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.completed",
+        payload: { agentId: p.agentId, closure: p.closure },
+      };
+      return frame;
+    }
+
+    case "agent.failed": {
+      const p = event.payload as AgentFailedPayload;
+      const frame: AgentFailedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.failed",
+        payload: { agentId: p.agentId, error: p.error, closure: p.closure },
+      };
+      return frame;
+    }
+
+    case "agent.killed": {
+      const p = event.payload as AgentKilledPayload;
+      const frame: AgentKilledEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.killed",
+        payload: { agentId: p.agentId, closure: p.closure },
+      };
+      return frame;
+    }
+
+    // ── 通道族（T3.1，契约 §5.2；payload 对齐协议 DTO，instanceId 挂帧） ──
+
+    case "thinking.completed": {
+      const p = event.payload as ThinkingCompletedPayload;
+      const frame: ThinkingCompletedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "thinking.completed",
+        payload: { entry: thinkingEntryDto(p.entry) },
+      };
+      return frame;
+    }
+
+    case "compaction.completed": {
+      const p = event.payload as CompactionCompletedPayload;
+      const frame: CompactionCompletedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "compaction.completed",
+        payload: { entry: compactionEntryDto(p.entry) },
+      };
+      return frame;
+    }
+
+    case "usage.recorded": {
+      const p = event.payload as UsageRecordedPayload;
+      const frame: UsageRecordedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "usage.recorded",
+        payload: { instanceId: p.instanceId, usage: p.usage, source: p.source },
+      };
+      return frame;
+    }
+
+    // 终验热修：provider/引擎失败透传（错误卡片数据源；不崩会话，见 ChatService engine_error）
+    case "engine.error": {
+      // T1.1（F1.1 + AF-1）：SubAgent 实例的 engine.error 只落 domain_events
+      //（trace 数据面，WriteQueue 在 DtoMapper 之外），不产 WS 帧——shell
+      // consumers/chat.ts 的 engine.error case 无 instanceId 分流，不抑制会
+      // 错位弹主聊天流（AD-1 前端零改动的守护面）；主线帧行为不变。
+      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) return null;
+      const p = event.payload as { message: string };
+      const frame: EngineErrorEvent = {
+        v: PROTOCOL_VERSION,
+        type: "engine.error",
+        payload: { message: p.message },
+      };
+      return frame;
+    }
+
+    default:
+      // 协议目录外领域事件（当前无——目录由 type-surface 双向一致性守护）
+      return null;
+  }
+}

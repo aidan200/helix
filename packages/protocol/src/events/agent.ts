@@ -1,0 +1,125 @@
+import type { EventFrame } from "../envelope";
+import type { ClosureDto } from "../types/agent";
+import type { TraceProfileSnapshot } from "../types/trace";
+
+// ── v0.1 新增 payload：编排生命周期族（契约 protocol-v0.1.md §5.1；AD-7） ──
+
+/** agent.spawned：spawn 工具秒回出卡（不等执行，AD-8 异步交付） */
+export interface AgentSpawnedPayload {
+  agentId: string;
+  task: string;
+  profileKind: string;
+  /** "provider/model-id"；未声明时缺省继承当前模型（AD-6） */
+  model?: string;
+  /**
+   * spawn 锚（v0.3 新增，契约 v0.3 §1）：spawn 时刻聚合内最后一条 main/
+   * compaction entry 的 id（无 → null = 流首）。与快照 instances 清单同源
+   * 同值；缺省不携带 = 主实例。
+   */
+  anchorEntryId?: string | null;
+}
+
+/** agent.queued：超限 FIFO 入队（AD-7②）；position 随出队递减重发 */
+export interface AgentQueuedPayload {
+  agentId: string;
+  position: number;
+}
+
+/** agent.started：出队/预算内直跑（卡片 running 态） */
+export interface AgentStartedPayload {
+  agentId: string;
+}
+
+/** agent.stalled：idle 超阈值无事件增量（AD-7④ 警示不自动杀；可再次发生，非状态迁移） */
+export interface AgentStalledPayload {
+  agentId: string;
+  idleMs: number;
+}
+
+/** agent.completed：自然收口 done（closure 同源卡片/抽屉，AD-8） */
+export interface AgentCompletedPayload {
+  agentId: string;
+  closure: ClosureDto;
+}
+
+/** agent.failed：崩溃/异常收口 failed（closure.status="failed"） */
+export interface AgentFailedPayload {
+  agentId: string;
+  error: string;
+  closure: ClosureDto;
+}
+
+/** agent.killed：用户 kill 收口（closure.status="failed"，lifecycle terminated） */
+export interface AgentKilledPayload {
+  agentId: string;
+  closure: ClosureDto;
+}
+
+// ── v0.4 新增 payload：trace 命令族 + agent 执行上下文面（契约 v0.4 §1/§2/§3；iter-20260819-erio T2.1） ──
+
+/**
+ * agent.instantiated：实例化时刻 profile 快照落盘（AD-5；执行上下文卡数据源）。
+ * **只落盘不广播**（AF-6：DtoMapper 无 case → default → null；协议登记供
+ * trace.query 结果 payload 类型化与守护一致性）。
+ */
+export interface AgentInstantiatedPayload {
+  instanceId: string;
+  profileKind: string;
+  profileSnapshot: TraceProfileSnapshot;
+}
+
+/**
+ * agent.model.changed：运行期换模的模型时间线落盘（AD-6；from/to 与
+ * model.changed 广播帧 previous/model 同源同值）。**只落盘不广播**（同 AF-6）。
+ */
+export interface AgentModelChangedPayload {
+  instanceId: string;
+  /** 旧模型标识（"provider/model-id"）。 */
+  from: string;
+  /** 新模型标识。 */
+  to: string;
+}
+
+// ── v0.1 新增信封（契约 protocol-v0.1.md §5） ──
+
+export interface AgentSpawnedEvent extends EventFrame<AgentSpawnedPayload> {
+  channel?: "agent";
+  type: "agent.spawned";
+}
+export interface AgentQueuedEvent extends EventFrame<AgentQueuedPayload> {
+  channel?: "agent";
+  type: "agent.queued";
+}
+export interface AgentStartedEvent extends EventFrame<AgentStartedPayload> {
+  channel?: "agent";
+  type: "agent.started";
+}
+export interface AgentStalledEvent extends EventFrame<AgentStalledPayload> {
+  channel?: "agent";
+  type: "agent.stalled";
+}
+export interface AgentCompletedEvent extends EventFrame<AgentCompletedPayload> {
+  channel?: "agent";
+  type: "agent.completed";
+}
+export interface AgentFailedEvent extends EventFrame<AgentFailedPayload> {
+  channel?: "agent";
+  type: "agent.failed";
+}
+export interface AgentKilledEvent extends EventFrame<AgentKilledPayload> {
+  channel?: "agent";
+  type: "agent.killed";
+}
+
+// ── v0.4 新增信封（契约 v0.4；iter-20260819-erio T2.1） ──
+
+/** agent.instantiated：实例化快照（只落盘不广播；登记供类型化/守护，AF-6） */
+export interface AgentInstantiatedEvent extends EventFrame<AgentInstantiatedPayload> {
+  channel?: "agent";
+  type: "agent.instantiated";
+}
+/** agent.model.changed：模型时间线落盘事件（只落盘不广播；同上） */
+export interface AgentModelChangedEvent extends EventFrame<AgentModelChangedPayload> {
+  channel?: "agent";
+  type: "agent.model.changed";
+}

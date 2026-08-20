@@ -37,6 +37,7 @@ import { test, expect } from "./harness/fixtures";
 import type { MockController } from "./harness/mock-session";
 import type { Page } from "@playwright/test";
 import { computed, cssVar } from "./harness/style-utils";
+import { evidencePath } from "./harness/evidence";
 import {
   sessionListResult,
   sessionMeta,
@@ -60,17 +61,11 @@ const LATEST_TS_ISO = new Date(BASE_MS + 2_320_000).toISOString();
 
 const SHELL_STYLES = path.resolve(__dirname, "..", "apps", "shell", "src", "shared", "ui", "styles");
 
-/** 证据落本迭代 evidence/e2e（不经 harness/evidence.ts——其 EVIDENCE_DIR
- *  常量滞留前迭代目录，见 architecture-feedback 记录）。 */
+/** 证据落当前迭代 evidence/e2e（T4.2 / F(5).1：统一走 harness/evidence.ts
+ *  迭代感知单点；保留 Buffer 返回供像素比对消费）。 */
 function shotLocal(page: Page, name: string): Promise<Buffer> {
-  const dir = path.resolve(
-    __dirname,
-    "../../../docs/iterations/iter-20260819-erio/evidence/e2e",
-  );
-  fs.mkdirSync(dir, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   return page.screenshot({
-    path: path.join(dir, `CL-5-${name}-${stamp}.png`),
+    path: evidencePath(name, "png", "CL-5"),
     fullPage: false,
   });
 }

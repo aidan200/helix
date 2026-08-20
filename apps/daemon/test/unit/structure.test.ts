@@ -44,7 +44,7 @@ describe("目录骨架（TP-CL1-2，architecture.md §3.2）", () => {
 
   test("③ agentSeqOf 单点导出：两服务无本地实现且改引 domain（C2/T1.1 收敛）", () => {
     const services = [
-      path.join("application", "services", "SchedulerService.ts"),
+      path.join("application", "services", "scheduler", "SchedulerService.ts"),
       path.join("application", "services", "RestoreService.ts"),
     ];
     const offenders: string[] = [];
