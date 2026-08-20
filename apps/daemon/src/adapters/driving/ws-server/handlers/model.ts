@@ -14,11 +14,10 @@
  * 仍在 driving adapter 内（TR-AD-1 分层不变，零新 port）：依赖面 = ModelPort
  * + system.getStatus() 缺省回退 + 4 个共享辅助（commandError / modelErrorCode
  * / rawSender / sendNow），经 WsCommandContext 由 WsServerAdapter 供出。
+ * T3.2（F-8 解环）：WsCommandContext 定义上收 handlers/context.ts（纯 type
+ * 搬移零运行时行为），本模块改向 import，不再构成回边环。
  */
-import type { ServerWebSocket } from "bun";
 import type {
-  ConnectionErrorEvent,
-  EventEnvelope,
   ModelCatalogRefreshResultEvent,
   ModelCatalogResultEvent,
   ModelGetDefaultResultEvent,
@@ -26,37 +25,7 @@ import type {
   ModelSetDefaultResultEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
-import type { ModelPort } from "../../../../application/ports/inbound/ModelPort";
-import type { SystemPort } from "../../../../application/ports/inbound/SystemPort";
-import type { FrameSender } from "../EventStream";
-import type { ConnState } from "../WsServerAdapter";
-
-/**
- * model/auth 族命令处理上下文（WsServerAdapter.routeCommand 解构后供出）。
- * 辅助方法与本连接绑定，语义 = WsServerAdapter 同名私有方法（机械转发零行为差）。
- */
-export interface WsCommandContext {
-  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
-  readonly ws: ServerWebSocket<ConnState>;
-  /** 命令类型字面（commandError 回执文案用）。 */
-  readonly type: string;
-  /** 命令 payload（routeCommand 已解构为 Record）。 */
-  readonly payload: Record<string, unknown>;
-  /** 命令信封（会话作用域命令的 sessionId 路由位，v0.2）。 */
-  readonly envelope: { sessionId?: unknown };
-  /** 模型/认证管理入口（AD-2 回口，只转发不决策）。 */
-  readonly model: ModelPort;
-  /** 缺省会话回退源（system.getStatus().sessionId，v0 兼容读）。 */
-  readonly system: SystemPort;
-  /** 命令错误回执（connection.error 帧；语义 = WsServerAdapter.commandError）。 */
-  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
-  /** 模型/认证命令错误码映射（契约 C §4；语义 = WsServerAdapter.modelErrorCode）。 */
-  modelErrorCode(err: Error): ConnectionErrorEvent["payload"]["code"];
-  /** 构造本连接协议帧发送端（readyState 守卫；语义 = WsServerAdapter.rawSender）。 */
-  rawSender(): FrameSender;
-  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
-  sendNow(sender: FrameSender, frame: EventEnvelope): void;
-}
+import type { WsCommandContext } from "./context";
 
 /** model.set（会话作用域换模）：ack = model.changed 广播（契约 C §1.1，微批不动）。 */
 export function handleModelSet(ctx: WsCommandContext): void {

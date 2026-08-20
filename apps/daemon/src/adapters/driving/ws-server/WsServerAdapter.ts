@@ -59,6 +59,7 @@ import {
   HISTORY_PAGE_MAX,
   TAIL_WINDOW_SIZE,
 } from "./DtoMapper";
+import type { ConnState, WsCommandContext } from "./handlers/context";
 import {
   handleModelCatalog,
   handleModelCatalogRefresh,
@@ -67,7 +68,6 @@ import {
   handleModelSet,
   handleModelSetDefault,
 } from "./handlers/model";
-import type { WsCommandContext } from "./handlers/model";
 import {
   handleAuthDeleteKey,
   handleAuthList,
@@ -80,13 +80,6 @@ export const DEV_TOKEN_PATH = "/helix-dev-token";
 
 /** loopback 开发 Origin（vite dev 等）匹配：localhost / 127.0.0.1 / [::1] 任意端口。 */
 const LOOPBACK_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
-
-/** 每连接状态（Bun.serve 泛型，经 server.upgrade 的 data 携带；handlers/ 共用型）。 */
-export interface ConnState {
-  authed: boolean;
-  /** 认证通过后构造的协议帧发送端（EventStream 注册键）。 */
-  sender: FrameSender | null;
-}
 
 export interface WsServerAdapterDeps {
   /** 会话路由对话入口（T2.2：组合根 ChatRouter——按信封 sessionId 分发）。 */
