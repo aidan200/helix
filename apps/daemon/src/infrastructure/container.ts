@@ -144,7 +144,7 @@ export interface Daemon {
   /** 会话目录入口（T2.2 AD-4：list/loadHistory/delete/草稿/懒加载取数面）。 */
   readonly directory: SessionDirectoryPort;
   /**
-   * 浏览器连接入口（T2 CDP 地基，BrowserPort）：lazy 连接，T3 browser_* 工具
+   * 浏览器连接入口（T2 CDP 地基，BrowserPort）：lazy 连接，T3r browser 工具
    * 与 T4 状态协议的消费面；生命周期 = daemon 生命周期（shutdown 挂 stop()）。
    */
   readonly browser: BrowserPort;
@@ -422,7 +422,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
             const toolExecutor = new CoreToolExecutor({
               cwd: toolCwd,
               orchestration: sessionOrchestration,
-              // T3 动态族：browser_* 十一工具注册（ownerId 缺省 "main"——主会话
+              // T3r 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
               // tab 归属）；ChildMain 子进程装配不传 browser（P0-1 决策）
               browser: browserPort,
             });

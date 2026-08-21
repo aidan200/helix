@@ -17,7 +17,7 @@ import type {
  *
  * - 记录全部调用（方法名 + 参数快照）供转投断言；
  * - failWith 可编程抛错（port 抛错 → isError 错误通路）；
- * - status/tabs 可配置（browser_status 合并返回面断言）；
+ * - status/tabs 可配置（browser action=status 合并返回面断言）；
  * - screenshotTab 缺 file 抛错（与 CdpConnectionManager 同契约——file 必填
  *   由 port 层裁决）。
  */

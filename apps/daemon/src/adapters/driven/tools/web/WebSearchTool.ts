@@ -5,7 +5,7 @@ import type {
 } from "@earendil-works/pi-agent-core/node";
 
 /**
- * WebSearchTool —— 静态联网搜索工具（T1 静态族；动态层 browser_open/browser_eval
+ * WebSearchTool —— 静态联网搜索工具（T1 静态族；动态层 browser action=open/eval
  * 属 T2/T3，本文件只在其全失败文案中预留兜底提示）。
  *
  * 分两半（同 GrepTool 分半模式）：
@@ -145,7 +145,7 @@ async function searchWithEngines(query: string, limit: number): Promise<{ result
   }
   throw new Error(
     `静态搜索不可用（${failures.join("；")}）。` +
-      "可用 browser_open 打开搜索引擎页面 + browser_eval 提取结果（动态层兜底）。",
+      "可用 browser 工具 action=open 打开搜索引擎页面 + action=eval 提取结果（动态层兜底）。",
   );
 }
 

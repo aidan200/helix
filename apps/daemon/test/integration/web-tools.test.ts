@@ -92,7 +92,7 @@ describe("web_search 三路径（DDG 主 / Bing 兜底 / 全失败）", () => {
     expect(calls[1]).toContain("bing.com");
   });
 
-  test("③ 双引擎全失败 → isError + CDP 兜底提示（browser_open/browser_eval）", async () => {
+  test("③ 双引擎全失败 → isError + CDP 兜底提示（browser action=open/eval）", async () => {
     installFetch({
       "https://html.duckduckgo.com/": new Response("blocked", { status: 403 }),
       "https://www.bing.com/": new Response("captcha", { status: 200 }), // 200 但零结果 = 解析失败
@@ -100,8 +100,9 @@ describe("web_search 三路径（DDG 主 / Bing 兜底 / 全失败）", () => {
     const result = await runTool("web_search", { query: "全失败" });
     expect(result.isError).toBe(true);
     expect(result.content).toContain("静态搜索不可用");
-    expect(result.content).toContain("browser_open");
-    expect(result.content).toContain("browser_eval");
+    expect(result.content).toContain("browser");
+    expect(result.content).toContain("action=open");
+    expect(result.content).toContain("action=eval");
   });
 });
 

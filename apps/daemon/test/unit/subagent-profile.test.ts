@@ -53,11 +53,11 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
 
   test("全工具集：照抄 MainSessionProfile 工具名清单去编排三工具与动态族（不新增工具）", () => {
     // T2.3：Main 增 agent_spawn/agent_send/agent_status（编排回口）；SubAgent
-    // 不 spawn 孙进程（单层编排）。T3：Main 增 browser_* 动态族十一件套——
+    // 不 spawn 孙进程（单层编排）。T3r：Main 增动态族单 browser 工具——
     // SubAgent 子进程无动态族（审核 P0-1 决策：ChildMain 装配不传 browser）。
-    // 工具集 = Main 清单去编排三工具与动态族十一工具
+    // 工具集 = Main 清单去编排三工具与动态族
     expect(SubAgentProfile.tools).toEqual(
-      MainSessionProfile.tools.filter((t) => !t.startsWith("agent_") && !t.startsWith("browser_")),
+      MainSessionProfile.tools.filter((t) => !t.startsWith("agent_") && t !== "browser"),
     );
     expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"]);
   });

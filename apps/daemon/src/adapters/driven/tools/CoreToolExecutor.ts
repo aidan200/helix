@@ -22,7 +22,7 @@ import type { BrowserPort } from "../../../application/ports/outbound/BrowserPor
 import { createGrepTool } from "./GrepTool";
 import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
-import { createBrowserTools } from "./web/BrowserTools";
+import { createBrowserTool } from "./web/BrowserTools";
 import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool } from "./agent/AgentOrchestrationTools";
 
 /**
@@ -73,12 +73,12 @@ export interface CoreToolExecutorOptions {
    */
   readonly orchestration?: AgentOrchestrationPort;
   /**
-   * 浏览器连接端口（T3 动态族）：提供则注册 browser_* 十一工具（纯薄转投，
-   * CDP 知识全在 port 实现）；缺省不注册——ChildMain（SubAgent 子进程）只传
-   * cwd，子进程无动态族（审核 P0-1 决策）。
+   * 浏览器连接端口（T3r 动态族）：提供则注册单 browser 工具（action 参数
+   * 分发，纯薄转投，CDP 知识全在 port 实现）；缺省不注册——ChildMain
+   * （SubAgent 子进程）只传 cwd，子进程无动态族（审核 P0-1 决策）。
    */
   readonly browser?: BrowserPort;
-  /** browser_open 的 tab 归属（owner 维度回收/观测；缺省 "main"）。 */
+  /** browser open 的 tab 归属（owner 维度回收/观测；缺省 "main"）。 */
   readonly ownerId?: string;
 }
 
@@ -110,7 +110,7 @@ export class CoreToolExecutor implements ToolExecutorPort {
       );
     }
     if (options.browser !== undefined) {
-      tools.push(...createBrowserTools(options.browser, options.ownerId ?? "main"));
+      tools.push(createBrowserTool(options.browser, options.ownerId ?? "main"));
     }
     const registry = new Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>();
     for (const tool of tools) registry.set(tool.name, tool);

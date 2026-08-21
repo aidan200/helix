@@ -3,8 +3,8 @@
  *
  * 落位 adapters/driven/tools/（与工具实现同目录，pi 工具符号封装边界不扩）：
  * SystemPromptAssembler 的工具段（- name: snippet 扁平清单）数据源。
- * main 21 工具 + subagent 7 工具共享单一注册表（subagent 全集 = main 去编排
- * 三件套与动态族十一件套，是否进清单由 ResourceService.getEffectiveTools(kind)
+ * main 11 工具 + subagent 7 工具共享单一注册表（subagent 全集 = main 去编排
+ * 三件套与动态族单 browser 工具，是否进清单由 ResourceService.getEffectiveTools(kind)
  * 生效集决定，本表只管「名 → 中文一句话」映射）。
  *
  * snippet 约束：中文一句话、单行（进 system prompt 的清单行——多行破坏
@@ -22,15 +22,5 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   agent_spawn: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）",
   agent_send: "向运行中的 SubAgent 实例追加补充指示",
   agent_status: "查询 SubAgent 实例的当前执行状态",
-  browser_open: "打开后台浏览器 tab 并导航到 URL（返回后须用 browser_eval 验证内容就绪）",
-  browser_navigate: "把既有 tab 导航到新 URL（返回后须用 browser_eval 验证内容就绪）",
-  browser_back: "在既有 tab 内后退一页",
-  browser_eval: "在 tab 内执行 JS（支持 await）提取页面数据，可穿透 Shadow DOM/iframe",
-  browser_click: "对选择器元素做 JS 层点击（简单快速）",
-  browser_click_at: "对选择器元素发真实鼠标点击（算用户手势，可触发文件对话框）",
-  browser_set_files: "给 file input 直接设置本地文件（绕过文件对话框）",
-  browser_scroll: "滚动 tab 页面（触发懒加载）",
-  browser_screenshot: "对 tab 截图落盘，之后用 read 工具读图",
-  browser_close: "关闭既有 tab",
-  browser_status: "查看浏览器连接状态与受管 tab 清单",
+  browser: "操控浏览器（action 分发：开 tab/eval/点击/滚动/截图等，携带登录态）",
 };

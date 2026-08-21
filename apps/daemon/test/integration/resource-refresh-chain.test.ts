@@ -83,7 +83,7 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
   const executor = new CoreToolExecutor({
     cwd: toolCwd,
     orchestration,
-    // T3：MainSessionProfile 声明 browser_* 动态族——注册桩保持 resolveTools 可装配
+    // T3r：MainSessionProfile 声明动态族单 browser 工具——注册桩保持 resolveTools 可装配
     browser: new FakeBrowserPort(),
   });
   return new PiAgentEngineAdapter({
@@ -107,17 +107,7 @@ const MAIN_TOOLS = [
   "agent_spawn",
   "agent_send",
   "agent_status",
-  "browser_open",
-  "browser_navigate",
-  "browser_back",
-  "browser_eval",
-  "browser_click",
-  "browser_click_at",
-  "browser_set_files",
-  "browser_scroll",
-  "browser_screenshot",
-  "browser_close",
-  "browser_status",
+  "browser",
 ];
 const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"];
 

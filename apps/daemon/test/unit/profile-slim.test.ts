@@ -29,21 +29,11 @@ const TOOL_NAMES = [
   "agent_spawn",
   "agent_send",
   "agent_status",
-  "browser_open",
-  "browser_navigate",
-  "browser_back",
-  "browser_eval",
-  "browser_click",
-  "browser_click_at",
-  "browser_set_files",
-  "browser_scroll",
-  "browser_screenshot",
-  "browser_close",
-  "browser_status",
+  "browser",
 ] as const;
 
 describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
-  test("① MainSessionProfile 系统提示：21 工具名词边界零命中", () => {
+  test("① MainSessionProfile 系统提示：11 工具名词边界零命中", () => {
     for (const name of TOOL_NAMES) {
       expect(
         MAIN_SESSION_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)),
@@ -52,7 +42,7 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("② SubAgentProfile 系统提示：21 工具名词边界零命中", () => {
+  test("② SubAgentProfile 系统提示：11 工具名词边界零命中", () => {
     for (const name of TOOL_NAMES) {
       expect(
         SUBAGENT_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)),

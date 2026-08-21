@@ -125,7 +125,7 @@ function makeHarness(scripts: ScriptEntry[]): LoopHarness {
       status: () => [],
       kill: () => ({ killed: false, error: "工具循环测试不驱动调度" }),
     },
-    // T3：MainSessionProfile 声明 browser_* 动态族——注册桩保持 resolveTools 可装配
+    // T3r：MainSessionProfile 声明动态族单 browser 工具——注册桩保持 resolveTools 可装配
     browser: new FakeBrowserPort(),
   });
   const engine = new PiAgentEngineAdapter({

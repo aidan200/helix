@@ -30,17 +30,7 @@ const TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
     "agent_spawn",
     "agent_send",
     "agent_status",
-    "browser_open",
-    "browser_navigate",
-    "browser_back",
-    "browser_eval",
-    "browser_click",
-    "browser_click_at",
-    "browser_set_files",
-    "browser_scroll",
-    "browser_screenshot",
-    "browser_close",
-    "browser_status",
+    "browser",
   ],
   "subagent-worker": ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"],
 };
@@ -157,7 +147,7 @@ describe("ResourceService：合取语义（全集 ∩ kind 启用集）", () => 
 
     const mainTools = service.getEffectiveTools("main-session");
     expect(mainTools.includes("grep")).toBe(false);
-    expect(mainTools.length).toBe(20); // 21 全集 - 1 禁用
+    expect(mainTools.length).toBe(10); // 11 全集 - 1 禁用
 
     // subagent 全集含 grep 且未禁 → 仍启用（kind 维隔离）
     const subTools = service.getEffectiveTools("subagent-worker");

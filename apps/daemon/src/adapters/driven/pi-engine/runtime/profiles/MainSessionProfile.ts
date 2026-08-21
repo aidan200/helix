@@ -11,10 +11,10 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * sendMessage 即多轮复用——runtime 侧不做任何轮次计数。
  *
  * 工具集（T1.5，CL-5；T2.3 扩编排三工具；web-access T1 扩静态联网两工具、
- * T3 扩动态族 browser_* 十一工具）：二十一工具按名声明，装配在组合根
+ * T3r 扩动态族单 browser 工具）：十一工具按名声明，装配在组合根
  * （CoreToolExecutor → resolveTools；bash/read/write/edit 为 pi 内置、grep 自写、
  * agent_spawn/agent_send/agent_status 经 AgentOrchestrationPort 回调度器，
- * browser_* 经 BrowserPort 薄转投（零 CDP 知识），同一沙箱 cwd 与端口注入）。
+ * browser 经 BrowserPort 薄转投（零 CDP 知识），同一沙箱 cwd 与端口注入）。
  *
  * compaction：默认参数保留（spike §3 实测值）；摘要执行受 provider
  * 约束（非流式 complete，spike 坑 8），daemon 侧容忍失败不崩会话，
@@ -49,18 +49,8 @@ export const MainSessionProfile: AgentProfile = {
     "agent_spawn",
     "agent_send",
     "agent_status",
-    // T3 动态族（browser_* 十一工具；条件注册——CoreToolExecutor options.browser）
-    "browser_open",
-    "browser_navigate",
-    "browser_back",
-    "browser_eval",
-    "browser_click",
-    "browser_click_at",
-    "browser_set_files",
-    "browser_scroll",
-    "browser_screenshot",
-    "browser_close",
-    "browser_status",
+    // T3r 动态族（单 browser 工具 + action 参数；条件注册——CoreToolExecutor options.browser）
+    "browser",
   ], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
   hooks: [new SteerHooks(), new MinimalHooks()],
