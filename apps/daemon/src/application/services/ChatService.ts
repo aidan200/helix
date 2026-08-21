@@ -278,7 +278,7 @@ export class ChatService implements ChatPort {
         // ① 消息落聚合：user Entry（此刻起领域状态与引擎状态开始对齐）
         // T4：零条目会话的首个用户条目 → 落聚合后同步触发转正回调（注册表
         // promoteDraft：instantiated 先于本条 message.completed 落盘）
-        const isFirstEntry = this.session.entryList().length === 0;
+        const isFirstEntry = this.session.isEmpty();
         const entry = this.session.appendUserEntry(text, this.now(), images);
         if (isFirstEntry) this.deps.onFirstUserEntry?.();
         this.publishMessageCompleted(entry.toData().id, "user", text, false, images);

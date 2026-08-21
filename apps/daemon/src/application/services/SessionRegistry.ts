@@ -184,7 +184,7 @@ export class SessionRegistry implements SessionDirectoryPort {
       // T4：零条目热草稿不可见（未落盘内存草稿不进清单——bug1 泄漏面封堵，
       // 与 sealAll 跳过零条目会话同哲学：空草稿自然消亡不污染清单）；
       // 有内容的热未落库会话仍合并（回归）。
-      if (runtime.chatService.sessionView.entryList().length === 0) continue;
+      if (runtime.chatService.sessionView.isEmpty()) continue;
       metas.push(this.metaFromRuntime(runtime));
     }
     metas.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
@@ -224,7 +224,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     const currentId = this.currentSessionId();
     const hotCurrent = this.runtimes.get(currentId);
     const runtime =
-      hotCurrent !== undefined && hotCurrent.chatService.sessionView.entryList().length === 0
+      hotCurrent !== undefined && hotCurrent.chatService.sessionView.isEmpty()
         ? hotCurrent
         : this.createFresh();
     // 建会话广播（created）：title = 首条用户消息截断（此刻即知——不等落库）。
@@ -370,7 +370,7 @@ export class SessionRegistry implements SessionDirectoryPort {
    *  会话无里程碑可落，「首条消息才落库」哲学下自然消亡，不污染清单）。 */
   sealAll(): void {
     for (const runtime of this.runtimes.values()) {
-      if (runtime.chatService.sessionView.entryList().length === 0) continue;
+      if (runtime.chatService.sessionView.isEmpty()) continue;
       runtime.chatService.stop();
     }
   }
@@ -443,7 +443,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     const id = this.currentSessionId();
     const hot = this.runtimes.get(id);
     if (hot !== undefined) {
-      return hot.chatService.sessionView.entryList().length === 0;
+      return hot.chatService.sessionView.isEmpty();
     }
     if (!(await this.sessionExists(id))) {
       // current 残骸清理：换新草稿（createFresh 内 touch 轮换 current）

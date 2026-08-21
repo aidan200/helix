@@ -258,6 +258,11 @@ export class Session {
   entryList(): SessionEntryData[] {
     return this.entries.map((e) => e.toData());
   }
+  /** 草稿判定单一事实源：任何条目皆无（含 thinking/compaction）才空；
+   * 直读 entries.length 零拷贝（谓词，形态同 Turn.isSteerable）。 */
+  isEmpty(): boolean {
+    return this.entries.length === 0;
+  }
   turnList(): TurnData[] {
     return this.turns.map((t) => t.toData());
   }
