@@ -23,14 +23,22 @@
  *   状态回 idle；下次调用 lazy 重连。不杀浏览器、不抛致命错。
  * - idle sweep：TabRegistry 周期扫描，闲置超期 closeTarget + 出册。
  *
- * 【可测性】wsFactory/fsReader/tcpProber/now/各超时参数全部注入化——
- * integration 测试 fake WS 剧本驱动，不依赖真浏览器。
+ * 【可测性】wsFactory/fsReader/tcpProber/fileWriter/now/各超时参数全部
+ * 注入化——integration 测试 fake WS 剧本驱动，不依赖真浏览器。
  */
+import { writeFile } from "node:fs/promises";
 import type {
   BrowserPort,
   BrowserStatus,
   BrowserStatusListener,
   BrowserConnectionState,
+  ClickAtResult,
+  ClickResult,
+  ScreenshotFormat,
+  ScreenshotResult,
+  ScrollDirection,
+  ScrollResult,
+  SetFilesResult,
   TabInfo,
 } from "../../../application/ports/outbound/BrowserPort";
 import {
@@ -66,6 +74,8 @@ export interface CdpConnectionManagerDeps {
   readonly tcpProber?: TcpProber;
   /** WS 工厂（缺省 bun 原生 WebSocket；测试 fake 剧本驱动）。 */
   readonly wsFactory?: (url: string) => CdpWebSocket;
+  /** 截图落盘接缝（缺省 node:fs/promises writeFile）。 */
+  readonly fileWriter?: (filePath: string, data: Buffer) => Promise<void>;
   /** 时钟（idle 判定/waitForLoad deadline；缺省 Date.now）。 */
   readonly now?: () => number;
   /** CDP 命令超时 ms（缺省 30s）。 */
@@ -74,6 +84,8 @@ export interface CdpConnectionManagerDeps {
   readonly loadTimeoutMs?: number;
   /** waitForLoad readyState 轮询间隔 ms（缺省 500）。 */
   readonly loadPollMs?: number;
+  /** scroll 后懒加载触发窗口 ms（缺省 800）。 */
+  readonly scrollSettleMs?: number;
   /** idle sweep 扫描间隔 ms（缺省 60s）。 */
   readonly sweepIntervalMs?: number;
   /** tab 闲置阈值 ms（缺省 15min）。 */
@@ -101,18 +113,22 @@ export class CdpConnectionManager implements BrowserPort {
 
   private readonly platform: string;
   private readonly wsFactory: (url: string) => CdpWebSocket;
+  private readonly fileWriter: (filePath: string, data: Buffer) => Promise<void>;
   private readonly now: () => number;
   private readonly commandTimeoutMs: number;
   private readonly loadTimeoutMs: number;
   private readonly loadPollMs: number;
+  private readonly scrollSettleMs: number;
 
   constructor(private readonly deps: CdpConnectionManagerDeps) {
     this.platform = deps.platform ?? process.platform;
     this.wsFactory = deps.wsFactory ?? ((url) => new globalThis.WebSocket(url) as unknown as CdpWebSocket);
+    this.fileWriter = deps.fileWriter ?? ((p, data) => writeFile(p, data).then(() => undefined));
     this.now = deps.now ?? Date.now;
     this.commandTimeoutMs = deps.commandTimeoutMs ?? 30_000;
     this.loadTimeoutMs = deps.loadTimeoutMs ?? 15_000;
     this.loadPollMs = deps.loadPollMs ?? 500;
+    this.scrollSettleMs = deps.scrollSettleMs ?? 800;
     this.registry = new TabRegistry({
       now: this.now,
       sweepIntervalMs: deps.sweepIntervalMs,
@@ -224,6 +240,109 @@ export class CdpConnectionManager implements BrowserPort {
       throw new Error(resp.result.exceptionDetails.text ?? "页面内执行异常");
     }
     return resp.result?.result?.value;
+  }
+
+  /** JS 层点击（简单快速）；未命中元素 { clicked: false }。 */
+  async clickInTab(tabId: string, selector: string): Promise<ClickResult> {
+    await this.connect();
+    const sid = await this.ensureSession(tabId);
+    const selectorJson = JSON.stringify(selector);
+    const js = `(() => {
+      const el = document.querySelector(${selectorJson});
+      if (!el) return { error: '未找到元素: ' + ${selectorJson} };
+      el.scrollIntoView({ block: 'center' });
+      el.click();
+      return { clicked: true, tag: el.tagName, text: (el.textContent || '').slice(0, 100) };
+    })()`;
+    const resp = await this.sendCDP("Runtime.evaluate", { expression: js, returnByValue: true, awaitPromise: true }, sid);
+    this.registry.touch(tabId);
+    const val = resp.result?.result?.value;
+    if (!val || val.error) return { clicked: false };
+    return val as ClickResult;
+  }
+
+  /** 真实鼠标事件点击（算用户手势：文件对话框/反自动化场景）。 */
+  async clickAtInTab(tabId: string, selector: string): Promise<ClickAtResult> {
+    await this.connect();
+    const sid = await this.ensureSession(tabId);
+    const selectorJson = JSON.stringify(selector);
+    const js = `(() => {
+      const el = document.querySelector(${selectorJson});
+      if (!el) return { error: '未找到元素: ' + ${selectorJson} };
+      el.scrollIntoView({ block: 'center' });
+      const rect = el.getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, tag: el.tagName, text: (el.textContent || '').slice(0, 100) };
+    })()`;
+    const coordResp = await this.sendCDP("Runtime.evaluate", { expression: js, returnByValue: true, awaitPromise: true }, sid);
+    const coord = coordResp.result?.result?.value;
+    if (!coord || coord.error) {
+      this.registry.touch(tabId);
+      return { clicked: false };
+    }
+    await this.sendCDP(
+      "Input.dispatchMouseEvent",
+      { type: "mousePressed", x: coord.x, y: coord.y, button: "left", clickCount: 1 },
+      sid,
+    );
+    await this.sendCDP(
+      "Input.dispatchMouseEvent",
+      { type: "mouseReleased", x: coord.x, y: coord.y, button: "left", clickCount: 1 },
+      sid,
+    );
+    this.registry.touch(tabId);
+    return { clicked: true, x: coord.x, y: coord.y, tag: coord.tag, text: coord.text };
+  }
+
+  /** 给 file input 设置本地文件（绕过文件对话框）。 */
+  async setFilesInTab(tabId: string, selector: string, files: readonly string[]): Promise<SetFilesResult> {
+    await this.connect();
+    const sid = await this.ensureSession(tabId);
+    await this.sendCDP("DOM.enable", {}, sid);
+    const doc = await this.sendCDP("DOM.getDocument", {}, sid);
+    const node = await this.sendCDP("DOM.querySelector", { nodeId: doc.result.root.nodeId, selector }, sid);
+    if (!node.result?.nodeId) {
+      throw new Error(`未找到元素: ${selector}`);
+    }
+    await this.sendCDP("DOM.setFileInputFiles", { nodeId: node.result.nodeId, files: [...files] }, sid);
+    this.registry.touch(tabId);
+    return { success: true, count: files.length };
+  }
+
+  async scrollTab(tabId: string, y = 3000, direction: ScrollDirection = "down"): Promise<ScrollResult> {
+    await this.connect();
+    const sid = await this.ensureSession(tabId);
+    let js: string;
+    if (direction === "top") {
+      js = 'window.scrollTo(0, 0); "scrolled to top"';
+    } else if (direction === "bottom") {
+      js = 'window.scrollTo(0, document.body.scrollHeight); "scrolled to bottom"';
+    } else if (direction === "up") {
+      js = `window.scrollBy(0, -${Math.abs(y)}); "scrolled up ${Math.abs(y)}px"`;
+    } else {
+      js = `window.scrollBy(0, ${Math.abs(y)}); "scrolled down ${Math.abs(y)}px"`;
+    }
+    const resp = await this.sendCDP("Runtime.evaluate", { expression: js, returnByValue: true }, sid);
+    this.registry.touch(tabId);
+    if (this.scrollSettleMs > 0) await this.sleep(this.scrollSettleMs); // 懒加载触发窗口
+    return { value: (resp.result?.result?.value as string | undefined) ?? "" };
+  }
+
+  /** 截图：必须给 file 落盘（LLM 后续用 read 工具读图；base64 不进 content）。 */
+  async screenshotTab(tabId: string, file?: string, format: ScreenshotFormat = "png"): Promise<ScreenshotResult> {
+    if (file === undefined) {
+      throw new Error("screenshotTab 必须提供 file 保存路径（截图落盘后由 read 工具读图，不返回 base64）");
+    }
+    await this.connect();
+    const sid = await this.ensureSession(tabId);
+    const resp = await this.sendCDP(
+      "Page.captureScreenshot",
+      { format, quality: format === "jpeg" ? 80 : undefined },
+      sid,
+    );
+    this.registry.touch(tabId);
+    const data: string = resp.result.data;
+    await this.fileWriter(file, Buffer.from(data, "base64"));
+    return { saved: file };
   }
 
   /** 关 tab（未连接只清本地注册，不触发 lazy connect）。 */

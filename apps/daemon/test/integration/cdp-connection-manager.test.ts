@@ -96,6 +96,12 @@ function defaultRespond(overrides: Partial<Record<string, (msg: any) => object |
         return { result: { success: true } };
       case "Runtime.evaluate":
         return { result: { result: { value: evaluateValue(msg.params.expression) } } };
+      case "Page.captureScreenshot":
+        return { result: { data: Buffer.from("fake-png-bytes").toString("base64") } };
+      case "DOM.getDocument":
+        return { result: { root: { nodeId: 1 } } };
+      case "DOM.querySelector":
+        return { result: { nodeId: 42 } };
       default:
         return { result: {} };
     }
@@ -107,6 +113,7 @@ interface Harness {
   sockets: FakeWebSocket[];
   statuses: BrowserStatus[];
   clock: { now: () => number; advance: (ms: number) => void };
+  fileWrites: { path: string; data: Buffer }[];
 }
 
 function createHarness(opts: {
@@ -118,6 +125,7 @@ function createHarness(opts: {
 }): Harness {
   const sockets: FakeWebSocket[] = [];
   const statuses: BrowserStatus[] = [];
+  const fileWrites: { path: string; data: Buffer }[] = [];
   let t = 1_000_000;
   const clock = { now: () => t, advance: (ms: number) => (t += ms) };
   const autoOpen = opts.autoOpen ?? true;
@@ -143,11 +151,15 @@ function createHarness(opts: {
     commandTimeoutMs: opts.commandTimeoutMs ?? 5_000,
     loadPollMs: 1,
     loadTimeoutMs: 1_000,
+    scrollSettleMs: 0,
     sweepIntervalMs: opts.sweepIntervalMs,
     idleTimeoutMs: 15 * 60_000,
+    fileWriter: async (p, data) => {
+      fileWrites.push({ path: p, data });
+    },
   });
   manager.onStatusChange((s) => statuses.push(s));
-  return { manager, sockets, statuses, clock };
+  return { manager, sockets, statuses, clock, fileWrites };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -361,6 +373,149 @@ describe("CdpConnectionManager tab 操作", () => {
       { tabId, ownerId: "agent-7", url: "about:blank", title: "", lastAccessed: 1_000_000 },
     ]);
     await h.manager.stop();
+  });
+});
+
+describe("CdpConnectionManager 交互方法（T2b）", () => {
+  test("clickInTab：JS 点击返回 {clicked,tag,text}；未命中元素 clicked=false", async () => {
+    const h = createHarness({
+      respond: defaultRespond({
+        "Runtime.evaluate": (msg) => {
+          const expr: string = msg.params.expression;
+          if (expr.includes("el.click()")) {
+            if (expr.includes("#ok")) return { result: { result: { value: { clicked: true, tag: "BUTTON", text: "提交" } } } };
+            return { result: { result: { value: { error: "未找到元素: #missing" } } } };
+          }
+          return { result: { result: { value: evaluateValue(expr) } } };
+        },
+      }),
+    });
+    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
+    expect(await h.manager.clickInTab(tabId, "#ok")).toEqual({ clicked: true, tag: "BUTTON", text: "提交" });
+    expect(await h.manager.clickInTab(tabId, "#missing")).toEqual({ clicked: false });
+    await h.manager.stop();
+  });
+
+  test("clickAtInTab：坐标 eval → Input.dispatchMouseEvent pressed+released 同坐标", async () => {
+    const h = createHarness({
+      respond: defaultRespond({
+        "Runtime.evaluate": (msg) => {
+          const expr: string = msg.params.expression;
+          if (expr.includes("getBoundingClientRect")) {
+            return { result: { result: { value: { x: 100, y: 200, tag: "INPUT", text: "" } } } };
+          }
+          return { result: { result: { value: evaluateValue(expr) } } };
+        },
+      }),
+    });
+    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
+    const result = await h.manager.clickAtInTab(tabId, "input[type=file]");
+    expect(result).toEqual({ clicked: true, x: 100, y: 200, tag: "INPUT", text: "" });
+
+    const mouse = h.sockets[0]!.sent.filter((m) => m.method === "Input.dispatchMouseEvent");
+    expect(mouse.map((m) => [m.params.type, m.params.x, m.params.y, m.params.button, m.params.clickCount])).toEqual([
+      ["mousePressed", 100, 200, "left", 1],
+      ["mouseReleased", 100, 200, "left", 1],
+    ]);
+    expect(mouse[0]!.sessionId).toBe(`sess-${tabId}`);
+    await h.manager.stop();
+  });
+
+  test("clickAtInTab：元素未命中 → clicked=false 且不发鼠标事件", async () => {
+    const h = createHarness({
+      respond: defaultRespond({
+        "Runtime.evaluate": (msg) => {
+          const expr: string = msg.params.expression;
+          if (expr.includes("getBoundingClientRect")) {
+            return { result: { result: { value: { error: "未找到元素" } } } };
+          }
+          return { result: { result: { value: evaluateValue(expr) } } };
+        },
+      }),
+    });
+    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
+    expect(await h.manager.clickAtInTab(tabId, "#none")).toEqual({ clicked: false });
+    expect(h.sockets[0]!.sent.filter((m) => m.method === "Input.dispatchMouseEvent")).toEqual([]);
+    await h.manager.stop();
+  });
+
+  test("setFilesInTab：DOM.enable→getDocument→querySelector→setFileInputFiles 序列，返回 {success,count}", async () => {
+    const h = createHarness({});
+    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
+    const result = await h.manager.setFilesInTab(tabId, "input[type=file]", ["/tmp/a.png", "/tmp/b.png"]);
+    expect(result).toEqual({ success: true, count: 2 });
+
+    const methods = h.sockets[0]!.sent.map((m) => m.method);
+    const seq = ["DOM.enable", "DOM.getDocument", "DOM.querySelector", "DOM.setFileInputFiles"];
+    let last = -1;
+    for (const m of seq) {
+      const idx = methods.indexOf(m, last + 1);
+      expect(idx).toBeGreaterThan(last);
+      last = idx;
+    }
+    const setFiles = h.sockets[0]!.sent[last]!;
+    expect(setFiles.params).toEqual({ nodeId: 42, files: ["/tmp/a.png", "/tmp/b.png"] });
+    expect(setFiles.sessionId).toBe(`sess-${tabId}`);
+    await h.manager.stop();
+  });
+
+  test("setFilesInTab：选择器未命中（nodeId=0）→ 抛错", async () => {
+    const h = createHarness({
+      respond: defaultRespond({ "DOM.querySelector": () => ({ result: { nodeId: 0 } }) }),
+    });
+    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
+    await expect(h.manager.setFilesInTab(tabId, "#nope", ["/tmp/a.png"])).rejects.toThrow(/未找到元素/);
+    await h.manager.stop();
+  });
+
+  test("scrollTab：默认向下滚 y=3000；方向参数映射 up/top/bottom；返回 eval 值 {value}", async () => {
+    const h = createHarness({
+      respond: defaultRespond({
+        "Runtime.evaluate": (msg) => {
+          const expr: string = msg.params.expression;
+          if (expr.includes("readyState")) return { result: { result: { value: evaluateValue(expr) } } };
+          if (expr.includes("scroll")) return { result: { result: { value: "scroll-ack" } } };
+          return { result: { result: { value: undefined } } };
+        },
+      }),
+    });
+    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
+    expect(await h.manager.scrollTab(tabId)).toEqual({ value: "scroll-ack" });
+    await h.manager.scrollTab(tabId, 500, "up");
+    await h.manager.scrollTab(tabId, undefined, "top");
+    await h.manager.scrollTab(tabId, undefined, "bottom");
+
+    const exprs = h.sockets[0]!.sent
+      .filter((m) => m.method === "Runtime.evaluate" && typeof m.params?.expression === "string" && m.params.expression.includes("scroll"))
+      .map((m) => m.params.expression as string);
+    expect(exprs[0]).toContain("scrollBy(0, 3000)");
+    expect(exprs[1]).toContain("scrollBy(0, -500)");
+    expect(exprs[2]).toContain("scrollTo(0, 0)");
+    expect(exprs[3]).toContain("scrollTo(0, document.body.scrollHeight)");
+    await h.manager.stop();
+  });
+
+  test("screenshotTab：指定 file 落盘返回 {saved}；jpeg 带 quality=80", async () => {
+    const h = createHarness({});
+    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
+    const png = await h.manager.screenshotTab(tabId, "/tmp/shot.png");
+    expect(png).toEqual({ saved: "/tmp/shot.png" });
+    expect(h.fileWrites).toHaveLength(1);
+    expect(h.fileWrites[0]!.path).toBe("/tmp/shot.png");
+    expect(h.fileWrites[0]!.data.toString()).toBe("fake-png-bytes");
+
+    await h.manager.screenshotTab(tabId, "/tmp/shot.jpg", "jpeg");
+    const jpegMsg = h.sockets[0]!.sent.filter((m) => m.method === "Page.captureScreenshot").at(-1)!;
+    expect(jpegMsg.params).toEqual({ format: "jpeg", quality: 80 });
+    expect(jpegMsg.sessionId).toBe(`sess-${tabId}`);
+    await h.manager.stop();
+  });
+
+  test("screenshotTab：无 file → 抛错（必须传保存路径），且不触发 lazy connect", async () => {
+    const h = createHarness({});
+    await expect(h.manager.screenshotTab("ghost")).rejects.toThrow(/file/);
+    expect(h.sockets).toHaveLength(0);
+    expect(h.manager.getStatus().state).toBe("idle");
   });
 });
 

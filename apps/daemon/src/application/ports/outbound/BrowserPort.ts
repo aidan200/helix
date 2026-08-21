@@ -1,13 +1,14 @@
 /**
- * 浏览器连接出口端口（outbound，TR-AD-1/2；T2a CDP 地基，v1 方法面）。
+ * 浏览器连接出口端口（outbound，TR-AD-1/2；T2a CDP 地基 + T2b 交互方法）。
  *
  * 域形状接口：零 CDP/pi 符号——方法面只有 tab/owner 等业务概念，CDP
  * 协议细节（sessionId/targetId/Fetch 域）全部收敛在 driven 实现
  * （adapters/driven/cdp/CdpConnectionManager），T3 工具层零 CDP 知识
  * 纯薄转投，T4 状态协议直接消费 onStatusChange 事件源。
  *
- * v1 范围：核心连接面 11 方法 + 状态订阅。交互方法（click/clickAt/
- * setFiles/scroll/screenshot）由 T2b additive 补齐，不在本版本。
+ * 方法面：核心连接面 11 方法 + 状态订阅（T2a）+ 交互方法 5 个
+ *（click/clickAt/setFiles/scroll/screenshot，T2b additive 补齐，逻辑
+ * 移植自 web-access/scripts/cdp-proxy.mjs 对应端点）。
  *
  * 生命周期语义（v2 决策）：CDP 连接内嵌 daemon 进程，无独立 proxy、无
  * HTTP 中间层；连接生命周期 = daemon 生命周期。连接是 lazy 的——首次
@@ -34,6 +35,39 @@ export interface BrowserStatus {
 }
 
 export type BrowserStatusListener = (status: BrowserStatus) => void;
+
+/** clickInTab 结果（JS 层点击；未命中元素 clicked=false）。 */
+export interface ClickResult {
+  readonly clicked: boolean;
+  readonly tag?: string;
+  readonly text?: string;
+}
+
+/** clickAtInTab 结果（真实鼠标事件，算用户手势；附点击坐标）。 */
+export interface ClickAtResult extends ClickResult {
+  readonly x?: number;
+  readonly y?: number;
+}
+
+/** setFilesInTab 结果（成功 + 实际设置的文件数）。 */
+export interface SetFilesResult {
+  readonly success: boolean;
+  readonly count: number;
+}
+
+export type ScrollDirection = "down" | "up" | "top" | "bottom";
+
+/** scrollTab 结果（页面内滚动脚本的返回值，如 "scrolled down 3000px"）。 */
+export interface ScrollResult {
+  readonly value: string;
+}
+
+export type ScreenshotFormat = "png" | "jpeg" | "webp";
+
+/** screenshotTab 结果（截图落盘路径——LLM 后续用 read 工具读图）。 */
+export interface ScreenshotResult {
+  readonly saved: string;
+}
 
 /** 受管 tab 值形状（owner 维度回收/观测的公共面）。 */
 export interface TabInfo {
@@ -68,6 +102,16 @@ export interface BrowserPort {
   backTab(tabId: string): Promise<void>;
   /** 执行 JS 表达式（returnByValue + awaitPromise）；页面内异常抛错。 */
   evalInTab(tabId: string, expression: string): Promise<unknown>;
+  /** JS 层点击（简单快速）；元素未命中返回 { clicked: false }。 */
+  clickInTab(tabId: string, selector: string): Promise<ClickResult>;
+  /** 真实鼠标事件点击（算用户手势：可触发文件对话框、绕过反自动化检测）。 */
+  clickAtInTab(tabId: string, selector: string): Promise<ClickAtResult>;
+  /** 给 file input 设置本地文件（绕过文件对话框）；元素未命中抛错。 */
+  setFilesInTab(tabId: string, selector: string, files: readonly string[]): Promise<SetFilesResult>;
+  /** 滚动页面（默认向下 3000px，滚后留懒加载触发窗口）。 */
+  scrollTab(tabId: string, y?: number, direction?: ScrollDirection): Promise<ScrollResult>;
+  /** 截图：必须给 file 落盘（截图供 read 工具读图，base64 不进 content）；缺 file 抛错。 */
+  screenshotTab(tabId: string, file?: string, format?: ScreenshotFormat): Promise<ScreenshotResult>;
   /** 关 tab（未连接时只清本地注册，不触发 lazy connect）。 */
   closeTab(tabId: string): Promise<void>;
   /** 受管 tab 清单（只读快照；不触发 lazy connect）。 */
