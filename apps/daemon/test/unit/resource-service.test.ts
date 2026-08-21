@@ -19,8 +19,8 @@ import type {
 
 /** 与生产 profiles 同构的注入映射（MainSessionProfile/SubAgentProfile.tools）。 */
 const TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
-  "main-session": ["bash", "read", "write", "edit", "grep", "agent_spawn", "agent_send", "agent_status"],
-  "subagent-worker": ["bash", "read", "write", "edit", "grep"],
+  "main-session": ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "agent_spawn", "agent_send", "agent_status"],
+  "subagent-worker": ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"],
 };
 
 /** 测试用 snippet 映射（单点注入；注册表外名 = 空串语义由缺省覆盖）。 */
@@ -135,7 +135,7 @@ describe("ResourceService：合取语义（全集 ∩ kind 启用集）", () => 
 
     const mainTools = service.getEffectiveTools("main-session");
     expect(mainTools.includes("grep")).toBe(false);
-    expect(mainTools.length).toBe(7); // 8 全集 - 1 禁用
+    expect(mainTools.length).toBe(9); // 10 全集 - 1 禁用
 
     // subagent 全集含 grep 且未禁 → 仍启用（kind 维隔离）
     const subTools = service.getEffectiveTools("subagent-worker");

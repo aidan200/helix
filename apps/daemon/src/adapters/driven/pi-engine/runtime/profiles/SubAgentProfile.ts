@@ -37,7 +37,7 @@ export const SUBAGENT_SYSTEM_PROMPT =
 export const SubAgentProfile: AgentProfile = {
   kind: "subagent-worker",
   systemPrompt: SUBAGENT_SYSTEM_PROMPT,
-  tools: ["bash", "read", "write", "edit", "grep"], // 与 MainSessionProfile 同清单（装配经 CoreToolExecutor.resolveTools）
+  tools: ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"], // 与 MainSessionProfile 同清单（装配经 CoreToolExecutor.resolveTools）
   lifecycle: { mode: "single-shot" },
   hooks: [new SteerHooks(), new MinimalHooks()],
   // AD-3：真实声明槽位——声明即最高优先级；生产默认不设值（走会话快照/全局兜底；UI 管理归 skills 页下迭代）

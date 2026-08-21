@@ -19,6 +19,8 @@ import type {
 } from "../../../application/ports/outbound/ToolExecutorPort";
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import { createGrepTool } from "./GrepTool";
+import { createWebSearchTool } from "./web/WebSearchTool";
+import { createWebFetchTool } from "./web/WebFetchTool";
 import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool } from "./agent/AgentOrchestrationTools";
 
 /**
@@ -87,6 +89,8 @@ export class CoreToolExecutor implements ToolExecutorPort {
       createWriteTool(),
       createEditTool(),
       createGrepTool(),
+      createWebSearchTool(),
+      createWebFetchTool(),
     ];
     if (options.orchestration !== undefined) {
       tools.push(

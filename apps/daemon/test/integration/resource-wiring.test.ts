@@ -47,18 +47,28 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
       toolCwd: workspace,
     });
     try {
-      // tools 全集注入：两 profile 声明面（main 8 含编排三件套；subagent 5）
+      // tools 全集注入：两 profile 声明面（main 10 含编排三件套；subagent 7）
       expect(daemon.resource.getEffectiveTools("main-session")).toEqual([
         "bash",
         "read",
         "write",
         "edit",
         "grep",
+        "web_search",
+        "web_fetch",
         "agent_spawn",
         "agent_send",
         "agent_status",
       ]);
-      expect(daemon.resource.getEffectiveTools("subagent-worker")).toEqual(["bash", "read", "write", "edit", "grep"]);
+      expect(daemon.resource.getEffectiveTools("subagent-worker")).toEqual([
+        "bash",
+        "read",
+        "write",
+        "edit",
+        "grep",
+        "web_search",
+        "web_fetch",
+      ]);
 
       // skills：user 层扫出（source 标签 = user）
       const view = await daemon.resource.list("main-session");
