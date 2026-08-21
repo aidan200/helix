@@ -412,6 +412,19 @@ describe("CdpConnectionManager tab 操作", () => {
     await h.manager.stop();
   });
 
+  test("backInTab：history.back() eval + waitForLoad", async () => {
+    const h = createHarness({});
+    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
+    await h.manager.backInTab(tabId);
+    const sent = h.sockets[0]!.sent;
+    const backIdx = sent.findIndex((m) => m.params?.expression === "history.back()");
+    expect(backIdx).toBeGreaterThanOrEqual(0);
+    expect(sent[backIdx]!.sessionId).toBe(`sess-${tabId}`);
+    // waitForLoad 轮询跟随其后
+    expect(sent.findIndex((m, i) => i > backIdx && m.params?.expression?.includes("readyState"))).toBeGreaterThan(backIdx);
+    await h.manager.stop();
+  });
+
   test("navigateTab：Page.navigate + waitForLoad + touch", async () => {
     const h = createHarness({});
     const { tabId } = await h.manager.openTab("about:blank", "agent-1");

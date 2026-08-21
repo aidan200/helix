@@ -216,6 +216,15 @@ export class CdpConnectionManager implements BrowserPort {
     this.registry.touch(tabId);
   }
 
+  /** 后退（history.back + waitForLoad；移植源 /back 同语义）。 */
+  async backInTab(tabId: string): Promise<void> {
+    await this.connect();
+    const sid = await this.ensureSession(tabId);
+    await this.sendCDP("Runtime.evaluate", { expression: "history.back()" }, sid);
+    await this.waitForLoad(sid);
+    this.registry.touch(tabId);
+  }
+
   async evalInTab(tabId: string, expression: string): Promise<unknown> {
     await this.connect();
     const sid = await this.ensureSession(tabId);

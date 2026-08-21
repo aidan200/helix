@@ -86,6 +86,8 @@ export interface BrowserPort {
   openTab(url: string, ownerId: string): Promise<{ tabId: string }>;
   /** 导航（自动等待加载完成）。 */
   navigateTab(tabId: string, url: string): Promise<void>;
+  /** 后退（history.back + 等待加载；移植源 /back 端点同语义）。 */
+  backInTab(tabId: string): Promise<void>;
   /** 执行 JS 表达式（returnByValue + awaitPromise）；页面内异常抛错。 */
   evalInTab(tabId: string, expression: string): Promise<unknown>;
   /** JS 层点击（简单快速）；元素未命中返回 { clicked: false }。 */
