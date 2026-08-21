@@ -164,7 +164,6 @@ const REQUIRED_KEYS = [
   // T2.2（CL-5 P-1 TracePage；原型 P-1-trace.html 文案清单）
   "trace.title",
   "trace.controls.ariaLabel",
-  "trace.controls.session",
   "trace.controls.range",
   "trace.controls.types",
   "trace.controls.typesGroup",
@@ -172,6 +171,11 @@ const REQUIRED_KEYS = [
   "trace.controls.range1h",
   "trace.controls.range15m",
   "trace.controls.range5m",
+  // S3b（trace 页迁 AppLayout：sidebar 上下分区；控制条 session 下拉退役）
+  "trace.sidebar.ariaLabel",
+  "trace.sidebar.sessions",
+  "trace.sidebar.sessionsEmpty",
+  "trace.sidebar.pickSession",
   "trace.panel.ariaLabel",
   "trace.panel.title",
   "trace.panel.count",

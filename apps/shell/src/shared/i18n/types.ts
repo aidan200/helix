@@ -314,7 +314,6 @@ export interface TraceTranslations {
   title: string;
   controls: {
     ariaLabel: string;
-    session: string;
     range: string;
     types: string;
     typesGroup: string;
@@ -322,6 +321,17 @@ export interface TraceTranslations {
     range1h: string;
     range15m: string;
     range5m: string;
+  };
+  /** sidebar 上下分区（S3b：上 = 会话列表；下 = 实例分区标题/计数/空态复用 trace.panel.*） */
+  sidebar: {
+    /** 侧栏整体 aria 标签 */
+    ariaLabel: string;
+    /** 上分区标题（会话列表） */
+    sessions: string;
+    /** 上分区空态（无会话） */
+    sessionsEmpty: string;
+    /** 下分区空态（未选会话） */
+    pickSession: string;
   };
   panel: {
     ariaLabel: string;

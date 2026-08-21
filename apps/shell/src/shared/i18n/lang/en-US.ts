@@ -262,7 +262,6 @@ export const enUS: Translations = {
     title: "Trace",
     controls: {
       ariaLabel: "Filter controls",
-      session: "Session",
       range: "Time range",
       types: "Event types",
       typesGroup: "Event type multi-select",
@@ -270,6 +269,12 @@ export const enUS: Translations = {
       range1h: "Last 1 hour",
       range15m: "Last 15 minutes",
       range5m: "Last 5 minutes",
+    },
+    sidebar: {
+      ariaLabel: "Trace sidebar",
+      sessions: "Sessions",
+      sessionsEmpty: "No sessions yet",
+      pickSession: "Select a session to list instances",
     },
     panel: {
       ariaLabel: "Instance panel",

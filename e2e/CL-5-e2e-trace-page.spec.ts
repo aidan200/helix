@@ -82,7 +82,7 @@ function writeLocalEvidence(name: string, content: string): void {
 /** IconRail 进 /trace 并等自动查询收口（success：行在场 + 分页脚全载）。 */
 async function openTrace(page: Page): Promise<void> {
   await page.locator('.rail-btn[data-page="trace"]').click();
-  await expect(page.locator(".p1-page")).toBeVisible();
+  await expect(page.locator('[data-trace-page="/trace"]')).toBeVisible();
   await expect(page.locator(".p1-tbody .p1-entry").first()).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".p1-foot .hud-btn")).toHaveText("已加载全部", { timeout: 15_000 });
 }
@@ -357,18 +357,18 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     await expect(secondRow).toHaveAttribute("aria-expanded", "false");
     await expect(page.locator(".p1-payload")).toHaveCount(0);
 
-    // ── 面板随会话选择重建（甲 2 实例 ↔ 乙 1 实例）───────────
-    const sel = page.locator("#p1-sel-session");
-    const sidA = await sel.inputValue();
-    const optionB = sel.locator("option", { hasText: "乙会话首轮" });
-    const sidB = (await optionB.getAttribute("value"))!;
+    // ── 面板随会话选择重建（S3b：sidebar 上分区点击；甲 2 实例 ↔ 乙 1 实例）──
+    const activeSes = page.locator(".tsb-ses.on");
+    const sidA = (await activeSes.getAttribute("data-session-id"))!;
+    const itemB = page.locator(".tsb-ses", { hasText: "乙会话首轮" });
+    const sidB = (await itemB.getAttribute("data-session-id"))!;
     expect(sidB).not.toBe(sidA);
-    await sel.selectOption(sidB);
+    await itemB.click();
     await expect(page.locator(".ip-count")).toHaveText("1 实例");
     await waitHitCount(page);
     await expect(page.locator(".ip-item:not(.ip-all)")).toHaveCount(1);
     await expect(page.locator(".ip-item:not(.ip-all)").filter({ hasText: "agent-1" })).toHaveCount(0);
-    await sel.selectOption(sidA);
+    await page.locator(".tsb-ses", { hasText: "trace 会话首轮" }).click();
     await expect(page.locator(".ip-count")).toHaveText("2 实例");
     await waitHitCount(page);
     await expect(page.locator(".ip-item:not(.ip-all)").filter({ hasText: "agent-1" })).toHaveCount(1);
@@ -406,7 +406,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     }
 
     await page.locator('.rail-btn[data-page="trace"]').click();
-    await expect(page.locator(".p1-page")).toBeVisible();
+    await expect(page.locator('[data-trace-page="/trace"]')).toBeVisible();
     // 首页 50 行（PAGE_SIZE 步进）+ footer 计数
     await expect(page.locator(".p1-tbody .p1-entry")).toHaveCount(50, { timeout: 15_000 });
     const metaText = await page.locator(".p1-foot .meta").innerText();
@@ -525,7 +525,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     const preRows = await readMixedRows(page);
     const preTotal = await waitHitCount(page);
     expect(preRows.length).toBe(preTotal); // 全量单页（<50）
-    const sid = await page.locator("#p1-sel-session").inputValue();
+    const sid = (await page.locator(".tsb-ses.on").getAttribute("data-session-id"))!;
     const card = page.locator(".ctx-card");
     await page.locator(".ip-item:not(.ip-all)").filter({ hasText: "主实例" }).click();
     await expect(card.locator(".tl-cur")).toContainText(TARGET_MODEL);

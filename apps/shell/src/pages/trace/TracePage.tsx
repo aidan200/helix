@@ -1,7 +1,10 @@
 /**
- * P-1 TracePage —— 事件追溯页（CL-5；T2.2）：执行全貌双视图
- * （实例面板 264px sticky 左栏 + 主列：实例详情时顶部执行上下文卡 +
- * 事件流时间轴），顶部组合过滤控制条（会话 / 类型 chips / 时间范围）。
+ * P-1 TracePage —— 事件追溯页（CL-5；T2.2；S3b 迁 AppLayout）：执行
+ * 全貌双视图（sidebar 下=实例列表 + 主列：实例详情时顶部执行上下文卡 +
+ * 事件流时间轴），主列顶部组合过滤控制条（类型 chips / 时间范围）。
+ * 壳 = AppLayout 统一应用壳（S1 布局契约）：headerLeft = 页名；
+ * sidebar = TraceSidebar 上下分区（上=会话列表 / 下=选中会话实例列表，
+ * 各自独立内滚）；children = .p1-col 主列（控制条 + 主区 + 断连 overlay）。
  *
  * 数据通道（连接私有读面，AG-15：页面私有 reducer，不进 session store）：
  * - 发送：sendTraceQuery（trace.query，单飞 + filterEcho 迟到结果丢弃）；
@@ -16,10 +19,12 @@
  *
  * 视觉与行为基准 = prototype/P-1-trace.html（还原清单见 review.md §四
  * 「必须还原」8 项）；风格 token 零 delta（hud-* 类名 + CSS 变量，
- * trace.css 零硬编码 hex）。
+ * trace.css 零硬编码 hex）。scanline 氛围层 = App.tsx 全局单份（S1 上提，
+ * 页内副本 S3b 清理）。
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { EventEnvelope, TraceQueryResultPayload } from "@helix/protocol";
+import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
@@ -33,7 +38,7 @@ import {
   type TraceFilter,
 } from "./model/trace-model";
 import TraceControls from "./ui/P-1-trace-controls";
-import InstancePanel from "./ui/P-1-instance-panel";
+import TraceSidebar from "./ui/TraceSidebar";
 import ContextCard from "./ui/P-1-context-card";
 import EventTable from "./ui/P-1-event-table";
 import { ConnOverlay, EmptyPane, ErrorPane, TableSkeleton } from "./ui/P-1-state-panes";
@@ -138,6 +143,7 @@ const TracePage = function TracePage({ path }: { path: string }) {
   }, [conn, resolvedSessionId, topology.list.length, requestSessionList, runQuery, toast, t]);
 
   // ── 控制条交互（任何筛选变更 = 新查询：清旧态 + 游标/展开/折叠重置）──
+  // 会话选择入口在 TraceSidebar 上分区（S3b；session 域全量重置）
   const onSelectSession = useCallback(
     (sessionId: string) => {
       if (sessionId === stateRef.current.filter.sessionId) return;
@@ -208,31 +214,29 @@ const TracePage = function TracePage({ path }: { path: string }) {
   const refMs = state.latestEventTs !== null ? Date.parse(state.latestEventTs) : Date.now();
 
   return (
-    <div className="p1-page" data-trace-page={path}>
-      <div className="scanline-overlay" aria-hidden="true" />
-      <header className="p1-head">
-        <div className="p1-title-block">
-          <h1 className="p1-title">{t("trace.title")}</h1>
-        </div>
-      </header>
-
-      <TraceControls
-        sessions={topology.list}
-        sessionId={state.filter.sessionId}
-        rangeSec={state.filter.rangeSec}
-        types={state.filter.types}
-        onSelectSession={onSelectSession}
-        onSelectRange={onSelectRange}
-        onToggleChip={onToggleChip}
-      />
-
-      <section className="p1-body">
-        <InstancePanel
+    <AppLayout
+      headerLeft={<h1 className="p1-title">{t("trace.title")}</h1>}
+      sidebar={
+        <TraceSidebar
+          sessions={topology.list}
+          sessionId={state.filter.sessionId !== "" ? state.filter.sessionId : (resolvedSessionId ?? "")}
           instances={state.instances}
-          selected={state.filter.instanceId}
+          selectedInstance={state.filter.instanceId}
           loading={view === "loading"}
           refMs={refMs}
-          onSelect={onSelectInstance}
+          onSelectSession={onSelectSession}
+          onSelectInstance={onSelectInstance}
+        />
+      }
+    >
+      {/* S3b：壳归 AppLayout（header 页名 / sidebar 上下分区）；
+          .p1-col = 主列（断言锚 data-trace-page 随主列） */}
+      <div className="p1-col" data-trace-page={path}>
+        <TraceControls
+          rangeSec={state.filter.rangeSec}
+          types={state.filter.types}
+          onSelectRange={onSelectRange}
+          onToggleChip={onToggleChip}
         />
 
         <div className="p1-main">
@@ -269,10 +273,10 @@ const TracePage = function TracePage({ path }: { path: string }) {
           </div>
         </div>
 
-        {/* 断连 overlay：正交层（压住内容区，重连入口） */}
+        {/* 断连 overlay：正交层（压住主列，重连入口） */}
         {connOff && <ConnOverlay onReconnect={retry} />}
-      </section>
-    </div>
+      </div>
+    </AppLayout>
   );
 };
 

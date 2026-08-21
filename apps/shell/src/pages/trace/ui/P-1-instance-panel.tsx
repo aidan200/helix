@@ -1,8 +1,9 @@
 /**
- * P-1 实例面板（F5.1；左栏 264px sticky）：会话选择后列实例（主 + 各
- * SubAgent）——profileKind 徽标（main-session accent / phase-* violet
- * 分对着色）、模型、生命周期状态（running 脉冲点 / completed / failed /
- * killed）、起止与时长、事件计数；「全部实例」= 全会话混排表格入口。
+ * P-1 实例面板（F5.1；S3b 迁 TraceSidebar 下分区）：会话选择后列实例
+ * （主 + 各 SubAgent）——profileKind 徽标（main-session accent / phase-*
+ * violet 分对着色）、模型、生命周期状态（running 脉冲点 / completed /
+ * failed / killed）、起止与时长、事件计数；「全部实例」= 全会话混排表格
+ * 入口。S3b 起不再自持 hud-card 卡壳（sidebar 分区语言），保留 ip-* 断言面。
  *
  * 视觉基准 = prototype/P-1-trace.html `.inst-panel`；数据 = trace.query.result
  * 的 instances 摘要块（会话级 fold，不受事件过滤维影响，AF-5）。
@@ -56,7 +57,7 @@ const InstancePanel = function InstancePanel({
   const { t } = useI18n();
   const totalCount = instances.reduce((acc, r) => acc + r.eventCount, 0);
   return (
-    <aside className="hud-card inst-panel" aria-label={t("trace.panel.ariaLabel")}>
+    <aside className="inst-panel" aria-label={t("trace.panel.ariaLabel")}>
       <div className="ip-head">
         <span className="ip-title">{t("trace.panel.title")}</span>
         <span className="ip-count">
