@@ -37,6 +37,7 @@ import {
   applyAgentConfigEvent,
   isAgentConfigEventType,
 } from "../consumers/agent-config";
+import { applyWebEvent, isWebEventType } from "../consumers/web-status";
 import { route } from "./index";
 
 /** v0.2 统一信封帧入口：拓扑状态 + 事件帧 → 新拓扑状态。 */
@@ -56,6 +57,12 @@ export function dispatchFrame(topo: TopologyState, frame: EventEnvelope, ts?: nu
   //    （model 族两层拓扑同构）
   if (isAgentConfigEventType(frame.type)) {
     return applyAgentConfigEvent(topo, frame);
+  }
+  // ⓪″ 拓扑级 web 族（v0.7，T4 联网状态图标）：status.result 启动查询回执
+  //    / status.changed 四时机广播 → topology.webStatus 写入；stop.result
+  //    直通（状态回流经广播）——同 model/agent-config 族两层拓扑前置
+  if (isWebEventType(frame.type)) {
+    return applyWebEvent(topo, frame);
   }
   // ① 后台会话帧：轻量 store 消费。草稿态 activeId 可为 null——后台路由不
   //    依赖 activeId 非空（bug3 修复：旧守卫「activeId!==null」是 v0.1 兼容

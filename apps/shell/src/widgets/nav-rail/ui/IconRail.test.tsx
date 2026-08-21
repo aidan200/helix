@@ -3,12 +3,17 @@
  * S1 IconRail 改造契约（用户裁决：logo 换 chat header 同款 HelixLogo；
  * 主题切换单钮置 rail-avatar 上方，太阳/月亮显示切换目标）。
  *
- * 纯展示纪律（TR-AD-8）：theme/onToggleTheme 全 props 注入，
- * 组件不读 ThemeContext、不读 store——无 Provider 装配也可渲染。
+ * T4 联网状态钮（契约 v0.7 web 族）：主题钮上方联网图标——三态
+ *（灰 idle/未连接 → 绿 connected → 红 error）+ 点击 popover（连接详情
+ * + tab 清单 + 停止并清理）。
+ *
+ * 纯展示纪律（TR-AD-8）：theme/onToggleTheme/webStatus/onStopWeb 全 props
+ * 注入，组件不读 ThemeContext、不读 store——无 Provider 装配也可渲染。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { Activity, MessageSquare } from "lucide-react";
+import type { WebStatusPayload } from "@helix/protocol";
 import { I18nProvider } from "@/shared/i18n";
 import IconRail from "./IconRail";
 
@@ -17,7 +22,17 @@ const items = [
   { id: "trace", route: "/trace", labelKey: "chat.nav.pages.trace.label", icon: Activity },
 ] as const;
 
-function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void } = {}) {
+const CONNECTED: WebStatusPayload = {
+  state: "connected",
+  browser: { id: "chrome-9222", label: "Chrome", port: 9222 },
+  tabCount: 2,
+  tabs: [
+    { tabId: "tab-1", ownerId: "main", url: "https://example.com", title: "Example", lastAccessed: Date.now() - 5 * 60_000 },
+    { tabId: "tab-2", ownerId: "agent-1", url: "https://example.com/docs", title: "Docs", lastAccessed: Date.now() - 30_000 },
+  ],
+};
+
+function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void; webStatus?: WebStatusPayload | null; onStopWeb?: () => void } = {}) {
   // jsdom navigator.language 默认 en-US：钉 zh-CN（产品断言语言，AG-14 白名单键）
   localStorage.setItem("helix-lang", "zh-CN");
   return render(
@@ -28,6 +43,8 @@ function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void } = {}
         onNavigate={() => {}}
         theme={props.theme ?? "dark"}
         onToggleTheme={props.onToggleTheme ?? (() => {})}
+        webStatus={props.webStatus ?? null}
+        onStopWeb={props.onStopWeb ?? (() => {})}
       />
     </I18nProvider>,
   );
@@ -69,5 +86,79 @@ describe("S1 IconRail 契约", () => {
     expect(btn.querySelector(".lucide-moon")).not.toBeNull();
     fireEvent.click(btn);
     expect(onToggleTheme).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("T4 IconRail 联网状态钮（契约 v0.7 web 族）", () => {
+  it("DOM 序：#btn-web-status 在 #btn-theme-toggle 上方（主题钮之上）", () => {
+    ui();
+    const rail = document.querySelector(".icon-rail")!;
+    const seq = Array.from(rail.querySelectorAll("#btn-web-status, #btn-theme-toggle, .rail-avatar")).map(
+      (e) => (e instanceof HTMLElement ? e.id || e.className : ""),
+    );
+    expect(seq).toEqual(["btn-web-status", "btn-theme-toggle", "rail-avatar"]);
+  });
+
+  it("三态：null/idle → 灰（data-web-state=idle）；connected → 绿 + title 含浏览器名与 tab 数；error → 红", () => {
+    // ① 未收到任何状态帧（null）= 灰态未连接
+    ui({ webStatus: null });
+    const btn = document.querySelector("#btn-web-status")!;
+    expect(btn.getAttribute("data-web-state")).toBe("idle");
+    expect(btn.getAttribute("aria-label")).toContain("联网");
+    cleanup();
+    // ② connected = 绿态；title 显示浏览器名 + tab 数
+    ui({ webStatus: CONNECTED });
+    const on = document.querySelector("#btn-web-status")!;
+    expect(on.getAttribute("data-web-state")).toBe("connected");
+    expect(on.getAttribute("title")).toContain("Chrome");
+    expect(on.getAttribute("title")).toContain("2");
+    cleanup();
+    // ③ error = 红态
+    ui({ webStatus: { state: "error", tabCount: 0, error: "CDP WebSocket 断开", tabs: [] } });
+    const err = document.querySelector("#btn-web-status")!;
+    expect(err.getAttribute("data-web-state")).toBe("error");
+  });
+
+  it("点击开合 popover：连接详情（浏览器/端口/tab 数）+ tab 清单（owner/标题/闲置）+ 停止并清理", () => {
+    ui({ webStatus: CONNECTED });
+    const btn = document.querySelector("#btn-web-status")!;
+    expect(document.querySelector(".web-pop")).toBeNull(); // 初始闭合
+    fireEvent.click(btn);
+    const pop = document.querySelector(".web-pop")!;
+    expect(pop).not.toBeNull();
+    expect(pop.textContent).toContain("Chrome");
+    expect(pop.textContent).toContain("9222");
+    // tab 清单：标题 + owner + 闲置时长
+    expect(pop.textContent).toContain("Example");
+    expect(pop.textContent).toContain("main");
+    expect(pop.textContent).toContain("agent-1");
+    expect(pop.textContent).toContain("闲置");
+    // 停止并清理按钮在场
+    const stop = pop.querySelector("#btn-web-stop")!;
+    expect(stop.textContent).toContain("停止并清理");
+    // 再点钮关闭
+    fireEvent.click(btn);
+    expect(document.querySelector(".web-pop")).toBeNull();
+  });
+
+  it("停止并清理点击调 onStopWeb（纯 props 注入，一次一回调）；Esc 关闭 popover", () => {
+    const onStopWeb = vi.fn();
+    ui({ webStatus: CONNECTED, onStopWeb });
+    fireEvent.click(document.querySelector("#btn-web-status")!);
+    fireEvent.click(document.querySelector("#btn-web-stop")!);
+    expect(onStopWeb).toHaveBeenCalledTimes(1);
+    // 停止后 popover 保持打开（model-switch 选中不关菜单先例；idle 回流经广播驱动）
+    expect(document.querySelector(".web-pop")).not.toBeNull();
+    // Esc 关闭
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.querySelector(".web-pop")).toBeNull();
+  });
+
+  it("idle 态 popover：无连接详情，停止钮禁用（幂等无可停）", () => {
+    ui({ webStatus: { state: "idle", tabCount: 0, tabs: [] } });
+    fireEvent.click(document.querySelector("#btn-web-status")!);
+    const pop = document.querySelector(".web-pop")!;
+    expect(pop.textContent).toContain("未连接");
+    expect(pop.querySelector("#btn-web-stop")!.hasAttribute("disabled")).toBe(true);
   });
 });

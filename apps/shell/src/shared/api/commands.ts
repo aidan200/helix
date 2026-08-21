@@ -33,6 +33,8 @@ import type {
   SessionUnsubscribeCommand,
   TraceQueryCommand,
   TraceQueryPayload,
+  WebStatusCommand,
+  WebStopCommand,
 } from "@helix/protocol";
 
 /** chat.send：既有会话发送（信封 sessionId = 活跃会话）。 */
@@ -179,4 +181,15 @@ export function agentConfigListCommand(): AgentConfigListCommand {
  *  set_enabled.result 点对点 + applied 时 agent.config.changed 全局广播）。 */
 export function agentConfigSetEnabledCommand(payload: AgentConfigSetEnabledPayload): AgentConfigSetEnabledCommand {
   return { v: PROTOCOL_VERSION, type: "agent.config.set_enabled", payload };
+}
+
+/** web.status：CDP 连接状态读面（全局命令；回执 = web.status.result 点对点）。 */
+export function webStatusCommand(): WebStatusCommand {
+  return { v: PROTOCOL_VERSION, type: "web.status", payload: {} };
+}
+
+/** web.stop：手动停止写面（全局命令；回执 = web.stop.result 点对点 +
+ *  状态回 idle 经 web.status.changed 全局广播）。 */
+export function webStopCommand(): WebStopCommand {
+  return { v: PROTOCOL_VERSION, type: "web.stop", payload: {} };
 }

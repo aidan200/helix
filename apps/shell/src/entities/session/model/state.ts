@@ -19,6 +19,7 @@ import type {
   ThinkingEntryDto,
   ToolCallEntryDto,
   UsageDto,
+  WebStatusPayload,
 } from "@helix/protocol";
 import { MAIN_INSTANCE_ID as PROTOCOL_MAIN_INSTANCE_ID } from "@helix/protocol";
 
@@ -164,6 +165,10 @@ export interface TopologyState {
   /** 智能体配置失效面（agent.config.changed 拓扑级消费；M6 T4 智能体页
    *  失效重拉触发：每广播 revision +1，页面 effect 观测变更重拉 list） */
   agentConfig: { revision: number };
+  /** CDP 连接状态面（web 族拓扑级消费；T4 联网状态图标数据源：
+   *  web.status.result 启动查询回执 + web.status.changed 四时机广播写入；
+   *  null = 未收到任何状态帧（首连前，图标灰态）） */
+  webStatus: WebStatusPayload | null;
 }
 
 /**
@@ -431,5 +436,6 @@ export function createInitialTopologyState(): TopologyState {
     list: [],
     modelConfig: createInitialModelConfigState(),
     agentConfig: { revision: 0 },
+    webStatus: null,
   };
 }

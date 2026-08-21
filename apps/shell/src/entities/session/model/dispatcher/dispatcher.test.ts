@@ -17,6 +17,7 @@ import { route, register } from "./index";
 import { SESSION_DIRECTORY_EVENT_TYPES } from "../consumers/directory";
 import { MODEL_CONFIG_EVENT_TYPES } from "../consumers/model-config";
 import { AGENT_CONFIG_EVENT_TYPES } from "../consumers/agent-config";
+import { WEB_EVENT_TYPES } from "../consumers/web-status";
 import type { SessionState } from "../state";
 import { applyConnEvent } from "../consumers/conn";
 import { applyChatEvent } from "../consumers/chat";
@@ -27,13 +28,14 @@ import { applyHistoryEvent } from "../consumers/history";
 import { applyModelChangedEvent } from "../consumers/model";
 
 describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
-  it("协议全部事件 type（EVENT_TYPES）均被消费：route（会话 store 级）或 directory/modelConfig/agentConfig（拓扑级）", () => {
+  it("协议全部事件 type（EVENT_TYPES）均被消费：route（会话 store 级）或 directory/modelConfig/agentConfig/web（拓扑级）", () => {
     const directoryTypes = new Set<string>(SESSION_DIRECTORY_EVENT_TYPES);
     const modelConfigTypes = new Set<string>(MODEL_CONFIG_EVENT_TYPES);
     const agentConfigTypes = new Set<string>(AGENT_CONFIG_EVENT_TYPES);
+    const webTypes = new Set<string>(WEB_EVENT_TYPES);
     for (const type of EVENT_TYPES) {
       expect(
-        route(type) !== undefined || directoryTypes.has(type) || modelConfigTypes.has(type) || agentConfigTypes.has(type),
+        route(type) !== undefined || directoryTypes.has(type) || modelConfigTypes.has(type) || agentConfigTypes.has(type) || webTypes.has(type),
         `未消费事件 type：${type}`,
       ).toBe(true);
     }
@@ -91,5 +93,10 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     expect(route("agent.config.changed")).toBeUndefined();
     expect(route("agent.config.list.result")).toBeUndefined();
     expect(route("agent.config.set_enabled.result")).toBeUndefined();
+    // v0.7 web 族（T4 联网状态图标）：三 type 全走拓扑级前置路由——
+    // result/changed 写真消费（topology.webStatus），stop.result 直通
+    for (const type of WEB_EVENT_TYPES) {
+      expect(route(type), `web 族不应注册会话 store 面：${type}`).toBeUndefined();
+    }
   });
 });

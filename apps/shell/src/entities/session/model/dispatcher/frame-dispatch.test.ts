@@ -119,6 +119,28 @@ describe("dispatcher 帧路由（v0.2 信封 sessionId）", () => {
     expect(route("agent.config.list.result")).toBeUndefined();
   });
 
+  it("web 族三 type（v0.7 系统级）→ 拓扑级前置路由：result/changed 写 topology.webStatus，stop.result 直通不写态（T4）", () => {
+    const topo = connectedTopology();
+    const activeBefore = topo.active;
+    const statusPayload = {
+      state: "connected",
+      browser: { id: "chrome-9222", label: "Chrome", port: 9222 },
+      tabCount: 1,
+      tabs: [{ tabId: "tab-1", ownerId: "main", url: "https://example.com", title: "Example", lastAccessed: 1724000000000 }],
+    };
+    // ① 启动查询回执 → webStatus 写入（IconRail 联网钮数据源）
+    const queried = dispatchFrame(topo, frame("web.status.result", statusPayload, { sessionId: SYSTEM_SESSION_ID, channel: "web" }), 0);
+    expect(queried).not.toBe(topo);
+    expect(queried.webStatus).toEqual(statusPayload);
+    expect(queried.active).toBe(activeBefore); // 活跃会话 store 不被误写
+    // ② 广播 → webStatus 覆盖写（idle 回退形态）
+    const idled = dispatchFrame(queried, frame("web.status.changed", { state: "idle", tabCount: 0, tabs: [] }, { sessionId: SYSTEM_SESSION_ID, channel: "web" }), 0);
+    expect(idled.webStatus).toEqual({ state: "idle", tabCount: 0, tabs: [] });
+    // ③ stop 回执 → 拓扑原引用（状态回流经广播）
+    expect(dispatchFrame(queried, frame("web.stop.result", { status: "applied" }, { sessionId: SYSTEM_SESSION_ID, channel: "web" }), 0)).toBe(queried);
+    expect(route("web.status.result")).toBeUndefined();
+  });
+
   it("session.list.result → 会话清单数据面 + 后台轻量 store 播种（活跃会话不播种）", () => {
     const topo = connectedTopology();
     const next = dispatchFrame(topo, frame("session.list.result", { sessions: [

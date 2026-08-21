@@ -257,6 +257,31 @@ export interface ChatTranslations {
       settings: { label: string };
     };
   };
+  /** IconRail 联网状态钮 + popover（T4，契约 v0.7 web 族：CDP 单例连接状态展示 + 手动停止） */
+  web: {
+    /** 联网钮 aria-label / popover 标题 */
+    button: string;
+    /** 四态文案（idle=未连接灰态 / connecting / connected 绿态 / error 红态） */
+    stateIdle: string;
+    stateConnecting: string;
+    stateConnected: string;
+    stateError: string;
+    /** connected 态钮 title：浏览器名 + 受管 tab 数（{browser}/{count} 插值） */
+    connectedTitle: string;
+    /** popover 详情行标签 */
+    browserLabel: string;
+    portLabel: string;
+    tabCountLabel: string;
+    /** tab 清单区标题 / 空态 */
+    tabsTitle: string;
+    tabsEmpty: string;
+    /** 停止并清理按钮（web.stop 命令） */
+    stop: string;
+    /** tab 行闲置时长三档（{minutes}/{hours} 插值） */
+    idleJustNow: string;
+    idleMinutes: string;
+    idleHours: string;
+  };
   /** P-3 模型切换弹出菜单（features/model-switch；CL-3 F(3.3).1-F(3.3).3；T3.3） */
   modelSwitch: {
     searchPlaceholder: string;

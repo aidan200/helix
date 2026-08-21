@@ -15,6 +15,7 @@ import { I18nProvider } from "@/shared/i18n";
 import { ThemeProvider } from "@/shared/ui/theme";
 import { ToastProvider } from "@/shared/ui/Toast";
 import { SessionProvider } from "@/entities/session/SessionContext";
+import { useSession } from "@/entities/session/SessionContext";
 import ChatPage from "@/pages/chat/ChatPage";
 import AgentPage from "@/pages/skills/AgentPage";
 import TracePage from "@/pages/trace/TracePage";
@@ -44,6 +45,9 @@ const RAIL_ITEMS: readonly IconRailItem<AppRoute>[] = [
 function AppRoutes() {
   const { route, navigate } = useAppRoute();
   const { theme, setTheme } = useTheme();
+  // T4 web 族（契约 v0.7）：联网状态读面（topology.webStatus，拓扑级消费）
+  // + 停止写面（web.stop 命令帧）→ IconRail props 注入（IconRail 纯展示）
+  const { topology, sendWebStop } = useSession();
   const onWorkbench = route === ROUTE_WORKBENCH;
   return (
     <>
@@ -54,6 +58,8 @@ function AppRoutes() {
           onNavigate={navigate}
           theme={theme}
           onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
+          webStatus={topology.webStatus}
+          onStopWeb={sendWebStop}
         />
         <div className="page-area">
           {/* 工作台常驻 DOM：非工作台路由 display:none（状态/WS 全保留） */}

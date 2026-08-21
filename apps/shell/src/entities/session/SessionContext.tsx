@@ -43,6 +43,8 @@ import {
   sessionListCommand,
   sessionLoadHistoryCommand,
   traceQueryCommand,
+  webStatusCommand,
+  webStopCommand,
 } from "@/shared/api/commands";
 import { DAEMON_PORT, FAKE_TRANSPORT_DEFINE, fakeTransportScript } from "@/shared/config/env";
 import {
@@ -137,6 +139,10 @@ interface SessionContextValue {
   /** 订阅 agent.config 族点对点回执（list.result / set_enabled.result；
    *  changed 广播走拓扑级消费，不在此转发）。 */
   subscribeAgentConfigFrames: (listener: (e: EventEnvelope) => void) => () => void;
+  // ── web 族联网状态面（T4，契约 v0.7；IconRail 联网钮）──
+  /** 发送 web.stop（停止并清理；回执 applied + 状态回 idle 经
+   *  web.status.changed 广播写 topology.webStatus）。 */
+  sendWebStop: () => boolean;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -274,6 +280,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // T4 web 族（契约 v0.7）：连接就绪即发一次 web.status 查询拿初值
+  //（IconRail 联网钮首态数据源；重连随 conn 迁移重发——断连期间 daemon
+  // 侧状态可能已变，广播只覆盖变更时机）。后续变更走 web.status.changed
+  // 广播拓扑级消费，无需轮询。
+  const conn = topology.active.conn;
+  useEffect(() => {
+    if (conn === "connected") clientRef.current!.send(webStatusCommand());
+  }, [conn]);
+
   const setDraft = useCallback((text: string) => dispatch({ type: "ui/set-draft", text }), []);
 
   const submit = useCallback((raw: string) => {
@@ -382,6 +397,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       agentConfigListenersRef.current.delete(listener);
     };
   }, []);
+
+  // web 族联网状态面（T4，契约 v0.7）：停止并清理写面（读面初值见上方
+  // 连接就绪 effect；变更走广播拓扑级消费 topology.webStatus）
+  const sendWebStop = useCallback(() => clientRef.current!.send(webStopCommand()), []);
 
   const consumeRestoreToast = useCallback(
     () => dispatch({ type: "ui/consume-restore-toast" }),
@@ -509,6 +528,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendAgentConfigList,
       sendAgentConfigSetEnabled,
       subscribeAgentConfigFrames,
+      sendWebStop,
     }),
     [
       state,
@@ -542,6 +562,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendAgentConfigList,
       sendAgentConfigSetEnabled,
       subscribeAgentConfigFrames,
+      sendWebStop,
     ],
   );
 

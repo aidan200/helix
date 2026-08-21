@@ -26,6 +26,16 @@ import { applySnapshotEvent, SNAPSHOT_EVENT_TYPES } from "../consumers/snapshot"
 import { applyHistoryEvent, HISTORY_EVENT_TYPES } from "../consumers/history";
 import { applyModelChangedEvent, MODEL_EVENT_TYPES } from "../consumers/model";
 
+// ── v0.6 agent.config 族（M6 T4 真消费）：拓扑级前置路由（consumers/agent-config.ts）──
+// changed → agentConfig.revision 失效重拉信号；两结果帧拓扑级直通（真消费归
+// 页面查询链）。「EVENT_TYPES 全类型已路由」守护扩展 = route(type) ??
+// isDirectoryEventType(type) ?? isModelConfigEventType(type) ??
+// isAgentConfigEventType(type)（dispatcher.test.ts）。
+
+// ── v0.7 web 族（T4 联网状态图标）：拓扑级前置路由（consumers/web-status.ts）──
+// status.result/status.changed → topology.webStatus 写入（IconRail 数据源）；
+// stop.result 直通。守护再扩展 ?? isWebEventType(type)（dispatcher.test.ts）。
+
 /** 消费者事件处理面（帧驱动；ts 由 provider 注入保持 reducer 纯）。 */
 export type SessionEventHandler = (
   s: SessionState,

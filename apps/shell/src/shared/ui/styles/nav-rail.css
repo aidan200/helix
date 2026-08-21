@@ -68,6 +68,76 @@ html.light .icon-rail {
 }
 /* 主题切换单钮（S1 用户裁决：Sun/Moon = 切换目标；置头像块上方） */
 .rail-theme-btn { margin-top: 16px; }
+
+/* ═══ T4 联网状态钮（契约 v0.7 web 族）：主题钮上方，三态 + popover ═══ */
+.rail-web { position: relative; margin-top: auto; }
+.rail-web-btn { color: var(--text-dim); }
+/* 状态点（右上角小圆点：灰 idle/connecting → 绿 connected 呼吸 → 红 error） */
+.web-dot {
+  position: absolute; top: 7px; right: 7px; width: 7px; height: 7px;
+  border-radius: 999px; background: var(--text-faint);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.rail-web-btn[data-web-state="connected"] { color: var(--accent); }
+.rail-web-btn[data-web-state="connected"] .web-dot {
+  background: var(--accent); box-shadow: var(--glow-cyan);
+  animation: web-dot-breathe 2.4s ease-in-out infinite;
+}
+.rail-web-btn[data-web-state="error"] { color: var(--error); }
+.rail-web-btn[data-web-state="error"] .web-dot { background: var(--error); }
+@keyframes web-dot-breathe {
+  0%, 100% { box-shadow: 0 0 2px 0 rgb(var(--accent-rgb) / 0.5); }
+  50% { box-shadow: 0 0 8px 2px rgb(var(--accent-rgb) / 0.8); }
+}
+/* 弹层开启态钮高亮（复用激活态发光底，不挂指示条/BorderBeam） */
+.rail-web-btn.open {
+  color: var(--accent);
+  border-color: rgb(var(--accent-rgb) / 0.5);
+  background: rgb(var(--accent-rgb) / 0.1);
+}
+/* popover：rail 右侧弹出（载体 .rail-web relative；详情 + tab 清单 + 停止） */
+.web-pop {
+  position: absolute; left: calc(100% + 10px); bottom: 0; z-index: 30;
+  width: 264px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 10px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.2); border-radius: 10px;
+  background: var(--card-fill);
+  backdrop-filter: blur(8px) saturate(115%); -webkit-backdrop-filter: blur(8px) saturate(115%);
+  box-shadow: 0 8px 28px rgb(var(--void-rgb) / 0.5);
+}
+.web-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.web-pop-title { font-size: var(--text-body); font-weight: 600; color: var(--text); }
+.web-state-chip {
+  font-size: var(--text-micro); padding: 2px 8px; border-radius: 999px;
+  border: 1px solid rgb(var(--edge-rgb) / 0.25); color: var(--text-dim);
+}
+.web-state-chip.is-connected { border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.1); color: var(--accent); }
+.web-state-chip.is-error { border-color: rgb(var(--error-rgb) / 0.45); background: rgb(var(--error-rgb) / 0.12); color: var(--error); }
+.web-pop-error { font-size: var(--text-micro); color: var(--error); word-break: break-all; }
+.web-pop-rows { display: flex; flex-direction: column; gap: 4px; }
+.web-pop-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--text-body); }
+.wp-label { font-size: var(--text-micro); color: var(--text-faint); letter-spacing: 0.04em; }
+.wp-value { color: var(--text); }
+.web-pop-tabs { display: flex; flex-direction: column; gap: 6px; }
+.web-tab-list {
+  list-style: none; margin: 0; padding: 0; max-height: 168px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.web-tab-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 4px 6px; border-radius: 6px; background: rgb(var(--void-rgb) / 0.35);
+}
+.wt-title {
+  font-size: var(--text-body); color: var(--text); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wt-meta { font-size: var(--text-micro); color: var(--text-faint); flex-shrink: 0; }
+.web-tab-empty { font-size: var(--text-micro); color: var(--text-faint); }
+.web-stop-btn { align-self: stretch; justify-content: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-web-btn[data-web-state="connected"] .web-dot { animation: none !important; }
+}
 .rail-avatar {
   margin-top: 16px; width: 40px; height: 40px;
   display: flex; align-items: center; justify-content: center;
