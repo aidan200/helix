@@ -52,6 +52,13 @@ export const enUS: Translations = {
       stop: "Stop",
       enterHint: "[[Alt+Enter]] send · [[Enter]] newline",
     },
+    attach: {
+      button: "Attach images",
+      remove: "Remove image",
+      enlarge: "Enlarge image",
+      limit: "Up to 4 images",
+      imageAlt: "Image {n}",
+    },
     steer: {
       hint: "Agent generating · queued messages inject after this turn",
       queued: "STEER · queued",

@@ -47,14 +47,15 @@ export class Session {
     return `e${this.nextEntrySeq++}`;
   }
 
-  /** 追加一条用户消息（仅无 open turn 时合法；运行中注入请用 applySteer）。 */
-  appendUserEntry(text: string, at?: string): Entry {
+  /** 追加一条用户消息（仅无 open turn 时合法；运行中注入请用 applySteer）。
+   *  T9：可选 images（base64 data URL 数组，chat.send.images 校验后透传落盘）。 */
+  appendUserEntry(text: string, at?: string, images?: readonly string[]): Entry {
     if (this.currentTurn !== null) {
       throw new DomainError(
         `会话 ${this.id} 当前轮次 ${this.currentTurn.id} 进行中，新输入必须经 applySteer 注入（或等待轮次结束）`,
       );
     }
-    return this.pushEntry("user", text, null, false, at);
+    return this.pushEntry("user", text, null, false, at, undefined, undefined, images);
   }
 
   /**
@@ -126,6 +127,7 @@ export class Session {
     at?: string,
     reservedId?: string,
     instanceId: string = MAIN_INSTANCE_ID,
+    images?: readonly string[],
   ): Entry {
     const entry = Entry.create({
       id: reservedId ?? `e${this.nextEntrySeq++}`,
@@ -137,6 +139,8 @@ export class Session {
       // appendInstanceMessage 携带 agent-N（会话投影消费事件后落树）
       instanceId,
       createdAt: at ?? new Date().toISOString(),
+      // T9：仅 user 消息携带图片附件（校验后 data URL 原样；其余角色 undefined）
+      ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}),
     });
     this.entries.push(entry);
     return entry;

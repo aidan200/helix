@@ -49,6 +49,19 @@ export interface ChatTranslations {
     /** 值内 [[x]] 标记渲染为 kbd 键帽（如 "[[Alt+Enter]] 发送"） */
     enterHint: string;
   };
+  /** 图片附件（T9 图片上下行）：附件钮/chips/放大/超限提示/图片 alt */
+  attach: {
+    /** 附件钮可读名（aria-label + title） */
+    button: string;
+    /** chips 移除钮可读名 */
+    remove: string;
+    /** 缩略图点击放大（aria-label）+ lightbox 标题 */
+    enlarge: string;
+    /** 超 4 张上限提示 */
+    limit: string;
+    /** 图片 alt 文案（{n} 序号） */
+    imageAlt: string;
+  };
   steer: {
     hint: string;
     queued: string;

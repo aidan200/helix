@@ -27,6 +27,11 @@ import { selectActiveRunState } from "@/entities/session/model/topology";
 const setDraft = vi.fn();
 const submit = vi.fn();
 const abort = vi.fn();
+// T9 图片上行：附件入草稿/移除（发送载荷断言见 T9 块）
+const attachImages = vi.fn();
+const removeAttachment = vi.fn();
+// T9 断言别名（attachImages 的短名引用）
+const attach = attachImages;
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
@@ -37,6 +42,8 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       setDraft,
       submit,
       abort,
+      attachImages,
+      removeAttachment,
     }),
   };
 });
@@ -196,5 +203,99 @@ describe("T8 · 脚注文案（projectionNote 退役 / enterHint 新快捷键语
     expect(foot.textContent).toBe("Alt+Enter 发送 · Enter 换行");
     const kbds = Array.from(foot.querySelectorAll(".kbd"));
     expect(kbds.map((k) => k.textContent)).toEqual(["Alt+Enter", "Enter"]);
+  });
+});
+
+// ── T9 图片上行：附件钮 / chips 预览 / 移除 / 上限预检 / 发送载荷 ──────
+
+/** 构造图片 File（FileReader.readAsDataURL → data URL；jsdom 支持）。 */
+function imageFile(bytes: Uint8Array, type: string, name: string): File {
+  return new File([bytes as BlobPart], name, { type });
+}
+
+const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_BYTES = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]);
+
+/** 模拟文件选择（input.files → change）。 */
+async function pickFiles(files: File[]): Promise<void> {
+  const input = document.querySelector<HTMLInputElement>("input[type=file]")!;
+  Object.defineProperty(input, "files", { value: files });
+  fireEvent.change(input);
+  await new Promise((r) => setTimeout(r, 10)); // FileReader 异步
+}
+
+describe("T9 · 附件钮与 chips 预览", () => {
+  it("附件钮 #btn-attach 渲染且带可读名（aria-label）", () => {
+    stateRef.current = connectedReady();
+    ui();
+    const btn = document.querySelector("#btn-attach") as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(btn.getAttribute("aria-label")).toContain("图片");
+  });
+
+  it("选择图片 → chips 缩略图预览（img）+ 移除钮", async () => {
+    stateRef.current = connectedReady([
+      { type: "ui/attach-images", images: ["data:image/png;base64,AAAA"] },
+    ]);
+    ui();
+    const chips = document.querySelectorAll(".attach-chip");
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.querySelector("img")!.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    expect(chips[0]!.querySelector("button")).not.toBeNull();
+  });
+
+  it("file picker 读取为 data URL 后入草稿（attachImages 调用）", async () => {
+    stateRef.current = connectedReady();
+    ui();
+    await pickFiles([imageFile(PNG_BYTES, "image/png", "a.png")]);
+    expect(attach).toHaveBeenCalledTimes(1);
+    const arg = attach.mock.calls[0]![0] as string[];
+    expect(arg[0]).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it("上限 4 张预检：第 5 张选择显示超限提示且不 attach", async () => {
+    stateRef.current = connectedReady([
+      { type: "ui/attach-images", images: ["data:image/png;base64,A=", "data:image/png;base64,B=", "data:image/png;base64,C=", "data:image/png;base64=D="] },
+    ]);
+    ui();
+    await pickFiles([imageFile(PNG_BYTES, "image/png", "e.png")]);
+    expect(attach).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("最多 4 张");
+  });
+
+  it("chips 移除钮 → removeAttachment(0)", () => {
+    stateRef.current = connectedReady([{ type: "ui/attach-images", images: ["data:image/png;base64,AAAA"] }]);
+    ui();
+    fireEvent.click(document.querySelector(".attach-chip button")!);
+    expect(removeAttachment).toHaveBeenCalledWith(0);
+  });
+
+  it("生成中（streaming）附件钮禁用（steer 带图非目标防护）", () => {
+    stateRef.current = connectedReady([
+      ev({ v: 0, type: "agent.state.changed", payload: { state: "running" } }),
+    ]);
+    ui();
+    const btn = document.querySelector("#btn-attach") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+});
+
+describe("T9 · 发送载荷（带图提交）", () => {
+  it("Alt+Enter 发送携带 attachments：submit(text, images)", async () => {
+    stateRef.current = connectedReady([
+      { type: "ui/set-draft", text: "看这张图" },
+      { type: "ui/attach-images", images: ["data:image/png;base64,AAAA"] },
+    ]);
+    ui();
+    const ta = document.querySelector("#msg-input")!;
+    fireEvent.keyDown(ta, { key: "Enter", altKey: true });
+    expect(submit).toHaveBeenCalledWith("看这张图", ["data:image/png;base64,AAAA"]);
+  });
+
+  it("无附件时 submit(text, undefined)（旧行为零变更）", async () => {
+    stateRef.current = connectedReady([{ type: "ui/set-draft", text: "纯文本" }]);
+    ui();
+    fireEvent.click(document.querySelector("#btn-send")!);
+    expect(submit).toHaveBeenCalledWith("纯文本", undefined);
   });
 });

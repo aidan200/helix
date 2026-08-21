@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   status TEXT NOT NULL,
   result TEXT,
   error TEXT,
+  images TEXT,
   started_at TEXT,
   ended_at TEXT
 );

@@ -313,6 +313,12 @@ export interface SessionState {
   streaming: StreamingState | null;
   /** 输入草稿（纯 UI 态；跨连接态保留，发送成功才清空） */
   draft: string;
+  /**
+   * 图片附件草稿（T9 图片上行，纯 UI 态）：base64 data URL 数组（≤4 张，
+   * 上限预检在 Composer 侧）；随 ui/send 一起消费清空；生成中不可新增
+   * （steer 带图非目标）。
+   */
+  attachments: string[];
   /** 本地 steer echo 序号（确定性 id，保证重放幂等） */
   nextLocalSeq: number;
   /** SubAgent 卡片投影（agent.* 事件族 + 快照 instances；v0.1） */
@@ -351,6 +357,10 @@ export type SessionAction =
   | { type: "event"; event: EventEnvelope; ts?: number }
   // ── 纯 UI 态 ──
   | { type: "ui/set-draft"; text: string }
+  /** 图片附件入草稿（T9）：追加（≤4 上限预检在组件侧，reducer 仅承载） */
+  | { type: "ui/attach-images"; images: string[] }
+  /** 移除第 index 张附件（T9；chips 移除钮） */
+  | { type: "ui/remove-attachment"; index: number }
   /** 草稿模型本地暂存（T3，bug4）：仅 sessionId===null（草稿态）生效置
    *  state.model（徽标/首条 chat.send{draft:true, model} 数据源）；真实会话
    *  原样（防御——真实会话换模走 model.set 帧语义） */
@@ -414,6 +424,7 @@ export function createInitialSessionState(): SessionState {
     entries: [],
     streaming: null,
     draft: "",
+    attachments: [],
     nextLocalSeq: 1,
     instances: [],
     instanceChannels: {},

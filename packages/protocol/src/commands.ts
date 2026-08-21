@@ -36,6 +36,13 @@ export interface ChatSendPayload {
    * 选定的模型；缺省 = 全局默认（不换模）。
    */
   model?: string;
+  /**
+   * 图片附件（v0.10 新增，T9 图片上行）：base64 data URL 数组
+   * （`data:image/png;base64,…`，≤4 张、单张解码后 ≤2MB——超限 daemon
+   * 回中文错误不落消息）；缺省 = 纯文本发送（additive 纪律）。daemon 解码
+   * 后转 ImageContent[] 交引擎（agent.prompt(input, images)）。
+   */
+  images?: readonly string[];
 }
 
 /** chat.steer 载荷：生成中注入消息（ChatPort.steer → SteerQueue.enqueue） */

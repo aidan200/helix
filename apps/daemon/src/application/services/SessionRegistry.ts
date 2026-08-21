@@ -6,6 +6,7 @@ import { Session } from "../../domain/session/Session";
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import type { UsageLedgerData } from "../../domain/session/UsageLedger";
+import { parseDataUrlImages } from "./images";
 import type { InstanceSnapshotEntry, SessionStateView } from "../ports/inbound/SessionPort";
 import type {
   SessionDirectoryPort,
@@ -212,7 +213,11 @@ export class SessionRegistry implements SessionDirectoryPort {
     return this.buildView(runtime);
   }
 
-  async startDraftSession(text: string, model?: string): Promise<{ sessionId: string }> {
+  async startDraftSession(text: string, model?: string, images?: readonly string[]): Promise<{ sessionId: string }> {
+    // T9：图片附件建会话前同步校验（fire-and-forget sendMessage 前的早期
+    // 报错面——超限/坏格式抛 ImageValidationError，零副作用不建会话；WS
+    // handler 据 name 转 connection.error 点对点回执）
+    if (images !== undefined && images.length > 0) parseDataUrlImages(images);
     // T4 转正复用：当前会话命中零条目热草稿 → 直接转正复用（同 id，不裂变
     // 新会话；转正后不立刻新建下一个内存草稿——下一个由 initialize/
     // rotateCurrent 等既有点懒建）；当前会话有内容 → 维持 createFresh。
@@ -257,7 +262,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     // 首条消息发送（fire-and-forget）：首个里程碑事件（user entry）经投影
     // write-through INSERT session_state——「daemon 收首条消息才落库」。
     // 首个用户条目落聚合时经转正单点恰好一次发布 agent.instantiated（T4）。
-    void runtime.chatService.sendMessage(text).catch((err) => {
+    void runtime.chatService.sendMessage(text, images).catch((err) => {
       this.deps.logger?.warn(`草稿会话 ${runtime.sessionId} 首条消息发送失败：${(err as Error).message}`);
     });
     return { sessionId: runtime.sessionId };

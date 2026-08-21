@@ -6,9 +6,11 @@ import type {
   ScrollDirection,
   ScrollResult,
   SetFilesResult,
+  ScreenshotFormat,
   ScreenshotResult,
   TabInfo,
 } from "../../src/application/ports/outbound/BrowserPort";
+import { writeFileSync } from "node:fs";
 
 /**
  * FakeBrowserPort —— BrowserPort 的记录型假实现（test/mocks，与生产 adapter
@@ -32,6 +34,13 @@ export class FakeBrowserPort implements BrowserPort {
   readonly failWith = new Map<string, Error>();
   status: BrowserStatus = { state: "idle", tabCount: 0 };
   tabs: readonly TabInfo[] = [];
+  /**
+   * T9：screenshotTab 落盘仿真预设——设置后每次截图把该字节写盘（镜像真
+   * port 落盘契约）；未设置时只记录调用不写盘（既有测试语义不变，工具侧
+   * 读不到文件 → images 缺省不炸分支的被测面）。可传函数按 format 变化
+   * （png 首次大图 / jpeg 重截小图剧本）。
+   */
+  screenshotBytes: Uint8Array | ((format: ScreenshotFormat) => Uint8Array) | null = null;
 
   private record<T>(method: string, args: readonly unknown[], result: T): T {
     this.calls.push({ method, args });
@@ -81,12 +90,21 @@ export class FakeBrowserPort implements BrowserPort {
   async scrollTab(tabId: string, y?: number, direction?: ScrollDirection): Promise<ScrollResult> {
     return this.record("scrollTab", [tabId, y, direction], { value: `scrolled ${direction ?? "down"} ${y ?? 3000}px` });
   }
-  async screenshotTab(tabId: string, file?: string): Promise<ScreenshotResult> {
+  async screenshotTab(tabId: string, file?: string, format?: ScreenshotFormat): Promise<ScreenshotResult> {
     if (file === undefined) {
       this.calls.push({ method: "screenshotTab", args: [tabId, file] });
       throw new Error("screenshotTab 必须提供 file 落盘路径（截图供 read 工具读图）");
     }
-    return this.record("screenshotTab", [tabId, file], { saved: file });
+    const result = this.record("screenshotTab", [tabId, file, format], { saved: file });
+    // T9：落盘仿真（预设字节写入目标路径——镜像真 port 落盘契约）
+    if (this.screenshotBytes !== null && file !== undefined) {
+      const bytes =
+        typeof this.screenshotBytes === "function"
+          ? this.screenshotBytes(format ?? "png")
+          : this.screenshotBytes;
+      writeFileSync(file, bytes);
+    }
+    return result;
   }
   async closeTab(tabId: string): Promise<void> {
     this.record("closeTab", [tabId], undefined);

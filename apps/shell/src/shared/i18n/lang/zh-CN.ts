@@ -54,6 +54,13 @@ export const zhCN: Translations = {
       stop: "停止",
       enterHint: "[[Alt+Enter]] 发送 · [[Enter]] 换行",
     },
+    attach: {
+      button: "添加图片",
+      remove: "移除图片",
+      enlarge: "放大图片",
+      limit: "最多 4 张图片",
+      imageAlt: "图片 {n}",
+    },
     steer: {
       hint: "主会话生成中 · 发送的消息进入 steer 队列，本轮结束后注入",
       queued: "STEER · 已入队",

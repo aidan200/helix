@@ -84,12 +84,25 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return applyEvent(state, action.event, action.ts);
     case "ui/set-draft":
       return { ...state, draft: action.text };
+    case "ui/attach-images":
+      // T9 图片附件草稿：追加（≤4 上限预检在组件侧，reducer 仅承载）
+      return { ...state, attachments: [...state.attachments, ...action.images] };
+    case "ui/remove-attachment":
+      // T9：按下标移除一张（越界防御：原样）
+      return {
+        ...state,
+        attachments: state.attachments.filter((_, i) => i !== action.index),
+      };
     case "ui/set-draft-model":
       // 草稿模型本地暂存（T3）：仅草稿态生效；真实会话原样（防御）
       return state.sessionId === null ? { ...state, model: action.model } : state;
     case "ui/send": {
       const text = action.text.trim();
-      if (!selectCanSend(state) || text === "") return state; // SM 规则 6：非 connected 拒发
+      // SM 规则 6：非 connected 拒发。T9：附件生命周期绑定发送动作——
+      // 拒发/空文本同样清空（attachments 仅承载发送前草稿，不跨发送存活）。
+      if (!selectCanSend(state) || text === "") {
+        return state.attachments.length === 0 ? state : { ...state, attachments: [] };
+      }
       if (action.mode === "steer") {
         // steer echo：立即可见的 user 气泡 + queued 徽标；id 对账交给 steer.queued
         const echo: MessageEntryDto = {
@@ -103,13 +116,19 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         return {
           ...state,
           draft: "",
+          attachments: [], // T9：steer 不带图，发送即清（生成中不可挂附件，防御）
           entries: [...state.entries, echo],
           nextLocalSeq: state.nextLocalSeq + 1,
         };
       }
       // turn 模式不做本地 echo：气泡由 daemon 的 chat.message.completed 投影
-      return { ...state, draft: "" };
+      //（含 images——T9：user 气泡缩略图由权威事件投影，非本地 echo）
+      return { ...state, draft: "", attachments: [] };
     }
+    case "session/new-draft":
+      // T9：新建草稿/切会话重置附件（拓扑层 startNewDraft 重建活跃 store 时
+      // 天然归零；本 case 守护直接以活跃 store 重放的调用面）
+      return state.attachments.length === 0 ? state : { ...state, attachments: [] };
     case "ui/steer-instance": {
       const text = action.text.trim();
       if (text === "") return state; // 空输入零动作（Q-3b：不触发任何转换）

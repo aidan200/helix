@@ -82,6 +82,8 @@ export type AgentEngineEvent =
       readonly toolName: string;
       readonly isError: boolean;
       readonly result: string;
+      /** 工具结果附带图片（T9 下行）：base64 data URL 数组（如截图）；缺省 = 无图。 */
+      readonly images?: readonly string[];
     }
   | {
       /** turn 边界 compaction 完成（CompactResult 防腐映射；tokensAfter = 压缩后复算）。 */
@@ -100,8 +102,11 @@ export interface AgentEnginePort {
   /**
    * 驱动一轮 run：从用户输入开始直到 run 结束（含工具轮与 steer drain 轮）。
    * listener 在 run 期间持续收到引擎事件；Promise 在 run 完全结束后 resolve。
+   * T9 图片上行：images 可选（已校验的 base64 data URL 数组）——驱动侧
+   * （AgentRuntime）解码为 ImageContent[] 后经 agent.prompt(input, images)
+   * 注入模型；缺省 = 纯文本（旧行为零变更）。
    */
-  start(input: string, listener: AgentEngineListener): Promise<void>;
+  start(input: string, listener: AgentEngineListener, images?: readonly string[]): Promise<void>;
   /** 运行中注入 steer 消息（即时入队，turn 边界 drain——不打断当前工具/生成）。 */
   steer(text: string): void;
   /** 中断当前 run（非销毁：之后可继续 start 新对话）。 */

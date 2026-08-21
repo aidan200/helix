@@ -1,5 +1,5 @@
 import readline from "node:readline";
-import type { ChatPort, SendOutcome } from "../../../application/ports/inbound/ChatPort";
+import type { SendOutcome, SessionChatPort } from "../../../application/ports/inbound/ChatPort";
 import type { SessionPort } from "../../../application/ports/inbound/SessionPort";
 import type { EventPublisherPort, StreamDelta } from "../../../application/ports/outbound/EventPublisherPort";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
@@ -65,7 +65,7 @@ export class StdoutEventPublisher implements EventPublisherPort {
 }
 
 export interface CliAdapterDeps {
-  readonly chat: ChatPort;
+  readonly chat: SessionChatPort;
   readonly session: SessionPort;
   /** 事件发布器（组合根构造的 StdoutEventPublisher；本适配器不关心实现）。 */
   readonly events: EventPublisherPort;

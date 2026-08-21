@@ -223,7 +223,7 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
   });
 
   test("② 常量语义值 + 目录计数（v0.9：命令 27 / 事件 47；PROTOCOL_VERSION v0.9 批次升位）", () => {
-    expect(protocol.PROTOCOL_VERSION).toBe("0.9"); // v0.9 批次版本位（T7 web.start 显式启动通路批次升位，AD-4；契约 = PROTOCOL.md §17.9）
+    expect(protocol.PROTOCOL_VERSION).toBe("0.10"); // v0.9 批次版本位（T7 web.start 显式启动通路批次升位，AD-4；契约 = PROTOCOL.md §17.9）
     expect(protocol.MAIN_INSTANCE_ID).toBe("main");
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
     expect(protocol.COMMAND_TYPES.length).toBe(27); // v0.9：+1（web.start）

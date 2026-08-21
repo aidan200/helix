@@ -8,10 +8,18 @@ import type {
   BeforeToolCallResult,
   StreamFn,
 } from "@earendil-works/pi-agent-core";
-import type { Model, Models } from "@earendil-works/pi-ai";
+import type { ImageContent, Model, Models } from "@earendil-works/pi-ai";
 import type { AgentProfile } from "./AgentProfile";
 import { hasSteer, type HookSet, type SteerCapable } from "./HookSet";
 import { CompactionHook, type CompactionOutcome } from "./hooks/CompactionHook";
+import { parseDataUrlImages } from "../../../../application/services/images";
+
+/** data URL → pi ImageContent（T9：AgentRuntime 驱动面单点解码）。 */
+function toImageContent(dataUrl: string): ImageContent {
+  const [image] = parseDataUrlImages([dataUrl]);
+  if (image === undefined) throw new Error(`图片 data URL 解码异常：${dataUrl.slice(0, 32)}…`);
+  return { type: "image", mimeType: image.mimeType, data: image.data };
+}
 
 /**
  * AgentRuntime —— daemon 唯一驱动层（architecture.md §4.2 第三层）。
@@ -70,9 +78,11 @@ export class AgentRuntime {
     this.steerHook = hooks.find(hasSteer);
   }
 
-  /** 驱动一轮 run：prompt 输入并等待 run 完全结束（含工具轮与注入 drain 轮）。 */
-  async drive(input: string): Promise<void> {
-    await this.agent.prompt(input);
+  /** 驱动一轮 run：prompt 输入并等待 run 完全结束（含工具轮与注入 drain 轮）。
+   *  T9 图片上行：data URL 解码 → ImageContent[] → agent.prompt(input, images)。 */
+  async drive(input: string, images?: readonly string[]): Promise<void> {
+    const imageContents = images === undefined || images.length === 0 ? undefined : images.map(toImageContent);
+    await this.agent.prompt(input, imageContents);
     await this.agent.waitForIdle();
   }
 

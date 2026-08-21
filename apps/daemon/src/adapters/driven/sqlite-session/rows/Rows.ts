@@ -53,6 +53,8 @@ export interface ToolCallRow {
   readonly status: string;
   readonly result: string | null;
   readonly error: string | null;
+  /** 工具结果附带图片（T9 下行）：data URL 数组 JSON 文本；可空。 */
+  readonly images: string | null;
   readonly started_at: string | null;
   readonly ended_at: string | null;
 }

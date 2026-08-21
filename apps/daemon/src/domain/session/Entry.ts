@@ -22,6 +22,12 @@ export interface EntryData {
   readonly isSteer: boolean;
   readonly instanceId: string;
   readonly createdAt: string;
+  /**
+   * 图片附件（T9 图片上行）：base64 data URL 数组；仅 user 消息携带
+   * （chat.send.images 校验后原样落盘）。可选——缺省 = 纯文本旧形态
+   * （持久化 JSON 列往返自动携带，v0/v0.1 快照兼容）。
+   */
+  readonly images?: readonly string[];
 }
 
 export class Entry {
@@ -33,6 +39,7 @@ export class Entry {
     readonly isSteer: boolean,
     readonly instanceId: string,
     readonly createdAt: string,
+    private readonly images?: readonly string[],
   ) {}
 
   static create(data: EntryData): Entry {
@@ -50,6 +57,7 @@ export class Entry {
       data.isSteer,
       data.instanceId,
       data.createdAt,
+      data.images,
     );
   }
 
@@ -62,6 +70,7 @@ export class Entry {
       isSteer: this.isSteer,
       instanceId: this.instanceId,
       createdAt: this.createdAt,
+      ...(this.images !== undefined ? { images: [...this.images] } : {}),
     };
   }
 }

@@ -38,11 +38,11 @@ type _UnsubscribePayloadKeptEmpty = Expect<
 // ── 负向断言（编译期守护指令；运行时字面量回读见对应 test） ──
 // 负向断言（v0.2）：channel 字面量与事件类型不符（session.list_changed 归 session 族）
 // @ts-expect-error channel 必须是 "session"
-const badChannel: SessionListChangedEvent = { v: "0.9", sessionId: "s", channel: "chat", type: "session.list_changed", payload: { kind: "created" } };
+const badChannel: SessionListChangedEvent = { v: "0.10", sessionId: "s", channel: "chat", type: "session.list_changed", payload: { kind: "created" } };
 
 // 负向断言（v0.2）：session.loadHistory 缺游标
 // @ts-expect-error beforeEntryId 必填
-const badLoadHistory: SessionLoadHistoryCommand = { v: "0.9", sessionId: "s", type: "session.loadHistory", payload: {} };
+const badLoadHistory: SessionLoadHistoryCommand = { v: "0.10", sessionId: "s", type: "session.loadHistory", payload: {} };
 
 describe("session：subscribe tier 档位（源 TP-v0.3-①）", () => {
   test("CL-2 tier：monitor / 缺省 full 两形态；unsubscribe payload 保持空不动", () => {

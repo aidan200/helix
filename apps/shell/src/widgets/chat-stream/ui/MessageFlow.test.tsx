@@ -6,7 +6,7 @@
  * MessageFlow 集成断言按 FSD 分层归位 widgets/chat-stream）。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import type { EventEnvelope, ThinkingEntryDto } from "@helix/protocol";
 import { createInitialSessionState, sessionReducer, type SessionState } from "@/entities/session/model/session-reducer";
@@ -179,5 +179,66 @@ describe("MessageFlow 挂载（三态分流；消费 T4.1 槽位）", () => {
     ].reduce((s, e) => sessionReducer(s, { type: "event", event: e }), createInitialSessionState());
     ui(<MessageFlow />);
     expect(document.querySelector(".think-live")).toBeNull();
+  });
+});
+
+// ── T9 图片渲染：user 气泡与工具卡缩略图（MessageBubble/ToolCard 共用 ImageStrip） ──
+
+describe("T9 图片渲染（气泡 + 工具卡缩略图）", () => {
+  const play = (events: EventEnvelope[]): SessionState =>
+    events.reduce((s, e) => sessionReducer(s, { type: "event", event: e }), createInitialSessionState());
+  const TINY_PNG =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+  it("user 消息携带 images → 气泡渲染缩略图（img src = data URL）", () => {
+    const s = play([
+      {
+        v: 0,
+        type: "chat.message.completed",
+        payload: {
+          entry: {
+            kind: "message",
+            id: "m-img",
+            role: "user",
+            content: "看图",
+            ts: 2,
+            images: [TINY_PNG],
+          },
+        },
+      } satisfies EventEnvelope,
+    ]);
+    stateRef.current = { ...s, view: "ready", entries: s.entries };
+    ui(<MessageFlow />);
+    const img = screen.getAllByRole("img")[0]!;
+    expect(img.getAttribute("src")).toBe(TINY_PNG);
+    expect(img.closest(".msg")).not.toBeNull();
+  });
+
+  it("工具卡携带 images → 卡体渲染缩略图（展开后可见）", () => {
+    const s = play([
+      {
+        v: 0,
+        type: "tool.call.result",
+        payload: {
+          entry: {
+            kind: "tool-call",
+            id: "t-img",
+            name: "browser",
+            args: "{}",
+            result: '{"saved":"/tmp/s.png"}',
+            state: "done",
+            durationMs: 5,
+            ts: 3,
+            images: [TINY_PNG],
+          },
+        },
+      } satisfies EventEnvelope,
+    ]);
+    stateRef.current = { ...s, view: "ready", entries: s.entries };
+    ui(<MessageFlow />);
+    fireEvent.click(screen.getByText("browser")); // 展开卡体
+    const img = screen.getAllByRole("img")[0]!;
+    expect(img.getAttribute("src")).toBe(TINY_PNG);
+    expect(img.closest(".tool-card")).not.toBeNull();
   });
 });

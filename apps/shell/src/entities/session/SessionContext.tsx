@@ -75,8 +75,14 @@ interface SessionContextValue {
   /** store 拓扑（后台轻量 store / 会话清单——T3.2 侧栏消费面） */
   topology: TopologyState;
   setDraft: (text: string) => void;
-  /** 提交输入：生成中自动转 steer（F(7).3），否则 chat.send（草稿 = draft:true 建会话） */
-  submit: (text: string) => void;
+  /** 提交输入：生成中自动转 steer（F(7).3），否则 chat.send（草稿 = draft:true 建会话）。
+   *  T9（v0.10）：images 可选（base64 data URL，≤4 张）——仅 turn 模式透传
+   *  chat.send；steer 带图非目标（生成中附件钮禁用，防御性忽略）。 */
+  submit: (text: string, images?: string[]) => void;
+  /** 图片附件入草稿（T9）：chips 预览数据源；≤4 上限预检在组件侧 */
+  attachImages: (images: string[]) => void;
+  /** 移除第 index 张附件（T9；chips 移除钮） */
+  removeAttachment: (index: number) => void;
   /** 失败卡「重试连接」（仅 error 态有意义；SM-2 手动重试路径） */
   retry: () => void;
   /** 中断当前生成（chat.abort 信封 sessionId；T3.2 停止按钮消费） */
@@ -295,7 +301,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const setDraft = useCallback((text: string) => dispatch({ type: "ui/set-draft", text }), []);
 
-  const submit = useCallback((raw: string) => {
+  // T9 图片附件草稿：入/出纯 UI 态（reducer 承载；发送时随 ui/send 清空）
+  const attachImages = useCallback(
+    (images: string[]) => dispatch({ type: "ui/attach-images", images }),
+    [],
+  );
+  const removeAttachment = useCallback(
+    (index: number) => dispatch({ type: "ui/remove-attachment", index }),
+    [],
+  );
+
+  const submit = useCallback((raw: string, images?: string[]) => {
     const text = raw.trim();
     if (!text) return;
     const mode = generatingRef.current ? "steer" : "turn";
@@ -314,9 +330,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // T3（bug4）：草稿所选模型（ui/set-draft-model 本地暂存）随首条上送；
       // 未选（空串）→ 不携带 model（daemon 用全局默认）
       const draftModel = topologyRef.current.active.model;
-      clientRef.current!.send(chatSendDraftCommand(text, draftModel === "" ? undefined : draftModel));
+      clientRef.current!.send(
+        chatSendDraftCommand(text, draftModel === "" ? undefined : draftModel, images),
+      );
     } else {
-      clientRef.current!.send(chatSendCommand(text, sessionId));
+      clientRef.current!.send(chatSendCommand(text, sessionId, images));
     }
   }, []);
 
@@ -508,6 +526,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       topology,
       setDraft,
       submit,
+      attachImages,
+      removeAttachment,
       retry,
       abort,
       switchSession,
@@ -543,6 +563,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       topology,
       setDraft,
       submit,
+      attachImages,
+      removeAttachment,
       retry,
       abort,
       switchSession,

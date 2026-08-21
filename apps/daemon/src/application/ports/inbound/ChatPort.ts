@@ -15,9 +15,11 @@ export interface ChatPort {
   /**
    * 发送用户消息。空闲时开新轮次并驱动引擎（Promise 在本轮 run 结束时 resolve）；
    * 生成中自动转为 steer 注入（入队可观测，turn 边界 drain）。
+   * T9 图片上行：images 可选（base64 data URL 数组，校验 ≤4 张/单张解码后
+   * ≤2MB，超限抛中文 Error 不落消息）；仅空闲分支消费——生成中携带 images
+   * 抛错（steer 不带图，非目标防护）。
    */
-  sendMessage(text: string): Promise<SendOutcome>;
-  /**
+  sendMessage(text: string, images?: readonly string[]): Promise<SendOutcome>;  /**
    * 显式注入。instanceId 缺省/=main = 主实例（要求正在运行中；空闲时是业务
    * 错误，走 sendMessage）；携带 SubAgent id = 定向 steer（T2.3 契约 v0.3
    * §3.2：转投 AgentOrchestrationPort.send，目标非运行中抛
@@ -32,9 +34,13 @@ export interface ChatPort {
  * 会话路由版 ChatPort（T2.2 AD-4，driving 侧路由面）：sessionId 可选入参
  * 缺省 = 当前会话；多会话路由由实现（组合根 ChatRouter）解析目标运行时。
  * 少参实现（ChatService）天然可赋值（TS 参数逆变兼容）——单会话场景零改造。
+ *
+ * T9 注：不再 `extends ChatPort`——images 参数位（基接口第 2 位）与路由
+ * sessionId（本接口第 2 位） positional 冲突，接口继承会拒绡重载；两接口
+ * 方法集独立声明，结构兼容性由「少参实现可赋值」保证（与既有惯例同源）。
  */
-export interface SessionChatPort extends ChatPort {
-  sendMessage(text: string, sessionId?: string): Promise<SendOutcome>;
+export interface SessionChatPort {
+  sendMessage(text: string, sessionId?: string, images?: readonly string[]): Promise<SendOutcome>;
   /** sessionId = 会话路由位；instanceId = 定向 steer 目标（v0.3 §3.2，透传位）。 */
   steer(text: string, sessionId?: string, instanceId?: string): Promise<{ entryId: string }>;
   abort(sessionId?: string): void;

@@ -3,7 +3,9 @@ import type {
   AgentToolResult,
   ExecutionToolContext,
 } from "@earendil-works/pi-agent-core/node";
+import { readFile } from "node:fs/promises";
 import type { BrowserPort, ScrollDirection } from "../../../../application/ports/outbound/BrowserPort";
+import { MAX_IMAGE_BYTES } from "../../../../application/services/images";
 
 /**
  * 动态族浏览器工具（web-access T3r 返工）：**单 browser 工具 + action 参数**
@@ -111,6 +113,42 @@ function jsonResult(value: unknown): AgentToolResult<undefined> {
   return textResult(value === undefined ? "undefined" : JSON.stringify(value));
 }
 
+/** 读盘形态：ok（合法小图）/ oversize（超 2MB）/ missing（读失败/空文件）。 */
+type ShotRead =
+  | { status: "ok"; data: string; mimeType: string }
+  | { status: "oversize" | "missing" };
+
+/** T9：读截图落盘文件 → base64（按请求 format 定 mimeType，CDP port 同契约）。 */
+async function readShot(file: string, mimeType: string): Promise<ShotRead> {
+  try {
+    const bytes = await readFile(file);
+    if (bytes.byteLength === 0 || bytes.byteLength > MAX_IMAGE_BYTES) {
+      return bytes.byteLength > MAX_IMAGE_BYTES ? { status: "oversize" } : { status: "missing" };
+    }
+    return { status: "ok", data: Buffer.from(bytes).toString("base64"), mimeType };
+  } catch {
+    return { status: "missing" };
+  }
+}
+
+/**
+ * T9 图片下行：screenshot 落盘后读文件 → image 内容块（模型可直接看图 +
+ * 聊天窗工具卡缩略图数据源）。首读超 2MB → jpeg format 重截降质（同路径
+  * 覆写）；重截仍超限或读失败 → undefined（images 缺省只有文本，不炸）。
+ */
+async function screenshotImageBlock(
+  browser: BrowserPort,
+  tabId: string,
+  file: string,
+): Promise<{ type: "image"; data: string; mimeType: string } | undefined> {
+  const first = await readShot(file, "image/png");
+  if (first.status === "ok") return { type: "image", data: first.data, mimeType: first.mimeType };
+  if (first.status === "missing") return undefined;
+  const { saved: retryPath } = await browser.screenshotTab(tabId, file, "jpeg");
+  const second = await readShot(retryPath, "image/jpeg");
+  return second.status === "ok" ? { type: "image", data: second.data, mimeType: second.mimeType } : undefined;
+}
+
 interface BrowserParams {
   readonly action: BrowserAction;
   readonly url?: string;
@@ -177,8 +215,19 @@ export function createBrowserTool(
           );
         case "scroll":
           return jsonResult(await browser.scrollTab(requireParam(params, "tabId"), params.y, params.direction));
-        case "screenshot":
-          return jsonResult(await browser.screenshotTab(requireParam(params, "tabId"), requireParam(params, "file")));
+        case "screenshot": {
+          const tabId = requireParam(params, "tabId");
+          const file = requireParam(params, "file");
+          const { saved } = await browser.screenshotTab(tabId, file);
+          // T9 图片下行：落盘后读文件回填 image 内容块（超限 jpeg 重截；失败缺省不炸）
+          const image = await screenshotImageBlock(browser, tabId, file);
+          const text = JSON.stringify({ saved });
+          if (image === undefined) return textResult(text);
+          return {
+            content: [{ type: "text", text }, image],
+            details: undefined,
+          };
+        }
         case "close": {
           const tabId = requireParam(params, "tabId");
           await browser.closeTab(tabId);

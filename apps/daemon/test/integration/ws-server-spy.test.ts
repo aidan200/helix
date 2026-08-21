@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ChatPort, SendOutcome } from "../../src/application/ports/inbound/ChatPort";
+import type { SendOutcome, SessionChatPort } from "../../src/application/ports/inbound/ChatPort";
 import type { SessionStateView, SessionStreamEvent } from "../../src/application/ports/inbound/SessionPort";
 import type { SessionDirectoryPort } from "../../src/application/ports/inbound/SessionDirectoryPort";
 import type { SystemPort } from "../../src/application/ports/inbound/SystemPort";
@@ -38,7 +38,7 @@ function fakeView(): SessionStateView {
 describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
   test("命令帧 → 对应 inbound port 原样转发；事件帧经 EventStream 下发", async () => {
     const calls: string[] = [];
-    const chat: ChatPort = {
+    const chat: SessionChatPort = {
       sendMessage: async (text: string): Promise<SendOutcome> => {
         calls.push(`chat.send:${text}`);
         return { mode: "turn", turnId: "t1", entryId: "e1" };
@@ -226,7 +226,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         return { status: "ok" as const, latencyMs: 120 };
       },
     };
-    const chat: ChatPort = {
+    const chat: SessionChatPort = {
       sendMessage: async (): Promise<SendOutcome> => ({ mode: "turn", turnId: "t1", entryId: "e1" }),
       steer: async () => ({ entryId: "e2" }),
       abort: () => {},
@@ -328,7 +328,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
 
 /** spy 装配：WsServerAdapter + 真 EventStream（事件面走真分发，命令面 spy no-op）。 */
 function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
-  const chat: ChatPort = {
+  const chat: SessionChatPort = {
     sendMessage: async (): Promise<SendOutcome> => ({ mode: "turn", turnId: "t1", entryId: "e1" }),
     steer: async () => ({ entryId: "e2" }),
     abort: () => {},

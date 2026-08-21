@@ -9,6 +9,7 @@ import type { ToolCallEntryDto } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { extractExitCode, formatDuration, prettyJsonArgs } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
+import ImageStrip from "./ImageStrip";
 
 const ToolCard = memo(function ToolCard({ entry }: { entry: ToolCallEntryDto }) {
   const { t } = useI18n();
@@ -69,6 +70,8 @@ const ToolCard = memo(function ToolCard({ entry }: { entry: ToolCallEntryDto }) 
             <div className="t-sec-label">{resultLabel}</div>
             <pre className="t-pre">{entry.result ?? ""}</pre>
           </div>
+          {/* T9 工具结果附图（v0.10 ToolCallEntryDto.images；browser 截图等） */}
+          {entry.images && entry.images.length > 0 && <ImageStrip images={entry.images} />}
         </div>
       )}
     </div>

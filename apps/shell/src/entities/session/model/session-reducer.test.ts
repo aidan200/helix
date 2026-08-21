@@ -377,3 +377,37 @@ describe("流式 delta 投影", () => {
     expect(cleared.streaming).toBeNull();
   });
 });
+
+// ── T9 图片上行：附件草稿（ui state）──
+
+describe("T9 附件草稿（attachments ui state）", () => {
+  const IMG = "data:image/png;base64,AAAA";
+
+  it("ui/attach-images 追加（≤4 上限由调用侧预检，reducer 仅承载）", () => {
+    const s1 = sessionReducer(createInitialSessionState(), { type: "ui/attach-images", images: [IMG] });
+    expect(s1.attachments).toEqual([IMG]);
+    const s2 = sessionReducer(s1, { type: "ui/attach-images", images: ["data:image/jpeg;base64,BBB="] });
+    expect(s2.attachments).toEqual([IMG, "data:image/jpeg;base64,BBB="]);
+  });
+
+  it("ui/remove-attachment 按下标移除", () => {
+    const s = sessionReducer(createInitialSessionState(), {
+      type: "ui/attach-images",
+      images: [IMG, "data:image/jpeg;base64,BBB="],
+    });
+    const removed = sessionReducer(s, { type: "ui/remove-attachment", index: 0 });
+    expect(removed.attachments).toEqual(["data:image/jpeg;base64,BBB="]);
+  });
+
+  it("ui/send（turn）后清空附件（随草稿一起消费）", () => {
+    const s = sessionReducer(createInitialSessionState(), { type: "ui/attach-images", images: [IMG] });
+    const sent = sessionReducer(s, { type: "ui/send", text: "看图", mode: "turn", ts: 1 });
+    expect(sent.attachments).toEqual([]);
+  });
+
+  it("session/new-draft / 切换会话重置附件", () => {
+    const s = sessionReducer(createInitialSessionState(), { type: "ui/attach-images", images: [IMG] });
+    const reset = sessionReducer(s, { type: "session/new-draft" });
+    expect(reset.attachments).toEqual([]);
+  });
+});

@@ -167,7 +167,7 @@ function feed(frame: EventEnvelope): void {
 
 function feedList(mainOver: Partial<AgentConfigProfileBlock> = {}, subOver: Partial<AgentConfigProfileBlock> = {}): void {
   feed({
-    v: "0.9",
+    v: "0.10",
     sessionId: "__system__",
     channel: "agent",
     type: "agent.config.list.result",
@@ -177,7 +177,7 @@ function feedList(mainOver: Partial<AgentConfigProfileBlock> = {}, subOver: Part
 
 function feedSetResult(payload: { status: "applied" } | { status: "skipped"; reason: string }): void {
   feed({
-    v: "0.9",
+    v: "0.10",
     sessionId: "__system__",
     channel: "agent",
     type: "agent.config.set_enabled.result",

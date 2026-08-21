@@ -118,6 +118,8 @@ describe("O-3：旧库守护式补列（F1.7 验收①）", () => {
       // 列已补齐 + 索引就位
       expect(columnsOf(probe, "domain_events")).toContain("agent_instance_id");
       expect(columnsOf(probe, "tool_calls")).toContain("instance_id");
+      // T9 图片下行：tool_calls.images 补列（旧行 NULL = 无图前向兼容）
+      expect(columnsOf(probe, "tool_calls")).toContain("images");
       expect(columnsOf(probe, "agent_lifecycle")).toContain("instance_id");
       expect(pkOf(probe, "agent_lifecycle")).toEqual(["session_id", "instance_id"]);
       const indexes = (

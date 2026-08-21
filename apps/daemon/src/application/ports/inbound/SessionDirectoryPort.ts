@@ -56,7 +56,7 @@ export interface SessionDirectoryPort {
    *   话/复用后、sendMessage 前 setModel；抛错 → warn 降级全局默认不阻断；
    *   缺省 = 全局默认（不换模）。
    */
-  startDraftSession(text: string, model?: string): Promise<{ sessionId: string }>;
+  startDraftSession(text: string, model?: string, images?: readonly string[]): Promise<{ sessionId: string }>;
   /**
    * 握手草稿探测（T4，可选 additive——未实现本面的实现/替身回退现状握手）：
    * 当前会话是零条目热草稿 → true（welcome.draft 标记 + 握手不 attach 会话

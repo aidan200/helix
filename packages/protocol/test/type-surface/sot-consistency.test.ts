@@ -173,6 +173,10 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       // v0.9 批次（T7 web.start 显式启动通路）：首登必填字段 presence（防零登记复发）
       { registry: "evt", anchor: "web.start.result", field: "status" },
       { registry: "evt", anchor: "web.start.result", field: "reason" },
+      // v0.10 批次（T9 图片上下行）：可选字段 presence（防零登记复发）
+      { registry: "cmd", anchor: "chat.send", field: "images" },
+      { registry: "evt", anchor: "chat.message.completed", field: "entry.images" },
+      { registry: "evt", anchor: "tool.call.result", field: "entry.images" },
     ];
     const missing: string[] = [];
     for (const item of required) {

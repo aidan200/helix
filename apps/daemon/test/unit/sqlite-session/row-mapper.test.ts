@@ -19,8 +19,7 @@ import type { DomainEvent } from "../../../src/domain/events/DomainEvent";
  */
 function richState(): PersistedDomainState {
   const session = Session.create("s-rm", "2024-01-01T00:00:00.000Z");
-  session.appendUserEntry("第一问", "2024-01-01T00:00:01.000Z");
-  const turn = session.beginTurn("e1", "2024-01-01T00:00:02.000Z");
+  session.appendUserEntry("第一问", "2024-01-01T00:00:01.000Z");  const turn = session.beginTurn("e1", "2024-01-01T00:00:02.000Z");
   session.appendAssistantEntry("第一答", "2024-01-01T00:00:03.000Z");
   session.completeTurn("2024-01-01T00:00:04.000Z");
   void turn;
@@ -88,6 +87,55 @@ describe("TP-CL8-5：RowMapper 往返等价", () => {
     session.interruptTurn("2024-01-01T00:09:00.000Z");
     const entry = session.appendUserEntry("重启后新问", "2024-01-01T00:09:01.000Z");
     expect(entry.id).toBe("e4"); // 计数器从数据推导，不回卷
+  });
+
+  test("T9 图片：user Entry images 经 session_state JSON 列往返不丢（持久化一致性专项）", () => {    const session = Session.create("s-img", "2024-01-01T00:00:00.000Z");
+    const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    session.appendUserEntry("看图", "2024-01-01T00:00:01.000Z", [dataUrl, dataUrl]);
+    const rows = RowMapper.persistedStateToRows({
+      session: session.toSnapshot(),
+      agentState: "idle",
+      toolCalls: [],
+    });
+    // entries 为 JSON 文本列——images 字段序列化在线格式内
+    const rawEntries = JSON.parse(rows.session.entries) as { images?: string[] }[];
+    expect(rawEntries[0]?.images).toEqual([dataUrl, dataUrl]);
+    // 往返等价：解析回 PersistedDomainState 后 images 原样保留
+    const back = RowMapper.rowsToPersistedState(rows.session, rows.lifecycle, rows.steer, rows.toolCalls);
+    expect(back.session.entries[0]).toMatchObject({ role: "user", text: "看图", images: [dataUrl, dataUrl] });
+    // restoreFrom 重建聚合同样携带（RestoreService 投影重建链）
+    const restored = Session.restoreFrom(back.session);
+    expect(restored.entryList()[0]).toMatchObject({ images: [dataUrl, dataUrl] });
+  });
+
+  test("T9 图片：ToolCallRecord images 经 tool_calls.images JSON 列往返不丢（持久化一致性专项）", () => {
+    const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const withImages = ToolCallRecord.create("tc-img", "browser", { action: "screenshot" });
+    withImages.markRunning("2024-01-01T00:00:07.000Z");
+    withImages.complete('{"saved":"/tmp/s.png"}', "2024-01-01T00:00:08.000Z", [dataUrl]);
+    const withoutImages = ToolCallRecord.create("tc-plain", "bash", { command: "echo hi" });
+    withoutImages.markRunning("2024-01-01T00:00:09.000Z");
+    withoutImages.complete("hi", "2024-01-01T00:00:10.000Z");
+
+    const session = Session.create("s-timg", "2024-01-01T00:00:00.000Z");
+    const rows = RowMapper.persistedStateToRows({
+      session: session.toSnapshot(),
+      agentState: "idle",
+      toolCalls: [withImages.toData(), withoutImages.toData()],
+    });
+    // images 列 = data URL 数组 JSON 文本；无图记录 = null
+    const imgRow = rows.toolCalls.find((t) => t.id === "tc-img");
+    const plainRow = rows.toolCalls.find((t) => t.id === "tc-plain");
+    expect(imgRow?.images).toBe(JSON.stringify([dataUrl]));
+    expect(plainRow?.images).toBeNull();
+
+    // 往返等价：images 原样恢复；无图记录不带字段（线格式保持旧形状）
+    const back = RowMapper.rowsToPersistedState(rows.session, rows.lifecycle, rows.steer, rows.toolCalls);
+    expect(back.toolCalls.find((t) => t.id === "tc-img")?.images).toEqual([dataUrl]);
+    expect(back.toolCalls.find((t) => t.id === "tc-plain")?.images).toBeUndefined();
+    // ToolCallRecord.restore 重建后 toData 同源（恢复→再持久化幂等）
+    const restoredRecord = ToolCallRecord.restore(back.toolCalls[0]!);
+    expect(restoredRecord.toData().images).toEqual([dataUrl]);
   });
 });
 

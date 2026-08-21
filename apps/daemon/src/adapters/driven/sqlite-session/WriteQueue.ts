@@ -150,8 +150,8 @@ export class WriteQueue {
     );
     this.clearToolCalls = this.db.prepare("DELETE FROM tool_calls WHERE session_id = ?");
     this.insertToolCall = this.db.prepare(
-      "INSERT INTO tool_calls (id, session_id, instance_id, tool_name, args, status, result, error, started_at, ended_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO tool_calls (id, session_id, instance_id, tool_name, args, status, result, error, images, started_at, ended_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     this.insertClosureRecord = this.db.prepare(
       "INSERT INTO closure_records (session_id, agent_id, result, status, summary, report_path, findings, task_id, created_at) " +
@@ -422,6 +422,7 @@ export class WriteQueue {
         t.status,
         t.result,
         t.error,
+        t.images,
         t.started_at,
         t.ended_at,
       );
@@ -450,6 +451,11 @@ function ensureSchemaEvolved(db: Database): void {
   }
   if (!hasColumn(db, "tool_calls", "instance_id")) {
     db.exec("ALTER TABLE tool_calls ADD COLUMN instance_id TEXT NOT NULL DEFAULT 'main'");
+  }
+  // T9 图片下行：tool_calls.images（data URL 数组 JSON 文本；可空无默认——
+  // 旧行 NULL = 无图，读取侧 undefined 前向兼容）
+  if (!hasColumn(db, "tool_calls", "images")) {
+    db.exec("ALTER TABLE tool_calls ADD COLUMN images TEXT");
   }
   const lifecycleCols = tableColumns(db, "agent_lifecycle");
   if (lifecycleCols.length > 0 && !lifecycleCols.includes("instance_id")) {

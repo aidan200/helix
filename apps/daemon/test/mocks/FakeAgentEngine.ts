@@ -4,6 +4,7 @@ import type {
   AgentEnginePort,
   AgentEngineUsage,
 } from "../../src/application/ports/outbound/AgentEnginePort";
+import { parseDataUrlImages } from "../../src/application/services/images";
 
 /**
  * FakeAgentEngine —— AgentEnginePort 的契约等价 mock（M1，test-design §5.1）。
@@ -49,6 +50,8 @@ export interface ScriptedTurn {
     args?: unknown;
     result?: string;
     isError?: boolean;
+    /** 工具结果附带图片（T9 下行）：base64 data URL 数组（如截图）。 */
+    images?: string[];
     /** 工具执行时长 ms（流式/工具中 steer 的时窗，默认 30）。 */
     durationMs?: number;
   }[];
@@ -111,6 +114,13 @@ export class FakeAgentEngine implements AgentEnginePort {
 
   /** 全量已发事件（时序断言源：tests 直接对 events 做序断言）。 */
   readonly events: AgentEngineEvent[] = [];
+
+  /**
+   * T9 图片上行捕获：最近一次 start 收到的 images 解码为 ImageContent 形状
+   * （{type:"image", data, mimeType}，数量/顺序/mimeType 断言源——与真引擎
+   * AgentRuntime 驱动面同源解码）；未携带 = undefined。
+   */
+  lastPromptImages: { type: "image"; mimeType: string; data: string }[] | undefined;
 
   private readonly defaultChunkDelayMs: number;
 
@@ -180,12 +190,17 @@ export class FakeAgentEngine implements AgentEnginePort {
 
   // ── AgentEnginePort 实现 ─────────────────────────────────
 
-  async start(input: string, listener: AgentEngineListener): Promise<void> {
+  async start(input: string, listener: AgentEngineListener, images?: readonly string[]): Promise<void> {
     if (this.streaming) throw new Error("FakeAgentEngine：上一次 run 未结束就再次 start（协议误用）");
     this.streaming = true;
     this.abortRequested = false;
     this.errorMessage = undefined;
     this.listener = listener;
+    // T9：与 AgentRuntime 同源解码捕获（真引擎侧 agent.prompt(input, images)）
+    this.lastPromptImages =
+      images !== undefined && images.length > 0
+        ? parseDataUrlImages(images).map((i) => ({ type: "image" as const, mimeType: i.mimeType, data: i.data }))
+        : undefined;
 
     this.emit({ type: "agent_start" });
 
@@ -274,6 +289,7 @@ export class FakeAgentEngine implements AgentEnginePort {
             toolName: call.toolName,
             isError: call.isError ?? false,
             result: call.result ?? "",
+            ...(call.images !== undefined && call.images.length > 0 ? { images: [...call.images] } : {}),
           });
         }
         this.emit({ type: "message_start", role: "toolResult", source: user.source });

@@ -18,6 +18,11 @@ export interface ToolExecutionResult {
   /** 回注给模型的文本结果。 */
   readonly content: string;
   readonly isError: boolean;
+  /**
+   * 工具结果附带图片（T9 图片下行）：base64 data URL 数组（如 browser
+   * screenshot 截图）——聊天窗工具卡缩略图数据源；缺省 = 无图（旧形态）。
+   */
+  readonly images?: readonly string[];
 }
 
 export interface ToolExecutorPort {

@@ -24,6 +24,7 @@ import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
 import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool } from "./agent/AgentOrchestrationTools";
+import { imagesOfContent } from "../../../application/services/images";
 
 /**
  * CoreToolExecutor —— ToolExecutorPort 的真实现（architecture.md §3.4，
@@ -148,7 +149,14 @@ export class CoreToolExecutor implements ToolExecutorPort {
         undefined,
         this.context,
       );
-      return { content: textOfResult(result), isError: false };
+      // T9 图片下行：工具结果 content 内的 image 块 → images data URL 数组
+      //（textOfResult 不动——文本拼接仍是纯文本 + (image) 占位）
+      const images = imagesOfContent(result.content);
+      return {
+        content: textOfResult(result),
+        isError: false,
+        ...(images.length > 0 ? { images } : {}),
+      };
     } catch (error) {
       // 工具以异常表达失败（如 bash exit≠0）：转结构化 error 结果（不抛出——
       // 调用方（service/loop）决定如何记录与回注）

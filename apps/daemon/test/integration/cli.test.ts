@@ -47,7 +47,7 @@ function makeCli(engine: FakeAgentEngine) {
     publish: (e) => session.notify(e),
     publishDelta: (d) => session.notify(d),
   });
-  const adapter = new CliAdapter({ chat, session, events: publisher, input, output, showPrompt: false, installSignals: false });
+  const adapter = new CliAdapter({ chat: chat as unknown as import("../../src/application/ports/inbound/ChatPort").SessionChatPort, session, events: publisher, input, output, showPrompt: false, installSignals: false });
   const read = () => buffered;
   return { adapter, input, read, chat, session, publisher };
 }

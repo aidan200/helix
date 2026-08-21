@@ -26,4 +26,10 @@ export interface ToolCallEntryDto {
   ts: number;
   /** 实例归属（v0.1 新增，AD-3）：可选；缺省 = 主实例（"main"） */
   instanceId?: string;
+  /**
+   * 工具结果附带图片（v0.10 新增，T9 图片下行）：base64 data URL 数组
+   * （如 browser screenshot 的截图）；聊天窗口工具卡缩略图渲染依据。
+   * 缺省 = 无图工具结果（additive 纪律）。
+   */
+  images?: readonly string[];
 }

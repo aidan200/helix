@@ -1,9 +1,9 @@
-# Helix WS 协议 v0.9
+# Helix WS 协议 v0.10
 
-> 当前版本位 `PROTOCOL_VERSION = "0.9"`（envelope.ts）；§1–§9 为 v0 基线，
+> 当前版本位 `PROTOCOL_VERSION = "0.10"`（envelope.ts）；§1–§9 为 v0 基线，
 > §10–§14 为 v0.1–v0.4 演进登记与微批备案（历史批）；
 > §15–§17 为现状全集总登记（27 命令 / 47 事件 payload 形状）与 SoT 守护口径
->（v0.9 = 当前，见 §17.9）。
+>（v0.10 = 当前，见 §17.10）。
 
 > 包：`@helix/protocol`（本目录）。类型唯一权威源——daemon（T1.6）与前端
 > shell（T1.7）共同 import，**仓库内禁止平行手写协议类型**（AD-8 / AG-13）。
@@ -25,23 +25,23 @@
 ```
 客户端                                        daemon (ws-server)
   │ ── WS connect ws://127.0.0.1:port ─────→ │  TCP / HTTP 升级
-  │ ── { v:"0.9", type:"hello",               │  校验 token（与 ~/.helix/dev-token 比对）
-  │      payload:{ token,                     │  校验 protocolVersion = "0.9"
-  │             protocolVersion:"0.9" } } ───→ │
+  │ ── { v:"0.10", type:"hello",              │  校验 token（与 ~/.helix/dev-token 比对）
+  │      payload:{ token,                     │  校验 protocolVersion = "0.10"
+  │             protocolVersion:"0.10" } } ───→ │
   │                                           │
-  │ ←─ { v:"0.9", type:"connection.welcome",  │  通过：sessionId / model / agentState
+  │ ←─ { v:"0.10", type:"connection.welcome", │  通过：sessionId / model / agentState
   │      payload:{ sessionId, model,          │
   │               agentState } } ────────────│
-  │ ←─ { v:"0.9", type:"session.snapshot",    │  随后立即推全量快照
+  │ ←─ { v:"0.10", type:"session.snapshot",   │  随后立即推全量快照
   │      payload:{ snapshot: SessionSnapshotDto } } │
   │                                           │
-  │ ←─ { v:"0.9", type:"connection.error",    │  拒绝：先发 error 帧再 close
+  │ ←─ { v:"0.10", type:"connection.error",   │  拒绝：先发 error 帧再 close
   │      payload:{ code, message } } ────────│
 ```
 
 - **重连恢复 = 快照 + 增量**（AD-16）：重连后重新握手 → 收快照重建投影 → 续增量；首连空会话 = `snapshot.entries` 为空数组。
 - **草稿握手分支（T4，§14.1）**：当前会话为零条目内存草稿时 welcome 携带 `draft:true`，不 attach 不推快照；真实会话握手维持上图时序。
-- **拒绝三分支**(TP-CL6-5):无 `token` 字段 → `auth.missing_token`;token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`;`protocolVersion ≠ "0.9"`（含信封 `v ≠ "0.9"`）→ `protocol.version_unsupported`。
+- **拒绝三分支**(TP-CL6-5):无 `token` 字段 → `auth.missing_token`;token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`;`protocolVersion ≠ "0.10"`（含信封 `v ≠ "0.10"`）→ `protocol.version_unsupported`。
 - 客户端浏览器侧获取 dev token 的机制已由 T1.6 钉死：daemon HTTP 端点 `GET /helix-dev-token`（见 §9）。
 
 ## 3. 统一信封
@@ -49,12 +49,12 @@
 ```ts
 // 本代码块为 packages/protocol/src/envelope.ts 现行定义的忠实呈现（F(2).2 对齐，逐项抄源）。
 
-/** 协议版本位。v0.9 帧 `v` 恒为 "0.9"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
-export const PROTOCOL_VERSION = "0.9" as const;
+/** 协议版本位。v0.10 帧 `v` 恒为 "0.10"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
+export const PROTOCOL_VERSION = "0.10" as const;
 
 /**
- * 帧版本位取值域："0.9" = 当前批（v0.9）帧；`0` = v0/v0.1 历史帧（信封兼容读
- * 的类型面）。handshake 的 HelloPayload.protocolVersion 不取联合（严格 "0.9" 单值）。
+ * 帧版本位取值域："0.10" = 当前批（v0.10）帧；`0` = v0/v0.1 历史帧（信封兼容读
+ * 的类型面）。handshake 的 HelloPayload.protocolVersion 不取联合（严格 "0.10" 单值）。
  */
 export type FrameVersion = 0 | typeof PROTOCOL_VERSION;
 
@@ -65,7 +65,7 @@ export interface WorkspaceRoute {
 
 /** C→S 命令信封基型（契约 A §1.1）。具体命令信封以 `type` 字面量收窄并实例化 `payload`。 */
 export interface CommandFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.9"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：当前批帧 "0.10"；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /** 消息目录名（如 "chat.send" / "session.loadHistory"） */
   type: string;
@@ -81,7 +81,7 @@ export interface CommandFrame<T = unknown> {
 
 /** S→C 事件信封基型（v0.2 统一事件信封，契约 A §1.2；AD-3/AD-4）。 */
 export interface EventFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.9"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：当前批帧 "0.10"；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /** 事件归属会话（v0.2 新增，AD-4）：S→C 运行时必发；系统事件以 SYSTEM_SESSION_ID 占位 */
   sessionId?: string;
@@ -168,6 +168,7 @@ export interface MessageEntryDto {
   content: string;          // 最终内容（流式中间态走 chat.stream.delta）
   ts: number;               // epoch 毫秒（T1.2 定稿，回填契约 §9）
   steerState?: "queued" | "drained";  // 仅 chat.steer 产生的用户消息携带
+  images?: readonly string[];  // v0.10（T9）：图片附件 base64 data URL 数组；仅 user 消息携带（assistant 不产图）；缺省 = 纯文本旧形态
 }
 
 export interface ToolCallEntryDto {
@@ -179,6 +180,7 @@ export interface ToolCallEntryDto {
   state: "running" | "done" | "error";
   durationMs?: number;      // state=done|error 时存在
   ts: number;               // epoch 毫秒
+  images?: readonly string[];  // v0.10（T9）：工具结果附带图片（如 browser 截图）base64 data URL 数组；缺省 = 无图旧形态
 }
 ```
 
@@ -190,19 +192,19 @@ export interface ToolCallEntryDto {
 |---|---|---|
 | `auth.missing_token` | 握手：无 token 字段 | 发 error 帧后 **close** |
 | `auth.invalid_token` | 握手：token 与 dev-token 不符 | 发 error 帧后 **close** |
-| `protocol.version_unsupported` | 握手：protocolVersion ≠ 当前版本位（"0.9"） | 发 error 帧后 **close** |
+| `protocol.version_unsupported` | 握手：protocolVersion ≠ 当前版本位（"0.10"） | 发 error 帧后 **close** |
 | `command.unknown` | 命令：未知 type | 发 error 帧，**连接保持** |
 | `command.invalid_payload` | 命令：payload 不符 | 发 error 帧，**连接保持** |
 | （连接层异常） | 非 WS 帧垃圾数据等 | 不发帧直接 close，前端走重连状态机 |
 
 - **daemon 实现超集注记（D-3）**：daemon 握手期**同时校验**信封 `v` 与
-  `hello.protocolVersion` 不等于当前版本位（"0.9"），两者均以
+  `hello.protocolVersion` 不等于当前版本位（"0.10"），两者均以
   `protocol.version_unsupported` 同码拒绝（实现严于本文档仅列
   `protocolVersion` 的口径，属良性收紧）。
 
 ## 8. 版本与演进
 
-- 版本位内建（AD-9）：`v: "0.9"`（当前）；协议不兼容变更时 bump
+- 版本位内建（AD-9）：`v: "0.10"`（当前）；协议不兼容变更时 bump
   `PROTOCOL_VERSION` 并同步本包类型与本文档，旧版本以
   `protocol.version_unsupported` 拒绝。
 - 演进登记：v0.1 additive（§10，未 bump 版本位）；v0.2 一次 bump、版本位转
@@ -216,7 +218,10 @@ export interface ToolCallEntryDto {
   `"0.6" → "0.7"`）；v0.8（§17.8：agent.config 读面 skills/
   diagnostics 的 source 字面量联合扩 builtin——零新增命令/事件 + 版本位
   `"0.7" → "0.8"`）；**v0.9 = 当前**（§17.9：web 族 web.start 命令 +
-  web.start.result 事件 additive + 版本位 `"0.8" → "0.9"`）。
+  web.start.result 事件 additive + 版本位 `"0.8" → "0.9"`）；**v0.10 = 当前**
+  （§17.10：图片上下行 additive——chat.send.images + MessageEntryDto/
+  ToolCallEntryDto.images 三可选字段，零新增命令/事件 + 版本位
+  `"0.9" → "0.10"`）。
 - v0 语义边界：workspace 路由**仅类型预留**（§3）；`session.subscribe` /
   `session.unsubscribe` 仅保通路语义（v0 主会话默认订阅）。
 - 前端重连语义（状态机转换规则 = 契约，节奏实现自定）：断线 → 自动重连
@@ -727,6 +732,7 @@ sessionId 必填（`draft:true` 建会话链省略）；无专属结果帧，回
 | `text` | `string` | 必填 | v0 | 用户消息文本 |
 | `draft` | `boolean` | 可选 | v0.2 引入 / v0.5 定形登记（§14.3） | 草稿建会话标记：true 且信封 sessionId 省略 → daemon 新建会话聚合落库（首条用户消息即建会话）；sessionId 携带时忽略；缺省 = 既有会话内发送 |
 | `model` | `string` | 可选 | v0.5 定形登记（§14.2） | 建会话模型：仅 `draft:true` 链消费（用户建会话前选定的模型，失败降级全局默认不阻断）；缺省 = 全局默认（不换模） |
+| `images` | `readonly string[]` | 可选 | v0.10（T9 图片上行） | 图片附件：base64 data URL 数组（`data:image/png;base64,…`，自包含免文件服务）；≤4 张、单张解码后 ≤2MB（超限 daemon 回中文错误不落消息）；daemon 解码后转 ImageContent[] 交引擎（`agent.prompt(input, images)`）；缺省 = 纯文本发送（additive） |
 
 #### `chat.steer`
 
@@ -1101,6 +1107,7 @@ onStatusChange 事件源触发，handler 不重复广播）。
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `entry` | `EntryDto` | 必填 | v0 | 完成消息（kind="message" 且含最终 content；落盘事件） |
+| `entry.images` | `readonly string[]` | 可选 | v0.10（T9 图片下行） | 仅 user 消息携带（chat.send.images 透传）：base64 data URL 数组，气泡缩略图渲染依据；缺省 = 纯文本旧形态 |
 
 #### `steer.queued`
 
@@ -1125,6 +1132,7 @@ onStatusChange 事件源触发，handler 不重复广播）。
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `entry` | `EntryDto` | 必填 | v0 | 工具调用结果（tool-call 变体，state="done"\|"error"，含 result 与 durationMs） |
+| `entry.images` | `readonly string[]` | 可选 | v0.10（T9 图片下行） | 工具结果附带图片（如 browser screenshot 截图）：base64 data URL 数组，工具卡缩略图渲染依据；缺省 = 无图旧形态；session.snapshot 载荷（投影重建）同构 |
 
 #### `agent.state.changed`
 
@@ -1572,3 +1580,24 @@ applied/skipped 两判别；skipped 时 reason 含引导用户开 remote debuggi
 `FrameVersion = 0 | "0.9"`。handshake 严格单值 fail-fast：
 `protocolVersion ≠ "0.9"` 即 `protocol.version_unsupported` 拒绝。
 （v0.10 起 v0.9 转为历史批。）
+
+### 17.10 v0.10 批次登记
+
+v0.10 = 图片上下行 additive（T9，TR-AD-23① 口径沿 v0.8 先例——纯可选
+字段、零计数变化）：三处可选字段——`ChatSendPayload.images`（上行：用户
+发图给 LLM，daemon 解码转 pi ImageContent[] 经 `agent.prompt(input,
+images)` 注入模型）+ `MessageEntryDto.images`（下行：user 消息气泡缩略图，
+chat.send.images 透传落盘）+ `ToolCallEntryDto.images`（下行：工具结果
+附带截图，browser screenshot 读文件转 data URL）。**零新增命令/事件**
+（`COMMAND_TYPES` 27 / `EVENT_TYPES` 47 计数不变），零改既有命令/事件
+其它形状；对应事件帧载荷（chat.message.completed / tool.call.result 的
+entry 内嵌字段）与 session.snapshot 载荷（投影重建）同构透传。线格式裁决：
+全链 **base64 data URL**（`data:image/png;base64,…`）自包含免文件服务；
+防护：数量 ≤4、单张解码后 ≤2MB（daemon ChatService 校验，超限中文报错
+不落消息；browser screenshot 超 2MB 自动 jpeg 重截/降质，失败缺省不炸）。
+非目标（记档）：steer 带图 / assistant 产图 / 媒体落盘重构。版本位
+`"0.9" → "0.10"`（envelope.ts 单点；批次集合标记非协商位，Q-1c 单仓
+同发一步替换，运行时代码与测试零 `"0.9"` 残留——豁免：§1–§13/§17.5–
+§17.9 演进备案节的历史版本登记字面量合法保留）；`FrameVersion = 0 |
+"0.10"`。handshake 严格单值 fail-fast：`protocolVersion ≠ "0.10"` 即
+`protocol.version_unsupported` 拒绝。

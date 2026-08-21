@@ -261,3 +261,68 @@ describe("browser description 策略知识（单工具承载全部；web-access 
     expect(tool.description).toContain("仅用于观测");
   });
 });
+
+// ── T9 图片下行：screenshot → data URL 附件（工具卡缩略图数据源） ──────
+
+/** 1×1 PNG 真实字节（魔数头可辨；write 仿真经 FakeBrowserPort.screenshotBytes）。 */
+const REAL_PNG = Uint8Array.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+  0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+  0x42, 0x60, 0x82,
+]);
+const REAL_JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0xff, 0xd9]);
+
+/** png 编码为 base64（data URL 断言面）。 */
+function toBase64(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("base64");
+}
+
+describe("browser action=screenshot（T9 图片下行）", () => {
+  test("port 返回 {saved} 后读文件 → images 携带 data URL；content 文本不变", async () => {
+    const port = new FakeBrowserPort();
+    port.screenshotBytes = REAL_PNG;
+    const { run } = makeHarness(port);
+    const result = await run({ action: "screenshot", tabId: "tab-1", file: `${tmpdir()}/helix-t9-shot.png` });
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content.split("\n")[0]!)).toEqual({ saved: `${tmpdir()}/helix-t9-shot.png` });
+    // T9：ToolExecutionResult.images 携带 base64 data URL（工具卡缩略图数据源）
+    const images = (result as { images?: string[] }).images;
+    expect(images).toEqual([`data:image/png;base64,${toBase64(REAL_PNG)}`]);
+  });
+
+  test("png 超 2MB → jpeg format 重截（port 二次调用携带 format=jpeg）→ images 为 jpeg data URL", async () => {
+    const port = new FakeBrowserPort();
+    // png 大图（>2MB）/ jpeg 重截小图（按 format 变化的剧本）
+    port.screenshotBytes = (format) => (format === "jpeg" ? REAL_JPEG : new Uint8Array(2_100_000));
+    const { run } = makeHarness(port);
+    const result = await run({ action: "screenshot", tabId: "tab-1", file: `${tmpdir()}/helix-t9-shot2.png` });
+    expect(result.isError).toBe(false);
+    // 重截发生：screenshotTab 被调用两次，第二次携带 format=jpeg
+    const shots = port.calls.filter((c) => c.method === "screenshotTab");
+    expect(shots).toHaveLength(2);
+    expect(shots[1]!.args[2]).toBe("jpeg");
+    const images = (result as { images?: string[] }).images;
+    expect(images).toEqual([`data:image/jpeg;base64,${toBase64(REAL_JPEG)}`]);
+  });
+
+  test("jpeg 重截仍超 2MB → images 缺省只有文本（不炸）", async () => {
+    const port = new FakeBrowserPort();
+    port.screenshotBytes = new Uint8Array(2_100_000); // 恒大图
+    const { run } = makeHarness(port);
+    const result = await run({ action: "screenshot", tabId: "tab-1", file: `${tmpdir()}/helix-t9-shot3.png` });
+    expect(result.isError).toBe(false);
+    expect((result as { images?: string[] }).images).toBeUndefined();
+    expect(result.content).toContain("saved");
+  });
+
+  test("落盘文件读取失败（未写盘）→ images 缺省只有文本（不炸）", async () => {
+    const port = new FakeBrowserPort(); // screenshotBytes 未设置：不落盘
+    const { run } = makeHarness(port);
+    const result = await run({ action: "screenshot", tabId: "tab-1", file: `${tmpdir()}/helix-t9-not-exist.png` });
+    expect(result.isError).toBe(false);
+    expect((result as { images?: string[] }).images).toBeUndefined();
+    expect(JSON.parse(result.content.split("\n")[0]!)).toEqual({ saved: `${tmpdir()}/helix-t9-not-exist.png` });
+  });
+});

@@ -21,6 +21,8 @@ export interface ToolCallRecordData {
   readonly status: ToolCallStatus;
   readonly result?: string;
   readonly error?: string;
+  /** 工具结果附带图片（T9 下行）：base64 data URL 数组（如截图）；缺省 = 无图。 */
+  readonly images?: readonly string[];
   readonly startedAt?: string;
   readonly endedAt?: string;
 }
@@ -34,6 +36,7 @@ export class ToolCallRecord {
     private _status: ToolCallStatus,
     private _result?: string,
     private _error?: string,
+    private _images?: readonly string[],
     private _startedAt?: string,
     private _endedAt?: string,
   ) {}
@@ -52,6 +55,7 @@ export class ToolCallRecord {
       data.status,
       data.result,
       data.error,
+      data.images,
       data.startedAt,
       data.endedAt,
     );
@@ -80,11 +84,12 @@ export class ToolCallRecord {
     this._startedAt = startedAt;
   }
 
-  /** running→completed，附加结果。 */
-  complete(result: string, endedAt?: string): void {
+  /** running→completed，附加结果（images 可选：T9 下行工具截图 data URL）。 */
+  complete(result: string, endedAt?: string, images?: readonly string[]): void {
     this.expect("running", "complete");
     this._status = "completed";
     this._result = result;
+    this._images = images;
     this._endedAt = endedAt ?? new Date().toISOString();
   }
 
@@ -115,6 +120,8 @@ export class ToolCallRecord {
       status: this._status,
       result: this._result,
       error: this._error,
+      // T9 下行：工具结果附带图片（缺省省略——线格式保持旧形状）
+      ...(this._images !== undefined && this._images.length > 0 ? { images: [...this._images] } : {}),
       startedAt: this._startedAt,
       endedAt: this._endedAt,
     };

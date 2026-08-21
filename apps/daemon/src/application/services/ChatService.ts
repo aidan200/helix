@@ -10,6 +10,7 @@ import type { ThinkingEntryData } from "../../domain/session/ThinkingEntry";
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { UsageSummary } from "../../domain/session/SessionSnapshot";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
+import { parseDataUrlImages, ImageValidationError } from "./images";
 import { ZERO_USAGE } from "../../domain/session/UsageLedger";
 import type {
   AgentInstantiatedPayload,
@@ -257,10 +258,20 @@ export class ChatService implements ChatPort {
    *
    * 返回值告诉 driving 侧消息去了哪里（新轮 or 注入队列）——
    * CLI 据此打印「已入 steer 队列」，WS 据此回执不同命令确认。
+   *
+   * T9 图片上行：images 可选（base64 data URL 数组）——入口统一校验
+   * （parseDataUrlImages：≤4 张/格式合法/单张解码后 ≤2MB，超限抛中文
+   * Error，消息不落盘引擎不驱动）；仅 idle 分支消费（user Entry 落盘携带
+   * + 引擎 ImageContent 注入）；生成中携带 images 抛错（steer 不带图，
+   * 非目标防护——不静默丢图）。
    */
-  async sendMessage(text: string): Promise<SendOutcome> {
+  async sendMessage(text: string, images?: readonly string[]): Promise<SendOutcome> {
     if (text.trim() === "") {
       throw new Error("消息内容不能为空");
+    }
+    // T9：入口统一校验（两分支共用；idle 分支随后透传，running 分支拒收）
+    if (images !== undefined && images.length > 0) {
+      parseDataUrlImages(images);
     }
     switch (this.lifecycle.current) {
       case "idle": {
@@ -268,9 +279,9 @@ export class ChatService implements ChatPort {
         // T4：零条目会话的首个用户条目 → 落聚合后同步触发转正回调（注册表
         // promoteDraft：instantiated 先于本条 message.completed 落盘）
         const isFirstEntry = this.session.entryList().length === 0;
-        const entry = this.session.appendUserEntry(text, this.now());
+        const entry = this.session.appendUserEntry(text, this.now(), images);
         if (isFirstEntry) this.deps.onFirstUserEntry?.();
-        this.publishMessageCompleted(entry.toData().id, "user", text, false);
+        this.publishMessageCompleted(entry.toData().id, "user", text, false, images);
         // ② 开新轮次（Turn=generating）并广播开始
         const turn = this.session.beginTurn(entry.id, this.now());
         this.publish("turn.started", { turnId: turn.id });
@@ -279,7 +290,7 @@ export class ChatService implements ChatPort {
         this.setLifecycle("running");
         const run = (async () => {
           try {
-            await this.deps.engine.start(text, (e) => this.onEngineEvent(e));
+            await this.deps.engine.start(text, (e) => this.onEngineEvent(e), images);
           } catch (err) {
             // 引擎异常不崩会话：可观测（engine.error 事件）+ 轮次收口为中断 + 回 idle
             this.publish("engine.error", { message: (err as Error).message });
@@ -296,6 +307,10 @@ export class ChatService implements ChatPort {
       }
       case "running":
       case "steering": {
+        // T9 非目标防护：steer 注入不带图——生成中携带 images 抛错（不静默丢图）
+        if (images !== undefined && images.length > 0) {
+          throw new ImageValidationError("生成中发送图片暂不支持（注入不带图），请等待本轮结束后再发");
+        }
         // ④ 生成中的输入 = steer 注入（入 domain 队列可观测 + 引擎即时入队）
         const { entryId } = await this.steer(text);
         return { mode: "steered", entryId };
@@ -562,11 +577,12 @@ export class ChatService implements ChatPort {
       }
 
       // 工具调用结束：记录收口（completed/failed）+ 广播结果
+      // T9 下行：images（工具截图 data URL）随记录/事件同点落账（工具卡缩略图源）
       case "tool_execution_end": {
         const record = this.toolCalls.get(e.toolCallId);
         if (record) {
           if (e.isError) record.fail(e.result, this.now());
-          else record.complete(e.result, this.now());
+          else record.complete(e.result, this.now(), e.images);
         }
         this.publish<ToolResultPayload>("tool.call.result", {
           toolCallId: e.toolCallId,
@@ -574,6 +590,7 @@ export class ChatService implements ChatPort {
           args: record?.args,
           isError: e.isError,
           result: e.result,
+          ...(e.images !== undefined && e.images.length > 0 ? { images: [...e.images] } : {}),
         });
         break;
       }
@@ -670,8 +687,16 @@ export class ChatService implements ChatPort {
     role: MessageCompletedPayload["role"],
     text: string,
     isSteer: boolean,
+    images?: readonly string[],
   ): void {
-    this.publish<MessageCompletedPayload>("message.completed", { entryId, role, text, isSteer });
+    this.publish<MessageCompletedPayload>("message.completed", {
+      entryId,
+      role,
+      text,
+      isSteer,
+      // T9 图片上行：user 消息携带图片附件（data URL 原样，事件/投影同源）
+      ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}),
+    });
   }
 
   private publish<P>(

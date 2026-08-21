@@ -14,6 +14,7 @@ import { traceQueryResult, v04Commands } from "./samples/v04";
 import { v06Commands, v06Events } from "./samples/v06";
 import { v07Commands, v07Events } from "./samples/v07";
 import { v09Commands, v09Events } from "./samples/v09";
+import { v010Commands, v010Events } from "./samples/v010";
 
 // ── 类型级断言（编译期；任一不满足 → tsc --noEmit 失败） ──
 // 命令目录常量 ↔ 命令信封联合 type 集合双向一致（v0.9：27 个）
@@ -226,7 +227,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
   });
 
   test("全部 27 个命令信封可构造且可分发（含 v0.3/v0.4/v0.6/v0.7/v0.9 扩展形态）", () => {
-    const out = [...legacyCommands, ...v01Commands, ...v02Commands, ...v03Commands, ...v04Commands, ...v06Commands, ...v07Commands, ...v09Commands].map(dispatchCommand);
+    const out = [...legacyCommands, ...v01Commands, ...v02Commands, ...v03Commands, ...v04Commands, ...v06Commands, ...v07Commands, ...v09Commands, ...v010Commands].map(dispatchCommand);
     expect(out).toEqual([
       "send:hi",
       "steer:改用方案 B:main",
@@ -272,11 +273,13 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "web-stop",
       // v0.9 样例（web 族：start 显式启动写面，无参全局命令）
       "web-start",
+      // v0.10 样例（T9 图片上行：chat.send 携带 images data URL 数组）
+      "send:看看这张截图",
     ]);
   });
 
   test("全部 47 个事件信封可构造且窄化分发正确", () => {
-    const out = [...legacyEvents, ...v01Events, ...v02Events, ...v02ResultEvents, ...v06Events, ...v07Events, ...v09Events].map(summarizeEvent);
+    const out = [...legacyEvents, ...v01Events, ...v02Events, ...v02ResultEvents, ...v06Events, ...v07Events, ...v09Events, ...v010Events].map(summarizeEvent);
     expect(out).toEqual([
       "welcome:sess-1:kimi-k2:running",
       "error:auth.missing_token:握手缺少 token",
@@ -333,6 +336,9 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       // v0.9 样例（web 族：start.result 两判别 applied / skipped+reason）
       "web-start-result:applied:-",
       "web-start-result:skipped:未发现开启远程调试的浏览器（--remote-debugging-port）",
+      // v0.10 样例（T9 图片下行：user 消息/工具结果携带 images）
+      "msg:e5",
+      "tool-result:e6",
     ]);
   });
 

@@ -112,7 +112,7 @@ interface LoopHarness {
 /** 本次进程创建的沙箱目录（afterAll 统一回收——TR-TEST-6 零残留，T4.3 补）。 */
 const sandboxes: string[] = [];
 
-function makeHarness(scripts: ScriptEntry[]): LoopHarness {
+function makeHarness(scripts: ScriptEntry[], browserPort?: FakeBrowserPort): LoopHarness {
   const cwd = mkdtempSync(join(tmpdir(), "helix-t15-loop-"));
   sandboxes.push(cwd);
   const executor = new CoreToolExecutor({
@@ -126,7 +126,8 @@ function makeHarness(scripts: ScriptEntry[]): LoopHarness {
       kill: () => ({ killed: false, error: "工具循环测试不驱动调度" }),
     },
     // T3r：MainSessionProfile 声明动态族单 browser 工具——注册桩保持 resolveTools 可装配
-    browser: new FakeBrowserPort(),
+    // T9：可选注入预置字节的 port（screenshot 剧本）
+    browser: browserPort ?? new FakeBrowserPort(),
   });
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,
@@ -275,6 +276,44 @@ describe("TP-CL5-3：剧本 S2 —— 五工具「调用→真实执行→回注
     expect(assistantTexts(chat).some((t) => t.includes("HELIX-S2-SECOND-99"))).toBe(true);
     expect(lastToolResult(events, "read")?.payload.isError).toBe(false);
     expect(lastToolResult(events, "bash")?.payload.isError).toBe(false);
+  });
+});
+
+// ── T9 图片下行：browser screenshot 真链闭环（pi loop + 真工具 + 落盘文件） ──
+
+describe("T9：screenshot → image 内容块 → tool.call.result images 全链（真 pi loop）", () => {
+  test("截图落盘读回 → 领域事件携带 data URL + 模型收到 image 块（续写可作证）", async () => {
+    const shotPath = join(tmpdir(), `helix-t9-e2e-${Date.now()}.png`);
+    const port = new FakeBrowserPort();
+    port.screenshotBytes = Uint8Array.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+      0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+      0x42, 0x60, 0x82,
+    ]);
+    const { chat, events } = makeHarness(
+      [
+        { kind: "tool", toolName: "browser", args: { action: "screenshot", tabId: "tab-1", file: shotPath } },
+        { kind: "reply", build: (rs) => `工具结果：${rs.at(-1) ?? "?"}` },
+      ],
+      port,
+    );
+
+    await chat.sendMessage("截个图看看");
+
+    // 领域事件 tool.call.result 携带 images（data URL）——真 pi loop 链
+    //（tool 内容块 → adapter imagesOfContent → port 事件 → ChatService 落账）
+    const tr = lastToolResult(events, "browser") as
+      | { payload: { isError: boolean; images?: string[] } }
+      | undefined;
+    expect(tr?.payload.isError).toBe(false);
+    expect(tr?.payload.images).toBeDefined();
+    expect(tr?.payload.images?.[0]).toMatch(/^data:image\/png;base64,/);
+    // 记录与快照投影同源携带（工具卡恢复数据源）
+    const record = chat.toolCallData.find((t) => t.toolName === "browser");
+    expect(record?.images?.[0]).toMatch(/^data:image\/png;base64,/);
+    rmSync(shotPath, { force: true });
   });
 });
 

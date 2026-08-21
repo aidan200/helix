@@ -130,6 +130,8 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
         entry.instanceId = event.instanceId;
       }
+      // T9 图片下行：user 消息携带图片附件（载荷 images → entry.images 透传）
+      if (p.images !== undefined && p.images.length > 0) entry.images = [...p.images];
       const frame: ChatMessageCompletedEvent = {
         v: PROTOCOL_VERSION,
         type: "chat.message.completed",
@@ -185,6 +187,8 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
         entry.instanceId = event.instanceId;
       }
+      // T9 图片下行：工具结果附带图片（工具卡缩略图数据源）
+      if (p.images !== undefined && p.images.length > 0) entry.images = [...p.images];
       if (ctx?.durationMs !== undefined) entry.durationMs = ctx.durationMs;
       const frame: ToolCallResultEvent = {
         v: PROTOCOL_VERSION,

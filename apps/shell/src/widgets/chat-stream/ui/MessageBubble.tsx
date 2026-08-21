@@ -9,6 +9,7 @@ import { useI18n } from "@/shared/i18n";
 import { formatTs } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 import MarkdownMessage from "./MarkdownMessage";
+import ImageStrip from "@/shared/ui/ImageStrip";
 
 /** steer 徽标：queued = violet 脉冲点；drained = success「已注入」。 */
 function SteerBadge({ state }: { state: "queued" | "drained" }) {
@@ -57,6 +58,8 @@ const MessageBubble = memo(function MessageBubble({
           ) : (
             <MarkdownMessage text={entry.content} />
           )}
+          {/* T9 图片附件缩略图（v0.10 MessageEntryDto.images；仅 user 消息携带） */}
+          {entry.images && entry.images.length > 0 && <ImageStrip images={entry.images} />}
         </div>
       </div>
     </div>

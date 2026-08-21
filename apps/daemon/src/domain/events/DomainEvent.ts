@@ -58,6 +58,8 @@ export interface MessageCompletedPayload {
   readonly role: "user" | "assistant" | "tool";
   readonly text: string;
   readonly isSteer: boolean;
+  /** 图片附件（T9 上行）：base64 data URL 数组；仅 user 消息携带，缺省 = 纯文本。 */
+  readonly images?: readonly string[];
 }
 
 export interface SteerPayload {
@@ -79,6 +81,8 @@ export interface ToolCallPayload {
 export interface ToolResultPayload extends ToolCallPayload {
   readonly isError: boolean;
   readonly result: string;
+  /** 工具结果附带图片（T9 下行）：base64 data URL 数组（如截图）；缺省 = 无图。 */
+  readonly images?: readonly string[];
 }
 
 export interface AgentStateChangedPayload {

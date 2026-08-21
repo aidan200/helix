@@ -11,6 +11,7 @@ import type { AgentProfile } from "./runtime/AgentProfile";
 import type { AgentRuntimeDeps } from "./runtime/AgentRuntime";
 import { buildModels, createStreamFn, explicitGetApiKey, resolveModel, resolveModelSlot } from "./model-provider";
 import { stopReasonOf, errorMessageOf, textOfContent, textOfMessage, usageOf } from "./mappers/SessionMapper";
+import { imagesOfContent } from "../../../application/services/images";
 
 /**
  * PiAgentEngineAdapter —— AgentEnginePort 的 pi 实现（防腐墙本体，§3.5）。
@@ -81,10 +82,10 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     this.runtime.subscribe((event) => this.onPiEvent(event));
   }
 
-  async start(input: string, listener: AgentEngineListener): Promise<void> {
+  async start(input: string, listener: AgentEngineListener, images?: readonly string[]): Promise<void> {
     this.listener = listener;
     try {
-      await this.runtime.drive(input);
+      await this.runtime.drive(input, images);
     } finally {
       this.listener = null;
     }
@@ -203,14 +204,19 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
           toolName: event.toolName,
           args: event.args,
         });
-      case "tool_execution_end":
+      case "tool_execution_end": {
+        // T9 图片下行：工具结果 content 内 image 块 → images data URL
+        //（textOfResult 同源逻辑不动；模型在 pi 侧已直接收到 image 块）
+        const images = imagesOfContent((event.result as { content?: unknown } | undefined)?.content);
         return emit({
           type: "tool_execution_end",
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           isError: event.isError,
           result: textOfContent((event.result as { content?: unknown } | undefined)?.content),
+          ...(images.length > 0 ? { images } : {}),
         });
+      }
       default:
         return; // tool_execution_update 等中间观测面暂不透传（T1.5 工具接线时评估）
     }

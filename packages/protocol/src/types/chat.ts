@@ -30,4 +30,12 @@ export interface MessageEntryDto {
   steerState?: SteerState;
   /** 实例归属（v0.1 新增，AD-3）：可选；缺省 = 主实例（"main"） */
   instanceId?: string;
+  /**
+   * 图片附件（v0.10 新增，T9 图片上下行）：base64 data URL 数组
+   * （`data:image/png;base64,…`，自包含免文件服务）；仅 user 消息携带
+   * （chat.send.images 透传；assistant 不产图不带）。缺省 = 纯文本旧形态
+   * （additive 纪律，旧客户端零破坏）。数量 ≤4、单张 ≤2MB（daemon
+   * ChatService 校验，协议面仅形状）。
+   */
+  images?: readonly string[];
 }

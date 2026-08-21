@@ -88,6 +88,8 @@ function messageEntryDto(entry: EntryData, queuedSteer: Set<string>): MessageEnt
     dto.steerState = queuedSteer.has(entry.id) ? "queued" : "drained";
   }
   if (entry.instanceId !== MAIN_INSTANCE_ID) dto.instanceId = entry.instanceId;
+  // T9 图片下行：user 消息携带图片附件（快照投影重建同源；缺省不携带）
+  if (entry.images !== undefined && entry.images.length > 0) dto.images = [...entry.images];
   return [dto];
 }
 
@@ -112,6 +114,8 @@ export function toolCallEntryDto(record: ToolCallRecordData): ToolCallEntryDto {
   if (record.instanceId !== undefined && record.instanceId !== MAIN_INSTANCE_ID) {
     dto.instanceId = record.instanceId;
   }
+  // T9 图片下行：工具结果附带图片（快照/翻页工具卡缩略图数据源；缺省不带）
+  if (record.images !== undefined && record.images.length > 0) dto.images = [...record.images];
   if (record.status === "completed") {
     if (record.result !== undefined) dto.result = record.result;
   } else if (record.status === "failed") {

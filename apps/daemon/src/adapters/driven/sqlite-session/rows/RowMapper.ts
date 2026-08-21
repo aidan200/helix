@@ -81,6 +81,8 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
       status: t.status,
       result: t.result ?? null,
       error: t.error ?? null,
+      // T9 下行：工具结果附带图片（data URL 数组 JSON 文本；缺省 null）
+      images: t.images !== undefined && t.images.length > 0 ? JSON.stringify([...t.images]) : null,
       started_at: t.startedAt ?? null,
       ended_at: t.endedAt ?? null,
     })),
@@ -117,6 +119,8 @@ export function rowsToPersistedState(
       status: t.status as ToolCallStatus,
       result: t.result ?? undefined,
       error: t.error ?? undefined,
+      // T9 下行：图片列 JSON 往返（null/旧行无列值 → undefined 前向兼容）
+      ...(t.images !== null && t.images !== undefined ? { images: JSON.parse(t.images) as string[] } : {}),
       startedAt: t.started_at ?? undefined,
       endedAt: t.ended_at ?? undefined,
     })) satisfies ToolCallRecordData[],

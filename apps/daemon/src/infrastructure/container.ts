@@ -531,10 +531,10 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 
   // ── 会话路由对话入口（T2.2）：CLI / WS 共用——sessionId 缺省 = 当前会话 ──
   const chatRouter: SessionChatPort = {
-    sendMessage: async (text: string, sessionId?: string): Promise<SendOutcome> => {
+    sendMessage: async (text: string, sessionId?: string, images?: readonly string[]): Promise<SendOutcome> => {
       const target = sessionId ?? registry.currentSessionId();
       const runtime = registry.peek(target) ?? (await registry.get(target));
-      return runtime.chatService.sendMessage(text);
+      return runtime.chatService.sendMessage(text, images);
     },
     steer: async (text: string, sessionId?: string, instanceId?: string): Promise<{ entryId: string }> => {
       const target = sessionId ?? registry.currentSessionId();
