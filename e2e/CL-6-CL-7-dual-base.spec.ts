@@ -54,7 +54,7 @@ async function runCriticalPath(
   // 消息往返 + 工具卡一例
   const input = page.locator("#msg-input");
   await input.fill(USER_TEXT);
-  await input.press("Enter");
+  await input.press("Alt+Enter"); // T8：Enter 换行，Alt+Enter 发送
   await expect(page.locator(".msg.user", { hasText: USER_TEXT })).toBeVisible();
   const card = page.locator(".tool-card").first();
   await expect(card).toBeVisible({ timeout: 15_000 });

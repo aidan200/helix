@@ -139,7 +139,7 @@ test.describe("TC2.5 R-09~R-14/SM-1/SM-2 连接四态（S5）", () => {
     // connected：enabled + 正常 placeholder；输入草稿
     await mock.connect();
     await expect(input).toBeEnabled();
-    await expect(input).toHaveAttribute("placeholder", "输入消息，Enter 发送");
+    await expect(input).toHaveAttribute("placeholder", "输入消息，Alt+Enter 发送");
     await input.fill("跨状态保留的草稿");
 
     // disconnected：disabled + placeholderWaiting + 草稿保留（SM 规则 5）

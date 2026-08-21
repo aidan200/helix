@@ -162,7 +162,7 @@ test.describe("TC2.2 R-03/R-04/R-05 气泡·流式光标·markdown（S1）", () 
     await shotEvidence(page, "fidelity-bubble-md");
   });
 
-  test("S1 多轮可持续：第二轮发送 → 流式 → 终态渲染（Enter 发送路径）", async ({ mock, page }) => {
+  test("S1 多轮可持续：第二轮发送 → 流式 → 终态渲染（Alt+Enter 发送路径，T8）", async ({ mock, page }) => {
     // 第一轮
     await mock.sendUserMessage("先讲讲 v0 协议的设计");
     await mock.emit(messageCompleted(msgEntry("u-1", "user", "先讲讲 v0 协议的设计")));

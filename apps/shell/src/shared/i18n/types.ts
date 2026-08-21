@@ -44,9 +44,10 @@ export interface ChatTranslations {
     placeholderConnecting: string;
     placeholderWaiting: string;
     send: string;
-    /** 值内 [[x]] 标记渲染为 kbd 键帽（如 "[[Enter]] 发送"） */
+    /** 停止钮（T8）：中断 main 生成（chat.abort） */
+    stop: string;
+    /** 值内 [[x]] 标记渲染为 kbd 键帽（如 "[[Alt+Enter]] 发送"） */
     enterHint: string;
-    projectionNote: string;
   };
   steer: {
     hint: string;

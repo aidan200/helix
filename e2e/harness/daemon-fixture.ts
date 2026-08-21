@@ -353,7 +353,7 @@ export const test = base.extend<{ e2e: E2eContext }>({
       async send(pg, text) {
         const input = pg.locator("#msg-input");
         await input.fill(text);
-        await input.press("Enter");
+        await input.press("Alt+Enter"); // T8：Enter 换行，Alt+Enter 发送
       },
       async waitForAssistantText(pg, text, timeout = 20_000) {
         const hit = pg.locator(".msg.assistant .md-body", { hasText: text }).last();

@@ -45,12 +45,12 @@ export const enUS: Translations = {
       hint: "You can retry later; details are in the daemon log",
     },
     composer: {
-      placeholder: "Type a message, Enter to send",
+      placeholder: "Type a message, Alt+Enter to send",
       placeholderConnecting: "Establishing connection…",
       placeholderWaiting: "Waiting for connection…",
       send: "Send",
-      enterHint: "[[Enter]] send · [[Shift+Enter]] newline",
-      projectionNote: "main-session · projection rebuilt from daemon snapshots",
+      stop: "Stop",
+      enterHint: "[[Alt+Enter]] send · [[Enter]] newline",
     },
     steer: {
       hint: "Agent generating · queued messages inject after this turn",

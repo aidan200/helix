@@ -580,13 +580,16 @@ html.light .bubble code.inline { color: var(--accent); }
 }
 .chat-inputbar:focus-within { border-color: rgb(var(--accent-rgb) / 0.55); box-shadow: var(--glow-cyan); }
 .chat-inputbar .prompt { color: var(--accent); font-weight: 700; flex-shrink: 0; }
-.chat-inputbar input {
+/* T8：input → textarea（rows=1 自动增高；JS 侧随草稿高度增长，这里定上限内滚） */
+.chat-inputbar textarea {
   flex: 1; min-width: 0; background: none; border: none; outline: none;
   font-family: var(--font-mono); font-size: var(--text-main); color: var(--text);
+  line-height: 1.55; padding: 0; resize: none; overflow-y: auto;
+  max-height: 160px;
 }
-.chat-inputbar input::placeholder { color: var(--text-dim); }
-.chat-inputbar input:disabled { color: var(--text-faint); }
-.app[data-conn="connected"] .chat-inputbar input:disabled { color: var(--text); }
+.chat-inputbar textarea::placeholder { color: var(--text-dim); }
+.chat-inputbar textarea:disabled { color: var(--text-faint); }
+.app[data-conn="connected"] .chat-inputbar textarea:disabled { color: var(--text); }
 .steer-hint { display: none; align-items: center; gap: 7px; font-size: var(--text-cap); color: var(--violet); animation: log-rise 0.2s ease-out; }
 .steer-hint .q-dot { width: 5px; height: 5px; border-radius: 999px; background: var(--violet); animation: hud-pulse 2s ease-in-out infinite; flex-shrink: 0; }
 .composer.streaming .steer-hint { display: inline-flex; }

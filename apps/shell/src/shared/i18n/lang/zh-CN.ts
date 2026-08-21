@@ -47,12 +47,12 @@ export const zhCN: Translations = {
       hint: "可稍后重试发送；错误详情可在 daemon 日志查看",
     },
     composer: {
-      placeholder: "输入消息，Enter 发送",
+      placeholder: "输入消息，Alt+Enter 发送",
       placeholderConnecting: "正在建立连接…",
       placeholderWaiting: "等待连接恢复…",
       send: "发送",
-      enterHint: "[[Enter]] 发送 · [[Shift+Enter]] 换行",
-      projectionNote: "main-session · 会话投影由 daemon 快照重建",
+      stop: "停止",
+      enterHint: "[[Alt+Enter]] 发送 · [[Enter]] 换行",
     },
     steer: {
       hint: "主会话生成中 · 发送的消息进入 steer 队列，本轮结束后注入",

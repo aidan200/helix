@@ -145,7 +145,7 @@ export class MockController {
     const before = (await this.clientFrames()).filter((f) => f.type === expectCmd).length;
     const input = this.page.locator("#msg-input");
     await input.fill(text);
-    await input.press("Enter");
+    await input.press("Alt+Enter"); // T8：Enter 换行，Alt+Enter 发送
     let found: ClientFrame | undefined;
     await expect
       .poll(

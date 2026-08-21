@@ -77,7 +77,7 @@ test.describe("T3.2 CL-1 切换两阶段 UI + 分页胶囊", () => {
     await expect(page.locator(".app")).toHaveAttribute("data-view", "ready");
     await expect(skeleton).toBeHidden();
     await expect(page.locator("#msg-input")).toBeEnabled();
-    await expect(page.locator("#msg-input")).toHaveAttribute("placeholder", "输入消息，Enter 发送");
+    await expect(page.locator("#msg-input")).toHaveAttribute("placeholder", "输入消息，Alt+Enter 发送");
     await expect(page.locator(".msg-flow .msg")).toHaveCount(MULTI_TAIL_WINDOW);
     // 顶栏标题随切换同步
     await expect(page.locator("[data-session-title]")).toHaveText(MULTI_TITLE_B);

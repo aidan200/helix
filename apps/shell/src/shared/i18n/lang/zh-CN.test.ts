@@ -13,7 +13,8 @@ import type { Translations } from "@/shared/i18n/types";
 /** review.md「P-1 文案 key 清单」全集（逐行登记，缺一即失败）；v0.1 追加
  *  sa.card 与 sa.spawn 词条及 cancelled 恢复态（AD-10，无原型演示位、清单外新增）；
  *  T4.2 追加 think/compact/stats 词条（16 key，含清单外新增 mainRunning/
- *  mainIdle/kind* 展示键，沿 cancelled 先例）。 */
+ *  mainIdle/kind* 展示键，沿 cancelled 先例）；T8 输入区改造：composer.stop
+ *  新增（停止钮），projectionNote 退役（脚注整行移除）。 */
 const REQUIRED_KEYS = [
   "chat.header.session",
   "chat.header.home",
@@ -39,8 +40,8 @@ const REQUIRED_KEYS = [
   "chat.composer.placeholderConnecting",
   "chat.composer.placeholderWaiting",
   "chat.composer.send",
+  "chat.composer.stop",
   "chat.composer.enterHint",
-  "chat.composer.projectionNote",
   "chat.steer.hint",
   "chat.steer.queued",
   "chat.steer.drained",
