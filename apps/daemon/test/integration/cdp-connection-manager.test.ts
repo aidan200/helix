@@ -96,12 +96,6 @@ function defaultRespond(overrides: Partial<Record<string, (msg: any) => object |
         return { result: { success: true } };
       case "Runtime.evaluate":
         return { result: { result: { value: evaluateValue(msg.params.expression) } } };
-      case "Page.captureScreenshot":
-        return { result: { data: Buffer.from("fake-png-bytes").toString("base64") } };
-      case "DOM.getDocument":
-        return { result: { root: { nodeId: 1 } } };
-      case "DOM.querySelector":
-        return { result: { nodeId: 42 } };
       default:
         return { result: {} };
     }
@@ -149,7 +143,6 @@ function createHarness(opts: {
     commandTimeoutMs: opts.commandTimeoutMs ?? 5_000,
     loadPollMs: 1,
     loadTimeoutMs: 1_000,
-    scrollSettleMs: 0,
     sweepIntervalMs: opts.sweepIntervalMs,
     idleTimeoutMs: 15 * 60_000,
   });
@@ -289,133 +282,10 @@ describe("CdpConnectionManager tab 操作", () => {
     await h.manager.stop();
   });
 
-  test("clickInTab：JS 点击返回 clicked/tag/text；未命中元素 clicked=false", async () => {
-    const h = createHarness({
-      respond: defaultRespond({
-        "Runtime.evaluate": (msg) => {
-          const expr: string = msg.params.expression;
-          if (expr.includes("el.click()")) {
-            if (expr.includes("#ok")) return { result: { result: { value: { clicked: true, tag: "BUTTON", text: "提交" } } } };
-            return { result: { result: { value: { error: "未找到元素: #missing" } } } };
-          }
-          return { result: { result: { value: evaluateValue(expr) } } };
-        },
-      }),
-    });
-    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
-    expect(await h.manager.clickInTab(tabId, "#ok")).toEqual({ clicked: true, tag: "BUTTON", text: "提交" });
-    expect(await h.manager.clickInTab(tabId, "#missing")).toEqual({ clicked: false });
-    await h.manager.stop();
-  });
-
-  test("clickAtInTab：坐标 eval → Input.dispatchMouseEvent pressed+released 同坐标", async () => {
-    const h = createHarness({
-      respond: defaultRespond({
-        "Runtime.evaluate": (msg) => {
-          const expr: string = msg.params.expression;
-          if (expr.includes("getBoundingClientRect")) {
-            return { result: { result: { value: { x: 100, y: 200, tag: "INPUT", text: "" } } } };
-          }
-          return { result: { result: { value: evaluateValue(expr) } } };
-        },
-      }),
-    });
-    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
-    const result = await h.manager.clickAtInTab(tabId, "input[type=file]");
-    expect(result).toEqual({ clicked: true, x: 100, y: 200, tag: "INPUT", text: "" });
-
-    const mouse = h.sockets[0]!.sent.filter((m) => m.method === "Input.dispatchMouseEvent");
-    expect(mouse.map((m) => [m.params.type, m.params.x, m.params.y, m.params.button])).toEqual([
-      ["mousePressed", 100, 200, "left"],
-      ["mouseReleased", 100, 200, "left"],
-    ]);
-    expect(mouse[0]!.sessionId).toBe(`sess-${tabId}`);
-    await h.manager.stop();
-  });
-
-  test("clickAtInTab：元素未命中 → clicked=false 且不发鼠标事件", async () => {
-    const h = createHarness({
-      respond: defaultRespond({
-        "Runtime.evaluate": (msg) => {
-          const expr: string = msg.params.expression;
-          if (expr.includes("getBoundingClientRect")) {
-            return { result: { result: { value: { error: "未找到元素" } } } };
-          }
-          return { result: { result: { value: evaluateValue(expr) } } };
-        },
-      }),
-    });
-    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
-    expect(await h.manager.clickAtInTab(tabId, "#none")).toEqual({ clicked: false });
-    expect(h.sockets[0]!.sent.filter((m) => m.method === "Input.dispatchMouseEvent")).toEqual([]);
-    await h.manager.stop();
-  });
-
-  test("setFilesInTab：DOM.enable→getDocument→querySelector→setFileInputFiles 序列", async () => {
+  test("backTab：history.back() eval + waitForLoad", async () => {
     const h = createHarness({});
     const { tabId } = await h.manager.openTab("about:blank", "agent-1");
-    await h.manager.setFilesInTab(tabId, "input[type=file]", ["/tmp/a.png", "/tmp/b.png"]);
-
-    const methods = h.sockets[0]!.sent.map((m) => m.method);
-    const seq = ["DOM.enable", "DOM.getDocument", "DOM.querySelector", "DOM.setFileInputFiles"];
-    let last = -1;
-    for (const m of seq) {
-      const idx = methods.indexOf(m, last + 1);
-      expect(idx).toBeGreaterThan(last);
-      last = idx;
-    }
-    const setFiles = h.sockets[0]!.sent[last]!;
-    expect(setFiles.params).toEqual({ nodeId: 42, files: ["/tmp/a.png", "/tmp/b.png"] });
-    await h.manager.stop();
-  });
-
-  test("setFilesInTab：选择器未命中（nodeId=0）→ 抛错", async () => {
-    const h = createHarness({
-      respond: defaultRespond({ "DOM.querySelector": () => ({ result: { nodeId: 0 } }) }),
-    });
-    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
-    await expect(h.manager.setFilesInTab(tabId, "#nope", ["/tmp/a.png"])).rejects.toThrow(/未找到元素/);
-    await h.manager.stop();
-  });
-
-  test("scrollTab：默认向下滚 y=3000；方向参数映射 top/bottom/up", async () => {
-    const h = createHarness({});
-    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
-    const exprs: string[] = [];
-    const origSend = h.sockets[0]!.sent;
-    await h.manager.scrollTab(tabId);
-    await h.manager.scrollTab(tabId, 500, "up");
-    await h.manager.scrollTab(tabId, undefined, "top");
-    await h.manager.scrollTab(tabId, undefined, "bottom");
-    for (const m of origSend) {
-      if (m.method === "Runtime.evaluate" && typeof m.params?.expression === "string" && m.params.expression.includes("scroll")) {
-        exprs.push(m.params.expression);
-      }
-    }
-    expect(exprs[0]).toContain("scrollBy(0, 3000)");
-    expect(exprs[1]).toContain("scrollBy(0, -500)");
-    expect(exprs[2]).toContain("scrollTo(0, 0)");
-    expect(exprs[3]).toContain("scrollTo(0, document.body.scrollHeight)");
-    await h.manager.stop();
-  });
-
-  test("screenshotTab：无 file 返回 base64；jpeg 带 quality=80", async () => {
-    const h = createHarness({});
-    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
-    const png = await h.manager.screenshotTab(tabId);
-    expect(png.format).toBe("png");
-    expect(Buffer.from(png.data!, "base64").toString()).toBe("fake-png-bytes");
-
-    await h.manager.screenshotTab(tabId, undefined, "jpeg");
-    const jpegMsg = h.sockets[0]!.sent.filter((m) => m.method === "Page.captureScreenshot").at(-1)!;
-    expect(jpegMsg.params).toEqual({ format: "jpeg", quality: 80 });
-    await h.manager.stop();
-  });
-
-  test("backInTab：history.back() eval + waitForLoad", async () => {
-    const h = createHarness({});
-    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
-    await h.manager.backInTab(tabId);
+    await h.manager.backTab(tabId);
     const sent = h.sockets[0]!.sent;
     const backIdx = sent.findIndex((m) => m.params?.expression === "history.back()");
     expect(backIdx).toBeGreaterThanOrEqual(0);
