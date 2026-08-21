@@ -422,6 +422,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
             const toolExecutor = new CoreToolExecutor({
               cwd: toolCwd,
               orchestration: sessionOrchestration,
+              // T3 动态族：browser_* 十一工具注册（ownerId 缺省 "main"——主会话
+              // tab 归属）；ChildMain 子进程装配不传 browser（P0-1 决策）
+              browser: browserPort,
             });
             // M6 T2：新会话装配读组装快照现值（瘦身后 base + 生效工具清单 +
             // 生效技能段；toggle 后新会话/重建会话跟随）；model 四级链读面——

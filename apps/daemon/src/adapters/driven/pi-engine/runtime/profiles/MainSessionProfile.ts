@@ -10,11 +10,11 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * 「常驻」由生命周期策略声明，CLI/WS 驱动入口经 ChatService 反复
  * sendMessage 即多轮复用——runtime 侧不做任何轮次计数。
  *
- * 工具集（T1.5，CL-5；T2.3 扩编排三工具；web-access T1 扩静态联网两工具）：
- * 十工具按名声明，装配在组合根
+ * 工具集（T1.5，CL-5；T2.3 扩编排三工具；web-access T1 扩静态联网两工具、
+ * T3 扩动态族 browser_* 十一工具）：二十一工具按名声明，装配在组合根
  * （CoreToolExecutor → resolveTools；bash/read/write/edit 为 pi 内置、grep 自写、
  * agent_spawn/agent_send/agent_status 经 AgentOrchestrationPort 回调度器，
- * 同一沙箱 cwd 与端口注入）。
+ * browser_* 经 BrowserPort 薄转投（零 CDP 知识），同一沙箱 cwd 与端口注入）。
  *
  * compaction：默认参数保留（spike §3 实测值）；摘要执行受 provider
  * 约束（非流式 complete，spike 坑 8），daemon 侧容忍失败不崩会话，
@@ -38,7 +38,30 @@ export const MAIN_SESSION_SYSTEM_PROMPT =
 export const MainSessionProfile: AgentProfile = {
   kind: "main-session",
   systemPrompt: MAIN_SESSION_SYSTEM_PROMPT,
-  tools: ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "agent_spawn", "agent_send", "agent_status"], // 装配经 CoreToolExecutor.resolveTools（组合根）
+  tools: [
+    "bash",
+    "read",
+    "write",
+    "edit",
+    "grep",
+    "web_search",
+    "web_fetch",
+    "agent_spawn",
+    "agent_send",
+    "agent_status",
+    // T3 动态族（browser_* 十一工具；条件注册——CoreToolExecutor options.browser）
+    "browser_open",
+    "browser_navigate",
+    "browser_back",
+    "browser_eval",
+    "browser_click",
+    "browser_click_at",
+    "browser_set_files",
+    "browser_scroll",
+    "browser_screenshot",
+    "browser_close",
+    "browser_status",
+  ], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
   hooks: [new SteerHooks(), new MinimalHooks()],
   compaction: DEFAULT_COMPACTION,

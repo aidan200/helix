@@ -12,6 +12,7 @@ import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/
 import { buildModels, resolveConfigModel } from "../../src/adapters/driven/pi-engine/model-provider";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { TOOL_PROMPT_SNIPPETS } from "../../src/adapters/driven/tools/ToolPromptSnippets";
+import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
 import { createPaths } from "../../src/infrastructure/paths";
 
 /**
@@ -79,7 +80,12 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
     })();
     return stream;
   };
-  const executor = new CoreToolExecutor({ cwd: toolCwd, orchestration });
+  const executor = new CoreToolExecutor({
+    cwd: toolCwd,
+    orchestration,
+    // T3：MainSessionProfile 声明 browser_* 动态族——注册桩保持 resolveTools 可装配
+    browser: new FakeBrowserPort(),
+  });
   return new PiAgentEngineAdapter({
     profile: MainSessionProfile,
     model: resolveConfigModel("anthropic/claude-sonnet-4-5", buildModels()),
@@ -90,7 +96,29 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
   });
 }
 
-const MAIN_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "agent_spawn", "agent_send", "agent_status"];
+const MAIN_TOOLS = [
+  "bash",
+  "read",
+  "write",
+  "edit",
+  "grep",
+  "web_search",
+  "web_fetch",
+  "agent_spawn",
+  "agent_send",
+  "agent_status",
+  "browser_open",
+  "browser_navigate",
+  "browser_back",
+  "browser_eval",
+  "browser_click",
+  "browser_click_at",
+  "browser_set_files",
+  "browser_scroll",
+  "browser_screenshot",
+  "browser_close",
+  "browser_status",
+];
 const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"];
 
 describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 acceptance ③）", () => {

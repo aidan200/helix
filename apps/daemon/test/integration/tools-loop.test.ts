@@ -11,6 +11,7 @@ import type { EventPublisherPort } from "../../src/application/ports/outbound/Ev
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
+import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
 
 /**
  * TP-CL5-3（I）：剧本 S2 —— 五工具会话内闭环。
@@ -124,6 +125,8 @@ function makeHarness(scripts: ScriptEntry[]): LoopHarness {
       status: () => [],
       kill: () => ({ killed: false, error: "工具循环测试不驱动调度" }),
     },
+    // T3：MainSessionProfile 声明 browser_* 动态族——注册桩保持 resolveTools 可装配
+    browser: new FakeBrowserPort(),
   });
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,

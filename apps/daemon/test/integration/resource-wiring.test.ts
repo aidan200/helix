@@ -47,7 +47,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
       toolCwd: workspace,
     });
     try {
-      // tools 全集注入：两 profile 声明面（main 10 含编排三件套；subagent 7）
+      // tools 全集注入：两 profile 声明面（main 21 含编排三件套与动态族十一件套；subagent 7）
       expect(daemon.resource.getEffectiveTools("main-session")).toEqual([
         "bash",
         "read",
@@ -59,6 +59,17 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "agent_spawn",
         "agent_send",
         "agent_status",
+        "browser_open",
+        "browser_navigate",
+        "browser_back",
+        "browser_eval",
+        "browser_click",
+        "browser_click_at",
+        "browser_set_files",
+        "browser_scroll",
+        "browser_screenshot",
+        "browser_close",
+        "browser_status",
       ]);
       expect(daemon.resource.getEffectiveTools("subagent-worker")).toEqual([
         "bash",
