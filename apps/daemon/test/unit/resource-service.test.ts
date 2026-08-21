@@ -23,6 +23,12 @@ const TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
   "subagent-worker": ["bash", "read", "write", "edit", "grep"],
 };
 
+/** 测试用 snippet 映射（单点注入；注册表外名 = 空串语义由缺省覆盖）。 */
+const TOOL_SNIPPETS: Readonly<Record<string, string>> = {
+  bash: "在沙箱工作目录执行 shell 命令并返回输出",
+  grep: "跨文件正则检索并列出匹配行",
+};
+
 const SKILLS: readonly SkillDescriptor[] = [
   { name: "code-review", description: "审查代码变更质量", filePath: "/tmp/x/code-review/SKILL.md", source: "user" },
   { name: "deploy-helper", description: "部署流程向导", filePath: "/tmp/y/deploy-helper/SKILL.md", source: "project" },
@@ -82,7 +88,7 @@ function makeService(store = new InMemoryResourceState(), skills: SkillSourcePor
   service: ResourceService;
   store: InMemoryResourceState;
 } {
-  return { service: new ResourceService({ store, skills, toolsCatalog: TOOLS_CATALOG }), store };
+  return { service: new ResourceService({ store, skills, toolsCatalog: TOOLS_CATALOG, toolSnippets: TOOL_SNIPPETS }), store };
 }
 
 describe("ResourceService：list 合并视图", () => {
@@ -90,7 +96,7 @@ describe("ResourceService：list 合并视图", () => {
     const { service } = makeService();
     const view = await service.list("main-session");
     expect(view.tools).toEqual(
-      TOOLS_CATALOG["main-session"].map((name) => ({ name, enabled: true })),
+      TOOLS_CATALOG["main-session"].map((name) => ({ name, enabled: true, snippet: TOOL_SNIPPETS[name] ?? "" })),
     );
     expect(view.skills).toEqual(SKILLS.map((s) => ({ ...s, enabled: true })));
     expect(view.model).toBeUndefined();

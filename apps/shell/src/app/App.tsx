@@ -6,8 +6,8 @@
  * 路由层在 Provider 之内——工作台常驻 DOM（display 切换保状态，F(4.4).2），
  * 路由切换不重建 WS/不丢活跃会话与输入。IconRail 为页面域纯展示组件
  * （不读会话 store，TR-AD-8 页面域/会话域分离）；models 实页自
- * /settings/models 迁移（Q-4b），skills/trace/project/settings 为施工牌
- * 占位页（AD-1 只做框架）。
+ * /settings/models 迁移（Q-4b），skills 位已升格为智能体页（M6 T4，路由
+ * /skills 不动），trace 实页，project/settings 为施工牌占位页（AD-1）。
  */
 import { Activity, Cpu, FolderKanban, Layers, MessageSquare, Settings } from "lucide-react";
 import { I18nProvider } from "@/shared/i18n";
@@ -16,7 +16,7 @@ import { ToastProvider } from "@/shared/ui/Toast";
 import { SessionProvider } from "@/entities/session/SessionContext";
 import ChatPage from "@/pages/chat/ChatPage";
 import P4ModelsConfig from "@/pages/models/P-4-models-config";
-import SkillsPage from "@/pages/skills/SkillsPage";
+import AgentPage from "@/pages/skills/AgentPage";
 import TracePage from "@/pages/trace/TracePage";
 import ProjectPage from "@/pages/project/ProjectPage";
 import SettingsPage from "@/pages/settings/SettingsPage";
@@ -56,7 +56,7 @@ function AppRoutes() {
         {route === ROUTE_MODELS && (
           <P4ModelsConfig onBack={() => navigate(ROUTE_WORKBENCH)} />
         )}
-        {route === ROUTE_SKILLS && <SkillsPage path={ROUTE_SKILLS} />}
+        {route === ROUTE_SKILLS && <AgentPage path={ROUTE_SKILLS} />}
         {route === ROUTE_TRACE && <TracePage path={ROUTE_TRACE} />}
         {route === ROUTE_PROJECT && <ProjectPage path={ROUTE_PROJECT} />}
         {route === ROUTE_SETTINGS && <SettingsPage path={ROUTE_SETTINGS} />}

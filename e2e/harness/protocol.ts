@@ -5,6 +5,10 @@
  * mock —— mock 帧与真实 daemon 帧不得漂移，TS 类型即守护；TR-TEST-3 纪律②）。
  */
 import type {
+  AgentConfigChangedEvent,
+  AgentConfigListResultEvent,
+  AgentConfigProfileBlock,
+  AgentConfigSetEnabledResultEvent,
   AgentInstanceDto,
   AgentStateDto,
   CatalogModel,
@@ -600,4 +604,43 @@ export interface ClientFrame {
   payload: unknown;
   /** 会话路由位（v0.2，AD-4）：会话作用域命令必填；全局命令缺省 */
   sessionId?: string;
+}
+
+// ── v0.6 agent.config 族帧构造（M6 T4 智能体页；TR-TEST-3 纪律②：形状直引协议类型）──
+
+/** agent.config.list.result（点对点回执；profiles 块序 = main-session 在前）。 */
+export function agentConfigListResult(profiles: AgentConfigProfileBlock[]): AgentConfigListResultEvent {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "agent",
+    type: "agent.config.list.result",
+    payload: { profiles },
+  };
+}
+
+/** agent.config.changed（daemon 级全局广播；model clear 时 name=null）。 */
+export function agentConfigChanged(
+  payload: AgentConfigChangedEvent["payload"],
+): AgentConfigChangedEvent {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "agent",
+    type: "agent.config.changed",
+    payload,
+  };
+}
+
+/** agent.config.set_enabled.result（点对点回执：applied / skipped(reason)）。 */
+export function agentConfigSetResult(
+  payload: AgentConfigSetEnabledResultEvent["payload"],
+): AgentConfigSetEnabledResultEvent {
+  return {
+    v: V,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "agent",
+    type: "agent.config.set_enabled.result",
+    payload,
+  };
 }

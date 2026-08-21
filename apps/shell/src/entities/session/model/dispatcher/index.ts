@@ -88,13 +88,9 @@ register({
   apply: (s) => s,
 });
 
-// ── v0.6 agent.config 族（M6 T3；TR-AD-21 no-op 占位先例）──
-// agent.config.changed：拓扑级前置路由（consumers/agent-config.ts，占位 no-op
-// ——T4 智能体页接真消费），不入本注册表（同 directory/model-config 面纱）。
-// 两结果帧（list.result / set_enabled.result）：点对点回执，真消费归 T4 页面
-// 查询/写链（trace.query.result 先例），此处 no-op 占位保「EVENT_TYPES 全类型
-// 已路由」守护绿，主 reducer 原状态返回。
-register({
-  types: ["agent.config.list.result", "agent.config.set_enabled.result"],
-  apply: (s) => s,
-});
+// ── v0.6 agent.config 族（M6 T4 真消费收口）──
+// 三 type（changed 广播 + 两点对点结果帧）全走拓扑级前置门
+// （consumers/agent-config.ts，dispatcher/frame.ts ⓪′）：changed 接真消费
+// （agentConfig.revision 失效重拉信号），两结果帧拓扑级直通（真消费归
+// 页面查询链，SessionContext 转发层——trace.query.result 先例；T3 遗留②：
+// 本注册表的 no-op 占位已注销，不入会话 store 面）。

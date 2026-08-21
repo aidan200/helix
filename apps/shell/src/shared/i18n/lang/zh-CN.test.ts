@@ -230,6 +230,26 @@ const REQUIRED_KEYS = [
   "trace.state.reconnect",
   "trace.state.reconnectedToast",
   "trace.state.notConnected",
+  // M6 T4（CL-skills 智能体页；规划 §三页面形态定稿文案）
+  "agents.title",
+  "agents.mainTitle",
+  "agents.subTitle",
+  "agents.modelLabel",
+  "agents.modelFollowMain",
+  "agents.modelFollowSub",
+  "agents.modelNoteMain",
+  "agents.modelNoteSub",
+  "agents.toolsLabel",
+  "agents.skillsLabel",
+  "agents.skillsEmpty",
+  "agents.diagLabel",
+  "agents.loading",
+  "agents.errorTitle",
+  "agents.retry",
+  "agents.skippedToast",
+  "agents.notConnected",
+  "agents.switchOn",
+  "agents.switchOff",
 ] as const;
 
 function flatten(obj: unknown, prefix = ""): Map<string, string> {
@@ -259,10 +279,10 @@ describe("AG-16-② zh-CN 词条完备性", () => {
     expect(empty).toEqual([]);
   });
 
-  it("zh-CN 词条只含 chat + trace 两族（裁剪版，不搬 desk 全量）", () => {
-    // P-1 工作台一族（chat.*）+ CL-5 TracePage 一族（trace.*，T2.2）；顶层
-    // 不应出现 desk 的 sidebar/settings/kg 等非本仓命名空间。
-    expect(Object.keys(zhCN)).toEqual(["chat", "trace"]);
+  it("zh-CN 词条只含 chat + trace + agents 三族（裁剪版，不搬 desk 全量）", () => {
+    // P-1 工作台一族（chat.*）+ CL-5 TracePage 一族（trace.*，T2.2）+ M6 T4
+    // 智能体页一族（agents.*）；顶层不应出现 desk 的 sidebar/settings/kg 等非本仓命名空间。
+    expect(Object.keys(zhCN)).toEqual(["chat", "trace", "agents"]);
   });
 });
 

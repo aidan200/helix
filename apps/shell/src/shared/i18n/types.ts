@@ -390,9 +390,33 @@ export interface TraceTranslations {
   };
 }
 
+/** 智能体配置页（pages/skills，M6 T4；导航名「智能体」，路由 /skills 不变） */
+export interface AgentsTranslations {
+  title: string;
+  mainTitle: string;
+  subTitle: string;
+  modelLabel: string;
+  modelFollowMain: string;
+  modelFollowSub: string;
+  modelNoteMain: string;
+  modelNoteSub: string;
+  toolsLabel: string;
+  skillsLabel: string;
+  skillsEmpty: string;
+  diagLabel: string;
+  loading: string;
+  errorTitle: string;
+  retry: string;
+  skippedToast: string;
+  notConnected: string;
+  switchOn: string;
+  switchOff: string;
+}
+
 export interface Translations {
   chat: ChatTranslations;
   trace: TraceTranslations;
+  agents: AgentsTranslations;
 }
 
 export type Lang = "zh-CN" | "en-US";

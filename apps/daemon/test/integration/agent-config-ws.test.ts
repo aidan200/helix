@@ -101,7 +101,7 @@ function tmpHome(): string {
 
 interface ProfileBlock {
   profileKind: string;
-  tools: { name: string; enabled: boolean }[];
+  tools: { name: string; enabled: boolean; snippet: string }[];
   skills: { name: string; description: string; filePath: string; source: string; enabled: boolean }[];
   diagnostics: { code: string; message: string; path: string; source: string }[];
   model: string | null;
@@ -180,6 +180,10 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       expect(main!.profileKind).toBe("main-session");
       expect(main!.tools.map((t) => t.name)).toEqual(MAIN_TOOLS);
       expect(main!.tools.every((t) => t.enabled)).toBe(true); // 缺省无记录 = 全启用
+      // tools 行 snippet 一句话说明（ToolPromptSnippets 注册表同源；M6 T4 补登）
+      const bashRow = main!.tools.find((t) => t.name === "bash")!;
+      expect(bashRow.snippet).toBe("在沙箱工作目录执行 shell 命令并返回输出");
+      expect(main!.tools.every((t) => t.snippet.length > 0)).toBe(true);
       expect(main!.skills).toEqual([
         {
           name: "hello-skill",

@@ -160,6 +160,9 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       { registry: "evt", anchor: "agent.config.changed", field: "resourceType" },
       { registry: "evt", anchor: "agent.config.changed", field: "name" },
       { registry: "evt", anchor: "agent.config.changed", field: "enabled" },
+      // v0.6 批内补登（M6 T4 智能体页）：tools 行 snippet 一句话说明（daemon
+      // ToolPromptSnippets 注册表同源；presence 防零登记复发）
+      { registry: "evt", anchor: "agent.config.list.result", field: "profiles[].tools[].snippet" },
     ];
     const missing: string[] = [];
     for (const item of required) {

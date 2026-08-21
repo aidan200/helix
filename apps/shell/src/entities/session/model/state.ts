@@ -161,6 +161,9 @@ export interface TopologyState {
   list: SessionMeta[];
   /** 模型/厂商全局配置面（model/auth 结果帧拓扑级消费；T3.3 P-3/P-4 数据源） */
   modelConfig: ModelConfigState;
+  /** 智能体配置失效面（agent.config.changed 拓扑级消费；M6 T4 智能体页
+   *  失效重拉触发：每广播 revision +1，页面 effect 观测变更重拉 list） */
+  agentConfig: { revision: number };
 }
 
 /**
@@ -427,5 +430,6 @@ export function createInitialTopologyState(): TopologyState {
     background: {},
     list: [],
     modelConfig: createInitialModelConfigState(),
+    agentConfig: { revision: 0 },
   };
 }

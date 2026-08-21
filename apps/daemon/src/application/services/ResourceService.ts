@@ -40,6 +40,9 @@ export class ResourceService implements ResourceConfigPort {
       readonly skills: SkillSourcePort;
       /** kind → tools 全集（组合根从两 profile 声明面构建）。 */
       readonly toolsCatalog: Readonly<Record<ProfileKind, readonly string[]>>;
+      /** 工具名 → 中文一句话 snippet（组合根注入 ToolPromptSnippets 注册表；
+       *  M6 T4：list 读面向契约 DTO 透传——注册表外名 = 空串）。 */
+      readonly toolSnippets: Readonly<Record<string, string>>;
       /**
        * 生效集变更回调（M6 T2）：toggle applied 后同步触发（await 链）——
        * 组合根接「重算该 kind 组装快照 + 刷新活跃 runtime（main）/spawn
@@ -64,6 +67,7 @@ export class ResourceService implements ResourceConfigPort {
     const tools = this.deps.toolsCatalog[kind].map((name) => ({
       name,
       enabled: this.enabledOf(kind, "tool", name),
+      snippet: this.deps.toolSnippets[name] ?? "", // 注册表外名 = 空串（契约面钉非 undefined）
     }));
     const scanned = await this.deps.skills.scan();
     const skills = scanned.skills.map((s) => ({ ...s, enabled: this.enabledOf(kind, "skill", s.name) }));

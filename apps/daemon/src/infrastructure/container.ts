@@ -204,6 +204,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       "main-session": MainSessionProfile.tools,
       "subagent-worker": SubAgentProfile.tools,
     } satisfies Record<ProfileKind, readonly string[]>,
+    // M6 T4：list 读面 snippet 透传（SystemPromptAssembler 同源注册表单点）
+    toolSnippets: TOOL_PROMPT_SNIPPETS,
     // M6 T2 生效链：toggle applied → 重算该 kind 组装快照 + 刷新活跃 runtime
     // （main 直改 systemPrompt/tools；subagent 只更新快照缓存，spawn 时刻消费）。
     // refreshAssembly 在下方定义（闭包晚绑——toggle 只发生在运行期，TDZ 安全）。
