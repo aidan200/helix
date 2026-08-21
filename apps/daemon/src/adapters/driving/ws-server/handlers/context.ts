@@ -31,6 +31,7 @@ import type { SessionDirectoryPort } from "../../../../application/ports/inbound
 import type { SessionChatPort } from "../../../../application/ports/inbound/ChatPort";
 import type { AgentOrchestrationPort } from "../../../../application/ports/inbound/AgentOrchestrationPort";
 import type { SessionStateView } from "../../../../application/ports/inbound/SessionPort";
+import type { ResourceConfigPort } from "../../../../application/ports/inbound/ResourceConfigPort";
 import type { EventStream, FrameSender } from "../EventStream";
 import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
 
@@ -172,6 +173,33 @@ export interface TraceCommandContext {
   readonly payload: Record<string, unknown>;
   /** trace 读面（deps.traceQuery 可选装配面直传）。 */
   readonly traceQuery: TraceQueryPort | undefined;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/**
+ * agent.config 族命令处理上下文（v0.6，M6 T3）：ResourceConfigPort
+ * （配置读写面）+ 合并目录校验窄函数（model 型前置校验 hasModel，
+ * ModelService.setModel 先例）+ EventStream（applied 时 agent.config.changed
+ * 广播）+ 共享辅助。全局命令（信封 sessionId 不消费）。
+ */
+export interface ResourceCommandContext {
+  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record）。 */
+  readonly payload: Record<string, unknown>;
+  /** 资源配置读写面（list/setEnabled/setModelSlot/clearModelSlot）。 */
+  readonly resource: ResourceConfigPort;
+  /** 合并目录校验面（model 型 set 前置校验；目录外 → skipped/unknown-model）。 */
+  readonly hasModel: (modelId: string) => boolean;
+  /** 事件流（applied → agent.config.changed 广播）。 */
+  readonly events: EventStream;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */

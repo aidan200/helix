@@ -16,6 +16,7 @@ import type { EventEnvelope } from "@helix/protocol";
 import { route, register } from "./index";
 import { SESSION_DIRECTORY_EVENT_TYPES } from "../consumers/directory";
 import { MODEL_CONFIG_EVENT_TYPES } from "../consumers/model-config";
+import { AGENT_CONFIG_EVENT_TYPES } from "../consumers/agent-config";
 import type { SessionState } from "../state";
 import { applyConnEvent } from "../consumers/conn";
 import { applyChatEvent } from "../consumers/chat";
@@ -26,12 +27,13 @@ import { applyHistoryEvent } from "../consumers/history";
 import { applyModelChangedEvent } from "../consumers/model";
 
 describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
-  it("协议全部事件 type（EVENT_TYPES）均被消费：route（会话 store 级）或 directory/modelConfig（拓扑级）", () => {
+  it("协议全部事件 type（EVENT_TYPES）均被消费：route（会话 store 级）或 directory/modelConfig/agentConfig（拓扑级）", () => {
     const directoryTypes = new Set<string>(SESSION_DIRECTORY_EVENT_TYPES);
     const modelConfigTypes = new Set<string>(MODEL_CONFIG_EVENT_TYPES);
+    const agentConfigTypes = new Set<string>(AGENT_CONFIG_EVENT_TYPES);
     for (const type of EVENT_TYPES) {
       expect(
-        route(type) !== undefined || directoryTypes.has(type) || modelConfigTypes.has(type),
+        route(type) !== undefined || directoryTypes.has(type) || modelConfigTypes.has(type) || agentConfigTypes.has(type),
         `未消费事件 type：${type}`,
       ).toBe(true);
     }
@@ -79,5 +81,11 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     for (const type of MODEL_CONFIG_EVENT_TYPES) {
       expect(route(type), `配置族不应注册会话 store 面：${type}`).toBeUndefined();
     }
+    // v0.6 agent.config 族（M6 T3）：changed 拓扑级前置路由（dispatcher/frame.ts
+    // 参照 model 族）；两结果帧 registry no-op 占位（trace.query.result 先例，
+    // T4 智能体页接真消费）
+    expect(route("agent.config.changed")).toBeUndefined();
+    expect(route("agent.config.list.result")).toBeDefined();
+    expect(route("agent.config.set_enabled.result")).toBeDefined();
   });
 });

@@ -80,6 +80,61 @@ export interface AgentModelChangedPayload {
   to: string;
 }
 
+// ── v0.6 新增 payload：agent.config 族（M6 T3 智能体配置页；契约 v0.6 §2） ──
+
+/**
+ * agent.config.list.result 块：单 kind 三类资源配置现值。
+ * tools/skills 含全集 + 启停态（缺省无记录 = 启用）；diagnostics = 扫描诊断
+ * （坏文件上抛不炸）；model 槽位未设 = null（JSON 序列化面钉死 null 非
+ * undefined——字段不丢）。
+ */
+export interface AgentConfigProfileBlock {
+  profileKind: "main-session" | "subagent-worker";
+  tools: ReadonlyArray<{ name: string; enabled: boolean }>;
+  skills: ReadonlyArray<{
+    name: string;
+    description: string;
+    filePath: string;
+    /** 来源层：user（~/.helix/skills）/ project（工作区 .helix/skills）。 */
+    source: "user" | "project";
+    enabled: boolean;
+  }>;
+  /** 扫描诊断（code/message/path/source；SkillScanner 域形状同构）。 */
+  diagnostics: ReadonlyArray<{ code: string; message: string; path: string; source: "user" | "project" }>;
+  /** model 槽位现值（未设 = null）。 */
+  model: string | null;
+}
+
+/** agent.config.list.result：配置读面回执（点对点；全局命令）。 */
+export interface AgentConfigListResultPayload {
+  /** 携带 profileKind 请求 = 单块；缺省 = 两块（main-session 在前，序固定）。 */
+  profiles: readonly AgentConfigProfileBlock[];
+}
+
+/**
+ * agent.config.changed：资源配置变更广播（daemon 级全局配置——信封
+ * sessionId = SYSTEM_SESSION_ID，订阅无关全连接下发；skills/tools 同构，
+ * model 型 name = 模型 id 或 null（clear））。
+ */
+export interface AgentConfigChangedPayload {
+  profileKind: "main-session" | "subagent-worker";
+  resourceType: "tool" | "skill" | "model";
+  /** tools/skills = 资源名；model = 模型 id 或 null（clear）。 */
+  name: string | null;
+  /** tool/skill = 新启停态；model = true（槽位已设）/ false（槽位已清）。 */
+  enabled: boolean;
+}
+
+/**
+ * agent.config.set_enabled.result：启停写面回执（点对点；全局命令）。
+ * skipped 的 reason 区分回执形态：unknown-name（tool/skill 名不在全集，
+ * 不落库）/ unknown-model（model 型不在合并目录，ModelService.setModel
+ * 先例）等。
+ */
+export type AgentConfigSetEnabledResultPayload =
+  | { status: "applied" }
+  | { status: "skipped"; reason: string };
+
 // ── v0.1 新增信封（契约 protocol-v0.1.md §5） ──
 
 export interface AgentSpawnedEvent extends EventFrame<AgentSpawnedPayload> {
@@ -122,4 +177,22 @@ export interface AgentInstantiatedEvent extends EventFrame<AgentInstantiatedPayl
 export interface AgentModelChangedEvent extends EventFrame<AgentModelChangedPayload> {
   channel?: "agent";
   type: "agent.model.changed";
+}
+
+// ── v0.6 新增信封（M6 T3；agent.config 族——channel 挂 agent 族）──
+
+/** agent.config.list.result：配置读面回执（点对点；信封 sessionId = SYSTEM_SESSION_ID）。 */
+export interface AgentConfigListResultEvent extends EventFrame<AgentConfigListResultPayload> {
+  channel?: "agent";
+  type: "agent.config.list.result";
+}
+/** agent.config.changed：配置变更广播（daemon 级全局；信封 sessionId = SYSTEM_SESSION_ID）。 */
+export interface AgentConfigChangedEvent extends EventFrame<AgentConfigChangedPayload> {
+  channel?: "agent";
+  type: "agent.config.changed";
+}
+/** agent.config.set_enabled.result：启停写面回执（点对点；全局命令）。 */
+export interface AgentConfigSetEnabledResultEvent extends EventFrame<AgentConfigSetEnabledResultPayload> {
+  channel?: "agent";
+  type: "agent.config.set_enabled.result";
 }

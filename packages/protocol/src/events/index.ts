@@ -1,12 +1,13 @@
 /**
  * 事件目录（S→C，契约 A §2；目录文档见同包 PROTOCOL.md）。
  *
- * 共 40 个事件：v0 12 + v0.1 编排族 7 + v0.1 通道族 4 + 热修 engine.error 1
+ * 共 43 个事件：v0 12 + v0.1 编排族 7 + v0.1 通道族 4 + 热修 engine.error 1
  * + v0.2 新增 2（session.list_changed / model.changed）+ T2.2 命令结果 2
  * （session.list.result / session.loadHistory.result）+ T2.3-result-frames
  * 微批 9（model/auth 命令结果帧，契约 C §2.2）+ v0.4 新增 3
  * （trace.query.result / agent.instantiated / agent.model.changed，契约 v0.4，
- * iter-20260819-erio T2.1）。`EventEnvelope` 为
+ * iter-20260819-erio T2.1）+ v0.6 新增 3（agent.config.changed /
+ * agent.config.list.result / agent.config.set_enabled.result，M6 T3）。`EventEnvelope` 为
  * 判别式联合，前端 switch(event.type) 窄化各分支 payload（投影 reducer）。
  *
  * v0.2 事件类型学（AD-3，契约 A §2）：每事件以 `channel` 字面量登记所属通道
@@ -39,6 +40,9 @@ import type {
 } from "./chat";
 import type {
   AgentCompletedEvent,
+  AgentConfigChangedEvent,
+  AgentConfigListResultEvent,
+  AgentConfigSetEnabledResultEvent,
   AgentFailedEvent,
   AgentInstantiatedEvent,
   AgentKilledEvent,
@@ -117,7 +121,10 @@ export type EventEnvelope =
   | AuthVerifyResultEvent
   | TraceQueryResultEvent
   | AgentInstantiatedEvent
-  | AgentModelChangedEvent;
+  | AgentModelChangedEvent
+  | AgentConfigListResultEvent
+  | AgentConfigChangedEvent
+  | AgentConfigSetEnabledResultEvent;
 
 /** 事件目录常量（运行时可用；与 EventEnvelope 联合由测试双向一致性守护） */
 export const EVENT_TYPES = [
@@ -161,6 +168,9 @@ export const EVENT_TYPES = [
   "trace.query.result",
   "agent.instantiated",
   "agent.model.changed",
+  "agent.config.changed",
+  "agent.config.list.result",
+  "agent.config.set_enabled.result",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -212,4 +222,7 @@ export const EVENT_CHANNELS = {
   "trace.query.result": "trace",
   "agent.instantiated": "agent",
   "agent.model.changed": "agent",
+  "agent.config.changed": "agent",
+  "agent.config.list.result": "agent",
+  "agent.config.set_enabled.result": "agent",
 } as const satisfies Record<EventType, Channel>;

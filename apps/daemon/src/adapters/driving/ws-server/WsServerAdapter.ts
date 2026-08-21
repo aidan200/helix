@@ -41,6 +41,7 @@ import type { SystemPort } from "../../../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import type { SessionDirectoryPort } from "../../../application/ports/inbound/SessionDirectoryPort";
 import type { ModelPort } from "../../../application/ports/inbound/ModelPort";
+import type { ResourceConfigPort } from "../../../application/ports/inbound/ResourceConfigPort";
 import type {
   AgentStateDto,
   ConnectionErrorEvent,
@@ -61,6 +62,7 @@ import type {
   AgentCommandContext,
   ChatCommandContext,
   ConnState,
+  ResourceCommandContext,
   SessionCommandContext,
   TraceCommandContext,
   WsCommandContext,
@@ -79,6 +81,7 @@ import {
   handleSessionUnsubscribe,
 } from "./handlers/session";
 import { handleTraceQuery } from "./handlers/trace";
+import { handleAgentConfigList, handleAgentConfigSetEnabled } from "./handlers/resource";
 import {
   handleModelCatalog,
   handleModelCatalogRefresh,
@@ -114,6 +117,16 @@ export interface WsServerAdapterDeps {
    * *.result 结果帧点对点回执（T2.3-result-frames 微批，契约 C §2.2）。
    */
   readonly model: ModelPort;
+  /**
+   * 资源配置面（M6 T3，契约 v0.6）：agent.config 命令族回口（profile kind 维
+   * tool/skill 启停 + model 槽位；只转发不决策，AG-12）。
+   */
+  readonly resource: ResourceConfigPort;
+  /**
+   * 合并目录校验面（M6 T3）：agent.config model 型 set 前置校验（窄函数
+   * 注入 = catalog.hasModel，ModelService.setModel 先例）。
+   */
+  readonly hasModel: (modelId: string) => boolean;
   /** 事件流（组合根构造并装配进 fan-out 的 EventPublisherPort 实现）。 */
   readonly events: EventStream;
   /** 本次启动生成的 dev token（与 <home>/dev-token 文件内容一致）。 */
@@ -368,6 +381,11 @@ export class WsServerAdapter {
       // ── v0.4 trace 族（T2.1，契约 v0.4 §1；T3.2 AD-1 迁出 handlers/trace.ts）──
       case "trace.query":
         return handleTraceQuery(this.traceContext(ws, type, payload));
+      // ── v0.6 agent.config 族（M6 T3，智能体配置页；全局命令先例 = model.catalog）──
+      case "agent.config.list":
+        return handleAgentConfigList(this.resourceContext(ws, type, payload));
+      case "agent.config.set_enabled":
+        return handleAgentConfigSetEnabled(this.resourceContext(ws, type, payload));
       // ── v0.2 model 族（T2.3 AD-2，契约 C §1；真行为回口。微批：结果帧点对点回执）──
       // T1.1（AD-3）：case 体机械迁出 handlers/model.ts（语义逐字节等价），此处一行转发
       case "model.set":
@@ -500,6 +518,29 @@ export class WsServerAdapter {
       type,
       payload,
       traceQuery: this.deps.traceQuery,
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+      rawSender: () => this.rawSender(ws),
+      sendNow: (sender, frame) => this.sendNow(sender, frame),
+    };
+  }
+
+  /**
+   * agent.config 族命令处理上下文（M6 T3，契约 v0.6）：ResourceConfigPort
+   * + 合并目录（model 型 hasModel 前置校验）+ EventStream（changed 广播）
+   * + 共享辅助（本连接绑定，语义 = 本类同名私有方法，机械转发零行为差）。
+   */
+  private resourceContext(
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+  ): ResourceCommandContext {
+    return {
+      ws,
+      type,
+      payload,
+      resource: this.deps.resource,
+      hasModel: this.deps.hasModel,
+      events: this.deps.events,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),
       sendNow: (sender, frame) => this.sendNow(sender, frame),

@@ -20,6 +20,9 @@ type _AgentFamily = Expect<
     | "agent.killed"
     | "agent.instantiated"
     | "agent.model.changed"
+    | "agent.config.changed"
+    | "agent.config.list.result"
+    | "agent.config.set_enabled.result"
   >
 >;
 

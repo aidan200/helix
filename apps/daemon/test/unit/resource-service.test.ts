@@ -96,6 +96,20 @@ describe("ResourceService：list 合并视图", () => {
     expect(view.model).toBeUndefined();
   });
 
+  test("⑩ list 透传扫描诊断（M6 T3 契约读面：坏文件 diagnostics 上抛不炸）", async () => {
+    const skills = new FakeSkillSource({
+      skills: [],
+      diagnostics: [
+        { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/tmp/bad/SKILL.md", source: "project" },
+      ],
+    });
+    const { service } = makeService(new InMemoryResourceState(), skills);
+    const view = await service.list("main-session");
+    expect(view.diagnostics).toEqual([
+      { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/tmp/bad/SKILL.md", source: "project" },
+    ]);
+  });
+
   test("② 禁用后 list 视图按行反映（tools/skills 双面）", async () => {
     const { service } = makeService();
     await service.toggle("main-session", "tool", "grep", false);

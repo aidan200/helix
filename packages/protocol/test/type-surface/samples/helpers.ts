@@ -107,6 +107,13 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `instantiated:${event.payload.instanceId}:${event.payload.profileKind}:${event.payload.profileSnapshot.model}`;
     case "agent.model.changed":
       return `model-timeline:${event.payload.instanceId}:${event.payload.from}:${event.payload.to}`;
+    // ── v0.6 agent.config 族（M6 T3；result 点对点 + changed 广播）──
+    case "agent.config.list.result":
+      return `agent-config-list-result:${event.payload.profiles.length}:${event.payload.profiles[0]?.profileKind ?? "-"}:${event.payload.profiles[0]?.model ?? "-"}`;
+    case "agent.config.changed":
+      return `agent-config-changed:${event.payload.profileKind}:${event.payload.resourceType}:${event.payload.name ?? "null"}:${event.payload.enabled}`;
+    case "agent.config.set_enabled.result":
+      return `agent-config-set-result:${event.payload.status}:${event.payload.status === "skipped" ? event.payload.reason : "-"}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -165,6 +172,11 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     // ── v0.4 trace 族 ──
     case "trace.query":
       return `trace-query:${cmd.payload.sessionId}:${cmd.payload.instanceIds?.length ?? "all"}:${cmd.payload.page?.limit ?? 50}:${cmd.payload.page?.beforeId ?? "-"}`;
+    // ── v0.6 agent.config 族（M6 T3 智能体配置页）──
+    case "agent.config.list":
+      return `agent-config-list:${cmd.payload.profileKind ?? "all"}`;
+    case "agent.config.set_enabled":
+      return `agent-config-set:${cmd.payload.profileKind}:${cmd.payload.resourceType}:${cmd.payload.name}:${cmd.payload.enabled}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

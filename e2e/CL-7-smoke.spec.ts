@@ -20,9 +20,9 @@ test.describe("CL-7 smoke（mock mode on）", () => {
     await expect(page.locator(".composer-wrap")).toBeVisible();
     await expect(page.locator("#msg-input")).toBeVisible();
 
-    // hello 首帧契约（握手）：token + protocolVersion（v0.5 bump 机械跟随；契约 = PROTOCOL.md §2/§17.5）
+    // hello 首帧契约（握手）：token + protocolVersion（v0.6 bump 机械跟随；契约 = PROTOCOL.md §2/§17.6）
     const hello = await mock.waitForCommand("hello");
-    expect(hello.payload).toEqual({ token: "e2e-dev-token", protocolVersion: "0.5" });
+    expect(hello.payload).toEqual({ token: "e2e-dev-token", protocolVersion: "0.6" });
 
     // 状态条 label = 已连接（zh-CN 默认包）
     await expect(page.locator(".conn-status")).toContainText("已连接");

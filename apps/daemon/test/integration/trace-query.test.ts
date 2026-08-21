@@ -369,7 +369,9 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
       expect(mainInst.events.length).toBe(1);
       const mainSnap = (mainInst.events[0]!.payload as { profileKind: string; profileSnapshot: { systemPrompt: string; tools: string[]; model: string; compaction?: { enabled: boolean }; hooks?: string[] } });
       expect(mainSnap.profileKind).toBe("main-session");
-      expect(mainSnap.profileSnapshot.systemPrompt).toBe(MAIN_SESSION_SYSTEM_PROMPT); // 全文非引用
+      // M6 T3 快照供给改读组装缓存：systemPrompt = 瘦身 base 全文前缀 + 动态工具段
+      expect(mainSnap.profileSnapshot.systemPrompt.startsWith(MAIN_SESSION_SYSTEM_PROMPT)).toBe(true); // base 全文非引用（组装产物前缀）
+      expect(mainSnap.profileSnapshot.systemPrompt).toContain("可用工具："); // 组装产物（T2 三段组装器）
       expect(mainSnap.profileSnapshot.tools).toContain("bash");
       expect(mainSnap.profileSnapshot.model).toBe("anthropic/claude-sonnet-4-5"); // 创建时引擎观测值
       expect(mainSnap.profileSnapshot.compaction?.enabled).toBe(true);
@@ -382,7 +384,8 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
       for (const row of subInst) {
         const p = row.payload as { instanceId: string; profileKind: string; profileSnapshot: { systemPrompt: string; model: string } };
         expect(p.profileKind).toBe("subagent-worker");
-        expect(p.profileSnapshot.systemPrompt).toBe(SUBAGENT_SYSTEM_PROMPT); // 全文
+        expect(p.profileSnapshot.systemPrompt.startsWith(SUBAGENT_SYSTEM_PROMPT)).toBe(true); // base 全文（组装产物前缀）
+        expect(p.profileSnapshot.systemPrompt).toContain("可用工具：");
         // 三级链：profile 槽位（未声明）?? spawn 会话快照（anthropic/claude-sonnet-4-5）?? 全局兜底
         expect(p.profileSnapshot.model).toBe("anthropic/claude-sonnet-4-5");
         // 同源判据：与该实例 agent.spawned 透传 model 同值
@@ -400,6 +403,47 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
         from: "anthropic/claude-sonnet-4-5", // 切换前引擎观测值
         to: "anthropic/claude-haiku-4-5",
       });
+    } finally {
+      await rig.client.close();
+      await rig.daemon.shutdown();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("快照观测漂移修复（M6 T3）：instantiated/spawned 快照改读组装缓存——toggle 后快照跟随生效集与槽位", async () => {
+    const home = tmpHome();
+    const rig = await makeRig(home, { replies: [{ text: "回复。" }] });
+    try {
+      // 转正（首个用户条目）/spawn 前变更配置：main 禁 grep、subagent 禁 read、
+      // subagent 槽位设 haiku（三级链第一级 UI 化）
+      await rig.daemon.resource.toggle("main-session", "tool", "grep", false);
+      await rig.daemon.resource.toggle("subagent-worker", "tool", "read", false);
+      await rig.daemon.resource.setModel("subagent-worker", "anthropic/claude-haiku-4-5");
+      await seedMixedSession(rig);
+      const { client, sessionId } = rig;
+
+      // 主实例 instantiated：快照 = 组装缓存现值（7 工具不含 grep；提示无 grep 行）
+      const mainInst = await client.traceQuery({ sessionId, types: ["agent.instantiated"], instanceIds: ["main"] });
+      expect(mainInst.events.length).toBe(1);
+      const mainSnap = mainInst.events[0]!.payload as {
+        profileSnapshot: { systemPrompt: string; tools: string[] };
+      };
+      expect(mainSnap.profileSnapshot.tools).toHaveLength(7);
+      expect(mainSnap.profileSnapshot.tools).not.toContain("grep");
+      expect(mainSnap.profileSnapshot.systemPrompt).not.toContain("- grep:");
+
+      // Sub instantiated：快照 = 组装缓存（4 工具不含 read）+ 槽位模型（非 spawn 透传）
+      const subInst = await client.traceQuery({ sessionId, types: ["agent.instantiated"], agentKind: "subagent" });
+      expect(subInst.events.length).toBe(2);
+      for (const row of subInst.events) {
+        const p = row.payload as {
+          profileSnapshot: { systemPrompt: string; tools: string[]; model: string };
+        };
+        expect(p.profileSnapshot.tools).toHaveLength(4);
+        expect(p.profileSnapshot.tools).not.toContain("read");
+        expect(p.profileSnapshot.model).toBe("anthropic/claude-haiku-4-5"); // 槽位第一级（uiModelSlot ?? spawn 快照 ?? 全局）
+        expect(p.profileSnapshot.systemPrompt).not.toContain("- read:");
+      }
     } finally {
       await rig.client.close();
       await rig.daemon.shutdown();
@@ -424,7 +468,7 @@ describe("④ 实例面板 fold：主 + 多 Sub 混合会话 → InstanceRecord 
       expect(main.profileKind).toBe("main-session");
       expect(main.status).toBe("running");
       expect(main.snapshotMissing).toBe(false);
-      expect((main.snapshot as { systemPrompt: string }).systemPrompt).toBe(MAIN_SESSION_SYSTEM_PROMPT);
+      expect((main.snapshot as { systemPrompt: string }).systemPrompt.startsWith(MAIN_SESSION_SYSTEM_PROMPT)).toBe(true); // M6 T3：组装快照 = base 前缀 + 动态段
       expect(typeof main.startedAt).toBe("string");
       expect(main.endedAt).toBeUndefined();
       expect(typeof main.eventCount).toBe("number");
@@ -491,7 +535,7 @@ describe("⑤ 重启回填（F5.8 / F5.7 锚 3）：恢复实例 model 非缺失
         // ③ 面板重启后可读历史快照与模型时间线
         const main = inst.instances.find((i) => i.instanceId === "main")!;
         expect(main.snapshotMissing).toBe(false);
-        expect((main.snapshot as { systemPrompt: string }).systemPrompt).toBe(MAIN_SESSION_SYSTEM_PROMPT);
+        expect((main.snapshot as { systemPrompt: string }).systemPrompt.startsWith(MAIN_SESSION_SYSTEM_PROMPT)).toBe(true); // M6 T3：组装快照 = base 前缀 + 动态段
         expect((main.modelTimeline as { from: string; to: string }[]).map((c) => [c.from, c.to])).toEqual([
           ["anthropic/claude-sonnet-4-5", "anthropic/claude-haiku-4-5"],
         ]);

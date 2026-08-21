@@ -1,10 +1,11 @@
 /**
  * 命令目录（C→S，契约 §4 + 契约 B §1 / 契约 C §1；目录文档见同包 PROTOCOL.md）。
  *
- * 共 22 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
+ * 共 24 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
  * auth 族 4）；v0.3 零新增——三处扩展全部为可选参数/字段（tier /
  * instanceId / anchorEntryId，TR-AD-23① 可选参数优先于新命令对）；
- * v0.4 新增 1（trace 族 trace.query，契约 v0.4 §1，iter-20260819-erio T2.1）。
+ * v0.4 新增 1（trace 族 trace.query，契约 v0.4 §1，iter-20260819-erio T2.1）；
+ * v0.6 新增 2（agent.config 族，M6 T3 智能体配置页）。
  * `CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
  * 分发。会话作用域命令的信封 sessionId 必填（AD-4 路由位，类型层可选、
  * 客户端纪律保证）；全局命令（session.list / model.set_default /
@@ -291,7 +292,42 @@ export interface TraceQueryCommand extends CommandFrame<TraceQueryPayload> {
   type: "trace.query";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22） */
+// ── v0.6 新增：agent.config 族（M6 T3 智能体配置页；profile kind 维资源动态化） ──
+
+/**
+ * agent.config.list 载荷：资源配置读面（全局命令，信封 sessionId 省略）。
+ * 结果帧 = agent.config.list.result 点对点回执（TR-AD-21 模式）。
+ */
+export interface AgentConfigListPayload {
+  /** 目标 kind：缺省 = 全部 kind（main-session + subagent-worker 双块，序固定）；携带 = 单块。 */
+  profileKind?: "main-session" | "subagent-worker";
+}
+
+export interface AgentConfigListCommand extends CommandFrame<AgentConfigListPayload> {
+  type: "agent.config.list";
+}
+
+/**
+ * agent.config.set_enabled 载荷：资源启停写面（全局命令）。
+ * tool/skill：name 须在全集内（全集外 → 结果帧 skipped reason=unknown-name，
+ * 不落库）；model 型语义 = 槽位 set/clear——enabled=true 设 name 为槽位模型
+ * （先经合并目录校验，目录外 → skipped reason=unknown-model），enabled=false
+ * 清槽（name 忽略）。applied → agent.config.changed 广播（daemon 级全局）。
+ */
+export interface AgentConfigSetEnabledPayload {
+  profileKind: "main-session" | "subagent-worker";
+  resourceType: "tool" | "skill" | "model";
+  /** 资源名（model 型 = "provider/model-id"；clear 时忽略）。 */
+  name: string;
+  /** tool/skill = 启停；model = set（true）/ clear（false）槽位。 */
+  enabled: boolean;
+}
+
+export interface AgentConfigSetEnabledCommand extends CommandFrame<AgentConfigSetEnabledPayload> {
+  type: "agent.config.set_enabled";
+}
+
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -314,7 +350,9 @@ export type CommandEnvelope =
   | AuthSetKeyCommand
   | AuthDeleteKeyCommand
   | AuthVerifyCommand
-  | TraceQueryCommand;
+  | TraceQueryCommand
+  | AgentConfigListCommand
+  | AgentConfigSetEnabledCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
@@ -340,6 +378,8 @@ export const COMMAND_TYPES = [
   "auth.delete_key",
   "auth.verify",
   "trace.query",
+  "agent.config.list",
+  "agent.config.set_enabled",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];
