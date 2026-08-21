@@ -121,6 +121,9 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `web-stop-result:${event.payload.status}`;
     case "web.status.changed":
       return `web-status-changed:${event.payload.state}:${event.payload.tabCount}:${event.payload.browser?.label ?? "-"}`;
+    // ── v0.9 web.start 结果帧（T7 CDP 显式启动通路；点对点）──
+    case "web.start.result":
+      return `web-start-result:${event.payload.status}:${event.payload.status === "skipped" ? event.payload.reason : "-"}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -189,6 +192,9 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return "web-status";
     case "web.stop":
       return "web-stop";
+    // ── v0.9 web 族（T7 CDP 显式启动通路）──
+    case "web.start":
+      return "web-start";
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

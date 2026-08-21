@@ -9,6 +9,11 @@
  *   web.stop.result {status:"applied"} 点对点回执。停止后的状态回流
  *  （回 idle）经组合根 onStatusChange → broadcastWebStatusChanged 广播
  *   链路自动发出，handler 不重复广播（单一事件源纪律）。
+ * - web.start（v0.9，T7 显式启动通路）→ await BrowserPort.connect()
+ *   （幂等；已连接 no-op）→ web.start.result 点对点回执两判别：成功回
+ *   {status:"applied"}；connect 抛错（未发现可用浏览器）回
+ *   {status:"skipped", reason}（reason 透传 browser-discovery 中文错误，
+ *   内含引导用户开 remote debugging 的说明）。状态回流同走广播链。
  *
  * DTO 映射（BrowserStatus/TabInfo → WebStatusPayload）落本模块
  * （webStatusPayloadOf 导出——组合根 onStatusChange 广播接线复用同一组装，
@@ -16,6 +21,8 @@
  * 不变）：依赖面经 WebCommandContext 由 WsServerAdapter 供出。
  */
 import type {
+  WebStartResultEvent,
+  WebStartResultPayload,
   WebStatusPayload,
   WebStatusResultEvent,
   WebStopResultEvent,
@@ -67,4 +74,33 @@ export function handleWebStop(ctx: WebCommandContext): void {
     ctx.sendNow(sender, frame);
   };
   void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `web.stop 执行失败：${(err as Error).message}`));
+}
+
+/**
+ * web.start（v0.9 全局写面，T7 显式启动通路）：connect() 执行 + 两判别回执。
+ * connect 抛错 = 未发现可用浏览器（非系统故障）——回 skipped + reason（透传
+ * browser-discovery 中文错误，内含 remote debugging 引导），不走
+ * commandError（后者语义 = 协议面 payload/命令错误，此处是业务结果）。
+ * 状态回流（idle → connecting → connected/error）经广播链，handler 不重复发。
+ */
+export function handleWebStart(ctx: WebCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const run = async (): Promise<WebStartResultPayload> => {
+    try {
+      await ctx.browser.connect(); // 幂等：已连接 no-op
+      return { status: "applied" };
+    } catch (err) {
+      return { status: "skipped", reason: (err as Error).message };
+    }
+  };
+  void run().then((payload) => {
+    const frame: WebStartResultEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "web",
+      type: "web.start.result",
+      payload,
+    };
+    ctx.sendNow(sender, frame);
+  }).catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `web.start 执行失败：${(err as Error).message}`));
 }

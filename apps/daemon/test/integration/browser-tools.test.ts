@@ -56,7 +56,12 @@ describe("装配后 execute 走通（fake port）", () => {
       signal: undefined,
     });
     expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content)).toEqual({ status: { state: "idle", tabCount: 0 }, tabs: [] });
+    // T7：idle 态结果附带 hint 惰性引导字段（connected/error 态不带，可选字段）
+    expect(JSON.parse(result.content)).toEqual({
+      status: { state: "idle", tabCount: 0 },
+      hint: "连接为惰性建立：直接调用 action=open 等操作即可自动连接浏览器",
+      tabs: [],
+    });
   });
 
   test("④ action=open 经执行链转投（ownerId 缺省 main）", async () => {

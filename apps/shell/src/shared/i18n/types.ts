@@ -277,6 +277,10 @@ export interface ChatTranslations {
     tabsEmpty: string;
     /** 停止并清理按钮（web.stop 命令） */
     stop: string;
+    /** 启动连接按钮（T7，v0.9 web.start 显式启动写面；idle/error=重试入口） */
+    start: string;
+    /** 启动钮 connecting 态文案（双禁用期间钮上显示） */
+    starting: string;
     /** tab 行闲置时长三档（{minutes}/{hours} 插值） */
     idleJustNow: string;
     idleMinutes: string;

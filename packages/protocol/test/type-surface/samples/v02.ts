@@ -27,7 +27,7 @@ export const sampleSessionMeta: SessionMeta = {
   loaded: true,
 };
 
-/** 全章印信封样例：v="0.8"（随 PROTOCOL_VERSION bump，当前 v0.8）+ sessionId 必发 + channel 判别 */
+/** 全章印信封样例：v="0.9"（随 PROTOCOL_VERSION bump，当前 v0.9）+ sessionId 必发 + channel 判别 */
 export const listChangedV02: SessionListChangedEvent = {
   v: PROTOCOL_VERSION,
   sessionId: "__system__",

@@ -5,14 +5,16 @@
  * daemon driving 层 handlers/web.ts；本包零 CDP 符号——id/label/port/tab
  * 全是业务概念）。
  *
- * 三帧分工：
+ * 三帧分工（v0.9 +1：四帧）：
  * - web.status.result：web.status 查询的点对点回执（TR-AD-21 模式，仅发
  *   发起连接；信封 sessionId = SYSTEM_SESSION_ID——全局命令会话无关）；
  * - web.stop.result：web.stop 写面回执（点对点；停止后的状态回流经
  *   web.status.changed 广播，不在本帧重复）；
  * - web.status.changed：状态变更广播（连接成功/断开/tab 增减/error 四时机，
  *   daemon BrowserPort.onStatusChange 事件源；SYSTEM_SESSION_ID 全连接下发，
- *   与 agent.config.changed 同构；payload 含 tabs——popover 清单实时数据源）。
+ *   与 agent.config.changed 同构；payload 含 tabs——popover 清单实时数据源）；
+ * - web.start.result（v0.9，T7 CDP 显式启动通路）：web.start 写面回执
+ *  （点对点；applied/skipped 两判别；状态回流同走 changed 广播）。
  */
 import type { EventFrame } from "../envelope";
 
@@ -59,6 +61,16 @@ export interface WebStopResultPayload {
   status: "applied";
 }
 
+/**
+ * web.start.result payload（v0.9）：启动写面回执两判别——applied = 建连
+ * 成功/已连接幂等（BrowserPort.connect() 幂等语义直通）；skipped = 未发现
+ * 可用浏览器，reason 含引导用户开 remote debugging 的说明（daemon
+ * browser-discovery 错误文案同源）。
+ */
+export type WebStartResultPayload =
+  | { status: "applied" }
+  | { status: "skipped"; reason: string };
+
 // ── v0.7 新增信封（channel 挂 web 新族）──
 
 /** web.status.result：状态查询回执（点对点；信封 sessionId = SYSTEM_SESSION_ID）。 */
@@ -75,4 +87,9 @@ export interface WebStopResultEvent extends EventFrame<WebStopResultPayload> {
 export interface WebStatusChangedEvent extends EventFrame<WebStatusPayload> {
   channel?: "web";
   type: "web.status.changed";
+}
+/** web.start.result：显式启动写面回执（v0.9；点对点；全局命令）。 */
+export interface WebStartResultEvent extends EventFrame<WebStartResultPayload> {
+  channel?: "web";
+  type: "web.start.result";
 }

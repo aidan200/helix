@@ -10,8 +10,13 @@
  * 激活态三件套（cyan 发光底 + 左 2px 指示条 + BorderBeam 巡游，样式全部在
  * nav-rail.css）；非激活 hover 提亮。
  *
+ * T7 显式启动通路（契约 v0.9 web.start）：popover 启动/停止双钮按态切换
+ * —— idle 启动可用+停止禁用；connecting 双禁用 + 启动钮文案「连接中…」；
+ * connected 停止可用+启动禁用；error 双可用（启动=重试入口，停止=清理残留）。
+ * 两钮恒渲染不按态卸载（焦点守恒：disabled 切换不移除 DOM 节点）。
+ *
  * 纯展示组件（页面域/会话域分离，TR-AD-8 修订条款）：路由表/激活态/
- * 导航回调/主题态/联网状态/停止回调全部由 app 层经 props 注入，不读会话
+ * 导航回调/主题态/联网状态/启动与停止回调全部由 app 层经 props 注入，不读会话
  * store、不读 ThemeContext、不感知 URL 机制（popover 开合为组件本地 UI
  * 态，与外部数据面零耦合）。
  */
@@ -48,6 +53,8 @@ export interface IconRailProps<T extends string = string> {
   webStatus: WebStatusPayload | null;
   /** 停止并清理回调（纯 props 注入；app 层发 web.stop 命令帧）。 */
   onStopWeb: () => void;
+  /** 显式启动回调（T7，纯 props 注入；app 层发 web.start 命令帧）。 */
+  onStartWeb: () => void;
 }
 
 const IconRail = function IconRail<T extends string>({
@@ -58,6 +65,7 @@ const IconRail = function IconRail<T extends string>({
   onToggleTheme,
   webStatus,
   onStopWeb,
+  onStartWeb,
 }: IconRailProps<T>) {
   const { t } = useI18n();
   return (
@@ -87,8 +95,8 @@ const IconRail = function IconRail<T extends string>({
           );
         })}
       </div>
-      {/* 联网状态钮（T4：主题钮上方；三态 + popover 详情/清单/停止） */}
-      <WebStatusButton webStatus={webStatus} onStopWeb={onStopWeb} />
+      {/* 联网状态钮（T4：主题钮上方；三态 + popover 详情/清单/启动/停止） */}
+      <WebStatusButton webStatus={webStatus} onStopWeb={onStopWeb} onStartWeb={onStartWeb} />
       {/* 主题切换单钮（S1 用户裁决：头像块上方；Sun/Moon = 切换目标） */}
       <button
         id="btn-theme-toggle"
@@ -124,9 +132,19 @@ function idleText(t: (key: string, params?: Record<string, string | number>) => 
 /**
  * 联网状态钮（T4，契约 v0.7 web 族）：三态（idle/connecting 灰 →
  * connected 绿点呼吸 → error 红）+ 点击 popover（连接详情 + tab 清单 +
- * 停止并清理）。props 注入纯展示（popover 开合为本地 UI 态）。
+ * 启动/停止双钮）。T7 显式启动通路（v0.9 web.start）：双钮按态切换
+ * disabled（idle=启/停禁；connecting=双禁；connected=停启；error=双可用），
+ * 恒渲染不卸载（焦点守恒）。props 注入纯展示（popover 开合为本地 UI 态）。
  */
-function WebStatusButton({ webStatus, onStopWeb }: { webStatus: WebStatusPayload | null; onStopWeb: () => void }) {
+function WebStatusButton({
+  webStatus,
+  onStopWeb,
+  onStartWeb,
+}: {
+  webStatus: WebStatusPayload | null;
+  onStopWeb: () => void;
+  onStartWeb: () => void;
+}) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const state = webStatus?.state ?? "idle"; // null（首连前未收帧）= 灰态未连接
@@ -218,15 +236,28 @@ function WebStatusButton({ webStatus, onStopWeb }: { webStatus: WebStatusPayload
               <div className="web-tab-empty">{t("chat.web.tabsEmpty")}</div>
             )}
           </div>
-          <button
-            id="btn-web-stop"
-            className="hud-btn hud-btn-ghost sm web-stop-btn"
-            type="button"
-            disabled={state === "idle"} // 未连接无可停（stop 幂等；禁用防误点）
-            onClick={onStopWeb}
-          >
-            {t("chat.web.stop")}
-          </button>
+          <div className="web-pop-actions">
+            {/* 启动钮（T7 web.start）：idle/error 可用（error = 重试入口）；connecting
+                态文案切「连接中…」；connected 已连接无可启。恒渲染（焦点守恒） */}
+            <button
+              id="btn-web-start"
+              className="hud-btn hud-btn-ghost sm web-start-btn"
+              type="button"
+              disabled={state === "connecting" || state === "connected"}
+              onClick={onStartWeb}
+            >
+              {state === "connecting" ? t("chat.web.starting") : t("chat.web.start")}
+            </button>
+            <button
+              id="btn-web-stop"
+              className="hud-btn hud-btn-ghost sm web-stop-btn"
+              type="button"
+              disabled={state === "idle" || state === "connecting"} // 未连接/连接中无可停（stop 幂等；禁用防误点）
+              onClick={onStopWeb}
+            >
+              {t("chat.web.stop")}
+            </button>
+          </div>
         </div>
       )}
     </div>

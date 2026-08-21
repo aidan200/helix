@@ -46,8 +46,9 @@ function AppRoutes() {
   const { route, navigate } = useAppRoute();
   const { theme, setTheme } = useTheme();
   // T4 web 族（契约 v0.7）：联网状态读面（topology.webStatus，拓扑级消费）
-  // + 停止写面（web.stop 命令帧）→ IconRail props 注入（IconRail 纯展示）
-  const { topology, sendWebStop } = useSession();
+  // + 停止写面（web.stop 命令帧）→ IconRail props 注入（IconRail 纯展示）；
+  // T7 显式启动写面（web.start，v0.9）同链注入
+  const { topology, sendWebStop, sendWebStart } = useSession();
   const onWorkbench = route === ROUTE_WORKBENCH;
   return (
     <>
@@ -60,6 +61,7 @@ function AppRoutes() {
           onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
           webStatus={topology.webStatus}
           onStopWeb={sendWebStop}
+          onStartWeb={sendWebStart}
         />
         <div className="page-area">
           {/* 工作台常驻 DOM：非工作台路由 display:none（状态/WS 全保留） */}

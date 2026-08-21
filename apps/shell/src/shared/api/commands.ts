@@ -33,6 +33,7 @@ import type {
   SessionUnsubscribeCommand,
   TraceQueryCommand,
   TraceQueryPayload,
+  WebStartCommand,
   WebStatusCommand,
   WebStopCommand,
 } from "@helix/protocol";
@@ -192,4 +193,10 @@ export function webStatusCommand(): WebStatusCommand {
  *  状态回 idle 经 web.status.changed 全局广播）。 */
 export function webStopCommand(): WebStopCommand {
   return { v: PROTOCOL_VERSION, type: "web.stop", payload: {} };
+}
+
+/** web.start：显式启动写面（v0.9，T7；全局命令；回执 = web.start.result
+ *  点对点 applied/skipped + 状态回流经 web.status.changed 全局广播）。 */
+export function webStartCommand(): WebStartCommand {
+  return { v: PROTOCOL_VERSION, type: "web.start", payload: {} };
 }

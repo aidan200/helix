@@ -225,6 +225,8 @@ export const zhCN: Translations = {
       tabsTitle: "标签页清单",
       tabsEmpty: "暂无受管标签页",
       stop: "停止并清理",
+      start: "启动连接",
+      starting: "连接中…",
       idleJustNow: "刚刚活跃",
       idleMinutes: "闲置 {minutes} 分钟",
       idleHours: "闲置 {hours} 小时",

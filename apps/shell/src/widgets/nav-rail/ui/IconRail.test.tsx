@@ -7,8 +7,12 @@
  *（灰 idle/未连接 → 绿 connected → 红 error）+ 点击 popover（连接详情
  * + tab 清单 + 停止并清理）。
  *
- * 纯展示纪律（TR-AD-8）：theme/onToggleTheme/webStatus/onStopWeb 全 props
- * 注入，组件不读 ThemeContext、不读 store——无 Provider 装配也可渲染。
+ * T7 显式启动通路（契约 v0.9 web.start）：popover 按态切换——idle 启动钮
+ * 可用/停止钮禁用；connecting 双禁用 + 启动钮文案「连接中…」；connected
+ * 停止钮可用/启动钮禁用。两钮恒渲染（焦点守恒，不按态卸载）。
+ *
+ * 纯展示纪律（TR-AD-8）：theme/onToggleTheme/webStatus/onStopWeb/onStartWeb
+ * 全 props 注入，组件不读 ThemeContext、不读 store——无 Provider 装配也可渲染。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
@@ -32,7 +36,7 @@ const CONNECTED: WebStatusPayload = {
   ],
 };
 
-function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void; webStatus?: WebStatusPayload | null; onStopWeb?: () => void } = {}) {
+function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void; webStatus?: WebStatusPayload | null; onStopWeb?: () => void; onStartWeb?: () => void } = {}) {
   // jsdom navigator.language 默认 en-US：钉 zh-CN（产品断言语言，AG-14 白名单键）
   localStorage.setItem("helix-lang", "zh-CN");
   return render(
@@ -45,6 +49,7 @@ function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void; webSt
         onToggleTheme={props.onToggleTheme ?? (() => {})}
         webStatus={props.webStatus ?? null}
         onStopWeb={props.onStopWeb ?? (() => {})}
+        onStartWeb={props.onStartWeb ?? (() => {})}
       />
     </I18nProvider>,
   );
@@ -160,5 +165,51 @@ describe("T4 IconRail 联网状态钮（契约 v0.7 web 族）", () => {
     const pop = document.querySelector(".web-pop")!;
     expect(pop.textContent).toContain("未连接");
     expect(pop.querySelector("#btn-web-stop")!.hasAttribute("disabled")).toBe(true);
+  });
+});
+
+describe("T7 popover 启动按钮三态切换（契约 v0.9 web.start 显式启动通路）", () => {
+  it("idle 态：启动钮可用 + 停止钮禁用；点击启动钮调 onStartWeb（纯 props 注入，一次一回调）", () => {
+    const onStartWeb = vi.fn();
+    ui({ webStatus: { state: "idle", tabCount: 0, tabs: [] }, onStartWeb });
+    fireEvent.click(document.querySelector("#btn-web-status")!);
+    const pop = document.querySelector(".web-pop")!;
+    const start = pop.querySelector("#btn-web-start")!;
+    expect(start).not.toBeNull();
+    expect(start.textContent).toContain("启动连接");
+    expect(start.hasAttribute("disabled")).toBe(false); // idle = 启动可用
+    expect(pop.querySelector("#btn-web-stop")!.hasAttribute("disabled")).toBe(true); // idle = 停止禁用
+    fireEvent.click(start);
+    expect(onStartWeb).toHaveBeenCalledTimes(1);
+    // 点击后 popover 保持打开（状态回流经广播驱动；同停止钮先例）
+    expect(document.querySelector(".web-pop")).not.toBeNull();
+  });
+
+  it("connecting 态：双禁用 + 启动钮文案「连接中…」", () => {
+    ui({ webStatus: { state: "connecting", tabCount: 0, tabs: [] } });
+    fireEvent.click(document.querySelector("#btn-web-status")!);
+    const pop = document.querySelector(".web-pop")!;
+    const start = pop.querySelector("#btn-web-start")!;
+    expect(start.hasAttribute("disabled")).toBe(true);
+    expect(start.textContent).toContain("连接中");
+    expect(pop.querySelector("#btn-web-stop")!.hasAttribute("disabled")).toBe(true); // 连接中无可停
+  });
+
+  it("connected 态：停止钮可用 + 启动钮禁用；两钮恒渲染（焦点守恒，不按态卸载）", () => {
+    ui({ webStatus: CONNECTED });
+    fireEvent.click(document.querySelector("#btn-web-status")!);
+    const pop = document.querySelector(".web-pop")!;
+    expect(pop.querySelector("#btn-web-stop")!.hasAttribute("disabled")).toBe(false);
+    const start = pop.querySelector("#btn-web-start")!;
+    expect(start).not.toBeNull(); // 不卸载（焦点守恒）
+    expect(start.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("error 态：启动钮可用（重试入口）+ 停止钮可用（清理既有错误残留）", () => {
+    ui({ webStatus: { state: "error", tabCount: 0, error: "CDP WebSocket 断开", tabs: [] } });
+    fireEvent.click(document.querySelector("#btn-web-status")!);
+    const pop = document.querySelector(".web-pop")!;
+    expect(pop.querySelector("#btn-web-start")!.hasAttribute("disabled")).toBe(false);
+    expect(pop.querySelector("#btn-web-stop")!.hasAttribute("disabled")).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 /**
  * 事件目录（S→C，契约 A §2；目录文档见同包 PROTOCOL.md）。
  *
- * 共 46 个事件：v0 12 + v0.1 编排族 7 + v0.1 通道族 4 + 热修 engine.error 1
+ * 共 47 个事件：v0 12 + v0.1 编排族 7 + v0.1 通道族 4 + 热修 engine.error 1
  * + v0.2 新增 2（session.list_changed / model.changed）+ T2.2 命令结果 2
  * （session.list.result / session.loadHistory.result）+ T2.3-result-frames
  * 微批 9（model/auth 命令结果帧，契约 C §2.2）+ v0.4 新增 3
@@ -9,7 +9,8 @@
  * iter-20260819-erio T2.1）+ v0.6 新增 3（agent.config.changed /
  * agent.config.list.result / agent.config.set_enabled.result，M6 T3）+
  * v0.7 新增 3（web.status.result / web.stop.result / web.status.changed，
- * T4 联网状态图标，web 新族）。`EventEnvelope` 为
+ * T4 联网状态图标，web 新族）+ v0.9 新增 1（web.start.result，T7 CDP 显式
+ * 启动通路）。`EventEnvelope` 为
  * 判别式联合，前端 switch(event.type) 窄化各分支 payload（投影 reducer）。
  *
  * v0.2 事件类型学（AD-3，契约 A §2）：每事件以 `channel` 字面量登记所属通道
@@ -74,6 +75,7 @@ import type {
 } from "./model";
 import type { TraceQueryResultEvent } from "./trace";
 import type {
+  WebStartResultEvent,
   WebStatusChangedEvent,
   WebStatusResultEvent,
   WebStopResultEvent,
@@ -135,7 +137,8 @@ export type EventEnvelope =
   | AgentConfigSetEnabledResultEvent
   | WebStatusResultEvent
   | WebStopResultEvent
-  | WebStatusChangedEvent;
+  | WebStatusChangedEvent
+  | WebStartResultEvent;
 
 /** 事件目录常量（运行时可用；与 EventEnvelope 联合由测试双向一致性守护） */
 export const EVENT_TYPES = [
@@ -185,6 +188,7 @@ export const EVENT_TYPES = [
   "web.status.result",
   "web.stop.result",
   "web.status.changed",
+  "web.start.result",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -242,4 +246,5 @@ export const EVENT_CHANNELS = {
   "web.status.result": "web",
   "web.stop.result": "web",
   "web.status.changed": "web",
+  "web.start.result": "web",
 } as const satisfies Record<EventType, Channel>;

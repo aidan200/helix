@@ -170,6 +170,9 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       { registry: "evt", anchor: "web.stop.result", field: "status" },
       { registry: "evt", anchor: "web.status.changed", field: "state" },
       { registry: "evt", anchor: "web.status.changed", field: "tabs" },
+      // v0.9 批次（T7 web.start 显式启动通路）：首登必填字段 presence（防零登记复发）
+      { registry: "evt", anchor: "web.start.result", field: "status" },
+      { registry: "evt", anchor: "web.start.result", field: "reason" },
     ];
     const missing: string[] = [];
     for (const item of required) {

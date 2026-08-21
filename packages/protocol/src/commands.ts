@@ -1,12 +1,13 @@
 /**
  * 命令目录（C→S，契约 §4 + 契约 B §1 / 契约 C §1；目录文档见同包 PROTOCOL.md）。
  *
- * 共 26 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
+ * 共 27 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
  * auth 族 4）；v0.3 零新增——三处扩展全部为可选参数/字段（tier /
  * instanceId / anchorEntryId，TR-AD-23① 可选参数优先于新命令对）；
  * v0.4 新增 1（trace 族 trace.query，契约 v0.4 §1，iter-20260819-erio T2.1）；
  * v0.6 新增 2（agent.config 族，M6 T3 智能体配置页）；
- * v0.7 新增 2（web 族，T4 联网状态图标）。
+ * v0.7 新增 2（web 族，T4 联网状态图标）；
+ * v0.9 新增 1（web.start，T7 CDP 显式启动通路）。
  * `CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
  * 分发。会话作用域命令的信封 sessionId 必填（AD-4 路由位，类型层可选、
  * 客户端纪律保证）；全局命令（session.list / model.set_default /
@@ -348,7 +349,21 @@ export interface WebStopCommand extends CommandFrame<EmptyPayload> {
   type: "web.stop";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26） */
+// ── v0.9 新增：web.start（T7 CDP 显式启动通路；lazy connect 的人侧预热入口） ──
+
+/**
+ * web.start 载荷：显式启动写面（全局命令；无参）——用户知情触发 lazy connect
+ *（首次连接 Chrome 可能弹授权框，不应由 LLM 静默预热）。已连接时幂等
+ *（connect() no-op）。回执 = web.start.result 点对点（applied = 建连成功/
+ * 已连接幂等；skipped = 未发现可用浏览器，reason 含引导用户开 remote
+ * debugging 的说明）；状态回流经 web.status.changed 广播（单一事件源纪律，
+ * handler 不重复广播）。
+ */
+export interface WebStartCommand extends CommandFrame<EmptyPayload> {
+  type: "web.start";
+}
+
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -375,7 +390,8 @@ export type CommandEnvelope =
   | AgentConfigListCommand
   | AgentConfigSetEnabledCommand
   | WebStatusCommand
-  | WebStopCommand;
+  | WebStopCommand
+  | WebStartCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
@@ -405,6 +421,7 @@ export const COMMAND_TYPES = [
   "agent.config.set_enabled",
   "web.status",
   "web.stop",
+  "web.start",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];

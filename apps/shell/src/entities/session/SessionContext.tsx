@@ -44,6 +44,7 @@ import {
   sessionLoadHistoryCommand,
   traceQueryCommand,
   webStatusCommand,
+  webStartCommand,
   webStopCommand,
 } from "@/shared/api/commands";
 import { DAEMON_PORT, FAKE_TRANSPORT_DEFINE, fakeTransportScript } from "@/shared/config/env";
@@ -143,6 +144,9 @@ interface SessionContextValue {
   /** 发送 web.stop（停止并清理；回执 applied + 状态回 idle 经
    *  web.status.changed 广播写 topology.webStatus）。 */
   sendWebStop: () => boolean;
+  /** 发送 web.start（v0.9，T7 显式启动通路；回执 applied/skipped 点对点 +
+   *  状态回 connected 经 web.status.changed 广播写 topology.webStatus）。 */
+  sendWebStart: () => boolean;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -402,6 +406,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // 连接就绪 effect；变更走广播拓扑级消费 topology.webStatus）
   const sendWebStop = useCallback(() => clientRef.current!.send(webStopCommand()), []);
 
+  // web.start 显式启动写面（v0.9，T7）：popover 启动钮回调（沿 sendWebStop 先例）
+  const sendWebStart = useCallback(() => clientRef.current!.send(webStartCommand()), []);
+
   const consumeRestoreToast = useCallback(
     () => dispatch({ type: "ui/consume-restore-toast" }),
     [],
@@ -529,6 +536,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendAgentConfigSetEnabled,
       subscribeAgentConfigFrames,
       sendWebStop,
+      sendWebStart,
     }),
     [
       state,
@@ -563,6 +571,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendAgentConfigSetEnabled,
       subscribeAgentConfigFrames,
       sendWebStop,
+      sendWebStart,
     ],
   );
 

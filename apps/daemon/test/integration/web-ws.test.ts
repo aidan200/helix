@@ -28,7 +28,12 @@ import { PROTOCOL_VERSION, SYSTEM_SESSION_ID, type FrameVersion } from "@helix/p
  * - ② web.stop → fake stop() 执行 + web.stop.result applied 回执 +
  *   状态回 idle 经 web.status.changed 广播回流（onStatusChange 事件源）；
  * - ③ 组合根接线：onStatusChange（连接成功/tab 增减/error 时机模拟）→
- *   web.status.changed 全连接广播（含 tabs 清单，SYSTEM_SESSION_ID）。
+ *   web.status.changed 全连接广播（含 tabs 清单，SYSTEM_SESSION_ID）；
+ * - ⑥ web.start（v0.9 T7 显式启动通路）→ fake connect() 执行 +
+ *   web.start.result applied 回执（已连接幂等同 applied）+ 状态回流经
+ *   web.status.changed 广播（单一事件源，handler 不重复发）；
+ * - ⑦ connect() 抛错（未发现可用浏览器）→ skipped + reason 含 remote
+ *   debugging 引导说明的回执。
  */
 
 interface Frame {
@@ -99,6 +104,16 @@ class FakeBrowser implements BrowserPort {
   private tabs: readonly TabInfo[] = [];
   private readonly listeners = new Set<BrowserStatusListener>();
   stopCalls = 0;
+  connectCalls = 0;
+  /** 置位后 connect() 抛此错（模拟未发现可用浏览器）。 */
+  connectError: Error | null = null;
+
+  async connect(): Promise<void> {
+    this.connectCalls += 1;
+    if (this.connectError) throw this.connectError;
+    // 建连成功（幂等——已连接时 real port no-op，fake 以 drive 模拟状态通知）
+    this.drive({ state: "connected", browser: { id: "chrome-9222", label: "Chrome", port: 9222 }, tabCount: 0 });
+  }
 
   getStatus(): BrowserStatus {
     return this.status;
@@ -124,9 +139,6 @@ class FakeBrowser implements BrowserPort {
   }
 
   // ── 以下方法本测试不触达（抛错防误用）──
-  async connect(): Promise<void> {
-    throw new Error("not implemented");
-  }
   async openTab(): Promise<{ tabId: string }> {
     throw new Error("not implemented");
   }
@@ -281,6 +293,75 @@ describe("web.stop（v0.7 全局命令；停止写面）", () => {
       expect(changed.channel).toBe("web");
       expect(changed.sessionId).toBe(SYSTEM_SESSION_ID);
       expect(changed.payload).toEqual({ state: "idle", tabCount: 0, tabs: [] });
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+});
+
+describe("web.start（v0.9 全局命令；显式启动写面，T7）", () => {
+  test("⑥ connect() 执行 + applied 回执（幂等）+ 状态回 connected 经 web.status.changed 广播回流", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      await helloHandshake(client, rig.token);
+      await client.expect("session.snapshot");
+      const at = client.frames.length;
+
+      client.send({ v: PROTOCOL_VERSION, type: "web.start", payload: {} });
+      const result = await client.expectAfter("web.start.result", at);
+      expect(result.v).toBe(PROTOCOL_VERSION);
+      expect(result.channel).toBe("web");
+      expect(result.sessionId).toBe(SYSTEM_SESSION_ID); // 全局命令：会话无关
+      expect(result.payload).toEqual({ status: "applied" });
+      expect(rig.browser.connectCalls).toBe(1); // fake connect() 真实执行
+      // 状态回流：connect() → onStatusChange → 组合根接线广播（handler 不重复广播）
+      const changed = await client.expectAfter("web.status.changed", at);
+      expect(changed.channel).toBe("web");
+      expect(changed.sessionId).toBe(SYSTEM_SESSION_ID);
+      expect(changed.payload).toEqual({
+        state: "connected",
+        browser: { id: "chrome-9222", label: "Chrome", port: 9222 },
+        tabCount: 0,
+        tabs: [],
+      });
+
+      // 幂等：已连接再 start 仍 applied（connect() no-op 语义归 port，回执面幂等）
+      const at2 = client.frames.length;
+      client.send({ v: PROTOCOL_VERSION, type: "web.start", payload: {} });
+      const again = await client.expectAfter("web.start.result", at2);
+      expect(again.payload).toEqual({ status: "applied" });
+      expect(rig.browser.connectCalls).toBe(2);
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+
+  test("⑦ connect() 抛错（未发现可用浏览器）→ skipped + reason 含 remote debugging 引导说明", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      await helloHandshake(client, rig.token);
+      await client.expect("session.snapshot");
+      rig.browser.connectError = new Error(
+        "未发现开启远程调试的浏览器（Chrome/Edge）。请以 --remote-debugging-port=9222 启动后重试",
+      );
+      const at = client.frames.length;
+
+      client.send({ v: PROTOCOL_VERSION, type: "web.start", payload: {} });
+      const result = await client.expectAfter("web.start.result", at);
+      expect(result.channel).toBe("web");
+      expect(result.sessionId).toBe(SYSTEM_SESSION_ID);
+      expect(result.payload.status).toBe("skipped");
+      expect(String(result.payload.reason)).toContain("未发现开启远程调试的浏览器");
+      expect(String(result.payload.reason)).toContain("remote-debugging-port"); // 引导用户开 remote debugging
+      expect(rig.browser.connectCalls).toBe(1);
+      // 建连失败无状态变更：不产生 web.status.changed 广播（fake 未 drive）
+      expect(client.frames.slice(at).some((f) => f.type === "web.status.changed")).toBe(false);
     } finally {
       await client.close();
       await rig.dispose();

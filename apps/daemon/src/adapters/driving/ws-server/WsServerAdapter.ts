@@ -84,7 +84,7 @@ import {
 } from "./handlers/session";
 import { handleTraceQuery } from "./handlers/trace";
 import { handleAgentConfigList, handleAgentConfigSetEnabled } from "./handlers/resource";
-import { handleWebStatus, handleWebStop } from "./handlers/web";
+import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
 import {
   handleModelCatalog,
   handleModelCatalogRefresh,
@@ -396,10 +396,13 @@ export class WsServerAdapter {
       case "agent.config.set_enabled":
         return handleAgentConfigSetEnabled(this.resourceContext(ws, type, payload));
       // ── v0.7 web 族（T4 联网状态图标；全局命令先例 = agent.config 族）──
+      //    v0.9 +web.start（T7 CDP 显式启动通路）
       case "web.status":
         return handleWebStatus(this.webContext(ws, type));
       case "web.stop":
         return handleWebStop(this.webContext(ws, type));
+      case "web.start":
+        return handleWebStart(this.webContext(ws, type));
       // ── v0.2 model 族（T2.3 AD-2，契约 C §1；真行为回口。微批：结果帧点对点回执）──
       // T1.1（AD-3）：case 体机械迁出 handlers/model.ts（语义逐字节等价），此处一行转发
       case "model.set":

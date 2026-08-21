@@ -19,7 +19,7 @@ export const helloFrame: HelloCommand = {
 };
 
 export const chatSendWithRoute: ChatSendCommand = {
-  v: "0.8",
+  v: "0.9",
   type: "chat.send",
   payload: { text: "帮我看看 protocol 包的类型" },
   workspace: { workspaceId: "ws-main" }, // 预留字段位：可携带（当前无路由语义）

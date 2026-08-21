@@ -138,6 +138,31 @@ describe("browser action 分发（fake port 调用记录逐 action 断言）", (
     expect(payload.tabs[0].ownerId).toBe("main");
     expect(payload.tabs[0].idleMs).toBeGreaterThanOrEqual(5_000);
   });
+
+  test("action=status：idle 态附带 hint 惰性引导字段（T7）；connected 态不带", async () => {
+    const port = new FakeBrowserPort();
+    port.status = { state: "idle", tabCount: 0 };
+    port.tabs = [];
+    const { run } = makeHarness(port);
+    const idle = await run({ action: "status" });
+    expect(idle.isError).toBe(false);
+    const idlePayload = JSON.parse(idle.content);
+    expect(idlePayload.status.state).toBe("idle");
+    // idle 误判防护：结果面直接写明惰性连接语义，LLM 看到 hint 不会放弃 open
+    expect(idlePayload.hint).toContain("惰性");
+    expect(idlePayload.hint).toContain("open");
+    expect(idlePayload.hint).toContain("自动");
+
+    port.status = { state: "connected", browser: { id: "b1", label: "Chrome", port: 9222 }, tabCount: 1 };
+    const connected = await run({ action: "status" });
+    const connectedPayload = JSON.parse(connected.content);
+    expect(connectedPayload.status.state).toBe("connected");
+    expect(connectedPayload.hint).toBeUndefined(); // hint 为 idle 专属可选字段
+
+    port.status = { state: "error", tabCount: 0, error: "CDP WebSocket 断开" };
+    const errored = await run({ action: "status" });
+    expect(JSON.parse(errored.content).hint).toBeUndefined(); // error 态不带 hint
+  });
 });
 
 describe("browser 必填参数校验（缺失 → 中文错误，经执行链转 isError）", () => {
@@ -224,5 +249,15 @@ describe("browser description 策略知识（单工具承载全部；web-access 
     expect(tool.description).toContain("连接状态");
     expect(tool.description).toContain("owner");
     expect(tool.description).toContain("闲置");
+  });
+
+  test("惰性语义（T7）：status=idle 不代表不可用——操作 action 自动建连，无需显式启动", () => {
+    // LLM 侧误判防护：先调 status 看到 idle 不得误判「浏览器服务不可用」而放弃 open
+    expect(tool.description).toContain("idle");
+    expect(tool.description).toContain("不代表浏览器不可用");
+    expect(tool.description).toContain("自动建立连接");
+    expect(tool.description).toContain("惰性连接");
+    expect(tool.description).toContain("无需显式启动");
+    expect(tool.description).toContain("仅用于观测");
   });
 });

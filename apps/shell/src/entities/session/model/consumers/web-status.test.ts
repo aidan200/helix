@@ -5,11 +5,12 @@
  * daemon 级全局数据（信封 sessionId = SYSTEM_SESSION_ID，订阅无关全连接），
  * 不入活跃会话 store，经 dispatcher/frame.ts 前置门路由。
  *
- * 三 type 分工：
+ * 三 type 分工（T7 v0.9 +1：四 type）：
  * - web.status.result（app 启动查询回执）/ web.status.changed（四时机广播）
  *   → 真消费：payload 写入 topology.webStatus（IconRail 联网钮数据源）；
- * - web.stop.result（停止写面回执）→ 拓扑原引用直通（状态回流经
- *   web.status.changed 广播，回执帧零写态——applied 语义无 UI 消费面）。
+ * - web.stop.result（停止写面回执）/ web.start.result（启动写面回执，v0.9
+ *   T7 显式启动通路）→ 拓扑原引用直通（状态回流经 web.status.changed
+ *   广播，回执帧零写态——applied/skipped 语义无 UI 消费面）。
  */
 import { describe, expect, it } from "vitest";
 import type { EventEnvelope } from "@helix/protocol";
@@ -18,7 +19,7 @@ import { applyWebEvent, isWebEventType, WEB_EVENT_TYPES } from "../consumers/web
 
 function frame(type: string, payload: unknown): EventEnvelope {
   return {
-    v: "0.8",
+    v: "0.9",
     sessionId: "__system__",
     channel: "web",
     type,
@@ -36,8 +37,8 @@ const CONNECTED = {
 } as const;
 
 describe("isWebEventType（web 族前置门）", () => {
-  it("三 type 命中；族外 type 不命中", () => {
-    expect(WEB_EVENT_TYPES).toEqual(["web.status.changed", "web.status.result", "web.stop.result"]);
+  it("四 type 命中（v0.9 +web.start.result）；族外 type 不命中", () => {
+    expect(WEB_EVENT_TYPES).toEqual(["web.status.changed", "web.status.result", "web.stop.result", "web.start.result"]);
     for (const t of WEB_EVENT_TYPES) expect(isWebEventType(t)).toBe(true);
     expect(isWebEventType("agent.config.changed")).toBe(false);
     expect(isWebEventType("model.changed")).toBe(false);
@@ -67,5 +68,11 @@ describe("applyWebEvent（拓扑级真消费）", () => {
   it("web.stop.result（停止回执）→ 拓扑原引用直通（状态回流经广播，回执零写态）", () => {
     const topo = applyWebEvent(createInitialTopologyState(), frame("web.status.result", CONNECTED));
     expect(applyWebEvent(topo, frame("web.stop.result", { status: "applied" }))).toBe(topo);
+  });
+
+  it("web.start.result（启动回执，v0.9）→ 拓扑原引用直通（applied/skipped 均零写态）", () => {
+    const topo = applyWebEvent(createInitialTopologyState(), frame("web.status.result", CONNECTED));
+    expect(applyWebEvent(topo, frame("web.start.result", { status: "applied" }))).toBe(topo);
+    expect(applyWebEvent(topo, frame("web.start.result", { status: "skipped", reason: "未发现开启远程调试的浏览器" }))).toBe(topo);
   });
 });

@@ -167,13 +167,13 @@ function feedResult(over: Partial<TraceQueryResultPayload> = {}) {
     page: { loaded: 3, total: 3, hasMore: false },
     ...over,
   };
-  const frame = { v: "0.8", type: "trace.query.result", sessionId: sent.sessionId, channel: "trace", payload } as EventEnvelope;
+  const frame = { v: "0.9", type: "trace.query.result", sessionId: sent.sessionId, channel: "trace", payload } as EventEnvelope;
   for (const l of mock.listeners) l(frame);
 }
 
 function feedConnError(message: string) {
   const frame = {
-    v: "0.8",
+    v: "0.9",
     type: "connection.error",
     channel: "notification",
     sessionId: "__system__",

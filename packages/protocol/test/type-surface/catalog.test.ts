@@ -13,12 +13,13 @@ import { v03Commands } from "./samples/v03";
 import { traceQueryResult, v04Commands } from "./samples/v04";
 import { v06Commands, v06Events } from "./samples/v06";
 import { v07Commands, v07Events } from "./samples/v07";
+import { v09Commands, v09Events } from "./samples/v09";
 
 // ── 类型级断言（编译期；任一不满足 → tsc --noEmit 失败） ──
-// 命令目录常量 ↔ 命令信封联合 type 集合双向一致（v0.8：26 个）
+// 命令目录常量 ↔ 命令信封联合 type 集合双向一致（v0.9：27 个）
 type _CommandSync = Expect<Equal<EnvelopeTypeOf<CommandEnvelope>, (typeof COMMAND_TYPES)[number]>>;
 
-// 事件目录常量 ↔ 事件信封联合 type 集合双向一致（v0.8 口径：46 个）
+// 事件目录常量 ↔ 事件信封联合 type 集合双向一致（v0.9 口径：47 个）
 type _EventSync = Expect<Equal<EnvelopeTypeOf<EventEnvelope>, (typeof EVENT_TYPES)[number]>>;
 
 type V01CommandTypes = "agent.kill" | "agent.subscribe" | "agent.unsubscribe";
@@ -122,8 +123,21 @@ type _V07EventMembers = Expect<
   Equal<Extract<EnvelopeTypeOf<EventEnvelope>, V07EventTypes>, V07EventTypes>
 >;
 
+// v0.9 新增 web.start 命令/结果帧 type 字面量全部在联合中（漏任一 → Extract 不等）
+type V09CommandTypes = "web.start";
+
+type _V09CommandMembers = Expect<
+  Equal<Extract<EnvelopeTypeOf<CommandEnvelope>, V09CommandTypes>, V09CommandTypes>
+>;
+
+type V09EventTypes = "web.start.result";
+
+type _V09EventMembers = Expect<
+  Equal<Extract<EnvelopeTypeOf<EventEnvelope>, V09EventTypes>, V09EventTypes>
+>;
+
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 26 个 type（v0 5 + v0.1 3 + v0.2 13 + v0.4 1 + v0.6 2 + v0.7 2）", () => {
+  test("命令目录恰为 27 个 type（v0 5 + v0.1 3 + v0.2 13 + v0.4 1 + v0.6 2 + v0.7 2 + v0.9 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.config.list",
@@ -150,13 +164,14 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "session.subscribe",
         "session.unsubscribe",
         "trace.query",
+        "web.start",
         "web.status",
         "web.stop",
       ],
     );
   });
 
-  test("事件目录恰为 46 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2 + T2.2 命令结果 2 + 微批结果帧 9 + v0.4 3 + v0.6 3 + v0.7 3）", () => {
+  test("事件目录恰为 47 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2 + T2.2 命令结果 2 + 微批结果帧 9 + v0.4 3 + v0.6 3 + v0.7 3 + v0.9 1）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -202,6 +217,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "tool.call.started",
         "trace.query.result",
         "usage.recorded",
+        "web.start.result",
         "web.status.changed",
         "web.status.result",
         "web.stop.result",
@@ -209,8 +225,8 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("全部 26 个命令信封可构造且可分发（含 v0.3/v0.4/v0.6/v0.7 扩展形态）", () => {
-    const out = [...legacyCommands, ...v01Commands, ...v02Commands, ...v03Commands, ...v04Commands, ...v06Commands, ...v07Commands].map(dispatchCommand);
+  test("全部 27 个命令信封可构造且可分发（含 v0.3/v0.4/v0.6/v0.7/v0.9 扩展形态）", () => {
+    const out = [...legacyCommands, ...v01Commands, ...v02Commands, ...v03Commands, ...v04Commands, ...v06Commands, ...v07Commands, ...v09Commands].map(dispatchCommand);
     expect(out).toEqual([
       "send:hi",
       "steer:改用方案 B:main",
@@ -254,11 +270,13 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       // v0.7 样例（web 族：status 查询 + stop 写面，均无参全局命令）
       "web-status",
       "web-stop",
+      // v0.9 样例（web 族：start 显式启动写面，无参全局命令）
+      "web-start",
     ]);
   });
 
-  test("全部 46 个事件信封可构造且窄化分发正确", () => {
-    const out = [...legacyEvents, ...v01Events, ...v02Events, ...v02ResultEvents, ...v06Events, ...v07Events].map(summarizeEvent);
+  test("全部 47 个事件信封可构造且窄化分发正确", () => {
+    const out = [...legacyEvents, ...v01Events, ...v02Events, ...v02ResultEvents, ...v06Events, ...v07Events, ...v09Events].map(summarizeEvent);
     expect(out).toEqual([
       "welcome:sess-1:kimi-k2:running",
       "error:auth.missing_token:握手缺少 token",
@@ -312,6 +330,9 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "web-stop-result:applied",
       "web-status-changed:error:0:-",
       "web-status-changed:connected:1:Chrome",
+      // v0.9 样例（web 族：start.result 两判别 applied / skipped+reason）
+      "web-start-result:applied:-",
+      "web-start-result:skipped:未发现开启远程调试的浏览器（--remote-debugging-port）",
     ]);
   });
 
@@ -322,6 +343,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     expect(familyOf(compactionCompletedV02)).toBe("compaction/compaction.completed");
     expect(familyOf(traceQueryResult)).toBe("trace/trace.query.result"); // v0.4 新族窄化
     expect(familyOf(v07Events[0]!)).toBe("web/web.status.result"); // v0.7 新族窄化
+    expect(familyOf(v09Events[0]!)).toBe("web/web.start.result"); // v0.9 扩展帧窄化
   });
 
   test("EVENT_CHANNELS 登记目录与契约 A §2 映射表恰等", () => {
@@ -380,14 +402,14 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     expect(roster("interaction")).toEqual([]); // 占位族：无事件挂靠
     expect(roster("trace")).toEqual(["trace.query.result"]); // v0.4 新族（点对点结果帧）
     expect(roster("notification")).toEqual(["connection.error", "connection.welcome"]);
-    expect(roster("web")).toEqual(["web.status.changed", "web.status.result", "web.stop.result"]); // v0.7 新族
+    expect(roster("web")).toEqual(["web.start.result", "web.status.changed", "web.status.result", "web.stop.result"]); // v0.7 新族 + v0.9 扩展
   });
 
-  test("v0.7 目录计数：EVENT_TYPES 46 / EVENT_CHANNELS 46 键 / COMMAND_TYPES 26（web 族 +3 事件 +2 命令）", () => {
-    expect(EVENT_TYPES.length).toBe(46); // v0.7：+3（web.status.changed / web.status.result / web.stop.result）
-    expect(new Set(EVENT_TYPES).size).toBe(46); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(46); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(26); // v0.7：+2（web.status / web.stop）
+  test("v0.9 目录计数：EVENT_TYPES 47 / EVENT_CHANNELS 47 键 / COMMAND_TYPES 27（web 族 +1 事件 +1 命令）", () => {
+    expect(EVENT_TYPES.length).toBe(47); // v0.9：+1（web.start.result）
+    expect(new Set(EVENT_TYPES).size).toBe(47); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(47); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(27); // v0.9：+1（web.start）
   });
 
 });

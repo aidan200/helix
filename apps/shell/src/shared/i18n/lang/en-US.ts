@@ -223,6 +223,8 @@ export const enUS: Translations = {
       tabsTitle: "Tabs",
       tabsEmpty: "No managed tabs",
       stop: "Stop and clean up",
+      start: "Start connection",
+      starting: "Connecting…",
       idleJustNow: "active just now",
       idleMinutes: "idle {minutes} min",
       idleHours: "idle {hours} h",

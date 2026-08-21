@@ -133,7 +133,9 @@ html.light .icon-rail {
 }
 .wt-meta { font-size: var(--text-micro); color: var(--text-faint); flex-shrink: 0; }
 .web-tab-empty { font-size: var(--text-micro); color: var(--text-faint); }
-.web-stop-btn { align-self: stretch; justify-content: center; }
+/* T7 启动/停止双钮并排（焦点链：启动在前停止在后，恒渲染仅 disabled 切换） */
+.web-pop-actions { display: flex; gap: 8px; }
+.web-start-btn, .web-stop-btn { flex: 1; align-self: stretch; justify-content: center; }
 
 @media (prefers-reduced-motion: reduce) {
   .rail-web-btn[data-web-state="connected"] .web-dot { animation: none !important; }

@@ -34,7 +34,8 @@ import type { BrowserPort, ScrollDirection } from "../../../../application/ports
  * - eval 序列化契约：返回值必须可序列化（大量数据 JSON.stringify 包裹；
  *   DOM 节点不能直接返回需提取属性）；递归遍历可穿透 Shadow DOM 与 iframe；
  * - 截图读图：file 必填落盘，之后用 read 工具读取图片（read 支持图片）；
- * - status：连接状态 + 受管 tab 清单（owner/闲置时长）。
+ * - status：连接状态 + 受管 tab 清单（owner/闲置时长）+ 惰性连接语义
+ *  （T7：idle ≠ 不可用，操作 action 自动建连；status idle 结果附带 hint 引导）。
  */
 
 /** 合法 action 枚举（schema 与分发共用单一来源）。 */
@@ -95,6 +96,8 @@ const DESCRIPTION = `操控用户日常浏览器（Chrome/Edge，天然携带登
 - screenshot：对 tab 截图（file 必填）；
 - close：关闭既有 tab；
 - status：查看浏览器连接状态与受管 tab 清单（各 tab 的 owner/URL/标题/闲置时长）。
+
+惰性连接语义（重要）：status 返回 idle 不代表浏览器不可用——open 等操作 action 会**自动建立连接**（惰性连接，无需显式启动）；status 仅用于观测当前连接与 tab 状态，看到 idle 后照常直接调用 open 即可。
 
 就绪契约：open/navigate 返回只代表文档基础加载完成，不代表目标内容已就绪——导航后必须用 action=eval 检查目标内容是否出现；若页面仍是加载态/验证页/登录跳转，在 15 秒窗口内持续观察 URL/标题/DOM 后再判断。
 eval 契约：返回值必须可序列化——提取大量数据时用 JSON.stringify 包裹；DOM 节点不能直接返回，需提取属性。eval 递归遍历可穿透 Shadow DOM 与 iframe（选择器不可跨越的边界）。
@@ -187,6 +190,11 @@ export function createBrowserTool(
           const now = Date.now();
           return jsonResult({
             status,
+            // T7 惰性语义引导（LLM 侧误判防护）：idle 不代表不可用——
+            // 任何操作 action 都会自动建连；connected/error 态不带（可选字段）。
+            ...(status.state === "idle"
+              ? { hint: "连接为惰性建立：直接调用 action=open 等操作即可自动连接浏览器" }
+              : {}),
             tabs: tabs.map((tab) => ({
               ...tab,
               idleMs: Math.max(0, now - tab.lastAccessed),

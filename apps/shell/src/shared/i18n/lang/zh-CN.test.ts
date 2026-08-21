@@ -174,6 +174,8 @@ const REQUIRED_KEYS = [
   "chat.web.tabsTitle",
   "chat.web.tabsEmpty",
   "chat.web.stop",
+  "chat.web.start",
+  "chat.web.starting",
   "chat.web.idleJustNow",
   "chat.web.idleMinutes",
   "chat.web.idleHours",
