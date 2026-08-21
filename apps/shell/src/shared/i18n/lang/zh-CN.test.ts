@@ -150,7 +150,7 @@ const REQUIRED_KEYS = [
   "chat.settings.title",
   "chat.settings.nav.label",
   "chat.settings.nav.models",
-  // T3.4（CL-4 IconRail 导航壳 + 四占位页施工牌；review.md §6 R-P4-1/4）
+  // T3.4（CL-4 IconRail 导航壳 + 页签词条；彼时四页皆施工牌，现仅 project 占位；review.md §6 R-P4-1/4）
   "chat.nav.railLabel",
   "chat.nav.plannedBadge",
   "chat.nav.themeToggle",

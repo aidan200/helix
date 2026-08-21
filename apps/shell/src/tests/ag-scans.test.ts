@@ -171,7 +171,7 @@ describe("AG-17 页面域/会话域分离", () => {
   /** FSD 层内合法但架构 §4.1 禁止的依赖（页面域读会话 store 内部）。 */
   const sessionInternal = /from\s+["']@\/entities\/session/;
 
-  it("nav-rail 与两占位页 + trace/skills 实页已落地（守护对象存在）", () => {
+  it("nav-rail 与 project 占位页 + skills/trace/settings 实页已落地（守护对象存在）", () => {
     for (const p of [
       "widgets/nav-rail/ui/IconRail.tsx",
       "pages/skills/AgentPage.tsx",

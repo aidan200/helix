@@ -7,8 +7,9 @@
  * 全静态：无动效、无操作入口（与断连态三重区分：色相 accent vs error /
  * 线型虚线围挡 vs 实边 / 无操作 vs 重连按钮）。
  *
- * 四占位页（skills/trace/project/settings）复用同一模板，仅图标/页名/
- * 路由/预告文案异；占位页本身是终态呈现（无 loading/error）。
+ * 现仅 project 占位页使用（S4 时点：trace/settings 已实页、skills 已升格
+ * 智能体页，均不再用施工牌），仅图标/页名/路由/预告文案由页面注入；
+ * 占位页本身是终态呈现（无 loading/error）。
  */
 import type { LucideIcon } from "lucide-react";
 import { useI18n } from "@/shared/i18n";

@@ -238,7 +238,7 @@ export interface ChatTranslations {
       models: string;
     };
   };
-  /** IconRail 导航壳 + 四占位页施工牌（widgets/nav-rail + pages/*；CL-4 F(4.4).1/F(4.4).3；T3.4） */
+  /** IconRail 导航壳 + 五页签词条（widgets/nav-rail + pages/*；CL-4 F(4.4).1/F(4.4).3；T3.4；S4 时点仅 project 为施工牌占位页，skills/trace/settings 均实页——label 同时供 IconRail 导航名） */
   nav: {
     /** 主导航 aria-label */
     railLabel: string;
@@ -248,9 +248,10 @@ export interface ChatTranslations {
     themeToggle: string;
     pages: {
       chat: { label: string };
-      /** 占位页：label = 页名；preview = 一句话能力预告（≤32ch，无时间承诺词） */
+      /** 智能体实页（M6 T4 升格）：label = IconRail 导航名（页头用 agents.title）；preview = 施工牌时代遗留词条，现无消费方（键名保留不动） */
       skills: { label: string; preview: string };
       trace: { label: string };
+      /** 占位页（仅剩此页）：label = 页名（页头 + 施工牌）；preview = 一句话能力预告（≤32ch，无时间承诺词） */
       project: { label: string; preview: string };
       /** 设置（S2 实页化，非施工牌；仅 label） */
       settings: { label: string };
