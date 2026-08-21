@@ -2,7 +2,7 @@
 /**
  * P-1 TracePage 组件测试（CL-5；T2.2 RED 清单 7 + 五态组件面 + 上下文卡降级）。
  *
- * vi.mock SessionContext 先例（ChatPage.test.tsx）：topology.list 供会话选择器，
+ * vi.mock SessionContext 先例（ChatPage.test.tsx）：topology.list 供 sidebar 会话列表，
  * sendTraceQuery / subscribeTraceFrames 为 trace 查询通道（连接私有读面）。
  * 帧注入 = 捕获的订阅回调直接回放（trace.query.result / connection.error）。
  */
@@ -193,13 +193,21 @@ afterEach(() => {
 });
 
 describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）", () => {
-  it("控制条渲染：会话选择器（清单注入）+ 时间范围四档 + 类型 chips 八枚；进页自动单飞查询", () => {
-    ui();
-    const sessionSel = screen.getByLabelText("会话") as HTMLSelectElement;
-    expect(within(sessionSel).getAllByRole("option").map((o) => o.textContent)).toEqual([
-      "ses_a · M4 收口",
-      "ses_b · 空会话",
-    ]);
+  it("AppLayout 壳 + sidebar 上下分区（会话/实例清单）+ 控制条两件（无 session 下拉）；进页自动单飞查询", () => {
+    const { container } = ui();
+    // S3b：壳 = AppLayout（header 页名 / sidebar 槽）
+    expect(document.querySelector(".app-header .p1-title")!.textContent).toBe("事件追溯");
+    // sidebar 上分区：会话清单（清单注入）+ 当前会话 cyan 激活态
+    const sb = container.querySelector("[data-trace-sidebar]") as HTMLElement;
+    expect(sb).toBeTruthy();
+    const sesList = sb.querySelector(".tsb-list") as HTMLElement;
+    const sesItems = within(sesList).getAllByRole("button");
+    expect(sesItems.map((b) => (b as HTMLElement).dataset.sessionId)).toEqual(["ses_a", "ses_b"]);
+    expect(sesItems[0]!.textContent).toContain("M4 收口");
+    expect(sesItems[0]!.getAttribute("aria-pressed")).toBe("true");
+    expect(sesItems[1]!.getAttribute("aria-pressed")).toBe("false");
+    // 控制条：session 下拉退役（会话选择由 sidebar 承担）+ 时间范围四档 + 类型 chips 八枚
+    expect(document.querySelector("#p1-sel-session")).toBeNull();
     const rangeSel = screen.getByLabelText("时间范围") as HTMLSelectElement;
     expect(within(rangeSel).getAllByRole("option").map((o) => o.textContent)).toEqual([
       "全部时间",
@@ -226,6 +234,19 @@ describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）",
     // loading = 同形骨架（非 spinner）
     expect(document.querySelectorAll(".p1-skel-row").length).toBeGreaterThan(0);
     expect(requestSessionList).not.toHaveBeenCalled(); // 清单已就绪：未请求态才发
+  });
+
+  it("sidebar 会话切换：点击其他会话 = session 域全量重置查询（筛选归零）+ 激活态跟随", () => {
+    ui();
+    act(() => feedResult());
+    fireEvent.click(screen.getByRole("button", { name: /空会话/ }));
+    expect(mock.sentQueries.length).toBe(2);
+    expect(mock.sentQueries[1]).toMatchObject({ sessionId: "ses_b", page: { limit: TRACE_PAGE_SIZE } });
+    expect(mock.sentQueries[1]!.instanceIds).toBeUndefined(); // 切会话筛选归零
+    expect(mock.sentQueries[1]!.types).toBeUndefined();
+    const items = document.querySelectorAll(".tsb-ses");
+    expect(items[0]!.getAttribute("aria-pressed")).toBe("false");
+    expect(items[1]!.getAttribute("aria-pressed")).toBe("true"); // 激活态随查询即时切换
   });
 
   it("success：混排表头四列（时间/实例/类型/摘要）+ 命中计数 + 行展开 payload（手风琴 + aria-expanded）", () => {

@@ -56,8 +56,10 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
         if (q.path === p.path) continue;
         if (q.path === "/") {
           if (p.path !== "/") {
-            await expect(page.locator(".app-layout")).toBeAttached(); // 常驻 DOM
-            await expect(page.locator(".app-layout")).toBeHidden();
+            // chat 工作台常驻 DOM 但 display 切换隐藏（S3b 起 trace 也用
+            // AppLayout——作用域限定 route-layer 避免双壳 strict 冲突）
+            await expect(page.locator(".route-layer .app-layout")).toBeAttached(); // 常驻 DOM
+            await expect(page.locator(".route-layer .app-layout")).toBeHidden();
           }
         } else {
           await expect(page.locator(pageAnchor(q.path))).toHaveCount(0);

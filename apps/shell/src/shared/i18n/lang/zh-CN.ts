@@ -262,7 +262,6 @@ export const zhCN: Translations = {
     title: "事件追溯",
     controls: {
       ariaLabel: "筛选控制条",
-      session: "会话",
       range: "时间范围",
       types: "事件类型",
       typesGroup: "事件类型多选",
@@ -270,6 +269,12 @@ export const zhCN: Translations = {
       range1h: "最近 1 小时",
       range15m: "最近 15 分钟",
       range5m: "最近 5 分钟",
+    },
+    sidebar: {
+      ariaLabel: "追溯侧栏",
+      sessions: "会话",
+      sessionsEmpty: "暂无会话",
+      pickSession: "选择会话后列出实例",
     },
     panel: {
       ariaLabel: "实例面板",

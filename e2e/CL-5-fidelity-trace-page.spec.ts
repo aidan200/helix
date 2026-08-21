@@ -6,9 +6,11 @@
  * 「必须还原」清单 8 项（注意：与本仓既有 CL-5-prototype-fidelity.spec.ts 的
  * R-P1~R-P4 编号不同源——那是前迭代 mq5a 的工作台四页清单；本文件
  * R-P1-1~R-P1-8 专指本迭代 review.md §四 必须还原 8 条目的序）：
- *   R-P1-1 布局：IconRail 壳 + 控制条 + 双栏主体（面板 264px 固定左栏）
+ *   R-P1-1 布局：IconRail 壳 + AppLayout（header 页名 + sidebar 上下
+ *        分区：上=会话列表 / 下=实例列表，各自内滚）+ 控制条两件
  *        + 应用式固定壳（页面不出窗口，仅结果框内滚——用户裁决取代原型
- *        sticky/页级滚动：客户端形态 header/菜单栏不可滑出窗口）
+ *        sticky/页级滚动：客户端形态 header/菜单栏不可滑出窗口；S3b 迁
+ *        AppLayout，session 下拉退役，实例面板迁 sidebar 下分区）
  *   R-P1-2 F5.1 实例面板（徽标/模型/状态/起止时长/计数 + 全部实例混排入口）
  *   R-P1-3 F5.2 执行上下文卡（快照折叠/工具 chips/模型/compaction 主有 Sub 无
  *          /spawn task blockquote + 变更轨迹时间线 + 快照缺失降级 + 纯快照）
@@ -84,7 +86,7 @@ async function openTrace(mock: MockController, page: Page): Promise<void> {
     ]),
   );
   await page.locator('.rail-btn[data-page="trace"]').click();
-  await expect(page.locator(".p1-page")).toBeVisible();
+  await expect(page.locator('[data-trace-page="/trace"]')).toBeVisible();
   // 自动查询（fake 延迟 120ms 应答）→ success：首页 50 行 + footer 计数
   await expect(page.locator(".p1-tbody .p1-entry")).toHaveCount(50, { timeout: 10_000 });
 }
@@ -121,29 +123,39 @@ test.describe("T2.3 CL-5 fidelity：结构还原（R-P1-1~4）", () => {
     const checks: FidelityCheck[] = [
       {
         id: "R-P1-1",
-        title: "布局：IconRail 壳 + 控制条四件 + 双栏主体（面板 264px 固定左栏 + 结果框内滚）",
+        title: "布局：IconRail 壳 + AppLayout（header 页名 + sidebar 上下分区，各自内滚）+ 控制条两件 + 结果框内滚",
         run: async () => {
           await expect(page.locator("nav.icon-rail")).toBeVisible();
-          await expect(page.locator(".p1-title")).toHaveText("事件追溯");
-          // 控制条：会话选择器 / 时间范围 / 类型 chips 组均可交互
-          await expect(page.locator("#p1-sel-session")).toBeEnabled();
+          await expect(page.locator(".app-header .p1-title")).toHaveText("事件追溯");
+          // 控制条（S3b 瘦身）：session 下拉退役（会话选择迁 sidebar）；
+          // 时间范围 + 类型 chips 可交互
+          await expect(page.locator("#p1-sel-session")).toHaveCount(0);
           await expect(page.locator("#p1-sel-range")).toBeEnabled();
           const chips = page.locator(".type-chips .tchip");
           await expect(chips).toHaveCount(8);
           await expect(chips.first()).toBeEnabled();
-          // 第四件 = 实例选择面（实例面板 全部实例/实例项均可点）
+          // sidebar（S3b 上下分区）：264px（chat 侧栏同语言）；上 = 会话列表
+          // （清单注入 + 当前会话激活态），下 = 实例分区（全部实例/实例项可点）
+          expect(await computed(page, ".tsb", "width")).toBe("264px");
+          await expect(page.locator(".tsb-list .tsb-ses")).toHaveCount(2);
+          await expect(page.locator(".tsb-list .tsb-ses.on")).toHaveCount(1);
           await expect(page.locator(".ip-item.ip-all")).toBeEnabled();
-          // 双栏主体：264px 左栏；应用式固定壳（用户裁决取代原型 sticky：
-          // 页面本体不出窗口，仅结果框 .p1-tbody 内滚，高度随窗口自适应）
-          const cols = await computed(page, ".p1-body", "grid-template-columns");
-          expect(cols.startsWith("264px")).toBe(true);
-          expect(await computed(page, ".p1-page", "overflow-y")).toBe("hidden");
+          // 两分区各自独立内滚（flex + min-height:0）
+          expect(await computed(page, ".tsb-list", "overflow-y")).toBe("auto");
+          expect(await computed(page, ".ip-list", "overflow-y")).toBe("auto");
+          // 应用式固定壳（用户裁决取代原型 sticky：页面本体不出窗口，仅
+          // 结果框 .p1-tbody 内滚，高度随窗口自适应；layout-main 兕底）
+          expect(await computed(page, ".layout-main", "overflow-y")).toBe("auto");
           expect(await computed(page, ".p1-tbody", "overflow-y")).toBe("auto");
+          // 表底滚动后控制条不逃逸（固定壳行为锚）
+          const controlsY = (await page.locator(".p1-controls").boundingBox())!.y;
+          await page.locator(".p1-tbody").evaluate((el) => (el.scrollTop = el.scrollHeight));
+          expect(Math.abs((await page.locator(".p1-controls").boundingBox())!.y - controlsY)).toBeLessThanOrEqual(1);
         },
       },
       {
         id: "R-P1-2",
-        title: "F5.1 实例面板：徽标/模型/状态/起止/计数 + 全部实例混排入口 + 选中切换",
+        title: "F5.1 实例面板（sidebar 下分区）：徽标/模型/状态/起止/计数 + 全部实例混排入口 + 选中切换",
         run: async () => {
           await expect(page.locator(".ip-title")).toHaveText("实例");
           await expect(page.locator(".ip-count")).toHaveText("4 实例");
@@ -342,8 +354,9 @@ test.describe("T2.3 CL-5 fidelity：过滤与分页（R-P1-5/6）", () => {
           // 撤回时间窗 → 回 2 条
           await page.locator("#p1-sel-range").selectOption("all");
           await expect(page.locator(".p1-thead .hit")).toHaveText("命中 2 条");
-          // 会话切换 = 新查询（控制条可交互 + sessionId 下推；fake 双会话同构场景）
-          await page.locator("#p1-sel-session").selectOption(SID_B);
+          // 会话切换 = 新查询（S3b：sidebar 上分区点击，session 域全量重置；
+          // fake 双会话同构场景）
+          await page.locator(".tsb-ses", { hasText: "第二会话" }).click();
           await expect(page.locator(".p1-thead .hit")).toHaveText("命中 78 条");
           payload = await lastTraceQuery(mock);
           expect(payload.sessionId).toBe(SID_B);
