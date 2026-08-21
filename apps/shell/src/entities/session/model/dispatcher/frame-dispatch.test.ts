@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { EventEnvelope, SessionMeta } from "@helix/protocol";
 import { dispatchFrame } from "./frame";
+import { route } from "./index";
 import { createInitialTopologyState, type TopologyState } from "../state";
 import { sessionReducer } from "../session-reducer";
 import { topologyReducer } from "../topology";
@@ -103,12 +104,19 @@ describe("dispatcher 帧路由（v0.2 信封 sessionId）", () => {
     expect(next).toBe(topo);
   });
 
-  it("agent.config.changed（v0.6 系统级广播）→ 拓扑级占位消费：拓扑原引用（T4 接真消费）", () => {
+  it("agent.config 族三 type（v0.6 系统级）→ 拓扑级前置路由：changed 接真消费（revision 递增），两结果帧直通不写活跃 store（M6 T4）", () => {
     const topo = connectedTopology();
     const activeBefore = topo.active;
+    // ① changed 广播 → agentConfig.revision +1（智能体页失效重拉信号）
     const next = dispatchFrame(topo, frame("agent.config.changed", { profileKind: "main-session", resourceType: "tool", name: "grep", enabled: false }, { sessionId: SYSTEM_SESSION_ID, channel: "agent" }), 0);
-    expect(next).toBe(topo); // M6 T3 占位 no-op：帧到达不炸不写
+    expect(next).not.toBe(topo);
+    expect(next.agentConfig.revision).toBe(topo.agentConfig.revision + 1);
     expect(next.active).toBe(activeBefore); // 活跃会话 store 不被配置广播误写
+    // ② 两点对点结果帧 → 拓扑原引用（真消费归页面查询链，registry no-op 已注销）
+    expect(dispatchFrame(topo, frame("agent.config.list.result", { profiles: [] }, { sessionId: SYSTEM_SESSION_ID, channel: "agent" }), 0)).toBe(topo);
+    expect(dispatchFrame(topo, frame("agent.config.set_enabled.result", { status: "applied" }, { sessionId: SYSTEM_SESSION_ID, channel: "agent" }), 0)).toBe(topo);
+    // ③ 结果帧不前置路由时会落入 route() → undefined → 原样返回（多会话隔离不受影响）
+    expect(route("agent.config.list.result")).toBeUndefined();
   });
 
   it("session.list.result → 会话清单数据面 + 后台轻量 store 播种（活跃会话不播种）", () => {

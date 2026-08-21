@@ -7,9 +7,9 @@
  * - TP-CL4-3 IconRail 形态与序（64px glass 竖条 + 六钮序 + lucide 同名图标）；
  * - TP-CL4-4 激活态三件套静态特征 + 恰一激活 + hover 提亮 + 点击迁移
  *   （reduced-motion 关停 BorderBeam；不做帧级动画断言）；
- * - TP-CL4-5/6 施工牌 ×3 同构 + 无路线暗示文案 + 与断连态三重区分
- *   （trace 已换真 TracePage——契约依据 f413587，真页还原归
- *   CL-5-fidelity-trace-page 套件背书）；
+ * - TP-CL4-5/6 施工牌 ×2 同构 + 无路线暗示文案 + 与断连态三重区分
+ *   （trace 已换真 TracePage——契约依据 f413587；skills 已换真智能体页
+ *   ——M6 T4；真页还原归 CL-5-fidelity-trace-page / CL-skills 套件背书）；
  * - TP-CL4-7 双主题（DARK/LIGHT 渲染正常）。
  * TP-CL4-8 页面域/会话域分离守护落 arch-guard（apps/shell/src/tests/ag-scans.test.ts）。
  */
@@ -26,18 +26,19 @@ const PAGES = [
   { id: "settings", path: "/settings", icon: "settings" },
 ] as const;
 
-/** 三占位页（施工牌；trace 已换真 TracePage——契约依据 f413587）。 */
-const PLACEHOLDERS = PAGES.slice(2).filter((p) => p.id !== "trace");
+/** 占位页（施工牌；trace 已换真 TracePage——f413587；skills 已换真智能体页——M6 T4）。 */
+const PLACEHOLDERS = PAGES.slice(2).filter((p) => p.id !== "trace" && p.id !== "skills");
 
 /** fake transport 标准入口（URL 形态默认剧本，spec 手动驱动）。 */
 const FAKE = "?fakeTransport=1";
 
 /** 路由位 → 页面可见锚（chat = 既有工作台；models = 迁移后 P-4；trace =
- *  真 TracePage（契约依据 f413587）；其余占位 = 施工牌）。 */
+ *  真 TracePage（f413587）；skills = 真智能体页（M6 T4）；其余占位 = 施工牌）。 */
 function pageAnchor(path: string): string {
   if (path === "/") return ".workbench";
   if (path === "/models") return "[data-p4-page]";
   if (path === "/trace") return `[data-trace-page="${path}"]`;
+  if (path === "/skills") return `[data-agents-page="${path}"]`;
   return `[data-construction="${path}"]`;
 }
 
@@ -170,10 +171,10 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
     await mock.emit(streamDelta("m-nav-1", "流式上半段。"));
     await expect(page.locator(".msg.assistant")).toHaveCount(1);
 
-    // 流式中切到 skills：工作台隐藏但常驻 DOM，施工牌出现
+    // 流式中切到 skills（真智能体页）：工作台隐藏但常驻 DOM，真页出现
     await page.locator('.rail-btn[data-page="skills"]').click();
     await expect(page).toHaveURL(/\/skills$/);
-    await expect(page.locator('[data-construction="/skills"]')).toBeVisible();
+    await expect(page.locator('[data-agents-page="/skills"]')).toBeVisible();
     await expect(page.locator('[data-route="off"] .workbench')).toBeAttached();
 
     // 切走期间流式不中断（隐藏 DOM 持续更新）
@@ -190,12 +191,12 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
     await expect(page.locator(".msg.assistant").first()).toContainText(
       "流式上半段。切页期间追加的下半段。",
     );
-    // 占位页条件渲染：离开卸载
-    await expect(page.locator('[data-construction="/skills"]')).toHaveCount(0);
+    // 真页条件渲染：离开卸载（智能体页同施工牌语义）
+    await expect(page.locator('[data-agents-page="/skills"]')).toHaveCount(0);
     expect(await helloCount()).toBe(helloBefore);
   });
 
-  test("TP-CL4-5/6 施工牌 ×3 同构 + 预告无时间承诺词 + 与断连态三重区分", async ({ mock, page }) => {
+  test("TP-CL4-5/6 施工牌 ×2 同构 + 预告无时间承诺词 + 与断连态三重区分", async ({ mock, page }) => {
     await mock.awaitReady();
     // 路线暗示黑名单（Q-4c：不做时间承诺）
     const BLACKLIST = /即将|下版本|下一版|敬请期待|Q[1-4]|coming\s*soon|roadmap/i;

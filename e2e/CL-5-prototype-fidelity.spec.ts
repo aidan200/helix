@@ -375,9 +375,10 @@ test.describe("G11 P-4 导航壳还原清单", () => {
     { id: "project", path: "/project" },
     { id: "settings", path: "/settings" },
   ] as const;
-  // 施工牌 ×3（trace 已换真 TracePage——契约依据 f413587；真页还原清单
-  // 归 CL-5-fidelity-trace-page 套件背书，此处只断真页锚在场 + 施工牌遇位）
-  const PLACEHOLDERS = PAGES.slice(2).filter((p) => p.id !== "trace");
+  // 施工牌 ×2（trace 已换真 TracePage——f413587；skills 已换真智能体页
+  //——M6 T4；真页还原清单归 CL-5-fidelity-trace-page / CL-skills 套件背书，
+  // 此处只断真页锚在场 + 施工牌遇位）
+  const PLACEHOLDERS = PAGES.slice(2).filter((p) => p.id !== "trace" && p.id !== "skills");
 
   test("R-P4-1/4 实跑", async ({ mock, page }) => {
     await mock.connect();
@@ -398,7 +399,7 @@ test.describe("G11 P-4 导航壳还原清单", () => {
       },
       {
         id: "R-P4-4",
-        title: "施工牌 ×3 同构：虚线围挡 + 图标格 + 页名 + 路由行 + 预告 + 「规划中」徽标 + 无操作入口（trace 已换真页）",
+        title: "施工牌 ×2 同构：虚线围挡 + 图标格 + 页名 + 路由行 + 预告 + 「规划中」徽标 + 无操作入口（trace/skills 已换真页）",
         run: async () => {
           const signatures: string[] = [];
           for (const p of PLACEHOLDERS) {
@@ -422,10 +423,14 @@ test.describe("G11 P-4 导航壳还原清单", () => {
             );
           }
           expect(new Set(signatures).size).toBe(1);
-          // trace = 真 TracePage（契约依据 f413587）：真页锚在场 + 施工牌遇位
+          // trace = 真 TracePage（f413587）/ skills = 真智能体页（M6 T4）：
+          // 真页锚在场 + 施工牌遇位
           await page.goto("/trace?fakeTransport=1");
           await expect(page.locator('[data-trace-page="/trace"]')).toBeVisible();
           await expect(page.locator('[data-construction="/trace"]')).toHaveCount(0);
+          await page.goto("/skills?fakeTransport=1");
+          await expect(page.locator('[data-agents-page="/skills"]')).toBeVisible();
+          await expect(page.locator('[data-construction="/skills"]')).toHaveCount(0);
         },
       },
     ];

@@ -81,11 +81,15 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     for (const type of MODEL_CONFIG_EVENT_TYPES) {
       expect(route(type), `配置族不应注册会话 store 面：${type}`).toBeUndefined();
     }
-    // v0.6 agent.config 族（M6 T3）：changed 拓扑级前置路由（dispatcher/frame.ts
-    // 参照 model 族）；两结果帧 registry no-op 占位（trace.query.result 先例，
-    // T4 智能体页接真消费）
+    // v0.6 agent.config 族（M6 T4 真消费收口）：三 type 全走拓扑级前置路由
+    // （dispatcher/frame.ts 参照 model 族）——changed 接真消费（agentConfig
+    // 失效重拉信号），两结果帧拓扑级直通（真消费归页面查询链，trace.query.result
+    // 先例；T3 registry no-op 占位已注销，T3 遗留②）
+    for (const type of AGENT_CONFIG_EVENT_TYPES) {
+      expect(route(type), `agent.config 族不应注册会话 store 面：${type}`).toBeUndefined();
+    }
     expect(route("agent.config.changed")).toBeUndefined();
-    expect(route("agent.config.list.result")).toBeDefined();
-    expect(route("agent.config.set_enabled.result")).toBeDefined();
+    expect(route("agent.config.list.result")).toBeUndefined();
+    expect(route("agent.config.set_enabled.result")).toBeUndefined();
   });
 });

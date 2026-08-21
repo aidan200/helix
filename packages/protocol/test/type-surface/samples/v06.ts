@@ -75,8 +75,8 @@ export const agentConfigListResult: AgentConfigListResultEvent = {
       {
         profileKind: "main-session",
         tools: [
-          { name: "bash", enabled: true },
-          { name: "grep", enabled: false },
+          { name: "bash", enabled: true, snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
+          { name: "grep", enabled: false, snippet: "跨文件正则检索并列出匹配行" },
         ],
         skills: [
           {
@@ -99,7 +99,7 @@ export const agentConfigListResult: AgentConfigListResultEvent = {
       },
       {
         profileKind: "subagent-worker",
-        tools: [{ name: "bash", enabled: true }],
+        tools: [{ name: "bash", enabled: true, snippet: "在沙箱工作目录执行 shell 命令并返回输出" }],
         skills: [],
         diagnostics: [],
         model: null, // 槽位未设 = null（非 undefined——JSON 序列化面）

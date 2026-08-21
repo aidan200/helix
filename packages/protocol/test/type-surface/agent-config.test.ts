@@ -71,7 +71,7 @@ describe("agent.config 命令族 payload（v0.6）", () => {
 });
 
 describe("agent.config 事件族 payload（v0.6）", () => {
-  test("list.result：profiles 块形状（tools/skills/diagnostics/model null 形态）", () => {
+  test("list.result：profiles 块形状（tools/skills/diagnostics/model null 形态；tools 行含 snippet）", () => {
     expect(agentConfigListResult.channel).toBe("agent");
     expect(agentConfigListResult.sessionId).toBe(SYSTEM_SESSION_ID);
     const [main, sub] = agentConfigListResult.payload.profiles;
@@ -82,6 +82,9 @@ describe("agent.config 事件族 payload（v0.6）", () => {
     // 槽位未设 = null（JSON 面：undefined 经序列化会丢字段，契约钉死 null）
     expect(sub!.model).toBeNull();
     expect(sub!.tools[0]!.enabled).toBe(true);
+    // v0.6 批内补登（M6 T4）：tools 行 snippet 一句话说明（daemon 注册表同源）
+    expect(typeof main!.tools[0]!.snippet).toBe("string");
+    expect(main!.tools[0]!.snippet.length).toBeGreaterThan(0);
   });
 
   test("changed：tools/skills 同构 + model clear 的 name=null 形态", () => {
