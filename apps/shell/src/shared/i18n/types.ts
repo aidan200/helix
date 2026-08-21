@@ -163,10 +163,6 @@ export interface ChatTranslations {
       title: string;
     };
   };
-  theme: {
-    dark: string;
-    light: string;
-  };
   /** P-2 会话列表（widgets/session-sidebar；CL-1 F(1.2)/F(2.1).2；T3.2） */
   sidebar: {
     /** 「新建会话」按钮（新建草稿，本地态零 daemon 帧） */
@@ -205,8 +201,6 @@ export interface ChatTranslations {
     draftTitle: string;
     /** 模型徽标（P-3 入口位；点击行为 T3.3） */
     modelTitle: string;
-    /** 设置齿轮（P-4 路由入口） */
-    settingsTitle: string;
   };
   /** P-1s 切换两阶段 + 分页（F(1.2).3；T3.2） */
   paging: {
@@ -242,6 +236,8 @@ export interface ChatTranslations {
     railLabel: string;
     /** 施工牌「规划中」徽标（hud-badge-cyan） */
     plannedBadge: string;
+    /** 主题切换单钮（S1：IconRail 底部，Sun/Moon 显示切换目标） */
+    themeToggle: string;
     pages: {
       chat: { label: string };
       models: { label: string };
@@ -259,7 +255,6 @@ export interface ChatTranslations {
     emptySub: string;
     resetToDefault: string;
     effectiveHint: string;
-    configEntry: string;
     defaultBadge: string;
     /** 零可用（无任何 configured provider 且当前模型不在目录）空态引导（T5.3） */
     noProviderTitle: string;

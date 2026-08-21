@@ -1,6 +1,7 @@
 /**
  * i18n zh-CN 词条完备性测试（AG-16-②）：覆盖 prototype/review.md「P-1 文案
- * key 清单」全集（40+ key，含 theme.dark/light 双键与 tsFormat）；en-US
+ * key 清单」全集（40+ key，含 tsFormat；S1 应用壳统一：theme.dark/light 双键退役，
+ * 主题切换单钮迁 IconRail 走 chat.nav.themeToggle）；en-US
  * 结构随迁（键集合一致，内容不在本迭代范围）。
  */
 import { describe, expect, it } from "vitest";
@@ -54,8 +55,6 @@ const REQUIRED_KEYS = [
   "chat.tool.args",
   "chat.tool.result",
   "chat.tool.resultFailed",
-  "chat.theme.dark",
-  "chat.theme.light",
   "chat.tsFormat",
   "chat.sa.card.queued",
   "chat.sa.card.waiting",
@@ -137,7 +136,6 @@ const REQUIRED_KEYS = [
   "chat.sidebar.timeDays",
   "chat.topbar.draftTitle",
   "chat.topbar.modelTitle",
-  "chat.topbar.settingsTitle",
   "chat.paging.status",
   "chat.paging.placeholder",
   "chat.paging.loadEarlier",
@@ -154,6 +152,7 @@ const REQUIRED_KEYS = [
   // T3.4（CL-4 IconRail 导航壳 + 四占位页施工牌；review.md §6 R-P4-1/4）
   "chat.nav.railLabel",
   "chat.nav.plannedBadge",
+  "chat.nav.themeToggle",
   "chat.nav.pages.chat.label",
   "chat.nav.pages.models.label",
   "chat.nav.pages.skills.label",

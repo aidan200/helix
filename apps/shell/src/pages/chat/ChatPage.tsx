@@ -1,10 +1,10 @@
 /**
- * 聊天页（pages/chat 组装件）：P-1 工作台骨架（header 全宽置顶 + 侧栏/
- * 主区/抽屉竖条同处 header 之下，F(2.1).1；T5.2 布局重组——header 由
- * Workbench 顶层渲染）内无损迁入既有聊天/抽屉装配。主区 .app =
- * conn-banner → 消息流（含连接覆盖层/失败卡/恢复骨架）→ composer；
- * data-conn / data-session / data-view / data-drawer 驱动全部状态表象
- * （四态互斥 CSS 门控）；恢复 toast 由 restoreToast 投影触发。
+ * 聊天页（pages/chat 组装件）：P-1 工作台骨架（S1 迁移 AppLayout 统一
+ * 壳：header 全宽置顶 + 侧栏/主区/抽屉竖条同处 header 之下）内无损迁入
+ * 既有聊天/抽屉装配。主区 .app = conn-banner → 消息流（含连接覆盖层/
+ * 失败卡/恢复骨架）→ composer；data-conn / data-session / data-view /
+ * data-drawer 驱动全部状态表象（四态互斥 CSS 门控）；恢复 toast 由
+ * restoreToast 投影触发。scanline 氛围层上提 App.tsx 全局单份（S1）。
  */
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "@/shared/i18n";
@@ -19,12 +19,7 @@ import ConnBanner from "./ui/ConnBanner";
 import ConnOverlay from "./ui/ConnOverlay";
 import Workbench from "./ui/P-1-workbench";
 
-export interface ChatPageProps {
-  /** P-4 路由入口（F(2.1).4 齿轮；app 路由层注入；缺省 no-op 供单测装配） */
-  onOpenSettings?: () => void;
-}
-
-const ChatPage = function ChatPage({ onOpenSettings }: ChatPageProps = {}) {
+const ChatPage = function ChatPage() {
   const { t } = useI18n();
   const toast = useToast();
   const { state, consumeRestoreToast, consumeSpawnToast, consumeKillToast } = useSession();
@@ -70,10 +65,7 @@ const ChatPage = function ChatPage({ onOpenSettings }: ChatPageProps = {}) {
 
   return (
     <>
-      {/* 产品氛围层（原型 P-1 L545：body 首子元素、.app 之前；元素本身
-          fixed + pointer-events:none，DOM 序序对齐原型便于对照） */}
-      <div className="scanline-overlay" aria-hidden="true" />
-      <Workbench onOpenInstance={openInstance} onOpenSettings={onOpenSettings}>
+      <Workbench onOpenInstance={openInstance}>
         <div
           className="app"
           data-conn={state.conn}

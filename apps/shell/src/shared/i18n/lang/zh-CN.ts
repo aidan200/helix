@@ -150,10 +150,6 @@ export const zhCN: Translations = {
         title: "任务收敛",
       },
     },
-    theme: {
-      dark: "DARK",
-      light: "LIGHT",
-    },
     sidebar: {
       newSession: "新建会话",
       sessions: "Sessions",
@@ -179,7 +175,6 @@ export const zhCN: Translations = {
     topbar: {
       draftTitle: "新会话",
       modelTitle: "切换会话模型",
-      settingsTitle: "模型与厂商设置",
     },
     paging: {
       status: "正在恢复会话快照 · 尾窗 {n} 条 · SubAgent 通道含在内",
@@ -205,6 +200,7 @@ export const zhCN: Translations = {
     nav: {
       railLabel: "主导航",
       plannedBadge: "规划中",
+      themeToggle: "切换明暗主题",
       pages: {
         chat: { label: "聊天 chat" },
         models: { label: "模型 models" },
@@ -220,7 +216,6 @@ export const zhCN: Translations = {
       emptySub: "换个关键词，或到配置页查看 provider 目录",
       resetToDefault: "重置为全局兜底",
       effectiveHint: "切换于下一 turn 生效，进行中的回复不变",
-      configEntry: "配置 provider 与全局兜底模型",
       defaultBadge: "default",
       noProviderTitle: "暂无可用模型",
       noProviderSub: "到配置页为 provider 配置 API key 后即可选用",

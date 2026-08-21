@@ -14,9 +14,9 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
   test("100dvh 应用壳：header 48px 全宽置顶 → 消息流 → composer，页面无滚动", async ({ mock, page }) => {
     await mock.connect();
 
-    // 100dvh：.workbench 高度 = viewport 内高（非滚动页）；T5.2 重组后
-    // header 提升为布局顶层，.app = 视口高 - header 48px
-    const wbH = parseFloat(await computed(page, ".workbench", "height"));
+    // 100dvh：.app-layout（S1 统一壳）高度 = viewport 内高（非滚动页）；
+    // .app = 视口高 - header 48px
+    const wbH = parseFloat(await computed(page, ".app-layout", "height"));
     const innerH = await page.evaluate(() => window.innerHeight);
     expect(wbH).toBe(innerH);
     const appH = parseFloat(await computed(page, ".app", "height"));
@@ -32,8 +32,9 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
     // header 48px
     expect(parseFloat(await computed(page, ".app-header", "height"))).toBe(48);
 
-    // 壳层级（T5.2 重组）：workbench = app-header（全宽）→ wb-body
-    // （sidebar → app）；.app 内 = conn-banner 槽位 → msg-flow → composer
+    // 壳层级（S1 统一壳）：app-layout = app-header（全宽）→ layout-body
+    // （sidebar → layout-main）；main 内 = wb-main（sidebar 定位上下文 +
+    // .app 列）；.app 内 = conn-banner 槽位 → msg-flow → composer
     await expect(page.locator(".app-header")).toBeVisible();
     await expect(page.locator(".msg-flow")).toBeVisible();
     await expect(page.locator(".composer-wrap")).toBeVisible();
@@ -43,26 +44,31 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
       });
     expect(order).toEqual(["conn-banner", "msg-flow", "composer-wrap"]);
     const shell = await page.evaluate(() => {
-        const wb = document.querySelector(".workbench")!;
-        const body = document.querySelector(".wb-body")!;
+        const root = document.querySelector(".app-layout")!;
+        const body = document.querySelector(".layout-body")!;
+        const main = document.querySelector(".layout-main")!;
         return {
-          wb: Array.from(wb.children).map((c) => c.className.split(" ")[0]),
-          body: Array.from(body.children).map((c) => c.className.split(" ")[0]),
+          root: Array.from(root.children).map((c) => c.className.split(" ")[0]),
+          body: Array.from(body.children).map((c) =>
+            c.tagName.toLowerCase() === "main" ? "layout-main" : c.className.split(" ")[0],
+          ),
+          main: Array.from(main.children).map((c) => c.className.split(" ")[0]),
         };
       });
-    expect(shell.wb).toEqual(["app-header", "wb-body"]);
-    expect(shell.body).toEqual(["sidebar", "app"]);
+    expect(shell.root).toEqual(["app-header", "layout-body"]);
+    expect(shell.body).toEqual(["sidebar", "layout-main"]);
+    expect(shell.main).toEqual(["wb-main"]);
   });
 
-  test("header 内容：渐变 helix 图标品牌位 + session/home chip + 模型徽标 + 连接状态 + 主题切换", async ({ mock, page }) => {
+  test("header 槽内容：session/home chip + 模型徽标 + 连接状态；rail 品牌图标 + 主题单钮（S1）", async ({ mock, page }) => {
     await mock.connect();
-    // T5.2 品牌位：渐变 helix SVG 图标（HELiX·2 文字退役）；渐变口径 =
+    // S1：品牌位迁 IconRail（rail-logo = HelixLogo 渐变图标）；渐变口径 =
     // accent→violet token（stopColor var() 引用，随主题切换自动适配）
-    const logo = page.locator(".brand [data-brand-logo]");
+    const logo = page.locator(".rail-logo [data-brand-logo]");
     await expect(logo).toBeVisible();
     const stopColors = () =>
       page.evaluate(() =>
-        Array.from(document.querySelectorAll(".brand [data-brand-logo] stop")).map(
+        Array.from(document.querySelectorAll(".rail-logo [data-brand-logo] stop")).map(
           (s) => getComputedStyle(s).stopColor,
         ),
       );
@@ -75,16 +81,16 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
     await expect(chips.nth(1)).toHaveText("~/.helix");
     // 模型徽标（welcome DTO 下发的 model 值）
     await expect(page.locator(".app-header .hud-badge")).toHaveText("claude-sonnet-4-5");
-    // 连接状态 + 主题切换存在
+    // 连接状态 + 主题单钮（S1：IconRail，Sun = 当前 dark 的切换目标）
     await expect(page.locator(".conn-status")).toBeVisible();
-    await expect(page.locator(".theme-toggle #btn-dark")).toBeVisible();
-    await expect(page.locator(".theme-toggle #btn-light")).toBeVisible();
+    await expect(page.locator("#btn-theme-toggle")).toBeVisible();
+    await expect(page.locator("#btn-theme-toggle .lucide-sun")).toBeVisible();
     // 亮主题：图标渐变随 token 亮列自动适配（accent/violet 亮值）
-    await page.locator("#btn-light").click();
+    await page.locator("#btn-theme-toggle").click();
     await expect(page.locator("html")).toHaveClass("light");
     expect(await stopColors()).toEqual(["rgb(37, 99, 235)", "rgb(147, 51, 234)"]);
     await shotEvidence(page, "header-brand-light");
-    await page.locator("#btn-dark").click();
+    await page.locator("#btn-theme-toggle").click();
   });
 
   test("消息流版心 860px 且居中于主区（P-1 三区骨架：侧栏占左 264px，T3.2）；composer 输入条与发送按钮在位", async ({ mock, page }) => {
@@ -118,28 +124,27 @@ test.describe("TC2.1 R-02 双主题（token 注册表 / localStorage / 亮色降
 
   test("切换亮色：html.light 类 + localStorage(helix-theme) + 亮列变量", async ({ mock, page }) => {
     await mock.connect();
-    await page.locator("#btn-light").click();
+    await page.locator("#btn-theme-toggle").click();
     await expect(page.locator("html")).toHaveClass("light");
     expect(await page.evaluate(() => localStorage.getItem("helix-theme"))).toBe("light");
     expect(await cssVar(page, "--void")).toBe("#F8FAFC");
     expect(await cssVar(page, "--accent-rgb")).toBe("37 99 235");
     expect(await cssVar(page, "--violet-rgb")).toBe("147 51 234");
-    // 按钮选中态切换（DARK 失选 / LIGHT 选中）
-    await expect(page.locator("#btn-light")).toHaveClass(/on/);
-    await expect(page.locator("#btn-dark")).not.toHaveClass(/on/);
+    // S1 单钮图标互切：light 态显示 Moon（切回 dark 的目标）
+    await expect(page.locator("#btn-theme-toggle .lucide-moon")).toBeVisible();
     await shotEvidence(page, "fidelity-layout-theme-light");
   });
 
   test("主题持久化：亮色 reload 后首帧仍是亮色（无闪回）", async ({ mock, page }) => {
     await mock.connect();
-    await page.locator("#btn-light").click();
+    await page.locator("#btn-theme-toggle").click();
     await expect(page.locator("html")).toHaveClass("light");
     await page.reload();
     // 首帧前 applyThemeInitial：无需等待应用建连
     await expect(page.locator("html")).toHaveClass("light");
     expect(await page.evaluate(() => localStorage.getItem("helix-theme"))).toBe("light");
     // 切回 DARK：localStorage 跟随
-    await page.locator("#btn-dark").click();
+    await page.locator("#btn-theme-toggle").click();
     expect(await page.evaluate(() => localStorage.getItem("helix-theme"))).toBe("dark");
     await expect(page.locator("html")).not.toHaveClass("light");
   });
@@ -170,7 +175,7 @@ test.describe("TC2.1 R-02 双主题（token 注册表 / localStorage / 亮色降
     expect(dark.glowCyan).toContain("0.25)");
     expect(dark.glowCyan).toContain("0.18)");
 
-    await page.locator("#btn-light").click();
+    await page.locator("#btn-theme-toggle").click();
     await expect(page.locator("html")).toHaveClass("light");
     const light = await collect();
     // 亮色降档（tokens.md 07 节）：网格 0.045 / blur 4px / glow 0.2/0.1
@@ -186,7 +191,7 @@ test.describe("TC2.1 R-02 双主题（token 注册表 / localStorage / 亮色降
     expect(light.scanlines).toEqual(["none"]);
 
     // reduced-motion：扫描线动画关闭（全局兜底 app.css；基线无动画时同成立）
-    await page.locator("#btn-dark").click();
+    await page.locator("#btn-theme-toggle").click();
     await page.emulateMedia({ reducedMotion: "reduce" });
     try {
       const rmAnimation = await computed(page, ".scanline-overlay", "animation-name");

@@ -121,7 +121,7 @@ async function visibleRowTypes(page: Page): Promise<string[]> {
 
 /** P-4 录 anthropic key（T5.3 菜单可用性口径前置；CL-3 先例逐步对齐）。 */
 async function provisionAnthropicKey(page: Page): Promise<void> {
-  await page.locator("#btn-settings").click();
+  await page.locator('.rail-btn[data-page="models"]').click();
   await expect(page.locator("[data-p4-page]")).toBeVisible();
   const prov = page.locator('[data-prov="anthropic"]');
   await prov.locator("[data-prov-toggle]").click();

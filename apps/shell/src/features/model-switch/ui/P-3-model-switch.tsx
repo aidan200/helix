@@ -22,7 +22,7 @@
  * 互斥（搜索词为空才可能出现零可用）。
  */
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronRight, RotateCcw, Search } from "lucide-react";
+import { Check, RotateCcw, Search } from "lucide-react";
 import type { CatalogModel } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
@@ -38,11 +38,9 @@ function fmtContext(tokens: number): string {
 
 export interface ModelSwitchMenuProps {
   onClose: () => void;
-  /** P-3 → P-4 流转入口（顶栏注入 navigate(ROUTE_MODELS)；T3.4 迁移后路由位） */
-  onOpenSettings: () => void;
 }
 
-const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: ModelSwitchMenuProps) {
+const ModelSwitchMenu = function ModelSwitchMenu({ onClose }: ModelSwitchMenuProps) {
   const { t } = useI18n();
   const toast = useToast();
   const { state, topology, setSessionModel, requestModelConfig, requestAuthList } = useSession();
@@ -190,22 +188,6 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose, onOpenSettings }: Mo
         )}
         {/* F(3.3).2 生效语义提示（in-flight 不变——用户需知） */}
         <span className="mm-hint">{t("chat.modelSwitch.effectiveHint")}</span>
-      </div>
-      {/* P-3 → P-4 流转入口 */}
-      <div className="mm-more">
-        <button
-          type="button"
-          data-mm-more
-          onClick={() => {
-            onClose();
-            onOpenSettings();
-          }}
-        >
-          {t("chat.modelSwitch.configEntry")}
-          <span className="ar">
-            <ChevronRight size={14} strokeWidth={1.75} aria-hidden="true" />
-          </span>
-        </button>
       </div>
     </div>
   );

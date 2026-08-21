@@ -386,15 +386,17 @@ test.describe("G11 P-4 导航壳还原清单", () => {
     const checks: FidelityCheck[] = [
       {
         id: "R-P4-1",
-        title: "布局：IconRail 64px 常驻 + HX logo + 六图标钮（序）+ 底部头像块",
+        title: "布局：IconRail 64px 常驻 + HelixLogo（S1）+ 六图标钮（序）+ 主题单钮 + 底部头像块",
         run: async () => {
           const rail = page.locator("nav.icon-rail");
           await expect(rail).toBeVisible();
           expect(await computed(page, "nav.icon-rail", "width")).toBe("64px");
-          await expect(rail.locator(".rail-logo")).toContainText("HX");
+          // S1：logo = HelixLogo 渐变图标（HX 文字退役）
+          await expect(rail.locator(".rail-logo [data-brand-logo]")).toBeAttached();
           await expect(rail.locator(".rail-avatar")).toBeAttached();
-          const order = await rail.locator(".rail-btn").evaluateAll((els) => els.map((el) => el.getAttribute("data-page")));
+          const order = await rail.locator(".rail-nav .rail-btn").evaluateAll((els) => els.map((el) => el.getAttribute("data-page")));
           expect(order).toEqual(PAGES.map((p) => p.id));
+          await expect(rail.locator("#btn-theme-toggle")).toBeAttached();
         },
       },
       {

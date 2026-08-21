@@ -74,7 +74,7 @@ test.describe("T4.2 CL-3 模型真链路（真 daemon）", () => {
 
     // ── ① auth.json 写入面（auth.set_key → AuthStore；T5.3 起前置——
     //    菜单仅显示 configured provider 的可用模型）────────────────
-    await page.locator("#btn-settings").click();
+    await page.locator('.rail-btn[data-page="models"]').click();
     await expect(page.locator("[data-p4-page]")).toBeVisible();
     const provAnthropic = page.locator('[data-prov="anthropic"]');
     await provAnthropic.locator("[data-prov-toggle]").click();
@@ -143,9 +143,10 @@ test.describe("T4.2 CL-3 模型真链路（真 daemon）", () => {
     );
 
     // ── ⑤ P-4 全局默认链：set_default → 结果帧回显 ────────────
-    await badge.click();
-    await expect(menu).toBeVisible();
-    await menu.locator("[data-mm-more]").click(); // P-3 → P-4 流转
+    // S1：菜单内 P-3 → P-4 流转入口（mm-more）随 onOpenSettings 链退役，改走 rail 导航
+    await page.locator("#msg-input").click(); // 点输入条关菜单（点外关闭）
+    await expect(menu).toBeHidden();
+    await page.locator('.rail-btn[data-page="models"]').click();
     await expect(page.locator("[data-p4-page]")).toBeVisible();
     const sel = page.locator("#sel-default");
     await expect(sel).toHaveValue(DEFAULT_INIT, { timeout: 15_000 }); // get_default 读面

@@ -36,13 +36,13 @@ test.describe("T3.2 CL-2 路由（工作台 ↔ P-4）", () => {
     const helloCountBefore = (await mock.clientFrames()).filter((f) => f.type === "hello").length;
 
     // ── 齿轮 → P-4：独立 URL + 返回壳；工作台隐藏但常驻 DOM ──
-    await page.locator("#btn-settings").click();
+    await page.locator('.rail-btn[data-page="models"]').click();
     await expect(page).toHaveURL(/\/models$/);
     await expect(page.locator("[data-p4-page]")).toBeVisible();
     await expect(page.locator("#btn-p4-back")).toBeVisible();
     // 工作台常驻 DOM（display 切换，非卸载）
-    await expect(page.locator(".workbench")).toBeAttached();
-    await expect(page.locator('[data-route="off"] .workbench')).toBeAttached();
+    await expect(page.locator(".app-layout")).toBeAttached();
+    await expect(page.locator('[data-route="off"] .app-layout')).toBeAttached();
     // WS 不重建（无新 hello）
     const helloCountDuring = (await mock.clientFrames()).filter((f) => f.type === "hello").length;
     expect(helloCountDuring).toBe(helloCountBefore);
@@ -50,7 +50,7 @@ test.describe("T3.2 CL-2 路由（工作台 ↔ P-4）", () => {
     // ── 返回工作台：URL 回根 + 状态保留（输入/滚动位/活跃会话；同一 WS）──
     await page.locator("#btn-p4-back").click();
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.locator(".workbench")).toBeVisible();
+    await expect(page.locator(".app-layout")).toBeVisible();
     await expect(page.locator("[data-p4-page]")).toHaveCount(0);
     await expect(page.locator("#msg-input")).toHaveValue("路由往返后必须保留的输入草稿");
     const scrollTopAfter = await page.locator(".msg-flow").evaluate((el) => el.scrollTop);
@@ -62,7 +62,7 @@ test.describe("T3.2 CL-2 路由（工作台 ↔ P-4）", () => {
     expect(helloCountAfter).toBe(helloCountBefore);
 
     // ── 独立 URL 直接可达：P-4 路由下刷新仍是 P-4（SPA 回退 + 路由初始化）──
-    await page.locator("#btn-settings").click();
+    await page.locator('.rail-btn[data-page="models"]').click();
     await expect(page).toHaveURL(/\/models$/);
     await page.reload();
     await mock.awaitReady();

@@ -38,7 +38,7 @@ button { font-family: inherit; }
   mix-blend-mode: screen;
 }
 
-/* ═══ 应用布局（conn-banner / 消息流 / composer；header 归 workbench 顶层）═══ */
+/* ═══ 应用布局（conn-banner / 消息流 / composer；header 归 AppLayout）═══ */
 .app {
   position: relative; z-index: 2;
   display: flex; flex-direction: column;
@@ -51,8 +51,6 @@ button { font-family: inherit; }
   backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%);
   border-bottom: 1px solid var(--border);
 }
-/* T5.2：品牌位 = 渐变 helix SVG 图标（HelixLogo；原 HELiX·2 文字退役） */
-.brand { display: flex; align-items: center; flex-shrink: 0; }
 .hud-chip {
   display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;
   padding: 1px 6px; border: 1px solid var(--border); border-radius: 999px;
@@ -160,15 +158,6 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
   0%, 100% { opacity: 0.7; transform: scale(0.92); }
   50% { opacity: 1; transform: scale(1.08); }
 }
-
-/* 主题切换（tokens.md 13 节：暗 = :root 默认，亮 = html.light；localStorage 持久化）*/
-.theme-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.tt-btn {
-  padding: 4px 10px; border: none; background: transparent; cursor: pointer;
-  font-size: var(--text-cap); font-weight: 500; letter-spacing: 0.1em;
-  color: var(--text-dim); transition: background 0.15s, color 0.15s;
-}
-.tt-btn.on { background: rgb(var(--accent-rgb) / 0.12); color: var(--accent); }
 
 /* ── 连接横幅（F(7).4 断线/重连提示，全宽行）── */
 .conn-banner {

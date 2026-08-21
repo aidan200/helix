@@ -55,6 +55,13 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
 
 import ChatPage from "./ChatPage";
 
+/** S1 壳迁移后的 .app 直系子序断言面（conn-banner → msg-flow → composer-wrap，F 层不变）。 */
+function appChildClasses(): string[] {
+  return Array.from(document.querySelector(".app")!.children).map(
+    (c) => c.className.split(" ")[0] ?? "",
+  );
+}
+
 function play(events: SessionAction[]): SessionState {
   return events.reduce(sessionReducer, createInitialSessionState());
 }
@@ -135,5 +142,32 @@ describe("ChatPage 抽屉接线（P-1 → P-2）", () => {
     expect(screen.getByText("实例已终止")).toBeTruthy();
     expect(screen.getByText(/closure 将以 failed 注入主线下轮/)).toBeTruthy();
     expect(consumeKillToast).toHaveBeenCalled();
+  });
+});
+
+describe("S1 应用壳统一（AppLayout 迁移）", () => {
+  it("chat 页使用 AppLayout 壳：header 全宽置顶 + sidebar 槽 + main 唯一滚动容器；.app 直系子序不变", () => {
+    stateRef.current = createInitialSessionState();
+    ui();
+    const layout = document.querySelector(".app-layout")!;
+    expect(Array.from(layout.children).map((c) => c.className)).toEqual([
+      "app-header",
+      "layout-body",
+    ]);
+    const body = layout.querySelector(".layout-body")!;
+    expect(body.querySelector(".sidebar")).not.toBeNull();
+    // .app 落位 main.layout-main；直系子序保持既有断言面
+    const main = body.querySelector("main.layout-main")!;
+    expect(main.querySelector(".app")).not.toBeNull();
+    expect(appChildClasses()).toEqual(["conn-banner", "msg-flow", "composer-wrap"]);
+  });
+
+  it("header 槽清理：无 brand / 无主题分段钮 / 无齿轮；scanline 副本删除（归 App.tsx 单份）", () => {
+    stateRef.current = createInitialSessionState();
+    ui();
+    const header = document.querySelector(".app-header")!;
+    expect(header.querySelector(".brand, [data-brand-logo]")).toBeNull();
+    expect(header.querySelector("#btn-dark, #btn-light, #btn-settings")).toBeNull();
+    expect(document.querySelector(".scanline-overlay")).toBeNull();
   });
 });

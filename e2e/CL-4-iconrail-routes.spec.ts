@@ -35,7 +35,7 @@ const FAKE = "?fakeTransport=1";
 /** 路由位 → 页面可见锚（chat = 既有工作台；models = 迁移后 P-4；trace =
  *  真 TracePage（f413587）；skills = 真智能体页（M6 T4）；其余占位 = 施工牌）。 */
 function pageAnchor(path: string): string {
-  if (path === "/") return ".workbench";
+  if (path === "/") return ".app-layout";
   if (path === "/models") return "[data-p4-page]";
   if (path === "/trace") return `[data-trace-page="${path}"]`;
   if (path === "/skills") return `[data-agents-page="${path}"]`;
@@ -56,8 +56,8 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
         if (q.path === p.path) continue;
         if (q.path === "/") {
           if (p.path !== "/") {
-            await expect(page.locator(".workbench")).toBeAttached(); // 常驻 DOM
-            await expect(page.locator(".workbench")).toBeHidden();
+            await expect(page.locator(".app-layout")).toBeAttached(); // 常驻 DOM
+            await expect(page.locator(".app-layout")).toBeHidden();
           }
         } else {
           await expect(page.locator(pageAnchor(q.path))).toHaveCount(0);
@@ -67,30 +67,31 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
 
     // 旧路径 /settings/models 不保兼容 → 回落工作台（Q-4b：不出现 models/trace 页）
     await page.goto(`/settings/models${FAKE}`);
-    await expect(page.locator(".workbench")).toBeVisible();
+    await expect(page.locator(".app-layout")).toBeVisible();
     await expect(page.locator("[data-p4-page]")).toHaveCount(0);
     await expect(page.locator("[data-trace-page]")).toHaveCount(0);
     await expect(page.locator("[data-construction]")).toHaveCount(0);
 
     // 未知路径回落工作台（F-9 既有语义）
     await page.goto(`/nope${FAKE}`);
-    await expect(page.locator(".workbench")).toBeVisible();
+    await expect(page.locator(".app-layout")).toBeVisible();
     await expect(page.locator("[data-p4-page]")).toHaveCount(0);
     await expect(page.locator("[data-trace-page]")).toHaveCount(0);
     await expect(page.locator("[data-construction]")).toHaveCount(0);
   });
 
-  test("TP-CL4-3 IconRail 形态与序：64px 常驻 + HX logo + 六钮序 + 底部头像块", async ({ mock, page }) => {
+  test("TP-CL4-3 IconRail 形态与序：64px 常驻 + HelixLogo + 六钮序 + 主题单钮 + 底部头像块", async ({ mock, page }) => {
     await mock.connect();
 
     const rail = page.locator("nav.icon-rail");
     await expect(rail).toBeVisible();
     await expect(rail).toHaveCSS("width", "64px");
-    await expect(rail.locator(".rail-logo")).toContainText("HX");
+    // S1：logo = HelixLogo 渐变图标（HX 文字退役）
+    await expect(rail.locator(".rail-logo [data-brand-logo]")).toBeAttached();
     await expect(rail.locator(".rail-avatar")).toBeAttached();
 
-    // 六图标钮：序 = chat/models/skills/trace/project/settings
-    const btns = rail.locator(".rail-btn");
+    // 六图标钮（rail-nav 内）：序 = chat/models/skills/trace/project/settings
+    const btns = rail.locator(".rail-nav .rail-btn");
     await expect(btns).toHaveCount(6);
     const order = await btns.evaluateAll((els) => els.map((el) => el.getAttribute("data-page")));
     expect(order).toEqual(PAGES.map((p) => p.id));
@@ -101,6 +102,11 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
         rail.locator(`.rail-btn[data-page="${p.id}"] svg.lucide-${p.icon}`),
       ).toBeAttached();
     }
+
+    // S1：主题切换单钮（rail-nav 外、avatar 上；dark 态显示 Sun = 切换目标）
+    const themeBtn = rail.locator("#btn-theme-toggle");
+    await expect(themeBtn).toBeAttached();
+    await expect(themeBtn.locator("svg.lucide-sun")).toBeAttached();
 
     // 常驻：切到占位页后 rail 仍挂载可见
     await rail.locator('.rail-btn[data-page="trace"]').click();
@@ -175,7 +181,7 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
     await page.locator('.rail-btn[data-page="skills"]').click();
     await expect(page).toHaveURL(/\/skills$/);
     await expect(page.locator('[data-agents-page="/skills"]')).toBeVisible();
-    await expect(page.locator('[data-route="off"] .workbench')).toBeAttached();
+    await expect(page.locator('[data-route="off"] .app-layout')).toBeAttached();
 
     // 切走期间流式不中断（隐藏 DOM 持续更新）
     await mock.emit(streamDelta("m-nav-1", "切页期间追加的下半段。"));
@@ -187,7 +193,7 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
     // 切回 chat：状态保持（流式内容完整）
     await page.locator('.rail-btn[data-page="chat"]').click();
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.locator(".workbench")).toBeVisible();
+    await expect(page.locator(".app-layout")).toBeVisible();
     await expect(page.locator(".msg.assistant").first()).toContainText(
       "流式上半段。切页期间追加的下半段。",
     );
@@ -240,14 +246,15 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
 
     // 断连态既有形态不回归：chat 页未建连时 conn-overlay 照常（与施工牌两码事）
     await page.goto(`/${FAKE}`);
-    await expect(page.locator(".workbench .conn-overlay")).toBeVisible();
+    await expect(page.locator(".app-layout .conn-overlay")).toBeVisible();
   });
 
   test("TP-CL4-7 双主题：IconRail / 施工牌 DARK·LIGHT 渲染正常", async ({ mock, page }) => {
     await mock.connect();
 
     for (const theme of ["light", "dark"] as const) {
-      await page.locator(theme === "light" ? "#btn-light" : "#btn-dark").click();
+      // S1：主题单钮（toggle；循环序 dark→light→dark 与单击节奏吻合）
+      await page.locator("#btn-theme-toggle").click();
       if (theme === "light") {
         await expect(page.locator("html")).toHaveClass("light");
       } else {
@@ -263,7 +270,7 @@ test.describe("T3.4 CL-4 IconRail 六页签导航框架", () => {
       ).toBeVisible();
 
       await page.locator('.rail-btn[data-page="chat"]').click();
-      await expect(page.locator(".workbench")).toBeVisible();
+      await expect(page.locator(".app-layout")).toBeVisible();
     }
   });
 });

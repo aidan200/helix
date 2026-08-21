@@ -52,7 +52,7 @@ function catalogFrames() {
 
 /** 进入 P-4 并回放三帧（目录 + 默认 + 凭据清单）。 */
 async function openP4(mock: import("./harness/mock-session").MockController, page: import("@playwright/test").Page) {
-  await page.locator("#btn-settings").click();
+  await page.locator('.rail-btn[data-page="models"]').click();
   await expect(page).toHaveURL(/\/models$/);
   await mock.waitForCommand("model.catalog");
   await mock.waitForCommand("model.get_default");

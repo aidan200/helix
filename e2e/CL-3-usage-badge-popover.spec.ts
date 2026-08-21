@@ -135,7 +135,7 @@ test.describe("T4.4 S4 CL-3 usage 徽标与 popover", () => {
     // 点外关闭（popover 与徽标之外）
     await btn.click();
     await expect(page.locator(".stats-pop")).toBeVisible();
-    await page.locator(".brand").click();
+    await page.locator(".msg-flow").click(); // S1：brand 位退役，点主区关闭
     await expect(page.locator(".stats-pop")).toHaveCount(0);
 
     // SubAgent 行尾 → 抽屉（T4.3 接线）；popover 随动作关闭

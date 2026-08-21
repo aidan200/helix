@@ -5,9 +5,10 @@
  * 会话连接在 SessionProvider 挂载时自动启动（连接状态机见 shared/api）；
  * 路由层在 Provider 之内——工作台常驻 DOM（display 切换保状态，F(4.4).2），
  * 路由切换不重建 WS/不丢活跃会话与输入。IconRail 为页面域纯展示组件
- * （不读会话 store，TR-AD-8 页面域/会话域分离）；models 实页自
- * /settings/models 迁移（Q-4b），skills 位已升格为智能体页（M6 T4，路由
- * /skills 不动），trace 实页，project/settings 为施工牌占位页（AD-1）。
+ * （不读会话 store，TR-AD-8 页面域/会话域分离；主题态由本层 useTheme
+ * 注入，S1）；models 实页自 /settings/models 迁移（Q-4b），skills 位已
+ * 升格为智能体页（M6 T4，路由 /skills 不动），trace 实页，project/
+ * settings 为施工牌占位页（AD-1）。scanline 氛围层全局单份（S1 上提）。
  */
 import { Activity, Cpu, FolderKanban, Layers, MessageSquare, Settings } from "lucide-react";
 import { I18nProvider } from "@/shared/i18n";
@@ -21,6 +22,7 @@ import TracePage from "@/pages/trace/TracePage";
 import ProjectPage from "@/pages/project/ProjectPage";
 import SettingsPage from "@/pages/settings/SettingsPage";
 import IconRail, { type IconRailItem } from "@/widgets/nav-rail/ui/IconRail";
+import { useTheme } from "@/shared/ui/theme";
 import {
   ROUTE_MODELS,
   ROUTE_PROJECT,
@@ -44,24 +46,36 @@ const RAIL_ITEMS: readonly IconRailItem<AppRoute>[] = [
 
 function AppRoutes() {
   const { route, navigate } = useAppRoute();
+  const { theme, setTheme } = useTheme();
   const onWorkbench = route === ROUTE_WORKBENCH;
   return (
-    <div className="app-shell">
-      <IconRail items={RAIL_ITEMS} active={route} onNavigate={navigate} />
-      <div className="page-area">
-        {/* 工作台常驻 DOM：非工作台路由 display:none（状态/WS 全保留） */}
-        <div className="route-layer" data-route={onWorkbench ? "on" : "off"}>
-          <ChatPage onOpenSettings={() => navigate(ROUTE_MODELS)} />
+    <>
+      <div className="app-shell">
+        <IconRail
+          items={RAIL_ITEMS}
+          active={route}
+          onNavigate={navigate}
+          theme={theme}
+          onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
+        />
+        <div className="page-area">
+          {/* 工作台常驻 DOM：非工作台路由 display:none（状态/WS 全保留） */}
+          <div className="route-layer" data-route={onWorkbench ? "on" : "off"}>
+            <ChatPage />
+          </div>
+          {route === ROUTE_MODELS && (
+            <P4ModelsConfig onBack={() => navigate(ROUTE_WORKBENCH)} />
+          )}
+          {route === ROUTE_SKILLS && <AgentPage path={ROUTE_SKILLS} />}
+          {route === ROUTE_TRACE && <TracePage path={ROUTE_TRACE} />}
+          {route === ROUTE_PROJECT && <ProjectPage path={ROUTE_PROJECT} />}
+          {route === ROUTE_SETTINGS && <SettingsPage path={ROUTE_SETTINGS} />}
         </div>
-        {route === ROUTE_MODELS && (
-          <P4ModelsConfig onBack={() => navigate(ROUTE_WORKBENCH)} />
-        )}
-        {route === ROUTE_SKILLS && <AgentPage path={ROUTE_SKILLS} />}
-        {route === ROUTE_TRACE && <TracePage path={ROUTE_TRACE} />}
-        {route === ROUTE_PROJECT && <ProjectPage path={ROUTE_PROJECT} />}
-        {route === ROUTE_SETTINGS && <SettingsPage path={ROUTE_SETTINGS} />}
       </div>
-    </div>
+      {/* 产品氛围层（S1 上提全局单份：fixed + pointer-events:none；
+          Trace/Agent 页历史副本由后续任务清理） */}
+      <div className="scanline-overlay" aria-hidden="true" />
+    </>
   );
 }
 

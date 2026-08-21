@@ -1,0 +1,25 @@
+/* ════════════════════════════════════════════════════════════════
+   S1 AppLayout 统一应用壳样式（应用壳统一；承接原 .workbench 骨架职责）
+   - .app-layout：100dvh flex column 自身不滚（header 常驻 + body 弹性）；
+     position:relative 承接原 .workbench 的 absolute 定位上下文职责；
+   - .layout-main：唯一滚动容器（flex:1 + min-width:0 + overflow-y:auto）；
+   - header 视觉复用 app.css 既有 .app-header（48px / bg-panel / blur /
+     border-bottom），本文件零新增视觉；色值全走 tokens.css 注册表变量。
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── 壳骨架：header 全宽置顶 + body 弹性横排 ── */
+.app-layout {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column;
+  height: 100dvh;
+}
+/* header 之下横排：sidebar 槽（可省）→ main（唯一滚动容器） */
+.layout-body { display: flex; flex: 1 1 auto; min-height: 0; }
+.layout-main { flex: 1 1 auto; min-width: 0; overflow-y: auto; }
+
+/* ── 窄屏折叠（沿用既有 <720 降级：整页放开滚动，侧栏/竖条让位）── */
+@media (max-width: 720px) {
+  .app-layout { display: block; height: auto; min-height: 100dvh; }
+  .layout-body { display: block; }
+  .layout-main { overflow-y: visible; }
+}

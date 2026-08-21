@@ -443,12 +443,12 @@ test.describe("T2.3 CL-5 fidelity：主题与高亮（R-P1-8）", () => {
     mock,
     page,
   }) => {
-    // 先切亮主题（主题开关在工作台顶栏），再进 /trace
+    // 先切亮主题（S1：主题单钮在 IconRail，常驻可点），再进 /trace
     await mock.open();
     await mock.waitForCommand("hello");
     await mock.emitAll([welcome({ sessionId: SID }), v02Snapshot(SID, { tail: [] })]);
     await mock.waitForConn("connected");
-    await page.locator("#btn-light").click();
+    await page.locator("#btn-theme-toggle").click();
     await expect(page.locator("html")).toHaveClass("light");
     await mock.waitForCommand("session.list");
     await mock.emit(sessionListResult([sessionMeta(SID, { title: "trace 还原会话" })]));

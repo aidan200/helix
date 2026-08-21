@@ -162,7 +162,7 @@ pageTest.describe("页面实际生效值 == tokens.md 注册表（getComputedSty
 
   pageTest("切亮色：--text-faint computed == 注册表亮列", async ({ mock, page }) => {
     await mock.connect();
-    await page.locator("#btn-light").click();
+    await page.locator("#btn-theme-toggle").click();
     await expect(page.locator("html")).toHaveClass("light");
     expect((await cssVar(page, "--text-faint")).toLowerCase()).toBe(
       hexOf(registryRow("text-faint").light).toLowerCase(),
@@ -196,7 +196,7 @@ pageTest.describe("CL-4 F4.2 双主题截图对照（痕迹文字消费面）", 
     fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
     await page.screenshot({ path: path.join(EVIDENCE_DIR, "CL-4-text-faint-dark.png") });
 
-    await page.locator("#btn-light").click();
+    await page.locator("#btn-theme-toggle").click();
     await expect(page.locator("html")).toHaveClass("light");
     await page.screenshot({ path: path.join(EVIDENCE_DIR, "CL-4-text-faint-light.png") });
   });

@@ -24,8 +24,8 @@ test.describe("T3.2 CL-2 三区骨架 + 折叠记忆", () => {
     await expect(sidebar).toBeVisible();
     expect(parseFloat(await computed(page, ".sidebar", "width"))).toBe(264);
     expect(parseFloat(await computed(page, ".app-header", "height"))).toBe(48);
-    expect(await computed(page, ".workbench", "display")).toBe("flex");
-    expect(await computed(page, ".workbench", "flex-direction")).toBe("column");
+    expect(await computed(page, ".app-layout", "display")).toBe("flex");
+    expect(await computed(page, ".app-layout", "flex-direction")).toBe("column");
     // header 横跨全宽；侧栏与主区顶缘 = header 底缘（48px）
     const geom = await page.evaluate(() => {
       const header = document.querySelector(".app-header")!.getBoundingClientRect();
@@ -56,10 +56,10 @@ test.describe("T3.2 CL-2 三区骨架 + 折叠记忆", () => {
     await expect(page.locator('[data-session-card="sess-multi-a"]')).toBeVisible();
     await shotEvidence(page, "workbench-layout-dark");
     // 双主题关键态：亮色同布局（token 覆盖自动生效，氛围降档）
-    await page.locator("#btn-light").click();
+    await page.locator("#btn-theme-toggle").click();
     await expect(page.locator("html")).toHaveClass("light");
     await shotEvidence(page, "workbench-layout-light");
-    await page.locator("#btn-dark").click();
+    await page.locator("#btn-theme-toggle").click();
 
     // ── 活跃事件条（T5.5 重设计：活跃实例在场时 26px rail（默认折叠）+ 活跃计数；
     //    running=violet 脉冲标识；点击标识展开 M2 抽屉）──

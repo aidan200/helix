@@ -10,6 +10,7 @@ import "@/shared/ui/styles/drawer.css";
 import "@/shared/ui/styles/trace.css";
 import "@/shared/ui/styles/agents.css";
 import "@/shared/ui/styles/index.css";
+import "@/widgets/app-layout/ui/app-layout.css";
 
 // 首帧前应用持久化主题（避免亮色用户暗帧闪烁）
 applyThemeInitial();

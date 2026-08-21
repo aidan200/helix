@@ -270,10 +270,15 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
     // skills 位不再是施工牌
     await expect(page.locator('[data-construction="/skills"]')).toHaveCount(0);
 
-    // 双主题：主题钮在 chat header（工作台隐藏时不可点）——回 chat 切换后再回
+    // 双主题：S1 主题单钮在 IconRail（常驻可点；toggle 需按目标态按需点击）
     for (const theme of ["dark", "light"] as const) {
       await page.locator('.rail-btn[data-page="chat"]').click();
-      await page.locator(theme === "light" ? "#btn-light" : "#btn-dark").click();
+      const isLight = await page.evaluate(() =>
+        document.documentElement.classList.contains("light"),
+      );
+      if ((theme === "light") !== isLight) {
+        await page.locator("#btn-theme-toggle").click();
+      }
       if (theme === "light") {
         await expect(page.locator("html")).toHaveClass("light");
       } else {

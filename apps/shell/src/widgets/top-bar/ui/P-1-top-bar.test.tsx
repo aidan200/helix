@@ -1,20 +1,23 @@
 // @vitest-environment jsdom
 /**
- * P-1 顶栏草稿态模型徽标 + P-3 菜单草稿态可选（T3；bug4）。
+ * P-1 顶栏草稿态模型徽标 + P-3 菜单草稿态可选（T3；bug4）。S1 重构：
+ * AppHeader 退役，TopBarActions 为 headerRight 槽内容组件（受控开合，
+ * popover 由装配层渲染——本 harness 复刻 Workbench 组合契约）。
  *
  * - 草稿态（sessionId===null && view==="ready" && connected）徽标显示
  *   state.model || topology.modelConfig.defaultModel（两者皆空才不显示）；
  * - 草稿选模（setSessionModel → ui/set-draft-model 本地暂存）后徽标变所选；
- * - 徽标点击开 ModelSwitchMenu；菜单在草稿态可 pick（currentModel 回退解析
- *   state.model || mc.defaultModel——选中态/徽标同源）；
+ * - 徽标点击 toggle 菜单（受控回调）；菜单在草稿态可 pick（currentModel
+ *   回退解析 state.model || mc.defaultModel——选中态/徽标同源）；
  * - 非草稿回归：真实会话徽标语义不变（state.model 空不显示）。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import type { CatalogModel } from "@helix/protocol";
 import { I18nProvider } from "@/shared/i18n";
-import { ThemeProvider } from "@/shared/ui/theme";
 import { ToastProvider } from "@/shared/ui/Toast";
+import ModelSwitchMenu from "@/features/model-switch/ui/P-3-model-switch";
 import {
   createInitialSessionState,
   type SessionState,
@@ -44,7 +47,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   };
 });
 
-import AppHeader from "./P-1-top-bar";
+import { TopBarActions } from "./P-1-top-bar";
 
 function catalogModel(id: string): CatalogModel {
   const idx = id.indexOf("/");
@@ -70,15 +73,28 @@ function topologyWith(defaultModel: string, models: CatalogModel[]): TopologySta
   return topo;
 }
 
+/** 装配 harness：复刻 Workbench 组合契约（受控开合 + popover 由装配层渲染）。 */
 function ui() {
+  function Harness() {
+    const [menuOpen, setMenuOpen] = useState(false);
+    return (
+      <>
+        <TopBarActions
+          statsOpen={false}
+          modelMenuOpen={menuOpen}
+          onToggleStats={() => {}}
+          onToggleModelMenu={() => setMenuOpen((v) => !v)}
+        />
+        {menuOpen && <ModelSwitchMenu onClose={() => setMenuOpen(false)} />}
+      </>
+    );
+  }
   return render(
-    <ThemeProvider>
-      <I18nProvider>
-        <ToastProvider>
-          <AppHeader />
-        </ToastProvider>
-      </I18nProvider>
-    </ThemeProvider>,
+    <I18nProvider>
+      <ToastProvider>
+        <Harness />
+      </ToastProvider>
+    </I18nProvider>,
   );
 }
 

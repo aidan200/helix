@@ -148,10 +148,6 @@ export const enUS: Translations = {
         title: "Task convergence",
       },
     },
-    theme: {
-      dark: "DARK",
-      light: "LIGHT",
-    },
     sidebar: {
       newSession: "New session",
       sessions: "Sessions",
@@ -177,7 +173,6 @@ export const enUS: Translations = {
     topbar: {
       draftTitle: "New session",
       modelTitle: "Switch session model",
-      settingsTitle: "Models and providers",
     },
     paging: {
       status: "Restoring session snapshot · tail {n} entries · SubAgent channels included",
@@ -203,6 +198,7 @@ export const enUS: Translations = {
     nav: {
       railLabel: "Primary navigation",
       plannedBadge: "Planned",
+      themeToggle: "Toggle theme",
       pages: {
         chat: { label: "Chat" },
         models: { label: "Models" },
@@ -218,7 +214,6 @@ export const enUS: Translations = {
       emptySub: "Try another keyword, or open the config page for the provider catalog",
       resetToDefault: "Reset to global fallback",
       effectiveHint: "Applies on next turn; in-flight replies are unaffected",
-      configEntry: "Configure providers and global fallback model",
       defaultBadge: "default",
       noProviderTitle: "No available models",
       noProviderSub: "Configure an API key for a provider on the settings page",

@@ -32,7 +32,7 @@ test.describe("T3.3 CL-3 双主题关键态（P-3/P-4）", () => {
     test(`P-3 菜单 + P-4 配置页（${theme}）`, async ({ mock, page }) => {
       await mock.connect([], { model: CURRENT });
       if (theme === "light") {
-        await page.locator("#btn-light").click();
+        await page.locator("#btn-theme-toggle").click();
         await expect(page.locator("html")).toHaveClass("light");
       }
 
@@ -60,7 +60,7 @@ test.describe("T3.3 CL-3 双主题关键态（P-3/P-4）", () => {
 
       // P-4 配置页（展开 anthropic 模型表 + google fail 徽标）
       await page.keyboard.press("Escape");
-      await page.locator("#btn-settings").click();
+      await page.locator('.rail-btn[data-page="models"]').click();
       await mock.waitForCommand("auth.list");
       await mock.emit(authListResult(PROVIDERS));
       await expect(page.locator('[data-prov="anthropic"]')).toBeVisible();

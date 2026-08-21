@@ -212,7 +212,6 @@ const P4ModelsConfig = function P4ModelsConfig({ onBack }: P4ModelsConfigProps) 
 
   return (
     <div className="p4-page" data-p4-page>
-      <div className="scanline-overlay" aria-hidden="true" />
       <header className="p4-head">
         <button
           className="hud-btn hud-btn-ghost"
