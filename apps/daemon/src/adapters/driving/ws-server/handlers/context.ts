@@ -32,6 +32,7 @@ import type { SessionChatPort } from "../../../../application/ports/inbound/Chat
 import type { AgentOrchestrationPort } from "../../../../application/ports/inbound/AgentOrchestrationPort";
 import type { SessionStateView } from "../../../../application/ports/inbound/SessionPort";
 import type { ResourceConfigPort } from "../../../../application/ports/inbound/ResourceConfigPort";
+import type { BrowserPort } from "../../../../application/ports/outbound/BrowserPort";
 import type { EventStream, FrameSender } from "../EventStream";
 import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
 
@@ -200,6 +201,27 @@ export interface ResourceCommandContext {
   readonly hasModel: (modelId: string) => boolean;
   /** 事件流（applied → agent.config.changed 广播）。 */
   readonly events: EventStream;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/**
+ * web 族命令处理上下文（v0.7，T4 联网状态图标）：BrowserPort（连接状态
+ * 读面 getStatus + listTabs / 停止写面 stop）+ 共享辅助。全局命令
+ *（信封 sessionId 不消费）。状态变更广播不走本上下文——由组合根
+ * onStatusChange 接线直发（web.stop 后的 idle 回流同路径，handler 不重复广播）。
+ */
+export interface WebCommandContext {
+  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 浏览器连接面（getStatus/listTabs/stop；只转发不决策）。 */
+  readonly browser: BrowserPort;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */

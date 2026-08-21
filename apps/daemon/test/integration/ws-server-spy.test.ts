@@ -6,6 +6,7 @@ import type { SystemPort } from "../../src/application/ports/inbound/SystemPort"
 import type { ModelPort } from "../../src/application/ports/inbound/ModelPort";
 import { ModelNotFoundError, ProviderNotFoundError } from "../../src/application/services/ModelService";
 import { WsServerAdapter } from "../../src/adapters/driving/ws-server/WsServerAdapter";
+import { StubBrowserPort } from "../mocks/StubBrowserPort";
 import { EventStream, MONITOR_TIER_EVENT_TYPES } from "../../src/adapters/driving/ws-server/EventStream";
 import { PROTOCOL_VERSION, type EventEnvelope } from "@helix/protocol";
 
@@ -114,6 +115,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       },
       hasModel: () => false,
+      browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
       events: eventStream,
       token: "spy-token",
       port: 0,
@@ -261,6 +263,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       },
       hasModel: () => false,
+      browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
       events: new EventStream(),
       token: "spy-token",
       port: 0,
@@ -374,6 +377,7 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
       clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
     },
     hasModel: () => false,
+      browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
     events,
     token: "spy-token",
     port: 0,

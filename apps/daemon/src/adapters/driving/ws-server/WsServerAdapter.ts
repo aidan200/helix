@@ -42,6 +42,7 @@ import type { AgentOrchestrationPort } from "../../../application/ports/inbound/
 import type { SessionDirectoryPort } from "../../../application/ports/inbound/SessionDirectoryPort";
 import type { ModelPort } from "../../../application/ports/inbound/ModelPort";
 import type { ResourceConfigPort } from "../../../application/ports/inbound/ResourceConfigPort";
+import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import type {
   AgentStateDto,
   ConnectionErrorEvent,
@@ -65,6 +66,7 @@ import type {
   ResourceCommandContext,
   SessionCommandContext,
   TraceCommandContext,
+  WebCommandContext,
   WsCommandContext,
 } from "./handlers/context";
 import {
@@ -82,6 +84,7 @@ import {
 } from "./handlers/session";
 import { handleTraceQuery } from "./handlers/trace";
 import { handleAgentConfigList, handleAgentConfigSetEnabled } from "./handlers/resource";
+import { handleWebStatus, handleWebStop } from "./handlers/web";
 import {
   handleModelCatalog,
   handleModelCatalogRefresh,
@@ -122,6 +125,12 @@ export interface WsServerAdapterDeps {
    * tool/skill 启停 + model 槽位；只转发不决策，AG-12）。
    */
   readonly resource: ResourceConfigPort;
+  /**
+   * 浏览器连接面（T4，契约 v0.7）：web 族命令回口（web.status 状态读面 /
+   * web.stop 停止写面；只转发不决策，AG-12）。状态变更广播不走本面——
+   * 组合根 onStatusChange 接线直发 EventStream。
+   */
+  readonly browser: BrowserPort;
   /**
    * 合并目录校验面（M6 T3）：agent.config model 型 set 前置校验（窄函数
    * 注入 = catalog.hasModel，ModelService.setModel 先例）。
@@ -386,6 +395,11 @@ export class WsServerAdapter {
         return handleAgentConfigList(this.resourceContext(ws, type, payload));
       case "agent.config.set_enabled":
         return handleAgentConfigSetEnabled(this.resourceContext(ws, type, payload));
+      // ── v0.7 web 族（T4 联网状态图标；全局命令先例 = agent.config 族）──
+      case "web.status":
+        return handleWebStatus(this.webContext(ws, type));
+      case "web.stop":
+        return handleWebStop(this.webContext(ws, type));
       // ── v0.2 model 族（T2.3 AD-2，契约 C §1；真行为回口。微批：结果帧点对点回执）──
       // T1.1（AD-3）：case 体机械迁出 handlers/model.ts（语义逐字节等价），此处一行转发
       case "model.set":
@@ -541,6 +555,25 @@ export class WsServerAdapter {
       resource: this.deps.resource,
       hasModel: this.deps.hasModel,
       events: this.deps.events,
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+      rawSender: () => this.rawSender(ws),
+      sendNow: (sender, frame) => this.sendNow(sender, frame),
+    };
+  }
+
+  /**
+   * web 族命令处理上下文（T4，契约 v0.7）：BrowserPort（状态读面/停止写面）
+   * + 共享辅助（本连接绑定，语义 = 本类同名私有方法，机械转发零行为差）。
+   * 无 payload 消费（web.status / web.stop 均无参），上下文不携带 payload。
+   */
+  private webContext(
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+  ): WebCommandContext {
+    return {
+      ws,
+      type,
+      browser: this.deps.browser,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),
       sendNow: (sender, frame) => this.sendNow(sender, frame),

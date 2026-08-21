@@ -21,6 +21,7 @@ import path from "node:path";
 import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAdapter";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { EventStream } from "../adapters/driving/ws-server/EventStream";
+import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
 import { lastMainAnchorId } from "../adapters/driving/ws-server/DtoMapper";
 import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { PiAgentEngineAdapter } from "../adapters/driven/pi-engine/PiAgentEngineAdapter";
@@ -115,6 +116,11 @@ export interface DaemonOptions {
    * 收口时序；缺省装配 SubagentLauncher 真体 / skipConfig 占位替身）。
    */
   readonly subagentRunner?: InstanceRunner;
+  /**
+   * BrowserPort 覆盖（T4 测试注入口：integration 注入 fake BrowserPort 驱动
+   * web 族命令/广播断言；缺省装配 CdpConnectionManager 真体——lazy 连接零触网）。
+   */
+  readonly browser?: BrowserPort;
   /** 主时间轴尾窗大小（G-1：缺省 30；测试注入面）。 */
   readonly sessionTailSize?: number;
   /** 空闲卸载窗口 ms（G-5：缺省 30min；测试注入缩短到秒级）。 */
@@ -319,7 +325,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 
   // ── driven：CDP 浏览器连接（T2 地基；无独立 proxy/HTTP 层，连接内嵌 daemon）──
   // lazy 连接——装配不触网；homeDir 经 paths.ts 单点取（AG-07：adapter 不直接展开主目录）。
-  const browserPort: BrowserPort = new CdpConnectionManager({ homeDir: osHomeDir() });
+  const browserPort: BrowserPort = options.browser ?? new CdpConnectionManager({ homeDir: osHomeDir() });
 
   // ── service：SubAgent 调度编排（T2.2 多会话共用：构造期绑死 sessionId 废弃；
   //    实例归属经 spawn 入参/AgentInstanceData.sessionId；全局预算不分裂） ──
@@ -390,6 +396,14 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     // T2.1 契约 v0.3 §1：agent.spawned 帧锚点 enrichment（调度器内存携带面值）
     spawnAnchorFor: (instanceId) => scheduler.spawnAnchorOf(instanceId),
   });
+
+  // ── T4 web 族（契约 v0.7）：CDP 连接状态变更 → web.status.changed 全连接
+  //    广播（SYSTEM_SESSION_ID；DTO 组装与 web.status 查询回执同源 =
+  //    handlers/web.ts webStatusPayloadOf——getStatus + listTabs）。退订归
+  //    shutdown（先退订再 stop——stop 自身触发的 idle 变更不再广播）。──
+  const unsubscribeBrowserStatus = browserPort.onStatusChange(() =>
+    eventStream.broadcastWebStatusChanged(webStatusPayloadOf(browserPort)),
+  );
 
   // ── service：多会话容器（T2.2 AD-4 主承载） ─────────────────────
   // 会话绑定引擎工厂：测试注入实例 = 全部会话共享（单会话测试形态）；
@@ -631,6 +645,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       scheduler.stop(); // T2.1：停 stalled 监视定时器
       registry.sealAll(); // T2.2：全部热会话封口（stopped 里程碑 write-through 落盘）
       await subagentLauncher?.dispose(); // T2.2：O-6 序列回收全部存活子进程（零孤儿）
+      unsubscribeBrowserStatus(); // T4：web.status.changed 广播订阅退订（先退订再 stop）
       await browserPort.stop(); // T2：关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
       await writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
       lock?.release();
@@ -673,6 +688,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     orchestration: currentOrchestration, // T2.3：agent.kill 命令链回调度
     model: modelService, // T2.3（AD-2）：model.*/auth.* 命令族回口
     resource: resourceService, // M6 T3（契约 v0.6）：agent.config 命令族回口
+    browser: browserPort, // T4（契约 v0.7）：web 族命令族回口
     hasModel: (id) => catalog.hasModel(id), // M6 T3：model 型 set 前置校验
     traceQuery, // T2.1（CL-5/F5.6）：trace.query 命令回口（只读面）
     events: eventStream,

@@ -6,6 +6,7 @@ import { PassThrough } from "node:stream";
 import { createDaemon } from "../../src/infrastructure/container";
 import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
+import { StubBrowserPort } from "../mocks/StubBrowserPort";
 import type { SessionStateView } from "../../src/application/ports/inbound/SessionPort";
 import type { SessionDirectoryPort } from "../../src/application/ports/inbound/SessionDirectoryPort";
 import type { SessionChatPort, SendOutcome } from "../../src/application/ports/inbound/ChatPort";
@@ -222,7 +223,9 @@ describe("T5.1：多会话切换快照盖章 = 目标会话自身状态（串台
         setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
         clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       },
-      hasModel: () => false,      events: new EventStream(),
+      hasModel: () => false,
+      browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
+      events: new EventStream(),
       token: "spy-token",
       port: 0,
     });

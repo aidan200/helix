@@ -28,6 +28,8 @@ import type {
   ModelChangedEvent,
   SessionListChangedEvent,
   ThinkingStreamDeltaEvent,
+  WebStatusChangedEvent,
+  WebStatusPayload,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import { domainEventToEnvelope, sessionMetaDto } from "./DtoMapper";
@@ -191,6 +193,24 @@ export class EventStream implements EventPublisherPort {
       channel: "agent",
       type: "agent.config.changed",
       payload: { ...payload },
+    };
+    this.push(frame);
+  }
+
+  /**
+   * web.status.changed 广播（v0.7，T4 联网状态图标）：CDP 连接状态变更
+   * 通知——daemon 级全局（信封 sessionId = SYSTEM_SESSION_ID → 全连接下发，
+   * 与 broadcastAgentConfigChanged 同构；订阅无关）。payload 与
+   * web.status.result 同形状含 tabs（组合根 onStatusChange 接线经
+   * handlers/web.ts webStatusPayloadOf 组装喂入）。
+   */
+  broadcastWebStatusChanged(payload: WebStatusPayload): void {
+    const frame: WebStatusChangedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "web",
+      type: "web.status.changed",
+      payload,
     };
     this.push(frame);
   }
