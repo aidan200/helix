@@ -66,8 +66,7 @@ function AppRoutes() {
           {route === ROUTE_SETTINGS && <SettingsPage path={ROUTE_SETTINGS} />}
         </div>
       </div>
-      {/* 产品氛围层（S1 上提全局单份：fixed + pointer-events:none；
-          Trace/Agent 页历史副本由后续任务清理） */}
+      {/* 产品氛围层（S1 上提全局单份：fixed + pointer-events:none；各页历史副本已随 AppLayout 迁移全数清理） */}
       <div className="scanline-overlay" aria-hidden="true" />
     </>
   );
