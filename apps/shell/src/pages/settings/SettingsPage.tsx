@@ -1,21 +1,37 @@
 /**
- * settings 占位页（CL-4；T3.4）：施工牌模板实例（AD-1 只做框架不做填充）。
- * 页面域/会话域分离：零数据面，路由行由 app 层注入。
- * 注：原 pages/settings/ 的 P-4 模型配置页已迁移至 pages/models/（Q-4b）。
+ * settings 页（S2 实页化；CL-4 占位 → 实页）：AppLayout 统一壳组装——
+ * headerLeft = 页名；sidebar = SettingsNav 分区导航（首项 = 模型设置，
+ * 追加方式见该组件 docblock 预留说明）；main = 当前选中分区内容
+ * （S2 首分区 = 模型配置，自独立 /models 页迁入，功能逻辑零变更）。
+ *
+ * 分区状态：页面本地 useState（无 URL 子路由——route.ts 是扁平路由，
+ * 不扩机制）。页面域/会话域分离：路由行由 app 层注入（data-settings-page
+ * 锚）；数据面全在分区组件内。
  */
-import { Settings } from "lucide-react";
+import { useState } from "react";
 import { useI18n } from "@/shared/i18n";
-import ConstructionBoard from "@/shared/ui/ConstructionBoard";
+import AppLayout from "@/widgets/app-layout/ui/AppLayout";
+import ModelsSettingsSection from "./ui/ModelsSettingsSection";
+import SettingsNav, {
+  SETTINGS_SECTIONS,
+  type SettingsSectionId,
+} from "./ui/SettingsNav";
 
 const SettingsPage = function SettingsPage({ path }: { path: string }) {
   const { t } = useI18n();
+  // 首分区缺省选中（列表非空由编译期字面量保证；S2 仅一项）
+  const [section, setSection] = useState<SettingsSectionId>(
+    SETTINGS_SECTIONS[0]!.id,
+  );
   return (
-    <ConstructionBoard
-      icon={Settings}
-      name={t("chat.nav.pages.settings.label")}
-      route={path}
-      preview={t("chat.nav.pages.settings.preview")}
-    />
+    <div data-settings-page={path}>
+      <AppLayout
+        headerLeft={<h1 className="tb-title">{t("chat.nav.pages.settings.label")}</h1>}
+        sidebar={<SettingsNav active={section} onSelect={setSection} />}
+      >
+        {section === "models" && <ModelsSettingsSection />}
+      </AppLayout>
+    </div>
   );
 };
 

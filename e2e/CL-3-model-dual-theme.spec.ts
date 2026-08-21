@@ -58,9 +58,9 @@ test.describe("T3.3 CL-3 双主题关键态（P-3/P-4）", () => {
 
       await shotEvidence(page, `model-dual-theme-p3-${theme}`, "CL-3");
 
-      // P-4 配置页（展开 anthropic 模型表 + google fail 徽标）
+      // P-4 配置页（展开 anthropic 模型表 + google fail 徽标；S2：设置页模型分区）
       await page.keyboard.press("Escape");
-      await page.locator('.rail-btn[data-page="models"]').click();
+      await page.locator('.rail-btn[data-page="settings"]').click();
       await mock.waitForCommand("auth.list");
       await mock.emit(authListResult(PROVIDERS));
       await expect(page.locator('[data-prov="anthropic"]')).toBeVisible();

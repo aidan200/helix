@@ -119,18 +119,18 @@ async function visibleRowTypes(page: Page): Promise<string[]> {
   return page.locator(".p1-tbody .p1-entry .p1-tt").allInnerTexts();
 }
 
-/** P-4 录 anthropic key（T5.3 菜单可用性口径前置；CL-3 先例逐步对齐）。 */
+/** 设置页模型分区录 anthropic key（T5.3 菜单可用性口径前置；S2 原独立页迁入）。 */
 async function provisionAnthropicKey(page: Page): Promise<void> {
-  await page.locator('.rail-btn[data-page="models"]').click();
-  await expect(page.locator("[data-p4-page]")).toBeVisible();
+  await page.locator('.rail-btn[data-page="settings"]').click();
+  await expect(page.locator("[data-models-section]")).toBeVisible();
   const prov = page.locator('[data-prov="anthropic"]');
   await prov.locator("[data-prov-toggle]").click();
   await prov.locator("[data-prov-addkey]").click();
   await page.locator("#key-input").fill(API_KEY);
   await page.locator("#btn-modal-save").click();
   await expect(prov.locator(".key-chip")).toBeVisible({ timeout: 10_000 });
-  await page.locator("#btn-p4-back").click();
-  await expect(page.locator("[data-p4-page]")).toHaveCount(0);
+  await page.locator('.rail-btn[data-page="chat"]').click();
+  await expect(page.locator("[data-settings-page]")).toHaveCount(0);
 }
 
 /** P-3 菜单切会话模型（model.set 真链路：catalog 校验 → ChatService → 引擎）。 */

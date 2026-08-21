@@ -166,8 +166,8 @@ test.describe("T3.3 CL-3 P-3 模型切换菜单", () => {
     await expect(menu.locator("[data-mm-no-available]")).toContainText("暂无可用模型");
     await expect(menu.locator("[data-mm-no-available]")).toContainText("配置 API key");
     await expect(menu.locator("[data-mm-list]")).toHaveCount(0);
-    // S1：菜单内 P-4 入口（mm-more）退役，配置引导落点 = IconRail models 位
-    await expect(page.locator('.rail-btn[data-page="models"]')).toBeVisible();
+    // S1：菜单内 P-4 入口（mm-more）退役；S2：配置引导落点 = 设置页模型分区
+    await expect(page.locator('.rail-btn[data-page="settings"]')).toBeVisible();
   });
 
   test("F(3.3).2 选中即切：model.set（信封 sessionId）+ 徽标即时更新（model.changed 回流）+ 不关菜单", async ({ mock, page }) => {
@@ -233,14 +233,14 @@ test.describe("T3.3 CL-3 P-3 模型切换菜单", () => {
     await page.locator(".msg-flow").click(); // S1：brand 位退役
     await expect(page.locator("[data-model-menu]")).toHaveCount(0);
 
-    // P-3 → P-4 流转（S1：菜单内入口退役，改走 IconRail models 位；
-    // rail 在菜单外，点击同时触发点外关闭）
+    // P-3 → 设置页模型分区流转（S1 菜单内入口退役；S2 改走 rail settings
+    // 位；rail 在菜单外，点击同时触发点外关闭）
     await page.locator("[data-model-badge]").click();
     await mock.waitForCommand("model.catalog");
-    await page.locator('.rail-btn[data-page="models"]').click();
-    await expect(page).toHaveURL(/\/models$/);
+    await page.locator('.rail-btn[data-page="settings"]').click();
+    await expect(page).toHaveURL(/\/settings$/);
     await expect(page.locator("[data-model-menu]")).toHaveCount(0);
-    await expect(page.locator("[data-p4-page]")).toBeVisible();
+    await expect(page.locator("[data-models-section]")).toBeVisible();
 
     await shotEvidence(page, "model-menu", "CL-3");
     writeEvidence(

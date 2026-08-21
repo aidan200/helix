@@ -1,8 +1,8 @@
 /**
- * P-4 模型与厂商配置 —— 独立路由页（F(2.1).4 路由 + CL-3 六功能点；T3.3）。
+ * 模型设置分区（S2：P-4 模型与厂商配置自独立路由页迁入设置页；T3.3 原稿）。
  *
  * 数据零权威：目录/默认/provider 凭据全部来自 topology.modelConfig
- * （model.catalog / get_default / auth.list 结果帧驱动）；进入页面时拉取
+ * （model.catalog / get_default / auth.list 结果帧驱动）；进入分区时拉取
  * （requestModelConfig + requestAuthList）。命令发送经 SessionContext
  * model/auth 面板（auth.set_key / delete_key / verify / model.set_default /
  * catalog_refresh——信封语义见契约 C）。
@@ -20,15 +20,14 @@
  * - F(3.4).5 刷新目录：catalog_refresh 强制拉（图标转动 → 结果帧清
  *   in-flight → 时间戳更新）；
  * - F(3.4).6 全局默认选择器：写 SQLite（model.set_default 乐观更新）。
- * T5.3 热修：机制说明文案（副题/默认继承提示/auth 路径/modal 机制说明）
- * 与页内主题切换移除（全局切换归 chat header）；文案只留用户操作语义。
+ * S2 迁移口径：剥离原 .p4-page/.p4-head 页壳与返回钮（onBack 删除），
+ * .pg 版心 + 全部功能逻辑零行为变更；分区标题 = 原 chat.settings.title。
  * 状态模型：连通徽标四态互斥；弹层 open|closed；校验 clean|error；删除
  * normal|armed（单值，超时复原）。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
-  ArrowLeft,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -42,10 +41,6 @@ import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
 import { relativeTimeSpan } from "@/shared/lib/format";
-
-export interface P4ModelsConfigProps {
-  onBack: () => void;
-}
 
 /** ctx 档位（200k / 400k / 1M…；与 P-3 同源格式）。 */
 function fmtContext(tokens: number): string {
@@ -109,10 +104,10 @@ function ConnBadge({ entry }: { entry: AuthProviderEntry }) {
           {t("chat.modelsConfig.connUnverified")}
         </span>
       );
-    }
+  }
 }
 
-const P4ModelsConfig = function P4ModelsConfig({ onBack }: P4ModelsConfigProps) {
+const ModelsSettingsSection = function ModelsSettingsSection() {
   const { t } = useI18n();
   const toast = useToast();
   const {
@@ -138,7 +133,7 @@ const P4ModelsConfig = function P4ModelsConfig({ onBack }: P4ModelsConfigProps) 
   // 展开的 provider（单值；null = 全收起）
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  // 进入页面拉数据（目录/默认未请求态才发；auth.list 每次进入刷新）
+  // 进入分区拉数据（目录/默认未请求态才发；auth.list 每次进入刷新）
   useEffect(() => {
     requestModelConfig();
     requestAuthList();
@@ -211,165 +206,127 @@ const P4ModelsConfig = function P4ModelsConfig({ onBack }: P4ModelsConfigProps) 
   };
 
   return (
-    <div className="p4-page" data-p4-page>
-      <header className="p4-head">
-        <button
-          className="hud-btn hud-btn-ghost"
-          id="btn-p4-back"
-          type="button"
-          onClick={onBack}
-        >
-          <ArrowLeft size={14} strokeWidth={1.75} />
-          {t("chat.settings.back")}
-        </button>
-        <h1 className="p4-title">{t("chat.settings.title")}</h1>
-      </header>
+    <div className="pg" data-models-section>
+      <h2 className="pg-title">{t("chat.settings.title")}</h2>
 
-      <div className="pg">
-        {/* 工具卡：全局默认选择器（F(3.4).6）+ 目录刷新（F(3.4).5） */}
-        <div className="hud-card">
-          <div className="toolbar">
-            <div className="fld">
-              <label className="hud-label" htmlFor="sel-default">
-                {t("chat.modelsConfig.defaultLabel")}
-              </label>
-              <div className="sel-wrap">
-                <select
-                  id="sel-default"
-                  className="hud-input"
-                  value={mc.defaultModel === "" ? undefined : mc.defaultModel}
-                  disabled={mc.catalog === null}
-                  onChange={(e) => {
-                    setDefaultModel(e.target.value);
-                    toast.push(
-                      "ok",
-                      t("chat.modelsConfig.defaultUpdatedToast", { model: e.target.value }),
-                    );
-                  }}
-                >
-                  {[...modelsByProvider.entries()].map(([providerId, models]) => (
-                    <optgroup label={providerId} key={providerId}>
-                      {models.map((m) => (
-                        <option value={m.id} key={m.id}>
-                          {m.id}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-                <span className="sel-chev">
-                  <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
-                </span>
-              </div>
-            </div>
-            <div className="toolbar-right">
-              <button
-                className="hud-btn hud-btn-ghost"
-                id="btn-refresh-catalog"
-                type="button"
-                disabled={mc.catalogRefreshing}
-                onClick={() => {
-                  refreshModelCatalog();
-                  toast.push("ok", t("chat.modelsConfig.refreshedToast"));
+      {/* 工具卡：全局默认选择器（F(3.4).6）+ 目录刷新（F(3.4).5） */}
+      <div className="hud-card">
+        <div className="toolbar">
+          <div className="fld">
+            <label className="hud-label" htmlFor="sel-default">
+              {t("chat.modelsConfig.defaultLabel")}
+            </label>
+            <div className="sel-wrap">
+              <select
+                id="sel-default"
+                className="hud-input"
+                value={mc.defaultModel === "" ? undefined : mc.defaultModel}
+                disabled={mc.catalog === null}
+                onChange={(e) => {
+                  setDefaultModel(e.target.value);
+                  toast.push(
+                    "ok",
+                    t("chat.modelsConfig.defaultUpdatedToast", { model: e.target.value }),
+                  );
                 }}
               >
-                <RefreshCw
-                  className={cn(mc.catalogRefreshing && "spin")}
-                  size={14}
-                  strokeWidth={1.75}
-                  aria-hidden="true"
-                />
-                {t("chat.modelsConfig.refresh")}
-              </button>
-              <span className="catalog-meta" data-catalog-meta>
-                <Clock size={14} strokeWidth={1.75} aria-hidden="true" />
-                {mc.catalog !== null &&
-                  (refreshedAtLabel === ""
-                    ? t("chat.modelsConfig.refreshedJustNow", { n: providerCount })
-                    : t("chat.modelsConfig.refreshedAt", { time: refreshedAtLabel, n: providerCount }))}
+                {[...modelsByProvider.entries()].map(([providerId, models]) => (
+                  <optgroup label={providerId} key={providerId}>
+                    {models.map((m) => (
+                      <option value={m.id} key={m.id}>
+                        {m.id}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <span className="sel-chev">
+                <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
               </span>
             </div>
           </div>
+          <div className="toolbar-right">
+            <button
+              className="hud-btn hud-btn-ghost"
+              id="btn-refresh-catalog"
+              type="button"
+              disabled={mc.catalogRefreshing}
+              onClick={() => {
+                refreshModelCatalog();
+                toast.push("ok", t("chat.modelsConfig.refreshedToast"));
+              }}
+            >
+              <RefreshCw
+                className={cn(mc.catalogRefreshing && "spin")}
+                size={14}
+                strokeWidth={1.75}
+                aria-hidden="true"
+              />
+              {t("chat.modelsConfig.refresh")}
+            </button>
+            <span className="catalog-meta" data-catalog-meta>
+              <Clock size={14} strokeWidth={1.75} aria-hidden="true" />
+              {mc.catalog !== null &&
+                (refreshedAtLabel === ""
+                  ? t("chat.modelsConfig.refreshedJustNow", { n: providerCount })
+                  : t("chat.modelsConfig.refreshedAt", { time: refreshedAtLabel, n: providerCount }))}
+            </span>
+          </div>
         </div>
+      </div>
 
-        <h2 className="section-label">{t("chat.modelsConfig.providersLabel", { n: providers.reduce((n, g) => n + g.rows.length, 0) })}</h2>
+      <h2 className="section-label">{t("chat.modelsConfig.providersLabel", { n: providers.reduce((n, g) => n + g.rows.length, 0) })}</h2>
 
-        {/* F(3.4).1 provider 字母分组列表 */}
-        {providers.map((group) => (
-          <div key={group.letter}>
-            <div className="pgroup-label">{group.letter}</div>
-            {group.rows.map((row) => {
-              const open = expanded === row.providerId;
-              const models = modelsByProvider.get(row.providerId) ?? [];
-              return (
-                <div
-                  className={cn("prov", row.configured && "configured", open && "open")}
-                  data-prov={row.providerId}
-                  key={row.providerId}
+      {/* F(3.4).1 provider 字母分组列表 */}
+      {providers.map((group) => (
+        <div key={group.letter}>
+          <div className="pgroup-label">{group.letter}</div>
+          {group.rows.map((row) => {
+            const open = expanded === row.providerId;
+            const models = modelsByProvider.get(row.providerId) ?? [];
+            return (
+              <div
+                className={cn("prov", row.configured && "configured", open && "open")}
+                data-prov={row.providerId}
+                key={row.providerId}
+              >
+                <button
+                  className="prov-head"
+                  type="button"
+                  data-prov-toggle
+                  aria-expanded={open}
+                  onClick={() => setExpanded(open ? null : row.providerId)}
                 >
-                  <button
-                    className="prov-head"
-                    type="button"
-                    data-prov-toggle
-                    aria-expanded={open}
-                    onClick={() => setExpanded(open ? null : row.providerId)}
-                  >
-                    <span className="prov-name">{row.providerId}</span>
-                    {row.configured && row.keyMasked !== undefined ? (
-                      <span className="key-chip">
-                        key ····<span className="k4">{row.keyMasked.slice(-4)}</span>
-                      </span>
-                    ) : (
-                      <span className="key-none">{t("chat.modelsConfig.unconfigured")}</span>
-                    )}
-                    <ConnBadge entry={row} />
-                    <span className="pc-chev">
-                      <ChevronRight size={14} strokeWidth={1.75} aria-hidden="true" />
+                  <span className="prov-name">{row.providerId}</span>
+                  {row.configured && row.keyMasked !== undefined ? (
+                    <span className="key-chip">
+                      key ····<span className="k4">{row.keyMasked.slice(-4)}</span>
                     </span>
-                  </button>
-                  <div className="prov-body">
-                    <div className="prov-actions">
-                      {row.configured ? (
-                        <>
-                          <button
-                            className="hud-btn hud-btn-ghost sm"
-                            type="button"
-                            data-prov-test
-                            disabled={row.verifyStatus === "verifying"}
-                            onClick={() => verifyProvider(row.providerId)}
-                          >
-                            {t("chat.modelsConfig.test")}
-                          </button>
-                          <button
-                            className="hud-btn hud-btn-ghost sm"
-                            type="button"
-                            data-prov-editkey
-                            onClick={() => {
-                              setModal({ provider: row.providerId });
-                              setKeyValue("");
-                              setKeyErr(false);
-                              window.setTimeout(() => keyInputRef.current?.focus(), 60);
-                            }}
-                          >
-                            {t("chat.modelsConfig.changeKey")}
-                          </button>
-                          <button
-                            className="hud-btn hud-btn-danger sm"
-                            type="button"
-                            data-prov-delkey
-                            data-armed={armedDelete === row.providerId ? "1" : undefined}
-                            onClick={() => onDeleteKey(row.providerId)}
-                          >
-                            {armedDelete === row.providerId
-                              ? t("chat.modelsConfig.confirmDelete")
-                              : t("chat.modelsConfig.deleteKey")}
-                          </button>
-                        </>
-                      ) : (
+                  ) : (
+                    <span className="key-none">{t("chat.modelsConfig.unconfigured")}</span>
+                  )}
+                  <ConnBadge entry={row} />
+                  <span className="pc-chev">
+                    <ChevronRight size={14} strokeWidth={1.75} aria-hidden="true" />
+                  </span>
+                </button>
+                <div className="prov-body">
+                  <div className="prov-actions">
+                    {row.configured ? (
+                      <>
                         <button
-                          className="hud-btn hud-btn-cyan sm"
+                          className="hud-btn hud-btn-ghost sm"
                           type="button"
-                          data-prov-addkey
+                          data-prov-test
+                          disabled={row.verifyStatus === "verifying"}
+                          onClick={() => verifyProvider(row.providerId)}
+                        >
+                          {t("chat.modelsConfig.test")}
+                        </button>
+                        <button
+                          className="hud-btn hud-btn-ghost sm"
+                          type="button"
+                          data-prov-editkey
                           onClick={() => {
                             setModal({ provider: row.providerId });
                             setKeyValue("");
@@ -377,56 +334,81 @@ const P4ModelsConfig = function P4ModelsConfig({ onBack }: P4ModelsConfigProps) 
                             window.setTimeout(() => keyInputRef.current?.focus(), 60);
                           }}
                         >
-                          {t("chat.modelsConfig.configureKey")}
+                          {t("chat.modelsConfig.changeKey")}
                         </button>
-                      )}
-                    </div>
-                    {/* F(3.4).4 模型表：id / 上下文 / 四费率（tabular-nums） */}
-                    <div className="mtable-wrap">
-                      <table className="mtable">
-                        <thead>
-                          <tr>
-                            <th>{t("chat.modelsConfig.colModel")}</th>
-                            <th className="num">{t("chat.modelsConfig.colContext")}</th>
-                            <th className="num">{t("chat.modelsConfig.colInput")}</th>
-                            <th className="num">{t("chat.modelsConfig.colOutput")}</th>
-                            <th className="num">{t("chat.modelsConfig.colCacheRead")}</th>
-                            <th className="num">{t("chat.modelsConfig.colCacheWrite")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {models.map((m) => {
-                            const isDefault =
-                              mc.defaultModel !== "" && mc.defaultModel === m.id;
-                            return (
-                              <tr className={cn(isDefault && "is-default")} data-model-row={m.id} key={m.id}>
-                                <td className="m-name">
-                                  {m.id}
-                                  {isDefault && (
-                                    <span className="hud-chip" style={{ marginLeft: 6 }}>
-                                      {t("chat.modelsConfig.defaultChip")}
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="num">{fmtContext(m.contextWindow)}</td>
-                                <td className="num">{fmtRate(m.cost.input)}</td>
-                                <td className="num">{fmtRate(m.cost.output)}</td>
-                                <td className="num">{fmtRate(m.cost.cacheRead)}</td>
-                                <td className="num">{fmtRate(m.cost.cacheWrite)}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                      <p className="mtable-cap">{t("chat.modelsConfig.tableCaption")}</p>
-                    </div>
+                        <button
+                          className="hud-btn hud-btn-danger sm"
+                          type="button"
+                          data-prov-delkey
+                          data-armed={armedDelete === row.providerId ? "1" : undefined}
+                          onClick={() => onDeleteKey(row.providerId)}
+                        >
+                          {armedDelete === row.providerId
+                            ? t("chat.modelsConfig.confirmDelete")
+                            : t("chat.modelsConfig.deleteKey")}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        className="hud-btn hud-btn-cyan sm"
+                        type="button"
+                        data-prov-addkey
+                        onClick={() => {
+                          setModal({ provider: row.providerId });
+                          setKeyValue("");
+                          setKeyErr(false);
+                          window.setTimeout(() => keyInputRef.current?.focus(), 60);
+                        }}
+                      >
+                        {t("chat.modelsConfig.configureKey")}
+                      </button>
+                    )}
+                  </div>
+                  {/* F(3.4).4 模型表：id / 上下文 / 四费率（tabular-nums） */}
+                  <div className="mtable-wrap">
+                    <table className="mtable">
+                      <thead>
+                        <tr>
+                          <th>{t("chat.modelsConfig.colModel")}</th>
+                          <th className="num">{t("chat.modelsConfig.colContext")}</th>
+                          <th className="num">{t("chat.modelsConfig.colInput")}</th>
+                          <th className="num">{t("chat.modelsConfig.colOutput")}</th>
+                          <th className="num">{t("chat.modelsConfig.colCacheRead")}</th>
+                          <th className="num">{t("chat.modelsConfig.colCacheWrite")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {models.map((m) => {
+                          const isDefault =
+                            mc.defaultModel !== "" && mc.defaultModel === m.id;
+                          return (
+                            <tr className={cn(isDefault && "is-default")} data-model-row={m.id} key={m.id}>
+                              <td className="m-name">
+                                {m.id}
+                                {isDefault && (
+                                  <span className="hud-chip" style={{ marginLeft: 6 }}>
+                                    {t("chat.modelsConfig.defaultChip")}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="num">{fmtContext(m.contextWindow)}</td>
+                              <td className="num">{fmtRate(m.cost.input)}</td>
+                              <td className="num">{fmtRate(m.cost.output)}</td>
+                              <td className="num">{fmtRate(m.cost.cacheRead)}</td>
+                              <td className="num">{fmtRate(m.cost.cacheWrite)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <p className="mtable-cap">{t("chat.modelsConfig.tableCaption")}</p>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
 
       {/* F(3.4).2 key 弹层（hud-modal：backdrop + 缩放淡入；非空校验内联） */}
       {modal !== null && (
@@ -497,4 +479,4 @@ const P4ModelsConfig = function P4ModelsConfig({ onBack }: P4ModelsConfigProps) 
   );
 };
 
-export default P4ModelsConfig;
+export default ModelsSettingsSection;

@@ -226,9 +226,17 @@ export interface ChatTranslations {
     typeSubagent: string;
   };
   /** P-4 模型/厂商配置路由壳（页面本体 T3.3；本任务仅返回壳） */
+  /** 设置页（S2 实页化：AppLayout 壳 + 分区导航；模型配置分区 = 原 P-4 页迁入） */
   settings: {
-    back: string;
+    /** 模型设置分区标题（原独立页页名沿用） */
     title: string;
+    /** 分区导航（SettingsNav）词条族 */
+    nav: {
+      /** 分区导航栏 aria-label/组标签 */
+      label: string;
+      /** 分区项：模型设置 */
+      models: string;
+    };
   };
   /** IconRail 导航壳 + 四占位页施工牌（widgets/nav-rail + pages/*；CL-4 F(4.4).1/F(4.4).3；T3.4） */
   nav: {
@@ -240,12 +248,12 @@ export interface ChatTranslations {
     themeToggle: string;
     pages: {
       chat: { label: string };
-      models: { label: string };
       /** 占位页：label = 页名；preview = 一句话能力预告（≤32ch，无时间承诺词） */
       skills: { label: string; preview: string };
       trace: { label: string };
       project: { label: string; preview: string };
-      settings: { label: string; preview: string };
+      /** 设置（S2 实页化，非施工牌；仅 label） */
+      settings: { label: string };
     };
   };
   /** P-3 模型切换弹出菜单（features/model-switch；CL-3 F(3.3).1-F(3.3).3；T3.3） */
@@ -261,7 +269,7 @@ export interface ChatTranslations {
     noProviderSub: string;
     switchedToast: string;
   };
-  /** P-4 模型与厂商配置页（pages/models，T3.4 自 pages/settings 迁移；CL-3 F(3.4).1-F(3.4).6；T3.3） */
+  /** 模型与厂商配置（S2 归设置页模型分区；CL-3 F(3.4).1-F(3.4).6；T3.3） */
   modelsConfig: {
     defaultLabel: string;
     refresh: string;

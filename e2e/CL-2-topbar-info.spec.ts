@@ -32,7 +32,7 @@ test.describe("T3.2 CL-2 顶栏信息区", () => {
     await expect(modelBadge.locator(".mb-dot")).toHaveCount(1);
     await expect(modelBadge.locator(".mb-chev")).toHaveCount(1);
 
-    // S1：齿轮退役（P-4 入口归 IconRail models 位；主题切换单钮亦在 rail）
+    // S1：齿轮退役（S2：模型配置入口归设置页分区；主题切换单钮亦在 rail）
     await expect(page.locator("#btn-theme-toggle")).toBeVisible();
 
     // ── 切换 B：标题随切换同步（loading 期即切目标会话标题；快照到达后保持）──

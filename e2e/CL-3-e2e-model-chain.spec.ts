@@ -3,8 +3,8 @@
  *
  * 断言链（FakeLLM 模型感知：launcher 每 turn 实际请求的 model 追加记录
  * <home>/llm-model-log.jsonl——set_model 语义的机械判据数据源）：
- * ① auth.json 写入面：P-4 anthropic 录 key（auth.set_key）→ Node 侧核验
- *    0600 + Credential 形状 + 锁零残留 + P-4 脱敏回显（T5.3 起前置——
+ * ① auth.json 写入面：设置页模型分区 anthropic 录 key（auth.set_key）→ Node 侧核验
+ *    0600 + Credential 形状 + 锁零残留 + 分区脱敏回显（T5.3 起前置——
  *    菜单可用性口径下 provider 未配置的模型不在 P-3 菜单显示）；
  * ② builtin fallback 无外网（K-1）：daemon 注入死代理 HTTP(S)_PROXY →
  *    model.catalog 刷新全部失败（快失不超时）→ P-3 菜单列出 configured
@@ -74,8 +74,8 @@ test.describe("T4.2 CL-3 模型真链路（真 daemon）", () => {
 
     // ── ① auth.json 写入面（auth.set_key → AuthStore；T5.3 起前置——
     //    菜单仅显示 configured provider 的可用模型）────────────────
-    await page.locator('.rail-btn[data-page="models"]').click();
-    await expect(page.locator("[data-p4-page]")).toBeVisible();
+    await page.locator('.rail-btn[data-page="settings"]').click();
+    await expect(page.locator("[data-models-section]")).toBeVisible();
     const provAnthropic = page.locator('[data-prov="anthropic"]');
     await provAnthropic.locator("[data-prov-toggle]").click();
     await provAnthropic.locator("[data-prov-addkey]").click();
@@ -92,8 +92,8 @@ test.describe("T4.2 CL-3 模型真链路（真 daemon）", () => {
     expect(authFile.anthropic).toEqual({ type: "api_key", key: API_KEY });
     expect(existsSync(`${authPath}.lock`)).toBe(false); // 锁文件用后即删
     await shotEvidence(page, "cl3-model-auth-json", "CL-3");
-    await page.locator("#btn-p4-back").click();
-    await expect(page.locator("[data-p4-page]")).toHaveCount(0);
+    await page.locator('.rail-btn[data-page="chat"]').click();
+    await expect(page.locator("[data-settings-page]")).toHaveCount(0);
 
     // ── ② builtin fallback 无外网（K-1）+ 默认读面 ────────────
     const badge = page.locator("[data-model-badge]");
@@ -146,8 +146,8 @@ test.describe("T4.2 CL-3 模型真链路（真 daemon）", () => {
     // S1：菜单内 P-3 → P-4 流转入口（mm-more）随 onOpenSettings 链退役，改走 rail 导航
     await page.locator("#msg-input").click(); // 点输入条关菜单（点外关闭）
     await expect(menu).toBeHidden();
-    await page.locator('.rail-btn[data-page="models"]').click();
-    await expect(page.locator("[data-p4-page]")).toBeVisible();
+    await page.locator('.rail-btn[data-page="settings"]').click();
+    await expect(page.locator("[data-models-section]")).toBeVisible();
     const sel = page.locator("#sel-default");
     await expect(sel).toHaveValue(DEFAULT_INIT, { timeout: 15_000 }); // get_default 读面
     await sel.selectOption(NEW_DEFAULT);
@@ -155,7 +155,7 @@ test.describe("T4.2 CL-3 模型真链路（真 daemon）", () => {
     await shotEvidence(page, "cl3-model-set-default", "CL-3");
 
     // 返回工作台：徽标仍为会话模型（per-session 不随 set_default 变）
-    await page.locator("#btn-p4-back").click();
+    await page.locator('.rail-btn[data-page="chat"]').click();
     await expect(badge).toHaveText(TARGET, { timeout: 10_000 });
 
     await d.stop();

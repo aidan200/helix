@@ -1,7 +1,7 @@
 /**
  * 路由订阅 hook（F(2.1).4）：pushState 导航 + popstate 回退同步。
  *
- * react-router 级路由库未引入（六路由位自持轻量层即够，Q-4b）；工作台常驻
+ * react-router 级路由库未引入（五路由位自持轻量层即够，Q-4b；S2）；工作台常驻
  * DOM 的显隐由 AppRoutes 按 route 切换，本 hook 只管 URL ↔ 状态同步。
  */
 import { useCallback, useEffect, useState } from "react";

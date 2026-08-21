@@ -192,8 +192,11 @@ export const enUS: Translations = {
       typeSubagent: "SubAgent",
     },
     settings: {
-      back: "Back to workbench",
       title: "Models and providers",
+      nav: {
+        label: "Settings",
+        models: "Models",
+      },
     },
     nav: {
       railLabel: "Primary navigation",
@@ -201,11 +204,10 @@ export const enUS: Translations = {
       themeToggle: "Toggle theme",
       pages: {
         chat: { label: "Chat" },
-        models: { label: "Models" },
         skills: { label: "Agents", preview: "Configure models, tools and skills for the session assistant and SubAgent workers." },
         trace: { label: "Trace" },
         project: { label: "Project", preview: "Workspace docs, knowledge graph, iteration state." },
-        settings: { label: "Settings", preview: "Theme, notifications, and local preferences." },
+        settings: { label: "Settings" },
       },
     },
     modelSwitch: {

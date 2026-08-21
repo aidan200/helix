@@ -194,8 +194,11 @@ export const zhCN: Translations = {
       typeSubagent: "SubAgent",
     },
     settings: {
-      back: "返回工作台",
       title: "模型与厂商",
+      nav: {
+        label: "设置",
+        models: "模型设置",
+      },
     },
     nav: {
       railLabel: "主导航",
@@ -203,11 +206,10 @@ export const zhCN: Translations = {
       themeToggle: "切换明暗主题",
       pages: {
         chat: { label: "聊天 chat" },
-        models: { label: "模型 models" },
         skills: { label: "智能体", preview: "配置会话助手与 SubAgent worker 的模型、工具与技能。" },
         trace: { label: "追踪 trace" },
         project: { label: "项目 project", preview: "工作区文档、知识图谱与迭代状态的总览入口。" },
-        settings: { label: "设置 settings", preview: "主题、通知与本地偏好选项。" },
+        settings: { label: "设置 settings" },
       },
     },
     modelSwitch: {

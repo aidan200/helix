@@ -190,15 +190,13 @@ describe("AG-17 页面域/会话域分离", () => {
     expect(offenders.map(rel)).toEqual([]);
   });
 
-  /** 施工牌占位页清单（T2.2 trace / M6 T4 skills 依次出列——useSession 公开
-   *  provider seam 与 M3 models 实页（P-4-models-config.tsx:40）同型，
-   *  architecture.md §4.4 禁放的是会话 store 内部深层 import，非公开 seam；
-   *  校准依据 = AF-10）。 */
-  it("占位页（project/settings）不 import entities/session（施工牌全静态零数据面；skills/trace 实页走公开 seam）", () => {
+  /** 施工牌占位页清单（T2.2 trace / M6 T4 skills / S2 settings 依次出列——
+   *  useSession 公开 provider seam 与 models 实页（S2 归设置页模型分区）
+   *  同型，architecture.md §4.4 禁放的是会话 store 内部深层 import，非
+   *  公开 seam；校准依据 = AF-10）。 */
+  it("占位页（project）不 import entities/session（施工牌全静态零数据面；skills/trace/settings 实页走公开 seam）", () => {
     const offenders = allFiles
-      .filter(
-        (f) => /pages\/(project)\//.test(rel(f)) || rel(f) === "pages/settings/SettingsPage.tsx",
-      )
+      .filter((f) => /pages\/(project)\//.test(rel(f)))
       .filter((f) => sessionInternal.test(stripComments(sourceOf(f))));
     expect(offenders.map(rel)).toEqual([]);
   });

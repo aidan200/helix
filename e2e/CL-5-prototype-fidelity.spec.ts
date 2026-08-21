@@ -369,16 +369,15 @@ test.describe("G11 P-3 抽屉还原清单", () => {
 test.describe("G11 P-4 导航壳还原清单", () => {
   const PAGES = [
     { id: "chat", path: "/" },
-    { id: "models", path: "/models" },
     { id: "skills", path: "/skills" },
     { id: "trace", path: "/trace" },
     { id: "project", path: "/project" },
     { id: "settings", path: "/settings" },
   ] as const;
-  // 施工牌 ×2（trace 已换真 TracePage——f413587；skills 已换真智能体页
-  //——M6 T4；真页还原清单归 CL-5-fidelity-trace-page / CL-skills 套件背书，
+  // 施工牌（S2 后仅 project——trace/skills/settings 均已换真页；真页还原
+  // 清单归 CL-5-fidelity-trace-page / CL-skills / CL-3 套件背书，
   // 此处只断真页锚在场 + 施工牌遇位）
-  const PLACEHOLDERS = PAGES.slice(2).filter((p) => p.id !== "trace" && p.id !== "skills");
+  const PLACEHOLDERS = PAGES.filter((p) => p.id === "project");
 
   test("R-P4-1/4 实跑", async ({ mock, page }) => {
     await mock.connect();
@@ -386,7 +385,7 @@ test.describe("G11 P-4 导航壳还原清单", () => {
     const checks: FidelityCheck[] = [
       {
         id: "R-P4-1",
-        title: "布局：IconRail 64px 常驻 + HelixLogo（S1）+ 六图标钮（序）+ 主题单钮 + 底部头像块",
+        title: "布局：IconRail 64px 常驻 + HelixLogo（S1）+ 五图标钮（序；S2 去 models 位）+ 主题单钮 + 底部头像块",
         run: async () => {
           const rail = page.locator("nav.icon-rail");
           await expect(rail).toBeVisible();

@@ -2,8 +2,9 @@
  * IconRail 导航壳（F(4.4).1；CL-4，Q-4a；T3.4；S1 应用壳统一改造）。
  *
  * 64px glass 竖条 = HelixLogo 渐变图标（S1 用户裁决：替换原 "HX" 文字，
- * 同 chat header 品牌图标；40px 发光外框保留）+ 六图标钮（40×40，序 =
- * chat/models/skills/trace/project/settings，lucide 同名）+ 主题切换
+ * 同 chat header 品牌图标；40px 发光外框保留）+ 五图标钮（40×40，序 =
+ * chat/skills/trace/project/settings，lucide 同名；S2：models 位退役，
+ * 模型配置归设置页分区）+ 主题切换
  * 单钮（Sun/Moon 显示切换目标，置于底部头像块上方）+ 头像块。激活态
  * 三件套（cyan 发光底 + 左 2px 指示条 + BorderBeam 巡游，样式全部在
  * nav-rail.css）；非激活 hover 提亮。
@@ -21,7 +22,7 @@ import type { Theme } from "@/shared/ui/theme";
 
 /** 单个导航位（app 层装配注入；route 为路由常量字符串）。 */
 export interface IconRailItem<T extends string = string> {
-  /** 页 id（chat/models/skills/trace/project/settings；data-page 断言面）。 */
+  /** 页 id（chat/skills/trace/project/settings；data-page 断言面）。 */
   id: string;
   /** 目标路由（点击 pushState 由调用方执行）。 */
   route: T;
@@ -32,7 +33,7 @@ export interface IconRailItem<T extends string = string> {
 
 export interface IconRailProps<T extends string = string> {
   items: readonly IconRailItem<T>[];
-  /** 当前激活路由（六态互斥恰一激活由路由层保证）。 */
+  /** 当前激活路由（五态互斥恰一激活由路由层保证）。 */
   active: T;
   onNavigate: (route: T) => void;
   /** 当前主题（app 层 useTheme 注入；单钮图标 = 切换目标）。 */

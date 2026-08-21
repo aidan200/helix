@@ -252,7 +252,7 @@ async function gateFocusCycle(name) {
       await page.evaluate(() => {
         const el = document.activeElement;
         if (!el || el === document.body) return "body/lost";
-        // 元素身份 = 可聚焦候选集 DOM 序索引（同类名元素唯一化，如六个 rail-btn）
+        // 元素身份 = 可聚焦候选集 DOM 序索引（同类名元素唯一化，如 rail-btn 组）
         const els = [...document.querySelectorAll("button, input, textarea, select, a[href], summary, [tabindex]")];
         const idx = els.indexOf(el);
         const cs = getComputedStyle(el);

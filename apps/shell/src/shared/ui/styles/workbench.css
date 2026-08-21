@@ -268,16 +268,38 @@
 .rail-row-status { flex-shrink: 0; font-size: var(--text-micro); color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .rail-row[data-state="running"] .rail-row-status { color: var(--accent); }
 
-/* ── P-4 路由壳（页面本体 T3.3；返回工作台入口）── */
-.p4-page { position: relative; height: 100dvh; background: var(--bg); overflow-y: auto; }
-.p4-head {
-  position: sticky; top: 0; z-index: 5;
-  display: flex; align-items: center; gap: 14px; height: 48px; padding: 0 16px;
-  border-bottom: 1px solid var(--border); background: var(--bg-panel);
-  backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%);
+/* ── 设置页（S2 实页化：AppLayout 壳组装，分区导航 sidebar；沿 .sidebar/.ses
+   既有侧栏视觉语言——void 底/border 分隔/激活态 bg-selected + accent 边）── */
+.set-nav {
+  width: 216px; flex-shrink: 0;
+  display: flex; flex-direction: column; min-height: 0;
+  border-right: 1px solid var(--border);
+  background: rgb(var(--void-rgb) / 0.55);
+  padding: 12px 10px;
 }
-.p4-title { font-size: var(--text-title); font-weight: 600; color: var(--text); }
-html.light .p4-head { background: rgba(255, 255, 255, 0.6); }
+.set-nav-label {
+  padding: 8px 8px 6px; font-size: var(--text-micro); text-transform: uppercase;
+  letter-spacing: 0.22em; color: var(--text-faint);
+}
+.set-nav-list { display: flex; flex-direction: column; gap: 2px; }
+.set-nav-item {
+  padding: 7px 10px; border-radius: 6px;
+  border: 1px solid transparent;
+  font-family: var(--font-mono); font-size: var(--text-body);
+  color: var(--text-muted); text-align: left; cursor: pointer; background: transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.set-nav-item:hover { background: var(--bg-hover); color: var(--text); }
+.set-nav-item.on {
+  background: var(--bg-selected);
+  border-color: rgb(var(--accent-rgb) / 0.22);
+  color: var(--accent);
+}
+/* 分区标题（原 .p4-title 视觉语言；S2 随页壳退役改设分区一级标题） */
+.pg-title {
+  font-size: var(--text-title); font-weight: 600; color: var(--text);
+  margin: 0 0 14px;
+}
 
 /* ════════════════════════════════════════════════════════
    P-3 模型切换弹出菜单（prototype/P-3-model-menu.html 组件契约
@@ -338,10 +360,10 @@ html.light .p4-head { background: rgba(255, 255, 255, 0.6); }
 .mm-hint { font-size: var(--text-cap); color: var(--text-faint); font-family: var(--font-sans); line-height: 1.45; }
 
 /* ════════════════════════════════════════════════════════
-   P-4 模型与厂商配置页（prototype/P-4-models-config.html 组件契约
-   移植；T3.3）。独立路由版心 940px；头部沿用 p4-head 48px 壳（既有
-   断言面 #btn-p4-back）；T5.3 移除副题/页内主题切换（全局切换归 chat
-   header），版心直起工具卡。
+   模型与厂商配置（prototype/P-4-models-config.html 组件契约
+   移植；T3.3）。S2：独立页退役，迁入设置页模型分区（AppLayout 壳），
+   版心 .pg 保留 940px；T5.3 移除副题/页内主题切换（全局切换归 chat
+   header），版心首项 = 分区标题 + 工具卡。
    ════════════════════════════════════════════════════════ */
 .pg {
   position: relative; z-index: 2;

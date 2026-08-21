@@ -1,7 +1,8 @@
 /**
- * T3.3 —— CL-3 P-4 模型与厂商配置（F(3.4).1-F(3.4).6）。
+ * T3.3 —— CL-3 模型与厂商配置（F(3.4).1-F(3.4).6；S2：迁入设置页模型分区）。
  *
- * 剧本（契约 C model/auth 族；test-design §2 CL-3 表 4-9 组）：
+ * 剧本（契约 C model/auth 族；test-design §2 CL-3 表 4-9 组；S2 入口改走
+ * /settings 页内模型分区，断言锚沿迁移前）：
  * - provider 列表：字母分组 / 已配高亮 + 尾 4 位脱敏 / 未配弱化；
  * - 模型表：展开 provider 显示 id / 上下文 / 四费率（$ / 1M tokens，
  *   tabular-nums；MODEL_CATALOG 字段结构断言）+ 默认行高亮 DEFAULT chip；
@@ -50,10 +51,11 @@ function catalogFrames() {
   ];
 }
 
-/** 进入 P-4 并回放三帧（目录 + 默认 + 凭据清单）。 */
-async function openP4(mock: import("./harness/mock-session").MockController, page: import("@playwright/test").Page) {
-  await page.locator('.rail-btn[data-page="models"]').click();
-  await expect(page).toHaveURL(/\/models$/);
+/** 进入设置页模型分区并回放三帧（目录 + 默认 + 凭据清单；S2 原独立页迁入）。 */
+async function openModelsSection(mock: import("./harness/mock-session").MockController, page: import("@playwright/test").Page) {
+  await page.locator('.rail-btn[data-page="settings"]').click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.locator("[data-models-section]")).toBeVisible();
   await mock.waitForCommand("model.catalog");
   await mock.waitForCommand("model.get_default");
   await mock.waitForCommand("auth.list");
@@ -63,13 +65,13 @@ async function openP4(mock: import("./harness/mock-session").MockController, pag
   await expect(page.locator('[data-prov="anthropic"]')).toBeVisible();
 }
 
-test.describe("T3.3 CL-3 P-4 模型与厂商配置", () => {
+test.describe("T3.3 CL-3 模型与厂商配置（设置页分区）", () => {
   test.beforeEach(async ({ mock }) => {
     await mock.connect();
   });
 
   test("F(3.4).1 provider 列表：字母分组 + 已配高亮脱敏 + 未配弱化 + 连通徽标初值", async ({ mock, page }) => {
-    await openP4(mock, page);
+    await openModelsSection(mock, page);
 
     // 字母分组标签行（A/D/G/M/O/X）
     for (const letter of ["A", "D", "G", "M", "O", "X"]) {
@@ -96,7 +98,7 @@ test.describe("T3.3 CL-3 P-4 模型与厂商配置", () => {
   });
 
   test("F(3.4).4 模型表：展开四费率（tabular-nums 字段结构）+ 默认行高亮 + DEFAULT chip", async ({ mock, page }) => {
-    await openP4(mock, page);
+    await openModelsSection(mock, page);
 
     // 展开 anthropic（prov-body CSS 门控 open）
     await page.locator('[data-prov="anthropic"] [data-prov-toggle]').click();
@@ -125,7 +127,7 @@ test.describe("T3.3 CL-3 P-4 模型与厂商配置", () => {
   });
 
   test("F(3.4).2 key 弹层：空值校验红边内联 + 输入转 clean + 保存命令 + 脱敏回执更新 + 连通重置", async ({ mock, page }) => {
-    await openP4(mock, page);
+    await openModelsSection(mock, page);
 
     // 未配 provider →「配置 key」主按钮 → 弹层
     await page.locator('[data-prov="mistral"] [data-prov-toggle]').click();
@@ -159,7 +161,7 @@ test.describe("T3.3 CL-3 P-4 模型与厂商配置", () => {
   });
 
   test("F(3.4).2 两段式删除：首击 armed 文案 → 二击 auth.delete_key → 回执转未配置", async ({ mock, page }) => {
-    await openP4(mock, page);
+    await openModelsSection(mock, page);
 
     const anthropic = page.locator('[data-prov="anthropic"]');
     await anthropic.locator("[data-prov-toggle]").click();
@@ -184,7 +186,7 @@ test.describe("T3.3 CL-3 P-4 模型与厂商配置", () => {
   });
 
   test("F(3.4).3 连通验证：verifying → ok（含延迟）；重测先清旧态 → fail（含原因）——四态互斥", async ({ mock, page }) => {
-    await openP4(mock, page);
+    await openModelsSection(mock, page);
 
     const anthropic = page.locator('[data-prov="anthropic"]');
     await anthropic.locator("[data-prov-toggle]").click();
@@ -211,7 +213,7 @@ test.describe("T3.3 CL-3 P-4 模型与厂商配置", () => {
   });
 
   test("F(3.4).5 目录刷新：model.catalog_refresh（绕过缓存）+ 转动反馈 + 时间戳更新", async ({ mock, page }) => {
-    await openP4(mock, page);
+    await openModelsSection(mock, page);
 
     // 刷新按钮：in-flight 转动 + 禁用
     const btn = page.locator("#btn-refresh-catalog");
@@ -228,7 +230,7 @@ test.describe("T3.3 CL-3 P-4 模型与厂商配置", () => {
   });
 
   test("F(3.4).6 全局默认：选择器 optgroup 分组 + model.set_default 命令 + 乐观更新与 DEFAULT chip 迁移", async ({ mock, page }) => {
-    await openP4(mock, page);
+    await openModelsSection(mock, page);
 
     const sel = page.locator("#sel-default");
     // 初始值 = get_default 回执
