@@ -163,6 +163,13 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       // v0.6 批内补登（M6 T4 智能体页）：tools 行 snippet 一句话说明（daemon
       // ToolPromptSnippets 注册表同源；presence 防零登记复发）
       { registry: "evt", anchor: "agent.config.list.result", field: "profiles[].tools[].snippet" },
+      // v0.7 批次（T4 web 族）：首登必填字段 presence（防零登记复发）
+      { registry: "evt", anchor: "web.status.result", field: "state" },
+      { registry: "evt", anchor: "web.status.result", field: "tabCount" },
+      { registry: "evt", anchor: "web.status.result", field: "tabs" },
+      { registry: "evt", anchor: "web.stop.result", field: "status" },
+      { registry: "evt", anchor: "web.status.changed", field: "state" },
+      { registry: "evt", anchor: "web.status.changed", field: "tabs" },
     ];
     const missing: string[] = [];
     for (const item of required) {

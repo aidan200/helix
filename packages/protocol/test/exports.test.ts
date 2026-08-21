@@ -191,6 +191,17 @@ type _TypeSurface = [
   protocol.AgentConfigChangedEvent,
   protocol.AgentConfigSetEnabledResultPayload,
   protocol.AgentConfigSetEnabledResultEvent,
+  // 命令/事件目录 v0.7 新增——web 族（T4 联网状态图标；经 index 可达性断言）
+  protocol.WebStatusCommand,
+  protocol.WebStopCommand,
+  protocol.WebConnectionState,
+  protocol.WebBrowserDto,
+  protocol.WebTabDto,
+  protocol.WebStatusPayload,
+  protocol.WebStatusResultEvent,
+  protocol.WebStopResultPayload,
+  protocol.WebStopResultEvent,
+  protocol.WebStatusChangedEvent,
   // 错误模型（契约 §7；v0.2 +command.unimplemented）
   protocol.ErrorCode,
 ];
@@ -207,12 +218,12 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（v0.6：命令 24 / 事件 43；PROTOCOL_VERSION v0.6 批次升位）", () => {
-    expect(protocol.PROTOCOL_VERSION).toBe("0.6"); // v0.6 批次版本位（M6 T3 agent.config 族批次升位，AD-4；契约 = PROTOCOL.md §17.6）
+  test("② 常量语义值 + 目录计数（v0.7：命令 26 / 事件 46；PROTOCOL_VERSION v0.7 批次升位）", () => {
+    expect(protocol.PROTOCOL_VERSION).toBe("0.7"); // v0.7 批次版本位（T4 web 族批次升位，AD-4；契约 = PROTOCOL.md §17.7）
     expect(protocol.MAIN_INSTANCE_ID).toBe("main");
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(24); // v0.6：+2（agent.config.list / agent.config.set_enabled）
-    expect(protocol.EVENT_TYPES.length).toBe(43); // v0.6：+3（agent.config.changed / agent.config.list.result / agent.config.set_enabled.result）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(43); // 登记目录恰等
+    expect(protocol.COMMAND_TYPES.length).toBe(26); // v0.7：+2（web.status / web.stop）
+    expect(protocol.EVENT_TYPES.length).toBe(46); // v0.7：+3（web.status.changed / web.status.result / web.stop.result）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(46); // 登记目录恰等
   });
 });

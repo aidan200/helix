@@ -114,6 +114,13 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `agent-config-changed:${event.payload.profileKind}:${event.payload.resourceType}:${event.payload.name ?? "null"}:${event.payload.enabled}`;
     case "agent.config.set_enabled.result":
       return `agent-config-set-result:${event.payload.status}:${event.payload.status === "skipped" ? event.payload.reason : "-"}`;
+    // ── v0.7 web 族（T4 联网状态图标；result 点对点 + changed 广播）──
+    case "web.status.result":
+      return `web-status-result:${event.payload.state}:${event.payload.tabCount}:${event.payload.tabs.length}`;
+    case "web.stop.result":
+      return `web-stop-result:${event.payload.status}`;
+    case "web.status.changed":
+      return `web-status-changed:${event.payload.state}:${event.payload.tabCount}:${event.payload.browser?.label ?? "-"}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -177,6 +184,11 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `agent-config-list:${cmd.payload.profileKind ?? "all"}`;
     case "agent.config.set_enabled":
       return `agent-config-set:${cmd.payload.profileKind}:${cmd.payload.resourceType}:${cmd.payload.name}:${cmd.payload.enabled}`;
+    // ── v0.7 web 族（T4 联网状态图标）──
+    case "web.status":
+      return "web-status";
+    case "web.stop":
+      return "web-stop";
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;
@@ -221,6 +233,10 @@ export function familyOf(event: EventEnvelope): string {
     case "trace": {
       const t: TypeOfChannel<"trace"> = event.type;
       return `trace/${t}`;
+    }
+    case "web": {
+      const t: TypeOfChannel<"web"> = event.type;
+      return `web/${t}`;
     }
     // interaction 占位族无事件挂靠（_InteractionFamily = never 类型断言守护）：
     // 事件联合中无成员声明 channel: "interaction"，本分支不可达、无需 case。

@@ -1,11 +1,12 @@
 /**
  * 命令目录（C→S，契约 §4 + 契约 B §1 / 契约 C §1；目录文档见同包 PROTOCOL.md）。
  *
- * 共 24 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
+ * 共 26 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
  * auth 族 4）；v0.3 零新增——三处扩展全部为可选参数/字段（tier /
  * instanceId / anchorEntryId，TR-AD-23① 可选参数优先于新命令对）；
  * v0.4 新增 1（trace 族 trace.query，契约 v0.4 §1，iter-20260819-erio T2.1）；
- * v0.6 新增 2（agent.config 族，M6 T3 智能体配置页）。
+ * v0.6 新增 2（agent.config 族，M6 T3 智能体配置页）；
+ * v0.7 新增 2（web 族，T4 联网状态图标）。
  * `CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
  * 分发。会话作用域命令的信封 sessionId 必填（AD-4 路由位，类型层可选、
  * 客户端纪律保证）；全局命令（session.list / model.set_default /
@@ -327,7 +328,27 @@ export interface AgentConfigSetEnabledCommand extends CommandFrame<AgentConfigSe
   type: "agent.config.set_enabled";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24） */
+// ── v0.7 新增：web 族（T4 联网状态图标；daemon BrowserPort 单例 CDP 连接面） ──
+
+/**
+ * web.status 载荷：连接状态读面（全局命令，信封 sessionId 省略；无参）。
+ * 结果帧 = web.status.result 点对点回执（TR-AD-21 模式）。
+ */
+export interface WebStatusCommand extends CommandFrame<EmptyPayload> {
+  type: "web.status";
+}
+
+/**
+ * web.stop 载荷：手动停止写面（全局命令；无参）——关全部受管 tab →
+ * 断 CDP 连接 → 回 idle（幂等，未连接时安全 no-op）。回执 =
+ * web.stop.result 点对点（{status:"applied"}）；状态回流经
+ * web.status.changed 广播。
+ */
+export interface WebStopCommand extends CommandFrame<EmptyPayload> {
+  type: "web.stop";
+}
+
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -352,7 +373,9 @@ export type CommandEnvelope =
   | AuthVerifyCommand
   | TraceQueryCommand
   | AgentConfigListCommand
-  | AgentConfigSetEnabledCommand;
+  | AgentConfigSetEnabledCommand
+  | WebStatusCommand
+  | WebStopCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
@@ -380,6 +403,8 @@ export const COMMAND_TYPES = [
   "trace.query",
   "agent.config.list",
   "agent.config.set_enabled",
+  "web.status",
+  "web.stop",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];
