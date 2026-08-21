@@ -10,6 +10,8 @@
  *   T1 list 渲染：seed 临时 home 技能（user 好 + user 坏 + project 好）→
  *      /skills 进页 → agent.config.list → 双卡渲染（main 8 / sub 5 工具含
  *      snippet；技能来源 chip user/project；invalid_metadata 诊断警示）；
+ *      模型下拉 S3a 可用性口径：auth.json 预置 anthropic key（仅该组
+ *      configured 可见，其余 builtin provider 整组隐藏）；
  *   T2 toggle 全链：关技能 → set_enabled applied（真落库）→ changed 广播
  *      （真 EventStream）→ 页面重拉 → 态翻转；reload 后仍翻转（SQLite 持久）；
  *   T3 model 槽位：下拉选 builtin 目录内模型 → 槽位落库 → changed 重拉刷新；
@@ -38,13 +40,20 @@ function seedSkill(dir: string, name: string, description?: string): void {
   writeFileSync(path.join(dir, "SKILL.md"), `${front}\n\n正文`, "utf8");
 }
 
-/** 预置 home：user 层好/坏技能 + sandbox（toolCwd）project 层技能。 */
+/** 预置 home：user 层好/坏技能 + sandbox（toolCwd）project 层技能 +
+ * anthropic 凭据（S3a 模型下拉可用性过滤：仅 configured 组可见）。 */
 function prepHome(): string {
   const home = mkdtempSync(path.join(tmpdir(), "helix-e2e-agents-"));
   mkdirSync(path.join(home, "sandbox"), { recursive: true });
   seedSkill(path.join(home, "skills", "hello-skill"), "hello-skill", "问候技能：按名字打招呼");
   seedSkill(path.join(home, "skills", "broken-skill"), "broken-skill"); // 缺 description → invalid_metadata
   seedSkill(path.join(home, "sandbox", ".helix", "skills", "proj-skill"), "proj-skill", "工作区评审技能");
+  // auth.json（AD-2：pi 生态 Credential 联合；daemon --home 下凭据文件）
+  writeFileSync(
+    path.join(home, "auth.json"),
+    JSON.stringify({ anthropic: { type: "api_key", key: "sk-e2e-agents-seed" } }),
+    "utf8",
+  );
   return home;
 }
 
@@ -82,9 +91,13 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
     await expect(diag).toHaveCount(1);
     await expect(diag).toContainText("invalid_metadata");
 
-    // 模型下拉：builtin 目录经死代理回落可用（optgroup ≥1）+ 缺省项
+    // 模型下拉：builtin 目录经死代理回落可用 + S3a 可用性口径（auth.list
+    // 到达后仅 configured 组——预置 anthropic key → 只剩 anthropic 组；
+    // 其余 builtin provider 整组隐藏）+ 缺省项
     const sel = page.locator("#sel-model-main-session");
     await expect(sel.locator("optgroup").first()).toBeAttached({ timeout: 15_000 });
+    await expect(sel.locator("optgroup")).toHaveCount(1, { timeout: 10_000 });
+    await expect(sel.locator("optgroup").first()).toHaveAttribute("label", "anthropic");
     expect(await sel.locator("option").first().textContent()).toBe("跟随全局默认");
 
     await shotEvidence(page, "agents-e2e-dark", "CL-skills");
@@ -94,7 +107,7 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
       [
         "M6 T4 CL-skills E 层 agent.config 真链路",
         "断言: list 双层技能目录渲染+诊断+snippet/toggle 落库+changed 广播+reload 持久/",
-        "  模型槽位 set+clear/skipped 磁盘漂移回执",
+        "  模型下拉 S3a 可用性过滤（仅 configured 组）/模型槽位 set+clear/skipped 磁盘漂移回执",
         "结果: PASS",
       ].join("\n"),
       "CL-skills",

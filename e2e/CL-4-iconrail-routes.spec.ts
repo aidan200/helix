@@ -54,7 +54,9 @@ test.describe("T3.4 CL-4 IconRail 页签导航框架", () => {
       await page.goto(`${p.path}${FAKE}`);
       await expect(page.locator("nav.icon-rail")).toBeVisible();
       await expect(page.locator(pageAnchor(p.path))).toBeVisible();
-      // 页面域五态互斥：其余页不渲染（chat 常驻 DOM 但 display 切换隐藏）
+      // 页面域五态互斥：其余页不渲染（chat 常驻 DOM 但 display 切换隐藏）。
+      // S3a：智能体页亦迁 AppLayout（.app-layout 不再唯一）——chat 壳锄定
+      // .route-layer（TP-CL4-2 同锚），防 strict mode 多元素。
       for (const q of PAGES) {
         if (q.path === p.path) continue;
         if (q.path === "/") {

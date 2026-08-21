@@ -1,11 +1,16 @@
 /**
  * 智能体页（M6 T4；skills 施工牌升格，路由 /skills 不动——URL 稳定，导航名
- * 改「智能体」）。
+ * 改「智能体」。S3a 应用壳统一：迁 AppLayout（headerLeft = 页名；main =
+ * 原 ag-body 内容，.pg 版心保留在 main 内），ag-page/ag-head 自建壳与
+ * 页内 scanline 副本退役（氛围层全局单份在 App.tsx；滚动只发生在
+ * .layout-main）。
  *
  * 页面形态（规划 §三定稿）：双 profile kind 卡片——
  * - main-session「主会话助手」：模型槽位下拉（数据 = topology.modelConfig
- *   目录面，P-3/P-4 同源；缺省项「跟随全局默认」= 四级链出厂默认语义，
- *   注解两级关系）+ 工具组（8 项，snippet 一句话）+ 技能组（user/project
+ *   目录面，P-3/P-4 同源；S3a 口径对齐 chat：filterAvailableModels
+ *   configured 过滤 + 当前项兜底 + authLoaded 门控，进页/重连补发
+ *   auth.list；缺省项「跟随全局默认」= 四级链出厂默认语义，注解两级
+ *   关系）+ 工具组（8 项，snippet 一句话）+ 技能组（user/project
  *   来源分组 + 扫描诊断警示）；
  * - subagent-worker：同构，缺省项「跟随会话与全局默认」（三级链），注解
  *   「spawn 时刻定格」语义。
@@ -27,6 +32,9 @@ import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
+import AppLayout from "@/widgets/app-layout/ui/AppLayout";
+import { filterAvailableModels } from "@/features/model-switch/model/available-models";
+import type { AuthProviderEntry } from "@/entities/session/model/state";
 import type { EventEnvelope } from "@helix/protocol";
 import {
   AGENT_KINDS,
@@ -77,6 +85,8 @@ function ProfileCard({
   block,
   skeleton,
   catalog,
+  auth,
+  authLoaded,
   writePending,
   onToggle,
   onModelChange,
@@ -85,6 +95,8 @@ function ProfileCard({
   block: AgentConfigProfileBlock | null;
   skeleton: boolean;
   catalog: CatalogModel[] | null;
+  auth: Record<string, AuthProviderEntry>;
+  authLoaded: boolean;
   writePending: boolean;
   onToggle: (kind: AgentKind, resourceType: WriteResource, name: string, enabled: boolean) => void;
   onModelChange: (kind: AgentKind, model: string) => void;
@@ -92,16 +104,26 @@ function ProfileCard({
   const { t } = useI18n();
   const isMain = kind === "main-session";
   const selId = `sel-model-${kind}`;
-  /** 目录按 provider 分组（P-4 sel-default 先例：optgroup 形态）。 */
+  /** S3a 可用性口径（与 chat P-3 同一过滤函数、同一数据源）：configured
+   * provider join + 当前槽位模型兜底（provider 未配置仍保留，防下拉里
+   * 找不到当前项）+ authLoaded=false 不过滤（防骨架期空列表闪烁）；
+   * 过滤后按 providerId 分组（组间/组内序沿目录；P-4 optgroup 形态）。 */
   const modelsByProvider = useMemo(() => {
+    const visible = filterAvailableModels({
+      models: catalog ?? [],
+      auth,
+      authLoaded,
+      currentModel: block?.model ?? undefined,
+      query: "",
+    });
     const map = new Map<string, CatalogModel[]>();
-    for (const m of catalog ?? []) {
+    for (const m of visible) {
       const list = map.get(m.providerId);
       if (list) list.push(m);
       else map.set(m.providerId, [m]);
     }
     return map;
-  }, [catalog]);
+  }, [catalog, auth, authLoaded, block?.model]);
 
   return (
     <section className="hud-card ag-card" data-agent-card={kind}>
@@ -245,6 +267,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     state: session,
     topology,
     requestModelConfig,
+    requestAuthList,
     sendAgentConfigList,
     sendAgentConfigSetEnabled,
     subscribeAgentConfigFrames,
@@ -263,15 +286,17 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     }
   }, [sendAgentConfigList, t]);
 
-  // 进页拉取：目录面（P-3/P-4 同源请求口）+ 配置读面（mount 一次；
+  // 进页拉取：目录面（P-3/P-4 同源请求口）+ auth.list（S3a 可用性过滤
+  // 数据源，每次进页刷新——P-3/P-4 同口径）+ 配置读面（mount 一次；
   // StrictMode 双效应去重，重连/changed 广播另走专门 effect）
   const mountedListRef = useRef(false);
   useEffect(() => {
     requestModelConfig();
+    requestAuthList();
     if (mountedListRef.current) return;
     mountedListRef.current = true;
     runList();
-  }, [requestModelConfig, runList]);
+  }, [requestModelConfig, requestAuthList, runList]);
 
   /** 最近一次写命令（结果帧无请求回显——skipped 定向清在途用）。 */
   const lastWriteRef = useRef<{ kind: AgentKind; resourceType: WriteResource; name: string } | null>(null);
@@ -318,9 +343,10 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     prevConnRef.current = conn;
     if (prev !== "connected" && conn === "connected" && mountedListRef.current) {
       requestModelConfig();
+      requestAuthList();
       runList();
     }
-  }, [conn, runList, requestModelConfig]);
+  }, [conn, runList, requestModelConfig, requestAuthList]);
 
   /** 写面单飞：pending 非空不再发（结果帧无回显，同刻至多一条在途）。 */
   const onToggle = useCallback(
@@ -344,17 +370,16 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
 
   const view = selectAgentPageView(state);
   const writePending = state.pending.size > 0;
+  const { auth, authLoaded } = topology.modelConfig;
   const catalog = topology.modelConfig.catalog?.models ?? null;
 
+  // S3a AppLayout 组装：headerLeft = 页名（页名进 header 槽固定置顶，
+  // 滚动只发生在 layout-main）；main = 原 ag-body 内容（.pg 版心保留；
+  // data-agents-page 断言锚挂 main 内容根，语义等价——e2e/单测同步）。
+  // 页内 scanline 副本已删（App.tsx 全局单份）。
   return (
-    <div className="ag-page" data-agents-page={path}>
-      <div className="scanline-overlay" aria-hidden="true" />
-      <header className="ag-head">
-        <div className="ag-title-block">
-          <h1 className="ag-title">{t("agents.title")}</h1>
-        </div>
-      </header>
-      <div className="pg ag-body">
+    <AppLayout headerLeft={<h1 className="ag-title">{t("agents.title")}</h1>}>
+      <div className="pg ag-body" data-agents-page={path}>
         {AGENT_KINDS.map((kind) => (
           <ProfileCard
             key={kind}
@@ -362,6 +387,8 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
             block={state.profiles[kind]}
             skeleton={(view === "loading" || view === "idle") && state.profiles[kind] === null}
             catalog={catalog}
+            auth={auth}
+            authLoaded={authLoaded}
             writePending={writePending}
             onToggle={onToggle}
             onModelChange={onModelChange}
@@ -386,7 +413,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
           </div>
         )}
       </div>
-    </div>
+    </AppLayout>
   );
 };
 

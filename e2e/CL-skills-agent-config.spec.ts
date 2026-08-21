@@ -6,10 +6,12 @@
  * - 渲染：双卡片（main 8 工具 / sub 5 工具，snippet 呈现；技能来源分组 +
  *   诊断警示；模型下拉双 kind 缺省项语义 + catalog optgroup）；
  * - 数据链：进页 → agent.config.list（全 kind，全局命令无信封 sessionId）
- *   → list.result 双块渲染；
+ *   + auth.list（S3a 可用性过滤数据源，P-3 同口径）→ list.result 双块渲染；
  * - toggle：点击工具开关 → agent.config.set_enabled 命令 payload 断言 →
  *   applied 回执 → changed 广播 → 重拉 list → 态翻转（事件驱动）；
  * - skipped：全集外名回执 → toast 呈现原因 + 开关态不翻转；
+ * - 模型下拉可用性（S3a）：configured 过滤 + 当前槽位模型兑底（P-3 同一
+ *   filterAvailableModels）；
  * - a11y：开关 role=switch + aria-checked；导航名「智能体」；
  * - 双主题：DARK/LIGHT 渲染 + 证据截图。
  */
@@ -19,6 +21,7 @@ import {
   agentConfigChanged,
   agentConfigListResult,
   agentConfigSetResult,
+  authListResult,
   catalogModel,
   modelCatalogResult,
   snapshot,
@@ -97,7 +100,8 @@ const SUB_BLOCK: AgentConfigProfileBlock = {
   model: null,
 };
 
-/** 进页 + 回放 list 双块 + 目录（P-3/P-4 同源 catalog 数据面）。 */
+/** 进页 + 回放 list 双块 + 目录（P-3/P-4 同源 catalog 数据面）+ auth.list
+ * （S3a 可用性过滤数据源；双 provider 均 configured → 全目录在场）。 */
 async function openAgents(mock: import("./harness/mock-session").MockController, page: import("@playwright/test").Page) {
   await page.goto(`/skills${FAKE}`);
   await mock.awaitReady();
@@ -112,7 +116,12 @@ async function openAgents(mock: import("./harness/mock-session").MockController,
   await mock.emitAll([welcome({}), snapshot([], {})]);
   await mock.waitForCommand("agent.config.list");
   await mock.waitForCommand("model.catalog");
+  await mock.waitForCommand("auth.list"); // S3a：进页补发 auth.list（P-3 同口径）
   await mock.emit(modelCatalogResult(catalog, { source: "cache" }));
+  await mock.emit(authListResult([
+    { providerId: "anthropic", configured: true, keyMasked: "····e2e1" },
+    { providerId: "openai", configured: true, keyMasked: "····e2e2" },
+  ]));
   await mock.emit(agentConfigListResult([MAIN_BLOCK, SUB_BLOCK]));
   await expect(page.locator('[data-agents-page="/skills"]')).toBeVisible();
   await expect(page.locator('[data-tool-row="bash"]')).toHaveCount(2); // 双卡各一行
@@ -309,4 +318,30 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
       "CL-skills",
     );
   });
+  test("⑥ 模型下拉可用性口径（S3a）：configured 过滤 + 当前槽位兑底（与 P-3 同一过滤函数）", async ({ mock, page }) => {
+    await openAgents(mock, page);
+
+    const sel = page.locator("#sel-model-main-session");
+    // 基线：双 provider 均 configured → 全目录两组在场
+    await expect(sel.locator("optgroup")).toHaveCount(2);
+
+    // ① configured 过滤：openai 撤销配置 → openai 组整体隐藏（子卡同步）
+    await mock.emit(authListResult([
+      { providerId: "anthropic", configured: true, keyMasked: "····e2e1" },
+      { providerId: "openai", configured: false },
+    ]));
+    await expect(sel.locator("optgroup")).toHaveCount(1);
+    await expect(sel.locator("optgroup").first()).toHaveAttribute("label", "anthropic");
+    // 缺省项 + anthropic 双模型 = 3 项（openai 模型不在场）
+    await expect(sel.locator("option")).toHaveCount(3);
+    await expect(page.locator("#sel-model-subagent-worker").locator("optgroup")).toHaveCount(1);
+
+    // ② 当前槽位兑底：main 已配 openai 模型但 provider 未 configured → 仍可见
+    //（防配置了不可用模型的 agent 在下拉里找不到当前项；与 P-3 当前项兑底同语义）
+    await mock.emit(agentConfigListResult([{ ...MAIN_BLOCK, model: "openai/gpt-5.2" }, SUB_BLOCK]));
+    await expect(sel).toHaveValue("openai/gpt-5.2");
+    await expect(sel.locator("optgroup")).toHaveCount(2); // openai 组仅兑底项回场
+    await expect(sel.locator("option")).toHaveCount(4);
+  });
+
 });
