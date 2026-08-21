@@ -3,7 +3,7 @@
  * FakeLLM，浏览器经真 WebSocket 直连）。
  *
  * 与 playwright.config.ts（F 层 mock mode）的区别：
- * - 只挑 E 层 spec（testMatch 六个文件），workers=1 串行——固定 daemon 端口
+ * - 只挑 E 层 spec（testMatch 命中 19 个 spec 文件），workers=1 串行——固定 daemon 端口
  *   5333 由各 test 独占复用（每 test 新 tmp home，串行避免端口竞争）；
  * - webServer：vite dev（基线 A，源码直跑）以 VITE_HELIX_PORT=5333 启动——
  *   构建产物/页面代码不改，仅环境变量指定 daemon 地址（禁改生产源码）；

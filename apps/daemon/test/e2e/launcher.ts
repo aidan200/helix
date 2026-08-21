@@ -25,6 +25,7 @@ import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
+import { CdpConnectionManager } from "../../src/adapters/driven/cdp/CdpConnectionManager";
 import { buildModels } from "../../src/adapters/driven/pi-engine/model-provider";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import type { AgentOrchestrationPort, SpawnOutcome, SendOutcome, KillOutcome, AgentInstanceStatus } from "../../src/application/ports/inbound/AgentOrchestrationPort";
@@ -259,7 +260,15 @@ async function main(): Promise<void> {
   const subagentScript: SubagentScript = subagentScriptPath
     ? (JSON.parse(readFileSync(subagentScriptPath, "utf8")) as SubagentScript)
     : [];
-  const executor = new CoreToolExecutor({ cwd: toolCwd ?? process.cwd(), orchestration: lazyOrchestration });
+  // T3r 跟随（T0.1 实跑修复）：MainSessionProfile 声明 browser 工具后，
+  // executor 缺 browser 注册面会在 daemon 启动 resolveTools 即 fatal
+  // （与生产组合根同构：browserPort 懒连接，E 层剧本零 browser 调用即
+  // 零真实连接；homeDir 用 --home tmp，TR-TEST-4 真实 ~/.helix 零触碰）。
+  const executor = new CoreToolExecutor({
+    cwd: toolCwd ?? process.cwd(),
+    orchestration: lazyOrchestration,
+    browser: new CdpConnectionManager({ homeDir: home! }),
+  });
   // SubAgent runner（T5.2）：真子进程模式（--subagent-engine-script，K3 剧本
   // 引擎注入真 SubagentLauncher——agent_spawn 真实 spawn detached 子进程，
   // teardown 兜底回收观测面）优先；缺省进程内剧本 runner（R1~R3 无子进程）。
