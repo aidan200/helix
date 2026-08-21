@@ -442,6 +442,8 @@ export interface AgentsTranslations {
   toolsLabel: string;
   skillsLabel: string;
   skillsEmpty: string;
+  /** builtin 来源组标签（T5 内置技能组「内置」；user/project 组标签沿用原字面量）。 */
+  skillSourceBuiltin: string;
   diagLabel: string;
   loading: string;
   errorTitle: string;

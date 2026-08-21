@@ -15,10 +15,10 @@ import { v06Commands, v06Events } from "./samples/v06";
 import { v07Commands, v07Events } from "./samples/v07";
 
 // ── 类型级断言（编译期；任一不满足 → tsc --noEmit 失败） ──
-// 命令目录常量 ↔ 命令信封联合 type 集合双向一致（v0.7：26 个）
+// 命令目录常量 ↔ 命令信封联合 type 集合双向一致（v0.8：26 个）
 type _CommandSync = Expect<Equal<EnvelopeTypeOf<CommandEnvelope>, (typeof COMMAND_TYPES)[number]>>;
 
-// 事件目录常量 ↔ 事件信封联合 type 集合双向一致（v0.7 口径：46 个）
+// 事件目录常量 ↔ 事件信封联合 type 集合双向一致（v0.8 口径：46 个）
 type _EventSync = Expect<Equal<EnvelopeTypeOf<EventEnvelope>, (typeof EVENT_TYPES)[number]>>;
 
 type V01CommandTypes = "agent.kill" | "agent.subscribe" | "agent.unsubscribe";

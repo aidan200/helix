@@ -212,12 +212,13 @@ function ProfileCard({
         ) : (block?.skills ?? []).length === 0 ? (
           <p className="ag-empty-hint">{t("agents.skillsEmpty")}</p>
         ) : (
-          (["user", "project"] as const).map((source) => {
+          // T5 三源分组：builtin（内置——不可禁用，开关恒禁用态）/ user / project
+          (["user", "project", "builtin"] as const).map((source) => {
             const rows = (block?.skills ?? []).filter((s) => s.source === source);
             if (rows.length === 0) return null;
             return (
               <div data-source-group={source} key={source}>
-                <div className="ag-src-label">{source}</div>
+                <div className="ag-src-label">{source === "builtin" ? t("agents.skillSourceBuiltin") : source}</div>
                 {rows.map((skill) => (
                   <div className="ag-row" data-skill-row={skill.name} key={skill.filePath}>
                     <div className="ag-row-main">
@@ -232,7 +233,7 @@ function ProfileCard({
                     <AgentSwitch
                       name={skill.name}
                       checked={skill.enabled}
-                      disabled={writePending}
+                      disabled={source === "builtin" || writePending}
                       onToggle={() => onToggle(kind, "skill", skill.name, !skill.enabled)}
                     />
                   </div>

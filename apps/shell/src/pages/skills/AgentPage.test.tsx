@@ -48,6 +48,14 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
       source: "project",
       enabled: false,
     },
+    {
+      // T5 builtin 第三源：内置技能行（不可禁用——开关恒禁用态）
+      name: "web-access",
+      description: "联网操作指引",
+      filePath: "/daemon/resources/skills/web-access/SKILL.md",
+      source: "builtin",
+      enabled: true,
+    },
   ],
   diagnostics: [
     { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/ws/.helix/skills/broken/SKILL.md", source: "project" },
@@ -159,7 +167,7 @@ function feed(frame: EventEnvelope): void {
 
 function feedList(mainOver: Partial<AgentConfigProfileBlock> = {}, subOver: Partial<AgentConfigProfileBlock> = {}): void {
   feed({
-    v: "0.7",
+    v: "0.8",
     sessionId: "__system__",
     channel: "agent",
     type: "agent.config.list.result",
@@ -169,7 +177,7 @@ function feedList(mainOver: Partial<AgentConfigProfileBlock> = {}, subOver: Part
 
 function feedSetResult(payload: { status: "applied" } | { status: "skipped"; reason: string }): void {
   feed({
-    v: "0.7",
+    v: "0.8",
     sessionId: "__system__",
     channel: "agent",
     type: "agent.config.set_enabled.result",
@@ -233,6 +241,14 @@ describe("智能体页组件（M6 T4）", () => {
     expect(
       (document.querySelector('[data-switch="ws-skill"]') as HTMLButtonElement).getAttribute("aria-checked"),
     ).toBe("false");
+    // builtin 组（T5）：「内置」组标签 + 来源 chip + 开关恒禁用（不可禁用语义）
+    const builtinGroup = document.querySelector('[data-source-group="builtin"]')!;
+    expect(builtinGroup).toBeTruthy();
+    expect(builtinGroup.querySelector(".ag-src-label")!.textContent).toBe("内置");
+    expect(document.querySelector('[data-skill-row="web-access"] [data-source-chip]')!.textContent).toBe("builtin");
+    const builtinSwitch = document.querySelector('[data-switch="web-access"]') as HTMLButtonElement;
+    expect(builtinSwitch.disabled).toBe(true);
+    expect(builtinSwitch.getAttribute("aria-checked")).toBe("true");
     // 诊断警示（invalid_metadata + 文案 + 路径）
     const diag = document.querySelector("[data-diag-row]")!;
     expect(diag.textContent).toContain("invalid_metadata");

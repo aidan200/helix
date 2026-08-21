@@ -96,12 +96,12 @@ export interface AgentConfigProfileBlock {
     name: string;
     description: string;
     filePath: string;
-    /** 来源层：user（~/.helix/skills）/ project（工作区 .helix/skills）。 */
-    source: "user" | "project";
+    /** 来源层：user（~/.helix/skills）/ project（工作区 .helix/skills）/ builtin（daemon 随仓 resources/skills，v0.8）。 */
+    source: "user" | "project" | "builtin";
     enabled: boolean;
   }>;
   /** 扫描诊断（code/message/path/source；SkillScanner 域形状同构）。 */
-  diagnostics: ReadonlyArray<{ code: string; message: string; path: string; source: "user" | "project" }>;
+  diagnostics: ReadonlyArray<{ code: string; message: string; path: string; source: "user" | "project" | "builtin" }>;
   /** model 槽位现值（未设 = null）。 */
   model: string | null;
 }

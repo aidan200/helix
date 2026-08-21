@@ -46,7 +46,7 @@ import { SqliteSessionRepository } from "../adapters/driven/sqlite-session/Sqlit
 import { SqliteTraceQueryAdapter } from "../adapters/driven/sqlite-session/SqliteTraceQueryAdapter";
 import type { TraceQueryPort } from "../domain/trace/TraceQueryPort";
 import type { ProfileSnapshotData } from "../domain/events/DomainEvent";
-import { createPaths, osHomeDir, type HelixPaths } from "./paths";
+import { createPaths, builtinSkillsDir, osHomeDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig } from "./config";
 import { ensureDevToken } from "./dev-token";
 import { createFileLogger, type Logger } from "./logging";
@@ -111,6 +111,11 @@ export interface DaemonOptions {
   readonly skipConfig?: boolean;
   /** 工具沙箱 cwd 覆盖（测试指向 tmp；缺省为进程工作区）。 */
   readonly toolCwd?: string;
+  /**
+   * builtin 层技能目录覆盖（T5 测试注入口：integration 注入空 tmp 目录隔离
+   * 恰等断言；缺省 = paths.builtinSkillsDir() 随仓真目录——目录缺失静默跳过）。
+   */
+  readonly builtinSkillsDir?: string;
   /**
    * SubAgent runner 覆盖（T2.3 测试注入口：integration 注入 fake runner 驱动
    * 收口时序；缺省装配 SubagentLauncher 真体 / skipConfig 占位替身）。
@@ -199,15 +204,17 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   const defaultModel = new DefaultModelStore(writeQueue, DEFAULT_MODEL_ID);
   const catalog = new ModelCatalog({ storePath: paths.modelsStorePath() });
 
-  // ── M6 T1 资源数据域：resource_state 差异行 + 双层技能扫描 + 合取服务 ──
+  // ── M6 T1 资源数据域：resource_state 差异行 + 三层技能扫描 + 合取服务 ──
   // tools 全集从两 profile 声明面构建注入（AG-02：application 不得反向
   // import driven 层 profiles——组合根单向传映射表）；project 层技能根
-  // 与 toolCwd 同款工作区型判定（启动时定格，不做监听）。
+  // 与 toolCwd 同款工作区型判定（启动时定格，不做监听）；builtin 层 =
+  // daemon 随仓 resources/skills（T5 第三源，paths 单点派生）。
   const toolCwd = options.toolCwd ?? process.cwd();
   const resourceState = new ResourceStateStore(writeQueue);
   const skillScanner = new SkillScanner({
     userSkillsDir: paths.skillsHome(),
     projectSkillsDir: path.join(toolCwd, ".helix", "skills"),
+    builtinSkillsDir: options.builtinSkillsDir ?? builtinSkillsDir(),
     cwd: toolCwd,
   });
   const resourceService = new ResourceService({

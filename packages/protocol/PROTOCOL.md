@@ -1,9 +1,9 @@
-# Helix WS 协议 v0.7
+# Helix WS 协议 v0.8
 
-> 当前版本位 `PROTOCOL_VERSION = "0.7"`（envelope.ts）；§1–§9 为 v0 基线，
+> 当前版本位 `PROTOCOL_VERSION = "0.8"`（envelope.ts）；§1–§9 为 v0 基线，
 > §10–§14 为 v0.1–v0.4 演进登记与微批备案（历史批）；
 > §15–§17 为现状全集总登记（26 命令 / 46 事件 payload 形状）与 SoT 守护口径
->（v0.7 = 当前，见 §17.7）。
+>（v0.8 = 当前，见 §17.8）。
 
 > 包：`@helix/protocol`（本目录）。类型唯一权威源——daemon（T1.6）与前端
 > shell（T1.7）共同 import，**仓库内禁止平行手写协议类型**（AD-8 / AG-13）。
@@ -25,23 +25,23 @@
 ```
 客户端                                        daemon (ws-server)
   │ ── WS connect ws://127.0.0.1:port ─────→ │  TCP / HTTP 升级
-  │ ── { v:"0.7", type:"hello",               │  校验 token（与 ~/.helix/dev-token 比对）
-  │      payload:{ token,                     │  校验 protocolVersion = "0.7"
-  │             protocolVersion:"0.7" } } ───→ │
+  │ ── { v:"0.8", type:"hello",               │  校验 token（与 ~/.helix/dev-token 比对）
+  │      payload:{ token,                     │  校验 protocolVersion = "0.8"
+  │             protocolVersion:"0.8" } } ───→ │
   │                                           │
-  │ ←─ { v:"0.7", type:"connection.welcome",  │  通过：sessionId / model / agentState
+  │ ←─ { v:"0.8", type:"connection.welcome",  │  通过：sessionId / model / agentState
   │      payload:{ sessionId, model,          │
   │               agentState } } ────────────│
-  │ ←─ { v:"0.7", type:"session.snapshot",    │  随后立即推全量快照
+  │ ←─ { v:"0.8", type:"session.snapshot",    │  随后立即推全量快照
   │      payload:{ snapshot: SessionSnapshotDto } } │
   │                                           │
-  │ ←─ { v:"0.7", type:"connection.error",    │  拒绝：先发 error 帧再 close
+  │ ←─ { v:"0.8", type:"connection.error",    │  拒绝：先发 error 帧再 close
   │      payload:{ code, message } } ────────│
 ```
 
 - **重连恢复 = 快照 + 增量**（AD-16）：重连后重新握手 → 收快照重建投影 → 续增量；首连空会话 = `snapshot.entries` 为空数组。
 - **草稿握手分支（T4，§14.1）**：当前会话为零条目内存草稿时 welcome 携带 `draft:true`，不 attach 不推快照；真实会话握手维持上图时序。
-- **拒绝三分支**(TP-CL6-5):无 `token` 字段 → `auth.missing_token`;token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`;`protocolVersion ≠ "0.7"`（含信封 `v ≠ "0.7"`）→ `protocol.version_unsupported`。
+- **拒绝三分支**(TP-CL6-5):无 `token` 字段 → `auth.missing_token`;token 与 `~/.helix/dev-token` 不符 → `auth.invalid_token`;`protocolVersion ≠ "0.8"`（含信封 `v ≠ "0.8"`）→ `protocol.version_unsupported`。
 - 客户端浏览器侧获取 dev token 的机制已由 T1.6 钉死：daemon HTTP 端点 `GET /helix-dev-token`（见 §9）。
 
 ## 3. 统一信封
@@ -49,12 +49,12 @@
 ```ts
 // 本代码块为 packages/protocol/src/envelope.ts 现行定义的忠实呈现（F(2).2 对齐，逐项抄源）。
 
-/** 协议版本位。v0.7 帧 `v` 恒为 "0.7"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
-export const PROTOCOL_VERSION = "0.7" as const;
+/** 协议版本位。v0.8 帧 `v` 恒为 "0.8"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
+export const PROTOCOL_VERSION = "0.8" as const;
 
 /**
- * 帧版本位取值域："0.7" = 当前批（v0.7）帧；`0` = v0/v0.1 历史帧（信封兼容读
- * 的类型面）。handshake 的 HelloPayload.protocolVersion 不取联合（严格 "0.7" 单值）。
+ * 帧版本位取值域："0.8" = 当前批（v0.8）帧；`0` = v0/v0.1 历史帧（信封兼容读
+ * 的类型面）。handshake 的 HelloPayload.protocolVersion 不取联合（严格 "0.8" 单值）。
  */
 export type FrameVersion = 0 | typeof PROTOCOL_VERSION;
 
@@ -65,7 +65,7 @@ export interface WorkspaceRoute {
 
 /** C→S 命令信封基型（契约 A §1.1）。具体命令信封以 `type` 字面量收窄并实例化 `payload`。 */
 export interface CommandFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.7"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：当前批帧 "0.8"；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /** 消息目录名（如 "chat.send" / "session.loadHistory"） */
   type: string;
@@ -81,7 +81,7 @@ export interface CommandFrame<T = unknown> {
 
 /** S→C 事件信封基型（v0.2 统一事件信封，契约 A §1.2；AD-3/AD-4）。 */
 export interface EventFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.7"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：当前批帧 "0.8"；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /** 事件归属会话（v0.2 新增，AD-4）：S→C 运行时必发；系统事件以 SYSTEM_SESSION_ID 占位 */
   sessionId?: string;
@@ -190,19 +190,19 @@ export interface ToolCallEntryDto {
 |---|---|---|
 | `auth.missing_token` | 握手：无 token 字段 | 发 error 帧后 **close** |
 | `auth.invalid_token` | 握手：token 与 dev-token 不符 | 发 error 帧后 **close** |
-| `protocol.version_unsupported` | 握手：protocolVersion ≠ 当前版本位（"0.7"） | 发 error 帧后 **close** |
+| `protocol.version_unsupported` | 握手：protocolVersion ≠ 当前版本位（"0.8"） | 发 error 帧后 **close** |
 | `command.unknown` | 命令：未知 type | 发 error 帧，**连接保持** |
 | `command.invalid_payload` | 命令：payload 不符 | 发 error 帧，**连接保持** |
 | （连接层异常） | 非 WS 帧垃圾数据等 | 不发帧直接 close，前端走重连状态机 |
 
 - **daemon 实现超集注记（D-3）**：daemon 握手期**同时校验**信封 `v` 与
-  `hello.protocolVersion` 不等于当前版本位（"0.7"），两者均以
+  `hello.protocolVersion` 不等于当前版本位（"0.8"），两者均以
   `protocol.version_unsupported` 同码拒绝（实现严于本文档仅列
   `protocolVersion` 的口径，属良性收紧）。
 
 ## 8. 版本与演进
 
-- 版本位内建（AD-9）：`v: "0.7"`（当前）；协议不兼容变更时 bump
+- 版本位内建（AD-9）：`v: "0.8"`（当前）；协议不兼容变更时 bump
   `PROTOCOL_VERSION` 并同步本包类型与本文档，旧版本以
   `protocol.version_unsupported` 拒绝。
 - 演进登记：v0.1 additive（§10，未 bump 版本位）；v0.2 一次 bump、版本位转
@@ -212,8 +212,10 @@ export interface ToolCallEntryDto {
   批次集合标记非协商位）；v0.5（§17.5：payload 全量回迁 §15/§16 +
   SoT 守护口径 + 版本位 `"0.4" → "0.5"`，零新增命令/事件）；v0.6（§17.6：
   agent.config 族 2 命令 + 3 事件 additive + 版本位 `"0.5" → "0.6"`）；
-  **v0.7 = 当前**（§17.7：web 族 2 命令 + 3 事件 additive + 版本位
-  `"0.6" → "0.7"`）。
+  v0.7（§17.7：web 族 2 命令 + 3 事件 additive + 版本位
+  `"0.6" → "0.7"`）；**v0.8 = 当前**（§17.8：agent.config 读面 skills/
+  diagnostics 的 source 字面量联合扩 builtin——零新增命令/事件 + 版本位
+  `"0.7" → "0.8"`）。
 - v0 语义边界：workspace 路由**仅类型预留**（§3）；`session.subscribe` /
   `session.unsubscribe` 仅保通路语义（v0 主会话默认订阅）。
 - 前端重连语义（状态机转换规则 = 契约，节奏实现自定）：断线 → 自动重连
@@ -1216,7 +1218,7 @@ spawn 工具秒回出卡（不等执行，AD-8 异步交付）。
 | `profiles[].profileKind` | `"main-session" \| "subagent-worker"` | 必填 | v0.6 | 归属 kind |
 | `profiles[].tools` | `{ name, enabled, snippet }[]` | 必填 | v0.6 | tools 全集 + 启停态（缺省无记录 = 启用） |
 | `profiles[].tools[].snippet` | `string` | 必填 | v0.6 | 工具一句话说明（daemon ToolPromptSnippets 注册表同源；M6 T4 批内补登；注册表外名 = 空串） |
-| `profiles[].skills` | `{ name, description, filePath, source, enabled }[]` | 必填 | v0.6 | 扫描全集 + 启停态（source = user/project 双层目录标签） |
+| `profiles[].skills` | `{ name, description, filePath, source, enabled }[]` | 必填 | v0.6 | 扫描全集 + 启停态（source = user/project/builtin 三层目录标签；v0.8 扩 builtin——daemon 随仓内置技能，不可禁用读面恒 enabled=true） |
 | `profiles[].diagnostics` | `{ code, message, path, source }[]` | 必填 | v0.6 | 扫描诊断（坏文件上抛不炸） |
 | `profiles[].model` | `string \| null` | 必填 | v0.6 | model 槽位现值（未设 = null） |
 
@@ -1512,3 +1514,18 @@ TR-AD-18 同构口径）。版本位 `"0.6" → "0.7"`（envelope.ts 单点；�
 web.stop.result 点对点 + web.status.changed 广播回流）+ 状态变更广播
 （BrowserPort onStatusChange 四时机，SYSTEM_SESSION_ID 全连接下发）；
 changed 广播 payload 与 status.result 同形状含 tabs（popover 实时清单）。
+
+### 17.8 v0.8 批次登记
+
+v0.8 = SKILL.md 内置第三源（T5，TR-AD-23① additive 口径）：`agent.config.list.result`
+的 `profiles[].skills[].source` 与 `profiles[].diagnostics[].source` 字面量联合
+`"user" | "project"` → `"user" | "project" | "builtin"`（daemon 随仓
+resources/skills 内置技能——产品不可删改，set_enabled 对其返回
+skipped(builtin-immutable) 不落禁用记录，读面恒 enabled=true）。**零新增
+命令/事件**（`COMMAND_TYPES` 26 / `EVENT_TYPES` 46 计数不变），零改既有
+命令/事件其它形状。版本位 `"0.7" → "0.8"`（envelope.ts 单点；批次集合
+标记非协商位，Q-1c 单仓同发一步替换，运行时代码与测试零 `"0.7"` 残留——
+豁免：§1–§13/§17.5/§17.6/§17.7 演进备案节的历史版本登记字面量合法保留）；
+`FrameVersion = 0 | "0.8"`。handshake 严格单值 fail-fast：
+`protocolVersion ≠ "0.8"` 即 `protocol.version_unsupported` 拒绝。
+（v0.9 起 v0.8 转为历史批。）

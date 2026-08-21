@@ -260,6 +260,7 @@ const REQUIRED_KEYS = [
   "agents.toolsLabel",
   "agents.skillsLabel",
   "agents.skillsEmpty",
+  "agents.skillSourceBuiltin",
   "agents.diagLabel",
   "agents.loading",
   "agents.errorTitle",

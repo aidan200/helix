@@ -191,7 +191,7 @@ type _TypeSurface = [
   protocol.AgentConfigChangedEvent,
   protocol.AgentConfigSetEnabledResultPayload,
   protocol.AgentConfigSetEnabledResultEvent,
-  // 命令/事件目录 v0.7 新增——web 族（T4 联网状态图标；经 index 可达性断言）
+  // 命令/事件目录 v0.8 新增——web 族（T4 联网状态图标；经 index 可达性断言）
   protocol.WebStatusCommand,
   protocol.WebStopCommand,
   protocol.WebConnectionState,
@@ -218,8 +218,8 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（v0.7：命令 26 / 事件 46；PROTOCOL_VERSION v0.7 批次升位）", () => {
-    expect(protocol.PROTOCOL_VERSION).toBe("0.7"); // v0.7 批次版本位（T4 web 族批次升位，AD-4；契约 = PROTOCOL.md §17.7）
+  test("② 常量语义值 + 目录计数（v0.8：命令 26 / 事件 46；PROTOCOL_VERSION v0.8 批次升位）", () => {
+    expect(protocol.PROTOCOL_VERSION).toBe("0.8"); // v0.8 批次版本位（T5 builtin 技能第三源批次升位，AD-4；契约 = PROTOCOL.md §17.8）
     expect(protocol.MAIN_INSTANCE_ID).toBe("main");
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
     expect(protocol.COMMAND_TYPES.length).toBe(26); // v0.7：+2（web.status / web.stop）

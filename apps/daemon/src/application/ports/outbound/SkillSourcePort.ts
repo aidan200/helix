@@ -4,13 +4,15 @@
  * loadSourcedSkills；pi 的 Skill/Diagnostic 类型不得越出防腐墙——
  * helix 域形状在本文件单点定义）。
  *
- * 双层目录（M6 §三裁决）：user 层 = <home>/skills（paths.skillsHome 单点
- * 派生）；project 层 = <工作区>/.helix/skills（启动时定格，与 toolCwd
- * 同款工作区型语义，不做监听）。目录缺失静默跳过（首启常态）。
+ * 三层目录（M6 §三裁决双层 + T5 内置第三源）：user 层 = <home>/skills
+ * （paths.skillsHome 单点派生）；project 层 = <工作区>/.helix/skills（启动
+ * 时定格，与 toolCwd 同款工作区型语义，不做监听）；builtin 层 = daemon
+ * 随仓 resources/skills（paths.builtinSkillsDir 单点派生，产品不可删改
+ * ——不可禁用防护在 ResourceService 写面）。目录缺失静默跳过（首启常态）。
  */
 
-/** 技能来源层：user（~/.helix/skills）/ project（工作区 .helix/skills）。 */
-export type SkillSource = "user" | "project";
+/** 技能来源层：user（~/.helix/skills）/ project（工作区 .helix/skills）/ builtin（daemon 随仓 resources/skills，T5）。 */
+export type SkillSource = "user" | "project" | "builtin";
 
 /** helix 域技能描述符（扫描产物的最小完备面：T2 提示注入三字段 + source 标签）。 */
 export interface SkillDescriptor {

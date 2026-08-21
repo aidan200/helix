@@ -125,6 +125,7 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
       cliInput: new PassThrough(),
       cliOutput: new PassThrough(),
       toolCwd: workspace,
+      builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     try {
       // run 1：注入引擎形态的初始提示 = 测试 profile 常量（瘦身 base，无工具
@@ -171,6 +172,7 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
       cliInput: new PassThrough(),
       cliOutput: new PassThrough(),
       toolCwd: workspace,
+      builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     try {
       // run 1：注入引擎形态初始 = base 常量（无段落）
@@ -208,6 +210,7 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
       cliInput: new PassThrough(),
       cliOutput: new PassThrough(),
       toolCwd: workspace,
+      builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     try {
       await daemon.chat.sendMessage("first");
@@ -233,6 +236,7 @@ describe("main model 槽位：读面生效 + 活跃 runtime 不强推（M6 T2 �
       cliInput: new PassThrough(),
       cliOutput: new PassThrough(),
       toolCwd: workspace,
+      builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     try {
       const sid = daemon1.registry.currentSessionId();
@@ -252,6 +256,7 @@ describe("main model 槽位：读面生效 + 活跃 runtime 不强推（M6 T2 �
       cliInput: new PassThrough(),
       cliOutput: new PassThrough(),
       toolCwd: workspace,
+      builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     try {
       const sid2 = daemon2.registry.currentSessionId();
@@ -274,6 +279,7 @@ describe("SubAgent spawn 快照容器级（生产 launcher，M6 T2 acceptance �
       cliInput: new PassThrough(),
       cliOutput: new PassThrough(),
       toolCwd: workspace,
+      builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     const real = Bun.spawn;
     const calls: Array<{ env: Record<string, string | undefined> }> = [];

@@ -53,6 +53,16 @@ export function osHomeDir(): string {
   return os.homedir();
 }
 
+/**
+ * daemon 内置技能目录（T5 builtin 第三源）：`<包根>/resources/skills`
+ * ——随仓发布、产品不可删改（不可禁用防护在 ResourceService 写面）。
+ * 与 home 无关故不入 HelixPaths 派生集；import.meta.dir 相对解析（bun 从
+ * src 直跑 .ts——src/infrastructure/ 上溯两级 = apps/daemon 包根）。
+ */
+export function builtinSkillsDir(): string {
+  return path.join(import.meta.dir, "..", "..", "resources", "skills");
+}
+
 /** 构建全部派生路径（AD-13 §7.1 目录布局）。 */
 export function createPaths(explicitHome?: string): HelixPaths {
   const home = resolveHome(explicitHome);

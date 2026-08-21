@@ -140,6 +140,7 @@ async function makeRig(): Promise<Rig> {
     cliInput: new PassThrough(),
     cliOutput: new PassThrough(),
     toolCwd: workspace,
+    builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
   });
   const token = readFileSync(path.join(home, "dev-token"), "utf8");
   return {

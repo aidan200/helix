@@ -97,13 +97,13 @@ type _CompactionFilesCompacted = Expect<Equal<CompactionCompletedPayload["filesC
 // @ts-expect-error steerState 不存在于 ToolCallEntryDto
 const badToolEntry: ToolCallEntryDto = { kind: "tool-call", id: "x", name: "n", args: "{}", state: "done", ts: 1, steerState: "queued" };
 
-// 负向断言：v 位不接受目录外版本（0/"0.7" 之外）
-// @ts-expect-error v 位必须是 FrameVersion（0 | "0.7"）
-const badVersion: HelloCommand = { v: 1, type: "hello", payload: { token: "t", protocolVersion: "0.7" } };
+// 负向断言：v 位不接受目录外版本（0/"0.8" 之外）
+// @ts-expect-error v 位必须是 FrameVersion（0 | "0.8"）
+const badVersion: HelloCommand = { v: 1, type: "hello", payload: { token: "t", protocolVersion: "0.8" } };
 
-// 负向断言（v0.2 起保持）：hello 协商位不接受 v0 数值（严格 "0.7" 单值）
-// @ts-expect-error protocolVersion 必须是 "0.7"
-const badHelloLegacy: HelloCommand = { v: "0.7", type: "hello", payload: { token: "t", protocolVersion: 0 } };
+// 负向断言（v0.2 起保持）：hello 协商位不接受 v0 数值（严格 "0.8" 单值）
+// @ts-expect-error protocolVersion 必须是 "0.8"
+const badHelloLegacy: HelloCommand = { v: "0.8", type: "hello", payload: { token: "t", protocolVersion: 0 } };
 
 // 负向断言（v0.3）：tier 只接受 full | monitor 两档
 // @ts-expect-error tier 目录外字面量
@@ -138,7 +138,7 @@ describe("entries：EntryDto 判别式联合与快照 additive + 通道族承载
     ]);
     // 负向样例由上方 @ts-expect-error 在编译期守护
     expect(badToolEntry.state).toBe("done");
-    expect(badVersion.payload.protocolVersion).toBe("0.7");
+    expect(badVersion.payload.protocolVersion).toBe("0.8");
     expect(badHelloLegacy.type).toBe("hello");
   });
 

@@ -9,8 +9,8 @@ import type { CommandFrame, PROTOCOL_VERSION } from "./envelope";
 import type { ConnectionErrorEvent, ConnectionWelcomeEvent } from "./events";
 
 /**
- * hello 载荷。protocolVersion 为严格单值（typeof PROTOCOL_VERSION = "0.7"）：
- * v0.7 合规客户端必发 "0.7"；daemon 收到 ≠"0.7" 值以 protocol.version_unsupported
+ * hello 载荷。protocolVersion 为严格单值（typeof PROTOCOL_VERSION = "0.8"）：
+ * v0.8 合规客户端必发 "0.8"；daemon 收到 ≠"0.8" 值以 protocol.version_unsupported
  * 拒绝（TP-CL6-5；帧版本位 FrameVersion 的 0 历史值不参与握手协商）。
  */
 export interface HelloPayload {

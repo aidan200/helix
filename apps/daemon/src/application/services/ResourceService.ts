@@ -28,6 +28,9 @@ import type {
  *
  * 【toggle 未知名】显式跳过不落库（{ status: "skipped" }）：全集之外的名
  * （如 subagent 禁 agent_spawn）无生效面，落库只会制造永不生效的差异行。
+ * 【builtin 防护】（T5 内置第三源）：builtin 技能不进 resource_state——
+ * setEnabled 返回 { status: "skipped", reason: "builtin-immutable" }，
+ * 读面恒启用（缺省无记录 = 启用语义天然覆盖）。
  *
  * M6 T3：结构满足 ResourceConfigPort（agent.config 命令族回口，AG-12
  * driving 只 import ports）；list 增透传扫描诊断（契约读面），toggle 以
@@ -88,11 +91,15 @@ export class ResourceService implements ResourceConfigPort {
     if (resourceType === "model") {
       return { status: "skipped", reason: "model-uses-slot-api" };
     }
-    const known =
-      resourceType === "tool"
-        ? this.deps.toolsCatalog[kind].includes(name)
-        : (await this.deps.skills.scan()).skills.some((s) => s.name === name);
-    if (!known) return { status: "skipped", reason: "unknown-name" };
+    if (resourceType === "skill") {
+      const skill = (await this.deps.skills.scan()).skills.find((s) => s.name === name);
+      if (!skill) return { status: "skipped", reason: "unknown-name" };
+      // T5 builtin 防护：内置技能不进 resource_state（不可禁用）——显式
+      // skipped 不落禁用记录；读面恒启用（缺省无记录 = 启用天然覆盖）
+      if (skill.source === "builtin") return { status: "skipped", reason: "builtin-immutable" };
+    } else if (!this.deps.toolsCatalog[kind].includes(name)) {
+      return { status: "skipped", reason: "unknown-name" };
+    }
     await this.deps.store.upsert(kind, resourceType, name, enabled);
     await this.deps.onApplied?.(kind); // M6 T2：落库后同步刷新（读面四级链 write-through 语义）
     return { status: "applied" };

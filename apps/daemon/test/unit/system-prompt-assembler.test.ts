@@ -56,11 +56,21 @@ describe("SystemPromptAssembler 三段组装（M6 T2）", () => {
     expect(out).not.toContain("<skill>");
   });
 
-  test("② 多技能按入参顺序各成三行子块", () => {
+  test("② 多技能按入参顺序各成三行子块（T5：builtin 源技能同面进技能段）", () => {
     const out = assembler.assemble({
       basePrompt: "B",
       toolNames: ["bash"],
-      skills: [skill(), skill({ name: "deploy", description: "部署向导", filePath: "/w/deploy/SKILL.md" })],
+      skills: [
+        skill(),
+        skill({ name: "deploy", description: "部署向导", filePath: "/w/deploy/SKILL.md" }),
+        // builtin 源技能（T5 内置第三源）：合取语义天然覆盖，组装零改动
+        skill({
+          name: "web-access",
+          description: "联网操作指引",
+          filePath: "/daemon/resources/skills/web-access/SKILL.md",
+          source: "builtin",
+        }),
+      ],
     });
     const lines = out.split("\n");
     const nameIdx = lines.findIndex((l) => l === "- name: code-review");
@@ -71,6 +81,10 @@ describe("SystemPromptAssembler 三段组装（M6 T2）", () => {
     ]);
     expect(out).toContain("- name: deploy");
     expect(out).toContain("  location: /w/deploy/SKILL.md");
+    // builtin 技能三行子块齐备（技能段含 builtin 断言）
+    expect(out).toContain("- name: web-access");
+    expect(out).toContain("  description: 联网操作指引");
+    expect(out).toContain("  location: /daemon/resources/skills/web-access/SKILL.md");
   });
 
   test("③ description 含换行 → 折成单行（单行防御：子块行结构不被多行 description 破坏）", () => {

@@ -11,6 +11,7 @@ import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "../../src/index";
 import type {
   AgentConfigListCommand,
   AgentConfigListPayload,
+  AgentConfigProfileBlock,
   AgentConfigSetEnabledCommand,
   AgentConfigSetEnabledPayload,
 } from "../../src/index";
@@ -44,6 +45,17 @@ const _setEnabledFull: AgentConfigSetEnabledPayload = {
 const _setEnabledNoEnabled: AgentConfigSetEnabledPayload = { profileKind: "main-session", resourceType: "tool", name: "grep" };
 // @ts-expect-error resourceType 只接受 tool/skill/model（越界字面量编译期拒绝）
 const _setEnabledBadType: AgentConfigSetEnabledPayload = { profileKind: "main-session", resourceType: "hook", name: "steer", enabled: true };
+
+// v0.8：skills[].source 字面量联合扩 builtin（daemon 随仓内置第三源）
+const _skillBuiltin: AgentConfigProfileBlock["skills"][number] = {
+  name: "web-access",
+  description: "联网操作指引",
+  filePath: "/daemon/resources/skills/web-access/SKILL.md",
+  source: "builtin",
+  enabled: true,
+};
+// @ts-expect-error source 只接受 user/project/builtin（越界字面量编译期拒绝）
+const _skillBadSource: AgentConfigProfileBlock["skills"][number] = { name: "x", description: "x", filePath: "/x/SKILL.md", source: "global", enabled: true };
 
 describe("agent.config 命令族 payload（v0.6）", () => {
   test("list：缺省全 kind / 单 kind 两形态可构造且 v 位为当前版本", () => {
@@ -79,6 +91,9 @@ describe("agent.config 事件族 payload（v0.6）", () => {
     expect(main!.model).toBe("anthropic/claude-sonnet-4-5");
     expect(main!.diagnostics[0]!.code).toBe("invalid_metadata");
     expect(main!.skills[0]!.source).toBe("user");
+    // v0.8：builtin 第三源样例行（不可禁用——读面恒 enabled=true）
+    expect(main!.skills[1]!.source).toBe("builtin");
+    expect(main!.skills[1]!.enabled).toBe(true);
     // 槽位未设 = null（JSON 面：undefined 经序列化会丢字段，契约钉死 null）
     expect(sub!.model).toBeNull();
     expect(sub!.tools[0]!.enabled).toBe(true);

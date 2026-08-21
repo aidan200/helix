@@ -45,6 +45,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
       cliInput: new PassThrough(),
       cliOutput: new PassThrough(),
       toolCwd: workspace,
+      builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     try {
       // tools 全集注入：两 profile 声明面（main 11 含编排三件套与动态族单 browser；subagent 7）
@@ -103,6 +104,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
       cliInput: new PassThrough(),
       cliOutput: new PassThrough(),
       toolCwd: workspace,
+      builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     try {
       expect(daemon2.resource.getEffectiveTools("main-session").includes("grep")).toBe(false);

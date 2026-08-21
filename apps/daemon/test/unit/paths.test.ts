@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
-import { createPaths, resolveHome } from "../../src/infrastructure/paths";
+import { createPaths, builtinSkillsDir, resolveHome } from "../../src/infrastructure/paths";
 
 /**
  * TP-CL1-3（U）：infrastructure/paths.ts 路径解析单点（AD-14）。
@@ -45,5 +45,13 @@ describe("paths（TP-CL1-3，AD-14）", () => {
       expect(d.startsWith(home + path.sep)).toBe(true);
       expect(d).not.toContain(`${path.sep}${path.sep}`);
     }
+  });
+
+  test("④ T5 builtinSkillsDir：apps/daemon/resources/skills 单点派生（import.meta.dir 相对解析，bun 从 src 运行）", () => {
+    const dir = builtinSkillsDir();
+    expect(path.isAbsolute(dir)).toBe(true);
+    // 相对 paths.ts（src/infrastructure/）上溯两级 = apps/daemon 包根
+    expect(dir).toBe(path.resolve(import.meta.dir, "../../src/infrastructure", "..", "..", "resources", "skills"));
+    expect(dir.endsWith(path.join("resources", "skills"))).toBe(true);
   });
 });

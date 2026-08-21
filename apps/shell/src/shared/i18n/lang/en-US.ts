@@ -372,6 +372,7 @@ export const enUS: Translations = {
     toolsLabel: "Tools",
     skillsLabel: "Skills",
     skillsEmpty: "No skills installed (user: ~/.helix/skills, project: workspace .helix/skills)",
+    skillSourceBuiltin: "Built-in",
     diagLabel: "Scan diagnostics",
     loading: "Loading agent configuration",
     errorTitle: "Failed to load agent configuration",

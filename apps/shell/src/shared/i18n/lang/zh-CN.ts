@@ -374,6 +374,7 @@ export const zhCN: Translations = {
     toolsLabel: "工具",
     skillsLabel: "技能",
     skillsEmpty: "暂无已安装技能（user 层 ~/.helix/skills，project 层工作区 .helix/skills）",
+    skillSourceBuiltin: "内置",
     diagLabel: "扫描诊断",
     loading: "正在读取智能体配置",
     errorTitle: "智能体配置读取失败",

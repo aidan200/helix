@@ -215,3 +215,38 @@ describe("ResourceService：model 槽位", () => {
     expect((await service.list("main-session")).model).toBeUndefined();
   });
 });
+
+describe("ResourceService：builtin 技能不可禁用防护（T5 内置第三源）", () => {
+  const BUILTIN: readonly SkillDescriptor[] = [
+    ...SKILLS,
+    { name: "web-access", description: "联网操作指引", filePath: "/daemon/resources/skills/web-access/SKILL.md", source: "builtin" },
+  ];
+
+  test("⑪ setEnabled 对 builtin 技能 → skipped(builtin-immutable)、零落库、读面恒启用", async () => {
+    const skills = new FakeSkillSource({ skills: BUILTIN, diagnostics: [] });
+    const { service, store } = makeService(new InMemoryResourceState(), skills);
+
+    const outcome = await service.setEnabled("main-session", "skill", "web-access", false);
+    expect(outcome).toEqual({ status: "skipped", reason: "builtin-immutable" });
+    expect(store.rows.size).toBe(0); // builtin 技能不进 resource_state（不可落禁用记录）
+
+    // list 读面透传 source=builtin 且恒启用（缺省无记录 = 启用，天然覆盖）
+    const view = await service.list("main-session");
+    const row = view.skills.find((s) => s.name === "web-access");
+    expect(row).toBeDefined();
+    expect(row!.source).toBe("builtin");
+    expect(row!.enabled).toBe(true);
+
+    // 生效集恒含 builtin 技能（toggle 防护后重试也不受影响）
+    expect((await service.getEffectiveSkills("main-session")).map((s) => s.name)).toContain("web-access");
+
+    // 再试启用（enabled=true）同样 skipped——builtin 面不产生任何状态行
+    expect(await service.toggle("main-session", "skill", "web-access", true)).toEqual({
+      status: "skipped",
+      reason: "builtin-immutable",
+    });
+    expect(store.rows.size).toBe(0);
+    // user/project 技能不受防护影响（applied 先例保持）
+    expect((await service.toggle("main-session", "skill", "code-review", false)).status).toBe("applied");
+  });
+});

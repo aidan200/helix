@@ -20,13 +20,13 @@ import { listChangedV02, modelChangedV02, v02Commands, v02Events, v02ResultEvent
 import { v03Commands, v03Events } from "./samples/v03";
 
 // ── 类型级断言（编译期；任一不满足 → tsc --noEmit 失败） ──
-// 帧版本位取值域（v0.7：0 = v0/v0.1 历史帧兼容读，"0.7" = 当前批帧）
+// 帧版本位取值域（v0.8：0 = v0/v0.1 历史帧兼容读，"0.8" = 当前批帧）
 type _VIsVersion = Expect<Equal<HelloCommand["v"], FrameVersion>>;
 
-type _FrameVersionDomain = Expect<Equal<FrameVersion, 0 | "0.7">>;
+type _FrameVersionDomain = Expect<Equal<FrameVersion, 0 | "0.8">>;
 
-// hello 协商位严格 "0.7" 单值（不取 FrameVersion 联合；fail-fast）
-type _HelloVersion = Expect<Equal<HelloPayload["protocolVersion"], "0.7">>;
+// hello 协商位严格 "0.8" 单值（不取 FrameVersion 联合；fail-fast）
+type _HelloVersion = Expect<Equal<HelloPayload["protocolVersion"], "0.8">>;
 
 type _EnvelopeInstanceIdOptional = Expect<
   Equal<EventEnvelope["instanceId"], string | undefined>
@@ -42,15 +42,15 @@ type _NotificationFamily = Expect<
   Equal<TypeOfChannel<"notification">, "connection.welcome" | "connection.error">
 >;
 
-// ④ 版本位批次标记："0.7"（typeof PROTOCOL_VERSION 单值；FrameVersion / hello 联动见上）
-type _ProtocolVersionV03 = Expect<Equal<typeof PROTOCOL_VERSION, "0.7">>;
+// ④ 版本位批次标记："0.8"（typeof PROTOCOL_VERSION 单值；FrameVersion / hello 联动见上）
+type _ProtocolVersionV03 = Expect<Equal<typeof PROTOCOL_VERSION, "0.8">>;
 
 describe("envelope：信封分型/版本位/兼容红线/预留与路由位（源 TP-CL2-①② / TP-v0.1-①③ / TP-v0.2-① / TP-v0.3-②）", () => {
   test("hello/welcome/snapshot/delta/工具卡/steer 徽标样例帧结构正确", () => {
-    expect(helloFrame.v).toBe("0.7");
+    expect(helloFrame.v).toBe("0.8");
     expect(helloFrame.type).toBe("hello");
     expect(helloFrame.payload.token).toBe("dev-token-xyz");
-    expect(helloFrame.payload.protocolVersion).toBe("0.7");
+    expect(helloFrame.payload.protocolVersion).toBe("0.8");
 
     const byType = new Map(legacyEvents.map((e) => [e.type, e] as const));
     const welcome = byType.get("connection.welcome");
@@ -84,9 +84,9 @@ describe("envelope：信封分型/版本位/兼容红线/预留与路由位（�
   });
 
   test("PROTOCOL_VERSION = \"0.7\"；当前批帧 v 位全为 \"0.7\"，历史帧 v=0 合法（兼容读）", () => {
-    expect(PROTOCOL_VERSION).toBe("0.7");
+    expect(PROTOCOL_VERSION).toBe("0.8");
     for (const frame of [...v02Events, ...v02ResultEvents, ...v02Commands, ...v03Commands, ...v03Events, helloFrame]) {
-      expect(frame.v).toBe("0.7");
+      expect(frame.v).toBe("0.8");
     }
     for (const frame of [...legacyEvents, ...legacyCommands, ...v01Commands, ...v01Events]) {
       expect(frame.v).toBe(0); // v0/v0.1 历史帧：FrameVersion 取值域内合法
@@ -100,7 +100,7 @@ describe("envelope：信封分型/版本位/兼容红线/预留与路由位（�
   });
 
   test("PROTOCOL_VERSION / MAIN_INSTANCE_ID / SYSTEM_SESSION_ID 导出就位", () => {
-    expect(PROTOCOL_VERSION).toBe("0.7");
+    expect(PROTOCOL_VERSION).toBe("0.8");
     // 常量断言经模块命名空间在 exports.test.ts 全量守护，此处锚定语义值
     expect(typeof PROTOCOL_VERSION).toBe("string");
   });
@@ -114,10 +114,10 @@ describe("envelope：信封分型/版本位/兼容红线/预留与路由位（�
   });
 
   test("PROTOCOL_VERSION = \"0.7\"；hello 协商位单值联动；当前批帧 v 位全 \"0.7\"", () => {
-    expect(PROTOCOL_VERSION).toBe("0.7");
-    expect(helloFrame.payload.protocolVersion).toBe("0.7");
+    expect(PROTOCOL_VERSION).toBe("0.8");
+    expect(helloFrame.payload.protocolVersion).toBe("0.8");
     for (const frame of [...v03Commands, ...v03Events]) {
-      expect(frame.v).toBe("0.7");
+      expect(frame.v).toBe("0.8");
     }
     for (const frame of v03Events) {
       expect(frame.channel).toBe("agent"); // 增量帧仍走 agent 族（零新增事件类型）
