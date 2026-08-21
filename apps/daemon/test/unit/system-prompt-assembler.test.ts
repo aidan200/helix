@@ -107,10 +107,10 @@ describe("SystemPromptAssembler 三段组装（M6 T2）", () => {
     expect(out.split("\n")).toContain("- mystery-tool");
   });
 
-  test("⑦ 双源消除正向面：组装产物含 8 工具名与 snippet（清单只在组装产物出现）", () => {
+  test("⑦ 双源消除正向面：组装产物含 10 工具名与 snippet（清单只在组装产物出现）", () => {
     const out = assembler.assemble({
       basePrompt: "B",
-      toolNames: ["bash", "read", "write", "edit", "grep", "agent_spawn", "agent_send", "agent_status"],
+      toolNames: ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "agent_spawn", "agent_send", "agent_status"],
       skills: [],
     });
     for (const [name, snippet] of Object.entries(TOOL_PROMPT_SNIPPETS)) {

@@ -155,8 +155,8 @@ async function makeRig(): Promise<Rig> {
   };
 }
 
-const MAIN_TOOLS = ["bash", "read", "write", "edit", "grep", "agent_spawn", "agent_send", "agent_status"];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "grep"];
+const MAIN_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "agent_spawn", "agent_send", "agent_status"];
+const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"];
 /** builtin 目录内模型（model-provider.DEFAULT_MODEL_ID 同源；hasModel 读面零网络）。 */
 const ANY_MODEL = "anthropic/claude-sonnet-4-5";
 

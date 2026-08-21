@@ -10,7 +10,8 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * 「常驻」由生命周期策略声明，CLI/WS 驱动入口经 ChatService 反复
  * sendMessage 即多轮复用——runtime 侧不做任何轮次计数。
  *
- * 工具集（T1.5，CL-5；T2.3 扩编排三工具）：八工具按名声明，装配在组合根
+ * 工具集（T1.5，CL-5；T2.3 扩编排三工具；web-access T1 扩静态联网两工具）：
+ * 十工具按名声明，装配在组合根
  * （CoreToolExecutor → resolveTools；bash/read/write/edit 为 pi 内置、grep 自写、
  * agent_spawn/agent_send/agent_status 经 AgentOrchestrationPort 回调度器，
  * 同一沙箱 cwd 与端口注入）。
@@ -37,7 +38,7 @@ export const MAIN_SESSION_SYSTEM_PROMPT =
 export const MainSessionProfile: AgentProfile = {
   kind: "main-session",
   systemPrompt: MAIN_SESSION_SYSTEM_PROMPT,
-  tools: ["bash", "read", "write", "edit", "grep", "agent_spawn", "agent_send", "agent_status"], // 装配经 CoreToolExecutor.resolveTools（组合根）
+  tools: ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "agent_spawn", "agent_send", "agent_status"], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
   hooks: [new SteerHooks(), new MinimalHooks()],
   compaction: DEFAULT_COMPACTION,

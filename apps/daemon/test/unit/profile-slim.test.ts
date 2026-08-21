@@ -24,13 +24,15 @@ const TOOL_NAMES = [
   "write",
   "edit",
   "grep",
+  "web_search",
+  "web_fetch",
   "agent_spawn",
   "agent_send",
   "agent_status",
 ] as const;
 
 describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
-  test("① MainSessionProfile 系统提示：8 工具名词边界零命中", () => {
+  test("① MainSessionProfile 系统提示：10 工具名词边界零命中", () => {
     for (const name of TOOL_NAMES) {
       expect(
         MAIN_SESSION_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)),
@@ -39,7 +41,7 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("② SubAgentProfile 系统提示：8 工具名词边界零命中", () => {
+  test("② SubAgentProfile 系统提示：10 工具名词边界零命中", () => {
     for (const name of TOOL_NAMES) {
       expect(
         SUBAGENT_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)),
@@ -48,9 +50,9 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 8 / subagent 5", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 10 / subagent 7", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
-    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep"]);
+    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"]);
   });
 
   test("④ base 只留角色+行为引导：「并行委派」行为策略措辞保留（不列工具名）；closure 协议保留", () => {

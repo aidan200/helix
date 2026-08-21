@@ -90,8 +90,8 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
   });
 }
 
-const MAIN_TOOLS = ["bash", "read", "write", "edit", "grep", "agent_spawn", "agent_send", "agent_status"];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "grep"];
+const MAIN_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "agent_spawn", "agent_send", "agent_status"];
+const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"];
 
 describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 acceptance ③）", () => {
   test("① main tool toggle：下一 run 的 systemPrompt 与 tools 同步收缩；skipped 不刷新", async () => {
