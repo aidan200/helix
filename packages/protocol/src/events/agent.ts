@@ -86,11 +86,12 @@ export interface AgentModelChangedPayload {
  * agent.config.list.result 块：单 kind 三类资源配置现值。
  * tools/skills 含全集 + 启停态（缺省无记录 = 启用）；diagnostics = 扫描诊断
  * （坏文件上抛不炸）；model 槽位未设 = null（JSON 序列化面钉死 null 非
- * undefined——字段不丢）。
+ * undefined——字段不丢）。tools 行 snippet = 一句话说明（daemon
+ * ToolPromptSnippets 注册表同源，M6 T4 批内补登；注册表外名 = 空串）。
  */
 export interface AgentConfigProfileBlock {
   profileKind: "main-session" | "subagent-worker";
-  tools: ReadonlyArray<{ name: string; enabled: boolean }>;
+  tools: ReadonlyArray<{ name: string; enabled: boolean; snippet: string }>;
   skills: ReadonlyArray<{
     name: string;
     description: string;

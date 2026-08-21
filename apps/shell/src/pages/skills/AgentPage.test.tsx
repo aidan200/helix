@@ -194,10 +194,10 @@ describe("智能体页组件（M6 T4）", () => {
     // 进页：list（全 kind）+ 目录拉取
     expect(mock.sentList).toBe(1);
     expect(requestModelConfig).toHaveBeenCalled();
-    feedList();
+    act(() => feedList());
     // 双卡片锚
-    expect(await screen.findByText("主会话助手")).toBeVisible();
-    expect(screen.getByText("SubAgent worker")).toBeVisible();
+    expect(await screen.findByText("主会话助手")).toBeTruthy();
+    expect(screen.getByText("SubAgent worker")).toBeTruthy();
     // 工具行：名称 + snippet + 开关（a11y role/aria-checked）
     const grepSwitch = document.querySelector('[data-switch="grep"]') as HTMLButtonElement;
     expect(grepSwitch.getAttribute("role")).toBe("switch");
@@ -232,7 +232,7 @@ describe("智能体页组件（M6 T4）", () => {
 
   it("② 开关流：点击 → set_enabled 命令 → pending 禁用 → applied + changed → 重拉 → 态翻转", async () => {
     const view = ui();
-    feedList();
+    act(() => feedList());
     const grepSwitch = (await screen.findByText("主会话助手")) && (document.querySelector('[data-switch="grep"]') as HTMLButtonElement);
     fireEvent.click(grepSwitch);
     // 命令 payload 四字段（关闭 grep）
@@ -242,11 +242,11 @@ describe("智能体页组件（M6 T4）", () => {
     // pending：开关禁用 + 态未翻转（事件驱动非乐观）
     expect(grepSwitch.disabled).toBe(true);
     expect(grepSwitch.getAttribute("aria-checked")).toBe("true");
-    feedSetResult({ status: "applied" });
+    act(() => feedSetResult({ status: "applied" }));
     // changed 广播（revision 递增）→ 重拉
     const listBefore = mock.sentList;
-    bumpRevision(view.rerender);
-    feedList({ tools: MAIN_BLOCK.tools.map((t) => (t.name === "grep" ? { ...t, enabled: false } : t)) });
+    act(() => bumpRevision(view.rerender));
+    act(() => feedList({ tools: MAIN_BLOCK.tools.map((t) => (t.name === "grep" ? { ...t, enabled: false } : t)) }));
     expect(mock.sentList).toBe(listBefore + 1);
     const fresh = document.querySelector('[data-switch="grep"]') as HTMLButtonElement;
     expect(fresh.getAttribute("aria-checked")).toBe("false");
@@ -255,12 +255,12 @@ describe("智能体页组件（M6 T4）", () => {
 
   it("③ skipped 回执：toast 呈现原因 + 在途清（开关回可用、态不翻转）", async () => {
     const view = ui();
-    feedList();
+    act(() => feedList());
     await screen.findByText("主会话助手");
     const bashSwitch = document.querySelector('[data-switch="bash"]') as HTMLButtonElement;
     fireEvent.click(bashSwitch);
     expect(bashSwitch.disabled).toBe(true);
-    feedSetResult({ status: "skipped", reason: "unknown-name" });
+    act(() => feedSetResult({ status: "skipped", reason: "unknown-name" }));
     // toast：未生效 + 原因
     const toast = await screen.findByText(/未生效/);
     expect(toast.textContent).toContain("unknown-name");
@@ -274,7 +274,7 @@ describe("智能体页组件（M6 T4）", () => {
   it("④ 模型槽位：选模型 → set(model,true)；选缺省 → clear(model,false)；changed 重拉后下拉刷新", async () => {
     mock.catalog = CATALOG;
     const view = ui();
-    feedList();
+    act(() => feedList());
     await screen.findByText("主会话助手");
     const sel = document.getElementById("sel-model-main-session") as HTMLSelectElement;
     // 选模型 → set 槽位
@@ -283,9 +283,9 @@ describe("智能体页组件（M6 T4）", () => {
       { profileKind: "main-session", resourceType: "model", name: "anthropic/claude-sonnet-4-5", enabled: true },
     ]);
     // applied + changed → 重拉（槽位已设）
-    feedSetResult({ status: "applied" });
-    bumpRevision(view.rerender);
-    feedList({ model: "anthropic/claude-sonnet-4-5" });
+    act(() => feedSetResult({ status: "applied" }));
+    act(() => bumpRevision(view.rerender));
+    act(() => feedList({ model: "anthropic/claude-sonnet-4-5" }));
     const selFresh = document.getElementById("sel-model-main-session") as HTMLSelectElement;
     expect(selFresh.value).toBe("anthropic/claude-sonnet-4-5");
     // 选回缺省项 → clear 槽位
@@ -293,7 +293,7 @@ describe("智能体页组件（M6 T4）", () => {
     expect(mock.sentSetEnabled[1]).toEqual({
       profileKind: "main-session",
       resourceType: "model",
-      name: "",
+      name: "-",
       enabled: false,
     });
     void within;

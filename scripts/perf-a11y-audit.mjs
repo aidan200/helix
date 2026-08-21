@@ -266,7 +266,7 @@ async function gateFocusCycle(name) {
   const uniq = new Set(trail.filter((t) => !t.includes("lost")).map((t) => t.split("|")[0])).size;  gate(`${name}焦点链中段零空跳（回卷步 ≤1 且一轮覆盖全部可见元素）`, lost <= 1 && uniq === n, `lost=${lost}，一轮覆盖 ${uniq}/${n}`);
 }
 
-console.log("═══ D. 键盘焦点链（工作台主面 → 抽屉 steer 输入栏 → 施工牌）═══");
+console.log("═══ D. 键盘焦点链（工作台主面 → 抽屉 steer 输入栏 → 智能体页）═══");
 // 段 1：工作台主面（IconRail → 顶栏 → 侧栏 → 输入区 → DrawerRail 全链）
 await gateFocusCycle("工作台主面");
 
@@ -277,12 +277,58 @@ await gateFocusCycle("抽屉 steer 输入栏");
 await page.keyboard.press("Escape");
 await page.waitForSelector(".drawer", { state: "detached", timeout: 5_000 }).catch(() => {});
 
-// 段 3：施工牌（Q-4c 新面）——无操作入口，焦点链只剩导航壳
+// 段 3：智能体页（M6 T4 真页，原施工牌面转正）——页面有交互面，焦点链遍历页面域
 await page.goto(`${BASE}/skills`, { waitUntil: "networkidle" });
-await page.waitForSelector('[data-construction="/skills"]', { timeout: 5_000 });
-await gateFocusCycle("施工牌页");
-const boardBtns = await page.locator('[data-construction="/skills"] button').count();
-gate("施工牌无操作入口", boardBtns === 0, `${boardBtns} 个 button`);
+await page.waitForFunction(() => Boolean(window.__helixMock), null, { timeout: 10_000 });
+await page.evaluate(() => window.__helixMock.open());
+await page.waitForFunction(
+  () => window.__helixMock.clientFrames().some((f) => f && f.type === "hello"),
+  null,
+  { timeout: 5_000 },
+);
+await page.evaluate((frames) => window.__helixMock.emitAll(frames), [
+  { v: V, type: "connection.welcome", payload: { sessionId: "sess-a11y-ag", model: "claude-sonnet-4-5", agentState: "idle" } },
+]);
+await page.waitForFunction(
+  () => window.__helixMock.clientFrames().some((f) => f && f.type === "agent.config.list"),
+  null,
+  { timeout: 5_000 },
+);
+// list 回执（自包含字面量，与 harness.agentConfigListResult 同构）：双 kind 最小块
+await page.evaluate((frame) => window.__helixMock.emitAll([frame]), {
+  v: V,
+  sessionId: "__system__",
+  channel: "agent",
+  type: "agent.config.list.result",
+  payload: {
+    profiles: [
+      {
+        profileKind: "main-session",
+        tools: [
+          { name: "bash", enabled: true, snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
+          { name: "read", enabled: true, snippet: "读取文件内容（文本或图片）" },
+          { name: "grep", enabled: false, snippet: "跨文件正则检索并列出匹配行" },
+        ],
+        skills: [],
+        diagnostics: [],
+        model: null,
+      },
+      {
+        profileKind: "subagent-worker",
+        tools: [
+          { name: "bash", enabled: true, snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
+          { name: "read", enabled: true, snippet: "读取文件内容（文本或图片）" },
+        ],
+        skills: [],
+        diagnostics: [],
+        model: null,
+      },
+    ],
+  },
+});
+await page.waitForSelector('[data-agents-page="/skills"]', { timeout: 5_000 });
+await page.waitForSelector('[data-switch="bash"]', { timeout: 5_000 });
+await gateFocusCycle("智能体页");
 
 await browser.close();
 server.kill();

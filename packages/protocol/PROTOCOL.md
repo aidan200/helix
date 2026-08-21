@@ -1188,7 +1188,8 @@ spawn 工具秒回出卡（不等执行，AD-8 异步交付）。
 |---|---|---|---|---|
 | `profiles` | `AgentConfigProfileBlock[]` | 必填 | v0.6 | 配置块清单：携带 profileKind 请求 = 单块；缺省 = 两块（main-session 在前） |
 | `profiles[].profileKind` | `"main-session" \| "subagent-worker"` | 必填 | v0.6 | 归属 kind |
-| `profiles[].tools` | `{ name, enabled }[]` | 必填 | v0.6 | tools 全集 + 启停态（缺省无记录 = 启用） |
+| `profiles[].tools` | `{ name, enabled, snippet }[]` | 必填 | v0.6 | tools 全集 + 启停态（缺省无记录 = 启用） |
+| `profiles[].tools[].snippet` | `string` | 必填 | v0.6 | 工具一句话说明（daemon ToolPromptSnippets 注册表同源；M6 T4 批内补登；注册表外名 = 空串） |
 | `profiles[].skills` | `{ name, description, filePath, source, enabled }[]` | 必填 | v0.6 | 扫描全集 + 启停态（source = user/project 双层目录标签） |
 | `profiles[].diagnostics` | `{ code, message, path, source }[]` | 必填 | v0.6 | 扫描诊断（坏文件上抛不炸） |
 | `profiles[].model` | `string \| null` | 必填 | v0.6 | model 槽位现值（未设 = null） |
@@ -1421,3 +1422,9 @@ agent.config.set_enabled.result（点对点结果帧）——**零改既有命�
 配置单元 = profile kind（main-session / subagent-worker），缺省无记录 = 启用；
 model 型 set_enabled 走槽位 set/clear 语义（非启停），写前先经合并目录
 校验（unknown-model 回执）。
+
+**批内补登（M6 T4，同版本不破面）**：`agent.config.list.result` 的
+`profiles[].tools` 行补必填 `snippet` 字段（一句话说明，daemon
+ToolPromptSnippets 注册表同源；注册表外名 = 空串）。v0.6 未出仓（T3/T4
+同迭代合入），补登不构成既有形状变更；四面同步面 = 协议类型 + PROTOCOL.md
+§16.4 字段行 + sot ④ presence + daemon DTO 映射。

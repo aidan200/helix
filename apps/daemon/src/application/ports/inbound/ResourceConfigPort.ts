@@ -16,7 +16,7 @@ import type { SkillScanDiagnostic, SkillDescriptor, SkillSource } from "../outbo
  */
 export interface ResourceConfigBlock {
   readonly profileKind: ProfileKind;
-  readonly tools: ReadonlyArray<{ readonly name: string; readonly enabled: boolean }>;
+  readonly tools: ReadonlyArray<{ readonly name: string; readonly enabled: boolean; readonly snippet: string }>;
   readonly skills: ReadonlyArray<SkillDescriptor & { readonly enabled: boolean }>;
   readonly diagnostics: readonly SkillScanDiagnostic[];
   /** model 槽位现值（未设 = undefined；协议 DTO 映射层转 null）。 */

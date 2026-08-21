@@ -11,6 +11,9 @@
  */
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type {
+  AgentConfigListCommand,
+  AgentConfigSetEnabledCommand,
+  AgentConfigSetEnabledPayload,
   AuthDeleteKeyCommand,
   AuthListCommand,
   AuthSetKeyCommand,
@@ -162,4 +165,18 @@ export function authVerifyCommand(providerId: string): AuthVerifyCommand {
  *  目标会话在 payload.sessionId；结果 = trace.query.result 点对点回执）。 */
 export function traceQueryCommand(payload: TraceQueryPayload): TraceQueryCommand {
   return { v: PROTOCOL_VERSION, type: "trace.query", payload };
+}
+
+// ── v0.6 agent.config 命令族（M6 T4 智能体页）────────────
+
+/** agent.config.list：资源配置读面（全局命令无信封 sessionId；缺省 =
+ *  全部 kind 双块；结果 = agent.config.list.result 点对点回执）。 */
+export function agentConfigListCommand(): AgentConfigListCommand {
+  return { v: PROTOCOL_VERSION, type: "agent.config.list", payload: {} };
+}
+
+/** agent.config.set_enabled：资源启停/槽位写面（全局命令；回执 =
+ *  set_enabled.result 点对点 + applied 时 agent.config.changed 全局广播）。 */
+export function agentConfigSetEnabledCommand(payload: AgentConfigSetEnabledPayload): AgentConfigSetEnabledCommand {
+  return { v: PROTOCOL_VERSION, type: "agent.config.set_enabled", payload };
 }

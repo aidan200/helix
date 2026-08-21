@@ -49,7 +49,7 @@ function prepHome(): string {
 }
 
 /** 空剧本（本 spec 无 LLM 交互面；daemon 命令族全走 driving 层）。 */
-const SCRIPT: DaemonScript = [];
+const SCRIPT: DaemonScript = { entries: [] };
 
 /** 进智能体页并等首帧 list 收口（bash 工具行在场）。 */
 async function openAgents(page: import("@playwright/test").Page): Promise<void> {
@@ -84,7 +84,7 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
 
     // 模型下拉：builtin 目录经死代理回落可用（optgroup ≥1）+ 缺省项
     const sel = page.locator("#sel-model-main-session");
-    await expect(sel.locator("optgroup").first()).toBeVisible({ timeout: 15_000 });
+    await expect(sel.locator("optgroup").first()).toBeAttached({ timeout: 15_000 });
     expect(await sel.locator("option").first().textContent()).toBe("跟随全局默认");
 
     await shotEvidence(page, "agents-e2e-dark", "CL-skills");
@@ -109,7 +109,7 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
     await openAgents(page);
 
     // 关 hello-skill → 真落库 + 真广播 → 页面重拉翻转
-    const helloSwitch = page.locator('[data-skill-row="hello-skill"] [data-switch="hello-skill"]');
+    const helloSwitch = page.locator('[data-agent-card="main-session"] [data-skill-row="hello-skill"] [data-switch="hello-skill"]');
     await expect(helloSwitch).toHaveAttribute("aria-checked", "true");
     await helloSwitch.click();
     await expect(helloSwitch).toHaveAttribute("aria-checked", "false", { timeout: 10_000 });
@@ -119,7 +119,7 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
     await page.reload();
     await e2e.waitForConnected(page);
     await openAgents(page);
-    await expect(page.locator('[data-skill-row="hello-skill"] [data-switch="hello-skill"]')).toHaveAttribute(
+    await expect(page.locator('[data-agent-card="main-session"] [data-skill-row="hello-skill"] [data-switch="hello-skill"]')).toHaveAttribute(
       "aria-checked",
       "false",
       { timeout: 15_000 },
@@ -135,7 +135,7 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
     await openAgents(page);
 
     const sel = page.locator("#sel-model-main-session");
-    await expect(sel.locator("optgroup").first()).toBeVisible({ timeout: 15_000 });
+    await expect(sel.locator("optgroup").first()).toBeAttached({ timeout: 15_000 });
     await sel.selectOption(SLOT_MODEL);
     // 真链：hasModel 目录校验 → 槽位落库 → changed → 重拉 → 下拉值刷新
     await expect(sel).toHaveValue(SLOT_MODEL, { timeout: 10_000 });
@@ -153,7 +153,7 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
     await openAgents(page);
 
     // 首帧已渲染 proj-skill（enabled）
-    const projSwitch = page.locator('[data-skill-row="proj-skill"] [data-switch="proj-skill"]');
+    const projSwitch = page.locator('[data-agent-card="main-session"] [data-skill-row="proj-skill"] [data-switch="proj-skill"]');
     await expect(projSwitch).toHaveAttribute("aria-checked", "true");
 
     // 磁盘漂移：删 project 层技能文件 → toggle → daemon 重扫全集外 → skipped

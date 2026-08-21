@@ -20,9 +20,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import type { ReactNode } from "react";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { CommandEnvelope, EventEnvelope, TraceQueryPayload } from "@helix/protocol";
+import type { AgentConfigSetEnabledPayload } from "@helix/protocol";
 import { HelixWsClient } from "@/shared/api/helix-ws";
 import type { Transport, TransportFactory } from "@/shared/api/helix-ws";
 import {
+  agentConfigListCommand,
+  agentConfigSetEnabledCommand,
   authDeleteKeyCommand,
   authListCommand,
   authSetKeyCommand,
@@ -125,6 +128,15 @@ interface SessionContextValue {
   /** 订阅 trace 族点对点回执（trace.query.result；另转发 connection.error
    *  供在途查询错误态判定——关联靠页面单飞：仅在 pending 非空时消费）。 */
   subscribeTraceFrames: (listener: (e: EventEnvelope) => void) => () => void;
+  // ── agent.config 查询/写面（M6 T4 智能体页；连接私有读面同构）──
+  /** 发送 agent.config.list（全 kind；点对点回执；send 失败返回 false）。 */
+  sendAgentConfigList: () => boolean;
+  /** 发送 agent.config.set_enabled（回执 applied/skipped + applied 时
+   *  agent.config.changed 广播 → 拓扑 revision 递增）。 */
+  sendAgentConfigSetEnabled: (payload: AgentConfigSetEnabledPayload) => boolean;
+  /** 订阅 agent.config 族点对点回执（list.result / set_enabled.result；
+   *  changed 广播走拓扑级消费，不在此转发）。 */
+  subscribeAgentConfigFrames: (listener: (e: EventEnvelope) => void) => () => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -170,6 +182,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   generatingRef.current = selectIsGenerating(topology.active);
   // trace 族点对点回执订阅表（T2.2；页面私有消费，不进会话 store）
   const traceListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
+  // agent.config 族点对点回执订阅表（M6 T4；智能体页私有消费，同 trace 形态）
+  const agentConfigListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
 
   if (clientRef.current === null) {
     // prod define 摇除：FAKE_TRANSPORT_DEFINE 构建期为 "" 字面量 → 本比较折叠
@@ -231,6 +245,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // 保持 no-op 注册（守护绿），会话 store 零写入
       if (event.type === "trace.query.result" || event.type === "connection.error") {
         for (const l of traceListenersRef.current) l(event);
+      }
+      // agent.config 族点对点回执转发（M6 T4）：智能体页页面查询链消费
+      //（dispatcher 侧拓扑级直通不写态；changed 广播走拓扑 revision）
+      if (event.type === "agent.config.list.result" || event.type === "agent.config.set_enabled.result") {
+        for (const l of agentConfigListenersRef.current) l(event);
       }
       dispatch({ type: "event", event, ts: Date.now() });
     });
@@ -348,6 +367,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     traceListenersRef.current.add(listener);
     return () => {
       traceListenersRef.current.delete(listener);
+    };
+  }, []);
+
+  // agent.config 查询/写面（M6 T4；连接私有读面——直发命令 + 订阅点对点回执）
+  const sendAgentConfigList = useCallback(() => clientRef.current!.send(agentConfigListCommand()), []);
+  const sendAgentConfigSetEnabled = useCallback(
+    (payload: AgentConfigSetEnabledPayload) => clientRef.current!.send(agentConfigSetEnabledCommand(payload)),
+    [],
+  );
+  const subscribeAgentConfigFrames = useCallback((listener: (e: EventEnvelope) => void) => {
+    agentConfigListenersRef.current.add(listener);
+    return () => {
+      agentConfigListenersRef.current.delete(listener);
     };
   }, []);
 
@@ -474,6 +506,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       deleteProviderKey,
       sendTraceQuery,
       subscribeTraceFrames,
+      sendAgentConfigList,
+      sendAgentConfigSetEnabled,
+      subscribeAgentConfigFrames,
     }),
     [
       state,
@@ -504,6 +539,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       deleteProviderKey,
       sendTraceQuery,
       subscribeTraceFrames,
+      sendAgentConfigList,
+      sendAgentConfigSetEnabled,
+      subscribeAgentConfigFrames,
     ],
   );
 

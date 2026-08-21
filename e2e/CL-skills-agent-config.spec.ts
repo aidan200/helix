@@ -202,6 +202,9 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
     // 多页一致性：changed 广播无本地写 → 态仅随重拉翻（切走再回不闪旧态）
     await page.locator('.rail-btn[data-page="chat"]').click();
     await page.locator('.rail-btn[data-page="skills"]').click();
+    // 重挂载重拉：等 list 命令 → 回放刷新块 → 态保持（无本地写不回闪）
+    await mock.waitForCommand("agent.config.list");
+    await mock.emit(agentConfigListResult([refreshedMain, SUB_BLOCK]));
     await expect(page.locator('[data-agent-card="main-session"] [data-switch="bash"]')).toHaveAttribute("aria-checked", "false");
   });
 
@@ -241,13 +244,18 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
     await mock.emit(agentConfigListResult([{ ...MAIN_BLOCK, model: "anthropic/claude-sonnet-4-5" }, SUB_BLOCK]));
     await expect(sel).toHaveValue("anthropic/claude-sonnet-4-5");
 
-    // 选回缺省 → clear（enabled=false）
+    // 选回缺省 → clear（enabled=false；name = 忽略位占位 "-"，契约钉非空）
+    // 新帧等待：waitForCommand 会命中历史 set 帧——按计数增量取最新帧
+    const setCount = async () =>
+      (await mock.clientFrames()).filter((f) => f.type === "agent.config.set_enabled").length;
+    const before = await setCount();
     await sel.selectOption("");
-    const clearCmd = await mock.waitForCommand("agent.config.set_enabled");
+    await expect.poll(setCount).toBe(before + 1);
+    const clearCmd = (await mock.clientFrames()).filter((f) => f.type === "agent.config.set_enabled").at(-1)!;
     expect(clearCmd.payload).toEqual({
       profileKind: "main-session",
       resourceType: "model",
-      name: "",
+      name: "-",
       enabled: false,
     });
   });
@@ -262,15 +270,21 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
     // skills 位不再是施工牌
     await expect(page.locator('[data-construction="/skills"]')).toHaveCount(0);
 
+    // 双主题：主题钮在 chat header（工作台隐藏时不可点）——回 chat 切换后再回
     for (const theme of ["dark", "light"] as const) {
+      await page.locator('.rail-btn[data-page="chat"]').click();
       await page.locator(theme === "light" ? "#btn-light" : "#btn-dark").click();
       if (theme === "light") {
         await expect(page.locator("html")).toHaveClass("light");
       } else {
         await expect(page.locator("html")).not.toHaveClass(/light/);
       }
+      await page.locator('.rail-btn[data-page="skills"]').click();
+      // 重挂载重拉：mock 不自动应答——回放双块后断言
+      await mock.waitForCommand("agent.config.list");
+      await mock.emit(agentConfigListResult([MAIN_BLOCK, SUB_BLOCK]));
       const mainCard = page.locator('[data-agent-card="main-session"]');
-      await expect(mainCard).toBeVisible();
+      await expect(mainCard.locator('[data-tool-row="bash"]')).toBeVisible({ timeout: 10_000 });
       // 开关双态都在场（渲染完整性）
       await expect(mainCard.locator('[data-switch="bash"]')).toHaveAttribute("aria-checked", "true");
       await expect(mainCard.locator('[data-switch="grep"]')).toHaveAttribute("aria-checked", "false");

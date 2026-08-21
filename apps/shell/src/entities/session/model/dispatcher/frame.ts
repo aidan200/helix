@@ -50,9 +50,10 @@ export function dispatchFrame(topo: TopologyState, frame: EventEnvelope, ts?: nu
   if (isModelConfigEventType(frame.type)) {
     return applyModelConfigEvent(topo, frame);
   }
-  // ⓪′ 拓扑级 agent.config 配置族（v0.6 agent.config.changed，M6 T3 占位）：
-  //    daemon 级全局广播（信封 sessionId = SYSTEM_SESSION_ID）——先于后台/系统
-  //    路由的拓扑级消费（model 族两层拓扑同构）；T4 接真消费
+  // ⓪′ 拓扑级 agent.config 配置族（v0.6，M6 T4 真消费）：changed 广播 →
+  //    agentConfig.revision 失效重拉信号；两结果帧拓扑级直通（真消费归页面
+  //    查询链，SessionContext 转发层）——先于后台/系统路由的拓扑级消费
+  //    （model 族两层拓扑同构）
   if (isAgentConfigEventType(frame.type)) {
     return applyAgentConfigEvent(topo, frame);
   }

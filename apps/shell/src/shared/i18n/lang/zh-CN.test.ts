@@ -247,6 +247,9 @@ const REQUIRED_KEYS = [
   "agents.errorTitle",
   "agents.retry",
   "agents.skippedToast",
+  "agents.notConnected",
+  "agents.switchOn",
+  "agents.switchOff",
 ] as const;
 
 function flatten(obj: unknown, prefix = ""): Map<string, string> {

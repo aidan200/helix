@@ -1,0 +1,150 @@
+/* ════════════════════════════════════════════════════════════════
+   智能体页（ag-*；M6 T4，skills 施工牌升格）——双 profile kind 卡片：
+   模型槽位下拉 + 工具组 + 技能组（来源分组/诊断）+ 语义化开关。
+
+   纪律（Redesign Protocol / tokens.md §13）：
+   - 载体全复用既有组件族（hud-card / hud-chip / hud-input / sel-wrap /
+     hud-btn）；本文件只做页面级布局与开关行样式，零新组件族；
+   - 色值/字号全走 tokens 注册表（零散 hex 零容忍；rgba 通道变量形态）；
+   - 动效仅 transform/opacity；honor prefers-reduced-motion；
+   - 双主题：暗色靠辉光分层，亮色软投影（--shadow-card token 自动跟随）。
+   ════════════════════════════════════════════════════════════════ */
+
+.ag-page {
+  position: relative; height: 100dvh; background: var(--bg); overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.ag-head {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 14px; height: 48px; padding: 0 16px;
+  border-bottom: 1px solid var(--border); background: var(--bg-panel);
+  backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%);
+}
+html.light .ag-head { background: rgba(255, 255, 255, 0.6); }
+.ag-title { font-size: var(--text-title); font-weight: 600; color: var(--text); }
+.ag-body { display: flex; flex-direction: column; gap: 16px; }
+
+/* ── 单 kind 配置卡（hud-card 载体）───────────────────────── */
+.ag-card { display: flex; flex-direction: column; gap: 14px; }
+.ag-card-head { display: flex; align-items: center; gap: 10px; }
+.ag-card-title { font-family: var(--font-mono); font-size: var(--text-main); font-weight: 600; }
+
+/* 模型槽位行 + 两级关系注解 */
+.ag-model { display: flex; flex-direction: column; }
+.ag-model .sel-wrap { max-width: 420px; }
+.ag-note {
+  margin-top: 6px; font-size: var(--text-cap); color: var(--text-faint);
+  font-family: var(--font-sans); line-height: 1.6;
+}
+
+/* ── 资源组（工具/技能共用行语言）────────────────────────── */
+.ag-group { display: flex; flex-direction: column; gap: 2px; }
+.ag-group-label {
+  font-size: var(--text-cap); font-weight: 500; text-transform: uppercase;
+  letter-spacing: 0.25em; color: rgb(var(--accent-rgb) / 0.8);
+  margin: 6px 0 4px;
+}
+.ag-src-label {
+  font-size: var(--text-micro); text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--text-dim); margin: 8px 0 2px;
+}
+.ag-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 7px 2px; border-bottom: 1px solid rgb(var(--edge-rgb) / 0.06);
+}
+[data-source-group] .ag-row:first-of-type { border-top: none; }
+.ag-row-main { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1; }
+.ag-name {
+  font-family: var(--font-mono); font-size: var(--text-main);
+  color: var(--text); flex-shrink: 0;
+}
+.ag-desc {
+  font-size: var(--text-cap); color: var(--text-muted); font-family: var(--font-sans);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.ag-empty-hint { font-size: var(--text-cap); color: var(--text-faint); padding: 6px 0; }
+
+/* ── 语义化开关（role=switch；track + thumb + 状态词）────── */
+.ag-switch {
+  display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;
+  padding: 3px 4px; border: none; border-radius: 6px; background: transparent;
+  cursor: pointer; color: var(--text-dim);
+  font-family: var(--font-sans); font-size: var(--text-micro);
+  transition: color 0.15s;
+}
+.ag-switch:hover:not(:disabled) { color: var(--text-muted); }
+.ag-switch:disabled { cursor: default; opacity: 0.55; }
+.ag-switch-track {
+  position: relative; display: inline-block; width: 30px; height: 16px;
+  border-radius: 999px; border: 1px solid rgb(var(--edge-rgb) / 0.16);
+  background: rgb(var(--edge-rgb) / 0.08);
+  transition: border-color 0.15s, background 0.15s;
+}
+.ag-switch-thumb {
+  position: absolute; top: 2px; left: 2px; width: 10px; height: 10px;
+  border-radius: 999px; background: var(--text-dim);
+  transition: transform 0.15s, background 0.15s;
+}
+.ag-switch.on .ag-switch-track {
+  border-color: rgb(var(--accent-rgb) / 0.45);
+  background: rgb(var(--accent-rgb) / 0.14);
+}
+.ag-switch.on .ag-switch-thumb { transform: translateX(14px); background: var(--accent); }
+.ag-switch.on .ag-switch-state { color: var(--accent); }
+.ag-switch:disabled.on .ag-switch-thumb { background: var(--accent); }
+
+/* ── 扫描诊断警示（warning 色相；hud-badge 族外页面级样式）── */
+.ag-diag { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.ag-diag-label {
+  font-size: var(--text-micro); font-weight: 500; text-transform: uppercase;
+  letter-spacing: 0.14em; color: var(--warning); margin: 0 0 2px;
+}
+.ag-diag-row {
+  display: flex; align-items: center; gap: 10px; padding: 6px 10px;
+  border: 1px solid rgb(var(--warning-rgb) / 0.3); border-radius: 6px;
+  background: rgb(var(--warning-rgb) / 0.07);
+}
+.ag-diag-badge {
+  font-family: var(--font-mono); font-size: var(--text-micro);
+  color: var(--warning); flex-shrink: 0;
+}
+.ag-diag-msg { font-size: var(--text-cap); color: var(--text-muted); flex-shrink: 0; }
+.ag-diag-path {
+  font-family: var(--font-mono); font-size: var(--text-micro); color: var(--text-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+
+/* ── loading / error 态（trace 状态面语言对齐）──────────── */
+.ag-loading {
+  text-align: center; font-size: var(--text-cap); color: var(--text-faint);
+  padding: 18px 0 4px; font-family: var(--font-sans);
+}
+.ag-skel { display: flex; flex-direction: column; padding: 4px 0; }
+.ag-skel-row {
+  display: flex; gap: 12px; align-items: center; padding: 9px 2px;
+  border-bottom: 1px solid rgb(var(--edge-rgb) / 0.06);
+}
+.ag-skel-bar {
+  position: relative; display: block; height: 10px; border-radius: 4px;
+  background: rgb(var(--edge-rgb) / 0.08); overflow: hidden;
+}
+.ag-skel-bar::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(var(--accent-rgb) / 0.12), transparent);
+  animation: ag-skel-sweep 1.6s ease-in-out infinite;
+}
+@keyframes ag-skel-sweep { to { transform: translateX(100%); } }
+.ag-error {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 48px 24px; text-align: center;
+  border: 1px solid rgb(var(--error-rgb) / 0.35); border-radius: 12px;
+  background: rgb(var(--error-rgb) / 0.05);
+}
+.ag-error .err-icon { color: var(--error); }
+.ag-error .err-t { font-family: var(--font-mono); font-size: var(--text-title); color: var(--text); }
+.ag-error .err-r { font-size: var(--text-cap); color: var(--text-muted); }
+
+/* reduced-motion（tokens.md 11 节：动效全 honor） */
+@media (prefers-reduced-motion: reduce) {
+  .ag-skel-bar::after { animation: none; }
+}
