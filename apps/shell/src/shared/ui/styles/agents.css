@@ -2,6 +2,11 @@
    智能体页（ag-*；M6 T4，skills 施工牌升格）——双 profile kind 卡片：
    模型槽位下拉 + 工具组 + 技能组（来源分组/诊断）+ 语义化开关。
 
+   S3a 应用壳统一：页面迁 AppLayout（.app-layout/.app-header/.layout-main），
+   自建 ag-page/ag-head 壳与页内 scanline 副本退役（氛围层全局单份在
+   App.tsx）；本文件只剩 header 槽页名样式与 main 内容样式（卡片/开关/
+   诊断），页面级滚动归 .layout-main。
+
    纪律（Redesign Protocol / tokens.md §13）：
    - 载体全复用既有组件族（hud-card / hud-chip / hud-input / sel-wrap /
      hud-btn）；本文件只做页面级布局与开关行样式，零新组件族；
@@ -10,17 +15,7 @@
    - 双主题：暗色靠辉光分层，亮色软投影（--shadow-card token 自动跟随）。
    ════════════════════════════════════════════════════════════════ */
 
-.ag-page {
-  position: relative; height: 100dvh; background: var(--bg); overflow-y: auto;
-  display: flex; flex-direction: column;
-}
-.ag-head {
-  position: sticky; top: 0; z-index: 5;
-  display: flex; align-items: center; gap: 14px; height: 48px; padding: 0 16px;
-  border-bottom: 1px solid var(--border); background: var(--bg-panel);
-  backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%);
-}
-html.light .ag-head { background: rgba(255, 255, 255, 0.6); }
+/* headerLeft 槽页名（S3a：原 ag-head 标题随壳退役，样式迁 header 槽） */
 .ag-title { font-size: var(--text-title); font-weight: 600; color: var(--text); }
 .ag-body { display: flex; flex-direction: column; gap: 16px; }
 
