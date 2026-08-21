@@ -6,6 +6,56 @@
 
 ## applied
 
+### E-智能体配置资源（iter-20260821-m6）
+- changeType: 新增
+- scope: docs/kg/domain.md（业务实体新增）
+- project: helix
+- reason: M6 新业务实体：按 profile kind 维的资源启停状态（resource_state 表，三资源类型，缺省无记录=启用，合取生效语义）；main 槽位四级链/subagent 槽位三级链 UI 化；skills 双层目录扫描
+- evidence: M6 T1 闭环（resource-state.test/resource-service.test/skill-scanner.test 全绿）；E 层 CL-skills-e2e 4/4（toggle 持久/模型槽位往返/磁盘漂移 skipped）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/sqlite-session/ResourceStateStore.ts；application/services/ResourceService.ts；adapters/driven/pi-engine/SkillScanner.ts
+- sourceTask: M6 规划+T1（MainAgent，2026-08-21）
+- createdIn: iter-20260821-m6
+- decisionLog: M6 收尾用户裁决「全 apply」——四条核心候选一次性落盘（提案全文存工作区 docs/temp/development/（非仓内），此处为仓内事实源）
+
+### TR-AD-27（iter-20260821-m6）
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md（技术规则新增）
+- project: helix
+- reason: SystemPrompt 三段组装器规则化：组装唯一来源+同源派生双断+agentskills.io 内容对齐（格式自决）+无条件化纪律（用户裁决：错配=使用不当）；双源漂移治愈（profile-slim 词边界断言常设守护）
+- evidence: M6 T2 闭环（system-prompt-assembler.test ①-⑦/profile-slim.test 红→绿分离可辨）；resource-refresh-chain.test toggle 后下一 run systemPrompt 变化断言
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/SystemPromptAssembler.ts；adapters/driven/tools/ToolPromptSnippets.ts
+- sourceTask: M6 T2（SubAgent sediment + MainAgent 提案，2026-08-21）
+- createdIn: iter-20260821-m6
+- decisionLog: M6 收尾用户裁决「全 apply」
+
+### TR-AD-24-r2（iter-20260821-m6）
+- changeType: 修改
+- targetNode: TR-AD-24
+- scope: docs/kg/architecture-rules.md TR-AD-24（state 直改族谱扩面）
+- project: helix
+- reason: setTools/setSystemPrompt 与 setModel 同构直改六层链（不走 prepareNextTurn——CompactionHook 首非空短路机械裁决同源）；pi 官方语义背书（Assigning state.tools copies the top-level array）；kind 维配置变更刷新链 + SubAgent 代际生效 + main 槽位四级链读面
+- evidence: M6 T2 闭环（engine-state-mutation.test ② in-flight 定格机械判据——FakeLLM 捕获 llmContext）；resource-refresh-chain.test ③（toggle 关 grep 后 tools 收缩 7 名双断）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/runtime/AgentRuntime.ts（setTools/setSystemPrompt）；PiAgentEngineAdapter.ts；AgentEnginePort.ts；ChatService.ts
+- sourceTask: M6 T2（SubAgent sediment + MainAgent 提案，2026-08-21）
+- createdIn: iter-20260821-m6
+- decisionLog: M6 收尾用户裁决「全 apply」；同节点二次修改按 desk 先例直写落盘（formalId=TR-AD-24，节点 id 稳定）
+
+### TR-AD-23-r2（iter-20260821-m6）
+- changeType: 修改
+- targetNode: TR-AD-23
+- scope: docs/kg/architecture-rules.md TR-AD-23（例证链补 v0.6）
+- project: helix
+- reason: 契约版本一次定形例证链第四例：v0.6 = agent.config.* 命令族 additive（22→24 命令 + 40→43 事件 + snippet 字段补登），四面同构同批零形状变更
+- evidence: M6 T3 闭环（sot 五断言含 ④ agent.config presence 8 条；catalog 逐字面量清单；PROTOCOL.md §15.3/§16.4/§17.6 登记）
+- implementationStatus: 完整实现
+- implementedCode: packages/protocol/src/commands.ts；packages/protocol/src/events/agent.ts；packages/protocol/src/events/index.ts；packages/protocol/PROTOCOL.md
+- sourceTask: M6 T3（SubAgent sediment + MainAgent 提案，2026-08-21）
+- createdIn: iter-20260821-m6
+- decisionLog: M6 收尾用户裁决「全 apply」；同节点二次修改按 desk 先例直写落盘（formalId=TR-AD-23）
+
 ### TR-AD-2
 - changeType: 修改
 - targetNode: TR-AD-2

@@ -866,23 +866,25 @@ anchors:
     - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#subscribeSession
     - packages/protocol/src/commands.ts#SessionSubscribePayload
     - packages/protocol/src/envelope.ts#PROTOCOL_VERSION
+    - packages/protocol/src/events/agent.ts
     - apps/shell/src/entities/session/model/subscription-ledger.ts
   testedBy:
     - apps/daemon/test/integration/ws-server-spy.test.ts
     - apps/daemon/test/arch-guard/arch-guard.test.ts
     - packages/protocol/test/type-surface/catalog.test.ts
     - packages/protocol/test/type-surface/sot-consistency.test.ts
+    - packages/protocol/test/type-surface/agent-config.test.ts
     - apps/shell/src/entities/session/model/subscription-ledger.test.ts
 relations:
   governs:
     - E-领域事件与单写队列
-updatedIn: iter-20260820-qhv8
+updatedIn: iter-20260821-m6
 ```
 
 ## 规则
 协议能力演进三定律：
 ①可选参数扩展优先于新命令对——同一命令能以可选参数承载的语义（session.subscribe 扩 tier、chat.steer 扩 instanceId、welcome 扩 draft 标记、chat.send 扩 draft 建会话 model——hotfix-20260820 例证）不新增命令对；仅当载荷形态无法容纳才新增（届时按 TR-AD-21 整链登记模式）。可选参数必带缺省语义（缺省 = 既有行为，旧剧本兼容），事件类型判别式只增不删不改（TR-AD-18 同源纪律）。
-②契约版本一次定形——同一批协议演进收拢为一次契约版本定形后铺开（v0.3 = spawn 锚点 DTO + tier 订阅 + steer 寻址三处同批；v0.4 = trace.query 命令族 + agent.instantiated/model.changed 落盘事件 + engine.error SubAgent 抑制守卫同批，iter-20260819-erio；v0.5 = payload 形状全量回迁正文（13 命令 + 11 结果帧 + draft 字段登记）+ §14 微批字段定形 + SoT 五断言同批，iter-20260820-qhv8，执行律详见 TR-AD-26）；EVENT_TYPES/EVENT_CHANNELS 守护计数与 type-surface 穷尽断言同步一次扩。单仓同发（protocol + daemon + shell 同 commit 发版）无跨版本组合场景：PROTOCOL_VERSION 是批次集合标记而非协商位；批内破坏性清理（删 dead 类型 / 路径迁移 / 旧推导代码删除）一步完成不留双轨。
+②契约版本一次定形——同一批协议演进收拢为一次契约版本定形后铺开（v0.3 = spawn 锚点 DTO + tier 订阅 + steer 寻址三处同批；v0.4 = trace.query 命令族 + agent.instantiated/model.changed 落盘事件 + engine.error SubAgent 抑制守卫同批，iter-20260819-erio；v0.5 = payload 形状全量回迁正文（13 命令 + 11 结果帧 + draft 字段登记）+ §14 微批字段定形 + SoT 五断言同批，iter-20260820-qhv8，执行律详见 TR-AD-26；v0.6 = agent.config.* 命令族 additive（COMMAND_TYPES 22→24 + EVENT_TYPES 40→43：changed 广播 + 两点对点结果帧；tools 行 snippet 字段 additive 补登）——四面同构（常量/PROTOCOL.md §15§16/catalog 逐字面量/sot 五断言）同批落定，零既有形状变更，iter-20260821-m6）；EVENT_TYPES/EVENT_CHANNELS 守护计数与 type-surface 穷尽断言同步一次扩。单仓同发（protocol + daemon + shell 同 commit 发版）无跨版本组合场景：PROTOCOL_VERSION 是批次集合标记而非协商位；批内破坏性清理（删 dead 类型 / 路径迁移 / 旧推导代码删除）一步完成不留双轨。
 ③订阅状态连接级隔离——daemon 订阅状态（Map<sessionId, tier>，tier = full | monitor）是连接私有状态，由 EventStream 按连接持有；daemon 不持跨连接全局订阅知识（拒绝「daemon 知道哪些会话活跃」的中心化换档）；断连即丢、重连由客户端重放全订阅图。N 窗口 = N 连接 = N 独立订阅图，多窗口/多客户端在协议层零改动扩展。档位过滤（monitor 白名单）在事件分发层一处完成，不散落 service。
 
 ## 理由
@@ -911,15 +913,21 @@ anchors:
     - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
     - apps/daemon/src/application/services/scheduler/SchedulerService.ts
     - apps/daemon/src/infrastructure/container.ts
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/AgentRuntime.ts
+    - apps/daemon/src/adapters/driven/pi-engine/PiAgentEngineAdapter.ts
+  testedBy:
+    - apps/daemon/test/unit/engine-state-mutation.test.ts
 relations:
   governs:
     - E-AgentProfile
     - E-调度器
-updatedIn: iter-20260820-qhv8
+updatedIn: iter-20260821-m6
 ```
 
 ## 规则
 SubAgent 实例的模型来源按三级优先级解析：①SubAgentProfile.model 真实槽位（装配期 resolveModelSlot 解析，声明即最高优先级）→ ②spawn 时快照的会话模型（spawnModels 管线：agent_spawn 经 AgentOrchestrationPort.spawn 透传会话现值，SchedulerService.spawn 时刻快照入 spawnModels，此后主实例再切模型不影响在跑/排队实例）→ ③全局兜底（默认模型存储现值 getter，container 组合根注入，语义 = 「全局兜底」而非「SubAgent 默认来源」）。launch 段是三级链的唯一消费点：SubagentLauncher.launch 携带解析结果，子进程 HELIX_MODEL_JSON 仍为完整 Model 对象透传（防 registry 不含的红线不变）。取代边界：本规则取代 M2 AD-6「SubAgent 缺省继承全局默认」中「SubAgent 模型源 = 全局默认表」的解析规则；不取代会话级 model.set 内存态语义（主实例模型仍为 AgentState.model 内存态，重启/卸载回退全局默认）。
+
+state 直改族谱扩展（M6，iter-20260821-m6）：setModel 之外新增 setTools/setSystemPrompt 同构直改（AgentRuntime → AgentEnginePort 可选扩面 → PiAgentEngineAdapter → ChatService 六层链，赋 agent.state 即下一 run 生效、in-flight context 快照定格不变——pi agent.d.ts「Assigning state.tools copies the top-level array」官方语义背书）。不走 prepareNextTurn 链（CompactionHook 占用且「首个非空生效」合并语义会短路，与换模同款机械裁决）。资源配置变更（kind 维）经 onApplied 回调刷新该 kind 全部活跃 runtime；SubAgent 按代生效（spawn 时刻 env 定格快照）；主会话槽位 UI 化后 main 型读面 = 四级链（per-session 覆盖 > kind 槽位 > default_model，读面生效不强推活跃 runtime）。
 
 ## 理由
 M4 终验后真机 7 连败根因之一：会话内 model.set 只切主实例，SubAgent 模型源仍是全局默认（zai 配额耗尽后子进程 429 静默失败）。用户裁决三级优先级原话「profile > 会话模型 > 全局默认」。spawnModels 半截管线已存在（透传与存储段在线、launch 段未消费），改动面集中于 launch 签名与 model getter，无需新建通道。spawn 时快照（而非 launch 时读会话现值）保证排队实例的模型语义在 spawn 时刻确定、可观测（status 读面已携带 model）。
@@ -1021,3 +1029,42 @@ PROTOCOL.md 是 WS 契约的唯一事实源，且该地位必须机械可验证�
 
 ## 反例
 payload 形状只写在 events.ts/commands.ts 的接口注释里、PROTOCOL.md 只列目录不列字段（前端/工具链被迫翻代码猜字段）；或脚本里手写 const V = "0.3" 而注释声称「来自单点」（登记在案的漂移反例）；或升 v0.5 只改 envelope.ts 不动文档标题与 §3 代码块（sot-consistency 断言①红）；或加 chat.send.payload.draft 字段但 §15.1 无字段行（draft 零登记复发，断言④红）；或 mock 的 trace.query 忽略 agentKind 过滤维只回显（mock 与 daemon normalize 口径分裂，TR-TEST-3 违例）。
+
+```kg-node
+id: TR-AD-27
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: SystemPrompt 三段组装器（组装唯一来源 + 无条件化纪律）
+status: active
+digest: 改系统提示词、加工具/技能提示段、调组装顺序或格式时
+derivedFrom:
+  - M6 规划 §三（2026-08-20 用户多轮裁决：无条件化联动/自写格式化/双源消除）
+anchors:
+  implementedBy:
+    - apps/daemon/src/application/services/SystemPromptAssembler.ts
+    - apps/daemon/src/adapters/driven/tools/ToolPromptSnippets.ts
+  testedBy:
+    - apps/daemon/test/unit/system-prompt-assembler.test.ts
+    - apps/daemon/test/unit/profile-slim.test.ts
+    - apps/daemon/test/integration/resource-refresh-chain.test.ts
+relations:
+  governs:
+    - E-AgentProfile
+    - E-智能体配置资源
+updatedIn: iter-20260821-m6
+```
+
+## 规则
+systemPrompt 组装唯一来源 = 三段拼接：①profile base（静态瘦身，角色+行为引导，零手写工具清单）+ ②可用工具段（`- name: snippet` 扁平清单，snippet 一句话，从 resolveTools 产物同源派生——能力与提示双断的结构保证）+ ③可用技能段（内容对齐 agentskills.io 标准：三句引导语（技能是什么/匹配时先 read 全文/相对路径以技能目录为基准解析）+ 每技能 name/description/location 三行 YAML 子块 + description 单行折行防御；格式非 XML 自写，不用 pi 的 formatSkillsForSystemPrompt）。三个消费面同源：main engineFor 装配 / toggle 刷新推送 / subagent spawn 快照缓存。无条件化纪律（用户裁决）：组装器不做任何状态联动判断——read 被禁不删技能引导句、编排三件套被禁不删委派段；提示词与资源状态错配 = 使用不当，不是代码缺陷。
+
+## 理由
+M6 前两 profile 为双源维护（systemPrompt 手写工具清单已漂移：漏 grep、编排挤「并行委派」段），增删工具必漂；tools 段从 resolveTools 产物派生使清单与装配面结构性同源（state.tools 是 provider function calling 与分发双料事实源——移除即能力+提示双断）。自写格式化的依据：pi 库层格式化是纯拼串函数零耦合，且 pi 自家 coding-agent 亦是独立实现（应用自决层）；XML 换 YAML 子块但三字段+三引导语内容要素与标准逐项对齐（location 是技能文件型资源的功能性字段，模型靠它 read 技能全文）。
+
+## 适用范围
+系统提示词相关实现与评审；新增工具/技能时的提示段接入；snippet 注册表维护；组装格式调整（须同步 system-prompt-assembler.test 断言）。
+
+## 反例
+在 profile systemPrompt 常量里手写/回填工具名清单（双源复发，profile-slim.test 词边界断言即红）；组装器里加「read 禁用则删引导句」类联动判断（无条件化裁决被违反）；技能段丢 location 或丢相对路径解析引导语（功能性要素缺失，模型读不到技能文件）。

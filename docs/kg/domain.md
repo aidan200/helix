@@ -338,3 +338,36 @@ builtin 表是离线兜底基线永不失效；overlay 刷新走 ETag 条件请�
 
 ## 关系
 P-3 菜单可用性过滤以 E-认证凭据 的已配置 provider 集为判据（前端 join，协议不加可用性字段）；短 id 跨厂商歧义宁可不标（T5.4 resolveCatalogMatch 裁决）；catalog_refresh 命令触发同步刷新（延迟可能高，后台预刷新未做）。
+
+```kg-node
+id: E-智能体配置资源
+kind: entity
+graph: business
+scope: domain
+stack: backend
+name: 智能体配置资源（resource_state）
+status: active
+digest: 动资源启停、扩资源配置维度、调 kind 维合取语义时
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/sqlite-session/ResourceStateStore.ts
+    - apps/daemon/src/application/services/ResourceService.ts
+    - apps/daemon/src/adapters/driven/pi-engine/SkillScanner.ts
+  testedBy:
+    - apps/daemon/test/integration/resource-state.test.ts
+    - apps/daemon/test/unit/resource-service.test.ts
+    - apps/daemon/test/unit/skill-scanner.test.ts
+updatedIn: iter-20260821-m6
+```
+
+## 描述
+按 profile kind 维度的资源启停状态（SQLite resource_state 表，主键 (profile_kind, resource_type, name)，全局表走 WriteQueue globalTail 链）：resource_type ∈ {tool, skill, model} 三类。生效集 = profile 静态全集（tools 声明）/扫描全集（skills）∩ kind 启用集。缺省无记录 = 启用（零配置兼容现状，存量会话/测试零迁移）。模型槽位语义：model 型行 enabled 恒 1、删除行 = 未设；main-session 槽位 = 出厂默认（四级解析链 per-session 覆盖 > kind 槽位 > default_model），subagent-worker 槽位 = 三级链第一级（TR-AD-24）UI 化。skills 扫描双层目录（user=~/.helix/skills 经 paths.ts 单点派生 + project=<工作区>/.helix/skills 启动时定格），pi loadSourcedSkills 防腐墙内包装，诊断上抛不炸。
+
+## 规则
+合取语义硬约束：kind 启停不跨 kind 传染；未知名 toggle 显式跳过（skipped 回执，不落库——全集外无生效面）；list 读面只回全集内资源；模型槽位写经 modelSlot 原子替换（同 job 内先 DELETE 后 INSERT）。
+
+## 禁忌
+不以 enabled=0 表达模型槽位「未设」（删除行才是未设）；不在 application 层 import profiles（tools 全集经组合根注入映射表，AG-02）；扫描器 pi 类型不得越防腐墙；不兼容 pi 的 ~/.pi 目录（用户裁决：双层自有目录）。
+
+## 关系
+E-AgentProfile 的静态全集是合取的一侧（运行期启用集是另一侧）；E-模型目录 default_model 为 main 槽位的下级兜底；agent.config.* 命令族（契约 v0.6）是唯一写入口；T2 刷新链消费合取结果直改活跃 runtime。
