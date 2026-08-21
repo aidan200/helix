@@ -35,11 +35,11 @@ anchors:
   implementedBy:
     - apps/daemon/src/adapters/driven/pi-engine/runtime/AgentProfile.ts
     - apps/daemon/src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile.ts
-updatedIn: iter-20260819-erio
+updatedIn: task-20260821-s1s4
 ```
 
 ## 描述
-声明式 agent 规格：kind、系统提示、工具集、model 槽位、钩子装配（HookSet 组合）、compaction 参数、生命周期策略。生命周期声明是编排分层的唯一表达：persistent（常驻多轮，MainSessionProfile）vs single-shot（单轮收敛 + closure 协议回主线，SubAgentProfile）。model 槽位语义（AD-3 修订，取代 M2 AD-6「缺省继承全局默认」）：model 槽位是 SubAgent 模型三级解析链的最高优先级——profile 声明 model（provider/model-id，完整 Model 对象透传防 registry 不含）即该类型实例固定用声明模型；未声明则依次回退 spawn 时快照的会话模型、全局兜底（默认模型存储现值；语义为「全局兜底」而非「SubAgent 默认来源」）。取代边界：仅取代「SubAgent 模型源 = 全局默认表」的解析规则；会话级 model.set 内存态语义不变（主实例 AgentState.model，重启/卸载回退全局默认）。SubAgentProfile.model 从显式 undefined 转为真实槽位——代码层声明入口（UI 管理归 skills 页下迭代）。已实例化 MainSessionProfile 与 SubAgentProfile（subagent-worker：单任务收敛 SOP + closure 协议系统提示、全工具集、single-shot）——扩展公式的首次生产运用。典型用法：主会话旗舰模型、worker 声明便宜模型。
+声明式 agent 规格：kind、系统提示、工具集、model 槽位、钩子装配（HookSet 组合）、compaction 参数、生命周期策略。生命周期声明是编排分层的唯一表达：persistent（常驻多轮，MainSessionProfile）vs single-shot（单轮收敛 + closure 协议回主线，SubAgentProfile）。model 槽位语义（AD-3 修订，取代 M2 AD-6「缺省继承全局默认」）：model 槽位是 SubAgent 模型三级解析链的最高优先级——profile 声明 model（provider/model-id，完整 Model 对象透传防 registry 不含）即该类型实例固定用声明模型；未声明则依次回退 spawn 时快照的会话模型、全局兜底（默认模型存储现值；语义为「全局兜底」而非「SubAgent 默认来源」）。取代边界：仅取代「SubAgent 模型源 = 全局默认表」的解析规则；会话级 model.set 内存态语义不变（主实例 AgentState.model，重启/卸载回退全局默认）。SubAgentProfile.model 从显式 undefined 转为真实槽位——代码层声明入口（UI 管理已由智能体页 /skills 承接：双 kind 卡片，模型下拉复用 filterAvailableModels 与 chat P-3 同一可用性口径，provider configured 过滤 + 当前槽位兑底 + authLoaded 门控）。已实例化 MainSessionProfile 与 SubAgentProfile（subagent-worker：单任务收敛 SOP + closure 协议系统提示、全工具集、single-shot）——扩展公式的首次生产运用。典型用法：主会话旗舰模型、worker 声明便宜模型。
 
 ## 规则
 profile 是纯声明（规格数据 + 装配意图），行为差异全部表达为钩子装配与生命周期声明差异；model 解析收束 infrastructure/config 单点（三级解析链：profile > spawn 会话快照 > 全局兜底，消费面只依赖解析后的 Model 对象，launch 段为唯一消费点，见 TR-AD-24）；新增编排模式 = 新增 profile + HookSet 组合，AgentRuntime 不动（TR-AD-4）。

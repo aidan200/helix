@@ -276,40 +276,43 @@ scope: domain
 stack: frontend
 name: 前端 FSD 五层与主题/i18n 纪律
 status: active
-digest: 写前端组件、动路由或导航壳、搬 desk 切片、加文案或主题时
+digest: 写前端组件、动路由/导航壳/布局壳、搬 desk 切片、加文案或主题时
 derivedFrom:
   - AD-12
   - AD-18
   - AD-1（M4 导航框架范围：只做框架不做填充）
   - CL-4 裁决（M4：Q-4a IconRail 形态 / Q-4b 六页签与路径路由 / Q-4c 占位施工牌）
+  - S1-S4 布局统一用户裁决（2026-08-21：AppLayout 统一壳/五页签/models 迁 settings/sidebar 语义自决）
 anchors:
   implementedBy:
     - apps/shell/src/app/route.ts#routeOfPath
     - apps/shell/src/app/useAppRoute.ts
     - apps/shell/src/app/App.tsx
     - apps/shell/src/widgets/nav-rail/ui/IconRail.tsx
+    - apps/shell/src/widgets/app-layout/ui/AppLayout.tsx
     - apps/shell/src/shared/ui/ConstructionBoard.tsx
   testedBy:
     - apps/shell/src/app/route.test.ts
+    - apps/shell/src/widgets/app-layout/ui/AppLayout.test.tsx
     - apps/shell/src/tests/ag-scans.test.ts
 relations:
   governs:
     - E-会话聚合
-updatedIn: iter-20260818-mq5a
+updatedIn: task-20260821-s1s4
 ```
 
 ## 规则
 前端采用标准 FSD 五层（app/pages/widgets/features/entities + shared）；WS 客户端落 shared/api（transport 缝隙集中于此）；Cyber HUD 设计 token 落 shared/ui：CSS 变量 :root 唯一真源 + rgb(var(--x)/<alpha-value>) alpha 修饰符模式；原子组件自持有（shadcn 哲学：Magic UI 等按需 copy-in，无全量库依赖）。主题用注册表机制：每主题 = 同名语义 token 变量块不同值（暗色挂 :root 为默认，追加主题以 html class 挂载），后期整体调整只改主题块不动组件；主题是纯前端 concern，daemon 无主题概念；用户偏好 localStorage 持久化。文案全 key 纪律：P-1 页面所有 UI 文案走搬入的 desk 轻量 i18n（React context + localStorage 持久化 + navigator.language 检测，zh-CN/en-US 双语言包），无硬编码文案；协议 DTO 不含语言字段，中英文本传原始内容，语言选择是前端渲染 concern。
-页面域与会话域分离：路由层（app/route.ts + useAppRoute + IconRail 导航壳）表达页面域（六页签 chat/models/skills/trace/project/settings 终态；手写路径路由 / /models /skills /trace /project /settings，不采 ?page= 深链；未知路径回落工作台），SessionProvider 及其内（会话侧栏/主区/dispatcher/consumers）表达会话域；SessionProvider 在路由层之上（切页零 WS 影响），IconRail 不读会话 store、会话域组件不感知路由状态。chat 页常驻 DOM（route-layer + data-route display 切换保流式），其余页条件渲染离开卸载。页面回填 additive：未来功能页填充不动导航壳与路由骨架（新增页面 = 路由位 + 页组件 + IconRail 图标三项 additive）；旧路径迁移（/settings/models → /models）单仓同发一步完成不保兼容。占位页 = 静态施工牌（图标 + 页名 + 一句话能力预告 + 「规划中」徽标，复用 Cyber HUD 空态语言），不绑路线图（不做时间/顺序暗示，避免隐性承诺），与断连态视觉区分。
+页面域与会话域分离：路由层（app/route.ts + useAppRoute + IconRail 导航壳）表达页面域（五页签 chat/skills/trace/project/settings 终态；手写路径路由 / /skills /trace /project /settings，不采 ?page= 深链；未知路径回落工作台，/models 与旧 /settings/models 同语义退役不保兼容），SessionProvider 及其内（会话侧栏/主区/dispatcher/consumers）表达会话域；SessionProvider 在路由层之上（切页零 WS 影响），IconRail 不读会话 store、会话域组件不感知路由状态。chat 页常驻 DOM（route-layer + data-route display 切换保流式），其余页条件渲染离开卸载。统一布局壳（task-20260821-s1s4 用户裁决）：全部页面共用 widgets/app-layout AppLayout——.app-layout（100dvh 自身不滚）→ header（48px 全宽固定；headerLeft 页面标题槽 + headerRight 动作槽）→ layout-body（sidebar 可选槽 + main.layout-main 唯一滚动容器）；页面滚动只发生在 layout-main，header/IconRail 不随内容滚动，页面禁自建页壳/自开整页滚动。IconRail 品牌位 = HelixLogo 渐变图标（header 品牌位退役）、主题切换单钮（Sun/Moon 显示切换目标）置 rail 底部头像上方（header 主题分段钮退役）；scanline 氛围层 App 层全局单份。各页 sidebar 语义自决（壳只管布局不感知内容）：chat = 会话清单（可折叠）、trace = 上下分区（上会话清单/下选中会话实例列表）、settings = 分区导航（首项模型设置；/models 独立页已退役，模型配置迁入功能零变更，chat 快捷入口链同批退役）、project 暂不启用（槽位预留）。页面回填 additive：未来功能页填充不动导航壳与路由骨架（新增页面 = 路由位 + 页组件 + IconRail 图标三项 additive）。占位页 = 静态施工牌（图标 + 页名 + 一句话能力预告 + 「规划中」徽标，复用 Cyber HUD 空态语言；现仅 project 使用），不绑路线图（不做时间/顺序暗示，避免隐性承诺），与断连态视觉区分。
 
 ## 理由
 desk 前端本就 FSD 五层，切片搬运成本最低（F-6）；desk i18n 方案已验证且轻量（~1.7k LOC，F-8）；daemon 是开发者面向、统一中文不做 i18n（AD-18）；主题注册表避免后期主题级调整侵入每个组件（Q-7 裁决）。M4 AD-1 + Q-4a/b/c：框架先行解耦交付（页面内容随功能推进）；域分离是「chat 页常驻 DOM 保流式」与「页面自由扩展」两个不变量的结构基础——任何一侧感知另一侧都会在页面增长后产生耦合反噬；施工牌不绑路线图避免把迭代规划泄漏成对用户的隐性承诺。
 
 ## 适用范围
-CL-7 前端聊天流切片搬运与 P-1 页面开发；新增任何前端组件、文案、主题 token；shared/api 的 WS transport 改造。M4+ 新增或填充任何页面（skills/trace/project/settings 回填）；动 App.tsx 装配序或路由常量；IconRail/导航壳演进评审；占位页与施工态设计。
+CL-7 前端聊天流切片搬运与 P-1 页面开发；新增任何前端组件、文案、主题 token；shared/api 的 WS transport 改造。新增或填充任何页面（仅 project 施工牌待回填；skills/trace/settings 已实页）；动 App.tsx 装配序或路由常量；IconRail/导航壳/AppLayout 统一壳与 sidebar 槽演进评审；占位页与施工态设计。
 
 ## 反例
-组件里写死「发送」二字不走 i18n key，或卡片组件内硬编码 rgb(0,255,255) 色值绕过主题变量——换主题即漏色。新功能页组件 import 会话 store 内部（页面域污染会话域——页面卸载时会话态被误清或页面状态残留）；或占位页写「即将上线 / Q4 推出」时间暗示（隐性承诺）；或页面填充时改 IconRail 骨架/路由结构（回填必须 additive）；或把 IconRail 放进 SessionProvider 内部依赖活跃会话渲染。
+组件里写死「发送」二字不走 i18n key，或卡片组件内硬编码 rgb(0,255,255) 色值绕过主题变量——换主题即漏色。新功能页组件 import 会话 store 内部（页面域污染会话域——页面卸载时会话态被误清或页面状态残留）；或占位页写「即将上线 / Q4 推出」时间暗示（隐性承诺）；或页面填充时改 IconRail 骨架/路由结构（回填必须 additive）；或把 IconRail 放进 SessionProvider 内部依赖活跃会话渲染；或新页面自建页壳/自开整页滚动容器绕过 AppLayout（header 随内容滚走、布局风格漂移复发——统一前四页三套头部的历史问题即此）。
 
 ```kg-node
 id: TR-AD-9
@@ -933,7 +936,7 @@ state 直改族谱扩展（M6，iter-20260821-m6）：setModel 之外新增 setT
 M4 终验后真机 7 连败根因之一：会话内 model.set 只切主实例，SubAgent 模型源仍是全局默认（zai 配额耗尽后子进程 429 静默失败）。用户裁决三级优先级原话「profile > 会话模型 > 全局默认」。spawnModels 半截管线已存在（透传与存储段在线、launch 段未消费），改动面集中于 launch 签名与 model getter，无需新建通道。spawn 时快照（而非 launch 时读会话现值）保证排队实例的模型语义在 spawn 时刻确定、可观测（status 读面已携带 model）。
 
 ## 适用范围
-SubAgent spawn/launch 链路实现与评审；profile model 槽位声明（代码层入口，UI 管理归 skills 页下迭代）；default_model 相关文案/注释口径调整；模型切换链路的 E 层与真机验证；未来新增 profile 类型时模型槽位语义评审。
+SubAgent spawn/launch 链路实现与评审；profile model 槽位声明（代码层入口；UI 管理由智能体页 /skills 承接，模型下拉可用性过滤与 chat P-3 同口径）；default_model 相关文案/注释口径调整；模型切换链路的 E 层与真机验证；未来新增 profile 类型时模型槽位语义评审。
 
 ## 反例
 SubagentLauncher 每次 launch 直接读全局默认 getter（单级解析回退——会话内切模型后 SubAgent 仍用旧全局默认，7 连败根因复发）；或 launch 时才读会话现值而不在 spawn 时快照（排队实例模型随主实例后续切换漂移，spawn 语义不可观测）。

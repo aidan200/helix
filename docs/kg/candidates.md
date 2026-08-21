@@ -6,6 +6,32 @@
 
 ## applied
 
+### TR-AD-8-r2（task-20260821-s1s4）
+- changeType: 修改
+- targetNode: TR-AD-8
+- scope: docs/kg/architecture-rules.md TR-AD-8（路由终态修订 + AppLayout 统一布局壳契约；适用范围/反例/frontmatter 同步）
+- project: helix
+- reason: S1-S4 布局统一用户裁决：四页自建页壳（app-header/p4-head/ag-head/p1-head 三套头部三种滚动模型）收敛为 AppLayout 统一壳（header 48px 全宽固定 + sidebar 可选槽 + main 唯一滚动容器）；路由六页签→五页签（/models 独立页退役，模型配置迁 settings 分区导航首项，chat 快捷入口链同批退役）；IconRail 品牌位换 HelixLogo、主题切换单钮入 rail（header 分段钮退役）；各页 sidebar 语义自决（chat 会话清单/trace 上下分区/settings 分区导航/project 槽位预留）；scanline 全局单份；沉淀点：AppLayout 布局契约 + 清单选择器 sidebar 化模式（TraceSidebar）
+- evidence: 集成终验 336/336 单测 + tsc 零错 + e2e 全量 31 passed（F 层 mock + E 层真 daemon）；commit 96beca4/290eca1/4c87172/df28ca0/ef6176d
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/widgets/app-layout/ui/AppLayout.tsx；apps/shell/src/widgets/nav-rail/ui/IconRail.tsx；apps/shell/src/pages/settings/ui/SettingsNav.tsx；apps/shell/src/pages/trace/ui/TraceSidebar.tsx
+- sourceTask: S1-S4 前端布局统一（MainAgent，2026-08-21）
+- createdIn: task-20260821-s1s4
+- decisionLog: 用户裁决「按上述内容发起 kg 同步」——直写落盘（formalId=TR-AD-8，节点 id 稳定）
+
+### E-AgentProfile-r2（task-20260821-s1s4）
+- changeType: 修改
+- targetNode: E-AgentProfile
+- scope: docs/kg/domain.md E-AgentProfile 描述段 + docs/kg/architecture-rules.md TR-AD-24 适用范围（UI 承接事实文本修正）
+- project: helix
+- reason: 两处「UI 管理归 skills 页下迭代」过时：智能体页（/skills 路由）已承接 profile kind 维配置 UI（双 kind 卡片模型/工具/技能），模型下拉复用 filterAvailableModels 与 chat P-3 同一可用性口径（零复制实现，含 requestAuthList 数据链）
+- evidence: S3a 闭环（test:shell 328/328；F 层 e2e 129/129；E 层 CL-skills-e2e 4/4 真 daemon）
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/pages/skills/AgentPage.tsx；apps/shell/src/features/model-switch/model/available-models.ts
+- sourceTask: S3a（SubAgent 实现 + MainAgent 同步提案，2026-08-21）
+- createdIn: task-20260821-s1s4
+- decisionLog: 用户裁决「按上述内容发起 kg 同步」——直写落盘（formalId=E-AgentProfile，节点 id 稳定）
+
 ### E-智能体配置资源（iter-20260821-m6）
 - changeType: 新增
 - scope: docs/kg/domain.md（业务实体新增）
