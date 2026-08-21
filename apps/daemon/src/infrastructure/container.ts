@@ -45,11 +45,13 @@ import { SqliteSessionRepository } from "../adapters/driven/sqlite-session/Sqlit
 import { SqliteTraceQueryAdapter } from "../adapters/driven/sqlite-session/SqliteTraceQueryAdapter";
 import type { TraceQueryPort } from "../domain/trace/TraceQueryPort";
 import type { ProfileSnapshotData } from "../domain/events/DomainEvent";
-import { createPaths, type HelixPaths } from "./paths";
+import { createPaths, osHomeDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig } from "./config";
 import { ensureDevToken } from "./dev-token";
 import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
+import type { BrowserPort } from "../application/ports/outbound/BrowserPort";
+import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
 
 /**
  * 组合根（architecture.md §3.6）：整个 daemon 唯一允许 new 具体实现的地方。
@@ -141,6 +143,11 @@ export interface Daemon {
   readonly resource: ResourceService;
   /** 会话目录入口（T2.2 AD-4：list/loadHistory/delete/草稿/懒加载取数面）。 */
   readonly directory: SessionDirectoryPort;
+  /**
+   * 浏览器连接入口（T2 CDP 地基，BrowserPort）：lazy 连接，T3 browser_* 工具
+   * 与 T4 状态协议的消费面；生命周期 = daemon 生命周期（shutdown 挂 stop()）。
+   */
+  readonly browser: BrowserPort;
   /** 多会话容器（T2.2：生命周期编排观测面——测试断言懒加载/卸载用）。 */
   readonly registry: SessionRegistry;
   /** CLI 主循环（阻塞至 /exit/EOF/二次 Ctrl-C）。 */
@@ -310,6 +317,10 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     setCallbacks: () => undefined,
   };
 
+  // ── driven：CDP 浏览器连接（T2 地基；无独立 proxy/HTTP 层，连接内嵌 daemon）──
+  // lazy 连接——装配不触网；homeDir 经 paths.ts 单点取（AG-07：adapter 不直接展开主目录）。
+  const browserPort: BrowserPort = new CdpConnectionManager({ homeDir: osHomeDir() });
+
   // ── service：SubAgent 调度编排（T2.2 多会话共用：构造期绑死 sessionId 废弃；
   //    实例归属经 spawn 入参/AgentInstanceData.sessionId；全局预算不分裂） ──
   const restoreService = new RestoreService({ repository, clock });
@@ -343,6 +354,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
         defaultModel.current(),
       hooks: SubAgentProfile.hooks.map((h) => h.name),
     }),
+    // T2 CDP 地基：agent 终态 → 回收其全部 managed tabs（idle sweep 兼底）
+    onInstanceTerminal: (agentId) => void browserPort.reclaimOwner(agentId),
     // closure 注入主线（AD-8 双通道；T2.2 会话反向查找：实例归属会话 → 注册表
     // 寻址目标 ChatService）。热会话同步直达（收口链时序不变）；冷会话（理论
     // 不可达——活跃实例的会话不会卸载）异步恢复后补投。注册表在下方装配
@@ -615,6 +628,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       scheduler.stop(); // T2.1：停 stalled 监视定时器
       registry.sealAll(); // T2.2：全部热会话封口（stopped 里程碑 write-through 落盘）
       await subagentLauncher?.dispose(); // T2.2：O-6 序列回收全部存活子进程（零孤儿）
+      await browserPort.stop(); // T2：关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
       await writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
       lock?.release();
       logger.info("daemon 已关闭");
@@ -690,6 +704,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     model: modelService,
     resource: resourceService,
     directory: registry,
+    browser: browserPort,
     registry,
     runCli: () => cli.run(),
     shutdown: system.shutdown,

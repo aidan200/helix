@@ -117,6 +117,13 @@ export interface SchedulerServiceDeps {
    *   不进 application）；缺省 = 纯调度测试形态，不发布 instantiated。
    */
   readonly subagentSnapshotFor?: (spawnModel: string | undefined) => AgentInstantiatedPayload["profileSnapshot"];
+  /**
+   * 实例终态钩子（T2 CDP 地基）：done/failed/killed 收口链完成后回调——
+   * 组合根接 `browserPort.reclaimOwner`（回收该 owner 全部 managed tabs，
+   * 浏览器侧资源随 agent 终态释放；idle sweep 兼底）。可选——纯调度测试
+   * 形态不注入；迟到/重复收口被门面幂等吞，钩子恰好触发一次。
+   */
+  readonly onInstanceTerminal?: (agentId: string) => void;
 }
 
 export class SchedulerService implements AgentOrchestrationPort {
@@ -469,6 +476,10 @@ export class SchedulerService implements AgentOrchestrationPort {
     const closure = this.recorder.saveClosureArtifacts(instance, outcome, this.tasks.get(instanceId) ?? "");
     this.closures.set(instanceId, closure);
     this.recorder.finalizeClosure(instance, outcome, closure);
+
+    // T2 CDP 地基：实例终态钩子（组合根接 browserPort.reclaimOwner 回收
+    // 该 owner 全部 managed tabs；位于收口链尾段之后、空位释放之前）
+    this.deps.onInstanceTerminal?.(instanceId);
 
     // 空位释放 → FIFO 出队（queued 收口不释放运行位，maybeDequeue 自会按预算判定）
     this.maybeDequeue();

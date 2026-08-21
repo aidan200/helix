@@ -45,6 +45,14 @@ export function resolveHome(explicitHome?: string): string {
   return explicitHome ?? path.join(os.homedir(), ".helix");
 }
 
+/**
+ * OS 用户主目录（T2 CDP 地基：浏览器发现需展开 ~/Library/... 等平台路径）。
+ * 与 resolveHome 同文件收束（AG-07：本文件是全仓唯一展开用户主目录的模块）。
+ */
+export function osHomeDir(): string {
+  return os.homedir();
+}
+
 /** 构建全部派生路径（AD-13 §7.1 目录布局）。 */
 export function createPaths(explicitHome?: string): HelixPaths {
   const home = resolveHome(explicitHome);
