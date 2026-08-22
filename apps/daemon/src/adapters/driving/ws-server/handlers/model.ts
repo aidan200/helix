@@ -1,5 +1,5 @@
 /**
- * model 族命令处理（T1.1 AD-3：case 体自 WsServerAdapter.routeCommand 机械迁出）。
+ * model 族命令处理（AD-3：case 体自 WsServerAdapter.routeCommand 机械迁出）。
  *
  * 机械迁移纪律（语义逐字节等价，diff 审查可逐行对照）：
  * - case 体逐行搬移，仅做机械代换——`this.deps.X` → `ctx.X`、
@@ -7,14 +7,14 @@
  *   `ws`/`payload`/`envelope`/`type` → `ctx.ws`/`ctx.payload`/`ctx.envelope`/`ctx.type`；
  *   case 尾 `return;` 落函数自然收尾；不改分支/字符串/回执时序。
  *
- * v0.2 model 族（T2.3 AD-2，契约 C §1；真行为回口。微批：结果帧点对点回执）：
+ * v0.2 model 族（AD-2，契约 C §1；真行为回口。微批：结果帧点对点回执）：
  * - model.set 的 ack 仍为 model.changed 广播（ModelService 内发，此处不经手）；
  * - 其余 5 命令结果经 *.result 结果帧 sendNow 直发（契约 C §2.2）。
  *
  * 仍在 driving adapter 内（TR-AD-1 分层不变，零新 port）：依赖面 = ModelPort
  * + system.getStatus() 缺省回退 + 4 个共享辅助（commandError / modelErrorCode
  * / rawSender / sendNow），经 WsCommandContext 由 WsServerAdapter 供出。
- * T3.2（F-8 解环）：WsCommandContext 定义上收 handlers/context.ts（纯 type
+ * WsCommandContext 定义上收 handlers/context.ts（解环：纯 type
  * 搬移零运行时行为），本模块改向 import，不再构成回边环。
  */
 import type {

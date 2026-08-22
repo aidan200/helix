@@ -29,7 +29,7 @@ export interface HelixPaths {
   readonly logsDir: () => string;
   /** 系统 SQLite：`<home>/helix.db`（领域状态持久化，WAL）。 */
   readonly dbPath: () => string;
-  /** user 层技能目录：`<home>/skills`（M6 双层技能根之一；project 层 = <工作区>/.helix/skills，启动时定格，与 toolCwd 同款判定，不入本单点）。 */
+  /** user 层技能目录：`<home>/skills`（双层技能根之一；project 层 = <工作区>/.helix/skills，启动时定格，与 toolCwd 同款判定，不入本单点）。 */
   readonly skillsHome: () => string;
   /** 单例幂等锁：`<home>/daemon.lock`（AG-17，同 --home 二启拒绝）。 */
   readonly lockPath: () => string;
@@ -46,7 +46,7 @@ export function resolveHome(explicitHome?: string): string {
 }
 
 /**
- * OS 用户主目录（T2 CDP 地基：浏览器发现需展开 ~/Library/... 等平台路径）。
+ * OS 用户主目录（CDP 地基：浏览器发现需展开 ~/Library/... 等平台路径）。
  * 与 resolveHome 同文件收束（AG-07：本文件是全仓唯一展开用户主目录的模块）。
  */
 export function osHomeDir(): string {
@@ -54,7 +54,7 @@ export function osHomeDir(): string {
 }
 
 /**
- * daemon 内置技能目录（T5 builtin 第三源）：`<包根>/resources/skills`
+ * daemon 内置技能目录（builtin 第三源）：`<包根>/resources/skills`
  * ——随仓发布、产品不可删改（不可禁用防护在 ResourceService 写面）。
  * 与 home 无关故不入 HelixPaths 派生集；import.meta.dir 相对解析（bun 从
  * src 直跑 .ts——src/infrastructure/ 上溯两级 = apps/daemon 包根）。

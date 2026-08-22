@@ -1,7 +1,7 @@
 /**
  * 贫血持久化行模型（AD-17 第 4 条，architecture.md §3.5）：
  * 与 SQLite 表一一对应的纯数据形状，只被 sqlite-session 适配器与 RowMapper
- * 使用——domain 不 import 本目录（模型隔离，TP-CL8-5 A 半扫描）。
+ * 使用——domain 不 import 本目录（模型隔离）。
  * 富行为（充血聚合）在 domain；两者转换只在 RowMapper。
  */
 
@@ -10,7 +10,7 @@ export interface DomainEventRow {
   readonly id?: number;
   readonly session_id: string;
   readonly agent_kind: string;
-  /** 实例归属（T1.2；旧列前时代的行由守护补列回填 'main'，O-3）。 */
+  /** 实例归属（旧列前时代的行由守护补列回填 'main'）。 */
   readonly agent_instance_id: string;
   readonly type: string;
   readonly payload: string;
@@ -46,14 +46,14 @@ export interface SteerQueueRow {
 export interface ToolCallRow {
   readonly id: string;
   readonly session_id: string;
-  /** 工具调用归属实例（T1.2；domain 侧 ToolCallRecord 挂 id 归 T2.x）。 */
+  /** 工具调用归属实例（domain 侧 ToolCallRecord 挂 id）。 */
   readonly instance_id: string;
   readonly tool_name: string;
   readonly args: string;
   readonly status: string;
   readonly result: string | null;
   readonly error: string | null;
-  /** 工具结果附带图片（T9 下行）：data URL 数组 JSON 文本；可空。 */
+  /** 工具结果附带图片（下行）：data URL 数组 JSON 文本；可空。 */
   readonly images: string | null;
   readonly started_at: string | null;
   readonly ended_at: string | null;

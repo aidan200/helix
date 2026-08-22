@@ -5,8 +5,8 @@ import type {
 } from "@earendil-works/pi-agent-core/node";
 
 /**
- * WebSearchTool —— 静态联网搜索工具（T1 静态族；动态层 browser action=open/eval
- * 属 T2/T3，本文件只在其全失败文案中预留兜底提示）。
+ * WebSearchTool —— 静态联网搜索工具（动态层 browser action=open/eval 属
+ * 动态族；本文件只在其全失败文案中预留兜底提示）。
  *
  * 分两半（同 GrepTool 分半模式）：
  * - **解析核 = 纯函数**（本文件上半区）：搜索引擎 HTML → 结果列表；零 IO、

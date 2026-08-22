@@ -1,9 +1,9 @@
 /**
- * 资源启停状态出口端口（outbound，M6 T1）。实现体 = driven
+ * 资源启停状态出口端口（outbound）。实现体 = driven
  * sqlite-session/ResourceStateStore.ts（resource_state 全局表，写经
  * WriteQueue 单写通道 AG-06 全局链；读面共用 writeQueue.database 连接）。
  *
- * 语义边界（M6 §三设计定稿）：
+ * 语义边界：
  * - 配置单元 = profile kind（main-session / subagent-worker）；
  * - 资源类型 ∈ {tool, skill, model}；
  * - **缺省无记录 = 启用**（零配置兼容现状，存量零迁移）——本表只存用户

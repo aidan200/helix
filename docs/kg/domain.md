@@ -179,9 +179,9 @@ status: active
 digest: 写实例生命周期、挂 instanceId、区分主/Sub 实例、供 spawn 锚点时
 anchors:
   implementedBy:
-    - apps/daemon/src/adapters/driving/ws-server/SpawnAnchor.ts#computeAnchorEntryId
-    - apps/daemon/src/adapters/driving/ws-server/SpawnAnchor.ts#lastMainAnchorId
-    - apps/daemon/src/adapters/driving/ws-server/SpawnAnchor.ts#AnchorScanEntry
+    - packages/protocol/src/projection/instance.ts#computeAnchorEntryId
+    - packages/protocol/src/projection/instance.ts#lastMainAnchorId
+    - packages/protocol/src/projection/instance.ts#AnchorScanEntry
     - apps/daemon/src/application/services/scheduler/SchedulerService.ts#spawnAnchors
     - apps/daemon/src/application/services/scheduler/SchedulerService.ts#spawnAnchorOf
     - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#publish
@@ -192,7 +192,7 @@ anchors:
     - apps/shell/src/entities/session/model/instance-anchors.test.ts
     - apps/shell/src/widgets/chat-stream/ui/MessageFlow.test.tsx
     - apps/daemon/test/integration/agent-ws.test.ts
-updatedIn: iter-20260820-qhv8
+updatedIn: iter-20260821-dg90
 ```
 
 ## 描述

@@ -5,7 +5,7 @@ import type { CatalogSnapshot, AuthVerifyOutcome } from "../outbound/ModelCatalo
  * 契约 C §1 全表）。WS 驱动侧只转发不决策（AG-12）；实现体 =
  * application/services/ModelService.ts。
  *
- * 错误语义（service 层抛、driving 层映射回执；微批 T2.3-result-frames
+ * 错误语义（service 层抛、driving 层映射回执；结果帧微批
  * 已登记专用错误码，契约 C §4 与实现对齐）：
  * - ModelNotFoundError → model_not_found；ProviderNotFoundError →
  *   provider_not_found（catalog/catalog_refresh 通路另用 catalog_unreachable）；

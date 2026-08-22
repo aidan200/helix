@@ -4,7 +4,7 @@ import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 
 /**
- * K3 剧本注入（T2.2）：子进程引擎剧本经 env `HELIX_FAKE_ENGINE_SCRIPT=<path>`
+ * 剧本注入（E 层测试基建）：子进程引擎剧本经 env `HELIX_FAKE_ENGINE_SCRIPT=<path>`
  * 注入——ChildMain 检测到该 env 即用本剧本 streamFn 装配（离线、无网络、
  * 无真实 key），E 层 SubAgent 真链路测试据此驱动子进程行为。
  *
@@ -20,7 +20,7 @@ export interface FakeEngineScript {
   /** 模拟不可中断引擎（O-6 SIGKILL 升级路径）：忽略 abort 信号。 */
   readonly ignoreAbort?: boolean;
   /**
-   * provider 错误形态（F1.4）：每 turn 均产出与真引擎 error 轮同构的单帧
+   * provider 错误形态：每 turn 均产出与真引擎 error 轮同构的单帧
    * { type:"error", reason:"error", error }——逐字段 mirror 主线 E 层剧本
    * （apps/daemon/test/e2e/launcher.ts errorMessage + kind:"error" 分支）。
    */

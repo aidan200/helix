@@ -7,11 +7,14 @@
  *   进实例 channel（抽屉折叠块），不进主消息流；
  * - compaction.completed 是里程碑条数据源（entry.usage 为展示面）；账目入账
  *   唯一驱动 = usage.recorded / 快照——此处特意不再累加（AD-9③ 双计防线）；
- * - usage.recorded 聚合：turn 源 → per-instance 小计；compaction 源 →
- *   compaction 小计（不进实例小计）；流式中冻结由「delta 分支不触碰 usage」
- *   结构性保证。
+ * - usage.recorded 聚合（T3.1 口径统一，AF-2）：turn/compaction 源均计入
+ *   per-instance 小计（与 daemon UsageLedger 同口径，AD-9③）；compaction 源
+ *   另计独立小计；total = Σ实例（含 compaction 贡献）；流式中冻结由
+ *   「delta 分支不触碰 usage」结构性保证。累加基元单源
+ *   @helix/protocol projection（addUsage/ZERO_USAGE，原本地副本退役）。
  */
-import type { EventEnvelope, UsageDto } from "@helix/protocol";
+import type { EventEnvelope } from "@helix/protocol";
+import { addUsage } from "@helix/protocol";
 import { upsertChannelEntry } from "../channel";
 import { upsertEntry } from "../entries";
 import { MAIN_INSTANCE_ID, ZERO_USAGE, type SessionState } from "../state";
@@ -23,19 +26,6 @@ export const THINKING_USAGE_EVENT_TYPES = [
   "compaction.completed",
   "usage.recorded",
 ] as const;
-
-/** UsageDto 逐字段累加（账目聚合；永远产生新对象）。 */
-function addUsage(a: UsageDto, b: UsageDto): UsageDto {
-  return {
-    input: a.input + b.input,
-    output: a.output + b.output,
-    cacheRead: a.cacheRead + b.cacheRead,
-    cacheWrite: a.cacheWrite + b.cacheWrite,
-    reasoning: a.reasoning + b.reasoning,
-    totalTokens: a.totalTokens + b.totalTokens,
-    cost: a.cost + b.cost,
-  };
-}
 
 export function applyThinkingUsageEvent(
   s: SessionState,
@@ -67,19 +57,20 @@ export function applyThinkingUsageEvent(
       return { ...s, entries: upsertEntry(s.entries, event.payload.entry) };
     case "usage.recorded": {
       // 账目聚合（流式中冻结由「delta 分支不触碰 usage」结构性保证）：
-      // turn 源 → per-instance 小计；compaction 源 → compaction 小计（不进实例
-      // 小计，total = Σ实例 + compaction 与 popover 行自洽，原型 INSTANCES 口径）
+      // 【口径统一修正，AF-2/T3.1】turn/compaction 源均计入 per-instance 小计
+      //（compaction 归属 main 实例执行——对齐 daemon UsageLedger，AD-9③）；
+      // compaction 源另计独立小计；total = Σ实例（含 compaction 贡献，与
+      // daemon 快照面数值一致——同一 store 增量/快照两路径口径自此统一）
       const { instanceId, usage: u, source } = event.payload;
-      const byInstance = { ...s.usage.byInstance };
-      if (source === "turn") {
-        byInstance[instanceId] = addUsage(byInstance[instanceId] ?? ZERO_USAGE, u);
-      }
       return {
         ...s,
         usage: {
           total: addUsage(s.usage.total, u),
           compaction: source === "compaction" ? addUsage(s.usage.compaction, u) : s.usage.compaction,
-          byInstance,
+          byInstance: {
+            ...s.usage.byInstance,
+            [instanceId]: addUsage(s.usage.byInstance[instanceId] ?? ZERO_USAGE, u),
+          },
         },
       };
     }

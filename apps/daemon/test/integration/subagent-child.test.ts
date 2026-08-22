@@ -17,7 +17,7 @@ import type { ClockPort } from "../../src/application/ports/outbound/ClockPort";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { AgentInstance } from "../../src/domain/agent/AgentInstance";
 import type { ChildOutboundLine } from "../../src/adapters/driven/subagent/transport/wire";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { PassThrough } from "node:stream";
 
@@ -295,7 +295,7 @@ describe("⑥ 崩溃检测（exit 非 0 → failed 上报）", () => {
 describe("⑧ container 组合根装配（SubagentLauncher 真体接入点）", () => {
   test("生产路径（未注入 engine，T2.3 判定重定义）→ subagentLauncher 真体装配；注入 engine（Fake）→ 不装配（占位替身）", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-t22-cont-"));
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       port: 0,
       cliInput: new PassThrough(),
@@ -311,7 +311,7 @@ describe("⑧ container 组合根装配（SubagentLauncher 真体接入点）", 
     }
 
     const fakeHome = mkdtempSync(path.join(tmpdir(), "helix-t22-cont2-"));
-    const fake = await createDaemon({
+    const fake = await createTestDaemon({
       home: fakeHome,
       engine: new FakeAgentEngine({ replies: [{ text: "ok" }] }),
       skipConfig: true,

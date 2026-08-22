@@ -373,7 +373,7 @@ describe("thinking/compaction/usage 状态槽位", () => {
     expect(entry?.kind).toBe("compaction");
   });
 
-  it("usage 聚合：turn 源累计 per-instance 小计与 total；compaction 源只进 compaction 小计（total = Σ实例 + compaction）", () => {
+  it("usage 聚合：turn/compaction 源均计入 per-instance 小计；compaction 源另计独立小计（total = Σ实例，AF-2 口径统一）", () => {
     // cost 用二进制精确值（0.25/0.5/0.125/0.0625），避开浮点累加噪声
     const s0 = run(
       [
@@ -393,8 +393,10 @@ describe("thinking/compaction/usage 状态槽位", () => {
       s0,
     );
     expect(s1.usage.compaction).toEqual(usage({ totalTokens: 32, cost: 0.0625 }));
-    expect(s1.usage.byInstance["main"]).toEqual(usage({ totalTokens: 52, cost: 0.375 })); // 不双计
-    expect(s1.usage.total).toEqual(usage({ totalTokens: 92, cost: 0.9375 })); // Σ实例 + compaction
+    // 【口径统一修正，AF-2/T3.1】compaction 计入实例小计（对齐 daemon
+    // UsageLedger，AD-9③）：main 小计 = 40+12 turn + 32 compaction = 84
+    expect(s1.usage.byInstance["main"]).toEqual(usage({ totalTokens: 84, cost: 0.4375 }));
+    expect(s1.usage.total).toEqual(usage({ totalTokens: 92, cost: 0.9375 })); // Σ实例（含 compaction 贡献）
   });
 
   it("流式中账面冻结：chat/thinking delta 不触碰 usage（仅 usage.recorded/快照驱动）", () => {
@@ -555,21 +557,29 @@ describe("重放幂等（v0.1 全事件面）", () => {
     const prefix = run(actions.slice(0, k));
 
     /** 从投影态构造 daemon 快照（模拟 T2.x toSnapshotDto 重连下发；流式摘要非 DTO 字段不携带；
-     *  instances[].usage 按契约 §6.2 携带该实例累计（turn 源账面），重连后 byInstance 可重建）。 */
+     *  instances[].usage 按契约 §6.2 携带该实例累计，重连后 byInstance 可重建。
+     *  【口径统一修正，AF-2/T3.1】compaction 计入实例小计后，main 实例行同样
+     *  盖章 usage（真实 daemon SessionRegistry.buildView 对 main 实例逐一套章；
+     *  旧 fixture 仅带 SubAgent 卡行——依赖旧口径「main 无实例小计」的偶然成立）。 */
     const daemonSnapshot: SessionAction = snapshotOf(prefix.entries, {
       model: prefix.model,
       agentState: prefix.agentState,
-      instances: prefix.instances.map((c) =>
-        inst(c.instanceId, c.state, {
-          task: c.task,
-          profileKind: c.profileKind,
-          ...(c.queuedPosition !== undefined ? { queuedPosition: c.queuedPosition } : {}),
-          ...(c.closure ? { closure: c.closure } : {}),
-          ...(prefix.usage.byInstance[c.instanceId]
-            ? { usage: prefix.usage.byInstance[c.instanceId] }
-            : {}),
-        }),
-      ),
+      instances: [
+        ...(prefix.usage.byInstance["main"]
+          ? [inst("main", "running", { usage: prefix.usage.byInstance["main"] })]
+          : []),
+        ...prefix.instances.map((c) =>
+          inst(c.instanceId, c.state, {
+            task: c.task,
+            profileKind: c.profileKind,
+            ...(c.queuedPosition !== undefined ? { queuedPosition: c.queuedPosition } : {}),
+            ...(c.closure ? { closure: c.closure } : {}),
+            ...(prefix.usage.byInstance[c.instanceId]
+              ? { usage: prefix.usage.byInstance[c.instanceId] }
+              : {}),
+          }),
+        ),
+      ],
       usage: { total: prefix.usage.total, compaction: prefix.usage.compaction },
     });
 

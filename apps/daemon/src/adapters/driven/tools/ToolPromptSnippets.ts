@@ -1,5 +1,5 @@
 /**
- * ToolPromptSnippets —— 工具提示 snippet 注册表（M6 T2，设计定稿 §三）。
+ * ToolPromptSnippets —— 工具提示 snippet 注册表（设计定稿 §三）。
  *
  * 落位 adapters/driven/tools/（与工具实现同目录，pi 工具符号封装边界不扩）：
  * SystemPromptAssembler 的工具段（- name: snippet 扁平清单）数据源。

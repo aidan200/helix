@@ -8,8 +8,8 @@ import type { BrowserPort, ScrollDirection } from "../../../../application/ports
 import { MAX_IMAGE_BYTES } from "../../../../application/services/images";
 
 /**
- * 动态族浏览器工具（web-access T3r 返工）：**单 browser 工具 + action 参数**
- *（用户裁决——T3 的 11 个 browser_* 独立工具折叠为一个，LLM 显式选 action，
+ * 动态族浏览器工具（web-access 返工）：**单 browser 工具 + action 参数**
+ *（用户裁决：11 个 browser_* 独立工具折叠为一个，LLM 显式选 action，
  * 无自然语言路由；形态参照统一 web_access）。
  *
  * action 分发：open / navigate / back / eval / click / click_at / set_files /
@@ -37,7 +37,7 @@ import { MAX_IMAGE_BYTES } from "../../../../application/services/images";
  *   DOM 节点不能直接返回需提取属性）；递归遍历可穿透 Shadow DOM 与 iframe；
  * - 截图读图：file 必填落盘，之后用 read 工具读取图片（read 支持图片）；
  * - status：连接状态 + 受管 tab 清单（owner/闲置时长）+ 惰性连接语义
- *  （T7：idle ≠ 不可用，操作 action 自动建连；status idle 结果附带 hint 引导）。
+ * （idle ≠ 不可用，操作 action 自动建连；status idle 结果附带 hint 引导）。
  */
 
 /** 合法 action 枚举（schema 与分发共用单一来源）。 */
@@ -118,7 +118,7 @@ type ShotRead =
   | { status: "ok"; data: string; mimeType: string }
   | { status: "oversize" | "missing" };
 
-/** T9：读截图落盘文件 → base64（按请求 format 定 mimeType，CDP port 同契约）。 */
+/** 读截图落盘文件 → base64（按请求 format 定 mimeType，CDP port 同契约）。 */
 async function readShot(file: string, mimeType: string): Promise<ShotRead> {
   try {
     const bytes = await readFile(file);
@@ -132,7 +132,7 @@ async function readShot(file: string, mimeType: string): Promise<ShotRead> {
 }
 
 /**
- * T9 图片下行：screenshot 落盘后读文件 → image 内容块（模型可直接看图 +
+ * 图片下行：screenshot 落盘后读文件 → image 内容块（模型可直接看图 +
  * 聊天窗工具卡缩略图数据源）。首读超 2MB → jpeg format 重截降质（同路径
   * 覆写）；重截仍超限或读失败 → undefined（images 缺省只有文本，不炸）。
  */
@@ -219,7 +219,7 @@ export function createBrowserTool(
           const tabId = requireParam(params, "tabId");
           const file = requireParam(params, "file");
           const { saved } = await browser.screenshotTab(tabId, file);
-          // T9 图片下行：落盘后读文件回填 image 内容块（超限 jpeg 重截；失败缺省不炸）
+          // 图片下行：落盘后读文件回填 image 内容块（超限 jpeg 重截；失败缺省不炸）
           const image = await screenshotImageBlock(browser, tabId, file);
           const text = JSON.stringify({ saved });
           if (image === undefined) return textResult(text);
@@ -239,7 +239,7 @@ export function createBrowserTool(
           const now = Date.now();
           return jsonResult({
             status,
-            // T7 惰性语义引导（LLM 侧误判防护）：idle 不代表不可用——
+            // 惰性语义引导（LLM 侧误判防护）：idle 不代表不可用——
             // 任何操作 action 都会自动建连；connected/error 态不带（可选字段）。
             ...(status.state === "idle"
               ? { hint: "连接为惰性建立：直接调用 action=open 等操作即可自动连接浏览器" }

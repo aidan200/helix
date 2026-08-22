@@ -7,10 +7,10 @@ import { DomainError } from "../DomainError";
  * - generating：assistant 流式生成中；
  * - toolRunning：本轮触发的工具执行中（生成暂停等工具）；
  * - completed：轮次正常收尾（终态）；
- * - interrupted：轮次被 abort 中断（终态；abort 非销毁，会话可开新轮，spike §2）。
+ * - interrupted：轮次被 abort 中断（终态；abort 非销毁，会话可开新轮）。
  *
  * steer 注入规则：generating / toolRunning 期间允许（isSteerable）——
- * 与 spike §5.3 实测一致（工具执行中/生成中均可入队，turn 边界 drain）；
+ * 与实测一致（工具执行中/生成中均可入队，turn 边界 drain）；
  * 终态轮次不允许再注入（新输入应开新轮）。
  */
 export type TurnStatus = "generating" | "toolRunning" | "completed" | "interrupted";

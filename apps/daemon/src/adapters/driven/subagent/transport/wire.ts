@@ -5,7 +5,7 @@ import type { InstanceClosurePayload } from "../../../../domain/events/DomainEve
  * SubAgent 子进程 stdio JSON 线协议（O-7 候选 A 形态，v1 StdioJsonRpcTransport
  * 同构最小集）。逐行 JSON（`\n` 分帧），双向各一条流：
  *
- * - 子 → 父（stdout）：started（含 pid + 透传 model 回显，F-14 深度相等断言点）
+ * - 子 → 父（stdout）：started（含 pid + 透传 model 回显， 深度相等断言点）
  *   / event（引擎事件逐条上行，AgentEngineEvent 形状）/ closure（五字段收口）
  *   / crash（子进程异常说明）/ log（诊断行，非致命）。
  * - 父 → 子（stdin）：send（steer 注入消息，AD-7⑤）。

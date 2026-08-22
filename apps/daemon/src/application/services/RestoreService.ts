@@ -14,17 +14,18 @@ import type {
 } from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
 import { AgentInstance, agentSeqOf, type InstanceState } from "../../domain/agent/AgentInstance";
-// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+// MAIN_INSTANCE_ID 改引协议导出（v0.2 收口，domain 定义保留 AG-02 例外）
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
-import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "../../domain/session/UsageLedger";
+// 投影收敛：账本重放基元单源 @helix/protocol projection
+import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "@helix/protocol";
 
 /**
- * RestoreService —— 重启恢复（architecture.md §3.4 / §5.4 / §8.2，F(8).2）。
+ * RestoreService —— 重启恢复（architecture.md §3.4 / §5.4 / §8.2）。
  *
  * 【业务语义】daemon 重启后读盘（SessionRepositoryPort）重建领域聚合
  * （Session.restoreFrom），交组合根注入 ChatService；快照经 SessionPort
  * （SessionService.getSnapshot）可推前端——「重启 daemon 后重连同样成立」
- * 是迭代验收口径的最后一环（WS 通路 T1.6 并行接线，接口对齐即可）。
+ * 是迭代验收口径的最后一环（WS 通路并行接线，接口对齐即可）。
  *
  * 【悬挂收口】重启时不可能有引擎 run 在飞：快照中残留的 open turn
  * （generating/toolRunning）一律收口为 interrupted——崩溃丢当前流、
@@ -34,22 +35,22 @@ import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "../../domain
  * 最后状态仅作观测/trace）；未消费 steer 随快照 pendingSteer 保留在
  * 队列中（不自动重放到引擎——v0 无回放触发点，数据面已完整）。
  *
- * 【实例注册表/closure 恢复（T2.4，AD-10 恢复语义树）】
+ * 【实例注册表/closure 恢复（AD-10 恢复语义树）】
  * - 数据源三合一：agent_lifecycle 每实例行（状态权威投影）+ closure_records
  *   记录行（终态实例 closure 本体）+ domain_events agent.spawned 载荷
- *   （task/profileKind/createdAt 事件流重建——快照 instances 字段 T3.2 前不
+ * （task/profileKind/createdAt 事件流重建——快照 instances 字段不
  *   落盘，事件流是双源核对的另一源）。
  * - running → failed 收口（D-1 同构）：closure{failed,"daemon 重启，任务未完成"}
  *   落 closure_records + agent_lifecycle 行更新 failed；closure 注入主线
  *   SteerQueue（source=closure，下轮 turn 消费）——**不自动续跑**：注入只
  *   入队不驱动引擎（零新事件流），恢复代码零 spawn。
- * - queued → cancelled（区别于 failed）：队列不落盘（T2.1）重启即清，
+ * - queued → cancelled（区别于 failed）：队列不落盘重启即清，
  *   agent_lifecycle 行收口 cancelled；**不产生 closure 记录**（未开跑）；
  *   不自动重派。
  * - done/failed/cancelled 终态：原样恢复（closure 从 closure_records 最新行
  *   读回）——重启幂等（上次收口行不再重复收口/注入）。
  *
- * 【账目恢复（T3.2，AD-4 事件即账）】session_state 快照不落账目（写面
+ * 【账目恢复（AD-4 事件即账）】session_state 快照不落账目（写面
  * 结构不动，无新列）——权威源 = domain_events 的 usage.recorded 行，
  * 重放 applyUsage 重建账本（合计 + per-instance 明细）；运行期快照聚合
  * 字段与事件流的一致性由 integration 双源核对（重启前后快照相等）保证。
@@ -72,7 +73,7 @@ export interface RestoredInstance {
   readonly state: InstanceState;
   readonly createdAt: string;
   readonly task?: string;
-  /** spawn 时刻会话模型快照（T2.1 F5.8：agent.spawned 载荷 model；恢复回填源）。 */
+  /** spawn 时刻会话模型快照（agent.spawned 载荷 model；恢复回填源）。 */
   readonly model?: string;
   /** 终态实例（done/failed）closure；cancelled 不携带。 */
   readonly closure?: InstanceClosurePayload;
@@ -87,9 +88,9 @@ export interface RestoredDomainState {
   readonly toolCalls: readonly ToolCallRecordData[];
   /** SubAgent 实例清单（收口后终态；调度器注册表 + 快照 instances 重建源）。 */
   readonly instances: readonly RestoredInstance[];
-  /** 已用最大 agent-N 序号（重启后 spawn 续基线不撞号，K5）。 */
+  /** 已用最大 agent-N 序号（重启后 spawn 续基线不撞号）。 */
   readonly maxAgentSeq: number;
-  /** 会话账本（T3.2：usage.recorded 事件流重放重建；组合根快照聚合/实例小计源）。 */
+  /** 会话账本（usage.recorded 事件流重放重建；组合根快照聚合/实例小计源）。 */
   readonly usage: UsageLedgerData;
 }
 
@@ -100,7 +101,7 @@ export class RestoreService {
   constructor(private readonly deps: RestoreServiceDeps) {}
 
   /**
-   * 恢复指定会话（T2.2 AD-4：多会话按 id 恢复——原 restoreLatest 取
+   * 恢复指定会话（AD-4：多会话按 id 恢复——原 restoreLatest 取
    * ids.at(-1) 的末位语义废弃，目标会话由调用方（SessionRegistry 懒加载/
    * 组合根启动取当前会话）决定）；不存在返回 undefined。
    */
@@ -112,7 +113,7 @@ export class RestoreService {
       session.interruptTurn(this.deps.clock.now()); // 悬挂收口：重启无 run 在飞
     }
     const instances = await this.restoreInstances(sessionId, session);
-    // T2.1（AD-3）：SubAgent 历史重放——事件流 agent_kind=subagent 全量补齐
+    // SubAgent 历史重放——事件流 agent_kind=subagent 全量补齐（AD-3）
     //（投影落库前的旧库升级路径 + 事件行先于状态行的崩溃窗口自愈；
     // 快照已有的条目按 id 去重，零事件流零落盘——恢复不重放铁律保持）
     const toolCalls = this.replaySubAgentHistory(sessionId, session, state.toolCalls);
@@ -126,7 +127,7 @@ export class RestoreService {
     };
   }
 
-  // ── 账目重建（T3.2，AD-4 事件即账） ─────────────────────
+  // ── 账目重建（AD-4 事件即账） ─────────────────────
 
   /**
    * usage.recorded 事件流重放 → 账本（合计 + per-instance 明细 + compaction
@@ -144,7 +145,7 @@ export class RestoreService {
     return ledger;
   }
 
-  // ── SubAgent 历史重放（T2.1，AD-3） ─────────────────────
+  // ── SubAgent 历史重放（AD-3） ─────────────────────
 
   /**
    * 事件流 agent_kind=subagent 全量重放 → 聚合条目/工具记录补齐：
@@ -270,7 +271,7 @@ export class RestoreService {
         sessionId,
         createdAt: spawn?.createdAt ?? row.updatedAt,
         ...(spawn?.task !== undefined ? { task: spawn.task } : {}),
-        // T2.1（F5.8）：spawn 时刻模型快照随恢复产物回填（调度器 spawnModels）
+        // spawn 时刻模型快照随恢复产物回填（调度器 spawnModels）
         ...(spawn?.model !== undefined ? { model: spawn.model } : {}),
       };
       if (row.state === "running") {
@@ -331,7 +332,7 @@ export class RestoreService {
         map.set(payload.agentId, {
           ...(payload.task !== undefined ? { task: payload.task } : {}),
           ...(payload.profileKind !== undefined ? { profileKind: payload.profileKind } : {}),
-          ...(payload.model !== undefined ? { model: payload.model } : {}), // T2.1 F5.8
+          ...(payload.model !== undefined ? { model: payload.model } : {}), // spawn 时刻模型快照回填
           createdAt: event.occurredAt,
         });
       }

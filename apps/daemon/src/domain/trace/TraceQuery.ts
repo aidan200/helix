@@ -1,17 +1,15 @@
-import { DomainError } from "../DomainError";
 import type { ProfileSnapshotData } from "../events/DomainEvent";
 
 /**
- * TraceQuery —— trace 查询面纯语义（iter-20260819-erio T2.1，CL-5/F5.5~F5.7；
- * architecture.md §3.5b 伪代码级设计，用户审阅定稿；契约 v0.4 §1/§4）。
+ * TraceQuery —— trace 查询面纯语义（契约 v0.4 §1/§4；
+ * architecture.md §3.5b 伪代码级设计定稿）。
  *
  * domain 纯数据 + 纯函数（framework-free，零 import 外层，对照
- * SchedulingPolicy/UsageLedger 惯例）：
- * - normalizeTraceQuery：WS payload → 归一过滤（必填/矛盾/时间窗校验 +
- *   limit 鉗制），收口在 application 调仓储前（校验失败 = DomainError，
- *   driving 侧映射 command.invalid_payload 回执）；
- * - hasMoreBefore：rows.length === limit 即可能还有更早页（恰整除边界多
- *   一次空载，契约记录在案）；
+ * SchedulingPolicy 惯例）。投影收敛：normalizeTraceQuery /
+ * hasMoreBefore / TRACE_PAGE_* 常量已迁 @helix/protocol projection/trace.ts
+ * 单源（fake 镜像段同批退役；本文件保留 normalize 产物类型面
+ * NormalizedTraceQuery——TraceQueryPort 签名在用，AG-02 禁 domain import
+ * protocol，与协议侧形状同构对应是 TR-AD-3 既有模式）；本文件现存：
  * - assembleExecutionContext：单实例事件流 → 执行上下文视图（instantiated
  *   首条为基准快照；model.changed 按 ts 序 fold from→to，当前生效值 =
  *   末条 to；compaction.completed 里程碑序列；无 instantiated →
@@ -24,13 +22,10 @@ import type { ProfileSnapshotData } from "../events/DomainEvent";
  * 新实体，持久化它们即第二事实源，§3.5b 禁令）。
  */
 
-/** 分页缺省与上限（契约 v0.4 §1.2：缺省 50，上限鉗制 200 不报错）。 */
-export const TRACE_PAGE_DEFAULT = 50;
-export const TRACE_PAGE_MAX = 200;
+// ── 查询过滤归一产物类型面（normalize 实现已迁 protocol 单源） ────
 
-// ── 查询过滤（输入 → 归一） ────────────────────────────────
-
-/** 归一后的查询（= 结果帧 filterEcho 形态；缺省维归一 null）。 */
+/** 归一后的查询（= 结果帧 filterEcho 形态；缺省维归一 null；与
+ *  @helix/protocol projection/trace.ts NormalizedTraceQuery 形状同构对应）。 */
 export interface NormalizedTraceQuery {
   readonly sessionId: string;
   /** null = 全部实例（缺省）；空数组 = 空结果（显式语义）。 */
@@ -41,66 +36,6 @@ export interface NormalizedTraceQuery {
   /** ISO 8601 含起含止（ts >= from && ts <= to）。 */
   readonly timeRange: { readonly from: string | null; readonly to: string | null } | null;
   readonly page: { readonly limit: number; readonly beforeId: number | null };
-}
-
-/**
- * WS payload（未信 unknown）→ 归一查询。校验规则（契约 v0.4 §4 机械判据）：
- * sessionId 必填非空；instanceIds/types 为 string 数组（空数组合法 = 空结果）；
- * agentKind ∈ {"main","subagent"}；timeRange from>to 矛盾拒绝；limit 正整数
- * 鉗制 MAX_PAGE；beforeId 正整数。违反即 DomainError（中文说明）。
- */
-export function normalizeTraceQuery(input: unknown): NormalizedTraceQuery {
-  const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
-
-  const sessionId = raw.sessionId;
-  if (typeof sessionId !== "string" || sessionId === "") {
-    throw new DomainError("trace.query 校验失败：payload.sessionId 应为非空 string");
-  }
-
-  const instanceIds = optionalStringArray(raw.instanceIds, "instanceIds");
-  const types = optionalStringArray(raw.types, "types");
-
-  const agentKindRaw = raw.agentKind;
-  if (agentKindRaw !== undefined && agentKindRaw !== "main" && agentKindRaw !== "subagent") {
-    throw new DomainError('trace.query 校验失败：payload.agentKind 应为 "main" | "subagent"');
-  }
-  const agentKind = (agentKindRaw ?? null) as "main" | "subagent" | null;
-
-  let timeRange: NormalizedTraceQuery["timeRange"] = null;
-  if (raw.timeRange !== undefined) {
-    const tr = (typeof raw.timeRange === "object" && raw.timeRange !== null ? raw.timeRange : {}) as Record<string, unknown>;
-    const from = optionalIsoString(tr.from, "timeRange.from");
-    const to = optionalIsoString(tr.to, "timeRange.to");
-    if (from !== null && to !== null && from > to) {
-      throw new DomainError(`trace.query 校验失败：timeRange 矛盾（from ${from} 晚于 to ${to}，含起含止窗口为空）`);
-    }
-    timeRange = { from, to };
-  }
-
-  let limit = TRACE_PAGE_DEFAULT;
-  let beforeId: number | null = null;
-  if (raw.page !== undefined) {
-    const page = (typeof raw.page === "object" && raw.page !== null ? raw.page : {}) as Record<string, unknown>;
-    if (page.limit !== undefined) {
-      if (typeof page.limit !== "number" || !Number.isInteger(page.limit) || page.limit < 1) {
-        throw new DomainError("trace.query 校验失败：page.limit 应为正整数");
-      }
-      limit = Math.min(page.limit, TRACE_PAGE_MAX); // 鉗制不报错（契约 §4）
-    }
-    if (page.beforeId !== undefined) {
-      if (typeof page.beforeId !== "number" || !Number.isInteger(page.beforeId) || page.beforeId < 1) {
-        throw new DomainError("trace.query 校验失败：page.beforeId 应为正整数（id 游标）");
-      }
-      beforeId = page.beforeId;
-    }
-  }
-
-  return { sessionId, instanceIds, agentKind, types, timeRange, page: { limit, beforeId } };
-}
-
-/** 更早页判据（AF-3 id 游标）：本页实载 == limit 即可能还有更早页。 */
-export function hasMoreBefore(loaded: number, limit: number): boolean {
-  return loaded === limit;
 }
 
 // ── 事件行（domain_events 行的 domain 侧形状） ─────────────
@@ -116,7 +51,7 @@ export interface TraceEventRowData {
   readonly payload: unknown;
 }
 
-// ── 执行上下文 fold（F5.2 双段：基准快照 + 变更轨迹） ──────
+// ── 执行上下文 fold（双段：基准快照 + 变更轨迹） ──────
 
 export interface ModelChangeEntry {
   readonly from: string;
@@ -175,7 +110,7 @@ export function assembleExecutionContext(events: readonly TraceEventRowData[]): 
   };
 }
 
-// ── 实例面板 fold（F5.1；会话级，不受 events 过滤维影响） ──
+// ── 实例面板 fold（会话级，不受 events 过滤维影响） ──
 
 /** 实例聚合行（COUNT/MIN/MAX GROUP BY agent_instance_id 查询产物）。 */
 export interface InstanceAggregateRow {
@@ -275,22 +210,4 @@ export function assembleInstancePanel(
     const bt = b.startedAt ?? "";
     return at < bt ? -1 : at > bt ? 1 : a.instanceId.localeCompare(b.instanceId);
   });
-}
-
-// ── 内部：字段校验辅助 ────────────────────────────────────
-
-function optionalStringArray(value: unknown, name: string): readonly string[] | null {
-  if (value === undefined) return null;
-  if (!Array.isArray(value) || value.some((v) => typeof v !== "string" || v === "")) {
-    throw new DomainError(`trace.query 校验失败：payload.${name} 应为非空 string 数组（空数组 = 空结果）`);
-  }
-  return value as readonly string[];
-}
-
-function optionalIsoString(value: unknown, name: string): string | null {
-  if (value === undefined) return null;
-  if (typeof value !== "string" || value === "" || Number.isNaN(Date.parse(value))) {
-    throw new DomainError(`trace.query 校验失败：${name} 应为 ISO 8601 时间文本`);
-  }
-  return value;
 }

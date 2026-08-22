@@ -11,32 +11,35 @@ digest: 写 daemon 代码、加 adapter、动分层边界时
 derivedFrom:
   - AD-12
   - AD-17
+  - AD-1（iter-20260821-dg90：packages/common 白名单例外）
+  - H2.2（iter-20260821-dg90：组合根锚面扩 assembly/）
 anchors:
   implementedBy:
     - apps/daemon/src/domain/
     - apps/daemon/src/application/
     - apps/daemon/src/adapters/
     - apps/daemon/src/infrastructure/
+    - apps/daemon/src/infrastructure/assembly/
   testedBy:
     - apps/daemon/test/arch-guard/arch-guard.test.ts
 relations:
   governs:
     - E-AgentRuntime
     - E-会话聚合
-updatedIn: iter-20260816-uzvg
+updatedIn: iter-20260821-dg90
 ```
 
 ## 规则
-daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号）→ application/（ports/ 按 inbound/outbound 双向组织——inbound：AgentOrchestrationPort、SystemPort 等（接口由 service 或组合根实现）；outbound：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort 等（由 service 调用；双向清单详见 TR-AD-2）+ services/：ChatService、SessionService、RestoreService、SchedulerService；只依赖 domain 与自有 port + 白名单两项（@helix/protocol——仅 MAIN_INSTANCE_ID 取源单点，AG-13 裁决；node:path——scheduler/ClosureRecorder 产物路径；以守护 AG-02② 白名单为准，iter-20260820-qhv8 终验同步），禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、subagent（SubAgent 子进程 launcher/child/transport）、static-serve，实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：DI 装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点）。新增代码先定层再写文件。
+daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号——唯一例外 @helix/common：业务无关通用常量/纯工具经 AG-02① 白名单显式允许直引，@helix/protocol 与 pi 系仍禁，iter-20260821-dg90 AD-1）→ application/（ports/ 按 inbound/outbound 双向组织——inbound：AgentOrchestrationPort、SystemPort 等（接口由 service 或组合根实现）；outbound：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort 等（由 service 调用；双向清单详见 TR-AD-2）+ services/：ChatService、SessionService、RestoreService、SchedulerService；只依赖 domain 与自有 port + 白名单三项（@helix/common——业务无关通用层直引，AD-1/iter-20260821-dg90；@helix/protocol——协议类型与纯投影消费（MAIN_INSTANCE_ID 唯一定义已迁 @helix/common，protocol 为 re-export 通道，AG-13 取源断言语义同步）；node:path——scheduler/ClosureRecorder 产物路径；以守护 AG-02② 白名单为准，iter-20260821-dg90 扩为三项），禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、subagent（SubAgent 子进程 launcher/child/transport）、static-serve，实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点；组合根锚面 = container.ts + infrastructure/assembly/**——命名装配函数族 buildPersistence/buildModelStack/buildSessionStack/wireEventFanout 落 assembly/ 目录，iter-20260821-dg90 H2.2 拆分，AG-02④ 豁免面同步扩为该锚面）。新增代码先定层再写文件。
 
 ## 理由
-六边形与 daemon「唯一事实源 + 端口适配」职责天然契合——pi 引擎/SQLite/WS 都是可替换端口（AD-12）；单向依赖保证防腐：换引擎、换存储、换前端均不动 domain 与 application（AD-17）；业务逻辑 framework-free 才能零依赖单测。
+六边形与 daemon「唯一事实源 + 端口适配」职责天然契合——pi 引擎/SQLite/WS 都是可替换端口（AD-12）；单向依赖保证防腐：换引擎、换存储、换前端均不动 domain 与 application（AD-17）；业务逻辑 framework-free 才能零依赖单测。iter-20260821-dg90 两处扩张均为机械跟随非语义反转：domain 白名单开 @helix/common 例外是 AD-1 裁决——MAIN_INSTANCE_ID 双源即本规则「取源单点」条款与 AG-02 domain 禁令内战的产物，解法 = 引入两者之下都合法的最小公共层（规则全文见 TR-AD-28）；组合根锚面从单文件扩为目录是 H2.2 四命名装配函数拆分的落位配套（组合根「唯一允许 import 全部层、new 具体实现」语义不变，container <500 行目标的结构前提）。
 
 ## 适用范围
-apps/daemon 全部新增/修改代码的落位决策；新增任何 adapter 或 port 时；代码评审的分层检查项。
+apps/daemon 全部新增/修改代码的落位决策；新增任何 adapter 或 port 时；代码评审的分层检查项；动 infrastructure/assembly/ 装配函数、组合根豁免面或 DaemonOptions 生产/测试形态（createTestDaemon）时；packages/common 依赖边接入 domain/application 的白名单审查。
 
 ## 反例
-application/services/ChatService 直接 `import { Agent } from '@earendil-works/pi-agent-core'` 驱动对话——绕过 AgentEnginePort，pi 升级即侵入 application（正确做法：经 outbound port 由 adapters/driven/pi-engine 实现）。
+application/services/ChatService 直接 import { Agent } from '@earendil-works/pi-agent-core' 驱动对话——绕过 AgentEnginePort，pi 升级即侵入 application（正确做法：经 outbound port 由 adapters/driven/pi-engine 实现）；或 domain import @helix/protocol——AG-02① 仍禁（白名单例外仅 @helix/common，协议类型经 adapter/projection 层转换）；或 infrastructure/assembly/ 之外的任何层 new 具体 adapter/service 实现——AG-02④ 红（组合根豁免面 = container.ts + assembly/**）；或把测试注入口（skipConfig/skipLock/engine 注入）写回生产 DaemonOptions——H2.3 两形态分离违例。
 
 ```kg-node
 id: TR-AD-2
@@ -1071,3 +1074,35 @@ M6 前两 profile 为双源维护（systemPrompt 手写工具清单已漂移：�
 
 ## 反例
 在 profile systemPrompt 常量里手写/回填工具名清单（双源复发，profile-slim.test 词边界断言即红）；组装器里加「read 禁用则删引导句」类联动判断（无条件化裁决被违反）；技能段丢 location 或丢相对路径解析引导语（功能性要素缺失，模型读不到技能文件）。
+
+```kg-node
+id: TR-AD-28
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: packages/common 业务无关通用层与零依赖守护
+status: active
+digest: 新建全局常量或通用 utils、动 packages/common 内容、加 @helix/common 依赖边时
+derivedFrom:
+  - AD-1（iter-20260821-dg90 技术债偿还：Q-2/D-4 用户裁决「正好引入 common 概念…保证其业务无关性」）
+anchors:
+  implementedBy:
+    - packages/common/src/
+  testedBy:
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
+updatedIn: iter-20260821-dg90
+```
+
+## 规则
+packages/common 是 monorepo 业务无关通用层，处于全依赖图最底层。包结构：src/constants.ts（全局常量唯一落位）+ src/utils/（通用纯工具）+ src/index.ts 门面导出。依赖方向硬约束：零外部依赖、零 @helix/* 依赖——import 只允许 node/bun 内置说明符与包内相对路径；daemon 各层（domain/application/adapters/infrastructure）、protocol、shell 均可依赖 common，common 不依赖任何 @helix/* 包与第三方包。业务无关性双治理：①结构断言机械守护——arch-guard AG-15：packages/common/src 全部 .ts 的 import 说明符 ∈ {相对路径, node:*/bun:* 内置}、packages/common/package.json dependencies 必空；②内容纪律评审守护——不含领域概念/业务语义，准入判据 = 「换一个产品仍然成立」的通用件，领域词汇（Session/Agent/Instance 等领域语义）一律拒绝入内。首个成员：MAIN_INSTANCE_ID（原 domain/agent/AgentInstance.ts 与 packages/protocol/src/envelope.ts 双源收编，唯一定义 = common/src/constants.ts；domain 经 AG-02① 白名单例外直引；protocol re-export 保持既有 @helix/protocol 消费面兼容（本迭代不批量迁移既有消费点）；AG-13 取源断言语义与 test/unit/protocol-import.test.ts 双源相等断言随迁）。新代码取用 MAIN_INSTANCE_ID 直引 @helix/common，不再经 protocol re-export 链。范围控制：既有 utils 不批量迁移，后续按需逐个迁入，每笔迁入过业务无关性双治理。
+
+## 理由
+iter-20260821-dg90 AD-1：MAIN_INSTANCE_ID 双源的根因是规则内战——TR-AD-1「@helix/protocol 仅 MAIN_INSTANCE_ID 取源单点」与 AG-02「domain 禁 import 协议包」互相打架（源报告 A5 核实），解法不是放宽某一侧，而是引入两者之下都合法的最小公共层；零依赖结构断言（AG-15）让「业务无关」从口头纪律变成红绿事实，与 AG-05 零依赖纪律同源；不批量迁移既有 utils 是范围控制裁决（避免偿还债本身变成新的大迁移）。
+
+## 适用范围
+新建全局常量或通用工具函数时的落位决策；packages/common 包内容增删评审（业务无关性判据）；任何 @helix/common 依赖边新增（daemon/protocol/shell 的 package.json dependencies）；arch-guard AG-15 断言维护；MAIN_INSTANCE_ID 取源审查。
+
+## 反例
+在 packages/common 里 import @helix/protocol（或任何 @helix/*、第三方包）——common 是全依赖图最底层，反向即环，AG-15 断言红；或把 SessionRecord 这类领域簿记概念、AgentInstance 这类领域语义塞进 common utils——业务无关性纪律违例（结构断言查不出，评审拦）；或在 domain/agent/AgentInstance.ts 重新定义 MAIN_INSTANCE_ID = "main" 字面量——双源复发，AG-13 取源断言红。

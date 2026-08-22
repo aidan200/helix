@@ -1,15 +1,19 @@
 import { describe, expect, test } from "bun:test";
+// T3.1 投影收敛：账目纯语义单源 @helix/protocol projection（原 domain
+// UsageLedger 迁出）——仅 import 换源，期望值零改动（等价对账基线不变）。
 import {
   aggregateSession,
   applyUsage,
   emptyUsageLedger,
   instanceUsageOf,
   type UsageLedgerData,
-} from "../../src/domain/session/UsageLedger";
+} from "@helix/protocol";
 import type { UsageSummary } from "../../src/domain/session/SessionSnapshot";
 
 /**
  * T3.2 RED：domain 账目纯语义（AD-4：账目是 domain 权威状态）——
+ * T3.1（M4 投资批）纯函数迁 @helix/protocol projection 单源后，本文件经
+ * 协议包引用保持同等价对账：
  * applyUsage per-instance 七字段累加 / source 分流（turn/compaction）/
  * aggregateSession 聚合自洽（Σ instances = total；compaction 小计 ⊆ total）/
  * 空账零值形状。零依赖单测（纯函数，不触 service/adapter）。

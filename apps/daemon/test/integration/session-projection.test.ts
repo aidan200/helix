@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon, type Daemon } from "../../src/infrastructure/container";
+import type { Daemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import type {
   InstanceRunner,
   InstanceRunnerCallbacks,
@@ -83,7 +84,7 @@ async function makeRig(): Promise<Rig> {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t21-projection-"));
   const engine = new FakeAgentEngine({ replies: [{ text: "主线回复（完）" }] });
   const runner = new ScriptedSubagentRunner();
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,
@@ -186,7 +187,7 @@ describe("T2.1 ③ 恢复重放含 SubAgent 历史（重启后快照/抽屉读�
     const home = mkdtempSync(path.join(tmpdir(), "helix-t21-restore-"));
     const mk = async (): Promise<Daemon> => {
       const engine = new FakeAgentEngine({ replies: [{ text: "主线回复（完）" }] });
-      return createDaemon({
+      return createTestDaemon({
         home,
         engine,
         skipConfig: true,

@@ -4,11 +4,15 @@
  */
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import type { Lang, Translations } from "./types";
+import type { Translations } from "./lang/zh-CN";
 import { zhCN } from "./lang/zh-CN";
 import { enUS } from "./lang/en-US";
 
-export type { Lang, Translations } from "./types";
+/** 语言代码（T1.1：自 types.ts 迁入）。 */
+export type Lang = "zh-CN" | "en-US";
+
+/** Translations 单一事实源在 lang/zh-CN.ts（typeof zhCN，T1.1）；此处为消费面 re-export 单点。 */
+export type { Translations };
 
 const TRANSLATIONS: Record<Lang, Translations> = {
   "zh-CN": zhCN,

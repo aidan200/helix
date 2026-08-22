@@ -5,15 +5,15 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 /**
  * pi-ai 工厂接入（architecture.md §8.3 import 红线的唯一执行点之一）。
  *
- * 接入纪律（F-7 / AD-11 / AD-13，spike 坑 2）：
+ * 接入纪律（AD-11 / AD-13）：
  * - provider **必须**经 `pi-ai/providers/all` 子路径——主入口
  *   side-effect-free，走主入口拿不到 provider 实现；
  * - apiKey **显式传**入 getApiKey 钩子（agent-loop 内部把它作为
  *   options.apiKey 传给 streamSimple）——与环境变量彻底无缘（AG-08）；
- *   T2.3（AD-2）：key 数据源改 auth.json（组合根传 getter——换 key 后
+ * key 数据源改 auth.json（AD-2：组合根传 getter——换 key 后
  *   下一请求即生效，无需重建引擎）；
  * - 本文件不读文件、不看 env：参数全部由调用方（组合根）显式传入，
- *   依赖注入面即测试断言面（TP-CL4-7 spy 可断言）。
+ * 依赖注入面即测试断言面（spy 可断言）。
  */
 
 /**
@@ -44,7 +44,7 @@ export function resolveModel(models: Models, modelStr: string): Model<any> {
 }
 
 /**
- * 默认模型解析收束单点（F-14 红线，T2.2/T2.3）：model 字符串（SQLite
+ * 默认模型解析收束单点（单点红线）：model 字符串（SQLite
  * 默认模型 / builtin 兜底）在此一次解析为完整 Model 对象，此后全链路
  * （主引擎/SubAgent 子进程）只拿对象透传，不散落读字符串/按 id 重建。
  * 缺失/为空 → 中文 fail-fast。
@@ -61,7 +61,7 @@ export function resolveConfigModel(modelStr: string | undefined, models?: Models
 }
 
 /**
- * 模型槽位解析（AD-6，T2.2）：profile 未声明 → 继承 base 完整对象
+ * 模型槽位解析（AD-6）：profile 未声明 → 继承 base 完整对象
  * （同引用透传，非按 id 重建——base 可来自目录之外，重建会失败）；
  * 声明 "provider/model-id" → registry 解析（失败 fail-fast 含 id）。
  */
@@ -82,7 +82,7 @@ export function createStreamFn(models: Models): StreamFn {
 /**
  * 显式 key 查询钩子：返回值在 agent-loop 内被放进 stream options 的
  * apiKey 字段（每请求按当前模型 provider 取 key——换 provider 后 key
- * 自动跟随）。T2.3（AD-2）：数据源改 auth.json——组合根传入 getter
+ * 自动跟随）。数据源改 auth.json（AD-2）——组合根传入 getter
  * （或静态表），缺 key 即抛错（fail-fast，指明 auth.set_key 录入路径）。
  */
 export function explicitGetApiKey(

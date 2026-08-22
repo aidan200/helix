@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import type { SessionStreamEvent } from "../../src/application/ports/inbound/SessionPort";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 
@@ -21,7 +21,7 @@ describe("createDaemon 组合根装配", () => {
     const home = tmpHome();
     try {
       const engine = new FakeAgentEngine({ replies: [{ text: "组合根装配下的回复。" }] });
-      const daemon = await createDaemon({
+      const daemon = await createTestDaemon({
         home,
         engine,
         skipConfig: true,
@@ -72,7 +72,7 @@ describe("createDaemon 组合根装配", () => {
     const home = path.join(base, "nested", ".helix"); // 首启前不存在的深层路径
     try {
       const engine = new FakeAgentEngine({ replies: [{ text: "首启补建目录后的回复。" }] });
-      const daemon = await createDaemon({
+      const daemon = await createTestDaemon({
         home,
         engine,
         skipConfig: true,

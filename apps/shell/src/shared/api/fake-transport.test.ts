@@ -14,11 +14,13 @@
  * - agentKind 过滤：正向生效（过滤后集合 == mock 数据该 kind 实例集）+
  *   一致性（filterEcho 回显 == 实际生效值；实例面板不随过滤收窄——daemon
  *   assembleInstancePanel 会话级语义镜像）；
- * - 校验分支：负向拒绝（daemon TraceQuery.ts:54-101 逐分支镜像，失败一律
- *   connection.error{code:"command.invalid_payload"}——映射锚 handlers/trace.ts
- *   catch → WsServerAdapter.commandError）+ 正向生效（合法 timeRange 含起含止 /
- *   limit 鉗制 / beforeId 游标 / 空数组显式空结果）+ 不私设证明（types 成员
- *   无枚举校验——合法但未登记的 type 不拒绝，空结果语义）；
+ * - 校验分支：负向拒绝（校验规则单源 @helix/protocol projection
+ *   normalizeTraceQuery——T3.1 起 daemon domain 版退役，此处经协议包引用
+ *   对账；失败一律 connection.error{code:"command.invalid_payload"}
+ *   ——映射锚 handlers/trace.ts catch → WsServerAdapter.commandError）+
+ *   正向生效（合法 timeRange 含起含止 / limit 鉗制 / beforeId 游标 /
+ *   空数组显式空结果）+ 不私设证明（types 成员无枚举校验——合法但未登记的
+ *   type 不拒绝，空结果语义）；
  * - agent.model.changed：payload 含 instanceId 且 == 所属实例（协议
  *   AgentModelChangedPayload.instanceId 必填）。
  */
@@ -71,7 +73,7 @@ async function queryTrace(payload: Record<string, unknown>): Promise<EventEnvelo
   return replies[0]!;
 }
 
-/** 校验失败回帧形状（daemon DomainError → command.invalid_payload 映射锚镜像）。 */
+/** 校验失败回帧形状（协议 TraceQueryInvalidError → command.invalid_payload 映射锚同构）。 */
 function expectInvalidPayload(reply: EventEnvelope): void {
   expect(reply).toMatchObject({
     v: PROTOCOL_VERSION,
@@ -125,9 +127,9 @@ describe("fake-transport agentKind 过滤（缺口①；正向生效 + 回显一
   });
 });
 
-// ── 缺口②：校验分支对账（daemon TraceQuery.ts:54-101 镜像）──
+// ── 缺口②：校验分支对账（协议单源 @helix/protocol projection）──
 
-describe("fake-transport 校验分支对账（缺口②；daemon normalizeTraceQuery 逐分支镜像，失败一律 command.invalid_payload）", () => {
+describe("fake-transport 校验分支对账（缺口②；normalizeTraceQuery 协议单源，失败一律 command.invalid_payload）", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });

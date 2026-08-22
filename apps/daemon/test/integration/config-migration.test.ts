@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import type { Credential } from "../../src/infrastructure/auth-store";
 
@@ -43,7 +43,7 @@ describe("旧 config.json 启动迁移（AD-2 取代边界）", () => {
       }),
       "utf8",
     );
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine: new FakeAgentEngine(),
       port: 0,
@@ -81,7 +81,7 @@ describe("旧 config.json 启动迁移（AD-2 取代边界）", () => {
     }
 
     // ⑥ 幂等：迁移后再启（engine 工厂避免真引擎）→ 无遗留位、值不重复迁移
-    const second = await createDaemon({
+    const second = await createTestDaemon({
       home,
       engine: new FakeAgentEngine(),
       port: 0,
@@ -106,7 +106,7 @@ describe("旧 config.json 启动迁移（AD-2 取代边界）", () => {
       JSON.stringify({ model: "anthropic/claude-opus-4-6", port: 7333 }),
       "utf8",
     );
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine: new FakeAgentEngine(),
       port: 0,
@@ -124,7 +124,7 @@ describe("旧 config.json 启动迁移（AD-2 取代边界）", () => {
   test("瘦身 config（无遗留位）→ 不触发迁移路径，auth.json 不动", async () => {
     const home = tmpHome();
     writeFileSync(path.join(home, "config.json"), JSON.stringify({ port: 7333 }), "utf8");
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine: new FakeAgentEngine(),
       port: 0,
@@ -143,7 +143,7 @@ describe("旧 config.json 启动迁移（AD-2 取代边界）", () => {
 describe("skipConfig 判定新语义（T2.3 定稿：engine 注入与否）", () => {
   test("注入 engine（测试 Fake 形态）→ 无 SubagentLauncher 真体；缺省 → 真体（离线解析 builtin 默认）", async () => {
     const homeA = tmpHome();
-    const fake = await createDaemon({
+    const fake = await createTestDaemon({
       home: homeA,
       engine: new FakeAgentEngine(),
       skipConfig: true,
@@ -159,7 +159,7 @@ describe("skipConfig 判定新语义（T2.3 定稿：engine 注入与否）", ()
     }
 
     const homeB = tmpHome();
-    const prod = await createDaemon({
+    const prod = await createTestDaemon({
       home: homeB,
       skipConfig: true, // 跳过 config 文件读面；真引擎模式仍由 engine 缺省判定
       port: 0,

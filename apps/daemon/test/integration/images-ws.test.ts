@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon, type Daemon } from "../../src/infrastructure/container";
+import type { Daemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 
@@ -79,7 +80,7 @@ interface Rig {
 
 async function makeRig(home: string): Promise<Rig> {
   const engine = new FakeAgentEngine({ replies: [{ text: "已看到图片。" }] });
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,
@@ -188,7 +189,7 @@ describe("T9 图片下行 WS 集成（工具截图展示）", () => {
         },
       ],
     });
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine,
       skipConfig: true,

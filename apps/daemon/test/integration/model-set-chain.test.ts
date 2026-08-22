@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { buildModels, resolveConfigModel } from "../../src/adapters/driven/pi-engine/model-provider";
@@ -77,7 +77,7 @@ describe("set_model 下一 turn 生效（真引擎链，TDD 组4）", () => {
     const seen: string[] = [];
     const engine = makeRecordingEngine(seen);
     const home = tmpHome();
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine,
       skipConfig: true,
@@ -147,7 +147,7 @@ describe("set_model 下一 turn 生效（真引擎链，TDD 组4）", () => {
     // 引擎按构建序分配（首个会话 = 启动恢复的 A；次个 = 草稿 B），
     // 分配表断言防口实
     const assigned = new Map<string, PiAgentEngineAdapter>();
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine: (sessionId: string) => {
         const engine = assigned.size === 0 ? engineA : engineB;
@@ -181,7 +181,7 @@ describe("set_model 下一 turn 生效（真引擎链，TDD 组4）", () => {
 describe("model.changed 广播（WS 集成，契约 C §2.1）", () => {
   test("model.set → 订阅该会话的连接收到 model.changed（model/previous/effective/sessionId 章印）", async () => {
     const home = tmpHome();
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine: new FakeAgentEngine({ initialModel: "anthropic/claude-sonnet-4-5" }),
       skipConfig: true,

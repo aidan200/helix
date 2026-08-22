@@ -50,27 +50,36 @@ describe("AG-01：port 文件只有接口/类型", () => {
 });
 
 describe("AG-02：依赖方向矩阵", () => {
-  test("① domain 零包外 import（pi/bun:node/protocol/adapters/infrastructure 全禁）", () => {
+  test("① domain 零包外 import（唯一例外 @helix/common；pi/bun:node/protocol/adapters/infrastructure 全禁）", () => {
+    // AD-1（iter-20260821-dg90 T3.3）：MAIN_INSTANCE_ID 双源收编引入 domain 唯一
+    // 包外例外 @helix/common（业务无关通用层，零依赖）；@helix/protocol 仍禁
+    // （协议类型经 adapter/projection 层转换，TR-AD-1 例外句）。
+    const DOMAIN_PACKAGE_WHITELIST: ReadonlySet<string> = new Set(["@helix/common"]);
     for (const rel of listFiles(path.join(srcRoot, "domain"))) {
       for (const spec of importSpecifiers(read(path.join("domain", rel)))) {
-        expect(spec.startsWith("."), `domain/${rel} 不得 import 包外符号：${spec}`).toBe(true);
+        expect(
+          spec.startsWith(".") || DOMAIN_PACKAGE_WHITELIST.has(spec),
+          `domain/${rel} 不得 import 包外符号（白名单 {@helix/common} 除外）：${spec}`,
+        ).toBe(true);
       }
     }
   });
 
-  test("② application 包外 import 显式白名单 = {@helix/protocol, node:path}（禁 adapters/infrastructure）", () => {
+  test("② application 包外 import 显式白名单 = {@helix/common, @helix/protocol, node:path}（禁 adapters/infrastructure）", () => {
     // T4.1（TP-CL5-2，CL-5 裁决）：白名单是断言数据不是注释——新增包外
     // import 未进白名单 = 测试红（防复发）。旧实现以 `continue` 静默放行
     // 非相对 import + 恒真断言（死代码），与实有 4 处包外 import
     // （3 × @helix/protocol MAIN_INSTANCE_ID + 1 × node:path join）不符。
-    const PACKAGE_WHITELIST: ReadonlySet<string> = new Set(["@helix/protocol", "node:path"]);
+    // AD-1（iter-20260821-dg90 T3.3）扩为三项：+ @helix/common（业务无关
+    // 通用层直引，MAIN_INSTANCE_ID 唯一定义所在，TR-AD-1/TR-AD-28）。
+    const PACKAGE_WHITELIST: ReadonlySet<string> = new Set(["@helix/common", "@helix/protocol", "node:path"]);
     for (const rel of listFiles(path.join(srcRoot, "application"))) {
       for (const spec of importSpecifiers(read(path.join("application", rel)))) {
         expect(spec, `application/${rel} 禁止引到 adapters/infrastructure：${spec}`).not.toMatch(/adapters|infrastructure/);
         if (!spec.startsWith(".")) {
           expect(
             PACKAGE_WHITELIST.has(spec),
-            `application/${rel} 包外 import 越出白名单 {@helix/protocol, node:path}：${spec}`,
+            `application/${rel} 包外 import 越出白名单 {@helix/common, @helix/protocol, node:path}：${spec}`,
           ).toBe(true);
         }
       }
@@ -100,9 +109,11 @@ describe("AG-02：依赖方向矩阵", () => {
         expect(hits, `${dir}/${rel} 出现组合根专属 new：${hits?.join(",")}`).toBeNull();
       }
     }
-    // infrastructure 除 container.ts 外也不 new（main.ts 只调 createDaemon）
+    // infrastructure 除组合根锚面（container.ts + assembly/**，T2.2 §4.2.1
+    // AG-02④ 豁免面从单文件扩为目录）外也不 new（main.ts 只调 createDaemon）
+    const assemblyRoot = path.join("assembly");
     for (const rel of listFiles(path.join(srcRoot, "infrastructure"))) {
-      if (rel === path.join("container.ts")) continue;
+      if (rel === path.join("container.ts") || rel.startsWith(assemblyRoot + path.sep)) continue;
       const src = read(path.join("infrastructure", rel));
       const hits = src.match(new RegExp(`new\\s+${concrete.source}`, "g"));
       expect(hits, `infrastructure/${rel} 出现组合根专属 new：${hits?.join(",")}`).toBeNull();
@@ -185,13 +196,20 @@ describe("TP-CL5-2（A 半）：grep 匹配核 framework-free（不碰 fs/node�
 });
 
 describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-coding-agent）", () => {
-  test("daemon dependencies：pi 系恰为 {pi-agent-core, pi-ai}，全集为基线三键（不新增）", () => {
+  test("daemon dependencies：pi 系恰为 {pi-agent-core, pi-ai}，全集为基线四键（不新增）", () => {
     const pkg = JSON.parse(readFileSync(path.join(srcRoot, "..", "package.json"), "utf8")) as {
       dependencies: Record<string, string>;
     };
     const deps = Object.keys(pkg.dependencies).sort();
-    // @helix/protocol：workspace 内部协议包（T1.2 引入、T1.6 ws-server 运行时用），不计入 pi 系口径
-    expect(deps).toEqual(["@earendil-works/pi-agent-core", "@earendil-works/pi-ai", "@helix/protocol"]);
+    // @helix/protocol：workspace 内部协议包（T1.2 引入、T1.6 ws-server 运行时用）；
+    // @helix/common：业务无关通用层（AD-1/T3.3，MAIN_INSTANCE_ID 唯一定义所在，
+    // AG-15③ 联动断言）——两包均不计入 pi 系口径
+    expect(deps).toEqual([
+      "@earendil-works/pi-agent-core",
+      "@earendil-works/pi-ai",
+      "@helix/common",
+      "@helix/protocol",
+    ]);
     const piDeps = deps.filter((d) => d.startsWith("@earendil-works/"));
     expect(piDeps).toEqual(["@earendil-works/pi-agent-core", "@earendil-works/pi-ai"]);
   });
@@ -231,10 +249,18 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     }
   });
 
-  test("② 组合根全局单写队列：container.ts 仅 new 一个 WriteQueue，仓库经它写", () => {
-    const src = read(path.join("infrastructure", "container.ts"));
-    expect(src.match(/new\s+WriteQueue\(/g)?.length).toBe(1);
-    expect(src.match(/new\s+SqliteSessionRepository\(/g)?.length).toBe(1);
+  test("② 组合根全局单写队列：组合根锚面（container.ts + assembly/**）仅 new 一个 WriteQueue，仓库经它写", () => {
+    // T2.2（§4.2.1）：组合根锚面从 container.ts 单文件扩为 container.ts +
+    // assembly/**——单写队列不变量不变，断言扫描面随锚面扩。
+    const rootFiles = [read(path.join("infrastructure", "container.ts"))]
+      .concat(
+        listFiles(path.join(srcRoot, "infrastructure", "assembly")).map((rel) =>
+          read(path.join("infrastructure", "assembly", rel)),
+        ),
+      )
+      .join("\n");
+    expect(rootFiles.match(/new\s+WriteQueue\(/g)?.length).toBe(1);
+    expect(rootFiles.match(/new\s+SqliteSessionRepository\(/g)?.length).toBe(1);
   });
 
   test("③ T2.3 closure 写面收敛：closure_records/reports 写语句只在 WriteQueue，DDL 只在 schema", () => {
@@ -364,23 +390,26 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
 });
 
 describe("AG-13：协议两端同源基线（@helix/protocol 唯一权威源）", () => {
-  test("MAIN_INSTANCE_ID 取源单源：application 层 import 仅来自 @helix/protocol（TP-CL5-3 grep 守护）", () => {
-    // T4.1（CL-5）：SessionRegistry 曾取 domain 本地定义（其余 service 全取
-    // 协议导出）——守护 application 层 MAIN_INSTANCE_ID import 来源唯一；
-    // domain 本地值锚点保留（AG-02 禁 domain import 协议包），双源相等由
-    // test/unit/protocol-import.test.ts 断言。
+  test("MAIN_INSTANCE_ID 取源：application 层 import 来源 ∈ {@helix/common（唯一定义直引）, @helix/protocol（re-export 通道）}（TP-CL5-3 grep 守护）", () => {
+    // T4.1（CL-5）历史：SessionRegistry 曾取 domain 本地定义，守护 application
+    // 层 MAIN_INSTANCE_ID 取源。AD-1（iter-20260821-dg90 T3.3）：唯一定义迁
+    // packages/common/src/constants.ts，domain 本地定义删除（双源退役）；
+    // @helix/protocol 为 re-export 通道（既有消费点零 churn，不批量迁移），
+    // 新代码直引 @helix/common。定义点唯一性由 test/unit/protocol-import.test.ts
+    // 负命题守护。
     const importRe = /^\s*import\s+[^;'"]*MAIN_INSTANCE_ID[^;'"]*from\s+['"]([^'"]+)['"]/gm;
+    const ALLOWED_SOURCES: ReadonlySet<string> = new Set(["@helix/common", "@helix/protocol"]);
     const offenders: string[] = [];
     let hits = 0;
     for (const rel of listFiles(path.join(srcRoot, "application"))) {
       const src = read(path.join("application", rel));
       for (const m of src.matchAll(importRe)) {
         hits++;
-        if (m[1] !== "@helix/protocol") offenders.push(`${rel} → ${m[1]}`);
+        if (!ALLOWED_SOURCES.has(m[1]!)) offenders.push(`${rel} → ${m[1]}`);
       }
     }
     expect(hits).toBeGreaterThan(0); // 扫描面非空转
-    expect(offenders, `application 层 MAIN_INSTANCE_ID 取源越出 @helix/protocol：${offenders.join(", ")}`).toEqual([]);
+    expect(offenders, `application 层 MAIN_INSTANCE_ID 取源越出 {@helix/common, @helix/protocol}：${offenders.join(", ")}`).toEqual([]);
   });
 
   test("ws-server 正向 import @helix/protocol（协议类型不得本地重写）", () => {
@@ -420,6 +449,47 @@ describe("AG-14 / TP-CL2-3（守护半）：monitor 白名单过滤唯一位于 
       if (/MONITOR_TIER_EVENT_TYPES|sessionTiers|SubscriptionTier/.test(src)) offenders.push(rel);
     }
     expect(offenders, `白名单/tier 符号散落：${offenders.join(", ")}`).toEqual([]);
+  });
+});
+
+describe("AG-15 / TR-AD-28：@helix/common 业务无关通用层零依赖结构（AD-1，iter-20260821-dg90 T3.3）", () => {
+  const repoRoot = path.join(srcRoot, "..", "..", "..");
+  const commonRoot = path.join(repoRoot, "packages", "common");
+
+  test("① common/src 全部 .ts import ∈ {相对路径} ∪ {node:*/bun:* 内置}（@helix/* 或裸包名即红）", () => {
+    const files = listFiles(path.join(commonRoot, "src"));
+    expect(files.length).toBeGreaterThan(0); // 扫描面非空转（constants + index 门面在位）
+    for (const rel of files) {
+      const src = readFileSync(path.join(commonRoot, "src", rel), "utf8");
+      for (const spec of importSpecifiers(src)) {
+        expect(
+          spec.startsWith(".") || spec.startsWith("node:") || spec.startsWith("bun:"),
+          `packages/common/src/${rel} 越出零依赖白名单（相对路径/node:*/bun:*）：${spec}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  test("② common/package.json dependencies 恰为空对象（零外部依赖 + 零 @helix/*）", () => {
+    const pkg = JSON.parse(readFileSync(path.join(commonRoot, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+    expect(pkg.dependencies).toEqual({});
+  });
+
+  test("③ common 依赖边登记（与 AG-05① 四键联动）：daemon workspace:* + protocol 依赖恰一键 @helix/common（re-export 通道）", () => {
+    // protocol 首条 dependencies（AD-1 预期内）：仅 @helix/common 一键——
+    // re-export 通道所需最小依赖面，多一键即越零依赖纪律面。
+    const daemonDeps = (
+      JSON.parse(readFileSync(path.join(srcRoot, "..", "package.json"), "utf8")) as {
+        dependencies: Record<string, string>;
+      }
+    ).dependencies;
+    expect(daemonDeps["@helix/common"]).toBe("workspace:*");
+    const protocolPkg = JSON.parse(
+      readFileSync(path.join(repoRoot, "packages", "protocol", "package.json"), "utf8"),
+    ) as { dependencies?: Record<string, string> };
+    expect(protocolPkg.dependencies).toEqual({ "@helix/common": "workspace:*" });
   });
 });
 

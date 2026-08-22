@@ -1,10 +1,11 @@
 /**
  * en-US 词条包（结构随迁；内容不在首迭代范围，AD-18 / brief「不做 en-US 词条内容」）。
- * 键集合与 zh-CN 一致性由 zh-CN.test.ts 守护。
+ * 键集合与 zh-CN 一致性由 zh-CN.test.ts 守护；结构匹配由
+ * `satisfies Translations` 编译期兜底（T1.1）。
  */
-import type { Translations } from "../types";
+import type { Translations } from "./zh-CN";
 
-export const enUS: Translations = {
+export const enUS = {
   chat: {
     header: {
       session: "main-session",
@@ -391,4 +392,4 @@ export const enUS: Translations = {
     switchOn: "On",
     switchOff: "Off",
   },
-};
+} satisfies Translations;

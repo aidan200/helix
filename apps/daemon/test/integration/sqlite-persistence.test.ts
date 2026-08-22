@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { Database } from "bun:sqlite";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
 import { SqliteSessionRepository } from "../../src/adapters/driven/sqlite-session/SqliteSessionRepository";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
@@ -133,7 +133,7 @@ describe("TP-CL8-2 I 半 + TP-CL8-3 + TP-CL4-10：daemon 落盘接线", () => {
         ],
         steerReplies: [{ text: "（按注入调整）好的。" }],
       });
-      const daemon = await createDaemon({
+      const daemon = await createTestDaemon({
         home,
         engine,
         skipConfig: true,

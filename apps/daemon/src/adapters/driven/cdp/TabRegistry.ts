@@ -1,5 +1,5 @@
 /**
- * TabRegistry —— daemon 受管 tab 簿记（T2 CDP 地基；移植自
+ * TabRegistry —— daemon 受管 tab 簿记（CDP 地基；移植自
  * web-access/scripts/cdp-proxy.mjs 的 managedTabs + idle sweep 机制）。
  *
  * 【职责】纯簿记：managedTabs Map<tabId, {ownerId, url, title, lastAccessed}>

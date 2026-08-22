@@ -1,5 +1,5 @@
 /**
- * CdpConnectionManager —— BrowserPort 的 CDP 实现（T2 CDP 地基；
+ * CdpConnectionManager —— BrowserPort 的 CDP 实现（CDP 地基；
  * 移植自 web-access/scripts/cdp-proxy.mjs，HTTP proxy 形态 → 进程内 manager）。
  *
  * 【v2 决策】CDP 连接内嵌 daemon 进程：无独立 proxy 进程、无 HTTP 监听
@@ -393,7 +393,7 @@ export class CdpConnectionManager implements BrowserPort {
         this.setState("error", msg);
         throw new Error(msg);
       }
-      // T2 从简：多个开了调试的浏览器取第一个（偏好持久化机制后续任务）
+      // 从简：多个开了调试的浏览器取第一个（偏好持久化机制后续任务）
       this.browser = detected[0]!;
     }
     const { port, wsPath } = this.browser;

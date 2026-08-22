@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import type {
   BrowserPort,
   BrowserStatus,
@@ -176,7 +176,7 @@ class FakeBrowser implements BrowserPort {
 
 interface Rig {
   home: string;
-  daemon: Awaited<ReturnType<typeof createDaemon>>;
+  daemon: Awaited<ReturnType<typeof createTestDaemon>>;
   browser: FakeBrowser;
   token: string;
   url: string;
@@ -188,7 +188,7 @@ async function makeRig(): Promise<Rig> {
   const home = tmpHome();
   const engine = new FakeAgentEngine({});
   const browser = new FakeBrowser();
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,

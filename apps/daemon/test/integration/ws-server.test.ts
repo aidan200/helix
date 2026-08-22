@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 import { FakeAgentEngine, type ScriptedTurn } from "../mocks/FakeAgentEngine";
@@ -133,7 +133,7 @@ function seedCatalogCache(home: string): void {
 interface Rig {
   home: string;
   engine: FakeAgentEngine;
-  daemon: Awaited<ReturnType<typeof createDaemon>>;
+  daemon: Awaited<ReturnType<typeof createTestDaemon>>;
   token: string;
   url: string;
   dispose: () => Promise<void>;
@@ -144,7 +144,7 @@ async function makeRig(opts: { staticDir?: string; replies?: ScriptedTurn[]; see
   const home = tmpHome();
   if (opts.seedCatalog) seedCatalogCache(home);
   const engine = new FakeAgentEngine(opts.replies ? { replies: opts.replies } : {});
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,

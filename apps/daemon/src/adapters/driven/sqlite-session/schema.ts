@@ -3,7 +3,7 @@
  * **不含任何 SQLite 调用**：建库（new Database）、建表/守护式列级演进
  * （exec/ALTER）、全部写语句只在 WriteQueue.ts 内（AG-06 写点唯一）。
  * v0 建表即用（IF NOT EXISTS 幂等），不做迁移框架（迭代边界）；旧库
- * 升级的列级演进（ALTER 补列/PK 重建）由 WriteQueue 构造期守护执行（O-3）。
+ * 升级的列级演进（ALTER 补列/PK 重建）由 WriteQueue 构造期守护执行。
  *
  * 表清单：
  * - domain_events：领域事件流（trace 数据面，四维可查询——session/instance/类型/时间）；
@@ -12,16 +12,16 @@
  * - agent_lifecycle：实例生命周期投影（每会话每实例一行，PK (session_id, instance_id)）；
  * - steer_queue：steer 待注入队列投影（未消费项）；
  * - tool_calls：工具调用记录投影（pending/running/completed/failed 全态，挂实例）；
- * - closure_records：实例收口记录行（T2.3 O-5 任务报告本体：closure 五字段
+ * - closure_records：实例收口记录行（O-5 任务报告本体：closure 五字段
  *   + findings JSON；每收口一行，追加重语义）；
  * - default_model：全局默认模型单行表（AD-2 auth 分层：经常变的状态不进
  *   JSON，进 SQLite；id 固定 1 行，CHECK 约束钉死单值）；
- * - resource_state：profile kind 维资源启停差异行（M6 T1，主键
+ * - resource_state：profile kind 维资源启停差异行（主键
  *   (profile_kind, resource_type, name)；缺省无记录 = 启用的语义在 service
  *   层——本表只存用户显式选择过的差异，零配置兼容现状、存量零迁移）。
  *
- * iter-20260816-uzvg T1.2 演进：agent_instance_id / instance_id 列与复合 PK；
- * DEFAULT 'main' = 主实例固定 id（O-4），与旧行回填常量同源（O-3）。
+ * 列演进（演进史见 docs/decisions/ADR-persistence.md）：agent_instance_id / instance_id 列与复合 PK；
+ * DEFAULT 'main' = 主实例固定 id，与旧行回填常量同源。
  */
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS domain_events (

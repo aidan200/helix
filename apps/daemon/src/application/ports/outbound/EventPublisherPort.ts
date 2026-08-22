@@ -4,14 +4,14 @@ import type { DomainEvent } from "../../../domain/events/DomainEvent";
  * 事件流发布出口端口（outbound，architecture.md §3.4）。
  *
  * 通知方向的标准形态：service 发事件 → driving 侧实现本端口转推送
- * （CLI → stdout 流式打印；T1.6 ws-server → 协议事件帧）。
+ * （CLI → stdout 流式打印；WS 侧 → 协议事件帧）。
  * 本文件只有类型/接口定义（AG-01）。
  */
 
 /**
  * 流式中间态（token 级 delta）——**不是领域事件**，不落盘（AD-16 §5.3），
  * 只走本端口直达前端/终端。messageId 为流式分组键（当前轮次 id）。
- * T3.1 通道扩展：channel="thinking" 的增量走 thinking 流式通道（同样不落盘，
+ * 通道扩展：channel="thinking" 的增量走 thinking 流式通道（同样不落盘，
  * TR-AD-5）；instanceId 缺省 = 主实例（契约 §1）。
  */
 export interface StreamDelta {
@@ -22,7 +22,7 @@ export interface StreamDelta {
   /** 实例归属（thinking 通道携带；缺省主实例）。 */
   readonly instanceId?: string;
   /**
-   * 会话归属（T2.1 v0.2 信封 sessionId 必发纪律）：生产侧携带，WS 推送侧
+   * 会话归属（v0.2 信封 sessionId 必发纪律）：生产侧携带，WS 推送侧
    * 章印进帧（EventStream defaultSessionId 兑底）；类型层可选与信封兼容
    * 红线同口径（契约 A §1.2）。
    */

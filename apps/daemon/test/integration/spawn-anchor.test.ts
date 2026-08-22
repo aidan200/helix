@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { Database } from "bun:sqlite";
-import { createDaemon, type Daemon } from "../../src/infrastructure/container";
+import type { Daemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { toSnapshotDto } from "../../src/adapters/driving/ws-server/DtoMapper";
 import type {
   InstanceRunner,
@@ -95,7 +96,7 @@ afterEach(async () => {
 async function makeRig(replies: ScriptedTurn[] = [], home?: string): Promise<Rig> {
   const homeDir = home ?? mkdtempSync(path.join(tmpdir(), "helix-t21-anchor-"));
   const runner = new ManualRunner();
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home: homeDir,
     engine: new FakeAgentEngine({ replies }),
     skipConfig: true,

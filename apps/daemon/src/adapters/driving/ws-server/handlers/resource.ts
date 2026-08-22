@@ -1,6 +1,6 @@
 /**
- * agent.config 族命令处理（v0.6，M6 T3 智能体配置页）：handlers/ 落位
- * （T0 探查：接线落 handlers/ 非 events/；model.catalog 全局命令先例）。
+ * agent.config 族命令处理（v0.6 智能体配置页）：handlers/ 落位
+ * （接线落 handlers/ 非 events/；model.catalog 全局命令先例）。
  *
  * - agent.config.list → ResourceConfigPort.list 组装 DTO 块 →
  *   agent.config.list.result 点对点结果帧（sendNow 直发发起连接，
@@ -13,7 +13,8 @@
  *   clearModelSlot（enabled=true 设槽 / false 清槽）→ agent.config.
  *   set_enabled.result 点对点回执；applied 时 agent.config.changed 广播
  *   （EventStream 章印路由，daemon 级全局全连接）。tool/skill 的 applied
- *   落库即触发 T2 onApplied 刷新链（活跃 runtime 直改，单点在组合根）。
+ *   落库即发布 resources.changed 触发刷新链（活跃 runtime 直改，单点在
+ *   装配侧订阅）。
  *
  * DTO 映射（ResourceConfigBlock → AgentConfigProfileBlock）落本模块
  * （既有拆分后结构裁量：量小内聚族处理，不入 DtoMapper 的领域事件面）。
@@ -136,7 +137,7 @@ export function handleAgentConfigSetEnabled(ctx: ResourceCommandContext): void {
     ctx.sendNow(sender, frame);
     if (outcome.status === "applied") {
       // daemon 级全局广播（EventStream 章印路由：SYSTEM_SESSION_ID → 全连接）。
-      // tool/skill 的活跃 runtime 刷新已由 T2 onApplied 链在落库点自动触发。
+      // tool/skill 的活跃 runtime 刷新已由 resources.changed 链在落库点自动触发。
       ctx.events.broadcastAgentConfigChanged({ profileKind, resourceType, name: changedName, enabled });
     }
   };

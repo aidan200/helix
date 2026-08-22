@@ -3,10 +3,11 @@
  *
  * 文案来自 prototype/review.md「P-1 文案 key 清单」（原型文案逐条对齐）；
  * 变量占位 {n}/{addr}/{code}；enterHint 的 [[x]] 标记渲染为 kbd 键帽。
+ *
+ * T1.1 起 Translations 类型由本文件词条结构推导（typeof zhCN，单一事实源，
+ * 手写接口 types.ts 已删除；en-US 以 satisfies 对齐）。
  */
-import type { Translations } from "../types";
-
-export const zhCN: Translations = {
+export const zhCN = {
   chat: {
     header: {
       session: "main-session",
@@ -394,3 +395,6 @@ export const zhCN: Translations = {
     switchOff: "停用",
   },
 };
+
+/** 词条结构即 i18n 类型单一事实源（T1.1：消手写接口 types.ts）。 */
+export type Translations = typeof zhCN;

@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon, type Daemon } from "../../src/infrastructure/container";
+import type { Daemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import type {
@@ -111,7 +112,7 @@ interface Rig {
 async function makeRig(home: string): Promise<Rig> {
   const engine = new FakeAgentEngine();
   const runner = new SendingRunner();
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,

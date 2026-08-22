@@ -1,13 +1,13 @@
 /**
- * 浏览器连接出口端口（outbound，TR-AD-1/2；T2a CDP 地基 + T2b 交互方法）。
+ * 浏览器连接出口端口（outbound，TR-AD-1/2）。
  *
  * 域形状接口：零 CDP/pi 符号——方法面只有 tab/owner 等业务概念，CDP
  * 协议细节（sessionId/targetId/Fetch 域）全部收敛在 driven 实现
- * （adapters/driven/cdp/CdpConnectionManager），T3 工具层零 CDP 知识
- * 纯薄转投，T4 状态协议直接消费 onStatusChange 事件源。
+ * （adapters/driven/cdp/CdpConnectionManager），工具层零 CDP 知识
+ * 纯薄转投，状态协议直接消费 onStatusChange 事件源。
  *
- * 方法面：核心连接面 11 方法 + 状态订阅（T2a）+ 交互方法 5 个
- *（click/clickAt/setFiles/scroll/screenshot，T2b additive 补齐，逻辑
+ * 方法面：核心连接面 11 方法 + 状态订阅 + 交互方法 5 个
+ *（click/clickAt/setFiles/scroll/screenshot， additive 补齐，逻辑
  * 移植自 web-access/scripts/cdp-proxy.mjs 对应端点）。
  *
  * 生命周期语义（v2 决策）：CDP 连接内嵌 daemon 进程，无独立 proxy、无
@@ -86,7 +86,7 @@ export interface BrowserPort {
   /** 当前状态快照（读面）。 */
   getStatus(): BrowserStatus;
   /**
-   * 状态订阅（T4 广播的事件源）：连接成功/断开/tab 增减/error 四时机触发；
+   * 状态订阅（广播的事件源）：连接成功/断开/tab 增减/error 四时机触发；
    * 返回退订函数。
    */
   onStatusChange(listener: BrowserStatusListener): () => void;

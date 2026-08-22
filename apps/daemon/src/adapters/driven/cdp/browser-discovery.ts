@@ -1,11 +1,11 @@
 /**
- * 浏览器 CDP 端口发现（T2；移植自 web-access/scripts/browser-discovery.mjs）。
+ * 浏览器 CDP 端口发现（移植自 web-access/scripts/browser-discovery.mjs）。
  *
  * 职责：平台路径矩阵（mac/linux/win × chrome/canary/chromium/edge）→
  * 读 DevToolsActivePort（首行=端口，次行=wsPath）→ **TCP connect 探活**
  * （不用 WebSocket 探活——避免触发浏览器的远程调试授权弹窗）。
  *
- * T2 从简差异：无 config.env 偏好 / --browser override / 固定端口兜底
+ * 从简差异：无 config.env 偏好 / --browser override / 固定端口兜底
  * 决策层（v1 三档解析）——只返回全部检出候选，多浏览器选择策略
  * （取第一个）归 CdpConnectionManager。偏好持久化机制后续任务再做。
  *

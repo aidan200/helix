@@ -271,7 +271,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     await expect(card.locator("blockquote.ctx-task .cite")).toHaveText("spawn task · 首条 user 消息");
     await expect(card.locator(".ctx-facts")).toContainText("fake/model");
     await expect(card.locator(".ctx-facts")).not.toContainText("compaction");
-    await expect(card.locator(".ctx-tools .hud-chip")).toHaveCount(5); // SubAgentProfile 工具集
+    await expect(card.locator(".ctx-tools .hud-chip")).toHaveCount(7); // SubAgentProfile 工具集（T1 联网两工具后 5→7；T0.1 实跑跟随）
     // systemPrompt 折叠 3 行 + 字数 + 展开/收起（全文含 closure 协议常量段）
     const promptBody = card.locator(".cp-body");
     await expect(promptBody).toHaveClass(/folded/);

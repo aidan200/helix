@@ -18,6 +18,7 @@
       "dependencies": {
         "@earendil-works/pi-agent-core": "0.84.2",
         "@earendil-works/pi-ai": "0.84.2",
+        "@helix/common": "workspace:*",
         "@helix/protocol": "workspace:*",
       },
     },
@@ -48,9 +49,16 @@
         "vitest": "^4.1.11",
       },
     },
+    "packages/common": {
+      "name": "@helix/common",
+      "version": "0.0.0",
+    },
     "packages/protocol": {
       "name": "@helix/protocol",
       "version": "0.0.0",
+      "dependencies": {
+        "@helix/common": "workspace:*",
+      },
     },
   },
   "packages": {
@@ -139,6 +147,8 @@
     "@exodus/bytes": ["@exodus/bytes@1.15.1", "", { "peerDependencies": { "@noble/hashes": "^1.8.0 || ^2.0.0" }, "optionalPeers": ["@noble/hashes"] }, "sha512-S6mL0yNB/Abt9Ei4tq8gDhcczc4S3+vQ4ra7vxnAf+YHC02srtqxKKZghx2Dq6p0e66THKwR6r8N6P95wEty7Q=="],
 
     "@google/genai": ["@google/genai@1.52.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-gwSvbpiN/17O9TbsqSsE/OzZcpv5Fo4RQjdngGgogtuB9RsyJ8ZHhX5KjHj1bp5N9snN2eK8LDGXSaWW2hof8Q=="],
+
+    "@helix/common": ["@helix/common@workspace:packages/common"],
 
     "@helix/daemon": ["@helix/daemon@workspace:apps/daemon"],
 

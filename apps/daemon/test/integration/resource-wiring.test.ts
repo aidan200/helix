@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { createPaths } from "../../src/infrastructure/paths";
 
 /**
@@ -38,7 +38,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
       "utf8",
     );
 
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       skipConfig: true,
       port: 0,
@@ -97,7 +97,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
     }
 
     // 重启（同 home 重建 daemon）：差异行 + model 槽位完整读回
-    const daemon2 = await createDaemon({
+    const daemon2 = await createTestDaemon({
       home,
       skipConfig: true,
       port: 0,

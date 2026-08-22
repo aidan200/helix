@@ -6,11 +6,11 @@ import type { HookSet, SteerCapable } from "../HookSet";
  *
  * 职责（v1 旁路 hack → 一等钩子的映射，§4.2）：
  * - 「send 矛盾 → steer()」：steer(text) 把用户注入转发 agent.steer()
- *   （即时入队；drain 精确发生在 turn_end → turn_start 边界，spike §5.3）；
+ * （即时入队；drain 精确发生在 turn_end → turn_start 边界）；
  * - 「中断 → 内建 abortController」：每个 run（agent_start）装配一个
  *   AbortController——abort() 触发它并转发 agent.abort()；signal 经
- *   signal 属性暴露给其他钩子（如 beforeToolCall 挂起审批提前 resolve，
- *   spike §5.2-5），对齐 pi 的 abort 非销毁语义。
+ *   signal 属性暴露给其他钩子（如 beforeToolCall 挂起审批提前 resolve），
+ * 对齐 pi 的 abort 非销毁语义。
  */
 export class SteerHooks implements HookSet, SteerCapable {
   readonly name = "steer";

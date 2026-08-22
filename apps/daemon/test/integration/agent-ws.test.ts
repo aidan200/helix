@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 import type { Daemon } from "../../src/infrastructure/container";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
@@ -104,7 +104,7 @@ async function makeRig(): Promise<Rig> {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t23-ws-"));
   const engine = new FakeAgentEngine();
   const runner = new KillableRunner();
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,

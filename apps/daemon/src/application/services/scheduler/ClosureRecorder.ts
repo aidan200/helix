@@ -13,7 +13,7 @@ import type { SessionRepositoryPort } from "../../ports/outbound/SessionReposito
 import type { InstanceClosureOutcome } from "../InstanceRunner";
 
 /**
- * ClosureRecorder —— closure 收口链（T3.3 拆自 SchedulerService，
+ * ClosureRecorder —— closure 收口链（拆自 SchedulerService，
  * architecture.md §2.4/§4，AD-8 双通道 + O-5 双产物）。
  *
  * 【职责】实例收口（done/failed/killed 三路径统一）的收口链执行：
@@ -32,9 +32,9 @@ import type { InstanceClosureOutcome } from "../InstanceRunner";
  * 对齐（原 SchedulerService L607 位于 saveReportFile 与 saveClosureRecord
  * 之间），调用次序不得重排（见门面 onInstanceClosure）。
  *
- * 【T2.2 多会话】报告/记录行按实例归属会话路由（reportsDirFor 注入
+ * 【多会话】报告/记录行按实例归属会话路由（reportsDirFor 注入
  * (sessionId) => dir；缺省不产报告文件——closure.reportPath 为 null，
- * T1.1 既有测试口径）。
+ * 既有测试口径）。
  */
 export interface ClosureRecorderDeps {
   /** 持久化（closure 记录行/报告文件/agent_lifecycle 投影，经 WriteQueue 单写通道）。 */
@@ -106,7 +106,7 @@ export class ClosureRecorder {
   private publish<P>(instance: AgentInstance, type: DomainEvent["type"], payload: P): void {
     this.deps.events.publish({
       type,
-      sessionId: instance.sessionId, // T2.2 多会话：事件归属 = 实例归属会话
+      sessionId: instance.sessionId, // 多会话：事件归属 = 实例归属会话
       instanceId: instance.instanceId, // ≡ agentId（契约 §2）：落盘/路由四维用
       payload,
       occurredAt: this.deps.clock.now(),

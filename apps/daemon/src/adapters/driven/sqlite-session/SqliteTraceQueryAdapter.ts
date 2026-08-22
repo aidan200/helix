@@ -1,18 +1,22 @@
 import type { WriteQueue } from "./WriteQueue";
 import type { TraceQueryPort, TraceQueryResultSet } from "../../../domain/trace/TraceQueryPort";
+import type {
+  InstanceAggregateRow,
+  TraceEventRowData,
+  TraceInstanceRecord,
+} from "../../../domain/trace/TraceQuery";
+// 投影收敛：normalize/分页判据单源 @helix/protocol projection
+//（类型面形状同构对应；driven adapter import protocol 先例）
 import {
-  assembleInstancePanel,
   hasMoreBefore,
   normalizeTraceQuery,
-  type InstanceAggregateRow,
   type NormalizedTraceQuery,
-  type TraceEventRowData,
-  type TraceInstanceRecord,
-} from "../../../domain/trace/TraceQuery";
+} from "@helix/protocol";
+import { assembleInstancePanel } from "../../../domain/trace/TraceQuery";
 import type { DomainEventRow } from "./rows/Rows";
 
 /**
- * SqliteTraceQueryAdapter —— trace 读面（iter-20260819-erio T2.1，CL-5/F5.5/F5.6；
+ * SqliteTraceQueryAdapter —— trace 读面（契约 v0.4 §1/§4；
  * architecture.md §3.5b + 契约 v0.4 §1/§4）。
  *
  * 同库同表 domain_events（唯一真实源，不建 trace 独立表/聚合）；**只读面**——
@@ -25,7 +29,7 @@ import type { DomainEventRow } from "./rows/Rows";
  * - total：同过滤 WHERE（不含游标/限量）COUNT(*)；
  * - 实例面板：会话级 COUNT/MIN/MAX GROUP BY agent_instance_id + agent.*
  *   生命周期事件全量 → domain 纯函数 assembleInstancePanel fold
- *   （面板恒为全会话口径，不受 events 过滤维影响，AF-5）。
+ *   （面板恒为全会话口径，不受 events 过滤维影响）。
  */
 
 /** 面板 fold 所需的生命周期事件类型（domain_events.type 列值）。 */
@@ -43,8 +47,9 @@ export class SqliteTraceQueryAdapter implements TraceQueryPort {
 
   queryTrace(input: unknown): TraceQueryResultSet {
     // normalize 收口在本入口（§3.5b「调仓储前」；AG-12：driving 对 domain 仅
-    // type-only，校验规则调用归 driven）——校验失败 DomainError 上抛，
-    // driving 侧映射 command.invalid_payload 回执。
+    // type-only，校验规则调用归 driven）——校验失败 TraceQueryInvalidError
+    //（@helix/protocol projection 单源）上抛，driving 侧映射
+    // command.invalid_payload 回执。
     const query = normalizeTraceQuery(input);
     return {
       filter: query,

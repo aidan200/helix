@@ -1,11 +1,11 @@
 /**
- * ChildMain —— SubAgent 子进程入口（O-7 候选 A 形态，T2.2）。
+ * ChildMain —— SubAgent 子进程入口（O-7 候选 A 形态）。
  *
  * 装配即同构（TR-AD-4 零 kind 分支）：复用 PiAgentEngineAdapter（内含
  * AgentRuntime + SubAgentProfile 声明装配），不另起驱动层。流程：
  *
  *   argv/env 解析（--task / HELIX_MODEL_JSON 透传 / HELIX_API_KEYS_JSON /
- *   HELIX_TOOL_CWD / HELIX_FAKE_ENGINE_SCRIPT 剧本注入 K3）
+ * HELIX_TOOL_CWD / HELIX_FAKE_ENGINE_SCRIPT 剧本注入）
  *     → PiAgentEngineAdapter + SubAgentProfile 装配
  *     → started 行（含 pid + model 回显）
  *     → stdin send 行 → engine.steer()（AD-7⑤：Agent.steer() 内建队列）
@@ -80,10 +80,10 @@ export function parseClosureBlock(text: string): ParsedClosure | undefined {
   }
 }
 
-// ── closure 兜底摘要（F1.2：并入 engine 错误原因） ─────────
+// ── closure 兜底摘要（并入 engine 错误原因） ─────────
 
 /**
- * 兜底 closure 摘要组装（T1.2）：有 engine_error 原因时并入
+ * 兜底 closure 摘要组装：有 engine_error 原因时并入
  * 「（engine: <原因>）」段（原因不截断，透传 provider 原文）；无原因时
  * 保持现状格式逐字节不变（非错误轮回归锚定）。80 截断仅施于
  * lastAssistantText。
@@ -118,7 +118,7 @@ function readStdin(instanceId: string, onSend: (line: SendLine) => void): void {
   })();
 }
 
-// ── spawn 快照 env 解析（M6 T2） ───────────────────────
+// ── spawn 快照 env 解析 ───────────────────────
 
 /**
  * 父进程 spawn 快照 env（HELIX_SYSTEM_PROMPT / HELIX_TOOLS_JSON）→ profile
@@ -152,7 +152,7 @@ async function main(): Promise<void> {
   const script: FakeEngineScript | undefined = scriptPath !== undefined ? loadFakeEngineScript(scriptPath) : undefined;
 
   // 装配（TR-AD-4：与主引擎同一防腐墙同一 runtime，仅 profile 声明不同）
-  // M6 T2：spawn 快照 env 覆盖（systemPrompt 三段组装产物 + 生效工具集，
+  // spawn 快照 env 覆盖（systemPrompt 三段组装产物 + 生效工具集，
   // launch 时刻定格）；缺席回退 SubAgentProfile 静态声明面
   const spawnOverrides = spawnOverridesFromEnv(process.env as Record<string, string | undefined>);
   const profile: typeof SubAgentProfile = {
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
   const executor = new CoreToolExecutor({ cwd: toolCwd });
   const engine = new PiAgentEngineAdapter({
     profile,
-    model, // F-14：env JSON 解析的完整对象透传（与父侧深度相等）
+    model, // env JSON 解析的完整对象透传（与父侧深度相等）
     apiKeys,
     ...(script ? { streamFnOverride: makeScriptedStreamFn(script, model) } : {}),
     resolveTools: (names) => executor.resolveTools(names),
@@ -177,7 +177,7 @@ async function main(): Promise<void> {
   });
 
   let lastAssistantText = "";
-  let lastEngineError: string | undefined; // F1.2：多轮错误取末条 engine_error message（单变量覆盖）
+  let lastEngineError: string | undefined; // 多轮错误取末条 engine_error message（单变量覆盖）
   writeLine({ type: "started", instanceId, pid: process.pid, model });
   readStdin(instanceId, (send) => engine.steer(send.text));
 

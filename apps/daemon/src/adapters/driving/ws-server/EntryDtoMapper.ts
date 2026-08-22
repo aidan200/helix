@@ -1,9 +1,10 @@
 /**
  * EntryDtoMapper —— 条目级纯转换（domain 条目数据 → 协议 EntryDto 变体）
  * + 跨域共享辅助（thinkingEntryDto / compactionEntryDto / safeJson 被
- * EnvelopeMapper 与 SnapshotMapper 双域经 import 消费；entrySortKey /
- * isMainAxisEntry / sessionEntryDto / toolCallEntryDto 供 SnapshotMapper
- * 合并排序）。自 DtoMapper.ts 四域拆分落位（T3.1，TR-AD-25④ 逐行搬移）。
+ * EnvelopeMapper 与 SnapshotMapper 双域经 import 消费；isMainAxisEntry /
+ * sessionEntryDto / toolCallEntryDto 供 SnapshotMapper 合并排序）。自
+ * DtoMapper.ts 四域拆分落位（TR-AD-25④ 逐行搬移）。投影收敛后：
+ * entrySortKey 已迁 @helix/protocol projection 单源（与 shell 侧同构收敛）。
  */
 import type {
   EntryDto,
@@ -19,14 +20,8 @@ import type { ThinkingEntryData } from "../../../domain/session/ThinkingEntry";
 import type { CompactionEntryData } from "../../../domain/session/CompactionEntry";
 import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 
-/** 排序统一键：message/tool 用 ts（epoch ms）；thinking/compaction 用
- *  createdAt（ISO，契约 §6.1）——两类字段同一时间轴。 */
-export function entrySortKey(entry: EntryDto): number {
-  return "ts" in entry ? entry.ts : Date.parse(entry.createdAt);
-}
-
 /**
- * 主轴归属判定（T2.3 契约 v0.3 §3.2，Q-3a 双处可见的时间轴侧）：主实例条目
+ * 主轴归属判定（契约 v0.3 §3.2，Q-3a 双处可见的时间轴侧）：主实例条目
  * （instanceId 缺省/main）+ 定向 steer 干预条目（user + isSteer 且 instanceId=
  * 目标 SubAgent——干预消息一律落主时间轴，尾窗/翻页内自然渲染为定向细条；
  * 同一 entry 同时经 instanceChannels 进抽屉 feed 快照面，单事实源视图双投影）。
@@ -36,7 +31,7 @@ export function isMainAxisEntry(entry: EntryDto): boolean {
   return entry.kind === "message" && entry.role === "user" && entry.steerState !== undefined;
 }
 
-/** 单条 SessionEntryData → 对应 EntryDto（T3.1：message/thinking/compaction
+/** 单条 SessionEntryData → 对应 EntryDto（message/thinking/compaction
  *  分派；thinking/compaction 变体 createdAt 保持 ISO 字符串，契约 §6.1）。 */
 export function sessionEntryDto(entry: SessionEntryData, queuedSteer: Set<string>): EntryDto[] {
   if ("kind" in entry) {
@@ -73,7 +68,7 @@ export function compactionEntryDto(entry: CompactionEntryData): CompactionEntryD
 }
 
 /** 单条 EntryData → MessageEntryDto（tool 角色当前领域侧不产生，防御跳过）。
- *  T2.1（AD-3）：SubAgent 条目携带 instanceId（前端 F1.6 分流依据）；主实例
+ * （AD-3）：SubAgent 条目携带 instanceId（前端 分流依据）；主实例
  *  省略（缺省 = main，线格式保持 v0/v0.1 形状）。 */
 function messageEntryDto(entry: EntryData, queuedSteer: Set<string>): MessageEntryDto[] {
   if (entry.role !== "user" && entry.role !== "assistant") return [];
@@ -88,7 +83,7 @@ function messageEntryDto(entry: EntryData, queuedSteer: Set<string>): MessageEnt
     dto.steerState = queuedSteer.has(entry.id) ? "queued" : "drained";
   }
   if (entry.instanceId !== MAIN_INSTANCE_ID) dto.instanceId = entry.instanceId;
-  // T9 图片下行：user 消息携带图片附件（快照投影重建同源；缺省不携带）
+  // 图片下行：user 消息携带图片附件（快照投影重建同源；缺省不携带）
   if (entry.images !== undefined && entry.images.length > 0) dto.images = [...entry.images];
   return [dto];
 }
@@ -110,11 +105,11 @@ export function toolCallEntryDto(record: ToolCallRecordData): ToolCallEntryDto {
         ? Date.parse(record.endedAt)
         : 0,
   };
-  // T2.1（AD-3）：行级归属透传（SubAgent 工具卡归实例 channel；主实例省略）
+  // 行级归属透传（SubAgent 工具卡归实例 channel；主实例省略；AD-3）
   if (record.instanceId !== undefined && record.instanceId !== MAIN_INSTANCE_ID) {
     dto.instanceId = record.instanceId;
   }
-  // T9 图片下行：工具结果附带图片（快照/翻页工具卡缩略图数据源；缺省不带）
+  // 图片下行：工具结果附带图片（快照/翻页工具卡缩略图数据源；缺省不带）
   if (record.images !== undefined && record.images.length > 0) dto.images = [...record.images];
   if (record.status === "completed") {
     if (record.result !== undefined) dto.result = record.result;

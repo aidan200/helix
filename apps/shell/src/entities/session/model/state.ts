@@ -21,7 +21,7 @@ import type {
   UsageDto,
   WebStatusPayload,
 } from "@helix/protocol";
-import { MAIN_INSTANCE_ID as PROTOCOL_MAIN_INSTANCE_ID } from "@helix/protocol";
+import { MAIN_INSTANCE_ID as PROTOCOL_MAIN_INSTANCE_ID, ZERO_USAGE as PROTOCOL_ZERO_USAGE } from "@helix/protocol";
 
 /**
  * 主实例标识（信封 instanceId 缺省语义，契约 §3）。
@@ -30,6 +30,13 @@ import { MAIN_INSTANCE_ID as PROTOCOL_MAIN_INSTANCE_ID } from "@helix/protocol";
  * session-reducer）零消费方改动；线上权威 = 协议常量。
  */
 export const MAIN_INSTANCE_ID = PROTOCOL_MAIN_INSTANCE_ID;
+
+/**
+ * 零账面（七字段全零；只读基线，累加永远产生新对象）。T3.1（M4 投资批）：
+ * 单源迁 @helix/protocol projection（原本地平行副本退役）；本地 re-export
+ * 保持既有导入路径零消费方改动。
+ */
+export const ZERO_USAGE = PROTOCOL_ZERO_USAGE;
 
 /** 本地 steer echo id 前缀（确定性 id，保证重放幂等；消费：chat 消费者对账 + ui/send echo）。 */
 export const LOCAL_PREFIX = "local:";
@@ -397,16 +404,8 @@ export type SessionAction =
   /** 刷新目录：置 catalogRefreshing（catalog_refresh.result 到达即清） */
   | { type: "model/catalog-refresh-started" };
 
-/** 零账面（UsageDto 七字段全零；只读基线，累加永远产生新对象）。 */
-export const ZERO_USAGE: UsageDto = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  reasoning: 0,
-  totalTokens: 0,
-  cost: 0,
-};
+/** 零账面（UsageDto 七字段全零）由 @helix/protocol projection 单源供出（上方
+ *  re-export）；本文件不再持有平行定义。 */
 
 export function createInitialSessionState(): SessionState {
   return {

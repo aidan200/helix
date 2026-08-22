@@ -127,6 +127,46 @@ describe("D-2：entry id 预分配（reserveEntryId / appendAssistantEntry reser
   });
 });
 
+describe("Session.isEmpty 草稿判定（TP-1.2a：任何条目皆无才空，含 thinking/compaction）", () => {
+  test("零条目 → true（新建即空草稿）", () => {
+    const s = Session.create("s-empty");
+    expect(s.isEmpty()).toBe(true);
+  });
+
+  test("含用户条目 → false", () => {
+    const s = Session.create("s-user");
+    s.appendUserEntry("第一句");
+    expect(s.isEmpty()).toBe(false);
+  });
+
+  test("仅 thinking 条目 → false（entries 非空即非草稿）", () => {
+    const s = Session.create("s-thinking");
+    s.appendThinkingEntry({
+      kind: "thinking",
+      instanceId: "main",
+      text: "推理中…",
+      durationMs: 120,
+      reasoningTokens: 12,
+      createdAt: "2026-08-21T00:00:00.000Z",
+    });
+    expect(s.isEmpty()).toBe(false);
+  });
+
+  test("仅 compaction 条目 → false（entries 非空即非草稿）", () => {
+    const s = Session.create("s-compaction");
+    s.appendCompactionEntry({
+      kind: "compaction",
+      instanceId: "main",
+      tokensBefore: 340_000,
+      tokensAfter: 20_000,
+      summary: "早期对话压缩摘要",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0, cost: 0 },
+      createdAt: "2026-08-21T00:00:00.000Z",
+    });
+    expect(s.isEmpty()).toBe(false);
+  });
+});
+
 describe("Session 快照往返（TP-CL4-1 ①②）", () => {
   test("toSnapshot→restoreFrom 重建等价（entries/turns/steer 队列/计数器）", () => {
     const s = Session.create("s-snap");

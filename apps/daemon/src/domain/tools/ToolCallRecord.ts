@@ -16,12 +16,12 @@ export interface ToolCallRecordData {
   readonly id: string;
   readonly toolName: string;
   readonly args: unknown;
-  /** 实例归属（T2.1 AD-3）：缺省 = 主实例（旧载荷/旧行前向兼容）；SubAgent = agent-N。 */
+  /** 实例归属（AD-3）：缺省 = 主实例（旧载荷/旧行前向兼容）；SubAgent = agent-N。 */
   readonly instanceId?: string;
   readonly status: ToolCallStatus;
   readonly result?: string;
   readonly error?: string;
-  /** 工具结果附带图片（T9 下行）：base64 data URL 数组（如截图）；缺省 = 无图。 */
+  /** 工具结果附带图片（下行）：base64 data URL 数组（如截图）；缺省 = 无图。 */
   readonly images?: readonly string[];
   readonly startedAt?: string;
   readonly endedAt?: string;
@@ -84,7 +84,7 @@ export class ToolCallRecord {
     this._startedAt = startedAt;
   }
 
-  /** running→completed，附加结果（images 可选：T9 下行工具截图 data URL）。 */
+  /** running→completed，附加结果（images 可选： 下行工具截图 data URL）。 */
   complete(result: string, endedAt?: string, images?: readonly string[]): void {
     this.expect("running", "complete");
     this._status = "completed";
@@ -115,12 +115,12 @@ export class ToolCallRecord {
       id: this.id,
       toolName: this.toolName,
       args: this.args,
-      // T2.1：行级归属透传（主实例缺省省略——线格式保持 v0/v0.1 形状）
+      // 行级归属透传（主实例缺省省略——线格式保持 v0/v0.1 形状）
       ...(this.instanceId !== MAIN_INSTANCE_ID ? { instanceId: this.instanceId } : {}),
       status: this._status,
       result: this._result,
       error: this._error,
-      // T9 下行：工具结果附带图片（缺省省略——线格式保持旧形状）
+      // 下行：工具结果附带图片（缺省省略——线格式保持旧形状）
       ...(this._images !== undefined && this._images.length > 0 ? { images: [...this._images] } : {}),
       startedAt: this._startedAt,
       endedAt: this._endedAt,

@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { zhCN } from "./zh-CN";
 import { enUS } from "./en-US";
 import { t } from "@/shared/i18n";
-import type { Translations } from "@/shared/i18n/types";
+import type { Translations } from "./zh-CN";
 
 /** review.md「P-1 文案 key 清单」全集（逐行登记，缺一即失败）；v0.1 追加
  *  sa.card 与 sa.spawn 词条及 cancelled 恢复态（AD-10，无原型演示位、清单外新增）；

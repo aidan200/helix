@@ -8,7 +8,7 @@
  */
 
 /**
- * 引擎事件（时序契约 = T1.3 spike 报告 §5，FakeAgentEngine 与
+ * 引擎事件（时序契约 §5；FakeAgentEngine 与
  * PiAgentEngineAdapter 双实现等价时序）：
  * - 无工具轮：agent_start → turn_start → message_start(user) → message_end(user)
  *   → message_start(assistant) → message_update×N → message_end(assistant)
@@ -16,9 +16,9 @@
  * - steer drain 边界 = turn_end 之后、下一 turn_start 之前（§5.3）；
  * - abort 轮以 message_end(assistant, stopReason="error") 收尾（§5.1）。
  *
- * T3.1 通道族 additive：thinking 三事件（assistant 消息内的 thinking 块流，
- * 先于文本 delta）、message_end 载荷 +usage?（七字段防腐提取，账目本体
- * 归 T3.2）、compaction_completed（turn 边界压缩产物，tokensAfter 为压缩后
+ * 通道族 additive：thinking 三事件（assistant 消息内的 thinking 块流，
+ * 先于文本 delta）、message_end 载荷 +usage?（七字段防腐提取，账目本体归
+ * UsageLedger）、compaction_completed（turn 边界压缩产物，tokensAfter 为压缩后
  * estimateContextTokens 复算值）。
  */
 
@@ -67,7 +67,7 @@ export type AgentEngineEvent =
       readonly text: string;
       /** assistant 消息的停止原因（abort/错误时 "error"，正常 "stop"/"toolUse" 等）。 */
       readonly stopReason?: string;
-      /** 本 turn 用量（assistant 消息携带时提取；七字段，cost 拍平——账目归 T3.2）。 */
+      /** 本 turn 用量（assistant 消息携带时提取；七字段，cost 拍平——账目归 UsageLedger）。 */
       readonly usage?: AgentEngineUsage;
     }
   | {
@@ -82,7 +82,7 @@ export type AgentEngineEvent =
       readonly toolName: string;
       readonly isError: boolean;
       readonly result: string;
-      /** 工具结果附带图片（T9 下行）：base64 data URL 数组（如截图）；缺省 = 无图。 */
+      /** 工具结果附带图片（下行）：base64 data URL 数组（如截图）；缺省 = 无图。 */
       readonly images?: readonly string[];
     }
   | {
@@ -102,7 +102,7 @@ export interface AgentEnginePort {
   /**
    * 驱动一轮 run：从用户输入开始直到 run 结束（含工具轮与 steer drain 轮）。
    * listener 在 run 期间持续收到引擎事件；Promise 在 run 完全结束后 resolve。
-   * T9 图片上行：images 可选（已校验的 base64 data URL 数组）——驱动侧
+   * 图片上行：images 可选（已校验的 base64 data URL 数组）——驱动侧
    * （AgentRuntime）解码为 ImageContent[] 后经 agent.prompt(input, images)
    * 注入模型；缺省 = 纯文本（旧行为零变更）。
    */
@@ -114,26 +114,26 @@ export interface AgentEnginePort {
   /** 是否正在 run 中。 */
   isStreaming(): boolean;
   /**
-   * 当前模型 id（"provider/model-id"；T2.3 模型族可观测面——徽标/快照
+   * 当前模型 id（"provider/model-id"；模型族可观测面——徽标/快照
    * model 位数据源）。未实现/引擎未装配模型 → undefined（调用方回退默认）。
    */
   currentModel?(): string | undefined;
   /**
-   * 运行期换模（T2.3 AD-2：AgentState.model 直改，下一 turn 生效——
+   * 运行期换模（AD-2：AgentState.model 直改，下一 turn 生效——
    * in-flight run 不受影响（run 级 loop config 已快照模型）；不走
    * prepareNextTurn 链（CompactionHook 占用且首个非空短路）。实现体在
    * pi-engine 域（TR-AD-2 域内扩 port 面）。
    */
   setModel?(modelId: string): void;
   /**
-   * 运行期改生效工具集（M6 T2，setModel 同构）：names 经引擎侧 resolveTools
+   * 运行期改生效工具集（setModel 同构）：names 经引擎侧 resolveTools
    * 重解析成 AgentTool[] 后直改 AgentState.tools（能力+提示双料事实源），
    * 下一 turn 生效（in-flight 不变）。入参 = ResourceService.getEffectiveTools
    * 生效集（resolveTools 产物同源派生）。
    */
   setTools?(names: readonly string[]): void;
   /**
-   * 运行期改系统提示（M6 T2，setModel 同构）：AgentState.systemPrompt 直改，
+   * 运行期改系统提示（setModel 同构）：AgentState.systemPrompt 直改，
    * 下一 turn 生效。入参 = SystemPromptAssembler 三段组装产物。
    */
   setSystemPrompt?(text: string): void;

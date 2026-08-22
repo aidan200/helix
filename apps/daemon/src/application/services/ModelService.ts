@@ -12,6 +12,7 @@ import type {
 import type { AuthStorePort } from "../ports/outbound/AuthStorePort";
 import type { DefaultModelPort } from "../ports/outbound/DefaultModelPort";
 import type { SessionRegistry } from "./SessionRegistry";
+import type { ErrorCode } from "@helix/protocol";
 
 /**
  * ModelService —— 模型/认证管理命令族实现（AD-2 daemon 侧主承载，
@@ -33,6 +34,8 @@ import type { SessionRegistry } from "./SessionRegistry";
 
 /** model id 不在合并目录（契约 C §4 model_not_found 语义）。 */
 export class ModelNotFoundError extends Error {
+  /** 错误码（additive）：值 = 既有回码，判别契约从 name 字符串改码匹配。 */
+  readonly code: ErrorCode = "model_not_found";
   constructor(modelId: string) {
     super(`模型 ${modelId} 不在目录中（应为 "provider/model-id" 且存在于 builtin/overlay 合并目录）`);
     this.name = "ModelNotFoundError";
@@ -41,6 +44,8 @@ export class ModelNotFoundError extends Error {
 
 /** providerId 不在目录全集（契约 C §4 provider_not_found 语义）。 */
 export class ProviderNotFoundError extends Error {
+  /** 错误码（additive）：值 = 既有回码，判别契约从 name 字符串改码匹配。 */
+  readonly code: ErrorCode = "provider_not_found";
   constructor(providerId: string) {
     super(`provider ${providerId} 不存在（以合并目录 provider 全集为准）`);
     this.name = "ProviderNotFoundError";

@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import type { Daemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import type {
   InstanceRunner,
@@ -73,8 +74,8 @@ class LateErrorRunner implements InstanceRunner {
   }
 }
 
-async function createTestDaemon(home: string, runner: InstanceRunner): Promise<ReturnType<typeof createDaemon>> {
-  return createDaemon({
+async function createDaemonWithRunner(home: string, runner: InstanceRunner): Promise<Daemon> {
+  return createTestDaemon({
     home,
     engine: new FakeAgentEngine({ replies: [{ text: "收口回执。" }] }),
     skipConfig: true,
@@ -98,7 +99,7 @@ describe("T1.1 engine_error 透传（container 级）", () => {
   test("注入 engine_error → 挂 instanceId 的领域事件 + 落 domain_events（subagent 行，原文）；message_end 路径不变", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-t11-engerr-"));
     try {
-      const d = await createTestDaemon(home, new EngineErrorRunner());
+      const d = await createDaemonWithRunner(home, new EngineErrorRunner());
       const sessionId = d.system.getStatus().sessionId;
 
       // 订阅面（SessionService.notify ← fan-out，与落盘/WS 同源）
@@ -140,7 +141,7 @@ describe("T1.1 engine_error 透传（container 级）", () => {
   test("迟到/终态实例的 engine_error → 不产出（既有防护不破）", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-t11-late-"));
     try {
-      const d = await createTestDaemon(home, new LateErrorRunner());
+      const d = await createDaemonWithRunner(home, new LateErrorRunner());
       const sessionId = d.system.getStatus().sessionId;
 
       const engineErrors: DomainEvent[] = [];

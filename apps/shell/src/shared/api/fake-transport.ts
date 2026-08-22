@@ -29,12 +29,12 @@
  * trace.query 自动剧本（T2.2/CL-5 例外条款）：mock daemon 读面镜像——真实
  * daemon 恒应答 trace.query（点对点结果帧 / 校验失败 connection.error），
  * 故 fake 实例对 trace.query 命令自动回放确定性场景（主 + 多 Sub 实例、
- * engine.error 行、可翻页事件量），校验/过滤/分页/filterEcho 按协议 SoT
- * （PROTOCOL.md §13.1/§15.6）机械口径执行，校验分支 = daemon
- * normalizeTraceQuery 逐条镜像（T2.4，TR-TEST-3 不弱于不私设；agentKind
- * 过滤维生效，实例面板保持会话级不随过滤收窄），支撑 T2.3 fidelity 五态
- * 触发面（success/empty 经过滤器、error 经非法 payload、loading 经 120ms
- * 延迟、断连经 netClose）。
+ * engine.error 行、可翻页事件量）。T3.1（M4 投资批）：校验/过滤/分页改引
+ * @helix/protocol projection 纯函数单源（normalizeTraceQuery /
+ * pageTraceEvents——原 daemon 行为副本退役，TR-TEST-3 对账面不变）；agentKind
+ * 过滤维生效，实例面板保持会话级不随过滤收窄；filterEcho/帧组装留本地
+ *（帧知识豁免位）；支撑 T2.3 fidelity 五态触发面（success/empty 经过滤器、
+ * error 经非法 payload、loading 经 120ms 延迟、断连经 netClose）。
  * 「本模块零帧知识」纪律的单一例外：帧类型直引 @helix/protocol（TR-TEST-3
  * 类型即守护），不引 daemon 代码。
  */
@@ -46,7 +46,13 @@ import type {
   TraceQueryFilterEcho,
   TraceQueryResultPayload,
 } from "@helix/protocol";
-import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
+import {
+  PROTOCOL_VERSION,
+  SYSTEM_SESSION_ID,
+  TraceQueryInvalidError,
+  normalizeTraceQuery,
+  pageTraceEvents,
+} from "@helix/protocol";
 import { browserTransportFactory, type Transport, type TransportFactory, type TransportHandlers } from "./helix-ws";
 
 /** daemon 回环地址前缀（非该前缀 → 真实 WebSocket 透传，HMR 不受扰）。 */
@@ -102,8 +108,6 @@ interface ClientWaiter {
 const TRACE_MOCK_LATENCY_MS = 120;
 /** 场景时间零点（确定性：同剧本同帧序列，重放可比）。 */
 const TRACE_MOCK_BASE_MS = Date.parse("2026-08-19T13:47:57.802+08:00");
-/** 契约 §4：缺省 limit 50，上限鉗制 200。 */
-const TRACE_MOCK_MAX_PAGE = 200;
 
 const TRACE_MAIN_ID = "main";
 const TRACE_SUB_A = "agt_F1X2E88DQ9LM"; // phase-coder · failed（engine.error 行）
@@ -255,111 +259,18 @@ function traceScenario(sessionId: string): {
   return { instances, events };
 }
 
-// ── trace.query 校验（T2.4：daemon normalizeTraceQuery 分支镜像，TraceQuery.ts:54-101；
-//    TR-TEST-3「不弱于、不私设」——拒绝条件集合与 daemon 逐条对账，无 types 成员枚举）──
-
-/** 校验失败标记（对应 daemon DomainError；映射链镜像：normalize 抛出 →
- * handlers/trace.ts catch → WsServerAdapter.commandError →
- * connection.error{code:"command.invalid_payload"}）。 */
-class TraceInvalid extends Error {}
-
-/** 归一后的查询（daemon NormalizedTraceQuery 同构；缺省维归一 null）。 */
-interface NormalizedTraceQuery {
-  readonly sessionId: string;
-  readonly instanceIds: string[] | null;
-  readonly agentKind: "main" | "subagent" | null;
-  readonly types: string[] | null;
-  readonly timeRange: { from: string | null; to: string | null } | null;
-  readonly page: { limit: number; beforeId: number | null };
-}
-
-function invalid(message: string): never {
-  throw new TraceInvalid(message);
-}
-
-/** 非空 string 数组（daemon optionalStringArray 镜像；空数组合法 = 空结果）。 */
-function optionalStringArray(value: unknown, name: string): string[] | null {
-  if (value === undefined) return null;
-  if (!Array.isArray(value) || value.some((v) => typeof v !== "string" || v === "")) {
-    invalid(`trace.query: ${name} must be an array of non-empty strings (empty array = empty result)`);
-  }
-  return value as string[];
-}
-
-/** ISO 8601 文本（daemon optionalIsoString 镜像：undefined → null；非法 → 拒绝）。 */
-function optionalIsoString(value: unknown, name: string): string | null {
-  if (value === undefined) return null;
-  if (typeof value !== "string" || value === "" || Number.isNaN(Date.parse(value))) {
-    invalid(`trace.query: ${name} must be an ISO 8601 date string`);
-  }
-  return value;
-}
-
-/**
- * WS payload → 归一查询（daemon normalizeTraceQuery 分支镜像，行号锚 =
- * TraceQuery.ts:54-101）：sessionId 必填非空；instanceIds/types 为非空 string
- * 数组（无成员枚举——daemon 不校验 types ∈ EVENT_TYPES，mock 不私设）；
- * agentKind ∈ {"main","subagent"}；timeRange.from/to ISO 8601 + from>to 矛盾
- * 拒绝；page.limit 正整数鉗制 200；page.beforeId 正整数。
- */
-function normalizeTraceQuery(raw: unknown): NormalizedTraceQuery {
-  const r = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
-
-  const sessionId = r.sessionId; // :55-59
-  if (typeof sessionId !== "string" || sessionId === "") {
-    invalid("trace.query: sessionId is required (non-empty string)");
-  }
-
-  const instanceIds = optionalStringArray(r.instanceIds, "instanceIds"); // :60
-  const types = optionalStringArray(r.types, "types"); // :61（无成员枚举，不私设）
-
-  const agentKindRaw = r.agentKind; // :63-69
-  if (agentKindRaw !== undefined && agentKindRaw !== "main" && agentKindRaw !== "subagent") {
-    invalid('trace.query: agentKind must be "main" | "subagent"');
-  }
-  const agentKind = (agentKindRaw ?? null) as "main" | "subagent" | null;
-
-  let timeRange: NormalizedTraceQuery["timeRange"] = null; // :71-83
-  if (r.timeRange !== undefined) {
-    const tr = (typeof r.timeRange === "object" && r.timeRange !== null ? r.timeRange : {}) as Record<string, unknown>;
-    const from = optionalIsoString(tr.from, "timeRange.from"); // :72
-    const to = optionalIsoString(tr.to, "timeRange.to"); // :73
-    if (from !== null && to !== null && from > to) {
-      invalid(`trace.query: timeRange contradiction (from ${from} is later than to ${to}; inclusive window is empty)`); // :74-76
-    }
-    timeRange = { from, to };
-  }
-
-  let limit = 50; // TRACE_PAGE_DEFAULT（daemon 同值；shell 禁引 daemon 代码，按协议镜像）
-  let beforeId: number | null = null;
-  if (r.page !== undefined) {
-    // :85-99
-    const page = (typeof r.page === "object" && r.page !== null ? r.page : {}) as Record<string, unknown>;
-    if (page.limit !== undefined) {
-      if (typeof page.limit !== "number" || !Number.isInteger(page.limit) || page.limit < 1) {
-        invalid("trace.query: page.limit must be a positive integer"); // :87-91
-      }
-      limit = Math.min(page.limit, TRACE_MOCK_MAX_PAGE); // 鉗制不报错
-    }
-    if (page.beforeId !== undefined) {
-      if (typeof page.beforeId !== "number" || !Number.isInteger(page.beforeId) || page.beforeId < 1) {
-        invalid("trace.query: page.beforeId must be a positive integer (id cursor)"); // :93-97
-      }
-      beforeId = page.beforeId;
-    }
-  }
-
-  return { sessionId, instanceIds, agentKind, types, timeRange, page: { limit, beforeId } };
-}
+// ── trace.query 应答（T3.1：校验/过滤/分页直引 @helix/protocol projection 单源；
+//    原 daemon 副本段退役——normalize/鉗制常量/错误类型/过滤分页语义均协议包权威） ──
 
 /** trace.query 应答组装（校验/过滤/分页/filterEcho 机械口径；失败回
- * connection.error{command.invalid_payload}——daemon 映射链镜像）。 */
+ * connection.error{command.invalid_payload}——daemon 映射链同构：协议
+ * TraceQueryInvalidError → 本层 catch → 错误回帧）。 */
 function buildTraceReply(raw: unknown): EventEnvelope {
-  let q: NormalizedTraceQuery;
+  let q: ReturnType<typeof normalizeTraceQuery>;
   try {
     q = normalizeTraceQuery(raw);
   } catch (err) {
-    if (!(err instanceof TraceInvalid)) throw err;
+    if (!(err instanceof TraceQueryInvalidError)) throw err;
     return {
       v: PROTOCOL_VERSION,
       type: "connection.error",
@@ -370,29 +281,21 @@ function buildTraceReply(raw: unknown): EventEnvelope {
   }
   const { instances, events } = traceScenario(q.sessionId);
 
-  const matched = events
-    .filter((e) => q.instanceIds === null || q.instanceIds.includes(e.instanceId))
-    .filter((e) => q.agentKind === null || e.agentKind === q.agentKind) // T2.4：agentKind 过滤维生效
-    .filter((e) => q.types === null || q.types.includes(e.type))
-    .filter((e) => q.timeRange === null || q.timeRange.from === null || e.ts >= q.timeRange.from)
-    .filter((e) => q.timeRange === null || q.timeRange.to === null || e.ts <= q.timeRange.to)
-    .sort((a, b) => b.id - a.id);
-  const total = matched.length;
-  const paged = matched.filter((e) => q.page.beforeId === null || e.id < q.page.beforeId).slice(0, q.page.limit);
+  const { rows: paged, total, hasMore } = pageTraceEvents(events, q);
 
   const filterEcho: TraceQueryFilterEcho = {
     sessionId: q.sessionId,
-    instanceIds: q.instanceIds,
-    agentKind: q.agentKind, // 回显 = 实际生效值（校验后归一）
-    types: q.types,
-    timeRange: q.timeRange,
+    instanceIds: q.instanceIds === null ? null : [...q.instanceIds],
+    agentKind: q.agentKind, // 回显 = 实际生效值（校验后归一；readonly → 帧侧可变拷贝）
+    types: q.types === null ? null : [...q.types],
+    timeRange: q.timeRange === null ? null : { ...q.timeRange },
     page: { limit: q.page.limit, beforeId: q.page.beforeId },
   };
   const payload: TraceQueryResultPayload = {
     filterEcho,
     instances,
-    events: paged,
-    page: { loaded: paged.length, total, hasMore: paged.length === q.page.limit },
+    events: paged.map((row) => ({ ...row })),
+    page: { loaded: paged.length, total, hasMore },
   };
   return {
     v: PROTOCOL_VERSION,
@@ -402,6 +305,7 @@ function buildTraceReply(raw: unknown): EventEnvelope {
     payload,
   };
 }
+
 
 /** fake 实例（WebSocket 形状：readyState + 静态常量 + send 门控）。 */
 class FakeSocket {

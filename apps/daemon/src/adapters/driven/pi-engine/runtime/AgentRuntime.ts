@@ -14,7 +14,7 @@ import { hasSteer, type HookSet, type SteerCapable } from "./HookSet";
 import { CompactionHook, type CompactionOutcome } from "./hooks/CompactionHook";
 import { parseDataUrlImages } from "../../../../application/services/images";
 
-/** data URL → pi ImageContent（T9：AgentRuntime 驱动面单点解码）。 */
+/** data URL → pi ImageContent（AgentRuntime 驱动面单点解码）。 */
 function toImageContent(dataUrl: string): ImageContent {
   const [image] = parseDataUrlImages([dataUrl]);
   if (image === undefined) throw new Error(`图片 data URL 解码异常：${dataUrl.slice(0, 32)}…`);
@@ -31,7 +31,7 @@ function toImageContent(dataUrl: string): ImageContent {
  * - 生命周期：事件订阅转发。
  *
  * 它**不感知任何编排模式**（不知道任何具体会话形态的存在，AG-10）、
- * **不自持领域状态副本**（聚合状态在 domain，TP-CL4-5）、**不复刻**
+ * **不自持领域状态副本**（聚合状态在 domain）、**不复刻**
  * 流式循环/工具批执行（那是 pi agentLoop 本体）。规模红线 ~百行级。
  */
 export interface AgentRuntimeDeps {
@@ -43,11 +43,11 @@ export interface AgentRuntimeDeps {
   readonly models?: Models;
   /** 显式 key 查询（config.json apiKeys → pi 工厂；不走 env，AD-11/13）。 */
   readonly getApiKey: (provider: string) => string | undefined;
-  /** 工具名 → pi AgentTool 解析器（T1.5 前恒空集）。 */
+  /** 工具名 → pi AgentTool 解析器（组合根注入 CoreToolExecutor.resolveTools）。 */
   readonly resolveTools?: (names: readonly string[]) => AgentTool<any>[];
-  /** turn 边界 compaction 完成上抛（T3.1；adapter 转 port 事件）。 */
+  /** turn 边界 compaction 完成上抛（adapter 转 port 事件）。 */
   readonly onCompactionCompleted?: (result: CompactionOutcome) => void;
-  /** turn 边界 compaction 失败上抛（T3.1；不崩会话，继续 turn）。 */
+  /** turn 边界 compaction 失败上抛（不崩会话，继续 turn）。 */
   readonly onCompactionFailed?: (message: string) => void;
 }
 
@@ -66,7 +66,7 @@ export class AgentRuntime {
       },
       streamFn: deps.streamFn,
       getApiKey: deps.getApiKey,
-      steeringMode: "one-at-a-time", // 每条注入独占一个 turn（spike §5.3-4 实测默认）
+      steeringMode: "one-at-a-time", // 每条注入独占一个 turn（实测默认）
       // 压缩接线时同步启用 pi 的 LLM 转换器：compactionSummary 角色 →
       // 带前缀的 user 消息（缺省转换器会直接丢弃 summary，压缩历史丢失）
       ...(compaction.length > 0 ? { convertToLlm } : {}),
@@ -79,7 +79,7 @@ export class AgentRuntime {
   }
 
   /** 驱动一轮 run：prompt 输入并等待 run 完全结束（含工具轮与注入 drain 轮）。
-   *  T9 图片上行：data URL 解码 → ImageContent[] → agent.prompt(input, images)。 */
+   * 图片上行：data URL 解码 → ImageContent[] → agent.prompt(input, images)。 */
   async drive(input: string, images?: readonly string[]): Promise<void> {
     const imageContents = images === undefined || images.length === 0 ? undefined : images.map(toImageContent);
     await this.agent.prompt(input, imageContents);
@@ -92,7 +92,7 @@ export class AgentRuntime {
     this.steerHook.steer(text);
   }
 
-  /** 中断当前 run（非销毁，spike §5.4）。 */
+  /** 中断当前 run（非销毁）。 */
   abort(): void {
     if (this.steerHook) this.steerHook.abort();
     else this.agent.abort();
@@ -103,7 +103,7 @@ export class AgentRuntime {
   }
 
   /**
-   * 运行期换模（T2.3 AD-2）：AgentState.model 直改——pi 语义「Active model
+   * 运行期换模（AD-2）：AgentState.model 直改——pi 语义「Active model
    * used for future turns」：in-flight run 的 loop config 已快照模型不受影响，
    * 下一 run（drive）起生效。不走 prepareNextTurn 链（CompactionHook 占用
    * 且「首个非空生效」会短路，换模与压缩同 turn 触发会丢失——机械裁决）。
@@ -113,7 +113,7 @@ export class AgentRuntime {
   }
 
   /**
-   * 运行期改生效工具集（M6 T2，setModel 同构）：AgentState.tools 直改——
+   * 运行期改生效工具集（setModel 同构）：AgentState.tools 直改——
    * state.tools 是能力+提示双料事实源（provider function calling 面与分发
    * 面读同一数组，agent-loop「not found」兑底），移除即双断。入参须是已
    * resolve 的 AgentTool[]（调用方组合根经 CoreToolExecutor.resolveTools
@@ -125,9 +125,9 @@ export class AgentRuntime {
   }
 
   /**
-   * 运行期改系统提示（M6 T2，setModel 同构）：AgentState.systemPrompt 直改，
+   * 运行期改系统提示（setModel 同构）：AgentState.systemPrompt 直改，
    * 下一 run 起生效（不走 prepareNextTurn 链——同 setModel 机械裁决）。
-   * 已知边界（M6 §六登记）：run 中 compaction 与配置变更并发时，压缩 turn
+   * 已知边界（§六登记）：run 中 compaction 与配置变更并发时，压缩 turn
    * 透传新 systemPrompt（run 内提前生效）——方向与意图一致，无害。
    */
   setSystemPrompt(systemPrompt: string): void {
@@ -190,7 +190,7 @@ function combinePrepareNextTurn(hooks: readonly HookSet[]) {
 }
 
 /**
- * compaction 接线（T3.1）：profile.compaction.enabled 声明即装配
+ * compaction 接线：profile.compaction.enabled 声明即装配
  * CompactionHook（消费声明字段，不感知任何会话形态，AG-10）；
  * enabled 而未注入 models → 装配期 fail-fast（摘要调用无处可去）。
  */

@@ -8,9 +8,9 @@ import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
  * token 级 delta 不是 Entry、不是领域事件、不落盘（AD-16 §5.3）。
  * isSteer=true 标记该 user entry 来自运行中注入（steer），drain 后驱动新 turn。
  *
- * instanceId（AD-3，iter-20260816-uzvg T1.2）：Entry 的实例归属（必填）——
+ * instanceId（AD-3）：Entry 的实例归属（必填）——
  * 会话聚合跨实例持续追加（AD-1 三层模型），每条 Entry 挂产生它的实例；
- * 主实例固定 MAIN_INSTANCE_ID（"main"，O-4），SubAgent 为 agent-N。
+ * 主实例固定 MAIN_INSTANCE_ID（"main"），SubAgent 为 agent-N。
  */
 export type EntryRole = "user" | "assistant" | "tool";
 
@@ -23,7 +23,7 @@ export interface EntryData {
   readonly instanceId: string;
   readonly createdAt: string;
   /**
-   * 图片附件（T9 图片上行）：base64 data URL 数组；仅 user 消息携带
+   * 图片附件（图片上行）：base64 data URL 数组；仅 user 消息携带
    * （chat.send.images 校验后原样落盘）。可选——缺省 = 纯文本旧形态
    * （持久化 JSON 列往返自动携带，v0/v0.1 快照兼容）。
    */

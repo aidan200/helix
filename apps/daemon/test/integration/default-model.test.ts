@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { createPaths } from "../../src/infrastructure/paths";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
 import { DefaultModelStore } from "../../src/adapters/driven/sqlite-session/DefaultModelStore";
@@ -65,7 +65,7 @@ describe("新会话继承默认（daemon 集成，真引擎构造期解析）", 
   test("set_default 后新建草稿会话 → 引擎 currentModel = 新默认；既有会话不跟随", async () => {
     const home = tmpHome();
     // 生产模式（不注入 engine）→ 真引擎装配（构造期无网络请求）
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       skipConfig: true,
       port: 0,

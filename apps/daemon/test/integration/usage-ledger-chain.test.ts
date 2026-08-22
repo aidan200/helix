@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import type {
   InstanceRunner,
@@ -55,8 +55,8 @@ class UsageEmitRunner implements InstanceRunner {
   }
 }
 
-async function createUsageDaemon(home: string, engine: FakeAgentEngine): Promise<ReturnType<typeof createDaemon>> {
-  return createDaemon({
+async function createUsageDaemon(home: string, engine: FakeAgentEngine): Promise<ReturnType<typeof createTestDaemon>> {
+  return createTestDaemon({
     home,
     engine,
     skipConfig: true,
