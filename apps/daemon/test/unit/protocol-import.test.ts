@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import {
-  MAIN_INSTANCE_ID as PROTOCOL_MAIN_INSTANCE_ID,
   PROTOCOL_VERSION,
   type ChatSendCommand,
   type EventEnvelope,
 } from "@helix/protocol";
-import { MAIN_INSTANCE_ID as DOMAIN_MAIN_INSTANCE_ID } from "../../src/domain/agent/AgentInstance";
 
 /**
  * TP-CL2-2 基线（A 简版）：daemon 侧以 workspace 包名 import @helix/protocol。
@@ -28,11 +28,39 @@ describe("@helix/protocol 工作区解析（TP-CL2-2 基线）", () => {
     };
     expect(evt.type).toBe("agent.state.changed");
   });
+});
 
-  test("MAIN_INSTANCE_ID 双源相等守护（OI 收口 F-2⑬；AG-02 强制 domain 保留本地定义）", () => {
-    // 协议导出（线上权威）↔ domain 内部值语义锚点：两定义漂移即红
-    expect(PROTOCOL_MAIN_INSTANCE_ID).toBe("main");
-    expect(DOMAIN_MAIN_INSTANCE_ID).toBe("main");
-    expect(PROTOCOL_MAIN_INSTANCE_ID).toBe(DOMAIN_MAIN_INSTANCE_ID);
+describe("MAIN_INSTANCE_ID 单源守护（AD-1 / iter-20260821-dg90 T3.3）", () => {
+  test("单源负命题：daemon src + packages 内值定义点唯一 = @helix/common", () => {
+    // 原「protocol 导出 == domain 本地定义」双源相等断言（OI 收口 F-2⑬）随
+    // 双源退役失去对象（T3.3：domain/AgentInstance.ts 与 protocol/envelope.ts
+    // 本地定义均删除，唯一定义 = packages/common/src/constants.ts）。守护改
+    // 负命题：`export const MAIN_INSTANCE_ID = "main"` 值定义点在 daemon src
+    // + packages 内恰一处 = common；re-export 通道（protocol envelope）与
+    // domain 锚点转发（AgentInstance）不算定义。第二定义点出现即红
+    // （双源复发守护，TR-AD-28 反例面；AG-13① 取源语义随迁）。
+    const defRe = /export\s+const\s+MAIN_INSTANCE_ID\s*=\s*"main"/;
+    const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..");
+    const scanRoots = [
+      path.join(repoRoot, "apps", "daemon", "src"),
+      path.join(repoRoot, "packages"),
+    ];
+    const definitions: string[] = [];
+    for (const root of scanRoots) {
+      for (const rel of listTsFiles(root)) {
+        if (rel.split(path.sep).includes("node_modules")) continue; // workspace 链接安装面非源码
+        const src = readFileSync(path.join(root, rel), "utf8");
+        if (defRe.test(src)) definitions.push(path.relative(repoRoot, path.join(root, rel)));
+      }
+    }
+    expect(definitions).toEqual([path.join("packages", "common", "src", "constants.ts")]);
   });
 });
+
+function listTsFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { recursive: true }) as string[]) {
+    if (entry.endsWith(".ts")) out.push(entry);
+  }
+  return out;
+}

@@ -24,11 +24,13 @@ export const PROTOCOL_VERSION = "0.10" as const;
 export type FrameVersion = 0 | typeof PROTOCOL_VERSION;
 
 /**
- * 主实例固定 id（OI 收口 / F-2⑬：双侧手写收敛为协议导出常量）。
- * daemon 侧经 domain/agent/AgentInstance.ts re-export（消费点 import 不变）；
- * shell 侧改引随 T3.1（session-reducer.ts 本地定义暂留，迭代内收敛）。
+ * 主实例固定 id（OI 收口 / F-2⑬ → AD-1 单源收编，iter-20260821-dg90 T3.3）。
+ * 唯一定义 = @helix/common constants.ts（字面量型），此处为 re-export 通道：
+ * daemon 侧 13 文件与 shell 链（state.ts 已完成 protocol 单源化）的既有
+ * @helix/protocol 消费面零 churn；domain 锚点同批改引 common（AG-02① 白
+ * 名单例外）。新代码直引 @helix/common，不经本 re-export 链（TR-AD-28）。
  */
-export const MAIN_INSTANCE_ID = "main" as const;
+export { MAIN_INSTANCE_ID } from "@helix/common";
 
 /**
  * 会话无关系统级事件的 sessionId 占位（契约 A §3）。

@@ -15,7 +15,8 @@
     "types": ["@types/bun"],
     "baseUrl": ".",
     "paths": {
-      "@helix/protocol": ["packages/protocol/src/index.ts"]
+      "@helix/protocol": ["packages/protocol/src/index.ts"],
+      "@helix/common": ["packages/common/src/index.ts"]
     }
   }
 }
