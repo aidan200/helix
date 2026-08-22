@@ -229,7 +229,9 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
 describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", () => {
   const writePatterns: [string, RegExp][] = [
     ["new Database", /new\s+Database\s*\(/],
-    ["db.exec 调用", /\.exec\s*\(/],
+    // 限定 db 系接收者：裸 `\.exec(` 会误伤 RegExp.prototype.exec（如 T1.2
+    // rg-backend 的行解析正则）——守护目标是 SQLite 写点而非一切 exec 方法。
+    ["db.exec 调用", /\bdb\w*\.exec\s*\(/],
     ["INSERT INTO", /\bINSERT\s+INTO\b/i],
     ["DELETE FROM", /\bDELETE\s+FROM\b/i],
     ["UPDATE … SET", /\bUPDATE\s+\w+\s+SET\b/i],
