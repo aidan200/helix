@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { globToRegExp, matchFiles } from "../../src/adapters/driven/tools/GrepTool";
+import { globToRegExp, matchFiles } from "../../src/adapters/driven/tools/grep/backends/ts-backend";
 
 /**
  * TP-CL5-2（U）：grep 匹配核心纯函数——输入内存数据（文件清单 + 查询），

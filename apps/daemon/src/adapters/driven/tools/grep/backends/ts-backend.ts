@@ -1,47 +1,20 @@
-import type {
-  AgentHarnessTool,
-  AgentToolResult,
-  ExecutionEnv,
-  ExecutionToolContext,
-} from "@earendil-works/pi-agent-core/node";
+import type { ExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { getOrThrow } from "@earendil-works/pi-agent-core/node";
+import type { GrepBackend, GrepFile, GrepMatch, GrepQuery } from "../contract";
 
 /**
- * GrepTool —— 自写 grep 工具（AD-10）。
+ * 内置 TS 后端（CL-3 恒在兜底）——自旧 GrepTool.ts 机械迁移，**匹配核
+ * 逻辑零改动**（含空 pattern 报错语义；arch-guard TP-CL5-2-A 守护本文件
+ * 无 node/fs import，遍历只经注入的 ExecutionEnv）。
  *
  * 分两半（test-design）：
- * - **匹配核心 = 纯函数**（本文件上半区）：输入内存数据（文件清单 +
- *   查询），输出命中行列表；零 fs/node API、零框架依赖，可单测。
+ * - **匹配核心 = 纯函数**（上半区）：输入内存数据（文件清单 + 查询），
+ *   输出命中行列表；零 fs/node API、零框架依赖，可单测。
  * - **文件遍历 = 薄封装**（下半区）：走注入的 ExecutionEnv（与 core
  *   四工具同一沙箱 cwd），只做「路径 → GrepFile[]」的取数，不含匹配逻辑。
- *
- * 实现的是 core 的 Tool 接口家族（AgentHarnessTool：execute 多一个
- * context 参数，经 bindToolContext 绑定后即 AgentTool，装配在
- * CoreToolExecutor）。参数 schema 为手写 JSON Schema（与 typebox
- * Type.Object 产物同构，pi-ai 校验层兼容；daemon 不直接依赖 typebox）。
  */
 
 // ── 匹配核心（纯函数区，framework-free） ────────────────────
-
-/** 单文件的纯数据投影（路径 + 按行拆分的内容）。 */
-export interface GrepFile {
-  readonly path: string;
-  readonly lines: readonly string[];
-}
-
-/** 一次命中：文件 + 1-based 行号 + 行原文。 */
-export interface GrepMatch {
-  readonly path: string;
-  readonly lineNumber: number;
-  readonly line: string;
-}
-
-/** 匹配查询：子串 pattern + 可选 glob 路径过滤 + 大小写开关。 */
-export interface GrepQuery {
-  readonly pattern: string;
-  readonly glob?: string;
-  readonly ignoreCase?: boolean;
-}
 
 /**
  * 匹配核心：files × query → 命中行列表（按输入文件/行序稳定输出）。
@@ -82,50 +55,24 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${source}$`);
 }
 
-// ── 工具封装（AgentHarnessTool：遍历薄封装 + 纯匹配核） ──────────
-
-/** grep 工具参数（JSON Schema，手写；见文件头注释）。 */
-const grepParameters = {
-  type: "object",
-  properties: {
-    pattern: { type: "string", description: "搜索的子串（区分大小写，除非 ignoreCase）" },
-    path: { type: "string", description: "搜索起点：文件或目录（相对当前工作目录）" },
-    glob: { type: "string", description: "文件路径过滤 glob（* 可跨目录，如 *.ts）" },
-    ignoreCase: { type: "boolean", description: "忽略大小写（默认 false）" },
-  },
-  required: ["pattern", "path"],
-  additionalProperties: false,
-} as const;
+// ── 后端封装（GrepBackend：遍历薄封装 + 纯匹配核） ─────────────
 
 /** 遍历上限（防失控扫描；超出即报错提示收窄 path/glob）。 */
 const MAX_FILES = 1000;
 /** 跳过的高噪音目录（node_modules/.git——JS 仓库内递归 grep 的实用默认）。 */
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
 
-/** 自写 grep 工具：实现 core 的 Tool 接口（AgentHarnessTool 形态）。 */
-export function createGrepTool(): AgentHarnessTool<ExecutionToolContext, any, undefined> {
+/**
+ * 内置 TS 后端：构造面注入遍历环境（env/根路径/signal），search 只消费
+ * 查询（contract.ts GrepBackend 形状）。T1.1 为唯一后端（门面直挂）；
+ * rg 后端与后端选择/降级编排见 T1.2/T1.3。
+ */
+export function createTsBackend(env: ExecutionEnv, rootPath: string, signal?: AbortSignal): GrepBackend {
   return {
-    name: "grep",
-    label: "grep",
-    description:
-      "在指定文件或目录内递归搜索文本（子串匹配），返回命中行（格式 path:行号: 行内容）。" +
-      "可用 glob 过滤文件（* 可跨目录）、ignoreCase 忽略大小写。跳过 node_modules 与 .git。",
-    parameters: grepParameters as any,
-    async execute(toolCallId, params, signal, _onUpdate, context): Promise<AgentToolResult<undefined>> {
-      void toolCallId;
-      const { pattern, path, glob, ignoreCase } = params as {
-        pattern: string;
-        path: string;
-        glob?: string;
-        ignoreCase?: boolean;
-      };
-      const files = await collectGrepFiles(context.env, path, signal);
-      const matches = matchFiles(files, { pattern, glob, ignoreCase });
-      const text =
-        matches.length > 0
-          ? matches.map((m) => `${m.path}:${m.lineNumber}: ${m.line}`).join("\n")
-          : `(no matches for "${pattern}")`;
-      return { content: [{ type: "text", text }], details: undefined };
+    name: "ts",
+    async search(query: GrepQuery): Promise<GrepMatch[]> {
+      const files = await collectGrepFiles(env, rootPath, signal);
+      return matchFiles(files, query);
     },
   };
 }

@@ -20,6 +20,8 @@ import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
 import { createPaths, osHomeDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
+import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
+import { accessSync, constants as fsConstants } from "node:fs";
 import { ensureDevToken } from "./dev-token";
 import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
@@ -80,6 +82,8 @@ export interface Daemon {
   readonly logger: Logger;
   /** WS 服务（127.0.0.1；实际监听端口/地址可观测）。 */
   readonly ws: WsServerAdapter;
+  /** 本次启动生成的 dev token（与 <home>/dev-token 文件内容一致；sidecar ready 行上抛面，contracts/sidecar-lifecycle.md §2）。 */
+  readonly devToken: string;
   /** SubAgent 子进程运行器（engineMode=override 测试形态不装配真体）。 */
   readonly subagentLauncher: SubagentLauncher | undefined;
   /** 编排入口（spawn/send/status/kill；三工具与 WS 命令的公共回口）。 */
@@ -177,6 +181,19 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 }
 
 /**
+ * rg 可执行探测（resolve-rg 的 probe 注入面，装配层唯一实现）：存在且可执行。
+ * 抛错（ENOENT/EACCES 等）一律视为不可用——与 resolve-rg 的保守降级语义同调。
+ */
+function isExecutableFile(p: string): boolean {
+  try {
+    accessSync(p, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 共享装配核心（组合根接缝， §4.3）：生产 createDaemon 与测试工厂
  * createTestDaemon 的公共装配序——启动序前置产物由入口传入（deps），
  * 本函数只做装配不做形态决断（async：重启恢复需读盘）。
@@ -198,6 +215,23 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const logger = createFileLogger(paths.logsDir());
   const config = deps.config;
   const legacy = deps.legacy;
+
+  // ── rg 路径三级解析（AD-2/F3.1，AF-1 语义：装配层一次性调用）──
+  // HELIX_RG_PATH/PATH 的 process.env 读取收束于本组合根（AG-08 唯一例外面，
+  // 壳注入的资源定位参数，非配置源）；resolve-rg.ts 本体零 env/fs 依赖。
+  // T1.1 只交付解析单点与接线：结果仅入启动日志；后端定格/降级编排 T1.3
+  // 接入 grep 门面。
+  const rgResolution = resolveRgPath({
+    bundlePath: process.env.HELIX_RG_PATH,
+    configPath: config.rgPath,
+    pathEnv: process.env.PATH,
+    probe: isExecutableFile,
+  });
+  if (rgResolution.kind === "resolved") {
+    logger.info(`rg 解析命中（source=${rgResolution.source}）：${rgResolution.path}`);
+  } else {
+    logger.info(`rg 不可用（grep 走内置 TS 后端兜底）：${rgResolution.reasons.join("；")}`);
+  }
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   const persistence = buildPersistence({ paths, logger });
@@ -428,6 +462,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     system,
     logger,
     ws,
+    devToken: token,
     subagentLauncher,
     orchestration: currentOrchestration,
     model: modelService,

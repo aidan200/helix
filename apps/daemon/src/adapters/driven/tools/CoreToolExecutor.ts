@@ -19,7 +19,7 @@ import type {
 } from "../../../application/ports/outbound/ToolExecutorPort";
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
-import { createGrepTool } from "./GrepTool";
+import { createGrepTool } from "./grep/GrepTool";
 import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
