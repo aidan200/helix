@@ -51,15 +51,16 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     expect(SubAgentProfile.model).toBeUndefined();
   });
 
-  test("全工具集：照抄 MainSessionProfile 工具名清单去编排三工具与动态族（不新增工具）", () => {
+  test("全工具集：照抄 MainSessionProfile 工具名清单去编排三工具（不新增工具）", () => {
     // T2.3：Main 增 agent_spawn/agent_send/agent_status（编排回口）；SubAgent
-    // 不 spawn 孙进程（单层编排）。T3r：Main 增动态族单 browser 工具——
-    // SubAgent 子进程无动态族（审核 P0-1 决策：ChildMain 装配不传 browser）。
-    // 工具集 = Main 清单去编排三工具与动态族
+    // 不 spawn 孙进程（单层编排）。T3r：Main 增动态族单 browser 工具；H-3：
+    // SubAgent 经 wire 转发通道接入同一 daemon CDP 单例（P0-1 子进程不直连
+    // 决策不变——RemoteBrowserPort 进程外实现，ownerId = instanceId）。
+    // 工具集 = Main 清单去编排三工具
     expect(SubAgentProfile.tools).toEqual(
-      MainSessionProfile.tools.filter((t) => !t.startsWith("agent_") && t !== "browser"),
+      MainSessionProfile.tools.filter((t) => !t.startsWith("agent_")),
     );
-    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"]);
+    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"]);
   });
 
   test("hooks 装配 SteerHooks（send→steer 转投接线，AD-7⑤）", () => {

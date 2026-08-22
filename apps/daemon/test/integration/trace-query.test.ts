@@ -432,14 +432,14 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
       expect(mainSnap.profileSnapshot.tools).not.toContain("grep");
       expect(mainSnap.profileSnapshot.systemPrompt).not.toContain("- grep:");
 
-      // Sub instantiated：快照 = 组装缓存（6 工具不含 read）+ 槽位模型（非 spawn 透传）
+      // Sub instantiated：快照 = 组装缓存（7 工具不含 read——H-3 后全集 8）+ 槽位模型（非 spawn 透传）
       const subInst = await client.traceQuery({ sessionId, types: ["agent.instantiated"], agentKind: "subagent" });
       expect(subInst.events.length).toBe(2);
       for (const row of subInst.events) {
         const p = row.payload as {
           profileSnapshot: { systemPrompt: string; tools: string[]; model: string };
         };
-        expect(p.profileSnapshot.tools).toHaveLength(6);
+        expect(p.profileSnapshot.tools).toHaveLength(7);
         expect(p.profileSnapshot.tools).not.toContain("read");
         expect(p.profileSnapshot.model).toBe("anthropic/claude-haiku-4-5"); // 槽位第一级（uiModelSlot ?? spawn 快照 ?? 全局）
         expect(p.profileSnapshot.systemPrompt).not.toContain("- read:");

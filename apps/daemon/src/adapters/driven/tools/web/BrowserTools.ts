@@ -19,7 +19,8 @@ import { MAX_IMAGE_BYTES } from "../../../../application/services/images";
  * 在 CdpConnectionManager），本文件只做 action 分发 + 必填参数校验 +
  * 返回值 JSON 序列化；port 引用由组合根注入（CoreToolExecutor 条件注册，
  * options.browser 有才注册——同 orchestration 先例）。ChildMain（SubAgent
- * 子进程）不传 browser（P0-1 决策：子进程无动态族）。
+ * 子进程）经 RemoteBrowserPort 注入（H-3 转发通道：P0-1「子进程不直连
+ * CDP」决策不变，连接单例仍归 daemon）。
  *
  * 必填参数按 action 校验（JSON Schema 只约束 action 枚举与形状，按 action
  * 的条件必填在执行前校验，缺失抛中文错误——经 CoreToolExecutor 转 isError）：
@@ -234,8 +235,8 @@ export function createBrowserTool(
           return textResult(`已关闭 tab ${tabId}`);
         }
         case "status": {
-          const status = browser.getStatus();
-          const tabs = browser.listTabs();
+          const status = await browser.getStatus();
+          const tabs = await browser.listTabs();
           const now = Date.now();
           return jsonResult({
             status,

@@ -36,7 +36,7 @@ describe("T2 组合根：BrowserPort 装配", () => {
         cliOutput: new PassThrough(),
       });
 
-      expect(daemon.browser.getStatus()).toEqual({ state: "idle", tabCount: 0 });
+      expect(await daemon.browser.getStatus()).toEqual({ state: "idle", tabCount: 0 });
 
       // 订阅面可用（T4 消费接缝）；退订函数返回
       const seen: string[] = [];

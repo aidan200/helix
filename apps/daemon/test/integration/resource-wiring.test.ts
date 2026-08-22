@@ -70,6 +70,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "grep",
         "web_search",
         "web_fetch",
+        "browser", // H-3：+browser（wire 转发通道接 daemon CDP 单例）
       ]);
 
       // skills：user 层扫出（source 标签 = user）

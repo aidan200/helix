@@ -17,10 +17,10 @@ import type {
  * test/integration/web-ws.test.ts 的 FakeBrowser（drive 模拟状态变更）。
  */
 export class StubBrowserPort implements BrowserPort {
-  getStatus(): BrowserStatus {
+  async getStatus(): Promise<BrowserStatus> {
     return { state: "idle", tabCount: 0 };
   }
-  listTabs(): readonly TabInfo[] {
+  async listTabs(): Promise<readonly TabInfo[]> {
     return [];
   }
   onStatusChange(_listener: BrowserStatusListener): () => void {

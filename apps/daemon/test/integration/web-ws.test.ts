@@ -115,10 +115,10 @@ class FakeBrowser implements BrowserPort {
     this.drive({ state: "connected", browser: { id: "chrome-9222", label: "Chrome", port: 9222 }, tabCount: 0 });
   }
 
-  getStatus(): BrowserStatus {
+  async getStatus(): Promise<BrowserStatus> {
     return this.status;
   }
-  listTabs(): readonly TabInfo[] {
+  async listTabs(): Promise<readonly TabInfo[]> {
     return this.tabs;
   }
   onStatusChange(listener: BrowserStatusListener): () => void {

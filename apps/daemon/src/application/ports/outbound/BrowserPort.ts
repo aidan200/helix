@@ -83,8 +83,8 @@ export interface BrowserPort {
   // ── 连接与状态 ──
   /** lazy 连接：发现浏览器（DevToolsActivePort + TCP 探活）→ 建 WS。幂等——已连接 no-op，并发调用复用同一进行中的连接。 */
   connect(): Promise<void>;
-  /** 当前状态快照（读面）。 */
-  getStatus(): BrowserStatus;
+  /** 当前状态快照（读面；H-3 远程化 async 化——RemoteBrowserPort 进程外实现可行）。 */
+  getStatus(): Promise<BrowserStatus>;
   /**
    * 状态订阅（广播的事件源）：连接成功/断开/tab 增减/error 四时机触发；
    * 返回退订函数。
@@ -114,8 +114,8 @@ export interface BrowserPort {
   screenshotTab(tabId: string, file?: string, format?: ScreenshotFormat): Promise<ScreenshotResult>;
   /** 关 tab（未连接时只清本地注册，不触发 lazy connect）。 */
   closeTab(tabId: string): Promise<void>;
-  /** 受管 tab 清单（只读快照；不触发 lazy connect）。 */
-  listTabs(): readonly TabInfo[];
+  /** 受管 tab 清单（只读快照；不触发 lazy connect；H-3 远程化 async 化）。 */
+  listTabs(): Promise<readonly TabInfo[]>;
   /** owner 回收：agent 终态时批量关闭其全部 tabs（组合根挂调度器终态钩子；idle sweep 兜底）。 */
   reclaimOwner(ownerId: string): Promise<void>;
 }

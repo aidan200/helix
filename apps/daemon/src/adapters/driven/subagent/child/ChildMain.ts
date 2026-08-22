@@ -21,8 +21,9 @@ import type { Model } from "@earendil-works/pi-ai";
 import { PiAgentEngineAdapter } from "../../pi-engine/PiAgentEngineAdapter";
 import { SubAgentProfile } from "../../pi-engine/runtime/profiles/SubAgentProfile";
 import { CoreToolExecutor } from "../../tools/CoreToolExecutor";
-import { encodeLine, parseSendLine } from "../transport/wire";
-import type { ChildOutboundLine, SendLine } from "../transport/wire";
+import { encodeLine, parseParentLine } from "../transport/wire";
+import type { ChildOutboundLine, SendLine, ToolResponseLine } from "../transport/wire";
+import { RemoteBrowserPort } from "./RemoteBrowserPort";
 import { loadFakeEngineScript, makeScriptedStreamFn } from "./scriptedEngine";
 import type { FakeEngineScript } from "./scriptedEngine";
 import type { InstanceClosurePayload } from "../../../../domain/events/DomainEvent";
@@ -93,9 +94,9 @@ export function buildFallbackSummary(lastAssistantText: string, lastEngineError:
   return `未按 closure 协议收口${reason}：${lastAssistantText.slice(0, 80)}`;
 }
 
-// ── stdin send 行读取（AD-7⑤：send → Agent.steer()） ──────
+// ── stdin 父侧行读取（AD-7⑤ send → Agent.steer()；H-3 tool-res → RemoteBrowserPort） ──────
 
-function readStdin(instanceId: string, onSend: (line: SendLine) => void): void {
+function readStdin(instanceId: string, onLine: (line: SendLine | ToolResponseLine) => void): void {
   void (async () => {
     const decoder = new TextDecoder();
     let buf = "";
@@ -107,8 +108,8 @@ function readStdin(instanceId: string, onSend: (line: SendLine) => void): void {
           const raw = buf.slice(0, nl).trim();
           buf = buf.slice(nl + 1);
           if (!raw) continue;
-          const send = parseSendLine(raw);
-          if (send) onSend(send);
+          const line = parseParentLine(raw);
+          if (line) onLine(line);
           else writeLine({ type: "log", instanceId, text: `忽略无法解析的 stdin 行：${raw.slice(0, 60)}` });
         }
       }
@@ -160,7 +161,10 @@ async function main(): Promise<void> {
     ...(spawnOverrides.systemPrompt !== undefined ? { systemPrompt: spawnOverrides.systemPrompt } : {}),
     ...(spawnOverrides.tools !== undefined ? { tools: spawnOverrides.tools } : {}),
   };
-  const executor = new CoreToolExecutor({ cwd: toolCwd });
+  // H-3：browser 工具经 wire 转发通道接入 daemon 全局唯一 CDP 单例
+  // （子进程零 CDP 知识/零连接状态；ownerId = 本实例 instanceId）
+  const remoteBrowser = new RemoteBrowserPort(instanceId, writeLine);
+  const executor = new CoreToolExecutor({ cwd: toolCwd, browser: remoteBrowser, ownerId: instanceId });
   const engine = new PiAgentEngineAdapter({
     profile,
     model, // env JSON 解析的完整对象透传（与父侧深度相等）
@@ -179,7 +183,10 @@ async function main(): Promise<void> {
   let lastAssistantText = "";
   let lastEngineError: string | undefined; // 多轮错误取末条 engine_error message（单变量覆盖）
   writeLine({ type: "started", instanceId, pid: process.pid, model });
-  readStdin(instanceId, (send) => engine.steer(send.text));
+  readStdin(instanceId, (line) => {
+    if (line.type === "send") engine.steer(line.text); // AD-7⑤：Agent.steer() 内建队列
+    else remoteBrowser.handleResponse(line); // H-3：tool-res → pending 关联 settle
+  });
 
   // single-shot：驱动一次 run（含 steer drain 轮），结束即收口
   await engine.start(task, (event) => {
@@ -191,6 +198,9 @@ async function main(): Promise<void> {
     }
     writeLine({ type: "event", instanceId, event });
   });
+
+  // H-3：退出清场——abort/异常中断的在飞转发请求统一拒绝（定时器同清）
+  remoteBrowser.rejectAll("子进程退出清场");
 
   const closure: InstanceClosurePayload = terminated
     ? {

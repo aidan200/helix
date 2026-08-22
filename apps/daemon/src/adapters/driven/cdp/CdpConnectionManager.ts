@@ -149,7 +149,13 @@ export class CdpConnectionManager implements BrowserPort {
     return this.connectingPromise;
   }
 
-  getStatus(): BrowserStatus {
+  /** H-3：公开读面 async 化（RemoteBrowserPort 进程外实现可行）；内部同步快照保留（notifyStatus 广播链零 await）。 */
+  getStatus(): Promise<BrowserStatus> {
+    return Promise.resolve(this.statusSnapshot());
+  }
+
+  /** 状态快照同步组装（内部面：notifyStatus 广播 + getStatus 薄包同源）。 */
+  private statusSnapshot(): BrowserStatus {
     return {
       state: this.state,
       browser:
@@ -358,8 +364,8 @@ export class CdpConnectionManager implements BrowserPort {
     if (this.registry.remove(tabId)) this.notifyStatus(); // tab 减
   }
 
-  listTabs(): readonly TabInfo[] {
-    return this.registry.list();
+  listTabs(): Promise<readonly TabInfo[]> {
+    return Promise.resolve(this.registry.list());
   }
 
   /** owner 回收：agent 终态批量关其 tabs（未连接 = 本地出册 no-op）。 */
@@ -576,7 +582,7 @@ export class CdpConnectionManager implements BrowserPort {
   }
 
   private notifyStatus(): void {
-    const status = this.getStatus();
+    const status = this.statusSnapshot();
     for (const listener of this.listeners) listener(status);
   }
 

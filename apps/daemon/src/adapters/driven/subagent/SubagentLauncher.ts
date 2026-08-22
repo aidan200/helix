@@ -11,7 +11,10 @@ import type {
 import type { AgentEngineEvent } from "../../../application/ports/outbound/AgentEnginePort";
 import type { AgentProfile } from "../pi-engine/runtime/AgentProfile";
 import { ChildProcessTransport } from "./transport/ChildProcessTransport";
-import type { ChildOutboundLine } from "./transport/wire";
+import { truncateToolResult } from "./transport/wire";
+import type { ChildOutboundLine, ToolResponseLine } from "./transport/wire";
+import { scopedBrowserCall } from "./ScopedBrowserProxy";
+import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 
 /**
  * SubagentLauncher —— InstanceRunner 真体（O-7 候选 A 形态）。
@@ -89,6 +92,14 @@ export interface SubagentLauncherDeps {
   readonly graceMs?: number;
   /** 剧本文件路径（测试注入；生产 undefined → 子进程用真实 streamFn）。 */
   readonly fakeEngineScript?: string;
+  /**
+   * 全局唯一 CDP 单例（H-3：tool-req 转发目标——经 ScopedBrowserProxy 归属
+   * 校验后调用；ownerId 强制 = 通道 instanceId）。缺省（测试 Fake 引擎形态）
+   * → tool-req 回执 ok:false「未装配」。
+   */
+  readonly browser?: BrowserPort;
+  /** tool-res 出口 result 截断上限字节（可注入；缺省 256KB，wire.ts 常量）。 */
+  readonly toolResultMaxBytes?: number;
   /** 线协议观测面（测试断言/诊断；WS 事件映射接线点）。 */
   readonly onLine?: (instanceId: string, line: ChildOutboundLine) => void;
   /** 日志（容器接 file logger——dispose kill 失败可观测；缺省静默）。 */
@@ -264,7 +275,35 @@ export class SubagentLauncher implements InstanceRunner {
       });
       return;
     }
+    if (line.type === "tool-req") {
+      void this.onToolRequest(id, line.reqId, line.method, line.args);
+      return;
+    }
     // started/log：观测面已转发，无需编排动作
+  }
+
+  /**
+   * H-3 tool-req 转发：scopedBrowserCall 归属校验 + browser 单例执行 →
+   * tool-res 回写（出口截断护栏）。只转发不决策（AG-12）——白名单/归属
+   * 规则全部在 ScopedBrowserProxy 纯函数面。回写已死子进程 stdin 静默吞错。
+   */
+  private async onToolRequest(id: string, reqId: number, method: string, args: readonly unknown[]): Promise<void> {
+    let res: ToolResponseLine;
+    if (this.deps.browser === undefined) {
+      res = { type: "tool-res", reqId, ok: false, error: "browser 未装配（SubagentLauncher 无 browser 注入——测试 Fake 引擎形态）" };
+    } else {
+      try {
+        const value = await scopedBrowserCall(this.deps.browser, id, method, args);
+        res = { type: "tool-res", reqId, ok: true, value: truncateToolResult(value, this.deps.toolResultMaxBytes) };
+      } catch (err) {
+        res = { type: "tool-res", reqId, ok: false, error: (err as Error).message };
+      }
+    }
+    try {
+      this.children.get(id)?.transport.writeToolRes(res);
+    } catch {
+      /* 回写已死子进程 stdin：静默吞错（H-3 失败语义） */
+    }
   }
 
   private onChildExit(id: string, code: number | null): void {

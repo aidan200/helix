@@ -127,3 +127,39 @@ describe("makeScriptedStreamFn error 分发（与 launcher.ts error 分支逐字
     expect(done.message.stopReason).toBe("stop");
   });
 });
+
+describe("FakeEngineScript toolCall 形态（H-3④：子进程 browser 工具调用剧本）", () => {
+  test("schema：接受 toolCall {name,args}；拒绝缺 name/args 形态", () => {
+    withScriptFile({ replies: ["ok"], toolCall: { name: "browser", args: { action: "open", url: "https://x" } } }, (file) => {
+      const script = loadFakeEngineScript(file);
+      expect(script.toolCall).toEqual({ name: "browser", args: { action: "open", url: "https://x" } });
+    });
+    withScriptFile({ replies: [], toolCall: { args: {} } }, (file) => {
+      expect(() => loadFakeEngineScript(file)).toThrow(/剧本文件格式错误/);
+    });
+    withScriptFile({ replies: [], toolCall: { name: "browser" } }, (file) => {
+      expect(() => loadFakeEngineScript(file)).toThrow(/剧本文件格式错误/);
+    });
+  });
+
+  test("首 turn 发 toolCall 消息（stopReason=toolUse）；次 turn 回退 replies 文本流", async () => {
+    const script = {
+      replies: ["后续文本"],
+      chunkDelayMs: 1,
+      toolCall: { name: "browser", args: { action: "open", url: "https://x" } },
+    } as const;
+    const streamFn = makeScriptedStreamFn(script, fakeModel);
+    const first: AssistantMessageEvent[] = [];
+    for await (const e of await streamFn(fakeModel, { messages: [] } as unknown as Context, undefined)) first.push(e);
+    const done = first.at(-1)! as Extract<AssistantMessageEvent, { type: "done" }>;
+    expect(done.message.stopReason).toBe("toolUse");
+    expect(done.message.content).toEqual([
+      { type: "toolCall", id: "call-1", name: "browser", arguments: { action: "open", url: "https://x" } },
+    ]);
+    // 次 turn：回退正常 replies 文本流
+    const second: AssistantMessageEvent[] = [];
+    for await (const e of await streamFn(fakeModel, { messages: [] } as unknown as Context, undefined)) second.push(e);
+    const done2 = second.at(-1)! as Extract<AssistantMessageEvent, { type: "done" }>;
+    expect(done2.message.stopReason).toBe("stop");
+  });
+});

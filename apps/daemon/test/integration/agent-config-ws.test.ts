@@ -169,7 +169,7 @@ const MAIN_TOOLS = [
   "agent_status",
   "browser",
 ];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"];
+const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）
 /** builtin 目录内模型（model-provider.DEFAULT_MODEL_ID 同源；hasModel 读面零网络）。 */
 const ANY_MODEL = "anthropic/claude-sonnet-4-5";
 

@@ -51,9 +51,9 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 21 / subagent 7", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 21 / subagent 8（H-3 +browser）", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
-    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"]);
+    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"]);
   });
 
   test("④ base 只留角色+行为引导：「并行委派」行为策略措辞保留（不列工具名）；closure 协议保留", () => {

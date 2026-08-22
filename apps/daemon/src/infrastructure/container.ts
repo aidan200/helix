@@ -291,7 +291,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    handlers/web.ts webStatusPayloadOf——getStatus + listTabs）。退订归
   //    shutdown（先退订再 stop——stop 自身触发的 idle 变更不再广播）。──
   const unsubscribeBrowserStatus = browserPort.onStatusChange(() =>
-    eventStream.broadcastWebStatusChanged(webStatusPayloadOf(browserPort)),
+    void webStatusPayloadOf(browserPort).then((payload) => eventStream.broadcastWebStatusChanged(payload)),
   );
 
   // ── 旧格式迁移（一次性，幂等）：config.json 含 model/apiKeys →

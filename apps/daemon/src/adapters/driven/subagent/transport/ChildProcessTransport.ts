@@ -1,5 +1,5 @@
 import { encodeLine, parseChildLine } from "./wire";
-import type { ChildOutboundLine, SendLine } from "./wire";
+import type { ChildOutboundLine, SendLine, ToolResponseLine } from "./wire";
 
 /**
  * ChildProcessTransport —— 子进程 stdio 传输（O-7 候选 A，v1 同构最小集）。
@@ -45,7 +45,17 @@ export class ChildProcessTransport {
 
   /** send 行写入（steer 注入；子进程在 turn 边界 drain 消费）。 */
   send(text: string): void {
-    (this.proc.stdin as { write: (s: string) => unknown }).write(encodeLine({ type: "send", text } satisfies SendLine));
+    this.writeLine({ type: "send", text } satisfies SendLine);
+  }
+
+  /** tool-res 回执写入（H-3 tool-req 应答；回写已死子进程 stdin 由调用方静默吞错）。 */
+  writeToolRes(line: ToolResponseLine): void {
+    this.writeLine(line);
+  }
+
+  /** stdin 行写入单点（send 与 tool-res 共用）。 */
+  private writeLine(line: SendLine | ToolResponseLine): void {
+    (this.proc.stdin as { write: (s: string) => unknown }).write(encodeLine(line));
   }
 
   /**

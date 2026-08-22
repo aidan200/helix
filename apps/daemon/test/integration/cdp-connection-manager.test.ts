@@ -174,7 +174,7 @@ describe("CdpConnectionManager 连接与状态", () => {
     expect(h.sockets).toHaveLength(1);
     expect(h.sockets[0]!.url).toBe("ws://127.0.0.1:9222/devtools/browser/fake-ws-path");
 
-    const status = h.manager.getStatus();
+    const status = (await h.manager.getStatus());
     expect(status.state).toBe("connected");
     expect(status.browser).toEqual({ id: "chrome", label: "Chrome", port: 9222 });
     expect(status.tabCount).toBe(0);
@@ -196,7 +196,7 @@ describe("CdpConnectionManager 连接与状态", () => {
   test("无浏览器开调试 → connect 拒绝 + 状态 error（订阅面收到 error 帧）", async () => {
     const h = createHarness({ fsFiles: null });
     await expect(h.manager.connect()).rejects.toThrow(/远程调试/);
-    const status = h.manager.getStatus();
+    const status = (await h.manager.getStatus());
     expect(status.state).toBe("error");
     expect(status.error).toMatch(/远程调试/);
     expect(h.statuses.map((s) => s.state)).toEqual(["connecting", "error"]);
@@ -255,8 +255,8 @@ describe("CdpConnectionManager tab 操作", () => {
     ]);
 
     // tab 注册 + 状态订阅（tab 增减帧）
-    expect(h.manager.listTabs().map((t: TabInfo) => t.tabId)).toEqual([tabId]);
-    expect(h.manager.getStatus().tabCount).toBe(1);
+    expect((await h.manager.listTabs()).map((t: TabInfo) => t.tabId)).toEqual([tabId]);
+    expect((await h.manager.getStatus()).tabCount).toBe(1);
     expect(h.statuses.map((s) => s.state)).toEqual(["connecting", "connected", "connected"]);
     expect(h.statuses[2]!.tabCount).toBe(1);
     await h.manager.stop();
@@ -314,7 +314,7 @@ describe("CdpConnectionManager tab 操作", () => {
     await h.manager.navigateTab(tabId, "https://example.com/next");
     const nav = h.sockets[0]!.sent.filter((m) => m.method === "Page.navigate").at(-1)!;
     expect(nav.params).toEqual({ url: "https://example.com/next" });
-    expect(h.manager.listTabs()[0]!.lastAccessed).toBe(1_060_000);
+    expect((await h.manager.listTabs())[0]!.lastAccessed).toBe(1_060_000);
     await h.manager.stop();
   });
 
@@ -327,7 +327,7 @@ describe("CdpConnectionManager tab 操作", () => {
       method: "Target.attachedToTarget",
       params: { sessionId: "sess-x", targetInfo: { targetId: tabId, url: "https://evt.example", title: "事件标题" } },
     });
-    const tab = h.manager.listTabs()[0]!;
+    const tab = (await h.manager.listTabs())[0]!;
     expect(tab.url).toBe("https://evt.example");
     expect(tab.title).toBe("事件标题");
     await h.manager.stop();
@@ -358,8 +358,8 @@ describe("CdpConnectionManager tab 操作", () => {
 
     const close = h.sockets[0]!.sent.find((m) => m.method === "Target.closeTarget")!;
     expect(close.params).toEqual({ targetId: tabId });
-    expect(h.manager.listTabs()).toEqual([]);
-    expect(h.manager.getStatus().tabCount).toBe(0);
+    expect((await h.manager.listTabs())).toEqual([]);
+    expect((await h.manager.getStatus()).tabCount).toBe(0);
     expect(h.statuses.length).toBe(statusesBefore + 1);
     expect(h.statuses.at(-1)!.tabCount).toBe(0);
     await h.manager.stop();
@@ -368,7 +368,7 @@ describe("CdpConnectionManager tab 操作", () => {
   test("listTabs 返回只读快照（TabInfo 五字段）", async () => {
     const h = createHarness({});
     const { tabId } = await h.manager.openTab("about:blank", "agent-7");
-    const tabs = h.manager.listTabs();
+    const tabs = (await h.manager.listTabs());
     expect(tabs).toEqual([
       { tabId, ownerId: "agent-7", url: "about:blank", title: "", lastAccessed: 1_000_000 },
     ]);
@@ -515,7 +515,7 @@ describe("CdpConnectionManager 交互方法（T2b）", () => {
     const h = createHarness({});
     await expect(h.manager.screenshotTab("ghost")).rejects.toThrow(/file/);
     expect(h.sockets).toHaveLength(0);
-    expect(h.manager.getStatus().state).toBe("idle");
+    expect((await h.manager.getStatus()).state).toBe("idle");
   });
 });
 
@@ -523,19 +523,19 @@ describe("CdpConnectionManager 生命周期", () => {
   test("断线重连：server close → 状态回 idle + 清 tab/发现缓存；下次操作 lazy 重连", async () => {
     const h = createHarness({});
     await h.manager.openTab("about:blank", "agent-1");
-    expect(h.manager.getStatus().tabCount).toBe(1);
+    expect((await h.manager.getStatus()).tabCount).toBe(1);
 
     h.sockets[0]!.close(); // 模拟浏览器侧断开
-    expect(h.manager.getStatus().state).toBe("idle");
-    expect(h.manager.getStatus().browser).toBeUndefined();
-    expect(h.manager.listTabs()).toEqual([]);
+    expect((await h.manager.getStatus()).state).toBe("idle");
+    expect((await h.manager.getStatus()).browser).toBeUndefined();
+    expect((await h.manager.listTabs())).toEqual([]);
     expect(h.statuses.at(-1)!.state).toBe("idle");
 
     // lazy 重连：新建 WS（发现缓存已清 → 重新发现）
     await h.manager.openTab("about:blank", "agent-1");
     expect(h.sockets).toHaveLength(2);
     expect(h.sockets[1]!.url).toBe("ws://127.0.0.1:9222/devtools/browser/fake-ws-path");
-    expect(h.manager.getStatus().state).toBe("connected");
+    expect((await h.manager.getStatus()).state).toBe("connected");
     await h.manager.stop();
   });
 
@@ -565,9 +565,9 @@ describe("CdpConnectionManager 生命周期", () => {
     const closes = h.sockets[0]!.sent.filter((m) => m.method === "Target.closeTarget");
     expect(closes).toHaveLength(2);
     expect(h.sockets[0]!.readyState).toBe(3);
-    expect(h.manager.listTabs()).toEqual([]);
-    expect(h.manager.getStatus().state).toBe("idle");
-    expect(h.manager.getStatus().tabCount).toBe(0);
+    expect((await h.manager.listTabs())).toEqual([]);
+    expect((await h.manager.getStatus()).state).toBe("idle");
+    expect((await h.manager.getStatus()).tabCount).toBe(0);
 
     // stop 幂等：二次调用不崩
     await h.manager.stop();
@@ -576,7 +576,7 @@ describe("CdpConnectionManager 生命周期", () => {
   test("未连接时 stop() 为安全 no-op", async () => {
     const h = createHarness({});
     await h.manager.stop();
-    expect(h.manager.getStatus().state).toBe("idle");
+    expect((await h.manager.getStatus()).state).toBe("idle");
     expect(h.sockets).toHaveLength(0);
   });
 
@@ -587,7 +587,7 @@ describe("CdpConnectionManager 生命周期", () => {
     const t3 = await h.manager.openTab("about:blank", "agent-1");
 
     await h.manager.reclaimOwner("agent-1");
-    expect(h.manager.listTabs().map((t) => t.tabId)).toEqual([t2.tabId]);
+    expect((await h.manager.listTabs()).map((t) => t.tabId)).toEqual([t2.tabId]);
 
     const closed = h.sockets[0]!.sent
       .filter((m) => m.method === "Target.closeTarget")
@@ -600,9 +600,9 @@ describe("CdpConnectionManager 生命周期", () => {
     const h = createHarness({});
     await h.manager.reclaimOwner("agent-1");
     await h.manager.closeTab("ghost");
-    expect(h.manager.listTabs()).toEqual([]);
+    expect((await h.manager.listTabs())).toEqual([]);
     expect(h.sockets).toHaveLength(0);
-    expect(h.manager.getStatus().state).toBe("idle");
+    expect((await h.manager.getStatus()).state).toBe("idle");
   });
 
   test("idle sweep：闲置超期 tab 被自动 closeTarget + 出册", async () => {
@@ -613,7 +613,7 @@ describe("CdpConnectionManager 生命周期", () => {
     await sleep(50); // sweep interval 5ms 真实计时器跑若干轮
     const closes = h.sockets[0]!.sent.filter((m) => m.method === "Target.closeTarget");
     expect(closes.map((m) => m.params.targetId)).toContain(tabId);
-    expect(h.manager.listTabs()).toEqual([]);
+    expect((await h.manager.listTabs())).toEqual([]);
     await h.manager.stop();
   });
 });

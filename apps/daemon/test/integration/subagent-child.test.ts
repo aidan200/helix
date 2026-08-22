@@ -19,6 +19,7 @@ import { AgentInstance } from "../../src/domain/agent/AgentInstance";
 import type { ChildOutboundLine } from "../../src/adapters/driven/subagent/transport/wire";
 import { createTestDaemon } from "../helpers/createTestDaemon";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
+import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
 import { PassThrough } from "node:stream";
 
 /**
@@ -63,7 +64,7 @@ interface Harness {
   lines: { instanceId: string; line: ChildOutboundLine }[];
 }
 
-function makeHarness(script: object, opts: { graceMs?: number } = {}): Harness {
+function makeHarness(script: object, opts: { graceMs?: number; browser?: FakeBrowserPort } = {}): Harness {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t22-child-"));
   const scriptPath = path.join(home, "script.json");
   writeFileSync(scriptPath, JSON.stringify(script));
@@ -77,6 +78,7 @@ function makeHarness(script: object, opts: { graceMs?: number } = {}): Harness {
     toolCwd: home,
     graceMs: opts.graceMs,
     fakeEngineScript: scriptPath,
+    ...(opts.browser !== undefined ? { browser: opts.browser } : {}),
     onLine: (instanceId, line) => lines.push({ instanceId, line }),
   });
   launcher.setCallbacks({
@@ -290,6 +292,50 @@ describe("⑥ 崩溃检测（exit 非 0 → failed 上报）", () => {
     expect(outcome.closure.summary).toMatch(/崩/); // Launcher 崩溃路径构造的 failed closure
     expect(await launcher.childExit("agent-9")).toBe(1); // exit 非 0 → 崩溃检测判据
   }, 15000);
+});
+
+describe("⑧ H-3 browser 转发通道（tool-req → daemon CDP 单例归属代理）", () => {
+  const OPEN_SCRIPT = (summary: string) => ({
+    toolCall: { name: "browser", args: { action: "open", url: "https://h3.example" } },
+    replies: [`已完成。${closureBlock(summary, "done")}`],
+    chunkDelayMs: 5,
+  });
+
+  test("子进程 browser open → FakeBrowserPort 落桩且 ownerId=instanceId；tool_execution_end isError=false", async () => {
+    const browser = new FakeBrowserPort();
+    const h = (current = makeHarness(OPEN_SCRIPT("browser 转发完成"), { browser }));
+    launch(h, "验证 browser 转发通道");
+
+    await until(() => h.closures.length > 0, 10000, "等待 closure 上报");
+    // daemon 侧归属代理：openTab ownerId 强制 = 通道 instanceId（子进程不可伪造）
+    expect(browser.lastCall("openTab")?.args).toEqual(["https://h3.example", "agent-1"]);
+    // 子进程工具执行成功（tool-res ok:true 回执到达）
+    const toolEnd = h.lines.find(
+      (l) => l.line.type === "event" && l.line.event.type === "tool_execution_end",
+    );
+    expect(toolEnd).toBeDefined();
+    if (toolEnd?.line.type === "event" && toolEnd.line.event.type === "tool_execution_end") {
+      expect(toolEnd.line.event.toolName).toBe("browser");
+      expect(toolEnd.line.event.isError).toBe(false);
+    }
+    expect(h.closures[0]!.outcome.result).toBe("done");
+  }, 20000);
+
+  test("无 browser 注入（测试 Fake 引擎形态）→ tool-res ok:false「未装配」→ 工具 isError", async () => {
+    const h = (current = makeHarness(OPEN_SCRIPT("browser 未装配收口"))); // 不注入 browser
+    launch(h, "验证未装配回执");
+
+    await until(() => h.closures.length > 0, 10000, "等待 closure 上报");
+    const toolEnd = h.lines.find(
+      (l) => l.line.type === "event" && l.line.event.type === "tool_execution_end",
+    );
+    expect(toolEnd).toBeDefined();
+    if (toolEnd?.line.type === "event" && toolEnd.line.event.type === "tool_execution_end") {
+      expect(toolEnd.line.event.isError).toBe(true);
+      expect(toolEnd.line.event.result).toContain("未装配");
+    }
+    expect(h.closures[0]!.outcome.result).toBe("done"); // 工具错误不收琉——剧本续轮正常收口
+  }, 20000);
 });
 
 describe("⑧ container 组合根装配（SubagentLauncher 真体接入点）", () => {

@@ -34,29 +34,33 @@ import type { WebCommandContext } from "./context";
 /**
  * BrowserPort 读面 → WebStatusPayload（协议 DTO）：getStatus 状态块 +
  * listTabs 受管 tab 清单。查询回执与变更广播共用本组装（同形状同源）。
+ * H-3：读面 async 化（BrowserPort.getStatus/listTabs 签名演进）。
  */
-export function webStatusPayloadOf(browser: BrowserPort): WebStatusPayload {
-  const status = browser.getStatus();
+export async function webStatusPayloadOf(browser: BrowserPort): Promise<WebStatusPayload> {
+  const status = await browser.getStatus();
   return {
     state: status.state,
     ...(status.browser !== undefined ? { browser: { ...status.browser } } : {}),
     tabCount: status.tabCount,
     ...(status.error !== undefined ? { error: status.error } : {}),
-    tabs: browser.listTabs().map((t) => ({ ...t })),
+    tabs: (await browser.listTabs()).map((t) => ({ ...t })),
   };
 }
 
 /** web.status（全局读面）：web.status.result 点对点回执。 */
 export function handleWebStatus(ctx: WebCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
-  const frame: WebStatusResultEvent = {
-    v: PROTOCOL_VERSION,
-    sessionId: SYSTEM_SESSION_ID, // 全局命令：会话无关（model.catalog.result 同构）
-    channel: "web",
-    type: "web.status.result",
-    payload: webStatusPayloadOf(ctx.browser),
+  const run = async (): Promise<void> => {
+    const frame: WebStatusResultEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID, // 全局命令：会话无关（model.catalog.result 同构）
+      channel: "web",
+      type: "web.status.result",
+      payload: await webStatusPayloadOf(ctx.browser),
+    };
+    ctx.sendNow(sender, frame);
   };
-  ctx.sendNow(sender, frame);
+  void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `web.status 执行失败：${(err as Error).message}`));
 }
 
 /** web.stop（全局写面）：stop() 执行 + applied 回执（状态回流经广播链）。 */

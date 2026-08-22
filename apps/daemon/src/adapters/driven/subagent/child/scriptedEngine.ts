@@ -25,6 +25,12 @@ export interface FakeEngineScript {
    * （apps/daemon/test/e2e/launcher.ts errorMessage + kind:"error" 分支）。
    */
   readonly error?: { readonly message: string };
+  /**
+   * 首 turn 工具调用形态（H-3④：子进程 browser 工具调用剧本）——首 turn
+   * 产出 stopReason="toolUse" 的单 toolCall 消息（runtime 执行工具后续轮），
+   * 次 turn 起回退 replies 文本流。mirror 主线 e2e/launcher.ts kind:"tool" 条目。
+   */
+  readonly toolCall?: { readonly name: string; readonly args: Record<string, unknown> };
 }
 
 /** 读取并校验剧本文件（非法即抛错 → ChildMain crash 路径 exit(1)）。 */
@@ -36,6 +42,17 @@ export function loadFakeEngineScript(path: string): FakeEngineScript {
   const err = (raw as { error?: unknown }).error;
   if (err !== undefined && (typeof err !== "object" || err === null || typeof (err as { message?: unknown }).message !== "string")) {
     throw new Error(`剧本文件格式错误：${path}（error 应为 { message: string }）`);
+  }
+  const tc = (raw as { toolCall?: unknown }).toolCall;
+  if (
+    tc !== undefined &&
+    (typeof tc !== "object" ||
+      tc === null ||
+      typeof (tc as { name?: unknown }).name !== "string" ||
+      typeof (tc as { args?: unknown }).args !== "object" ||
+      (tc as { args?: unknown }).args === null)
+  ) {
+    throw new Error(`剧本文件格式错误：${path}（toolCall 应为 { name: string, args: object }）`);
   }
   return raw;
 }
@@ -49,6 +66,20 @@ function assistantMessage(modelId: string, text: string, stopReason: "stop" | "a
     model: modelId,
     usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
     stopReason,
+    timestamp: Date.now(),
+  } as unknown as AssistantMessage;
+}
+
+/** 工具调用消息（mirror e2e/launcher.ts toolCallMessage：stopReason=toolUse）。 */
+function toolCallMessage(modelId: string, name: string, args: Record<string, unknown>): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "toolCall", id: "call-1", name, arguments: args }],
+    api: "anthropic-messages",
+    provider: "anthropic",
+    model: modelId,
+    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: "toolUse",
     timestamp: Date.now(),
   } as unknown as AssistantMessage;
 }
@@ -79,6 +110,7 @@ export function makeScriptedStreamFn(script: FakeEngineScript, model: Model<any>
   const modelId = model.id;
   const replies = [...script.replies];
   const chunkDelayMs = script.chunkDelayMs ?? 6;
+  let toolCallPending = script.toolCall !== undefined; // 首 turn 消费（H-3④）
   return (_m, _ctx, opts) => {
     // provider 错误形态：每 turn 均为同一单帧 error（无 start/delta 前导帧，
     // 与真实 pi-ai 失败路径同构；agentLoop 收口 stopReason=error →
@@ -86,6 +118,14 @@ export function makeScriptedStreamFn(script: FakeEngineScript, model: Model<any>
     if (script.error !== undefined) {
       const stream = createAssistantMessageEventStream();
       stream.push({ type: "error", reason: "error", error: errorAssistantMessage(modelId, script.error.message) });
+      return stream;
+    }
+    if (toolCallPending) {
+      toolCallPending = false;
+      const message = toolCallMessage(modelId, script.toolCall!.name, script.toolCall!.args);
+      const stream = createAssistantMessageEventStream();
+      stream.push({ type: "start", partial: message });
+      stream.push({ type: "done", reason: "stop", message });
       return stream;
     }
     const reply = replies.shift() ?? "（剧本耗尽）";

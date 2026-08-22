@@ -57,7 +57,7 @@ export class FakeBrowserPort implements BrowserPort {
   async connect(): Promise<void> {
     this.record("connect", [], undefined);
   }
-  getStatus(): BrowserStatus {
+  async getStatus(): Promise<BrowserStatus> {
     return this.record("getStatus", [], this.status);
   }
   onStatusChange(): () => void {
@@ -109,7 +109,7 @@ export class FakeBrowserPort implements BrowserPort {
   async closeTab(tabId: string): Promise<void> {
     this.record("closeTab", [tabId], undefined);
   }
-  listTabs(): readonly TabInfo[] {
+  async listTabs(): Promise<readonly TabInfo[]> {
     return this.record("listTabs", [], this.tabs);
   }
   async reclaimOwner(ownerId: string): Promise<void> {

@@ -220,6 +220,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // 注入源切换：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
           toolCwd,
+          // H-3：tool-req 转发目标 = 全局唯一 CDP 单例（ScopedBrowserProxy
+          // 归属校验：ownerId 强制 = 通道 instanceId）
+          browser: browserPort,
         })
       : undefined;
   const subagentRunner: InstanceRunner = deps.subagentRunnerOverride ?? subagentLauncher ?? {
@@ -326,7 +329,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               orchestration: sessionOrchestration,
               grep: deps.grep,
               // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
-              // tab 归属）；ChildMain 子进程装配不传 browser（P0-1 决策）
+              // tab 归属）；ChildMain 子进程经 RemoteBrowserPort 转发接入（H-3）
               browser: browserPort,
             });
             // 新会话装配读组装快照现值（瘦身后 base + 生效工具清单 +
