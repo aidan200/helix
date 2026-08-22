@@ -11,6 +11,7 @@
     "audit:assert": "bun scripts/audit-assert.ts",
     "audit:a11y": "node scripts/perf-a11y-audit.mjs",
     "fetch:rg": "bun scripts/fetch-rg.ts",
+    "build:desktop": "bun scripts/build-desktop.ts",
     "dev:shell": "bun run --cwd=apps/shell dev",
     "dev:desktop": "bun scripts/dev-desktop.ts",
     "test": "bun test apps/daemon",
