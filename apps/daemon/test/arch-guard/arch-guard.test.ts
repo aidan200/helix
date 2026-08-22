@@ -100,9 +100,11 @@ describe("AG-02：依赖方向矩阵", () => {
         expect(hits, `${dir}/${rel} 出现组合根专属 new：${hits?.join(",")}`).toBeNull();
       }
     }
-    // infrastructure 除 container.ts 外也不 new（main.ts 只调 createDaemon）
+    // infrastructure 除组合根锚面（container.ts + assembly/**，T2.2 §4.2.1
+    // AG-02④ 豁免面从单文件扩为目录）外也不 new（main.ts 只调 createDaemon）
+    const assemblyRoot = path.join("assembly");
     for (const rel of listFiles(path.join(srcRoot, "infrastructure"))) {
-      if (rel === path.join("container.ts")) continue;
+      if (rel === path.join("container.ts") || rel.startsWith(assemblyRoot + path.sep)) continue;
       const src = read(path.join("infrastructure", rel));
       const hits = src.match(new RegExp(`new\\s+${concrete.source}`, "g"));
       expect(hits, `infrastructure/${rel} 出现组合根专属 new：${hits?.join(",")}`).toBeNull();
@@ -231,10 +233,18 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     }
   });
 
-  test("② 组合根全局单写队列：container.ts 仅 new 一个 WriteQueue，仓库经它写", () => {
-    const src = read(path.join("infrastructure", "container.ts"));
-    expect(src.match(/new\s+WriteQueue\(/g)?.length).toBe(1);
-    expect(src.match(/new\s+SqliteSessionRepository\(/g)?.length).toBe(1);
+  test("② 组合根全局单写队列：组合根锚面（container.ts + assembly/**）仅 new 一个 WriteQueue，仓库经它写", () => {
+    // T2.2（§4.2.1）：组合根锚面从 container.ts 单文件扩为 container.ts +
+    // assembly/**——单写队列不变量不变，断言扫描面随锚面扩。
+    const rootFiles = [read(path.join("infrastructure", "container.ts"))]
+      .concat(
+        listFiles(path.join(srcRoot, "infrastructure", "assembly")).map((rel) =>
+          read(path.join("infrastructure", "assembly", rel)),
+        ),
+      )
+      .join("\n");
+    expect(rootFiles.match(/new\s+WriteQueue\(/g)?.length).toBe(1);
+    expect(rootFiles.match(/new\s+SqliteSessionRepository\(/g)?.length).toBe(1);
   });
 
   test("③ T2.3 closure 写面收敛：closure_records/reports 写语句只在 WriteQueue，DDL 只在 schema", () => {
