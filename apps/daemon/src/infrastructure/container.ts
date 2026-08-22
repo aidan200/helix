@@ -200,7 +200,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
 
   // ── AD-2 模型模块地基：auth.json / 默认模型表 / 合并目录 ──────────
-  const authStore = new AuthStore(paths.authPath());
+  const authStore = new AuthStore(paths.authPath(), logger);
   const defaultModel = new DefaultModelStore(writeQueue, DEFAULT_MODEL_ID);
   const catalog = new ModelCatalog({ storePath: paths.modelsStorePath() });
 
@@ -305,6 +305,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     options.engine === undefined
       ? new SubagentLauncher({
           profile: SubAgentProfile,
+          // T1.3：可观测 logger（dispose kill 失败 warn；缺省静默）
+          logger,
           // 三级链第三级（AD-3）：全局兜底现值解析（set_default 后新子进程跟随）
           model: () => resolveConfigModel(defaultModel.current(), catalog.modelsView()),
           // profile.model 槽位解析目录（AD-3 第一级声明时启用；生产未声明）
@@ -342,6 +344,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       maxConcurrent: config.maxConcurrent,
       maxQueued: config.maxQueued,
     }),
+    // T1.3：可观测 logger（kill 终止信号失败 warn；缺省静默）
+    logger,
     runner: subagentRunner,
     events: fanout,
     repository,
@@ -384,7 +388,13 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
       void registry
         .get(sessionId)
         .then((runtime) => runtime.chatService.injectClosure(message))
-        .catch(() => undefined); // 会话已删等竞态：静默丢弃
+        .catch((err) => {
+          // T1.3：冷补投失败可观测（吞错面宽于旧注释「会话已删」——恢复 IO
+          // 失败/补投异常同此口；补投丢弃但收口链继续）
+          logger.warn(
+            `[container] SubAgent closure 冷会话补投失败（实例 ${agentId} → 会话 ${sessionId}）：${(err as Error).message}`,
+          );
+        });
     },
   });
 

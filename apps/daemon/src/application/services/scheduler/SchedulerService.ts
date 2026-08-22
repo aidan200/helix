@@ -124,6 +124,8 @@ export interface SchedulerServiceDeps {
    * 形态不注入；迟到/重复收口被门面幂等吞，钩子恰好触发一次。
    */
   readonly onInstanceTerminal?: (agentId: string) => void;
+  /** 日志（T1.3：容器接 file logger——kill 终止信号失败可观测；缺省静默）。 */
+  readonly logger?: { warn: (message: string) => void };
 }
 
 export class SchedulerService implements AgentOrchestrationPort {
@@ -397,10 +399,16 @@ export class SchedulerService implements AgentOrchestrationPort {
     if (instance.isTerminal) {
       return { killed: false, error: `实例 ${agentId} 已终态（${instance.current}），无需 kill` };
     }
-    // 终止信号先行（异步；runner 异常不阻断收口——收口本身不依赖子进程退出）
+    // 终止信号先行（异步；runner 异常不阻断收口——收口本身不依赖子进程退出。
+    // T1.3：异步拒绝可观测化，不再静默吞）
     try {
       const stopping = this.deps.runner.kill?.(agentId);
-      if (stopping !== undefined) void Promise.resolve(stopping).catch(() => undefined);
+      if (stopping !== undefined)
+        void Promise.resolve(stopping).catch((err) => {
+          this.deps.logger?.warn(
+            `[scheduler] kill 终止信号失败（实例 ${agentId}）：${(err as Error).message}——继续收口（收口不依赖子进程退出）`,
+          );
+        });
     } catch {
       // runner.kill 同步抛错：继续收口（迟到自然收口仍会被幂等挡住）
     }

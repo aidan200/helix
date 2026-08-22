@@ -85,6 +85,8 @@ export interface SubagentLauncherDeps {
   readonly fakeEngineScript?: string;
   /** 线协议观测面（测试断言/诊断；T2.3 WS 事件映射接线点）。 */
   readonly onLine?: (instanceId: string, line: ChildOutboundLine) => void;
+  /** 日志（T1.3：容器接 file logger——dispose kill 失败可观测；缺省静默）。 */
+  readonly logger?: { warn: (message: string) => void };
 }
 
 interface ChildEntry {
@@ -221,7 +223,14 @@ export class SubagentLauncher implements InstanceRunner {
   /** 收尾回收：对全部存活子进程执行 O-6 kill（daemon shutdown / 测试防孤儿）。 */
   async dispose(): Promise<void> {
     await Promise.all(
-      [...this.children.values()].map((entry) => entry.transport.kill().catch(() => undefined)),
+      [...this.children.entries()].map(([instanceId, entry]) =>
+        entry.transport.kill().catch((err) => {
+          // T1.3：kill 拒绝可观测（transport 契约可拒绝；丢弃但收尾继续）
+          this.deps.logger?.warn(
+            `[subagent] dispose kill 子进程失败（实例 ${instanceId}）：${(err as Error).message}`,
+          );
+        }),
+      ),
     );
   }
 

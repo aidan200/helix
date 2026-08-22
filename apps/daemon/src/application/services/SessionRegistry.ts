@@ -281,7 +281,11 @@ export class SessionRegistry implements SessionDirectoryPort {
         //    closure 注入丢弃/新输入拒收，防删除竞态复活）→ 等 run 收口完成
         hot.chatService.abort();
         hot.chatService.stop();
-        await withTimeout(hot.chatService.whenSettled(), this.deps.settleTimeoutMs ?? 5_000);
+        await withTimeout(
+          hot.chatService.whenSettled(),
+          this.deps.settleTimeoutMs ?? 5_000,
+          (message) => this.deps.logger?.warn(message),
+        );
       }
       // SubAgent 取消（同步收口：queued→cancelled / running→kill 完成）
       this.deps.scheduler.cancelSession(sessionId);
@@ -566,13 +570,23 @@ export class SessionRegistry implements SessionDirectoryPort {
   }
 }
 
-/** 超时包裹（删除收口链的防御上界：活跃被删不崩优先于严格等待）。 */
-function withTimeout(p: Promise<void>, ms: number): Promise<void> {
+/**
+ * 超时包裹（删除收口链的防御上界：活跃被删不崩优先于严格等待）。
+ * T1.3 双通道可观测区分：超时 / 被等 promise 异常均先 warn 后 resolve
+ * （永不 reject——删除链「不崩」语义不变，错误不再静默）。
+ */
+function withTimeout(p: Promise<void>, ms: number, warn: (message: string) => void): Promise<void> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(), ms);
+    const timer = setTimeout(() => {
+      warn(`[registry] 删除收口 settle 超时（${ms}ms）：等待主线 run 收口未完成，继续删除（活跃被删不崩优先）`);
+      resolve();
+    }, ms);
     p.finally(() => {
       clearTimeout(timer);
       resolve();
-    }).catch(() => resolve());
+    }).catch((err) => {
+      warn(`[registry] 删除收口 settle 异常：${(err as Error).message}——继续删除（不崩语义）`);
+      resolve();
+    });
   });
 }
