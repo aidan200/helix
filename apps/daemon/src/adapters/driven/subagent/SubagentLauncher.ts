@@ -14,21 +14,21 @@ import { ChildProcessTransport } from "./transport/ChildProcessTransport";
 import type { ChildOutboundLine } from "./transport/wire";
 
 /**
- * SubagentLauncher —— InstanceRunner 真体（T2.2；O-7 候选 A 形态）。
+ * SubagentLauncher —— InstanceRunner 真体（O-7 候选 A 形态）。
  *
  * 每个 SubAgent 实例 = 一个独立子进程（bun run ChildMain.ts，detached
  * 独立进程组）：launch 秒回（spawn 不 await 收口——closure 经
  * InstanceRunnerCallbacks 异步上报，AD-8）；崩溃检测 = exit 非 0 且未回传
  * closure → failed 收口；kill = O-6 序列（transport 承载）。
  *
- * 与 T2.1 InstanceRunner 接口的对接说明（T2.3 已对齐）：接口成员 =
- * launch/setCallbacks/send?/kill?（send/kill 原为接口外扩展方法，T2.3
- * 收进接缝；FB-3 kill 通道经此由 SchedulerService.kill 触发）。
+ * 与 InstanceRunner 接口的对接说明：接口成员 =
+ * launch/setCallbacks/send?/kill?（send/kill 原为接口外扩展方法，
+ * 收进接缝；kill 通道经此由 SchedulerService.kill 触发）。
  *
- * AD-3（F1.3，TR-AD-24）：launch 段是模型三级解析链唯一消费点——
- * ①profile.model（声明即最高）→ ②uiModelSlot（M6 T2：resource_state kind
+ * AD-3（TR-AD-24）：launch 段是模型三级解析链唯一消费点——
+ * ①profile.model（声明即最高）→ ②uiModelSlot（resource_state kind
  * 槽位 UI 化）→ ③spawn 会话快照（spawnModelFor 晚绑回调）→ ④全局兜底
- * （deps.model getter，T2.3 注入源模式保留）。
+ * （deps.model getter，注入源模式保留）。
  */
 
 /** ChildMain 入口路径（与 Launcher 同目录树；bun 直跑 .ts）。 */
@@ -38,10 +38,10 @@ export interface SubagentLauncherDeps {
   /** SubAgent profile 声明（装配进子进程；kind 不分支——声明同构，TR-AD-4）。 */
   readonly profile: AgentProfile;
   /**
-   * 全局兜底模型完整对象（F-14：解析单点产物，经 env JSON 透传子进程）。
-   * T2.3（AD-2）：注入源改全局兜底模型存储——接受 getter（每次 launch 读现值，
+   * 全局兜底模型完整对象（解析单点产物，经 env JSON 透传子进程）。
+   * 注入源为全局兜底模型存储（AD-2）——接受 getter（每次 launch 读现值，
    * set_default 后新子进程跟随）或静态对象。
-   * AD-3（F1.3）：三级解析链第三级（profile.model ?? spawn 快照 ?? 本项）。
+   * AD-3：三级解析链第三级（profile.model ?? spawn 快照 ?? 本项）。
    */
   readonly model: Model<any> | (() => Model<any>);
   /**
@@ -56,14 +56,14 @@ export interface SubagentLauncherDeps {
    */
   readonly models?: Models;
   /**
-   * provider → apiKey（子进程显式传入，AD-11/13）。T2.3：注入源改 auth.json
+   * provider → apiKey（子进程显式传入，AD-11/13）。注入源改 auth.json
    * ——接受 getter（每次 launch 读现值快照）或静态表。
    */
   readonly apiKeys: Record<string, string> | (() => Record<string, string>);
   /** 工具沙箱 cwd（子进程 CoreToolExecutor 用）。 */
   readonly toolCwd: string;
   /**
-   * M6 T2 spawn 快照（代际生效，TR-AD-24 同构）：launch 时刻读一次的组装
+   * spawn 快照（代际生效，TR-AD-24 同构）：launch 时刻读一次的组装
    * 产物缓存（组合根在启动与 toggle applied 后刷新；systemPrompt = base +
    * 生效工具清单 + 生效技能段，tools = getEffectiveTools 生效集）。透传
    * env（HELIX_SYSTEM_PROMPT / HELIX_TOOLS_JSON），子进程定格消费；缺省
@@ -74,18 +74,18 @@ export interface SubagentLauncherDeps {
     readonly systemPrompt: string;
   };
   /**
-   * M6 T2 模型槽位（三级链第一级 UI 化）：resource_state kind 槽位读面
+   * 模型槽位（三级链第一级 UI 化）：resource_state kind 槽位读面
    * （组合根注入——槽位 id → 完整 Model 对象解析后返回；未设 = undefined
    * 走后续档）。launch 时刻读取定格（同 spawn 快照语义）。
    */
   readonly uiModelSlot?: () => Model<any> | undefined;
   /** O-6 SIGKILL 升级阈值 ms（缺省 3000；测试注入小值）。 */
   readonly graceMs?: number;
-  /** K3 剧本文件路径（测试注入；生产 undefined → 子进程用真实 streamFn）。 */
+  /** 剧本文件路径（测试注入；生产 undefined → 子进程用真实 streamFn）。 */
   readonly fakeEngineScript?: string;
-  /** 线协议观测面（测试断言/诊断；T2.3 WS 事件映射接线点）。 */
+  /** 线协议观测面（测试断言/诊断；WS 事件映射接线点）。 */
   readonly onLine?: (instanceId: string, line: ChildOutboundLine) => void;
-  /** 日志（T1.3：容器接 file logger——dispose kill 失败可观测；缺省静默）。 */
+  /** 日志（容器接 file logger——dispose kill 失败可观测；缺省静默）。 */
   readonly logger?: { warn: (message: string) => void };
 }
 
@@ -118,12 +118,12 @@ export class SubagentLauncher implements InstanceRunner {
   }
 
   /**
-   * AD-3 三级模型解析单点（F1.3，TR-AD-24；M6 T2 扩第一级 UI 槽位）：
+   * AD-3 三级模型解析单点（TR-AD-24；含第一级 UI 槽位扩展）：
    * ①profile.model（真实槽位，声明即最高优先级，装配期 resolveModel 解析）
-   * → ②uiModelSlot（resource_state kind 槽位，M6 T2 UI 化的第一级，launch
+   * → ②uiModelSlot（resource_state kind 槽位 UI 化，launch
    * 时刻读取）→ ③spawnModelFor（spawn 时刻会话快照）→ ④deps.model（全局
    * 兕底 getter）。高档有值即短路（低档不调用）；返回完整 Model 对象
-   * （F-14 透传形态）。
+   * （透传形态）。
    */
   resolveModelFor(instanceId: string): Model<any> {
     const slot = this.deps.profile.model;
@@ -148,10 +148,10 @@ export class SubagentLauncher implements InstanceRunner {
     const id = instance.instanceId;
     if (this.children.has(id)) return;
     // AD-3：三级解析单点（profile > spawn 会话快照 > 全局兜底 getter）；
-    // apiKeys 读现值（getter 注入源 = auth.json，T2.3）
+    // apiKeys 读现值（getter 注入源 = auth.json）
     const model = this.resolveModelFor(id);
     const apiKeys = typeof this.deps.apiKeys === "function" ? this.deps.apiKeys() : this.deps.apiKeys;
-    // M6 T2 spawn 快照：launch 时刻读一次（toggle 后新 spawn 跟随新值，已
+    // spawn 快照：launch 时刻读一次（toggle 后新 spawn 跟随新值，已
     // spawn 实例 env 已定格不受影响——代际生效）
     const snapshot = this.deps.spawnSnapshot?.();
     const proc = Bun.spawn({
@@ -159,7 +159,7 @@ export class SubagentLauncher implements InstanceRunner {
       env: {
         ...process.env,
         HELIX_INSTANCE_ID: id,
-        HELIX_MODEL_JSON: JSON.stringify(model), // F-14 完整对象透传
+        HELIX_MODEL_JSON: JSON.stringify(model), // 完整对象透传
         HELIX_API_KEYS_JSON: JSON.stringify(apiKeys),
         HELIX_TOOL_CWD: this.deps.toolCwd,
         ...(snapshot !== undefined
@@ -170,7 +170,7 @@ export class SubagentLauncher implements InstanceRunner {
           : {}),
         ...(this.deps.fakeEngineScript !== undefined
           ? { HELIX_FAKE_ENGINE_SCRIPT: this.deps.fakeEngineScript }
-          : {}), // K3：剧本 env 注入
+          : {}), // 剧本 env 注入
       } as Record<string, string | undefined>,
       stdin: "pipe",
       stdout: "pipe",
@@ -189,7 +189,7 @@ export class SubagentLauncher implements InstanceRunner {
     })();
   }
 
-  // ── 观测/控制面（send/kill 已收进 InstanceRunner 接缝，T2.3；其余为观测面） ──
+  // ── 观测/控制面（send/kill 已收进 InstanceRunner 接缝，其余为观测面） ──
 
   /** steer 注入经 stdin send 行（AD-7⑤）。未知/已收口实例静默忽略。 */
   send(instanceId: string, text: string): void {
@@ -225,7 +225,7 @@ export class SubagentLauncher implements InstanceRunner {
     await Promise.all(
       [...this.children.entries()].map(([instanceId, entry]) =>
         entry.transport.kill().catch((err) => {
-          // T1.3：kill 拒绝可观测（transport 契约可拒绝；丢弃但收尾继续）
+          // kill 拒绝可观测（transport 契约可拒绝；丢弃但收尾继续）
           this.deps.logger?.warn(
             `[subagent] dispose kill 子进程失败（实例 ${instanceId}）：${(err as Error).message}`,
           );
@@ -239,7 +239,7 @@ export class SubagentLauncher implements InstanceRunner {
   private onChildLine(id: string, line: ChildOutboundLine): void {
     this.deps.onLine?.(id, line);
     if (line.type === "event") {
-      // T2.3：携事件本体上行（SubAgent 工具调用转 per-instance 领域事件）
+      // 携事件本体上行（SubAgent 工具调用转 per-instance 领域事件）
       this.callbacks?.onInstanceEvent(id, line.event);
       return;
     }

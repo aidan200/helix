@@ -3,8 +3,8 @@ import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { Session } from "../../domain/session/Session";
 import type { AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
-// T3.1 投影收敛：账目纯语义（applyUsage 族）与主实例判定单源 @helix/protocol
-// projection（原 domain UsageLedger 迁出；AG-02② application 白名单内）。
+// 投影收敛：账目纯语义（applyUsage 族）与主实例判定单源 @helix/protocol
+// projection（AG-02② application 白名单内）。
 import {
   aggregateSession,
   applyUsage,
@@ -24,7 +24,7 @@ import type {
 import type { SessionUsageSummary, UsageSummary } from "../../domain/session/SessionSnapshot";
 
 /**
- * SessionProjection —— 会话投影消费者（T2.1，AD-3 §3.2②；architecture.md §3.4）。
+ * SessionProjection —— 会话投影消费者（AD-3 §3.2②；architecture.md §3.4）。
  *
  * 事件总线的 fan-out 目标之一（显式消费者，组合根装配）：消费领域事件 →
  * ① SubAgent 条目落 Session 聚合（Entry.instanceId 归属 agent-N——「SubAgent
@@ -35,7 +35,7 @@ import type { SessionUsageSummary, UsageSummary } from "../../domain/session/Ses
  *
  * 职责边界（AD-3 决策消解）：
  * - 流式 delta 不是领域事件、不落盘（publishDelta 空实现，AD-16 §5.3）；
- * - 只投影本会话事件（sessionId 归属判定——T2.2 SessionRegistry 多会话分仓
+ * - 只投影本会话事件（sessionId 归属判定——SessionRegistry 多会话分仓
  *   的前置语义；异会话事件忽略）；
  * - 幂等：同事件重放不重复落树（entryId/toolCallId 去重——恢复重放与运行期
  *   重复投递双防护）；
@@ -73,7 +73,7 @@ export class SessionProjection implements EventPublisherPort {
 
   // ── 观测面（组合根快照装配：账本聚合/实例小计/SubAgent 工具记录） ──
 
-  /** 会话账目聚合（快照 usage 数据源；T3.2 语义原样迁入）。 */
+  /** 会话账目聚合（快照 usage 数据源）。 */
   usageSummary(): SessionUsageSummary {
     return aggregateSession(this.usageLedger);
   }
@@ -91,8 +91,8 @@ export class SessionProjection implements EventPublisherPort {
   // ── EventPublisherPort（fan-out 目标：消费事件 → 投影 + write-through） ──
 
   publish(event: DomainEvent): void {
-    if (event.sessionId !== this.deps.getSession().id) return; // 会话归属（T2.2 分仓前置语义）
-    // T2.1（契约 v0.4 §2/§3）：agent.instantiated / agent.model.changed 只落盘
+    if (event.sessionId !== this.deps.getSession().id) return; // 会话归属（分仓前置语义）
+    // （契约 v0.4 §2/§3）：agent.instantiated / agent.model.changed 只落盘
     //（domain_events 事件行经 fan-out WriteQueue 目标直写）——零投影且**不触发**
     // write-through 状态写（否则草稿会话被提前落库，破坏「首条消息才落库」语义）。
     if (event.type === "agent.instantiated" || event.type === "agent.model.changed") return;

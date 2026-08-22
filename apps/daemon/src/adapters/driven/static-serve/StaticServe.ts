@@ -2,12 +2,12 @@ import path from "node:path";
 import { statSync } from "node:fs";
 
 /**
- * StaticServe —— 前端静态产物驱动侧（architecture.md §3.5；CL-6 / F(6).3）。
+ * StaticServe —— 前端静态产物驱动侧（architecture.md §3.5）。
  *
  * serve 前端构建产物目录（config.json 的 staticDir，可配置）：
  * - dev 期前端直连 vite dev server，不经本 adapter；
  * - 生产形态（Tauri 壳内 / standalone）由 daemon 自己 serve 构建产物；
- * - 目录未配置或不存在：daemon 照常启动（T1.7 前无产物属正常），
+ * - 目录未配置或不存在：daemon 照常启动（前无产物属正常），
  *   handle 一律返回 null（HTTP 404 由 ws-server 兜底）。
  *
  * 零依赖：Bun.file + 扩展名自动 Content-Type；路径穿越（..）拒绝。

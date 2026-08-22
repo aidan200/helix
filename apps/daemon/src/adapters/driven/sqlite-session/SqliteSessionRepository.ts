@@ -10,7 +10,6 @@ import type {
   SessionRepositoryPort,
 } from "../../../application/ports/outbound/SessionRepositoryPort";
 import type { WriteQueue } from "./WriteQueue";
-// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import { rowToDomainEvent, rowsToPersistedState } from "./rows/RowMapper";
 import type {
@@ -43,7 +42,7 @@ export interface ClosureRecordRow {
  * await 返回时已落盘（write-through）。读：共用 WriteQueue 的连接做
  * 只读 SELECT（本文件不含任何写语句）。
  *
- * queryEvents 是 trace 数据面的内部查询能力（TP-CL8-9）：按
+ * queryEvents 是 trace 数据面的内部查询能力：按
  * session/agent/类型/时间四维过滤 domain_events——只留数据不留 API，
  * 不对协议/前端暴露。
  */
@@ -62,7 +61,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .get(sessionId) as SessionStateRow | null;
     if (!session) return undefined;
     // agent_lifecycle 已是每实例一行（复合 PK）：主会话运行态取 main 实例行；
-    // SubAgent 实例行由编排侧（T2.x）消费，此处不混合读取
+    // SubAgent 实例行由编排侧消费，此处不混合读取
     const lifecycle = db
       .prepare(
         "SELECT session_id, instance_id, state, updated_at FROM agent_lifecycle WHERE session_id = ? AND instance_id = ?",
@@ -88,7 +87,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
   }
 
   /**
-   * 会话元数据轻量读面（T2.2 AD-4）：json_extract 只取首条 entry 的
+   * 会话元数据轻量读面（AD-4）：json_extract 只取首条 entry 的
    * role/text（不整体反序列化 entries——session.list 读面不随会话体量线性
    * 传输）；首条非 user entry（理论不可达：会话首条必为用户消息）防御 null。
    */
@@ -115,17 +114,17 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
     }));
   }
 
-  /** 会话删除（T2.2 AD-4）：六表清行经单写通道（同会话仓内 FIFO 保序）。 */
+  /** 会话删除（AD-4）：六表清行经单写通道（同会话仓内 FIFO 保序）。 */
   async deleteSession(sessionId: string): Promise<void> {
     await this.queue.deleteSession(sessionId);
   }
 
-  /** 实例生命周期投影行（T2.1 调度器写面：经 WriteQueue 单写通道串行落盘）。 */
+  /** 实例生命周期投影行（调度器写面：经 WriteQueue 单写通道串行落盘）。 */
   async saveAgentLifecycle(sessionId: string, instanceId: string, state: InstanceState): Promise<void> {
     await this.queue.saveAgentLifecycle(sessionId, instanceId, state);
   }
 
-  /** closure 记录行（T2.3 O-5 任务报告本体；追加重，经单写通道）。 */
+  /** closure 记录行（O-5 任务报告本体；追加重，经单写通道）。 */
   async saveClosureRecord(
     sessionId: string,
     agentId: string,
@@ -135,12 +134,12 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
     await this.queue.saveClosureRecord(sessionId, agentId, result, closure);
   }
 
-  /** 报告文件产物（T2.3 O-5：markdown 摘要+findings；同队列原子写）。 */
+  /** 报告文件产物（O-5：markdown 摘要+findings；同队列原子写）。 */
   async saveReportFile(reportPath: string, content: string): Promise<void> {
     await this.queue.saveReportFile(reportPath, content);
   }
 
-  /** closure 记录行读面（按会话/实例过滤，落盘序；T2.4 恢复读入点，findings 解析为值）。 */
+  /** closure 记录行读面（按会话/实例过滤，落盘序；findings 解析为值）。 */
   queryClosureRecords(sessionId: string, agentId?: string): ClosureRecordData[] {
     const sql =
       "SELECT id, session_id, agent_id, result, status, summary, report_path, findings, task_id, created_at " +
@@ -163,7 +162,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
     }));
   }
 
-  /** 实例生命周期行读面（T2.4：agent_lifecycle 每实例行，注册表重建数据源）。 */
+  /** 实例生命周期行读面（agent_lifecycle 每实例行，注册表重建数据源）。 */
   async queryAgentLifecycles(sessionId: string): Promise<readonly AgentLifecycleRowData[]> {
     const rows = this.queue.database
       .prepare("SELECT instance_id, state, updated_at FROM agent_lifecycle WHERE session_id = ? ORDER BY rowid")

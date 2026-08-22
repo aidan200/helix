@@ -1,14 +1,14 @@
 import type { ProfileKind } from "../../application/ports/outbound/ResourceStatePort";
 
 /**
- * 资源生效集变更事件通道（T2.2，architecture §4.2.3——refreshAssembly 事件化）。
+ * 资源生效集变更事件通道（architecture §4.2.3——refreshAssembly 事件化）。
  *
  * 方向倒转：ResourceService 不再接收「onApplied 回调」（构造期注入引用
  * 后置定义的刷新闭包），改为发布 `resources.changed` 事件；容器订阅后
  * 调 refreshAssembly——「定义先于订阅注册」以结构保证取代注释保证
  * （循环边消灭的判据之一）。
  *
- * 通道边界（TP-2.2c 三负断言面）：本事件走**装配级总线**——不进 WS 广播
+ * 通道边界（三负断言面）：本事件走**装配级总线**——不进 WS 广播
  * （EventStream）、不进 fan-out 注册表、不落盘（不是领域事件落盘通道成员）。
  * 若未来 UI 需要资源变更通知，属新协议事件，走 TR-AD-21/23 additive 链路
  * 另立决策。

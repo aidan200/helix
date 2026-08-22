@@ -3,18 +3,17 @@ import path from "node:path";
 import { Database, type Statement } from "bun:sqlite";
 import { SCHEMA_SQL } from "./schema";
 import { persistedStateToRows, domainEventToRow } from "./rows/RowMapper";
-// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type { PersistedDomainState } from "../../../application/ports/outbound/SessionRepositoryPort";
 
 /**
- * WriteQueue —— application 侧单写队列（architecture.md §5.2，AD-16/F(8).1）。
+ * WriteQueue —— application 侧单写队列（architecture.md §5.2，AD-16）。
  *
  * daemon 内**唯一**的 SQLite 写通道（AG-06：new Database / exec / 全部
  * INSERT-UPDATE-DELETE 语句只出现在本文件）：领域事件与领域状态整体经
- * enqueue 进入 FIFO 串行链，按入队顺序逐个落盘（TP-CL8-2 并发保序）。
+ * enqueue 进入 FIFO 串行链，按入队顺序逐个落盘（并发保序，AD-16）。
  *
  * - write-through：job 的 promise 在该 job 落盘完成后才 resolve——
  *   await appendEvent/saveState 返回即可查（非批量延迟）；
@@ -44,7 +43,7 @@ type WriteJob =
       readonly state: string;
     }
   | {
-      /** T2.3 O-5：closure 记录行（任务报告本体，SQLite 追加行）。 */
+      /** O-5：closure 记录行（任务报告本体，SQLite 追加行）。 */
       readonly kind: "closureRecord";
       readonly sessionId: string;
       readonly agentId: string;
@@ -53,23 +52,23 @@ type WriteJob =
       readonly occurredAt: string;
     }
   | {
-      /** T2.3 O-5：reportPath 文件产物（markdown；TR-AD-13 同队列原子写）。 */
+      /** O-5：reportPath 文件产物（markdown；TR-AD-13 同队列原子写）。 */
       readonly kind: "reportFile";
       readonly reportPath: string;
       readonly content: string;
     }
   | {
-      /** T2.2（AD-4）：会话删除——六表按 session_id 清行（删除收口链的删库步）。 */
+      /** 会话删除——六表按 session_id 清行（删除收口链的删库步；AD-4）。 */
       readonly kind: "deleteSession";
       readonly sessionId: string;
     }
   | {
-      /** T2.3（AD-2）：全局默认模型 upsert（default_model 单行表，无会话维——全局链）。 */
+      /** 全局默认模型 upsert（default_model 单行表，无会话维——全局链；AD-2）。 */
       readonly kind: "defaultModel";
       readonly model: string;
     }
   | {
-      /** M6 T1：资源启停差异行 upsert（resource_state 全局表，无会话维——全局链）。 */
+      /** 资源启停差异行 upsert（resource_state 全局表，无会话维——全局链）。 */
       readonly kind: "resourceState";
       readonly profileKind: string;
       readonly resourceType: string;
@@ -77,13 +76,13 @@ type WriteJob =
       readonly enabled: boolean;
     }
   | {
-      /** M6 T1：清空某 (profile_kind, resource_type) 全部差异行（model 槽位 clear）。 */
+      /** 清空某 (profile_kind, resource_type) 全部差异行（model 槽位 clear）。 */
       readonly kind: "clearResourceState";
       readonly profileKind: string;
       readonly resourceType: string;
     }
   | {
-      /** M6 T1：model 槽位原子替换（先清该 kind 全部 model 行再插入新行，
+      /** model 槽位原子替换（先清该 kind 全部 model 行再插入新行，
        *  enabled 恒 1——model 型行不承载启停语义，删除行 = 未设）。 */
       readonly kind: "modelSlot";
       readonly profileKind: string;
@@ -94,7 +93,7 @@ export class WriteQueue {
   private readonly db: Database;
   private readonly onError?: (error: unknown, job: WriteJob) => void;
   /**
-   * 分仓 FIFO（T2.2 AD-4，architecture-feedback #19 结构性落位）：每会话独立
+   * 分仓 FIFO（AD-4，architecture-feedback #19 结构性落位）：每会话独立
    * 仓位/消费者按 session_id 路由——仓内严格 FIFO（同会话事件行先于状态行、
    * 删除行晚于一切写），仓间互不阻塞（A 会话的写高峰不队头阻塞 B 会话）；
    * 无会话维度的 job（reportFile）走全局链。
@@ -192,7 +191,7 @@ export class WriteQueue {
   }
 
   /**
-   * 实例生命周期投影行入队（agent_lifecycle upsert；T2.1 调度器扩列写面：
+   * 实例生命周期投影行入队（agent_lifecycle upsert；调度器扩列写面：
    * SubAgent 实例状态迁移与主实例会话状态同表同 FIFO，保序落盘）。
    */
   saveAgentLifecycle(sessionId: string, instanceId: string, state: string): Promise<void> {
@@ -200,7 +199,7 @@ export class WriteQueue {
   }
 
   /**
-   * closure 记录行入队（T2.3 O-5：任务报告本体 SQLite 行，追加重；
+   * closure 记录行入队（O-5：任务报告本体 SQLite 行，追加重；
    * findings 保 JSON，重启后经读面完整可读）。
    */
   saveClosureRecord(
@@ -214,7 +213,7 @@ export class WriteQueue {
   }
 
   /**
-   * 报告文件产物入队（T2.3 O-5：markdown 摘要+findings 落
+   * 报告文件产物入队（O-5：markdown 摘要+findings 落
    * <home>/reports/<session>/<agentId>.md；与 SQLite 写同链串行——
    * tmp 写入 + rename 原子替换，崩溃不留半文件）。
    */
@@ -223,7 +222,7 @@ export class WriteQueue {
   }
 
   /**
-   * 会话删除入队（T2.2 AD-4 删除收口链的删库步）：六表按 session_id 清行；
+   * 会话删除入队（AD-4 删除收口链的删库步）：六表按 session_id 清行；
    * 入本会话仓位尾部（此前已入队的写全部先落盘——删除不会被早到的状态写复活）。
    */
   deleteSession(sessionId: string): Promise<void> {
@@ -231,7 +230,7 @@ export class WriteQueue {
   }
 
   /**
-   * 全局默认模型 upsert 入队（T2.3 AD-2：default_model 单行表；无会话维 →
+   * 全局默认模型 upsert 入队（AD-2：default_model 单行表；无会话维 →
    * 全局链 FIFO，与仓间写互不阻塞）。
    */
   saveDefaultModel(model: string): Promise<void> {
@@ -239,7 +238,7 @@ export class WriteQueue {
   }
 
   /**
-   * 资源启停差异行 upsert 入队（M6 T1：resource_state 全局表；无会话维 →
+   * 资源启停差异行 upsert 入队（resource_state 全局表；无会话维 →
    * 全局链 FIFO——勿入 sessionTails 分仓）。
    */
   saveResourceState(
@@ -257,7 +256,7 @@ export class WriteQueue {
   }
 
   /**
-   * model 槽位原子替换入队（M6 T1：同 job 内先清该 kind 全部 model 行再
+   * model 槽位原子替换入队（同 job 内先清该 kind 全部 model 行再
    * 插入新行——主键含 name，非原子替换会遗留旧行破坏单行不变式）。
    */
   saveModelSlot(profileKind: string, model: string): Promise<void> {
@@ -430,15 +429,15 @@ export class WriteQueue {
   }
 }
 
-// ── O-3 守护式 schema 演进（architecture.md §8.1，AG-06 唯一写点内） ──
+// ── 守护式 schema 演进（architecture.md §8.1，AG-06 唯一写点内） ──
 
 /**
  * 启动期列级演进（幂等，每次打开执行，已演进则全部 no-op）：
  *
  * - domain_events.agent_instance_id / tool_calls.instance_id 缺列 →
  *   ALTER TABLE ADD COLUMN TEXT NOT NULL DEFAULT 'main'——SQLite 对
- *   NOT NULL 补列强制要求 DEFAULT，恰好即 O-3 裁决的旧行回填机制：
- *   存量行自动落 'main'（主实例固定 id，与 O-4 同源），新行恒显式写入。
+ * NOT NULL 补列强制要求 DEFAULT，恰与旧行回填机制吻合：
+ * 存量行自动落 'main'（主实例固定 id），新行恒显式写入。
  * - agent_lifecycle 单列 PK → (session_id, instance_id)：SQLite 无法
  *   ALTER 主键，走守护式重建（rename→create→copy→drop，事务包裹原子；
  *   旧行 instance_id 回填 'main'）。重建表形状与 schema.ts 新建表一致。
@@ -452,7 +451,7 @@ function ensureSchemaEvolved(db: Database): void {
   if (!hasColumn(db, "tool_calls", "instance_id")) {
     db.exec("ALTER TABLE tool_calls ADD COLUMN instance_id TEXT NOT NULL DEFAULT 'main'");
   }
-  // T9 图片下行：tool_calls.images（data URL 数组 JSON 文本；可空无默认——
+  // 图片下行：tool_calls.images（data URL 数组 JSON 文本；可空无默认——
   // 旧行 NULL = 无图，读取侧 undefined 前向兼容）
   if (!hasColumn(db, "tool_calls", "images")) {
     db.exec("ALTER TABLE tool_calls ADD COLUMN images TEXT");

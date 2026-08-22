@@ -11,12 +11,12 @@ export type { InstanceState };
  *
  * write-through 单写队列的出口：service 在每个里程碑领域事件后 save
  * 领域状态整体；恢复时 restore。真实实现在 adapters/driven/sqlite-session
- * （SQLite WAL + 单写队列，T1.8）；单测用 InMemory 假实现（test/mocks）。
+ * （SQLite WAL + 单写队列）；单测用 InMemory 假实现（test/mocks）。
  * 本文件只有接口/类型定义（AG-01）。
  */
 
 /**
- * 持久化对象 = 领域状态整体（F(8).1 标准 1，AD-16）：会话聚合快照 +
+ * 持久化对象 = 领域状态整体（标准 1，AD-16）：会话聚合快照 +
  * agent 生命周期状态 + 工具调用记录（steer 队列在会话快照 pendingSteer 内）。
  * 纯数据值对象——充血聚合的重建在 domain（Session.restoreFrom /
  * ToolCallRecord.restore），贫血↔贫血转换在 sqlite-session 适配器。
@@ -35,22 +35,22 @@ export interface SessionRepositoryPort {
   /** 已持久化的会话 id 列表（恢复入口用，按创建序）。 */
   listSessionIds(): Promise<string[]>;
   /**
-   * 会话元数据轻量读面（T2.2 AD-4，session.list 数据源）：全部会话的
+   * 会话元数据轻量读面（AD-4，session.list 数据源）：全部会话的
    * id/创建时间/最后更新时间/首条用户消息文本（title 推导源）；不加载聚合。
    */
   listSessionMetadata(): Promise<readonly SessionMetadataRow[]>;
   /**
-   * 会话删除（T2.2 AD-4，删除收口链的删库步）：六表按 session_id 清行，
+   * 会话删除（AD-4，删除收口链的删库步）：六表按 session_id 清行，
    * 经单写通道串行（同会话仓内 FIFO——先于本调用的写全部先落盘）。
    */
   deleteSession(sessionId: string): Promise<void>;
   /**
-   * 实例生命周期投影行落盘（agent_lifecycle upsert，iter-20260816-uzvg T2.1：
+   * 实例生命周期投影行落盘（agent_lifecycle upsert：
    * 调度器对实例状态迁移的 write-through；经单写通道串行保序）。
    */
   saveAgentLifecycle(sessionId: string, instanceId: string, state: InstanceState): Promise<void>;
   /**
-   * closure 记录行落盘（closure_records 追加行，T2.3 O-5：任务报告本体 =
+   * closure 记录行落盘（closure_records 追加行，O-5：任务报告本体 =
    * SQLite 行 + findings JSON；经单写通道串行保序，抗重启）。
    */
   saveClosureRecord(
@@ -60,11 +60,11 @@ export interface SessionRepositoryPort {
     closure: InstanceClosurePayload,
   ): Promise<void>;
   /**
-   * 任务报告文件产物落盘（T2.3 O-5：<home>/reports/<session>/<agentId>.md；
+   * 任务报告文件产物落盘（O-5：<home>/reports/<session>/<agentId>.md；
    * TR-AD-13 同一 WriteQueue 队列原子写——报告文件与 SQLite 写同链串行）。
    */
   saveReportFile(reportPath: string, content: string): Promise<void>;
-  // ── 读面扩展（T2.4 重启恢复消费；AD-10 恢复语义树） ──────────────
+  // ── 读面扩展（重启恢复消费；AD-10 恢复语义树） ──────────────
   /**
    * 实例生命周期行读面（agent_lifecycle 每实例行，含 main）：重启时
    * RestoreService 重建实例注册表 / 判定 running/queued 收口的数据源。
@@ -75,7 +75,7 @@ export interface SessionRepositoryPort {
    */
   queryClosureRecords(sessionId: string, agentId?: string): readonly ClosureRecordData[];
   /**
-   * 事件流四维过滤读面（T2.4 提升：重启恢复消费事件流——如实例 task 从
+   * 事件流四维过滤读面（重启恢复消费事件流——如实例 task 从
    * agent.spawned 载荷重建；仍不对协议/前端暴露，仅内部恢复/trace 用）。
    */
   queryEvents(query?: DomainEventQuery): readonly DomainEvent[];
@@ -88,7 +88,7 @@ export interface AgentLifecycleRowData {
   readonly updatedAt: string;
 }
 
-/** 会话元数据行（session_state 轻量读面，T2.2；title = firstUserText 截 20 码点推导）。 */
+/** 会话元数据行（session_state 轻量读面，title = firstUserText 截 20 码点推导）。 */
 export interface SessionMetadataRow {
   readonly sessionId: string;
   readonly createdAt: string;
@@ -101,7 +101,7 @@ export interface SessionMetadataRow {
 export interface DomainEventQuery {
   readonly sessionId?: string;
   readonly agentKind?: string;
-  /** 实例维（F1.7：trace 四维 session × instance × type × time）。 */
+  /** 实例维（trace 四维 session × instance × type × time）。 */
   readonly instanceId?: string;
   readonly type?: string;
   /** ISO 8601 下界（含）。 */

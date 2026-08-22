@@ -2,7 +2,7 @@
  * EnvelopeMapper —— 领域事件 → 协议事件帧（domainEventToEnvelope /
  * buildEnvelope / EventMapContext）。条目级 thinking/compaction 转换与
  * safeJson 复用 EntryDtoMapper（依赖方向 EnvelopeMapper → EntryDtoMapper，
- * 无环）。自 DtoMapper.ts 四域拆分落位（T3.1，TR-AD-25④ 逐行搬移）。
+ * 无环）。自 DtoMapper.ts 四域拆分落位（TR-AD-25④ 逐行搬移）。
  */
 import type {
   ChatTurnCompletedEvent,
@@ -54,7 +54,7 @@ export interface EventMapContext {
   /** tool.call.result 的耗时（协议要求；由 start/result 两次 occurredAt 差值算出）。 */
   readonly durationMs?: number;
   /**
-   * agent.spawned 帧的 spawn 锚（T2.1 契约 v0.3 §1 规则②）：spawn 时值由组合根
+   * agent.spawned 帧的 spawn 锚（契约 v0.3 §1 规则②）：spawn 时值由组合根
    * 查值（SchedulerService 内存携带）经本上下文注入——**不进领域事件载荷**
    * （不落 domain_events，派生值无第二事实源）；含 null 流首（有效值）。
    */
@@ -67,7 +67,7 @@ export interface EventMapContext {
  * DomainEvent → EventEnvelope。返回 null = 协议目录无对应事件。
  * v0.1：事件携带 instanceId（agent.* 编排族 + SubAgent 工具事件）时帧同值
  * 挂 instanceId（缺省 = 主实例，契约 §1/§2）——前端按 id 分流投影。
- * v0.2（T2.1，AD-3/AD-4 统一信封）：全部帧章印 sessionId（事件归属会话）+
+ * v0.2（AD-3/AD-4 统一信封）：全部帧章印 sessionId（事件归属会话）+
  * channel（EVENT_CHANNELS 单点登记）；instanceId 携带时透传。
  * 终验热修：engine.error 下发（provider 失败透传，原 v0 边界注记作废）。
  */
@@ -126,11 +126,11 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         ts,
       };
       if (p.role === "user" && p.isSteer) entry.steerState = "queued"; // 事件时点刚入队
-      // T2.1（AD-3）：SubAgent 消息帧携带条目 instanceId（前端实例分流）
+      // SubAgent 消息帧携带条目 instanceId（前端实例分流；AD-3）
       if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
         entry.instanceId = event.instanceId;
       }
-      // T9 图片下行：user 消息携带图片附件（载荷 images → entry.images 透传）
+      // 图片下行：user 消息携带图片附件（载荷 images → entry.images 透传）
       if (p.images !== undefined && p.images.length > 0) entry.images = [...p.images];
       const frame: ChatMessageCompletedEvent = {
         v: PROTOCOL_VERSION,
@@ -160,7 +160,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         state: "running",
         ts,
       };
-      // T2.1（AD-3）：SubAgent 工具卡归实例 channel（载荷内嵌 instanceId 与
+      // SubAgent 工具卡归实例 channel（载荷内嵌 instanceId 与（AD-3）
       // v0.1 通道族并存口径一致；信封位为路由权威）
       if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
         entry.instanceId = event.instanceId;
@@ -187,7 +187,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
         entry.instanceId = event.instanceId;
       }
-      // T9 图片下行：工具结果附带图片（工具卡缩略图数据源）
+      // 图片下行：工具结果附带图片（工具卡缩略图数据源）
       if (p.images !== undefined && p.images.length > 0) entry.images = [...p.images];
       if (ctx?.durationMs !== undefined) entry.durationMs = ctx.durationMs;
       const frame: ToolCallResultEvent = {
@@ -207,7 +207,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       };
     }
 
-    // ── agent.* 编排生命周期族（T2.3，契约 §5.1；AD-7/AD-8） ──
+    // ── agent.* 编排生命周期族（契约 §5.1；AD-7/AD-8） ──
 
     case "agent.spawned": {
       const p = event.payload as AgentSpawnedPayload;
@@ -219,7 +219,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
           task: p.task,
           profileKind: p.profileKind,
           ...(p.model !== undefined ? { model: p.model } : {}),
-          // T2.1 契约 v0.3 §1：spawn 锚经 ctx 注入（组合根查 SchedulerService
+          // 契约 v0.3 §1：spawn 锚经 ctx 注入（组合根查 SchedulerService
           // 内存携带的 spawn 时值）——领域事件载荷不携带（不落 domain_events）
           ...(ctx?.spawnAnchor !== undefined ? { anchorEntryId: ctx.spawnAnchor } : {}),
         },
@@ -287,7 +287,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       return frame;
     }
 
-    // ── 通道族（T3.1，契约 §5.2；payload 对齐协议 DTO，instanceId 挂帧） ──
+    // ── 通道族（契约 §5.2；payload 对齐协议 DTO，instanceId 挂帧） ──
 
     case "thinking.completed": {
       const p = event.payload as ThinkingCompletedPayload;
@@ -321,7 +321,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
 
     // 终验热修：provider/引擎失败透传（错误卡片数据源；不崩会话，见 ChatService engine_error）
     case "engine.error": {
-      // T1.1（F1.1 + AF-1）：SubAgent 实例的 engine.error 只落 domain_events
+      // SubAgent 实例的 engine.error 只落 domain_events
       //（trace 数据面，WriteQueue 在 DtoMapper 之外），不产 WS 帧——shell
       // consumers/chat.ts 的 engine.error case 无 instanceId 分流，不抑制会
       // 错位弹主聊天流（AD-1 前端零改动的守护面）；主线帧行为不变。

@@ -12,7 +12,7 @@ import type { ClockPort } from "../../ports/outbound/ClockPort";
 import type { AgentEngineEvent } from "../../ports/outbound/AgentEnginePort";
 
 /**
- * SubagentEventTranslator —— SubAgent 引擎事件翻译状态机（T3.3 拆自
+ * SubagentEventTranslator —— SubAgent 引擎事件翻译状态机（拆自
  * SchedulerService，architecture.md §2.4/§4，AD-3/TR-AD-25④）。
  *
  * 【职责】runner 上行的引擎事件 → 领域事件/流式 delta 翻译（thinking 累积 /
@@ -21,7 +21,7 @@ import type { AgentEngineEvent } from "../../ports/outbound/AgentEnginePort";
  * thinkingStartsMs / pendingThinking / subToolArgs / lastEventAtMs）与
  * entry id 分配（nextEntryId——entrySeqs 状态在此）。
  *
- * 【只产事件，不写聚合】（AD-3 职责回归，T2.1）：thinking 累积 / message
+ * 【只产事件，不写聚合】（AD-3 职责回归）：thinking 累积 / message
  * 落树（含 message_update 流式 delta 转发）/ tool 记录全部经事件总线发布；
  * 会话投影消费者（SessionProjection）消费事件后落 Session 聚合（SubAgent
  * Entry 进聚合，instanceId 归属；MainAgent 上下文零混入——closure 注入仍是
@@ -32,7 +32,7 @@ import type { AgentEngineEvent } from "../../ports/outbound/AgentEnginePort";
  * 【onInstanceClosure 清理序列单点持有】onClosureCleanup()：四个流式/落树
  * 状态 Map 的 delete 序列（streamEntryIds → entrySeqs → thinkingStartsMs →
  * pendingThinking），由门面 onInstanceClosure 回调转发链的**原序位**调用
- * （清理 → 翻译迁移 → 收口链），顺序不得重排（T3.3 唯一行为风险点）。
+ * （清理 → 翻译迁移 → 收口链），顺序不得重排（唯一行为风险点）。
  */
 export interface SubagentEventTranslatorDeps {
   /** 事件流发布（领域事件 → fan-out；流式 delta → 前端实例 channel）。 */
@@ -46,7 +46,7 @@ export class SubagentEventTranslator {
   private readonly lastEventAtMs = new Map<string, number>();
   /** SubAgent 工具调用 → args（result 事件载荷回填；start→end 间短暂驻留）。 */
   private readonly subToolArgs = new Map<string, unknown>();
-  // ── SubAgent 流式/落树事件生产状态（T2.1 AD-3：只产事件，聚合写归会话投影） ──
+  // ── SubAgent 流式/落树事件生产状态（AD-3：只产事件，聚合写归会话投影） ──
   /** 实例 → 预分配 assistant 消息 entry id（流式 messageId 与最终 entry 同源，D-2 同构）。 */
   private readonly streamEntryIds = new Map<string, string>();
   /** 实例 → agent 作用域 entry 序号（id 形如 `${instanceId}#N`，不占会话主计数器）。 */
@@ -60,9 +60,9 @@ export class SubagentEventTranslator {
 
   /**
    * 引擎事件增量翻译：刷新 lastEventAt（stalled 判定输入）；事件分支全翻译。
-   * T2.3：SubAgent 内部工具调用转 per-instance 领域事件（tool.call.*，挂
+   * SubAgent 内部工具调用转 per-instance 领域事件（tool.call.*，挂
    * instanceId）——不进主线聚合（AD-8 铁律）。
-   * T3.2：message_end(assistant, usage) 转 usage.recorded（source=turn）。
+   * message_end(assistant, usage) 转 usage.recorded（source=turn）。
    *
    * 未知/终态实例忽略（守卫在门面回调转发处——注册表归门面）。
    */
@@ -93,7 +93,7 @@ export class SubagentEventTranslator {
       return;
     }
 
-    // ── T2.1（AD-3）：SubAgent 消息流 + thinking 块流（镜像主线时序） ──
+    // ──（AD-3）：SubAgent 消息流 + thinking 块流（镜像主线时序） ──
     if (event.type === "message_start" && event.role === "assistant") {
       // 预分配 agent 作用域 entry id（流式 messageId = 最终 entry id，D-2 同构；
       // 投影落树沿用同一 id）——与主线不同：不触碰会话聚合计数器
@@ -108,7 +108,7 @@ export class SubagentEventTranslator {
       this.deps.events.publishDelta({
         messageId,
         delta: event.delta,
-        sessionId: instance.sessionId, // 实例归属会话（T2.2 多会话）
+        sessionId: instance.sessionId, // 实例归属会话（多会话）
         instanceId, // 帧实例维：前端路由至实例 channel（真供给线）
       });
       return;
@@ -124,7 +124,7 @@ export class SubagentEventTranslator {
         messageId: this.streamEntryIds.get(instanceId) ?? instanceId,
         delta: event.delta,
         channel: "thinking",
-        sessionId: instance.sessionId, // 实例归属会话（T2.2 多会话）
+        sessionId: instance.sessionId, // 实例归属会话（多会话）
         instanceId,
       });
       return;
@@ -181,9 +181,9 @@ export class SubagentEventTranslator {
       return;
     }
     if (event.type === "engine_error") {
-      // F1.1（AD-1 事件数据面）：SubAgent 引擎错误不再静默——mirror 主线
+      // SubAgent 引擎错误不再静默——mirror 主线（AD-1 事件数据面）
       // ChatService engine_error（只发领域事件，不落 Entry、不动投影）；
-      // WS 帧广播由 DtoMapper SubAgent 守卫抑制（AF-1，防错位弹主聊天流）。
+      // WS 帧广播由 DtoMapper SubAgent 守卫抑制（防错位弹主聊天流）。
       this.publishEngineError(instance, event.message);
       return;
     }
@@ -191,7 +191,7 @@ export class SubagentEventTranslator {
   }
 
   /**
-   * onInstanceClosure 清理序列（T3.3 拆分单点持有，原序保持）：
+   * onInstanceClosure 清理序列（拆分单点持有，原序保持）：
    * 终态后迟到引擎事件不再产条目事件——四 delete 顺序与拆分前逐行对照
    * （原 SchedulerService L565-568）：streamEntryIds → entrySeqs →
    * thinkingStartsMs → pendingThinking。调用点次序不得重排（清理 →
@@ -228,7 +228,7 @@ export class SubagentEventTranslator {
     return `${instanceId}#${n}`;
   }
 
-  /** F1.1：engine_error → 挂 instanceId 的领域事件（事件即数据面；payload 仅原文）。 */
+  /** engine_error → 挂 instanceId 的领域事件（事件即数据面；payload 仅原文）。 */
   private publishEngineError(instance: AgentInstance, message: string): void {
     this.publish(instance, "engine.error", { message });
   }
@@ -236,7 +236,7 @@ export class SubagentEventTranslator {
   private publish<P>(instance: AgentInstance, type: DomainEvent["type"], payload: P): void {
     this.deps.events.publish({
       type,
-      sessionId: instance.sessionId, // T2.2 多会话：事件归属 = 实例归属会话
+      sessionId: instance.sessionId, // 多会话：事件归属 = 实例归属会话
       instanceId: instance.instanceId, // ≡ agentId（契约 §2）：落盘/路由四维用
       payload,
       occurredAt: this.deps.clock.now(),

@@ -1,6 +1,6 @@
 /**
- * agent.config 族命令处理（v0.6，M6 T3 智能体配置页）：handlers/ 落位
- * （T0 探查：接线落 handlers/ 非 events/；model.catalog 全局命令先例）。
+ * agent.config 族命令处理（v0.6 智能体配置页）：handlers/ 落位
+ * （接线落 handlers/ 非 events/；model.catalog 全局命令先例）。
  *
  * - agent.config.list → ResourceConfigPort.list 组装 DTO 块 →
  *   agent.config.list.result 点对点结果帧（sendNow 直发发起连接，

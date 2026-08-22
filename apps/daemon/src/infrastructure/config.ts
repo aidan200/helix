@@ -3,7 +3,7 @@ import path from "node:path";
 import { DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 
 /**
- * 配置加载（AD-13 architecture.md §7.2 + AD-2 §6.4 瘦身，T2.3）：
+ * 配置加载（AD-13 architecture.md §7.2 + AD-2 §6.4 瘦身）：
  * 读取 `<home>/config.json`——**纯 daemon 运行参数**（port / maxConcurrent /
  * maxQueued / staticDir）。模型位与 key 位已迁出（取代边界，AD-2 §6.5）：
  * - model → SQLite 默认模型表（DefaultModelStore）；
@@ -15,7 +15,7 @@ import { DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
  *
  * 写入语义（AG-09）：首次创建（文件不存在）时由 ensureConfigTemplate
  * 生成模板并以 0600 权限落盘；任何写回都经 writeConfig（**全字段序列化**
- * ——T2.3 修复只写三字段导致的截断），统一 chmod 0600。
+ * ——修复只写三字段导致的截断），统一 chmod 0600。
  *
  * 报错语义（daemon 启动期 fail-fast）：文件缺失 → 不抛错，返回默认值
  * （port 7333）；model 缺失不再 fail-fast（缺省走 SQLite 默认值 + builtin
@@ -112,7 +112,7 @@ export function loadConfig(configFilePath: string): LoadedConfig {
     port = obj.port;
   }
 
-  // SubAgent 调度预算（T2.1，K4：AD-7①②；非法值 fail-fast，缺省与 domain 同源）
+  // SubAgent 调度预算（AD-7①②；非法值 fail-fast，缺省与 domain 同源）
   let maxConcurrent: number = DEFAULT_SCHEDULING.maxConcurrent;
   if (obj.maxConcurrent !== undefined) {
     if (typeof obj.maxConcurrent !== "number" || !Number.isInteger(obj.maxConcurrent) || obj.maxConcurrent < 1) {
@@ -155,7 +155,7 @@ export function loadConfig(configFilePath: string): LoadedConfig {
 export const CONFIG_FILE_MODE = 0o600;
 
 /**
- * 写入配置文件（**全字段序列化**——T2.3 修复截断：port/maxConcurrent/
+ * 写入配置文件（**全字段序列化**——修复截断：port/maxConcurrent/
  * maxQueued/staticDir 全量落盘，旧实现只写三字段会静默丢字段）。
  * 父目录不存在则创建；写入后显式 chmod（覆盖既有宽权限文件时同样收严）。
  */
@@ -178,7 +178,7 @@ export function writeConfig(configFilePath: string, config: DaemonConfig): void 
 
 /**
  * 首次创建配置模板（0600）：文件已存在则不动（幂等）。
- * T2.3 瘦身形态：纯运行参数模板（模型/key 位不在 config.json——缺省走
+ * 瘦身形态：纯运行参数模板（模型/key 位不在 config.json——缺省走
  * SQLite 默认模型 + auth.json，无需用户先改文件才能启动）。
  */
 export function ensureConfigTemplate(configFilePath: string): { created: boolean } {

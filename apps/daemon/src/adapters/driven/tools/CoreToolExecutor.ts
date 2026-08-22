@@ -28,7 +28,7 @@ import { imagesOfContent } from "../../../application/services/images";
 
 /**
  * CoreToolExecutor —— ToolExecutorPort 的真实现（architecture.md §3.4，
- * T1.5 落位 adapters/driven/tools，AD-17/AD-10）。
+ * 落位 adapters/driven/tools，AD-17/AD-10）。
  *
  * 两件事：
  * 1. **执行**（ToolExecutorPort.execute）：service 层工具编排的出口——
@@ -38,15 +38,15 @@ import { imagesOfContent } from "../../../application/services/images";
  * 2. **装配**（resolveTools）：把 profile 声明的工具集装配成 pi
  *    AgentTool 清单交给 AgentRuntime——内置工具是 AgentHarnessTool
  *    （execute 多一个 context 参数），经 bindToolContext 闭包绑定
- *    （spike 坑 4，~5 行/工具）。
+ * （闭包绑定，~5 行/工具）。
  *
- * 封装边界（F(5).1 标准 4）：pi 工具符号只出现在本目录；pi-engine 与
+ * 封装边界：pi 工具符号只出现在本目录；pi-engine 与
  * 本目录互不 import，装配经组合根（AG 套件守护）。日后整体替换本目录
  * （如换工具实现）不动其他层。
  */
 
 /**
- * AgentHarnessTool → AgentTool 的 context 绑定（spike 坑 4 沉淀）：
+ * AgentHarnessTool → AgentTool 的 context 绑定（签名差异闭包消解）：
  * 内置工具 execute 签名多一个 context 参数，Agent 期望 4 参形态，
  * 用闭包把 {env} 绑进去。
  */
@@ -68,15 +68,15 @@ export interface CoreToolExecutorOptions {
   readonly shellPath?: string;
   readonly shellEnv?: Record<string, string>;
   /**
-   * 编排端口（T2.3）：提供则注册 agent_spawn/agent_send/agent_status 三工具
+   * 编排端口：提供则注册 agent_spawn/agent_send/agent_status 三工具
    * （经 port 回 SchedulerService，TR-AD-9）；缺省不注册（SubAgent 子进程
    * 装配/无编排场景的 profile 不声明这三名）。
    */
   readonly orchestration?: AgentOrchestrationPort;
   /**
-   * 浏览器连接端口（T3r 动态族）：提供则注册单 browser 工具（action 参数
+   * 浏览器连接端口（动态族）：提供则注册单 browser 工具（action 参数
    * 分发，纯薄转投，CDP 知识全在 port 实现）；缺省不注册——ChildMain
-   * （SubAgent 子进程）只传 cwd，子进程无动态族（审核 P0-1 决策）。
+   * （SubAgent 子进程）只传 cwd，子进程无动态族。
    */
   readonly browser?: BrowserPort;
   /** browser open 的 tab 归属（owner 维度回收/观测；缺省 "main"）。 */
@@ -149,7 +149,7 @@ export class CoreToolExecutor implements ToolExecutorPort {
         undefined,
         this.context,
       );
-      // T9 图片下行：工具结果 content 内的 image 块 → images data URL 数组
+      // 图片下行：工具结果 content 内的 image 块 → images data URL 数组
       //（textOfResult 不动——文本拼接仍是纯文本 + (image) 占位）
       const images = imagesOfContent(result.content);
       return {

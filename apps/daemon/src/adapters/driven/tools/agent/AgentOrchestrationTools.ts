@@ -6,7 +6,7 @@ import type {
 import type { AgentOrchestrationPort } from "../../../../application/ports/inbound/AgentOrchestrationPort";
 
 /**
- * 编排三工具（T2.3，CL-1 F1.5/F1.6）：agent_spawn / agent_send / agent_status。
+ * 编排三工具：agent_spawn / agent_send / agent_status。
  *
  * 落位 adapters/driven/tools/agent/（TR-AD-1/2 说明：driven 工具域）。
  * 三个工具都是「薄转投」——业务判定全部经 AgentOrchestrationPort 回
@@ -14,7 +14,7 @@ import type { AgentOrchestrationPort } from "../../../../application/ports/inbou
  * 组合根注入（CoreToolExecutor 注册时传入），不 import 任何其他 adapter。
  *
  * - agent_spawn：秒回 {agentId, spawned, queued?}（不等收口，AD-8）；
- *   队列满 → isError 错误字符串回 LLM（T2.1 reject 通路汇流）；
+ * - 队列满 → isError 错误字符串回 LLM（reject 通路汇流）；
  * - agent_send：port.send → runner → transport → 子进程 stdin → Agent.steer()；
  * - agent_status：无参全量（状态/位次/摘要）/有参单实例。
  */
@@ -69,7 +69,7 @@ export function createAgentSpawnTool(
       const { task, profileKind } = params as { task: string; profileKind?: string };
       const outcome = orchestration.spawn(task, profileKind);
       if (outcome.status === "rejected") {
-        // 队列满报错回 LLM（T2.1 reject 通路汇流）：以异常表达失败（pi 工具
+        // 队列满报错回 LLM（reject 通路汇流）：以异常表达失败（pi 工具
         // 惯例），CoreToolExecutor 转结构化 error 结果，文案即调度器中文说明
         throw new Error(outcome.error);
       }

@@ -103,7 +103,7 @@ export class CliAdapter {
 
   /**
    * 主循环：readline 逐行读入。不 await 单次 sendMessage——生成中新行
-   * 立即被 ChatService 路由为 steer 注入（多轮常驻语义，TP-CL4-6）。
+   * 立即被 ChatService 路由为 steer 注入（多轮常驻语义）。
    */
   async run(): Promise<void> {
     this.writeLine(

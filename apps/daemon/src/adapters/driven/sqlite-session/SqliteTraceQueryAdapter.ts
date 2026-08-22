@@ -5,8 +5,8 @@ import type {
   TraceEventRowData,
   TraceInstanceRecord,
 } from "../../../domain/trace/TraceQuery";
-// T3.1 投影收敛：normalize/分页判据单源 @helix/protocol projection（原 domain
-// TraceQuery 迁出，类型面形状同构对应；driven adapter import protocol 先例）
+// 投影收敛：normalize/分页判据单源 @helix/protocol projection
+//（类型面形状同构对应；driven adapter import protocol 先例）
 import {
   hasMoreBefore,
   normalizeTraceQuery,
@@ -16,7 +16,7 @@ import { assembleInstancePanel } from "../../../domain/trace/TraceQuery";
 import type { DomainEventRow } from "./rows/Rows";
 
 /**
- * SqliteTraceQueryAdapter —— trace 读面（iter-20260819-erio T2.1，CL-5/F5.5/F5.6；
+ * SqliteTraceQueryAdapter —— trace 读面（契约 v0.4 §1/§4；
  * architecture.md §3.5b + 契约 v0.4 §1/§4）。
  *
  * 同库同表 domain_events（唯一真实源，不建 trace 独立表/聚合）；**只读面**——
@@ -29,7 +29,7 @@ import type { DomainEventRow } from "./rows/Rows";
  * - total：同过滤 WHERE（不含游标/限量）COUNT(*)；
  * - 实例面板：会话级 COUNT/MIN/MAX GROUP BY agent_instance_id + agent.*
  *   生命周期事件全量 → domain 纯函数 assembleInstancePanel fold
- *   （面板恒为全会话口径，不受 events 过滤维影响，AF-5）。
+ *   （面板恒为全会话口径，不受 events 过滤维影响）。
  */
 
 /** 面板 fold 所需的生命周期事件类型（domain_events.type 列值）。 */

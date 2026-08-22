@@ -8,7 +8,7 @@ import type {
 
 /**
  * ResourceStateStore —— profile kind 维资源启停差异行的 SQLite 存取
- * （M6 T1，DefaultModelStore 同构先例）。
+ * （DefaultModelStore 同构先例）。
  *
  * 写面经 WriteQueue 单写通道（AG-06：写语句只在 WriteQueue 内；resource_state
  * 全局表无会话维 → 全局链 FIFO，勿入 sessionTails 分仓）；读面共用

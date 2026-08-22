@@ -25,7 +25,7 @@ export interface HookSet {
   bind?(agent: Agent): void;
   /**
    * 工具执行前钩子（挂起语义：返回的 Promise 未决即挂起工具执行，
-   * loop 无超时，等待时长完全由钩子方决定——spike §5.2）。
+   * loop 无超时，等待时长完全由钩子方决定。
    * 返回 { block: true } 拒绝执行（reason 成为错误工具结果）。
    */
   beforeToolCall?(

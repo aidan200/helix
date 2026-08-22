@@ -3,7 +3,7 @@ import { SteerHooks } from "../hooks/SteerHooks";
 import { MinimalHooks } from "../hooks/MinimalHooks";
 
 /**
- * SubAgent worker profile（architecture.md §4.4「实例化」，T2.2）。
+ * SubAgent worker profile（architecture.md §4.4「实例化」）。
  *
  * 纯声明式配置（无行为方法，AD-3 同构）：单轮收敛（single-shot）+ steer
  * 转投接线 + 全工具集（照抄 MainSessionProfile 工具名清单，不新增）。
@@ -16,7 +16,7 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * 第三级全局兜底。声明入口为代码层真实槽位；UI 管理归 skills 页下迭代。
  */
 /**
- * SubAgent base prompt（M6 T2 瘦身消双源）：只留角色+行为引导，**不列工具
+ * SubAgent base prompt（瘦身消双源）：只留角色+行为引导，**不列工具
  * 名**——可用工具清单唯一来源 = SystemPromptAssembler 组装产物（spawn 时刻
  * 定格经 env 透传子进程）。「自主使用提供的工具」措辞保留（不列具体名）。
  */

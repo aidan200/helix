@@ -2,7 +2,7 @@
  * SnapshotMapper —— 快照域（SessionStateView → SessionSnapshotDto /
  * loadHistory 分页 / 实例通道分组 / usage / sessionMetaDto）+ 尾窗分页常量
  * 与注入面接口（随域走，barrel re-export 保直接 import 面不变）。
- * 自 DtoMapper.ts 四域拆分落位（T3.1，TR-AD-25④ 逐行搬移）。
+ * 自 DtoMapper.ts 四域拆分落位（TR-AD-25④ 逐行搬移）。
  */
 import type {
   AgentStateDto,
@@ -19,7 +19,7 @@ import type { SessionStateView, InstanceSnapshotEntry } from "../../../applicati
 import type { SessionMetaView } from "../../../application/ports/inbound/SessionDirectoryPort";
 import type { SessionUsageSummary, UsageSummary } from "../../../domain/session/SessionSnapshot";
 import { isMainAxisEntry, sessionEntryDto, toolCallEntryDto } from "./EntryDtoMapper";
-// T3.1 投影收敛：entry 排序基元 + spawn 锚权威计算单源 @helix/protocol
+// 投影收敛：entry 排序基元 + spawn 锚权威计算单源 @helix/protocol
 // projection（原 EntryDtoMapper.entrySortKey / SpawnAnchor.ts 两纯函数迁出）
 import { computeAnchorEntryId, entrySortKey } from "@helix/protocol";
 
@@ -54,12 +54,12 @@ export interface HistoryPage {
  * 恢复，契约 §6）；revision 取合并后总条数（v0 无逐事件序号，以条目数为
  * 增量基线，单调且可复算——尾窗口径下仍取全量计数）；model/agentState
  * 来自组合根注入的 system 状态（domain 快照不含）。
- * T2.4：instances/usage additive 装配（契约 §6.2）——视图携带才下发，
+ * instances/usage additive 装配（契约 §6.2）——视图携带才下发，
  * domain↔协议同构字段直映射（closure/usage 七字段不变形）。
- * T2.1（AD-3/F-14⑤）：SubAgent 过程历史按实例分组进 instances[].channels
+ * SubAgent 过程历史按实例分组进 instances[].channels（AD-3）
  * （v0.2 additive）。
- * T2.2（AD-1 尾窗口径，G-1=30）：主时间轴（主实例条目）只下发尾窗 tail
- *（entries 同源）；**per-instance channel 分组完整保留不截断**（F-14⑤ 硬
+ * 主时间轴（主实例条目）只下发尾窗 tail（AD-1 尾窗口径，G-1=30）
+ *（entries 同源）；**per-instance channel 分组完整保留不截断**（硬
  * 约束——不按全局时间序切尾）；totalEntries/tailStartCursor 分页指示。
  */
 export function toSnapshotDto(
@@ -71,12 +71,12 @@ export function toSnapshotDto(
   const snapshot = view.session;
   const queuedSteer = new Set(snapshot.pendingSteer.map((item) => item.entryId));
   // 升序稳定排序：时间并列保持组内原序（entries 原序 / toolCalls 迭代序）
-  // T3.1：entries 为 message/thinking/compaction 混排联合，各变体同表合并
+  // entries 为 message/thinking/compaction 混排联合，各变体同表合并
   const merged: EntryDto[] = [
     ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer)),
     ...view.toolCalls.map((record) => toolCallEntryDto(record)),
   ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
-  // 主时间轴 = 主实例条目 + 定向 steer 干预条目（T2.3 契约 v0.3 §3.2）；尾窗只作用于主轴（AD-1）
+  // 主时间轴 = 主实例条目 + 定向 steer 干预条目（契约 v0.3 §3.2）；尾窗只作用于主轴（AD-1）
   const mainAxis = merged.filter(isMainAxisEntry);
   const tailSize = opts.tailSize ?? TAIL_WINDOW_SIZE;
   const tail = mainAxis.length > tailSize ? mainAxis.slice(mainAxis.length - tailSize) : mainAxis;
@@ -134,9 +134,9 @@ export function historyPage(
 }
 
 /**
- * 实例通道历史分组（T2.1 AD-3：SubAgent Entry 按实例归组——thinking/messages/
+ * 实例通道历史分组（AD-3：SubAgent Entry 按实例归组——thinking/messages/
  * tools 三槽，契约 §6.2 InstanceChannelHistory）。主实例不分组（主时间轴
- * entries 全量即主实例历史；尾窗与 main channels 归 T2.2）。
+ * entries 全量即主实例历史；尾窗只作用于主时间轴）。
  */
 function instanceChannels(entries: readonly EntryDto[], instanceId: string): InstanceChannelHistory | undefined {
   if (instanceId === MAIN_INSTANCE_ID) return undefined;
@@ -153,8 +153,8 @@ function instanceChannels(entries: readonly EntryDto[], instanceId: string): Ins
 }
 
 /** InstanceSnapshotEntry（domain）→ AgentInstanceDto（协议；task/closure/usage 同构直映射）。
- *  T2.1：channels 携带时附加（SubAgent 通道历史分组，AD-3/F-14⑤）。
- *  T2.1（契约 v0.3 §1，AD-5）：anchor 由 computeAnchorEntryId 权威计算后传入——
+ * channels 携带时附加（SubAgent 通道历史分组，AD-3/⑤）。
+ * （契约 v0.3 §1，AD-5）：anchor 由 computeAnchorEntryId 权威计算后传入——
  *  undefined = 主实例不携带；null = 流首锚（有效值）。 */
 function instanceDto(
   entry: InstanceSnapshotEntry,

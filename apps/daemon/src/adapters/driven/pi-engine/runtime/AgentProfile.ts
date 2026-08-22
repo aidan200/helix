@@ -12,7 +12,7 @@ import type { HookSet } from "./HookSet";
 /** 生命周期策略：常驻多轮（可反复 drive）vs 单轮收敛（驱动一次即收口）。 */
 export type LifecycleMode = "persistent" | "single-shot";
 
-/** compaction 声明（spike §3 实测默认参数保留；执行接线后移 M2，GO 附条件）。 */
+/** compaction 声明（实测默认参数保留）。 */
 export interface CompactionSettings {
   readonly enabled: boolean;
   readonly reserveTokens: number;
@@ -31,7 +31,7 @@ export interface AgentProfile {
   readonly kind: string;
   /** 系统提示。 */
   readonly systemPrompt: string;
-  /** 工具集（按名声明；经 ToolResolver 在装配期解析，T1.5 接真工具前恒空）。 */
+  /** 工具集（按名声明；经 ToolResolver 在装配期解析）。 */
   readonly tools: readonly string[];
   /** 生命周期策略。 */
   readonly lifecycle: { readonly mode: LifecycleMode };
@@ -42,8 +42,8 @@ export interface AgentProfile {
    *  仅为 MainSessionProfile 的声明值非缺省行为；SubAgentProfile 未声明即无压缩）。 */
   readonly compaction?: CompactionSettings;
   /**
-   * 模型槽位（AD-6，T2.2）："provider/model-id"；缺省 undefined = 继承
-   * config 解析出的完整 Model 对象（同引用透传，非按 id 重建，F-14）。
+   * 模型槽位（AD-6）："provider/model-id"；缺省 undefined = 继承
+   * config 解析出的完整 Model 对象（同引用透传，非按 id 重建）。
    * 声明值在装配期经 registry 解析（失败 fail-fast 含 id）——解析单点
    * resolveModelSlot（model-provider）。
    */

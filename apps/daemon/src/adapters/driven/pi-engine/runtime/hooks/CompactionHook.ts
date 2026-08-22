@@ -13,9 +13,9 @@ import type { CompactionSettings } from "../AgentProfile";
 import type { HookSet } from "../HookSet";
 
 /**
- * CompactionHook —— turn 边界上下文压缩接线（prepareNextTurn 挂点，T3.1）。
+ * CompactionHook —— turn 边界上下文压缩接线（prepareNextTurn 挂点）。
  *
- * 触发链（spike/03 同构）：estimateContextTokens → shouldCompact
+ * 触发链：estimateContextTokens → shouldCompact
  * （contextTokens > contextWindow - reserveTokens）→ messagesToEntries 转换桥
  * （compaction 函数族吃 Entry[]，而 agent transcript 是 AgentMessage[]）→
  * prepareCompaction → compact（摘要走 models.completeSimple，provider 约束 =
@@ -24,7 +24,7 @@ import type { HookSet } from "../HookSet";
  *
  * 契约：失败不抛出（prepareNextTurn 钩子禁抛）——上抛 onFailed（上层转
  * engine_error 可观测），返回 undefined 保持现状继续 turn，会话无损。
- * 阈值可配：settings 全部来自 profile 声明（K2：reserveTokens/keepRecentTokens）。
+ * 阈值可配：settings 全部来自 profile 声明（reserveTokens/keepRecentTokens）。
  */
 export interface CompactionHookDeps {
   /** 压缩参数声明（profile.compaction 透传）。 */
@@ -67,7 +67,7 @@ export class CompactionHook implements HookSet {
       const est = estimateContextTokens(messages);
       if (!shouldCompact(est.tokens, model.contextWindow, settings)) return undefined;
 
-      // 转换桥：AgentMessage[] → Entry[]（spike/03 messagesToEntries 参照）
+      // 转换桥：AgentMessage[] → Entry[]（compaction 函数族吃 Entry[]）
       const entries = messagesToEntries(messages);
       const prep = prepareCompaction(entries, settings);
       if (!prep.ok) {

@@ -13,7 +13,7 @@ import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
  * 职责：Entry 序列 + Turn 序列 + SteerQueue 的整体一致性——
  * 所有变更都经聚合方法（充血模型），非法操作抛 DomainError：
  * - appendUserEntry 只在无 open turn 时合法（运行中的输入必须走 applySteer）；
- * - beginTurn 在 open turn 未收尾前抛错（同 lane 防重入，spike ④ 护栏的 domain 落地）；
+ * - beginTurn 在 open turn 未收尾前抛错（同 lane 防重入， ④ 护栏的 domain 落地）；
  * - applySteer 只在可注入（generating/toolRunning）的轮次合法。
  *
  * 快照往返：toSnapshot() ↔ restoreFrom() 是持久化（write-through）与
@@ -48,7 +48,7 @@ export class Session {
   }
 
   /** 追加一条用户消息（仅无 open turn 时合法；运行中注入请用 applySteer）。
-   *  T9：可选 images（base64 data URL 数组，chat.send.images 校验后透传落盘）。 */
+   * 可选 images（base64 data URL 数组，chat.send.images 校验后透传落盘）。 */
   appendUserEntry(text: string, at?: string, images?: readonly string[]): Entry {
     if (this.currentTurn !== null) {
       throw new DomainError(
@@ -70,7 +70,7 @@ export class Session {
 
   /**
    * 运行中注入 steer：落 isSteer entry + 入 SteerQueue（drain 前 domain 可观测）。
-   * T2.3 source：注入来源标记（user=用户输入；closure=SubAgent 收口注入，AD-8）。
+   * source：注入来源标记（user=用户输入；closure=SubAgent 收口注入，AD-8）。
    */
   applySteer(text: string, at?: string, source?: "user" | "closure"): Entry {
     const turn = this.requireOpenTurn("applySteer");
@@ -81,7 +81,7 @@ export class Session {
   }
 
   /**
-   * 恢复场景注入（T2.4，AD-10）：无 open turn（重启收口后）时把 closure 注入
+   * 恢复场景注入（AD-10）：无 open turn（重启收口后）时把 closure 注入
    * SteerQueue——与运行中注入同队列同语义（下轮 turn 边界消费，FIFO），但不
    * 驱动引擎（「不自动续跑」：零新事件流，恢复代码零 spawn）。entry 不挂轮次
    * （turnId=null，待下轮 drain 时作为新 turn 输入回放）。
@@ -96,7 +96,7 @@ export class Session {
   }
 
   /**
-   * 定向 steer 落主时间轴（T2.3，契约 v0.3 §3.2，Q-3a）：与 applySteer 同构的
+   * 定向 steer 落主时间轴（契约 v0.3 §3.2，Q-3a）：与 applySteer 同构的
    * user + isSteer entry，instanceId=目标实例（标注干预对象）；turnId 语义同
    * applySteer（挂当前 open turn，无 open turn → null）。**不入主 SteerQueue**
    * （目标是 SubAgent，不经主线 turn 边界 drain——投递由 agent_send 链即时完成）、
@@ -114,7 +114,7 @@ export class Session {
   private steerEntry(text: string, at: string | undefined, source: "user" | "closure" | undefined, turnId: string | null): Entry {
     const entry = this.pushEntry("user", text, turnId, true, at);
     // source 仅 closure 注入携带（用户 steer 保持旧形状——快照/投影行往返等价）；
-    // T2.3：SubAgent 收口注入与用户输入同队列可区分（AD-8 双通道）
+    // SubAgent 收口注入与用户输入同队列可区分（AD-8 双通道）
     this.steerQueue.enqueue({ entryId: entry.id, text, ...(source !== undefined ? { source } : {}) });
     return entry;
   }
@@ -135,11 +135,11 @@ export class Session {
       text,
       turnId,
       isSteer,
-      // T2.1（AD-3）：实例归属参数化——主线条目缺省 main；SubAgent 条目经
+      // 实例归属参数化——主线条目缺省 main；SubAgent 条目经（AD-3）
       // appendInstanceMessage 携带 agent-N（会话投影消费事件后落树）
       instanceId,
       createdAt: at ?? new Date().toISOString(),
-      // T9：仅 user 消息携带图片附件（校验后 data URL 原样；其余角色 undefined）
+      // 仅 user 消息携带图片附件（校验后 data URL 原样；其余角色 undefined）
       ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}),
     });
     this.entries.push(entry);
@@ -147,7 +147,7 @@ export class Session {
   }
 
   /**
-   * SubAgent 实例消息落树（T2.1 会话投影，AD-3：SubAgent Entry 进聚合）：
+   * SubAgent 实例消息落树（会话投影，AD-3：SubAgent Entry 进聚合）：
    * id 由事件发布侧分配（agent 作用域 `${instanceId}#N`，不占主计数器）；
    * 不挂主线轮次（turnId=null——实例条目与主线 Turn 无关，MainAgent 上下文
    * 零混入）；归属 instanceId 必填（区别于主线条目的 main 缺省）。
@@ -167,8 +167,8 @@ export class Session {
   }
 
   /**
-   * 追加 thinking 完成态条目（T3.1；id 同计数器；turn 关联在领域事件 turnId 侧）。
-   * T2.1：id 可显式携带（SubAgent 条目——事件发布侧 agent 作用域分配，
+   * 追加 thinking 完成态条目（id 同计数器；turn 关联在领域事件 turnId 侧）。
+   * id 可显式携带（SubAgent 条目——事件发布侧 agent 作用域分配，
    * 投影/恢复回放落树时保持与事件载荷同 id；主线条目缺省内部计数器）。
    */
   appendThinkingEntry(data: Omit<ThinkingEntryData, "id"> & { id?: string }): ThinkingEntry {
@@ -177,7 +177,7 @@ export class Session {
     return entry;
   }
 
-  /** 追加 compaction 里程碑条目（T3.1；会话级事件，不挂 turn）。 */
+  /** 追加 compaction 里程碑条目（会话级事件，不挂 turn）。 */
   appendCompactionEntry(data: Omit<CompactionEntryData, "id">): CompactionEntry {
     const entry = CompactionEntry.create({ ...data, id: `e${this.nextEntrySeq++}` });
     this.entries.push(entry);
@@ -237,7 +237,7 @@ export class Session {
     return this.steerQueue.size();
   }
 
-  /** turn 边界 drain：取最旧一条（one-at-a-time，spike §5.3）。 */
+  /** turn 边界 drain：取最旧一条（one-at-a-time）。 */
   dequeueSteer(): SteerItem | undefined {
     return this.steerQueue.dequeue();
   }
@@ -284,7 +284,7 @@ export class Session {
     const s = new Session(snapshot.sessionId, snapshot.createdAt);
     for (const e of snapshot.entries) {
       // 旧版快照 entries 无 instanceId（列前时代）：兜底回填主实例（TR-AD-14
-      // 同精神——fromRow/restore 对旧行数据前向兼容，回填常量与 O-3 一致）
+      // 同精神——fromRow/restore 对旧行数据前向兼容，回填常量与一致）
       if ("role" in e) {
         s.entries.push(Entry.create({ ...e, instanceId: e.instanceId ?? MAIN_INSTANCE_ID }));
       } else if (e.kind === "thinking") {

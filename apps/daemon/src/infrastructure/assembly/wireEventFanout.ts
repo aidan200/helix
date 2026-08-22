@@ -9,12 +9,12 @@ import { MAIN_AGENT_KIND } from "../../adapters/driven/sqlite-session/WriteQueue
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
 
 /**
- * 装配函数 ④ 事件扇出（T2.2，architecture §4.2.1/§4.2.4）：组合根的一部分
+ * 装配函数 ④ 事件扇出（architecture §4.2.1/§4.2.4）：组合根的一部分
  * （AG-02④ 豁免面 infrastructure/assembly/**）。
  *
  * fan-out 发布面（FanoutPublisher）由组合根先构造——服务构造期（scheduler/
  * ChatService 族）依赖稳定引用；本函数在其后装配六目标。**带名注册表序
- * 即语义唯一权威**（TP-2.2a 断言面）——重排一行即断言红。
+ * 即语义唯一权威**（断言面）——重排一行即断言红。
  */
 export interface NamedFanoutTarget {
   /** 目标名（语义可读可断言；注册表序 = 派发序 = 语义序）。 */
@@ -98,7 +98,7 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
   });
   publisher.add({
     name: "session-projection",
-    // 会话投影路由（T2.1 AD-3 + T2.2 多会话）：事件 → 归属会话运行时的投影
+    // 会话投影路由（AD-3 + 多会话）：事件 → 归属会话运行时的投影
     // 消费者（SubAgent Entry 落聚合 + 账本入账 + write-through；卸载会话无
     // 投影——零动作）
     target: {
@@ -108,7 +108,7 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
   });
   publisher.add({
     name: "directory-runstate-bridge",
-    // 清单运行态桥（T2.2）：活动标记（卸载计时/当前会话轮换）+ runState 变化
+    // 清单运行态桥：活动标记（卸载计时/当前会话轮换）+ runState 变化
     // 推 session.list_changed{state_changed}（注册表内去重）
     target: {
       publish: (event) => registry.onDomainEvent(event),

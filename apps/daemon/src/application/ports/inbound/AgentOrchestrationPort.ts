@@ -1,7 +1,7 @@
 import type { InstanceState } from "../../../domain/agent/AgentInstance";
 
 /**
- * 编排入口端口（inbound，architecture.md §3.4，T2.3）。
+ * 编排入口端口（inbound，architecture.md §3.4）。
  *
  * 编排三工具（agent_spawn/agent_send/agent_status，driven tools）与 WS
  * 命令（agent.kill 等，driving ws-server）共用的编排入口：经本端口回到
@@ -9,7 +9,7 @@ import type { InstanceState } from "../../../domain/agent/AgentInstance";
  * 本文件只有接口/类型定义（port 铁律 AG-01：零实现）。
  */
 
-/** spawn 判定结果（SchedulerService.spawn 同形状；T2.1 已定稿）。 */
+/** spawn 判定结果（SchedulerService.spawn 同形状）。 */
 export type SpawnOutcome =
   | { readonly status: "run"; readonly agentId: string }
   | { readonly status: "queued"; readonly agentId: string; readonly position: number }

@@ -1,7 +1,7 @@
 import type { SkillDescriptor } from "../ports/outbound/SkillSourcePort";
 
 /**
- * SystemPromptAssembler —— 系统提示三段组装器（M6 T2，设计定稿 §三）。
+ * SystemPromptAssembler —— 系统提示三段组装器（设计定稿 §三）。
  *
  * 三段结构：
  *   [base：profile 静态瘦身 prompt（角色+行为引导，无工具清单——消双源）]

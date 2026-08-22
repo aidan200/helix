@@ -4,7 +4,7 @@ import path from "node:path";
 /**
  * 日志（architecture.md §3.6）：写 `<home>/logs/daemon.log`。
  *
- * 最小实现：行式追加（进程内单写，无滚动——M3 壳接入后再评估轮转）。
+ * 最小实现：行式追加（进程内单写，无滚动—— 壳接入后再评估轮转）。
  * 时间戳取自系统时钟（日志不是领域数据，不经 ClockPort）。
  */
 export interface Logger {

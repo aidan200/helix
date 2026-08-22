@@ -4,7 +4,7 @@ import { AuthStore } from "../auth-store";
 import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
 
 /**
- * 装配函数 ② 模型域（T2.2，architecture §4.2.1）：组合根的一部分
+ * 装配函数 ② 模型域（architecture §4.2.1）：组合根的一部分
  * （AG-02④ 豁免面 infrastructure/assembly/**）。成员：auth.json key 源 +
  * 合并目录（ModelCatalog）。ModelService 装配留组合根 driving 段（装配序
  * §4.2.2 步 8：依赖 registry/eventStream，无法早于会话栈）；resolveConfigModel/

@@ -18,19 +18,19 @@ export type SessionStreamEvent = DomainEvent | StreamDelta;
  * entries，时间序）。工具记录归属 ChatService.toolCalls（既有设计），
  * 不搬进 Session 聚合——本视图只是取数面组合。
  *
- * T2.4 快照 additive（契约 protocol-v0.1.md §6.2）：instances（实例清单，
+ * 快照 additive（契约 protocol-v0.1.md §6.2）：instances（实例清单，
  * 重启恢复卡片/抽屉骨架）+ usage（账目聚合）。两者均可选——旧组装点不
- * 携带时快照不带（additive 演进）；T3.2 后由 UsageLedger 真值装配。
+ * 携带时快照不带（additive 演进）；由 UsageLedger 真值装配。
  */
 export interface SessionStateView {
   readonly session: SessionSnapshot;
   readonly toolCalls: readonly ToolCallRecordData[];
   /** 实例清单（运行时注册表组装；缺省 = 未携带）。 */
   readonly instances?: readonly InstanceSnapshotEntry[];
-  /** 会话账目聚合（T3.2：UsageLedger 投影；缺省 = 未携带）。 */
+  /** 会话账目聚合（UsageLedger 投影；缺省 = 未携带）。 */
   readonly usage?: SessionUsageSummary;
   /**
-   * 会话自身运行态（T5.1 热修，AD-2/AD-4：per-session 盖章数据源）——快照
+   * 会话自身运行态（热修，AD-2/AD-4：per-session 盖章数据源）——快照
    * agentState 由组装面（注册表 buildView）从目标会话 runtime 直读，不再经
    * system.getStatus() 全局最近活跃投影（多会话下 current ≠ 目标会话 →
    * 串台，RCA debug/session-switch-state-overwrite-root-cause.md）。
@@ -45,12 +45,12 @@ export interface SessionStateView {
 export interface InstanceSnapshotEntry extends AgentInstanceData {
   readonly task?: string;
   readonly closure?: InstanceClosurePayload;
-  /** 该实例账目小计（T3.2：UsageLedger per-instance 投影；缺省 = 未携带）。 */
+  /** 该实例账目小计（UsageLedger per-instance 投影；缺省 = 未携带）。 */
   readonly usage?: UsageSummary;
-  /** spawn 时刻模型（T2.3：AgentInstanceDto.model 空槽位填充链；主实例 = 会话当前模型）。 */
+  /** spawn 时刻模型（AgentInstanceDto.model 空槽位填充链；主实例 = 会话当前模型）。 */
   readonly model?: string;
   /**
-   * spawn 时刻锚（T2.1 契约 v0.3 §1 规则②）：spawn 处理点计算一次的聚合内
+   * spawn 时刻锚（契约 v0.3 §1 规则②）：spawn 处理点计算一次的聚合内
    * 最后一条 main/compaction entry id（null = 流首）。内存携带不落盘（派生
    * 值无第二事实源）；缺省 = 恢复实例 spawn 时值不可重建 → 组装面退化尾部
    * 推导（契约记录在案边界）。

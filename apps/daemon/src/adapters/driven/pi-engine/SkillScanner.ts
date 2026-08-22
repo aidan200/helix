@@ -8,12 +8,12 @@ import type {
 } from "../../../application/ports/outbound/SkillSourcePort";
 
 /**
- * SkillScanner —— 技能源端口的真实现（M6 T1，落 pi-engine 防腐墙内）。
+ * SkillScanner —— 技能源端口的真实现（落 pi-engine 防腐墙内）。
  *
  * 包装 pi-agent-core 的 loadSourcedSkills（纯函数、目录显式传入、库层零
- * 默认目录——spike §二 事实 1）：三层输入（user = <home>/skills、
+ * 默认目录）：三层输入（user = <home>/skills、
  * project = <工作区>/.helix/skills、builtin = daemon 随仓 resources/skills
- * ——T5 内置第三源，产品不可删改）→ source 标签逐技能/逐诊断携带；
+ * ——内置第三源，产品不可删改）→ source 标签逐技能/逐诊断携带；
  * 目录缺失静默跳过（loadSourcedSkills 自带：file_info not_found 不出
  * 诊断）；坏文件（缺 description 等）出 warning 诊断不炸。
  *
@@ -26,7 +26,7 @@ export interface SkillScannerOptions {
   readonly userSkillsDir: string;
   /** project 层技能目录（<工作区>/.helix/skills；启动时定格——toolCwd 同款）。 */
   readonly projectSkillsDir: string;
-  /** builtin 层技能目录（T5：daemon 随仓 resources/skills，paths.builtinSkillsDir() 派生值；组合根注入）。 */
+  /** builtin 层技能目录（daemon 随仓 resources/skills，paths.builtinSkillsDir() 派生值；组合根注入）。 */
   readonly builtinSkillsDir: string;
   /** NodeExecutionEnv cwd（相对路径解析根；技能目录均为绝对路径，仅为构造必填——缺省进程工作区）。 */
   readonly cwd?: string;

@@ -20,7 +20,7 @@ export type DomainEventType =
   | "tool.call.result"
   | "agent.state.changed"
   | "engine.error"
-  // ── agent.* 编排生命周期族（iter-20260816-uzvg T2.1，契约 protocol-v0.1.md §5.1）──
+  // ── agent.* 编排生命周期族（契约 protocol-v0.1.md §5.1）──
   | "agent.spawned"
   | "agent.queued"
   | "agent.started"
@@ -28,12 +28,12 @@ export type DomainEventType =
   | "agent.completed"
   | "agent.failed"
   | "agent.killed"
-  // ── 通道族（iter-20260816-uzvg T3.1，契约 protocol-v0.1.md §5.2；AD-3/AD-9）──
+  // ── 通道族（契约 protocol-v0.1.md §5.2；AD-3/AD-9）──
   // thinking.stream.delta 是流式中间态不入本表（TR-AD-5，走流式通道）
   | "thinking.completed"
   | "compaction.completed"
   | "usage.recorded"
-  // ── v0.4 执行上下文面（iter-20260819-erio T2.1，AD-5/AD-6；只落盘不广播）──
+  // ── v0.4 执行上下文面（AD-5/AD-6；只落盘不广播）──
   | "agent.instantiated"
   | "agent.model.changed";
 
@@ -42,8 +42,8 @@ export interface DomainEvent<P = unknown> {
   readonly sessionId: string;
   /** 关联轮次（轮次级事件必填；会话级可空）。 */
   readonly turnId?: string;  /**
-   * 实例归属（AD-3，iter-20260816-uzvg T1.2）：缺省 = 主实例（协议同语义，
-   * 契约 §1）。SubAgent 实例事件携带 agent-N；发布侧挂 id 由 T2.3/T3.x 接。
+   * 实例归属（AD-3）：缺省 = 主实例（协议同语义，
+   * 契约 §1）。SubAgent 实例事件携带 agent-N；发布侧挂 id 由 / .x 接。
    */
   readonly instanceId?: string;
   readonly payload: P;
@@ -58,7 +58,7 @@ export interface MessageCompletedPayload {
   readonly role: "user" | "assistant" | "tool";
   readonly text: string;
   readonly isSteer: boolean;
-  /** 图片附件（T9 上行）：base64 data URL 数组；仅 user 消息携带，缺省 = 纯文本。 */
+  /** 图片附件（上行）：base64 data URL 数组；仅 user 消息携带，缺省 = 纯文本。 */
   readonly images?: readonly string[];
 }
 
@@ -81,7 +81,7 @@ export interface ToolCallPayload {
 export interface ToolResultPayload extends ToolCallPayload {
   readonly isError: boolean;
   readonly result: string;
-  /** 工具结果附带图片（T9 下行）：base64 data URL 数组（如截图）；缺省 = 无图。 */
+  /** 工具结果附带图片（下行）：base64 data URL 数组（如截图）；缺省 = 无图。 */
   readonly images?: readonly string[];
 }
 
@@ -89,7 +89,7 @@ export interface AgentStateChangedPayload {
   readonly state: "idle" | "running" | "steering" | "aborting" | "stopped";
 }
 
-// ── agent.* 编排生命周期族载荷（T2.1，契约 §5.1/§5.3） ─────────────
+// ── agent.* 编排生命周期族载荷（契约 §5.1/§5.3） ─────────────
 // 字段名用 agentId（编排族视角；instanceId ≡ agentId 同一标识空间，契约 §2）；
 // envelope.instanceId 由发布侧同值携带（domain_events 落列 trace 四维用）。
 
@@ -97,7 +97,7 @@ export interface AgentSpawnedPayload {
   readonly agentId: string;
   readonly task: string;
   readonly profileKind: string;
-  /** "provider/model-id"；缺省继承当前模型（解析归 T2.2，此处可选）。 */
+  /** "provider/model-id"；缺省继承当前模型（解析归，此处可选）。 */
   readonly model?: string;
 }
 
@@ -146,7 +146,7 @@ export interface AgentKilledPayload {
   readonly closure: InstanceClosurePayload;
 }
 
-// ── 通道族载荷（T3.1，契约 §5.2/§6.1）────────────────────
+// ── 通道族载荷（契约 §5.2/§6.1）────────────────────
 // 字段名用 instanceId（通道族视角；instanceId ≡ agentId 同一标识空间，契约 §2）。
 
 /** thinking 完成（一个 thinking 块 → 一条 ThinkingEntry；payload 携带全字段条目）。 */
@@ -166,8 +166,8 @@ export interface UsageRecordedPayload {
   readonly source: "turn" | "compaction";
 }
 
-// ── v0.4 执行上下文面载荷（iter-20260819-erio T2.1，契约 v0.4 §2/§3；AD-5/AD-6）──
-// 两事件只落盘不广播（AF-6：DtoMapper 无 case → default → null；协议登记供
+// ── v0.4 执行上下文面载荷（契约 v0.4 §2/§3；AD-5/AD-6）──
+// 两事件只落盘不广播（DtoMapper 无 case → default → null；协议登记供
 // trace.query 结果 payload 类型化与守护一致性）。
 
 /**

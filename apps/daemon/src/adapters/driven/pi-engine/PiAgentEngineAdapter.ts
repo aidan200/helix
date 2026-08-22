@@ -18,33 +18,33 @@ import { imagesOfContent } from "../../../application/services/images";
  *
  * 对外只暴露 port 语义（start/steer/abort/isStreaming + 引擎事件回调）；
  * 对内：AgentRuntime 装配驱动（loop 本体 import 复用，AD-3）、
- * pi AgentEvent → port 引擎事件的薄翻译（时序契约 spike §5 等价，
+ * pi AgentEvent → port 引擎事件的薄翻译（时序契约等价，
  * FakeAgentEngine 是本翻译契约的 mock 侧镜像）。
  */
 export interface PiEngineOptions {
   /** 声明式 agent 规格（MainSessionProfile / SubAgentProfile / 测试 TestProfile）。 */
   readonly profile: AgentProfile;
   /**
-   * 已解析的完整模型对象（F-14 透传单点产物：resolveConfigModel）。
+   * 已解析的完整模型对象（透传单点产物：resolveConfigModel）。
    * profile.model 声明槽位时在装配期覆写解析（resolveModelSlot，fail-fast 含 id）；
    * 未声明则同引用透传本对象（缺省继承，AD-6）。
    */
   readonly model: Model<any>;
   /**
-   * provider → apiKey（AD-11/13 显式传值）。T2.3（AD-2）：数据源改 auth.json
+   * provider → apiKey（AD-11/13 显式传值；AD-2：数据源改 auth.json
    * ——接受静态表或 getter（getter 每请求读现值，换 key 后下一请求生效）。
    */
   readonly apiKeys: Record<string, string> | (() => Record<string, string>);
   /** provider 目录（缺省 builtinModels()；测试注入 fake catalog）。 */
   readonly models?: Models;
   /**
-   * 运行期换模解析器（T2.3：setModel 按 id 解析完整 Model 对象；组合根
+   * 运行期换模解析器（setModel 按 id 解析完整 Model 对象；组合根
    * 注入 catalog 活解析面——overlay 刷新后新模型可达；缺省 = 静态 models）。
    */
   readonly resolveModelById?: (modelId: string) => Model<any>;
-  /** 流式函数覆盖（测试注入 FakeLLM 剧本，M2 级 mock）。 */
+  /** 流式函数覆盖（测试注入 FakeLLM 剧本）。 */
   readonly streamFnOverride?: StreamFn;
-  /** 工具集装配器（T1.5：CoreToolExecutor.resolveTools，组合根接线）。 */
+  /** 工具集装配器（CoreToolExecutor.resolveTools，组合根接线）。 */
   readonly resolveTools?: AgentRuntimeDeps["resolveTools"];
 }
 
@@ -53,9 +53,9 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
   private listener: AgentEngineListener | null = null;
   /** 已 steer 的文本（FIFO）：drain 边界的 user 消息据此判别来源。 */
   private readonly steeredTexts: string[] = [];
-  /** setModel 解析面（T2.3：catalog 活解析优先，静态 models 兑底）。 */
+  /** setModel 解析面（catalog 活解析优先，静态 models 兑底）。 */
   private readonly resolveById: (modelId: string) => Model<any>;
-  /** setTools 装配面（M6 T2：CoreToolExecutor.resolveTools 既有注入路径）。 */
+  /** setTools 装配面（CoreToolExecutor.resolveTools 既有注入路径）。 */
   private readonly resolveToolsFn: AgentRuntimeDeps["resolveTools"];
 
   constructor(options: PiEngineOptions) {
@@ -68,7 +68,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
       models,
       getApiKey: explicitGetApiKey(options.apiKeys),
       resolveTools: options.resolveTools,
-      // T3.1：turn 边界 compaction 产物 → port 事件（失败走 engine_error，不崩会话）
+      // turn 边界 compaction 产物 → port 事件（失败走 engine_error，不崩会话）
       onCompactionCompleted: (r) =>
         this.listener?.({
           type: "compaction_completed",
@@ -104,14 +104,14 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     return this.runtime.isStreaming();
   }
 
-  /** 当前模型 id（T2.3 可观测面：快照/徽标 model 位数据源）。 */
+  /** 当前模型 id（可观测面：快照/徽标 model 位数据源）。 */
   currentModel(): string {
     const m = this.runtime.stateModel;
     return `${m.provider}/${m.id}`;
   }
 
   /**
-   * 运行期换模（T2.3 AD-2）：按 id 解析完整 Model（目录/catalog 面）后
+   * 运行期换模（AD-2）：按 id 解析完整 Model（目录/catalog 面）后
    * 直改 AgentState.model——下一 turn 生效，in-flight run 不受影响。
    */
   setModel(modelId: string): void {
@@ -119,7 +119,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
   }
 
   /**
-   * 运行期改生效工具集（M6 T2，setModel 同构）：names 经注入的 resolveTools
+   * 运行期改生效工具集（setModel 同构）：names 经注入的 resolveTools
    * （CoreToolExecutor 既有路径）重解析成 AgentTool[] 后直改 AgentState.tools
    * ——能力+提示双料同源，下一 turn 生效。未注入 resolveTools（纯测试形态）
    * → fail-fast 不静默。
@@ -129,7 +129,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
   }
 
   /**
-   * D12-4 守卫收敛（T1.5）：未注入 resolveTools 装配面即 fail-fast 不静默
+   * 守卫收敛：未注入 resolveTools 装配面即 fail-fast 不静默
    * （同款消息模板；收敛的是守卫模板而非行为统一——setModel 静态兑底 /
    * setSystemPrompt 纯直通语义保持不变）。返回注入面供调用点直用。
    */
@@ -144,7 +144,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     return this.resolveToolsFn;
   }
 
-  /** 运行期改系统提示（M6 T2，setModel 同构）：直改 AgentState.systemPrompt，下一 turn 生效。 */
+  /** 运行期改系统提示（setModel 同构）：直改 AgentState.systemPrompt，下一 turn 生效。 */
   setSystemPrompt(text: string): void {
     this.runtime.setSystemPrompt(text);
   }
@@ -176,7 +176,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         return emit({ type: "message_start", role, source });
       }
       case "message_update": {
-        // 文本增量透传对话流；thinking 块流透传通道族（T3.1：不再丢弃）
+        // 文本增量透传对话流；thinking 块流透传通道族（不再丢弃）
         const ame = event.assistantMessageEvent;
         if (ame.type === "text_delta") {
           emit({ type: "message_update", delta: ame.delta });
@@ -191,7 +191,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
       }
       case "message_end": {
         const role = event.message.role as "user" | "assistant" | "toolResult";
-        // T3.1：assistant 消息携带 usage 时提取（七字段防腐；账目本体 T3.2）
+        // assistant 消息携带 usage 时提取（七字段防腐，账目本体归 UsageLedger）
         const usage = role === "assistant" ? usageOf(event.message) : undefined;
         const stopReason = role === "assistant" ? stopReasonOf(event.message) : undefined;
         emit({
@@ -216,7 +216,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
           args: event.args,
         });
       case "tool_execution_end": {
-        // T9 图片下行：工具结果 content 内 image 块 → images data URL
+        // 图片下行：工具结果 content 内 image 块 → images data URL
         //（textOfResult 同源逻辑不动；模型在 pi 侧已直接收到 image 块）
         const images = imagesOfContent((event.result as { content?: unknown } | undefined)?.content);
         return emit({
@@ -229,7 +229,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
         });
       }
       default:
-        return; // tool_execution_update 等中间观测面暂不透传（T1.5 工具接线时评估）
+        return; // tool_execution_update 等中间观测面暂不透传（工具接线时评估）
     }
   }
 }

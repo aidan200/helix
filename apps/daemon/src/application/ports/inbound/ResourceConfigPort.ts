@@ -2,7 +2,7 @@ import type { ProfileKind, ResourceType } from "../outbound/ResourceStatePort";
 import type { SkillScanDiagnostic, SkillDescriptor, SkillSource } from "../outbound/SkillSourcePort";
 
 /**
- * 资源配置命令面（inbound，M6 T3 契约 v0.6 agent.config 族）：profile kind
+ * 资源配置命令面（inbound，契约 v0.6 agent.config 族）：profile kind
  * 维三类资源配置的读写回口。WS 驱动侧只转发不决策（AG-12）；实现体 =
  * application/services/ResourceService.ts（结构满足，无第二实现）。
  *
@@ -10,7 +10,7 @@ import type { SkillScanDiagnostic, SkillDescriptor, SkillSource } from "../outbo
  * - 读面 list：合并视图（tools/skills 全集 + 启停态 + 扫描诊断 + model 槽位
  *   现值）——缺省无记录 = 启用；
  * - 写面 setEnabled（tool/skill）：全集内名 → 落库差异行并发布 resources.changed
- *   （T2 刷新链，T2.2 事件化）；全集外名 → 显式跳过（skipped/unknown-name，不落库）；
+ * （resources.changed 事件化刷新链）；全集外名 → 显式跳过（skipped/unknown-name，不落库）；
  * - model 槽位写：setModelSlot / clearModelSlot（本面不校验模型 id——契约
  *   入口 driving 层先经合并目录校验，ModelService.setModel 先例）。
  */

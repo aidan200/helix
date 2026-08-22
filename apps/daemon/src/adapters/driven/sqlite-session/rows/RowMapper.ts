@@ -1,6 +1,5 @@
 import type { DomainEvent } from "../../../../domain/events/DomainEvent";
 import type { AgentLifecycleState } from "../../../../domain/agent/AgentLifecycle";
-// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { ToolCallRecordData, ToolCallStatus } from "../../../../domain/tools/ToolCallRecord";
 import type { SessionEntryData } from "../../../../domain/session/SessionSnapshot";
@@ -14,7 +13,7 @@ import type {
 } from "./Rows";
 
 /**
- * RowMapper —— 充血聚合 ↔ 贫血行模型的转换（AD-17 第 4/5 条，TP-CL8-5）。
+ * RowMapper —— 充血聚合 ↔ 贫血行模型的转换（AD-17 第 4/5 条）。
  * 转换归属本层：domain 不见行模型、行模型不见行为；序列化（JSON）在此收口。
  * updated_at 取映射时刻墙钟（投影元数据，非领域数据——不经 ClockPort）。
  */
@@ -73,7 +72,7 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
     toolCalls: state.toolCalls.map((t) => ({
       id: t.id,
       session_id: sessionId,
-      // T2.1（AD-3）：行级归属透传（SubAgent 工具行挂 agent-N；旧载荷
+      // 行级归属透传（AD-3：SubAgent 工具行挂 agent-N；旧载荷
       // 无字段时回填主实例，TR-AD-14 前向兼容）
       instance_id: t.instanceId ?? MAIN_INSTANCE_ID,
       tool_name: t.toolName,
@@ -81,7 +80,7 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
       status: t.status,
       result: t.result ?? null,
       error: t.error ?? null,
-      // T9 下行：工具结果附带图片（data URL 数组 JSON 文本；缺省 null）
+      // 下行：工具结果附带图片（data URL 数组 JSON 文本；缺省 null）
       images: t.images !== undefined && t.images.length > 0 ? JSON.stringify([...t.images]) : null,
       started_at: t.startedAt ?? null,
       ended_at: t.endedAt ?? null,
@@ -100,7 +99,7 @@ export function rowsToPersistedState(
       sessionId: session.session_id,
       createdAt: session.created_at,
       // 旧库 entries JSON 无 instanceId（列前时代）→ fromRow 兜底回填主实例（TR-AD-14）；
-      // T3.1：entries 为 message/thinking/compaction 混排联合（kind 判别），三类都挂 instanceId
+      // entries 为 message/thinking/compaction 混排联合（kind 判别），三类都挂 instanceId
       entries: (JSON.parse(session.entries) as SessionEntryData[]).map((e) => ({
         ...e,
         instanceId: e.instanceId ?? MAIN_INSTANCE_ID,
@@ -111,7 +110,7 @@ export function rowsToPersistedState(
     agentState: (lifecycle?.state ?? "idle") as AgentLifecycleState,
     toolCalls: toolCalls.map((t) => ({
       id: t.id,
-      // T2.1（AD-3）：行级归属透传往返（写入侧对称；主实例省略字段保持
+      // 行级归属透传往返（AD-3：写入侧对称；主实例省略字段保持
       // v0/v0.1 载荷形状）
       ...(t.instance_id !== MAIN_INSTANCE_ID ? { instanceId: t.instance_id } : {}),
       toolName: t.tool_name,
@@ -119,7 +118,7 @@ export function rowsToPersistedState(
       status: t.status as ToolCallStatus,
       result: t.result ?? undefined,
       error: t.error ?? undefined,
-      // T9 下行：图片列 JSON 往返（null/旧行无列值 → undefined 前向兼容）
+      // 下行：图片列 JSON 往返（null/旧行无列值 → undefined 前向兼容）
       ...(t.images !== null && t.images !== undefined ? { images: JSON.parse(t.images) as string[] } : {}),
       startedAt: t.started_at ?? undefined,
       endedAt: t.ended_at ?? undefined,

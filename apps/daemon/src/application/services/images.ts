@@ -1,5 +1,5 @@
 /**
- * 图片附件编解码（T9 图片上下行，设计裁决：全链 base64 data URL）。
+ * 图片附件编解码（图片上下行，设计裁决：全链 base64 data URL）。
  *
  * 纯函数无 IO、无状态（非 Service——application 核心共享工具，供多域消费）：
  * - parseDataUrlImages：上行入口校验 + 解码（数量/格式/尺寸三防护，超限抛
@@ -32,13 +32,13 @@ export interface DecodedImage {
 }
 
 /**
- * 图片附件校验错误（T9）：超限/坏格式/超大/生成中带图。中文文案直达用户
+ * 图片附件校验错误：超限/坏格式/超大/生成中带图。中文文案直达用户
  * ——WS handler 据 code 判别转 connection.error 点对点回执（同
- * SteerTargetNotRunningError 先例，TR-AD-21 形态；T1.5 additive code 判别
+ * SteerTargetNotRunningError 先例，TR-AD-21 形态；additive code 判别
  * 契约，err.name 字符串判别退役）。
  */
 export class ImageValidationError extends Error {
-  /** 错误码（T1.5）：值 = 既有回码映射，判别契约从 name 字符串改码匹配。 */
+  /** 错误码：值 = 既有回码映射，判别契约从 name 字符串改码匹配。 */
   readonly code: ErrorCode = "command.invalid_payload";
   constructor(message: string) {
     super(message);
@@ -53,7 +53,7 @@ export function base64ByteLength(base64: string): number {
 }
 
 /**
- * 上行校验 + 解码（T9）：数量 ≤4、逐张 data URL 合法（image/* + base64）、
+ * 上行校验 + 解码：数量 ≤4、逐张 data URL 合法（image/* + base64）、
  * 单张解码后 ≤2MB——任一不满足抛中文 Error（消息不落盘、引擎不驱动）。
  */
 export function parseDataUrlImages(images: readonly string[]): DecodedImage[] {
@@ -88,7 +88,7 @@ export function imageDataUrl(image: DecodedImage): string {
 }
 
 /**
- * 下行提取（T9）：工具结果 content 块中的 image 块 → data URL 数组
+ * 下行提取：工具结果 content 块中的 image 块 → data URL 数组
  * （pi AgentToolResult.content = (TextContent | ImageContent)[]；CoreToolExecutor
  * 执行面与 PiAgentEngineAdapter 事件面同源提取——文本拼接 textOfResult
  * 不动，图片另走 images 通道）。

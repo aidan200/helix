@@ -2,11 +2,11 @@ import type { SessionRepositoryPort, SessionMetadataRow } from "../ports/outboun
 import type { ClockPort } from "../ports/outbound/ClockPort";
 import type { DomainEvent } from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
-// MAIN_INSTANCE_ID 引协议导出（v0.2 OI 收口 F-2⑬；与其余 service 同源）
+// MAIN_INSTANCE_ID 引协议导出（v0.2 收口；与其余 service 同源）
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { ErrorCode } from "@helix/protocol";
 import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
-// T3.1 投影收敛：账本形状单源 @helix/protocol projection（原 domain UsageLedger 迁出）
+// 投影收敛：账本形状单源 @helix/protocol projection
 import type { UsageLedgerData } from "@helix/protocol";
 import { parseDataUrlImages } from "./images";
 import type { InstanceSnapshotEntry, SessionStateView } from "../ports/inbound/SessionPort";
@@ -22,7 +22,7 @@ import type { SchedulerService } from "./scheduler/SchedulerService";
 import type { RestoredDomainState } from "./RestoreService";
 
 /**
- * SessionRegistry —— 多会话容器（T2.2 AD-4，architecture.md §4）。
+ * SessionRegistry —— 多会话容器（AD-4，architecture.md §4）。
  *
  * 【业务语义】daemon 内全部会话运行时的注册表：Map<sessionId, 会话运行时>。
  * - **懒加载**：冷会话（未在注册表）被 get/resolveTarget 触达时从 SQLite
@@ -33,7 +33,7 @@ import type { RestoredDomainState } from "./RestoreService";
  *   write-through 落盘（卸载零丢失）；执行中会话不卸载；
  * - **草稿建会话**（契约 B §1.5 定稿）：首条用户消息建聚合——注册表登记
  *   热运行时（未落库），首事件 write-through 才 INSERT session_state；
- * - **内存草稿「不可见 + 转正」**（T4，bug1/bug4 daemon 侧）：零条目热
+ * - **内存草稿「不可见 + 转正」**（bug1/bug4 daemon 侧）：零条目热
  *   草稿（initialize 空库 / rotateCurrent 删空后 createFresh 的恒有当前
  *   会话）对外不可见——不进 listSessions 清单、createFresh 不写
  *   agent.instantiated（trace 查询面无幻影）；任何路径让零条目热会话获
@@ -80,9 +80,9 @@ interface SessionRecord {
   lastBroadcastRunState: SessionRunState | undefined;
   /** 删除进行中（原 deleting Set；delete_in_progress 判定，finally 语义解除）。 */
   deleting: boolean;
-  /** 未转正内存草稿（原 unpromotedDrafts Set；T4 转正单点守卫）。 */
+  /** 未转正内存草稿（原 unpromotedDrafts Set；转正单点守卫）。 */
   unpromotedDraft: boolean;
-  /** 已广播 list_changed{created}（原 createdAnnounced Set；T4 补广播去重基线）。 */
+  /** 已广播 list_changed{created}（原 createdAnnounced Set；补广播去重基线）。 */
   createdAnnounced: boolean;
 }
 
@@ -133,7 +133,7 @@ const TITLE_CODEPOINTS = 20;
 
 /** 操作不存在的会话（subscribe / loadHistory / delete；契约 B §3 session.not_found）。 */
 export class SessionNotFoundError extends Error {
-  /** 错误码（T1.5 additive）：值 = 既有回码，判别契约从 name 字符串改码匹配。 */
+  /** 错误码（additive）：值 = 既有回码，判别契约从 name 字符串改码匹配。 */
   readonly code: ErrorCode = "session.not_found";
   constructor(sessionId: string) {
     super(`会话 ${sessionId} 不存在`);
@@ -143,7 +143,7 @@ export class SessionNotFoundError extends Error {
 
 /** 同会话删除进行中（重复 delete 请求；契约 B §3 session.delete_in_progress）。 */
 export class SessionDeleteInProgressError extends Error {
-  /** 错误码（T1.5 additive）：值 = 既有回码，判别契约从 name 字符串改码匹配。 */
+  /** 错误码（additive）：值 = 既有回码，判别契约从 name 字符串改码匹配。 */
   readonly code: ErrorCode = "session.delete_in_progress";
   constructor(sessionId: string) {
     super(`会话 ${sessionId} 删除进行中（重复请求）`);
@@ -208,7 +208,7 @@ export class SessionRegistry implements SessionDirectoryPort {
       const runtime = record.runtime;
       if (runtime === undefined) continue; // 冷删除占位不进清单（原不在 runtimes）
       if (rows.some((r) => r.sessionId === sessionId)) continue;
-      // T4：零条目热草稿不可见（未落盘内存草稿不进清单——bug1 泄漏面封堵，
+      // 零条目热草稿不可见（未落盘内存草稿不进清单——bug1 泄漏面封堵，
       // 与 sealAll 跳过零条目会话同哲学：空草稿自然消亡不污染清单）；
       // 有内容的热未落库会话仍合并（回归）。
       if (runtime.chatService.sessionView.isEmpty()) continue;
@@ -241,11 +241,11 @@ export class SessionRegistry implements SessionDirectoryPort {
   }
 
   async startDraftSession(text: string, model?: string, images?: readonly string[]): Promise<{ sessionId: string }> {
-    // T9：图片附件建会话前同步校验（fire-and-forget sendMessage 前的早期
+    // 图片附件建会话前同步校验（fire-and-forget sendMessage 前的早期
     // 报错面——超限/坏格式抛 ImageValidationError，零副作用不建会话；WS
     // handler 据 name 转 connection.error 点对点回执）
     if (images !== undefined && images.length > 0) parseDataUrlImages(images);
-    // T4 转正复用：当前会话命中零条目热草稿 → 直接转正复用（同 id，不裂变
+    // 转正复用：当前会话命中零条目热草稿 → 直接转正复用（同 id，不裂变
     // 新会话；转正后不立刻新建下一个内存草稿——下一个由 initialize/
     // rotateCurrent 等既有点懒建）；当前会话有内容 → 维持 createFresh。
     const currentId = this.currentSessionId();
@@ -257,7 +257,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     // 建会话广播（created）：title = 首条用户消息截断（此刻即知——不等落库）。
     // 时序硬约束：必须同步先于 sendMessage（前端先登记 pendingActivation 再收
     // 快照，推迟会产生快照被吞的竞态）；登记 createdAnnounced 使转正单点的
-    // 补广播去重（不双发）。T4b：提到模型处理之前——异模型路径先转正
+    // 补广播去重（不双发）。提到模型处理之前——异模型路径先转正
     // （promoteDraft）时其 created 补广播经 createdAnnounced 去重，title 仍取
     // 本处显式广播的首条消息截断（转正补广播此刻无条目可推导 title）。
     this.requireRecord(runtime.sessionId).createdAnnounced = true;
@@ -266,9 +266,9 @@ export class SessionRegistry implements SessionDirectoryPort {
       sessionId: runtime.sessionId,
       session: this.metaFromRuntime(runtime, deriveTitle(text)),
     });
-    // T4：建会话前用户选定模型（chat.send draft 链透传；引擎不支持等抛错
+    // 建会话前用户选定模型（chat.send draft 链透传；引擎不支持等抛错
     // → warn 降级全局默认，不阻断首条消息）
-    // T4b 追修（CL-5 trace e2e 回归两根因）：
+    // （trace e2e 回归两根因）
     // ① 同模型短路——引擎观测值与选定一致（currentModel === model）→ 跳过
     //   setModel：零调用零事件（同模型值也发布 agent.model.changed[from===to]
     //   会产生无意义的「已切换」记录；只落在 draft 建会话路径，不改
@@ -288,7 +288,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     }
     // 首条消息发送（fire-and-forget）：首个里程碑事件（user entry）经投影
     // write-through INSERT session_state——「daemon 收首条消息才落库」。
-    // 首个用户条目落聚合时经转正单点恰好一次发布 agent.instantiated（T4）。
+    // 首个用户条目落聚合时经转正单点恰好一次发布 agent.instantiated。
     void runtime.chatService.sendMessage(text, images).catch((err) => {
       this.deps.logger?.warn(`草稿会话 ${runtime.sessionId} 首条消息发送失败：${(err as Error).message}`);
     });
@@ -320,7 +320,7 @@ export class SessionRegistry implements SessionDirectoryPort {
       if (hot !== undefined) {
         // ① 取消链（顺序硬约束第一步）：主线 abort + 封口（stopped 终态——
         //    closure 注入丢弃/新输入拒收，防删除竞态复活）→ 等 run 收口完成
-        //    （T1.4 捕获语义：whenSettled 等待调用时刻的在飞 run——abort/stop
+        // （捕获语义：whenSettled 等待调用时刻的在飞 run——abort/stop
         //    与等待发起同处一个同步块，activeRun 其间不可能变化，捕获点等价
         //    于「abort 前捕获」；窗口内新起飞的 run 不延长本删除等待）
         hot.chatService.abort();
@@ -366,9 +366,9 @@ export class SessionRegistry implements SessionDirectoryPort {
   }
 
   /**
-   * 全部热会话运行时快照（M6 T2：kind 变更→刷新活跃 runtime 的遍历入口，
+   * 全部热会话运行时快照（kind 变更→刷新活跃 runtime 的遍历入口，
    * 组合根 refreshAssembly 消费；均为主会话型——SubAgent 实例是独立子进程
-   * （spawn 时刻定格，代际生效，不在本注册表）。供 T3 WS 命令复用。
+   * （spawn 时刻定格，代际生效，不在本注册表）。供 WS 命令复用。
    */
   hotRuntimes(): readonly SessionRuntime[] {
     return [...this.sessions.values()].flatMap((record) =>
@@ -469,7 +469,7 @@ export class SessionRegistry implements SessionDirectoryPort {
   private createFresh(): SessionRuntime {
     const session = Session.create(undefined, this.deps.clock.now());
     const runtime = this.deps.buildRuntime({ session, toolCalls: [], usage: undefined });
-    // T4（bug1/bug4 daemon 侧）：agent.instantiated 发布点从「会话创建」推迟到
+    // agent.instantiated 发布点从「会话创建」推迟到「转正」（bug1/bug4 修复）
     // 「转正」（首个用户条目，promoteDraft）——零条目内存草稿不写 domain_events
     //（trace 查询面无幻影）；恢复路径 load() 不调（历史快照经查询面直读；
     // 快照缺省供给时 no-op）。unpromotedDraft=true 收进 register 参数（原独立
@@ -479,7 +479,7 @@ export class SessionRegistry implements SessionDirectoryPort {
   }
 
   /**
-   * 转正单点（T4）：零条目热草稿获首个用户条目时恰好一次——
+   * 转正单点：零条目热草稿获首个用户条目时恰好一次——
    * ① 发布 agent.instantiated（chatService.publishInstantiated，只落盘不广播）；
    * ② 尚未广播过 list_changed{created} 则补广播（metaFromRuntime 此刻可从
    *   entries 推导 title；draft 链显式广播经 createdAnnounced 去重不双发）。
@@ -500,7 +500,7 @@ export class SessionRegistry implements SessionDirectoryPort {
   }
 
   /**
-   * 握手草稿探测（T4，WsServerAdapter 握手面）：当前会话是零条目热草稿 →
+   * 握手草稿探测（WsServerAdapter 握手面）：当前会话是零条目热草稿 →
    * true（welcome.draft + 不 attach 会话不推快照）；current 残骸（热运行时
    * 被空闲卸载且库无行——不可恢复的零条目草稿）→ 丢弃该 current 并
    * createFresh 新草稿（避免握手快照 SessionNotFoundError 噪声），新草稿
@@ -609,7 +609,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     return {
       session: session.toSnapshot(),
       toolCalls: [...runtime.chatService.toolCallData, ...runtime.projection.subAgentToolCallData()],
-      // T5.1 热修：per-session 盖章数据源（快照 agentState/model 随视图同源
+      // 热修：per-session 盖章数据源（快照 agentState/model 随视图同源
       // 组装——subscribe/draft 快照不再经 system.getStatus() 全局投影）
       agentState: runtime.chatService.agentState,
       ...(runtime.chatService.currentModel !== undefined
@@ -621,13 +621,13 @@ export class SessionRegistry implements SessionDirectoryPort {
           kind: "main",
           profileKind: "main-session",
           sessionId: runtime.sessionId,
-          // T2.1 定稿（architecture-feedback #15）：InstanceState 无常驻待命
+          // 定稿（architecture-feedback #15）：InstanceState 无常驻待命
           // 词汇——主实例态读 ChatService.agentState（stopped→cancelled，其余
           // running＝存活语义）；会话运行态由快照顶层 agentState 表达
           state: runtime.chatService.agentState === "stopped" ? "cancelled" : "running",
           createdAt: session.createdAt,
           usage: runtime.projection.instanceUsage(MAIN_INSTANCE_ID),
-          // T2.3：主实例槽位 = 会话当前模型（引擎可观测面；undefined = 引擎未暴露）
+          // 主实例槽位 = 会话当前模型（引擎可观测面；undefined = 引擎未暴露）
           ...(runtime.chatService.currentModel !== undefined
             ? { model: runtime.chatService.currentModel }
             : {}),
@@ -644,7 +644,7 @@ export class SessionRegistry implements SessionDirectoryPort {
 
 /**
  * 超时包裹（删除收口链的防御上界：活跃被删不崩优先于严格等待）。
- * T1.3 双通道可观测区分：超时 / 被等 promise 异常均先 warn 后 resolve
+ * 双通道可观测区分：超时 / 被等 promise 异常均先 warn 后 resolve
  * （永不 reject——删除链「不崩」语义不变，错误不再静默）。
  */
 function withTimeout(p: Promise<void>, ms: number, warn: (message: string) => void): Promise<void> {

@@ -154,7 +154,7 @@ export class AuthStore implements AuthStorePort {
 
   constructor(
     private readonly filePath: string,
-    /** T1.3：可观测 logger（排队操作失败 warn；缺省静默）。 */
+    /** 可观测 logger（排队操作失败 warn；缺省静默）。 */
     private readonly logger?: { warn: (message: string) => void },
   ) {}
 
@@ -242,7 +242,7 @@ export class AuthStore implements AuthStorePort {
   /** 进程内操作串行（排队 + 失败不断链；op 可同步）。 */
   private enqueue<T>(op: () => T | Promise<T>): Promise<T> {
     const run = this.opQueue.then(op, op);
-    // T1.3：链尾失败可观测（调用方仍见 run 拒绝；warn 使丢弃返回 promise 的
+    // 链尾失败可观测（调用方仍见 run 拒绝；warn 使丢弃返回 promise 的
     // 场景不再无声——「失败不断链」语义不变）
     this.opQueue = run.catch((err) => {
       this.logger?.warn(`[auth-store] 排队操作失败（${this.filePath}）：${(err as Error).message}`);

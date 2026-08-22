@@ -1,6 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Usage, UserMessage } from "@earendil-works/pi-ai";
-// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { EntryData } from "../../../../domain/session/Entry";
 import type { AgentEngineUsage } from "../../../../application/ports/outbound/AgentEnginePort";
@@ -11,11 +10,11 @@ import type { AgentEngineUsage } from "../../../../application/ports/outbound/Ag
  * 防腐原则（AD-16）：pi 的消息类型只进 pi-engine 目录，domain 不见 pi
  * 类型；映射层刻意薄——本任务只需文本抽取（引擎事件翻译）与用户消息
  * 构造（steer/prompt 注入），Entry 树/LaneRecord 的完整持久化映射随
- * T1.8（SQLite 落盘）扩展。
+ * 完整持久化映射由 sqlite-session 适配器承载。
  */
 
-/** 内容块 → 纯文本（text 块拼接；toolCall/thinking 块贡献空串——TS3-a：
- *  工具轮占位文本不产生；thinking 自 T3.1 起为一等通道（独立 Entry），
+/** 内容块 → 纯文本（text 块拼接；toolCall/thinking 块贡献空串——
+ * 工具轮占位文本不产生；thinking 为一等通道（独立 Entry），
  *  不再以占位标记污染消息正文；其余非 text 块类型以占位标记）。 */
 export function textOfContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -66,7 +65,7 @@ export function errorMessageOf(message: AgentMessage): string {
     : "模型调用失败（provider 未返回错误详情）";
 }
 
-/** pi Usage → 七字段防腐（T3.1 挂点：提取本体轻量，账目深化归 T3.2）。
+/** pi Usage → 七字段防腐（提取本体轻量，账目本体归 UsageLedger）。
  *  cost 拍平取 total；reasoning 未报时 0。消息不携带 usage → undefined。 */
 export function usageOf(message: AgentMessage): AgentEngineUsage | undefined {
   const usage = (message as { usage?: Usage }).usage;
@@ -84,8 +83,8 @@ export function usageOf(message: AgentMessage): AgentEngineUsage | undefined {
 
 /** pi 消息 → domain Entry 数据形状（工具结果归 tool；custom 消息忽略）。
  *  实例归属恒为主实例（pi-engine 映射的是主会话引擎流；SubAgent 侧
- *  映射归 T2.x 子进程 adapter）。本任务供引擎事件侧薄映射；完整 Entry
- *  树映射 T1.8 扩展。 */
+ * 映射归子进程 adapter）。本文件供引擎事件侧薄映射；完整 Entry
+ * 树映射归持久化适配器。 */
 export function entryDataOf(message: AgentMessage, fallbackTurnId: string | null): EntryData | null {
   const m = message as { role: string; content: unknown };
   if (m.role === "user") {

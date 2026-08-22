@@ -15,7 +15,7 @@ import type { AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
  */
 export interface SessionServiceDeps {
   /**
-   * 取当前会话快照视图（T2.2 多会话：组合根注入注册表当前会话组装面
+   * 取当前会话快照视图（多会话：组合根注入注册表当前会话组装面
    * SessionRegistry——聚合/工具记录/实例清单/账目整体取数）。当前会话冷
    * （被空闲卸载）时抛错——同步读面仅限热会话（CLI/既有测试路径），异步
    * 读面走 SessionDirectoryPort.getSessionView（懒加载）。

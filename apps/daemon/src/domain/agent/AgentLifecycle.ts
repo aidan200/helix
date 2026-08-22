@@ -12,11 +12,11 @@ import type { AgentInstance } from "./AgentInstance";
  * - stopped：daemon 停止（终态，会话不再接受输入）。
  *
  * 非法迁移（如 idle→steering、stopped→任何）抛 DomainError，且不改状态——
- * 状态机的权威性与可观测性都由本聚合保证（TP-CL4-5：runtime 不自持副本）。
+ * 状态机的权威性与可观测性都由本聚合保证（runtime 不自持副本）。
  *
- * 【实例注册表语义（AD-3，iter-20260816-uzvg T1.2 演进）】本类同时是会话内
+ * 【实例注册表语义（AD-3， 演进）】本类同时是会话内
  * 实例注册表：主实例（固定 id main）与 SubAgent（agent-N）在此注册/出册。
- * 注册/出册不依赖会话按序推进（F1.9 非线性红线）；注册表与主实例会话运行态
+ * 注册/出册不依赖会话按序推进（非线性红线）；注册表与主实例会话运行态
  * （上述五态矩阵）彼此独立——实例窗口生命周期由 AgentInstance 状态机承载。
  * 投影面：agent_lifecycle 表 PK (session_id, instance_id)。
  */
@@ -62,7 +62,7 @@ export class AgentLifecycle {
     }
   }
 
-  // ── 实例注册表（AD-3：会话内实例一等注册；F1.9 不假设按序推进） ──
+  // ── 实例注册表（AD-3：会话内实例一等注册； 不假设按序推进） ──
 
   /** 注册实例（主实例 main 固定 id；重复 id 抛错且不产生半态）。 */
   registerInstance(instance: AgentInstance): void {

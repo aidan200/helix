@@ -6,7 +6,7 @@ import type { ClockPort } from "../ports/outbound/ClockPort";
 import { AgentLifecycle, type AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
 import { Session } from "../../domain/session/Session";
 import type { ThinkingEntryData } from "../../domain/session/ThinkingEntry";
-import { MAIN_INSTANCE_ID, ZERO_USAGE, type ErrorCode } from "@helix/protocol"; // MAIN_INSTANCE_ID re-export 自 @helix/common（AD-1）；ZERO_USAGE = projection 单源（T3.1，原 domain UsageLedger 迁出）
+import { MAIN_INSTANCE_ID, ZERO_USAGE, type ErrorCode } from "@helix/protocol"; // MAIN_INSTANCE_ID re-export 自 @helix/common（AD-1）；ZERO_USAGE = projection 单源
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { parseDataUrlImages, ImageValidationError } from "./images";
 import type {
@@ -17,7 +17,7 @@ import type {
 
 type EngineEventOf<T extends AgentEngineEvent["type"]> = Extract<AgentEngineEvent, { type: T }>;
 
-/** ThinkingBuffer —— thinking 块两态缓冲（T2.4：原 thinkingStarts/pendingThinking 收编；T3.1 前两态 = 计时中→暂存，第三态「已落账」归 domain ThinkingEntry）。streamEntryId 不入 Buffer——message_update（非 thinking 事件）也消费，归 ChatService 流式族（T2.4 归属裁决）。 */
+/** ThinkingBuffer —— thinking 块两态缓冲（原 thinkingStarts/pendingThinking 收编；两态 = 计时中→暂存，第三态「已落账」归 domain ThinkingEntry）。streamEntryId 不入 Buffer——message_update（非 thinking 事件）也消费，归 ChatService 流式族。 */
 class ThinkingBuffer {
   private readonly starts = new Map<number, string>();
   private pending: { contentIndex: number; text: string; startedAt: string }[] = [];
@@ -34,7 +34,7 @@ class ThinkingBuffer {
     this.pending.push({ contentIndex, text, startedAt });
   }
 
-  /** message_start(assistant)：新消息两态整体重置（T3.1——上轮残留不串入新消息，G3 锚定面）。 */
+  /** message_start(assistant)：新消息两态整体重置（上轮残留不串入新消息）。 */
   reset(): void {
     this.starts.clear();
     this.pending = [];
@@ -48,8 +48,8 @@ class ThinkingBuffer {
   }
 }
 
-/** ChatService —— 对话全流程编排（AD-17.1，architecture.md §3.4）。idle 落 user Entry → 开 Turn → running → 驱动引擎（事件经 onEngineEvent 回流，T2.4 拆为薄路由 + 四关注点分族私有方法）；running/steering 输入转 steer 注入（domain SteerQueue 权威 + 引擎队列，turn 边界 drain §5.3）；abort 非销毁（interrupted 后回 idle）；closure 注入（T2.3 AD-8）同队列同语义。状态所有权（AD-16）全在 domain；持久化（T2.1 AD-3 §3.2②）只产事件，write-through 归会话投影消费者。 */
-/** deps 基础字段面（T2.2 两形态共通，架构 §4.2.6）：3 必填 + 2 恢复场景参数（非钩子——两形态均保持可选，MainAgent 裁决 AF-7）。 */
+/** ChatService —— 对话全流程编排（AD-17.1，architecture.md §3.4）。idle 落 user Entry → 开 Turn → running → 驱动引擎（事件经 onEngineEvent 薄路由回流，按四关注点分族私有方法处理）；running/steering 输入转 steer 注入（domain SteerQueue 权威 + 引擎队列，turn 边界 drain §5.3）；abort 非销毁（interrupted 后回 idle）；closure 注入（AD-8）同队列同语义。状态所有权（AD-16）全在 domain；持久化（AD-3 §3.2②）只产事件，write-through 归会话投影消费者。 */
+/** deps 基础字段面（两形态共通，架构 §4.2.6）：3 必填 + 2 恢复场景参数（非钩子——两形态均保持可选）。 */
 interface ChatServiceDepsBase {
   /** agent 引擎（pi 防腐墙后的驱动出口）。 */
   readonly engine: AgentEnginePort;
@@ -57,25 +57,25 @@ interface ChatServiceDepsBase {
   readonly events: EventPublisherPort;
   /** 时间源（领域事件/条目时间戳，测试可控）。 */
   readonly clock: ClockPort;
-  /** 恢复场景传入重建聚合（T1.8 RestoreService）；默认新建会话。 */
+  /** 恢复场景传入重建聚合（RestoreService）；默认新建会话。 */
   readonly session?: Session;
   /** 恢复场景传入历史工具调用记录（重启后工具历史随快照延续）。 */
   readonly restoredToolCalls?: readonly ToolCallRecordData[];
 }
 
-/** 完整形态（生产装配面，T2.2 两形态，架构 §4.2.6/TP-2.2h①）：四钩子必填——组合根装配缺钩子 = 编译红，消灭「未装配静默降级」。 */
+/** 完整形态（生产装配面，架构 §4.2.6）：四钩子必填——组合根装配缺钩子 = 编译红，消灭「未装配静默降级」。 */
 export interface ChatServiceDeps extends ChatServiceDepsBase {
-  /** 定向 steer 转投面（T2.3 契约 v0.3 §3.2）：组合根接 SchedulerService.send；delivered=false 时本服务抛 SteerTargetNotRunningError（不落 Entry 不入队）。 */
+  /** 定向 steer 转投面（契约 v0.3 §3.2）：组合根接 SchedulerService.send；delivered=false 时本服务抛 SteerTargetNotRunningError（不落 Entry 不入队）。 */
   readonly sendToInstance: AgentOrchestrationPort["send"];
-  /** 模型回退读面（T2.1 F5.9/AD-6）：换模 from 兜底；组合根接默认模型读面。 */
+  /** 模型回退读面（AD-6）：换模 from 兜底；组合根接默认模型读面。 */
   readonly modelFallback: () => string;
-  /** 主实例 instantiated 快照供给（T2.1 F5.7/AD-5，契约 v0.4 §2）：driven 常量不进 application。 */
+  /** 主实例 instantiated 快照供给（AD-5，契约 v0.4 §2）：driven 常量不进 application。 */
   readonly instantiatedSnapshot: () => ProfileSnapshotData;
-  /** 首个用户条目落聚合回调（T4 转正单点触发面）：组合根接 SessionRegistry.promoteDraft（恰好一次 instantiated + 补 created 广播；恢复会话结构性不触发）。 */
+  /** 首个用户条目落聚合回调（转正单点触发面）：组合根接 SessionRegistry.promoteDraft（恰好一次 instantiated + 补 created 广播；恢复会话结构性不触发）。 */
   readonly onFirstUserEntry: () => void;
 }
 
-/** 测试形态（宽松，T2.2 两形态，TP-2.2h②）：四钩子可选——缺省行为与旧单接口一致。 */
+/** 测试形态（宽松）：四钩子可选——缺省行为与旧单接口一致。 */
 export interface ChatServiceTestDeps extends ChatServiceDepsBase {
   readonly sendToInstance?: AgentOrchestrationPort["send"];
   readonly modelFallback?: () => string;
@@ -83,9 +83,9 @@ export interface ChatServiceTestDeps extends ChatServiceDepsBase {
   readonly onFirstUserEntry?: () => void;
 }
 
-/** 定向 steer 目标非运行中（T2.3 契约 v0.3 §3.2）：WS 据 code 判别转 connection.error 点对点回执（TR-AD-21）；message 复用 SendOutcome.detail。 */
+/** 定向 steer 目标非运行中（契约 v0.3 §3.2）：WS 据 code 判别转 connection.error 点对点回执（TR-AD-21）；message 复用 SendOutcome.detail。 */
 export class SteerTargetNotRunningError extends Error {
-  /** 错误码（T1.5 additive）：值 = 既有回码，判别契约从 name 改码匹配。 */
+  /** 错误码（additive）：值 = 既有回码，判别契约从 name 改码匹配。 */
   readonly code: ErrorCode = "command.invalid_payload";
   constructor(message: string) {
     super(message);
@@ -98,11 +98,11 @@ export class ChatService implements ChatPort {
   private readonly lifecycle = new AgentLifecycle();
   /** 本会话的工具调用记录（id → 聚合；pending→running→completed/failed）。 */
   private readonly toolCalls = new Map<string, ToolCallRecord>();
-  /** 流式期间预分配的 assistant entry id（D-2：delta.messageId 对齐最终 entry id；归流式族非 ThinkingBuffer，T2.4 裁决）。 */
+  /** 流式期间预分配的 assistant entry id（D-2：delta.messageId 对齐最终 entry id；归流式族非 ThinkingBuffer）。 */
   private streamEntryId: string | null = null;
-  /** thinking 块两态缓冲（T2.4：原 thinkingStarts/pendingThinking 收编）。 */
+  /** thinking 块两态缓冲（原 thinkingStarts/pendingThinking 收编）。 */
   private readonly thinking = new ThinkingBuffer();
-  /** 在飞 run 的 promise（T2.2 AD-4 删除收口链）：开 run 登记、收口清空——currentRun()/whenSettled() 等待面。 */
+  /** 在飞 run 的 promise（AD-4 删除收口链）：开 run 登记、收口清空——currentRun()/whenSettled() 等待面。 */
   private activeRun: Promise<void> | null = null;
 
   constructor(private readonly deps: ChatServiceDeps | ChatServiceTestDeps) {
@@ -128,11 +128,11 @@ export class ChatService implements ChatPort {
   get agentState(): AgentLifecycleState {
     return this.lifecycle.current;
   }
-  /** 会话当前模型 id（T2.3 AD-2："provider/model-id"；引擎不暴露时 undefined）。 */
+  /** 会话当前模型 id（AD-2："provider/model-id"；引擎不暴露时 undefined）。 */
   get currentModel(): string | undefined {
     return this.deps.engine.currentModel?.();
   }
-  /** 主实例 agent.instantiated 发布（T4 转正语义，原 T2.1 F5.7/AD-5 契约 v0.4 §2）：发布点 = 会话**转正**（promoteDraft 触发一次；内存草稿不写 domain_events 无幻影；恢复路径不调；只落盘不广播；re-profile 不存在）。 */
+  /** 主实例 agent.instantiated 发布（转正语义，AD-5 契约 v0.4 §2）：发布点 = 会话**转正**（promoteDraft 触发一次；内存草稿不写 domain_events 无幻影；恢复路径不调；只落盘不广播；re-profile 不存在）。 */
   publishInstantiated(): void {
     if (this.deps.instantiatedSnapshot === undefined) return;
     this.publish<AgentInstantiatedPayload>(
@@ -142,7 +142,7 @@ export class ChatService implements ChatPort {
       MAIN_INSTANCE_ID,
     );
   }
-  /** 运行期换模（T2.3 AD-2：AgentEnginePort.setModel 域内扩面，下一 turn 生效；不支持即抛错）。T2.1（F5.9/AD-6 契约 v0.4 §3）：成功同点发布 agent.model.changed（from 缺省回退全局默认；只落盘不广播）。 */
+  /** 运行期换模（AD-2：AgentEnginePort.setModel 域内扩面，下一 turn 生效；不支持即抛错；AD-6 契约 v0.4 §3：成功同点发布 agent.model.changed——from 缺省回退全局默认，只落盘不广播）。 */
   setModel(modelId: string): void {
     if (this.deps.engine.setModel === undefined) {
       throw new Error(`引擎未实现运行期换模接口（AgentEnginePort.setModel），无法切换到 ${modelId}`);
@@ -156,7 +156,7 @@ export class ChatService implements ChatPort {
       MAIN_INSTANCE_ID,
     );
   }
-  /** 运行期改生效工具集/系统提示（M6 T2，setModel 同构六层链 per-session 入口）：直达 AgentEnginePort 直改面（下一 turn 生效）；不支持即抛错；契约广播（config.changed）归 T3。 */
+  /** 运行期改生效工具集/系统提示（setModel 同构 per-session 入口）：直达 AgentEnginePort 直改面（下一 turn 生效）；不支持即抛错；契约广播（agent.config.changed）归 EventStream 广播链。 */
   setTools(names: readonly string[]): void {
     if (this.deps.engine.setTools === undefined) {
       throw new Error(`引擎未实现运行期工具集直改接口（AgentEnginePort.setTools），无法设置为 ${names.join(", ")}`);
@@ -176,7 +176,7 @@ export class ChatService implements ChatPort {
   get sessionSnapshot() {
     return this.session.toSnapshot();
   }
-  /** 领域状态整体（持久化载荷，F(8).1 标准 1）：会话聚合 + 生命周期 + 工具记录。 */
+  /** 领域状态整体（持久化载荷，AD-16）：会话聚合 + 生命周期 + 工具记录。 */
   get persistedState() {
     return {
       session: this.session.toSnapshot(),
@@ -191,18 +191,18 @@ export class ChatService implements ChatPort {
 
   // ── ChatPort 实现 ────────────────────────────────────────
 
-  /** 发送用户消息：空闲开新轮次并驱动引擎；生成中转 steer 注入（返回值告诉 driving 侧去向——CLI/WS 据此回执）。T9 图片上行：images 可选（base64 data URL）——入口统一校验（parseDataUrlImages：≤4 张/格式/单张 ≤2MB）；仅 idle 分支消费；生成中携带抛错（steer 不带图，不静默丢图）。 */
+  /** 发送用户消息：空闲开新轮次并驱动引擎；生成中转 steer 注入（返回值告诉 driving 侧去向——CLI/WS 据此回执）。图片上行：images 可选（base64 data URL）——入口统一校验（parseDataUrlImages：≤4 张/格式/单张 ≤2MB）；仅 idle 分支消费；生成中携带抛错（steer 不带图，不静默丢图）。 */
   async sendMessage(text: string, images?: readonly string[]): Promise<SendOutcome> {
     if (text.trim() === "") {
       throw new Error("消息内容不能为空");
     }
-    // T9：入口统一校验（两分支共用；idle 分支随后透传，running 分支拒收）
+    // 入口统一校验（两分支共用；idle 分支随后透传，running 分支拒收）
     if (images !== undefined && images.length > 0) {
       parseDataUrlImages(images);
     }
     switch (this.lifecycle.current) {
       case "idle": {
-        // ① 消息落聚合：user Entry；T4：零条目会话首个用户条目落聚合后同步
+        // ① 消息落聚合：user Entry；零条目会话首个用户条目落聚合后同步
         //    触发转正回调（promoteDraft：instantiated 先于 message.completed 落盘）
         const isFirstEntry = this.session.isEmpty();
         const entry = this.session.appendUserEntry(text, this.now(), images);
@@ -222,7 +222,7 @@ export class ChatService implements ChatPort {
             this.settleRunEnd("aborted");
           }
         })();
-        this.activeRun = run; // T2.2：在飞 run 登记（whenSettled 等待面）
+        this.activeRun = run; // 在飞 run 登记（whenSettled 等待面）
         try {
           await run;
         } finally {
@@ -232,7 +232,7 @@ export class ChatService implements ChatPort {
       }
       case "running":
       case "steering": {
-        // T9 非目标防护：steer 注入不带图——生成中携带 images 抛错
+        // 非目标防护：steer 注入不带图——生成中携带 images 抛错
         if (images !== undefined && images.length > 0) {
           throw new ImageValidationError("生成中发送图片暂不支持（注入不带图），请等待本轮结束后再发");
         }
@@ -247,7 +247,7 @@ export class ChatService implements ChatPort {
     }
   }
 
-  /** 显式 steer 注入：instanceId 缺省/显式 main = 主实例路径（要求运行中）——applySteer 落 isSteer entry + SteerQueue.enqueue（domain 权威）+ 引擎 steer（执行机制）；instanceId = SubAgent id = 定向分支（T2.3）。 */
+  /** 显式 steer 注入：instanceId 缺省/显式 main = 主实例路径（要求运行中）——applySteer 落 isSteer entry + SteerQueue.enqueue（domain 权威）+ 引擎 steer（执行机制）；instanceId = SubAgent id = 定向分支。 */
   async steer(text: string, instanceId?: string): Promise<{ entryId: string }> {
     if (instanceId !== undefined && instanceId !== MAIN_INSTANCE_ID) {
       return this.steerInstance(instanceId, text);
@@ -262,7 +262,7 @@ export class ChatService implements ChatPort {
     return { entryId: entry.id };
   }
 
-  /** 定向 steer 分支（T2.3 契约 v0.3 §3.2，Q-3a）：① 转投 AgentOrchestrationPort.send（agent_send 同链路）；② delivered=false → SteerTargetNotRunningError，不落 Entry 不入队（TR-AD-21）；③ 已投递 → applyDirectedSteer 落主时间轴（不入主 SteerQueue、不双写实例 channel）+ steer.queued 信封挂 instanceId=目标。 */
+  /** 定向 steer 分支（契约 v0.3 §3.2，Q-3a）：① 转投 AgentOrchestrationPort.send（agent_send 同链路）；② delivered=false → SteerTargetNotRunningError，不落 Entry 不入队（TR-AD-21）；③ 已投递 → applyDirectedSteer 落主时间轴（不入主 SteerQueue、不双写实例 channel）+ steer.queued 信封挂 instanceId=目标。 */
   private steerInstance(instanceId: string, text: string): { entryId: string } {
     if (this.deps.sendToInstance === undefined) {
       throw new Error("定向 steer 通道未装配（ChatServiceDeps.sendToInstance 未注入，契约 v0.3 §3.2）");
@@ -284,7 +284,7 @@ export class ChatService implements ChatPort {
     }
   }
 
-  /** closure 注入主线（T2.3 AD-8 双通道之一；组合根接 SchedulerService 收口回调，非 ChatPort 成员）：idle 立即新 turn / running·steering 同队列同语义入队（source=closure，FIFO 保序）/ aborting·stopped 可观测丢弃。同步方法（调度链不 await）；新 turn fire-and-forget，异常经 engine.error 可观测不崩会话。 */
+  /** closure 注入主线（AD-8 双通道之一；组合根接 SchedulerService 收口回调，非 ChatPort 成员）：idle 立即新 turn / running·steering 同队列同语义入队（source=closure，FIFO 保序）/ aborting·stopped 可观测丢弃。同步方法（调度链不 await）；新 turn fire-and-forget，异常经 engine.error 可观测不崩会话。 */
   injectClosure(text: string): void {
     switch (this.lifecycle.current) {
       case "idle":
@@ -323,18 +323,18 @@ export class ChatService implements ChatPort {
     }
   }
 
-  /** 当前在飞 run 的 promise 引用（T1.4 捕获语义等待面）：无 run 时 null。调用方捕获引用后等待——期间新登记的 run 不延长等待（消灭原 while 轮询的「等到无 run」语义漂移）。 */
+  /** 当前在飞 run 的 promise 引用（捕获语义等待面）：无 run 时 null。调用方捕获引用后等待——期间新登记的 run 不延长等待（消灭原 while 轮询的「等到无 run」语义漂移）。 */
   currentRun(): Promise<void> | null {
     return this.activeRun;
   }
 
-  /** 等待**调用时刻**的在飞 run 收口（T2.2 AD-4；T1.4 捕获语义）：等待对象 = 调用时刻快照；run 异常向上抛（删除链 withTimeout 双通道 warn 兜底，T1.3）。仅等待主线引擎 run；SubAgent 由调度器 cancelSession 同步收口。 */
+  /** 等待**调用时刻**的在飞 run 收口（AD-4；捕获语义）：等待对象 = 调用时刻快照；run 异常向上抛（删除链 withTimeout 双通道 warn 兜底）。仅等待主线引擎 run；SubAgent 由调度器 cancelSession 同步收口。 */
   async whenSettled(): Promise<void> {
     const run = this.currentRun();
     if (run !== null) await run;
   }
 
-  // ── 引擎事件回流：薄路由（T2.4——12 case 按四关注点分族私有方法，本体无业务逻辑） ──
+  // ── 引擎事件回流：薄路由（12 case 按四关注点分族私有方法，本体无业务逻辑） ──
 
   private onEngineEvent(e: AgentEngineEvent): void {
     switch (e.type) {
@@ -357,7 +357,7 @@ export class ChatService implements ChatPort {
       case "compaction_completed": this.recordCompaction(e); break;
       case "tool_execution_start": this.recordToolExecutionStart(e); break;
       case "tool_execution_end": this.recordToolExecutionEnd(e); break;
-      // 可观测（无聚合动作，不崩会话——spike GO 附条件①）
+      // 可观测（无聚合动作，不崩会话）
       case "engine_error": this.publish("engine.error", { message: e.message }); break;
       default:
         break; // agent_start/turn_start 无领域动作
@@ -423,7 +423,7 @@ export class ChatService implements ChatPort {
   /** run 结束统一收口：Turn 终态 + 生命周期 idle。 */
   private settleRunEnd(reason: TurnCompletedPayload["reason"]): void {
     if (this.session.openTurn) {
-      // D12-1：直接语句调用不接返回值（与 finishOpenTurn 同构；Turn 返回面归口在 publish 落盘链，此处丢弃即原 void t 语义）
+      // 直接语句调用不接返回值（与 finishOpenTurn 同构；Turn 返回面归口在 publish 落盘链，此处丢弃即原 void t 语义）
       if (reason === "aborted") {
         this.session.interruptTurn(this.now());
         this.publish<TurnCompletedPayload>("turn.interrupted", { reason: "aborted", replyEntryId: undefined });
@@ -457,7 +457,7 @@ export class ChatService implements ChatPort {
 
   // ── 落盘族（领域状态落聚合 + 里程碑事件） ─────────────────
 
-  /** message_end(assistant)：thinking 块先落（流序对齐契约 §5.2；reasoningTokens 取本 turn usage.reasoning 收口）→ 非空文本落 Entry + message.completed → usage 入账子调用 → 预留清空。abort 空消息不落 Entry（空文本非语义单元），但已暂存 thinking 块仍以 reasoning=0 落账（G4 锚定面）；user/toolResult 已在注入/工具事件落账，不重复。 */
+  /** message_end(assistant)：thinking 块先落（流序对齐契约 §5.2；reasoningTokens 取本 turn usage.reasoning 收口）→ 非空文本落 Entry + message.completed → usage 入账子调用 → 预留清空。abort 空消息不落 Entry（空文本非语义单元），但已暂存 thinking 块仍以 reasoning=0 落账（锚定面）；user/toolResult 已在注入/工具事件落账，不重复。 */
   private recordAssistantMessage(e: EngineEventOf<"message_end">): void {
     this.flushPendingThinking(e.usage?.reasoning ?? 0);
     if (e.text.trim() !== "") {
@@ -501,7 +501,7 @@ export class ChatService implements ChatPort {
     this.publish<ToolCallPayload>("tool.call.started", { toolCallId: e.toolCallId, toolName: e.toolName, args: e.args });
   }
 
-  /** tool_execution_end：记录收口（completed/failed）+ 广播结果。T9 下行：images（工具截图 data URL）随记录/事件同点落账（工具卡缩略图源）。 */
+  /** tool_execution_end：记录收口（completed/failed）+ 广播结果。下行：images（工具截图 data URL）随记录/事件同点落账（工具卡缩略图源）。 */
   private recordToolExecutionEnd(e: EngineEventOf<"tool_execution_end">): void {
     const record = this.toolCalls.get(e.toolCallId);
     if (record) {
@@ -514,7 +514,7 @@ export class ChatService implements ChatPort {
     });
   }
 
-  /** 落 Buffer 暂存的 thinking 块：每块一条 ThinkingEntry + thinking.completed 事件（T3.1；reasoningTokens 为本 turn 关联值——块间共享，账目归 T3.2）。 */
+  /** 落 Buffer 暂存的 thinking 块：每块一条 ThinkingEntry + thinking.completed 事件（reasoningTokens 为本 turn 关联值——块间共享，账目归 UsageLedger）。 */
   private flushPendingThinking(reasoningTokens: number): void {
     for (const block of this.thinking.drain()) {
       const entry = this.session.appendThinkingEntry({
@@ -530,7 +530,7 @@ export class ChatService implements ChatPort {
     }
   }
 
-  // ── usage 族（T3.2 AD-4 事件即账：账本投影归组合根 fan-out 末端） ──
+  // ── usage 族（AD-4 事件即账：账本投影归组合根 fan-out 末端） ──
 
   /** turn 入账：message_end 携带 usage 即一条 usage.recorded(source=turn)。error 轮零值不入账（终验热修——零成本非真实计费）；工具轮中间 message_end(stopReason=toolUse) 无 usage 不入账。 */
   private publishTurnUsage(usage: UsageRecordedPayload["usage"]): void {
@@ -566,13 +566,13 @@ export class ChatService implements ChatPort {
       role,
       text,
       isSteer,
-      // T9 图片上行：user 消息携带图片附件（data URL 原样，事件/投影同源）
+      // 图片上行：user 消息携带图片附件（data URL 原样，事件/投影同源）
       ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}),
     });
   }
 
   private publish<P>(type: DomainEvent["type"], payload: P, turnId?: string, instanceId?: string): void {
-    // T2.1（AD-3）：只产事件——write-through 由会话投影消费者（SessionProjection）在 fan-out 末端触发（先事件行后状态行，全局 FIFO）。
+    // 只产事件——write-through 由会话投影消费者（SessionProjection）在 fan-out 末端触发（先事件行后状态行，全局 FIFO；AD-3）。
     this.deps.events.publish({
       type,
       sessionId: this.session.id,

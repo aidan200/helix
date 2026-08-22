@@ -1,15 +1,15 @@
 /**
- * handlers/ 共享上下文（T3.2，F-8 解环：ConnState / WsCommandContext 自
+ * handlers/ 共享上下文（解环：ConnState / WsCommandContext 自
  * WsServerAdapter / handlers/model 机械上收——纯 type 搬移，零运行时行为）。
  *
- * 解环前 F-8 三模块静态环：WsServerAdapter → handlers/auth（值导入）→
+ * 解环前三模块静态环：WsServerAdapter → handlers/auth（值导入）→
  * handlers/model（WsCommandContext type 导入）→ WsServerAdapter（ConnState
  * type 导入，回边）。两个类型定义上收本模块后，handlers/* 只依赖本模块
  * （type-only），不再有指回 WsServerAdapter 的边，环解。
  *
- * T3.2 handler 化：session/chat/agent/trace 族上下文类型同承本模块——12 个
+ * handler 化：session/chat/agent/trace 族上下文类型同承本模块——12 个
  * 内联 case 体自 WsServerAdapter.routeCommand 机械迁出（AD-1），依赖面经
- * 对应族上下文由 adapter 解构供出（T1.1 commandContext 先例模式）；快照
+ * 对应族上下文由 adapter 解构供出（commandContext 先例模式）；快照
  * 盖章链（snapshotFrame/sessionStamp）留 adapter，session/chat handler 经
  * 上下文回调机械引用零行为差（不为省行数造成第二份）。
  *
@@ -43,7 +43,7 @@ export interface ConnState {
   sender: FrameSender | null;
 }
 
-/** per-session 快照盖章（语义 = WsServerAdapter.sessionStamp：view 同源组装，禁 getStatus 串台——T5.1）。 */
+/** per-session 快照盖章（语义 = WsServerAdapter.sessionStamp：view 同源组装，禁 getStatus 串台）。 */
 export type SessionStamp = (view: SessionStateView) => { model: string; agentState: AgentStateDto };
 
 /** session.snapshot 组帧（语义 = WsServerAdapter.snapshotFrame：AD-1 尾窗口径；实现留 adapter）。 */
@@ -82,7 +82,7 @@ export interface WsCommandContext {
 
 /**
  * session 族命令处理上下文（list / loadHistory / delete / subscribe /
- * unsubscribe，T2.2 契约 B §1）：SessionDirectoryPort（目录/视图/删除）+
+ * unsubscribe，契约 B §1）：SessionDirectoryPort（目录/视图/删除）+
  * EventStream 订阅面（重新订阅重推快照链）+ 快照盖章链回调 + 共享辅助。
  * 目标会话解析（resolveTargetSession）随族迁 handlers/session.ts 模块内。
  */
@@ -114,7 +114,7 @@ export interface SessionCommandContext {
 /**
  * chat 族命令处理上下文（send 含草稿建会话链 / steer / abort）：ChatPort
  * 发送面 + SessionDirectoryPort（草稿建会话/视图取数）+ EventStream（建会话
- * 订阅）+ 快照盖章链回调（草稿快照盖新会话自身章，T5.1）+ 共享辅助。
+ * 订阅）+ 快照盖章链回调（草稿快照盖新会话自身章）+ 共享辅助。
  */
 export interface ChatCommandContext {
   /** 命令来源连接（草稿链快照回执端 = ws.data.sender）。 */
@@ -125,7 +125,7 @@ export interface ChatCommandContext {
   readonly payload: Record<string, unknown>;
   /** 命令信封（会话作用域命令的 sessionId 路由位，v0.2）。 */
   readonly envelope: { sessionId?: unknown };
-  /** 会话路由对话入口（T2.2：组合根 ChatRouter——按信封 sessionId 分发）。 */
+  /** 会话路由对话入口（组合根 ChatRouter——按信封 sessionId 分发）。 */
   readonly chat: SessionChatPort;
   /** 会话目录（草稿建会话链 startDraftSession + getSessionView）。 */
   readonly directory: SessionDirectoryPort;
@@ -162,7 +162,7 @@ export interface AgentCommandContext {
 }
 
 /**
- * trace 族命令处理上下文（trace.query，T2.1 契约 v0.4 §1）：trace 读面
+ * trace 族命令处理上下文（trace.query，契约 v0.4 §1）：trace 读面
  * （未装配 → undefined，handler 回 command.unimplemented——连接私有读面）。
  */
 export interface TraceCommandContext {
@@ -183,7 +183,7 @@ export interface TraceCommandContext {
 }
 
 /**
- * agent.config 族命令处理上下文（v0.6，M6 T3）：ResourceConfigPort
+ * agent.config 族命令处理上下文（v0.6）：ResourceConfigPort
  * （配置读写面）+ 合并目录校验窄函数（model 型前置校验 hasModel，
  * ModelService.setModel 先例）+ EventStream（applied 时 agent.config.changed
  * 广播）+ 共享辅助。全局命令（信封 sessionId 不消费）。
@@ -210,7 +210,7 @@ export interface ResourceCommandContext {
 }
 
 /**
- * web 族命令处理上下文（v0.7，T4 联网状态图标）：BrowserPort（连接状态
+ * web 族命令处理上下文（v0.7）：BrowserPort（连接状态
  * 读面 getStatus + listTabs / 停止写面 stop）+ 共享辅助。全局命令
  *（信封 sessionId 不消费）。状态变更广播不走本上下文——由组合根
  * onStatusChange 接线直发（web.stop 后的 idle 回流同路径，handler 不重复广播）。

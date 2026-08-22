@@ -1,11 +1,11 @@
 import type { ProfileSnapshotData } from "../events/DomainEvent";
 
 /**
- * TraceQuery —— trace 查询面纯语义（iter-20260819-erio T2.1，CL-5/F5.5~F5.7；
- * architecture.md §3.5b 伪代码级设计，用户审阅定稿；契约 v0.4 §1/§4）。
+ * TraceQuery —— trace 查询面纯语义（契约 v0.4 §1/§4；
+ * architecture.md §3.5b 伪代码级设计定稿）。
  *
  * domain 纯数据 + 纯函数（framework-free，零 import 外层，对照
- * SchedulingPolicy 惯例）。T3.1（M4 投资批）：normalizeTraceQuery /
+ * SchedulingPolicy 惯例）。投影收敛：normalizeTraceQuery /
  * hasMoreBefore / TRACE_PAGE_* 常量已迁 @helix/protocol projection/trace.ts
  * 单源（fake 镜像段同批退役；本文件保留 normalize 产物类型面
  * NormalizedTraceQuery——TraceQueryPort 签名在用，AG-02 禁 domain import
@@ -51,7 +51,7 @@ export interface TraceEventRowData {
   readonly payload: unknown;
 }
 
-// ── 执行上下文 fold（F5.2 双段：基准快照 + 变更轨迹） ──────
+// ── 执行上下文 fold（双段：基准快照 + 变更轨迹） ──────
 
 export interface ModelChangeEntry {
   readonly from: string;
@@ -110,7 +110,7 @@ export function assembleExecutionContext(events: readonly TraceEventRowData[]): 
   };
 }
 
-// ── 实例面板 fold（F5.1；会话级，不受 events 过滤维影响） ──
+// ── 实例面板 fold（会话级，不受 events 过滤维影响） ──
 
 /** 实例聚合行（COUNT/MIN/MAX GROUP BY agent_instance_id 查询产物）。 */
 export interface InstanceAggregateRow {

@@ -1,7 +1,7 @@
 import type { NormalizedTraceQuery, TraceEventRowData, TraceInstanceRecord } from "./TraceQuery";
 
 /**
- * TraceQueryPort —— trace 读面 inbound port（iter-20260819-erio T2.1，
+ * TraceQueryPort —— trace 读面 inbound port（
  * architecture.md §3.5b 用户审阅修正：trace 读路径独立 port，**不焊**
  * SessionRepositoryPort——后者回到纯聚合职责，DomainEventQuery 不动）。
  *
@@ -12,7 +12,7 @@ import type { NormalizedTraceQuery, TraceEventRowData, TraceInstanceRecord } fro
  * 同步形态（bun:sqlite 同步读；与 SessionRepositoryPort.queryEvents 同步先例一致）。
  */
 export interface TraceQueryResultSet {
-  /** 实际生效的归一过滤（= 结果帧 filterEcho 数据源，AF-5）。 */
+  /** 实际生效的归一过滤（= 结果帧 filterEcho 数据源）。 */
   readonly filter: NormalizedTraceQuery;
   /** 本页事件行（id 降序 = 最新在前；游标/过滤已生效）。 */
   readonly rows: readonly TraceEventRowData[];
@@ -20,7 +20,7 @@ export interface TraceQueryResultSet {
   readonly total: number;
   /** rows.length === limit（可能还有更早页；恰整除边界多一次空载，记录在案）。 */
   readonly hasMore: boolean;
-  /** 实例面板摘要块（会话级 fold，不受 events 过滤维影响，AF-5）。 */
+  /** 实例面板摘要块（会话级 fold，不受 events 过滤维影响）。 */
   readonly instances: readonly TraceInstanceRecord[];
 }
 
@@ -29,7 +29,7 @@ export interface TraceQueryPort {
    * 执行 trace 查询。入参 = WS payload（未信 unknown）——normalize 收口在
    * 实现类入口（architecture.md §3.5b「调仓储前」；AG-12 纪律下 driving 侧
    * 对 domain 仅 type-only 引用，校验规则调用归 driven adapter）。
-   * 校验失败抛 TraceQueryInvalidError（T3.1 起单源 @helix/protocol
+   * 校验失败抛 TraceQueryInvalidError（起单源 @helix/protocol
    * projection；driving 侧映射 command.invalid_payload 回执）。
    */
   queryTrace(input: unknown): TraceQueryResultSet;

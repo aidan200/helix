@@ -14,8 +14,8 @@ import type {
 } from "../ports/inbound/ResourceConfigPort";
 
 /**
- * ResourceService —— profile kind 维资源启停的合取计算层（M6 T1，数据域
- * 终点：本任务只到「数据与合取计算」，state 刷新归 T2、契约归 T3）。
+ * ResourceService —— profile kind 维资源启停的合取计算层（数据域
+ * 终点：本服务只到「数据与合取计算」，刷新链经事件发布）。
  *
  * 【语义核心】缺省无记录 = 启用（零配置兼容现状，存量零迁移）：
  * 生效集 = 全集（profile tools 声明 / SkillScanner 扫描产物）∩ kind 启用集
@@ -28,11 +28,11 @@ import type {
  *
  * 【toggle 未知名】显式跳过不落库（{ status: "skipped" }）：全集之外的名
  * （如 subagent 禁 agent_spawn）无生效面，落库只会制造永不生效的差异行。
- * 【builtin 防护】（T5 内置第三源）：builtin 技能不进 resource_state——
+ * 【builtin 防护】（内置第三源）：builtin 技能不进 resource_state——
  * setEnabled 返回 { status: "skipped", reason: "builtin-immutable" }，
  * 读面恒启用（缺省无记录 = 启用语义天然覆盖）。
  *
- * M6 T3：结构满足 ResourceConfigPort（agent.config 命令族回口，AG-12
+ * 结构满足 ResourceConfigPort（agent.config 命令族回口，AG-12
  * driving 只 import ports）；list 增透传扫描诊断（契约读面），toggle 以
  * setEnabled 别名暴露（模型槽位写面分流在 driving 层）。
  */
@@ -44,13 +44,13 @@ export class ResourceService implements ResourceConfigPort {
       /** kind → tools 全集（组合根从两 profile 声明面构建）。 */
       readonly toolsCatalog: Readonly<Record<ProfileKind, readonly string[]>>;
       /** 工具名 → 中文一句话 snippet（组合根注入 ToolPromptSnippets 注册表；
-       *  M6 T4：list 读面向契约 DTO 透传——注册表外名 = 空串）。 */
+       * list 读面向契约 DTO 透传——注册表外名 = 空串）。 */
       readonly toolSnippets: Readonly<Record<string, string>>;
       /**
-       * 生效集变更发布面（M6 T2 → T2.2 事件化，架构 §4.2.3）：toggle
+       * 生效集变更发布面（事件化，架构 §4.2.3）：toggle
        * applied 后同步发布 resources.changed（await 链——订阅侧刷新收口
        * 后 setEnabled 才返回，与旧 onApplied 回调链行为等价）；未知名
-       * skipped 不发布。供 T3 WS 命令复用（命令只调 toggle，刷新链单点在
+       * skipped 不发布。供 WS 命令复用（命令只调 toggle，刷新链单点在
        * 订阅侧）。发布面经组合根注入（application 不 import infrastructure）。
        */
       readonly publishResourceChanged?: (kind: ProfileKind) => void | Promise<void>;
@@ -95,26 +95,26 @@ export class ResourceService implements ResourceConfigPort {
     if (resourceType === "skill") {
       const skill = (await this.deps.skills.scan()).skills.find((s) => s.name === name);
       if (!skill) return { status: "skipped", reason: "unknown-name" };
-      // T5 builtin 防护：内置技能不进 resource_state（不可禁用）——显式
+      // builtin 防护：内置技能不进 resource_state（不可禁用）——显式
       // skipped 不落禁用记录；读面恒启用（缺省无记录 = 启用天然覆盖）
       if (skill.source === "builtin") return { status: "skipped", reason: "builtin-immutable" };
     } else if (!this.deps.toolsCatalog[kind].includes(name)) {
       return { status: "skipped", reason: "unknown-name" };
     }
     await this.deps.store.upsert(kind, resourceType, name, enabled);
-    await this.deps.publishResourceChanged?.(kind); // M6 T2：落库后同步刷新（读面四级链 write-through 语义）
+    await this.deps.publishResourceChanged?.(kind); // 落库后同步刷新（读面四级链 write-through 语义）
     return { status: "applied" };
   }
 
   /**
-   * 生效工具集（T2 消费面：resolveTools 产物同源派生的输入）——同步读
+   * 生效工具集（消费面：resolveTools 产物同源派生的输入）——同步读
    *（store 读面同步 + write-through，await 的 toggle 落盘后必见新行）。
    */
   getEffectiveTools(kind: ProfileKind): readonly string[] {
     return this.deps.toolsCatalog[kind].filter((name) => this.enabledOf(kind, "tool", name));
   }
 
-  /** 生效技能集（T2 消费面：提示注入三字段 + source 的完整描述符）。 */
+  /** 生效技能集（消费面：提示注入三字段 + source 的完整描述符）。 */
   async getEffectiveSkills(kind: ProfileKind): Promise<readonly SkillDescriptor[]> {
     const scanned = await this.deps.skills.scan();
     return scanned.skills.filter((s) => this.enabledOf(kind, "skill", s.name));
@@ -135,17 +135,17 @@ export class ResourceService implements ResourceConfigPort {
     await this.deps.store.clearModelSlot(kind);
   }
 
-  /** 同义保留名（T1 起）：ResourceConfigPort.setEnabled 的旧调用面。 */
+  /** 同义保留名（旧调用面）：ResourceConfigPort.setEnabled。 */
   toggle(kind: ProfileKind, resourceType: ResourceType, name: string, enabled: boolean): Promise<ResourceToggleOutcome> {
     return this.setEnabled(kind, resourceType, name, enabled);
   }
 
-  /** model 槽位写（T1 起保留名）：setModelSlot 同义。 */
+  /** model 槽位写（旧调用面保留名）：setModelSlot 同义。 */
   setModel(kind: ProfileKind, model: string): Promise<void> {
     return this.setModelSlot(kind, model);
   }
 
-  /** model 槽位清除（T1 起保留名）：clearModelSlot 同义。 */
+  /** model 槽位清除（旧调用面保留名）：clearModelSlot 同义。 */
   clearModel(kind: ProfileKind): Promise<void> {
     return this.clearModelSlot(kind);
   }

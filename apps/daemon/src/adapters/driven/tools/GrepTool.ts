@@ -7,9 +7,9 @@ import type {
 import { getOrThrow } from "@earendil-works/pi-agent-core/node";
 
 /**
- * GrepTool —— 自写 grep 工具（F(5).1 标准 2，AD-10）。
+ * GrepTool —— 自写 grep 工具（AD-10）。
  *
- * 分两半（test-design TP-CL5-2）：
+ * 分两半（test-design）：
  * - **匹配核心 = 纯函数**（本文件上半区）：输入内存数据（文件清单 +
  *   查询），输出命中行列表；零 fs/node API、零框架依赖，可单测。
  * - **文件遍历 = 薄封装**（下半区）：走注入的 ExecutionEnv（与 core
