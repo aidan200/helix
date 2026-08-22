@@ -10,6 +10,7 @@
     "dev": "bun apps/daemon/src/main.ts",
     "audit:assert": "bun scripts/audit-assert.ts",
     "audit:a11y": "node scripts/perf-a11y-audit.mjs",
+    "fetch:rg": "bun scripts/fetch-rg.ts",
     "dev:shell": "bun run --cwd=apps/shell dev",
     "test": "bun test apps/daemon",
     "test:shell": "vitest run apps/shell",
