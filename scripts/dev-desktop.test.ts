@@ -25,6 +25,9 @@ import {
   renderInstallHint,
 } from "./dev-desktop";
 
+// H-1 TDD-RED：以下 import 的符号尚未实现（先红后绿）
+import { ensureRgAvailable, tauriDevArgs, TAURI_DEV_CONFIG_OVERRIDE } from "./dev-desktop";
+
 const root = join(import.meta.dir, "..");
 const SCRIPT = join(root, "scripts/dev-desktop.ts");
 
@@ -223,6 +226,101 @@ describe("ps 快照解析（teardown 进程树枚举纯函数面）", () => {
     expect(collectDescendantPids(1, edges).sort((a, b) => a - b)).toEqual([10, 11, 20, 21]);
     expect(collectDescendantPids(10, edges).sort((a, b) => a - b)).toEqual([20, 21]);
     expect(collectDescendantPids(99, edges)).toEqual([]);
+  });
+});
+
+// ── H-1 方案 C：tauri dev override 组装（RFC 7386 覆盖语义）────────
+
+describe("tauriDevArgs（H-1 方案 C：dev 剥离 bundle 资源生产校验）", () => {
+  test("携带 --config，override 为 v2 格式且数组字段覆盖写法精确", () => {
+    const args = tauriDevArgs();
+    expect(args.slice(0, 2)).toEqual(["tauri", "dev"]);
+    const idx = args.indexOf("--config");
+    expect(idx).toBeGreaterThanOrEqual(2);
+    const override = JSON.parse(args[idx + 1]!);
+    // v2 格式：无 tauri 包装键（v1 风格被 schema 拒绝，实测）
+    expect(override).not.toHaveProperty("tauri");
+    // 数组字段覆盖：externalBin 空数组 → dev 对 daemon 二进制零检查
+    expect(override.bundle.externalBin).toEqual([]);
+    // 回归钉：resources 必须是 [] 而非 {}——RFC 7386 下 {} 对 map 字段
+    // 是递归合并空操作（不删键），实测 {} 时 rg 缺失报错依旧
+    expect(override.bundle.resources).toEqual([]);
+  });
+
+  test("override 常量与 args 内嵌值一致（单源）", () => {
+    const args = tauriDevArgs();
+    expect(args[args.indexOf("--config") + 1]).toBe(TAURI_DEV_CONFIG_OVERRIDE);
+    expect(JSON.parse(TAURI_DEV_CONFIG_OVERRIDE)).toEqual({
+      bundle: { externalBin: [], resources: [] },
+    });
+  });
+
+  test("vite 端口覆盖位注入 → devUrl 随动（tauri dev 前端等待钉对端口）", () => {
+    // F4.2 隐患修复：HELIX_DESKTOP_VITE_PORT 覆盖后 tauri dev 的 devUrl
+    // 等待必须钉覆盖端口，否则等默认 5173 空等 180s exit(1)，编排永远起不来
+    const args = tauriDevArgs("15173");
+    const override = JSON.parse(args[args.indexOf("--config") + 1]!);
+    expect(override.bundle).toEqual({ externalBin: [], resources: [] });
+    expect(override.build.devUrl).toBe("http://localhost:15173");
+    // 无注入位时不得带 build 键（生产默认路径零干扰）
+    expect(JSON.parse(TAURI_DEV_CONFIG_OVERRIDE)).not.toHaveProperty("build");
+  });
+});
+
+// ── H-1 动作③：rg 自动补判定（探测/安装注入，全分支）─────────────
+
+describe("ensureRgAvailable（H-1 rg 环境无关：存在性检查 + 缺失自动 fetch）", () => {
+  test("已装且校验通过 → 幂等跳过，不触发安装", async () => {
+    let installs = 0;
+    const r = await ensureRgAvailable(
+      async () => true,
+      async () => {
+        installs++;
+      },
+    );
+    expect(r).toEqual({ attempted: false, ok: true, warning: "" });
+    expect(installs).toBe(0);
+  });
+
+  test("缺失 → 自动触发安装，成功则 ok", async () => {
+    let installs = 0;
+    const r = await ensureRgAvailable(
+      async () => false,
+      async () => {
+        installs++;
+      },
+    );
+    expect(r.attempted).toBe(true);
+    expect(r.ok).toBe(true);
+    expect(r.warning).toBe("");
+    expect(installs).toBe(1);
+  });
+
+  test("缺失 + 安装失败 → 一行警告不抛出（dev 继续，PATH/config 三级解析兜底）", async () => {
+    const r = await ensureRgAvailable(
+      async () => false,
+      async () => {
+        throw new Error("下载失败：HTTP 404");
+      },
+    );
+    expect(r.attempted).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.warning).not.toContain("\n");
+    expect(r.warning).toContain("HTTP 404");
+  });
+
+  test("探测函数抛错视为未装（健壮性）→ 走安装分支", async () => {
+    let installs = 0;
+    const r = await ensureRgAvailable(
+      async () => {
+        throw new Error("lipo 异常");
+      },
+      async () => {
+        installs++;
+      },
+    );
+    expect(r.attempted).toBe(true);
+    expect(installs).toBe(1);
   });
 });
 

@@ -7,6 +7,10 @@
  *    判定逻辑 = 注入探测函数的纯函数 checkRustToolchain（全分支可单测）。
  *    自检只在本入口——`bun run dev`（daemon 直跑）不检 cargo：Rust 是
  *    Tauri 壳构建前提，非 helix 运行时依赖（§4.6）。
+ *    H-1 扩：rg 存在性检查 + 缺失自动 fetch-rg（幂等；fetch 失败一行
+ *    警告不阻塞 dev——dev rg 走 PATH/config 三级解析兜底，顺带为 build
+ *    暖场）。daemon 二进制 dev 零检查（②的 --config override 剥离
+ *    externalBin 生产校验后自然兑现，不设任何检查代码）。
  * ② 三进程编排（F4.2）：daemon（bun 直跑 apps/daemon/src/main.ts 源码，
  *    禁 compile 产物，TR-AD-35）+ vite dev（apps/shell）+ tauri dev。
  *    dev 形态 daemon 经壳 sidecar 机制起跑（contracts/sidecar-lifecycle.md
@@ -24,8 +28,9 @@
  *   daemon 默认 ~/.helix）。daemon 端口经 `<home>/config.json` 的 port
  *   键注入（既有配置面，非本脚本旋钮）。
  * - HELIX_DESKTOP_VITE_PORT：vite dev 端口覆盖（测试隔离位；缺省 =
- *   vite 默认 5173，与 tauri.conf devUrl 对齐——覆盖后窗口 devUrl 不随
- *   动，仅供不依赖窗口内容的编排面自动化断言使用）。
+ *   vite 默认 5173，与 tauri.conf devUrl 对齐）。覆盖后经 --config 同步
+ *   override build.devUrl 随动——tauri dev 启动前等待 devUrl 可达，不随动
+ *   会空等默认 5173 致 180s 超时退出（F4.2 隐患，H-1 顺带修复）。
  *
  * 工程层脚本，不被 apps 任何层 import（架构 §5.2）。
  * 用法：bun run dev:desktop
@@ -33,6 +38,7 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { installFromRelease, isInstalled } from "./fetch-rg";
 
 // ── 前置自检（F4.1，纯函数面）──────────────────────────────
 
@@ -66,6 +72,93 @@ function pathProbe(bin: string): boolean {
   } catch {
     return false;
   }
+}
+
+// ── H-1 方案 C：dev 剥离 bundle 资源生产校验 ─────────────────────
+
+/**
+ * tauri dev --config override（H-1）：dev 形态不消费 externalBin（daemon
+ * 经壳 sidecar wrapper 跑源码）与 bundle.resources（dev rg 走 PATH/config
+ * 三级解析），剥离后干净态 dev 不再被 tauri-build 生产资源校验误伤。
+ *
+ * 写法硬约束（2026-08-22 实测，tauri-cli 2.11.4 / tauri-build 2.6.3 双侧
+ * 均用 json_patch::merge = RFC 7386 JSON Merge Patch）：
+ * - 数组字段（externalBin）覆盖语义成立 → [] 剥离；
+ * - map 字段（resources）必须写 [] 而非 {}——RFC 7386 下 {} 是递归合并
+ *   空操作（不删键），[] 非对象 patch 整体替换；
+ * - 必须 v2 格式（无 "tauri" 包装键，v1 风格被 schema 校验拒绝）。
+ * 只作用于 dev CLI 参数；tauri.conf.json 生产三通道声明零改动（TR-AD-34）。
+ */
+export const TAURI_DEV_CONFIG_OVERRIDE = '{"bundle":{"externalBin":[],"resources":[]}}';
+
+/**
+ * tauri dev --config override JSON 组装（纯函数，可单测）。
+ * vitePort 注入位（HELIX_DESKTOP_VITE_PORT 测试隔离位）：覆盖后 devUrl
+ * 必须随动——tauri dev 启动前会等待 devUrl 可达（CLI 侧 90×2s=180s
+ * 超时 exit(1)），不随动则空等默认 5173 致编排永远起不来（F4.2 隐患）。
+ */
+export function tauriDevConfigOverride(vitePort?: string): string {
+  if (!vitePort) return TAURI_DEV_CONFIG_OVERRIDE;
+  return JSON.stringify({
+    bundle: { externalBin: [], resources: [] },
+    build: { devUrl: `http://localhost:${vitePort}` },
+  });
+}
+
+/** tauri dev 命令参数组装（纯函数，override 单源于 tauriDevConfigOverride）。 */
+export function tauriDevArgs(vitePort?: string): string[] {
+  return ["tauri", "dev", "--config", tauriDevConfigOverride(vitePort)];
+}
+
+// ── H-1 动作③：rg 环境无关自动补（幂等，失败不阻塞 dev）─────────
+
+export interface RgEnsureResult {
+  /** 是否触发了安装（false = 已装幂等跳过）。 */
+  readonly attempted: boolean;
+  /** 最终 rg 可用（已装跳过或安装成功）。 */
+  readonly ok: boolean;
+  /** ok=false 时的一行警告；否则空串。 */
+  readonly warning: string;
+}
+
+/**
+ * rg 存在性检查 + 缺失自动 fetch（H-1：环境无关 + 为 build 暖场）。
+ * 探测/安装函数注入（全分支可单测）；探测抛错视为未装；安装失败
+ * 不抛出——返回一行警告由调用面输出，dev 继续（PATH/config 三级解析兜底）。
+ */
+export async function ensureRgAvailable(
+  probe: () => Promise<boolean>,
+  install: () => Promise<unknown>,
+): Promise<RgEnsureResult> {
+  let installed = false;
+  try {
+    installed = await probe();
+  } catch {
+    installed = false;
+  }
+  if (installed) return { attempted: false, ok: true, warning: "" };
+  try {
+    await install();
+    return { attempted: true, ok: true, warning: "" };
+  } catch (e) {
+    return {
+      attempted: true,
+      ok: false,
+      warning:
+        `⚠ dev:desktop 自动获取 rg 失败（${e instanceof Error ? e.message : e}）——` +
+        `dev 继续（grep 走 PATH/config 三级解析兜底）；为 build 暖场可手动 bun scripts/fetch-rg.ts`,
+    };
+  }
+}
+
+/** 生产面：fetch-rg 默认落位（RG_DEST）的存在性 + arm64 校验。 */
+function rgProbe(): Promise<boolean> {
+  return isInstalled();
+}
+
+/** 生产面：fetch-rg 固定版本下载安装（幂等）。 */
+async function rgInstall(): Promise<unknown> {
+  return installFromRelease();
 }
 
 // ── 进程树枚举（macOS dev 面：ps 快照 + ppid 递推）─────────
@@ -158,6 +251,10 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  // H-1 动作③：rg 存在性检查 + 缺失自动 fetch（幂等）；失败一行警告不阻塞
+  const rg = await ensureRgAvailable(rgProbe, rgInstall);
+  if (!rg.ok) console.error(rg.warning);
+
   const root = join(import.meta.dir, "..");
   const shellDir = join(root, "apps/shell");
   const workDir = mkdtempSync(join(tmpdir(), "helix-dev-desktop-"));
@@ -191,7 +288,9 @@ async function main(): Promise<number> {
     {
       name: "tauri dev",
       proc: Bun.spawn({
-        cmd: ["cargo", "tauri", "dev"],
+        // H-1 方案 C：--config override 剥离 bundle 资源生产校验（常量单源）；
+        // vite 端口覆盖位透传 → devUrl 随动（tauri dev 前端等待钉对端口）
+        cmd: ["cargo", ...tauriDevArgs(process.env.HELIX_DESKTOP_VITE_PORT)],
         cwd: shellDir,
         env: { ...process.env, HELIX_SIDECAR_PATH: wrapper },
         stdin: "ignore",
