@@ -211,7 +211,12 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-if (import.meta.main) {
+/**
+ * 子进程入口（两形态同一路径）：dev = bun 直跑本文件（import.meta.main
+ * 守卫）或经 main.ts `--child-main` argv 分发；compile 产物 = 内嵌 main.ts
+ * 分发（main.ts 与本文件同 bundle，spawn 自身产物重入）。
+ */
+export function runChildMainEntry(): void {
   main().catch((err) => {
     process.stdout.write(
       encodeLine({
@@ -222,4 +227,8 @@ if (import.meta.main) {
     );
     process.exit(1);
   });
+}
+
+if (import.meta.main) {
+  runChildMainEntry();
 }

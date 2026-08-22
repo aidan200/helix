@@ -31,8 +31,14 @@ import type { ChildOutboundLine } from "./transport/wire";
  * （deps.model getter，注入源模式保留）。
  */
 
-/** ChildMain 入口路径（与 Launcher 同目录树；bun 直跑 .ts）。 */
-const CHILD_MAIN_PATH = join(import.meta.dir, "child", "ChildMain.ts");
+/**
+ * daemon 入口路径（main.ts，与子进程 spawn 命令配套的入口实参）：
+ * dev 形态 = bun 直跑本仓 main.ts 源码；compile 形态该实参被产物惰性忽略
+ * （$bunfs 虚拟路径，产物恒重入内嵌 main）——两形态同一 argv 组装
+ * （`[execPath, 入口, "--child-main", ...]`，main.ts argv 分发进 ChildMain
+ * 逻辑），无形态自检分叉。
+ */
+const DAEMON_ENTRY_PATH = join(import.meta.dir, "..", "..", "..", "main.ts");
 
 export interface SubagentLauncherDeps {
   /** SubAgent profile 声明（装配进子进程；kind 不分支——声明同构，TR-AD-4）。 */
@@ -155,7 +161,7 @@ export class SubagentLauncher implements InstanceRunner {
     // spawn 实例 env 已定格不受影响——代际生效）
     const snapshot = this.deps.spawnSnapshot?.();
     const proc = Bun.spawn({
-      cmd: [process.execPath, CHILD_MAIN_PATH, "--task", task],
+      cmd: [process.execPath, DAEMON_ENTRY_PATH, "--child-main", "--task", task],
       env: {
         ...process.env,
         HELIX_INSTANCE_ID: id,
