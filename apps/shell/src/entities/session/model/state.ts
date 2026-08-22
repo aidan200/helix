@@ -390,7 +390,7 @@ export type SessionAction =
   /** 新建草稿（F(1.2).1）：活跃会话转后台轻量照常执行，活跃 store 置空
    *  草稿态（sessionId=null + view=ready；provider 已发 unsubscribe 旧会话） */
   | { type: "session/new-draft" }
-  /** 滚动到顶触发加载更早历史（hasMore 门控；provider 据此发 loadHistory 命令） */
+  /** 加载更早历史（H-2：唯一触发面 = 分页胶囊点击；hasMore 门控；provider 据此发 loadHistory 命令） */
   | { type: "ui/load-earlier" }
   // ── 模型/厂商配置 action（T3.3；UI 命令发送同刻 dispatch，终态由结果帧驱动）──
   /** 点击「测试连通」：目标 provider 置 verifying（先清旧 ok/fail）+ in-flight 锁定 */

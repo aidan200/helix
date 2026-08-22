@@ -5,7 +5,7 @@
  * 自 ThinkingBlock.test.tsx 拆出（T4.3：ThinkingBlock 上移 shared/ui 后，
  * MessageFlow 集成断言按 FSD 分层归位 widgets/chat-stream）。
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import type { EventEnvelope, ThinkingEntryDto } from "@helix/protocol";
@@ -13,9 +13,14 @@ import { createInitialSessionState, sessionReducer, type SessionState } from "@/
 
 // ── SessionContext mock（state 注入；selectIsEmpty 等保持真体）──
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
+/** loadEarlierHistory 探针（H-2：滚动触发退役 / 按钮唯一触发面断言）。 */
+const loadEarlierSpy = vi.fn();
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
-  return { ...orig, useSession: () => ({ state: stateRef.current }) };
+  return {
+    ...orig,
+    useSession: () => ({ state: stateRef.current, loadEarlierHistory: loadEarlierSpy }),
+  };
 });
 
 import MessageFlow from "./MessageFlow";
@@ -179,6 +184,68 @@ describe("MessageFlow 挂载（三态分流；消费 T4.1 槽位）", () => {
     ].reduce((s, e) => sessionReducer(s, { type: "event", event: e }), createInitialSessionState());
     ui(<MessageFlow />);
     expect(document.querySelector(".think-live")).toBeNull();
+  });
+});
+
+// ── H-2 热修：滚动语义（去滚动触发 + 切换贴底 + 前插补偿回归）────────
+
+describe("MessageFlow 滚动语义（H-2 热修）", () => {
+  const msg = (id: string) =>
+    ({ kind: "message", id, role: "user", content: `text-${id}`, ts: 1 }) as const;
+  const stateWith = (sessionId: string, ids: string[]): SessionState => ({
+    ...createInitialSessionState(),
+    sessionId,
+    view: "ready",
+    entries: ids.map((id) => msg(id)),
+    history: { hasMore: true, nextCursor: "cursor-1", loading: false, total: 99, paged: true },
+  });
+  const flowEl = () => document.querySelector<HTMLElement>(".msg-flow")!;
+  /** jsdom 无布局：scrollHeight 以 own property 注入（configurable 可重定义）。 */
+  const setScrollHeight = (h: number) =>
+    Object.defineProperty(flowEl(), "scrollHeight", { value: h, configurable: true });
+  const renderFlow = () => render(<I18nProvider><MessageFlow /></I18nProvider>);
+
+  beforeEach(() => loadEarlierSpy.mockClear());
+
+  it("滚顶不再触发 loadEarlier（滚动监听退役）；胶囊按钮为唯一触发面", () => {
+    stateRef.current = stateWith("sA", ["m1", "m2"]);
+    renderFlow();
+    fireEvent.scroll(flowEl(), { target: { scrollTop: 0 } });
+    expect(loadEarlierSpy).not.toHaveBeenCalled();
+    // 按钮通道保留（胶囊可点 → 触发一次）
+    fireEvent.click(screen.getByText(/加载更早的消息/));
+    expect(loadEarlierSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("会话切换 → 贴底（不误判为前插吃旧会话陈旧高度）", () => {
+    stateRef.current = stateWith("sA", ["m1", "m2"]);
+    const { rerender } = renderFlow();
+    // 旧会话内容高 1000：追加一条同会话消息采样锚定基线（非前插 → 贴底）
+    setScrollHeight(1000);
+    stateRef.current = stateWith("sA", ["m1", "m2", "m3"]);
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    expect(flowEl().scrollTop).toBe(1000);
+    // 模拟切换 loading 期内容坍塌：浏览器把 scrollTop 夹到 0（jsdom 无夹取，手动模拟）
+    flowEl().scrollTop = 0;
+    // 快照到达：新会话更短（高 300）。误判前插时补偿 = 300-1000+0 = -700
+    setScrollHeight(300);
+    stateRef.current = stateWith("sB", ["n1"]);
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    expect(flowEl().scrollTop).toBe(300); // 贴底 = scrollHeight
+  });
+
+  it("同会话前插 → 视口锚定补偿保持（回归守护）", () => {
+    stateRef.current = stateWith("sA", ["m1", "m2"]);
+    const { rerender } = renderFlow();
+    setScrollHeight(1000);
+    stateRef.current = stateWith("sA", ["m1", "m2", "m3"]);
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    // 用户滚到顶（scrollTop=0）→ 前插一页（新首条 m0，新增高度 300）
+    flowEl().scrollTop = 0;
+    setScrollHeight(1300);
+    stateRef.current = stateWith("sA", ["m0", "m1", "m2", "m3"]);
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    expect(flowEl().scrollTop).toBe(300); // 1300-1000+0：原首条保持在视口原位
   });
 });
 

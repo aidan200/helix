@@ -4,9 +4,9 @@
  *
  * 剧本（超尾窗 N=45 > 尾窗 30，参数注入自 scenarios）：
  * ① A 会话尾窗快照（tailStartCursor 携带）→ probe data-history=more；
- * ② 滚动到顶 → session.loadHistory 命令（clientFrames 断言命令 + 游标 +
+ * ② 点击分页胶囊 → session.loadHistory 命令（clientFrames 断言命令 + 游标 +
  *    信封 sessionId）→ result 前插（含重复条目去重）→ hasMore=false 禁用
- *    （再次滚顶不再发命令）；
+ *    （exhausted 胶囊点击不再发命令）；
  * ③ 清单下发 → probe 后台行出现；点击切换 → subscribe(新, full) 先升
  *    （v0.3 契约 §2.3 先升后降；clientFrames 断言）+ loading 骨架（旧内容
  *    不渲染——互斥）；
@@ -58,11 +58,9 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
     // 输入可用（ready）
     await expect(page.locator("#msg-input")).toBeEnabled();
 
-    // ── ② 滚动到顶 → session.loadHistory 命令（命令 + 游标 + 信封 sessionId）──
-    const flow = page.locator(".msg-flow");
-    await flow.evaluate((el) => {
-      el.scrollTop = 0;
-    });
+    // ── ② 点击分页胶囊 → session.loadHistory 命令（命令 + 游标 + 信封 sessionId）──
+    //    （H-2：滚动到顶自动触发已退役，胶囊点击为唯一触发面）
+    await pill.click();
     const historyCmd = await mock.waitForCommand("session.loadHistory");
     expect(historyCmd.sessionId).toBe(MULTI_SESSION_A);
     expect((historyCmd.payload as { beforeEntryId: string }).beforeEntryId).toBe(tailStartCursor);
@@ -82,11 +80,9 @@ test.describe("T3.1 CL-1 切换两阶段 + 尾窗重建 + 向上分页", () => {
     await expect(page.locator(".msg-flow .msg").first()).toContainText(`历史第 1 条（共 ${MULTI_HISTORY_TOTAL} 条）`);
     await expect(pill).toHaveAttribute("data-state", "exhausted");
 
-    // hasMore=false 禁用：再次滚顶不再发命令（数据面断言）
+    // hasMore=false 禁用：exhausted 胶囊为 disabled（点击不派发处理器）不再发命令
     const historyCmdCount = (await mock.clientFrames()).filter((f) => f.type === "session.loadHistory").length;
-    await flow.evaluate((el) => {
-      el.scrollTop = 0;
-    });
+    await pill.click({ force: true }); // force 绕过 actionability；disabled 钮浏览器不触发 onClick
     await page.waitForTimeout(300);
     expect((await mock.clientFrames()).filter((f) => f.type === "session.loadHistory")).toHaveLength(historyCmdCount);
 

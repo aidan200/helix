@@ -150,13 +150,11 @@ test.describe("T4.2 CL-1 多会话闭环（真 daemon）", () => {
     // per-instance 恢复：done 卡（closure 记录随快照重建；running 卡在下方
     // turn17 spawn 后断言）
     await expect(page.locator(".sa-card.done")).toHaveCount(1, { timeout: 10_000 });
-    // 抽屉骨架：done 实例 spawned/模型解析行 + closure 尾卡（per-instance 全流）
-    // T4.1：dispatchEvent 代替 click——click 的 scrollIntoViewIfNeeded 会把这张
-    // 近顶部卡滚动入视口，msg-flow scrollTop 触 ≤0 时滚动监听（MessageFlow
-    // onScroll）自动触发 loadEarlierHistory，在下方手动滚顶分页前把仅剩的
-    // 更早页提前载完（pill 提前 exhausted → beforeCount 竞态的真实源头，
-    // OI-VER-1/OI-DEV-1④）。抽屉行为断言（开/关/内容）语义不变。
-    await page.locator(".sa-card.done").dispatchEvent("click");
+    // 抽屉骨架：done 实例 spawned/模型解析行 + closure 尾卡（per-instance 全流）。
+    // 注：T4.1 时期此处用 dispatchEvent 代替 click 规避「滚顶自动触发
+    // loadEarlier」竞态（OI-VER-1/OI-DEV-1④）——H-2 热修后滚动监听已退役，
+    // scrollIntoViewIfNeeded 触顶不再有任何副作用，回归平 click。
+    await page.locator(".sa-card.done").click();
     const drawer = page.locator(".drawer");
     await expect(drawer).toBeVisible();
     await expect(drawer.locator('.lc-row[data-lc="spawned"]')).toHaveCount(1);
@@ -174,8 +172,7 @@ test.describe("T4.2 CL-1 多会话闭环（真 daemon）", () => {
     await expect(page.locator(".sa-card")).toHaveCount(2); // done + running
     await shotEvidence(page, "cl1-multi-two-sessions", "CL-1");
 
-    // 向上分页：滚顶 → loadHistory（更早历史前插）→ exhausted 禁用
-    const flow = page.locator(".msg-flow");
+    // 向上分页：点击胶囊 → loadHistory（更早历史前插）→ exhausted 禁用
     const msgSel = page.locator(".msg-flow .msg");
     // 时序锚定（T4.1）：捕获与触发间加同步屏障，根治 beforeCount 竞态——
     // 屏障① 分页胶囊就位：load-earlier 渲染条件 = paged（存在更早页），
@@ -196,12 +193,10 @@ test.describe("T4.2 CL-1 多会话闭环（真 daemon）", () => {
         { timeout: 10_000 },
       )
       .toBe(true);
-    // 屏障③ 捕获即触发：beforeCount 与滚顶在同一 evaluate 内原子完成，
-    //   两者之间零间隙（不存在可被异步渲染插入的窗口）。
-    const beforeCount = await flow.evaluate((el) => {
-      el.scrollTop = 0;
-      return el.querySelectorAll(".msg").length;
-    });
+    // 屏障③ 捕获后点击胶囊触发（H-2：滚动触发退役，「捕获与触发间被异步
+    //   渲染插入」的竞态窗口随滚动监听一并消除——不再需要原子 evaluate）。
+    const beforeCount = await msgSel.count();
+    await page.locator(".load-earlier").click();
     // loading 为瞬态（本地 daemon 往返快于轮询——F 层已覆盖），直接断言
     // 结果面：更早历史前插（首条 = 乙首条）→ exhausted 禁用
     await expect(page.locator(".msg-flow .msg").first()).toContainText(B_FIRST, { timeout: 10_000 });

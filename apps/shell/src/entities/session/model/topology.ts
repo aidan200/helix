@@ -103,7 +103,7 @@ function startNewDraft(topo: TopologyState): TopologyState {
   return { ...topo, background, active: freshDraftActive(topo.active) };
 }
 
-/** 滚动到顶加载更早（门控：hasMore && !loading；命令发送判据归 provider）。 */
+/** 加载更早（H-2：胶囊点击触发；门控：hasMore && !loading；命令发送判据归 provider）。 */
 function beginLoadEarlier(s: SessionState): SessionState {
   if (!s.history.hasMore || s.history.loading) return s;
   return { ...s, history: { ...s.history, loading: true } };

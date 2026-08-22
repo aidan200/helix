@@ -2,8 +2,11 @@
  * 消息流（widgets/chat-stream 聚合件）：投影 entries + SubAgent 时间轴内联卡
  * + 流式尾部气泡 + empty 态 + P-1s 分页胶囊（T3.2）。滚动语义照原型：新内容贴底
  * （scrollTop 直设，无滚动监听）；历史前插保持视口锚定（增量在上方时按
- * 高度差补偿，不跳底）；连接覆盖层等页面浮层经 children 挂进滚动容器
- * （pages 层组装）。
+ * 高度差补偿，不跳底）；会话切换（含首连/草稿转正）恒贴底 + 锚定基线重置
+ * （H-2：切换不得误判为前插吃旧会话陈旧高度）。加载更早唯一触发面 =
+ * 分页胶囊点击（H-2：滚动到顶自动触发退役——scrollTop<=0 吃橡皮筋过冲/
+ * 短内容恒 0/程序化落顶自触发三重误触发，且是 e2e beforeCount 竞态源头）。
+ * 连接覆盖层等页面浮层经 children 挂进滚动容器（pages 层组装）。
  *
  * SubAgent 卡片插位（F1.1 + CL-1 v0.3 时间轴内联）：卡片按 DTO spawn 锚点
  * （anchorEntryId；daemon 组装期权威计算，shell 零推导）交织进 entries 序列
@@ -18,7 +21,7 @@
  * 主线 thinking 流式块（F2.3 streaming 态）插在 entries 之后、streaming 气泡
  * 之前；SubAgent 实例 thinking 流式槽位归抽屉消费（F1.6 实例分流）。
  */
-import { useEffect, useLayoutEffect, useRef, Fragment, type ReactNode } from "react";
+import { useLayoutEffect, useRef, Fragment, type ReactNode } from "react";
 import type { EntryDto } from "@helix/protocol";
 import { MAIN_INSTANCE_ID } from "@/entities/session/model/session-reducer";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
@@ -75,13 +78,26 @@ interface MessageFlowProps {
 const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: MessageFlowProps) {
   const { state, loadEarlierHistory } = useSession();
   const flowRef = useRef<HTMLElement>(null);
-  // 历史前插视口锚定：上一次布局后高度 + 首条 id（区分贴底与前插补偿）
+  // 历史前插视口锚定：上一次布局后高度 + 首条 id（区分贴底与前插补偿）；
+  // 会话基线（H-2：切换判定源——ref 不随会话切换重置会把旧会话高度/首条
+  // id 喂给补偿公式，落点错乱）
   const prevHeightRef = useRef(0);
   const prevFirstIdRef = useRef<string | null>(null);
+  const prevSessionIdRef = useRef<string | null>(null);
 
   useLayoutEffect(() => {
     const el = flowRef.current;
     if (!el) return;
+    // H-2：会话切换（含首连/草稿转正/切草稿）= 新视图——恒贴底 + 锚定基线
+    // 重置并直返：本 commit 可能仍是旧 entries/loading 坍塌态（.session-active
+    // display:none 高度≈0），基线采样一律推迟到同会话的下一个 commit
+    if (state.sessionId !== prevSessionIdRef.current) {
+      prevSessionIdRef.current = state.sessionId;
+      prevFirstIdRef.current = null;
+      prevHeightRef.current = 0;
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
     const firstId = state.entries[0]?.id ?? null;
     const isPrepend =
       prevFirstIdRef.current !== null && firstId !== null && firstId !== prevFirstIdRef.current;
@@ -94,6 +110,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
     prevHeightRef.current = el.scrollHeight;
     prevFirstIdRef.current = firstId;
   }, [
+    state.sessionId, // H-2：切换 commit 必入（loading 坍塌期重采基线）
+    state.view, // H-2：快照到达（loading→ready）必入——entries 等长切换不失聪
     state.entries.length,
     state.streaming?.text,
     state.instances.length,
@@ -101,18 +119,9 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
     state.engineError !== null, // 终验热修：错误卡出入视口同样贴底
   ]);
 
-  // 向上滚动到顶 → 加载更早历史（AD-1 分页；selectCanLoadEarlier 门控在
-  // provider 侧：hasMore=false 禁用 / 在途去重。P-1s「加载更早」指示器与
-  // 骨架 UI 归 T3.2，本挂点为滚动触发的最小接线）
-  useEffect(() => {
-    const el = flowRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      if (el.scrollTop <= 0) loadEarlierHistory();
-    };
-    el.addEventListener("scroll", onScroll);
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [loadEarlierHistory]);
+  // H-2：滚动到顶自动加载更早已退役（三重误触发 + e2e 竞态源头），加载更早
+  // 唯一触发面 = 分页胶囊点击（LoadEarlier onLoad → loadEarlierHistory；
+  // hasMore/loading 门控归 provider selectCanLoadEarlier）
 
   const empty = selectIsEmpty(state);
 
