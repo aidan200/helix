@@ -47,12 +47,13 @@ export class ResourceService implements ResourceConfigPort {
        *  M6 T4：list 读面向契约 DTO 透传——注册表外名 = 空串）。 */
       readonly toolSnippets: Readonly<Record<string, string>>;
       /**
-       * 生效集变更回调（M6 T2）：toggle applied 后同步触发（await 链）——
-       * 组合根接「重算该 kind 组装快照 + 刷新活跃 runtime（main）/spawn
-       * 快照缓存（subagent）」；未知名 skipped 不触发。供 T3 WS 命令复用
-       * （命令只调 toggle，刷新链单点在本回调）。
+       * 生效集变更发布面（M6 T2 → T2.2 事件化，架构 §4.2.3）：toggle
+       * applied 后同步发布 resources.changed（await 链——订阅侧刷新收口
+       * 后 setEnabled 才返回，与旧 onApplied 回调链行为等价）；未知名
+       * skipped 不发布。供 T3 WS 命令复用（命令只调 toggle，刷新链单点在
+       * 订阅侧）。发布面经组合根注入（application 不 import infrastructure）。
        */
-      readonly onApplied?: (kind: ProfileKind) => void | Promise<void>;
+      readonly publishResourceChanged?: (kind: ProfileKind) => void | Promise<void>;
     },
   ) {}
 
@@ -101,7 +102,7 @@ export class ResourceService implements ResourceConfigPort {
       return { status: "skipped", reason: "unknown-name" };
     }
     await this.deps.store.upsert(kind, resourceType, name, enabled);
-    await this.deps.onApplied?.(kind); // M6 T2：落库后同步刷新（读面四级链 write-through 语义）
+    await this.deps.publishResourceChanged?.(kind); // M6 T2：落库后同步刷新（读面四级链 write-through 语义）
     return { status: "applied" };
   }
 

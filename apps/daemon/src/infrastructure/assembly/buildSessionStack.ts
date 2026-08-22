@@ -19,7 +19,7 @@ import { SystemPromptAssembler } from "../../application/services/SystemPromptAs
 import { SchedulingPolicy } from "../../domain/agent/SchedulingPolicy";
 import { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import { lastMainAnchorId } from "../../adapters/driving/ws-server/DtoMapper";
-import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
+import { SubagentLauncher, type SubagentLauncherDeps } from "../../adapters/driven/subagent/SubagentLauncher";
 import { PiAgentEngineAdapter } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
@@ -35,6 +35,7 @@ import { builtinSkillsDir } from "../paths";
 import type { HelixPaths } from "../paths";
 import type { DaemonConfig } from "../config";
 import type { Logger } from "../logging";
+import type { PublishResourceChanged } from "./resource-events";
 
 /**
  * 装配函数 ③ 会话/运行面（T2.2，architecture §4.2.1）：组合根的一部分
@@ -46,6 +47,23 @@ import type { Logger } from "../logging";
  * 装配序契约（§4.2.2）：本函数整体位于 buildPersistence/buildModelStack 之后、
  * wireEventFanout 之前；registry.initialize() 归组合根（fan-out 目标装配后）。
  */
+/**
+ * typed 回填面（T2.2，architecture §4.2.5——晚绑收口）：构造早期声明、
+ * registry.initialize 前闭合的对象回填容器——字段持 typed 函数引用
+ * （编译期类型约束、可 grep），非运行期字符串图；与迷你容器的本质区别：
+ * 仅作构造期回填容器，不做通用服务定位器。scheduler↔registry 构造环
+ * （spawnAnchorFor/injectClosure 读 registry、registry 依赖 scheduler）
+ * 换序不可消解——四面统一走本回填面（消费方 ?.()，类型可见）。
+ */
+export interface AssemblyBackfill {
+  /** spawn 时透传当前模型（AgentInstanceDto.model 填充链；registry 就绪前未定义）。 */
+  currentModelOf?: (sessionId: string) => string | undefined;
+  /** spawn 时刻锚计算（T2.1 契约 v0.3 §1 规则②读面；registry 就绪前未定义）。 */
+  computeSpawnAnchor?: (sessionId: string) => string | null;
+  /** SubAgent spawn 会话快照模型源（AD-3 三级链第二级；scheduler 就绪前未定义）。 */
+  spawnModelSource?: SubagentLauncherDeps["spawnModelFor"];
+}
+
 export interface BuildSessionStackDeps {
   readonly paths: HelixPaths;
   readonly config: DaemonConfig;
@@ -59,6 +77,10 @@ export interface BuildSessionStackDeps {
   readonly browserPort: BrowserPort;
   /** fan-out 发布面（组合根先建、wireEventFanout 后装目标——服务构造期依赖稳定引用）。 */
   readonly events: EventPublisherPort;
+  /** resources.changed 发布面（装配级总线适配——事件化后 service 只持发布函数面）。 */
+  readonly publishResourceChanged: PublishResourceChanged;
+  /** typed 回填面（构造早期声明；组合根在 initialize 前闭合）。 */
+  readonly backfill: AssemblyBackfill;
   /** DaemonOptions 切片（字段面归 T2.3 工厂迁移——此处按消费面显式传递）。 */
   readonly engine?: AgentEnginePort | ((sessionId: string) => AgentEnginePort);
   readonly subagentRunnerOverride?: InstanceRunner;
@@ -75,14 +97,12 @@ export interface SessionStack {
   readonly eventStream: EventStream;
   readonly registry: SessionRegistry;
   readonly sessionService: SessionService;
-  /** 晚绑回填闭合（组合根在 registry.initialize() 后调用一次）。 */
-  readonly completeLateBinding: () => void;
-  /** 回填后读面（组合根 currentOrchestration spawn 透传链消费）。 */
-  readonly currentModelOf: (sessionId: string) => string | undefined;
+  /** toggle applied 后的重算入口（容器订阅 resources.changed 后接此单点）。 */
+  readonly refreshAssembly: (kind: ProfileKind) => Promise<void>;
 }
 
 export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<SessionStack> {
-  const { paths, config, logger, repository, resourceState, clock, authStore, catalog, defaultModel, browserPort, events } =
+  const { paths, config, logger, repository, resourceState, clock, authStore, catalog, defaultModel, browserPort, events, backfill } =
     deps;
   const { engine } = deps;
 
@@ -107,10 +127,12 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     } satisfies Record<ProfileKind, readonly string[]>,
     // M6 T4：list 读面 snippet 透传（SystemPromptAssembler 同源注册表单点）
     toolSnippets: TOOL_PROMPT_SNIPPETS,
-    // M6 T2 生效链：toggle applied → 重算该 kind 组装快照 + 刷新活跃 runtime
-    // （main 直改 systemPrompt/tools；subagent 只更新快照缓存，spawn 时刻消费）。
-    // refreshAssembly 在下方定义（闭包晚绑——toggle 只发生在运行期，TDZ 安全）。
-    onApplied: (kind) => refreshAssembly(kind),
+    // M6 T2 生效链（T2.2 事件化，架构 §4.2.3）：toggle applied → 发布
+    // resources.changed（装配级总线）→ 容器订阅侧 refreshAssembly 重算该
+    // kind 组装快照 + 刷新活跃 runtime（main 直改 systemPrompt/tools；
+    // subagent 只更新快照缓存，spawn 时刻消费）——发布/订阅方向倒转，
+    // 结构保证取代注释保证。
+    publishResourceChanged: (kind) => deps.publishResourceChanged(kind),
   });
 
   // ── M6 T2 提示组装：三段组装器 + 两 kind 组装快照（启动时定格，toggle 刷新） ──
@@ -174,6 +196,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           },
           // M6 T2 spawn 快照：组装产物缓存（启动/toggle 后重算，launch 读现值定格）
           spawnSnapshot: () => subagentAssembly,
+          // AD-3（F1.3）三级链第二级：spawn 会话快照读取通道（typed 回填面——
+          // scheduler 就绪后由组合根闭合；闭合前 undefined 走后续档）
+          spawnModelFor: (id) => backfill.spawnModelSource?.(id),
           // 注入源切换（T2.3）：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
           toolCwd,
@@ -204,7 +229,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // O-5：<home>/reports/<session>/<agentId>.md——按实例归属会话解析
     reportsDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
     // T2.1 契约 v0.3 §1 规则②：spawn 时刻锚（聚合视图读面；内存携带不落盘）
-    spawnAnchorFor: (sessionId) => computeSpawnAnchor(sessionId),
+    // ——typed 回填面（registry 就绪后由组合根闭合；闭合前 null 流首）
+    spawnAnchorFor: (sessionId) => backfill.computeSpawnAnchor?.(sessionId) ?? null,
     // T2.1（F5.7/AD-5，契约 v0.4 §2）：Sub instantiated 快照供给——profile
     // 常量全文 + model 三级链解析 id 形态（profile 槽位 ?? spawn 会话快照 ??
     // 全局兜底；与该实例 launch 实际用模同源同时点——launch 侧 resolveModelFor
@@ -226,8 +252,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     onInstanceTerminal: (agentId) => void browserPort.reclaimOwner(agentId),
     // closure 注入主线（AD-8 双通道；T2.2 会话反向查找：实例归属会话 → 注册表
     // 寻址目标 ChatService）。热会话同步直达（收口链时序不变）；冷会话（理论
-    // 不可达——活跃实例的会话不会卸载）异步恢复后补投。注册表在下方装配
-    //（收口只发生在 spawn 之后，装配窗口内不会被调）。
+    // 不可达——活跃实例的会话不会卸载）异步恢复后补投。注册表在本函数内
+    // 后置构造——回调仅在运行期（spawn 后）触发，装配窗口内不会被调。
     injectClosure: (agentId, message) => {
       const sessionId = scheduler.instance(agentId)?.sessionId;
       if (sessionId === undefined) return;
@@ -249,15 +275,6 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     },
   });
 
-  // AD-3（F1.3）三级链第二级晚绑：launcher 先于 scheduler 构造（scheduler 依赖
-  // runner），scheduler 就绪后一行绑定 spawn 会话快照读取通道（手工装配先例
-  // :167/:498-504；解析逻辑收束 launcher 单点，不进 domain）。快照 id → 完整
-  // Model 经 resolveConfigModel 解析（F-14 解析单点同源）。
-  subagentLauncher?.bindSpawnModelSource((id) => {
-    const snapshot = scheduler.spawnModelOf(id);
-    return snapshot === undefined ? undefined : resolveConfigModel(snapshot, catalog.modelsView());
-  });
-
   // ── driving：WS 事件流（EventPublisherPort 实现，fan-out 目标之一——
   //    WS 推送显式消费者：统一信封章印 + 按 sessionId 路由，T2.1 AD-3） ──
   const eventStream = new EventStream({
@@ -273,13 +290,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   //（set_default/槽位 set 后新建会话跟随新值；既有会话不跟随——per-session
   // 覆盖链不变）；apiKey 经 getter 读 auth.json 现值（换 key 下一请求生效）；
   // resolveModelById = 目录活解析面（运行期换模 overlay 模型可达）。
-  // currentModelOf：spawn 时透传当前模型（AgentInstanceDto.model 填充链）
-  // ——注册表装配后回填（引擎闭包调用发生在运行时，回填前安全缺省）。
-  let currentModelOf: (sessionId: string) => string | undefined = () => undefined;
-  // computeSpawnAnchor：spawn 时刻锚计算（T2.1 契约 v0.3 §1 规则②）——读目标
-  // 会话聚合 entries（数组序最后一条 main/compaction entry；无 → null 流首）。
-  // 与 currentModelOf 同式回填（注册表装配后；回填前安全缺省 null 流首）。
-  let computeSpawnAnchor: (sessionId: string) => string | null = () => null;
+  // spawn 透传当前模型（AgentInstanceDto.model 填充链）走 typed 回填面
+  // backfill.currentModelOf（registry 就绪前 undefined，闭合前无 spawn 发生）。
   const engineFor =
     typeof engine === "function"
       ? engine
@@ -288,7 +300,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         : (sessionId: string): AgentEnginePort => {
             const sessionOrchestration: AgentOrchestrationPort = {
               spawn: (task, profileKind) =>
-                scheduler.spawn(sessionId, task, profileKind, currentModelOf(sessionId)),
+                scheduler.spawn(sessionId, task, profileKind, backfill.currentModelOf?.(sessionId)),
               send: (agentId, message) => scheduler.send(agentId, message),
               status: (agentId) => scheduler.status(agentId),
               kill: (agentId) => scheduler.kill(agentId),
@@ -355,8 +367,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           hooks: MainSessionProfile.hooks.map((h) => h.name),
         }),
         // T4 转正单点触发面：零条目草稿首个用户条目落聚合 → 注册表
-        // promoteDraft（恰好一次 instantiated + 补 created；闭包引用 registry
-        // 在注册表装配后才被调用——createFresh 发生在 initialize/运行期，TDZ 安全）
+        // promoteDraft（恰好一次 instantiated + 补 created；闭包仅在运行期
+        // 触发——createFresh 发生在 initialize/运行期，注册表已就位）
         onFirstUserEntry: () => registry.promoteDraft(material.session.id),
       });
       // 会话投影消费者（T2.1 AD-3 §3.2②；T2.2 多会话 = 按 sessionId 分实例化，
@@ -382,19 +394,6 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     getAgentState: () => registry.currentRuntime().chatService.agentState,
   });
 
-  /** 晚绑回填闭合（原组合根回填段机械搬移；registry.initialize() 后调用）。 */
-  const completeLateBinding = (): void => {
-    // T2.3：currentModelOf 回填（spawn 透传链——注册表装配完成，热会话可观测）
-    currentModelOf = (sessionId: string) => registry.peek(sessionId)?.chatService.currentModel;
-    // T2.1：spawn 锚计算回填（规则②读面——目标会话聚合 entries 数组序扫描；
-    // 冷会话理论不可达（spawn 必经热会话门面），防御 null 流首）
-    computeSpawnAnchor = (sessionId: string) => {
-      const runtime = registry.peek(sessionId);
-      if (runtime === undefined) return null;
-      return lastMainAnchorId(runtime.chatService.sessionView.toSnapshot().entries);
-    };
-  };
-
   return {
     resourceService,
     subagentLauncher,
@@ -402,7 +401,6 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     eventStream,
     registry,
     sessionService,
-    completeLateBinding,
-    currentModelOf: (sessionId: string) => currentModelOf(sessionId),
+    refreshAssembly,
   };
 }

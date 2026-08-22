@@ -61,7 +61,12 @@ import type {
  * （SessionProjection——组合根 fan-out 目标）；本服务只产事件，每个里程碑
  * 领域事件发布后由投影落领域状态整体（先事件行后状态行，全局 FIFO）。
  */
-export interface ChatServiceDeps {
+/**
+ * deps 基础字段面（T2.2 两形态共通，架构 §4.2.6）：3 必填 + 2 恢复场景参数。
+ * session/restoredToolCalls 为恢复场景参数非钩子——两形态下均保持可选
+ * （非「未装配即抛」病灶面；MainAgent 裁决，补 ex3 缺口）。
+ */
+interface ChatServiceDepsBase {
   /** agent 引擎（pi 防腐墙后的驱动出口）。 */
   readonly engine: AgentEnginePort;
   /** 事件流发布（领域事件 + 流式 delta；write-through 归会话投影消费者）。 */
@@ -72,33 +77,54 @@ export interface ChatServiceDeps {
   readonly session?: Session;
   /** 恢复场景传入历史工具调用记录（重启后工具历史随快照延续，避免整体替换写抹掉）。 */
   readonly restoredToolCalls?: readonly ToolCallRecordData[];
+}
+
+/**
+ * 完整形态（生产装配面，T2.2 两形态，架构 §4.2.6/TP-2.2h①）：四钩子必填
+ * ——组合根装配缺钩子 = 编译红，消灭「未装配静默降级」的运行期分支
+ * （依赖面不随部署形态漂移）。
+ */
+export interface ChatServiceDeps extends ChatServiceDepsBase {
   /**
    * 定向 steer 转投面（T2.3，契约 v0.3 §3.2）：组合根接 SchedulerService.send
    * （AgentOrchestrationPort.send 同链路）；目标状态前置判定（state=running）
    * 归调度侧既有 send 链——delivered=false 同步返回时本服务抛
    * SteerTargetNotRunningError（不落 Entry 不入队）。
    */
-  readonly sendToInstance?: AgentOrchestrationPort["send"];
+  readonly sendToInstance: AgentOrchestrationPort["send"];
   /**
    * 模型回退读面（T2.1，F5.9/AD-6）：agent.model.changed 的 from 兜底——引擎
    * 未暴露 currentModel 时取全局默认（与 ModelService previous 口径一致）；
    * 组合根接 defaultModel.current()。
    */
-  readonly modelFallback?: () => string;
+  readonly modelFallback: () => string;
   /**
    * 主实例 instantiated 快照供给（T2.1，F5.7/AD-5，契约 v0.4 §2）：会话
    * 创建时刻发布的 profile 快照数据源——profile 常量全文（systemPrompt/
    * 工具集/compaction/hooks 名）与会话当前模型均归组合根装配（driven
-   * 常量不进 application）；缺省 = 不发布（纯测试形态）。
+   * 常量不进 application）。
    */
-  readonly instantiatedSnapshot?: () => ProfileSnapshotData;
+  readonly instantiatedSnapshot: () => ProfileSnapshotData;
   /**
    * 首个用户条目落聚合回调（T4 转正单点触发面，bug1/bug4 daemon 侧）：
    * sendMessage 空闲分支把零条目会话的首个 user Entry 落聚合后、
    * message.completed 发布前同步触发一次——组合根接 SessionRegistry
    * .promoteDraft（恰好一次 instantiated + 补 created 广播；恢复会话
-   * 已有条目结构性不触发）。缺省 = 无转正编排（纯测试形态）。
+   * 已有条目结构性不触发）。
    */
+  readonly onFirstUserEntry: () => void;
+}
+
+/**
+ * 测试形态（宽松，T2.2 两形态，架构 §4.2.6/TP-2.2h②）：四钩子可选——测试
+ * 装配面专用；缺省行为与旧单接口一致（instantiated 不发布 / modelFallback
+ * 兜底 modelId / onFirstUserEntry 无转正编排；sendToInstance 缺席时定向
+ * steer 抛装配错误）。
+ */
+export interface ChatServiceTestDeps extends ChatServiceDepsBase {
+  readonly sendToInstance?: AgentOrchestrationPort["send"];
+  readonly modelFallback?: () => string;
+  readonly instantiatedSnapshot?: () => ProfileSnapshotData;
   readonly onFirstUserEntry?: () => void;
 }
 
@@ -135,7 +161,7 @@ export class ChatService implements ChatPort {
    */
   private activeRun: Promise<void> | null = null;
 
-  constructor(private readonly deps: ChatServiceDeps) {
+  constructor(private readonly deps: ChatServiceDeps | ChatServiceTestDeps) {
     this.session = deps.session ?? Session.create();
     for (const data of deps.restoredToolCalls ?? []) {
       const record = ToolCallRecord.restore(data);

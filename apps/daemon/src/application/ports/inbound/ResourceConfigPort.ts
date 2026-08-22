@@ -9,8 +9,8 @@ import type { SkillScanDiagnostic, SkillDescriptor, SkillSource } from "../outbo
  * 语义边界：
  * - 读面 list：合并视图（tools/skills 全集 + 启停态 + 扫描诊断 + model 槽位
  *   现值）——缺省无记录 = 启用；
- * - 写面 setEnabled（tool/skill）：全集内名 → 落库差异行并触发 onApplied
- *   刷新链（T2）；全集外名 → 显式跳过（skipped/unknown-name，不落库）；
+ * - 写面 setEnabled（tool/skill）：全集内名 → 落库差异行并发布 resources.changed
+ *   （T2 刷新链，T2.2 事件化）；全集外名 → 显式跳过（skipped/unknown-name，不落库）；
  * - model 槽位写：setModelSlot / clearModelSlot（本面不校验模型 id——契约
  *   入口 driving 层先经合并目录校验，ModelService.setModel 先例）。
  */

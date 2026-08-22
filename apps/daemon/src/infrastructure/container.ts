@@ -4,7 +4,6 @@ import type { SystemPort, DaemonStatus } from "../application/ports/inbound/Syst
 import type { AgentOrchestrationPort } from "../application/ports/inbound/AgentOrchestrationPort";
 import type { SessionDirectoryPort } from "../application/ports/inbound/SessionDirectoryPort";
 import type { AgentEnginePort } from "../application/ports/outbound/AgentEnginePort";
-import type { EventPublisherPort } from "../application/ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../application/ports/outbound/ClockPort";
 import type { BrowserPort } from "../application/ports/outbound/BrowserPort";
 import type { ModelPort } from "../application/ports/inbound/ModelPort";
@@ -16,6 +15,8 @@ import { DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAdapter";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
+import { lastMainAnchorId } from "../adapters/driving/ws-server/DtoMapper";
+import { resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
 import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
@@ -26,8 +27,9 @@ import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
 import { buildPersistence } from "./assembly/buildPersistence";
 import { buildModelStack } from "./assembly/buildModelStack";
-import { buildSessionStack } from "./assembly/buildSessionStack";
-import { wireEventFanout } from "./assembly/wireEventFanout";
+import { buildSessionStack, type AssemblyBackfill } from "./assembly/buildSessionStack";
+import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
+import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
 
 /**
  * 组合根（architecture.md §3.6）：整个 daemon 唯一允许 new 具体实现的地方
@@ -133,6 +135,10 @@ export interface Daemon {
   readonly browser: BrowserPort;
   /** 多会话容器（T2.2：生命周期编排观测面——测试断言懒加载/卸载用）。 */
   readonly registry: SessionRegistry;
+  /** fan-out 带名注册表（T2.2 §4.2.4：序 = 语义唯一权威——测试断言语义序用）。 */
+  readonly fanoutTargets: readonly NamedFanoutTarget[];
+  /** 装配级资源事件总线（T2.2 §4.2.3：resources.changed 观测面——不进 WS/不落盘/不进 fan-out）。 */
+  readonly resourceEvents: ResourceEventBus;
   /** CLI 主循环（阻塞至 /exit/EOF/二次 Ctrl-C）。 */
   runCli(): Promise<void>;
   /** 优雅关闭：停 WS、停输入、释放锁。 */
@@ -143,6 +149,13 @@ export interface Daemon {
  * 组装 daemon（async：重启恢复需读盘）。主进程/测试均 await。
  */
 export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon> {
+  // ── 装配序步 1：装配级事件总线（零依赖 pub/sub，最先构造——循环边解耦锚点，
+  //    architecture §4.2.2/§4.2.3）：resources.changed 的唯一通道，
+  //    不进 WS/不落盘/不进 fan-out（TP-2.2c 负断言面）。──
+  const resourceEvents = createResourceEventBus();
+  /** typed 回填面（§4.2.5）：构造早期声明、initialize 前闭合。 */
+  const backfill: AssemblyBackfill = {};
+
   // ── 启动序前置（TR-AD-6/AG-09） ─────────────────────────────
   const paths = createPaths(options.home);
   // 首启序：目录补建必须先于锁获取（daemon.lock 是首个写盘动作，
@@ -162,21 +175,13 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     : loadConfig(paths.configPath());
   const config = loaded.config;
 
-  // ── 装配序（architecture §4.2.2）：持久化族 → 模型域 → 会话/运行面 ──
+  // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   const persistence = buildPersistence({ paths, logger });
   const modelStack = buildModelStack({ paths, logger });
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
 
-  // ── 事件 fan-out（先建目标容器，服务构造即依赖它） ──────────────
-  const publisherTargets: EventPublisherPort[] = [];
-  const fanout: EventPublisherPort = {
-    publish: (event) => {
-      for (const target of publisherTargets) target.publish(event);
-    },
-    publishDelta: (delta) => {
-      for (const target of publisherTargets) target.publishDelta(delta);
-    },
-  };
+  // ── fan-out 发布面（先建，服务构造即依赖它；目标归 wireEventFanout 装配） ──
+  const fanoutPublisher = new FanoutPublisher();
 
   // ── driven：CDP 浏览器连接（T2 地基；无独立 proxy/HTTP 层，连接内嵌 daemon）──
   // lazy 连接——装配不触网；homeDir 经 paths.ts 单点取（AG-07：adapter 不直接展开主目录）。
@@ -193,7 +198,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     catalog: modelStack.catalog,
     defaultModel: persistence.defaultModel,
     browserPort,
-    events: fanout,
+    events: fanoutPublisher,
+    publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
+    backfill,
     engine: options.engine,
     subagentRunnerOverride: options.subagentRunner,
     toolCwd: options.toolCwd,
@@ -202,6 +209,10 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     sessionIdlePollMs: options.sessionIdlePollMs,
   });
   const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService } = sessionStack;
+
+  // ── resources.changed 订阅（§4.2.3：refreshAssembly 先定义、订阅注册后置——
+  //    结构保证取代注释保证；发布方 ResourceService 经 deps 函数字段注入） ──
+  resourceEvents.subscribe((event) => sessionStack.refreshAssembly(event.kind));
 
   // ── T4 web 族（契约 v0.7）：CDP 连接状态变更 → web.status.changed 全连接
   //    广播（SYSTEM_SESSION_ID；DTO 组装与 web.status 查询回执同源 =
@@ -256,9 +267,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     output: options.cliOutput,
   });
 
-  // ── fan-out 六目标装配（装配序步 5；序 = 语义唯一权威，见 wireEventFanout） ──
-  wireEventFanout({
-    publisherTargets,
+  // ── fan-out 六目标装配（装配序步 5；带名注册表序 = 语义唯一权威，§4.2.4） ──
+  wireEventFanout(fanoutPublisher, {
     registry,
     sessionService,
     eventStream,
@@ -266,16 +276,31 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     stdoutPublisher,
   });
 
-  // ── 启动恢复（T2.2 全量元数据 + 懒加载）：全部会话元数据可见（session.list
-  //    读面），当前会话（最近活动）显式热加载（同步读面/CLI 兼容）；restoreLatest
-  //    ids.at(-1) 单会话末位语义废弃。首启无持久化 → 新建空会话。 ──
+  // ── 装配序步 6：typed 回填面闭合（§4.2.5——scheduler↔registry 构造环四面
+  //    统一走 backfill；闭合先于 initialize，两步间无任何回调触发点） ──
+  // T2.3：spawn 透传当前模型（注册表就绪，热会话可观测）
+  backfill.currentModelOf = (sessionId: string) => registry.peek(sessionId)?.chatService.currentModel;
+  // T2.1 契约 v0.3 §1 规则②：spawn 时刻锚计算（目标会话聚合 entries 数组序
+  // 扫描；冷会话理论不可达——spawn 必经热会话门面，防御 null 流首）
+  backfill.computeSpawnAnchor = (sessionId: string) => {
+    const runtime = registry.peek(sessionId);
+    if (runtime === undefined) return null;
+    return lastMainAnchorId(runtime.chatService.sessionView.toSnapshot().entries);
+  };
+  // AD-3（F1.3）三级链第二级：spawn 会话快照模型源（快照 id → 完整 Model
+  // 经 resolveConfigModel 解析，F-14 解析单点同源）
+  backfill.spawnModelSource = (instanceId: string) => {
+    const snapshot = scheduler.spawnModelOf(instanceId);
+    return snapshot === undefined ? undefined : resolveConfigModel(snapshot, modelStack.catalog.modelsView());
+  };
+
+  // ── 装配序步 7：启动恢复（T2.2 全量元数据 + 懒加载）：全部会话元数据可见
+  //    （session.list 读面），当前会话（最近活动）显式热加载（同步读面/CLI
+  //    兼容）；首启无持久化 → 新建空会话。 ──
   // T4：initialize 仍在 fan-out 目标装配**之后**（惯例保持——T4 起 createFresh
   // 不再发布 instantiated，但转正 promoteDraft / created 补广播等运行期事件
   // 同样依赖目标已装配；中间构造块 sessionService/chatRouter/cli 均为惰性闭包）。
   await registry.initialize();
-
-  // ── 晚绑回填闭合（装配序步 6：registry.initialize 后热会话可观测） ──
-  sessionStack.completeLateBinding();
 
   let running = true;
   let wsServer: WsServerAdapter | undefined;
@@ -327,7 +352,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
         registry.currentSessionId(),
         task,
         profileKind,
-        sessionStack.currentModelOf(registry.currentSessionId()),
+        backfill.currentModelOf?.(registry.currentSessionId()),
       ),
     send: (agentId, message) => scheduler.send(agentId, message),
     status: (agentId) => scheduler.status(agentId),
@@ -386,6 +411,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     directory: registry,
     browser: browserPort,
     registry,
+    fanoutTargets: fanoutPublisher.targets,
+    resourceEvents,
     runCli: () => cli.run(),
     shutdown: system.shutdown,
   };
