@@ -127,8 +127,8 @@ export class ChatService implements ChatPort {
   private pendingThinking: { contentIndex: number; text: string; startedAt: string }[] = [];
   /**
    * 当前在飞 run 的 promise（T2.2 AD-4 删除收口链）：sendMessage idle 分支
-   * 开 run 时登记、收口时清空——whenSettled() 供注册表删除前等待主线收口
-   * （「取消完成 → 删库」的完成判据）。
+   * 开 run 时登记、收口时清空——currentRun()/whenSettled() 供注册表删除前
+   * 等待主线收口（「取消完成 → 删库」的完成判据）。
    */
   private activeRun: Promise<void> | null = null;
 
@@ -430,13 +430,27 @@ export class ChatService implements ChatPort {
   }
 
   /**
-   * 等待在飞 run 收口（T2.2 AD-4 删除收口链）：无 run 时立即 resolve。
+   * 当前在飞 run 的 promise 引用（T1.4 捕获语义等待面）：无 run 时 null。
+   * 调用方在决策时刻（如删除链 abort 前）捕获引用后等待——等待对象 =
+   * 捕获时刻的 run：期间新登记的 run 不延长等待、也不被影响（「等这个
+   * run 收完」；消灭原 while 轮询的「等到无 run」语义漂移）。
+   */
+  currentRun(): Promise<void> | null {
+    return this.activeRun;
+  }
+
+  /**
+   * 等待**调用时刻**的在飞 run 收口（T2.2 AD-4 删除收口链；T1.4 捕获语义）：
+   * 等待对象 = 调用时刻快照（currentRun()），无 run 时立即 resolve；期间
+   * 新 run 的登记不延长等待（run A 收口窗口内起飞的 run B 与本等待解耦）。
+   * 原 `while (activeRun)` 轮询每轮重读字段，会漂移为「等到恰好无 run」
+   * ——新输入持续到达时理论上可无限延长，已消灭。run 异常向上抛（与原
+   * 实现一致——删除链 withTimeout 双通道 warn 兜底，T1.3）。
    * 注意仅等待主线引擎 run；SubAgent 执行由调度器 cancelSession 同步收口。
    */
   async whenSettled(): Promise<void> {
-    while (this.activeRun !== null) {
-      await this.activeRun;
-    }
+    const run = this.currentRun();
+    if (run !== null) await run;
   }
 
   // ── 引擎事件回流 → 领域状态变更 + 领域事件（编排核心） ───────

@@ -279,6 +279,9 @@ export class SessionRegistry implements SessionDirectoryPort {
       if (hot !== undefined) {
         // ① 取消链（顺序硬约束第一步）：主线 abort + 封口（stopped 终态——
         //    closure 注入丢弃/新输入拒收，防删除竞态复活）→ 等 run 收口完成
+        //    （T1.4 捕获语义：whenSettled 等待调用时刻的在飞 run——abort/stop
+        //    与等待发起同处一个同步块，activeRun 其间不可能变化，捕获点等价
+        //    于「abort 前捕获」；窗口内新起飞的 run 不延长本删除等待）
         hot.chatService.abort();
         hot.chatService.stop();
         await withTimeout(
