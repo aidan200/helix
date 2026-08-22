@@ -21,6 +21,7 @@ import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManage
 import { createPaths, osHomeDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
+import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { ensureDevToken } from "./dev-token";
 import { createFileLogger, type Logger } from "./logging";
@@ -216,21 +217,28 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const config = deps.config;
   const legacy = deps.legacy;
 
-  // ── rg 路径三级解析（AD-2/F3.1，AF-1 语义：装配层一次性调用）──
+  // ── grep 后端启动定格（AD-2/F3.1/F3.2，AF-1 权威语义：装配层一次性──
+  //    resolve-rg 三级解析 + rg --version 探针（2s 超时/退出码 0），结果──
+  //    内存定格——进程生命周期内不重新解析、不升级）──
   // HELIX_RG_PATH/PATH 的 process.env 读取收束于本组合根（AG-08 唯一例外面，
   // 壳注入的资源定位参数，非配置源）；resolve-rg.ts 本体零 env/fs 依赖。
-  // T1.1 只交付解析单点与接线：结果仅入启动日志；后端定格/降级编排 T1.3
-  // 接入 grep 门面。
+  // 定格产物经 buildSessionStack → CoreToolExecutor 注入 grep 门面（门面
+  // 运行期只读内存标识选后端；首败永久降级编排见 GrepTool.ts）。
   const rgResolution = resolveRgPath({
     bundlePath: process.env.HELIX_RG_PATH,
     configPath: config.rgPath,
     pathEnv: process.env.PATH,
     probe: isExecutableFile,
   });
-  if (rgResolution.kind === "resolved") {
-    logger.info(`rg 解析命中（source=${rgResolution.source}）：${rgResolution.path}`);
+  const rgProbe =
+    rgResolution.kind === "resolved"
+      ? await probeRgVersion(rgResolution.path, RG_PROBE_TIMEOUT_MS)
+      : undefined;
+  const grepFreeze = freezeGrepBackend(rgResolution, rgProbe);
+  if (grepFreeze.kind === "rg") {
+    logger.info(`grep 后端定格 rg（source=${grepFreeze.source}）：${grepFreeze.rgPath}`);
   } else {
-    logger.info(`rg 不可用（grep 走内置 TS 后端兜底）：${rgResolution.reasons.join("；")}`);
+    logger.info(`grep 后端定格内置 TS：${grepFreeze.reasons.join("；")}`);
   }
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
@@ -262,6 +270,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     engineMode: deps.engineMode,
     subagentRunnerOverride: deps.subagentRunnerOverride,
     toolCwd: deps.toolCwd,
+    // grep 启动定格产物（AF-1）：rg 定格时注入路径 + 降级 warning 面；
+    // ts 定格时仅注入 warning 面（降级路径不会触发，门面恒走 ts）。
+    grep: {
+      rgPath: grepFreeze.kind === "rg" ? grepFreeze.rgPath : undefined,
+      warn: (m) => logger.warn(m),
+    },
     builtinSkillsDir: deps.builtinSkillsDir,
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
     sessionIdlePollMs: deps.sessionIdlePollMs,

@@ -19,7 +19,7 @@ import type {
 } from "../../../application/ports/outbound/ToolExecutorPort";
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
-import { createGrepTool } from "./grep/GrepTool";
+import { createGrepTool, type GrepToolDeps } from "./grep/GrepTool";
 import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
@@ -81,6 +81,12 @@ export interface CoreToolExecutorOptions {
   readonly browser?: BrowserPort;
   /** browser open 的 tab 归属（owner 维度回收/观测；缺省 "main"）。 */
   readonly ownerId?: string;
+  /**
+   * grep 后端定格注入（AF-1 启动定格产物：组合根一次性 resolve+探针后
+   * 经此注入 rg 路径与降级 warning 面；缺省 = 定格内置 TS——ChildMain
+   * 子进程装配不走组合根定格，恒为 ts）。
+   */
+  readonly grep?: GrepToolDeps;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -99,7 +105,7 @@ export class CoreToolExecutor implements ToolExecutorPort {
       createReadTool(),
       createWriteTool(),
       createEditTool(),
-      createGrepTool(),
+      createGrepTool(options.grep),
       createWebSearchTool(),
       createWebFetchTool(),
     ];
