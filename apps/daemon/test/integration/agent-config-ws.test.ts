@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { createPaths } from "../../src/infrastructure/paths";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID, type FrameVersion } from "@helix/protocol";
@@ -109,7 +109,7 @@ interface ProfileBlock {
 
 interface Rig {
   home: string;
-  daemon: Awaited<ReturnType<typeof createDaemon>>;
+  daemon: Awaited<ReturnType<typeof createTestDaemon>>;
   token: string;
   url: string;
   dispose: () => Promise<void>;
@@ -132,7 +132,7 @@ async function makeRig(): Promise<Rig> {
   writeFileSync(path.join(badDir, "SKILL.md"), "---\nname: broken-skill\n---\n\n正文", "utf8");
 
   const engine = new FakeAgentEngine({});
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,

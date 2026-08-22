@@ -19,7 +19,7 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import * as path_posix from "node:path";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
@@ -305,7 +305,7 @@ async function main(): Promise<void> {
       resolveTools: (names) => executor.resolveTools(names),
     });
 
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home: home!,
     engine: engineFor,
     skipConfig: true,

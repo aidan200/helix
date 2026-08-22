@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import type { Daemon } from "../../src/infrastructure/container";
 import type {
   InstanceRunner,
@@ -78,7 +78,7 @@ async function makeRig(): Promise<Rig> {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t13-cold-"));
   const engine = new FakeAgentEngine({});
   const runner = new ScriptedRunner();
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,

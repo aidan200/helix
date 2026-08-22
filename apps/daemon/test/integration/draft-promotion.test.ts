@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon, type Daemon } from "../../src/infrastructure/container";
+import type { Daemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
 import { SqliteSessionRepository } from "../../src/adapters/driven/sqlite-session/SqliteSessionRepository";
@@ -36,7 +37,7 @@ interface Rig {
 async function makeRig(opts: { initialModel?: string } = {}): Promise<Rig> {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t4-draft-"));
   const engines = new Map<string, FakeAgentEngine>();
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine: (sessionId) => {
       const engine = new FakeAgentEngine({ initialModel: opts.initialModel });

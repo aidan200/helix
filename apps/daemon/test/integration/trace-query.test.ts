@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 import { MAIN_SESSION_SYSTEM_PROMPT } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SUBAGENT_SYSTEM_PROMPT } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
@@ -123,7 +123,7 @@ function tmpHome(): string {
 
 interface Rig {
   home: string;
-  daemon: Awaited<ReturnType<typeof createDaemon>>;
+  daemon: Awaited<ReturnType<typeof createTestDaemon>>;
   client: TestClient;
   sessionId: string;
 }
@@ -134,7 +134,7 @@ async function makeRig(home: string, opts: { initialModel?: string; replies?: { 
     initialModel: opts.initialModel ?? "anthropic/claude-sonnet-4-5",
     replies: opts.replies,
   });
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,

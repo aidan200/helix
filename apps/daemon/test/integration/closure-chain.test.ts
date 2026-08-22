@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Database } from "bun:sqlite";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import type { Daemon } from "../../src/infrastructure/container";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import type { AgentEngineEvent } from "../../src/application/ports/outbound/AgentEnginePort";
@@ -77,7 +77,7 @@ async function makeRig(engineOptions: { replies?: never[] } = {}): Promise<Rig> 
   const home = mkdtempSync(path.join(tmpdir(), "helix-t23-closure-"));
   const engine = new FakeAgentEngine(engineOptions.replies ? { replies: engineOptions.replies } : {});
   const runner = new ScriptedRunner();
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,
@@ -221,7 +221,7 @@ describe("③ 用户 steer 与 closure 注入混序 FIFO（同队列按序 drain
     });
     const home = mkdtempSync(path.join(tmpdir(), "helix-t23-fifo-"));
     const runner = new ScriptedRunner();
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine,
       skipConfig: true,

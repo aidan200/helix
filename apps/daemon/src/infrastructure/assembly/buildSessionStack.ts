@@ -64,6 +64,16 @@ export interface AssemblyBackfill {
   spawnModelSource?: SubagentLauncherDeps["spawnModelFor"];
 }
 
+/**
+ * 引擎装配形态（T2.3，architecture §4.3 显式模式）：判别字段取代「注入
+ * 缺省即生产」的隐式分支——生产入口（createDaemon）恒为 production；
+ * 测试工厂（test/helpers/createTestDaemon.ts）注入 Fake 引擎时为 override
+ * （工厂已归一：实例注入 → 每会话共享的 () => 实例）。
+ */
+export type EngineAssemblyMode =
+  | { readonly kind: "production" }
+  | { readonly kind: "override"; readonly factory: (sessionId: string) => AgentEnginePort };
+
 export interface BuildSessionStackDeps {
   readonly paths: HelixPaths;
   readonly config: DaemonConfig;
@@ -81,12 +91,17 @@ export interface BuildSessionStackDeps {
   readonly publishResourceChanged: PublishResourceChanged;
   /** typed 回填面（构造早期声明；组合根在 initialize 前闭合）。 */
   readonly backfill: AssemblyBackfill;
-  /** DaemonOptions 切片（字段面归 T2.3 工厂迁移——此处按消费面显式传递）。 */
-  readonly engine?: AgentEnginePort | ((sessionId: string) => AgentEnginePort);
+  /** 引擎装配形态（T2.3 §4.3 显式模式：production 真引擎 / override 测试工厂注入）。 */
+  readonly engineMode: EngineAssemblyMode;
+  /** SubAgent runner 覆盖（测试工厂注入 fake runner 驱动收口时序；缺省走真体/占位降级）。 */
   readonly subagentRunnerOverride?: InstanceRunner;
+  /** 工具沙箱 cwd 覆盖（测试指向 tmp；缺省为进程工作区）。 */
   readonly toolCwd?: string;
+  /** builtin 层技能目录覆盖（测试注入空 tmp 隔离；缺省 = paths.builtinSkillsDir() 随仓真目录）。 */
   readonly builtinSkillsDir?: string;
+  /** 空闲卸载窗口 ms 覆盖（测试注入缩短到秒级；缺省 30min）。 */
   readonly sessionIdleUnloadMs?: number;
+  /** 空闲卸载轮询间隔 ms 覆盖（测试注入面；缺省 min(60s, 窗口/10)）。 */
   readonly sessionIdlePollMs?: number;
 }
 
@@ -104,7 +119,7 @@ export interface SessionStack {
 export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<SessionStack> {
   const { paths, config, logger, repository, resourceState, clock, authStore, catalog, defaultModel, browserPort, events, backfill } =
     deps;
-  const { engine } = deps;
+  const { engineMode } = deps;
 
   // ── M6 T1 资源数据域：resource_state 差异行 + 三层技能扫描 + 合取服务 ──
   // tools 全集从两 profile 声明面构建注入（AG-02：application 不得反向
@@ -174,12 +189,12 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   };
 
   // ── driven：SubAgent 子进程运行器（T2.2：SubagentLauncher 真体，O-7 候选 A）──
-  // T2.3（AD-2）装配判定重定义：生产模式 = 未注入 engine（options.engine
-  // 缺省）——真子进程 runner + SQLite 默认模型源 + auth.json key 源；
-  // 测试注入 engine（Fake 形态）→ 不装真体，退回占位告警替身。
-  // options.subagentRunner 为测试注入口（优先级最高）。
+  // T2.3（AD-2 + §4.3 显式模式）：装配形态由 engineMode 判别字段显式声明——
+  // production = 真子进程 runner + SQLite 默认模型源 + auth.json key 源；
+  // override（测试工厂注入 Fake 引擎）→ 不装真体，退回占位告警替身。
+  // subagentRunnerOverride 为测试注入口（优先级最高）。
   const subagentLauncher =
-    engine === undefined
+    engineMode.kind === "production"
       ? new SubagentLauncher({
           profile: SubAgentProfile,
           // T1.3：可观测 logger（dispose kill 失败 warn；缺省静默）
@@ -293,11 +308,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // spawn 透传当前模型（AgentInstanceDto.model 填充链）走 typed 回填面
   // backfill.currentModelOf（registry 就绪前 undefined，闭合前无 spawn 发生）。
   const engineFor =
-    typeof engine === "function"
-      ? engine
-      : engine !== undefined
-        ? () => engine as AgentEnginePort
-        : (sessionId: string): AgentEnginePort => {
+    engineMode.kind === "override"
+      ? engineMode.factory
+      : (sessionId: string): AgentEnginePort => {
             const sessionOrchestration: AgentOrchestrationPort = {
               spawn: (task, profileKind) =>
                 scheduler.spawn(sessionId, task, profileKind, backfill.currentModelOf?.(sessionId)),

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 
 /**
@@ -50,7 +50,7 @@ describe("TP-CL8-6 优雅变体：SIGTERM 语义停机 → 重启恢复一致", 
           },
         ],
       });
-      const d1 = await createDaemon({
+      const d1 = await createTestDaemon({
         home,
         engine: engine1,
         skipConfig: true,
@@ -74,7 +74,7 @@ describe("TP-CL8-6 优雅变体：SIGTERM 语义停机 → 重启恢复一致", 
 
       // 重启：RestoreService 读盘重建（同 --home）
       const engine2 = new FakeAgentEngine({ replies: [{ text: "重启后的新回复。" }] });
-      const d2 = await createDaemon({
+      const d2 = await createTestDaemon({
         home,
         engine: engine2,
         skipConfig: true,
@@ -131,7 +131,7 @@ describe("TP-CL8-6 强杀变体：kill -9 → 恢复到最后一致里程碑", (
 
       // 重启：死锁接管（SIGKILL 遗留 daemon.lock，pid 已死）+ RestoreService 重建
       const engine = new FakeAgentEngine({ replies: [{ text: "强杀重启后的回复。" }] });
-      const daemon = await createDaemon({
+      const daemon = await createTestDaemon({
         home,
         engine,
         skipConfig: true,

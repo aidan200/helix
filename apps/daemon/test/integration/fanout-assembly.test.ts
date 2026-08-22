@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { Database } from "bun:sqlite";
-import { createDaemon, type Daemon } from "../../src/infrastructure/container";
+import type { Daemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { createPaths } from "../../src/infrastructure/paths";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { PROTOCOL_VERSION } from "@helix/protocol";
@@ -84,7 +85,7 @@ interface Rig {
 async function makeRig(): Promise<Rig> {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t2-2-fanout-"));
   const engine = new FakeAgentEngine({});
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,
@@ -156,7 +157,7 @@ describe("TP-2.2c：resources.changed 事件通道边界（三负断言，架构
   test("不进 fan-out 注册表 / 不进 WS 广播 / 不落 domain_events", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-t2-2-boundary-"));
     const engine = new FakeAgentEngine({});
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine,
       skipConfig: true,

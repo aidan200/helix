@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { InMemorySessionRepository } from "../mocks/InMemorySessionRepository";
 import { SchedulingPolicy } from "../../src/domain/agent/SchedulingPolicy";
@@ -27,7 +27,7 @@ describe("T2 组合根：BrowserPort 装配", () => {
   test("daemon.browser 单例暴露 + idle 初始态 + shutdown 经 stop() 安全收尾", async () => {
     const home = tmpHome();
     try {
-      const daemon = await createDaemon({
+      const daemon = await createTestDaemon({
         home,
         engine: new FakeAgentEngine({ replies: [{ text: "ok" }] }),
         skipConfig: true,

@@ -6,7 +6,7 @@ import { PassThrough } from "node:stream";
 import type { Api, AssistantMessage, Model, Models } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import type { AgentProfile } from "../../src/adapters/driven/pi-engine/runtime/AgentProfile";
 import { SteerHooks } from "../../src/adapters/driven/pi-engine/runtime/hooks/SteerHooks";
@@ -176,7 +176,7 @@ const injectionProfile: AgentProfile = {
 const LONG_TEXT = "这是一段被刻意拉长的回复正文。".repeat(80);
 
 /** container 快照类型（await createDaemon 的返回）。 */
-type DaemonView = Awaited<ReturnType<typeof createDaemon>>;
+type DaemonView = Awaited<ReturnType<typeof createTestDaemon>>;
 type SnapshotView = ReturnType<DaemonView["session"]["getSnapshot"]>;
 
 interface InjectDaemon {
@@ -203,7 +203,7 @@ async function createInjectionDaemon(
     models: injectable.models,
     streamFnOverride: streamFn,
   });
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine,
     skipConfig: true,

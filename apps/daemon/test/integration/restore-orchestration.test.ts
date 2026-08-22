@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Database } from "bun:sqlite";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import type { Daemon } from "../../src/infrastructure/container";
 import type {
   InstanceRunner,
@@ -54,7 +54,7 @@ function tmpHome(): string {
 }
 
 async function makeDaemon(home: string, engine: FakeAgentEngine, runner: InstanceRunner): Promise<Daemon> {
-  return createDaemon({
+  return createTestDaemon({
     home,
     engine,
     skipConfig: true,

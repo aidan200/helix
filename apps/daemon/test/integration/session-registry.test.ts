@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon, type Daemon } from "../../src/infrastructure/container";
+import type { Daemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { FakeAgentEngine, type ScriptedTurn } from "../mocks/FakeAgentEngine";
 import { deriveTitle } from "../../src/application/services/SessionRegistry";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
@@ -70,7 +71,7 @@ async function makeRig(options: RigOptions = {}): Promise<Rig> {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t22-registry-"));
   const runner = new ScriptedRunner();
   const engines = new Map<string, FakeAgentEngine>();
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine: (sessionId) => {
       const engine = new FakeAgentEngine({ replies: options.replies ? [...options.replies] : undefined });
@@ -497,7 +498,7 @@ describe("T2.2 ⑥ 重启后全部会话元数据可见（restoreLatest 末位�
       cliOutput: new PassThrough(),
     });
     try {
-      const d1 = await createDaemon(mkOptions());
+      const d1 = await createTestDaemon(mkOptions());
       const a = await d1.directory.startDraftSession("重启会话甲的首条消息");
       const b = await d1.directory.startDraftSession("重启会话乙的首条消息");
       await until(() => engines.get(b.sessionId)!.events.some((e) => e.type === "agent_end"), 5000, "乙完成");
@@ -505,7 +506,7 @@ describe("T2.2 ⑥ 重启后全部会话元数据可见（restoreLatest 末位�
       await d1.shutdown();
 
       // 重启：全部会话元数据可见（非单会话）；只有当前会话热加载
-      const d2 = await createDaemon(mkOptions());
+      const d2 = await createTestDaemon(mkOptions());
       const sessions = await d2.directory.listSessions();
       expect(sessions.map((s) => s.sessionId).sort()).toEqual([a.sessionId, b.sessionId].sort());
       const aMeta = sessions.find((s) => s.sessionId === a.sessionId)!;

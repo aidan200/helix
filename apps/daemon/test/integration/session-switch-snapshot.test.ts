@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { StubBrowserPort } from "../mocks/StubBrowserPort";
@@ -77,7 +77,7 @@ describe("T5.1：多会话切换快照盖章 = 目标会话自身状态（串台
     const home = mkdtempSync(path.join(tmpdir(), "helix-t51-it-"));
     // 按会话独立引擎（T2.2 工厂形态）：A=model-a 慢速长流；B=model-b 快速短回
     const engines: FakeAgentEngine[] = [];
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine: () => {
         const first = engines.length === 0;

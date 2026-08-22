@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon, type Daemon } from "../../src/infrastructure/container";
+import type { Daemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import type { SessionRegistry, SessionRuntime } from "../../src/application/services/SessionRegistry";
 import type { SessionRunState } from "../../src/application/ports/inbound/SessionDirectoryPort";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
@@ -67,7 +68,7 @@ interface RigOptions {
 async function makeRig(options: RigOptions = {}): Promise<Rig> {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t21-record-"));
   const engines = new Map<string, FakeAgentEngine>();
-  const daemon = await createDaemon({
+  const daemon = await createTestDaemon({
     home,
     engine: (sessionId) => {
       const engine = new FakeAgentEngine({ replies: options.replies ? [...options.replies] : undefined });

@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 
 /**
@@ -30,7 +30,7 @@ const engine = new FakeAgentEngine({
   steerReplies: [{ text: "（重启后才会发出的注入回复）" }],
 });
 
-const daemon = await createDaemon({
+const daemon = await createTestDaemon({
   home,
   engine,
   skipConfig: true,

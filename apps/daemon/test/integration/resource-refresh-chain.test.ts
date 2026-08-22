@@ -6,7 +6,7 @@ import { PassThrough } from "node:stream";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import { createDaemon } from "../../src/infrastructure/container";
+import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { buildModels, resolveConfigModel } from "../../src/adapters/driven/pi-engine/model-provider";
@@ -117,7 +117,7 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
     const workspace = tmpHome();
     const seen: Array<{ systemPrompt?: string; tools: string[] }> = [];
     const engine = makeCapturingEngine(seen, workspace);
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine,
       skipConfig: true,
@@ -164,7 +164,7 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
     installSkill(home, "hello-skill", "组合根验证技能");
     const seen: Array<{ systemPrompt?: string; tools: string[] }> = [];
     const engine = makeCapturingEngine(seen, workspace);
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine,
       skipConfig: true,
@@ -202,7 +202,7 @@ describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 accept
     const workspace = tmpHome();
     const seen: Array<{ systemPrompt?: string; tools: string[] }> = [];
     const engine = makeCapturingEngine(seen, workspace);
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       engine,
       skipConfig: true,
@@ -229,7 +229,7 @@ describe("main model 槽位：读面生效 + 活跃 runtime 不强推（M6 T2 �
   test("④ setModel(main) → 当前会话模型不动（不强推）；重启后新会话读槽位（下一装配生效）", async () => {
     const home = tmpHome();
     const workspace = tmpHome();
-    const daemon1 = await createDaemon({
+    const daemon1 = await createTestDaemon({
       home,
       skipConfig: true,
       port: 0,
@@ -249,7 +249,7 @@ describe("main model 槽位：读面生效 + 活跃 runtime 不强推（M6 T2 �
     }
 
     // 重启同 home：新会话装配读槽位（四级链：per-session 覆盖 > kind 槽位 > default_model）
-    const daemon2 = await createDaemon({
+    const daemon2 = await createTestDaemon({
       home,
       skipConfig: true,
       port: 0,
@@ -272,7 +272,7 @@ describe("SubAgent spawn 快照容器级（生产 launcher，M6 T2 acceptance �
     const home = tmpHome();
     const workspace = tmpHome();
     installSkill(home, "hello-skill", "容器级快照技能");
-    const daemon = await createDaemon({
+    const daemon = await createTestDaemon({
       home,
       skipConfig: true,
       port: 0,

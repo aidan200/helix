@@ -3,7 +3,6 @@ import type { SessionPort } from "../application/ports/inbound/SessionPort";
 import type { SystemPort, DaemonStatus } from "../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../application/ports/inbound/AgentOrchestrationPort";
 import type { SessionDirectoryPort } from "../application/ports/inbound/SessionDirectoryPort";
-import type { AgentEnginePort } from "../application/ports/outbound/AgentEnginePort";
 import type { ClockPort } from "../application/ports/outbound/ClockPort";
 import type { BrowserPort } from "../application/ports/outbound/BrowserPort";
 import type { ModelPort } from "../application/ports/inbound/ModelPort";
@@ -11,7 +10,6 @@ import type { InstanceRunner } from "../application/services/InstanceRunner";
 import { ModelService } from "../application/services/ModelService";
 import { SessionRegistry } from "../application/services/SessionRegistry";
 import { ResourceService } from "../application/services/ResourceService";
-import { DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAdapter";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
@@ -21,13 +19,13 @@ import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
 import { createPaths, osHomeDir, type HelixPaths } from "./paths";
-import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig } from "./config";
+import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import { ensureDevToken } from "./dev-token";
 import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
 import { buildPersistence } from "./assembly/buildPersistence";
 import { buildModelStack } from "./assembly/buildModelStack";
-import { buildSessionStack, type AssemblyBackfill } from "./assembly/buildSessionStack";
+import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode } from "./assembly/buildSessionStack";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
 import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
 
@@ -43,6 +41,15 @@ import { createResourceEventBus, type ResourceEventBus } from "./assembly/resour
  * 会话无关全局件（调度器/事件总线/存储/WS 服务器/静态服务）保持单例
  * ——调度预算 daemon 全局一份不随会话数分裂（TR-AD-11/16）。
  *
+ * T2.3（§4.3 显式模式）：生产入口 createDaemon = 唯一生产装配形态（真
+ * 引擎 + 真 SubagentLauncher + CdpConnectionManager + config 模板/加载 +
+ * 单例锁）；全部测试注入口（engine/skip 锁与配置读面/静态 fixture/工具
+ * 沙箱/技能目录隔离/fake runner/fake 浏览器端口/会话参数）迁
+ * apps/daemon/test/helpers/createTestDaemon.ts（TestDaemonOptions）——
+ * 生产面类型零测试污染（TP-2.3a）；两入口共享装配核心 assembleDaemon
+ * （本文件导出的组合根接缝），装配形态经 engineMode 判别字段显式声明，
+ * 不从注入字段缺省推断（TP-2.3b）。
+ *
  * 装配序（T2.2 无容器版重构，architecture §4.2.2）：启动序前置（目录/锁/
  * config）→ 四命名装配函数（buildPersistence → buildModelStack →
  * buildSessionStack）→ wireEventFanout → 晚绑回填闭合 → registry.initialize
@@ -51,61 +58,16 @@ import { createResourceEventBus, type ResourceEventBus } from "./assembly/resour
  * 持久化（T1.8 + T2.2 分仓）：SQLite WAL `<home>/helix.db`；WriteQueue 是
  * daemon 内唯一 SQLite 写通道（AG-06），每会话独立仓位按 session_id 路由；
  * shutdown 先 drain 写队列再释放锁（优雅退出）。
- *
- * 测试注入口（不进生产路径）：engine（FakeAgentEngine 单实例或按会话工厂）、
- * subagentRunner（integration 驱动收口时序）、CLI 输入输出流（PassThrough）、
- * skipLock/skipConfig（单测并行与 Fake 演示）、sessionTailSize /
- * sessionIdleUnloadMs（G-1/G-5 测试注入面）。
  */
 export interface DaemonOptions {
-  /** 显式 home（main.ts 已解析 --home；测试指向 tmp 目录）。 */
+  /** 显式 home（main.ts 已解析 --home；缺省 ~/.helix）。 */
   readonly home?: string;
-  /**
-   * 引擎覆盖（测试注入 FakeAgentEngine；缺省装配真 pi 引擎）。
-   * T2.2 多会话：传实例 = 全部会话共享（单会话既有测试形态）；传工厂 =
-   * 每会话独立引擎（多会话并行测试形态——引擎持有单 run 状态不可并发共享）。
-   */
-  readonly engine?: AgentEnginePort | ((sessionId: string) => AgentEnginePort);
-  /** CLI 输入/输出流覆盖（测试注入 PassThrough）。 */
+  /** CLI 输入流覆盖（缺省 process.stdin；真实启动面）。 */
   readonly cliInput?: NodeJS.ReadableStream;
+  /** CLI 输出流覆盖（缺省 process.stdout；真实启动面）。 */
   readonly cliOutput?: NodeJS.WritableStream;
-  /** WS 监听端口覆盖（0 = 随机；测试用；缺省取 config.port）。 */
+  /** WS 监听端口覆盖（0 = 随机；缺省取 config.port——真实启动面）。 */
   readonly port?: number;
-  /** 前端静态产物目录覆盖（测试注入 fixture；缺省取 config.staticDir）。 */
-  readonly staticDir?: string;
-  /** 跳过单例锁（单测并行用；生产不得关闭）。 */
-  readonly skipLock?: boolean;
-  /**
-   * 跳过 config 加载与旧格式迁移（FakeAgentEngine 演示/单测注入；生产不得
-   * 关闭）。T2.3（AD-2）判定重定义：本开关只管 config 文件读面；「真引擎
-   * 模式」（SubagentLauncher 真体装配）改由 options.engine 是否注入判定
-   * ——注入 = 测试 Fake 形态（无子进程），缺省 = 生产（真引擎 + SQLite
-   * 默认模型 + auth.json key 源）。
-   */
-  readonly skipConfig?: boolean;
-  /** 工具沙箱 cwd 覆盖（测试指向 tmp；缺省为进程工作区）。 */
-  readonly toolCwd?: string;
-  /**
-   * builtin 层技能目录覆盖（T5 测试注入口：integration 注入空 tmp 目录隔离
-   * 恰等断言；缺省 = paths.builtinSkillsDir() 随仓真目录——目录缺失静默跳过）。
-   */
-  readonly builtinSkillsDir?: string;
-  /**
-   * SubAgent runner 覆盖（T2.3 测试注入口：integration 注入 fake runner 驱动
-   * 收口时序；缺省装配 SubagentLauncher 真体 / skipConfig 占位替身）。
-   */
-  readonly subagentRunner?: InstanceRunner;
-  /**
-   * BrowserPort 覆盖（T4 测试注入口：integration 注入 fake BrowserPort 驱动
-   * web 族命令/广播断言；缺省装配 CdpConnectionManager 真体——lazy 连接零触网）。
-   */
-  readonly browser?: BrowserPort;
-  /** 主时间轴尾窗大小（G-1：缺省 30；测试注入面）。 */
-  readonly sessionTailSize?: number;
-  /** 空闲卸载窗口 ms（G-5：缺省 30min；测试注入缩短到秒级）。 */
-  readonly sessionIdleUnloadMs?: number;
-  /** 空闲卸载轮询间隔 ms（测试注入面；缺省 min(60s, 窗口/10)）。 */
-  readonly sessionIdlePollMs?: number;
 }
 
 export interface Daemon {
@@ -118,7 +80,7 @@ export interface Daemon {
   readonly logger: Logger;
   /** WS 服务（127.0.0.1；实际监听端口/地址可观测，TP-CL6-1）。 */
   readonly ws: WsServerAdapter;
-  /** SubAgent 子进程运行器（T2.2；skipConfig 无 model 配置时不装配）。 */
+  /** SubAgent 子进程运行器（T2.2；engineMode=override 测试形态不装配真体）。 */
   readonly subagentLauncher: SubagentLauncher | undefined;
   /** 编排入口（T2.3：spawn/send/status/kill；三工具与 WS 命令的公共回口）。 */
   readonly orchestration: AgentOrchestrationPort;
@@ -146,9 +108,80 @@ export interface Daemon {
 }
 
 /**
- * 组装 daemon（async：重启恢复需读盘）。主进程/测试均 await。
+ * 组合根装配接缝（T2.3 §4.3）：共享装配核心 assembleDaemon 的输入——
+ * 生产入口 createDaemon 与测试工厂 createTestDaemon（test/helpers/）各自
+ * 构造切片后调用。装配形态全部显式：engineMode 判别字段声明引擎装配
+ * 形态；lock/config/legacy 为入口已构造的启动序前置产物（测试工厂的
+ * 「跳锁 / 跳配置读面」形态 = 直接传 undefined lock / 硬编码缺省 config
+ * + 空 legacy，跳过语义不进生产面类型）。
+ */
+export interface AssembleDaemonDeps {
+  // ── 真实启动参数（DaemonOptions 子集，生产/测试同形透传） ──
+  readonly home?: string;
+  readonly port?: number;
+  readonly cliInput?: NodeJS.ReadableStream;
+  readonly cliOutput?: NodeJS.WritableStream;
+  // ── 启动序前置产物（入口形态决断，装配核心只消费不构造） ──
+  /** 单例锁（生产必获取；测试跳锁形态传 undefined）。 */
+  readonly lock: SingletonLock | undefined;
+  /** 已加载配置（生产 = ensureConfigTemplate + loadConfig；测试跳配置读面形态 = 硬编码缺省）。 */
+  readonly config: DaemonConfig;
+  /** 旧格式遗留位（空对象 = 不触发启动迁移——测试跳配置读面形态天然为空）。 */
+  readonly legacy: LegacyModelConfig;
+  // ── 装配切片（测试注入口的组合根接缝形态） ──
+  /** 引擎装配形态（显式判别：production 真引擎 / override 测试注入工厂）。 */
+  readonly engineMode: EngineAssemblyMode;
+  /** 浏览器端口实例（生产 CdpConnectionManager；测试可注入 fake BrowserPort）。 */
+  readonly browserPort: BrowserPort;
+  /** SubAgent runner 覆盖（测试注入 fake runner 驱动收口时序；缺省真体/占位降级）。 */
+  readonly subagentRunnerOverride?: InstanceRunner;
+  /** 前端静态产物目录覆盖（缺省取 config.staticDir）。 */
+  readonly staticDir?: string;
+  /** 工具沙箱 cwd 覆盖（缺省为进程工作区）。 */
+  readonly toolCwd?: string;
+  /** builtin 层技能目录覆盖（缺省 = paths.builtinSkillsDir() 随仓真目录——目录缺失静默跳过）。 */
+  readonly builtinSkillsDir?: string;
+  /** 主时间轴尾窗大小覆盖（G-1 注入面；缺省 WsServerAdapter 内建缺省）。 */
+  readonly tailSize?: number;
+  /** 空闲卸载窗口 ms 覆盖（G-5 注入面；缺省 30min）。 */
+  readonly sessionIdleUnloadMs?: number;
+  /** 空闲卸载轮询间隔 ms 覆盖（注入面；缺省 min(60s, 窗口/10)）。 */
+  readonly sessionIdlePollMs?: number;
+}
+
+/**
+ * 生产入口（T2.3 §4.3 显式模式，async：重启恢复需读盘）。main.ts 唯一
+ * 调用面；测试装配一律走 apps/daemon/test/helpers/createTestDaemon.ts。
  */
 export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon> {
+  const paths = createPaths(options.home);
+  // 首启序：目录补建必须先于锁获取（daemon.lock 是首个写盘动作，
+  // 目录不存在则 ENOENT）——ensureHome 是 home 目录创建的单点（TR-AD-6）。
+  paths.ensureHome();
+  const lock: SingletonLock | undefined = acquireSingletonLock(paths.lockPath());
+  // 配置：首次创建模板（0600，AG-09）+ 加载（T2.3 瘦身：纯运行参数；旧
+  // 格式 model/apiKeys 读入 legacy 由装配核心迁移落新位）
+  ensureConfigTemplate(paths.configPath());
+  const loaded = loadConfig(paths.configPath());
+  return assembleDaemon({
+    home: options.home,
+    port: options.port,
+    cliInput: options.cliInput,
+    cliOutput: options.cliOutput,
+    engineMode: { kind: "production" },
+    lock,
+    config: loaded.config,
+    legacy: loaded.legacy,
+    browserPort: new CdpConnectionManager({ homeDir: osHomeDir() }),
+  });
+}
+
+/**
+ * 共享装配核心（组合根接缝，T2.3 §4.3）：生产 createDaemon 与测试工厂
+ * createTestDaemon 的公共装配序——启动序前置产物由入口传入（deps），
+ * 本函数只做装配不做形态决断（async：重启恢复需读盘）。
+ */
+export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> {
   // ── 装配序步 1：装配级事件总线（零依赖 pub/sub，最先构造——循环边解耦锚点，
   //    architecture §4.2.2/§4.2.3）：resources.changed 的唯一通道，
   //    不进 WS/不落盘/不进 fan-out（TP-2.2c 负断言面）。──
@@ -157,23 +190,14 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   const backfill: AssemblyBackfill = {};
 
   // ── 启动序前置（TR-AD-6/AG-09） ─────────────────────────────
-  const paths = createPaths(options.home);
-  // 首启序：目录补建必须先于锁获取（daemon.lock 是首个写盘动作，
-  // 目录不存在则 ENOENT）——ensureHome 是 home 目录创建的单点（TR-AD-6）。
+  const paths = createPaths(deps.home);
+  // 首启序：目录补建先于首个写盘动作（ensureHome 幂等——入口已在锁获取前
+  // 补建；此处保证 logger/持久化等写盘面有目录，TR-AD-6 单点）。
   paths.ensureHome();
-  const lock: SingletonLock | undefined = options.skipLock ? undefined : acquireSingletonLock(paths.lockPath());
+  const lock = deps.lock;
   const logger = createFileLogger(paths.logsDir());
-
-  // 配置：首次创建模板（0600，AG-09）+ 加载（T2.3 瘦身：纯运行参数；旧
-  // 格式 model/apiKeys 读入 legacy 由下方迁移落新位）
-  ensureConfigTemplate(paths.configPath());
-  const loaded = options.skipConfig
-    ? {
-        config: { port: 7333, maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent, maxQueued: DEFAULT_SCHEDULING.maxQueued },
-        legacy: {},
-      }
-    : loadConfig(paths.configPath());
-  const config = loaded.config;
+  const config = deps.config;
+  const legacy = deps.legacy;
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   const persistence = buildPersistence({ paths, logger });
@@ -185,7 +209,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 
   // ── driven：CDP 浏览器连接（T2 地基；无独立 proxy/HTTP 层，连接内嵌 daemon）──
   // lazy 连接——装配不触网；homeDir 经 paths.ts 单点取（AG-07：adapter 不直接展开主目录）。
-  const browserPort: BrowserPort = options.browser ?? new CdpConnectionManager({ homeDir: osHomeDir() });
+  const browserPort: BrowserPort = deps.browserPort;
 
   const sessionStack = await buildSessionStack({
     paths,
@@ -201,12 +225,12 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     events: fanoutPublisher,
     publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
     backfill,
-    engine: options.engine,
-    subagentRunnerOverride: options.subagentRunner,
-    toolCwd: options.toolCwd,
-    builtinSkillsDir: options.builtinSkillsDir,
-    sessionIdleUnloadMs: options.sessionIdleUnloadMs,
-    sessionIdlePollMs: options.sessionIdlePollMs,
+    engineMode: deps.engineMode,
+    subagentRunnerOverride: deps.subagentRunnerOverride,
+    toolCwd: deps.toolCwd,
+    builtinSkillsDir: deps.builtinSkillsDir,
+    sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
+    sessionIdlePollMs: deps.sessionIdlePollMs,
   });
   const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService } = sessionStack;
 
@@ -224,8 +248,7 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 
   // ── 旧格式迁移（T2.3，一次性，幂等）：config.json 含 model/apiKeys →
   //    写新位（auth.json / SQLite 默认表）+ config.json 重写瘦身形态 ──
-  if (!options.skipConfig && (loaded.legacy.model !== undefined || loaded.legacy.apiKeys !== undefined)) {
-    const legacy = loaded.legacy;
+  if (legacy.model !== undefined || legacy.apiKeys !== undefined) {
     for (const [providerId, apiKey] of Object.entries(legacy.apiKeys ?? {})) {
       await modelStack.authStore.setKey(providerId, apiKey);
     }
@@ -258,13 +281,13 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   };
 
   // ── driving：CLI（stdout 事件发布器由组合根构造并注入两侧） ─────
-  const stdoutPublisher = new StdoutEventPublisher(options.cliOutput ?? process.stdout);
+  const stdoutPublisher = new StdoutEventPublisher(deps.cliOutput ?? process.stdout);
   const cli = new CliAdapter({
     chat: chatRouter,
     session: sessionService,
     events: stdoutPublisher,
-    input: options.cliInput,
-    output: options.cliOutput,
+    input: deps.cliInput,
+    output: deps.cliOutput,
   });
 
   // ── fan-out 六目标装配（装配序步 5；带名注册表序 = 语义唯一权威，§4.2.4） ──
@@ -342,7 +365,8 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
   // ── driving：WS 服务（CL-6：127.0.0.1 + hello 握手 + 命令路由 + 事件推送）──
   // dev token 每次启动重写（<home>/dev-token，0600）；静态产物缺失不影响启动
   const token = ensureDevToken(paths.devTokenPath());
-  const staticServe = new StaticServe(options.staticDir ?? config.staticDir);
+  const staticDir = deps.staticDir ?? config.staticDir;
+  const staticServe = new StaticServe(staticDir);
   // 当前会话绑定编排门面（T2.2）：Daemon.orchestration / WS 编排命令共用——
   // spawn 携带当前会话归属 + 当前模型透传（T2.3 AgentInstanceDto.model
   // 填充链）；kill/send/status 按 agentId 全局寻址
@@ -379,14 +403,14 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
     traceQuery: persistence.traceQuery, // T2.1（CL-5/F5.6）：trace.query 命令回口（只读面）
     events: eventStream,
     token,
-    port: options.port ?? config.port,
+    port: deps.port ?? config.port,
     staticHandler: (req) => staticServe.handle(req),
-    tailSize: options.sessionTailSize,
+    tailSize: deps.tailSize,
   });
   wsServer = ws;
   if (!staticServe.active) {
     logger.info(
-      `static-serve 未激活（staticDir=${options.staticDir ?? config.staticDir ?? "未配置"}）——前端产物缺失不影响 daemon（T1.7 前属正常）`,
+      `static-serve 未激活（staticDir=${staticDir ?? "未配置"}）——前端产物缺失不影响 daemon（T1.7 前属正常）`,
     );
   }
   logger.info(
