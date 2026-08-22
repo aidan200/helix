@@ -26,11 +26,11 @@ relations:
   governs:
     - E-AgentRuntime
     - E-会话聚合
-updatedIn: iter-20260821-dg90
+updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
-daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号——唯一例外 @helix/common：业务无关通用常量/纯工具经 AG-02① 白名单显式允许直引，@helix/protocol 与 pi 系仍禁，iter-20260821-dg90 AD-1）→ application/（ports/ 按 inbound/outbound 双向组织——inbound：AgentOrchestrationPort、SystemPort、ChatPort、ResourceConfigPort、SessionPort、ModelPort、SessionDirectoryPort 等（接口由 service 或组合根实现）；outbound：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort、AuthStorePort、DefaultModelPort、ModelCatalogPort、BrowserPort、ResourceStatePort、SkillSourcePort 生效 10 个（由 service 调用；双向清单详见 TR-AD-2，iter-20260821-dg90 终验 L3 复核校正计数）+ services/：ChatService、SessionService、RestoreService、SchedulerService；只依赖 domain 与自有 port + 白名单三项（@helix/common——业务无关通用层直引，AD-1/iter-20260821-dg90；@helix/protocol——协议类型与纯投影消费（MAIN_INSTANCE_ID 唯一定义已迁 @helix/common，protocol 为 re-export 通道，AG-13 取源断言语义同步）；node:path——scheduler/ClosureRecorder 产物路径；以守护 AG-02② 白名单为准，iter-20260821-dg90 扩为三项），禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、subagent（SubAgent 子进程 launcher/child/transport）、static-serve、cdp（BrowserPort 的 CDP 实现域：CdpConnectionManager/browser-discovery/TabRegistry，零 pi import、不入 AG-04 三根——iter-20260821-dg90 终验 L3 复核补枚举），实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点；组合根锚面 = container.ts + infrastructure/assembly/**——命名装配函数族 buildPersistence/buildModelStack/buildSessionStack/wireEventFanout 落 assembly/ 目录，iter-20260821-dg90 H2.2 拆分，AG-02④ 豁免面同步扩为该锚面）。新增代码先定层再写文件。
+daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号——唯一例外 @helix/common：业务无关通用常量/纯工具经 AG-02① 白名单显式允许直引，@helix/protocol 与 pi 系仍禁，iter-20260821-dg90 AD-1）→ application/（ports/ 按 inbound/outbound 双向组织——inbound：AgentOrchestrationPort、SystemPort、ChatPort、ResourceConfigPort、SessionPort、ModelPort、SessionDirectoryPort 等（接口由 service 或组合根实现）；outbound：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort、AuthStorePort、DefaultModelPort、ModelCatalogPort、BrowserPort、ResourceStatePort、SkillSourcePort 生效 11 个（由 service 调用；双向清单详见 TR-AD-2，iter-20260822-m1uc 终验 L3 复核校正计数：实有 11 个生效 outbound port 与清单一致）+ services/：ChatService、SessionService、RestoreService、SchedulerService；只依赖 domain 与自有 port + 白名单三项（@helix/common——业务无关通用层直引，AD-1/iter-20260821-dg90；@helix/protocol——协议类型与纯投影消费（MAIN_INSTANCE_ID 唯一定义已迁 @helix/common，protocol 为 re-export 通道，AG-13 取源断言语义同步）；node:path——scheduler/ClosureRecorder 产物路径；以守护 AG-02② 白名单为准，iter-20260821-dg90 扩为三项），禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、subagent（SubAgent 子进程 launcher/child/transport）、static-serve、cdp（BrowserPort 的 CDP 实现域：CdpConnectionManager/browser-discovery/TabRegistry，零 pi import、不入 AG-04 三根——iter-20260821-dg90 终验 L3 复核补枚举），实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点；组合根锚面 = container.ts + infrastructure/assembly/**——命名装配函数族 buildPersistence/buildModelStack/buildSessionStack/wireEventFanout 落 assembly/ 目录，iter-20260821-dg90 H2.2 拆分，AG-02④ 豁免面同步扩为该锚面）。新增代码先定层再写文件。
 
 ## 理由
 六边形与 daemon「唯一事实源 + 端口适配」职责天然契合——pi 引擎/SQLite/WS 都是可替换端口（AD-12）；单向依赖保证防腐：换引擎、换存储、换前端均不动 domain 与 application（AD-17）；业务逻辑 framework-free 才能零依赖单测。iter-20260821-dg90 两处扩张均为机械跟随非语义反转：domain 白名单开 @helix/common 例外是 AD-1 裁决——MAIN_INSTANCE_ID 双源即本规则「取源单点」条款与 AG-02 domain 禁令内战的产物，解法 = 引入两者之下都合法的最小公共层（规则全文见 TR-AD-28）；组合根锚面从单文件扩为目录是 H2.2 四命名装配函数拆分的落位配套（组合根「唯一允许 import 全部层、new 具体实现」语义不变，container <500 行目标的结构前提）。
@@ -64,11 +64,11 @@ relations:
     - E-领域事件与单写队列
     - E-会话聚合
     - E-AgentRuntime
-updatedIn: iter-20260821-dg90
+updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
-application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 或组合根实现——AgentOrchestrationPort 由 SchedulerService 实现、经 driven 编排工具（agent_spawn/send/status）回口调用；SystemPort 由组合根内联实现、driving ws-server 调用；ModelPort 由 ModelService 实现、SessionDirectoryPort 由 SessionRegistry 实现（T2.3 模型模块新增）；ChatPort 由 ChatService 实现、ResourceConfigPort 由 ResourceService 实现、SessionPort 由 SessionService 实现（iter-20260821-dg90 终验 L3 复核补枚举））与 outbound/（出口端口生效 10 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort、AuthStorePort、DefaultModelPort、ModelCatalogPort + BrowserPort、ResourceStatePort、SkillSourcePort，由 service 调用；SystemPort 自创建起即位于 inbound/；守护测试断言 ports 文件数 ≥9）。outbound port 的实现允许四类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）、infrastructure 纯技术文件 port（AuthStore——纯文件读写无 driving/driven 语义，落 infrastructure/auth-store.ts，AG-06③ 原子写白名单显式列名，与 dev-token/config 同类）、application service（EventPublisherPort 的会话投影实现 SessionProjection——fan-out 投影目标，经 container 装配进 publisherTargets，服务消费面 = 组合根内联 fanout，iter-20260820-qhv8 终验补记）；PathsPort 已删除（iter-20260820-qhv8 F-7 死代码清理，零实现零消费）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
+application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 或组合根实现——AgentOrchestrationPort 由 SchedulerService 实现、经 driven 编排工具（agent_spawn/send/status）回口调用；SystemPort 由组合根内联实现、driving ws-server 调用；ModelPort 由 ModelService 实现、SessionDirectoryPort 由 SessionRegistry 实现（T2.3 模型模块新增）；ChatPort 由 ChatService 实现、ResourceConfigPort 由 ResourceService 实现、SessionPort 由 SessionService 实现（iter-20260821-dg90 终验 L3 复核补枚举））与 outbound/（出口端口生效 11 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort、AuthStorePort、DefaultModelPort、ModelCatalogPort + BrowserPort、ResourceStatePort、SkillSourcePort，由 service 调用（iter-20260822-m1uc 终验 L3 复核校正计数：11 名清单与代码实有 11 个 port 文件一致）；SystemPort 自创建起即位于 inbound/；守护测试断言 ports 文件数 ≥9 为下限断言、与 11 兼容）。outbound port 的实现允许四类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）、infrastructure 纯技术文件 port（AuthStore——纯文件读写无 driving/driven 语义，落 infrastructure/auth-store.ts，AG-06③ 原子写白名单显式列名，与 dev-token/config 同类）、application service（EventPublisherPort 的会话投影实现 SessionProjection——fan-out 投影目标，经 container 装配进 publisherTargets，服务消费面 = 组合根内联 fanout，iter-20260820-qhv8 终验补记）；PathsPort 已删除（iter-20260820-qhv8 F-7 死代码清理，零实现零消费）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
 
 ## 理由
 port 是 adapter↔application 两个方向的唯一衔接契约（AD-17 条 2/3）；契约里混入实现即产生第二事实源，driving/driven 的可替换性（换 WS、换引擎、换存储）即刻失效。
@@ -197,7 +197,7 @@ scope: domain
 stack: backend
 name: ~/.helix 主目录与 Paths 单点解析
 status: active
-digest: 加配置项、定位数据文件、解析任何路径时
+digest: 加配置项、定位数据文件、解析任何路径、加壳→daemon env 注入参数时
 derivedFrom:
   - AD-13
   - AD-14
@@ -206,28 +206,30 @@ anchors:
     - apps/daemon/src/infrastructure/paths.ts
     - apps/daemon/src/infrastructure/auth-store.ts
     - apps/daemon/src/adapters/driven/pi-engine/model-catalog.ts
+    - apps/daemon/src/infrastructure/container.ts
   testedBy:
     - apps/daemon/test/unit/paths.test.ts
     - apps/daemon/test/unit/config.test.ts
     - apps/daemon/test/unit/auth-store.test.ts
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
 relations:
   governs:
     - E-领域事件与单写队列
     - E-认证凭据
-updatedIn: iter-20260820-qhv8
+updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
-~/.helix 是 daemon 唯一配置/数据/日志主目录，全部自有状态进 home，不用环境变量：config.json（daemon 配置面：端口、调度预算等——T2.3 瘦身后模型数据面已迁出：provider API keys → auth.json、默认模型 → helix.db default_model 表、模型目录缓存 → models-store.json，旧格式幂等迁移）、auth.json（provider 凭据，0600，格式见 TR-AD-7）、dev-token（CL-6）、logs/、helix.db（SQLite WAL）、models-store.json（ModelCatalog 落盘兜底）。所有业务路径解析收束于 infrastructure/paths.ts 单一模块：home 展开的跨平台处理（os.homedir + path，Windows 差异同处收束）、各文件相对 home 的定位；新增 auth.json/models-store 路径必须经 paths.ts 单点派生（勿复制 container.ts reports 旁路先例）；支持可选 `--home <dir>` 启动参数覆盖（测试指向 tmp 目录用）。任何模块不得自行拼接 ~/.helix 子路径，也不得经环境变量取配置；壳零参与路径解析（需要业务路径时向 daemon 查询；壳仅保留自身 bundle 资源定位：sidecar 二进制/前端静态产物）。
+~/.helix 是 daemon 唯一配置/数据/日志主目录，全部自有状态进 home，不用环境变量：config.json（daemon 配置面：端口、调度预算等——T2.3 瘦身后模型数据面已迁出：provider API keys → auth.json、默认模型 → helix.db default_model 表、模型目录缓存 → models-store.json，旧格式幂等迁移）、auth.json（provider 凭据，0600，格式见 TR-AD-7）、dev-token（CL-6）、logs/、helix.db（SQLite WAL）、models-store.json（ModelCatalog 落盘兜底）。所有业务路径解析收束于 infrastructure/paths.ts 单一模块：home 展开的跨平台处理（os.homedir + path，Windows 差异同处收束）、各文件相对 home 的定位；新增 auth.json/models-store 路径必须经 paths.ts 单点派生（勿复制 container.ts reports 旁路先例）；支持可选 `--home <dir>` 启动参数覆盖（测试指向 tmp 目录用）。任何模块不得自行拼接 ~/.helix 子路径，也不得经环境变量取配置——唯一例外 = 跨进程启动参数注入面（壳 → daemon 的 bundle 资源定位产物，本期 HELIX_RG_PATH；及 rg 三级解析探测对象 PATH）：读取收束于组合根 container.ts 单点，合法键集合由 arch-guard AG-08 机械断言（恰为排序集合 {HELIX_RG_PATH, PATH}），新增注入键须同批扩守护断言与本款清单，工具/业务代码维持零 process.env（AF-2，iter-20260822-m1uc）；壳零参与路径解析（需要业务路径时向 daemon 查询；壳仅保留自身 bundle 资源定位：sidecar 二进制/前端静态产物）。
 
 ## 理由
-单一事实源原则的文件系统延伸；daemon 全局单例（AD-7）与全局 home 目录天然对应；dev 期壳缺席（AD-8）而路径逻辑放壳会造成 dev/打包双轨（AD-14）；路径解析收束一处才 framework-free 可测试；模型数据面迁出 config.json 是 AD-2 落地（T2.3）的文件布局面。
+单一事实源原则的文件系统延伸；daemon 全局单例（AD-7）与全局 home 目录天然对应；dev 期壳缺席（AD-8）而路径逻辑放壳会造成 dev/打包双轨（AD-14）；路径解析收束一处才 framework-free 可测试；模型数据面迁出 config.json 是 AD-2 落地（T2.3）的文件布局面。env 例外款（AF-2，iter-20260822-m1uc）：壳的 bundle 资源定位职责（TR-AD-10）产物须跨进程送达 daemon，而 stdio 只走生命周期信号（sidecar 契约），argv/env 是唯一合法启动面通道；不收束组合根单点则 env 读取散落 = 本规则要消灭的配置源分裂回潮。
 
 ## 适用范围
-CL-1 配置模块设计、CL-6 token 落点、CL-8 db 路径、测试注入 home 目录；任何新增自有状态文件的落点决策；模型模块（auth.json/models-store.json/default_model）文件布局评审。
+CL-1 配置模块设计、CL-6 token 落点、CL-8 db 路径、测试注入 home 目录；任何新增自有状态文件的落点决策；模型模块（auth.json/models-store.json/default_model）文件布局评审；新增壳→daemon env 注入参数（跨进程启动面）评审与 AG-08 守护维护；container.ts 装配改动评审。
 
 ## 反例
-ws-server adapter 里自己写 `path.join(os.homedir(), '.helix', 'dev-token')` 读 token，或用 `process.env.HELIX_DB` 指定数据库路径——绕过 paths.ts 单点，--home 覆盖对它失效；或 auth-store 自行拼接 ~/.helix/auth.json 路径而不经 paths.ts——测试 home 注入对该文件失效。
+ws-server adapter 里自己写 `path.join(os.homedir(), '.helix', 'dev-token')` 读 token，或用 `process.env.HELIX_DB` 指定数据库路径——绕过 paths.ts 单点，--home 覆盖对它失效；或 auth-store 自行拼接 ~/.helix/auth.json 路径而不经 paths.ts——测试 home 注入对该文件失效；或 rg-backend.ts 直接 `process.env.HELIX_RG_PATH` 取值——env 读取散落出组合根单点，AG-08 红；正确做法 = 组合根读出后作为 resolve-rg 入参注入（现实现即此形）。
 
 ```kg-node
 id: TR-AD-7
@@ -1090,13 +1092,13 @@ name: packages/common 业务无关通用层与零依赖守护
 status: active
 digest: 新建全局常量或通用 utils、动 packages/common 内容、加 @helix/common 依赖边时
 derivedFrom:
-  - AD-1（iter-20260821-dg90 技术债偿还：Q-2/D-4 用户裁决「正好引入 common 概念…保证其业务无关性」）
+  - AD-1
 anchors:
   implementedBy:
     - packages/common/src/
   testedBy:
     - apps/daemon/test/arch-guard/arch-guard.test.ts
-updatedIn: iter-20260821-dg90
+updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
@@ -1207,6 +1209,18 @@ stack: backend
 name: 三方二进制运行时解析收口（单点解析 + 禁裸名 spawn）
 status: active
 digest: 接入 rg/codegraph 等三方二进制、写 spawn 外部工具代码时
+derivedFrom:
+  - AD-1
+  - AD-2
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/tools/grep/resolve-rg.ts
+  testedBy:
+    - apps/daemon/test/integration/grep-rg-backend.test.ts
+    - apps/daemon/test/integration/grep-degrade.test.ts
+relations:
+  governs:
+    - E-AgentRuntime
 updatedIn: iter-20260822-m1uc
 ```
 
@@ -1232,20 +1246,32 @@ stack: backend
 name: grep 双后端一致性契约（语义对齐先于加速）
 status: active
 digest: 改 grep 工具、加检索后端、写一致性对比测试时
+derivedFrom:
+  - AD-2
+  - CL-3
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/tools/grep/
+  testedBy:
+    - apps/daemon/test/integration/grep-backends-parity.test.ts
+    - apps/daemon/test/integration/grep-degrade.test.ts
+relations:
+  governs:
+    - E-AgentRuntime
 updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
-内置 TS 后端与 rg 后端对同一检索请求必须产出语义一致的结果，契约逐项固化：gitignore 遵守、隐藏文件处理、glob 过滤、大小写开关、上下文行、返回格式（恒为 GrepMatch：path/lineNumber/line）。契约由双后端对比测试机械守护（同一请求对 fixture 仓库跑真实两后端做结果对比断言，不用 mock 替代 rg——TR-TEST-3 契约等价口径）；新增任何语义维必须双端同批扩展并同步扩契约断言。一致性未覆盖的 rg 差异行为一律在 rg 后端适配层对齐到内置 TS 语义（rg 默认遵守 .gitignore、跳过隐藏文件——与内置行为不一致即适配层归一），宁失速不失真：加速不得改变检索结果。降级链：rg 缺失/执行失败/超时 → 门面捕获 → 本轮回退内置 TS 后端，结果照常返回 + warning 日志；用户与 agent 无感；降级不升级、不重试 rg 本轮调用。
+内置 TS 后端与 rg 后端对同一检索请求必须产出语义一致的结果，契约逐项固化：gitignore 遵守、隐藏文件处理、glob 过滤、大小写开关、上下文行、返回格式（恒为 GrepMatch：path/lineNumber/line）。契约由双后端对比测试机械守护（同一请求对 fixture 仓库跑真实两后端做结果对比断言，不用 mock 替代 rg——TR-TEST-3 契约等价口径）；新增任何语义维必须双端同批扩展并同步扩契约断言。一致性未覆盖的 rg 差异行为一律在 rg 后端适配层对齐到内置 TS 语义（rg 默认遵守 .gitignore、跳过隐藏文件——与内置行为不一致即适配层归一），宁失速不失真：加速不得改变检索结果。降级链（AF-1 裁决语义：启动定格 + 首败永久降级）：组合根装配时一次性执行 resolve-rg 三级解析 + 轻量可用性探针（rg --version，2s 超时），结果内存定格——成功定格 rg 后端，失败定格 ts 标识 + startup info 日志（含缺失原因），进程生命周期内不重新解析、不升级；grep 每次调用只读内存标识选后端，零逐次降级判断；运行期首败永久降级——定格 rg 后某次调用失败/超时 → 当轮 ts 重跑返回结果 + warning 日志 + 翻转标识为 ts（此后直接 ts），判断只发生在失败路径一次；用户与 agent 无感。
 
 ## 理由
-iter-20260822-m1uc CL-3 命门：rg 默认行为（gitignore/隐藏文件）若与内置 TS grep 不一致，加速会静默改变 agent 的检索结果——性能优化变成行为回归；契约先于加速钉死，双后端对比测试把「语义一致」从口头约定变成红绿事实；降级链保证零依赖环境（干净 macOS 无 rg）功能完备（CL-1 F1.3 零依赖功能验证的架构前提）。
+iter-20260822-m1uc CL-3 命门：rg 默认行为（gitignore/隐藏文件）若与内置 TS grep 不一致，加速会静默改变 agent 的检索结果——性能优化变成行为回归；契约先于加速钉死，双后端对比测试把「语义一致」从口头约定变成红绿事实；降级链保证零依赖环境（干净 macOS 无 rg）功能完备（CL-1 F1.3 零依赖功能验证的架构前提）。AF-1（用户裁决 2026-08-22）：降级判定收束为启动时一次性能力检查 + 运行期首败永久翻转，杜绝逐次调用现场判断带来的口径漂移与不可观测性。
 
 ## 适用范围
 grep 工具双后端实现与评审；新增检索语义维（新参数/新过滤行为）时的双端同批扩展；一致性契约测试维护；rg 后端适配层的行为归一评审；降级路径与日志面评审。
 
 ## 反例
-rg 后端直接透传 rg 原生行为（默认遵守 .gitignore、跳隐藏文件）而不与内置 TS 后端对齐——同一代码库在「有 rg」与「无 rg」环境下 agent 看到不同检索结果，加速变成行为分叉；或新增 glob 语义只改 TS 后端忘改 rg 后端且无契约断言——双端语义静默漂移，无测试能红。
+rg 后端直接透传 rg 原生行为（默认遵守 .gitignore、跳隐藏文件）而不与内置 TS 后端对齐——同一代码库在「有 rg」与「无 rg」环境下 agent 看到不同检索结果，加速变成行为分叉；或新增 glob 语义只改 TS 后端忘改 rg 后端且无契约断言——双端语义静默漂移，无测试能红；或每次 grep 调用时现场探测 rg 是否可用/是否超时来选后端——逐次判断违反启动定格口径（AF-1），降级时机与日志面不可观测。
 
 ```kg-node
 id: TR-AD-34
@@ -1257,11 +1283,26 @@ stack: shared
 name: Tauri 壳资源捆绑布局（externalBin sidecar + resources/bin 三方二进制）
 status: active
 digest: 接 Tauri 打包、配 bundle 资源、动 sidecar/rg 落包位置时
+derivedFrom:
+  - AD-4
+  - AD-6
+  - CL-2
+anchors:
+  implementedBy:
+    - apps/shell/src-tauri/tauri.conf.json
+    - scripts/build-desktop.ts
+    - scripts/fetch-rg.ts
+  testedBy:
+    - scripts/tauri-conf.test.ts
+    - scripts/build-desktop.test.ts
+relations:
+  governs:
+    - E-AgentRuntime
 updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
-打包产物的资源落位分三条固定通道：①daemon 编译单文件（bun build --compile 产物）走 Tauri externalBin（sidecar 机制）——sidecar 语义 = 被壳看护的 daemon 进程，壳 spawn 并做进程看护；②三方二进制（本期 rg macOS arm64，后续 codegraph 同通道）走 bundle resources，包内落位 resources/bin/；③shell 静态产物（vite build dist）走 frontendDist。三类资源禁止错位：三方二进制不得塞进 externalBin（sidecar 语义专属被看护 daemon），daemon sidecar 不得散落成普通 resources，前端产物不走 resources 手工拷贝。架构目标 arm64 only：所有捆绑二进制只产单架构，不做 universal 双份（AD-6）。构建管线一条命令依序编排：bun build --compile → vite build → tauri build，任一步失败即中断报错（CL-2 F2.1）；签名配置位读环境变量（有=签名+公证/无=ad-hoc，AD-5），不硬编码证书。
+打包产物的资源落位分三条固定通道：①daemon 编译单文件（bun build --compile 产物）走 Tauri externalBin（sidecar 机制）——sidecar 语义 = 被壳看护的 daemon 进程，壳 spawn 并做进程看护；②三方二进制（本期 rg macOS arm64，后续 codegraph 同通道）走 bundle resources，包内落位 resources/bin/（tauri.conf bundle.resources 必须用 map 形式显式指定包内目标位，slice 形式会保留配置相对路径前缀致落位错位，AF-6）；③shell 静态产物（vite build dist）走 frontendDist。三类资源禁止错位：三方二进制不得塞进 externalBin（sidecar 语义专属被看护 daemon），daemon sidecar 不得散落成普通 resources，前端产物不走 resources 手工拷贝。架构目标 arm64 only：所有捆绑二进制只产单架构，不做 universal 双份（AD-6）。构建管线一条命令依序编排：fetch-rg → bun build --compile → 等价验证 → vite build → tauri build，任一步失败即中断报错（CL-2 F2.1）；签名配置位读环境变量（有=签名+公证/无=ad-hoc，AD-5），不硬编码证书。
 
 ## 理由
 iter-20260822-m1uc AD-4/F2.3 定三通道布局；externalBin 与 resources 在 Tauri 语义上是两种机制（进程看护目标 vs 数据资源），错位会使壳的 spawn/看护逻辑与资源定位逻辑纠缠；arm64 only 是用户确认的范围裁决（universal 需 rg/daemon 双份，工作量 +30% 收益小）；管线失败即断保证分发物不会产生「半截打包」的歧义状态。
@@ -1270,7 +1311,7 @@ iter-20260822-m1uc AD-4/F2.3 定三通道布局；externalBin 与 resources 在 
 src-tauri/tauri.conf.json 的 externalBin/bundle/frontendDist 配置评审；构建管线脚本（build-desktop）实现与评审；新增三方二进制捆绑时的落位决策；签名/公证配置位接线评审。
 
 ## 反例
-把 rg 也打成 externalBin sidecar——壳的 sidecar 看护面被迫处理「非 daemon 进程」，spawn 语义混淆；或把 daemon compile 单文件丢进 resources 再壳手工拼路径 spawn——绕过 Tauri sidecar 机制，签名/公证与权限面失去框架保障；或为 Intel Mac 兼容悄悄加 universal target——AD-6 裁决被架空，rg/daemon 双份捆绑成本静默进场。
+把 rg 也打成 externalBin sidecar——壳的 sidecar 看护面被迫处理「非 daemon 进程」，spawn 语义混淆；或把 daemon compile 单文件丢进 resources 再壳手工拼路径 spawn——绕过 Tauri sidecar 机制，签名/公证与权限面失去框架保障；或为 Intel Mac 兼容悄悄加 universal target——AD-6 裁决被架空，rg/daemon 双份捆绑成本静默进场；或 bundle.resources 用 slice 形式导致 resources/bin/rg 落位保留前缀（Contents/Resources/resources/bin/rg）与壳定位位错位——AF-6 实测教训，须用 map 形式显式指定包内目标位。
 
 ```kg-node
 id: TR-AD-35
@@ -1282,11 +1323,26 @@ stack: shared
 name: daemon 双运行形态同构（dev bun 直跑 / 打包 compile sidecar）
 status: active
 digest: 动 dev 编排、打包管线、daemon 进程启动方式时
+derivedFrom:
+  - CL-4
+  - CL-2
+  - TR-AD-12
+anchors:
+  implementedBy:
+    - scripts/dev-desktop.ts
+    - scripts/compile-daemon.ts
+    - apps/daemon/src/main.ts
+  testedBy:
+    - apps/daemon/test/arch-guard/form-isomorphism.test.ts
+    - smoke/verify-compiled-daemon.ts
+relations:
+  governs:
+    - E-AgentRuntime
 updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
-daemon 存在两种运行形态：dev 形态 = bun 直跑源码（一行 dev 命令编排三进程：daemon 直跑 + vite dev server + tauri dev；前置自检 Rust/cargo，缺失时输出一行安装提示并退出——Rust 是 Tauri 壳构建前提，非 helix 运行时依赖）；打包形态 = bun build --compile 单文件 sidecar。两形态行为一致性由 compile 产物等价验证兜底（F2.2：compile 单文件验证 spawn 自身跑子进程链路 + bun:sqlite，产出「功能等价于 dev 直跑」的验证报告，管线内步骤非手工检查）；compile 产物只在构建管线验证，dev 永远直跑源码。daemon 行为不得按运行形态分叉：禁止 daemon 代码内出现「检测自身是 compile 产物则走另一路径」类分支（资源定位差异只允许经启动参数注入消解，见三方二进制解析收口规则）。本规则是 TR-AD-12 的 daemon 侧互补：前端永远走同一 WS 通路，daemon 侧同样双形态同构。
+daemon 存在两种运行形态：dev 形态 = bun 直跑源码（一行 dev 命令编排：daemon 经壳 sidecar wrapper 直跑源码 + vite dev server + tauri dev；前置自检 Rust/cargo，缺失时输出一行安装提示并退出——Rust 是 Tauri 壳构建前提，非 helix 运行时依赖）；打包形态 = bun build --compile 单文件 sidecar。两形态行为一致性由 compile 产物等价验证兜底（F2.2：compile 单文件验证 spawn 自身跑子进程链路 + bun:sqlite，产出「功能等价于 dev 直跑」的验证报告，管线内步骤非手工检查）；compile 产物只在构建管线验证，dev 永远直跑源码。daemon 行为不得按运行形态分叉：禁止 daemon 代码内出现「检测自身是 compile 产物则走另一路径」类分支（资源定位差异只允许经启动参数注入消解，见三方二进制解析收口规则；argv 分发入口 --sidecar/--child-main 是双形态共享的同一路径，非形态分支）。本规则是 TR-AD-12 的 daemon 侧互补：前端永远走同一 WS 通路，daemon 侧同样双形态同构。
 
 ## 理由
 iter-20260822-m1uc CL-4 内嵌决策（用户 2026-08-22 确认）：dev 直跑源码保证调试体验（断点/热改/源码栈），compile 产物只在管线验证避免 dev 期被编译速度拖累；F-7① 实锤 compile 产物 spawn 自身跑 ChildMain 链路未验证——形态差异必须有机械兜底，否则「dev 能跑、打包炸」会在分发后才暴露；行为分叉分支一旦出现即产生双轨，与 TR-AD-12 前端面同构约束同一原理。
@@ -1295,5 +1351,4 @@ iter-20260822-m1uc CL-4 内嵌决策（用户 2026-08-22 确认）：dev 直跑�
 dev 编排脚本（dev-desktop）与前置自检实现评审；构建管线 F2.2 等价验证步骤维护；daemon 进程启动/子进程 spawn 相关改动（ChildMain 链路、bun:sqlite 使用）评审；任何「按形态分支」的 daemon 代码评审。
 
 ## 反例
-daemon 里写 if (isCompiled) { 用另一套子进程启动方式 }——双形态行为分叉，F2.2 等价验证失去意义（验证的不再是同一份行为）；或 dev 也跑 compile 产物求「绝对一致」——dev 调试体验被编译周期拖垮，且 CL-4 内嵌决策被违反；或前置自检缺失时直接 tauri dev 报一堆 Rust 工具链原始错误——F4.1 要求的一行安装提示指引被绕过。
-
+daemon 里写 if (isCompiled) { 用另一套子进程启动方式 }——双形态行为分叉，F2.2 等价验证失去意义（验证的不再是同一份行为）；或 dev 也跑 compile 产物求「绝对一致」——dev 调试体验被编译周期拖垮，且 CL-4 内嵌决策被违反；或前置自检缺失时直接 tauri dev 报一堆 Rust 工具链原始错误——F4.1 要求的一行安装提示指引被绕过；或 dev:desktop 编排器直接 spawn daemon 与壳 sidecar 机制并存——双 daemon 撞默认端口 fail-fast，daemon 必须经壳 sidecar + HELIX_SIDECAR_PATH wrapper 注入（AF-6/T4.1 落地口径）。
