@@ -20,6 +20,9 @@ import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
 import { createPaths, osHomeDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
+import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
+import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
+import { accessSync, constants as fsConstants } from "node:fs";
 import { ensureDevToken } from "./dev-token";
 import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
@@ -80,6 +83,8 @@ export interface Daemon {
   readonly logger: Logger;
   /** WS 服务（127.0.0.1；实际监听端口/地址可观测）。 */
   readonly ws: WsServerAdapter;
+  /** 本次启动生成的 dev token（与 <home>/dev-token 文件内容一致；sidecar ready 行上抛面，contracts/sidecar-lifecycle.md §2）。 */
+  readonly devToken: string;
   /** SubAgent 子进程运行器（engineMode=override 测试形态不装配真体）。 */
   readonly subagentLauncher: SubagentLauncher | undefined;
   /** 编排入口（spawn/send/status/kill；三工具与 WS 命令的公共回口）。 */
@@ -177,6 +182,19 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 }
 
 /**
+ * rg 可执行探测（resolve-rg 的 probe 注入面，装配层唯一实现）：存在且可执行。
+ * 抛错（ENOENT/EACCES 等）一律视为不可用——与 resolve-rg 的保守降级语义同调。
+ */
+function isExecutableFile(p: string): boolean {
+  try {
+    accessSync(p, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 共享装配核心（组合根接缝， §4.3）：生产 createDaemon 与测试工厂
  * createTestDaemon 的公共装配序——启动序前置产物由入口传入（deps），
  * 本函数只做装配不做形态决断（async：重启恢复需读盘）。
@@ -198,6 +216,30 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const logger = createFileLogger(paths.logsDir());
   const config = deps.config;
   const legacy = deps.legacy;
+
+  // ── grep 后端启动定格（AD-2/F3.1/F3.2，AF-1 权威语义：装配层一次性──
+  //    resolve-rg 三级解析 + rg --version 探针（2s 超时/退出码 0），结果──
+  //    内存定格——进程生命周期内不重新解析、不升级）──
+  // HELIX_RG_PATH/PATH 的 process.env 读取收束于本组合根（AG-08 唯一例外面，
+  // 壳注入的资源定位参数，非配置源）；resolve-rg.ts 本体零 env/fs 依赖。
+  // 定格产物经 buildSessionStack → CoreToolExecutor 注入 grep 门面（门面
+  // 运行期只读内存标识选后端；首败永久降级编排见 GrepTool.ts）。
+  const rgResolution = resolveRgPath({
+    bundlePath: process.env.HELIX_RG_PATH,
+    configPath: config.rgPath,
+    pathEnv: process.env.PATH,
+    probe: isExecutableFile,
+  });
+  const rgProbe =
+    rgResolution.kind === "resolved"
+      ? await probeRgVersion(rgResolution.path, RG_PROBE_TIMEOUT_MS)
+      : undefined;
+  const grepFreeze = freezeGrepBackend(rgResolution, rgProbe);
+  if (grepFreeze.kind === "rg") {
+    logger.info(`grep 后端定格 rg（source=${grepFreeze.source}）：${grepFreeze.rgPath}`);
+  } else {
+    logger.info(`grep 后端定格内置 TS：${grepFreeze.reasons.join("；")}`);
+  }
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   const persistence = buildPersistence({ paths, logger });
@@ -228,6 +270,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     engineMode: deps.engineMode,
     subagentRunnerOverride: deps.subagentRunnerOverride,
     toolCwd: deps.toolCwd,
+    // grep 启动定格产物（AF-1）：rg 定格时注入路径 + 降级 warning 面；
+    // ts 定格时仅注入 warning 面（降级路径不会触发，门面恒走 ts）。
+    grep: {
+      rgPath: grepFreeze.kind === "rg" ? grepFreeze.rgPath : undefined,
+      warn: (m) => logger.warn(m),
+    },
     builtinSkillsDir: deps.builtinSkillsDir,
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
     sessionIdlePollMs: deps.sessionIdlePollMs,
@@ -428,6 +476,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     system,
     logger,
     ws,
+    devToken: token,
     subagentLauncher,
     orchestration: currentOrchestration,
     model: modelService,

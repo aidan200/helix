@@ -188,10 +188,11 @@ describe("TP-CL5-1（A 半）：core 四工具接线与封装边界（AD-10 / F(
 });
 
 describe("TP-CL5-2（A 半）：grep 匹配核 framework-free（不碰 fs/node）", () => {
-  test("GrepTool.ts 无 node:* / fs import（遍历经注入的 ExecutionEnv）", () => {
-    const src = read(path.join("adapters", "driven", "tools", "GrepTool.ts"));
-    expect(src.includes('"node:'), "GrepTool.ts 不得 import node 内建").toBe(false);
-    expect(src.includes("require("), "GrepTool.ts 不得 require").toBe(false);
+  test("grep/backends/ts-backend.ts 无 node:* / fs import（遍历经注入的 ExecutionEnv）", () => {
+    // T1.1（CL-3 域目录化）：匹配核随迁至 grep/backends/ts-backend.ts，同口径断言
+    const src = read(path.join("adapters", "driven", "tools", "grep", "backends", "ts-backend.ts"));
+    expect(src.includes('"node:'), "ts-backend.ts 不得 import node 内建").toBe(false);
+    expect(src.includes("require("), "ts-backend.ts 不得 require").toBe(false);
   });
 });
 
@@ -228,7 +229,9 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
 describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", () => {
   const writePatterns: [string, RegExp][] = [
     ["new Database", /new\s+Database\s*\(/],
-    ["db.exec 调用", /\.exec\s*\(/],
+    // 限定 db 系接收者：裸 `\.exec(` 会误伤 RegExp.prototype.exec（如 T1.2
+    // rg-backend 的行解析正则）——守护目标是 SQLite 写点而非一切 exec 方法。
+    ["db.exec 调用", /\bdb\w*\.exec\s*\(/],
     ["INSERT INTO", /\bINSERT\s+INTO\b/i],
     ["DELETE FROM", /\bDELETE\s+FROM\b/i],
     ["UPDATE … SET", /\bUPDATE\s+\w+\s+SET\b/i],
@@ -307,10 +310,24 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // 父子 IPC 传输通道，不是配置来源。T2.3（AD-2 auth 分层）起 apiKeys
     // 源头仍且仅是 auth.json（AuthStore，0600+文件锁；旧 config.json 含
     // apiKeys 字段时启动迁移，见 infrastructure/config.ts）。
+    // T1.1（AD-2/F3.1）新增组合根唯一例外：container.ts 可读且仅可读
+    // HELIX_RG_PATH（壳注入的 rg bundle 资源定位参数，非配置源）与 PATH
+    // （rg 三级解析第③级探测对象）——读取收束于装配层单点作为 resolve-rg
+    // 入参（resolve-rg.ts 本体零 env 依赖）。
     const whitelistRoot = path.join("adapters", "driven", "subagent");
+    const containerRel = path.join("infrastructure", "container.ts");
     for (const rel of listFiles(srcRoot)) {
       if (rel.startsWith(whitelistRoot)) continue;
-      expect(read(rel).includes("process.env"), `${rel} 读取了环境变量（AG-08）`).toBe(false);
+      const src = read(rel);
+      if (rel === containerRel) {
+        const envKeys = [...new Set([...src.matchAll(/process\.env\.([A-Z_]+)/g)].map((m) => m[1]!))].sort();
+        expect(envKeys, `container.ts 可读 env 键仅限 HELIX_RG_PATH/PATH，实际：${envKeys.join(",")}`).toEqual([
+          "HELIX_RG_PATH",
+          "PATH",
+        ]);
+        continue;
+      }
+      expect(src.includes("process.env"), `${rel} 读取了环境变量（AG-08）`).toBe(false);
     }
   });
 });

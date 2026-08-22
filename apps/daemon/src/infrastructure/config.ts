@@ -5,7 +5,7 @@ import { DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 /**
  * 配置加载（AD-13 architecture.md §7.2 + AD-2 §6.4 瘦身）：
  * 读取 `<home>/config.json`——**纯 daemon 运行参数**（port / maxConcurrent /
- * maxQueued / staticDir）。模型位与 key 位已迁出（取代边界，AD-2 §6.5）：
+ * maxQueued / staticDir / rgPath）。模型位与 key 位已迁出（取代边界，AD-2 §6.5）：
  * - model → SQLite 默认模型表（DefaultModelStore）；
  * - apiKeys → ~/.helix/auth.json（AuthStore，0600+文件锁）。
  *
@@ -32,6 +32,8 @@ export interface DaemonConfig {
   maxQueued: number;
   /** 前端构建产物目录（static-serve；缺省不激活，daemon 照常启动）。 */
   staticDir?: string;
+  /** rg 可执行文件显式路径（rg 三级解析第②级，AD-2/F3.1 §4.4；缺省跳过该级）。 */
+  rgPath?: string;
 }
 
 /** 旧格式遗留位（AD-2 迁移读面：组合根写新位后重写瘦身 config.json）。 */
@@ -83,7 +85,7 @@ export function loadConfig(configFilePath: string): LoadedConfig {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error(
       `配置文件格式错误：${configFilePath}，应为 JSON 对象 ` +
-        `{ port?, maxConcurrent?, maxQueued?, staticDir? }，实际不是对象。`,
+        `{ port?, maxConcurrent?, maxQueued?, staticDir?, rgPath? }，实际不是对象。`,
     );
   }
 
@@ -145,8 +147,24 @@ export function loadConfig(configFilePath: string): LoadedConfig {
     staticDir = obj.staticDir;
   }
 
+  let rgPath: string | undefined;
+  if (obj.rgPath !== undefined) {
+    if (typeof obj.rgPath !== "string" || obj.rgPath.trim() === "") {
+      throw new Error(
+        `配置文件字段 rgPath 格式错误：${configFilePath}，应为非空字符串（rg 可执行文件显式路径，AD-2/F3.1）。`,
+      );
+    }
+    rgPath = obj.rgPath;
+  }
+
   return {
-    config: { port, maxConcurrent, maxQueued, ...(staticDir !== undefined ? { staticDir } : {}) },
+    config: {
+      port,
+      maxConcurrent,
+      maxQueued,
+      ...(staticDir !== undefined ? { staticDir } : {}),
+      ...(rgPath !== undefined ? { rgPath } : {}),
+    },
     legacy,
   };
 }
@@ -156,7 +174,7 @@ export const CONFIG_FILE_MODE = 0o600;
 
 /**
  * 写入配置文件（**全字段序列化**——修复截断：port/maxConcurrent/
- * maxQueued/staticDir 全量落盘，旧实现只写三字段会静默丢字段）。
+ * maxQueued/staticDir/rgPath 全量落盘，旧实现只写三字段会静默丢字段）。
  * 父目录不存在则创建；写入后显式 chmod（覆盖既有宽权限文件时同样收严）。
  */
 export function writeConfig(configFilePath: string, config: DaemonConfig): void {
@@ -168,6 +186,7 @@ export function writeConfig(configFilePath: string, config: DaemonConfig): void 
         maxConcurrent: config.maxConcurrent,
         maxQueued: config.maxQueued,
         ...(config.staticDir !== undefined ? { staticDir: config.staticDir } : {}),
+        ...(config.rgPath !== undefined ? { rgPath: config.rgPath } : {}),
       },
       null,
       2,

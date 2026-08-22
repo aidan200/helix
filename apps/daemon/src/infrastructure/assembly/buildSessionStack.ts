@@ -28,6 +28,7 @@ import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
 import { SkillScanner } from "../../adapters/driven/pi-engine/SkillScanner";
 import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnippets";
 import { CoreToolExecutor } from "../../adapters/driven/tools/CoreToolExecutor";
+import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
 import { AuthStore } from "../auth-store";
 import type { DefaultModelStore } from "../../adapters/driven/sqlite-session/DefaultModelStore";
 import type { ResourceStateStore } from "../../adapters/driven/sqlite-session/ResourceStateStore";
@@ -103,6 +104,8 @@ export interface BuildSessionStackDeps {
   readonly sessionIdleUnloadMs?: number;
   /** 空闲卸载轮询间隔 ms 覆盖（测试注入面；缺省 min(60s, 窗口/10)）。 */
   readonly sessionIdlePollMs?: number;
+  /** grep 后端定格注入（AF-1 启动定格产物：组合根透传；缺省 = 定格内置 TS）。 */
+  readonly grep?: GrepToolDeps;
 }
 
 export interface SessionStack {
@@ -321,6 +324,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
             const toolExecutor = new CoreToolExecutor({
               cwd: toolCwd,
               orchestration: sessionOrchestration,
+              grep: deps.grep,
               // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
               // tab 归属）；ChildMain 子进程装配不传 browser（P0-1 决策）
               browser: browserPort,
