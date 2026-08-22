@@ -293,8 +293,8 @@ describe("T4-U ⑤ probeCurrentDraft：握手草稿探测 + current 残骸清理
     const rig2 = await freshRig();
     const wreckId = rig2.registry.currentSessionId();
     (
-      rig2.registry as unknown as { runtimes: Map<string, SessionRuntime> }
-    ).runtimes.delete(wreckId); // 模拟空闲卸载后的残骸（单测确定性直改）
+      rig2.registry as unknown as { sessions: Map<string, { runtime: SessionRuntime }> }
+    ).sessions.delete(wreckId); // 模拟空闲卸载后的残骸（单测确定性直改；T2.1 单台账收敛结构跟随）
     expect(rig2.registry.peek(wreckId)).toBeUndefined();
     expect(await rig2.registry.probeCurrentDraft()).toBe(true); // 换新草稿仍是草稿
     expect(rig2.registry.currentSessionId()).not.toBe(wreckId); // 残骸被丢弃

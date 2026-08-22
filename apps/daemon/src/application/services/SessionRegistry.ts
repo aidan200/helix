@@ -59,6 +59,32 @@ export interface SessionRuntime {
   readonly projection: SessionProjection;
 }
 
+/**
+ * 单台账记录（H2.1：原六台账收敛——生命周期随 record 整体销毁，清理点 N→1）。
+ * 六类状态（原 runtimes / lastActivityMs / lastBroadcastRunState / deleting /
+ * unpromotedDrafts / createdAnnounced 平行台账）聚合为单一 record：
+ * - delete / unload = record 整体销毁（sessions.delete 恰一次）；
+ * - promoteDraft = 字段翻转（unpromotedDraft→false、createdAnnounced→true）。
+ *
+ * runtime = undefined 表示「冷删除占位」：库有行未热加载的会话删除进行中，
+ * 承载 deleting 标记（原独立 deleting Set 的冷会话覆盖面——重复 delete 仍回
+ * delete_in_progress）；删除链完成后 record 整体销毁，占位永不发展为完整
+ * record。
+ */
+interface SessionRecord {
+  readonly runtime: SessionRuntime | undefined;
+  /** G-5 空闲卸载计时基线 + 清单排序数据源（原 lastActivityMs 台账）。 */
+  lastActivityMs: number;
+  /** state_changed 广播去重基线（原 lastBroadcastRunState 台账；undefined = 尚未建立）。 */
+  lastBroadcastRunState: SessionRunState | undefined;
+  /** 删除进行中（原 deleting Set；delete_in_progress 判定，finally 语义解除）。 */
+  deleting: boolean;
+  /** 未转正内存草稿（原 unpromotedDrafts Set；T4 转正单点守卫）。 */
+  unpromotedDraft: boolean;
+  /** 已广播 list_changed{created}（原 createdAnnounced Set；T4 补广播去重基线）。 */
+  createdAnnounced: boolean;
+}
+
 /** buildRuntime 工厂入参（恢复产物或新建材料）。 */
 export interface RuntimeMaterial {
   readonly session: Session;
@@ -131,19 +157,12 @@ export function deriveTitle(firstUserText: string | null): string {
 }
 
 export class SessionRegistry implements SessionDirectoryPort {
-  private readonly runtimes = new Map<string, SessionRuntime>();
-  private readonly lastActivityMs = new Map<string, number>();
-  /** 上次广播的 runState（state_changed 去重基线）。 */
-  private readonly lastBroadcastRunState = new Map<string, SessionRunState>();
-  /** 删除进行中的会话（delete_in_progress 判定）。 */
-  private readonly deleting = new Set<string>();
+  /** 六台账收敛单台账（H2.1）：record 聚合六类状态（SessionRecord）——
+   *  delete/unload = record 整体销毁、promoteDraft = 字段翻转，清理点 N→1。 */
+  private readonly sessions = new Map<string, SessionRecord>();
   private current: string | undefined;
   private monitor: ReturnType<typeof setInterval> | undefined;
   private readonly idleUnloadMs: number;
-  /** 未转正内存草稿（T4：createFresh 登记；首个用户条目经 promoteDraft 转正后移除）。 */
-  private readonly unpromotedDrafts = new Set<string>();
-  /** 已广播 list_changed{created} 的会话（T4：draft 链显式广播与转正补广播的去重基线）。 */
-  private readonly createdAnnounced = new Set<string>();
 
   constructor(private readonly deps: SessionRegistryDeps) {
     this.idleUnloadMs = deps.idleUnloadMs ?? DEFAULT_IDLE_UNLOAD_MS;
@@ -184,7 +203,9 @@ export class SessionRegistry implements SessionDirectoryPort {
   async listSessions(): Promise<readonly SessionMetaView[]> {
     const rows = await this.deps.repository.listSessionMetadata();
     const metas: SessionMetaView[] = rows.map((row) => this.metaFromRow(row));
-    for (const [sessionId, runtime] of this.runtimes) {
+    for (const [sessionId, record] of this.sessions) {
+      const runtime = record.runtime;
+      if (runtime === undefined) continue; // 冷删除占位不进清单（原不在 runtimes）
       if (rows.some((r) => r.sessionId === sessionId)) continue;
       // T4：零条目热草稿不可见（未落盘内存草稿不进清单——bug1 泄漏面封堵，
       // 与 sealAll 跳过零条目会话同哲学：空草稿自然消亡不污染清单）；
@@ -197,7 +218,7 @@ export class SessionRegistry implements SessionDirectoryPort {
   }
 
   async sessionExists(sessionId: string): Promise<boolean> {
-    if (this.runtimes.has(sessionId)) return true;
+    if (this.isHot(sessionId)) return true;
     const ids = await this.deps.repository.listSessionIds();
     return ids.includes(sessionId);
   }
@@ -206,7 +227,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     if (sessionId === undefined || sessionId === null || sessionId === "") {
       return this.currentSessionId();
     }
-    if (!this.runtimes.has(sessionId)) {
+    if (!this.isHot(sessionId)) {
       await this.load(sessionId); // 懒加载入口（不存在抛 SessionNotFoundError）
     }
     return sessionId;
@@ -214,7 +235,7 @@ export class SessionRegistry implements SessionDirectoryPort {
 
   async getSessionView(sessionId?: string): Promise<SessionStateView> {
     const target = sessionId ?? this.currentSessionId();
-    const runtime = this.runtimes.get(target) ?? (await this.load(target));
+    const runtime = this.sessions.get(target)?.runtime ?? (await this.load(target));
     return this.buildView(runtime);
   }
 
@@ -227,7 +248,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     // 新会话；转正后不立刻新建下一个内存草稿——下一个由 initialize/
     // rotateCurrent 等既有点懒建）；当前会话有内容 → 维持 createFresh。
     const currentId = this.currentSessionId();
-    const hotCurrent = this.runtimes.get(currentId);
+    const hotCurrent = this.sessions.get(currentId)?.runtime;
     const runtime =
       hotCurrent !== undefined && hotCurrent.chatService.sessionView.isEmpty()
         ? hotCurrent
@@ -238,7 +259,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     // 补广播去重（不双发）。T4b：提到模型处理之前——异模型路径先转正
     // （promoteDraft）时其 created 补广播经 createdAnnounced 去重，title 仍取
     // 本处显式广播的首条消息截断（转正补广播此刻无条目可推导 title）。
-    this.createdAnnounced.add(runtime.sessionId);
+    this.requireRecord(runtime.sessionId).createdAnnounced = true;
     this.deps.onListChanged({
       kind: "created",
       sessionId: runtime.sessionId,
@@ -251,8 +272,8 @@ export class SessionRegistry implements SessionDirectoryPort {
     //   setModel：零调用零事件（同模型值也发布 agent.model.changed[from===to]
     //   会产生无意义的「已切换」记录；只落在 draft 建会话路径，不改
     //   ChatService.setModel 全局语义/model.set 命令路径）；
-    // ② 确需换模时先转正——setModel 之前显式 promoteDraft（unpromotedDrafts
-    //   集合守卫幂等，随后 sendMessage 首条目回调自然 no-op），保证事件次序
+    // ② 确需换模时先转正——setModel 之前显式 promoteDraft（unpromotedDraft
+    //   标记守卫幂等，随后 sendMessage 首条目回调自然 no-op），保证事件次序
     //   = instantiated → model.changed → 首个用户条目。
     if (model !== undefined && runtime.chatService.currentModel !== model) {
       this.promoteDraft(runtime.sessionId);
@@ -274,12 +295,26 @@ export class SessionRegistry implements SessionDirectoryPort {
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    if (this.deleting.has(sessionId)) throw new SessionDeleteInProgressError(sessionId);
-    const hot = this.runtimes.get(sessionId);
-    if (hot === undefined && !(await this.sessionExists(sessionId))) {
+    const existing = this.sessions.get(sessionId);
+    if (existing?.deleting) throw new SessionDeleteInProgressError(sessionId);
+    const hot = existing?.runtime;
+    if (existing === undefined && !(await this.sessionExists(sessionId))) {
       throw new SessionNotFoundError(sessionId);
     }
-    this.deleting.add(sessionId);
+    if (existing !== undefined) {
+      existing.deleting = true;
+    } else {
+      // 冷会话删除（未热加载、库有行）：占位 record 承载 deleting 标记（原
+      // 独立 deleting Set 的冷会话覆盖面——重复 delete 仍回 delete_in_progress）
+      this.sessions.set(sessionId, {
+        runtime: undefined,
+        lastActivityMs: this.deps.clock.nowMs(),
+        lastBroadcastRunState: undefined,
+        deleting: true,
+        unpromotedDraft: false,
+        createdAnnounced: false,
+      });
+    }
     try {
       if (hot !== undefined) {
         // ① 取消链（顺序硬约束第一步）：主线 abort + 封口（stopped 终态——
@@ -299,19 +334,18 @@ export class SessionRegistry implements SessionDirectoryPort {
       this.deps.scheduler.cancelSession(sessionId);
       // ② 删库（单写通道同会话仓 FIFO：①的收口写全部先落盘）
       await this.deps.repository.deleteSession(sessionId);
-      // ③ 注册表移除
-      this.runtimes.delete(sessionId);
-      this.lastActivityMs.delete(sessionId);
-      this.lastBroadcastRunState.delete(sessionId);
-      this.unpromotedDrafts.delete(sessionId); // T4：草稿转台账清理
-      this.createdAnnounced.delete(sessionId);
+      // ③ 注册表移除：record 整体销毁（六类状态无残留——清理点 N→1 的单点）
+      this.sessions.delete(sessionId);
       if (this.current === sessionId) {
         await this.rotateCurrent();
       }
       // ④ 广播
       this.deps.onListChanged({ kind: "deleted", sessionId });
     } finally {
-      this.deleting.delete(sessionId);
+      // deleting 语义保持（原 finally 独走 Set 清理）：异常路径也解除标记；
+      // 成功路径 record 已整体销毁，此处天然 no-op
+      const record = this.sessions.get(sessionId);
+      if (record !== undefined) record.deleting = false;
     }
   }
 
@@ -327,7 +361,7 @@ export class SessionRegistry implements SessionDirectoryPort {
 
   /** 热运行时只读观测（组合根装配 SessionService/ChatRouter；不存在 undefined）。 */
   peek(sessionId: string): SessionRuntime | undefined {
-    return this.runtimes.get(sessionId);
+    return this.sessions.get(sessionId)?.runtime;
   }
 
   /**
@@ -336,12 +370,14 @@ export class SessionRegistry implements SessionDirectoryPort {
    * （spawn 时刻定格，代际生效，不在本注册表）。供 T3 WS 命令复用。
    */
   hotRuntimes(): readonly SessionRuntime[] {
-    return [...this.runtimes.values()];
+    return [...this.sessions.values()].flatMap((record) =>
+      record.runtime === undefined ? [] : [record.runtime],
+    );
   }
 
   /** 当前会话热运行时（SessionService 同步读面；不存在抛——调用方保证热）。 */
   currentRuntime(): SessionRuntime {
-    const rt = this.runtimes.get(this.currentSessionId());
+    const rt = this.sessions.get(this.currentSessionId())?.runtime;
     if (rt === undefined) {
       throw new Error(
         `当前会话 ${this.currentSessionId} 未在注册表（懒加载走 getSessionView/resolveTarget 异步面）`,
@@ -357,7 +393,7 @@ export class SessionRegistry implements SessionDirectoryPort {
 
   /** 懒加载入口（热即返；冷则恢复重建）。 */
   async get(sessionId: string): Promise<SessionRuntime> {
-    return this.runtimes.get(sessionId) ?? this.load(sessionId);
+    return this.sessions.get(sessionId)?.runtime ?? this.load(sessionId);
   }
 
   /** fan-out 事件回灌（组合根接线）：活动标记 + runState 变化广播（去重）。 */
@@ -375,13 +411,15 @@ export class SessionRegistry implements SessionDirectoryPort {
 
   /** 投影路由（组合根 closure）：事件 → 归属会话运行时的投影消费者。 */
   projectEvent(event: DomainEvent): void {
-    this.runtimes.get(event.sessionId)?.projection.publish(event);
+    this.sessions.get(event.sessionId)?.runtime?.projection.publish(event);
   }
 
   /** 优雅停机：全部热会话封口（stopped 里程碑落盘；空草稿不封——零条目
    *  会话无里程碑可落，「首条消息才落库」哲学下自然消亡，不污染清单）。 */
   sealAll(): void {
-    for (const runtime of this.runtimes.values()) {
+    for (const record of this.sessions.values()) {
+      const runtime = record.runtime;
+      if (runtime === undefined) continue; // 冷删除占位不封口
       if (runtime.chatService.sessionView.isEmpty()) continue;
       runtime.chatService.stop();
     }
@@ -389,14 +427,29 @@ export class SessionRegistry implements SessionDirectoryPort {
 
   // ── 内部 ─────────────────────────────────────────────────
 
+  /** 热判定（原 runtimes.has 口径；冷删除占位不算热——record 在册但 runtime 缺位）。 */
+  private isHot(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.runtime !== undefined;
+  }
+
+  /** 台账记录必在读取（调用方保证已 register 完整 record；防御抛错）。 */
+  private requireRecord(sessionId: string): SessionRecord {
+    const record = this.sessions.get(sessionId);
+    if (record === undefined) {
+      throw new Error(`会话 ${sessionId} 不在注册表（requireRecord 防御）`);
+    }
+    return record;
+  }
+
   private touch(sessionId: string): void {
-    this.lastActivityMs.set(sessionId, this.deps.clock.nowMs());
+    const record = this.sessions.get(sessionId);
+    if (record !== undefined) record.lastActivityMs = this.deps.clock.nowMs();
     this.current = sessionId; // 当前会话 = 最近活跃
   }
 
   /** 冷会话恢复重建（快照 + 事件流重放；不存在抛 SessionNotFoundError）。 */
   private async load(sessionId: string): Promise<SessionRuntime> {
-    const existing = this.runtimes.get(sessionId);
+    const existing = this.sessions.get(sessionId)?.runtime;
     if (existing !== undefined) return existing;
     const restored = await this.deps.restore(sessionId);
     if (restored === undefined) throw new SessionNotFoundError(sessionId);
@@ -415,12 +468,12 @@ export class SessionRegistry implements SessionDirectoryPort {
   private createFresh(): SessionRuntime {
     const session = Session.create(undefined, this.deps.clock.now());
     const runtime = this.deps.buildRuntime({ session, toolCalls: [], usage: undefined });
-    this.register(runtime);
     // T4（bug1/bug4 daemon 侧）：agent.instantiated 发布点从「会话创建」推迟到
     // 「转正」（首个用户条目，promoteDraft）——零条目内存草稿不写 domain_events
     //（trace 查询面无幻影）；恢复路径 load() 不调（历史快照经查询面直读；
-    // 快照缺省供给时 no-op）。
-    this.unpromotedDrafts.add(runtime.sessionId);
+    // 快照缺省供给时 no-op）。unpromotedDraft=true 收进 register 参数（原独立
+    // Set 登记点）。
+    this.register(runtime, true);
     return runtime;
   }
 
@@ -430,16 +483,17 @@ export class SessionRegistry implements SessionDirectoryPort {
    * ② 尚未广播过 list_changed{created} 则补广播（metaFromRuntime 此刻可从
    *   entries 推导 title；draft 链显式广播经 createdAnnounced 去重不双发）。
    * 触发面：ChatService 首个用户条目落聚合回调（组合根接线，覆盖 draft 链 /
-   * v0 兼容路由 / CLI 等一切 sendMessage 路径）；未转正草稿集合守卫幂等。
+   * v0 兼容路由 / CLI 等一切 sendMessage 路径）；未转正草稿标记守卫幂等。
    */
   promoteDraft(sessionId: string): void {
-    if (!this.unpromotedDrafts.has(sessionId)) return;
-    this.unpromotedDrafts.delete(sessionId);
-    const runtime = this.runtimes.get(sessionId);
-    if (runtime === undefined) return; // 已卸载/删除竞态（防御）
+    const record = this.sessions.get(sessionId);
+    if (record === undefined || !record.unpromotedDraft) return; // 幂等守卫（原集合守卫）
+    record.unpromotedDraft = false; // 字段翻转（原 unpromotedDrafts.delete）
+    const runtime = record.runtime;
+    if (runtime === undefined) return; // 冷删除占位竞态（防御；占位非草稿结构性不达）
     runtime.chatService.publishInstantiated();
-    if (!this.createdAnnounced.has(sessionId)) {
-      this.createdAnnounced.add(sessionId);
+    if (!record.createdAnnounced) {
+      record.createdAnnounced = true;
       this.deps.onListChanged({ kind: "created", sessionId, session: this.metaFromRuntime(runtime) });
     }
   }
@@ -453,7 +507,7 @@ export class SessionRegistry implements SessionDirectoryPort {
    */
   async probeCurrentDraft(): Promise<boolean> {
     const id = this.currentSessionId();
-    const hot = this.runtimes.get(id);
+    const hot = this.sessions.get(id)?.runtime;
     if (hot !== undefined) {
       return hot.chatService.sessionView.isEmpty();
     }
@@ -466,10 +520,17 @@ export class SessionRegistry implements SessionDirectoryPort {
     return false; // 真实会话被空闲卸载——握手快照经懒加载恢复（现状路径）
   }
 
-  private register(runtime: SessionRuntime): void {
-    this.runtimes.set(runtime.sessionId, runtime);
-    this.touch(runtime.sessionId);
-    this.lastBroadcastRunState.set(runtime.sessionId, this.runStateOf(runtime.sessionId));
+  private register(runtime: SessionRuntime, unpromotedDraft = false): void {
+    const prev = this.sessions.get(runtime.sessionId);
+    this.sessions.set(runtime.sessionId, {
+      runtime,
+      lastActivityMs: this.deps.clock.nowMs(),
+      lastBroadcastRunState: this.runStateOf(runtime.sessionId),
+      deleting: prev?.deleting ?? false, // 冷删除占位标记保持（原 Set 独立不随 register 重置）
+      unpromotedDraft,
+      createdAnnounced: false,
+    });
+    this.current = runtime.sessionId; // touch 语义（活动基线 + current 轮换）
   }
 
   /** 当前会话被删后的轮换：最近活动会话（懒加载）或新建空会话。 */
@@ -485,22 +546,24 @@ export class SessionRegistry implements SessionDirectoryPort {
   /** 空闲卸载（G-5）：无活动且不在执行的热会话移出注册表（快照已落盘）。 */
   private unloadIdle(): void {
     const now = this.deps.clock.nowMs();
-    for (const [sessionId, runtime] of this.runtimes) {
-      if (this.deleting.has(sessionId)) continue;
-      const last = this.lastActivityMs.get(sessionId) ?? now;
-      if (now - last < this.idleUnloadMs) continue;
+    for (const [sessionId, record] of this.sessions) {
+      if (record.deleting) continue; // 删除进行中不卸载（含冷删除占位——防删除链竞态）
+      const runtime = record.runtime;
+      if (runtime === undefined) continue; // 占位防御（deleting 已判，类型收窄双保险）
+      if (now - record.lastActivityMs < this.idleUnloadMs) continue;
       if (runtime.chatService.agentState !== "idle") continue; // 执行中不卸载（主线）
       if (this.deps.scheduler.hasActiveInstances(sessionId)) continue; // 执行中不卸载（SubAgent）
-      this.runtimes.delete(sessionId);
-      this.lastActivityMs.delete(sessionId);
-      this.unpromotedDrafts.delete(sessionId); // T4：卸载即不可恢复（零条目草稿无库行），台账同步清理
+      // record 整体销毁（H2.1 决策消解：原 unload 不清的 lastBroadcastRunState /
+      // createdAnnounced 残留随整体销毁自然消解——前者重载经 register 重设基线
+      // 自愈、后者按 id 唯一性有界且补广播链路结构性不触发）
+      this.sessions.delete(sessionId);
       this.deps.logger?.info(`会话 ${sessionId} 空闲超过 ${Math.round(this.idleUnloadMs / 1000)}s，已卸载（快照已落盘，再进懒加载恢复）`);
     }
   }
 
   /** 会话运行态（协议 SessionMeta.runState 词汇；冷会话 = idle——无执行载体）。 */
   private runStateOf(sessionId: string): SessionRunState {
-    const runtime = this.runtimes.get(sessionId);
+    const runtime = this.sessions.get(sessionId)?.runtime;
     if (runtime === undefined) return "idle";
     if (this.deps.scheduler.hasActiveInstances(sessionId)) return "subagent_running";
     return runtime.chatService.agentState === "idle" ? "idle" : "streaming";
@@ -508,12 +571,12 @@ export class SessionRegistry implements SessionDirectoryPort {
 
   /** state_changed 广播（去重：与上次广播态比较；冷会话无运行时可观测面——跳过）。 */
   private broadcastRunStateIfChanged(sessionId: string): void {
+    const record = this.sessions.get(sessionId);
+    if (record?.runtime === undefined) return; // 冷会话跳过（原孤儿基线更新不可观测，等价）
     const next = this.runStateOf(sessionId);
-    if (this.lastBroadcastRunState.get(sessionId) === next) return;
-    this.lastBroadcastRunState.set(sessionId, next);
-    const runtime = this.runtimes.get(sessionId);
-    if (runtime === undefined) return;
-    this.deps.onListChanged({ kind: "state_changed", sessionId, session: this.metaFromRuntime(runtime) });
+    if (record.lastBroadcastRunState === next) return;
+    record.lastBroadcastRunState = next;
+    this.deps.onListChanged({ kind: "state_changed", sessionId, session: this.metaFromRuntime(record.runtime) });
   }
 
   /** 热会话元数据（title 从聚合首条用户消息推导；override 供建会话即知场景）。 */
@@ -523,7 +586,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     return {
       sessionId: runtime.sessionId,
       title: titleOverride ?? deriveTitle(firstUser?.text ?? null),
-      lastActivityAt: this.lastActivityMs.get(runtime.sessionId) ?? this.deps.clock.nowMs(),
+      lastActivityAt: this.sessions.get(runtime.sessionId)?.lastActivityMs ?? this.deps.clock.nowMs(),
       runState: this.runStateOf(runtime.sessionId),
       loaded: true,
     };
@@ -535,7 +598,7 @@ export class SessionRegistry implements SessionDirectoryPort {
       title: deriveTitle(row.firstUserText),
       lastActivityAt: Date.parse(row.updatedAt),
       runState: this.runStateOf(row.sessionId),
-      loaded: this.runtimes.has(row.sessionId),
+      loaded: this.isHot(row.sessionId),
     };
   }
 
