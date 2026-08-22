@@ -97,11 +97,11 @@ anchors:
 relations:
   governs:
     - E-AgentRuntime
-updatedIn: iter-20260820-qhv8
+updatedIn: iter-20260821-dg90
 ```
 
 ## 规则
-mock 与真实实现保持契约等价：FakeAgentEngine 等 outbound port 替身必须与真实 driven adapter（adapters/driven/pi-engine）实现同一 AgentEnginePort 接口与事件语义（编译期同 interface 强制，port 变更则 mock 同步变更）；LLM 剧本 mock 只 mock 模型响应层，必须保留真实 runtime 钩子链、WS 协议、持久化链路（fidelity/e2e 层的存在意义即链路保真）。禁止为方便测试在 mock 里放宽契约（少发事件、改字段名、吞错误）。fake-transport 等契约 mock 的校验口径（过滤维、枚举、交叉校验、必发字段）对齐真实 daemon normalize 实现，不弱于、也不私设口径（iter-20260820-qhv8 TR-AD-26 ④律同源）。
+mock 与真实实现保持契约等价：FakeAgentEngine 等 outbound port 替身必须与真实 driven adapter（adapters/driven/pi-engine）实现同一 AgentEnginePort 接口与事件语义（编译期同 interface 强制，port 变更则 mock 同步变更）；LLM 剧本 mock 只 mock 模型响应层，必须保留真实 runtime 钩子链、WS 协议、持久化链路（fidelity/e2e 层的存在意义即链路保真）。禁止为方便测试在 mock 里放宽契约（少发事件、改字段名、吞错误）。fake-transport 等契约 mock 的校验口径（过滤维、枚举、交叉校验、必发字段）对齐真实 daemon normalize 实现，不弱于、也不私设口径（iter-20260820-qhv8 TR-AD-26 ④律同源；iter-20260821-dg90 T3.1 起对齐方式升级为同引 protocol projection 单源）。fixture 注入规约（iter-20260821-dg90 AF-10 终验沉淀）：测试 fixture 优先走 port 真实路径注入（如 ClockPort 经组合根/工厂注入口）；白盒内部状态构造仅限全库 grep 实证的唯一访问点并需显式标注。
 
 ## 理由
 契约漂移的 mock 会让测试全绿而线上炸；port 是唯一契约（AD-12/AD-17），mock 与真实实现同源于此；统一 runtime 与持久化链路正是 fidelity 层要保真的对象（AD-15/AD-16）。
@@ -110,7 +110,7 @@ mock 与真实实现保持契约等价：FakeAgentEngine 等 outbound port 替�
 写或改任何测试替身（FakeAgentEngine、FakeRepository、LLM 剧本、fake-transport 契约 mock）；评审 mock 是否放宽契约。
 
 ## 反例
-FakeAgentEngine 漏发 toolCallEnd 事件「因为测试用不到」——前端工具卡片在真引擎下有、测试替身下没有，工具调用渲染回归漏检。或 mock 的 trace.query 忽略 agentKind 过滤维只回显（mock 与 daemon normalize 口径分裂，iter-20260820-qhv8 F(2).7 登记在案反例）。
+FakeAgentEngine 漏发 toolCallEnd 事件「因为测试用不到」——前端工具卡片在真引擎下有、测试替身下没有，工具调用渲染回归漏检。或 mock 的 trace.query 忽略 agentKind 过滤维只回显（mock 与 daemon normalize 口径分裂，iter-20260820-qhv8 F(2).7 登记在案反例）。或测试 fixture 直接构造内部状态绕过 port 注入面（session-registry-draft.test.ts 白盒 fixture，iter-20260821-dg90 AF-10——全库 grep 实证唯一访问点并显式标注才得以保留，非可复用写法）。
 
 ```kg-node
 id: TR-TEST-4
@@ -209,13 +209,13 @@ relations:
   dependsOn:
     - TR-TEST-4
     - TR-TEST-5
-updatedIn: iter-20260820-qhv8
+updatedIn: iter-20260821-dg90
 ```
 
 ## 规则
 任何起进程/占端口/建 tmp 的测试（integration/fidelity/e2e）teardown 三件套彻底清理：tmp 目录（--home 注入的 mkdtemp 全删）、子进程（daemon 及其派生的 SubAgent 子进程树——SIGTERM 优雅停机 + 超时升级强杀，不留孤儿进程）、端口（结束释放验证）。
 以「同一套件连跑两轮零残留」断言机械化守护：残留检测任一命中即红（tmp 未删/进程存活/端口占用）；CI 必须包含连跑两轮形态。fixture（daemon-fixture/mock-init）是清理责任的唯一归属——测试用例不得自带旁路清理逻辑。
-外补条目（iter-20260818-mq5a CL-7/Q-5）：E 层 globalSetup 首步执行 TMPDIR 全前缀卫生预检（helix-* 前缀残留=0 才放行，非零 fail-fast 报清单，先于端口预检与构建）；残留断言面前缀面扩至 helix-* 全前缀（不限于单一迭代前缀）；bun test 侧自建沙箱 afterAll 统一回收。EVIDENCE_DIR 迭代感知三态契约（iter-20260820-qhv8 F(5).1）：env HELIX_EVIDENCE_ITER 优先 → git 分支 dev-<iterId> → 报错兜底（无静默兜底），工作区根向上查 docs/iterations 祖先穿透 .worktrees——e2e 证据自动落当前迭代目录，单点 e2e/harness/evidence.ts；TMPDIR 预检排除表（长驻应用前缀白名单）不弱化检出力。
+外补条目（iter-20260818-mq5a CL-7/Q-5）：E 层 globalSetup 首步执行 TMPDIR 全前缀卫生预检（helix-* 前缀残留=0 才放行，非零 fail-fast 报清单，先于端口预检与构建）；残留断言面前缀面扩至 helix-* 全前缀（不限于单一迭代前缀）；bun test 侧自建沙箱 afterAll 统一回收。EVIDENCE_DIR 迭代感知三态契约（iter-20260820-qhv8 F(5).1）：env HELIX_EVIDENCE_ITER 优先 → git 分支 dev-<iterId> → 报错兜底（无静默兜底），工作区根向上查 docs/iterations 祖先穿透 .worktrees——e2e 证据自动落当前迭代目录，单点 e2e/harness/evidence.ts；TMPDIR 预检排除表（长驻应用前缀白名单）不弱化检出力。批末/终验约定（iter-20260821-dg90 OI-4 终验沉淀）：跑 e2e 全量批次前先清 TMPDIR helix-* 残留——daemon 测试产生的 helix-* 残留会触发 globalSetup 卫生预检拦截（fail-fast 按设计生效），预清后复跑即绿；本迭代两批次兑现（T0.1 基线取得与 TS1 最终树复跑）。
 
 ## 理由
 TR-TEST-4 只裁隔离注入（--home tmp），未覆盖进程/端口残留；F4.3 实锤 e2e teardown 残留（首迭代遗留项）；残留会让下一轮测试假红/假绿并污染开发机，连跑两轮断言把「零残留」从纪律变为机械判据。F4.5 裁决将本纪律落为 testing-rules.md 新 TR。M4 CL-7（Q-5）：连跑两轮断言只证本轮零残留，防不了外部残留污染断言面；跑前预检把「进入断言面前先证清白」机制化为 fail-fast，红/绿双路径已在 iter-20260818-mq5a 实证（首跑拦截 896 条开发阶段中断遗留）。

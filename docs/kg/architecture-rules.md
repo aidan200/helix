@@ -30,7 +30,7 @@ updatedIn: iter-20260821-dg90
 ```
 
 ## 规则
-daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号——唯一例外 @helix/common：业务无关通用常量/纯工具经 AG-02① 白名单显式允许直引，@helix/protocol 与 pi 系仍禁，iter-20260821-dg90 AD-1）→ application/（ports/ 按 inbound/outbound 双向组织——inbound：AgentOrchestrationPort、SystemPort 等（接口由 service 或组合根实现）；outbound：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort 等（由 service 调用；双向清单详见 TR-AD-2）+ services/：ChatService、SessionService、RestoreService、SchedulerService；只依赖 domain 与自有 port + 白名单三项（@helix/common——业务无关通用层直引，AD-1/iter-20260821-dg90；@helix/protocol——协议类型与纯投影消费（MAIN_INSTANCE_ID 唯一定义已迁 @helix/common，protocol 为 re-export 通道，AG-13 取源断言语义同步）；node:path——scheduler/ClosureRecorder 产物路径；以守护 AG-02② 白名单为准，iter-20260821-dg90 扩为三项），禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、subagent（SubAgent 子进程 launcher/child/transport）、static-serve，实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点；组合根锚面 = container.ts + infrastructure/assembly/**——命名装配函数族 buildPersistence/buildModelStack/buildSessionStack/wireEventFanout 落 assembly/ 目录，iter-20260821-dg90 H2.2 拆分，AG-02④ 豁免面同步扩为该锚面）。新增代码先定层再写文件。
+daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号——唯一例外 @helix/common：业务无关通用常量/纯工具经 AG-02① 白名单显式允许直引，@helix/protocol 与 pi 系仍禁，iter-20260821-dg90 AD-1）→ application/（ports/ 按 inbound/outbound 双向组织——inbound：AgentOrchestrationPort、SystemPort、ChatPort、ResourceConfigPort、SessionPort、ModelPort、SessionDirectoryPort 等（接口由 service 或组合根实现）；outbound：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort、AuthStorePort、DefaultModelPort、ModelCatalogPort、BrowserPort、ResourceStatePort、SkillSourcePort 生效 10 个（由 service 调用；双向清单详见 TR-AD-2，iter-20260821-dg90 终验 L3 复核校正计数）+ services/：ChatService、SessionService、RestoreService、SchedulerService；只依赖 domain 与自有 port + 白名单三项（@helix/common——业务无关通用层直引，AD-1/iter-20260821-dg90；@helix/protocol——协议类型与纯投影消费（MAIN_INSTANCE_ID 唯一定义已迁 @helix/common，protocol 为 re-export 通道，AG-13 取源断言语义同步）；node:path——scheduler/ClosureRecorder 产物路径；以守护 AG-02② 白名单为准，iter-20260821-dg90 扩为三项），禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、subagent（SubAgent 子进程 launcher/child/transport）、static-serve、cdp（BrowserPort 的 CDP 实现域：CdpConnectionManager/browser-discovery/TabRegistry，零 pi import、不入 AG-04 三根——iter-20260821-dg90 终验 L3 复核补枚举），实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点；组合根锚面 = container.ts + infrastructure/assembly/**——命名装配函数族 buildPersistence/buildModelStack/buildSessionStack/wireEventFanout 落 assembly/ 目录，iter-20260821-dg90 H2.2 拆分，AG-02④ 豁免面同步扩为该锚面）。新增代码先定层再写文件。
 
 ## 理由
 六边形与 daemon「唯一事实源 + 端口适配」职责天然契合——pi 引擎/SQLite/WS 都是可替换端口（AD-12）；单向依赖保证防腐：换引擎、换存储、换前端均不动 domain 与 application（AD-17）；业务逻辑 framework-free 才能零依赖单测。iter-20260821-dg90 两处扩张均为机械跟随非语义反转：domain 白名单开 @helix/common 例外是 AD-1 裁决——MAIN_INSTANCE_ID 双源即本规则「取源单点」条款与 AG-02 domain 禁令内战的产物，解法 = 引入两者之下都合法的最小公共层（规则全文见 TR-AD-28）；组合根锚面从单文件扩为目录是 H2.2 四命名装配函数拆分的落位配套（组合根「唯一允许 import 全部层、new 具体实现」语义不变，container <500 行目标的结构前提）。
@@ -64,11 +64,11 @@ relations:
     - E-领域事件与单写队列
     - E-会话聚合
     - E-AgentRuntime
-updatedIn: iter-20260816-6q6f
+updatedIn: iter-20260821-dg90
 ```
 
 ## 规则
-application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 或组合根实现——AgentOrchestrationPort 由 SchedulerService 实现、经 driven 编排工具（agent_spawn/send/status）回口调用；SystemPort 由组合根内联实现、driving ws-server 调用；ModelPort 由 ModelService 实现、SessionDirectoryPort 由 SessionRegistry 实现（T2.3 模型模块新增））与 outbound/（出口端口生效 8 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort + T2.3 新增 AuthStorePort、DefaultModelPort、ModelCatalogPort，由 service 调用；SystemPort 自创建起即位于 inbound/；守护测试断言 ports 文件数 ≥9）。outbound port 的实现允许四类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）、infrastructure 纯技术文件 port（AuthStore——纯文件读写无 driving/driven 语义，落 infrastructure/auth-store.ts，AG-06③ 原子写白名单显式列名，与 dev-token/config 同类）、application service（EventPublisherPort 的会话投影实现 SessionProjection——fan-out 投影目标，经 container 装配进 publisherTargets，服务消费面 = 组合根内联 fanout，iter-20260820-qhv8 终验补记）；PathsPort 已删除（iter-20260820-qhv8 F-7 死代码清理，零实现零消费）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
+application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 或组合根实现——AgentOrchestrationPort 由 SchedulerService 实现、经 driven 编排工具（agent_spawn/send/status）回口调用；SystemPort 由组合根内联实现、driving ws-server 调用；ModelPort 由 ModelService 实现、SessionDirectoryPort 由 SessionRegistry 实现（T2.3 模型模块新增）；ChatPort 由 ChatService 实现、ResourceConfigPort 由 ResourceService 实现、SessionPort 由 SessionService 实现（iter-20260821-dg90 终验 L3 复核补枚举））与 outbound/（出口端口生效 10 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort、AuthStorePort、DefaultModelPort、ModelCatalogPort + BrowserPort、ResourceStatePort、SkillSourcePort，由 service 调用；SystemPort 自创建起即位于 inbound/；守护测试断言 ports 文件数 ≥9）。outbound port 的实现允许四类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）、infrastructure 纯技术文件 port（AuthStore——纯文件读写无 driving/driven 语义，落 infrastructure/auth-store.ts，AG-06③ 原子写白名单显式列名，与 dev-token/config 同类）、application service（EventPublisherPort 的会话投影实现 SessionProjection——fan-out 投影目标，经 container 装配进 publisherTargets，服务消费面 = 组合根内联 fanout，iter-20260820-qhv8 终验补记）；PathsPort 已删除（iter-20260820-qhv8 F-7 死代码清理，零实现零消费）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
 
 ## 理由
 port 是 adapter↔application 两个方向的唯一衔接契约（AD-17 条 2/3）；契约里混入实现即产生第二事实源，driving/driven 的可替换性（换 WS、换引擎、换存储）即刻失效。
@@ -255,11 +255,11 @@ relations:
     - E-AgentRuntime
     - E-模型目录
     - E-认证凭据
-updatedIn: iter-20260816-6q6f
+updatedIn: iter-20260821-dg90
 ```
 
 ## 规则
-daemon 运行时依赖仅限 @earendil-works/pi-agent-core 与 @earendil-works/pi-ai 两包，零 pi-coding-agent import。工具集 = bash/edit/read/write 四个 core 内置工具 + 自写 grep + 编排三工具（agent_spawn/agent_send/agent_status，tools/agent/AgentOrchestrationTools 薄转投 AgentOrchestrationPort，注册进 MainSessionProfile）。pi 库 import 只允许出现在 adapters/driven/pi-engine、adapters/driven/tools（工具接线域：core Tool 接口/ExecutionEnv 封装的必然导入，AD-10 工具封装条款）与 adapters/driven/subagent（SubAgent 子进程形态：launcher 透传 Model、child 复用 pi-engine 防腐墙、剧本引擎用 pi-ai 流原语；T2.2 新增第三域；守护测试 AG-04 三根同口径）。import 通道红线：真实 provider 必须经 `@earendil-works/pi-ai/providers/all` 子路径（主入口 side-effect-free 拿不到真实 provider）；Node 执行环境必须经 `@earendil-works/pi-agent-core/node` 子入口。模型接入 = pi-ai + 显式凭据（AD-13；凭据存 ~/.helix/auth.json：Record<providerId, type-tagged Credential 联合>（pi 生态格式等价），0600 + pid 文件锁 + 原子写，OAuth 类型面支持、登录流不做，格式详见 E-认证凭据），弃 pi 的 SettingsManager 体系；模型能力来源 = daemon 自实现 ModelCatalog（builtin 39 providers 静态表 + pi.dev overlay 合并，ETag 条件刷新/4h 缓存/防降级/落盘兑底，零 pi-coding-agent import，落位 driven，详见 E-模型目录）；默认模型存 SQLite default_model 表（非 config.json）。
+daemon 运行时依赖仅限 @earendil-works/pi-agent-core 与 @earendil-works/pi-ai 两包，零 pi-coding-agent import。工具集 = bash/edit/read/write 四个 core 内置工具 + 自写 grep + web 族（web_search/web_fetch 静态注册 + browser 条件注册薄转投 BrowserPort，tools/web/——iter-20260821-dg90 终验 L3 复核补枚举）+ 编排三工具（agent_spawn/agent_send/agent_status，tools/agent/AgentOrchestrationTools 薄转投 AgentOrchestrationPort，注册进 MainSessionProfile）。pi 库 import 只允许出现在 adapters/driven/pi-engine、adapters/driven/tools（工具接线域：core Tool 接口/ExecutionEnv 封装的必然导入，AD-10 工具封装条款）与 adapters/driven/subagent（SubAgent 子进程形态：launcher 透传 Model、child 复用 pi-engine 防腐墙、剧本引擎用 pi-ai 流原语；T2.2 新增第三域；守护测试 AG-04 三根同口径）。import 通道红线：真实 provider 必须经 `@earendil-works/pi-ai/providers/all` 子路径（主入口 side-effect-free 拿不到真实 provider）；Node 执行环境必须经 `@earendil-works/pi-agent-core/node` 子入口。模型接入 = pi-ai + 显式凭据（AD-13；凭据存 ~/.helix/auth.json：Record<providerId, type-tagged Credential 联合>（pi 生态格式等价），0600 + pid 文件锁 + 原子写，OAuth 类型面支持、登录流不做，格式详见 E-认证凭据），弃 pi 的 SettingsManager 体系；模型能力来源 = daemon 自实现 ModelCatalog（builtin 静态表（provider 数随 pi-ai 版本演进，0.84.2 = 40）+ pi.dev overlay 合并，ETag 条件刷新/4h 缓存/防降级/落盘兑底，零 pi-coding-agent import，落位 driven，详见 E-模型目录）；默认模型存 SQLite default_model 表（非 config.json）。
 
 ## 理由
 extension 身份是 v1 兼容成本根源，pi 降为库（AD-2）；F-7 实读证明 core 已自带四工具（「pi-coding-agent 当工具箱」前提被证伪，AD-10）；依赖最小化既定原则；主入口/子入口陷阱是 pi 源码实读结论（F-7）。
@@ -485,14 +485,14 @@ anchors:
 relations:
   governs:
     - E-领域事件与单写队列
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260821-dg90
 ```
 
 ## 规则
-进程内任何「唯一写点」场景（领域事件落盘、未来的产物文件写入通道）一律复用 WriteQueue 单写通道模式：FIFO promise 链串行化保证顺序；onError 不中断链（单条失败可观测、队列存活继续消费）；close = drain 排空 + 关闭且幂等。禁止在队列之外直写 SQLite/文件（写路径唯一由守护测试 AG-06 扫描固化）。新写点接入 = 往同一队列追加 handler，不开第二条队列。
+进程内任何「唯一写点」场景（领域事件落盘、未来的产物文件写入通道）一律复用 WriteQueue 单写通道模式：分仓 FIFO + 全局链串行化保证顺序（sessionTails 每会话仓内严格 FIFO、仓间互不阻塞；无会话维 job 走 globalTail 全局链——AD-4 演进落位，iter-20260821-dg90 终验 L3 复核校正「单链 FIFO」旧表述）；onError 不中断链（单条失败可观测、队列存活继续消费）；close = drain 排空 + 关闭且幂等。禁止在队列之外直写 SQLite/文件（写路径唯一由守护测试 AG-06 扫描固化）。新写点接入 = 往同一队列追加 handler，不开第二条队列。
 
 ## 理由
-T1.8 实证模式：事件顺序即事实源顺序（TR-AD-5 恢复语义的前提）；多写点必然产生交错与半写状态；FIFO promise 链 + 不断链 + 幂等 close 三件套是崩溃一致性的最小实现（无外部依赖）。
+T1.8 实证模式：事件顺序即事实源顺序（TR-AD-5 恢复语义的前提）；多写点必然产生交错与半写状态；分仓 FIFO + 不断链 + 幂等 close 三件套是崩溃一致性的最小实现（无外部依赖）。
 
 ## 适用范围
 apps/daemon 任何新增持久化/文件写入路径；WriteQueue 自身维护；M2+ 产物文件写入通道设计。
@@ -864,6 +864,7 @@ derivedFrom:
   - AD-5（M4 契约 v0.3 一次定形）
   - Q-1c（M4 一步替换无协商）
   - AD-4（iter-20260819-erio 契约 v0.4 批次定形）
+  - CL-4（iter-20260821-dg90 协议包行为契约定案）
 anchors:
   implementedBy:
     - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#MONITOR_TIER_EVENT_TYPES
@@ -872,6 +873,7 @@ anchors:
     - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#subscribeSession
     - packages/protocol/src/commands.ts#SessionSubscribePayload
     - packages/protocol/src/envelope.ts#PROTOCOL_VERSION
+    - packages/protocol/src/projection/
     - packages/protocol/src/events/agent.ts
     - apps/shell/src/entities/session/model/subscription-ledger.ts
   testedBy:
@@ -884,7 +886,7 @@ anchors:
 relations:
   governs:
     - E-领域事件与单写队列
-updatedIn: iter-20260821-m6
+updatedIn: iter-20260821-dg90
 ```
 
 ## 规则
@@ -892,6 +894,7 @@ updatedIn: iter-20260821-m6
 ①可选参数扩展优先于新命令对——同一命令能以可选参数承载的语义（session.subscribe 扩 tier、chat.steer 扩 instanceId、welcome 扩 draft 标记、chat.send 扩 draft 建会话 model——hotfix-20260820 例证）不新增命令对；仅当载荷形态无法容纳才新增（届时按 TR-AD-21 整链登记模式）。可选参数必带缺省语义（缺省 = 既有行为，旧剧本兼容），事件类型判别式只增不删不改（TR-AD-18 同源纪律）。
 ②契约版本一次定形——同一批协议演进收拢为一次契约版本定形后铺开（v0.3 = spawn 锚点 DTO + tier 订阅 + steer 寻址三处同批；v0.4 = trace.query 命令族 + agent.instantiated/model.changed 落盘事件 + engine.error SubAgent 抑制守卫同批，iter-20260819-erio；v0.5 = payload 形状全量回迁正文（13 命令 + 11 结果帧 + draft 字段登记）+ §14 微批字段定形 + SoT 五断言同批，iter-20260820-qhv8，执行律详见 TR-AD-26；v0.6 = agent.config.* 命令族 additive（COMMAND_TYPES 22→24 + EVENT_TYPES 40→43：changed 广播 + 两点对点结果帧；tools 行 snippet 字段 additive 补登）——四面同构（常量/PROTOCOL.md §15§16/catalog 逐字面量/sot 五断言）同批落定，零既有形状变更，iter-20260821-m6）；EVENT_TYPES/EVENT_CHANNELS 守护计数与 type-surface 穷尽断言同步一次扩。单仓同发（protocol + daemon + shell 同 commit 发版）无跨版本组合场景：PROTOCOL_VERSION 是批次集合标记而非协商位；批内破坏性清理（删 dead 类型 / 路径迁移 / 旧推导代码删除）一步完成不留双轨。
 ③订阅状态连接级隔离——daemon 订阅状态（Map<sessionId, tier>，tier = full | monitor）是连接私有状态，由 EventStream 按连接持有；daemon 不持跨连接全局订阅知识（拒绝「daemon 知道哪些会话活跃」的中心化换档）；断连即丢、重连由客户端重放全订阅图。N 窗口 = N 连接 = N 独立订阅图，多窗口/多客户端在协议层零改动扩展。档位过滤（monitor 白名单）在事件分发层一处完成，不散落 service。
+④协议包职责 = 类型契约 + 行为契约（iter-20260821-dg90 CL-4 定案，T3.1 落位）：无 IO 纯函数 projection（usage/instance/trace 三域）落 packages/protocol/src/projection/，daemon/shell/fake-transport 三方薄适配消费同一单源，消灭平行实现；IO/SQL/框架代码仍禁入 protocol 包（纯函数无框架依赖为入面硬门槛）。
 
 ## 理由
 Q-2b 定案：连接级单档 Map 消除双集交集歧义，切换先升后降保证不丢帧不串台；拒绝 daemon 持活跃会话知识（原子换档方案）保持去中心化订阅模型——多窗口协议层零改动是结构红利而非补丁。Q-1c：单仓同发使协商成本为零，拆多次小版本只产生多次守护计数扰动；可选参数承载使守护面与 shell dispatcher 路由面零新增。
@@ -1106,3 +1109,89 @@ iter-20260821-dg90 AD-1：MAIN_INSTANCE_ID 双源的根因是规则内战——T
 
 ## 反例
 在 packages/common 里 import @helix/protocol（或任何 @helix/*、第三方包）——common 是全依赖图最底层，反向即环，AG-15 断言红；或把 SessionRecord 这类领域簿记概念、AgentInstance 这类领域语义塞进 common utils——业务无关性纪律违例（结构断言查不出，评审拦）；或在 domain/agent/AgentInstance.ts 重新定义 MAIN_INSTANCE_ID = "main" 字面量——双源复发，AG-13 取源断言红。
+
+```kg-node
+id: TR-AD-29
+kind: rule
+graph: tech
+layer: convention
+scope: domain
+stack: backend
+name: 注释叙事三分类与 ADR 落档判据
+status: active
+digest: 清理或新写代码注释、处理任务号/迭代号叙事、落 ADR 时
+```
+
+## 规则
+代码注释三分类判据：①行级强约束——保留约束表述与活锚（TR-AD-N/AD-N/AG-N/TR-TEST-N/O-N 活观察节点/Q-Na 契约款/§文档节引用），删任务号叙事尾巴；②文件级考古——迁 docs/decisions/ ADR（含背景/取舍/演进史三要素），源文件留当前契约 + ADR 指针；③纯叙事——全删。叙事模式 18 族机械可判定（追修/原T/任务号T/里程碑M/闭环CL/需求点F/K系/O系/TS系/spike/迭代号/TP/AF/FB/OI/C系/D批/G系）。ADR 目录准入判据：有独立演进史与取舍的决策域才立 ADR，一次性实现细节不立。
+
+## 理由
+任务号/迭代号叙事注释写完即开始腐烂（所指批次完成后语义悬空），18 族模式机械可判定使清理可脚本化；文件级考古迁 ADR 保留背景/取舍/演进史三要素，比留在源码注释更可持续；活锚白名单防止清理误伤仍在生效的约束引用。
+
+## 适用范围
+全部源码注释的新写与清理评审；docs/decisions/ ADR 新增准入；注释清理批次任务的判型依据。
+
+## 反例
+新写「T3.3：AD-1 单源收编（iter-20260821-dg90）」式任务号叙事注释——写完即腐（AgentInstance.ts L27 实证）；或把文件级演进史大段留在源码文件头——应迁 docs/decisions/ ADR 留指针。
+
+```kg-node
+id: TR-AD-30
+kind: rule
+graph: tech
+layer: convention
+scope: domain
+stack: backend
+name: 事件扇出带名注册表与顺序断言
+status: active
+digest: 组装多目标事件扇出、写发布顺序敏感的组合根接线时
+anchors:
+  implementedBy:
+    - apps/daemon/src/infrastructure/assembly/wireEventFanout.ts
+  testedBy:
+    - apps/daemon/test/integration/fanout-assembly.test.ts
+updatedIn: iter-20260821-dg90
+```
+
+## 规则
+组合根的多目标事件扇出组装用「带名注册表」模式：扇出目标以 NamedFanoutTarget 数组显式登记（名字 + 目标引用），注册表顺序即发布顺序的唯一权威声明，wireEventFanout 按注册表序接线 FanoutPublisher。凡发布顺序承载语义（如「先事件行后状态行」），必须有顺序专项断言把口头契约转为机械断言（逐名全序断言）；负边界（某目标不应收某类事件）同样落断言面。
+
+## 理由
+扇出目标的注册顺序此前是隐式口头契约，目标增减时顺序漂移无任何机制能发现；带名注册表使顺序成为可审读的唯一事实源，顺序断言使其成为红绿事实（iter-20260821-dg90 终验架构师实证：wireEventFanout 六目标 + fanout-assembly.test.ts:111-118 顺序断言 + resources.changed 三负边界断言）。
+
+## 适用范围
+daemon 组合根事件扇出组装面；未来任何「push 序即语义」的多目标发布组装；扇出目标增删的评审。
+
+## 反例
+组合根里逐行 publisher.add(a); publisher.add(b) 隐式依赖添加顺序而无注册表与顺序断言——后续插入新目标即可能打乱「先事件行后状态行」语义且无测试能红。
+```
+
+```kg-node
+id: TR-AD-31
+kind: rule
+graph: tech
+layer: convention
+scope: domain
+stack: backend
+name: 服务依赖两形态接口（生产必填 + 测试宽松）
+status: active
+digest: 设计 service 依赖注入面、写测试替身注入、动可选钩子字段时
+anchors:
+  implementedBy:
+    - apps/daemon/src/application/services/ChatService.ts
+  testedBy:
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
+updatedIn: iter-20260821-dg90
+```
+
+## 规则
+application service 的可选钩子/依赖用两形态接口表达：完整形态（生产，如 ChatServiceDeps——钩子字段全必填）+ 测试形态（如 ChatServiceTestDeps——字段可选）；生产组合根装配点按完整形态装配，编译期保证全钩子在位，根治「?.() 可选调用静默跳过」类病根。已知边界：构造器签名取两形态联合类型时，内部仍存运行期不可达兜底分支——分支消灭依赖装配纪律而非类型收窄；追求彻底消分支的后续方向 = 构造器收窄为完整形态 + 测试工厂包缺省填充。
+
+## 理由
+可选字段 + `?.()` 调用使「钩子未装配」在编译期不可见、运行期静默跳过（A4 病根实证）；两形态接口把「生产必须全钩子」变成类型级事实，测试侧保留宽松注入便利（iter-20260821-dg90 终验架构师实证：ChatService.ts:53-85 三件套 + :108 联合构造器落地）。
+
+## 适用范围
+application 服务依赖面设计；一切「生产必填钩子 + 测试宽松注入」的服务；评审新增可选依赖字段时的形态归属。
+
+## 反例
+service deps 接口直接全字段可选 + 内部 `deps.onX?.()` 散布——某钩子忘装配时无任何报错，行为静默缺失（A4 病根形态）；或为消兜底分支把测试形态也改为全必填——测试装配面被迫逐字段填充，测试写法成本飙升。
+```

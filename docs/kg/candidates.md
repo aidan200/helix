@@ -502,6 +502,186 @@
 - createdIn: iter-20260819-erio
 - decisionLog: 终验裁决（用户批准终验报告 §六 #1，2026-08-20）：规则②「契约版本一次定形」补 v0.4 为第二例证（trace.query 命令族 + agent.instantiated/model.changed 落盘事件 + engine.error SubAgent 抑制守卫同批，iter-20260819-erio）；derivedFrom 增 AD-4；updatedIn 推进 iter-20260819-erio。证据：envelope.ts:15 PROTOCOL_VERSION="0.4"、events/index.ts:8 v0.4 清单、DtoMapper.ts:681-688 抑制守卫。formalId=TR-AD-23。
 
+### E-AgentProfile
+- changeType: 修改
+- targetNode: E-AgentProfile
+- scope: domain.md E-AgentProfile 规则节单句措辞修正，无代码改动
+- project: helix
+- reason: L3 判漂移：E-AgentProfile 规则宣称「model 解析收束 infrastructure/config 单点」，实际 SubAgent 模型三级解析单点为 SubagentLauncher.resolveModelFor（代码注释自称「AD-3 三级模型解析单点」），infrastructure/config.ts 仅做 config.json 解析不含模型解析。修正方向：改「SubagentLauncher.resolveModelFor 单点（launch 段唯一消费点）」；三级链优先级实质语义不变
+- evidence: docs/kg/domain.md:45 vs apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts:120-147、apps/daemon/src/infrastructure/config.ts:38-93
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts:128 (resolveModelFor)
+- sourceTask: final-verification L3 语义复核·实体面（phase-reviewer agt_2P5KN9XRVHJ6；自动落账静默丢失后 MainAgent 补登）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：L3 语义复核判文本漂移——规则宣称「model 解析收束 infrastructure/config 单点」，实际解析单点为 SubagentLauncher.resolveModelFor（SubagentLauncher.ts:128）。修正：落位宣称改为 SubagentLauncher.resolveModelFor 单点 + anchors 补 SubagentLauncher.ts；三级链实质语义不变。改文本级，零改码。
+
+### E-智能体配置资源
+- changeType: 修改
+- targetNode: E-智能体配置资源
+- scope: domain.md E-智能体配置资源 描述/禁忌节措辞修正，无代码改动
+- project: helix
+- reason: L3 判漂移：E-智能体配置资源 描述宣称 skills 扫描「双层目录（user+project）」，代码实为三层输入 user/project/builtin（builtin = daemon 随仓 resources/skills，含 web-access），且 ResourceService 已实现 builtin-immutable 跳过语义。修正方向：「双层目录」→「三层目录（user=~/.helix/skills + project=<工作区>/.helix/skills + builtin=daemon 随仓 resources/skills，builtin 层不可禁用）」；禁忌「双层自有目录」措辞同步修正
+- evidence: docs/kg/domain.md:369 vs apps/daemon/src/adapters/driven/pi-engine/SkillScanner.ts:13-16,41-45、apps/daemon/src/infrastructure/paths.ts:62、apps/daemon/src/application/services/ResourceService.ts:100、apps/daemon/resources/skills/web-access
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/SkillScanner.ts:41-45 (this.inputs 三层)
+- sourceTask: final-verification L3 语义复核·实体面（phase-reviewer agt_2P5KN9XRVHJ6；自动落账静默丢失后 MainAgent 补登）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：L3 语义复核判文本漂移——描述宣称 skills 扫描「双层目录」，代码实为三层 user/project/builtin（SkillScanner.ts:41-45；ResourceService.ts:100 builtin-immutable）。修正：描述改三层目录 + builtin 不可禁用语义，禁忌「双层自有目录」同步改「三层自有目录」。改文本级，零改码。
+
+### TR-AD-29
+- changeType: 新增
+- scope: 注释/文档纪律（daemon src 先行，protocol 面后续批）
+- project: helix
+- reason: T3.2 注释考古批确立的可复用判据：18 族机械可判定叙事模式 + 活锚白名单 + 三分类落地（行级强约束留锚/文件级考古迁 ADR/纯叙事全删）+ ADR 目录准入判据。720 行叙事清理零代码语义变更（216 对逐字节校验）。建议落 testing-rules 或 architecture-rules convention 层新条目
+- evidence: evidence/green-t3-2-comment-adr.md；evidence/red-t3-2-comment-narrative.md；docs/decisions/ 五 ADR
+- nodeDraft: {"digest":"清理或新写代码注释、处理任务号/迭代号叙事、落 ADR 时","graph":"tech","governs":[],"kind":"rule","layer":"convention","name":"注释叙事三分类与 ADR 落档判据","scope":"domain","sections":{"反例":"新写「T3.3：AD-1 单源收编（iter-20260821-dg90）」式任务号叙事注释——写完即腐（AgentInstance.ts L27 实证）；或把文件级演进史大段留在源码文件头——应迁 docs/decisions/ ADR 留指针。","理由":"任务号/迭代号叙事注释写完即开始腐烂（所指批次完成后语义悬空），18 族模式机械可判定使清理可脚本化；文件级考古迁 ADR 保留背景/取舍/演进史三要素，比留在源码注释更可持续；活锚白名单防止清理误伤仍在生效的约束引用。","规则":"代码注释三分类判据：①行级强约束——保留约束表述与活锚（TR-AD-N/AD-N/AG-N/TR-TEST-N/O-N 活观察节点/Q-Na 契约款/§文档节引用），删任务号叙事尾巴；②文件级考古——迁 docs/decisions/ ADR（含背景/取舍/演进史三要素），源文件留当前契约 + ADR 指针；③纯叙事——全删。叙事模式 18 族机械可判定（追修/原T/任务号T/里程碑M/闭环CL/需求点F/K系/O系/TS系/spike/迭代号/TP/AF/FB/OI/C系/D批/G系）。ADR 目录准入判据：有独立演进史与取舍的决策域才立 ADR，一次性实现细节不立。","适用范围":"全部源码注释的新写与清理评审；docs/decisions/ ADR 新增准入；注释清理批次任务的判型依据。"},"stack":"backend"}
+- implementationStatus: 完整实现
+- implementedCode: docs/decisions/{persistence,composition-root,session-lifecycle,subagent-scheduler,ws-server}.md
+- sourceTask: T3.2（终验 C1 补登）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：T3.2 注释考古批判据沉淀为新 convention 规则——18 族机械可判定叙事模式 + 活锚白名单 + 三分类落地（行级强约束留锚/文件级考古迁 ADR/纯叙事全删）+ ADR 目录准入判据。正式号 TR-AD-29（用户批准建议号）。
+
+### TR-AD-30
+- changeType: 新增
+- scope: daemon 组合根事件扇出组装面；未来任何 push 序即语义的多目标发布组装可复用
+- project: helix
+- reason: architecture §8 钦定「终验后按实证沉淀」项之一：fan-out 带名注册表 + 顺序约束断言模式。终验实证：NamedFanoutTarget 注册表序即语义唯一权威（wireEventFanout 六目标），顺序专项测试将「先事件行后状态行」口头契约转为机械断言，resources.changed 三负边界亦有断言面
+- evidence: apps/daemon/src/infrastructure/assembly/wireEventFanout.ts:15-19,63-117；apps/daemon/test/integration/fanout-assembly.test.ts:111-118,157-174；architecture.md §4.2.4
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/infrastructure/assembly/wireEventFanout.ts（NamedFanoutTarget/FanoutPublisher/wireEventFanout）+ fanout-assembly.test.ts:111-118（顺序断言）
+- sourceTask: final-verification 全局审计（phase-architect agt_X2ST92169WQ6；自动落账静默丢失后 MainAgent 补登）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：architecture §8 钦定「终验后按实证沉淀」项之一——fan-out 带名注册表 + 顺序约束断言模式，终验架构师审计实证背书（wireEventFanout.ts + fanout-assembly.test.ts:111-118/157/174）。正式号 TR-AD-30（用户批准建议号）。
+
+### TR-AD-31
+- changeType: 新增
+- scope: application 服务依赖面设计；适用于一切「生产必填钩子 + 测试宽松注入」的服务
+- project: helix
+- reason: architecture §8 钦定「终验后按实证沉淀」项之二：依赖两形态接口模式（完整形态生产必填 + 测试形态宽松）。终验实证：ChatServiceDeps（四钩子必填）/ChatServiceTestDeps（可选）落地，组合根装配点编译期保证全钩子在位，根治 A4「?.() 静默跳过」。边界备注：构造器签名取联合类型致内部仍存不可达兜底分支（:137/150/209/267）——运行期分支消灭依赖装配纪律而非类型收窄，后续可构造器收窄 + 测试工厂包缺省填充彻底消分支
+- evidence: apps/daemon/src/application/services/ChatService.ts:53-85（两形态定义）,108（联合构造器）,137/150/209/267（兜底分支）；architecture.md §4.2.6
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/ChatService.ts:53-85（ChatServiceDepsBase/ChatServiceDeps/ChatServiceTestDeps 三件套）
+- sourceTask: final-verification 全局审计（phase-architect agt_X2ST92169WQ6；自动落账静默丢失后 MainAgent 补登）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：architecture §8 钦定「终验后按实证沉淀」项之二——依赖两形态接口模式（生产必填+测试宽松），终验架构师审计实证背书；含构造器兜底分支边界备注与后续收窄方向。正式号 TR-AD-31（用户批准建议号）。
+
+### E-iter-20260821-dg90-1
+- changeType: 修改
+- targetNode: E-会话聚合
+- scope: domain session 聚合判定面
+- project: helix
+- reason: T1.2 将「会话是否为空」判定收敛为 Session.isEmpty 单一事实源，消灭多处散落的 entries.length===0 同义判定；建议在 E-会话聚合 规则节补一句「空判定唯一口径 = Session.isEmpty」
+- evidence: evidence/green-t1-2-session-is-empty.md；daemon 686/0 三轨绿
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/domain/session/Session.ts（isEmpty）
+- sourceTask: T1.2（终验 C1 补登，原断裂见 dev-final-arch-review §3.1）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：Session.isEmpty 空判定单一事实源沉淀——E-会话聚合 规则节补「空判定唯一口径 = Session.isEmpty」句。因 formalId=E-会话聚合 与台账既有 applied 条目撞号（同节点二次修改超出 kg apply 流转支持面），按 desk 先例由 MainAgent 人审直写落盘（formalId=E-会话聚合，节点 id 稳定不变）。
+
+### SPEC-iter-20260821-dg90-3
+- changeType: 修改
+- targetNode: TR-AD-23
+- scope: packages/protocol 职责边界
+- project: helix
+- reason: T3.1 确立「协议包 = 类型契约 + 行为契约」扩张（CL-4 定案）：无 IO 纯函数 projection（usage/instance/trace 三域）落 packages/protocol/src/projection/，daemon/shell/fake-transport 三方薄适配消费，消灭平行实现。建议 TR-AD-23（或人审另指节点/新号）补「纯函数行为面可落 protocol 包」条款
+- evidence: evidence/green-t3-1-protocol-projection.md；projection 三域单测 28 例；fake 655→559 镜像段零残留
+- implementationStatus: 完整实现
+- implementedCode: packages/protocol/src/projection/{usage,instance,trace}.ts
+- sourceTask: T3.1（终验 C1 补登）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：TR-AD-23 补④律「协议包职责 = 类型契约 + 行为契约」（projection 三域纯函数单源，CL-4 定案）+ derivedFrom 增 CL-4 + anchors 增 projection/。因 formalId=TR-AD-23 撞号，按 desk 先例 MainAgent 直写落盘（节点 id 稳定）。
+
+### SPEC-iter-20260821-dg90-5
+- changeType: 修改
+- targetNode: TR-TEST-3
+- scope: daemon 测试 fixture 纪律
+- project: helix
+- reason: AF-10 fixture 规约候选：测试 fixture 优先走 ClockPort 等 port 真实路径注入，白盒内部状态构造仅限全库 grep 实证的唯一访问点并需显式标注；建议 TR-TEST-3（保真度面）补此条款
+- evidence: development/architecture-feedback.md AF-10；session-registry-draft.test.ts 白盒 fixture 全库 grep 唯一访问点实证
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/test/unit/session-registry-draft.test.ts
+- sourceTask: AF-10（终验 C1 补登，dev-final-arch-review §3.1）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：TR-TEST-3 补 fixture 注入规约（port 真实路径优先，白盒构造仅限 grep 实证唯一访问点并显式标注，AF-10）+ fake-transport 口径句升级「同引 protocol 单源」。因 formalId=TR-TEST-3 撞号（discarded 既有条目），按 desk 先例 MainAgent 直写落盘（节点 id 稳定）。
+
+### SPEC-iter-20260821-dg90-6
+- changeType: 修改
+- targetNode: TR-TEST-6
+- scope: e2e harness 卫生纪律
+- project: helix
+- reason: 「批末/终验 e2e 全量前清 TMPDIR」约定候选：本迭代两次兑现预警（daemon 测试 helix-* 残留致 e2e globalSetup 卫生预检拦截，清理后复跑全绿）。建议 TR-TEST-6 补「e2e 全量批次前清 TMPDIR helix-* 残留」条款或落 e2e harness 文档
+- evidence: verification/verification-report.md §二 e2e 执行注记（TMPDIR 27+ 残留拦截后复跑全绿）；task-T0.1-report 批注
+- implementationStatus: 完整实现
+- implementedCode: e2e/harness/tmp-hygiene.ts；e2e/harness/e2e-global-setup.ts
+- sourceTask: OI-4 / 终验 C4（verification-report §六）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：TR-TEST-6 补「批末/终验 e2e 全量前清 TMPDIR helix-* 残留」约定（OI-4，本迭代两批次兑现）。因 formalId=TR-TEST-6 撞号，按 desk 先例 MainAgent 直写落盘（节点 id 稳定）。
+
+### E-iter-20260821-dg90-2
+- changeType: 修改
+- targetNode: E-模型目录
+- scope: domain.md E-模型目录 描述节计数措辞修正，无代码改动
+- project: helix
+- reason: L3 语义复核判文本漂移：E-模型目录 描述宣称「builtin 39 providers 静态表」，当前依赖 pi-ai 0.84.2 的 builtin 实为 40 providers（上游版本演进净增 1）。修正方向：更新计数为 40，或去除硬编码数字改「builtin 静态表（provider 数随 pi-ai 版本演进）」防再次漂移
+- evidence: docs/kg/domain.md:336 vs 运行时探测（apps/daemon 下 bun eval：new ModelCatalog({now}).providerIds().length===40，@earendil-works/pi-ai@0.84.2）；apps/daemon/src/adapters/driven/pi-engine/model-catalog.ts:129,135
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/model-catalog.ts:129,135 (builtinModels()/getProviders)
+- sourceTask: final-verification L3 语义复核·实体面（phase-reviewer agt_2P5KN9XRVHJ6）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：L3 判漂移——E-模型目录「builtin 39 providers」去硬编码改「provider 数随 pi-ai 版本演进（0.84.2=40）」。因 formalId=E-模型目录 撞号，按 desk 先例 MainAgent 直写落盘（节点 id 稳定）。
+
+### SPEC-iter-20260821-dg90-7
+- changeType: 修改
+- targetNode: TR-AD-1
+- scope: architecture-rules.md TR-AD-1 规则节 driven/ 枚举手句
+- project: helix
+- reason: L3 判漂移：TR-AD-1 规则文本 driven/ 枚举（pi-engine/sqlite-session/tools/subagent/static-serve 五个）缺第 6 个 driven adapter cdp/（BrowserPort 的 CDP 实现域，零 pi import、不入 AG-04 三根——枚举补列即可，AG-04 口径不变）。本迭代新条款（@helix/common 例外/三项白名单/assembly 锚面）经核与 AG-02 实状一致无需改
+- evidence: docs/kg/architecture-rules.md:33；apps/daemon/src/adapters/driven/cdp/CdpConnectionManager.ts:4；apps/daemon/test/arch-guard/arch-guard.test.ts:53-135
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/cdp/{CdpConnectionManager,browser-discovery,TabRegistry}.ts
+- sourceTask: final-verification L3 语义复核·规则前半批（phase-reviewer agt_91CNPK5MC1AA，reviews/l3-arch-rules-batch1-review.md）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：L3 判漂移——TR-AD-1 driven/ 枚举补 cdp/（BrowserPort CDP 实现域，零 pi import、不入 AG-04 三根）；同块 inbound/outbound 枚举句同步补全。因 formalId=TR-AD-1 撞号，按 desk 先例 MainAgent 直写落盘（节点 id 稳定）。
+
+### SPEC-iter-20260821-dg90-8
+- changeType: 修改
+- targetNode: TR-AD-2
+- scope: architecture-rules.md TR-AD-2 规则节 inbound/outbound 清单与计数
+- project: helix
+- reason: L3 判漂移：TR-AD-2 outbound「出口端口生效 8 个」实为 10（后续迭代新增 BrowserPort/ResourceStatePort/SkillSourcePort）；inbound 枚举 4 个实为 7（缺 ChatPort/ResourceConfigPort/SessionPort 及其实现者归属）。修正方向：更新双向清单与计数，或改「详见守护/目录」弱断言。PathsPort 已删与 AG-01 ≥9 断言仍成立
+- evidence: docs/kg/architecture-rules.md:71；apps/daemon/src/application/ports/outbound/{BrowserPort,ResourceStatePort,SkillSourcePort}.ts:1；ports/inbound/{ChatPort,ResourceConfigPort,SessionPort}.ts:1
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/ports/{inbound,outbound}/（inbound 7 port + outbound 10 port）
+- sourceTask: final-verification L3 语义复核·规则前半批（phase-reviewer agt_91CNPK5MC1AA）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：L3 判漂移——TR-AD-2 outbound 8→10（+BrowserPort/ResourceStatePort/SkillSourcePort）、inbound 补 ChatPort/ResourceConfigPort/SessionPort 及其实现者归属。因 formalId=TR-AD-2 撞号，按 desk 先例 MainAgent 直写落盘（节点 id 稳定）。
+
+### SPEC-iter-20260821-dg90-9
+- changeType: 修改
+- targetNode: TR-AD-7
+- scope: architecture-rules.md TR-AD-7 规则节工具集枚举与 builtin providers 计数
+- project: helix
+- reason: L3 判漂移两处：①TR-AD-7 工具集枚举「四 core + grep + 编排三工具」缺 web 族——CoreToolExecutor 已注册 createWebSearchTool/createWebFetchTool（静态族）与条件注册 createBrowserTool（动态族薄转投 BrowserPort）；②「builtin 39 providers」实测 pi-ai 0.84.2 为 40（版本演进机械漂移，建议核正数字或去具体数断言）。其余红线（两包依赖/providers/all//node/AG-04 三根/auth.json/default_model）经核全部一致
+- evidence: docs/kg/architecture-rules.md:262；apps/daemon/src/adapters/driven/tools/CoreToolExecutor.ts:103-114；tools/web/{WebSearchTool,WebFetchTool,BrowserTools}.ts:1；cd apps/daemon && bun -e 'builtinModels().getProviders().length' → 40
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/tools/web/ + CoreToolExecutor.ts:97-114
+- sourceTask: final-verification L3 语义复核·规则前半批（phase-reviewer agt_91CNPK5MC1AA）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：L3 判漂移——TR-AD-7 工具集枚举补 web 族（web_search/web_fetch 静态 + browser 条件注册薄转投 BrowserPort）+ builtin providers 去硬编码。因 formalId=TR-AD-7 撞号，按 desk 先例 MainAgent 直写落盘（节点 id 稳定）。
+
+### SPEC-iter-20260821-dg90-10
+- changeType: 修改
+- targetNode: TR-AD-13
+- scope: architecture-rules.md TR-AD-13 规则节首句（串行化语义）与理由节
+- project: helix
+- reason: L3 判漂移：TR-AD-13「FIFO promise 链串行化保证顺序」已结构演进为分仓 FIFO（sessionTails 每会话仓 + globalTail 全局链；仓内严格 FIFO、仓间互不阻塞；AD-4 / architecture-feedback #19 落位）。修正方向：规则首句改写为分仓语义并补记来源。onError 不断链、close=drain+幂等、AG-06 单写点扫描三条款经核仍成立
+- evidence: docs/kg/architecture-rules.md:492；apps/daemon/src/adapters/driven/sqlite-session/WriteQueue.ts:96-102（分仓）、272-277（close 幂等）；arch-guard.test.ts:228-300（AG-06）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/sqlite-session/WriteQueue.ts:96-234
+- sourceTask: final-verification L3 语义复核·规则前半批（phase-reviewer agt_91CNPK5MC1AA）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：L3 判漂移——TR-AD-13「FIFO promise 链」改分仓 FIFO + 全局链口径（sessionTails 仓内 FIFO、globalTail 全局链，AD-4 落位）。因 formalId=TR-AD-13 撞号，按 desk 先例 MainAgent 直写落盘（节点 id 稳定）。
+
 ## discarded
 
 ### SPEC-iter-20260815-6tss-2
@@ -869,3 +1049,16 @@
 - sourceTask: verification/kg-inspection.md §三（orphan 建议补挂 governs 边）+ development/optimization-opportunities.md §6（F-9 计数更正）
 - createdIn: iter-20260820-qhv8
 - decisionLog: 终验决策（用户批准终验报告 §五 C 类，2026-08-20）：修正已直写落库（TR-AD-25 补挂 governs 三边消除 orphan——kg rebuild 后 hygiene=0 实证 + derivedFrom 补 F-9 计数更正条 + ③律计数同步 20+2）——正式号 TR-AD-25，按 desk 先例 discard 留审计痕，知识不丢失。
+
+### SPEC-iter-20260821-dg90-2
+- changeType: 修改
+- targetNode: TR-AD-1
+- scope: infrastructure 组合根装配面
+- project: helix
+- reason: T2.3 组合根装配形态显式化：生产 DaemonOptions 瘦身四字段 vs TestDaemonOptions 十五字段两形态分离；assembleDaemon 共享装配核心 + EngineAssemblyMode 显式联合消灭「engine===undefined 即生产」隐式分支。TR-AD-1 修订已覆盖锚面扩 assembly/，本候选补「生产/测试两形态 + 显式模式联合」条款（可能与本迭代 TR-AD-1 修订部分重叠，人审可判冗余 discard）
+- evidence: evidence/green-t2-3-test-daemon-factory.md；evidence/red-t2-3-explicit-mode.md；arch-guard explicit-mode 8 断言常驻
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/infrastructure/container.ts（assembleDaemon）；apps/daemon/test/helpers/createTestDaemon.ts
+- sourceTask: T2.3（终验 C1 补登）
+- createdIn: iter-20260821-dg90
+- decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：discard——组合根生产/测试两形态 + EngineAssemblyMode 条款已被本迭代 TR-AD-1 修订覆盖（适用范围含「DaemonOptions 生产/测试形态（createTestDaemon）」、反例含「测试注入口写回生产 DaemonOptions=H2.3 两形态分离违例」），重复记录即双轨风险。注：候选提的「两形态接口模式」一般化部分已由 SPEC-iter-20260821-dg90-12（TR-AD-31）承载。

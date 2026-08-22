@@ -29,3 +29,8 @@
 ## iter-20260820-qhv8 — 工程治理批次（审计冻结→拆分→契约 SoT v0.5→清理→测试基建）
 - 主体：纯工程治理批（零功能零 UI）：五热点拆分（type-surface 1582→15 文件、SchedulerService/DtoMapper/WsServerAdapter/events 拆分 + F-8 解环）+ 契约 SoT v0.5 收口（payload 全量回迁 + sot 五断言 + mock 织密）+ 死代码清理 + dev 升级 latest；退出基线全绿（daemon 453/0、shell 305/0、protocol 38/0、E 层 27/0、F 层 123/0、audit:assert ①-④）。终验：生产就绪四项全过、L3 复核 29 节点（6 文本漂移修正落库）、kg 裁决 17 候选清空（新增 TR-TEST-7 解环验证纪律），优化池移交 20+2 热点/N7-N11。
 - 状态：已沉淀
+
+## iter-20260821-dg90 — 技术债偿还批次（H0 e2e 闸 + H1 快赢 + H2 结构 + H3 投资）
+- 主体：技术债偿还批次：H0 e2e 终验入口闸基线落档；H1 快赢（吞错 5 处消除、竞态剧本常驻、types.ts 删除）；H2 结构（SessionRegistry 六台账收敛、container 738→443 拆 assembly/、createTestDaemon 两形态、ChatService 767→589 薄路由四族）；H3 投资（projection 三域纯函数迁 protocol 单源、fake 镜像段退役、注释考古 720 行迁 5 ADR、packages/common 落地 + AG-15 守护）。终验：L3 复核 37 节点（30 一致/7 漂移修正），kg 候选 14 apply + 1 discard。
+- 触及：E-AgentProfile, E-智能体配置资源, TR-AD-29, TR-AD-30, TR-AD-31, E-会话聚合, E-模型目录, TR-AD-1, TR-AD-2, TR-AD-7, TR-AD-13, TR-AD-23, TR-TEST-3, TR-TEST-6
+- 状态：进行中

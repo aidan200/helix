@@ -35,7 +35,21 @@ anchors:
   implementedBy:
     - apps/daemon/src/adapters/driven/pi-engine/runtime/AgentProfile.ts
     - apps/daemon/src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile.ts
-updatedIn: task-20260821-s1s4
+    - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
+updatedIn: iter-20260821-dg90
+```
+
+## 描述
+声明式 agent 规格：kind、系统提示、工具集、model 槽位、钩子装配（HookSet 组合）、compaction 参数、生命周期策略。生命周期声明是编排分层的唯一表达：persistent（常驻多轮，MainSessionProfile）vs single-shot（单轮收敛 + closure 协议回主线，SubAgentProfile）。model 槽位语义（AD-3 修订，取代 M2 AD-6「缺省继承全局默认」）：model 槽位是 SubAgent 模型三级解析链的最高优先级——profile 声明 model（provider/model-id，完整 Model 对象透传防 registry 不含）即该类型实例固定用声明模型；未声明则依次回退 spawn 时快照的会话模型、全局兜底（默认模型存储现值；语义为「全局兜底」而非「SubAgent 默认来源」）。取代边界：仅取代「SubAgent 模型源 = 全局默认表」的解析规则；会话级 model.set 内存态语义不变（主实例 AgentState.model，重启/卸载回退全局默认）。SubAgentProfile.model 从显式 undefined 转为真实槽位——代码层声明入口（UI 管理已由智能体页 /skills 承接：双 kind 卡片，模型下拉复用 filterAvailableModels 与 chat P-3 同一可用性口径，provider configured 过滤 + 当前槽位兑底 + authLoaded 门控）。已实例化 MainSessionProfile 与 SubAgentProfile（subagent-worker：单任务收敛 SOP + closure 协议系统提示、全工具集、single-shot）——扩展公式的首次生产运用。典型用法：主会话旗舰模型、worker 声明便宜模型。
+
+## 规则
+profile 是纯声明（规格数据 + 装配意图），行为差异全部表达为钩子装配与生命周期声明差异；model 解析收束 SubagentLauncher.resolveModelFor 单点（adapters/driven/subagent，三级解析链：profile > spawn 会话快照 > 全局兜底，消费面只依赖解析后的 Model 对象，launch 段为唯一消费点，见 TR-AD-24；iter-20260821-dg90 终验 L3 复核校正落位宣称）；新增编排模式 = 新增 profile + HookSet 组合，AgentRuntime 不动（TR-AD-4）。
+
+## 禁忌
+不在 profile 里写命令式驱动代码或运行时分支；不为单一 agent 类型 fork runtime 或加 kind 分支；不把 model 槽位语义回退为「未声明 = 全局默认」单级解析（AD-3 已取代该语义，会话内切模型必须能经 spawn 快照传导到 SubAgent）；不散落读取配置绕过解析链单点。
+
+## 关系
+被 AgentRuntime（E-AgentRuntime）读取装配；引用 HookSet（E-HookSet）组合；生命周期声明决定实例形态，实例化为 AgentInstance（E-AgentInstance）；SubAgentProfile 的实例由调度器（E-调度器）spawn（预算判定 + spawn 时刻会话模型快照）；模型槽位参与三级解析链（TR-AD-24 SubAgent 模型三级解析链），全局兜底级依赖默认模型存储（E-模型目录 / M3 AD-2 默认模型 SQLite 单写表）。
 ```
 
 ## 描述
@@ -88,14 +102,14 @@ stack: backend
 name: 会话聚合
 status: active
 digest: 动会话数据、加 Entry 或工具记录、跨实例聚合、写恢复、动草稿会话转正时
-updatedIn: hotfix-20260820
+updatedIn: iter-20260821-dg90
 ```
 
 ## 描述
 domain 层权威状态的主体聚合（充血模型：属性 + 行为，framework-free）：Entry 树（语义会话——消息/工具调用/thinking/compaction，每条挂 instanceId）、轮次生命周期、工具调用记录（含实例归属）；agent 生命周期/实例注册表、调度队列语义、usage 账目、closure 记录同为 domain 权威状态，随同一单写路径持久化。M2 起聚合是跨实例持续追加的会话级单位（AD-1）：实例窗口（LLM 上下文）销毁重建时聚合不重建、显示层连续——SubAgent 内容以挂 instanceId 的领域事件行入会话级存储（domain_events，trace 四维可查），聚合 Entry 树含主实例主轴 + SubAgent per-instance 归属条目（Entry.instanceId；经会话投影 SessionProjection 落树）；快照尾窗切法保留 per-instance channel 完整性（AD-1 硬约束）；主线视图只取主实例 Entry + 卡片，抽屉取单实例全流。对外只经 application service（ChatService/SessionService/RestoreService/SchedulerService）读写；持久化经 SessionRepositoryPort 转 贫血行模型（RowMapper）；推前端经 ws-server adapter 转 protocol DTO。**内存草稿语义**（hotfix-20260820 决策 AD-1）：会话可先以零条目内存草稿存在（createFresh 即分配 sessionId——与持久会话唯一区别 = 是否落盘）；草稿双面不可见（listSessions 跳过零条目热会话、不写 domain_events）且握手经 welcome.draft 标记告知前端按草稿显示；首个用户条目「转正」——promoteDraft 单点恰好一次（agent.instantiated 发布 + list_changed{created} 补广播去重），此后与持久会话等价。
 
 ## 规则
-是会话数据的唯一持有者（内存 = 磁盘投影缓存，无第二事实源）；零条目内存草稿不进清单不写事件、首条消息才落库并转正（「首条消息才落库」哲学的会话级表达，hotfix-20260820 AD-1）；每条 Entry 挂 instanceId（TR-AD-15 全链路）；thinking 完成态与 compaction 里程碑为一等 Entry 成员（流式中间态仍不落盘，TR-AD-5）；状态变更以领域事件表达并交单写队列落盘；崩溃恢复 = 读盘重建聚合 → 快照推前端（快照含 instances 清单与 usage 聚合字段）；不 import pi 类型（Entry/LaneRecord 经 pi-engine 薄防腐映射）、不 import protocol 类型。
+是会话数据的唯一持有者（内存 = 磁盘投影缓存，无第二事实源）；零条目内存草稿不进清单不写事件、首条消息才落库并转正（「首条消息才落库」哲学的会话级表达，hotfix-20260820 AD-1）；每条 Entry 挂 instanceId（TR-AD-15 全链路）；thinking 完成态与 compaction 里程碑为一等 Entry 成员（流式中间态仍不落盘，TR-AD-5）；状态变更以领域事件表达并交单写队列落盘；「会话是否为空」判定唯一口径 = Session.isEmpty（消灭散落的 entries.length===0 同义判定，iter-20260821-dg90 T1.2 终验沉淀）；崩溃恢复 = 读盘重建聚合 → 快照推前端（快照含 instances 清单与 usage 聚合字段）；不 import pi 类型（Entry/LaneRecord 经 pi-engine 薄防腐映射）、不 import protocol 类型。
 
 ## 禁忌
 不在聚合外维护第二份会话状态（前端副本、第二张表）；不给流式中间态补落盘；不在聚合上加持久化/DTO 转换方法（转换归 adapter）；不按实例重建聚合（实例切换/收口只追加不重建）。
@@ -264,11 +278,16 @@ stack: backend
 name: UsageLedger
 status: active
 digest: 动 token/费用统计、扩 usage 事件、做账目恢复时
-updatedIn: iter-20260816-uzvg
+anchors:
+  implementedBy:
+    - packages/protocol/src/projection/usage.ts
+  testedBy:
+    - packages/protocol/test/projection/usage.test.ts
+updatedIn: iter-20260821-dg90
 ```
 
 ## 描述
-token/费用账目（AD-4）：turn 完成从 message_end 提取完整 Usage（input/output/cacheRead/cacheWrite/reasoning/totalTokens/cost，pi-ai calculateCost 直算）挂 instanceId 入事件流（usage.recorded）；per-instance 小计 → per-session 聚合（主线+委托合计）；compaction 摘要成本（CompactResult.usage）与 reasoning tokens 同通道入账（计费自洽）。domain 权威状态，经单写队列落 domain_events（trace 四维天然含账）；快照含 usage 聚合字段（instances 小计 + total），重启恢复合计与明细。UI = header 合计徽标 + hud-popover per-instance 下钻（kind+model+tokens 含 cache 维度+cost+状态，纯投影）。
+token/费用账目（AD-4）：turn 完成从 message_end 提取完整 Usage（input/output/cacheRead/cacheWrite/reasoning/totalTokens/cost，pi-ai calculateCost 直算）挂 instanceId 入事件流（usage.recorded）；per-instance 小计 → per-session 聚合（主线+委托合计）；compaction 摘要成本（CompactResult.usage）与 reasoning tokens 同通道入账（计费自洽）。纯函数实现单源在 packages/protocol/src/projection/usage.ts（iter-20260821-dg90 T3.1 收敛：ZERO_USAGE/addUsage/applyUsage/instanceUsageOf/aggregateSession，compaction 计入实例小计口径唯一定义点，AD-9③）；daemon 侧账目状态与入账时机不动（TR-AD-5），经单写队列落 domain_events（trace 四维天然含账）；快照含 usage 聚合字段（instances 小计 + total），重启恢复合计与明细。UI = header 合计徽标 + hud-popover per-instance 下钻（kind+model+tokens 含 cache 维度+cost+状态，纯投影）。
 
 ## 规则
 一切真实 LLM 成本必须入账（含 compaction 摘要调用与 reasoning tokens）；账目按 instanceId 归属（相位实例/SubAgent 各自累计）；流式中不动账、turn 完成入账；前端零账目累计（纯投影，TR-AD-5）。
@@ -324,11 +343,11 @@ anchors:
   testedBy:
     - apps/daemon/test/unit/model-catalog.test.ts
     - e2e/CL-3-e2e-model-chain.spec.ts
-updatedIn: iter-20260820-qhv8
+updatedIn: iter-20260821-dg90
 ```
 
 ## 描述
-可用模型清单的权威供给面：builtin 39 providers 静态表 + pi.dev overlay 在线目录合并（ETag 条件刷新，缓存 4h；304 只挪 checkedAt——目录数据不变，刷新轮统一 best-effort 落盘含元数据（4h 窗口跨重启所必需，iter-20260820-qhv8 终验 L3 复核校正））；防降级（新目录不得清空既有 overlay）；落盘兜底（~/.helix/models-store.json，离线启动用缓存，路径经 paths.ts 单点派生）。经 ModelCatalogPort（outbound）供 ModelService 消费；前端 P-3/P-4 经协议 model.catalog 命令族读取。默认模型（SQLite default_model 表）为其附属状态，不独立成实体。
+可用模型清单的权威供给面：builtin 静态表（provider 数随 pi-ai 版本演进，pi-ai 0.84.2 = 40；iter-20260821-dg90 终验 L3 复核校正——不写死数字防版本演进再漂移）+ pi.dev overlay 在线目录合并（ETag 条件刷新，缓存 4h；304 只挪 checkedAt——目录数据不变，刷新轮统一 best-effort 落盘含元数据（4h 窗口跨重启所必需，iter-20260820-qhv8 终验 L3 复核校正））；防降级（新目录不得清空既有 overlay）；落盘兜底（~/.helix/models-store.json，离线启动用缓存，路径经 paths.ts 单点派生）。经 ModelCatalogPort（outbound）供 ModelService 消费；前端 P-3/P-4 经协议 model.catalog 命令族读取。默认模型（SQLite default_model 表）为其附属状态，不独立成实体。
 
 ## 规则
 builtin 表是离线兜底基线永不失效；overlay 刷新走 ETag 条件请求，失败保缓存不报错（无外网可用）；目录合并幂等；落盘经 paths.ts + 原子写（AG-06③ 白名单）；零 pi-coding-agent import（TR-AD-7 红线，G-2 裁决自实现）。
@@ -357,7 +376,20 @@ anchors:
     - apps/daemon/test/integration/resource-state.test.ts
     - apps/daemon/test/unit/resource-service.test.ts
     - apps/daemon/test/unit/skill-scanner.test.ts
-updatedIn: iter-20260821-m6
+updatedIn: iter-20260821-dg90
+```
+
+## 描述
+按 profile kind 维度的资源启停状态（SQLite resource_state 表，主键 (profile_kind, resource_type, name)，全局表走 WriteQueue globalTail 链）：resource_type ∈ {tool, skill, model} 三类。生效集 = profile 静态全集（tools 声明）/扫描全集（skills）∩ kind 启用集。缺省无记录 = 启用（零配置兼容现状，存量会话/测试零迁移）。模型槽位语义：model 型行 enabled 恒 1、删除行 = 未设；main-session 槽位 = 出厂默认（四级解析链 per-session 覆盖 > kind 槽位 > default_model），subagent-worker 槽位 = 三级链第一级（TR-AD-24）UI 化。skills 扫描三层目录（user=~/.helix/skills 经 paths.ts 单点派生 + project=<工作区>/.helix/skills 启动时定格 + builtin=daemon 随仓 resources/skills 如 web-access，builtin 层不可禁用——ResourceService builtin-immutable 跳过语义；iter-20260821-dg90 终验 L3 复核校正层数宣称），pi loadSourcedSkills 防腐墙内包装，诊断上抛不炸。
+
+## 规则
+合取语义硬约束：kind 启停不跨 kind 传染；未知名 toggle 显式跳过（skipped 回执，不落库——全集外无生效面）；list 读面只回全集内资源；模型槽位写经 modelSlot 原子替换（同 job 内先 DELETE 后 INSERT）。
+
+## 禁忌
+不以 enabled=0 表达模型槽位「未设」（删除行才是未设）；不在 application 层 import profiles（tools 全集经组合根注入映射表，AG-02）；扫描器 pi 类型不得越防腐墙；不兼容 pi 的 ~/.pi 目录（用户裁决：三层自有目录）。
+
+## 关系
+E-AgentProfile 的静态全集是合取的一侧（运行期启用集是另一侧）；E-模型目录 default_model 为 main 槽位的下级兜底；agent.config.* 命令族（契约 v0.6）是唯一写入口；T2 刷新链消费合取结果直改活跃 runtime。
 ```
 
 ## 描述
