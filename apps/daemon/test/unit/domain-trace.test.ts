@@ -1,18 +1,23 @@
 import { describe, expect, test } from "bun:test";
+// T3.1 投影收敛：normalize/分页常量单源 @helix/protocol projection（原
+// domain TraceQuery 迁出——仅 import 换源，期望值零改动）；assemble* 仍在 domain。
 import {
   TRACE_PAGE_DEFAULT,
   TRACE_PAGE_MAX,
-  assembleExecutionContext,
-  assembleInstancePanel,
   hasMoreBefore,
   normalizeTraceQuery,
+} from "@helix/protocol";
+import {
+  assembleExecutionContext,
+  assembleInstancePanel,
   type InstanceAggregateRow,
   type TraceEventRowData,
 } from "../../src/domain/trace/TraceQuery";
 
 /**
  * domain/trace（unit，契约 v0.4 + architecture.md §3.5b 伪代码级设计）：
- * ① normalizeTraceQuery：必填缺失 / limit 鉗制 / timeRange 矛盾拒绝；
+ * ① normalizeTraceQuery（T3.1 起单源 @helix/protocol projection，此处经
+ *    协议包引用保持同等价对账）：必填缺失 / limit 鉗制 / timeRange 矛盾拒绝；
  * ② assembleExecutionContext：instantiated + model.changed + compaction 序列 fold；
  *    无 instantiated → snapshotMissing；单发 Sub 无变更 → 纯快照；
  * ③ assembleInstancePanel：主 + 多 Sub 混合 → InstanceRecord 字段齐全

@@ -29,7 +29,8 @@ export interface TraceQueryPort {
    * 执行 trace 查询。入参 = WS payload（未信 unknown）——normalize 收口在
    * 实现类入口（architecture.md §3.5b「调仓储前」；AG-12 纪律下 driving 侧
    * 对 domain 仅 type-only 引用，校验规则调用归 driven adapter）。
-   * 校验失败抛 DomainError（driving 侧映射 command.invalid_payload 回执）。
+   * 校验失败抛 TraceQueryInvalidError（T3.1 起单源 @helix/protocol
+   * projection；driving 侧映射 command.invalid_payload 回执）。
    */
   queryTrace(input: unknown): TraceQueryResultSet;
 }

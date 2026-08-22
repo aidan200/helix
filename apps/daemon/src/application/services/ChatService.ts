@@ -6,10 +6,9 @@ import type { ClockPort } from "../ports/outbound/ClockPort";
 import { AgentLifecycle, type AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
 import { Session } from "../../domain/session/Session";
 import type { ThinkingEntryData } from "../../domain/session/ThinkingEntry";
-import { MAIN_INSTANCE_ID, type ErrorCode } from "@helix/protocol"; // MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
+import { MAIN_INSTANCE_ID, ZERO_USAGE, type ErrorCode } from "@helix/protocol"; // MAIN_INSTANCE_ID re-export 自 @helix/common（AD-1）；ZERO_USAGE = projection 单源（T3.1，原 domain UsageLedger 迁出）
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { parseDataUrlImages, ImageValidationError } from "./images";
-import { ZERO_USAGE } from "../../domain/session/UsageLedger";
 import type {
   AgentInstantiatedPayload, AgentModelChangedPayload, AgentStateChangedPayload, CompactionCompletedPayload,
   DomainEvent, MessageCompletedPayload, ProfileSnapshotData, SteerPayload, ThinkingCompletedPayload,

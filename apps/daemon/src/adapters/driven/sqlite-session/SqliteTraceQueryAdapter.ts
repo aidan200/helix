@@ -1,14 +1,18 @@
 import type { WriteQueue } from "./WriteQueue";
 import type { TraceQueryPort, TraceQueryResultSet } from "../../../domain/trace/TraceQueryPort";
+import type {
+  InstanceAggregateRow,
+  TraceEventRowData,
+  TraceInstanceRecord,
+} from "../../../domain/trace/TraceQuery";
+// T3.1 投影收敛：normalize/分页判据单源 @helix/protocol projection（原 domain
+// TraceQuery 迁出，类型面形状同构对应；driven adapter import protocol 先例）
 import {
-  assembleInstancePanel,
   hasMoreBefore,
   normalizeTraceQuery,
-  type InstanceAggregateRow,
   type NormalizedTraceQuery,
-  type TraceEventRowData,
-  type TraceInstanceRecord,
-} from "../../../domain/trace/TraceQuery";
+} from "@helix/protocol";
+import { assembleInstancePanel } from "../../../domain/trace/TraceQuery";
 import type { DomainEventRow } from "./rows/Rows";
 
 /**
@@ -43,8 +47,9 @@ export class SqliteTraceQueryAdapter implements TraceQueryPort {
 
   queryTrace(input: unknown): TraceQueryResultSet {
     // normalize 收口在本入口（§3.5b「调仓储前」；AG-12：driving 对 domain 仅
-    // type-only，校验规则调用归 driven）——校验失败 DomainError 上抛，
-    // driving 侧映射 command.invalid_payload 回执。
+    // type-only，校验规则调用归 driven）——校验失败 TraceQueryInvalidError
+    //（@helix/protocol projection 单源）上抛，driving 侧映射
+    // command.invalid_payload 回执。
     const query = normalizeTraceQuery(input);
     return {
       filter: query,

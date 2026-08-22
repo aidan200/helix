@@ -18,8 +18,10 @@ import type { SessionMeta } from "@helix/protocol";
 import type { SessionStateView, InstanceSnapshotEntry } from "../../../application/ports/inbound/SessionPort";
 import type { SessionMetaView } from "../../../application/ports/inbound/SessionDirectoryPort";
 import type { SessionUsageSummary, UsageSummary } from "../../../domain/session/SessionSnapshot";
-import { entrySortKey, isMainAxisEntry, sessionEntryDto, toolCallEntryDto } from "./EntryDtoMapper";
-import { computeAnchorEntryId } from "./SpawnAnchor";
+import { isMainAxisEntry, sessionEntryDto, toolCallEntryDto } from "./EntryDtoMapper";
+// T3.1 投影收敛：entry 排序基元 + spawn 锚权威计算单源 @helix/protocol
+// projection（原 EntryDtoMapper.entrySortKey / SpawnAnchor.ts 两纯函数迁出）
+import { computeAnchorEntryId, entrySortKey } from "@helix/protocol";
 
 // ── 尾窗/分页参数（G-1 钦死：契约 B §4；daemon 侧可注入） ───────────
 

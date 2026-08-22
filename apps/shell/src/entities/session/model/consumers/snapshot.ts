@@ -25,6 +25,7 @@ import type {
   SessionUsageDto,
   UsageDto,
 } from "@helix/protocol";
+import { entrySortKey } from "@helix/protocol"; // T3.1：条目排序基元单源 projection（原本地 entryTimelineKey 同构副本退役）
 import { lcItem } from "../channel";
 import {
   MAIN_INSTANCE_ID,
@@ -95,11 +96,9 @@ function entryToChannelItem(entry: EntryDto, seq: number): ChannelItem | null {
   }
 }
 
-/** channel 条目时间戳归一（message/tool = number；thinking/compaction = ISO createdAt）。 */
-function entryTimelineKey(entry: EntryDto): number {
-  if (entry.kind === "thinking" || entry.kind === "compaction") return Date.parse(entry.createdAt);
-  return entry.ts;
-}
+/** channel 条目时间戳归一（T3.1 起单源 @helix/protocol projection
+ *  entrySortKey：message/tool = number ts；thinking/compaction = ISO createdAt）。 */
+const entryTimelineKey = entrySortKey;
 
 /**
  * 实例通道历史分组（v0.2 instances[].channels；F-14⑤ 完整保留不截断）→

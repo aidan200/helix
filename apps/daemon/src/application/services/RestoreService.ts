@@ -16,7 +16,8 @@ import { Session } from "../../domain/session/Session";
 import { AgentInstance, agentSeqOf, type InstanceState } from "../../domain/agent/AgentInstance";
 // MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
-import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "../../domain/session/UsageLedger";
+// T3.1 投影收敛：账本重放基元单源 @helix/protocol projection（原 domain UsageLedger 迁出）
+import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "@helix/protocol";
 
 /**
  * RestoreService —— 重启恢复（architecture.md §3.4 / §5.4 / §8.2，F(8).2）。

@@ -13,7 +13,7 @@ import { ResourceService } from "../application/services/ResourceService";
 import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAdapter";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
-import { lastMainAnchorId } from "../adapters/driving/ws-server/DtoMapper";
+import { lastMainAnchorId } from "@helix/protocol"; // T3.1：锚扫描基元单源 projection（原 SpawnAnchor 迁出）
 import { resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
 import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";

@@ -1,9 +1,10 @@
 /**
  * EntryDtoMapper —— 条目级纯转换（domain 条目数据 → 协议 EntryDto 变体）
  * + 跨域共享辅助（thinkingEntryDto / compactionEntryDto / safeJson 被
- * EnvelopeMapper 与 SnapshotMapper 双域经 import 消费；entrySortKey /
- * isMainAxisEntry / sessionEntryDto / toolCallEntryDto 供 SnapshotMapper
- * 合并排序）。自 DtoMapper.ts 四域拆分落位（T3.1，TR-AD-25④ 逐行搬移）。
+ * EnvelopeMapper 与 SnapshotMapper 双域经 import 消费；isMainAxisEntry /
+ * sessionEntryDto / toolCallEntryDto 供 SnapshotMapper 合并排序）。自
+ * DtoMapper.ts 四域拆分落位（T3.1，TR-AD-25④ 逐行搬移）。T3.1（M4 投资批）：
+ * entrySortKey 已迁 @helix/protocol projection 单源（与 shell 侧同构收敛）。
  */
 import type {
   EntryDto,
@@ -18,12 +19,6 @@ import type { SessionEntryData } from "../../../domain/session/SessionSnapshot";
 import type { ThinkingEntryData } from "../../../domain/session/ThinkingEntry";
 import type { CompactionEntryData } from "../../../domain/session/CompactionEntry";
 import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
-
-/** 排序统一键：message/tool 用 ts（epoch ms）；thinking/compaction 用
- *  createdAt（ISO，契约 §6.1）——两类字段同一时间轴。 */
-export function entrySortKey(entry: EntryDto): number {
-  return "ts" in entry ? entry.ts : Date.parse(entry.createdAt);
-}
 
 /**
  * 主轴归属判定（T2.3 契约 v0.3 §3.2，Q-3a 双处可见的时间轴侧）：主实例条目

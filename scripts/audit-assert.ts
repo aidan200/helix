@@ -183,6 +183,20 @@ const ANCHOR_EXEMPT: Array<{ file: string; line: number; anchor: string; reason:
     anchor: "packages/protocol/test/type-surface.test.ts",
     reason: "TR-AD-21-r2 discard 台账审计痕：同上（现行锚已改 type-surface/catalog.test.ts）",
   },
+  {
+    file: "candidates.md",
+    line: 763,
+    anchor: "SpawnAnchor.ts",
+    reason:
+      "E-AgentInstance discard 台账审计痕：gc 检出时点快照路径（现行锚已随 T3.1 投影收敛迁 packages/protocol/src/projection/instance.ts）——历史记录不改写",
+  },
+  {
+    file: "candidates.md",
+    line: 765,
+    anchor: "SpawnAnchor.ts",
+    reason:
+      "E-AgentInstance discard 台账审计痕：同上（现行锚已随 T3.1 投影收敛迁 packages/protocol/src/projection/instance.ts）",
+  },
 ];
 
 for (const e of ANCHOR_EXEMPT) {

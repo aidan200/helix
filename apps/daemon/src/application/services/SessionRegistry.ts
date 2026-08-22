@@ -6,7 +6,8 @@ import { Session } from "../../domain/session/Session";
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { ErrorCode } from "@helix/protocol";
 import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
-import type { UsageLedgerData } from "../../domain/session/UsageLedger";
+// T3.1 投影收敛：账本形状单源 @helix/protocol projection（原 domain UsageLedger 迁出）
+import type { UsageLedgerData } from "@helix/protocol";
 import { parseDataUrlImages } from "./images";
 import type { InstanceSnapshotEntry, SessionStateView } from "../ports/inbound/SessionPort";
 import type {

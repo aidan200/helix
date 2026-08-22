@@ -107,13 +107,20 @@ describe("deriveUsageRows（F3.4 行投影）", () => {
     expect(compact!.action).toEqual({ type: "compaction" });
   });
 
-  it("数字自洽：Σ行 tokens/cost = 徽标值（state.usage.total，单一状态源）", () => {
+  it("数字自洽：Σ实例行 tokens/cost = 徽标值（state.usage.total，单一状态源）", () => {
+    // 【口径统一修正，AF-2/T3.1】compaction 计入实例小计（对齐 daemon，
+    // AD-9③）后，Σ求和面 = 实例行（main 行含 compaction 贡献）；compaction
+    // 行是 main 行的子集视图（信息行），不再叠加进 Σ（否则双计）。
     const s = play(SCENARIO);
     const rows = deriveUsageRows(s);
-    const sumTokens = rows.reduce((a, r) => a + r.tokens, 0);
-    const sumCost = rows.reduce((a, r) => a + r.cost, 0);
-    expect(sumTokens).toBe(s.usage.total.totalTokens); // 828_000
+    const instanceRows = rows.filter((r) => r.id !== "compaction");
+    const sumTokens = instanceRows.reduce((a, r) => a + r.tokens, 0);
+    const sumCost = instanceRows.reduce((a, r) => a + r.cost, 0);
+    expect(sumTokens).toBe(s.usage.total.totalTokens); // 828_000（main 544k 含 compaction 32k + agent 284k）
     expect(sumCost).toBeCloseTo(s.usage.total.cost, 10); // 0.61
+    // compaction 行 = 独立小计（⊆ total，不再与实例行求和叠加）
+    const compactRow = rows.find((r) => r.id === "compaction")!;
+    expect(compactRow.tokens).toBe(s.usage.compaction.totalTokens); // 32_000
   });
 
   it("running 实例无 cache sub（done 行专属）；compaction 未发生 → 无独立行", () => {

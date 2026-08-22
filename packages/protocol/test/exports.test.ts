@@ -211,14 +211,40 @@ type _TypeSurface = [
 ];
 
 describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
-  test("① 运行时值导出恰为目录/登记/常量六项（纯类型包纪律 + v0.2 常量收口）", () => {
+  test("① 运行时值导出恰为目录/登记/常量 + 投影纯函数面（类型+行为契约，CL-4/T3.1）", () => {
+    // T3.1（M4 投资批，CL-4）：协议包从类型契约升级为类型+行为契约——
+    // projection/ 三域纯函数（usage/instance/trace）进入运行时导出面。
+    // 注：列表按 sort() 字典序（大写先于小写）；注释按域分组标注来源。
     expect(Object.keys(protocol).sort()).toEqual([
+      // 目录/登记/常量（v0.2 常量收口）+ 投影·trace 域常量（迁自 daemon TraceQuery）
       "COMMAND_TYPES",
       "EVENT_CHANNELS",
       "EVENT_TYPES",
       "MAIN_INSTANCE_ID",
       "PROTOCOL_VERSION",
       "SYSTEM_SESSION_ID",
+      "TRACE_PAGE_DEFAULT",
+      "TRACE_PAGE_MAX",
+      // 投影·trace 域（迁自 daemon TraceQuery normalize 段 + fake 过滤分页段）
+      "TraceQueryInvalidError",
+      // 投影·usage 域（迁自 daemon UsageLedger + shell addUsage 副本）
+      "ZERO_USAGE",
+      "addUsage",
+      "aggregateSession",
+      "applyUsage",
+      // 投影·instance 域（迁自 daemon SpawnAnchor + EntryDtoMapper ↔ shell entryTimelineKey 同构收敛）
+      "computeAnchorEntryId",
+      "emptyUsageLedger", /* usage 域 */
+      "entrySortKey",
+      // 投影·trace 域（续）
+      "hasMoreBefore",
+      // 投影·usage 域（续）+ instance 域判定
+      "instanceUsageOf",
+      "isMainInstance",
+      "lastMainAnchorId",
+      // 投影·trace 域（续）
+      "normalizeTraceQuery",
+      "pageTraceEvents",
     ]);
   });
 

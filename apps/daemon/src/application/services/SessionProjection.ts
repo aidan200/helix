@@ -3,15 +3,16 @@ import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { Session } from "../../domain/session/Session";
 import type { AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
-// MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
-import { MAIN_INSTANCE_ID } from "@helix/protocol";
+// T3.1 投影收敛：账目纯语义（applyUsage 族）与主实例判定单源 @helix/protocol
+// projection（原 domain UsageLedger 迁出；AG-02② application 白名单内）。
 import {
   aggregateSession,
   applyUsage,
   emptyUsageLedger,
   instanceUsageOf,
+  isMainInstance,
   type UsageLedgerData,
-} from "../../domain/session/UsageLedger";
+} from "@helix/protocol";
 import type {
   MessageCompletedPayload,
   ThinkingCompletedPayload,
@@ -176,7 +177,7 @@ export class SessionProjection implements EventPublisherPort {
 
   /** SubAgent 实例事件判定（缺省/主实例事件不投影——主线由 ChatService 编排落账）。 */
   private isSubAgent(event: DomainEvent): boolean {
-    return event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID;
+    return !isMainInstance(event.instanceId);
   }
 
   /** 领域状态整体（write-through 载荷：聚合 + 主线基线 + SubAgent 工具记录合并）。 */

@@ -18,7 +18,7 @@ import { ResourceService } from "../../application/services/ResourceService";
 import { SystemPromptAssembler } from "../../application/services/SystemPromptAssembler";
 import { SchedulingPolicy } from "../../domain/agent/SchedulingPolicy";
 import { EventStream } from "../../adapters/driving/ws-server/EventStream";
-import { lastMainAnchorId } from "../../adapters/driving/ws-server/DtoMapper";
+import { lastMainAnchorId } from "@helix/protocol"; // T3.1：锚扫描基元单源 projection（原 SpawnAnchor 迁出）
 import { SubagentLauncher, type SubagentLauncherDeps } from "../../adapters/driven/subagent/SubagentLauncher";
 import { PiAgentEngineAdapter } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
