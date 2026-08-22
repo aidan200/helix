@@ -374,20 +374,20 @@ anchors:
 relations:
   governs:
     - E-AgentRuntime
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
-Tauri 壳只承载三类监督者职责：进程看护（sidecar spawn/重启）、窗口、trust（desk 现成 Rust 资产按此边界搬运）；壳与 daemon 的 stdio 只走生命周期信号（ready/token）。desk Rust 侧的 RPC 桥、SQLite、watcher、kg 查询等业务职责全部归 daemon（TS），禁止搬运回壳；壳需要任何业务数据一律经 WS 协议（127.0.0.1:port + token）向 daemon 查询。壳仅保留自身 bundle 资源定位（sidecar 二进制/前端静态产物），不解析业务路径（路径切面见 TR-AD-6）。
+Tauri 壳只承载四类监督者职责：进程看护（sidecar spawn/重启——sidecar 异常退出时壳检测并重启恢复或给明确错误提示，重启须先释放旧单例锁或检测陈旧锁，TR-AD-11 同口径）、窗口、trust（desk 现成 Rust 资产按此边界搬运）、bundle 资源定位（sidecar 二进制/前端静态产物/捆绑三方二进制 rg——iter-20260822-m1uc 落地扩面）；壳与 daemon 的 stdio 只走生命周期信号（ready/token），包内资源路径经 sidecar 启动参数注入 daemon（进程启动面，非业务通道）。desk Rust 侧的 RPC 桥、SQLite、watcher、kg 查询等业务职责全部归 daemon（TS），禁止搬运回壳；壳需要任何业务数据一律经 WS 协议（127.0.0.1:port + token）向 daemon 查询。壳不解析业务路径（路径切面见 TR-AD-6）。
 
 ## 理由
-AD-4（daemon 即后端，Rust 业务层消解）：常驻 TS 编排进程既定，Rust 业务耦合最重的部分已有了更好归宿；壳做业务 = Rust 业务回流 + dev 期（壳缺席，AD-8）功能双轨——同一功能打包形态有、开发形态无。v1 desk 的 Rust 10.8k LOC 桥接层是已验证的反面教材。
+AD-4（daemon 即后端，Rust 业务层消解）：常驻 TS 编排进程既定，Rust 业务耦合最重的部分已有了更好归宿；壳做业务 = Rust 业务回流 + dev 期（壳缺席，AD-8）功能双轨——同一功能打包形态有、开发形态无。v1 desk 的 Rust 10.8k LOC 桥接层是已验证的反面教材。iter-20260822-m1uc 落地：三类职责扩为四类（bundle 资源定位显式化，rg 与 sidecar/前端产物同归此面），监督者语义不变。
 
 ## 适用范围
-M3 Tauri 壳搬运与 sidecar 打包链路；任何壳侧（src-tauri/）新增 Rust 代码的职责边界评审；壳与 daemon 通信面设计。
+src-tauri 壳实现与 sidecar 打包链路（原 M3 规划，iter-20260822-m1uc 首次落地执行）；任何壳侧（src-tauri/）新增 Rust 代码的职责边界评审；壳与 daemon 通信面设计；包内资源（rg 等三方二进制）定位注入通道评审；sidecar 崩溃看护重启逻辑评审。
 
 ## 反例
-搬 desk 的 Rust SQLite 查询代码进 src-tauri 供托盘「历史会话」菜单用——业务回流壳：dev 形态（无壳）下该功能不存在，双形态行为分叉；正确做法是经 WS session.subscribe 获取快照数据。
+搬 desk 的 Rust SQLite 查询代码进 src-tauri 供托盘「历史会话」菜单用——业务回流壳：dev 形态（无壳）下该功能不存在，双形态行为分叉；正确做法是经 WS session.subscribe 获取快照数据。或壳侧自行 spawn rg 做检索而不经 daemon——检索是业务职责，回流壳即 dev 形态功能缺失；壳只负责把 rg 包内路径注入 daemon，调用归 daemon grep 域。
 
 ```kg-node
 id: TR-AD-11
@@ -443,25 +443,26 @@ anchors:
   implementedBy:
     - apps/shell/src/shared/api/helix-ws.ts
     - apps/daemon/src/adapters/driving/ws-server/WsServerAdapter.ts
+    - apps/shell/src-tauri/
   testedBy:
     - e2e/CL-6-CL-7-dual-base.spec.ts
 relations:
   governs:
     - E-会话聚合
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
-前端（浏览器 dev 形态与 Tauri WebView 打包形态同构）连的永远是 daemon 的 WS 端点 127.0.0.1:port + token，容器形态对 daemon 不可见。禁止为任一形态开设特化通道：不得用 Tauri invoke 直调 daemon、不得在壳内嵌 HTTP 直连绕过 WS 协议、不得按形态分支连接逻辑。协议面（packages/protocol）是两种形态的唯一契约；dev token 经 daemon 端点 GET /helix-dev-token（loopback Origin 反射 ACAO）获取，两种形态同一通路。
+前端（浏览器 dev 形态与 Tauri WebView 打包形态同构）连的永远是 daemon 的 WS 端点 127.0.0.1:port + token，容器形态对 daemon 不可见。禁止为任一形态开设特化通道：不得用 Tauri invoke 直调 daemon、不得在壳内嵌 HTTP 直连绕过 WS 协议、不得按形态分支连接逻辑。协议面（packages/protocol）是两种形态的唯一契约；dev token 经 daemon 端点 GET /helix-dev-token（loopback Origin 反射 ACAO）获取，两种形态同一通路。iter-20260822-m1uc 落地补全 daemon 侧互补面：daemon 自身也是双运行形态（dev = bun 直跑源码 / 打包 = compile sidecar），daemon 行为同样不得按形态分叉（详见 TR-AD-35「daemon 双运行形态同构」）。
 
 ## 理由
 AD-8（monorepo 单仓，开发/打包双形态零迁移）：连接方式完全一致是零迁移的结构保证；任何形态特化通道都会造成 dev/打包行为分叉，且打破 AD-16 前端纯投影（WS 事件流是唯一领域状态入口）。双基线行为指纹一致（TP-CL6-7 E2E）是该约束的验收形态。
 
 ## 适用范围
-M3 Tauri 壳 WebView 接线与 externalBin/sidecar 配置；apps/shell shared/api 连接配置；打包链路（bun build --compile / vite build）评审。
+Tauri 壳 WebView 接线与 externalBin/sidecar 配置（原 M3 规划，iter-20260822-m1uc 首次落地执行）；apps/shell shared/api 连接配置；打包链路（bun build --compile / vite build / tauri build）评审；dev 形态编排（dev:desktop 三进程编排）与打包形态的行为一致性评审。
 
 ## 反例
-打包形态下为「省一层 WS」让前端经 Tauri invoke 直调 daemon 内部函数——dev 形态无此通道，双基线守护（TP-CL6-7）的行为指纹即刻分叉，且绕过了协议版本握手。
+打包形态下为「省一层 WS」让前端经 Tauri invoke 直调 daemon 内部函数——dev 形态无此通道，双基线守护（TP-CL6-7）的行为指纹即刻分叉，且绕过了协议版本握手；或为打包形态在 daemon 侧开形态检测分支改变启动行为——daemon 侧双轨，与前端面同构约束同一违例族。
 
 
 ```kg-node
@@ -1195,3 +1196,104 @@ application 服务依赖面设计；一切「生产必填钩子 + 测试宽松�
 ## 反例
 service deps 接口直接全字段可选 + 内部 `deps.onX?.()` 散布——某钩子忘装配时无任何报错，行为静默缺失（A4 病根形态）；或为消兜底分支把测试形态也改为全必填——测试装配面被迫逐字段填充，测试写法成本飙升。
 ```
+
+```kg-node
+id: TR-AD-32
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: 三方二进制运行时解析收口（单点解析 + 禁裸名 spawn）
+status: active
+digest: 接入 rg/codegraph 等三方二进制、写 spawn 外部工具代码时
+updatedIn: iter-20260822-m1uc
+```
+
+## 规则
+所有随包捆绑或外部可用的三方二进制（本期 rg，后续 codegraph 同模式）的路径解析收束于单一解析模块（rg 的落位 = adapters/driven/tools/grep/resolve-rg.ts；后续三方二进制按同模式建各自解析器）。解析顺序固定三级：①包内 bundle 资源（Tauri resources/bin，路径由壳经 sidecar 启动参数注入，TR-AD-6/TR-AD-10 bundle 资源定位口径）→ ②用户配置显式路径（~/.helix/config.json，经 paths.ts 单点派生）→ ③宿主 PATH 探测。三级全部缺失或不可用即走该工具声明的降级路径（rg → 内置 TS grep），不抛裸错。禁止工具/业务代码散落 spawn 裸名（spawn("rg") 直撞 PATH）或各自拼接包内资源路径；dev 形态下 bundle 级缺失即自然落到 ②③。
+
+## 理由
+iter-20260822-m1uc F3.1 定三级解析顺序；解析散落多处会使降级语义、配置覆盖、bundle 注入三处口径漂移（v1 rg 依赖问题即解析与调用混散的教训）；单点收口使「包内 → 配置 → PATH」成为可单测的纯函数，且 codegraph 等后续三方二进制有固定接入模式可复用（AD-1 分化策略的执行面）。
+
+## 适用范围
+接入任何三方二进制（rg/codegraph/未来工具）时；grep 域 resolve-rg 实现与评审；涉及 spawn 外部可执行文件的新代码评审；用户配置项（rg 路径类）的文件布局评审。
+
+## 反例
+在 rg-backend.ts 里直接 spawn("rg") 让 PATH 解析「顺便发生」——bundle 注入与用户配置两级被绕过，打包形态下用户配置覆盖失效且降级不可观测；或为图快在壳里解析 rg 路径后写进业务配置——业务路径回流壳，违背 TR-AD-6（壳只管 bundle 资源定位，注入走启动参数）。
+
+```kg-node
+id: TR-AD-33
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: grep 双后端一致性契约（语义对齐先于加速）
+status: active
+digest: 改 grep 工具、加检索后端、写一致性对比测试时
+updatedIn: iter-20260822-m1uc
+```
+
+## 规则
+内置 TS 后端与 rg 后端对同一检索请求必须产出语义一致的结果，契约逐项固化：gitignore 遵守、隐藏文件处理、glob 过滤、大小写开关、上下文行、返回格式（恒为 GrepMatch：path/lineNumber/line）。契约由双后端对比测试机械守护（同一请求对 fixture 仓库跑真实两后端做结果对比断言，不用 mock 替代 rg——TR-TEST-3 契约等价口径）；新增任何语义维必须双端同批扩展并同步扩契约断言。一致性未覆盖的 rg 差异行为一律在 rg 后端适配层对齐到内置 TS 语义（rg 默认遵守 .gitignore、跳过隐藏文件——与内置行为不一致即适配层归一），宁失速不失真：加速不得改变检索结果。降级链：rg 缺失/执行失败/超时 → 门面捕获 → 本轮回退内置 TS 后端，结果照常返回 + warning 日志；用户与 agent 无感；降级不升级、不重试 rg 本轮调用。
+
+## 理由
+iter-20260822-m1uc CL-3 命门：rg 默认行为（gitignore/隐藏文件）若与内置 TS grep 不一致，加速会静默改变 agent 的检索结果——性能优化变成行为回归；契约先于加速钉死，双后端对比测试把「语义一致」从口头约定变成红绿事实；降级链保证零依赖环境（干净 macOS 无 rg）功能完备（CL-1 F1.3 零依赖功能验证的架构前提）。
+
+## 适用范围
+grep 工具双后端实现与评审；新增检索语义维（新参数/新过滤行为）时的双端同批扩展；一致性契约测试维护；rg 后端适配层的行为归一评审；降级路径与日志面评审。
+
+## 反例
+rg 后端直接透传 rg 原生行为（默认遵守 .gitignore、跳隐藏文件）而不与内置 TS 后端对齐——同一代码库在「有 rg」与「无 rg」环境下 agent 看到不同检索结果，加速变成行为分叉；或新增 glob 语义只改 TS 后端忘改 rg 后端且无契约断言——双端语义静默漂移，无测试能红。
+
+```kg-node
+id: TR-AD-34
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: Tauri 壳资源捆绑布局（externalBin sidecar + resources/bin 三方二进制）
+status: active
+digest: 接 Tauri 打包、配 bundle 资源、动 sidecar/rg 落包位置时
+updatedIn: iter-20260822-m1uc
+```
+
+## 规则
+打包产物的资源落位分三条固定通道：①daemon 编译单文件（bun build --compile 产物）走 Tauri externalBin（sidecar 机制）——sidecar 语义 = 被壳看护的 daemon 进程，壳 spawn 并做进程看护；②三方二进制（本期 rg macOS arm64，后续 codegraph 同通道）走 bundle resources，包内落位 resources/bin/；③shell 静态产物（vite build dist）走 frontendDist。三类资源禁止错位：三方二进制不得塞进 externalBin（sidecar 语义专属被看护 daemon），daemon sidecar 不得散落成普通 resources，前端产物不走 resources 手工拷贝。架构目标 arm64 only：所有捆绑二进制只产单架构，不做 universal 双份（AD-6）。构建管线一条命令依序编排：bun build --compile → vite build → tauri build，任一步失败即中断报错（CL-2 F2.1）；签名配置位读环境变量（有=签名+公证/无=ad-hoc，AD-5），不硬编码证书。
+
+## 理由
+iter-20260822-m1uc AD-4/F2.3 定三通道布局；externalBin 与 resources 在 Tauri 语义上是两种机制（进程看护目标 vs 数据资源），错位会使壳的 spawn/看护逻辑与资源定位逻辑纠缠；arm64 only 是用户确认的范围裁决（universal 需 rg/daemon 双份，工作量 +30% 收益小）；管线失败即断保证分发物不会产生「半截打包」的歧义状态。
+
+## 适用范围
+src-tauri/tauri.conf.json 的 externalBin/bundle/frontendDist 配置评审；构建管线脚本（build-desktop）实现与评审；新增三方二进制捆绑时的落位决策；签名/公证配置位接线评审。
+
+## 反例
+把 rg 也打成 externalBin sidecar——壳的 sidecar 看护面被迫处理「非 daemon 进程」，spawn 语义混淆；或把 daemon compile 单文件丢进 resources 再壳手工拼路径 spawn——绕过 Tauri sidecar 机制，签名/公证与权限面失去框架保障；或为 Intel Mac 兼容悄悄加 universal target——AD-6 裁决被架空，rg/daemon 双份捆绑成本静默进场。
+
+```kg-node
+id: TR-AD-35
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: daemon 双运行形态同构（dev bun 直跑 / 打包 compile sidecar）
+status: active
+digest: 动 dev 编排、打包管线、daemon 进程启动方式时
+updatedIn: iter-20260822-m1uc
+```
+
+## 规则
+daemon 存在两种运行形态：dev 形态 = bun 直跑源码（一行 dev 命令编排三进程：daemon 直跑 + vite dev server + tauri dev；前置自检 Rust/cargo，缺失时输出一行安装提示并退出——Rust 是 Tauri 壳构建前提，非 helix 运行时依赖）；打包形态 = bun build --compile 单文件 sidecar。两形态行为一致性由 compile 产物等价验证兜底（F2.2：compile 单文件验证 spawn 自身跑子进程链路 + bun:sqlite，产出「功能等价于 dev 直跑」的验证报告，管线内步骤非手工检查）；compile 产物只在构建管线验证，dev 永远直跑源码。daemon 行为不得按运行形态分叉：禁止 daemon 代码内出现「检测自身是 compile 产物则走另一路径」类分支（资源定位差异只允许经启动参数注入消解，见三方二进制解析收口规则）。本规则是 TR-AD-12 的 daemon 侧互补：前端永远走同一 WS 通路，daemon 侧同样双形态同构。
+
+## 理由
+iter-20260822-m1uc CL-4 内嵌决策（用户 2026-08-22 确认）：dev 直跑源码保证调试体验（断点/热改/源码栈），compile 产物只在管线验证避免 dev 期被编译速度拖累；F-7① 实锤 compile 产物 spawn 自身跑 ChildMain 链路未验证——形态差异必须有机械兜底，否则「dev 能跑、打包炸」会在分发后才暴露；行为分叉分支一旦出现即产生双轨，与 TR-AD-12 前端面同构约束同一原理。
+
+## 适用范围
+dev 编排脚本（dev-desktop）与前置自检实现评审；构建管线 F2.2 等价验证步骤维护；daemon 进程启动/子进程 spawn 相关改动（ChildMain 链路、bun:sqlite 使用）评审；任何「按形态分支」的 daemon 代码评审。
+
+## 反例
+daemon 里写 if (isCompiled) { 用另一套子进程启动方式 }——双形态行为分叉，F2.2 等价验证失去意义（验证的不再是同一份行为）；或 dev 也跑 compile 产物求「绝对一致」——dev 调试体验被编译周期拖垮，且 CL-4 内嵌决策被违反；或前置自检缺失时直接 tauri dev 报一堆 Rust 工具链原始错误——F4.1 要求的一行安装提示指引被绕过。
+
