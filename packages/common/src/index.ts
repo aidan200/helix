@@ -7,4 +7,4 @@
  * （TR-AD-28 业务无关性纪律）。
  * utils/ 为通用纯工具位（本迭代不填充——既有 utils 不批量迁移）。
  */
-export * from "./constants";
+export * from "./constants.ts";
