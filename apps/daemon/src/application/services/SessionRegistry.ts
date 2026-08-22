@@ -4,6 +4,7 @@ import type { DomainEvent } from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
 // MAIN_INSTANCE_ID 引协议导出（v0.2 OI 收口 F-2⑬；与其余 service 同源）
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
+import type { ErrorCode } from "@helix/protocol";
 import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import type { UsageLedgerData } from "../../domain/session/UsageLedger";
 import { parseDataUrlImages } from "./images";
@@ -105,6 +106,8 @@ const TITLE_CODEPOINTS = 20;
 
 /** 操作不存在的会话（subscribe / loadHistory / delete；契约 B §3 session.not_found）。 */
 export class SessionNotFoundError extends Error {
+  /** 错误码（T1.5 additive）：值 = 既有回码，判别契约从 name 字符串改码匹配。 */
+  readonly code: ErrorCode = "session.not_found";
   constructor(sessionId: string) {
     super(`会话 ${sessionId} 不存在`);
     this.name = "SessionNotFoundError";
@@ -113,6 +116,8 @@ export class SessionNotFoundError extends Error {
 
 /** 同会话删除进行中（重复 delete 请求；契约 B §3 session.delete_in_progress）。 */
 export class SessionDeleteInProgressError extends Error {
+  /** 错误码（T1.5 additive）：值 = 既有回码，判别契约从 name 字符串改码匹配。 */
+  readonly code: ErrorCode = "session.delete_in_progress";
   constructor(sessionId: string) {
     super(`会话 ${sessionId} 删除进行中（重复请求）`);
     this.name = "SessionDeleteInProgressError";

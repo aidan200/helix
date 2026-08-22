@@ -17,6 +17,7 @@
  * sessionStamp/snapshotFrame 回调 + 2 个共享辅助，经 ChatCommandContext 由
  * WsServerAdapter 供出（handlers/context.ts，F-8 解环后承载）。
  */
+import type { ErrorCode } from "@helix/protocol";
 import type { ChatCommandContext } from "./context";
 
 /** chat.send（发送消息；draft=true 且信封无 sessionId 时走草稿建会话链）。 */
@@ -50,9 +51,10 @@ export function handleChatSend(ctx: ChatCommandContext): void {
         });
       })
         // T9：ImageValidationError（数量/格式/尺寸/生成中带图）→ 点对点回执
-        //（中文文案直达用户，不静默 console.warn 丢消息）
+        //（中文文案直达用户，不静默 console.warn 丢消息；T1.5：判别改 err.code
+        // 码匹配——additive，无 code 旧对象走既有 console.warn 兑底）
         .catch((err) => {
-          if ((err as Error).name === "ImageValidationError") {
+          if ((err as { code?: ErrorCode }).code === "command.invalid_payload") {
             ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
             return;
           }
@@ -63,8 +65,9 @@ export function handleChatSend(ctx: ChatCommandContext): void {
   // 既有会话发送：信封 sessionId 路由（缺省当前会话，v0 兼容）
   const sid = typeof ctx.envelope.sessionId === "string" && ctx.envelope.sessionId !== "" ? ctx.envelope.sessionId : undefined;
   void ctx.chat.sendMessage(ctx.payload.text, sid, images).catch((err) => {
-    // T9：图片校验错误 → connection.error 点对点回执（同 steer 目标非运行中先例）
-    if ((err as Error).name === "ImageValidationError") {
+    // T9：图片校验错误 → connection.error 点对点回执（同 steer 目标非运行中先例；
+    // T1.5：判别改 err.code 码匹配）
+    if ((err as { code?: ErrorCode }).code === "command.invalid_payload") {
       ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
       return;
     }
@@ -90,7 +93,7 @@ export function handleChatSteer(ctx: ChatCommandContext): void {
   const instanceId =
     typeof ctx.payload.instanceId === "string" && ctx.payload.instanceId !== "" ? ctx.payload.instanceId : undefined;
   void ctx.chat.steer(ctx.payload.text, sid, instanceId).catch((err) => {
-    if ((err as Error).name === "SteerTargetNotRunningError") {
+    if ((err as { code?: ErrorCode }).code === "command.invalid_payload") {
       ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
       return;
     }

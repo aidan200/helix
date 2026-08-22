@@ -16,7 +16,7 @@
  * 回调 + 3 个共享辅助，经 SessionCommandContext 由 WsServerAdapter 供出
  * （handlers/context.ts，F-8 解环后承载）。
  */
-import type { SessionListResultEvent, SessionLoadHistoryResultEvent } from "@helix/protocol";
+import type { SessionListResultEvent, SessionLoadHistoryResultEvent, ErrorCode } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import { historyPage, HISTORY_PAGE_DEFAULT, HISTORY_PAGE_MAX } from "../DtoMapper";
 import type { SessionCommandContext } from "./context";
@@ -122,8 +122,10 @@ export function handleSessionLoadHistory(ctx: SessionCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     } catch (err) {
+      // T1.5：判别改 err.code 码匹配（原 err.name 字符串比对；无 code 旧
+      // 对象 → 兑底 session.invalid_cursor，与原非 NotFound 兑底等价）
       const code =
-        (err as Error).name === "SessionNotFoundError" ? "session.not_found" : "session.invalid_cursor";
+        (err as { code?: ErrorCode }).code === "session.not_found" ? "session.not_found" : "session.invalid_cursor";
       ctx.commandError(ctx.type, code, (err as Error).message);
     }
   })();
@@ -143,12 +145,14 @@ export function handleSessionDelete(ctx: SessionCommandContext): void {
     })
     .catch((err) => {
       // 契约 B §1.4：取消失败或删库失败时 error（含 reason）；已知错误
-      // 精确回码，其余（库删除失败等）以通用命令错误回执携带原因
-      const name = (err as Error).name;
+      // 精确回码，其余（库删除失败等）以通用命令错误回执携带原因。
+      // T1.5：判别改 err.code 码匹配（原 err.name 三元链；无 code 旧对象
+      // → 兑底 command.invalid_payload，与原兑底等价）
+      const errCode = (err as { code?: ErrorCode }).code;
       const code =
-        name === "SessionDeleteInProgressError"
+        errCode === "session.delete_in_progress"
           ? "session.delete_in_progress"
-          : name === "SessionNotFoundError"
+          : errCode === "session.not_found"
             ? "session.not_found"
             : "command.invalid_payload";
       ctx.commandError(ctx.type, code, (err as Error).message);

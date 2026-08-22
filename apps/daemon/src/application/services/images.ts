@@ -10,6 +10,7 @@
  * application 核心）/ BrowserTools 与 CoreToolExecutor（下行截图提取）。
  * 单一编解码源，防双实现漂移。
  */
+import type { ErrorCode } from "@helix/protocol";
 
 /** 单条消息图片上限（协议 v0.10 ChatSendPayload.images 约束）。 */
 export const MAX_IMAGES_PER_MESSAGE = 4;
@@ -32,10 +33,13 @@ export interface DecodedImage {
 
 /**
  * 图片附件校验错误（T9）：超限/坏格式/超大/生成中带图。中文文案直达用户
- * ——WS handler 据 name 判别转 connection.error 点对点回执（同
- * SteerTargetNotRunningError 先例，TR-AD-21 形态）。
+ * ——WS handler 据 code 判别转 connection.error 点对点回执（同
+ * SteerTargetNotRunningError 先例，TR-AD-21 形态；T1.5 additive code 判别
+ * 契约，err.name 字符串判别退役）。
  */
 export class ImageValidationError extends Error {
+  /** 错误码（T1.5）：值 = 既有回码映射，判别契约从 name 字符串改码匹配。 */
+  readonly code: ErrorCode = "command.invalid_payload";
   constructor(message: string) {
     super(message);
     this.name = "ImageValidationError";

@@ -125,12 +125,23 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
    * → fail-fast 不静默。
    */
   setTools(names: readonly string[]): void {
+    this.runtime.setTools(this.requireResolveTools(names)(names));
+  }
+
+  /**
+   * D12-4 守卫收敛（T1.5）：未注入 resolveTools 装配面即 fail-fast 不静默
+   * （同款消息模板；收敛的是守卫模板而非行为统一——setModel 静态兑底 /
+   * setSystemPrompt 纯直通语义保持不变）。返回注入面供调用点直用。
+   */
+  private requireResolveTools(
+    names: readonly string[],
+  ): Exclude<AgentRuntimeDeps["resolveTools"], undefined> {
     if (this.resolveToolsFn === undefined) {
       throw new Error(
         `引擎未注入 resolveTools 装配面（PiEngineOptions.resolveTools），无法运行期改工具集：${names.join(", ")}`,
       );
     }
-    this.runtime.setTools(this.resolveToolsFn(names));
+    return this.resolveToolsFn;
   }
 
   /** 运行期改系统提示（M6 T2，setModel 同构）：直改 AgentState.systemPrompt，下一 turn 生效。 */

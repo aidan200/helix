@@ -8,6 +8,7 @@ import { Session } from "../../domain/session/Session";
 import type { ThinkingEntryData } from "../../domain/session/ThinkingEntry";
 // MAIN_INSTANCE_ID 改引协议导出（v0.2 OI 收口，F-2⑬；domain 定义保留 AG-02 例外）
 import { MAIN_INSTANCE_ID } from "@helix/protocol";
+import type { ErrorCode } from "@helix/protocol";
 import type { UsageSummary } from "../../domain/session/SessionSnapshot";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { parseDataUrlImages, ImageValidationError } from "./images";
@@ -102,11 +103,13 @@ export interface ChatServiceDeps {
 }
 
 /**
- * 定向 steer 目标非运行中（T2.3 契约 v0.3 §3.2 回执裁决）：WS 侧据 name 判别
+ * 定向 steer 目标非运行中（T2.3 契约 v0.3 §3.2 回执裁决）：WS 侧据 code 判别
  * 转 connection.error 点对点回执（TR-AD-21，同 agent.kill 形态）；message 直
  * 复用 SendOutcome.detail 中文文案（SchedulerService 前置判定产出）。
  */
 export class SteerTargetNotRunningError extends Error {
+  /** 错误码（T1.5 additive）：值 = 既有回码，判别契约从 name 字符串改码匹配。 */
+  readonly code: ErrorCode = "command.invalid_payload";
   constructor(message: string) {
     super(message);
     this.name = "SteerTargetNotRunningError";
@@ -639,14 +642,14 @@ export class ChatService implements ChatPort {
   /** run 结束统一收口：Turn 终态 + 生命周期 idle（每个里程碑事件在 publish 内已 write-through 落盘）。 */
   private settleRunEnd(reason: TurnCompletedPayload["reason"]): void {
     if (this.session.openTurn) {
+      // D12-1：直接语句调用不接返回值（与 finishOpenTurn 同构；Turn 返回面
+      // 归口在 publish 落盘链，此处丢弃即原 void t 语义）
       if (reason === "aborted") {
-        const t = this.session.interruptTurn(this.now());
+        this.session.interruptTurn(this.now());
         this.publish<TurnCompletedPayload>("turn.interrupted", { reason: "aborted", replyEntryId: undefined });
-        void t;
       } else {
-        const t = this.session.completeTurn(this.now());
+        this.session.completeTurn(this.now());
         this.publish<TurnCompletedPayload>("turn.completed", { reason: "done", replyEntryId: undefined });
-        void t;
       }
     }
     if (this.lifecycle.current !== "idle" && this.lifecycle.canTransition("idle")) {

@@ -47,6 +47,7 @@ import type {
   AgentStateDto,
   ConnectionErrorEvent,
   ConnectionWelcomeEvent,
+  ErrorCode,
   EventEnvelope,
   FrameVersion,
   SessionSnapshotEvent,
@@ -588,12 +589,14 @@ export class WsServerAdapter {
    * ModelNotFoundError → model_not_found；ProviderNotFoundError →
    * provider_not_found；会话不存在 → session.not_found（既有）。
    * catalog/catalog_refresh 通路另用 catalog_unreachable（拉取失败）。
+   * T1.5：判别改 err.code 码匹配（原 err.name 字符串比对；无 code 旧
+   * 对象 → 兑底 command.invalid_payload，与原兑底等价）。
    */
   private modelErrorCode(err: Error): ConnectionErrorEvent["payload"]["code"] {
-    const name = (err as Error).name;
-    if (name === "SessionNotFoundError") return "session.not_found";
-    if (name === "ModelNotFoundError") return "model_not_found";
-    if (name === "ProviderNotFoundError") return "provider_not_found";
+    const code = (err as { code?: ErrorCode }).code;
+    if (code === "session.not_found") return "session.not_found";
+    if (code === "model_not_found") return "model_not_found";
+    if (code === "provider_not_found") return "provider_not_found";
     return "command.invalid_payload";
   }
 
