@@ -10,6 +10,8 @@
  * - 字符串透传红线（AD-2）：全字段 `string`，protocol 不维护第二份档位枚举。
  */
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { COMMAND_TYPES, EVENT_CHANNELS, EVENT_TYPES, PROTOCOL_VERSION } from "../../src/index";
 import type {
   AgentInstantiatedPayload,
@@ -115,5 +117,34 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     expect(PROTOCOL_VERSION).toBe("0.11");
     expect(thinkingSet.v).toBe("0.11");
     expect(thinkingChanged.v).toBe("0.11");
+  });
+
+  // ── v0.11 sot 断言（T3.1 补）：envelope 单点 ↔ PROTOCOL.md §17.11 批次登记一致性 ──
+  // sot-consistency ①~⑤ 守护面（§17.3 口径）之外的批次专断：§17.N 登记节与当前
+  // 版本位/批次内容的一致。解析失败必须红（缺节/缺登记点 → throw），永真断言 = 未生效。
+  test("v0.11 sot：§17.11 批次登记节与 envelope 版本位 + 四块登记一致", () => {
+    const doc = readFileSync(fileURLToPath(new URL("../../PROTOCOL.md", import.meta.url)), "utf8");
+    // ① 批次登记节存在且批次号 == PROTOCOL_VERSION（envelope 单点 ↔ 文档登记锚一致）
+    const batchAnchor = new RegExp(`^### 17\\.11 v${PROTOCOL_VERSION.replace(/\./g, "\\.")} 批次登记$`, "m");
+    const head = doc.match(batchAnchor);
+    if (!head || head.index === undefined) {
+      throw new Error(`PROTOCOL.md 解析失败：未找到批次登记节「### 17.11 v${PROTOCOL_VERSION} 批次登记」`);
+    }
+    const after = doc.slice(head.index + head[0].length);
+    const stop = after.match(/^### |^## /m);
+    const section = stop && stop.index !== undefined ? after.slice(0, stop.index) : after;
+    // ② 四块登记点在批次节内有叙述锚（缺任一 = 登记不完整，红）
+    for (const anchor of ["thinking.set", "thinking.changed", "reasoning", "thinkingLevels", "thinkingLevel"]) {
+      if (!section.includes(anchor)) {
+        throw new Error(`PROTOCOL.md 解析失败：§17.11 批次节缺登记点「${anchor}」`);
+      }
+    }
+    // ③ 批次声明计数与常量目录实况一致（27 → 28 / 47 → 48）
+    expect(section).toContain("27 → 28");
+    expect(section).toContain("47 → 48");
+    expect(COMMAND_TYPES.length).toBe(28);
+    expect(EVENT_TYPES.length).toBe(48);
+    // ④ chat.send 零字段负断言在批次节有登记（NFR-2① 红线文档面）
+    expect(section).toContain("chat.send` **零字段**");
   });
 });

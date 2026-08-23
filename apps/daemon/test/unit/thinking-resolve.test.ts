@@ -84,6 +84,20 @@ describe("按能力过滤（supportsLevel = reasoning && thinkingLevelMap 非 nu
     expect(resolveEffectiveThinking(["high", "low", "medium"], ALL_NULL)).toBeUndefined();
   });
 
+  // T3.1 边界变体补登（test-design §4 thinkingLevels 变体矩阵）：
+  // ① 覆盖档低于全集最低支持档 → 上钳到 levels[0]（与「超出最高档下钳」对称）；
+  // ② 全链缺位（含兜底缺位）→ undefined（函数面边界；生产链兜底恒为 "medium"）。
+  test("边界变体：覆盖档低于最低支持档 → 上钳 levels[0]（minimal@三档 → low）", () => {
+    expect(resolveEffectiveThinking(["minimal", undefined, "medium"], TRI)).toBe("low");
+    // 槽位档同理（过滤判据与覆盖位一致，不分位次）
+    expect(resolveEffectiveThinking([undefined, "minimal", "medium"], TRI)).toBe("low");
+  });
+
+  test("边界变体：全链缺位（兜底亦缺位）→ undefined（不传参，provider 默认）", () => {
+    expect(resolveEffectiveThinking([undefined, undefined, undefined], TRI)).toBeUndefined();
+    expect(resolveEffectiveThinking([], TRI)).toBeUndefined();
+  });
+
   test("helix 无 off 语义：链值 off 按未配置跳过", () => {
     expect(resolveEffectiveThinking(["off", "low", "medium"], TRI)).toBe("low");
     expect(resolveEffectiveThinking(["off", undefined, "medium"], TRI)).toBe("medium");
