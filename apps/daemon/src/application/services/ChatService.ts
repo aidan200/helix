@@ -343,11 +343,19 @@ export class ChatService implements ChatPort {
       .then(() => this.drainClosureBuffer());
   }
 
-  /** 系统停止（SystemPort.shutdown 经组合根调用）：终态，拒绝后续输入。 */
+  /** 系统停止（SystemPort.shutdown 经组合根调用）：终态，拒绝后续输入。stop 时 closureBuffer 残留（aborting 暂存窗未 flush）逐条补发可观测丢弃 engine.error（与 injectClosure stopped 分支同族文案；closure_records 已落盘，只补可观测性），随后清空（终态无可投递对象，防残留滞留）。 */
   stop(): void {
     if (this.lifecycle.current !== "stopped") {
       this.lifecycle.transition("stopped");
       this.publish<AgentStateChangedPayload>("agent.state.changed", { state: "stopped" });
+    }
+    if (this.closureBuffer.length > 0) {
+      for (const text of this.closureBuffer) {
+        this.publish("engine.error", {
+          message: `closure 注入被丢弃（生命周期 stopped）：${text.slice(0, 80)}`,
+        });
+      }
+      this.closureBuffer.length = 0;
     }
   }
 

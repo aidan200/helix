@@ -184,7 +184,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     this.monitor = setInterval(() => this.checkStalled(), poll);
   }
 
-  /** 停 stalled 监视定时器 + 全部进展报告定时器（daemon shutdown / 测试收尾；幂等）。 */
+  /** 停 stalled 监视定时器 + 全部进展报告定时器（daemon shutdown / 测试收尾；幂等）。stop 同段清报告面三 Map（与 clearProgressReporting 全清语义一致——终态无可投递对象，不残留登记）。 */
   stop(): void {
     if (this.monitor !== undefined) {
       clearInterval(this.monitor);
@@ -192,6 +192,9 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     }
     for (const timer of this.reportTimers.values()) clearInterval(timer); // T3-A
     this.reportTimers.clear();
+    this.reportIntervals.clear();
+    this.reportSeqs.clear();
+    this.lastReportedMetrics.clear();
   }
 
   // ── 观测面（agent_status 工具取数） ───────────────────────

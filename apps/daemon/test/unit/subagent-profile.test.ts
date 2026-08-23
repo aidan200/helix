@@ -6,6 +6,7 @@ import type { Model, Models } from "@earendil-works/pi-ai";
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SteerHooks } from "../../src/adapters/driven/pi-engine/runtime/hooks/SteerHooks";
+import { MinimalHooks } from "../../src/adapters/driven/pi-engine/runtime/hooks/MinimalHooks";
 import { resolveConfigModel, resolveModelSlot } from "../../src/adapters/driven/pi-engine/model-provider";
 
 /**
@@ -65,6 +66,9 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
 
   test("hooks 装配 SteerHooks（send→steer 转投接线，AD-7⑤；T1 后为构造器引用声明）", () => {
     expect(SubAgentProfile.hooks.some((H) => H === SteerHooks)).toBe(true);
+    // T8-M3 单源化回归：实例 name 派生自 static hookName（等值断言锁单源）
+    expect(new SteerHooks().name).toBe(SteerHooks.hookName);
+    expect(new MinimalHooks().name).toBe(MinimalHooks.hookName);
   });
 
   test("系统提示：单任务收敛 SOP + closure 协议（五字段结构）", () => {

@@ -198,6 +198,31 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
     expect(h.envelopes.length).toBe(frozen);
   });
 
+  test("⑤b stop() 同段清三计数 Map（reportIntervals/reportSeqs/lastReportedMetrics → size 0）", async () => {
+    h = makeHarness();
+    h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
+    await waitEnvelopes(h.envelopes, 1);
+    // T8-M2 断言面：报告面四个私有 Map（运行时可达；与 clearProgressReporting 全清语义对齐）
+    const internals = h.scheduler as unknown as {
+      reportIntervals: Map<string, number>;
+      reportTimers: Map<string, unknown>;
+      reportSeqs: Map<string, number>;
+      lastReportedMetrics: Map<string, unknown>;
+    };
+    // 前置：定时器建立后四面均非空
+    expect(internals.reportIntervals.size).toBe(1);
+    expect(internals.reportTimers.size).toBe(1);
+    expect(internals.reportSeqs.size).toBe(1);
+    expect(internals.lastReportedMetrics.size).toBe(1);
+
+    h.scheduler.stop();
+
+    expect(internals.reportTimers.size).toBe(0);
+    expect(internals.reportIntervals.size).toBe(0);
+    expect(internals.reportSeqs.size).toBe(0);
+    expect(internals.lastReportedMetrics.size).toBe(0);
+  });
+
   test("⑥ 注入失败吞进 engine.error 可观测，定时器继续", async () => {
     h = makeHarness({ injectThrows: true });
     const out = h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);

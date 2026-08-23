@@ -180,6 +180,53 @@ describe("T2 验收② 多条缓冲 FIFO 保序", () => {
   });
 });
 
+describe("T8-M1 stop 时 closureBuffer 残留 → 逐条可观测丢弃 + 清空", () => {
+  test("aborting 暂存 closure 后 stop()：每条残留发「丢弃」engine.error，清空后不再 flush", async () => {
+    const engine = new FakeAgentEngine({
+      replies: [{ text: "很长很长很长很长很长很长很长很长的回复占满流式窗口。", chunkDelayMs: 12 }],
+    });
+    const { chat, publisher } = makeChat(engine);
+
+    const run = chat.sendMessage("第一问");
+    await until(() => publisher.deltas.length >= 2);
+    chat.abort();
+    expect(chat.agentState).toBe("aborting");
+
+    chat.injectClosure("残留结论一");
+    chat.injectClosure("残留结论二");
+    // 暂存窗口内无事件（语义 = 暂存而非丢弃）
+    expect(publisher.domainEvents.filter((e) => e.type === "engine.error")).toHaveLength(0);
+
+    chat.stop();
+    expect(chat.agentState).toBe("stopped");
+
+    // 残留逐条补发可观测丢弃（与 injectClosure stopped 分支同族文案），保序
+    const errors = publisher.domainEvents
+      .filter((e) => e.type === "engine.error")
+      .map((e) => (e.payload as { message: string }).message);
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toContain("丢弃");
+    expect(errors[0]).toContain("stopped");
+    expect(errors[0]).toContain("残留结论一");
+    expect(errors[1]).toContain("残留结论二");
+
+    // buffer 已清空：run 收口后不再 flush（无 closure 新 turn、无后续投递）
+    await run;
+    await new Promise((r) => setTimeout(r, 30));
+    expect(chat.sessionSnapshot.turns).toHaveLength(1); // 仅原 run 一轮，closure 未投成新 turn
+    expect(userFacingTexts(chat)).toEqual(["第一问"]);
+    expect(engine.events.filter((e) => e.type === "agent_start")).toHaveLength(1);
+  });
+
+  test("buffer 空时 stop() → 无多余 engine.error（现状回归）", () => {
+    const engine = new FakeAgentEngine();
+    const { chat, publisher } = makeChat(engine);
+    chat.stop();
+    expect(chat.agentState).toBe("stopped");
+    expect(publisher.domainEvents.filter((e) => e.type === "engine.error")).toHaveLength(0);
+  });
+});
+
 describe("T2 验收③ stopped 维持可观测丢弃（现状语义回归保护）", () => {
   test("stopped 状态 injectClosure → engine.error（含「丢弃」与文本截断）+ 零投递", () => {
     const engine = new FakeAgentEngine();

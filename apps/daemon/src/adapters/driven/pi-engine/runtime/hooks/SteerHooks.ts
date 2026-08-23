@@ -13,9 +13,12 @@ import type { HookSet, SteerCapable } from "../HookSet";
  * 对齐 pi 的 abort 非销毁语义。
  */
 export class SteerHooks implements HookSet, SteerCapable {
-  static readonly hookName = "steer";
+  static readonly hookName = "steer"; // 事实源（装配面读面）
 
-  readonly name = "steer";
+  /** 实例 name 派生自 static hookName（T8-M3 单源化——同一字符串不再两处硬编码；HookSet.readonly name 由 getter 满足）。 */
+  get name(): string {
+    return SteerHooks.hookName;
+  }
 
   private agent: Agent | null = null;
   private controller: AbortController | null = null;
