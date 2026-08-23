@@ -1518,3 +1518,123 @@ spawn/调度/监督链路变更；编排工具（agent_spawn/agent_send/agent_st
 
 ## 反例
 加 wait 工具或 wall-clock timeout 自动 kill（与 AD-8 秒回推送模型冲突/误杀长任务）；信封里写行为建议或 markdown（机械数据一行，行为建议在提示词里）；靠 SubAgent 自觉 notify 汇报进度（死循环实例不会汇报，监督信号恰在最需要时缺席）；stalled 警示升级为自动终止（把「零事件」误判权交给机械阈值）；报告缺省开启或间隔过密（监督成本无差别摊到短任务）。
+
+```kg-node
+id: TR-AD-40
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: thinkingLevel 解析链（会话覆盖 > profile 槽位 > 兜底 medium；与 TR-AD-24 模型链同构）
+status: active
+digest: 动 thinkingLevel 来源、写 thinking 透传管线、配 profile thinking 槽位、调兜底 medium 语义、动
+  SubAgent spawn 推理参数时
+derivedFrom:
+  - AD-1（iter-20260823-6ps5：thinkingLevel 解析链与 TR-AD-24 同构，用户裁决选项 B）
+  - AD-3（iter-20260823-6ps5：覆盖保留 + 按能力解析，意图/生效分离）
+  - AD-6（iter-20260823-6ps5：AgentProfile 配置资源扩可选 thinkingLevel 维）
+anchors:
+  implementedBy:
+    - apps/daemon/src/infrastructure/assembly/buildSessionStack.ts
+    - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
+    - apps/daemon/src/adapters/driven/pi-engine/model-provider.ts
+    - apps/daemon/src/adapters/driven/pi-engine/PiAgentEngineAdapter.ts
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/AgentRuntime.ts
+relations:
+  governs:
+    - E-AgentProfile
+    - E-AgentInstance
+updatedIn: iter-20260823-6ps5
+```
+
+## 规则
+thinkingLevel 按两条链解析，与 TR-AD-24 模型解析链同构、不新建第三处解析单点。主会话链（仅 mainAgent 引擎）：会话覆盖（composer 滑块 thinking.set，引擎内存态 + domain_events 落盘、跨冷恢复）> 主 session profile 槽位 > 兜底 medium；解析单点 = buildSessionStack engineFor 工厂闭包（buildSessionStack.ts:336-356 模型解析同点扩展），引擎每 turn 开始读解析结果（会话状态非逐消息参数）。SubAgent 链：spawn 时从自身 profile 槽位（AgentProfile.thinkingLevel 可选字段，留空 = 未配置）解析快照 > 兜底 medium；解析单点 = SubagentLauncher.resolveThinkingFor（resolveModelFor 同点扩展，launch 段为唯一出口），解析快照随 agent.instantiated 落盘事件携带、经 env 定格透传子进程（ChildMain 无解析链，只消费定格值）。主会话覆盖永不作用于 SubAgent。引擎解析时链上每个值过「当前模型支持」过滤（model.reasoning 且 thinkingLevelMap[值] !== null），取第一个被支持值；全链不支持（或模型无 reasoning 能力）→ 不传 thinking 参数（provider 默认）。覆盖值不丢：换模只改生效档，切回原模型自动恢复。
+
+## 理由
+与 TR-AD-24 模型解析语义同构：agent 行为 spawn 时刻确定、trace 可复盘；会话覆盖是 mainAgent 私有意图，SubAgent 行为由 profile 配置决定，便于与模型匹配。意图（覆盖）与生效（解析结果）分离使换模成为无损操作。档位语义 SoT 在 pi-ai，helix 全链字符串透传、不维护第二份枚举，pi-ai 未来加档零协议改动。
+
+## 适用范围
+动主会话/SubAgent 的 thinking 参数来源与优先级时；新增会话级引擎参数并考虑是否挂进解析链时；写 streamFn 注入器 / spawn env 透传 / agent.instantiated 快照字段时；实现换模后生效档重解析与 UI 轻提示时。
+
+## 反例
+在 chat.send 逐消息 payload 携带 thinkingLevel（会话状态非消息参数，AD-4① 否决）；主会话覆盖经 spawn 快照传导到 SubAgent（覆盖是 mainAgent 私有意图，永不作用）；换模时钳制或清空覆盖值（意图丢失，AD-3 否决选项 B/C）；在 UI 或注入器里 clamp 档位或维护第二份档位枚举（SoT 在 pi-ai，过滤只在引擎解析段一次完成）；在 ChildMain 子进程内重解析 thinking 链（子进程只消费 spawn 定格快照）。
+
+```kg-node
+id: TR-AD-41
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: 会话级参数协议演进模式（会话状态命令族 + 快照恢复，区别于逐消息 payload）
+status: active
+digest: 给会话加跨 turn 生效的运行参数、在 chat.send 与独立命令族之间选承载位、设计参数跨冷恢复时
+derivedFrom:
+  - AD-4（iter-20260823-6ps5：协议 additive 四块——thinking.set/thinking.changed 命令族 +
+    CatalogModel 能力位 + session 快照恢复 + agent.instantiated 携带）
+  - F-3（iter-20260823-6ps5：ChatSendPayload 仅 text/draft?/model?/images?
+    四字段，会话级参数 plumbing 不存在）
+  - F-5（iter-20260823-6ps5：model.set per-session 覆盖不跨冷恢复现状——thinking
+    批显式选择不同的持久化语义）
+anchors:
+  implementedBy:
+    - packages/protocol/src/commands.ts
+    - packages/protocol/src/events
+    - apps/daemon/src/application/services/RestoreService.ts
+    - apps/daemon/src/application/ports/inbound/SessionPort.ts
+relations:
+  governs:
+    - E-会话聚合
+updatedIn: iter-20260823-6ps5
+```
+
+## 规则
+会话级持久状态参数（跨 turn 生效、需跨冷恢复、语义上属于「会话状态」而非「消息本体」）走独立命令族三件套：① xxx.set 命令（信封 sessionId 必填 per-session）→ daemon 覆盖写引擎内存态（AgentEnginePort 直改面，下一 turn 生效）+ domain_events 单写队列落盘（TR-AD-5）；② xxx.changed 广播（前端状态树同步）；③ session 快照（SessionStateView additive 扩字段）携带该参数，RestoreService 回放重建实现跨冷恢复。chat.send payload 只承载消息本体参数（text/images/draft），永不加会话状态字段；引擎 turn 开始读解析结果。契约演进保持 additive（v0.1 起先例）：只加不改，新命令/事件/字段按批登记。是否需要跨冷恢复是每个会话级参数的显式裁决点（model.set 不持久 vs thinking.set 持久，两种合法形态并存）。
+
+## 理由
+会话级持久状态语义与 chat.send 逐消息参数冲突：逐消息带参会复制状态、模糊权威源（最后一条消息 vs 会话状态）；命令族 + 落盘 + 快照三件套复用既有单写队列与恢复管线，事件溯源天然给出 trace 可复盘性。additive 演进纪律保护既有客户端与测试契约零破坏。
+
+## 适用范围
+新增任何「会话级、跨 turn、引擎侧生效」的运行参数时（thinking.set 为首例，后续同类参数直接套用）；评审 chat.send 加字段提案时（几乎必然是反例）；设计参数的持久化/恢复语义时；规划契约版本批次时。
+
+## 反例
+把 thinkingLevel 挂进 chat.send 逐消息带（AD-4 选项 A，已否决：会话状态非逐消息参数）；引擎每 turn 从消息历史反推参数（无权威源）；新参数直接改既有 DTO 字段语义（非 additive，破坏契约先例）；不加显式裁决就默认参数跨冷恢复（model.set 与 thinking.set 持久化语义不同，必须逐参数裁决）。
+
+```kg-node
+id: TR-AD-42
+kind: rule
+graph: tech
+layer: convention
+scope: domain
+stack: shared
+name: 能力位驱动 UI（CatalogModel 防腐能力字段 → UI 按能力渲染/禁用，不硬编码）
+status: active
+digest: 前端渲染与模型能力相关的控件（档位、选项集、开关）时；给 CatalogModel 加防腐字段时；UI 需要禁用/降级提示时
+derivedFrom:
+  - AD-2（iter-20260823-6ps5：档位全暴露、必选、字符串透传，档位语义 SoT 在 pi-ai）
+  - "AD-4②（iter-20260823-6ps5：CatalogModel 防腐 reasoning: boolean +
+    thinkingLevels: string[]，pi-ai thinkingLevelMap 键集派生）"
+  - F-6（iter-20260823-6ps5：pi-ai reasoning 能力位齐备，协议未防腐）
+anchors:
+  implementedBy:
+    - packages/protocol/src/types/model.ts
+    - apps/daemon/src/adapters/driven/pi-engine/model-catalog.ts
+    - apps/shell/src/features/model-switch
+relations:
+  governs:
+    - E-模型目录
+updatedIn: iter-20260823-6ps5
+```
+
+## 规则
+模型相关 UI 控件的可选集与可用性一律由协议 CatalogModel 防腐能力字段驱动：daemon 在 pi-ai 防腐墙内（model-catalog.ts 映射单点）把 pi-ai 能力位（如 Model.reasoning / thinkingLevelMap 非 null 键集）映射为协议字段（如 reasoning: boolean + thinkingLevels: string[]）；shell 只消费协议字段渲染——刻度数 = thinkingLevels.length，能力缺失（reasoning === false）→ 控件禁用 + 提示。UI 不硬编码档位/能力全集，不自判模型能力，不 import pi-ai 类型。档位语义 SoT 在 pi-ai：helix 任何一层（protocol/daemon/shell）不维护第二份枚举，协议层字符串透传，pi-ai 加档零协议改动。覆盖意图与实际生效分离显示：控件强调实际生效值，意图 ≠ 生效时给轻提示（如「xhigh → high（模型能力所限）」）。
+
+## 理由
+防腐字段让前端与 pi-ai 类型演进解耦（TR-AD-7 三域边界）；UI 硬编码枚举会在 pi-ai 加档/模型能力分化时静默漂移出错；能力位集中映射单点保证全端口径一致（P-3 模型可用性过滤已是同一哲学的先例：前端 join 协议字段，不自拉能力判据）。
+
+## 适用范围
+新增任何依模型能力变化的 UI 控件（档位滑块、参数选项、特性开关）时；评审前端出现硬编码模型能力/档位清单的 PR 时；给 CatalogModel 扩防腐字段时；设计控件禁用与降级提示交互时。
+
+## 反例
+UI 写死六档列表再按模型名 if-else 裁剪（能力判据散落、pi-ai 加档即漂移）；前端自行 import pi-ai 类型或维护模型能力表（越防腐墙）；模型不支持时隐藏控件不给提示（用户无法理解为何不可调）；覆盖意图与生效值混为一个显示态（意图/生效分离被破坏，换模后用户误以为覆盖丢失）。
