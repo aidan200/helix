@@ -1,4 +1,5 @@
 import { createDaemon } from "./infrastructure/container";
+import { startParentWatchdog } from "./infrastructure/parent-watchdog";
 import { runChildMainEntry } from "./adapters/driven/subagent/child/ChildMain";
 
 /**
@@ -42,9 +43,10 @@ async function main(): Promise<void> {
 
   // SIGTERM：优雅退出（停输入 → 释放锁）；CLI 形态下 SIGINT 由 CLI 适配器
   // 接管（生成中 → abort；空闲 → 退出）
-  process.on("SIGTERM", () => {
+  const gracefulExit = (): void => {
     void daemon!.shutdown().then(() => process.exit(0));
-  });
+  };
+  process.on("SIGTERM", gracefulExit);
 
   if (sidecar) {
     // sidecar 形态（headless）：组合根返回即 WS 已监听（Bun.serve 同步绑定），
@@ -53,6 +55,12 @@ async function main(): Promise<void> {
     process.stdout.write(
       JSON.stringify({ type: "ready", port: daemon!.ws.port, token: daemon!.devToken }) + "\n",
     );
+    // H-4 父死看门狗（sidecar-lifecycle §3 daemon 侧义务）：壳异常死亡
+    // （SIGKILL/崩溃/Ctrl+C 前台组广播秒杀——壳的收编只在优雅退出路径执行）
+    // 时 sidecar 被 reparent 到 pid 1 成孤儿持锁常驻、砖化下次启动；
+    // sidecar 形态父死=孤儿无歧义（壳恒直 spawn 且终身看护），判中即走
+    // SIGTERM 同一优雅关停。CLI 形态不接（父=终端会话，归 SIGHUP 体系管）。
+    startParentWatchdog({ onOrphan: gracefulExit });
     return;
   }
 

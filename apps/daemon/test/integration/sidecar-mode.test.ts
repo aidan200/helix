@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PROTOCOL_VERSION } from "@helix/protocol";
@@ -117,4 +117,75 @@ describe("daemon --sidecar 信号面（sidecar-lifecycle 契约）", () => {
       if (proc.exitCode === null) proc.kill("SIGKILL");
     }
   }, 30000);
+
+  test("H-4 父死看门狗：中间进程退出 → sidecar reparent 成孤儿 → 看门狗优雅自杀 + 锁释放", async () => {
+    const dir = makeHome();
+    const mainTs = path.join(import.meta.dir, "..", "..", "src", "main.ts");
+    const readyFile = path.join(dir, "ready.out");
+    // 中间进程（模拟壳）：spawn daemon（独立进程组 + stdout 落文件，无管道
+    // 断裂面）后立即退出——daemon 被 reparent 到 pid 1（孤儿化）。
+    const spawner = path.join(dir, "spawn-middle.ts");
+    writeFileSync(
+      spawner,
+      [
+        `import { openSync } from "node:fs";`,
+        `const out = openSync(${JSON.stringify(readyFile)}, "w");`,
+        `const proc = Bun.spawn({`,
+        `  cmd: [process.execPath, ${JSON.stringify(mainTs)}, "--sidecar", "--home", ${JSON.stringify(dir)}],`,
+        `  stdin: "ignore", stdout: out, stderr: "inherit", detached: true,`,
+        `});`,
+        `console.log("DAEMON_PID=" + proc.pid);`,
+        `process.exit(0); // 父即死——daemon 成为孤儿`,
+      ].join("\n"),
+      "utf8",
+    );
+    const middle = Bun.spawn({
+      cmd: [process.execPath, spawner],
+      stdout: "pipe",
+      stderr: "inherit",
+    });
+    const middleOut = await new Response(middle.stdout).text();
+    await middle.exited;
+    const daemonPid = Number(middleOut.match(/DAEMON_PID=(\d+)/)?.[1]);
+    expect(daemonPid).toBeGreaterThan(0);
+
+    const alive = (pid: number): boolean => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      // 等 ready 行落文件（daemon 起跑成功 + 持锁）
+      const lockPath = path.join(dir, "daemon.lock");
+      const deadline1 = Date.now() + 15_000;
+      for (;;) {
+        try {
+          const ready = JSON.parse(readFileSync(readyFile, "utf8").split("\n", 1)[0]!) as { type?: string };
+          if (ready.type === "ready") break;
+        } catch {
+          /* 文件未就绪 */
+        }
+        if (Date.now() > deadline1) throw new Error("ready 行等待超时");
+        await Bun.sleep(200);
+      }
+      expect(alive(daemonPid)).toBe(true);
+
+      // 看门狗周期 5s：孤儿判定 → 优雅关停（与 SIGTERM 同路径）→ 锁释放
+      const deadline2 = Date.now() + 20_000;
+      for (;;) {
+        if (!alive(daemonPid)) break;
+        if (Date.now() > deadline2) {
+          throw new Error(`看门狗未在窗口内关停孤儿 sidecar（pid ${daemonPid} 仍存活）`);
+        }
+        await Bun.sleep(300);
+      }
+      // 优雅关停 = 锁文件释放（同 SIGTERM 路径）
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      if (alive(daemonPid)) process.kill(daemonPid, "SIGKILL"); // 失败兜底防孤儿
+    }
+  }, 45_000);
 });
