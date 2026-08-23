@@ -112,3 +112,12 @@
 - **选项**：①子进程直连 CDP（各 new 连接管理器）；②转发通道（子进程 RemoteBrowserPort + wire tool-req/tool-res 帧 + daemon 侧 ScopedBrowserProxy 归属代理）；③主线代办（agent_send 请主线操作浏览器）。
 - **裁决与理由**：选 ②。四轮裁决要点：a) 转发通道保 P0-1 单例原则，BrowserTools/CoreToolExecutor 零改动（条件注册先例）；b) ownerId 单命名空间 = agentId（"main" = MAIN_INSTANCE_ID 保留值，非第二体系），各 agent 自开自关、不做所有权移交/共享，回收 = 终态钩子 reclaimOwner + idle sweep 同口径；c) 并发不引队列——安全边界 = tab 归属校验（操作集合不相交），非互斥（sendCDP 单 WS 在飞并发 + id 关联）；d) wire 白名单 = 12 个工具可达方法全量放行，管理面 4 方法（connect/onStatusChange/stop/reclaimOwner）不上 wire（越 owner 边界，归属校验兜不住，有意收窄）；e) lazy connect 调用方无关——SubAgent 首发调用即可拉起连接，主线幂等复用，连接归 daemon 与子进程生命周期解耦；f) 浏览器进程启动能力不做（helix 只发现不启动；未来 Launcher 落 daemon 侧——子进程 spawn 的浏览器临时 profile 不在发现矩阵，主线反不可见）；g) DAG 演进存档：BrowserPort 传输无关（进程内/IPC/未来网络 RPC 可替换），ownerId 直接当 nodeId，main 实例 tab 无终态钩子的缺口（idle sweep 兜底）待节点终态事件自然拉平。
 - **结局**：已落地并验证（H-3：daemon 791/791 + shell 385/385 + tsc 零错 + E 层锚面 8/8；commit ee12e17）；规则化入 TR-AD-36。
+
+## AD-1 SubAgent 编排推送闭环与过程监督（hotfix-20260823 / 用户裁决）
+
+**digest**：评审 SubAgent 编排的等待/监督/终止机制、closure 送达保证、主会话委派提示词契约时读本文。
+
+- **上下文**：2026-08-23 多会话实测（两 session 各派一 SubAgent 查天气）暴露四个问题：①SteerHooks 模块级共享实例跨会话 bind 覆盖——closure/abort 串台（A 会话的注入进了 B 会话 LLM 上下文，A 的 LLM 反而说「closure wasn't injected here」）；②无 wait 语义 + 提示词邀请「查询进度」——实测 14 次 agent_status 轮询 + MainAgent 抢跑自行 web_search；③closure 注入是裸 user 文本、无结构化标识（domain source=closure 不落盘不进 UI/LLM）；④aborting/stopped 时 closure 直接丢弃，「保证送达」前提破窗。
+- **选项**：①加 wait 工具（阻塞拉取）；②wall-clock timeout 自动 kill；③推送闭环 + 周期进展报告 + 裁决权归 MainAgent/用户。
+- **裁决与理由**：选 ③。a) 不加 wait 工具——与 AD-8 秒回+异步注入冲突，阻塞 wait 会把推送模型重新串行化（closure 到达时 main 卡在 wait 调用里，引入 steer/blocked-tool 交互复杂度）；b) 否决 wall-clock timeout——总时长不可区分「干活中」与「hang 死」，误杀长任务；c) 系统只负责送达信息、永不自动终止——stalled（lastEventAt）只警示不杀；周期进展报告（机械 Δ 信封）让 MainAgent 阶段性知情，连续零增量 → agent_inspect 核实 → 确无进展可 kill 重派，由 MainAgent/用户裁决；d) 提示词删「查询进度」轮询邀请，换正向契约（spawn 后结束回合 + closure/报告自动注入 + 不轮询不抢跑 + 零增量 inspect 核实）；e) closure 送达补齐——aborting 期间内存 FIFO 暂存，abort 收尾回 idle 逐条链式 flush（挂 dying run promise settle，规避 agent_end 同步回流段引擎在飞守卫竞态）；stopped 维持可观测丢弃（closure_records 已落盘）。
+- **结局**：已落地并验证（T1 hooks 类引用 + T2 aborting flush + T3 报告机制/inspect/提示词：daemon 816/816 + tsc 零错 + default-reviewer 独立评审通过；commit dc2a120/88a50d2/3318d01）；规则化入 TR-AD-37/38/39。

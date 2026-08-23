@@ -1397,3 +1397,124 @@ subagent wire 协议扩展；子进程新增 daemon 单例资源访问能力（�
 
 ## 反例
 子进程直连 CDP 或自起浏览器进程——P0-1 否决形态复发：管理面分裂，且自起浏览器的临时 profile 不在发现矩阵（daemon 反而不可见）；或把 stop/reclaimOwner 放上 wire——子进程停掉全局共享连接/回收主线 tab，越 owner 边界；或为多子进程并发加队列互斥——误把共享资源当互斥问题（归属校验已切开操作集合）；或转发帧携带截图 base64 等大体积负载——行 JSON 无流控背压失控（路径传参 + 同机文件系统共享是正解）。
+
+```kg-node
+id: TR-AD-37
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: AgentProfile hooks 声明形态 = HookCtor 构造器引用（装配点实例化）
+status: active
+digest: 新增 HookSet、动 AgentProfile.hooks 声明、评审多会话/多 runtime hooks 隔离时
+derivedFrom:
+  - AD-1（hotfix-20260823：SubAgent 编排推送闭环与过程监督用户裁决）
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/AgentProfile.ts
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/AgentRuntime.ts
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile.ts
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile.ts
+  testedBy:
+    - apps/daemon/test/integration/profile-hooks-isolation.test.ts
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
+relations:
+  governs:
+    - E-AgentProfile
+    - E-HookSet
+    - E-AgentRuntime
+updatedIn: hotfix-20260823
+```
+
+## 规则
+profile.hooks 声明 HookCtor（`new (): HookSet` + `static readonly hookName`）构造器引用——纯数据，不声明实例。实例化唯一位于 AgentRuntime 装配点（`profile.hooks.map(H => new H())`），每 runtime 独立实例、逐实例 bind。新 HookSet 类必须提供 `static readonly hookName`（与实例 `.name` 等值，如 "steer"/"minimal"）；快照读面经 `H.hookName` 取值——`H.name` 是类构造器名语义（"SteerHooks"），与 hook 名不等值，禁用。
+
+## 理由
+P0 实证（2026-08-23 多会话实测）：模块级共享 hooks 实例 + `SteerHooks.bind(agent)` 后建覆盖先建 → 会话 A 的 closure steer/abort 注入会话 B（B 的 LLM 上下文直证收到、A 的 LLM 反而未收到；domain entry 归属本来正确）。`bind` 携带 agent 引用使 HookSet 天然 per-runtime，共享即串台。工厂函数方案被 AG-10 守护否决（profiles/ 纯声明式，正则禁 function/=>/if）——类引用是纯数据，守护零改动即绿，且实例化落在真正的根（装配点），profiles/ 保持架构要求的纯声明形态。
+
+## 适用范围
+新增 HookSet 类；AgentProfile 声明变更评审；多 runtime/多会话形态的注入与中断链路评审；快照读面 hook 名单取值；测试内 TestProfile 的 hooks 声明。
+
+## 反例
+profile 里 `new` 出 hooks 实例（模块级常量被多 runtime 复用 = P0 串台复发）；或为绕 AG-10 把工厂函数放进 profiles/（守护禁函数语法——正确解法是类引用声明 + 装配点实例化，不是放松守护）；或快照读面用 `H.name`（类名而非 hook 名，快照值漂移）；或新 HookSet 缺 `static hookName`（类型契约不满足，编译期拦截）。
+
+```kg-node
+id: TR-AD-38
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: closure 送达保证——aborting 暂存 + idle 链式 flush（run 收口同步段窗口）
+status: active
+digest: 改 ChatService.injectClosure 生命周期分支、评审「run 收口同步段内续发消息」场景时
+derivedFrom:
+  - AD-1（hotfix-20260823：SubAgent 编排推送闭环与过程监督用户裁决）
+  - AD-8（ADR-subagent-scheduler：双通道异步交付）
+anchors:
+  implementedBy:
+    - apps/daemon/src/application/services/ChatService.ts
+  testedBy:
+    - apps/daemon/test/unit/chat-service-closure-flush.test.ts
+relations:
+  governs:
+    - E-会话聚合
+    - E-SteerQueue
+    - E-ClosureRecord
+updatedIn: hotfix-20260823
+```
+
+## 规则
+closure 注入主线四种生命周期全覆盖（送达保证）：idle → sendMessage 新 turn；running/steering → applySteer + engine.steer（turn 边界 drain）；aborting → 内存 FIFO 暂存（closureBuffer），abort 收尾回 idle 后经 scheduleClosureDrain 挂 dying run promise settle、再逐条链式 flush（每条独立 sendMessage 新 turn，fire-and-forget，失败 engine.error 可观测不崩链）；stopped → 可观测丢弃（closure_records 已落盘，恢复会话可见，不补投）。flush 窗口被用户新 run 抢占时挂该 run 收口后续送（幂等守卫，无双发无重投）。两条铁律：①flush 不得在 agent_end 同步回流段内直接 sendMessage——此时 idle 已置但引擎 promise 未 settle、仍视为在飞，同段直发撞协议误用守卫（delete-settle-race 同款窗口）；②closure 一律以顶层新 turn 送达，不并入 steer 队列（applySteer 仅 running/steering 分支用）。
+
+## 理由
+aborting/stopped 直丢破坏「closure 保证送达」契约——用户中断生成恰是 SubAgent 收口高发窗口，结论静默丢失后 MainAgent 无从知情，推送模型的前提被挖空（实测这正是 MainAgent 不信任注入、反复轮询的根源之一）。「同步段内直发不可行」是实测裁决（FakeAgentEngine 在飞守卫与真引擎同险）；promise settle 后逐条链式 flush 以 6 用例证明不丢/不乱序/不崩/抢占可续送。
+
+## 适用范围
+ChatService 生命周期分支变更；任何「run 收口同步段内续发消息」的新场景（同窗口规则复用）；closure/steer 注入语义评审；推送模型送达保证的回归验收。
+
+## 反例
+aborting 直丢（送达保证破窗）；或在 agent_end 同步回流段内直接 sendMessage（引擎在飞守卫竞态）；或把 closure flush 并入 steer 队列（closure 须以顶层新 turn 送达，混入注入队列改变 drain 语义）；或 stopped 也暂存补投（daemon 已停无可投递对象，落盘恢复语义已覆盖，补投无消费者）。
+
+```kg-node
+id: TR-AD-39
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: SubAgent 过程监督契约——周期进展报告（机械 Δ）+ agent_inspect + 永不自动终止
+status: active
+digest: 改 SubAgent 监督/报告/终止机制、spawn 参数、编排工具语义、主会话委派提示词契约时
+derivedFrom:
+  - AD-1（hotfix-20260823：SubAgent 编排推送闭环与过程监督用户裁决）
+anchors:
+  implementedBy:
+    - apps/daemon/src/application/services/scheduler/SchedulerService.ts
+    - apps/daemon/src/application/services/scheduler/SubagentEventTranslator.ts
+    - apps/daemon/src/application/ports/inbound/AgentOrchestrationPort.ts
+    - apps/daemon/src/adapters/driven/tools/agent/AgentOrchestrationTools.ts
+    - apps/daemon/src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile.ts
+  testedBy:
+    - apps/daemon/test/integration/scheduler-progress-report.test.ts
+    - apps/daemon/test/integration/agent-inspect.test.ts
+    - apps/daemon/test/unit/main-prompt-contract.test.ts
+relations:
+  governs:
+    - E-调度器
+    - E-AgentInstance
+updatedIn: hotfix-20260823
+```
+
+## 规则
+系统只负责送达信息，永不自动终止。四件套：①spawn 可选 reportIntervalMs（缺省 0 不报告；>10 分钟任务建议 600000 起步，LLM 自估声明；>0 且有限才启用，负/NaN 视为 0）→ scheduler per-instance 定时器周期经 injectClosure 同通道注入一行机械信封（`[agent-N 进展报告 #k] 状态=running 静默=<idleMs>ms Δ工具调用=+x Δ输出=+y字符 Δ轮次=+z`——纯机械数据一行，无行为建议）；②机械计数器与 20 容量轨迹环缓冲由 translator 维护（流式防双计：thinking 走独立事件类型不混入字符计数，message_update 累加；onClosureCleanup 清空）；③agent_inspect 工具（Port.inspect → AgentInspection|null，含 idleMs/累计 toolCalls/轨迹）供 MainAgent 核实连续零增量报告；④主会话提示词正向契约：spawn 后简述计划并结束回合、closure/进展报告自动注入驱动下一轮、不轮询 agent_status 等待结果、不在实例执行期间自行重做该任务、连续零增量用 agent_inspect 核实后确无进展可 kill 重派、agent_status 仅用户主动询问进度时使用。定时器四点清理：终态 onInstanceClosure（紧邻 translator.onClosureCleanup 同序列位）/kill/cancelSession/stop；注入失败吞 engine.error 不崩调度。stalled 检测（lastEventAt）只警示不杀。
+
+## 理由
+机械阈值无解「有事件流但无进展」的死循环（LLM 打转时事件流不断、lastEventAt 持续新鲜，stalled 抓不到），而 wall-clock timeout 误杀长任务——「有无进展」需要任务上下文才能判定，只有 MainAgent/用户有。推送而非轮询：实测 MainAgent 明知会有 closure 注入仍轮询 14 次（LLM 闲时倾向主动做事），周期注入把「拉」改「推」从根上消灭轮询。机械 Δ 自带防 compaction 丢失判定依据（LLM 无需记忆历次报告，零增量即死循环信号）。不靠 SubAgent 自觉汇报——死循环实例恰恰不会汇报，机械定时器才可靠。每次报告注入 = main 一次 LLM turn 成本，故缺省关闭、长任务才声明。
+
+## 适用范围
+spawn/调度/监督链路变更；编排工具（agent_spawn/agent_send/agent_status/agent_inspect）语义评审；主会话委派契约提示词演进；「需 MainAgent 阶段性知情」新场景的复用模式；报告成本与间隔评审。
+
+## 反例
+加 wait 工具或 wall-clock timeout 自动 kill（与 AD-8 秒回推送模型冲突/误杀长任务）；信封里写行为建议或 markdown（机械数据一行，行为建议在提示词里）；靠 SubAgent 自觉 notify 汇报进度（死循环实例不会汇报，监督信号恰在最需要时缺席）；stalled 警示升级为自动终止（把「零事件」误判权交给机械阈值）；报告缺省开启或间隔过密（监督成本无差别摊到短任务）。

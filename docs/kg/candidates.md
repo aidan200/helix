@@ -1100,3 +1100,55 @@
 - sourceTask: H-2 chat 加载更多热修（2026-08-22）
 - createdIn: hotfix-20260822
 - decisionLog: 用户裁决「一起沉淀吧」（2026-08-22）——直写落盘（决策档案补记，无图节点变更）
+
+### AD-1（hotfix-20260823）
+- changeType: 新增
+- targetNode: 无（decisions.md 决策档案条目——AD-N 非图节点，不产生 kg 节点变更；TR-AD-37/38/39 derivedFrom 指向本条目）
+- scope: docs/kg/decisions.md AD-1（hotfix-20260823：SubAgent 编排推送闭环与过程监督）
+- project: helix
+- reason: 2026-08-23 多会话实测暴露四问题（SteerHooks 共享串台/轮询与抢跑/裸 user 文本注入/aborting 丢 closure）；用户四轮裁决定案：不加 wait 工具、否决 wall-clock timeout、系统只送达信息永不自动终止、提示词换正向契约、closure 送达补齐
+- evidence: T1+T2+T3 闭环（daemon 816/816 + tsc 零错 + default-reviewer 独立评审通过；commit dc2a120/88a50d2/3318d01）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/runtime/AgentProfile.ts；AgentRuntime.ts；application/services/ChatService.ts；application/services/scheduler/SchedulerService.ts；SubagentEventTranslator.ts
+- sourceTask: T1/T2/T3（SubAgent 实现 + MainAgent 同步提案，2026-08-23）
+- createdIn: hotfix-20260823
+- decisionLog: 用户裁决「落吧」（2026-08-23）——直写落盘（决策档案条目，无图节点变更）
+
+### TR-AD-37（hotfix-20260823）
+- changeType: 新增
+- targetNode: TR-AD-37
+- scope: docs/kg/architecture-rules.md TR-AD-37（AgentProfile hooks = HookCtor 构造器引用声明 + 装配点实例化）
+- project: helix
+- reason: P0 串台根因教训：SteerHooks.bind 携带 agent 引用，模块级共享 hooks 实例被后建会话 bind 覆盖 → steer/abort 注入错误会话（实测双 session 交叉注入直证）；工厂方案被 AG-10 守护否决，最终形态 = 类引用纯数据声明 + AgentRuntime 装配点 new——守护零改动即绿；新 HookSet 须提供 static readonly hookName（快照读面经 H.hookName，H.name 是类名语义禁用）
+- evidence: T1 闭环（profile-hooks-isolation 3/3 同一常量 profile 双 runtime 断言不串台；daemon 816/816 + tsc 零错；commit dc2a120）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/runtime/AgentProfile.ts（HookCtor）；AgentRuntime.ts（装配点实例化）；SteerHooks.ts/MinimalHooks.ts（static hookName）；MainSessionProfile.ts/SubAgentProfile.ts（类引用声明）
+- sourceTask: T1（SubAgent 实现 + MainAgent 同步提案，2026-08-23）
+- createdIn: hotfix-20260823
+- decisionLog: 用户裁决「落吧」（2026-08-23）——直写落盘（formalId=TR-AD-37，节点 id 稳定）
+
+### TR-AD-38（hotfix-20260823）
+- changeType: 新增
+- targetNode: TR-AD-38
+- scope: docs/kg/architecture-rules.md TR-AD-38（closure 送达保证：aborting 暂存 + idle 链式 flush）
+- project: helix
+- reason: 推送模型前提「closure 保证送达」在 aborting 分支破窗（直丢）；修复形态与时序窗口教训：agent_end 同步回流段内 idle 已置但引擎 promise 未 settle（在飞守卫），flush 必须挂 dying run promise settle 后逐条链式执行；closure 一律顶层新 turn 送达不并入 steer 队列；stopped 维持可观测丢弃（落盘恢复语义已覆盖）
+- evidence: T2 闭环（chat-service-closure-flush 6/6 含 FIFO 保序/抢占续送/红态复现 4fail→绿；commit 88a50d2）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/ChatService.ts（closureBuffer/scheduleClosureDrain/drainClosureBuffer）
+- sourceTask: T2（SubAgent 实现 + MainAgent 同步提案，2026-08-23）
+- createdIn: hotfix-20260823
+- decisionLog: 用户裁决「落吧」（2026-08-23）——直写落盘（formalId=TR-AD-38，节点 id 稳定）
+
+### TR-AD-39（hotfix-20260823）
+- changeType: 新增
+- targetNode: TR-AD-39
+- scope: docs/kg/architecture-rules.md TR-AD-39（SubAgent 过程监督契约：周期进展报告机械Δ + agent_inspect + 永不自动终止）
+- project: helix
+- reason: 死循环检测的结构性盲区（stalled 只抓零事件，事件流不断但无进展抓不到；wall-clock timeout 误杀长任务）→ 裁决权归 MainAgent/用户；四件套：reportIntervalMs 周期注入一行机械 Δ 信封（injectClosure 同通道）/ translator 计数器与 20 容量轨迹环缓冲 / agent_inspect 核实工具 / 提示词正向契约（结束回合+自动注入+不轮询不抢跑+零增量 inspect 核实）；机械 Δ 防 compaction 丢判定依据；缺省关闭防监督成本无差别摊派
+- evidence: T3 闭环（scheduler-progress-report 8/8 + agent-inspect 6/6 + main-prompt-contract 2/2；commit 3318d01）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/scheduler/SchedulerService.ts（定时器+信封+四点清理）；SubagentEventTranslator.ts（计数器+环缓冲）；AgentOrchestrationPort.ts（inspect）；AgentOrchestrationTools.ts（agent_inspect 工具）；MainSessionProfile.ts（正向契约提示词）
+- sourceTask: T3（SubAgent 实现 + MainAgent 同步提案，2026-08-23）
+- createdIn: hotfix-20260823
+- decisionLog: 用户裁决「落吧」（2026-08-23）——直写落盘（formalId=TR-AD-39，节点 id 稳定）
