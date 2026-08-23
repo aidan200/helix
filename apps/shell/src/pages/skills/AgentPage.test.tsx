@@ -96,7 +96,7 @@ const CATALOG: CatalogModel[] = [
 
 interface SetEnabledCall {
   profileKind: "main-session" | "subagent-worker";
-  resourceType: "tool" | "skill" | "model";
+  resourceType: "tool" | "skill" | "model" | "thinking"; // thinking = v0.11 槽位（T2.2）
   name: string;
   enabled: boolean;
 }
@@ -344,6 +344,7 @@ describe("智能体页组件（M6 T4）", () => {
   });
 
   it("⑤ 模型下拉可用性口径（S3a）：configured 过滤 + 当前槽位兑底 + authLoaded=false 不过滤", async () => {
+
     mock.catalog = CATALOG;
     mock.authLoaded = true;
     mock.auth = {
@@ -382,5 +383,220 @@ describe("智能体页组件（M6 T4）", () => {
     const selNoAuth = document.getElementById("sel-model-main-session") as HTMLSelectElement;
     expect(selNoAuth.querySelectorAll("optgroup").length).toBe(2);
     expect(selNoAuth.querySelectorAll("option[value='openai/gpt-5.2']").length).toBe(1);
+  });
+});
+
+// ── P-2 profile 推理级别字段（T2.2；review.md §3 必须还原 1-6 / test-design §2.6-2.7）──
+/** 能力位三变体目录：六档（opus）/ 三档（gpt-5-mini）/ reasoning=false（qwen3-4b）。 */
+const CAP_CATALOG: CatalogModel[] = [
+  {
+    id: "anthropic/claude-opus-4.1",
+    providerId: "anthropic",
+    contextWindow: 200_000,
+    cost: { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+    source: "builtin",
+    reasoning: true,
+    thinkingLevels: ["minimal", "low", "medium", "high", "xhigh", "max"],
+  },
+  {
+    id: "openai/gpt-5-mini",
+    providerId: "openai",
+    contextWindow: 400_000,
+    cost: { input: 0.25, output: 2, cacheRead: 0.025, cacheWrite: 0.25 },
+    source: "builtin",
+    reasoning: true,
+    thinkingLevels: ["low", "medium", "high"],
+  },
+  {
+    id: "local/qwen3-4b",
+    providerId: "local",
+    contextWindow: 32_000,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    source: "builtin",
+    reasoning: false,
+    thinkingLevels: [],
+  },
+];
+
+function fieldOf(kind: string): HTMLElement {
+  return document.querySelector(`[data-agent-card="${kind}"] .tl-field`) as HTMLElement;
+}
+
+describe("P-2 profile 推理级别字段（T2.2）", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mock.revision = 0;
+    mock.catalog = null;
+    mock.auth = {};
+    mock.authLoaded = false;
+    mock.sentList = 0;
+    mock.sendOk = true;
+    mock.sentSetEnabled = [];
+  });
+
+  it("① 落位 + ghost 未配置态：dashed 框 + 空心 thumb 停 medium 位 + 刻度去强调 + 未配置徽标 + 回落说明；ghost 位不可提交", async () => {
+    mock.catalog = CAP_CATALOG;
+    ui();
+    act(() => feedList({ model: "anthropic/claude-opus-4.1" }, { model: "anthropic/claude-opus-4.1" }));
+    await screen.findByText("SubAgent worker");
+    const field = fieldOf("subagent-worker");
+    // 落位：模型槽位（.ag-model）正下方
+    expect(field.previousElementSibling!.className).toContain("ag-model");
+    // label hud-label 族
+    expect(field.querySelector(".hud-label")!.textContent).toBe("推理级别 · THINKING LEVEL");
+    // ghost 未配置态
+    expect(field.classList.contains("unset")).toBe(true);
+    const thumb = field.querySelector(".tl-thumb") as HTMLElement;
+    expect(thumb.classList.contains("ghost")).toBe(true);
+    expect(thumb.style.left).toBe("40%"); // medium = 六档 idx2 → 2/5
+    // 刻度去强调（ghost 态无 .on / .cur）
+    expect(field.querySelectorAll(".tl-tick.on").length).toBe(0);
+    expect(field.querySelectorAll(".tl-tick.cur").length).toBe(0);
+    // 「未配置」中性徽标 + 回落说明
+    const state = field.querySelector(".tl-state")!;
+    expect(state.textContent).toBe("未配置");
+    expect(state.classList.contains("set")).toBe(false);
+    expect(field.querySelector(".ag-note")!.textContent).toContain("回落兜底 medium");
+    // × 清除钮隐藏
+    expect(field.querySelector(".tl-clear")).toBeNull();
+    // ghost 位仅预览不可提交（挂载零写命令）
+    expect(mock.sentSetEnabled).toEqual([]);
+  });
+
+  it("② 选档 → thinking 槽位写入 → changed 重拉收口 configured 态（accent 徽标 + × + spawn 快照说明）", async () => {
+    mock.catalog = CAP_CATALOG;
+    const view = ui();
+    act(() => feedList({}, { model: "anthropic/claude-opus-4.1" }));
+    await screen.findByText("SubAgent worker");
+    const field = fieldOf("subagent-worker");
+    // 点刻度 high（六档 idx3）→ set thinking 槽位
+    fireEvent.click(field.querySelector('[data-level="high"]')!);
+    expect(mock.sentSetEnabled).toEqual([
+      { profileKind: "subagent-worker", resourceType: "thinking", name: "high", enabled: true },
+    ]);
+    // pending：滑块禁用（写面单飞沿用）
+    expect(field.querySelector(".tl-track")!.getAttribute("aria-disabled")).toBe("true");
+    act(() => feedSetResult({ status: "applied" }));
+    act(() => bumpRevision(view.rerender));
+    act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "high" }));
+    const f2 = fieldOf("subagent-worker");
+    // configured 态：非 unset + accent 徽标 + × + spawn 快照说明 + 实 thumb
+    expect(f2.classList.contains("unset")).toBe(false);
+    const state = f2.querySelector(".tl-state")!;
+    expect(state.textContent).toBe("high");
+    expect(state.classList.contains("set")).toBe(true);
+    expect(f2.querySelector(".tl-clear")).not.toBeNull();
+    expect(f2.querySelector(".ag-note")!.textContent).toContain("spawn 时按此档解析快照");
+    expect(f2.querySelector(".ag-note")!.textContent).toContain("agent.instantiated");
+    expect(f2.querySelector(".tl-thumb")!.classList.contains("ghost")).toBe(false);
+    expect(f2.querySelector(".tl-track")!.getAttribute("aria-valuenow")).toBe("4");
+    // 方向键通道：configured high → ArrowRight 升 xhigh
+    fireEvent.keyDown(f2.querySelector(".tl-track")!, { key: "ArrowRight" });
+    expect(mock.sentSetEnabled[1]).toEqual({
+      profileKind: "subagent-worker",
+      resourceType: "thinking",
+      name: "xhigh",
+      enabled: true,
+    });
+  });
+
+  it("③ configured → × → clear 槽位（enabled=false）→ 重拉后回 ghost", async () => {
+    mock.catalog = CAP_CATALOG;
+    const view = ui();
+    act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "high" }));
+    await screen.findByText("SubAgent worker");
+    fireEvent.click(fieldOf("subagent-worker").querySelector(".tl-clear")!);
+    expect(mock.sentSetEnabled).toEqual([
+      { profileKind: "subagent-worker", resourceType: "thinking", name: "-", enabled: false },
+    ]);
+    act(() => feedSetResult({ status: "applied" }));
+    act(() => bumpRevision(view.rerender));
+    act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: null }));
+    const f2 = fieldOf("subagent-worker");
+    expect(f2.classList.contains("unset")).toBe(true);
+    expect(f2.querySelector(".tl-clear")).toBeNull();
+    expect(f2.querySelector(".tl-state")!.textContent).toBe("未配置");
+    expect((f2.querySelector(".tl-thumb") as HTMLElement).classList.contains("ghost")).toBe(true);
+  });
+
+  it("④ 能力位三变体：换三档模型刻度数=3；reasoning=false → 字段禁用 + 已有配置保留不可改（× 隐藏、滑块不渲染）", async () => {
+    mock.catalog = CAP_CATALOG;
+    ui();
+    // 三档模型 + 未配置
+    act(() => feedList({}, { model: "openai/gpt-5-mini" }));
+    await screen.findByText("SubAgent worker");
+    let field = fieldOf("subagent-worker");
+    expect([...field.querySelectorAll(".tl-tick")].map((b) => b.getAttribute("data-level"))).toEqual([
+      "low",
+      "medium",
+      "high",
+    ]);
+    // reasoning=false + 已有配置 high：禁用 + 保留不可改
+    act(() => feedList({}, { model: "local/qwen3-4b", thinkingLevel: "high" }));
+    field = fieldOf("subagent-worker");
+    expect(field.classList.contains("disabled")).toBe(true);
+    expect(field.querySelector(".tl-track")).toBeNull(); // 滑块不渲染（两态不叠加）
+    expect(field.querySelector(".tl-state")!.textContent).toBe("high"); // 配置保留
+    expect(field.querySelector(".tl-state")!.classList.contains("set")).toBe(true);
+    expect(field.querySelector(".tl-clear")).toBeNull(); // 不可改（× 隐藏）
+    expect(field.querySelector(".ag-note")!.textContent).toContain("不支持 reasoning");
+    // reasoning=false + 未配置
+    act(() => feedList({}, { model: "local/qwen3-4b", thinkingLevel: null }));
+    field = fieldOf("subagent-worker");
+    expect(field.classList.contains("disabled")).toBe(true);
+    expect(field.querySelector(".tl-state")!.textContent).toBe("未配置");
+  });
+
+  it("⑤ 换模轻提示：已配 xhigh + 切三档模型 → 提示文案 + 配置值不改写 + 徽标仍示 xhigh", async () => {
+    mock.catalog = CAP_CATALOG;
+    ui();
+    act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "xhigh" }));
+    await screen.findByText("SubAgent worker");
+    // 槽位换三档模型（daemon 收口后的新块：配置值本体不动）
+    act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "xhigh" }));
+    const field = fieldOf("subagent-worker");
+    const hint = field.querySelector(".tl-hint") as HTMLElement;
+    expect(hint).not.toBeNull();
+    expect(hint.textContent).toBe("xhigh → high（模型能力所限；spawn 解析时按能力过滤，配置值不丢）");
+    // 配置值本体不改写：徽标仍 xhigh + 零写命令
+    expect(field.querySelector(".tl-state")!.textContent).toBe("xhigh");
+    expect(mock.sentSetEnabled).toEqual([]);
+    // 滑块显示生效位 high（三档 idx2 → 100%）
+    expect((field.querySelector(".tl-thumb") as HTMLElement).style.left).toBe("100%");
+  });
+
+  it("⑥ PEAK：configured 且生效 = 最高支持档 → 字段框体 .peak；非最高档 / unset 不触发", async () => {
+    mock.catalog = CAP_CATALOG;
+    ui();
+    act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "high" }));
+    await screen.findByText("SubAgent worker");
+    let field = fieldOf("subagent-worker");
+    expect(field.querySelector(".tl-box")!.classList.contains("peak")).toBe(true);
+    expect(field.querySelector(".tl-box .beam")).not.toBeNull();
+    // 非最高档不触发
+    act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "medium" }));
+    field = fieldOf("subagent-worker");
+    expect(field.querySelector(".tl-box")!.classList.contains("peak")).toBe(false);
+    // unset 不触发（仅 configured 可触发）
+    act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: null }));
+    field = fieldOf("subagent-worker");
+    expect(field.querySelector(".tl-box")!.classList.contains("peak")).toBe(false);
+  });
+
+  it("⑦ 负断言：两态视觉不叠加 + 原型标注文字不存在", async () => {
+    mock.catalog = CAP_CATALOG;
+    ui();
+    act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "high" }));
+    await screen.findByText("SubAgent worker");
+    const field = fieldOf("subagent-worker");
+    // configured 态无 unset 残留（class / ghost thumb / 未配置徽标）
+    expect(field.classList.contains("unset")).toBe(false);
+    expect(field.querySelector(".tl-thumb.ghost")).toBeNull();
+    expect(field.querySelector(".tl-state")!.textContent).not.toBe("未配置");
+    // 原型标注剥离：无 data-proto-annotation 锚、无演示控制台文案
+    expect(document.querySelector("[data-proto-annotation]")).toBeNull();
+    expect(document.body.textContent).not.toContain("切换下方模型槽位即演示");
+    expect(document.body.textContent).not.toContain("留空态（F2.1）");
   });
 });

@@ -404,5 +404,19 @@ export const enUS = {
     notConnected: "Not connected to daemon",
     switchOn: "On",
     switchOff: "Off",
+    // P-2 thinking level field (T2.2; review.md §3 copy)
+    thinking: {
+      label: "Thinking Level · THINKING LEVEL",
+      sliderLabel: "Thinking level",
+      unsetBadge: "UNSET",
+      noteUnsetMain: "Unset - new sessions fall back to medium at assembly.",
+      noteUnsetSub: "Unset - spawn resolution falls back to medium.",
+      noteConfiguredMain: "New sessions resolve thinking at this level; the composer session override takes precedence.",
+      noteConfiguredSub: "SubAgents spawned from this profile resolve a snapshot at this level, persisted via agent.instantiated.",
+      disabledNote: "Current model does not support reasoning; thinking level is not configurable. Requests use provider defaults.",
+      clampedHint: "{configured} → {effective} (capped by model capability; spawn resolution filters by capability, configured value kept)",
+      capabilityLoading: "Loading model capability…",
+      clearTitle: "Clear and fall back to default",
+    },
   },
 } satisfies Translations;

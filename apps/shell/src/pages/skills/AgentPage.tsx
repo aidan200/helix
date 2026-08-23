@@ -42,10 +42,13 @@ import {
   createAgentPageState,
   selectAgentPageView,
   type AgentKind,
+  type AgentWriteResource,
 } from "./model/agent-config-model";
+import P2ThinkingField from "./ui/P-2-ThinkingField";
+import { resolveThinkingCapability } from "@/features/thinking-level/model/thinking-capability";
 
-/** 写面载荷（resourceType 收窄于协议三值，页面只发这三类）。 */
-type WriteResource = "tool" | "skill" | "model";
+/** 写面载荷（resourceType 收窄于协议四值，页面只发这四类）。 */
+type WriteResource = AgentWriteResource;
 
 /** 开关（语义化 role=switch + aria-checked；track+thumb+状态词）。 */
 function AgentSwitch({
@@ -85,6 +88,7 @@ function ProfileCard({
   block,
   skeleton,
   catalog,
+  defaultModel,
   auth,
   authLoaded,
   writePending,
@@ -95,6 +99,7 @@ function ProfileCard({
   block: AgentConfigProfileBlock | null;
   skeleton: boolean;
   catalog: CatalogModel[] | null;
+  defaultModel: string | undefined;
   auth: Record<string, AuthProviderEntry>;
   authLoaded: boolean;
   writePending: boolean;
@@ -124,6 +129,14 @@ function ProfileCard({
     }
     return map;
   }, [catalog, auth, authLoaded, block?.model]);
+
+  /** P-2 能力位数据源（F2.2）：槽位选定模型的 CatalogModel 防腐字段；槽位
+   *  留空 = 跟随默认（main 全局默认 / sub spawn 时刻定格会话或全局默认——
+   *  本页为全局配置面无会话上下文，展示位一律以全局默认模型为预览基准）。 */
+  const thinkingCapability = useMemo(
+    () => resolveThinkingCapability(block?.model ?? defaultModel ?? "", catalog ?? undefined),
+    [block?.model, defaultModel, catalog],
+  );
 
   return (
     <section className="hud-card ag-card" data-agent-card={kind}>
@@ -166,6 +179,17 @@ function ProfileCard({
           {isMain ? t("agents.modelNoteMain") : t("agents.modelNoteSub")}
         </p>
       </div>
+
+      {/* P-2 推理级别字段（T2.2；模型槽位正下方、视觉并列）：读写 thinking
+          槽位（set = 档位字符串透传；clear = name 忽略位 "-"，model 先例） */}
+      <P2ThinkingField
+        kind={kind}
+        thinkingLevel={block?.thinkingLevel ?? null}
+        capability={thinkingCapability}
+        disabled={writePending || skeleton}
+        onSelect={(level) => onToggle(kind, "thinking", level, true)}
+        onClear={() => onToggle(kind, "thinking", "-", false)}
+      />
 
       {/* 工具组：名称 + snippet 一句话 + 开关 */}
       <div className="ag-group">
@@ -388,6 +412,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
             block={state.profiles[kind]}
             skeleton={(view === "loading" || view === "idle") && state.profiles[kind] === null}
             catalog={catalog}
+            defaultModel={topology.modelConfig.defaultModel}
             auth={auth}
             authLoaded={authLoaded}
             writePending={writePending}
