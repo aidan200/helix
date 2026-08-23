@@ -72,7 +72,7 @@ const TestProfile: AgentProfile = {
   systemPrompt: "初始系统提示",
   tools: ["bash", "grep"],
   lifecycle: { mode: "single-shot" },
-  hooks: [new MinimalHooks()],
+  hooks: [MinimalHooks],
 };
 
 const tmpRoots: string[] = [];

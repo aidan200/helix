@@ -6,9 +6,13 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * SubAgent worker profile（architecture.md §4.4「实例化」）。
  *
  * 纯声明式配置（无行为方法，AD-3 同构）：单轮收敛（single-shot）+ steer
- * 转投接线 + 全工具集（照抄 MainSessionProfile 工具名清单，不新增）。
+ * 转投接线 + 全工具集（照抄主会话工具名清单，不新增）。
  * 「单轮收敛」由 ChildMain 消费——驱动一次 run、解析 closure、exit；
  * runtime 侧不感知（AG-10 零 kind 分支）。
+ *
+ * **hooks 为构造器引用而非实例（T1）**：与主会话同坑同填——SteerHooks.bind
+ * 绑定 agent 引用，共享实例即跨 runtime 覆盖泄漏；类引用保持纯声明，
+ * 实例化在 AgentRuntime 装配点（每 runtime 新建）。
  *
  * model 槽位（AD-3 三级链第一级，TR-AD-24）：声明即最高优先级
  * （SubagentLauncher.resolveModelFor 解析单点，装配期 resolveModel 解析，
@@ -39,7 +43,7 @@ export const SubAgentProfile: AgentProfile = {
   systemPrompt: SUBAGENT_SYSTEM_PROMPT,
   tools: ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"], // H-3：+browser（经 wire 转发通道接 daemon CDP 单例；装配经 CoreToolExecutor.resolveTools）
   lifecycle: { mode: "single-shot" },
-  hooks: [new SteerHooks(), new MinimalHooks()],
+  hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：与主会话同坑同填——装配点实例化）
   // AD-3：真实声明槽位——声明即最高优先级；生产默认不设值（走会话快照/全局兜底；UI 管理归 skills 页下迭代）
   model: undefined,
 };

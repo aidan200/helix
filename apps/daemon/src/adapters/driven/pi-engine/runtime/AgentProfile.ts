@@ -25,6 +25,16 @@ export const DEFAULT_COMPACTION: CompactionSettings = {
   keepRecentTokens: 20000,
 };
 
+/**
+ * Hook 构造器声明（数据形态）。实例化在 AgentRuntime 装配点——每 runtime
+ * 新实例（SteerHooks.bind 携带 agent 引用，跨 runtime 共享实例 = steer/abort
+ * 串台，P0）。hookName 供快照读面（原实例 .name 的等值替代）。
+ */
+export interface HookCtor {
+  new (): HookSet;
+  readonly hookName: string;
+}
+
 /** 声明式 agent 规格（纯数据 + hooks 装配，无行为方法）。 */
 export interface AgentProfile {
   /** 规格标识（诊断/日志用；runtime 不解析其值）。 */
@@ -35,8 +45,8 @@ export interface AgentProfile {
   readonly tools: readonly string[];
   /** 生命周期策略。 */
   readonly lifecycle: { readonly mode: LifecycleMode };
-  /** 钩子装配（装配即启用，§4.2）。 */
-  readonly hooks: readonly HookSet[];
+  /** 钩子装配（构造器引用声明，装配即启用且每 runtime 实例化，§4.2）。 */
+  readonly hooks: readonly HookCtor[];
   /** compaction 参数声明（可选；undefined = 不装配 CompactionHook，无 fallback——
    *  实装见 AgentRuntime.compactionHooks（声明 enabled 才装配）；DEFAULT_COMPACTION
    *  仅为 MainSessionProfile 的声明值非缺省行为；SubAgentProfile 未声明即无压缩）。 */

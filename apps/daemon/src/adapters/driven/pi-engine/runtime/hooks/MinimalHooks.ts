@@ -10,6 +10,8 @@ import type { HookSet } from "../HookSet";
  * 契约对齐 pi：钩子不抛错、安全降级（types.d.ts AgentLoopConfig 注释）。
  */
 export class MinimalHooks implements HookSet {
+  static readonly hookName = "minimal";
+
   readonly name = "minimal";
 
   async beforeToolCall(): Promise<undefined> {

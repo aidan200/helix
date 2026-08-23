@@ -57,7 +57,9 @@ export class AgentRuntime {
 
   constructor(profile: AgentProfile, deps: AgentRuntimeDeps) {
     const compaction = compactionHooks(profile, deps);
-    const hooks = [...profile.hooks, ...compaction];
+    // hooks 声明为构造器引用（纯数据，T1）：在此装配点每 runtime 实例化——
+    // SteerHooks.bind 绑 agent 引用，共享实例即跨 runtime 串台（P0）。
+    const hooks = [...profile.hooks.map((H) => new H()), ...compaction];
     this.agent = new Agent({
       initialState: {
         systemPrompt: profile.systemPrompt,

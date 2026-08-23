@@ -63,8 +63,8 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"]);
   });
 
-  test("hooks 装配 SteerHooks（send→steer 转投接线，AD-7⑤）", () => {
-    expect(SubAgentProfile.hooks.some((h) => h instanceof SteerHooks)).toBe(true);
+  test("hooks 装配 SteerHooks（send→steer 转投接线，AD-7⑤；T1 后为构造器引用声明）", () => {
+    expect(SubAgentProfile.hooks.some((H) => H === SteerHooks)).toBe(true);
   });
 
   test("系统提示：单任务收敛 SOP + closure 协议（五字段结构）", () => {

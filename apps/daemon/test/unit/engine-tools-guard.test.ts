@@ -38,7 +38,7 @@ const TestProfile: AgentProfile = {
   systemPrompt: "初始系统提示",
   tools: [],
   lifecycle: { mode: "single-shot" },
-  hooks: [new MinimalHooks()],
+  hooks: [MinimalHooks],
 };
 
 /** 未注入 resolveTools/resolveModelById 的 adapter（纯测试形态——守卫触发面）。 */

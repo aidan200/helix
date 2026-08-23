@@ -24,7 +24,7 @@ const TestProfile: AgentProfile = {
   systemPrompt: "测试 profile 的系统提示",
   tools: [],
   lifecycle: { mode: "single-shot" },
-  hooks: [new SteerHooks(), new MinimalHooks()],
+  hooks: [SteerHooks, MinimalHooks],
 };
 
 /** 离线假模型对象（FakeLLM 不发真实请求，模型仅透传）。 */
@@ -163,7 +163,7 @@ describe("TP-CL4-4 / AG-11：TestProfile 经 AgentRuntime 装配（不改 runtim
       systemPrompt: "x",
       tools: [],
       lifecycle: { mode: "single-shot" },
-      hooks: [new MinimalHooks()],
+      hooks: [MinimalHooks],
     };
     const { streamFn } = makeFakeLLM(["ok"]);
     const runtime = new AgentRuntime(bareProfile, { streamFn, model: fakeModel, getApiKey: () => "k" });

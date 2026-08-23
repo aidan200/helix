@@ -10,6 +10,12 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * 「常驻」由生命周期策略声明，CLI/WS 驱动入口经 ChatService 反复
  * sendMessage 即多轮复用——runtime 侧不做任何轮次计数。
  *
+ * **hooks 为构造器引用而非实例（T1）**：SteerHooks.bind 会把 agent 绑进
+ * 钩子实例，模块级共享实例会让后建 runtime 覆盖先建 runtime 的
+ * steer/abort 通道（跨会话串台，P0）——故此处只声明类引用（纯数据），
+ * 实例化在 AgentRuntime 装配点（每 runtime 新建）。快照读面用类的
+ * hookName（与实例 .name 等值）。
+ *
  * 工具集：十一工具按名声明（编排三工具 + 静态联网两工具 +
  * 动态族单 browser 工具），装配在组合根
  * （CoreToolExecutor → resolveTools；bash/read/write/edit 为 pi 内置、grep 自写、
@@ -53,6 +59,6 @@ export const MainSessionProfile: AgentProfile = {
     "browser",
   ], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
-  hooks: [new SteerHooks(), new MinimalHooks()],
+  hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：实例化在 AgentRuntime 装配点，每 runtime 独立）
   compaction: DEFAULT_COMPACTION,
 };

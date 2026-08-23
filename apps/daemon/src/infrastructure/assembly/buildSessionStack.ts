@@ -267,7 +267,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         resourceService.modelSlot("subagent-worker") ??
         spawnModel ??
         defaultModel.current(),
-      hooks: SubAgentProfile.hooks.map((h) => h.name),
+      hooks: SubAgentProfile.hooks.map((H) => H.hookName),
     }),
     // CDP 地基：agent 终态 → 回收其全部 managed tabs（idle sweep 兼底）
     onInstanceTerminal: (agentId) => void browserPort.reclaimOwner(agentId),
@@ -384,7 +384,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           ...(MainSessionProfile.compaction !== undefined
             ? { compaction: MainSessionProfile.compaction }
             : {}),
-          hooks: MainSessionProfile.hooks.map((h) => h.name),
+          hooks: MainSessionProfile.hooks.map((H) => H.hookName),
         }),
         // 转正单点触发面：零条目草稿首个用户条目落聚合 → 注册表
         // promoteDraft（恰好一次 instantiated + 补 created；闭包仅在运行期

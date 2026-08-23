@@ -13,6 +13,8 @@ import type { HookSet, SteerCapable } from "../HookSet";
  * 对齐 pi 的 abort 非销毁语义。
  */
 export class SteerHooks implements HookSet, SteerCapable {
+  static readonly hookName = "steer";
+
   readonly name = "steer";
 
   private agent: Agent | null = null;

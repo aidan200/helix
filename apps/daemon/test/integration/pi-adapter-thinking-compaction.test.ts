@@ -168,7 +168,7 @@ function compactionProfile(reserveTokens: number): AgentProfile {
     systemPrompt: "测试系统提示",
     tools: [],
     lifecycle: { mode: "persistent" },
-    hooks: [new SteerHooks(), new MinimalHooks()],
+    hooks: [SteerHooks, MinimalHooks],
     compaction: { enabled: true, reserveTokens, keepRecentTokens: 100 },
   };
 }
