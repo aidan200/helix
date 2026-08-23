@@ -26,6 +26,7 @@ import type {
   SessionSnapshotDto,
   SessionUsageDto,
   SteerState,
+  ThinkingChangedEvent,
   ThinkingEntryDto,
   ToolCallEntryDto,
   ToolCallState,
@@ -100,6 +101,9 @@ export function snapshot(
     instances?: AgentInstanceDto[];
     /** v0.1 additive：账目聚合（徽标/popover 重建权威） */
     usage?: SessionUsageDto;
+    /** v0.11 additive：会话 thinking 覆盖/生效双位（thinking 批③ F-8 wire
+     *  面；F1.5 刷新/重连快照消费侧断言数据源，T3.2）。 */
+    thinking?: { override: string | null; effective: string | null };
   } = {},
 ): EventEnvelope {
   const snap: SessionSnapshotDto = {
@@ -110,6 +114,7 @@ export function snapshot(
     entries,
     ...(opts.instances !== undefined ? { instances: opts.instances } : {}),
     ...(opts.usage !== undefined ? { usage: opts.usage } : {}),
+    ...(opts.thinking !== undefined ? { thinking: opts.thinking } : {}),
   };
   return { v: V, type: "session.snapshot", payload: { snapshot: snap } };
 }
@@ -429,6 +434,21 @@ export function loadHistoryResult(
   };
 }
 
+/** thinking.changed（v0.11，thinking 批①，契约 §17.11；T3.2 CL-1 E2E 回执面：
+ *  覆盖/生效双位整帧广播，daemon 权威——UI 只消费不解析）。 */
+export function thinkingChanged(
+  sessionId: string,
+  payload: { override: string | null; effective: string | null },
+): ThinkingChangedEvent {
+  return {
+    v: V,
+    sessionId,
+    channel: "thinking",
+    type: "thinking.changed",
+    payload,
+  };
+}
+
 /** model.changed（运行期换模生效广播；契约 C §2.1）。 */
 export function modelChanged(sessionId: string, model: string, previous: string): ModelChangedEvent {
   return {
@@ -580,6 +600,8 @@ export function catalogModel(
   contextWindow: number,
   cost: { input: number; output: number; cacheRead?: number; cacheWrite?: number },
   source: "builtin" | "overlay" = "builtin",
+  /** v0.11 能力位（thinking 批②，AD-4② 防腐字段；缺省省略 = 旧剧本零漂移）。 */
+  capability?: { reasoning: boolean; thinkingLevels: string[] },
 ): CatalogModel {
   const [providerId, ...rest] = id.split("/");
   return {
@@ -593,6 +615,9 @@ export function catalogModel(
       cacheWrite: cost.cacheWrite ?? 0,
     },
     source,
+    ...(capability !== undefined
+      ? { reasoning: capability.reasoning, thinkingLevels: capability.thinkingLevels }
+      : {}),
   };
 }
 

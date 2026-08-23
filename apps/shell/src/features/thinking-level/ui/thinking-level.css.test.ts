@@ -39,6 +39,25 @@ describe("thinking-level CSS（P-1 hud-popover 族 + 滑块形态 + PEAK）", ()
     expect(css).toMatch(/\.tl-thumb\s*\{[^}]*rotate\(45deg\)/);
   });
 
+  it("滑块形态细节（review.md §2-3 同源）：1px 刻度竖线 + 档位标签 mono text-micro + accent 填充段 + thumb accent 描边", () => {
+    expect(css).toMatch(/\.tl-tick i\s*\{[^}]*width:\s*1px/); // 1px 刻度竖线
+    expect(css).toMatch(/\.tl-tick span\s*\{[^}]*var\(--font-mono\)[^}]*var\(--text-micro\)/); // 档位标签 mono text-micro
+    expect(css).toMatch(/\.tl-fill\s*\{[^}]*background:\s*rgb\(var\(--accent-rgb\)/); // accent 填充段
+    expect(css).toMatch(/\.tl-thumb\s*\{[^}]*border:\s*1\.5px solid var\(--accent\)/); // thumb accent 描边
+    expect(css).toMatch(/\.tl-tick\.cur span\s*\{[^}]*color:\s*var\(--accent\)/); // 当前档标签 accent 高亮
+  });
+
+  it("trigger chip 24px 高 + mono text-cap（review.md §2-1 落位形态）", () => {
+    expect(css).toMatch(/\.tp-trigger\s*\{[^}]*height:\s*24px/);
+    expect(css).toMatch(/\.tp-trigger\s*\{[^}]*var\(--font-mono\)[^}]*var\(--text-cap\)/);
+  });
+
+  it("轻提示（F1.3）：warning 色 + 菱形导视符 + text-cap（review.md §2-6）", () => {
+    expect(css).toMatch(/\.tp-hint\s*\{[^}]*color:\s*var\(--warning\)/);
+    expect(css).toMatch(/\.tp-hint\s*\{[^}]*var\(--text-cap\)/);
+    expect(css).toMatch(/\.tp-hint::before\s*\{[^}]*rotate\(45deg\)/);
+  });
+
   it("PEAK 四要素：强边 + glow-cyan + 徽章显隐 + 6s 光束（keyframes 仅 transform）", () => {
     expect(css).toMatch(/\.tp-trigger\.peak\s*\{[^}]*var\(--glow-cyan\)/);
     expect(css).toMatch(/\.tp-popover\.peak\s*\{[^}]*var\(--glow-cyan\)/);
