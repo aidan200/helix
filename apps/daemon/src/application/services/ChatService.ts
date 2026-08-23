@@ -104,6 +104,8 @@ export class ChatService implements ChatPort {
   private readonly thinking = new ThinkingBuffer();
   /** 在飞 run 的 promise（AD-4 删除收口链）：开 run 登记、收口清空——currentRun()/whenSettled() 等待面。 */
   private activeRun: Promise<void> | null = null;
+  /** closure 暂存缓冲（T2 送达补齐）：aborting 窗口 FIFO 暂存，abort 收尾回 idle 后逐条 flush（fire-and-forget sendMessage，失败 engine.error 可观测不崩链）。aborting 是瞬时窗口，内存缓冲即可（不做持久化）。 */
+  private readonly closureBuffer: string[] = [];
 
   constructor(private readonly deps: ChatServiceDeps | ChatServiceTestDeps) {
     this.session = deps.session ?? Session.create();
@@ -284,7 +286,7 @@ export class ChatService implements ChatPort {
     }
   }
 
-  /** closure 注入主线（AD-8 双通道之一；组合根接 SchedulerService 收口回调，非 ChatPort 成员）：idle 立即新 turn / running·steering 同队列同语义入队（source=closure，FIFO 保序）/ aborting·stopped 可观测丢弃。同步方法（调度链不 await）；新 turn fire-and-forget，异常经 engine.error 可观测不崩会话。 */
+  /** closure 注入主线（AD-8 双通道之一；组合根接 SchedulerService 收口回调，非 ChatPort 成员）：idle 立即新 turn / running·steering 同队列同语义入队（source=closure，FIFO 保序）/ aborting FIFO 暂存（T2 送达补齐：abort 收尾回 idle 后逐条 flush）/ stopped 可观测丢弃。同步方法（调度链不 await）；新 turn fire-and-forget，异常经 engine.error 可观测不崩会话。 */
   injectClosure(text: string): void {
     switch (this.lifecycle.current) {
       case "idle":
@@ -307,12 +309,38 @@ export class ChatService implements ChatPort {
         return;
       }
       case "aborting":
+        // T2 送达补齐：中断收尾窗口不丢弃——FIFO 暂存，abort 收尾回 idle 后逐条 flush（settleRunEnd 触发）。
+        this.closureBuffer.push(text);
+        return;
       case "stopped":
+        // 终态无可投递对象：可观测丢弃（closure 已在 closure_records 落盘，恢复会话可见）。
         this.publish("engine.error", {
           message: `closure 注入被丢弃（生命周期 ${this.lifecycle.current}）：${text.slice(0, 80)}`,
         });
         return;
     }
+  }
+
+  /** 触发缓冲 closure 续送（T2）：有在飞/收尾中 run → 挂其 promise settle 后再 drain——本方法常在 agent_end 同步回流段内被调（settleRunEnd），此刻引擎仍视为在飞，此窗再 start 会撞在飞守卫（delete-settle-race 同款竞态窗口）；无 run → 即刻 drain。 */
+  private scheduleClosureDrain(): void {
+    const run = this.activeRun;
+    if (run !== null) void run.then(() => this.drainClosureBuffer(), () => this.drainClosureBuffer());
+    else this.drainClosureBuffer();
+  }
+
+  /** 逐条 flush 缓冲 closure（T2）：idle 即发一条（fire-and-forget sendMessage，失败 engine.error——与 idle 分支同语义），该条 promise settle 后续发下一条（链式保 FIFO，单条失败不崩链）；非 idle（flush 窗口被新 run 占用）挂该 run 收口后重试（settleRunEnd 亦会再触发，幂等守卫收敛）；stopped/无 run 可挂时不投递（终态无可投递对象）。 */
+  private drainClosureBuffer(): void {
+    if (this.closureBuffer.length === 0) return;
+    if (this.lifecycle.current !== "idle") {
+      if (this.activeRun !== null) this.scheduleClosureDrain();
+      return;
+    }
+    const text = this.closureBuffer.shift()!;
+    void this.sendMessage(text)
+      .catch((err) => {
+        this.publish("engine.error", { message: `closure 注入失败：${(err as Error).message}` });
+      })
+      .then(() => this.drainClosureBuffer());
   }
 
   /** 系统停止（SystemPort.shutdown 经组合根调用）：终态，拒绝后续输入。 */
@@ -435,6 +463,9 @@ export class ChatService implements ChatPort {
     if (this.lifecycle.current !== "idle" && this.lifecycle.canTransition("idle")) {
       this.setLifecycle("idle");
     }
+    // T2 送达补齐：run 收口回 idle 后续送缓冲 closure（经 scheduleClosureDrain 挂本 run
+    // promise settle 后再发——本同步段内引擎仍在飞，直接 sendMessage 会撞在飞守卫）。
+    if (this.closureBuffer.length > 0) this.scheduleClosureDrain();
   }
 
   /** 收口当前 open Turn（steer drain 收口落点；settleRunEnd 前半同构）。 */
