@@ -1062,3 +1062,41 @@
 - sourceTask: T2.3（终验 C1 补登）
 - createdIn: iter-20260821-dg90
 - decisionLog: 终验决策（用户批准终验报告 §五「按建议执行」，2026-08-22）：discard——组合根生产/测试两形态 + EngineAssemblyMode 条款已被本迭代 TR-AD-1 修订覆盖（适用范围含「DaemonOptions 生产/测试形态（createTestDaemon）」、反例含「测试注入口写回生产 DaemonOptions=H2.3 两形态分离违例」），重复记录即双轨风险。注：候选提的「两形态接口模式」一般化部分已由 SPEC-iter-20260821-dg90-12（TR-AD-31）承载。
+
+### TR-AD-36（hotfix-20260822）
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md（技术规则新增）+ docs/kg/decisions.md（AD-1 hotfix-20260822 决策档案）
+- project: helix
+- reason: H-3 落地 P0-1 留白形成可复用新模式：daemon 进程内共享单例资源（CDP）不向子进程扩散实现，子进程经 BrowserPort 进程外实现（RemoteBrowserPort）+ wire tool-req/tool-res 帧转发，daemon 侧 ScopedBrowserProxy 纯函数收口归属校验（ownerId 强制=instanceId/tabId 归属拒绝/listTabs 过滤/管理面 4 方法不上 wire 有意收窄）；ownerId 单命名空间=agentId（"main"=MAIN_INSTANCE_ID 保留值）；lazy connect 调用方无关（SubAgent 首发可拉起，主线幂等复用）；并发靠归属校验不靠队列；截图路径过 IPC 图片体不过。BrowserPort.getStatus/listTabs async 化（远程化适配）。DAG 演进兼容存档（ownerId→nodeId 直用）。用户四轮裁决全文入 decisions.md AD-1（hotfix-20260822）。
+- evidence: H-3 闭环（task-h3-subagent-cdp；daemon 791/791 + shell 385/385 + tsc 零错 + E 层锚面 8/8；commit ee12e17）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/subagent/child/RemoteBrowserPort.ts；adapters/driven/subagent/ScopedBrowserProxy.ts；adapters/driven/subagent/transport/wire.ts；adapters/driven/subagent/SubagentLauncher.ts；adapters/driven/subagent/child/ChildMain.ts
+- sourceTask: H-3 SubAgent 接入 CDP（设计 design-subagent-cdp.md + 用户两轮裁决，2026-08-22）
+- createdIn: hotfix-20260822
+- decisionLog: 用户裁决「一起沉淀吧」（2026-08-22）——直写落盘（formalId=TR-AD-36，节点 id 稳定；提案全文 docs/temp/development/kg-sync-proposal-h123.md）
+
+### TR-AD-35-r2（hotfix-20260822）
+- changeType: 修改
+- targetNode: TR-AD-35
+- scope: docs/kg/architecture-rules.md TR-AD-35（规则段前置自检面扩展 + sidecar 父死看门狗义务；反例段补两条；anchors 补 parent-watchdog/dev-desktop 测试锚）
+- project: helix
+- reason: H-1 前置自检面扩展：cargo/rustc 一行提示 + rg 存在性检查（缺失自动 fetch-rg 幂等补，失败警告不阻塞）；tauri dev --config override 剥离 bundle 资源生产校验（RFC 7386 实测：数组覆盖成立、resources 必须 [] 非 {}、v2 格式无 tauri 包装键）；vite 端口覆盖位 devUrl 随动（修 F4.2 既有隐患：tauri dev 空等默认 5173 至 180s 超时退出）。H-4 sidecar 父死看门狗：壳异常死亡（Ctrl+C 前台组广播秒杀/SIGKILL/崩溃）时 sidecar reparent 成 pid 1 孤儿持锁常驻砖化下次启动（用户 100% 复现实证）；sidecar 形态周期判 ppid==1 → SIGTERM 同路径优雅关停；契约 sidecar-lifecycle.md §3 补款同步。
+- evidence: H-1（dev-desktop 17/17 + scripts 35/35 + 干净态端到端冒烟；commit 211b6d2）；H-4（unit 4/4 + 集成真孤儿化先红后绿 + daemon 791/791；工作区未提交）
+- implementationStatus: 完整实现
+- implementedCode: scripts/dev-desktop.ts；scripts/dev-desktop.test.ts；apps/daemon/src/infrastructure/parent-watchdog.ts；apps/daemon/src/main.ts
+- sourceTask: H-1 dev-desktop 前置体验热修（iter-20260822-m1uc 已决策待办）+ H-4 sidecar 孤儿持锁砖化修复（2026-08-22）
+- createdIn: hotfix-20260822
+- decisionLog: 用户裁决「一起沉淀吧」（2026-08-22）——直写落盘（formalId=TR-AD-35，节点 id 稳定）
+
+### AD-1-M3-补记（hotfix-20260822）
+- changeType: 修改
+- targetNode: 无（decisions.md AD-1「聚合/窗口三层模型与尾窗快照」结局段补记——AD-N 非图节点，不产生 kg 节点变更）
+- scope: docs/kg/decisions.md AD-1（M3）结局段
+- project: helix
+- reason: H-2 用户裁决：加载更早触发面 = 分页胶囊点击（滚动到顶自动触发退役——scrollTop<=0 吃橡皮筋过冲/短内容恒 0/程序化落顶自触发三重误触发，且为 e2e beforeCount 竞态源头 OI-VER-1④）；会话切换恒贴底 + 锚定基线随 sessionId 重置（前插补偿只吃同会话高度）。分页数据面（AD-1 主体口径）不变。
+- evidence: H-2 闭环（task-h2-chat-loadmore；shell 385/385 + F 层 e2e 128/129（唯一失败为基线既挂 CL-4 F3.4，stash 对照实证）+ E 层 CL-1 多会话真 daemon 通过；commit 47bb1fa）
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/widgets/chat-stream/ui/MessageFlow.tsx；apps/shell/src/widgets/chat-stream/ui/MessageFlow.test.tsx
+- sourceTask: H-2 chat 加载更多热修（2026-08-22）
+- createdIn: hotfix-20260822
+- decisionLog: 用户裁决「一起沉淀吧」（2026-08-22）——直写落盘（决策档案补记，无图节点变更）

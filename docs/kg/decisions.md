@@ -12,7 +12,7 @@
 - **上下文**：多会话 + 多实例（SubAgent）下，快照全量推送不可行（会话无界增长）；恢复重放需保留 per-instance 完整性。
 - **选项**：① 全量快照 + 前端增量；② 尾窗快照 + 游标分页补历史；③ 前端自拉历史（无快照）。
 - **裁决与理由**：选 ②。定稿参数：快照尾窗 30 条（TAIL_WINDOW_SIZE=30，per-instance channel 分组完整保留不截断——硬约束）；session.loadHistory 游标分页（页 50、上限 200，前插去重 + hasMore 禁用态）；清单/历史结果走点对点结果帧（TR-AD-21）；恢复重放含 SubAgent 历史（RestoreService.replaySubAgentHistory 双源去重）。
-- **结局**：已落地并验证（E 层 CL-1-e2e-multi-session 分页断言 + restart-restore-all；契约 B §1.3/§1.4/§2.3 回填）。
+- **结局**：已落地并验证（E 层 CL-1-e2e-multi-session 分页断言 + restart-restore-all；契约 B §1.3/§1.4/§2.3 回填）。hotfix-20260822 补记（H-2 用户裁决）：加载更早触发面 = 分页胶囊点击——滚动到顶自动触发退役（scrollTop<=0 三重误触发：macOS 橡皮筋过冲/短内容恒 0/程序化落顶自触发，且为 e2e beforeCount 竞态源头）；会话切换恒贴底 + 视口锚定基线随 sessionId 重置（前插补偿只吃同会话高度，旧会话高度不进公式）。数据面（尾窗/游标/前插去重/hasMore 禁用）不变。
 
 ## AD-2 模型模块（auth/目录/默认/切换，M3 落地定稿）
 
@@ -103,3 +103,12 @@
 - **选项**：① 页级滚动（.p4-page 惯例：页面本体 overflow-y，页头随内容滚走）；② 应用式固定壳（页头/控制条/IconRail 固定不出窗口，仅结果框内滚）。
 - **裁决与理由**：用户选 ②——「项目未来主要是客户端，不能让 header 或菜单栏滑出窗口」。定稿：DemoConsole 全链移除（组件/dev 管道/样式/i18n）；高度链 .p1-page→.p1-body→.p1-main→.p1-table-card→.p1-tbody 全程 flex+min-height:0，结果框内滚且高度随窗口自适应；实例面板固定栏 + .ip-list 自滚；上下文卡限高 42% 自滚防挤占；原型残留文案（trace.sub/route）清除；chevron 12px 居中方盒消非方盒旋转位移。
 - **结局**：已落地并验证（F 层 fidelity 5/5——R-P1-1 断言按新裁决改写为固定壳契约成回归守护；E 层 4/4；shell 单测 284/0）。
+
+## AD-1 SubAgent 经 wire 转发使用共享 CDP 单例（hotfix-20260822 / 用户裁决）
+
+**digest**：给子进程开放 daemon 单例资源、评审进程外转发与 owner 归属隔离、DAG 节点化资源映射时读本文。
+
+- **上下文**：P0-1（web-access 规划审核）否决子进程直连浏览器（各自连 = 管理面分裂），留白「子进程↔daemon 转发通道后置」——SubAgent 一直无 browser 工具（SubAgentProfile 7 工具）。CDP 单例（CdpConnectionManager）内嵌 daemon 进程，子进程是独立 bun 进程，无法共享内存对象。
+- **选项**：①子进程直连 CDP（各 new 连接管理器）；②转发通道（子进程 RemoteBrowserPort + wire tool-req/tool-res 帧 + daemon 侧 ScopedBrowserProxy 归属代理）；③主线代办（agent_send 请主线操作浏览器）。
+- **裁决与理由**：选 ②。四轮裁决要点：a) 转发通道保 P0-1 单例原则，BrowserTools/CoreToolExecutor 零改动（条件注册先例）；b) ownerId 单命名空间 = agentId（"main" = MAIN_INSTANCE_ID 保留值，非第二体系），各 agent 自开自关、不做所有权移交/共享，回收 = 终态钩子 reclaimOwner + idle sweep 同口径；c) 并发不引队列——安全边界 = tab 归属校验（操作集合不相交），非互斥（sendCDP 单 WS 在飞并发 + id 关联）；d) wire 白名单 = 12 个工具可达方法全量放行，管理面 4 方法（connect/onStatusChange/stop/reclaimOwner）不上 wire（越 owner 边界，归属校验兜不住，有意收窄）；e) lazy connect 调用方无关——SubAgent 首发调用即可拉起连接，主线幂等复用，连接归 daemon 与子进程生命周期解耦；f) 浏览器进程启动能力不做（helix 只发现不启动；未来 Launcher 落 daemon 侧——子进程 spawn 的浏览器临时 profile 不在发现矩阵，主线反不可见）；g) DAG 演进存档：BrowserPort 传输无关（进程内/IPC/未来网络 RPC 可替换），ownerId 直接当 nodeId，main 实例 tab 无终态钩子的缺口（idle sweep 兜底）待节点终态事件自然拉平。
+- **结局**：已落地并验证（H-3：daemon 791/791 + shell 385/385 + tsc 零错 + E 层锚面 8/8；commit ee12e17）；规则化入 TR-AD-36。

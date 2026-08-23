@@ -1332,17 +1332,21 @@ anchors:
     - scripts/dev-desktop.ts
     - scripts/compile-daemon.ts
     - apps/daemon/src/main.ts
+    - apps/daemon/src/infrastructure/parent-watchdog.ts
   testedBy:
     - apps/daemon/test/arch-guard/form-isomorphism.test.ts
     - smoke/verify-compiled-daemon.ts
+    - scripts/dev-desktop.test.ts
+    - apps/daemon/test/integration/sidecar-mode.test.ts
+    - apps/daemon/test/unit/parent-watchdog.test.ts
 relations:
   governs:
     - E-AgentRuntime
-updatedIn: iter-20260822-m1uc
+updatedIn: hotfix-20260822
 ```
 
 ## 规则
-daemon 存在两种运行形态：dev 形态 = bun 直跑源码（一行 dev 命令编排：daemon 经壳 sidecar wrapper 直跑源码 + vite dev server + tauri dev；前置自检 Rust/cargo，缺失时输出一行安装提示并退出——Rust 是 Tauri 壳构建前提，非 helix 运行时依赖）；打包形态 = bun build --compile 单文件 sidecar。两形态行为一致性由 compile 产物等价验证兜底（F2.2：compile 单文件验证 spawn 自身跑子进程链路 + bun:sqlite，产出「功能等价于 dev 直跑」的验证报告，管线内步骤非手工检查）；compile 产物只在构建管线验证，dev 永远直跑源码。daemon 行为不得按运行形态分叉：禁止 daemon 代码内出现「检测自身是 compile 产物则走另一路径」类分支（资源定位差异只允许经启动参数注入消解，见三方二进制解析收口规则；argv 分发入口 --sidecar/--child-main 是双形态共享的同一路径，非形态分支）。本规则是 TR-AD-12 的 daemon 侧互补：前端永远走同一 WS 通路，daemon 侧同样双形态同构。
+daemon 存在两种运行形态：dev 形态 = bun 直跑源码（一行 dev 命令编排：daemon 经壳 sidecar wrapper 直跑源码 + vite dev server + tauri dev；前置自检 = Rust/cargo（缺失输出一行安装提示并退出——Rust 是 Tauri 壳构建前提，非 helix 运行时依赖）+ rg 存在性检查（缺失自动 fetch-rg 幂等补，失败一行警告不阻塞——dev rg 走 PATH/config 三级解析兜底，顺带为 build 暖场）；tauri dev 经 `--config '{"bundle":{"externalBin":[],"resources":[]}}'` override 剥离 bundle 资源生产校验——dev 不消费 externalBin（daemon 跑源码）与 resources（rg 三级解析），tauri.conf 生产三通道声明不动（RFC 7386 实测：数组字段覆盖语义成立、resources 必须 [] 非 {}——空对象 patch 对 map 字段是递归合并空操作、必须 v2 格式无 "tauri" 包装键）；vite 端口覆盖位经同通道 devUrl 随动——tauri dev 启动前等待 devUrl 可达（180s 超时退出），不随动则空等默认 5173（hotfix-20260822 H-1））；打包形态 = bun build --compile 单文件 sidecar。两形态行为一致性由 compile 产物等价验证兜底（F2.2：compile 单文件验证 spawn 自身跑子进程链路 + bun:sqlite，产出「功能等价于 dev 直跑」的验证报告，管线内步骤非手工检查）；compile 产物只在构建管线验证，dev 永远直跑源码。daemon 行为不得按运行形态分叉：禁止 daemon 代码内出现「检测自身是 compile 产物则走另一路径」类分支（资源定位差异只允许经启动参数注入消解，见三方二进制解析收口规则；argv 分发入口 --sidecar/--child-main 是双形态共享的同一路径，非形态分支）。sidecar 形态 daemon 侧义务（hotfix-20260822 H-4，契约 §3 补款）：父死看门狗——壳的收编只在优雅退出路径执行，壳异常死亡（SIGKILL/崩溃/Ctrl+C 前台进程组广播秒杀）时 sidecar 被 reparent 到 pid 1 成孤儿持锁常驻（砖化下次启动）；sidecar 形态周期（5s）判定 ppid==1 → 走 SIGTERM 同一优雅关停。判据无歧义（壳恒直 spawn 且终身看护，sidecar 形态父死 = 孤儿）；仅 sidecar 形态接线（CLI 形态父 = 终端会话，归 SIGHUP 体系管）。本规则是 TR-AD-12 的 daemon 侧互补：前端永远走同一 WS 通路，daemon 侧同样双形态同构。
 
 ## 理由
 iter-20260822-m1uc CL-4 内嵌决策（用户 2026-08-22 确认）：dev 直跑源码保证调试体验（断点/热改/源码栈），compile 产物只在管线验证避免 dev 期被编译速度拖累；F-7① 实锤 compile 产物 spawn 自身跑 ChildMain 链路未验证——形态差异必须有机械兜底，否则「dev 能跑、打包炸」会在分发后才暴露；行为分叉分支一旦出现即产生双轨，与 TR-AD-12 前端面同构约束同一原理。
@@ -1351,4 +1355,45 @@ iter-20260822-m1uc CL-4 内嵌决策（用户 2026-08-22 确认）：dev 直跑�
 dev 编排脚本（dev-desktop）与前置自检实现评审；构建管线 F2.2 等价验证步骤维护；daemon 进程启动/子进程 spawn 相关改动（ChildMain 链路、bun:sqlite 使用）评审；任何「按形态分支」的 daemon 代码评审。
 
 ## 反例
-daemon 里写 if (isCompiled) { 用另一套子进程启动方式 }——双形态行为分叉，F2.2 等价验证失去意义（验证的不再是同一份行为）；或 dev 也跑 compile 产物求「绝对一致」——dev 调试体验被编译周期拖垮，且 CL-4 内嵌决策被违反；或前置自检缺失时直接 tauri dev 报一堆 Rust 工具链原始错误——F4.1 要求的一行安装提示指引被绕过；或 dev:desktop 编排器直接 spawn daemon 与壳 sidecar 机制并存——双 daemon 撞默认端口 fail-fast，daemon 必须经壳 sidecar + HELIX_SIDECAR_PATH wrapper 注入（AF-6/T4.1 落地口径）。
+daemon 里写 if (isCompiled) { 用另一套子进程启动方式 }——双形态行为分叉，F2.2 等价验证失去意义（验证的不再是同一份行为）；或 dev 也跑 compile 产物求「绝对一致」——dev 调试体验被编译周期拖垮，且 CL-4 内嵌决策被违反；或前置自检缺失时直接 tauri dev 报一堆 Rust 工具链原始错误——F4.1 要求的一行安装提示指引被绕过；或 dev:desktop 编排器直接 spawn daemon 与壳 sidecar 机制并存——双 daemon 撞默认端口 fail-fast，daemon 必须经壳 sidecar + HELIX_SIDECAR_PATH wrapper 注入（AF-6/T4.1 落地口径）；或去掉 dev 的 --config override 恢复对 tauri.conf 生产资源声明的依赖——干净态首次 dev:desktop 被 externalBin/resources 生产校验连续误伤（exit 101）回归（H-1 实证）；或 sidecar 父死不管——壳异常死亡后 daemon reparent 成 pid 1 孤儿持锁常驻，下次启动新 sidecar 撞锁 fail-fast、壳看护重试 3 次注定失败砖化（H-4 实证，父死看门狗收口）。
+
+```kg-node
+id: TR-AD-36
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: SubAgent 进程外资源共享通道（wire 转发 + owner 归属校验）
+status: active
+digest: 给子进程开放 daemon 进程内共享单例资源（CDP/浏览器）、动 subagent wire 协议、评审进程外 port 实现时
+derivedFrom:
+  - AD-1（hotfix-20260822：SubAgent 接入 CDP 用户裁决——转发通道/归属校验/无队列）
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/subagent/child/RemoteBrowserPort.ts
+    - apps/daemon/src/adapters/driven/subagent/ScopedBrowserProxy.ts
+    - apps/daemon/src/adapters/driven/subagent/transport/wire.ts
+    - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
+  testedBy:
+    - apps/daemon/test/unit/subagent-remote-browser-port.test.ts
+    - apps/daemon/test/unit/subagent-scoped-browser-proxy.test.ts
+    - apps/daemon/test/unit/subagent-wire.test.ts
+    - apps/daemon/test/integration/subagent-child.test.ts
+relations:
+  governs:
+    - E-AgentRuntime
+updatedIn: hotfix-20260822
+```
+
+## 规则
+daemon 进程内共享单例资源（本期 = CDP 浏览器连接 CdpConnectionManager）不向子进程扩散实现：子进程（ChildMain）经 port 的进程外实现（RemoteBrowserPort implements BrowserPort）+ stdio wire 帧（tool-req/tool-res，reqId 关联，256KB 出口截断护栏）转发调用，daemon 侧 ScopedBrowserProxy 纯函数收口后调单例。六要点：①wire 白名单 = 工具可达的 12 个操作方法；管理面 4 方法（connect/onStatusChange/stop/reclaimOwner）不上 wire，子进程侧本地安全 noop——stop/reclaimOwner 越 owner 边界（波及他人 tab/全局连接），归属校验兜不住，有意收窄；②owner 归属强制：openTab ownerId 改写为通道 instanceId（不可伪造），tabId 方法查归属拒绝越权，listTabs 过滤 owner 子集，getStatus 透传；launcher 只转发不决策（AG-12），校验全部落纯函数面；③ownerId 单命名空间 = agentId（"main" = MAIN_INSTANCE_ID 保留值）；各 agent 自开自关，回收 = 终态钩子 reclaimOwner(agentId)（既有接线）+ idle sweep 同口径，无移交/共享机制；④lazy connect 调用方无关：SubAgent 首发调用即可拉起连接，主线幂等复用；连接生命周期 = daemon，子进程退出只回收其 tabs 不断连；⑤并发安全靠归属校验（操作集合不相交）不靠队列互斥——sendCDP 单 WS 在飞并发 + id 关联，并发上限间接由调度器全局预算约束；⑥大体积不过 IPC：截图只传路径，子进程自行 readFile 回填（同机文件系统共享）。BrowserPort.getStatus/listTabs 为此 async 化（同步签名是进程外化障碍）。演进兼容存档：BrowserPort 传输无关（进程内/IPC/未来网络 RPC 可替换），ownerId 可直接当 DAG nodeId。
+
+## 理由
+P0-1（plan-web-access 审核）否决子进程直连（各自连浏览器 = TabRegistry/idle sweep/回收管理面分裂 + 授权弹窗/竞态），留白「子进程↔daemon 转发通道后置」；H-3 落地该留白。域形状 port（零 CDP 符号、全 JSON 可序列化）天然可进程外化；BrowserTools/CoreToolExecutor 条件注册先例使工具面零改动。归属校验而非互斥队列：tab 唯一归属一个 owner 后操作集合不相交，无共享资源可互斥。
+
+## 适用范围
+subagent wire 协议扩展；子进程新增 daemon 单例资源访问能力（同模式复用：新 port 进程外实现 + Scoped 代理）；BrowserPort 签名演进评审；DAG 节点化时 ownerId→nodeId 映射评审。
+
+## 反例
+子进程直连 CDP 或自起浏览器进程——P0-1 否决形态复发：管理面分裂，且自起浏览器的临时 profile 不在发现矩阵（daemon 反而不可见）；或把 stop/reclaimOwner 放上 wire——子进程停掉全局共享连接/回收主线 tab，越 owner 边界；或为多子进程并发加队列互斥——误把共享资源当互斥问题（归属校验已切开操作集合）；或转发帧携带截图 base64 等大体积负载——行 JSON 无流控背压失控（路径传参 + 同机文件系统共享是正解）。
