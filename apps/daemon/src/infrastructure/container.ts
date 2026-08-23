@@ -13,7 +13,7 @@ import { ResourceService } from "../application/services/ResourceService";
 import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAdapter";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
-import { lastMainAnchorId } from "@helix/protocol"; // 锚扫描基元单源 projection
+import { lastMainAnchorId, type AnchorScanEntry } from "@helix/protocol"; // 锚扫描基元单源 projection
 import { resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
 import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
@@ -351,12 +351,37 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    统一走 backfill；闭合先于 initialize，两步间无任何回调触发点） ──
   // spawn 透传当前模型（注册表就绪，热会话可观测）
   backfill.currentModelOf = (sessionId: string) => registry.peek(sessionId)?.chatService.currentModel;
-  // 契约 v0.3 §1 规则②：spawn 时刻锚计算（目标会话聚合 entries 数组序
-  // 扫描；冷会话理论不可达——spawn 必经热会话门面，防御 null 流首）
+  // 契约 v0.3 §1 规则②：spawn 时刻锚计算。扫描面与快照路径同源
+  // （SnapshotMapper.toSnapshotDto merged 段同语义）：domain entries + toolCall
+  // 记录按时间升序合并后扫——tool 执行不落 domain Entry（独立 toolCalls 集合），
+  // 只扫 entries 会把锚落在 agent_spawn 工具调用之前（实时卡片位置 bug）。
+  // lastMainAnchorId 只用数组序不掺 ts 排序——合并后须先排好再扫；并列稳定
+  // （entries 组内原序在前，与快照路径 .sort 稳定语义一致）。
+  // 冷会话理论不可达——spawn 必经热会话门面，防御 null 流首。
   backfill.computeSpawnAnchor = (sessionId: string) => {
     const runtime = registry.peek(sessionId);
     if (runtime === undefined) return null;
-    return lastMainAnchorId(runtime.chatService.sessionView.toSnapshot().entries);
+    const entries = runtime.chatService.sessionView.toSnapshot().entries;
+    const toolCalls = runtime.chatService.toolCallData;
+    // 无 tool 调用记录：防御路径与旧语义一致（聚合 entries 数组序直扫）
+    if (toolCalls.length === 0) return lastMainAnchorId(entries);
+    const merged: AnchorScanEntry[] = [
+      ...entries.map((entry) => ({ key: Date.parse(entry.createdAt), entry: entry as AnchorScanEntry })),
+      ...toolCalls.map((record) => ({
+        // toolCallEntryDto 同源 ts 口径：startedAt → endedAt → 0
+        key:
+          record.startedAt !== undefined
+            ? Date.parse(record.startedAt)
+            : record.endedAt !== undefined
+              ? Date.parse(record.endedAt)
+              : 0,
+        // id = toolCallId（toolCallEntryDto 同）；instanceId 缺省 = main 天然是锚候选
+        entry: { id: record.id, instanceId: record.instanceId } satisfies AnchorScanEntry,
+      })),
+    ]
+      .sort((a, b) => a.key - b.key)
+      .map((item) => item.entry);
+    return lastMainAnchorId(merged);
   };
   // AD-3三级链第二级：spawn 会话快照模型源（快照 id → 完整 Model
   // 经 resolveConfigModel 解析，解析单点同源）

@@ -278,6 +278,42 @@ describe("T2.1 agent.spawned 增量帧锚点（真实 WS 连接）", () => {
   }, 15000);
 });
 
+// ── T6：spawn 锚扫描面含 tool 调用记录（实时路径 ↔ 快照路径同源） ──
+// bug 复现：SubAgent 卡片实时渲染在 agent_spawn 工具调用之前（切 session 走
+// 快照后正常）——实时锚（computeSpawnAnchor）原只扫 domain entries，tool 执行
+// 不落 Entry → spawn 时刻锚落在 spawn 工具调用之前。修复后两路径同源：domain
+// entries + toolCall 记录按时间合并后取最后 main 锚 = agent_spawn 工具调用自身。
+
+describe("T6 spawn 锚扫描面含 tool 调用记录（实时路径 = 快照路径合并流同源）", () => {
+  test("主 turn 中 agent_spawn 工具 tool_execution_start 已记录后 spawn → 锚 = 该 toolCallId（非用户/早期 entry）", async () => {
+    const rig = await makeRig([
+      { toolCalls: [{ toolName: "agent_spawn", args: { task: "子任务" }, durationMs: 300 }], text: "完成" },
+    ]);
+    const run = rig.daemon.chat.sendMessage("派一个子代理"); // e1(user) 落聚合后开 turn（不 await——工具窗口内 spawn）
+    // pi 事件序：tool_execution_start（同步建 ToolCallRecord）→ 工具 execute 内调 spawn
+    await until(() => rig.daemon.session.getSnapshot().toolCalls.length > 0, 3000, "等待 toolCall 记录落地");
+    const toolCallId = rig.daemon.session.getSnapshot().toolCalls[0]!.id;
+
+    rig.daemon.orchestration.spawn("工具执行窗口内 spawn");
+    // 锚 = agent_spawn 工具调用自身 entry id（快照路径同语义）；修复前 = e1（用户消息）
+    expect(instanceDtoOf(rig.daemon, "agent-1")?.anchorEntryId).toBe(toolCallId);
+    await run; // turn 收尾（assistant e2）
+  }, 10000);
+
+  test("边界：tool 轮次完成后 spawn → 锚 = tool 之后 assistant entry（合并流时间序，无 toolCall 面行为不退化）", async () => {
+    const rig = await makeRig([
+      { toolCalls: [{ toolName: "web_search", durationMs: 5 }], text: "回复一" },
+    ]);
+    await rig.daemon.chat.sendMessage("消息一"); // e1(user) + [tc-1 tool] + assistant（id 预分配跳号）
+    // 合并流按时间升序：tool 记录插在 user/assistant 之间，最后 main 锚仍是
+    // 主轴尾 entry（与修复前一致——从快照主轴取期望，不硬编码跳号后 id）
+    const tailMainId = snapshotDto(rig.daemon).entries.at(-1)?.id;
+    expect(tailMainId).toBeDefined();
+    rig.daemon.orchestration.spawn("tool 完成后 spawn");
+    expect(instanceDtoOf(rig.daemon, "agent-1")?.anchorEntryId).toBe(tailMainId!);
+  });
+});
+
 // ── 恢复重放：同源同值 + 边界（契约 §1 恢复重放边界记录在案） ─────────
 
 describe("T2.1 恢复重放锚点（真 SQLite tmp 重启）", () => {
