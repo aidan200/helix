@@ -196,7 +196,8 @@ export interface AgentInstantiatedPayload {
   /**
    * SubAgent spawn 解析的 thinkingLevel 快照（thinking 批④，AD-4④/AD-6：
    * 自身 profile 槽位 > 兜底 medium；字符串透传 AD-2）。Sub 实例必填携带
-   * （协议契约面）；主实例在主会话解析链落地（T1.2）前不携带。
+   * （协议契约面）；主实例不携带（AD-4④ 语义范围 = SubAgent spawn 快照，
+   * 主实例无此契约要求——架构师终审 F-3 裁决维持可选不收窄）。
    */
   readonly thinkingLevel?: string;
   readonly profileSnapshot: ProfileSnapshotData;

@@ -196,11 +196,9 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
       // 已含全部历史（v0/v0.1 旧快照兼容同判）
       const startCursor = snap.tailStartCursor ?? null;
       // thinking 批③（契约 ③，additive）：快照 thinking 读面 → 切片初始化
-      //（F1.5 快照侧：切换/重连/重启后 UI 与引擎一致）。⚠️ 协议
-      // SessionSnapshotDto 尚未登记 thinking 字段（daemon SessionStateView 已
-      // 携带、SnapshotMapper 未映射——已上报 architecture-feedback）；本消费按
-      // additive 可选位防御读取，wire 映射补齐后自动生效；缺省保留现值（旧
-      // 快照/未映射兼容）
+      //（F1.5 快照侧：切换/重连/重启后 UI 与引擎一致）。协议 SessionSnapshotDto
+      // 已登记 thinking 可选字段 + SnapshotMapper 已映射（修复批 F-8）；本消费按
+      // additive 可选位防御读取，缺省保留现值（旧快照/未映射兼容）
       const snapThinking = (snap as { thinking?: ThinkingSlice }).thinking;
       return {
         ...s,
