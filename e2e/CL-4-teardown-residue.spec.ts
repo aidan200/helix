@@ -2,7 +2,7 @@
  * T5.2 —— CL-4：teardown 零残留纪律断言（TR-TEST-6 机械判据）。
  *
  * 「零残留」三面（决策消解）：①tmp 基目录（fixture 根，helix-e2e-* 前缀）
- * 无残留子目录/文件；②ps 无 daemon（launcher.ts）/SubAgent（ChildMain.ts）
+ * 无残留子目录/文件；②ps 无 daemon（launcher.ts）/SubAgent（--child-main）
  * 子进程（命令行特征匹配，本 worktree 范围）；③daemon 端口可 bind。
  * 任一命中即红（非软警告）——本 spec 与 daemon-fixture teardown 断言双层
  * 守护：spec 覆盖「连跑两轮后」的套件级判据（第二轮的全量断言面），
@@ -63,7 +63,7 @@ test.describe("T5.2 CL-4 teardown 零残留纪律（TR-TEST-6）", () => {
     // 进程面正控：真子进程在场（ps 特征命中——残留探测器抓得到活进程）
     let child = { pid: -1, command: "" };
     for (let i = 0; i < 100 && child.pid < 0; i++) {
-      const hit = findResidueProcesses().find((p) => p.command.includes("ChildMain.ts"));
+      const hit = findResidueProcesses().find((p) => p.command.includes("--child-main"));
       if (hit) child = { pid: hit.pid, command: hit.command };
       else await sleep(100);
     }
@@ -84,7 +84,7 @@ test.describe("T5.2 CL-4 teardown 零残留纪律（TR-TEST-6）", () => {
     // （subagentLauncher undefined）→ ChildMain 孤儿化 → 兜底回收独立于 O-6
     await d.stop();
     expect(d.exited).toBe(true);
-    const orphan = findResidueProcesses().filter((p) => p.command.includes("ChildMain.ts"));
+    const orphan = findResidueProcesses().filter((p) => p.command.includes("--child-main"));
     expect(orphan.length, `daemon 退出后 SubAgent 子进程应孤儿存活（ps）：${JSON.stringify(orphan)}`).toBeGreaterThan(0);
 
     // 兜底回收：SIGTERM（组）→ 3s 超时 SIGKILL（探针 ignoreAbort——走满升级路径）
@@ -110,7 +110,7 @@ test.describe("T5.2 CL-4 teardown 零残留纪律（TR-TEST-6）", () => {
       "txt",
       [
         `① tmp 基目录残留（${tmpdir()} 下 helix-* 全前缀）：${JSON.stringify(tmpResidue)}`,
-        `② 残留进程（launcher/ChildMain 特征）：${JSON.stringify(procResidue, null, 2)}`,
+        `② 残留进程（launcher/--child-main 特征）：${JSON.stringify(procResidue, null, 2)}`,
         `③ 端口 ${E2E_DAEMON_PORT} 可 bind：${portFree}`,
       ].join("\n"),
       "CL-4",
