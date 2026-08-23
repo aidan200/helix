@@ -18,7 +18,10 @@
     "test:shell": "vitest run apps/shell",
     "test:e2e": "playwright test -c playwright.e2e.config.ts",
     "test:e2e:x2": "playwright test -c playwright.e2e.config.ts && playwright test -c playwright.e2e.config.ts",
-    "test:protocol": "cd packages/protocol && bun test"
+    "test:protocol": "cd packages/protocol && bun test",
+    "typecheck": "bash scripts/typecheck-all.sh",
+    "verify": "bun run typecheck && bun run test && bun run test:protocol && bun run test:shell",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "@helix/protocol": "workspace:*",

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# pre-commit 静态闸：四包 typecheck（约 6s）。
+# 安装：根 package.json prepare 脚本在 bun install 时自动
+# `git config core.hooksPath .githooks`；手动等价命令同左。
+# 紧急绕过：git commit --no-verify（验证声明纪律见 docs/kg/testing-rules.md TR-TEST-8）。
+set -euo pipefail
+exec bash "$(git rev-parse --show-toplevel)/scripts/typecheck-all.sh"

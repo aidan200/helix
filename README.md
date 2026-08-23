@@ -13,12 +13,14 @@
 前提：Bun（`packageManager: bun@1.3.14`）；桌面端 dev/打包另需 Rust 工具链（cargo/rustc——Tauri 壳构建前提，非 helix 运行时依赖）。
 
 ```bash
-bun install
+bun install        # 同时经 prepare 脚本自动配置 git hooks（core.hooksPath=.githooks）
 
 bun run dev          # daemon 直跑（源码）
 bun run dev:shell    # 前端 vite dev
 bun run dev:desktop  # 桌面端 dev 一行编排：daemon 源码直跑 + vite dev + tauri dev
 ```
+
+提交闸门：`pre-commit` 钩跑四包 typecheck（约 6s，`scripts/typecheck-all.sh`）；完整本地验证 = `bun run verify`（typecheck + daemon/protocol/shell 三套单测）。钩未生效时手动执行 `git config core.hooksPath .githooks`。
 
 `bun run dev:desktop` 启动前自检 cargo/rustc；缺失时输出一行安装提示（rustup 命令）并退出，按提示安装即可。
 

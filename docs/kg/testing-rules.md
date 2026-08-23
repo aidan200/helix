@@ -259,3 +259,36 @@ T3.2 解 F-8 环实证：madge 首跑漏 type 边险些误判消环；以三环�
 
 ## 反例
 用只统计值导入的工具跑出「零环」即宣称解环成功（type-only 环全程不可见——F-11 两环恰为此形态）；或工具配置变更后不重跑阳性对照直接采信零环输出（配置漂移使灵敏度静默下降）。
+
+```kg-node
+id: TR-TEST-8
+kind: rule
+graph: tech
+layer: common
+scope: domain
+stack: shared
+name: 验证声明纪律——机械闸优先，声明必须对应实跑
+status: active
+digest: 写 commit/报告验证声明、改 import 形态/tsconfig/构建配置、评审验证证据、接入新验证闸时
+derivedFrom:
+  - b3542d3 事件（.ts 扩展名 import 引入 TS5097 静默合入 main——验证声明仅 audit:a11y、不含 tsc；无远端 CI 触发，OI-CI-1）
+anchors:
+  implementedBy:
+    - scripts/typecheck-all.sh
+    - .githooks/pre-commit
+    - package.json#scripts.prepare
+    - package.json#scripts.verify
+updatedIn: hotfix-20260823
+```
+
+## 规则
+验证双轨制：①机械闸——pre-commit 钩强制四包 typecheck（scripts/typecheck-all.sh 为唯一来源；`bun install` 经 prepare 脚本自动挂接 core.hooksPath=.githooks）；完整本地验证 = `bun run verify`（typecheck + daemon/protocol/shell 三套单测）。②声明纪律——commit message / 任务报告中的验证声明必须逐条对应实跑命令与退出码（「X 全绿」 = 实跑过 X）；改 import 形态 / tsconfig / 构建配置后必须重跑全量闸——目标验证通过 ≠ 全闸通过（b3542d3 改 .ts 扩展名服务 node 直载面，audit:a11y 绿但 tsc 面 TS5097 断裂）。绕过闸（--no-verify）仅限紧急场景且必须在提交信息中显式声明。
+
+## 理由
+b3542d3 实证：仓库无 git 远端（OI-CI-1，GitHub Actions workflow 已交付但无法触发），验证完全靠提交者自觉声明；该提交的验证矩阵（audit:a11y）不覆盖 tsc，断裂静默合入 main 直至两日后续任务实测发现。无机械闸时自觉声明必然漂移——声明的是「跑过的命令」，不是「该跑的闸」。
+
+## 适用范围
+所有 commit/报告的验证声明；新验证命令/闸的接入评审（单点化进 typecheck-all.sh / verify）；import 形态/tsconfig/构建管线变更后的验证矩阵评审；CI 远端接入后本地闸与 CI 闸口径对齐。
+
+## 反例
+声明「四包 tsc 零错误」但只实跑了部分包或跑的是别的命令（声明矩阵 ⊂ 该跑矩阵）；或变更 tsconfig/import 形态后只验证目标消费者（如 node 直载面）不重跑受影响闸（tsc）；或 --no-verify 绕过后不在提交信息中声明；或钩/脚本另起一份实现与 typecheck-all.sh 双源漂移。
