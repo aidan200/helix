@@ -177,6 +177,13 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       { registry: "cmd", anchor: "chat.send", field: "images" },
       { registry: "evt", anchor: "chat.message.completed", field: "entry.images" },
       { registry: "evt", anchor: "tool.call.result", field: "entry.images" },
+      // v0.11 批次（thinking 批，iter-20260823-6ps5 T1.1）：首登必填字段 presence（防零登记复发）
+      { registry: "cmd", anchor: "thinking.set", field: "level" },
+      { registry: "evt", anchor: "thinking.changed", field: "override" },
+      { registry: "evt", anchor: "thinking.changed", field: "effective" },
+      { registry: "evt", anchor: "agent.instantiated", field: "thinkingLevel" },
+      { registry: "evt", anchor: "model.catalog.result", field: "models[].reasoning" },
+      { registry: "evt", anchor: "model.catalog.result", field: "models[].thinkingLevels" },
     ];
     const missing: string[] = [];
     for (const item of required) {

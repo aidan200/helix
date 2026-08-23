@@ -104,7 +104,7 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "trace.query.result":
       return `trace-result:${event.payload.events.length}:${event.payload.instances.length}:${event.payload.page.loaded}:${event.payload.page.total}:${event.payload.page.hasMore}`;
     case "agent.instantiated":
-      return `instantiated:${event.payload.instanceId}:${event.payload.profileKind}:${event.payload.profileSnapshot.model}`;
+      return `instantiated:${event.payload.instanceId}:${event.payload.profileKind}:${event.payload.profileSnapshot.model}:${event.payload.thinkingLevel}`; // v0.11：+ thinkingLevel（thinking 批④）
     case "agent.model.changed":
       return `model-timeline:${event.payload.instanceId}:${event.payload.from}:${event.payload.to}`;
     // ── v0.6 agent.config 族（M6 T3；result 点对点 + changed 广播）──
@@ -124,6 +124,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     // ── v0.9 web.start 结果帧（T7 CDP 显式启动通路；点对点）──
     case "web.start.result":
       return `web-start-result:${event.payload.status}:${event.payload.status === "skipped" ? event.payload.reason : "-"}`;
+    // ── v0.11 thinking 族（thinking 批①；覆盖/生效双位广播）──
+    case "thinking.changed":
+      return `thinking-changed:${event.payload.override ?? "null"}:${event.payload.effective ?? "null"}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -195,6 +198,9 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     // ── v0.9 web 族（T7 CDP 显式启动通路）──
     case "web.start":
       return "web-start";
+    // ── v0.11 thinking 族（thinking 批①；per-session 覆盖写面）──
+    case "thinking.set":
+      return `thinking-set:${cmd.sessionId ?? "-"}:${cmd.payload.level}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

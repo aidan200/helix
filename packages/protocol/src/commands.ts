@@ -8,6 +8,7 @@
  * v0.6 新增 2（agent.config 族，M6 T3 智能体配置页）；
  * v0.7 新增 2（web 族，T4 联网状态图标）；
  * v0.9 新增 1（web.start，T7 CDP 显式启动通路）。
+ * v0.11 新增 1（thinking.set，thinking 批，iter-20260823-6ps5 T1.1，AD-2/AD-4）。
  * `CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
  * 分发。会话作用域命令的信封 sessionId 必填（AD-4 路由位，类型层可选、
  * 客户端纪律保证）；全局命令（session.list / model.set_default /
@@ -370,7 +371,25 @@ export interface WebStartCommand extends CommandFrame<EmptyPayload> {
   type: "web.start";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27） */
+// ── v0.11 新增：thinking 族（thinking 批 ①，iter-20260823-6ps5 T1.1；AD-2/AD-4，契约 = PROTOCOL.md §17.11） ──
+
+/**
+ * thinking.set 载荷：会话 thinking 档覆盖（P-1/F1.1）——信封 sessionId 必填
+ *（per-session，仿 model.set L170-177 形态），下一 turn 生效。level 为 pi-ai
+ * ThinkingLevel 字符串透传（AD-2：helix 不维护第二份档位枚举，SoT 在 pi-ai，
+ * 协议层不校验未知档位）；无关闭态（未覆盖 = 不发命令）。chat.send 零字段
+ *（AD-4①：thinking 是会话状态非逐消息参数，引擎 turn 开始读解析结果）。
+ * 生效回执 = thinking.changed 广播（events/thinking.ts）。
+ */
+export interface ThinkingSetPayload {
+  /** pi-ai ThinkingLevel 字符串透传（如 "medium" / "high"；未知档位由引擎按能力过滤） */
+  level: string;
+}
+export interface ThinkingSetCommand extends CommandFrame<ThinkingSetPayload> {
+  type: "thinking.set";
+}
+
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -398,7 +417,8 @@ export type CommandEnvelope =
   | AgentConfigSetEnabledCommand
   | WebStatusCommand
   | WebStopCommand
-  | WebStartCommand;
+  | WebStartCommand
+  | ThinkingSetCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
@@ -429,6 +449,7 @@ export const COMMAND_TYPES = [
   "web.status",
   "web.stop",
   "web.start",
+  "thinking.set",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];

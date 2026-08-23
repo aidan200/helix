@@ -78,6 +78,8 @@ const CATALOG: CatalogModel[] = [
     contextWindow: 200_000,
     cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
     source: "builtin",
+    reasoning: true, // v0.11 additive（thinking 批② 能力位）
+    thinkingLevels: ["low", "medium", "high"],
   },
   {
     id: "openai/gpt-5.2",
@@ -85,6 +87,8 @@ const CATALOG: CatalogModel[] = [
     contextWindow: 400_000,
     cost: { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 1.25 },
     source: "builtin",
+    reasoning: true,
+    thinkingLevels: ["low", "medium", "high"],
   },
 ];
 
@@ -167,7 +171,7 @@ function feed(frame: EventEnvelope): void {
 
 function feedList(mainOver: Partial<AgentConfigProfileBlock> = {}, subOver: Partial<AgentConfigProfileBlock> = {}): void {
   feed({
-    v: "0.10",
+    v: "0.11",
     sessionId: "__system__",
     channel: "agent",
     type: "agent.config.list.result",
@@ -177,7 +181,7 @@ function feedList(mainOver: Partial<AgentConfigProfileBlock> = {}, subOver: Part
 
 function feedSetResult(payload: { status: "applied" } | { status: "skipped"; reason: string }): void {
   feed({
-    v: "0.10",
+    v: "0.11",
     sessionId: "__system__",
     channel: "agent",
     type: "agent.config.set_enabled.result",

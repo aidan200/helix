@@ -65,6 +65,12 @@ export interface AgentKilledPayload {
 export interface AgentInstantiatedPayload {
   instanceId: string;
   profileKind: string;
+  /**
+   * SubAgent spawn 解析的 thinkingLevel 快照（v0.11 新增，thinking 批④，
+   * AD-4④）：自身 profile 槽位 > 兜底 medium（AD-6），spawn 时刻确定、
+   * trace 可复盘（AD-1 语义红线，与模型快照同构）。字符串透传（AD-2）。
+   */
+  thinkingLevel: string;
   profileSnapshot: TraceProfileSnapshot;
 }
 

@@ -297,7 +297,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
 
       const refresh = resultOf("model.catalog_refresh.result");
       expect(refresh.sessionId).toBe("__system__"); // 全局命令：会话无关（session.list 同构）
-      expect(refresh.payload).toEqual({ models: [catalogView], refreshedAt: 1_760_000_100_000, source: "builtin", degraded: ["moonshotai: 拉取失败：ENOTFOUND"] }); // 降级说明字段
+      expect(refresh.payload).toEqual({ models: [{ ...catalogView, reasoning: false, thinkingLevels: [] }], refreshedAt: 1_760_000_100_000, source: "builtin", degraded: ["moonshotai: 拉取失败：ENOTFOUND"] }); // 降级说明字段；reasoning/thinkingLevels = v0.11 占位（T1.2 真实映射替换）
 
       expect(resultOf("model.set_default.result").payload).toEqual({ previous: "anthropic/claude-sonnet-4-5" });
       expect(resultOf("model.get_default.result").payload).toEqual({ model: "anthropic/claude-sonnet-4-5" });

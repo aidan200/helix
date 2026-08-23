@@ -93,6 +93,7 @@ export const agentInstantiated: AgentInstantiatedEvent = {
   payload: {
     instanceId: "agent-1",
     profileKind: "subagent-worker",
+    thinkingLevel: "medium", // v0.11 additive（thinking 批④；解析快照必填位）
     profileSnapshot: {
       systemPrompt: "你是 helix 的 SubAgent worker。",
       tools: ["bash", "read", "write", "edit", "grep"],

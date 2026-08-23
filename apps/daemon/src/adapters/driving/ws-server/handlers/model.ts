@@ -73,7 +73,12 @@ export function handleModelCatalog(ctx: WsCommandContext): void {
         channel: "model",
         type: "model.catalog.result",
         payload: {
-          models: snapshot.models.map((m) => ({ ...m, cost: { ...m.cost } })),
+          // v0.11 协议升位编译跟随（iter-20260823-6ps5 T1.1）：CatalogModel 新增
+          // reasoning/thinkingLevels 必填位；真实映射（pi-ai Model.reasoning +
+          // thinkingLevelMap 非 null 键集派生）归 T1.2（model-catalog.ts 防腐映射
+          // 单点）。本批 daemon 未接线 → 保守报不支持（reasoning=false + 空档序列，
+          // UI 禁用推理控件；T1.2 落地后本占位两行整体删除）。
+          models: snapshot.models.map((m) => ({ ...m, cost: { ...m.cost }, reasoning: false, thinkingLevels: [] })),
           refreshedAt: snapshot.refreshedAt,
           source: snapshot.source,
         },
@@ -95,7 +100,7 @@ export function handleModelCatalogRefresh(ctx: WsCommandContext): void {
         channel: "model",
         type: "model.catalog_refresh.result",
         payload: {
-          models: snapshot.models.map((m) => ({ ...m, cost: { ...m.cost } })),
+          models: snapshot.models.map((m) => ({ ...m, cost: { ...m.cost }, reasoning: false, thinkingLevels: [] })), // v0.11 占位（同 handleModelCatalog 注释，T1.2 真实映射替换）
           refreshedAt: snapshot.refreshedAt,
           source: snapshot.source,
           degraded: [...snapshot.degraded], // 降级说明（单 provider 拉取失败明细）

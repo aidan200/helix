@@ -17,6 +17,8 @@ function model(id: string): CatalogModel {
     contextWindow: 200_000,
     cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
     source: "builtin",
+    reasoning: true, // v0.11 additive（thinking 批② 能力位）
+    thinkingLevels: ["low", "medium", "high"],
   };
 }
 

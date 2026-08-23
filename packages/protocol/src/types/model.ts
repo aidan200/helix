@@ -17,6 +17,17 @@ export interface CatalogModel {
   cost: CatalogModelCostRates;
   /** 静态表 or pi.dev overlay */
   source: "builtin" | "overlay";
+  /**
+   * pi-ai Model.reasoning 防腐映射（v0.11 新增，thinking 批②，AD-4②）：
+   * false → UI 禁用推理控件（TR-AD-42：前端不自判能力）。
+   */
+  reasoning: boolean;
+  /**
+   * pi-ai thinkingLevelMap 非 null 键集派生的升序档序列（v0.11 新增，
+   * thinking 批②）：reasoning=false 时为空数组；UI 刻度数 =
+   * thinkingLevels.length（不硬编码六档）。字符串透传（AD-2）。
+   */
+  thinkingLevels: string[];
 }
 
 /** 四费率（$ / 1M tokens；input/output/cacheRead/cacheWrite） */

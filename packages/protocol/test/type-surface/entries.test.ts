@@ -70,8 +70,8 @@ type _SnapshotInstances = Expect<Equal<SessionSnapshotDto["instances"], AgentIns
 type _SnapshotUsage = Expect<Equal<SessionSnapshotDto["usage"], SessionUsageDto | undefined>>;
 
 type _ThinkingFamily = Expect<
-  Equal<TypeOfChannel<"thinking">, "thinking.stream.delta" | "thinking.completed">
->;
+  Equal<TypeOfChannel<"thinking">, "thinking.stream.delta" | "thinking.completed" | "thinking.changed">
+>; // v0.11：+thinking.changed（thinking 批①，会话状态广播挂 thinking 族）
 
 type _UsageFamily = Expect<Equal<TypeOfChannel<"usage">, "usage.recorded">>;
 
@@ -97,13 +97,13 @@ type _CompactionFilesCompacted = Expect<Equal<CompactionCompletedPayload["filesC
 // @ts-expect-error steerState 不存在于 ToolCallEntryDto
 const badToolEntry: ToolCallEntryDto = { kind: "tool-call", id: "x", name: "n", args: "{}", state: "done", ts: 1, steerState: "queued" };
 
-// 负向断言：v 位不接受目录外版本（0/"0.10" 之外）
-// @ts-expect-error v 位必须是 FrameVersion（0 | "0.10"）
-const badVersion: HelloCommand = { v: 1, type: "hello", payload: { token: "t", protocolVersion: "0.10" } };
+// 负向断言：v 位不接受目录外版本（0/"0.11" 之外）
+// @ts-expect-error v 位必须是 FrameVersion（0 | "0.11"）
+const badVersion: HelloCommand = { v: 1, type: "hello", payload: { token: "t", protocolVersion: "0.11" } };
 
-// 负向断言（v0.2 起保持）：hello 协商位不接受 v0 数值（严格 "0.10" 单值）
-// @ts-expect-error protocolVersion 必须是 "0.10"
-const badHelloLegacy: HelloCommand = { v: "0.10", type: "hello", payload: { token: "t", protocolVersion: 0 } };
+// 负向断言（v0.2 起保持）：hello 协商位不接受 v0 数值（严格 "0.11" 单值）
+// @ts-expect-error protocolVersion 必须是 "0.11"
+const badHelloLegacy: HelloCommand = { v: "0.11", type: "hello", payload: { token: "t", protocolVersion: 0 } };
 
 // 负向断言（v0.3）：tier 只接受 full | monitor 两档
 // @ts-expect-error tier 目录外字面量
@@ -138,7 +138,7 @@ describe("entries：EntryDto 判别式联合与快照 additive + 通道族承载
     ]);
     // 负向样例由上方 @ts-expect-error 在编译期守护
     expect(badToolEntry.state).toBe("done");
-    expect(badVersion.payload.protocolVersion).toBe("0.10");
+    expect(badVersion.payload.protocolVersion).toBe("0.11");
     expect(badHelloLegacy.type).toBe("hello");
   });
 

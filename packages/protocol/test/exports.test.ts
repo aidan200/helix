@@ -206,6 +206,11 @@ type _TypeSurface = [
   protocol.WebStartCommand,
   protocol.WebStartResultPayload,
   protocol.WebStartResultEvent,
+  // 命令/事件目录 v0.11 新增——thinking 批（iter-20260823-6ps5 T1.1；AD-2/AD-4）
+  protocol.ThinkingSetPayload,
+  protocol.ThinkingSetCommand,
+  protocol.ThinkingChangedPayload,
+  protocol.ThinkingChangedEvent,
   // 错误模型（契约 §7；v0.2 +command.unimplemented）
   protocol.ErrorCode,
 ];
@@ -248,12 +253,12 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（v0.9：命令 27 / 事件 47；PROTOCOL_VERSION v0.9 批次升位）", () => {
-    expect(protocol.PROTOCOL_VERSION).toBe("0.10"); // v0.9 批次版本位（T7 web.start 显式启动通路批次升位，AD-4；契约 = PROTOCOL.md §17.9）
+  test("② 常量语义值 + 目录计数（v0.11：命令 28 / 事件 48；thinking 批版本位升位）", () => {
+    expect(protocol.PROTOCOL_VERSION).toBe("0.11"); // v0.11 批次版本位（thinking 批四块 additive，AD-2/AD-4；契约 = PROTOCOL.md §17.11）
     expect(protocol.MAIN_INSTANCE_ID).toBe("main");
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(27); // v0.9：+1（web.start）
-    expect(protocol.EVENT_TYPES.length).toBe(47); // v0.9：+1（web.start.result）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(47); // 登记目录恰等
+    expect(protocol.COMMAND_TYPES.length).toBe(28); // v0.11：+1（thinking.set）
+    expect(protocol.EVENT_TYPES.length).toBe(48); // v0.11：+1（thinking.changed）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(48); // 登记目录恰等
   });
 });

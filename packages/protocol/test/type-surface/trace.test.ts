@@ -22,14 +22,14 @@ describe("trace：trace 命令族与 agent 执行上下文面（源 TP-v0.4-①�
   test("trace.query.result / agent.instantiated / agent.model.changed 经 summarizeEvent 窄化", () => {
     expect(v04Events.map(summarizeEvent)).toEqual([
       "trace-result:1:1:1:12:false",
-      "instantiated:agent-1:subagent-worker:zai/glm-5.3",
+      "instantiated:agent-1:subagent-worker:zai/glm-5.3:medium",
       "model-timeline:main:zhipu/glm-4.6:deepseek/deepseek-chat",
     ]);
   });
 
   test("当前批帧 v 位与 channel 章印（trace 新族 / agent 族挂两新事件，v0.4 批引入）", () => {
     for (const frame of [...v04Commands, ...v04Events]) {
-      expect(frame.v).toBe("0.10"); // v0.5 升位（T2.3；批次集合标记）
+      expect(frame.v).toBe("0.11"); // v0.5 升位（T2.3；批次集合标记）
     }
     expect(traceQueryResult.channel).toBe("trace");
     expect(agentInstantiated.channel).toBe("agent");
