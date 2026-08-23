@@ -26,7 +26,6 @@ import type { Page } from "@playwright/test";
 import type { MockController } from "./harness/mock-session";
 import type { CatalogModel } from "@helix/protocol";
 import {
-  authListResult,
   catalogModel,
   modelCatalogResult,
   modelChanged,
@@ -58,12 +57,12 @@ function catalog(): CatalogModel[] {
 }
 
 /**
- * 建连 + 目录回放（picker 挂载即 requestModelConfig：catalog + get_default）。
+ * 建连 + 目录回放（picker 挂载效应依赖连接态：conn → connected 后
+ * requestModelConfig 补发 catalog + get_default）。
  *
- * ⚠️ 目录拉取走「模型菜单开合」真实用户路径（T3.2 finding：picker 挂载效应
- * 在 fresh load 下早于 WS 握手，send 被 HelixWsClient 静默拒绝——已报
- * MainAgent 打回 T2.1；菜单路径是生产可用的幂等触发面，修复前后本 spec
- * 均有效）。
+ * T2.1 fresh-load 修复（picker 效应 conn 门控，AgentPage 先例）后，本 helper
+ * 不经模型菜单——握手完成即目录帧必达，本 spec 同时是 fresh-load 修复的
+ * E2E 回归面（reload 段同口径）。
  */
 async function connectWithCatalog(
   mock: MockController,
@@ -78,21 +77,11 @@ async function connectWithCatalog(
     snapshot([], { model, ...(thinking !== undefined ? { thinking } : {}) }),
   ]);
   await mock.waitForConn("connected");
-  // 模型菜单开合触发目录拉取（见上 finding 注释）
-  await page.locator("[data-model-badge]").click();
+  // picker conn 效应补拉目录（fresh-load 修复回归面；catalog null 门控幂等）
   await mock.waitForCommand("model.catalog");
   await mock.waitForCommand("model.get_default");
   await mock.emit(modelCatalogResult(catalog(), { source: "cache" }));
   await mock.emit(modelGetDefaultResult(M_SIX));
-  await mock.emit(
-    authListResult([
-      { providerId: "anthropic", configured: true, keyMasked: "····e2e1" },
-      { providerId: "openai", configured: true, keyMasked: "····e2e2" },
-      { providerId: "local", configured: true, keyMasked: "····e2e3" },
-    ]),
-  );
-  await page.locator(".msg-flow").click(); // 点外关闭菜单
-  await expect(page.locator("[data-model-menu]")).toHaveCount(0);
 }
 
 const trigger = (page: Page) => page.locator(".tp-trigger");
@@ -203,14 +192,11 @@ test.describe("T3.2 CL-1 P-1 推理强度滑块（F 层 mock）", () => {
       snapshot([], { model: M_TRI, thinking: { override: "xhigh", effective: "high" } }),
     ]);
     await mock.waitForConn("connected");
-    // 目录拉取（菜单路径；finding 见 connectWithCatalog 注释）
-    await page.locator("[data-model-badge]").click();
+    // 目录拉取（picker conn 效应补拉；fresh-load 修复回归面，见 connectWithCatalog 注释）
     await mock.waitForCommand("model.catalog");
     await mock.waitForCommand("model.get_default");
     await mock.emit(modelCatalogResult(catalog(), { source: "cache" }));
     await mock.emit(modelGetDefaultResult(M_SIX));
-    await page.locator(".msg-flow").click();
-    await expect(page.locator("[data-model-menu]")).toHaveCount(0);
     // 快照读面 thinking 双位 → UI 与引擎一致（覆盖保留 + 生效档显示 + 轻提示 + PEAK）
     await expect(trigger(page).locator(".tp-level")).toHaveText("HIGH");
     await openPopover(page);

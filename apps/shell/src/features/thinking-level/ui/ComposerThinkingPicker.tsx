@@ -12,7 +12,8 @@
  *   + 快照读面驱动，UI 只消费不解析（换模重解析归 daemon 引擎侧）；
  * - 能力位（刻度数/禁用位）= CatalogModel.reasoning/thinkingLevels 防腐字段
  *   （TR-AD-42：不硬编码六档、不自判能力）；目录经 requestModelConfig 未请求
- *   态才发（ModelSwitchMenu 先例）；
+ *   态才发（ModelSwitchMenu 先例），效应依赖连接态——握手前发送被
+ *   HelixWsClient 静默丢弃，conn 迁移 connected 后补拉（AgentPage 先例）；
  * - 选档 → setSessionThinking(level)（SessionContext 发 thinking.set；
  *   草稿态本地暂存，draft-model 先例）。
  *
@@ -34,11 +35,15 @@ const ComposerThinkingPicker = function ComposerThinkingPicker() {
   const { state, topology, setSessionThinking, requestModelConfig } = useSession();
   const [open, setOpen] = useState(false);
   const mc = topology.modelConfig;
+  const conn = state.conn;
 
-  // 能力位数据源：目录未请求态才发（requestModelConfig 先例——重复打开零重发）
+  // 能力位数据源：目录未请求态才发（requestModelConfig 先例——重复打开零重发）。
+  // 效应依赖连接态（AgentPage 先例）：app 首渲染早于 WS 握手，握手前发送被
+  // HelixWsClient 静默拒绝且无重试——conn 迁移 connected 后效应重发补拉，
+  // fresh load/刷新后目录帧必达（catalog null 门控幂等，重连零重发）。
   useEffect(() => {
-    requestModelConfig();
-  }, [requestModelConfig]);
+    if (conn === "connected") requestModelConfig();
+  }, [conn, requestModelConfig]);
 
   // 点外 pointerdown / Escape 关闭（open 态才挂监听；trigger 点击开合归自身）
   useEffect(() => {

@@ -15,7 +15,9 @@
  *   「xhigh → high（模型能力所限）」；一致时无提示（重渲染清旧提示）；
  * - PEAK（F1.4）：effective=最高档 → trigger + popover 同入 .peak + 徽章；
  *   三档模型 high 同触发；
- * - 负断言：无「关闭 reasoning」入口；原型标注文字不存在（剥离验收）。
+ * - 负断言：无「关闭 reasoning」入口；原型标注文字不存在（剥离验收）；
+ * - fresh-load 回归（T2.1 打回修复）：握手前挂载（conn=connecting）不发目录
+ *   请求；conn 迁移 connected 后效应补拉（目录帧必达）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
@@ -125,6 +127,33 @@ describe("ComposerThinkingPicker · trigger chip 落位与显示（review §2-1�
 
   it("挂载即拉目录（requestModelConfig 未请求态才发，重复打开零重发归 provider）", () => {
     setup();
+    expect(requestModelConfig).toHaveBeenCalled();
+  });
+
+  it("fresh-load 回归：握手前挂载（conn=connecting）不发；conn 迁移 connected 后补拉", () => {
+    // app 首渲染早于 WS 握手——握手前发送被 HelixWsClient 静默拒绝且无重试，
+    // 故连接前效应不得发；握手完成（conn → connected）后效应重发补拉
+    stateRef.current = {
+      ...createInitialSessionState(),
+      conn: "connecting",
+      view: "ready",
+      sessionId: "s1",
+      model: "anthropic/claude-opus-4.1",
+      thinking: { override: null, effective: "medium" },
+    };
+    topologyRef.current = createInitialTopologyState();
+    const view = render(
+      <I18nProvider>
+        <ComposerThinkingPicker />
+      </I18nProvider>,
+    );
+    expect(requestModelConfig).not.toHaveBeenCalled();
+    stateRef.current = { ...stateRef.current, conn: "connected" };
+    view.rerender(
+      <I18nProvider>
+        <ComposerThinkingPicker />
+      </I18nProvider>,
+    );
     expect(requestModelConfig).toHaveBeenCalled();
   });
 
