@@ -96,6 +96,9 @@ describe("dispatcher 帧路由（v0.2 信封 sessionId）", () => {
     expect(spawned.background[B]!.unread).toBe(1);
     const model = dispatchFrame(spawned, frame("model.changed", { sessionId: B, model: "openai/gpt-5.2", previous: "anthropic/claude-sonnet-4-5", effective: "next-turn" }, { sessionId: B, channel: "model" }), 0);
     expect(model.background[B]!.unread).toBe(1); // 换模非内容事件
+    // thinking.changed（thinking 批①）同判：会话参数变更非内容事件，不计未读
+    const thinking = dispatchFrame(model, frame("thinking.changed", { override: "high", effective: "high" }, { sessionId: B, channel: "thinking" }), 0);
+    expect(thinking.background[B]!.unread).toBe(1);
   });
 
   it("未知会话帧（既非活跃也非后台）→ 状态原样（多会话隔离）", () => {

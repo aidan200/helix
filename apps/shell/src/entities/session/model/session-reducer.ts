@@ -38,6 +38,7 @@ export type {
   SessionUsageProjection,
   SpawnToast,
   StreamingState,
+  ThinkingSlice,
 } from "./state";
 
 // ── 派生选择子（纯函数）──────────────────────────────────────
@@ -96,6 +97,13 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
     case "ui/set-draft-model":
       // 草稿模型本地暂存（T3）：仅草稿态生效；真实会话原样（防御）
       return state.sessionId === null ? { ...state, model: action.model } : state;
+    case "ui/set-draft-thinking":
+      // 草稿 thinking 档本地暂存（thinking 批，draft-model 先例对齐）：仅草稿态
+      // 生效；override + effective 乐观镜像（徽标即时反映——草稿无引擎解析面，
+      // 转正后由 thinking.changed/快照权威覆盖）；真实会话原样（防御）
+      return state.sessionId === null
+        ? { ...state, thinking: { override: action.level, effective: action.level } }
+        : state;
     case "ui/send": {
       const text = action.text.trim();
       // SM 规则 6：非 connected 拒发。T9：附件生命周期绑定发送动作——

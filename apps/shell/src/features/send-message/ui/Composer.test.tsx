@@ -22,7 +22,10 @@ import {
   type SessionAction,
   type SessionState,
 } from "@/entities/session/model/session-reducer";
-import { selectActiveRunState } from "@/entities/session/model/topology";
+import {
+  createInitialTopologyState,
+  selectActiveRunState,
+} from "@/entities/session/model/topology";
 
 const setDraft = vi.fn();
 const submit = vi.fn();
@@ -30,6 +33,9 @@ const abort = vi.fn();
 // T9 图片上行：附件入草稿/移除（发送载荷断言见 T9 块）
 const attachImages = vi.fn();
 const removeAttachment = vi.fn();
+// thinking 批（T2.1）：composer-foot 右侧 ThinkingPicker 消费面探针
+const setSessionThinking = vi.fn();
+const requestModelConfig = vi.fn();
 // T9 断言别名（attachImages 的短名引用）
 const attach = attachImages;
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
@@ -39,11 +45,14 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     ...orig,
     useSession: () => ({
       state: stateRef.current,
+      topology: createInitialTopologyState(),
       setDraft,
       submit,
       abort,
       attachImages,
       removeAttachment,
+      setSessionThinking,
+      requestModelConfig,
     }),
   };
 });
@@ -73,7 +82,7 @@ const draft = (text: string): SessionAction => ({ type: "ui/set-draft", text });
 function ui() {
   return render(
     <I18nProvider>
-      <Composer />
+      <Composer footEnd={<span className="thinking-picker" data-testid="foot-end" />} />
     </I18nProvider>,
   );
 }
@@ -200,9 +209,25 @@ describe("T8 · 脚注文案（projectionNote 退役 / enterHint 新快捷键语
     stateRef.current = connectedReady();
     ui();
     const foot = document.querySelector(".composer-foot")!;
-    expect(foot.textContent).toBe("Alt+Enter 发送 · Enter 换行");
-    const kbds = Array.from(foot.querySelectorAll(".kbd"));
+    // T2.1：foot 右侧新挂 ThinkingPicker trigger chip——enterHint 断言锁区到
+    // .enter-hint  wrapper（卡口语义不变：文案 + 键帽双钉；foot 容器新增子
+    // 节点不再计入 textContent 比对）
+    const hint = foot.querySelector(".enter-hint")!;
+    expect(hint.textContent).toBe("Alt+Enter 发送 · Enter 换行");
+    const kbds = Array.from(hint.querySelectorAll(".kbd"));
     expect(kbds.map((k) => k.textContent)).toEqual(["Alt+Enter", "Enter"]);
+  });
+
+  it("P-1 推理强度 trigger chip 落位 foot 右侧（thinking 批 T2.1；enterHint 左、picker 右）", () => {
+    stateRef.current = connectedReady();
+    ui();
+    const foot = document.querySelector(".composer-foot")!;
+    // footEnd 槽位契约：注入节点为 foot 末位子节点（space-between 空位，CSS 零
+    // 改动）；真实 picker（ComposerThinkingPicker）由 pages 层装配（AG-15 同层
+    // 禁互引），其 trigger chip 形态断言归 features/thinking-level 自测
+    const slot = foot.querySelector("[data-testid=foot-end]")!;
+    expect(slot).not.toBeNull();
+    expect(foot.lastElementChild).toBe(slot);
   });
 });
 

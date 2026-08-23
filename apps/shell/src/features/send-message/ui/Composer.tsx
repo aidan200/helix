@@ -10,7 +10,7 @@
  *   subagent_running（main 空闲）/ idle 禁用（abort 只中断 main 生成）；
  * - 脚注 kbd 键帽提示（[[x]] 标记渲染）。
  */
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ImagePlus, Square, X } from "lucide-react";
 import { useI18n } from "@/shared/i18n";
 import { selectCanSend, selectIsGenerating, useSession } from "@/entities/session/SessionContext";
@@ -51,7 +51,13 @@ function EnterHint({ text }: { text: string }) {
   );
 }
 
-const Composer = function Composer() {
+export interface ComposerProps {
+  /** composer-foot 右侧槽位（space-between 空位；FSD 纪律——features 同层不
+   *  互引，页面部件由 pages 层装配注入：P-1 推理强度 picker 走此槽，T2.1） */
+  footEnd?: ReactNode;
+}
+
+const Composer = function Composer({ footEnd }: ComposerProps) {
   const { t } = useI18n();
   const { state, setDraft, submit, abort, attachImages, removeAttachment } = useSession();
   const canSend = selectCanSend(state);
@@ -206,7 +212,12 @@ const Composer = function Composer() {
           </button>
         </div>
         <div className="composer-foot">
-          <EnterHint text={t("chat.composer.enterHint")} />
+          <span className="enter-hint">
+            <EnterHint text={t("chat.composer.enterHint")} />
+          </span>
+          {/* foot 右侧槽位（space-between 空位，foot CSS 零改动）：P-1 推理强度
+              picker 由 pages 层注入（AG-15 FSD 同层禁互引） */}
+          {footEnd}
         </div>
       </div>
     </footer>
