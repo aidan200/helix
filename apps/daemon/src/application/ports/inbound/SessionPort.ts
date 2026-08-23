@@ -39,6 +39,16 @@ export interface SessionStateView {
   readonly agentState?: AgentLifecycleState;
   /** 会话当前模型（per-session，AD-2；undefined = 引擎未暴露 → 调用方回退全局默认）。 */
   readonly model?: string;
+  /**
+   * 会话 thinking 覆盖/生效（thinking 批③，AD-4③；additive）：快照读面——
+   * 切换会话/重连/重启恢复后 UI 与引擎一致。缺省 = 引擎未实现观测面（旧组装点兼容）。
+   */
+  readonly thinking?: {
+    /** 会话覆盖意图；null = 无覆盖。 */
+    readonly override: string | null;
+    /** 引擎按当前模型能力解析的生效档；null = 全链不支持（不传参，provider 默认）。 */
+    readonly effective: string | null;
+  };
 }
 
 /** 实例快照条目（AgentInstanceData + task/closure/usage/model；契约 AgentInstanceDto 的 domain 侧镜像）。 */

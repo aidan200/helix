@@ -35,7 +35,9 @@ export type DomainEventType =
   | "usage.recorded"
   // ── v0.4 执行上下文面（AD-5/AD-6；只落盘不广播）──
   | "agent.instantiated"
-  | "agent.model.changed";
+  | "agent.model.changed"
+  // ── thinking 批（v0.11，AD-4①③；只落盘不广播，广播走 thinking.changed 链）──
+  | "agent.thinking.changed";
 
 export interface DomainEvent<P = unknown> {
   readonly type: DomainEventType;
@@ -205,4 +207,16 @@ export interface AgentModelChangedPayload {
   readonly instanceId: string;
   readonly from: string;
   readonly to: string;
+}
+
+/**
+ * agent.thinking.changed：thinking.set 会话覆盖落盘（thinking 批①③，AD-4①③；
+ * 只落盘不广播——广播走 thinking.changed 链，EnvelopeMapper default → null）。
+ * 跨冷恢复数据源（RestoreService 回放末值重建覆盖，区别于 model.set 不恢复现状）。
+ * level 字符串透传（AD-2：helix 不做档位校验，SoT 在 pi-ai）。
+ */
+export interface AgentThinkingChangedPayload {
+  readonly instanceId: string;
+  /** 会话覆盖档（pi-ai ThinkingLevel 字符串透传；无关闭态——无覆盖即无事件）。 */
+  readonly level: string;
 }

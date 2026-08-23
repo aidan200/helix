@@ -24,6 +24,7 @@ import { PiAgentEngineAdapter } from "../../adapters/driven/pi-engine/PiAgentEng
 import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
+import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinking-resolve";
 import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
 import { SkillScanner } from "../../adapters/driven/pi-engine/SkillScanner";
 import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnippets";
@@ -347,7 +348,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
             // 生效技能段；toggle 后新会话/重建会话跟随）；model 四级链读面——
             // kind 槽位 > default_model（per-session 覆盖 = 既有 setModel 直改链）。
             // 活跃 runtime 不随槽位变更强推模型（下一装配生效——实现取舍见任务 report）。
-            return new PiAgentEngineAdapter({
+            // thinking 解析链（§3.1 落点一/§3.3，thinking 批 T1.2）：链 =
+            // [会话覆盖（引擎读面回读）, main-session kind 槽位, 兜底 "medium"]
+            // 逐值能力适配取首个生效值；全链不支持 / reasoning=false → undefined
+            // → 注入器不动 options（provider 默认）。自引用闭包仅在 turn 开始
+            //（streamFn 调用）/currentThinking 观测时触发——构造完成之后
+            //（闭包内 adapter 已赋值，测试同形态先例见 thinking-set-chain）。
+            let adapter!: PiAgentEngineAdapter;
+            adapter = new PiAgentEngineAdapter({
               profile: {
                 ...MainSessionProfile,
                 systemPrompt: mainAssembly.systemPrompt,
@@ -360,8 +368,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               apiKeys: () => authStore.apiKeysSnapshot(),
               models: catalog.modelsView(),
               resolveModelById: (modelId) => resolveConfigModel(modelId, catalog.modelsView()),
+              resolveThinking: (model) =>
+                resolveEffectiveThinking(
+                  [adapter?.thinkingOverride(), resourceService.thinkingSlot("main-session"), "medium"],
+                  model,
+                ),
               resolveTools: (names) => toolExecutor.resolveTools(names),
             });
+            return adapter;
           };
 
   const registry = new SessionRegistry({
@@ -372,6 +386,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // 会话运行时工厂（组合根唯一 new 面）：Session + ChatService 族 + 投影绑定
     buildRuntime: (material): SessionRuntime => {
       const engine = engineFor(material.session.id);
+      // thinking 批③跨冷恢复（AD-4③）：回放末值覆盖直写引擎内存态——
+      // 不走 ChatService.setThinking 发布面（零新事件流零落盘铁律，恢复不重放）；
+      // 区别于 model.set 不跨冷恢复现状（TR-AD-41 反例钉死，差异不动）。
+      if (material.thinkingOverride !== undefined) engine.setThinking?.(material.thinkingOverride);
       const chatService = new ChatService({
         engine,
         events,

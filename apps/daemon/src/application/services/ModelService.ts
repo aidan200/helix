@@ -2,6 +2,7 @@ import type {
   ModelInfo,
   ModelPort,
   ModelSetOutcome,
+  ThinkingSetOutcome,
   AuthProviderStatus,
 } from "../ports/inbound/ModelPort";
 import type {
@@ -63,6 +64,8 @@ export interface ModelServiceDeps {
   readonly defaultModel: DefaultModelPort;
   /** model.changed 广播出海（容器接 EventStream；channel=model）。 */
   readonly onModelChanged: (payload: { sessionId: string; model: string; previous: string; effective: "next-turn" }) => void;
+  /** thinking.changed 广播出海（thinking 批①；容器接 EventStream；channel=thinking）。 */
+  readonly onThinkingChanged: (payload: { sessionId: string; override: string | null; effective: string | null }) => void;
 }
 
 export class ModelService implements ModelPort {
@@ -78,6 +81,18 @@ export class ModelService implements ModelPort {
     runtime.chatService.setModel(model); // 引擎 AgentState.model 直改（下一 turn 生效）
     this.deps.onModelChanged({ sessionId, model, previous, effective: "next-turn" });
     return { accepted: true, effective: "next-turn", previous };
+  }
+
+  /** thinking.set（thinking 批①，AD-4①）：覆盖写引擎内存态（下一 turn 生效）
+   *  + domain_events 单写队列落盘（ChatService 同点发布 agent.thinking.changed）
+   *  + thinking.changed 广播（override/effective 双位，契约 ①）。level 字符串
+   *  透传（AD-2：不做档位校验，未知档由引擎按能力适配 → effective=null）。 */
+  async setThinking(sessionId: string, level: string): Promise<ThinkingSetOutcome> {
+    const runtime = await this.deps.registry.get(sessionId); // 不存在 → SessionNotFoundError
+    runtime.chatService.setThinking(level);
+    const state = runtime.chatService.currentThinking ?? { override: level, effective: null };
+    this.deps.onThinkingChanged({ sessionId, ...state });
+    return state;
   }
 
   async getModel(sessionId: string): Promise<ModelInfo> {

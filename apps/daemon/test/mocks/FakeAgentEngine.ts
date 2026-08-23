@@ -3,6 +3,7 @@ import type {
   AgentEngineListener,
   AgentEnginePort,
   AgentEngineUsage,
+  AgentThinkingState,
 } from "../../src/application/ports/outbound/AgentEnginePort";
 import { parseDataUrlImages } from "../../src/application/services/images";
 
@@ -147,6 +148,20 @@ export class FakeAgentEngine implements AgentEnginePort {
 
   setModel(modelId: string): void {
     this.model = modelId;
+  }
+
+  // ── thinking 批①（port 可选成员契约等价面：恒支持——effective = override，
+  //    真引擎侧能力解析由组合根解析链承担，mock 不复制解析语义） ──
+
+  /** 当前 thinking 覆盖（setThinking 直改可观测——与真引擎覆盖态同构）。 */
+  private thinking: string | undefined;
+
+  setThinking(level: string): void {
+    this.thinking = level;
+  }
+
+  currentThinking(): AgentThinkingState {
+    return { override: this.thinking ?? null, effective: this.thinking ?? null };
   }
 
   // ── M6 T2 state 直改面（port 可选成员的契约等价 mock：记录 last 值） ──

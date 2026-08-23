@@ -195,6 +195,7 @@ describe("T5.1：多会话切换快照盖章 = 目标会话自身状态（串台
     };
     const model: ModelPort = {
       setModel: async () => { throw new Error("spy"); },
+      setThinking: async () => { throw new Error("spy"); },
       getModel: async () => { throw new Error("spy"); },
       catalog: async () => { throw new Error("spy"); },
       catalogRefresh: async () => { throw new Error("spy"); },

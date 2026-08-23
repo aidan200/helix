@@ -27,6 +27,7 @@ import type {
   EventEnvelope,
   ModelChangedEvent,
   SessionListChangedEvent,
+  ThinkingChangedEvent,
   ThinkingStreamDeltaEvent,
   WebStatusChangedEvent,
   WebStatusPayload,
@@ -171,6 +172,22 @@ export class EventStream implements EventPublisherPort {
       channel: "model",
       type: "model.changed",
       payload: { ...payload },
+    };
+    this.push(frame);
+  }
+
+  /**
+   * thinking.changed 广播（thinking 批①，契约 v0.11 §17.11；broadcastModelChanged
+   * 同构）：运行期 thinking 覆盖生效通知——channel=thinking，信封 sessionId =
+   * 目标会话（push 按 per-session 订阅路由）；payload = override/effective 双位。
+   */
+  broadcastThinkingChanged(payload: { sessionId: string; override: string | null; effective: string | null }): void {
+    const frame: ThinkingChangedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: payload.sessionId,
+      channel: "thinking",
+      type: "thinking.changed",
+      payload: { override: payload.override, effective: payload.effective },
     };
     this.push(frame);
   }

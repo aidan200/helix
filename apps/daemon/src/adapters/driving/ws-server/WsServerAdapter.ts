@@ -94,6 +94,7 @@ import {
   handleModelSet,
   handleModelSetDefault,
 } from "./handlers/model";
+import { handleThinkingSet } from "./handlers/thinking";
 import {
   handleAuthDeleteKey,
   handleAuthList,
@@ -418,6 +419,9 @@ export class WsServerAdapter {
         return handleModelSetDefault(this.commandContext(ws, type, payload, envelope));
       case "model.get_default":
         return handleModelGetDefault(this.commandContext(ws, type, payload, envelope));
+      // ── v0.11 thinking 族（thinking 批①，契约 §17.11；handlers/thinking.ts，model.set 同构）──
+      case "thinking.set":
+        return handleThinkingSet(this.commandContext(ws, type, payload, envelope));
       // ── v0.2 auth 管理族（AD-2，契约 C §1.3；真行为回口 + 结果帧）──
       // case 体机械迁出 handlers/auth.ts（语义逐字节等价），此处一行转发（AD-3）
       case "auth.list":

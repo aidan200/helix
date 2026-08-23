@@ -137,4 +137,23 @@ export interface AgentEnginePort {
    * 下一 turn 生效。入参 = SystemPromptAssembler 三段组装产物。
    */
   setSystemPrompt?(text: string): void;
+  /**
+   * 运行期 thinking 覆盖（thinking 批①，AD-4①；setModel 同构直改链）：
+   * 覆盖写引擎内存态，下一 turn 生效（in-flight 不变）；pi-ai ThinkingLevel
+   * 字符串透传（AD-2，helix 不做档位校验——未知档由引擎按能力适配）。
+   */
+  setThinking?(level: string): void;
+  /**
+   * 当前 thinking 覆盖/生效（可观测面：快照 thinking 位 + thinking.changed
+   * 广播数据源）。未实现/引擎未装解析链 → undefined（调用方 additive 缺省）。
+   */
+  currentThinking?(): AgentThinkingState;
+}
+
+/** thinking 覆盖/生效双位（契约 ① ThinkingChangedPayload 的 port 镜像；null = 无覆盖/全链不支持）。 */
+export interface AgentThinkingState {
+  /** 会话覆盖意图（用户拖到的档）；null = 无覆盖。 */
+  readonly override: string | null;
+  /** 引擎按当前模型能力解析的生效档；null = 全链不支持（不传参，provider 默认）。 */
+  readonly effective: string | null;
 }

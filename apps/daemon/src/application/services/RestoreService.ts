@@ -11,6 +11,7 @@ import type {
   ToolCallPayload,
   ToolResultPayload,
   UsageRecordedPayload,
+  AgentThinkingChangedPayload,
 } from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
 import { AgentInstance, agentSeqOf, type InstanceState } from "../../domain/agent/AgentInstance";
@@ -92,6 +93,8 @@ export interface RestoredDomainState {
   readonly maxAgentSeq: number;
   /** 会话账本（usage.recorded 事件流重放重建；组合根快照聚合/实例小计源）。 */
   readonly usage: UsageLedgerData;
+  /** thinking 覆盖恢复值（thinking 批③，AD-4③：agent.thinking.changed 回放末值；缺省 = 无覆盖）。 */
+  readonly thinkingOverride?: string;
 }
 
 /** agent_lifecycle 行中 SubAgent 实例的可恢复状态集（main 行不在此列）。 */
@@ -124,6 +127,7 @@ export class RestoreService {
       instances: instances.list,
       maxAgentSeq: instances.maxSeq,
       usage: this.restoreUsageLedger(sessionId),
+      thinkingOverride: this.restoreThinkingOverride(sessionId),
     };
   }
 
@@ -143,6 +147,21 @@ export class RestoreService {
       ledger = applyUsage(ledger, payload.instanceId ?? event.instanceId ?? MAIN_INSTANCE_ID, payload.usage, payload.source);
     }
     return ledger;
+  }
+
+  // ── thinking 覆盖恢复（thinking 批③，AD-4③） ─────────────
+
+  /**
+   * agent.thinking.changed 事件流回放 → 覆盖末值重建（restoreUsageLedger
+   * 同构模板：事件即账、只读 queryEvents——零新事件流零落盘铁律保持）。
+   * 每会话取最后一帧（多次覆盖末值生效）；损坏行防御跳过不崩。
+   * 语义差异钉死（TR-AD-41 反例）：thinking 覆盖跨冷恢复 ≠ model.set 不
+   * 跨冷恢复（快照无 per-session 模型字段，model 恢复侧零消费——不动）。
+   */
+  private restoreThinkingOverride(sessionId: string): string | undefined {
+    const events = this.deps.repository.queryEvents({ sessionId, type: "agent.thinking.changed" });
+    const payload = events.at(-1)?.payload as Partial<AgentThinkingChangedPayload> | undefined;
+    return typeof payload?.level === "string" && payload.level !== "" ? payload.level : undefined;
   }
 
   // ── SubAgent 历史重放（AD-3） ─────────────────────

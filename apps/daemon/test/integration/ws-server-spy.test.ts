@@ -98,6 +98,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       model: {
         // T2.3（AD-2）：spy 不触发真实模型链——全部 no-op/抛错回执
         setModel: async () => { throw new Error("spy 不装配模型链"); },
+        setThinking: async () => { throw new Error("spy 不装配模型链"); },
         getModel: async () => { throw new Error("spy 不装配模型链"); },
         catalog: async () => { throw new Error("spy 不装配模型链"); },
         catalogRefresh: async () => { throw new Error("spy 不装配模型链"); },
@@ -203,6 +204,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         modelCalls.push(`get:${sessionId}`);
         return { model: "moonshotai/kimi-k2", isDefault: false, defaultModel: "anthropic/claude-sonnet-4-5" };
       },
+      setThinking: async () => { throw new Error("spy 不装配模型链"); },
       catalog: async () => {
         throw new Error("拉取失败：ENOTFOUND pi.dev"); // 错误码映射面（成功帧在真容器测试覆盖）
       },
@@ -369,6 +371,7 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
     },
     model: {
       setModel: async () => { throw new Error("spy 不装配模型链"); },
+      setThinking: async () => { throw new Error("spy 不装配模型链"); },
       getModel: async () => { throw new Error("spy 不装配模型链"); },
       catalog: async () => { throw new Error("spy 不装配模型链"); },
       catalogRefresh: async () => { throw new Error("spy 不装配模型链"); },

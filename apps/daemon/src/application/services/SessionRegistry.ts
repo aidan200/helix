@@ -91,6 +91,8 @@ export interface RuntimeMaterial {
   readonly session: Session;
   readonly toolCalls: readonly ToolCallRecordData[];
   readonly usage?: UsageLedgerData;
+  /** thinking 覆盖恢复值（thinking 批③跨冷恢复；回放末值，缺省 = 无覆盖）。 */
+  readonly thinkingOverride?: string;
 }
 
 export interface SessionRegistryDeps {
@@ -460,6 +462,7 @@ export class SessionRegistry implements SessionDirectoryPort {
       session: restored.session,
       toolCalls: restored.toolCalls,
       usage: restored.usage,
+      ...(restored.thinkingOverride !== undefined ? { thinkingOverride: restored.thinkingOverride } : {}),
     });
     this.register(runtime);
     return runtime;
@@ -614,6 +617,10 @@ export class SessionRegistry implements SessionDirectoryPort {
       agentState: runtime.chatService.agentState,
       ...(runtime.chatService.currentModel !== undefined
         ? { model: runtime.chatService.currentModel }
+        : {}),
+      // thinking 批③：additive 携带覆盖/生效双位（引擎未实现观测面 → 缺省不携带）
+      ...(runtime.chatService.currentThinking !== undefined
+        ? { thinking: runtime.chatService.currentThinking }
         : {}),
       instances: [
         {
