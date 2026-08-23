@@ -5,17 +5,20 @@
  *
  * 语义边界：
  * - 配置单元 = profile kind（main-session / subagent-worker）；
- * - 资源类型 ∈ {tool, skill, model}；
+ * - 资源类型 ∈ {tool, skill, model, thinking}（thinking = thinking 批扩值）；
  * - **缺省无记录 = 启用**（零配置兼容现状，存量零迁移）——本表只存用户
  *   显式选择过的差异行，全集（profile tools 声明 / 扫描技能）与「无记录
  *   视为启用」的合取语义在 ResourceService 层，store 不解释；
  * - model 槽位单行不变式：model 型行 enabled 恒 true（不承载启停语义），
  *   删除行 = 未设；setModelSlot 为原子替换（主键含 name，非原子会遗留旧行）。
+ *   thinking 槽位同构（AD-6 扩维：setThinkingSlot 原子替换，单行不变式相同）。
  */
 export type ProfileKind = "main-session" | "subagent-worker";
 
-/** 资源类型（tool/skill = 启停差异行；model = 槽位单行）。 */
-export type ResourceType = "tool" | "skill" | "model";
+/** 资源类型（tool/skill = 启停差异行；model/thinking = 槽位单行——
+ *  thinking 为 thinking 批扩值（AD-6，iter-20260823-6ps5 T1.3）：档位字符串
+ *  槽位，缺省无记录 = 未配置 → 解析链回落兜底 medium）。 */
+export type ResourceType = "tool" | "skill" | "model" | "thinking";
 
 /** 差异行值形状（读面）。 */
 export interface ResourceStateData {
@@ -39,4 +42,10 @@ export interface ResourceStatePort {
   clearModelSlot(profileKind: ProfileKind): Promise<void>;
   /** model 槽位读（无行 → undefined = 未设）。 */
   modelSlot(profileKind: ProfileKind): string | undefined;
+  /** thinking 槽位写（原子替换同 model 槽位单行不变式：清旧行 + 新行 enabled 恒 true）。 */
+  setThinkingSlot(profileKind: ProfileKind, level: string): Promise<void>;
+  /** thinking 槽位清除（删除行 = 未配置）。 */
+  clearThinkingSlot(profileKind: ProfileKind): Promise<void>;
+  /** thinking 槽位读（无行 → undefined = 未配置 → 解析链回落 medium）。 */
+  thinkingSlot(profileKind: ProfileKind): string | undefined;
 }

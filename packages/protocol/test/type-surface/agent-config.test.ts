@@ -17,6 +17,7 @@ import type {
 } from "../../src/index";
 import {
   agentConfigChangedModelClear,
+  agentConfigChangedThinkingSet,
   agentConfigChangedTool,
   agentConfigListResult,
   agentConfigListSingle,
@@ -24,6 +25,8 @@ import {
   agentConfigModelSet,
   agentConfigSetResultApplied,
   agentConfigSetResultUnknownModel,
+  agentConfigThinkingClear,
+  agentConfigThinkingSet,
 } from "./samples/v06";
 
 // ── 命令 payload 类型级断言（编译期） ───────────────────────
@@ -43,8 +46,11 @@ const _setEnabledFull: AgentConfigSetEnabledPayload = {
 };
 // @ts-expect-error 缺 enabled → 编译期拒绝（enabled 是 set/clear 判别位）
 const _setEnabledNoEnabled: AgentConfigSetEnabledPayload = { profileKind: "main-session", resourceType: "tool", name: "grep" };
-// @ts-expect-error resourceType 只接受 tool/skill/model（越界字面量编译期拒绝）
+// @ts-expect-error resourceType 只接受 tool/skill/model/thinking（越界字面量编译期拒绝）
 const _setEnabledBadType: AgentConfigSetEnabledPayload = { profileKind: "main-session", resourceType: "hook", name: "steer", enabled: true };
+// v0.11 批内补登：thinking 槽位型合法（set/clear 两形态）
+const _setEnabledThinkingSet: AgentConfigSetEnabledPayload = { profileKind: "subagent-worker", resourceType: "thinking", name: "xhigh", enabled: true };
+const _setEnabledThinkingClear: AgentConfigSetEnabledPayload = { profileKind: "subagent-worker", resourceType: "thinking", name: "-", enabled: false };
 
 // v0.8：skills[].source 字面量联合扩 builtin（daemon 随仓内置第三源）
 const _skillBuiltin: AgentConfigProfileBlock["skills"][number] = {
@@ -95,8 +101,7 @@ describe("agent.config 事件族 payload（v0.6）", () => {
     expect(main!.skills[1]!.source).toBe("builtin");
     expect(main!.skills[1]!.enabled).toBe(true);
     // 槽位未设 = null（JSON 面：undefined 经序列化会丢字段，契约钉死 null）
-    expect(sub!.model).toBeNull();
-    expect(sub!.tools[0]!.enabled).toBe(true);
+    expect(sub!.model).toBeNull();    expect(sub!.tools[0]!.enabled).toBe(true);
     // v0.6 批内补登（M6 T4）：tools 行 snippet 一句话说明（daemon 注册表同源）
     expect(typeof main!.tools[0]!.snippet).toBe("string");
     expect(main!.tools[0]!.snippet.length).toBeGreaterThan(0);
@@ -112,6 +117,39 @@ describe("agent.config 事件族 payload（v0.6）", () => {
     expect(agentConfigChangedModelClear.payload.name).toBeNull();
     expect(agentConfigChangedModelClear.payload.enabled).toBe(false);
     expect(agentConfigChangedModelClear.channel).toBe("agent");
+  });
+
+  test("changed：tools/skills 同构 + model clear 的 name=null 形态", () => {
+    expect(agentConfigChangedTool.payload).toEqual({
+      profileKind: "main-session",
+      resourceType: "tool",
+      name: "grep",
+      enabled: false,
+    });
+    expect(agentConfigChangedModelClear.payload.name).toBeNull();
+    expect(agentConfigChangedModelClear.payload.enabled).toBe(false);
+    expect(agentConfigChangedModelClear.channel).toBe("agent");
+  });
+
+  // v0.11 批内补登（thinking 批 AD-6，iter-20260823-6ps5 T1.3）：thinking 槽位
+  // 型 resourceType 扩值 + list.result 块 thinkingLevel 字段（null = 未配置）。
+  test("thinking 槽位（v0.11 补登）：set/clear 命令 + changed 广播 + list.result 块 thinkingLevel", () => {
+    expect(agentConfigThinkingSet.payload).toEqual({
+      profileKind: "subagent-worker",
+      resourceType: "thinking",
+      name: "xhigh",
+      enabled: true,
+    });
+    expect(agentConfigThinkingClear.payload.enabled).toBe(false); // clear：name 忽略位
+    expect(agentConfigChangedThinkingSet.payload).toEqual({
+      profileKind: "subagent-worker",
+      resourceType: "thinking",
+      name: "xhigh",
+      enabled: true,
+    });
+    const [main, sub] = agentConfigListResult.payload.profiles;
+    expect(main!.thinkingLevel).toBeNull(); // 未配置 = null（非 undefined）
+    expect(sub!.thinkingLevel).toBe("xhigh"); // 已配置 = 档位字符串透传（AD-2）
   });
 
   test("set_enabled.result：applied / skipped(reason) 判别联合窄化", () => {

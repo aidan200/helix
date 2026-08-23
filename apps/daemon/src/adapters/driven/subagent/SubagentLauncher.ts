@@ -44,8 +44,13 @@ import type { BrowserPort } from "../../../application/ports/outbound/BrowserPor
 const DAEMON_ENTRY_PATH = join(import.meta.dir, "..", "..", "..", "main.ts");
 
 export interface SubagentLauncherDeps {
-  /** SubAgent profile 声明（装配进子进程；kind 不分支——声明同构，TR-AD-4）。 */
-  readonly profile: AgentProfile;
+  /**
+   * SubAgent profile 声明（装配进子进程；kind 不分支——声明同构，TR-AD-4）。
+   * 接受 getter（launch 时刻读现值——组合根经此把 resource_state kind 槽位
+   * （thinking/model 配置面）合并进解析输入；model/apiKeys 注入源模式同构先例）
+   * 或静态对象。
+   */
+  readonly profile: AgentProfile | (() => AgentProfile);
   /**
    * 全局兜底模型完整对象（解析单点产物，经 env JSON 透传子进程）。
    * 注入源为全局兜底模型存储（AD-2）——接受 getter（每次 launch 读现值，
@@ -143,7 +148,7 @@ export class SubagentLauncher implements InstanceRunner {
    * （透传形态）。
    */
   resolveModelFor(instanceId: string): Model<any> {
-    const slot = this.deps.profile.model;
+    const slot = this.profileNow().model;
     if (slot !== undefined) {
       if (this.deps.models === undefined) {
         throw new Error(
@@ -160,6 +165,22 @@ export class SubagentLauncher implements InstanceRunner {
     return typeof this.deps.model === "function" ? this.deps.model() : this.deps.model;
   }
 
+  /** profile 声明读面（getter 注入源模式：launch 时刻读现值定格）。 */
+  private profileNow(): AgentProfile {
+    return typeof this.deps.profile === "function" ? this.deps.profile() : this.deps.profile;
+  }
+
+  /**
+   * thinking 解析单点（AD-1 落点二，thinking 批 T1.3）：**两级**短路链
+   * ——自身 profile.thinkingLevel 槽位 ?? 兜底 medium。有意短于模型四级链：
+   * SubAgent 无 UI/快照级覆盖（红线：主会话覆盖永不进入本链——输入只有
+   * profile 槽位与常量 medium，无会话覆盖读面）。launch 段唯一消费点
+   * （调用一次，结果经 env 定格透传子进程——代际生效，运行期不变）。
+   */
+  resolveThinkingFor(): string {
+    return this.profileNow().thinkingLevel ?? "medium";
+  }
+
   /** 启动实例执行（秒回：spawn + 接线，不 await 收口）。同一实例不重复 launch。 */
   launch(instance: AgentInstance, task: string): void {
     const id = instance.instanceId;
@@ -167,6 +188,7 @@ export class SubagentLauncher implements InstanceRunner {
     // AD-3：三级解析单点（profile > spawn 会话快照 > 全局兜底 getter）；
     // apiKeys 读现值（getter 注入源 = auth.json）
     const model = this.resolveModelFor(id);
+    const thinkingLevel = this.resolveThinkingFor(); // launch 时刻定格（AD-1：spawn 快照）
     const apiKeys = typeof this.deps.apiKeys === "function" ? this.deps.apiKeys() : this.deps.apiKeys;
     // spawn 快照：launch 时刻读一次（toggle 后新 spawn 跟随新值，已
     // spawn 实例 env 已定格不受影响——代际生效）
@@ -177,6 +199,7 @@ export class SubagentLauncher implements InstanceRunner {
         ...process.env,
         HELIX_INSTANCE_ID: id,
         HELIX_MODEL_JSON: JSON.stringify(model), // 完整对象透传
+        HELIX_THINKING_LEVEL: thinkingLevel, // thinking 定格值（字符串透传，无 registry 防重建红线）
         HELIX_API_KEYS_JSON: JSON.stringify(apiKeys),
         HELIX_TOOL_CWD: this.deps.toolCwd,
         ...(snapshot !== undefined

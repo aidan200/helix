@@ -179,11 +179,12 @@ export class EventStream implements EventPublisherPort {
    * agent.config.changed 广播（v0.6）：资源配置变更通知——
    * daemon 级全局配置（信封 sessionId = SYSTEM_SESSION_ID → 全连接下发，
    * 与 broadcastListChanged 同构；订阅无关）。skills/tools 同构；model 型
-   * name = 模型 id 或 null（clear）。
+   * name = 模型 id 或 null（clear）；thinking 型（v0.11 补登）name = 档位
+   * 字符串或 null（clear）。
    */
   broadcastAgentConfigChanged(payload: {
     profileKind: "main-session" | "subagent-worker";
-    resourceType: "tool" | "skill" | "model";
+    resourceType: "tool" | "skill" | "model" | "thinking";
     name: string | null;
     enabled: boolean;
   }): void {

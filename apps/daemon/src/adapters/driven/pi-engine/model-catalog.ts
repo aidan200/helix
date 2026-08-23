@@ -1,4 +1,5 @@
 import { builtinModels, getBuiltinModelDataGeneratedAt } from "@earendil-works/pi-ai/providers/all";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, AssistantMessageEvent, Model, Models } from "@earendil-works/pi-ai";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -345,6 +346,13 @@ export class ModelCatalog implements ModelCatalogPort {
           cacheWrite: m.cost?.cacheWrite ?? 0,
         },
         source: overlay ? "overlay" : "builtin",
+        // thinking 批②防腐映射单点（AD-4②）：canonical 升序取自 pi-ai
+        // getSupportedThinkingLevels（档位 SoT 在 pi-ai）；剔除 "off"——
+        // helix 不引入 off 语义（AD-2 无关闭态）；reasoning=false → 空数组
+        reasoning: m.reasoning,
+        thinkingLevels: m.reasoning
+          ? getSupportedThinkingLevels(m).filter((level) => level !== "off")
+          : [],
       };
     });
     let refreshedAt = 0;

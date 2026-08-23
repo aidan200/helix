@@ -322,14 +322,17 @@ export interface AgentConfigListCommand extends CommandFrame<AgentConfigListPayl
  * tool/skill：name 须在全集内（全集外 → 结果帧 skipped reason=unknown-name，
  * 不落库）；model 型语义 = 槽位 set/clear——enabled=true 设 name 为槽位模型
  * （先经合并目录校验，目录外 → skipped reason=unknown-model），enabled=false
- * 清槽（name 忽略）。applied → agent.config.changed 广播（daemon 级全局）。
+ * 清槽（name 忽略）。thinking 型（v0.11 批内补登，AD-6）同构槽位语义：
+ * enabled=true 设 name 为 thinking 槽位档位（字符串透传，helix 不做档位
+ * 校验——SoT 在 pi-ai，AD-2），enabled=false 清槽。applied →
+ * agent.config.changed 广播（daemon 级全局）。
  */
 export interface AgentConfigSetEnabledPayload {
   profileKind: "main-session" | "subagent-worker";
-  resourceType: "tool" | "skill" | "model";
-  /** 资源名（model 型 = "provider/model-id"；clear 时忽略）。 */
+  resourceType: "tool" | "skill" | "model" | "thinking";
+  /** 资源名（model 型 = "provider/model-id"；thinking 型 = 档位字符串；clear 时忽略）。 */
   name: string;
-  /** tool/skill = 启停；model = set（true）/ clear（false）槽位。 */
+  /** tool/skill = 启停；model/thinking = set（true）/ clear（false）槽位。 */
   enabled: boolean;
 }
 

@@ -191,6 +191,12 @@ export interface ProfileSnapshotData {
 export interface AgentInstantiatedPayload {
   readonly instanceId: string;
   readonly profileKind: string;
+  /**
+   * SubAgent spawn 解析的 thinkingLevel 快照（thinking 批④，AD-4④/AD-6：
+   * 自身 profile 槽位 > 兜底 medium；字符串透传 AD-2）。Sub 实例必填携带
+   * （协议契约面）；主实例在主会话解析链落地（T1.2）前不携带。
+   */
+  readonly thinkingLevel?: string;
   readonly profileSnapshot: ProfileSnapshotData;
 }
 

@@ -1661,3 +1661,11 @@ additive + `thinkingLevel: string`（SubAgent spawn 解析快照，自身 profil
 §17.10 演进备案节的历史版本登记字面量合法保留）；`FrameVersion = 0 |
 "0.11"`。handshake 严格单值 fail-fast：`protocolVersion ≠ "0.11"` 即
 `protocol.version_unsupported` 拒绝。
+
+**批内补登（T1.3，同版本不破面——M6 T4 先例）**：agent.config 族配置资源
+载荷扩 thinking 槽位维（AD-6：E-智能体配置资源扩可选 thinkingLevel）——
+`AgentConfigProfileBlock` additive + `thinkingLevel: string | null`（未配置
+= null）；`agent.config.set_enabled` / `agent.config.changed` 的
+`resourceType` 联合 additive + `"thinking"`（槽位语义同 model：set/clear，
+helix 不做档位校验）。零新增命令/事件 type（`COMMAND_TYPES` 28 /
+`EVENT_TYPES` 48 不变）。

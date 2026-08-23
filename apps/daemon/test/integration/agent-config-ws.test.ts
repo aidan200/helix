@@ -105,6 +105,7 @@ interface ProfileBlock {
   skills: { name: string; description: string; filePath: string; source: string; enabled: boolean }[];
   diagnostics: { code: string; message: string; path: string; source: string }[];
   model: string | null;
+  thinkingLevel: string | null; // v0.11 批内补登（T1.3）
 }
 
 interface Rig {
@@ -415,6 +416,72 @@ describe("agent.config.set_enabled（v0.6 全局命令；四路径回执形态�
         name: "hello-skill",
         enabled: false,
       });
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+
+  // T1.3（thinking 批 AD-6 配置资源扩维）：thinking 槽位型 set/clear 全链——
+  // 零前置校验（helix 不做档位校验，SoT 在 pi-ai）+ changed 广播 + list 块往返。
+  test("⑫ thinking set/clear：applied + changed(resourceType=thinking) + list 块 thinkingLevel 往返；kind 隔离", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      await helloHandshake(client, rig.token);
+
+      // 未配置 = null（读面钉死 null 非 undefined）
+      client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: { profileKind: "subagent-worker" } });
+      const list0 = await client.expect("agent.config.list.result");
+      expect((list0.payload.profiles as ProfileBlock[])[0]!.thinkingLevel).toBeNull();
+
+      // set 槽位（无目录校验面——任意档位字符串透传）
+      client.send({
+        v: PROTOCOL_VERSION,
+        type: "agent.config.set_enabled",
+        payload: { profileKind: "subagent-worker", resourceType: "thinking", name: "xhigh", enabled: true },
+      });
+      const set = await client.expectAfter("agent.config.set_enabled.result", client.frames.indexOf(list0));
+      expect(set.payload).toEqual({ status: "applied" });
+      const changedSet = await client.expectAfter("agent.config.changed", client.frames.indexOf(set));
+      expect(changedSet.payload).toEqual({
+        profileKind: "subagent-worker",
+        resourceType: "thinking",
+        name: "xhigh",
+        enabled: true,
+      });
+      expect(rig.daemon.resource.thinkingSlot("subagent-worker")).toBe("xhigh");
+      // kind 隔离：main-session 不传染
+      expect(rig.daemon.resource.thinkingSlot("main-session")).toBeUndefined();
+
+      // clear 槽位
+      client.send({
+        v: PROTOCOL_VERSION,
+        type: "agent.config.set_enabled",
+        payload: { profileKind: "subagent-worker", resourceType: "thinking", name: "-", enabled: false },
+      });
+      const clear = await client.expectAfter("agent.config.set_enabled.result", client.frames.indexOf(changedSet));
+      expect(clear.payload).toEqual({ status: "applied" });
+      const changedClear = await client.expectAfter("agent.config.changed", client.frames.indexOf(clear));
+      expect(changedClear.payload).toEqual({
+        profileKind: "subagent-worker",
+        resourceType: "thinking",
+        name: null,
+        enabled: false,
+      });
+      expect(rig.daemon.resource.thinkingSlot("subagent-worker")).toBeUndefined();
+
+      // list 块随写面往返
+      client.send({
+        v: PROTOCOL_VERSION,
+        type: "agent.config.set_enabled",
+        payload: { profileKind: "subagent-worker", resourceType: "thinking", name: "low", enabled: true },
+      });
+      await client.expectAfter("agent.config.set_enabled.result", client.frames.indexOf(changedClear));
+      client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: { profileKind: "subagent-worker" } });
+      const list1 = await client.expectAfter("agent.config.list.result", client.frames.length - 1);
+      expect((list1.payload.profiles as ProfileBlock[])[0]!.thinkingLevel).toBe("low");
     } finally {
       await client.close();
       await rig.dispose();

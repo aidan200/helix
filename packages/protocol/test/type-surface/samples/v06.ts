@@ -104,6 +104,7 @@ export const agentConfigListResult: AgentConfigListResultEvent = {
           },
         ],
         model: "anthropic/claude-sonnet-4-5",
+        thinkingLevel: null, // v0.11 批内补登（thinking 批 AD-6）：未配置 = null
       },
       {
         profileKind: "subagent-worker",
@@ -111,6 +112,7 @@ export const agentConfigListResult: AgentConfigListResultEvent = {
         skills: [],
         diagnostics: [],
         model: null, // 槽位未设 = null（非 undefined——JSON 序列化面）
+        thinkingLevel: "xhigh", // v0.11 批内补登：已配置 = 档位字符串透传（AD-2）
       },
     ],
   },
@@ -132,6 +134,31 @@ export const agentConfigChangedModelClear: AgentConfigChangedEvent = {
   channel: "agent",
   type: "agent.config.changed",
   payload: { profileKind: "subagent-worker", resourceType: "model", name: null, enabled: false },
+};
+
+/** agent.config.set_enabled：thinking set 槽位（v0.11 批内补登，AD-6；档位字符串透传不校验）。
+ *  注：不入 v06Commands/v06Events 目录数组——样例为既有命令/事件 type 的新形态
+ * （type 计数不变），目录完备性断言（catalog.test.ts）枚举面不扩。 */
+export const agentConfigThinkingSet: AgentConfigSetEnabledCommand = {
+  v: PROTOCOL_VERSION,
+  type: "agent.config.set_enabled",
+  payload: { profileKind: "subagent-worker", resourceType: "thinking", name: "xhigh", enabled: true },
+};
+
+/** agent.config.set_enabled：thinking clear 槽位（enabled=false 清槽，name 忽略） */
+export const agentConfigThinkingClear: AgentConfigSetEnabledCommand = {
+  v: PROTOCOL_VERSION,
+  type: "agent.config.set_enabled",
+  payload: { profileKind: "subagent-worker", resourceType: "thinking", name: "-", enabled: false },
+};
+
+/** agent.config.changed：thinking set 广播（name = 档位字符串） */
+export const agentConfigChangedThinkingSet: AgentConfigChangedEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "agent",
+  type: "agent.config.changed",
+  payload: { profileKind: "subagent-worker", resourceType: "thinking", name: "xhigh", enabled: true },
 };
 
 /** agent.config.set_enabled.result：applied（点对点） */

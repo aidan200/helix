@@ -61,6 +61,7 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
     { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/ws/.helix/skills/broken/SKILL.md", source: "project" },
   ],
   model: null,
+  thinkingLevel: null, // v0.11 批内补登编译跟随（T1.3；UI 消费面归 T2.2）
 };
 
 const SUB_BLOCK: AgentConfigProfileBlock = {
@@ -69,6 +70,7 @@ const SUB_BLOCK: AgentConfigProfileBlock = {
   skills: [],
   diagnostics: [],
   model: null,
+  thinkingLevel: null, // v0.11 批内补登编译跟随（T1.3；UI 消费面归 T2.2）
 };
 
 const CATALOG: CatalogModel[] = [

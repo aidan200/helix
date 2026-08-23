@@ -365,3 +365,48 @@ describe("modelsView / resolveModel（引擎装配面）", () => {
     expect(catalog.resolveModel("anthropic/none")).toBeUndefined();
   });
 });
+
+// ── thinking 批②（AD-4②，T1.3）：CatalogModel 防腐能力位映射（snapshot() 单点） ──
+
+describe("CatalogModel 能力位映射（reasoning + thinkingLevels；pi-ai 类型不越墙）", () => {
+  /** 单 provider 单模型的受控目录（thinkingLevelMap 变体注入）。 */
+  function catalogOf(model: Model<any>): ModelCatalog {
+    const one = {
+      getProviders: () => [{ id: "fake" }] as never,
+      getProvider: (id: string) => ({ id }) as never,
+      getModels: (pid?: string) => (pid === undefined || pid === "fake" ? [model] : []),
+      getModel: (pid: string, id: string) => (pid === "fake" && id === model.id ? model : undefined),
+    } as unknown as ReturnType<typeof builtinModels>;
+    return makeCatalog({ models: one });
+  }
+  const withMap = (map: Record<string, string | null> | undefined, reasoning = true): Model<any> =>
+    ({
+      ...fakeModel("fake", "m-think"),
+      reasoning,
+      ...(map !== undefined ? { thinkingLevelMap: map } : {}),
+    }) as unknown as Model<any>;
+
+  test("full 变体：六档全键非 null → 升序六档（键序打乱仍按 canonical 升序；不含 off——helix 不引入 off 语义）", async () => {
+    // 故意乱序插入键 + 混入 off 键（pi-ai getSupportedThinkingLevels 返回含 off，防腐映射剔除）
+    const catalog = catalogOf(
+      withMap({ max: "z", medium: "m", minimal: "a", off: "0", xhigh: "x", high: "h", low: "l" }),
+    );
+    const [m] = (await catalog.catalog()).models;
+    expect(m!.reasoning).toBe(true);
+    expect(m!.thinkingLevels).toEqual(["minimal", "low", "medium", "high", "xhigh", "max"]);
+  });
+
+  test("tri 变体：部分键 null → 非 null 键集 [low, medium, high]", async () => {
+    const catalog = catalogOf(withMap({ minimal: null, low: "l", medium: "m", high: "h", xhigh: null, max: null }));
+    const [m] = (await catalog.catalog()).models;
+    expect(m!.reasoning).toBe(true);
+    expect(m!.thinkingLevels).toEqual(["low", "medium", "high"]);
+  });
+
+  test("none 变体：reasoning=false → reasoning=false + 空档序列（UI 禁用推理控件）", async () => {
+    const catalog = catalogOf(withMap(undefined, false));
+    const [m] = (await catalog.catalog()).models;
+    expect(m!.reasoning).toBe(false);
+    expect(m!.thinkingLevels).toEqual([]);
+  });
+});

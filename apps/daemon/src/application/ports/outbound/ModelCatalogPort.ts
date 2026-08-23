@@ -20,6 +20,17 @@ export interface CatalogModelView {
   };
   /** 静态表 or pi.dev overlay */
   readonly source: "builtin" | "overlay";
+  /**
+   * pi-ai Model.reasoning 防腐映射（thinking 批②，AD-4②）：false → UI 禁用
+   * 推理控件（TR-AD-42：前端不自判能力）。
+   */
+  readonly reasoning: boolean;
+  /**
+   * pi-ai thinkingLevelMap 非 null 键集派生的升序档序列（canonical 序取自
+   * pi-ai getSupportedThinkingLevels——档位 SoT 在 pi-ai，helix 不维护第二份
+   * 枚举，AD-2；剔除 "off"——helix 不引入 off 语义）；reasoning=false → 空数组。
+   */
+  readonly thinkingLevels: readonly string[];
 }
 
 /** 目录快照（model.catalog / catalog_refresh 结果载荷镜像）。 */

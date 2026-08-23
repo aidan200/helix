@@ -9,7 +9,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { AgentRuntime } from "./runtime/AgentRuntime";
 import type { AgentProfile } from "./runtime/AgentProfile";
 import type { AgentRuntimeDeps } from "./runtime/AgentRuntime";
-import { buildModels, createStreamFn, explicitGetApiKey, resolveModel, resolveModelSlot } from "./model-provider";
+import { buildModels, createStreamFn, explicitGetApiKey, resolveModel, resolveModelSlot, wrapStreamFnThinking } from "./model-provider";
 import { stopReasonOf, errorMessageOf, textOfContent, textOfMessage, usageOf } from "./mappers/SessionMapper";
 import { imagesOfContent } from "../../../application/services/images";
 
@@ -44,6 +44,15 @@ export interface PiEngineOptions {
   readonly resolveModelById?: (modelId: string) => Model<any>;
   /** 流式函数覆盖（测试注入 FakeLLM 剧本）。 */
   readonly streamFnOverride?: StreamFn;
+  /**
+   * thinking 解析读面（architecture.md §3.5 注入器装配点；thinking 批）：
+   * 注入后 streamFn（含 streamFnOverride——fake 剧本通道同被包装，测试
+   * 可捕获 options.reasoning）经 wrapStreamFnThinking 包装，每次 stream
+   * 调用开始重读本 getter；返回 undefined = 不动 options（provider 默认）。
+   * 缺省 = 不装注入器（既有行为逐字节不变）。主会话解析链读面归 T1.2；
+   * SubAgent 子进程 = 定格值 + 能力过滤（T1.3）。
+   */
+  readonly resolveThinking?: (model: Model<any>) => string | undefined;
   /** 工具集装配器（CoreToolExecutor.resolveTools，组合根接线）。 */
   readonly resolveTools?: AgentRuntimeDeps["resolveTools"];
 }
@@ -62,8 +71,14 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     const models = options.models ?? buildModels();
     this.resolveById = options.resolveModelById ?? ((id) => resolveModel(models, id));
     this.resolveToolsFn = options.resolveTools;
+    // §3.5 透传注入器装配：包装在 override 判定外侧——fake 剧本通道
+    // （streamFnOverride）同样被注入器包裹（定格值进 options.reasoning 可捕获），
+    // override 槽位语义不被破坏（仍是唯一 streamFn 来源）
+    const baseStreamFn = options.streamFnOverride ?? createStreamFn(models);
+    const streamFn =
+      options.resolveThinking === undefined ? baseStreamFn : wrapStreamFnThinking(baseStreamFn, options.resolveThinking);
     this.runtime = new AgentRuntime(options.profile, {
-      streamFn: options.streamFnOverride ?? createStreamFn(models),
+      streamFn,
       model: resolveModelSlot(options.profile.model, options.model, models),
       models,
       getApiKey: explicitGetApiKey(options.apiKeys),

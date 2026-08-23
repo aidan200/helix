@@ -130,4 +130,45 @@ describe("ResourceStateStore（resource_state 表，WriteQueue 单写通道）",
       await queue.close();
     }
   });
+
+  test("④ thinking 槽位（T1.3，AD-6）：未配置 → undefined；set 读回（enabled 恒 1）；覆盖单行不变式；clear → 未配置；kind 隔离", async () => {
+    const home = tmpHome();
+    const dbPath = createPaths(home).dbPath();
+    const queue = new WriteQueue(dbPath);
+    const store = new ResourceStateStore(queue);
+    try {
+      expect(store.thinkingSlot("subagent-worker")).toBeUndefined();
+
+      await store.setThinkingSlot("subagent-worker", "xhigh");
+      expect(store.thinkingSlot("subagent-worker")).toBe("xhigh");
+      expect(store.list("subagent-worker", "thinking")).toEqual([
+        {
+          profileKind: "subagent-worker",
+          resourceType: "thinking",
+          name: "xhigh",
+          enabled: true,
+          updatedAt: expect.any(String) as unknown as string,
+        },
+      ]);
+
+      // 覆盖：替换语义（旧行清除——单行不变式）
+      await store.setThinkingSlot("subagent-worker", "high");
+      expect(store.thinkingSlot("subagent-worker")).toBe("high");
+      expect(store.list("subagent-worker", "thinking").length).toBe(1);
+
+      // clear：删除行 = 未配置
+      await store.clearThinkingSlot("subagent-worker");
+      expect(store.thinkingSlot("subagent-worker")).toBeUndefined();
+      expect(store.list("subagent-worker", "thinking")).toEqual([]);
+
+      // kind 隔离（合取不跨 kind 传染）
+      await store.setThinkingSlot("main-session", "low");
+      expect(store.thinkingSlot("subagent-worker")).toBeUndefined();
+      expect(store.thinkingSlot("main-session")).toBe("low");
+      // 与 model 槽位互不干扰（resource_type 维隔离）
+      expect(store.modelSlot("main-session")).toBeUndefined();
+    } finally {
+      await queue.close();
+    }
+  });
 });

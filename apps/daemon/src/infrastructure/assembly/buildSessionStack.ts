@@ -199,7 +199,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   const subagentLauncher =
     engineMode.kind === "production"
       ? new SubagentLauncher({
-          profile: SubAgentProfile,
+          // thinking/model 解析输入面（AD-1 落点二）：profile 静态声明优先
+          // （model 先例：声明即最高），未声明合并 resource_state kind 槽位
+          // 现值（launch 时刻 getter 读取定格——配置变更后新 spawn 跟随，
+          // 已 spawn 实例 env 已定格，代际生效）
+          profile: () => ({
+            ...SubAgentProfile,
+            thinkingLevel: SubAgentProfile.thinkingLevel ?? resourceService.thinkingSlot("subagent-worker"),
+          }),
           // 可观测 logger（dispose kill 失败 warn；缺省静默）
           logger,
           // 三级链第三级（AD-3）：全局兜底现值解析（set_default 后新子进程跟随）
@@ -256,18 +263,21 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // 常量全文 + model 三级链解析 id 形态（profile 槽位 ?? spawn 会话快照 ??
     // 全局兜底；与该实例 launch 实际用模同源同时点——launch 侧 resolveModelFor
     // 同序同值，仅 id → Model 对象的解析在 launcher，AD-3 联动）。
-    subagentSnapshotFor: (spawnModel): ProfileSnapshotData => ({
+    subagentSnapshotFor: (spawnModel) => ({
       // 快照供给改读组装缓存（消观测漂移——与 launch 实际注入同源
       // 同时点）；model 链与 launcher resolveModelFor 同序：profile 槽位 ??
       // kind 槽位（uiModelSlot）?? spawn 快照 ?? 全局兑底
-      systemPrompt: subagentAssembly.systemPrompt,
-      tools: [...subagentAssembly.tools],
-      model:
-        SubAgentProfile.model ??
-        resourceService.modelSlot("subagent-worker") ??
-        spawnModel ??
-        defaultModel.current(),
-      hooks: SubAgentProfile.hooks.map((H) => H.hookName),
+      thinkingLevel: SubAgentProfile.thinkingLevel ?? resourceService.thinkingSlot("subagent-worker") ?? "medium", // 与 resolveThinkingFor 同源同时点（AD-4④）
+      profileSnapshot: {
+        systemPrompt: subagentAssembly.systemPrompt,
+        tools: [...subagentAssembly.tools],
+        model:
+          SubAgentProfile.model ??
+          resourceService.modelSlot("subagent-worker") ??
+          spawnModel ??
+          defaultModel.current(),
+        hooks: SubAgentProfile.hooks.map((H) => H.hookName),
+      },
     }),
     // CDP 地基：agent 终态 → 回收其全部 managed tabs（idle sweep 兼底）
     onInstanceTerminal: (agentId) => void browserPort.reclaimOwner(agentId),

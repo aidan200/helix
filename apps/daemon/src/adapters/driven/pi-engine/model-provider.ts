@@ -1,5 +1,5 @@
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import type { Model, Models } from "@earendil-works/pi-ai";
+import type { Model, Models, ModelThinkingLevel, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 
 /**
@@ -77,6 +77,39 @@ export function resolveModelSlot(
 /** 流式补全函数工厂（Models.streamSimple 满足 Agent 的 StreamFn 契约）。 */
 export function createStreamFn(models: Models): StreamFn {
   return (model, context, options) => models.streamSimple(model, context, options);
+}
+
+/**
+ * thinking 能力判据（architecture.md §3.3，thinking 批 T1.3）：
+ * `model.reasoning === true` 且 `thinkingLevelMap[level] !== null`
+ * （缺省键 = provider 默认 = 支持，F-6；map 整体缺席 = 无能力限制信息 = 支持）。
+ * 字符串透传（AD-2：helix 不维护第二份档位枚举，pi-ai 类型不越墙——
+ * 本文件在 TR-AD-7 三域内合法）。
+ */
+export function supportsThinkingLevel(model: Model<any>, level: string): boolean {
+  if (model.reasoning !== true) return false;
+  return model.thinkingLevelMap?.[level as ModelThinkingLevel] !== null;
+}
+
+/**
+ * thinking 透传注入器（architecture.md §3.5 新开通道）：包装 StreamFn，
+ * 调用前把解析结果写入 `options.reasoning`；解析结果 undefined（全链不
+ * 支持 / model.reasoning=false）→ 不动 options（provider 默认，AD-3）。
+ *
+ * 纯透传包装纪律：不做档位语义判断（SoT 在 pi-ai）、不做 clamp（过滤已
+ * 在 §3.3 解析段完成）、不认识会话/实例概念——只消费解析结果 getter
+ * （每次调用重读 = 引擎 turn 开始读解析结果语义）。两个装配点都走本通道
+ * （组合根纪律）：主会话 PiAgentEngineAdapter + SubAgent 子进程 ChildMain。
+ */
+export function wrapStreamFnThinking(
+  streamFn: StreamFn,
+  resolveThinking: (model: Model<any>) => string | undefined,
+): StreamFn {
+  return (model, context, options) => {
+    const level = resolveThinking(model);
+    if (level === undefined) return streamFn(model, context, options);
+    return streamFn(model, context, { ...options, reasoning: level as ThinkingLevel });
+  };
 }
 
 /**

@@ -117,7 +117,11 @@ export interface SchedulerServiceDeps {
    *   spawn 会话快照 ?? 全局兜底，AD-3 联动）均归组合根装配（driven 常量
    *   不进 application）；缺省 = 纯调度测试形态，不发布 instantiated。
    */
-  readonly subagentSnapshotFor?: (spawnModel: string | undefined) => AgentInstantiatedPayload["profileSnapshot"];
+  readonly subagentSnapshotFor?: (spawnModel: string | undefined) => {
+    readonly profileSnapshot: AgentInstantiatedPayload["profileSnapshot"];
+    /** spawn 解析的 thinkingLevel 快照（AD-4④；与 launcher resolveThinkingFor 同源同时点）。 */
+    readonly thinkingLevel: string;
+  };
   /**
    * 实例终态钩子（CDP 地基）：done/failed/killed 收口链完成后回调——
    * 组合根接 `browserPort.reclaimOwner`（回收该 owner 全部 managed tabs，
@@ -394,10 +398,12 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     // 快照 model = 三级链解析结果（spawn 时刻求值，与该实例 launch 实际使用
     // 模型同源）；只落盘不广播（DtoMapper 无 case）。
     if (this.deps.subagentSnapshotFor !== undefined) {
+      const snapshot = this.deps.subagentSnapshotFor(model);
       this.publish(instance, "agent.instantiated", {
         instanceId: agentId,
         profileKind: instance.profileKind,
-        profileSnapshot: this.deps.subagentSnapshotFor(model),
+        thinkingLevel: snapshot.thinkingLevel, // spawn 解析快照（AD-4④；只落盘不广播）
+        profileSnapshot: snapshot.profileSnapshot,
       } satisfies AgentInstantiatedPayload);
     }
 

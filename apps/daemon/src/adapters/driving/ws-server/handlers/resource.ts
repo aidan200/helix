@@ -46,22 +46,22 @@ function normalizeSetEnabled(ctx: ResourceCommandContext, payload: Record<string
     ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\"");
     return undefined;
   }
-  if (resourceType !== "tool" && resourceType !== "skill" && resourceType !== "model") {
-    ctx.commandError(ctx.type, "command.invalid_payload", "payload.resourceType 应为 \"tool\" | \"skill\" | \"model\"");
+  if (resourceType !== "tool" && resourceType !== "skill" && resourceType !== "model" && resourceType !== "thinking") {
+    ctx.commandError(ctx.type, "command.invalid_payload", "payload.resourceType 应为 \"tool\" | \"skill\" | \"model\" | \"thinking\"");
     return undefined;
   }
   if (typeof name !== "string" || name.trim() === "") {
-    ctx.commandError(ctx.type, "command.invalid_payload", "payload.name 应为非空 string（model 型 = \"provider/model-id\"）");
+    ctx.commandError(ctx.type, "command.invalid_payload", "payload.name 应为非空 string（model 型 = \"provider/model-id\"；thinking 型 = 档位字符串）");
     return undefined;
   }
   if (typeof enabled !== "boolean") {
-    ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled 应为 boolean（model 型 = set/clear 槽位判别位）");
+    ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled 应为 boolean（model/thinking 型 = set/clear 槽位判别位）");
     return undefined;
   }
   return { profileKind, resourceType, name, enabled };
 }
 
-/** ResourceConfigBlock（domain 面）→ AgentConfigProfileBlock（协议 DTO）：model undefined → null。 */
+/** ResourceConfigBlock（domain 面）→ AgentConfigProfileBlock（协议 DTO）：model/thinkingLevel undefined → null。 */
 function toProfileBlockDto(block: ResourceConfigBlock): AgentConfigProfileBlock {
   return {
     profileKind: block.profileKind,
@@ -69,6 +69,7 @@ function toProfileBlockDto(block: ResourceConfigBlock): AgentConfigProfileBlock 
     skills: block.skills.map((s) => ({ ...s })),
     diagnostics: block.diagnostics.map((d) => ({ ...d })),
     model: block.model ?? null,
+    thinkingLevel: block.thinkingLevel ?? null,
   };
 }
 
@@ -104,7 +105,7 @@ export function handleAgentConfigSetEnabled(ctx: ResourceCommandContext): void {
 
   const run = async (): Promise<void> => {
     let outcome: { status: "applied" } | { status: "skipped"; reason: string };
-    /** 广播载荷 name：tools/skills = 资源名；model = id 或 null（clear）。 */
+    /** 广播载荷 name：tools/skills = 资源名；model/thinking = 槽位值或 null（clear）。 */
     let changedName: string | null = null;
     if (resourceType === "model") {
       if (enabled) {
@@ -121,6 +122,18 @@ export function handleAgentConfigSetEnabled(ctx: ResourceCommandContext): void {
         await ctx.resource.clearModelSlot(profileKind);
         outcome = { status: "applied" };
         changedName = null; // clear：广播 name = null
+      }
+    } else if (resourceType === "thinking") {
+      // thinking 槽位（v0.11 补登，AD-6）：同 model 槽位语义（set/clear），
+      // 但零前置校验——helix 不做档位校验（字符串透传，SoT 在 pi-ai，AD-2）
+      if (enabled) {
+        await ctx.resource.setThinkingSlot(profileKind, name);
+        outcome = { status: "applied" };
+        changedName = name;
+      } else {
+        await ctx.resource.clearThinkingSlot(profileKind);
+        outcome = { status: "applied" };
+        changedName = null;
       }
     } else {
       // tool/skill：ResourceService.setEnabled 自带全集校验（unknown-name skipped）
