@@ -15,6 +15,7 @@ import type { ClockPort } from "../../ports/outbound/ClockPort";
 import type { SessionRepositoryPort } from "../../ports/outbound/SessionRepositoryPort";
 import type { AgentEngineEvent } from "../../ports/outbound/AgentEnginePort";
 import type {
+  AgentInspection,
   AgentInstanceStatus,
   AgentOrchestrationPort,
   KillOutcome,
@@ -128,7 +129,14 @@ export interface SchedulerServiceDeps {
   readonly logger?: { warn: (message: string) => void };
 }
 
-export class SchedulerService implements AgentOrchestrationPort {
+/**
+ * implements 注记（T3-A）：spawn 为 sessionId 前置的「绑定前」形态
+ * （组合根门面闭包注入 sessionId 后才是 Port 形状）；Port.spawn 第三参
+ * reportIntervalMs 与本方法第三参 profileKind 类型错位，结构性 implements
+ * 不再成立——退为 Omit 实现（send/status/kill/inspect 仍受编译期守卫），
+ * spawn 的类型安全由组合根门面字面量（: AgentOrchestrationPort）承担。
+ */
+export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   /** 会话内实例注册表（AgentLifecycle 的注册表面；会话运行态不在此管）。 */
   private readonly registry = new AgentLifecycle();
   /** FIFO 队列（instanceId 有序；内存队列不落盘，AD-10——重启清队归恢复链）。 */
@@ -144,6 +152,15 @@ export class SchedulerService implements AgentOrchestrationPort {
   /** 实例 → spawn 时刻锚（规则②内存携带；含 null 流首——has 判定区分未装配）。 */
   private readonly spawnAnchors = new Map<string, string | null>();
   private monitor: ReturnType<typeof setInterval> | undefined;
+  // ── T3-A 周期进展报告（per-instance 定时器；系统只送达信息，永不自动终止） ──
+  /** 实例 → 报告间隔 ms（spawn 入参校验后 >0 才登记；缺省/0/负数/NaN 不报告）。 */
+  private readonly reportIntervals = new Map<string, number>();
+  /** 实例 → 报告定时器（startInstance 建立；终态/stop/cancelSession 清理）。 */
+  private readonly reportTimers = new Map<string, ReturnType<typeof setInterval>>();
+  /** 实例 → 报告序号（信封 #k，1 起）。 */
+  private readonly reportSeqs = new Map<string, number>();
+  /** 实例 → 上次报告计数器快照（Δ = 现值 − 快照）。 */
+  private readonly lastReportedMetrics = new Map<string, { toolCalls: number; assistantChars: number; turns: number }>();
   /** 引擎事件翻译状态机（拆分：6 per-instance Map 写侧 + entry id 分配 + 清理序列单点）。 */
   private readonly translator: SubagentEventTranslator;
   /** closure 收口链（拆分：归一/双产物/投影/终态事件/SteerQueue 注入）。 */
@@ -167,12 +184,14 @@ export class SchedulerService implements AgentOrchestrationPort {
     this.monitor = setInterval(() => this.checkStalled(), poll);
   }
 
-  /** 停 stalled 监视定时器（daemon shutdown / 测试收尾；幂等）。 */
+  /** 停 stalled 监视定时器 + 全部进展报告定时器（daemon shutdown / 测试收尾；幂等）。 */
   stop(): void {
     if (this.monitor !== undefined) {
       clearInterval(this.monitor);
       this.monitor = undefined;
     }
+    for (const timer of this.reportTimers.values()) clearInterval(timer); // T3-A
+    this.reportTimers.clear();
   }
 
   // ── 观测面（agent_status 工具取数） ───────────────────────
@@ -198,6 +217,28 @@ export class SchedulerService implements AgentOrchestrationPort {
       return one ? [this.toStatus(one)] : [];
     }
     return this.registry.listInstances().map((i) => this.toStatus(i));
+  }
+
+  /**
+   * AgentOrchestrationPort.inspect（T3-B）：执行核实视图——状态/任务/起止/
+   * idleMs/累计工具数/最近 20 条轨迹；不存在 → null（与 status 空值同族）。
+   * 终态实例：lastEventAt/idleMs 不再观测（null）——轨迹/计数已随清理序列清空。
+   */
+  inspect(agentId: string): AgentInspection | null {
+    const instance = this.registry.findInstance(agentId);
+    if (!instance) return null;
+    const last = instance.isTerminal ? undefined : this.translator.lastEventAtOf(agentId);
+    const task = this.tasks.get(agentId);
+    return {
+      instanceId: agentId,
+      state: instance.current,
+      ...(task !== undefined ? { task } : {}),
+      startedAt: instance.createdAt,
+      lastEventAt: last ?? null,
+      idleMs: last === undefined ? null : Math.max(0, this.deps.clock.nowMs() - last),
+      toolCalls: this.translator.metricsOf(agentId).toolCalls,
+      trace: this.translator.traceOf(agentId),
+    };
   }
 
   /** 快照观测面：instances[] 装配载荷（注册表 + task + closure；DtoMapper 转协议）。
@@ -253,6 +294,7 @@ export class SchedulerService implements AgentOrchestrationPort {
         }
         instance.cancel();
         this.translator.forgetLastEventAt(instance.instanceId);
+        this.clearProgressReporting(instance.instanceId); // T3-A：queued 取消不走收口链，定点清定时器
         this.persistLifecycle(instance);
       } else {
         this.kill(instance.instanceId);
@@ -305,7 +347,7 @@ export class SchedulerService implements AgentOrchestrationPort {
    * sessionId 显式入参（AD-4 多会话：实例归属会话；组合根经当前会话
    * 门面/会话绑定工具注入，全局预算不随会话数分裂——TR-AD-11/16）。
    */
-  spawn(sessionId: string, task: string, profileKind?: string, model?: string): SpawnOutcome {
+  spawn(sessionId: string, task: string, profileKind?: string, model?: string, reportIntervalMs?: number): SpawnOutcome {
     const decision = this.deps.policy.decideSpawn(this.runningCount(), this.queue.length);
     if (decision.action === "reject") {
       return {
@@ -328,6 +370,10 @@ export class SchedulerService implements AgentOrchestrationPort {
     this.registry.registerInstance(instance);
     this.tasks.set(agentId, task);
     if (model !== undefined) this.spawnModels.set(agentId, model); // spawn 时透传当前模型
+    // T3-A：报告间隔校验（>0 且有限才启用；负数/NaN/0 视为不报告）
+    if (typeof reportIntervalMs === "number" && Number.isFinite(reportIntervalMs) && reportIntervalMs > 0) {
+      this.reportIntervals.set(agentId, Math.floor(reportIntervalMs));
+    }
     // 契约 v0.3 §1 规则②：spawn 时刻锚计算一次（聚合内最后一条
     // main/compaction entry；无 → null 流首），内存携带——后续快照组装不按
     // 当前尾部重算；不落盘（派生值，重启后按规则①重建/尾部推导边界）
@@ -453,6 +499,7 @@ export class SchedulerService implements AgentOrchestrationPort {
     // 四 delete 原序单点在 translator（streamEntryIds → entrySeqs →
     // thinkingStartsMs → pendingThinking），先于下述迁移与收口链
     this.translator.onClosureCleanup(instanceId);
+    this.clearProgressReporting(instanceId); // T3-A：终态清报告定时器（与上同一清理序列位）
 
     // 状态机迁移（非法迁移不可达：queued/running 均可收口 failed/killed；
     // done 仅自 running——queued 实例重外部已完成时补记 running 再收口，
@@ -500,7 +547,64 @@ export class SchedulerService implements AgentOrchestrationPort {
     this.translator.touchLastEventAt(instance.instanceId);
     this.persistLifecycle(instance); // running 投影（重启 running→failed 收口的读面，AD-10）
     this.publish(instance, "agent.started", { agentId: instance.instanceId } satisfies AgentStartedPayload);
+    // T3-A：报告间隔已登记才建 per-instance 定时器（queued 期不报告——无执行载体无事件）
+    const interval = this.reportIntervals.get(instance.instanceId);
+    if (interval !== undefined) {
+      this.reportSeqs.set(instance.instanceId, 0);
+      this.lastReportedMetrics.set(instance.instanceId, { toolCalls: 0, assistantChars: 0, turns: 0 });
+      this.reportTimers.set(
+        instance.instanceId,
+        setInterval(() => this.emitProgressReport(instance.instanceId), interval),
+      );
+    }
     this.deps.runner.launch(instance, this.tasks.get(instance.instanceId) ?? "");
+  }
+
+  // ── T3-A 周期进展报告（机械 Δ 信封；不指望 SubAgent 自觉汇报） ──────
+
+  /**
+   * 到点生成一行机械信封，经 injectClosure 同一通道（组合根接
+   * ChatService.injectClosure，T2 已处理 aborting 缓冲）注入归属会话：
+   * `[agent-N 进展报告 #k] 状态=running 静默=<idleMs>ms Δ工具调用=+x Δ输出=+y字符 Δ轮次=+z`。
+   * 一行纯机械数据（行为建议在主会话系统提示词）；注入失败吞进 engine.error
+   * 可观测，不影响调度器（定时器继续/随终态清理）。
+   */
+  private emitProgressReport(instanceId: string): void {
+    const instance = this.registry.findInstance(instanceId);
+    if (!instance || instance.isTerminal) {
+      this.clearProgressReporting(instanceId); // 防御：实例已不在/终态（迟到 tick）
+      return;
+    }
+    const metrics = this.translator.metricsOf(instanceId);
+    const prev = this.lastReportedMetrics.get(instanceId) ?? { toolCalls: 0, assistantChars: 0, turns: 0 };
+    this.lastReportedMetrics.set(instanceId, metrics);
+    const seq = (this.reportSeqs.get(instanceId) ?? 0) + 1;
+    this.reportSeqs.set(instanceId, seq);
+    const last = this.translator.lastEventAtOf(instanceId);
+    const idleMs = last === undefined ? 0 : Math.max(0, this.deps.clock.nowMs() - last);
+    const envelope =
+      `[${instanceId} 进展报告 #${seq}] 状态=${instance.current} 静默=${idleMs}ms ` +
+      `Δ工具调用=+${metrics.toolCalls - prev.toolCalls} ` +
+      `Δ输出=+${metrics.assistantChars - prev.assistantChars}字符 ` +
+      `Δ轮次=+${metrics.turns - prev.turns}`;
+    try {
+      this.deps.injectClosure?.(instanceId, envelope);
+    } catch (err) {
+      // 注入失败（会话 stopped 等）不崩调度——engine.error 可观测化
+      this.publish(instance, "engine.error", {
+        message: `进展报告注入失败（实例 ${instanceId}）：${(err as Error).message}`,
+      });
+    }
+  }
+
+  /** T3-A 清理：清定时器 + 序号/快照/间隔登记（终态/stop/cancelSession 共用；幂等）。 */
+  private clearProgressReporting(instanceId: string): void {
+    const timer = this.reportTimers.get(instanceId);
+    if (timer !== undefined) clearInterval(timer);
+    this.reportTimers.delete(instanceId);
+    this.reportSeqs.delete(instanceId);
+    this.lastReportedMetrics.delete(instanceId);
+    this.reportIntervals.delete(instanceId);
   }
 
   /** 出队：预算允许则队首启动（循环直至预算耗尽或队列空）。 */

@@ -16,10 +16,10 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * 实例化在 AgentRuntime 装配点（每 runtime 新建）。快照读面用类的
  * hookName（与实例 .name 等值）。
  *
- * 工具集：十一工具按名声明（编排三工具 + 静态联网两工具 +
+ * 工具集：十二工具按名声明（编排四工具 + 静态联网两工具 +
  * 动态族单 browser 工具），装配在组合根
  * （CoreToolExecutor → resolveTools；bash/read/write/edit 为 pi 内置、grep 自写、
- * agent_spawn/agent_send/agent_status 经 AgentOrchestrationPort 回调度器，
+ * agent_spawn/agent_send/agent_status/agent_inspect 经 AgentOrchestrationPort 回调度器，
  * browser 经 BrowserPort 薄转投（零 CDP 知识），同一沙箱 cwd 与端口注入）。
  *
  * compaction：默认参数保留（实测值）；摘要执行受 provider
@@ -27,10 +27,12 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * 实际生效经集成验收。
  */
 /**
- * 主会话 base prompt（瘦身消双源）：只留角色+行为引导，**不列工具名**
+ * 主会话 base prompt（瘦身消双源）：只留角色+行为引导，**不枚举工具清单**
  * ——可用工具清单唯一来源 = SystemPromptAssembler 组装产物（工具段从
  * resolveTools 产物同源派生（消除手写清单与 tools 数组的双源漂移
- * 事实 8）。「并行委派」段保留行为策略措辞但不列具体工具名；组装器不做
+ * 事实 8）。「并行委派」段保留行为策略措辞（T3-C 正向契约：结束回合 +
+ * closure/进展报告自动注入 + 不轮询不抢跑 + 零增量 agent_inspect 核实），
+ * 契约句引用的编排工具名是行为指引而非清单枚举；组装器不做
  * 任何状态联动（编排关不删委派段——用户裁决，错配=使用不当）。
  */
 export const MAIN_SESSION_SYSTEM_PROMPT =
@@ -38,8 +40,13 @@ export const MAIN_SESSION_SYSTEM_PROMPT =
   "回答简洁、准确；用户消息中的修正与补充" +
   "（可能经 steer 注入到达）优先于更早的指示。\n" +
   "并行委派：独立可并行的任务可指派 SubAgent 实例执行" +
-  "（立即返回不等完成）；实例收口结论会以 \"agent-N closure: …\" 注入回来；" +
-  "运行中可向实例追加指示、查询进度；不再需要的实例可提醒用户终止。";
+  "（agent_spawn 立即返回，不等完成）。指派后向用户简述计划并结束回合——" +
+  "实例收口结论（\"agent-N closure: …\"）与周期进展报告会自动注入、驱动下一轮；" +
+  "不要轮询 agent_status 等待结果，也不要在实例执行期间自行重做该任务。" +
+  "长任务 spawn 时设 reportIntervalMs（预估执行超过 10 分钟再设，建议 600000 起步，由你自估）；" +
+  "收到连续零增量的进展报告时用 agent_inspect 核实真实执行轨迹，确无进展可终止（kill）后重派。" +
+  "agent_status 仅在用户主动询问进度时使用；运行中可用 agent_send 追加指示；" +
+  "不再需要的实例可提醒用户终止。";
 
 export const MainSessionProfile: AgentProfile = {
   kind: "main-session",
@@ -55,6 +62,7 @@ export const MainSessionProfile: AgentProfile = {
     "agent_spawn",
     "agent_send",
     "agent_status",
+    "agent_inspect", // T3-B：死循环核实（编排四工具）
     // 动态族（单 browser 工具 + action 参数；条件注册——CoreToolExecutor options.browser）
     "browser",
   ], // 装配经 CoreToolExecutor.resolveTools（组合根）

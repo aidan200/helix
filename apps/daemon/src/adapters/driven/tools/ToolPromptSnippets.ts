@@ -21,6 +21,7 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   web_fetch: "抓取网页并转为 Markdown 返回（直连主通道，Jina 备选）",
   agent_spawn: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）",
   agent_send: "向运行中的 SubAgent 实例追加补充指示",
-  agent_status: "查询 SubAgent 实例的当前执行状态",
+  agent_status: "查询 SubAgent 实例的当前执行状态（仅用户主动询问进度时用）",
+  agent_inspect: "核实 SubAgent 实例真实执行轨迹（进展零增量时判断是否死循环）",
   browser: "操控浏览器（action 分发：开 tab/eval/点击/滚动/截图等，携带登录态）",
 };

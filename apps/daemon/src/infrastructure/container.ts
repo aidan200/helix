@@ -419,16 +419,18 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // spawn 携带当前会话归属 + 当前模型透传（AgentInstanceDto.model
   // 填充链）；kill/send/status 按 agentId 全局寻址
   const currentOrchestration: AgentOrchestrationPort = {
-    spawn: (task, profileKind) =>
+    spawn: (task, profileKind, reportIntervalMs) =>
       scheduler.spawn(
         registry.currentSessionId(),
         task,
         profileKind,
         backfill.currentModelOf?.(registry.currentSessionId()),
+        reportIntervalMs, // T3-A：进展报告间隔透传
       ),
     send: (agentId, message) => scheduler.send(agentId, message),
     status: (agentId) => scheduler.status(agentId),
     kill: (agentId) => scheduler.kill(agentId),
+    inspect: (agentId) => scheduler.inspect(agentId), // T3-B
   };
   // 模型/认证管理门面（AD-2）：WS model.*/auth.* 命令族回口；
   // model.changed 经 EventStream 广播（channel=model，订阅路由）

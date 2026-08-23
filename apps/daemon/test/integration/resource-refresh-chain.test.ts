@@ -58,6 +58,7 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
     send: (agentId: string, message: string) => ({ delivered: false, detail: `测试桩不投递：${agentId} ${message}` }),
     status: () => [],
     kill: (agentId: string) => ({ killed: false, error: `测试桩不 kill：${agentId}` }),
+    inspect: () => null,
   };
   const streamFn: StreamFn = (model: Model<any>, context) => {
     const ctx = context as unknown as { systemPrompt?: string; tools?: Array<{ name: string }> };
@@ -107,6 +108,7 @@ const MAIN_TOOLS = [
   "agent_spawn",
   "agent_send",
   "agent_status",
+  "agent_inspect", // T3-B
   "browser",
 ];
 const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"]; // H-3：+browser

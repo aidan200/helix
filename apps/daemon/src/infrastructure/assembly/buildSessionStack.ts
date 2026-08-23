@@ -318,11 +318,12 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       ? engineMode.factory
       : (sessionId: string): AgentEnginePort => {
             const sessionOrchestration: AgentOrchestrationPort = {
-              spawn: (task, profileKind) =>
-                scheduler.spawn(sessionId, task, profileKind, backfill.currentModelOf?.(sessionId)),
+              spawn: (task, profileKind, reportIntervalMs) =>
+                scheduler.spawn(sessionId, task, profileKind, backfill.currentModelOf?.(sessionId), reportIntervalMs),
               send: (agentId, message) => scheduler.send(agentId, message),
               status: (agentId) => scheduler.status(agentId),
               kill: (agentId) => scheduler.kill(agentId),
+              inspect: (agentId) => scheduler.inspect(agentId), // T3-B
             };
             const toolExecutor = new CoreToolExecutor({
               cwd: toolCwd,

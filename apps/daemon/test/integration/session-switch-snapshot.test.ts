@@ -214,6 +214,7 @@ describe("T5.1：多会话切换快照盖章 = 目标会话自身状态（串台
         send: () => ({ delivered: false, detail: "spy" }),
         status: () => [],
         kill: () => ({ killed: false, error: "spy" }),
+        inspect: () => null,
       },
       model,
       resource: {

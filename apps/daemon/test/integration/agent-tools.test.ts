@@ -94,10 +94,11 @@ function makeToolHarness(policy?: SchedulingPolicy): ToolHarness {
   });
   // T2.2 多会话：spawn 携带会话归属（工具经会话绑定门面回口调度器）
   const orchestration: AgentOrchestrationPort = {
-    spawn: (task, profileKind) => scheduler.spawn(SESSION_ID, task, profileKind),
+    spawn: (task, profileKind, reportIntervalMs) => scheduler.spawn(SESSION_ID, task, profileKind, undefined, reportIntervalMs),
     send: (agentId, message) => scheduler.send(agentId, message),
     status: (agentId) => scheduler.status(agentId),
     kill: (agentId) => scheduler.kill(agentId),
+    inspect: (agentId) => scheduler.inspect(agentId),
   };
   const executor = new CoreToolExecutor({ cwd: tmpdir(), orchestration });
   return { executor, scheduler, runner, events };
@@ -227,7 +228,15 @@ describe("② agent_send 经 SchedulerService.send → 子进程 stdin → Agent
       repository: new SqliteSessionRepository(writeQueue),
       clock,
       });
-    const executor = new CoreToolExecutor({ cwd: home, orchestration: scheduler });
+    // T3-A：spawn 为 sessionId 前置形态——经会话绑定门面适配 Port（结构性不再可直赋）
+    const sessionOrchestration: AgentOrchestrationPort = {
+      spawn: (task, profileKind, reportIntervalMs) => scheduler.spawn(SESSION_ID, task, profileKind, undefined, reportIntervalMs),
+      send: (agentId, message) => scheduler.send(agentId, message),
+      status: (agentId) => scheduler.status(agentId),
+      kill: (agentId) => scheduler.kill(agentId),
+      inspect: (agentId) => scheduler.inspect(agentId),
+    };
+    const executor = new CoreToolExecutor({ cwd: home, orchestration: sessionOrchestration });
     try {
       // spawn（经工具链路：agent_spawn → port → scheduler → 真子进程）
       const spawnResult = await executor.execute({

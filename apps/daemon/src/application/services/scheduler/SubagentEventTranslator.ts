@@ -1,4 +1,5 @@
 import type { AgentInstance } from "../../../domain/agent/AgentInstance";
+import type { AgentTraceItem } from "../../ports/inbound/AgentOrchestrationPort";
 import type {
   DomainEvent,
   MessageCompletedPayload,
@@ -55,6 +56,21 @@ export class SubagentEventTranslator {
   private readonly thinkingStartsMs = new Map<string, Map<number, number>>();
   /** 实例 → 在途 thinking 块（message_end 时关联 reasoningTokens 后产事件）。 */
   private readonly pendingThinking = new Map<string, { contentIndex: number; text: string; startedMs: number }[]>();
+  // ── T3-A 机械计数器（过程监督：进展报告 Δ 数据源；只计数不裁决） ──
+  /** 实例 → 工具调用完成累计数（tool_execution_end +1）。 */
+  private readonly toolCallsCompleted = new Map<string, number>();
+  /** 实例 → assistant 输出累计字符（message_update delta 累加；无流式分片的消息按 message_end 全文计一次）。 */
+  private readonly assistantChars = new Map<string, number>();
+  /** 实例 → 已完成轮次累计（turn_end +1）。 */
+  private readonly turnsCompleted = new Map<string, number>();
+  /** 实例 → 当前 assistant 消息已流式字符（message_end 防双计：>0 则全文不再重复计）。 */
+  private readonly streamCharsInFlight = new Map<string, number>();
+  // ── T3-B 执行轨迹环缓冲（agent_inspect 死循环核实数据源） ──
+  /** 实例 → 最近 20 条执行轨迹（时间序；溢出逐最旧；onClosureCleanup 清空）。 */
+  private readonly traceItems = new Map<string, AgentTraceItem[]>();
+
+  /** 环缓冲容量（最近 20 条轨迹项）。 */
+  private static readonly TRACE_CAPACITY = 20;
 
   constructor(private readonly deps: SubagentEventTranslatorDeps) {}
 
@@ -83,6 +99,8 @@ export class SubagentEventTranslator {
     if (event.type === "tool_execution_end") {
       const args = this.subToolArgs.get(event.toolCallId);
       this.subToolArgs.delete(event.toolCallId);
+      this.toolCallsCompleted.set(instanceId, (this.toolCallsCompleted.get(instanceId) ?? 0) + 1); // T3-A 计数
+      this.pushTrace(instanceId, { t: this.deps.clock.now(), kind: "tool", name: event.toolName }); // T3-B 轨迹
       this.publish(instance, "tool.call.result", {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
@@ -100,9 +118,12 @@ export class SubagentEventTranslator {
       this.streamEntryIds.set(instanceId, this.nextEntryId(instanceId));
       this.thinkingStartsMs.set(instanceId, new Map());
       this.pendingThinking.set(instanceId, []);
+      this.streamCharsInFlight.set(instanceId, 0); // T3-A：新消息流式计数复位
       return;
     }
     if (event.type === "message_update") {
+      this.assistantChars.set(instanceId, (this.assistantChars.get(instanceId) ?? 0) + event.delta.length); // T3-A 计数
+      this.streamCharsInFlight.set(instanceId, (this.streamCharsInFlight.get(instanceId) ?? 0) + event.delta.length);
       const messageId = this.streamEntryIds.get(instanceId);
       if (messageId === undefined) return; // 未预留（乱序/非 assistant 流）：丢弃
       this.deps.events.publishDelta({
@@ -139,6 +160,15 @@ export class SubagentEventTranslator {
       return;
     }
     if (event.type === "message_end" && event.role === "assistant") {
+      // T3-A 计数：无流式分片的消息按全文计一次（有分片则 delta 已逐片累加，不双计）
+      if ((this.streamCharsInFlight.get(instanceId) ?? 0) === 0) {
+        this.assistantChars.set(instanceId, (this.assistantChars.get(instanceId) ?? 0) + event.text.length);
+      }
+      this.streamCharsInFlight.delete(instanceId);
+      // T3-B 轨迹：非空 assistant 文本尾部 200 字入环缓冲
+      if (event.text.trim() !== "") {
+        this.pushTrace(instanceId, { t: this.deps.clock.now(), kind: "assistant", text: event.text.slice(-200) });
+      }
       // ① thinking 块先落（reasoningTokens 关联本消息 usage.reasoning 收口）
       const reasoning = event.usage?.reasoning ?? 0;
       for (const block of this.pendingThinking.get(instanceId) ?? []) {
@@ -180,6 +210,10 @@ export class SubagentEventTranslator {
       }
       return;
     }
+    if (event.type === "turn_end") {
+      this.turnsCompleted.set(instanceId, (this.turnsCompleted.get(instanceId) ?? 0) + 1); // T3-A 计数
+      return;
+    }
     if (event.type === "engine_error") {
       // SubAgent 引擎错误不再静默——mirror 主线（AD-1 事件数据面）
       // ChatService engine_error（只发领域事件，不落 Entry、不动投影）；
@@ -202,6 +236,12 @@ export class SubagentEventTranslator {
     this.entrySeqs.delete(instanceId);
     this.thinkingStartsMs.delete(instanceId);
     this.pendingThinking.delete(instanceId);
+    // T3-A 机械计数器随终态清理（同一清理序列；门面在调用点同步清报告定时器）
+    this.toolCallsCompleted.delete(instanceId);
+    this.assistantChars.delete(instanceId);
+    this.turnsCompleted.delete(instanceId);
+    this.streamCharsInFlight.delete(instanceId);
+    this.traceItems.delete(instanceId); // T3-B 轨迹随终态清空
   }
 
   // ── 门面读写面（stalled 判定 / 启动戳 / queued 取消清理） ──
@@ -219,6 +259,28 @@ export class SubagentEventTranslator {
   /** queued 取消清理（门面 cancelSession：queued → cancelled 不走收口链的定点清键）。 */
   forgetLastEventAt(instanceId: string): void {
     this.lastEventAtMs.delete(instanceId);
+  }
+
+  /** T3-A 机械计数器快照（门面进展报告 Δ 计算数据源；未计数实例返回全零）。 */
+  metricsOf(instanceId: string): { toolCalls: number; assistantChars: number; turns: number } {
+    return {
+      toolCalls: this.toolCallsCompleted.get(instanceId) ?? 0,
+      assistantChars: this.assistantChars.get(instanceId) ?? 0,
+      turns: this.turnsCompleted.get(instanceId) ?? 0,
+    };
+  }
+
+  /** T3-B 轨迹环缓冲只读面（门面 inspect 取数；时间序副本，未记录返回空数组）。 */
+  traceOf(instanceId: string): readonly AgentTraceItem[] {
+    return [...(this.traceItems.get(instanceId) ?? [])];
+  }
+
+  /** T3-B 轨迹入环缓冲（容量 20，溢出逐最旧）。 */
+  private pushTrace(instanceId: string, item: AgentTraceItem): void {
+    const items = this.traceItems.get(instanceId) ?? [];
+    items.push(item);
+    if (items.length > SubagentEventTranslator.TRACE_CAPACITY) items.shift();
+    this.traceItems.set(instanceId, items);
   }
 
   /** agent 作用域 entry id 分配（`${instanceId}#N`；与流式 messageId 同源，不占会话主计数器）。 */

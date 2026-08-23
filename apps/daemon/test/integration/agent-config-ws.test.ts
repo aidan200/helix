@@ -167,6 +167,7 @@ const MAIN_TOOLS = [
   "agent_spawn",
   "agent_send",
   "agent_status",
+  "agent_inspect", // T3-B
   "browser",
 ];
 const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）

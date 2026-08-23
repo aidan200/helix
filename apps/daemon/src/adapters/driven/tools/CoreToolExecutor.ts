@@ -23,7 +23,7 @@ import { createGrepTool, type GrepToolDeps } from "./grep/GrepTool";
 import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
-import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool } from "./agent/AgentOrchestrationTools";
+import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool, createAgentInspectTool } from "./agent/AgentOrchestrationTools";
 import { imagesOfContent } from "../../../application/services/images";
 
 /**
@@ -68,9 +68,9 @@ export interface CoreToolExecutorOptions {
   readonly shellPath?: string;
   readonly shellEnv?: Record<string, string>;
   /**
-   * 编排端口：提供则注册 agent_spawn/agent_send/agent_status 三工具
+   * 编排端口：提供则注册 agent_spawn/agent_send/agent_status/agent_inspect 四工具
    * （经 port 回 SchedulerService，TR-AD-9）；缺省不注册（SubAgent 子进程
-   * 装配/无编排场景的 profile 不声明这三名）。
+   * 装配/无编排场景的 profile 不声明这四名）。
    */
   readonly orchestration?: AgentOrchestrationPort;
   /**
@@ -114,6 +114,7 @@ export class CoreToolExecutor implements ToolExecutorPort {
         createAgentSpawnTool(options.orchestration),
         createAgentSendTool(options.orchestration),
         createAgentStatusTool(options.orchestration),
+        createAgentInspectTool(options.orchestration), // T3-B
       );
     }
     if (options.browser !== undefined) {

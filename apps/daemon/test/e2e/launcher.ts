@@ -251,6 +251,9 @@ const lazyOrchestration: AgentOrchestrationPort = {
   kill(agentId): KillOutcome {
     return orchestrationRef!.kill(agentId);
   },
+  inspect(agentId) {
+    return orchestrationRef!.inspect(agentId);
+  },
 };
 
 // ── 装配与生命周期 ──────────────────────────────────────────

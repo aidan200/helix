@@ -93,6 +93,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         send: () => ({ delivered: false, detail: "spy" }),
         status: () => [],
         kill: () => ({ killed: false, error: "spy 不装配调度" }),
+        inspect: () => null,
       },
       model: {
         // T2.3（AD-2）：spy 不触发真实模型链——全部 no-op/抛错回执
@@ -253,6 +254,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         send: () => ({ delivered: false, detail: "spy" }),
         status: () => [],
         kill: () => ({ killed: false, error: "spy 不装配调度" }),
+        inspect: () => null,
       },
       model,
       resource: {
@@ -356,6 +358,7 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
       send: () => ({ delivered: false, detail: "spy" }),
       status: () => [],
       kill: () => ({ killed: false, error: "spy 不装配调度" }),
+      inspect: () => null,
     },
     model: {
       setModel: async () => { throw new Error("spy 不装配模型链"); },

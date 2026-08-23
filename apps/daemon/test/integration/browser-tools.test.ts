@@ -25,13 +25,14 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
     expect(executor.resolveTools(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"])).toHaveLength(7);
   });
 
-  test("② 有 browser：单名注册；main 全集 11 名一次装配成功", () => {
+  test("② 有 browser：单名注册；main 全集 12 名一次装配成功", () => {
     // 组合根 engineFor 同款接线：orchestration（会话门面）+ browser + ownerId
     const orchestration = {
       spawn: (task: string) => ({ status: "rejected", error: `测试桩不 spawn：${task}` }) as const,
       send: () => ({ delivered: false, detail: "测试桩不投递" }),
       status: () => [],
       kill: () => ({ killed: false, error: "测试桩不 kill" }),
+      inspect: () => null,
     };
     const executor = new CoreToolExecutor({
       cwd: tmpdir(),
@@ -39,7 +40,7 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
       browser: new FakeBrowserPort(),
       ownerId: "main",
     });
-    expect(MainSessionProfile.tools).toHaveLength(11); // 10 既有 + 动态族单 browser
+    expect(MainSessionProfile.tools).toHaveLength(12); // 10 既有 + agent_inspect（T3-B）+ 动态族单 browser
     const resolved = executor.resolveTools(MainSessionProfile.tools);
     expect(resolved.map((t) => t.name)).toEqual([...MainSessionProfile.tools]);
     expect(resolved.some((t) => t.name === "browser"), "browser 应装配").toBe(true);

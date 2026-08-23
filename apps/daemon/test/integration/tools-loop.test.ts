@@ -124,6 +124,7 @@ function makeHarness(scripts: ScriptEntry[], browserPort?: FakeBrowserPort): Loo
       send: () => ({ delivered: false, detail: "工具循环测试不驱动调度" }),
       status: () => [],
       kill: () => ({ killed: false, error: "工具循环测试不驱动调度" }),
+      inspect: () => null,
     },
     // T3r：MainSessionProfile 声明动态族单 browser 工具——注册桩保持 resolveTools 可装配
     // T9：可选注入预置字节的 port（screenshot 剧本）

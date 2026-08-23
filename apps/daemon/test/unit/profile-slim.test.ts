@@ -29,20 +29,33 @@ const TOOL_NAMES = [
   "agent_spawn",
   "agent_send",
   "agent_status",
+  "agent_inspect", // T3-B：编排四工具
+  "browser",
+] as const;
+
+/** 静态工具名（T3-C 后提示词仍零命中——委派契约句引用的编排工具名是行为指引非清单枚举）。 */
+const STATIC_TOOL_NAMES = [
+  "bash",
+  "read",
+  "write",
+  "edit",
+  "grep",
+  "web_search",
+  "web_fetch",
   "browser",
 ] as const;
 
 describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
-  test("① MainSessionProfile 系统提示：11 工具名词边界零命中", () => {
-    for (const name of TOOL_NAMES) {
+  test("① MainSessionProfile 系统提示：静态工具名词边界零命中（编排工具名仅存于 T3-C 委派契约句）", () => {
+    for (const name of STATIC_TOOL_NAMES) {
       expect(
         MAIN_SESSION_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)),
-        `主 profile 提示仍含工具名 ${name}`,
+        `主 profile 提示仍含静态工具名 ${name}`,
       ).toBeNull();
     }
   });
 
-  test("② SubAgentProfile 系统提示：11 工具名词边界零命中", () => {
+  test("② SubAgentProfile 系统提示：12 工具名词边界零命中", () => {
     for (const name of TOOL_NAMES) {
       expect(
         SUBAGENT_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)),
@@ -51,7 +64,7 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 21 / subagent 8（H-3 +browser）", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 12 / subagent 8（T3-B +agent_inspect）", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
     expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"]);
   });

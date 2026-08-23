@@ -60,6 +60,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "agent_spawn",
         "agent_send",
         "agent_status",
+        "agent_inspect", // T3-B
         "browser",
       ]);
       expect(daemon.resource.getEffectiveTools("subagent-worker")).toEqual([

@@ -422,13 +422,13 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
       await seedMixedSession(rig);
       const { client, sessionId } = rig;
 
-      // 主实例 instantiated：快照 = 组装缓存现值（10 工具不含 grep；提示无 grep 行）
+      // 主实例 instantiated：快照 = 组装缓存现值（11 工具不含 grep；提示无 grep 行）
       const mainInst = await client.traceQuery({ sessionId, types: ["agent.instantiated"], instanceIds: ["main"] });
       expect(mainInst.events.length).toBe(1);
       const mainSnap = mainInst.events[0]!.payload as {
         profileSnapshot: { systemPrompt: string; tools: string[] };
       };
-      expect(mainSnap.profileSnapshot.tools).toHaveLength(10);
+      expect(mainSnap.profileSnapshot.tools).toHaveLength(11);
       expect(mainSnap.profileSnapshot.tools).not.toContain("grep");
       expect(mainSnap.profileSnapshot.systemPrompt).not.toContain("- grep:");
 
