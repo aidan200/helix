@@ -1152,3 +1152,29 @@
 - sourceTask: T3（SubAgent 实现 + MainAgent 同步提案，2026-08-23）
 - createdIn: hotfix-20260823
 - decisionLog: 用户裁决「落吧」（2026-08-23）——直写落盘（formalId=TR-AD-39，节点 id 稳定）
+
+### AD-2（hotfix-20260823）
+- changeType: 新增
+- targetNode: 无（decisions.md 决策档案条目——AD-N 非图节点，不产生 kg 节点变更；E-AgentInstance-r3 描述/规则段 derivedFrom 指向本条目）
+- scope: docs/kg/decisions.md AD-2（hotfix-20260823：spawn 锚取值反转与出窗语义确认）
+- project: helix
+- reason: 用户实测显示 bug 考古裁决：双轨 = 契约 v0.3 §1 一次性有意设计（非迭代残留），规则①优先两承重理由（确定性权威 + 重启恢复边界）不失效；T2.1「锚落工具卡 = 语义错误」刻意判断是 bug 根源（避开 toolCall 致锚落更早用户消息），实测反转成立（T6 钉值 = agent_spawn 工具调用 id）；出窗兑底否掉——聊天流卡片 = 历史锚点标记，运行态归 DrawerRail 活跃事件条，出窗不渲染为正确产品行为
+- evidence: T7-explore 考古报告（git log -S 实证双轨同 commit edfe3cd 落地 + 契约原文引用）+ T6 闭环（spawn-anchor 测试先红后绿；daemon 818/818 + tsc 零错；commit d836470）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/infrastructure/container.ts#computeSpawnAnchor（扫描面补 toolCall 记录）
+- sourceTask: T6/T7-explore（SubAgent 实现 + MainAgent 同步提案，2026-08-23）
+- createdIn: hotfix-20260823
+- decisionLog: 用户裁决「落吧」（2026-08-23）——直写落盘（决策档案条目，无图节点变更）
+
+### E-AgentInstance-r3（hotfix-20260823）
+- changeType: 修改
+- targetNode: E-AgentInstance
+- scope: docs/kg/domain.md E-AgentInstance（描述段 spawn 锚语义双规则精确化 + 规则段出窗语义再确认 + anchors 补 container.ts#computeSpawnAnchor + updatedIn）
+- project: helix
+- reason: T6 后 spawn 钉值语义变化（扫描面含 toolCall 记录，钉值 = agent_spawn 工具调用 id）需与规则①快照语义并录；出窗不渲染语义获用户 2026-08-23 再确认（卡片 = 历史锚点标记，运行态归 DrawerRail，翻页反应式归位）——原文「运行中实例感知归抽屉全量列表」语义不变仅精确化
+- evidence: commit d836470（T6）+ 用户裁决对话（2026-08-23）
+- implementationStatus: 完整实现
+- implementedCode: packages/protocol/src/projection/instance.ts#computeAnchorEntryId；apps/daemon/src/infrastructure/container.ts#computeSpawnAnchor
+- sourceTask: T6/T7-explore（SubAgent 实现 + MainAgent 同步提案，2026-08-23）
+- createdIn: hotfix-20260823
+- decisionLog: 用户裁决「落吧」（2026-08-23）——直写落盘（formalId=E-AgentInstance，节点 id 稳定）

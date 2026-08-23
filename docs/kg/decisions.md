@@ -121,3 +121,12 @@
 - **选项**：①加 wait 工具（阻塞拉取）；②wall-clock timeout 自动 kill；③推送闭环 + 周期进展报告 + 裁决权归 MainAgent/用户。
 - **裁决与理由**：选 ③。a) 不加 wait 工具——与 AD-8 秒回+异步注入冲突，阻塞 wait 会把推送模型重新串行化（closure 到达时 main 卡在 wait 调用里，引入 steer/blocked-tool 交互复杂度）；b) 否决 wall-clock timeout——总时长不可区分「干活中」与「hang 死」，误杀长任务；c) 系统只负责送达信息、永不自动终止——stalled（lastEventAt）只警示不杀；周期进展报告（机械 Δ 信封）让 MainAgent 阶段性知情，连续零增量 → agent_inspect 核实 → 确无进展可 kill 重派，由 MainAgent/用户裁决；d) 提示词删「查询进度」轮询邀请，换正向契约（spawn 后结束回合 + closure/报告自动注入 + 不轮询不抢跑 + 零增量 inspect 核实）；e) closure 送达补齐——aborting 期间内存 FIFO 暂存，abort 收尾回 idle 逐条链式 flush（挂 dying run promise settle，规避 agent_end 同步回流段引擎在飞守卫竞态）；stopped 维持可观测丢弃（closure_records 已落盘）。
 - **结局**：已落地并验证（T1 hooks 类引用 + T2 aborting flush + T3 报告机制/inspect/提示词：daemon 816/816 + tsc 零错 + default-reviewer 独立评审通过；commit dc2a120/88a50d2/3318d01）；规则化入 TR-AD-37/38/39。
+
+## AD-2 spawn 锚取值反转与出窗语义确认（hotfix-20260823 / 用户裁决）
+
+**digest**：评审 spawn 锚计算、SubAgent 卡片渲染位置、尾窗出窗行为时读本文。
+
+- **上下文**：2026-08-23 用户实测显示 bug——SubAgent 卡片实时渲染在 agent_spawn 工具调用**之前**，切 session 走快照恢复后位置正常。考古（T7-explore）查明：双轨为契约 v0.3 §1 一次性有意设计（commit edfe3cd 同 commit 落地两轨，目的正是消灭前端旧双轨 liveAnchor/anchorFromSnapshot），规则①优先的承重理由 = 确定性权威（append-only 稳定域可重建）+ 重启恢复边界（spawnAnchors 内存 Map 不落盘不可重建，契约明言「不另建持久化事实源」）——两条理由均不因修复失效。但实现层两轨扫描面未真正同源：实时轨只扫 domain entries（tool 执行不落 Entry），快照轨扫 entries+toolCall 合并流——T2.1 记录在案的刻意选择（architecture-feedback.md:23「若在 spawn 瞬间计入 toolCalls 会把 agent_spawn 工具卡本身当锚——语义错误」）正是 bug 根源：刻意避开 toolCall 使锚落到更早的用户消息上，卡片反而跑到工具调用之前。
+- **选项**：①实时轨扫描面补 toolCall 记录（钉值 = agent_spawn 工具调用 id，反转 T2.1 判断）；②改契约优先级（spawn 钉值恒优先）；③出窗加兑底桶（贴顶/贴底渲染）。
+- **裁决与理由**：选 ①，否 ②③。①用户实测裁决：卡片在 spawn 工具调用前 = bug，正确位置 = 工具调用之后——T2.1「锚落工具卡 = 语义错误」判断反转成立；②契约优先级不动：规则①优先的两承重理由（确定性权威 + 重启兜底）依然成立，且 E-AgentInstance 禁忌禁止锚持久化，完全单轨架构上不可行；③出窗兑底不做——用户裁决「锚出窗的卡片 = 非本页对话历史的卡片，不需要渲染」：聊天流卡片 = 历史锚点标记，运行中实例实时感知归 DrawerRail 活跃事件条（queued+running 全量列表，与装载窗口无关，既有用户裁决行为契约），完成通知归 closure 注入，翻页装载锚后卡片反应式归位（现成行为，零改动）。
+- **结局**：已落地并验证（T6：computeSpawnAnchor 扫描面补 toolCall 记录，TDD 先红后绿，daemon 818/818 + tsc 零错；commit d836470）；E-AgentInstance 描述/规则段同步（hotfix-20260823）。

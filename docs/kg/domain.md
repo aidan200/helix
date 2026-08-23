@@ -199,6 +199,7 @@ anchors:
     - apps/daemon/src/application/services/scheduler/SchedulerService.ts#spawnAnchors
     - apps/daemon/src/application/services/scheduler/SchedulerService.ts#spawnAnchorOf
     - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#publish
+    - apps/daemon/src/infrastructure/container.ts#computeSpawnAnchor
     - apps/shell/src/entities/session/model/consumers/snapshot.ts
     - apps/shell/src/widgets/chat-stream/ui/MessageFlow.tsx
   testedBy:
@@ -206,14 +207,14 @@ anchors:
     - apps/shell/src/entities/session/model/instance-anchors.test.ts
     - apps/shell/src/widgets/chat-stream/ui/MessageFlow.test.tsx
     - apps/daemon/test/integration/agent-ws.test.ts
-updatedIn: iter-20260821-dg90
+updatedIn: hotfix-20260823
 ```
 
 ## 描述
-agent 实例一等概念（AD-3 trace 实例同构）：{instanceId, kind: "main"|"subagent", profileKind, sessionId, 实例状态机, createdAt}。主会话实例与 SubAgent 同为 AgentInstance——机制同构（同 AgentRuntime 驱动、同 AgentProfile 声明机制、同事件通道、同 trace/统计/持久化路径），编排分层仅经 profile 生命周期声明表达：main = persistent（常驻多轮、用户对话锚点，re-profile 时销毁重建）；subagent = single-shot（单轮收敛、closure 回主线后销毁）。实例创建/销毁/re-profile 是一等操作（非线性红线）。SubAgent 实例的 instanceId 即编排工具寻址的 agentId（同一标识空间，分配即定）；主实例在会话创建时分配固定 id。M4 起实例携带 spawn 锚点：daemon 快照组装面权威计算 spawn 关联 entry 稳定标识（复用 EntryDto.id 体系——主实例 e{N} / SubAgent {instanceId}#N，会话级唯一即够、与分页游标 tailStartCursor 同源；语义 = 实例首 Entry 前最后一条 main/compaction 归属 entry id），经 instances DTO 锚点字段（additive）下发；锚点是组装期派生值不持久化（无第二事实源）。
+agent 实例一等概念（AD-3 trace 实例同构）：{instanceId, kind: "main"|"subagent", profileKind, sessionId, 实例状态机, createdAt}。主会话实例与 SubAgent 同为 AgentInstance——机制同构（同 AgentRuntime 驱动、同 AgentProfile 声明机制、同事件通道、同 trace/统计/持久化路径），编排分层仅经 profile 生命周期声明表达：main = persistent（常驻多轮、用户对话锚点，re-profile 时销毁重建）；subagent = single-shot（单轮收敛、closure 回主线后销毁）。实例创建/销毁/re-profile 是一等操作（非线性红线）。SubAgent 实例的 instanceId 即编排工具寻址的 agentId（同一标识空间，分配即定）；主实例在会话创建时分配固定 id。M4 起实例携带 spawn 锚点：daemon 快照组装面权威计算 spawn 关联 entry 稳定标识（复用 EntryDto.id 体系——主实例 e{N} / SubAgent {instanceId}#N，会话级唯一即够、与分页游标 tailStartCursor 同源；语义 = 快照组装面规则①（实例首 Entry 前最后一条 main/compaction 归属 entry id）；spawn 时刻钉值（规则②，实时帧与「首 Entry 前」窗口用）= spawn 瞬间合并流（entries + toolCall 记录）最后 main entry id——hotfix-20260823 T6 起扫描面含 toolCall 记录（此前只扫 domain entries，实时/快照两轨扫描面不同源正是显示 bug 根源），钉值 = agent_spawn 工具调用 id（T2.1「锚落工具卡 = 语义错误」判断的实测反转，裁决见 decisions.md AD-2 hotfix-20260823）），经 instances DTO 锚点字段（additive）下发；锚点是组装期派生值不持久化（无第二事实源）。
 
 ## 规则
-每条领域事件与聚合 Entry 挂 instanceId；trace 四维查询 session × instance × type × time；SubAgent 实例状态机 queued{位次} → running → done/failed（kill 收口 = failed 单一终态，无独立 killed 态）；stalled 为 running 态上的可重复警示事件（agent.stalled，非状态迁移，实例保持 running——iter-20260820-qhv8 终验 L3 复核校正），重启清队标 cancelled；实例窗口销毁重建而会话聚合跨实例持续追加（执行层全切/交接层受控注入/显示层连续）；调度器与状态机不假设单实例线性推进；spawn 锚点由 daemon 权威计算（快照组装面确定性派生，每次组装同值），前端纯消费零推导——锚在装载窗口外卡片不渲染（纯锚驱动，运行中实例感知归抽屉全量列表；摘要徽标留作未来增强 additive）。
+每条领域事件与聚合 Entry 挂 instanceId；trace 四维查询 session × instance × type × time；SubAgent 实例状态机 queued{位次} → running → done/failed（kill 收口 = failed 单一终态，无独立 killed 态）；stalled 为 running 态上的可重复警示事件（agent.stalled，非状态迁移，实例保持 running——iter-20260820-qhv8 终验 L3 复核校正），重启清队标 cancelled；实例窗口销毁重建而会话聚合跨实例持续追加（执行层全切/交接层受控注入/显示层连续）；调度器与状态机不假设单实例线性推进；spawn 锚点由 daemon 权威计算（快照组装面确定性派生，每次组装同值），前端纯消费零推导——锚在装载窗口外卡片不渲染（纯锚驱动，运行中实例感知归抽屉全量列表；摘要徽标留作未来增强 additive）；出窗不渲染语义 2026-08-23 用户再确认（hotfix-20260823）：聊天流卡片 = 历史锚点标记，运行中实例实时感知归 DrawerRail 活跃事件条（queued+running 全量，与装载窗口无关），翻页装载锚所在条目后卡片反应式归位。
 
 ## 禁忌
 不按 kind 分叉机制通道（事件/持久化/统计/驱动路径必须同构）；不假设一个会话单实例到底；不在实例对象外维护第二实例注册表；不在前端推导锚点（best-effort 推导已随 v0.3 撤除，禁止复发）；不把锚点持久化为独立状态列（派生值落盘 = 第二事实源）。
