@@ -184,6 +184,9 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       { registry: "evt", anchor: "agent.instantiated", field: "thinkingLevel" },
       { registry: "evt", anchor: "model.catalog.result", field: "models[].reasoning" },
       { registry: "evt", anchor: "model.catalog.result", field: "models[].thinkingLevels" },
+      // v0.11 批内补登（T1.3 agent.config thinking 槽位 + 修复批 F-6/F-8）：presence 防零登记复发
+      { registry: "evt", anchor: "agent.config.list.result", field: "profiles[].thinkingLevel" },
+      { registry: "evt", anchor: "session.snapshot", field: "snapshot.thinking" },
     ];
     const missing: string[] = [];
     for (const item of required) {

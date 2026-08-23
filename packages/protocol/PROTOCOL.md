@@ -854,8 +854,8 @@ skipped reason=unknown-model）；enabled=false 清槽（name 忽略）。tool/s
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `profileKind` | `"main-session" \| "subagent-worker"` | 必填 | v0.6 | 目标 kind |
-| `resourceType` | `"tool" \| "skill" \| "model"` | 必填 | v0.6 | 资源类型（model = 槽位语义非启停） |
-| `name` | `string` | 必填 | v0.6 | 资源名（model 型 = "provider/model-id"；clear 时忽略） |
+| `resourceType` | `"tool" \| "skill" \| "model" \| "thinking"` | 必填 | v0.6 | 资源类型（model/thinking = 槽位语义非启停；thinking = v0.11 批内补登 T1.3：槽位语义同 model，set/clear，零档位校验） |
+| `name` | `string` | 必填 | v0.6 | 资源名（model/thinking 型 = "provider/model-id" / 档位字符串；clear 时忽略） |
 | `enabled` | `boolean` | 必填 | v0.6 | tool/skill = 启停；model = set（true）/ clear（false）槽位 |
 
 ### 15.4 model 族（6）
@@ -1067,6 +1067,7 @@ pi-ai ThinkingLevel **字符串透传**（AD-2：helix 不维护第二份档位�
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `snapshot` | `SessionSnapshotDto` | 必填 | v0 | 全量快照（§6；additive 扩展 §10.5 / §11.5） |
+| `snapshot.thinking` | `{ override: string \| null; effective: string \| null }` | 可选 | v0.11 | 会话 thinking 覆盖/生效双位（thinking 批③ F-8 修复：SessionStateView → wire 接通；切换会话/重连/重启恢复后 UI 与引擎一致；null = 无覆盖 / 全链不支持不传参；缺省 = 未携带，旧剧本兼容） |
 
 #### `session.list_changed`
 
@@ -1259,6 +1260,7 @@ spawn 工具秒回出卡（不等执行，AD-8 异步交付）。
 | `profiles[].skills` | `{ name, description, filePath, source, enabled }[]` | 必填 | v0.6 | 扫描全集 + 启停态（source = user/project/builtin 三层目录标签；v0.8 扩 builtin——daemon 随仓内置技能，不可禁用读面恒 enabled=true） |
 | `profiles[].diagnostics` | `{ code, message, path, source }[]` | 必填 | v0.6 | 扫描诊断（坏文件上抛不炸） |
 | `profiles[].model` | `string \| null` | 必填 | v0.6 | model 槽位现值（未设 = null） |
+| `profiles[].thinkingLevel` | `string \| null` | 必填 | v0.11 | thinking 槽位现值（未配置 = null；v0.11 批内补登 T1.3） |
 
 #### `agent.config.changed`
 
@@ -1269,7 +1271,7 @@ skills/tools 同构；model 型 name = 模型 id 或 null（clear）。
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `profileKind` | `"main-session" \| "subagent-worker"` | 必填 | v0.6 | 变更归属 kind |
-| `resourceType` | `"tool" \| "skill" \| "model"` | 必填 | v0.6 | 资源类型 |
+| `resourceType` | `"tool" \| "skill" \| "model" \| "thinking"` | 必填 | v0.6 | 资源类型（thinking = v0.11 批内补登 T1.3） |
 | `name` | `string \| null` | 必填 | v0.6 | tools/skills = 资源名；model = 模型 id 或 null（clear） |
 | `enabled` | `boolean` | 必填 | v0.6 | tool/skill = 新启停态；model = true（槽位已设）/ false（槽位已清） |
 
@@ -1652,8 +1654,8 @@ string[]`（pi-ai Model.reasoning / thinkingLevelMap 非 null 键集防腐映射
 TR-AD-7 边界内合法；UI 不自判能力，TR-AD-42）；④ `AgentInstantiatedPayload`
 additive + `thinkingLevel: string`（SubAgent spawn 解析快照，自身 profile
 槽位 > 兜底 medium，AD-6；只落盘不广播语义不变，AF-6）。③ SessionStateView
-快照读面扩字段物理位置在 daemon SessionPort，本批不动 protocol 侧（无同名
-重复定义）。字符串透传红线（AD-2）：全部新字段类型 `string`，protocol 包内
+快照读面扩字段首登物理位置在 daemon SessionPort（无同名重复定义）；wire 面
+（`SessionSnapshotDto` + 快照帧映射）由本节末修复批补登接通。字符串透传红线（AD-2）：全部新字段类型 `string`，protocol 包内
 **不维护第二份 ThinkingLevel 枚举**（SoT 在 pi-ai）。零改既有命令/事件
 形状（`COMMAND_TYPES` 27 → 28 / `EVENT_TYPES` 47 → 48）。版本位
 `"0.10" → "0.11"`（envelope.ts 单点；批次集合标记非协商位，Q-1c 单仓
@@ -1669,3 +1671,12 @@ additive + `thinkingLevel: string`（SubAgent spawn 解析快照，自身 profil
 `resourceType` 联合 additive + `"thinking"`（槽位语义同 model：set/clear，
 helix 不做档位校验）。零新增命令/事件 type（`COMMAND_TYPES` 28 /
 `EVENT_TYPES` 48 不变）。
+
+**批内补登（修复批 F-6/F-8，同版本不破面）**：③ wire 面接通——
+`SessionSnapshotDto` additive + `thinking?: { override: string|null;
+effective: string|null }`（T1.2 起 daemon SessionStateView 已携带，快照帧
+DTO/映射断环补齐；§16.2 字段行补登 + sot ④ presence 断言）；T1.3 文档登记
+遗漏回填——§15.3/§16.4 `resourceType` 字段行类型联合补 `"thinking"`、
+§16.4 `agent.config.list.result` 补 `profiles[].thinkingLevel` 字段行
+（代码面 T1.3 已正确，纯文档补登）。零新增命令/事件 type，版本位不再
+bump。

@@ -35,6 +35,18 @@ function view(overrides: Partial<SessionSnapshot> = {}, toolCalls: SessionStateV
 }
 
 describe("① 快照 → SessionSnapshotDto", () => {
+  // F-8 修复（thinking 批③ wire 面接通）：view.thinking additive 映射
+  test("thinking：view 携带 → DTO 同构映射；缺省 → 键不携带（additive 兼容旧组装点）", () => {
+    const withThinking = toSnapshotDto(
+      { ...view(), thinking: { override: "high", effective: "medium" } },
+      "anthropic/test-model",
+      "idle",
+    );
+    expect(withThinking.thinking).toEqual({ override: "high", effective: "medium" });
+    const without = toSnapshotDto(view(), "anthropic/test-model", "idle");
+    expect("thinking" in without).toBe(false);
+  });
+
   test("steerState 两态 + ts 为 epoch 毫秒 + revision 基线", () => {
     const dto = toSnapshotDto(view(), "anthropic/test-model", "running");
     expect(dto.sessionId).toBe("s-1");

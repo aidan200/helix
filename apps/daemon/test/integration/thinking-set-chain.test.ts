@@ -217,6 +217,58 @@ describe("thinking.changed 广播（WS 集成，契约 ①）", () => {
       await daemon.shutdown();
     }
   });
+
+  // F-8 修复（thinking 批③ wire 面接通）：session.snapshot 帧携带 thinking
+  // {override, effective}——协议 SessionSnapshotDto additive 字段 + SnapshotMapper
+  // 映射；两态断言（无覆盖 / 有覆盖）。
+  test("session.snapshot wire 面携带 thinking：无覆盖 {null,null} → thinking.set 后重推快照携带 {high,high}", async () => {
+    const home = tmpHome();
+    const daemon = await createTestDaemon({
+      home,
+      engine: new FakeAgentEngine({ initialModel: "anthropic/claude-sonnet-4-5" }),
+      skipConfig: true,
+      port: 0,
+      cliInput: new PassThrough(),
+      cliOutput: new PassThrough(),
+    });
+    const url = `ws://127.0.0.1:${daemon.ws.port}`;
+    const token = readFileSync(path.join(home, "dev-token"), "utf8");
+    let ws: WebSocket | undefined;
+    try {
+      const frames: Record<string, unknown>[] = [];
+      ws = new WebSocket(url);
+      ws.onmessage = (ev) => frames.push(JSON.parse(String(ev.data)));
+      await until(() => ws!.readyState === WebSocket.OPEN);
+      ws.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "hello", payload: { token, protocolVersion: PROTOCOL_VERSION } }));
+      await until(() => frames.some((f) => f.type === "connection.welcome"));
+      const welcome = frames.find((f) => f.type === "connection.welcome")!;
+      if ((welcome.payload as { draft?: boolean }).draft === true) {
+        ws.send(JSON.stringify({ v: 0, type: "session.subscribe", payload: {} }));
+      }
+      await until(() => frames.some((f) => f.type === "session.snapshot"));
+      const sid = daemon.registry.currentSessionId();
+      const snapOf = (f: Record<string, unknown>) =>
+        (f.payload as { snapshot: { thinking?: { override: string | null; effective: string | null } } }).snapshot;
+
+      // 态一（无覆盖）：快照帧携带 thinking 双位 null（Fake 引擎契约等价面：恒支持）
+      const snap1 = frames.find((f) => f.type === "session.snapshot")!;
+      expect(snapOf(snap1).thinking).toEqual({ override: null, effective: null });
+
+      // thinking.set → 重订阅重推快照（AD-16 快照恢复公式）
+      ws.send(JSON.stringify({ v: PROTOCOL_VERSION, sessionId: sid, type: "thinking.set", payload: { level: "high" } }));
+      await until(() => frames.some((f) => f.type === "thinking.changed"));
+      ws.send(JSON.stringify({ v: PROTOCOL_VERSION, sessionId: sid, type: "session.subscribe", payload: {} }));
+      await until(() => frames.filter((f) => f.type === "session.snapshot").length >= 2);
+
+      // 态二（有覆盖）：重推快照携带 override/effective 双位
+      const snap2 = frames.filter((f) => f.type === "session.snapshot")[1]!;
+      expect(snap2.sessionId).toBe(sid);
+      expect(snapOf(snap2).thinking).toEqual({ override: "high", effective: "high" });
+    } finally {
+      ws?.close();
+      await daemon.shutdown();
+    }
+  });
 });
 
 describe("生产组合根接线（TR-TEST-5：buildSessionStack 生产路径，禁手工 new 注入器）", () => {
