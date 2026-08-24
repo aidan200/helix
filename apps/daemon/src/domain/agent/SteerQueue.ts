@@ -5,16 +5,22 @@
  * text 是注入内容——两者一起进队列，drain 方既知道注入什么、也知道关联哪条 entry
  * （前端 steer 徽标「已入队 → 已注入」的两态都靠 entryId 观测）。
  *
- * +source：注入来源可区分（AD-8 双通道）——user=用户输入转投；
+ * +source：注入来源可区分（AD-8 双通道 + T11a 贯通）——user=用户输入转投；
  * closure=SubAgent 收口注入（`agent-N closure: …`，下轮 turn 边界 drain
- * 驱动 MainAgent 新 turn）。FIFO 机制不变（同队列同语义，只加来源字段）。
- * 注：source 不进 SQLite 投影行（重启后未消费项回填为无来源语义，恢复归）。
+ * 驱动 MainAgent 新 turn）；progress=周期进展报告（SchedulerService
+ * injectClosure 同通道，T11a 起可区分）。FIFO 机制不变（同队列同语义，
+ * 只加来源字段）。source 随 SQLite steer_queue.source 列持久化（T11a），
+ * 冷恢复不丢；列前时代旧行 NULL → 缺省（= user 语义）。
  */
+
+/** 注入来源三值枚举（helix 自有；与协议面 SteerSource 同值域，adapter 层映射）。 */
+export type SteerSource = "user" | "closure" | "progress";
+
 export interface SteerItem {
   readonly entryId: string;
   readonly text: string;
   /** 注入来源（缺省 user——旧调用方/恢复重建兼容）。 */
-  readonly source?: "user" | "closure";
+  readonly source?: SteerSource;
 }
 
 /**

@@ -73,6 +73,25 @@ describe("① 快照 → SessionSnapshotDto", () => {
     expect(dto.entries).toEqual([]);
     expect(dto.revision).toBe(0);
   });
+
+  test("T11a：Entry.source → MessageEntryDto.source 透传（idle closure 注入条目快照可见；缺省不携带）", () => {
+    const dto = toSnapshotDto(
+      view({
+        entries: [
+          { id: "e1", role: "user", text: "普通问题", turnId: null, isSteer: false, instanceId: "main", createdAt: "2026-08-15T00:00:01.000Z" },
+          { id: "e2", role: "user", text: "agent-1 closure: done — 调研完成", turnId: null, isSteer: false, instanceId: "main", createdAt: "2026-08-15T00:00:02.000Z", source: "closure" },
+          { id: "e3", role: "user", text: "[agent-1 进展报告 #1] …", turnId: "t2", isSteer: true, instanceId: "main", createdAt: "2026-08-15T00:00:03.000Z", source: "progress" },
+        ],
+        pendingSteer: [],
+      }),
+      "m",
+      "idle",
+    );
+    const [e1, e2, e3] = dto.entries;
+    expect(e1 && "source" in e1 ? e1.source : undefined).toBeUndefined(); // 普通消息不携带
+    expect(e2).toMatchObject({ kind: "message", id: "e2", source: "closure" });
+    expect(e3).toMatchObject({ kind: "message", id: "e3", source: "progress", steerState: "drained" });
+  });
 });
 
 describe("①-b D-1：快照合并工具调用记录（SessionStateView → 时间序 entries）", () => {
@@ -213,8 +232,16 @@ describe("② 领域事件 → 协议事件帧", () => {
   test("steer.queued/drained 直接映射 entryId", () => {
     const q = domainEventToEnvelope({ ...base, type: "steer.queued", payload: { entryId: "e6", text: "x" } });
     expect(q).toMatchObject({ type: "steer.queued", payload: { entryId: "e6" } });
+    expect(q).not.toMatchObject({ payload: { source: expect.anything() } }); // 老载荷（无 source）不透传键
     const d = domainEventToEnvelope({ ...base, type: "steer.drained", payload: { entryId: "e6", text: "x" } });
     expect(d).toMatchObject({ type: "steer.drained", payload: { entryId: "e6" } });
+  });
+
+  test("T11a：steer.queued/drained 载荷 source 透传（closure/progress/user 三值）", () => {
+    const q = domainEventToEnvelope({ ...base, type: "steer.queued", payload: { entryId: "e6", text: "x", source: "closure" } });
+    expect(q).toMatchObject({ type: "steer.queued", payload: { entryId: "e6", source: "closure" } });
+    const d = domainEventToEnvelope({ ...base, type: "steer.drained", payload: { entryId: "e6", text: "x", source: "progress" } });
+    expect(d).toMatchObject({ type: "steer.drained", payload: { entryId: "e6", source: "progress" } });
   });
 
   test("tool.call.started/result → ToolCallEntryDto（args JSON 串 / durationMs 注入）", () => {

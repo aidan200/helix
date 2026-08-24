@@ -99,8 +99,9 @@ export interface SchedulerServiceDeps {
   /**
    * closure 注入主线回调（AD-8 双通道之一；组合根接 ChatService.injectClosure）。
    * 可选——无主线编排场景（纯调度 integration）不注入。
+   * source（T11a）：closure=收口注入（ClosureRecorder 链）；progress=周期进展报告。
    */
-  readonly injectClosure?: (agentId: string, message: string) => void;
+  readonly injectClosure?: (agentId: string, message: string, source?: "closure" | "progress") => void;
   /** stalled 轮询间隔 ms（缺省 阈值/2；测试注入小值）。 */
   readonly stalledPollMs?: number;
   /**
@@ -597,7 +598,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       `Δ输出=+${metrics.assistantChars - prev.assistantChars}字符 ` +
       `Δ轮次=+${metrics.turns - prev.turns}`;
     try {
-      this.deps.injectClosure?.(instanceId, envelope);
+      this.deps.injectClosure?.(instanceId, envelope, "progress");
     } catch (err) {
       // 注入失败（会话 stopped 等）不崩调度——engine.error 可观测化
       this.publish(instance, "engine.error", {

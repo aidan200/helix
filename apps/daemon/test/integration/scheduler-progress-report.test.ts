@@ -59,6 +59,8 @@ interface Harness {
   runner: DrivenRunner;
   events: DomainEvent[];
   envelopes: string[];
+  /** T11a：每次 injectClosure 调用的来源标记（进展报告="progress"，closure="closure"）。 */
+  sources: ("closure" | "progress" | undefined)[];
   dispose(): void;
 }
 
@@ -68,6 +70,7 @@ function makeHarness(options?: { injectThrows?: boolean }): Harness {
   const clock: ClockPort = { now: () => FIXED_NOW, nowMs: () => Date.now() };
   const runner = new DrivenRunner();
   const envelopes: string[] = [];
+  const sources: ("closure" | "progress" | undefined)[] = [];
   let thrown = false;
   const scheduler = new SchedulerService({
     policy: new SchedulingPolicy(),
@@ -76,12 +79,13 @@ function makeHarness(options?: { injectThrows?: boolean }): Harness {
     repository: new InMemorySessionRepository(),
     clock,
     stalledPollMs: 60_000, // 本测试不触 stalled 轮询
-    injectClosure: (_agentId, message) => {
+    injectClosure: (_agentId, message, source) => {
       if (options?.injectThrows === true && !thrown) {
         thrown = true;
         throw new Error("会话已停止（注入失败注入点）");
       }
       envelopes.push(message);
+      sources.push(source);
     },
   });
   return {
@@ -89,6 +93,7 @@ function makeHarness(options?: { injectThrows?: boolean }): Harness {
     runner,
     events,
     envelopes,
+    sources,
     dispose: () => scheduler.stop(),
   };
 }
@@ -128,6 +133,8 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
       new RegExp(`^\\[${agentId} 进展报告 #1\\] 状态=running 静默=\\d+ms Δ工具调用=\\+0 Δ输出=\\+0字符 Δ轮次=\\+0$`),
     );
     expect(h.envelopes[1]).toContain(`[${agentId} 进展报告 #2]`);
+    // T11a：进展报告注入来源 = progress（与 closure 注入区分）
+    expect(h.sources).toEqual(["progress", "progress"]);
     // 单行：信封无换行（一行机械数据，不嵌 findings/markdown）
     for (const env of h.envelopes) expect(env).not.toMatch(/[\r\n]/);
   });
@@ -164,6 +171,8 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
     await waitEnvelopes(h.envelopes, 1);
     h.runner.forceClosure(agentId, doneOutcome());
     const frozen = h.envelopes.length;
+    // T11a：closure 注入来源 = closure（进展报告之后收口链同通道不同源）
+    expect(h.sources.at(-1)).toBe("closure");
     await sleep(70);
     expect(h.envelopes.length).toBe(frozen);
   });

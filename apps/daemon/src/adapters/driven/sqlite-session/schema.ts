@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS steer_queue (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL,
   entry_id TEXT NOT NULL,
-  text TEXT NOT NULL
+  text TEXT NOT NULL,
+  source TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_steer_queue_session ON steer_queue(session_id);
 

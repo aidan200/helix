@@ -59,7 +59,7 @@ describe("TP-CL8-1：四类状态经 repository 存取重建", () => {
       const session = Session.create("s-cl8-1", "2024-01-01T00:00:00.000Z");
       session.appendUserEntry("跑个命令", "2024-01-01T00:00:01.000Z");
       session.beginTurn("e1", "2024-01-01T00:00:02.000Z");
-      session.applySteer("改用 grep", "2024-01-01T00:00:03.000Z"); // pendingSteer 挂起
+      session.applySteer("改用 grep", "2024-01-01T00:00:03.000Z", "closure"); // pendingSteer 挂起（T11a：来源随队列入账）
 
       const ok = ToolCallRecord.create("tc-ok", "bash", { command: "echo hi" });
       ok.markRunning("2024-01-01T00:00:04.000Z");
@@ -85,8 +85,12 @@ describe("TP-CL8-1：四类状态经 repository 存取重建", () => {
       expect(restored!.session.turns[0]!.status).toBe("generating");
       // ② agent 生命周期
       expect(restored!.agentState).toBe("steering");
-      // ③ steer 队列（未消费）
-      expect(restored!.session.pendingSteer).toEqual([{ entryId: "e2", text: "改用 grep" }]);
+      // ③ steer 队列（未消费；T11a：source 列持久化 + 冷恢复不丢）
+      expect(restored!.session.pendingSteer).toEqual([{ entryId: "e2", text: "改用 grep", source: "closure" }]);
+      const steerRow = queue.database
+        .prepare("SELECT entry_id, text, source FROM steer_queue WHERE session_id = 's-cl8-1'")
+        .get() as { entry_id: string; text: string; source: string | null };
+      expect(steerRow).toEqual({ entry_id: "e2", text: "改用 grep", source: "closure" });
       // ④ 工具调用记录（结果/错误/时间全保真）
       expect(restored!.toolCalls).toEqual([ok.toData(), bad.toData()]);
 

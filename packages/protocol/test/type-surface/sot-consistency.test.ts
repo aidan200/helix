@@ -187,6 +187,10 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       // v0.11 批内补登（T1.3 agent.config thinking 槽位 + 修复批 F-6/F-8）：presence 防零登记复发
       { registry: "evt", anchor: "agent.config.list.result", field: "profiles[].thinkingLevel" },
       { registry: "evt", anchor: "session.snapshot", field: "snapshot.thinking" },
+      // v0.11 批内补登（T11a closure/steer source 贯通）：可选字段 presence（防零登记复发）
+      { registry: "evt", anchor: "steer.queued", field: "source" },
+      { registry: "evt", anchor: "steer.drained", field: "source" },
+      { registry: "evt", anchor: "chat.message.completed", field: "entry.source" },
     ];
     const missing: string[] = [];
     for (const item of required) {

@@ -154,7 +154,7 @@ export class WriteQueue {
     );
     this.clearSteer = this.db.prepare("DELETE FROM steer_queue WHERE session_id = ?");
     this.insertSteer = this.db.prepare(
-      "INSERT INTO steer_queue (session_id, entry_id, text) VALUES (?, ?, ?)",
+      "INSERT INTO steer_queue (session_id, entry_id, text, source) VALUES (?, ?, ?, ?)",
     );
     this.clearToolCalls = this.db.prepare("DELETE FROM tool_calls WHERE session_id = ?");
     this.insertToolCall = this.db.prepare(
@@ -432,7 +432,7 @@ export class WriteQueue {
     );
     // 队列/记录行整体替换（投影语义：与内存当前态一致，顺序保持入队序）
     this.clearSteer.run(sessionId);
-    for (const s of rows.steer) this.insertSteer.run(s.session_id, s.entry_id, s.text);
+    for (const s of rows.steer) this.insertSteer.run(s.session_id, s.entry_id, s.text, s.source);
     this.clearToolCalls.run(sessionId);
     for (const t of rows.toolCalls) {
       this.insertToolCall.run(
@@ -478,6 +478,11 @@ function ensureSchemaEvolved(db: Database): void {
   // 旧行 NULL = 无图，读取侧 undefined 前向兼容）
   if (!hasColumn(db, "tool_calls", "images")) {
     db.exec("ALTER TABLE tool_calls ADD COLUMN images TEXT");
+  }
+  // T11a：steer_queue.source（注入来源 user/closure/progress；可空无默认——
+  // 旧行 NULL = 缺省 user 语义，读取侧键不携带前向兼容）
+  if (!hasColumn(db, "steer_queue", "source")) {
+    db.exec("ALTER TABLE steer_queue ADD COLUMN source TEXT");
   }
   const lifecycleCols = tableColumns(db, "agent_lifecycle");
   if (lifecycleCols.length > 0 && !lifecycleCols.includes("instance_id")) {

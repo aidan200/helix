@@ -68,7 +68,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       )
       .get(sessionId, MAIN_INSTANCE_ID) as AgentLifecycleRow | null;
     const steer = db
-      .prepare("SELECT seq, session_id, entry_id, text FROM steer_queue WHERE session_id = ? ORDER BY seq")
+      .prepare("SELECT seq, session_id, entry_id, text, source FROM steer_queue WHERE session_id = ? ORDER BY seq")
       .all(sessionId) as SteerQueueRow[];
     const toolCalls = db
       .prepare(

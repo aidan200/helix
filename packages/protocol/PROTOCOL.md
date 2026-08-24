@@ -132,8 +132,8 @@ export interface EventFrame<T = unknown> {
 | `chat.turn.started` | `ChatTurnStartedPayload` | `{ turnId }` | 轮次里程碑（落盘事件） |
 | `chat.turn.completed` | `ChatTurnCompletedPayload` | `{ turnId, reason: "completed"\|"aborted" }` | 轮次结束 |
 | `chat.message.completed` | `ChatMessageCompletedPayload` | `{ entry: EntryDto }` | 一条消息完成（落盘事件；kind=message 且含最终 content） |
-| `steer.queued` | `SteerQueuedPayload` | `{ entryId }` | 消息入 steer 队列（前端徽标「STEER·已入队」依据） |
-| `steer.drained` | `SteerDrainedPayload` | `{ entryId }` | turn 边界 drain 注入（徽标转「已注入·本轮结束」依据） |
+| `steer.queued` | `SteerQueuedPayload` | `{ entryId, source? }` | 消息入 steer 队列（前端徽标「STEER·已入队」依据） |
+| `steer.drained` | `SteerDrainedPayload` | `{ entryId, source? }` | turn 边界 drain 注入（徽标转「已注入·本轮结束」依据） |
 | `tool.call.started` | `ToolCallStartedPayload` | `{ entry: EntryDto }` | 工具调用开始（tool-call 变体，state="running"） |
 | `tool.call.result` | `ToolCallResultPayload` | `{ entry: EntryDto }` | 工具调用结果（tool-call 变体，state="done"\|"error"，含 result 与 durationMs） |
 | `agent.state.changed` | `AgentStateChangedPayload` | `{ state: AgentStateDto }` | agent 生命周期状态变更 |
@@ -168,6 +168,7 @@ export interface MessageEntryDto {
   content: string;          // 最终内容（流式中间态走 chat.stream.delta）
   ts: number;               // epoch 毫秒（T1.2 定稿，回填契约 §9）
   steerState?: "queued" | "drained";  // 仅 chat.steer 产生的用户消息携带
+  source?: "user" | "closure" | "progress";  // v0.11 批内补登（T11a）：注入来源；仅注入类 user 消息携带，缺省 = 用户输入
   images?: readonly string[];  // v0.10（T9）：图片附件 base64 data URL 数组；仅 user 消息携带（assistant 不产图）；缺省 = 纯文本旧形态
 }
 
@@ -1133,18 +1134,21 @@ iter-20260823 后续批升格：effective=null、后续请求不带 reasoning—
 |---|---|---|---|---|
 | `entry` | `EntryDto` | 必填 | v0 | 完成消息（kind="message" 且含最终 content；落盘事件） |
 | `entry.images` | `readonly string[]` | 可选 | v0.10（T9 图片下行） | 仅 user 消息携带（chat.send.images 透传）：base64 data URL 数组，气泡缩略图渲染依据；缺省 = 纯文本旧形态 |
+| `entry.source` | `"user" \| "closure" \| "progress"` | 可选 | v0.11（T11a 批内补登） | 注入来源（helix 自有三值枚举，AD-2 字符串透传原则不适用）：user=用户 steer；closure=SubAgent 收口注入（AD-8）；progress=周期进展报告（injectClosure 同通道）；缺省 = 老数据按 user 渲染；session.snapshot 载荷（投影重建）同构 |
 
 #### `steer.queued`
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `entryId` | `string` | 必填 | v0 | 入队消息 entry id（前端「STEER·已入队」徽标依据） |
+| `source` | `"user" \| "closure" \| "progress"` | 可选 | v0.11（T11a 批内补登） | 注入来源（与 entry.source 同枚举同语义）；缺省 = 老事件按 user |
 
 #### `steer.drained`
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `entryId` | `string` | 必填 | v0 | turn 边界 drain 注入（徽标转「已注入·本轮结束」依据） |
+| `source` | `"user" \| "closure" \| "progress"` | 可选 | v0.11（T11a 批内补登） | 注入来源（与入队时同源透传）；缺省 = 老事件按 user |
 
 #### `tool.call.started`
 
@@ -1703,3 +1707,13 @@ pi-ai 显式关思考；删 medium 兜底，D 方案）——off 与未配置请
 `thinking.changed`（override 不变、effective 按新模型重算，§16.5 既登
 语义的实现补齐；引擎未实现观测面不发）。命令/事件面零变更，版本位
 不再 bump。
+
+**批内补登（T11a closure/steer source 贯通，同版本不破面——M6 T4 /
+T1.3 先例）**：closure 注入与用户 steer 的消息类型区分落到协议面——
+① `steer.queued` / `steer.drained` 载荷补登可选 `source`（三值枚举
+`"user" \| "closure" \| "progress"`：用户 steer / SubAgent 收口注入
+（AD-8）/ 周期进展报告——进展报告与 closure 同走 injectClosure 通道，
+同源区分）；② `MessageEntryDto.source` 同枚举补登（idle 时 closure
+注入落的普通 user Entry 快照可见；daemon Entry 物种 ↔ SQLite
+steer_queue.source 列全线贯通，老行/老事件缺省 = undefined，消费侧按
+user 渲染）。零新增命令/事件 type，计数不变（28/48），版本位不 bump。

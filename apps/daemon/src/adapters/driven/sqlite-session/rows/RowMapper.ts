@@ -68,6 +68,8 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
       session_id: sessionId,
       entry_id: item.entryId,
       text: item.text,
+      // 注入来源列（T11a；缺省 null = 用户输入语义，旧形状兼容）
+      source: item.source ?? null,
     })),
     toolCalls: state.toolCalls.map((t) => ({
       id: t.id,
@@ -105,7 +107,12 @@ export function rowsToPersistedState(
         instanceId: e.instanceId ?? MAIN_INSTANCE_ID,
       })),
       turns: JSON.parse(session.turns),
-      pendingSteer: steer.map((s) => ({ entryId: s.entry_id, text: s.text })),
+      pendingSteer: steer.map((s) => ({
+        entryId: s.entry_id,
+        text: s.text,
+        // source 列往返（T11a；旧行 NULL → 键不携带，缺省 user 语义）
+        ...(s.source !== null && s.source !== undefined ? { source: s.source as "user" | "closure" | "progress" } : {}),
+      })),
     },
     agentState: (lifecycle?.state ?? "idle") as AgentLifecycleState,
     toolCalls: toolCalls.map((t) => ({

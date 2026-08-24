@@ -4,6 +4,7 @@ import type { AgentEngineEvent, AgentEnginePort, AgentThinkingState } from "../p
 import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../ports/outbound/ClockPort";
 import { AgentLifecycle, type AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
+import type { SteerSource } from "../../domain/agent/SteerQueue";
 import { Session } from "../../domain/session/Session";
 import type { ThinkingEntryData } from "../../domain/session/ThinkingEntry";
 import { MAIN_INSTANCE_ID, ZERO_USAGE, type ErrorCode } from "@helix/protocol"; // MAIN_INSTANCE_ID re-export 自 @helix/common（AD-1）；ZERO_USAGE = projection 单源
@@ -105,7 +106,7 @@ export class ChatService implements ChatPort {
   /** 在飞 run 的 promise（AD-4 删除收口链）：开 run 登记、收口清空——currentRun()/whenSettled() 等待面。 */
   private activeRun: Promise<void> | null = null;
   /** closure 暂存缓冲（T2 送达补齐）：aborting 窗口 FIFO 暂存，abort 收尾回 idle 后逐条 flush（fire-and-forget sendMessage，失败 engine.error 可观测不崩链）。aborting 是瞬时窗口，内存缓冲即可（不做持久化）。 */
-  private readonly closureBuffer: string[] = [];
+  private readonly closureBuffer: { text: string; source: "closure" | "progress" }[] = [];
 
   constructor(private readonly deps: ChatServiceDeps | ChatServiceTestDeps) {
     this.session = deps.session ?? Session.create();
@@ -211,7 +212,7 @@ export class ChatService implements ChatPort {
   // ── ChatPort 实现 ────────────────────────────────────────
 
   /** 发送用户消息：空闲开新轮次并驱动引擎；生成中转 steer 注入（返回值告诉 driving 侧去向——CLI/WS 据此回执）。图片上行：images 可选（base64 data URL）——入口统一校验（parseDataUrlImages：≤4 张/格式/单张 ≤2MB）；仅 idle 分支消费；生成中携带抛错（steer 不带图，不静默丢图）。 */
-  async sendMessage(text: string, images?: readonly string[]): Promise<SendOutcome> {
+  async sendMessage(text: string, images?: readonly string[], source?: SteerSource): Promise<SendOutcome> {
     if (text.trim() === "") {
       throw new Error("消息内容不能为空");
     }
@@ -224,7 +225,7 @@ export class ChatService implements ChatPort {
         // ① 消息落聚合：user Entry；零条目会话首个用户条目落聚合后同步
         //    触发转正回调（promoteDraft：instantiated 先于 message.completed 落盘）
         const isFirstEntry = this.session.isEmpty();
-        const entry = this.session.appendUserEntry(text, this.now(), images);
+        const entry = this.session.appendUserEntry(text, this.now(), images, source);
         if (isFirstEntry) this.deps.onFirstUserEntry?.();
         this.publishMessageCompleted(entry.toData().id, "user", text, false, images);
         // ② 开新轮次（Turn=generating）并广播开始
@@ -272,11 +273,11 @@ export class ChatService implements ChatPort {
       return this.steerInstance(instanceId, text);
     }
     this.lifecycle.assertIn("running", "steering");
-    const entry = this.session.applySteer(text, this.now());
+    const entry = this.session.applySteer(text, this.now(), "user");
     if (this.lifecycle.current === "running") {
       this.setLifecycle("steering"); // running→steering：有注入待 drain
     }
-    this.publish<SteerPayload>("steer.queued", { entryId: entry.id, text });
+    this.publish<SteerPayload>("steer.queued", { entryId: entry.id, text, source: "user" });
     this.deps.engine.steer(text);
     return { entryId: entry.id };
   }
@@ -303,22 +304,22 @@ export class ChatService implements ChatPort {
     }
   }
 
-  /** closure 注入主线（AD-8 双通道之一；组合根接 SchedulerService 收口回调，非 ChatPort 成员）：idle 立即新 turn / running·steering 同队列同语义入队（source=closure，FIFO 保序）/ aborting FIFO 暂存（T2 送达补齐：abort 收尾回 idle 后逐条 flush）/ stopped 可观测丢弃。同步方法（调度链不 await）；新 turn fire-and-forget，异常经 engine.error 可观测不崩会话。 */
-  injectClosure(text: string): void {
+  /** closure 注入主线（AD-8 双通道之一；组合根接 SchedulerService 收口回调，非 ChatPort 成员）：idle 立即新 turn / running·steering 同队列同语义入队（FIFO 保序）/ aborting FIFO 暂存（T2 送达补齐：abort 收尾回 idle 后逐条 flush）/ stopped 可观测丢弃。source（T11a）：注入来源贯通 Entry/steer 事件载荷/SQLite——closure=SubAgent 收口（缺省）；progress=周期进展报告（SchedulerService 同通道）。同步方法（调度链不 await）；新 turn fire-and-forget，异常经 engine.error 可观测不崩会话。 */
+  injectClosure(text: string, source: "closure" | "progress" = "closure"): void {
     switch (this.lifecycle.current) {
       case "idle":
-        void this.sendMessage(text).catch((err) => {
+        void this.sendMessage(text, undefined, source).catch((err) => {
           this.publish("engine.error", { message: `closure 注入失败：${(err as Error).message}` });
         });
         return;
       case "running":
       case "steering": {
         try {
-          const entry = this.session.applySteer(text, this.now(), "closure");
+          const entry = this.session.applySteer(text, this.now(), source);
           if (this.lifecycle.current === "running") {
             this.setLifecycle("steering"); // 同用户 steer：有注入待 drain
           }
-          this.publish<SteerPayload>("steer.queued", { entryId: entry.id, text });
+          this.publish<SteerPayload>("steer.queued", { entryId: entry.id, text, source });
           this.deps.engine.steer(text);
         } catch (err) {
           this.publish("engine.error", { message: `closure 注入失败：${(err as Error).message}` });
@@ -327,7 +328,7 @@ export class ChatService implements ChatPort {
       }
       case "aborting":
         // T2 送达补齐：中断收尾窗口不丢弃——FIFO 暂存，abort 收尾回 idle 后逐条 flush（settleRunEnd 触发）。
-        this.closureBuffer.push(text);
+        this.closureBuffer.push({ text, source });
         return;
       case "stopped":
         // 终态无可投递对象：可观测丢弃（closure 已在 closure_records 落盘，恢复会话可见）。
@@ -352,8 +353,8 @@ export class ChatService implements ChatPort {
       if (this.activeRun !== null) this.scheduleClosureDrain();
       return;
     }
-    const text = this.closureBuffer.shift()!;
-    void this.sendMessage(text)
+    const item = this.closureBuffer.shift()!;
+    void this.sendMessage(item.text, undefined, item.source)
       .catch((err) => {
         this.publish("engine.error", { message: `closure 注入失败：${(err as Error).message}` });
       })
@@ -367,9 +368,9 @@ export class ChatService implements ChatPort {
       this.publish<AgentStateChangedPayload>("agent.state.changed", { state: "stopped" });
     }
     if (this.closureBuffer.length > 0) {
-      for (const text of this.closureBuffer) {
+      for (const item of this.closureBuffer) {
         this.publish("engine.error", {
-          message: `closure 注入被丢弃（生命周期 stopped）：${text.slice(0, 80)}`,
+          message: `closure 注入被丢弃（生命周期 stopped）：${item.text.slice(0, 80)}`,
         });
       }
       this.closureBuffer.length = 0;
@@ -452,7 +453,12 @@ export class ChatService implements ChatPort {
     this.finishOpenTurn("steerDrained");
     const item = this.session.dequeueSteer();
     if (item) {
-      this.publish<SteerPayload>("steer.drained", { entryId: item.entryId, text: item.text });
+      // source 同源透传（T11a：入队时来源 → drain 事件载荷；缺省老项不携带键）
+      this.publish<SteerPayload>("steer.drained", {
+        entryId: item.entryId,
+        text: item.text,
+        ...(item.source !== undefined ? { source: item.source } : {}),
+      });
       const turn = this.session.beginTurn(item.entryId, this.now());
       this.publish("turn.started", { turnId: turn.id });
     }

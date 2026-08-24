@@ -16,6 +16,15 @@ export type SteerState = "queued" | "drained";
 export type TurnCompletionReason = "completed" | "aborted";
 
 /**
+ * 注入来源（v0.11 批内补登，T11a closure/steer source 贯通）：helix 自有
+ * 三值枚举（AD-2 字符串透传原则不适用——协议面定死）。
+ * user=用户 steer；closure=SubAgent 收口注入（AD-8）；progress=周期进展
+ * 报告（SchedulerService injectClosure 同通道）。可选 additive：老事件/
+ * 老快照缺省 = undefined，消费侧按 user 渲染。
+ */
+export type SteerSource = "user" | "closure" | "progress";
+
+/**
  * 消息条目（EntryDto 的 message 变体）。
  * `steerState` 仅 chat.steer 产生的用户消息携带；普通消息不携带。
  */
@@ -30,6 +39,8 @@ export interface MessageEntryDto {
   steerState?: SteerState;
   /** 实例归属（v0.1 新增，AD-3）：可选；缺省 = 主实例（"main"） */
   instanceId?: string;
+  /** 注入来源（v0.11 批内补登 T11a）：仅注入类 user 消息携带；缺省 = 用户输入 */
+  source?: SteerSource;
   /**
    * 图片附件（v0.10 新增，T9 图片上下行）：base64 data URL 数组
    * （`data:image/png;base64,…`，自包含免文件服务）；仅 user 消息携带

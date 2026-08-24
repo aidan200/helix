@@ -67,6 +67,8 @@ export interface MessageCompletedPayload {
 export interface SteerPayload {
   readonly entryId: string;
   readonly text: string;
+  /** 注入来源（T11a：user/closure/progress；缺省 = 老事件按 user）。 */
+  readonly source?: "user" | "closure" | "progress";
 }
 
 export interface TurnCompletedPayload {

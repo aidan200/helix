@@ -51,8 +51,9 @@ export interface ClosureRecorderDeps {
   /**
    * closure 注入主线回调（AD-8 双通道之一；组合根接 ChatService.injectClosure）。
    * 可选——无主线编排场景（纯调度 integration）不注入。
+   * source（T11a）：closure=收口注入（缺省）；progress=周期进展报告。
    */
-  readonly injectClosure?: (agentId: string, message: string) => void;
+  readonly injectClosure?: (agentId: string, message: string, source?: "closure" | "progress") => void;
 }
 
 export class ClosureRecorder {
@@ -100,7 +101,7 @@ export class ClosureRecorder {
     // SteerQueue 注入主线（唯一入口进主线上下文）：`agent-N closure:
     // <status> — <summary>`——MainAgent idle 立即新 turn / running 下轮
     // turn 边界 drain（与用户 steer 同队列 FIFO，AD-8 双通道）
-    this.deps.injectClosure?.(instanceId, `${instanceId} closure: ${closure.status} — ${closure.summary}`);
+    this.deps.injectClosure?.(instanceId, `${instanceId} closure: ${closure.status} — ${closure.summary}`, "closure");
   }
 
   private publish<P>(instance: AgentInstance, type: DomainEvent["type"], payload: P): void {

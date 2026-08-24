@@ -1,5 +1,6 @@
 import { DomainError } from "../DomainError";
 import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
+import type { SteerSource } from "../agent/SteerQueue";
 
 /**
  * 会话条目（architecture.md §3.3）：会话语义单元（一条完成的消息）。
@@ -23,6 +24,12 @@ export interface EntryData {
   readonly instanceId: string;
   readonly createdAt: string;
   /**
+   * 注入来源（T11a closure/steer source 贯通）：仅注入类 user 条目携带
+   * （steer/closure/进展报告；普通用户输入缺省 = user 语义）。持久化 JSON
+   * 列往返自动携带（旧快照无字段 → undefined 前向兼容）。
+   */
+  readonly source?: SteerSource;
+  /**
    * 图片附件（图片上行）：base64 data URL 数组；仅 user 消息携带
    * （chat.send.images 校验后原样落盘）。可选——缺省 = 纯文本旧形态
    * （持久化 JSON 列往返自动携带，v0/v0.1 快照兼容）。
@@ -40,6 +47,7 @@ export class Entry {
     readonly instanceId: string,
     readonly createdAt: string,
     private readonly images?: readonly string[],
+    readonly source?: SteerSource,
   ) {}
 
   static create(data: EntryData): Entry {
@@ -58,6 +66,7 @@ export class Entry {
       data.instanceId,
       data.createdAt,
       data.images,
+      data.source,
     );
   }
 
@@ -71,6 +80,7 @@ export class Entry {
       instanceId: this.instanceId,
       createdAt: this.createdAt,
       ...(this.images !== undefined ? { images: [...this.images] } : {}),
+      ...(this.source !== undefined ? { source: this.source } : {}),
     };
   }
 }

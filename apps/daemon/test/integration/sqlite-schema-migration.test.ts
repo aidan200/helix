@@ -275,3 +275,61 @@ describe("F1.7 验收②：agent_lifecycle 复合 PK (session_id, instance_id) �
     }
   });
 });
+
+describe("T11a：steer_queue source 列守护式补列", () => {
+  test("旧表（无 source 列）打开即补列；旧行 NULL → 恢复 source 缺省（键不携带）", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      // 旧库：steer_queue 为 source 列前形状 + 一条未消费 steer + 会话/生命周期投影行
+      // （domain_events/tool_calls 等缺表由 SCHEMA_SQL IF NOT EXISTS 直建新形状）
+      const db = new Database(dbPath);
+      db.exec(`
+CREATE TABLE session_state (
+  session_id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  entries TEXT NOT NULL,
+  turns TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE agent_lifecycle (
+  session_id TEXT NOT NULL,
+  instance_id TEXT NOT NULL DEFAULT 'main',
+  state TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, instance_id)
+);
+CREATE TABLE steer_queue (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  entry_id TEXT NOT NULL,
+  text TEXT NOT NULL
+);
+`);
+      db.exec(
+        "INSERT INTO session_state (session_id, created_at, entries, turns, updated_at) VALUES " +
+          "('s-steer', '2024-01-01T00:00:00.000Z', '[]', '[]', '2024-01-01T00:00:02.000Z')",
+      );
+      db.exec(
+        "INSERT INTO agent_lifecycle (session_id, instance_id, state, updated_at) VALUES " +
+          "('s-steer', 'main', 'steering', '2024-01-01T00:00:02.000Z')",
+      );
+      db.exec("INSERT INTO steer_queue (session_id, entry_id, text) VALUES ('s-steer', 'e9', '旧挂起 steer')");
+      db.close();
+
+      // 打开 = WriteQueue 构造（启动期守护迁移）
+      const queue = new WriteQueue(dbPath);
+      const repo = new SqliteSessionRepository(queue);
+      const probe = new Database(dbPath, { readonly: true });
+
+      expect(columnsOf(probe, "steer_queue")).toContain("source");
+      // 旧行 source=NULL → 恢复为缺省（老数据 = 用户 steer 语义，T11b 渲染域）
+      const restored = await repo.restore("s-steer");
+      expect(restored!.session.pendingSteer).toEqual([{ entryId: "e9", text: "旧挂起 steer" }]);
+
+      probe.close();
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});

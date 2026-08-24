@@ -450,3 +450,82 @@ describe("⑦ 定向 steer 路由（T2.3 契约 v0.3 §3.2，TP-CL3-2 U 半）",
     expect(publisher.domainEvents.some((e) => e.type === "steer.drained")).toBe(false);
   });
 });
+
+describe("⑥ closure/steer 注入来源区分（T11a：source 贯通 Entry/事件载荷）", () => {
+  const payloadSource = (e: DomainEvent | undefined): string | undefined =>
+    (e?.payload as { source?: string } | undefined)?.source;
+
+  test("用户 steer → steer.queued/drained 载荷 source=\"user\" + isSteer Entry 带 source", async () => {
+    const engine = new FakeAgentEngine({
+      replies: [{ text: "这是一段足够长的回复，给测试留出流式注入窗口。", chunkDelayMs: 12 }],
+      steerReplies: [{ text: "（已按注入调整）好的。" }],
+    });
+    const { chat, publisher } = makeChat(engine);
+
+    const run = chat.sendMessage("写一段介绍");
+    await until(() => publisher.deltas.length >= 2);
+    await chat.steer("要简短一些");
+
+    const queued = publisher.domainEvents.find((e) => e.type === "steer.queued");
+    expect(payloadSource(queued)).toBe("user");
+    const steerEntry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer);
+    expect(steerEntry && "source" in steerEntry ? steerEntry.source : undefined).toBe("user");
+
+    await run;
+    const drained = publisher.domainEvents.find((e) => e.type === "steer.drained");
+    expect(payloadSource(drained)).toBe("user");
+  });
+
+  test("running 时 closure 注入 → steer.queued/drained source=\"closure\" + isSteer Entry 带 source", async () => {
+    const engine = new FakeAgentEngine({
+      replies: [{ text: "这是一段足够长的回复，给测试留出流式注入窗口。", chunkDelayMs: 12 }],
+      steerReplies: [{ text: "收到收口结论。" }],
+    });
+    const { chat, publisher } = makeChat(engine);
+
+    const run = chat.sendMessage("主线任务");
+    await until(() => publisher.deltas.length >= 2);
+    chat.injectClosure("agent-1 closure: done — 调研完成"); // 缺省 source=closure
+
+    const queued = publisher.domainEvents.find((e) => e.type === "steer.queued");
+    expect(payloadSource(queued)).toBe("closure");
+    const steerEntry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer);
+    expect(steerEntry && "source" in steerEntry ? steerEntry.source : undefined).toBe("closure");
+
+    await run;
+    const drained = publisher.domainEvents.find((e) => e.type === "steer.drained");
+    expect(payloadSource(drained)).toBe("closure");
+  });
+
+  test("running 时进展报告注入（source=\"progress\"）→ 事件载荷与 Entry 同源", async () => {
+    const engine = new FakeAgentEngine({
+      replies: [{ text: "这是一段足够长的回复，给测试留出流式注入窗口。", chunkDelayMs: 12 }],
+      steerReplies: [{ text: "收到进展。" }],
+    });
+    const { chat, publisher } = makeChat(engine);
+
+    const run = chat.sendMessage("主线任务");
+    await until(() => publisher.deltas.length >= 2);
+    chat.injectClosure("[agent-1 进展报告 #1] 状态=running 静默=0ms Δ工具调用=+0 Δ输出=+0字符 Δ轮次=+0", "progress");
+
+    const queued = publisher.domainEvents.find((e) => e.type === "steer.queued");
+    expect(payloadSource(queued)).toBe("progress");
+    const steerEntry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer);
+    expect(steerEntry && "source" in steerEntry ? steerEntry.source : undefined).toBe("progress");
+
+    await run;
+    const drained = publisher.domainEvents.find((e) => e.type === "steer.drained");
+    expect(payloadSource(drained)).toBe("progress");
+  });
+
+  test("idle 时 closure 注入 → 普通 user Entry 带 source=\"closure\"（快照可见）", async () => {
+    const engine = new FakeAgentEngine({ replies: [{ text: "收到收口结论。" }] });
+    const { chat } = makeChat(engine);
+
+    chat.injectClosure("agent-1 closure: done — 调研完成");
+    await until(() => chat.agentState === "idle" && chat.sessionSnapshot.entries.length >= 2);
+
+    const userEntry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.role === "user");
+    expect(userEntry).toMatchObject({ role: "user", isSteer: false, source: "closure" });
+  });
+});
