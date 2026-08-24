@@ -15,6 +15,14 @@ export interface ConnectionWelcomePayload {
    * 缺省/旧客户端忽略本字段行为不变（现状握手：attach + 立即快照）。
    */
   draft?: boolean;
+  /**
+   * 当前模式面（P1 会话模式框架 T2，additive；PROTOCOL.md §18）：daemon
+   * 当前会话的模式——草稿握手 = 草稿暂存模式（前端 header 模式选择器
+   * 恢复基准）；已建会话握手 = session.mode 定格值。与 draft 字段同构
+   * （同为「当前会话」投影）；缺省 = 未携带（旧 daemon 兼容，读侧按
+   * "default" 兜底）。
+   */
+  mode?: string;
 }
 
 /** connection.error：握手拒绝 / 命令错误回执（notification 通道） */

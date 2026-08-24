@@ -191,6 +191,11 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       { registry: "evt", anchor: "steer.queued", field: "source" },
       { registry: "evt", anchor: "steer.drained", field: "source" },
       { registry: "evt", anchor: "chat.message.completed", field: "entry.source" },
+      // P1 会话模式框架批（mode-framework T2）：可选字段 presence（防零登记复发；
+      // 版本位不 bump——§18 微批登记，§14 同构先例）
+      { registry: "cmd", anchor: "chat.send", field: "mode" },
+      { registry: "evt", anchor: "connection.welcome", field: "mode" },
+      { registry: "evt", anchor: "session.snapshot", field: "snapshot.mode" },
     ];
     const missing: string[] = [];
     for (const item of required) {

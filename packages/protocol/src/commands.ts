@@ -38,6 +38,14 @@ export interface ChatSendPayload {
    */
   model?: string;
   /**
+   * 建会话模式（P1 会话模式框架 T2，additive；PROTOCOL.md §18）：仅
+   * draft:true 建会话链消费——草稿态选定的会话模式（唯一设置入口；建会话
+   * 定格锁定，无 mode.set 命令——锁定 = 结构不可能，非校验拒绝）；缺省 =
+   * "default"（旧客户端兼容）。字符串透传：未知 mode 由 daemon 模式注册表
+   * fallback "default"（T3），协议面不校验注册表成员资格（AD-2 同构）。
+   */
+  mode?: string;
+  /**
    * 图片附件（v0.10 新增，T9 图片上行）：base64 data URL 数组
    * （`data:image/png;base64,…`，≤4 张、单张解码后 ≤2MB——超限 daemon
    * 回中文错误不落消息）；缺省 = 纯文本发送（additive 纪律）。daemon 解码

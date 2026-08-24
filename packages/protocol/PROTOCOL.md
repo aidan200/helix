@@ -225,7 +225,9 @@ export interface ToolCallEntryDto {
   `"0.9" → "0.10"`）；**v0.11 = 当前**（§17.11：thinking 批 additive 四块
   ——`thinking.set`/`thinking.changed` 命令族 + CatalogModel 能力位 +
   快照/`agent.instantiated`/`agent.config` thinking 槽位 additive + 版本位
-  `"0.10" → "0.11"`）。
+  `"0.10" → "0.11"`）；P1 会话模式微批（§18：模式注册表 modes.ts 新模块 +
+  `chat.send`/`connection.welcome`/`session.snapshot` 三处可选 mode 字段
+  additive——零新增命令/事件，版本位不 bump，§14 微批同构先例）。
 - v0 语义边界：workspace 路由**仅类型预留**（§3）；`session.subscribe` /
   `session.unsubscribe` 仅保通路语义（v0 主会话默认订阅）。
 - 前端重连语义（状态机转换规则 = 契约，节奏实现自定）：断线 → 自动重连
@@ -753,6 +755,7 @@ sessionId 必填（`draft:true` 建会话链省略）；无专属结果帧，回
 | `text` | `string` | 必填 | v0 | 用户消息文本 |
 | `draft` | `boolean` | 可选 | v0.2 引入 / v0.5 定形登记（§14.3） | 草稿建会话标记：true 且信封 sessionId 省略 → daemon 新建会话聚合落库（首条用户消息即建会话）；sessionId 携带时忽略；缺省 = 既有会话内发送 |
 | `model` | `string` | 可选 | v0.5 定形登记（§14.2） | 建会话模型：仅 `draft:true` 链消费（用户建会话前选定的模型，失败降级全局默认不阻断）；缺省 = 全局默认（不换模） |
+| `mode` | `string` | 可选 | P1 会话模式微批（§18） | 建会话模式：仅 `draft:true` 链消费（草稿态唯一设置入口；建会话定格锁定，无 `mode.set` 命令——锁定 = 结构不可能非校验拒绝）；字符串透传（未知 mode 由 daemon 注册表 fallback `"default"`）；缺省 = `"default"`（旧客户端兼容） |
 | `images` | `readonly string[]` | 可选 | v0.10（T9 图片上行） | 图片附件：base64 data URL 数组（`data:image/png;base64,…`，自包含免文件服务）；≤4 张、单张解码后 ≤2MB（超限 daemon 回中文错误不落消息）；daemon 解码后转 ImageContent[] 交引擎（`agent.prompt(input, images)`）；缺省 = 纯文本发送（additive） |
 
 #### `chat.steer`
@@ -1074,6 +1077,7 @@ iter-20260823 后续批升格：effective=null、后续请求不带 reasoning—
 | `model` | `string` | 必填 | v0 | 当前模型（展示用徽标） |
 | `agentState` | `AgentStateDto` | 必填 | v0 | 主实例状态（§6） |
 | `draft` | `boolean` | 可选 | v0.5 定形登记（§14.1） | 草稿标记：true = 当前会话是零条目内存草稿（未落盘、不进清单；握手不 attach 不推快照）；缺省 = 现状握手（attach + 立即快照） |
+| `mode` | `string` | 可选 | P1 会话模式微批（§18） | daemon 当前模式面：草稿握手 = 草稿暂存模式（前端 header 模式选择器恢复基准）；已建会话握手 = session.mode 定格值（与 `draft` 字段同构——同为「当前会话」投影）；缺省 = 未携带（旧 daemon 兼容，读侧按 `"default"` 兜底） |
 
 #### `connection.error`
 
@@ -1094,6 +1098,7 @@ iter-20260823 后续批升格：effective=null、后续请求不带 reasoning—
 |---|---|---|---|---|
 | `snapshot` | `SessionSnapshotDto` | 必填 | v0 | 全量快照（§6；additive 扩展 §10.5 / §11.5） |
 | `snapshot.thinking` | `{ override: string \| null; effective: string \| null }` | 可选 | v0.11 | 会话 thinking 覆盖/生效双位（thinking 批③ F-8 修复：SessionStateView → wire 接通；切换会话/重连/重启恢复后 UI 与引擎一致；null = 无覆盖 / 全链不支持不传参；缺省 = 未携带，旧剧本兼容） |
+| `snapshot.mode` | `string` | 可选 | P1 会话模式微批（§18） | 会话模式回带：建会话时定格（chat.send draft 链 mode 透传落库；此后无写路径，快照只读回带）；缺省 = 未携带（旧剧本兼容，读侧按 `"default"` 兜底） |
 
 #### `session.list_changed`
 
@@ -1757,3 +1762,58 @@ shell 旧消费，shell 段 T10c 摘除后整体退役）；**T10c 已完成退�
 判别由读侧 helper 承担（protocol projection `isMainInstance` / shell
 entities/session `isMainChannel` / daemon domain `isMainInstanceId`，各自
 单点持有 legacy 字面）。
+
+## 18. v0.11 后 additive 微批（P1 会话模式框架 T2：模式注册表 + mode 三字段；版本位不 bump）
+
+> 本批为 P1 会话模式框架（mode-framework-p1 计划，T2）的协议面 additive
+> 登记。**版本位不 bump**（`PROTOCOL_VERSION = "0.11"` 保持）：三处扩展全部
+> 为可选字段 + 新增纯常量模块，旧客户端零破坏（additive 纪律，TR-AD-23①）。
+> 版本位 bump 的机械跟随（shell 握手字面量 / daemon protocol-import 断言 /
+> e2e 断言）属 P1 批次收尾（T5）决策空间——Q-1c「版本位是批次集合标记
+> 非协商位」要求单仓同发一步替换，T2 仅落协议面，daemon（T3）/shell（T4）
+> 消费未落齐前不升位（§14 v0.4 后微批同构先例）。
+
+### 18.1 模式注册表（`src/modes.ts` 新模块，daemon/前端共享常量单点）
+
+```ts
+export interface StageSpec { id: string; profileKind: string; welcomeKey?: string }
+export interface ModeSpec {
+  id: string;                    // "default" | ...
+  kind: "single" | "staged" | "orchestrated";
+  profileKind: string;           // single/orchestrated 的绑定
+  stages?: readonly StageSpec[]; // staged 模式（P2 预留）
+}
+export const MODES = [{ id: "default", kind: "single", profileKind: "main-session" }]
+  as const satisfies readonly ModeSpec[];
+export type ModeId = (typeof MODES)[number]["id"];   // 类型级保障：注册表派生联合
+export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义单点
+```
+
+- session 一对一绑定模式：草稿态可切（`chat.send{draft:true, mode}` 唯一写
+  入口）、建会话定格锁定——**无 `mode.set` 命令**（锁定语义 = 结构不可能，
+  非校验拒绝）。
+- schema 表达三模式不返工：single（default：main agent 绑 main-session 槽
+  位）/ staged（P2 phase：design/build/verify 三阶段 agent，`stages` 预留）/
+  orchestrated（P3 workflow：编排者 agent 绑编排者槽位）。
+- mode 的 wire 面一律 `string`（AD-2 字符串透传同构）：协议面不校验注册表
+  成员资格，未知 mode 由 daemon 模式注册表单点 fallback `"default"`（T3）。
+
+### 18.2 三处 additive 可选字段（形状正文登记位 = §15.1 / §16.1 / §16.2）
+
+- `ChatSendPayload.mode?: string`（§15.1）：仅 `draft:true` 建会话链消费；
+  缺省 = `"default"`（旧客户端兼容）。
+- `ConnectionWelcomePayload.mode?: string`（§16.1）：daemon 当前模式面——
+  草稿握手 = 草稿暂存模式；已建会话握手 = session.mode 定格值。与 `draft`
+  字段同构（welcome 本就是「当前会话」投影；前端 header 模式选择器草稿
+  重连恢复的数据源）。缺省 = 未携带（旧 daemon 兼容，按 `"default"` 兜底）。
+- `SessionSnapshotDto.mode?: string`（§16.2 `snapshot.mode` 字段行）：建
+  会话定格值回带（此后无任何写路径，快照只读）。缺省 = 未携带（旧剧本
+  兼容，读侧按 `"default"` 兜底）。
+
+### 18.3 消费侧（T3/T4 落地；本批仅登记语义，协议包零 IO）
+
+- daemon（T3）：模式注册表单点（消费 `MODES`）+ 未知 mode fallback
+  `"default"` + 建会话按 mode 解析 profileKind + session.mode 落库/快照
+  回带 + 建会后无写路径（锁定）。
+- shell（T4）：header 模式选择器（草稿可切/已建只读显示 session.mode）+
+  `chat.send` draft 带 mode。

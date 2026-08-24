@@ -60,9 +60,11 @@ type _ModelChangedUnchanged = Expect<
   Equal<ModelChangedPayload, { sessionId: string; model: string; previous: string; effective: "next-turn" }>
 >;
 
-// chat.send 零字段负断言（AD-4①：thinking 是会话状态非逐消息参数）
+// chat.send 零 thinking 字段负断言（AD-4①：thinking 是会话状态非逐消息参数，
+// 无逐消息入口；mode 例外——P1 会话模式 D4 拍板：mode 随 draft 建会话链
+// 透传 = 唯一设置入口，§18 微批登记）
 type _ChatSendNoThinking = Expect<
-  Equal<keyof ChatSendPayload, "text" | "draft" | "model" | "images">
+  Equal<keyof ChatSendPayload, "text" | "draft" | "model" | "images" | "mode">
 >;
 
 // 版本位单值（批次集合标记）

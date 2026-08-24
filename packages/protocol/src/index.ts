@@ -8,6 +8,7 @@
 export * from "./envelope";
 export * from "./handshake";
 export * from "./commands";
+export * from "./modes";
 export * from "./events/index";
 export * from "./types/agent";
 export * from "./types/chat";

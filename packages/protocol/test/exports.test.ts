@@ -211,6 +211,10 @@ type _TypeSurface = [
   protocol.ThinkingSetCommand,
   protocol.ThinkingChangedPayload,
   protocol.ThinkingChangedEvent,
+  // 模式注册表（P1 会话模式框架 T2，mode-framework-p1；§18 微批登记）
+  protocol.ModeSpec,
+  protocol.StageSpec,
+  protocol.ModeId,
   // 错误模型（契约 §7；v0.2 +command.unimplemented）
   protocol.ErrorCode,
 ];
@@ -224,8 +228,10 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       // 目录/登记/常量（v0.2 常量收口）+ 投影·trace 域常量（迁自 daemon TraceQuery）
       // （MAIN_INSTANCE_ID 已随 T10c 常量退役删除——legacy 判别归读侧 helper）
       "COMMAND_TYPES",
+      "DEFAULT_MODE_ID", // P1 会话模式批 T2（缺省 mode 单点；§18 微批）
       "EVENT_CHANNELS",
       "EVENT_TYPES",
+      "MODES", // P1 会话模式批 T2（模式注册表常量；§18 微批）
       "PROTOCOL_VERSION",
       "SYSTEM_SESSION_ID",
       "TRACE_PAGE_DEFAULT",

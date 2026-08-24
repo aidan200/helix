@@ -102,4 +102,10 @@ export interface SessionSnapshotDto {
     /** 引擎按当前模型能力解析的生效档；null = 全链不支持（不传参，provider 默认）。 */
     effective: string | null;
   };
+  /**
+   * 会话模式（P1 会话模式框架 T2，additive；PROTOCOL.md §18）：建会话时
+   * 定格（chat.send draft 链 mode 透传落库；此后无写路径——快照只读回带）。
+   * 缺省 = 未携带（旧剧本/旧 daemon 兼容，读侧按 "default" 兜底）。
+   */
+  mode?: string;
 }
