@@ -1,6 +1,6 @@
 import type { DomainEvent } from "../../../../domain/events/DomainEvent";
 import type { AgentLifecycleState } from "../../../../domain/agent/AgentLifecycle";
-import { MAIN_INSTANCE_ID } from "@helix/protocol";
+import { LEGACY_MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
 import type { ToolCallRecordData, ToolCallStatus } from "../../../../domain/tools/ToolCallRecord";
 import type { SessionEntryData } from "../../../../domain/session/SessionSnapshot";
 import type { PersistedDomainState } from "../../../../application/ports/outbound/SessionRepositoryPort";
@@ -25,7 +25,7 @@ export function domainEventToRow(event: DomainEvent, agentKind: string): DomainE
     session_id: event.sessionId,
     agent_kind: agentKind,
     // 缺省 = 主实例（契约 §1 同语义）；落盘列值显式化（trace 四维可查）
-    agent_instance_id: event.instanceId ?? MAIN_INSTANCE_ID,
+    agent_instance_id: event.instanceId ?? LEGACY_MAIN_INSTANCE_ID,
     type: event.type,
     payload: JSON.stringify(event.payload),
     ts: event.occurredAt,
@@ -37,7 +37,7 @@ export function rowToDomainEvent(row: DomainEventRow): DomainEvent {
     type: row.type as DomainEvent["type"],
     sessionId: row.session_id,
     // 旧行兜底（TR-AD-14：列前时代的行/未回填连接读到的空值）——主实例语义
-    instanceId: row.agent_instance_id ?? MAIN_INSTANCE_ID,
+    instanceId: row.agent_instance_id ?? LEGACY_MAIN_INSTANCE_ID,
     payload: JSON.parse(row.payload) as unknown,
     occurredAt: row.ts,
   };
@@ -62,8 +62,11 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
       entries: JSON.stringify(state.session.entries),
       turns: JSON.stringify(state.session.turns),
       updated_at: now,
+      // T10a 方案 A：会话主实例 id 随状态行落盘（恢复重建 Session.mainInstanceId
+      // 唯一事实源；旧聚合缺省 null = legacy "main"——理论不可达，新聚合恒携带）
+      main_instance_id: state.session.mainInstanceId ?? null,
     },
-    lifecycle: { session_id: sessionId, instance_id: MAIN_INSTANCE_ID, state: state.agentState, updated_at: now },
+    lifecycle: { session_id: sessionId, instance_id: LEGACY_MAIN_INSTANCE_ID, state: state.agentState, updated_at: now },
     steer: state.session.pendingSteer.map((item) => ({
       session_id: sessionId,
       entry_id: item.entryId,
@@ -76,7 +79,7 @@ export function persistedStateToRows(state: PersistedDomainState): PersistedStat
       session_id: sessionId,
       // 行级归属透传（AD-3：SubAgent 工具行挂 agent-N；旧载荷
       // 无字段时回填主实例，TR-AD-14 前向兼容）
-      instance_id: t.instanceId ?? MAIN_INSTANCE_ID,
+      instance_id: t.instanceId ?? LEGACY_MAIN_INSTANCE_ID,
       tool_name: t.toolName,
       args: JSON.stringify(t.args ?? null),
       status: t.status,
@@ -100,11 +103,17 @@ export function rowsToPersistedState(
     session: {
       sessionId: session.session_id,
       createdAt: session.created_at,
-      // 旧库 entries JSON 无 instanceId（列前时代）→ fromRow 兜底回填主实例（TR-AD-14）；
-      // entries 为 message/thinking/compaction 混排联合（kind 判别），三类都挂 instanceId
+      // T10a：主实例 id 列往返（列前时代旧行 NULL → 键不携带，恢复侧兜底
+      // legacy "main"——与该会话历史行 instance_id="main" 自闭合）
+      ...(session.main_instance_id !== null && session.main_instance_id !== undefined
+        ? { mainInstanceId: session.main_instance_id }
+        : {}),
+      // 旧库 entries JSON 无 instanceId（列前时代）→ fromRow 兜底回填该会话
+      // 主实例 id（TR-AD-14；NULL 主 id 列 = legacy "main"）；entries 为
+      // message/thinking/compaction 混排联合（kind 判别），三类都挂 instanceId
       entries: (JSON.parse(session.entries) as SessionEntryData[]).map((e) => ({
         ...e,
-        instanceId: e.instanceId ?? MAIN_INSTANCE_ID,
+        instanceId: e.instanceId ?? session.main_instance_id ?? LEGACY_MAIN_INSTANCE_ID,
       })),
       turns: JSON.parse(session.turns),
       pendingSteer: steer.map((s) => ({
@@ -119,7 +128,7 @@ export function rowsToPersistedState(
       id: t.id,
       // 行级归属透传往返（AD-3：写入侧对称；主实例省略字段保持
       // v0/v0.1 载荷形状）
-      ...(t.instance_id !== MAIN_INSTANCE_ID ? { instanceId: t.instance_id } : {}),
+      ...(t.instance_id !== LEGACY_MAIN_INSTANCE_ID ? { instanceId: t.instance_id } : {}),
       toolName: t.tool_name,
       args: JSON.parse(t.args),
       status: t.status as ToolCallStatus,

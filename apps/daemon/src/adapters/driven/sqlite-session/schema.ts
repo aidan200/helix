@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS session_state (
   created_at TEXT NOT NULL,
   entries TEXT NOT NULL,
   turns TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  main_instance_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS agent_lifecycle (

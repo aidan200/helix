@@ -10,7 +10,7 @@ import type {
   SessionRepositoryPort,
 } from "../../../application/ports/outbound/SessionRepositoryPort";
 import type { WriteQueue } from "./WriteQueue";
-import { MAIN_INSTANCE_ID } from "@helix/protocol";
+import { LEGACY_MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
 import { rowToDomainEvent, rowsToPersistedState } from "./rows/RowMapper";
 import type {
   AgentLifecycleRow,
@@ -57,7 +57,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
   async restore(sessionId: string): Promise<PersistedDomainState | undefined> {
     const db = this.queue.database;
     const session = db
-      .prepare("SELECT session_id, created_at, entries, turns, updated_at FROM session_state WHERE session_id = ?")
+      .prepare("SELECT session_id, created_at, entries, turns, updated_at, main_instance_id FROM session_state WHERE session_id = ?")
       .get(sessionId) as SessionStateRow | null;
     if (!session) return undefined;
     // agent_lifecycle 已是每实例一行（复合 PK）：主会话运行态取 main 实例行；
@@ -66,7 +66,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .prepare(
         "SELECT session_id, instance_id, state, updated_at FROM agent_lifecycle WHERE session_id = ? AND instance_id = ?",
       )
-      .get(sessionId, MAIN_INSTANCE_ID) as AgentLifecycleRow | null;
+      .get(sessionId, LEGACY_MAIN_INSTANCE_ID) as AgentLifecycleRow | null;
     const steer = db
       .prepare("SELECT seq, session_id, entry_id, text, source FROM steer_queue WHERE session_id = ? ORDER BY seq")
       .all(sessionId) as SteerQueueRow[];

@@ -3,7 +3,7 @@ import path from "node:path";
 import { Database, type Statement } from "bun:sqlite";
 import { SCHEMA_SQL } from "./schema";
 import { persistedStateToRows, domainEventToRow } from "./rows/RowMapper";
-import { MAIN_INSTANCE_ID } from "@helix/protocol";
+import { LEGACY_MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type { PersistedDomainState } from "../../../application/ports/outbound/SessionRepositoryPort";
@@ -144,9 +144,9 @@ export class WriteQueue {
       "INSERT INTO domain_events (session_id, agent_kind, agent_instance_id, type, payload, ts) VALUES (?, ?, ?, ?, ?, ?)",
     );
     this.upsertSession = this.db.prepare(
-      "INSERT INTO session_state (session_id, created_at, entries, turns, updated_at) VALUES (?, ?, ?, ?, ?) " +
+      "INSERT INTO session_state (session_id, created_at, entries, turns, updated_at, main_instance_id) VALUES (?, ?, ?, ?, ?, ?) " +
         "ON CONFLICT(session_id) DO UPDATE SET created_at = excluded.created_at, entries = excluded.entries, " +
-        "turns = excluded.turns, updated_at = excluded.updated_at",
+        "turns = excluded.turns, updated_at = excluded.updated_at, main_instance_id = excluded.main_instance_id",
     );
     this.upsertLifecycle = this.db.prepare(
       "INSERT INTO agent_lifecycle (session_id, instance_id, state, updated_at) VALUES (?, ?, ?, ?) " +
@@ -423,6 +423,7 @@ export class WriteQueue {
       rows.session.entries,
       rows.session.turns,
       rows.session.updated_at,
+      rows.session.main_instance_id,
     );
     this.upsertLifecycle.run(
       rows.lifecycle.session_id,
@@ -484,6 +485,11 @@ function ensureSchemaEvolved(db: Database): void {
   if (!hasColumn(db, "steer_queue", "source")) {
     db.exec("ALTER TABLE steer_queue ADD COLUMN source TEXT");
   }
+  // T10a 方案 A：session_state.main_instance_id（会话主实例 id，agent-<唯一串>；
+  // 可空无默认——旧行 NULL = legacy "main"，读取侧兜底前向兼容）
+  if (!hasColumn(db, "session_state", "main_instance_id")) {
+    db.exec("ALTER TABLE session_state ADD COLUMN main_instance_id TEXT");
+  }
   const lifecycleCols = tableColumns(db, "agent_lifecycle");
   if (lifecycleCols.length > 0 && !lifecycleCols.includes("instance_id")) {
     db.exec("BEGIN IMMEDIATE");
@@ -493,14 +499,14 @@ function ensureSchemaEvolved(db: Database): void {
       db.exec(
         "CREATE TABLE agent_lifecycle (" +
           "session_id TEXT NOT NULL, " +
-          `instance_id TEXT NOT NULL DEFAULT '${MAIN_INSTANCE_ID}', ` +
+          `instance_id TEXT NOT NULL DEFAULT '${LEGACY_MAIN_INSTANCE_ID}', ` +
           "state TEXT NOT NULL, " +
           "updated_at TEXT NOT NULL, " +
           "PRIMARY KEY (session_id, instance_id))",
       );
       db.exec(
         "INSERT INTO agent_lifecycle (session_id, instance_id, state, updated_at) " +
-          `SELECT session_id, '${MAIN_INSTANCE_ID}', state, updated_at FROM agent_lifecycle_rebuild`,
+          `SELECT session_id, '${LEGACY_MAIN_INSTANCE_ID}', state, updated_at FROM agent_lifecycle_rebuild`,
       );
       db.exec("DROP TABLE agent_lifecycle_rebuild");
       db.exec("COMMIT");

@@ -17,13 +17,15 @@ export interface DomainEventRow {
   readonly ts: string;
 }
 
-/** session_state 行（entries/turns 为 JSON 数组文本）。 */
+/** session_state 行（entries/turns 为 JSON 数组文本；main_instance_id 可空——
+ *  列前时代旧行 NULL = legacy "main"，T10a 方案 A 列级演进补列）。 */
 export interface SessionStateRow {
   readonly session_id: string;
   readonly created_at: string;
   readonly entries: string;
   readonly turns: string;
   readonly updated_at: string;
+  readonly main_instance_id: string | null;
 }
 
 /** agent_lifecycle 行（每会话每实例一行，复合 PK (session_id, instance_id)）。 */

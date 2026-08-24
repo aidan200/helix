@@ -231,7 +231,11 @@ describe("F1.7：instanceId 新列 RowMapper 往返（TR-AD-14）", () => {
 
     // 占位字段在快照上合法携带；聚合重建不受影响（Entry 树带 instanceId 可查）
     const restored = Session.restoreFrom(snapshot);
-    expect(restored.entryList().every((e) => e.instanceId === "main")).toBe(true);
+    // T10a 方案 A：主实例 id = 会话创建生成的 agent-<唯一串>（非 "main"），
+    // 主线条目归属即该 id
+    expect(restored.mainInstanceId).toMatch(/^agent-/);
+    expect(restored.mainInstanceId).not.toBe("main");
+    expect(restored.entryList().every((e) => e.instanceId === restored.mainInstanceId)).toBe(true);
     expect(restored.entryList().map((e) => e.id)).toEqual(["e1", "e2", "e3"]);
     // T1.2 边界：instances 清单的权威投影在 agent_lifecycle 每实例行；快照装配/落盘由 T2.x 接
   });

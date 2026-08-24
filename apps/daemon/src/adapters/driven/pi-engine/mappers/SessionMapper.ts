@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Usage, UserMessage } from "@earendil-works/pi-ai";
-import { MAIN_INSTANCE_ID } from "@helix/protocol";
+import { LEGACY_MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
 import type { EntryData } from "../../../../domain/session/Entry";
 import type { AgentEngineUsage } from "../../../../application/ports/outbound/AgentEnginePort";
 
@@ -94,7 +94,7 @@ export function entryDataOf(message: AgentMessage, fallbackTurnId: string | null
       text: textOfContent(m.content),
       turnId: fallbackTurnId,
       isSteer: false,
-      instanceId: MAIN_INSTANCE_ID,
+      instanceId: LEGACY_MAIN_INSTANCE_ID,
       createdAt: new Date().toISOString(),
     };
   }
@@ -105,7 +105,7 @@ export function entryDataOf(message: AgentMessage, fallbackTurnId: string | null
       text: textOfContent(m.content),
       turnId: fallbackTurnId,
       isSteer: false,
-      instanceId: MAIN_INSTANCE_ID,
+      instanceId: LEGACY_MAIN_INSTANCE_ID,
       createdAt: new Date().toISOString(),
     };
   }

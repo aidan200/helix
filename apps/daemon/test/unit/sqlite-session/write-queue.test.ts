@@ -182,6 +182,61 @@ describe("WriteQueue 状态保存（saveState 投影行）", () => {
   });
 });
 
+describe("T10a：session_state.main_instance_id 列（方案 A 主实例 id 持久化）", () => {
+  test("新会话主实例 id 随状态行落盘往返；旧行 NULL = legacy \"main\" 兼容", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      const state = stateOf("s-mid");
+      await queue.saveState(state);
+      await queue.flush();
+
+      const db = new Database(dbPath, { readonly: true });
+      const row = db.prepare("SELECT main_instance_id FROM session_state WHERE session_id = ?").get("s-mid") as {
+        main_instance_id: string | null;
+      };
+      db.close();
+      // 新会话：列值 = 会话主实例 id（agent-<唯一串>，非 "main"）
+      expect(row.main_instance_id).toBe(state.session.mainInstanceId!);
+      expect(row.main_instance_id).toMatch(/^agent-/);
+      expect(row.main_instance_id).not.toBe("main");
+
+      // 守护式演进幂等：重开同库不报错（列已存在 no-op）
+      const reopened = new WriteQueue(dbPath);
+      await reopened.close();
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  test("旧库（无 main_instance_id 列）打开后守护补列，存量行 NULL = legacy \"main\"", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      // 先造列前时代旧库形状（session_state 无 main_instance_id 列）
+      const raw = new Database(dbPath);
+      raw.exec(
+        "CREATE TABLE session_state (session_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, entries TEXT NOT NULL, turns TEXT NOT NULL, updated_at TEXT NOT NULL)",
+      );
+      raw.exec(
+        "INSERT INTO session_state (session_id, created_at, entries, turns, updated_at) VALUES ('s-old', '2024-01-01T00:00:00.000Z', '[]', '[]', '2024-01-01T00:00:00.000Z')",
+      );
+      raw.close();
+
+      const queue = new WriteQueue(dbPath); // 守护式演进：补列
+      const db = new Database(dbPath, { readonly: true });
+      const row = db.prepare("SELECT main_instance_id FROM session_state WHERE session_id = ?").get("s-old") as {
+        main_instance_id: string | null;
+      };
+      db.close();
+      expect(row.main_instance_id).toBeNull(); // 存量行 NULL（读取侧兜底 legacy "main"）
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});
+
 describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产物（O-5）", () => {
   test("saveClosureRecord 落盘后重开（进程内级重启）可读回；findings 保 JSON", async () => {
     const dbPath = tmpDbPath();
