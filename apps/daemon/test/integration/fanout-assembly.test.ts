@@ -84,6 +84,7 @@ interface Rig {
 
 async function makeRig(): Promise<Rig> {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t2-2-fanout-"));
+  const builtinDir = mkdtempSync(path.join(tmpdir(), "helix-t2-2-skills-"));
   const engine = new FakeAgentEngine({});
   const daemon = await createTestDaemon({
     home,
@@ -94,7 +95,7 @@ async function makeRig(): Promise<Rig> {
     cliInput: new PassThrough(),
     cliOutput: new PassThrough(),
     toolCwd: home,
-    builtinSkillsDir: mkdtempSync(path.join(tmpdir(), "helix-t2-2-skills-")),
+    builtinSkillsDir: builtinDir,
   });
   return {
     home,
@@ -103,6 +104,7 @@ async function makeRig(): Promise<Rig> {
     dispose: async () => {
       await daemon.shutdown();
       rmSync(home, { recursive: true, force: true });
+      rmSync(builtinDir, { recursive: true, force: true }); // 泄漏修复：builtin 隔离目录随 dispose 清
     },
   };
 }
@@ -156,6 +158,7 @@ describe("TP-2.2b：装配序契约（架构 §4.2.2 总线最先 + 订阅先于
 describe("TP-2.2c：resources.changed 事件通道边界（三负断言，架构 §4.2.3）", () => {
   test("不进 fan-out 注册表 / 不进 WS 广播 / 不落 domain_events", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-t2-2-boundary-"));
+    const builtinDir = mkdtempSync(path.join(tmpdir(), "helix-t2-2-skills-"));
     const engine = new FakeAgentEngine({});
     const daemon = await createTestDaemon({
       home,
@@ -166,7 +169,7 @@ describe("TP-2.2c：resources.changed 事件通道边界（三负断言，架构
       cliInput: new PassThrough(),
       cliOutput: new PassThrough(),
       toolCwd: home,
-      builtinSkillsDir: mkdtempSync(path.join(tmpdir(), "helix-t2-2-skills-")),
+      builtinSkillsDir: builtinDir,
     });
     try {
       // ① 不进 fan-out 注册表：六名内无资源事件通道成员
@@ -202,5 +205,6 @@ describe("TP-2.2c：resources.changed 事件通道边界（三负断言，架构
       probe.close();
     }
     rmSync(home, { recursive: true, force: true });
+    rmSync(builtinDir, { recursive: true, force: true }); // 泄漏修复：builtin 隔离目录随收尾清
   });
 });

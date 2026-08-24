@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { createBrowserTool } from "../../src/adapters/driven/tools/web/BrowserTools";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { FakeBrowserPort, type BrowserPortCall } from "../mocks/FakeBrowserPort";
@@ -280,13 +281,25 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 describe("browser action=screenshot（T9 图片下行）", () => {
+  // 泄漏修复：screenshot 产物文件跟踪，afterAll 统一清（不再直接裸写 $TMPDIR 根）
+  const shotFiles: string[] = [];
+  const shotFile = (name: string): string => {
+    const f = `${tmpdir()}/${name}`;
+    shotFiles.push(f);
+    return f;
+  };
+  afterAll(() => {
+    for (const f of shotFiles) rmSync(f, { force: true });
+  });
+
   test("port 返回 {saved} 后读文件 → images 携带 data URL；content 文本不变", async () => {
     const port = new FakeBrowserPort();
     port.screenshotBytes = REAL_PNG;
     const { run } = makeHarness(port);
-    const result = await run({ action: "screenshot", tabId: "tab-1", file: `${tmpdir()}/helix-t9-shot.png` });
+    const shot = shotFile("helix-t9-shot.png");
+    const result = await run({ action: "screenshot", tabId: "tab-1", file: shot });
     expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content.split("\n")[0]!)).toEqual({ saved: `${tmpdir()}/helix-t9-shot.png` });
+    expect(JSON.parse(result.content.split("\n")[0]!)).toEqual({ saved: shot });
     // T9：ToolExecutionResult.images 携带 base64 data URL（工具卡缩略图数据源）
     const images = (result as { images?: string[] }).images;
     expect(images).toEqual([`data:image/png;base64,${toBase64(REAL_PNG)}`]);
@@ -297,7 +310,7 @@ describe("browser action=screenshot（T9 图片下行）", () => {
     // png 大图（>2MB）/ jpeg 重截小图（按 format 变化的剧本）
     port.screenshotBytes = (format) => (format === "jpeg" ? REAL_JPEG : new Uint8Array(2_100_000));
     const { run } = makeHarness(port);
-    const result = await run({ action: "screenshot", tabId: "tab-1", file: `${tmpdir()}/helix-t9-shot2.png` });
+    const result = await run({ action: "screenshot", tabId: "tab-1", file: shotFile("helix-t9-shot2.png") });
     expect(result.isError).toBe(false);
     // 重截发生：screenshotTab 被调用两次，第二次携带 format=jpeg
     const shots = port.calls.filter((c) => c.method === "screenshotTab");
@@ -311,7 +324,7 @@ describe("browser action=screenshot（T9 图片下行）", () => {
     const port = new FakeBrowserPort();
     port.screenshotBytes = new Uint8Array(2_100_000); // 恒大图
     const { run } = makeHarness(port);
-    const result = await run({ action: "screenshot", tabId: "tab-1", file: `${tmpdir()}/helix-t9-shot3.png` });
+    const result = await run({ action: "screenshot", tabId: "tab-1", file: shotFile("helix-t9-shot3.png") });
     expect(result.isError).toBe(false);
     expect((result as { images?: string[] }).images).toBeUndefined();
     expect(result.content).toContain("saved");
@@ -320,9 +333,10 @@ describe("browser action=screenshot（T9 图片下行）", () => {
   test("落盘文件读取失败（未写盘）→ images 缺省只有文本（不炸）", async () => {
     const port = new FakeBrowserPort(); // screenshotBytes 未设置：不落盘
     const { run } = makeHarness(port);
-    const result = await run({ action: "screenshot", tabId: "tab-1", file: `${tmpdir()}/helix-t9-not-exist.png` });
+    const notExist = shotFile("helix-t9-not-exist.png");
+    const result = await run({ action: "screenshot", tabId: "tab-1", file: notExist });
     expect(result.isError).toBe(false);
     expect((result as { images?: string[] }).images).toBeUndefined();
-    expect(JSON.parse(result.content.split("\n")[0]!)).toEqual({ saved: `${tmpdir()}/helix-t9-not-exist.png` });
+    expect(JSON.parse(result.content.split("\n")[0]!)).toEqual({ saved: notExist });
   });
 });

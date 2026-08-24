@@ -472,6 +472,7 @@ async function runThinkingChild(opts: {
     await h.launcher.dispose();
     current = undefined;
     rmSync(home, { recursive: true, force: true });
+    rmSync(h.home, { recursive: true, force: true }); // 泄漏修复：makeHarness 内层 t22-child 目录同清
   }
 }
 

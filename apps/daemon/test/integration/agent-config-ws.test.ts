@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -95,9 +95,17 @@ async function until(cond: () => boolean, timeoutMs: number, what: string): Prom
   }
 }
 
+const tmpRoots: string[] = [];
+
 function tmpHome(): string {
-  return mkdtempSync(path.join(tmpdir(), "helix-agent-config-it-"));
+  const dir = mkdtempSync(path.join(tmpdir(), "helix-agent-config-it-"));
+  tmpRoots.push(dir); // 泄漏修复：全部 tmp 目录进跟踪，afterAll 统一清（含 builtinSkillsDir 隔离目录）
+  return dir;
 }
+
+afterAll(() => {
+  for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
+});
 
 interface ProfileBlock {
   profileKind: string;
@@ -132,6 +140,7 @@ async function makeRig(): Promise<Rig> {
   // 坏文件：缺 description → invalid_metadata 诊断（不产技能不炸）
   writeFileSync(path.join(badDir, "SKILL.md"), "---\nname: broken-skill\n---\n\n正文", "utf8");
 
+  const builtinDir = tmpHome();
   const engine = new FakeAgentEngine({});
   const daemon = await createTestDaemon({
     home,
@@ -141,7 +150,7 @@ async function makeRig(): Promise<Rig> {
     cliInput: new PassThrough(),
     cliOutput: new PassThrough(),
     toolCwd: workspace,
-    builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
+    builtinSkillsDir: builtinDir, // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面；tmpHome 跟踪内）
   });
   const token = readFileSync(path.join(home, "dev-token"), "utf8");
   return {
