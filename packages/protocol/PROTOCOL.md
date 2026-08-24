@@ -85,7 +85,7 @@ export interface EventFrame<T = unknown> {
   v: FrameVersion;
   /** 事件归属会话（v0.2 新增，AD-4）：S→C 运行时必发；系统事件以 SYSTEM_SESSION_ID 占位 */
   sessionId?: string;
-  /** 实例归属（v0.1 起）：可选；缺省 = 主实例（MAIN_INSTANCE_ID） */
+  /** 实例归属（v0.1 起）：可选；T10 起写侧全实例显式携带（main 同为 agent-<唯一串>）；缺省 = legacy 主实例（读侧推断，兼容历史帧；§17.11 T10 批内补登） */
   instanceId?: string;
   /** 事件类型学通道（v0.2 新增，AD-3）：events.ts 字面量登记所属族 */
   channel?: Channel;
@@ -274,19 +274,29 @@ Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重�
 - **instanceId ≡ agentId**：同一标识空间的两个视角——编排事件族（`agent.*`）
   用字段名 `agentId`；通道事件（thinking / compaction / usage）与 Entry 归属
   用字段名 `instanceId`。前端 reducer 统一按同一 id 处理。
-- **分配格式（O-4 裁决建议，T1.2 定稿）**：主实例固定 `main`；SubAgent =
-  `agent-N`（daemon 内递增序号；持久化基线取 `agent_lifecycle` 已有
-  max(N)+1，重启不重复、剧本可预期）。
+- **分配格式（O-4 裁决建议，T1.2 定稿；T10 统一改写，见 §17.11）**：本批
+  登记 = 主实例固定 `main`；SubAgent = `agent-N`（daemon 内递增序号；
+  持久化基线取 `agent_lifecycle` 已有 max(N)+1，重启不重复、剧本可预期）。
+  **现行契约（T10 实例 ID 统一后）**：所有实例（含 main）instanceId =
+  `agent-<唯一串>`（daemon 单点生成，session id 同款 UUID hex 形态）；
+  main/subagent 区分由 kind 承载（`AgentInstanceDto.kind` / trace 面
+  `agentKind`），instanceId 值判等退役；历史行/历史帧字面 `"main"` =
+  legacy 主实例（只读兼容，读侧推断）。
 - **信封 `instanceId?`**（§3 信封新增可选字段，**仅事件侧使用**）：
-  **缺省 = 主实例（`main`）**——v0 事件族（`chat.stream.delta` 等）主线事件
+  **现行契约（T10 起）：daemon 写侧全实例显式携带**——main 实例的事件/
+  DTO 同样携带 `agent-<唯一串>`，不再依赖省略优化；**缺省或字面 `"main"`
+  = legacy 主实例（读侧推断语义，兼容历史事件/历史快照；写侧不再产出）**。
+  本批登记形态（历史）：v0 事件族（`chat.stream.delta` 等）主线事件
   不携带即归属主线；v0.1 通道族主线事件（`usage.recorded` /
   `compaction.completed` / `thinking.completed` / `thinking.stream.delta`）
-  由 daemon **显式携带 `instanceId: "main"`**（线格式两种形态均合法，
+  由 daemon 显式携带 `instanceId: "main"`（线格式两种形态均合法，
   前端等价处理）；SubAgent 实例的事件携带对应 instanceId，前端按 id 分流投影
   （主线增量进消息流；SubAgent 增量只更新卡片 streaming 摘要行，不进消息流）。
   命令不携带实例维度（`agentId` 在 payload 内）。
   （v0.2 措辞修正回填：本条原文「主线事件缺省不挂 instanceId」对 v0.1
-  通道族不精确——OI-5 处置，iter-20260816-6q6f T1.2。）
+  通道族不精确——OI-5 处置，iter-20260816-6q6f T1.2。T10 契约改写备案：
+  「缺省 = 主实例」降格为读侧 legacy 推断，写侧全实例显式携带——
+  §17.11 T10 批内补登。）
 
 ### 10.2 命令目录 v0.1（5 → 8）
 
@@ -352,7 +362,8 @@ interface ClosureDto {
 
 - **EntryDto 四成员**：`message | tool-call | thinking | compaction`
   （v0 的 message / tool-call 两变体形状不动）；`MessageEntryDto` /
-  `ToolCallEntryDto` 增可选 `instanceId?: string`（缺省 = 主实例）。
+  `ToolCallEntryDto` 增可选 `instanceId?: string`（T10 起写侧显式携带；
+  缺省 = legacy 主实例读侧推断，兼容历史快照）。
 - **ThinkingEntryDto**：`{ kind:"thinking", id, instanceId, text, durationMs,
   reasoningTokens, createdAt }`（text = 完成态全文；流式走
   `thinking.stream.delta`）。
@@ -364,7 +375,9 @@ interface ClosureDto {
   未携带（旧剧本兼容）。
 - **AgentInstanceDto**：`{ instanceId, kind: "main"|"subagent", profileKind,
   state: InstanceState, task?, model?, queuedPosition?, createdAt, closure?,
-  usage? }`；主实例 `instanceId = "main"`；`queuedPosition` 仅 state=queued 携带。
+  usage? }`；主/子区分由 `kind` 承载（T10 起主实例 instanceId =
+  `agent-<唯一串>`；历史快照字面 `"main"` = legacy 只读兼容）；
+  `queuedPosition` 仅 state=queued 携带。
 - **InstanceState** = `"queued" | "running" | "done" | "failed" | "cancelled"`
   （cancelled 仅重启恢复时 queued 收口使用，AD-10）。
 - **UsageDto 七字段**（pi Usage 防腐映射，cost 拍平为 number）：`{ input,
@@ -519,12 +532,13 @@ export interface SessionSubscribePayload {
 // commands.ts — ChatSteerPayload 扩展
 export interface ChatSteerPayload {
   text: string;
-  /** 目标实例（v0.3，可选）：缺省 = 主实例（既有语义不变） */
+  /** 目标实例（v0.3，可选）：缺省 = 主实例（命令侧缺省路由语义；T10 起主实例 id = agent-<唯一串>） */
   instanceId?: string;
 }
 ```
 
-- **路由**：`instanceId` 缺省 → 主实例 SteerQueue（既有路径零改动）；携带 →
+- **路由**：`instanceId` 缺省 → 主实例 SteerQueue（既有路径零改动；T10 起
+  「主实例」按该会话 main kind 实例判别，非字面 `"main"` 值判等）；携带 →
   `AgentOrchestrationPort.send` 同链路，路由判定归 ChatService（TR-AD-9），
   WsServerAdapter 只透传。`steer.queued` 帧的 instanceId 挂**信封位**
   （`EventFrame.instanceId`，路由权威），payload（SteerQueuedPayload）零变更。
@@ -616,7 +630,7 @@ export interface TraceQueryResultPayload {
 ```ts
 // events.ts — v0.4 新增（契约 v0.4 §2/§3）
 export interface AgentInstantiatedPayload {
-  instanceId: string;                   // "main" | agent-N
+  instanceId: string;                   // T10 起 = agent-<唯一串>（历史行 "main" | agent-N = legacy）
   profileKind: string;                  // "main-session" | "subagent-worker"（自由字符串，无注册表）
   profileSnapshot: TraceProfileSnapshot;
 }
@@ -748,7 +762,7 @@ sessionId 必填（`draft:true` 建会话链省略）；无专属结果帧，回
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `text` | `string` | 必填 | v0 | 注入消息文本 |
-| `instanceId` | `string` | 可选 | v0.3 | 目标实例（定向寻址，路由归 ChatService）；缺省 = 主实例（既有语义不变） |
+| `instanceId` | `string` | 可选 | v0.3 | 目标实例（定向寻址，路由归 ChatService）；缺省 = 主实例（命令侧缺省路由：T10 起按 main kind 判别，非字面 "main"） |
 
 #### `chat.abort`
 
@@ -1242,7 +1256,7 @@ spawn 工具秒回出卡（不等执行，AD-8 异步交付）。
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
-| `instanceId` | `string` | 必填 | v0.4 | "main" \| agent-N |
+| `instanceId` | `string` | 必填 | v0.4 | 实例 id（T10 起 = agent-<唯一串>；历史行 "main" \| agent-N = legacy 只读兼容） |
 | `profileKind` | `string` | 必填 | v0.4 | profile 种类（自由字符串，无注册表） |
 | `thinkingLevel` | `string` | 可选 | v0.11（后续批改可选） | SubAgent spawn 解析的 thinkingLevel 快照（thinking 批④：自身 profile 槽位，无兜底——未配置 = 默认关，AD-6；字符串透传 AD-2） |
 | `profileSnapshot` | `TraceProfileSnapshot` | 必填 | v0.4 | 注入快照（systemPrompt 全文 + tools + model + compaction? + hooks?，§13.2） |
@@ -1724,3 +1738,16 @@ user 渲染）。零新增命令/事件 type，计数不变（28/48），版本�
 EnvelopeMapper 透传进 `chat.message.completed` 帧 `entry.source`——
 §16.3 字段行 T11a 已登，本批补实现面（idle closure/progress 注入的
 实时区分，不再仅靠快照对账）。additive 可选位，版本位不 bump。
+
+**批内补登（T10 实例 ID 统一，同版本不破面——wire 行为对旧客户端
+additive）**：实例 ID 统一三要点——① **唯一串格式**：所有实例（含
+main）instanceId = `agent-<唯一串>`（daemon 单点生成，session id 同款
+`crypto.randomUUID()` hex 形态，重启/恢复零撞号；废除主实例专用 `"main"`
+与 `agent-N` 序号基线）；② **kind 判别**：main/subagent 区分由 kind
+承载（`AgentInstanceDto.kind` / trace 面 `agentKind`），instanceId 值判等
+退役；③ **legacy `"main"` 只读兼容**：历史行/历史帧中 instanceId 缺省或
+字面 `"main"` 由读侧推断为主实例（§10.1 读侧推断语义），写侧不再产出。
+写侧从「main 省略/字面 `"main"`」改为「全实例显式携带 `agent-<唯一串>`」
+（事件信封/EntryDto/快照面），对旧客户端为 additive（读侧推断保留，不破
+读侧），版本位不 bump。`MAIN_INSTANCE_ID` 常量本批保留（legacy 判别 +
+shell 旧消费，shell 段 T10c 摘除后整体退役）。
