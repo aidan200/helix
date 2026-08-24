@@ -269,7 +269,7 @@ export class EventStream implements EventPublisherPort {
       // “main”（wireMainAware 同规），否则 shell thinkingStreams 槽位键与
       // completed 清除键错位（hex vs "main"），think-live/cursor 永挂（R4 实锤）。
       const raw = delta.instanceId;
-      const mainId = this.deps.mainInstanceIdFor?.(sessionId);
+      const mainId = sessionId !== undefined ? this.deps.mainInstanceIdFor?.(sessionId) : undefined;
       const isMain = raw === undefined || raw === mainId || raw === "main";
       const instanceId = isMain ? "main" : raw!;
       const frame: ThinkingStreamDeltaEvent = {
