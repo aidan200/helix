@@ -37,7 +37,7 @@ export interface MessageEntryDto {
   /** 创建时间（epoch 毫秒）——T1.2 定稿：线格式为 number（回填契约 §9） */
   ts: number;
   steerState?: SteerState;
-  /** 实例归属（v0.1 新增，AD-3）：可选；缺省 = 主实例（"main"） */
+  /** 实例归属（v0.1 新增，AD-3）：可选；T10 起写侧显式携带（agent-<唯一串>）；缺省 = legacy 主实例读侧推断 */
   instanceId?: string;
   /** 注入来源（v0.11 批内补登 T11a）：仅注入类 user 消息携带；缺省 = 用户输入 */
   source?: SteerSource;

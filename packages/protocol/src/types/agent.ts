@@ -40,7 +40,7 @@ export type InstanceState = "queued" | "running" | "done" | "failed" | "cancelle
  * 主实例与 SubAgent 同构（AD-3 AgentInstance 一等概念），区别仅 kind/profileKind。
  */
 export interface AgentInstanceDto {
-  /** 实例标识（AD-3）：主实例固定 "main"；SubAgent = "agent-N" */
+  /** 实例标识（AD-3；T10 统一）：全实例 = agent-<唯一串>（main/subagent 由 kind 承载；历史字面 "main" = legacy 只读兼容） */
   instanceId: string;
   kind: "main" | "subagent";
   /** profile 标识（如 "main-session" / "subagent-worker"） */

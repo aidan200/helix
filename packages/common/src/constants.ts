@@ -15,5 +15,11 @@
  * @helix/protocol 消费面零 churn，本迭代不批量迁移既有消费点）；新代码直引
  * @helix/common。类型面取字面量型（D-4 裁决）：窄可赋宽（domain 消费点
  * string 面零破坏），宽不可赋窄（反向破坏 protocol 侧字面量联合既有类型面）。
+ *
+ * **legacy 标记（T10 实例 ID 统一，PROTOCOL.md §17.11 批内补登）**：现行
+ * 契约下所有实例（含 main）instanceId = agent-<唯一串>，main/subagent 由
+ * kind 承载；本常量仅为 legacy 判别（历史行/历史帧字面 "main" 的读侧推断，
+ * projection/isMainInstance）与 shell 旧消费保留——shell 段 T10c 摘除后
+ * 整体退役（与 protocol re-export 同批删除）。
  */
 export const MAIN_INSTANCE_ID = "main" as const;

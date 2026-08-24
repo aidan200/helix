@@ -15,9 +15,10 @@
 import { MAIN_INSTANCE_ID } from "../envelope";
 import type { EntryDto } from "../types/session";
 
-// ── 实例归属判定（契约 §3：信封/条目 instanceId 缺省 = 主实例） ──
+// ── 实例归属判定（§10.1/§17.11 T10：缺省或字面 "main" = legacy 主实例读侧推断）──
 
-/** 主实例归属判定（缺省 undefined = main；显式空串 ≠ 缺省）。 */
+/** 主实例归属判定（legacy 读侧推断单点：undefined 缺省或字面 "main" = main；
+ *  现行写侧全实例显式携带 agent-<唯一串>，main 归属判别走 kind，不经本函数）。 */
 export function isMainInstance(instanceId: string | undefined): boolean {
   return (instanceId ?? MAIN_INSTANCE_ID) === MAIN_INSTANCE_ID;
 }

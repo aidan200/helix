@@ -26,9 +26,14 @@ export type FrameVersion = 0 | typeof PROTOCOL_VERSION;
 /**
  * 主实例固定 id（OI 收口 / F-2⑬ → AD-1 单源收编，iter-20260821-dg90 T3.3）。
  * 唯一定义 = @helix/common constants.ts（字面量型），此处为 re-export 通道：
- * daemon 侧 13 文件与 shell 链（state.ts 已完成 protocol 单源化）的既有
+ * daemon 侧与 shell 链（state.ts 已完成 protocol 单源化）的既有
  * @helix/protocol 消费面零 churn；domain 锚点同批改引 common（AG-02① 白
  * 名单例外）。新代码直引 @helix/common，不经本 re-export 链（TR-AD-28）。
+ *
+ * **legacy 标记（T10 实例 ID 统一，§17.11 批内补登）**：现行契约下主
+ * 实例 instanceId = `agent-<唯一串>`，本常量仅为 legacy 判别（历史行/
+ * 历史帧字面 "main" 的读侧推断，projection/isMainInstance）与 shell 旧
+ * 消费保留；shell 段 T10c 摘除后整体退役（定义与 re-export 同批删除）。
  */
 export { MAIN_INSTANCE_ID } from "@helix/common";
 
@@ -117,7 +122,9 @@ export interface EventFrame<T = unknown> {
    */
   sessionId?: string;
   /**
-   * 实例归属（v0.1 起）：可选；**缺省 = 主实例（MAIN_INSTANCE_ID）**。
+   * 实例归属（v0.1 起）：可选。**T10 起写侧全实例显式携带**（main 同为
+   * `agent-<唯一串>`，PROTOCOL.md §10.1/§17.11）；**缺省 = legacy 主实例
+   * （读侧推断，兼容历史事件/历史快照；写侧不再产出）**。
    * payload 兼容红线优先（v0.1 通道族 payload 内嵌 instanceId 并存保留），
    * 信封位为路由权威（契约 A §1.2）。
    */

@@ -58,7 +58,7 @@ export interface TraceEventRow {
   /** ISO 8601 毫秒文本（= 领域事件 occurredAt）。 */
   ts: string;
   sessionId: string;
-  /** 实例 id（DB DEFAULT 'main'，恒有值）。 */
+  /** 实例 id（DB DEFAULT 'main'，恒有值；T10 起新行 = agent-<唯一串>，历史行字面 "main" = legacy 只读兼容）。 */
   instanceId: string;
   agentKind: "main" | "subagent";
   type: string;
