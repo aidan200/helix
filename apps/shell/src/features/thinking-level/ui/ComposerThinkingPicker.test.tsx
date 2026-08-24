@@ -3,12 +3,14 @@
  * ComposerThinkingPicker 单测（P-1 composer 推理强度滑块；thinking 批 T2.1；
  * review.md §2 必须还原 1/2/5/6/7 + F1.1 命令链）。
  *
- * 机械判据：
+ * 机械判据（默认关语义后：AUTO 退场，OFF = UI 合成第 0 刻度）：
  * - trigger chip：THINKING 微标 + accent 生效档大写 + chevron；aria-expanded 同步；
+ *   无覆盖（effective=null，默认关）与显式关（override=off）同态显示 OFF；
  * - popover 开合：trigger 点击切换 / 外部 pointerdown 关闭 / Escape 关闭；
  * - 选档 → setSessionThinking(level)（SessionContext 侧仿 setSessionModel 发
  *   thinkingSetCommand；命令载荷断言归 commands.test.ts）；
- * - 能力位三变体：六档/三档刻度 = thinkingLevels.length；reasoning=false →
+ * - 能力位三变体：六档/三档刻度 = thinkingLevels.length + 1（off 第 0 刻度）；
+ *   reasoning=false →
  *   trigger 禁用 + 说明取代滑块位（滑块不渲染，两态不叠加）；目录未到达 →
  *   加载提示位（与滑块/说明互斥）；
  * - 覆盖 vs 生效分离（F1.3）：override≠effective → warning 轻提示
@@ -157,9 +159,10 @@ describe("ComposerThinkingPicker · trigger chip 落位与显示（review §2-1�
     expect(requestModelConfig).toHaveBeenCalled();
   });
 
-  it("无覆盖且生效 null（provider 默认）→ 显示 AUTO；reasoning=false → OFF + 禁用态", () => {
+  it("无覆盖且生效 null（默认关）→ 显示 OFF；reasoning=false → OFF + 禁用态", () => {
+    // 默认关语义：无覆盖（effective=null）与显式关同态 OFF——AUTO 文案退场
     setup({ effective: null });
-    expect(trigger().querySelector(".tp-level")!.textContent).toBe("AUTO");
+    expect(trigger().querySelector(".tp-level")!.textContent).toBe("OFF");
     cleanup();
     setup({ reasoning: false, levels: [], effective: null });
     const t = trigger();
@@ -178,9 +181,10 @@ describe("ComposerThinkingPicker · popover 开合（F1.1 交互）", () => {
     fireEvent.click(trigger());
     expect(popover()).not.toBeNull();
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
-    // popover 结构：section-label + scope 文案（review §2-2）
+    // popover 结构：section-label（scope 文字提示行已删——用户决策 2026-08-24）
     expect(popover()!.querySelector(".tp-title")!.textContent).toBe("Reasoning Effort");
-    expect(popover()!.textContent).toContain("会话覆盖 · 仅本会话生效");
+    expect(popover()!.querySelector(".tp-scope")).toBeNull();
+    expect(popover()!.textContent).not.toContain("会话覆盖");
     fireEvent.click(trigger());
     expect(popover()).toBeNull();
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
@@ -196,14 +200,14 @@ describe("ComposerThinkingPicker · popover 开合（F1.1 交互）", () => {
 });
 
 describe("ComposerThinkingPicker · 能力位驱动渲染（F1.2 / §2.7 三变体）", () => {
-  it("六档变体：滑块 6 刻度；三档变体：3 刻度", () => {
+  it("六档变体：滑块 7 刻度（off + 六档）；三档变体：4 刻度", () => {
     setup({ levels: SIX });
     fireEvent.click(trigger());
-    expect(document.querySelectorAll(".tl-tick")).toHaveLength(6);
+    expect(document.querySelectorAll(".tl-tick")).toHaveLength(7);
     cleanup();
     setup({ levels: TRI, effective: "high" });
     fireEvent.click(trigger());
-    expect(document.querySelectorAll(".tl-tick")).toHaveLength(3);
+    expect(document.querySelectorAll(".tl-tick")).toHaveLength(4);
   });
 
   it("reasoning=false：popover 内说明取代滑块位（滑块不渲染，两态不叠加）", () => {
@@ -225,6 +229,37 @@ describe("ComposerThinkingPicker · 能力位驱动渲染（F1.2 / §2.7 三变�
   });
 });
 
+describe("ComposerThinkingPicker · OFF 第 0 刻度（默认关语义）", () => {
+  it("滑块第 0 刻度为 off；无覆盖 ghost 空心 thumb 停 off 位", () => {
+    setup({ override: null, effective: null });
+    fireEvent.click(trigger());
+    const ticks = document.querySelectorAll(".tl-tick");
+    expect(ticks[0]!.getAttribute("data-level")).toBe("off");
+    expect(ticks[0]!.textContent).toBe("off");
+    // 无覆盖 = ghost 空心 thumb 停 off 位（刻度去强调）；区别于显式关的实心 thumb
+    const thumb = document.querySelector<HTMLElement>(".tl-thumb")!;
+    expect(thumb.classList.contains("ghost")).toBe(true);
+    expect(thumb.style.left).toBe("0%");
+  });
+
+  it("选 OFF 刻度 → setSessionThinking 收到 \"off\"（协议透传，daemon 侧短路）", () => {
+    setup({ effective: "medium" });
+    fireEvent.click(trigger());
+    fireEvent.click(document.querySelector<HTMLButtonElement>('.tl-tick[data-level="off"]')!);
+    expect(setSessionThinking).toHaveBeenCalledWith("off");
+  });
+
+  it("显式关（override=off 生效）→ 实心 thumb 停 off 位；非 ghost", () => {
+    setup({ override: "off", effective: "off" });
+    fireEvent.click(trigger());
+    expect(trigger().querySelector(".tp-level")!.textContent).toBe("OFF");
+    const thumb = document.querySelector<HTMLElement>(".tl-thumb")!;
+    expect(thumb.classList.contains("ghost")).toBe(false);
+    expect(thumb.style.left).toBe("0%");
+    expect(document.querySelector(".tl-tick.cur")!.textContent).toBe("off");
+  });
+});
+
 describe("ComposerThinkingPicker · 选档命令链（F1.1）", () => {
   it("点刻度 → setSessionThinking(level)（SessionContext 发 thinkingSetCommand）", () => {
     setup();
@@ -240,8 +275,8 @@ describe("ComposerThinkingPicker · 覆盖 vs 生效分离（F1.3）", () => {
     fireEvent.click(trigger());
     const hint = document.querySelector<HTMLElement>(".tp-hint")!;
     expect(hint.textContent).toBe("xhigh → high（模型能力所限）");
-    // 滑块位置/强调 = 生效档 high（idx 3/5 = 60%）
-    expect(document.querySelector<HTMLElement>(".tl-thumb")!.style.left).toBe("60%");
+    // 滑块位置/强调 = 生效档 high（off+六档序列 idx 4/6 = 4/6*100%）
+    expect(document.querySelector<HTMLElement>(".tl-thumb")!.style.left).toBe(`${(4 / 6) * 100}%`);
     expect(document.querySelector('.tl-tick.cur')!.textContent).toBe("high");
   });
 

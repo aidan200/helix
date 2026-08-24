@@ -2,10 +2,16 @@
  * ComposerThinkingPicker —— P-1 chat composer 推理强度控件（thinking 批 T2.1；
  * features/thinking-level；挂点 = Composer.tsx .composer-foot 右侧，CSS 零改动）。
  *
- * 形态（review.md §1① 定案 + §2 必须还原 1/2）：24px trigger chip（THINKING
- * 微标 + accent 生效档大写 + chevron）+ hud-popover（向上展开，308px；
- * section-label「REASONING EFFORT」+ scope 文案「会话覆盖 · 仅本会话生效」），
- * 滑块/轻提示/禁用说明全部承载于 popover 内。
+ * 形态（review.md §1① 定案 + §2 必须还原 1/2；默认关语义修订）：24px trigger
+ * chip（THINKING 微标 + accent 生效档大写 + chevron）+ hud-popover（向上展开，
+ * 308px；section-label「REASONING EFFORT」——scope 文字提示行已删，用户决策
+ * 2026-08-24），滑块/轻提示/禁用说明全部承载于 popover 内。
+ *
+ * 默认关语义（T2 修订）：刻度 = ["off", ...thinkingLevels]（UI 合成 OFF 为第
+ * 0 刻度，CatalogModel/协议零变更）；无覆盖（effective=null，默认关）与显式
+ * 关（override="off"）chip 同态 OFF，区别在滑块——无覆盖 ghost 空心 thumb 停
+ * off 位，显式关实心；选 off → setSessionThinking("off") 协议透传（daemon
+ * 侧短路为显式关）。
  *
  * 数据零权威（AD-2/AD-3/AD-4）：
  * - thinking 切片（override/effective）来自活跃 store——thinking.changed 广播
@@ -71,17 +77,20 @@ const ComposerThinkingPicker = function ComposerThinkingPicker() {
   const capability = resolveThinkingCapability(currentModel, mc.catalog?.models);
   const capabilityKnown = capability !== undefined;
   const reasoningOff = capabilityKnown && !capability.reasoning;
-  const levels = capability?.thinkingLevels ?? [];
+  // 滑块刻度：UI 合成 OFF 为第 0 刻度（CatalogModel.thinkingLevels 不含 off，
+  // 协议/目录零变更；PEAK 判据仍按能力档序列——off 不是能力档，不参与判峰）
+  const capabilityLevels = capability?.thinkingLevels ?? [];
+  const levels = ["off", ...capabilityLevels];
 
   const { override, effective } = state.thinking;
-  const peak = !reasoningOff && isPeakLevel(levels, effective);
+  const peak = !reasoningOff && isPeakLevel(capabilityLevels, effective);
   const clamped = isClamped(override, effective);
 
   // trigger 档位显示：禁用（reasoning=false 判明）→ OFF；生效档 → 大写；
-  // 无生效档（无覆盖，provider 默认）→ AUTO
+  // 无生效档（无覆盖，默认关）→ OFF（AUTO 退场——无覆盖与显式关同态 OFF）
   const levelText = reasoningOff
     ? t("chat.thinking.off")
-    : (effective ?? t("chat.thinking.auto")).toUpperCase();
+    : (effective ?? t("chat.thinking.off")).toUpperCase();
 
   return (
     <div className="thinking-picker">
@@ -112,7 +121,6 @@ const ComposerThinkingPicker = function ComposerThinkingPicker() {
           <div className="tp-head">
             <span className="tp-title">{t("chat.thinking.title")}</span>
             <span className="tp-peak-badge">{t("chat.thinking.peakBadge")}</span>
-            <span className="tp-scope">{t("chat.thinking.scope")}</span>
           </div>
           {/* F1.2：reasoning=false → 说明取代滑块位（滑块不渲染，两态不叠加）；
               目录未到达 → 加载提示位（互斥）；就绪 → 滑块 */}
@@ -122,6 +130,7 @@ const ComposerThinkingPicker = function ComposerThinkingPicker() {
             <ThinkingLevelSlider
               levels={levels}
               value={effective}
+              ghostValue="off"
               peak={peak}
               onSelect={setSessionThinking}
               ariaLabel={t("chat.thinking.sliderLabel")}
