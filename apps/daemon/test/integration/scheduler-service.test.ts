@@ -173,6 +173,14 @@ const DONE_CLOSURE = (summary: string) => ({
   taskId: null,
 });
 
+
+/** T10a：spawn id = agent-<唯一串>（非序号基线）——测试经本帮助器捕获实际 id。 */
+function spawnId(h: Harness, task: string, profileKind?: string): string {
+  const outcome = h.scheduler.spawn(SESSION_ID, task, profileKind);
+  if (outcome.status === "rejected") throw new Error(`spawn 被拒：${outcome.error}`);
+  return outcome.agentId;
+}
+
 let current: Harness | undefined;
 afterEach(async () => {
   if (current) {
@@ -188,21 +196,25 @@ describe("① 预算内直跑 + ⑥ spawn 秒回（F1.3/F1.5）", () => {
     const outcome = h.scheduler.spawn(SESSION_ID, "调研调度器现状");
     expect(Date.now() - t0).toBeLessThan(50); // 秒回：不等 closure（挂起剧本 5s）
 
-    expect(outcome).toEqual({ status: "run", agentId: "agent-1" });
-    expect(payloadsOf(h.events, "agent.spawned", "agent-1")).toEqual([
-      { agentId: "agent-1", task: "调研调度器现状", profileKind: "subagent-worker" },
+    expect(outcome.status).toBe("run");
+    if (outcome.status === "rejected") throw new Error(`spawn 被拒：${outcome.error}`);
+    const a1 = outcome.agentId;
+    expect(a1).toMatch(/^agent-/); // T10a：agent-<唯一串>
+    expect(a1).not.toMatch(/^agent-\d+$/); // 非纯数字序号形态
+    expect(payloadsOf(h.events, "agent.spawned", a1)).toEqual([
+      { agentId: a1, task: "调研调度器现状", profileKind: "subagent-worker" },
     ]);
-    expect(payloadsOf(h.events, "agent.started", "agent-1")).toEqual([{ agentId: "agent-1" }]);
+    expect(payloadsOf(h.events, "agent.started", a1)).toEqual([{ agentId: a1 }]);
     // 秒回语义：返回时无任何终态事件，实例 running
     expect(h.events.some((e) => e.type.startsWith("agent.") && /completed|failed|killed/.test(e.type))).toBe(false);
-    expect(h.scheduler.instance("agent-1")?.state).toBe("running");
-    expect(h.runner.launched).toEqual([{ instanceId: "agent-1", task: "调研调度器现状" }]);
+    expect(h.scheduler.instance(a1)?.state).toBe("running");
+    expect(h.runner.launched).toEqual([{ instanceId: a1, task: "调研调度器现状" }]);
   });
 
   test("profileKind 可指定（spawn 第二参）", () => {
     const h = (current = makeHarness({}));
-    h.scheduler.spawn(SESSION_ID, "任务", "subagent-researcher");
-    expect(payloadsOf(h.events, "agent.spawned", "agent-1")[0]).toMatchObject({
+    const a1 = spawnId(h, "任务", "subagent-researcher");
+    expect(payloadsOf(h.events, "agent.spawned", a1)[0]).toMatchObject({
       profileKind: "subagent-researcher",
     });
   });
@@ -211,32 +223,40 @@ describe("① 预算内直跑 + ⑥ spawn 秒回（F1.3/F1.5）", () => {
 describe("② 第 4 个入队 + 位次递减重发（F1.3）", () => {
   test("3 running 后第 4 个 queued{position:1}；出队后位次整体递减且队首 started", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) expect(h.scheduler.spawn(SESSION_ID, `任务${i}`).status).toBe("run");
+    const a1 = spawnId(h, "任务1");
+    spawnId(h, "任务2");
+    spawnId(h, "任务3");
     const fourth = h.scheduler.spawn(SESSION_ID, "任务4");
-    expect(fourth).toEqual({ status: "queued", agentId: "agent-4", position: 1 });
-    expect(payloadsOf(h.events, "agent.queued", "agent-4")).toEqual([
-      { agentId: "agent-4", position: 1 },
+    expect(fourth.status).toBe("queued");
+    if (fourth.status !== "queued") throw new Error("预期 queued");
+    const a4 = fourth.agentId;
+    expect(fourth.position).toBe(1);
+    expect(payloadsOf(h.events, "agent.queued", a4)).toEqual([
+      { agentId: a4, position: 1 },
     ]);
     const fifth = h.scheduler.spawn(SESSION_ID, "任务5");
-    expect(fifth).toEqual({ status: "queued", agentId: "agent-5", position: 2 });
+    expect(fifth.status).toBe("queued");
+    if (fifth.status !== "queued") throw new Error("预期 queued");
+    const a5 = fifth.agentId;
+    expect(fifth.position).toBe(2);
 
     // 收口释放空位 → 队首出队 started；剩余位次递减重发（仅出队触发）
-    h.runner.forceClosure("agent-1", { result: "done", closure: DONE_CLOSURE("任务1 完成") });
-    expect(payloadsOf(h.events, "agent.started", "agent-4")).toEqual([{ agentId: "agent-4" }]);
-    expect(payloadsOf(h.events, "agent.queued", "agent-5")).toEqual([
-      { agentId: "agent-5", position: 2 },
-      { agentId: "agent-5", position: 1 }, // 递减重发
+    h.runner.forceClosure(a1, { result: "done", closure: DONE_CLOSURE("任务1 完成") });
+    expect(payloadsOf(h.events, "agent.started", a4)).toEqual([{ agentId: a4 }]);
+    expect(payloadsOf(h.events, "agent.queued", a5)).toEqual([
+      { agentId: a5, position: 2 },
+      { agentId: a5, position: 1 }, // 递减重发
     ]);
-    expect(h.scheduler.instance("agent-5")?.state).toBe("queued");
-    expect(h.scheduler.instance("agent-4")?.state).toBe("running");
+    expect(h.scheduler.instance(a5)?.state).toBe("queued");
+    expect(h.scheduler.instance(a4)?.state).toBe("running");
   });
 });
 
 describe("③ 队列满 reject（预算真实耗尽）", () => {
   test("3 running + 8 queued 后第 12 个 spawn 返回错误字符串；daemon 不崩且调度仍可用", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 11; i++) h.scheduler.spawn(SESSION_ID, `任务${i}`);
-    expect(h.scheduler.instance("agent-11")?.state).toBe("queued");
+    const ids = Array.from({ length: 11 }, (_, i) => spawnId(h, `任务${i + 1}`));
+    expect(h.scheduler.instance(ids[10]!)?.state).toBe("queued");
 
     const rejected = h.scheduler.spawn(SESSION_ID, "任务12");
     expect(rejected.status).toBe("rejected");
@@ -248,56 +268,56 @@ describe("③ 队列满 reject（预算真实耗尽）", () => {
     expect(h.events.some((e) => e.type === "agent.spawned" && e.payload instanceof Object && (e.payload as { task: string }).task === "任务12")).toBe(false);
     expect(h.scheduler.instance("agent-12")).toBeUndefined();
 
-    // daemon 不崩：收口后调度继续（队首 agent-4 出队）
-    h.runner.forceClosure("agent-1", { result: "done", closure: DONE_CLOSURE("ok") });
-    expect(payloadsOf(h.events, "agent.started", "agent-4")).toEqual([{ agentId: "agent-4" }]);
+    // daemon 不崩：收口后调度继续（队首 ids[3] 出队）
+    h.runner.forceClosure(ids[0]!, { result: "done", closure: DONE_CLOSURE("ok") });
+    expect(payloadsOf(h.events, "agent.started", ids[3])).toEqual([{ agentId: ids[3] }]);
   });
 });
 
 describe("④ 收口事件 + agent_lifecycle 落盘（F1.8）", () => {
   test("done/failed 收口发 completed/failed 事件（closure 全字段）+ 生命周期行落盘", async () => {
     const h = (current = makeHarness({}));
-    h.scheduler.spawn(SESSION_ID, "任务1");
-    h.scheduler.spawn(SESSION_ID, "任务2");
-    h.scheduler.spawn(SESSION_ID, "任务3");
-    h.scheduler.spawn(SESSION_ID, "任务4"); // queued
+    const a1 = spawnId(h, "任务1");
+    const a2 = spawnId(h, "任务2");
+    const a3 = spawnId(h, "任务3");
+    const a4 = spawnId(h, "任务4"); // queued
 
     // 收口前读：queued 态投影已落盘（AD-10 指队列数据不落盘；生命周期行含 queued 投影）
     const beforeRows = await lifecycleRows(h);
-    expect(new Map(beforeRows.map((r) => [r.instanceId, r.state])).get("agent-4")).toBe("queued");
+    expect(new Map(beforeRows.map((r) => [r.instanceId, r.state])).get(a4)).toBe("queued");
 
-    h.runner.forceClosure("agent-1", { result: "done", closure: DONE_CLOSURE("任务1 完成") });
-    h.runner.forceClosure("agent-2", {
+    h.runner.forceClosure(a1, { result: "done", closure: DONE_CLOSURE("任务1 完成") });
+    h.runner.forceClosure(a2, {
       result: "failed",
       error: "引擎崩溃",
       closure: { status: "failed", summary: "引擎崩溃", reportPath: null, findings: null, taskId: null },
     });
 
-    expect(payloadsOf(h.events, "agent.completed", "agent-1")).toEqual([
-      { agentId: "agent-1", closure: DONE_CLOSURE("任务1 完成") },
+    expect(payloadsOf(h.events, "agent.completed", a1)).toEqual([
+      { agentId: a1, closure: DONE_CLOSURE("任务1 完成") },
     ]);
-    expect(payloadsOf(h.events, "agent.failed", "agent-2")).toEqual([
-      { agentId: "agent-2", error: "引擎崩溃", closure: { status: "failed", summary: "引擎崩溃", reportPath: null, findings: null, taskId: null } },
+    expect(payloadsOf(h.events, "agent.failed", a2)).toEqual([
+      { agentId: a2, error: "引擎崩溃", closure: { status: "failed", summary: "引擎崩溃", reportPath: null, findings: null, taskId: null } },
     ]);
 
     const rows = await lifecycleRows(h);
     const byId = new Map(rows.map((r) => [r.instanceId, r.state]));
-    expect(byId.get("agent-1")).toBe("done");
-    expect(byId.get("agent-2")).toBe("failed");
-    expect(byId.get("agent-3")).toBe("running");
-    expect(byId.get("agent-4")).toBe("running"); // agent-1 收口释放空位 → 出队 started
+    expect(byId.get(a1)).toBe("done");
+    expect(byId.get(a2)).toBe("failed");
+    expect(byId.get(a3)).toBe("running");
+    expect(byId.get(a4)).toBe("running"); // a1 收口释放空位 → 出队 started
   });
 
   test("领域事件行落 domain_events 且挂实例维（四维可查）", async () => {
     const h = (current = makeHarness({}));
-    h.scheduler.spawn(SESSION_ID, "任务1");
-    h.runner.forceClosure("agent-1", { result: "done", closure: DONE_CLOSURE("ok") });
+    const a1 = spawnId(h, "任务1");
+    h.runner.forceClosure(a1, { result: "done", closure: DONE_CLOSURE("ok") });
     await h.writeQueue.flush();
     const rows = h.writeQueue.database
       .prepare("SELECT agent_instance_id, type FROM domain_events WHERE session_id = ? ORDER BY id")
       .all(SESSION_ID) as { agent_instance_id: string; type: string }[];
     expect(rows.map((r) => r.type)).toEqual(["agent.spawned", "agent.started", "agent.completed"]);
-    expect(rows.every((r) => r.agent_instance_id === "agent-1")).toBe(true);
+    expect(rows.every((r) => r.agent_instance_id === a1)).toBe(true);
   });
 });
 
@@ -307,24 +327,24 @@ describe("⑤ stalled 警示（不自动杀，可重复推）", () => {
       policy: new SchedulingPolicy({ stalledThresholdMs: 100 }),
       hangMs: 5_000,
     }));
-    h.scheduler.spawn(SESSION_ID, "长任务");
+    const a1 = spawnId(h, "长任务");
     await sleep(260); // 轮询 40ms × 数轮：launch 后长工具静默 → idle 持续超阈值
-    const stalled = payloadsOf(h.events, "agent.stalled", "agent-1") as { agentId: string; idleMs: number }[];
+    const stalled = payloadsOf(h.events, "agent.stalled", a1) as { agentId: string; idleMs: number }[];
     expect(stalled.length).toBeGreaterThanOrEqual(2); // 可重复推（§8.3）
-    expect(stalled[0]?.agentId).toBe("agent-1");
+    expect(stalled[0]?.agentId).toBe(a1);
     for (const s of stalled) expect(s.idleMs).toBeGreaterThan(100);
     // 非状态迁移：实例仍 running、无任何终止事件/动作
-    expect(h.scheduler.instance("agent-1")?.state).toBe("running");
-    expect(agentEvents(h.events, "agent-1")).not.toContain("agent.completed");
-    expect(agentEvents(h.events, "agent-1")).not.toContain("agent.failed");
-    expect(agentEvents(h.events, "agent-1")).not.toContain("agent.killed");
+    expect(h.scheduler.instance(a1)?.state).toBe("running");
+    expect(agentEvents(h.events, a1)).not.toContain("agent.completed");
+    expect(agentEvents(h.events, a1)).not.toContain("agent.failed");
+    expect(agentEvents(h.events, a1)).not.toContain("agent.killed");
     expect(h.runner.launched.length).toBe(1); // 无重派/无终止副作用
 
     // 恢复语义：事件增量刷新后不再推（引擎事件到达）
-    h.runner.emitEvent("agent-1");
-    const countAfterRefresh = payloadsOf(h.events, "agent.stalled", "agent-1").length;
+    h.runner.emitEvent(a1);
+    const countAfterRefresh = payloadsOf(h.events, "agent.stalled", a1).length;
     await sleep(90); // < 阈值窗口
-    expect(payloadsOf(h.events, "agent.stalled", "agent-1").length).toBe(countAfterRefresh);
+    expect(payloadsOf(h.events, "agent.stalled", a1).length).toBe(countAfterRefresh);
   });
   test("双时间源统一（T1.3）：stalled 判定走注入时钟 nowMs——时钟推进超阈即警示，idleMs 精确、无需真实等待", async () => {
     // 注入可变时钟：lastEventAt 记录与 stalled 判定全部读 clock.nowMs()（非 Date.now）——
@@ -335,25 +355,25 @@ describe("⑤ stalled 警示（不自动杀，可重复推）", () => {
       hangMs: 5_000,
       clock: { now: () => FIXED_NOW, nowMs: () => ms },
     }));
-    h.scheduler.spawn(SESSION_ID, "注入时钟长任务"); // startInstance → lastEventAt = 1_000_000
+    const a1 = spawnId(h, "注入时钟长任务"); // startInstance → lastEventAt = 1_000_000
     ms += 150; // 时钟推进超阈（150 > 100），真实墙钟零流逝
-    await waitForCondition(() => payloadsOf(h.events, "agent.stalled", "agent-1").length >= 1);
+    await waitForCondition(() => payloadsOf(h.events, "agent.stalled", a1).length >= 1);
 
-    const stalled = payloadsOf(h.events, "agent.stalled", "agent-1") as { agentId: string; idleMs: number }[];
+    const stalled = payloadsOf(h.events, "agent.stalled", a1) as { agentId: string; idleMs: number }[];
     expect(stalled[0]!.idleMs).toBe(150); // 注入时钟差值（非 Date.now epoch）
-    expect(h.scheduler.instance("agent-1")?.state).toBe("running"); // 警示非迁移
+    expect(h.scheduler.instance(a1)?.state).toBe("running"); // 警示非迁移
 
     // 事件增量刷新后基准重置：推进 30ms（< 阈值）不再推；再推 150ms 复现
-    h.runner.emitEvent("agent-1"); // → lastEventAt = 1_000_150
-    const base = payloadsOf(h.events, "agent.stalled", "agent-1").length;
+    h.runner.emitEvent(a1); // → lastEventAt = 1_000_150
+    const base = payloadsOf(h.events, "agent.stalled", a1).length;
     ms += 30;
     await sleep(60);
-    expect(payloadsOf(h.events, "agent.stalled", "agent-1").length).toBe(base);
+    expect(payloadsOf(h.events, "agent.stalled", a1).length).toBe(base);
     ms += 150;
     await waitForCondition(
-      () => payloadsOf(h.events, "agent.stalled", "agent-1").length >= base + 1,
+      () => payloadsOf(h.events, "agent.stalled", a1).length >= base + 1,
     );
-    const refreshed = payloadsOf(h.events, "agent.stalled", "agent-1") as { agentId: string; idleMs: number }[];
+    const refreshed = payloadsOf(h.events, "agent.stalled", a1) as { agentId: string; idleMs: number }[];
     expect(refreshed[refreshed.length - 1]!.idleMs).toBe(180); // 自刷新基准（1_000_150 → 1_000_330）
   });
 });
@@ -378,7 +398,11 @@ describe("K4：maxConcurrent/maxQueued 经 tmp home config.json 覆写生效", (
       }));
       expect(h.scheduler.spawn(SESSION_ID, "a").status).toBe("run");
       expect(h.scheduler.spawn(SESSION_ID, "b").status).toBe("run");
-      expect(h.scheduler.spawn(SESSION_ID, "c")).toEqual({ status: "queued", agentId: "agent-3", position: 1 });
+      const third = h.scheduler.spawn(SESSION_ID, "c");
+      expect(third.status).toBe("queued");
+      if (third.status !== "queued") throw new Error("预期 queued");
+      expect(third.agentId).toMatch(/^agent-/); // T10a：agent-<唯一串>（非 agent-3 序号）
+      expect(third.position).toBe(1);
       for (let i = 4; i <= 6; i++) expect(h.scheduler.spawn(SESSION_ID, `t${i}`).status).toBe("queued");
       expect(h.scheduler.spawn(SESSION_ID, "g").status).toBe("rejected"); // 2 running + 4 queued
     } finally {
@@ -390,106 +414,117 @@ describe("K4：maxConcurrent/maxQueued 经 tmp home config.json 覆写生效", (
 describe("F1.9 非线性红线：乱序/交织/幂等", () => {
   test("queued 直接收口 failed：摘队、位次递减、不释放空位（仍 3 running）", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) h.scheduler.spawn(SESSION_ID, `任务${i}`);
-    h.scheduler.spawn(SESSION_ID, "任务4"); // pos 1
-    h.scheduler.spawn(SESSION_ID, "任务5"); // pos 2
+    for (let i = 1; i <= 3; i++) spawnId(h, `任务${i}`);
+    const a4 = spawnId(h, "任务4"); // pos 1
+    const a5 = spawnId(h, "任务5"); // pos 2
 
-    h.runner.forceClosure("agent-4", {
+    h.runner.forceClosure(a4, {
       result: "failed",
       error: "排队期间被判定不可执行",
       closure: { status: "failed", summary: "排队期间失败", reportPath: null, findings: null, taskId: null },
     });
-    expect(h.scheduler.instance("agent-4")?.state).toBe("failed");
-    expect(payloadsOf(h.events, "agent.failed", "agent-4").length).toBe(1);
-    expect(payloadsOf(h.events, "agent.queued", "agent-5")).toEqual([
-      { agentId: "agent-5", position: 2 },
-      { agentId: "agent-5", position: 1 }, // 摘队递减
+    expect(h.scheduler.instance(a4)?.state).toBe("failed");
+    expect(payloadsOf(h.events, "agent.failed", a4).length).toBe(1);
+    expect(payloadsOf(h.events, "agent.queued", a5)).toEqual([
+      { agentId: a5, position: 2 },
+      { agentId: a5, position: 1 }, // 摘队递减
     ]);
-    // 未释放空位：agent-5 不被错误拉起（running 仍 3 满）
-    expect(agentEvents(h.events, "agent-5")).not.toContain("agent.started");
+    // 未释放空位：a5 不被错误拉起（running 仍 3 满）
+    expect(agentEvents(h.events, a5)).not.toContain("agent.started");
   });
 
   test("running 收口后同任务新 id 重派：新实例新 id，终态实例不复活", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) h.scheduler.spawn(SESSION_ID, "同任务");
-    h.runner.forceClosure("agent-1", { result: "done", closure: DONE_CLOSURE("第一轮完成") });
+    const a1 = spawnId(h, "同任务");
+    spawnId(h, "同任务");
+    spawnId(h, "同任务");
+    h.runner.forceClosure(a1, { result: "done", closure: DONE_CLOSURE("第一轮完成") });
 
     const re = h.scheduler.spawn(SESSION_ID, "同任务");
-    expect(re).toEqual({ status: "run", agentId: "agent-4" }); // 新 id（重派 = 新实例，第 4 次 spawn）
-    expect(h.scheduler.instance("agent-4")?.state).toBe("running");
-    expect(h.scheduler.instance("agent-1")?.state).toBe("done"); // 终态保持
+    expect(re.status).toBe("run"); // 新 id（重派 = 新实例，第 4 次 spawn）
+    if (re.status === "rejected") throw new Error(`spawn 被拒：${re.error}`);
+    const a4 = re.agentId;
+    expect(a4).not.toBe(a1); // T10a：重派必为新唯一串 id
+    expect(h.scheduler.instance(a4)?.state).toBe("running");
+    expect(h.scheduler.instance(a1)?.state).toBe("done"); // 终态保持
 
     // 终态幂等：对已收口实例的迟到 closure 不产生新事件/状态变更
     const eventsBefore = h.events.length;
-    h.runner.forceClosure("agent-1", { result: "done", closure: DONE_CLOSURE("迟到") });
-    h.runner.emitEvent("agent-1");
+    h.runner.forceClosure(a1, { result: "done", closure: DONE_CLOSURE("迟到") });
+    h.runner.emitEvent(a1);
     expect(h.events.length).toBe(eventsBefore);
-    expect(h.scheduler.instance("agent-1")?.state).toBe("done");
+    expect(h.scheduler.instance(a1)?.state).toBe("done");
   });
 
   test("kill 路径：running kill 收口 killed（closure failed）+ 释放空位；迟到自然收口幂等", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) h.scheduler.spawn(SESSION_ID, `任务${i}`);
-    h.scheduler.spawn(SESSION_ID, "任务4"); // queued
+    spawnId(h, "任务1");
+    const a2 = spawnId(h, "任务2");
+    spawnId(h, "任务3");
+    const a4 = spawnId(h, "任务4"); // queued
 
-    h.scheduler.kill("agent-2");
-    expect(payloadsOf(h.events, "agent.killed", "agent-2").length).toBe(1);
-    expect(h.scheduler.instance("agent-2")?.state).toBe("failed"); // kill 收口 failed（单一终态语义）
-    expect(agentEvents(h.events, "agent-2")).toContain("agent.started");
+    h.scheduler.kill(a2);
+    expect(payloadsOf(h.events, "agent.killed", a2).length).toBe(1);
+    expect(h.scheduler.instance(a2)?.state).toBe("failed"); // kill 收口 failed（单一终态语义）
+    expect(agentEvents(h.events, a2)).toContain("agent.started");
     // 空位释放 → 队首出队
-    expect(agentEvents(h.events, "agent-4")).toContain("agent.started");
+    expect(agentEvents(h.events, a4)).toContain("agent.started");
 
     // 迟到的引擎自然收口：幂等 no-op（无第二个终态事件）
-    const killedEvents = payloadsOf(h.events, "agent.killed", "agent-2").length;
-    h.runner.forceClosure("agent-2", { result: "done", closure: DONE_CLOSURE("迟到完成") });
-    expect(payloadsOf(h.events, "agent.killed", "agent-2").length).toBe(killedEvents);
-    expect(payloadsOf(h.events, "agent.completed", "agent-2").length).toBe(0);
+    const killedEvents = payloadsOf(h.events, "agent.killed", a2).length;
+    h.runner.forceClosure(a2, { result: "done", closure: DONE_CLOSURE("迟到完成") });
+    expect(payloadsOf(h.events, "agent.killed", a2).length).toBe(killedEvents);
+    expect(payloadsOf(h.events, "agent.completed", a2).length).toBe(0);
   });
 
   test("kill 非线性边界：queued 可 kill（摘队）；未知 id/已终态 kill 幂等不崩", async () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) h.scheduler.spawn(SESSION_ID, `任务${i}`);
-    h.scheduler.spawn(SESSION_ID, "任务4");
-    h.scheduler.spawn(SESSION_ID, "任务5");
+    const a1 = spawnId(h, "任务1");
+    spawnId(h, "任务2");
+    spawnId(h, "任务3");
+    const a4 = spawnId(h, "任务4");
+    const a5 = spawnId(h, "任务5");
 
-    h.scheduler.kill("agent-4"); // queued 状态被销毁
-    expect(h.scheduler.instance("agent-4")?.state).toBe("failed");
-    expect(payloadsOf(h.events, "agent.queued", "agent-5")).toEqual([
-      { agentId: "agent-5", position: 2 },
-      { agentId: "agent-5", position: 1 },
+    h.scheduler.kill(a4); // queued 状态被销毁
+    expect(h.scheduler.instance(a4)?.state).toBe("failed");
+    expect(payloadsOf(h.events, "agent.queued", a5)).toEqual([
+      { agentId: a5, position: 2 },
+      { agentId: a5, position: 1 },
     ]);
 
     const before = h.events.length;
-    h.scheduler.kill("agent-4"); // 已终态：幂等
+    h.scheduler.kill(a4); // 已终态：幂等
     h.scheduler.kill("agent-999"); // 未知：不崩
     expect(h.events.length).toBe(before);
 
-    h.runner.forceClosure("agent-1", { result: "done", closure: DONE_CLOSURE("ok") });
-    expect(agentEvents(h.events, "agent-5")).toContain("agent.started"); // 调度仍正常
+    h.runner.forceClosure(a1, { result: "done", closure: DONE_CLOSURE("ok") });
+    expect(agentEvents(h.events, a5)).toContain("agent.started"); // 调度仍正常
     const rows = await lifecycleRows(h);
-    expect(new Map(rows.map((r) => [r.instanceId, r.state])).get("agent-4")).toBe("failed");
+    expect(new Map(rows.map((r) => [r.instanceId, r.state])).get(a4)).toBe("failed");
   });
 
   test("多实例事件交织：事件增量/收口交错不崩、无非法半态、每实例恰一个终态", () => {
     const h = (current = makeHarness({}));
-    for (let i = 1; i <= 3; i++) h.scheduler.spawn(SESSION_ID, `任务${i}`);
-    h.scheduler.spawn(SESSION_ID, "任务4");
+    const a1 = spawnId(h, "任务1");
+    const a2 = spawnId(h, "任务2");
+    const a3 = spawnId(h, "任务3");
+    const a4 = spawnId(h, "任务4");
 
     // 交织：running 实例事件增量交错 + 部分收口 + 排队实例事件（防御：未知/终态忽略）
-    h.runner.emitEvent("agent-1");
-    h.runner.emitEvent("agent-3");
-    h.runner.forceClosure("agent-3", { result: "failed", error: "e", closure: { status: "failed", summary: "e", reportPath: null, findings: null, taskId: null } });
-    h.runner.emitEvent("agent-3"); // 终态后事件：不崩不计数
-    h.runner.emitEvent("agent-4"); // queued 实例事件（乱序到达）：不崩
-    h.runner.forceClosure("agent-1", { result: "done", closure: DONE_CLOSURE("ok") });
-    h.runner.emitEvent("agent-2");
+    h.runner.emitEvent(a1);
+    h.runner.emitEvent(a3);
+    h.runner.forceClosure(a3, { result: "failed", error: "e", closure: { status: "failed", summary: "e", reportPath: null, findings: null, taskId: null } });
+    h.runner.emitEvent(a3); // 终态后事件：不崩不计数
+    h.runner.emitEvent(a4); // queued 实例事件（乱序到达）：不崩
+    h.runner.forceClosure(a1, { result: "done", closure: DONE_CLOSURE("ok") });
+    h.runner.emitEvent(a2);
 
-    expect(h.scheduler.instance("agent-1")?.state).toBe("done");
-    expect(h.scheduler.instance("agent-2")?.state).toBe("running");
-    expect(h.scheduler.instance("agent-3")?.state).toBe("failed");
-    expect(h.scheduler.instance("agent-4")?.state).toBe("running"); // 两次收口各释放一位 → agent-4 出队
+    expect(h.scheduler.instance(a1)?.state).toBe("done");
+    expect(h.scheduler.instance(a2)?.state).toBe("running");
+    expect(h.scheduler.instance(a3)?.state).toBe("failed");
+    expect(h.scheduler.instance(a4)?.state).toBe("running"); // 两次收口各释放一位 → a4 出队
     // 每实例恰一个终态事件
-    for (const id of ["agent-1", "agent-3"]) {
+    for (const id of [a1, a3]) {
       const terminal = agentEvents(h.events, id).filter((t) => t !== "agent.spawned" && t !== "agent.started");
       expect(terminal.length).toBe(1);
     }
