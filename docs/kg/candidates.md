@@ -2,6 +2,53 @@
 
 ## pending
 
+### TR-AD-6
+- changeType: 修改
+- targetNode: TR-AD-6
+- scope: docs/kg/architecture-rules.md TR-AD-6（规则正文与适用范围中「默认模型 → helix.db default_model 表」表述待同步为 runtime_config KV 表）
+- project: helix
+- reason: 用户裁决 D1/D2（原话「为了一个配置独占一个sqlite表有点多余了，应该创建一个专门的运行时配置的kv结构表」+ port 层一步到位抽通用面）：default_model 单行表退役 → runtime_config KV 表（key TEXT PRIMARY KEY, value TEXT NOT NULL）；DefaultModelPort 接口签名零变、实现换 RuntimeConfigStore KV 底座（default_model 键 + builtin 兜底语义包装）；启动幂等迁移（旧表有值且 KV 无键 → 迁入并 drop 旧表；KV 优先；二次打开幂等，WriteQueue.ts:553）；后续 last_mode 等运行时键复用 KV 底座（本期最小面未新增键）。AD-2「经常变的状态不进 JSON」原则不变，仅落点从独占表改 KV
+- evidence: default-model.test.ts 8 例（新库直建 KV 表不建旧表 / KV 读写+fallback 兜底 / 落盘跨实例观测 / 旧表迁移幂等+KV 优先+空旧表仅 drop / set_default 后新建会话继承真引擎构造期 / 预置旧表库全链路启动迁移+重启幂等）；bun test apps/daemon 877 pass（T1 时点，895 终态）；commit 2390c1a
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/sqlite-session/RuntimeConfigStore.ts（新增）；schema.ts（runtime_config 建表 + default_model 停建）；WriteQueue.ts（KV job + :553 旧表迁移）；application/ports/outbound/RuntimeConfigPort.ts（新增）；DefaultModelStore.ts（KV 包装改写）；infrastructure/assembly/buildPersistence.ts（装配）
+- sourceTask: task-T1（default-coder agt_XRNQTP99EM2A 超时未闭环 + MainAgent 复核验收，2026-08-24）
+- createdIn: task-20260824-p1-mode
+
+### TR-AD-2-r2
+- changeType: 修改
+- targetNode: TR-AD-2
+- scope: docs/kg/architecture-rules.md TR-AD-2（outbound port 清单与计数：生效 11 → 12，补 RuntimeConfigPort）
+- project: helix
+- reason: P1 T1 新增 RuntimeConfigPort（通用运行时配置 KV 出站口，get/set）：outbound 生效 port 11 → 12；DefaultModelPort 保留（KV 包装，调用面零改动——buildSessionStack/ModelService/container 消费点不变）；守护测试 ports 文件数 ≥9 为下限断言、与 12 兼容无需调整
+- evidence: arch-guard.test.ts + protocol-import.test.ts pass；四包 typecheck 全绿；commit 2390c1a
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/ports/outbound/RuntimeConfigPort.ts（新增，port 文件只放接口）；apps/daemon/src/adapters/driven/sqlite-session/RuntimeConfigStore.ts（实现，落位与 DefaultModelStore 同构）
+- sourceTask: task-T1（default-coder agt_XRNQTP99EM2A + MainAgent 复核验收，2026-08-24）
+- createdIn: task-20260824-p1-mode
+
+### E-AgentProfile-r3
+- changeType: 修改
+- targetNode: E-AgentProfile
+- scope: docs/kg/domain.md E-AgentProfile（model 槽位段绑定语境：main-session 绑定从硬编码改模式注册表驱动）
+- project: helix
+- reason: P1 会话模式：main 实例 profileKind 不再硬编码 "main-session"——session 一对一绑定模式（session.mode 建会话定格），profileKind 解析单点 = daemon application/services/modes.ts（import @helix/protocol MODES 注册表——domain 层禁 import protocol，AG-02 白名单，故落 application；未知/缺省 mode fallback default）；engineFor 模型/thinking 槽位 kind 参数化（buildSessionStack 从 profileKindOf(mode) 取值，default 下行为零变化；解析链优先级本身不变：槽位 ?? 全局兑底）；热草稿转正复用条件加 profileKind 一致性（不一致丢弃重建走 createFresh，零条目草稿无成本；复用零条目前提不因一致弱化——sendMessage 同步落聚合使转正后必有内容）；session_state.mode 持久化（可空列 + 守护式补列 + 恢复侧 resolveModeId 归一旧行 default，T10a main_instance_id 同构形态）
+- evidence: modes.test.ts（结构守护：engineFor 槽位 kind 从 mode 解析、字面量参数化钉子）；session-registry-draft.test.ts（profileKind 不一致丢弃重建 + 复用前提钉死）；session-registry.test.ts 冷恢复 + restore-restart.test.ts SIGTERM 重启快照等价（mode 持久化前后对照）；chat-send-mode.test.ts（透传/缺省/非草稿链忽略）；daemon 895 pass；commit 4da73d4
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/modes.ts（resolveModeId/profileKindOf 单点）；apps/daemon/src/infrastructure/assembly/buildSessionStack.ts（engineFor(sessionId, mode?) 槽位参数化）；apps/daemon/src/application/services/SessionRegistry.ts（startDraftSession mode 参 + 复用条件 + 实例创建）；sqlite-session schema.ts/WriteQueue.ts/rows/RowMapper.ts（mode 列）+ RestoreService.ts:110-112（归一）
+- sourceTask: task-T3（default-coder agt_2VAXTR1J1YB5 半途死亡 + agt_T2PPM81MYDK5 续作闭环，2026-08-24）
+- createdIn: task-20260824-p1-mode
+
+### AD-default-20260824-5
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md（技术规则新增——会话模式机制：绑定/锁定语义/过程信息边界/扩展路线/shell 读面）
+- project: helix
+- reason: 用户裁决序列（P1 设计对话 2026-08-24）：①模式 = session 与 agent 绑定的一等概念，注册表在 @helix/protocol（MODES/ModeId/DEFAULT_MODE_ID；ModeSpec.kind = single|staged|orchestrated 三值联合——P2 phase/P3 workflow 不返工；mode wire 面一律 string + 未知 fallback default，类型层不锁死联合使 fallback 可表达）；②锁定语义 = 结构不可能（非校验拒绝）：草稿切换唯一入口 = shell ui/set-draft-mode（仅草稿生效 + 同步丢弃 draft model/thinking 暂存），唯一上送点 = chat.send{draft:true,mode}（非 default 才带），daemon 唯一消费点 = startDraftSession；建会话定格落库 + 快照/welcome 回带只读；无 mode.set 命令、非草稿链 mode 忽略（测试钉死）；③过程信息边界（D6，用户原话「过程信息的生命周期是临时的，仅用于某个模式的某个session中，一旦结束了就不需要了，需要持久化的信息都在知识图谱」）：模式过程信息（P2 迭代空间/P3 工作流空间、阶段交接摘要）= session 级临时态，会话结束销毁、不落 workspace 文件不建持久表；跨会话沉淀归未来「项目知识图谱」（随更改动态更新）——过程空间永不自带持久层，本边界约束 P2/P3 设计；④扩展路线：P2 phase（staged：design/build/verify 三阶段 agent；阶段切换 = main 实例收口换新实例（同 session 新 profileKind，F1.9 一等创建/销毁天然支持）+ 交接摘要注入新实例初始上下文（closure summary 形态），时机倾向 T1 切换时收口生成（P2 定稿）；resource_state 槽位按 profileKind 天然隔离三 agent 配置；欢迎词走前端 i18n 渲染不进 context）；P3 workflow（orchestrated：编排者 agent 常驻 + node = agent/逻辑节点，循环/并行/分支/节点退出复用既有 agent_spawn/send/status 编排工具 + closure 协议，共享过程空间基础设施）；⑤shell 读面：header 模式选择器（草稿可切/已建只读，MODES 数据驱动）替换 main-session 静态 chip（chat.header.session 词条退役）；草稿徽标三级回退 = 本地暂存 ?? 模式槽位模型 ?? 全局默认（agentConfig.slots = agent.config.list.result 真消费提升的 topology 读面，connected 初拉 + revision 失效重拉，不新建第三条平行配置读面）；thinking picker 草稿刻度基准 = 槽位模型能力位、显示值 = 本地暂存 ?? 槽位 thinking ?? 默认关；已建会话语义零侵染（P-3 菜单与 thinking.set 覆盖链不动）
+- evidence: protocol 93 + daemon 895 + shell 515 全绿；四包 typecheck；e2e 28 fail 经基线对照（P1 前 e4f3990 同结果）确认环境既有非回归；chat-send-mode.test.ts ⑥ 非草稿链零调用钉死；session-mode.test.ts 12 例（切换丢弃/同值仍丢弃/草稿文本附件不丢/已建防御/快照收权/切换重置/new-draft 重置/welcome 三态）；P-1-top-bar.test.tsx（草稿可切/已建只读/home chip 保留）；SessionContext.mode.test.tsx 4 例（slots 初拉/失效重拉/端到端/send mode 透传）；PROTOCOL.md §18 微批登记（版本位不 bump，bump 决策留后续批次）；commits 460b048/4da73d4/f04b9d9
+- implementationStatus: 完整实现（P1 范围；P2/P3 为路线图非本期交付）
+- implementedCode: packages/protocol/src/modes.ts（注册表）；apps/daemon/src/application/services/modes.ts（解析单点）；apps/shell/src/entities/session/model/state.ts:364-371,437-442（SessionState.mode + ui/set-draft-mode）；consumers/agent-config.ts:53-69（slots 读面）+ consumers/snapshot.ts/conn.ts（收权）；widgets/top-bar/ui/P-1-top-bar.tsx:41-134（ModeChip）+ :174-199（三级徽标回退）；features/thinking-level/ui/ComposerThinkingPicker.tsx:89-115（草稿基准换源）；shared/api/commands.ts:65-70（chatSendDraftCommand mode）
+- sourceTask: task-T2/T3/T4（default-coder agt_13MPD57TNT5A / agt_2VAXTR1J1YB5+agt_T2PPM81MYDK5 / agt_E50DZR0MPZNQ+agt_A8AQGXXMHR8W，2026-08-24；含 T3/T4 两条 agent 沉淀候选并入：session_state.mode 列形态、agentConfig.slots 读面）
+- createdIn: task-20260824-p1-mode
+
 ## deferred
 
 ## applied
