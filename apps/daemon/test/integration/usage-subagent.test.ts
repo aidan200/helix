@@ -80,16 +80,19 @@ describe("T3.2 SubAgent turn usage 入账（T2.2 上行链路）", () => {
     try {
       const outcome = scheduler.spawn(SESSION_ID, "统计一下文件数");
       expect(outcome.status).toBe("run");
+      if (outcome.status !== "run") throw new Error("unreachable");
+      const agentId = outcome.agentId; // T10a：spawn id = agent-<唯一串>，捕获而非硬编码
+      expect(agentId).toMatch(/^agent-[0-9a-f]+$/);
       // 剧本 runner 异步驱动：轮询至实例收口
-      await waitFor(() => scheduler.status("agent-1")![0]!.state === "done", 2000);
+      await waitFor(() => scheduler.status(agentId)![0]!.state === "done", 2000);
 
       const usageEvents = domainEvents.filter((e) => e.type === "usage.recorded") as (DomainEvent & {
         payload: UsageRecordedPayload;
       })[];
       expect(usageEvents).toHaveLength(1); // 剧本终条 message_end 恰一条（工具批/用户消息不入账）
-      expect(usageEvents[0]!.instanceId).toBe("agent-1"); // envelope 实例维（四维落列）
+      expect(usageEvents[0]!.instanceId).toBe(agentId); // envelope 实例维（四维落列）
       expect(usageEvents[0]!.payload).toEqual({
-        instanceId: "agent-1",
+        instanceId: agentId,
         source: "turn",
         usage: {
           input: 111,
@@ -104,7 +107,7 @@ describe("T3.2 SubAgent turn usage 入账（T2.2 上行链路）", () => {
 
       // 落盘四维可查：按 instance 维过滤账目事件行
       await writeQueue.flush();
-      const rows = repository.queryEvents({ sessionId: SESSION_ID, instanceId: "agent-1", type: "usage.recorded" });
+      const rows = repository.queryEvents({ sessionId: SESSION_ID, instanceId: agentId, type: "usage.recorded" });
       expect(rows).toHaveLength(1);
       expect((rows[0]!.payload as UsageRecordedPayload).usage.input).toBe(111);
     } finally {

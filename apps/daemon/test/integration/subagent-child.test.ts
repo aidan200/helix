@@ -409,10 +409,12 @@ describe("⑦ 与 T2.1 SchedulerService 组装（InstanceRunner 真体）", () =
 
     const outcome = scheduler.spawn(SESSION_ID, "调度组装任务");
     expect(outcome.status).toBe("run");
+    if (outcome.status !== "run") throw new Error("unreachable");
+    const agentId = outcome.agentId; // T10a：spawn id = agent-<唯一串>，捕获而非硬编码
 
     await until(() => events.some((e) => e.type === "agent.completed"), 15000, "等待 agent.completed");
     const completed = events.find((e) => e.type === "agent.completed")!;
-    expect(completed.instanceId).toBe("agent-1");
+    expect(completed.instanceId).toBe(agentId);
     expect((completed.payload as { closure: { summary: string } }).closure.summary).toBe("调度组装任务完成");
 
     // agent_lifecycle 投影落盘（done 终态）
@@ -420,7 +422,7 @@ describe("⑦ 与 T2.1 SchedulerService 组装（InstanceRunner 真体）", () =
     const rows = writeQueue.database
       .prepare("SELECT instance_id AS instanceId, state FROM agent_lifecycle WHERE session_id = ?")
       .all(SESSION_ID) as { instanceId: string; state: string }[];
-    expect(rows).toContainEqual({ instanceId: "agent-1", state: "done" });
+    expect(rows).toContainEqual({ instanceId: agentId, state: "done" });
 
     scheduler.stop();
     await writeQueue.close();

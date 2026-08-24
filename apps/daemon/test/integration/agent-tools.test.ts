@@ -133,44 +133,52 @@ describe("① agent_spawn 秒回（不挂起 turn，不等 closure）", () => {
     const elapsed = Date.now() - t0;
     expect(elapsed).toBeLessThan(100); // 秒回（FakeAgentEngine 量级；closure 永不到达）
     expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content)).toEqual({ agentId: "agent-1", spawned: true, queued: false });
-    expect(h.runner.launched).toEqual([{ instanceId: "agent-1", task: "长调研任务" }]);
+    const spawned = JSON.parse(result.content) as { agentId: string; spawned: boolean; queued: boolean };
+    expect(spawned.agentId).toMatch(/^agent-[0-9a-f]+$/); // T10a：agent-<唯一串>
+    expect(spawned).toMatchObject({ spawned: true, queued: false });
+    const agentId = spawned.agentId;
+    expect(h.runner.launched).toEqual([{ instanceId: agentId, task: "长调研任务" }]);
     // 不等收口：无任何终态事件，实例 running
     expect(h.events.filter((e) => /agent\.(completed|failed|killed)/.test(e.type))).toEqual([]);
-    expect(h.scheduler.instance("agent-1")?.state).toBe("running");
+    expect(h.scheduler.instance(agentId)?.state).toBe("running");
   });
 
   test("入队路径返回 {agentId, spawned, queued:true, position}", async () => {
     const h = makeToolHarness();
-    for (let i = 1; i <= 3; i++) await runTool(h, "agent_spawn", { task: `t${i}` });
+    const ids: string[] = [];
+    for (let i = 1; i <= 3; i++) ids.push(JSON.parse((await runTool(h, "agent_spawn", { task: `t${i}` })).content).agentId);
     const result = await runTool(h, "agent_spawn", { task: "第 4 个" });
-    expect(JSON.parse(result.content)).toEqual({ agentId: "agent-4", spawned: true, queued: true, position: 1 });
+    const fourth = JSON.parse(result.content) as { agentId: string; spawned: boolean; queued: boolean; position: number };
+    expect(fourth.agentId).toMatch(/^agent-[0-9a-f]+$/); // T10a：agent-<唯一串>
+    expect(new Set([...ids, fourth.agentId]).size).toBe(4); // 连续 spawn 互异
+    expect(fourth).toMatchObject({ spawned: true, queued: true, position: 1 });
   });
 });
 
 describe("③ agent_status 两形态（状态/位次/摘要）", () => {
   test("无参全量 + 有参单实例；终态后携带 summary", async () => {
     const h = makeToolHarness();
-    for (let i = 1; i <= 3; i++) await runTool(h, "agent_spawn", { task: `任务${i}` });
-    await runTool(h, "agent_spawn", { task: "排队任务" }); // queued pos 1
+    const ids: string[] = [];
+    for (let i = 1; i <= 3; i++) ids.push(JSON.parse((await runTool(h, "agent_spawn", { task: `任务${i}` })).content).agentId);
+    ids.push(JSON.parse((await runTool(h, "agent_spawn", { task: "排队任务" })).content).agentId); // queued pos 1
 
     const all = JSON.parse((await runTool(h, "agent_status", {})).content);
     expect(all).toHaveLength(4);
-    expect(all[0]).toMatchObject({ agentId: "agent-1", state: "running", task: "任务1", profileKind: "subagent-worker" });
-    expect(all[3]).toMatchObject({ agentId: "agent-4", state: "queued", position: 1 });
+    expect(all[0]).toMatchObject({ agentId: ids[0], state: "running", task: "任务1", profileKind: "subagent-worker" });
+    expect(all[3]).toMatchObject({ agentId: ids[3], state: "queued", position: 1 });
     expect(all[0].summary).toBeUndefined(); // 运行中无摘要
 
-    const one = JSON.parse((await runTool(h, "agent_status", { agentId: "agent-4" })).content);
+    const one = JSON.parse((await runTool(h, "agent_status", { agentId: ids[3] })).content);
     expect(one).toHaveLength(1);
-    expect(one[0]).toMatchObject({ agentId: "agent-4", state: "queued", position: 1 });
+    expect(one[0]).toMatchObject({ agentId: ids[3], state: "queued", position: 1 });
 
     // 终态后：单实例查询携带 closure.summary
-    h.runner.forceClosure("agent-1", {
+    h.runner.forceClosure(ids[0]!, {
       result: "done",
       closure: { status: "done", summary: "任务1 完成", reportPath: null, findings: null, taskId: null },
     });
-    const done = JSON.parse((await runTool(h, "agent_status", { agentId: "agent-1" })).content);
-    expect(done[0]).toMatchObject({ agentId: "agent-1", state: "done", summary: "任务1 完成" });
+    const done = JSON.parse((await runTool(h, "agent_status", { agentId: ids[0] })).content);
+    expect(done[0]).toMatchObject({ agentId: ids[0], state: "done", summary: "任务1 完成" });
 
     // 未知实例 → 空数组（工具结果可读，非报错）
     expect(JSON.parse((await runTool(h, "agent_status", { agentId: "agent-999" })).content)).toEqual([]);
@@ -181,7 +189,8 @@ describe("④ 队列满 agent_spawn 报错回 LLM（reject 通路汇流）", () 
   test("预算耗尽 → isError + 调度器中文错误说明；daemon 不崩（status 仍可用）", async () => {
     const h = makeToolHarness(new SchedulingPolicy({ maxConcurrent: 1, maxQueued: 0 }));
     const first = await runTool(h, "agent_spawn", { task: "占住预算" });
-    expect(JSON.parse(first.content).agentId).toBe("agent-1");
+    const firstId = JSON.parse(first.content).agentId as string;
+    expect(firstId).toMatch(/^agent-[0-9a-f]+$/); // T10a：agent-<唯一串>
 
     const rejected = await runTool(h, "agent_spawn", { task: "第二个" });
     expect(rejected.isError).toBe(true);
@@ -190,7 +199,7 @@ describe("④ 队列满 agent_spawn 报错回 LLM（reject 通路汇流）", () 
 
     // 不崩：status 可查、spawn 的实例不受影响
     expect(JSON.parse((await runTool(h, "agent_status", {})).content)).toHaveLength(1);
-    expect(h.scheduler.instance("agent-1")?.state).toBe("running");
+    expect(h.scheduler.instance(firstId)?.state).toBe("running");
   });
 });
 
@@ -245,7 +254,8 @@ describe("② agent_send 经 SchedulerService.send → 子进程 stdin → Agent
         args: { task: "send 链路验证任务" },
         signal: undefined,
       });
-      expect(JSON.parse(spawnResult.content).agentId).toBe("agent-1");
+      const agentId = JSON.parse(spawnResult.content).agentId as string;
+      expect(agentId).toMatch(/^agent-[0-9a-f]+$/); // T10a：agent-<唯一串>
 
       // 等子进程流式开始（stdin send 需在进程启动后）
       await until(
@@ -258,10 +268,10 @@ describe("② agent_send 经 SchedulerService.send → 子进程 stdin → Agent
       const sendResult = await executor.execute({
         toolCallId: "tc-send-2",
         toolName: "agent_send",
-        args: { agentId: "agent-1", message: "补充指示：请直接收口" },
+        args: { agentId, message: "补充指示：请直接收口" },
         signal: undefined,
       });
-      expect(JSON.parse(sendResult.content)).toEqual({ delivered: true, detail: expect.stringContaining("agent-1") });
+      expect(JSON.parse(sendResult.content)).toEqual({ delivered: true, detail: expect.stringContaining(agentId) });
 
       // 子进程 Agent.steer() 消费注入：source=steer-drain 的新 turn
       await until(
@@ -285,7 +295,7 @@ describe("② agent_send 经 SchedulerService.send → 子进程 stdin → Agent
       const lateSend = await executor.execute({
         toolCallId: "tc-send-3",
         toolName: "agent_send",
-        args: { agentId: "agent-1", message: "迟到消息" },
+        args: { agentId, message: "迟到消息" },
         signal: undefined,
       });
       expect(JSON.parse(lateSend.content)).toEqual({
