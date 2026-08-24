@@ -148,11 +148,13 @@ describe("agent.* 事件经真实 WS 连接可被订阅方收到（契约 §5.1/
   test("spawned → started → completed 序列 + completed 五字段 ClosureDto + 帧挂 instanceId", async () => {
     const rig = (current = await makeRig());
 
-    rig.daemon.orchestration.spawn("WS 序列验证任务");
+    const spawn1 = rig.daemon.orchestration.spawn("WS 序列验证任务");
+    if (spawn1.status !== "run") throw new Error("unreachable");
+    const agentId = spawn1.agentId; // T10a：agent-<唯一串>，捕获而非硬编码
     const spawned = await rig.client.expect("agent.spawned");
-    expect(spawned.instanceId).toBe("agent-1");
+    expect(spawned.instanceId).toBe(agentId);
     expect(spawned.payload).toEqual({
-      agentId: "agent-1",
+      agentId,
       task: "WS 序列验证任务",
       profileKind: "subagent-worker",
       model: "anthropic/claude-sonnet-4-5", // T12：spawn 透传 = 两级链解析产物（槽位空 → 全局默认），恒在场
@@ -160,22 +162,22 @@ describe("agent.* 事件经真实 WS 连接可被订阅方收到（契约 §5.1/
     });
 
     const started = await rig.client.expect("agent.started");
-    expect(started.instanceId).toBe("agent-1");
-    expect(started.payload).toEqual({ agentId: "agent-1" });
+    expect(started.instanceId).toBe(agentId);
+    expect(started.payload).toEqual({ agentId });
 
-    rig.runner.forceClosure("agent-1", {
+    rig.runner.forceClosure(agentId, {
       result: "done",
       closure: { status: "done", summary: "WS 序列任务完成", reportPath: null, findings: null, taskId: null },
     });
     const completed = await rig.client.expect("agent.completed");
-    expect(completed.instanceId).toBe("agent-1");
+    expect(completed.instanceId).toBe(agentId);
     // 五字段 ClosureDto（缺失字段显式 null）；reportPath 由 O-5 收口链填文件落点
     expect(completed.payload).toEqual({
-      agentId: "agent-1",
+      agentId,
       closure: {
         status: "done",
         summary: "WS 序列任务完成",
-        reportPath: path.join(rig.home, "reports", rig.sessionId, "agent-1.md"),
+        reportPath: path.join(rig.home, "reports", rig.sessionId, `${agentId}.md`),
         findings: null,
         taskId: null,
       },
@@ -184,41 +186,50 @@ describe("agent.* 事件经真实 WS 连接可被订阅方收到（契约 §5.1/
 
   test("超限入队序列：spawned → queued{position} → （空位释放）started", async () => {
     const rig = (current = await makeRig());
-    for (let i = 1; i <= 3; i++) rig.daemon.orchestration.spawn(`占位任务${i}`);
+    const placeholderIds: string[] = [];
+    for (let i = 1; i <= 3; i++) {
+      const o = rig.daemon.orchestration.spawn(`占位任务${i}`);
+      if (o.status !== "run") throw new Error("unreachable");
+      placeholderIds.push(o.agentId); // T10a：agent-<唯一串>，捕获而非硬编码
+    }
     await rig.client.expect("agent.started");
 
-    rig.daemon.orchestration.spawn("第 4 个（超限）");
+    const spawn4 = rig.daemon.orchestration.spawn("第 4 个（超限）");
+    if (spawn4.status !== "queued") throw new Error("unreachable");
+    const queuedId = spawn4.agentId;
     const queued = await rig.client.expect("agent.queued");
-    expect(queued.instanceId).toBe("agent-4");
-    expect(queued.payload).toEqual({ agentId: "agent-4", position: 1 });
+    expect(queued.instanceId).toBe(queuedId);
+    expect(queued.payload).toEqual({ agentId: queuedId, position: 1 });
 
-    // 空位释放 → 队首出队：agent-4 started（卡片转 running；用谓词等待——缓冲区已有其他实例的 started 帧）
-    rig.runner.forceClosure("agent-1", {
+    // 空位释放 → 队首出队：queued 实例 started（卡片转 running；用谓词等待——缓冲区已有其他实例的 started 帧）
+    rig.runner.forceClosure(placeholderIds[0]!, {
       result: "done",
       closure: { status: "done", summary: "占位完成", reportPath: null, findings: null, taskId: null },
     });
     await rig.client.expect("agent.completed");
     await until(
-      () => rig.client.frames.some((f) => f.type === "agent.started" && f.instanceId === "agent-4"),
+      () => rig.client.frames.some((f) => f.type === "agent.started" && f.instanceId === queuedId),
       5000,
-      "等待 agent-4 出队 started",
+      "等待超限实例出队 started",
     );
   }, 10000);
 
   test("SubAgent 工具事件帧挂 instanceId（per-instance 广播）；注入前主线零驱动", async () => {
     const rig = (current = await makeRig());
-    rig.daemon.orchestration.spawn("带工具任务");
+    const spawn1 = rig.daemon.orchestration.spawn("带工具任务");
+    if (spawn1.status !== "run") throw new Error("unreachable");
+    const agentId = spawn1.agentId; // T10a：agent-<唯一串>
     await rig.client.expect("agent.started");
 
     // SubAgent 内部工具事件上行 → tool.call.* 帧（挂 instanceId，广播不过滤）
-    rig.runner.emitEngineEvent("agent-1", {
+    rig.runner.emitEngineEvent(agentId, {
       type: "tool_execution_start",
       toolCallId: "ws-sub-tc-1",
       toolName: "grep",
       args: { pattern: "x" },
     });
     const toolFrame = await rig.client.expect("tool.call.started");
-    expect(toolFrame.instanceId).toBe("agent-1");
+    expect(toolFrame.instanceId).toBe(agentId);
     expect(toolFrame.payload).toMatchObject({ entry: { kind: "tool-call", id: "ws-sub-tc-1", name: "grep" } });
 
     // 工具事件不驱动主线（无 chat.turn.started/无主线 delta）——注入尚未发生
@@ -226,7 +237,7 @@ describe("agent.* 事件经真实 WS 连接可被订阅方收到（契约 §5.1/
     expect(rig.client.frames.filter((f) => f.type === "chat.stream.delta")).toEqual([]);
 
     // closure 注入才驱动主线新 turn（双通道分工：工具事件 per-instance、closure 进主线）
-    rig.runner.forceClosure("agent-1", {
+    rig.runner.forceClosure(agentId, {
       result: "done",
       closure: { status: "done", summary: "ok", reportPath: null, findings: null, taskId: null },
     });
@@ -238,33 +249,37 @@ describe("agent.* 事件经真实 WS 连接可被订阅方收到（契约 §5.1/
 describe("kill 命令链：WS agent.kill → port → SchedulerService.kill → runner（O-6）", () => {
   test("kill 正常路径 → agent.killed{closure failed}；FB-3 runner.kill 收到终止信号", async () => {
     const rig = (current = await makeRig());
-    rig.daemon.orchestration.spawn("待终止任务");
+    const spawn1 = rig.daemon.orchestration.spawn("待终止任务");
+    if (spawn1.status !== "run") throw new Error("unreachable");
+    const agentId = spawn1.agentId; // T10a：agent-<唯一串>
     await rig.client.expect("agent.started");
 
-    rig.client.send({ v: 0, type: "agent.kill", payload: { agentId: "agent-1" } });
+    rig.client.send({ v: 0, type: "agent.kill", payload: { agentId } });
     const killed = await rig.client.expect("agent.killed");
-    expect(killed.instanceId).toBe("agent-1");
+    expect(killed.instanceId).toBe(agentId);
     const closure = killed.payload["closure"] as Record<string, unknown>;
     expect(closure["status"]).toBe("failed"); // 单一终态（契约 §8-2）
     expect(closure["summary"]).toBe("已由用户终止（kill）");
-    expect(closure["reportPath"]).toMatch(/reports\/.*agent-1\.md$/); // kill 也产报告
+    expect(String(closure["reportPath"])).toMatch(/reports\/.*agent-[0-9a-f]+\.md$/); // kill 也产报告
     expect(closure["findings"]).toBeNull();
     expect(closure["taskId"]).toBeNull();
-    expect(rig.runner.kills).toEqual(["agent-1"]); // FB-3：子进程终止信号已发
+    expect(rig.runner.kills).toEqual([agentId]); // FB-3：子进程终止信号已发
   }, 10000);
 
   test("kill 终态实例/未知实例 → connection.error 回执（中文说明，连接保持）", async () => {
     const rig = (current = await makeRig());
-    rig.daemon.orchestration.spawn("会先收口的任务");
+    const spawn1 = rig.daemon.orchestration.spawn("会先收口的任务");
+    if (spawn1.status !== "run") throw new Error("unreachable");
+    const agentId = spawn1.agentId; // T10a：agent-<唯一串>
     await rig.client.expect("agent.started");
-    rig.runner.forceClosure("agent-1", {
+    rig.runner.forceClosure(agentId, {
       result: "done",
       closure: { status: "done", summary: "ok", reportPath: null, findings: null, taskId: null },
     });
     await rig.client.expect("agent.completed");
 
     const before = rig.client.frames.length;
-    rig.client.send({ v: 0, type: "agent.kill", payload: { agentId: "agent-1" } }); // 已终态
+    rig.client.send({ v: 0, type: "agent.kill", payload: { agentId } }); // 已终态
     rig.client.send({ v: 0, type: "agent.kill", payload: { agentId: "agent-404" } }); // 不存在
     const collected: { type: string; payload: { code: string; message: string } }[] = [];
     await until(
@@ -286,23 +301,30 @@ describe("kill 命令链：WS agent.kill → port → SchedulerService.kill → 
 
   test("agent.subscribe 通路语义：登记不过滤——订阅后其他实例事件仍广播可达", async () => {
     const rig = (current = await makeRig());
-    rig.client.send({ v: 0, type: "agent.subscribe", payload: { agentId: "agent-1" } });
+    // 先 spawn 拿到真实实例 id（T10a：agent-<唯一串>），再订阅——订阅登记不过滤
+    const spawn1 = rig.daemon.orchestration.spawn("实例 A");
+    if (spawn1.status !== "run") throw new Error("unreachable");
+    const agentId = spawn1.agentId;
+    rig.client.send({ v: 0, type: "agent.subscribe", payload: { agentId } });
     await new Promise((r) => setTimeout(r, 50)); // 命令帧往返
 
-    rig.daemon.orchestration.spawn("实例 A");
     await rig.client.expect("agent.spawned");
-    rig.runner.forceClosure("agent-1", {
+    rig.runner.forceClosure(agentId, {
       result: "done",
       closure: { status: "done", summary: "A 完成", reportPath: null, findings: null, taskId: null },
     });
-    // 订阅的是 agent-1，其事件可达；无 connection.error（通路语义不拒绝）
+    // 订阅的是该实例，其事件可达；无 connection.error（通路语义不拒绝）
     await rig.client.expect("agent.completed");
     expect(rig.client.frames.filter((f) => f.type === "connection.error")).toEqual([]);
 
     // 退订同构（登记移除，不关连接）
-    rig.client.send({ v: 0, type: "agent.unsubscribe", payload: { agentId: "agent-1" } });
+    rig.client.send({ v: 0, type: "agent.unsubscribe", payload: { agentId } });
     await new Promise((r) => setTimeout(r, 50));
     rig.daemon.orchestration.spawn("实例 B");
-    await rig.client.expect("agent.spawned"); // 连接仍活、广播仍达
+    await until(
+      () => rig.client.frames.filter((f) => f.type === "agent.spawned").length >= 2,
+      5000,
+      "等待实例 B spawned 帧",
+    ); // 连接仍活、广播仍达
   }, 10000);
 });

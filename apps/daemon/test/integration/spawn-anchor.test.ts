@@ -72,6 +72,22 @@ function instanceDtoOf(daemon: Daemon, instanceId: string): AgentInstanceDto | u
   return snapshotDto(daemon).instances?.find((i) => i.instanceId === instanceId);
 }
 
+/** T10a：spawn 返回 agent-<唯一串>——捕获而非硬编码（status=rejected 时直接失败）。 */
+function spawnAgent(rig: Rig, task: string): string {
+  const o = rig.daemon.orchestration.spawn(task);
+  if (o.status === "rejected") throw new Error(`spawn 被拒：${task}`);
+  expect(o.agentId).toMatch(/^agent-[0-9a-f]+$/);
+  return o.agentId;
+}
+
+/** T10a：主实例 id = 会话 mainInstanceId（agent-<唯一串>，非 "main" 字面）。 */
+function mainIdOf(daemon: Daemon): string {
+  const sid = daemon.system.getStatus().sessionId;
+  const id = daemon.registry.peek(sid)!.chatService.sessionView.mainInstanceId;
+  expect(id).toMatch(/^agent-[0-9a-f]+$/);
+  return id;
+}
+
 /** 确定性断言：同一聚合连续 N 次组装，锚点逐实例同值。 */
 function expectDeterministicAnchor(daemon: Daemon, instanceId: string, expected: string | null): void {
   for (let i = 0; i < 3; i++) {
@@ -167,26 +183,26 @@ function until(cond: () => boolean, timeoutMs: number, what: string): Promise<vo
 describe("T2.1 锚点语义三分支（契约 v0.3 §1）", () => {
   test("流首 spawn（无任何 main entry）→ anchorEntryId=null；主实例不携带；多次组装同值", async () => {
     const rig = await makeRig();
-    rig.daemon.orchestration.spawn("流首任务");
+    const agentId = spawnAgent(rig, "流首任务");
 
-    expect(instanceDtoOf(rig.daemon, "agent-1")?.anchorEntryId).toBeNull();
+    expect(instanceDtoOf(rig.daemon, agentId)?.anchorEntryId).toBeNull();
     // 规则③：主实例不携带（undefined，键不存在）
-    const main = instanceDtoOf(rig.daemon, "main");
+    const main = instanceDtoOf(rig.daemon, mainIdOf(rig.daemon));
     expect(main).toBeDefined();
     expect("anchorEntryId" in main!).toBe(false);
-    expectDeterministicAnchor(rig.daemon, "agent-1", null);
+    expectDeterministicAnchor(rig.daemon, agentId, null);
   });
 
   test("主实例消息后 spawn → 锚 = spawn 前最后一条 main entry id；主线继续追加锚不变（规则② spawn 时值）", async () => {
     const rig = await makeRig([{ text: "回复一" }, { text: "回复二" }]);
     await rig.daemon.chat.sendMessage("消息一"); // e1(user) + e2(assistant)
 
-    rig.daemon.orchestration.spawn("锚点任务");
-    expect(instanceDtoOf(rig.daemon, "agent-1")?.anchorEntryId).toBe("e2");
+    const agentId = spawnAgent(rig, "锚点任务");
+    expect(instanceDtoOf(rig.daemon, agentId)?.anchorEntryId).toBe("e2");
 
     // 稳定域：spawn 后主线继续追加（e3/e4），无 Entry 实例锚保持 spawn 时值
     await rig.daemon.chat.sendMessage("消息二");
-    expectDeterministicAnchor(rig.daemon, "agent-1", "e2");
+    expectDeterministicAnchor(rig.daemon, agentId, "e2");
   });
 
   test("实例首 Entry 前有 compaction → 锚 = compaction id（规则①）；首 Entry 前锚保持 spawn 时值", async () => {
@@ -195,31 +211,31 @@ describe("T2.1 锚点语义三分支（契约 v0.3 §1）", () => {
       { text: "回复二", compaction: { tokensBefore: 100, tokensAfter: 40, summary: "压缩摘要" } },
     ]);
     await rig.daemon.chat.sendMessage("消息一"); // e1 + e2
-    rig.daemon.orchestration.spawn("compaction 前锚点任务");
-    expect(instanceDtoOf(rig.daemon, "agent-1")?.anchorEntryId).toBe("e2");
+    const agentId = spawnAgent(rig, "compaction 前锚点任务");
+    expect(instanceDtoOf(rig.daemon, agentId)?.anchorEntryId).toBe("e2");
 
     // 主线第二轮 + turn 边界 compaction（e3/e4 + compaction entry）
     await rig.daemon.chat.sendMessage("消息二");
     // 规则②：实例尚无 Entry——锚保持 spawn 时值，不按当前尾部（compaction）重算
-    expect(instanceDtoOf(rig.daemon, "agent-1")?.anchorEntryId).toBe("e2");
+    expect(instanceDtoOf(rig.daemon, agentId)?.anchorEntryId).toBe("e2");
 
     // 实例产出首 Entry → 规则①接管：首 Entry 前最后一条 main/compaction = compaction
-    emitAssistantMessage(rig.runner, "agent-1", "SubAgent 结论");
+    emitAssistantMessage(rig.runner, agentId, "SubAgent 结论");
     const compactionId = snapshotDto(rig.daemon).entries.find((e) => e.kind === "compaction")?.id;
     expect(compactionId).toBeDefined();
-    expectDeterministicAnchor(rig.daemon, "agent-1", compactionId!);
+    expectDeterministicAnchor(rig.daemon, agentId, compactionId!);
   });
 
   test("实例产 Entry 后锚 = 首 Entry 前最后 main entry；后续主线追加不影响（[0, firstIdx) 稳定域）", async () => {
     const rig = await makeRig([{ text: "回复一" }, { text: "回复二" }]);
     await rig.daemon.chat.sendMessage("消息一"); // e1 + e2
-    rig.daemon.orchestration.spawn("稳定域任务");
-    emitAssistantMessage(rig.runner, "agent-1", "SubAgent 首条结论");
-    expect(instanceDtoOf(rig.daemon, "agent-1")?.anchorEntryId).toBe("e2");
+    const agentId = spawnAgent(rig, "稳定域任务");
+    emitAssistantMessage(rig.runner, agentId, "SubAgent 首条结论");
+    expect(instanceDtoOf(rig.daemon, agentId)?.anchorEntryId).toBe("e2");
 
     // 首 Entry 后 append 的 main entry 不进 [0, firstIdx) → 锚不变
     await rig.daemon.chat.sendMessage("消息二"); // e3 + e4
-    expectDeterministicAnchor(rig.daemon, "agent-1", "e2");
+    expectDeterministicAnchor(rig.daemon, agentId, "e2");
   });
 });
 
@@ -239,11 +255,11 @@ describe("T2.1 agent.spawned 增量帧锚点（真实 WS 连接）", () => {
         c1.send({ v: 0, type: "session.subscribe", payload: {} });
       }
       await c1.expect("session.snapshot");
-      rig.daemon.orchestration.spawn("流首 WS 任务");
+      const agentId1 = spawnAgent(rig, "流首 WS 任务");
       const spawnedNull = await c1.expect("agent.spawned");
-      expect(spawnedNull.instanceId).toBe("agent-1");
+      expect(spawnedNull.instanceId).toBe(agentId1);
       expect(spawnedNull.payload["anchorEntryId"]).toBeNull();
-      expect(instanceDtoOf(rig.daemon, "agent-1")?.anchorEntryId).toBeNull(); // 帧 ↔ 快照同值
+      expect(instanceDtoOf(rig.daemon, agentId1)?.anchorEntryId).toBeNull(); // 帧 ↔ 快照同值
     } finally {
       await c1.close();
     }
@@ -253,21 +269,21 @@ describe("T2.1 agent.spawned 增量帧锚点（真实 WS 连接）", () => {
     const c2 = new TestClient(rig.daemon.ws.url, token);
     try {
       await c2.expect("session.snapshot");
-      rig.daemon.orchestration.spawn("有锚 WS 任务");
+      const agentId2 = spawnAgent(rig, "有锚 WS 任务");
       const spawned = await c2.expect("agent.spawned");
-      expect(spawned.instanceId).toBe("agent-2");
+      expect(spawned.instanceId).toBe(agentId2);
       expect(spawned.payload["anchorEntryId"]).toBe("e2");
-      expect(instanceDtoOf(rig.daemon, "agent-2")?.anchorEntryId).toBe("e2"); // 帧 ↔ 快照同值
+      expect(instanceDtoOf(rig.daemon, agentId2)?.anchorEntryId).toBe("e2"); // 帧 ↔ 快照同值
 
       // ③ WS 快照面下发：重连握手快照 instances 携带同值锚
-      emitAssistantMessage(rig.runner, "agent-2", "WS 实例结论");
+      emitAssistantMessage(rig.runner, agentId2, "WS 实例结论");
       const c3 = new TestClient(rig.daemon.ws.url, token);
       try {
         const snapFrame = await c3.expect("session.snapshot");
         const instances = (snapFrame.payload["snapshot"] as { instances?: AgentInstanceDto[] }).instances ?? [];
-        const dto = instances.find((i) => i.instanceId === "agent-2");
+        const dto = instances.find((i) => i.instanceId === agentId2);
         expect(dto?.anchorEntryId).toBe("e2");
-        const main = instances.find((i) => i.instanceId === "main");
+        const main = instances.find((i) => i.instanceId === mainIdOf(rig.daemon));
         expect(main !== undefined && "anchorEntryId" in main).toBe(false); // 主实例不携带
       } finally {
         await c3.close();
@@ -294,9 +310,9 @@ describe("T6 spawn 锚扫描面含 tool 调用记录（实时路径 = 快照路�
     await until(() => rig.daemon.session.getSnapshot().toolCalls.length > 0, 3000, "等待 toolCall 记录落地");
     const toolCallId = rig.daemon.session.getSnapshot().toolCalls[0]!.id;
 
-    rig.daemon.orchestration.spawn("工具执行窗口内 spawn");
+    const agentId = spawnAgent(rig, "工具执行窗口内 spawn");
     // 锚 = agent_spawn 工具调用自身 entry id（快照路径同语义）；修复前 = e1（用户消息）
-    expect(instanceDtoOf(rig.daemon, "agent-1")?.anchorEntryId).toBe(toolCallId);
+    expect(instanceDtoOf(rig.daemon, agentId)?.anchorEntryId).toBe(toolCallId);
     await run; // turn 收尾（assistant e2）
   }, 10000);
 
@@ -309,8 +325,8 @@ describe("T6 spawn 锚扫描面含 tool 调用记录（实时路径 = 快照路�
     // 主轴尾 entry（与修复前一致——从快照主轴取期望，不硬编码跳号后 id）
     const tailMainId = snapshotDto(rig.daemon).entries.at(-1)?.id;
     expect(tailMainId).toBeDefined();
-    rig.daemon.orchestration.spawn("tool 完成后 spawn");
-    expect(instanceDtoOf(rig.daemon, "agent-1")?.anchorEntryId).toBe(tailMainId!);
+    const agentId = spawnAgent(rig, "tool 完成后 spawn");
+    expect(instanceDtoOf(rig.daemon, agentId)?.anchorEntryId).toBe(tailMainId!);
   });
 });
 
@@ -321,9 +337,9 @@ describe("T2.1 恢复重放锚点（真 SQLite tmp 重启）", () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-t21-anchor-restore-"));
     const rig1 = await makeRig([{ text: "回复一" }], home);
     await rig1.daemon.chat.sendMessage("消息一"); // e1 + e2
-    rig1.daemon.orchestration.spawn("恢复锚点任务");
-    emitAssistantMessage(rig1.runner, "agent-1", "恢复前结论");
-    const before = instanceDtoOf(rig1.daemon, "agent-1")?.anchorEntryId;
+    const agentId = spawnAgent(rig1, "恢复锚点任务");
+    emitAssistantMessage(rig1.runner, agentId, "恢复前结论");
+    const before = instanceDtoOf(rig1.daemon, agentId)?.anchorEntryId;
     expect(before).toBe("e2");
     await rig1.daemon.shutdown();
 
@@ -333,12 +349,12 @@ describe("T2.1 恢复重放锚点（真 SQLite tmp 重启）", () => {
       await rig2.daemon.shutdown();
       rmSync(home, { recursive: true, force: true });
     };
-    const after = instanceDtoOf(rig2.daemon, "agent-1");
+    const after = instanceDtoOf(rig2.daemon, agentId);
     expect(after).toBeDefined();
     expect(after?.anchorEntryId).toBe(before); // 恢复重放与实时路径同锚
-    const main = instanceDtoOf(rig2.daemon, "main");
+    const main = instanceDtoOf(rig2.daemon, mainIdOf(rig2.daemon));
     expect(main !== undefined && "anchorEntryId" in main).toBe(false);
-    expectDeterministicAnchor(rig2.daemon, "agent-1", before!);
+    expectDeterministicAnchor(rig2.daemon, agentId, before!);
 
     // 锚点不持久化（E-AgentInstance 禁忌）：domain_events 的 agent.spawned 载荷
     // 不含 anchorEntryId（帧锚点走 adapter 层 enrichment，非领域事件载荷）
@@ -358,9 +374,9 @@ describe("T2.1 恢复重放锚点（真 SQLite tmp 重启）", () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-t21-anchor-boundary-"));
     const rig1 = await makeRig([{ text: "回复一" }], home);
     await rig1.daemon.chat.sendMessage("消息一"); // e1 + e2
-    rig1.daemon.orchestration.spawn("无 Entry 边界任务"); // 不产 Entry（挂起）
+    const agentId = spawnAgent(rig1, "无 Entry 边界任务"); // 不产 Entry（挂起）
     // 实时路径规则②：锚 = spawn 时值 e2
-    expect(instanceDtoOf(rig1.daemon, "agent-1")?.anchorEntryId).toBe("e2");
+    expect(instanceDtoOf(rig1.daemon, agentId)?.anchorEntryId).toBe("e2");
     await rig1.daemon.shutdown();
 
     const rig2 = await makeRig([], home);
@@ -368,7 +384,7 @@ describe("T2.1 恢复重放锚点（真 SQLite tmp 重启）", () => {
       await rig2.daemon.shutdown();
       rmSync(home, { recursive: true, force: true });
     };
-    const restored = instanceDtoOf(rig2.daemon, "agent-1");
+    const restored = instanceDtoOf(rig2.daemon, agentId);
     expect(restored).toBeDefined();
     expect(restored?.state).toBe("failed"); // running → 重启收口（AD-10）
     // 退化规则①尾部推导：= 恢复后聚合内最后一条 main entry（重启 closure 注入
