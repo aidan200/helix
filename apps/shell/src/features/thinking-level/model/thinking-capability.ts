@@ -26,6 +26,15 @@ export function isPeakLevel(levels: readonly string[], effective: string | null)
   return levels.length > 0 && effective !== null && effective === levels[levels.length - 1];
 }
 
+/** P-2 开关 on 且槽位空时的默认写入档（thinking 批 T3；用户决策原话：「所有
+ *  模型的推理强度默认都取中间档位，如果只有两个档位则取第一档位，最高档位
+ *  默认都不选」）→ levels[Math.floor((n-1)/2)]：n=1 唯一档（无选择，例外）、
+ *  n=2 低档、n=3 中位、n=4 低中位；空能力集 → undefined（不写槽位）。 */
+export function defaultLevelFor(levels: readonly string[]): string | undefined {
+  if (levels.length === 0) return undefined;
+  return levels[Math.floor((levels.length - 1) / 2)];
+}
+
 /** 覆盖/生效分离判据（F1.3）：双位非空且不等 → 轻提示（模型能力所限）。 */
 export function isClamped(override: string | null, effective: string | null): boolean {
   return override !== null && effective !== null && override !== effective;
