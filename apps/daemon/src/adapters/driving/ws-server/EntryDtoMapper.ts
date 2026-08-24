@@ -13,15 +13,27 @@ import type {
   CompactionEntryDto,
   ToolCallEntryDto,
 } from "@helix/protocol";
-import {
-  isMainInstanceId,
-  LEGACY_MAIN_INSTANCE_ID,
-} from "../../../domain/agent/AgentInstance";
 import type { EntryData } from "../../../domain/session/Entry";
 import type { SessionEntryData } from "../../../domain/session/SessionSnapshot";
 import type { ThinkingEntryData } from "../../../domain/session/ThinkingEntry";
 import type { CompactionEntryData } from "../../../domain/session/CompactionEntry";
 import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
+
+/**
+ * wire 边界 legacy 主实例字面（"main"）：旧行/旧事件的只读兼容值 + 读侧
+ * 缺省推断基准。与 domain WIRE_LEGACY_MAIN_ID 同值——AD-17.5 转换层
+ * 对 domain 仅 type-only（无运行时耦合），值字面本层自持。
+ */
+export const WIRE_LEGACY_MAIN_ID = "main" as const;
+
+/**
+ * wire 边界主实例归属判别（T10a 方案 A）：id === 该会话主实例 id，或
+ * legacy "main"（历史行只读兼容），或缺省（旧载荷省略 = main 推断，读侧保留）。
+ * EnvelopeMapper/SnapshotMapper 同目录消费（条目归属编码/engine.error 抑制共用）。
+ */
+export function isWireMainAttribution(instanceId: string | undefined, mainInstanceId: string): boolean {
+  return instanceId === undefined || instanceId === mainInstanceId || instanceId === WIRE_LEGACY_MAIN_ID;
+}
 
 /**
  * wire 边界实例归属编码（T10a 方案 A 最小面）：主实例归属（该会话主实例 id
@@ -31,7 +43,7 @@ import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
  * daemon 行为正确 + 读侧旧形状兼容（projection 锚扫描/主轴判别零漂移）。
  */
 function wireMainAware(instanceId: string | undefined, mainInstanceId: string): boolean {
-  return isMainInstanceId(instanceId, mainInstanceId);
+  return isWireMainAttribution(instanceId, mainInstanceId);
 }
 
 /**
@@ -41,7 +53,7 @@ function wireMainAware(instanceId: string | undefined, mainInstanceId: string): 
  * 同一 entry 同时经 instanceChannels 进抽屉 feed 快照面，单事实源视图双投影）。
  */
 export function isMainAxisEntry(entry: EntryDto): boolean {
-  if ((entry.instanceId ?? LEGACY_MAIN_INSTANCE_ID) === LEGACY_MAIN_INSTANCE_ID) return true;
+  if ((entry.instanceId ?? WIRE_LEGACY_MAIN_ID) === WIRE_LEGACY_MAIN_ID) return true;
   return entry.kind === "message" && entry.role === "user" && entry.steerState !== undefined;
 }
 
@@ -50,7 +62,7 @@ export function isMainAxisEntry(entry: EntryDto): boolean {
 export function sessionEntryDto(
   entry: SessionEntryData,
   queuedSteer: Set<string>,
-  mainInstanceId: string = LEGACY_MAIN_INSTANCE_ID,
+  mainInstanceId: string = WIRE_LEGACY_MAIN_ID,
 ): EntryDto[] {
   if ("kind" in entry) {
     return entry.kind === "thinking" ? [thinkingEntryDto(entry, mainInstanceId)] : [compactionEntryDto(entry, mainInstanceId)];
@@ -62,12 +74,12 @@ export function sessionEntryDto(
  *  wire 边界编码——主实例编 legacy "main" 字面，协议类型必填位）。 */
 export function thinkingEntryDto(
   entry: ThinkingEntryData,
-  mainInstanceId: string = LEGACY_MAIN_INSTANCE_ID,
+  mainInstanceId: string = WIRE_LEGACY_MAIN_ID,
 ): ThinkingEntryDto {
   return {
     kind: "thinking",
     id: entry.id,
-    instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? LEGACY_MAIN_INSTANCE_ID : entry.instanceId,
+    instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
     text: entry.text,
     durationMs: entry.durationMs,
     reasoningTokens: entry.reasoningTokens,
@@ -79,12 +91,12 @@ export function thinkingEntryDto(
  *  归属编码同 thinkingEntryDto）。 */
 export function compactionEntryDto(
   entry: CompactionEntryData,
-  mainInstanceId: string = LEGACY_MAIN_INSTANCE_ID,
+  mainInstanceId: string = WIRE_LEGACY_MAIN_ID,
 ): CompactionEntryDto {
   return {
     kind: "compaction",
     id: entry.id,
-    instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? LEGACY_MAIN_INSTANCE_ID : entry.instanceId,
+    instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
     tokensBefore: entry.tokensBefore,
     tokensAfter: entry.tokensAfter,
     summary: entry.summary,
@@ -126,7 +138,7 @@ function messageEntryDto(
  *  result）、running 无；durationMs 仅起止齐备时携带。 */
 export function toolCallEntryDto(
   record: ToolCallRecordData,
-  mainInstanceId: string = LEGACY_MAIN_INSTANCE_ID,
+  mainInstanceId: string = WIRE_LEGACY_MAIN_ID,
 ): ToolCallEntryDto {
   const dto: ToolCallEntryDto = {
     kind: "tool-call",

@@ -14,11 +14,10 @@ import type {
   UsageDto,
 } from "@helix/protocol";
 import type { SessionMeta } from "@helix/protocol";
-import { LEGACY_MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
 import type { SessionStateView, InstanceSnapshotEntry } from "../../../application/ports/inbound/SessionPort";
 import type { SessionMetaView } from "../../../application/ports/inbound/SessionDirectoryPort";
 import type { SessionUsageSummary, UsageSummary } from "../../../domain/session/SessionSnapshot";
-import { isMainAxisEntry, sessionEntryDto, toolCallEntryDto } from "./EntryDtoMapper";
+import { isMainAxisEntry, sessionEntryDto, toolCallEntryDto, WIRE_LEGACY_MAIN_ID } from "./EntryDtoMapper";
 // 投影收敛：entry 排序基元 + spawn 锚权威计算单源 @helix/protocol
 // projection（原 EntryDtoMapper.entrySortKey / SpawnAnchor.ts 两纯函数迁出）
 import { computeAnchorEntryId, entrySortKey } from "@helix/protocol";
@@ -71,7 +70,7 @@ export function toSnapshotDto(
   const snapshot = view.session;
   // T10a：会话主实例 id（快照 mainInstanceId；旧快照缺省 = legacy "main"）——
   // wire 边界实例归属编码的判别基准
-  const mainId = snapshot.mainInstanceId ?? LEGACY_MAIN_INSTANCE_ID;
+  const mainId = snapshot.mainInstanceId ?? WIRE_LEGACY_MAIN_ID;
   const queuedSteer = new Set(snapshot.pendingSteer.map((item) => item.entryId));
   // 升序稳定排序：时间并列保持组内原序（entries 原序 / toolCalls 迭代序）
   // entries 为 message/thinking/compaction 混排联合，各变体同表合并
@@ -117,7 +116,7 @@ export function historyPage(
   limit: number = HISTORY_PAGE_DEFAULT,
 ): HistoryPage {
   const snapshot = view.session;
-  const mainId = snapshot.mainInstanceId ?? LEGACY_MAIN_INSTANCE_ID;
+  const mainId = snapshot.mainInstanceId ?? WIRE_LEGACY_MAIN_ID;
   const queuedSteer = new Set(snapshot.pendingSteer.map((item) => item.entryId));
   const merged: EntryDto[] = [
     ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer, mainId)),

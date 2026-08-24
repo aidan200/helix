@@ -407,26 +407,23 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
 });
 
 describe("AG-13：协议两端同源基线（@helix/protocol 唯一权威源）", () => {
-  test("MAIN_INSTANCE_ID 取源：application 层 import 来源 ∈ {@helix/common（唯一定义直引）, @helix/protocol（re-export 通道）}（TP-CL5-3 grep 守护）", () => {
+  test("MAIN_INSTANCE_ID 退役：application 层 import 零残留（T10a 方案 A——主实例 id 每会话生成，kind 判别取代常量值判等）", () => {
     // T4.1（CL-5）历史：SessionRegistry 曾取 domain 本地定义，守护 application
     // 层 MAIN_INSTANCE_ID 取源。AD-1（iter-20260821-dg90 T3.3）：唯一定义迁
-    // packages/common/src/constants.ts，domain 本地定义删除（双源退役）；
-    // @helix/protocol 为 re-export 通道（既有消费点零 churn，不批量迁移），
-    // 新代码直引 @helix/common。定义点唯一性由 test/unit/protocol-import.test.ts
-    // 负命题守护。
-    const importRe = /^\s*import\s+[^;'"]*MAIN_INSTANCE_ID[^;'"]*from\s+['"]([^'"]+)['"]/gm;
-    const ALLOWED_SOURCES: ReadonlySet<string> = new Set(["@helix/common", "@helix/protocol"]);
+    // packages/common/src/constants.ts，domain 本地定义删除（双源退役）。
+    // T10a（方案 A 一次性全切）：主实例固定 id "main" 废除——所有实例（含
+    // main）instanceId = agent-<唯一串>（newInstanceId 生成单点），application
+    // 层 MAIN_INSTANCE_ID 消费全部改 isMainInstanceId kind 判别（legacy
+    // "main" 字面只读兼容），本守护从「取源白名单」翻转为「零残留负命题」。
+    const importRe = /^\s*import\s+[^;'"]*\bMAIN_INSTANCE_ID\b[^;'"]*from\s+['"]([^'"]+)['"]/gm;
     const offenders: string[] = [];
-    let hits = 0;
     for (const rel of listFiles(path.join(srcRoot, "application"))) {
       const src = read(path.join("application", rel));
       for (const m of src.matchAll(importRe)) {
-        hits++;
-        if (!ALLOWED_SOURCES.has(m[1]!)) offenders.push(`${rel} → ${m[1]}`);
+        offenders.push(`${rel} → ${m[1]}`);
       }
     }
-    expect(hits).toBeGreaterThan(0); // 扫描面非空转
-    expect(offenders, `application 层 MAIN_INSTANCE_ID 取源越出 {@helix/common, @helix/protocol}：${offenders.join(", ")}`).toEqual([]);
+    expect(offenders, `application 层 MAIN_INSTANCE_ID import 残留（T10a 应零残留）：${offenders.join(", ")}`).toEqual([]);
   });
 
   test("ws-server 正向 import @helix/protocol（协议类型不得本地重写）", () => {

@@ -129,11 +129,14 @@ describe("T2.1 ① 会话投影：SubAgent thinking/message/tool 进聚合（ins
     const rig = await makeRig();
     const outcome = rig.daemon.orchestration.spawn("调研事件分发");
     expect(outcome.status).toBe("run");
-    await until(() => rig.daemon.orchestration.status("agent-1")![0]!.state === "done", 5000, "SubAgent 收口");
+    if (outcome.status === "rejected") throw new Error(`spawn 被拒：${outcome.error}`);
+    const agentId = outcome.agentId; // T10a：agent-<唯一串>（非纯数字序号）
+    expect(agentId).toMatch(/^agent-/);
+    await until(() => rig.daemon.orchestration.status(agentId)![0]!.state === "done", 5000, "SubAgent 收口");
 
-    // 聚合：thinking + message Entry（instanceId 归属 agent-1）
+    // 聚合：thinking + message Entry（instanceId 归属 spawn 实例）
     const snapshot = rig.daemon.session.getSnapshot();
-    const subEntries = snapshot.session.entries.filter((e) => e.instanceId === "agent-1");
+    const subEntries = snapshot.session.entries.filter((e) => e.instanceId === agentId);
     const kinds = subEntries.map((e) => ("kind" in e ? e.kind : "message"));
     expect(kinds).toContain("message");
     expect(kinds).toContain("thinking");
@@ -145,7 +148,7 @@ describe("T2.1 ① 会话投影：SubAgent thinking/message/tool 进聚合（ins
     // 工具记录：SubAgent 工具进 toolCalls（instanceId 行级归属）
     const subTool = snapshot.toolCalls.find((t) => t.id.includes("grep") || t.toolName === "grep");
     expect(subTool).toBeDefined();
-    expect(subTool!.instanceId).toBe("agent-1");
+    expect(subTool!.instanceId).toBe(agentId);
     expect(subTool!.status).toBe("completed");
 
     // MainAgent 上下文零混入：SubAgent 条目不挂主线 turn（turnId=null；
@@ -199,8 +202,10 @@ describe("T2.1 ③ 恢复重放含 SubAgent 历史（重启后快照/抽屉读�
     };
     const d1 = await mk();
     const sessionId = d1.system.getStatus().sessionId;
-    d1.orchestration.spawn("调研事件分发");
-    await until(() => d1.orchestration.status("agent-1")![0]!.state === "done", 5000, "SubAgent 收口");
+    const spawn1 = d1.orchestration.spawn("调研事件分发");
+    if (spawn1.status === "rejected") throw new Error(`spawn 被拒：${spawn1.error}`);
+    const agentId = spawn1.agentId;
+    await until(() => d1.orchestration.status(agentId)![0]!.state === "done", 5000, "SubAgent 收口");
     await d1.shutdown();
 
     const d2 = await mk();
@@ -208,14 +213,14 @@ describe("T2.1 ③ 恢复重放含 SubAgent 历史（重启后快照/抽屉读�
       expect(d2.system.getStatus().sessionId).toBe(sessionId);
       const snapshot = d2.session.getSnapshot();
       // 恢复读面：SubAgent 历史 Entry 在场（instanceId 归属正确）
-      const subEntries = snapshot.session.entries.filter((e) => e.instanceId === "agent-1");
+      const subEntries = snapshot.session.entries.filter((e) => e.instanceId === agentId);
       expect(subEntries.map((e) => ("kind" in e ? e.kind : "message")).sort()).toEqual(["message", "thinking"]);
       // 工具记录恢复（instanceId 行级透传往返）
       const subTool = snapshot.toolCalls.find((t) => t.toolName === "grep");
-      expect(subTool?.instanceId).toBe("agent-1");
+      expect(subTool?.instanceId).toBe(agentId);
       expect(subTool?.status).toBe("completed");
       // 实例清单恢复（卡片骨架）+ 账目恢复（usage.recorded 事件重放）
-      expect(snapshot.instances?.some((i) => i.instanceId === "agent-1" && i.state === "done")).toBe(true);
+      expect(snapshot.instances?.some((i) => i.instanceId === agentId && i.state === "done")).toBe(true);
       expect(snapshot.usage?.total.input ?? 0).toBeGreaterThanOrEqual(100);
     } finally {
       await d2.shutdown();
@@ -226,10 +231,12 @@ describe("T2.1 ③ 恢复重放含 SubAgent 历史（重启后快照/抽屉读�
   test("快照 DTO instances[].channels 反映 SubAgent 同构内容（AD-1 分组）", async () => {
     const { toSnapshotDto } = await import("../../src/adapters/driving/ws-server/DtoMapper");
     const rig = await makeRig();
-    rig.daemon.orchestration.spawn("调研事件分发");
-    await until(() => rig.daemon.orchestration.status("agent-1")![0]!.state === "done", 5000, "SubAgent 收口");
+    const spawn2 = rig.daemon.orchestration.spawn("调研事件分发");
+    if (spawn2.status === "rejected") throw new Error(`spawn 被拒：${spawn2.error}`);
+    const agentId = spawn2.agentId;
+    await until(() => rig.daemon.orchestration.status(agentId)![0]!.state === "done", 5000, "SubAgent 收口");
     const dto = toSnapshotDto(rig.daemon.session.getSnapshot(), "fake/model", "idle");
-    const agent = dto.instances?.find((i) => i.instanceId === "agent-1");
+    const agent = dto.instances?.find((i) => i.instanceId === agentId);
     expect(agent).toBeDefined();
     expect(agent!.channels?.messages?.length).toBe(1);
     const subMessageDto = agent!.channels?.messages?.[0];
@@ -241,11 +248,11 @@ describe("T2.1 ③ 恢复重放含 SubAgent 历史（重启后快照/抽屉读�
     expect(agent!.channels?.tools?.length).toBe(1);
     expect(agent!.channels?.tools?.[0]).toMatchObject({ kind: "tool-call", name: "grep" });
     // 主实例条目不带 channels（主时间轴 entries 即主实例历史）
-    const main = dto.instances?.find((i) => i.instanceId === "main");
+    const main = dto.instances?.find((i) => i.kind === "main"); // T10a：主实例 id 亦为 agent-<唯一串>，判别走 kind
     expect(main?.channels).toBeUndefined();
     // T2.2（AD-1 尾窗口径）：主时间轴 entries 只含主实例条目——SubAgent
     // 消息不进主轴（per-instance channels 完整保留，不按全局时间序切尾）
-    const subMessage = dto.entries.find((e) => e.kind === "message" && e.instanceId === "agent-1");
+    const subMessage = dto.entries.find((e) => e.kind === "message" && e.instanceId === agentId);
     expect(subMessage).toBeUndefined();
   }, 15000);
 });
@@ -318,23 +325,25 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
       expect(snap.channel).toBe("session");
 
       // 订阅中：SubAgent 运行 → 帧全量章印
-      rig.daemon.orchestration.spawn("调研事件分发");
+      const spawn3 = rig.daemon.orchestration.spawn("调研事件分发");
+      if (spawn3.status === "rejected") throw new Error(`spawn 被拒：${spawn3.error}`);
+      const agentId = spawn3.agentId;
       const spawned = await client.expect("agent.spawned");
       expect(spawned.sessionId).toBe(rig.sessionId);
       expect(spawned.channel).toBe("agent");
-      expect(spawned.instanceId).toBe("agent-1");
+      expect(spawned.instanceId).toBe(agentId);
       const stream = await client.expect("chat.stream.delta");
       expect(stream.sessionId).toBe(rig.sessionId);
       expect(stream.channel).toBe("chat");
-      expect(stream.instanceId).toBe("agent-1");
+      expect(stream.instanceId).toBe(agentId);
       const think = await client.expect("thinking.stream.delta");
       expect(think.channel).toBe("thinking");
-      expect(think.instanceId).toBe("agent-1");
+      expect(think.instanceId).toBe(agentId);
       const completed = await client.expect("chat.message.completed");
       expect(completed.channel).toBe("chat");
       const tool = await client.expect("tool.call.result");
       expect(tool.channel).toBe("chat");
-      expect(tool.instanceId).toBe("agent-1");
+      expect(tool.instanceId).toBe(agentId);
       await client.expect("agent.completed");
 
       // closure 注入驱动的后续主线 turn（agent.completed 后自动开启）收口后再取
@@ -367,7 +376,9 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
       const baseline = client.frames.length;
       client.send({ v: 0, type: "session.unsubscribe", payload: {} });
       await new Promise((r) => setTimeout(r, 150));
-      rig.daemon.orchestration.spawn("第二个任务");
+      const spawn4 = rig.daemon.orchestration.spawn("第二个任务");
+      if (spawn4.status === "rejected") throw new Error(`spawn 被拒：${spawn4.error}`);
+      const agent2Id = spawn4.agentId;
       await new Promise((r) => setTimeout(r, 400));
       // T2.2（AD-4）：退订后该会话事件帧停收；session.list_changed 是 daemon
       // 级清单广播（SYSTEM_SESSION_ID，与连接订阅集无关）仍可达
@@ -383,8 +394,8 @@ describe("T2.1 ④ WS 统一信封：sessionId/channel 全量章印 + 按会话�
         entries: { instanceId?: string }[];
         instances?: { instanceId: string; channels?: { messages?: unknown[] } }[];
       };
-      expect(snapshot2.entries.some((e) => e.instanceId === "agent-1")).toBe(false);
-      expect(snapshot2.instances?.find((i) => i.instanceId === "agent-1")?.channels?.messages?.length).toBeGreaterThan(0);
+      expect(snapshot2.entries.some((e) => e.instanceId === agent2Id)).toBe(false);
+      expect(snapshot2.instances?.find((i) => i.instanceId === agent2Id)?.channels?.messages?.length).toBeGreaterThan(0);
     } finally {
       await client.close();
     }
