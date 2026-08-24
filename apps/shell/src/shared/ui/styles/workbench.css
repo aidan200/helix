@@ -572,7 +572,6 @@ html.light .tp-popover {
   font-size: var(--text-cap); font-weight: 500; text-transform: uppercase;
   letter-spacing: 0.22em; color: rgb(var(--accent-rgb) / 0.85);
 }
-.tp-scope { font-size: var(--text-micro); color: var(--text-faint); }
 .tp-peak-badge {
   display: none; align-items: center; gap: 4px; font-size: var(--text-micro);
   letter-spacing: 0.12em; color: var(--accent);
