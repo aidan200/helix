@@ -129,6 +129,7 @@ describe("thinking.set 全链（真引擎 + 剧本 Models，能力解析可观�
       cliInput: new PassThrough(),
       cliOutput: new PassThrough(),
     });
+    let mainId: string | undefined;
     try {
       const sid = daemon.registry.currentSessionId();
 
@@ -156,6 +157,10 @@ describe("thinking.set 全链（真引擎 + 剧本 Models，能力解析可观�
       expect(daemon.registry.peek(sid)!.chatService.currentThinking).toEqual({ override: "xhigh", effective: "high" });
       await daemon.chat.sendMessage("fourth");
       expect(seen[3]).toEqual({ model: "fake/tri", reasoning: "high" });
+
+      // T10a：主实例 id = agent-<唯一串>（钉 sessionView.mainInstanceId，非 "main" 字面）
+      mainId = daemon.registry.peek(sid)!.chatService.sessionView.mainInstanceId;
+      expect(mainId).toMatch(/^agent-/);
     } finally {
       await daemon.shutdown();
     }
@@ -167,7 +172,7 @@ describe("thinking.set 全链（真引擎 + 剧本 Models，能力解析可观�
       const repo = new SqliteSessionRepository(queue);
       const rows = repo.queryEvents({ type: "agent.thinking.changed" });
       expect(rows).toHaveLength(1);
-      expect(rows[0]!.payload).toEqual({ instanceId: "main", level: "xhigh" });
+      expect(rows[0]!.payload).toEqual({ instanceId: mainId, level: "xhigh" });
     } finally {
       await queue.close();
     }

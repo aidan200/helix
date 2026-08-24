@@ -141,6 +141,8 @@ describe("TP-1.3a #1 container injectClosure 冷会话补投吞错 → logger.wa
     // ① 当前会话上 spawn 挂起 SubAgent（orchestration 面绑定当前会话）
     const outcome = rig.daemon.orchestration.spawn("触发冷补投的任务");
     expect(outcome.status).toBe("run");
+    if (outcome.status !== "run") throw new Error("unreachable");
+    const agentId = outcome.agentId; // T10a：spawn id = agent-<唯一串>，捕获而非硬编码
 
     // ② 注入生产不可达组合（见文件头注释）：peek 未命中（冷分支条件）+
     //    get 以真实 SessionNotFoundError 形状拒绝（恢复失败）。peek/get
@@ -152,7 +154,7 @@ describe("TP-1.3a #1 container injectClosure 冷会话补投吞错 → logger.wa
       id === sessionId ? Promise.reject(new SessionNotFoundError(id)) : origGet(id);
 
     // ③ 收口到达 → injectClosure 走冷补投链 → catch（原静默）→ 期望 warn
-    rig.runner.forceClosure("agent-1", OUTCOME("任务结果"));
+    rig.runner.forceClosure(agentId, OUTCOME("任务结果"));
     await until(() => rig.warns.length > 0, 2_000, "冷补投失败 warn 到达");
 
     registry.peek = origPeek; // 还原观测面
@@ -162,6 +164,6 @@ describe("TP-1.3a #1 container injectClosure 冷会话补投吞错 → logger.wa
     expect(msg!.includes("补投失败")).toBe(true);
     expect(msg!.includes(sessionId)).toBe(true);
     // daemon 存活（吞错不崩语义保持）：orchestration 观测面仍可用
-    expect(rig.daemon.orchestration.status("agent-1")[0]?.state).toBeDefined();
+    expect(rig.daemon.orchestration.status(agentId)[0]?.state).toBeDefined();
   });
 });

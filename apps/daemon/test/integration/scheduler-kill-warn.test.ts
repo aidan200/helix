@@ -98,16 +98,19 @@ describe("TP-1.3a #3 scheduler.kill 终止信号异步失败 → logger.warn", (
     const h = (current = makeHarness());
     const spawnOutcome = h.scheduler.spawn(SESSION_ID, "可被 kill 的任务");
     expect(spawnOutcome.status).toBe("run");
+    if (spawnOutcome.status !== "run") throw new Error("unreachable");
+    const agentId = spawnOutcome.agentId; // T10a：spawn id = agent-<唯一串>，捕获而非硬编码
+    expect(agentId).toMatch(/^agent-[0-9a-f]+$/);
 
-    const outcome = h.scheduler.kill("agent-1");
+    const outcome = h.scheduler.kill(agentId);
     expect(outcome.killed).toBe(true); // 收口不因 runner 异常阻断（不崩语义保持）
-    expect(h.runner.kills).toEqual(["agent-1"]);
+    expect(h.runner.kills).toEqual([agentId]);
 
     // 终止信号 catch 的 warn 在微任务上到达
     await new Promise((r) => setTimeout(r, 20));
     const msg = h.warns.find((m) => m.includes("[scheduler]"));
     expect(msg).toBeDefined();
-    expect(msg!.includes("agent-1")).toBe(true);
+    expect(msg!.includes(agentId)).toBe(true);
     expect(msg!.includes("终止信号发送失败（注入）")).toBe(true);
   });
 });
