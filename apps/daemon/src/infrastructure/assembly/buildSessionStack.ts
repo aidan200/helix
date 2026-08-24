@@ -286,17 +286,17 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // 寻址目标 ChatService）。热会话同步直达（收口链时序不变）；冷会话（理论
     // 不可达——活跃实例的会话不会卸载）异步恢复后补投。注册表在本函数内
     // 后置构造——回调仅在运行期（spawn 后）触发，装配窗口内不会被调。
-    injectClosure: (agentId, message) => {
+    injectClosure: (agentId, message, source) => {
       const sessionId = scheduler.instance(agentId)?.sessionId;
       if (sessionId === undefined) return;
       const hot = registry.peek(sessionId);
       if (hot !== undefined) {
-        hot.chatService.injectClosure(message);
+        hot.chatService.injectClosure(message, source);
         return;
       }
       void registry
         .get(sessionId)
-        .then((runtime) => runtime.chatService.injectClosure(message))
+        .then((runtime) => runtime.chatService.injectClosure(message, source))
         .catch((err) => {
           // 冷补投失败可观测（吞错面宽于旧注释「会话已删」——恢复 IO
           // 失败/补投异常同此口；补投丢弃但收口链继续）

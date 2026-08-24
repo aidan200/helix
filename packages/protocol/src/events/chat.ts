@@ -1,6 +1,6 @@
 import type { EventFrame } from "../envelope";
 import type { AgentStateDto } from "../types/agent";
-import type { TurnCompletionReason } from "../types/chat";
+import type { SteerSource, TurnCompletionReason } from "../types/chat";
 import type { EntryDto } from "../types/session";
 
 // ── payload ──────────────────────────────────────────────────
@@ -35,11 +35,15 @@ export interface ChatMessageCompletedPayload {
 /** 消息入 steer 队列（前端徽标「STEER·已入队」依据） */
 export interface SteerQueuedPayload {
   entryId: string;
+  /** 注入来源（v0.11 批内补登 T11a）：user/closure/progress；缺省 = 老事件按 user */
+  source?: SteerSource;
 }
 
 /** turn 边界 drain 注入（徽标转「已注入·本轮结束」依据） */
 export interface SteerDrainedPayload {
   entryId: string;
+  /** 注入来源（v0.11 批内补登 T11a）：与入队时同源透传 */
+  source?: SteerSource;
 }
 
 /** 工具调用开始（entry 为 tool-call 变体，state="running"） */

@@ -83,6 +83,8 @@ function messageEntryDto(entry: EntryData, queuedSteer: Set<string>): MessageEnt
     dto.steerState = queuedSteer.has(entry.id) ? "queued" : "drained";
   }
   if (entry.instanceId !== MAIN_INSTANCE_ID) dto.instanceId = entry.instanceId;
+  // 注入来源下行（T11a：closure/progress/user；缺省不携带——老快照前向兼容）
+  if (entry.source !== undefined) dto.source = entry.source;
   // 图片下行：user 消息携带图片附件（快照投影重建同源；缺省不携带）
   if (entry.images !== undefined && entry.images.length > 0) dto.images = [...entry.images];
   return [dto];

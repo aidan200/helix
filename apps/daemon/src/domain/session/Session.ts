@@ -4,7 +4,7 @@ import { ThinkingEntry, type ThinkingEntryData } from "./ThinkingEntry";
 import { CompactionEntry, type CompactionEntryData } from "./CompactionEntry";
 import type { SessionEntryData, SessionSnapshot } from "./SessionSnapshot";
 import { Turn, type TurnData } from "./Turn";
-import { SteerQueue, type SteerItem } from "../agent/SteerQueue";
+import { SteerQueue, type SteerItem, type SteerSource } from "../agent/SteerQueue";
 import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
 
 /**
@@ -48,14 +48,15 @@ export class Session {
   }
 
   /** 追加一条用户消息（仅无 open turn 时合法；运行中注入请用 applySteer）。
-   * 可选 images（base64 data URL 数组，chat.send.images 校验后透传落盘）。 */
-  appendUserEntry(text: string, at?: string, images?: readonly string[]): Entry {
+   * 可选 images（base64 data URL 数组，chat.send.images 校验后透传落盘）。
+   * 可选 source（T11a）：idle 时 closure/进展报告注入落的 user 条目携带来源。 */
+  appendUserEntry(text: string, at?: string, images?: readonly string[], source?: SteerSource): Entry {
     if (this.currentTurn !== null) {
       throw new DomainError(
         `会话 ${this.id} 当前轮次 ${this.currentTurn.id} 进行中，新输入必须经 applySteer 注入（或等待轮次结束）`,
       );
     }
-    return this.pushEntry("user", text, null, false, at, undefined, undefined, images);
+    return this.pushEntry("user", text, null, false, at, undefined, undefined, images, source);
   }
 
   /**
@@ -70,9 +71,10 @@ export class Session {
 
   /**
    * 运行中注入 steer：落 isSteer entry + 入 SteerQueue（drain 前 domain 可观测）。
-   * source：注入来源标记（user=用户输入；closure=SubAgent 收口注入，AD-8）。
+   * source：注入来源标记（user=用户输入；closure=SubAgent 收口注入，AD-8；
+   * progress=周期进展报告，T11a 起贯通 Entry/事件/SQLite）。
    */
-  applySteer(text: string, at?: string, source?: "user" | "closure"): Entry {
+  applySteer(text: string, at?: string, source?: SteerSource): Entry {
     const turn = this.requireOpenTurn("applySteer");
     if (!turn.isSteerable()) {
       throw new DomainError(`轮次 ${turn.id} 状态 ${turn.status} 不允许注入 steer（须为 generating/toolRunning）`);
@@ -86,7 +88,7 @@ export class Session {
    * 驱动引擎（「不自动续跑」：零新事件流，恢复代码零 spawn）。entry 不挂轮次
    * （turnId=null，待下轮 drain 时作为新 turn 输入回放）。
    */
-  restoreSteer(text: string, at?: string, source?: "user" | "closure"): Entry {
+  restoreSteer(text: string, at?: string, source?: SteerSource): Entry {
     if (this.currentTurn !== null) {
       throw new DomainError(
         `会话 ${this.id} 轮次 ${this.currentTurn.id} 进行中，恢复注入不适用（请用 applySteer）`,
@@ -111,10 +113,10 @@ export class Session {
     return this.pushEntry("user", text, this.currentTurn?.id ?? null, true, at, undefined, instanceId);
   }
 
-  private steerEntry(text: string, at: string | undefined, source: "user" | "closure" | undefined, turnId: string | null): Entry {
-    const entry = this.pushEntry("user", text, turnId, true, at);
-    // source 仅 closure 注入携带（用户 steer 保持旧形状——快照/投影行往返等价）；
-    // SubAgent 收口注入与用户输入同队列可区分（AD-8 双通道）
+  private steerEntry(text: string, at: string | undefined, source: SteerSource | undefined, turnId: string | null): Entry {
+    // source 落 Entry（快照/投影行往返携带）+ SteerQueue 项（事件载荷与
+    // SQLite steer_queue.source 列贯通，T11a）；缺省 = 用户输入语义
+    const entry = this.pushEntry("user", text, turnId, true, at, undefined, undefined, undefined, source);
     this.steerQueue.enqueue({ entryId: entry.id, text, ...(source !== undefined ? { source } : {}) });
     return entry;
   }
@@ -128,6 +130,7 @@ export class Session {
     reservedId?: string,
     instanceId: string = MAIN_INSTANCE_ID,
     images?: readonly string[],
+    source?: SteerSource,
   ): Entry {
     const entry = Entry.create({
       id: reservedId ?? `e${this.nextEntrySeq++}`,
@@ -141,6 +144,8 @@ export class Session {
       createdAt: at ?? new Date().toISOString(),
       // 仅 user 消息携带图片附件（校验后 data URL 原样；其余角色 undefined）
       ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}),
+      // 注入来源（仅注入类 user 条目携带；缺省不携带保持旧形状）
+      ...(source !== undefined ? { source } : {}),
     });
     this.entries.push(entry);
     return entry;

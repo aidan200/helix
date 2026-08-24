@@ -2,7 +2,7 @@
  * chat 族：steer 定向寻址两形态（CL-3）与 chat 通道分族类型面。
  */
 import { describe, expect, test } from "bun:test";
-import type { ChatSteerPayload, EventEnvelope } from "../../src/index";
+import type { ChatSteerPayload, EventEnvelope, MessageEntryDto, SteerDrainedPayload, SteerQueuedPayload } from "../../src/index";
 import type { Equal, Expect, TypeOfChannel } from "./samples/helpers";
 import { dispatchCommand } from "./samples/helpers";
 import { steerMainDefault, steerTargeted } from "./samples/v03";
@@ -30,6 +30,18 @@ type _SteerInstanceOptional = Expect<
   Equal<ChatSteerPayload["instanceId"], string | undefined>
 >;
 
+// T11a（v0.11 批内补登）：steer 两事件载荷 + MessageEntryDto 贯通注入来源三值枚举
+// （user=用户 steer / closure=SubAgent 收口注入 / progress=周期进展报告；缺省 = 老数据按 user）
+type _SteerSource = Expect<
+  Equal<SteerQueuedPayload["source"], "user" | "closure" | "progress" | undefined>
+>;
+type _SteerDrainedSource = Expect<
+  Equal<SteerDrainedPayload["source"], "user" | "closure" | "progress" | undefined>
+>;
+type _MessageEntrySource = Expect<
+  Equal<MessageEntryDto["source"], "user" | "closure" | "progress" | undefined>
+>;
+
 describe("chat：chat.steer 定向寻址（源 TP-v0.3-①）", () => {
   test("CL-3 instanceId：定向寻址 / 缺省主实例两形态（dispatch 窄化消费）", () => {
     expect(steerTargeted.payload.instanceId).toBe("agent-1");
@@ -38,4 +50,27 @@ describe("chat：chat.steer 定向寻址（源 TP-v0.3-①）", () => {
     expect(dispatchCommand(steerMainDefault)).toBe("steer:主实例缺省路径:main");
   });
 
+});
+
+describe("chat：steer 来源区分（T11a closure/steer source 贯通）", () => {
+  test("steer.queued/drained 载荷可携带 source 三值；缺省兼容老事件", () => {
+    const queued: SteerQueuedPayload = { entryId: "e1", source: "closure" };
+    const drained: SteerDrainedPayload = { entryId: "e1", source: "progress" };
+    const legacy: SteerQueuedPayload = { entryId: "e2" }; // 老形状（无 source）仍合法
+    expect(queued.source).toBe("closure");
+    expect(drained.source).toBe("progress");
+    expect(legacy.source).toBeUndefined();
+  });
+
+  test("MessageEntryDto.source：closure 注入 idle 落的 user 条目携带来源", () => {
+    const entry: MessageEntryDto = {
+      kind: "message",
+      id: "e3",
+      role: "user",
+      content: "agent-1 closure: done — 完成",
+      ts: 0,
+      source: "closure",
+    };
+    expect(entry.source).toBe("closure");
+  });
 });

@@ -146,7 +146,8 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       return {
         v: PROTOCOL_VERSION,
         type: event.type,
-        payload: { entryId: p.entryId },
+        // source 透传（T11a：user/closure/progress 三值；老载荷缺省不携带键）
+        payload: { entryId: p.entryId, ...(p.source !== undefined ? { source: p.source } : {}) },
       };
     }
 

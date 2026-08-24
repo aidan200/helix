@@ -34,12 +34,13 @@ export interface AgentLifecycleRow {
   readonly updated_at: string;
 }
 
-/** steer_queue 行（seq 即入队序）。 */
+/** steer_queue 行（seq 即入队序；source 可空——列前时代旧行 NULL = 缺省 user 语义）。 */
 export interface SteerQueueRow {
   readonly seq?: number;
   readonly session_id: string;
   readonly entry_id: string;
   readonly text: string;
+  readonly source: string | null;
 }
 
 /** tool_calls 行（args 为 JSON 文本；result/error/时间可空；挂实例归属）。 */

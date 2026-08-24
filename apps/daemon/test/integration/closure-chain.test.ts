@@ -258,7 +258,7 @@ describe("③ 用户 steer 与 closure 注入混序 FIFO（同队列按序 drain
       "用户补充：注意边界情况",
       "agent-1 closure: done — 调研完成",
     ]);
-    expect(pending[0]?.source).toBeUndefined(); // 用户 steer 保持旧形状
+    expect(pending[0]?.source).toBe("user"); // 用户 steer 来源显式标记（T11a）
     expect(pending[1]?.source).toBe("closure"); // closure 注入来源可区分（AD-8）
 
     // drain 按序消费（one-at-a-time，每条独占一 turn）→ run 结束
