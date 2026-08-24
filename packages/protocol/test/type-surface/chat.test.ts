@@ -43,9 +43,9 @@ type _MessageEntrySource = Expect<
 >;
 
 describe("chat：chat.steer 定向寻址（源 TP-v0.3-①）", () => {
-  test("CL-3 instanceId：定向寻址 / 缺省主实例两形态（dispatch 窄化消费）", () => {
+  test("CL-3 instanceId：定向寻址 / 缺省主实例两形态（dispatch 窄化消费；命令侧缺省路由，T10 起按 main kind 判别）", () => {
     expect(steerTargeted.payload.instanceId).toBe("agent-1");
-    expect(steerMainDefault.payload.instanceId).toBeUndefined(); // 缺省 = 主实例
+    expect(steerMainDefault.payload.instanceId).toBeUndefined(); // 缺省 = 主实例（命令侧缺省路由语义）
     expect(dispatchCommand(steerTargeted)).toBe("steer:定向注入 agent-1:agent-1");
     expect(dispatchCommand(steerMainDefault)).toBe("steer:主实例缺省路径:main");
   });

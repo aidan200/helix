@@ -94,9 +94,19 @@ describe("envelope：信封分型/版本位/兼容红线/预留与路由位（�
     }
   });
 
-  test("信封 instanceId：事件侧可携带；缺省 = 主实例（AD-3）", () => {
+  test("信封 instanceId：T10 起写侧全实例显式携带（main 同为 agent-<唯一串>）；缺省 = legacy 主实例读侧推断（§10.1/§17.11）", () => {
     expect(subAgentDelta.instanceId).toBe("agent-1");
-    expect(legacyEvents[0]?.instanceId).toBeUndefined();
+    expect(legacyEvents[0]?.instanceId).toBeUndefined(); // 历史 v0 帧：缺省 = legacy 主实例（读侧推断保留，写侧不再产出）
+    // T10 现行契约钉：main 实例事件同样显式携带 agent-<唯一串>（写侧不再依赖省略优化）
+    const mainDelta: EventEnvelope = {
+      v: PROTOCOL_VERSION,
+      sessionId: "sess-1",
+      channel: "chat",
+      instanceId: "agent-3f9c0d2e7a1b4f608d5e9c2a1b0f7d38",
+      type: "chat.stream.delta",
+      payload: { messageId: "m1", delta: "主线增量" },
+    };
+    expect(mainDelta.instanceId).toMatch(/^agent-[0-9a-f]+$/); // main 写侧显式携带唯一串
   });
 
   test("PROTOCOL_VERSION / MAIN_INSTANCE_ID / SYSTEM_SESSION_ID 导出就位", () => {

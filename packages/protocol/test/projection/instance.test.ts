@@ -18,7 +18,9 @@ import type { EntryDto, ThinkingEntryDto, MessageEntryDto, ToolCallEntryDto } fr
  * - entrySortKey = daemon EntryDtoMapper.entrySortKey ↔ shell snapshot.ts
  *   entryTimelineKey 两份同构实现的共同语义（message/tool = ts；
  *   thinking/compaction = Date.parse(createdAt)）；
- * - isMainInstance = 信封 instanceId 缺省语义（契约 §3：缺省 = main）。
+ * - isMainInstance = 信封 instanceId 缺省语义（§10.1/§17.11 T10：缺省或
+ *   字面 "main" = legacy 主实例读侧推断；现行写侧全实例显式携带
+ *   agent-<唯一串>，main 归属判别走 kind）。
  */
 
 const msg = (id: string, ts: number, instanceId?: string): MessageEntryDto => ({
@@ -66,7 +68,7 @@ const anchorEntry = (id: string, instanceId?: string, kind?: string): AnchorScan
 });
 
 describe("instance 域：主实例归属判定（契约 §3 缺省语义）", () => {
-  test("isMainInstance：undefined 缺省 = main；main = true；其余 = false", () => {
+  test("isMainInstance（legacy 读侧推断）：undefined 缺省 / 字面 \"main\" = true；其余（含 agent-<唯一串>）= false", () => {
     expect(isMainInstance(undefined)).toBe(true);
     expect(isMainInstance("main")).toBe(true);
     expect(isMainInstance("agent-1")).toBe(false);
