@@ -11,7 +11,8 @@
  * 行为规则：
  * - F(3.3).1 分组渲染（provider 序沿目录）+ 当前高亮 + 搜索过滤（命中
  *   模型名/provider 名；零命中空态与列表互斥；清空恢复）；
- * - F(3.3).2 选中即切 + 不关菜单（连续比对）+ in-flight 提示文案；
+ * - F(3.3).2 选中即切 + 选中即关（T9，用户拍板 B 方案，推翻 2015f0e
+ *   旧设计：pick 末尾调 onClose）+ in-flight 提示文案；
  * - F(3.3).3 重置为默认：会话模型 ≠ 全局默认时显示（相等隐藏）；
  * - T5.3 可用性口径（用户裁决，覆盖原型“全目录”）：打开补发 auth.list；
  *   仅显示 provider configured 的模型（verifyStatus 不参与）；当前会话
@@ -110,10 +111,11 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose }: ModelSwitchMenuPro
   // F(3.3).3：会话模型 ≠ 全局默认才显示重置入口（相等隐藏）
   const showReset = mc.defaultModel !== "" && !sameModel(currentModel, mc.defaultModel);
 
-  /** F(3.3).2 选中即切：发 model.set + toast 交代；不关菜单（连续比对）。 */
+  /** F(3.3).2 选中即切：发 model.set + toast 交代；选中即关（T9，B 方案）。 */
   const pick = (model: string, label: string) => {
     setSessionModel(model);
     toast.push("ok", t("chat.modelSwitch.switchedToast", { model: label }));
+    onClose();
   };
 
   return (

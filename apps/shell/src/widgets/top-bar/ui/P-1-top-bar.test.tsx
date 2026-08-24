@@ -197,5 +197,24 @@ describe("P-1 顶栏草稿态模型徽标（T3，bug4）", () => {
     // 菜单在草稿态可 pick：点击目标模型 → setSessionModel（草稿本地暂存链入口）
     fireEvent.click(document.querySelector('[data-model-item="openai/gpt-5"]')!);
     expect(setSessionModel).toHaveBeenCalledWith("openai/gpt-5");
+    // T9（B 方案）：选中即关——pick 末尾调 onClose，装配层 menuOpen=false 菜单卸载
+    expect(document.querySelector("[data-model-menu]")).toBeNull();
+  });
+
+  it("T9（B 方案）：resetToDefault 同样选中即关（setSessionModel(默认) + onClose）", () => {
+    stateRef.current = draftState("openai/gpt-5");
+    topologyRef.current = topologyWith("anthropic/claude-sonnet-4-5", [
+      catalogModel("anthropic/claude-sonnet-4-5"),
+      catalogModel("openai/gpt-5"),
+    ]);
+    ui();
+    fireEvent.click(document.querySelector("[data-model-badge]")!);
+    // 会话模型 ≠ 全局默认 → 重置入口显示
+    const resetBtn = document.querySelector("#btn-model-reset")!;
+    expect(resetBtn).not.toBeNull();
+    fireEvent.click(resetBtn);
+    expect(setSessionModel).toHaveBeenCalledWith("anthropic/claude-sonnet-4-5");
+    // 选中即关：菜单卸载（onClose 经装配层置 menuOpen=false）
+    expect(document.querySelector("[data-model-menu]")).toBeNull();
   });
 });

@@ -152,7 +152,7 @@ describe("T4 IconRail 联网状态钮（契约 v0.7 web 族）", () => {
     fireEvent.click(document.querySelector("#btn-web-status")!);
     fireEvent.click(document.querySelector("#btn-web-stop")!);
     expect(onStopWeb).toHaveBeenCalledTimes(1);
-    // 停止后 popover 保持打开（model-switch 选中不关菜单先例；idle 回流经广播驱动）
+    // 停止后 popover 保持打开（idle 回流经广播驱动；T9 后 model-switch 已改选中即关，不再为先例）
     expect(document.querySelector(".web-pop")).not.toBeNull();
     // Esc 关闭
     fireEvent.keyDown(document, { key: "Escape" });
