@@ -264,7 +264,14 @@ export class EventStream implements EventPublisherPort {
     // channel 判别（缺省通道 = chat；thinking 通道同构）
     const sessionId = delta.sessionId ?? this.deps.defaultSessionId;
     if (delta.channel === "thinking") {
-      const instanceId = delta.instanceId ?? "main";
+      // T10a/T10d wire 归属编码一致性：thinking delta 载荷/信封 instanceId 与
+      // thinking.completed 的 entry.instanceId 同一编码——主实例归一 legacy
+      // “main”（wireMainAware 同规），否则 shell thinkingStreams 槽位键与
+      // completed 清除键错位（hex vs "main"），think-live/cursor 永挂（R4 实锤）。
+      const raw = delta.instanceId;
+      const mainId = this.deps.mainInstanceIdFor?.(sessionId);
+      const isMain = raw === undefined || raw === mainId || raw === "main";
+      const instanceId = isMain ? "main" : raw!;
       const frame: ThinkingStreamDeltaEvent = {
         v: PROTOCOL_VERSION,
         ...(sessionId !== undefined ? { sessionId } : {}),

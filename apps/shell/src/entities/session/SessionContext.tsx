@@ -260,7 +260,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
     // ts 随 action 注入（重放确定性：同序列同帧；channel 时间戳展示面，T4.3）
     const offFrame = client.onFrame((event) => {
-      if (applySubscriptionSideEffects(event)) return; // 吞帧（monitor 档 ack 快照）
+      // TEMP-PROBE: T10d R4 红点定位（临时插桩，跑完即撤）
+      // eslint-disable-next-line no-console
+      console.debug(
+        "[PROBE]",
+        event.type,
+        event.sessionId?.slice(0, 8) ?? "-",
+        event.instanceId?.slice(0, 12) ?? "-",
+        (event.payload as { entry?: { role?: string; instanceId?: string } })?.entry?.role ?? "",
+        (event.payload as { entry?: { role?: string; instanceId?: string } })?.entry?.instanceId?.slice(0, 12) ?? "",
+      );
+      if (applySubscriptionSideEffects(event)) return; // 吊帧（monitor 档 ack 快照）
       // trace 族点对点回执转发（T2.2）：页面私有 reducer 消费；dispatcher 侧
       // 保持 no-op 注册（守护绿），会话 store 零写入
       if (event.type === "trace.query.result" || event.type === "connection.error") {
@@ -279,6 +289,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (event.type === "session.snapshot") {
         const prev = topologyRef.current.active;
         const staged = prev.sessionId === null ? prev.thinking.override : null;
+        // TEMP-PROBE2: 快照 instances dump
+        const ins = (event.payload as { snapshot?: { instances?: { instanceId: string; kind: string }[] } }).snapshot?.instances ?? [];
+        // eslint-disable-next-line no-console
+        console.debug("[PROBE-SNAP]", event.sessionId?.slice(0, 8), ins.map((i) => i.kind + ":" + i.instanceId.slice(0, 10)).join(","), "entries:", (event.payload as { snapshot?: { entries?: unknown[] } }).snapshot?.entries?.length);
         dispatch({ type: "event", event, ts: Date.now() });
         if (staged !== null) {
           client.send(thinkingSetCommand(staged, event.payload.snapshot.sessionId));
