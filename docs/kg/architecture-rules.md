@@ -30,7 +30,7 @@ updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
-daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号——唯一例外 @helix/common：业务无关通用常量/纯工具经 AG-02① 白名单显式允许直引，@helix/protocol 与 pi 系仍禁，iter-20260821-dg90 AD-1）→ application/（ports/ 按 inbound/outbound 双向组织——inbound：AgentOrchestrationPort、SystemPort、ChatPort、ResourceConfigPort、SessionPort、ModelPort、SessionDirectoryPort 等（接口由 service 或组合根实现）；outbound：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort、AuthStorePort、DefaultModelPort、ModelCatalogPort、BrowserPort、ResourceStatePort、SkillSourcePort 生效 11 个（由 service 调用；双向清单详见 TR-AD-2，iter-20260822-m1uc 终验 L3 复核校正计数：实有 11 个生效 outbound port 与清单一致）+ services/：ChatService、SessionService、RestoreService、SchedulerService；只依赖 domain 与自有 port + 白名单三项（@helix/common——业务无关通用层直引，AD-1/iter-20260821-dg90；@helix/protocol——协议类型与纯投影消费（MAIN_INSTANCE_ID 唯一定义已迁 @helix/common，protocol 为 re-export 通道，AG-13 取源断言语义同步）；node:path——scheduler/ClosureRecorder 产物路径；以守护 AG-02② 白名单为准，iter-20260821-dg90 扩为三项），禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、subagent（SubAgent 子进程 launcher/child/transport）、static-serve、cdp（BrowserPort 的 CDP 实现域：CdpConnectionManager/browser-discovery/TabRegistry，零 pi import、不入 AG-04 三根——iter-20260821-dg90 终验 L3 复核补枚举），实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点；组合根锚面 = container.ts + infrastructure/assembly/**——命名装配函数族 buildPersistence/buildModelStack/buildSessionStack/wireEventFanout 落 assembly/ 目录，iter-20260821-dg90 H2.2 拆分，AG-02④ 豁免面同步扩为该锚面）。新增代码先定层再写文件。
+daemon 采用 DDD 六边形架构，固定四层目录与单向依赖：domain/（纯业务：会话聚合、轮次生命周期、steer/abort 语义、工具调用模型、workspace 分组；framework-free，禁止 import 外层任何模块与 pi 库符号——唯一例外 @helix/common：业务无关通用常量/纯工具经 AG-02① 白名单显式允许直引，@helix/protocol 与 pi 系仍禁，iter-20260821-dg90 AD-1）→ application/（ports/ 按 inbound/outbound 双向组织——inbound：AgentOrchestrationPort、SystemPort、ChatPort、ResourceConfigPort、SessionPort、ModelPort、SessionDirectoryPort 等（接口由 service 或组合根实现）；outbound：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort、AuthStorePort、DefaultModelPort、ModelCatalogPort、BrowserPort、ResourceStatePort、SkillSourcePort、RuntimeConfigPort 生效 12 个（由 service 调用；双向清单详见 TR-AD-2，task-20260824-p1-mode P1 后实有 12 个：iter-20260822-m1uc 终验 L3 复核校正为 11，P1 新增 RuntimeConfigPort）+ services/：ChatService、SessionService、RestoreService、SchedulerService；只依赖 domain 与自有 port + 白名单三项（@helix/common——业务无关通用层直引，AD-1/iter-20260821-dg90；@helix/protocol——协议类型与纯投影消费（MAIN_INSTANCE_ID 唯一定义已迁 @helix/common，protocol 为 re-export 通道，AG-13 取源断言语义同步）；node:path——scheduler/ClosureRecorder 产物路径；以守护 AG-02② 白名单为准，iter-20260821-dg90 扩为三项），禁止 import adapters 与 pi 库）→ adapters/（driving/：ws-server、cli，调用 inbound port；driven/：pi-engine 防腐封装、sqlite-session、tools、subagent（SubAgent 子进程 launcher/child/transport）、static-serve、cdp（BrowserPort 的 CDP 实现域：CdpConnectionManager/browser-discovery/TabRegistry，零 pi import、不入 AG-04 三根——iter-20260821-dg90 终验 L3 复核补枚举），实现 outbound port；adapter 之间禁止互相 import 绕过 application）→ infrastructure/（组合根：装配、配置、日志、进程生命周期；唯一允许 import 全部层的装配点；组合根锚面 = container.ts + infrastructure/assembly/**——命名装配函数族 buildPersistence/buildModelStack/buildSessionStack/wireEventFanout 落 assembly/ 目录，iter-20260821-dg90 H2.2 拆分，AG-02④ 豁免面同步扩为该锚面）。新增代码先定层再写文件。
 
 ## 理由
 六边形与 daemon「唯一事实源 + 端口适配」职责天然契合——pi 引擎/SQLite/WS 都是可替换端口（AD-12）；单向依赖保证防腐：换引擎、换存储、换前端均不动 domain 与 application（AD-17）；业务逻辑 framework-free 才能零依赖单测。iter-20260821-dg90 两处扩张均为机械跟随非语义反转：domain 白名单开 @helix/common 例外是 AD-1 裁决——MAIN_INSTANCE_ID 双源即本规则「取源单点」条款与 AG-02 domain 禁令内战的产物，解法 = 引入两者之下都合法的最小公共层（规则全文见 TR-AD-28）；组合根锚面从单文件扩为目录是 H2.2 四命名装配函数拆分的落位配套（组合根「唯一允许 import 全部层、new 具体实现」语义不变，container <500 行目标的结构前提）。
@@ -64,11 +64,11 @@ relations:
     - E-领域事件与单写队列
     - E-会话聚合
     - E-AgentRuntime
-updatedIn: iter-20260822-m1uc
+updatedIn: task-20260824-p1-mode
 ```
 
 ## 规则
-application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 或组合根实现——AgentOrchestrationPort 由 SchedulerService 实现、经 driven 编排工具（agent_spawn/send/status）回口调用；SystemPort 由组合根内联实现、driving ws-server 调用；ModelPort 由 ModelService 实现、SessionDirectoryPort 由 SessionRegistry 实现（T2.3 模型模块新增）；ChatPort 由 ChatService 实现、ResourceConfigPort 由 ResourceService 实现、SessionPort 由 SessionService 实现（iter-20260821-dg90 终验 L3 复核补枚举））与 outbound/（出口端口生效 11 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort、AuthStorePort、DefaultModelPort、ModelCatalogPort + BrowserPort、ResourceStatePort、SkillSourcePort，由 service 调用（iter-20260822-m1uc 终验 L3 复核校正计数：11 名清单与代码实有 11 个 port 文件一致）；SystemPort 自创建起即位于 inbound/；守护测试断言 ports 文件数 ≥9 为下限断言、与 11 兼容）。outbound port 的实现允许四类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）、infrastructure 纯技术文件 port（AuthStore——纯文件读写无 driving/driven 语义，落 infrastructure/auth-store.ts，AG-06③ 原子写白名单显式列名，与 dev-token/config 同类）、application service（EventPublisherPort 的会话投影实现 SessionProjection——fan-out 投影目标，经 container 装配进 publisherTargets，服务消费面 = 组合根内联 fanout，iter-20260820-qhv8 终验补记）；PathsPort 已删除（iter-20260820-qhv8 F-7 死代码清理，零实现零消费）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
+application/ports/ 按方向分两个子目录：inbound/（入口端口：接口由 service 或组合根实现——AgentOrchestrationPort 由 SchedulerService 实现、经 driven 编排工具（agent_spawn/send/status）回口调用；SystemPort 由组合根内联实现、driving ws-server 调用；ModelPort 由 ModelService 实现、SessionDirectoryPort 由 SessionRegistry 实现（T2.3 模型模块新增）；ChatPort 由 ChatService 实现、ResourceConfigPort 由 ResourceService 实现、SessionPort 由 SessionService 实现（iter-20260821-dg90 终验 L3 复核补枚举））与 outbound/（出口端口生效 12 个：AgentEnginePort、SessionRepositoryPort、ToolExecutorPort、EventPublisherPort、ClockPort、AuthStorePort、DefaultModelPort、ModelCatalogPort + BrowserPort、ResourceStatePort、SkillSourcePort + RuntimeConfigPort（task-20260824-p1-mode 新增：通用运行时配置 KV 出站口，DefaultModelPort 保留为 KV 上 default_model 键的语义包装，调用面零改动），由 service 调用（iter-20260822-m1uc 终验 L3 复核校正计数 11，P1 后实有 12 个 port 文件）；SystemPort 自创建起即位于 inbound/；守护测试断言 ports 文件数 ≥9 为下限断言、与 12 兼容）。outbound port 的实现允许四类落位：driven adapter（pi-engine/sqlite-session/tools）、driving adapter（通知方向的标准形态——EventPublisherPort 的实现 EventStream/StdoutEventPublisher 落 driving 侧）、组合根内联（ClockPort 等纯技术 port 由 container 装配期实现）、infrastructure 纯技术文件 port（AuthStore——纯文件读写无 driving/driven 语义，落 infrastructure/auth-store.ts，AG-06③ 原子写白名单显式列名，与 dev-token/config 同类）、application service（EventPublisherPort 的会话投影实现 SessionProjection——fan-out 投影目标，经 container 装配进 publisherTargets，服务消费面 = 组合根内联 fanout，iter-20260820-qhv8 终验补记）；PathsPort 已删除（iter-20260820-qhv8 F-7 死代码清理，零实现零消费）。port 文件只允许接口定义（类型与方法签名），不允许出现任何实现代码、工厂函数或实例化；port 契约的参数/返回类型只用 domain 模型或 port 自有类型（protocol DTO 转换发生在 ws-server adapter，见模型隔离规则）。
 
 ## 理由
 port 是 adapter↔application 两个方向的唯一衔接契约（AD-17 条 2/3）；契约里混入实现即产生第二事实源，driving/driven 的可替换性（换 WS、换引擎、换存储）即刻失效。
@@ -214,21 +214,22 @@ anchors:
     - apps/daemon/test/unit/config.test.ts
     - apps/daemon/test/unit/auth-store.test.ts
     - apps/daemon/test/arch-guard/arch-guard.test.ts
+    - apps/daemon/test/integration/default-model.test.ts
 relations:
   governs:
     - E-领域事件与单写队列
     - E-认证凭据
-updatedIn: iter-20260823-6ps5
+updatedIn: task-20260824-p1-mode
 ```
 
 ## 规则
-~/.helix 是 daemon 唯一配置/数据/日志主目录，全部自有状态进 home，不用环境变量：config.json（daemon 配置面：端口、调度预算等——T2.3 瘦身后模型数据面已迁出：provider API keys → auth.json、默认模型 → helix.db default_model 表、模型目录缓存 → models-store.json，旧格式幂等迁移）、auth.json（provider 凭据，0600，格式见 TR-AD-7）、dev-token（CL-6）、logs/、helix.db（SQLite WAL）、models-store.json（ModelCatalog 落盘兑底）。所有业务路径解析收束于 infrastructure/paths.ts 单一模块：home 展开的跨平台处理、各文件相对 home 的定位；新增 auth.json/models-store 路径必须经 paths.ts 单点派生；支持可选 --home <dir> 启动参数覆盖（测试指向 tmp 目录用）。任何模块不得自行拼接 ~/.helix 子路径，也不得经环境变量取配置——两条例外族：①跨进程启动参数注入面（壳 → daemon 的 bundle 资源定位产物，本期 HELIX_RG_PATH；及 rg 三级解析探测对象 PATH）：读取收束于组合根 container.ts 单点，合法键集合由 arch-guard AG-08 机械断言；②subagent 父子进程 env IPC 面（adapters/driven/subagent/ 全目录：SubagentLauncher 写入 HELIX_* 定格快照 → ChildMain 子进程读取消费——传输通道非配置源，iter-20260823-6ps5 终验 L3 复核补登，ChildMain.ts:147-163 直读 7+ HELIX_* 键合法，AG-08 白名单第二族）。两族新增键须同批扩守护断言与本款清单，工具/业务代码（两白名单外）维持零 process.env（AF-2）；壳零参与路径解析（需要业务路径时向 daemon 查询；壳仅保留自身 bundle 资源定位）。
+~/.helix 是 daemon 唯一配置/数据/日志主目录，全部自有状态进 home，不用环境变量：config.json（daemon 配置面：端口、调度预算等——T2.3 瘦身后模型数据面已迁出：provider API keys → auth.json、默认模型 → helix.db runtime_config KV 表（default_model 键，P1 task-20260824-p1-mode：独占单行表退役，D1/D2 裁决 KV 化 + 启动幂等迁移，后续 last_mode 等运行时键复用同一底座）、模型目录缓存 → models-store.json，旧格式幂等迁移）、auth.json（provider 凭据，0600，格式见 TR-AD-7）、dev-token（CL-6）、logs/、helix.db（SQLite WAL）、models-store.json（ModelCatalog 落盘兑底）。所有业务路径解析收束于 infrastructure/paths.ts 单一模块：home 展开的跨平台处理、各文件相对 home 的定位；新增 auth.json/models-store 路径必须经 paths.ts 单点派生；支持可选 --home <dir> 启动参数覆盖（测试指向 tmp 目录用）。任何模块不得自行拼接 ~/.helix 子路径，也不得经环境变量取配置——两条例外族：①跨进程启动参数注入面（壳 → daemon 的 bundle 资源定位产物，本期 HELIX_RG_PATH；及 rg 三级解析探测对象 PATH）：读取收束于组合根 container.ts 单点，合法键集合由 arch-guard AG-08 机械断言；②subagent 父子进程 env IPC 面（adapters/driven/subagent/ 全目录：SubagentLauncher 写入 HELIX_* 定格快照 → ChildMain 子进程读取消费——传输通道非配置源，iter-20260823-6ps5 终验 L3 复核补登，ChildMain.ts:147-163 直读 7+ HELIX_* 键合法，AG-08 白名单第二族）。两族新增键须同批扩守护断言与本款清单，工具/业务代码（两白名单外）维持零 process.env（AF-2）；壳零参与路径解析（需要业务路径时向 daemon 查询；壳仅保留自身 bundle 资源定位）。
 
 ## 理由
 单一事实源原则的文件系统延伸；daemon 全局单例（AD-7）与全局 home 目录天然对应；dev 期壳缺席（AD-8）而路径逻辑放壳会造成 dev/打包双轨（AD-14）；路径解析收束一处才 framework-free 可测试；模型数据面迁出 config.json 是 AD-2 落地（T2.3）的文件布局面。env 例外款（AF-2，iter-20260822-m1uc）：壳的 bundle 资源定位职责（TR-AD-10）产物须跨进程送达 daemon，而 stdio 只走生命周期信号，argv/env 是唯一合法启动面通道；不收束组合根单点则 env 读取散落 = 本规则要消灭的配置源分裂回潮。第二豁免族（iter-20260823-6ps5 终验 L3 复核补登）：subagent 父子 IPC 是传输通道非配置源——与第一族「启动面注入」同理，值均为 daemon 侧已定形的定格快照，子进程只是消费端；AG-08 守护白名单与实现一致，仅规则文本滞后。
 
 ## 适用范围
-CL-1 配置模块设计、CL-6 token 落点、CL-8 db 路径、测试注入 home 目录；任何新增自有状态文件的落点决策；模型模块（auth.json/models-store.json/default_model）文件布局评审；新增壳→daemon env 注入参数（跨进程启动面）评审与 AG-08 守护维护；subagent 父子 env 透传键新增（HELIX_* 定格值族）评审；container.ts 装配改动评审。
+CL-1 配置模块设计、CL-6 token 落点、CL-8 db 路径、测试注入 home 目录；任何新增自有状态文件的落点决策；模型模块（auth.json/models-store.json/runtime_config KV 表）文件布局评审；新增壳→daemon env 注入参数（跨进程启动面）评审与 AG-08 守护维护；subagent 父子 env 透传键新增（HELIX_* 定格值族）评审；container.ts 装配改动评审。
 
 ## 反例
 ws-server adapter 里自己写 path.join(os.homedir(), '.helix', 'dev-token') 读 token，或用 process.env.HELIX_DB 指定数据库路径——绕过 paths.ts 单点，--home 覆盖对它失效；或 auth-store 自行拼接 ~/.helix/auth.json 路径而不经 paths.ts；或 rg-backend.ts 直接 process.env.HELIX_RG_PATH 取值——env 读取散落出组合根单点，AG-08 红；或在 subagent/ 白名单目录外（如 services 层）读 HELIX_THINKING_LEVEL——第二豁免族读取限该目录，越出即 AG-08 红。
@@ -1959,3 +1960,49 @@ updatedIn: task-20260824-thinking-unify
 
 ## 反例
 用文本前缀（"agent-N closure:"）做显示判别（协议 source 字段权威）；改用户 steer 既有 violet 形态（回归风险）；徽标族混用同一色系变体（三来源须一眼可辨）。
+
+```kg-node
+id: TR-AD-49
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: fullstack
+name: 会话模式机制（绑定/锁定/过程信息边界/扩展路线）
+status: active
+digest: 加模式、动 session.mode 语义、动模式切换入口、做 P2 阶段迭代或 P3 工作流编排、动模式过程信息存储时
+derivedFrom:
+  - P1 设计对话用户裁决序列（task-20260824-p1-mode：D3 仅草稿可切唯一入口 / D4 锁定=结构不可能 / D6 过程信息临时性）
+anchors:
+  implementedBy:
+    - packages/protocol/src/modes.ts
+    - apps/daemon/src/application/services/modes.ts
+    - apps/daemon/src/application/services/SessionRegistry.ts
+    - apps/daemon/src/infrastructure/assembly/buildSessionStack.ts
+    - apps/shell/src/entities/session/model/state.ts
+    - apps/shell/src/widgets/top-bar/ui/P-1-top-bar.tsx
+  testedBy:
+    - packages/protocol/test/type-surface/modes.test.ts
+    - apps/daemon/test/unit/modes.test.ts
+    - apps/daemon/test/unit/chat-send-mode.test.ts
+    - apps/daemon/test/unit/session-registry-draft.test.ts
+    - apps/shell/src/entities/session/model/session-mode.test.ts
+    - apps/shell/src/entities/session/SessionContext.mode.test.tsx
+relations:
+  governs:
+    - E-AgentProfile
+    - E-会话聚合
+updatedIn: task-20260824-p1-mode
+```
+
+## 规则
+会话模式 = session 与 agent 绑定的一等概念，注册表唯一事实源在 @helix/protocol（modes.ts：MODES/ModeId/DEFAULT_MODE_ID；ModeSpec.kind = single|staged|orchestrated 三值联合，staged 带 stages 序列——P2 phase/P3 workflow 不返工；mode wire 面一律 string + 未知 fallback default，类型层不锁死联合使 fallback 可表达；daemon 解析单点 application/services/modes.ts，domain 层禁 protocol 故不落 domain）。锁定语义 = 结构不可能（非校验拒绝）：草稿切换唯一入口 = shell ui/set-draft-mode（仅草稿生效 + 同步丢弃 draft model/thinking 暂存），唯一上送点 = chat.send{draft:true,mode}（非 default 才带，减少帧噪音），daemon 唯一消费点 = startDraftSession；建会话定格 session_state.mode（可空列 + 守护式补列 + 恢复侧 resolveModeId 归一旧行 default）+ 快照/welcome 只读回带；无 mode.set 命令，非草稿链（信封带 sessionId）payload.mode 忽略。热草稿转正复用条件 = 零条目 && profileKindOf(mode) 一致，不一致丢弃重建走 createFresh（零条目草稿无成本；复用零条目前提不因一致弱化——sendMessage 同步落聚合使转正后必有内容）。过程信息边界（D6）：模式过程信息（P2 迭代空间/P3 工作流空间、阶段交接摘要）= session 级临时态（daemon 会话聚合内存+事件流），会话结束销毁、不落 workspace 文件、不建持久表；跨会话沉淀归未来「项目知识图谱」（随更改动态更新）——过程空间永不自带持久层，本边界约束 P2/P3 设计。shell 读面：header 模式选择器（草稿可切/已建只读，MODES 数据驱动；chat.header.session 静态词条退役）；草稿模型徽标三级回退 = 本地暂存 ?? 模式槽位模型 ?? 全局默认；thinking picker 草稿刻度基准 = 槽位模型能力位、显示值 = 本地暂存 ?? 槽位 thinking ?? 默认关；模式槽位读面 = agentConfig.slots（agent.config.list.result 真消费提升的 topology 读面，connected 初拉 + revision 失效重拉，不新建第三条平行配置读面）；已建会话语义零侵染（P-3 菜单与 thinking.set 覆盖链不动）。
+
+## 理由
+绑定硬编码（profileKind 写死 main-session）使「换 agent 形态」只能改代码；模式注册表把它变成数据。锁定用结构不可能而非校验：无第二条写路径 = 无竞态无拒绝分支无 UI/协议双面校验，快照回带天然只读。过程信息临时性（D6 用户裁决）：「需要持久化的信息都在知识图谱」——过程中值得留的早该沉淀进图谱，session 级易失是特性不是缺陷，与「切换 agent 只拿上阶段摘要」的收缩哲学一致。扩展路线：P2 phase = staged 三阶段 agent（design/build/verify），阶段切换 = main 实例收口换新实例（同 session 新 profileKind，F1.9 一等创建/销毁天然支持）+ 交接摘要注入新实例初始上下文（closure summary 形态；时机倾向 T1 切换时收口生成，P2 定稿），欢迎词走前端 i18n 渲染不进 context；P3 workflow = orchestrated 编排者常驻（node = agent/逻辑节点，循环/并行/分支/节点退出复用既有 agent_spawn/send/status + closure 协议），与 P2 共用过程空间基础设施。协议版本位不随 P1 bump（additive + §18 微批登记，bump 决策留批次集合标记）。
+
+## 适用范围
+新增模式（注册表条目 + profile + 前端词条）时；动 session.mode 语义/切换入口/持久化时；P2 阶段迭代、P3 工作流编排设计时（过程信息边界硬约束）；动模式槽位读面/草稿显示链时；chat.send draft 链 payload 演进时。
+
+## 反例
+为已建会话提供任何 mode 写路径（mode.set 命令、非草稿链消费 payload.mode——锁定语义即告破坏，唯一例外是 P2 阶段切换的显式新命令且须另行裁决）；mode wire 面用联合类型锁死（未知 fallback default 不可表达，旧 daemon/旧客户端破面）；为模式过程信息建持久表或落 workspace 文件（D6 红线——持久归知识图谱）；daemon/shell 各建一份注册表（AG-13 同构纪律，唯一事实源 protocol）；草稿显示链绕过槽位读面直查 ResourceService（第三条平行配置读面）。

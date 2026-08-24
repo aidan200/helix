@@ -2,6 +2,10 @@
 
 ## pending
 
+## deferred
+
+## applied
+
 ### TR-AD-6
 - changeType: 修改
 - targetNode: TR-AD-6
@@ -13,6 +17,7 @@
 - implementedCode: apps/daemon/src/adapters/driven/sqlite-session/RuntimeConfigStore.ts（新增）；schema.ts（runtime_config 建表 + default_model 停建）；WriteQueue.ts（KV job + :553 旧表迁移）；application/ports/outbound/RuntimeConfigPort.ts（新增）；DefaultModelStore.ts（KV 包装改写）；infrastructure/assembly/buildPersistence.ts（装配）
 - sourceTask: task-T1（default-coder agt_XRNQTP99EM2A 超时未闭环 + MainAgent 复核验收，2026-08-24）
 - createdIn: task-20260824-p1-mode
+- decisionLog: 用户裁决「apply吧」（2026-08-24）——节点正文直写（规则/适用范围 default_model 表述 → runtime_config KV 表；testedBy 补 default-model.test.ts；updatedIn 刷新）
 
 ### TR-AD-2-r2
 - changeType: 修改
@@ -25,6 +30,7 @@
 - implementedCode: apps/daemon/src/application/ports/outbound/RuntimeConfigPort.ts（新增，port 文件只放接口）；apps/daemon/src/adapters/driven/sqlite-session/RuntimeConfigStore.ts（实现，落位与 DefaultModelStore 同构）
 - sourceTask: task-T1（default-coder agt_XRNQTP99EM2A + MainAgent 复核验收，2026-08-24）
 - createdIn: task-20260824-p1-mode
+- decisionLog: 用户裁决「apply吧」（2026-08-24）——节点正文直写（outbound 清单 11 → 12 补 RuntimeConfigPort；TR-AD-1 节点内镜像枚举同批纠正）
 
 ### E-AgentProfile-r3
 - changeType: 修改
@@ -37,8 +43,9 @@
 - implementedCode: apps/daemon/src/application/services/modes.ts（resolveModeId/profileKindOf 单点）；apps/daemon/src/infrastructure/assembly/buildSessionStack.ts（engineFor(sessionId, mode?) 槽位参数化）；apps/daemon/src/application/services/SessionRegistry.ts（startDraftSession mode 参 + 复用条件 + 实例创建）；sqlite-session schema.ts/WriteQueue.ts/rows/RowMapper.ts（mode 列）+ RestoreService.ts:110-112（归一）
 - sourceTask: task-T3（default-coder agt_2VAXTR1J1YB5 半途死亡 + agt_T2PPM81MYDK5 续作闭环，2026-08-24）
 - createdIn: task-20260824-p1-mode
+- decisionLog: 用户裁决「apply吧」（2026-08-24）——节点正文直写（描述/规则/关系三段补模式注册表驱动；顺带纠正 TR-AD-24-r3 两级链与 TR-AD-40-r4 默认关在本节点的滞后残留——四级→两级、兜底 medium→默认关、默认模型存储→runtime_config 键）
 
-### AD-default-20260824-5
+### TR-AD-49
 - changeType: 新增
 - scope: docs/kg/architecture-rules.md（技术规则新增——会话模式机制：绑定/锁定语义/过程信息边界/扩展路线/shell 读面）
 - project: helix
@@ -48,10 +55,7 @@
 - implementedCode: packages/protocol/src/modes.ts（注册表）；apps/daemon/src/application/services/modes.ts（解析单点）；apps/shell/src/entities/session/model/state.ts:364-371,437-442（SessionState.mode + ui/set-draft-mode）；consumers/agent-config.ts:53-69（slots 读面）+ consumers/snapshot.ts/conn.ts（收权）；widgets/top-bar/ui/P-1-top-bar.tsx:41-134（ModeChip）+ :174-199（三级徽标回退）；features/thinking-level/ui/ComposerThinkingPicker.tsx:89-115（草稿基准换源）；shared/api/commands.ts:65-70（chatSendDraftCommand mode）
 - sourceTask: task-T2/T3/T4（default-coder agt_13MPD57TNT5A / agt_2VAXTR1J1YB5+agt_T2PPM81MYDK5 / agt_E50DZR0MPZNQ+agt_A8AQGXXMHR8W，2026-08-24；含 T3/T4 两条 agent 沉淀候选并入：session_state.mode 列形态、agentConfig.slots 读面）
 - createdIn: task-20260824-p1-mode
-
-## deferred
-
-## applied
+- decisionLog: 用户裁决「apply吧」（2026-08-24）——新增规则发号 TR-AD-49 落 architecture-rules.md 末尾（kg-node frontmatter + 规则/理由/适用范围/反例；formalId 由 AD-default-20260824-5 发号转换）
 
 ### TR-AD-40-r4
 - changeType: 修改
