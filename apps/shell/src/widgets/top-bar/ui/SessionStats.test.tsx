@@ -134,6 +134,36 @@ describe("deriveUsageRows（F3.4 行投影）", () => {
     expect(rows[1]!.chip).toBe("running");
     expect(rows[1]!.sub).toBeUndefined();
   });
+
+  it("T10c 新形态：快照习得主实例 id（kind=main）→ main 行按 agent-<hex> 取账与展示", () => {
+    // 写侧现行契约：main 实例 id = agent-<唯一串>（usage.recorded 同 id 入账）；
+    // 快照 instances kind=main 条目是 shell 习得源，main 行 id/账目跟随实际 id
+    const mainId = "agent-m1";
+    const s = play([
+      welcome,
+      {
+        v: 0,
+        type: "session.snapshot",
+        payload: {
+          snapshot: {
+            sessionId: "s1",
+            model: "claude-sonnet-4-5",
+            agentState: "idle",
+            revision: 1,
+            entries: [],
+            instances: [
+              { instanceId: mainId, kind: "main", profileKind: "main-session", state: "running", createdAt: "2026-08-16T14:00:00.000Z" },
+            ],
+          },
+        },
+      },
+      { v: 0, type: "usage.recorded", payload: { instanceId: mainId, usage: usage({ reasoning: 8_400, totalTokens: 512_000, cost: 0.31 }), source: "turn" } },
+    ]);
+    const rows = deriveUsageRows(s);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: mainId, main: true, tokens: 512_000, cost: 0.31 });
+    expect(rows[0]!.sub).toEqual({ key: "reasoningSub", vars: { n: "8k" } });
+  });
 });
 
 // ── StatsBadge（F3.3）─────────────────────────────────────

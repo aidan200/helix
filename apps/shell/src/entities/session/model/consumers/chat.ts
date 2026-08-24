@@ -20,7 +20,7 @@ import type { EntryDto, EventEnvelope, MessageEntryDto, SteerSource } from "@hel
 import { channelOf, upsertChannelEntry } from "../channel";
 import { appendSummary, finalizeSummary } from "../instance-cards";
 import { upsertEntry } from "../entries";
-import { LOCAL_PREFIX, MAIN_INSTANCE_ID, type ChannelItem, type SessionState } from "../state";
+import { isMainChannel, LOCAL_PREFIX, type ChannelItem, type SessionState } from "../state";
 
 /** 本块承接的帧事件 type（dispatcher 注册面）。 */
 export const CHAT_EVENT_TYPES = [
@@ -68,8 +68,9 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
   switch (event.type) {
     case "chat.stream.delta": {
       const { messageId, delta } = event.payload;
-      // instanceId 分流（缺省 = main）：SubAgent delta 只进卡片摘要尾窗与 channel 流式槽，不进主消息流
-      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
+      // instanceId 分流（T10c kind 判别，缺省/主实例 id/legacy "main" = 主流）：
+      // SubAgent delta 只进卡片摘要尾窗与 channel 流式槽，不进主消息流
+      if (event.instanceId !== undefined && !isMainChannel(event.instanceId, s.mainInstanceId)) {
         const iid = event.instanceId;
         const prev = s.channelStreams[iid];
         const stream =
@@ -90,10 +91,10 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
     }
     case "chat.message.completed": {
       const entry = event.payload.entry;
-      // SubAgent 消息不进主消息流（F1.6）：定稿卡片摘要 + 入实例 channel
+      // SubAgent 消息不进主消息流（F1.6，kind 判别）：定稿卡片摘要 + 入实例 channel
       // （user 消息 = 主线 agent_send 转投回放 → steer 注入标记；F1.2）
       const iid = event.instanceId ?? entry.instanceId;
-      if (iid !== undefined && iid !== MAIN_INSTANCE_ID) {
+      if (iid !== undefined && !isMainChannel(iid, s.mainInstanceId)) {
         if (entry.kind !== "message") return s;
         const streams = { ...s.channelStreams };
         delete streams[iid];
@@ -127,14 +128,15 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
     case "chat.turn.completed":
       return { ...s, streaming: null };
     case "steer.queued": {
-      // 定向帧（T2.3：信封 instanceId=目标）只认同目标 echo；缺省 = 主线 echo
+      // 定向帧（T2.3：信封 instanceId=目标）只认同目标 echo；缺省/主实例 id
+      //（kind 判别）= 主线 echo（匹配本地无 instanceId 的主线 echo）
       const iid = event.instanceId;
       return {
         ...s,
         entries: confirmSteerEcho(
           s.entries,
           event.payload.entryId,
-          iid !== undefined && iid !== MAIN_INSTANCE_ID ? iid : undefined,
+          iid !== undefined && !isMainChannel(iid, s.mainInstanceId) ? iid : undefined,
           event.payload.source,
         ),
       };
@@ -148,9 +150,9 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
     case "tool.call.started":
     case "tool.call.result": {
       const entry = event.payload.entry;
-      // SubAgent 内部工具调用只进 per-instance channel，不进主线事件流（F1.6）
+      // SubAgent 内部工具调用只进 per-instance channel，不进主线事件流（F1.6，kind 判别）
       const iid = event.instanceId ?? entry.instanceId;
-      if (iid !== undefined && iid !== MAIN_INSTANCE_ID) {
+      if (iid !== undefined && !isMainChannel(iid, s.mainInstanceId)) {
         if (entry.kind !== "tool-call") return s;
         return upsertChannelEntry(s, iid, entry);
       }

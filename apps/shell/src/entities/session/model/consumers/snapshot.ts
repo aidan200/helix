@@ -28,7 +28,7 @@ import type {
 import { entrySortKey } from "@helix/protocol"; // T3.1：条目排序基元单源 projection（原本地 entryTimelineKey 同构副本退役）
 import { lcItem } from "../channel";
 import {
-  MAIN_INSTANCE_ID,
+  isMainChannel,
   ZERO_USAGE,
   type ChannelItem,
   type InstanceCardState,
@@ -153,33 +153,49 @@ function channelsFromSnapshot(
   return channels;
 }
 
+/**
+ * 主实例 id 习得（T10c kind 判别）：快照 instances kind=main 条目是唯一
+ * 事实源（daemon 恒列主实例，新形态 agent-<唯一串> / legacy 会话 "main"
+ * 自闭合）；无 instances/无 main 条目 = 保持现值（初始 legacy 字面，
+ * 判别退化读侧推断——旧快照兼容）。
+ */
+function mainInstanceIdOf(dtos: readonly AgentInstanceDto[], fallback: string): string {
+  return dtos.find((d) => d.kind === "main")?.instanceId ?? fallback;
+}
+
 export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: number): SessionState {
   switch (event.type) {
     case "session.snapshot": {
       const snap = event.payload.snapshot;
-      // F1.6 分流（快照面）：main 条目进主消息流；SubAgent 条目归实例 channel
+      const dtos = snap.instances ?? [];
+      const mainId = mainInstanceIdOf(dtos, s.mainInstanceId);
+      // F1.6 分流（快照面，kind 判别）：main 条目（isMainChannel：主实例 id
+      // 或 legacy 缺省/"main"）进主消息流；SubAgent 条目归实例 channel
       // （重建用）；compaction 归 main 流（M2 语义）
       // CL-3（契约 §3.2 Q-3a）：定向 steer 干预条目（user+steerState 且
-      // instanceId≠main）双投影——进主流（daemon isMainAxisEntry 同规，恢复
+      // 非 main）双投影——进主流（daemon isMainAxisEntry 同规，恢复
       // 重放保留）同时保留归组（dto.channels 缺省时的 channel 重建 fallback 面）
       const mainEntries: EntryDto[] = [];
       const entriesByInstance = new Map<string, EntryDto[]>();
       for (const e of snap.entries) {
-        const iid = e.instanceId ?? MAIN_INSTANCE_ID;
+        const main = isMainChannel(e.instanceId, mainId);
         const directedSteer =
-          iid !== MAIN_INSTANCE_ID &&
+          !main &&
           e.kind === "message" &&
           e.role === "user" &&
           e.steerState !== undefined;
-        if (iid === MAIN_INSTANCE_ID || e.kind === "compaction" || directedSteer) {
+        if (main || e.kind === "compaction" || directedSteer) {
           mainEntries.push(e);
           if (!directedSteer) continue;
         }
-        const list = entriesByInstance.get(iid) ?? [];
-        list.push(e);
-        entriesByInstance.set(iid, list);
+        // 归组：SubAgent 条目 / 定向干预条目（instanceId 必有——非 main 判别
+        // 已排除缺省与 legacy 字面；防御 else-if）
+        if (e.instanceId !== undefined) {
+          const list = entriesByInstance.get(e.instanceId) ?? [];
+          list.push(e);
+          entriesByInstance.set(e.instanceId, list);
+        }
       }
-      const dtos = snap.instances ?? [];
       const rebuilt = channelsFromSnapshot(dtos, entriesByInstance, snap.model);
       // 重连合入：已有事件流构建的 channel 保留（含 stalled 等仅存于事件流的行）；
       // 重启恢复（空状态起）= 全量重建；快照未列实例的 channel 丢弃（卡片已不存）
@@ -206,6 +222,7 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         model: snap.model,
         agentState: snap.agentState,
         sessionId: snap.sessionId,
+        mainInstanceId: mainId, // T10c：主实例 id 习得（kind=main 条目；快照权威）
         streaming: null, // 快照为落盘终态；进行中的流随重连作废
         thinkingStreams: {}, // 同上：thinking 流式中间态不落盘，重建后由后续 delta 重新累积
         channelStreams: {}, // 同上：channel 流式消息为不落盘中间态

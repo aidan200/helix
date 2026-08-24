@@ -185,6 +185,38 @@ describe("MessageFlow 挂载（三态分流；消费 T4.1 槽位）", () => {
     ui(<MessageFlow />);
     expect(document.querySelector(".think-live")).toBeNull();
   });
+
+  it("T10c：新形态主实例 steer 条目（agent-<hex>）渲染普通气泡；SubAgent 定向条目才渲染细条", () => {
+    // 主实例 id 习得自快照 instances kind=main（agent-m1）；定向 steer 判别
+    // = kind 判别（≠main id）而非字面值——主实例 steer 回归普通气泡
+    const snap: EventEnvelope = {
+      v: 0,
+      type: "session.snapshot",
+      payload: {
+        snapshot: {
+          sessionId: "s1",
+          model: "claude-sonnet-4-5",
+          agentState: "idle",
+          revision: 2,
+          entries: [
+            { kind: "message", id: "st-1", role: "user", content: "主线 steer", ts: 1, steerState: "drained", instanceId: "agent-m1" },
+            { kind: "message", id: "st-2", role: "user", content: "定向干预", ts: 2, steerState: "drained", instanceId: "agent-s1" },
+          ],
+          instances: [
+            { instanceId: "agent-m1", kind: "main", profileKind: "main-session", state: "running", createdAt: "2026-08-16T14:00:00.000Z" },
+          ],
+        },
+      },
+    };
+    stateRef.current = [welcome, snap].reduce(
+      (s, e) => sessionReducer(s, { type: "event", event: e }),
+      createInitialSessionState(),
+    );
+    ui(<MessageFlow />);
+    expect(document.querySelectorAll('[data-kind="steer-directed"]')).toHaveLength(1);
+    expect(document.querySelector('[data-target="agent-s1"]')).not.toBeNull();
+    expect(screen.getByText("主线 steer")).toBeTruthy(); // 主实例 steer = 普通气泡
+  });
 });
 
 // ── H-2 热修：滚动语义（去滚动触发 + 切换贴底 + 前插补偿回归）────────

@@ -335,6 +335,55 @@ describe("instanceId 分流（§7 主线/实例分流）", () => {
     expect(explicit.streaming).toEqual({ messageId: "t1", text: "Hel" });
   });
 
+  it("T10c 两钉：新形态（kind=main + agent-<hex> id）分流主流；legacy 形态（缺省/字面 \"main\"）仍主流", () => {
+    // 新形态：快照 instances 携带 kind=main 条目（agent-<唯一串>）→ shell 习得
+    // mainInstanceId；main 条目/事件显式携带该 id 仍走主流（kind 判别替代
+    // 值判等）；SubAgent 定向 steer 干预条目照旧双投影（主流 + 归组）
+    const mainId = "agent-m1";
+    const news = run([
+      snapshotOf(
+        [
+          { kind: "message", id: "m-1", role: "user", content: "主线消息", ts: 1, instanceId: mainId },
+          {
+            kind: "message",
+            id: "m-2",
+            role: "user",
+            content: "定向干预",
+            ts: 2,
+            steerState: "drained",
+            instanceId: "agent-s1",
+          },
+          thinkEntry("th-m1", mainId, "主实例思考"),
+        ],
+        {
+          instances: [
+            inst(mainId, "running", { kind: "main", profileKind: "main-session" }),
+            inst("agent-s1", "done"),
+          ],
+        },
+      ),
+      ev({ v: 0, type: "chat.stream.delta", instanceId: mainId, payload: { messageId: "t1", delta: "Hel" } }),
+      thinkCompleted(thinkEntry("th-m2", mainId, "增量思考")),
+    ]);
+    expect(news.mainInstanceId).toBe(mainId);
+    // 快照面：main 条目（agent-m1）+ 定向干预条目进主消息流；thinking 落主流
+    expect(news.entries.map((e) => e.id)).toEqual(["m-1", "m-2", "th-m1", "th-m2"]);
+    expect(news.instanceChannels[mainId]).toBeUndefined(); // 主实例无 channel
+    // 事件面：main delta 照旧进主 streaming（不因显式携带 id 被误分流）
+    expect(news.streaming).toEqual({ messageId: "t1", text: "Hel" });
+    expect(news.channelStreams[mainId]).toBeUndefined();
+
+    // legacy 形态：无 instances 快照 → mainInstanceId 保持 legacy 字面；
+    // 缺省 / 字面 "main" 事件照旧主流（读侧推断保留，既有行为钉）
+    const legacy = run([mainDelta("t2", "lo")]);
+    expect(legacy.mainInstanceId).toBe("main");
+    expect(legacy.streaming).toEqual({ messageId: "t2", text: "lo" });
+    const legacyExplicit = run(
+      [ev({ v: 0, type: "chat.stream.delta", instanceId: "main", payload: { messageId: "t3", delta: "Hel" } })],
+    );
+    expect(legacyExplicit.streaming).toEqual({ messageId: "t3", text: "Hel" });
+  });
+
   it("终态实例的迟到 delta 被吸收（摘要保持定稿）", () => {
     const s = run(
       [spawned("agent-1"), completed("agent-1", closure("done", "完成")), saDelta("agent-1", "m-late", "迟到增量")],

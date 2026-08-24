@@ -24,7 +24,7 @@ import { route } from "./dispatcher";
 import { LOCAL_PREFIX, type SessionAction, type SessionState } from "./state";
 
 // ── 组合导出（原导出面不变；类型/常量/工厂落 state.ts，路径零变更）──
-export { MAIN_INSTANCE_ID, createInitialSessionState } from "./state";
+export { isMainChannel, createInitialSessionState } from "./state";
 export type {
   ChannelItem,
   ChannelLcKey,

@@ -17,7 +17,7 @@ import type { EventEnvelope } from "@helix/protocol";
 import { addUsage } from "@helix/protocol";
 import { upsertChannelEntry } from "../channel";
 import { upsertEntry } from "../entries";
-import { MAIN_INSTANCE_ID, ZERO_USAGE, type SessionState } from "../state";
+import { isMainChannel, ZERO_USAGE, type SessionState } from "../state";
 
 /** 本块承接的帧事件 type（dispatcher 注册面）。 */
 export const THINKING_USAGE_EVENT_TYPES = [
@@ -41,12 +41,12 @@ export function applyThinkingUsageEvent(
     }
     case "thinking.completed": {
       // 完成落 Entry（complete-collapsed 不可逆）；流式槽位随实例清空（他实例不受扰）；
-      // F1.6 分流：SubAgent thinking 只进实例 channel（抽屉折叠块），不进主消息流
+      // F1.6 分流（kind 判别）：SubAgent thinking 只进实例 channel（抽屉折叠块），不进主消息流
       const entry = event.payload.entry;
       const streams = { ...s.thinkingStreams };
       delete streams[entry.instanceId];
       const cleared: SessionState = { ...s, thinkingStreams: streams };
-      if (entry.instanceId !== MAIN_INSTANCE_ID) {
+      if (!isMainChannel(entry.instanceId, s.mainInstanceId)) {
         return upsertChannelEntry(cleared, entry.instanceId, entry);
       }
       return { ...cleared, entries: upsertEntry(cleared.entries, entry) };

@@ -23,7 +23,7 @@
  */
 import { useLayoutEffect, useRef, Fragment, type ReactNode } from "react";
 import type { EntryDto } from "@helix/protocol";
-import { MAIN_INSTANCE_ID } from "@/entities/session/model/session-reducer";
+import { isMainChannel } from "@/entities/session/model/session-reducer";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
 import type { InstanceCardState } from "@/entities/session/model/session-reducer";
 import MessageBubble from "./MessageBubble";
@@ -37,21 +37,21 @@ import CompactionBar from "./CompactionBar";
 import EngineErrorCard from "./EngineErrorCard";
 import { ThinkingEntryView, ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
 
-function EntryView({ entry }: { entry: EntryDto }) {
+function EntryView({ entry, mainInstanceId }: { entry: EntryDto; mainInstanceId: string }) {
   // 正向穷尽分发（EntryDto 四成员；新增 kind 时 default 分支编译报错）
   switch (entry.kind) {
     case "tool-call":
       return <ToolCard entry={entry} />;
     case "message":
       // CL-3 定向 steer（契约 §3.2 Q-3a 时间轴侧）：isSteer（DTO 面 = user +
-      // steerState 携带）且 instanceId≠main → 定向细条（非气泡；判别用
-      // instanceId≠main，不用 steerState——定向 entry steerState 恒 drained，
-      // T2.3 边界注记）；主线 steer / 普通消息沿既有气泡形态
+      // steerState 携带）且非主实例（kind 判别：isMainChannel 单点，含 legacy
+      // 缺省/"main" 推断）→ 定向细条（非气泡；判别不用 steerState——定向
+      // entry steerState 恒 drained，T2.3 边界注记）；主线 steer / 普通消息沿既有气泡形态
       if (
         entry.role === "user" &&
         entry.steerState !== undefined &&
         entry.instanceId !== undefined &&
-        entry.instanceId !== MAIN_INSTANCE_ID
+        !isMainChannel(entry.instanceId, mainInstanceId)
       ) {
         return <DirectedSteer target={entry.instanceId} text={entry.content} />;
       }
@@ -115,7 +115,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
     state.entries.length,
     state.streaming?.text,
     state.instances.length,
-    state.thinkingStreams[MAIN_INSTANCE_ID],
+    state.mainInstanceId, // T10c：主实例 id 习得（快照）变化时重采基线（thinking 槽位键随之切换）
+    state.thinkingStreams[state.mainInstanceId],
     state.engineError !== null, // 终验热修：错误卡出入视口同样贴底
   ]);
 
@@ -124,6 +125,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
   // hasMore/loading 门控归 provider selectCanLoadEarlier）
 
   const empty = selectIsEmpty(state);
+  // 主线 thinking 流式槽位（T10c：键 = 快照习得的主实例 id；局部常量供窄化）
+  const mainThinkingStream = state.thinkingStreams[state.mainInstanceId];
 
   // ── CL-1 v0.3 时间轴内联：按 DTO spawn 锚点把卡片交织进 entries 序列 ──
   // head = 流首锚点（null）；byAnchor = entry id → 该 entry 之后渲染的卡；
@@ -160,12 +163,12 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
           {headCards.map(renderCard)}
           {state.entries.map((entry) => (
             <Fragment key={entry.id}>
-              <EntryView entry={entry} />
+              <EntryView entry={entry} mainInstanceId={state.mainInstanceId} />
               {byAnchor.get(entry.id)?.map(renderCard)}
             </Fragment>
           ))}
-          {state.thinkingStreams[MAIN_INSTANCE_ID] !== undefined && (
-            <ThinkingLiveView text={state.thinkingStreams[MAIN_INSTANCE_ID]} />
+          {mainThinkingStream !== undefined && (
+            <ThinkingLiveView text={mainThinkingStream} />
           )}
           {state.streaming && (
             <MessageBubble

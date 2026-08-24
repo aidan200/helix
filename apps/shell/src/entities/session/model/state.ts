@@ -21,15 +21,29 @@ import type {
   UsageDto,
   WebStatusPayload,
 } from "@helix/protocol";
-import { MAIN_INSTANCE_ID as PROTOCOL_MAIN_INSTANCE_ID, ZERO_USAGE as PROTOCOL_ZERO_USAGE } from "@helix/protocol";
+import { ZERO_USAGE as PROTOCOL_ZERO_USAGE } from "@helix/protocol";
 
 /**
- * 主实例标识（信封 instanceId 缺省语义，契约 §3）。
- * T1.2 延后项（T3.1 顺手收敛）：改引 @helix/protocol 单一导出（OI 收口
- * F-2⑬）——本地 re-export 保持既有导入路径（@/entities/session/model/
- * session-reducer）零消费方改动；线上权威 = 协议常量。
+ * legacy 主实例 id 字面（"main"，T10 实例 ID 统一 T10c）：历史快照/事件中
+ * 字面 "main" 的读侧推断专用——现行写侧（T10a 起）全实例（含 main）
+ * instanceId = agent-<唯一串>，main 归属判别走 kind；本字面是 shell 内
+ * 唯一落点（MAIN_INSTANCE_ID 常量已退役，全仓零残留）。
  */
-export const MAIN_INSTANCE_ID = PROTOCOL_MAIN_INSTANCE_ID;
+export const LEGACY_MAIN_INSTANCE_ID = "main" as const;
+
+/**
+ * 主通道判别单点（T10c kind 判别替代值判等）：instanceId === 该会话主
+ * 实例 id（快照 instances kind=main 条目习得，state.mainInstanceId），
+ * 或 legacy 值（缺省 = 旧帧省略语义 / 字面 "main" = 历史行）——与 daemon
+ * isMainInstanceId 同构（读侧兼容：历史快照/事件仍按主流渲染）。
+ */
+export function isMainChannel(instanceId: string | undefined, mainInstanceId: string): boolean {
+  return (
+    instanceId === undefined ||
+    instanceId === mainInstanceId ||
+    instanceId === LEGACY_MAIN_INSTANCE_ID
+  );
+}
 
 /**
  * 零账面（七字段全零；只读基线，累加永远产生新对象）。T3.1（M4 投资批）：
@@ -326,6 +340,13 @@ export interface SessionState {
   /** 恢复 toast（一次性，UI 消费） */
   restoreToast: RestoreToast | null;
   sessionId: string | null;
+  /**
+   * 主实例 id（T10c kind 判别）：快照 instances kind=main 条目习得
+   * （agent-<唯一串>；legacy 会话 = 字面 "main" 自闭合）。初始 = legacy
+   * 字面（快照未达时 isMainChannel 判别退化 legacy 推断，与 daemon
+   * 「会话未热加载退化 legacy 判别」同语义）；切换/新建重建 store 归零。
+   */
+  mainInstanceId: string;
   model: string;
   /** 会话 thinking 档切片（thinking 批；广播 + 快照驱动，纯投影） */
   thinking: ThinkingSlice;
@@ -439,6 +460,7 @@ export function createInitialSessionState(): SessionState {
     toastPending: null,
     restoreToast: null,
     sessionId: null,
+    mainInstanceId: LEGACY_MAIN_INSTANCE_ID,
     model: "",
     thinking: { override: null, effective: null },
     agentState: "idle",

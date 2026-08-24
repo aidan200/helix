@@ -26,7 +26,6 @@ import type {
 } from "@helix/protocol";
 import {
   createInitialSessionState,
-  MAIN_INSTANCE_ID,
   sessionReducer,
   type SessionAction,
   type SessionState,
@@ -379,7 +378,7 @@ describe("快照重建 channel（AD-10 历史保留）", () => {
       agentState: "idle",
       revision: 3,
       entries: [
-        { kind: "message", id: "e1", role: "user", content: "主线消息", ts: 1 },
+        { kind: "message", id: "e1", role: "user", content: "主线消息", ts: 1, instanceId: "agent-m1" },
         {
           kind: "message",
           id: "e2",
@@ -419,7 +418,9 @@ describe("快照重建 channel（AD-10 历史保留）", () => {
       ],
       instances: [
         {
-          instanceId: MAIN_INSTANCE_ID,
+          // T10c 新形态：主实例条目 id = agent-<唯一串>（kind 恒 main）——
+          // 快照习得源；e1 主线消息显式携带该 id 仍进主消息流
+          instanceId: "agent-m1",
           kind: "main",
           profileKind: "main-session",
           state: "running",
@@ -462,8 +463,10 @@ describe("快照重建 channel（AD-10 历史保留）", () => {
     // 快照重建：非快照实例的 channel 与流式槽位清空（快照为权威）
     expect(s.instanceChannels["agent-live"]).toBeUndefined();
     expect(s.channelStreams).toEqual({});
-    // 主实例消息仍进主消息流；无 main channel
-    expect(s.instanceChannels[MAIN_INSTANCE_ID]).toBeUndefined();
+    // 主实例消息仍进主消息流；无 main channel；主实例 id 习得自快照 kind=main 条目
+    expect(s.entries.map((e) => e.id)).toContain("e1");
+    expect(s.mainInstanceId).toBe("agent-m1");
+    expect(s.instanceChannels["agent-m1"]).toBeUndefined();
   });
 });
 

@@ -19,7 +19,7 @@ import { useI18n } from "@/shared/i18n";
 import { fmtTokens } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 import { selectIsGenerating, useSession } from "@/entities/session/SessionContext";
-import { MAIN_INSTANCE_ID, type SessionState } from "@/entities/session/model/session-reducer";
+import type { SessionState } from "@/entities/session/model/session-reducer";
 
 // ── 行派生（纯函数，单一状态源）────────────────────────────
 
@@ -27,8 +27,10 @@ import { MAIN_INSTANCE_ID, type SessionState } from "@/entities/session/model/se
 export type UsageChipState = "queued" | "running" | "done" | "failed" | "cancelled" | "idle";
 
 export interface UsageRow {
-  /** 行 id（main / agentId / "compaction"） */
+  /** 行 id（主实例 id（快照习得，legacy 字面 "main" / 新形态 agent-<hex>）/ agentId / "compaction"） */
   id: string;
+  /** main 行标记（T10c）：chip 文案判别用——主行文案随生成态取词条，非协议状态字面量 */
+  main?: true;
   /** kind 标签 i18n key（chat.stats.kind*） */
   kindKey: string;
   model: string;
@@ -49,11 +51,14 @@ export interface UsageRow {
 export function deriveUsageRows(s: SessionState): UsageRow[] {
   const rows: UsageRow[] = [];
 
-  // main 行：reasoning sub（Q-11③：main 行 reasoning 维度）；chip 随生成态
-  const mainUsage = s.usage.byInstance[MAIN_INSTANCE_ID];
+  // main 行（T10c：id/账目跟随快照习得的主实例 id——新形态 agent-<hex>，
+  // legacy 会话/快照未达 = 字面 "main"）：reasoning sub（Q-11③：main 行
+  // reasoning 维度）；chip 随生成态
+  const mainUsage = s.usage.byInstance[s.mainInstanceId];
   const generating = selectIsGenerating(s);
   rows.push({
-    id: MAIN_INSTANCE_ID,
+    id: s.mainInstanceId,
+    main: true,
     kindKey: "chat.stats.kindMain",
     model: s.model,
     tokens: mainUsage?.totalTokens ?? 0,
@@ -233,7 +238,7 @@ export const UsagePopover = memo(function UsagePopover({
       </div>
       <div className="sp-rows">
         {rows.map((row) => {
-          const label = row.id === MAIN_INSTANCE_ID
+          const label = row.main
             ? t(row.chip === "running" ? "chat.stats.mainRunning" : "chat.stats.mainIdle")
             : row.chipLabel;
           const inner = (
