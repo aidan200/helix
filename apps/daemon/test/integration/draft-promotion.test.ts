@@ -244,6 +244,41 @@ describe("T4 ④ 握手 draft 标记：零条目当前会话 → welcome.draft +
   }, 15000);
 });
 
+// ── P1 T3：welcome/快照回带 mode（握手面） ──────────────────
+
+describe("P1 T3 ④ welcome/快照回带 mode：已建会话 = session.mode 定格值；草稿态不携带", () => {
+  test("已建会话握手：welcome.mode = 快照 mode = \"default\"（定格值回带）", async () => {
+    const rig = await makeRig();
+    try {
+      const { sessionId } = await rig.daemon.directory.startDraftSession("模式回带首条");
+      await until(() => rig.engineOf(sessionId).events.some((e) => e.type === "agent_end"), 5000, "首轮完成");
+
+      const client = new TestClient(rig.daemon.ws.url, rig.token);
+      const welcome = await client.expect("connection.welcome");
+      expect(welcome.payload.sessionId).toBe(sessionId);
+      expect(welcome.payload.mode).toBe("default"); // welcome 回带定格 mode
+      const snap = await client.expect("session.snapshot");
+      expect((snap.payload.snapshot as { mode?: string }).mode).toBe("default"); // 快照 DTO 回带
+      await client.close();
+    } finally {
+      await rig.dispose();
+    }
+  }, 15000);
+
+  test("草稿态握手：welcome.mode 不携带（草稿模式纯前端态，daemon 不知情——读侧回落 default）", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.daemon.ws.url, rig.token);
+    try {
+      const welcome = await client.expect("connection.welcome");
+      expect(welcome.payload.draft).toBe(true);
+      expect(welcome.payload.mode).toBeUndefined(); // 草稿态不携带（P1 取舍）
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  }, 10000);
+});
+
 // ── ⑤ chat.send draft + model ────────────────────────────────
 
 describe("T4 ⑤ chat.send draft + model：首条消息前生效；缺省 = 全局默认", () => {

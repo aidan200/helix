@@ -7,6 +7,8 @@ import type { SessionProjection } from "../../src/application/services/SessionPr
 import type { SendOutcome } from "../../src/application/ports/inbound/ChatPort";
 import type { SessionListChange } from "../../src/application/ports/inbound/SessionDirectoryPort";
 import type { Session } from "../../src/domain/session/Session";
+import { MODES } from "@helix/protocol";
+import { profileKindOf } from "../../src/application/services/modes";
 
 /**
  * T4 单元：daemon 内存草稿「不可见 + 转正」语义（SessionRegistry 面，
@@ -45,6 +47,17 @@ interface Rig {
 }
 
 const NOW = "2026-08-20T00:00:00.000Z";
+
+/** buildView 账目零值形状（UsageSummary 七字段）。 */
+const ZERO_USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  reasoning: 0,
+  totalTokens: 0,
+  cost: 0,
+};
 
 function makeRig(): Rig {
   const stubs: StubChat[] = [];
@@ -88,6 +101,9 @@ function makeRig(): Rig {
         get currentModel() {
           return stub.currentModelValue;
         },
+        get toolCallData() {
+          return [];
+        },
         publishInstantiated: () => {
           stub.publishedInstantiated += 1;
           stub.ops.push("instantiated");
@@ -106,7 +122,12 @@ function makeRig(): Rig {
         stop: () => {},
         whenSettled: async () => {},
       } as unknown as ChatService;
-      return { sessionId: material.session.id, chatService, projection: {} as SessionProjection };
+      return { sessionId: material.session.id, chatService, projection: {
+        // P1 T3：buildView 观测面桩（subAgent 工具记录/账目零值形状）
+        subAgentToolCallData: () => [],
+        instanceUsage: () => ZERO_USAGE,
+        usageSummary: () => ({ total: ZERO_USAGE, compaction: ZERO_USAGE }),
+      } as unknown as SessionProjection };
     },
     onListChanged: (change) => changes.push(change),
     idleUnloadMs: 3_600_000,
@@ -299,5 +320,87 @@ describe("T4-U ⑤ probeCurrentDraft：握手草稿探测 + current 残骸清理
     expect(await rig2.registry.probeCurrentDraft()).toBe(true); // 换新草稿仍是草稿
     expect(rig2.registry.currentSessionId()).not.toBe(wreckId); // 残骸被丢弃
     expect(rig2.registry.peek(rig2.registry.currentSessionId())).toBeDefined(); // 新草稿热登记
+  });
+});
+
+// ── P1 T3：mode 透传/解析 + 热草稿复用 profileKind 一致性 ──────────
+
+describe("P1 T3 ③ startDraftSession mode：建会话定格 + 热草稿复用 profileKind 一致性", () => {
+  test("缺省/未知 mode → 建会话 Session.mode 定格 default（消费单点 fallback）；零条目热草稿复用同 id", async () => {
+    const rig = await freshRig();
+    const draftId = rig.registry.currentSessionId();
+    expect(rig.stubs[0]!.session.mode).toBe("default"); // initialize 建的草稿也定格 default
+
+    // 缺省 mode：复用当前零条目草稿（同 id——同 profileKind 一致性成立）
+    const { sessionId } = await rig.registry.startDraftSession("缺省模式首条");
+    expect(sessionId).toBe(draftId);
+    expect(rig.stubs.find((s) => s.session.id === sessionId)!.session.mode).toBe("default");
+
+    // 未知 mode：fallback default（注册表消费单点），profileKind 一致 → 仍复用同 id
+    const rig2 = await freshRig();
+    const draftId2 = rig2.registry.currentSessionId();
+    const { sessionId: sid2 } = await rig2.registry.startDraftSession("未知模式首条", undefined, undefined, "no-such-mode");
+    expect(sid2).toBe(draftId2);
+    expect(rig2.stubs[0]!.session.mode).toBe("default"); // fallback 定格
+  });
+
+  test("目标 mode 与热草稿 mode 同 profileKind → 复用同 id（P1 单模式：default 显式传入同样复用）", async () => {
+    const rig = await freshRig();
+    const draftId = rig.registry.currentSessionId();
+    const before = rig.stubs.length;
+    const { sessionId } = await rig.registry.startDraftSession("default 目标", undefined, undefined, "default");
+    expect(sessionId).toBe(draftId); // 同 profileKind → 复用（不裂变）
+    expect(rig.stubs.length).toBe(before);
+  });
+
+  test("profileKind 不一致 → 丢弃热草稿走 createFresh（新 id + 新 mode 定格）；旧零条目草稿无成本留存", async () => {
+    // P1 注册表单模式：运行时扩一条第二模式模拟 P2 多模式现场（测后还原，
+    // 单测试内同步 mutate/restore——bun 文件级隔离下无跨文件可见性）
+    const writable = MODES as unknown as { id: string; kind: "single"; profileKind: string }[];
+    writable.push({ id: "second", kind: "single", profileKind: "other-kind" });
+    try {
+      // 扩表生效前置断言（运行时扩条目超出编译期 P1 字面量联合——as string 放宽）
+      expect(profileKindOf("second") as string).toBe("other-kind");
+      const rig = await freshRig(); // 草稿 mode=default（main-session）
+      const draftId = rig.registry.currentSessionId();
+
+      // 不一致 → 丢弃热草稿，按新 mode 构造
+      const { sessionId } = await rig.registry.startDraftSession("异模式首条", undefined, undefined, "second");
+      expect(sessionId).not.toBe(draftId);
+      expect(rig.stubs.length).toBe(2); // createFresh 新运行时
+      expect(rig.stubs.find((s) => s.session.id === sessionId)!.session.mode).toBe("second");
+      // 旧零条目草稿留存（无成本：不进清单、自然消亡），current 已轮换到新会话
+      expect(rig.registry.peek(draftId)).toBeDefined();
+      expect(rig.registry.currentSessionId()).toBe(sessionId);
+
+      // 二次同 mode（second）：current 已转正（首条消息已落聚合）→ 复用前提
+      // = 零条目热草稿不因 profileKind 一致弱化（T4 转正不裂变语义保持）——
+      // createFresh 新 id 且 mode 仍定格 second；零条目草稿复用面在 P1 单模式
+      // 恒 default（懒建点无 mode），见本 describe 首两测
+      const secondDraftId = rig.registry.currentSessionId();
+      const again = await rig.registry.startDraftSession("同模式复用", undefined, undefined, "second");
+      expect(again.sessionId).not.toBe(secondDraftId); // 有内容 → 不复用（新 id）
+      expect(rig.stubs.find((s) => s.session.id === again.sessionId)!.session.mode).toBe("second");
+    } finally {
+      writable.pop(); // 还原注册表（常量单源不被污染）
+    }
+  });
+
+  test("buildView 主实例 profileKind 从 session.mode 解析（default → main-session；扩表模式 → 该条目 profileKind）", async () => {
+    const rig = await freshRig();
+    const view = await rig.registry.getSessionView();
+    expect(view.session.mode).toBe("default"); // 快照视图携带定格 mode
+    expect(view.instances![0]!.profileKind).toBe("main-session"); // 字面量参数化取值
+
+    const writable = MODES as unknown as { id: string; kind: "single"; profileKind: string }[];
+    writable.push({ id: "second", kind: "single", profileKind: "other-kind" });
+    try {
+      const rig2 = await freshRig();
+      const { sessionId } = await rig2.registry.startDraftSession("异模式首条", undefined, undefined, "second");
+      const view2 = await rig2.registry.getSessionView(sessionId);
+      expect(view2.instances![0]!.profileKind).toBe("other-kind"); // mode 解析值（非硬编码）
+    } finally {
+      writable.pop();
+    }
   });
 });

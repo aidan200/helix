@@ -237,6 +237,66 @@ describe("T10a：session_state.main_instance_id 列（方案 A 主实例 id 持�
   });
 });
 
+// ── P1 T3：session_state.mode 列（会话模式持久化，T10a 同构） ──
+
+describe("P1 T3：session_state.mode 列（建会话定格 mode 随状态行落盘）", () => {
+  test("快照携带 mode → 落列；快照不携带（列前/缺省）→ NULL；新库建表即含列", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      // mode 定格形状（建会话链 createFresh 经 resolveModeId 归一后落库）
+      const withMode = Session.create("s-mode", "2024-01-01T00:00:00.000Z", "default");
+      withMode.appendUserEntry("模式会话首条", "2024-01-01T00:00:01.000Z");
+      await queue.saveState({ session: withMode.toSnapshot(), agentState: "running", toolCalls: [] });
+      // 列前时代快照形状（旧聚合无 mode 键——Session.create 未传第三参）
+      const noMode = stateOf("s-nomode");
+      expect(noMode.session.mode).toBeUndefined();
+      await queue.saveState(noMode);
+      await queue.flush();
+
+      const db = new Database(dbPath, { readonly: true });
+      const rowMode = db.prepare("SELECT mode FROM session_state WHERE session_id = ?").get("s-mode") as {
+        mode: string | null;
+      };
+      const rowNoMode = db.prepare("SELECT mode FROM session_state WHERE session_id = ?").get("s-nomode") as {
+        mode: string | null;
+      };
+      db.close();
+      expect(rowMode.mode).toBe("default"); // 携带 → 随首行 INSERT 落列
+      expect(rowNoMode.mode).toBeNull(); // 不携带 → NULL（读取侧 default 兑底）
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  test("旧库（无 mode 列）打开后守护补列，存量行 NULL = default 语义（读取侧归一）", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      // 先造列前时代旧库形状（session_state 无 mode 列）
+      const raw = new Database(dbPath);
+      raw.exec(
+        "CREATE TABLE session_state (session_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, entries TEXT NOT NULL, turns TEXT NOT NULL, updated_at TEXT NOT NULL, main_instance_id TEXT)",
+      );
+      raw.exec(
+        "INSERT INTO session_state (session_id, created_at, entries, turns, updated_at) VALUES ('s-old', '2024-01-01T00:00:00.000Z', '[]', '[]', '2024-01-01T00:00:00.000Z')",
+      );
+      raw.close();
+
+      const queue = new WriteQueue(dbPath); // 守护式演进：补列
+      const db = new Database(dbPath, { readonly: true });
+      const row = db.prepare("SELECT mode FROM session_state WHERE session_id = ?").get("s-old") as {
+        mode: string | null;
+      };
+      db.close();
+      expect(row.mode).toBeNull(); // 存量行 NULL（恢复链 RestoreService 归一 default）
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});
+
 describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产物（O-5）", () => {
   test("saveClosureRecord 落盘后重开（进程内级重启）可读回；findings 保 JSON", async () => {
     const dbPath = tmpDbPath();

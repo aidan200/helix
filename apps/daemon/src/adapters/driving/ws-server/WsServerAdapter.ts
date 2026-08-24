@@ -309,22 +309,34 @@ export class WsServerAdapter {
 
     const agentState = status.agentState as AgentStateDto;
     const model = status.model ?? "";
+    // P1 T3：welcome 回带 mode = 当前会话定格值（非草稿分支；与快照同源
+    // view——提前组装共享，零额外成本。快照组装失败降级不携带，welcome
+    // 必达语义不变，读侧按 default 兜底；草稿态不携带（草稿模式纯前端态，
+    // daemon 不知情——P1 取舍，前端回落 default）。
+    let view: SessionStateView | undefined;
+    if (!isDraft) {
+      try {
+        view = await this.deps.directory.getSessionView(status.sessionId);
+      } catch (err) {
+        console.warn(`[ws] 握手快照组装失败（会话 ${status.sessionId}）：${(err as Error).message}`);
+      }
+    }
     const welcome: ConnectionWelcomeEvent = {
       v: PROTOCOL_VERSION,
       sessionId: SYSTEM_SESSION_ID, // 会话无关系统事件（notification 通道，契约 A §3）
       channel: "notification",
       type: "connection.welcome",
-      payload: { sessionId: status.sessionId, model, agentState, ...(isDraft ? { draft: true } : {}) },
+      payload: {
+        sessionId: status.sessionId,
+        model,
+        agentState,
+        ...(isDraft ? { draft: true } : {}),
+        ...(view?.session.mode !== undefined ? { mode: view.session.mode } : {}),
+      },
     };
     this.sendNow(sender, welcome);
     if (isDraft) return; // 草稿握手不推快照（前端按草稿态显示；建会话链另推）
-    try {
-      const view = await this.deps.directory.getSessionView(status.sessionId);
-      this.sendNow(sender, this.snapshotFrame(view, model, agentState));
-    } catch (err) {
-      // 快照组装失败不发垃圾帧（连接保持，客户端可 session.list 自取）
-      console.warn(`[ws] 握手快照组装失败（会话 ${status.sessionId}）：${(err as Error).message}`);
-    }
+    if (view !== undefined) this.sendNow(sender, this.snapshotFrame(view, model, agentState));
   }
 
   /** session.snapshot 帧（v0.2 章印：sessionId = 会话归属 + channel=session；AD-1 尾窗口径）。 */

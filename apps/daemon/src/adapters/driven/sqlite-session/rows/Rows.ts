@@ -18,7 +18,8 @@ export interface DomainEventRow {
 }
 
 /** session_state 行（entries/turns 为 JSON 数组文本；main_instance_id 可空——
- *  列前时代旧行 NULL = legacy "main"，T10a 方案 A 列级演进补列）。 */
+ *  列前时代旧行 NULL = legacy "main"，T10a 方案 A 列级演进补列；mode 可空
+ *  ——列前时代旧行 NULL = default 语义，P1 T3 守护式补列，恢复侧归一）。 */
 export interface SessionStateRow {
   readonly session_id: string;
   readonly created_at: string;
@@ -26,6 +27,7 @@ export interface SessionStateRow {
   readonly turns: string;
   readonly updated_at: string;
   readonly main_instance_id: string | null;
+  readonly mode: string | null;
 }
 
 /** agent_lifecycle 行（每会话每实例一行，复合 PK (session_id, instance_id)）。 */

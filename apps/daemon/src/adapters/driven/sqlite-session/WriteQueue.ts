@@ -148,9 +148,9 @@ export class WriteQueue {
       "INSERT INTO domain_events (session_id, agent_kind, agent_instance_id, type, payload, ts) VALUES (?, ?, ?, ?, ?, ?)",
     );
     this.upsertSession = this.db.prepare(
-      "INSERT INTO session_state (session_id, created_at, entries, turns, updated_at, main_instance_id) VALUES (?, ?, ?, ?, ?, ?) " +
+      "INSERT INTO session_state (session_id, created_at, entries, turns, updated_at, main_instance_id, mode) VALUES (?, ?, ?, ?, ?, ?, ?) " +
         "ON CONFLICT(session_id) DO UPDATE SET created_at = excluded.created_at, entries = excluded.entries, " +
-        "turns = excluded.turns, updated_at = excluded.updated_at, main_instance_id = excluded.main_instance_id",
+        "turns = excluded.turns, updated_at = excluded.updated_at, main_instance_id = excluded.main_instance_id, mode = excluded.mode",
     );
     this.upsertLifecycle = this.db.prepare(
       "INSERT INTO agent_lifecycle (session_id, instance_id, state, updated_at) VALUES (?, ?, ?, ?) " +
@@ -428,6 +428,7 @@ export class WriteQueue {
       rows.session.turns,
       rows.session.updated_at,
       rows.session.main_instance_id,
+      rows.session.mode,
     );
     this.upsertLifecycle.run(
       rows.lifecycle.session_id,
@@ -493,6 +494,11 @@ function ensureSchemaEvolved(db: Database): void {
   // 可空无默认——旧行 NULL = legacy "main"，读取侧兜底前向兼容）
   if (!hasColumn(db, "session_state", "main_instance_id")) {
     db.exec("ALTER TABLE session_state ADD COLUMN main_instance_id TEXT");
+  }
+  // P1 T3：session_state.mode（会话模式，建会话定格；可空无默认——旧行
+  // NULL = default 语义，读取侧恢复链归一，与 main_instance_id 同构）
+  if (!hasColumn(db, "session_state", "mode")) {
+    db.exec("ALTER TABLE session_state ADD COLUMN mode TEXT");
   }
   const lifecycleCols = tableColumns(db, "agent_lifecycle");
   if (lifecycleCols.length > 0 && !lifecycleCols.includes("instance_id")) {

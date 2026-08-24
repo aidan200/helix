@@ -37,8 +37,12 @@ export function handleChatSend(ctx: ChatCommandContext): void {
     // payload.model 可选透传（建会话前用户选定模型；缺省 = 全局默认）
     const draftModel =
       typeof ctx.payload.model === "string" && ctx.payload.model !== "" ? ctx.payload.model : undefined;
+    // payload.mode 可选透传（P1 T3：草稿态选定的会话模式——唯一设置入口；
+    // string 非空透传，缺省/未知归 daemon 注册表消费单点 fallback default）
+    const draftMode =
+      typeof ctx.payload.mode === "string" && ctx.payload.mode !== "" ? ctx.payload.mode : undefined;
     void ctx.directory
-      .startDraftSession(ctx.payload.text, draftModel, images)
+      .startDraftSession(ctx.payload.text, draftModel, images, draftMode)
       .then(({ sessionId }) => {
         if (!sender) return;
         ctx.events.subscribeSession(sender, sessionId);
@@ -62,7 +66,8 @@ export function handleChatSend(ctx: ChatCommandContext): void {
         });
       return;
   }
-  // 既有会话发送：信封 sessionId 路由（缺省当前会话，v0 兼容）
+  // 既有会话发送：信封 sessionId 路由（缺省当前会话，v0 兼容）。非草稿链
+  // 不消费 payload.mode（协议注释声明——建会话后锁定，无第二条写路径）。
   const sid = typeof ctx.envelope.sessionId === "string" && ctx.envelope.sessionId !== "" ? ctx.envelope.sessionId : undefined;
   void ctx.chat.sendMessage(ctx.payload.text, sid, images).catch((err) => {
     // 图片校验错误 → connection.error 点对点回执（同 steer 目标非运行中先例；

@@ -57,7 +57,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
   async restore(sessionId: string): Promise<PersistedDomainState | undefined> {
     const db = this.queue.database;
     const session = db
-      .prepare("SELECT session_id, created_at, entries, turns, updated_at, main_instance_id FROM session_state WHERE session_id = ?")
+      .prepare("SELECT session_id, created_at, entries, turns, updated_at, main_instance_id, mode FROM session_state WHERE session_id = ?")
       .get(sessionId) as SessionStateRow | null;
     if (!session) return undefined;
     // agent_lifecycle 已是每实例一行（复合 PK）：主会话运行态取 main 实例行；

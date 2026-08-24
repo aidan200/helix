@@ -27,6 +27,13 @@ export interface SessionSnapshot {
    * （历史行 instance_id="main" 不重写，与该会话数据自闭合）。
    */
   readonly mainInstanceId?: string;
+  /**
+   * 会话模式（P1 会话模式框架 T3）：建会话时定格（草稿建会话链唯一写入
+   * 口），此后无写路径——快照只读回带。可选——列前时代旧行无值 → 键不
+   * 携带（读侧按 "default" 兑底，解析归 application 注册表消费单点；
+   * domain 不持协议常量，仅携带原始 string）。
+   */
+  readonly mode?: string;
   /** 全量条目（语义单元，不含流式中间态；message/thinking/compaction 混排，每条挂 instanceId，AD-3）。 */
   readonly entries: readonly SessionEntryData[];
   /** 全量轮次。 */

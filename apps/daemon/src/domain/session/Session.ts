@@ -41,10 +41,16 @@ export class Session {
      * 历史行 instance_id="main" 不重写，主实例 id 保持 "main" 自闭合）。
      */
     readonly mainInstanceId: string,
+    /**
+     * 会话模式（P1 会话模式框架 T3）：建会话时定格，此后只读（锁定语义
+     * = 结构不可能——无第二条写路径）。原始 string 透传携带（domain 不
+     * import 协议常量）；缺省 = 旧快照/旧快照无值（读侧按 default 解析）。
+     */
+    readonly mode?: string,
   ) {}
 
-  static create(id?: string, at?: string): Session {
-    return new Session(id ?? crypto.randomUUID(), at ?? new Date(0).toISOString(), newInstanceId());
+  static create(id?: string, at?: string, mode?: string): Session {
+    return new Session(id ?? crypto.randomUUID(), at ?? new Date(0).toISOString(), newInstanceId(), mode);
   }
 
   // ── Entry 追加 ──────────────────────────────────────────────
@@ -290,6 +296,7 @@ export class Session {
       sessionId: this.id,
       createdAt: this.createdAt,
       mainInstanceId: this.mainInstanceId,
+      ...(this.mode !== undefined ? { mode: this.mode } : {}),
       entries: this.entryList(),
       turns: this.turnList(),
       pendingSteer: this.steerQueue.toData(),
@@ -300,7 +307,7 @@ export class Session {
   static restoreFrom(snapshot: SessionSnapshot): Session {
     // 旧快照无 mainInstanceId（列前时代）→ legacy "main"（该会话历史行
     // instance_id="main" 不重写，主实例 id 保持 "main" 与历史数据自闭合）
-    const s = new Session(snapshot.sessionId, snapshot.createdAt, snapshot.mainInstanceId ?? LEGACY_MAIN_INSTANCE_ID);
+    const s = new Session(snapshot.sessionId, snapshot.createdAt, snapshot.mainInstanceId ?? LEGACY_MAIN_INSTANCE_ID, snapshot.mode);
     for (const e of snapshot.entries) {
       // 旧版快照 entries 无 instanceId（列前时代）：兜底回填主实例（TR-AD-14
       // 同精神——fromRow/restore 对旧行数据前向兼容，回填该会话主实例 id）

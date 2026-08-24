@@ -14,6 +14,7 @@ import { RestoreService } from "../../application/services/RestoreService";
 import { SchedulerService } from "../../application/services/scheduler/SchedulerService";
 import { SessionProjection } from "../../application/services/SessionProjection";
 import { SessionRegistry, type SessionRuntime } from "../../application/services/SessionRegistry";
+import { profileKindOf } from "../../application/services/modes";
 import { ResourceService } from "../../application/services/ResourceService";
 import { SystemPromptAssembler } from "../../application/services/SystemPromptAssembler";
 import { SchedulingPolicy } from "../../domain/agent/SchedulingPolicy";
@@ -334,10 +335,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // resolveModelById = 目录活解析面（运行期换模 overlay 模型可达）。
   // spawn 透传模型 = 组合根两级链解析产物（resolveSubagentModelId，T12 起不再
   // 取会话当前模型——SubAgent 只认自身 profile 链）。
-  const engineFor =
+  // P1 T3：槽位 kind 字面量参数化——modelSlot/thinkingSlot 的 kind 从会话定格
+  // mode 解析（profileKindOf；default → main-session，行为零变化；P2 多模式
+  // 自动跟随注册表）。override 工厂（测试注入）不接 mode——结构兼容（参数
+  // 少的函数可赋参数多的类型），Fake 引擎无槽位语义不受影响。
+  const engineFor: (sessionId: string, mode?: string) => AgentEnginePort =
     engineMode.kind === "override"
       ? engineMode.factory
-      : (sessionId: string): AgentEnginePort => {
+      : (sessionId: string, mode?: string): AgentEnginePort => {
             const sessionOrchestration: AgentOrchestrationPort = {
               spawn: (task, profileKind, reportIntervalMs) =>
                 scheduler.spawn(sessionId, task, profileKind, resolveSubagentModelId(), reportIntervalMs),
@@ -359,7 +364,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
             // kind 槽位 > default_model（per-session 覆盖 = 既有 setModel 直改链）。
             // 活跃 runtime 不随槽位变更强推模型（下一装配生效——实现取舍见任务 report）。
             // thinking 解析链（§3.1 落点一/§3.3，thinking 批 T1.2）：链 =
-            // [会话覆盖（引擎读面回读）, main-session kind 槽位]逐值能力适配
+            // [会话覆盖（引擎读面回读）, 会话模式 profileKind 槽位]逐值能力适配
             // 取首个生效值；全链未配置 / reasoning=false / 链值 "off"（显式关
             // 短路）→ undefined → 注入器不动 options（pi-ai 不传 reasoning =
             // 显式关思考，默认关 D 方案）。自引用闭包仅在 turn 开始
@@ -373,7 +378,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
                 tools: mainAssembly.tools,
               },
               model: resolveConfigModel(
-                resourceService.modelSlot("main-session") ?? defaultModel.current(),
+                resourceService.modelSlot(profileKindOf(mode)) ?? defaultModel.current(),
                 catalog.modelsView(),
               ),
               apiKeys: () => authStore.apiKeysSnapshot(),
@@ -381,7 +386,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               resolveModelById: (modelId) => resolveConfigModel(modelId, catalog.modelsView()),
               resolveThinking: (model) =>
                 resolveEffectiveThinking(
-                  [adapter?.thinkingOverride(), resourceService.thinkingSlot("main-session")],
+                  [adapter?.thinkingOverride(), resourceService.thinkingSlot(profileKindOf(mode))],
                   model,
                 ),
               resolveTools: (names) => toolExecutor.resolveTools(names),
@@ -396,7 +401,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     restore: (sessionId) => restoreService.restore(sessionId),
     // 会话运行时工厂（组合根唯一 new 面）：Session + ChatService 族 + 投影绑定
     buildRuntime: (material): SessionRuntime => {
-      const engine = engineFor(material.session.id);
+      const engine = engineFor(material.session.id, material.session.mode);
       // thinking 批③跨冷恢复（AD-4③）：回放末值覆盖直写引擎内存态——
       // 不走 ChatService.setThinking 发布面（零新事件流零落盘铁律，恢复不重放）；
       // 区别于 model.set 不跨冷恢复现状（TR-AD-41 反例钉死，差异不动）。

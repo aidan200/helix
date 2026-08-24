@@ -84,6 +84,9 @@ export function toSnapshotDto(
   const tail = mainAxis.length > tailSize ? mainAxis.slice(mainAxis.length - tailSize) : mainAxis;
   return {
     sessionId: snapshot.sessionId,
+    // P1 T3：会话模式定格值回带（快照携带才下发，additive——旧 daemon
+    // 兼容；快照不携带 → 读侧按 default 兜底）
+    ...(snapshot.mode !== undefined ? { mode: snapshot.mode } : {}),
     model,
     agentState,
     revision: merged.length,

@@ -48,15 +48,24 @@ export interface SessionDirectoryPort {
   getSessionView(sessionId?: string): Promise<SessionStateView>;
   /**
    * 草稿建会话链（契约 B §1.5 定稿 + 转正复用）：当前会话命中零条目热
-   * 草稿 → 直接转正复用（同 id，不裂变）；否则新建聚合（未落库——首条消
-   * 息的事件 write-through 才 INSERT）+ 广播 list_changed{created}（同步
-   * 先于首条消息发送，时序硬约束）+ 首条消息发送（fire-and-forget，事件
-   * 流可观测）。返回会话 id。
+   * 草稿且 profileKind 与目标 mode 解析一致 → 直接转正复用（同 id，不裂
+   * 变）；不一致 → 丢弃热草稿（零条目无成本）按新 mode 新建聚合（未落
+   * 库——首条消息的事件 write-through 才 INSERT）+ 广播
+   * list_changed{created}（同步先于首条消息发送，时序硬约束）+ 首条消息
+   * 发送（fire-and-forget，事件流可观测）。返回会话 id。
    * @param model 建会话前用户选定模型（chat.send draft 链透传）：建会
    *   话/复用后、sendMessage 前 setModel；抛错 → warn 降级全局默认不阻断；
    *   缺省 = 全局默认（不换模）。
+   * @param mode 建会话模式（chat.send draft 链透传，P1 T3——唯一设置入口）：
+   *   建会话定格 session.mode（未知/缺省 fallback default，解析单点 =
+   *   application/services/modes.ts）；此后无写路径（锁定 = 结构不可能）。
    */
-  startDraftSession(text: string, model?: string, images?: readonly string[]): Promise<{ sessionId: string }>;
+  startDraftSession(
+    text: string,
+    model?: string,
+    images?: readonly string[],
+    mode?: string,
+  ): Promise<{ sessionId: string }>;
   /**
    * 握手草稿探测（可选 additive——未实现本面的实现/替身回退现状握手）：
    * 当前会话是零条目热草稿 → true（welcome.draft 标记 + 握手不 attach 会话

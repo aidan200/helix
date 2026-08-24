@@ -153,6 +153,25 @@ describe("TP-CL8-5（A 半）：模型隔离", () => {
 });
 
 /** TR-AD-14（iter-20260816-uzvg T1.2）：instanceId 新列往返与旧行兜底。 */
+// ── P1 T3：mode 列 RowMapper 往返 ──────────────────────
+
+describe("P1 T3：session_state.mode 列 RowMapper 往返", () => {
+  test("快照携带 mode → 行携列值 → 回读携带；旧行 NULL → 键不携带（恢复侧归一 default）", () => {
+    // 携带面：建会话定格 default（resolveModeId 归一后形状）
+    const withMode = Session.create("s-md", "2024-01-01T00:00:00.000Z", "default");
+    withMode.appendUserEntry("首条", "2024-01-01T00:00:01.000Z");
+    const rows = RowMapper.persistedStateToRows({ session: withMode.toSnapshot(), agentState: "idle", toolCalls: [] });
+    expect(rows.session.mode).toBe("default"); // 写面：快照携带 → 落列
+    const back = RowMapper.rowsToPersistedState(rows.session, rows.lifecycle, rows.steer, rows.toolCalls);
+    expect(back.session.mode).toBe("default"); // 读面：列值回读携带
+
+    // 旧行面：列前时代行 NULL（读取侧键不携带，恢复链 RestoreService 归一 default）
+    const legacyRow = { ...rows.session, session_id: "s-legacy", mode: null };
+    const legacy = RowMapper.rowsToPersistedState(legacyRow, rows.lifecycle, rows.steer, rows.toolCalls);
+    expect(legacy.session.mode).toBeUndefined();
+  });
+});
+
 describe("F1.7：instanceId 新列 RowMapper 往返（TR-AD-14）", () => {
   test("① DomainEvent 带 instanceId → 行带 agent_instance_id；缺省 → main（缺省=主实例）", () => {
     const sub: DomainEvent = {

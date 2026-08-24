@@ -14,6 +14,7 @@ import type {
   AgentThinkingChangedPayload,
 } from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
+import { resolveModeId } from "./modes";
 import { AgentInstance, isMainInstanceId, type InstanceState } from "../../domain/agent/AgentInstance";
 // 投影收敛：账本重放基元单源 @helix/protocol projection
 import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "@helix/protocol";
@@ -107,7 +108,9 @@ export class RestoreService {
   async restore(sessionId: string): Promise<RestoredDomainState | undefined> {
     const state = await this.deps.repository.restore(sessionId);
     if (!state) return undefined;
-    const session = Session.restoreFrom(state.session);
+    // P1 T3：恢复侧 mode 归一（消费单点）——旧行无值/未知 → default，
+    // 重建后 Session.mode 与建会话链同构恒为注册表成员 id（快照等价不断层）
+    const session = Session.restoreFrom({ ...state.session, mode: resolveModeId(state.session.mode) });
     if (session.openTurn) {
       session.interruptTurn(this.deps.clock.now()); // 悬挂收口：重启无 run 在飞
     }

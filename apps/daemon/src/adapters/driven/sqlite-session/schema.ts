@@ -22,6 +22,10 @@
  *   (profile_kind, resource_type, name)；缺省无记录 = 启用的语义在 service
  *   层——本表只存用户显式选择过的差异，零配置兼容现状、存量零迁移）。
  *
+ * 列演进补充（P1 T3）：session_state.mode（会话模式，建会话定格——可空无
+ * 默认；旧行 NULL = default 语义，恢复侧 RestoreService 归一，与
+ * main_instance_id 同构的守护式补列）。
+ *
  * 列演进（演进史见 docs/decisions/ADR-persistence.md）：agent_instance_id / instance_id 列与复合 PK；
  * DEFAULT 'main' = 主实例固定 id，与旧行回填常量同源。
  */
@@ -47,7 +51,8 @@ CREATE TABLE IF NOT EXISTS session_state (
   entries TEXT NOT NULL,
   turns TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  main_instance_id TEXT
+  main_instance_id TEXT,
+  mode TEXT
 );
 
 CREATE TABLE IF NOT EXISTS agent_lifecycle (

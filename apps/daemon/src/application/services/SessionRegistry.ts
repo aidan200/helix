@@ -8,6 +8,7 @@ import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 // 投影收敛：账本形状单源 @helix/protocol projection
 import type { UsageLedgerData } from "@helix/protocol";
 import { parseDataUrlImages } from "./images";
+import { profileKindOf, resolveModeId } from "./modes";
 import type { InstanceSnapshotEntry, SessionStateView } from "../ports/inbound/SessionPort";
 import type {
   SessionDirectoryPort,
@@ -241,20 +242,29 @@ export class SessionRegistry implements SessionDirectoryPort {
     return this.buildView(runtime);
   }
 
-  async startDraftSession(text: string, model?: string, images?: readonly string[]): Promise<{ sessionId: string }> {
+  async startDraftSession(
+    text: string,
+    model?: string,
+    images?: readonly string[],
+    mode?: string,
+  ): Promise<{ sessionId: string }> {
     // 图片附件建会话前同步校验（fire-and-forget sendMessage 前的早期
     // 报错面——超限/坏格式抛 ImageValidationError，零副作用不建会话；WS
     // handler 据 name 转 connection.error 点对点回执）
     if (images !== undefined && images.length > 0) parseDataUrlImages(images);
-    // 转正复用：当前会话命中零条目热草稿 → 直接转正复用（同 id，不裂变
-    // 新会话；转正后不立刻新建下一个内存草稿——下一个由 initialize/
-    // rotateCurrent 等既有点懒建）；当前会话有内容 → 维持 createFresh。
+    // 转正复用：当前会话命中零条目热草稿且 profileKind 与目标 mode 解析
+    // 一致 → 直接转正复用（同 id，不裂变新会话；转正后不立刻新建下一个
+    // 内存草稿——下一个由 initialize/rotateCurrent 等既有点懒建）；不一致
+    //（P2 多模式激活；P1 单模式恒一致）或当前会话有内容 → createFresh
+    // 按目标 mode 构造（丢弃旧零条目热草稿——无成本，不可见自然消亡）。
     const currentId = this.currentSessionId();
     const hotCurrent = this.sessions.get(currentId)?.runtime;
     const runtime =
-      hotCurrent !== undefined && hotCurrent.chatService.sessionView.isEmpty()
+      hotCurrent !== undefined &&
+      hotCurrent.chatService.sessionView.isEmpty() &&
+      profileKindOf(hotCurrent.chatService.sessionView.mode) === profileKindOf(mode)
         ? hotCurrent
-        : this.createFresh();
+        : this.createFresh(mode);
     // 建会话广播（created）：title = 首条用户消息截断（此刻即知——不等落库）。
     // 时序硬约束：必须同步先于 sendMessage（前端先登记 pendingActivation 再收
     // 快照，推迟会产生快照被吞的竞态）；登记 createdAnnounced 使转正单点的
@@ -479,9 +489,10 @@ export class SessionRegistry implements SessionDirectoryPort {
     return runtime;
   }
 
-  /** 新建会话（草稿/首启缺省）：热登记、未落库（首事件 write-through 才 INSERT）。 */
-  private createFresh(): SessionRuntime {
-    const session = Session.create(undefined, this.deps.clock.now());
+  /** 新建会话（草稿/首启缺省）：热登记、未落库（首事件 write-through 才 INSERT）；
+   * mode 建会话定格（resolveModeId 归一——session.mode 恒为注册表成员 id）。 */
+  private createFresh(mode?: string): SessionRuntime {
+    const session = Session.create(undefined, this.deps.clock.now(), resolveModeId(mode));
     const runtime = this.deps.buildRuntime({ session, toolCalls: [], usage: undefined });
     // agent.instantiated 发布点从「会话创建」推迟到「转正」（bug1/bug4 修复）
     // 「转正」（首个用户条目，promoteDraft）——零条目内存草稿不写 domain_events
@@ -639,7 +650,9 @@ export class SessionRegistry implements SessionDirectoryPort {
           //（kind 恒 "main"；legacy 会话恢复后保持 "main" 与历史行自闭合）
           instanceId: session.mainInstanceId,
           kind: "main",
-          profileKind: "main-session",
+          // 主实例 profileKind 从会话定格 mode 解析（P1 T3 字面量参数化：
+          // default → main-session，行为不变；P2 多模式自动跟随注册表）
+          profileKind: profileKindOf(session.mode),
           sessionId: runtime.sessionId,
           // 定稿（architecture-feedback #15）：InstanceState 无常驻待命
           // 词汇——主实例态读 ChatService.agentState（stopped→cancelled，其余
