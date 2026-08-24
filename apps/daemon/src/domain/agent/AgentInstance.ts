@@ -36,7 +36,7 @@ export const LEGACY_MAIN_INSTANCE_ID = "main" as const;
  * 实例 id 生成单点（T10a 方案 A）：`agent-` + crypto.randomUUID() 去横线。
  * 主实例与 SubAgent 同一标识空间同一生成逻辑（用户决策原话见上）；去横线
  * 形态与会话 id（crypto.randomUUID() 原生形态）区分只靠前缀语义，不依赖
- * 序号——序号基线（agentSeqOf/maxAgentSeq）随本单点上线整体退役。
+ * 序号——原序号基线（agent-N 序号解析/最大序号字段）随本单点上线整体退役。
  */
 export function newInstanceId(): string {
   return `agent-${crypto.randomUUID().replaceAll("-", "")}`;
