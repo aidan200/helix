@@ -58,13 +58,11 @@ export const enUS = {
       popoverLabel: "Reasoning effort",
       sliderLabel: "Reasoning effort level",
       title: "Reasoning Effort",
-      scope: "Session override · this session only",
       peakBadge: "▲ PEAK",
       disabledNote: "The current model does not support reasoning; thinking level is not adjustable. Requests fall back to provider defaults.",
       clampedHint: "{override} → {effective} (clamped by model capability)",
       capabilityLoading: "Fetching model capability…",
       off: "OFF",
-      auto: "AUTO",
     },
     attach: {
       button: "Attach images",
