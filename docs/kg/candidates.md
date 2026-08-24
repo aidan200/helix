@@ -2,6 +2,86 @@
 
 ## pending
 
+### TR-AD-40-r4
+- changeType: 修改
+- targetNode: TR-AD-40
+- scope: docs/kg/architecture-rules.md TR-AD-40（链语义改默认关 + off 升格 + setModel 重播——节点正文「兜底 medium」旧语义待同步）
+- project: helix
+- reason: 用户裁决 D 方案（思考默认不开启）+「off 升格为合法 override 值」：主会话链改 [会话覆盖, profile 槽位]（删兜底 medium，全链未配置 = 不传 reasoning = pi-ai 显式关思考）；off 为合法 override 值——resolveEffectiveThinking 在 clampThinkingLevel 前短路返回 undefined（off:null map 模型 clamp(off) 会向上找最近支持档、语义反转「想关反而开」，短路必须先于 clamp）；SubAgent 链去兜底（未配置 → HELIX_THINKING_LEVEL env 缺席 → 子进程不装注入器）；model.set 成功后重播 thinking.changed（换模只改 effective 不改 override；引擎无 currentThinking 观测面不广播）；协议 §17.11 批内补登 + AgentInstantiatedPayload.thinkingLevel 必填→可选协同
+- evidence: thinking-set-chain.test.ts off:null 反例钉桩（旧实现 effective=minimal 语义反转实锤）+ setModel 重播 WS 用例；PROTOCOL.md §15.8/§16.4/§16.5/§17.11 补登；bun test apps/daemon 865 pass（T1 时点）；commit a9a6c9d
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/thinking-resolve.ts:30-33（off 短路）；apps/daemon/src/infrastructure/assembly/buildSessionStack.ts:271,373-376（删兜底）；apps/daemon/src/application/services/ModelService.ts:85-91（setModel 重播）；apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts（resolveThinkingFor 去兜底）
+- sourceTask: task-T1（default-coder agt_T75RT55AB6G，2026-08-24）
+- createdIn: task-20260824-t1
+
+### AD-default-20260824-1
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md（技术规则新增——P-1 chat composer 推理控件默认关显示形态）
+- project: helix
+- reason: P-1 推理控件默认关语义的显示决策：滑块 OFF 为 UI 合成第 0 刻度（levels = ["off", ...CatalogModel.thinkingLevels]，协议/目录零变更——off 不进 pi-ai 档位枚举）；chip 无覆盖与显式关同态显示 OFF（AUTO 退场），滑块以 ghost 空心/实心 thumb 区分两态；选 OFF → thinking.set("off") 协议透传（daemon 侧 TR-AD-40 短路处理）；PEAK 判据入参用能力档序列（不含 off）防误判；popover scope 文字提示删除（用户裁决）；能力位驱动刻度数不变（TR-AD-42 复用）
+- evidence: ComposerThinkingPicker.test.tsx「OFF 第 0 刻度」describe 三用例（off 刻度渲染+ghost / 选 off 发令 / 显式关实心）；vitest 449/449；commit f9a49d8
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/features/thinking-level/ui/ComposerThinkingPicker.tsx:80-84,131
+- sourceTask: task-T2（default-coder agt_256H5F5XRE5H，2026-08-24）
+- createdIn: task-20260824-t2
+
+### AD-default-20260824-2
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md（技术规则新增——推理强度默认档中位规则 defaultLevelFor）
+- project: helix
+- reason: 用户裁决「所有模型的推理强度默认都取中间档位，如果只有两个档位则取第一档位，最高档位默认都不选」：defaultLevelFor(levels) = levels[Math.floor((n-1)/2)]（n=2 取低档、n=3 取中、n=4 取低中位、n=1 唯一档例外、空数组 undefined 不写）；纯函数沉淀于 thinking-capability 模型段（AG-14）；消费位 = P-2 开关 off→on 翻转时的默认档写入（开 on 即写槽位；off 由开关承担，P-2 滑块无 OFF 刻度、ghost 预览位随开关形态退役）
+- evidence: thinking-capability.test.ts 7/7（[low,high,max]→high、[low,high]→low、[minimal,low,medium,high]→low、n=1、空数组、最高档负断言）；P-2-ThinkingField.test.tsx「off → on：onSelect 中位档」矩阵；AgentPage.test.tsx 点开关 → set_enabled{name:medium}；commit e2e466d
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/features/thinking-level/model/thinking-capability.ts:35-41
+- sourceTask: task-T3（default-coder agt_EVCCYR5Q440C，2026-08-24）
+- createdIn: task-20260824-t3
+
+### AD-default-20260824-3
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md + packages/protocol/PROTOCOL.md §16.3/§17.11（steer source 消息类型区分规则）
+- project: helix
+- reason: closure 注入与用户 steer 的消息类型区分：SteerSource = "user"|"closure"|"progress" 协议单点定义（additive 批内补登不 bump），贯通 steer.queued/drained 载荷 + MessageEntryDto + Entry 物种 + steer_queue.source 列（守护式 ALTER，旧行 NULL 前向兼容 = 缺省按 user 渲染）；ChatService.injectClosure 签名扩展带 source（调度链 ClosureRecorder 传 closure、周期进展报告传 progress）；实时 chat.message.completed 帧 entry.source 透传；三值由协议面定死（helix 自有枚举——AD-2 字符串透传原则不适用，已落 PROTOCOL.md 字段行语义列）；domain 与 protocol 各自定义同值域枚举（domain 不 import @helix/protocol 纪律，adapter 层映射）
+- evidence: chat-service.test.ts describe⑥（user/closure/progress 三源 + idle 注入快照可见）；closure-chain.test.ts pendingSteer 双源；scheduler-progress-report.test.ts sources 断言；sqlite-persistence TP-CL8-1（DB 行 source + 冷恢复不丢）；sqlite-schema-migration 守护式补列；daemon 872 绿；commits 027b41f + b7f63dd
+- implementationStatus: 完整实现
+- implementedCode: packages/protocol/src/types/chat.ts（SteerSource 单点）；apps/daemon/src/domain/session/Entry.ts（source 字段）；apps/daemon/src/application/services/ChatService.ts（injectClosure 签名 + publishMessageCompleted source）；apps/daemon/src/adapters/driven/sqlite-session（steer_queue.source）；apps/daemon/src/adapters/driving/ws-server/EnvelopeMapper.ts
+- sourceTask: task-T11a+T11b（default-coder agt_726P6CWWC3NZ + agt_Q94ZMJHPHXE6，2026-08-24）
+- createdIn: task-20260824-t11
+
+### AD-default-20260824-4
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md（UI 显示规则——主时间轴注入徽标 source 变体）
+- project: helix
+- reason: 主时间轴 closure/progress 注入与用户 steer 视觉分离：MessageBubble/SteerBadge 按 entry.source 分族——closure=amber「CLOSURE」、progress=cyan「PROGRESS」、user/缺省=既有 violet STEER 两态不变（老数据缺省按 user，T11a 口径）；idle 注入无 steerState 时渲染静态来源徽标；实时帧区分经 MessageCompletedPayload.source additive 透传（不再仅靠快照对账）；ClosureCard（抽屉/终态面）不动——本规则只管主时间轴注入内容
+- evidence: MessageBubble.test.tsx source 三态钉 + 用户 steer/缺省回归钉；session-reducer.test.ts 缺省不带键；shell 475 绿；commit b7f63dd
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/widgets/chat-stream/ui/MessageBubble.tsx:15-52（SteerBadge source 变体）；apps/shell/src/entities/session/model/consumers/chat.ts（confirmSteerEcho/drainSteer source）
+- sourceTask: task-T11b（default-coder agt_Q94ZMJHPHXE6，2026-08-24）
+- createdIn: task-20260824-t11b
+
+### E-AgentInstance-r5
+- changeType: 修改
+- targetNode: E-AgentInstance
+- scope: docs/kg/domain.md E-AgentInstance（实例 ID 统一 agent-<唯一串> 含 main；kind 判别 + legacy 只读兼容 + wire 归属编码一致性）
+- project: helix
+- reason: 用户裁决「agent的id应该是同一的agent-N，包括main agent……未来一个session中的main agent也可能是多个的，所以都用main会有问题。N不能是纯数字，而是Id生成的逻辑，一个不易重复的字符串」+ 迁移方案 A（一次性全切 + 旧行只读兼容）：所有实例（含 main）instanceId = agent-<crypto.randomUUID 派生 hex 唯一串>（生成单点 newInstanceId）；主/Sub 区分由 kind 承载（AgentInstanceDto.kind + isMainInstanceId/isMainChannel/isWireMainAttribution 判别单点——shell/daemon/wire 三层同构）；legacy "main" 字面/缺省 = 读侧推断（历史行只读兼容，写侧不再产出）；seq/agentSeqOf/maxAgentSeq 序号基线整体退役（唯一串下无序号概念）；wire 写侧全实例显式携带 instanceId（「省略=main」线格式优化退役为读侧兼容）；持久化 session_state.main_instance_id 列 + 5 表 DEFAULT main 回填保留；wire 归属编码一致性铁律：thinking delta 载荷与 completed entry.instanceId 同编码（主实例归一 legacy main——错位致 shell thinkingStreams 槽位键悬挂，T10d R4 红点根因）；MAIN_INSTANCE_ID 常量全仓退役
+- evidence: T10a-d 全链：daemon 872 绿（agent-hex 正则钉 + 旧库恢复兼容用例）+ protocol 87（envelope 写侧显式携带钉）+ shell 478（新形态/legacy 两钉）+ E 层 e2e 31/31；commits 668a522（15 增量）/ed5cf3a..5ccd416/248c3a4+333f82d/072657b+037f794+f1f2f92+8faa5a4
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/domain/agent/AgentInstance.ts（newInstanceId + agentSeqOf 退役）；apps/daemon/src/application/services/scheduler/SchedulerService.ts（spawn 唯一串）；apps/daemon/src/adapters/driving/ws-server/EventStream.ts:265-275（delta 归属编码）；apps/daemon/src/adapters/driving/ws-server/EntryDtoMapper.ts（isWireMainAttribution）；apps/shell/src/entities/session/model/state.ts（isMainChannel + mainInstanceId 快照习得）
+- sourceTask: task-T10a/b/c/d（default-coder agt_X10DEN2BAJ0W + agt_FP723FQCWQ7W + agt_W3EWEQ0WNYPC + agt_0TNJM95GZ2PY + MainAgent，2026-08-24）
+- createdIn: task-20260824-t10
+
+### TR-AD-24-r3
+- changeType: 修改
+- targetNode: TR-AD-24
+- scope: docs/kg/architecture-rules.md TR-AD-24（SubAgent 模型链四级→两级——节点正文已随 T12 commit 直写，本条补台账审计痕）
+- project: helix
+- reason: 用户裁决③「只需要subagent根据自己的profile来就行，没有spawn，也没有继承main session的选择」：SubAgent 模型链砍 spawn 会话快照级——四级（profile.model ?? kind 槽位 ?? spawn 会话快照 ?? 全局兑底）改两级（profile.model ?? subagent-worker 槽位 ?? 全局兑底，resolveSubagentModelId 单点供给 spawn 透传/快照）。语义收益：SubAgent 只认自身 profile、不继承 main session 选择；P-2 能力预览基准（槽位模型 ?? 全局默认）与 spawn 实际模型同源——「配置被静默稀释」根因消除（实证：会话模型 A + 槽位 B → spawn 用 B）。backfill.currentModelOf/spawnModelSource 装配退役。注：节点正文与 derivedFrom（T12 用户裁决）已随 T12 commit a23700c 直写落库，本条为台账审计补录
+- evidence: subagent-model-chain 测试矩阵（两级链 + 会话模型不泄漏钉桩）；container.ts backfill 退役；P-2 subagent 卡缺省文案「跟随全局默认」；bun test 872 绿；commit a23700c（MainAgent 验签代签——agent 超时未闭环）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts（resolveModelFor 两级链）；apps/daemon/src/infrastructure/assembly/buildSessionStack.ts:331-338（spawn 入参改 resolveSubagentModelId）；apps/daemon/src/infrastructure/container.ts:396-397（backfill 退役）
+- sourceTask: task-T12（default-coder agt_Q4ZRM3B75YVH 超时 + MainAgent 验签，2026-08-24）
+- createdIn: task-20260824-t12
+
 ## deferred
 
 ## applied
