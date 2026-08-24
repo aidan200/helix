@@ -389,7 +389,7 @@ export const enUS = {
     subTitle: "SubAgent worker",
     modelLabel: "Model",
     modelFollowMain: "Follow global default",
-    modelFollowSub: "Follow session and global default",
+    modelFollowSub: "Follow global default",
     modelNoteMain: "Factory default: new sessions assemble with this model; manually switched sessions are unaffected",
     modelNoteSub: "Factory default: frozen at spawn time; running instances are unaffected",
     toolsLabel: "Tools",

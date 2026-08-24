@@ -28,10 +28,10 @@ import type { BrowserPort } from "../../../application/ports/outbound/BrowserPor
  * launch/setCallbacks/send?/kill?（send/kill 原为接口外扩展方法，
  * 收进接缝；kill 通道经此由 SchedulerService.kill 触发）。
  *
- * AD-3（TR-AD-24）：launch 段是模型三级解析链唯一消费点——
- * ①profile.model（声明即最高）→ ②uiModelSlot（resource_state kind
- * 槽位 UI 化）→ ③spawn 会话快照（spawnModelFor 晚绑回调）→ ④全局兜底
- * （deps.model getter，注入源模式保留）。
+ * AD-3（TR-AD-24，T12 砍 spawn 会话快照级）：launch 段是模型两级解析链
+ * 唯一消费点——①profile.model（声明即最高）→ ②uiModelSlot（resource_state
+ * kind 槽位 UI 化）→ ③全局兜底（deps.model getter，注入源模式保留）。
+ * SubAgent 只认自身 profile 链，不继承 main session 选择（用户决策 T12）。
  */
 
 /**
@@ -55,15 +55,9 @@ export interface SubagentLauncherDeps {
    * 全局兜底模型完整对象（解析单点产物，经 env JSON 透传子进程）。
    * 注入源为全局兜底模型存储（AD-2）——接受 getter（每次 launch 读现值，
    * set_default 后新子进程跟随）或静态对象。
-   * AD-3：三级解析链第三级（profile.model ?? spawn 快照 ?? 本项）。
+   * AD-3：两级解析链末级（profile.model ?? uiModelSlot ?? 本项）。
    */
   readonly model: Model<any> | (() => Model<any>);
-  /**
-   * AD-3 三级链第二级：spawn 会话快照读取回调（per-instance 解析形态）。
-   * 生产由 container 在 scheduler 构造后经 bindSpawnModelSource 晚绑
-   * （装配序：launcher 先于 scheduler）；deps 直注为测试便捷口。
-   */
-  readonly spawnModelFor?: (instanceId: string) => Model<any> | undefined;
   /**
    * 模型目录（仅当 profile.model 声明时用于槽位解析——resolveModel 同源；
    * 未声明 profile.model 时不需要）。
@@ -88,7 +82,7 @@ export interface SubagentLauncherDeps {
     readonly systemPrompt: string;
   };
   /**
-   * 模型槽位（三级链第一级 UI 化）：resource_state kind 槽位读面
+   * 模型槽位（profile 槽位 UI 化）：resource_state kind 槽位读面
    * （组合根注入——槽位 id → 完整 Model 对象解析后返回；未设 = undefined
    * 走后续档）。launch 时刻读取定格（同 spawn 快照语义）。
    */
@@ -120,34 +114,23 @@ interface ChildEntry {
 export class SubagentLauncher implements InstanceRunner {
   private callbacks: InstanceRunnerCallbacks | undefined;
   private readonly children = new Map<string, ChildEntry>();
-  /** AD-3 第二级读取回调（deps.spawnModelFor 初始化；bindSpawnModelSource 晚绑覆盖）。 */
-  private spawnModelFor: ((instanceId: string) => Model<any> | undefined) | undefined;
 
-  constructor(private readonly deps: SubagentLauncherDeps) {
-    this.spawnModelFor = deps.spawnModelFor;
-  }
+  constructor(private readonly deps: SubagentLauncherDeps) {}
 
   setCallbacks(callbacks: InstanceRunnerCallbacks): void {
     this.callbacks = callbacks;
   }
 
   /**
-   * spawn 会话快照源晚绑（AD-3；container 手工装配：launcher 先于
-   * scheduler 构造，scheduler 就绪后一行绑定——遵循组合根手工装配先例）。
-   */
-  bindSpawnModelSource(source: (instanceId: string) => Model<any> | undefined): void {
-    this.spawnModelFor = source;
-  }
-
-  /**
-   * AD-3 三级模型解析单点（TR-AD-24；含第一级 UI 槽位扩展）：
+   * AD-3 两级模型解析单点（TR-AD-24，T12 砍 spawn 会话快照级）：
    * ①profile.model（真实槽位，声明即最高优先级，装配期 resolveModel 解析）
    * → ②uiModelSlot（resource_state kind 槽位 UI 化，launch
-   * 时刻读取）→ ③spawnModelFor（spawn 时刻会话快照）→ ④deps.model（全局
-   * 兕底 getter）。高档有值即短路（低档不调用）；返回完整 Model 对象
-   * （透传形态）。
+   * 时刻读取）→ ③deps.model（全局兜底 getter）。高档有值即短路（低档不
+   * 调用）；返回完整 Model 对象（透传形态）。SubAgent 只认自身 profile
+   * 链——不继承 main session 选择（spawn 透传值仅填充 AgentInstanceDto.model，
+   * 不进本链）。
    */
-  resolveModelFor(instanceId: string): Model<any> {
+  resolveModelFor(): Model<any> {
     const slot = this.profileNow().model;
     if (slot !== undefined) {
       if (this.deps.models === undefined) {
@@ -160,8 +143,6 @@ export class SubagentLauncher implements InstanceRunner {
     }
     const uiSlot = this.deps.uiModelSlot?.();
     if (uiSlot !== undefined) return uiSlot;
-    const spawned = this.spawnModelFor?.(instanceId);
-    if (spawned !== undefined) return spawned;
     return typeof this.deps.model === "function" ? this.deps.model() : this.deps.model;
   }
 
@@ -174,7 +155,7 @@ export class SubagentLauncher implements InstanceRunner {
    * thinking 解析单点（AD-1 落点二，thinking 批 T1.3）：单点短路链
    * ——仅自身 profile.thinkingLevel 槽位（含组合根合并的 subagent-worker
    * 槽位），无兜底（默认关 D 方案：未配置 → undefined → env 缺席 → 子
-   * 进程不装注入器 = pi-ai 不传 reasoning 显式关）。有意短于模型四级链：
+   * 进程不装注入器 = pi-ai 不传 reasoning 显式关）。有意短于模型两级链：
    * SubAgent 无 UI/快照级覆盖（红线：主会话覆盖永不进入本链——输入只有
    * profile 槽位，无会话覆盖读面）。launch 段唯一消费点（调用一次，结果
    * 经 env 定格透传子进程——代际生效，运行期不变）。
@@ -187,9 +168,9 @@ export class SubagentLauncher implements InstanceRunner {
   launch(instance: AgentInstance, task: string): void {
     const id = instance.instanceId;
     if (this.children.has(id)) return;
-    // AD-3：三级解析单点（profile > spawn 会话快照 > 全局兜底 getter）；
+    // AD-3：两级解析单点（profile 槽位 > 全局兜底 getter；T12 砍 spawn 会话快照级）；
     // apiKeys 读现值（getter 注入源 = auth.json）
-    const model = this.resolveModelFor(id);
+    const model = this.resolveModelFor();
     const thinkingLevel = this.resolveThinkingFor(); // launch 时刻定格（AD-1：spawn 快照）
     const apiKeys = typeof this.deps.apiKeys === "function" ? this.deps.apiKeys() : this.deps.apiKeys;
     // spawn 快照：launch 时刻读一次（toggle 后新 spawn 跟随新值，已

@@ -12,7 +12,8 @@
  *   auth.list；缺省项「跟随全局默认」= 四级链出厂默认语义，注解两级
  *   关系）+ 工具组（8 项，snippet 一句话）+ 技能组（user/project
  *   来源分组 + 扫描诊断警示）；
- * - subagent-worker：同构，缺省项「跟随会话与全局默认」（三级链），注解
+ * - subagent-worker：同构，缺省项「跟随全局默认」（T12 两级链——SubAgent
+ *   只认自身 profile 槽位，不再跟随会话模型），注解
  *   「spawn 时刻定格」语义。
  *
  * 数据通道（AG-15 页面私有 reducer，trace 先例；T3 遗留②收口）：
@@ -131,8 +132,9 @@ function ProfileCard({
   }, [catalog, auth, authLoaded, block?.model]);
 
   /** P-2 能力位数据源（F2.2）：槽位选定模型的 CatalogModel 防腐字段；槽位
-   *  留空 = 跟随默认（main 全局默认 / sub spawn 时刻定格会话或全局默认——
-   *  本页为全局配置面无会话上下文，展示位一律以全局默认模型为预览基准）。 */
+   *  留空 = 跟随全局默认（main/sub 同——T12 后 sub 不再跟随会话模型，spawn
+   *  时刻定格；本页为全局配置面，展示位以全局默认模型为预览基准，与 sub
+   *  spawn 实际模型天然同源）。 */
   const thinkingCapability = useMemo(
     () => resolveThinkingCapability(block?.model ?? defaultModel ?? "", catalog ?? undefined),
     [block?.model, defaultModel, catalog],
@@ -147,7 +149,7 @@ function ProfileCard({
         </span>
       </header>
 
-      {/* 模型槽位：缺省项 = 跟随全局默认（main）/ 跟随会话与全局默认（sub） */}
+      {/* 模型槽位：缺省项 = 跟随全局默认（main/sub 同——T12 后 sub 不再跟随会话） */}
       <div className="ag-model">
         <label className="hud-label" htmlFor={selId}>
           {t("agents.modelLabel")}

@@ -929,7 +929,7 @@ graph: tech
 layer: arch
 scope: domain
 stack: backend
-name: SubAgent 模型四级解析链（profile > kind 槽位 > 会话快照 > 全局兑底）
+name: SubAgent 模型两级解析链（profile 槽位 > 全局兑底；T12 砍 spawn 会话快照级）
 status: active
 digest: 动 SubAgent 模型来源、写 spawn 模型透传管线、配 profile 模型槽位、调 kind 槽位或全局兑底语义时
 derivedFrom:
@@ -937,6 +937,8 @@ derivedFrom:
   - M6 T2（iter-20260821-m6 478ab2c：kind 槽位插入 ①② 之间，枚举未随更——iter-20260823-6ps5 终验
     L3 复核校正三级→四级）
   - TR-AD-44（iter-20260823-6ps5：kind 槽位经 getter 折叠进 profile 读面）
+  - T12（用户裁决「只需要subagent根据自己的profile来就行，没有spawn，也没有继承main session的选择」
+    ——spawn 会话快照级砍除，四级链收为两级）
 anchors:
   implementedBy:
     - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
@@ -956,18 +958,18 @@ updatedIn: iter-20260823-6ps5
 ```
 
 ## 规则
-SubAgent 实例的模型来源按四级优先级解析：①SubAgentProfile.model 真实槽位（launch 期 resolveModelFor 解析，声明即最高优先级）→ ②kind 槽位（resource_state model 型行，subagent-worker kind 槽位设定时优先于 spawn 快照；launch 期经 deps.profile getter 读现值定格——TR-AD-44 折叠约定，静态声明优先于运行期槽位值）→ ③spawn 时快照的会话模型（spawnModels 管线：agent_spawn 经 AgentOrchestrationPort.spawn 透传会话现值，SchedulerService.spawn 时刻快照入 spawnModels，此后主实例再切模型不影响在跑/排队实例）→ ④全局兑底（默认模型存储现值 getter，container 组合根注入，语义 = 「全局兑底」而非「SubAgent 默认来源」）。launch 段是四级链的唯一消费点：SubagentLauncher.launch 携带解析结果，子进程 HELIX_MODEL_JSON 仍为完整 Model 对象透传（防 registry 不含的红线不变）。取代边界：本规则取代 M2 AD-6「SubAgent 缺省继承全局默认」中「SubAgent 模型源 = 全局默认表」的解析规则；不取代会话级 model.set 内存态语义（主实例模型仍为 AgentState.model 内存态，重启/卸载回退全局默认）。
+SubAgent 实例的模型来源按两级优先级解析（T12 砍 spawn 会话快照级后）：①SubAgentProfile.model 真实槽位（launch 期 resolveModelFor 解析，声明即最高优先级）→ ②kind 槽位（resource_state model 型行 subagent-worker 槽位；launch 期经 deps.uiModelSlot/profile getter 读现值定格——TR-AD-44 折叠约定，静态声明优先于运行期槽位值）→ 全局兑底（默认模型存储现值 getter，container 组合根注入，语义 = 「全局兑底」而非「SubAgent 默认来源」）。SubAgent 只认自身 profile 链，不继承 main session 当前模型：scheduler.spawn 第四参（spawn 透传模型 id）仅存 spawnModels 填充 AgentInstanceDto.model / agent.spawned 载荷与 instantiated 快照（组合根 resolveSubagentModelId 单点供给，与 launch 解析同源），不再进入 launcher 解析链；bindSpawnModelSource/spawnModelOf/backfill.spawnModelSource 管线退役。launch 段是两级链的唯一消费点：SubagentLauncher.launch 携带解析结果，子进程 HELIX_MODEL_JSON 仍为完整 Model 对象透传（防 registry 不含的红线不变）。取代边界：本规则取代 M2 AD-6「SubAgent 缺省继承全局默认」中「SubAgent 模型源 = 全局默认表」的解析规则；不取代会话级 model.set 内存态语义（主实例模型仍为 AgentState.model 内存态，重启/卸载回退全局默认）。
 
 state 直改族谱扩展（M6，iter-20260821-m6）：setModel 之外新增 setTools/setSystemPrompt 同构直改（AgentRuntime → AgentEnginePort 可选扩面 → PiAgentEngineAdapter → ChatService 六层链，赋 agent.state 即下一 run 生效、in-flight context 快照定格不变——pi agent.d.ts「Assigning state.tools copies the top-level array」官方语义背书）。不走 prepareNextTurn 链（CompactionHook 占用且「首个非空生效」合并语义会短路，与换模同款机械裁决）。资源配置变更（kind 维）经 onApplied 回调刷新该 kind 全部活跃 runtime；SubAgent 按代生效（spawn 时刻 env 定格快照）；主会话槽位 UI 化后 main 型读面 = 四级链（per-session 覆盖 > kind 槽位 > default_model，读面生效不强推活跃 runtime）。
 
 ## 理由
-M4 终验后真机 7 连败根因之一：会话内 model.set 只切主实例，SubAgent 模型源仍是全局默认（zai 配额耗尽后子进程 429 静默失败）。用户裁决优先级原话「profile > 会话模型 > 全局默认」；M6 T2 槽位 UI 化在 ①② 间插入 kind 槽位级（代码先行、枚举滞后，iter-20260823-6ps5 终验 L3 复核铁证 SubagentLauncher.ts:141-163 + buildSessionStack.ts:269-270）。spawn 时快照（而非 launch 时读会话现值）保证排队实例的模型语义在 spawn 时刻确定、可观测。
+M4 终验后真机 7 连败根因之一：会话内 model.set 只切主实例，SubAgent 模型源仍是全局默认（zai 配额耗尽后子进程 429 静默失败）。原用户裁决优先级「profile > 会话模型 > 全局默认」；M6 T2 槽位 UI 化在 ①② 间插入 kind 槽位级。T12 用户再裁决砍 spawn 会话快照级：根因实证为语义稀释——spawn 继承会话当前模型时，P-2 按「槽位 ?? 全局默认」预览的 thinking 档位在该会话模型上被 supportsThinkingLevel 静默过滤成 OFF；砍级后 P-2 预览基准与 spawn 实际模型天然同源，稀释消失，SubAgent 行为由 profile 配置单源决定。
 
 ## 适用范围
 SubAgent spawn/launch 链路实现与评审；profile model 槽位与 kind 槽位声明（代码层入口；UI 管理由智能体页 /skills 承接，模型下拉可用性过滤与 chat P-3 同口径）；default_model 相关文案/注释口径调整；模型切换链路的 E 层与真机验证；未来新增 profile 类型时模型槽位语义评审；kind 维资源配置（model/thinking 及后续新槽位型）接入解析链评审。
 
 ## 反例
-SubagentLauncher 每次 launch 直接读全局默认 getter（单级解析回退——会话内切模型后 SubAgent 仍用旧全局默认，7 连败根因复发）；或 launch 时才读会话现值而不在 spawn 时快照（排队实例模型随主实例后续切换漂移，spawn 语义不可观测）；或解析单点内直接调 ResourceService 读 kind 槽位（单点耦合配置资源 + 快照供给面漏读——两读面不同源即漂移，应按 TR-AD-44 getter 折叠）。
+SubagentLauncher 每次 launch 直接读全局默认 getter（单级解析回退——kind 槽位配置不生效，P-2 配置面失效）；或在解析链内重新引入会话模型级（spawn 快照/launch 读会话现值同罪——T12 裁决明确禁止 SubAgent 继承 main session 选择，语义稀释根因复发）；或解析单点内直接调 ResourceService 读 kind 槽位（单点耦合配置资源 + 快照供给面漏读——两读面不同源即漂移，应按 TR-AD-44 getter 折叠）。
 
 ```kg-node
 id: TR-AD-25

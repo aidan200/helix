@@ -265,9 +265,9 @@ describe("智能体页组件（M6 T4）", () => {
     expect(sel.options[0]!.textContent).toBe("跟随全局默认");
     expect(sel.value).toBe(""); // 槽位未设
     expect(sel.querySelectorAll("optgroup").length).toBe(2);
-    // subagent 卡缺省项文案（三级链语义）
+    // subagent 卡缺省项文案（T12 两级链语义：不再跟随会话）
     const subSel = document.getElementById("sel-model-subagent-worker") as HTMLSelectElement;
-    expect(subSel.options[0]!.textContent).toBe("跟随会话与全局默认");
+    expect(subSel.options[0]!.textContent).toBe("跟随全局默认");
     // 两级关系说明注解在场
     expect(document.querySelector('[data-note="main"]')!.textContent).toContain("已手动切换的会话不受影响");
     expect(document.querySelector('[data-note="sub"]')!.textContent).toContain("运行中实例不受影响");

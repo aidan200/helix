@@ -632,8 +632,9 @@ export interface AgentModelChangedPayload {
   零条目内存草稿获首个用户条目时恰好一次发布；原「会话创建即发布」
   废弃——内存草稿不写 domain_events，trace 查询面无幻影）；SubAgent 在
   SchedulerService.spawn，与 `agent.spawned` 同批紧随其后，
-  snapshot.model = spawn 时刻**三级链求值结果**（profile.model ?? spawn
-  会话快照 ?? 全局兜底，AD-3 联动）。`agent.model.changed`——
+  snapshot.model = spawn 时刻**两级链求值结果**（profile.model ??
+  subagent-worker kind 槽位 ?? 全局兜底，AD-3 联动；T12 砍 spawn 会话
+  快照级——SubAgent 只认自身 profile 链，不继承会话当前模型）。`agent.model.changed`——
   ChatService.setModel（engine.setModel 成功后同点发布）；from = 切换前
   引擎观测值（未暴露时回退全局默认，与 ModelService previous 口径一致）。
 - **只落盘不广播**（AF-6）：经既有 publish → fan-out → WriteQueue 落
@@ -659,7 +660,7 @@ export interface AgentModelChangedPayload {
   空载收口）。
 - **total**：同过滤 WHERE（不含游标与限量）的 COUNT。
 - **模型同源**：SubAgent instantiated 的 snapshot.model 与该实例 launch
-  实际使用模型同源同时点（spawn 时刻三级链求值）。
+  实际使用模型同源同时点（spawn 时刻两级链求值）。
 - 守护同步（type-surface.test.ts / exports.test.ts）：目录计数断言 22/40、
   roster(agent) +2、roster("trace") 新族、三新帧样例构造断言——既有
   命令/事件/帧形态零变更（additive 纪律，守护全绿即证）。

@@ -18,8 +18,9 @@ import { AgentInstance } from "../../src/domain/agent/AgentInstance";
 /**
  * T1.3 / thinking 批（AD-1 落点二 + AD-4④ + AD-6；test-design §2.1/§2.4）：
  * SubAgent thinking 解析链（resolveThinkingFor：仅自身 profile 槽位，无
- * 兜底——默认关 D 方案；有意短于 resolveModelFor 四级链：SubAgent 无
- * UI/快照级覆盖）+ launch 时刻定格 env 透传 + agent.instantiated 携带。
+ * 兜底——默认关 D 方案；有意短于 resolveModelFor 两级链（T12 砍 spawn
+ * 会话快照级后）：SubAgent 无 UI/快照级覆盖）+ launch 时刻定格 env
+ * 透传 + agent.instantiated 携带。
  *
  * 红线机械判据（brief 决策消解）：
  * - 「主会话覆盖永不作用 SubAgent」→ resolveThinkingFor 输入只有 profile

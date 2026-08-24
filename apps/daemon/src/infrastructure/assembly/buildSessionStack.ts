@@ -19,7 +19,7 @@ import { SystemPromptAssembler } from "../../application/services/SystemPromptAs
 import { SchedulingPolicy } from "../../domain/agent/SchedulingPolicy";
 import { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import { lastMainAnchorId } from "@helix/protocol"; // 锚扫描基元单源 projection
-import { SubagentLauncher, type SubagentLauncherDeps } from "../../adapters/driven/subagent/SubagentLauncher";
+import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
 import { PiAgentEngineAdapter } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
@@ -55,15 +55,13 @@ import type { PublishResourceChanged } from "./resource-events";
  * （编译期类型约束、可 grep），非运行期字符串图；与迷你容器的本质区别：
  * 仅作构造期回填容器，不做通用服务定位器。scheduler↔registry 构造环
  * （spawnAnchorFor/injectClosure 读 registry、registry 依赖 scheduler）
- * 换序不可消解——四面统一走本回填面（消费方 ?.()，类型可见）。
+ * 换序不可消解——走本回填面（消费方 ?.()，类型可见）。T12：currentModelOf
+ * （改由 resolveSubagentModelId 单点供给）与 spawnModelSource（spawn 会话
+ * 快照级砍除）两字段退役，仅余 spawn 锚计算一面。
  */
 export interface AssemblyBackfill {
-  /** spawn 时透传当前模型（AgentInstanceDto.model 填充链；registry 就绪前未定义）。 */
-  currentModelOf?: (sessionId: string) => string | undefined;
   /** spawn 时刻锚计算（契约 v0.3 §1 规则②读面；registry 就绪前未定义）。 */
   computeSpawnAnchor?: (sessionId: string) => string | null;
-  /** SubAgent spawn 会话快照模型源（AD-3 三级链第二级；scheduler 就绪前未定义）。 */
-  spawnModelSource?: SubagentLauncherDeps["spawnModelFor"];
 }
 
 /**
@@ -118,6 +116,12 @@ export interface SessionStack {
   readonly sessionService: SessionService;
   /** toggle applied 后的重算入口（容器订阅 resources.changed 后接此单点）。 */
   readonly refreshAssembly: (kind: ProfileKind) => Promise<void>;
+  /**
+   * SubAgent 模型两级链解析单点（id 形态，AD-3/T12：profile.model 静态声明 ??
+   * subagent-worker kind 槽位 ?? 全局兜底）——spawn 透传（AgentInstanceDto.model
+   * 填充）与 instantiated 快照供给同源；container 编排门面共用。
+   */
+  readonly resolveSubagentModelId: () => string;
 }
 
 export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<SessionStack> {
@@ -192,6 +196,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     }
   };
 
+  // ── SubAgent 模型两级链解析单点（id 形态，AD-3/T12）──────────────────
+  // profile.model 静态声明 ?? subagent-worker kind 槽位 ?? 全局兜底——spawn
+  // 透传（AgentInstanceDto.model 填充链）与 instantiated 快照供给同源同点；
+  // launcher launch 实际用模同序（id → Model 对象解析在 launcher，AD-3 联动）。
+  // T12 砍 spawn 会话快照级：SubAgent 只认自身 profile，不继承 main session 选择。
+  const resolveSubagentModelId = (): string =>
+    SubAgentProfile.model ?? resourceService.modelSlot("subagent-worker") ?? defaultModel.current();
+
   // ── driven：SubAgent 子进程运行器（SubagentLauncher 真体，O-7 候选 A）──
   // 装配形态由 engineMode 判别字段显式声明（AD-2 + §4.3 显式模式）
   // production = 真子进程 runner + SQLite 默认模型源 + auth.json key 源；
@@ -210,21 +222,18 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           }),
           // 可观测 logger（dispose kill 失败 warn；缺省静默）
           logger,
-          // 三级链第三级（AD-3）：全局兜底现值解析（set_default 后新子进程跟随）
+          // 两级链末级（AD-3/T12）：全局兜底现值解析（set_default 后新子进程跟随）
           model: () => resolveConfigModel(defaultModel.current(), catalog.modelsView()),
           // profile.model 槽位解析目录（AD-3 第一级声明时启用；生产未声明）
           models: catalog.modelsView(),
-          // 模型槽位（三级链第一级 UI 化）：resource_state kind 槽位现值
-          // （launch 时刻读取定格；未设 → 后续档）
+          // 模型槽位（profile 槽位 UI 化）：resource_state kind 槽位现值
+          // （launch 时刻读取定格；未设 → 全局兜底）
           uiModelSlot: () => {
             const slot = resourceService.modelSlot("subagent-worker");
             return slot === undefined ? undefined : resolveConfigModel(slot, catalog.modelsView());
           },
           // spawn 快照：组装产物缓存（启动/toggle 后重算，launch 读现值定格）
           spawnSnapshot: () => subagentAssembly,
-          // AD-3三级链第二级：spawn 会话快照读取通道（typed 回填面——
-          // scheduler 就绪后由组合根闭合；闭合前 undefined 走后续档）
-          spawnModelFor: (id) => backfill.spawnModelSource?.(id),
           // 注入源切换：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
           toolCwd,
@@ -261,22 +270,18 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // ——typed 回填面（registry 就绪后由组合根闭合；闭合前 null 流首）
     spawnAnchorFor: (sessionId) => backfill.computeSpawnAnchor?.(sessionId) ?? null,
     // Sub instantiated 快照供给——profile（AD-5，契约 v0.4 §2）
-    // 常量全文 + model 三级链解析 id 形态（profile 槽位 ?? spawn 会话快照 ??
-    // 全局兜底；与该实例 launch 实际用模同源同时点——launch 侧 resolveModelFor
-    // 同序同值，仅 id → Model 对象的解析在 launcher，AD-3 联动）。
-    subagentSnapshotFor: (spawnModel) => ({
+    // 常量全文 + model 两级链解析 id 形态（profile 槽位 ?? 全局兜底，T12 砍
+    // spawn 会话快照级；与该实例 launch 实际用模同源同时点——launch 侧
+    // resolveModelFor 同序同值，仅 id → Model 对象的解析在 launcher，AD-3 联动）。
+    subagentSnapshotFor: () => ({
       // 快照供给改读组装缓存（消观测漂移——与 launch 实际注入同源
       // 同时点）；model 链与 launcher resolveModelFor 同序：profile 槽位 ??
-      // kind 槽位（uiModelSlot）?? spawn 快照 ?? 全局兑底
+      // kind 槽位（uiModelSlot）?? 全局兑底
       thinkingLevel: SubAgentProfile.thinkingLevel ?? resourceService.thinkingSlot("subagent-worker"), // 与 resolveThinkingFor 同源同时点（AD-4④）；无配置 → undefined = 默认关
       profileSnapshot: {
         systemPrompt: subagentAssembly.systemPrompt,
         tools: [...subagentAssembly.tools],
-        model:
-          SubAgentProfile.model ??
-          resourceService.modelSlot("subagent-worker") ??
-          spawnModel ??
-          defaultModel.current(),
+        model: resolveSubagentModelId(),
         hooks: SubAgentProfile.hooks.map((H) => H.hookName),
       },
     }),
@@ -322,15 +327,15 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   //（set_default/槽位 set 后新建会话跟随新值；既有会话不跟随——per-session
   // 覆盖链不变）；apiKey 经 getter 读 auth.json 现值（换 key 下一请求生效）；
   // resolveModelById = 目录活解析面（运行期换模 overlay 模型可达）。
-  // spawn 透传当前模型（AgentInstanceDto.model 填充链）走 typed 回填面
-  // backfill.currentModelOf（registry 就绪前 undefined，闭合前无 spawn 发生）。
+  // spawn 透传模型 = 组合根两级链解析产物（resolveSubagentModelId，T12 起不再
+  // 取会话当前模型——SubAgent 只认自身 profile 链）。
   const engineFor =
     engineMode.kind === "override"
       ? engineMode.factory
       : (sessionId: string): AgentEnginePort => {
             const sessionOrchestration: AgentOrchestrationPort = {
               spawn: (task, profileKind, reportIntervalMs) =>
-                scheduler.spawn(sessionId, task, profileKind, backfill.currentModelOf?.(sessionId), reportIntervalMs),
+                scheduler.spawn(sessionId, task, profileKind, resolveSubagentModelId(), reportIntervalMs),
               send: (agentId, message) => scheduler.send(agentId, message),
               status: (agentId) => scheduler.status(agentId),
               kill: (agentId) => scheduler.kill(agentId),
@@ -452,5 +457,6 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     registry,
     sessionService,
     refreshAssembly,
+    resolveSubagentModelId,
   };
 }
