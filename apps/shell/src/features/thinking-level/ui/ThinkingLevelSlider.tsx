@@ -1,6 +1,6 @@
 /**
  * ThinkingLevelSlider —— 推理强度档位滑块（thinking 批 T2.1；features/thinking-level
- * 共用原子组件，P-1 composer popover / P-2 profile 字段双消费位——props 契约
+ * 共用原子组件，P-1 composer popover 消费位（P-2 已改开关形态不再消费）——props 契约
  * 稳定：levels/value/ghostValue/disabled/peak/onSelect，T2.2 直接消费）。
  *
  * 形态契约（review.md §2-3，prototype P-1-chat-thinking-slider.html 同源）：
@@ -13,7 +13,7 @@
  *   消费，不硬编码六档；单档 pct 防除零）；
  * - 选档三通道：拖动（pointerdown/move 最近刻度吸附，同档去重不重发，up 收束）
  *   / 点刻度 / 方向键（ArrowRight/Up 升、ArrowLeft/Down 降，边界钳制不发令）；
- * - value = 生效档（强调位）；ghostValue = 未配置兜底预览位（P-2 ghost 态：
+ * - value = 生效档（强调位）；ghostValue = 未配置兜底预览位（P-1 默认关：
  *   空心 thumb + 刻度去强调，仅预览不可提交语义由消费方定）；
  * - disabled → 三通道全不响应 + 不可聚焦；peak → .peak class（thumb 辉光）。
  * 纯展示组件：零 SessionContext 依赖（onSelect 回调由消费方接命令链）。
@@ -27,7 +27,7 @@ export interface ThinkingLevelSliderProps {
   levels: string[];
   /** 生效档（滑块位置/强调）；null = 无生效档（ghost 预览或全链不支持） */
   value: string | null;
-  /** 未配置兜底预览位（P-2 ghost 态；value=null 时空心 thumb 停此位） */
+  /** 未配置兜底预览位（P-1 默认关停 off 位；value=null 时空心 thumb 停此位） */
   ghostValue?: string;
   disabled?: boolean;
   /** PEAK 态（生效档 = 最高支持档；thumb 辉光样式挂载点） */

@@ -76,10 +76,11 @@ describe("thinking-level CSS（P-1 hud-popover 族 + 滑块形态 + PEAK）", ()
     expect(rm).not.toBeNull();
   });
 
-  it("P-2 字段框：dashed-able 壳（void 0.35 底 + 8px 圆角）+ unset dashed + PEAK 强边辉光（review.md §3 必须还原 2/6）", () => {
+  it("P-2 字段框：dashed-able 壳（void 0.35 底 + 8px 圆角）+ PEAK 强边辉光（review.md §3 必须还原 2/6；unset dashed 随开关形态退役核销）", () => {
     expect(css).toMatch(/\.tl-box\s*\{[^}]*background:\s*rgb\(var\(--void-rgb\) \/ 0\.35\)/);
     expect(css).toMatch(/\.tl-box\s*\{[^}]*border-radius:\s*8px/);
-    expect(css).toMatch(/\.tl-field\.unset \.tl-box\s*\{[^}]*border-style:\s*dashed/);
+    expect(css).not.toMatch(/\.tl-field\.unset \.tl-box/);
+    expect(css).not.toMatch(/\.tl-clear/);
     expect(css).toMatch(/\.tl-box\.peak\s*\{[^}]*var\(--glow-cyan\)/);
   });
 
