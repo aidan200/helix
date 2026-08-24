@@ -6,7 +6,6 @@ import type { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import type { StdoutEventPublisher } from "../../adapters/driving/cli/CliAdapter";
 import type { WriteQueue } from "../../adapters/driven/sqlite-session/WriteQueue";
 import { MAIN_AGENT_KIND } from "../../adapters/driven/sqlite-session/WriteQueue";
-import { MAIN_INSTANCE_ID } from "@helix/protocol";
 
 /**
  * 装配函数 ④ 事件扇出（architecture §4.2.1/§4.2.4）：组合根的一部分
@@ -83,14 +82,15 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
   publisher.add({
     name: "event-row-persistence",
     // 事件行持久化：行级四维落位（session_id 列 = 事件携带 sessionId——
-    // WriteQueue 分仓路由位；agent_kind 按实例维判 main/subagent）
+    // WriteQueue 分仓路由位；agent_kind 按实例维判 main/subagent——kind 判别
+    // 单点（T10a）：该会话主实例 id / legacy "main" / 缺省均判 main）
     target: {
       publish: (event) => {
         void writeQueue.appendEvent(
           event,
-          event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID
-            ? "subagent"
-            : MAIN_AGENT_KIND,
+          registry.isMainInstance(event.sessionId, event.instanceId)
+            ? MAIN_AGENT_KIND
+            : "subagent",
         );
       },
       publishDelta: () => undefined,

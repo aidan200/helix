@@ -2,8 +2,7 @@ import type { SessionRepositoryPort, SessionMetadataRow } from "../ports/outboun
 import type { ClockPort } from "../ports/outbound/ClockPort";
 import type { DomainEvent } from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
-// MAIN_INSTANCE_ID 引协议导出（v0.2 收口；与其余 service 同源）
-import { MAIN_INSTANCE_ID } from "@helix/protocol";
+import { isMainInstanceId } from "../../domain/agent/AgentInstance";
 import type { ErrorCode } from "@helix/protocol";
 import type { ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 // 投影收敛：账本形状单源 @helix/protocol projection
@@ -417,6 +416,18 @@ export class SessionRegistry implements SessionDirectoryPort {
     this.sessions.get(event.sessionId)?.runtime?.projection.publish(event);
   }
 
+  /**
+   * 主实例判别（kind 判别的会话上下文挂载点，T10a）：id === 该会话主实例 id，
+   * 或 legacy "main"（历史行只读兼容），或缺省。fan-out 持久化目标
+   * （agent_kind 判别）/EventStream（engine.error 抑制判别）经本面查询；
+   * 会话未热加载时退化 legacy 判别（事件只自热运行时发布，结构性可达面窄）。
+   */
+  isMainInstance(sessionId: string, instanceId: string | undefined): boolean {
+    if (instanceId === undefined) return true;
+    const mainId = this.sessions.get(sessionId)?.runtime?.chatService.sessionView.mainInstanceId;
+    return mainId === undefined ? instanceId === "main" : isMainInstanceId(instanceId, mainId);
+  }
+
   /** 优雅停机：全部热会话封口（stopped 里程碑落盘；空草稿不封——零条目
    *  会话无里程碑可落，「首条消息才落库」哲学下自然消亡，不污染清单）。 */
   sealAll(): void {
@@ -624,7 +635,9 @@ export class SessionRegistry implements SessionDirectoryPort {
         : {}),
       instances: [
         {
-          instanceId: MAIN_INSTANCE_ID,
+          // T10a 方案 A：主实例 instanceId = 会话创建时生成的 agent-<唯一串>
+          //（kind 恒 "main"；legacy 会话恢复后保持 "main" 与历史行自闭合）
+          instanceId: session.mainInstanceId,
           kind: "main",
           profileKind: "main-session",
           sessionId: runtime.sessionId,
@@ -633,7 +646,7 @@ export class SessionRegistry implements SessionDirectoryPort {
           // running＝存活语义）；会话运行态由快照顶层 agentState 表达
           state: runtime.chatService.agentState === "stopped" ? "cancelled" : "running",
           createdAt: session.createdAt,
-          usage: runtime.projection.instanceUsage(MAIN_INSTANCE_ID),
+          usage: runtime.projection.instanceUsage(session.mainInstanceId),
           // 主实例槽位 = 会话当前模型（引擎可观测面；undefined = 引擎未暴露）
           ...(runtime.chatService.currentModel !== undefined
             ? { model: runtime.chatService.currentModel }
