@@ -404,7 +404,7 @@ describe("⑦ 定向 steer 路由（T2.3 契约 v0.3 §3.2，TP-CL3-2 U 半）",
     expect((await repo.restore(chat.sessionId))?.session.entries ?? []).toHaveLength(0);
   });
 
-  test("缺省 instanceId → 主实例路径不变（sendToInstance 零调用 + 入主 SteerQueue + 事件不挂 instanceId）", async () => {
+  test("缺省 instanceId → 主实例路径不变（sendToInstance 零调用 + 入主 SteerQueue + 事件显式携带主实例 id）", async () => {
     const engine = new FakeAgentEngine({
       replies: [{ text: "足够长的回复留出注入窗口。", chunkDelayMs: 12 }],
       steerReplies: [{ text: "注入后的答。" }],
@@ -418,7 +418,9 @@ describe("⑦ 定向 steer 路由（T2.3 契约 v0.3 §3.2，TP-CL3-2 U 半）",
     expect(sent).toHaveLength(0); // 缺省不触定向面
     expect(chat.sessionSnapshot.pendingSteer).toHaveLength(1); // 入主 SteerQueue（既有语义）
     const queued = publisher.domainEvents.find((e) => e.type === "steer.queued");
-    expect(queued!.instanceId).toBeUndefined(); // 主实例缺省语义（信封不挂）
+    // T10a 发布侧显式携带：主实例事件信封挂会话主实例 id（agent-<唯一串>，非 "main"）
+    expect(queued!.instanceId).toBe(chat.sessionView.mainInstanceId);
+    expect(queued!.instanceId).not.toBe("main");
     expect(engine.queuedCount).toBe(1); // 引擎即时入队（既有语义）
     await run;
   });

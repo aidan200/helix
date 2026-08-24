@@ -7,7 +7,8 @@ import { AgentLifecycle, type AgentLifecycleState } from "../../domain/agent/Age
 import type { SteerSource } from "../../domain/agent/SteerQueue";
 import { Session } from "../../domain/session/Session";
 import type { ThinkingEntryData } from "../../domain/session/ThinkingEntry";
-import { MAIN_INSTANCE_ID, ZERO_USAGE, type ErrorCode } from "@helix/protocol"; // MAIN_INSTANCE_ID re-export 自 @helix/common（AD-1）；ZERO_USAGE = projection 单源
+import { ZERO_USAGE, type ErrorCode } from "@helix/protocol"; // ZERO_USAGE = projection 单源
+import { isMainInstanceId } from "../../domain/agent/AgentInstance";
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { parseDataUrlImages, ImageValidationError } from "./images";
 import type {
@@ -140,9 +141,9 @@ export class ChatService implements ChatPort {
     if (this.deps.instantiatedSnapshot === undefined) return;
     this.publish<AgentInstantiatedPayload>(
       "agent.instantiated",
-      { instanceId: MAIN_INSTANCE_ID, profileKind: "main-session", profileSnapshot: this.deps.instantiatedSnapshot() },
+      { instanceId: this.session.mainInstanceId, profileKind: "main-session", profileSnapshot: this.deps.instantiatedSnapshot() },
       undefined,
-      MAIN_INSTANCE_ID,
+      this.session.mainInstanceId,
     );
   }
   /** 运行期换模（AD-2：AgentEnginePort.setModel 域内扩面，下一 turn 生效；不支持即抛错；AD-6 契约 v0.4 §3：成功同点发布 agent.model.changed——from 缺省回退全局默认，只落盘不广播）。 */
@@ -154,9 +155,9 @@ export class ChatService implements ChatPort {
     this.deps.engine.setModel(modelId);
     this.publish<AgentModelChangedPayload>(
       "agent.model.changed",
-      { instanceId: MAIN_INSTANCE_ID, from, to: modelId },
+      { instanceId: this.session.mainInstanceId, from, to: modelId },
       undefined,
-      MAIN_INSTANCE_ID,
+      this.session.mainInstanceId,
     );
   }
   /** 运行期改生效工具集/系统提示（setModel 同构 per-session 入口）：直达 AgentEnginePort 直改面（下一 turn 生效）；不支持即抛错；契约广播（agent.config.changed）归 EventStream 广播链。 */
@@ -180,9 +181,9 @@ export class ChatService implements ChatPort {
     this.deps.engine.setThinking(level);
     this.publish<AgentThinkingChangedPayload>(
       "agent.thinking.changed",
-      { instanceId: MAIN_INSTANCE_ID, level },
+      { instanceId: this.session.mainInstanceId, level },
       undefined,
-      MAIN_INSTANCE_ID,
+      this.session.mainInstanceId,
     );
   }
   /** 会话 thinking 覆盖/生效（观测面：快照 thinking 位 + thinking.changed 广播数据源；引擎未实现 → undefined，additive 缺省）。 */
@@ -269,7 +270,7 @@ export class ChatService implements ChatPort {
 
   /** 显式 steer 注入：instanceId 缺省/显式 main = 主实例路径（要求运行中）——applySteer 落 isSteer entry + SteerQueue.enqueue（domain 权威）+ 引擎 steer（执行机制）；instanceId = SubAgent id = 定向分支。 */
   async steer(text: string, instanceId?: string): Promise<{ entryId: string }> {
-    if (instanceId !== undefined && instanceId !== MAIN_INSTANCE_ID) {
+    if (instanceId !== undefined && !isMainInstanceId(instanceId, this.session.mainInstanceId)) {
       return this.steerInstance(instanceId, text);
     }
     this.lifecycle.assertIn("running", "steering");
@@ -435,7 +436,7 @@ export class ChatService implements ChatPort {
       messageId: this.streamEntryId ?? this.currentTurnId(),
       delta: e.delta,
       channel: "thinking",
-      instanceId: MAIN_INSTANCE_ID,
+      instanceId: this.session.mainInstanceId,
       sessionId: this.session.id,
     });
   }
@@ -541,20 +542,20 @@ export class ChatService implements ChatPort {
   private recordCompaction(e: EngineEventOf<"compaction_completed">): void {
     const entry = this.session.appendCompactionEntry({
       kind: "compaction",
-      instanceId: MAIN_INSTANCE_ID,
+      instanceId: this.session.mainInstanceId,
       tokensBefore: e.tokensBefore,
       tokensAfter: e.tokensAfter,
       summary: e.summary,
       usage: e.usage ?? ZERO_USAGE,
       createdAt: this.now(),
     });
-    this.publish<CompactionCompletedPayload>("compaction.completed", { entry: entry.toData() }, undefined, MAIN_INSTANCE_ID);
+    this.publish<CompactionCompletedPayload>("compaction.completed", { entry: entry.toData() }, undefined, this.session.mainInstanceId);
     this.publishCompactionUsage(entry.toData().usage);
   }
 
   /** tool_execution_start：建记录（pending→running）、轮次切 toolRunning、广播。 */
   private recordToolExecutionStart(e: EngineEventOf<"tool_execution_start">): void {
-    const record = ToolCallRecord.create(e.toolCallId, e.toolName, e.args);
+    const record = ToolCallRecord.create(e.toolCallId, e.toolName, e.args, this.session.mainInstanceId);
     record.markRunning(this.now());
     this.toolCalls.set(e.toolCallId, record);
     if (this.session.openTurn?.status === "generating") {
@@ -581,14 +582,14 @@ export class ChatService implements ChatPort {
     for (const block of this.thinking.drain()) {
       const entry = this.session.appendThinkingEntry({
         kind: "thinking",
-        instanceId: MAIN_INSTANCE_ID,
+        instanceId: this.session.mainInstanceId,
         text: block.text,
         durationMs: Math.max(0, Date.parse(this.now()) - Date.parse(block.startedAt)),
         reasoningTokens,
         createdAt: this.now(),
       });
       const data: ThinkingEntryData = entry.toData();
-      this.publish<ThinkingCompletedPayload>("thinking.completed", { entry: data }, undefined, MAIN_INSTANCE_ID);
+      this.publish<ThinkingCompletedPayload>("thinking.completed", { entry: data }, undefined, this.session.mainInstanceId);
     }
   }
 
@@ -598,9 +599,9 @@ export class ChatService implements ChatPort {
   private publishTurnUsage(usage: UsageRecordedPayload["usage"]): void {
     this.publish<UsageRecordedPayload>(
       "usage.recorded",
-      { instanceId: MAIN_INSTANCE_ID, usage, source: "turn" },
+      { instanceId: this.session.mainInstanceId, usage, source: "turn" },
       undefined,
-      MAIN_INSTANCE_ID,
+      this.session.mainInstanceId,
     );
   }
 
@@ -608,9 +609,9 @@ export class ChatService implements ChatPort {
   private publishCompactionUsage(usage: UsageRecordedPayload["usage"]): void {
     this.publish<UsageRecordedPayload>(
       "usage.recorded",
-      { instanceId: MAIN_INSTANCE_ID, usage, source: "compaction" },
+      { instanceId: this.session.mainInstanceId, usage, source: "compaction" },
       undefined,
-      MAIN_INSTANCE_ID,
+      this.session.mainInstanceId,
     );
   }
 
@@ -637,11 +638,13 @@ export class ChatService implements ChatPort {
 
   private publish<P>(type: DomainEvent["type"], payload: P, turnId?: string, instanceId?: string): void {
     // 只产事件——write-through 由会话投影消费者（SessionProjection）在 fan-out 末端触发（先事件行后状态行，全局 FIFO；AD-3）。
+    // instanceId 缺省 = 本会话主实例 id（T10a：发布侧显式携带，不再依赖"省略=main"优化；
+    // 读侧/解析侧"省略=main"推断保留——旧事件/旧快照兼容）
     this.deps.events.publish({
       type,
       sessionId: this.session.id,
       turnId: turnId ?? this.session.openTurn?.id,
-      ...(instanceId !== undefined ? { instanceId } : {}),
+      instanceId: instanceId ?? this.session.mainInstanceId,
       payload,
       occurredAt: this.now(),
     });
