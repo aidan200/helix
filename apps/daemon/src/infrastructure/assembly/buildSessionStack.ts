@@ -268,7 +268,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       // 快照供给改读组装缓存（消观测漂移——与 launch 实际注入同源
       // 同时点）；model 链与 launcher resolveModelFor 同序：profile 槽位 ??
       // kind 槽位（uiModelSlot）?? spawn 快照 ?? 全局兑底
-      thinkingLevel: SubAgentProfile.thinkingLevel ?? resourceService.thinkingSlot("subagent-worker") ?? "medium", // 与 resolveThinkingFor 同源同时点（AD-4④）
+      thinkingLevel: SubAgentProfile.thinkingLevel ?? resourceService.thinkingSlot("subagent-worker"), // 与 resolveThinkingFor 同源同时点（AD-4④）；无配置 → undefined = 默认关
       profileSnapshot: {
         systemPrompt: subagentAssembly.systemPrompt,
         tools: [...subagentAssembly.tools],
@@ -349,9 +349,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
             // kind 槽位 > default_model（per-session 覆盖 = 既有 setModel 直改链）。
             // 活跃 runtime 不随槽位变更强推模型（下一装配生效——实现取舍见任务 report）。
             // thinking 解析链（§3.1 落点一/§3.3，thinking 批 T1.2）：链 =
-            // [会话覆盖（引擎读面回读）, main-session kind 槽位, 兜底 "medium"]
-            // 逐值能力适配取首个生效值；全链不支持 / reasoning=false → undefined
-            // → 注入器不动 options（provider 默认）。自引用闭包仅在 turn 开始
+            // [会话覆盖（引擎读面回读）, main-session kind 槽位]逐值能力适配
+            // 取首个生效值；全链未配置 / reasoning=false / 链值 "off"（显式关
+            // 短路）→ undefined → 注入器不动 options（pi-ai 不传 reasoning =
+            // 显式关思考，默认关 D 方案）。自引用闭包仅在 turn 开始
             //（streamFn 调用）/currentThinking 观测时触发——构造完成之后
             //（闭包内 adapter 已赋值，测试同形态先例见 thinking-set-chain）。
             let adapter!: PiAgentEngineAdapter;
@@ -370,7 +371,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               resolveModelById: (modelId) => resolveConfigModel(modelId, catalog.modelsView()),
               resolveThinking: (model) =>
                 resolveEffectiveThinking(
-                  [adapter?.thinkingOverride(), resourceService.thinkingSlot("main-session"), "medium"],
+                  [adapter?.thinkingOverride(), resourceService.thinkingSlot("main-session")],
                   model,
                 ),
               resolveTools: (names) => toolExecutor.resolveTools(names),

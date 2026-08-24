@@ -61,8 +61,8 @@ export interface AgentProfile {
   /**
    * thinking 档位槽位（thinking 批 AD-6 扩维，iter-20260823-6ps5 T1.3）：
    * pi-ai ThinkingLevel 字符串透传（helix 不维护第二份枚举，AD-2）；
-   * 可选——留空（undefined）= 未配置 = 解析链回落兜底 medium（AD-1）；
-   * 纯声明数据（profile 无行为方法既有规则不变，不引入命令式分支）。
+   * 可选——留空（undefined）= 未配置 = 解析链后续档（全链未配置 → 默认
+   * 关，AD-1）；纯声明数据（profile 无行为方法既有规则不变，不引入命令式分支）。
    */
   readonly thinkingLevel?: string;
 }

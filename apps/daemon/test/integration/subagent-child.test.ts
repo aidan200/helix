@@ -483,12 +483,12 @@ describe("thinking 定格值子进程消费（T1.3；env 定格透传 + 注入�
     expect(r.captured).toEqual(["xhigh"]);
   }, 20000);
 
-  test("② profile 留空 → 兜底 medium 定格（模型支持时写入 options.reasoning）", async () => {
+  test("② profile 留空 → 无兜底（默认关）：env 缺席 → 不装注入器 → options.reasoning 未传", async () => {
     const r = await runThinkingChild({
       profile: SubAgentProfile,
       model: reasoningModel(FULL_MAP),
     });
-    expect(r.captured).toEqual(["medium"]);
+    expect(r.captured).toEqual([null]);
   }, 20000);
 
   test("③ 定格值不被模型支持（显式 null 键）→ 注入器不动 options（捕获 null = 未传参，provider 默认）", async () => {

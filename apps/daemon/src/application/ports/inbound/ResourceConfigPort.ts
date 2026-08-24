@@ -46,6 +46,6 @@ export interface ResourceConfigPort {
   clearModelSlot(profileKind: ProfileKind): Promise<void>;
   /** thinking 槽位写（不校验档位——字符串透传，SoT 在 pi-ai，AD-2）。 */
   setThinkingSlot(profileKind: ProfileKind, level: string): Promise<void>;
-  /** thinking 槽位清除（删除行 = 未配置 → 解析链回落 medium）。 */
+  /** thinking 槽位清除（删除行 = 未配置）。 */
   clearThinkingSlot(profileKind: ProfileKind): Promise<void>;
 }

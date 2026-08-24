@@ -1018,13 +1018,18 @@ onStatusChange 事件源触发，handler 不重复广播）。
 信封 sessionId **必填**（per-session 路由，AD-4），下一 turn 生效。level 为
 pi-ai ThinkingLevel **字符串透传**（AD-2：helix 不维护第二份档位枚举，SoT
 在 pi-ai，协议层不校验未知档位——引擎按能力过滤，全链不支持 →
-`thinking.changed.effective = null`，不报错）；**无关闭态**（未覆盖 = 不发
-命令）。`chat.send` 零字段（AD-4①：thinking 是会话状态非逐消息参数）。
-生效回执 = `thinking.changed` 广播（§16.5）。
+`thinking.changed.effective = null`，不报错）。合法值含 `"off"`（**显式关**，
+iter-20260823 后续批升格：effective=null、后续请求不带 reasoning——引擎
+解析链在能力适配 clamp 前短路，off:null 模型不被钳成支持档）；未配置
+（无覆盖无槽位）= **默认关**（不传 reasoning，pi-ai 显式关思考；无 medium
+兜底）——off 与未配置的区分仅在 override 位（`"off"` vs `null`），请求行为
+等价（均不带 reasoning）。`chat.send` 零字段（AD-4①：thinking 是会话状态
+非逐消息参数）。生效回执 = `thinking.changed` 广播（§16.5；`model.set`
+成功后同样补发一次——换模只改 effective 不改 override，消除 stale 档位）。
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
-| `level` | `string` | 必填 | v0.11 | pi-ai ThinkingLevel 字符串透传（如 `"medium"` / `"high"`） |
+| `level` | `string` | 必填 | v0.11 | pi-ai ThinkingLevel 字符串透传（如 `"medium"` / `"high"` / `"off"` 显式关） |
 
 ## 16. 事件 payload 形状总登记（S→C，48 事件全集）
 
@@ -1234,7 +1239,7 @@ spawn 工具秒回出卡（不等执行，AD-8 异步交付）。
 |---|---|---|---|---|
 | `instanceId` | `string` | 必填 | v0.4 | "main" \| agent-N |
 | `profileKind` | `string` | 必填 | v0.4 | profile 种类（自由字符串，无注册表） |
-| `thinkingLevel` | `string` | 必填 | v0.11 | SubAgent spawn 解析的 thinkingLevel 快照（thinking 批④：自身 profile 槽位 > 兜底 medium，AD-6；字符串透传 AD-2） |
+| `thinkingLevel` | `string` | 可选 | v0.11（后续批改可选） | SubAgent spawn 解析的 thinkingLevel 快照（thinking 批④：自身 profile 槽位，无兜底——未配置 = 默认关，AD-6；字符串透传 AD-2） |
 | `profileSnapshot` | `TraceProfileSnapshot` | 必填 | v0.4 | 注入快照（systemPrompt 全文 + tools + model + compaction? + hooks?，§13.2） |
 
 #### `agent.model.changed`
@@ -1322,10 +1327,11 @@ skills/tools 同构；model 型 name = 模型 id 或 null（clear）。
 
 会话 thinking 档覆盖生效广播（v0.11，thinking 批①；仿 `model.changed` 广播链：
 daemon 处理 `thinking.set` 后经 domain_events 单写队列落盘（TR-AD-5）并广播；
-换模（`model.set`）后生效档变化时再发一帧或随下一快照携带）。挂 thinking 族
+换模（`model.set`）成功后补发一帧——override 不变、effective 按新模型能力
+重算，消除 stale 档位；引擎未实现观测面不发）。挂 thinking 族
 （type 前缀 == channel 不变量）。前端语义：滑块位置/强调 = `effective`；
 `override ≠ effective` 时显示「xhigh → high（模型能力所限）」轻提示（F1.3）。
-字符串透传（AD-2：不维护第二份档位枚举）。
+字符串透传（AD-2：不维护第二份档位枚举；`"off"` = 显式关合法值）。
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
@@ -1683,3 +1689,17 @@ DTO/映射断环补齐；§16.2 字段行补登 + sot ④ presence 断言）；T
 §16.4 `agent.config.list.result` 补 `profiles[].thinkingLevel` 字段行
 （代码面 T1.3 已正确，纯文档补登）。零新增命令/事件 type，版本位不再
 bump。
+
+**批内补登（默认关 + off 升格 + 换模重播，同版本不破面）**：①
+thinking 默认语义变更——`thinking.set` payload.level 合法值补登 `"off"`
+（**显式关**：引擎解析链在能力适配 clamp 前短路 → `thinking.changed.
+effective = null`、后续请求不带 reasoning；off:null 模型不被钳成支持档，
+语义反转反例）；未配置（无覆盖无槽位）= **默认关**（不传 reasoning，
+pi-ai 显式关思考；删 medium 兜底，D 方案）——off 与未配置请求行为等价，
+区分仅在 override 位（`"off"` vs `null`）；§15.8 语义段已同步。②
+`AgentInstantiatedPayload.thinkingLevel` 必填 → **可选**（Sub spawn 快照
+自身 profile 槽位无兜底，未配置 → 缺席 = 默认关；只落盘不广播语义不变，
+§16.4 字段行同步）。③ 换模重播落地——`model.set` 成功后补发一帧
+`thinking.changed`（override 不变、effective 按新模型重算，§16.5 既登
+语义的实现补齐；引擎未实现观测面不发）。命令/事件面零变更，版本位
+不再 bump。

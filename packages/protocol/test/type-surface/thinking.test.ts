@@ -50,8 +50,9 @@ type _ThinkingChangedChannel = Expect<Equal<ThinkingChangedEvent["channel"], "th
 type _CatalogReasoning = Expect<Equal<CatalogModel["reasoning"], boolean>>;
 type _CatalogThinkingLevels = Expect<Equal<CatalogModel["thinkingLevels"], string[]>>;
 
-// ④ agent.instantiated payload additive + thinkingLevel（必填，string 透传）
-type _InstantiatedThinkingLevel = Expect<Equal<AgentInstantiatedPayload["thinkingLevel"], string>>;
+// ④ agent.instantiated payload additive + thinkingLevel（可选，string 透传；
+//    Sub 未配置 → 缺席 = 默认关，iter-20260823 后续批升格）
+type _InstantiatedThinkingLevel = Expect<Equal<AgentInstantiatedPayload["thinkingLevel"], string | undefined>>;
 
 // additive 零破坏（类型级）：既有 model.set / model.changed 签名原样
 type _ModelSetUnchanged = Expect<Equal<ModelSetPayload, { model: string }>>;
@@ -103,7 +104,7 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     expect(catalogModelReasoning.source).toBe("builtin");
   });
 
-  test("agent.instantiated：payload 携带 thinkingLevel（只落盘不广播语义不变）", () => {
+  test("agent.instantiated：payload 携带 thinkingLevel（只落盘不广播语义不变；可选——Sub 未配置 → 缺席）", () => {
     expect(agentInstantiatedThinking.payload.thinkingLevel).toBe("medium");
     expect(summarizeEvent(agentInstantiatedThinking)).toBe("instantiated:agent-1:subagent-worker:zai/glm-5.3:medium");
   });
