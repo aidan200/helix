@@ -34,3 +34,7 @@
 ## iter-20260823-6ps5 — CL-1 用户按任务调节推理强度（P-1 chat 滑块 / P-2 profile 字段，协议 v0.11 thinking 批）
 - 主体：协议 v0.11 thinking 批（thinking.set/changed 命令族 + CatalogModel 能力位 + 快照/agent.instantiated/agent.config thinking 槽位 additive）；daemon 主会话解析链（引擎覆盖>槽位>兜底 medium + 能力 clamp + 跨冷恢复）与 SubAgent 两级链（profile.thinkingLevel ?? medium + env 定格透传）；shell P-1 composer 滑块（PEAK 特效/双主题/能力驱动刻度）+ P-2 profile 推理级别字段。验证全绿（E2E 5/5 + 回归 31/31 + 契约四方同构 + 还原度 14/14）；终验生产就绪四项全过 + 全局审计 GO + L3 复核 36 节点全覆盖（39 confirm）；kg 台账 20 候选裁决清零（7 apply + 13 直写先例，TR-AD-43/44 签发），终态 65 节点/pending=0；PROTOCOL.md 版本位机械修；遗留 0 critical/important，优化机会 18 项（kg 工具链 rebuild 清空复核戳 + propose 路径 bug 为首）。
 - 状态：已沉淀
+
+## task-20260824-thinking-unify — thinking 语义修订 + closure/steer 区分 + 实例 ID 统一（默认模式三批联作）
+- 主体：默认模式三批：①thinking 语义修订（默认关 D 方案 + off 升格显式关——clamp 前短路防 off:null 升档反转 + setModel 重播 thinking.changed + P-1 OFF 第 0 刻度 + P-2 on/off 开关 + defaultLevelFor 中位档 + scope/note 文案删除 + SubAgent 模型链 T12 两级化砍 spawn 会话继承）；②closure/steer 消息类型区分（SteerSource user/closure/progress 三值贯通协议/Entry/steer_queue/实时帧 + 主时间轴 CLOSURE/PROGRESS 徽标变体）；③实例 ID 统一方案 A（agent-<hex 唯一串> 含 main、kind 判别替代值判等、seq/agentSeqOf/maxAgentSeq 退役、MAIN_INSTANCE_ID 全仓退役、wire 归属编码一致性修复——R4 红点根因）。修复：模型菜单选中即关（B 方案推翻 2015f0e）；daemon 测试 TMPDIR 泄漏清零（4 泄漏源）。验证：daemon 872 / protocol 87 / shell 478 / E 层 e2e 31/31 / typecheck 四包全绿。
+- 状态：已沉淀
