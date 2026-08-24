@@ -7,7 +7,7 @@ import path from "node:path";
  * 完整 AG 套件 M2 起常驻）。
  * ① 四层目录 + ports/inbound|outbound 物理分列 + main.ts 就位；
  * ② os.homedir 在 src/ 内唯一调用点为 infrastructure/paths.ts（AG-07）；
- * ③ agentSeqOf 单点导出：SchedulerService/RestoreService 无本地实现（C2/T1.1 收敛）。
+ * ③ 序号基线退役（T10a 方案 A）：seq/agentSeqOf/maxAgentSeq 在 daemon src 零残留。
  */
 const srcRoot = path.join(import.meta.dir, "..", "..", "src");
 
@@ -42,20 +42,14 @@ describe("目录骨架（TP-CL1-2，architecture.md §3.2）", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("③ agentSeqOf 单点导出：两服务无本地实现且改引 domain（C2/T1.1 收敛）", () => {
-    const services = [
-      path.join("application", "services", "scheduler", "SchedulerService.ts"),
-      path.join("application", "services", "RestoreService.ts"),
-    ];
+  test("③ 序号基线退役（T10a 方案 A）：seq/agentSeqOf/maxAgentSeq 在 daemon src 零残留", () => {
+    const entries = readdirSync(srcRoot, { recursive: true }) as string[];
+    const tsFiles = entries.filter((e) => e.endsWith(".ts"));
     const offenders: string[] = [];
-    for (const svc of services) {
-      const content = readFileSync(path.join(srcRoot, svc), "utf8");
-      if (/function\s+agentSeqOf/.test(content)) {
-        offenders.push(`${svc}: 本地实现残留（应改引 domain/agent/AgentInstance）`);
-      }
-      if (!/import\s*\{[^}]*agentSeqOf[^}]*\}\s*from\s*"[^"]*domain\/agent\/AgentInstance"/.test(content)) {
-        offenders.push(`${svc}: 未从 domain/agent/AgentInstance 导入 agentSeqOf`);
-      }
+    for (const rel of tsFiles) {
+      const normalized = path.normalize(rel);
+      const content = readFileSync(path.join(srcRoot, rel), "utf8");
+      if (/\bagentSeqOf\b|\bmaxAgentSeq\b/.test(content)) offenders.push(normalized);
     }
     expect(offenders).toEqual([]);
   });

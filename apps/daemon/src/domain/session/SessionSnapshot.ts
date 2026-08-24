@@ -21,6 +21,12 @@ export type SessionEntryData = EntryData | ThinkingEntryData | CompactionEntryDa
 export interface SessionSnapshot {
   readonly sessionId: string;
   readonly createdAt: string;
+  /**
+   * 主实例 id（T10a 方案 A：`agent-<唯一串>`，会话创建时经 newInstanceId()
+   * 分配）。可选——旧快照（列前时代）无本字段 → 恢复侧兜底 legacy "main"
+   * （历史行 instance_id="main" 不重写，与该会话数据自闭合）。
+   */
+  readonly mainInstanceId?: string;
   /** 全量条目（语义单元，不含流式中间态；message/thinking/compaction 混排，每条挂 instanceId，AD-3）。 */
   readonly entries: readonly SessionEntryData[];
   /** 全量轮次。 */

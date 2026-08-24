@@ -16,30 +16,40 @@ import { DomainError } from "../DomainError";
  * F1.9 非线性红线：创建/销毁是一等 API，不依赖会话按序推进；终态封闭
  * （无出边）——重派 = 新 instanceId 新实例，绝不复活终态实例。
  *
- * instanceId ≡ agentId（契约 §2 同一标识空间两视角）：主实例固定
- * MAIN_INSTANCE_ID（"main"，会话创建时分配，O-4）；SubAgent = "agent-N"
- * （序号基线 agent_lifecycle max(N)+1，分配消费方 T2.2）。
+ * instanceId ≡ agentId（契约 §2 同一标识空间两视角）：**所有实例**（含
+ * main）instanceId = `agent-<唯一字符串>`（T10a 方案 A 一次性全切；用户
+ * 决策：「agent的id应该是同一的agent-N，包括main agent……N 不能是纯数字，
+ * 而是 Id 生成的逻辑，一个不容易重复的字符串」——生成单点 newInstanceId，
+ * 复用会话 id 同款 crypto.randomUUID()，Session.ts:36 先例）。旧数据只读
+ * 兼容：历史行 instance_id="main" 不重写，isMainInstanceId 把字面 "main"
+ * 视为 legacy main kind。
  */
 
 /**
- * 主实例固定 id（O-4 裁决：会话创建即分配；持久化旧行回填常量与之同源，O-3）。
- *
- * AD-1 单源收编（iter-20260821-dg90 T3.3）：原 domain 本地定义退役，改引
- * @helix/common（唯一定义 = packages/common/src/constants.ts；经 AG-02①
- * 白名单例外直引，@helix/protocol 与 pi 系仍禁）。本行为 domain 内取值锚点
- * 转发（Session/Entry/ToolCallRecord 三消费点 import 路径不变）；单源守护
- * = AG-15 结构断言 + protocol-import.test.ts 负命题，AG-13① 取源语义随迁。
+ * legacy 主实例 id 字面（"main"）——**只读兼容专用**：历史行/旧载荷的
+ * instance_id="main" 不重写，判别函数把本字面视为 main kind；新会话主实例
+ * 一律 newInstanceId() 生成，不再产生本值的新归属。
  */
-export { MAIN_INSTANCE_ID } from "@helix/common";
+export const LEGACY_MAIN_INSTANCE_ID = "main" as const;
 
 /**
- * "agent-N" → N（非该形式返回 0——序号基线不参与）。
- * SubAgent id 序号解析单点（C2/T1.1 收敛：原 SchedulerService / RestoreService
- * 两处逐字重复实现收敛至此；id 分配规则语义不变）。
+ * 实例 id 生成单点（T10a 方案 A）：`agent-` + crypto.randomUUID() 去横线。
+ * 主实例与 SubAgent 同一标识空间同一生成逻辑（用户决策原话见上）；去横线
+ * 形态与会话 id（crypto.randomUUID() 原生形态）区分只靠前缀语义，不依赖
+ * 序号——序号基线（agentSeqOf/maxAgentSeq）随本单点上线整体退役。
  */
-export function agentSeqOf(instanceId: string): number {
-  const n = Number.parseInt(instanceId.slice("agent-".length), 10);
-  return instanceId.startsWith("agent-") && Number.isFinite(n) && n > 0 ? n : 0;
+export function newInstanceId(): string {
+  return `agent-${crypto.randomUUID().replaceAll("-", "")}`;
+}
+
+/**
+ * 主实例判别单点（kind 判别替代值判等，T10a）：id === 该会话主实例 id，
+ * 或 id === "main"（legacy 只读兼容），或 id 缺省（旧载荷/旧事件省略 = main
+ * 推断，读侧保留）。per-session 主实例 id 由调用方按会话上下文传入
+ * （Session.mainInstanceId 是唯一事实源）。
+ */
+export function isMainInstanceId(instanceId: string | undefined, mainInstanceId: string): boolean {
+  return instanceId === undefined || instanceId === mainInstanceId || instanceId === LEGACY_MAIN_INSTANCE_ID;
 }
 
 export type InstanceKind = "main" | "subagent";
@@ -86,7 +96,7 @@ export class AgentInstance {
   /**
    * 创建实例（一等 API，F1.9：无会话按序推进前置）。
    * 初始态缺省 queued（SubAgent spawn 秒回出卡语义）；预算内直跑由调用方
-   * 随即 markRunning()。主实例在会话创建时以 MAIN_INSTANCE_ID 创建。
+   * 随即 markRunning()。主实例在会话创建时以 newInstanceId() 生成的 id 创建。
    */
   static create(data: Omit<AgentInstanceData, "state"> & { state?: InstanceState }): AgentInstance {
     return new AgentInstance({ ...data, state: data.state ?? "queued" });

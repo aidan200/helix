@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   AgentInstance,
-  agentSeqOf,
-  MAIN_INSTANCE_ID,
+  isMainInstanceId,
+  LEGACY_MAIN_INSTANCE_ID,
+  newInstanceId,
   type AgentInstanceData,
 } from "../../src/domain/agent/AgentInstance";
 import { AgentLifecycle } from "../../src/domain/agent/AgentLifecycle";
@@ -17,7 +18,7 @@ import { DomainError } from "../../src/domain/DomainError";
  *    重派 = 新 instanceId 新实例）；
  * ④ 多实例并存：乱序交错序列互不干扰、不产生非法半态；
  * ⑤ AgentLifecycle 注册表语义（会话内多实例并存，AD-3）；
- * ⑥ O-4：主实例固定 id = "main"。
+ * ⑥ T10a 方案 A：实例 id 统一生成单点 + legacy "main" 只读兼容判别。
  */
 
 function subagent(n: number, state?: AgentInstanceData["state"]): AgentInstance {
@@ -50,16 +51,17 @@ describe("① 创建/销毁一等 API（F1.9：不依赖会话按序推进）", 
     expect(back.current).toBe("queued");
   });
 
-  test("主实例固定 id main（O-4）", () => {
-    expect(MAIN_INSTANCE_ID).toBe("main");
+  test("主实例 id 统一生成（T10a 方案 A）：agent-<唯一串>，kind=\"main\"", () => {
+    const id = newInstanceId();
+    expect(id).toMatch(/^agent-[0-9a-f]{32}$/); // 非纯数字 N（uuid 去横线形态）
     const main = AgentInstance.create({
-      instanceId: MAIN_INSTANCE_ID,
+      instanceId: id,
       kind: "main",
       profileKind: "main-session",
       sessionId: "s-1",
       createdAt: "2024-01-01T00:00:00.000Z",
     });
-    expect(main.instanceId).toBe("main");
+    expect(main.instanceId).toBe(id);
     expect(main.kind).toBe("main");
   });
 
@@ -184,7 +186,7 @@ describe("⑤ AgentLifecycle 注册表语义（AD-3：会话内实例注册表�
   test("register/find/list 多实例并存；重复注册抛错", () => {
     const lc = new AgentLifecycle();
     const main = AgentInstance.create({
-      instanceId: MAIN_INSTANCE_ID,
+      instanceId: LEGACY_MAIN_INSTANCE_ID,
       kind: "main",
       profileKind: "main-session",
       sessionId: "s-1",
@@ -197,7 +199,7 @@ describe("⑤ AgentLifecycle 注册表语义（AD-3：会话内实例注册表�
 
     expect(lc.instanceCount).toBe(3);
     expect(lc.findInstance("agent-1")?.profileKind).toBe("subagent-worker");
-    expect(lc.findInstance(MAIN_INSTANCE_ID)?.kind).toBe("main");
+    expect(lc.findInstance(LEGACY_MAIN_INSTANCE_ID)?.kind).toBe("main");
     expect(lc.listInstances().map((x) => x.instanceId)).toEqual(["main", "agent-1", "agent-2"]);
 
     expect(() => lc.registerInstance(subagent(1))).toThrow(DomainError); // 同 id 重复注册
@@ -227,13 +229,25 @@ describe("⑤ AgentLifecycle 注册表语义（AD-3：会话内实例注册表�
   });
 });
 
-describe("⑦ agentSeqOf（SubAgent id 序号解析单点；C2/T1.1 收敛）", () => {
-  test("agent-N → N；非该形式返回 0（序号基线不参与）", () => {
-    expect(agentSeqOf("agent-1")).toBe(1);
-    expect(agentSeqOf("agent-42")).toBe(42);
-    expect(agentSeqOf("main")).toBe(0); // 主实例非 agent-N 形式
-    expect(agentSeqOf("agent-0")).toBe(0); // 0 不参与序号基线
-    expect(agentSeqOf("agent-abc")).toBe(0); // 非数字后缀
-    expect(agentSeqOf("agent--3")).toBe(0); // 负数不参与
+describe("⑦ newInstanceId / isMainInstanceId（T10a 方案 A：id 生成单点 + kind 判别）", () => {
+  test("newInstanceId：agent-<唯一串>（非纯数字 N；连续生成互异——无撞号概念）", () => {
+    const ids = new Set(Array.from({ length: 100 }, () => newInstanceId()));
+    expect(ids.size).toBe(100); // 连续生成互异（重启后无序号基线亦无撞号）
+    for (const id of ids) {
+      expect(id).toMatch(/^agent-[0-9a-f]{32}$/); // 非 agent-\d+ 纯数字形态
+      expect(id).not.toBe(LEGACY_MAIN_INSTANCE_ID);
+    }
+  });
+
+  test("isMainInstanceId：会话主实例 id / legacy \"main\" / 缺省 均判 main；其余判非", () => {
+    const mainId = newInstanceId();
+    expect(isMainInstanceId(mainId, mainId)).toBe(true); // 该会话主实例 id
+    expect(isMainInstanceId("main", mainId)).toBe(true); // legacy 字面只读兼容
+    expect(isMainInstanceId(undefined, mainId)).toBe(true); // 旧载荷省略 = main 推断（读侧保留）
+    expect(isMainInstanceId("agent-1", mainId)).toBe(false); // SubAgent（含旧序号形态）
+    expect(isMainInstanceId(newInstanceId(), mainId)).toBe(false); // 他会话/他实例 id
+    // legacy 会话（mainId 自身 = "main"）自闭合
+    expect(isMainInstanceId("main", LEGACY_MAIN_INSTANCE_ID)).toBe(true);
+    expect(isMainInstanceId("agent-7", LEGACY_MAIN_INSTANCE_ID)).toBe(false);
   });
 });

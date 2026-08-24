@@ -14,9 +14,7 @@ import type {
   AgentThinkingChangedPayload,
 } from "../../domain/events/DomainEvent";
 import { Session } from "../../domain/session/Session";
-import { AgentInstance, agentSeqOf, type InstanceState } from "../../domain/agent/AgentInstance";
-// MAIN_INSTANCE_ID 改引协议导出（v0.2 收口，domain 定义保留 AG-02 例外）
-import { MAIN_INSTANCE_ID } from "@helix/protocol";
+import { AgentInstance, isMainInstanceId, type InstanceState } from "../../domain/agent/AgentInstance";
 // 投影收敛：账本重放基元单源 @helix/protocol projection
 import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "@helix/protocol";
 
@@ -89,8 +87,6 @@ export interface RestoredDomainState {
   readonly toolCalls: readonly ToolCallRecordData[];
   /** SubAgent 实例清单（收口后终态；调度器注册表 + 快照 instances 重建源）。 */
   readonly instances: readonly RestoredInstance[];
-  /** 已用最大 agent-N 序号（重启后 spawn 续基线不撞号）。 */
-  readonly maxAgentSeq: number;
   /** 会话账本（usage.recorded 事件流重放重建；组合根快照聚合/实例小计源）。 */
   readonly usage: UsageLedgerData;
   /** thinking 覆盖恢复值（thinking 批③，AD-4③：agent.thinking.changed 回放末值；缺省 = 无覆盖）。 */
@@ -125,8 +121,7 @@ export class RestoreService {
       agentState: state.agentState,
       toolCalls,
       instances: instances.list,
-      maxAgentSeq: instances.maxSeq,
-      usage: this.restoreUsageLedger(sessionId),
+      usage: this.restoreUsageLedger(sessionId, session.mainInstanceId),
       thinkingOverride: this.restoreThinkingOverride(sessionId),
     };
   }
@@ -138,13 +133,13 @@ export class RestoreService {
    * 小计）。事件即账：重放即重建，与停机前快照聚合双源一致（integration
    * 核对）；旧库无账目行 → 空账本（零值形状）。
    */
-  private restoreUsageLedger(sessionId: string): UsageLedgerData {
+  private restoreUsageLedger(sessionId: string, mainInstanceId: string): UsageLedgerData {
     const events = this.deps.repository.queryEvents({ sessionId, type: "usage.recorded" });
     let ledger = emptyUsageLedger();
     for (const event of events) {
       const payload = event.payload as Partial<UsageRecordedPayload> | undefined;
       if (payload?.usage === undefined || payload.source === undefined) continue; // 损坏行防御：跳过不崩
-      ledger = applyUsage(ledger, payload.instanceId ?? event.instanceId ?? MAIN_INSTANCE_ID, payload.usage, payload.source);
+      ledger = applyUsage(ledger, payload.instanceId ?? event.instanceId ?? mainInstanceId, payload.usage, payload.source);
     }
     return ledger;
   }
@@ -193,8 +188,10 @@ export class RestoreService {
     const replayedTools = new Map<string, ToolCallRecordData>();
 
     for (const event of subEvents) {
-      const instanceId = event.instanceId ?? MAIN_INSTANCE_ID;
-      if (instanceId === MAIN_INSTANCE_ID) continue; // 防御：agent_kind 误标行
+      // 主实例归属行防御跳过（kind 判别：该会话主 id 或 legacy "main"——
+      // agent_kind 误标行不进 SubAgent 重放）
+      if (isMainInstanceId(event.instanceId, session.mainInstanceId)) continue;
+      const instanceId = event.instanceId!;
       switch (event.type) {
         case "thinking.completed": {
           const p = event.payload as Partial<ThinkingCompletedPayload>;
@@ -227,7 +224,7 @@ export class RestoreService {
             id: p.toolCallId,
             toolName: p.toolName ?? "(unknown)",
             args: p.args,
-            ...(instanceId !== MAIN_INSTANCE_ID ? { instanceId } : {}),
+            instanceId, // 已判非主实例（上方 isMainInstanceId 守卫），恒显式携带
             status: "running",
             startedAt: event.occurredAt,
           });
@@ -241,7 +238,7 @@ export class RestoreService {
             id: p.toolCallId,
             toolName: started?.toolName ?? p.toolName ?? "(unknown)",
             args: started?.args ?? p.args,
-            ...(instanceId !== MAIN_INSTANCE_ID ? { instanceId } : {}),
+            instanceId, // 已判非主实例（上方 isMainInstanceId 守卫），恒显式携带
             status: p.isError ? "failed" : "completed",
             ...(p.result !== undefined ? { result: p.result } : {}),
             ...(p.isError ? { error: p.result } : {}),
@@ -263,11 +260,12 @@ export class RestoreService {
   private async restoreInstances(
     sessionId: string,
     session: Session,
-  ): Promise<{ list: RestoredInstance[]; maxSeq: number }> {
+  ): Promise<{ list: RestoredInstance[] }> {
     const rows = (await this.deps.repository.queryAgentLifecycles(sessionId)).filter(
-      (r) => r.instanceId !== MAIN_INSTANCE_ID && SUBAGENT_STATES.includes(r.state),
+      // 主实例行排除（kind 判别：该会话主 id 或 legacy "main" 字面）
+      (r) => !isMainInstanceId(r.instanceId, session.mainInstanceId) && SUBAGENT_STATES.includes(r.state),
     );
-    if (rows.length === 0) return { list: [], maxSeq: 0 };
+    if (rows.length === 0) return { list: [] };
 
     // 双源核对的事件流侧：agent.spawned 载荷（task/profileKind/createdAt 重建）
     const spawned = this.indexSpawned(sessionId);
@@ -278,10 +276,7 @@ export class RestoreService {
     }
 
     const list: RestoredInstance[] = [];
-    let maxSeq = 0;
     for (const row of rows) {
-      const seq = agentSeqOf(row.instanceId);
-      if (seq > maxSeq) maxSeq = seq;
       const spawn = spawned.get(row.instanceId);
       const base = {
         instanceId: row.instanceId,
@@ -338,7 +333,7 @@ export class RestoreService {
         });
       }
     }
-    return { list, maxSeq };
+    return { list };
   }
 
   /** agent.spawned 事件流索引（instanceId → task/profileKind/model/createdAt）。 */

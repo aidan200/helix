@@ -1,4 +1,4 @@
-import { AgentInstance, agentSeqOf, type AgentInstanceData } from "../../../domain/agent/AgentInstance";
+import { AgentInstance, newInstanceId, type AgentInstanceData } from "../../../domain/agent/AgentInstance";
 import { AgentLifecycle } from "../../../domain/agent/AgentLifecycle";
 import type { SchedulingPolicy } from "../../../domain/agent/SchedulingPolicy";
 import type {
@@ -70,8 +70,9 @@ import { ClosureRecorder } from "./ClosureRecorder";
  * 吞）、重派 = 新 instanceId 新实例。状态权威在 AgentInstance 状态机，
  * 本服务只编排不改写规则。
  *
- * 【id 分配】agent-N（N = daemon 内递增序号）。序号仅内存维护——重启基线
- * （agent_lifecycle max(N)+1）与恢复语义归 RestoreService。
+ * 【id 分配】agent-<唯一字符串>（T10a 方案 A：生成单点 newInstanceId()，
+ * agent- + crypto.randomUUID() 去横线——主实例与 SubAgent 同一生成逻辑；
+ * 无序号基线概念：连续 spawn 天然互异，重启后无撞号）。
  */
 
 export type { SpawnOutcome };
@@ -152,8 +153,6 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   private readonly spawnModels = new Map<string, string>();
   /** 实例 → 收口 closure（agent_status 摘要/观测面留档；终态后保留）。 */
   private readonly closures = new Map<string, InstanceClosurePayload>();
-  /** agent-N 序号（daemon 内递增）。 */
-  private seq = 0;
   /** 实例 → spawn 时刻锚（规则②内存携带；含 null 流首——has 判定区分未装配）。 */
   private readonly spawnAnchors = new Map<string, string | null>();
   private monitor: ReturnType<typeof setInterval> | undefined;
@@ -306,7 +305,8 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   /**
    * 恢复产物注入（组合根装配后调用； 多会话下懒加载会话逐个注入）：
    * RestoreService 收口后的实例清单登记进注册表（终态/快照态原样）、
-   * closure/task 回填观测面、agent-N 序号续基线（重启不重复分配）。
+   * closure/task 回填观测面。实例 id 无序号基线（T10a：newInstanceId 唯一串，
+   * 重启后新 spawn 天然不撞号——恢复侧零基线重建）。
    * 恢复不重放：不发布事件、不落盘（RestoreService 已收口落盘）、不触发
    * launch（不自动续跑）。
    *
@@ -332,8 +332,6 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       // spawnModels 回填——重启后恢复实例 model 字段不缺失
       //（快照 instances[] 组装面透出；数据源 = agent.spawned 载荷 model）
       if (item.model !== undefined) this.spawnModels.set(item.instanceId, item.model);
-      const seq = agentSeqOf(item.instanceId);
-      if (seq > this.seq) this.seq = seq;
     }
   }
 
@@ -358,7 +356,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       };
     }
 
-    const agentId = `agent-${++this.seq}`;
+    const agentId = newInstanceId();
     const instance = AgentInstance.create({
       instanceId: agentId,
       kind: "subagent",

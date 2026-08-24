@@ -5,7 +5,11 @@ import { CompactionEntry, type CompactionEntryData } from "./CompactionEntry";
 import type { SessionEntryData, SessionSnapshot } from "./SessionSnapshot";
 import { Turn, type TurnData } from "./Turn";
 import { SteerQueue, type SteerItem, type SteerSource } from "../agent/SteerQueue";
-import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
+import {
+  isMainInstanceId,
+  LEGACY_MAIN_INSTANCE_ID,
+  newInstanceId,
+} from "../agent/AgentInstance";
 
 /**
  * 会话聚合根（architecture.md §3.3，AD-16：domain 层唯一权威状态）。
@@ -30,10 +34,17 @@ export class Session {
   private constructor(
     readonly id: string,
     readonly createdAt: string,
+    /**
+     * 主实例 id（T10a 方案 A：所有实例含 main 统一 `agent-<唯一串>`，
+     * 生成单点 newInstanceId()；kind 恒 "main" 不变）。会话创建时分配，
+     * 随快照 mainInstanceId 字段往返；旧快照缺省 → legacy "main"（该会话
+     * 历史行 instance_id="main" 不重写，主实例 id 保持 "main" 自闭合）。
+     */
+    readonly mainInstanceId: string,
   ) {}
 
   static create(id?: string, at?: string): Session {
-    return new Session(id ?? crypto.randomUUID(), at ?? new Date(0).toISOString());
+    return new Session(id ?? crypto.randomUUID(), at ?? new Date(0).toISOString(), newInstanceId());
   }
 
   // ── Entry 追加 ──────────────────────────────────────────────
@@ -105,7 +116,7 @@ export class Session {
    * **不双写实例 channel**（appendInstanceMessage 不用于 user steer，单事实源）。
    */
   applyDirectedSteer(text: string, instanceId: string, at?: string): Entry {
-    if (instanceId === MAIN_INSTANCE_ID) {
+    if (isMainInstanceId(instanceId, this.mainInstanceId)) {
       throw new DomainError(
         `主实例 steer 请走 applySteer（需 open turn 且入 SteerQueue），applyDirectedSteer 仅限 SubAgent 目标`,
       );
@@ -128,7 +139,7 @@ export class Session {
     isSteer: boolean,
     at?: string,
     reservedId?: string,
-    instanceId: string = MAIN_INSTANCE_ID,
+    instanceId?: string,
     images?: readonly string[],
     source?: SteerSource,
   ): Entry {
@@ -138,9 +149,9 @@ export class Session {
       text,
       turnId,
       isSteer,
-      // 实例归属参数化——主线条目缺省 main；SubAgent 条目经（AD-3）
-      // appendInstanceMessage 携带 agent-N（会话投影消费事件后落树）
-      instanceId,
+      // 实例归属参数化——主线条目缺省本会话主实例 id；SubAgent 条目经（AD-3）
+      // appendInstanceMessage 携带自身实例 id（会话投影消费事件后落树）
+      instanceId: instanceId ?? this.mainInstanceId,
       createdAt: at ?? new Date().toISOString(),
       // 仅 user 消息携带图片附件（校验后 data URL 原样；其余角色 undefined）
       ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}),
@@ -163,7 +174,7 @@ export class Session {
     readonly text: string;
     readonly createdAt: string;
   }): Entry {
-    if (data.instanceId === MAIN_INSTANCE_ID) {
+    if (isMainInstanceId(data.instanceId, this.mainInstanceId)) {
       throw new DomainError(
         `主实例条目请走 appendUserEntry/appendAssistantEntry（轮次关联由主线编排管），appendInstanceMessage 仅限 SubAgent 实例条目`,
       );
@@ -278,6 +289,7 @@ export class Session {
     return {
       sessionId: this.id,
       createdAt: this.createdAt,
+      mainInstanceId: this.mainInstanceId,
       entries: this.entryList(),
       turns: this.turnList(),
       pendingSteer: this.steerQueue.toData(),
@@ -286,12 +298,14 @@ export class Session {
 
   /** 从快照重建等价聚合（RestoreService 用；行为延续：id 计数器不回卷）。 */
   static restoreFrom(snapshot: SessionSnapshot): Session {
-    const s = new Session(snapshot.sessionId, snapshot.createdAt);
+    // 旧快照无 mainInstanceId（列前时代）→ legacy "main"（该会话历史行
+    // instance_id="main" 不重写，主实例 id 保持 "main" 与历史数据自闭合）
+    const s = new Session(snapshot.sessionId, snapshot.createdAt, snapshot.mainInstanceId ?? LEGACY_MAIN_INSTANCE_ID);
     for (const e of snapshot.entries) {
       // 旧版快照 entries 无 instanceId（列前时代）：兜底回填主实例（TR-AD-14
-      // 同精神——fromRow/restore 对旧行数据前向兼容，回填常量与一致）
+      // 同精神——fromRow/restore 对旧行数据前向兼容，回填该会话主实例 id）
       if ("role" in e) {
-        s.entries.push(Entry.create({ ...e, instanceId: e.instanceId ?? MAIN_INSTANCE_ID }));
+        s.entries.push(Entry.create({ ...e, instanceId: e.instanceId ?? s.mainInstanceId }));
       } else if (e.kind === "thinking") {
         s.entries.push(ThinkingEntry.create(e));
       } else {

@@ -1,5 +1,4 @@
 import { DomainError } from "../DomainError";
-import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
 import type { SteerSource } from "../agent/SteerQueue";
 
 /**
@@ -11,7 +10,8 @@ import type { SteerSource } from "../agent/SteerQueue";
  *
  * instanceId（AD-3）：Entry 的实例归属（必填）——
  * 会话聚合跨实例持续追加（AD-1 三层模型），每条 Entry 挂产生它的实例；
- * 主实例固定 MAIN_INSTANCE_ID（"main"），SubAgent 为 agent-N。
+ * 主实例与 SubAgent 统一 `agent-<唯一串>`（T10a 方案 A；旧行 legacy "main"
+ * 字面值只读兼容）。
  */
 export type EntryRole = "user" | "assistant" | "tool";
 
@@ -55,7 +55,7 @@ export class Entry {
       throw new DomainError(`会话条目 ${data.id ?? "(新)"} 内容不能为空（role=${data.role}）`);
     }
     if (typeof data.instanceId !== "string" || data.instanceId.trim() === "") {
-      throw new DomainError(`会话条目 ${data.id ?? "(新)"} 缺少实例归属 instanceId（主实例为 ${MAIN_INSTANCE_ID}）`);
+      throw new DomainError(`会话条目 ${data.id ?? "(新)"} 缺少实例归属 instanceId`);
     }
     return new Entry(
       data.id,

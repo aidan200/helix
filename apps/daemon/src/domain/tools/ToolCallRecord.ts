@@ -1,7 +1,7 @@
 import { DomainError } from "../DomainError";
-// 实例归属常量：domain 内部值锚点（AG-02；线上权威导出在 @helix/protocol，
-// 双源相等性由 protocol-import.test.ts 守护）
-import { MAIN_INSTANCE_ID } from "../agent/AgentInstance";
+// 实例归属 legacy 缺省（"main" 字面只读兼容：旧载荷/旧行无 instanceId 时回填；
+// 新记录归属由调用方（ChatService）显式携带会话主实例 id）
+import { LEGACY_MAIN_INSTANCE_ID } from "../agent/AgentInstance";
 
 /**
  * 工具调用记录（architecture.md §3.3）：pending→running→completed/failed。
@@ -16,7 +16,7 @@ export interface ToolCallRecordData {
   readonly id: string;
   readonly toolName: string;
   readonly args: unknown;
-  /** 实例归属（AD-3）：缺省 = 主实例（旧载荷/旧行前向兼容）；SubAgent = agent-N。 */
+  /** 实例归属（AD-3）：缺省 = 主实例（旧载荷/旧行前向兼容，legacy "main"）；SubAgent = agent-<唯一串>。 */
   readonly instanceId?: string;
   readonly status: ToolCallStatus;
   readonly result?: string;
@@ -41,7 +41,7 @@ export class ToolCallRecord {
     private _endedAt?: string,
   ) {}
 
-  static create(id: string, toolName: string, args: unknown, instanceId: string = MAIN_INSTANCE_ID): ToolCallRecord {
+  static create(id: string, toolName: string, args: unknown, instanceId: string = LEGACY_MAIN_INSTANCE_ID): ToolCallRecord {
     return new ToolCallRecord(id, toolName, args, instanceId, "pending");
   }
 
@@ -51,7 +51,7 @@ export class ToolCallRecord {
       data.id,
       data.toolName,
       data.args,
-      data.instanceId ?? MAIN_INSTANCE_ID,
+      data.instanceId ?? LEGACY_MAIN_INSTANCE_ID,
       data.status,
       data.result,
       data.error,
@@ -115,8 +115,9 @@ export class ToolCallRecord {
       id: this.id,
       toolName: this.toolName,
       args: this.args,
-      // 行级归属透传（主实例缺省省略——线格式保持 v0/v0.1 形状）
-      ...(this.instanceId !== MAIN_INSTANCE_ID ? { instanceId: this.instanceId } : {}),
+      // 行级归属透传：legacy "main" 缺省省略（旧形状保持）；新会话主实例
+      // id（agent-<唯一串>）与 SubAgent id 恒显式携带（T10a 方案 A）
+      ...(this.instanceId !== LEGACY_MAIN_INSTANCE_ID ? { instanceId: this.instanceId } : {}),
       status: this._status,
       result: this._result,
       error: this._error,
