@@ -17,7 +17,7 @@ export type ProfileKind = "main-session" | "subagent-worker";
 
 /** 资源类型（tool/skill = 启停差异行；model/thinking = 槽位单行——
  *  thinking 为 thinking 批扩值（AD-6，iter-20260823-6ps5 T1.3）：档位字符串
- *  槽位，缺省无记录 = 未配置 → 解析链回落兜底 medium）。 */
+ *  槽位，缺省无记录 = 未配置 → 解析链后续档，全链未配置 = 默认关）。 */
 export type ResourceType = "tool" | "skill" | "model" | "thinking";
 
 /** 差异行值形状（读面）。 */
@@ -46,6 +46,6 @@ export interface ResourceStatePort {
   setThinkingSlot(profileKind: ProfileKind, level: string): Promise<void>;
   /** thinking 槽位清除（删除行 = 未配置）。 */
   clearThinkingSlot(profileKind: ProfileKind): Promise<void>;
-  /** thinking 槽位读（无行 → undefined = 未配置 → 解析链回落 medium）。 */
+  /** thinking 槽位读（无行 → undefined = 未配置 → 解析链后续档，全链未配置 = 默认关）。 */
   thinkingSlot(profileKind: ProfileKind): string | undefined;
 }

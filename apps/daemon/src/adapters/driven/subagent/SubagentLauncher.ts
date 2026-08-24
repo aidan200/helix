@@ -171,14 +171,16 @@ export class SubagentLauncher implements InstanceRunner {
   }
 
   /**
-   * thinking 解析单点（AD-1 落点二，thinking 批 T1.3）：**两级**短路链
-   * ——自身 profile.thinkingLevel 槽位 ?? 兜底 medium。有意短于模型四级链：
+   * thinking 解析单点（AD-1 落点二，thinking 批 T1.3）：单点短路链
+   * ——仅自身 profile.thinkingLevel 槽位（含组合根合并的 subagent-worker
+   * 槽位），无兜底（默认关 D 方案：未配置 → undefined → env 缺席 → 子
+   * 进程不装注入器 = pi-ai 不传 reasoning 显式关）。有意短于模型四级链：
    * SubAgent 无 UI/快照级覆盖（红线：主会话覆盖永不进入本链——输入只有
-   * profile 槽位与常量 medium，无会话覆盖读面）。launch 段唯一消费点
-   * （调用一次，结果经 env 定格透传子进程——代际生效，运行期不变）。
+   * profile 槽位，无会话覆盖读面）。launch 段唯一消费点（调用一次，结果
+   * 经 env 定格透传子进程——代际生效，运行期不变）。
    */
-  resolveThinkingFor(): string {
-    return this.profileNow().thinkingLevel ?? "medium";
+  resolveThinkingFor(): string | undefined {
+    return this.profileNow().thinkingLevel;
   }
 
   /** 启动实例执行（秒回：spawn + 接线，不 await 收口）。同一实例不重复 launch。 */

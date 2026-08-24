@@ -22,7 +22,9 @@ import type { ErrorCode } from "@helix/protocol";
  * 【职责】
  * - 运行期切换（model.set/get）：per-session——引擎 AgentState.model 直改
  *   （下一 turn 生效，in-flight 不变）；成功即回调 onModelChanged 广播
- *   model.changed（channel=model，订阅该会话的连接）；
+ *   model.changed（channel=model，订阅该会话的连接）+ 补发 thinking.changed
+ *   重广播（换模只改 effective 不改 override，AD-3；生效档按新模型重算，
+ *   消除 shell 侧 stale 档位）；
  * - 目录与默认值（model.catalog/catalog_refresh/set_default/get_default）：
  *   合并目录（builtin + pi.dev overlay）+ SQLite 全局默认（新会话继承，
  *   既有会话不跟随）；
@@ -80,6 +82,13 @@ export class ModelService implements ModelPort {
     const previous = runtime.chatService.currentModel ?? this.deps.defaultModel.current();
     runtime.chatService.setModel(model); // 引擎 AgentState.model 直改（下一 turn 生效）
     this.deps.onModelChanged({ sessionId, model, previous, effective: "next-turn" });
+    // 换模后 thinking.changed 重广播：换模只改 effective 不改 override（AD-3
+    // 意图/生效分离）——生效档按新模型能力重算，补发消除 shell 侧 stale 档位；
+    // 引擎未实现观测面（currentThinking undefined，additive 缺省形态）不广播。
+    const thinking = runtime.chatService.currentThinking;
+    if (thinking !== undefined) {
+      this.deps.onThinkingChanged({ sessionId, ...thinking });
+    }
     return { accepted: true, effective: "next-turn", previous };
   }
 

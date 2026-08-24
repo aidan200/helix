@@ -17,14 +17,14 @@ import { AgentInstance } from "../../src/domain/agent/AgentInstance";
 
 /**
  * T1.3 / thinking 批（AD-1 落点二 + AD-4④ + AD-6；test-design §2.1/§2.4）：
- * SubAgent thinking 解析链（resolveThinkingFor：自身 profile 槽位 > 兜底
- * medium——两级，有意短于 resolveModelFor 四级链：SubAgent 无 UI/快照级
- * 覆盖）+ launch 时刻定格 env 透传 + agent.instantiated 携带。
+ * SubAgent thinking 解析链（resolveThinkingFor：仅自身 profile 槽位，无
+ * 兜底——默认关 D 方案；有意短于 resolveModelFor 四级链：SubAgent 无
+ * UI/快照级覆盖）+ launch 时刻定格 env 透传 + agent.instantiated 携带。
  *
  * 红线机械判据（brief 决策消解）：
  * - 「主会话覆盖永不作用 SubAgent」→ resolveThinkingFor 输入只有 profile
- *   槽位与常量 medium（隔离负断言：main-session 槽位/会话覆盖概念不在
- *   输入面，存在时解析结果零影响）；
+ *   槽位（隔离负断言：main-session 槽位/会话覆盖概念不在输入面，存在时
+ *   解析结果零影响）；
  * - 「launch 时刻定格」→ resolveThinkingFor 仅在 launch 段调用一次，结果
  *   经 HELIX_THINKING_LEVEL env 值快照透传（已 spawn 实例不受后续配置
  *   变更影响——代际生效）。
@@ -63,15 +63,15 @@ function makeLauncher(profile: AgentProfile | (() => AgentProfile)): SubagentLau
   });
 }
 
-describe("resolveThinkingFor（SubAgent 链解析单点，两级：profile 槽位 > 兜底 medium）", () => {
+describe("resolveThinkingFor（SubAgent 链解析单点：仅 profile 槽位，无兜底）", () => {
   test("profile.thinkingLevel 在位 → 槽位值", () => {
     const launcher = makeLauncher({ ...SubAgentProfile, thinkingLevel: "xhigh" });
     expect(launcher.resolveThinkingFor()).toBe("xhigh");
   });
 
-  test("profile 留空 → 兜底 medium（缺省无记录 = 未配置）", () => {
+  test("profile 留空 → undefined（默认关，D 方案：无 medium 兜底）", () => {
     const launcher = makeLauncher(SubAgentProfile);
-    expect(launcher.resolveThinkingFor()).toBe("medium");
+    expect(launcher.resolveThinkingFor()).toBeUndefined();
   });
 
   test("profile getter 形态：launch 时刻读现值（resource_state 槽位合并面，配置变更后新 spawn 跟随）", () => {
@@ -80,7 +80,7 @@ describe("resolveThinkingFor（SubAgent 链解析单点，两级：profile 槽�
       ...SubAgentProfile,
       ...(slot !== undefined ? { thinkingLevel: slot } : {}),
     }));
-    expect(launcher.resolveThinkingFor()).toBe("medium"); // 未配置 → 兜底
+    expect(launcher.resolveThinkingFor()).toBeUndefined(); // 未配置 → 默认关
     slot = "high";
     expect(launcher.resolveThinkingFor()).toBe("high"); // 读现值
   });
@@ -93,7 +93,7 @@ describe("resolveThinkingFor（SubAgent 链解析单点，两级：profile 槽�
       ...SubAgentProfile,
       ...(slots["subagent-worker"] !== undefined ? { thinkingLevel: slots["subagent-worker"] } : {}),
     }));
-    expect(launcher.resolveThinkingFor()).toBe("medium"); // main 的 max 不传染
+    expect(launcher.resolveThinkingFor()).toBeUndefined(); // main 的 max 不传染
   });
 });
 
@@ -145,10 +145,11 @@ describe("launch 段 env 定格透传（HELIX_THINKING_LEVEL 字符串形态）"
       launcher.launch(makeInstance("agent-t1"), "任务一");
       expect(calls[0]!.env["HELIX_THINKING_LEVEL"]).toBe("xhigh");
 
-      // 配置变更（clear）后新 spawn 跟随；首个实例 env 快照不变
+      // 配置变更（clear）后新 spawn 跟随（未配置 → env 缺席 = 默认关）；
+      // 首个实例 env 快照不变
       slot = undefined;
       launcher.launch(makeInstance("agent-t2"), "任务二");
-      expect(calls[1]!.env["HELIX_THINKING_LEVEL"]).toBe("medium"); // 留空 → 兜底
+      expect(calls[1]!.env["HELIX_THINKING_LEVEL"]).toBeUndefined(); // 留空 → 无兜底（默认关）
       expect(calls[0]!.env["HELIX_THINKING_LEVEL"]).toBe("xhigh"); // 已定格不受影响
     } finally {
       (Bun as unknown as { spawn: unknown }).spawn = real;

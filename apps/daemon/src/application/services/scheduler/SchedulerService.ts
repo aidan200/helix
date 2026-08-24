@@ -119,8 +119,8 @@ export interface SchedulerServiceDeps {
    */
   readonly subagentSnapshotFor?: (spawnModel: string | undefined) => {
     readonly profileSnapshot: AgentInstantiatedPayload["profileSnapshot"];
-    /** spawn 解析的 thinkingLevel 快照（AD-4④；与 launcher resolveThinkingFor 同源同时点）。 */
-    readonly thinkingLevel: string;
+    /** spawn 解析的 thinkingLevel 快照（AD-4④；与 launcher resolveThinkingFor 同源同时点；无配置 → undefined = 默认关）。 */
+    readonly thinkingLevel: string | undefined;
   };
   /**
    * 实例终态钩子（CDP 地基）：done/failed/killed 收口链完成后回调——

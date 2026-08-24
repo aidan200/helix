@@ -138,7 +138,7 @@ export class ResourceService implements ResourceConfigPort {
     await this.deps.store.clearModelSlot(kind);
   }
 
-  /** thinking 槽位现值（未配置 → undefined = 解析链回落兜底 medium，AD-1/AD-6）。 */
+  /** thinking 槽位现值（未配置 → undefined = 解析链后续档，全链未配置 = 默认关，AD-1/AD-6）。 */
   thinkingSlot(kind: ProfileKind): string | undefined {
     return this.deps.store.thinkingSlot(kind);
   }
