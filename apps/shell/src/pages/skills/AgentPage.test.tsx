@@ -386,7 +386,7 @@ describe("智能体页组件（M6 T4）", () => {
   });
 });
 
-// ── P-2 profile 推理级别字段（T2.2；review.md §3 必须还原 1-6 / test-design §2.6-2.7）──
+// ── P-2 profile 推理级别字段（T2.2 落位 + T3 on/off 开关形态；test-design §2.6-2.7）──
 /** 能力位三变体目录：六档（opus）/ 三档（gpt-5-mini）/ reasoning=false（qwen3-4b）。 */
 const CAP_CATALOG: CatalogModel[] = [
   {
@@ -422,7 +422,7 @@ function fieldOf(kind: string): HTMLElement {
   return document.querySelector(`[data-agent-card="${kind}"] .tl-field`) as HTMLElement;
 }
 
-describe("P-2 profile 推理级别字段（T2.2）", () => {
+describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -435,7 +435,7 @@ describe("P-2 profile 推理级别字段（T2.2）", () => {
     mock.sentSetEnabled = [];
   });
 
-  it("① 落位 + ghost 未配置态：dashed 框 + 空心 thumb 停 medium 位 + 刻度去强调 + 未配置徽标 + 回落说明；ghost 位不可提交", async () => {
+  it("① 落位 + off 默认关：开关 off（停用状态词）+ 无滑块/无徽标/无说明行；挂载零写命令", async () => {
     mock.catalog = CAP_CATALOG;
     ui();
     act(() => feedList({ model: "anthropic/claude-opus-4.1" }, { model: "anthropic/claude-opus-4.1" }));
@@ -445,68 +445,64 @@ describe("P-2 profile 推理级别字段（T2.2）", () => {
     expect(field.previousElementSibling!.className).toContain("ag-model");
     // label hud-label 族
     expect(field.querySelector(".hud-label")!.textContent).toBe("推理级别 · THINKING LEVEL");
-    // ghost 未配置态
-    expect(field.classList.contains("unset")).toBe(true);
-    const thumb = field.querySelector(".tl-thumb") as HTMLElement;
-    expect(thumb.classList.contains("ghost")).toBe(true);
-    expect(thumb.style.left).toBe("40%"); // medium = 六档 idx2 → 2/5
-    // 刻度去强调（ghost 态无 .on / .cur）
-    expect(field.querySelectorAll(".tl-tick.on").length).toBe(0);
-    expect(field.querySelectorAll(".tl-tick.cur").length).toBe(0);
-    // 「未配置」中性徽标 + 回落说明
-    const state = field.querySelector(".tl-state")!;
-    expect(state.textContent).toBe("未配置");
-    expect(state.classList.contains("set")).toBe(false);
-    expect(field.querySelector(".ag-note")!.textContent).toContain("回落兜底 medium");
-    // × 清除钮隐藏
+    // 开关 off：语义化 role=switch + aria-checked=false + 状态词「停用」
+    const sw = field.querySelector('[data-switch="thinking"]') as HTMLButtonElement;
+    expect(sw.getAttribute("role")).toBe("switch");
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(sw.querySelector(".ag-switch-state")!.textContent).toBe("停用");
+    expect(sw.disabled).toBe(false); // 能力就绪可开
+    // off 态：无滑块 / 无档位徽标 / 无说明行 / 无清除钮（off 由开关承担）
+    expect(field.querySelector(".tl-track")).toBeNull();
+    expect(field.querySelector(".tl-state")).toBeNull();
+    expect(field.querySelector(".tl-note")).toBeNull();
     expect(field.querySelector(".tl-clear")).toBeNull();
-    // ghost 位仅预览不可提交（挂载零写命令）
+    // 挂载零写命令
     expect(mock.sentSetEnabled).toEqual([]);
   });
 
-  it("② 选档 → thinking 槽位写入 → changed 重拉收口 configured 态（accent 徽标 + × + spawn 快照说明）", async () => {
+  it("② 开 on：off → on 立即写中位档（六档 → medium）→ changed 重拉收口 on 态（徽标 + 滑块 + 启用）；选档通道跟随", async () => {
     mock.catalog = CAP_CATALOG;
     const view = ui();
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1" }));
     await screen.findByText("SubAgent worker");
-    const field = fieldOf("subagent-worker");
-    // 点刻度 high（六档 idx3）→ set thinking 槽位
-    fireEvent.click(field.querySelector('[data-level="high"]')!);
+    // 开关 off → on：槽位空 → 立即写中位档（defaultLevelFor：六档 idx2 = medium）
+    fireEvent.click(fieldOf("subagent-worker").querySelector('[data-switch="thinking"]')!);
     expect(mock.sentSetEnabled).toEqual([
-      { profileKind: "subagent-worker", resourceType: "thinking", name: "high", enabled: true },
+      { profileKind: "subagent-worker", resourceType: "thinking", name: "medium", enabled: true },
     ]);
-    // pending：滑块禁用（写面单飞沿用）
-    expect(field.querySelector(".tl-track")!.getAttribute("aria-disabled")).toBe("true");
+    // pending：开关禁用（写面单飞沿用；daemon 权威未收口前滑块不渲染）
+    expect((fieldOf("subagent-worker").querySelector('[data-switch="thinking"]') as HTMLButtonElement).disabled).toBe(true);
     act(() => feedSetResult({ status: "applied" }));
     act(() => bumpRevision(view.rerender));
-    act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "high" }));
+    act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "medium" }));
     const f2 = fieldOf("subagent-worker");
-    // configured 态：非 unset + accent 徽标 + × + spawn 快照说明 + 实 thumb
-    expect(f2.classList.contains("unset")).toBe(false);
-    const state = f2.querySelector(".tl-state")!;
-    expect(state.textContent).toBe("high");
-    expect(state.classList.contains("set")).toBe(true);
-    expect(f2.querySelector(".tl-clear")).not.toBeNull();
-    expect(f2.querySelector(".ag-note")!.textContent).toContain("spawn 时按此档解析快照");
-    expect(f2.querySelector(".ag-note")!.textContent).toContain("agent.instantiated");
+    // on 态：开关 on（启用）+ accent 徽标 medium + 实 thumb + 滑块在场
+    const sw2 = f2.querySelector('[data-switch="thinking"]') as HTMLButtonElement;
+    expect(sw2.getAttribute("aria-checked")).toBe("true");
+    expect(sw2.querySelector(".ag-switch-state")!.textContent).toBe("启用");
+    expect(sw2.disabled).toBe(false);
+    expect(f2.querySelector(".tl-state")!.textContent).toBe("medium");
+    expect(f2.querySelector(".tl-state")!.classList.contains("set")).toBe(true);
     expect(f2.querySelector(".tl-thumb")!.classList.contains("ghost")).toBe(false);
-    expect(f2.querySelector(".tl-track")!.getAttribute("aria-valuenow")).toBe("4");
-    // 方向键通道：configured high → ArrowRight 升 xhigh
-    fireEvent.keyDown(f2.querySelector(".tl-track")!, { key: "ArrowRight" });
+    expect(f2.querySelector(".tl-track")!.getAttribute("aria-valuenow")).toBe("3"); // 六档 idx2
+    // 点刻度 high（六档 idx3）→ set thinking 槽位（滑块选档通道沿用）
+    fireEvent.click(f2.querySelector('[data-level="high"]')!);
     expect(mock.sentSetEnabled[1]).toEqual({
       profileKind: "subagent-worker",
       resourceType: "thinking",
-      name: "xhigh",
+      name: "high",
       enabled: true,
     });
   });
 
-  it("③ configured → × → clear 槽位（enabled=false）→ 重拉后回 ghost", async () => {
+  it("③ on → off：开关 → clear 槽位（enabled=false）→ 重拉后回 off 态", async () => {
     mock.catalog = CAP_CATALOG;
     const view = ui();
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "high" }));
     await screen.findByText("SubAgent worker");
-    fireEvent.click(fieldOf("subagent-worker").querySelector(".tl-clear")!);
+    const field = fieldOf("subagent-worker");
+    expect((field.querySelector('[data-switch="thinking"]') as HTMLButtonElement).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(field.querySelector('[data-switch="thinking"]')!);
     expect(mock.sentSetEnabled).toEqual([
       { profileKind: "subagent-worker", resourceType: "thinking", name: "-", enabled: false },
     ]);
@@ -514,17 +510,19 @@ describe("P-2 profile 推理级别字段（T2.2）", () => {
     act(() => bumpRevision(view.rerender));
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: null }));
     const f2 = fieldOf("subagent-worker");
-    expect(f2.classList.contains("unset")).toBe(true);
-    expect(f2.querySelector(".tl-clear")).toBeNull();
-    expect(f2.querySelector(".tl-state")!.textContent).toBe("未配置");
-    expect((f2.querySelector(".tl-thumb") as HTMLElement).classList.contains("ghost")).toBe(true);
+    const sw2 = f2.querySelector('[data-switch="thinking"]') as HTMLButtonElement;
+    expect(sw2.getAttribute("aria-checked")).toBe("false");
+    expect(sw2.disabled).toBe(false);
+    expect(sw2.querySelector(".ag-switch-state")!.textContent).toBe("停用");
+    expect(f2.querySelector(".tl-track")).toBeNull(); // 无滑块
+    expect(f2.querySelector(".tl-state")).toBeNull(); // 无档位徽标
   });
 
-  it("④ 能力位三变体：换三档模型刻度数=3；reasoning=false → 字段禁用 + 已有配置保留不可改（× 隐藏、滑块不渲染）", async () => {
+  it("④ 能力位三变体：三档模型 on 态刻度数=3（无 OFF 注入）；reasoning=false → 开关 disabled + 已有配置保留不可改（滑块不渲染 + disabledNote）", async () => {
     mock.catalog = CAP_CATALOG;
     ui();
-    // 三档模型 + 未配置
-    act(() => feedList({}, { model: "openai/gpt-5-mini" }));
+    // 三档模型 + configured：刻度数 = 3（能力位原样透传）
+    act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "low" }));
     await screen.findByText("SubAgent worker");
     let field = fieldOf("subagent-worker");
     expect([...field.querySelectorAll(".tl-tick")].map((b) => b.getAttribute("data-level"))).toEqual([
@@ -532,20 +530,36 @@ describe("P-2 profile 推理级别字段（T2.2）", () => {
       "medium",
       "high",
     ]);
-    // reasoning=false + 已有配置 high：禁用 + 保留不可改
+    // reasoning=false + 已有配置 high：开关 disabled + on + 配置保留不可改
     act(() => feedList({}, { model: "local/qwen3-4b", thinkingLevel: "high" }));
     field = fieldOf("subagent-worker");
     expect(field.classList.contains("disabled")).toBe(true);
+    const sw = field.querySelector('[data-switch="thinking"]') as HTMLButtonElement;
+    expect(sw.disabled).toBe(true);
+    expect(sw.getAttribute("aria-checked")).toBe("true"); // 配置保留
     expect(field.querySelector(".tl-track")).toBeNull(); // 滑块不渲染（两态不叠加）
     expect(field.querySelector(".tl-state")!.textContent).toBe("high"); // 配置保留
     expect(field.querySelector(".tl-state")!.classList.contains("set")).toBe(true);
-    expect(field.querySelector(".tl-clear")).toBeNull(); // 不可改（× 隐藏）
-    expect(field.querySelector(".ag-note")!.textContent).toContain("不支持 reasoning");
-    // reasoning=false + 未配置
+    expect(field.querySelector(".tl-note")!.textContent).toContain("不支持 reasoning");
+    // reasoning=false + 未配置：开关 off + disabled
     act(() => feedList({}, { model: "local/qwen3-4b", thinkingLevel: null }));
     field = fieldOf("subagent-worker");
-    expect(field.classList.contains("disabled")).toBe(true);
-    expect(field.querySelector(".tl-state")!.textContent).toBe("未配置");
+    const swU = field.querySelector('[data-switch="thinking"]') as HTMLButtonElement;
+    expect(swU.disabled).toBe(true);
+    expect(swU.getAttribute("aria-checked")).toBe("false");
+    expect(field.querySelector(".tl-state")).toBeNull();
+  });
+
+  it("④b 能力位未判明（目录未达）：开关 disabled + capabilityLoading 提示位（与滑块互斥）", async () => {
+    mock.catalog = null;
+    ui();
+    act(() => feedList());
+    await screen.findByText("SubAgent worker");
+    const field = fieldOf("subagent-worker");
+    const sw = field.querySelector('[data-switch="thinking"]') as HTMLButtonElement;
+    expect(sw.disabled).toBe(true);
+    expect(field.querySelector(".tl-cap-loading")!.textContent).toContain("正在获取模型能力");
+    expect(field.querySelector(".tl-track")).toBeNull();
   });
 
   it("⑤ 换模轻提示：已配 xhigh + 切三档模型 → 提示文案 + 配置值不改写 + 徽标仍示 xhigh", async () => {
@@ -566,7 +580,7 @@ describe("P-2 profile 推理级别字段（T2.2）", () => {
     expect((field.querySelector(".tl-thumb") as HTMLElement).style.left).toBe("100%");
   });
 
-  it("⑥ PEAK：configured 且生效 = 最高支持档 → 字段框体 .peak；非最高档 / unset 不触发", async () => {
+  it("⑥ PEAK：configured 且生效 = 最高支持档 → 字段框体 .peak；非最高档不触发；off 态无框体不触发", async () => {
     mock.catalog = CAP_CATALOG;
     ui();
     act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "high" }));
@@ -578,25 +592,34 @@ describe("P-2 profile 推理级别字段（T2.2）", () => {
     act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "medium" }));
     field = fieldOf("subagent-worker");
     expect(field.querySelector(".tl-box")!.classList.contains("peak")).toBe(false);
-    // unset 不触发（仅 configured 可触发）
+    // off（槽位空）不触发：无框体无滑块（仅 configured 可触发）
     act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: null }));
     field = fieldOf("subagent-worker");
-    expect(field.querySelector(".tl-box")!.classList.contains("peak")).toBe(false);
+    expect(field.querySelector(".tl-box")).toBeNull();
   });
 
-  it("⑦ 负断言：两态视觉不叠加 + 原型标注文字不存在", async () => {
+  it("⑦ 负断言：on 态无 off 态残留（无 ghost thumb / 徽标示配置档）；四条 note 文案不渲染；无「关闭 reasoning」入口；原型标注不存在", async () => {
     mock.catalog = CAP_CATALOG;
     ui();
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "high" }));
     await screen.findByText("SubAgent worker");
     const field = fieldOf("subagent-worker");
-    // configured 态无 unset 残留（class / ghost thumb / 未配置徽标）
-    expect(field.classList.contains("unset")).toBe(false);
+    // configured 态无 off 态残留（class / ghost thumb）
     expect(field.querySelector(".tl-thumb.ghost")).toBeNull();
-    expect(field.querySelector(".tl-state")!.textContent).not.toBe("未配置");
+    expect(field.querySelector(".tl-state")!.textContent).toBe("high");
+    const all = document.body.textContent ?? "";
+    // 四条 note 文案负断言（noteUnset×2 + noteConfigured×2）
+    expect(all).not.toContain("回落兜底");
+    expect(all).not.toContain("解析推理级别");
+    expect(all).not.toContain("解析快照");
+    expect(all).not.toContain("composer 会话覆盖");
+    // 无「关闭 reasoning」类入口文案（off 由开关承担，非档位语义）
+    expect(all).not.toContain("关闭 reasoning");
+    expect(all).not.toContain("关闭推理");
+    expect(all).not.toContain("turn off");
     // 原型标注剥离：无 data-proto-annotation 锚、无演示控制台文案
     expect(document.querySelector("[data-proto-annotation]")).toBeNull();
-    expect(document.body.textContent).not.toContain("切换下方模型槽位即演示");
-    expect(document.body.textContent).not.toContain("留空态（F2.1）");
+    expect(all).not.toContain("切换下方模型槽位即演示");
+    expect(all).not.toContain("留空态（F2.1）");
   });
 });

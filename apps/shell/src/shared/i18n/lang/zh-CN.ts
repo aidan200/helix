@@ -404,19 +404,14 @@ export const zhCN = {
     notConnected: "未连接 daemon",
     switchOn: "启用",
     switchOff: "停用",
-    // P-2 推理级别字段（T2.2；review.md §3 文案同源）
+    // P-2 推理级别字段（T3：on/off 开关形态——off = 槽位空默认关，开 on 立即写中位档）
     thinking: {
       label: "推理级别 · THINKING LEVEL",
       sliderLabel: "推理级别档位",
-      unsetBadge: "未配置",
-      noteUnsetMain: "未配置 · 新会话装配时回落兜底 medium。",
-      noteUnsetSub: "未配置 · spawn 解析时回落兜底 medium。",
-      noteConfiguredMain: "新会话按此档解析推理级别；composer 会话覆盖优先于此槽位。",
-      noteConfiguredSub: "该 profile 的 SubAgent spawn 时按此档解析快照，随 agent.instantiated 落盘。",
+      switchLabel: "推理级别开关",
       disabledNote: "当前模型不支持 reasoning，推理级别不可配；请求按 provider 默认行为发送。",
       clampedHint: "{configured} → {effective}（模型能力所限；spawn 解析时按能力过滤，配置值不丢）",
       capabilityLoading: "正在获取模型能力信息…",
-      clearTitle: "清除配置，回落兜底",
     },
   },
 };
