@@ -75,7 +75,7 @@ export class ResourceService implements ResourceConfigPort {
     }));
     const scanned = await this.deps.skills.scan();
     const skills = scanned.skills.map((s) => ({ ...s, enabled: this.enabledOf(kind, "skill", s.name) }));
-    return { profileKind: kind, tools, skills, diagnostics: scanned.diagnostics, model: this.deps.store.modelSlot(kind) };
+    return { profileKind: kind, tools, skills, diagnostics: scanned.diagnostics, model: this.deps.store.modelSlot(kind), thinkingLevel: this.deps.store.thinkingSlot(kind) };
   }
 
   /**
@@ -91,6 +91,9 @@ export class ResourceService implements ResourceConfigPort {
   ): Promise<ResourceToggleOutcome> {
     if (resourceType === "model") {
       return { status: "skipped", reason: "model-uses-slot-api" };
+    }
+    if (resourceType === "thinking") {
+      return { status: "skipped", reason: "thinking-uses-slot-api" };
     }
     if (resourceType === "skill") {
       const skill = (await this.deps.skills.scan()).skills.find((s) => s.name === name);
@@ -133,6 +136,21 @@ export class ResourceService implements ResourceConfigPort {
   /** model 槽位清除（删除行 = 未设）。 */
   async clearModelSlot(kind: ProfileKind): Promise<void> {
     await this.deps.store.clearModelSlot(kind);
+  }
+
+  /** thinking 槽位现值（未配置 → undefined = 解析链回落兜底 medium，AD-1/AD-6）。 */
+  thinkingSlot(kind: ProfileKind): string | undefined {
+    return this.deps.store.thinkingSlot(kind);
+  }
+
+  /** thinking 槽位写（store 层原子替换同 model 槽位单行不变式；不校验档位——SoT 在 pi-ai）。 */
+  async setThinkingSlot(kind: ProfileKind, level: string): Promise<void> {
+    await this.deps.store.setThinkingSlot(kind, level);
+  }
+
+  /** thinking 槽位清除（删除行 = 未配置）。 */
+  async clearThinkingSlot(kind: ProfileKind): Promise<void> {
+    await this.deps.store.clearThinkingSlot(kind);
   }
 
   /** 同义保留名（旧调用面）：ResourceConfigPort.setEnabled。 */

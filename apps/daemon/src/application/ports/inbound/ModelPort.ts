@@ -14,6 +14,8 @@ import type { CatalogSnapshot, AuthVerifyOutcome } from "../outbound/ModelCatalo
 export interface ModelPort {
   /** model.set：运行期切换（per-session，下一 turn 生效；成功即触发 model.changed 广播）。 */
   setModel(sessionId: string, model: string): Promise<ModelSetOutcome>;
+  /** thinking.set：会话推理强度覆盖（thinking 批①；per-session，下一 turn 生效；成功即触发 thinking.changed 广播）。 */
+  setThinking(sessionId: string, level: string): Promise<ThinkingSetOutcome>;
   /** model.get：会话当前模型 + 与全局默认的关系。 */
   getModel(sessionId: string): Promise<ModelInfo>;
   /** model.catalog：合并目录读面（4h 缓存口径）。 */
@@ -39,6 +41,14 @@ export interface ModelSetOutcome {
   readonly accepted: true;
   readonly effective: "next-turn";
   readonly previous: string;
+}
+
+/** thinking.set 成功结果（thinking.changed 广播同源载荷；override/effective 双位，契约 ①）。 */
+export interface ThinkingSetOutcome {
+  /** 会话覆盖意图；null = 无覆盖。 */
+  readonly override: string | null;
+  /** 引擎按当前模型能力解析的生效档；null = 全链不支持（不传参，provider 默认）。 */
+  readonly effective: string | null;
 }
 
 /** model.get 结果（契约 C §1.1：isDefault = 会话模型是否即全局默认）。 */

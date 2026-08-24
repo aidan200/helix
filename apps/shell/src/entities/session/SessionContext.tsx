@@ -42,6 +42,7 @@ import {
   sessionDeleteCommand,
   sessionListCommand,
   sessionLoadHistoryCommand,
+  thinkingSetCommand,
   traceQueryCommand,
   webStatusCommand,
   webStartCommand,
@@ -117,6 +118,9 @@ interface SessionContextValue {
   // ── model / auth 命令面板（契约 C；T3.3 P-3/P-4）──
   /** 会话模型运行期切换（P-3 选中即切 / 重置为默认；下一 turn 生效）。 */
   setSessionModel: (model: string) => void;
+  /** 会话 thinking 档覆盖（thinking 批①，T2.1 P-1 滑块选档；下一 turn 生效；
+   *  草稿态本地暂存——draft-model 先例对齐，快照建会话后补发 thinking.set）。 */
+  setSessionThinking: (level: string) => void;
   /** 目录 + 全局默认拉取（P-3 打开 / P-4 进入；未请求态才发，重复打开零重发）。 */
   requestModelConfig: () => void;
   /** provider 凭据清单拉取（P-4 进入；auth.list 全局命令）。 */
@@ -266,6 +270,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       //（dispatcher 侧拓扑级直通不写态；changed 广播走拓扑 revision）
       if (event.type === "agent.config.list.result" || event.type === "agent.config.set_enabled.result") {
         for (const l of agentConfigListenersRef.current) l(event);
+      }
+      // 草稿 thinking 暂存转正（thinking 批①，draft-model 先例对齐；T2.1）：
+      // chat.send 零字段负断言（AD-4①）使覆盖无法随首条上送——草稿态经
+      // ui/set-draft-thinking 本地暂存，建会话快照到达后补发 thinking.set，
+      // 生效回执 = thinking.changed 广播（快照 thinking 读面权威收权归
+      // snapshot 消费者）
+      if (event.type === "session.snapshot") {
+        const prev = topologyRef.current.active;
+        const staged = prev.sessionId === null ? prev.thinking.override : null;
+        dispatch({ type: "event", event, ts: Date.now() });
+        if (staged !== null) {
+          client.send(thinkingSetCommand(staged, event.payload.snapshot.sessionId));
+        }
+        return;
       }
       dispatch({ type: "event", event, ts: Date.now() });
     });
@@ -483,6 +501,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     clientRef.current!.send(modelSetCommand(model, sessionId));
   }, []);
 
+  // thinking 批①（T2.1 P-1 滑块选档）：仿 setSessionModel 三段先例——
+  // 命令发送（thinkingSetCommand 信封 sessionId）+ 草稿本地暂存
+  // （ui/set-draft-thinking；chat.send 零字段 → 转正补发见 onFrame 快照分支）
+  // + 生效回执 thinking.changed 广播消费（consumers/thinking-level.ts）
+  const setSessionThinking = useCallback((level: string) => {
+    const { sessionId } = topologyRef.current.active;
+    if (sessionId === null) {
+      dispatch({ type: "ui/set-draft-thinking", level });
+      return;
+    }
+    clientRef.current!.send(thinkingSetCommand(level, sessionId));
+  }, []);
+
   const requestModelConfig = useCallback(() => {
     const mc = topologyRef.current.modelConfig;
     if (mc.catalog === null) clientRef.current!.send(modelCatalogCommand());
@@ -543,6 +574,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       unsubscribeInstance,
       steerInstance,
       setSessionModel,
+      setSessionThinking,
       requestModelConfig,
       requestAuthList,
       refreshModelCatalog,
@@ -580,6 +612,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       unsubscribeInstance,
       steerInstance,
       setSessionModel,
+      setSessionThinking,
       requestModelConfig,
       requestAuthList,
       refreshModelCatalog,

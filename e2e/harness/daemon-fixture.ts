@@ -205,8 +205,9 @@ async function waitFor(cond: () => boolean, timeoutMs: number, what: string): Pr
 /** E 层 fixture tmp 基目录前缀（fixture 自建 + spec 自建 home 统一形态）。 */
 export const E2E_TMP_PREFIX = "helix-e2e-";
 
-/** 残留进程特征：本 worktree 内的 daemon launcher / SubAgent ChildMain。 */
-const RESIDUE_COMMAND_FEATURES = [/launcher\.ts/, /ChildMain\.ts/];
+/** 残留进程特征：本 worktree 内的 daemon launcher / SubAgent 子进程
+ *  （cee78fd 后子进程 argv = `main.ts --child-main …`，特征钉 --child-main）。 */
+const RESIDUE_COMMAND_FEATURES = [/launcher\.ts/, /--child-main/];
 
 export interface ResidueProcess {
   readonly pid: number;
@@ -214,7 +215,7 @@ export interface ResidueProcess {
   readonly command: string;
 }
 
-/** ps 特征扫描：命令行含本 worktree 路径 + launcher/ChildMain 特征的进程
+/** ps 特征扫描：命令行含本 worktree 路径 + launcher/--child-main 特征的进程
  *  （daemon 与其派生的 SubAgent 子进程树——含孤儿化后 reparent 的成员）。 */
 export function findResidueProcesses(): ResidueProcess[] {
   const out = execSync("ps axo pid=,pgid=,command=", {

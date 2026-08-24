@@ -2,6 +2,7 @@ import type {
   AgentEngineEvent,
   AgentEngineListener,
   AgentEnginePort,
+  AgentThinkingState,
 } from "../../../application/ports/outbound/AgentEnginePort";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { Model, Models } from "@earendil-works/pi-ai";
@@ -9,7 +10,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { AgentRuntime } from "./runtime/AgentRuntime";
 import type { AgentProfile } from "./runtime/AgentProfile";
 import type { AgentRuntimeDeps } from "./runtime/AgentRuntime";
-import { buildModels, createStreamFn, explicitGetApiKey, resolveModel, resolveModelSlot } from "./model-provider";
+import { buildModels, createStreamFn, explicitGetApiKey, resolveModel, resolveModelSlot, wrapStreamFnThinking } from "./model-provider";
 import { stopReasonOf, errorMessageOf, textOfContent, textOfMessage, usageOf } from "./mappers/SessionMapper";
 import { imagesOfContent } from "../../../application/services/images";
 
@@ -44,6 +45,15 @@ export interface PiEngineOptions {
   readonly resolveModelById?: (modelId: string) => Model<any>;
   /** 流式函数覆盖（测试注入 FakeLLM 剧本）。 */
   readonly streamFnOverride?: StreamFn;
+  /**
+   * thinking 解析读面（architecture.md §3.5 注入器装配点；thinking 批）：
+   * 注入后 streamFn（含 streamFnOverride——fake 剧本通道同被包装，测试
+   * 可捕获 options.reasoning）经 wrapStreamFnThinking 包装，每次 stream
+   * 调用开始重读本 getter；返回 undefined = 不动 options（provider 默认）。
+   * 缺省 = 不装注入器（既有行为逐字节不变）。主会话解析链读面归 T1.2；
+   * SubAgent 子进程 = 定格值 + 能力过滤（T1.3）。
+   */
+  readonly resolveThinking?: (model: Model<any>) => string | undefined;
   /** 工具集装配器（CoreToolExecutor.resolveTools，组合根接线）。 */
   readonly resolveTools?: AgentRuntimeDeps["resolveTools"];
 }
@@ -55,6 +65,8 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
   private readonly steeredTexts: string[] = [];
   /** setModel 解析面（catalog 活解析优先，静态 models 兑底）。 */
   private readonly resolveById: (modelId: string) => Model<any>;
+  /** thinking 解析读面（§3.5 注入器同源 getter；currentThinking 生效档计算复用）。 */
+  private readonly resolveThinkingFn?: (model: Model<any>) => string | undefined;
   /** setTools 装配面（CoreToolExecutor.resolveTools 既有注入路径）。 */
   private readonly resolveToolsFn: AgentRuntimeDeps["resolveTools"];
 
@@ -62,8 +74,15 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     const models = options.models ?? buildModels();
     this.resolveById = options.resolveModelById ?? ((id) => resolveModel(models, id));
     this.resolveToolsFn = options.resolveTools;
+    this.resolveThinkingFn = options.resolveThinking;
+    // §3.5 透传注入器装配：包装在 override 判定外侧——fake 剧本通道
+    // （streamFnOverride）同样被注入器包裹（定格值进 options.reasoning 可捕获），
+    // override 槽位语义不被破坏（仍是唯一 streamFn 来源）
+    const baseStreamFn = options.streamFnOverride ?? createStreamFn(models);
+    const streamFn =
+      options.resolveThinking === undefined ? baseStreamFn : wrapStreamFnThinking(baseStreamFn, options.resolveThinking);
     this.runtime = new AgentRuntime(options.profile, {
-      streamFn: options.streamFnOverride ?? createStreamFn(models),
+      streamFn,
       model: resolveModelSlot(options.profile.model, options.model, models),
       models,
       getApiKey: explicitGetApiKey(options.apiKeys),
@@ -147,6 +166,30 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
   /** 运行期改系统提示（setModel 同构）：直改 AgentState.systemPrompt，下一 turn 生效。 */
   setSystemPrompt(text: string): void {
     this.runtime.setSystemPrompt(text);
+  }
+
+  /** 运行期 thinking 覆盖（thinking 批①，AD-4①；setModel 同构直改链，下一 turn 生效）。 */
+  setThinking(level: string): void {
+    this.runtime.setThinking(level);
+  }
+
+  /**
+   * thinking 覆盖读面（解析链覆盖位回读——供组合根 engineFor 解析闭包消费；
+   * 不含生效计算，避免与 currentThinking 互调递归）。
+   */
+  thinkingOverride(): string | undefined {
+    return this.runtime.stateThinking;
+  }
+
+  /**
+   * 当前 thinking 覆盖/生效（可观测面：快照 thinking 位 + thinking.changed 广播
+   * 数据源）。生效档 = 装配的解析读面按当前模型现值重算（与注入器同源同时点语义）；
+   * 未装解析读面 → effective = null（不装注入器的测试形态行为不变）。
+   */
+  currentThinking(): AgentThinkingState {
+    const override = this.runtime.stateThinking ?? null;
+    const effective = this.resolveThinkingFn?.(this.runtime.stateModel) ?? null;
+    return { override, effective };
   }
 
   /** pi AgentEvent → port 引擎事件（时序契约 §5 等价的真引擎侧）。 */

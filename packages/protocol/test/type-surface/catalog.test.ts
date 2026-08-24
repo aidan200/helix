@@ -138,7 +138,7 @@ type _V09EventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 27 个 type（v0 5 + v0.1 3 + v0.2 13 + v0.4 1 + v0.6 2 + v0.7 2 + v0.9 1）", () => {
+  test("命令目录恰为 28 个 type（v0 5 + v0.1 3 + v0.2 13 + v0.4 1 + v0.6 2 + v0.7 2 + v0.9 1 + v0.11 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.config.list",
@@ -164,6 +164,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "session.loadHistory",
         "session.subscribe",
         "session.unsubscribe",
+        "thinking.set",
         "trace.query",
         "web.start",
         "web.status",
@@ -172,7 +173,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 47 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2 + T2.2 命令结果 2 + 微批结果帧 9 + v0.4 3 + v0.6 3 + v0.7 3 + v0.9 1）", () => {
+  test("事件目录恰为 48 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2 + T2.2 命令结果 2 + 微批结果帧 9 + v0.4 3 + v0.6 3 + v0.7 3 + v0.9 1 + v0.11 1）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -212,6 +213,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "session.snapshot",
         "steer.drained",
         "steer.queued",
+        "thinking.changed",
         "thinking.completed",
         "thinking.stream.delta",
         "tool.call.result",
@@ -384,7 +386,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "agent.stalled",
       "agent.started",
     ]);
-    expect(roster("thinking")).toEqual(["thinking.completed", "thinking.stream.delta"]);
+    expect(roster("thinking")).toEqual(["thinking.changed", "thinking.completed", "thinking.stream.delta"]); // v0.11：+thinking.changed（thinking 批①）
     expect(roster("usage")).toEqual(["usage.recorded"]);
     expect(roster("compaction")).toEqual(["compaction.completed"]);
     expect(roster("session")).toEqual([
@@ -411,11 +413,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     expect(roster("web")).toEqual(["web.start.result", "web.status.changed", "web.status.result", "web.stop.result"]); // v0.7 新族 + v0.9 扩展
   });
 
-  test("v0.9 目录计数：EVENT_TYPES 47 / EVENT_CHANNELS 47 键 / COMMAND_TYPES 27（web 族 +1 事件 +1 命令）", () => {
-    expect(EVENT_TYPES.length).toBe(47); // v0.9：+1（web.start.result）
-    expect(new Set(EVENT_TYPES).size).toBe(47); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(47); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(27); // v0.9：+1（web.start）
+  test("v0.11 目录计数：EVENT_TYPES 48 / EVENT_CHANNELS 48 键 / COMMAND_TYPES 28（thinking 批 +1 事件 +1 命令）", () => {
+    expect(EVENT_TYPES.length).toBe(48); // v0.11：+1（thinking.changed）
+    expect(new Set(EVENT_TYPES).size).toBe(48); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(48); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(28); // v0.11：+1（thinking.set）
   });
 
 });

@@ -294,6 +294,19 @@ export interface ChannelStream {
   text: string;
 }
 
+/**
+ * 会话 thinking 档切片（thinking 批①③，AD-4；T2.1）：覆盖意图（override）与
+ * 引擎按当前模型能力解析的生效档（effective）双位分离（F1.3 意图/生效分离）。
+ * 权威来源 = thinking.changed 广播 + 快照 thinking 读面；UI 只消费不解析
+ * （换模重解析归 daemon 引擎侧，前端零过滤逻辑）。
+ */
+export interface ThinkingSlice {
+  /** 会话覆盖意图（用户拖到的档）；null = 无覆盖 */
+  override: string | null;
+  /** 引擎解析的生效档；null = 全链不支持（不传参，provider 默认） */
+  effective: string | null;
+}
+
 export interface SessionState {
   /** 连接态（SM-1 四态互斥） */
   conn: ConnState;
@@ -314,6 +327,8 @@ export interface SessionState {
   restoreToast: RestoreToast | null;
   sessionId: string | null;
   model: string;
+  /** 会话 thinking 档切片（thinking 批；广播 + 快照驱动，纯投影） */
+  thinking: ThinkingSlice;
   agentState: AgentStateDto;
   /** 会话投影（daemon 权威；快照整体替换 + 增量事件 upsert） */
   entries: EntryDto[];
@@ -372,6 +387,12 @@ export type SessionAction =
    *  state.model（徽标/首条 chat.send{draft:true, model} 数据源）；真实会话
    *  原样（防御——真实会话换模走 model.set 帧语义） */
   | { type: "ui/set-draft-model"; model: string }
+  /** 草稿 thinking 档本地暂存（thinking 批，T2.1；draft-model 先例对齐）：
+   *  仅 sessionId===null（草稿态）生效置 thinking 切片（override + effective
+   *  乐观镜像——徽标即时反映；chat.send 零字段负断言（AD-4①）使覆盖无法随
+   *  首条上送，转正由 provider 在快照建会话后补发 thinking.set）；真实会话
+   *  原样（防御——真实会话选档走 thinking.set 帧语义） */
+  | { type: "ui/set-draft-thinking"; level: string }
   /** 发送提交（turn = chat.send / steer = chat.steer；ts 由调用方注入保证重放确定） */
   | { type: "ui/send"; text: string; mode: "turn" | "steer"; ts: number }
   /** 抽屉定向 steer 提交（CL-3）：本地 echo 双投影——主轴定向 entry（时间轴
@@ -419,6 +440,7 @@ export function createInitialSessionState(): SessionState {
     restoreToast: null,
     sessionId: null,
     model: "",
+    thinking: { override: null, effective: null },
     agentState: "idle",
     entries: [],
     streaming: null,

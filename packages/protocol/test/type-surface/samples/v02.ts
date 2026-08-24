@@ -27,7 +27,7 @@ export const sampleSessionMeta: SessionMeta = {
   loaded: true,
 };
 
-/** 全章印信封样例：v="0.10"（随 PROTOCOL_VERSION bump，当前 v0.9）+ sessionId 必发 + channel 判别 */
+/** 全章印信封样例：v="0.11"（随 PROTOCOL_VERSION bump，当前 v0.9）+ sessionId 必发 + channel 判别 */
 export const listChangedV02: SessionListChangedEvent = {
   v: PROTOCOL_VERSION,
   sessionId: "__system__",
@@ -71,6 +71,8 @@ export const sampleCatalogModel: CatalogModel = {
   contextWindow: 131_072,
   cost: { input: 4, output: 16, cacheRead: 1, cacheWrite: 8 },
   source: "builtin",
+  reasoning: true, // v0.11 additive（thinking 批② 能力位）
+  thinkingLevels: ["low", "medium", "high"],
 };
 
 /**

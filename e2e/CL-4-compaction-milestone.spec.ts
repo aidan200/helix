@@ -4,7 +4,8 @@
  * 剧本（契约 §5.2/§6.1，test-design §4.2 S5）：
  * compaction.completed{entry} → 里程碑条（折叠+展开+usage meta）→
  * usage.recorded(source=compaction) → popover compaction 独立行（归属 main
- * 说明 sub）+ main 行不吸收（AD-9③：摘要调用不进实例小计，防双计）→
+ * 说明 sub）+ main 行吸收 compaction 贡献（口径统一 b952003/AF-2：compaction
+ * 计入实例小计；compaction 行 = main 行子集视图，不叠加进 Σ，防双计）→
  * 行点击锚点滚动到最后一条里程碑条。
  *
  * 数字自洽：main turn 2_200 + compaction 1_800 = 4_000（显示 2k + 2k = 4k）。
@@ -50,7 +51,7 @@ test.describe("T4.4 S5 CL-4 compaction 里程碑与账目行", () => {
     );
   });
 
-  test("F3.4 compaction 入账：popover 独立行 + 归属 main 说明 + main 行不吸收（防双计）", async ({ mock, page }) => {
+  test("F3.4 compaction 入账：popover 独立行 + 归属 main 说明 + main 行吸收（口径统一，子集视图防双计）", async ({ mock, page }) => {
     await mock.emit(compactionCompleted(COMPACT_ENTRY));
     await mock.emit(usageRecorded("main", COMPACT_ENTRY.usage, "compaction"));
 
@@ -63,10 +64,10 @@ test.describe("T4.4 S5 CL-4 compaction 里程碑与账目行", () => {
     await expect(pop).toBeVisible();
     await expect(pop.locator(".sp-title .total")).toHaveText(badgeText(4_000, 0.05));
 
-    // main 行不吸收 compaction 用量（AD-9③：保持 2.2k/0.03 → 2k/$0.03）
+    // main 行吸收 compaction 用量（口径统一 b952003/AF-2：2.2k+1.8k → 4k/$0.05）
     const mainRow = pop.locator('.sp-row[data-row-id="main"]');
-    await expect(mainRow.locator(".nums")).toContainText("2k");
-    await expect(mainRow.locator(".nums")).toContainText("$0.03");
+    await expect(mainRow.locator(".nums")).toContainText("4k");
+    await expect(mainRow.locator(".nums")).toContainText("$0.05");
 
     // compaction 独立行：kind/model/数值/chip + 归属 main 的 before→after sub
     const compactRow = pop.locator('.sp-row[data-row-id="compaction"]');

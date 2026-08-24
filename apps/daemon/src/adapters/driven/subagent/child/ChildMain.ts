@@ -19,6 +19,7 @@
  */
 import type { Model } from "@earendil-works/pi-ai";
 import { PiAgentEngineAdapter } from "../../pi-engine/PiAgentEngineAdapter";
+import { supportsThinkingLevel } from "../../pi-engine/model-provider";
 import { SubAgentProfile } from "../../pi-engine/runtime/profiles/SubAgentProfile";
 import { CoreToolExecutor } from "../../tools/CoreToolExecutor";
 import { encodeLine, parseParentLine } from "../transport/wire";
@@ -149,6 +150,10 @@ async function main(): Promise<void> {
   const model = JSON.parse(modelJson) as Model<any>;
   const apiKeys = JSON.parse(process.env.HELIX_API_KEYS_JSON ?? "{}") as Record<string, string>;
   const toolCwd = process.env.HELIX_TOOL_CWD ?? process.cwd();
+  // thinking 定格值（AD-1 落点二：父进程 launch 段 resolveThinkingFor 解析
+  // 快照，子进程全生命周期只消费定格值——无解析链，与 HELIX_MODEL_JSON
+  // 同哲学）；缺席（既有测试形态/旧父进程）→ 不装注入器，行为不变
+  const thinkingLevel = process.env.HELIX_THINKING_LEVEL;
   const scriptPath = process.env.HELIX_FAKE_ENGINE_SCRIPT;
   const script: FakeEngineScript | undefined = scriptPath !== undefined ? loadFakeEngineScript(scriptPath) : undefined;
 
@@ -170,6 +175,12 @@ async function main(): Promise<void> {
     model, // env JSON 解析的完整对象透传（与父侧深度相等）
     apiKeys,
     ...(script ? { streamFnOverride: makeScriptedStreamFn(script, model) } : {}),
+    // §3.5 装配点 2：定格值 + 能力过滤（§3.3 同构——定格值不被模型支持
+    // → undefined → 注入器不动 options）。包装在 adapter 内 override 外侧，
+    // fake 剧本通道不被破坏（注入器包裹 fake streamFn，剧本可捕获 reasoning）
+    ...(thinkingLevel !== undefined
+      ? { resolveThinking: (m: Model<any>) => (supportsThinkingLevel(m, thinkingLevel) ? thinkingLevel : undefined) }
+      : {}),
     resolveTools: (names) => executor.resolveTools(names),
   });
 

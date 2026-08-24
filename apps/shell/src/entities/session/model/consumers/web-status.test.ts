@@ -19,7 +19,7 @@ import { applyWebEvent, isWebEventType, WEB_EVENT_TYPES } from "../consumers/web
 
 function frame(type: string, payload: unknown): EventEnvelope {
   return {
-    v: "0.10",
+    v: "0.11",
     sessionId: "__system__",
     channel: "web",
     type,

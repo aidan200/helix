@@ -25,6 +25,10 @@ import {
 import { applySnapshotEvent, SNAPSHOT_EVENT_TYPES } from "../consumers/snapshot";
 import { applyHistoryEvent, HISTORY_EVENT_TYPES } from "../consumers/history";
 import { applyModelChangedEvent, MODEL_EVENT_TYPES } from "../consumers/model";
+import {
+  applyThinkingLevelEvent,
+  THINKING_LEVEL_EVENT_TYPES,
+} from "../consumers/thinking-level";
 
 // ── v0.6 agent.config 族（M6 T4 真消费）：拓扑级前置路由（consumers/agent-config.ts）──
 // changed → agentConfig.revision 失效重拉信号；两结果帧拓扑级直通（真消费归
@@ -72,6 +76,9 @@ register({ types: SNAPSHOT_EVENT_TYPES, apply: applySnapshotEvent });
 // ── v0.2 新增事件真消费（T3.1 接线；替换 T1.1/T2.2 no-op 占位）──
 // model.changed：会话 model 态（活跃 store 徽标数据源）
 register({ types: MODEL_EVENT_TYPES, apply: applyModelChangedEvent });
+// thinking.changed（thinking 批①，T2.1）：会话 thinking 切片（override/
+// effective 双位；活跃 store 滑块/trigger 数据源）——model.changed 同构先例
+register({ types: THINKING_LEVEL_EVENT_TYPES, apply: applyThinkingLevelEvent });
 // session.loadHistory.result：历史前插 + 翻页位（仅活跃会话路由至此）
 register({ types: HISTORY_EVENT_TYPES, apply: applyHistoryEvent });
 // session.list.result / session.list_changed：拓扑级清单消费者

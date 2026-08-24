@@ -89,6 +89,8 @@ export function toSnapshotDto(
     tail,
     totalEntries: mainAxis.length,
     tailStartCursor: mainAxis.length > tail.length ? (tail[0]?.id ?? null) : null,
+    // thinking 批③ wire 面（F-8 修复，v0.11 批内补登）：视图携带才下发（additive）
+    ...(view.thinking !== undefined ? { thinking: view.thinking } : {}),
     ...(view.instances !== undefined
       ? {
           instances: view.instances.map((instance) =>

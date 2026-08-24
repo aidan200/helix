@@ -21,13 +21,13 @@ type _MessageImages = Expect<Equal<MessageEntryDto["images"], readonly string[] 
 type _ToolCallImages = Expect<Equal<ToolCallEntryDto["images"], readonly string[] | undefined>>;
 
 // 版本位单值（批次集合标记）
-type _ProtocolVersionV010 = Expect<Equal<typeof PROTOCOL_VERSION, "0.10">>;
+type _ProtocolVersionV010 = Expect<Equal<typeof PROTOCOL_VERSION, "0.11">>;
 
 describe("v0.10：图片上下行 additive（T9）", () => {
   test("版本位 0.9 → 0.10（envelope 单点；批次标记非协商位）", () => {
-    expect(PROTOCOL_VERSION).toBe("0.10");
-    expect(chatSendWithImages.v).toBe("0.10");
-    expect(messageCompletedUserImages.v).toBe("0.10");
+    expect(PROTOCOL_VERSION).toBe("0.11");
+    expect(chatSendWithImages.v).toBe("0.11");
+    expect(messageCompletedUserImages.v).toBe("0.11");
   });
 
   test("chat.send.images 上行：载荷透传 data URL 数组（dispatch 窄化消费）", () => {

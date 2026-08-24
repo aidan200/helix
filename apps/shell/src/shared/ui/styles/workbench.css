@@ -503,3 +503,156 @@
   .sidebar, .drawer-rail { display: none; }
   .tb-title { display: none; }
 }
+
+/* ════════════════════════════════════════════════════════
+   P-1 推理强度滑块（thinking 批 T2.1；prototype/P-1-chat-thinking-slider.html
+   组件契约移植；review.md §1①② 定案）。trigger chip 落位 .composer-foot
+   右侧（space-between 空位，foot CSS 零改动）；popover 属 hud-popover 族
+   （--popover-fill + blur + 10px 圆角，stats-pop/model-menu 同族同 token）；
+   锚定方式 = .thinking-picker position:relative 内 absolute 向上展开（原型
+   契约；非 model-menu 的 .app 直系载体——trigger 在 composer 内，相对锚定
+   即包含块约束满足）。色值/字号/圆角全走 tokens.css 注册表，零新 token。
+   ════════════════════════════════════════════════════════ */
+.thinking-picker { position: relative; }
+.tp-trigger {
+  position: relative; display: inline-flex; align-items: center; gap: 7px;
+  height: 24px; padding: 0 9px; border-radius: 6px; cursor: pointer;
+  font-family: var(--font-mono); font-size: var(--text-cap); letter-spacing: 0.06em;
+  border: 1px solid rgb(var(--edge-rgb) / 0.14); background: rgb(var(--void-rgb) / 0.4); color: var(--text-muted);
+  transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.2s;
+}
+.tp-trigger:hover:not(.disabled) { color: var(--text); border-color: rgb(var(--accent-rgb) / 0.35); }
+.tp-trigger:active:not(.disabled) { transform: translateY(1px); }
+/* F1.2 禁用态：视觉禁用（aria-disabled 语义；仍可点开 popover 读禁用说明） */
+.tp-trigger.disabled { opacity: 0.4; cursor: default; }
+.tp-trigger .tp-label { color: var(--text-faint); font-size: var(--text-micro); letter-spacing: 0.14em; }
+.tp-trigger .tp-level { color: var(--accent); font-weight: 600; }
+.tp-trigger .tp-chev { color: var(--text-faint); font-size: var(--text-micro); transition: transform 0.15s; }
+.tp-trigger[aria-expanded="true"] .tp-chev { transform: rotate(180deg); }
+
+/* PEAK 态（F1.4 最高档特效）：accent 强边 + 常驻辉光 + 环绕光束 */
+.tp-trigger.peak { border-color: rgb(var(--accent-rgb) / 0.55); box-shadow: var(--glow-cyan); }
+.tp-trigger.peak .tp-label { color: rgb(var(--accent-rgb) / 0.75); }
+.beam {
+  position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
+  overflow: hidden; opacity: 0; transition: opacity 0.2s;
+  -webkit-mask: linear-gradient(rgb(var(--edge-rgb) / 1) 0 0) content-box, linear-gradient(rgb(var(--edge-rgb) / 1) 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+.peak > .beam, .peak .beam { opacity: 1; }
+.beam > i {
+  position: absolute; left: 50%; top: 50%; width: 500%; aspect-ratio: 1 / 1;
+  translate: -50% -50%;
+  background: conic-gradient(from 0deg, transparent 0deg, rgb(var(--accent-rgb) / 0.95) 36deg, transparent 84deg);
+  animation: tp-beam-rot 6s linear infinite;
+}
+@keyframes tp-beam-rot {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .beam > i { animation: none; }
+}
+
+/* popover 滑块面板（hud-popover 族；向上展开） */
+.tp-popover {
+  position: absolute; right: 0; bottom: calc(100% + 8px); width: 308px; z-index: 50;
+  background: var(--popover-fill);
+  backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
+  border: 1px solid var(--border); border-radius: 10px; padding: 13px 16px 15px;
+  box-shadow: var(--shadow-pop);
+  animation: tp-pop-in 0.16s ease-out;
+}
+html.light .tp-popover {
+  backdrop-filter: blur(10px) saturate(115%); -webkit-backdrop-filter: blur(10px) saturate(115%);
+}
+@keyframes tp-pop-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.tp-popover.peak { border-color: rgb(var(--accent-rgb) / 0.45); box-shadow: var(--glow-cyan), var(--shadow-pop); }
+.tp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.tp-title {
+  font-size: var(--text-cap); font-weight: 500; text-transform: uppercase;
+  letter-spacing: 0.22em; color: rgb(var(--accent-rgb) / 0.85);
+}
+.tp-scope { font-size: var(--text-micro); color: var(--text-faint); }
+.tp-peak-badge {
+  display: none; align-items: center; gap: 4px; font-size: var(--text-micro);
+  letter-spacing: 0.12em; color: var(--accent);
+  border: 1px solid rgb(var(--accent-rgb) / 0.4); border-radius: 4px; padding: 1px 6px;
+  background: rgb(var(--accent-rgb) / 0.1);
+}
+.tp-popover.peak .tp-peak-badge { display: inline-flex; }
+
+/* 档位滑块（ThinkingLevelSlider 共用形态，P-2 同构消费） */
+.tl-track { position: relative; height: 40px; cursor: pointer; outline: none; }
+.tl-track:focus-visible { box-shadow: var(--glow-cyan); border-radius: 6px; }
+.tl-rail { position: absolute; left: 0; right: 0; top: 14px; height: 2px; background: rgb(var(--edge-rgb) / 0.12); border-radius: 999px; }
+.tl-fill { position: absolute; left: 0; top: 14px; height: 2px; border-radius: 999px; background: rgb(var(--accent-rgb) / 0.7); transition: width 0.12s ease-out; }
+.tl-tick {
+  position: absolute; top: 9px; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: none; border: none; cursor: pointer; padding: 0 4px 0;
+}
+.tl-tick i { width: 1px; height: 8px; background: rgb(var(--edge-rgb) / 0.25); transition: background 0.15s; }
+.tl-tick span {
+  font-family: var(--font-mono); font-size: var(--text-micro); letter-spacing: 0.04em;
+  color: var(--text-faint); transition: color 0.15s; white-space: nowrap;
+}
+.tl-tick.on i { background: rgb(var(--accent-rgb) / 0.8); }
+.tl-tick.on span { color: var(--text-muted); }
+.tl-tick.cur span { color: var(--accent); font-weight: 600; }
+.tl-tick.first { transform: none; align-items: flex-start; }
+.tl-tick.last { transform: translateX(-100%); align-items: flex-end; }
+.tl-thumb {
+  position: absolute; top: 15px; width: 11px; height: 11px;
+  transform: translate(-50%, -50%) rotate(45deg); border-radius: 2px;
+  border: 1.5px solid var(--accent); background: var(--void);
+  transition: left 0.12s ease-out, background 0.15s, box-shadow 0.2s; pointer-events: none;
+}
+/* ghost 预览位（P-2 未配置态）：空心 thumb（dashed 描边去强调） */
+.tl-thumb.ghost { border-style: dashed; border-color: rgb(var(--accent-rgb) / 0.45); background: transparent; }
+.tl-track.peak .tl-thumb { background: var(--accent); box-shadow: 0 0 10px rgb(var(--accent-rgb) / 0.55); }
+.tl-track.dragging .tl-fill, .tl-track.dragging .tl-thumb { transition: none; }
+
+/* 轻提示（F1.3 覆盖 vs 生效分离；菱形导视符 + text-cap）+ 禁用说明（F1.2） */
+.tp-hint { display: flex; align-items: center; gap: 6px; margin-top: 9px; font-size: var(--text-cap); color: var(--warning); }
+.tp-hint::before { content: ""; width: 5px; height: 5px; flex-shrink: 0; background: var(--warning); transform: rotate(45deg); }
+.tp-disabled-note { font-size: var(--text-cap); color: var(--text-dim); line-height: 1.6; }
+/* 能力位加载提示（目录未到达瞬态；与滑块/禁用说明互斥） */
+.tp-cap-loading { font-size: var(--text-cap); color: var(--text-dim); line-height: 1.6; }
+
+/* ── P-2 profile 推理级别字段（T2.2；prototype/P-2-profile-thinking-field.html
+   组件契约移植；review.md §3 必须还原 1/2/3/6）。label hud-label 族与模型槽位
+   并列；字段框 = dashed-able 壳（void 0.35 底 + 8px 圆角）；滑块本体复用上方
+   P-1 段（.tl-track/.tl-tick/.tl-thumb 单份）；PEAK 同一 .peak class 驱动
+   （.beam 环绕光束 / 6s keyframes / reduced-motion 规则全部复用 P-1 段）。
+   色值全走 tokens.css 变量，零新 token、零新色板。 ── */
+.tl-field { border-top: 1px solid rgb(var(--edge-rgb) / 0.08); padding-top: 14px; margin-bottom: 16px; }
+.tl-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.tl-field-head .hud-label { margin-bottom: 0; }
+.tl-state { font-size: var(--text-micro); letter-spacing: 0.08em; border-radius: 4px; padding: 1px 7px;
+  border: 1px solid rgb(var(--edge-rgb) / 0.14); color: var(--text-faint); }
+.tl-state.set { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.08); }
+.tl-box { position: relative; border: 1px solid rgb(var(--edge-rgb) / 0.1); border-radius: 8px;
+  background: rgb(var(--void-rgb) / 0.35); padding: 8px 14px 6px;
+  transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s; }
+.tl-box:hover { border-color: rgb(var(--accent-rgb) / 0.25); }
+/* 留空（未配置）态：ghost 呈现（dashed 框 + 去强调；空心 thumb / 刻度去强调
+   由 ThinkingLevelSlider ghostMode 派生——.tl-thumb.ghost + 无 .on/.cur） */
+.tl-field.unset .tl-box { opacity: 0.55; border-style: dashed; }
+/* 禁用态（reasoning=false）：字段不可交互，已有配置保留展示 */
+.tl-field.disabled .tl-box { opacity: 0.45; }
+/* PEAK 态（与 P-1 同一定案：accent 强边 + glow-cyan + 环绕光束） */
+.tl-box.peak { border-color: rgb(var(--accent-rgb) / 0.55); box-shadow: var(--glow-cyan); }
+/* 清除钮（configured → unset 唯一通路） */
+.tl-clear { position: absolute; top: 6px; right: 6px; z-index: 1; width: 20px; height: 20px; border-radius: 4px;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  font-family: var(--font-mono); font-size: var(--text-cap); line-height: 1;
+  border: 1px solid rgb(var(--edge-rgb) / 0.14); background: rgb(var(--void-rgb) / 0.4); color: var(--text-faint);
+  transition: color 0.15s, border-color 0.15s; }
+.tl-clear:hover:not(:disabled) { color: var(--error); border-color: rgb(var(--error-rgb) / 0.4); }
+.tl-clear:active:not(:disabled) { transform: translateY(1px); }
+.tl-clear:disabled { opacity: 0.5; cursor: default; }
+/* 换模轻提示（配置档超出槽位模型能力；菱形导视符 + text-cap，与 .tp-hint 同族） */
+.tl-hint { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: var(--text-cap); color: var(--warning); }
+.tl-hint::before { content: ""; width: 5px; height: 5px; flex-shrink: 0; background: var(--warning); transform: rotate(45deg); }
+/* 能力位加载提示（目录未到达瞬态；与滑块互斥） */
+.tl-cap-loading { font-size: var(--text-cap); color: var(--text-dim); line-height: 1.6; padding: 8px 0; }

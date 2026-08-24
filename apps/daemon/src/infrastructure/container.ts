@@ -465,6 +465,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     auth: modelStack.authStore,
     defaultModel: persistence.defaultModel,
     onModelChanged: (payload) => eventStream.broadcastModelChanged(payload),
+    // thinking 批①：thinking.changed 广播出海（channel=thinking，订阅路由同 model.changed）
+    onThinkingChanged: (payload) => eventStream.broadcastThinkingChanged(payload),
   });
   const ws = new WsServerAdapter({
     chat: chatRouter,

@@ -34,6 +34,7 @@ import {
   type InstanceCardState,
   type SessionState,
   type SessionUsageProjection,
+  type ThinkingSlice,
 } from "../state";
 /** 本块承接的帧事件 type（dispatcher 注册面）。 */
 export const SNAPSHOT_EVENT_TYPES = ["session.snapshot"] as const;
@@ -194,6 +195,11 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
       // AD-1 尾窗分页游标：tailStartCursor 携带且有交 → hasMore；缺省/null =
       // 已含全部历史（v0/v0.1 旧快照兼容同判）
       const startCursor = snap.tailStartCursor ?? null;
+      // thinking 批③（契约 ③，additive）：快照 thinking 读面 → 切片初始化
+      //（F1.5 快照侧：切换/重连/重启后 UI 与引擎一致）。协议 SessionSnapshotDto
+      // 已登记 thinking 可选字段 + SnapshotMapper 已映射（修复批 F-8）；本消费按
+      // additive 可选位防御读取，缺省保留现值（旧快照/未映射兼容）
+      const snapThinking = (snap as { thinking?: ThinkingSlice }).thinking;
       return {
         ...s,
         entries: mainEntries, // 整体替换：重连恢复全量来自 daemon（无本地补齐）；F1.6 分流见上
@@ -207,6 +213,11 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         instanceChannels: merged,
         nextChannelSeq: nextSeq,
         usage: usageFromSnapshot(snap.usage, snap.instances), // additive：账目重建（权威）
+        // additive：thinking 切片重建（权威）；缺省保留现值（含草稿暂存——
+        // 建会话快照未携带时暂存值不丢，provider 补发 thinking.set 后广播收权）
+        thinking: snapThinking !== undefined
+          ? { override: snapThinking.override, effective: snapThinking.effective }
+          : s.thinking,
         spawnToast: null, // 快照为新会话视图；旧 toast 不跨会话残留
         killToast: null,
         restoreToast: s.toastPending ? { kind: s.toastPending, count: snap.entries.length } : s.restoreToast,

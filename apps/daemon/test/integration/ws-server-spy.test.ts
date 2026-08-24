@@ -98,6 +98,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       model: {
         // T2.3（AD-2）：spy 不触发真实模型链——全部 no-op/抛错回执
         setModel: async () => { throw new Error("spy 不装配模型链"); },
+        setThinking: async () => { throw new Error("spy 不装配模型链"); },
         getModel: async () => { throw new Error("spy 不装配模型链"); },
         catalog: async () => { throw new Error("spy 不装配模型链"); },
         catalogRefresh: async () => { throw new Error("spy 不装配模型链"); },
@@ -114,6 +115,8 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         setEnabled: async () => { throw new Error("spy 不装配资源配置链"); },
         setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
         clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+        setThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+        clearThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       },
       hasModel: () => false,
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
@@ -188,6 +191,9 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       contextWindow: 131_072,
       cost: { input: 4, output: 16, cacheRead: 1, cacheWrite: 8 },
       source: "builtin" as const,
+      // v0.11 能力位（T1.3 真实映射接通后直透：driving 层零改写）
+      reasoning: true,
+      thinkingLevels: ["minimal", "low", "medium", "high"],
     };
     const model: ModelPort = {
       setModel: async (_sessionId, modelId) => {
@@ -198,6 +204,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         modelCalls.push(`get:${sessionId}`);
         return { model: "moonshotai/kimi-k2", isDefault: false, defaultModel: "anthropic/claude-sonnet-4-5" };
       },
+      setThinking: async () => { throw new Error("spy 不装配模型链"); },
       catalog: async () => {
         throw new Error("拉取失败：ENOTFOUND pi.dev"); // 错误码映射面（成功帧在真容器测试覆盖）
       },
@@ -263,6 +270,8 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         setEnabled: async () => { throw new Error("spy 不装配资源配置链"); },
         setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
         clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+        setThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+        clearThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       },
       hasModel: () => false,
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
@@ -297,7 +306,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
 
       const refresh = resultOf("model.catalog_refresh.result");
       expect(refresh.sessionId).toBe("__system__"); // 全局命令：会话无关（session.list 同构）
-      expect(refresh.payload).toEqual({ models: [catalogView], refreshedAt: 1_760_000_100_000, source: "builtin", degraded: ["moonshotai: 拉取失败：ENOTFOUND"] }); // 降级说明字段
+      expect(refresh.payload).toEqual({ models: [{ ...catalogView }], refreshedAt: 1_760_000_100_000, source: "builtin", degraded: ["moonshotai: 拉取失败：ENOTFOUND"] }); // 降级说明字段；v0.11 能力位真实映射直透（T1.3）
 
       expect(resultOf("model.set_default.result").payload).toEqual({ previous: "anthropic/claude-sonnet-4-5" });
       expect(resultOf("model.get_default.result").payload).toEqual({ model: "anthropic/claude-sonnet-4-5" });
@@ -362,6 +371,7 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
     },
     model: {
       setModel: async () => { throw new Error("spy 不装配模型链"); },
+      setThinking: async () => { throw new Error("spy 不装配模型链"); },
       getModel: async () => { throw new Error("spy 不装配模型链"); },
       catalog: async () => { throw new Error("spy 不装配模型链"); },
       catalogRefresh: async () => { throw new Error("spy 不装配模型链"); },
@@ -378,6 +388,8 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
       setEnabled: async () => { throw new Error("spy 不装配资源配置链"); },
       setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+      setThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+      clearThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
     },
     hasModel: () => false,
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链

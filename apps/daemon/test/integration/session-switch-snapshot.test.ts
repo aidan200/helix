@@ -195,6 +195,7 @@ describe("T5.1：多会话切换快照盖章 = 目标会话自身状态（串台
     };
     const model: ModelPort = {
       setModel: async () => { throw new Error("spy"); },
+      setThinking: async () => { throw new Error("spy"); },
       getModel: async () => { throw new Error("spy"); },
       catalog: async () => { throw new Error("spy"); },
       catalogRefresh: async () => { throw new Error("spy"); },
@@ -223,6 +224,8 @@ describe("T5.1：多会话切换快照盖章 = 目标会话自身状态（串台
         setEnabled: async () => { throw new Error("spy 不装配资源配置链"); },
         setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
         clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+        setThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+        clearThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       },
       hasModel: () => false,
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链

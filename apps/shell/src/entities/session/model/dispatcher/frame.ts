@@ -108,7 +108,9 @@ function applyBackgroundFrame(topo: TopologyState, frame: EventEnvelope): Topolo
 
 /** 后台帧消费：未读 +1（内容事件）+ 运行态徽标投影（不渲染 entries 只计数）。 */
 function consumeBackground(bg: BackgroundSessionState, frame: EventEnvelope): BackgroundSessionState {
-  if (frame.type === "model.changed") return bg; // 换模非内容事件：不计未读、轻量态无 model 字段
+  // model.changed / thinking.changed（thinking 批①同判）：会话参数变更非内容
+  // 事件——不计未读、轻量态无对应字段
+  if (frame.type === "model.changed" || frame.type === "thinking.changed") return bg;
   const isSessionChannel = frame.channel === "session";
   return {
     ...bg,

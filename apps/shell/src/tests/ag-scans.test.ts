@@ -103,6 +103,7 @@ describe("AG-14 前端零权威状态", () => {
     "entities/session/model/consumers/chat.ts",
     "entities/session/model/consumers/agent.ts",
     "entities/session/model/consumers/thinking-usage.ts",
+    "entities/session/model/consumers/thinking-level.ts",
     "entities/session/model/consumers/snapshot.ts",
     "entities/session/model/consumers/directory.ts",
     "entities/session/model/consumers/history.ts",

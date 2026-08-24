@@ -90,4 +90,16 @@ export interface SessionSnapshotDto {
    * null = 已含全部历史（禁用加载更早）。缺省 = 未携带。
    */
   tailStartCursor?: string | null;
+  /**
+   * 会话 thinking 覆盖/生效双位（v0.11 批内补登，thinking 批③ F-8 修复——
+   * daemon SessionStateView.thinking 的 wire 面接通）：切换会话/重连/重启
+   * 恢复后 UI 与引擎一致（F1.5）。缺省 = 未携带（旧剧本兼容 / 引擎未实现
+   * 观测面）；携带时 null = 无覆盖 / 全链不支持不传参。字符串透传（AD-2）。
+   */
+  thinking?: {
+    /** 会话覆盖意图；null = 无覆盖。 */
+    override: string | null;
+    /** 引擎按当前模型能力解析的生效档；null = 全链不支持（不传参，provider 默认）。 */
+    effective: string | null;
+  };
 }

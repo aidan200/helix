@@ -94,4 +94,19 @@ export class ResourceStateStore implements ResourceStatePort {
       .get(profileKind) as { name: string } | null;
     return row?.name; // bun:sqlite 无行返回 null（非 undefined）
   }
+
+  async setThinkingSlot(profileKind: ProfileKind, level: string): Promise<void> {
+    await this.writeQueue.saveSlotValue(profileKind, "thinking", level);
+  }
+
+  async clearThinkingSlot(profileKind: ProfileKind): Promise<void> {
+    await this.writeQueue.clearResourceState(profileKind, "thinking");
+  }
+
+  thinkingSlot(profileKind: ProfileKind): string | undefined {
+    const row = this.writeQueue.database
+      .prepare("SELECT name FROM resource_state WHERE profile_kind = ? AND resource_type = 'thinking'")
+      .get(profileKind) as { name: string } | null;
+    return row?.name;
+  }
 }

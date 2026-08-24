@@ -87,6 +87,19 @@ class InMemoryResourceState implements ResourceStatePort {
   modelSlot(kind: ProfileKind): string | undefined {
     return this.list(kind, "model")[0]?.name;
   }
+
+  async setThinkingSlot(kind: ProfileKind, level: string): Promise<void> {
+    for (const r of this.list(kind, "thinking")) this.rows.delete(this.key(kind, "thinking", r.name));
+    await this.upsert(kind, "thinking", level, true);
+  }
+
+  async clearThinkingSlot(kind: ProfileKind): Promise<void> {
+    for (const r of this.list(kind, "thinking")) this.rows.delete(this.key(kind, "thinking", r.name));
+  }
+
+  thinkingSlot(kind: ProfileKind): string | undefined {
+    return this.list(kind, "thinking")[0]?.name;
+  }
 }
 
 /** 可编程技能源假实现。 */
@@ -197,6 +210,42 @@ describe("ResourceService：未知名 toggle 显式跳过", () => {
     expect((await service.toggle("main-session", "skill", "not-installed", false)).status).toBe("skipped");
     expect((await service.toggle("main-session", "tool", "bash", false)).status).toBe("applied");
     expect(store.get("main-session", "tool", "bash")?.enabled).toBe(false);
+  });
+});
+
+describe("ResourceService：thinking 槽位（thinking 批 AD-6 扩维，T1.3）", () => {
+  test("三态：未配置 = undefined（缺省无记录）；set 后 list 视图与 thinkingSlot 读回；clear 复原", async () => {
+    const { service } = makeService();
+    // 未配置 = undefined（零配置兼容；kind 维合取语义不变）
+    expect(service.thinkingSlot("subagent-worker")).toBeUndefined();
+    const before = await service.list("subagent-worker");
+    expect(before.thinkingLevel).toBeUndefined();
+    // set → 读回（list 合并视图同点携带）
+    await service.setThinkingSlot("subagent-worker", "xhigh");
+    expect(service.thinkingSlot("subagent-worker")).toBe("xhigh");
+    const after = await service.list("subagent-worker");
+    expect(after.thinkingLevel).toBe("xhigh");
+    // 覆写 = 原子替换（单行不变式）
+    await service.setThinkingSlot("subagent-worker", "high");
+    expect(service.thinkingSlot("subagent-worker")).toBe("high");
+    // clear → 复原未配置
+    await service.clearThinkingSlot("subagent-worker");
+    expect(service.thinkingSlot("subagent-worker")).toBeUndefined();
+  });
+
+  test("kind 维合取不传染：subagent 设档不影响 main（隔离负断言）", async () => {
+    const { service } = makeService();
+    await service.setThinkingSlot("subagent-worker", "xhigh");
+    expect(service.thinkingSlot("main-session")).toBeUndefined();
+    expect((await service.list("main-session")).thinkingLevel).toBeUndefined();
+    expect((await service.list("subagent-worker")).thinkingLevel).toBe("xhigh");
+  });
+
+  test("setEnabled 对 thinking 型 → 显式 skipped（槽位走 set/clearThinkingSlot API，不承载启停语义）", async () => {
+    const { service, store } = makeService();
+    const outcome = await service.setEnabled("subagent-worker", "thinking", "xhigh", true);
+    expect(outcome).toEqual({ status: "skipped", reason: "thinking-uses-slot-api" });
+    expect(store.list("subagent-worker", "thinking")).toEqual([]); // 零落库
   });
 });
 

@@ -95,7 +95,8 @@ export class SessionProjection implements EventPublisherPort {
     // （契约 v0.4 §2/§3）：agent.instantiated / agent.model.changed 只落盘
     //（domain_events 事件行经 fan-out WriteQueue 目标直写）——零投影且**不触发**
     // write-through 状态写（否则草稿会话被提前落库，破坏「首条消息才落库」语义）。
-    if (event.type === "agent.instantiated" || event.type === "agent.model.changed") return;
+    // agent.thinking.changed（thinking 批①③）同构：只落盘不回投影不触发状态写。
+    if (event.type === "agent.instantiated" || event.type === "agent.model.changed" || event.type === "agent.thinking.changed") return;
     this.project(event);
     // write-through（AD-3 §3.2②）：每个里程碑领域事件后落领域状态整体
     //（事件行经持久化目标先入同一 FIFO，先事件后状态，全局保序）。

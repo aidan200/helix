@@ -14,6 +14,7 @@ import MessageFlow from "@/widgets/chat-stream/ui/MessageFlow";
 import RestoreSkeleton from "@/widgets/chat-stream/ui/P-1s-restore-skeleton";
 import SubagentDrawer from "@/widgets/subagent-drawer/ui/SubagentDrawer";
 import Composer from "@/features/send-message/ui/Composer";
+import ComposerThinkingPicker from "@/features/thinking-level/ui/ComposerThinkingPicker";
 import ErrorCard from "@/features/reconnect/ui/ErrorCard";
 import ConnBanner from "./ui/ConnBanner";
 import ConnOverlay from "./ui/ConnOverlay";
@@ -81,7 +82,9 @@ const ChatPage = function ChatPage() {
                 success 内容互斥） */}
             <RestoreSkeleton />
           </MessageFlow>
-          <Composer />
+          {/* P-1 composer + foot 右侧推理强度 picker（thinking 批 T2.1；
+              pages 层装配注入——AG-15 FSD 同层禁互引） */}
+          <Composer footEnd={<ComposerThinkingPicker />} />
         </div>
       </Workbench>
       {/* P-2 抽屉：页内 overlay（非路由）；衬底 = 真实 P-1 弱化（data-drawer 门控） */}

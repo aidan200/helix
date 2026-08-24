@@ -64,7 +64,7 @@ test.describe("T4.2 CL-1 SubAgent message_update 流式真供给（真子进程�
     // ── ① 真子进程在场（ps 特征扫描——非 mock 的物理证据）──────
     let childPid = -1;
     for (let i = 0; i < 100 && childPid < 0; i++) {
-      const hit = findResidueProcesses().find((p) => p.command.includes("ChildMain.ts"));
+      const hit = findResidueProcesses().find((p) => p.command.includes("--child-main"));
       if (hit) childPid = hit.pid;
       else await sleep(100);
     }
@@ -117,7 +117,7 @@ test.describe("T4.2 CL-1 SubAgent message_update 流式真供给（真子进程�
       "txt",
       [
         "T4.2 CL-1 SubAgent message_update 流式真供给：PASS",
-        `① 真子进程在场: ps 命中 ChildMain.ts（pid=${childPid}）`,
+        `① 真子进程在场: ps 命中 --child-main（pid=${childPid}）`,
         `② live 气泡渐进增长: ${len1} → ${len2} → ${len3}（chat.stream.delta(instanceId) 逐片到达）`,
         "③ 定稿: live 槽清空 + channel 消息全文（含 <<<CLOSURE 协议块原文）",
         "④ closure done: 卡片终态 + 尾卡 + 主线注入自动轮（（完C））",

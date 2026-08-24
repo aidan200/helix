@@ -6,8 +6,8 @@
  * - 读面四态互斥：idle（未拉）→ loading → ready / error；有数据时的静默
  *   重拉不降级回 loading（防闪烁，保 ready）；
  * - profiles：双 kind 块按 profileKind 归位（单 kind 响应只覆写该块）；
- * - pending：写面在途行（key = kind:resourceType:name；model 槽位统一空名
- *   键 kind:model:——set/clear 同键单飞）。结果帧无请求回显（契约 §16.4），
+ * - pending：写面在途行（key = kind:resourceType:name；model/thinking 槽位
+ *   统一空名键——set/clear 同键单飞）。结果帧无请求回显（契约 §16.4），
  *   单飞纪律在页面侧（pending 非空不再发新写命令）；新鲜 list.result 到达
  *   全清（changed 广播 → 重拉收口），skipped 回执定向清。
  * 纯函数纪律（AG-14）：无 React / 无 IO / 无 Date.now。
@@ -29,13 +29,16 @@ export interface AgentPageState {
   pending: ReadonlySet<string>;
 }
 
-/** 写面在途 key（model 槽位统一空名——set/clear 同键）。 */
+/** 写面资源维（协议收窄值：tool/skill 启停 + model/thinking 槽位）。 */
+export type AgentWriteResource = "tool" | "skill" | "model" | "thinking";
+
+/** 写面在途 key（model/thinking 槽位统一空名——set/clear 同键单飞）。 */
 export function pendingKeyOf(
   kind: AgentKind,
-  resourceType: "tool" | "skill" | "model",
+  resourceType: AgentWriteResource,
   name: string,
 ): string {
-  return `${kind}:${resourceType}:${resourceType === "model" ? "" : name}`;
+  return `${kind}:${resourceType}:${resourceType === "model" || resourceType === "thinking" ? "" : name}`;
 }
 
 export function createAgentPageState(): AgentPageState {
@@ -51,8 +54,8 @@ export type AgentPageAction =
   | { type: "list-started" }
   | { type: "list-result"; profiles: readonly AgentConfigProfileBlock[] }
   | { type: "list-failed"; reason: string }
-  | { type: "toggle-started"; kind: AgentKind; resourceType: "tool" | "skill" | "model"; name: string }
-  | { type: "toggle-settled"; kind: AgentKind; resourceType: "tool" | "skill" | "model"; name: string };
+  | { type: "toggle-started"; kind: AgentKind; resourceType: AgentWriteResource; name: string }
+  | { type: "toggle-settled"; kind: AgentKind; resourceType: AgentWriteResource; name: string };
 
 function hasData(s: AgentPageState): boolean {
   return s.profiles["main-session"] !== null || s.profiles["subagent-worker"] !== null;

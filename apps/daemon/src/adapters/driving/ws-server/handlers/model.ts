@@ -73,7 +73,10 @@ export function handleModelCatalog(ctx: WsCommandContext): void {
         channel: "model",
         type: "model.catalog.result",
         payload: {
-          models: snapshot.models.map((m) => ({ ...m, cost: { ...m.cost } })),
+          // v0.11 CatalogModel 能力位（reasoning/thinkingLevels）：真实映射已接通
+          // （T1.3，model-catalog snapshot() 防腐单点）——此处直透视图字段
+          // （thinkingLevels 视图只读数组 → 拷贝进可变协议位）
+          models: snapshot.models.map((m) => ({ ...m, cost: { ...m.cost }, thinkingLevels: [...m.thinkingLevels] })),
           refreshedAt: snapshot.refreshedAt,
           source: snapshot.source,
         },
@@ -95,7 +98,7 @@ export function handleModelCatalogRefresh(ctx: WsCommandContext): void {
         channel: "model",
         type: "model.catalog_refresh.result",
         payload: {
-          models: snapshot.models.map((m) => ({ ...m, cost: { ...m.cost } })),
+          models: snapshot.models.map((m) => ({ ...m, cost: { ...m.cost }, thinkingLevels: [...m.thinkingLevels] })), // v0.11 能力位真实映射（同 handleModelCatalog 直透）
           refreshedAt: snapshot.refreshedAt,
           source: snapshot.source,
           degraded: [...snapshot.degraded], // 降级说明（单 provider 拉取失败明细）

@@ -82,9 +82,9 @@ describe("HelixWsClient", () => {
     transports[0]!.open();
     expect(transports[0]!.sent).toHaveLength(1);
     expect(JSON.parse(transports[0]!.sent[0]!)).toEqual({
-      v: "0.10",
+      v: "0.11",
       type: "hello",
-      payload: { token: "dev-token", protocolVersion: "0.10" },
+      payload: { token: "dev-token", protocolVersion: "0.11" },
     });
   });
 

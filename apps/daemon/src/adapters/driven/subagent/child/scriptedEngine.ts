@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
@@ -31,6 +31,12 @@ export interface FakeEngineScript {
    * 次 turn 起回退 replies 文本流。mirror 主线 e2e/launcher.ts kind:"tool" 条目。
    */
   readonly toolCall?: { readonly name: string; readonly args: Record<string, unknown> };
+  /**
+   * stream options.reasoning 捕获面（thinking 批 T1.3 测试基建）：每次 stream
+   * 调用把 `options.reasoning ?? null` JSON 行追加到该路径——断言 §3.5 注入器
+   * 包装（定格值写入 / 不支持不动 options）经 fake 剧本通道到达。
+   */
+  readonly captureReasoningPath?: string;
 }
 
 /** 读取并校验剧本文件（非法即抛错 → ChildMain crash 路径 exit(1)）。 */
@@ -112,6 +118,11 @@ export function makeScriptedStreamFn(script: FakeEngineScript, model: Model<any>
   const chunkDelayMs = script.chunkDelayMs ?? 6;
   let toolCallPending = script.toolCall !== undefined; // 首 turn 消费（H-3④）
   return (_m, _ctx, opts) => {
+    // thinking 批捕获面（T1.3）：记录 options.reasoning（null = 未传参）
+    if (script.captureReasoningPath !== undefined) {
+      const reasoning = (opts as { reasoning?: string } | undefined)?.reasoning ?? null;
+      appendFileSync(script.captureReasoningPath, `${JSON.stringify(reasoning)}\n`);
+    }
     // provider 错误形态：每 turn 均为同一单帧 error（无 start/delta 前导帧，
     // 与真实 pi-ai 失败路径同构；agentLoop 收口 stopReason=error →
     // PiAgentEngineAdapter message_end + engine_error 连发）。

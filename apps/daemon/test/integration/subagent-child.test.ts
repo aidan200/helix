@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
@@ -8,6 +8,7 @@ import type { InstanceClosureOutcome } from "../../src/application/services/Inst
 import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
 import { parseClosureBlock } from "../../src/adapters/driven/subagent/child/ChildMain";
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import type { AgentProfile } from "../../src/adapters/driven/pi-engine/runtime/AgentProfile";
 import { SchedulingPolicy } from "../../src/domain/agent/SchedulingPolicy";
 import { SchedulerService } from "../../src/application/services/scheduler/SchedulerService";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
@@ -64,7 +65,10 @@ interface Harness {
   lines: { instanceId: string; line: ChildOutboundLine }[];
 }
 
-function makeHarness(script: object, opts: { graceMs?: number; browser?: FakeBrowserPort } = {}): Harness {
+function makeHarness(
+  script: object,
+  opts: { graceMs?: number; browser?: FakeBrowserPort; profile?: AgentProfile; model?: Model<any> } = {},
+): Harness {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t22-child-"));
   const scriptPath = path.join(home, "script.json");
   writeFileSync(scriptPath, JSON.stringify(script));
@@ -72,8 +76,8 @@ function makeHarness(script: object, opts: { graceMs?: number; browser?: FakeBro
   const ticks: string[] = [];
   const lines: Harness["lines"] = [];
   const launcher = new SubagentLauncher({
-    profile: SubAgentProfile,
-    model: fakeModel,
+    profile: opts.profile ?? SubAgentProfile,
+    model: opts.model ?? fakeModel,
     apiKeys: { fake: "explicit-key" },
     toolCwd: home,
     graceMs: opts.graceMs,
@@ -421,4 +425,85 @@ describe("⑦ 与 T2.1 SchedulerService 组装（InstanceRunner 真体）", () =
     scheduler.stop();
     await writeQueue.close();
   }, 25000);
+});
+
+// ── thinking 定格值子进程消费（T1.3，thinking 批：AD-1 落点二 + §3.5 装配点 2） ──
+//
+// 真 Bun.spawn 子进程 + fake 剧本 captureReasoningPath 捕获面：
+// 父进程 launch 段 resolveThinkingFor 定格 → HELIX_THINKING_LEVEL env 透传 →
+// ChildMain 消费定格值装配 §3.5 注入器（包装在 streamFnOverride 外侧——fake
+// 剧本通道不被破坏，剧本捕获 options.reasoning）→ 能力过滤（§3.3：定格值
+// 不被模型支持 → undefined → 不动 options）。
+
+/** reasoning 能力位模型夹具（pi-ai 0.84.2 类型契约）。 */
+const reasoningModel = (map: Record<string, string | null> | undefined): Model<any> =>
+  ({
+    ...(fakeModel as unknown as Record<string, unknown>),
+    id: "reasoning-model",
+    reasoning: true,
+    ...(map !== undefined ? { thinkingLevelMap: map } : {}),
+  }) as unknown as Model<any>;
+
+const FULL_MAP: Record<string, string> = { minimal: "a", low: "l", medium: "m", high: "h", xhigh: "x", max: "z" };
+
+/** 驱动一个子进程到 closure，读捕获文件的 reasoning 行集。 */
+async function runThinkingChild(opts: {
+  profile: AgentProfile;
+  model: Model<any>;
+}): Promise<{ captured: (string | null)[]; summary: string }> {
+  const home = mkdtempSync(path.join(tmpdir(), "helix-t13-child-thinking-"));
+  const capturePath = path.join(home, "reasoning.log");
+  const h = makeHarness(
+    { replies: [closureBlock("thinking 任务完成")], captureReasoningPath: capturePath },
+    { profile: opts.profile, model: opts.model },
+  );
+  current = { launcher: h.launcher, home };
+  try {
+    launch(h, "thinking 定格任务");
+    await until(() => h.closures.length > 0, 15000, "等待 closure");
+    const captured = readFileSync(capturePath, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as string | null);
+    return { captured, summary: h.closures[0]!.outcome.closure.summary };
+  } finally {
+    await h.launcher.dispose();
+    current = undefined;
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+describe("thinking 定格值子进程消费（T1.3；env 定格透传 + 注入器能力过滤）", () => {
+  test("① profile 配置 thinkingLevel=xhigh + 模型支持 → options.reasoning=xhigh（验收标准①主路径）", async () => {
+    const r = await runThinkingChild({
+      profile: { ...SubAgentProfile, thinkingLevel: "xhigh" },
+      model: reasoningModel(FULL_MAP),
+    });
+    expect(r.summary).toBe("thinking 任务完成"); // fake 剧本通道不受注入器包装破坏
+    expect(r.captured).toEqual(["xhigh"]);
+  }, 20000);
+
+  test("② profile 留空 → 兜底 medium 定格（模型支持时写入 options.reasoning）", async () => {
+    const r = await runThinkingChild({
+      profile: SubAgentProfile,
+      model: reasoningModel(FULL_MAP),
+    });
+    expect(r.captured).toEqual(["medium"]);
+  }, 20000);
+
+  test("③ 定格值不被模型支持（显式 null 键）→ 注入器不动 options（捕获 null = 未传参，provider 默认）", async () => {
+    const r = await runThinkingChild({
+      profile: { ...SubAgentProfile, thinkingLevel: "xhigh" },
+      model: reasoningModel({ minimal: "a", low: "l", medium: "m", high: "h", xhigh: null, max: null }),
+    });
+    expect(r.captured).toEqual([null]);
+  }, 20000);
+
+  test("④ 模型 reasoning=false → 任何定格值均不动 options", async () => {
+    const r = await runThinkingChild({
+      profile: { ...SubAgentProfile, thinkingLevel: "medium" },
+      model: fakeModel, // reasoning: false
+    });
+    expect(r.captured).toEqual([null]);
+  }, 20000);
 });

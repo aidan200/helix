@@ -26,6 +26,7 @@ import { applyThinkingUsageEvent } from "../consumers/thinking-usage";
 import { applySnapshotEvent } from "../consumers/snapshot";
 import { applyHistoryEvent } from "../consumers/history";
 import { applyModelChangedEvent } from "../consumers/model";
+import { applyThinkingLevelEvent } from "../consumers/thinking-level";
 
 describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
   it("协议全部事件 type（EVENT_TYPES）均被消费：route（会话 store 级）或 directory/modelConfig/agentConfig/web（拓扑级）", () => {
@@ -75,6 +76,8 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     expect(route("session.snapshot")).toBe(applySnapshotEvent);
     // v0.2 新增真消费（T3.1）：model 徽标态 / loadHistory 前插
     expect(route("model.changed")).toBe(applyModelChangedEvent);
+    // thinking.changed（thinking 批①，T2.1）：会话 store 级消费者（thinking 切片）
+    expect(route("thinking.changed")).toBe(applyThinkingLevelEvent);
     expect(route("session.loadHistory.result")).toBe(applyHistoryEvent);
     // 拓扑级清单族（directory）：不入本注册表，经 dispatcher/frame.ts 前置路由
     expect(route("session.list.result")).toBeUndefined();

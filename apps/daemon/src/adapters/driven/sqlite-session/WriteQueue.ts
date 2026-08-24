@@ -87,6 +87,15 @@ type WriteJob =
       readonly kind: "modelSlot";
       readonly profileKind: string;
       readonly model: string;
+    }
+  | {
+      /** 通用槽位原子替换（thinking 批扩值：同 modelSlot 单行不变式，
+       *  resourceType 参数化——先清该 (kind, resourceType) 全部行再插入，
+       *  enabled 恒 1）。 */
+      readonly kind: "slotValue";
+      readonly profileKind: string;
+      readonly resourceType: string;
+      readonly name: string;
     };
 
 export class WriteQueue {
@@ -263,6 +272,14 @@ export class WriteQueue {
     return this.enqueue({ kind: "modelSlot", profileKind, model });
   }
 
+  /**
+   * 通用槽位原子替换入队（thinking 槽位等 model 以外的槽位型资源；同 job
+   * 内先清该 (kind, resourceType) 全部行再插入——单行不变式同 modelSlot）。
+   */
+  saveSlotValue(profileKind: string, resourceType: string, name: string): Promise<void> {
+    return this.enqueue({ kind: "slotValue", profileKind, resourceType, name });
+  }
+
   /** 等待已入队 job 全部落盘（测试/优雅退出用；分仓后 = 全部仓位 drain）。 */
   async flush(): Promise<void> {
     await this.drainAll();
@@ -358,6 +375,12 @@ export class WriteQueue {
       // 原子替换：同 job 先清旧行再插新行（单行不变式不依赖调用方时序）
       this.clearResourceStateByType.run(job.profileKind, "model");
       this.upsertResourceState.run(job.profileKind, "model", job.model, 1, new Date().toISOString());
+      return;
+    }
+    if (job.kind === "slotValue") {
+      // 通用槽位原子替换（同 modelSlot 不变式，resourceType 参数化）
+      this.clearResourceStateByType.run(job.profileKind, job.resourceType);
+      this.upsertResourceState.run(job.profileKind, job.resourceType, job.name, 1, new Date().toISOString());
       return;
     }
     if (job.kind === "closureRecord") {

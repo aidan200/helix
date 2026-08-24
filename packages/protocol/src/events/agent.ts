@@ -65,6 +65,12 @@ export interface AgentKilledPayload {
 export interface AgentInstantiatedPayload {
   instanceId: string;
   profileKind: string;
+  /**
+   * SubAgent spawn 解析的 thinkingLevel 快照（v0.11 新增，thinking 批④，
+   * AD-4④）：自身 profile 槽位 > 兜底 medium（AD-6），spawn 时刻确定、
+   * trace 可复盘（AD-1 语义红线，与模型快照同构）。字符串透传（AD-2）。
+   */
+  thinkingLevel: string;
   profileSnapshot: TraceProfileSnapshot;
 }
 
@@ -104,6 +110,14 @@ export interface AgentConfigProfileBlock {
   diagnostics: ReadonlyArray<{ code: string; message: string; path: string; source: "user" | "project" | "builtin" }>;
   /** model 槽位现值（未设 = null）。 */
   model: string | null;
+  /**
+   * thinking 槽位现值（v0.11 批内补登，thinking 批 AD-6 配置资源扩维，
+   * iter-20260823-6ps5 T1.3）：未配置 = null（同 model 槽位 JSON 面钉死
+   * null 非 undefined）；已配置 = pi-ai ThinkingLevel 字符串透传（AD-2，
+   * helix 不维护第二份档位枚举）。留空 = 未配置 → SubAgent 解析链回落
+   * 兜底 medium（AD-1）。
+   */
+  thinkingLevel: string | null;
 }
 
 /** agent.config.list.result：配置读面回执（点对点；全局命令）。 */
@@ -119,10 +133,11 @@ export interface AgentConfigListResultPayload {
  */
 export interface AgentConfigChangedPayload {
   profileKind: "main-session" | "subagent-worker";
-  resourceType: "tool" | "skill" | "model";
-  /** tools/skills = 资源名；model = 模型 id 或 null（clear）。 */
+  /** thinking = v0.11 批内补登（thinking 槽位，AD-6；与 model 同为槽位语义非启停）。 */
+  resourceType: "tool" | "skill" | "model" | "thinking";
+  /** tools/skills = 资源名；model = 模型 id 或 null（clear）；thinking = 档位字符串或 null（clear）。 */
   name: string | null;
-  /** tool/skill = 新启停态；model = true（槽位已设）/ false（槽位已清）。 */
+  /** tool/skill = 新启停态；model/thinking = true（槽位已设）/ false（槽位已清）。 */
   enabled: boolean;
 }
 

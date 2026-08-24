@@ -21,6 +21,8 @@ export interface ResourceConfigBlock {
   readonly diagnostics: readonly SkillScanDiagnostic[];
   /** model 槽位现值（未设 = undefined；协议 DTO 映射层转 null）。 */
   readonly model: string | undefined;
+  /** thinking 槽位现值（thinking 批 AD-6 扩维；未配置 = undefined；协议 DTO 映射层转 null）。 */
+  readonly thinkingLevel: string | undefined;
 }
 
 /** 启停写面结果（协议 AgentConfigSetEnabledResultPayload 的 domain 侧镜像）。 */
@@ -42,4 +44,8 @@ export interface ResourceConfigPort {
   setModelSlot(profileKind: ProfileKind, model: string): Promise<void>;
   /** model 槽位清除。 */
   clearModelSlot(profileKind: ProfileKind): Promise<void>;
+  /** thinking 槽位写（不校验档位——字符串透传，SoT 在 pi-ai，AD-2）。 */
+  setThinkingSlot(profileKind: ProfileKind, level: string): Promise<void>;
+  /** thinking 槽位清除（删除行 = 未配置 → 解析链回落 medium）。 */
+  clearThinkingSlot(profileKind: ProfileKind): Promise<void>;
 }

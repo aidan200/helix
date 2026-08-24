@@ -1,8 +1,8 @@
-# Helix WS 协议 v0.10
+# Helix WS 协议 v0.11
 
-> 当前版本位 `PROTOCOL_VERSION = "0.10"`（envelope.ts）；§1–§9 为 v0 基线，
+> 当前版本位 `PROTOCOL_VERSION = "0.11"`（envelope.ts）；§1–§9 为 v0 基线，
 > §10–§14 为 v0.1–v0.4 演进登记与微批备案（历史批）；
-> §15–§17 为现状全集总登记（27 命令 / 47 事件 payload 形状）与 SoT 守护口径
+> §15–§17 为现状全集总登记（28 命令 / 48 事件 payload 形状）与 SoT 守护口径
 >（v0.10 = 当前，见 §17.10）。
 
 > 包：`@helix/protocol`（本目录）。类型唯一权威源——daemon（T1.6）与前端
@@ -50,7 +50,7 @@
 // 本代码块为 packages/protocol/src/envelope.ts 现行定义的忠实呈现（F(2).2 对齐，逐项抄源）。
 
 /** 协议版本位。v0.10 帧 `v` 恒为 "0.10"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
-export const PROTOCOL_VERSION = "0.10" as const;
+export const PROTOCOL_VERSION = "0.11" as const;
 
 /**
  * 帧版本位取值域："0.10" = 当前批（v0.10）帧；`0` = v0/v0.1 历史帧（信封兼容读
@@ -701,10 +701,10 @@ export interface AgentModelChangedPayload {
   新会话）；转正恰好一次 `agent.instantiated` + `list_changed{created}`
   （draft 链显式广播与补广播去重，不双发）。
 
-## 15. 命令 payload 形状总登记（C→S，27 命令全集）
+## 15. 命令 payload 形状总登记（C→S，28 命令全集）
 
-> **计数声明：27 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
-> 15.4 model 6 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3）——与 `COMMAND_TYPES` 常量恰等
+> **计数声明：28 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
+> 15.4 model 6 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
 > 文档与其逐项对齐（AD-1）；仓外契约文档降为历史定形档案（§17.1）。
@@ -854,8 +854,8 @@ skipped reason=unknown-model）；enabled=false 清槽（name 忽略）。tool/s
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `profileKind` | `"main-session" \| "subagent-worker"` | 必填 | v0.6 | 目标 kind |
-| `resourceType` | `"tool" \| "skill" \| "model"` | 必填 | v0.6 | 资源类型（model = 槽位语义非启停） |
-| `name` | `string` | 必填 | v0.6 | 资源名（model 型 = "provider/model-id"；clear 时忽略） |
+| `resourceType` | `"tool" \| "skill" \| "model" \| "thinking"` | 必填 | v0.6 | 资源类型（model/thinking = 槽位语义非启停；thinking = v0.11 批内补登 T1.3：槽位语义同 model，set/clear，零档位校验） |
+| `name` | `string` | 必填 | v0.6 | 资源名（model/thinking 型 = "provider/model-id" / 档位字符串；clear 时忽略） |
 | `enabled` | `boolean` | 必填 | v0.6 | tool/skill = 启停；model = set（true）/ clear（false）槽位 |
 
 ### 15.4 model 族（6）
@@ -1007,10 +1007,26 @@ onStatusChange 事件源触发，handler 不重复广播）。
 |---|---|---|---|---|
 | （无字段） | `EmptyPayload` | — | v0.9 | 空载荷（无参启动） |
 
-## 16. 事件 payload 形状总登记（S→C，47 事件全集）
+### 15.8 thinking 族（1；v0.11 thinking 批①，iter-20260823-6ps5 T1.1）
 
-> **计数声明：47 事件全集**（16.1 notification 2 + 16.2 session 4 +
-> 16.3 chat 10 + 16.4 agent 12 + 16.5 thinking·compaction·usage 4 +
+#### `thinking.set`
+
+会话 thinking 档覆盖写面（v0.11，thinking 批①；仿 `model.set` 形态）：
+信封 sessionId **必填**（per-session 路由，AD-4），下一 turn 生效。level 为
+pi-ai ThinkingLevel **字符串透传**（AD-2：helix 不维护第二份档位枚举，SoT
+在 pi-ai，协议层不校验未知档位——引擎按能力过滤，全链不支持 →
+`thinking.changed.effective = null`，不报错）；**无关闭态**（未覆盖 = 不发
+命令）。`chat.send` 零字段（AD-4①：thinking 是会话状态非逐消息参数）。
+生效回执 = `thinking.changed` 广播（§16.5）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `level` | `string` | 必填 | v0.11 | pi-ai ThinkingLevel 字符串透传（如 `"medium"` / `"high"`） |
+
+## 16. 事件 payload 形状总登记（S→C，48 事件全集）
+
+> **计数声明：48 事件全集**（16.1 notification 2 + 16.2 session 4 +
+> 16.3 chat 10 + 16.4 agent 12 + 16.5 thinking·compaction·usage 5 +
 > 16.6 model 10 + 16.7 trace 1 + 16.8 web 4）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
 >（三面同构，守护断言⑤口径）；auth 族 4 结果帧按 `EVENT_CHANNELS` 登记挂
@@ -1051,6 +1067,7 @@ onStatusChange 事件源触发，handler 不重复广播）。
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `snapshot` | `SessionSnapshotDto` | 必填 | v0 | 全量快照（§6；additive 扩展 §10.5 / §11.5） |
+| `snapshot.thinking` | `{ override: string \| null; effective: string \| null }` | 可选 | v0.11 | 会话 thinking 覆盖/生效双位（thinking 批③ F-8 修复：SessionStateView → wire 接通；切换会话/重连/重启恢复后 UI 与引擎一致；null = 无覆盖 / 全链不支持不传参；缺省 = 未携带，旧剧本兼容） |
 
 #### `session.list_changed`
 
@@ -1214,6 +1231,7 @@ spawn 工具秒回出卡（不等执行，AD-8 异步交付）。
 |---|---|---|---|---|
 | `instanceId` | `string` | 必填 | v0.4 | "main" \| agent-N |
 | `profileKind` | `string` | 必填 | v0.4 | profile 种类（自由字符串，无注册表） |
+| `thinkingLevel` | `string` | 必填 | v0.11 | SubAgent spawn 解析的 thinkingLevel 快照（thinking 批④：自身 profile 槽位 > 兜底 medium，AD-6；字符串透传 AD-2） |
 | `profileSnapshot` | `TraceProfileSnapshot` | 必填 | v0.4 | 注入快照（systemPrompt 全文 + tools + model + compaction? + hooks?，§13.2） |
 
 #### `agent.model.changed`
@@ -1242,6 +1260,7 @@ spawn 工具秒回出卡（不等执行，AD-8 异步交付）。
 | `profiles[].skills` | `{ name, description, filePath, source, enabled }[]` | 必填 | v0.6 | 扫描全集 + 启停态（source = user/project/builtin 三层目录标签；v0.8 扩 builtin——daemon 随仓内置技能，不可禁用读面恒 enabled=true） |
 | `profiles[].diagnostics` | `{ code, message, path, source }[]` | 必填 | v0.6 | 扫描诊断（坏文件上抛不炸） |
 | `profiles[].model` | `string \| null` | 必填 | v0.6 | model 槽位现值（未设 = null） |
+| `profiles[].thinkingLevel` | `string \| null` | 必填 | v0.11 | thinking 槽位现值（未配置 = null；v0.11 批内补登 T1.3） |
 
 #### `agent.config.changed`
 
@@ -1252,7 +1271,7 @@ skills/tools 同构；model 型 name = 模型 id 或 null（clear）。
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `profileKind` | `"main-session" \| "subagent-worker"` | 必填 | v0.6 | 变更归属 kind |
-| `resourceType` | `"tool" \| "skill" \| "model"` | 必填 | v0.6 | 资源类型 |
+| `resourceType` | `"tool" \| "skill" \| "model" \| "thinking"` | 必填 | v0.6 | 资源类型（thinking = v0.11 批内补登 T1.3） |
 | `name` | `string \| null` | 必填 | v0.6 | tools/skills = 资源名；model = 模型 id 或 null（clear） |
 | `enabled` | `boolean` | 必填 | v0.6 | tool/skill = 新启停态；model = true（槽位已设）/ false（槽位已清） |
 
@@ -1265,7 +1284,7 @@ skills/tools 同构；model 型 name = 模型 id 或 null（clear）。
 | `status` | `"applied" \| "skipped"` | 必填 | v0.6 | 结果判别位 |
 | `reason` | `string` | skipped 分支必填 | v0.6 | 跳过原因：unknown-name（tool/skill 名不在全集，不落库）/ unknown-model（目录外模型，ModelService.setModel 先例）等 |
 
-### 16.5 thinking · compaction · usage 通道族（4）
+### 16.5 thinking · compaction · usage 通道族（5）
 
 #### `thinking.stream.delta`
 
@@ -1295,6 +1314,20 @@ skills/tools 同构；model 型 name = 模型 id 或 null（clear）。
 | `instanceId` | `string` | 必填 | v0.1 | 归属实例 |
 | `usage` | `UsageDto` | 必填 | v0.1 | 七字段用量（§10.5） |
 | `source` | `"turn" \| "compaction"` | 必填 | v0.1 | 来源（turn 完成 / compaction 摘要调用完成；流式中不发） |
+
+#### `thinking.changed`
+
+会话 thinking 档覆盖生效广播（v0.11，thinking 批①；仿 `model.changed` 广播链：
+daemon 处理 `thinking.set` 后经 domain_events 单写队列落盘（TR-AD-5）并广播；
+换模（`model.set`）后生效档变化时再发一帧或随下一快照携带）。挂 thinking 族
+（type 前缀 == channel 不变量）。前端语义：滑块位置/强调 = `effective`；
+`override ≠ effective` 时显示「xhigh → high（模型能力所限）」轻提示（F1.3）。
+字符串透传（AD-2：不维护第二份档位枚举）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `override` | `string \| null` | 必填 | v0.11 | 会话覆盖意图（用户拖到的档）；null = 无覆盖 |
+| `effective` | `string \| null` | 必填 | v0.11 | 引擎按当前模型能力解析的生效档；null = 全链不支持（不传参，provider 默认） |
 
 ### 16.6 model 族（10；含 model/auth 9 结果帧——auth 结果帧按 EVENT_CHANNELS 挂 model 通道）
 
@@ -1326,6 +1359,8 @@ skills/tools 同构；model 型 name = 模型 id 或 null（clear）。
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `models` | `CatalogModel[]` | 必填 | v0.2 | 合并目录（`{ id, providerId, contextWindow, cost, ... }`，types/model.ts） |
+| `models[].reasoning` | `boolean` | 必填 | v0.11 | pi-ai Model.reasoning 防腐映射（thinking 批②；false → UI 禁用推理控件） |
+| `models[].thinkingLevels` | `string[]` | 必填 | v0.11 | pi-ai thinkingLevelMap 非 null 键集派生（升序；reasoning=false 时为空数组；字符串透传 AD-2） |
 | `refreshedAt` | `number` | 必填 | v0.2 | 上次远端核对时间（epoch ms；无 overlay 历史 → 0） |
 | `source` | `"cache" \| "builtin" \| "remote"` | 必填 | v0.2 | 快照数据来源 |
 
@@ -1601,3 +1636,47 @@ entry 内嵌字段）与 session.snapshot 载荷（投影重建）同构透传�
 §17.9 演进备案节的历史版本登记字面量合法保留）；`FrameVersion = 0 |
 "0.10"`。handshake 严格单值 fail-fast：`protocolVersion ≠ "0.10"` 即
 `protocol.version_unsupported` 拒绝。
+（v0.11 起 v0.10 转为历史批。）
+
+### 17.11 v0.11 批次登记
+
+v0.11 = thinking 批 additive 四块（iter-20260823-6ps5 T1.1；AD-2/AD-4；
+集成契约 = development/contracts/thinking-protocol.md）：① 新增 1 命令
+`thinking.set`（会话 thinking 档覆盖写面——仿 `model.set` 形态，信封
+sessionId 必填 per-session，payload `{ level: string }`，下一 turn 生效；
+无关闭态）+ 1 事件 `thinking.changed`（广播，payload `{ override:
+string|null, effective: string|null }` 双位——override = 覆盖意图 /
+effective = 引擎按模型能力解析的生效档，null = 全链不支持不传参；仿
+`model.changed` 广播链，挂 thinking 族）——`chat.send` **零字段**
+（AD-4①：thinking 是会话状态非逐消息参数，引擎 turn 开始读解析结果）；
+② `CatalogModel` additive 两字段 `reasoning: boolean` + `thinkingLevels:
+string[]`（pi-ai Model.reasoning / thinkingLevelMap 非 null 键集防腐映射，
+TR-AD-7 边界内合法；UI 不自判能力，TR-AD-42）；④ `AgentInstantiatedPayload`
+additive + `thinkingLevel: string`（SubAgent spawn 解析快照，自身 profile
+槽位 > 兜底 medium，AD-6；只落盘不广播语义不变，AF-6）。③ SessionStateView
+快照读面扩字段首登物理位置在 daemon SessionPort（无同名重复定义）；wire 面
+（`SessionSnapshotDto` + 快照帧映射）由本节末修复批补登接通。字符串透传红线（AD-2）：全部新字段类型 `string`，protocol 包内
+**不维护第二份 ThinkingLevel 枚举**（SoT 在 pi-ai）。零改既有命令/事件
+形状（`COMMAND_TYPES` 27 → 28 / `EVENT_TYPES` 47 → 48）。版本位
+`"0.10" → "0.11"`（envelope.ts 单点；批次集合标记非协商位，Q-1c 单仓
+同发一步替换，运行时代码与测试零 `"0.10"` 残留——豁免：§1–§13/§17.5–
+§17.10 演进备案节的历史版本登记字面量合法保留）；`FrameVersion = 0 |
+"0.11"`。handshake 严格单值 fail-fast：`protocolVersion ≠ "0.11"` 即
+`protocol.version_unsupported` 拒绝。
+
+**批内补登（T1.3，同版本不破面——M6 T4 先例）**：agent.config 族配置资源
+载荷扩 thinking 槽位维（AD-6：E-智能体配置资源扩可选 thinkingLevel）——
+`AgentConfigProfileBlock` additive + `thinkingLevel: string | null`（未配置
+= null）；`agent.config.set_enabled` / `agent.config.changed` 的
+`resourceType` 联合 additive + `"thinking"`（槽位语义同 model：set/clear，
+helix 不做档位校验）。零新增命令/事件 type（`COMMAND_TYPES` 28 /
+`EVENT_TYPES` 48 不变）。
+
+**批内补登（修复批 F-6/F-8，同版本不破面）**：③ wire 面接通——
+`SessionSnapshotDto` additive + `thinking?: { override: string|null;
+effective: string|null }`（T1.2 起 daemon SessionStateView 已携带，快照帧
+DTO/映射断环补齐；§16.2 字段行补登 + sot ④ presence 断言）；T1.3 文档登记
+遗漏回填——§15.3/§16.4 `resourceType` 字段行类型联合补 `"thinking"`、
+§16.4 `agent.config.list.result` 补 `profiles[].thinkingLevel` 字段行
+（代码面 T1.3 已正确，纯文档补登）。零新增命令/事件 type，版本位不再
+bump。

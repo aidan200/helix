@@ -33,6 +33,7 @@ import type {
   SessionUnsubscribeCommand,
   TraceQueryCommand,
   TraceQueryPayload,
+  ThinkingSetCommand,
   WebStartCommand,
   WebStatusCommand,
   WebStopCommand,
@@ -127,6 +128,13 @@ export function sessionLoadHistoryCommand(sessionId: string, beforeEntryId: stri
 /** model.set：运行期切换（P-3 选中即切；信封 sessionId 必填，下一 turn 生效）。 */
 export function modelSetCommand(model: string, sessionId: string): ModelSetCommand {
   return { v: PROTOCOL_VERSION, type: "model.set", sessionId, payload: { model } };
+}
+
+/** thinking.set：会话推理强度覆盖（thinking 批①，契约 v0.11 §17.11；T2.1
+ *  P-1 滑块选档；信封 sessionId 必填，下一 turn 生效；level 字符串透传
+ *  ——AD-2，helix 不校验档位；生效回执 = thinking.changed 广播）。 */
+export function thinkingSetCommand(level: string, sessionId: string): ThinkingSetCommand {
+  return { v: PROTOCOL_VERSION, type: "thinking.set", sessionId, payload: { level } };
 }
 
 /** model.catalog：目录快照（全局命令，4h 缓存口径；P-3 打开 / P-4 进入拉取）。 */

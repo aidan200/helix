@@ -145,6 +145,31 @@ describe("ChatPage 抽屉接线（P-1 → P-2）", () => {
   });
 });
 
+describe("P-1 推理强度 picker 落位（review.md §2 必须还原 1；thinking 批 T3.2 核销）", () => {
+  it("trigger chip 位于 .composer-foot 右侧槽位（enter-hint 之后的末位子元素），三要素齐备", () => {
+    stateRef.current = play([
+      ev({
+        v: 0,
+        type: "connection.welcome",
+        payload: { sessionId: "s1", model: "claude-sonnet-4-5", agentState: "idle" },
+      }),
+    ]);
+    ui();
+    const foot = document.querySelector(".composer-foot")!;
+    expect(foot).not.toBeNull();
+    const picker = foot.querySelector(".thinking-picker")!;
+    expect(picker).not.toBeNull();
+    // 右侧落位 = foot 末位子元素（space-between 空位；enter-hint 在左）
+    expect(foot.lastElementChild).toBe(picker);
+    expect(picker.previousElementSibling!.className).toContain("enter-hint");
+    // trigger 三要素：THINKING 微标 + 生效档位 + chevron
+    const trigger = picker.querySelector(".tp-trigger")!;
+    expect(trigger.querySelector(".tp-label")!.textContent).toBe("THINKING");
+    expect(trigger.querySelector(".tp-level")).not.toBeNull();
+    expect(trigger.querySelector(".tp-chev")).not.toBeNull();
+  });
+});
+
 describe("S1 应用壳统一（AppLayout 迁移）", () => {
   it("chat 页使用 AppLayout 壳：header 全宽置顶 + sidebar 槽 + main 唯一滚动容器；.app 直系子序不变", () => {
     stateRef.current = createInitialSessionState();

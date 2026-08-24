@@ -1,6 +1,6 @@
 import type { ChatPort, SendOutcome } from "../ports/inbound/ChatPort";
 import type { AgentOrchestrationPort } from "../ports/inbound/AgentOrchestrationPort";
-import type { AgentEngineEvent, AgentEnginePort } from "../ports/outbound/AgentEnginePort";
+import type { AgentEngineEvent, AgentEnginePort, AgentThinkingState } from "../ports/outbound/AgentEnginePort";
 import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../ports/outbound/ClockPort";
 import { AgentLifecycle, type AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
@@ -10,7 +10,7 @@ import { MAIN_INSTANCE_ID, ZERO_USAGE, type ErrorCode } from "@helix/protocol"; 
 import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/ToolCallRecord";
 import { parseDataUrlImages, ImageValidationError } from "./images";
 import type {
-  AgentInstantiatedPayload, AgentModelChangedPayload, AgentStateChangedPayload, CompactionCompletedPayload,
+  AgentInstantiatedPayload, AgentModelChangedPayload, AgentStateChangedPayload, AgentThinkingChangedPayload, CompactionCompletedPayload,
   DomainEvent, MessageCompletedPayload, ProfileSnapshotData, SteerPayload, ThinkingCompletedPayload,
   ToolCallPayload, ToolResultPayload, TurnCompletedPayload, UsageRecordedPayload,
 } from "../../domain/events/DomainEvent";
@@ -170,6 +170,23 @@ export class ChatService implements ChatPort {
       throw new Error("引擎未实现运行期系统提示直改接口（AgentEnginePort.setSystemPrompt），无法刷新提示");
     }
     this.deps.engine.setSystemPrompt(text);
+  }
+  /** 运行期 thinking 覆盖（thinking 批①，AD-4①：AgentEnginePort.setThinking 域内扩面，下一 turn 生效；不支持即抛错；成功同点发布 agent.thinking.changed——只落盘不广播，跨冷恢复数据源；广播归 thinking.changed 链）。level 字符串透传（AD-2：helix 不做档位校验，未知档由引擎按能力适配）。 */
+  setThinking(level: string): void {
+    if (this.deps.engine.setThinking === undefined) {
+      throw new Error(`引擎未实现运行期 thinking 覆盖接口（AgentEnginePort.setThinking），无法设置为 ${level}`);
+    }
+    this.deps.engine.setThinking(level);
+    this.publish<AgentThinkingChangedPayload>(
+      "agent.thinking.changed",
+      { instanceId: MAIN_INSTANCE_ID, level },
+      undefined,
+      MAIN_INSTANCE_ID,
+    );
+  }
+  /** 会话 thinking 覆盖/生效（观测面：快照 thinking 位 + thinking.changed 广播数据源；引擎未实现 → undefined，additive 缺省）。 */
+  get currentThinking(): AgentThinkingState | undefined {
+    return this.deps.engine.currentThinking?.();
   }
   /** 聚合只读访问（SessionService 快照取数；组合根接线用）。 */
   get sessionView() {
