@@ -158,10 +158,11 @@ async function makeRig(home: string, opts: { initialModel?: string; replies?: { 
 }
 
 /**
- * 混合现场：主实例一轮对话 + 两个 Sub（agent-1 运行中 / agent-2 killed）+
+ * 混合现场：主实例一轮对话 + 两个 Sub（首个运行中 / 次个 killed）+
  * 一次 model.set（anthropic/claude-sonnet-4-5 → anthropic/claude-haiku-4-5）；落盘屏障后返回。
+ * T10a：spawn id = agent-<唯一串>——返回捕获值供断言（不硬编码 agent-N）。
  */
-async function seedMixedSession(rig: Rig): Promise<void> {
+async function seedMixedSession(rig: Rig): Promise<{ agent1: string; agent2: string }> {
   const { daemon, client, sessionId } = rig;
   client.send({ v: PROTOCOL_VERSION, sessionId, type: "chat.send", payload: { text: "你好" } });
   await until(
@@ -174,7 +175,10 @@ async function seedMixedSession(rig: Rig): Promise<void> {
   expect(s1.status === "run" || s1.status === "queued").toBe(true);
   const s2 = daemon.orchestration.spawn("任务二");
   expect(s2.status === "run" || s2.status === "queued").toBe(true);
+  const agent1 = s1.status === "run" || s1.status === "queued" ? s1.agentId : "";
   const agent2 = s2.status === "run" || s2.status === "queued" ? s2.agentId : "";
+  expect(agent1).toMatch(/^agent-[0-9a-f]+$/);
+  expect(agent2).toMatch(/^agent-[0-9a-f]+$/);
   const killed = daemon.orchestration.kill(agent2);
   expect(killed.killed).toBe(true);
 
@@ -192,6 +196,14 @@ async function seedMixedSession(rig: Rig): Promise<void> {
     (r) => r.events.length >= 2,
     "killed/model.changed 落盘",
   );
+  return { agent1, agent2 };
+}
+
+/** T10a：主实例 id = 会话 mainInstanceId（agent-<唯一串>，非 "main" 字面）。 */
+function mainIdOf(rig: Rig): string {
+  const id = rig.daemon.registry.peek(rig.sessionId)!.chatService.sessionView.mainInstanceId;
+  expect(id).toMatch(/^agent-[0-9a-f]+$/);
+  return id;
 }
 
 describe("① trace.query roundtrip：结果帧形态与过滤语义（契约 v0.4 §1/§4）", () => {
@@ -199,7 +211,7 @@ describe("① trace.query roundtrip：结果帧形态与过滤语义（契约 v0
     const home = tmpHome();
     const rig = await makeRig(home, { replies: [{ text: "你好，我是主会话。" }] });
     try {
-      await seedMixedSession(rig);
+      const { agent1 } = await seedMixedSession(rig);
       const { client, sessionId } = rig;
 
       // ── 缺省全量：只传 sessionId ──
@@ -235,10 +247,10 @@ describe("① trace.query roundtrip：结果帧形态与过滤语义（契约 v0
       }
 
       // ── instanceIds 多选 ──
-      const subOnly = await client.traceQuery({ sessionId, instanceIds: ["agent-1"] });
-      expect(subOnly.filterEcho.instanceIds).toEqual(["agent-1"]);
+      const subOnly = await client.traceQuery({ sessionId, instanceIds: [agent1] });
+      expect(subOnly.filterEcho.instanceIds).toEqual([agent1]);
       expect(subOnly.events.length).toBeGreaterThan(0);
-      expect(subOnly.events.every((e) => e.instanceId === "agent-1")).toBe(true);
+      expect(subOnly.events.every((e) => e.instanceId === agent1)).toBe(true);
       expect(subOnly.page.total).toBe(subOnly.events.length);
 
       // ── 空数组 = 空结果（不展开为「全部」）──
@@ -363,9 +375,10 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
     try {
       await seedMixedSession(rig);
       const { client, sessionId } = rig;
+      const mainId = mainIdOf(rig);
 
       // ── 主实例 instantiated（会话创建发布点）──
-      const mainInst = await client.traceQuery({ sessionId, types: ["agent.instantiated"], instanceIds: ["main"] });
+      const mainInst = await client.traceQuery({ sessionId, types: ["agent.instantiated"], instanceIds: [mainId] });
       expect(mainInst.events.length).toBe(1);
       const mainSnap = (mainInst.events[0]!.payload as { profileKind: string; profileSnapshot: { systemPrompt: string; tools: string[]; model: string; compaction?: { enabled: boolean }; hooks?: string[] } });
       expect(mainSnap.profileKind).toBe("main-session");
@@ -400,7 +413,7 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
       const changes = await client.traceQuery({ sessionId, types: ["agent.model.changed"] });
       expect(changes.events.length).toBe(1);
       expect(changes.events[0]!.payload).toEqual({
-        instanceId: "main",
+        instanceId: mainId,
         from: "anthropic/claude-sonnet-4-5", // 切换前引擎观测值
         to: "anthropic/claude-haiku-4-5",
       });
@@ -424,7 +437,7 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
       const { client, sessionId } = rig;
 
       // 主实例 instantiated：快照 = 组装缓存现值（11 工具不含 grep；提示无 grep 行）
-      const mainInst = await client.traceQuery({ sessionId, types: ["agent.instantiated"], instanceIds: ["main"] });
+      const mainInst = await client.traceQuery({ sessionId, types: ["agent.instantiated"], instanceIds: [mainIdOf(rig)] });
       expect(mainInst.events.length).toBe(1);
       const mainSnap = mainInst.events[0]!.payload as {
         profileSnapshot: { systemPrompt: string; tools: string[] };
@@ -466,11 +479,12 @@ describe("④ 实例面板 fold：主 + 多 Sub 混合会话 → InstanceRecord 
     const home = tmpHome();
     const rig = await makeRig(home, { replies: [{ text: "回复。" }] });
     try {
-      await seedMixedSession(rig);
+      const { agent1, agent2 } = await seedMixedSession(rig);
+      const mainId = mainIdOf(rig);
       const r = await rig.client.traceQuery({ sessionId: rig.sessionId, types: ["agent.spawned"] });
       expect(r.instances.length).toBe(3);
       // 主实例优先，其余启动序
-      expect(r.instances.map((i) => i.instanceId)).toEqual(["main", "agent-1", "agent-2"]);
+      expect(r.instances.map((i) => i.instanceId)).toEqual([mainId, agent1, agent2]);
 
       const main = r.instances[0]!;
       expect(main.agentKind).toBe("main");
@@ -502,7 +516,7 @@ describe("④ 实例面板 fold：主 + 多 Sub 混合会话 → InstanceRecord 
       expect(sub2.task).toBe("任务二");
 
       // eventCount 口径：全会话不过滤（与按实例过滤查询的 total 一致）
-      const sub1All = await rig.client.traceQuery({ sessionId: rig.sessionId, instanceIds: ["agent-1"] });
+      const sub1All = await rig.client.traceQuery({ sessionId: rig.sessionId, instanceIds: [agent1] });
       expect(sub1.eventCount).toBe(sub1All.page.total);
     } finally {
       await rig.client.close();
@@ -518,7 +532,7 @@ describe("⑤ 重启回填（F5.8 / F5.7 锚 3）：恢复实例 model 非缺失
     const rig1 = await makeRig(home, { replies: [{ text: "重启前回复。" }] });
     const sid = rig1.sessionId;
     try {
-      await seedMixedSession(rig1);
+      const { agent1, agent2 } = await seedMixedSession(rig1);
       await rig1.client.close();
       await rig1.daemon.shutdown(); // 优雅退出：drain 单写队列
 
@@ -528,27 +542,29 @@ describe("⑤ 重启回填（F5.8 / F5.7 锚 3）：恢复实例 model 非缺失
         expect(rig2.sessionId).toBe(sid); // 最近活动会话热加载为当前
         // ① 恢复实例 model 字段非缺失（spawnModels 回填 → 快照 instances[] 透出）
         const view = rig2.daemon.registry.currentView();
-        const restored = view.instances!.find((i) => i.instanceId === "agent-1");
+        const restored = view.instances!.find((i) => i.instanceId === agent1);
         expect(restored).toBeDefined();
         expect(restored!.model).toBe("anthropic/claude-sonnet-4-5"); // spawn 时刻快照，非重启后引擎现值
 
         // ② 重启前实例的 instantiated / model.changed 经 trace.query 可读
         const inst = await rig2.client.traceQuery({ sessionId: sid, types: ["agent.instantiated", "agent.model.changed"] });
         const types = inst.events.map((e) => `${e.instanceId}:${e.type}`).sort();
-        expect(types).toEqual([
-          "agent-1:agent.instantiated",
-          "agent-2:agent.instantiated",
-          "main:agent.instantiated",
-          "main:agent.model.changed",
-        ]);
+        expect(types).toEqual(
+          [
+            `${agent1}:agent.instantiated`,
+            `${agent2}:agent.instantiated`,
+            `${mainIdOf(rig2)}:agent.instantiated`,
+            `${mainIdOf(rig2)}:agent.model.changed`,
+          ].sort(),
+        );
         // ③ 面板重启后可读历史快照与模型时间线
-        const main = inst.instances.find((i) => i.instanceId === "main")!;
+        const main = inst.instances.find((i) => i.instanceId === mainIdOf(rig2))!;
         expect(main.snapshotMissing).toBe(false);
         expect((main.snapshot as { systemPrompt: string }).systemPrompt.startsWith(MAIN_SESSION_SYSTEM_PROMPT)).toBe(true); // M6 T3：组装快照 = base 前缀 + 动态段
         expect((main.modelTimeline as { from: string; to: string }[]).map((c) => [c.from, c.to])).toEqual([
           ["anthropic/claude-sonnet-4-5", "anthropic/claude-haiku-4-5"],
         ]);
-        const sub1 = inst.instances.find((i) => i.instanceId === "agent-1")!;
+        const sub1 = inst.instances.find((i) => i.instanceId === agent1)!;
         expect((sub1.snapshot as { model: string }).model).toBe("anthropic/claude-sonnet-4-5");
       } finally {
         await rig2.client.close();
