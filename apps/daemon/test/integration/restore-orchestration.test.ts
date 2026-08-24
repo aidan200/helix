@@ -125,7 +125,9 @@ describe("T2.4 ① running → failed 收口（AD-10：D-1 同构）", () => {
     try {
       const runner1 = new HangingRunner();
       const d1 = await makeDaemon(home, new FakeAgentEngine({}), runner1);
-      d1.orchestration.spawn("正在运行中的任务");
+      const spawn1 = d1.orchestration.spawn("正在运行中的任务");
+      if (spawn1.status !== "run") throw new Error("unreachable");
+      const agentId = spawn1.agentId; // T10a：agent-<唯一串>，捕获而非硬编码
       expect(runner1.launched).toHaveLength(1);
       await d1.shutdown(); // 优雅退出：drain（running 投影行已落盘）
 
@@ -134,27 +136,27 @@ describe("T2.4 ① running → failed 收口（AD-10：D-1 同构）", () => {
       const runner2 = new HangingRunner();
       const d2 = await makeDaemon(home, engine2, runner2);
 
-      // 注册表恢复：快照 instances 含 agent-1（failed 收口态）
-      const entry = instanceOf(d2, "agent-1");
+      // 注册表恢复：快照 instances 含该实例（failed 收口态）
+      const entry = instanceOf(d2, agentId);
       expect(entry).toBeDefined();
       expect(entry!["state"]).toBe("failed");
       expect(entry!["task"]).toBe("正在运行中的任务"); // task 从 agent.spawned 事件流恢复
       expect((entry!["closure"] as Record<string, unknown>)["summary"]).toBe(RESTART_SUMMARY);
 
       // 双源核对：agent_lifecycle 行已收口 failed
-      expect(lifecycleRows(home)["agent-1"]).toBe("failed");
+      expect(lifecycleRows(home)[agentId]).toBe("failed");
       // closure 记录行（status=failed + 固定文案；O-5 抗重启本体）
-      expect(closureRows(home)["agent-1"]).toMatchObject({ status: "failed", summary: RESTART_SUMMARY });
+      expect(closureRows(home)[agentId]).toMatchObject({ status: "failed", summary: RESTART_SUMMARY });
 
       // closure failed 注入主线（SteerQueue，下轮 turn 消费；不自动驱动）
       const pending = d2.session.getSnapshot().session.pendingSteer;
-      expect(pending.map((i) => i.text)).toContain(`agent-1 closure: failed — ${RESTART_SUMMARY}`);
+      expect(pending.map((i) => i.text)).toContain(`${agentId} closure: failed — ${RESTART_SUMMARY}`);
       expect(pending.find((i) => i.text.includes("closure: failed"))?.source).toBe("closure");
 
       // 不自动续跑：agentState=idle + 引擎零事件 + 无新 agent.started
       expect(d2.system.getStatus().agentState).toBe("idle");
       expect(engine2.events).toHaveLength(0);
-      expect(eventCount(home, "agent.started", "agent-1")).toBe(1); // 仅停机前那一条
+      expect(eventCount(home, "agent.started", agentId)).toBe(1); // 仅停机前那一条
       expect(runner2.launched).toHaveLength(0); // 无复活 spawn
       await d2.shutdown();
     } finally {
@@ -169,11 +171,16 @@ describe("T2.4 ② queued → cancelled（队列不落盘，重启清队；无 c
     try {
       const runner1 = new HangingRunner();
       const d1 = await makeDaemon(home, new FakeAgentEngine({}), runner1);
-      d1.orchestration.spawn("任务一");
-      d1.orchestration.spawn("任务二");
-      d1.orchestration.spawn("任务三");
+      const ids: string[] = [];
+      for (const t of ["任务一", "任务二", "任务三"]) {
+        const o = d1.orchestration.spawn(t);
+        if (o.status !== "run") throw new Error("unreachable");
+        ids.push(o.agentId); // T10a：agent-<唯一串>，捕获而非硬编码
+      }
       const queuedOutcome = d1.orchestration.spawn("排队中的任务四"); // maxConcurrent=3 → 第 4 个入队
       expect(queuedOutcome).toMatchObject({ status: "queued", position: 1 });
+      if (queuedOutcome.status !== "queued") throw new Error("unreachable");
+      ids.push(queuedOutcome.agentId);
       await d1.shutdown();
 
       const engine2 = new FakeAgentEngine({});
@@ -182,31 +189,34 @@ describe("T2.4 ② queued → cancelled（队列不落盘，重启清队；无 c
 
       const snap = d2.session.getSnapshot();
       const byId = Object.fromEntries((snap.instances ?? []).map((i) => [i["instanceId"], i]));
-      expect(byId["agent-1"]!["state"]).toBe("failed");
-      expect(byId["agent-2"]!["state"]).toBe("failed");
-      expect(byId["agent-3"]!["state"]).toBe("failed");
-      expect(byId["agent-4"]!["state"]).toBe("cancelled"); // 区别于 failed
-      expect(byId["agent-4"]!["closure"]).toBeUndefined(); // cancelled 无 closure（未开跑）
+      expect(byId[ids[0]!]!["state"]).toBe("failed");
+      expect(byId[ids[1]!]!["state"]).toBe("failed");
+      expect(byId[ids[2]!]!["state"]).toBe("failed");
+      expect(byId[ids[3]!]!["state"]).toBe("cancelled"); // 区别于 failed
+      expect(byId[ids[3]!]!["closure"]).toBeUndefined(); // cancelled 无 closure（未开跑）
 
       // agent_lifecycle 行：3 failed + 1 cancelled
       const rows = lifecycleRows(home);
-      expect(rows["agent-1"]).toBe("failed");
-      expect(rows["agent-4"]).toBe("cancelled");
+      expect(rows[ids[0]!]).toBe("failed");
+      expect(rows[ids[3]!]).toBe("cancelled");
 
-      // closure_records 恰 3 行（running 收口），无 agent-4 行
-      expect(closureRows(home)["agent-4"]).toBeUndefined();
-      expect(Object.keys(closureRows(home)).sort()).toEqual(["agent-1", "agent-2", "agent-3"]);
+      // closure_records 恰 3 行（running 收口），无 queued 实例行
+      expect(closureRows(home)[ids[3]!]).toBeUndefined();
+      expect(Object.keys(closureRows(home)).sort()).toEqual([...ids.slice(0, 3)].sort());
 
-      // 不自动重派：重启后零 launch；3 条注入按序在队（agent-1/2/3）
+      // 不自动重派：重启后零 launch；3 条注入按序在队（三个 running 实例）
       expect(runner2.launched).toHaveLength(0);
       expect(d2.session.getSnapshot().session.pendingSteer.map((i) => i.text)).toEqual([
-        `agent-1 closure: failed — ${RESTART_SUMMARY}`,
-        `agent-2 closure: failed — ${RESTART_SUMMARY}`,
-        `agent-3 closure: failed — ${RESTART_SUMMARY}`,
+        `${ids[0]} closure: failed — ${RESTART_SUMMARY}`,
+        `${ids[1]} closure: failed — ${RESTART_SUMMARY}`,
+        `${ids[2]} closure: failed — ${RESTART_SUMMARY}`,
       ]);
-      // 重启后新 spawn 序号续基线（K5：不与恢复实例撞号）
+      // T10a：唯一串 id 无序号基线——重启后新 spawn 仍得 agent-<唯一串> 且与历史互异（无撞号概念）
       const next = d2.orchestration.spawn("重启后的新任务");
-      expect(next).toMatchObject({ status: "run", agentId: "agent-5" });
+      expect(next.status).toBe("run");
+      if (next.status !== "run") throw new Error("unreachable");
+      expect(next.agentId).toMatch(/^agent-[0-9a-f]+$/);
+      expect(ids).not.toContain(next.agentId);
       await d2.shutdown();
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -220,8 +230,10 @@ describe("T2.4 ③ done 终态实例卡片恢复 + closure 完整（R1 进程内
     try {
       const runner1 = new HangingRunner();
       const d1 = await makeDaemon(home, new FakeAgentEngine({}), runner1);
-      d1.orchestration.spawn("生成报告的任务");
-      runner1.forceClosure("agent-1", {
+      const spawn3 = d1.orchestration.spawn("生成报告的任务");
+      if (spawn3.status !== "run") throw new Error("unreachable");
+      const agentId = spawn3.agentId; // T10a：agent-<唯一串>
+      runner1.forceClosure(agentId, {
         result: "done",
         closure: {
           status: "done",
@@ -234,7 +246,7 @@ describe("T2.4 ③ done 终态实例卡片恢复 + closure 完整（R1 进程内
       await d1.shutdown();
 
       const d2 = await makeDaemon(home, new FakeAgentEngine({}), new HangingRunner());
-      const entry = instanceOf(d2, "agent-1");
+      const entry = instanceOf(d2, agentId);
       expect(entry).toBeDefined();
       expect(entry!["state"]).toBe("done");
       expect(entry!["task"]).toBe("生成报告的任务");
@@ -245,7 +257,7 @@ describe("T2.4 ③ done 终态实例卡片恢复 + closure 完整（R1 进程内
       expect(closure["findings"]).toEqual([{ kind: "sediment", changeType: "新增" }]); // findings JSON 往返
       // reportPath 指向停机前的 O-5 报告文件（磁盘上仍可读）
       const sessionId = d1.system.getStatus().sessionId;
-      const reportPath = path.join(home, "reports", sessionId, "agent-1.md");
+      const reportPath = path.join(home, "reports", sessionId, `${agentId}.md`);
       expect(closure["reportPath"]).toBe(reportPath);
       expect(existsSync(reportPath)).toBe(true);
       // 无 pendingSteer 注入（done closure 停机前已消费）
@@ -263,51 +275,61 @@ describe("T2.4 ④ 混态重建一致性（注册表/账目/closure：快照字�
     try {
       const runner1 = new HangingRunner();
       const d1 = await makeDaemon(home, new FakeAgentEngine({}), runner1);
-      // 混态构造：3 running（agent-1/2/3）+ 2 queued（agent-4/5）→ 收口
-      // agent-1 done（释放位→agent-4 出队转 running，agent-5 仍 queued）
-      d1.orchestration.spawn("完成的任务"); // agent-1 → done
-      d1.orchestration.spawn("崩溃的任务"); // agent-2 → 重启收口 failed
-      d1.orchestration.spawn("运行中的任务"); // agent-3 → 重启收口 failed
-      expect(d1.orchestration.spawn("排队的任务四")).toMatchObject({ status: "queued" });
-      expect(d1.orchestration.spawn("排队的任务五")).toMatchObject({ status: "queued" });
-      runner1.forceClosure("agent-1", {
+      // 混态构造：3 running + 2 queued → 收口
+      // 首个 done（释放位→首个 queued 出队转 running，第二个仍 queued）
+      const ids: string[] = [];
+      for (const t of ["完成的任务", "崩溃的任务", "运行中的任务"]) {
+        const o = d1.orchestration.spawn(t);
+        if (o.status !== "run") throw new Error("unreachable");
+        ids.push(o.agentId); // T10a：agent-<唯一串>，捕获而非硬编码
+      }
+      for (const t of ["排队的任务四", "排队的任务五"]) {
+        const o = d1.orchestration.spawn(t);
+        expect(o).toMatchObject({ status: "queued" });
+        if (o.status !== "queued") throw new Error("unreachable");
+        ids.push(o.agentId);
+      }
+      runner1.forceClosure(ids[0]!, {
         result: "done",
         closure: { status: "done", summary: "任务一完成", reportPath: null, findings: null, taskId: null },
       });
-      // agent-1 收口释放运行位 → agent-4 出队转 running（FIFO 出队语义），agent-5 仍 queued
-      expect(d1.orchestration.status("agent-4")[0]?.state).toBe("running");
-      expect(d1.orchestration.status("agent-5")[0]?.state).toBe("queued");
+      // 首个收口释放运行位 → 任务四出队转 running（FIFO 出队语义），任务五仍 queued
+      expect(d1.orchestration.status(ids[3]!)[0]?.state).toBe("running");
+      expect(d1.orchestration.status(ids[4]!)[0]?.state).toBe("queued");
       await d1.shutdown();
 
       const d2 = await makeDaemon(home, new FakeAgentEngine({}), new HangingRunner());
+      // T10a：主实例 id = 会话 mainInstanceId（agent-<唯一串>，重启后持久化读回同值）
+      const mainId = d2.registry.peek(d1.system.getStatus().sessionId)!.chatService.sessionView.mainInstanceId;
+      expect(mainId).toMatch(/^agent-[0-9a-f]+$/);
       const instances = d2.session.getSnapshot().instances ?? [];
       expect(instances.map((i) => [i["instanceId"], i["state"]])).toEqual([
-        ["main", "running"], // 主实例常驻条目（快照组装面组装，前端账目 popover 用）
-        ["agent-1", "done"],
-        ["agent-2", "failed"],
-        ["agent-3", "failed"],
-        ["agent-4", "failed"], // 出队后 running（停机时）→ 重启收口 failed
-        ["agent-5", "cancelled"], // 仍 queued（停机时）→ 重启清队收口 cancelled
+        [mainId, "running"], // 主实例常驻条目（快照组装面组装，前端账目 popover 用）
+        [ids[0]!, "done"],
+        [ids[1]!, "failed"],
+        [ids[2]!, "failed"],
+        [ids[3]!, "failed"], // 出队后 running（停机时）→ 重启收口 failed
+        [ids[4]!, "cancelled"], // 仍 queued（停机时）→ 重启清队收口 cancelled
       ]);
 
       // 双源核对一：instances[].closure ↔ closure_records 行（每实例最新）
       const rows = closureRows(home);
-      expect((instanceOf(d2, "agent-1")!["closure"] as Record<string, unknown>)["summary"]).toBe(rows["agent-1"]!.summary);
-      expect((instanceOf(d2, "agent-2")!["closure"] as Record<string, unknown>)["summary"]).toBe(rows["agent-2"]!.summary);
-      expect(rows["agent-3"]!.summary).toBe(RESTART_SUMMARY);
-      expect(rows["agent-4"]!.summary).toBe(RESTART_SUMMARY); // 出队 running 同样收口
-      expect(rows["agent-5"]).toBeUndefined(); // cancelled 无 closure 记录（未开跑）
+      expect((instanceOf(d2, ids[0]!)!["closure"] as Record<string, unknown>)["summary"]).toBe(rows[ids[0]!]!.summary);
+      expect((instanceOf(d2, ids[1]!)!["closure"] as Record<string, unknown>)["summary"]).toBe(rows[ids[1]!]!.summary);
+      expect(rows[ids[2]!]!.summary).toBe(RESTART_SUMMARY);
+      expect(rows[ids[3]!]!.summary).toBe(RESTART_SUMMARY); // 出队 running 同样收口
+      expect(rows[ids[4]!]).toBeUndefined(); // cancelled 无 closure 记录（未开跑）
 
-      // 双源核对二：instances[].state ↔ agent_lifecycle 行（SubAgent 全等；main 例外——
+      // 双源核对二：instances[].state ↔ agent_lifecycle 行（SubAgent 全等；主实例例外——
       // 表行是会话运行态 AgentLifecycleState（停机后 stopped），实例窗口态是另一维度）
       const lifecycle = lifecycleRows(home);
       for (const i of instances) {
-        if (i["instanceId"] === "main") continue;
+        if (i["instanceId"] === mainId) continue;
         expect(lifecycle[i["instanceId"] as string]).toBe(i["state"]);
       }
 
       // 双源核对三：instances[].task ↔ domain_events agent.spawned 载荷
-      expect((instanceOf(d2, "agent-2")!["task"] as string)).toBe("崩溃的任务");
+      expect((instanceOf(d2, ids[1]!)!["task"] as string)).toBe("崩溃的任务");
 
       // 账目恢复（T3.2 前占位）：usage 空聚合（七字段全 0，契约 §6.2 形状）
       const usage = d2.session.getSnapshot().usage as { total: Record<string, number>; compaction: Record<string, number> } | undefined;
