@@ -75,6 +75,8 @@ export const enUS = {
       hint: "Agent generating · queued messages inject after this turn",
       queued: "STEER · queued",
       drained: "Injected · turn ended",
+      closureBadge: "CLOSURE",
+      progressBadge: "PROGRESS",
       directedChip: "steer → {id}",
     },
     restore: {

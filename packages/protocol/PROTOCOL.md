@@ -1717,3 +1717,9 @@ T1.3 先例）**：closure 注入与用户 steer 的消息类型区分落到协�
 注入落的普通 user Entry 快照可见；daemon Entry 物种 ↔ SQLite
 steer_queue.source 列全线贯通，老行/老事件缺省 = undefined，消费侧按
 user 渲染）。零新增命令/事件 type，计数不变（28/48），版本位不 bump。
+
+**批内补登（T11b 实时帧透传补齐，同版本不破面）**：daemon
+`message.completed` 领域事件载荷补登可选 `source`（同三值枚举），
+EnvelopeMapper 透传进 `chat.message.completed` 帧 `entry.source`——
+§16.3 字段行 T11a 已登，本批补实现面（idle closure/progress 注入的
+实时区分，不再仅靠快照对账）。additive 可选位，版本位不 bump。

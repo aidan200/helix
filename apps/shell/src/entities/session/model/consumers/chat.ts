@@ -16,7 +16,7 @@
  *
  * SubAgent delta 只更新卡片摘要尾窗与 channel 流式槽，不进主消息流。
  */
-import type { EntryDto, EventEnvelope, MessageEntryDto } from "@helix/protocol";
+import type { EntryDto, EventEnvelope, MessageEntryDto, SteerSource } from "@helix/protocol";
 import { channelOf, upsertChannelEntry } from "../channel";
 import { appendSummary, finalizeSummary } from "../instance-cards";
 import { upsertEntry } from "../entries";
@@ -39,7 +39,7 @@ export const CHAT_EVENT_TYPES = [
 /** steer.queued：把最早的未确认本地 echo 换成 daemon entryId（确认对账）。
  *  v0.3（CL-3 契约 §3.2）：定向 steer 帧信封挂 instanceId=目标——echo 匹配
  *  限定同目标（缺省/main 帧只认无 instanceId 的主线 echo，防并发 echo 错位）。 */
-function confirmSteerEcho(entries: EntryDto[], entryId: string, instanceId?: string): EntryDto[] {
+function confirmSteerEcho(entries: EntryDto[], entryId: string, instanceId?: string, source?: SteerSource): EntryDto[] {
   const idx = entries.findIndex(
     (e) =>
       e.kind === "message" &&
@@ -50,15 +50,16 @@ function confirmSteerEcho(entries: EntryDto[], entryId: string, instanceId?: str
   if (idx === -1) return entries; // 无 echo（他端发送等场景）：等快照对账
   const next = entries.slice();
   const echo = next[idx] as MessageEntryDto;
-  next[idx] = { ...echo, id: entryId };
+  // source 透传（T11b：closure/progress 徽标变体依据；缺省不携带键 = 老事件按 user）
+  next[idx] = { ...echo, id: entryId, ...(source !== undefined ? { source } : {}) };
   return next;
 }
 
-/** steer.drained：徽标 queued → drained（SM-3 第二态）。 */
-function drainSteer(entries: EntryDto[], entryId: string): EntryDto[] {
+/** steer.drained：徽标 queued → drained（SM-3 第二态）；source 同源更新（T11b）。 */
+function drainSteer(entries: EntryDto[], entryId: string, source?: SteerSource): EntryDto[] {
   return entries.map((e) =>
     e.kind === "message" && e.id === entryId && e.steerState === "queued"
-      ? { ...e, steerState: "drained" as const }
+      ? { ...e, steerState: "drained" as const, ...(source !== undefined ? { source } : {}) }
       : e,
   );
 }
@@ -134,11 +135,12 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
           s.entries,
           event.payload.entryId,
           iid !== undefined && iid !== MAIN_INSTANCE_ID ? iid : undefined,
+          event.payload.source,
         ),
       };
     }
     case "steer.drained":
-      return { ...s, entries: drainSteer(s.entries, event.payload.entryId) };
+      return { ...s, entries: drainSteer(s.entries, event.payload.entryId, event.payload.source) };
     // 终验热修：引擎/模型调用失败 → 错误卡片数据（provider 原文透传；
     // 随后的 turn.completed 收流，新 turn.started 清除——瞬态不落盘）
     case "engine.error":

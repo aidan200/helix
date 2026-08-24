@@ -77,6 +77,8 @@ export const zhCN = {
       hint: "主会话生成中 · 发送的消息进入 steer 队列，本轮结束后注入",
       queued: "STEER · 已入队",
       drained: "已注入 · 本轮结束",
+      closureBadge: "CLOSURE",
+      progressBadge: "PROGRESS",
       directedChip: "steer → {id}",
     },
     restore: {

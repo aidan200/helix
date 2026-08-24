@@ -528,4 +528,17 @@ describe("⑥ closure/steer 注入来源区分（T11a：source 贯通 Entry/事�
     const userEntry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.role === "user");
     expect(userEntry).toMatchObject({ role: "user", isSteer: false, source: "closure" });
   });
+
+  test("T11b：idle 时 closure 注入 → message.completed 载荷带 source（实时帧区分依据）", async () => {
+    const engine = new FakeAgentEngine({ replies: [{ text: "收到收口结论。" }] });
+    const { chat, publisher } = makeChat(engine);
+
+    chat.injectClosure("agent-1 closure: done — 调研完成");
+    await until(() => chat.agentState === "idle" && chat.sessionSnapshot.entries.length >= 2);
+
+    const completed = publisher.domainEvents.find(
+      (e) => e.type === "message.completed" && (e.payload as { role?: string }).role === "user",
+    );
+    expect(payloadSource(completed)).toBe("closure");
+  });
 });

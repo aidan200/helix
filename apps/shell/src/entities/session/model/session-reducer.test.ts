@@ -411,3 +411,88 @@ describe("T9 附件草稿（attachments ui state）", () => {
     expect(reset.attachments).toEqual([]);
   });
 });
+
+// ── T11b：closure/steer source 显示区分（消费链对账） ─────────
+
+describe("T11b steer 事件 source 对账（queued/drained 载荷 → 渲染条目）", () => {
+  const ready = (): SessionState =>
+    run([
+      welcome(),
+      snapshotOf([]),
+      ev({ v: 0, type: "agent.state.changed", payload: { state: "running" } }),
+    ]);
+
+  it("steer.queued 携带 source=closure → echo 对账条目标记 closure（徽标变体依据）", () => {
+    const sent = run([{ type: "ui/send", text: "收口注入", mode: "steer", ts: 10 }], ready());
+    const s = run(
+      [ev({ v: 0, type: "steer.queued", payload: { entryId: "st1", source: "closure" } })],
+      sent,
+    );
+    const e = s.entries.find((x) => x.id === "st1") as MessageEntryDto;
+    expect(e.source).toBe("closure");
+    expect(e.steerState).toBe("queued");
+  });
+
+  it("steer.drained 携带 source=progress → 对账条目 source 更新为 progress", () => {
+    const sent = run([{ type: "ui/send", text: "进展", mode: "steer", ts: 10 }], ready());
+    const confirmed = run(
+      [ev({ v: 0, type: "steer.queued", payload: { entryId: "st1", source: "progress" } })],
+      sent,
+    );
+    const drained = run(
+      [ev({ v: 0, type: "steer.drained", payload: { entryId: "st1", source: "progress" } })],
+      confirmed,
+    );
+    const e = drained.entries.find((x) => x.id === "st1") as MessageEntryDto;
+    expect(e.source).toBe("progress");
+    expect(e.steerState).toBe("drained");
+  });
+
+  it("回归钉：steer.queued/drained 缺省 source（老事件）→ 条目不携带 source（按 user 渲染）", () => {
+    const sent = run([{ type: "ui/send", text: "用户 steer", mode: "steer", ts: 10 }], ready());
+    const confirmed = run([ev({ v: 0, type: "steer.queued", payload: { entryId: "st1" } })], sent);
+    const drained = run(
+      [ev({ v: 0, type: "steer.drained", payload: { entryId: "st1" } })],
+      confirmed,
+    );
+    const e = drained.entries.find((x) => x.id === "st1") as MessageEntryDto;
+    expect(e.source).toBeUndefined();
+    expect(e.steerState).toBe("drained");
+  });
+});
+
+describe("T11b entry.source 到渲染链（实时帧 + 快照）", () => {
+  it("chat.message.completed 实时帧 entry.source 透传进主流（idle closure 注入即时区分）", () => {
+    const s = run([
+      welcome(),
+      snapshotOf([]),
+      ev({
+        v: 0,
+        type: "chat.message.completed",
+        payload: {
+          entry: {
+            kind: "message",
+            id: "c1",
+            role: "user",
+            content: "agent-1 closure: done",
+            ts: 1,
+            source: "closure",
+          },
+        },
+      }),
+    ]);
+    const e = s.entries.find((x) => x.id === "c1") as MessageEntryDto;
+    expect(e.source).toBe("closure");
+  });
+
+  it("session.snapshot 条目 source 带到主时间轴（恢复/重连路径）", () => {
+    const s = run([
+      welcome(),
+      snapshotOf([
+        { kind: "message", id: "p1", role: "user", content: "进展报告", ts: 1, source: "progress" },
+      ]),
+    ]);
+    const e = s.entries.find((x) => x.id === "p1") as MessageEntryDto;
+    expect(e.source).toBe("progress");
+  });
+});

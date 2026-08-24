@@ -321,6 +321,9 @@ html.light .bubble code.inline { color: var(--accent); }
   background: rgb(var(--violet-rgb) / 0.1); color: var(--violet);
 }
 .steer-badge.drained { border-color: rgb(var(--success-rgb) / 0.35); background: rgb(var(--success-rgb) / 0.08); color: var(--success); }
+/* T11b source 变体：closure = amber 族（与用户 steer violet 脉冲视觉分离）；progress = cyan 族。 */
+.steer-badge.closure { border-color: rgb(var(--warning-rgb) / 0.4); background: rgb(var(--warning-rgb) / 0.1); color: var(--warning); }
+.steer-badge.progress { border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.1); color: var(--accent); }
 .steer-badge .q-dot { width: 5px; height: 5px; border-radius: 999px; background: currentColor; animation: hud-pulse 2s ease-in-out infinite; }
 
 /* ═══ 定向 steer 细条（CL-3，Q-3a 双处同构物种：时间轴主轴 + 抽屉实例 feed；

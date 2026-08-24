@@ -227,7 +227,7 @@ export class ChatService implements ChatPort {
         const isFirstEntry = this.session.isEmpty();
         const entry = this.session.appendUserEntry(text, this.now(), images, source);
         if (isFirstEntry) this.deps.onFirstUserEntry?.();
-        this.publishMessageCompleted(entry.toData().id, "user", text, false, images);
+        this.publishMessageCompleted(entry.toData().id, "user", text, false, images, source);
         // ② 开新轮次（Turn=generating）并广播开始
         const turn = this.session.beginTurn(entry.id, this.now());
         this.publish("turn.started", { turnId: turn.id });
@@ -621,13 +621,15 @@ export class ChatService implements ChatPort {
   }
 
   private publishMessageCompleted(
-    entryId: string, role: MessageCompletedPayload["role"], text: string, isSteer: boolean, images?: readonly string[],
+    entryId: string, role: MessageCompletedPayload["role"], text: string, isSteer: boolean, images?: readonly string[], source?: SteerSource,
   ): void {
     this.publish<MessageCompletedPayload>("message.completed", {
       entryId,
       role,
       text,
       isSteer,
+      // 注入来源透传（T11b：idle closure/progress 注入实时帧区分；缺省不携带键）
+      ...(source !== undefined ? { source } : {}),
       // 图片上行：user 消息携带图片附件（data URL 原样，事件/投影同源）
       ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}),
     });

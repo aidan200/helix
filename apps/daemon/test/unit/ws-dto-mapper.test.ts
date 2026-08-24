@@ -244,6 +244,31 @@ describe("② 领域事件 → 协议事件帧", () => {
     expect(d).toMatchObject({ type: "steer.drained", payload: { entryId: "e6", source: "progress" } });
   });
 
+  test("T11b：message.completed 载荷 source → entry.source 透传（idle closure 注入实时帧区分）；缺省不带键", () => {
+    const closure = domainEventToEnvelope({
+      ...base,
+      type: "message.completed",
+      payload: { entryId: "e7", role: "user", text: "agent-1 closure: done", isSteer: false, source: "closure" },
+    });
+    expect(closure).toMatchObject({
+      type: "chat.message.completed",
+      payload: { entry: { kind: "message", id: "e7", role: "user", source: "closure" } },
+    });
+    const progress = domainEventToEnvelope({
+      ...base,
+      type: "message.completed",
+      payload: { entryId: "e8", role: "user", text: "进展报告", isSteer: false, source: "progress" },
+    });
+    expect(progress).toMatchObject({ payload: { entry: { source: "progress" } } });
+    // 缺省（普通用户消息 / 老载荷）→ entry 不携带 source 键
+    const legacy = domainEventToEnvelope({
+      ...base,
+      type: "message.completed",
+      payload: { entryId: "e9", role: "user", text: "你好", isSteer: false },
+    });
+    expect(legacy).not.toMatchObject({ payload: { entry: { source: expect.anything() } } });
+  });
+
   test("tool.call.started/result → ToolCallEntryDto（args JSON 串 / durationMs 注入）", () => {
     const started = domainEventToEnvelope({
       ...base,
