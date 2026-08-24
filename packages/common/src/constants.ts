@@ -4,22 +4,9 @@
  * 业务无关性纪律（TR-AD-28）：本包成员准入判据 = 「换一个产品仍然成立」
  * 的通用件；领域词汇（Session/Agent/Instance 等领域语义）一律拒绝入内
  * （评审守护——结构断言查不出，评审拦）。新常量落位先过判据，再进本文件。
- */
-
-/**
- * 主实例固定 id（O-4 裁决：会话创建即分配；持久化旧行回填常量与之同源，O-3）。
  *
- * AD-1 双源收编（T3.3）：原 apps/daemon/src/domain/agent/AgentInstance.ts 与
- * packages/protocol/src/envelope.ts 两处本地定义退役，唯一定义 = 本文件。
- * domain 经 AG-02① 白名单例外直引；protocol 为 re-export 通道（既有
- * @helix/protocol 消费面零 churn，本迭代不批量迁移既有消费点）；新代码直引
- * @helix/common。类型面取字面量型（D-4 裁决）：窄可赋宽（domain 消费点
- * string 面零破坏），宽不可赋窄（反向破坏 protocol 侧字面量联合既有类型面）。
- *
- * **legacy 标记（T10 实例 ID 统一，PROTOCOL.md §17.11 批内补登）**：现行
- * 契约下所有实例（含 main）instanceId = agent-<唯一串>，main/subagent 由
- * kind 承载；本常量仅为 legacy 判别（历史行/历史帧字面 "main" 的读侧推断，
- * projection/isMainInstance）与 shell 旧消费保留——shell 段 T10c 摘除后
- * 整体退役（与 protocol re-export 同批删除）。
+ * T10 实例 ID 统一（T10c 常量退役）：原 MAIN_INSTANCE_ID（"main"）已删除
+ * ——现行契约下所有实例 instanceId = agent-<唯一串>，legacy "main" 判别
+ * 由读侧 helper 承担（protocol projection/isMainInstance、shell
+ * entities/session isMainChannel 各自单点，PROTOCOL.md §17.11）。
  */
-export const MAIN_INSTANCE_ID = "main" as const;

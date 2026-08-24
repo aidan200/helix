@@ -5,8 +5,8 @@ import * as protocol from "../src/index";
  * TP-CL2-2 基线（A 简版）：包内导出唯一性 + 类型面完备。
  *
  * ① 运行时值导出恰为目录/登记/常量导出（v0.2：PROTOCOL_VERSION /
- *    COMMAND_TYPES / EVENT_TYPES / EVENT_CHANNELS / MAIN_INSTANCE_ID /
- *    SYSTEM_SESSION_ID），无意外值导出；
+ *    COMMAND_TYPES / EVENT_TYPES / EVENT_CHANNELS /
+ *    SYSTEM_SESSION_ID——MAIN_INSTANCE_ID 已随 T10c 退役），无意外值导出；
  * ② 类型面完备（契约 §3–§7 + v0.1/v0.2 全集经 index 可达）：下方 namespace
  *    类型引用任一名字缺失/拼写错误 → tsc --noEmit 失败（编译期守护）；
  * ③ 子模块 star 重导出无重名冲突：TS2308 在编译期报重复导出名——
@@ -222,10 +222,10 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     // 注：列表按 sort() 字典序（大写先于小写）；注释按域分组标注来源。
     expect(Object.keys(protocol).sort()).toEqual([
       // 目录/登记/常量（v0.2 常量收口）+ 投影·trace 域常量（迁自 daemon TraceQuery）
+      // （MAIN_INSTANCE_ID 已随 T10c 常量退役删除——legacy 判别归读侧 helper）
       "COMMAND_TYPES",
       "EVENT_CHANNELS",
       "EVENT_TYPES",
-      "MAIN_INSTANCE_ID",
       "PROTOCOL_VERSION",
       "SYSTEM_SESSION_ID",
       "TRACE_PAGE_DEFAULT",
@@ -255,7 +255,6 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
 
   test("② 常量语义值 + 目录计数（v0.11：命令 28 / 事件 48；thinking 批版本位升位）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.11"); // v0.11 批次版本位（thinking 批四块 additive，AD-2/AD-4；契约 = PROTOCOL.md §17.11）
-    expect(protocol.MAIN_INSTANCE_ID).toBe("main");
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
     expect(protocol.COMMAND_TYPES.length).toBe(28); // v0.11：+1（thinking.set）
     expect(protocol.EVENT_TYPES.length).toBe(48); // v0.11：+1（thinking.changed）

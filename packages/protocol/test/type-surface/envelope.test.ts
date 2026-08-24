@@ -109,7 +109,7 @@ describe("envelope：信封分型/版本位/兼容红线/预留与路由位（�
     expect(mainDelta.instanceId).toMatch(/^agent-[0-9a-f]+$/); // main 写侧显式携带唯一串
   });
 
-  test("PROTOCOL_VERSION / MAIN_INSTANCE_ID / SYSTEM_SESSION_ID 导出就位", () => {
+  test("PROTOCOL_VERSION / SYSTEM_SESSION_ID 导出就位（MAIN_INSTANCE_ID 已随 T10c 退役）", () => {
     expect(PROTOCOL_VERSION).toBe("0.11");
     // 常量断言经模块命名空间在 exports.test.ts 全量守护，此处锚定语义值
     expect(typeof PROTOCOL_VERSION).toBe("string");

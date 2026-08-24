@@ -30,15 +30,17 @@ describe("@helix/protocol 工作区解析（TP-CL2-2 基线）", () => {
   });
 });
 
-describe("MAIN_INSTANCE_ID 单源守护（AD-1 / iter-20260821-dg90 T3.3）", () => {
-  test("单源负命题：daemon src + packages 内值定义点唯一 = @helix/common", () => {
+describe("MAIN_INSTANCE_ID 常量退役守护（T10 实例 ID 统一 T10c）", () => {
+  test("退役负命题：daemon src + packages 内值定义点零残留（常量不复活）", () => {
     // 原「protocol 导出 == domain 本地定义」双源相等断言（OI 收口 F-2⑬）随
-    // 双源退役失去对象（T3.3：domain/AgentInstance.ts 与 protocol/envelope.ts
-    // 本地定义均删除，唯一定义 = packages/common/src/constants.ts）。守护改
-    // 负命题：`export const MAIN_INSTANCE_ID = "main"` 值定义点在 daemon src
-    // + packages 内恰一处 = common；re-export 通道（protocol envelope）与
-    // domain 锚点转发（AgentInstance）不算定义。第二定义点出现即红
-    // （双源复发守护，TR-AD-28 反例面；AG-13① 取源语义随迁）。
+    // 双源退役失去对象（T3.3）；此后守护「唯一定义 = common」单源。T10c
+    // 常量最终退役（shell 消费摘除后 common 定义 + protocol re-export 同批
+    // 删除）：守护翻转为全零负命题——`export const MAIN_INSTANCE_ID =
+    // "main"` 值定义点在 daemon src + packages 内零残留；legacy "main"
+    // 判别由读侧 helper 承担（domain isMainInstanceId / protocol
+    // projection isMainInstance / shell entities/session isMainChannel，
+    // 各自单点）。定义点再现即红（常量复活守护，TR-AD-28 反例面；
+    // AG-13① 语义随迁）。
     const defRe = /export\s+const\s+MAIN_INSTANCE_ID\s*=\s*"main"/;
     const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..");
     const scanRoots = [
@@ -53,7 +55,7 @@ describe("MAIN_INSTANCE_ID 单源守护（AD-1 / iter-20260821-dg90 T3.3）", ()
         if (defRe.test(src)) definitions.push(path.relative(repoRoot, path.join(root, rel)));
       }
     }
-    expect(definitions).toEqual([path.join("packages", "common", "src", "constants.ts")]);
+    expect(definitions).toEqual([]);
   });
 });
 

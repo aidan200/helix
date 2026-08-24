@@ -428,8 +428,10 @@ interface ClosureDto {
 | 常量 | 值 | 说明 |
 |---|---|---|
 | `PROTOCOL_VERSION` | `"0.2"` | handshake 协商；harness V 字面量收敛（F-2⑭） |
-| `MAIN_INSTANCE_ID` | `"main"` | 双侧手写收敛（F-2⑬；daemon 经 AgentInstance re-export，shell 随 T3.1） |
 | `SYSTEM_SESSION_ID` | `"__system__"` | 会话无关系统事件（connection.*）sessionId 占位 |
+
+（`MAIN_INSTANCE_ID`（`"main"`）已随 T10 实例 ID 统一 T10c 退役：定义与
+re-export 同批删除，legacy 判别由读侧 helper 承担，见 §17.11。）
 
 ### 11.3 事件类型学（八族 + 系统通道）
 
@@ -1750,4 +1752,8 @@ main）instanceId = `agent-<唯一串>`（daemon 单点生成，session id 同�
 写侧从「main 省略/字面 `"main"`」改为「全实例显式携带 `agent-<唯一串>`」
 （事件信封/EntryDto/快照面），对旧客户端为 additive（读侧推断保留，不破
 读侧），版本位不 bump。`MAIN_INSTANCE_ID` 常量本批保留（legacy 判别 +
-shell 旧消费，shell 段 T10c 摘除后整体退役）。
+shell 旧消费，shell 段 T10c 摘除后整体退役）；**T10c 已完成退役**：
+@helix/common 定义与 protocol re-export 同批删除（全仓零残留），legacy
+判别由读侧 helper 承担（protocol projection `isMainInstance` / shell
+entities/session `isMainChannel` / daemon domain `isMainInstanceId`，各自
+单点持有 legacy 字面）。

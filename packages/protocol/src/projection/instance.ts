@@ -12,15 +12,22 @@
  *
  * 纯数据进纯数据出（无 IO / framework-free）。
  */
-import { MAIN_INSTANCE_ID } from "../envelope";
 import type { EntryDto } from "../types/session";
 
 // ── 实例归属判定（§10.1/§17.11 T10：缺省或字面 "main" = legacy 主实例读侧推断）──
 
+/**
+ * legacy 主实例 id 字面（T10c 常量退役后本模块自持）：历史行/历史帧的
+ * instance_id="main" 读侧推断专用——MAIN_INSTANCE_ID 常量（@helix/common
+ * 定义 + envelope re-export）已随 shell 段 T10c 整体删除，全仓零残留；
+ * legacy 判别由读侧 helper（本函数 / shell isMainChannel）承担。
+ */
+const LEGACY_MAIN_INSTANCE_ID = "main";
+
 /** 主实例归属判定（legacy 读侧推断单点：undefined 缺省或字面 "main" = main；
  *  现行写侧全实例显式携带 agent-<唯一串>，main 归属判别走 kind，不经本函数）。 */
 export function isMainInstance(instanceId: string | undefined): boolean {
-  return (instanceId ?? MAIN_INSTANCE_ID) === MAIN_INSTANCE_ID;
+  return (instanceId ?? LEGACY_MAIN_INSTANCE_ID) === LEGACY_MAIN_INSTANCE_ID;
 }
 
 // ── 条目排序基元（daemon entrySortKey ↔ shell entryTimelineKey 同构收敛） ──
@@ -80,7 +87,7 @@ export function computeAnchorEntryId(
 ): string | null | undefined {
   if (instance.kind === "main") return undefined; // 规则③
   const firstIdx = entries.findIndex(
-    (e) => e.kind !== "compaction" && (e.instanceId ?? MAIN_INSTANCE_ID) === instance.instanceId,
+    (e) => e.kind !== "compaction" && (e.instanceId ?? LEGACY_MAIN_INSTANCE_ID) === instance.instanceId,
   );
   if (firstIdx >= 0) return lastMainAnchorId(entries, firstIdx); // 规则①
   if (instance.spawnAnchorEntryId !== undefined) return instance.spawnAnchorEntryId; // 规则②

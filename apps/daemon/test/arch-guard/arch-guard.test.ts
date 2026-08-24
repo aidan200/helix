@@ -52,7 +52,8 @@ describe("AG-01：port 文件只有接口/类型", () => {
 describe("AG-02：依赖方向矩阵", () => {
   test("① domain 零包外 import（唯一例外 @helix/common；pi/bun:node/protocol/adapters/infrastructure 全禁）", () => {
     // AD-1（iter-20260821-dg90 T3.3）：MAIN_INSTANCE_ID 双源收编引入 domain 唯一
-    // 包外例外 @helix/common（业务无关通用层，零依赖）；@helix/protocol 仍禁
+    // 包外例外 @helix/common（业务无关通用层，零依赖；T10c 常量退役后仅作
+    // 结构层保留，domain 现无消费）；@helix/protocol 仍禁
     // （协议类型经 adapter/projection 层转换，TR-AD-1 例外句）。
     const DOMAIN_PACKAGE_WHITELIST: ReadonlySet<string> = new Set(["@helix/common"]);
     for (const rel of listFiles(path.join(srcRoot, "domain"))) {
@@ -203,8 +204,9 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
     };
     const deps = Object.keys(pkg.dependencies).sort();
     // @helix/protocol：workspace 内部协议包（T1.2 引入、T1.6 ws-server 运行时用）；
-    // @helix/common：业务无关通用层（AD-1/T3.3，MAIN_INSTANCE_ID 唯一定义所在，
-    // AG-15③ 联动断言）——两包均不计入 pi 系口径
+    // @helix/common：业务无关通用层（AD-1/T3.3；MAIN_INSTANCE_ID 已随 T10c
+    // 退役——包级依赖与 AG-15③ 联动断言保留，待包级退役决策）——两包均不计
+    // 入 pi 系口径
     expect(deps).toEqual([
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",

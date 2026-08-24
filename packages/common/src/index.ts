@@ -6,5 +6,6 @@
  * 任何 @helix/* 包与第三方包。成员准入判据 = 「换一个产品仍然成立」
  * （TR-AD-28 业务无关性纪律）。
  * utils/ 为通用纯工具位（本迭代不填充——既有 utils 不批量迁移）。
+ * constants.ts 现为空置（T10 实例 ID 统一 T10c：MAIN_INSTANCE_ID 退役
+ * 删除，暂无全局常量成员——新常量落位仍归该文件，准入判据不变）。
  */
-export * from "./constants.ts";

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "echo \"[@helix/protocol] 源码即产物，无需构建输出（类型+行为契约：协议 v0 全部类型（PROTOCOL.md 成文）+ projection/ 三域纯函数（T3.1/CL-4，usage/instance/trace）；MAIN_INSTANCE_ID re-export 自 @helix/common，AD-1/T3.3）\""
+    "build": "echo \"[@helix/protocol] 源码即产物，无需构建输出（类型+行为契约：协议 v0 全部类型（PROTOCOL.md 成文）+ projection/ 三域纯函数（T3.1/CL-4，usage/instance/trace）；MAIN_INSTANCE_ID 常量已随 T10c 退役（legacy 判别归 projection/isMainInstance 读侧单点））\""
   },
   "dependencies": {
     "@helix/common": "workspace:*"
