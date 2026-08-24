@@ -2,6 +2,170 @@
 
 ## pending
 
+### TR-AD-40（iter-20260823-6ps5）
+- changeType: 修改
+- targetNode: TR-AD-40
+- scope: docs/kg/architecture-rules.md TR-AD-40（AD-2 字符串透传语义 protocol 侧锚点回填）
+- project: helix
+- reason: T1.1 闭环 sediment：AD-2（档位全暴露、必选、字符串透传）protocol 侧完整实现——thinking 批四块全部新增字段 string 透传、零第二份枚举（grep 验证）
+- evidence: commands.ts:374-392; events/thinking.ts:15-18; types/model.ts:20-30; events/agent.ts:68-73; grep ThinkingLevel 仅注释命中
+- implementationStatus: 完整实现
+- implementedCode: packages/protocol/src/commands.ts#ThinkingSetPayload; packages/protocol/src/events/thinking.ts#ThinkingChangedPayload; packages/protocol/src/types/model.ts#CatalogModel; packages/protocol/src/events/agent.ts#AgentInstantiatedPayload
+- sourceTask: T1.1（SubAgent sediment + MainAgent 提案，2026-08-23）
+- createdIn: iter-20260823-6ps5
+
+### TR-AD-41（iter-20260823-6ps5）
+- changeType: 修改
+- targetNode: TR-AD-41
+- scope: docs/kg/architecture-rules.md TR-AD-41（AD-4 会话级参数协议演进模式 protocol 侧锚点回填——①②④ 三块）
+- project: helix
+- reason: T1.1 闭环 sediment：AD-4 protocol 包侧 ①②④ 三块完整实现（thinking.set/thinking.changed 命令族、CatalogModel 能力位、agent.instantiated +thinkingLevel）；③ SessionStateView 扩字段与 daemon 映射归 T1.2（brief 边界内划分，非部分实现）
+- evidence: packages/protocol/test/type-surface/thinking.test.ts:61-62,109-110（chat.send 零字段负断言）; types/model.ts:20-30; events/agent.ts:68-73; envelope.ts:14 v0.11 + PROTOCOL.md §17.11
+- implementationStatus: 完整实现
+- implementedCode: packages/protocol/src/commands.ts#ThinkingSetCommand; packages/protocol/src/types/model.ts#CatalogModel; packages/protocol/src/events/agent.ts#AgentInstantiatedPayload; packages/protocol/test/type-surface/thinking.test.ts
+- sourceTask: T1.1（SubAgent sediment + MainAgent 提案，2026-08-23）
+- createdIn: iter-20260823-6ps5
+
+### TR-AD-40-r2（iter-20260823-6ps5）
+- changeType: 修改
+- targetNode: TR-AD-40
+- scope: docs/kg/architecture-rules.md TR-AD-40（AD-1 落点二 + §3.5 注入器装配点 2 锚点回填）
+- project: helix
+- reason: T1.3 闭环 sediment：SubagentLauncher.resolveThinkingFor 两级链（profile.thinkingLevel ?? medium，launch 段唯一消费点）+ HELIX_THINKING_LEVEL env 定格透传 + deps.profile 扩 getter 注入源形态（组合根把 resource_state subagent-worker 槽位折叠进 profile 读面，静态声明优先）；主会话覆盖零读面红线以依赖类型机械保证；model-provider 新增 supportsThinkingLevel/wrapStreamFnThinking 纯透传注入器，包装在 streamFnOverride 外侧（fake 剧本通道不破坏）
+- evidence: test/unit/subagent-thinking-chain.test.ts 6 用例 + test/integration/subagent-child.test.ts 真子进程 4 用例（xhigh/medium 捕获 options.reasoning）+ model-provider.test.ts 6 新用例全绿
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts#resolveThinkingFor; apps/daemon/src/infrastructure/assembly/buildSessionStack.ts#deps.profile getter; apps/daemon/src/adapters/driven/pi-engine/model-provider.ts#supportsThinkingLevel/wrapStreamFnThinking; apps/daemon/src/adapters/driven/pi-engine/PiAgentEngineAdapter.ts#resolveThinking 选项; apps/daemon/src/adapters/driven/subagent/child/ChildMain.ts#HELIX_THINKING_LEVEL
+- sourceTask: T1.3（SubAgent sediment + MainAgent 补录，2026-08-23；submit_result sedimentLedger 落账故障经 ISSUE-kg-propose-path 记录）
+- createdIn: iter-20260823-6ps5
+
+### E-AgentProfile-r3（iter-20260823-6ps5）
+- changeType: 修改
+- targetNode: E-AgentProfile
+- scope: docs/kg/domain.md E-AgentProfile + E-智能体配置资源（AD-6 thinkingLevel 可选维落地锚点回填）
+- project: helix
+- reason: T1.3 闭环 sediment：AgentProfile + 可选 thinkingLevel（纯声明）+ 配置资源 7 步链（ResourceType+"thinking" 槽位型 / WriteQueue 通用 slotValue 原子替换 job / ResourceStateStore / ResourceService 三态 / protocol DTO v0.11 批内补登（M6 T4 先例，版本位未再 bump）/ resource.ts handler 零校验透传 / EventStream 广播）；kind 维合取不传染、缺省无记录=未配置语义不变（负断言守护）
+- evidence: resource-service.test.ts 3 新用例 + resource-state.test.ts④ + agent-config-ws.test.ts⑫ 全绿
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/runtime/AgentProfile.ts#thinkingLevel; application/ports/outbound/ResourceStatePort.ts; adapters/driven/sqlite-session/WriteQueue.ts#slotValue; adapters/driven/sqlite-session/ResourceStateStore.ts; application/services/ResourceService.ts; packages/protocol/src/events/agent.ts#AgentConfigProfileBlock; packages/protocol/src/commands.ts#resourceType
+- sourceTask: T1.3（SubAgent sediment + MainAgent 补录，2026-08-23）
+- createdIn: iter-20260823-6ps5
+
+### E-模型目录（iter-20260823-6ps5）
+- changeType: 修改
+- targetNode: E-模型目录
+- scope: docs/kg/domain.md E-模型目录（AD-4② CatalogModel 防腐能力位映射锚点回填）
+- project: helix
+- reason: T1.3 闭环 sediment：model-catalog snapshot() 防腐映射单点 reasoning 直透 + thinkingLevels = pi-ai getSupportedThinkingLevels(model).filter(≠"off")（canonical 升序与缺席键规则保持 pi-ai SoT；helix 不引入 off 语义）；handlers/model.ts 两处 T1.1 保守占位移除、真实映射接通
+- evidence: test/unit/model-catalog.test.ts 三变体（full/tri/none）+ ws-server-spy.test.ts 直透断言全绿
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/model-catalog.ts#snapshot; apps/daemon/src/application/ports/outbound/ModelCatalogPort.ts#CatalogModelView; apps/daemon/src/adapters/driving/ws-server/handlers/model.ts
+- sourceTask: T1.3（SubAgent sediment + MainAgent 补录，2026-08-23）
+- createdIn: iter-20260823-6ps5
+
+### E-AgentInstance-r4（iter-20260823-6ps5）
+- changeType: 修改
+- targetNode: E-AgentInstance
+- scope: docs/kg/domain.md E-AgentInstance（AD-4④ agent.instantiated 携带 thinkingLevel 锚点回填）
+- project: helix
+- reason: T1.3 闭环 sediment：agent.instantiated 落盘事件携带 thinkingLevel（domain payload 可选字段；SchedulerService.spawn 签名不扩，经 subagentSnapshotFor 组装回调 {profileSnapshot, thinkingLevel} 同源同时点供给；只落盘不广播语义不变）；边界：主实例 instantiated 在 T1.2 主会话链落地前不携带，后续可将 domain 侧收窄必填对齐（feedback F-3）
+- evidence: subagent-thinking-chain.test.ts 末组发布面 spy 断言全绿
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/scheduler/SchedulerService.ts#spawn instantiated 发布块; apps/daemon/src/domain/events/DomainEvent.ts#AgentInstantiatedPayload.thinkingLevel; apps/daemon/src/infrastructure/assembly/buildSessionStack.ts#subagentSnapshotFor
+- sourceTask: T1.3（SubAgent sediment + MainAgent 补录，2026-08-23）
+- createdIn: iter-20260823-6ps5
+
+### TR-AD-41-r2（iter-20260823-6ps5）
+- changeType: 修改
+- targetNode: TR-AD-41
+- scope: docs/kg/architecture-rules.md TR-AD-41（AD-4①③ 主会话命令族 + 跨冷恢复锚点回填）
+- project: helix
+- reason: T1.2 闭环 sediment：AD-4① thinking.set 主会话全链（handlers/thinking.ts → ModelService/ChatService → AgentEnginePort 扩面 → PiAgentEngineAdapter → AgentRuntime → domain_events 单写队列落盘 → thinking.changed 广播；per-session 直改命令族同构模板第二次实例化）；AD-4③ RestoreService.restoreThinkingOverride 只读回放末值（零新事件流铁律）→ buildRuntime 直写引擎内存（绕过发布面）+ SessionStateView additive thinking 字段；与 model.set 不恢复差异负断言钉死
+- evidence: thinking-set-chain.test.ts 全链绿（含错误先例 invalid_payload/session.not_found）；thinking-restore.test.ts 两条绿（model 负断言 + 零新事件流行数断言 + 多次覆盖末值断言）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driving/ws-server/handlers/thinking.ts:17; apps/daemon/src/application/services/ModelService.ts:87; apps/daemon/src/application/services/ChatService.ts:175; apps/daemon/src/adapters/driven/pi-engine/runtime/AgentRuntime.ts:139; apps/daemon/src/adapters/driven/pi-engine/PiAgentEngineAdapter.ts:171; apps/daemon/src/application/services/RestoreService.ts:156#restoreThinkingOverride; apps/daemon/src/application/services/SessionRegistry.ts:465+621; apps/daemon/src/infrastructure/assembly/buildSessionStack.ts:375
+- sourceTask: T1.2（SubAgent sediment + MainAgent 补录，2026-08-23；submit_result 自动落账故障见 ISSUE-kg-propose-path）
+- createdIn: iter-20260823-6ps5
+
+### TR-AD-40-r3（iter-20260823-6ps5）
+- changeType: 修改
+- targetNode: TR-AD-40
+- scope: docs/kg/architecture-rules.md TR-AD-40（AD-1 落点一 + AD-3 解析链/观测面锚点回填）
+- project: helix
+- reason: T1.2 闭环 sediment：主会话解析链 [引擎覆盖（回读自引用闭包）, main-session 槽位, 兜底 medium] → resolveEffectiveThinking 能力过滤 clamp（装配于 buildSessionStack engineFor 生产组合根，注入器复用 T1.3 wrapStreamFnThinking，包装在 streamFnOverride 外侧）；观测面 currentThinking {override, effective} 双位（意图/生效分离）
+- evidence: thinking-set-chain.test.ts「覆盖 → 生效档钳制 → 换模无损」断言序列绿；生产组合根接线用例绿（TR-TEST-5）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/thinking-resolve.ts:24#resolveEffectiveThinking; apps/daemon/src/adapters/driven/pi-engine/PiAgentEngineAdapter.ts:184#currentThinking; apps/daemon/src/application/ports/outbound/AgentEnginePort.ts:153#AgentThinkingState; apps/daemon/src/infrastructure/assembly/buildSessionStack.ts#engineFor
+- sourceTask: T1.2（SubAgent sediment + MainAgent 补录，2026-08-23）
+- createdIn: iter-20260823-6ps5
+
+### TR-AD-42（iter-20260823-6ps5）
+- changeType: 修改
+- targetNode: TR-AD-42
+- scope: docs/kg/architecture-rules.md TR-AD-42（能力位驱动 UI 首次完整实例化锚点回填）
+- project: helix
+- reason: T2.1 闭环 sediment：AD-2/AD-3/AD-5 的 shell 消费面落地——thinkingSetCommand 构造器（字符串零校验透传）+ CatalogModel.thinkingLevels 直接驱动滑块刻度（不硬编码六档）+ entities/session thinking 切片 {override,effective} 双位（thinking.changed 广播 + 快照 additive 防御消费）+ ThinkingLevelSlider 共用原子组件（props: levels/value/ghostValue/disabled/peak/onSelect）+ ComposerThinkingPicker（trigger chip + popover）+ PEAK 四要素全 token 零新色板（reduced-motion 光束静止）；dispatcher 路由守护同步扩（thinking.changed 消费者）
+- evidence: commands.test.ts + ComposerThinkingPicker.test.tsx 能力位三变体/clamped + ThinkingLevelSlider.test.tsx 10 用例 + thinking-level.css.test.ts 6 用例 + consumers/thinking-level.test.ts 6 用例；test:shell 422 全绿
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/shared/api/commands.ts#thinkingSetCommand; apps/shell/src/features/thinking-level/ui/ThinkingLevelSlider.tsx; apps/shell/src/features/thinking-level/ui/ComposerThinkingPicker.tsx; apps/shell/src/features/thinking-level/model/thinking-capability.ts#resolveThinkingCapability; apps/shell/src/entities/session/model/state.ts#ThinkingSlice; apps/shell/src/entities/session/model/consumers/thinking-level.ts; apps/shell/src/shared/ui/styles/workbench.css（.tp-*/.tl-*/.beam）
+- sourceTask: T2.1（SubAgent sediment + MainAgent 补录，2026-08-23；submit_result 自动落账故障见 ISSUE-kg-propose-path）
+- createdIn: iter-20260823-6ps5
+
+### E-AgentProfile-r4（iter-20260823-6ps5）
+- changeType: 修改
+- targetNode: E-AgentProfile
+- scope: docs/kg/domain.md E-AgentProfile（AD-6 shell 消费面锚点回填）
+- project: helix
+- reason: T2.2 闭环 sediment：AD-6 的 shell 读写面落地——读 = agent.config list.result profiles[].thinkingLevel（null → unset ghost）；写 = set_enabled resourceType="thinking" 槽位语义（set=档位字符串透传；clear=name "-" enabled=false），applied 等 changed 广播 revision 重拉收口；kind 维合取语义不变。另 AD-2/AD-5 的 P-2 表达：字段零档位校验原样透传；canonical 序仅作展示位镜像（thinking-resolution.ts，spawn 解析权威在 daemon）；ThinkingLevelSlider 双消费位落地（props 契约零改动，PEAK 同一 .peak class）
+- evidence: AgentPage.test.tsx P-2 ①~⑥ + thinking-resolution.test.ts 七例 + thinking-level.css.test.ts 字段壳断言；test:shell 437 全绿
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/pages/skills/ui/P-2-ThinkingField.tsx; apps/shell/src/pages/skills/AgentPage.tsx:185-191; apps/shell/src/pages/skills/model/agent-config-model.ts#pendingKeyOf; apps/shell/src/features/thinking-level/model/thinking-resolution.ts; apps/shell/src/shared/ui/styles/workbench.css:644#.tl-box.peak
+- sourceTask: T2.2（SubAgent sediment + MainAgent 补录，2026-08-23；submit_result 自动落账故障见 ISSUE-kg-propose-path）
+- createdIn: iter-20260823-6ps5
+
+### TR-AD-42-r2（iter-20260823-6ps5）
+- changeType: 修改
+- targetNode: TR-AD-42
+- scope: docs/kg/architecture-rules.md TR-AD-42 anchors.implementedBy 增补一行（规则正文不变）
+- project: helix
+- reason: T3.2 闭环 sediment：能力位驱动 UI 规则锚点补全——features/thinking-level（ui + model 全目录）为首个完整实例化
+- evidence: evidence/CL-1-fidelity-checklist.md 横切项「能力位 mock 矩阵」；bun run test:shell 446 全绿；E2E CL-1-thinking-* 5/5 绿
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/features/thinking-level/
+- sourceTask: T3.2（SubAgent sediment + MainAgent 补录，2026-08-23）
+- createdIn: iter-20260823-6ps5
+
+### TR-AD-WS-CONN-GATE（iter-20260823-6ps5）（拟新增 convention 规则）
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md（convention 层新规——WS 命令拉取效应必须连接态门控）
+- project: helix
+- reason: T3.2 打回修复沉淀：ComposerThinkingPicker requestModelConfig 挂载效应早于 WS 握手触发，HelixWsClient.send 握手前静默拒绝且无重试 → fresh-load 目录帧丢失（T2.1 bug 类通用形态）；修法 = 效应 conn === "connected" 门控 + 握手完成重发补拉（AgentPage [conn,...] 依赖先例）；适用范围 = shell 全部挂载期/进页期 WS 命令拉取效应（model.catalog/model.get_default/auth.list/agent.config.list 同族）
+- evidence: commit 3ec1f81；回归用例「握手前挂载不发 → connected 后必拉」；evidence/CL-1-fidelity-checklist.md P-1 偏差记录（已修复注记）
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/features/thinking-level/ui/ComposerThinkingPicker.tsx:40-48
+- sourceTask: T3.2 打回修复（SubAgent sediment + MainAgent 补录，2026-08-23）
+- createdIn: iter-20260823-6ps5
+
+### TR-AD-PROFILE-GETTER-FOLD（iter-20260823-6ps5）（拟新增 convention 规则，架构师终审 F-1 采纳）
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md（convention 层新规——配置资源槽位经 getter 折叠进 profile 读面）
+- project: helix
+- reason: 架构师终审 F-1 裁决采纳沉淀：「配置资源槽位经 getter 折叠进 profile 读面，静态声明优先；解析单点本体保持字面链形状」——SubagentLauncherDeps.profile 扩为 AgentProfile | (() => AgentProfile)（deps.model/apiKeys 注入源模式同构先例），组合根 getter 在 launch 时刻合并 resource_state 槽位；同形态已两处靠注释维系（launcher 解析 + subagentSnapshotFor 快照供给手工复制同一链序），复制点越多注释维系越脆，应落显式约定
+- evidence: SubagentLauncher.ts:47-53（deps.profile 联合类型）+ :168-171（profileNow 归一读面）+ :177-182（resolveThinkingFor 两级字面形状）；buildSessionStack.ts:203-210（getter 折叠）+ :267-277（subagentSnapshotFor 同源同时点）；architect-review.md F-1 裁决
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts#profileNow; apps/daemon/src/infrastructure/assembly/buildSessionStack.ts#getter 折叠段
+- sourceTask: 架构师终审 F-1（MainAgent 补录，2026-08-23）
+- createdIn: iter-20260823-6ps5
+
+### TR-AD-36
+- changeType: 修改
+- targetNode: TR-AD-36
+- scope: GC 正确性类检出
+- project: helix
+- reason: rotten-pointer: anchor → apps/daemon/src/adapters/driven/subagent/ScopedBrowserProxy.ts (docs/kg/architecture-rules.md)；rotten-pointer: anchor → apps/daemon/src/adapters/driven/subagent/child/RemoteBrowserPort.ts (docs/kg/architecture-rules.md)；rotten-pointer: anchor → apps/daemon/test/unit/subagent-remote-browser-port.test.ts (docs/kg/architecture-rules.md)；rotten-pointer: anchor → apps/daemon/test/unit/subagent-scoped-browser-proxy.test.ts (docs/kg/architecture-rules.md)；rotten-pointer: anchor → apps/daemon/test/unit/subagent-wire.test.ts (docs/kg/architecture-rules.md)
+- evidence: kg gc_report
+- sourceTask: kg-gc
+- createdIn: (gc-report)
+
 ## deferred
 
 ## applied
