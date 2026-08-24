@@ -16,7 +16,8 @@ import type { Translations } from "./zh-CN";
  *  mainIdle/kind* 展示键，沿 cancelled 先例）；T8 输入区改造：composer.stop
  *  新增（停止钮），projectionNote 退役（脚注整行移除）。 */
 const REQUIRED_KEYS = [
-  "chat.header.session",
+  "chat.header.modeTitle",
+  "chat.mode.default",
   "chat.header.home",
   "chat.conn.connected",
   "chat.conn.connecting",

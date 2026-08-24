@@ -104,6 +104,19 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return state.sessionId === null
         ? { ...state, thinking: { override: action.level, effective: action.level } }
         : state;
+    case "ui/set-draft-mode":
+      // 草稿模式切换（P1 T4；D3/D4 唯一写入口）：仅草稿态生效；切换同时丢弃
+      // 本地 draft model/thinking 暂存（会话将是新的，用户重选——草稿模式切
+      // 换零 daemon 交互，mode 随首条 chat.send{draft:true, mode} 上送）；真
+      // 实会话原样（防御——锁定 = 结构不可能，无第二条写路径）
+      return state.sessionId === null
+        ? {
+            ...state,
+            mode: action.mode,
+            model: "",
+            thinking: { override: null, effective: null },
+          }
+        : state;
     case "ui/send": {
       const text = action.text.trim();
       // SM 规则 6：非 connected 拒发。T9：附件生命周期绑定发送动作——

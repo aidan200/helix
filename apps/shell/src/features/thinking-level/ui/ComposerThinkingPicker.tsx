@@ -23,6 +23,14 @@
  * - 选档 → setSessionThinking(level)（SessionContext 发 thinking.set；
  *   草稿态本地暂存，draft-model 先例）。
  *
+ * 草稿基准换源（P1 T4，mode-framework-p1 D3/D4）：草稿态（sessionId===null）
+ * 刻度/显示基准 = 当前模式槽位（agentConfig.slots，selectModeSlot 解析）
+ * 模型的能力位——模型 = 本地暂存 ?? 槽位模型 ?? 全局默认（与草稿徽标链
+ * 同口径三级回退）；显示值 = 本地暂存 ?? 槽位 thinking ?? 默认关（无本地
+ * 暂存时 ghost 空心 thumb 停槽位 thinking 位，仅预览）。已建会话行为不变
+ * （thinking.changed 权威，槽位零侵染）。草稿切模式丢弃本地暂存（reducer
+ * 裁决）后，基准随 state.mode 自动重解析。
+ *
  * 状态模型（review.md §2）：ready | disabled 互斥（reasoning 驱动）；
  * 修饰层 clamped（override≠effective → warning 轻提示）/ peak（effective =
  * 最高档 → trigger+popover 同入 .peak + 徽章）叠加于 ready；重渲染先清旧
@@ -32,6 +40,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
+import { selectModeSlot } from "@/entities/session/model/consumers/agent-config";
 import { cn } from "@/shared/lib/cn";
 import { isClamped, isPeakLevel, resolveThinkingCapability } from "../model/thinking-capability";
 import ThinkingLevelSlider from "./ThinkingLevelSlider";
@@ -70,10 +79,14 @@ const ComposerThinkingPicker = function ComposerThinkingPicker() {
     };
   }, [open]);
 
-  // 草稿态模型回退解析（draft-model 先例，ModelSwitchMenu 同口径）：
-  // state.model（本地暂存所选）空 → 全局默认；非草稿不变
-  const currentModel =
-    state.sessionId === null ? state.model || mc.defaultModel : state.model;
+  // 草稿态模型回退解析（P1 T4 三级回退，与草稿徽标链同口径）：state.model
+  // （本地暂存所选）空 → 当前模式槽位模型（agentConfig.slots，selectModeSlot
+  // 解析 mode → profileKind）空 → 全局默认；非草稿不变（state.model 快照权威）
+  const isDraft = state.sessionId === null;
+  const draftSlot = isDraft ? selectModeSlot(topology, state.mode) : null;
+  const currentModel = isDraft
+    ? state.model || draftSlot?.model || mc.defaultModel
+    : state.model;
   const capability = resolveThinkingCapability(currentModel, mc.catalog?.models);
   const capabilityKnown = capability !== undefined;
   const reasoningOff = capabilityKnown && !capability.reasoning;
@@ -83,14 +96,18 @@ const ComposerThinkingPicker = function ComposerThinkingPicker() {
   const levels = ["off", ...capabilityLevels];
 
   const { override, effective } = state.thinking;
-  const peak = !reasoningOff && isPeakLevel(capabilityLevels, effective);
+  // P1 T4 草稿显示值回退链：本地暂存（effective——草稿态与 override 同镜像，
+  // ui/set-draft-thinking）?? 槽位 thinking ?? 默认关（null → OFF）；非草稿
+  // effective 权威（thinking.changed 广播 + 快照，槽位零侵染）
+  const displayLevel = isDraft ? effective ?? draftSlot?.thinking ?? null : effective;
+  const peak = !reasoningOff && isPeakLevel(capabilityLevels, displayLevel);
   const clamped = isClamped(override, effective);
 
   // trigger 档位显示：禁用（reasoning=false 判明）→ OFF；生效档 → 大写；
   // 无生效档（无覆盖，默认关）→ OFF（AUTO 退场——无覆盖与显式关同态 OFF）
   const levelText = reasoningOff
     ? t("chat.thinking.off")
-    : (effective ?? t("chat.thinking.off")).toUpperCase();
+    : (displayLevel ?? t("chat.thinking.off")).toUpperCase();
 
   return (
     <div className="thinking-picker">
@@ -130,7 +147,9 @@ const ComposerThinkingPicker = function ComposerThinkingPicker() {
             <ThinkingLevelSlider
               levels={levels}
               value={effective}
-              ghostValue="off"
+              // P1 T4 草稿预览位：无本地暂存时 ghost 空心 thumb 停槽位 thinking
+              // 位（槽位未拉取/未配 → off，默认关）；非草稿恒 off 位
+              ghostValue={isDraft ? draftSlot?.thinking ?? "off" : "off"}
               peak={peak}
               onSelect={setSessionThinking}
               ariaLabel={t("chat.thinking.sliderLabel")}

@@ -107,18 +107,22 @@ describe("dispatcher 帧路由（v0.2 信封 sessionId）", () => {
     expect(next).toBe(topo);
   });
 
-  it("agent.config 族三 type（v0.6 系统级）→ 拓扑级前置路由：changed 接真消费（revision 递增），两结果帧直通不写活跃 store（M6 T4）", () => {
+  it("agent.config 族三 type（v0.6 系统级）→ 拓扑级前置路由：changed 接真消费（revision 递增），list.result 写 slots 槽位读面，set_enabled.result 直通（M6 T4 + P1 T4）", () => {
     const topo = connectedTopology();
     const activeBefore = topo.active;
-    // ① changed 广播 → agentConfig.revision +1（智能体页失效重拉信号）
+    // ① changed 广播 → agentConfig.revision +1（智能体页/provider 失效重拉信号）
     const next = dispatchFrame(topo, frame("agent.config.changed", { profileKind: "main-session", resourceType: "tool", name: "grep", enabled: false }, { sessionId: SYSTEM_SESSION_ID, channel: "agent" }), 0);
     expect(next).not.toBe(topo);
     expect(next.agentConfig.revision).toBe(topo.agentConfig.revision + 1);
     expect(next.active).toBe(activeBefore); // 活跃会话 store 不被配置广播误写
-    // ② 两点对点结果帧 → 拓扑原引用（真消费归页面查询链，registry no-op 已注销）
-    expect(dispatchFrame(topo, frame("agent.config.list.result", { profiles: [] }, { sessionId: SYSTEM_SESSION_ID, channel: "agent" }), 0)).toBe(topo);
+    // ② list.result → 槽位轻量读面真消费（P1 T4：profiles 提升为 topology 级 slots；全量覆盖，真消费归拓扑）
+    const listed = dispatchFrame(topo, frame("agent.config.list.result", { profiles: [] }, { sessionId: SYSTEM_SESSION_ID, channel: "agent" }), 0);
+    expect(listed).not.toBe(topo); // 写拓扑配置面（非直通）
+    expect(listed.agentConfig.slots).toEqual({}); // 空 profiles → 空 slots（全量覆盖语义）
+    expect(listed.active).toBe(activeBefore); // 活跃会话 store 不被结果帧误写
+    // set_enabled.result → 拓扑原引用（点对点回执归页面查询链）
     expect(dispatchFrame(topo, frame("agent.config.set_enabled.result", { status: "applied" }, { sessionId: SYSTEM_SESSION_ID, channel: "agent" }), 0)).toBe(topo);
-    // ③ 结果帧不前置路由时会落入 route() → undefined → 原样返回（多会话隔离不受影响）
+    // ③ 结果帧不入活跃 store 注册表（route() → undefined → 多会话隔离不受影响）
     expect(route("agent.config.list.result")).toBeUndefined();
   });
 

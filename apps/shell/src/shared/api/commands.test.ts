@@ -41,6 +41,34 @@ describe("chatSend 族 images 载荷（T9，契约 v0.10）", () => {
   });
 });
 
+// ── P1 会话模式：chat.send draft 链 mode 透传（协议 ChatSendPayload.mode?）──
+
+describe("chatSendDraftCommand mode 载荷（P1 T4：非 default 才带，default 走协议缺省）", () => {
+  it("mode 缺省 / default → payload 不携带 mode 键（帧噪音最小化）", () => {
+    const omitted = chatSendDraftCommand("你好");
+    expect("mode" in omitted.payload).toBe(false);
+    const def = chatSendDraftCommand("你好", undefined, undefined, "default");
+    expect("mode" in def.payload).toBe(false);
+    expect(def.payload).toEqual({ text: "你好", draft: true });
+  });
+
+  it("非 default mode → payload 携带（建会话定格链消费）", () => {
+    const cmd = chatSendDraftCommand("你好", undefined, undefined, "staged");
+    expect(cmd.payload).toEqual({ text: "你好", draft: true, mode: "staged" });
+  });
+
+  it("draft + model + images + mode 四可选共存", () => {
+    const cmd = chatSendDraftCommand("看图", "openai/gpt-5", ["data:image/png;base64,AAAA"], "staged");
+    expect(cmd.payload).toEqual({
+      text: "看图",
+      draft: true,
+      model: "openai/gpt-5",
+      images: ["data:image/png;base64,AAAA"],
+      mode: "staged",
+    });
+  });
+});
+
 // ── thinking 批（契约 v0.11 §17.11；T2.1 P-1 滑块选档命令）──
 
 describe("thinkingSetCommand（thinking 批①；仿 modelSetCommand 形态）", () => {

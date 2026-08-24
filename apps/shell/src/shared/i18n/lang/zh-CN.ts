@@ -10,8 +10,14 @@
 export const zhCN = {
   chat: {
     header: {
-      session: "main-session",
+      // P1 T4：session 静态 chip 退役（模式显示名迁 chat.mode.*；选择器
+      // title/aria 用 modeTitle）
+      modeTitle: "会话模式（仅草稿可切换）",
       home: "~/.helix",
+    },
+    // P1 T4 模式显示名（注册表 MODES 数据驱动；zh-CN 事实源结构）
+    mode: {
+      default: "默认模式",
     },
     conn: {
       connected: "已连接",

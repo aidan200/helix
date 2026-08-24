@@ -327,3 +327,131 @@ describe("ComposerThinkingPicker · 负断言", () => {
     expect(document.querySelector("[data-proto-annotation]")).toBeNull();
   });
 });
+
+// ── P1 T4：草稿基准换源（刻度/显示基准 = 当前模式槽位模型能力位；显示值 = 本地暂存 ?? 槽位 thinking ?? 默认关）──
+
+/** 草稿装配：目录双模型（opus 六档 / gpt-5 三档）+ 全局默认 opus + 可选槽位读面。 */
+function draftSetup(opts: {
+  slot?: { model: string | null; thinking: string | null } | null;
+  model?: string;
+  override?: string | null;
+  effective?: string | null;
+} = {}) {
+  const { slot = null, model = "", override = null, effective = null } = opts;
+  stateRef.current = {
+    ...createInitialSessionState(),
+    conn: "connected",
+    view: "ready",
+    sessionId: null, // 草稿态（P1 T4 基准换源门控）
+    mode: "default",
+    model, // 本地暂存所选（空串 = 未选）
+    thinking: { override, effective },
+  };
+  const topo = createInitialTopologyState();
+  topo.modelConfig.defaultModel = "anthropic/claude-opus-4.1"; // 全局默认 = 六档
+  topo.modelConfig.catalog = {
+    models: [
+      catalogModel("anthropic/claude-opus-4.1", true, SIX),
+      catalogModel("openai/gpt-5", true, TRI),
+    ],
+    refreshedAt: 0,
+    source: "builtin",
+    degraded: [],
+  };
+  if (slot !== null) topo.agentConfig = { revision: 1, slots: { "main-session": slot } };
+  topologyRef.current = topo;
+  return render(
+    <I18nProvider>
+      <ComposerThinkingPicker />
+    </I18nProvider>,
+  );
+}
+
+describe("ComposerThinkingPicker · 草稿基准换源（P1 T4）", () => {
+  it("刻度基准 = 当前模式槽位模型能力位（非全局默认）：槽位 gpt-5（三档）→ 4 刻度非 7", () => {
+    draftSetup({ slot: { model: "openai/gpt-5", thinking: "high" } });
+    fireEvent.click(trigger());
+    expect(document.querySelectorAll(".tl-tick")).toHaveLength(4); // off + TRI
+    expect(document.querySelector('.tl-tick[data-level="max"]')).toBeNull(); // 非六档刻度（全局默认未侵染）
+  });
+
+  it("显示值回退链：无本地暂存 → 槽位 thinking（trigger HIGH + ghost 空心 thumb 停 high 位 + PEAK）", () => {
+    draftSetup({ slot: { model: "openai/gpt-5", thinking: "high" } });
+    expect(trigger().querySelector(".tp-level")!.textContent).toBe("HIGH");
+    expect(trigger().classList.contains("peak")).toBe(true); // 显示位 = 最高档同触发 PEAK
+    fireEvent.click(trigger());
+    const thumb = document.querySelector<HTMLElement>(".tl-thumb")!;
+    expect(thumb.classList.contains("ghost")).toBe(true); // 无本地暂存 = 预览位（空心）
+    expect(thumb.style.left).toBe("100%"); // off+TRI 序 idx 3/3 = 100%
+    expect(document.querySelector(".tl-tick.cur")).toBeNull(); // 刻度去强调
+  });
+
+  it("本地暂存优先：stash model（opus 六档）压槽位模型、stash thinking（low）压槽位 thinking", () => {
+    draftSetup({
+      slot: { model: "openai/gpt-5", thinking: "high" },
+      model: "anthropic/claude-opus-4.1",
+      override: "low",
+      effective: "low",
+    });
+    expect(trigger().querySelector(".tp-level")!.textContent).toBe("LOW");
+    fireEvent.click(trigger());
+    expect(document.querySelectorAll(".tl-tick")).toHaveLength(7); // 刻度基准 = stash 模型能力位
+    const thumb = document.querySelector<HTMLElement>(".tl-thumb")!;
+    expect(thumb.classList.contains("ghost")).toBe(false); // 本地暂存 = 实心强调
+    expect(thumb.style.left).toBe(`${(2 / 6) * 100}%`); // off+SIX 序「low」在 idx 2/6
+  });
+
+  it("槽位模型已配但 thinking 未配（null）→ 显示 OFF + ghost 停 off 位（默认关）", () => {
+    draftSetup({ slot: { model: "openai/gpt-5", thinking: null } });
+    expect(trigger().querySelector(".tp-level")!.textContent).toBe("OFF");
+    fireEvent.click(trigger());
+    const thumb = document.querySelector<HTMLElement>(".tl-thumb")!;
+    expect(thumb.classList.contains("ghost")).toBe(true);
+    expect(thumb.style.left).toBe("0%");
+  });
+
+  it("槽位未拉取（slots=null）→ 回退全局默认模型能力位（回归：旧两缀链不变）", () => {
+    draftSetup();
+    expect(trigger().querySelector(".tp-level")!.textContent).toBe("OFF");
+    fireEvent.click(trigger());
+    expect(document.querySelectorAll(".tl-tick")).toHaveLength(7); // defaultModel 六档
+    expect(document.querySelector<HTMLElement>(".tl-thumb")!.style.left).toBe("0%");
+  });
+
+  it("草稿选档 → setSessionThinking（命令链不变，本地暂存）", () => {
+    draftSetup({ slot: { model: "openai/gpt-5", thinking: "high" } });
+    fireEvent.click(trigger());
+    fireEvent.click(document.querySelector<HTMLButtonElement>('.tl-tick[data-level="medium"]')!);
+    expect(setSessionThinking).toHaveBeenCalledWith("medium");
+  });
+
+  it("已建会话回归：槽位不侵染（刻度 = state.model 能力位；显示 = effective 权威）", () => {
+    stateRef.current = {
+      ...createInitialSessionState(),
+      conn: "connected",
+      view: "ready",
+      sessionId: "s1", // 已建会话（thinking.changed 权威，P1 T4 不改语义）
+      model: "openai/gpt-5",
+      thinking: { override: "low", effective: "low" },
+    };
+    const topo = createInitialTopologyState();
+    topo.modelConfig.catalog = {
+      models: [catalogModel("openai/gpt-5", true, TRI), catalogModel("anthropic/claude-opus-4.1", true, SIX)],
+      refreshedAt: 0,
+      source: "builtin",
+      degraded: [],
+    };
+    // 槽位配成 opus+high（若草稿逻辑误入已建链会变 7 刻度/HIGH）
+    topo.agentConfig = { revision: 1, slots: { "main-session": { model: "anthropic/claude-opus-4.1", thinking: "high" } } };
+    topologyRef.current = topo;
+    render(
+      <I18nProvider>
+        <ComposerThinkingPicker />
+      </I18nProvider>,
+    );
+    expect(trigger().querySelector(".tp-level")!.textContent).toBe("LOW");
+    fireEvent.click(trigger());
+    expect(document.querySelectorAll(".tl-tick")).toHaveLength(4);
+    expect(document.querySelector<HTMLElement>(".tl-thumb")!.style.left).toBe(`${(1 / 3) * 100}%`);
+  });
+});

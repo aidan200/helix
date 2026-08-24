@@ -13,6 +13,7 @@
  * 连接态切换从不清空投影与草稿（SM 规则 4/5）。
  */
 import type { EventEnvelope } from "@helix/protocol";
+import { DEFAULT_MODE_ID } from "@helix/protocol";
 import type { SessionAction, SessionState } from "../state";
 
 /** 本块承接的帧事件 type（dispatcher 注册面）。 */
@@ -71,6 +72,7 @@ export function applyConnEvent(s: SessionState, event: EventEnvelope, _ts?: numb
           toastPending,
           sessionId: null,
           model: event.payload.model,
+          // P1 T4：草稿态 welcome 不带 mode——本地所选保持（重连不丢草稿选择）
           view: "ready",
         };
       }
@@ -82,6 +84,9 @@ export function applyConnEvent(s: SessionState, event: EventEnvelope, _ts?: numb
         toastPending,
         sessionId: event.payload.sessionId,
         model: event.payload.model,
+        // P1 T4 welcome mode 回带（已建会话 = session.mode 定格值）；缺省 =
+        // default 兜底（旧 daemon 兼容）
+        mode: event.payload.mode ?? DEFAULT_MODE_ID,
         agentState: event.payload.agentState,
         // 首连两阶段（P-1s）：welcome 即就绪可发（快照随后重建内容并再次确认
         // ready）；切换路径的 loading 骨架只由 session.snapshot 解除（同连

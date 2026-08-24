@@ -27,10 +27,11 @@ import {
   type TopologyState,
 } from "@/entities/session/model/state";
 
-// ── SessionContext mock（state/topology 注入 + setSessionModel 探针）──
+// ── SessionContext mock（state/topology 注入 + setSessionModel/setDraftMode 探针）──
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
 const topologyRef: { current: TopologyState } = { current: createInitialTopologyState() };
 const setSessionModel = vi.fn();
+const setDraftMode = vi.fn();
 const requestModelConfig = vi.fn();
 const requestAuthList = vi.fn();
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
@@ -41,13 +42,14 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       state: stateRef.current,
       topology: topologyRef.current,
       setSessionModel,
+      setDraftMode,
       requestModelConfig,
       requestAuthList,
     }),
   };
 });
 
-import { TopBarActions } from "./P-1-top-bar";
+import { TopBarActions, TopBarInfo } from "./P-1-top-bar";
 
 function catalogModel(id: string): CatalogModel {
   const idx = id.indexOf("/");
@@ -67,11 +69,18 @@ function draftState(model = ""): SessionState {
   return { ...createInitialSessionState(), conn: "connected", view: "ready", sessionId: null, model };
 }
 
-/** 拓扑面：默认模型 + 目录（菜单列表数据源）。 */
-function topologyWith(defaultModel: string, models: CatalogModel[]): TopologyState {
+/** 拓扑面：默认模型 + 目录（菜单列表数据源）+ 可选 agent 槽位读面。 */
+function topologyWith(
+  defaultModel: string,
+  models: CatalogModel[],
+  slots?: { model: string | null; thinking: string | null },
+): TopologyState {
   const topo = createInitialTopologyState();
   topo.modelConfig.defaultModel = defaultModel;
   topo.modelConfig.catalog = { models, refreshedAt: 0, source: "builtin", degraded: [] };
+  if (slots !== undefined) {
+    topo.agentConfig = { revision: 1, slots: { "main-session": slots } };
+  }
   return topo;
 }
 
@@ -214,7 +223,129 @@ describe("P-1 顶栏草稿态模型徽标（T3，bug4）", () => {
     expect(resetBtn).not.toBeNull();
     fireEvent.click(resetBtn);
     expect(setSessionModel).toHaveBeenCalledWith("anthropic/claude-sonnet-4-5");
-    // 选中即关：菜单卸载（onClose 经装配层置 menuOpen=false）
+    // 选中即关：菜单卸载（onClose 经装配层置 menuMenuOpen=false）
     expect(document.querySelector("[data-model-menu]")).toBeNull();
+  });
+});
+
+// ── P1 T4：草稿徽标链三级回退（本地 ?? 槽位 ?? 全局默认）──
+
+describe("P-1 草稿徽标链三级回退（P1 T4：本地暂存 ?? 模式槽位 ?? 全局默认）", () => {
+  it("本地暂存空 + 槽位已配 → 徽标显示槽位模型（旧两缀链被槽位遮蔽）", () => {
+    stateRef.current = draftState("");
+    topologyRef.current = topologyWith(
+      "anthropic/claude-sonnet-4-5",
+      [],
+      { model: "openai/gpt-5", thinking: "high" },
+    );
+    ui();
+    expect(document.querySelector("[data-model-badge]")!.textContent).toContain("openai/gpt-5");
+  });
+
+  it("本地暂存优先于槽位（用户手选最高级）", () => {
+    stateRef.current = draftState("google/gemini-3-pro");
+    topologyRef.current = topologyWith(
+      "anthropic/claude-sonnet-4-5",
+      [],
+      { model: "openai/gpt-5", thinking: null },
+    );
+    ui();
+    expect(document.querySelector("[data-model-badge]")!.textContent).toContain("google/gemini-3-pro");
+  });
+
+  it("槽位未拉取（null）→ 回退全局默认（回归：无槽位时旧链不变）", () => {
+    stateRef.current = draftState("");
+    topologyRef.current = topologyWith("anthropic/claude-sonnet-4-5", []);
+    ui();
+    expect(document.querySelector("[data-model-badge]")!.textContent).toContain("anthropic/claude-sonnet-4-5");
+  });
+
+  it("槽位已拉但未配（model=null）→ 继续回退全局默认", () => {
+    stateRef.current = draftState("");
+    topologyRef.current = topologyWith(
+      "anthropic/claude-sonnet-4-5",
+      [],
+      { model: null, thinking: null },
+    );
+    ui();
+    expect(document.querySelector("[data-model-badge]")!.textContent).toContain("anthropic/claude-sonnet-4-5");
+  });
+});
+
+// ── P1 T4：header 模式 chip（草稿可切 / 已建只读）──
+
+function renderTopBarInfo() {
+  return render(
+    <I18nProvider>
+      <TopBarInfo />
+    </I18nProvider>,
+  );
+}
+
+describe("P-1 header 模式 chip（P1 T4：草稿选择器 / 已建只读）", () => {
+  it("草稿态：chip 可点（button）+ 显示当前模式显示名 + 点击展开菜单选项 = MODES", () => {
+    stateRef.current = draftState();
+    topologyRef.current = topologyWith("", []);
+    renderTopBarInfo();
+    const chip = document.querySelector("[data-mode-chip]")!;
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.textContent).toContain("默认模式"); // chat.mode.default 词条（zh-CN 事实源）
+    expect(chip.getAttribute("aria-haspopup")).toBe("menu");
+    // 点击展开：选项 = MODES 数据驱动（本期仅 default 一项，选项序同注册表）
+    fireEvent.click(chip);
+    const menu = document.querySelector("[data-mode-menu]");
+    expect(menu).not.toBeNull();
+    const items = menu!.querySelectorAll("[data-mode-item]");
+    expect(items.length).toBe(1); // MODES.length（P2 增模式零改动断言面）
+    expect(items[0]!.getAttribute("aria-checked")).toBe("true"); // 当前项选中
+  });
+
+  it("草稿态选模式 → setDraftMode(模式 id)；选中即关（菜单卸载）", () => {
+    stateRef.current = draftState();
+    topologyRef.current = topologyWith("", []);
+    renderTopBarInfo();
+    fireEvent.click(document.querySelector("[data-mode-chip]")!);
+    fireEvent.click(document.querySelector("[data-mode-item='default']")!);
+    expect(setDraftMode).toHaveBeenCalledWith("default");
+    expect(document.querySelector("[data-mode-menu]")).toBeNull(); // 选中即关
+  });
+
+  it("草稿态点外关闭菜单（不派发动作）", () => {
+    stateRef.current = draftState();
+    topologyRef.current = topologyWith("", []);
+    renderTopBarInfo();
+    fireEvent.click(document.querySelector("[data-mode-chip]")!);
+    expect(document.querySelector("[data-mode-menu]")).not.toBeNull();
+    fireEvent.pointerDown(document.body);
+    expect(document.querySelector("[data-mode-menu]")).toBeNull();
+    expect(setDraftMode).not.toHaveBeenCalled();
+  });
+
+  it("已建会话：只读显示（span，无菜单交互）", () => {
+    stateRef.current = {
+      ...createInitialSessionState(),
+      conn: "connected",
+      view: "ready",
+      sessionId: "s1",
+      mode: "default",
+    };
+    topologyRef.current = topologyWith("", []);
+    renderTopBarInfo();
+    const chip = document.querySelector("[data-mode-chip]")!;
+    expect(chip.tagName).toBe("SPAN");
+    expect(chip.textContent).toContain("默认模式");
+    expect(document.querySelector("[data-mode-menu]")).toBeNull();
+  });
+
+  it("~/.helix chip 保留不动（home 词条仍渲染）", () => {
+    stateRef.current = draftState();
+    topologyRef.current = topologyWith("", []);
+    const { unmount } = renderTopBarInfo();
+    const home = document.querySelector("[data-home-chip]");
+    expect(home).not.toBeNull();
+    expect(home!.textContent).toContain("~/.helix");
+    // 旧静态 session chip 退役：不再有 chat.header.session 字面渲染
+    expect(document.body.textContent).not.toContain("main-session");
+    unmount();
   });
 });

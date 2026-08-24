@@ -21,7 +21,7 @@ import type {
   UsageDto,
   WebStatusPayload,
 } from "@helix/protocol";
-import { ZERO_USAGE as PROTOCOL_ZERO_USAGE } from "@helix/protocol";
+import { DEFAULT_MODE_ID, ZERO_USAGE as PROTOCOL_ZERO_USAGE } from "@helix/protocol";
 
 /**
  * legacy 主实例 id 字面（"main"，T10 实例 ID 统一 T10c）：历史快照/事件中
@@ -184,8 +184,11 @@ export interface TopologyState {
   /** 模型/厂商全局配置面（model/auth 结果帧拓扑级消费；T3.3 P-3/P-4 数据源） */
   modelConfig: ModelConfigState;
   /** 智能体配置失效面（agent.config.changed 拓扑级消费；M6 T4 智能体页
-   *  失效重拉触发：每广播 revision +1，页面 effect 观测变更重拉 list） */
-  agentConfig: { revision: number };
+   *  失效重拉触发：每广播 revision +1，页面 effect 观测变更重拉 list）。
+   *  P1 T4 扩 slots 槽位轻量读面（草稿徽标链/刻度基准第二级回退）：
+   *  list.result 全量覆盖；null = 未拉取（provider 连接就绪拉一次 +
+   *  revision 失效重拉）。 */
+  agentConfig: { revision: number; slots: Record<string, AgentConfigSlot> | null };
   /** CDP 连接状态面（web 族拓扑级消费；T4 联网状态图标数据源：
    *  web.status.result 启动查询回执 + web.status.changed 四时机广播写入；
    *  null = 未收到任何状态帧（首连前，图标灰态）） */
@@ -321,6 +324,16 @@ export interface ThinkingSlice {
   effective: string | null;
 }
 
+/** agent 槽位轻量读值（P1 T4 草稿回退链第二级；数据源 = agent.config 族
+ *  结果帧，consumers/agent-config.ts 提升为拓扑级——不新建第三条平行配置
+ *  读面）。null = 槽位未设（未配置，回退链继续向下）。 */
+export interface AgentConfigSlot {
+  /** profile.model 槽位现值（未设 = null） */
+  model: string | null;
+  /** profile.thinking 槽位现值（未设 = null） */
+  thinking: string | null;
+}
+
 export interface SessionState {
   /** 连接态（SM-1 四态互斥） */
   conn: ConnState;
@@ -348,6 +361,13 @@ export interface SessionState {
    */
   mainInstanceId: string;
   model: string;
+  /**
+   * 会话模式（P1 T4；mode-framework-p1 D3/D4）：草稿态 = 本地所选
+   *（ui/set-draft-mode 唯一写入口，纯前端零 daemon 交互）；建会话后 =
+   * 快照/welcome 回带的定格值（只读收权，无第二条写路径——锁定语义 =
+   * 结构不可能）。初始 DEFAULT_MODE_ID；new draft / 切换会话重建时重置。
+   */
+  mode: string;
   /** 会话 thinking 档切片（thinking 批；广播 + 快照驱动，纯投影） */
   thinking: ThinkingSlice;
   agentState: AgentStateDto;
@@ -414,6 +434,11 @@ export type SessionAction =
    *  首条上送，转正由 provider 在快照建会话后补发 thinking.set）；真实会话
    *  原样（防御——真实会话选档走 thinking.set 帧语义） */
   | { type: "ui/set-draft-thinking"; level: string }
+  /** 草稿模式切换（P1 T4；D3/D4 唯一写入口）：仅 sessionId===null（草稿态）
+   *  生效置 mode + **丢弃本地 draft model/thinking 暂存**（会话将是新的，
+   *  用户重选）；真实会话原样（防御——锁定语义 = 结构不可能，无 mode.set
+   *  命令、无会话内切换路径） */
+  | { type: "ui/set-draft-mode"; mode: string }
   /** 发送提交（turn = chat.send / steer = chat.steer；ts 由调用方注入保证重放确定） */
   | { type: "ui/send"; text: string; mode: "turn" | "steer"; ts: number }
   /** 抽屉定向 steer 提交（CL-3）：本地 echo 双投影——主轴定向 entry（时间轴
@@ -462,6 +487,7 @@ export function createInitialSessionState(): SessionState {
     sessionId: null,
     mainInstanceId: LEGACY_MAIN_INSTANCE_ID,
     model: "",
+    mode: DEFAULT_MODE_ID,
     thinking: { override: null, effective: null },
     agentState: "idle",
     entries: [],
@@ -489,7 +515,7 @@ export function createInitialTopologyState(): TopologyState {
     background: {},
     list: [],
     modelConfig: createInitialModelConfigState(),
-    agentConfig: { revision: 0 },
+    agentConfig: { revision: 0, slots: null },
     webStatus: null,
   };
 }

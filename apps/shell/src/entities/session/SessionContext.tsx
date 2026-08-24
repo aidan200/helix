@@ -93,6 +93,10 @@ interface SessionContextValue {
   /** 新建草稿（F(1.2).1）：unsubscribe 旧会话 + 活跃 store 置草稿态（零建会话
    *  帧——首条消息发送时才 chat.send{draft:true}）；旧会话转后台照常执行 */
   newDraft: () => void;
+  /** 草稿模式切换（P1 T4；D3/D4 唯一写入口）：纯前端零 daemon 交互——
+   *  ui/set-draft-mode 本地置 mode + 丢弃 draft model/thinking 暂存；
+   *  mode 随首条 chat.send{draft:true, mode} 上送，建会话后快照收权锁定 */
+  setDraftMode: (mode: string) => void;
   /** 删除会话（F(1.2).4）：发 session.delete（daemon 取消全部执行 → 删库 →
    *  list_changed{deleted}）；删活跃会话则本地先切草稿态（视图即转空态） */
   deleteSession: (sessionId: string) => void;
@@ -314,8 +318,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // 广播拓扑级消费，无需轮询。
   const conn = topology.active.conn;
   useEffect(() => {
-    if (conn === "connected") clientRef.current!.send(webStatusCommand());
+    if (conn === "connected") {
+      clientRef.current!.send(webStatusCommand());
+      // P1 T4 槽位读面初拉（topology 级 slots 数据源——草稿徽标链/刻度基准
+      // 第二级回退；重连随 conn 迁移重发，daemon 侧配置可能已变）
+      clientRef.current!.send(agentConfigListCommand());
+    }
   }, [conn]);
+
+  // P1 T4 槽位读面失效重拉：agent.config.changed 广播 → revision +1 → 重发
+  // agent.config.list 拿新鲜 slots（结果帧拓扑级收口）。初始 revision=0
+  // 零动作——首拉已由上方连接就绪效应覆盖。命令幂等，与智能体页拉取互不
+  // 干扰（同帧两消费者各取所需）。
+  const agentConfigRevision = topology.agentConfig.revision;
+  useEffect(() => {
+    if (agentConfigRevision === 0) return;
+    clientRef.current!.send(agentConfigListCommand());
+  }, [agentConfigRevision]);
 
   const setDraft = useCallback((text: string) => dispatch({ type: "ui/set-draft", text }), []);
 
@@ -346,10 +365,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // 草稿首条消息（契约 B §1.5）：无信封 sessionId + draft:true →
       // daemon 建聚合 + list_changed{created} + 订阅切换 + 新会话快照回推。
       // T3（bug4）：草稿所选模型（ui/set-draft-model 本地暂存）随首条上送；
-      // 未选（空串）→ 不携带 model（daemon 用全局默认）
-      const draftModel = topologyRef.current.active.model;
+      // 未选（空串）→ 不携带 model（daemon 用全局默认）。
+      // P1 T4：草稿所选模式随首条上送；default 不带（协议缺省，减帧噪音）——
+      // 构造器 chatSendDraftCommand 统一裁决
+      const active = topologyRef.current.active;
+      const draftModel = active.model;
       clientRef.current!.send(
-        chatSendDraftCommand(text, draftModel === "" ? undefined : draftModel, images),
+        chatSendDraftCommand(
+          text,
+          draftModel === "" ? undefined : draftModel,
+          images,
+          active.mode,
+        ),
       );
     } else {
       clientRef.current!.send(chatSendCommand(text, sessionId, images));
@@ -388,6 +415,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     dispatch({ type: "session/new-draft" });
   }, []);
+
+  // 草稿模式切换（P1 T4；D3/D4）：纯本地 action（零 daemon 交互）——reducer
+  // 内裁决草稿态门控 + 丢弃 draft model/thinking 暂存；mode 传输出发送链
+  const setDraftMode = useCallback(
+    (mode: string) => dispatch({ type: "ui/set-draft-mode", mode }),
+    [],
+  );
 
   const deleteSession = useCallback((sessionId: string) => {
     // daemon 顺序：取消全部执行 → 删库 → list_changed{deleted}（前端零权威：
@@ -563,6 +597,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       abort,
       switchSession,
       newDraft,
+      setDraftMode,
       deleteSession,
       loadEarlierHistory,
       requestSessionList,
@@ -601,6 +636,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       abort,
       switchSession,
       newDraft,
+      setDraftMode,
       deleteSession,
       loadEarlierHistory,
       requestSessionList,

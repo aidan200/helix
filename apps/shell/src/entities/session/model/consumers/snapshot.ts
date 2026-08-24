@@ -26,6 +26,7 @@ import type {
   UsageDto,
 } from "@helix/protocol";
 import { entrySortKey } from "@helix/protocol"; // T3.1：条目排序基元单源 projection（原本地 entryTimelineKey 同构副本退役）
+import { DEFAULT_MODE_ID } from "@helix/protocol";
 import { lcItem } from "../channel";
 import {
   isMainChannel,
@@ -220,6 +221,9 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         ...s,
         entries: mainEntries, // 整体替换：重连恢复全量来自 daemon（无本地补齐）；F1.6 分流见上
         model: snap.model,
+        // P1 T4 快照 mode 收权：建会话定格值回带（草稿转正/切换/重连共用）；
+        // 缺省 = default 兜底（旧 daemon 兼容）——此后无写路径（只读锁定）
+        mode: snap.mode ?? DEFAULT_MODE_ID,
         agentState: snap.agentState,
         sessionId: snap.sessionId,
         mainInstanceId: mainId, // T10c：主实例 id 习得（kind=main 条目；快照权威）

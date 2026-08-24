@@ -54,11 +54,19 @@ export function chatSendCommand(text: string, sessionId: string, images?: readon
 /** chat.send 草稿首条消息：无信封 sessionId + draft:true（契约 B §1.5）。
  *  T3（bug4）：model 可选——仅非空时携带（ChatSendPayload.model?，仅
  *  draft:true 建会话链消费；缺省 = 全局默认不换模）。
- *  T9（v0.10）：images 可选——三可选共存（draft + model + images）。 */
-export function chatSendDraftCommand(text: string, model?: string, images?: readonly string[]): ChatSendCommand {
+ *  T9（v0.10）：images 可选——三可选共存（draft + model + images）。
+ *  P1 T4：mode 可选——仅非 default 携带（DEFAULT_MODE_ID 走协议缺省，
+ *  减少帧噪音；建会话定格链消费，此后无写路径）。 */
+export function chatSendDraftCommand(
+  text: string,
+  model?: string,
+  images?: readonly string[],
+  mode?: string,
+): ChatSendCommand {
   const payload: ChatSendCommand["payload"] = { text, draft: true };
   if (model !== undefined) payload.model = model;
   if (images !== undefined) payload.images = images;
+  if (mode !== undefined && mode !== "default") payload.mode = mode;
   return { v: PROTOCOL_VERSION, type: "chat.send", payload };
 }
 

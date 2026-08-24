@@ -56,6 +56,43 @@ button { font-family: inherit; }
   padding: 1px 6px; border: 1px solid var(--border); border-radius: 999px;
   font-size: var(--text-cap); white-space: nowrap; color: var(--text-muted);
 }
+
+/* ═══ P1 T4 header 模式 chip 选择器（草稿态可切；hud-chip 语言延伸）═══
+   小下拉随 chip 定位（mm-item 视觉同构）；不用 backdrop-filter——
+   .app-header 是 blur 包含块，入内会丢毛玻璃采样（S1 布局契约），
+   小菜单直接用 popover-fill 实底。 */
+.mode-chip-wrap { position: relative; display: inline-flex; }
+button.mode-chip {
+  cursor: pointer; color: var(--text);
+  background: transparent; font-family: inherit;
+  transition: border-color 0.15s, color 0.15s;
+}
+button.mode-chip:hover { border-color: rgb(var(--accent-rgb) / 0.5); color: var(--accent); }
+button.mode-chip .mb-chev { color: var(--text-faint); }
+.mode-chip-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+  min-width: 168px; padding: 4px;
+  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--popover-fill);
+  box-shadow: var(--shadow-pop);
+  animation: pop-in 0.18s ease-out;
+}
+.mcm-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px 6px 8px; cursor: pointer;
+  border: none; border-left: 2px solid transparent; border-radius: 4px;
+  background: transparent; font-family: inherit; text-align: left; width: 100%;
+  transition: background 0.15s, border-color 0.15s;
+}
+.mcm-item:hover { background: var(--bg-hover); }
+.mcm-item.sel { background: var(--bg-selected); border-left-color: var(--accent); }
+.mcm-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--text-cap); color: var(--text);
+}
+.mcm-item .mcm-check { color: var(--accent); display: none; }
+.mcm-item.sel .mcm-check { display: inline-flex; }
 .hud-badge {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 2px 8px; border-radius: 4px;

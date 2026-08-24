@@ -8,8 +8,11 @@ import type { Translations } from "./zh-CN";
 export const enUS = {
   chat: {
     header: {
-      session: "main-session",
+      modeTitle: "Session mode (switchable only in draft)",
       home: "~/.helix",
+    },
+    mode: {
+      default: "Default mode",
     },
     conn: {
       connected: "Connected",
