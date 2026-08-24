@@ -114,11 +114,11 @@ export interface SchedulerServiceDeps {
   /**
    * Sub 实例化快照供给（AD-5，契约 v0.4 §2）：spawn 时与
    * agent.spawned 同批发布 agent.instantiated 的快照数据源——profile 常量
-   * （systemPrompt 全文/工具集/hooks 名）与模型三级链解析（profile 槽位 ??
-   *   spawn 会话快照 ?? 全局兜底，AD-3 联动）均归组合根装配（driven 常量
-   *   不进 application）；缺省 = 纯调度测试形态，不发布 instantiated。
+   * （systemPrompt 全文/工具集/hooks 名）与模型两级链解析（profile 槽位 ??
+   *   全局兜底，AD-3 联动；T12 砍 spawn 会话快照级）均归组合根装配（driven
+   *   常量不进 application）；缺省 = 纯调度测试形态，不发布 instantiated。
    */
-  readonly subagentSnapshotFor?: (spawnModel: string | undefined) => {
+  readonly subagentSnapshotFor?: () => {
     readonly profileSnapshot: AgentInstantiatedPayload["profileSnapshot"];
     /** spawn 解析的 thinkingLevel 快照（AD-4④；与 launcher resolveThinkingFor 同源同时点；无配置 → undefined = 默认关）。 */
     readonly thinkingLevel: string | undefined;
@@ -148,7 +148,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   private readonly queue: string[] = [];
   /** 实例 → task（出队时 launch 入参；报告/观测面留档）。 */
   private readonly tasks = new Map<string, string>();
-  /** spawn 时刻的会话当前模型（AgentInstanceDto.model 空槽位填充链——出卡即知）。 */
+  /** spawn 时刻的透传模型 id（组合根两级链解析产物——AgentInstanceDto.model 空槽位填充链——出卡即知；T12 起不进 launcher 解析链）。 */
   private readonly spawnModels = new Map<string, string>();
   /** 实例 → 收口 closure（agent_status 摘要/观测面留档；终态后保留）。 */
   private readonly closures = new Map<string, InstanceClosurePayload>();
@@ -207,15 +207,6 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   /** 按 id 查实例值形状（不存在/已销毁窗口返回 undefined）。 */
   instance(agentId: string): AgentInstanceData | undefined {
     return this.registry.findInstance(agentId)?.toData();
-  }
-
-  /**
-   * spawn 时刻会话模型快照只读通道（AD-3 三级链第二级，TR-AD-24）：
-   * SubagentLauncher 经 container 晚绑消费（launch 段唯一消费点）；
-   * 只读——不改变 spawnModels Map 生命周期（恢复回填归恢复链）。
-   */
-  spawnModelOf(instanceId: string): string | undefined {
-    return this.spawnModels.get(instanceId);
   }
 
   /** AgentOrchestrationPort.status：无参全量（状态/位次/摘要）/有参单实例。 */
@@ -377,7 +368,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     });
     this.registry.registerInstance(instance);
     this.tasks.set(agentId, task);
-    if (model !== undefined) this.spawnModels.set(agentId, model); // spawn 时透传当前模型
+    if (model !== undefined) this.spawnModels.set(agentId, model); // spawn 时透传解析后模型 id（DTO 填充）
     // T3-A：报告间隔校验（>0 且有限才启用；负数/NaN/0 视为不报告）
     if (typeof reportIntervalMs === "number" && Number.isFinite(reportIntervalMs) && reportIntervalMs > 0) {
       this.reportIntervals.set(agentId, Math.floor(reportIntervalMs));
@@ -396,10 +387,10 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       ...(model !== undefined ? { model } : {}),
     } satisfies AgentSpawnedPayload);
     // 同批发布实例化快照（紧随其后）——（AD-5，契约 v0.4 §2）
-    // 快照 model = 三级链解析结果（spawn 时刻求值，与该实例 launch 实际使用
+    // 快照 model = 两级链解析结果（spawn 时刻求值，与该实例 launch 实际使用
     // 模型同源）；只落盘不广播（DtoMapper 无 case）。
     if (this.deps.subagentSnapshotFor !== undefined) {
-      const snapshot = this.deps.subagentSnapshotFor(model);
+      const snapshot = this.deps.subagentSnapshotFor();
       this.publish(instance, "agent.instantiated", {
         instanceId: agentId,
         profileKind: instance.profileKind,

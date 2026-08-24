@@ -389,7 +389,7 @@ export const zhCN = {
     subTitle: "SubAgent worker",
     modelLabel: "模型",
     modelFollowMain: "跟随全局默认",
-    modelFollowSub: "跟随会话与全局默认",
+    modelFollowSub: "跟随全局默认",
     modelNoteMain: "出厂默认：新会话以此模型装配；已手动切换的会话不受影响",
     modelNoteSub: "出厂默认：spawn 时刻定格，运行中实例不受影响",
     toolsLabel: "工具",

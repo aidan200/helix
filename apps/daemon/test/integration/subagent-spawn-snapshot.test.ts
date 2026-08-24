@@ -15,8 +15,8 @@ import { AgentInstance } from "../../src/domain/agent/AgentInstance";
  *   toggle 不影响已 spawn 实例（env 是值快照）；
  * - 未注入 spawnSnapshot（既有测试形态）→ 不透传 env 覆盖，子进程回退
  *   profile 声明面（ChildMain.spawnOverridesFromEnv 解析）；
- * - uiModelSlot：模型三级链第一级 UI 化（resource_state kind 槽位，spawn
- *   时刻读取定格）。
+ * - uiModelSlot：模型链 profile 槽位 UI 化（resource_state kind 槽位，spawn
+ *   时刻读取定格；T12 砍 spawn 会话快照级后链 = profile 槽位 > 全局兜底）。
  *
  * 观测手段：Bun.spawn 打桩捕获 env（不起真子进程——transport 面挂最小假体）。
  */
@@ -172,18 +172,17 @@ describe("SubAgent spawn 快照（M6 T2，acceptance ④）", () => {
   });
 });
 
-describe("uiModelSlot：模型三级链第一级 UI 化（M6 T2）", () => {
+describe("uiModelSlot：profile 槽位 UI 化（M6 T2；T12 两级链）", () => {
   const modelsStub: Models = {
     getModel: (provider: string, id: string) =>
       provider === "fake" && (id === "slot-model" || id === "profile-model") ? mkModel(id) : undefined,
     getModels: () => [],
   } as unknown as Models;
 
-  test("⑤ 链序 profile.model > uiModelSlot > spawn 快照 > 全局兜底（高档有值低档不读）", () => {
+  test("⑤ 链序 profile.model > uiModelSlot > 全局兜底（高档有值低档不读；T12 砍 spawn 快照级）", () => {
     let slotCalls = 0;
-    let spawnCalls = 0;
     let globalCalls = 0;
-    const counters = () => ({ slotCalls, spawnCalls, globalCalls });
+    const counters = () => ({ slotCalls, globalCalls });
 
     // 档①：profile.model 声明即最高（既有语义不变）
     const l1 = new SubagentLauncher({
@@ -199,15 +198,11 @@ describe("uiModelSlot：模型三级链第一级 UI 化（M6 T2）", () => {
         slotCalls++;
         return mkModel("slot-model");
       },
-      spawnModelFor: () => {
-        spawnCalls++;
-        return mkModel("session-snapshot");
-      },
     });
-    expect(l1.resolveModelFor("agent-1").id).toBe("profile-model");
-    expect(counters()).toEqual({ slotCalls: 0, spawnCalls: 0, globalCalls: 0 }); // 低档零调用
+    expect(l1.resolveModelFor().id).toBe("profile-model");
+    expect(counters()).toEqual({ slotCalls: 0, globalCalls: 0 }); // 低档零调用
 
-    // 档②：uiModelSlot（resource_state kind 槽位）> spawn 快照 > 全局兜底
+    // 档②：uiModelSlot（resource_state kind 槽位）> 全局兜底
     const l2 = new SubagentLauncher({
       profile: SubAgentProfile,
       model: () => {
@@ -220,15 +215,12 @@ describe("uiModelSlot：模型三级链第一级 UI 化（M6 T2）", () => {
         slotCalls++;
         return mkModel("slot-model");
       },
-      spawnModelFor: () => {
-        spawnCalls++;
-        return mkModel("session-snapshot");
-      },
     });
-    expect(l2.resolveModelFor("agent-1").id).toBe("slot-model");
-    expect(counters()).toEqual({ slotCalls: 1, spawnCalls: 0, globalCalls: 0 });
+    expect(l2.resolveModelFor().id).toBe("slot-model");
+    expect(counters()).toEqual({ slotCalls: 1, globalCalls: 0 });
 
-    // 档③：无 slot → spawn 会话快照
+    // 档③：无 profile 槽位（静态声明 + kind 槽位均缺席）→ 全局兜底
+    //（T12 回归钉：不再经过 spawn 会话快照级）
     const l3 = new SubagentLauncher({
       profile: SubAgentProfile,
       model: () => {
@@ -241,29 +233,8 @@ describe("uiModelSlot：模型三级链第一级 UI 化（M6 T2）", () => {
         slotCalls++;
         return undefined; // 槽位未设
       },
-      spawnModelFor: () => {
-        spawnCalls++;
-        return mkModel("session-snapshot");
-      },
     });
-    expect(l3.resolveModelFor("agent-1").id).toBe("session-snapshot");
-    expect(counters()).toEqual({ slotCalls: 2, spawnCalls: 1, globalCalls: 0 });
-
-    // 档④：全部缺席 → 全局兜底
-    const l4 = new SubagentLauncher({
-      profile: SubAgentProfile,
-      model: () => {
-        globalCalls++;
-        return mkModel("global");
-      },
-      apiKeys: { fake: "k" },
-      toolCwd: tmpDir(),
-      spawnModelFor: () => {
-        spawnCalls++;
-        return undefined;
-      },
-    });
-    expect(l4.resolveModelFor("agent-1").id).toBe("global");
-    expect(counters()).toEqual({ slotCalls: 2, spawnCalls: 2, globalCalls: 1 });
+    expect(l3.resolveModelFor().id).toBe("global");
+    expect(counters()).toEqual({ slotCalls: 2, globalCalls: 1 });
   });
 });

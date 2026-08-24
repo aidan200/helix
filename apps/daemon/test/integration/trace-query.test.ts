@@ -128,7 +128,7 @@ interface Rig {
   sessionId: string;
 }
 
-/** 组合根全链装配 + 握手（engine 初始模型 anthropic/claude-sonnet-4-5 → spawn 快照/切模 from 同源）。 */
+/** 组合根全链装配 + 握手（engine 初始模型 anthropic/claude-sonnet-4-5 → spawn 透传/切模 from 同源）。 */
 async function makeRig(home: string, opts: { initialModel?: string; replies?: { text: string }[] } = {}): Promise<Rig> {
   const engine = new FakeAgentEngine({
     initialModel: opts.initialModel ?? "anthropic/claude-sonnet-4-5",
@@ -357,7 +357,7 @@ describe("② 分页：id 游标遍历不重不漏 + hasMore 收口（契约 §4
 });
 
 describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 instantiated 发布点 = 转正）", () => {
-  test("会话转正→主 instantiated（systemPrompt 全文）；spawn→Sub instantiated（model=三级链结果）；model.set→model.changed", async () => {
+  test("会话转正→主 instantiated（systemPrompt 全文）；spawn→Sub instantiated（model=两级链结果）；model.set→model.changed", async () => {
     const home = tmpHome();
     const rig = await makeRig(home, { replies: [{ text: "回复。" }] });
     try {
@@ -377,7 +377,7 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
       expect(mainSnap.profileSnapshot.compaction?.enabled).toBe(true);
       expect(mainSnap.profileSnapshot.hooks).toEqual(["steer", "minimal"]);
 
-      // ── Sub instantiated（spawn 同批；model=三级链解析结果，与 spawn 透传同源）──
+      // ── Sub instantiated（spawn 同批；model=两级链解析结果，与 spawn 透传同源）──
       const subEvents = await client.traceQuery({ sessionId, types: ["agent.spawned", "agent.instantiated"], agentKind: "subagent" });
       const subInst = subEvents.events.filter((e) => e.type === "agent.instantiated");
       expect(subInst.length).toBe(2);
@@ -386,9 +386,10 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
         expect(p.profileKind).toBe("subagent-worker");
         expect(p.profileSnapshot.systemPrompt.startsWith(SUBAGENT_SYSTEM_PROMPT)).toBe(true); // base 全文（组装产物前缀）
         expect(p.profileSnapshot.systemPrompt).toContain("可用工具：");
-        // 三级链：profile 槽位（未声明）?? spawn 会话快照（anthropic/claude-sonnet-4-5）?? 全局兜底
+        // 两级链（T12 砍 spawn 会话快照级）：profile 槽位（未声明）?? subagent-worker
+        // kind 槽位（未设）?? 全局兜底（anthropic/claude-sonnet-4-5）
         expect(p.profileSnapshot.model).toBe("anthropic/claude-sonnet-4-5");
-        // 同源判据：与该实例 agent.spawned 透传 model 同值
+        // 同源判据：与该实例 agent.spawned 透传 model 同值（组合根两级链解析产物）
         const spawned = subEvents.events.find(
           (e) => e.type === "agent.spawned" && (e.payload as { agentId: string }).agentId === p.instanceId,
         )!;
@@ -441,8 +442,16 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
         };
         expect(p.profileSnapshot.tools).toHaveLength(7);
         expect(p.profileSnapshot.tools).not.toContain("read");
-        expect(p.profileSnapshot.model).toBe("anthropic/claude-haiku-4-5"); // 槽位第一级（uiModelSlot ?? spawn 快照 ?? 全局）
+        expect(p.profileSnapshot.model).toBe("anthropic/claude-haiku-4-5"); // profile 槽位第一级（uiModelSlot ?? 全局兜底，T12 两级链）
         expect(p.profileSnapshot.systemPrompt).not.toContain("- read:");
+      }
+
+      // T12 回归钉（验收①）：会话当前模型=A（sonnet）且 subagent-worker 槽位=B（haiku）
+      // → spawn 用 B（不用 A）——agent.spawned 透传 model 与 instantiated 快照同源同值
+      const subSpawned = await client.traceQuery({ sessionId, types: ["agent.spawned"], agentKind: "subagent" });
+      expect(subSpawned.events.length).toBe(2);
+      for (const row of subSpawned.events) {
+        expect((row.payload as { model?: string }).model).toBe("anthropic/claude-haiku-4-5");
       }
     } finally {
       await rig.client.close();

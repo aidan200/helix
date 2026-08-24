@@ -223,12 +223,13 @@ describe("model.changed 广播（WS 集成，契约 C §2.1）", () => {
       // 会话快照主实例 model 槽位填充（AgentInstanceDto.model 链）
       const view = daemon.registry.currentView();
       expect(view.instances![0]!.model).toBe("anthropic/claude-haiku-4-5");
-      // spawn 透传链：切模后 spawn 的 SubAgent 卡片 model 槽位 = 当前模型
+      // spawn 透传链（T12 改语义）：SubAgent 卡片 model 槽位 = 组合根两级链解析结果
+      //（profile 槽位空 → 全局默认 sonnet），不再跟随会话当前模型（haiku）——验收②回归钉
       const spawned = daemon.orchestration.spawn("调研任务");
       expect(spawned.status === "run" || spawned.status === "queued").toBe(true);
       const agentId = spawned.status === "run" || spawned.status === "queued" ? spawned.agentId : "";
       const subInstance = daemon.registry.currentView().instances!.find((i) => i.instanceId === agentId);
-      expect(subInstance?.model).toBe("anthropic/claude-haiku-4-5");
+      expect(subInstance?.model).toBe("anthropic/claude-sonnet-4-5");
     } finally {
       ws?.close();
       await daemon.shutdown();

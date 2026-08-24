@@ -19,6 +19,6 @@ daemon 采用「无容器组合根」：`createDaemon` 是整个进程唯一允�
 1. **初版单体组合根**：container.ts 内联全部装配（~750 行），TDZ/晚绑 let 蔓延——「晚绑」词面成为安全声明的遮羞布。
 2. **机械拆分（TR-AD-25④ 守护式）**：四命名装配函数落 `infrastructure/assembly/`（buildPersistence 持久化件 / buildModelStack 模型目录件 / buildSessionStack 会话栈+晚绑回填闭包 completeLateBinding / wireEventFanout 六目标全序）。仅机械代换 options.X→deps 切片字段，行为零变化。
 3. **事件化刷新**：ResourceService deps 的 onApplied 回调 → publishResourceChanged 事件（签名 void|Promise<void 保持 await 收口链行为等价）；新增零依赖资源事件总线，容器订阅 handler 触发 refreshAssembly，「定义先于订阅注册」。
-4. **晚绑收口 typed 化**：AssemblyBackfill{currentModelOf/computeSpawnAnchor/spawnModelSource} 构造早期声明、initialize 前闭合；bindSpawnModelSource 调用点式晚绑方法删除。
+4. **晚绑收口 typed 化**：AssemblyBackfill{computeSpawnAnchor} 构造早期声明、initialize 前闭合；bindSpawnModelSource 调用点式晚绑方法删除（T12：currentModelOf/spawnModelSource 两字段随 spawn 会话快照级砍除一并退役，仅余 spawn 锚计算一面）。
 5. **显式模式分离**：生产 DaemonOptions 瘦身为 {home,port,cliInput,cliOutput} 四字段；11 个测试注入口（engine/skipLock/skipConfig/staticDir/toolCwd/builtinSkillsDir/subagentRunner/browser/sessionTailSize/sessionIdle*）全部摘除生产面，测试形态收进 test/helpers/createTestDaemon.ts（TestDaemonOptions）；共享装配核心 assembleDaemon 以 engineMode 判别字段显式声明引擎装配形态（production 真体 / override 工厂注入），「engine === undefined 即生产」类隐式分支与 skipConfig/skipLock 词面在组合根锚面零残留——skip 语义溶解为工厂内部决断（跳锁 = undefined lock；跳配置读面 = 硬编码缺省 config + 空 legacy）。
 6. **锚扫描基元单源化（投影收敛）**：lastMainAnchorId 等锚计算迁 @helix/protocol projection，组合根改引协议导出。

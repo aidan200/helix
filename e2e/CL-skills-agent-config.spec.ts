@@ -153,13 +153,13 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
     await expect(diag).toContainText("invalid_metadata");
     await expect(diag).toContainText("SKILL.md 缺少 description");
 
-    // 模型下拉：main 缺省项「跟随全局默认」+ optgroup；sub 缺省项三级链语义
+    // 模型下拉：main 缺省项「跟随全局默认」+ optgroup；sub 缺省项两级链语义（T12）
     const mainSel = page.locator("#sel-model-main-session");
     await expect(mainSel).toHaveValue("");
     expect(await mainSel.locator("option").first().textContent()).toBe("跟随全局默认");
     await expect(mainSel.locator("optgroup")).toHaveCount(2);
     const subSel = page.locator("#sel-model-subagent-worker");
-    expect(await subSel.locator("option").first().textContent()).toBe("跟随会话与全局默认");
+    expect(await subSel.locator("option").first().textContent()).toBe("跟随全局默认");
 
     // 两级关系说明注解
     await expect(mainCard.locator('[data-note="main"]')).toContainText("已手动切换的会话不受影响");

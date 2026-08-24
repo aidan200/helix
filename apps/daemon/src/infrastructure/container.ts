@@ -14,7 +14,6 @@ import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAda
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
 import { lastMainAnchorId, type AnchorScanEntry } from "@helix/protocol"; // 锚扫描基元单源 projection
-import { resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
 import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
@@ -280,7 +279,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
     sessionIdlePollMs: deps.sessionIdlePollMs,
   });
-  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService } = sessionStack;
+  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId } = sessionStack;
 
   // ── resources.changed 订阅（§4.2.3：refreshAssembly 先定义、订阅注册后置——
   //    结构保证取代注释保证；发布方 ResourceService 经 deps 函数字段注入） ──
@@ -347,10 +346,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     stdoutPublisher,
   });
 
-  // ── 装配序步 6：typed 回填面闭合（§4.2.5——scheduler↔registry 构造环四面
-  //    统一走 backfill；闭合先于 initialize，两步间无任何回调触发点） ──
-  // spawn 透传当前模型（注册表就绪，热会话可观测）
-  backfill.currentModelOf = (sessionId: string) => registry.peek(sessionId)?.chatService.currentModel;
+  // ── 装配序步 6：typed 回填面闭合（§4.2.5——scheduler↔registry 构造环
+  //    走 backfill；闭合先于 initialize，两步间无任何回调触发点） ──
   // 契约 v0.3 §1 规则②：spawn 时刻锚计算。扫描面与快照路径同源
   // （SnapshotMapper.toSnapshotDto merged 段同语义）：domain entries + toolCall
   // 记录按时间升序合并后扫——tool 执行不落 domain Entry（独立 toolCalls 集合），
@@ -383,12 +380,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       .map((item) => item.entry);
     return lastMainAnchorId(merged);
   };
-  // AD-3三级链第二级：spawn 会话快照模型源（快照 id → 完整 Model
-  // 经 resolveConfigModel 解析，解析单点同源）
-  backfill.spawnModelSource = (instanceId: string) => {
-    const snapshot = scheduler.spawnModelOf(instanceId);
-    return snapshot === undefined ? undefined : resolveConfigModel(snapshot, modelStack.catalog.modelsView());
-  };
+  // AD-3 两级链（T12）：spawn 会话快照模型源退役——SubAgent 模型只认自身
+  // profile 链（resolveSubagentModelId 单点供给 spawn 透传/快照），不继承会话选择。
 
   // ── 装配序步 7：启动恢复（全量元数据 + 懒加载）：全部会话元数据可见
   //    （session.list 读面），当前会话（最近活动）显式热加载（同步读面/CLI
@@ -441,15 +434,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const staticDir = deps.staticDir ?? config.staticDir;
   const staticServe = new StaticServe(staticDir);
   // 当前会话绑定编排门面：Daemon.orchestration / WS 编排命令共用——
-  // spawn 携带当前会话归属 + 当前模型透传（AgentInstanceDto.model
-  // 填充链）；kill/send/status 按 agentId 全局寻址
+  // spawn 携带当前会话归属 + 两级链解析模型透传（AgentInstanceDto.model
+  // 填充链；T12 起不取会话当前模型）；kill/send/status 按 agentId 全局寻址
   const currentOrchestration: AgentOrchestrationPort = {
     spawn: (task, profileKind, reportIntervalMs) =>
       scheduler.spawn(
         registry.currentSessionId(),
         task,
         profileKind,
-        backfill.currentModelOf?.(registry.currentSessionId()),
+        resolveSubagentModelId(),
         reportIntervalMs, // T3-A：进展报告间隔透传
       ),
     send: (agentId, message) => scheduler.send(agentId, message),
