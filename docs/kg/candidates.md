@@ -2,16 +2,6 @@
 
 ## pending
 
-### E-SteerQueue
-- changeType: 修改
-- targetNode: E-SteerQueue
-- scope: 级联校验（apply TR-AD-47）
-- project: helix
-- reason: 邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/session/Session.ts#applySteer 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/session/Session.ts#steerEntry 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/session/Session.ts#applyDirectedSteer 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/agent/SteerQueue.ts#SteerQueue 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/application/services/ChatService.ts#steer 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/application/services/ChatService.ts#steerInstance 符号解析失败（符号已消失？）
-- evidence: kg apply 级联校验 @ task-20260824-thinking-unify
-- sourceTask: kg-apply
-- createdIn: task-20260824-thinking-unify
-
 ## deferred
 
 ## applied
@@ -1531,3 +1521,14 @@
 - sourceTask: final-verification L3 语义复核·批次 B（phase-reviewer agt_G87FT6KQCAQV，2026-08-24；propose 落账故障经 MainAgent 手动合并）
 - createdIn: iter-20260823-6ps5
 - decisionLog: 终验裁决（用户批准终验报告 §7 #20，2026-08-24）：机械修已直写落库（PROTOCOL.md 14 处「当前版本位」引用 0.10→0.11——§2 序列图 4 帧/握手校验/§3 信封注释 4 处/§6 错误表 2 处/§8 版本位/版本史 v0.10 去当前标注 + v0.11 当前条目；历史批登记（§17.10 等）字面量合法保留；sot-consistency 复跑 5/5 绿）——TR-AD-26 节点文本零变化（违例在 PROTOCOL.md 非规则正文），formalId=TR-AD-26 与既有 discarded 条目撞号，机械修留本 decisionLog 审计痕；子项「sot ① 断言面扩 §3 全字面量」转优化机会清单 #2/#3。
+
+### E-SteerQueue
+- changeType: 修改
+- targetNode: E-SteerQueue
+- scope: 级联校验（apply TR-AD-47）
+- project: helix
+- reason: 邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/session/Session.ts#applySteer 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/session/Session.ts#steerEntry 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/session/Session.ts#applyDirectedSteer 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/agent/SteerQueue.ts#SteerQueue 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/application/services/ChatService.ts#steer 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/application/services/ChatService.ts#steerInstance 符号解析失败（符号已消失？）
+- evidence: kg apply 级联校验 @ task-20260824-thinking-unify
+- sourceTask: kg-apply
+- createdIn: task-20260824-thinking-unify
+- decisionLog: 级联误报（符号索引过期）：apply TR-AD-47 时锚符号解析失败，但逐一验证全部健在——Session.ts:88 applySteer / SteerQueue.ts:33 class SteerQueue / ChatService.ts:272 steer / :274 steerInstance 调用链完整；codegraph 符号索引 last-indexed 8-16，此后 T10/T11/T12 大量代码变更未重建所致。非节点事实漂移，discard；根治 = codegraph 索引重建（另行安排）
