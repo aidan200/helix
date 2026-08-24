@@ -63,12 +63,15 @@ test.describe("T2.4 CL-1×CL-8 SubAgent 编排重启恢复（R1~R3）", () => {
     const card = page.locator(".sa-card.done");
     await expect(card).toBeVisible({ timeout: 10_000 });
     await expect(card.locator(".sa-task")).toContainText(TASK);
+    // T10：spawn id = agent-<hex> 唯一串，从 DOM 捕获后用（报告文件名同源）
+    const agentId = (await card.getAttribute("data-instance"))!;
+    expect(agentId).toMatch(/^agent-[0-9a-f]+$/);
     await shotEvidence(page, "cl1-r1-before", "CL-1");
 
     // O-5 报告产物在盘（重启前已落）
     const reportsDir = path.join(home, "reports");
     const sessionDir = readdirSync(reportsDir)[0]!;
-    const reportPath = path.join(reportsDir, sessionDir, "agent-1.md");
+    const reportPath = path.join(reportsDir, sessionDir, `${agentId}.md`);
     expect(existsSync(reportPath)).toBe(true);
     expect(readFileSync(reportPath, "utf8")).toContain("R1 调研完成：结论 X");
 
@@ -158,8 +161,11 @@ test.describe("T2.4 CL-1×CL-8 SubAgent 编排重启恢复（R1~R3）", () => {
 
     // closure failed 注入主线：isSteer user entry 在场且 **queued 未消费**
     // （steer-badge 非 drained——不自动续跑的外显；若被消费则徽标 drained +
-    // 陷阱剧本产出新 assistant 消息）
-    const injected = page.locator(".msg.user", { hasText: `agent-1 closure: failed — ${RESTART_SUMMARY}` });
+    // 陷阱剧本产出新 assistant 消息）。T10：注入前缀 id 从 DOM 卡片捕获
+    const failedCard = page.locator(".sa-card.failed");
+    const failedId = (await failedCard.getAttribute("data-instance"))!;
+    expect(failedId).toMatch(/^agent-[0-9a-f]+$/);
+    const injected = page.locator(".msg.user", { hasText: `${failedId} closure: failed — ${RESTART_SUMMARY}` });
     await expect(injected).toBeVisible({ timeout: 10_000 });
     await expect(injected.locator(".steer-badge")).toBeVisible();
     await expect(injected.locator(".steer-badge.drained")).toHaveCount(0);
@@ -172,7 +178,7 @@ test.describe("T2.4 CL-1×CL-8 SubAgent 编排重启恢复（R1~R3）", () => {
     await expect(page.locator(".msg.assistant")).toHaveCount(assistantCount);
     await expect(page.locator(".stream-cursor")).toHaveCount(0);
     await expect(page.locator(".sa-card.running")).toHaveCount(0);
-    await expect(page.locator(".sa-card")).toHaveCount(1); // 仅 agent-1，无复活 spawn
+    await expect(page.locator(".sa-card")).toHaveCount(1); // 仅该实例，无复活 spawn
 
     writeEvidence(
       "cl1-r2",

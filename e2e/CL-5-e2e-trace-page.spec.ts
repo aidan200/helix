@@ -249,7 +249,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     const mainItem = items.filter({ hasText: "主实例" });
     await expect(mainItem.locator(".ii-pk.main-pk")).toHaveText("main-session");
     await expect(mainItem.locator(".ii-model")).toHaveText("fake/model");
-    const subItem = items.filter({ hasText: "agent-1" });
+    const subItem = items.filter({ has: page.locator(".ii-pk", { hasText: "subagent-worker" }) }); // T10：id=hex，按 pk 定位 Sub
     await expect(subItem).toHaveAttribute("data-status", "completed");
     await expect(subItem.locator(".ii-status")).toHaveText("已完成");
     await expect(subItem.locator(".ii-pk")).toHaveText("subagent-worker");
@@ -317,7 +317,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     const lifecycleTypes = new Set(["message.completed", "turn.started", "turn.completed", "turn.interrupted", "steer.queued", "steer.drained", "agent.state.changed", "agent.spawned", "agent.queued", "agent.started", "agent.stalled", "agent.completed", "agent.failed", "agent.killed", "agent.instantiated"]);
     for (const t of await visibleRowTypes(page)) expect(lifecycleTypes.has(t)).toBe(true);
     // 实例维交集：选中 Sub → 计数再收窄且行类型仍在集合内
-    await page.locator(".ip-item:not(.ip-all)").filter({ hasText: "agent-1" }).click();
+    await page.locator(".ip-item:not(.ip-all)").filter({ has: page.locator(".ii-pk", { hasText: "subagent-worker" }) }).click();
     const hitSub = await waitHitCount(page);
     expect(hitSub).toBeGreaterThan(0);
     expect(hitSub).toBeLessThan(hitMsgLc);
@@ -367,11 +367,11 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     await expect(page.locator(".ip-count")).toHaveText("1 实例");
     await waitHitCount(page);
     await expect(page.locator(".ip-item:not(.ip-all)")).toHaveCount(1);
-    await expect(page.locator(".ip-item:not(.ip-all)").filter({ hasText: "agent-1" })).toHaveCount(0);
+    await expect(page.locator(".ip-item:not(.ip-all)").filter({ has: page.locator(".ii-pk", { hasText: "subagent-worker" }) })).toHaveCount(0);
     await page.locator(".tsb-ses", { hasText: "trace 会话首轮" }).click();
     await expect(page.locator(".ip-count")).toHaveText("2 实例");
     await waitHitCount(page);
-    await expect(page.locator(".ip-item:not(.ip-all)").filter({ hasText: "agent-1" })).toHaveCount(1);
+    await expect(page.locator(".ip-item:not(.ip-all)").filter({ has: page.locator(".ii-pk", { hasText: "subagent-worker" }) })).toHaveCount(1);
     await shotLocal(page, "e2e-trace-session-rebuild");
 
     await d.stop();
@@ -382,7 +382,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
         `会话甲事件总数 ${totalAll}；过滤链 hit: message=${hitMsg} → +lifecycle=${hitMsgLc} → ∩Sub=${hitSub}（300s 窗内不变）`,
         "上下文卡: Sub(task 引用块/5 工具 chips/无 compaction/无时间线纯快照) + 主(compaction/时间线 fake/model→" + TARGET_MODEL + " 当前高亮)",
         "行展开手风琴单开 + aria-expanded 同步；IconRail /trace aria-selected 恰一；页签非施工牌",
-        "面板随会话选择重建: 乙 1 实例（无 agent-1）↔ 甲 2 实例",
+        "面板随会话选择重建: 乙 1 实例（无 SubAgent）↔ 甲 2 实例",
       ].join("\n"),
     );
   });
@@ -461,7 +461,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
 
     await openTrace(page);
     // 面板：Sub 实例 failed 态
-    const subItem = page.locator(".ip-item:not(.ip-all)").filter({ hasText: "agent-1" });
+    const subItem = page.locator(".ip-item:not(.ip-all)").filter({ has: page.locator(".ii-pk", { hasText: "subagent-worker" }) });
     await expect(subItem).toHaveAttribute("data-status", "failed");
     await expect(subItem.locator(".ii-status")).toHaveText("失败");
     // 混排视图：engine.error 行 err-row 着色 + 摘要透出 provider 原文
@@ -530,7 +530,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     await page.locator(".ip-item:not(.ip-all)").filter({ hasText: "主实例" }).click();
     await expect(card.locator(".tl-cur")).toContainText(TARGET_MODEL);
     await expect(card.locator(".cp-body")).toBeVisible();
-    await page.locator(".ip-item:not(.ip-all)").filter({ hasText: "agent-1" }).click();
+    await page.locator(".ip-item:not(.ip-all)").filter({ has: page.locator(".ii-pk", { hasText: "subagent-worker" }) }).click();
     await expect(card.locator("blockquote.ctx-task")).toContainText(SA_TASK);
     await page.locator(".ip-item.ip-all").click(); // 回混排全量（重连重查的过滤基线）
     await waitHitCount(page);
@@ -596,7 +596,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     });
     await e2e.waitForConnected(page, 30_000);
     await expect(page.locator(".p1-tbody .p1-entry")).toHaveCount(preDump.length + 4, { timeout: 15_000 });
-    // 面板 3 实例（主 + agent-1 + 历史实例）
+    // 面板 3 实例（主 + Sub + 历史实例）
     await expect(page.locator(".ip-count")).toHaveText("3 实例");
     // 历史实例：快照缺失降级（卡保留 + 标注，无 prompt 段，不报错）
     const legacyItem = page.locator(".ip-item:not(.ip-all)").filter({ hasText: LEGACY_ID });
@@ -613,7 +613,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     await expect(card.locator(".tl-cur")).toContainText(TARGET_MODEL);
     await expect(card.locator(".tl-cur")).toContainText("当前");
     // Sub 卡可重建 + 同源采样：trace 行与聊天抽屉重放读同一事件源（文本一致）
-    await page.locator(".ip-item:not(.ip-all)").filter({ hasText: "agent-1" }).click();
+    await page.locator(".ip-item:not(.ip-all)").filter({ has: page.locator(".ii-pk", { hasText: "subagent-worker" }) }).click();
     await expect(card.locator(".cp-body")).toBeVisible();
     await expect(card.locator("blockquote.ctx-task")).toContainText(SA_TASK);
     const subMsgRow = page.locator(".p1-entry", { hasText: SA_MARKER });

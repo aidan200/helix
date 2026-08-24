@@ -93,7 +93,8 @@ test.describe("T5.3 CL-2×CL-3×CL-8 重启恢复增例（R4/R5）", () => {
     const barsBefore = page.locator('.fb-wrap[data-kind="thinking"]');
     await expect(barsBefore).toHaveCount(2);
     const ledgerBefore = await readLedgerProjection(page);
-    expect(ledgerBefore.rows.find((r) => r.id === "main")?.sub).toBe("reasoning 14");
+    // 主实例行按 kind 语义钉（id = agent-<hex> 唯一串，T10；不再用 "main" 字面）
+    expect(ledgerBefore.rows.find((r) => r.id?.startsWith("agent-"))?.sub).toBe("reasoning 14");
     await shotEvidence(page, "t53-r4-before", "CL-2");
 
     // 停机 → 重启（同 home；空剧本——重启后无待续对话）
@@ -122,7 +123,8 @@ test.describe("T5.3 CL-2×CL-3×CL-8 重启恢复增例（R4/R5）", () => {
 
     // reasoning 计入账目：popover main 行 sub 与重启前逐字一致
     const ledgerAfter = await readLedgerProjection(page);
-    expect(ledgerAfter.rows.find((r) => r.id === "main")?.sub).toBe("reasoning 14");
+    // reasoning 计入账目：popover 主实例行 sub 与重启前逐字一致
+    expect(ledgerAfter.rows.find((r) => r.id?.startsWith("agent-"))?.sub).toBe("reasoning 14");
     expect(ledgerAfter.badge).toBe(ledgerBefore.badge); // 合计同源恢复
 
     writeEvidence(
@@ -174,9 +176,11 @@ test.describe("T5.3 CL-2×CL-3×CL-8 重启恢复增例（R4/R5）", () => {
     await expect(page.locator(".sa-card.running")).toHaveCount(1, { timeout: 10_000 });
     await expect(page.locator(".sa-card")).toHaveCount(2);
 
-    // 重启前账目投影（徽标 + 合计 + main/agent-1/agent-2 行明细）
+    // 重启前账目投影（徽标 + 合计 + 三行明细：主实例 + 两个 SubAgent，id 均为 agent-<hex> 唯一串，T10）
     const before = await readLedgerProjection(page);
-    expect(before.rows.map((r) => r.id)).toEqual(["main", "agent-1", "agent-2"]);
+    expect(before.rows.map((r) => r.id)).toHaveLength(3);
+    for (const id of before.rows.map((r) => r.id)) expect(id).toMatch(/^agent-[0-9a-f]+$/);
+    expect(new Set(before.rows.map((r) => r.id)).size).toBe(3); // 互异（含主实例）
     expect(before.badge).toMatch(/tok · \$/); // 徽标格式 sanity（与 popover 合计同源由 CL-3 S4 承载）
     await shotEvidence(page, "t53-r5-before", "CL-3");
 
