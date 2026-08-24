@@ -110,11 +110,17 @@ describe("F1.3/T12 spawn 透传模型不作用子进程（真子进程 + 剧本�
       rmSync(home, { recursive: true, force: true });
     };
 
-    // agent-1 直跑；agent-2/agent-3 排队——三者 spawn 透传不同模型 id
+    // 首个直跑；后两个排队——三者 spawn 透传不同模型 id
     //（旧链下会作为会话快照进子进程；T12 后仅填充 AgentInstanceDto.model）
-    expect(scheduler.spawn(SESSION_ID, "任务一", undefined, "fake/session-a").status).toBe("run");
-    expect(scheduler.spawn(SESSION_ID, "任务二", undefined, "fake/session-b").status).toBe("queued");
-    expect(scheduler.spawn(SESSION_ID, "任务三", undefined, "fake/session-c").status).toBe("queued");
+    // T10a：spawn id = agent-<唯一串>，捕获而非硬编码
+    const spawn1 = scheduler.spawn(SESSION_ID, "任务一", undefined, "fake/session-a");
+    const spawn2 = scheduler.spawn(SESSION_ID, "任务二", undefined, "fake/session-b");
+    const spawn3 = scheduler.spawn(SESSION_ID, "任务三", undefined, "fake/session-c");
+    expect(spawn1.status).toBe("run");
+    expect(spawn2.status).toBe("queued");
+    expect(spawn3.status).toBe("queued");
+    if (spawn1.status === "rejected" || spawn2.status === "rejected" || spawn3.status === "rejected") throw new Error("unreachable");
+    const ids = [spawn1.agentId, spawn2.agentId, spawn3.agentId];
 
     await until(
       () => events.filter((e) => e.type === "agent.completed").length === 3,
@@ -128,13 +134,13 @@ describe("F1.3/T12 spawn 透传模型不作用子进程（真子进程 + 剧本�
         | undefined;
 
     // 锚 2/3（反向钉）：三实例 started 行模型 = 全局兜底（非各自 spawn 透传值）
-    for (const id of ["agent-1", "agent-2", "agent-3"]) {
+    for (const id of ids) {
       expect(startedOf(id)?.model).toEqual(JSON.parse(JSON.stringify(globalModel)));
     }
     // DTO 填充链不受影响：spawn 透传值仍随实例快照透出
     const snapshot = scheduler.snapshotInstances(SESSION_ID);
-    expect(snapshot.find((i) => i.instanceId === "agent-1")?.model).toBe("fake/session-a");
-    expect(snapshot.find((i) => i.instanceId === "agent-2")?.model).toBe("fake/session-b");
-    expect(snapshot.find((i) => i.instanceId === "agent-3")?.model).toBe("fake/session-c");
+    expect(snapshot.find((i) => i.instanceId === ids[0])?.model).toBe("fake/session-a");
+    expect(snapshot.find((i) => i.instanceId === ids[1])?.model).toBe("fake/session-b");
+    expect(snapshot.find((i) => i.instanceId === ids[2])?.model).toBe("fake/session-c");
   }, 30000);
 });

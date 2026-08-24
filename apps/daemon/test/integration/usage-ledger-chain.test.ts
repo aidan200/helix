@@ -97,6 +97,9 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
       });
       const d1 = await createUsageDaemon(home, engine1);
       const sessionId = d1.system.getStatus().sessionId;
+      // T10a：主实例 id = 会话 mainInstanceId（agent-<唯一串>，重启后持久化读回同值）
+      const mainId = d1.registry.peek(sessionId)!.chatService.sessionView.mainInstanceId;
+      expect(mainId).toMatch(/^agent-[0-9a-f]+$/);
 
       // 订阅面（SessionService.notify ← fan-out，与 WS 事件流同源）：
       // 订阅方应收到与入账事件等量的 usage.recorded
@@ -110,6 +113,8 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
       await d1.chat.sendMessage("问一");
       const spawnOutcome = d1.orchestration.spawn("统计文件");
       expect(spawnOutcome.status).toBe("run");
+      if (spawnOutcome.status !== "run") throw new Error("unreachable");
+      const agentId = spawnOutcome.agentId; // T10a：agent-<唯一串>，捕获而非硬编码
       await awaitIdle(d1); // SubAgent usage 上行 + closure 注入 → 内部 turn（答二 + compaction）
       await d1.chat.sendMessage("问三");
       expect(d1.system.getStatus().agentState).toBe("idle");
@@ -118,8 +123,8 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
       const usage1 = view1.usage!;
       expect(usage1).toBeDefined();
 
-      // ① per-instance 小计：main = U1+U2+UC+U3（compaction 归属 main）、agent-1 = USUB
-      expect(instanceUsage(view1, "main")).toEqual({
+      // ① per-instance 小计：主实例 = U1+U2+UC+U3（compaction 归属主实例）、SubAgent = USUB
+      expect(instanceUsage(view1, mainId)).toEqual({
         input: 10 + 20 + 40 + 1,
         output: 20 + 30 + 6 + 2,
         cacheRead: 0,
@@ -128,9 +133,9 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
         totalTokens: 35 + 50 + 46 + 3,
         cost: 0.01 + 0.02 + 0.03 + 0.001,
       });
-      expect(instanceUsage(view1, "agent-1")!.totalTokens).toBe(300);
+      expect(instanceUsage(view1, agentId)!.totalTokens).toBe(300);
 
-      // 聚合自洽：total = Σ 小计（含 main 与 agent-N）；compaction 小计 ⊆ total
+      // 聚合自洽：total = Σ 小计（含主实例与 SubAgent）；compaction 小计 ⊆ total
       const instanceSum = view1.instances!.reduce((acc, i) => acc + (i.usage?.totalTokens ?? 0), 0);
       expect(usage1.total.totalTokens).toBe(instanceSum);
       expect(usage1.total.totalTokens).toBe(35 + 50 + 46 + 3 + 300);
@@ -144,9 +149,9 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
       const repo = new SqliteSessionRepository(readQueue);
       const allUsage = repo.queryEvents({ sessionId, type: "usage.recorded" });
       expect(allUsage).toHaveLength(5); // U1 + USUB + U2 + UC + U3
-      expect(allUsage.filter((e) => (e.instanceId ?? "main") === "main")).toHaveLength(4);
-      expect(allUsage.filter((e) => e.instanceId === "agent-1")).toHaveLength(1);
-      const subRow = repo.queryEvents({ sessionId, instanceId: "agent-1", type: "usage.recorded" });
+      expect(allUsage.filter((e) => (e.instanceId ?? mainId) === mainId)).toHaveLength(4);
+      expect(allUsage.filter((e) => e.instanceId === agentId)).toHaveLength(1);
+      const subRow = repo.queryEvents({ sessionId, instanceId: agentId, type: "usage.recorded" });
       expect(subRow).toHaveLength(1);
       expect((subRow[0]!.payload as UsageRecordedPayload).usage.input).toBe(100);
       // 时间维：早于一切的 until → 空；覆盖全程的 since → 全量
@@ -167,9 +172,9 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
 
       // ③ 重启后快照 usage 聚合与重启前完全一致（合计 + compaction 小计）
       expect(view2.usage).toEqual(usage1);
-      // per-instance 明细一致（main + agent-1）
-      expect(instanceUsage(view2, "main")).toEqual(instanceUsage(view1, "main"));
-      expect(instanceUsage(view2, "agent-1")).toEqual(instanceUsage(view1, "agent-1"));
+      // per-instance 明细一致（主实例 + SubAgent）
+      expect(instanceUsage(view2, mainId)).toEqual(instanceUsage(view1, mainId));
+      expect(instanceUsage(view2, agentId)).toEqual(instanceUsage(view1, agentId));
       expect(view2.usage!.total.totalTokens).toBe(usage1.total.totalTokens);
 
       // 重启后账目延续：续对话入账在恢复基线上累加（+1 条 turn 账）

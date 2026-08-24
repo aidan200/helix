@@ -252,8 +252,10 @@ describe("T2.2 ③ 删除取消链（顺序硬约束）+ list_changed 三类推"
       const engineA = rig.engineOf(a.sessionId);
       await until(() => engineA.events.some((e) => e.type === "agent_end"), 5000, "A 首轮完成");
       // SubAgent 挂起 running + queued（预算 3 内两个直跑——改用一跑一队：直接 spawn 两个均 running）
-      rig.daemon.orchestration.spawn("运行中的任务");
-      rig.daemon.orchestration.spawn("排队的任务");
+      const spawn1 = rig.daemon.orchestration.spawn("运行中的任务");
+      const spawn2 = rig.daemon.orchestration.spawn("排队的任务");
+      if (spawn1.status !== "run" || spawn2.status !== "run") throw new Error("unreachable");
+      const agentIds = [spawn1.agentId, spawn2.agentId]; // T10a：agent-<唯一串>，捕获而非硬编码
       await until(() => rig.runner.launched.length === 2, 3000, "两 SubAgent launch");
 
       await dir.deleteSession(a.sessionId);
@@ -265,8 +267,8 @@ describe("T2.2 ③ 删除取消链（顺序硬约束）+ list_changed 三类推"
       for (const s of statuses) {
         expect(["done", "failed", "cancelled"]).toContain(s.state);
       }
-      expect(rig.runner.kills).toContain("agent-1");
-      expect(rig.runner.kills).toContain("agent-2");
+      expect(rig.runner.kills).toContain(agentIds[0]!);
+      expect(rig.runner.kills).toContain(agentIds[1]!);
       // 删库：全部六表行清空（flush 后仍无行——删除不被收口写复活）
       const repo = openRepo(rig.home);
       await new Promise((r) => setTimeout(r, 100));
@@ -347,16 +349,18 @@ describe("T2.2 ④ 尾窗切法（AD-1：主轴尾窗 30 + per-instance 完整 +
       await until(() => engineA.events.filter((e) => e.type === "agent_end").length === 16, 20000, "16 轮全部完成");
 
       // SubAgent channel M 条（thinking + message + tool × N，经投影进聚合）
-      rig.daemon.orchestration.spawn("通道历史任务");
+      const spawnSub = rig.daemon.orchestration.spawn("通道历史任务");
+      if (spawnSub.status !== "run") throw new Error("unreachable");
+      const agentId = spawnSub.agentId; // T10a：agent-<唯一串>，捕获而非硬编码
       await until(() => rig.runner.launched.length === 1, 3000, "SubAgent launch");
-      rig.runner.emitEngineEvent("agent-1", { type: "message_start", role: "assistant", source: "prompt" });
-      rig.runner.emitEngineEvent("agent-1", { type: "thinking_started", contentIndex: 0 });
-      rig.runner.emitEngineEvent("agent-1", { type: "thinking_delta", contentIndex: 0, delta: "思考" });
-      rig.runner.emitEngineEvent("agent-1", { type: "thinking_end", contentIndex: 0, content: "通道思考全文" });
-      rig.runner.emitEngineEvent("agent-1", { type: "message_update", delta: "通道消息" });
-      rig.runner.emitEngineEvent("agent-1", { type: "tool_execution_start", toolCallId: "subtc-1", toolName: "grep", args: { q: "x" } });
-      rig.runner.emitEngineEvent("agent-1", { type: "tool_execution_end", toolCallId: "subtc-1", toolName: "grep", isError: false, result: "命中" });
-      rig.runner.emitEngineEvent("agent-1", { type: "message_end", role: "assistant", text: "通道完整消息", stopReason: "stop" });
+      rig.runner.emitEngineEvent(agentId, { type: "message_start", role: "assistant", source: "prompt" });
+      rig.runner.emitEngineEvent(agentId, { type: "thinking_started", contentIndex: 0 });
+      rig.runner.emitEngineEvent(agentId, { type: "thinking_delta", contentIndex: 0, delta: "思考" });
+      rig.runner.emitEngineEvent(agentId, { type: "thinking_end", contentIndex: 0, content: "通道思考全文" });
+      rig.runner.emitEngineEvent(agentId, { type: "message_update", delta: "通道消息" });
+      rig.runner.emitEngineEvent(agentId, { type: "tool_execution_start", toolCallId: "subtc-1", toolName: "grep", args: { q: "x" } });
+      rig.runner.emitEngineEvent(agentId, { type: "tool_execution_end", toolCallId: "subtc-1", toolName: "grep", isError: false, result: "命中" });
+      rig.runner.emitEngineEvent(agentId, { type: "message_end", role: "assistant", text: "通道完整消息", stopReason: "stop" });
       await new Promise((r) => setTimeout(r, 100)); // 投影落库
 
       const view = await dir.getSessionView(a.sessionId);
@@ -368,7 +372,7 @@ describe("T2.2 ④ 尾窗切法（AD-1：主轴尾窗 30 + per-instance 完整 +
       expect(dto.tailStartCursor).toBe(dto.tail![0]!.id); // 尾窗最早 entry id
       expect(dto.entries ?? []).toStrictEqual(dto.tail ?? []); // entries 与 tail 同源（v0.2 口径）
       // per-instance channel 完整保留（AD-1 硬约束：不按全局时间序切尾）
-      const agent = dto.instances?.find((i) => i.instanceId === "agent-1");
+      const agent = dto.instances?.find((i) => i.instanceId === agentId);
       expect(agent?.channels?.thinking as unknown[] | undefined).toHaveLength(1);
       expect(agent?.channels?.messages as unknown[] | undefined).toHaveLength(1);
       expect(agent?.channels?.tools as unknown[] | undefined).toHaveLength(1);
@@ -386,7 +390,7 @@ describe("T2.2 ④ 尾窗切法（AD-1：主轴尾窗 30 + per-instance 完整 +
       expect(page2.entries).toHaveLength(1);
       expect(page2.hasMore).toBe(false);
       // 游标非法（SubAgent 条目 id 不在主轴）→ 抛错（WS 侧转 invalid_cursor）
-      expect(() => historyPage(view, "agent-1#1")).toThrow();
+      expect(() => historyPage(view, `${agentId}#1`)).toThrow();
     } finally {
       await rig.dispose();
     }
