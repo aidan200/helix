@@ -1,63 +1,47 @@
-# T2 Brief — shell P-1 推理控件 OFF 刻度 + 默认 OFF 文案
+# T2 Brief: protocol 模式注册表 + 帧字段 additive
 
-## 项目定位
+## 背景定位
 
-- 仓库：`/Users/siyong/AI_Project/helix`，本任务只动 `apps/shell`。
-- 背景：daemon 侧（T1 并行中）将默认语义改为**默认关**且 `"off"` 成为合法 override 值。本任务让 P-1 chat composer 推理控件表达该语义。
-- 测试命令：`cd /Users/siyong/AI_Project/helix && bunx vitest run apps/shell/src/features/thinking-level`（以仓库 test:shell 脚本口径为准）。
+helix 协议包 `packages/protocol`（daemon/前端共享契约）。本期为「会话模式」P1 打协议地基：session 一对一绑定模式，草稿态可切、建会话定格锁定。本期注册表只有 default 一条，但 schema 必须能表达后续两模式不返工：phase（staged：design/build/verify 三阶段 agent）、workflow（orchestrated：编排者 agent）。
 
-## 需求（traceability）
+## 任务目标
 
-1. 用户决策（原话）：「"off" 升格为合法 override 值」→ P-1 滑块需要能选到 OFF。
-2. 用户决策（原话）：「思考默认都不开启，只有手动的时候去开启」→ 无覆盖时 chip 显示 OFF（AUTO 文案退场）。
+1. protocol 包内新增模式注册表常量与类型（位置自选，建议 events/commands 同级新文件 `modes.ts` 或类似）：
 
-## 语义设计（已定案）
+```ts
+interface ModeSpec {
+  id: string;                    // "default" | ...
+  kind: "single" | "staged" | "orchestrated";
+  profileKind: string;           // single/orchestrated 的绑定
+  stages?: readonly StageSpec[]; // staged 模式预留
+}
+interface StageSpec { id: string; profileKind: string; welcomeKey?: string }
+MODES: readonly ModeSpec[] = [{ id: "default", kind: "single", profileKind: "main-session" }]
+```
 
-- 刻度列表：`["off", ...capability.thinkingLevels]`（UI 合成 OFF 为第 0 刻度；CatalogModel.thinkingLevels 不含 off，协议零变更）。
-- chip 显示：`reasoningOff ? OFF : (effective ?? "OFF")`——无覆盖（effective=null，默认关）与显式关（override="off"）显示同态 OFF；区别在滑块：无覆盖 = ghost 空心 thumb 停 off 位，显式关 = 实心。
-- 选择 OFF 刻度 → `setSessionThinking("off")`（协议透传，daemon 侧 T1 短路处理）。
-- PEAK / clamped 判据不变（effective=null 时均不触发，既有纯函数已覆盖）。
-- 草稿态 ghostValue：默认关语义 → ghost 落 `"off"`（原来是 "medium"）。
+加类型级保障（如 mode id 联合类型）+ 单测（MODES 完整性、唯一性）。
+2. `chat.send` payload 增可选 `mode?: string`（draft 建会话链透传；缺省 = "default"，旧客户端兼容）。找到 payload 定义位置（`packages/protocol/src/commands/` 下 chat 相关）additive 扩展 + 校验规则若有 zod/手写校验需同步。
+3. `session.snapshot` 与 `connection.welcome` payload 增可选 `mode?: string`（additive；快照回带已定格的会话模式；welcome 的 mode 表 daemon 当前模式面——若 welcome 场景不合适，报告里说明取舍）。协议版本号处理遵循包内既有 additive 惯例。
+4. 相关单测更新。
 
-## 改动点（最小实现）
+## 边界（不要做）
 
-### 1. `apps/shell/src/features/thinking-level/ui/ComposerThinkingPicker.tsx`
+- 不动 daemon/shell 业务代码（T3/T4 消费）。
+- 不设计阶段切换/交接/workflow 编排协议（P2/P3）。
+- 不加 `mode.set` 命令（设计决策：无第二条写路径，锁定 = 结构不可能）。
 
-- `levels` 组装：`["off", ...capability.thinkingLevels]`。
-- `levelText`：`effective ?? t("chat.thinking.auto")` → `effective ?? t("chat.thinking.off")`（AUTO 退场）。
-- ghostValue（草稿态分支，若有）：`"medium"` → `"off"`。
-- 相关注释跟随现状陈述。
+## 全局约束
 
-### 2. i18n（`apps/shell/src/shared/i18n/lang/zh-CN.ts` + `en-US.ts`，仅 chat.thinking 段）
+- protocol 包是纯契约（无 IO/无 React）；DTO additive 兼容旧版本。
+- 测试先行（TDD）。
 
-- `chat.thinking.auto` 移除（若无其他消费位；grep 确认）；OFF 标签复用既有 `chat.thinking.off`（"OFF"）。
-- 如需新增滑块 OFF 刻度 aria/说明文案，chat 段内 additive。
+## 验收标准（闭环逐条应答）
 
-### 3. 删除 scope 文字提示（用户追加决策 2026-08-24）
-
-- `ComposerThinkingPicker.tsx:115` 的 `<span className="tp-scope">{t("chat.thinking.scope")}</span>` 整行删除。
-- zh-CN.ts / en-US.ts 中 `chat.thinking.scope` 键删除（grep 确认无其他消费位）。
-
-### 4. 不动的东西
-
-- `ThinkingLevelSlider.tsx` 零改动（刻度列表透传组件）。
-- `thinking-capability.ts` 判据函数零改动。
-- protocol 零变更。
-
-## TDD 要求
-
-- `ComposerThinkingPicker.test.tsx` 既有「无覆盖且生效 null → 显示 AUTO」断言 → 改 OFF。
-- 新增：滑块渲染含 OFF 第 0 刻度；选择 OFF 刻度 → setSessionThinking 收到 `"off"`。
-- `state.ts` 初始 thinking 切片 `{null, null}` 不变。
-
-## 验收标准（闭环时逐条应答）
-
-1. 无覆盖会话 chip 显示 OFF（测试钉）。
-2. 滑块第 0 刻度为 off，选择后发 level="off"（测试钉）。
-3. `chat.thinking.auto` 无残留消费位（grep 证据）。
-4. popover 不再渲染 scope 文案，`chat.thinking.scope` 键无残留（grep 证据）。
-5. `bunx vitest run apps/shell`（或仓库等价命令）相关文件全绿。
+1. ModeSpec/StageSpec/MODES 类型+常量+单测就位，TS 编译零错。
+2. chat.send payload.mode 可选字段 + 校验/类型同步，单测覆盖（携带/缺省两形态）。
+3. 快照与 welcome 帧 additive mode 字段 + 单测。
+4. packages/protocol 测试全绿。
 
 ## 报告要求
 
-- submit_result 携带 taskId=T2；acceptance[] 逐条应答；findings[] 必填（无发现传 []）。
+submit_result 含 acceptance 逐条应答 + findings（文件清单、welcome 是否带 mode 的取舍说明、协议版本处理方式）。

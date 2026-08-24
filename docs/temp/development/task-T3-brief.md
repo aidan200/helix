@@ -1,73 +1,44 @@
-# T3 Brief — shell P-2 推理级别字段重构为 on/off 开关形态
+# T3 Brief: daemon 建会话链消费 mode
 
-## 项目定位
+## 背景定位
 
-- 仓库：`/Users/siyong/AI_Project/helix`，本任务只动 `apps/shell`（P-2 字段 + i18n agents 段）。
-- 背景：thinking 语义变更批（默认关 + off 升格）的 P-2 侧重构。T1（daemon 默认关）与 T2（P-1 滑块 OFF 刻度）并行/先行，本任务依赖其语义但不依赖其代码（共用组件 ThinkingLevelSlider 零改动）。
-- 测试命令：`bunx vitest run apps/shell`（以仓库 test:shell 口径为准）。
+helix P1「会话模式框架」。T2 已落地协议面（main 上已合并，commit 460b048）：`packages/protocol/src/modes.ts` 提供 `MODES` / `ModeId` / `DEFAULT_MODE_ID`（恰一条 `default/single/main-session`）；`chat.send` payload 增可选 `mode`；`SessionSnapshotDto` / `ConnectionWelcomePayload` 增可选 `mode`。T1 已落地 KV 存储（commit 2390c1a，`DefaultModelPort` 签名未动）——本任务**不碰存储层**。
 
-## 需求（traceability）
+本任务把 mode 从协议面接进 daemon 建会话链。设计核心（计划文档 D4）：**锁定语义 = 结构不可能**——mode 只在草稿建会话链消费（`chat.send{draft:true, mode}`），建会话定格落库，此后无任何写路径；不设 `mode.set` 命令。
 
-1. 用户决策（原话）：「智能体页面的配置逻辑需要改一下，就是think等级是有on/off的开关的，on的时候获取当前模型最新的支持的档位列表，然后再渲染滑块组件，这样逻辑比较顺畅。」
-2. 用户决策（原话）：「agent页面的"新会话按此档解析推理级别；composer 会话覆盖优先于此槽位。" 这些文字提示也删除吧」→ P-2 说明行（四条 note 文案）删除。
+## 任务目标
 
-## 交互设计（已定案）
+1. **模式注册表消费单点**：daemon 内一个纯函数/常量模块（建议 domain 或 application 层），从 `@helix/protocol` import `MODES`/`DEFAULT_MODE_ID` 解析 `profileKindOf(mode)`——未知/缺省 mode → fallback `DEFAULT_MODE_ID`。**勿另建平行注册表**（T2 约定）。放 domain 层则不得 import protocol（查 kg 架构规则：domain 禁 pi 与 protocol，仅 @helix/common 白名单）——若冲突则放 application 层并在报告说明。
+2. **透传链**：`handlers/chat.ts` handleChatSend 草稿分支提取 `payload.mode`（校验 string 非空，缺省 undefined）→ `SessionDirectoryPort.startDraftSession` 签名加 mode 参数（`SessionRegistry.ts:244`）。
+3. **建会话按 mode 解析 profileKind**：
+   - 热草稿复用条件（现状：`sessions.get(currentId)` 零条目即复用，`SessionRegistry.ts:249-258`）**加一条**：热草稿 main 实例的 profileKind === 目标 mode 的 profileKind 才复用；不一致 → 丢弃热草稿（零条目无成本）走 `createFresh` 按新 mode 构造。
+   - `createFresh` → `buildRuntime` → main 实例创建（`SessionRegistry.ts:637-646` 现硬编码 `profileKind:"main-session"`）与 `engineFor` 的槽位 kind（`buildSessionStack.ts:375-386` 现硬编码 `modelSlot("main-session")`/`thinkingSlot("main-session")`）**统一从 mode 解析的 profileKind 取值**（default 模式下值不变，行为零变化，但字面量参数化）。
+4. **session.mode 落库**：`session_state` 表加 `mode` 列（schema additive 迁移，sqlite-session）；Session 聚合 + 建会话定格 + `load` 冷恢复（旧行无值 → default）。落库点注意「daemon 收首条消息才 INSERT」的既有时序（write-through 投影），mode 随首行一起进。
+5. **快照/welcome 回带**：`SessionStateView`/snapshot 构造（`buildView`/`snapshotFrame`）带 mode；welcome（`WsServerAdapter.ts:311-317`）= 当前会话的 mode。草稿态 welcome（isDraft 分支不推快照）mode 不携带（undefined，前端回落 default）——P1 语义：草稿模式是纯前端状态，daemon 不知情；报告里确认此取舍。
+6. **非草稿链 mode 忽略**：信封带 sessionId 的 chat.send 即使 payload 有 mode 也忽略（协议注释已声明）——测试钉死，防第二条写路径。
 
-**开关语义**：
-- **off** = thinking 槽位空（`block?.thinkingLevel == null`）= 该 profile 默认不思考（与 daemon 默认关语义对齐）
-- **on** = 槽位已设档
+## 边界（不要做）
 
-**开启行为**：开关从 off → on 时，若槽位为空，**立即写入当前模型档位的中位档**（`defaultLevelFor(levels)`，见下），使槽位变为已配置；随后渲染滑块，用户可再调档。
-- "获取当前模型最新的支持的档位列表" = 既有 `thinkingCapability` memo（`resolveThinkingCapability(block?.model ?? defaultModel ?? "", catalog)`）——数据链已存在，消费即可。
-- **关闭行为**：on → off 调既有 `onClear`（清槽位）。
-- **中位档规则**（用户原话：「所有模型的推理强度默认都取中间档位，如果只有两个档位则取第一档位，最高档位默认都不选」）：`levels[Math.floor((n-1)/2)]`——n=2 取低档、n=3 取中、n=4 取低中位、n=1 唯一档（无选择，属例外）。空数组 → undefined（不写）。
+- 不动 shell 前端（T4）。
+- 不动 T1 存储层、模型/thinking 解析链语义（仅字面量参数化）。
+- 不加 mode.set 命令、不做阶段切换（P2）。
+- 不 bump 协议版本（T5 决策）。
 
-**边界态**（沿用既有判据，不新增逻辑）：
-- `reasoning=false`（当前模型不支持推理）：开关 disabled + 既有 `disabledNote` 保留。
-- 能力位未判明（catalog 未达）：开关 disabled + 既有 `capabilityLoading` 提示。
-- P-2 滑块**无 OFF 刻度**（off 由开关承担，与 P-1 不同）——levels 直接用 `capability.thinkingLevels`。
-- clampedHint / PEAK 判据不变（既有纯函数）。
+## 工作方式
 
-## 改动点（最小实现）
+- **直接在主仓 `/Users/siyong/AI_Project/helix` 工作并提交 commit，不要开 git worktree**（前两个任务开 worktree 增加了合并成本；主仓当前 clean，你只管自己的改动）。
+- TDD：新行为先写失败测试。
+- 项目有 CodeGraph 索引（projectPath=helix）。
 
-### 1. `apps/shell/src/features/thinking-level/model/thinking-capability.ts`
+## 验收标准（闭环逐条应答）
 
-- 新增纯函数 `defaultLevelFor(levels: readonly string[]): string | undefined`（中位规则，注释写明用户决策语义）。纯函数纪律：无 React / 无 IO。
-
-### 2. `apps/shell/src/pages/skills/ui/P-2-ThinkingField.tsx`
-
-- 重构为开关 + 滑块两段：head 行放 on/off 开关（可参照 AgentPage.tsx 的 `AgentSwitch` 形态——若提取该组件需改 AgentPage，则在本文件内写同形态局部组件，**不强行抽公共件**，取改动最小路径）+ 状态徽章（on → 档位名；off → "OFF" 或空）。
-- 开关 on（槽位空时）→ `onSelect(defaultLevelFor(levels))`；off → `onClear()`。
-- 滑块仅 on 且 capabilityKnown 且非 reasoningOff 时渲染（levels 不含 off 刻度）。
-- **删除说明行**：`noteUnsetMain/noteUnsetSub/noteConfiguredMain/noteConfiguredSub` 四条消费（:131-133 的 `<p className="ag-note tl-note">` 整段重构——reasoningOff 分支保留 disabledNote，其余分支不再渲染 note）。
-- `unsetBadge` 徽章若随开关形态失去意义一并移除（grep 确认消费位后删）。
-- 文件头注释跟随现状陈述。
-
-### 3. i18n（zh-CN.ts / en-US.ts，仅 `agents.thinking` 段）
-
-- 删：`noteUnsetMain` / `noteUnsetSub` / `noteConfiguredMain` / `noteConfiguredSub`（+ 确认无消费位后的 `unsetBadge`）。
-- 留：`disabledNote` / `clampedHint` / `capabilityLoading` / `clearTitle`（clearTitle 若开关形态下清除钮移除则一并删——清除语义已由开关 off 承担，注意 `tl-clear` 钮在新形态下的去留：开关承担 off 后清除钮冗余，建议移除并删 `clearTitle`）。
-- 新增（若需）：开关 aria-label 文案（如 `agents.thinking.switchLabel`）。
-- 开关状态词复用既有 `agents.switchOn` / `agents.switchOff`。
-
-### 4. 不动的东西
-
-- `ThinkingLevelSlider.tsx` 零改动；`ComposerThinkingPicker.tsx`（T2 域）；protocol 零变更；AgentPage 的数据链（thinkingCapability memo / onToggle 写路径）不动。
-
-## TDD 要求
-
-- `P-2-ThinkingField` 既有测试文件若有（grep `P-2-ThinkingField.test` / `P2ThinkingField` in tests）先读，钉桩跟随。
-- 新增测试：① off 态槽位空 → 开关 off、无滑块；② 开 on → onSelect 收到中位档（[low,high,max] → high；[low,high] → low；[minimal,low,medium,high] → low）——`defaultLevelFor` 纯函数测试为主；③ 开关 off → onClear 调用；④ reasoning=false → 开关 disabled + disabledNote；⑤ note 文案不再渲染。
-- 若该组件此前无组件级测试，`defaultLevelFor` 纯函数测试必须有（落在 thinking-capability 的测试文件）。
-
-## 验收标准（闭环时逐条应答）
-
-1. P-2 字段呈 on/off 开关形态；off = 槽位空默认关，on = 滑块可选档（测试钉/截图级描述）。
-2. 开 on 且槽位空 → 写入中位档（[low,high,max]→high、[low,high]→low 断言过）。
-3. 开关 off → 清槽位（onClear 调用断言）。
-4. 四条 note 文案 + `note*` i18n 键无残留消费（grep 证据）；disabledNote 保留。
-5. `bunx vitest run apps/shell` 相关文件全绿；`chat.thinking` 段未被本任务触碰（T2 域）。
+1. 注册表消费单点就位（import protocol MODES/DEFAULT_MODE_ID，未知 mode fallback），有单测。
+2. chat.send draft 链 mode 透传到 startDraftSession（handler → port → registry），非草稿链忽略有测试钉死。
+3. 热草稿复用条件含 profileKind 一致性；不一致重建有测试。
+4. session.mode 落库 + 冷恢复旧行 default + 快照/welcome 回带，各有效果测试。
+5. engineFor/实例创建的 "main-session" 字面量参数化为 mode 解析值（default 下行为不变，既有测试保持绿）。
+6. `bun test apps/daemon`（在 apps/daemon 或仓根）全绿 + `bunx tsc -p apps/daemon --noEmit` 零错。
 
 ## 报告要求
 
-- submit_result 传 taskId=T3；acceptance[] 逐条应答；findings[] 必填（无发现传 []）。
+submit_result 传 taskId="T3"；acceptance 逐条应答；findings 必填（改动文件清单、注册表单点落位与分层取舍、welcome 草稿态取舍确认、任何与设计的偏差）。
