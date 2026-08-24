@@ -1,8 +1,9 @@
 /**
  * 默认模型存储出站端口（outbound，TR-AD-2）。实现体 = driven
- * sqlite-session/DefaultModelStore.ts（default_model 单行表，写经
- * WriteQueue 单写通道 AG-06）。AD-2 裁决：全局默认模型进 SQLite
- * （经常变的状态不进 JSON）。
+ * sqlite-session/DefaultModelStore.ts（P1 T1 起：RuntimeConfigPort KV
+ * 底座上 default_model 键的语义包装，写经 WriteQueue 单写通道 AG-06）。
+ * AD-2 裁决：全局默认模型进 SQLite（经常变的状态不进 JSON）；D1/D2：
+ * 独占单行表改通用 runtime_config KV 表，本语义成 KV 上第一个键。
  */
 export interface DefaultModelPort {
   /** SQLite 原值（未设置 → undefined；迁移/测试用）。 */

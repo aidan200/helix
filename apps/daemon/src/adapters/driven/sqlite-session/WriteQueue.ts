@@ -63,9 +63,10 @@ type WriteJob =
       readonly sessionId: string;
     }
   | {
-      /** 全局默认模型 upsert（default_model 单行表，无会话维——全局链；AD-2）。 */
-      readonly kind: "defaultModel";
-      readonly model: string;
+      /** 通用运行时配置 KV upsert（runtime_config 表，无会话维——全局链；P1 T1）。 */
+      readonly kind: "runtimeConfig";
+      readonly key: string;
+      readonly value: string;
     }
   | {
       /** 资源启停差异行 upsert（resource_state 全局表，无会话维——全局链）。 */
@@ -126,7 +127,7 @@ export class WriteQueue {
   private readonly deleteSessionSteer!: Statement;
   private readonly deleteSessionToolCalls!: Statement;
   private readonly deleteSessionClosures!: Statement;
-  private readonly upsertDefaultModel!: Statement;
+  private readonly upsertRuntimeConfig!: Statement;
   private readonly upsertResourceState!: Statement;
   private readonly clearResourceStateByType!: Statement;
 
@@ -138,6 +139,9 @@ export class WriteQueue {
     // 直建新库（新列在 CREATE TABLE 内，索引依赖的列此时必然已存在）。
     ensureSchemaEvolved(this.db);
     this.db.exec(SCHEMA_SQL);
+    // legacy default_model 单行表 → runtime_config KV 一次性数据迁移（P1 T1：
+    // SCHEMA_SQL 建好新表后执行——拷贝+drop 事务包裹，幂等见函数注释）
+    migrateLegacyDefaultModel(this.db);
     this.onError = options.onError;
 
     this.insertEvent = this.db.prepare(
@@ -171,9 +175,9 @@ export class WriteQueue {
     this.deleteSessionSteer = this.db.prepare("DELETE FROM steer_queue WHERE session_id = ?");
     this.deleteSessionToolCalls = this.db.prepare("DELETE FROM tool_calls WHERE session_id = ?");
     this.deleteSessionClosures = this.db.prepare("DELETE FROM closure_records WHERE session_id = ?");
-    this.upsertDefaultModel = this.db.prepare(
-      "INSERT INTO default_model (id, model, updated_at) VALUES (1, ?, ?) " +
-        "ON CONFLICT(id) DO UPDATE SET model = excluded.model, updated_at = excluded.updated_at",
+    this.upsertRuntimeConfig = this.db.prepare(
+      "INSERT INTO runtime_config (key, value) VALUES (?, ?) " +
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     );
     this.upsertResourceState = this.db.prepare(
       "INSERT INTO resource_state (profile_kind, resource_type, name, enabled, updated_at) VALUES (?, ?, ?, ?, ?) " +
@@ -239,11 +243,11 @@ export class WriteQueue {
   }
 
   /**
-   * 全局默认模型 upsert 入队（AD-2：default_model 单行表；无会话维 →
-   * 全局链 FIFO，与仓间写互不阻塞）。
+   * 通用运行时配置 KV upsert 入队（P1 T1：runtime_config 表；无会话维 →
+   * 全局链 FIFO，与仓间写互不阻塞；同键覆盖）。
    */
-  saveDefaultModel(model: string): Promise<void> {
-    return this.enqueue({ kind: "defaultModel", model });
+  saveRuntimeConfig(key: string, value: string): Promise<void> {
+    return this.enqueue({ kind: "runtimeConfig", key, value });
   }
 
   /**
@@ -308,7 +312,7 @@ export class WriteQueue {
       case "deleteSession":
         return job.sessionId;
       default:
-        return undefined; // reportFile/defaultModel/resource_state 族：无会话维（全局链）
+        return undefined; // reportFile/runtimeConfig/resource_state 族：无会话维（全局链）
     }
   }
 
@@ -353,8 +357,8 @@ export class WriteQueue {
       this.deleteSessionClosures.run(job.sessionId);
       return;
     }
-    if (job.kind === "defaultModel") {
-      this.upsertDefaultModel.run(job.model, new Date().toISOString());
+    if (job.kind === "runtimeConfig") {
+      this.upsertRuntimeConfig.run(job.key, job.value);
       return;
     }
     if (job.kind === "resourceState") {
@@ -521,6 +525,42 @@ function ensureSchemaEvolved(db: Database): void {
 function hasColumn(db: Database, table: string, column: string): boolean {
   const cols = tableColumns(db, table);
   return cols.length === 0 || cols.includes(column);
+}
+
+/**
+ * legacy default_model 单行表 → runtime_config KV 一次性数据迁移（P1 T1，
+ * 决策 D1：独占单行表改通用 KV；构造期守护执行，与 ensureSchemaEvolved
+ * 同族——SQL 内表→表数据迁移先例 agent_lifecycle PK 重建）。
+ *
+ * 规则（幂等）：旧表存在 → 拷贝（旧表有值且 KV 无 default_model 键时）后
+ * drop 旧表；旧表不存在（新库/已迁移）→ no-op。事务包裹：拷贝+drop 同
+ * 生共死，崩溃重开重试不双写（KV 有键即跳过拷贝）。选 drop 不选保留：
+ * 表已出 SCHEMA_SQL，保留即孤儿双源；drop 后幂等性结构化（表不在 = 迁完）。
+ */
+function migrateLegacyDefaultModel(db: Database): void {
+  const legacyTable = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'default_model'")
+    .get();
+  if (legacyTable === null) return; // 新库/已迁移：no-op
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const legacy = db.prepare("SELECT model FROM default_model WHERE id = 1").get() as
+      | { model: string }
+      | null;
+    const kv = db.prepare("SELECT value FROM runtime_config WHERE key = 'default_model'").get() as
+      | { value: string }
+      | null;
+    if (legacy !== null && kv === null) {
+      db.prepare("INSERT INTO runtime_config (key, value) VALUES ('default_model', ?)").run(
+        legacy.model,
+      );
+    }
+    db.exec("DROP TABLE default_model");
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error; // 迁移失败快速失败：daemon 不带病启动（与 ensureSchemaEvolved 同调）
+  }
 }
 
 function tableColumns(db: Database, table: string): string[] {

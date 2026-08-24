@@ -14,8 +14,10 @@
  * - tool_calls：工具调用记录投影（pending/running/completed/failed 全态，挂实例）；
  * - closure_records：实例收口记录行（O-5 任务报告本体：closure 五字段
  *   + findings JSON；每收口一行，追加重语义）；
- * - default_model：全局默认模型单行表（AD-2 auth 分层：经常变的状态不进
- *   JSON，进 SQLite；id 固定 1 行，CHECK 约束钉死单值）；
+ * - runtime_config：通用运行时配置 KV 表（P1 T1：`key TEXT PRIMARY KEY,
+ *   value TEXT NOT NULL`——决策 D1/D2 取代 default_model 独占单行表；
+ *   DefaultModel 语义成为 KV 上第一个键的包装，后续运行时键位复用；
+ *   旧表数据迁移由 WriteQueue 构造期守护执行，见 migrateLegacyDefaultModel）；
  * - resource_state：profile kind 维资源启停差异行（主键
  *   (profile_kind, resource_type, name)；缺省无记录 = 启用的语义在 service
  *   层——本表只存用户显式选择过的差异，零配置兼容现状、存量零迁移）。
@@ -95,10 +97,9 @@ CREATE TABLE IF NOT EXISTS closure_records (
 CREATE INDEX IF NOT EXISTS idx_closure_records_session ON closure_records(session_id);
 CREATE INDEX IF NOT EXISTS idx_closure_records_agent ON closure_records(session_id, agent_id);
 
-CREATE TABLE IF NOT EXISTS default_model (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  model TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS runtime_config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS resource_state (
