@@ -2,6 +2,20 @@
 
 ## pending
 
+### E-SteerQueue
+- changeType: 修改
+- targetNode: E-SteerQueue
+- scope: 级联校验（apply TR-AD-47）
+- project: helix
+- reason: 邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/session/Session.ts#applySteer 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/session/Session.ts#steerEntry 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/session/Session.ts#applyDirectedSteer 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/domain/agent/SteerQueue.ts#SteerQueue 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/application/services/ChatService.ts#steer 符号解析失败（符号已消失？）；邻居 E-SteerQueue 的锄点 apps/daemon/src/application/services/ChatService.ts#steerInstance 符号解析失败（符号已消失？）
+- evidence: kg apply 级联校验 @ task-20260824-thinking-unify
+- sourceTask: kg-apply
+- createdIn: task-20260824-thinking-unify
+
+## deferred
+
+## applied
+
 ### TR-AD-40-r4
 - changeType: 修改
 - targetNode: TR-AD-40
@@ -13,50 +27,7 @@
 - implementedCode: apps/daemon/src/adapters/driven/pi-engine/thinking-resolve.ts:30-33（off 短路）；apps/daemon/src/infrastructure/assembly/buildSessionStack.ts:271,373-376（删兜底）；apps/daemon/src/application/services/ModelService.ts:85-91（setModel 重播）；apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts（resolveThinkingFor 去兜底）
 - sourceTask: task-T1（default-coder agt_T75RT55AB6G，2026-08-24）
 - createdIn: task-20260824-t1
-
-### AD-default-20260824-1
-- changeType: 新增
-- scope: docs/kg/architecture-rules.md（技术规则新增——P-1 chat composer 推理控件默认关显示形态）
-- project: helix
-- reason: P-1 推理控件默认关语义的显示决策：滑块 OFF 为 UI 合成第 0 刻度（levels = ["off", ...CatalogModel.thinkingLevels]，协议/目录零变更——off 不进 pi-ai 档位枚举）；chip 无覆盖与显式关同态显示 OFF（AUTO 退场），滑块以 ghost 空心/实心 thumb 区分两态；选 OFF → thinking.set("off") 协议透传（daemon 侧 TR-AD-40 短路处理）；PEAK 判据入参用能力档序列（不含 off）防误判；popover scope 文字提示删除（用户裁决）；能力位驱动刻度数不变（TR-AD-42 复用）
-- evidence: ComposerThinkingPicker.test.tsx「OFF 第 0 刻度」describe 三用例（off 刻度渲染+ghost / 选 off 发令 / 显式关实心）；vitest 449/449；commit f9a49d8
-- implementationStatus: 完整实现
-- implementedCode: apps/shell/src/features/thinking-level/ui/ComposerThinkingPicker.tsx:80-84,131
-- sourceTask: task-T2（default-coder agt_256H5F5XRE5H，2026-08-24）
-- createdIn: task-20260824-t2
-
-### AD-default-20260824-2
-- changeType: 新增
-- scope: docs/kg/architecture-rules.md（技术规则新增——推理强度默认档中位规则 defaultLevelFor）
-- project: helix
-- reason: 用户裁决「所有模型的推理强度默认都取中间档位，如果只有两个档位则取第一档位，最高档位默认都不选」：defaultLevelFor(levels) = levels[Math.floor((n-1)/2)]（n=2 取低档、n=3 取中、n=4 取低中位、n=1 唯一档例外、空数组 undefined 不写）；纯函数沉淀于 thinking-capability 模型段（AG-14）；消费位 = P-2 开关 off→on 翻转时的默认档写入（开 on 即写槽位；off 由开关承担，P-2 滑块无 OFF 刻度、ghost 预览位随开关形态退役）
-- evidence: thinking-capability.test.ts 7/7（[low,high,max]→high、[low,high]→low、[minimal,low,medium,high]→low、n=1、空数组、最高档负断言）；P-2-ThinkingField.test.tsx「off → on：onSelect 中位档」矩阵；AgentPage.test.tsx 点开关 → set_enabled{name:medium}；commit e2e466d
-- implementationStatus: 完整实现
-- implementedCode: apps/shell/src/features/thinking-level/model/thinking-capability.ts:35-41
-- sourceTask: task-T3（default-coder agt_EVCCYR5Q440C，2026-08-24）
-- createdIn: task-20260824-t3
-
-### AD-default-20260824-3
-- changeType: 新增
-- scope: docs/kg/architecture-rules.md + packages/protocol/PROTOCOL.md §16.3/§17.11（steer source 消息类型区分规则）
-- project: helix
-- reason: closure 注入与用户 steer 的消息类型区分：SteerSource = "user"|"closure"|"progress" 协议单点定义（additive 批内补登不 bump），贯通 steer.queued/drained 载荷 + MessageEntryDto + Entry 物种 + steer_queue.source 列（守护式 ALTER，旧行 NULL 前向兼容 = 缺省按 user 渲染）；ChatService.injectClosure 签名扩展带 source（调度链 ClosureRecorder 传 closure、周期进展报告传 progress）；实时 chat.message.completed 帧 entry.source 透传；三值由协议面定死（helix 自有枚举——AD-2 字符串透传原则不适用，已落 PROTOCOL.md 字段行语义列）；domain 与 protocol 各自定义同值域枚举（domain 不 import @helix/protocol 纪律，adapter 层映射）
-- evidence: chat-service.test.ts describe⑥（user/closure/progress 三源 + idle 注入快照可见）；closure-chain.test.ts pendingSteer 双源；scheduler-progress-report.test.ts sources 断言；sqlite-persistence TP-CL8-1（DB 行 source + 冷恢复不丢）；sqlite-schema-migration 守护式补列；daemon 872 绿；commits 027b41f + b7f63dd
-- implementationStatus: 完整实现
-- implementedCode: packages/protocol/src/types/chat.ts（SteerSource 单点）；apps/daemon/src/domain/session/Entry.ts（source 字段）；apps/daemon/src/application/services/ChatService.ts（injectClosure 签名 + publishMessageCompleted source）；apps/daemon/src/adapters/driven/sqlite-session（steer_queue.source）；apps/daemon/src/adapters/driving/ws-server/EnvelopeMapper.ts
-- sourceTask: task-T11a+T11b（default-coder agt_726P6CWWC3NZ + agt_Q94ZMJHPHXE6，2026-08-24）
-- createdIn: task-20260824-t11
-
-### AD-default-20260824-4
-- changeType: 新增
-- scope: docs/kg/architecture-rules.md（UI 显示规则——主时间轴注入徽标 source 变体）
-- project: helix
-- reason: 主时间轴 closure/progress 注入与用户 steer 视觉分离：MessageBubble/SteerBadge 按 entry.source 分族——closure=amber「CLOSURE」、progress=cyan「PROGRESS」、user/缺省=既有 violet STEER 两态不变（老数据缺省按 user，T11a 口径）；idle 注入无 steerState 时渲染静态来源徽标；实时帧区分经 MessageCompletedPayload.source additive 透传（不再仅靠快照对账）；ClosureCard（抽屉/终态面）不动——本规则只管主时间轴注入内容
-- evidence: MessageBubble.test.tsx source 三态钉 + 用户 steer/缺省回归钉；session-reducer.test.ts 缺省不带键；shell 475 绿；commit b7f63dd
-- implementationStatus: 完整实现
-- implementedCode: apps/shell/src/widgets/chat-stream/ui/MessageBubble.tsx:15-52（SteerBadge source 变体）；apps/shell/src/entities/session/model/consumers/chat.ts（confirmSteerEcho/drainSteer source）
-- sourceTask: task-T11b（default-coder agt_Q94ZMJHPHXE6，2026-08-24）
-- createdIn: task-20260824-t11b
+- decisionLog: 用户裁决「apply吧」（2026-08-24 批量人审）——formalId=TR-AD-40 与既有 applied 条目撞号，直写先例（iter-20260823-6ps5 同款）：节点正文+围栏已直写落库（链改 [覆盖, 槽位] 两级 + 默认关 + off clamp 前短路 + setModel 重播 + instantiated.thinkingLevel 可选）。
 
 ### E-AgentInstance-r5
 - changeType: 修改
@@ -69,6 +40,7 @@
 - implementedCode: apps/daemon/src/domain/agent/AgentInstance.ts（newInstanceId + agentSeqOf 退役）；apps/daemon/src/application/services/scheduler/SchedulerService.ts（spawn 唯一串）；apps/daemon/src/adapters/driving/ws-server/EventStream.ts:265-275（delta 归属编码）；apps/daemon/src/adapters/driving/ws-server/EntryDtoMapper.ts（isWireMainAttribution）；apps/shell/src/entities/session/model/state.ts（isMainChannel + mainInstanceId 快照习得）
 - sourceTask: task-T10a/b/c/d（default-coder agt_X10DEN2BAJ0W + agt_FP723FQCWQ7W + agt_W3EWEQ0WNYPC + agt_0TNJM95GZ2PY + MainAgent，2026-08-24）
 - createdIn: task-20260824-t10
+- decisionLog: 用户裁决「apply吧」（2026-08-24 批量人审）——formalId=E-AgentInstance 与既有 applied 条目撞号，直写先例：节点正文+围栏已直写落库（agent-<hex> 统一含 main + kind 判别 + legacy 只读兼容 + wire 归属编码一致性铁律 + 序号基线退役）。
 
 ### TR-AD-24-r3
 - changeType: 修改
@@ -81,10 +53,7 @@
 - implementedCode: apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts（resolveModelFor 两级链）；apps/daemon/src/infrastructure/assembly/buildSessionStack.ts:331-338（spawn 入参改 resolveSubagentModelId）；apps/daemon/src/infrastructure/container.ts:396-397（backfill 退役）
 - sourceTask: task-T12（default-coder agt_Q4ZRM3B75YVH 超时 + MainAgent 验签，2026-08-24）
 - createdIn: task-20260824-t12
-
-## deferred
-
-## applied
+- decisionLog: 用户裁决「apply吧」（2026-08-24 批量人审）——formalId=TR-AD-24 与既有 discarded 条目撞号，直写先例：节点正文已随 T12 commit a23700c 直写（两级链），本次补围栏 updatedIn 与台账审计痕。
 
 ### TR-AD-8-r2（task-20260821-s1s4）
 - changeType: 修改
@@ -848,6 +817,54 @@
 - sourceTask: final-verification L3 语义复核·批次 A（phase-reviewer agt_VTR24J07WECN，2026-08-24；propose 撞号经 MainAgent 手动合并）
 - createdIn: iter-20260823-6ps5
 - decisionLog: 终验裁决（用户批准终验报告 §7 #18，2026-08-24）：L3 复核判不一致（轻微）修正——trust 职责在 src-tauri 零代码承载（grep 全目录零命中），改为「已落地三类 + trust 规划位（未落地）」口径并补反例「零承载零宣称」；updatedIn 刷 iter-20260823-6ps5。改文本级，零改码。formalId=TR-AD-10，节点 id 稳定。
+
+### TR-AD-45
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md（技术规则新增——P-1 chat composer 推理控件默认关显示形态）
+- project: helix
+- reason: P-1 推理控件默认关语义的显示决策：滑块 OFF 为 UI 合成第 0 刻度（levels = ["off", ...CatalogModel.thinkingLevels]，协议/目录零变更——off 不进 pi-ai 档位枚举）；chip 无覆盖与显式关同态显示 OFF（AUTO 退场），滑块以 ghost 空心/实心 thumb 区分两态；选 OFF → thinking.set("off") 协议透传（daemon 侧 TR-AD-40 短路处理）；PEAK 判据入参用能力档序列（不含 off）防误判；popover scope 文字提示删除（用户裁决）；能力位驱动刻度数不变（TR-AD-42 复用）
+- evidence: ComposerThinkingPicker.test.tsx「OFF 第 0 刻度」describe 三用例（off 刻度渲染+ghost / 选 off 发令 / 显式关实心）；vitest 449/449；commit f9a49d8
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/features/thinking-level/ui/ComposerThinkingPicker.tsx:80-84,131
+- sourceTask: task-T2（default-coder agt_256H5F5XRE5H，2026-08-24）
+- createdIn: task-20260824-t2
+- decisionLog: 用户裁决「apply吧」（2026-08-24 批量人审）——发号 TR-AD-45 落库
+
+### TR-AD-46
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md（技术规则新增——推理强度默认档中位规则 defaultLevelFor）
+- project: helix
+- reason: 用户裁决「所有模型的推理强度默认都取中间档位，如果只有两个档位则取第一档位，最高档位默认都不选」：defaultLevelFor(levels) = levels[Math.floor((n-1)/2)]（n=2 取低档、n=3 取中、n=4 取低中位、n=1 唯一档例外、空数组 undefined 不写）；纯函数沉淀于 thinking-capability 模型段（AG-14）；消费位 = P-2 开关 off→on 翻转时的默认档写入（开 on 即写槽位；off 由开关承担，P-2 滑块无 OFF 刻度、ghost 预览位随开关形态退役）
+- evidence: thinking-capability.test.ts 7/7（[low,high,max]→high、[low,high]→low、[minimal,low,medium,high]→low、n=1、空数组、最高档负断言）；P-2-ThinkingField.test.tsx「off → on：onSelect 中位档」矩阵；AgentPage.test.tsx 点开关 → set_enabled{name:medium}；commit e2e466d
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/features/thinking-level/model/thinking-capability.ts:35-41
+- sourceTask: task-T3（default-coder agt_EVCCYR5Q440C，2026-08-24）
+- createdIn: task-20260824-t3
+- decisionLog: 用户裁决「apply吧」（2026-08-24 批量人审）——发号 TR-AD-46 落库
+
+### TR-AD-47
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md + packages/protocol/PROTOCOL.md §16.3/§17.11（steer source 消息类型区分规则）
+- project: helix
+- reason: closure 注入与用户 steer 的消息类型区分：SteerSource = "user"|"closure"|"progress" 协议单点定义（additive 批内补登不 bump），贯通 steer.queued/drained 载荷 + MessageEntryDto + Entry 物种 + steer_queue.source 列（守护式 ALTER，旧行 NULL 前向兼容 = 缺省按 user 渲染）；ChatService.injectClosure 签名扩展带 source（调度链 ClosureRecorder 传 closure、周期进展报告传 progress）；实时 chat.message.completed 帧 entry.source 透传；三值由协议面定死（helix 自有枚举——AD-2 字符串透传原则不适用，已落 PROTOCOL.md 字段行语义列）；domain 与 protocol 各自定义同值域枚举（domain 不 import @helix/protocol 纪律，adapter 层映射）
+- evidence: chat-service.test.ts describe⑥（user/closure/progress 三源 + idle 注入快照可见）；closure-chain.test.ts pendingSteer 双源；scheduler-progress-report.test.ts sources 断言；sqlite-persistence TP-CL8-1（DB 行 source + 冷恢复不丢）；sqlite-schema-migration 守护式补列；daemon 872 绿；commits 027b41f + b7f63dd
+- implementationStatus: 完整实现
+- implementedCode: packages/protocol/src/types/chat.ts（SteerSource 单点）；apps/daemon/src/domain/session/Entry.ts（source 字段）；apps/daemon/src/application/services/ChatService.ts（injectClosure 签名 + publishMessageCompleted source）；apps/daemon/src/adapters/driven/sqlite-session（steer_queue.source）；apps/daemon/src/adapters/driving/ws-server/EnvelopeMapper.ts
+- sourceTask: task-T11a+T11b（default-coder agt_726P6CWWC3NZ + agt_Q94ZMJHPHXE6，2026-08-24）
+- createdIn: task-20260824-t11
+- decisionLog: 用户裁决「apply吧」（2026-08-24 批量人审）——发号 TR-AD-47 落库
+
+### TR-AD-48
+- changeType: 新增
+- scope: docs/kg/architecture-rules.md（UI 显示规则——主时间轴注入徽标 source 变体）
+- project: helix
+- reason: 主时间轴 closure/progress 注入与用户 steer 视觉分离：MessageBubble/SteerBadge 按 entry.source 分族——closure=amber「CLOSURE」、progress=cyan「PROGRESS」、user/缺省=既有 violet STEER 两态不变（老数据缺省按 user，T11a 口径）；idle 注入无 steerState 时渲染静态来源徽标；实时帧区分经 MessageCompletedPayload.source additive 透传（不再仅靠快照对账）；ClosureCard（抽屉/终态面）不动——本规则只管主时间轴注入内容
+- evidence: MessageBubble.test.tsx source 三态钉 + 用户 steer/缺省回归钉；session-reducer.test.ts 缺省不带键；shell 475 绿；commit b7f63dd
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/widgets/chat-stream/ui/MessageBubble.tsx:15-52（SteerBadge source 变体）；apps/shell/src/entities/session/model/consumers/chat.ts（confirmSteerEcho/drainSteer source）
+- sourceTask: task-T11b（default-coder agt_Q94ZMJHPHXE6，2026-08-24）
+- createdIn: task-20260824-t11b
+- decisionLog: 用户裁决「apply吧」（2026-08-24 批量人审）——发号 TR-AD-48 落库
 
 ## discarded
 

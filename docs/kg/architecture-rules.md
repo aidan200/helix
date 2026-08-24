@@ -954,7 +954,7 @@ relations:
   governs:
     - E-AgentProfile
     - E-调度器
-updatedIn: iter-20260823-6ps5
+updatedIn: task-20260824-thinking-unify
 ```
 
 ## 规则
@@ -1559,13 +1559,15 @@ graph: tech
 layer: arch
 scope: domain
 stack: backend
-name: thinkingLevel 解析链（会话覆盖 > profile 槽位 > 兜底 medium；与 TR-AD-24 模型链同构）
+name: thinkingLevel 解析链（[覆盖, 槽位] 两级 + 默认关 + off 显式关；与 TR-AD-24 模型链同构）
 status: active
-digest: 动 thinkingLevel 来源、写 thinking 透传管线、配 profile thinking 槽位、调兜底 medium 语义、动 SubAgent spawn 推理参数时
+digest: 动 thinkingLevel 来源、写 thinking 透传管线、配 profile thinking 槽位、动默认关/off 语义、写换模重播时
 derivedFrom:
   - AD-1（iter-20260823-6ps5：thinkingLevel 解析链与 TR-AD-24 同构，用户裁决选项 B）
   - AD-3（iter-20260823-6ps5：覆盖保留 + 按能力解析，意图/生效分离）
   - AD-6（iter-20260823-6ps5：AgentProfile 配置资源扩可选 thinkingLevel 维）
+  - D 方案（task-20260824-thinking-unify：用户裁决「思考默认都不开启，只有手动的时候去开启」——删兜底 medium，未配置 = 不传 reasoning = pi-ai 显式关）
+  - off 升格（task-20260824-thinking-unify：用户裁决「off 升格为合法 override 值」——clamp 前短路防 off:null 模型升档反转）
 anchors:
   implementedBy:
     - packages/protocol/src/commands.ts
@@ -1579,6 +1581,7 @@ anchors:
     - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
     - apps/daemon/src/adapters/driven/subagent/child/ChildMain.ts
     - apps/daemon/src/application/ports/outbound/AgentEnginePort.ts
+    - apps/daemon/src/application/services/ModelService.ts
     - apps/daemon/src/infrastructure/assembly/buildSessionStack.ts
   testedBy:
     - apps/daemon/test/unit/subagent-thinking-chain.test.ts
@@ -1589,20 +1592,20 @@ relations:
   governs:
     - E-AgentProfile
     - E-AgentInstance
-updatedIn: iter-20260823-6ps5
+updatedIn: task-20260824-thinking-unify
 ```
 
 ## 规则
-thinkingLevel 按两条链解析，与 TR-AD-24 模型解析链同构、不新建第三处解析单点。主会话链（仅 mainAgent 引擎）：会话覆盖（composer 滑块 thinking.set，引擎内存态 + domain_events 落盘、跨冷恢复）> 主 session profile 槽位 > 兜底 medium；解析单点 = buildSessionStack engineFor 工厂闭包（buildSessionStack.ts:336-356 模型解析同点扩展），引擎每 turn 开始读解析结果（会话状态非逐消息参数）。SubAgent 链：spawn 时从自身 profile 槽位（AgentProfile.thinkingLevel 可选字段，留空 = 未配置）解析快照 > 兜底 medium；解析单点 = SubagentLauncher.resolveThinkingFor（resolveModelFor 同点扩展，launch 段为唯一出口），解析快照随 agent.instantiated 落盘事件携带、经 HELIX_THINKING_LEVEL env 定格透传子进程（ChildMain 无解析链，只消费定格值）。主会话覆盖永不作用于 SubAgent。引擎解析时链上每个值过「当前模型支持」过滤（resolveEffectiveThinking：model.reasoning 且 thinkingLevelMap[值] !== null，取第一个被支持值——clamp 语义；全链不支持（或模型无 reasoning 能力）→ 不传 thinking 参数（provider 默认）；注入器 = model-provider.ts supportsThinkingLevel/wrapStreamFnThinking 纯透传，包装在 streamFnOverride 外侧，fake 剧本通道不破坏）。覆盖值不丢：换模只改生效档，切回原模型自动恢复；观测面 currentThinking {override, effective} 双位（意图/生效分离）。
+thinkingLevel 按两条链解析，与 TR-AD-24 模型解析链同构、不新建第三处解析单点；**无兜底档——全链未配置 = 默认关**（task-20260824 D 方案：不传 reasoning 参数 = pi-ai 适配器显式关思考，anthropic thinkingEnabled:false / openai effort:off 或缺省）。主会话链（仅 mainAgent 引擎）：会话覆盖（composer 滑块 thinking.set，引擎内存态 + domain_events 落盘、跨冷恢复）> 主 session profile 槽位，链尽 → undefined = 默认关；解析单点 = buildSessionStack engineFor 工厂闭包，引擎每 turn 开始读解析结果。SubAgent 链：仅自身 profile 槽位（SubAgentProfile.thinkingLevel ?? subagent-worker kind 槽位，TR-AD-44 getter 折叠），无配置 → HELIX_THINKING_LEVEL env 缺席 → 子进程不装注入器 = 默认关；解析单点 = SubagentLauncher.resolveThinkingFor（launch 段唯一出口），定格值经 env 透传（ChildMain 只消费，无解析链）。主会话覆盖永不作用于 SubAgent。**"off" 为合法 override 值（显式关）**：链值 off 在 clampThinkingLevel 之前短路返回 undefined——off:null map 模型（真实目录约 15%）的 clamp("off") 会向上找最近支持档，「想关反而开」语义反转，故短路必须先于 clamp。引擎解析时链上每个值过「当前模型支持」过滤（resolveEffectiveThinking：model.reasoning 且 clamp 后非 off，取首个生效值）；模型无 reasoning 能力 → 整链 undefined。覆盖值不丢：换模只改生效档，切回原模型自动恢复；**model.set 成功后重播 thinking.changed**（生效档按新模型重算，消除 shell 侧 stale 档位；引擎无 currentThinking 观测面不广播）。观测面 currentThinking {override, effective} 双位（意图/生效分离）；agent.instantiated.thinkingLevel 必填→可选（未配置不携带）。
 
 ## 理由
-与 TR-AD-24 模型解析语义同构：agent 行为 spawn 时刻确定、trace 可复盘；会话覆盖是 mainAgent 私有意图，SubAgent 行为由 profile 配置决定，便于与模型匹配。意图（覆盖）与生效（解析结果）分离使换模成为无损操作。档位语义 SoT 在 pi-ai，helix 全链字符串透传、不维护第二份枚举，pi-ai 未来加档零协议改动。
+与 TR-AD-24 模型解析语义同构：agent 行为 spawn 时刻确定、trace 可复盘；会话覆盖是 mainAgent 私有意图，SubAgent 行为由 profile 配置决定。默认关（D 方案）与 pi-ai 物理缺省契约对齐（不传 = 尽力显式关），reasoning tokens 占输出 30-60% 的成本对不用思考的会话是刚性浪费；"配置了但被能力静默过滤成 OFF"与"未配置"在用户视野同构（③ 实证语义稀释），默认关使 UI 显示 = 真实行为。意图（覆盖）与生效（解析结果）分离使换模无损。档位语义 SoT 在 pi-ai，helix 全链字符串透传、不维护第二份枚举。
 
 ## 适用范围
-动主会话/SubAgent 的 thinking 参数来源与优先级时；新增会话级引擎参数并考虑是否挂进解析链时；写 streamFn 注入器 / spawn env 透传 / agent.instantiated 快照字段时；实现换模后生效档重解析与 UI 轻提示时。
+动主会话/SubAgent 的 thinking 参数来源与优先级时；动默认关/off 显式关语义时；写 streamFn 注入器 / spawn env 透传 / agent.instantiated 快照字段时；实现换模后生效档重解析与 UI 轻提示时；写 setModel/换模链路时（须同步重播 thinking.changed）。
 
 ## 反例
-在 chat.send 逐消息 payload 携带 thinkingLevel（会话状态非消息参数，AD-4① 否决）；主会话覆盖经 spawn 快照传导到 SubAgent（覆盖是 mainAgent 私有意图，永不作用）；换模时钳制或清空覆盖值（意图丢失，AD-3 否决选项 B/C）；在 UI 或注入器里 clamp 档位或维护第二份档位枚举（SoT 在 pi-ai，过滤只在引擎解析段一次完成）；在 ChildMain 子进程内重解析 thinking 链（子进程只消费 spawn 定格快照）。
+在 chat.send 逐消息 payload 携带 thinkingLevel（会话状态非消息参数，AD-4① 否决）；主会话覆盖经 spawn 快照传导到 SubAgent（覆盖是 mainAgent 私有意图，永不作用）；换模时钳制或清空覆盖值（意图丢失，AD-3 否决）；在链尾加任何兜底档（medium 或其他——默认关是缺省语义非链环节，加兜底即复活「显示 OFF 但实际发档」错位）；off 不短路直接过 clamp（off:null 模型升档反转）；在 UI 或注入器里 clamp 档位或维护第二份档位枚举（SoT 在 pi-ai）；在 ChildMain 子进程内重解析 thinking 链（子进程只消费 spawn 定格快照）；换模后不重播 thinking.changed（shell 显示 stale 档位）。
 
 ## 规则
 thinkingLevel 按两条链解析，与 TR-AD-24 模型解析链同构、不新建第三处解析单点。主会话链（仅 mainAgent 引擎）：会话覆盖（composer 滑块 thinking.set，引擎内存态 + domain_events 落盘、跨冷恢复）> 主 session profile 槽位 > 兜底 medium；解析单点 = buildSessionStack engineFor 工厂闭包（buildSessionStack.ts:336-356 模型解析同点扩展），引擎每 turn 开始读解析结果（会话状态非逐消息参数）。SubAgent 链：spawn 时从自身 profile 槽位（AgentProfile.thinkingLevel 可选字段，留空 = 未配置）解析快照 > 兜底 medium；解析单点 = SubagentLauncher.resolveThinkingFor（resolveModelFor 同点扩展，launch 段为唯一出口），解析快照随 agent.instantiated 落盘事件携带、经 env 定格透传子进程（ChildMain 无解析链，只消费定格值）。主会话覆盖永不作用于 SubAgent。引擎解析时链上每个值过「当前模型支持」过滤（model.reasoning 且 thinkingLevelMap[值] !== null），取第一个被支持值；全链不支持（或模型无 reasoning 能力）→ 不传 thinking 参数（provider 默认）。覆盖值不丢：换模只改生效档，切回原模型自动恢复。
@@ -1806,3 +1809,153 @@ SubAgent 解析链（model / thinkingLevel 等）读 profile 槽位时，配置�
 
 ## 反例
 resolveThinkingFor 内部直接调 resourceService.thinkingSlot(kind)（单点耦合配置资源 + 快照供给面漏读——两读面不同源即 spawn 快照与实际解析漂移）；getter 内做 clamp/过滤等解析职责（折叠只合流数据，解析归单点）；ChildMain 子进程重读 resource_state（子进程只消费 spawn 定格快照）。
+
+```kg-node
+id: TR-AD-45
+kind: rule
+graph: tech
+layer: convention
+scope: domain
+stack: frontend
+name: P-1 推理控件默认关显示形态（OFF 第 0 刻度 UI 合成 + 无覆盖/显式关同态 + ghost 区分）
+status: active
+digest: 动 chat composer 推理滑块刻度、改 OFF 档交互、动 chip 档位显示逻辑时
+derivedFrom:
+  - T2 显示决策（task-20260824-thinking-unify：默认关语义 UI 承接，用户裁决 scope 文案删除）
+anchors:
+  implementedBy:
+    - apps/shell/src/features/thinking-level/ui/ComposerThinkingPicker.tsx
+    - apps/shell/src/features/thinking-level/ui/ThinkingLevelSlider.tsx
+  testedBy:
+    - apps/shell/src/features/thinking-level/ui/ComposerThinkingPicker.test.tsx
+relations:
+  governs:
+    - E-AgentProfile
+updatedIn: task-20260824-thinking-unify
+```
+
+## 规则
+P-1 chat composer 推理控件按默认关语义显示：滑块 OFF 为 UI 合成第 0 刻度（levels = ["off", ...CatalogModel.thinkingLevels]——协议与目录零变更，off 不进 pi-ai 档位枚举）；chip 无覆盖（effective=null，默认关）与显式关（override="off"）同态显示 OFF（AUTO 文案退场），滑块以 ghost 空心/实心 thumb 区分两态；选 OFF 刻度 → setSessionThinking("off") 协议透传（daemon 按 TR-AD-40 短路处理）；PEAK 判据入参用能力档序列（不含 off）防 thinkingLevels 空时误判；刻度数仍由 CatalogModel 能力位驱动（TR-AD-42 复用，不硬编码档数）。
+
+## 理由
+默认关语义需要 UI 可达「关回去」入口（覆盖无清除路径的功能缺陷消解）；UI 合成 OFF 刻度避免协议/目录扩面（off 非 pi-ai 档位成员）；同态 OFF + ghost 区分平衡「显示=真实行为」与「两态可辨」。
+
+## 适用范围
+动 composer 推理控件交互/形态时；新增推理相关 chip/徽标显示位时；能力位驱动刻度逻辑演进时。
+
+## 反例
+把 off 写进 CatalogModel.thinkingLevels 或协议档位枚举（SoT 在 pi-ai，off 是 helix 会话覆盖语义）；chip 无覆盖显示 AUTO（与真实行为「关」错位）；滑块刻度数硬编码（能力位驱动既有纪律）。
+
+```kg-node
+id: TR-AD-46
+kind: rule
+graph: tech
+layer: convention
+scope: domain
+stack: frontend
+name: 推理强度默认档中位规则（defaultLevelFor——两档取低档、最高档不默认）
+status: active
+digest: 动 P-2 开关 on 默认档写入、新增「开 thinking 默认档」消费位时
+derivedFrom:
+  - 用户裁决（task-20260824-thinking-unify：「所有模型的推理强度默认都取中间档位，如果只有两个档位则取第一档位，最高档位默认都不选」）
+anchors:
+  implementedBy:
+    - apps/shell/src/features/thinking-level/model/thinking-capability.ts
+  testedBy:
+    - apps/shell/src/features/thinking-level/model/thinking-capability.test.ts
+relations:
+  governs:
+    - E-AgentProfile
+updatedIn: task-20260824-thinking-unify
+```
+
+## 规则
+开启推理的默认档按模型自身档位集合取中位：defaultLevelFor(levels) = levels[Math.floor((n-1)/2)]——n=2 取低档、n=3 取中、n=4 取低中位、n=1 唯一档（无选择例外）、空数组 undefined 不写；最高档默认不选。纯函数沉淀于 thinking-capability 模型段（AG-14 无 React/IO）；消费位 = P-2 开关 off→on 翻转时的默认档写入（开 on 即写槽位；off 由开关承担——P-2 滑块无 OFF 刻度，与 P-1 形态分野）。
+
+## 理由
+中位默认与「按任务调节」心智匹配（默认不冲最高档——成本峰值不默认；两档取低——保守侧）；在模型自身集合上做位置中位而非全局枚举锚点（绝对档位 medium 在子集模型上漂移——low/high 型模型会被钳到 high）。
+
+## 适用范围
+P-2 开关 on 默认档逻辑演进时；未来其他消费位需要「开 thinking 默认档」语义时（复用单点，不另写）。
+
+## 反例
+拿全局枚举 medium 当默认再去 clamp（子集模型漂移——[low,high] 被钳 high）；默认取最高档（成本峰值不默认）；组件内散写中位计算（纯函数单点纪律）。
+
+```kg-node
+id: TR-AD-47
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: shared
+name: steer 注入 source 三值贯通（user/closure/progress——协议/Entry/持久化/实时帧全线）
+status: active
+digest: 写 closure 注入、周期进展报告注入、steer 事件载荷、Entry 物种字段、steer_queue 持久化时
+derivedFrom:
+  - T11a 裁决（task-20260824-thinking-unify：closure 注入与用户 steer 消息类型区分，用户确认方向）
+anchors:
+  implementedBy:
+    - packages/protocol/src/types/chat.ts
+    - packages/protocol/src/events/chat.ts
+    - apps/daemon/src/domain/session/Entry.ts
+    - apps/daemon/src/application/services/ChatService.ts
+    - apps/daemon/src/adapters/driven/sqlite-session/WriteQueue.ts
+    - apps/daemon/src/adapters/driving/ws-server/EnvelopeMapper.ts
+  testedBy:
+    - apps/daemon/test/integration/closure-chain.test.ts
+    - apps/daemon/test/integration/scheduler-progress-report.test.ts
+    - apps/daemon/test/integration/sqlite-persistence.test.ts
+relations:
+  governs:
+    - E-AgentInstance
+    - E-SteerQueue
+updatedIn: task-20260824-thinking-unify
+```
+
+## 规则
+closure 注入与用户 steer 的消息类型区分全线贯通 SteerSource = "user"|"closure"|"progress"：①协议面单点定义于 protocol types/chat.ts，贯通 steer.queued/drained 载荷 + MessageEntryDto（additive 批内补登不 bump）；②daemon Entry 物种带 source（快照 JSON 往返自动携带）；③ChatService.injectClosure 签名扩展带 source（调度链 ClosureRecorder 传 closure、周期进展报告传 progress；用户 steer 显式 user）；④SQLite steer_queue.source 列（守护式 ALTER 补列，旧行 NULL 前向兼容）；⑤实时 chat.message.completed 帧 entry.source 透传。三值由协议面定死（helix 自有枚举——AD-2 字符串透传原则不适用）；domain 与 protocol 各自定义同值域枚举（domain 不 import @helix/protocol 纪律，adapter 层映射）；老数据缺省按 user 渲染。
+
+## 理由
+closure 终态语义已有独立协议类型（agent.completed 族 + ClosureDto 驱动抽屉卡），但注入内容复用 steer 通道无判别——主时间轴上 closure 注入与用户 steer/用户消息不可区分（idle 时零标记、running 时与用户 steer 同形）；source 标记原止于 daemon 内存 SteerQueue 不出进程边界，需贯通到协议面与持久化才能支撑显示区分与重启不丢。
+
+## 适用范围
+新增注入来源类型时（扩枚举须协议面同步）；写 steer/closure/progress 注入链时；动 Entry 物种字段或 steer_queue 表结构时；实现主时间轴注入内容区分渲染时（TR-AD-48 承接）。
+
+## 反例
+source 只进内存不落协议/DB（重启丢失来源语义——本规则前的现状缺口）；在 shell 侧推断来源（文本前缀匹配等 best-effort——协议字段权威）；枚举值散落各层定义（协议单点定死）；把 progress 与 closure 混用同值（周期报告与收口语义不同，显示与审计需分野）。
+
+```kg-node
+id: TR-AD-48
+kind: rule
+graph: tech
+layer: convention
+scope: domain
+stack: frontend
+name: 主时间轴注入徽标 source 变体（CLOSURE amber / PROGRESS cyan / 用户 steer violet 不变）
+status: active
+digest: 动主时间轴消息徽标渲染、扩注入来源显示形态、改 steer 对账链时
+derivedFrom:
+  - T11b 裁决（task-20260824-thinking-unify：显示区分段，用户确认「按照你的逻辑来」）
+anchors:
+  implementedBy:
+    - apps/shell/src/widgets/chat-stream/ui/MessageBubble.tsx
+    - apps/shell/src/entities/session/model/consumers/chat.ts
+  testedBy:
+    - apps/shell/src/widgets/chat-stream/ui/MessageBubble.test.tsx
+relations:
+  governs:
+    - E-AgentInstance
+updatedIn: task-20260824-thinking-unify
+```
+
+## 规则
+主时间轴 MessageBubble/SteerBadge 按 entry.source 分族渲染：closure=amber「CLOSURE」、progress=cyan「PROGRESS」、user/缺省=既有 violet STEER 两态（queued 脉冲/drained，老数据缺省按 user——TR-AD-47 口径）；idle 注入无 steerState 时渲染静态来源徽标（不带两态）；实时帧区分经 MessageCompletedPayload.source 透传（不靠快照对账）；steer.queued/drained 对账链（consumers/chat）透传 source 到渲染条目。ClosureCard（抽屉/终态面）不在本规则范围（主时间轴注入内容专属）。
+
+## 理由
+同一主时间轴内 closure 注入、周期进展与用户 steer 视觉不可区分是显示缺口（用户观察实锤）；amber/cyan 与 violet 三色分族使注入来源一眼可辨；用户 steer 渲染零变化保老数据兼容。
+
+## 适用范围
+动主时间轴徽标/气泡渲染时；新增注入来源的显示形态时；steer 对账链（confirmSteerEcho/drainSteer）演进时。
+
+## 反例
+用文本前缀（"agent-N closure:"）做显示判别（协议 source 字段权威）；改用户 steer 既有 violet 形态（回归风险）；徽标族混用同一色系变体（三来源须一眼可辨）。

@@ -37,4 +37,5 @@
 
 ## task-20260824-thinking-unify — thinking 语义修订 + closure/steer 区分 + 实例 ID 统一（默认模式三批联作）
 - 主体：默认模式三批：①thinking 语义修订（默认关 D 方案 + off 升格显式关——clamp 前短路防 off:null 升档反转 + setModel 重播 thinking.changed + P-1 OFF 第 0 刻度 + P-2 on/off 开关 + defaultLevelFor 中位档 + scope/note 文案删除 + SubAgent 模型链 T12 两级化砍 spawn 会话继承）；②closure/steer 消息类型区分（SteerSource user/closure/progress 三值贯通协议/Entry/steer_queue/实时帧 + 主时间轴 CLOSURE/PROGRESS 徽标变体）；③实例 ID 统一方案 A（agent-<hex 唯一串> 含 main、kind 判别替代值判等、seq/agentSeqOf/maxAgentSeq 退役、MAIN_INSTANCE_ID 全仓退役、wire 归属编码一致性修复——R4 红点根因）。修复：模型菜单选中即关（B 方案推翻 2015f0e）；daemon 测试 TMPDIR 泄漏清零（4 泄漏源）。验证：daemon 872 / protocol 87 / shell 478 / E 层 e2e 31/31 / typecheck 四包全绿。
+- 触及：TR-AD-45, TR-AD-46, TR-AD-47, TR-AD-48
 - 状态：已沉淀

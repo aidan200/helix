@@ -196,7 +196,9 @@ scope: domain
 stack: backend
 name: AgentInstance
 status: active
-digest: 写实例生命周期、挂 instanceId、区分主/Sub 实例、供 spawn 锚点时
+digest: 写实例生命周期、挂 instanceId、kind 判别主/Sub 实例、供 spawn 锚点时
+derivedFrom:
+  - T10 实例 ID 统一（task-20260824-thinking-unify：用户裁决「agent的id应该是同一的agent-N，包括main agent……未来一个session中的main agent也可能是多个的……N不能是纯数字，而是Id生成的逻辑」——方案 A 一次性全切 + 旧行只读兼容）
 anchors:
   implementedBy:
     - packages/protocol/src/projection/instance.ts#computeAnchorEntryId
@@ -204,11 +206,14 @@ anchors:
     - packages/protocol/src/projection/instance.ts#AnchorScanEntry
     - apps/daemon/src/application/services/scheduler/SchedulerService.ts#spawnAnchors
     - apps/daemon/src/application/services/scheduler/SchedulerService.ts#spawnAnchorOf
+    - apps/daemon/src/domain/agent/AgentInstance.ts
     - apps/daemon/src/adapters/driving/ws-server/EventStream.ts#publish
+    - apps/daemon/src/adapters/driving/ws-server/EntryDtoMapper.ts
     - apps/daemon/src/infrastructure/container.ts#computeSpawnAnchor
     - apps/daemon/src/domain/events/DomainEvent.ts#AgentInstantiatedPayload
     - apps/daemon/src/infrastructure/assembly/buildSessionStack.ts#subagentSnapshotFor
     - apps/shell/src/entities/session/model/consumers/snapshot.ts
+    - apps/shell/src/entities/session/model/state.ts
     - apps/shell/src/widgets/chat-stream/ui/MessageFlow.tsx
   testedBy:
     - apps/daemon/test/integration/spawn-anchor.test.ts
@@ -216,17 +221,17 @@ anchors:
     - apps/shell/src/entities/session/model/instance-anchors.test.ts
     - apps/shell/src/widgets/chat-stream/ui/MessageFlow.test.tsx
     - apps/daemon/test/integration/agent-ws.test.ts
-updatedIn: iter-20260823-6ps5
+updatedIn: task-20260824-thinking-unify
 ```
 
 ## 描述
-agent 实例一等概念（AD-3 trace 实例同构）：{instanceId, kind: "main"|"subagent", profileKind, sessionId, 实例状态机, createdAt}。主会话实例与 SubAgent 同为 AgentInstance——机制同构（同 AgentRuntime 驱动、同 AgentProfile 声明机制、同事件通道、同 trace/统计/持久化路径），编排分层仅经 profile 生命周期声明表达：main = persistent（常驻多轮、用户对话锚点，re-profile 时销毁重建）；subagent = single-shot（单轮收敛、closure 回主线后销毁）。实例创建/销毁/re-profile 是一等操作（非线性红线）。SubAgent 实例的 instanceId 即编排工具寻址的 agentId（同一标识空间，分配即定）；主实例在会话创建时分配固定 id。M4 起实例携带 spawn 锚点：daemon 快照组装面权威计算 spawn 关联 entry 稳定标识（复用 EntryDto.id 体系——主实例 e{N} / SubAgent {instanceId}#N，会话级唯一即够、与分页游标 tailStartCursor 同源；语义 = 快照组装面规则①（实例首 Entry 前最后一条 main/compaction 归属 entry id）；spawn 时刻钉值（规则②，实时帧与「首 Entry 前」窗口用）= spawn 瞬间合并流（entries + toolCall 记录）最后 main entry id——hotfix-20260823 T6 起扫描面含 toolCall 记录，钉值 = agent_spawn 工具调用 id（裁决见 decisions.md AD-2 hotfix-20260823）），经 instances DTO 锚点字段下发；锚点是组装期派生值不持久化（无第二事实源）。agent.instantiated 落盘事件携带 spawn 时解析的 thinkingLevel（iter-20260823-6ps5 T1.3：domain payload 可选字段；SchedulerService.spawn 签名不扩，经 subagentSnapshotFor 组装回调 {profileSnapshot, thinkingLevel} 同源同时点供给；只落盘不广播语义不变；主实例 instantiated 暂不携带——可选边界，后续可收窄必填对齐）。
+agent 实例一等概念（AD-3 trace 实例同构）：{instanceId, kind: "main"|"subagent", profileKind, sessionId, 实例状态机, createdAt}。**instanceId 统一 agent-<唯一串>（T10，含主实例）**：所有实例 id = `agent-` + crypto.randomUUID 派生 hex（生成单点 newInstanceId，Daemon 唯一串无序号概念——seq/agentSeqOf/maxAgentSeq 序号基线退役）；主/Sub 区分由 kind 承载（AgentInstanceDto.kind + isMainInstanceId/isMainChannel/isWireMainAttribution 判别单点，shell/daemon/wire 三层同构）；**legacy "main" 字面/缺省 = 读侧推断**（历史行只读兼容，写侧不再产出——wire 写侧全实例显式携带 instanceId，「省略=main」线格式优化退役为读侧兼容）；持久化 session_state.main_instance_id 列 + 5 表 DEFAULT 'main' 回填保留；MAIN_INSTANCE_ID 常量全仓退役。主会话实例与 SubAgent 同为 AgentInstance——机制同构（同 AgentRuntime 驱动、同 AgentProfile 声明机制、同事件通道、同 trace/统计/持久化路径），编排分层仅经 profile 生命周期声明表达：main = persistent（常驻多轮、用户对话锚点，re-profile 时销毁重建）；subagent = single-shot（单轮收敛、closure 回主线后销毁）。实例创建/销毁/re-profile 是一等操作（非线性红线）。SubAgent 实例的 instanceId 即编排工具寻址的 agentId（同一标识空间，分配即定）；主实例在会话创建时分配唯一串 id。M4 起实例携带 spawn 锚点：daemon 快照组装面权威计算 spawn 关联 entry 稳定标识（复用 EntryDto.id 体系——主实例 e{N} / SubAgent {instanceId}#N；语义 = 快照组装面规则①；spawn 时刻钉值规则② = agent_spawn 工具调用 id），经 instances DTO 锚点字段下发；锚点是组装期派生值不持久化。agent.instantiated 落盘事件可选携带 spawn 时解析的 thinkingLevel（TR-AD-40 默认关语义下未配置不携带）。**wire 归属编码一致性铁律（T10d R4 红点根因）**：thinking delta 载荷与 completed entry.instanceId 必须同一编码（主实例归一 legacy "main"）——错位致 shell thinkingStreams 槽位键悬挂、cursor 永挂。
 
 ## 规则
-每条领域事件与聚合 Entry 挂 instanceId；trace 四维查询 session × instance × type × time；SubAgent 实例状态机 queued{位次} → running → done/failed（kill 收口 = failed 单一终态，无独立 killed 态）；stalled 为 running 态上的可重复警示事件（agent.stalled，非状态迁移，实例保持 running——iter-20260820-qhv8 终验 L3 复核校正），重启清队标 cancelled；实例窗口销毁重建而会话聚合跨实例持续追加；调度器与状态机不假设单实例线性推进；spawn 锚点由 daemon 权威计算（快照组装面确定性派生，每次组装同值），前端纯消费零推导；instantiated 携带的 thinkingLevel 为 spawn 时刻定格快照（与解析链同源同时点，launch 后 profile 槽位变更不影响已 spawn 实例）。
+每条领域事件与聚合 Entry 挂 instanceId（写侧全实例显式携带）；trace 四维查询 session × instance × type × time；主/Sub 判别走 kind 判别单点（instanceId === 会话主实例 id，或 legacy "main" 字面/缺省——绝不散落值判等）；SubAgent 实例状态机 queued{位次} → running → done/failed（kill 收口 = failed 单一终态），stalled 为 running 态上的可重复警示事件（非状态迁移），重启清队标 cancelled；实例窗口销毁重建而会话聚合跨实例持续追加；调度器与状态机不假设单实例线性推进；spawn 锚点由 daemon 权威计算，前端纯消费零推导；wire 归属编码跨帧一致（delta 与 completed 同编码）。
 
 ## 禁忌
-不按 kind 分叉机制通道（事件/持久化/统计/驱动路径必须同构）；不假设一个会话单实例到底；不在实例对象外维护第二实例注册表；不在前端推导锚点（best-effort 推导已随 v0.3 撤除，禁止复发）；不把锚点持久化为独立状态列（派生值落盘 = 第二事实源）；不为携带 thinkingLevel 扩 SchedulerService.spawn 签名（经组装回调供给，签名稳定性优先）。
+不按 kind 分叉机制通道（事件/持久化/统计/驱动路径必须同构）；不假设一个会话单实例到底；不在实例对象外维护第二实例注册表；**不恢复 instanceId 值判等（=== "main" 散落——必须走判别单点；不恢复序号 id agent-<N>——唯一串下无序号概念）**；不在前端推导锚点；不把锚点持久化为独立状态列；wire 层不同事件族使用不同归属编码（跨帧错位 = 槽位键悬挂）。
 
 ## 关系
 由 AgentProfile（E-AgentProfile）声明装配（生命周期声明即编排分层唯一表达）；生命周期受调度器（E-调度器）管理（spawn/预算/收口/kill）；事件与 Entry 进会话聚合（E-会话聚合）按 instanceId 归属（锚点即聚合 Entry id 的引用，经会话投影与 DtoMapper 组装进 instances DTO）；持久化投影 agent_lifecycle（主键 (session_id, instance_id)），重启经 RestoreService 重建实例注册表（恢复语义见 TR-AD-19）；用户定向 steer 寻址本实例（E-SteerQueue）；instantiated 事件携带的 thinkingLevel 快照供给 trace 复盘与 spawn 解析链观测（TR-AD-40）。
