@@ -3,19 +3,26 @@
  * test-design §2.6/§2.7/§3/§5 口径；review.md §2 必须还原逐条核销的
  * 浏览器级证据面）。
  *
- * 剧本（fake transport 标准入口 ?fakeTransport=1；spec 手动驱动）：
+ * 剧本（fake transport 标准入口 ?fakeTransport=1；spec 手动驱动；
+ * 默认关语义修订 = thinking 批 T2，跟随于 T5）：
  * - 主路径：建连（六档模型）→ 目录回放（CatalogModel 能力位防腐字段）→
- *   trigger 落位 .composer-foot 右侧 → popover 开合 → 拖动滑块（pointer
- *   三事件最近刻度吸附）→ thinking.set 命令帧断言（信封 sessionId）→
- *   thinking.changed 回推生效档显示 → 换模（model.changed）重解析 →
- *   「xhigh → high（模型能力所限）」轻提示 → PEAK（trigger+popover .peak +
- *   「▲ PEAK」徽章）→ 双主题 accent 同名变量（暗 #22D3EE / 亮 #2563EB）→
- *   刷新快照恢复（F1.5 E2E 边界 = 快照消费侧：快照读面携带 thinking 双位 →
- *   重连后 UI 与之一致；真实 daemon 重启回放链归 T3.1 integration，§5 口径）；
+ *   trigger 落位 .composer-foot 右侧 → popover 开合（scope 文字提示行已删，
+ *   用户决策 2026-08-24）→ 拖动滑块（pointer 三事件最近刻度吸附）→
+ *   thinking.set 命令帧断言（信封 sessionId）→ thinking.changed 回推生效档
+ *   显示 → 换模（model.changed）重解析 → 「xhigh → high（模型能力所限）」轻提示 →
+ *   PEAK（trigger+popover .peak + 「▲ PEAK」徽章）→ 双主题 accent 同名变量（暗
+ *   #22D3EE / 亮 #2563EB）→ 刷新快照恢复（F1.5 E2E 边界 = 快照消费侧：快照
+ *   读面携带 thinking 双位 → 重连后 UI 与之一致；真实 daemon 重启回放链归
+ *   T3.1 integration，§5 口径）；
+ * - 默认关语义：无覆盖（effective=null）→ chip OFF + ghost 空心 thumb 停
+ *   off 位（AUTO 文案退场——无覆盖与显式关同态 OFF）；刻度 = ["off",
+ *   ...thinkingLevels]（OFF 为 UI 合成第 0 刻度，CatalogModel/协议零变更；
+ *   PEAK 判据仍按能力档序列，off 不参与判峰）；
  * - 能力位变体（§4 mock 矩阵）：none（reasoning=false → 禁用态说明取代
- *   滑块位）/ 边界单档（n=1 防除零）/ 低于最低支持档（override minimal →
- *   effective low 回落 + 轻提示）；
- * - NFR-1 负断言：UI 无「关闭 reasoning/off」入口（档位集无 off 注入）；
+ *   滑块位）/ 边界单档（能力位 n=1 防除零，刻度 = off+1）/ 低于最低支持档
+ *   （override minimal → effective low 回落 + 轻提示）；
+ * - NFR-1 负断言（默认关语义修订）：无「关闭 reasoning/关闭推理」文案入口；
+ *   off 升格合法第 0 刻度（唯一，无重复注入——选 off → 协议透传显式关）；
  *   原型标注负断言：无 data-proto-annotation 锚。
  *
  * 证据：截图 + 断言输出落 docs/iterations/<iter>/evidence/e2e/（CL-1 前缀）。
@@ -93,7 +100,9 @@ async function openPopover(page: Page): Promise<void> {
   await expect(popover(page)).toBeVisible();
   await expect(trigger(page)).toHaveAttribute("aria-expanded", "true");
   await expect(popover(page).locator(".tp-title")).toHaveText("Reasoning Effort");
-  await expect(popover(page)).toContainText("会话覆盖 · 仅本会话生效");
+  // scope 文字提示行已删（用户决策 2026-08-24）——负断言钉桩
+  await expect(popover(page).locator(".tp-scope")).toHaveCount(0);
+  await expect(popover(page)).not.toContainText("会话覆盖");
 }
 
 /** 真实指针拖动（pointerdown/move/up，最近刻度吸附；fromPct → toPct）。 */
@@ -120,19 +129,25 @@ test.describe("T3.2 CL-1 P-1 推理强度滑块（F 层 mock）", () => {
     await expect(foot.locator(".thinking-picker")).toHaveCount(1);
     await expect(trigger(page).locator(".tp-label")).toHaveText("THINKING");
     await expect(trigger(page).locator(".tp-chev")).toBeVisible();
-    // 无覆盖 → AUTO（provider 默认语义）
-    await expect(trigger(page).locator(".tp-level")).toHaveText("AUTO");
+    // 无覆盖 → OFF（默认关语义：AUTO 退场，无覆盖与显式关同态 OFF）
+    await expect(trigger(page).locator(".tp-level")).toHaveText("OFF");
     const lastIsPicker = await foot.evaluate((el) =>
       el.lastElementChild?.classList.contains("thinking-picker") ?? false,
     );
     expect(lastIsPicker).toBe(true);
 
-    // ── popover 开合 + 六档刻度（F1.2 能力位驱动：刻度数 = thinkingLevels.length）──
+    // ── popover 开合 + OFF+六档刻度（F1.2 能力位驱动：刻度数 = 1 +
+    //    thinkingLevels.length，OFF 为 UI 合成第 0 刻度）；无覆盖 ghost 空心
+    //    thumb 停 off 位（区别于显式关的实心 thumb）──
     await openPopover(page);
-    await expect(popover(page).locator(".tl-tick")).toHaveCount(6);
-    await expect(popover(page).locator(".tl-tick").first()).toHaveAttribute("data-level", "minimal");
+    await expect(popover(page).locator(".tl-tick")).toHaveCount(7);
+    await expect(popover(page).locator(".tl-tick").first()).toHaveAttribute("data-level", "off");
+    await expect(popover(page).locator(".tl-thumb")).toHaveClass(/ghost/);
+    expect(
+      await popover(page).locator(".tl-thumb").evaluate((el) => (el as HTMLElement).style.left),
+    ).toBe("0%");
 
-    // ── 拖动选档（F1.1）：pointerdown 吸附 medium → 拖至 xhigh ──
+    // ── 拖动选档（F1.1）：off 序 pointerdown 落点吸附 medium（idx3）→ 拖至 xhigh ──
     await dragTrack(page, 0.42, 0.8);
     const sets = (await mock.clientFrames()).filter((f) => f.type === "thinking.set");
     expect(sets.length).toBeGreaterThanOrEqual(2);
@@ -153,7 +168,7 @@ test.describe("T3.2 CL-1 P-1 推理强度滑块（F 层 mock）", () => {
       thinkingChanged(SID, { override: "xhigh", effective: "high" }),
     ]);
     await expect(popover(page).locator(".tp-hint")).toHaveText("xhigh → high（模型能力所限）");
-    await expect(popover(page).locator(".tl-tick")).toHaveCount(3); // 三档重渲染
+    await expect(popover(page).locator(".tl-tick")).toHaveCount(4); // OFF+三档重渲染
     await expect(popover(page).locator(".tl-tick.cur")).toHaveText("high"); // 滑块显示生效档
     await expect(trigger(page).locator(".tp-level")).toHaveText("HIGH");
 
@@ -175,11 +190,13 @@ test.describe("T3.2 CL-1 P-1 推理强度滑块（F 层 mock）", () => {
     // PEAK 态跨主题保持（同名变量渲染，形态契约不变）
     await expect(trigger(page)).toHaveClass(/peak/);
 
-    // ── NFR-1 + 原型标注负断言 ──
+    // ── NFR-1 + 原型标注负断言（默认关语义修订：off 升格合法第 0 刻度）──
+    // （主题切换点击 popover 外已将其关闭——重开后再钉 off 唯一刻度）
+    await openPopover(page);
     const bodyText = (await page.locator("body").textContent()) ?? "";
     expect(bodyText).not.toContain("关闭 reasoning");
     expect(bodyText).not.toContain("关闭推理");
-    await expect(page.locator('.tl-tick[data-level="off"]')).toHaveCount(0);
+    await expect(page.locator('.tl-tick[data-level="off"]')).toHaveCount(1); // OFF 唯一刻度（无重复注入）
     await expect(page.locator("[data-proto-annotation]")).toHaveCount(0);
 
     // ── F1.5 刷新快照恢复（§5 E2E 边界 = 快照消费侧）──
@@ -211,12 +228,13 @@ test.describe("T3.2 CL-1 P-1 推理强度滑块（F 层 mock）", () => {
       [
         "# CL-1 P-1 E2E 断言输出（主路径）",
         "",
+        "- 默认关：无覆盖 → chip OFF + ghost 空心 thumb 停 off 位（AUTO 退场）；刻度 = off + thinkingLevels（第 0 刻度 off）",
         `- thinking.set 帧序：${sets.map((f) => JSON.stringify(f.payload)).join(" → ")}（sessionId=${SID}）`,
-        "- 换模重解析：model.changed → thinking.changed{override:xhigh,effective:high} → 轻提示「xhigh → high（模型能力所限）」+ 3 刻度重渲染",
+        "- 换模重解析：model.changed → thinking.changed{override:xhigh,effective:high} → 轻提示「xhigh → high（模型能力所限）」+ OFF+3 刻度重渲染",
         "- PEAK：trigger/popover 同挂 .peak + 「▲ PEAK」徽章可见",
         "- 双主题 accent：dark rgb(34, 211, 238) / light rgb(37, 99, 235)（同名变量）",
         "- F1.5 快照恢复：reload 后 snapshot.thinking{override:xhigh,effective:high} → trigger HIGH + 轻提示 + PEAK 一致",
-        "- NFR-1 负断言：无「关闭 reasoning」入口、无 [data-level=off] 档位、无 data-proto-annotation 锚",
+        "- NFR-1 负断言：无「关闭 reasoning」文案、off 唯一第 0 刻度（合法显式关入口）、无 data-proto-annotation 锚",
         "",
         "## 证据截图",
         `- ${darkShot}`,
@@ -241,13 +259,13 @@ test.describe("T3.2 CL-1 P-1 推理强度滑块（F 层 mock）", () => {
   });
 
   test("边界变体：单档防除零 + 覆盖低于最低支持档回落（levels[0]）+ 轻提示", async ({ mock, page }) => {
-    // 单档变体（n=1，pct 防除零）
+    // 单档变体（能力位 n=1，pct 防除零；刻度 = off + 单档）
     await connectWithCatalog(mock, page, M_SINGLE);
     await openPopover(page);
-    await expect(popover(page).locator(".tl-tick")).toHaveCount(1);
+    await expect(popover(page).locator(".tl-tick")).toHaveCount(2);
     await mock.emit(thinkingChanged(SID, { override: "medium", effective: "medium" }));
     const thumbLeft = await popover(page).locator(".tl-thumb").evaluate((el) => (el as HTMLElement).style.left);
-    expect(thumbLeft).toBe("0%");
+    expect(thumbLeft).toBe("100%"); // medium = off 序 idx1（n=2 → 1/(2-1)）
     expect(thumbLeft).not.toContain("NaN");
     // 单档即最高档 → PEAK
     await expect(trigger(page)).toHaveClass(/peak/);
@@ -257,14 +275,14 @@ test.describe("T3.2 CL-1 P-1 推理强度滑块（F 层 mock）", () => {
       modelChanged(SID, M_TRI, M_SINGLE),
       thinkingChanged(SID, { override: "minimal", effective: "low" }),
     ]);
-    await expect(popover(page).locator(".tl-tick")).toHaveCount(3);
+    await expect(popover(page).locator(".tl-tick")).toHaveCount(4);
     await expect(popover(page).locator(".tl-tick.cur")).toHaveText("low");
     await expect(popover(page).locator(".tp-hint")).toHaveText("minimal → low（模型能力所限）");
     const shot = await shotEvidence(page, "thinking-p1-boundary-variants", "CL-1");
     writeEvidence(
       "thinking-p1-boundary-variants",
       "md",
-      `# CL-1 P-1 边界变体\n\n- 单档：1 刻度 + thumb 0%（无 NaN）+ 单档即 PEAK\n- 低于最低支持档：minimal → low 回落 + 轻提示 + 滑块强调 low\n- ${shot}\n`,
+      `# CL-1 P-1 边界变体\n\n- 单档：off+1 刻度 + thumb 100%（无 NaN）+ 单档即 PEAK\n- 低于最低支持档：minimal → low 回落 + 轻提示 + 滑块强调 low\n- ${shot}\n`,
       "CL-1",
     );
   });

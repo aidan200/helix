@@ -1,22 +1,24 @@
 /**
  * T3.2 —— CL-1 P-2 agents 页 profile 推理级别字段（F 层 mock mode E2E；
- * test-design §2.6/§3 口径；review.md §3 必须还原逐条核销的浏览器级证据面）。
+ * thinking 批 T3 重构为 on/off 开关形态，spec 于 T5 跟随；agent.config 族
+ * 契约 v0.6 + thinking 槽位 v0.11 AD-6 扩维）。
  *
- * 剧本（fake transport 标准入口；agent.config 族契约 v0.6 + thinking 槽位
- * v0.11 AD-6 扩维）：
- * - ghost（F2.1 留空）：dashed 框 + 空心 thumb 停兜底 medium 位 + 刻度去
- *   强调 +「未配置」中性徽标 + 回落说明 + × 隐藏；
- * - 配置：点刻度 high → agent.config.set_enabled{resourceType:"thinking",
- *   name:"high",enabled:true} → applied + changed + 重拉 → configured
- *   （accent 档位徽标 + × 清除钮 + spawn 快照说明 + 实 thumb）；
- * - 清除：× → set_enabled{name:"-",enabled:false} → 重拉回 ghost（两态
- *   视觉与徽标同步切换不叠加）；
+ * 剧本（fake transport 标准入口；开关语义与 daemon thinking 默认关对齐）：
+ * - off 默认关（槽位空 = 该 profile 默认不思考）：开关 off（role=switch +
+ *   aria-checked=false + 状态词「停用」）+ 无滑块 / 无档位徽标 / 无说明行
+ *   （noteUnset/noteConfigured 四条文案已按用户决策删除；ghost 预览位退役）；
+ * - 开关 on：槽位空 → 立即 set_enabled{resourceType:"thinking", name:<中位
+ *   档 defaultLevelFor>, enabled:true}（六档 → medium）→ applied + changed +
+ *   重拉 → on 态（开关「启用」+ accent 档位徽标 + 滑块——档位集 = 能力位
+ *   原样透传，无 OFF 刻度，off 语义由开关承担，与 P-1 不同）；
+ * - 开关 off：既有槽位清除 set_enabled{name:"-",enabled:false} → 重拉回 off
+ *   态（两态不叠加）；
  * - 换模轻提示（F2.2）：已配 xhigh → 槽位切三档模型 → 「xhigh → high
  *   （模型能力所限；spawn 解析时按能力过滤，配置值不丢）」+ 徽标仍示 xhigh
  *   （配置值本体不改写）+ PEAK（high = 三档能力上限）；
- * - 禁用：槽位切 reasoning=false 模型 → 字段禁用 + 滑块不渲染 + 已有配置
- *   保留不可改（徽标保留、× 隐藏）；
- * - NFR-1 / 原型标注负断言。
+ * - 禁用：槽位切 reasoning=false 模型 → 开关 disabled + 滑块不渲染 + 已有
+ *   配置保留不可改（徽标保留）+ disabledNote 唯一存留说明行；
+ * - NFR-1（P-2 档位集无 off 注入）/ 四条 note 删除负断言 / 原型标注负断言。
  *
  * 证据：截图 + 断言输出落 docs/iterations/<iter>/evidence/e2e/（CL-1 前缀）。
  */
@@ -146,54 +148,54 @@ async function settleWrite(
 }
 
 test.describe("T3.2 CL-1 P-2 profile 推理级别字段（F 层 mock）", () => {
-  test("主路径：ghost → 配置 → 清除 → 换模轻提示 → 禁用（F2.1/F2.2 全链）", async ({ mock, page }) => {
+  test("主路径：off 默认关 → 开关 on 写中位档 → 开关 off 清槽位 → 换模轻提示 → 禁用（F2.1/F2.2 全链）", async ({ mock, page }) => {
     await openAgents(mock, page);
     const f = field(page, "subagent-worker");
+    const sw = f.locator('[data-switch="thinking"]');
 
-    // ── ghost 未配置态（F2.1；review §3-3）──
-    await expect(f).toHaveClass(/unset/);
-    await expect(f.locator(".tl-state")).toHaveText("未配置");
-    await expect(f.locator(".tl-state")).not.toHaveClass(/set/);
-    await expect(f.locator(".tl-box")).toHaveCSS("border-style", "dashed");
-    await expect(f.locator(".tl-thumb")).toHaveClass(/ghost/);
-    expect(await f.locator(".tl-thumb").evaluate((el) => (el as HTMLElement).style.left)).toBe("40%"); // 兜底 medium = 六档 idx2
-    await expect(f.locator(".tl-tick.on")).toHaveCount(0); // 刻度去强调
-    await expect(f.locator(".tl-tick.cur")).toHaveCount(0);
-    await expect(f.locator(".ag-note")).toContainText("spawn 解析时回落兜底 medium");
-    await expect(f.locator(".tl-clear")).toHaveCount(0); // × 隐藏
+    // ── off 默认关态（T3 开关形态；槽位空 = 默认不思考）──
+    await expect(sw).toHaveAttribute("role", "switch");
+    await expect(sw).toHaveAttribute("aria-checked", "false");
+    await expect(sw.locator(".ag-switch-state")).toHaveText("停用");
+    // off 态：无滑块 / 无 ghost thumb / 无档位徽标 / 无清除钮 / 无说明行（四条 note 已删）
+    await expect(f.locator(".tl-track")).toHaveCount(0);
+    await expect(f.locator(".tl-thumb")).toHaveCount(0);
+    await expect(f.locator(".tl-state")).toHaveCount(0);
+    await expect(f.locator(".tl-clear")).toHaveCount(0);
+    await expect(f.locator(".ag-note")).toHaveCount(0);
     // label 与模型槽位并列（review §3-1）
     await expect(f.locator(".hud-label")).toHaveText("推理级别 · THINKING LEVEL");
-    const ghostShot = await shotEvidence(page, "thinking-p2-ghost", "CL-1");
+    const offShot = await shotEvidence(page, "thinking-p2-off", "CL-1");
 
-    // ── 配置：点刻度 high → thinking 槽位写入 → 重拉收口 configured ──
-    await f.locator('.tl-tick[data-level="high"]').click();
+    // ── 开关 on：槽位空 → 立即写六档中位档 medium（defaultLevelFor idx2）→ 重拉收口 on 态 ──
+    await sw.click();
     let cmd = await waitNextCommand(mock, "agent.config.set_enabled", 0);
     expect(cmd.payload).toEqual({
       profileKind: "subagent-worker",
       resourceType: "thinking",
-      name: "high",
+      name: "medium",
       enabled: true,
     });
     expect(cmd.sessionId).toBeUndefined(); // 全局命令
     await settleWrite(
       mock,
-      { profileKind: "subagent-worker", resourceType: "thinking", name: "high", enabled: true },
+      { profileKind: "subagent-worker", resourceType: "thinking", name: "medium", enabled: true },
       M_SIX,
-      "high",
+      "medium",
     );
-    // configured 态：accent 徽标 + × + spawn 快照说明 + 实 thumb（两态不叠加）
-    await expect(f).not.toHaveClass(/unset/);
-    await expect(f.locator(".tl-state")).toHaveText("high");
+    // on 态：开关「启用」+ accent 档位徽标 + 滑块（档位集 = 能力位原样，无 OFF 刻度）
+    await expect(sw).toHaveAttribute("aria-checked", "true");
+    await expect(sw.locator(".ag-switch-state")).toHaveText("启用");
+    await expect(f.locator(".tl-state")).toHaveText("medium");
     await expect(f.locator(".tl-state")).toHaveClass(/set/);
-    await expect(f.locator(".tl-clear")).toBeVisible();
-    await expect(f.locator(".ag-note")).toContainText("spawn 时按此档解析快照");
-    await expect(f.locator(".tl-thumb")).not.toHaveClass(/ghost/);
-    await expect(f.locator(".tl-tick.cur")).toHaveText("high");
+    await expect(f.locator(".tl-tick")).toHaveCount(6);
+    await expect(f.locator(".tl-tick.cur")).toHaveText("medium");
+    await expect(f.locator('.tl-tick[data-level="off"]')).toHaveCount(0); // off 语义由开关承担
     const configuredShot = await shotEvidence(page, "thinking-p2-configured", "CL-1");
 
-    // ── 清除：× → clear 槽位 → 回 ghost ──
+    // ── 开关 off：既有槽位清除（set_enabled{"-",false}）→ 回 off 态 ──
     let before = await cmdCount(mock, "agent.config.set_enabled");
-    await f.locator(".tl-clear").click();
+    await sw.click();
     cmd = await waitNextCommand(mock, "agent.config.set_enabled", before);
     expect(cmd.payload).toEqual({
       profileKind: "subagent-worker",
@@ -207,14 +209,29 @@ test.describe("T3.2 CL-1 P-2 profile 推理级别字段（F 层 mock）", () => 
       M_SIX,
       null,
     );
-    await expect(f).toHaveClass(/unset/);
-    await expect(f.locator(".tl-state")).toHaveText("未配置");
-    await expect(f.locator(".tl-thumb")).toHaveClass(/ghost/);
+    await expect(sw).toHaveAttribute("aria-checked", "false");
+    await expect(f.locator(".tl-track")).toHaveCount(0); // 两态不叠加
+    await expect(f.locator(".tl-state")).toHaveCount(0);
 
-    // ── 换模轻提示（F2.2）：先配 xhigh，再切三档模型 ──
+    // ── 换模轻提示（F2.2）：开关 on 复写中位档 → 点刻度改配 xhigh，再切三档模型 ──
     before = await cmdCount(mock, "agent.config.set_enabled");
-    await f.locator('.tl-tick[data-level="xhigh"]').click();
+    await sw.click(); // off → on：再次写中位档
     await waitNextCommand(mock, "agent.config.set_enabled", before);
+    await settleWrite(
+      mock,
+      { profileKind: "subagent-worker", resourceType: "thinking", name: "medium", enabled: true },
+      M_SIX,
+      "medium",
+    );
+    before = await cmdCount(mock, "agent.config.set_enabled");
+    await f.locator('.tl-tick[data-level="xhigh"]').click(); // 点刻度改配 xhigh
+    cmd = await waitNextCommand(mock, "agent.config.set_enabled", before);
+    expect(cmd.payload).toEqual({
+      profileKind: "subagent-worker",
+      resourceType: "thinking",
+      name: "xhigh",
+      enabled: true,
+    });
     await settleWrite(
       mock,
       { profileKind: "subagent-worker", resourceType: "thinking", name: "xhigh", enabled: true },
@@ -248,7 +265,7 @@ test.describe("T3.2 CL-1 P-2 profile 推理级别字段（F 层 mock）", () => 
     await expect(f.locator(".tl-box")).toHaveClass(/peak/); // high = 三档能力上限 → PEAK
     const clampedShot = await shotEvidence(page, "thinking-p2-clamped-peak", "CL-1");
 
-    // ── 禁用：槽位切 reasoning=false 模型 → 字段禁用 + 配置保留不可改 ──
+    // ── 禁用：槽位切 reasoning=false 模型 → 开关 disabled + 配置保留不可改 ──
     before = await cmdCount(mock, "agent.config.set_enabled");
     await page.locator("#sel-model-subagent-worker").selectOption(M_NONE);
     await waitNextCommand(mock, "agent.config.set_enabled", before);
@@ -259,34 +276,39 @@ test.describe("T3.2 CL-1 P-2 profile 推理级别字段（F 层 mock）", () => 
       "xhigh",
     );
     await expect(f).toHaveClass(/disabled/);
+    await expect(sw).toBeDisabled();
+    await expect(sw).toHaveAttribute("aria-checked", "true"); // 已有配置保留不可改
     await expect(f.locator(".tl-track")).toHaveCount(0); // 滑块不渲染（两态不叠加）
-    await expect(f.locator(".tl-state")).toHaveText("xhigh"); // 已有配置保留
-    await expect(f.locator(".tl-clear")).toHaveCount(0); // 不可改（× 隐藏）
-    await expect(f.locator(".ag-note")).toContainText("不支持 reasoning");
+    await expect(f.locator(".tl-state")).toHaveText("xhigh"); // 徽标仍示配置档
+    await expect(f.locator(".tl-clear")).toHaveCount(0); // 不可改（清除钮已由开关承担）
+    await expect(f.locator(".ag-note")).toContainText("不支持 reasoning"); // 唯一存留 note
     const disabledShot = await shotEvidence(page, "thinking-p2-disabled", "CL-1");
 
-    // ── NFR-1 / 原型标注负断言 ──
+    // ── NFR-1 / 四条 note 删除 / 原型标注负断言 ──
     const bodyText = (await page.locator("body").textContent()) ?? "";
     expect(bodyText).not.toContain("关闭 reasoning");
     expect(bodyText).not.toContain("关闭推理");
-    await expect(page.locator('.tl-tick[data-level="off"]')).toHaveCount(0);
+    expect(bodyText).not.toContain("回落兜底");
+    expect(bodyText).not.toContain("解析快照");
+    expect(bodyText).not.toContain("解析推理级别");
+    await expect(page.locator('.tl-tick[data-level="off"]')).toHaveCount(0); // P-2 档位集无 off 注入
     await expect(page.locator("[data-proto-annotation]")).toHaveCount(0);
 
     writeEvidence(
       "thinking-p2-assertions",
       "md",
       [
-        "# CL-1 P-2 E2E 断言输出（主路径）",
+        "# CL-1 P-2 E2E 断言输出（主路径；on/off 开关形态）",
         "",
-        "- ghost：dashed 框 + 空心 thumb 40%（兜底 medium）+ 未配置徽标 + 回落说明 + × 隐藏",
-        "- 配置：点刻度 high → set_enabled{thinking,high,true} → 重拉 → accent 徽标 + × + spawn 快照说明",
-        "- 清除：× → set_enabled{thinking,-,false} → 重拉回 ghost（两态不叠加）",
+        "- off 默认关：开关 off（停用状态词）+ 无滑块/徽标/说明行（四条 note 已删；ghost 预览位退役）",
+        "- 开关 on：立即 set_enabled{thinking, medium（defaultLevelFor 六档 idx2）, true} → 重拉 → 「启用」+ 徽标 + 六档滑块（无 OFF 刻度）",
+        "- 开关 off：set_enabled{thinking, -, false} → 重拉回 off 态（两态不叠加）",
         "- 换模轻提示：xhigh + 切三档 → 「xhigh → high（模型能力所限；spawn 解析时按能力过滤，配置值不丢）」+ 徽标仍 xhigh + PEAK",
-        "- 禁用：切 reasoning=false → 字段禁用 + 滑块不渲染 + 配置保留 + × 隐藏",
-        "- NFR-1 负断言：无「关闭 reasoning」入口、无 [data-level=off] 档位、无 data-proto-annotation 锚",
+        "- 禁用：切 reasoning=false → 开关 disabled + 滑块不渲染 + 配置保留 + disabledNote 唯一存留说明行",
+        "- NFR-1 负断言：无「关闭 reasoning」入口、P-2 档位集无 [data-level=off] 档位、无 data-proto-annotation 锚",
         "",
         "## 证据截图",
-        `- ${ghostShot}`,
+        `- ${offShot}`,
         `- ${configuredShot}`,
         `- ${clampedShot}`,
         `- ${disabledShot}`,
@@ -295,15 +317,32 @@ test.describe("T3.2 CL-1 P-2 profile 推理级别字段（F 层 mock）", () => 
     );
   });
 
-  test("能力位变体：三档 ghost 刻度数=3 + 六档/三档切换跟随槽位模型（TR-AD-42 不硬编码）", async ({ mock, page }) => {
+  test("能力位变体：三档开关 on 写中位档 medium + 刻度数=3 跟随槽位模型（TR-AD-42 不硬编码）", async ({ mock, page }) => {
     await openAgents(mock, page, M_TRI, null);
     const f = field(page, "subagent-worker");
-    // 三档能力位 → 3 刻度（能力位驱动渲染）
+    const sw = f.locator('[data-switch="thinking"]');
+    // off 态无滑块；开关 on → 写三档中位档 medium（defaultLevelFor TRI = idx1）
+    await expect(f.locator(".tl-track")).toHaveCount(0);
+    await sw.click();
+    const cmd = await waitNextCommand(mock, "agent.config.set_enabled", 0);
+    expect(cmd.payload).toEqual({
+      profileKind: "subagent-worker",
+      resourceType: "thinking",
+      name: "medium",
+      enabled: true,
+    });
+    await settleWrite(
+      mock,
+      { profileKind: "subagent-worker", resourceType: "thinking", name: "medium", enabled: true },
+      M_TRI,
+      "medium",
+    );
+    // 三档能力位 → 3 刻度（能力位驱动渲染；无 OFF 刻度——off 由开关承担）
     await expect(f.locator(".tl-tick")).toHaveCount(3);
     expect(await f.locator(".tl-tick").allTextContents()).toEqual(TRI.map((s) => s));
-    // ghost 兜底 medium = 三档 idx1 → 50%
+    // 中位档 medium = 三档 idx1 → 50%
     expect(await f.locator(".tl-thumb").evaluate((el) => (el as HTMLElement).style.left)).toBe("50%");
-    const shot = await shotEvidence(page, "thinking-p2-tri-ghost", "CL-1");
-    writeEvidence("thinking-p2-tri-variant", "md", `# CL-1 P-2 三档变体\n\n- 刻度数=3 跟随槽位模型能力位；ghost 兜底 medium 停 50%\n- ${shot}\n`, "CL-1");
+    const shot = await shotEvidence(page, "thinking-p2-tri-switch-on", "CL-1");
+    writeEvidence("thinking-p2-tri-variant", "md", `# CL-1 P-2 三档变体\n\n- 开关 on 写中位档 medium（defaultLevelFor 三档 = idx1）；刻度数=3 跟随槽位模型能力位、无 OFF 刻度\n- ${shot}\n`, "CL-1");
   });
 });
