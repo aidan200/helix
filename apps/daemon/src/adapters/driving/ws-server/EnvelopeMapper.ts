@@ -25,7 +25,11 @@ import type {
   EngineErrorEvent,
   EventType,
 } from "@helix/protocol";
-import { PROTOCOL_VERSION, EVENT_CHANNELS, MAIN_INSTANCE_ID } from "@helix/protocol";
+import { PROTOCOL_VERSION, EVENT_CHANNELS } from "@helix/protocol";
+import {
+  isMainInstanceId,
+  LEGACY_MAIN_INSTANCE_ID,
+} from "../../../domain/agent/AgentInstance";
 import type {
   AgentStateChangedPayload,
   DomainEvent,
@@ -59,6 +63,12 @@ export interface EventMapContext {
    * （不落 domain_events，派生值无第二事实源）；含 null 流首（有效值）。
    */
   readonly spawnAnchor?: string | null;
+  /**
+   * 会话主实例 id（T10a kind 判别基准：条目级归属编码 / engine.error 抑制）。
+   * EventStream 经组合根 backfill 查询注入；缺省 = legacy "main" 判别
+   * （旧装配点/纯映射测试形态兼容）。
+   */
+  readonly mainInstanceId?: string;
 }
 
 // ── 领域事件 → 协议事件帧 ─────────────────────────────────────
@@ -84,6 +94,8 @@ export function domainEventToEnvelope(event: DomainEvent, ctx?: EventMapContext)
 
 function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope | null {
   const ts = Date.parse(event.occurredAt);
+  // T10a kind 判别基准（缺省 legacy "main"——旧装配点兼容）
+  const mainId = ctx?.mainInstanceId ?? LEGACY_MAIN_INSTANCE_ID;
   switch (event.type) {
     case "turn.started":
       return {
@@ -129,7 +141,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       // 注入来源透传（T11b：idle closure/progress 注入实时帧区分；缺省不携带键）
       if (p.source !== undefined) entry.source = p.source;
       // SubAgent 消息帧携带条目 instanceId（前端实例分流；AD-3）
-      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
+      if (event.instanceId !== undefined && !isMainInstanceId(event.instanceId, mainId)) {
         entry.instanceId = event.instanceId;
       }
       // 图片下行：user 消息携带图片附件（载荷 images → entry.images 透传）
@@ -165,7 +177,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       };
       // SubAgent 工具卡归实例 channel（载荷内嵌 instanceId 与（AD-3）
       // v0.1 通道族并存口径一致；信封位为路由权威）
-      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
+      if (event.instanceId !== undefined && !isMainInstanceId(event.instanceId, mainId)) {
         entry.instanceId = event.instanceId;
       }
       const frame: ToolCallStartedEvent = {
@@ -187,7 +199,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         state: p.isError ? "error" : "done",
         ts,
       };
-      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) {
+      if (event.instanceId !== undefined && !isMainInstanceId(event.instanceId, mainId)) {
         entry.instanceId = event.instanceId;
       }
       // 图片下行：工具结果附带图片（工具卡缩略图数据源）
@@ -297,7 +309,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       const frame: ThinkingCompletedEvent = {
         v: PROTOCOL_VERSION,
         type: "thinking.completed",
-        payload: { entry: thinkingEntryDto(p.entry) },
+        payload: { entry: thinkingEntryDto(p.entry, mainId) },
       };
       return frame;
     }
@@ -307,7 +319,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       const frame: CompactionCompletedEvent = {
         v: PROTOCOL_VERSION,
         type: "compaction.completed",
-        payload: { entry: compactionEntryDto(p.entry) },
+        payload: { entry: compactionEntryDto(p.entry, mainId) },
       };
       return frame;
     }
@@ -328,7 +340,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       //（trace 数据面，WriteQueue 在 DtoMapper 之外），不产 WS 帧——shell
       // consumers/chat.ts 的 engine.error case 无 instanceId 分流，不抑制会
       // 错位弹主聊天流（AD-1 前端零改动的守护面）；主线帧行为不变。
-      if (event.instanceId !== undefined && event.instanceId !== MAIN_INSTANCE_ID) return null;
+      if (!isMainInstanceId(event.instanceId, mainId)) return null;
       const p = event.payload as { message: string };
       const frame: EngineErrorEvent = {
         v: PROTOCOL_VERSION,

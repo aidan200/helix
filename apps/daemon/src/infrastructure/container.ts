@@ -14,6 +14,7 @@ import { CliAdapter, StdoutEventPublisher } from "../adapters/driving/cli/CliAda
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
 import { lastMainAnchorId, type AnchorScanEntry } from "@helix/protocol"; // 锚扫描基元单源 projection
+import { isMainInstanceId } from "../domain/agent/AgentInstance";
 import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
@@ -358,10 +359,18 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   backfill.computeSpawnAnchor = (sessionId: string) => {
     const runtime = registry.peek(sessionId);
     if (runtime === undefined) return null;
+    const mainId = runtime.chatService.sessionView.mainInstanceId;
+    // kind 判别归一（T10a）：锚扫描基元（projection 单源）的 "main 归属" 判定
+    // 按缺省=main 语义工作——主实例归属条目（会话主 id / legacy "main"）
+    // 归一为缺省后扫描，语义与快照路径（DTO 省略编码）一致
+    const anchorOf = (list: readonly AnchorScanEntry[]): string | null =>
+      lastMainAnchorId(
+        list.map((e) => ({ ...e, instanceId: isMainInstanceId(e.instanceId, mainId) ? undefined : e.instanceId })),
+      );
     const entries = runtime.chatService.sessionView.toSnapshot().entries;
     const toolCalls = runtime.chatService.toolCallData;
     // 无 tool 调用记录：防御路径与旧语义一致（聚合 entries 数组序直扫）
-    if (toolCalls.length === 0) return lastMainAnchorId(entries);
+    if (toolCalls.length === 0) return anchorOf(entries);
     const merged: AnchorScanEntry[] = [
       ...entries.map((entry) => ({ key: Date.parse(entry.createdAt), entry: entry as AnchorScanEntry })),
       ...toolCalls.map((record) => ({
@@ -378,8 +387,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     ]
       .sort((a, b) => a.key - b.key)
       .map((item) => item.entry);
-    return lastMainAnchorId(merged);
+    return anchorOf(merged);
   };
+  // T10a kind 判别读面闭合：EventStream（engine.error 抑制/条目归属编码）
+  // 查会话主实例 id；冷会话理论不可达（事件只自热运行时发布）
+  backfill.mainInstanceIdFor = (sessionId: string) =>
+    registry.peek(sessionId)?.chatService.sessionView.mainInstanceId;
   // AD-3 两级链（T12）：spawn 会话快照模型源退役——SubAgent 模型只认自身
   // profile 链（resolveSubagentModelId 单点供给 spawn 透传/快照），不继承会话选择。
 

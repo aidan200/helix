@@ -62,6 +62,9 @@ import type { PublishResourceChanged } from "./resource-events";
 export interface AssemblyBackfill {
   /** spawn 时刻锚计算（契约 v0.3 §1 规则②读面；registry 就绪前未定义）。 */
   computeSpawnAnchor?: (sessionId: string) => string | null;
+  /** 会话主实例 id 查询（T10a kind 判别读面：EventStream engine.error 抑制
+   *  /信封条目归属编码；registry 就绪前未定义 = legacy "main" 判别兜底）。 */
+  mainInstanceIdFor?: (sessionId: string) => string | undefined;
 }
 
 /**
@@ -317,6 +320,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   const eventStream = new EventStream({
     // 契约 v0.3 §1：agent.spawned 帧锚点 enrichment（调度器内存携带面值）
     spawnAnchorFor: (instanceId) => scheduler.spawnAnchorOf(instanceId),
+    // T10a kind 判别读面（typed 回填面闭合前 undefined = legacy 判别兜底）
+    mainInstanceIdFor: (sessionId) => backfill.mainInstanceIdFor?.(sessionId),
   });
 
   // ── service：多会话容器（AD-4 主承载） ─────────────────────

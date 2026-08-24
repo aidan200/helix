@@ -52,6 +52,12 @@ export interface EventStreamDeps {
    * （流首有效锚），undefined = 未登记（帧不携带锚字段——旧组装点兼容）。
    */
   readonly spawnAnchorFor?: (instanceId: string) => string | null | undefined;
+  /**
+   * 会话主实例 id 查询（T10a kind 判别读面）：组合根接 backfill.mainInstanceIdFor
+   * （registry 闭合后生效）；返回值注入 EventMapContext——条目级归属编码与
+   * engine.error 抑制的判别基准；undefined = legacy "main" 判别兜底。
+   */
+  readonly mainInstanceIdFor?: (sessionId: string) => string | undefined;
 }
 
 /** 单连接投影状态：会话订阅 tier 表 + v0.1 实例订阅表（通路语义，不过滤）。 */
@@ -246,6 +252,8 @@ export class EventStream implements EventPublisherPort {
       fallbackTurnId: this.lastTurnIds.get(event.sessionId) ?? "",
       ...duration,
       ...(spawnAnchor !== undefined ? { spawnAnchor } : {}),
+      // T10a kind 判别基准（装配缺省/未热会话 → undefined = legacy 判别）
+      mainInstanceId: this.deps.mainInstanceIdFor?.(event.sessionId),
     });
     if (envelope === null) return;
     this.push(envelope);

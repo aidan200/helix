@@ -13,8 +13,8 @@ import type {
   SessionUsageDto,
   UsageDto,
 } from "@helix/protocol";
-import { MAIN_INSTANCE_ID } from "@helix/protocol";
 import type { SessionMeta } from "@helix/protocol";
+import { LEGACY_MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
 import type { SessionStateView, InstanceSnapshotEntry } from "../../../application/ports/inbound/SessionPort";
 import type { SessionMetaView } from "../../../application/ports/inbound/SessionDirectoryPort";
 import type { SessionUsageSummary, UsageSummary } from "../../../domain/session/SessionSnapshot";
@@ -69,12 +69,15 @@ export function toSnapshotDto(
   opts: SnapshotTailOptions = {},
 ): SessionSnapshotDto {
   const snapshot = view.session;
+  // T10a：会话主实例 id（快照 mainInstanceId；旧快照缺省 = legacy "main"）——
+  // wire 边界实例归属编码的判别基准
+  const mainId = snapshot.mainInstanceId ?? LEGACY_MAIN_INSTANCE_ID;
   const queuedSteer = new Set(snapshot.pendingSteer.map((item) => item.entryId));
   // 升序稳定排序：时间并列保持组内原序（entries 原序 / toolCalls 迭代序）
   // entries 为 message/thinking/compaction 混排联合，各变体同表合并
   const merged: EntryDto[] = [
-    ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer)),
-    ...view.toolCalls.map((record) => toolCallEntryDto(record)),
+    ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer, mainId)),
+    ...view.toolCalls.map((record) => toolCallEntryDto(record, mainId)),
   ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
   // 主时间轴 = 主实例条目 + 定向 steer 干预条目（契约 v0.3 §3.2）；尾窗只作用于主轴（AD-1）
   const mainAxis = merged.filter(isMainAxisEntry);
@@ -94,7 +97,7 @@ export function toSnapshotDto(
     ...(view.instances !== undefined
       ? {
           instances: view.instances.map((instance) =>
-            instanceDto(instance, instanceChannels(merged, instance.instanceId), computeAnchorEntryId(merged, instance)),
+            instanceDto(instance, instanceChannels(merged, instance), computeAnchorEntryId(merged, instance)),
           ),
         }
       : {}),
@@ -114,10 +117,11 @@ export function historyPage(
   limit: number = HISTORY_PAGE_DEFAULT,
 ): HistoryPage {
   const snapshot = view.session;
+  const mainId = snapshot.mainInstanceId ?? LEGACY_MAIN_INSTANCE_ID;
   const queuedSteer = new Set(snapshot.pendingSteer.map((item) => item.entryId));
   const merged: EntryDto[] = [
-    ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer)),
-    ...view.toolCalls.map((record) => toolCallEntryDto(record)),
+    ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer, mainId)),
+    ...view.toolCalls.map((record) => toolCallEntryDto(record, mainId)),
   ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
   const mainAxis = merged.filter(isMainAxisEntry);
   const cursorIndex = mainAxis.findIndex((entry) => entry.id === beforeEntryId);
@@ -140,11 +144,11 @@ export function historyPage(
  * tools 三槽，契约 §6.2 InstanceChannelHistory）。主实例不分组（主时间轴
  * entries 全量即主实例历史；尾窗只作用于主时间轴）。
  */
-function instanceChannels(entries: readonly EntryDto[], instanceId: string): InstanceChannelHistory | undefined {
-  if (instanceId === MAIN_INSTANCE_ID) return undefined;
+function instanceChannels(entries: readonly EntryDto[], instance: InstanceSnapshotEntry): InstanceChannelHistory | undefined {
+  if (instance.kind === "main") return undefined; // 主实例不分组（kind 判别，T10a）
   let channels: InstanceChannelHistory | undefined;
   for (const entry of entries) {
-    if ((entry.instanceId ?? MAIN_INSTANCE_ID) !== instanceId) continue;
+    if (entry.instanceId !== instance.instanceId) continue; // 主实例条目 wire 边界省略（undefined）天然跳过
     channels ??= {};
     if (entry.kind === "message") channels.messages = [...(channels.messages ?? []), entry];
     else if (entry.kind === "thinking") channels.thinking = [...(channels.thinking ?? []), entry];

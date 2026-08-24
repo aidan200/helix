@@ -13,12 +13,26 @@ import type {
   CompactionEntryDto,
   ToolCallEntryDto,
 } from "@helix/protocol";
-import { MAIN_INSTANCE_ID } from "@helix/protocol";
+import {
+  isMainInstanceId,
+  LEGACY_MAIN_INSTANCE_ID,
+} from "../../../domain/agent/AgentInstance";
 import type { EntryData } from "../../../domain/session/Entry";
 import type { SessionEntryData } from "../../../domain/session/SessionSnapshot";
 import type { ThinkingEntryData } from "../../../domain/session/ThinkingEntry";
 import type { CompactionEntryData } from "../../../domain/session/CompactionEntry";
 import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
+
+/**
+ * wire 边界实例归属编码（T10a 方案 A 最小面）：主实例归属（该会话主实例 id
+ * / legacy "main" / 缺省）按旧线格式编码——message/tool 省略（读侧缺省=main
+ * 推断保留），thinking/compaction 因协议类型必填位编码 legacy "main" 字面。
+ * SubAgent 归属原样透传。全量显式携带的协议文档化决策归 T10b；本任务只保证
+ * daemon 行为正确 + 读侧旧形状兼容（projection 锚扫描/主轴判别零漂移）。
+ */
+function wireMainAware(instanceId: string | undefined, mainInstanceId: string): boolean {
+  return isMainInstanceId(instanceId, mainInstanceId);
+}
 
 /**
  * 主轴归属判定（契约 v0.3 §3.2，Q-3a 双处可见的时间轴侧）：主实例条目
@@ -27,25 +41,33 @@ import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
  * 同一 entry 同时经 instanceChannels 进抽屉 feed 快照面，单事实源视图双投影）。
  */
 export function isMainAxisEntry(entry: EntryDto): boolean {
-  if ((entry.instanceId ?? MAIN_INSTANCE_ID) === MAIN_INSTANCE_ID) return true;
+  if ((entry.instanceId ?? LEGACY_MAIN_INSTANCE_ID) === LEGACY_MAIN_INSTANCE_ID) return true;
   return entry.kind === "message" && entry.role === "user" && entry.steerState !== undefined;
 }
 
 /** 单条 SessionEntryData → 对应 EntryDto（message/thinking/compaction
  *  分派；thinking/compaction 变体 createdAt 保持 ISO 字符串，契约 §6.1）。 */
-export function sessionEntryDto(entry: SessionEntryData, queuedSteer: Set<string>): EntryDto[] {
+export function sessionEntryDto(
+  entry: SessionEntryData,
+  queuedSteer: Set<string>,
+  mainInstanceId: string = LEGACY_MAIN_INSTANCE_ID,
+): EntryDto[] {
   if ("kind" in entry) {
-    return entry.kind === "thinking" ? [thinkingEntryDto(entry)] : [compactionEntryDto(entry)];
+    return entry.kind === "thinking" ? [thinkingEntryDto(entry, mainInstanceId)] : [compactionEntryDto(entry, mainInstanceId)];
   }
-  return messageEntryDto(entry, queuedSteer);
+  return messageEntryDto(entry, queuedSteer, mainInstanceId);
 }
 
-/** domain ThinkingEntryData → ThinkingEntryDto（全字段同形）。 */
-export function thinkingEntryDto(entry: ThinkingEntryData): ThinkingEntryDto {
+/** domain ThinkingEntryData → ThinkingEntryDto（全字段同形；实例归属经
+ *  wire 边界编码——主实例编 legacy "main" 字面，协议类型必填位）。 */
+export function thinkingEntryDto(
+  entry: ThinkingEntryData,
+  mainInstanceId: string = LEGACY_MAIN_INSTANCE_ID,
+): ThinkingEntryDto {
   return {
     kind: "thinking",
     id: entry.id,
-    instanceId: entry.instanceId,
+    instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? LEGACY_MAIN_INSTANCE_ID : entry.instanceId,
     text: entry.text,
     durationMs: entry.durationMs,
     reasoningTokens: entry.reasoningTokens,
@@ -53,12 +75,16 @@ export function thinkingEntryDto(entry: ThinkingEntryData): ThinkingEntryDto {
   };
 }
 
-/** domain CompactionEntryData → CompactionEntryDto（usage 七字段同形）。 */
-export function compactionEntryDto(entry: CompactionEntryData): CompactionEntryDto {
+/** domain CompactionEntryData → CompactionEntryDto（usage 七字段同形；实例
+ *  归属编码同 thinkingEntryDto）。 */
+export function compactionEntryDto(
+  entry: CompactionEntryData,
+  mainInstanceId: string = LEGACY_MAIN_INSTANCE_ID,
+): CompactionEntryDto {
   return {
     kind: "compaction",
     id: entry.id,
-    instanceId: entry.instanceId,
+    instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? LEGACY_MAIN_INSTANCE_ID : entry.instanceId,
     tokensBefore: entry.tokensBefore,
     tokensAfter: entry.tokensAfter,
     summary: entry.summary,
@@ -70,7 +96,11 @@ export function compactionEntryDto(entry: CompactionEntryData): CompactionEntryD
 /** 单条 EntryData → MessageEntryDto（tool 角色当前领域侧不产生，防御跳过）。
  * （AD-3）：SubAgent 条目携带 instanceId（前端 分流依据）；主实例
  *  省略（缺省 = main，线格式保持 v0/v0.1 形状）。 */
-function messageEntryDto(entry: EntryData, queuedSteer: Set<string>): MessageEntryDto[] {
+function messageEntryDto(
+  entry: EntryData,
+  queuedSteer: Set<string>,
+  mainInstanceId: string,
+): MessageEntryDto[] {
   if (entry.role !== "user" && entry.role !== "assistant") return [];
   const dto: MessageEntryDto = {
     kind: "message",
@@ -82,7 +112,7 @@ function messageEntryDto(entry: EntryData, queuedSteer: Set<string>): MessageEnt
   if (entry.role === "user" && entry.isSteer) {
     dto.steerState = queuedSteer.has(entry.id) ? "queued" : "drained";
   }
-  if (entry.instanceId !== MAIN_INSTANCE_ID) dto.instanceId = entry.instanceId;
+  if (!wireMainAware(entry.instanceId, mainInstanceId)) dto.instanceId = entry.instanceId;
   // 注入来源下行（T11a：closure/progress/user；缺省不携带——老快照前向兼容）
   if (entry.source !== undefined) dto.source = entry.source;
   // 图片下行：user 消息携带图片附件（快照投影重建同源；缺省不携带）
@@ -94,7 +124,10 @@ function messageEntryDto(entry: EntryData, queuedSteer: Set<string>): MessageEnt
  *  三态映射与事件侧（tool.call.started/result）口径一致；result 恒发、
  *  isError 区分——completed→result、failed→error 文案（无 error 回退
  *  result）、running 无；durationMs 仅起止齐备时携带。 */
-export function toolCallEntryDto(record: ToolCallRecordData): ToolCallEntryDto {
+export function toolCallEntryDto(
+  record: ToolCallRecordData,
+  mainInstanceId: string = LEGACY_MAIN_INSTANCE_ID,
+): ToolCallEntryDto {
   const dto: ToolCallEntryDto = {
     kind: "tool-call",
     id: record.id,
@@ -107,8 +140,8 @@ export function toolCallEntryDto(record: ToolCallRecordData): ToolCallEntryDto {
         ? Date.parse(record.endedAt)
         : 0,
   };
-  // 行级归属透传（SubAgent 工具卡归实例 channel；主实例省略；AD-3）
-  if (record.instanceId !== undefined && record.instanceId !== MAIN_INSTANCE_ID) {
+  // 行级归属透传（SubAgent 工具卡归实例 channel；主实例经 wire 边界编码省略；AD-3）
+  if (record.instanceId !== undefined && !wireMainAware(record.instanceId, mainInstanceId)) {
     dto.instanceId = record.instanceId;
   }
   // 图片下行：工具结果附带图片（快照/翻页工具卡缩略图数据源；缺省不带）
