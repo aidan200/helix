@@ -77,13 +77,14 @@ describe("① thinking 流式直达 + 完成落 Entry（TP-AD-5 / F2.1）", () =
     const thinkingDeltas = publisher.deltas.filter((d) => d.channel === "thinking");
     expect(thinkingDeltas.length).toBeGreaterThan(0);
     expect(thinkingDeltas.map((d) => d.delta).join("")).toBe("先分析问题的结构，再决定切入角度。");
-    expect(thinkingDeltas.every((d) => d.instanceId === "main")).toBe(true);
+    // T10a：主实例 id = 会话创建生成的 agent-<唯一串>（非 "main"）
+    expect(thinkingDeltas.every((d) => d.instanceId === chat.sessionView.mainInstanceId)).toBe(true);
 
     // 完成：ThinkingEntry 落树（kind/instanceId/text/durationMs/reasoningTokens）
     const snap = chat.sessionSnapshot;
     const thinkingEntry = snap.entries.find((e): e is ThinkingEntryData => "kind" in e && e.kind === "thinking");
     expect(thinkingEntry).toBeDefined();
-    expect(thinkingEntry!.instanceId).toBe("main");
+    expect(thinkingEntry!.instanceId).toBe(chat.sessionView.mainInstanceId);
     expect(thinkingEntry!.text).toBe("先分析问题的结构，再决定切入角度。");
     expect(thinkingEntry!.durationMs).toBeGreaterThanOrEqual(0);
     expect(thinkingEntry!.reasoningTokens).toBe(5);
@@ -100,7 +101,7 @@ describe("① thinking 流式直达 + 完成落 Entry（TP-AD-5 / F2.1）", () =
       payload: { entry: ThinkingEntryData };
     };
     expect(evt.payload.entry.kind).toBe("thinking");
-    expect(evt.instanceId).toBe("main");
+    expect(evt.instanceId).toBe(chat.sessionView.mainInstanceId);
 
     // 消息正文不受 thinking 污染
     expect(snap.entries.find((e): e is MessageEntry => "role" in e && e.role === "assistant")!.text).toBe(
@@ -134,7 +135,7 @@ describe("② compaction 编排（F2.2 / AD-9③）", () => {
     const snap = chat.sessionSnapshot;
     const comp = snap.entries.find((e): e is CompactionEntryData => "kind" in e && e.kind === "compaction");
     expect(comp).toBeDefined();
-    expect(comp!.instanceId).toBe("main");
+    expect(comp!.instanceId).toBe(chat.sessionView.mainInstanceId);
     expect(comp!.tokensBefore).toBe(340000);
     expect(comp!.tokensAfter).toBe(20000);
     expect(comp!.summary).toContain("MARLIN-77");
@@ -154,13 +155,13 @@ describe("② compaction 编排（F2.2 / AD-9③）", () => {
     };
     expect(compactEvt).toBeDefined();
     expect(compactEvt.payload.entry.tokensBefore).toBe(340000);
-    expect(compactEvt.instanceId).toBe("main");
+    expect(compactEvt.instanceId).toBe(chat.sessionView.mainInstanceId);
 
     const usageEvt = publisher.domainEvents.find((e) => e.type === "usage.recorded") as {
       payload: { instanceId: string; source: string; usage: Record<string, number> };
     };
     expect(usageEvt).toBeDefined();
-    expect(usageEvt.payload.instanceId).toBe("main");
+    expect(usageEvt.payload.instanceId).toBe(chat.sessionView.mainInstanceId);
     expect(usageEvt.payload.source).toBe("compaction");
     expect(usageEvt.payload.usage.input).toBe(40);
 

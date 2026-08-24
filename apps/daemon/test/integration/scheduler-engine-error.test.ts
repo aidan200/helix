@@ -112,11 +112,13 @@ describe("T1.1 engine_error 透传（container 级）", () => {
 
       const outcome = d.orchestration.spawn("会触发引擎错误的任务");
       expect(outcome.status).toBe("run");
+      if (outcome.status === "rejected") throw new Error(`spawn 被拒：${outcome.error}`);
+      const agentId = outcome.agentId;
       await awaitIdle(d); // closure 注入 → 内部 turn 收口
 
       // ① 不再静默：engine.error 领域事件挂 agent-1，payload.message = provider 原文
       expect(engineErrors).toHaveLength(1);
-      expect(engineErrors[0]!.instanceId).toBe("agent-1");
+      expect(engineErrors[0]!.instanceId).toBe(agentId);
       expect((engineErrors[0]!.payload as { message: string }).message).toBe(ERR_MSG);
 
       // ③ 回归：message_end(usage) 路径产出不变（usage.recorded 照常入账）
@@ -127,7 +129,7 @@ describe("T1.1 engine_error 透传（container 级）", () => {
       // ② trace 数据面：domain_events 四维可查（agent_kind=subagent 行 + 原文）
       const readQueue = new WriteQueue(path.join(home, "helix.db"));
       const repo = new SqliteSessionRepository(readQueue);
-      const rows = repo.queryEvents({ sessionId, instanceId: "agent-1", type: "engine.error" });
+      const rows = repo.queryEvents({ sessionId, instanceId: agentId, type: "engine.error" });
       expect(rows).toHaveLength(1);
       expect((rows[0]!.payload as { message: string }).message).toBe(ERR_MSG);
       expect(repo.queryEvents({ sessionId, agentKind: "subagent", type: "engine.error" })).toHaveLength(1);

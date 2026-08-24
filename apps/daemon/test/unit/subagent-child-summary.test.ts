@@ -72,17 +72,19 @@ describe("F1.2 锚 2 抽样：兜底 summary 单源直通消费面（reports md 
     });
     try {
       const outcome = scheduler.spawn("s-t12", "错误轮任务");
+      if (outcome.status === "rejected") throw new Error(`spawn 被拒：${outcome.error}`);
+      const agentId = outcome.agentId;
       expect(outcome.status).toBe("run");
       // 单源：ChildMain 兜底产出的 summary（与回调内 lastEngineError 捕获同构）
       const summary = buildFallbackSummary("", "provider 429 quota exceeded");
-      runner.callbacks!.onInstanceClosure("agent-1", {
+      runner.callbacks!.onInstanceClosure(agentId, {
         result: "failed",
         closure: { status: "failed", summary, reportPath: null, findings: null, taskId: null },
       });
 
       // 消费面① reports md（O-5 双产物之报告文件）
       await writeQueue.flush();
-      const reportMd = readFileSync(path.join(home, "reports", "agent-1.md"), "utf8");
+      const reportMd = readFileSync(path.join(home, "reports", `${agentId}.md`), "utf8");
       expect(reportMd).toContain("（engine: provider 429 quota exceeded）");
 
       // 消费面② SteerQueue 注入主线文本

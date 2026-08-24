@@ -78,8 +78,11 @@ describe("T3.2 ① 每 turn 恰一条 usage.recorded(source=turn)", () => {
     const events = usageEvents(publisher);
     expect(events).toHaveLength(2);
     expect(events.every((e) => e.payload.source === "turn")).toBe(true);
-    expect(events.every((e) => e.payload.instanceId === "main")).toBe(true);
-    expect(events.every((e) => e.instanceId === "main")).toBe(true); // envelope 同值（四维落列）
+    // T10a：主实例 id = 会话创建生成的 agent-<唯一串>（非 "main"）
+    const mainId = chat.sessionView.mainInstanceId;
+    expect(mainId).toMatch(/^agent-/);
+    expect(events.every((e) => e.payload.instanceId === mainId)).toBe(true);
+    expect(events.every((e) => e.instanceId === mainId)).toBe(true); // envelope 同值（四维落列）
     expect(events[0]!.payload.usage).toEqual({
       input: 10,
       output: 20,
