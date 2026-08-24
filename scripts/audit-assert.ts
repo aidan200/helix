@@ -165,37 +165,44 @@ console.log(`✓ ④ 体量 fail 档空（扫描面 ${sizes.size} 个 .ts；.tsx
 const ANCHOR_EXEMPT: Array<{ file: string; line: number; anchor: string; reason: string }> = [
   {
     file: "candidates.md",
-    line: 868,
+    line: 955,
     anchor: "apps/daemon/src/application/services/SchedulerService.ts",
     reason:
       "TR-AD-24 discard 台账审计痕：gc 检出时点快照路径（现行锚已随 scheduler/ 拆分直写落库，qhv8 终验批准）——历史记录不改写",
   },
   {
     file: "candidates.md",
-    line: 879,
+    line: 966,
     anchor: "packages/protocol/src/events.ts",
     reason:
       "TR-AD-21-r2 discard 台账审计痕：gc 检出时点快照路径（现行锚已随 events/ 拆分直写落库）——历史记录不改写",
   },
   {
     file: "candidates.md",
-    line: 879,
+    line: 966,
     anchor: "packages/protocol/test/type-surface.test.ts",
     reason: "TR-AD-21-r2 discard 台账审计痕：同上（现行锚已改 type-surface/catalog.test.ts）",
   },
   {
     file: "candidates.md",
-    line: 943,
+    line: 1030,
     anchor: "SpawnAnchor.ts",
     reason:
       "E-AgentInstance discard 台账审计痕：gc 检出时点快照路径（现行锚已随 T3.1 投影收敛迁 packages/protocol/src/projection/instance.ts）——历史记录不改写",
   },
   {
     file: "candidates.md",
-    line: 945,
+    line: 1032,
     anchor: "SpawnAnchor.ts",
     reason:
       "E-AgentInstance discard 台账审计痕：同上（现行锚已随 T3.1 投影收敛迁 packages/protocol/src/projection/instance.ts）",
+  },
+  {
+    file: "candidates.md",
+    line: 1163,
+    anchor: "docs/temp/development/kg-sync-proposal-h123.md",
+    reason:
+      "TR-AD-36 applied decisionLog 审计痕：提案全文存工作区 docs/temp（非仓内路径），仓内 candidates.md 为事实源（M6 先例口径）——历史记录不改写",
   },
 ];
 

@@ -197,16 +197,18 @@ scope: domain
 stack: backend
 name: ~/.helix 主目录与 Paths 单点解析
 status: active
-digest: 加配置项、定位数据文件、解析任何路径、加壳→daemon env 注入参数时
+digest: 加配置项、定位数据文件、解析任何路径、加壳→daemon env 注入参数或 subagent env 透传时
 derivedFrom:
   - AD-13
   - AD-14
+  - iter-20260823-6ps5 终验 L3 复核（TR-AD-6-l3）：例外款漏 subagent IPC 豁免族校正
 anchors:
   implementedBy:
     - apps/daemon/src/infrastructure/paths.ts
     - apps/daemon/src/infrastructure/auth-store.ts
     - apps/daemon/src/adapters/driven/pi-engine/model-catalog.ts
     - apps/daemon/src/infrastructure/container.ts
+    - apps/daemon/src/adapters/driven/subagent/child/ChildMain.ts
   testedBy:
     - apps/daemon/test/unit/paths.test.ts
     - apps/daemon/test/unit/config.test.ts
@@ -216,20 +218,20 @@ relations:
   governs:
     - E-领域事件与单写队列
     - E-认证凭据
-updatedIn: iter-20260822-m1uc
+updatedIn: iter-20260823-6ps5
 ```
 
 ## 规则
-~/.helix 是 daemon 唯一配置/数据/日志主目录，全部自有状态进 home，不用环境变量：config.json（daemon 配置面：端口、调度预算等——T2.3 瘦身后模型数据面已迁出：provider API keys → auth.json、默认模型 → helix.db default_model 表、模型目录缓存 → models-store.json，旧格式幂等迁移）、auth.json（provider 凭据，0600，格式见 TR-AD-7）、dev-token（CL-6）、logs/、helix.db（SQLite WAL）、models-store.json（ModelCatalog 落盘兜底）。所有业务路径解析收束于 infrastructure/paths.ts 单一模块：home 展开的跨平台处理（os.homedir + path，Windows 差异同处收束）、各文件相对 home 的定位；新增 auth.json/models-store 路径必须经 paths.ts 单点派生（勿复制 container.ts reports 旁路先例）；支持可选 `--home <dir>` 启动参数覆盖（测试指向 tmp 目录用）。任何模块不得自行拼接 ~/.helix 子路径，也不得经环境变量取配置——唯一例外 = 跨进程启动参数注入面（壳 → daemon 的 bundle 资源定位产物，本期 HELIX_RG_PATH；及 rg 三级解析探测对象 PATH）：读取收束于组合根 container.ts 单点，合法键集合由 arch-guard AG-08 机械断言（恰为排序集合 {HELIX_RG_PATH, PATH}），新增注入键须同批扩守护断言与本款清单，工具/业务代码维持零 process.env（AF-2，iter-20260822-m1uc）；壳零参与路径解析（需要业务路径时向 daemon 查询；壳仅保留自身 bundle 资源定位：sidecar 二进制/前端静态产物）。
+~/.helix 是 daemon 唯一配置/数据/日志主目录，全部自有状态进 home，不用环境变量：config.json（daemon 配置面：端口、调度预算等——T2.3 瘦身后模型数据面已迁出：provider API keys → auth.json、默认模型 → helix.db default_model 表、模型目录缓存 → models-store.json，旧格式幂等迁移）、auth.json（provider 凭据，0600，格式见 TR-AD-7）、dev-token（CL-6）、logs/、helix.db（SQLite WAL）、models-store.json（ModelCatalog 落盘兑底）。所有业务路径解析收束于 infrastructure/paths.ts 单一模块：home 展开的跨平台处理、各文件相对 home 的定位；新增 auth.json/models-store 路径必须经 paths.ts 单点派生；支持可选 --home <dir> 启动参数覆盖（测试指向 tmp 目录用）。任何模块不得自行拼接 ~/.helix 子路径，也不得经环境变量取配置——两条例外族：①跨进程启动参数注入面（壳 → daemon 的 bundle 资源定位产物，本期 HELIX_RG_PATH；及 rg 三级解析探测对象 PATH）：读取收束于组合根 container.ts 单点，合法键集合由 arch-guard AG-08 机械断言；②subagent 父子进程 env IPC 面（adapters/driven/subagent/ 全目录：SubagentLauncher 写入 HELIX_* 定格快照 → ChildMain 子进程读取消费——传输通道非配置源，iter-20260823-6ps5 终验 L3 复核补登，ChildMain.ts:147-163 直读 7+ HELIX_* 键合法，AG-08 白名单第二族）。两族新增键须同批扩守护断言与本款清单，工具/业务代码（两白名单外）维持零 process.env（AF-2）；壳零参与路径解析（需要业务路径时向 daemon 查询；壳仅保留自身 bundle 资源定位）。
 
 ## 理由
-单一事实源原则的文件系统延伸；daemon 全局单例（AD-7）与全局 home 目录天然对应；dev 期壳缺席（AD-8）而路径逻辑放壳会造成 dev/打包双轨（AD-14）；路径解析收束一处才 framework-free 可测试；模型数据面迁出 config.json 是 AD-2 落地（T2.3）的文件布局面。env 例外款（AF-2，iter-20260822-m1uc）：壳的 bundle 资源定位职责（TR-AD-10）产物须跨进程送达 daemon，而 stdio 只走生命周期信号（sidecar 契约），argv/env 是唯一合法启动面通道；不收束组合根单点则 env 读取散落 = 本规则要消灭的配置源分裂回潮。
+单一事实源原则的文件系统延伸；daemon 全局单例（AD-7）与全局 home 目录天然对应；dev 期壳缺席（AD-8）而路径逻辑放壳会造成 dev/打包双轨（AD-14）；路径解析收束一处才 framework-free 可测试；模型数据面迁出 config.json 是 AD-2 落地（T2.3）的文件布局面。env 例外款（AF-2，iter-20260822-m1uc）：壳的 bundle 资源定位职责（TR-AD-10）产物须跨进程送达 daemon，而 stdio 只走生命周期信号，argv/env 是唯一合法启动面通道；不收束组合根单点则 env 读取散落 = 本规则要消灭的配置源分裂回潮。第二豁免族（iter-20260823-6ps5 终验 L3 复核补登）：subagent 父子 IPC 是传输通道非配置源——与第一族「启动面注入」同理，值均为 daemon 侧已定形的定格快照，子进程只是消费端；AG-08 守护白名单与实现一致，仅规则文本滞后。
 
 ## 适用范围
-CL-1 配置模块设计、CL-6 token 落点、CL-8 db 路径、测试注入 home 目录；任何新增自有状态文件的落点决策；模型模块（auth.json/models-store.json/default_model）文件布局评审；新增壳→daemon env 注入参数（跨进程启动面）评审与 AG-08 守护维护；container.ts 装配改动评审。
+CL-1 配置模块设计、CL-6 token 落点、CL-8 db 路径、测试注入 home 目录；任何新增自有状态文件的落点决策；模型模块（auth.json/models-store.json/default_model）文件布局评审；新增壳→daemon env 注入参数（跨进程启动面）评审与 AG-08 守护维护；subagent 父子 env 透传键新增（HELIX_* 定格值族）评审；container.ts 装配改动评审。
 
 ## 反例
-ws-server adapter 里自己写 `path.join(os.homedir(), '.helix', 'dev-token')` 读 token，或用 `process.env.HELIX_DB` 指定数据库路径——绕过 paths.ts 单点，--home 覆盖对它失效；或 auth-store 自行拼接 ~/.helix/auth.json 路径而不经 paths.ts——测试 home 注入对该文件失效；或 rg-backend.ts 直接 `process.env.HELIX_RG_PATH` 取值——env 读取散落出组合根单点，AG-08 红；正确做法 = 组合根读出后作为 resolve-rg 入参注入（现实现即此形）。
+ws-server adapter 里自己写 path.join(os.homedir(), '.helix', 'dev-token') 读 token，或用 process.env.HELIX_DB 指定数据库路径——绕过 paths.ts 单点，--home 覆盖对它失效；或 auth-store 自行拼接 ~/.helix/auth.json 路径而不经 paths.ts；或 rg-backend.ts 直接 process.env.HELIX_RG_PATH 取值——env 读取散落出组合根单点，AG-08 红；或在 subagent/ 白名单目录外（如 services 层）读 HELIX_THINKING_LEVEL——第二豁免族读取限该目录，越出即 AG-08 红。
 
 ```kg-node
 id: TR-AD-7
@@ -376,8 +378,20 @@ anchors:
 relations:
   governs:
     - E-AgentRuntime
-updatedIn: iter-20260822-m1uc
+updatedIn: iter-20260823-6ps5
 ```
+
+## 规则
+Tauri 壳承载监督者职责——已落地三类 + 一类规划位：进程看护（sidecar spawn/重启——sidecar 异常退出时壳检测并重启恢复或给明确错误提示，重启须先释放旧单例锁或检测陈旧锁，TR-AD-11 同口径）、窗口管理、bundle 资源定位（sidecar 二进制/前端静态产物/捆绑三方二进制 rg——iter-20260822-m1uc 落地扩面）；trust（desk 现成 Rust 资产按此边界搬运）为规划位（未落地，src-tauri 零代码承载——iter-20260823-6ps5 终验 L3 复核校正，搬运启动时再落地）。壳与 daemon 的 stdio 只走生命周期信号，包内资源路径经 sidecar 启动参数注入 daemon（进程启动面，非业务通道）。desk Rust 侧的 RPC 桥、SQLite、watcher、kg 查询等业务职责全部归 daemon（TS），禁止搬运回壳；壳需要任何业务数据一律经 WS 协议（127.0.0.1:port + token）向 daemon 查询。壳不解析业务路径（路径切面见 TR-AD-6）。
+
+## 理由
+AD-4（daemon 即后端，Rust 业务层消解）：常驻 TS 编排进程既定，Rust 业务耦合最重的部分已有了更好归宿；壳做业务 = Rust 业务回流 + dev 期（壳缺席，AD-8）功能双轨——同一功能打包形态有、开发形态无。v1 desk 的 Rust 10.8k LOC 桥接层是已验证的反面教材。iter-20260822-m1uc 落地：职责清单显式化（bundle 资源定位独立成面，rg 与 sidecar/前端产物同归此面），监督者语义不变。trust 规划位保留搬运边界宣示但不作现状宣称（零承载即零宣称，防审计者按文找码落空）。
+
+## 适用范围
+src-tauri 壳实现与 sidecar 打包链路；任何壳侧新增 Rust 代码的职责边界评审；壳与 daemon 通信面设计；包内资源定位注入通道评审；sidecar 崩溃看护重启逻辑评审；trust 资产搬运启动决策时（规划位落地即撤标注）。
+
+## 反例
+搬 desk 的 Rust SQLite 查询代码进 src-tauri 供托盘「历史会话」菜单用——业务回流壳：dev 形态（无壳）下该功能不存在，双形态行为分叉；正确做法是经 WS session.subscribe 获取快照数据。或壳侧自行 spawn rg 做检索而不经 daemon——检索是业务职责，回流壳即 dev 形态功能缺失；壳只负责把 rg 包内路径注入 daemon，调用归 daemon grep 域。把 trust 规划位当现状宣称（「壳已承载 trust」）——零承载零宣称。
 
 ## 规则
 Tauri 壳只承载四类监督者职责：进程看护（sidecar spawn/重启——sidecar 异常退出时壳检测并重启恢复或给明确错误提示，重启须先释放旧单例锁或检测陈旧锁，TR-AD-11 同口径）、窗口、trust（desk 现成 Rust 资产按此边界搬运）、bundle 资源定位（sidecar 二进制/前端静态产物/捆绑三方二进制 rg——iter-20260822-m1uc 落地扩面）；壳与 daemon 的 stdio 只走生命周期信号（ready/token），包内资源路径经 sidecar 启动参数注入 daemon（进程启动面，非业务通道）。desk Rust 侧的 RPC 桥、SQLite、watcher、kg 查询等业务职责全部归 daemon（TS），禁止搬运回壳；壳需要任何业务数据一律经 WS 协议（127.0.0.1:port + token）向 daemon 查询。壳不解析业务路径（路径切面见 TR-AD-6）。
@@ -915,11 +929,14 @@ graph: tech
 layer: arch
 scope: domain
 stack: backend
-name: SubAgent 模型三级解析链（profile > 会话快照 > 全局兜底）
+name: SubAgent 模型四级解析链（profile > kind 槽位 > 会话快照 > 全局兑底）
 status: active
-digest: 动 SubAgent 模型来源、写 spawn 模型透传管线、配 profile 模型槽位、调全局兜底语义时
+digest: 动 SubAgent 模型来源、写 spawn 模型透传管线、配 profile 模型槽位、调 kind 槽位或全局兑底语义时
 derivedFrom:
   - AD-3（iter-20260819-erio：用户裁决「按优先级，profile > 会话模型 > 全局默认」）
+  - M6 T2（iter-20260821-m6 478ab2c：kind 槽位插入 ①② 之间，枚举未随更——iter-20260823-6ps5 终验
+    L3 复核校正三级→四级）
+  - TR-AD-44（iter-20260823-6ps5：kind 槽位经 getter 折叠进 profile 读面）
 anchors:
   implementedBy:
     - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
@@ -927,28 +944,30 @@ anchors:
     - apps/daemon/src/infrastructure/container.ts
     - apps/daemon/src/adapters/driven/pi-engine/runtime/AgentRuntime.ts
     - apps/daemon/src/adapters/driven/pi-engine/PiAgentEngineAdapter.ts
+    - apps/daemon/src/infrastructure/assembly/buildSessionStack.ts
   testedBy:
     - apps/daemon/test/unit/engine-state-mutation.test.ts
+    - apps/daemon/test/unit/subagent-thinking-chain.test.ts
 relations:
   governs:
     - E-AgentProfile
     - E-调度器
-updatedIn: iter-20260821-m6
+updatedIn: iter-20260823-6ps5
 ```
 
 ## 规则
-SubAgent 实例的模型来源按三级优先级解析：①SubAgentProfile.model 真实槽位（装配期 resolveModelSlot 解析，声明即最高优先级）→ ②spawn 时快照的会话模型（spawnModels 管线：agent_spawn 经 AgentOrchestrationPort.spawn 透传会话现值，SchedulerService.spawn 时刻快照入 spawnModels，此后主实例再切模型不影响在跑/排队实例）→ ③全局兜底（默认模型存储现值 getter，container 组合根注入，语义 = 「全局兜底」而非「SubAgent 默认来源」）。launch 段是三级链的唯一消费点：SubagentLauncher.launch 携带解析结果，子进程 HELIX_MODEL_JSON 仍为完整 Model 对象透传（防 registry 不含的红线不变）。取代边界：本规则取代 M2 AD-6「SubAgent 缺省继承全局默认」中「SubAgent 模型源 = 全局默认表」的解析规则；不取代会话级 model.set 内存态语义（主实例模型仍为 AgentState.model 内存态，重启/卸载回退全局默认）。
+SubAgent 实例的模型来源按四级优先级解析：①SubAgentProfile.model 真实槽位（launch 期 resolveModelFor 解析，声明即最高优先级）→ ②kind 槽位（resource_state model 型行，subagent-worker kind 槽位设定时优先于 spawn 快照；launch 期经 deps.profile getter 读现值定格——TR-AD-44 折叠约定，静态声明优先于运行期槽位值）→ ③spawn 时快照的会话模型（spawnModels 管线：agent_spawn 经 AgentOrchestrationPort.spawn 透传会话现值，SchedulerService.spawn 时刻快照入 spawnModels，此后主实例再切模型不影响在跑/排队实例）→ ④全局兑底（默认模型存储现值 getter，container 组合根注入，语义 = 「全局兑底」而非「SubAgent 默认来源」）。launch 段是四级链的唯一消费点：SubagentLauncher.launch 携带解析结果，子进程 HELIX_MODEL_JSON 仍为完整 Model 对象透传（防 registry 不含的红线不变）。取代边界：本规则取代 M2 AD-6「SubAgent 缺省继承全局默认」中「SubAgent 模型源 = 全局默认表」的解析规则；不取代会话级 model.set 内存态语义（主实例模型仍为 AgentState.model 内存态，重启/卸载回退全局默认）。
 
 state 直改族谱扩展（M6，iter-20260821-m6）：setModel 之外新增 setTools/setSystemPrompt 同构直改（AgentRuntime → AgentEnginePort 可选扩面 → PiAgentEngineAdapter → ChatService 六层链，赋 agent.state 即下一 run 生效、in-flight context 快照定格不变——pi agent.d.ts「Assigning state.tools copies the top-level array」官方语义背书）。不走 prepareNextTurn 链（CompactionHook 占用且「首个非空生效」合并语义会短路，与换模同款机械裁决）。资源配置变更（kind 维）经 onApplied 回调刷新该 kind 全部活跃 runtime；SubAgent 按代生效（spawn 时刻 env 定格快照）；主会话槽位 UI 化后 main 型读面 = 四级链（per-session 覆盖 > kind 槽位 > default_model，读面生效不强推活跃 runtime）。
 
 ## 理由
-M4 终验后真机 7 连败根因之一：会话内 model.set 只切主实例，SubAgent 模型源仍是全局默认（zai 配额耗尽后子进程 429 静默失败）。用户裁决三级优先级原话「profile > 会话模型 > 全局默认」。spawnModels 半截管线已存在（透传与存储段在线、launch 段未消费），改动面集中于 launch 签名与 model getter，无需新建通道。spawn 时快照（而非 launch 时读会话现值）保证排队实例的模型语义在 spawn 时刻确定、可观测（status 读面已携带 model）。
+M4 终验后真机 7 连败根因之一：会话内 model.set 只切主实例，SubAgent 模型源仍是全局默认（zai 配额耗尽后子进程 429 静默失败）。用户裁决优先级原话「profile > 会话模型 > 全局默认」；M6 T2 槽位 UI 化在 ①② 间插入 kind 槽位级（代码先行、枚举滞后，iter-20260823-6ps5 终验 L3 复核铁证 SubagentLauncher.ts:141-163 + buildSessionStack.ts:269-270）。spawn 时快照（而非 launch 时读会话现值）保证排队实例的模型语义在 spawn 时刻确定、可观测。
 
 ## 适用范围
-SubAgent spawn/launch 链路实现与评审；profile model 槽位声明（代码层入口；UI 管理由智能体页 /skills 承接，模型下拉可用性过滤与 chat P-3 同口径）；default_model 相关文案/注释口径调整；模型切换链路的 E 层与真机验证；未来新增 profile 类型时模型槽位语义评审。
+SubAgent spawn/launch 链路实现与评审；profile model 槽位与 kind 槽位声明（代码层入口；UI 管理由智能体页 /skills 承接，模型下拉可用性过滤与 chat P-3 同口径）；default_model 相关文案/注释口径调整；模型切换链路的 E 层与真机验证；未来新增 profile 类型时模型槽位语义评审；kind 维资源配置（model/thinking 及后续新槽位型）接入解析链评审。
 
 ## 反例
-SubagentLauncher 每次 launch 直接读全局默认 getter（单级解析回退——会话内切模型后 SubAgent 仍用旧全局默认，7 连败根因复发）；或 launch 时才读会话现值而不在 spawn 时快照（排队实例模型随主实例后续切换漂移，spawn 语义不可观测）。
+SubagentLauncher 每次 launch 直接读全局默认 getter（单级解析回退——会话内切模型后 SubAgent 仍用旧全局默认，7 连败根因复发）；或 launch 时才读会话现值而不在 spawn 时快照（排队实例模型随主实例后续切换漂移，spawn 语义不可观测）；或解析单点内直接调 ResourceService 读 kind 槽位（单点耦合配置资源 + 快照供给面漏读——两读面不同源即漂移，应按 TR-AD-44 getter 折叠）。
 
 ```kg-node
 id: TR-AD-25
@@ -1387,6 +1406,18 @@ updatedIn: hotfix-20260822
 ```
 
 ## 规则
+daemon 进程内共享单例资源（本期 = CDP 浏览器连接 CdpConnectionManager）不向子进程扩散实现：子进程经 port 的进程外实现 + stdio wire 帧（tool-req/tool-res，reqId 关联，256KB 出口截断护栏）转发调用，daemon 侧 ScopedBrowserProxy 纯函数收口后调单例。六要点：①wire 白名单 = 工具可达的操作方法；管理面方法（connect/onStatusChange/stop/reclaimOwner）不上 wire，子进程侧本地安全 noop——stop/reclaimOwner 越 owner 边界（波及他人 tab/全局连接），归属校验兜不住，有意收窄；②owner 归属强制：openTab ownerId 改写为通道 instanceId（不可伪造），tabId 方法查归属拒绝越权，listTabs 过滤 owner 子集，getStatus 透传；launcher 只转发不决策（AG-12），校验全部落纯函数面；③ownerId 单命名空间 = agentId（"main" = MAIN_INSTANCE_ID 保留值）；各 agent 自开自关，回收 = 终态钩子 reclaimOwner(agentId)（既有接线）+ idle sweep 同口径，无移交/共享机制；④lazy connect 调用方无关：SubAgent 首发调用即可拉起连接，主线幂等复用；连接生命周期 = daemon，子进程退出只回收其 tabs 不断连；⑤并发安全靠归属校验（操作集合不相交）不靠队列互斥——sendCDP 单 WS 在飞并发 + id 关联，并发上限间接由调度器全局预算约束；⑥大体积不过 IPC：截图只传路径，子进程自行 readFile 回填（同机文件系统共享）。BrowserPort.getStatus/listTabs 为此 async 化（同步签名是进程外化障碍）。演进兼容存档：BrowserPort 传输无关（进程内/IPC/未来网络 RPC 可替换），ownerId 可直接当 DAG nodeId。
+
+## 理由
+P0-1（plan-web-access 审核）否决子进程直连（各自连浏览器 = TabRegistry/idle sweep/回收管理面分裂 + 授权弹窗/竞态），留白「子进程↔daemon 转发通道后置」；H-3 落地该留白。域形状 port（零 CDP 符号、全 JSON 可序列化）天然可进程外化；BrowserTools/CoreToolExecutor 条件注册先例使工具面零改动。归属校验而非互斥队列：tab 唯一归属一个 owner 后操作集合不相交，无共享资源可互斥。
+
+## 适用范围
+subagent wire 协议扩展；子进程新增 daemon 单例资源访问能力（同模式复用：新 port 进程外实现 + Scoped 代理）；BrowserPort 签名演进评审；DAG 节点化时 ownerId→nodeId 映射评审。
+
+## 反例
+子进程直连 CDP 或自起浏览器进程——P0-1 否决形态复发：管理面分裂，且自起浏览器的临时 profile 不在发现矩阵（daemon 反而不可见）；或把 stop/reclaimOwner 放上 wire——子进程停掉全局共享连接/回收主线 tab，越 owner 边界；或为多子进程并发加队列互斥——误把共享资源当互斥问题（归属校验已切开操作集合）；或转发帧携带截图 base64 等大体积负载——行 JSON 无流控背压失控（路径传参 + 同机文件系统共享是正解）。
+
+## 规则
 daemon 进程内共享单例资源（本期 = CDP 浏览器连接 CdpConnectionManager）不向子进程扩散实现：子进程（ChildMain）经 port 的进程外实现（RemoteBrowserPort implements BrowserPort）+ stdio wire 帧（tool-req/tool-res，reqId 关联，256KB 出口截断护栏）转发调用，daemon 侧 ScopedBrowserProxy 纯函数收口后调单例。六要点：①wire 白名单 = 工具可达的 12 个操作方法；管理面 4 方法（connect/onStatusChange/stop/reclaimOwner）不上 wire，子进程侧本地安全 noop——stop/reclaimOwner 越 owner 边界（波及他人 tab/全局连接），归属校验兜不住，有意收窄；②owner 归属强制：openTab ownerId 改写为通道 instanceId（不可伪造），tabId 方法查归属拒绝越权，listTabs 过滤 owner 子集，getStatus 透传；launcher 只转发不决策（AG-12），校验全部落纯函数面；③ownerId 单命名空间 = agentId（"main" = MAIN_INSTANCE_ID 保留值）；各 agent 自开自关，回收 = 终态钩子 reclaimOwner(agentId)（既有接线）+ idle sweep 同口径，无移交/共享机制；④lazy connect 调用方无关：SubAgent 首发调用即可拉起连接，主线幂等复用；连接生命周期 = daemon，子进程退出只回收其 tabs 不断连；⑤并发安全靠归属校验（操作集合不相交）不靠队列互斥——sendCDP 单 WS 在飞并发 + id 关联，并发上限间接由调度器全局预算约束；⑥大体积不过 IPC：截图只传路径，子进程自行 readFile 回填（同机文件系统共享）。BrowserPort.getStatus/listTabs 为此 async 化（同步签名是进程外化障碍）。演进兼容存档：BrowserPort 传输无关（进程内/IPC/未来网络 RPC 可替换），ownerId 可直接当 DAG nodeId。
 
 ## 理由
@@ -1528,25 +1559,48 @@ scope: domain
 stack: backend
 name: thinkingLevel 解析链（会话覆盖 > profile 槽位 > 兜底 medium；与 TR-AD-24 模型链同构）
 status: active
-digest: 动 thinkingLevel 来源、写 thinking 透传管线、配 profile thinking 槽位、调兜底 medium 语义、动
-  SubAgent spawn 推理参数时
+digest: 动 thinkingLevel 来源、写 thinking 透传管线、配 profile thinking 槽位、调兜底 medium 语义、动 SubAgent spawn 推理参数时
 derivedFrom:
   - AD-1（iter-20260823-6ps5：thinkingLevel 解析链与 TR-AD-24 同构，用户裁决选项 B）
   - AD-3（iter-20260823-6ps5：覆盖保留 + 按能力解析，意图/生效分离）
   - AD-6（iter-20260823-6ps5：AgentProfile 配置资源扩可选 thinkingLevel 维）
 anchors:
   implementedBy:
-    - apps/daemon/src/infrastructure/assembly/buildSessionStack.ts
-    - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
+    - packages/protocol/src/commands.ts
+    - packages/protocol/src/events/thinking.ts
+    - packages/protocol/src/events/agent.ts
+    - apps/daemon/src/adapters/driving/ws-server/handlers/thinking.ts
+    - apps/daemon/src/adapters/driven/pi-engine/thinking-resolve.ts
     - apps/daemon/src/adapters/driven/pi-engine/model-provider.ts
     - apps/daemon/src/adapters/driven/pi-engine/PiAgentEngineAdapter.ts
     - apps/daemon/src/adapters/driven/pi-engine/runtime/AgentRuntime.ts
+    - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
+    - apps/daemon/src/adapters/driven/subagent/child/ChildMain.ts
+    - apps/daemon/src/application/ports/outbound/AgentEnginePort.ts
+    - apps/daemon/src/infrastructure/assembly/buildSessionStack.ts
+  testedBy:
+    - apps/daemon/test/unit/subagent-thinking-chain.test.ts
+    - apps/daemon/test/unit/model-provider.test.ts
+    - apps/daemon/test/integration/subagent-child.test.ts
+    - apps/daemon/test/integration/thinking-set-chain.test.ts
 relations:
   governs:
     - E-AgentProfile
     - E-AgentInstance
 updatedIn: iter-20260823-6ps5
 ```
+
+## 规则
+thinkingLevel 按两条链解析，与 TR-AD-24 模型解析链同构、不新建第三处解析单点。主会话链（仅 mainAgent 引擎）：会话覆盖（composer 滑块 thinking.set，引擎内存态 + domain_events 落盘、跨冷恢复）> 主 session profile 槽位 > 兜底 medium；解析单点 = buildSessionStack engineFor 工厂闭包（buildSessionStack.ts:336-356 模型解析同点扩展），引擎每 turn 开始读解析结果（会话状态非逐消息参数）。SubAgent 链：spawn 时从自身 profile 槽位（AgentProfile.thinkingLevel 可选字段，留空 = 未配置）解析快照 > 兜底 medium；解析单点 = SubagentLauncher.resolveThinkingFor（resolveModelFor 同点扩展，launch 段为唯一出口），解析快照随 agent.instantiated 落盘事件携带、经 HELIX_THINKING_LEVEL env 定格透传子进程（ChildMain 无解析链，只消费定格值）。主会话覆盖永不作用于 SubAgent。引擎解析时链上每个值过「当前模型支持」过滤（resolveEffectiveThinking：model.reasoning 且 thinkingLevelMap[值] !== null，取第一个被支持值——clamp 语义；全链不支持（或模型无 reasoning 能力）→ 不传 thinking 参数（provider 默认）；注入器 = model-provider.ts supportsThinkingLevel/wrapStreamFnThinking 纯透传，包装在 streamFnOverride 外侧，fake 剧本通道不破坏）。覆盖值不丢：换模只改生效档，切回原模型自动恢复；观测面 currentThinking {override, effective} 双位（意图/生效分离）。
+
+## 理由
+与 TR-AD-24 模型解析语义同构：agent 行为 spawn 时刻确定、trace 可复盘；会话覆盖是 mainAgent 私有意图，SubAgent 行为由 profile 配置决定，便于与模型匹配。意图（覆盖）与生效（解析结果）分离使换模成为无损操作。档位语义 SoT 在 pi-ai，helix 全链字符串透传、不维护第二份枚举，pi-ai 未来加档零协议改动。
+
+## 适用范围
+动主会话/SubAgent 的 thinking 参数来源与优先级时；新增会话级引擎参数并考虑是否挂进解析链时；写 streamFn 注入器 / spawn env 透传 / agent.instantiated 快照字段时；实现换模后生效档重解析与 UI 轻提示时。
+
+## 反例
+在 chat.send 逐消息 payload 携带 thinkingLevel（会话状态非消息参数，AD-4① 否决）；主会话覆盖经 spawn 快照传导到 SubAgent（覆盖是 mainAgent 私有意图，永不作用）；换模时钳制或清空覆盖值（意图丢失，AD-3 否决选项 B/C）；在 UI 或注入器里 clamp 档位或维护第二份档位枚举（SoT 在 pi-ai，过滤只在引擎解析段一次完成）；在 ChildMain 子进程内重解析 thinking 链（子进程只消费 spawn 定格快照）。
 
 ## 规则
 thinkingLevel 按两条链解析，与 TR-AD-24 模型解析链同构、不新建第三处解析单点。主会话链（仅 mainAgent 引擎）：会话覆盖（composer 滑块 thinking.set，引擎内存态 + domain_events 落盘、跨冷恢复）> 主 session profile 槽位 > 兜底 medium；解析单点 = buildSessionStack engineFor 工厂闭包（buildSessionStack.ts:336-356 模型解析同点扩展），引擎每 turn 开始读解析结果（会话状态非逐消息参数）。SubAgent 链：spawn 时从自身 profile 槽位（AgentProfile.thinkingLevel 可选字段，留空 = 未配置）解析快照 > 兜底 medium；解析单点 = SubagentLauncher.resolveThinkingFor（resolveModelFor 同点扩展，launch 段为唯一出口），解析快照随 agent.instantiated 落盘事件携带、经 env 定格透传子进程（ChildMain 无解析链，只消费定格值）。主会话覆盖永不作用于 SubAgent。引擎解析时链上每个值过「当前模型支持」过滤（model.reasoning 且 thinkingLevelMap[值] !== null），取第一个被支持值；全链不支持（或模型无 reasoning 能力）→ 不传 thinking 参数（provider 默认）。覆盖值不丢：换模只改生效档，切回原模型自动恢复。
@@ -1571,23 +1625,42 @@ name: 会话级参数协议演进模式（会话状态命令族 + 快照恢复�
 status: active
 digest: 给会话加跨 turn 生效的运行参数、在 chat.send 与独立命令族之间选承载位、设计参数跨冷恢复时
 derivedFrom:
-  - AD-4（iter-20260823-6ps5：协议 additive 四块——thinking.set/thinking.changed 命令族 +
-    CatalogModel 能力位 + session 快照恢复 + agent.instantiated 携带）
-  - F-3（iter-20260823-6ps5：ChatSendPayload 仅 text/draft?/model?/images?
-    四字段，会话级参数 plumbing 不存在）
-  - F-5（iter-20260823-6ps5：model.set per-session 覆盖不跨冷恢复现状——thinking
-    批显式选择不同的持久化语义）
+  - AD-4（iter-20260823-6ps5：协议 additive 四块——thinking.set/thinking.changed 命令族 + CatalogModel 能力位 + session 快照恢复 + agent.instantiated 携带）
+  - F-3（iter-20260823-6ps5：ChatSendPayload 仅 text/draft?/model?/images? 四字段，会话级参数 plumbing 不存在）
+  - F-5（iter-20260823-6ps5：model.set per-session 覆盖不跨冷恢复现状——thinking 批显式选择不同的持久化语义）
 anchors:
   implementedBy:
     - packages/protocol/src/commands.ts
     - packages/protocol/src/events
+    - packages/protocol/src/events/agent.ts
+    - apps/daemon/src/adapters/driving/ws-server/handlers/thinking.ts
+    - apps/daemon/src/application/services/ModelService.ts
+    - apps/daemon/src/application/services/ChatService.ts
+    - apps/daemon/src/application/services/SessionRegistry.ts
     - apps/daemon/src/application/services/RestoreService.ts
     - apps/daemon/src/application/ports/inbound/SessionPort.ts
+    - apps/daemon/src/infrastructure/assembly/buildSessionStack.ts
+  testedBy:
+    - packages/protocol/test/type-surface/thinking.test.ts
+    - apps/daemon/test/integration/thinking-set-chain.test.ts
+    - apps/daemon/test/integration/thinking-restore.test.ts
 relations:
   governs:
     - E-会话聚合
 updatedIn: iter-20260823-6ps5
 ```
+
+## 规则
+会话级持久状态参数（跨 turn 生效、需跨冷恢复、语义上属于「会话状态」而非「消息本体」）走独立命令族三件套：① xxx.set 命令（信封 sessionId 必填 per-session）→ daemon 覆盖写引擎内存态（AgentEnginePort 直改面，下一 turn 生效；thinking.set 链 = handlers/thinking.ts → ModelService/ChatService → AgentEnginePort → PiAgentEngineAdapter/AgentRuntime → domain_events 单写队列落盘，TR-AD-5）+ ② xxx.changed 广播（EventStream，前端状态树同步）+ ③ session 快照（SessionStateView additive 扩字段）携带该参数，RestoreService 回放重建实现跨冷恢复（restoreThinkingOverride 只读回放末值直写引擎内存——绕过发布面、零新事件流，与 model.set 不恢复的差异为显式负断言钉死）。per-session 直改命令族是同构模板的第二次实例化（model.set 先例），新参数按模板四步接线。chat.send payload 只承载消息本体参数（text/images/draft），永不加会话状态字段；引擎 turn 开始读解析结果。契约演进保持 additive（v0.1 起先例）：只加不改，新命令/事件/字段按批登记。是否需要跨冷恢复是每个会话级参数的显式裁决点（model.set 不持久 vs thinking.set 持久，两种合法形态并存）。
+
+## 理由
+会话级持久状态语义与 chat.send 逐消息参数冲突：逐消息带参会复制状态、模糊权威源（最后一条消息 vs 会话状态）；命令族 + 落盘 + 快照三件套复用既有单写队列与恢复管线，事件溯源天然给出 trace 可复盘性。additive 演进纪律保护既有客户端与测试契约零破坏。
+
+## 适用范围
+新增任何「会话级、跨 turn、引擎侧生效」的运行参数时（thinking.set 为首例，后续同类参数直接套用同构模板）；评审 chat.send 加字段提案时（几乎必然是反例）；设计参数的持久化/恢复语义时；规划契约版本批次时。
+
+## 反例
+把 thinkingLevel 挂进 chat.send 逐消息带（AD-4 选项 A，已否决：会话状态非逐消息参数）；引擎每 turn 从消息历史反推参数（无权威源）；新参数直接改既有 DTO 字段语义（非 additive，破坏契约先例）；不加显式裁决就默认参数跨冷恢复（model.set 与 thinking.set 持久化语义不同，必须逐参数裁决）。
 
 ## 规则
 会话级持久状态参数（跨 turn 生效、需跨冷恢复、语义上属于「会话状态」而非「消息本体」）走独立命令族三件套：① xxx.set 命令（信封 sessionId 必填 per-session）→ daemon 覆盖写引擎内存态（AgentEnginePort 直改面，下一 turn 生效）+ domain_events 单写队列落盘（TR-AD-5）；② xxx.changed 广播（前端状态树同步）；③ session 快照（SessionStateView additive 扩字段）携带该参数，RestoreService 回放重建实现跨冷恢复。chat.send payload 只承载消息本体参数（text/images/draft），永不加会话状态字段；引擎 turn 开始读解析结果。契约演进保持 additive（v0.1 起先例）：只加不改，新命令/事件/字段按批登记。是否需要跨冷恢复是每个会话级参数的显式裁决点（model.set 不持久 vs thinking.set 持久，两种合法形态并存）。
@@ -1613,19 +1686,41 @@ status: active
 digest: 前端渲染与模型能力相关的控件（档位、选项集、开关）时；给 CatalogModel 加防腐字段时；UI 需要禁用/降级提示时
 derivedFrom:
   - AD-2（iter-20260823-6ps5：档位全暴露、必选、字符串透传，档位语义 SoT 在 pi-ai）
-  - "AD-4②（iter-20260823-6ps5：CatalogModel 防腐 reasoning: boolean +
-    thinkingLevels: string[]，pi-ai thinkingLevelMap 键集派生）"
+  - "AD-4②（iter-20260823-6ps5：CatalogModel 防腐 reasoning: boolean + thinkingLevels: string[]，pi-ai thinkingLevelMap 键集派生）"
   - F-6（iter-20260823-6ps5：pi-ai reasoning 能力位齐备，协议未防腐）
 anchors:
   implementedBy:
     - packages/protocol/src/types/model.ts
     - apps/daemon/src/adapters/driven/pi-engine/model-catalog.ts
     - apps/shell/src/features/model-switch
+    - apps/shell/src/features/thinking-level
+    - apps/shell/src/entities/session
+    - apps/shell/src/shared/api/commands.ts
+    - apps/shell/src/shared/lib/catalog-match.ts
+  testedBy:
+    - apps/shell/src/shared/api/commands.test.ts
+    - apps/shell/src/features/thinking-level/ui/ComposerThinkingPicker.test.tsx
+    - apps/shell/src/features/thinking-level/ui/ThinkingLevelSlider.test.tsx
+    - apps/shell/src/features/thinking-level/ui/thinking-level.css.test.ts
+    - apps/shell/src/features/thinking-level/model/thinking-resolution.test.ts
+    - apps/shell/src/entities/session/model/consumers/thinking-level.test.ts
 relations:
   governs:
     - E-模型目录
 updatedIn: iter-20260823-6ps5
 ```
+
+## 规则
+模型相关 UI 控件的可选集与可用性一律由协议 CatalogModel 防腐能力字段驱动：daemon 在 pi-ai 防腐墙内（model-catalog.ts snapshot() 映射单点）把 pi-ai 能力位（如 Model.reasoning / thinkingLevelMap 非 null 键集派生 = getSupportedThinkingLevels(model).filter(l => l !== "off")）映射为协议字段（如 reasoning: boolean + thinkingLevels: string[]，canonical 升序与缺席键规则保持 pi-ai SoT）；shell 只消费协议字段渲染——刻度数 = thinkingLevels.length（thinking-capability.ts 刻度=length 不自判），能力缺失（reasoning === false）→ 控件禁用 + 提示。UI 不硬编码档位/能力全集，不自判模型能力，不 import pi-ai 类型。档位语义 SoT 在 pi-ai：helix 任何一层（protocol/daemon/shell）不维护第二份枚举，协议层字符串透传（thinkingSetCommand 零校验），pi-ai 加档零协议改动。覆盖意图与实际生效分离显示：控件强调实际生效值，意图 ≠ 生效时给轻提示（如「xhigh → high（模型能力所限）」）。首个完整实例化 = features/thinking-level（P-1 composer picker + P-2 profile 字段双消费位，ThinkingLevelSlider 共用原子组件 props 契约零改动双消费）。
+
+## 理由
+防腐字段让前端与 pi-ai 类型演进解耦（TR-AD-7 三域边界）；UI 硬编码枚举会在 pi-ai 加档/模型能力分化时静默漂移出错；能力位集中映射单点保证全端口径一致（P-3 模型可用性过滤已是同一哲学的先例：前端 join 协议字段，不自拉能力判据）。
+
+## 适用范围
+新增任何依模型能力变化的 UI 控件（档位滑块、参数选项、特性开关）时；评审前端出现硬编码模型能力/档位清单的 PR 时；给 CatalogModel 扩防腐字段时；设计控件禁用与降级提示交互时。
+
+## 反例
+UI 写死六档列表再按模型名 if-else 裁剪（能力判据散落、pi-ai 加档即漂移）；前端自行 import pi-ai 类型或维护模型能力表（越防腐墙）；模型不支持时隐藏控件不给提示（用户无法理解为何不可调）；覆盖意图与生效值混为一个显示态（意图/生效分离被破坏，换模后用户误以为覆盖丢失）。
 
 ## 规则
 模型相关 UI 控件的可选集与可用性一律由协议 CatalogModel 防腐能力字段驱动：daemon 在 pi-ai 防腐墙内（model-catalog.ts 映射单点）把 pi-ai 能力位（如 Model.reasoning / thinkingLevelMap 非 null 键集）映射为协议字段（如 reasoning: boolean + thinkingLevels: string[]）；shell 只消费协议字段渲染——刻度数 = thinkingLevels.length，能力缺失（reasoning === false）→ 控件禁用 + 提示。UI 不硬编码档位/能力全集，不自判模型能力，不 import pi-ai 类型。档位语义 SoT 在 pi-ai：helix 任何一层（protocol/daemon/shell）不维护第二份枚举，协议层字符串透传，pi-ai 加档零协议改动。覆盖意图与实际生效分离显示：控件强调实际生效值，意图 ≠ 生效时给轻提示（如「xhigh → high（模型能力所限）」）。
@@ -1638,3 +1733,74 @@ updatedIn: iter-20260823-6ps5
 
 ## 反例
 UI 写死六档列表再按模型名 if-else 裁剪（能力判据散落、pi-ai 加档即漂移）；前端自行 import pi-ai 类型或维护模型能力表（越防腐墙）；模型不支持时隐藏控件不给提示（用户无法理解为何不可调）；覆盖意图与生效值混为一个显示态（意图/生效分离被破坏，换模后用户误以为覆盖丢失）。
+
+```kg-node
+id: TR-AD-43
+kind: rule
+graph: tech
+layer: convention
+scope: domain
+stack: frontend
+name: WS 命令拉取效应连接态门控（挂载期/进页期拉取必须 conn 门控 + 握手完成重发）
+status: active
+digest: 写挂载期/进页期 WS 命令拉取效应（model.catalog/model.get_default/auth.list/agent.config.list 同族）时
+anchors:
+  implementedBy:
+    - apps/shell/src/features/thinking-level/ui/ComposerThinkingPicker.tsx
+    - apps/shell/src/pages/skills/AgentPage.tsx
+  testedBy:
+    - e2e/CL-1-thinking-slider.spec.ts
+relations:
+  governs:
+    - E-会话聚合
+updatedIn: iter-20260823-6ps5
+```
+
+## 规则
+shell 侧「组件挂载/进页即拉」的 WS 命令效应（useEffect 内 send model.catalog / model.get_default / auth.list / agent.config.list 等读命令）必须以连接态为门控：命令发送包裹在 conn === "connected" 判定内，且 conn 进效应依赖数组——握手完成时效应重跑自动补拉。HelixWsClient.send 对未握手连接是静默拒绝语义（无重试无排队），效应早于握手触发 = 命令丢失且永不再发。
+
+## 理由
+挂载期效应与 WS 握手完成是竞态关系而非先后保证（fresh-load 下效应先跑是常态）；send 的 fire-and-forget 静默失败使丢帧不可观测（UI 停在缺省态无报错）。conn 门控 + 依赖重发把竞态转为确定性状态机：未连接不发，连接态变化即重发。AgentPage [conn,...] 依赖是既有先例，ComposerThinkingPicker fresh-load 目录帧丢失（commit 3ec1f81 修复）证明该形态必须升格为全 shell 约定而非个案修补。
+
+## 适用范围
+shell 全部挂载期/进页期 WS 命令拉取效应（model.catalog / model.get_default / auth.list / agent.config.list 同族）；新增任何「组件挂载即发命令」的 useEffect 评审；排查「首屏数据缺省但手动刷新即恢复」类症状时（本规则违例是第一嫌疑）。
+
+## 反例
+useEffect(() => { api.requestModelConfig(); }, []) 裸依赖拉取——握手前挂载即静默丢帧，fresh-load 偶发必现（ComposerThinkingPicker 实证）；用 setTimeout 轮询重试替代 conn 门控（把确定性状态机换成竞态赌运气）；只在发送处 try/catch 吞错（静默失败语义下 catch 永不触发，问题被掩盖得更深）。
+
+```kg-node
+id: TR-AD-44
+kind: rule
+graph: tech
+layer: convention
+scope: domain
+stack: backend
+name: 配置资源槽位经 getter 折叠进 profile 读面（静态声明优先，解析单点保持字面链形状）
+status: active
+digest: 组合根把 resource_state 槽位接进 SubAgent 解析链读面、扩 SubagentLauncherDeps 注入源形态时
+derivedFrom:
+  - 架构师终审 F-1（iter-20260823-6ps5：AD-1 两级链与 AD-6 配置资源写入的张力求解，用户裁决采纳沉淀）
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts
+    - apps/daemon/src/infrastructure/assembly/buildSessionStack.ts
+  testedBy:
+    - apps/daemon/test/unit/subagent-thinking-chain.test.ts
+relations:
+  governs:
+    - E-AgentProfile
+    - E-智能体配置资源
+updatedIn: iter-20260823-6ps5
+```
+
+## 规则
+SubAgent 解析链（model / thinkingLevel 等）读 profile 槽位时，配置资源（resource_state kind 槽位）的合流不进解析单点本体：SubagentLauncherDeps.profile 扩为 AgentProfile | (() => AgentProfile)（与 deps.model / deps.apiKeys 注入源模式同构先例），组合根 getter 在 launch 时刻读现值把 kind 槽位折叠进 profile 读面——静态 profile 声明优先于运行期槽位值。resolveModelFor / resolveThinkingFor 单点本体保持字面链形状（profile 槽位 ?? … ?? 兜底），不感知折叠来源；subagentSnapshotFor 快照供给与解析共用同一 getter 读面（同源同时点，spawn 锚与实际解析零漂移）。
+
+## 理由
+解析单点若直接读 ResourceService：①adapters/driven/subagent 耦合 application 配置资源服务（依赖倒置破坏）；②单点内长出「静态声明 vs 槽位」第二张优先级表（链形状被侵蚀）。getter 折叠复用既有注入源模式零新机制，链形状不变使解析与快照天然同源。同形态此前两处靠注释维系（launcher 解析 + 快照供给手工复制同一链序），复制点越多注释维系越脆，落显式约定。
+
+## 适用范围
+组合根为 SubagentLauncher 装配任何「静态声明 + 运行期槽位」双来源的 profile 维度时；评审 deps 注入源形态扩展时；subagentSnapshotFor 快照供给与解析链读面一致性评审；新增 kind 维配置资源（工具/模型/thinking 之后的新槽位）接线时。
+
+## 反例
+resolveThinkingFor 内部直接调 resourceService.thinkingSlot(kind)（单点耦合配置资源 + 快照供给面漏读——两读面不同源即 spawn 快照与实际解析漂移）；getter 内做 clamp/过滤等解析职责（折叠只合流数据，解析归单点）；ChildMain 子进程重读 resource_state（子进程只消费 spawn 定格快照）。

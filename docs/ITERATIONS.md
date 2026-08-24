@@ -33,3 +33,8 @@
 ## iter-20260821-dg90 — 技术债偿还批次（H0 e2e 闸 + H1 快赢 + H2 结构 + H3 投资）
 - 主体：技术债偿还批次：H0 e2e 终验入口闸基线落档；H1 快赢（吞错 5 处消除、竞态剧本常驻、types.ts 删除）；H2 结构（SessionRegistry 六台账收敛、container 738→443 拆 assembly/、createTestDaemon 两形态、ChatService 767→589 薄路由四族）；H3 投资（projection 三域纯函数迁 protocol 单源、fake 镜像段退役、注释考古 720 行迁 5 ADR、packages/common 落地 + AG-15 守护）。终验：生产就绪四项全绿；L3 复核 37 节点全处理；kg 裁决 15 候选清空（14 apply 含 TR-AD-29/30/31 新增 + 1 discard），节点 48→51。
 - 状态：已沉淀
+
+## iter-20260823-6ps5 — CL-1 用户按任务调节推理强度（P-1 chat 滑块 / P-2 profile 字段，协议 v0.11 thinking 批）
+- 主体：协议 v0.11 thinking 批（thinking.set/changed 命令族 + CatalogModel 能力位 + 快照/agent.instantiated/agent.config thinking 槽位 additive）；daemon 主会话解析链（引擎覆盖>槽位>兜底 medium + 能力 clamp + 跨冷恢复）与 SubAgent 两级链（profile.thinkingLevel ?? medium + env 定格透传）；shell P-1 composer 滑块（PEAK 特效/双主题/能力驱动刻度）+ P-2 profile 推理级别字段。验证全绿（E2E 5/5 + 回归 31/31 + 契约四方同构 + 还原度 14/14）；终验生产就绪四项全过 + 全局审计 GO + L3 复核 36 节点全覆盖；kg 台账 20 候选裁决全 apply（TR-AD-43/44 新增）。
+- 触及：TR-AD-40, TR-AD-41, TR-AD-42, TR-AD-43, TR-AD-44, TR-AD-36, TR-AD-10
+- 状态：进行中
