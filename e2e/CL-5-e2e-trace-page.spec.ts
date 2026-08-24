@@ -269,7 +269,8 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     await expect(card).toBeVisible();
     await expect(card.locator("blockquote.ctx-task")).toContainText(SA_TASK);
     await expect(card.locator("blockquote.ctx-task .cite")).toHaveText("spawn task · 首条 user 消息");
-    await expect(card.locator(".ctx-facts")).toContainText("fake/model");
+    // T12：SubAgent 模型 = 槽位 ?? 全局默认（不再继承会话 fake/model）——本 spec 意图是上下文卡渲染非模型链，改钉「模型」字段在场 + 工具数（模型链归 CL-3）
+    await expect(card.locator(".ctx-facts")).toContainText("模型");
     await expect(card.locator(".ctx-facts")).not.toContainText("compaction");
     await expect(card.locator(".ctx-tools .hud-chip")).toHaveCount(8); // SubAgentProfile 工具集（T1 联网两工具后 5→7；H-3 +browser 7→8）
     // systemPrompt 折叠 3 行 + 字数 + 展开/收起（全文含 closure 协议常量段）
@@ -547,7 +548,8 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
       rows.filter((r) => r.type === "agent.state.changed" && r.payload.includes('"state":"stopped"'));
     const seal1 = sealOf(preDump);
     expect(seal1, "d1 停机应恰补落 1 行 seal 里程碑").toHaveLength(1);
-    expect(seal1[0]!.agent_instance_id).toBe("main");
+    // T10：seal 行归属 = 主实例（发布带 hex id 或缺省回填 legacy "main"——两形态皆主实例）
+    expect(seal1[0]!.agent_instance_id).toMatch(/^(main|agent-[0-9a-f]+)$/);
     expect(preDump.length).toBe(preTotal + 1); // UI 计数 + seal = DB 行数（同源一致）
     insertLegacyInstance(dbPath, sid);
 

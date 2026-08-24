@@ -483,8 +483,11 @@ describe("④ 实例面板 fold：主 + 多 Sub 混合会话 → InstanceRecord 
       const mainId = mainIdOf(rig);
       const r = await rig.client.traceQuery({ sessionId: rig.sessionId, types: ["agent.spawned"] });
       expect(r.instances.length).toBe(3);
-      // 主实例优先，其余启动序
-      expect(r.instances.map((i) => i.instanceId)).toEqual([mainId, agent1, agent2]);
+      // 主实例优先；其余 startedAt 同毫秒时 instanceId 兜底字典序（T10 唯一串后不再等于启动序）——集合等价断言，不钉内部序
+      expect(r.instances[0]!.instanceId).toBe(mainId);
+      expect(new Set(r.instances.map((i) => i.instanceId))).toEqual(new Set([mainId, agent1, agent2]));
+      const sub1 = r.instances.find((i) => i.instanceId === agent1)!;
+      const sub2 = r.instances.find((i) => i.instanceId === agent2)!;
 
       const main = r.instances[0]!;
       expect(main.agentKind).toBe("main");
@@ -501,7 +504,7 @@ describe("④ 实例面板 fold：主 + 多 Sub 混合会话 → InstanceRecord 
       ]);
       expect(main.currentModel).toBe("anthropic/claude-haiku-4-5");
 
-      const sub1 = r.instances[1]!;
+      // 主实例优先已钉 index 0；sub1/sub2 按捕获 id 寻址（同毫秒兜底序不定）
       expect(sub1.agentKind).toBe("subagent");
       expect(sub1.status).toBe("running"); // 占位 runner：无终态
       expect(sub1.task).toBe("任务一");
@@ -510,7 +513,7 @@ describe("④ 实例面板 fold：主 + 多 Sub 混合会话 → InstanceRecord 
       expect(sub1.currentModel).toBe("anthropic/claude-sonnet-4-5");
       expect(sub1.modelTimeline).toBeUndefined(); // 单发 Sub 无变更
 
-      const sub2 = r.instances[2]!;
+
       expect(sub2.status).toBe("killed");
       expect(typeof sub2.endedAt).toBe("string");
       expect(sub2.task).toBe("任务二");
