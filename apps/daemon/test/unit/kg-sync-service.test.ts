@@ -22,6 +22,15 @@ const ROOT = "/tmp/unit-kg-sync";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** 轮询等待条件成立（固定 sleep 的确定性替代，避免慢机时序竞态 flaky）。 */
+async function waitFor(cond: () => boolean, timeoutMs = 5000, stepMs = 10): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond()) {
+    if (Date.now() > deadline) throw new Error(`waitFor 超时（${timeoutMs}ms）`);
+    await sleep(stepMs);
+  }
+}
+
 /** 并发审计 fake store：applySync 重入即抛（「至多一个写事务」机械断言）。 */
 class AuditStore implements KnowledgeStorePort {
   readonly batches: SymbolBatch[] = [];
@@ -187,10 +196,12 @@ describe("KgSyncService：单飞互斥（AD-15）", () => {
     const { service, store } = makeService({ engine });
     active.push(service);
     service.notifyWrite(ROOT, `${ROOT}/src/a.ts`, "h1"); // 窗口 12ms 后开跑
-    await sleep(25); // 第一次 sync running 中（引擎延迟 50ms）
-    expect(store.batches.length).toBe(0);
+    // 轮询至第一次 sync 确实 running（固定 sleep 在慢机上可能早于开跑或已过窗，时序竞态源）
+    await waitFor(() => service.getStatus(ROOT).phase === "building");
     service.notifyWrite(ROOT, `${ROOT}/src/a.ts`, "h1"); // running 中新事件
-    await sleep(200);
+    // 轮询至第一次 + 合并重跑全部落库（不再假设 200ms 内完成）
+    await waitFor(() => store.batches.length === 2);
+    await waitFor(() => service.getStatus(ROOT).phase !== "building");
     expect(store.batches.length).toBe(2); // 第一次 + 合并重跑
     expect(store.maxActive).toBe(1); // 任意时刻至多一个写事务（审计断言）
   });
