@@ -6,6 +6,19 @@
 
 ## applied
 
+### E-SteerQueue-r2
+- changeType: 修改
+- targetNode: E-SteerQueue
+- scope: docs/kg/domain.md E-SteerQueue（新增 run 收口清账不变式；队列生命周期语义补段）
+- project: helix
+- reason: 缺陷修复（task-20260824 steer_queue 孤儿记录，session 00386a2c 现场）：closure 双通道（domain 队列 + engine.steer）在 run 无后续消费轮时（模型正写最后回复，pi run 收尾不消费残留 pending）引擎侧永不消费；turn 正常收口后无人检查 domain 队列 → 注入条目永久孤儿（steer_queue 表脏行，下次发消息可能被补注入过时 closure）。B 方案（用户裁决，三选一 A 收口续送/C 前置判活 落选）：settleRunEnd 收口段 drainAllSteer 残留逐条 engine.error 可观测丢弃（与 injectClosure stopped 分支同族文案；注入对象已不在即放弃，closure 文本已在 entry 树可回看，不强行补注入避免重复回复）。新增不变式：SteerQueue 只存在两类合法驻留——运行中待 drain 项（turn 边界消费）+ 跨重启恢复保留项（RestoreService restoreSteer，pendingSteer 随快照落盘）；run 收口即清账，孤儿自愈（存量脏行在所属会话下次 run 收口时同点清理）。丢弃文案中性（不硬编码 closure——孤儿来源可为 closure/progress/user steer/恢复残留）
+- evidence: chat-service-steer-orphan.test.ts 2 例（NoDrainEngine 精确复现生产时序——FakeAgentEngine 必 drain 策略模型不了该窗口，内联最小引擎 steer 只登记永不消费；正常 drain 路径回归保护）；docs/temp/evidence/red+green 证据；daemon 全量 897 pass / 0 fail（restore-restart pendingSteer 跨重启保留语义全绿——清账只在 run 收口触发不碰恢复路径）；tsc 零错；commit ea6f0ab
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/ChatService.ts（settleRunEnd 收口段：回 idle 后 drainAllSteer + 逐条 engine.error，位于 closureBuffer T2 续送检查之前）；apps/daemon/test/unit/chat-service-steer-orphan.test.ts（NoDrainEngine + 2 例）
+- sourceTask: task-steer-orphan-fix（MainAgent 直查 + TDD 修复，用户裁决 B 方案，2026-08-24）
+- createdIn: task-20260824-steer-orphan
+- decisionLog: 用户裁决「B吧」「落吧」（2026-08-24）——按直写先例节点正文同步待后续批量 apply 或即时 apply（本条先入 pending）。
+
 ### TR-AD-6
 - changeType: 修改
 - targetNode: TR-AD-6
