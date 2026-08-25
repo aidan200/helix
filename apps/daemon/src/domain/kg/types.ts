@@ -238,6 +238,80 @@ export interface SymbolBatch {
   readonly degraded: boolean;
 }
 
+// ── 引擎面（CodegraphEnginePort 数据面，T2.1/AF-2 裁决） ────
+
+/**
+ * 引擎符号行（codegraph nodes 投影；span 与符号同源同行）。id 形如
+ * `<kind>:<hash>`（file 容器行 `file:<path>`）——contains 边 join 键；
+ * 投影忠实携带全部行（含 file/import 伪行），消费侧过滤归 KgSyncService。
+ */
+export interface EngineSymbol {
+  readonly id: string;
+  readonly kind: string;
+  readonly name: string;
+  readonly qualifiedName: string;
+  readonly filePath: string;
+  readonly language: string | null;
+  readonly signature: string | null;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly startColumn: number;
+  readonly endColumn: number;
+}
+
+/**
+ * 引擎 contains 边（edges WHERE kind='contains' 投影，AD-7 类级上溯依赖）：
+ * containerId 为容器 id（`file:<path>` 或容器符号 id），symbolId 为成员符号 id。
+ * calls/imports 等其余边类型不导（AF-2：导入范围刻意最小）。
+ */
+export interface EngineContainsEdge {
+  readonly containerId: string;
+  readonly symbolId: string;
+}
+
+/** 引擎文件面（files 表基准：sync 基准戳与陈旧判定数据源）。 */
+export interface EngineFileRecord {
+  readonly path: string;
+  readonly contentHash: string;
+  /** epoch ms（引擎侧 mtime 语义）。 */
+  readonly modifiedAt: number;
+  /** epoch ms（导入基准戳佐证）。 */
+  readonly indexedAt: number;
+}
+
+/**
+ * 引擎符号投影集（exportSymbols 产物）：空集 = 引擎侧空索引的合法状态，
+ * 与 degraded（统一抛 EngineUnavailable，见下）显式区分——上层捕获后产出
+ * degraded 标记的空 SymbolBatch（T2.2）。
+ */
+export interface SymbolSet {
+  readonly symbols: readonly EngineSymbol[];
+  readonly containsEdges: readonly EngineContainsEdge[];
+  readonly files: readonly EngineFileRecord[];
+}
+
+/**
+ * ensureIndex 成功结果：本次被动构建形态与新鲜度佐证。degraded 不走返回值
+ * ——三入口（二进制不可达/schema 版本超限/子进程失败或超时）统一抛
+ * EngineUnavailable（AF-2 裁决；上层标 degraded + docs-only 锚，CL-2.A2）。
+ */
+export interface IndexFreshness {
+  readonly initialized: boolean;
+  /** init=全量首建 / index=全量重建 / sync=增量。 */
+  readonly mode: "init" | "index" | "sync";
+  /** 构建 status 探测的引擎侧时间戳（ISO，可能滞后/为 null）。 */
+  readonly lastIndexed: string | null;
+}
+
+/**
+ * 引擎不可用统一降级信号（判别 tag，非异常类——类实现归 adapter，
+ * application 层按 kind 鸭子判别，免 import adapters，TR-AD-1）。
+ */
+export interface EngineUnavailableInfo {
+  readonly kind: "EngineUnavailable";
+  readonly reason: string;
+}
+
 // ── 读面（附着/注入/详情/状态） ─────────────────────────────
 
 /**

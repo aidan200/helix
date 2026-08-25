@@ -103,7 +103,7 @@ describe("AG-02：依赖方向矩阵", () => {
   test("④ 组合根外不 new 具体 adapter/service 实现（pi-engine 内部装配与 domain 聚合除外）", () => {
     // T1.1（iter-20260825-11fo）：kg 栈四类（KgWriteService/KgDatabase/
     // SqliteKnowledgeStore/SqliteKnowledgeGraph）同列组合根专属构造面。
-    const concrete = /(ChatService|SessionService|RestoreService|SchedulerService|SubagentLauncher|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine|WsServerAdapter|EventStream|StaticServe|WriteQueue|SqliteSessionRepository|CoreToolExecutor|KgWriteService|KgDatabase|SqliteKnowledgeStore|SqliteKnowledgeGraph)\s*\(/;
+    const concrete = /(ChatService|SessionService|RestoreService|SchedulerService|SubagentLauncher|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine|WsServerAdapter|EventStream|StaticServe|WriteQueue|SqliteSessionRepository|CoreToolExecutor|KgWriteService|KgDatabase|SqliteKnowledgeStore|SqliteKnowledgeGraph|CodegraphEngineAdapter)\s*\(/;
     const scanDirs = ["adapters/driving", "application", "domain"];
     for (const dir of scanDirs) {
       for (const rel of listFiles(path.join(srcRoot, ...dir.split("/")))) {
@@ -232,7 +232,6 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
 
 describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", () => {
   const writePatterns: [string, RegExp][] = [
-    ["new Database", /new\s+Database\s*\(/],
     // 限定 db 系接收者：裸 `\.exec(` 会误伤 RegExp.prototype.exec（如 T1.2
     // rg-backend 的行解析正则）——守护目标是 SQLite 写点而非一切 exec 方法。
     ["db.exec 调用", /\bdb\w*\.exec\s*\(/],
@@ -251,11 +250,23 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     path.join("adapters", "driven", "sqlite-kg", "KgDatabase.ts"),
     path.join("adapters", "driven", "sqlite-kg", "SqliteKnowledgeStore.ts"),
   ]);
+  // T2.1（AF-2）：codegraph.db 只读读点登记（**非写点**）——codegraph-engine
+  // 投影面 new Database（mode=ro 系只读连接，零 DML/DDL/写类 PRAGMA，绝不
+  // 写/迁移他人库）；new Database 的允许面 = 写点 ∪ 只读读点，写 SQL 仍只
+  // 允许写点（③ 负向守护：只读读点出现写 SQL 即红）。
+  const sqliteReadonlyWhitelist = new Set([path.join("adapters", "driven", "codegraph-engine", "codegraph-db-projection.ts")]);
 
-  test("① src 内 SQLite 写操作调用点仅存在于 sqlite-session/WriteQueue.ts 与 sqlite-kg 两写点", () => {
+  test("① src 内 SQLite 写操作调用点仅存在于 sqlite-session/WriteQueue.ts 与 sqlite-kg 两写点（new Database 另允许只读读点）", () => {
     for (const rel of listFiles(srcRoot)) {
       const src = read(rel);
       const isWhitelisted = sqliteWriteWhitelist.has(rel);
+      const isReadonly = sqliteReadonlyWhitelist.has(rel);
+      // new Database：写点 ∪ 只读读点
+      const dbCtor = src.match(/new\s+Database\s*\(/);
+      expect(
+        dbCtor === null || isWhitelisted || isReadonly,
+        `${rel} 出现 new Database（仅 WriteQueue / sqlite-kg 两写点 + codegraph-engine 只读读点允许）`,
+      ).toBe(true);
       for (const [label, pattern] of writePatterns) {
         const hit = src.match(pattern);
         expect(
@@ -263,6 +274,20 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
           `${rel} 出现 SQLite 写点「${label}」（仅 WriteQueue / sqlite-kg 两写点允许）`,
         ).toBe(true);
       }
+    }
+  });
+
+  test("①b 只读读点机械守护（AF-2 只读边界）：只允许 SELECT——零写 SQL/DDL，连接恒 mode=ro URI", () => {
+    for (const rel of sqliteReadonlyWhitelist) {
+      const src = read(rel);
+      for (const [label, pattern] of [
+        ...writePatterns,
+        ["DDL CREATE", /\bCREATE\s+(TABLE|INDEX|TRIGGER|VIEW)\b/i],
+        ["DDL ALTER", /\bALTER\s+TABLE\b/i],
+      ] as [string, RegExp][]) {
+        expect(src.match(pattern), `${rel} 是只读读点，不得出现「${label}」`).toBeNull();
+      }
+      expect(src.includes("?mode=ro"), `${rel} 连接必须固定 mode=ro 只读 URI（AF-2）`).toBe(true);
     }
   });
 
@@ -335,6 +360,8 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // HELIX_RG_PATH（壳注入的 rg bundle 资源定位参数，非配置源）与 PATH
     // （rg 三级解析第③级探测对象）——读取收束于装配层单点作为 resolve-rg
     // 入参（resolve-rg.ts 本体零 env 依赖）。
+    // T2.1（AF-2）：同模式扩 HELIX_CODEGRAPH_PATH（codegraph 三级解析第①级
+    // bundle 注入键，resolve-codegraph.ts 本体零 env 依赖）。
     const whitelistRoot = path.join("adapters", "driven", "subagent");
     const containerRel = path.join("infrastructure", "container.ts");
     for (const rel of listFiles(srcRoot)) {
@@ -342,7 +369,8 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       const src = read(rel);
       if (rel === containerRel) {
         const envKeys = [...new Set([...src.matchAll(/process\.env\.([A-Z_]+)/g)].map((m) => m[1]!))].sort();
-        expect(envKeys, `container.ts 可读 env 键仅限 HELIX_RG_PATH/PATH，实际：${envKeys.join(",")}`).toEqual([
+        expect(envKeys, `container.ts 可读 env 键仅限 HELIX_CODEGRAPH_PATH/HELIX_RG_PATH/PATH，实际：${envKeys.join(",")}`).toEqual([
+          "HELIX_CODEGRAPH_PATH",
           "HELIX_RG_PATH",
           "PATH",
         ]);

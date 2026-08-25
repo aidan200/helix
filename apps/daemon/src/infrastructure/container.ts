@@ -21,6 +21,8 @@ import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManage
 import { createPaths, osHomeDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
+import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
+import { buildKnowledgeStack, type KnowledgeStack } from "./assembly/buildKnowledgeStack";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { ensureDevToken } from "./dev-token";
@@ -102,6 +104,11 @@ export interface Daemon {
   readonly browser: BrowserPort;
   /** 多会话容器（生命周期编排观测面——测试断言懒加载/卸载用）。 */
   readonly registry: SessionRegistry;
+  /**
+   * kg 子系统栈（T2.1：.kg 双 port + codegraph 引擎被动封装；
+   * KgSyncService 挂入归 T2.2）。shutdown 时 dispose 全部 per-project 连接。
+   */
+  readonly knowledge: KnowledgeStack;
   /** fan-out 带名注册表（§4.2.4：序 = 语义唯一权威——测试断言语义序用）。 */
   readonly fanoutTargets: readonly NamedFanoutTarget[];
   /** 装配级资源事件总线（§4.2.3：resources.changed 观测面——不进 WS/不落盘/不进 fan-out）。 */
@@ -240,6 +247,24 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   } else {
     logger.info(`grep 后端定格内置 TS：${grepFreeze.reasons.join("；")}`);
   }
+
+  // ── codegraph 引擎三级解析定格（T2.1/AF-2，TR-AD-32 同模式）──────
+  //    HELIX_CODEGRAPH_PATH/PATH 的 process.env 读取收束于本组合根
+  //    （AG-08 唯一例外面，壳注入的资源定位参数，非配置源）；
+  //    resolve-codegraph.ts 本体零 env/fs 依赖。三级全 miss ≠ 装配失败：
+  //    引擎面定格不可用（binaryPath=null），构建面 degraded（AF-2）。──
+  const codegraphResolution = resolveCodegraphPath({
+    bundlePath: process.env.HELIX_CODEGRAPH_PATH,
+    configPath: config.codegraphPath,
+    pathEnv: process.env.PATH,
+    probe: isExecutableFile,
+  });
+  if (codegraphResolution.kind === "resolved") {
+    logger.info(`codegraph 引擎定格（source=${codegraphResolution.source}）：${codegraphResolution.path}`);
+  } else {
+    logger.info(`codegraph 引擎不可用（构建面 degraded，AF-2）：${codegraphResolution.reasons.join("；")}`);
+  }
+  const knowledge = buildKnowledgeStack({ codegraphResolution });
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   const persistence = buildPersistence({ paths, logger });
@@ -436,6 +461,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       unsubscribeBrowserStatus(); // web.status.changed 广播订阅退订（先退订再 stop）
       await browserPort.stop(); // 关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
       await persistence.writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
+      knowledge.dispose(); // .kg per-project 连接全关（库文件保留，T2.1）
       lock?.release();
       logger.info("daemon 已关闭");
     },
@@ -519,6 +545,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     directory: registry,
     browser: browserPort,
     registry,
+    knowledge,
     fanoutTargets: fanoutPublisher.targets,
     resourceEvents,
     runCli: () => cli.run(),
