@@ -7,8 +7,8 @@ import type {
 import type { TextContent } from "@earendil-works/pi-ai";
 import {
   createBashTool,
-  createEditTool,
-  createReadTool,
+  createEditTool as createPiEditTool,
+  createReadTool as createPiReadTool,
   createWriteTool,
   NodeExecutionEnv,
 } from "@earendil-works/pi-agent-core/node";
@@ -20,6 +20,9 @@ import type {
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import { createGrepTool, type GrepToolDeps } from "./grep/GrepTool";
+import { createEditTool, type EditToolDeps } from "./edit/EditTool";
+import { createReadTool } from "./read/ReadTool";
+import { createEditLinesTool } from "./edit-lines/EditLinesTool";
 import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
@@ -32,9 +35,10 @@ import { imagesOfContent } from "../../../application/services/images";
  *
  * 两件事：
  * 1. **执行**（ToolExecutorPort.execute）：service 层工具编排的出口——
- *    按名查找注册表工具并真实执行（bash/edit/read/write 四工具来自
- *    `pi-agent-core/node` 内置，ExecutionEnv 用其 Node 实现；grep 为
- *    自写，同 env 同沙箱 cwd）。
+ *    按名查找注册表工具并真实执行（bash/write 来自 `pi-agent-core/node`
+ *    内置，ExecutionEnv 用其 Node 实现；edit/read/edit-lines 为自写
+ *    （AD-12 同名覆盖 + 失败推荐管线/行号输出），同 env 同沙箱 cwd；
+ *    grep 为自写，同 env 同沙箱 cwd）。
  * 2. **装配**（resolveTools）：把 profile 声明的工具集装配成 pi
  *    AgentTool 清单交给 AgentRuntime——内置工具是 AgentHarnessTool
  *    （execute 多一个 context 参数），经 bindToolContext 闭包绑定
@@ -87,6 +91,12 @@ export interface CoreToolExecutorOptions {
    * 子进程装配不走组合根定格，恒为 ts）。
    */
   readonly grep?: GrepToolDeps;
+  /**
+   * 自写 edit/edit-lines 注入面（T3.1）：notifyWrite 写后通知（T2.2
+   * KgSyncService 契约签名，未到位时容缺空操作）+ onEditApplied 成功路径
+   * 挂点（T3.2 附着接线预留）。缺省 = 全容缺。
+   */
+  readonly edit?: EditToolDeps;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -101,10 +111,16 @@ export class CoreToolExecutor implements ToolExecutorPort {
     });
     this.context = { env };
     const tools: AgentHarnessTool<ExecutionToolContext, any, any>[] = [
+      // pi 内置四工具基线注册（F-20：registry 按 name 平铺，内置无特权）
       createBashTool(),
-      createReadTool(),
+      createPiReadTool(),
       createWriteTool(),
-      createEditTool(),
+      createPiEditTool(),
+      // 自写三件（AD-12）：同名覆盖 pi 内置 edit/read（后注册者胜）+
+      // 新增 edit-lines 行锚编辑；write/bash 保留 pi 注册
+      createReadTool(),
+      createEditTool(options.edit),
+      createEditLinesTool(options.edit),
       createGrepTool(options.grep),
       createWebSearchTool(),
       createWebFetchTool(),

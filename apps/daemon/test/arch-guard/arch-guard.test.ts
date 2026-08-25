@@ -153,7 +153,7 @@ describe("TP-CL5-1（A 半）：core 四工具接线与封装边界（AD-10 / F(
   const executorRel = path.join(toolsDir, "CoreToolExecutor.ts");
   const toolFactories = ["createBashTool", "createReadTool", "createWriteTool", "createEditTool"];
 
-  test("① 四工具工厂 + NodeExecutionEnv 的 import 源恰为 pi-agent-core/node 子入口", () => {
+  test("① 四工具工厂 + NodeExecutionEnv 的 import 源恰为 pi-agent-core/node 子入口；自写 edit/read/edit-lines 同名覆盖接线在位（T3.1）", () => {
     const src = read(executorRel);
     for (const factory of toolFactories) {
       expect(src.includes(factory), `${executorRel} 缺少 ${factory} 接线`).toBe(true);
@@ -164,6 +164,19 @@ describe("TP-CL5-1（A 半）：core 四工具接线与封装边界（AD-10 / F(
     for (const line of importBlock) {
       expect(line.includes('"@earendil-works/pi-agent-core/node"'), `非 /node 子入口 import：${line}`).toBe(true);
     }
+    // T3.1（AD-12 同名覆盖，AF-1）：自写三件工厂接线在位，pi edit/read 以别名
+    // 基线注册（先注册后覆盖——F-20 registry.set 无特权机制的机械形态）
+    expect(src.includes("createPiEditTool()"), "pi edit 基线注册缺失").toBe(true);
+    expect(src.includes("createPiReadTool()"), "pi read 基线注册缺失").toBe(true);
+    expect(src.includes('from "./edit/EditTool"'), "自写 edit 接线缺失").toBe(true);
+    expect(src.includes('from "./read/ReadTool"'), "自写 read 接线缺失").toBe(true);
+    expect(src.includes('from "./edit-lines/EditLinesTool"'), "edit-lines 接线缺失").toBe(true);
+    // 覆盖次序：自写注册必须在 pi 基线之后（registry.set 后注册者胜）
+    expect(src.indexOf("createEditTool(options.edit)")).toBeGreaterThan(src.indexOf("createPiEditTool()"));
+    expect(src.indexOf("createReadTool()")).toBeGreaterThan(src.indexOf("createPiReadTool()"));
+    // write/bash 保留 pi（AD-12：不自写同名覆盖）
+    expect(src.includes("createWriteTool()")).toBe(true);
+    expect(src.includes("createBashTool()")).toBe(true);
   });
 
   test("② pi 工具符号不外泄：工具工厂只出现在 tools 目录内", () => {
@@ -200,7 +213,7 @@ describe("TP-CL5-2（A 半）：grep 匹配核 framework-free（不碰 fs/node�
 });
 
 describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-coding-agent）", () => {
-  test("daemon dependencies：pi 系恰为 {pi-agent-core, pi-ai}，全集为基线四键（不新增）", () => {
+  test("daemon dependencies：pi 系恰为 {pi-agent-core, pi-ai}，全集为五键（T3.1 +diff：内核复制件 edit-diff 的 diff 展示依赖运行时引入，AF-1 裁决连带）", () => {
     const pkg = JSON.parse(readFileSync(path.join(srcRoot, "..", "package.json"), "utf8")) as {
       dependencies: Record<string, string>;
     };
@@ -208,12 +221,15 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
     // @helix/protocol：workspace 内部协议包（T1.2 引入、T1.6 ws-server 运行时用）；
     // @helix/common：业务无关通用层（AD-1/T3.3；MAIN_INSTANCE_ID 已随 T10c
     // 退役——包级依赖与 AG-15③ 联动断言保留，待包级退役决策）——两包均不计
-    // 入 pi 系口径
+    // 入 pi 系口径；diff@8.0.4（T3.1/AF-1）：VENDORED edit-diff 内核的
+    // generateDiffString/generateUnifiedPatch 运行时依赖，与 pi-agent-core
+    // 同版锁定（pi bump 再同步时同步复核版本）
     expect(deps).toEqual([
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",
       "@helix/common",
       "@helix/protocol",
+      "diff",
     ]);
     const piDeps = deps.filter((d) => d.startsWith("@earendil-works/"));
     expect(piDeps).toEqual(["@earendil-works/pi-agent-core", "@earendil-works/pi-ai"]);
