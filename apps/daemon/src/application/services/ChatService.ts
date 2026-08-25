@@ -495,6 +495,18 @@ export class ChatService implements ChatPort {
     if (this.lifecycle.current !== "idle" && this.lifecycle.canTransition("idle")) {
       this.setLifecycle("idle");
     }
+    // B 收口清账（task-20260824 steer_queue 孤儿）：run 收尾后双通道的引擎侧
+    // 消费机会已永久消失（pi run 收尾不消费残留 pending，现场 00386a2c）——
+    // domain 队列残留若不清即孤儿（永久滞留 steer_queue 表，下次发消息还可能
+    // 被补注入过时 closure）。与 stopped 分支同族文案可观测丢弃：注入对象已
+    // 不在即放弃（closure 文本已在 entry 树可回看），不强行补注入（避免重复
+    // 回复）。只清 domain 队列；closureBuffer 走下方既有 T2 续送链。
+    const orphaned = this.session.drainAllSteer();
+    for (const item of orphaned) {
+      this.publish("engine.error", {
+        message: `注入被丢弃（轮次已收口，引擎侧无后续消费轮）：${item.text.slice(0, 80)}`,
+      });
+    }
     // T2 送达补齐：run 收口回 idle 后续送缓冲 closure（经 scheduleClosureDrain 挂本 run
     // promise settle 后再发——本同步段内引擎仍在飞，直接 sendMessage 会撞在飞守卫）。
     if (this.closureBuffer.length > 0) this.scheduleClosureDrain();
