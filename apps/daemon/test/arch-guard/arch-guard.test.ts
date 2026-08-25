@@ -101,7 +101,9 @@ describe("AG-02：依赖方向矩阵", () => {
   });
 
   test("④ 组合根外不 new 具体 adapter/service 实现（pi-engine 内部装配与 domain 聚合除外）", () => {
-    const concrete = /(ChatService|SessionService|RestoreService|SchedulerService|SubagentLauncher|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine|WsServerAdapter|EventStream|StaticServe|WriteQueue|SqliteSessionRepository|CoreToolExecutor)\s*\(/;
+    // T1.1（iter-20260825-11fo）：kg 栈四类（KgWriteService/KgDatabase/
+    // SqliteKnowledgeStore/SqliteKnowledgeGraph）同列组合根专属构造面。
+    const concrete = /(ChatService|SessionService|RestoreService|SchedulerService|SubagentLauncher|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine|WsServerAdapter|EventStream|StaticServe|WriteQueue|SqliteSessionRepository|CoreToolExecutor|KgWriteService|KgDatabase|SqliteKnowledgeStore|SqliteKnowledgeGraph)\s*\(/;
     const scanDirs = ["adapters/driving", "application", "domain"];
     for (const dir of scanDirs) {
       for (const rel of listFiles(path.join(srcRoot, ...dir.split("/")))) {
@@ -238,25 +240,37 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     ["DELETE FROM", /\bDELETE\s+FROM\b/i],
     ["UPDATE … SET", /\bUPDATE\s+\w+\s+SET\b/i],
   ];
-  const writeQueueRel = path.join("adapters", "driven", "sqlite-session", "WriteQueue.ts");
+  // T1.1（iter-20260825-11fo O-4/AD-15）：.kg 单库两写点扩登记——知识层写
+  // （SqliteKnowledgeStore：writeKnowledge 四表/applySync 符号层事务）与连接
+  // 底座（KgDatabase：new Database/WAL/DDL exec）是 TR-AD-13 语义域外的
+  // 新落盘写路径，与 WriteQueue 并列白名单；库定位 <projectRoot>/.kg/kg.db
+  // （per-project，不在 daemon 全局单写队列语义域内，内部同样执行
+  // 「唯一写点+串行化」：每表域一个写者、BEGIN IMMEDIATE 事务、崩溃一致）。
+  const sqliteWriteWhitelist = new Set([
+    path.join("adapters", "driven", "sqlite-session", "WriteQueue.ts"),
+    path.join("adapters", "driven", "sqlite-kg", "KgDatabase.ts"),
+    path.join("adapters", "driven", "sqlite-kg", "SqliteKnowledgeStore.ts"),
+  ]);
 
-  test("① src 内 SQLite 写操作调用点仅存在于 sqlite-session/WriteQueue.ts", () => {
+  test("① src 内 SQLite 写操作调用点仅存在于 sqlite-session/WriteQueue.ts 与 sqlite-kg 两写点", () => {
     for (const rel of listFiles(srcRoot)) {
       const src = read(rel);
-      const isWriteQueue = rel === writeQueueRel;
+      const isWhitelisted = sqliteWriteWhitelist.has(rel);
       for (const [label, pattern] of writePatterns) {
         const hit = src.match(pattern);
         expect(
-          hit === null || isWriteQueue,
-          `${rel} 出现 SQLite 写点「${label}」（仅 WriteQueue 允许）`,
+          hit === null || isWhitelisted,
+          `${rel} 出现 SQLite 写点「${label}」（仅 WriteQueue / sqlite-kg 两写点允许）`,
         ).toBe(true);
       }
     }
   });
 
-  test("② 组合根全局单写队列：组合根锚面（container.ts + assembly/**）仅 new 一个 WriteQueue，仓库经它写", () => {
+  test("② 写实例计数：helix.db 单写队列 1 个；.kg 库独立第二写连接 1 个（仓库各经它们写）", () => {
     // T2.2（§4.2.1）：组合根锚面从 container.ts 单文件扩为 container.ts +
     // assembly/**——单写队列不变量不变，断言扫描面随锚面扩。
+    // T1.1（O-4/AD-15）：计数口径扩为两库两写点——helix.db 仍恰一个 WriteQueue；
+    // .kg（per-project 懒连）恰一个 KgDatabase 实例，Store/Graph 仓库经它访问。
     const rootFiles = [read(path.join("infrastructure", "container.ts"))]
       .concat(
         listFiles(path.join(srcRoot, "infrastructure", "assembly")).map((rel) =>
@@ -266,7 +280,12 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
       .join("\n");
     expect(rootFiles.match(/new\s+WriteQueue\(/g)?.length).toBe(1);
     expect(rootFiles.match(/new\s+SqliteSessionRepository\(/g)?.length).toBe(1);
+    expect(rootFiles.match(/new\s+KgDatabase\(/g)?.length).toBe(1);
+    expect(rootFiles.match(/new\s+SqliteKnowledgeStore\(/g)?.length).toBe(1);
+    expect(rootFiles.match(/new\s+SqliteKnowledgeGraph\(/g)?.length).toBe(1);
   });
+
+  const writeQueueRel = path.join("adapters", "driven", "sqlite-session", "WriteQueue.ts");
 
   test("③ T2.3 closure 写面收敛：closure_records/reports 写语句只在 WriteQueue，DDL 只在 schema", () => {
     // closure_records 的 SQL 写语句（INSERT/DELETE/UPDATE）只允许 WriteQueue；
