@@ -17,7 +17,7 @@
 - implementedCode: apps/daemon/src/application/services/ChatService.ts（settleRunEnd 收口段：回 idle 后 drainAllSteer + 逐条 engine.error，位于 closureBuffer T2 续送检查之前）；apps/daemon/test/unit/chat-service-steer-orphan.test.ts（NoDrainEngine + 2 例）
 - sourceTask: task-steer-orphan-fix（MainAgent 直查 + TDD 修复，用户裁决 B 方案，2026-08-24）
 - createdIn: task-20260824-steer-orphan
-- decisionLog: 用户裁决「B吧」「落吧」（2026-08-24）——按直写先例节点正文同步待后续批量 apply 或即时 apply（本条先入 pending）。
+- decisionLog: 用户裁决「B吧」「落吧」（2026-08-24）——按直写先例节点正文同步待后续批量 apply 或即时 apply（已 apply：E-SteerQueue 节点正文三段直写（描述补 run 收口清账语义与两类合法驻留不变式 / 规则补清账铁律 / testedBy+updatedIn 刷新）。
 
 ### TR-AD-6
 - changeType: 修改

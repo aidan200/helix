@@ -175,14 +175,15 @@ anchors:
   testedBy:
     - apps/daemon/test/unit/chat-service.test.ts
     - apps/daemon/test/unit/domain-session.test.ts
-updatedIn: iter-20260818-mq5a
+    - apps/daemon/test/unit/chat-service-steer-orphan.test.ts
+updatedIn: task-20260824-steer-orphan
 ```
 
 ## 描述
-steer 打断与主线注入的领域语义载体：生成中的用户消息与 SubAgent closure 消息进入 steering 队列，在 turn 边界 drain 注入下一轮（pi-agent-core Agent.steer() 内建 PendingMessageQueue 的领域化封装）。属领域权威状态（framework-free）。与 abort 区分：steer = 注入后续轮次，abort = 中断当前执行。M2 起 closure 注入复用同队列（AD-8）：closure 到达 enqueue（「agent-N closure: …」），与等待期用户 steer 同队列 FIFO、记录含来源可区分；closure 注入驱动 MainAgent 新 turn；本队列是外部消息进 MainAgent 窗口的唯一入口（替代 v1 customPrompt hack）。M4 起用户 steer 可定向 SubAgent 实例：chat.steer 扩可选 instanceId，daemon 路由目标实例的本队列（复用 agent_send 通道：ChatService 判定 → AgentOrchestrationPort.send → InstanceRunner → transport → 子进程 Agent.steer()），缺省无 instanceId = 主实例（既有语义不变）；定向干预消息同构落 Entry（标注目标实例）经会话投影，恢复重放完整。
+steer 打断与主线注入的领域语义载体：生成中的用户消息与 SubAgent closure 消息进入 steering 队列，在 turn 边界 drain 注入下一轮（pi-agent-core Agent.steer() 内建 PendingMessageQueue 的领域化封装）。属领域权威状态（framework-free）。与 abort 区分：steer = 注入后续轮次，abort = 中断当前执行。M2 起 closure 注入复用同队列（AD-8）：closure 到达 enqueue（「agent-N closure: …」），与等待期用户 steer 同队列 FIFO、记录含来源可区分；closure 注入驱动 MainAgent 新 turn；本队列是外部消息进 MainAgent 窗口的唯一入口（替代 v1 customPrompt hack）。M4 起用户 steer 可定向 SubAgent 实例：chat.steer 扩可选 instanceId，daemon 路由目标实例的本队列（复用 agent_send 通道：ChatService 判定 → AgentOrchestrationPort.send → InstanceRunner → transport → 子进程 Agent.steer()），缺省无 instanceId = 主实例（既有语义不变）；定向干预消息同构落 Entry（标注目标实例）经会话投影，恢复重放完整。run 收口清账（task-20260824-steer-orphan，孤儿缺陷修复）：closure 双通道在 run 无后续消费轮时（模型正写最后回复，pi run 收尾不消费残留 pending）引擎侧永不消费——settleRunEnd 收口段 drainAllSteer 残留逐条 engine.error 可观测丢弃（与 stopped 分支同族；注入对象已不在即放弃，closure 文本已在 entry 树可回看）。不变式：队列只存在两类合法驻留——运行中待 drain 项 + 跨重启恢复保留项（restoreSteer，pendingSteer 随快照落盘）；run 收口即清账，孤儿自愈（存量脏行在所属会话下次 run 收口时同点清理）。丢弃文案中性（覆盖 closure/progress/user steer/恢复残留全来源）。
 
 ## 规则
-steer 消息不直接插入当前正在生成的流，经队列在 turn 间注入；closure 注入与用户 steer 同队列 FIFO，不设旁路；队列记录按来源可区分（用户 steer / closure 注入；用户定向 steer 按目标实例标注）；对外经 service 暴露 steer/abort 入口（driving adapter 只转发命令，路由判定归 application service）；状态属 domain 聚合（framework-free），pi 语义经 pi-engine 防腐映射；用户干预消息一律落 Entry 同构投影，不设不投影例外通道。
+steer 消息不直接插入当前正在生成的流，经队列在 turn 间注入；closure 注入与用户 steer 同队列 FIFO，不设旁路；队列记录按来源可区分（用户 steer / closure 注入；用户定向 steer 按目标实例标注）；对外经 service 暴露 steer/abort 入口（driving adapter 只转发命令，路由判定归 application service）；状态属 domain 聚合（framework-free），pi 语义经 pi-engine 防腐映射；用户干预消息一律落 Entry 同构投影，不设不投影例外通道；run 收口时 domain 队列残留必须清账（drain + 可观测丢弃）——孤儿滞留即缺陷，下次发消息被补注入过时内容同罪。
 
 ## 禁忌
 不在 adapter 或前端实现 steer/closure 注入编排；不绕过队列直接改写当前正在生成中的轮次；closure 不走第二条注入通道直插主线窗口；定向 steer 不走旁路通道直投子进程而不落 Entry（干预历史恢复后消失）。
