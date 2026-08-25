@@ -31,8 +31,8 @@ export interface EngineCallRecord {
 export class CodegraphEngineFake implements CodegraphEnginePort {
   readonly calls: EngineCallRecord[] = [];
 
-  private readonly fixture: SymbolSet;
-  private readonly unavailable: boolean;
+  private fixture: SymbolSet;
+  private unavailable: boolean;
   private readonly delayMs: number;
   private readonly ensureResult: IndexFreshness;
 
@@ -45,6 +45,21 @@ export class CodegraphEngineFake implements CodegraphEnginePort {
     this.unavailable = opts.unavailable ?? false;
     this.delayMs = opts.delayMs ?? 0;
     this.ensureResult = opts.ensureResult ?? { initialized: true, mode: "sync", lastIndexed: null };
+  }
+
+  /** 运行期切换不可用态（T2.2 degraded→恢复序列测试）。 */
+  setUnavailable(unavailable: boolean): void {
+    this.unavailable = unavailable;
+  }
+
+  /** 运行期替换符号 fixture（T2.2 增量/删除序列测试）。 */
+  setSymbols(fixture: Pick<SymbolSet, "symbols" | "containsEdges" | "files">): void {
+    this.fixture = fixture;
+  }
+
+  /** 当前 fixture 只读访问（测试断言辅助）。 */
+  get currentFixture(): SymbolSet {
+    return this.fixture;
   }
 
   async ensureIndex(projectRoot: string): Promise<IndexFreshness> {

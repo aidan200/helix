@@ -84,6 +84,10 @@ describe("daemon --sidecar 信号面（sidecar-lifecycle 契约）", () => {
     const mainTs = path.join(import.meta.dir, "..", "..", "src", "main.ts");
     const proc = Bun.spawn({
       cmd: [process.execPath, mainTs, "--sidecar", "--home", dir],
+      // cwd 指向 tmp home：daemon 启动 cwd = workspace 根（§3.1）——kg sync
+      // 启动触发（T2.2）会一层扫描 cwd，测试进程 cwd（仓库内）不可被扫
+      //（真 .kg 副作用）；tmp home = 空扫描面，无副作用。
+      cwd: dir,
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
@@ -132,6 +136,7 @@ describe("daemon --sidecar 信号面（sidecar-lifecycle 契约）", () => {
         `const out = openSync(${JSON.stringify(readyFile)}, "w");`,
         `const proc = Bun.spawn({`,
         `  cmd: [process.execPath, ${JSON.stringify(mainTs)}, "--sidecar", "--home", ${JSON.stringify(dir)}],`,
+        `  cwd: ${JSON.stringify(dir)}, // kg sync 启动扫描面 = tmp（同上：仓库目录不可扫）`,
         `  stdin: "ignore", stdout: out, stderr: "inherit", detached: true,`,
         `});`,
         `console.log("DAEMON_PID=" + proc.pid);`,

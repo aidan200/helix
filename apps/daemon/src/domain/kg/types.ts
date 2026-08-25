@@ -88,12 +88,17 @@ export interface AnchorDeclaration {
 /** 物化锚 anchorKind（global 声明永不物化，故物化面只有 path/symbol 两值）。 */
 export type AnchorKind = "path" | "symbol";
 
-/** 物化锚行（materialized_anchors 表形状；path 锚 anchorSymbol=null）。 */
+/**
+ * 物化锚行（materialized_anchors 表形状；path 锚 anchorSymbol=null）。
+ * orphan=true：符号消亡/锚声明撤销后的失效标记（保留行不物理删，供 T5.1
+ * 检出——T2.2 锚失效检测写入；缺省 undefined = 活跃，读面以 orphan=0 过滤）。
+ */
 export interface MaterializedAnchor {
   readonly nodeId: NodeId;
   readonly anchorPath: string;
   readonly anchorSymbol: string | null;
   readonly anchorKind: AnchorKind;
+  readonly orphan?: boolean;
 }
 
 // ── 变更日志（supersede 链载体，AD-9 库内审计界面） ──────────
@@ -225,15 +230,40 @@ export interface SymbolContainsEdge {
   readonly file: string;
 }
 
+/** 锚声明扁平行（anchor_decl 表形状；KgSyncService 物化 join 输入，T2.2）。 */
+export interface AnchorDeclRow {
+  readonly nodeId: NodeId;
+  readonly scopeKind: AnchorScopeKind;
+  readonly pattern: string;
+}
+
 /**
- * sync 单事务批次（applySync 入参，T2.2 消费）：符号层三表 + 物化锚 +
+ * sync 管道基准读面（KnowledgeGraphPort.getSyncBaseline 返回，T2.2 消费）：
+ * 上一基准符号面+ 活跃物化锚 + 锚声明全集——
+ * 增量跳过判定 / 符号消亡 diff / 物化全量重算的三项输入。
+ */
+export interface SyncBaselineView {
+  readonly files: readonly SymbolFileRecord[];
+  readonly symbols: readonly SymbolRecord[];
+  readonly activeAnchors: readonly MaterializedAnchor[];
+  readonly anchorDeclarations: readonly AnchorDeclRow[];
+}
+
+/**
+ * sync 单事务批次（applySync 入参，T2.2 产生/消费）：符号层三表 + 物化锚 +
  * meta（导入基准戳——时序可判定关键，AD-15；degraded 显式状态，F5.5 上报）。
+ * deletedFiles/orphanedAnchors 为增量 diff 通道（CL-2.A7：符号消亡 →
+ * 物化锚 orphan 标记不物理删；可选字段缺省空，向后兼容）。
  */
 export interface SymbolBatch {
   readonly files: readonly SymbolFileRecord[];
   readonly symbols: readonly SymbolRecord[];
   readonly containsEdges: readonly SymbolContainsEdge[];
   readonly materializedAnchors: readonly MaterializedAnchor[];
+  /** 本窗口删除/改名文件（整文件符号行+contains 边+files 行清除）。 */
+  readonly deletedFiles?: readonly string[];
+  /** 失效锚（orphan 标记保留行；失效信号同步入 SyncResult 供 T5.1 入队）。 */
+  readonly orphanedAnchors?: readonly MaterializedAnchor[];
   readonly baseline: string;
   readonly degraded: boolean;
 }

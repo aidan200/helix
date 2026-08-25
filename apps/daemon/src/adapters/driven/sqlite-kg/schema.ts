@@ -24,7 +24,9 @@
  * - materialized_anchors：物化锚（anchor_kind 两值 CHECK——global 声明永不
  *   物化故无 global 值；anchor_symbol 以 NOT NULL DEFAULT '' 承载「path 锚
  *   无符号」——NULL 在 SQLite 唯一约束中互不相等，空串使复合主键去重成立；
- *   RowMapper 侧 '' ↔ null）；
+ *   RowMapper 侧 '' ↔ null。orphan 列（T2.2 锚失效检测，CL-2.A7）：符号
+ *   消亡/锚声明撤销 → 置 1 保留行不物理删（供 T5.1 检出；缺省 0=活跃）；
+ *   upsert 冲突时置回 0（符号复活/重新声明 → 重回活跃，确定性重算语义）；
  * - meta：KV（导入基准戳 sync:baseline + degraded 标记 sync:degraded +
  *   每 kind seq 计数器 seq:rule/seq:entity——发号落库事务内分配，AD-16）。
  */
@@ -99,9 +101,11 @@ CREATE TABLE IF NOT EXISTS materialized_anchors (
   anchor_kind TEXT NOT NULL CHECK (anchor_kind IN ('path','symbol')),
   anchor_path TEXT NOT NULL,
   anchor_symbol TEXT NOT NULL DEFAULT '',
+  orphan INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (node_id, anchor_kind, anchor_path, anchor_symbol)
 );
 CREATE INDEX IF NOT EXISTS idx_materialized_anchors_path ON materialized_anchors(anchor_path);
+CREATE INDEX IF NOT EXISTS idx_materialized_anchors_orphan ON materialized_anchors(orphan) WHERE orphan = 1;
 
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,

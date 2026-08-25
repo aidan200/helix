@@ -1,6 +1,13 @@
-import type { AttachmentSnapshot, IndexStatus, NodeDetail, NodeDigestRow } from "../../../domain/kg/types";
+import type {
+  AnchorDeclRow,
+  AttachmentSnapshot,
+  IndexStatus,
+  NodeDetail,
+  NodeDigestRow,
+  SyncBaselineView,
+} from "../../../domain/kg/types";
 
-export type { AttachmentSnapshot, IndexStatus, NodeDetail, NodeDigestRow };
+export type { AnchorDeclRow, AttachmentSnapshot, IndexStatus, NodeDetail, NodeDigestRow, SyncBaselineView };
 
 /**
  * .kg 知识图谱读出口端口（outbound，architecture.md §3.3）。
@@ -22,4 +29,10 @@ export interface KnowledgeGraphPort {
 
   /** 索引状态：导入基准戳（meta）/符号计数/degraded 标记位（F5.5 上报数据源）。 */
   getIndexStatus(projectRoot: string): IndexStatus;
+
+  /**
+   * sync 管道基准读面（T2.2 消费）：上一基准 files/symbols + 活跃物化锚
+   * + 锚声明全集——增量跳过判定 / 符号消亡 diff / 物化全量重算差集输入。
+   */
+  getSyncBaseline(projectRoot: string): SyncBaselineView;
 }

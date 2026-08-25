@@ -22,7 +22,7 @@ import { createPaths, osHomeDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
-import { buildKnowledgeStack, type KnowledgeStack } from "./assembly/buildKnowledgeStack";
+import { buildKnowledgeStack, startKgSyncBackground, type KgSyncBackground, type KnowledgeStack } from "./assembly/buildKnowledgeStack";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { ensureDevToken } from "./dev-token";
@@ -159,6 +159,8 @@ export interface AssembleDaemonDeps {
   readonly sessionIdleUnloadMs?: number;
   /** 空闲卸载轮询间隔 ms 覆盖（注入面；缺省 min(60s, 窗口/10)）。 */
   readonly sessionIdlePollMs?: number;
+  /** 跳过 kg sync 启动触发+fs-watch 挂接（生产缺省启动；测试面默认跳——真 codegraph 构建不进测试，T2.2）。 */
+  readonly skipKgSyncStartup?: boolean;
 }
 
 /**
@@ -429,6 +431,16 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 同样依赖目标已装配；中间构造块 sessionService/chatRouter/cli 均为惰性闭包）。
   await registry.initialize();
 
+  // ── 装配序步 7.5：kg sync 启动触发 + fs-watch 兑底（T2.2，AD-15）──
+  // daemon 启动 cwd = workspace 根（§3.1/TR-AD-6）：一层扫描逐项目异步
+  // onStartup（不阻塞启动，失败吞——退避重试在 service 内）+ 单流 watch
+  // 兑底外部编辑。测试面（createTestDaemon）默认 skip：真 codegraph 构建
+  // 不进测试进程。
+  let kgSyncBackground: KgSyncBackground | undefined;
+  if (!deps.skipKgSyncStartup) {
+    kgSyncBackground = startKgSyncBackground(knowledge, process.cwd());
+  }
+
   let running = true;
   let wsServer: WsServerAdapter | undefined;
   // model 位数据源改会话级（AD-3 model 族 + AD-2）：当前会话
@@ -461,6 +473,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       unsubscribeBrowserStatus(); // web.status.changed 广播订阅退订（先退订再 stop）
       await browserPort.stop(); // 关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
       await persistence.writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
+      kgSyncBackground?.stop(); // 停 fs-watch + 清 sync 计时器（在库连接关闭前）
       knowledge.dispose(); // .kg per-project 连接全关（库文件保留，T2.1）
       lock?.release();
       logger.info("daemon 已关闭");

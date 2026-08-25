@@ -3,6 +3,7 @@ import type { KgDatabase } from "./KgDatabase";
 import { META_KEYS } from "./schema";
 import type {
   AnchorDeclaration,
+  AnchorDeclRow,
   AnchorKind,
   AttachmentAnchor,
   AttachmentSnapshot,
@@ -21,6 +22,9 @@ import type {
   NodeStatus,
   SupersedeChainLink,
   SymbolAnchor,
+  SymbolFileRecord,
+  SymbolRecord,
+  SyncBaselineView,
 } from "../../../domain/kg/types";
 
 /**
@@ -48,12 +52,14 @@ export class SqliteKnowledgeGraph {
   getAttachmentSnapshot(projectRoot: string): AttachmentSnapshot {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     // 扁平 join 中间行（AttachmentAnchor，RowMapper 中间形状）→ 分组投影
-    // （AttachmentSnapshot，T1.2 匹配层契约定稿；superseded 节点不进快照）
+    // （AttachmentSnapshot，T1.2 匹配层契约定稿；superseded 节点不进快照；
+    // orphan 锚不进快照——T2.2 失效标记即附着静默）
     const flat = db
       .prepare(
         "SELECT ma.node_id, ma.anchor_path, ma.anchor_symbol, ma.anchor_kind, n.kind, n.name, n.digest, n.status " +
           "FROM materialized_anchors ma JOIN nodes n ON n.id = ma.node_id " +
-          "WHERE n.status != 'superseded' ORDER BY ma.node_id, ma.anchor_path, ma.anchor_symbol",
+          "WHERE n.status != 'superseded' AND ma.orphan = 0 " +
+          "ORDER BY ma.node_id, ma.anchor_path, ma.anchor_symbol",
       )
       .all() as SnapshotRow[];
     const anchors: AttachmentAnchor[] = flat.map((row) => ({
@@ -155,7 +161,7 @@ export class SqliteKnowledgeGraph {
     const materialized = (
       db
         .prepare(
-          "SELECT anchor_path, anchor_symbol, anchor_kind FROM materialized_anchors WHERE node_id = ? " +
+          "SELECT anchor_path, anchor_symbol, anchor_kind, orphan FROM materialized_anchors WHERE node_id = ? " +
             "ORDER BY anchor_path, anchor_symbol",
         )
         .all(id) as MaterializedRow[]
@@ -163,6 +169,7 @@ export class SqliteKnowledgeGraph {
       anchorPath: row.anchor_path,
       anchorSymbol: row.anchor_symbol === "" ? null : row.anchor_symbol,
       anchorKind: row.anchor_kind as AnchorKind,
+      orphan: row.orphan === 1,
     }));
 
     const edges: NodeEdgeView[] = [];
@@ -199,6 +206,48 @@ export class SqliteKnowledgeGraph {
       supersedeChain: this.buildSupersedeChain(db, id),
       changeLog,
     };
+  }
+
+  /**
+   * sync 管道基准读面（T2.2 消费）：上一基准 files/symbols + 活跃物化锚
+   * （orphan=0）+ 锚声明全集——增量跳过/符号消亡 diff/物化重算差集输入。
+   * 知识层通道连接读（WAL 读不阻塞 sync 写）。
+   */
+  getSyncBaseline(projectRoot: string): SyncBaselineView {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const files = (
+      db.prepare("SELECT path, mtime, sha256 FROM files").all() as FileBaselineRow[]
+    ).map((row) => ({ path: row.path, mtime: row.mtime, sha256: row.sha256 }));
+    const symbols = (
+      db.prepare("SELECT file, name, kind, span_start, span_end FROM symbols").all() as SymbolBaselineRow[]
+    ).map((row) => ({
+      file: row.file,
+      name: row.name,
+      kind: row.kind,
+      spanStart: row.span_start,
+      spanEnd: row.span_end,
+    }));
+    const activeAnchors = (
+      db
+        .prepare(
+          "SELECT node_id, anchor_path, anchor_symbol, anchor_kind FROM materialized_anchors WHERE orphan = 0 " +
+            "ORDER BY node_id, anchor_path, anchor_symbol",
+        )
+        .all() as ActiveAnchorRow[]
+    ).map((row) => ({
+      nodeId: row.node_id,
+      anchorPath: row.anchor_path,
+      anchorSymbol: row.anchor_symbol === "" ? null : row.anchor_symbol,
+      anchorKind: row.anchor_kind as AnchorKind,
+    }));
+    const anchorDeclarations = (
+      db.prepare("SELECT node_id, scope_kind, pattern FROM anchor_decl ORDER BY node_id, scope_kind, pattern").all() as DeclFlatRow[]
+    ).map((row) => ({
+      nodeId: row.node_id,
+      scopeKind: row.scope_kind as AnchorDeclRow["scopeKind"],
+      pattern: row.pattern,
+    }));
+    return { files, symbols, activeAnchors, anchorDeclarations };
   }
 
   getIndexStatus(projectRoot: string): IndexStatus {
@@ -343,6 +392,34 @@ interface MaterializedRow {
   anchor_path: string;
   anchor_symbol: string;
   anchor_kind: string;
+  orphan: number;
+}
+
+interface FileBaselineRow {
+  path: string;
+  mtime: number;
+  sha256: string;
+}
+
+interface SymbolBaselineRow {
+  file: string;
+  name: string;
+  kind: string;
+  span_start: number;
+  span_end: number;
+}
+
+interface ActiveAnchorRow {
+  node_id: string;
+  anchor_path: string;
+  anchor_symbol: string;
+  anchor_kind: string;
+}
+
+interface DeclFlatRow {
+  node_id: string;
+  scope_kind: string;
+  pattern: string;
 }
 
 interface SymbolSpanRow {

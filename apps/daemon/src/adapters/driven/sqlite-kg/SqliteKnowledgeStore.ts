@@ -212,6 +212,31 @@ export class SqliteKnowledgeStore {
     const db = this.deps.database.syncConnection(projectRoot);
     db.exec("BEGIN IMMEDIATE");
     try {
+      // 删除通道（增量 diff，T2.2）：窗口内删除/改名文件 → 整文件符号行 +
+      // contains 边 + files 基准行清除
+      const deleteContains = db.prepare("DELETE FROM contains_edges WHERE file = ?");
+      const deleteSymbols = db.prepare("DELETE FROM symbols WHERE file = ?");
+      const deleteFile = db.prepare("DELETE FROM files WHERE path = ?");
+      for (const path of batch.deletedFiles ?? []) {
+        deleteContains.run(path);
+        deleteSymbols.run(path);
+        deleteFile.run(path);
+      }
+      // 导入域整文件替换：先清该文件旧符号/contains 再插入新投影（符号级
+      // 消亡 diff 载体——同文件内函数删除/改名时旧符号行随导入清除；
+      // files 基准行走 upsert 保留新 mtime/hash）
+      for (const file of batch.files) {
+        deleteContains.run(file.path);
+        deleteSymbols.run(file.path);
+      }
+      // 失效通道（CL-2.A7）：orphan 标记保留行不物理删（供 T5.1 检出）
+      const markOrphan = db.prepare(
+        "UPDATE materialized_anchors SET orphan = 1 " +
+          "WHERE node_id = ? AND anchor_kind = ? AND anchor_path = ? AND anchor_symbol = ?",
+      );
+      for (const anchor of batch.orphanedAnchors ?? []) {
+        markOrphan.run(anchor.nodeId, anchor.anchorKind, anchor.anchorPath, anchor.anchorSymbol ?? "");
+      }
       const upsertFile = db.prepare(
         "INSERT INTO files (path, mtime, sha256) VALUES (?, ?, ?) " +
           "ON CONFLICT(path) DO UPDATE SET mtime = excluded.mtime, sha256 = excluded.sha256",
@@ -234,8 +259,8 @@ export class SqliteKnowledgeStore {
         upsertContains.run(edge.file, edge.outerSymbol, edge.innerSymbol);
       }
       const upsertAnchor = db.prepare(
-        "INSERT INTO materialized_anchors (node_id, anchor_kind, anchor_path, anchor_symbol) VALUES (?, ?, ?, ?) " +
-          "ON CONFLICT(node_id, anchor_kind, anchor_path, anchor_symbol) DO NOTHING",
+        "INSERT INTO materialized_anchors (node_id, anchor_kind, anchor_path, anchor_symbol, orphan) VALUES (?, ?, ?, ?, 0) " +
+          "ON CONFLICT(node_id, anchor_kind, anchor_path, anchor_symbol) DO UPDATE SET orphan = 0",
       );
       for (const anchor of batch.materializedAnchors) {
         // anchorSymbol '' ↔ null（path 锚无符号；见 schema.ts 说明）
