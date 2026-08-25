@@ -14,7 +14,7 @@ import {
 } from "../edit/kernel/edit-diff.js";
 import { withFileMutationQueue } from "../edit/kernel/file-mutation-queue.js";
 import { numberLine } from "../edit/recovery";
-import type { EditWriteNotify } from "../edit/EditTool";
+import { resolveProjectRoot, type EditWriteNotify, type ProjectRootOf } from "../edit/EditTool";
 
 /**
  * EditLinesTool —— 行锚编辑（AD-12，hashline 方向 F-18）。
@@ -29,7 +29,8 @@ import type { EditWriteNotify } from "../edit/EditTool";
 
 /** 注入面（与 EditTool 的 notifyWrite 同一契约；无附着挂点——O-1/AD-4 只挂 edit）。 */
 export interface EditLinesToolDeps {
-  readonly projectRoot?: string;
+  /** 归属解析同 EditTool：静态值或按落盘路径解析（组合根同一 options.edit 共享）。 */
+  readonly projectRoot?: string | ProjectRootOf;
   readonly notifyWrite?: EditWriteNotify;
 }
 
@@ -158,13 +159,14 @@ export function createEditLinesTool(
   };
 }
 
-/** 写后通知投递（同 EditTool 契约）：异常吞咽、永不影响工具结果。 */
+/** 写后通知投递（同 EditTool 契约）：归属解析失败=无项目域（静默跳过）；异常吞咽、永不影响工具结果。 */
 function deliverNotify(deps: EditLinesToolDeps, absolutePath: string, finalContent: string): void {
   try {
-    if (deps.notifyWrite !== undefined && deps.projectRoot !== undefined) {
-      const hash = createHash("sha256").update(finalContent).digest("hex");
-      deps.notifyWrite(deps.projectRoot, absolutePath, hash);
-    }
+    if (deps.notifyWrite === undefined) return;
+    const projectRoot = resolveProjectRoot(deps.projectRoot, absolutePath);
+    if (projectRoot === undefined) return;
+    const hash = createHash("sha256").update(finalContent).digest("hex");
+    deps.notifyWrite(projectRoot, absolutePath, hash);
   } catch {
     /* 注入面异常不产生工具错误 */
   }

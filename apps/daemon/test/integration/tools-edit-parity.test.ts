@@ -620,7 +620,10 @@ describe("⑨ 注入面：notifyWrite（T2.2 契约）与 onEditApplied（T3.2 �
     const tool = createEditTool({
       projectRoot: "/proj",
       notifyWrite: (projectRoot, p, hash) => notified.push({ projectRoot, path: p, hash }),
-      onEditApplied: (event) => applied.push(event),
+      onEditApplied: (event) => {
+        applied.push(event);
+        return ""; // T3.2：挂点返回 📎 块（''=沉默）
+      },
     });
     writeFileSync(path.join(d, "n.txt"), "old\n");
     const ok = await run(tool, { path: "n.txt", edits: [{ oldText: "old", newText: "new" }] }, e);

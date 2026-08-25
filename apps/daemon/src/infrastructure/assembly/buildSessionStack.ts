@@ -31,6 +31,7 @@ import { SkillScanner } from "../../adapters/driven/pi-engine/SkillScanner";
 import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnippets";
 import { CoreToolExecutor } from "../../adapters/driven/tools/CoreToolExecutor";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
+import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 import { AuthStore } from "../auth-store";
 import type { DefaultModelStore } from "../../adapters/driven/sqlite-session/DefaultModelStore";
 import type { ResourceStateStore } from "../../adapters/driven/sqlite-session/ResourceStateStore";
@@ -109,6 +110,13 @@ export interface BuildSessionStackDeps {
   readonly sessionIdlePollMs?: number;
   /** grep 后端定格注入（AF-1 启动定格产物：组合根透传；缺省 = 定格内置 TS）。 */
   readonly grep?: GrepToolDeps;
+  /**
+   * 自写 edit/edit-lines 挂点注入面工厂（T3.2 附着接线）：组合根把 kg 栈
+   * （notifyWrite 写后通知 + KgAttachmentService 附着）经此注入；sessionId
+   * 在 engineFor 闭包内闭合（会话级跨通道去重键）。缺省不注入（SubAgent
+   * 子进程装配/测试）——容缺空操作，EditTool 行为不变。
+   */
+  readonly editDeps?: (sessionId: string) => EditToolDeps;
 }
 
 export interface SessionStack {
@@ -355,6 +363,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               cwd: toolCwd,
               orchestration: sessionOrchestration,
               grep: deps.grep,
+              // kg 挂点（T3.2）：sessionId 在此闭合进 edit 依赖（附着去重键）
+              ...(deps.editDeps !== undefined ? { edit: deps.editDeps(sessionId) } : {}),
               // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
               // tab 归属）；ChildMain 子进程经 RemoteBrowserPort 转发接入（H-3）
               browser: browserPort,

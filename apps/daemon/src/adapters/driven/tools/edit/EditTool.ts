@@ -26,8 +26,9 @@ import { buildRecovery, lineOfOffset, renderRecovery } from "./recovery";
  * 1. **失败三级推荐管线（F1.4）**：not-found 失败在 kernel 错误原文后附录
  *    「最近似现场（实际内容+行号，失败即 read）+ 按序三建议」；
  * 2. **成功路径挂点**：落盘后投递 notifyWrite（T2.2 KgSyncService 契约签名，
- *    不在写路径跑 sync）+ onEditApplied（T3.2 附着接线预留）。两者可选注入、
- *    容缺空操作、异常吞咽（工具结果不受注入面影响）。
+ *    不在写路径跑 sync）+ onEditApplied（T3.2 附着接线：返回 📎 块拼接到
+ *    工具结果尾部）。两者可选注入、容缺空操作、异常吞咽（工具结果不受
+ *    注入面影响——附着失败静默，CL-1.A11）。
  *
  * 参数契约与 pi edit 同构（path + edits[]；另接受 legacy 单编辑 oldText/newText
  * 形态——pi prepareArguments 语义内联，双路径（直接 execute / harness
@@ -36,6 +37,23 @@ import { buildRecovery, lineOfOffset, renderRecovery } from "./recovery";
 
 /** 写后通知（T2.2 KgSyncService.notifyWrite 契约签名；微秒级入队语义）。 */
 export type EditWriteNotify = (projectRoot: string, path: string, hash: string) => void;
+
+/** projectRoot 归属解析器：按落盘绝对路径解析项目根；undefined = 文件不属任何项目域（挂点跳过）。 */
+export type ProjectRootOf = (absolutePath: string) => string | undefined;
+
+/** 归属解析：静态值直通；解析器异常视为无归属（静默跳过挂点）。 */
+export function resolveProjectRoot(
+  projectRoot: string | ProjectRootOf | undefined,
+  absolutePath: string,
+): string | undefined {
+  if (projectRoot === undefined) return undefined;
+  if (typeof projectRoot === "string") return projectRoot;
+  try {
+    return projectRoot(absolutePath);
+  } catch {
+    return undefined;
+  }
+}
 
 /** 成功路径挂点事件（T3.2 附着接线预留：标识符抽取+行号锚定的事实输入）。 */
 export interface EditAppliedEvent {
@@ -55,12 +73,12 @@ export interface EditAppliedEvent {
 
 /** 门面注入面（组合根装配时填充；全缺省 = 容缺空操作）。 */
 export interface EditToolDeps {
-  /** 通知归属 projectRoot（与 notifyWrite 成对提供；组合根注入）。 */
-  readonly projectRoot?: string;
-  /** 写后通知（T2.2 契约签名）；提供且 projectRoot 在位时成功落盘后投递。 */
+  /** 通知归属 projectRoot：静态值或按落盘路径解析（组合根多项目归属注入）；无归属 → 跳过挂点。 */
+  readonly projectRoot?: string | ProjectRootOf;
+  /** 写后通知（T2.2 契约签名）；提供且归属在位时成功落盘后投递。 */
   readonly notifyWrite?: EditWriteNotify;
-  /** 成功路径回调挂点（T3.2 附着接线位）；返回值忽略、异常吞咽。 */
-  readonly onEditApplied?: (event: EditAppliedEvent) => void;
+  /** 成功路径回调挂点（T3.2 附着接线位）：返回 📎 块文本（或 ''）拼接到结果尾部；异常吞咽。 */
+  readonly onEditApplied?: (event: EditAppliedEvent) => string | Promise<string>;
 }
 
 const editParameters = {
@@ -191,10 +209,11 @@ export function createEditTool(
         const writeResult = await env.writeFile(absolutePath, finalContent, signal);
         if (!writeResult.ok) throw editAccessError(filePath, writeResult.error);
         if (signal?.aborted) throw new Error("Operation aborted");
-        deliverHooks(deps, absolutePath, finalContent, newContent, baseContent, edits);
+        const attachment = await deliverHooks(deps, absolutePath, finalContent, newContent, baseContent, edits);
         const diffResult = generateDiffString(baseContent, newContent);
+        const summary = `Successfully replaced ${edits.length} block(s) in ${filePath}.`;
         return {
-          content: [{ type: "text", text: `Successfully replaced ${edits.length} block(s) in ${filePath}.` }],
+          content: [{ type: "text", text: attachment === "" ? summary : `${summary}\n\n${attachment}` }],
           details: {
             diff: diffResult.diff,
             patch: generateUnifiedPatch(filePath, baseContent, newContent),
@@ -206,35 +225,41 @@ export function createEditTool(
   };
 }
 
-/** 成功路径挂点投递（notifyWrite + onEditApplied）：异常吞咽、永不影响工具结果。 */
-function deliverHooks(
+/**
+ * 成功路径挂点投递（notifyWrite + onEditApplied）：返回附着块文本（'' = 沉默）；
+ * 全体 try/catch——注入面异常不产生工具错误（「任何失败静默」，CL-1.A11）。
+ * 挂点=项目域内编辑：归属解析失败（无 projectRoot）→ 两挂点均跳过。
+ */
+async function deliverHooks(
   deps: EditToolDeps,
   absolutePath: string,
   finalContent: string,
   newContent: string,
   baseContent: string,
   edits: readonly EditItem[],
-): void {
+): Promise<string> {
   try {
-    if (deps.notifyWrite !== undefined && deps.projectRoot !== undefined) {
+    const projectRoot = resolveProjectRoot(deps.projectRoot, absolutePath);
+    if (projectRoot === undefined) return "";
+    if (deps.notifyWrite !== undefined) {
       const hash = createHash("sha256").update(finalContent).digest("hex");
-      deps.notifyWrite(deps.projectRoot, absolutePath, hash);
+      deps.notifyWrite(projectRoot, absolutePath, hash);
     }
-    if (deps.onEditApplied !== undefined) {
-      const editFacts = edits.map((edit) => {
-        const match = fuzzyFindText(baseContent, normalizeToLF(edit.oldText));
-        const start = match.found ? lineOfOffset(baseContent, match.index) : 0;
-        const end = match.found ? lineOfOffset(baseContent, match.index + match.matchLength - 1) : 0;
-        return { oldText: edit.oldText, newText: edit.newText, editLineStart: start, editLineEnd: end };
-      });
-      deps.onEditApplied({
-        filePath: absolutePath,
-        ...(deps.projectRoot !== undefined ? { projectRoot: deps.projectRoot } : {}),
-        edits: editFacts,
-        fileLines: newContent.split("\n"),
-      });
-    }
+    if (deps.onEditApplied === undefined) return "";
+    const editFacts = edits.map((edit) => {
+      const match = fuzzyFindText(baseContent, normalizeToLF(edit.oldText));
+      const start = match.found ? lineOfOffset(baseContent, match.index) : 0;
+      const end = match.found ? lineOfOffset(baseContent, match.index + match.matchLength - 1) : 0;
+      return { oldText: edit.oldText, newText: edit.newText, editLineStart: start, editLineEnd: end };
+    });
+    const out = await deps.onEditApplied({
+      filePath: absolutePath,
+      projectRoot,
+      edits: editFacts,
+      fileLines: newContent.split("\n"),
+    });
+    return typeof out === "string" ? out : "";
   } catch {
-    /* 注入面异常不产生工具错误（T3.2「任何失败静默」同口径） */
+    return ""; /* 注入面异常静默 */
   }
 }

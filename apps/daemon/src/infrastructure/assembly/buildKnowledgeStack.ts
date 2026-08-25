@@ -4,6 +4,7 @@ import type { CodegraphEnginePort } from "../../application/ports/outbound/Codeg
 import type { KnowledgeGraphPort } from "../../application/ports/outbound/KnowledgeGraphPort";
 import type { KnowledgeStorePort } from "../../application/ports/outbound/KnowledgeStorePort";
 import { KgWriteService } from "../../application/services/kg/KgWriteService";
+import { KgAttachmentService } from "../../application/services/kg/KgAttachmentService";
 import { CodegraphEngineAdapter } from "../../adapters/driven/codegraph-engine/CodegraphEngineAdapter";
 import type { CodegraphResolution } from "../../adapters/driven/codegraph-engine/resolve-codegraph";
 import { KgDatabase } from "../../adapters/driven/sqlite-kg/KgDatabase";
@@ -11,6 +12,7 @@ import { SqliteKnowledgeGraph } from "../../adapters/driven/sqlite-kg/SqliteKnow
 import { SqliteKnowledgeStore } from "../../adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { FsWatchAdapter } from "../../adapters/driven/fs-watch/FsWatchAdapter";
 import { KgSyncService } from "../../application/services/kg/KgSyncService";
+import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 
 /**
  * kg 子系统组合根装配（与 buildPersistence / buildSessionStack 同列）。
@@ -22,10 +24,12 @@ import { KgSyncService } from "../../application/services/kg/KgSyncService";
  * AG-08 唯一例外面；resolve-codegraph 本体零 env 依赖）。
  * T2.2：KgSyncService 挂入 + startKgSyncBackground（daemon 启动触发 +
  * fs-watch 兑底挂接，container.ts 装配序⑦后调用）。
+ * T3.2：KgAttachmentService 挂入（附着编排）+ buildEditToolDeps（edit
+ * 工具挂点接线工厂：projectRootOfPath 多项目归属 + notifyWrite + 附着）。
  *
  * AG-06 计数口径：本函数是 .kg 库第二个写队列实例（独立于 helix.db
  * WriteQueue，AD-15 按表分域两写点）的唯一构造点；codegraph-engine 只读
- * 读点（codegraph.db mode=ro 投影，非写点）。
+ * 读点（codegraph.db mode=ro 投影，非写点）；KgAttachmentService 纯读面。
  */
 export interface KnowledgeStack {
   /** kg service API 唯一写入口（schema 校验即防线）。 */
@@ -38,6 +42,8 @@ export interface KnowledgeStack {
   readonly codegraphEngine: CodegraphEnginePort;
   /** sync 管道（T2.2：双源汇队列/去抖/单飞/四步编排；触发面三处）。 */
   readonly syncService: KgSyncService;
+  /** 附着编排（T3.2：edit 成功路径 📎 块 + 会话级跨通道去重注册表唯一持有者）。 */
+  readonly attachmentService: KgAttachmentService;
   /** 关闭全部 per-project 连接（daemon 退出/测试清理；库文件保留）。 */
   readonly dispose: () => void;
 }
@@ -54,12 +60,14 @@ export function buildKnowledgeStack(deps: { codegraphResolution: CodegraphResolu
     binaryPath: deps.codegraphResolution.kind === "resolved" ? deps.codegraphResolution.path : null,
   });
   const syncService = new KgSyncService({ store, graph, engine: codegraphEngine });
+  const attachmentService = new KgAttachmentService({ graph });
   return {
     writeService,
     store,
     graph,
     codegraphEngine,
     syncService,
+    attachmentService,
     dispose: () => {
       syncService.dispose();
       database.closeAll();
@@ -73,8 +81,10 @@ export function buildKnowledgeStack(deps: { codegraphResolution: CodegraphResolu
  * project-discovery.ts + KgProjectService，T5.x）到位后本私有 helper 由
  * 单点替换——组合根临时内联，handlers/service 层不自带解析纪律不变。
  */
+/** §3.5 排除清单（scanWorkspaceProjects 与事件归属共用唯一过滤）。 */
+const WORKSPACE_EXCLUDED = new Set(["docs", ".helix", ".worktrees", "node_modules"]);
+
 export function scanWorkspaceProjects(workspaceRoot: string): string[] {
-  const excluded = new Set(["docs", ".helix", ".worktrees", "node_modules"]);
   let entries;
   try {
     entries = readdirSync(workspaceRoot, { withFileTypes: true });
@@ -83,10 +93,62 @@ export function scanWorkspaceProjects(workspaceRoot: string): string[] {
   }
   const out: string[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith(".") || excluded.has(entry.name)) continue;
+    if (!entry.isDirectory() || entry.name.startsWith(".") || WORKSPACE_EXCLUDED.has(entry.name)) continue;
     out.push(path.join(workspaceRoot, entry.name));
   }
   return out.sort();
+}
+
+/**
+ * 文件 → 项目根归属（§3.5 一级目录语义，T3.2）：workspace 内一级目录即
+ * projectRoot；排除清单/隐藏段/根外文件 → undefined（不属任何项目域）。
+ * scanWorkspaceProjects（启动扫描）与事件归属（watch/edit 挂点）共用
+ * 同一过滤口径；单点正式收口归 T5.x project-discovery（本 helper 为组合根
+ * 临时内联同款纪律）。
+ */
+export function projectRootOfPath(workspaceRoot: string, absPath: string): string | undefined {
+  const rel = path.relative(workspaceRoot, absPath);
+  if (rel === "" || path.isAbsolute(rel) || rel.startsWith("..")) return undefined;
+  const first = rel.split(path.sep)[0] ?? "";
+  if (first === "" || first.startsWith(".") || WORKSPACE_EXCLUDED.has(first)) return undefined;
+  return path.join(workspaceRoot, first);
+}
+
+/**
+ * edit 工具挂点接线工厂（T3.2，CL-1 F1.1）：组合根把 kg 栈接进 EditTool
+ * 成功路径——notifyWrite（T2.2 写后通知入队）+ 逐编辑附着（attachAfterEdit
+ * 返回 📎 块拼接到工具结果尾部）。sessionId 在调用侧闭合（会话级跨通道
+ * 去重键；与 T3.3 任务层注入共用同一 KgAttachmentService 注册表）。
+ */
+export function buildEditToolDeps(args: {
+  readonly workspaceRoot: string;
+  readonly syncService: Pick<KgSyncService, "notifyWrite">;
+  readonly attachment: KgAttachmentService;
+  readonly sessionId: string;
+}): EditToolDeps {
+  const { syncService, attachment, sessionId } = args;
+  return {
+    projectRoot: (absolutePath) => projectRootOfPath(args.workspaceRoot, absolutePath),
+    notifyWrite: (projectRoot, filePath, hash) => syncService.notifyWrite(projectRoot, filePath, hash),
+    onEditApplied: async (event) => {
+      if (event.projectRoot === undefined) return "";
+      let block = "";
+      for (const edit of event.edits) {
+        const part = await attachment.attachAfterEdit({
+          projectRoot: event.projectRoot,
+          sessionId,
+          filePath: event.filePath,
+          oldText: edit.oldText,
+          newText: edit.newText,
+          editLineStart: edit.editLineStart,
+          editLineEnd: edit.editLineEnd,
+          fileLines: event.fileLines,
+        });
+        if (part !== "") block += (block === "" ? "" : "\n\n") + part;
+      }
+      return block;
+    },
+  };
 }
 
 /** 启动触发 + fs-watch 兑底挂接产物（stop = daemon 退出/测试清理面）。 */
@@ -111,10 +173,11 @@ export function startKgSyncBackground(stack: KnowledgeStack, workspaceRoot: stri
   const adapter = new FsWatchAdapter({
     root: workspaceRoot,
     onEvent: (event) => {
-      const rel = path.relative(workspaceRoot, event.absPath);
-      const first = rel.split(path.sep)[0] ?? "";
-      if (first === "" || first === ".." || path.isAbsolute(rel)) return;
-      stack.syncService.onFsEvent(path.join(workspaceRoot, first), event.absPath, event.kind);
+      // 归属收口 projectRootOfPath（§3.5 同一过滤）：根外/排除段事件不属任何
+      // 项目域——丢弃（与启动扫描口径一致，避免排除目录自行建 .kg）。
+      const projectRoot = projectRootOfPath(workspaceRoot, event.absPath);
+      if (projectRoot === undefined) return;
+      stack.syncService.onFsEvent(projectRoot, event.absPath, event.kind);
     },
   });
   adapter.start();

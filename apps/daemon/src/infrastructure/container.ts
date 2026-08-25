@@ -22,7 +22,7 @@ import { createPaths, osHomeDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
-import { buildKnowledgeStack, startKgSyncBackground, type KgSyncBackground, type KnowledgeStack } from "./assembly/buildKnowledgeStack";
+import { buildEditToolDeps, buildKnowledgeStack, startKgSyncBackground, type KgSyncBackground, type KnowledgeStack } from "./assembly/buildKnowledgeStack";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { ensureDevToken } from "./dev-token";
@@ -267,6 +267,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger.info(`codegraph 引擎不可用（构建面 degraded，AF-2）：${codegraphResolution.reasons.join("；")}`);
   }
   const knowledge = buildKnowledgeStack({ codegraphResolution });
+  // §3.5：workspace 根 = daemon 启动 cwd（同一根供 kg 后台与 edit 挂点归属）
+  const kgWorkspaceRoot = process.cwd();
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   const persistence = buildPersistence({ paths, logger });
@@ -303,6 +305,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       rgPath: grepFreeze.kind === "rg" ? grepFreeze.rgPath : undefined,
       warn: (m) => logger.warn(m),
     },
+    // kg 挂点（T3.2 附着接线）：每会话闭合 sessionId（跨通道去重键）——
+    // notifyWrite 写后通知入 sync 队列 + edit 成功路径附着 📎 块
+    editDeps: (sessionId) =>
+      buildEditToolDeps({
+        workspaceRoot: kgWorkspaceRoot,
+        syncService: knowledge.syncService,
+        attachment: knowledge.attachmentService,
+        sessionId,
+      }),
     builtinSkillsDir: deps.builtinSkillsDir,
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
     sessionIdlePollMs: deps.sessionIdlePollMs,
@@ -438,7 +449,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 不进测试进程。
   let kgSyncBackground: KgSyncBackground | undefined;
   if (!deps.skipKgSyncStartup) {
-    kgSyncBackground = startKgSyncBackground(knowledge, process.cwd());
+    kgSyncBackground = startKgSyncBackground(knowledge, kgWorkspaceRoot);
   }
 
   let running = true;
