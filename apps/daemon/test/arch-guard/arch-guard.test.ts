@@ -357,7 +357,12 @@ describe("AG-10 + TP-CL4-3：runtime 无编排模式分支", () => {
   const modeWords = /\b(main-session|subagent|phase|kg)\b/i;
   test("runtime 逻辑源码（含 hooks/）不含模式标识符", () => {
     const files = listFiles(path.join(srcRoot, "adapters", "driven", "pi-engine", "runtime"))
-      .filter((rel) => !rel.startsWith(path.join("profiles")));
+      .filter((rel) => !rel.startsWith(path.join("profiles")))
+      // T4.2（AD-18）：templates/ 为提示词资产（段库目录/装配指引，与 profiles
+      // 同域纯声明数据）——场景定名 kg-change-report / 段名「kg 约束切片」为
+      // 架构定名，模式词合法出现在声明数据（同 profiles 豁免口径）；
+      // validate.ts 为逻辑源码，不豁免、仍受扫描。
+      .filter((rel) => !(rel.startsWith(path.join("templates")) && !rel.endsWith("validate.ts")));
     for (const rel of files) {
       const src = read(path.join("adapters", "driven", "pi-engine", "runtime", rel));
       expect(src.match(modeWords), `runtime/${rel} 出现编排模式词：${src.match(modeWords)?.[0]}`).toBeNull();

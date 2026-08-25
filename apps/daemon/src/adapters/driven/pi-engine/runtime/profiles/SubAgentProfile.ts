@@ -1,6 +1,7 @@
 import type { AgentProfile } from "../AgentProfile";
 import { SteerHooks } from "../hooks/SteerHooks";
 import { MinimalHooks } from "../hooks/MinimalHooks";
+import { REPORT_ASSEMBLY_GUIDE } from "../templates/guide";
 
 /**
  * SubAgent worker profile（architecture.md §4.4「实例化」）。
@@ -23,8 +24,12 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * SubAgent base prompt（瘦身消双源）：只留角色+行为引导，**不列工具
  * 名**——可用工具清单唯一来源 = SystemPromptAssembler 组装产物（spawn 时刻
  * 定格经 env 透传子进程）。「自主使用提供的工具」措辞保留（不列具体名）。
+ *
+ * T4.2（AD-18）：导出常量 = base + report 装配指引段（段库目录+三条硬约束
+ * +装配示例引用，templates/guide 同源）——收口时 SubAgent 按段库组任务
+ * 完成报告（report 装配端）。
  */
-export const SUBAGENT_SYSTEM_PROMPT =
+const SUBAGENT_BASE_PROMPT =
   "你是 helix 的 SubAgent worker，负责独立完成一个被指派的任务。\n" +
   "工作方式：\n" +
   "- 聚焦当前任务，自主使用提供的工具完成调研与实现，不要求交互确认；\n" +
@@ -37,6 +42,9 @@ export const SUBAGENT_SYSTEM_PROMPT =
   "其中 status=done 表示已完成、failed 表示无法完成；summary 为给主线的一句话结论；" +
   "reportPath 为报告文件路径（无则 null）；findings 为结构化发现数组（无则 []）；" +
   "taskId 为关联任务号（无则 null）。";
+
+/** base + report 装配指引（AD-18：提示词携带段库+硬约束+装配示例引用）。 */
+export const SUBAGENT_SYSTEM_PROMPT = SUBAGENT_BASE_PROMPT + "\n\n" + REPORT_ASSEMBLY_GUIDE;
 
 export const SubAgentProfile: AgentProfile = {
   kind: "subagent-worker",
