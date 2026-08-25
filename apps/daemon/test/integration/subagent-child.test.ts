@@ -510,3 +510,148 @@ describe("thinking 定格值子进程消费（T1.3；env 定格透传 + 注入�
     expect(r.captured).toEqual([null]);
   }, 20000);
 });
+
+// ── F3.0（T4.1）：reportPath env 传参 + 失败收口 summary 补齐 ──────
+
+describe("⑧ F3.0 reportPath 经 env IPC 面传参 + 失败 summary 补齐", () => {
+  /** Bun.spawn 桩：捕获 env；stdout 可注入预设行（closure 线协议驱动）。 exited 恒挂起——收口由 stdout closure 行驱动（消除 exit 竞态）。 */
+  interface SpawnCall {
+    readonly cmd: readonly string[];
+    readonly env: Record<string, string | undefined>;
+  }
+
+  function patchSpawn(capture: SpawnCall[], stdoutLines: string[] = []): void {
+    const fakeProc = () =>
+      ({
+        pid: 42000 + Math.floor(Math.random() * 900),
+        exited: new Promise(() => {}), // 恒挂起：exit 监视不抢跑（closure 行主导收口）
+        stdout: (async function* () {
+          for (const line of stdoutLines) yield new TextEncoder().encode(line);
+        })(),
+        stdin: { write: () => true },
+      }) as unknown as ReturnType<typeof Bun.spawn>;
+    (Bun as unknown as { spawn: unknown }).spawn = (opts: {
+      cmd: readonly string[];
+      env: Record<string, string | undefined>;
+    }) => {
+      capture.push({ cmd: [...opts.cmd], env: { ...opts.env } });
+      return fakeProc();
+    };
+  }
+
+  function restoreSpawn(real: typeof Bun.spawn): void {
+    (Bun as unknown as { spawn: unknown }).spawn = real;
+  }
+
+  test("① reportDirFor 注入 → spawn env 带 HELIX_REPORT_PATH（<dir>/<session>/<id>.md）；未注入 → 键缺席", async () => {
+    const real = Bun.spawn;
+    const calls: SpawnCall[] = [];
+    patchSpawn(calls);
+    try {
+      const home = mkdtempSync(path.join(tmpdir(), "helix-t41-env-"));
+      try {
+        const withDir = new SubagentLauncher({
+          profile: SubAgentProfile,
+          model: fakeModel,
+          apiKeys: { fake: "k" },
+          toolCwd: home,
+          reportDirFor: (sessionId) => path.join(home, "reports", sessionId),
+        });
+        withDir.launch(makeInstance("agent-r1"), "任务");
+        expect(calls[0]!.env["HELIX_REPORT_PATH"]).toBe(
+          path.join(home, "reports", SESSION_ID, "agent-r1.md"),
+        ); // 报告落点经 env IPC 面传参（TR-AD-6 第二豁免族；AG-08 键级登记）
+
+        const noDir = new SubagentLauncher({
+          profile: SubAgentProfile,
+          model: fakeModel,
+          apiKeys: { fake: "k" },
+          toolCwd: home,
+        });
+        noDir.launch(makeInstance("agent-r2"), "任务");
+        expect(calls[1]!.env["HELIX_REPORT_PATH"]).toBeUndefined(); // 未注入不传键（既有测试形态不变）
+        // 不 dispose：fake pid 不对应真实进程（kill 负 pgid 有误伤风险，挂起桩随测试进程回收）
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    } finally {
+      restoreSpawn(real);
+    }
+  });
+
+  test("② 失败 closure 空 summary → 补非空默认叙述（含失败关键词）；非空 summary 原样透传", async () => {
+    const real = Bun.spawn;
+    const closures: { instanceId: string; outcome: InstanceClosureOutcome }[] = [];
+    const closureLine = (summary: string) =>
+      JSON.stringify({
+        type: "closure",
+        instanceId: "agent-f1",
+        closure: { status: "failed", summary, reportPath: null, findings: null, taskId: null },
+      } satisfies ChildOutboundLine) + "\n";
+    patchSpawn([], [closureLine(""), closureLine("子进程自报失败叙述")]);
+    try {
+      const home = mkdtempSync(path.join(tmpdir(), "helix-t41-sum-"));
+      try {
+        const launcher = new SubagentLauncher({
+          profile: SubAgentProfile,
+          model: fakeModel,
+          apiKeys: { fake: "k" },
+          toolCwd: home,
+        });
+        launcher.setCallbacks({
+          onInstanceEvent: () => undefined,
+          onInstanceClosure: (instanceId, outcome) => closures.push({ instanceId, outcome }),
+        });
+        launcher.launch(makeInstance("agent-f1"), "任务");
+        // 两条 closure 行同 stdout 流到达：首条生效（空 summary 被补齐），
+        // 同 id 第二条幂等吞；非空透传见③（不同实例）
+        await until(() => closures.length > 0, 3000, "closure 行到达");
+        expect(closures).toHaveLength(1);
+        expect(closures[0]!.outcome.closure.status).toBe("failed");
+        expect(closures[0]!.outcome.closure.summary.trim().length).toBeGreaterThan(0); // 非空补齐
+        expect(closures[0]!.outcome.closure.summary).toContain("失败"); // 含失败关键词
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    } finally {
+      restoreSpawn(real);
+    }
+  });
+
+  test("③ 失败 closure 自带非空 summary → 原样透传（补齐不越位改写）", async () => {
+    const real = Bun.spawn;
+    const closures: { instanceId: string; outcome: InstanceClosureOutcome }[] = [];
+    patchSpawn(
+      [],
+      [
+        JSON.stringify({
+          type: "closure",
+          instanceId: "agent-f2",
+          closure: { status: "failed", summary: "子进程自报失败叙述", reportPath: null, findings: null, taskId: null },
+        } satisfies ChildOutboundLine) + "\n",
+      ],
+    );
+    try {
+      const home = mkdtempSync(path.join(tmpdir(), "helix-t41-sum2-"));
+      try {
+        const launcher = new SubagentLauncher({
+          profile: SubAgentProfile,
+          model: fakeModel,
+          apiKeys: { fake: "k" },
+          toolCwd: home,
+        });
+        launcher.setCallbacks({
+          onInstanceEvent: () => undefined,
+          onInstanceClosure: (instanceId, outcome) => closures.push({ instanceId, outcome }),
+        });
+        launcher.launch(makeInstance("agent-f2"), "任务");
+        await until(() => closures.length > 0, 3000, "closure 行到达");
+        expect(closures[0]!.outcome.closure.summary).toBe("子进程自报失败叙述");
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    } finally {
+      restoreSpawn(real);
+    }
+  });
+});

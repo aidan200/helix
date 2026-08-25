@@ -56,6 +56,8 @@ export interface TestDaemonOptions {
   readonly builtinSkillsDir?: string;
   /** SubAgent runner 覆盖（integration 注入 fake runner 驱动收口时序）。 */
   readonly subagentRunner?: InstanceRunner;
+  /** findings 落账管道覆盖（F3.0，T4.1：注入替身真 KgWriteService/故障注入；缺省 = kg 栈真体）。 */
+  readonly findingsSink?: Parameters<typeof assembleDaemon>[0]["findingsSinkOverride"];
   /** BrowserPort 覆盖（fake BrowserPort 驱动 web 族命令/广播断言）。 */
   readonly browser?: BrowserPort;
   /** 主时间轴尾窗大小（G-1：缺省 30；测试注入面）。 */
@@ -110,6 +112,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     legacy: loaded.legacy,
     browserPort: options.browser ?? new CdpConnectionManager({ homeDir: osHomeDir() }),
     subagentRunnerOverride: options.subagentRunner,
+    findingsSinkOverride: options.findingsSink,
     staticDir: options.staticDir,
     tailSize: options.sessionTailSize,
     toolCwd: options.toolCwd,

@@ -84,6 +84,17 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     expect(p).toContain("failed");
   });
 
+  test("F3.0 报告落盘引导：HELIX_REPORT_PATH 传参说明 + reportPath 填该路径 + 与 T4.2 装配指引协同", () => {
+    const p = SubAgentProfile.systemPrompt;
+    // 报告落盘引导（T4.1）：路径从 env 读、报告写入该文件、closure reportPath 填该路径
+    expect(p).toContain("HELIX_REPORT_PATH");
+    expect(p).toContain("reportPath 填该路径");
+    expect(p).toContain("透传"); // daemon 只透传不代写（不自建第二事实源预期）
+    // T4.2 段库指引仍在（协同非冲突）：report 装配端指引段
+    expect(p).toContain("任务收口装配指引");
+    expect(p).toContain("findings");
+  });
+
   test("AgentProfile.model 槽位既有 profile 不受影响（MainSessionProfile 无声明）", () => {
     expect(MainSessionProfile.model).toBeUndefined();
   });

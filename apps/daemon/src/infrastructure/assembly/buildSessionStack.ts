@@ -12,6 +12,7 @@ import { ChatService } from "../../application/services/ChatService";
 import { SessionService } from "../../application/services/SessionService";
 import { RestoreService } from "../../application/services/RestoreService";
 import { SchedulerService } from "../../application/services/scheduler/SchedulerService";
+import type { ClosureFindingsSink } from "../../application/services/scheduler/ClosureRecorder";
 import { SessionProjection } from "../../application/services/SessionProjection";
 import { SessionRegistry, type SessionRuntime } from "../../application/services/SessionRegistry";
 import { profileKindOf } from "../../application/services/modes";
@@ -127,6 +128,12 @@ export interface BuildSessionStackDeps {
    * （组合根接 KgQueryService.injectTaskSlice）。缺省不注入。
    */
   readonly taskInjector?: (sessionId: string, task: string) => string;
+  /**
+   * findings 落账管道（F3.0，T4.1）：透传 SchedulerService→ClosureRecorder
+   * （组合根接 kg 栈 KgWriteService；测试工厂可注入替身）。缺省不注入
+   * （SubAgent 子进程装配/纯调度测试形态）。
+   */
+  readonly findingsSink?: ClosureFindingsSink;
 }
 
 export interface SessionStack {
@@ -259,6 +266,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // 注入源切换：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
           toolCwd,
+          // F3.0（T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH）——
+          // 与 ClosureRecorder 兜底 reportsDirFor 同源同式（<home>/reports/<session>）
+          reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
           // H-3：tool-req 转发目标 = 全局唯一 CDP 单例（ScopedBrowserProxy
           // 归属校验：ownerId 强制 = 通道 instanceId）
           browser: browserPort,
@@ -294,6 +304,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // spawn 派发任务切片注入（T3.3，F1.3）：组合根接 KgQueryService——
     // 任务文本成形后/传给 launcher 前单点挂接（SchedulerService 内部消化失败）
     ...(deps.taskInjector !== undefined ? { taskInjector: deps.taskInjector } : {}),
+    // findings 落账管道（F3.0，T4.1）：透传 ClosureRecorder（组合根接 kg 栈）
+    ...(deps.findingsSink !== undefined ? { findingsSink: deps.findingsSink } : {}),
     // Sub instantiated 快照供给——profile（AD-5，契约 v0.4 §2）
     // 常量全文 + model 两级链解析 id 形态（profile 槽位 ?? 全局兜底，T12 砍
     // spawn 会话快照级；与该实例 launch 实际用模同源同时点——launch 侧

@@ -26,7 +26,7 @@ import type { InstanceClosureOutcome, InstanceRunner } from "../InstanceRunner";
 import type { InstanceSnapshotEntry } from "../../ports/inbound/SessionPort";
 import type { RestoredInstance } from "../RestoreService";
 import { SubagentEventTranslator } from "./SubagentEventTranslator";
-import { ClosureRecorder } from "./ClosureRecorder";
+import { ClosureRecorder, type ClosureFindingsSink } from "./ClosureRecorder";
 
 /**
  * SchedulerService —— SubAgent 调度编排门面（architecture.md §4，AD-7）。
@@ -138,8 +138,14 @@ export interface SchedulerServiceDeps {
    * 形态不注入；迟到/重复收口被门面幂等吞，钩子恰好触发一次。
    */
   readonly onInstanceTerminal?: (agentId: string) => void;
-  /** 日志（容器接 file logger——kill 终止信号失败可观测；缺省静默）。 */
+  /** 日志（容器接 file logger——kill 终止信号失败/findings 落账跳过可观测；缺省静默）。 */
   readonly logger?: { warn: (message: string) => void };
+  /**
+   * findings 落账管道（F3.0③，透传 ClosureRecorder）：closure findings
+   * 非空时映射 kg 写 op 落账（组合根接 kg 栈 KgWriteService 唯一写入口）。
+   * 缺省不落账（纯调度测试形态）。
+   */
+  readonly findingsSink?: ClosureFindingsSink;
 }
 
 /**
@@ -185,6 +191,8 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       clock: deps.clock,
       reportsDirFor: deps.reportsDirFor,
       injectClosure: deps.injectClosure,
+      logger: deps.logger,
+      ...(deps.findingsSink !== undefined ? { findingsSink: deps.findingsSink } : {}),
     });
     // 契约零变化：恰 2 回调注册给 runner，回调体一行转发
     this.deps.runner.setCallbacks({

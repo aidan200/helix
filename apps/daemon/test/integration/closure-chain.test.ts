@@ -1,14 +1,22 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Database } from "bun:sqlite";
 import { PassThrough } from "node:stream";
+import type { Model } from "@earendil-works/pi-ai";
 import { createTestDaemon } from "../helpers/createTestDaemon";
+import type { TestDaemonOptions } from "../helpers/createTestDaemon";
 import type { Daemon } from "../../src/infrastructure/container";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
 import type { AgentEngineEvent } from "../../src/application/ports/outbound/AgentEnginePort";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
+import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
+import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import { KgDatabase, kgDbPath } from "../../src/adapters/driven/sqlite-kg/KgDatabase";
+import { SqliteKnowledgeStore } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
+import { KgWriteService } from "../../src/application/services/kg/KgWriteService";
+import type { KnowledgeWriteOp } from "../../src/domain/kg/types";
 
 /**
  * T2.3 closure 双通道 integration（test-design §2.1 F1.5/F1.6 + §4.1-3；
@@ -260,10 +268,12 @@ describe("③ 用户 steer 与 closure 注入混序 FIFO（同队列按序 drain
     rig.runner.forceClosure(agentId, { result: "done", closure: { ...DONE("调研完成"), findings: null } });
 
     // 注入即时可见：pendingSteer 按入队序 = [用户补充, closure]（source 可区分）
+    // F3.0（T4.1）：注入行 = 一行通知 + reportPath 指针行（无自报 → 兜底路径也走指针）
+    const fallbackReport = path.join(home, "reports", daemon.system.getStatus().sessionId, `${agentId}.md`);
     const pending = daemon.session.getSnapshot().session.pendingSteer;
     expect(pending.map((i) => i.text)).toEqual([
       "用户补充：注意边界情况",
-      `${agentId} closure: done — 调研完成`,
+      `${agentId} closure: done — 调研完成\n详情: ${fallbackReport} — 需要细节时 read`,
     ]);
     expect(pending[0]?.source).toBe("user"); // 用户 steer 来源显式标记（T11a）
     expect(pending[1]?.source).toBe("closure"); // closure 注入来源可区分（AD-8）
@@ -276,7 +286,7 @@ describe("③ 用户 steer 与 closure 注入混序 FIFO（同队列按序 drain
     expect(drainedUserTexts).toEqual([
       "开始调研",
       "用户补充：注意边界情况", // FIFO：用户 steer 在前
-      `${agentId} closure: done — 调研完成`, // closure 在后，均被消费（不丢失）
+      `${agentId} closure: done — 调研完成\n详情: ${fallbackReport} — 需要细节时 read`, // closure 在后，均被消费（不丢失）
     ]);
     // 两注入各开新 turn（每条 steer 独占一 turn，§5.3-4）
     expect(daemon.session.getSnapshot().session.turns.length).toBe(3);
@@ -357,4 +367,309 @@ describe("⑤ kill 全链（FB-3：runner.kill 先行 + closure failed 注入主
     expect(rig.daemon.orchestration.kill(agentId)).toEqual({ killed: false, error: expect.stringContaining("已终态") });
     expect(rig.daemon.orchestration.kill("agent-999")).toEqual({ killed: false, error: expect.stringContaining("不存在") });
   }, 12000);
+});
+
+// ── F3.0（T4.1）：closure 通路修复——通知与正文分层（AD-17） ────────
+//
+// 三层断言面：①注入行 = 一行通知 + reportPath 指针行，报告全文不进主线；
+// ②SubAgent 自报 reportPath 透传原值，daemon 零重渲染（AF-4 覆盖行为移除）；
+// ③findings 非空 → kg 落账（走 KgWriteService 唯一写入口），空数组显式「无」
+// 零落账零报错，落账故障不阻塞收口。
+
+describe("⑥ F3.0 注入行带 reportPath 指针 + 自报路径透传不覆盖（CL-3.A1/A2）", () => {
+  test("自报 reportPath：注入两行（通知+指针）且不含全文；reportPath 原值透传、原报告零改写", async () => {
+    const rig = (current = await makeRig());
+    const reportPath = path.join(rig.home, "sub-self-report.md");
+    writeFileSync(reportPath, "# SubAgent 原始报告\n\nSENTINEL-FULLTEXT-9f3a\n", "utf8");
+
+    const spawn6 = rig.daemon.orchestration.spawn("带自报报告的任务");
+    if (spawn6.status !== "run") throw new Error("unreachable");
+    const agentId = spawn6.agentId; // T10a：agent-<唯一串>
+    rig.runner.forceClosure(agentId, {
+      result: "done",
+      closure: { ...DONE("自报报告任务完成"), reportPath, findings: [] },
+    });
+
+    await until(() => eventRows(rig, "agent.completed").length > 0, 5000, "agent.completed 落盘");
+    const closure = eventRows(rig, "agent.completed")[0]!.payload["closure"] as Record<string, unknown>;
+    expect(closure["reportPath"]).toBe(reportPath); // 透传原值（AF-4：不再被覆盖为 <home>/reports/...）
+
+    // 注入行：一行通知 + 指针行；报告全文不进主线（dense payload 教训 F-4）
+    await until(
+      () => snapshot(rig).session.entries.some((e) => "role" in e && e.text.includes(`${agentId} closure: done — 自报报告任务完成`)),
+      5000,
+      "closure 注入主线",
+    );
+    const entry = snapshot(rig).session.entries.find(
+      (e): e is (typeof e) & { role: "user" | "assistant"; text: string } => "role" in e && e.text.includes(`${agentId} closure: done`),
+    )!;
+    expect(entry.text).toBe(`${agentId} closure: done — 自报报告任务完成\n详情: ${reportPath} — 需要细节时 read`);
+    expect(entry.text).not.toContain("SENTINEL-FULLTEXT-9f3a");
+
+    // read reportPath 得 SubAgent 原报告（daemon 未重渲染）；无兜底重渲染产物
+    expect(readFileSync(reportPath, "utf8")).toBe("# SubAgent 原始报告\n\nSENTINEL-FULLTEXT-9f3a\n");
+    expect(existsSync(path.join(rig.home, "reports", rig.sessionId, `${agentId}.md`))).toBe(false);
+  }, 12000);
+
+  test("无自报 reportPath：兜底落盘保留（<home>/reports/<session>/<agentId>.md）且注入行带指针", async () => {
+    const rig = (current = await makeRig());
+    const spawn6b = rig.daemon.orchestration.spawn("无自报报告的任务");
+    if (spawn6b.status !== "run") throw new Error("unreachable");
+    const agentId = spawn6b.agentId;
+    rig.runner.forceClosure(agentId, {
+      result: "done",
+      closure: { ...DONE("无自报完成"), reportPath: null, findings: [] },
+    });
+
+    await until(
+      () => snapshot(rig).session.entries.some((e) => "role" in e && e.text.includes(`${agentId} closure: done — 无自报完成`)),
+      5000,
+      "closure 注入主线",
+    );
+    const fallbackPath = path.join(rig.home, "reports", rig.sessionId, `${agentId}.md`);
+    const entry = snapshot(rig).session.entries.find(
+      (e): e is (typeof e) & { role: "user" | "assistant"; text: string } => "role" in e && e.text.includes(`${agentId} closure: done`),
+    )!;
+    expect(entry.text).toBe(`${agentId} closure: done — 无自报完成\n详情: ${fallbackPath} — 需要细节时 read`); // 兜底路径也走指针行
+    await until(() => existsSync(fallbackPath), 5000, "兜底报告落盘");
+  }, 12000);
+});
+
+describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
+  /** 注入 findingsSink 的 rig（sink 具体形态由用例闭包携带）。 */
+  async function makeSinkRig(sink: TestDaemonOptions["findingsSink"], home: string): Promise<Rig> {
+    const engine = new FakeAgentEngine({});
+    const runner = new ScriptedRunner();
+    const daemon = await createTestDaemon({
+      home,
+      engine,
+      skipConfig: true,
+      port: 0,
+      subagentRunner: runner,
+      cliInput: new PassThrough(),
+      cliOutput: new PassThrough(),
+      findingsSink: sink,
+    });
+    return {
+      home,
+      sessionId: daemon.system.getStatus().sessionId,
+      engine,
+      runner,
+      daemon,
+      dispose: async () => {
+        await daemon.shutdown();
+        rmSync(home, { recursive: true, force: true });
+      },
+    };
+  }
+
+  test("非空 findings：sediment 新增→createNode、修改/废弃→supersede（change_log/nodes 出现条目，含迭代 id）；非 sediment/缺必填跳过", async () => {
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "helix-t41-proj-"));
+    const database = new KgDatabase();
+    const service = new KgWriteService({ store: new SqliteKnowledgeStore({ database }) });
+    const writes: { projectRoot: string; op: KnowledgeWriteOp }[] = [];
+    // 预建目标节点（供「废弃」supersede 命中真节点）
+    const pre = service.write(projectRoot, {
+      kind: "createNode",
+      iterationId: "iter-t41",
+      draft: { kind: "rule", name: "旧规则", digest: "将被本次推翻的旧规则" },
+    });
+    expect(pre.ok).toBe(true);
+    const targetNode = pre.ok ? pre.nodeId : "TR-?";
+
+    const home = mkdtempSync(path.join(tmpdir(), "helix-t41-sink-"));
+    const rig = (current = await makeSinkRig(
+      {
+        write: (root, op) => {
+          writes.push({ projectRoot: root, op });
+          return service.write(root, op);
+        },
+        scanProjects: () => [projectRoot],
+      },
+      home,
+    ));
+    try {
+      const spawn7 = rig.daemon.orchestration.spawn("带 findings 的任务");
+      if (spawn7.status !== "run") throw new Error("unreachable");
+      const agentId = spawn7.agentId;
+      rig.runner.forceClosure(agentId, {
+        result: "done",
+        closure: {
+          status: "done",
+          summary: "findings 落账任务完成",
+          reportPath: null,
+          taskId: "T4.1",
+          findings: [
+            { kind: "sediment", changeType: "新增", name: "报告透传规则", digest: "自报 reportPath 存在时透传时", reason: "任务沉淀的可复用规则", iterationId: "iter-t41" }, // project 缺省 → 唯一扫描项目自动
+            { kind: "sediment", changeType: "废弃", targetNode, reason: "被本次实现推翻", iterationId: "iter-t41" },
+            { kind: "issue", description: "非 sediment 语义不落账" },
+            { kind: "sediment", changeType: "新增", name: "缺迭代 id 的条目", digest: "应被跳过" }, // 缺 iterationId
+          ],
+        },
+      });
+
+      await until(() => eventRows(rig, "agent.completed").length > 0, 5000, "agent.completed 落盘");
+      // 只有两条命中写入口（issue 无 sediment 语义 / 缺 iterationId 跳过）
+      expect(writes.map((w) => w.op.kind)).toEqual(["createNode", "supersede"]);
+      expect(writes.every((w) => w.projectRoot === projectRoot)).toBe(true);
+
+      // .kg 出现对应条目：nodes 新节点 + 目标翻 superseded；change_log 含迭代 id
+      await until(() => {
+        const db = new Database(kgDbPath(projectRoot), { readonly: true });
+        try {
+          const rows = db.prepare("SELECT iteration_id FROM change_log WHERE iteration_id = ?").all("iter-t41") as unknown[];
+          return rows.length >= 3; // 预建 1 + createNode 1 + supersede 1
+        } finally {
+          db.close();
+        }
+      }, 5000, "change_log 落账");
+      const db = new Database(kgDbPath(projectRoot), { readonly: true });
+      try {
+        const node = db.prepare("SELECT name, status FROM nodes WHERE name = ?").get("报告透传规则") as { name: string; status: string } | null;
+        expect(node).toMatchObject({ name: "报告透传规则", status: "draft" }); // 建库态缺省 draft（确认归验证期 F3.3 面）
+        const target = db.prepare("SELECT status FROM nodes WHERE id = ?").get(targetNode) as { status: string };
+        expect(target.status).toBe("superseded");
+        const ops = db
+          .prepare("SELECT op FROM change_log WHERE iteration_id = ? ORDER BY seq")
+          .all("iter-t41") as { op: string }[];
+        expect(ops.map((r) => r.op)).toEqual(["createNode", "createNode", "supersede"]);
+      } finally {
+        db.close();
+      }
+    } finally {
+      database.closeAll();
+      rmSync(projectRoot, { recursive: true, force: true });
+      await rig.dispose();
+      current = undefined;
+    }
+  }, 15000);
+
+  test("findings=[]（显式无）→ 零落账零报错，closure 主流程照常", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "helix-t41-empty-"));
+    const writes: { projectRoot: string; op: KnowledgeWriteOp }[] = [];
+    const rig = (current = await makeSinkRig(
+      {
+        write: (root, op) => {
+          writes.push({ projectRoot: root, op });
+          return { ok: true, nodeId: "TR-0" };
+        },
+        scanProjects: () => [],
+      },
+      home,
+    ));
+    const spawn7b = rig.daemon.orchestration.spawn("空 findings 任务");
+    if (spawn7b.status !== "run") throw new Error("unreachable");
+    rig.runner.forceClosure(spawn7b.agentId, {
+      result: "done",
+      closure: { status: "done", summary: "空 findings 完成", reportPath: null, findings: [], taskId: null },
+    });
+    await until(() => eventRows(rig, "agent.completed").length > 0, 5000, "agent.completed 落盘");
+    expect(writes).toEqual([]); // 显式无：零落账
+    await until(
+      () => snapshot(rig).session.entries.some((e) => "role" in e && e.text.includes(`${spawn7b.agentId} closure: done — 空 findings 完成`)),
+      5000,
+      "注入照常",
+    );
+  }, 12000);
+
+  test("落账故障不影响 closure 收口（写入口抛异常 → 事件/注入照常，不冒泡）", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "helix-t41-fail-"));
+    const rig = (current = await makeSinkRig(
+      {
+        write: () => {
+          throw new Error("kg 落账通道故障注入");
+        },
+        scanProjects: () => [],
+      },
+      home,
+    ));
+    const spawn7c = rig.daemon.orchestration.spawn("落账会失败的任务");
+    if (spawn7c.status !== "run") throw new Error("unreachable");
+    const agentId = spawn7c.agentId;
+    rig.runner.forceClosure(agentId, {
+      result: "done",
+      closure: {
+        status: "done",
+        summary: "落账失败但收口照常",
+        reportPath: null,
+        taskId: null,
+        findings: [{ kind: "sediment", changeType: "新增", name: "X", digest: "Y", iterationId: "iter-t41" }],
+      },
+    });
+    // 主流程不受影响：agent.completed 落盘 + closure_records + 注入照常发生
+    await until(() => eventRows(rig, "agent.completed").length > 0, 5000, "agent.completed 落盘");
+    await until(
+      () => snapshot(rig).session.entries.some((e) => "role" in e && e.text.includes(`${agentId} closure: done — 落账失败但收口照常`)),
+      5000,
+      "注入照常",
+    );
+  }, 12000);
+});
+
+describe("⑧ F3.0 e2e：真子进程闭环 → 注入行含指针（真 Bun.spawn）", () => {
+  test("真子进程回传带自报 reportPath 的 closure → 主线注入两行含指针、原报告零改写", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "helix-t41-e2e-"));
+    const engine = new FakeAgentEngine({});
+    const reportPath = path.join(home, "real-child-report.md");
+    writeFileSync(reportPath, "# 真子进程报告\n\nSENTINEL-REAL-CHILD\n", "utf8");
+    const scriptPath = path.join(home, "script.json");
+    writeFileSync(
+      scriptPath,
+      JSON.stringify({
+        replies: [
+          `任务完成。<<<CLOSURE\n${JSON.stringify({ status: "done", summary: "真子进程完成", reportPath, findings: [], taskId: null })}\nCLOSURE>>>`,
+        ],
+      }),
+    );
+    const fakeModel = {
+      id: "model",
+      name: "Fake Model",
+      api: "anthropic-messages",
+      provider: "fake",
+      baseUrl: "http://localhost-unused",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 100_000,
+      maxTokens: 8192,
+    } as unknown as Model<any>;
+    const runner = new SubagentLauncher({
+      profile: SubAgentProfile,
+      model: fakeModel,
+      apiKeys: { fake: "k" },
+      toolCwd: home,
+      fakeEngineScript: scriptPath,
+      reportDirFor: (sessionId) => path.join(home, "reports", sessionId),
+    });
+    const daemon = await createTestDaemon({
+      home,
+      engine,
+      skipConfig: true,
+      port: 0,
+      subagentRunner: runner,
+      cliInput: new PassThrough(),
+      cliOutput: new PassThrough(),
+    });
+    try {
+      const spawn8 = daemon.orchestration.spawn("真子进程任务");
+      if (spawn8.status !== "run") throw new Error("unreachable");
+      const agentId = spawn8.agentId;
+
+      const session = () => daemon.session.getSnapshot().session;
+      await until(
+        () => session().entries.some((e) => "role" in e && e.text.includes(`${agentId} closure: done — 真子进程完成`)),
+        20000,
+        "真子进程 closure 注入主线",
+      );
+      const entry = session().entries.find(
+        (e): e is (typeof e) & { role: "user" | "assistant"; text: string } => "role" in e && e.text.includes(`${agentId} closure: done`),
+      )!;
+      expect(entry.text).toBe(`${agentId} closure: done — 真子进程完成\n详情: ${reportPath} — 需要细节时 read`);
+      expect(readFileSync(reportPath, "utf8")).toContain("SENTINEL-REAL-CHILD"); // daemon 未重渲染自报报告
+    } finally {
+      await runner.dispose();
+      await daemon.shutdown();
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 30000);
 });

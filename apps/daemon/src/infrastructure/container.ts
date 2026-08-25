@@ -24,6 +24,7 @@ import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
 import { buildEditToolDeps, buildKnowledgeStack, startKgSyncBackground, type KgSyncBackground, type KnowledgeStack } from "./assembly/buildKnowledgeStack";
 import { scanWorkspaceProjects } from "../adapters/driven/workspace-scan";
+import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { ensureDevToken } from "./dev-token";
@@ -148,6 +149,11 @@ export interface AssembleDaemonDeps {
   readonly browserPort: BrowserPort;
   /** SubAgent runner 覆盖（测试注入 fake runner 驱动收口时序；缺省真体/占位降级）。 */
   readonly subagentRunnerOverride?: InstanceRunner;
+  /**
+   * findings 落账管道覆盖（F3.0，T4.1 测试注入替身；缺省 = kg 栈真体：
+   * KgWriteService 唯一写入口 + workspace 项目扫描）。
+   */
+  readonly findingsSinkOverride?: ClosureFindingsSink;
   /** 前端静态产物目录覆盖（缺省取 config.staticDir）。 */
   readonly staticDir?: string;
   /** 工具沙箱 cwd 覆盖（缺省为进程工作区）。 */
@@ -326,6 +332,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // spawn 派发任务切片注入（F1.3）：任务文本 → 图查询 → digest+指针切片
     // 拼入 task 约束区；注入后 markInjected 入跨通道去重注册表（T3.2 同源）
     taskInjector: (sessionId, task) => knowledge.queryService.injectTaskSlice(sessionId, task),
+    // findings 落账管道（F3.0，T4.1）：closure findings → KgWriteService 唯一
+    // 写入口落账（绝不旁路）；目标项目解析 = workspace 全扫描（与 kg-update
+    // 工具同口径：显式名命中 / 唯一项目自动 / 多项目不猜）。测试可注入替身。
+    findingsSink: deps.findingsSinkOverride ?? {
+      write: (projectRoot, op) => knowledge.writeService.write(projectRoot, op),
+      scanProjects: () => scanWorkspaceProjects(kgWorkspaceRoot),
+    },
     builtinSkillsDir: deps.builtinSkillsDir,
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
     sessionIdlePollMs: deps.sessionIdlePollMs,

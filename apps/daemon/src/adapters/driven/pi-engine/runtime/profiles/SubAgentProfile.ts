@@ -41,7 +41,11 @@ const SUBAGENT_BASE_PROMPT =
   "CLOSURE>>>\n" +
   "其中 status=done 表示已完成、failed 表示无法完成；summary 为给主线的一句话结论；" +
   "reportPath 为报告文件路径（无则 null）；findings 为结构化发现数组（无则 []）；" +
-  "taskId 为关联任务号（无则 null）。";
+  "taskId 为关联任务号（无则 null）。\n" +
+  "报告落盘（必须遵守）：任务完成报告由你按「任务收口装配指引」的段库组稿，全文写入" +
+  "环境变量 HELIX_REPORT_PATH 指向的文件（路径可在命令行查看该变量取值；变量缺席时" +
+  "报告并入最后回复，closure 块 reportPath 填 null）；报告写盘成功后 closure 块的" +
+  "reportPath 填该路径——daemon 只透传该路径给主线，不会代写或改写你的报告。";
 
 /** base + report 装配指引（AD-18：提示词携带段库+硬约束+装配示例引用）。 */
 export const SUBAGENT_SYSTEM_PROMPT = SUBAGENT_BASE_PROMPT + "\n\n" + REPORT_ASSEMBLY_GUIDE;

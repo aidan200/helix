@@ -395,6 +395,29 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       expect(src.includes("process.env"), `${rel} 读取了环境变量（AG-08）`).toBe(false);
     }
   });
+
+  test("subagent env IPC 键清单登记（F3.0：新增 HELIX_* 键须同步扩登记——键级守护，防未登记键悄然扩散）", () => {
+    // env 在 subagent/ 内是父子 IPC 通道（非配置源）——通道键是协议面，
+    // 新键（如 F3.0 reportPath 传参的 HELIX_REPORT_PATH）须在此清单登记，
+    // 使键集合变更可评审（扫描面含注释提及：注释与实现同键同责任）。
+    const registered = [
+      "HELIX_API_KEYS_JSON",
+      "HELIX_FAKE_ENGINE_SCRIPT",
+      "HELIX_INSTANCE_ID",
+      "HELIX_MODEL_JSON",
+      "HELIX_REPORT_PATH", // F3.0（T4.1）：报告落点传参（SubagentLauncher 注入 / 提示词引导消费）
+      "HELIX_SYSTEM_PROMPT",
+      "HELIX_THINKING_LEVEL",
+      "HELIX_TOOLS_JSON",
+      "HELIX_TOOL_CWD",
+    ].sort();
+    const found = new Set<string>();
+    const subagentRel = path.join("adapters", "driven", "subagent");
+    for (const rel of listFiles(path.join(srcRoot, subagentRel))) {
+      for (const m of read(path.join(subagentRel, rel)).matchAll(/HELIX_[A-Z_]+/g)) found.add(m[0]!);
+    }
+    expect([...found].sort(), "subagent env IPC 键集合与登记清单不一致——新键须扩登记（AG-08）").toEqual(registered);
+  });
 });
 
 describe("AG-10 + TP-CL4-3：runtime 无编排模式分支", () => {

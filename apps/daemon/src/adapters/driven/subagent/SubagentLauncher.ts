@@ -71,6 +71,12 @@ export interface SubagentLauncherDeps {
   /** 工具沙箱 cwd（子进程 CoreToolExecutor 用）。 */
   readonly toolCwd: string;
   /**
+   * 任务报告目录（F3.0，T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH
+   * = <dir>/<instanceId>.md，SubAgent 提示词引导读 env 写报告）——与
+   * ClosureRecorder 兜底 reportsDirFor 同源同式。缺省不传键（既有测试形态）。
+   */
+  readonly reportDirFor?: (sessionId: string) => string;
+  /**
    * spawn 快照（代际生效，TR-AD-24 同构）：launch 时刻读一次的组装
    * 产物缓存（组合根在启动与 toggle applied 后刷新；systemPrompt = base +
    * 生效工具清单 + 生效技能段，tools = getEffectiveTools 生效集）。透传
@@ -176,6 +182,8 @@ export class SubagentLauncher implements InstanceRunner {
     // spawn 快照：launch 时刻读一次（toggle 后新 spawn 跟随新值，已
     // spawn 实例 env 已定格不受影响——代际生效）
     const snapshot = this.deps.spawnSnapshot?.();
+    // F3.0（T4.1）：报告落点 env 传参（未注入 reportDirFor 不传键——既有测试形态不变）
+    const reportDir = this.deps.reportDirFor?.(instance.sessionId);
     const proc = Bun.spawn({
       cmd: [process.execPath, DAEMON_ENTRY_PATH, "--child-main", "--task", task],
       env: {
@@ -185,6 +193,7 @@ export class SubagentLauncher implements InstanceRunner {
         HELIX_THINKING_LEVEL: thinkingLevel, // thinking 定格值（字符串透传，无 registry 防重建红线）
         HELIX_API_KEYS_JSON: JSON.stringify(apiKeys),
         HELIX_TOOL_CWD: this.deps.toolCwd,
+        ...(reportDir !== undefined ? { HELIX_REPORT_PATH: join(reportDir, `${id}.md`) } : {}),
         ...(snapshot !== undefined
           ? {
               HELIX_SYSTEM_PROMPT: snapshot.systemPrompt,
@@ -327,6 +336,18 @@ export class SubagentLauncher implements InstanceRunner {
     const entry = this.children.get(id);
     if (!entry || entry.closed) return; // 幂等：首个收口生效（竞态后到者吞）
     entry.closed = true; // 保留 entry（exit 码观测/launch 去重）；后续回调不再触发
+    // F3.0（T4.1，AD-17 影响面）：失败收口必含非空 summary——SubAgent 回传
+    // failed 但缺叙述时补默认（含失败关键词；error 面并入）。done 空 summary
+    // 不在补齐面（如实透传——闭环裁决归 MainAgent）。
+    if (outcome.closure.status === "failed" && outcome.closure.summary.trim() === "") {
+      outcome = {
+        ...outcome,
+        closure: {
+          ...outcome.closure,
+          summary: `任务失败（SubAgent 收口 failed 未附结论${outcome.error !== undefined ? `：${outcome.error}` : ""}）`,
+        },
+      };
+    }
     this.callbacks?.onInstanceClosure(id, outcome);
   }
 }
