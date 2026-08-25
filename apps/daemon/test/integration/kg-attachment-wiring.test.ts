@@ -233,6 +233,8 @@ describe("edit 附着接线（真 .kg 锚表）", () => {
         getNode: () => null,
         getIndexStatus: () => ({ baseline: "1", symbolCount: 3, degraded: false }),
         getSyncBaseline: () => ({ files: [], symbols: [], activeAnchors: [], anchorDeclarations: [] }),
+        getVerifyView: () => ({ nodes: [], edges: [], anchors: [], anchorDeclarations: [], files: [] }),
+        getChangeLog: () => [],
       };
       const attachment = new KgAttachmentService({ graph: failing });
       const env = new NodeExecutionEnv({ cwd: root });

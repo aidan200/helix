@@ -4,11 +4,13 @@ import type { KnowledgeStorePort } from "../../src/application/ports/outbound/Kn
 import { KgSyncService } from "../../src/application/services/kg/KgSyncService";
 import type {
   AttachmentSnapshot,
+  ChangeLogEntry,
   IndexStatus,
   NodeDetail,
   NodeDigestRow,
   SymbolBatch,
   SyncBaselineView,
+  VerifyView,
 } from "../../src/domain/kg/types";
 import { CodegraphEngineFake } from "../mocks/CodegraphEngineFake";
 
@@ -66,6 +68,14 @@ class StubGraph implements KnowledgeGraphPort {
 
   getSyncBaseline(): SyncBaselineView {
     return this.view;
+  }
+
+  getVerifyView(): VerifyView {
+    return { nodes: [], edges: [], anchors: [], anchorDeclarations: [], files: [] };
+  }
+
+  getChangeLog(): readonly ChangeLogEntry[] {
+    return [];
   }
 
   getIndexStatus(): IndexStatus {

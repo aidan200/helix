@@ -71,6 +71,16 @@ export interface EdgeRow {
   readonly dstId: NodeId;
 }
 
+/**
+ * 边原始行（verb 未收窄为 string——词表封闭性破坏检出的输入面，T5.1
+ * verify 消费）：库内 edges 表的忠实投影，越界 verb 不在类型层遮蔽。
+ */
+export interface RawEdgeRow {
+  readonly srcId: NodeId;
+  readonly verb: string;
+  readonly dstId: NodeId;
+}
+
 // ── 锚（AD-13 三级作用域） ─────────────────────────────────
 
 /** 锚作用域声明级别：global（不建锚）/ path（文件级）/ symbol（符号级）。 */
@@ -462,4 +472,43 @@ export interface IndexStatus {
   readonly baseline: string | null;
   readonly symbolCount: number;
   readonly degraded: boolean;
+}
+
+// ── 验证期检查与报告数据面（T5.1，F3.2/F3.3） ───────────────
+
+/**
+ * 人类面节点引用（AD-16）：粗体 name+kind 徽章+digest 首行由前端渲染，
+ * 数据层供全字段；id 仅供详情链接，不出现在任何人类可读叙述字段。
+ */
+export interface NodeRef {
+  readonly id: NodeId;
+  readonly name: string;
+  readonly kind: NodeKind;
+  readonly digestFirstLine: string;
+}
+
+/** 人类面代码符号引用（AD-16：符号名+路径(:行号)）。 */
+export interface SymbolRef {
+  readonly name: string;
+  readonly path: string;
+  readonly line?: number;
+}
+
+/** 节点 → 人类面引用投影（digest 首行截断；verify/报告面共用）。 */
+export function toNodeRef(node: KnowledgeNode): NodeRef {
+  const firstLine = node.digest.split("\n")[0] ?? node.digest;
+  return { id: node.id, name: node.name, kind: node.kind, digestFirstLine: firstLine.trim() };
+}
+
+/**
+ * 验证期检查读面（KnowledgeGraphPort.getVerifyView 返回，T5.1 消费）：
+ * 全节点/全边（原始行）/全物化锚（含 orphan 标记）/锚声明全集/文件面
+ * （mtime = churn 证据）——三检查与变化报告的共同数据源。
+ */
+export interface VerifyView {
+  readonly nodes: readonly KnowledgeNode[];
+  readonly edges: readonly RawEdgeRow[];
+  readonly anchors: readonly MaterializedAnchor[];
+  readonly anchorDeclarations: readonly AnchorDeclRow[];
+  readonly files: readonly SymbolFileRecord[];
 }

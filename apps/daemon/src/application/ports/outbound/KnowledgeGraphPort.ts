@@ -1,13 +1,24 @@
 import type {
   AnchorDeclRow,
   AttachmentSnapshot,
+  ChangeLogEntry,
   IndexStatus,
   NodeDetail,
   NodeDigestRow,
   SyncBaselineView,
+  VerifyView,
 } from "../../../domain/kg/types";
 
-export type { AnchorDeclRow, AttachmentSnapshot, IndexStatus, NodeDetail, NodeDigestRow, SyncBaselineView };
+export type {
+  AnchorDeclRow,
+  AttachmentSnapshot,
+  ChangeLogEntry,
+  IndexStatus,
+  NodeDetail,
+  NodeDigestRow,
+  SyncBaselineView,
+  VerifyView,
+};
 
 /**
  * .kg 知识图谱读出口端口（outbound，architecture.md §3.3）。
@@ -35,4 +46,17 @@ export interface KnowledgeGraphPort {
    * + 锚声明全集——增量跳过判定 / 符号消亡 diff / 物化全量重算差集输入。
    */
   getSyncBaseline(projectRoot: string): SyncBaselineView;
+
+  /**
+   * 验证期检查读面（T5.1 消费）：全节点/全边（原始行）/全物化锚（含
+   * orphan 标记）/锚声明全集/文件面（mtime=churn 证据）——三检查与
+   * 变化报告的共同数据源。只读，零写路径（AD-6 只列不修）。
+   */
+  getVerifyView(projectRoot: string): VerifyView;
+
+  /**
+   * 变更日志按迭代过滤（T5.1 变化报告 knowledge_change 数据源；
+   * seq 正序）。
+   */
+  getChangeLog(projectRoot: string, iterationId: string): readonly ChangeLogEntry[];
 }

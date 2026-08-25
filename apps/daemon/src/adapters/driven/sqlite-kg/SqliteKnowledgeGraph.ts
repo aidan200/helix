@@ -13,6 +13,7 @@ import type {
   FileAnchor,
   IndexStatus,
   KnowledgeNode,
+  MaterializedAnchor,
   NodeDetail,
   NodeDigestRow,
   NodeDomain,
@@ -20,11 +21,13 @@ import type {
   NodeKind,
   NodeLayer,
   NodeStatus,
+  RawEdgeRow,
   SupersedeChainLink,
   SymbolAnchor,
   SymbolFileRecord,
   SymbolRecord,
   SyncBaselineView,
+  VerifyView,
 } from "../../../domain/kg/types";
 
 /**
@@ -266,6 +269,63 @@ export class SqliteKnowledgeGraph {
     };
   }
 
+  /**
+   * 验证期检查读面（T5.1）：全节点/全边（原始行）/全物化锚（含 orphan
+   * 标记）/锚声明全集/文件面——只读 SELECT，零写路径（AD-6）。
+   */
+  getVerifyView(projectRoot: string): VerifyView {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const nodes = (
+      db.prepare("SELECT id, kind, name, digest, body, domain, layer, status, created_at, updated_at FROM nodes ORDER BY id").all() as NodeRow[]
+    ).map(mapNode);
+    const edges = (
+      db.prepare("SELECT src_id, verb, dst_id FROM edges ORDER BY src_id, verb, dst_id").all() as RawEdgeDbRow[]
+    ).map((row) => ({ srcId: row.src_id, verb: row.verb, dstId: row.dst_id }));
+    const anchors = (
+      db
+        .prepare(
+          "SELECT node_id, anchor_path, anchor_symbol, anchor_kind, orphan FROM materialized_anchors " +
+            "ORDER BY node_id, anchor_path, anchor_symbol",
+        )
+        .all() as AnchorWithOrphanRow[]
+    ).map<MaterializedAnchor>((row) => ({
+      nodeId: row.node_id,
+      anchorPath: row.anchor_path,
+      anchorSymbol: row.anchor_symbol === "" ? null : row.anchor_symbol,
+      anchorKind: row.anchor_kind as AnchorKind,
+      orphan: row.orphan === 1,
+    }));
+    const anchorDeclarations = (
+      db.prepare("SELECT node_id, scope_kind, pattern FROM anchor_decl ORDER BY node_id, scope_kind, pattern").all() as DeclFlatRow[]
+    ).map((row) => ({
+      nodeId: row.node_id,
+      scopeKind: row.scope_kind as AnchorDeclRow["scopeKind"],
+      pattern: row.pattern,
+    }));
+    const files = (
+      db.prepare("SELECT path, mtime, sha256 FROM files ORDER BY path").all() as FileBaselineRow[]
+    ).map((row) => ({ path: row.path, mtime: row.mtime, sha256: row.sha256 }));
+    return { nodes, edges, anchors, anchorDeclarations, files };
+  }
+
+  /** 变更日志按迭代过滤（T5.1 报告 knowledge_change 数据源；seq 正序）。 */
+  getChangeLog(projectRoot: string, iterationId: string): readonly ChangeLogEntry[] {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    return (
+      db
+        .prepare("SELECT seq, iteration_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE iteration_id = ? ORDER BY seq")
+        .all(iterationId) as LogRow[]
+    ).map((row) => ({
+      seq: row.seq,
+      iterationId: row.iteration_id,
+      op: row.op as ChangeLogEntry["op"],
+      nodeId: row.node_id,
+      supersedeOf: row.supersede_of,
+      reason: row.reason,
+      ts: row.ts,
+    }));
+  }
+
   // ── supersede 链组装（双向游走） ──────────────────────────
 
   /**
@@ -414,6 +474,16 @@ interface ActiveAnchorRow {
   anchor_path: string;
   anchor_symbol: string;
   anchor_kind: string;
+}
+
+interface AnchorWithOrphanRow extends ActiveAnchorRow {
+  orphan: number;
+}
+
+interface RawEdgeDbRow {
+  src_id: string;
+  verb: string;
+  dst_id: string;
 }
 
 interface DeclFlatRow {

@@ -4,6 +4,8 @@ import type { KnowledgeStorePort } from "../../application/ports/outbound/Knowle
 import { KgWriteService } from "../../application/services/kg/KgWriteService";
 import { KgAttachmentService } from "../../application/services/kg/KgAttachmentService";
 import { KgQueryService } from "../../application/services/kg/KgQueryService";
+import { KgVerifyService } from "../../application/services/kg/KgVerifyService";
+import { KgReportService } from "../../application/services/kg/KgReportService";
 import { CodegraphEngineAdapter } from "../../adapters/driven/codegraph-engine/CodegraphEngineAdapter";
 import type { CodegraphResolution } from "../../adapters/driven/codegraph-engine/resolve-codegraph";
 import { KgDatabase } from "../../adapters/driven/sqlite-kg/KgDatabase";
@@ -33,6 +35,9 @@ export { existingKgProjects, projectRootOfPath, scanWorkspaceProjects };
  * 工具挂点接线工厂：projectRootOfPath 多项目归属 + notifyWrite + 附着）。
  * T3.3：KgQueryService 挂入（读面聚合 + spawn 派发任务切片注入——
  * projects = 已建 .kg 项目，读面绝不新建库文件）。
+ * T5.1：KgVerifyService（三检查，AD-6 只列不修零写路径）+ KgReportService
+ * （变化报告数据面，AD-16 引用规范数据层强制）挂入——触发面 O-5 默认
+ * 手动：仅暴露 service 方法，daemon 不自动跑（页面接线归 T5.3）。
  *
  * AG-06 计数口径：本函数是 .kg 库第二个写队列实例（独立于 helix.db
  * WriteQueue，AD-15 按表分域两写点）的唯一构造点；codegraph-engine 只读
@@ -53,6 +58,10 @@ export interface KnowledgeStack {
   readonly attachmentService: KgAttachmentService;
   /** 读面聚合 + 任务切片注入（T3.3：kg 工具读面 / spawn 派发注入）。 */
   readonly queryService: KgQueryService;
+  /** 验证期三检查（T5.1，F3.2：只列不修零写；触发面 O-5 手动）。 */
+  readonly verifyService: KgVerifyService;
+  /** 变化报告数据面（T5.1，F3.3：按迭代聚合四类条目；T5.3 kg.change.report 数据源）。 */
+  readonly reportService: KgReportService;
   /** 关闭全部 per-project 连接（daemon 退出/测试清理；库文件保留）。 */
   readonly dispose: () => void;
 }
@@ -79,6 +88,8 @@ export function buildKnowledgeStack(deps: {
     projects: () => existingKgProjects(deps.workspaceRoot),
     attachment: attachmentService,
   });
+  const verifyService = new KgVerifyService({ graph });
+  const reportService = new KgReportService({ graph, verify: verifyService });
   return {
     writeService,
     store,
@@ -87,6 +98,8 @@ export function buildKnowledgeStack(deps: {
     syncService,
     attachmentService,
     queryService,
+    verifyService,
+    reportService,
     dispose: () => {
       syncService.dispose();
       database.closeAll();
