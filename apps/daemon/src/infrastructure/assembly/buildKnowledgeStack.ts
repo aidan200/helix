@@ -1,10 +1,9 @@
-import { readdirSync } from "node:fs";
-import path from "node:path";
 import type { CodegraphEnginePort } from "../../application/ports/outbound/CodegraphEnginePort";
 import type { KnowledgeGraphPort } from "../../application/ports/outbound/KnowledgeGraphPort";
 import type { KnowledgeStorePort } from "../../application/ports/outbound/KnowledgeStorePort";
 import { KgWriteService } from "../../application/services/kg/KgWriteService";
 import { KgAttachmentService } from "../../application/services/kg/KgAttachmentService";
+import { KgQueryService } from "../../application/services/kg/KgQueryService";
 import { CodegraphEngineAdapter } from "../../adapters/driven/codegraph-engine/CodegraphEngineAdapter";
 import type { CodegraphResolution } from "../../adapters/driven/codegraph-engine/resolve-codegraph";
 import { KgDatabase } from "../../adapters/driven/sqlite-kg/KgDatabase";
@@ -13,6 +12,12 @@ import { SqliteKnowledgeStore } from "../../adapters/driven/sqlite-kg/SqliteKnow
 import { FsWatchAdapter } from "../../adapters/driven/fs-watch/FsWatchAdapter";
 import { KgSyncService } from "../../application/services/kg/KgSyncService";
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
+import { existingKgProjects, projectRootOfPath, scanWorkspaceProjects } from "../../adapters/driven/workspace-scan";
+
+// §3.5 扫描/归属/existingKgProjects 已抽取 adapters/driven/workspace-scan.ts
+// （T3.3：组合根与 SubAgent 子进程本地 kg 栈共用同一口径）——此处重导出
+// 保既有 import 面（container/测试）不变。
+export { existingKgProjects, projectRootOfPath, scanWorkspaceProjects };
 
 /**
  * kg 子系统组合根装配（与 buildPersistence / buildSessionStack 同列）。
@@ -26,6 +31,8 @@ import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
  * fs-watch 兑底挂接，container.ts 装配序⑦后调用）。
  * T3.2：KgAttachmentService 挂入（附着编排）+ buildEditToolDeps（edit
  * 工具挂点接线工厂：projectRootOfPath 多项目归属 + notifyWrite + 附着）。
+ * T3.3：KgQueryService 挂入（读面聚合 + spawn 派发任务切片注入——
+ * projects = 已建 .kg 项目，读面绝不新建库文件）。
  *
  * AG-06 计数口径：本函数是 .kg 库第二个写队列实例（独立于 helix.db
  * WriteQueue，AD-15 按表分域两写点）的唯一构造点；codegraph-engine 只读
@@ -44,11 +51,17 @@ export interface KnowledgeStack {
   readonly syncService: KgSyncService;
   /** 附着编排（T3.2：edit 成功路径 📎 块 + 会话级跨通道去重注册表唯一持有者）。 */
   readonly attachmentService: KgAttachmentService;
+  /** 读面聚合 + 任务切片注入（T3.3：kg 工具读面 / spawn 派发注入）。 */
+  readonly queryService: KgQueryService;
   /** 关闭全部 per-project 连接（daemon 退出/测试清理；库文件保留）。 */
   readonly dispose: () => void;
 }
 
-export function buildKnowledgeStack(deps: { codegraphResolution: CodegraphResolution }): KnowledgeStack {
+export function buildKnowledgeStack(deps: {
+  codegraphResolution: CodegraphResolution;
+  /** workspace 根（kg 读面项目域扫描/归属；§3.5 = daemon 启动 cwd）。 */
+  workspaceRoot: string;
+}): KnowledgeStack {
   const database = new KgDatabase();
   const store = new SqliteKnowledgeStore({ database });
   const graph = new SqliteKnowledgeGraph({ database });
@@ -61,6 +74,11 @@ export function buildKnowledgeStack(deps: { codegraphResolution: CodegraphResolu
   });
   const syncService = new KgSyncService({ store, graph, engine: codegraphEngine });
   const attachmentService = new KgAttachmentService({ graph });
+  const queryService = new KgQueryService({
+    graph,
+    projects: () => existingKgProjects(deps.workspaceRoot),
+    attachment: attachmentService,
+  });
   return {
     writeService,
     store,
@@ -68,6 +86,7 @@ export function buildKnowledgeStack(deps: { codegraphResolution: CodegraphResolu
     codegraphEngine,
     syncService,
     attachmentService,
+    queryService,
     dispose: () => {
       syncService.dispose();
       database.closeAll();
@@ -78,41 +97,8 @@ export function buildKnowledgeStack(deps: { codegraphResolution: CodegraphResolu
 /**
  * workspace 一层扫描（§3.5 宽松口径 V-3：一级目录全部入列，排除清单为
  * 唯一过滤——目录项、非隐藏、非排除段）。§3.5 收口（domain/kg/
- * project-discovery.ts + KgProjectService，T5.x）到位后本私有 helper 由
- * 单点替换——组合根临时内联，handlers/service 层不自带解析纪律不变。
+ * project-discovery.ts + KgProjectService，T5.x）到位后由单点替换。
  */
-/** §3.5 排除清单（scanWorkspaceProjects 与事件归属共用唯一过滤）。 */
-const WORKSPACE_EXCLUDED = new Set(["docs", ".helix", ".worktrees", "node_modules"]);
-
-export function scanWorkspaceProjects(workspaceRoot: string): string[] {
-  let entries;
-  try {
-    entries = readdirSync(workspaceRoot, { withFileTypes: true });
-  } catch {
-    return []; // workspace 根不可读——无项目可触发
-  }
-  const out: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith(".") || WORKSPACE_EXCLUDED.has(entry.name)) continue;
-    out.push(path.join(workspaceRoot, entry.name));
-  }
-  return out.sort();
-}
-
-/**
- * 文件 → 项目根归属（§3.5 一级目录语义，T3.2）：workspace 内一级目录即
- * projectRoot；排除清单/隐藏段/根外文件 → undefined（不属任何项目域）。
- * scanWorkspaceProjects（启动扫描）与事件归属（watch/edit 挂点）共用
- * 同一过滤口径；单点正式收口归 T5.x project-discovery（本 helper 为组合根
- * 临时内联同款纪律）。
- */
-export function projectRootOfPath(workspaceRoot: string, absPath: string): string | undefined {
-  const rel = path.relative(workspaceRoot, absPath);
-  if (rel === "" || path.isAbsolute(rel) || rel.startsWith("..")) return undefined;
-  const first = rel.split(path.sep)[0] ?? "";
-  if (first === "" || first.startsWith(".") || WORKSPACE_EXCLUDED.has(first)) return undefined;
-  return path.join(workspaceRoot, first);
-}
 
 /**
  * edit 工具挂点接线工厂（T3.2，CL-1 F1.1）：组合根把 kg 栈接进 EditTool

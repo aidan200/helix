@@ -57,11 +57,12 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     // 不 spawn 孙进程（单层编排）。T3r：Main 增动态族单 browser 工具；H-3：
     // SubAgent 经 wire 转发通道接入同一 daemon CDP 单例（P0-1 子进程不直连
     // 决策不变——RemoteBrowserPort 进程外实现，ownerId = instanceId）。
+    // T3.3：两 profile 均增 kg/kg-update 双工具（查询面+落账面）。
     // 工具集 = Main 清单去编排三工具
     expect(SubAgentProfile.tools).toEqual(
       MainSessionProfile.tools.filter((t) => !t.startsWith("agent_")),
     );
-    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"]);
+    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "kg-update"]);
   });
 
   test("hooks 装配 SteerHooks（send→steer 转投接线，AD-7⑤；T1 后为构造器引用声明）", () => {

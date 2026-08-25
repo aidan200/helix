@@ -73,6 +73,10 @@ export const MainSessionProfile: AgentProfile = {
     "agent_inspect", // T3-B：死循环核实（编排四工具）
     // 动态族（单 browser 工具 + action 参数；条件注册——CoreToolExecutor options.browser）
     "browser",
+    // kg 双工具（T3.3，CL-4/CL-3）：只读查询面 + 即时落账面
+    //（AD-14 协议行兑现在 edit 现场——findings 收口通道之外的第二通道）
+    "kg",
+    "kg-update",
   ], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：实例化在 AgentRuntime 装配点，每 runtime 独立）

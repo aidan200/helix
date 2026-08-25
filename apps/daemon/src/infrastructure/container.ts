@@ -23,6 +23,7 @@ import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type 
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
 import { buildEditToolDeps, buildKnowledgeStack, startKgSyncBackground, type KgSyncBackground, type KnowledgeStack } from "./assembly/buildKnowledgeStack";
+import { scanWorkspaceProjects } from "../adapters/driven/workspace-scan";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { ensureDevToken } from "./dev-token";
@@ -266,7 +267,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   } else {
     logger.info(`codegraph 引擎不可用（构建面 degraded，AF-2）：${codegraphResolution.reasons.join("；")}`);
   }
-  const knowledge = buildKnowledgeStack({ codegraphResolution });
+  const knowledge = buildKnowledgeStack({ codegraphResolution, workspaceRoot: process.cwd() });
   // §3.5：workspace 根 = daemon 启动 cwd（同一根供 kg 后台与 edit 挂点归属）
   const kgWorkspaceRoot = process.cwd();
 
@@ -314,6 +315,17 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         attachment: knowledge.attachmentService,
         sessionId,
       }),
+    // kg 双工具装配面（T3.3）：主会话 executor 注册 kg/kg-update（SubAgent
+    // 子进程侧由 ChildMain 本地栈自带）；write 直用 knowledge 栈真体。
+    kgTools: {
+      query: knowledge.queryService,
+      write: knowledge.writeService,
+      workspaceRoot: kgWorkspaceRoot,
+      scanProjects: () => scanWorkspaceProjects(kgWorkspaceRoot),
+    },
+    // spawn 派发任务切片注入（F1.3）：任务文本 → 图查询 → digest+指针切片
+    // 拼入 task 约束区；注入后 markInjected 入跨通道去重注册表（T3.2 同源）
+    taskInjector: (sessionId, task) => knowledge.queryService.injectTaskSlice(sessionId, task),
     builtinSkillsDir: deps.builtinSkillsDir,
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
     sessionIdlePollMs: deps.sessionIdlePollMs,

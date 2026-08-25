@@ -23,12 +23,15 @@ import { createGrepTool, type GrepToolDeps } from "./grep/GrepTool";
 import { createEditTool, type EditToolDeps } from "./edit/EditTool";
 import { createReadTool } from "./read/ReadTool";
 import { createEditLinesTool } from "./edit-lines/EditLinesTool";
+import { createKgTool } from "./kg/KgTool";
+import { createKgUpdateTool } from "./kg-update/KgUpdateTool";
 import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
 import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool, createAgentInspectTool } from "./agent/AgentOrchestrationTools";
 import { imagesOfContent } from "../../../application/services/images";
-
+import type { KgQueryService } from "../../../application/services/kg/KgQueryService";
+import type { KnowledgeWriteOp, WriteResult } from "../../../domain/kg/types";
 /**
  * CoreToolExecutor —— ToolExecutorPort 的真实现（architecture.md §3.4，
  * 落位 adapters/driven/tools，AD-17/AD-10）。
@@ -65,6 +68,15 @@ export function bindToolContext<T extends ExecutionToolContext>(
   } as AgentTool<any>;
 }
 
+/** kg 双工具注入面（T3.3；query/write 均为结构化面——KgQueryService/
+ * KgWriteService 与测试替身同形）。 */
+export interface KgToolOptions {
+  readonly query: Pick<KgQueryService, "search" | "get" | "locate">;
+  readonly write: { write(projectRoot: string, op: KnowledgeWriteOp): WriteResult };
+  readonly workspaceRoot: string;
+  readonly scanProjects: () => readonly string[];
+}
+
 export interface CoreToolExecutorOptions {
   /** 工具沙箱 cwd（相对路径的解析根；daemon 侧为进程工作区，测试指向 tmp）。 */
   readonly cwd: string;
@@ -97,6 +109,13 @@ export interface CoreToolExecutorOptions {
    * 挂点（T3.2 附着接线预留）。缺省 = 全容缺。
    */
   readonly edit?: EditToolDeps;
+  /**
+   * kg 双工具注入面（T3.3）：提供则注册 kg（只读 search/get）与
+   * kg-update（即时落账/supersede）。主会话（buildSessionStack）与
+   * SubAgent 子进程（ChildMain 本地栈）均注入；缺省不注册（既有测试
+   * 形态/无 kg 场景 profile 不声明两名）。
+   */
+  readonly kg?: KgToolOptions;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -135,6 +154,18 @@ export class CoreToolExecutor implements ToolExecutorPort {
     }
     if (options.browser !== undefined) {
       tools.push(createBrowserTool(options.browser, options.ownerId ?? "main"));
+    }
+    if (options.kg !== undefined) {
+      // kg 双工具（T3.3）：kg 只读面 + kg-update 即时落账面（薄壳调 service）
+      tools.push(
+        createKgTool({ query: options.kg.query }),
+        createKgUpdateTool({
+          query: options.kg.query,
+          write: options.kg.write,
+          workspaceRoot: options.kg.workspaceRoot,
+          scanProjects: options.kg.scanProjects,
+        }),
+      );
     }
     const registry = new Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>();
     for (const tool of tools) registry.set(tool.name, tool);

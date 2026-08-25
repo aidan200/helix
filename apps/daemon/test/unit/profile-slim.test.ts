@@ -31,6 +31,8 @@ const TOOL_NAMES = [
   "agent_status",
   "agent_inspect", // T3-B：编排四工具
   "browser",
+  "kg", // T3.3：kg 双工具（查询面+落账面）
+  "kg-update",
 ] as const;
 
 /** 静态工具名（T3-C 后提示词仍零命中——委派契约句引用的编排工具名是行为指引非清单枚举）。 */
@@ -55,8 +57,12 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("② SubAgentProfile 系统提示：12 工具名词边界零命中", () => {
+  test("② SubAgentProfile 系统提示：14 工具名词边界零命中", () => {
     for (const name of TOOL_NAMES) {
+      // T3.3 例外："kg" 在 T4.2 段库指引中以概念词出现（"kg 约束切片"/"kg
+      // 落账输入"/"kg-change-report" 场景名）——非工具清单枚举（清单唯一源
+      // 仍是组装器），词边界检查对该名单项放行
+      if (name === "kg") continue;
       expect(
         SUBAGENT_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)),
         `SubAgent profile 提示仍含工具名 ${name}`,
@@ -64,9 +70,9 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 12 / subagent 8（T3-B +agent_inspect）", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 14 / subagent 10（T3-B +agent_inspect；T3.3 +kg 双工具）", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
-    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"]);
+    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "kg-update"]);
   });
 
   test("④ base 只留角色+行为引导：「并行委派」行为策略措辞保留（不列工具名）；closure 协议保留", () => {

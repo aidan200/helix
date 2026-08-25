@@ -24,4 +24,6 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   agent_status: "查询 SubAgent 实例的当前执行状态（仅用户主动询问进度时用）",
   agent_inspect: "核实 SubAgent 实例真实执行轨迹（进展零增量时判断是否死循环）",
   browser: "操控浏览器（action 分发：开 tab/eval/点击/滚动/截图等，携带登录态）",
+  kg: "查询项目知识图谱（只读：search 关键词检索 → get 节点全量，id 取自返回行）",
+  "kg-update": "知识图谱即时落账（supersede 推翻节点 / createNode 沉淀新知识，必填 iterationId）",
 };

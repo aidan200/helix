@@ -34,7 +34,7 @@ export function parseNodeId(id: string): { kind: NodeKind; seq: number } | null 
 export function parseExistingMax(ids: readonly string[]): { rule: number; entity: number } {
   const max = { rule: 0, entity: 0 };
   for (const id of ids) {
-    const match = /^(TR|E)(?:-[A-Za-z\u4e00-\u9fff]+)*-(\d+)$/.exec(id);
+    const match = EXISTING_ID_RE.exec(id);
     if (match === null) continue;
     const seq = Number(match[2]);
     if (match[1] === "TR") {
@@ -44,4 +44,16 @@ export function parseExistingMax(ids: readonly string[]): { rule: number; entity
     }
   }
   return max;
+}
+
+/** 存量 id 全形态（新号空间 + 保号复合前缀 + 中文尾缀；与 parseExistingMax 同一口径）。 */
+const EXISTING_ID_RE = /^(TR|E)(?:-[A-Za-z\u4e00-\u9fff]+)*-(\d+)$/;
+
+/**
+ * 存量 id 形态校验（T3.3 kg 工具 get 消费）：TR-n / E-n 新号空间 + 保号
+ * 复合形态（TR-AD-47 / E-客户 等）均合法；其余（SPEC-2 / TR-abc / 裸串）
+ * false——非法形态在工具层结构化报错而非空结果（参数供给闭环，CL-4.A3）。
+ */
+export function isValidNodeRef(id: string): boolean {
+  return EXISTING_ID_RE.test(id);
 }

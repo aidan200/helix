@@ -97,6 +97,14 @@ export class KgAttachmentService {
     for (const nodeId of nodeIds) seen.add(nodeId);
   }
 
+  /**
+   * 会话已到达节点 id 读面（T3.3 切片注入排除输入；与 markInjected 同一
+   * 注册表——注入前排除已达 id，注入后登记新达 id，两通道互斥闭环）。
+   */
+  seenInSession(sessionId: string): ReadonlySet<string> {
+    return this.seenOf(sessionId);
+  }
+
   private seenOf(sessionId: string): Set<string> {
     let seen = this.sessionSeen.get(sessionId);
     if (seen === undefined) {

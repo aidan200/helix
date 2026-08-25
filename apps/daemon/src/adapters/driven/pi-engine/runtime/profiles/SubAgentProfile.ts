@@ -49,7 +49,18 @@ export const SUBAGENT_SYSTEM_PROMPT = SUBAGENT_BASE_PROMPT + "\n\n" + REPORT_ASS
 export const SubAgentProfile: AgentProfile = {
   kind: "subagent-worker",
   systemPrompt: SUBAGENT_SYSTEM_PROMPT,
-  tools: ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"], // H-3：+browser（经 wire 转发通道接 daemon CDP 单例；装配经 CoreToolExecutor.resolveTools）
+  tools: [
+    "bash",
+    "read",
+    "write",
+    "edit",
+    "grep",
+    "web_search",
+    "web_fetch",
+    "browser", // H-3：+browser（经 wire 转发通道接 daemon CDP 单例；装配经 CoreToolExecutor.resolveTools）
+    "kg", // T3.3：只读查询面（search→get；ChildMain 本地栈装配）
+    "kg-update", // T3.3：即时落账面（supersede/createNode；落账主要发生在实现任务现场）
+  ],
   lifecycle: { mode: "single-shot" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：与主会话同坑同填——装配点实例化）
   // AD-3：真实声明槽位——声明即最高优先级；生产默认不设值（走会话快照/全局兜底；UI 管理归 skills 页下迭代）
