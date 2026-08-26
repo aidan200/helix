@@ -172,12 +172,12 @@ describe("AG-17 页面域/会话域分离", () => {
   /** FSD 层内合法但架构 §4.1 禁止的依赖（页面域读会话 store 内部）。 */
   const sessionInternal = /from\s+["']@\/entities\/session/;
 
-  it("nav-rail 与 project 占位页 + skills/trace/settings 实页已落地（守护对象存在）", () => {
+  it("nav-rail 与 project 实页 + skills/trace/settings 实页已落地（守护对象存在）", () => {
     for (const p of [
       "widgets/nav-rail/ui/IconRail.tsx",
       "pages/skills/AgentPage.tsx",
       "pages/trace/TracePage.tsx",
-      "pages/project/ProjectPage.tsx",
+      "pages/P-1/ProjectPage.tsx",
       "pages/settings/SettingsPage.tsx",
     ]) {
       expect(allFiles.map(rel).includes(p), `守护对象缺失：${p}`).toBe(true);
@@ -191,14 +191,14 @@ describe("AG-17 页面域/会话域分离", () => {
     expect(offenders.map(rel)).toEqual([]);
   });
 
-  /** 施工牌占位页清单（T2.2 trace / M6 T4 skills / S2 settings 依次出列——
-   *  useSession 公开 provider seam 与 models 实页（S2 归设置页模型分区）
-   *  同型，architecture.md §4.4 禁放的是会话 store 内部深层 import，非
-   *  公开 seam；校准依据 = AF-10）。 */
-  it("占位页（project）不 import entities/session（施工牌全静态零数据面；skills/trace/settings 实页走公开 seam）", () => {
+  /** 实页清单（T5.4：project 占位页出列——P-1 单页 master-detail 实页化，
+   *  useSession 公开 provider seam 与 trace/settings 实页同型；
+   *  校准依据 = AF-10）。本守护收窄为新增 P-1 页域不引 model 内部实现模块
+   * （settings/skills 存量 type import 属历史豁免面，不在此收紧）。 */
+  it("P-1 实页不 import entities/session 内部 model 模块（公开 seam 消费）", () => {
     const offenders = allFiles
-      .filter((f) => /pages\/(project)\//.test(rel(f)))
-      .filter((f) => sessionInternal.test(stripComments(sourceOf(f))));
+      .filter((f) => rel(f).startsWith("pages/P-1/") && !/\.(test|spec)\.[jt]sx?$/.test(f))
+      .filter((f) => /from\s+["']@\/entities\/session\/model/.test(stripComments(sourceOf(f))));
     expect(offenders.map(rel)).toEqual([]);
   });
 
@@ -217,7 +217,11 @@ describe("AG-16 i18n key 纪律（前端半）", () => {
     const exempt = (f: string): boolean =>
       f.endsWith(".test.ts") ||
       f.endsWith(".test.tsx") ||
-      rel(f).startsWith("shared/i18n/lang/");
+      rel(f).startsWith("shared/i18n/lang/") ||
+      // T5.4：kg-mock = F 层 mock daemon 数据面（协议 DTO 载体模拟，镜像
+      // daemon 下行的人类面叙述数据——AD-16 数据层强制点在 daemon/mock，
+      // 非 UI 文案；组件层仍零硬编码）。
+      rel(f) === "shared/api/kg-mock.ts";
     const offenders: string[] = [];
     for (const f of allFiles) {
       if (exempt(f)) continue;

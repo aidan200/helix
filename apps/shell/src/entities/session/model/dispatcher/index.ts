@@ -105,6 +105,22 @@ register({
   apply: (s) => s,
 });
 
+// ── kg 族六 *.result（iter-20260825-11fo T5.4；连接私有读面）──
+// 点对点回执帧（O-6 零推送事件），真消费归 P-1 图谱页页面查询链
+//（SessionContext 转发层 kgListeners——trace.query.result 先例，
+// dispatcher 侧保持 no-op 注册守护绿，会话 store 零写入）。
+register({
+  types: [
+    "kg.projects.result",
+    "kg.list.result",
+    "kg.node.detail.result",
+    "kg.change.report.result",
+    "kg.node.confirm.result",
+    "kg.index.status.result",
+  ],
+  apply: (s) => s,
+});
+
 // ── v0.6 agent.config 族（M6 T4 真消费收口）──
 // 三 type（changed 广播 + 两点对点结果帧）全走拓扑级前置门
 // （consumers/agent-config.ts，dispatcher/frame.ts ⓪′）：changed 接真消费

@@ -54,6 +54,7 @@ import {
   pageTraceEvents,
 } from "@helix/protocol";
 import { browserTransportFactory, type Transport, type TransportFactory, type TransportHandlers } from "./helix-ws";
+import { isKgCommand, kgMockStore, KG_MOCK_LATENCY_MS } from "./kg-mock";
 
 /** daemon 回环地址前缀（非该前缀 → 真实 WebSocket 透传，HMR 不受扰）。 */
 const DAEMON_WS_PREFIX = "ws://127.0.0.1:";
@@ -358,6 +359,13 @@ class FakeSocket {
       setTimeout(() => {
         if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
       }, TRACE_MOCK_LATENCY_MS);
+    }
+    // kg 族自动应答（T5.4；六命令 mock daemon 镜像，含 confirm 写与 rebuild 时基）
+    if (frame !== null && isKgCommand(frame.type)) {
+      const reply = kgMockStore.reply(frame.type, frame.payload);
+      setTimeout(() => {
+        if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
+      }, KG_MOCK_LATENCY_MS);
     }
   }
 

@@ -21,6 +21,17 @@ import type {
   ChatAbortCommand,
   ChatSendCommand,
   ChatSteerCommand,
+  KgChangeReportCommand,
+  KgChangeReportPayload,
+  KgIndexStatusCommand,
+  KgIndexStatusPayload,
+  KgListCommand,
+  KgListPayload,
+  KgNodeConfirmCommand,
+  KgNodeConfirmPayload,
+  KgNodeDetailCommand,
+  KgNodeDetailPayload,
+  KgProjectsCommand,
   ModelCatalogCommand,
   ModelCatalogRefreshCommand,
   ModelGetDefaultCommand,
@@ -222,4 +233,40 @@ export function webStopCommand(): WebStopCommand {
  *  点对点 applied/skipped + 状态回流经 web.status.changed 全局广播）。 */
 export function webStartCommand(): WebStartCommand {
   return { v: PROTOCOL_VERSION, type: "web.start", payload: {} };
+}
+
+// ── kg 族命令（契约 v0.11 kg 批，contracts/kg-viewer-api.md；T5.4）────
+// 六命令全部全局命令（信封 sessionId 省略）；五个图谱命令 payload 必填
+// project（名称或绝对路径，daemon 单点解析）；kg.projects 无参。回执 =
+// kg.*.result 点对点帧（O-6 轮询裁决零推送事件）。
+
+/** kg.projects：workspace 项目列表（F5.0 左栏数据源；宽松口径含 absent）。 */
+export function kgProjectsCommand(): KgProjectsCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.projects", payload: {} };
+}
+
+/** kg.list：节点列表+搜索（F5.1；q×kind×status 三路过滤可叠加，均可省略）。 */
+export function kgListCommand(payload: KgListPayload): KgListCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.list", payload };
+}
+
+/** kg.node.detail：节点详情六段聚合（F5.2）。 */
+export function kgNodeDetailCommand(payload: KgNodeDetailPayload): KgNodeDetailCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.node.detail", payload };
+}
+
+/** kg.change.report：知识变化报告（F5.3；iterationId 缺省 = 当前迭代）。 */
+export function kgChangeReportCommand(payload: KgChangeReportPayload): KgChangeReportCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.change.report", payload };
+}
+
+/** kg.node.confirm：draft 审阅转正（F5.4 页面唯一写动作；仅 draft 可转正）。 */
+export function kgNodeConfirmCommand(payload: KgNodeConfirmPayload): KgNodeConfirmCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.node.confirm", payload };
+}
+
+/** kg.index.status：索引状态四态面板（F5.5；rebuild:true = 触发构建/重建，
+ *  absent 态触发即首次构建 B1；O-6 前端轮询本命令获取进度）。 */
+export function kgIndexStatusCommand(payload: KgIndexStatusPayload): KgIndexStatusCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.index.status", payload };
 }
