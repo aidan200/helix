@@ -118,10 +118,10 @@ describe("grep 门面首败永久降级（假 rg 注入，真 spawn 链路）", 
     const { context } = setup();
     const { rgPath, spawnCount } = makeFakeRg("exec sleep 30"); // exec：无孙进程持管道
     const warnings: string[] = [];
-    // timeout 1500ms：bun test 进程内首次 Bun.spawn 预热耗时可超 300ms，
-    // 过短的 timeout 会在子进程脚本起跑前 kill（计数行未写入）——1500ms
-    // 远小于 sleep 30，仍真实走超时分支。
-    const tool = createGrepTool({ rgPath, rgTimeoutMs: 1500, warn: (m) => warnings.push(m) });
+    // timeout 3000ms：高系统负载下 Bun.spawn 预热+脚本起跳可逼近 1.5s，
+    // 过紧会在子进程脚本起跑前 kill（计数行未写入、超时分类失败）——3000ms
+    // 仍远小于 sleep 30，超时分支语义不变（负载 flaky 修复，OI-grep-degrade-flaky）。
+    const tool = createGrepTool({ rgPath, rgTimeoutMs: 3000, warn: (m) => warnings.push(m) });
 
     const first = await runGrep(tool, context);
     expect(first.isError).toBe(false);
