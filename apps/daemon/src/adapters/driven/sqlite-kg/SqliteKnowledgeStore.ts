@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import type { KgDatabase } from "./KgDatabase";
 import { META_KEYS } from "./schema";
-import { formatNodeId, parseNodeId } from "../../../domain/kg/node-id";
+import { formatNodeId, parseMigrationId } from "../../../domain/kg/node-id";
 import { supersedeTransition } from "../../../domain/kg/supersede";
 import type {
   KgWriteError,
@@ -84,11 +84,13 @@ export class SqliteKnowledgeStore {
   ): WriteResult {
     let id: string;
     if (explicitId !== undefined) {
-      // 保号迁移入口（T5.2）：显式 id 只要求不冲突（形态/前缀校验在上层）；
-      // 计数器推进到显式号（只增不减永不复用——后续自动发号不会回卷撞号）
-      const seq = parseNodeId(explicitId);
+      // 保号迁移入口（T5.2）：显式 id 接受全存量形态（TR-AD-N / TR-TEST-N /
+      // E-中文尾缀 / 新号空间）；只要求不冲突（形态/前缀校验在上层）；
+      // 计数器推进到显式号（数字尾缀可提取时；非数字尾缀不推进——只增不减
+      // 永不复用，后续自动发号不会回卷撞号）
+      const seq = parseMigrationId(explicitId);
       if (seq === null) {
-        return err("KG_E_SCHEMA", `显式 id ${explicitId} 不在新号空间形态内`, "op.id");
+        return err("KG_E_SCHEMA", `显式 id ${explicitId} 不在保号/新号形态内`, "op.id");
       }
       if (seq.kind !== draft.kind) {
         return err("KG_E_SCHEMA", `显式 id 前缀与 kind 不符（${explicitId} vs ${draft.kind}）`, "op.id");
@@ -96,7 +98,7 @@ export class SqliteKnowledgeStore {
       if (this.nodeExists(db, explicitId)) {
         return err("KG_E_ID", `节点 ${explicitId} 已存在（id 永不回收、永不改写）`, "op.id");
       }
-      this.bumpSeq(db, seq.kind, seq.seq);
+      if (seq.seq !== null) this.bumpSeq(db, seq.kind, seq.seq);
       id = explicitId;
     } else {
       id = formatNodeId(draft.kind, this.allocateSeq(db, draft.kind));

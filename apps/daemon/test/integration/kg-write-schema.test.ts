@@ -172,15 +172,23 @@ describe("kg service API schema 防线（CL-2.A10）", () => {
       expect(wrongPrefix.error.code).toBe("KG_E_SCHEMA");
       expect(wrongPrefix.error.path).toBe("op.id");
     }
-    // 复合前缀不在新号空间
+    // 存量保号形态（T5.2 迁移写入面）：TR-AD-47 复合前缀合法直写
     const legacyPrefix = service.write(root, {
       kind: "createNode",
       iterationId: "iter-1",
       draft: validDraft,
       id: "TR-AD-47",
     } as unknown as KnowledgeWriteOp);
-    expect(legacyPrefix.ok).toBe(false);
-    if (!legacyPrefix.ok) expect(legacyPrefix.error.path).toBe("op.id");
+    expect(legacyPrefix).toEqual({ ok: true, nodeId: "TR-AD-47" });
+    // 非 TR/E 前缀不在保号/新号空间
+    const foreignPrefix = service.write(root, {
+      kind: "createNode",
+      iterationId: "iter-1",
+      draft: validDraft,
+      id: "SPEC-2",
+    } as unknown as KnowledgeWriteOp);
+    expect(foreignPrefix.ok).toBe(false);
+    if (!foreignPrefix.ok) expect(foreignPrefix.error.path).toBe("op.id");
     // 合法显式 id 落库后，同 id 二次写入 → 冲突拒绝、零写入
     const first = service.write(root, {
       kind: "createNode",
@@ -199,7 +207,7 @@ describe("kg service API schema 防线（CL-2.A10）", () => {
       ok: false,
       error: { code: "KG_E_ID", message: expect.any(String), path: "op.id" },
     });
-    expect(knowledgeCounts(root)).toEqual({ nodes: 1, anchor_decl: 0, change_log: 1, edges: 0 });
+    expect(knowledgeCounts(root)).toEqual({ nodes: 2, anchor_decl: 0, change_log: 2, edges: 0 });
   });
 
   test("⑥ 缺 iterationId / 非对象 op → KG_E_SCHEMA（change_log 每行需迭代 id）", () => {

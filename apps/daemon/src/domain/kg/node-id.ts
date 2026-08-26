@@ -50,6 +50,20 @@ export function parseExistingMax(ids: readonly string[]): { rule: number; entity
 const EXISTING_ID_RE = /^(TR|E)(?:-[A-Za-z\u4e00-\u9fff]+)*-(\d+)$/;
 
 /**
+ * 保号迁移 id 形态解析（T5.2 显式 id 写入口消费）：TR/E 前缀 + 任意存量
+ * 尾缀（新号空间 TR-47 / 复合前缀 TR-AD-47、TR-TEST-8 / 中文尾缀 E-客户
+ * 均合法）；数字尾缀可提取则给 seq（计数器推进），无数字尾缀 seq=null
+ * （不推进计数器——非数字存量号不占新号空间序数）。
+ * 非 TR/E 前缀（SPEC-2 等）/裸串 → null（KG_E_SCHEMA 输入面）。
+ */
+export function parseMigrationId(id: string): { kind: NodeKind; seq: number | null } | null {
+  const prefix = /^(TR|E)-.+/.exec(id);
+  if (prefix === null) return null;
+  const seqMatch = /-(\d+)$/.exec(id);
+  return { kind: prefix[1] === "TR" ? "rule" : "entity", seq: seqMatch === null ? null : Number(seqMatch[1]) };
+}
+
+/**
  * 存量 id 形态校验（T3.3 kg 工具 get 消费）：TR-n / E-n 新号空间 + 保号
  * 复合形态（TR-AD-47 / E-客户 等）均合法；其余（SPEC-2 / TR-abc / 裸串）
  * false——非法形态在工具层结构化报错而非空结果（参数供给闭环，CL-4.A3）。

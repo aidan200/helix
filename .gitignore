@@ -4,3 +4,6 @@ dist/
 .DS_Store
 test-results/
 playwright-report/
+
+# .kg 单库为运行时本地状态（iter-20260825-11fo SoT 下沉 AD-9；v1 索引已随迁移退役为 *.v1.bak）
+.kg/

@@ -8,7 +8,7 @@ import type {
   NodeStatus,
   WriteResult,
 } from "../../../domain/kg/types";
-import { parseNodeId } from "../../../domain/kg/node-id";
+import { parseMigrationId } from "../../../domain/kg/node-id";
 
 /**
  * KgWriteService —— kg service API（F2.3，AD-9「schema 校验即防线」的
@@ -100,10 +100,13 @@ function validateCreateNode(op: Record<string, unknown>): KgWriteError | null {
   if (draftError !== null) return draftError;
   if (op.id !== undefined) {
     const id = op.id;
-    if (typeof id !== "string" || parseNodeId(id) === null) {
-      return schemaError("显式 id 仅限保号迁移场景，形态必须为新号空间（TR-n / E-n）", "op.id");
+    if (typeof id !== "string" || parseMigrationId(id) === null) {
+      return schemaError(
+        "显式 id 仅限保号迁移场景，形态必须为 TR-*/E-* 存量形态（TR-AD-47 / TR-TEST-8 / E-客户）或新号空间（TR-n / E-n）",
+        "op.id",
+      );
     }
-    const parsed = parseNodeId(id)!;
+    const parsed = parseMigrationId(id)!;
     const draftKind = (op.draft as NodeDraft).kind;
     if (parsed.kind !== draftKind) {
       return schemaError(`显式 id 前缀与 kind 不符（${id} 前缀属 ${parsed.kind}）`, "op.id");
