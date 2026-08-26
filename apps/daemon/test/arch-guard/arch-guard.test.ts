@@ -255,10 +255,10 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     ["DELETE FROM", /\bDELETE\s+FROM\b/i],
     ["UPDATE … SET", /\bUPDATE\s+\w+\s+SET\b/i],
   ];
-  // T1.1（iter-20260825-11fo O-4/AD-15）：.kg 单库两写点扩登记——知识层写
+  // T1.1（iter-20260825-11fo O-4/AD-15）：.helix-kg 单库两写点扩登记——知识层写
   // （SqliteKnowledgeStore：writeKnowledge 四表/applySync 符号层事务）与连接
   // 底座（KgDatabase：new Database/WAL/DDL exec）是 TR-AD-13 语义域外的
-  // 新落盘写路径，与 WriteQueue 并列白名单；库定位 <projectRoot>/.kg/kg.db
+  // 新落盘写路径，与 WriteQueue 并列白名单；库定位 <projectRoot>/.helix-kg/kg.db
   // （per-project，不在 daemon 全局单写队列语义域内，内部同样执行
   // 「唯一写点+串行化」：每表域一个写者、BEGIN IMMEDIATE 事务、崩溃一致）。
   const sqliteWriteWhitelist = new Set([
@@ -307,11 +307,11 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     }
   });
 
-  test("② 写实例计数：helix.db 单写队列 1 个；.kg 库独立第二写连接 1 个（仓库各经它们写）", () => {
+  test("② 写实例计数：helix.db 单写队列 1 个；.helix-kg 库独立第二写连接 1 个（仓库各经它们写）", () => {
     // T2.2（§4.2.1）：组合根锚面从 container.ts 单文件扩为 container.ts +
     // assembly/**——单写队列不变量不变，断言扫描面随锚面扩。
     // T1.1（O-4/AD-15）：计数口径扩为两库两写点——helix.db 仍恰一个 WriteQueue；
-    // .kg（per-project 懒连）恰一个 KgDatabase 实例，Store/Graph 仓库经它访问。
+    // .helix-kg（per-project 懒连）恰一个 KgDatabase 实例，Store/Graph 仓库经它访问。
     const rootFiles = [read(path.join("infrastructure", "container.ts"))]
       .concat(
         listFiles(path.join(srcRoot, "infrastructure", "assembly")).map((rel) =>

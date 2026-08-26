@@ -513,7 +513,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       expect(writes.map((w) => w.op.kind)).toEqual(["createNode", "supersede"]);
       expect(writes.every((w) => w.projectRoot === projectRoot)).toBe(true);
 
-      // .kg 出现对应条目：nodes 新节点 + 目标翻 superseded；change_log 含迭代 id
+      // .helix-kg 出现对应条目：nodes 新节点 + 目标翻 superseded；change_log 含迭代 id
       await until(() => {
         const db = new Database(kgDbPath(projectRoot), { readonly: true });
         try {

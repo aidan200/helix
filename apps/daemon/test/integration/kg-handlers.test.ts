@@ -443,7 +443,7 @@ describe("kg 六命令族 I 层（真 service 栈 + tmp 库 + ws 路由）", () 
     }
     // 只读（A8）：absent 项目不建库（读面绝不触发 KgDatabase 连接副作用；
     // beta 写路径已建库属正常——只对零触达的 delta 断言）
-    expect(existsSync(path.join(rig.delta, ".kg", "kg.db"))).toBe(false);
+    expect(existsSync(path.join(rig.delta, ".helix-kg", "kg.db"))).toBe(false);
   }, 15000);
 
   test("kg.list：三路过滤叠加 + total/matched + 跨项目不串（A1/A10 数据面）", async () => {
@@ -642,7 +642,7 @@ describe("kg 六命令族 I 层（真 service 栈 + tmp 库 + ws 路由）", () 
     // absent：delta 无库 → absent 且不建库（读面短路）
     const absent = await rig.client.kg("kg.index.status", { project: "delta" });
     expect(absent.result.state).toBe("absent");
-    expect(existsSync(path.join(rig.delta, ".kg", "kg.db"))).toBe(false);
+    expect(existsSync(path.join(rig.delta, ".helix-kg", "kg.db"))).toBe(false);
 
     // rebuild=true：触发即 building（引擎 delayMs=150×2 制造窗口；O-6 同通道
     // 并发轮询观察——rebuild 请求自身在完成后才回 synced 帧）
@@ -675,11 +675,11 @@ describe("kg 六命令族 I 层（真 service 栈 + tmp 库 + ws 路由）", () 
 
     // absent 冷启动（A9/B1）：delta 零触达无库 rebuild → 同一入口首次构建
     // → synced + 库出现（不依赖 CLI 预建——引擎面即全部前置）
-    expect(existsSync(path.join(rig.delta, ".kg", "kg.db"))).toBe(false);
+    expect(existsSync(path.join(rig.delta, ".helix-kg", "kg.db"))).toBe(false);
     const cold = await rig.client.kg("kg.index.status", { project: "delta", rebuild: true });
     expect(cold.ok).toBe(true);
     expect(cold.result.state).toBe("synced");
-    expect(existsSync(path.join(rig.delta, ".kg", "kg.db"))).toBe(true);
+    expect(existsSync(path.join(rig.delta, ".helix-kg", "kg.db"))).toBe(true);
   }, 20000);
 
   test("project 参数两形态等价 + 无法解析 KG_E_PARAM + 错误回执结构化（A10）", async () => {

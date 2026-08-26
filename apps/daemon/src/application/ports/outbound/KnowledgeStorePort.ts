@@ -11,7 +11,7 @@ export type { KnowledgeWriteOp, SymbolBatch, WriteResult };
  * - applySync：sync 管道单事务（符号层三表+物化锚+meta 基准戳，T2.2 消费），
  *   与知识层写不同表集，同库文件、各自连接+事务，WAL 保证并发。
  *
- * 真实实现在 adapters/driven/sqlite-kg（<projectRoot>/.kg/kg.db per-project
+ * 真实实现在 adapters/driven/sqlite-kg（<projectRoot>/.helix-kg/kg.db per-project
  * 连接）；单测用内存假实现。本文件只有接口/类型定义（AG-01）。
  */
 export interface KnowledgeStorePort {

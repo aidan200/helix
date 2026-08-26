@@ -7,7 +7,7 @@
  * project-discovery.ts）；handlers/service 层禁自带 join 解析、零 env 读取。
  * workspace 根 = daemon 启动 cwd（组合根注入；TR-AD-6 零 env 键）。
  *
- * 读面绝不新建库文件：absent 项目（无 .kg/kg.db）在触达任何读 port 之前
+ * 读面绝不新建库文件：absent 项目（无 .helix-kg/kg.db）在触达任何读 port 之前
  * 先行短路——status=absent 不带计数/时间（KgDatabase 连接是建库副作用，
  * 读面禁触发）。零写路径（只读命令 CL-5.A8）。
  */
@@ -32,7 +32,7 @@ export interface KgProjectServiceDeps {
   readonly workspaceRoot: string;
   /** 一层扫描 IO（adapters/driven/workspace-scan.scanProjectEntries 注入）。 */
   readonly scan: () => readonly ProjectDirEntry[];
-  /** .kg/kg.db 存在性探测 IO（读面绝不新建库文件的判定输入）。 */
+  /** .helix-kg/kg.db 存在性探测 IO（读面绝不新建库文件的判定输入）。 */
   readonly hasIndex: (projectRoot: string) => boolean;
   /** 索引四态读面（KgSyncService.getStatus 注入）。 */
   readonly indexStatus: (projectRoot: string) => KgIndexStatus;

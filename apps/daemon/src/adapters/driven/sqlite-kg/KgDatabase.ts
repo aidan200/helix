@@ -4,12 +4,13 @@ import { Database } from "bun:sqlite";
 import { KG_SCHEMA_SQL } from "./schema";
 
 /**
- * KgDatabase —— .kg 单库 per-project 连接管理（TR-AD-14 口径存储适配器底座）。
+ * KgDatabase —— .helix-kg 单库 per-project 连接管理（TR-AD-14 口径存储适配器底座）。
  *
  * 两代形态差异的显式设计点（architecture.md §3.3）：v1 是子进程 CLI 唯一
  * 写者，v2 改为 daemon 进程内持有——连接管理是新代码，不照抄 v1。
  *
- * - 库定位 `<projectRoot>/.kg/kg.db`（AD-9/AD-15：按项目根持有，多 worktree
+ * - 库定位 `<projectRoot>/.helix-kg/kg.db`（AF-21 二次裁决 2026-08-26：v2 落独立
+ *   目录，v1 `.kg/kg.db` 原位不动不碰；AD-9/AD-15：按项目根持有，多 worktree
  *   天然隔离；daemon 全局自有状态仍在 ~/.helix/helix.db，两库互不混淆）；
  * - per-project 连接缓存（projectRoot→connection，懒开）；首次打开建库
  *   建表（IF NOT EXISTS 幂等）+ WAL（页面读不阻塞写）；
@@ -60,7 +61,7 @@ export class KgDatabase {
   }
 }
 
-/** .kg 库文件定位（导出供测试/迁移脚本对账；运行时经 KgDatabase 访问）。 */
+/** .helix-kg 库文件定位（导出供测试/迁移脚本对账；运行时经 KgDatabase 访问）。 */
 export function kgDbPath(projectRoot: string): string {
-  return path.join(projectRoot, ".kg", "kg.db");
+  return path.join(projectRoot, ".helix-kg", "kg.db");
 }

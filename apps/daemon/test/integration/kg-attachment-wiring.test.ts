@@ -18,7 +18,7 @@ import type { AnchorDeclaration, MaterializedAnchor, SymbolBatch } from "../../s
 /**
  * I 层：edit 附着接线（T3.2，CL-1 F1.1/F1.2，AD-4/AD-7 补充/AD-13/AD-15）。
  *
- * 真 .kg tmp 库 + 物化锚 fixture（createNode + applySync 真通道落锚表），
+ * 真 .helix-kg tmp 库 + 物化锚 fixture（createNode + applySync 真通道落锚表），
  * EditTool 成功返回路径 × buildEditToolDeps（组合根同款接线）×
  * KgAttachmentService（快照点查 + 四层递降 + 去重预算 + 渲染）。
  *
@@ -29,7 +29,7 @@ import type { AnchorDeclaration, MaterializedAnchor, SymbolBatch } from "../../s
 
 interface Workspace {
   readonly root: string; // workspace 根（env cwd / projectRootOf 解析根）
-  readonly proj: string; // projectRoot（.kg 持有者）
+  readonly proj: string; // projectRoot（.helix-kg 持有者）
   readonly database: KgDatabase;
   readonly store: SqliteKnowledgeStore;
   readonly graph: SqliteKnowledgeGraph;
@@ -102,7 +102,7 @@ function attachmentBlockOf(text: string): string {
   return i === -1 ? "" : text.slice(i);
 }
 
-describe("edit 附着接线（真 .kg 锚表）", () => {
+describe("edit 附着接线（真 .helix-kg 锚表）", () => {
   test("① 符号域锚命中（CL-1.A1）：oldText 含符号名键 → 尾部 📎 块（digest+指针+协议行）；notifyWrite 只入队不触发 sync", async () => {
     const ws = makeWorkspace();
     const tr1 = makeNode(ws, "handler 幂等规则", "handler 编辑必须保持幂等语义");

@@ -5,5 +5,5 @@ dist/
 test-results/
 playwright-report/
 
-# .kg 单库为运行时本地状态（iter-20260825-11fo SoT 下沉 AD-9；v1 索引已随迁移退役为 *.v1.bak）
-.kg/
+# v2 kg 库本地运行态（AF-21 二次裁决 2026-08-26：v2 落 .helix-kg/，v1 .kg/kg.db 恢复 git 跟踪）
+.helix-kg/

@@ -86,7 +86,7 @@ describe("daemon --sidecar 信号面（sidecar-lifecycle 契约）", () => {
       cmd: [process.execPath, mainTs, "--sidecar", "--home", dir],
       // cwd 指向 tmp home：daemon 启动 cwd = workspace 根（§3.1）——kg sync
       // 启动触发（T2.2）会一层扫描 cwd，测试进程 cwd（仓库内）不可被扫
-      //（真 .kg 副作用）；tmp home = 空扫描面，无副作用。
+      //（真 .helix-kg 副作用）；tmp home = 空扫描面，无副作用。
       cwd: dir,
       stdin: "ignore",
       stdout: "pipe",

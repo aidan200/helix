@@ -13,7 +13,7 @@ import { KgWriteService } from "../../src/application/services/kg/KgWriteService
 import type { SymbolBatch } from "../../src/domain/kg/types";
 
 /**
- * I 层（CL-3.A6）：三检查编排在真 .kg 库上「只列不修」——检出清单输出
+ * I 层（CL-3.A6）：三检查编排在真 .helix-kg 库上「只列不修」——检出清单输出
  * + 执行前后库内容逐字节不变（机械判据）。数据源：T1.1 读面/T2.2 orphan
  * 标记（applySync 两拍：先物化后失效）/知识层写入（KgWriteService）。
  */
@@ -113,7 +113,7 @@ function seed(stack: Stack): void {
     .run(new Date(now - 60 * DAY).toISOString(), new Date(now - 60 * DAY).toISOString());
 }
 
-describe("KgVerifyService：三检查编排（I 层，真 .kg 库）", () => {
+describe("KgVerifyService：三检查编排（I 层，真 .helix-kg 库）", () => {
   test("① findConflicts：双向 governs 矛盾检出（单向合法边零误报）", () => {
     const s = freshStack();
     seed(s);

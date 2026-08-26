@@ -18,7 +18,7 @@ import type { WriteResult } from "../../src/domain/kg/types";
 /**
  * I 层：kg / kg-update 工具（T3.3，CL-4 F4.1 + F3.1 即时通道，AD-14/AD-16）。
  *
- * 真 .kg tmp 库 + 种子数据（KgWriteService 真通道落账），工具经
+ * 真 .helix-kg tmp 库 + 种子数据（KgWriteService 真通道落账），工具经
  * CoreToolExecutor 注册表按 name 装配执行。
  *
  * 覆盖：①search LIKE+重名 digest 区分（CL-4.A1）②get 五要素全量（A2）
@@ -29,7 +29,7 @@ import type { WriteResult } from "../../src/domain/kg/types";
 
 interface Fixture {
   readonly root: string; // workspace 根
-  readonly proj: string; // projectRoot（.kg 持有者）
+  readonly proj: string; // projectRoot（.helix-kg 持有者）
   readonly database: KgDatabase;
   readonly graph: SqliteKnowledgeGraph;
   readonly write: KgWriteService;
@@ -91,7 +91,7 @@ function makeFixture(): Fixture {
     kg: kg!,
     kgUpdate: kgUpdate!,
     env,
-    dbFile: () => readFileSync(path.join(proj, ".kg", "kg.db")),
+    dbFile: () => readFileSync(path.join(proj, ".helix-kg", "kg.db")),
   };
   fixtures.push(f);
   return f;
@@ -117,7 +117,7 @@ function mustId(r: WriteResult): string {
   return r.nodeId;
 }
 
-describe("kg / kg-update 工具（真 .kg tmp 库）", () => {
+describe("kg / kg-update 工具（真 .helix-kg tmp 库）", () => {
   test("① search(q) LIKE 匹配 + 重名两行 digest 区分（CL-4.A1）；结果含可供 get 的 id（A3 前半）", async () => {
     const f = makeFixture();
     const a = mustId(seed(f, { kind: "createNode", iterationId: "it-a", draft: { kind: "rule", name: "handler 幂等规则", digest: "handler 编辑必须保持幂等语义" } }));

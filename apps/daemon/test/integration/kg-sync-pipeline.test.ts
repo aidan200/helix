@@ -97,7 +97,7 @@ function healthyFixture(): { symbols: EngineSymbol[]; containsEdges: { container
 }
 
 describe("KgSyncService 集成管道（tmp 真库）", () => {
-  test("① 冷启动首建（CL-2.A1）：.kg 缺失 → onStartup 全量导入，知识层空=纯符号层合法，状态 synced", async () => {
+  test("① 冷启动首建（CL-2.A1）：.helix-kg 缺失 → onStartup 全量导入，知识层空=纯符号层合法，状态 synced", async () => {
     const s = makeStack();
     stacks.push(s);
     s.engine.setSymbols(healthyFixture());

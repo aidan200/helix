@@ -18,7 +18,7 @@ import {
 } from "../../../../scripts/oneoff/kg-migrate";
 
 /**
- * T5.2 存量迁移（F2.4，CL-2.A9）：docs/kg md → .kg 单库一次性管道。
+ * T5.2 存量迁移（F2.4，CL-2.A9）：docs/kg md → .helix-kg 单库一次性管道。
  * - 保号映射（AD-16）：旧 id 逐一直等直写；
  * - 锚作用域映射（AD-13）：无锚→global / 目录→path glob / 文件→path / 符号→symbol；
  * - dry-run 对账（R-4）：对账不过不切换；
@@ -321,22 +321,29 @@ describe("T5.2 kg-migrate：apply 保号入库（AD-16）", () => {
     expect(stack.graph.countNodes(root)).toBe(nodesBefore);
   });
 
-  test("⑥ v1 库退役：apply 前检测 v1 形态库 → 备份改名，v2 新库落成", () => {
+  test("⑥ v1 库原位不动（AF-21 二次裁决 2026-08-26）：v2 落 .helix-kg 独立目录，.kg 不读不写不改名", () => {
     const { root, ...stack } = freshStack();
     writeFixture(root);
     const kgDir = path.join(root, ".kg");
     mkdirSync(kgDir, { recursive: true });
-    const v1 = new Database(path.join(kgDir, "kg.db"));
+    const v1Path = path.join(kgDir, "kg.db");
+    const v1 = new Database(v1Path);
     v1.exec("CREATE TABLE nodes (id TEXT PRIMARY KEY, name TEXT)");
     v1.exec("CREATE TABLE unresolved_refs (source TEXT)");
     v1.exec("INSERT INTO nodes (id, name) VALUES ('TR-AD-1', 'v1')");
     v1.close();
+    const v1Bytes = readFileSync(v1Path);
 
     const applied = runApply(root, stack);
     expect(applied.ok).toBe(true);
-    expect(applied.v1RetiredTo).toBe(path.join(kgDir, "kg.db.v1.bak"));
-    expect(existsSync(applied.v1RetiredTo!)).toBe(true);
-    // v2 新库：全部存量节点在新库可查（表结构冲突已消除）
+    // v1 原位不动：字节不变、内容可查、零 *.v1.bak 退役产物
+    expect(readFileSync(v1Path)).toEqual(v1Bytes);
+    const reopen = new Database(v1Path, { readonly: true });
+    expect((reopen.query("SELECT COUNT(*) AS c FROM nodes").get() as { c: number }).c).toBe(1);
+    reopen.close();
+    expect(readdirSync(kgDir).sort()).toEqual(["kg.db"]);
+    // v2 新库落 .helix-kg：全部存量节点在新库可查
+    expect(existsSync(path.join(root, ".helix-kg", "kg.db"))).toBe(true);
     expect(stack.graph.countNodes(root)).toBe(6);
     expect(stack.graph.getNode(root, "TR-AD-10")).not.toBeNull();
   });

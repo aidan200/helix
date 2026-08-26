@@ -11,18 +11,19 @@
  *   declareAnchors / addEdge），不走旁路直写；
  * - apply 前置 dry-run（R-4）：对账不过不切换，CLI 退出码非零；
  * - 幂等：目标 id 已存在且字段一致 → 跳过；不一致 → 中止报冲突；
- * - v1 库退役：.kg/kg.db 为 v1 形态（无 v2 表）时改名备份 kg.db.v1.bak，
- *   v2 新库由 KgDatabase 幂等建表；
+ * - v1 库原位不动（AF-21 二次裁决 2026-08-26）：v2 写独立目录
+ *   <projectRoot>/.helix-kg/kg.db（KgDatabase 定位），v1 .kg/kg.db 不读
+ *   不写不改名；.helix-kg/kg.db 已存在时走既有幂等逻辑；
  * - md 停用：仅头部追加标记行，不改写/不删除既有内容（历史资产保留）。
  *
  * 用法：bun scripts/oneoff/kg-migrate.ts [--root <projectRoot>] [--apply]
  * （默认 dry-run；退出码 0=通过 / 1=失败）。
  */
 
-import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Database } from "bun:sqlite";
-import { KgDatabase, kgDbPath } from "../../apps/daemon/src/adapters/driven/sqlite-kg/KgDatabase";
+import { KgDatabase } from "../../apps/daemon/src/adapters/driven/sqlite-kg/KgDatabase";
 import { SqliteKnowledgeStore } from "../../apps/daemon/src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { SqliteKnowledgeGraph } from "../../apps/daemon/src/adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
 import { KgWriteService, validateKnowledgeWriteOp } from "../../apps/daemon/src/application/services/kg/KgWriteService";
@@ -239,7 +240,7 @@ export function runDryRun(projectRoot: string, stack: MigrateStack): DryRunRepor
   const v1 = probeV1Db(projectRoot);
   if (v1 !== null) {
     notes.push(
-      `v1 .kg/kg.db 索引实测：${v1.nodeCount} 节点 / ${v1.edgeCount} 边（索引滞后，md 侧多 ${parsed.nodes.length - v1.nodeCount} 节点：${listMissing(ids, v1.nodeIds)}）；apply 将退役 v1 库为 kg.db.v1.bak。`,
+      `v1 .kg/kg.db 索引实测：${v1.nodeCount} 节点 / ${v1.edgeCount} 边（索引滞后，md 侧多 ${parsed.nodes.length - v1.nodeCount} 节点：${listMissing(ids, v1.nodeIds)}）；v1 库原位不动（AF-21 二次裁决 2026-08-26）。`,
     );
   }
   const max = parseExistingMax([...ids]);
@@ -277,7 +278,6 @@ export interface ApplyResult {
   readonly skipped: string[];
   readonly conflicts: string[];
   readonly edgesWritten: number;
-  readonly v1RetiredTo: string | null;
   readonly deactivated: string[];
   readonly errors: string[];
   readonly report: string;
@@ -289,7 +289,7 @@ export function runApply(projectRoot: string, stack: MigrateStack): ApplyResult 
   if (!dry.ok) {
     return {
       ok: false, created: [], skipped: [], conflicts: [], edgesWritten: 0,
-      v1RetiredTo: null, deactivated: [], errors: [...dry.issues.map((i) => `${i.docPath}:${i.line} ${i.message}`), ...dry.diffs],
+      deactivated: [], errors: [...dry.issues.map((i) => `${i.docPath}:${i.line} ${i.message}`), ...dry.diffs],
       report: `dry-run 对账未通过（R-4 不切换）：\n${[...dry.issues.map((i) => `  ${i.docPath}:${i.line} ${i.message}`), ...dry.diffs.map((d) => `  ${d}`)].join("\n")}`,
     };
   }
@@ -300,9 +300,6 @@ export function runApply(projectRoot: string, stack: MigrateStack): ApplyResult 
   const skipped: string[] = [];
   const conflicts: string[] = [];
   const errors: string[] = [];
-
-  // v1 库退役（在打开任何 KgDatabase 连接前完成——表名冲突消除）
-  const v1RetiredTo = retireV1DbIfPresent(projectRoot);
 
   // 幂等入库：已存在且字段一致 → 跳过；不一致 → 中止（一次性管道不得二次污染）
   const view = stack.graph.getVerifyView(projectRoot);
@@ -322,12 +319,12 @@ export function runApply(projectRoot: string, stack: MigrateStack): ApplyResult 
         continue;
       }
       conflicts.push(p.createOp.id);
-      return abort(projectRoot, { created, skipped, conflicts, edgesWritten: 0, v1RetiredTo, errors });
+      return abort(projectRoot, { created, skipped, conflicts, edgesWritten: 0, errors });
     }
     const createdResult = stack.service.write(projectRoot, p.createOp);
     if (!createdResult.ok) {
       errors.push(`[${p.createOp.id}] createNode 失败：${createdResult.error.code} ${createdResult.error.message}`);
-      return abort(projectRoot, { created, skipped, conflicts, edgesWritten: 0, v1RetiredTo, errors });
+      return abort(projectRoot, { created, skipped, conflicts, edgesWritten: 0, errors });
     }
     created.push(p.createOp.id);
     const anchorResult = stack.service.write(projectRoot, {
@@ -338,7 +335,7 @@ export function runApply(projectRoot: string, stack: MigrateStack): ApplyResult 
     });
     if (!anchorResult.ok) {
       errors.push(`[${p.createOp.id}] declareAnchors 失败：${anchorResult.error.code} ${anchorResult.error.message}`);
-      return abort(projectRoot, { created, skipped, conflicts, edgesWritten: 0, v1RetiredTo, errors });
+      return abort(projectRoot, { created, skipped, conflicts, edgesWritten: 0, errors });
     }
   }
 
@@ -356,7 +353,7 @@ export function runApply(projectRoot: string, stack: MigrateStack): ApplyResult 
     });
     if (!result.ok) {
       errors.push(`[边] ${e.srcId}-${e.verb}->${e.dstId} 失败：${result.error.code} ${result.error.message}`);
-      return abort(projectRoot, { created, skipped, conflicts, edgesWritten, v1RetiredTo, errors });
+      return abort(projectRoot, { created, skipped, conflicts, edgesWritten, errors });
     }
     edgesWritten += 1;
   }
@@ -365,14 +362,14 @@ export function runApply(projectRoot: string, stack: MigrateStack): ApplyResult 
   const post = verifyAgainstPlan(projectRoot, stack, plan);
   if (post.length > 0) {
     errors.push(...post);
-    return abort(projectRoot, { created, skipped, conflicts, edgesWritten, v1RetiredTo, errors });
+    return abort(projectRoot, { created, skipped, conflicts, edgesWritten, errors });
   }
 
   // md 停用标记（全部成功后追加；不改写既有内容）
   const deactivated = deactivateDocs(projectRoot);
   return {
-    ok: true, created, skipped, conflicts: [], edgesWritten, v1RetiredTo, deactivated, errors: [],
-    report: renderApplySummary({ created, skipped, edgesWritten, v1RetiredTo, deactivated, plan }),
+    ok: true, created, skipped, conflicts: [], edgesWritten, deactivated, errors: [],
+    report: renderApplySummary({ created, skipped, edgesWritten, deactivated, plan }),
   };
 }
 
@@ -429,7 +426,7 @@ function verifyAgainstPlan(projectRoot: string, stack: MigrateStack, plan: Migra
   return diffs;
 }
 
-// ── v1 库退役 / md 停用 / v1 探查 ────────────────────────────
+// ── md 停用 / v1 探查 ────────────────────────────────
 
 /** v2 表签名（anchor_decl 为 v2 独有表；v1 无此表即判 v1 形态）。 */
 function isV2KgDb(dbPath: string): boolean {
@@ -447,21 +444,10 @@ function isV2KgDb(dbPath: string): boolean {
   }
 }
 
-/** v1 形态库退役：kg.db / -wal / -shm 三件套改名 .v1.bak（数据保留在侧，v2 路径让位）。 */
-function retireV1DbIfPresent(projectRoot: string): string | null {
-  const dbPath = kgDbPath(projectRoot);
-  if (!existsSync(dbPath) || isV2KgDb(dbPath)) return null;
-  const suffixes = ["", "-wal", "-shm"];
-  for (const suffix of suffixes) {
-    const from = `${dbPath}${suffix}`;
-    if (existsSync(from)) renameSync(from, `${from}.v1.bak`);
-  }
-  return `${dbPath}.v1.bak`;
-}
-
-/** v1 库只读探查（dry-run 计数对账注记；无库/不可读 → null）。 */
+/** v1 库只读探查（dry-run 计数对账注记；无库/不可读 → null）。v1 定位恒
+ * <projectRoot>/.kg/kg.db（AF-21 二次裁决 2026-08-26：原位不动，v2 已迁 .helix-kg）。 */
 function probeV1Db(projectRoot: string): { nodeCount: number; edgeCount: number; nodeIds: readonly string[] } | null {
-  const dbPath = kgDbPath(projectRoot);
+  const dbPath = path.join(projectRoot, ".kg", "kg.db");
   if (!existsSync(dbPath) || isV2KgDb(dbPath)) return null;
   try {
     const db = new Database(dbPath, { readonly: true });
@@ -515,13 +501,12 @@ function renderApplySummary(r: {
   created: string[];
   skipped: string[];
   edgesWritten: number;
-  v1RetiredTo: string | null;
   deactivated: string[];
   plan: MigrationPlan;
 }): string {
   return [
     `apply 完成：新建 ${r.created.length} 节点、幂等跳过 ${r.skipped.length}、写入 ${r.edgesWritten} 边（计划全集 ${r.plan.edges.length}）`,
-    r.v1RetiredTo !== null ? `v1 库已退役：${r.v1RetiredTo}` : "v1 库：不存在或已是 v2 形态",
+    `v2 库落位 .helix-kg/kg.db（v1 .kg/kg.db 原位不动，AF-21 二次裁决 2026-08-26）`,
     r.deactivated.length > 0 ? `md 停用标记：${r.deactivated.join(", ")}` : "md 停用标记：已标记（幂等跳过）",
   ].join("\n");
 }
