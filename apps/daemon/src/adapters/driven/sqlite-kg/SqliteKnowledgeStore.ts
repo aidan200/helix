@@ -129,7 +129,7 @@ export class SqliteKnowledgeStore {
       isoNow(),
       op.nodeId,
     );
-    this.appendChangeLog(db, op.iterationId, "updateNode", op.nodeId, null, null);
+    this.appendChangeLog(db, op.iterationId, "updateNode", op.nodeId, null, op.patch.reason ?? null);
     return { ok: true, nodeId: op.nodeId };
   }
 

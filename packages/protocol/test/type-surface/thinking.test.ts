@@ -75,10 +75,10 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     expect(COMMAND_TYPES).toContain("thinking.set");
     expect(EVENT_TYPES).toContain("thinking.changed");
     expect(EVENT_CHANNELS["thinking.changed"]).toBe("thinking");
-    // 计数：27 → 28 命令 / 47 → 48 事件
-    expect(COMMAND_TYPES.length).toBe(28);
-    expect(EVENT_TYPES.length).toBe(48);
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(48);
+    // 计数：27 → 28 命令 / 47 → 48 事件（thinking 批历史口径；当前常量含后续 kg 批 +6/+6 → 34/54）
+    expect(COMMAND_TYPES.length).toBe(34);
+    expect(EVENT_TYPES.length).toBe(54);
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(54);
   });
 
   test("thinking.set：信封 sessionId 必填（per-session），payload level 字符串透传", () => {
@@ -142,11 +142,12 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
         throw new Error(`PROTOCOL.md 解析失败：§17.11 批次节缺登记点「${anchor}」`);
       }
     }
-    // ③ 批次声明计数与常量目录实况一致（27 → 28 / 47 → 48）
+    // ③ 批次声明计数与常量目录实况一致（27 → 28 / 47 → 48；历史声明不动，
+    // 当前常量含后续 kg 批 +6/+6 → 34/54）
     expect(section).toContain("27 → 28");
     expect(section).toContain("47 → 48");
-    expect(COMMAND_TYPES.length).toBe(28);
-    expect(EVENT_TYPES.length).toBe(48);
+    expect(COMMAND_TYPES.length).toBe(34); // kg 批（iter-20260825-11fo T5.3）+6 后当前值
+    expect(EVENT_TYPES.length).toBe(54); // kg 批 +6 后当前值
     // ④ chat.send 零字段负断言在批次节有登记（NFR-2① 红线文档面）
     expect(section).toContain("chat.send` **零字段**");
   });

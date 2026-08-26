@@ -488,11 +488,20 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
           // domain 只允许 type-only import（无运行时耦合，无业务规则调用）
           expect(typeOnly(spec, src), `ws-server/${rel} 对 domain 只允许 import type：${spec}`).toBe(true);
         } else {
-          expect(runtimeAllowed(rel, spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
+          // T5.3（iter-20260825-11fo，§9）：kg 族命令回口 = application service
+          //（KgViewerService，architecture.md 明文「driving/kg.ts 调 application
+          // service 不触 driven」）——仅限 type-only（依赖面注入经组合根，
+          // ws-server 零运行时耦合），同 domain 口径。
+          const kgServiceTypeOnly = /\/services\/kg\//.test(spec) && typeOnly(spec, src);
+          if (!kgServiceTypeOnly) {
+            expect(runtimeAllowed(rel, spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
+          }
         }
       }
       // 白名单的否定面：禁 services/infrastructure/driven
+      //（T5.3 例外：application/services/kg/ 的 type-only 面见上——§9 明文回口）
       for (const spec of importSpecifiers(src)) {
+        if (/\/services\/kg\//.test(spec) && typeOnly(spec, src)) continue;
         expect(spec, `ws-server/${rel} 不得依赖 service/infra/driven：${spec}`).not.toMatch(/services\/|infrastructure\/|\/driven\//);
       }
     }

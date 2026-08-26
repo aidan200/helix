@@ -59,4 +59,17 @@ export interface KnowledgeGraphPort {
    * seq 正序）。
    */
   getChangeLog(projectRoot: string, iterationId: string): readonly ChangeLogEntry[];
+
+  /**
+   * 知识节点计数（T5.3 kg.projects ProjectRow.nodeCount 数据源；只读
+   * SELECT COUNT——页面读面）。仅在 .kg 已存在的项目上调用（调用方
+   * 先行 hasIndex 判定，读面绝不新建库文件）。
+   */
+  countNodes(projectRoot: string): number;
+
+  /**
+   * 库内最近一次变更所属迭代 id（T5.3 kg.change.report 缺省入参 = 当前
+   * 迭代的确定性推导；change_log 空 → null）。仅在 .kg 已存在的项目上调用。
+   */
+  latestIteration(projectRoot: string): string | null;
 }

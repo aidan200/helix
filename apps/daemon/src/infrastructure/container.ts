@@ -168,6 +168,11 @@ export interface AssembleDaemonDeps {
   readonly sessionIdlePollMs?: number;
   /** 跳过 kg sync 启动触发+fs-watch 挂接（生产缺省启动；测试面默认跳——真 codegraph 构建不进测试，T2.2）。 */
   readonly skipKgSyncStartup?: boolean;
+  /**
+   * kg workspace 根覆盖（T5.3 测试注入面；缺省 = daemon 启动 cwd，
+   * §3.1/TR-AD-6 零 env 键——生产恒走 cwd，不新增启动参数）。
+   */
+  readonly kgWorkspaceRoot?: string;
 }
 
 /**
@@ -273,9 +278,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   } else {
     logger.info(`codegraph 引擎不可用（构建面 degraded，AF-2）：${codegraphResolution.reasons.join("；")}`);
   }
-  const knowledge = buildKnowledgeStack({ codegraphResolution, workspaceRoot: process.cwd() });
-  // §3.5：workspace 根 = daemon 启动 cwd（同一根供 kg 后台与 edit 挂点归属）
-  const kgWorkspaceRoot = process.cwd();
+  const kgWorkspaceRoot = deps.kgWorkspaceRoot ?? process.cwd();
+  const knowledge = buildKnowledgeStack({ codegraphResolution, workspaceRoot: kgWorkspaceRoot });
+  // §3.5：workspace 根 = daemon 启动 cwd（同一根供 kg 后台与 edit 挂点归属；
+  // T5.3 测试注入面 deps.kgWorkspaceRoot 覆盖——生产恒 cwd，零 env 键）
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   const persistence = buildPersistence({ paths, logger });
@@ -559,6 +565,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     browser: browserPort, // web 族命令族回口（契约 v0.7）
     hasModel: (id) => modelStack.catalog.hasModel(id), // model 型 set 前置校验
     traceQuery: persistence.traceQuery, // trace.query 命令回口（只读面）
+    kg: knowledge.viewerService, // kg 族命令回口（P-1 六命令，§9；project 参数 service 内单点解析）
     events: eventStream,
     token,
     port: deps.port ?? config.port,

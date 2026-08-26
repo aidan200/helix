@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type { CodegraphEnginePort } from "../../application/ports/outbound/CodegraphEnginePort";
 import type { KnowledgeGraphPort } from "../../application/ports/outbound/KnowledgeGraphPort";
 import type { KnowledgeStorePort } from "../../application/ports/outbound/KnowledgeStorePort";
@@ -6,15 +7,17 @@ import { KgAttachmentService } from "../../application/services/kg/KgAttachmentS
 import { KgQueryService } from "../../application/services/kg/KgQueryService";
 import { KgVerifyService } from "../../application/services/kg/KgVerifyService";
 import { KgReportService } from "../../application/services/kg/KgReportService";
+import { KgProjectService } from "../../application/services/kg/KgProjectService";
+import { KgViewerService } from "../../application/services/kg/KgViewerService";
 import { CodegraphEngineAdapter } from "../../adapters/driven/codegraph-engine/CodegraphEngineAdapter";
 import type { CodegraphResolution } from "../../adapters/driven/codegraph-engine/resolve-codegraph";
-import { KgDatabase } from "../../adapters/driven/sqlite-kg/KgDatabase";
+import { KgDatabase, kgDbPath } from "../../adapters/driven/sqlite-kg/KgDatabase";
 import { SqliteKnowledgeGraph } from "../../adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
 import { SqliteKnowledgeStore } from "../../adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { FsWatchAdapter } from "../../adapters/driven/fs-watch/FsWatchAdapter";
 import { KgSyncService } from "../../application/services/kg/KgSyncService";
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
-import { existingKgProjects, projectRootOfPath, scanWorkspaceProjects } from "../../adapters/driven/workspace-scan";
+import { existingKgProjects, projectRootOfPath, scanProjectEntries, scanWorkspaceProjects } from "../../adapters/driven/workspace-scan";
 
 // §3.5 扫描/归属/existingKgProjects 已抽取 adapters/driven/workspace-scan.ts
 // （T3.3：组合根与 SubAgent 子进程本地 kg 栈共用同一口径）——此处重导出
@@ -38,6 +41,10 @@ export { existingKgProjects, projectRootOfPath, scanWorkspaceProjects };
  * T5.1：KgVerifyService（三检查，AD-6 只列不修零写路径）+ KgReportService
  * （变化报告数据面，AD-16 引用规范数据层强制）挂入——触发面 O-5 默认
  * 手动：仅暴露 service 方法，daemon 不自动跑（页面接线归 T5.3）。
+ * T5.3：KgProjectService（§3.5 项目发现/解析/四态聚合单点）+
+ * KgViewerService（P-1 六命令应用编排）挂入——ws-server handlers/kg.ts
+ * 的 service 面（per-project：projectRoot 经单点解析后作作用域）。
+ * §3.5 扫描/归属/existingKgProjects 纯逻辑已收口 domain/kg/project-discovery.ts。
  *
  * AG-06 计数口径：本函数是 .kg 库第二个写队列实例（独立于 helix.db
  * WriteQueue，AD-15 按表分域两写点）的唯一构造点；codegraph-engine 只读
@@ -62,6 +69,10 @@ export interface KnowledgeStack {
   readonly verifyService: KgVerifyService;
   /** 变化报告数据面（T5.1，F3.3：按迭代聚合四类条目；T5.3 kg.change.report 数据源）。 */
   readonly reportService: KgReportService;
+  /** 项目发现/解析/四态聚合（T5.3，§3.5 单点：project 参数 → projectRoot；absent 短路不建库）。 */
+  readonly projectService: KgProjectService;
+  /** P-1 六命令应用编排（T5.3，§9：handlers/kg.ts 的唯一 service 面）。 */
+  readonly viewerService: KgViewerService;
   /** 关闭全部 per-project 连接（daemon 退出/测试清理；库文件保留）。 */
   readonly dispose: () => void;
 }
@@ -90,6 +101,21 @@ export function buildKnowledgeStack(deps: {
   });
   const verifyService = new KgVerifyService({ graph });
   const reportService = new KgReportService({ graph, verify: verifyService });
+  const projectService = new KgProjectService({
+    workspaceRoot: deps.workspaceRoot,
+    scan: () => scanProjectEntries(deps.workspaceRoot),
+    hasIndex: (projectRoot) => existsSync(kgDbPath(projectRoot)), // 读面绝不新建库文件的判定输入
+    indexStatus: (projectRoot) => syncService.getStatus(projectRoot),
+    countNodes: (projectRoot) => graph.countNodes(projectRoot),
+  });
+  const viewerService = new KgViewerService({
+    project: projectService,
+    graph,
+    verify: verifyService,
+    report: reportService,
+    write: writeService,
+    sync: syncService,
+  });
   return {
     writeService,
     store,
@@ -100,6 +126,8 @@ export function buildKnowledgeStack(deps: {
     queryService,
     verifyService,
     reportService,
+    projectService,
+    viewerService,
     dispose: () => {
       syncService.dispose();
       database.closeAll();
@@ -109,8 +137,8 @@ export function buildKnowledgeStack(deps: {
 
 /**
  * workspace 一层扫描（§3.5 宽松口径 V-3：一级目录全部入列，排除清单为
- * 唯一过滤——目录项、非隐藏、非排除段）。§3.5 收口（domain/kg/
- * project-discovery.ts + KgProjectService，T5.x）到位后由单点替换。
+ * 唯一过滤——目录项、非隐藏、非排除段）。过滤/解析纯逻辑已收口
+ * domain/kg/project-discovery.ts（T5.3 单点；本文件重导出保 import 面）。
  */
 
 /**

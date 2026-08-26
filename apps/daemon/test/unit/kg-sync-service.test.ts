@@ -93,6 +93,14 @@ class StubGraph implements KnowledgeGraphPort {
   getNode(): NodeDetail | null {
     return null;
   }
+
+  countNodes(): number {
+    return 0;
+  }
+
+  latestIteration(): string | null {
+    return null;
+  }
 }
 
 function makeService(opts: {

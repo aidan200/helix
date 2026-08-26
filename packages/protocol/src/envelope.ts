@@ -37,6 +37,8 @@ export const SYSTEM_SESSION_ID = "__system__" as const;
  * session / model 为 v0.2 新增两族；trace 为 v0.4 新增族（trace.query.result
  * 点对点结果帧，iter-20260819-erio T2.1）；web 为 v0.7 新增族（T4 联网
  * 状态图标：web.status/web.stop 点对点结果帧 + web.status.changed 广播）；
+ * kg 为 kg 批新增族（iter-20260825-11fo T5.3：P-1 六命令的点对点结果帧
+ * 回执；O-6 轮询裁决零推送事件，本族无广播事件）；
  * interaction 为占位族（仅类型定义，
  * 无事件挂靠）；notification 承载会话无关系统事件（connection.*，
  * sessionId = SYSTEM_SESSION_ID）。每事件所属 channel 在 events.ts 以
@@ -53,6 +55,7 @@ export type Channel =
   | "model"
   | "trace"
   | "web"
+  | "kg"
   | "interaction"
   | "notification";
 

@@ -1,17 +1,25 @@
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
+import {
+  isWorkspaceProjectDir,
+  resolveProjectArg,
+  WORKSPACE_EXCLUDED,
+  type ProjectDirEntry,
+} from "../../domain/kg/project-discovery";
 
 /**
  * workspace 项目扫描与归属（§3.5 一级目录语义，T3.3 抽取自
  * buildKnowledgeStack——组合根与 SubAgent 子进程（ChildMain 本地 kg 栈）
- * 共用同一扫描口径；单点正式收口归 T5.x project-discovery）。
+ * 共用同一扫描口径；过滤/解析纯逻辑已收口 domain/kg/project-discovery.ts
+ * 单点——本文件只持目录枚举 IO 与 .kg 存在性探测）。
  *
  * §3.5 宽松口径 V-3：workspace 一级目录全部入列，排除清单为唯一过滤
  * （目录项、非隐藏、非排除段）——不做目录资格甄别。
  */
 
-/** §3.5 排除清单（scanWorkspaceProjects 与事件归属共用唯一过滤）。 */
-export const WORKSPACE_EXCLUDED: ReadonlySet<string> = new Set(["docs", ".helix", ".worktrees", "node_modules"]);
+/** §3.5 排除清单（单点定义 = domain/kg/project-discovery；此处重导出保既有 import 面）。 */
+export { WORKSPACE_EXCLUDED, isWorkspaceProjectDir, resolveProjectArg };
+export type { ProjectDirEntry };
 
 export function scanWorkspaceProjects(workspaceRoot: string): string[] {
   let entries;
@@ -22,10 +30,18 @@ export function scanWorkspaceProjects(workspaceRoot: string): string[] {
   }
   const out: string[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith(".") || WORKSPACE_EXCLUDED.has(entry.name)) continue;
+    if (!entry.isDirectory() || !isWorkspaceProjectDir(entry.name)) continue;
     out.push(path.join(workspaceRoot, entry.name));
   }
   return out.sort();
+}
+
+/** 扫描产物行（name+path 对；KgProjectService 项目列表/单点解析消费，T5.3）。 */
+export function scanProjectEntries(workspaceRoot: string): ProjectDirEntry[] {
+  return scanWorkspaceProjects(workspaceRoot).map((projectRoot) => ({
+    name: path.basename(projectRoot),
+    path: projectRoot,
+  }));
 }
 
 /**

@@ -259,11 +259,11 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（v0.11：命令 28 / 事件 48；thinking 批版本位升位）", () => {
+  test("② 常量语义值 + 目录计数（kg 批：命令 34 / 事件 54；v0.11 版本位保持）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.11"); // v0.11 批次版本位（thinking 批四块 additive，AD-2/AD-4；契约 = PROTOCOL.md §17.11）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(28); // v0.11：+1（thinking.set）
-    expect(protocol.EVENT_TYPES.length).toBe(48); // v0.11：+1（thinking.changed）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(48); // 登记目录恰等
+    expect(protocol.COMMAND_TYPES.length).toBe(34); // kg 批：+6（kg 族六命令，iter-20260825-11fo T5.3）
+    expect(protocol.EVENT_TYPES.length).toBe(54); // kg 批：+6（kg.*.result 点对点回执）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(54); // 登记目录恰等
   });
 });

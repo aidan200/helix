@@ -119,7 +119,7 @@ function validateUpdateNode(op: Record<string, unknown>): KgWriteError | null {
   if (patch === null || typeof patch !== "object" || Array.isArray(patch)) {
     return schemaError("patch 必填且为对象", "op.patch");
   }
-  const known = new Set(["name", "digest", "body", "domain", "layer", "status"]);
+  const known = new Set(["name", "digest", "body", "domain", "layer", "status", "reason"]);
   const keys = Object.keys(patch as Record<string, unknown>);
   if (keys.length === 0) {
     return schemaError("patch 至少含一个可更新字段", "op.patch");
@@ -149,6 +149,9 @@ function validateUpdateNode(op: Record<string, unknown>): KgWriteError | null {
   }
   if (record.status !== undefined && !CREATABLE_STATUSES.has(record.status as NodeStatus)) {
     return schemaError("status 仅接受 draft / confirmed（superseded 只能经 supersede op 到达）", "op.patch.status");
+  }
+  if (record.reason !== undefined && typeof record.reason !== "string") {
+    return schemaError("reason 仅接受字符串（审计叙述落 change_log）", "op.patch.reason");
   }
   return null;
 }

@@ -326,6 +326,22 @@ export class SqliteKnowledgeGraph {
     }));
   }
 
+  /** 知识节点计数（T5.3 kg.projects nodeCount 数据源；只读 COUNT）。 */
+  countNodes(projectRoot: string): number {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const row = db.prepare("SELECT COUNT(*) AS n FROM nodes").get() as { n: number };
+    return row.n;
+  }
+
+  /** 库内最近一次变更所属迭代 id（T5.3 当前迭代确定性推导；空 → null）。 */
+  latestIteration(projectRoot: string): string | null {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const row = db
+      .prepare("SELECT iteration_id FROM change_log ORDER BY seq DESC LIMIT 1")
+      .get() as { iteration_id: string } | null;
+    return row === null ? null : row.iteration_id;
+  }
+
   // ── supersede 链组装（双向游走） ──────────────────────────
 
   /**

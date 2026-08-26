@@ -152,7 +152,10 @@ export interface NodeDraft {
   readonly status?: Exclude<NodeStatus, "superseded">;
 }
 
-/** 节点内容补丁（updateNode；status 不接受 superseded——归 supersede op）。 */
+/**
+ * 节点内容补丁（updateNode；status 不接受 superseded——归 supersede op）。
+ * reason（T5.3 kg.node.confirm 消费）：可选审计叙述，落 change_log.reason
+ * （如「草稿转正（页面人工确认）」）；缺省 null（既有行为不变）。 */
 export interface NodePatch {
   readonly name?: string;
   readonly digest?: string;
@@ -160,6 +163,7 @@ export interface NodePatch {
   readonly domain?: NodeDomain | null;
   readonly layer?: NodeLayer | null;
   readonly status?: Exclude<NodeStatus, "superseded">;
+  readonly reason?: string;
 }
 
 /** 写 op 公共字段：change_log 每行必含迭代 id。 */

@@ -15,8 +15,9 @@
  *
  * 本模块依赖纪律：只 import @helix/protocol 类型 + ../EventStream 类型 +
  * application/ports 类型 + bun ServerWebSocket 类型（另 trace 族依赖
- * domain/trace/TraceQueryPort——AG-12 既有 type-only 口径，domain 无回边）
- * ——全部 type-only，自身不成为任何环的节点。
+ * domain/trace/TraceQueryPort、kg 族依赖 application service KgViewerService
+ * ——architecture.md §9 明文「driving/kg.ts 调 application service」的
+ * 既有口径，均为 type-only，自身不成为任何环的节点）
  */
 import type { ServerWebSocket } from "bun";
 import type {
@@ -35,6 +36,7 @@ import type { ResourceConfigPort } from "../../../../application/ports/inbound/R
 import type { BrowserPort } from "../../../../application/ports/outbound/BrowserPort";
 import type { EventStream, FrameSender } from "../EventStream";
 import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
+import type { KgViewerService } from "../../../../application/services/kg/KgViewerService";
 
 /** 每连接状态（Bun.serve 泛型，经 server.upgrade 的 data 携带；handlers/ 共用型）。 */
 export interface ConnState {
@@ -222,6 +224,30 @@ export interface WebCommandContext {
   readonly type: string;
   /** 浏览器连接面（getStatus/listTabs/stop；只转发不决策）。 */
   readonly browser: BrowserPort;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/**
+ * kg 族命令处理上下文（P-1 六命令族，§9）：KgViewerService（application
+ * service 面——architecture.md §9 明文「driving/kg.ts 调 application
+ * service」；project 参数在 service 内单点解析，handlers 禁自带 join）
+ * + 共享辅助。全局命令（信封 sessionId 不消费）；kg 栈未装配 →
+ * undefined，handler 回 command.unimplemented（trace.ts 先例）。
+ */
+export interface KgCommandContext {
+  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record）。 */
+  readonly payload: Record<string, unknown>;
+  /** P-1 六命令应用编排面（deps.kg 可选装配面直传；未装配 → undefined）。 */
+  readonly kg: KgViewerService | undefined;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */

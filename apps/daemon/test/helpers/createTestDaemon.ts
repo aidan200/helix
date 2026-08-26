@@ -68,6 +68,8 @@ export interface TestDaemonOptions {
   readonly sessionIdlePollMs?: number;
   /** kg sync 启动触发+fs-watch 挂接 opt-in（缺省 false=跳过：真 codegraph 构建不进测试进程，T2.2）。 */
   readonly kgSyncStartup?: boolean;
+  /** kg workspace 根覆盖（T5.3：kg.projects 扫描/project 解析作用域指向 tmp；缺省 = daemon 启动 cwd）。 */
+  readonly kgWorkspaceRoot?: string;
 }
 
 /**
@@ -120,5 +122,6 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     sessionIdleUnloadMs: options.sessionIdleUnloadMs,
     sessionIdlePollMs: options.sessionIdlePollMs,
     skipKgSyncStartup: options.kgSyncStartup !== true,
+    kgWorkspaceRoot: options.kgWorkspaceRoot,
   });
 }
