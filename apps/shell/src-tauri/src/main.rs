@@ -42,7 +42,7 @@ window.helixPickDirectory = (initial) =>
 /// 先导页把"文档获取"压到零 IO（无网络/无自定义协议往返），首帧只剩
 /// 冷启动本身，期间展示 helix logo（v1 favicon 同构：圆角方 + 青 HX，
 /// 呼吸辉光）。背景 #060910 与窗口底色/启动屏三同色——切换无闪变。
-const PILOT_PAGE_HTML: &str = r##"<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#060910}.p{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}svg{width:104px;height:104px;filter:drop-shadow(0 0 14px rgba(34,211,238,.45));animation:b 1.6s ease-in-out infinite}@keyframes b{50%{filter:drop-shadow(0 0 28px rgba(34,211,238,.8))}}@media (prefers-reduced-motion: reduce){svg{animation:none}}</style></head><body><div class="p"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#060910" stroke="#22d3ee" stroke-opacity=".35"/><text x="16" y="22" font-family="monospace" font-size="15" font-weight="700" text-anchor="middle" fill="#22d3ee">HX</text></svg></div></body></html>"##;
+const PILOT_PAGE_HTML: &str = r##"<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><style>html,body{margin:0;height:100%;background:#060910}.p{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}svg{width:104px;height:104px;filter:drop-shadow(0 0 14px rgba(34,211,238,.45));animation:b 1.6s ease-in-out infinite}@keyframes b{50%{filter:drop-shadow(0 0 28px rgba(34,211,238,.8))}}@media (prefers-reduced-motion: reduce){svg{animation:none}}</style></head><body><div class="p"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#060910" stroke="#22d3ee" stroke-opacity=".35"/><text x="16" y="22" font-family="monospace" font-size="15" font-weight="700" text-anchor="middle" fill="#22d3ee">HX</text></svg></div></body></html>"##;
 
 /// 先导页 data URL（percent_encode 复用错误页同款——data 载荷需全量编码）。
 fn pilot_page_url() -> tauri::Url {
@@ -117,7 +117,21 @@ fn main() {
                         if payload.event() == tauri::webview::PageLoadEvent::Finished
                             && wv.url().map(|u| u.scheme() == "data").unwrap_or(false)
                         {
-                            let _ = wv.navigate(target.clone());
+                            // Finished ≠ 已绘制：立即导航会抢在 logo 首帧合成
+                            // 前把页切走（用户实证"没有 logo"）。最小展示延时：
+                            // load 完成后保屏 ~650ms，确保冷启动空档被 logo
+                            // 覆盖且用户可见。
+                            let wv_handle = wv.clone();
+                            let target = target.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(650));
+                                let inner = wv_handle.clone();
+                                let _ = wv_handle.run_on_main_thread(move || {
+                                    if inner.url().map(|u| u.scheme() == "data").unwrap_or(false) {
+                                        let _ = inner.navigate(target);
+                                    }
+                                });
+                            });
                         }
                     })
                     .build();

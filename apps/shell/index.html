@@ -3,6 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 文档无样式期/导航间隙 WebKit 底色按 dark 走（浅色系统下消除白闪；
+         应用亮色主题由 boot-light/React 主题层接管，不影响） -->
+    <meta name="color-scheme" content="dark" />
     <title>helix</title>
     <!-- 远程字体非阻塞加载（media=print 切换法）：渲染阻塞的 stylesheet 会让
          首帧（启动屏）等到字体 CSS 加载/超时才绘制——国内网络下 fonts.googleapis.com
