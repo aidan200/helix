@@ -58,6 +58,7 @@ fn theme_window_background(app: &tauri::AppHandle) -> tauri::utils::config::Colo
         .and_then(|p| std::fs::read_to_string(p).ok())
         .map(|s| s.trim() == "light")
         .unwrap_or(false);
+    eprintln!("[helix-shell] 窗口底色主题感知：{}", if light { "light #F4F2EC" } else { "dark #060910" });
     if light {
         tauri::utils::config::Color(244, 242, 236, 255)
     } else {
