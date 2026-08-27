@@ -216,11 +216,12 @@ describe("切换流逃逸（W4：入口来源区分语义）", () => {
     expect(document.querySelector("[data-wsgate-cancel]")).toBeNull();
   });
 
-  it("切换流 gate（switching=true）→ 取消钮在场，点击 → cancelSwitch", () => {
+  it("切换流 gate（switching=true）→ 取消钮在场（hud-btn-ghost 次级变体，W6b 风格统一），点击 → cancelSwitch", () => {
     store = baseGate({ switching: true });
     ui();
     const btn = document.querySelector("[data-wsgate-cancel]") as HTMLButtonElement;
     expect(btn).not.toBeNull();
+    expect(btn.classList.contains("hud-btn-ghost")).toBe(true);
     expect(btn.textContent).toContain("取消");
     fireEvent.click(btn);
     expect(cancelled).toBe(1);

@@ -161,7 +161,7 @@ const WorkspaceGatePage = function WorkspaceGatePage() {
         {state.switching && (
           <button
             type="button"
-            className="hud-btn wsgate-cancel"
+            className="hud-btn hud-btn-ghost wsgate-cancel"
             data-wsgate-cancel
             disabled={state.opening}
             onClick={cancelSwitch}

@@ -294,6 +294,7 @@ const REQUIRED_KEYS = [
   "workspace.gate.error.sendFailed",
   "workspace.gate.error.generic",
   "workspace.boot.connecting",
+  "workspace.boot.reconnecting",
   "workspace.boot.errorTitle",
   "workspace.boot.errorSub",
   "workspace.boot.retry",

@@ -557,6 +557,7 @@ export const zhCN = {
     },
     boot: {
       connecting: "正在连接 daemon…",
+      reconnecting: "连接中断，自动重连中…",
       errorTitle: "无法连接 daemon",
       errorSub: "请确认 daemon 已启动，或点击重试。",
       retry: "重试连接",

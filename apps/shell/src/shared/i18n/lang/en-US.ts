@@ -552,6 +552,7 @@ export const enUS = {
     },
     boot: {
       connecting: "Connecting to daemon…",
+      reconnecting: "Connection lost — reconnecting…",
       errorTitle: "Cannot reach daemon",
       errorSub: "Make sure the daemon is running, or retry.",
       retry: "Retry connection",
