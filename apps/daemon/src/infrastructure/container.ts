@@ -298,10 +298,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    持有者（重绑接缝）。物化时机迁移：unbound boot 零扫描零同步零开库
   //    ——栈只在 restore 成功/open 成功/初始绑定后建；startSync 由
   //    skipKgSyncStartup 门控（测试面默认 no-op，真 codegraph 构建不进
-  //    测试进程）。广播与活跃 agent 判定经晚绑闭包（eventStream/registry
-  //    在 buildSessionStack 后才存在——与 wsServer 同款回填模式）。──
+  //    测试进程）。广播、活跃 agent 判定与会话卸载面经晚绑闭包（eventStream/
+  //    registry 在 buildSessionStack 后才存在——与 wsServer 同款回填模式）。──
   let broadcastWorkspaceChanged: (root: string) => void = () => {};
   let hasActiveAgentNow: () => boolean = () => false;
+  let unloadSessionsOnRebind: () => void = () => {};
   const workspace = new WorkspaceService({
     kv: persistence.runtimeConfig, // KV 底座（AG-06 单写通道；不进 config.json，TR-AD-6）
     fs: createWorkspaceFs(), // driven 探测端口（realpath/可读目录/危险根判定输入）
@@ -313,6 +314,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       : (stack, root) => startKgSyncBackground(stack as KnowledgeStack, root),
     broadcast: (root) => broadcastWorkspaceChanged(root),
     hasActiveAgent: () => hasActiveAgentNow(),
+    // W4 债清偿：重绑（替换已绑定栈）时卸载全部现有会话——旧会话 executor
+    // 闭包持已 dispose 旧栈；卸载后回访懒加载按新栈重建（kgTools/editDeps
+    // 工厂闭包在 buildRuntime 时读 workspace.stack() 现值）。
+    unloadSessions: () => unloadSessionsOnRebind(),
     logger,
   });
   if (deps.kgWorkspaceRoot != null) {
@@ -426,6 +431,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 热会话运行态（主实例）或调度器存活实例（SubAgent）任一命中即拒
     registry.hotRuntimes().some((r) => r.chatService.agentState !== "idle") ||
     registry.hotRuntimes().some((r) => scheduler.hasActiveInstances(r.sessionId));
+  unloadSessionsOnRebind = () => registry.unloadAll();
 
   // ── resources.changed 订阅（§4.2.3：refreshAssembly 先定义、订阅注册后置——
   //    结构保证取代注释保证；发布方 ResourceService 经 deps 函数字段注入） ──

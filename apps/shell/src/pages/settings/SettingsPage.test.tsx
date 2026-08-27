@@ -88,8 +88,9 @@ describe("S2 设置页实页化", () => {
     expect(item.textContent).toBe("模型设置");
     expect(item.getAttribute("aria-selected")).toBe("true");
     expect(item.className).toContain("on");
-    // 本次仅一项：不虚构未规划分区
-    expect(nav.querySelectorAll(".set-nav-item")).toHaveLength(1);
+    // W4：追加「工作空间」分区（有实内容才入列表——S2 裁决口径）
+    expect(nav.querySelectorAll(".set-nav-item")).toHaveLength(2);
+    expect(nav.querySelector('[data-section="workspace"]')!.textContent).toBe("工作空间");
   });
 
   it("main = 模型分区（原 P-4 迁入）：进入拉数据链零变更（requestModelConfig + requestAuthList）", () => {

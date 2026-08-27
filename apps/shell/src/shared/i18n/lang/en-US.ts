@@ -541,6 +541,7 @@ export const enUS = {
       pathPlaceholder: "/path/to/workspace",
       open: "Open",
       opening: "Opening…",
+      cancelSwitch: "Cancel and go back",
       error: {
         invalidRoot: "Invalid path: directory missing, not a directory, unreadable, or a dangerous root (filesystem root / home directory).",
         activeAgent: "Agents are still running; the workspace cannot be switched right now.",
@@ -553,6 +554,20 @@ export const enUS = {
       errorTitle: "Cannot reach daemon",
       errorSub: "Make sure the daemon is running, or retry.",
       retry: "Retry connection",
+    },
+    // ── top-bar indicator (W4; design §2.3) ──
+    indicator: {
+      label: "Workspace: {name}",
+      busyTitle: "Agents are running; workspace switch is unavailable ({path})",
+    },
+    // ── settings section (W4; design §2.3) ──
+    settings: {
+      nav: "Workspace",
+      title: "Workspace",
+      currentLabel: "Current binding",
+      unbound: "Not bound",
+      switchAction: "Switch workspace",
+      busyNote: "Sessions/agents are running. Wait for them to finish or abort before switching the workspace.",
     },
   },
 } satisfies Translations;

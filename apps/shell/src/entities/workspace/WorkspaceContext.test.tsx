@@ -47,7 +47,12 @@ function makeDeps(): WorkspaceDeps {
 }
 
 /** 探针：渲染期捕获 workspace store / 动作面。 */
-let probe: { state: WorkspaceState; openWorkspace: (root: string) => boolean } | null = null;
+let probe: {
+  state: WorkspaceState;
+  openWorkspace: (root: string) => boolean;
+  startSwitch: () => void;
+  cancelSwitch: () => void;
+} | null = null;
 function Probe() {
   probe = useWorkspace();
   return null;
@@ -217,5 +222,67 @@ describe("workspace_changed 广播跟随（W3 只保 store 一致）", () => {
     feed(frame("workspace_changed", { root: "/ws/b" }));
     expect(probe!.state.current).toEqual({ root: "/ws/b" });
     expect(probe!.state.phase).toBe("main");
+  });
+});
+
+describe("WorkspaceProvider · 切换流（W4：入口来源区分逃逸）", () => {
+  function toMain() {
+    connected = true;
+    mount();
+    feed(frame("workspace.get.result", { current: { root: "/ws/a" }, recents: [] }));
+    expect(probe!.state.phase).toBe("main");
+  }
+
+  it("startSwitch → gate + switching=true（current 保持）；cancelSwitch → 回 main（绑定未变）", () => {
+    toMain();
+    act(() => {
+      probe!.startSwitch();
+    });
+    expect(probe!.state.phase).toBe("gate");
+    expect(probe!.state.switching).toBe(true);
+    expect(probe!.state.current).toEqual({ root: "/ws/a" });
+    act(() => {
+      probe!.cancelSwitch();
+    });
+    expect(probe!.state.phase).toBe("main");
+    expect(probe!.state.switching).toBe(false);
+    expect(probe!.state.current).toEqual({ root: "/ws/a" });
+  });
+
+  it("切换流 open 成功 → main + 新 current + switching 收口", () => {
+    toMain();
+    act(() => {
+      probe!.startSwitch();
+    });
+    act(() => {
+      probe!.openWorkspace("/ws/b");
+    });
+    expect(sentOpen).toEqual(["/ws/b"]);
+    feed(frame("workspace.open.result", { root: "/ws/b", projects: [] }));
+    expect(probe!.state.phase).toBe("main");
+    expect(probe!.state.switching).toBe(false);
+    expect(probe!.state.current).toEqual({ root: "/ws/b" });
+  });
+
+  it("切换流 open 失败 → gate 保持（switching 在场可取消/重试）", () => {
+    toMain();
+    act(() => {
+      probe!.startSwitch();
+    });
+    act(() => {
+      probe!.openWorkspace("/nope");
+    });
+    feed(frame("connection.error", { code: "WORKSPACE_E_INVALID_ROOT", message: "路径不存在" }));
+    expect(probe!.state.phase).toBe("gate");
+    expect(probe!.state.switching).toBe(true);
+    expect(probe!.state.openError).toEqual({ code: "WORKSPACE_E_INVALID_ROOT", message: "路径不存在" });
+  });
+
+  it("首启 gate 无逃逸语义不变：get-result null → gate 且无 switch 面（切换流动作不参与首启链）", () => {
+    connected = true;
+    mount();
+    feed(frame("workspace.get.result", { current: null, recents: [] }));
+    expect(probe!.state.phase).toBe("gate");
+    expect(probe!.state.switching).toBe(false);
   });
 });

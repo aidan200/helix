@@ -17,6 +17,7 @@ import type { WorkspaceState } from "@/entities/workspace/model/workspace-store"
 // ── useWorkspace mock（store 注入面）─────────────────────────
 let store: WorkspaceState;
 let opened: string[] = [];
+let cancelled = 0;
 
 vi.mock("@/entities/workspace/WorkspaceContext", () => ({
   useWorkspace: () => ({
@@ -24,6 +25,10 @@ vi.mock("@/entities/workspace/WorkspaceContext", () => ({
     openWorkspace: (root: string) => {
       opened.push(root);
       return true;
+    },
+    startSwitch: () => {},
+    cancelSwitch: () => {
+      cancelled += 1;
     },
   }),
 }));
@@ -38,6 +43,7 @@ function baseGate(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
     notice: null,
     opening: false,
     openError: null,
+    switching: false,
     ...overrides,
   };
 }
@@ -55,6 +61,7 @@ function ui() {
 beforeEach(() => {
   store = baseGate();
   opened = [];
+  cancelled = 0;
 });
 afterEach(cleanup);
 
@@ -200,5 +207,31 @@ describe("门禁语义（无导航逃逸）", () => {
     });
     ui();
     expect(document.querySelectorAll("a")).toHaveLength(0);
+  });
+});
+
+describe("切换流逃逸（W4：入口来源区分语义）", () => {
+  it("首启 gate（switching=false）→ 恒无取消钮（无逃逸语义回归）", () => {
+    ui();
+    expect(document.querySelector("[data-wsgate-cancel]")).toBeNull();
+  });
+
+  it("切换流 gate（switching=true）→ 取消钮在场，点击 → cancelSwitch", () => {
+    store = baseGate({ switching: true });
+    ui();
+    const btn = document.querySelector("[data-wsgate-cancel]") as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toContain("取消");
+    fireEvent.click(btn);
+    expect(cancelled).toBe(1);
+  });
+
+  it("open 在途（switching + opening）→ 取消钮禁用（防半途帧）", () => {
+    store = baseGate({ switching: true, opening: true });
+    ui();
+    const btn = document.querySelector("[data-wsgate-cancel]") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(cancelled).toBe(0);
   });
 });

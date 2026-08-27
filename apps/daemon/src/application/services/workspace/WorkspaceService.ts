@@ -123,6 +123,11 @@ export interface WorkspaceServiceDeps {
   readonly broadcast: (root: string) => void;
   /** 活跃 agent 判定（组合根接注册表热会话运行态 + 调度器存活实例）。 */
   readonly hasActiveAgent: () => boolean;
+  /** 重绑效应面（W4 债清偿）：替换已绑定栈后卸载全部现有会话——旧会话
+   *  executor 闭包持已 dispose 的旧栈（回旧会话用 kg/edit 族工具会打到死栈）；
+   *  卸载后回访经懒加载按新栈重建。组合根晚绑接 SessionRegistry.unloadAll
+   *  （构造序：本服务先于 registry 建立——hasActiveAgent 同款回填模式）。 */
+  readonly unloadSessions: () => void;
   /** 可观测日志（结构面；组合根注入 Logger）。 */
   readonly logger?: { info(msg: string): void; warn(msg: string): void };
 }
@@ -142,6 +147,9 @@ export class WorkspaceService {
   /** 绑定 kg 栈（持有者内容物；未绑定恒 null——unbound 零物化的结构保证）。 */
   private bound: WorkspaceStack | null = null;
   private background: WorkspaceSyncBackground | undefined;
+  /** 半途态挂起卸载（W1F-F3 配套）：建栈失败时旧栈已 dispose，会话卸载顺延
+   *  到下次成功绑定（此刻重建才读得到新栈）——防失败窗口重访重建到无栈态。 */
+  private pendingUnload = false;
 
   constructor(deps: WorkspaceServiceDeps) {
     this.deps = deps;
@@ -280,11 +288,16 @@ export class WorkspaceService {
 
   /**
    * rebind 效应：旧 background 先停 → dispose 旧栈 → 建新栈 → 启新
-   * background（对绑定 root）→ 置 current。同 root 且已有栈 = no-op
-   * （幂等保护 bindCwd/bindInitial 双调用）。
+   * background（对绑定 root）→ 置 current → 卸载持旧栈会话（W4 债清偿：
+   * 旧栈已 dispose，旧会话 executor 闭包持旧栈服务——回访会打到死栈；卸载
+   * 后回访经懒加载按新栈重建）。卸载仅在有旧栈死掉时发生（首绑不卸——
+   * CLI bindCwd 保全恢复会话连续性；restore/bindInitial 装配期晚绑闭包
+   * 未闭合亦为 no-op）；建栈失败时旧栈已死 → 挂起顺延到下次成功绑定。
+   * 同 root 且已有栈 = no-op（幂等保护 bindCwd/bindInitial 双调用）。
    */
   private bind(root: string): void {
     if (this.current === root && this.bound !== null) return;
+    const hadStack = this.bound !== null; // 进入时旧栈在场——本次 bind 将 dispose 它
     this.background?.stop();
     this.background = undefined;
     this.bound?.dispose();
@@ -295,13 +308,21 @@ export class WorkspaceService {
       // 半途态加固（W1F-F3）：建栈失败时旧 background 已停、旧栈已
       // dispose——持有者置空（current 不变），后续消费面走 unbound 路径
       // 而非打到已 dispose 死栈；异常上抛（open → handler 结构化错误；
-      // restore → 装配序 fail-fast）。
+      // restore → 装配序 fail-fast）。旧栈已死 → 卸载挂起顺延（不在无栈
+      // 态卸载：此刻重访重建会永久无 kg 工具，等下次成功绑定重建读新栈）。
       this.bound = null;
+      if (hadStack) this.pendingUnload = true;
       throw err;
     }
     this.bound = next;
     this.background = this.deps.startSync(this.bound, root);
     this.current = root;
+    // 重绑成功收口：持旧（已 dispose）栈会话全卸（含半途态挂起）；首绑且
+    // 无挂起 → no-op。
+    if (hadStack || this.pendingUnload) {
+      this.pendingUnload = false;
+      this.deps.unloadSessions();
+    }
   }
 
   /**

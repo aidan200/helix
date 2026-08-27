@@ -59,6 +59,7 @@ function makeRig() {
   const kv = new FakeKv();
   const spy: StackSpy = { builtRoots: [], disposed: 0 };
   const broadcasts: string[] = [];
+  const unloads: string[] = [];
   let activeAgent = false;
   const stackOf = (root: string): WorkspaceStack => ({
     viewerService: {} as never,
@@ -87,11 +88,12 @@ function makeRig() {
       startSync: () => ({ stop: () => {} }),
       broadcast: (root) => broadcasts.push(root),
       hasActiveAgent: () => activeAgent,
+      unloadSessions: () => unloads.push(`unload@${new Date(0).toISOString()}`),
       ...more,
     });
     return { service, stacks };
   }
-  return { kv, spy, broadcasts, stacks, makeService, setActive: (v: boolean) => (activeAgent = v) };
+  return { kv, spy, broadcasts, unloads, stacks, makeService, setActive: (v: boolean) => (activeAgent = v) };
 }
 
 const WS_A = "/private/tmp/ws-a";
@@ -186,6 +188,21 @@ describe("WorkspaceService：open 语义", () => {
     expect(rig.spy.disposed).toBe(1); // 旧栈 dispose 一次
     expect(service.boundRoot()).toBe(WS_B);
     expect(service.stack()).toBe(stacks[1]!);
+  });
+
+  test("重绑卸载面（W4 债清偿）：换根 open → unloadSessions 恰一次；首绑/幂等 open 不卸载", async () => {
+    const rig = makeRig();
+    const { service } = rig.makeService({
+      realpaths: { [WS_A]: WS_A, [WS_B]: WS_B },
+      readableDirs: new Set([WS_A, WS_B]),
+    });
+    await service.open(WS_A); // 首绑：无旧栈可死，不卸载（CLI bindCwd 保全恢复会话连续性）
+    expect(rig.unloads).toHaveLength(0);
+    await service.open(WS_A); // 幂等：状态零变不卸载
+    expect(rig.unloads).toHaveLength(0);
+    await service.open(WS_B); // 换根重绑：旧栈已 dispose → 卸载面恰一次
+    expect(rig.unloads).toHaveLength(1);
+    expect(rig.spy.disposed).toBe(1); // 卸载在旧栈 dispose 之后（重绑成功收口）
   });
 
   test("幂等：同 root 重复 open = 状态零变（不重建不重写 KV）+ 仍广播一次", async () => {
@@ -349,19 +366,23 @@ describe("WorkspaceService：bind 异常半途态加固（W1F-F3）", () => {
     failBuild = true;
     await expect(service.open(WS_B)).rejects.toThrow("注入建栈失败");
     // 半途态加固：旧栈已 dispose、持有者置空（后续消费面走 unbound 路径
-    // 而非死栈）；current 不变；KV/broadcast 不受污染（异常先于持久化）
+    // 而非死栈）；current 不变；KV/broadcast 不受污染（异常先于持久化）；
+    // 会话卸载不在此刻发生（无栈态卸载会让重访重建永久无 kg 工具）而是
+    // 挂起顺延到下次成功绑定（W4 债清偿配套）
     expect(service.stack()).toBe(null);
     expect(service.boundRoot()).toBe(WS_A);
     expect(disposed).toBe(1);
+    expect(rig.unloads).toHaveLength(0); // 失败窗口不卸载（挂起）
     expect(rig.kv.get("workspace.current")).toBe(WS_A);
     expect(rig.broadcasts).toEqual([WS_A]);
-    // 可恢复：好根再次 open 成功（换绑照常）
+    // 可恢复：好根再次 open 成功（换绑照常）+ 挂起卸载在此收口
     failBuild = false;
     const retry = await service.open(WS_B);
     expect(retry.ok).toBe(true);
     expect(service.stack()).not.toBe(null);
     expect(service.boundRoot()).toBe(WS_B);
     expect(built).toEqual([WS_A, WS_B]);
+    expect(rig.unloads).toHaveLength(1); // 持旧（已 dispose）栈会话在成功面全卸
   });
 });
 

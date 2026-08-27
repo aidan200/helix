@@ -79,3 +79,6 @@
   display: inline-flex; align-items: center; gap: 10px;
   font-size: var(--text-main); color: var(--text-muted);
 }
+
+/* 切换流取消逃逸（W4：仅主壳入口渲染；首启 gate 恒无此钮） */
+.wsgate-cancel { align-self: center; }

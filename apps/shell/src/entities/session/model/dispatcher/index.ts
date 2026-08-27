@@ -121,14 +121,14 @@ register({
   apply: (s) => s,
 });
 
-// ── workspace 族两结果帧（W3 门禁读/写面；连接私有回执）──
-// workspace.get.result / workspace.open.result 点对点回执，真消费归
-// entities/workspace 门禁状态机（SessionContext 转发层 workspaceListeners
-// ——kg 族先例；no-op 注册保「EVENT_TYPES 全类型已路由」守护绿，会话
-// store 零写入）。workspace_changed 广播不在此登记（W4 刷新链消费，
-// dispatcher.test.ts PENDING_W4 豁免挂账）。
+// ── workspace 族（W3 门禁读/写面 + W4 changed 广播；连接私有回执/广播）──
+// workspace.get.result / workspace.open.result 点对点回执与 workspace_changed
+// 广播，真消费归 entities/workspace 门禁状态机（SessionContext 转发层
+// workspaceListeners——kg 族先例）与 W4 各域刷新链（ProjectPage/会话清单
+// 重拉，经同转发层订阅）；no-op 注册保「EVENT_TYPES 全类型已路由」守护绿，
+// 会话 store 零写入。W4 豁免全清：changed 广播正式登记。
 register({
-  types: ["workspace.get.result", "workspace.open.result"],
+  types: ["workspace.get.result", "workspace.open.result", "workspace_changed"],
   apply: (s) => s,
 });
 

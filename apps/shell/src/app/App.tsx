@@ -110,9 +110,10 @@ function WorkspaceGate() {
 }
 
 /**
- * 门禁分支（W3）：phase=gate → 选择页（全屏无导航逃逸）；connecting →
- * 轻量加载占位（conn=error 时重试占位）；main → 主壳（AppRoutes 零改动）。
- * phase 由 entities/workspace 状态机驱动。
+ * 门禁分支（W3；W4 切换流复用）：phase=gate → 选择页（首启无导航逃逸；
+ * 切换流入口带取消逃逸——switching 态页面自渲染返回钮，首启语义不变）；
+ * connecting → 轻量加载占位（conn=error 时重试占位）；main → 主壳
+ * （AppRoutes 零改动）。phase 由 entities/workspace 状态机驱动。
  */
 function WorkspaceGateBranch() {
   const { state } = useWorkspace();

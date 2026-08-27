@@ -87,6 +87,8 @@ interface Sent {
 
 const sent: Sent = { projects: 0, list: [], detail: [], report: 0, confirm: [], index: [] };
 let listeners: ((e: EventEnvelope) => void)[] = [];
+/** W4 刷新链：workspace 帧订阅注入位。 */
+let wsListeners: ((e: EventEnvelope) => void)[] = [];
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
@@ -124,6 +126,12 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
           listeners = listeners.filter((l) => l !== cb);
         };
       },
+      subscribeWorkspaceFrames: (cb: (e: EventEnvelope) => void) => {
+        wsListeners.push(cb);
+        return () => {
+          wsListeners = wsListeners.filter((l) => l !== cb);
+        };
+      },
     }),
   };
 });
@@ -157,6 +165,14 @@ function feed(type: string, payload: unknown) {
   });
 }
 
+/** workspace 帧注入（W4 刷新链）。 */
+function feedWorkspace(type: string, payload: unknown) {
+  const frame = { v: "0.11", type, sessionId: "__system__", channel: "workspace", payload } as EventEnvelope;
+  act(() => {
+    for (const l of [...wsListeners]) l(frame);
+  });
+}
+
 function feedProjects() {
   feed("kg.projects.result", { projects: PROJECTS } satisfies KgProjectsResultPayload);
 }
@@ -173,6 +189,7 @@ function enterGraph(name: "helix" | "feifei") {
 afterEach(() => {
   cleanup();
   listeners = [];
+  wsListeners = [];
   sent.projects = 0;
   sent.list = [];
   sent.detail = [];
@@ -415,5 +432,32 @@ describe("全局（AD-16 反向 + 原型标注剥离）", () => {
     localStorage.removeItem("helix-theme");
     fireEvent.click(qs("[data-theme-toggle]")!);
     expect(localStorage.getItem("helix-theme")).toBe("light");
+  });
+});
+
+describe("W4 workspace_changed 刷新链（项目域 + kg 视图）", () => {
+  it("changed 广播 → 页面复位到首拉态 + 重拉 kg.projects（kg 视图随选中清空卸载）", () => {
+    ui();
+    feedProjects();
+    enterGraph("helix"); // 选中 + graph 态（kg 视图装配完成）
+    expect(qs("[data-ctx-proj]")!.textContent).toBe("helix"); // 选中在场
+    const before = sent.projects;
+    feedWorkspace("workspace_changed", { root: "/ws/two" });
+    // 重拉动作发生（连接转换重拉同款链）
+    expect(sent.projects).toBeGreaterThan(before);
+    // 选中/主区复位：回 empty（旧选中在新域不存在——残影零泄漏）
+    expect(qs("[data-ctx-proj]")).toBeNull();
+    expect(screen.getByText("从左侧选择项目")).toBeTruthy();
+    // 新域清单回填：左栏按新数据渲染
+    feedProjects();
+    expect(qs('[aria-label="项目列表"]')!.querySelectorAll(".pj-row")).toHaveLength(PROJECTS.length);
+  });
+
+  it("非 changed 的 workspace 帧 → 不复位不重拉（订阅面单一职责）", () => {
+    ui();
+    feedProjects();
+    const before = sent.projects;
+    feedWorkspace("workspace.open.result", { root: "/ws/two", projects: [] });
+    expect(sent.projects).toBe(before);
   });
 });

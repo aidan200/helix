@@ -8,11 +8,11 @@
  * 新建草稿走 newDraft（零 daemon 帧归 provider 面此处只断言调用）。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import { ThemeProvider } from "@/shared/ui/theme";
 import { ToastProvider } from "@/shared/ui/Toast";
-import type { SessionMeta } from "@helix/protocol";
+import type { EventEnvelope, SessionMeta } from "@helix/protocol";
 import { createInitialSessionState, sessionReducer, type SessionState } from "@/entities/session/model/session-reducer";
 import { createInitialModelConfigState } from "@/entities/session/model/state";
 import type { TopologyState } from "@/entities/session/model/topology";
@@ -21,6 +21,14 @@ const switchSession = vi.fn();
 const newDraft = vi.fn();
 const deleteSession = vi.fn();
 const requestSessionList = vi.fn();
+/** W4 刷新链：workspace 帧订阅注入位。 */
+let wsListeners: ((e: EventEnvelope) => void)[] = [];
+const subscribeWorkspaceFrames = (cb: (e: EventEnvelope) => void) => {
+  wsListeners.push(cb);
+  return () => {
+    wsListeners = wsListeners.filter((l) => l !== cb);
+  };
+};
 
 function makeState(sessionId: string | null, agentState: "idle" | "running" = "idle"): SessionState {
   const s = sessionReducer(
@@ -56,6 +64,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       newDraft,
       deleteSession,
       requestSessionList,
+      subscribeWorkspaceFrames,
       killInstance: vi.fn(),
       subscribeInstance: vi.fn(),
       unsubscribeInstance: vi.fn(),
@@ -83,6 +92,7 @@ function ui() {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  wsListeners = [];
 });
 
 localStorage.setItem("helix-lang", "zh-CN");
@@ -156,5 +166,30 @@ describe("P-2 会话侧栏", () => {
     expect(localStorage.getItem("helix-sidebar-collapsed")).toBe("1");
     // 折叠态图标条：新建入口 + 每会话状态点入口在场
     expect(screen.getByTitle("新建会话")).toBeTruthy();
+  });
+});
+
+describe("W4 workspace_changed 刷新链", () => {
+  it("changed 广播 → 清单重拉（换绑后 daemon 已卸载会话，统计按权威对齐）", () => {
+    stateRef.current = makeState("s1");
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };
+    ui();
+    expect(requestSessionList).toHaveBeenCalledTimes(1); // connected 首拉（既有链）
+    act(() => {
+      for (const l of [...wsListeners])
+        l({ v: 0, type: "workspace_changed", sessionId: "__system__", channel: "workspace", payload: { root: "/ws/two" } } as EventEnvelope);
+    });
+    expect(requestSessionList).toHaveBeenCalledTimes(2); // 重拉动作发生
+  });
+
+  it("非 changed 帧 → 不重拉（订阅面单一职责）", () => {
+    stateRef.current = makeState("s1");
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };
+    ui();
+    act(() => {
+      for (const l of [...wsListeners])
+        l({ v: 0, type: "workspace.open.result", sessionId: "__system__", channel: "workspace", payload: { root: "/ws/two", projects: [] } } as EventEnvelope);
+    });
+    expect(requestSessionList).toHaveBeenCalledTimes(1); // 仅首拉
   });
 });

@@ -546,6 +546,7 @@ export const zhCN = {
       pathPlaceholder: "/path/to/workspace",
       open: "打开",
       opening: "打开中…",
+      cancelSwitch: "取消，返回主界面",
       error: {
         invalidRoot: "路径无效：目录不存在、不是目录、不可读，或为危险根（文件系统根/主目录）。",
         activeAgent: "存在运行中的智能体，暂时不能切换工作空间。",
@@ -558,6 +559,20 @@ export const zhCN = {
       errorTitle: "无法连接 daemon",
       errorSub: "请确认 daemon 已启动，或点击重试。",
       retry: "重试连接",
+    },
+    // ── 主壳指示器（W4；设计稿 §2.3 top-bar）──
+    indicator: {
+      label: "工作空间：{name}",
+      busyTitle: "有智能体运行中，暂不能切换工作空间（{path}）",
+    },
+    // ── 设置页分区（W4；设计稿 §2.3）──
+    settings: {
+      nav: "工作空间",
+      title: "工作空间",
+      currentLabel: "当前绑定",
+      unbound: "未绑定",
+      switchAction: "切换工作空间",
+      busyNote: "存在运行中的会话/智能体，请先等待收尾或中止后再切换工作空间。",
     },
   },
 };

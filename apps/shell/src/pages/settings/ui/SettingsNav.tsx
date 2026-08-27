@@ -1,8 +1,8 @@
 /**
  * SettingsNav 设置分区导航（S2 设置页实页化；sidebar 槽组件）。
  *
- * 结构按「分区列表」设计（data-section 锚；列表首项 = 模型设置）。本次
- * 仅一项，不虚构未规划分区。
+ * 结构按「分区列表」设计（data-section 锚；列表首项 = 模型设置）。W4 追加
+ * 「工作空间」分区（当前绑定 + 切换入口）。
  *
  * ── 未来分区追加方式（预留说明，S2 裁决口径）──
  * 1. 新分区 = SETTINGS_SECTIONS 追加一项（id 进 SettingsSectionId 联合，
@@ -19,7 +19,7 @@ import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
 
 /** 设置分区 id（新增分区在此扩展联合类型）。 */
-export type SettingsSectionId = "models";
+export type SettingsSectionId = "models" | "workspace";
 
 /** 分区清单（首项 = 模型设置；追加方式见文件头预留说明）。 */
 export const SETTINGS_SECTIONS: readonly {
@@ -27,6 +27,7 @@ export const SETTINGS_SECTIONS: readonly {
   labelKey: string;
 }[] = [
   { id: "models", labelKey: "chat.settings.nav.models" },
+  { id: "workspace", labelKey: "workspace.settings.nav" },
 ];
 
 export interface SettingsNavProps {

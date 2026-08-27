@@ -301,6 +301,19 @@
   margin: 0 0 14px;
 }
 
+/* ── 工作空间分区（W4 设置页：当前绑定 + 切换；F2 活跃 agent 禁用态）── */
+.ws-set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.ws-set-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ws-set-label {
+  font-size: var(--text-cap); font-weight: 600; color: var(--text-dim);
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.ws-set-root { font-size: var(--text-body); color: var(--text); word-break: break-all; }
+.ws-set-note {
+  margin-top: 10px; font-size: var(--text-body); line-height: 1.6;
+  color: var(--warning);
+}
+
 /* ════════════════════════════════════════════════════════
    P-3 模型切换弹出菜单（prototype/P-3-model-menu.html 组件契约
    移植；T3.3）。载体同 stats-pop：.app 直系子元素 + absolute（backdrop-

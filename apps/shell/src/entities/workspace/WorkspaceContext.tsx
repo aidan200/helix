@@ -5,7 +5,10 @@
  * 主壳渲染）/ gate（null，选择页）。驱动帧：workspace.get.result（点对点门禁
  * 快照分流）、workspace.open.result（绑定回执）、connection.error（open 在途
  * 时的结构化错误——错误码 + message 供页面行内展示，前端不重复实现校验）、
- * workspace_changed（广播跟随——W3 只保 current 一致，刷新链归 W4）。
+ * workspace_changed（广播跟随——W4 刷新链归各数据消费面）。
+ *
+ * 切换流（W4；设计稿 §2.3）：startSwitch（主壳入口 → gate 带取消逃逸）/
+ * cancelSwitch（取消回主壳）；首启 gate 无逃逸语义不变（入口来源区分）。
  *
  * 依赖注入（AG-15：entities 跨 slice 零互引）：连接就绪与 workspace 命令/
  * 帧订阅面由 app 层从 SessionContext 提取注入（SessionProvider 的
@@ -38,11 +41,16 @@ export interface WorkspaceDeps {
 }
 
 interface WorkspaceContextValue {
-  /** 门禁 store（phase/current/recents/notice/opening/openError）。 */
+  /** 门禁 store（phase/current/recents/notice/opening/openError/switching）。 */
   state: WorkspaceState;
   /** 显式绑定写面：open-started + workspace.open 发出（send 失败本地合成
    *  错误码——提交禁用态即时收口）；成功/失败回执驱动 reducer。 */
   openWorkspace: (root: string) => boolean;
+  /** 进入切换流（W4 主壳入口）：phase=gate + switching=true（带取消逃逸）；
+   *  仅 main 态入口应调（首启 gate 无此入口——无逃逸语义不变）。 */
+  startSwitch: () => void;
+  /** 取消切换流：回主壳（绑定未变；open 在途时取消钮禁用防半途帧）。 */
+  cancelSwitch: () => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -104,7 +112,13 @@ export function WorkspaceProvider({ deps, children }: { deps: WorkspaceDeps; chi
     [sendOpen],
   );
 
-  const value = useMemo(() => ({ state, openWorkspace }), [state, openWorkspace]);
+  const startSwitch = useCallback(() => dispatch({ type: "switch-started" }), []);
+  const cancelSwitch = useCallback(() => dispatch({ type: "switch-cancelled" }), []);
+
+  const value = useMemo(
+    () => ({ state, openWorkspace, startSwitch, cancelSwitch }),
+    [state, openWorkspace, startSwitch, cancelSwitch],
+  );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }

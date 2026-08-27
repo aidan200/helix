@@ -34,20 +34,16 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     const modelConfigTypes = new Set<string>(MODEL_CONFIG_EVENT_TYPES);
     const agentConfigTypes = new Set<string>(AGENT_CONFIG_EVENT_TYPES);
     const webTypes = new Set<string>(WEB_EVENT_TYPES);
-    // W1 过渡豁免（W3 半清理后仅剩 W4 部分）：workspace_changed 广播的
-    // shell 消费归 W4 切片（主壳指示器/各域刷新链）——W3 已在 SessionContext
-    // 转发层消费其 current 跟随（entities/workspace 状态机），但各域刷新链
-    // 未接，暂显式挂账，非静默遗漏。两结果帧（get/open）已由 W3 正式登记
-    //（下方注册表 no-op——真消费归 entities/workspace 门禁状态机）。
-    const PENDING_W4 = new Set<string>(["workspace_changed"]);
+    // workspace 族（W3+W4）：两结果帧 + changed 广播经注册表 no-op 正式登记
+    //（连接私有回执/广播——真消费归 entities/workspace 门禁状态机与 W4 各域
+    // 刷新链，SessionContext 转发层先例；PENDING_W34 豁免已全清）。
     for (const type of EVENT_TYPES) {
       expect(
         route(type) !== undefined ||
           directoryTypes.has(type) ||
           modelConfigTypes.has(type) ||
           agentConfigTypes.has(type) ||
-          webTypes.has(type) ||
-          PENDING_W4.has(type),
+          webTypes.has(type),
         `未消费事件 type：${type}`,
       ).toBe(true);
     }
@@ -112,11 +108,11 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     for (const type of WEB_EVENT_TYPES) {
       expect(route(type), `web 族不应注册会话 store 面：${type}`).toBeUndefined();
     }
-    // W3 workspace 族：两结果帧经注册表 no-op 正式登记（连接私有读/写面，
-    // 真消费归 entities/workspace 门禁状态机——SessionContext 转发层先例）；
-    // workspace_changed 留 W4 豁免（上方 PENDING_W4），不入本注册表
+    // workspace 族（W3 门禁 + W4 刷新链）：三 type 经注册表 no-op 正式登记
+    //（连接私有读/写面 + changed 广播，真消费归 entities/workspace 门禁状态
+    // 机与各域刷新链——SessionContext 转发层先例）
     expect(route("workspace.get.result")).toBeDefined();
     expect(route("workspace.open.result")).toBeDefined();
-    expect(route("workspace_changed")).toBeUndefined();
+    expect(route("workspace_changed")).toBeDefined();
   });
 });

@@ -1,7 +1,7 @@
 /**
  * 选择工作空间页（W3 门禁 gate 态；设计稿 §2.2 / brief 任务 3）。
  *
- * 全屏门禁页（无导航逃逸——不选不进主壳；App.tsx 门禁分支渲染）：
+ * 全屏门禁页（App.tsx 门禁分支渲染）：
  * - notice 区：workspace.get 降级说明（如「上次的工作空间已不可用：…」）
  *   置顶展示（daemon 生成的用户可读文本，直接渲染）；
  * - recents 区：MRU 列表（name=basename / root / lastUsedAt 本地化短格式），
@@ -9,6 +9,10 @@
  * - 输入区：路径输入 + 确认；行内错误区展示 daemon 返回的结构化错误
  *   （错误码区分文案 + message 附加行——前端不重复实现校验，§3.3 单点）；
  *   提交中禁用态（opening）。
+ *
+ * 逃逸语义按入口来源区分（W4 切换流）：switching=true（主壳入口）→ 底部
+ * 取消按钮回主壳（open 在途时禁用防半途帧）；首启 gate（switching=false）
+ * 恒无逃逸——不选不进主壳，勿改语义。
  *
  * 纯展示组件 + store 注入（ProjectPage/SettingsPage 分工先例）：数据面全在
  * entities/workspace（useWorkspace），本页零 WS 依赖。i18n 键全量登记
@@ -36,7 +40,7 @@ function errorTextOf(code: string, t: ReturnType<typeof useI18n>["t"]): string {
 
 const WorkspaceGatePage = function WorkspaceGatePage() {
   const { t } = useI18n();
-  const { state, openWorkspace } = useWorkspace();
+  const { state, openWorkspace, cancelSwitch } = useWorkspace();
   const [path, setPath] = useState("");
   const trimmed = path.trim();
 
@@ -114,6 +118,20 @@ const WorkspaceGatePage = function WorkspaceGatePage() {
             </div>
           )}
         </section>
+        {/* 切换流取消逃逸（W4）：仅主壳入口渲染；open 在途禁用（取消 = 放弃
+            等待回执——在途中途取消会产生半途帧，防抖优先）。首启 gate 恒无
+            此钮（无逃逸语义）。 */}
+        {state.switching && (
+          <button
+            type="button"
+            className="hud-btn wsgate-cancel"
+            data-wsgate-cancel
+            disabled={state.opening}
+            onClick={cancelSwitch}
+          >
+            {t("workspace.gate.cancelSwitch")}
+          </button>
+        )}
       </div>
     </div>
   );

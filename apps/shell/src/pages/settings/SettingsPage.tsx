@@ -12,6 +12,7 @@ import { useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import ModelsSettingsSection from "./ui/ModelsSettingsSection";
+import WorkspaceSettingsSection from "./ui/WorkspaceSettingsSection";
 import SettingsNav, {
   SETTINGS_SECTIONS,
   type SettingsSectionId,
@@ -30,6 +31,7 @@ const SettingsPage = function SettingsPage({ path }: { path: string }) {
         sidebar={<SettingsNav active={section} onSelect={setSection} />}
       >
         {section === "models" && <ModelsSettingsSection />}
+        {section === "workspace" && <WorkspaceSettingsSection />}
       </AppLayout>
     </div>
   );

@@ -98,7 +98,7 @@ const ProjectPage = function ProjectPage({ path }: { path: string }) {
   const { t } = useI18n();
   const toast = useToast();
   const { theme, setTheme } = useTheme();
-  const { state: session, sendKgProjects, sendKgIndexStatus, subscribeKgFrames } = useSession();
+  const { state: session, sendKgProjects, sendKgIndexStatus, subscribeKgFrames, subscribeWorkspaceFrames } = useSession();
   const conn = session.conn;
 
   const [state, dispatch] = useReducer(projectReducer, undefined, createProjectPageState);
@@ -115,6 +115,20 @@ const ProjectPage = function ProjectPage({ path }: { path: string }) {
     prevConnRef.current = conn;
     if (conn === "connected" && prev !== "connected") sendKgProjects();
   }, [conn, sendKgProjects]);
+
+  // workspace_changed 刷新链（W4；按连接转换重拉同款既有模式接）：换绑后
+  // 项目域整体作废——页面状态复位到首拉态 + 重拉 kg.projects（kg 视图随
+  // 选中清空卸载，新选中后按新域重挂；daemon 侧会话已随重绑卸载，见
+  // SessionRegistry.unloadAll）。
+  useEffect(
+    () =>
+      subscribeWorkspaceFrames((e) => {
+        if (e.type !== "workspace_changed") return;
+        dispatch({ type: "workspace-reset" });
+        sendKgProjects();
+      }),
+    [subscribeWorkspaceFrames, sendKgProjects],
+  );
 
   // kg 族点对点回执消费（页面私有 reducer；AG-15 不进 session store）
   useEffect(

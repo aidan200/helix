@@ -137,3 +137,81 @@ describe("get-started（连接就绪/重连重判）", () => {
     expect(s.phase).toBe("gate");
   });
 });
+
+describe("切换流（W4；入口来源区分逃逸语义）", () => {
+  /** main 态起手（绑定 ws-a）。 */
+  function mainState(): WorkspaceState {
+    return workspaceReducer(createInitialWorkspaceState(), {
+      type: "get-result",
+      payload: { current: { root: "/ws/a" }, recents: RECENTS },
+    });
+  }
+
+  it("switch-started（主壳入口）→ phase=gate + switching=true（取消逃逸在场）+ current 保持（取消可回）", () => {
+    const s = workspaceReducer(mainState(), { type: "switch-started" });
+    expect(s.phase).toBe("gate");
+    expect(s.switching).toBe(true);
+    expect(s.current).toEqual({ root: "/ws/a" }); // 绑定未变
+  });
+
+  it("switch-cancelled → 回 main + switching 收口；open 在途同时收口（放弃等待回执）", () => {
+    let s = workspaceReducer(mainState(), { type: "switch-started" });
+    s = workspaceReducer(s, { type: "open-started" });
+    s = workspaceReducer(s, { type: "switch-cancelled" });
+    expect(s.phase).toBe("main");
+    expect(s.switching).toBe(false);
+    expect(s.opening).toBe(false);
+    expect(s.openError).toBeNull();
+  });
+
+  it("切换流中 open-result / changed → 收口回 main（switching=false + current 新值）", () => {
+    let s = workspaceReducer(mainState(), { type: "switch-started" });
+    s = workspaceReducer(s, { type: "open-result", payload: { root: "/ws/b", projects: [] } });
+    expect(s.phase).toBe("main");
+    expect(s.switching).toBe(false);
+    expect(s.current).toEqual({ root: "/ws/b" });
+
+    let s2 = workspaceReducer(mainState(), { type: "switch-started" });
+    s2 = workspaceReducer(s2, { type: "changed", payload: { root: "/ws/c" } });
+    expect(s2.phase).toBe("main");
+    expect(s2.switching).toBe(false);
+    expect(s2.current).toEqual({ root: "/ws/c" });
+  });
+
+  it("切换流中 open-failed → 留在 gate（switching 保持——行内错误 + 可取消）", () => {
+    let s = workspaceReducer(mainState(), { type: "switch-started" });
+    s = workspaceReducer(s, { type: "open-started" });
+    s = workspaceReducer(s, { type: "open-failed", error: { code: "WORKSPACE_E_INVALID_ROOT", message: "x" } });
+    expect(s.phase).toBe("gate");
+    expect(s.switching).toBe(true);
+  });
+
+  it("切换流中 get-result（重连现实校验）→ switching 收口：bound 回 main / null 回首启 gate（无逃逸）", () => {
+    let s = workspaceReducer(mainState(), { type: "switch-started" });
+    s = workspaceReducer(s, {
+      type: "get-result",
+      payload: { current: { root: "/ws/a" }, recents: [] },
+    });
+    expect(s.phase).toBe("main");
+    expect(s.switching).toBe(false);
+
+    let s2 = workspaceReducer(mainState(), { type: "switch-started" });
+    s2 = workspaceReducer(s2, { type: "get-result", payload: { current: null, recents: [] } });
+    expect(s2.phase).toBe("gate");
+    expect(s2.switching).toBe(false); // 首启语义：无逃逸
+  });
+
+  it("首启 gate（get-result current=null）后 switch 动作不生效路径不存在——switch-started 仅主壳入口发出（结构性约定），首启语义不受影响", () => {
+    // 首启链不 dispatch switch-started（入口只在 main 态渲染）；reducer 对
+    // 异常 dispatch 的行为 = 进切换流 gate——不破坏首启「不选不进主壳」：
+    // 取消钮在场但取消回 main 需 current 非空，首启异常路径不可达（入口
+    // 结构保证），此处钉行为供回归比对。
+    let s = workspaceReducer(createInitialWorkspaceState(), {
+      type: "get-result",
+      payload: { current: null, recents: [] },
+    });
+    s = workspaceReducer(s, { type: "switch-started" });
+    expect(s.phase).toBe("gate");
+    expect(s.switching).toBe(true);
+  });
+});

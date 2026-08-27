@@ -21,6 +21,8 @@ import { MODES } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { useSession, type ConnState } from "@/entities/session/SessionContext";
 import { selectModeSlot } from "@/entities/session/model/consumers/agent-config";
+import { selectActiveRunState } from "@/entities/session/model/topology";
+import { useWorkspace } from "@/entities/workspace/WorkspaceContext";
 import { cn } from "@/shared/lib/cn";
 import { StatsBadge } from "./SessionStats";
 
@@ -131,7 +133,45 @@ function ModeChip() {
   );
 }
 
-/** headerLeft 槽内容：会话标题 + 环境双 chip。 */
+/** basename（显示名；WorkspaceService.basenameOf 同式，前端展示面本地版）。 */
+function basenameOfRoot(root: string): string {
+  const parts = root.split(/[/\\]/).filter((s) => s !== "");
+  return parts.length > 0 ? parts[parts.length - 1]! : root;
+}
+
+/**
+ * workspace 指示器（W4；设计稿 §2.3 / brief 任务 1）：basename 显示 +
+ * title/tooltip 全路径；点击 = 直接进入切换流（WorkspaceGatePage 带取消
+ * 逃逸——top-bar 交互从简：无下拉菜单直接进 gate，mode chip 同款轻量）。
+ * F2 裁决：有活跃 agent（任一会话运行中，含 SubAgent/后台）时禁用 +
+ * 文案说明（selectActiveRunState + 清单 runState 双面，设置页同口径；
+ * daemon WORKSPACE_E_ACTIVE_AGENT 门禁兜底）。
+ */
+function WorkspaceChip() {
+  const { t } = useI18n();
+  const { state: session, topology } = useSession();
+  const { state: ws, startSwitch } = useWorkspace();
+  const root = ws.current?.root ?? null;
+  const agentBusy =
+    selectActiveRunState(session) !== "idle" || topology.list.some((m) => m.runState !== "idle");
+  if (root === null) return null; // 防御：main 态恒有绑定（门禁保证）
+  return (
+    <button
+      type="button"
+      className="hud-chip ws-chip"
+      data-ws-chip
+      data-busy={agentBusy ? "1" : "0"}
+      title={agentBusy ? t("workspace.indicator.busyTitle", { path: root }) : root}
+      aria-label={t("workspace.indicator.label", { name: basenameOfRoot(root) })}
+      disabled={agentBusy}
+      onClick={startSwitch}
+    >
+      {basenameOfRoot(root)}
+    </button>
+  );
+}
+
+/** headerLeft 槽内容：会话标题 + 环境双 chip + workspace 指示器。 */
 export const TopBarInfo = function TopBarInfo() {
   const { t } = useI18n();
   const { state, topology } = useSession();
@@ -147,6 +187,7 @@ export const TopBarInfo = function TopBarInfo() {
       </span>
       <ModeChip />
       <span className="hud-chip" data-home-chip>{t("chat.header.home")}</span>
+      <WorkspaceChip />
     </>
   );
 };
