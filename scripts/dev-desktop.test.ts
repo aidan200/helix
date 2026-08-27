@@ -16,7 +16,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   checkRustToolchain,
@@ -29,7 +29,7 @@ import {
 import { ensureRgAvailable, tauriDevArgs, TAURI_DEV_CONFIG_OVERRIDE } from "./dev-desktop";
 
 // TDD-RED：wrapper cwd 止血——buildWrapperScript 尚未实现（先红后绿）
-import { buildWrapperScript } from "./dev-desktop";
+import { buildWrapperScript, resolveDevWorkspaceRoot } from "./dev-desktop";
 
 const root = join(import.meta.dir, "..");
 const SCRIPT = join(root, "scripts/dev-desktop.ts");
@@ -368,6 +368,33 @@ describe("buildWrapperScript（wrapper 内容纯函数：cd 在 exec 前）", ()
     ).toBe(
       `#!/bin/sh\ncd '${workspaceRoot}'\nexec '${bunPath}' '${mainTsPath}' --home '/tmp/hx-home' "$@"\n`,
     );
+  });
+});
+
+// ── dev workspace 根解析（§3.5 容器语义：helix 整体一个项目一个 .helix-kg）──
+
+describe("resolveDevWorkspaceRoot（缺省父目录 + 回退 + 旋钮覆盖）", () => {
+  const home = homedir();
+
+  test("旋钮优先：显式指认直接生效（任意布局兜底）", () => {
+    expect(resolveDevWorkspaceRoot("/repo", "/Users/x/ws")).toBe("/Users/x/ws");
+    expect(resolveDevWorkspaceRoot(join(home, "helix"), "/tmp/ws")).toBe("/tmp/ws");
+  });
+
+  test("旋钮空白串视为未设（缺省链路生效——此处父目录为根，触发回退返仓库根）", () => {
+    expect(resolveDevWorkspaceRoot("/repo", "   ")).toBe("/repo");
+  });
+
+  test("常态：仓库坐落多项目工作区 → 父目录（容器语义，仓库自身不再碎成伪项目）", () => {
+    expect(resolveDevWorkspaceRoot("/Users/x/ws/helix")).toBe("/Users/x/ws");
+  });
+
+  test("回退：仓库裸躺 home 下 → 父目录是 home，扫描面失控，退回仓库根", () => {
+    expect(resolveDevWorkspaceRoot(join(home, "helix"))).toBe(join(home, "helix"));
+  });
+
+  test("回退：仓库在文件系统根的直接子目录 → 父目录是根，退回仓库根", () => {
+    expect(resolveDevWorkspaceRoot("/helix")).toBe("/helix");
   });
 });
 

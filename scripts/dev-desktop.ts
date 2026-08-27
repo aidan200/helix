@@ -28,6 +28,9 @@
  * - HELIX_DESKTOP_HOME：注入 daemon `--home`（dev/测试隔离位；缺省 =
  *   daemon 默认 ~/.helix）。daemon 端口经 `<home>/config.json` 的 port
  *   键注入（既有配置面，非本脚本旋钮）。
+ * - HELIX_DESKTOP_WORKSPACE_ROOT：daemon workspace 根指认（wrapper cd
+ *   目标；缺省 = 仓库父目录，回退规则见 resolveDevWorkspaceRoot——
+ *   TR-AD-6 拉起方设 cwd 语义的编排层旋钮，daemon 仍只读 cwd）。
  * - HELIX_DESKTOP_VITE_PORT：vite dev 端口覆盖（测试隔离位；缺省 =
  *   vite 默认 5173，与 tauri.conf devUrl 对齐）。覆盖后经 --config 同步
  *   override build.devUrl 随动——tauri dev 启动前等待 devUrl 可达，不随动
@@ -37,8 +40,8 @@
  * 用法：bun run dev:desktop
  */
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, parse } from "node:path";
 import { installFromRelease, isInstalled } from "./fetch-rg";
 
 // ── 前置自检（F4.1，纯函数面）──────────────────────────────
@@ -143,6 +146,27 @@ export function buildWrapperScript(options: WrapperScriptOptions): string {
     `cd '${options.workspaceRoot}'\n` +
     `exec '${options.bunPath}' '${options.mainTsPath}'${homeArg} "$@"\n`
   );
+}
+
+// ── dev workspace 根解析（§3.5 语义：workspace=容器，一级目录=项目）──
+
+/**
+ * dev 形态 daemon workspace 根解析（纯函数，可单测）。
+ *
+ * 缺省 = 仓库父目录：§3.5 口径下 workspace 是多项目容器、一级目录才是
+ * 项目——helix 仓库自身是“一个项目一个 .helix-kg”，若以仓库根为
+ * workspace，apps/packages 等内部目录会被误判为项目并批量物化伪库
+ * （2026-08-27 实证：boot 在每个非排除一级目录建 0 节点 .helix-kg）。
+ * 仓库坐落在多项目工作区内（clone 的常态布局）时父目录即正确容器。
+ * 回退：父目录是 home 或文件系统根（仓库裸躺、无容器语义，扫描面
+ * 失控）→ 退回仓库根（ bounded，宁可伪库也不扫全盘）。
+ * 覆盖：HELIX_DESKTOP_WORKSPACE_ROOT 显式指认（任意布局兜底）。
+ */
+export function resolveDevWorkspaceRoot(repoRoot: string, override?: string): string {
+  if (override && override.trim() !== "") return override;
+  const parent = dirname(repoRoot);
+  if (parent === homedir() || parse(parent).root === parent) return repoRoot;
+  return parent;
 }
 
 // ── H-1 动作③：rg 环境无关自动补（幂等，失败不阻塞 dev）─────────
@@ -294,15 +318,17 @@ async function main(): Promise<number> {
   const shellDir = join(root, "apps/shell");
   const workDir = mkdtempSync(join(tmpdir(), "helix-dev-desktop-"));
   // dev sidecar wrapper（AF-3 注入位）：壳恒 spawn sidecar（双形态同构），
-  // wrapper 先 cd 仓库根再 exec bun 直跑 daemon 源码（禁 compile 产物，
+  // wrapper 先 cd workspace 根再 exec bun 直跑 daemon 源码（禁 compile 产物，
   // TR-AD-35；daemon cwd 继承 wrapper——TR-AD-6 拉起方设 cwd 的止血位）。
+  // workspace 根缺省 = 仓库父目录（§3.5：容器语义，helix 整体为一个项目、
+  // 唯一 .helix-kg 在仓库根），HELIX_DESKTOP_WORKSPACE_ROOT 可显式指认。
   const wrapper = join(workDir, "helix-daemon-dev.sh");
   writeFileSync(
     wrapper,
     buildWrapperScript({
       bunPath: process.execPath,
       mainTsPath: join(root, "apps/daemon/src/main.ts"),
-      workspaceRoot: root,
+      workspaceRoot: resolveDevWorkspaceRoot(root, process.env.HELIX_DESKTOP_WORKSPACE_ROOT),
       home: process.env.HELIX_DESKTOP_HOME,
     }),
   );
