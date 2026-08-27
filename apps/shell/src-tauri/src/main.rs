@@ -31,9 +31,13 @@ const SIDECAR_BIN_PREFIX: &str = "helix-daemon";
 const PICK_DIRECTORY_INIT_SCRIPT: &str = r#"
 window.helixPickDirectory = (initial) =>
   window.__TAURI_INTERNALS__.invoke('plugin:dialog|open', {
-    directory: true,
-    multiple: false,
-    ...(initial ? { defaultPath: initial } : {}),
+    // 参数必须包在 options 键里（命令签名 options: OpenDialogOptions；
+    // W6j 实证：顶层平铺 → invalid args "missing required key options"）
+    options: {
+      directory: true,
+      multiple: false,
+      ...(initial ? { defaultPath: initial } : {}),
+    },
   }).then((r) => (typeof r === 'string' && r.length > 0 ? r : null));
 // W6e：主题提示回写（挂载时+主题变更时；壳侧缓存为下次启动窗口底色）
 window.helixThemeHint = (theme) =>
