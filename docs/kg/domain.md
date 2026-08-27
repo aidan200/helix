@@ -1,4 +1,6 @@
-> 【已停用】SoT 已下沉 .kg 单库（iter-20260825-11fo 迁移）；本文件不再被任何管道解析
+> 【过渡态·已迁入】v2 管道已停用 md 解析（SoT 下沉 .helix-kg/kg.db 单库，iter-20260825-11fo AF-21 终态；81 节点已于终验 kg-migrate --apply 迁入）；老版 phase runtime 仍解析本文件维护 v1 索引（.kg/kg.db，注入面）——终验新增/修订的 kg-node 块对老版注入有效，v2 侧以本文件为恢复基线（kg-migrate 幂等重建）。
+
+> 【过渡态】v2 管道已停用 md 解析（SoT 下沉 .helix-kg 单库，iter-20260825-11fo AF-21 终态）；但老版 phase runtime 仍解析本文件维护 v1 索引（.kg/kg.db，注入面）——终验新增/修订的 kg-node 块（TR-AD-50+、E-知识图谱等）对老版注入有效。v2 单库启用时以 kg-migrate 幂等迁入（恢复基线：md 快照）。
 
 ```kg-node
 id: E-AgentRuntime
@@ -417,3 +419,51 @@ updatedIn: iter-20260823-6ps5
 
 ## 关系
 E-AgentProfile 的静态全集是合取的一侧（运行期启用集是另一侧）；E-模型目录 default_model 为 main 槽位的下级兑底；thinking 槽位供 TR-AD-40 解析链消费（经 TR-AD-44 getter 折叠）；agent.config.* 命令族是唯一写入口（set_enabled/changed resourceType 扩 "thinking"；list 读面 profiles[].thinkingLevel string|null）；T2 刷新链消费合取结果直改活跃 runtime。
+
+```kg-node
+id: E-知识图谱
+kind: entity
+graph: business
+scope: domain
+stack: shared
+name: 知识图谱（kg）
+status: active
+digest: 动 kg 库 schema、写附着或 sync 管道、扩 kg 工具/命令面、改锚声明或项目发现时
+updatedIn: iter-20260825-11fo
+```
+
+## 描述
+helix v2 项目知识图谱子系统（iter-20260825-11fo 落地）——按项目根持有的知识层×符号层×物化锚单库体系，统摄五个业务面：图谱构建与增量同步（CL-2）、知识到达（CL-1，附着+任务切片双通道）、知识沉淀与事后修正（CL-3）、主动查询面（CL-4，search/get 最小集）、图谱查看页面（CL-5，P-1 /project）。库 = <projectRoot>/.helix-kg/kg.db（AF-21 终态，本地运行态）；md 表示层已停用（AD-9 SoT 下沉）。独立生命周期（sync 管道维护新鲜度、节点 draft/confirmed/superseded 状态机）；唯一标识 = 节点 id（TR-AD-54 策略）；多模块消费（sync/附着/查询/报告/P-1 页/验证检查）。
+
+## 规则
+①SoT = <projectRoot>/.helix-kg/kg.db 单库（知识层/符号层/物化锚同库，TR-AD-50）；知识层唯一写入口 KgWriteService（schema 校验即防线）。②符号层新鲜化单一 sync 管道：双源汇队列+去抖+单飞+表分域写（TR-AD-51）；附着读快照允许滞后。③知识到达双通道：动作层附着（edit 成功尾部 📎 块，四层递降+宁可沉默不可错附，TR-AD-52）+ 任务层切片注入；读面绝不新建库。④锚关联由写入时作用域声明决定（global/path/symbol 三级，确定性物化，TR-AD-53）。⑤节点 id 前缀+单调序号永不复用，supersede 只翻 status；id 不进人类界面（TR-AD-54）。⑥验证期机械检查只列不修（find_conflicts/find_orphans/活跃度启发），处置权在人。⑦查询面最小集：search(q) LIKE 确定性匹配 + get(nodeId) 全量，无 embedding（F-6）。
+
+## 禁忌
+绕过 KgWriteService 旁路直写知识层；读面（探测/查询/页面）新建库文件（absent 语义破坏）；v2 代码读写 v1 .kg/kg.db（AF-21 同名冲突）；附着放宽到 callee/跨文件符号或错附不沉默（通道被 agent 学会忽略——v1 下场）；全局域节点物化锚（重复运输）。
+
+## 关系
+由 TR-AD-50~58 共同 governs（存储/同步/附着/锚/发号/复制/发现/只读/模板九面）；与候选台账（E-候选台账）构成沉淀闭环：附着发现的知识缺口、候选、人审落库三步；查询面供 agent（kg search/get 工具）与人类（P-1 /project 页）双面消费。
+
+```kg-node
+id: E-候选台账
+kind: entity
+graph: business
+scope: domain
+stack: shared
+name: 候选台账（candidates）
+status: active
+digest: 写 propose/apply/discard/defer 流转、动 candidates 分区、做 gc_report 或 pending 门控检查时
+updatedIn: iter-20260825-11fo
+```
+
+## 描述
+知识沉淀的人审裁决台账（iter-20260825-11fo 经 verification entity 覆盖率审计确立为独立业务实体）——候选从产生到落库的状态机载体：propose（候选落 pending）→ 终验人审三选一（apply 正式落库发号 / discard 否决留痕可复活 / defer 挂起限龄限量）。独立生命周期（pending/deferred/applied/discarded 四分区流转）；被多模块消费（gc_report 正确性类检出直写、candidates_pending_empty 门控、终验人审编排）。载体演进：v1 = docs/kg/candidates.md 四分区（本迭代已停用）；v2 = .helix-kg 库内（经 KgWriteService，change_log 审计面）。
+
+## 规则
+①状态机：propose（候选落 pending）→ 人审三选一 apply（正式节点落库+发号）/ discard（否决留痕可复活）/ defer（挂起，≤10 条且 ≤2 迭代年龄）。②写入权：MainAgent 单点写入；SubAgent 只能经 submit_result findings（kind=sediment）上报，闭环时自动落账。③apply 的 formalId 由终验人审签发，绝不发明正式号；开发期用临时号 KIND-iter-seq。④部分实现不落库——必须完整实现且通过验证。⑤幂等判定仅对 pending/deferred 分区（applied/discarded 历史命中不吞新检出）。⑥v1 载体 md 四分区（已停用）；v2 载体 .helix-kg 库内（经 KgWriteService，change_log 审计）。
+
+## 禁忌
+SubAgent 直接写台账；部分实现落库；发明 formalId；幂等判定命中 applied/discarded 分区即跳过（吞掉正确性类检出——OI-gc-idempotency-swallow 病根）。
+
+## 关系
+知识图谱（E-知识图谱）沉淀闭环的裁决面：SubAgent findings sediment 经 propose 落 pending，再由终验人审流转；受 TR-AD-54 管辖（id 策略：正式号仅人审签发，开发期用临时号）；gc_report 正确性类检出直写本台账 pending。
