@@ -31,16 +31,14 @@ export function hasNativePicker(): boolean {
 
 /**
  * 原生目录选择：`initial` 透传为对话框 defaultPath 提示位（相对/无效由
- * 对话框自身忽略，不预校验）。无能力 → null（不抛错，降级面等价于未选中）。
- * 选中 → 平台原生路径串原样返回（零变换）；取消 → null；底层异常（如能力
- * 未授予）→ null（取消语义，输入框仍可手输）。
+ * 对话框自身忽略，不预校验）。无能力 → null（降级面等价于未选中）；
+ * 选中 → 平台原生路径串原样返回（零变换）；取消 → null。
+ * 底层异常（能力未授予/插件故障等）**上抛**供消费面行内展示（W6j：
+ * 静默吞错把能力面故障伪装成“取消”，无法诊断——browse 钮点了没反应
+ * 的实证 bug 根因之一）。
  */
 export async function nativePickDirectory(initial?: string): Promise<string | null> {
   const pick = pickerFn();
   if (pick === undefined) return null;
-  try {
-    return await pick(initial);
-  } catch {
-    return null;
-  }
+  return await pick(initial);
 }

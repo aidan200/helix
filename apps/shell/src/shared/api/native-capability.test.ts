@@ -59,10 +59,10 @@ describe("nativePickDirectory（调用面）", () => {
     await expect(nativePickDirectory()).resolves.toBe(null);
   });
 
-  it("底层异常（能力未授予等）→ null（取消语义）", async () => {
+  it("底层异常（能力未授予等）→ 上抛供消费面行内展示（W6j：不再伪装取消）", async () => {
     vi.stubGlobal("helixPickDirectory", vi.fn(async () => {
       throw new Error("plugin:dialog|open not allowed");
     }));
-    await expect(nativePickDirectory()).resolves.toBe(null);
+    await expect(nativePickDirectory()).rejects.toThrow("plugin:dialog|open not allowed");
   });
 });

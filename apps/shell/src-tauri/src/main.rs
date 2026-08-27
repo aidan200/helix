@@ -38,6 +38,7 @@ window.helixPickDirectory = (initial) =>
 // W6e：主题提示回写（挂载时+主题变更时；壳侧缓存为下次启动窗口底色）
 window.helixThemeHint = (theme) =>
   window.__TAURI_INTERNALS__.invoke('theme_hint', { theme });
+
 "#;
 
 // ── 窗口底色主题感知（W6e：先导页方案退役后的简化方案）──────────
@@ -186,6 +187,7 @@ fn main() {
                     set_native_window_background(&handle, "main", bg);
                     set_native_window_appearance(&handle, "main", dark);
                 }
+
                 let spec = resolve_sidecar_spec();
                 let join = std::thread::spawn(move || {
                     let mut hooks = ShellHooks {

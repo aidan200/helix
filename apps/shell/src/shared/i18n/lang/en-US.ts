@@ -540,6 +540,7 @@ export const enUS = {
       inputTitle: "Enter a path",
       pathPlaceholder: "/path/to/workspace",
       browse: "Browse…",
+      browseErrorTitle: "Directory picker failed",
       open: "Open",
       opening: "Opening…",
       cancelSwitch: "Cancel and go back",

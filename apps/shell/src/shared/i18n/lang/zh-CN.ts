@@ -545,6 +545,7 @@ export const zhCN = {
       inputTitle: "输入路径",
       pathPlaceholder: "/path/to/workspace",
       browse: "浏览…",
+      browseErrorTitle: "目录选择失败",
       open: "打开",
       opening: "打开中…",
       cancelSwitch: "取消，返回主界面",

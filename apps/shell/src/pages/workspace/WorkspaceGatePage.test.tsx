@@ -275,6 +275,22 @@ describe("W6a 原生目录选择（浏览钮）", () => {
     expect(opened).toEqual(["C:\\Users\\siyong\\AI_Project"]);
   });
 
+  it("浏览失败（能力面故障）→ 行内展示错误详情（W6j：不再静默）", async () => {
+    vi.stubGlobal("helixPickDirectory", vi.fn(async () => {
+      throw new Error("plugin:dialog|open not allowed");
+    }));
+    ui();
+    fireEvent.click(document.querySelector("[data-wsgate-browse]")!);
+    await waitFor(() => {
+      const box = document.querySelector("[data-wsgate-browse-error]");
+      expect(box).not.toBeNull();
+      expect(box!.textContent).toContain("plugin:dialog|open not allowed");
+    });
+    // 输入框不受污染，仍可手输
+    const input = document.querySelector("[data-wsgate-path]") as HTMLInputElement;
+    expect(input.value).toBe("");
+  });
+
   it("输入为空 + recents 在场 → initial = recents[0].root", async () => {
     const pick = vi.fn(async () => "/picked");
     vi.stubGlobal("helixPickDirectory", pick);

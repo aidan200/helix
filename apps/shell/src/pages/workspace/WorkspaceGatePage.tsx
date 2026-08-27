@@ -29,6 +29,11 @@ import { useI18n } from "@/shared/i18n";
 import { hasNativePicker, nativePickDirectory } from "@/shared/api/native-capability";
 import { useWorkspace } from "@/entities/workspace/WorkspaceContext";
 
+/** 浏览失败详情（W6j：错误上抛后行内展示——能力面故障可诊断）。 */
+function pickErrorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** ISO → 「MM-DD HH:mm」短格式（fmtSyncedAt 先例；非法输入原样返回）。 */
 function fmtLastUsedAt(iso: string): string {
   const d = new Date(iso);
@@ -50,6 +55,7 @@ const WorkspaceGatePage = function WorkspaceGatePage() {
   const { state, openWorkspace, cancelSwitch } = useWorkspace();
   const [path, setPath] = useState("");
   const [picking, setPicking] = useState(false);
+  const [browseError, setBrowseError] = useState<string | null>(null);
   const trimmed = path.trim();
   // 壳注入脚本先于页面脚本执行，页面生命周期内恒定；渲染时探测即可
   const canBrowse = hasNativePicker();
@@ -62,14 +68,18 @@ const WorkspaceGatePage = function WorkspaceGatePage() {
 
   /** 浏览钮：原生目录选择 → 选中回填输入框（不自动提交，防误绑）；
  *  defaultPath 提示位 = 当前输入或 recents[0]，透传不预校验（相对/无效
- *  由对话框自身忽略）。对话框在途防重入（picking 禁用）。 */
+ *  由对话框自身忽略）。对话框在途防重入（picking 禁用）；失败行内展示
+ *  详情（W6j：不再静默吞错）。 */
   const onBrowse = async () => {
     if (state.opening || picking) return;
     setPicking(true);
+    setBrowseError(null);
     try {
       const initial = trimmed !== "" ? trimmed : (state.recents[0]?.root ?? undefined);
       const picked = await nativePickDirectory(initial);
       if (picked !== null) setPath(picked);
+    } catch (err) {
+      setBrowseError(pickErrorText(err));
     } finally {
       setPicking(false);
     }
@@ -128,7 +138,7 @@ const WorkspaceGatePage = function WorkspaceGatePage() {
             {canBrowse && (
               <button
                 type="button"
-                className="hud-btn"
+                className="hud-btn hud-btn-ghost"
                 data-wsgate-browse
                 disabled={state.opening || picking}
                 onClick={onBrowse}
@@ -146,6 +156,12 @@ const WorkspaceGatePage = function WorkspaceGatePage() {
               {state.opening ? t("workspace.gate.opening") : t("workspace.gate.open")}
             </button>
           </form>
+          {browseError !== null && (
+            <div className="wsgate-error" data-wsgate-browse-error>
+              <div>{t("workspace.gate.browseErrorTitle")}</div>
+              <div className="wsgate-error-detail">{browseError}</div>
+            </div>
+          )}
           {state.openError !== null && (
             <div className="wsgate-error" data-wsgate-error={state.openError.code}>
               <div>{errorTextOf(state.openError.code, t)}</div>
