@@ -120,6 +120,10 @@ impl SupervisorHooks for ShellHooks {
                 let _ = WebviewWindowBuilder::new(&handle2, "main", WebviewUrl::App("index.html".into()))
                     .title("helix")
                     .inner_size(1280.0, 800.0)
+                    // 启动屏同色窗口底色（#060910 = tokens.css --void）：HTML
+                    // 到达前的纯原生阶段与启动屏/页面底色无缝衔接（初始化
+                    // 黑屏阶段不再空突兀——与 index.html 底色兜底配套）
+                    .background_color(tauri::utils::config::Color(6, 9, 16, 255))
                     // W6a：页面脚本加载前注入 helixPickDirectory（前端经 seam 探测，
                     // 纯浏览器 dev 无此挂载点 → 浏览钮不渲染，输入框仍可用）
                     .initialization_script(PICK_DIRECTORY_INIT_SCRIPT)

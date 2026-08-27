@@ -4,12 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>helix</title>
+    <!-- 远程字体非阻塞加载（media=print 切换法）：渲染阻塞的 stylesheet 会让
+         首帧（启动屏）等到字体 CSS 加载/超时才绘制——国内网络下 fonts.googleapis.com
+         挂起数秒 → 初始化阶段纯黑屏、启动屏效果迟到前端加载之后（用户实证）。
+         非阻塞后启动屏立即用回退字体栈绘制，字体到达后热切换。 -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <style>
       /* ══ 启动屏：终端 boot 日志（纯 CSS，JS bundle 加载前即可渲染）══
          v1（helix-desk/index.html）同构移植（W6b）：CRT 扫描线底纹 + 开机
@@ -19,6 +31,11 @@
          渲染真实连接态（零重复 CSS 定义）。
          暗色字面量与 tokens.css 暗主题一一对应（此处无法引用 CSS 变量——
          纯 CSS 阶段 token 表尚未随 JS bundle 加载）。 */
+      /* 页面底色兜底：html/body 先于 .app-boot-loader 绘制即着色，消除
+         白/黑闪屏 seams（内联 style 随 HTML 解析即刻生效）；亮色由
+         .boot-light 类切换（下方内联脚本按主题键提前挂类）。 */
+      html, body { margin: 0; background: #060910; }
+      html.boot-light, html.boot-light body { background: #f4f2ec; }
       .app-boot-loader {
         position: fixed;
         inset: 0;
