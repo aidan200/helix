@@ -9,7 +9,7 @@
  * 中文断言语言钉 zh-CN。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import { ThemeProvider } from "@/shared/ui/theme";
 import type { WorkspaceState } from "@/entities/workspace/model/workspace-store";
@@ -216,11 +216,12 @@ describe("切换流逃逸（W4：入口来源区分语义）", () => {
     expect(document.querySelector("[data-wsgate-cancel]")).toBeNull();
   });
 
-  it("切换流 gate（switching=true）→ 取消钮在场，点击 → cancelSwitch", () => {
+  it("切换流 gate（switching=true）→ 取消钮在场（hud-btn-ghost 次级变体，W6b 风格统一），点击 → cancelSwitch", () => {
     store = baseGate({ switching: true });
     ui();
     const btn = document.querySelector("[data-wsgate-cancel]") as HTMLButtonElement;
     expect(btn).not.toBeNull();
+    expect(btn.classList.contains("hud-btn-ghost")).toBe(true);
     expect(btn.textContent).toContain("取消");
     fireEvent.click(btn);
     expect(cancelled).toBe(1);
@@ -233,5 +234,79 @@ describe("切换流逃逸（W4：入口来源区分语义）", () => {
     expect(btn.disabled).toBe(true);
     fireEvent.click(btn);
     expect(cancelled).toBe(0);
+  });
+});
+
+// ── W6a 原生目录选择（浏览钮：显隐/回填不自动提交/零变换透传）──
+
+describe("W6a 原生目录选择（浏览钮）", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("无能力（纯浏览器 dev）→ 浏览钮不渲染，输入框仍可用", () => {
+    ui();
+    expect(document.querySelector("[data-wsgate-browse]")).toBeNull();
+    const input = document.querySelector("[data-wsgate-path]") as HTMLInputElement;
+    expect(input.disabled).toBe(false);
+  });
+
+  it("有能力 → 钮渲染（zh 键在场：浏览…）", () => {
+    vi.stubGlobal("helixPickDirectory", vi.fn(async () => null));
+    ui();
+    const btn = document.querySelector("[data-wsgate-browse]") as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toContain("浏览…");
+  });
+
+  it("点击 → 当前输入作 initial；选中回填（Windows 路径零变换）且不自动提交，手动确认才 open", async () => {
+    const pick = vi.fn(async () => "C:\\Users\\siyong\\AI_Project");
+    vi.stubGlobal("helixPickDirectory", pick);
+    ui();
+    const input = document.querySelector("[data-wsgate-path]") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "/current/hint" } });
+    fireEvent.click(document.querySelector("[data-wsgate-browse]")!);
+    await waitFor(() => expect(input.value).toBe("C:\\Users\\siyong\\AI_Project"));
+    expect(pick).toHaveBeenCalledWith("/current/hint");
+    // 不自动提交（防误绑）：open 未被调用
+    expect(opened).toEqual([]);
+    // 用户确认后手动提交 → 以回填路径 open
+    fireEvent.click(document.querySelector("[data-wsgate-submit]")!);
+    expect(opened).toEqual(["C:\\Users\\siyong\\AI_Project"]);
+  });
+
+  it("输入为空 + recents 在场 → initial = recents[0].root", async () => {
+    const pick = vi.fn(async () => "/picked");
+    vi.stubGlobal("helixPickDirectory", pick);
+    store = baseGate({
+      recents: [
+        { root: "/ws/mru-first", name: "mru-first", lastUsedAt: "2026-08-27T10:00:00+08:00", valid: true },
+      ],
+    });
+    ui();
+    fireEvent.click(document.querySelector("[data-wsgate-browse]")!);
+    await waitFor(() => expect(pick).toHaveBeenCalledWith("/ws/mru-first"));
+  });
+
+  it("取消（null）→ 输入不变、无 open", async () => {
+    const pick = vi.fn(async () => null);
+    vi.stubGlobal("helixPickDirectory", pick);
+    ui();
+    const input = document.querySelector("[data-wsgate-path]") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "/keep/me" } });
+    fireEvent.click(document.querySelector("[data-wsgate-browse]")!);
+    await waitFor(() => expect(pick).toHaveBeenCalled());
+    expect(input.value).toBe("/keep/me");
+    expect(opened).toEqual([]);
+  });
+
+  it("open 在途（opening）→ 浏览钮禁用", () => {
+    vi.stubGlobal("helixPickDirectory", vi.fn(async () => null));
+    store = baseGate({ opening: true });
+    ui();
+    const btn = document.querySelector("[data-wsgate-browse]") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(opened).toEqual([]);
   });
 });

@@ -74,11 +74,10 @@
 }
 .wsgate-error-detail { color: var(--text-muted); font-family: var(--font-mono); font-size: var(--text-body); word-break: break-all; }
 
-/* connecting 轻量占位（ConnBanner 视觉语言） */
-.wsgate-boot {
-  display: inline-flex; align-items: center; gap: 10px;
-  font-size: var(--text-main); color: var(--text-muted);
-}
+/* connecting 轻量占位：W6b 起复用 index.html 启动屏类族（.app-boot-loader/
+   .boot-term/.bl/.boot-cursor，样式挂 head 持久存在），本文件零定义 */
 
-/* 切换流取消逃逸（W4：仅主壳入口渲染；首启 gate 恒无此钮） */
+/* 切换流取消逃逸（W4：仅主壳入口渲染；首启 gate 恒无此钮）。
+   W6b：改挂 hud-btn-ghost 次级变体（全局按钮族全态：边框/hover/disabled
+   /active 均 workbench.css 统一供给），此处只留居中微调 */
 .wsgate-cancel { align-self: center; }

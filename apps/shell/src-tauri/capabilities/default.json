@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "helix 壳默认能力面（W6a）：core 默认集 + dialog open（原生目录选择，F3 裁决的壳唯一原生 UX 能力；窗口按标签授予 main/error）",
+  "windows": ["main", "error"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}

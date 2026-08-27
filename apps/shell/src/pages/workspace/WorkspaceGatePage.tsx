@@ -17,9 +17,16 @@
  * 纯展示组件 + store 注入（ProjectPage/SettingsPage 分工先例）：数据面全在
  * entities/workspace（useWorkspace），本页零 WS 依赖。i18n 键全量登记
  * （zh/en 双语）。
+ *
+ * W6a 原生目录选择：壳注入 helixPickDirectory（seam 探测）时输入区渲染
+ * 「浏览…」钮——选中路径只回填输入框不自动提交（用户确认后手动提交，防
+ * 误绑）；无能力（纯浏览器 dev）不渲染该钮，输入框仍可用。路径零变换
+ * 透传（Windows 反斜杠等平台原生形态原样入框，realpath/校验在 daemon 单点）。
  */
 import { useState } from "react";
+import { FolderOpen } from "lucide-react";
 import { useI18n } from "@/shared/i18n";
+import { hasNativePicker, nativePickDirectory } from "@/shared/api/native-capability";
 import { useWorkspace } from "@/entities/workspace/WorkspaceContext";
 
 /** ISO → 「MM-DD HH:mm」短格式（fmtSyncedAt 先例；非法输入原样返回）。 */
@@ -42,12 +49,30 @@ const WorkspaceGatePage = function WorkspaceGatePage() {
   const { t } = useI18n();
   const { state, openWorkspace, cancelSwitch } = useWorkspace();
   const [path, setPath] = useState("");
+  const [picking, setPicking] = useState(false);
   const trimmed = path.trim();
+  // 壳注入脚本先于页面脚本执行，页面生命周期内恒定；渲染时探测即可
+  const canBrowse = hasNativePicker();
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (state.opening || trimmed === "") return;
     openWorkspace(trimmed);
+  };
+
+  /** 浏览钮：原生目录选择 → 选中回填输入框（不自动提交，防误绑）；
+ *  defaultPath 提示位 = 当前输入或 recents[0]，透传不预校验（相对/无效
+ *  由对话框自身忽略）。对话框在途防重入（picking 禁用）。 */
+  const onBrowse = async () => {
+    if (state.opening || picking) return;
+    setPicking(true);
+    try {
+      const initial = trimmed !== "" ? trimmed : (state.recents[0]?.root ?? undefined);
+      const picked = await nativePickDirectory(initial);
+      if (picked !== null) setPath(picked);
+    } finally {
+      setPicking(false);
+    }
   };
 
   return (
@@ -100,6 +125,18 @@ const WorkspaceGatePage = function WorkspaceGatePage() {
               disabled={state.opening}
               onChange={(e) => setPath(e.target.value)}
             />
+            {canBrowse && (
+              <button
+                type="button"
+                className="hud-btn"
+                data-wsgate-browse
+                disabled={state.opening || picking}
+                onClick={onBrowse}
+              >
+                <FolderOpen size={14} />
+                {t("workspace.gate.browse")}
+              </button>
+            )}
             <button
               type="submit"
               className="hud-btn hud-btn-cyan"
@@ -124,7 +161,7 @@ const WorkspaceGatePage = function WorkspaceGatePage() {
         {state.switching && (
           <button
             type="button"
-            className="hud-btn wsgate-cancel"
+            className="hud-btn hud-btn-ghost wsgate-cancel"
             data-wsgate-cancel
             disabled={state.opening}
             onClick={cancelSwitch}

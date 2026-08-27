@@ -544,6 +544,7 @@ export const zhCN = {
       lastUsedAt: "上次使用 {time}",
       inputTitle: "输入路径",
       pathPlaceholder: "/path/to/workspace",
+      browse: "浏览…",
       open: "打开",
       opening: "打开中…",
       cancelSwitch: "取消，返回主界面",
@@ -556,6 +557,7 @@ export const zhCN = {
     },
     boot: {
       connecting: "正在连接 daemon…",
+      reconnecting: "连接中断，自动重连中…",
       errorTitle: "无法连接 daemon",
       errorSub: "请确认 daemon 已启动，或点击重试。",
       retry: "重试连接",

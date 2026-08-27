@@ -10,9 +10,203 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
+    <style>
+      /* ══ 启动屏：终端 boot 日志（纯 CSS，JS bundle 加载前即可渲染）══
+         v1（helix-desk/index.html）同构移植（W6b）：CRT 扫描线底纹 + 开机
+         扫光 + 通电闪烁 + 逐行 clip-path 擦除 + 方块光标无限闪烁。
+         本块样式挂 head 持久存在——React 首渲替换 #root 内容后，
+         WorkspaceBootScreen 复用同套 .boot-term/.bl/.boot-cursor 类名
+         渲染真实连接态（零重复 CSS 定义）。
+         暗色字面量与 tokens.css 暗主题一一对应（此处无法引用 CSS 变量——
+         纯 CSS 阶段 token 表尚未随 JS bundle 加载）。 */
+      .app-boot-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #060910; /* = tokens.css --void（暗） */
+        z-index: 9999;
+        overflow: hidden;
+      }
+      /* CRT 扫描线底纹（与主界面 scanline-overlay 同款） */
+      .app-boot-loader::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background-image: repeating-linear-gradient(
+          0deg,
+          transparent 0px,
+          transparent 2px,
+          rgba(34, 211, 238, 0.03) 3px,
+          transparent 4px
+        );
+      }
+      /* 开机扫光：一道 cyan 亮带快速自上而下扫过一次 */
+      .app-boot-loader::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: -20%;
+        height: 18%;
+        pointer-events: none;
+        background: linear-gradient(180deg, transparent, rgba(34, 211, 238, 0.09), transparent);
+        animation: boot-sweep 0.7s cubic-bezier(0.4, 0, 0.2, 1) 0.05s both;
+      }
+      @keyframes boot-sweep {
+        to {
+          transform: translateY(650%);
+        }
+      }
+      .boot-term {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 15px;
+        line-height: 1.4;
+        letter-spacing: 0.04em;
+        color: #22d3ee; /* = --accent（暗） */
+        text-shadow: 0 0 8px rgba(34, 211, 238, 0.35);
+        /* CRT 通电式快速闪烁入场 */
+        animation: boot-flicker 0.15s linear both;
+      }
+      @keyframes boot-flicker {
+        0% { opacity: 0; }
+        25% { opacity: 0.6; }
+        40% { opacity: 0.2; }
+        60% { opacity: 1; }
+        100% { opacity: 1; }
+      }
+      /* 日志行：clip-path 横向快速擦除，逐行连环输出（--d 为入场延迟） */
+      .bl {
+        display: block;
+        white-space: nowrap;
+        clip-path: inset(0 100% 0 0);
+        /* delay 用 longhand：WebKit 对 animation 简写内嵌 var() 可能整条丢弃 */
+        animation: boot-wipe 0.14s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+        animation-delay: var(--d);
+      }
+      @keyframes boot-wipe {
+        to {
+          clip-path: inset(0 0 0 0);
+        }
+      }
+      /* 填充点阵（dim）与结果词（绿/黄/红按梗配色） */
+      .bl i {
+        font-style: normal;
+        opacity: 0.35;
+      }
+      .bl b {
+        font-weight: 500;
+        color: #34d399;
+      }
+      .bl b.warn {
+        color: #fbbf24;
+      }
+      .bl b.err {
+        color: #f87171;
+      }
+      /* 方块光标：全部输出完成后入场并无限闪烁 */
+      .boot-cursor {
+        display: inline-block;
+        width: 9px;
+        height: 1.05em;
+        margin-left: 3px;
+        vertical-align: bottom;
+        background: #22d3ee;
+        box-shadow: 0 0 8px rgba(34, 211, 238, 0.6);
+        opacity: 0;
+        animation: boot-blink 0.85s steps(1) 1.5s infinite;
+      }
+      @keyframes boot-blink {
+        0%, 55% { opacity: 1; }
+        56%, 100% { opacity: 0; }
+      }
+      /* reduced-motion：跳过所有动效，直接显示完整日志 */
+      @media (prefers-reduced-motion: reduce) {
+        .boot-term,
+        .bl {
+          animation: none !important;
+          clip-path: none !important;
+        }
+        .boot-cursor {
+          animation: none;
+          opacity: 1;
+        }
+        .app-boot-loader::after {
+          display: none;
+        }
+      }
+      /* 亮色主题启动屏（下方内联脚本按 localStorage 主题加 boot-light 类）。
+         v2 亮列配色（tokens.css html.light）：accent 蓝 #2563EB 族——
+         勿照抄 v1 绿磷光；扫描线按 v2 亮色氛围降档关停（07 节同款裁决）。 */
+      .boot-light .app-boot-loader {
+        background: #F8FAFC; /* = --void（亮） */
+      }
+      .boot-light .app-boot-loader::before {
+        display: none;
+      }
+      .boot-light .app-boot-loader::after {
+        background: linear-gradient(180deg, transparent, rgba(37, 99, 235, 0.09), transparent);
+      }
+      .boot-light .boot-term {
+        color: #2563EB; /* = --accent（亮） */
+        text-shadow: 0 0 8px rgba(37, 99, 235, 0.25);
+      }
+      .boot-light .boot-cursor {
+        background: #2563EB;
+        box-shadow: 0 0 8px rgba(37, 99, 235, 0.4);
+      }
+      .boot-light .bl b {
+        color: #15803D; /* = --success（亮） */
+      }
+      .boot-light .bl b.warn {
+        color: #B45309; /* = --warning（亮） */
+      }
+      .boot-light .bl b.err {
+        color: #B91C1C; /* = --error（亮） */
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- 启动屏置于 #root 内：React 挂载首渲自动替换（v1 #app 同构）。
+         dev 与 build（frontendDist）双形态同源，零分支。 -->
+    <div id="root">
+      <div class="app-boot-loader">
+        <div class="boot-term">
+          <span class="bl" style="--d: 0.10s">&gt; helix v2 — boot sequence</span>
+          <span class="bl" style="--d: 0.18s">&gt; spinning up the daemon…</span>
+          <span class="bl" style="--d: 0.26s">&gt; attaching sidecar <i>...........</i> <b>OK</b></span>
+          <span class="bl" style="--d: 0.34s">&gt; opening websocket <i>...........</i> <b>OK</b></span>
+          <span class="bl" style="--d: 0.42s">&gt; binding workspace <i>...........</i> <b class="warn">PENDING</b></span>
+          <span class="bl" style="--d: 0.50s">&gt; consulting the kg <i>...........</i> <b>0 NODES</b></span>
+          <span class="bl" style="--d: 0.58s">&gt; git blame --auto <i>............</i> <b class="warn">NOT ME</b></span>
+          <span class="bl" style="--d: 0.66s">&gt; npm install motivation <i>......</i> <b class="err">404</b></span>
+          <span class="bl" style="--d: 0.74s">&gt; asking llm to behave <i>........</i> <b class="err">IT LIED</b></span>
+          <span class="bl" style="--d: 0.82s">&gt; herding sub-agents <i>..........</i> <b class="warn">MOSTLY</b></span>
+          <span class="bl" style="--d: 0.90s">&gt; indexing excuses <i>...........</i> <b>OK</b></span>
+          <span class="bl" style="--d: 0.98s">&gt; calibrating cyan glow <i>.......</i> <b>SHINY</b></span>
+          <span class="bl" style="--d: 1.06s">&gt; hydrating toasts <i>............</i> <b>CRISPY</b></span>
+          <span class="bl" style="--d: 1.14s">&gt; petting rubber duck <i>..........</i> <b>QUACK</b></span>
+          <span class="bl" style="--d: 1.22s">&gt; all systems nominal <i>..........</i> <b class="warn">PROBABLY</b></span>
+          <span class="bl" style="--d: 1.30s">&gt; ready when you are<span class="boot-cursor"></span></span>
+        </div>
+      </div>
+    </div>
+    <script>
+      // 启动屏主题：读取 v2 已保存的亮/暗偏好（与 useTheme 的存储键一致：
+      // helix-theme，AG-14 白名单成员——勿照抄 v1 键名），亮主题下给根节点
+      // 加 boot-light 类切换启动屏配色。
+      try {
+        if (localStorage.getItem("helix-theme") === "light") {
+          document.documentElement.classList.add("boot-light");
+        }
+      } catch {}
+    </script>
     <script type="module" src="/src/app/main.tsx"></script>
   </body>
 </html>

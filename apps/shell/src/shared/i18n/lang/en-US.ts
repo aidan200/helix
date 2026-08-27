@@ -539,6 +539,7 @@ export const enUS = {
       lastUsedAt: "Last used {time}",
       inputTitle: "Enter a path",
       pathPlaceholder: "/path/to/workspace",
+      browse: "Browse…",
       open: "Open",
       opening: "Opening…",
       cancelSwitch: "Cancel and go back",
@@ -551,6 +552,7 @@ export const enUS = {
     },
     boot: {
       connecting: "Connecting to daemon…",
+      reconnecting: "Connection lost — reconnecting…",
       errorTitle: "Cannot reach daemon",
       errorSub: "Make sure the daemon is running, or retry.",
       retry: "Retry connection",

@@ -7,7 +7,8 @@
  * 会话连接在 SessionProvider 挂载时自动启动（连接状态机见 shared/api）；
  * workspace 门禁（W3）在 SessionProvider 之内、主壳之外：连接就绪自动
  * workspace.get → bound（phase=main）渲染主壳（零改动）/ null（gate）
- * 渲染选择页 / 判定前（connecting）轻量加载占位——门禁是前端状态，
+ * 渲染选择页 / 判定前（connecting）终端风连接屏（W6b：与静态启动屏
+ * 同类族）——门禁是前端状态，
  * 不是壳职责（TR-AD-4）。路由层在 Provider 之内——工作台常驻 DOM
  * （display 切换保状态，F(4.4).2），路由切换不重建 WS/不丢活跃会话与输入。
  * IconRail 为页面域纯展示组件（不读会话 store，TR-AD-8 页面域/会话域
@@ -112,7 +113,7 @@ function WorkspaceGate() {
 /**
  * 门禁分支（W3；W4 切换流复用）：phase=gate → 选择页（首启无导航逃逸；
  * 切换流入口带取消逃逸——switching 态页面自渲染返回钮，首启语义不变）；
- * connecting → 轻量加载占位（conn=error 时重试占位）；main → 主壳
+ * connecting → 终端风连接屏（W6b；conn=error 时重试占位）；main → 主壳
  * （AppRoutes 零改动）。phase 由 entities/workspace 状态机驱动。
  */
 function WorkspaceGateBranch() {
