@@ -11,12 +11,18 @@
     "windows": [],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
-    "externalBin": ["binaries/helix-daemon"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "externalBin": [
+      "binaries/helix-daemon"
+    ],
     "resources": {
       "resources/bin/rg": "bin/rg"
     },
