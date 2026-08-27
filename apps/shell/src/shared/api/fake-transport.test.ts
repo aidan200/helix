@@ -28,7 +28,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventEnvelope, TraceQueryPayload, TraceQueryResultPayload } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { Transport } from "./helix-ws";
-import { createFakeTransport } from "./fake-transport";
+import { createFakeTransport, WORKSPACE_MOCK_ROOT } from "./fake-transport";
 
 // ── 场景镜像常量（traceScenario 确定性数据；e2e CL-5 同源）─────
 
@@ -208,5 +208,55 @@ describe("fake-transport agent.model.changed payload（缺口③；AgentModelCha
       from: "zhipu/glm-4.6",
       to: "deepseek/deepseek-chat",
     });
+  });
+});
+
+// ── workspace 门禁 mock 应答（W3；mock daemon 对齐新命令——否则 mock 模式
+//    卡 connecting，dev/e2e 全量不可用）──────────────────────
+
+describe("fake-transport workspace 族自动应答（W3 门禁读/写面 mock 镜像）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** 建连 → 发命令 → 推进假时钟收自动应答（点对点单帧）。 */
+  async function sendWorkspace(type: string, payload: Record<string, unknown> = {}): Promise<EventEnvelope> {
+    const replies: EventEnvelope[] = [];
+    const transport: Transport = createFakeTransport("1")(WS_URL, {
+      onOpen: () => {},
+      onMessage: (data) => replies.push(JSON.parse(data) as EventEnvelope),
+      onClose: () => {},
+      onError: () => {},
+    });
+    await window.__helixMock!.open();
+    transport.send(JSON.stringify({ v: PROTOCOL_VERSION, type, payload }));
+    vi.advanceTimersByTime(60);
+    expect(replies, `${type} 自动应答应恰一帧（点对点回执）`).toHaveLength(1);
+    transport.close();
+    return replies[0]!;
+  }
+
+  it("workspace.get → get.result 预绑定（mock 直进主壳；e2e 跳过交互门禁语义）", async () => {
+    const reply = await sendWorkspace("workspace.get");
+    expect(reply).toMatchObject({
+      v: PROTOCOL_VERSION,
+      type: "workspace.get.result",
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "workspace",
+    });
+    expect(reply.payload).toEqual({ current: { root: WORKSPACE_MOCK_ROOT }, recents: [] });
+  });
+
+  it("workspace.open → open.result { root, projects: [] }（mock 无校验，回显 root）", async () => {
+    const reply = await sendWorkspace("workspace.open", { root: "/ws/mock" });
+    expect(reply).toMatchObject({
+      type: "workspace.open.result",
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "workspace",
+    });
+    expect(reply.payload).toEqual({ root: "/ws/mock", projects: [] });
   });
 });

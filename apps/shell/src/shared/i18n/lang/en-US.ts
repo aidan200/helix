@@ -527,5 +527,33 @@ export const enUS = {
       rebuildDoneToast: "Index built: {symbols} symbols",
     },
   },
+
+  // ── workspace gate (W3; design §2.2) ──
+  workspace: {
+    gate: {
+      title: "Choose a workspace",
+      subtitle: "Pick a workspace root for this session; helix manages projects and knowledge under it.",
+      recentsTitle: "Recent",
+      recentsAriaLabel: "Recently used workspaces",
+      invalid: "Unavailable",
+      lastUsedAt: "Last used {time}",
+      inputTitle: "Enter a path",
+      pathPlaceholder: "/path/to/workspace",
+      open: "Open",
+      opening: "Opening…",
+      error: {
+        invalidRoot: "Invalid path: directory missing, not a directory, unreadable, or a dangerous root (filesystem root / home directory).",
+        activeAgent: "Agents are still running; the workspace cannot be switched right now.",
+        sendFailed: "Send failed: connection to daemon is unavailable, please retry later.",
+        generic: "Failed to open the workspace, please check the path and retry.",
+      },
+    },
+    boot: {
+      connecting: "Connecting to daemon…",
+      errorTitle: "Cannot reach daemon",
+      errorSub: "Make sure the daemon is running, or retry.",
+      retry: "Retry connection",
+    },
+  },
 } satisfies Translations;
 

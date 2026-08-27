@@ -532,6 +532,34 @@ export const zhCN = {
       rebuildDoneToast: "索引构建完成：{symbols} 符号",
     },
   },
+
+  // ── workspace 门禁（W3 选择页 + connecting 占位；设计稿 §2.2）──
+  workspace: {
+    gate: {
+      title: "选择工作空间",
+      subtitle: "为本次会话选择一个工作区根目录，helix 将在该目录下管理项目与知识。",
+      recentsTitle: "最近使用",
+      recentsAriaLabel: "最近使用的工作空间",
+      invalid: "已失效",
+      lastUsedAt: "上次使用 {time}",
+      inputTitle: "输入路径",
+      pathPlaceholder: "/path/to/workspace",
+      open: "打开",
+      opening: "打开中…",
+      error: {
+        invalidRoot: "路径无效：目录不存在、不是目录、不可读，或为危险根（文件系统根/主目录）。",
+        activeAgent: "存在运行中的智能体，暂时不能切换工作空间。",
+        sendFailed: "发送失败：与 daemon 的连接不可用，请稍后重试。",
+        generic: "打开工作空间失败，请检查路径后重试。",
+      },
+    },
+    boot: {
+      connecting: "正在连接 daemon…",
+      errorTitle: "无法连接 daemon",
+      errorSub: "请确认 daemon 已启动，或点击重试。",
+      retry: "重试连接",
+    },
+  },
 };
 
 /** 词条结构即 i18n 类型单一事实源（T1.1：消手写接口 types.ts）。 */

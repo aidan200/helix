@@ -60,6 +60,8 @@ import {
   webStatusCommand,
   webStartCommand,
   webStopCommand,
+  workspaceGetCommand,
+  workspaceOpenCommand,
 } from "@/shared/api/commands";
 import { DAEMON_PORT, FAKE_TRANSPORT_DEFINE, fakeTransportScript } from "@/shared/config/env";
 import {
@@ -189,6 +191,16 @@ interface SessionContextValue {
   sendKgIndexStatus: (payload: KgIndexStatusPayload) => boolean;
   /** 订阅 kg 族点对点回执（kg.*.result；O-6 零推送事件，回执全走此处）。 */
   subscribeKgFrames: (listener: (e: EventEnvelope) => void) => () => void;
+  // ── workspace 族门禁面（W3；契约 PROTOCOL.md §15.10/§16.10）──
+  /** 发送 workspace.get（门禁读面；连接就绪自动发一次，重连重发——
+   *  webStatus 先例。entities/workspace 状态机消费回执分流 main/gate）。 */
+  sendWorkspaceGet: () => boolean;
+  /** 发送 workspace.open（显式绑定写面；daemon 单点校验，失败回
+   *  connection.error 结构化错误码供选择页行内展示）。 */
+  sendWorkspaceOpen: (root: string) => boolean;
+  /** 订阅 workspace 族帧（get/open 两结果帧 + workspace_changed 广播 +
+   *  connection.error——open 在途时才消费，trace 单飞先例）。 */
+  subscribeWorkspaceFrames: (listener: (e: EventEnvelope) => void) => () => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -237,6 +249,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const agentConfigListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
   // kg 族点对点回执听众（T5.4；页面私有 reducer 消费，会话 store 零写入）
   const kgListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
+  // workspace 族帧听众（W3 门禁状态机；entities/workspace 消费，同 kg 形态）
+  const workspaceListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
 
   if (clientRef.current === null) {
     // prod define 摇除：FAKE_TRANSPORT_DEFINE 构建期为 "" 字面量 → 本比较折叠
@@ -309,6 +323,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // connection.error 全局通道，不在此转发）
       if (event.type.startsWith("kg.") && event.type.endsWith(".result")) {
         for (const l of kgListenersRef.current) l(event);
+      }
+      // workspace 族帧转发（W3 门禁）：两命令点对点回执 + changed 广播直转
+      //（entities/workspace 状态机分流/跟随）；connection.error 另行转发
+      //（open 在途时结构化错误码消费——听众侧 opening 单飞门控，trace 先例）
+      if (
+        event.type === "workspace.get.result" ||
+        event.type === "workspace.open.result" ||
+        event.type === "workspace_changed" ||
+        event.type === "connection.error"
+      ) {
+        for (const l of workspaceListenersRef.current) l(event);
       }
       // 草稿 thinking 暂存转正（thinking 批①，draft-model 先例对齐；T2.1）：
       // chat.send 零字段负断言（AD-4①）使覆盖无法随首条上送——草稿态经
@@ -543,6 +568,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // workspace 族门禁面（W3；沿 kg 族先例：直发命令 + 订阅帧——真消费归
+  // entities/workspace 状态机，会话 store 零写入）
+  const sendWorkspaceGet = useCallback(() => clientRef.current!.send(workspaceGetCommand()), []);
+  const sendWorkspaceOpen = useCallback(
+    (root: string) => clientRef.current!.send(workspaceOpenCommand(root)),
+    [],
+  );
+  const subscribeWorkspaceFrames = useCallback((listener: (e: EventEnvelope) => void) => {
+    workspaceListenersRef.current.add(listener);
+    return () => {
+      workspaceListenersRef.current.delete(listener);
+    };
+  }, []);
+
   const consumeRestoreToast = useCallback(
     () => dispatch({ type: "ui/consume-restore-toast" }),
     [],
@@ -695,6 +734,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendKgNodeConfirm,
       sendKgIndexStatus,
       subscribeKgFrames,
+      sendWorkspaceGet,
+      sendWorkspaceOpen,
+      subscribeWorkspaceFrames,
     }),
     [
       state,
@@ -741,6 +783,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendKgNodeConfirm,
       sendKgIndexStatus,
       subscribeKgFrames,
+      sendWorkspaceGet,
+      sendWorkspaceOpen,
+      subscribeWorkspaceFrames,
     ],
   );
 
