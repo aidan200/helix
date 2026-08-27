@@ -29,8 +29,9 @@
  *   daemon 默认 ~/.helix）。daemon 端口经 `<home>/config.json` 的 port
  *   键注入（既有配置面，非本脚本旋钮）。
  * - HELIX_DESKTOP_WORKSPACE_ROOT：daemon workspace 根指认（wrapper cd
- *   目标；缺省 = 仓库父目录，回退规则见 resolveDevWorkspaceRoot——
- *   TR-AD-6 拉起方设 cwd 语义的编排层旋钮，daemon 仍只读 cwd）。
+ *   目标）。**必须显式**（领域原则：零静默缺省）：未设 + TTY → 交互
+ *   选择（建议 = 仓库父目录，回车采纳）；未设 + 无 TTY → fail-fast。
+ *   daemon 侧仍只读 cwd（TR-AD-6 拉起方设 cwd 语义的编排层旋钮）。
  * - HELIX_DESKTOP_VITE_PORT：vite dev 端口覆盖（测试隔离位；缺省 =
  *   vite 默认 5173，与 tauri.conf devUrl 对齐）。覆盖后经 --config 同步
  *   override build.devUrl 随动——tauri dev 启动前等待 devUrl 可达，不随动
@@ -39,9 +40,10 @@
  * 工程层脚本，不被 apps 任何层 import（架构 §5.2）。
  * 用法：bun run dev:desktop
  */
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { dirname, join, parse } from "node:path";
+import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import readline from "node:readline/promises";
 import { installFromRelease, isInstalled } from "./fetch-rg";
 
 // ── 前置自检（F4.1，纯函数面）──────────────────────────────
@@ -148,25 +150,87 @@ export function buildWrapperScript(options: WrapperScriptOptions): string {
   );
 }
 
-// ── dev workspace 根解析（§3.5 语义：workspace=容器，一级目录=项目）──
+// ── dev workspace 根解析（必须显式：env 指认或 TTY 选择，零静默缺省）──
+
+/** 决议结果：root + 来源（env=显式指认 / prompt=开发者当场选择）。 */
+export interface WorkspaceRootResolution {
+  readonly root: string;
+  readonly source: "env" | "prompt";
+}
+
+/** resolveDevWorkspaceRoot 注入面（全分支可单测，零真 TTY 依赖）。 */
+export interface WorkspaceRootDeps {
+  /** 仓库根（建议值 = 父目录：多项目工作区内的常态容器）。 */
+  readonly repoRoot: string;
+  /** HELIX_DESKTOP_WORKSPACE_ROOT（显式指认优先）。 */
+  readonly envRoot?: string;
+  /** 是否交互终端（缺省 process.stdin.isTTY；TTY 才允许 prompt）。 */
+  readonly isTTY?: boolean;
+  /** prompt 读面（缺省 readline 实现；测试注入）。 */
+  readonly prompt?: (suggestion: string) => Promise<string>;
+  /** 目录存在校验读面（缺省 statSync；测试注入）。 */
+  readonly existsDir?: (p: string) => boolean;
+}
 
 /**
- * dev 形态 daemon workspace 根解析（纯函数，可单测）。
+ * dev 形态 daemon workspace 根解析（领域原则：workspace 必须显式指定）。
  *
- * 缺省 = 仓库父目录：§3.5 口径下 workspace 是多项目容器、一级目录才是
- * 项目——helix 仓库自身是“一个项目一个 .helix-kg”，若以仓库根为
- * workspace，apps/packages 等内部目录会被误判为项目并批量物化伪库
- * （2026-08-27 实证：boot 在每个非排除一级目录建 0 节点 .helix-kg）。
- * 仓库坐落在多项目工作区内（clone 的常态布局）时父目录即正确容器。
- * 回退：父目录是 home 或文件系统根（仓库裸躺、无容器语义，扫描面
- * 失控）→ 退回仓库根（ bounded，宁可伪库也不扫全盘）。
- * 覆盖：HELIX_DESKTOP_WORKSPACE_ROOT 显式指认（任意布局兜底）。
+ * §3.5 容器语义下 workspace 是多项目容器（一级目录=项目），是用户的
+ * 领域选择而非可推导项——**零静默缺省**（不猜父目录/home/仓库根）：
+ * ① HELIX_DESKTOP_WORKSPACE_ROOT 显式指认（目录不存在 → fail-fast，
+ *    显式输入错误不回退不猜测）；
+ * ② 未设 + TTY → 交互选择（建议值 = 仓库父目录，回车采纳；建议不是
+ *    缺省——它出现在问题里，由开发者当场确认/改写）；
+ * ③ 未设 + 无 TTY（CI/测试）→ 抛错带一行指引（设 env 后重试）。
+ * daemon 侧仍只读 cwd（TR-AD-6：拉起方设 cwd，不加 argv/env）。
  */
-export function resolveDevWorkspaceRoot(repoRoot: string, override?: string): string {
-  if (override && override.trim() !== "") return override;
-  const parent = dirname(repoRoot);
-  if (parent === homedir() || parse(parent).root === parent) return repoRoot;
-  return parent;
+export async function resolveDevWorkspaceRoot(
+  deps: WorkspaceRootDeps,
+): Promise<WorkspaceRootResolution> {
+  const existsDir = deps.existsDir ?? ((p: string) => {
+    try {
+      return statSync(p).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+  const envRoot = deps.envRoot?.trim();
+  if (envRoot && envRoot !== "") {
+    if (!existsDir(envRoot)) {
+      throw new Error(
+        `HELIX_DESKTOP_WORKSPACE_ROOT 指向的目录不存在：${envRoot}（显式指认错误应修正，不做缺省回退）`,
+      );
+    }
+    return { root: envRoot, source: "env" };
+  }
+  const isTTY = deps.isTTY ?? Boolean(process.stdin.isTTY);
+  if (isTTY) {
+    const suggestion = dirname(deps.repoRoot);
+    const prompt = deps.prompt ?? defaultWorkspacePrompt;
+    const answer = (await prompt(suggestion)).trim();
+    const chosen = answer === "" ? suggestion : answer;
+    if (!existsDir(chosen)) {
+      throw new Error(`dev workspace 根不存在：${chosen}（请重跑并输入存在的目录）`);
+    }
+    return { root: chosen, source: "prompt" };
+  }
+  throw new Error(
+    "workspace 未指定（领域原则：必须显式，零静默缺省）——" +
+      "设置 HELIX_DESKTOP_WORKSPACE_ROOT=<多项目工作区根>（容器语义：一级目录=项目）后重试；" +
+      "交互终端（TTY）下会引导选择。",
+  );
+}
+
+/** 生产 prompt 读面（readline；建议值回车采纳）。 */
+async function defaultWorkspacePrompt(suggestion: string): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question(
+      `dev workspace 根（容器语义：一级目录=项目；回车采用建议 ${suggestion}）: `,
+    );
+  } finally {
+    rl.close();
+  }
 }
 
 // ── H-1 动作③：rg 环境无关自动补（幂等，失败不阻塞 dev）─────────
@@ -303,12 +367,22 @@ async function killTree(rootPids: readonly number[]): Promise<void> {
 // ── 编排主流程 ──────────────────────────────────────────────
 
 async function main(): Promise<number> {
+  // ⓪ workspace 根决议（领域原则：必须显式，零静默缺省）——未指定且
+  // 无法交互时在任何前置工作（自检/rg fetch/进程编排）之前 fail-fast；
+  // 成功时静默（回显在①自检后，不污染 F4.1 一行提示契约）。
+  const root0 = join(import.meta.dir, "..");
+  const workspace = await resolveDevWorkspaceRoot({
+    repoRoot: root0,
+    envRoot: process.env.HELIX_DESKTOP_WORKSPACE_ROOT,
+  });
+
   // ① 前置自检：缺失 → 一行提示 + 非零退出，不起任何进程
   const precheck = checkRustToolchain(pathProbe);
   if (!precheck.ok) {
     console.error(precheck.hint);
     return 1;
   }
+  console.error(`[dev-desktop] workspace 根（${workspace.source}）：${workspace.root}`);
 
   // H-1 动作③：rg 存在性检查 + 缺失自动 fetch（幂等）；失败一行警告不阻塞
   const rg = await ensureRgAvailable(rgProbe, rgInstall);
@@ -320,15 +394,14 @@ async function main(): Promise<number> {
   // dev sidecar wrapper（AF-3 注入位）：壳恒 spawn sidecar（双形态同构），
   // wrapper 先 cd workspace 根再 exec bun 直跑 daemon 源码（禁 compile 产物，
   // TR-AD-35；daemon cwd 继承 wrapper——TR-AD-6 拉起方设 cwd 的止血位）。
-  // workspace 根缺省 = 仓库父目录（§3.5：容器语义，helix 整体为一个项目、
-  // 唯一 .helix-kg 在仓库根），HELIX_DESKTOP_WORKSPACE_ROOT 可显式指认。
+  // workspace 根已在 main() 开头决议（必须显式：env 指认或 TTY 选择）。
   const wrapper = join(workDir, "helix-daemon-dev.sh");
   writeFileSync(
     wrapper,
     buildWrapperScript({
       bunPath: process.execPath,
       mainTsPath: join(root, "apps/daemon/src/main.ts"),
-      workspaceRoot: resolveDevWorkspaceRoot(root, process.env.HELIX_DESKTOP_WORKSPACE_ROOT),
+      workspaceRoot: workspace.root,
       home: process.env.HELIX_DESKTOP_HOME,
     }),
   );

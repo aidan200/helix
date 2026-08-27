@@ -16,7 +16,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   checkRustToolchain,
@@ -371,30 +371,73 @@ describe("buildWrapperScript（wrapper 内容纯函数：cd 在 exec 前）", ()
   });
 });
 
-// ── dev workspace 根解析（§3.5 容器语义：helix 整体一个项目一个 .helix-kg）──
+// ── dev workspace 根解析（领域原则：必须显式，零静默缺省）──
 
-describe("resolveDevWorkspaceRoot（缺省父目录 + 回退 + 旋钮覆盖）", () => {
-  const home = homedir();
+describe("resolveDevWorkspaceRoot（env 指认 / TTY 选择 / fail-fast，全注入面）", () => {
+  const repoRoot = "/ws/helix";
+  const exists = new Set(["/ws", "/tmp/picked"]);
+  const existsDir = (p: string) => exists.has(p);
 
-  test("旋钮优先：显式指认直接生效（任意布局兜底）", () => {
-    expect(resolveDevWorkspaceRoot("/repo", "/Users/x/ws")).toBe("/Users/x/ws");
-    expect(resolveDevWorkspaceRoot(join(home, "helix"), "/tmp/ws")).toBe("/tmp/ws");
+  test("env 显式指认且存在 → 直接生效，不走 prompt", async () => {
+    let prompted = 0;
+    const r = await resolveDevWorkspaceRoot({
+      repoRoot,
+      envRoot: "/ws",
+      existsDir,
+      prompt: async () => {
+        prompted += 1;
+        return "/never";
+      },
+    });
+    expect(r).toEqual({ root: "/ws", source: "env" });
+    expect(prompted).toBe(0);
   });
 
-  test("旋钮空白串视为未设（缺省链路生效——此处父目录为根，触发回退返仓库根）", () => {
-    expect(resolveDevWorkspaceRoot("/repo", "   ")).toBe("/repo");
+  test("env 指认不存在 → fail-fast（显式输入错误不回退不猜测）", async () => {
+    await expect(
+      resolveDevWorkspaceRoot({ repoRoot, envRoot: "/nope", existsDir }),
+    ).rejects.toThrow("不存在");
   });
 
-  test("常态：仓库坐落多项目工作区 → 父目录（容器语义，仓库自身不再碎成伪项目）", () => {
-    expect(resolveDevWorkspaceRoot("/Users/x/ws/helix")).toBe("/Users/x/ws");
+  test("env 空白 + TTY + 输入存在路径 → prompt 来源生效", async () => {
+    const r = await resolveDevWorkspaceRoot({
+      repoRoot,
+      envRoot: "   ",
+      isTTY: true,
+      existsDir,
+      prompt: async (suggestion) => {
+        expect(suggestion).toBe("/ws"); // 建议 = 仓库父目录
+        return "/tmp/picked";
+      },
+    });
+    expect(r).toEqual({ root: "/tmp/picked", source: "prompt" });
   });
 
-  test("回退：仓库裸躺 home 下 → 父目录是 home，扫描面失控，退回仓库根", () => {
-    expect(resolveDevWorkspaceRoot(join(home, "helix"))).toBe(join(home, "helix"));
+  test("env 空白 + TTY + 空输入 → 采纳建议（父目录，当场确认非静默缺省）", async () => {
+    const r = await resolveDevWorkspaceRoot({
+      repoRoot,
+      isTTY: true,
+      existsDir,
+      prompt: async () => "",
+    });
+    expect(r).toEqual({ root: "/ws", source: "prompt" });
   });
 
-  test("回退：仓库在文件系统根的直接子目录 → 父目录是根，退回仓库根", () => {
-    expect(resolveDevWorkspaceRoot("/helix")).toBe("/helix");
+  test("env 空白 + TTY + 输入不存在 → 报错指引重跑", async () => {
+    await expect(
+      resolveDevWorkspaceRoot({
+        repoRoot,
+        isTTY: true,
+        existsDir,
+        prompt: async () => "/nope",
+      }),
+    ).rejects.toThrow("不存在");
+  });
+
+  test("env 空白 + 无 TTY（CI/测试）→ fail-fast 带一行指引", async () => {
+    await expect(
+      resolveDevWorkspaceRoot({ repoRoot, isTTY: false, existsDir }),
+    ).rejects.toThrow("HELIX_DESKTOP_WORKSPACE_ROOT");
   });
 });
 
@@ -422,7 +465,7 @@ test(
       const proc = Bun.spawn({
         cmd: [process.execPath, SCRIPT],
         cwd: root,
-        env: { PATH: emptyPath },
+        env: { PATH: emptyPath, HELIX_DESKTOP_WORKSPACE_ROOT: emptyPath },
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -462,7 +505,9 @@ test(
 
       const sandbox = mkdtempSync(join(tmpdir(), "helix-dev-desktop-test-"));
       const home = join(sandbox, "home"); // TR-TEST-4：真实 ~/.helix 零触碰
+      const workspace = join(sandbox, "ws"); // workspace 必须显式（领域原则）：注入隔离工作区
       mkdirSync(home, { recursive: true });
+      mkdirSync(workspace, { recursive: true });
       writeFileSync(join(home, "config.json"), JSON.stringify({ port: daemonPort }));
       let proc: ReturnType<typeof Bun.spawn> | undefined;
       try {
@@ -472,6 +517,7 @@ test(
           env: {
             ...process.env,
             HELIX_DESKTOP_HOME: home,
+            HELIX_DESKTOP_WORKSPACE_ROOT: workspace,
             HELIX_DESKTOP_VITE_PORT: String(vitePort),
             TMPDIR: sandbox,
           },
