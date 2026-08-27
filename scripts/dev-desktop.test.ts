@@ -28,6 +28,9 @@ import {
 // H-1 TDD-RED：以下 import 的符号尚未实现（先红后绿）
 import { ensureRgAvailable, tauriDevArgs, TAURI_DEV_CONFIG_OVERRIDE } from "./dev-desktop";
 
+// TDD-RED：wrapper cwd 止血——buildWrapperScript 尚未实现（先红后绿）
+import { buildWrapperScript } from "./dev-desktop";
+
 const root = join(import.meta.dir, "..");
 const SCRIPT = join(root, "scripts/dev-desktop.ts");
 
@@ -321,6 +324,50 @@ describe("ensureRgAvailable（H-1 rg 环境无关：存在性检查 + 缺失自�
     );
     expect(r.attempted).toBe(true);
     expect(installs).toBe(1);
+  });
+});
+
+// ── dev sidecar wrapper 生成（cwd 止血：exec 前 cd 仓库根）──────────
+
+describe("buildWrapperScript（wrapper 内容纯函数：cd 在 exec 前）", () => {
+  const bunPath = "/usr/local/bin/bun";
+  const mainTsPath = "/repo/apps/daemon/src/main.ts";
+  const workspaceRoot = "/repo";
+
+  test("无 home：shebang + cd 行 + exec 行含 mainTsPath 与 \"$@\" 尾参，不含 --home", () => {
+    const script = buildWrapperScript({ bunPath, mainTsPath, workspaceRoot });
+    expect(script.startsWith("#!/bin/sh\n")).toBe(true);
+    expect(script).toContain(`cd '${workspaceRoot}'`);
+    // mainTsPath 为绝对路径 → cd 不影响 exec 目标解析（TR-AD-6：拉起方设 cwd，daemon 零 argv/env）
+    expect(script).toContain(`exec '${bunPath}' '${mainTsPath}'`);
+    expect(script).toContain(`"$@"`);
+    expect(script).not.toContain("--home");
+  });
+
+  test("有 home：exec 行注入 --home（HELIX_DESKTOP_HOME 隔离位语义不变）", () => {
+    const script = buildWrapperScript({ bunPath, mainTsPath, workspaceRoot, home: "/tmp/hx-home" });
+    expect(script).toContain(`exec '${bunPath}' '${mainTsPath}' --home '/tmp/hx-home'`);
+    expect(script).toContain(`"$@"`);
+  });
+
+  test("cd 行在 exec 行之前（daemon cwd 由 wrapper 进程 exec 替换后继承）", () => {
+    const script = buildWrapperScript({ bunPath, mainTsPath, workspaceRoot });
+    const cdIdx = script.indexOf(`cd '${workspaceRoot}'`);
+    const execIdx = script.indexOf("exec ");
+    expect(cdIdx).toBeGreaterThan(-1);
+    expect(execIdx).toBeGreaterThan(-1);
+    expect(execIdx).toBeGreaterThan(cdIdx);
+  });
+
+  test("引号/换行与模板严格一致（生成物是 shell 脚本，内容即契约）", () => {
+    expect(buildWrapperScript({ bunPath, mainTsPath, workspaceRoot })).toBe(
+      `#!/bin/sh\ncd '${workspaceRoot}'\nexec '${bunPath}' '${mainTsPath}' "$@"\n`,
+    );
+    expect(
+      buildWrapperScript({ bunPath, mainTsPath, workspaceRoot, home: "/tmp/hx-home" }),
+    ).toBe(
+      `#!/bin/sh\ncd '${workspaceRoot}'\nexec '${bunPath}' '${mainTsPath}' --home '/tmp/hx-home' "$@"\n`,
+    );
   });
 });
 
