@@ -119,6 +119,14 @@ fn set_native_window_background(app: &tauri::AppHandle, label: &str, color: taur
             1.0,
         );
         ns_window.setBackgroundColor(Some(&ns_color));
+        // 常驻读回验证（W6k 诊断沉淀：set 后确认生效，空窗期色源可观测）
+        let rb = ns_window.backgroundColor();
+        eprintln!(
+            "[helix-shell] NSWindow bg set=RGB({r},{g},{b}) read-back=RGB({:.0},{:.0},{:.0})",
+            rb.redComponent() * 255.0,
+            rb.greenComponent() * 255.0,
+            rb.blueComponent() * 255.0
+        );
     });
 }
 
