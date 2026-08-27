@@ -39,3 +39,7 @@
 - 主体：默认模式三批：①thinking 语义修订（默认关 D 方案 + off 升格显式关——clamp 前短路防 off:null 升档反转 + setModel 重播 thinking.changed + P-1 OFF 第 0 刻度 + P-2 on/off 开关 + defaultLevelFor 中位档 + scope/note 文案删除 + SubAgent 模型链 T12 两级化砍 spawn 会话继承）；②closure/steer 消息类型区分（SteerSource user/closure/progress 三值贯通协议/Entry/steer_queue/实时帧 + 主时间轴 CLOSURE/PROGRESS 徽标变体）；③实例 ID 统一方案 A（agent-<hex 唯一串> 含 main、kind 判别替代值判等、seq/agentSeqOf/maxAgentSeq 退役、MAIN_INSTANCE_ID 全仓退役、wire 归属编码一致性修复——R4 红点根因）。修复：模型菜单选中即关（B 方案推翻 2015f0e）；daemon 测试 TMPDIR 泄漏清零（4 泄漏源）。验证：daemon 872 / protocol 87 / shell 478 / E 层 e2e 31/31 / typecheck 四包全绿。
 - 触及：TR-AD-45, TR-AD-46, TR-AD-47, TR-AD-48
 - 状态：已沉淀
+
+## iter-20260825-11fo — helix v2 项目知识图谱（kg）全链路：单库 SoT + 双通道到达 + 沉淀闭环 + 查看页面
+- 主体：为 helix-v2 增加项目知识图谱（kg）全链路：.helix-kg 单库 SoT（知识层/符号层/物化锚，AD-9/AF-21 终态）+ sync 双源汇队列去抖单飞管道（codegraph 被动引擎）+ 知识到达双通道（动作层附着 📎 四层递降 + 任务层切片注入）+ 即时落账与 supersede + closure 通路三层修复 + 段库模板体系 + P-1 /project 单页 master-detail 图谱查看（六命令族）。协议 v0.1 additive 六命令（28→34）；自写 edit/read/edit-lines（VENDORED 内核复制收口）。验证：daemon 1198/protocol 93/shell 536 全绿 + CL-5 E2E F+B 层全绿（FID 32/32）。终验：生产就绪 3 PASS+1 WARN（亮主题对比度）、全局审计优、L3 复核 54/54、kg 终态 81 节点（TR-AD-50~58+2 entity 落库，v2 库经 kg-migrate 恢复）。遗留：TR-AD-31 违反（KgQueryService 可选消费）、亮主题对比度、sedimentLedger 落账 bug 等 18 项优化池；162 条 workspace 台账历史死账明文接受。
+- 状态：已沉淀
