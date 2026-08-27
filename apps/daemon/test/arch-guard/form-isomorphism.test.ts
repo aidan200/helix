@@ -97,15 +97,41 @@ const TAURI_COMMAND_RE = /#\[tauri::command\]|invoke_handler|generate_handler!/;
 /** 前端侧调用面：invoke( 调用 / __TAURI__ 全局 / @tauri-apps/api 依赖。 */
 const FRONTEND_INVOKE_RE = /\binvoke\s*(?:<[^>]*>)?\s*\(|__TAURI|@tauri-apps\/api/;
 
+/**
+ * W6n 窄豁免：壳 UI 域自有命令（theme_hint——窗口底色/标题栏主题回写缓存，
+ * 零 daemon RPC）。守卫意图 = 禁壳→daemon RPC 桥（见 test 名与 TR-AD-12 禁区①）；
+ * UI 域命令不触 daemon，与 tauri-plugin-dialog（F3 裁决的壳原生 UX 能力）同类
+ * 边界。豁免收敛到精确行：command 属性必须紧邻 `fn theme_hint`，注册必须为
+ * 唯一精确行 `invoke_handler(tauri::generate_handler![theme_hint])`——任何其他
+ * command/注册仍红。
+ */
+function isAllowedUiCommandHit(src: string, lineIdx: number): boolean {
+  const lines = src.split("\n");
+  const line = lines[lineIdx] ?? "";
+  if (line.includes("#[tauri::command]")) {
+    const next = lines.slice(lineIdx + 1).find((l) => l.trim() !== "");
+    return next !== undefined && next.trim().startsWith("fn theme_hint");
+  }
+  return line.trim() === ".invoke_handler(tauri::generate_handler![theme_hint])";
+}
+
 describe("AG-16（CL-4/F4.3，TR-AD-12 禁区①）：壳无 Tauri invoke 直调 daemon", () => {
-  test("src-tauri/src 全部 .rs 零 tauri command 定义/注册（壳=薄监督者，零 RPC 桥）", () => {
+  test("src-tauri/src 全部 .rs 零 tauri command 定义/注册（壳=薄监督者，零 RPC 桥；W6n 窄豁免 theme_hint UI 域自有命令）", () => {
     const files = listFiles(tauriSrc, [".rs"]);
     expect(files.length).toBeGreaterThan(0); // 扫描面非空转（lib.rs/main.rs 在位）
+    let allowedSeen = 0;
     for (const rel of files) {
       const src = readFileSync(path.join(tauriSrc, rel), "utf8");
-      const hits = findBannedHits(src, TAURI_COMMAND_RE);
+      const hits = findBannedHits(src, TAURI_COMMAND_RE).filter(
+        ([idx]) => !isAllowedUiCommandHit(src, idx - 1),
+      );
+      for (let i = 0; i < findBannedHits(src, TAURI_COMMAND_RE).length; i++) {
+        if (isAllowedUiCommandHit(src, findBannedHits(src, TAURI_COMMAND_RE)[i]![0] - 1)) allowedSeen++;
+      }
       expect(hits, `src-tauri/src/${rel} 出现 tauri command 面：${JSON.stringify(hits)}`).toEqual([]);
     }
+    // 守护自证（豁免面非死代码）：main.rs 必须实际含 theme_hint UI 命令（3 命中 = 属性+fn 内属性行+注册行计数）
+    expect(allowedSeen, "theme_hint UI 命令豁免面应在场（守卫自证）").toBeGreaterThan(0);
   });
 
   test("apps/shell/src 全部产物零 invoke( / __TAURI__ / @tauri-apps/api（前端唯一通路=WS）", () => {
