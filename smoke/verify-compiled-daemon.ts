@@ -456,6 +456,25 @@ async function runForm(form: "dev" | "compiled"): Promise<FormResult> {
       probes.c = fail(`ready 行形态非法：${JSON.stringify(ready)}；stderr 尾：${stderrTail.slice(-300)}`);
     }
 
+    // ── W1 后置义务：sidecar 形态未绑定即拒会话（workspace.unbound）——探针
+    // 驱动 chat.send 前预绑定临时 workspace（dev-desktop W5 同款语义：
+    // workspace.open → workspace.open.result）
+    if (probes.c.pass) {
+      try {
+        const wsRoot = mkdtempSync(join(tmpdir(), "helix-probe-ws-"));
+        ws!.send("workspace.open", { root: wsRoot });
+        const bindFrame = await ws!.waitFor(
+          (f) => f.type === "workspace.open.result" || f.type === "connection.error",
+          10_000,
+        );
+        if (bindFrame.type === "connection.error") {
+          throw new Error(`workspace.open 被拒：${JSON.stringify(bindFrame.payload)}`);
+        }
+      } catch (err) {
+        probes.a = fail(`workspace 预绑定失败（探针 (a) 前置）：${(err as Error).message}`);
+      }
+    }
+
     // ── 探针 (b) 前段：空库读面（fresh home → 零会话） ──
     let sessionListBefore = -1;
     if (probes.c.pass) {
