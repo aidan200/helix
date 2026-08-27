@@ -18,9 +18,13 @@ export function detectTheme(): Theme {
   }
 }
 
-/** 首帧前同步应用（避免闪帧；main.tsx 渲染前调用一次）。 */
+/** 首帧前同步应用（避免闪帧；main.tsx 渲染前调用一次）。boot-light 与
+ * light 同步开关（boot 屏 CSS 与页面底色/color-scheme 都键在两者上——
+ * 只切 light 会留 boot-light 僵尸类，切回暗色时背景卡亮，W6f 实证 bug）。 */
 export function applyThemeInitial(): void {
-  document.documentElement.classList.toggle("light", detectTheme() === "light");
+  const light = detectTheme() === "light";
+  document.documentElement.classList.toggle("light", light);
+  document.documentElement.classList.toggle("boot-light", light);
 }
 
 interface ThemeContextValue {
@@ -35,6 +39,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.classList.toggle("light", theme === "light");
+    // boot-light 同步（W6f bug 修复：否则切回暗色时 body 底色/color-scheme
+    // 被 html.boot-light 选择器卡在亮色）
+    document.documentElement.classList.toggle("boot-light", theme === "light");
     // W6e：主题提示回写（壳侧缓存为下次启动的窗口底色；纯浏览器 dev 无
     // 此挂载点时静默跳过——可选链降级，零形态分支）
     globalThis.helixThemeHint?.(theme);

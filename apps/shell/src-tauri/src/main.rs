@@ -75,15 +75,17 @@ fn theme_hint(app: tauri::AppHandle, theme: String) {
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(dir.join("theme-hint"), &theme);
     let light = theme.trim() == "light";
-    set_native_window_background(
-        &app,
-        "main",
-        if light {
-            tauri::utils::config::Color(244, 242, 236, 255)
-        } else {
-            tauri::utils::config::Color(6, 9, 16, 255)
-        },
-    );
+    let color = if light {
+        tauri::utils::config::Color(244, 242, 236, 255)
+    } else {
+        tauri::utils::config::Color(6, 9, 16, 255)
+    };
+    // webview 层（underPageBackgroundColor/越界回弹；Windows 的主机制）
+    if let Some(wv) = app.get_webview_window("main") {
+        let _ = wv.set_background_color(Some(color));
+    }
+    // NSWindow 层（macOS 空窗期透出色）+ 标题栏外观
+    set_native_window_background(&app, "main", color);
     set_native_window_appearance(&app, "main", !light);
 }
 
