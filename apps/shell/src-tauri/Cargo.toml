@@ -16,7 +16,7 @@ name = "helix-shell"
 path = "src/main.rs"
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 # W6a 原生目录选择：官方三平台对话框插件（macOS NSOpenPanel / Windows
 # IFileOpenDialog / Linux GTK），平台差异全由插件消化——壳唯一原生 UX 能力
 # （architecture F3 裁决：目录选择属窗口/原生 UX 能力族，壳只返回路径字符串）。
