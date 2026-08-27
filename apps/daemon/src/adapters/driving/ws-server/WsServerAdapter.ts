@@ -120,8 +120,15 @@ import {
 /** 浏览器侧 token 获取端点路径（vite dev 与 static-serve 生产共用同一机制）。 */
 export const DEV_TOKEN_PATH = "/helix-dev-token";
 
-/** loopback 开发 Origin（vite dev 等）匹配：localhost / 127.0.0.1 / [::1] 任意端口。 */
-const LOOPBACK_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+/** 信任源族：①loopback 开发 Origin（vite dev 等）：localhost / 127.0.0.1 /
+ *  [::1] 任意端口；②打包形态应用自有资产协议源：tauri://localhost
+ *  （macOS/Linux）与 http(s)://tauri.localhost（Windows）——该协议/主机仅
+ *  本应用的 webview 可用（OS 注册专属），信任级不低于 loopback http
+ *  （任一本地进程都可 serve loopback http，而 tauri 源只有本应用能开）。
+ *  打包前端由此取 token（W6m 实证：缺此两款 → 打包形态永远卡在
+ *  「正在连接 daemon…」——token 403，握手无法发起）。 */
+const LOOPBACK_ORIGIN_RE =
+  /^(?:https?:\/\/(?:localhost|127\.0\.0\.1|\[::1])(?::\d+)?|https?:\/\/tauri\.localhost|tauri:\/\/localhost)$/i;
 
 export interface WsServerAdapterDeps {
   /** 会话路由对话入口（组合根 ChatRouter——按信封 sessionId 分发）。 */

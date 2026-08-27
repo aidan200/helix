@@ -508,6 +508,17 @@ describe("GET /helix-dev-token（浏览器侧获取机制，T1.6 钉死）", () 
       expect(devResp.status).toBe(200);
       expect(devResp.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
 
+      // W6m：打包形态应用自有资产协议源（macOS/Linux tauri://localhost、
+      // Windows http(s)://tauri.localhost）→ 同反射放行（缺此则打包前端
+      // 永远卡在「正在连接 daemon…」——token 403）
+      for (const appOrigin of ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]) {
+        const resp = await fetch(`http://127.0.0.1:${rig.daemon.ws.port}/helix-dev-token`, {
+          headers: { origin: appOrigin },
+        });
+        expect(resp.status, appOrigin).toBe(200);
+        expect(resp.headers.get("access-control-allow-origin"), appOrigin).toBe(appOrigin);
+      }
+
       const evil = await fetch(`http://127.0.0.1:${rig.daemon.ws.port}/helix-dev-token`, {
         headers: { origin: "http://evil.example" },
       });

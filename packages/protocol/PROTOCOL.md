@@ -250,6 +250,9 @@ GET http://127.0.0.1:{port}/helix-dev-token
 - **无 Origin 头**（curl / 本地进程 / Node 客户端）→ 200 直接返回；
 - **loopback 开发 Origin**（`http://localhost:*` / `http://127.0.0.1:*` / `http://[::1]:*`，
   即 vite dev 等）→ 200 且反射 `Access-Control-Allow-Origin: <origin>`；
+- **应用自有资产协议源**（W6m 增：`tauri://localhost`〔macOS/Linux 打包〕与
+  `http(s)://tauri.localhost`〔Windows 打包〕——该协议/主机仅本应用 webview 可用，
+  信任级不低于 loopback http）→ 同反射放行；
 - **其他 Origin**（任意外部站点）→ 403（防恶意网页窃取 token 接管本机 agent）。
 
 两种前端形态共用同一机制（AG-13 同源基线的自然延伸）：
@@ -258,6 +261,7 @@ GET http://127.0.0.1:{port}/helix-dev-token
 |---|---|---|
 | vite dev（开发期） | `fetch("http://127.0.0.1:{port}/helix-dev-token")`（跨端口 fetch，ACAO 反射放行） | vite dev server |
 | static-serve（生产形态） | 同一端点（同源 fetch，无 CORS 问题） | daemon `staticDir` 构建产物 |
+| tauri bundle（打包桌面形态，W6m 登记） | 同一端点（跨源 fetch，ACAO 反射放行——`tauri://localhost` / `http(s)://tauri.localhost`） | tauri 资产协议（frontendDist 随 .app/.exe 内嵌） |
 
 选型说明：契约草案曾以「vite dev 插件读文件注入 env」为首选，T1.6 落地时定稿为
 **daemon 端点方案**——两种形态同一通路、零 vite 侧插件代码、生产/开发行为一致；
