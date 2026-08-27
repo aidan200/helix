@@ -160,6 +160,14 @@ export interface SessionStack {
    * 填充）与 instantiated 快照供给同源；container 编排门面共用。
    */
   readonly resolveSubagentModelId: () => string;
+  /**
+   * 会话工具沙箱 cwd 求值单点现值读面（W1F-F1）：engineFor 每会话装配
+   * （CoreToolExecutor.cwd）与 SubAgent spawn（HELIX_TOOL_CWD）共用
+   * toolCwdOf 同一求值——绑定后 = 绑定 root 规范形，未绑定回落启动
+   * 定格 cwd。暴露给组合根（Daemon.toolCwdNow）供集成断言（设计稿 §8
+   * 「绑定后 toolCwd 基准正确」）。
+   */
+  readonly toolCwdNow: () => string;
 }
 
 export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<SessionStack> {
@@ -278,7 +286,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           spawnSnapshot: () => subagentAssembly,
           // 注入源切换：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
-          toolCwd: bootToolCwd, // W1：子进程 env cwd = 启动定格面（绑定 root 缺省 cwd；重绑不追改已建 env 面）
+          // W1F-F2：子进程 env cwd = spawn 时刻现值（toolCwdOf 同源求值——
+          // 绑定 root 缺省回落启动 cwd；重绑后新 spawn 跟随新根，已 spawn
+          // 实例 env 已定格，代际生效）。deps.toolCwd 显式注入（测试面）
+          // 时恒优先（toolCwdOf 优先级链）。
+          toolCwd: () => toolCwdOf(),
           // F3.0（T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH）——
           // 与 ClosureRecorder 兜底 reportsDirFor 同源同式（<home>/reports/<session>）
           reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
@@ -527,5 +539,6 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     sessionService,
     refreshAssembly,
     resolveSubagentModelId,
+    toolCwdNow: toolCwdOf,
   };
 }

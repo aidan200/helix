@@ -114,6 +114,12 @@ export interface Daemon {
    * 路径 dispose 当前栈不变（workspace.dispose()）。
    */
   readonly workspace: WorkspaceService;
+  /**
+   * 会话工具沙箱 cwd 读面（W1F-F1 接线观测）：每会话装配与 SubAgent
+   * spawn 的求值单点现值——绑定后 = 绑定 root 规范形，未绑定回落启动
+   * cwd（集成断言用：设计稿 §8「绑定后 toolCwd 基准正确」）。
+   */
+  readonly toolCwdNow: () => string;
   /** fan-out 带名注册表（§4.2.4：序 = 语义唯一权威——测试断言语义序用）。 */
   readonly fanoutTargets: readonly NamedFanoutTarget[];
   /** 装配级资源事件总线（§4.2.3：resources.changed 观测面——不进 WS/不落盘/不进 fan-out）。 */
@@ -345,6 +351,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     engineMode: deps.engineMode,
     subagentRunnerOverride: deps.subagentRunnerOverride,
     toolCwd: deps.toolCwd,
+    // W1F-F1：会话工具沙箱 cwd 动态解析接线（评审缺口修复：此前仅传启动
+    // 定格面，生产恒回落启动 cwd）——经 workspace 持有者读现值（boundRoot()
+    // 规范形；未绑定回落启动 cwd）；deps.toolCwd 显式注入（测试面）时恒
+    // 优先（toolCwdOf 优先级链）。
+    resolveToolCwd: () => workspace.boundRoot() ?? process.cwd(),
     // grep 启动定格产物（AF-1）：rg 定格时注入路径 + 降级 warning 面；
     // ts 定格时仅注入 warning 面（降级路径不会触发，门面恒走 ts）。
     grep: {
@@ -405,7 +416,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
     sessionIdlePollMs: deps.sessionIdlePollMs,
   });
-  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId } = sessionStack;
+  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow } = sessionStack;
 
   // ── W1 晚绑闭合：workspace 广播与活跃 agent 判定接 eventStream/registry
   //    现值（构造序：WorkspaceService 先于 buildSessionStack 建立以驱动
@@ -659,6 +670,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     browser: browserPort,
     registry,
     workspace,
+    toolCwdNow,
     fanoutTargets: fanoutPublisher.targets,
     resourceEvents,
     runCli: () => cli.run(),

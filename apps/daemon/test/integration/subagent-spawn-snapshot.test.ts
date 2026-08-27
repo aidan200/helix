@@ -170,6 +170,45 @@ describe("SubAgent spawn 快照（M6 T2，acceptance ④）", () => {
     // 缺席 → 空覆盖（子进程回退 SubAgentProfile 声明面）
     expect(spawnOverridesFromEnv({})).toEqual({});
   });
+
+  test("toolCwd getter 形态（W1F-F2）：launch 时刻读现值，重绑后新 spawn 跟随新根", () => {
+    const real = Bun.spawn;
+    const calls: SpawnCall[] = [];
+    patchSpawn(calls);
+    try {
+      // getter 注入源模拟持有者现值（组合根生产形态：() => boundRoot() ?? cwd）
+      let boundRoot: string | null = null;
+      const launcher = new SubagentLauncher({
+        profile: SubAgentProfile,
+        model: mkModel("global"),
+        apiKeys: { fake: "k" },
+        toolCwd: () => boundRoot ?? process.cwd(),
+      });
+      // unbound：回落启动 cwd
+      launcher.launch(makeInstance("agent-tc-1"), "任务一");
+      expect(calls[0]!.env["HELIX_TOOL_CWD"]).toBe(process.cwd());
+      // 绑定 root-a → 新 spawn 跟随（同键值修正，非新增 env 键）
+      boundRoot = "/private/tmp/root-a";
+      launcher.launch(makeInstance("agent-tc-2"), "任务二");
+      expect(calls[1]!.env["HELIX_TOOL_CWD"]).toBe("/private/tmp/root-a");
+      // 重绑 root-b → 再 spawn 跟随新根；已 spawn 实例 env 已定格（代际生效）
+      boundRoot = "/private/tmp/root-b";
+      launcher.launch(makeInstance("agent-tc-3"), "任务三");
+      expect(calls[2]!.env["HELIX_TOOL_CWD"]).toBe("/private/tmp/root-b");
+      expect(calls[0]!.env["HELIX_TOOL_CWD"]).toBe(process.cwd()); // 首实例不追改
+      // 静态字符串形态（既有测试形态）照常：直接作值透传
+      const staticLauncher = new SubagentLauncher({
+        profile: SubAgentProfile,
+        model: mkModel("global"),
+        apiKeys: { fake: "k" },
+        toolCwd: "/static/cwd",
+      });
+      staticLauncher.launch(makeInstance("agent-tc-4"), "任务四");
+      expect(calls[3]!.env["HELIX_TOOL_CWD"]).toBe("/static/cwd");
+    } finally {
+      restoreSpawn(real);
+    }
+  });
 });
 
 describe("uiModelSlot：profile 槽位 UI 化（M6 T2；T12 两级链）", () => {

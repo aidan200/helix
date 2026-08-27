@@ -262,12 +262,18 @@ export class WorkspaceService {
 
   // ── daemon 关停面（shutdown 路径：dispose 当前栈不变语义） ────
 
-  /** 停 background + dispose 当前栈（幂等；库文件保留）。 */
+  /**
+   * 停 background + dispose 当前栈（幂等；库文件保留）。契约：dispose =
+   * shutdown 专用（daemon 关停面唯一调用）——同步清 current 锁定一致态
+   * （isBound()=false 与 stack()=null 同步）；解绑/切换走 open 另一根
+   * （v1 无 close/unbind 命令）。
+   */
   dispose(): void {
     this.background?.stop();
     this.background = undefined;
     this.bound?.dispose();
     this.bound = null;
+    this.current = null;
   }
 
   // ── 内部 ───────────────────────────────────────────────────
@@ -282,7 +288,18 @@ export class WorkspaceService {
     this.background?.stop();
     this.background = undefined;
     this.bound?.dispose();
-    this.bound = this.deps.buildStack(root);
+    let next: WorkspaceStack;
+    try {
+      next = this.deps.buildStack(root);
+    } catch (err) {
+      // 半途态加固（W1F-F3）：建栈失败时旧 background 已停、旧栈已
+      // dispose——持有者置空（current 不变），后续消费面走 unbound 路径
+      // 而非打到已 dispose 死栈；异常上抛（open → handler 结构化错误；
+      // restore → 装配序 fail-fast）。
+      this.bound = null;
+      throw err;
+    }
+    this.bound = next;
     this.background = this.deps.startSync(this.bound, root);
     this.current = root;
   }
@@ -300,7 +317,11 @@ export class WorkspaceService {
     if (!this.deps.fs.isReadableDir(real)) {
       return { ok: false, reason: `路径不是可读目录：${real}` };
     }
-    if (real === this.deps.fs.fsRoot() || real === this.deps.fs.homeDir()) {
+    // 危险根比较用规范形对齐（W1F-F5）：$HOME 本身为 symlink 时原值比较
+    // 会漏拒主目录——与 realpath(homeDir()) 比较；realpath 失败回退原值
+    // （经注入 fs 端口，application 层零直接 fs）。
+    const home = this.deps.fs.realpath(this.deps.fs.homeDir()) ?? this.deps.fs.homeDir();
+    if (real === this.deps.fs.fsRoot() || real === home) {
       return {
         ok: false,
         reason: `拒绝以 ${real} 作为工作空间（文件系统根/主目录扫描面失控），请选择具体的工作区目录`,

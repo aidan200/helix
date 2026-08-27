@@ -315,3 +315,88 @@ describe("WorkspaceService：bindInitial（组合根初始绑定注入面）", (
     expect(rig.spy.builtRoots).toEqual([WS_A]);
   });
 });
+
+describe("WorkspaceService：bind 异常半途态加固（W1F-F3）", () => {
+  test("buildStack 抛错 → 异常上抛 + 持有者置空（非死栈）+ 再次 open 好根可恢复", async () => {
+    const rig = makeRig();
+    const built: string[] = [];
+    let disposed = 0;
+    let failBuild = false;
+    const stackOf = (root: string): WorkspaceStack => ({
+      viewerService: {} as never,
+      projectService: { listProjects: () => [{ name: root, path: root, status: "absent" as const }] },
+      queryService: {} as never,
+      writeService: {} as never,
+      syncService: {} as never,
+      attachmentService: {} as never,
+      dispose: () => {
+        disposed += 1;
+      },
+    });
+    const { service } = rig.makeService(
+      { realpaths: { [WS_A]: WS_A, [WS_B]: WS_B }, readableDirs: new Set([WS_A, WS_B]) },
+      {
+        buildStack: (root) => {
+          if (failBuild) throw new Error(`注入建栈失败：${root}`);
+          built.push(root);
+          return stackOf(root);
+        },
+      },
+    );
+    // 初绑成功，随后注入建栈失败
+    await service.open(WS_A);
+    expect(service.stack()).not.toBe(null);
+    failBuild = true;
+    await expect(service.open(WS_B)).rejects.toThrow("注入建栈失败");
+    // 半途态加固：旧栈已 dispose、持有者置空（后续消费面走 unbound 路径
+    // 而非死栈）；current 不变；KV/broadcast 不受污染（异常先于持久化）
+    expect(service.stack()).toBe(null);
+    expect(service.boundRoot()).toBe(WS_A);
+    expect(disposed).toBe(1);
+    expect(rig.kv.get("workspace.current")).toBe(WS_A);
+    expect(rig.broadcasts).toEqual([WS_A]);
+    // 可恢复：好根再次 open 成功（换绑照常）
+    failBuild = false;
+    const retry = await service.open(WS_B);
+    expect(retry.ok).toBe(true);
+    expect(service.stack()).not.toBe(null);
+    expect(service.boundRoot()).toBe(WS_B);
+    expect(built).toEqual([WS_A, WS_B]);
+  });
+});
+
+describe("WorkspaceService：dispose 一致态（W1F-F4）", () => {
+  test("dispose 清 current：isBound()=false 与 stack()=null 同步（shutdown 专用契约）", async () => {
+    const rig = makeRig();
+    const { service } = rig.makeService({ realpaths: { [WS_A]: WS_A }, readableDirs: new Set([WS_A]) });
+    await service.open(WS_A);
+    expect(service.isBound()).toBe(true);
+    service.dispose();
+    expect(service.isBound()).toBe(false); // 不再出现 isBound()=true 而 stack()=null 的不一致态
+    expect(service.stack()).toBe(null);
+    expect(service.get().current).toBe(null);
+    expect(rig.spy.disposed).toBe(1);
+    // 幂等：重复 dispose 零报错零重复 dispose
+    service.dispose();
+    expect(rig.spy.disposed).toBe(1);
+  });
+});
+
+describe("WorkspaceService：危险根 symlink home 边缘（W1F-F5）", () => {
+  test("$HOME 为 symlink → realpath 规范形对齐后仍拒绝主目录", async () => {
+    const rig = makeRig();
+    // homeDir 注入 symlink 原值；realpath 表把 symlink home 与真实主目录
+    // 都解析到同一规范形——旧实现（原值比较）会漏拒
+    const { service } = rig.makeService({
+      realpaths: { "/symlink/home": "/real/home", "/real/home": "/real/home" },
+      readableDirs: new Set(["/real/home"]),
+      homeDir: "/symlink/home",
+    });
+    const out = await service.open("/symlink/home");
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.error.code).toBe("WORKSPACE_E_INVALID_ROOT");
+      expect(out.error.message).toContain("具体");
+    }
+  });
+});

@@ -1158,12 +1158,12 @@ notice?}`；recents MRU 上限 8，get 时惰性探测标 valid）。
 #### `workspace.open`
 
 显式绑定写面。daemon 校验（§3.3 单点）：realpath 规范化（消 symlink
-> 双写）+ 存在且为目录且可读 + 危险根拒绝（文件系统根 / 主目录——扫描
-> 面失控，引导选具体目录）；存在运行中会话/智能体时拒绝（F2 裁决 v1
-> 禁止切换）。幂等：同 root 重复 open = 状态零变 + 仍广播一次
-> `workspace_changed`。CLI 形态例外：终端站位 = 显式选择（启动即等价
-> 已 open(cwd)，不持久化）。结果 = `workspace.open.result`
->（`{root, projects}`；projects 复用 kg.projects 项目行 DTO 口径）。
+双写）+ 存在且为目录且可读 + 危险根拒绝（文件系统根 / 主目录——扫描
+面失控，引导选具体目录）；存在运行中会话/智能体时拒绝（F2 裁决 v1
+禁止切换）。幂等：同 root 重复 open = 状态零变 + 仍广播一次
+`workspace_changed`。CLI 形态例外：终端站位 = 显式选择（启动即等价
+已 open(cwd)，不持久化）。结果 = `workspace.open.result`
+（`{root, projects}`；projects 复用 kg.projects 项目行 DTO 口径）。
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|

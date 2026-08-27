@@ -15,6 +15,7 @@ import { createTestDaemon } from "../helpers/createTestDaemon";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { Daemon } from "../../src/infrastructure/container";
+import { AgentInstance } from "../../src/domain/agent/AgentInstance";
 
 interface Frame {
   v: string;
@@ -266,6 +267,106 @@ describe("workspace 绑定闭环（W1）I 层", () => {
     } finally {
       rig.dispose();
       await rig.daemon.shutdown();
+    }
+  }, 30000);
+
+  test("toolCwd 基准（W1F-F1）：unbound 回落启动 cwd → open 后新会话工具执行 cwd = 绑定规范形", async () => {
+    const rig = await startRig({ kgWorkspaceRoot: null });
+    cleaners.push(rig.dispose);
+    try {
+      // unbound：动态面回落启动 cwd（bootToolCwd = process.cwd()）
+      expect(rig.daemon.toolCwdNow()).toBe(process.cwd());
+
+      // 绑定 ws1 → 新建会话（draft 链放行）→ 工具执行 cwd 基准 = 绑定规范形
+      //（engineFor 每会话装配 CoreToolExecutor.cwd 与 toolCwdNow 同一求值单点）
+      const root1 = realpathSync(rig.ws1);
+      const open1 = await rig.client.call("workspace.open", { root: rig.ws1 });
+      expect(open1?.type).toBe("workspace.open.result");
+      const draft = await rig.client.call("chat.send", { text: "你好", draft: true, model: "fake/model" });
+      expect(draft?.type).not.toBe("connection.error");
+      expect(rig.daemon.toolCwdNow()).toBe(root1);
+
+      // 换绑 ws2 → 新基准跟随（draft 回合收尾回 idle 后再切——活跃 agent 门禁）
+      await until(
+        () => rig.daemon.system.getStatus().agentState === "idle",
+        10000,
+        "draft 回合收尾 idle",
+      );
+      const root2 = realpathSync(rig.ws2);
+      await rig.client.call("workspace.open", { root: rig.ws2 });
+      expect(rig.daemon.toolCwdNow()).toBe(root2);
+    } finally {
+      rig.dispose();
+      await rig.daemon.shutdown();
+    }
+  }, 20000);
+
+  test("SubAgent HELIX_TOOL_CWD 现值化（W1F-F2）：production 装配 spawn env = 绑定 root（代际跟随）", async () => {
+    // production 引擎形态（不注入 engine → 真 SubagentLauncher 装配）+
+    // Bun.spawn 打桩（subagent-spawn-snapshot.test.ts 同构：捕获 env，
+    // 不起真子进程）；WS 面不需要——open 走 daemon.workspace 直调。
+    const home = mkdtempSync(path.join(tmpdir(), "helix-ws-f2-home-"));
+    const ws1 = mkdtempSync(path.join(tmpdir(), "helix-ws-f2-root-"));
+    const calls: { env: Record<string, string | undefined> }[] = [];
+    // 按实例 id 取捕获 env：同文件早先 rig（kgSyncStartup: true）的
+    // codegraph 后台 spawn 可能异步落入共享打桩——不能按位置索引取。
+    const envOf = (instanceId: string): Record<string, string | undefined> | undefined =>
+      calls.find((c) => c.env["HELIX_INSTANCE_ID"] === instanceId)?.env;
+    const fakeProc = () =>
+      ({
+        pid: 42000 + Math.floor(Math.random() * 900),
+        exited: Promise.resolve(0),
+        stdout: (async function* () {})(),
+        stdin: { write: () => true },
+      }) as unknown as ReturnType<typeof Bun.spawn>;
+    const realSpawn = Bun.spawn;
+    (Bun as unknown as { spawn: unknown }).spawn = (opts: {
+      cmd: readonly string[];
+      env: Record<string, string | undefined>;
+    }) => {
+      calls.push({ env: { ...opts.env } });
+      return fakeProc();
+    };
+    const makeInstance = (id: string): AgentInstance =>
+      AgentInstance.create({
+        instanceId: id,
+        kind: "subagent",
+        profileKind: "subagent-worker",
+        sessionId: "s-w1f-f2",
+        createdAt: "2026-08-27T00:00:00.000Z",
+      });
+    try {
+      const daemon = await createTestDaemon({
+        home,
+        skipConfig: true,
+        skipLock: true,
+        port: 0,
+        cliInput: new PassThrough(),
+        cliOutput: new PassThrough(),
+        kgWorkspaceRoot: null, // 显式 unbound boot（production 形态）
+      });
+      try {
+        const launcher = daemon.subagentLauncher;
+        expect(launcher).toBeDefined(); // production 形态装配真体
+        // unbound：spawn env 回落启动 cwd（旧实现为启动定格值——恒不变；
+        // 修复后 = 绑定面现值，unbound 时同为启动 cwd，绑定后跟随）
+        launcher!.launch(makeInstance("agent-f2-a"), "任务一");
+        expect(envOf("agent-f2-a")!["HELIX_TOOL_CWD"]).toBe(process.cwd());
+        // 绑定后：新 spawn 的子进程 HELIX_TOOL_CWD = 绑定 root（规范形）
+        const root1 = realpathSync(ws1);
+        const open = await daemon.workspace.open(ws1);
+        expect(open.ok).toBe(true);
+        launcher!.launch(makeInstance("agent-f2-b"), "任务二");
+        expect(envOf("agent-f2-b")!["HELIX_TOOL_CWD"]).toBe(root1);
+        // 已 spawn 实例不重复 spawn（代际生效：同 id 二次 launch 零新增）
+        launcher!.launch(makeInstance("agent-f2-a"), "任务一（重复）");
+        expect(calls.filter((c) => c.env["HELIX_INSTANCE_ID"] === "agent-f2-a")).toHaveLength(1);
+        expect(calls.filter((c) => c.env["HELIX_INSTANCE_ID"] === "agent-f2-b")).toHaveLength(1);
+      } finally {
+        await daemon.shutdown();
+      }
+    } finally {
+      (Bun as unknown as { spawn: unknown }).spawn = realSpawn;
     }
   }, 30000);
 });
