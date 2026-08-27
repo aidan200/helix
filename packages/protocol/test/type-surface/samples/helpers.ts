@@ -140,6 +140,13 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `kg-confirm:${event.payload.node.status}`;
     case "kg.index.status.result":
       return `kg-index:${event.payload.state}`;
+    // ── workspace 批（W1 绑定闭环；两结果帧 + 一广播）──
+    case "workspace.get.result":
+      return `workspace-get:${event.payload.current?.root ?? "unbound"}:${event.payload.recents.length}:${event.payload.notice ?? "-"}`;
+    case "workspace.open.result":
+      return `workspace-open:${event.payload.root}:${event.payload.projects.length}`;
+    case "workspace_changed":
+      return `workspace-changed:${event.payload.root}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -227,6 +234,11 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `kg-index:${cmd.payload.project}:${cmd.payload.rebuild === true ? "rebuild" : "status"}`;
     case "kg.projects":
       return "kg-projects";
+    // ── workspace 批（W1 绑定闭环；门禁读面 + 显式绑定写面）──
+    case "workspace.get":
+      return "workspace-get";
+    case "workspace.open":
+      return `workspace-open:${cmd.payload.root}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

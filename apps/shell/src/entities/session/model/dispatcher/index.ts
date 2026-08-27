@@ -121,6 +121,17 @@ register({
   apply: (s) => s,
 });
 
+// ── workspace 族（W3 门禁读/写面 + W4 changed 广播；连接私有回执/广播）──
+// workspace.get.result / workspace.open.result 点对点回执与 workspace_changed
+// 广播，真消费归 entities/workspace 门禁状态机（SessionContext 转发层
+// workspaceListeners——kg 族先例）与 W4 各域刷新链（ProjectPage/会话清单
+// 重拉，经同转发层订阅）；no-op 注册保「EVENT_TYPES 全类型已路由」守护绿，
+// 会话 store 零写入。W4 豁免全清：changed 广播正式登记。
+register({
+  types: ["workspace.get.result", "workspace.open.result", "workspace_changed"],
+  apply: (s) => s,
+});
+
 // ── v0.6 agent.config 族（M6 T4 真消费收口）──
 // 三 type（changed 广播 + 两点对点结果帧）全走拓扑级前置门
 // （consumers/agent-config.ts，dispatcher/frame.ts ⓪′）：changed 接真消费

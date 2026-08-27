@@ -1,0 +1,84 @@
+/* ═══ workspace 门禁（W3；选择页 + connecting 占位）═══
+   全屏门禁态（phase !== main）：复用既有 HUD 视觉 token（tokens.css）与
+   err-icon/hud-btn/hud-dot 语言，不新造视觉体系。 */
+
+.wsgate {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+  overflow: auto;
+}
+
+/* 门禁面板（选择页 / 连接失败占位共容器） */
+.wsgate-panel {
+  width: min(520px, calc(100vw - 48px)); margin: auto;
+  display: flex; flex-direction: column; gap: 12px; align-items: stretch;
+  padding: 28px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--card-fill);
+  box-shadow: var(--shadow-inset-hud);
+}
+.wsgate-panel .err-icon { margin: 0 auto 4px; }
+
+.wsgate-title { font-size: var(--text-head); font-weight: 600; color: var(--text); text-align: center; }
+.wsgate-sub { font-size: var(--text-body); color: var(--text-muted); line-height: 1.6; text-align: center; }
+
+/* notice：get 降级说明（置顶警示行） */
+.wsgate-notice {
+  padding: 8px 12px; border: 1px solid rgb(var(--warning-rgb) / 0.3); border-radius: 6px;
+  background: rgb(var(--warning-rgb) / 0.07); color: var(--warning);
+  font-size: var(--text-body); line-height: 1.6;
+}
+
+.wsgate-sec { display: flex; flex-direction: column; gap: 8px; }
+.wsgate-sec-title { font-size: var(--text-cap); font-weight: 600; color: var(--text-dim); letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* recents MRU 列表 */
+.wsgate-recents { display: flex; flex-direction: column; gap: 6px; }
+.wsgate-recent {
+  display: flex; flex-direction: column; gap: 3px; text-align: left;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--card-fill); color: var(--text); cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  font-family: inherit;
+}
+.wsgate-recent:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-strong); }
+.wsgate-recent:disabled { cursor: not-allowed; }
+/* 失效项置灰（不可点击；daemon 惰性探测 valid=false） */
+.wsgate-recent[data-valid="0"] { opacity: 0.45; }
+.wsgate-recent-main { display: flex; align-items: center; gap: 8px; }
+.wsgate-recent-name { font-size: var(--text-main); font-weight: 600; color: var(--text); }
+.wsgate-recent-invalid {
+  font-size: var(--text-micro); padding: 1px 6px; border-radius: 4px;
+  border: 1px solid rgb(var(--error-rgb) / 0.35); color: var(--error);
+}
+.wsgate-recent-root { font-family: var(--font-mono); font-size: var(--text-body); color: var(--text-muted); word-break: break-all; }
+.wsgate-recent-time { font-size: var(--text-micro); color: var(--text-faint); }
+
+/* 输入区 */
+.wsgate-form { display: flex; gap: 8px; }
+.wsgate-input {
+  flex: 1; min-width: 0; height: 32px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: rgb(var(--void-rgb) / 0.4); color: var(--text);
+  font-family: var(--font-mono); font-size: var(--text-body);
+}
+.wsgate-input:focus { outline: none; border-color: rgb(var(--accent-rgb) / 0.45); }
+.wsgate-input:disabled { opacity: 0.6; }
+
+/* 行内错误区（daemon 结构化错误码 → 分类文案 + message 附加行） */
+.wsgate-error {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 12px; border: 1px solid rgb(var(--error-rgb) / 0.3); border-radius: 6px;
+  background: rgb(var(--error-rgb) / 0.06); color: var(--error);
+  font-size: var(--text-body); line-height: 1.6;
+}
+.wsgate-error-detail { color: var(--text-muted); font-family: var(--font-mono); font-size: var(--text-body); word-break: break-all; }
+
+/* connecting 轻量占位（ConnBanner 视觉语言） */
+.wsgate-boot {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: var(--text-main); color: var(--text-muted);
+}
+
+/* 切换流取消逃逸（W4：仅主壳入口渲染；首启 gate 恒无此钮） */
+.wsgate-cancel { align-self: center; }

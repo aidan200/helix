@@ -10,6 +10,7 @@ import "@/shared/ui/styles/drawer.css";
 import "@/shared/ui/styles/trace.css";
 import "@/shared/ui/styles/project.css";
 import "@/shared/ui/styles/agents.css";
+import "@/shared/ui/styles/workspace.css";
 import "@/shared/ui/styles/index.css";
 import "@/widgets/app-layout/ui/app-layout.css";
 

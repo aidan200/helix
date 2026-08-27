@@ -11,7 +11,7 @@
  *   回退解析 state.model || mc.defaultModel——选中态/徽标同源）；
  * - 非草稿回归：真实会话徽标语义不变（state.model 空不显示）。
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import type { CatalogModel } from "@helix/protocol";
@@ -48,6 +48,20 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     }),
   };
 });
+
+// ── WorkspaceContext mock（W4 指示器注入面：current/switching + startSwitch 探针）──
+const wsStateRef: { current: { current: { root: string } | null; switching: boolean } } = {
+  current: { current: { root: "/Users/siyong/work/helix" }, switching: false },
+};
+const startSwitch = vi.fn();
+vi.mock("@/entities/workspace/WorkspaceContext", () => ({
+  useWorkspace: () => ({
+    state: wsStateRef.current,
+    openWorkspace: () => true,
+    startSwitch,
+    cancelSwitch: () => {},
+  }),
+}));
 
 import { TopBarActions, TopBarInfo } from "./P-1-top-bar";
 
@@ -347,5 +361,57 @@ describe("P-1 header 模式 chip（P1 T4：草稿选择器 / 已建只读）", (
     // 旧静态 session chip 退役：不再有 chat.header.session 字面渲染
     expect(document.body.textContent).not.toContain("main-session");
     unmount();
+  });
+});
+
+// ── W4：workspace 指示器（basename/tooltip/切换流/F2 禁用）──
+
+describe("W4 workspace 指示器（top-bar；设计稿 §2.3）", () => {
+  beforeEach(() => {
+    wsStateRef.current = { current: { root: "/Users/siyong/work/helix" }, switching: false };
+    stateRef.current = draftState();
+    topologyRef.current = topologyWith("", []);
+  });
+
+  it("显示 basename + title 全路径；点击 → startSwitch（直接进入切换流）", () => {
+    renderTopBarInfo();
+    const chip = document.querySelector("[data-ws-chip]") as HTMLButtonElement;
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toBe("helix"); // basename（非全路径）
+    expect(chip.getAttribute("title")).toBe("/Users/siyong/work/helix"); // tooltip 全路径
+    expect(chip.disabled).toBe(false);
+    fireEvent.click(chip);
+    expect(startSwitch).toHaveBeenCalledTimes(1);
+  });
+
+  it("有活跃 agent → 禁用 + busy 文案 tooltip + 点击无效（F2 裁决）", () => {
+    stateRef.current = { ...draftState(), agentState: "running" };
+    renderTopBarInfo();
+    const chip = document.querySelector("[data-ws-chip]") as HTMLButtonElement;
+    expect(chip.disabled).toBe(true);
+    expect(chip.getAttribute("data-busy")).toBe("1");
+    expect(chip.getAttribute("title")).toContain("有智能体运行中");
+    expect(chip.getAttribute("title")).toContain("/Users/siyong/work/helix");
+    fireEvent.click(chip);
+    expect(startSwitch).not.toHaveBeenCalled();
+  });
+
+  it("后台会话非 idle → 同禁用（任一会话运行即拒）", () => {
+    topologyRef.current = topologyWith("", []);
+    topologyRef.current.list.push({
+      sessionId: "s-bg",
+      title: "后台",
+      lastActivityAt: 1,
+      runState: "streaming",
+      loaded: false,
+    });
+    renderTopBarInfo();
+    expect((document.querySelector("[data-ws-chip]") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("未绑定（防御位）→ 不渲染", () => {
+    wsStateRef.current = { current: null, switching: false };
+    renderTopBarInfo();
+    expect(document.querySelector("[data-ws-chip]")).toBeNull();
   });
 });

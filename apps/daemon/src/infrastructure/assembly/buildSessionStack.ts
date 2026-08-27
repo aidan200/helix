@@ -115,14 +115,23 @@ export interface BuildSessionStackDeps {
    * 自写 edit/edit-lines 挂点注入面工厂（T3.2 附着接线）：组合根把 kg 栈
    * （notifyWrite 写后通知 + KgAttachmentService 附着）经此注入；sessionId
    * 在 engineFor 闭包内闭合（会话级跨通道去重键）。缺省不注入（SubAgent
-   * 子进程装配/测试）——容缺空操作，EditTool 行为不变。
+   * 子进程装配/测试）——容缺空操作，EditTool 行为不变。W1 绑定闭环：
+   * 未绑定（无 kg 栈）时工厂返回 undefined（edit 工具无 kg 挂点）。
    */
-  readonly editDeps?: (sessionId: string) => EditToolDeps;
+  readonly editDeps?: (sessionId: string) => EditToolDeps | undefined;
   /**
    * kg 双工具注入面（T3.3）：提供则每会话 executor 注册 kg/kg-update
    *（结构同 CoreToolExecutorOptions.kg）。缺省不注册（测试形态）。
+   * W1 绑定闭环：支持工厂形态（每会话装配时读 workspace 持有者现值——
+   * 重绑后新会话跟随新栈；未绑定 → undefined 不注册）。
    */
-  readonly kgTools?: KgToolOptions;
+  readonly kgTools?: KgToolOptions | (() => KgToolOptions | undefined);
+  /**
+   * 会话工具沙箱 cwd 动态解析面（W1 绑定闭环）：基准改绑定的 root——
+   * 每会话装配（engineFor）时求值，重绑后新会话跟随。缺省回落启动定格
+   * 值；deps.toolCwd 显式注入时恒优先（测试面）。
+   */
+  readonly resolveToolCwd?: () => string;
   /**
    * spawn 派发任务切片注入器（T3.3，F1.3）：透传 SchedulerService
    * （组合根接 KgQueryService.injectTaskSlice）。缺省不注入。
@@ -151,6 +160,14 @@ export interface SessionStack {
    * 填充）与 instantiated 快照供给同源；container 编排门面共用。
    */
   readonly resolveSubagentModelId: () => string;
+  /**
+   * 会话工具沙箱 cwd 求值单点现值读面（W1F-F1）：engineFor 每会话装配
+   * （CoreToolExecutor.cwd）与 SubAgent spawn（HELIX_TOOL_CWD）共用
+   * toolCwdOf 同一求值——绑定后 = 绑定 root 规范形，未绑定回落启动
+   * 定格 cwd。暴露给组合根（Daemon.toolCwdNow）供集成断言（设计稿 §8
+   * 「绑定后 toolCwd 基准正确」）。
+   */
+  readonly toolCwdNow: () => string;
 }
 
 export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<SessionStack> {
@@ -163,12 +180,16 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // import driven 层 profiles——组合根单向传映射表）；project 层技能根
   // 与 toolCwd 同款工作区型判定（启动时定格，不做监听）；builtin 层 =
   // daemon 随仓 resources/skills（第三源，paths 单点派生）。
-  const toolCwd = deps.toolCwd ?? process.cwd();
+  // 工具沙箱 cwd 两面（W1）：bootToolCwd = 启动定格面（技能扫描/子进程
+  // env 的回退，启动时定格不做监听）；toolCwdOf = 会话面（每会话装配时
+  // 读绑定 root 现值——deps.toolCwd 显式注入恒优先，未绑定回落定格值）。
+  const bootToolCwd = deps.toolCwd ?? process.cwd();
+  const toolCwdOf = (): string => deps.toolCwd ?? deps.resolveToolCwd?.() ?? bootToolCwd;
   const skillScanner = new SkillScanner({
     userSkillsDir: paths.skillsHome(),
-    projectSkillsDir: path.join(toolCwd, ".helix", "skills"),
+    projectSkillsDir: path.join(bootToolCwd, ".helix", "skills"),
     builtinSkillsDir: deps.builtinSkillsDir ?? builtinSkillsDir(),
-    cwd: toolCwd,
+    cwd: bootToolCwd,
   });
   const resourceService = new ResourceService({
     store: resourceState,
@@ -265,7 +286,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           spawnSnapshot: () => subagentAssembly,
           // 注入源切换：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
-          toolCwd,
+          // W1F-F2：子进程 env cwd = spawn 时刻现值（toolCwdOf 同源求值——
+          // 绑定 root 缺省回落启动 cwd；重绑后新 spawn 跟随新根，已 spawn
+          // 实例 env 已定格，代际生效）。deps.toolCwd 显式注入（测试面）
+          // 时恒优先（toolCwdOf 优先级链）。
+          toolCwd: () => toolCwdOf(),
           // F3.0（T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH）——
           // 与 ClosureRecorder 兜底 reportsDirFor 同源同式（<home>/reports/<session>）
           reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
@@ -384,14 +409,17 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               kill: (agentId) => scheduler.kill(agentId),
               inspect: (agentId) => scheduler.inspect(agentId), // T3-B
             };
+            // W1：kg 挂点/双工具经 workspace 持有者读现值（未绑定 → 不注册/
+            // 无挂点——edit 行为不变；kg/kg-update 同步从 profile 工具清单
+            // 剔除，resolveTools 硬校验（声明即注册）不破，绑定后新会话获得）
+            const editDeps = deps.editDeps?.(sessionId);
+            const kgTools = typeof deps.kgTools === "function" ? deps.kgTools() : deps.kgTools;
             const toolExecutor = new CoreToolExecutor({
-              cwd: toolCwd,
+              cwd: toolCwdOf(),
               orchestration: sessionOrchestration,
               grep: deps.grep,
-              // kg 挂点（T3.2）：sessionId 在此闭合进 edit 依赖（附着去重键）
-              ...(deps.editDeps !== undefined ? { edit: deps.editDeps(sessionId) } : {}),
-              // kg 双工具（T3.3）：主会话注册 kg/kg-update（薄壳调 service）
-              ...(deps.kgTools !== undefined ? { kg: deps.kgTools } : {}),
+              ...(editDeps !== undefined ? { edit: editDeps } : {}),
+              ...(kgTools !== undefined ? { kg: kgTools } : {}),
               // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
               // tab 归属）；ChildMain 子进程经 RemoteBrowserPort 转发接入（H-3）
               browser: browserPort,
@@ -412,7 +440,13 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               profile: {
                 ...MainSessionProfile,
                 systemPrompt: mainAssembly.systemPrompt,
-                tools: mainAssembly.tools,
+                // W1 绑定闭环：未绑定（kg 双工具未注册）时剔除 kg/kg-update——
+                // profile 声明与 executor 注册面一致（resolveTools 硬校验不破）；
+                // 绑定后新建会话自动恢复注册面。
+                tools:
+                  kgTools === undefined
+                    ? mainAssembly.tools.filter((t) => t !== "kg" && t !== "kg-update")
+                    : mainAssembly.tools,
               },
               model: resolveConfigModel(
                 resourceService.modelSlot(profileKindOf(mode)) ?? defaultModel.current(),
@@ -505,5 +539,6 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     sessionService,
     refreshAssembly,
     resolveSubagentModelId,
+    toolCwdNow: toolCwdOf,
   };
 }

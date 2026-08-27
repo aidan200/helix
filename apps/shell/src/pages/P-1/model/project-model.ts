@@ -49,6 +49,10 @@ export function createProjectPageState(): ProjectPageState {
 export type ProjectAction =
   | { type: "list-loading" }
   | { type: "list-result"; projects: KgProjectRow[] }
+  /** workspace_changed（W4 刷新链）：项目域整体复位到首拉态（选中/主区/kgToken
+   *  随新工作空间作废——旧选中在新域可能不存在，残影零泄漏）；重拉由页面
+   *  effect 接手（sendKgProjects）。 */
+  | { type: "workspace-reset" }
   /** 点项目行：同项目仅折叠（主区不重置）；异项目先清旧态再按行状态进新态。 */
   | { type: "select-project"; name: string }
   /** ☰ 展开：恢复两段列表（含最新行状态重渲染）。 */
@@ -83,6 +87,10 @@ export function projectReducer(state: ProjectPageState, action: ProjectAction): 
       return state.listLoading ? state : { ...state, listLoading: true };
     case "list-result":
       return { ...state, projects: action.projects, listLoading: false };
+    case "workspace-reset":
+      // 新工作空间：回到首拉态（清单待拉，选中/主区/进度/令牌全复位——
+      // kg-viewer 随选中清空自然卸载，新选中后按新域重挂）
+      return createProjectPageState();
     case "select-project": {
       // FID-30：点当前已选中行 → 仅折叠，主区状态与选中不动
       if (state.selected === action.name) {

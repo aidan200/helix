@@ -56,6 +56,7 @@ export type Channel =
   | "trace"
   | "web"
   | "kg"
+  | "workspace"
   | "interaction"
   | "notification";
 

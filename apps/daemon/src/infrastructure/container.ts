@@ -22,7 +22,7 @@ import { createPaths, osHomeDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
-import { buildEditToolDeps, buildKnowledgeStack, startKgSyncBackground, type KgSyncBackground, type KnowledgeStack } from "./assembly/buildKnowledgeStack";
+import { buildEditToolDeps, buildKnowledgeStack, startKgSyncBackground, type KnowledgeStack } from "./assembly/buildKnowledgeStack";
 import { scanWorkspaceProjects } from "../adapters/driven/workspace-scan";
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
@@ -35,6 +35,8 @@ import { buildModelStack } from "./assembly/buildModelStack";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode } from "./assembly/buildSessionStack";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
 import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
+import { WorkspaceService } from "../application/services/workspace/WorkspaceService";
+import { createWorkspaceFs } from "../adapters/driven/workspace-fs";
 
 /**
  * 组合根（architecture.md §3.6）：整个 daemon 唯一允许 new 具体实现的地方
@@ -107,10 +109,17 @@ export interface Daemon {
   /** 多会话容器（生命周期编排观测面——测试断言懒加载/卸载用）。 */
   readonly registry: SessionRegistry;
   /**
-   * kg 子系统栈（T2.1：.kg 双 port + codegraph 引擎被动封装；
-   * KgSyncService 挂入归 T2.2）。shutdown 时 dispose 全部 per-project 连接。
+   * workspace 绑定面（W1 绑定闭环）：绑定状态机唯一事实源（restore/open/
+   * bindCwd）+ 绑定 kg 栈持有者（重绑接缝——RPC 与测试消费）。shutdown
+   * 路径 dispose 当前栈不变（workspace.dispose()）。
    */
-  readonly knowledge: KnowledgeStack;
+  readonly workspace: WorkspaceService;
+  /**
+   * 会话工具沙箱 cwd 读面（W1F-F1 接线观测）：每会话装配与 SubAgent
+   * spawn 的求值单点现值——绑定后 = 绑定 root 规范形，未绑定回落启动
+   * cwd（集成断言用：设计稿 §8「绑定后 toolCwd 基准正确」）。
+   */
+  readonly toolCwdNow: () => string;
   /** fan-out 带名注册表（§4.2.4：序 = 语义唯一权威——测试断言语义序用）。 */
   readonly fanoutTargets: readonly NamedFanoutTarget[];
   /** 装配级资源事件总线（§4.2.3：resources.changed 观测面——不进 WS/不落盘/不进 fan-out）。 */
@@ -169,10 +178,13 @@ export interface AssembleDaemonDeps {
   /** 跳过 kg sync 启动触发+fs-watch 挂接（生产缺省启动；测试面默认跳——真 codegraph 构建不进测试，T2.2）。 */
   readonly skipKgSyncStartup?: boolean;
   /**
-   * kg workspace 根覆盖（T5.3 测试注入面；缺省 = daemon 启动 cwd，
-   * §3.1/TR-AD-6 零 env 键——生产恒走 cwd，不新增启动参数）。
+   * kg workspace 根初始绑定值（W1 语义演进：等价 restore 预置——测试注入面
+   * 指向 tmp）。缺省/显式 null = 不预置 → 走 KV restore（生产等价；
+   * createTestDaemon 缺省预置 process.cwd() 保既有测试形态）。
+   * 生产 createDaemon 恒不注入 → unbound boot，等 RPC open 或 CLI bindCwd。
+   * §3.1/TR-AD-6 零 env 键不变。
    */
-  readonly kgWorkspaceRoot?: string;
+  readonly kgWorkspaceRoot?: string | null;
 }
 
 /**
@@ -278,13 +290,45 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   } else {
     logger.info(`codegraph 引擎不可用（构建面 degraded，AF-2）：${codegraphResolution.reasons.join("；")}`);
   }
-  const kgWorkspaceRoot = deps.kgWorkspaceRoot ?? process.cwd();
-  const knowledge = buildKnowledgeStack({ codegraphResolution, workspaceRoot: kgWorkspaceRoot });
-  // §3.5：workspace 根 = daemon 启动 cwd（同一根供 kg 后台与 edit 挂点归属；
-  // T5.3 测试注入面 deps.kgWorkspaceRoot 覆盖——生产恒 cwd，零 env 键）
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   const persistence = buildPersistence({ paths, logger });
+
+  // ── workspace 绑定面（W1 绑定闭环）：绑定状态机唯一事实源 + 绑定 kg 栈
+  //    持有者（重绑接缝）。物化时机迁移：unbound boot 零扫描零同步零开库
+  //    ——栈只在 restore 成功/open 成功/初始绑定后建；startSync 由
+  //    skipKgSyncStartup 门控（测试面默认 no-op，真 codegraph 构建不进
+  //    测试进程）。广播、活跃 agent 判定与会话卸载面经晚绑闭包（eventStream/
+  //    registry 在 buildSessionStack 后才存在——与 wsServer 同款回填模式）。──
+  let broadcastWorkspaceChanged: (root: string) => void = () => {};
+  let hasActiveAgentNow: () => boolean = () => false;
+  let unloadSessionsOnRebind: () => void = () => {};
+  const workspace = new WorkspaceService({
+    kv: persistence.runtimeConfig, // KV 底座（AG-06 单写通道；不进 config.json，TR-AD-6）
+    fs: createWorkspaceFs(), // driven 探测端口（realpath/可读目录/危险根判定输入）
+    clock: { now: () => new Date().toISOString() },
+    cwd: () => process.cwd(), // CLI 例外条款源（终端站位 = 显式选择）
+    buildStack: (root) => buildKnowledgeStack({ codegraphResolution, workspaceRoot: root }),
+    startSync: deps.skipKgSyncStartup
+      ? () => ({ stop: () => {} })
+      : (stack, root) => startKgSyncBackground(stack as KnowledgeStack, root),
+    broadcast: (root) => broadcastWorkspaceChanged(root),
+    hasActiveAgent: () => hasActiveAgentNow(),
+    // W4 债清偿：重绑（替换已绑定栈）时卸载全部现有会话——旧会话 executor
+    // 闭包持已 dispose 旧栈；卸载后回访懒加载按新栈重建（kgTools/editDeps
+    // 工厂闭包在 buildRuntime 时读 workspace.stack() 现值）。
+    unloadSessions: () => unloadSessionsOnRebind(),
+    logger,
+  });
+  if (deps.kgWorkspaceRoot != null) {
+    // 测试注入面：初始绑定值（等价 restore 预置——不校验不持久化）
+    workspace.bindInitial(deps.kgWorkspaceRoot);
+  } else {
+    // 生产/常规（缺省或显式 null）：不预置，走 KV 恢复（有效则绑定 =
+    // rebind 效应；无效/无 KV 则未绑定——unbound boot，等 RPC open 或
+    // CLI bindCwd）
+    await workspace.restore();
+  }
   const modelStack = buildModelStack({ paths, logger });
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
 
@@ -312,6 +356,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     engineMode: deps.engineMode,
     subagentRunnerOverride: deps.subagentRunnerOverride,
     toolCwd: deps.toolCwd,
+    // W1F-F1：会话工具沙箱 cwd 动态解析接线（评审缺口修复：此前仅传启动
+    // 定格面，生产恒回落启动 cwd）——经 workspace 持有者读现值（boundRoot()
+    // 规范形；未绑定回落启动 cwd）；deps.toolCwd 显式注入（测试面）时恒
+    // 优先（toolCwdOf 优先级链）。
+    resolveToolCwd: () => workspace.boundRoot() ?? process.cwd(),
     // grep 启动定格产物（AF-1）：rg 定格时注入路径 + 降级 warning 面；
     // ts 定格时仅注入 warning 面（降级路径不会触发，门面恒走 ts）。
     grep: {
@@ -319,37 +368,70 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       warn: (m) => logger.warn(m),
     },
     // kg 挂点（T3.2 附着接线）：每会话闭合 sessionId（跨通道去重键）——
-    // notifyWrite 写后通知入 sync 队列 + edit 成功路径附着 📎 块
-    editDeps: (sessionId) =>
-      buildEditToolDeps({
-        workspaceRoot: kgWorkspaceRoot,
-        syncService: knowledge.syncService,
-        attachment: knowledge.attachmentService,
-        sessionId,
-      }),
+    // notifyWrite 写后通知入 sync 队列 + edit 成功路径附着 📎 块。W1：经
+    // workspace 持有者读现值（重绑后新会话跟随新栈；未绑定 → undefined
+    // 无挂点，EditTool 行为不变）。
+    editDeps: (sessionId) => {
+      const stack = workspace.stack();
+      const root = workspace.boundRoot();
+      return stack !== null && root !== null
+        ? buildEditToolDeps({
+            workspaceRoot: root,
+            syncService: stack.syncService,
+            attachment: stack.attachmentService,
+            sessionId,
+          })
+        : undefined;
+    },
     // kg 双工具装配面（T3.3）：主会话 executor 注册 kg/kg-update（SubAgent
-    // 子进程侧由 ChildMain 本地栈自带）；write 直用 knowledge 栈真体。
-    kgTools: {
-      query: knowledge.queryService,
-      write: knowledge.writeService,
-      workspaceRoot: kgWorkspaceRoot,
-      scanProjects: () => scanWorkspaceProjects(kgWorkspaceRoot),
+    // 子进程侧由 ChildMain 本地栈自带）。W1：工厂形态经持有者读现值
+    //（重绑后新会话跟随新栈；未绑定 → 不注册）。
+    kgTools: () => {
+      const stack = workspace.stack();
+      const root = workspace.boundRoot();
+      return stack !== null && root !== null
+        ? {
+            query: stack.queryService,
+            write: stack.writeService,
+            workspaceRoot: root,
+            scanProjects: () => scanWorkspaceProjects(root),
+          }
+        : undefined;
     },
     // spawn 派发任务切片注入（F1.3）：任务文本 → 图查询 → digest+指针切片
-    // 拼入 task 约束区；注入后 markInjected 入跨通道去重注册表（T3.2 同源）
-    taskInjector: (sessionId, task) => knowledge.queryService.injectTaskSlice(sessionId, task),
+    // 拼入 task 约束区；注入后 markInjected 入跨通道去重注册表（T3.2 同源）。
+    // W1：未绑定 → 空切片（无图查询面，零副作用）。
+    taskInjector: (sessionId, task) => workspace.stack()?.queryService.injectTaskSlice(sessionId, task) ?? "",
     // findings 落账管道（F3.0，T4.1）：closure findings → KgWriteService 唯一
     // 写入口落账（绝不旁路）；目标项目解析 = workspace 全扫描（与 kg-update
     // 工具同口径：显式名命中 / 唯一项目自动 / 多项目不猜）。测试可注入替身。
+    // W1：未绑定 → 落账拒绝（KG_E_STATE，不吞声）+ 空扫描。
     findingsSink: deps.findingsSinkOverride ?? {
-      write: (projectRoot, op) => knowledge.writeService.write(projectRoot, op),
-      scanProjects: () => scanWorkspaceProjects(kgWorkspaceRoot),
+      write: (projectRoot, op) =>
+        workspace.stack()?.writeService.write(projectRoot, op) ?? {
+          ok: false,
+          error: { code: "KG_E_STATE", message: "未绑定工作空间：findings 落账跳过（请先选择工作空间）" },
+        },
+      scanProjects: () => {
+        const root = workspace.boundRoot();
+        return root !== null ? scanWorkspaceProjects(root) : [];
+      },
     },
     builtinSkillsDir: deps.builtinSkillsDir,
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
     sessionIdlePollMs: deps.sessionIdlePollMs,
   });
-  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId } = sessionStack;
+  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow } = sessionStack;
+
+  // ── W1 晚绑闭合：workspace 广播与活跃 agent 判定接 eventStream/registry
+  //    现值（构造序：WorkspaceService 先于 buildSessionStack 建立以驱动
+  //    restore，回调面在此闭合——与 wsServer 同款回填模式）。──
+  broadcastWorkspaceChanged = (root) => eventStream.broadcastWorkspaceChanged({ root });
+  hasActiveAgentNow = () =>
+    // 热会话运行态（主实例）或调度器存活实例（SubAgent）任一命中即拒
+    registry.hotRuntimes().some((r) => r.chatService.agentState !== "idle") ||
+    registry.hotRuntimes().some((r) => scheduler.hasActiveInstances(r.sessionId));
+  unloadSessionsOnRebind = () => registry.unloadAll();
 
   // ── resources.changed 订阅（§4.2.3：refreshAssembly 先定义、订阅注册后置——
   //    结构保证取代注释保证；发布方 ResourceService 经 deps 函数字段注入） ──
@@ -473,16 +555,6 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 同样依赖目标已装配；中间构造块 sessionService/chatRouter/cli 均为惰性闭包）。
   await registry.initialize();
 
-  // ── 装配序步 7.5：kg sync 启动触发 + fs-watch 兑底（T2.2，AD-15）──
-  // daemon 启动 cwd = workspace 根（§3.1/TR-AD-6）：一层扫描逐项目异步
-  // onStartup（不阻塞启动，失败吞——退避重试在 service 内）+ 单流 watch
-  // 兑底外部编辑。测试面（createTestDaemon）默认 skip：真 codegraph 构建
-  // 不进测试进程。
-  let kgSyncBackground: KgSyncBackground | undefined;
-  if (!deps.skipKgSyncStartup) {
-    kgSyncBackground = startKgSyncBackground(knowledge, kgWorkspaceRoot);
-  }
-
   let running = true;
   let wsServer: WsServerAdapter | undefined;
   // model 位数据源改会话级（AD-3 model 族 + AD-2）：当前会话
@@ -515,8 +587,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       unsubscribeBrowserStatus(); // web.status.changed 广播订阅退订（先退订再 stop）
       await browserPort.stop(); // 关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
       await persistence.writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
-      kgSyncBackground?.stop(); // 停 fs-watch + 清 sync 计时器（在库连接关闭前）
-      knowledge.dispose(); // .kg per-project 连接全关（库文件保留，T2.1）
+      workspace.dispose(); // 停 kg background + .kg per-project 连接全关（库文件保留，T2.1；W1 经持有者）
       lock?.release();
       logger.info("daemon 已关闭");
     },
@@ -565,7 +636,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     browser: browserPort, // web 族命令族回口（契约 v0.7）
     hasModel: (id) => modelStack.catalog.hasModel(id), // model 型 set 前置校验
     traceQuery: persistence.traceQuery, // trace.query 命令回口（只读面）
-    kg: knowledge.viewerService, // kg 族命令回口（P-1 六命令，§9；project 参数 service 内单点解析）
+    // kg 族命令回口（P-1 六命令，§9；project 参数 service 内单点解析）——
+    // W1 重绑接缝：经 workspace 持有者读现值（deps.kg 直接注入形态保留给
+    // stub 测试 rig；未绑定 → handler 空集/拒绝防御契约）
+    workspace, // workspace 族命令回口（W1：get/open 两命令 + 门禁判别面）
     events: eventStream,
     token,
     port: deps.port ?? config.port,
@@ -601,7 +675,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     directory: registry,
     browser: browserPort,
     registry,
-    knowledge,
+    workspace,
+    toolCwdNow,
     fanoutTargets: fanoutPublisher.targets,
     resourceEvents,
     runCli: () => cli.run(),

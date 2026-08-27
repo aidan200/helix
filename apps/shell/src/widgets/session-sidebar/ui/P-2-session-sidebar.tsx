@@ -53,7 +53,7 @@ const focusInput = () => {
 const SessionSidebar = function SessionSidebar() {
   const { t } = useI18n();
   const toast = useToast();
-  const { state, topology, switchSession, newDraft, deleteSession, requestSessionList } = useSession();
+  const { state, topology, switchSession, newDraft, deleteSession, requestSessionList, subscribeWorkspaceFrames } = useSession();
 
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -63,6 +63,17 @@ const SessionSidebar = function SessionSidebar() {
   useEffect(() => {
     if (state.conn === "connected") requestSessionList();
   }, [state.conn, requestSessionList]);
+
+  // workspace_changed 刷新链（W4；同款既有重拉模式）：换绑后 daemon 侧已
+  // 全部会话卸载（SessionRegistry.unloadAll，回访懒加载重建）——清单统计
+  //（loaded/runState 等）需按权威重拉对齐。
+  useEffect(
+    () =>
+      subscribeWorkspaceFrames((e) => {
+        if (e.type === "workspace_changed") requestSessionList();
+      }),
+    [subscribeWorkspaceFrames, requestSessionList],
+  );
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed((v) => {

@@ -7,6 +7,9 @@
  * - F4.2 编排 + teardown：真起三进程（daemon bun 直跑源码经壳 sidecar
  *   wrapper + vite dev + cargo tauri dev）→ WS/HTTP 连通断言 → SIGINT →
  *   三件套零残留（进程树/端口/tmp）→ 连跑两轮零残留。
+ * - W5 旋钮降级：env 未设 → 正常起编排（未绑定态）+ 提示日志；env 已设
+ *   → daemon ready 后 WS 预绑定（成功日志 + workspace.get 绑定事实断言）；
+ *   预绑定失败（危险根被 daemon 拒）→ 非零退出 + 整体 teardown。
  * - `bun run dev` 不受影响：根 package.json dev 脚本无 cargo 自检耦合。
  *
  * 注（AF-5）：bun test 进程内首次 Bun.spawn 有预热延迟，本文件全部等待
@@ -14,10 +17,11 @@
  * 会真实编译并开窗，属预期——窗口/HMR 体感为人工确认项）。
  */
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { connect, createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { connect, createServer } from "node:net";
+import { PROTOCOL_VERSION } from "@helix/protocol";
 import {
   checkRustToolchain,
   collectDescendantPids,
@@ -28,7 +32,10 @@ import {
 // H-1 TDD-RED：以下 import 的符号尚未实现（先红后绿）
 import { ensureRgAvailable, tauriDevArgs, TAURI_DEV_CONFIG_OVERRIDE } from "./dev-desktop";
 
-// TDD-RED：wrapper cwd 止血——buildWrapperScript 尚未实现（先红后绿）
+// TDD-RED：W5 预绑定——prebindWorkspace 尚未实现（先红后绿）
+import { prebindWorkspace } from "./dev-desktop";
+
+// TDD-RED：wrapper cwd 止血 + W5 两形态——buildWrapperScript 尚未实现（先红后绿）
 import { buildWrapperScript, resolveDevWorkspaceRoot } from "./dev-desktop";
 
 const root = join(import.meta.dir, "..");
@@ -138,7 +145,10 @@ async function waitFor(cond: () => Promise<boolean>, timeoutMs: number, what: st
   }
 }
 
-/** WS 连通断言：token 端点取 token → hello 握手 → 收首帧（welcome）。 */
+/** WS 连通断言：token 端点取 token → hello 握手 → 必须收到 welcome
+ *（W5 顺带修正：旧版 v 位便硬编码 "0.10" 且任意首帧即过——daemon 实为
+ * protocol.version_unsupported 拒绝后仍判绿，假阳性；现钉 PROTOCOL_VERSION
+ * 且只认 connection.welcome，connection.error 判红）。 */
 async function wsHello(port: number): Promise<boolean> {
   const res = await rawHttpGet(port, "/helix-dev-token");
   if (res.status !== 200) return false;
@@ -152,20 +162,80 @@ async function wsHello(port: number): Promise<boolean> {
     ws.onopen = () =>
       ws.send(
         JSON.stringify({
+          v: PROTOCOL_VERSION,
           type: "hello",
-          v: "0.10",
           id: "dev-desktop-test",
-          payload: { token, protocolVersion: "0.10" },
+          payload: { token, protocolVersion: PROTOCOL_VERSION },
         }),
       );
-    ws.onmessage = () => {
-      clearTimeout(timer);
-      ws.close();
-      resolve(true);
+    ws.onmessage = (ev: { data: unknown }) => {
+      const frame = JSON.parse(String(ev.data)) as { type?: string };
+      if (frame.type === "connection.welcome") {
+        clearTimeout(timer);
+        ws.close();
+        resolve(true);
+      }
+      if (frame.type === "connection.error") {
+        clearTimeout(timer);
+        ws.close();
+        resolve(false);
+      }
     };
     ws.onerror = () => {
       clearTimeout(timer);
       resolve(false);
+    };
+  });
+}
+
+/** WS 绑定读面：hello 握手 → workspace.get → 回执 current.root（null = 未绑定）。
+ *（W5 预绑定冒烟：验证 daemon 侧绑定事实，非仅客户端日志。） */
+async function wsWorkspaceBoundRoot(port: number): Promise<string | null> {
+  const res = await rawHttpGet(port, "/helix-dev-token");
+  if (res.status !== 200) throw new Error(`dev-token 端点 HTTP ${res.status}`);
+  const token = res.body.trim();
+  return await new Promise<string | null>((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    const timer = setTimeout(() => {
+      ws.close();
+      reject(new Error("workspace.get.result 超时"));
+    }, 5000);
+    ws.onopen = () =>
+      ws.send(
+        JSON.stringify({
+          v: PROTOCOL_VERSION,
+          type: "hello",
+          payload: { token, protocolVersion: PROTOCOL_VERSION },
+        }),
+      );
+    ws.onmessage = (ev: { data: unknown }) => {
+      const frame = JSON.parse(String(ev.data)) as {
+        type?: string;
+        payload?: { current?: { root?: string } | null; code?: string; message?: string };
+      };
+      // welcome 后才发命令（握手序：hello → welcome → workspace.get）
+      if (frame.type === "connection.welcome") {
+        ws.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "workspace.get", payload: {} }));
+        return;
+      }
+      if (frame.type === "workspace.get.result") {
+        clearTimeout(timer);
+        ws.close();
+        resolve(frame.payload?.current?.root ?? null);
+      }
+      if (frame.type === "connection.error") {
+        clearTimeout(timer);
+        ws.close();
+        reject(
+          new Error(
+            `workspace.get 握手/命令被拒：${frame.payload?.code ?? "unknown"}：${frame.payload?.message ?? ""}`,
+          ),
+        );
+      }
+    };
+    ws.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("WS 连接失败（workspace.get）"));
     };
   });
 }
@@ -327,14 +397,14 @@ describe("ensureRgAvailable（H-1 rg 环境无关：存在性检查 + 缺失自�
   });
 });
 
-// ── dev sidecar wrapper 生成（cwd 止血：exec 前 cd 仓库根）──────────
+// ── dev sidecar wrapper 生成（cwd 止血：exec 前 cd 预绑定根；W5 两形态）──────────
 
-describe("buildWrapperScript（wrapper 内容纯函数：cd 在 exec 前）", () => {
+describe("buildWrapperScript（wrapper 内容纯函数：cd 在 exec 前；W5 两形态）", () => {
   const bunPath = "/usr/local/bin/bun";
   const mainTsPath = "/repo/apps/daemon/src/main.ts";
   const workspaceRoot = "/repo";
 
-  test("无 home：shebang + cd 行 + exec 行含 mainTsPath 与 \"$@\" 尾参，不含 --home", () => {
+  test("有 workspaceRoot（env 已设）：shebang + cd 行 + exec 行含 mainTsPath 与 \"$@\" 尾参，不含 --home", () => {
     const script = buildWrapperScript({ bunPath, mainTsPath, workspaceRoot });
     expect(script.startsWith("#!/bin/sh\n")).toBe(true);
     expect(script).toContain(`cd '${workspaceRoot}'`);
@@ -344,10 +414,14 @@ describe("buildWrapperScript（wrapper 内容纯函数：cd 在 exec 前）", ()
     expect(script).not.toContain("--home");
   });
 
-  test("有 home：exec 行注入 --home（HELIX_DESKTOP_HOME 隔离位语义不变）", () => {
-    const script = buildWrapperScript({ bunPath, mainTsPath, workspaceRoot, home: "/tmp/hx-home" });
-    expect(script).toContain(`exec '${bunPath}' '${mainTsPath}' --home '/tmp/hx-home'`);
-    expect(script).toContain(`"$@"`);
+  test("有 home：exec 行注入 --home（HELIX_DESKTOP_HOME 隔离位语义不变；两形态均适用）", () => {
+    const withRoot = buildWrapperScript({ bunPath, mainTsPath, workspaceRoot, home: "/tmp/hx-home" });
+    expect(withRoot).toContain(`exec '${bunPath}' '${mainTsPath}' --home '/tmp/hx-home'`);
+    expect(withRoot).toContain(`"$@"`);
+    // W5 无根形态 + home：同样注入 --home（隔离位与预绑定根正交）
+    expect(buildWrapperScript({ bunPath, mainTsPath, home: "/tmp/hx-home" })).toBe(
+      `#!/bin/sh\nexec '${bunPath}' '${mainTsPath}' --home '/tmp/hx-home' "$@"\n`,
+    );
   });
 
   test("cd 行在 exec 行之前（daemon cwd 由 wrapper 进程 exec 替换后继承）", () => {
@@ -359,85 +433,105 @@ describe("buildWrapperScript（wrapper 内容纯函数：cd 在 exec 前）", ()
     expect(execIdx).toBeGreaterThan(cdIdx);
   });
 
-  test("引号/换行与模板严格一致（生成物是 shell 脚本，内容即契约）", () => {
+  test("引号/换行与模板严格一致（生成物是 shell 脚本，内容即契约；无根形态另测）", () => {
     expect(buildWrapperScript({ bunPath, mainTsPath, workspaceRoot })).toBe(
       `#!/bin/sh\ncd '${workspaceRoot}'\nexec '${bunPath}' '${mainTsPath}' "$@"\n`,
-    );
-    expect(
-      buildWrapperScript({ bunPath, mainTsPath, workspaceRoot, home: "/tmp/hx-home" }),
-    ).toBe(
-      `#!/bin/sh\ncd '${workspaceRoot}'\nexec '${bunPath}' '${mainTsPath}' --home '/tmp/hx-home' "$@"\n`,
     );
   });
 });
 
-// ── dev workspace 根解析（领域原则：必须显式，零静默缺省）──
+// ── dev workspace 预绑定根解析（W5 旋钮降级：env 校验 + 缺省放行两分支）──
 
-describe("resolveDevWorkspaceRoot（env 指认 / TTY 选择 / fail-fast，全注入面）", () => {
-  const repoRoot = "/ws/helix";
+describe("resolveDevWorkspaceRoot（W5：env 校验 / 缺省放行，全注入面）", () => {
   const exists = new Set(["/ws", "/tmp/picked"]);
   const existsDir = (p: string) => exists.has(p);
 
-  test("env 显式指认且存在 → 直接生效，不走 prompt", async () => {
-    let prompted = 0;
-    const r = await resolveDevWorkspaceRoot({
-      repoRoot,
-      envRoot: "/ws",
-      existsDir,
-      prompt: async () => {
-        prompted += 1;
-        return "/never";
+  test("env 显式指认且存在 → 返回 root（wrapper cd + 预绑定目标）", () => {
+    expect(resolveDevWorkspaceRoot({ envRoot: "/ws", existsDir })).toBe("/ws");
+  });
+
+  test("env 指认不存在 → fail-fast（显式输入错误不回退不猜测，起编排前拦截）", () => {
+    expect(() => resolveDevWorkspaceRoot({ envRoot: "/nope", existsDir })).toThrow("不存在");
+  });
+
+  test("env 未设 → undefined 放行（daemon 未绑定态启动，前端门禁引导）", () => {
+    expect(resolveDevWorkspaceRoot({ existsDir })).toBeUndefined();
+  });
+
+  test("env 空白字符串 → 同未设（放行）", () => {
+    expect(resolveDevWorkspaceRoot({ envRoot: "   ", existsDir })).toBeUndefined();
+  });
+});
+
+// ── W5 WS 预绑定编排（纯注入面：成功/超时/校验错三分支）──────────
+
+describe("prebindWorkspace（W5 预绑定：端口可达→读 token→workspace.open）", () => {
+  test("成功：三步顺序执行（waitPort→readToken→open），open 参数透传 root/token/port", async () => {
+    const order: string[] = [];
+    let openParams: { port: number; token: string; root: string; timeoutMs: number } | undefined;
+    await prebindWorkspace({
+      root: "/ws",
+      port: 7333,
+      waitPortReachable: async () => {
+        order.push("port");
       },
-    });
-    expect(r).toEqual({ root: "/ws", source: "env" });
-    expect(prompted).toBe(0);
-  });
-
-  test("env 指认不存在 → fail-fast（显式输入错误不回退不猜测）", async () => {
-    await expect(
-      resolveDevWorkspaceRoot({ repoRoot, envRoot: "/nope", existsDir }),
-    ).rejects.toThrow("不存在");
-  });
-
-  test("env 空白 + TTY + 输入存在路径 → prompt 来源生效", async () => {
-    const r = await resolveDevWorkspaceRoot({
-      repoRoot,
-      envRoot: "   ",
-      isTTY: true,
-      existsDir,
-      prompt: async (suggestion) => {
-        expect(suggestion).toBe("/ws"); // 建议 = 仓库父目录
-        return "/tmp/picked";
+      readToken: async () => {
+        order.push("token");
+        return "tok";
       },
+      openWorkspace: async (p) => {
+        order.push("open");
+        openParams = p;
+      },
+      timeoutMs: 1000,
     });
-    expect(r).toEqual({ root: "/tmp/picked", source: "prompt" });
+    expect(order).toEqual(["port", "token", "open"]);
+    expect(openParams).toEqual({ port: 7333, token: "tok", root: "/ws", timeoutMs: 1000 });
   });
 
-  test("env 空白 + TTY + 空输入 → 采纳建议（父目录，当场确认非静默缺省）", async () => {
-    const r = await resolveDevWorkspaceRoot({
-      repoRoot,
-      isTTY: true,
-      existsDir,
-      prompt: async () => "",
-    });
-    expect(r).toEqual({ root: "/ws", source: "prompt" });
-  });
-
-  test("env 空白 + TTY + 输入不存在 → 报错指引重跑", async () => {
+  test("超时：端口永不可达 → 整体超时兑底拒绝（注入短超时，不真等 15s）", async () => {
+    const t0 = Date.now();
     await expect(
-      resolveDevWorkspaceRoot({
-        repoRoot,
-        isTTY: true,
-        existsDir,
-        prompt: async () => "/nope",
+      prebindWorkspace({
+        root: "/ws",
+        port: 7333,
+        waitPortReachable: () => new Promise<void>(() => {}), // 永不 resolve
+        readToken: async () => "tok",
+        openWorkspace: async () => {},
+        timeoutMs: 100,
       }),
-    ).rejects.toThrow("不存在");
+    ).rejects.toThrow("预绑定超时");
+    expect(Date.now() - t0).toBeLessThan(2000);
   });
 
-  test("env 空白 + 无 TTY（CI/测试）→ fail-fast 带一行指引", async () => {
+  test("校验错：workspace.open 被 daemon 拒（WORKSPACE_E_INVALID_ROOT）→ 错误透传", async () => {
     await expect(
-      resolveDevWorkspaceRoot({ repoRoot, isTTY: false, existsDir }),
-    ).rejects.toThrow("HELIX_DESKTOP_WORKSPACE_ROOT");
+      prebindWorkspace({
+        root: "/",
+        port: 7333,
+        waitPortReachable: async () => {},
+        readToken: async () => "tok",
+        openWorkspace: async () => {
+          throw new Error("WORKSPACE_E_INVALID_ROOT：文件系统根为危险根");
+        },
+      }),
+    ).rejects.toThrow("WORKSPACE_E_INVALID_ROOT");
+  });
+
+  test("dev-token 空文件 → 抛错且不发起 WS（token 是握手必需凭证）", async () => {
+    let opened = false;
+    await expect(
+      prebindWorkspace({
+        root: "/ws",
+        port: 7333,
+        waitPortReachable: async () => {},
+        readToken: async () => "  ",
+        openWorkspace: async () => {
+          opened = true;
+        },
+      }),
+    ).rejects.toThrow("dev-token");
+    expect(opened).toBe(false);
   });
 });
 
@@ -462,10 +556,11 @@ test(
     const emptyPath = mkdtempSync(join(tmpdir(), "helix-dev-desktop-nopath-"));
     try {
       const before = orchestrationPids();
+      // W5：env 不再必需——PATH 净化路径不带 workspace env 仍应走到自检
       const proc = Bun.spawn({
         cmd: [process.execPath, SCRIPT],
         cwd: root,
-        env: { PATH: emptyPath, HELIX_DESKTOP_WORKSPACE_ROOT: emptyPath },
+        env: { PATH: emptyPath },
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -541,6 +636,16 @@ test(
         expect(viteRes.status).toBe(200);
         expect(await wsHello(daemonPort)).toBe(true);
 
+        // W5 预绑定冒烟（env 已设路径）：成功日志 + daemon 侧绑定事实
+        //（workspace.get 回执 current.root = realpath 规范形——macOS tmpdir
+        // 有 /var → /private/var symlink，须 realpathSync 对齐）
+        await waitFor(
+          () => Promise.resolve(outTail.includes("workspace 预绑定成功")),
+          15_000,
+          `第 ${round} 轮 workspace 预绑定成功日志\n${outTail}`,
+        );
+        expect(await wsWorkspaceBoundRoot(daemonPort)).toBe(realpathSync(workspace));
+
         // 编排进程树快照（SIGINT 前）：脚本 + 全部后代（vite/cargo/壳/daemon）
         const tree = [proc.pid, ...collectDescendantPids(proc.pid, psEdges())];
         expect(tree.length).toBeGreaterThanOrEqual(3); // 至少 vite + cargo 链 + daemon
@@ -577,6 +682,163 @@ test(
     }
   },
   900_000,
+);
+
+// ── W5：env 未设 → 未绑定态正常起编排（提示日志 + UI 门禁引导语义）──
+
+test(
+  "W5 env 未设 → 正常起编排（提示日志）+ SIGINT 优雅 teardown（无预绑定）",
+  async () => {
+    const vitePort = await freePort();
+    const sandbox = mkdtempSync(join(tmpdir(), "helix-dev-desktop-unbound-"));
+    const home = join(sandbox, "home"); // TR-TEST-4：真实 ~/.helix 零触碰
+    mkdirSync(home, { recursive: true });
+    let proc: ReturnType<typeof Bun.spawn> | undefined;
+    try {
+      const env: Record<string, string | undefined> = {
+        ...process.env,
+        HELIX_DESKTOP_HOME: home,
+        // HELIX_DESKTOP_WORKSPACE_ROOT 故意不设——W5 旋钮降级：不再 fail-fast
+        HELIX_DESKTOP_VITE_PORT: String(vitePort),
+        TMPDIR: sandbox,
+      };
+      delete env.HELIX_DESKTOP_WORKSPACE_ROOT;
+      proc = Bun.spawn({
+        cmd: [process.execPath, SCRIPT],
+        cwd: root,
+        env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      let outTail = "";
+      const drain = async (s: ReadableStream<Uint8Array>) => {
+        for await (const chunk of s as unknown as AsyncIterable<Uint8Array>) {
+          outTail = (outTail + Buffer.from(chunk).toString()).slice(-8000);
+        }
+      };
+      void drain(proc.stdout as ReadableStream<Uint8Array>);
+      void drain(proc.stderr as ReadableStream<Uint8Array>);
+
+      // 提示日志（①自检后）：未设 → 未绑定态启动，前端门禁引导
+      await waitFor(
+        () => Promise.resolve(outTail.includes("未设 HELIX_DESKTOP_WORKSPACE_ROOT")),
+        60_000,
+        `未设提示日志\n${outTail}`,
+      );
+      expect(outTail).toContain("daemon 未绑定态启动");
+
+      // 正常起编排：vite 端口监听（直接子进程；不依赖 cargo 编译完成）
+      await waitFor(() => tcpOpen(vitePort), 120_000, "env 未设不阻塞编排（vite dev 监听）");
+
+      // SIGINT → 优雅退出（未绑定态无预绑定动作日志——提示文案本身含“预绑定”字样不算）
+      expect(outTail).not.toContain("workspace 预绑定");
+      proc.kill("SIGINT");
+      expect(await proc.exited).toBe(0);
+      await waitFor(async () => !(await tcpOpen(vitePort)), 15_000, "vite 端口释放");
+    } finally {
+      if (proc !== undefined && alive(proc.pid)) {
+        const tree = [proc.pid, ...collectDescendantPids(proc.pid, psEdges())];
+        for (const pid of tree) {
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {}
+        }
+      }
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  },
+  300_000,
+);
+
+// ── W5：env 已设但目录不存在 → 起编排前 fail-fast（现状保留）─────────
+
+test(
+  "W5 env 已设目录不存在 → 起编排前 fail-fast（非零退出 + 零进程起）",
+  async () => {
+    const emptyPath = mkdtempSync(join(tmpdir(), "helix-dev-desktop-nopath-"));
+    const before = orchestrationPids();
+    try {
+      const proc = Bun.spawn({
+        cmd: [process.execPath, SCRIPT],
+        cwd: root,
+        env: { PATH: emptyPath, HELIX_DESKTOP_WORKSPACE_ROOT: join(emptyPath, "no-such-dir") },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [code, out, err] = await Promise.all([
+        proc.exited,
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+      expect(code).toBe(1); // 非零退出
+      expect(out + err).toContain("HELIX_DESKTOP_WORKSPACE_ROOT");
+      expect(out + err).toContain("不存在");
+      // 零进程起：编排特征进程集合无新增
+      const after = orchestrationPids();
+      expect([...after].filter((pid) => !before.has(pid))).toEqual([]);
+    } finally {
+      rmSync(emptyPath, { recursive: true, force: true });
+    }
+  },
+  30_000,
+);
+
+// ── W5：预绑定失败（daemon 校验拒危险根）→ 非零退出 + 整体 teardown ──
+
+test(
+  "W5 预绑定失败（危险根被 daemon 拒）→ 非零退出 + daemon 端口释放",
+  async () => {
+    // daemon 危险根 = 文件系统根 / 用户主目录（WorkspaceService §3.3）——
+    // 用真实 homedir() 作 env 值：目录存在（过编排侧校验）但 daemon open
+    // 拒绝 → WORKSPACE_E_INVALID_ROOT 回执 → 预绑定失败非零退出
+    const daemonPort = await freePort();
+    const vitePort = await freePort();
+    const sandbox = mkdtempSync(join(tmpdir(), "helix-dev-desktop-prebind-fail-"));
+    const home = join(sandbox, "home");
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, "config.json"), JSON.stringify({ port: daemonPort }));
+    let proc: ReturnType<typeof Bun.spawn> | undefined;
+    try {
+      proc = Bun.spawn({
+        cmd: [process.execPath, SCRIPT],
+        cwd: root,
+        env: {
+          ...process.env,
+          HELIX_DESKTOP_HOME: home,
+          HELIX_DESKTOP_WORKSPACE_ROOT: homedir(),
+          HELIX_DESKTOP_VITE_PORT: String(vitePort),
+          TMPDIR: sandbox,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [code, out, err] = await Promise.all([
+        proc.exited,
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+      const combined = out + err;
+      expect(code).toBe(1); // 预绑定失败 → 非零退出（fail-fast 精神保留）
+      expect(combined).toContain("workspace 预绑定失败");
+      expect(combined).toContain("WORKSPACE_E_INVALID_ROOT");
+      expect(combined).toContain("整体 teardown");
+      // teardown 有效性：daemon 端口随进程树全灭释放
+      await waitFor(async () => !(await tcpOpen(daemonPort)), 30_000, "daemon 端口释放");
+      const leftovers = readdirSync(sandbox).filter((n) => n.startsWith("helix-dev-desktop-"));
+      expect(leftovers).toEqual([]);
+    } finally {
+      if (proc !== undefined && alive(proc.pid)) {
+        const tree = [proc.pid, ...collectDescendantPids(proc.pid, psEdges())];
+        for (const pid of tree) {
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {}
+        }
+      }
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  },
+  600_000,
 );
 
 // ── 边界：`bun run dev` 不受 cargo 自检影响 ─────────────────

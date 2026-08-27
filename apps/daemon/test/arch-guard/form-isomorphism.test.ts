@@ -132,6 +132,13 @@ const RUST_HTTP_RE = /\breqwest::|\bureq::|\bhyper::|\bisahc::|\bsurf::/;
 const TOKEN_FETCH_FILE = path.join("shared", "api", "helix-ws.ts");
 /** rg 下载唯一例外（scripts 面：GitHub releases 拉取，非 daemon 通道）。 */
 const RG_FETCH_FILE = "fetch-rg.ts";
+/**
+ * W5 预绑定通道唯一例外（scripts 面）：dev-desktop 经 daemon 公开 WS 协议
+ *（hello 握手 + workspace.open，与前端同一通道——非绕过 TR-AD-12）做
+ * e2e/无头场景预绑定。约束：目标恒 127.0.0.1 回环（禁外网 ws/wss），
+ * HTTP fetch 面仍禁（token 经文件读取不走 HTTP）。
+ */
+const PREBIND_FILE = "dev-desktop.ts";
 
 describe("AG-17（CL-4/F4.3，TR-AD-12 禁区②③）：壳/脚本层无 HTTP 直连绕过 WS、无形态分支连接", () => {
   test("apps/shell/src：HTTP 调用面唯一落点 = shared/api/helix-ws.ts（token 端点），且其 fetch 全打 /helix-dev-token", () => {
@@ -182,6 +189,20 @@ describe("AG-17（CL-4/F4.3，TR-AD-12 禁区②③）：壳/脚本层无 HTTP �
         // rg 下载唯一对象 = GitHub releases：不得触 daemon 回环/WS
         const daemonHits = findBannedHits(src, /127\.0\.0\.1|localhost|ws:\/\//);
         expect(daemonHits, `${rel} 不得触 daemon 回环地址：${JSON.stringify(daemonHits)}`).toEqual([]);
+        continue;
+      }
+      if (rel === PREBIND_FILE) {
+        // W5 预绑定：WS 面存在且仅限 daemon 回环；HTTP fetch 面仍禁（守护面非空转）
+        expect(wsHits.length, `${rel} 应实际含预绑定 WS（守护面非空转）`).toBeGreaterThan(0);
+        expect(httpHits, `${rel} 预绑定不得开 HTTP 面（token 走文件读）：${JSON.stringify(httpHits)}`).toEqual([]);
+        const extWs = findBannedHits(src, /wss:\/\//);
+        expect(extWs, `${rel} 禁外网 WS：${JSON.stringify(extWs)}`).toEqual([]);
+        // 按原始行判定：每个 new WebSocket( 行必须钉 127.0.0.1 回环
+        for (const line of src.split("\n")) {
+          if (/new\s+WebSocket\s*\(/.test(line)) {
+            expect(line, `${rel} 的 WS 目标必须钉 127.0.0.1：${line.trim()}`).toContain("127.0.0.1");
+          }
+        }
         continue;
       }
       expect(

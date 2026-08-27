@@ -491,17 +491,19 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
           // T5.3（iter-20260825-11fo，§9）：kg 族命令回口 = application service
           //（KgViewerService，architecture.md 明文「driving/kg.ts 调 application
           // service 不触 driven」）——仅限 type-only（依赖面注入经组合根，
-          // ws-server 零运行时耦合），同 domain 口径。
-          const kgServiceTypeOnly = /\/services\/kg\//.test(spec) && typeOnly(spec, src);
-          if (!kgServiceTypeOnly) {
+          // ws-server 零运行时耦合），同 domain 口径。W1 绑定闭环：workspace
+          // 族命令回口同口径（WorkspaceService，仅限 type-only）。
+          const serviceTypeOnly = /\/services\/(kg|workspace)\//.test(spec) && typeOnly(spec, src);
+          if (!serviceTypeOnly) {
             expect(runtimeAllowed(rel, spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
           }
         }
       }
       // 白名单的否定面：禁 services/infrastructure/driven
-      //（T5.3 例外：application/services/kg/ 的 type-only 面见上——§9 明文回口）
+      //（T5.3 例外：application/services/kg/ 的 type-only 面见上；W1：
+      // application/services/workspace/ 同口径——§15.10/§16.10 命令回口）
       for (const spec of importSpecifiers(src)) {
-        if (/\/services\/kg\//.test(spec) && typeOnly(spec, src)) continue;
+        if (/\/services\/(kg|workspace)\//.test(spec) && typeOnly(spec, src)) continue;
         expect(spec, `ws-server/${rel} 不得依赖 service/infra/driven：${spec}`).not.toMatch(/services\/|infrastructure\/|\/driven\//);
       }
     }

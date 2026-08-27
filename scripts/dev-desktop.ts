@@ -28,10 +28,14 @@
  * - HELIX_DESKTOP_HOME：注入 daemon `--home`（dev/测试隔离位；缺省 =
  *   daemon 默认 ~/.helix）。daemon 端口经 `<home>/config.json` 的 port
  *   键注入（既有配置面，非本脚本旋钮）。
- * - HELIX_DESKTOP_WORKSPACE_ROOT：daemon workspace 根指认（wrapper cd
- *   目标）。**必须显式**（领域原则：零静默缺省）：未设 + TTY → 交互
- *   选择（建议 = 仓库父目录，回车采纳）；未设 + 无 TTY → fail-fast。
- *   daemon 侧仍只读 cwd（TR-AD-6 拉起方设 cwd 语义的编排层旋钮）。
+ * - HELIX_DESKTOP_WORKSPACE_ROOT：workspace **可选预绑定**（W5 旋钮降级，
+ *   设计稿 §7 迁移与兼容）：未设 → 正常起编排，daemon 以未绑定态启动，
+ *   前端门禁（W3）引导 UI 选择（旧 TTY prompt 机制已删——UI 门禁取代
+ *   之）；已设（目录须存在，否则起编排前 fail-fast）→ wrapper cd 保留 +
+ *   daemon ready 后经 WS 发 workspace.open {root} 预绑定（token =
+ *   `<home>/dev-token` 文件，端口 = `<home>/config.json` port 键，缺省
+ *   7333），预绑定失败（超时/校验错）非零退出——显式指认错误的
+ *   fail-fast 精神保留。e2e/无头场景设它跳过交互门禁。
  * - HELIX_DESKTOP_VITE_PORT：vite dev 端口覆盖（测试隔离位；缺省 =
  *   vite 默认 5173，与 tauri.conf devUrl 对齐）。覆盖后经 --config 同步
  *   override build.devUrl 随动——tauri dev 启动前等待 devUrl 可达，不随动
@@ -40,10 +44,11 @@
  * 工程层脚本，不被 apps 任何层 import（架构 §5.2）。
  * 用法：bun run dev:desktop
  */
-import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import readline from "node:readline/promises";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { connect } from "node:net";
+import { PROTOCOL_VERSION } from "@helix/protocol";
 import { installFromRelease, isInstalled } from "./fetch-rg";
 
 // ── 前置自检（F4.1，纯函数面）──────────────────────────────
@@ -124,69 +129,57 @@ export interface WrapperScriptOptions {
   readonly bunPath: string;
   /** daemon 源码入口绝对路径（cd 后 exec 目标不受 cwd 影响）。 */
   readonly mainTsPath: string;
-  /** cd 目标（编排处传仓库根）。 */
-  readonly workspaceRoot: string;
+  /** cd 目标（编排处传 workspace 预绑定根；W5 旋钮降级后可选——env
+   * 未设时省略，生成无 cd 行形态，daemon 以未绑定态启动）。 */
+  readonly workspaceRoot?: string;
   /** 可选 --home 注入（HELIX_DESKTOP_HOME dev/测试隔离位）。 */
   readonly home?: string;
 }
 
 /**
- * dev sidecar wrapper 脚本内容生成（纯函数，可单测）。
+ * dev sidecar wrapper 脚本内容生成（纯函数，可单测；两形态）。
  *
  * 关键语义：cd 在 exec 之前——daemon 进程由 wrapper 进程 exec 替换而来，
  * cwd 顺链继承 wrapper，故先 cd '<workspaceRoot>' 再 exec，daemon 的
- * process.cwd() 即仓库根。缺省下 kg workspace 根/工具 cwd 均以
+ * process.cwd() 即预绑定根。缺省下 kg workspace 根/工具 cwd 均以
  * process.cwd() 为准（TR-AD-6：生产恒走启动 cwd，不加 argv/env），故由
  * 拉起方把 cwd 设对——否则 cargo 的 apps/shell/src-tauri 顺链继承，kg
  * 把其一级子目录当项目批量建 .helix-kg 库，落进 tauri dev 文件监视范围
- * 触发“杀壳重建”无限重启（本函数即该循环的止血位）。
+ * 触发“杀壳重建”无限重启（本函数即该循环的止血位）。workspaceRoot
+ * 省略时（W5：env 未设）无 cd 行——daemon 未绑定态，workspace 绑定
+ * 恒经 WS（workspace.open），无 cwd 兼容缺省（W1/TR-AD-6 补款）。
  */
 export function buildWrapperScript(options: WrapperScriptOptions): string {
   const homeArg = options.home ? ` --home '${options.home}'` : "";
+  const cdLine = options.workspaceRoot ? `cd '${options.workspaceRoot}'\n` : "";
   return (
     `#!/bin/sh\n` +
-    `cd '${options.workspaceRoot}'\n` +
+    cdLine +
     `exec '${options.bunPath}' '${options.mainTsPath}'${homeArg} "$@"\n`
   );
 }
 
-// ── dev workspace 根解析（必须显式：env 指认或 TTY 选择，零静默缺省）──
+// ── dev workspace 预绑定根解析（W5 旋钮降级：可选预绑定，UI 门禁取代 TTY prompt）──
 
-/** 决议结果：root + 来源（env=显式指认 / prompt=开发者当场选择）。 */
-export interface WorkspaceRootResolution {
-  readonly root: string;
-  readonly source: "env" | "prompt";
-}
-
-/** resolveDevWorkspaceRoot 注入面（全分支可单测，零真 TTY 依赖）。 */
+/** resolveDevWorkspaceRoot 注入面（全分支可单测）。 */
 export interface WorkspaceRootDeps {
-  /** 仓库根（建议值 = 父目录：多项目工作区内的常态容器）。 */
-  readonly repoRoot: string;
-  /** HELIX_DESKTOP_WORKSPACE_ROOT（显式指认优先）。 */
+  /** HELIX_DESKTOP_WORKSPACE_ROOT（可选预绑定指认）。 */
   readonly envRoot?: string;
-  /** 是否交互终端（缺省 process.stdin.isTTY；TTY 才允许 prompt）。 */
-  readonly isTTY?: boolean;
-  /** prompt 读面（缺省 readline 实现；测试注入）。 */
-  readonly prompt?: (suggestion: string) => Promise<string>;
   /** 目录存在校验读面（缺省 statSync；测试注入）。 */
   readonly existsDir?: (p: string) => boolean;
 }
 
 /**
- * dev 形态 daemon workspace 根解析（领域原则：workspace 必须显式指定）。
+ * dev 形态 workspace 预绑定根解析（W5：可选预绑定，两分支）。
  *
- * §3.5 容器语义下 workspace 是多项目容器（一级目录=项目），是用户的
- * 领域选择而非可推导项——**零静默缺省**（不猜父目录/home/仓库根）：
- * ① HELIX_DESKTOP_WORKSPACE_ROOT 显式指认（目录不存在 → fail-fast，
- *    显式输入错误不回退不猜测）；
- * ② 未设 + TTY → 交互选择（建议值 = 仓库父目录，回车采纳；建议不是
- *    缺省——它出现在问题里，由开发者当场确认/改写）；
- * ③ 未设 + 无 TTY（CI/测试）→ 抛错带一行指引（设 env 后重试）。
- * daemon 侧仍只读 cwd（TR-AD-6：拉起方设 cwd，不加 argv/env）。
+ * - env 已设（非空白）：目录必须存在——不存在 → 抛错（起编排前
+ *   fail-fast，显式指认错误应修正，不回退不猜测）；存在 → 返回 root
+ *   （wrapper cd 目标 + WS workspace.open 预绑定目标）。
+ * - env 未设：返回 undefined——正常起编排，daemon 以未绑定态启动，
+ *   前端门禁（W3）引导开发者 UI 选择（设计稿 §7：交互开发走前端门禁，
+ *   旧 TTY prompt/readline 机制已删；e2e/无头场景设 env 以预绑定）。
  */
-export async function resolveDevWorkspaceRoot(
-  deps: WorkspaceRootDeps,
-): Promise<WorkspaceRootResolution> {
+export function resolveDevWorkspaceRoot(deps: WorkspaceRootDeps): string | undefined {
   const existsDir = deps.existsDir ?? ((p: string) => {
     try {
       return statSync(p).isDirectory();
@@ -195,42 +188,206 @@ export async function resolveDevWorkspaceRoot(
     }
   });
   const envRoot = deps.envRoot?.trim();
-  if (envRoot && envRoot !== "") {
-    if (!existsDir(envRoot)) {
-      throw new Error(
-        `HELIX_DESKTOP_WORKSPACE_ROOT 指向的目录不存在：${envRoot}（显式指认错误应修正，不做缺省回退）`,
-      );
-    }
-    return { root: envRoot, source: "env" };
+  if (envRoot === undefined || envRoot === "") return undefined;
+  if (!existsDir(envRoot)) {
+    throw new Error(
+      `HELIX_DESKTOP_WORKSPACE_ROOT 指向的目录不存在：${envRoot}（显式指认错误应修正，不做缺省回退）`,
+    );
   }
-  const isTTY = deps.isTTY ?? Boolean(process.stdin.isTTY);
-  if (isTTY) {
-    const suggestion = dirname(deps.repoRoot);
-    const prompt = deps.prompt ?? defaultWorkspacePrompt;
-    const answer = (await prompt(suggestion)).trim();
-    const chosen = answer === "" ? suggestion : answer;
-    if (!existsDir(chosen)) {
-      throw new Error(`dev workspace 根不存在：${chosen}（请重跑并输入存在的目录）`);
-    }
-    return { root: chosen, source: "prompt" };
-  }
-  throw new Error(
-    "workspace 未指定（领域原则：必须显式，零静默缺省）——" +
-      "设置 HELIX_DESKTOP_WORKSPACE_ROOT=<多项目工作区根>（容器语义：一级目录=项目）后重试；" +
-      "交互终端（TTY）下会引导选择。",
-  );
+  return envRoot;
 }
 
-/** 生产 prompt 读面（readline；建议值回车采纳）。 */
-async function defaultWorkspacePrompt(suggestion: string): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    return await rl.question(
-      `dev workspace 根（容器语义：一级目录=项目；回车采用建议 ${suggestion}）: `,
+// ── WS 预绑定（W5：env 已设时 daemon ready 后 workspace.open）────────
+
+/** 预绑定总超时（对齐握手超时量级；超时 → 非零退出）。 */
+export const PREBIND_TIMEOUT_MS = 15_000;
+
+/** daemon 默认 WS 端口（同值锚：apps/daemon/src/infrastructure/config.ts DEFAULT_PORT；<home>/config.json port 键缺省值）。 */
+const DEFAULT_WS_PORT = 7333;
+
+/** prebindWorkspace 注入面（成功/超时/校验错三分支可单测，零真网络依赖）。 */
+export interface PrebindDeps {
+  /** 待绑定 workspace 根（workspace.open payload.root）。 */
+  readonly root: string;
+  /** daemon WS 端口（`<home>/config.json` port 键解析值）。 */
+  readonly port: number;
+  /** WS 端口可达探测（daemon ready 信号 = 端口监听；不可达轮询直至超时抛错）。 */
+  readonly waitPortReachable: (port: number, timeoutMs: number) => Promise<void>;
+  /** dev-token 读面（`<home>/dev-token` 文件；daemon 启动时重写——须在端口可达后读，取本次进程新写值）。 */
+  readonly readToken: () => Promise<string>;
+  /** WS 单次命令面：hello 握手 + workspace.open 发送 + 结果帧裁决。 */
+  readonly openWorkspace: (params: {
+    port: number;
+    token: string;
+    root: string;
+    timeoutMs: number;
+  }) => Promise<void>;
+  /** 总超时（缺省 PREBIND_TIMEOUT_MS）。 */
+  readonly timeoutMs?: number;
+}
+
+/**
+ * workspace 预绑定编排（W5）：等 daemon WS 端口可达 → 读 dev-token →
+ * hello 握手 + workspace.open {root} → 等 workspace.open.result。
+ * 任何环节失败（含整体超时兑底）抛错——编排面据此非零退出：env 已设即
+ * 预绑定意图明确，失败不静默放行（显式指认错误的 fail-fast 精神）。
+ */
+export async function prebindWorkspace(deps: PrebindDeps): Promise<void> {
+  const timeoutMs = deps.timeoutMs ?? PREBIND_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const guard = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`预绑定超时（${timeoutMs}ms）——daemon WS 未就绪或无响应`)),
+      timeoutMs,
     );
+  });
+  try {
+    await Promise.race([
+      (async () => {
+        await deps.waitPortReachable(deps.port, timeoutMs);
+        const token = (await deps.readToken()).trim();
+        if (token === "") throw new Error("dev-token 文件为空（<home>/dev-token）");
+        await deps.openWorkspace({ port: deps.port, token, root: deps.root, timeoutMs });
+      })(),
+      guard,
+    ]);
   } finally {
-    rl.close();
+    if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+/** dev home（与 wrapper --home 同源：HELIX_DESKTOP_HOME ?? daemon 默认 ~/.helix）。 */
+function devHome(): string {
+  return process.env.HELIX_DESKTOP_HOME ?? join(homedir(), ".helix");
+}
+
+/** daemon WS 端口读取：`<home>/config.json` port 键（缺省/不可读 → 7333，对齐 daemon 既有配置面）。 */
+function readWsPort(home: string): number {
+  try {
+    const cfg = JSON.parse(readFileSync(join(home, "config.json"), "utf8")) as { port?: unknown };
+    return typeof cfg.port === "number" && cfg.port > 0 ? cfg.port : DEFAULT_WS_PORT;
+  } catch {
+    return DEFAULT_WS_PORT;
+  }
+}
+
+/** 生产面：TCP 可达探测（daemon WS 钉 127.0.0.1，container §driving）。 */
+function tcpConnectable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = connect({ host: "127.0.0.1", port });
+    sock.once("connect", () => {
+      sock.destroy();
+      resolve(true);
+    });
+    sock.once("error", () => {
+      sock.destroy();
+      resolve(false);
+    });
+  });
+}
+
+/** 生产面：WS 端口可达轮询（daemon ready 信号 = 端口监听；500ms 间隔）。 */
+async function waitWsPortReachable(port: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await tcpConnectable(port)) return;
+    if (Date.now() > deadline) {
+      throw new Error(`daemon WS 端口 ${port} 在 ${timeoutMs}ms 内不可达`);
+    }
+    await Bun.sleep(500);
+  }
+}
+
+/**
+ * 生产面 WS 客户端最小实现（按 daemon 现有握手形态：hello → welcome →
+ * workspace.open → workspace.open.result；错误统一 connection.error 帧
+ * 回执——握手拒绝 auth.族/protocol.族与 workspace.open 校验错 WORKSPACE_E.族
+ * 同一裁决面）。
+ */
+async function openWorkspaceOverWs(params: {
+  port: number;
+  token: string;
+  root: string;
+  timeoutMs: number;
+}): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${params.port}`);
+    let settled = false;
+    let openSent = false;
+    const timer = setTimeout(
+      () => settle(new Error(`WS 无结果帧（${params.timeoutMs}ms 超时）`)),
+      params.timeoutMs,
+    );
+    const settle = (err?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        ws.close();
+      } catch {}
+      if (err === undefined) resolve();
+      else reject(err);
+    };
+    ws.onopen = () => {
+      // hello 握手（契约 §2）：token + protocolVersion 严格单值（v0.11）
+      ws.send(
+        JSON.stringify({
+          v: PROTOCOL_VERSION,
+          type: "hello",
+          payload: { token: params.token, protocolVersion: PROTOCOL_VERSION },
+        }),
+      );
+    };
+    ws.onmessage = (ev: { data: unknown }) => {
+      let frame: { type?: unknown; payload?: { code?: unknown; message?: unknown } };
+      try {
+        frame = JSON.parse(String(ev.data)) as typeof frame;
+      } catch {
+        return; // 非 JSON 帧忽略（连接层垃圾数据由 close 收口）
+      }
+      if (frame.type === "connection.welcome" && !openSent) {
+        openSent = true;
+        ws.send(
+          JSON.stringify({
+            v: PROTOCOL_VERSION,
+            type: "workspace.open",
+            payload: { root: params.root },
+          }),
+        );
+        return;
+      }
+      if (frame.type === "workspace.open.result") {
+        settle(); // 绑定回执（root + projects）——预绑定成功
+        return;
+      }
+      if (frame.type === "connection.error") {
+        const code = typeof frame.payload?.code === "string" ? frame.payload.code : "unknown";
+        const message =
+          typeof frame.payload?.message === "string" ? frame.payload.message : "";
+        settle(new Error(`${code}：${message}`));
+        return;
+      }
+      // 其余帧（session.snapshot / workspace_changed 广播等）与预绑定裁决无关
+    };
+    ws.onerror = () => {
+      /* close 事件紧随其后，作为失败收口的唯一依据 */
+    };
+    ws.onclose = () => {
+      settle(new Error("WS 连接关闭（未收到 workspace.open.result）"));
+    };
+  });
+}
+
+/** 生产面 prebind 装配（home 解析单点：HELIX_DESKTOP_HOME ?? ~/.helix）。 */
+function prebindProductionDeps(root: string): PrebindDeps {
+  const home = devHome();
+  return {
+    root,
+    port: readWsPort(home),
+    waitPortReachable: waitWsPortReachable,
+    readToken: () => Promise.resolve(readFileSync(join(home, "dev-token"), "utf8")),
+    openWorkspace: openWorkspaceOverWs,
+  };
 }
 
 // ── H-1 动作③：rg 环境无关自动补（幂等，失败不阻塞 dev）─────────
@@ -367,12 +524,11 @@ async function killTree(rootPids: readonly number[]): Promise<void> {
 // ── 编排主流程 ──────────────────────────────────────────────
 
 async function main(): Promise<number> {
-  // ⓪ workspace 根决议（领域原则：必须显式，零静默缺省）——未指定且
-  // 无法交互时在任何前置工作（自检/rg fetch/进程编排）之前 fail-fast；
-  // 成功时静默（回显在①自检后，不污染 F4.1 一行提示契约）。
-  const root0 = join(import.meta.dir, "..");
-  const workspace = await resolveDevWorkspaceRoot({
-    repoRoot: root0,
+  // ⓪ workspace 预绑定根决议（W5 旋钮降级：可选预绑定）——env 已设但
+  // 目录不存在时在任何前置工作（自检/rg fetch/进程编排）之前 fail-fast；
+  // 未设 → undefined（正常起编排，daemon 未绑定态启动）。回显在①自检后
+  //（不污染 F4.1 一行提示契约）。
+  const workspaceRoot = resolveDevWorkspaceRoot({
     envRoot: process.env.HELIX_DESKTOP_WORKSPACE_ROOT,
   });
 
@@ -382,7 +538,11 @@ async function main(): Promise<number> {
     console.error(precheck.hint);
     return 1;
   }
-  console.error(`[dev-desktop] workspace 根（${workspace.source}）：${workspace.root}`);
+  console.error(
+    workspaceRoot === undefined
+      ? "[dev-desktop] 未设 HELIX_DESKTOP_WORKSPACE_ROOT——daemon 未绑定态启动，前端将引导选择（e2e/无头场景请设置以预绑定）"
+      : `[dev-desktop] workspace 根（env 预绑定）：${workspaceRoot}`,
+  );
 
   // H-1 动作③：rg 存在性检查 + 缺失自动 fetch（幂等）；失败一行警告不阻塞
   const rg = await ensureRgAvailable(rgProbe, rgInstall);
@@ -392,16 +552,16 @@ async function main(): Promise<number> {
   const shellDir = join(root, "apps/shell");
   const workDir = mkdtempSync(join(tmpdir(), "helix-dev-desktop-"));
   // dev sidecar wrapper（AF-3 注入位）：壳恒 spawn sidecar（双形态同构），
-  // wrapper 先 cd workspace 根再 exec bun 直跑 daemon 源码（禁 compile 产物，
-  // TR-AD-35；daemon cwd 继承 wrapper——TR-AD-6 拉起方设 cwd 的止血位）。
-  // workspace 根已在 main() 开头决议（必须显式：env 指认或 TTY 选择）。
+  // wrapper 先 cd workspace 预绑定根再 exec bun 直跑 daemon 源码（禁
+  // compile 产物，TR-AD-35；daemon cwd 继承 wrapper——TR-AD-6 拉起方设
+  // cwd 的止血位）；env 未设时无 cd 行（daemon 未绑定态，绑定恒经 WS）。
   const wrapper = join(workDir, "helix-daemon-dev.sh");
   writeFileSync(
     wrapper,
     buildWrapperScript({
       bunPath: process.execPath,
       mainTsPath: join(root, "apps/daemon/src/main.ts"),
-      workspaceRoot: workspace.root,
+      workspaceRoot, // undefined → 无 cd 行
       home: process.env.HELIX_DESKTOP_HOME,
     }),
   );
@@ -439,7 +599,21 @@ async function main(): Promise<number> {
     },
   ];
 
-  // ③ 任一子进程退出 / SIGINT / SIGTERM → 整体 teardown + tmp 清理
+  // ②‘ WS 预绑定任务（W5）：env 已设时等 daemon ready（WS 端口可达）后读
+  //    dev-token + 发 workspace.open；成功一行日志，失败（超时/校验错）→
+  //    非零退出（预绑定意图明确，不静默放行）。
+  const prebindTask: Promise<string | null> =
+    workspaceRoot === undefined
+      ? Promise.resolve(null)
+      : prebindWorkspace(prebindProductionDeps(workspaceRoot)).then(
+          () => {
+            console.error(`[dev-desktop] workspace 预绑定成功：${workspaceRoot}`);
+            return null;
+          },
+          (err: unknown) => (err instanceof Error ? err.message : String(err)),
+        );
+
+  // ③ 任一子进程退出 / SIGINT / SIGTERM / 预绑定失败 → 整体 teardown + tmp 清理
   return await new Promise<number>((resolve) => {
     let settled = false;
     const finish = (code: number, reason: string): void => {
@@ -454,6 +628,9 @@ async function main(): Promise<number> {
     for (const c of children) {
       void c.proc.exited.then((code) => finish(code, `${c.name} 已退出（exit ${code}）`));
     }
+    void prebindTask.then((err) => {
+      if (err !== null) finish(1, `workspace 预绑定失败（${err}）`);
+    });
     process.on("SIGINT", () => finish(0, "收到 SIGINT"));
     process.on("SIGTERM", () => finish(0, "收到 SIGTERM"));
   });

@@ -110,6 +110,32 @@ const TRACE_MOCK_LATENCY_MS = 120;
 /** 场景时间零点（确定性：同剧本同帧序列，重放可比）。 */
 const TRACE_MOCK_BASE_MS = Date.parse("2026-08-19T13:47:57.802+08:00");
 
+// ── workspace 门禁 mock（W3；mock daemon 对齐新命令——否则 mock 模式下
+//    workspace.get 无回执会卡 connecting，dev/e2e 全量不可用）──────
+
+/** mock 预绑定根（get 恒回 bound——e2e/CI 无头场景跳过交互门禁语义，
+ *  设计稿 §7 dev-desktop 旋钮降级同源；真实绑定路径 = e2e 预绑定通道 W5）。 */
+export const WORKSPACE_MOCK_ROOT = "/workspace";
+/** workspace 族自动应答延迟（kg 族同构）。 */
+const WORKSPACE_MOCK_LATENCY_MS = 60;
+
+/** workspace 命令自动应答（点对点回执；mock 无校验，open 回显 root）。 */
+function workspaceMockReply(type: string, payload: unknown): EventEnvelope {
+  if (type === "workspace.get") {
+    return {
+      v: PROTOCOL_VERSION, type: "workspace.get.result", sessionId: SYSTEM_SESSION_ID, channel: "workspace",
+      payload: { current: { root: WORKSPACE_MOCK_ROOT }, recents: [] },
+    } as EventEnvelope;
+  }
+  const root = typeof (payload as { root?: unknown } | undefined)?.root === "string"
+    ? (payload as { root: string }).root
+    : WORKSPACE_MOCK_ROOT;
+  return {
+    v: PROTOCOL_VERSION, type: "workspace.open.result", sessionId: SYSTEM_SESSION_ID, channel: "workspace",
+    payload: { root, projects: [] },
+  } as EventEnvelope;
+}
+
 const TRACE_MAIN_ID = "main";
 const TRACE_SUB_A = "agt_F1X2E88DQ9LM"; // phase-coder · failed（engine.error 行）
 const TRACE_SUB_B = "agt_K65K629RNMQG"; // phase-explorer · completed · 快照缺失降级面
@@ -366,6 +392,13 @@ class FakeSocket {
       setTimeout(() => {
         if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
       }, KG_MOCK_LATENCY_MS);
+    }
+    // workspace 族自动应答（W3 门禁；mock daemon 镜像，get 恒回预绑定）
+    if (frame?.type === "workspace.get" || frame?.type === "workspace.open") {
+      const reply = workspaceMockReply(frame.type, frame.payload);
+      setTimeout(() => {
+        if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
+      }, WORKSPACE_MOCK_LATENCY_MS);
     }
   }
 

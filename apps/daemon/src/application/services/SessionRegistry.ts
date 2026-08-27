@@ -449,6 +449,28 @@ export class SessionRegistry implements SessionDirectoryPort {
     }
   }
 
+  /**
+   * 重绑卸载全部现有会话（W4 债清偿：workspace 换绑时旧会话 executor 闭包
+   * 持已 dispose 的旧栈——回旧会话用 kg/edit 族工具会打到死栈；卸载后回访
+   * 经懒加载按新栈重建，快照已 write-through 落盘零丢失）。卸载语义同空闲
+   * 卸载（G-5：record 整体销毁；零条目热草稿随销毁自然消亡不污染清单），
+   * 但由重绑方调用（F2 门禁保证重绑时刻恒 idle——执行中/删除中记录防御性
+   * 跳过而非强卸）。current 置空：下一次 currentSessionId() 懒建新草稿
+   * （按新栈构建）。
+   */
+  unloadAll(): void {
+    for (const [sessionId, record] of this.sessions) {
+      if (record.deleting) continue; // 删除链进行中不卸载（含冷删除占位，防删除竞态）
+      const runtime = record.runtime;
+      if (runtime === undefined) continue; // 占位防御（deleting 已判，类型收窄双保险）
+      if (runtime.chatService.agentState !== "idle") continue; // 执行中防御（F2 门禁前提破坏容错）
+      if (this.deps.scheduler.hasActiveInstances(sessionId)) continue; // SubAgent 活跃防御
+      this.sessions.delete(sessionId);
+    }
+    this.current = undefined;
+    this.deps.logger?.info("workspace 重绑：现有会话已全部卸载（回访懒加载按新栈重建）");
+  }
+
   // ── 内部 ─────────────────────────────────────────────────
 
   /** 热判定（原 runtimes.has 口径；冷删除占位不算热——record 在册但 runtime 缺位）。 */

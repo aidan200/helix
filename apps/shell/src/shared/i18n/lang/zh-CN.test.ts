@@ -278,6 +278,25 @@ const REQUIRED_KEYS = [
   "agents.notConnected",
   "agents.switchOn",
   "agents.switchOff",
+  // W3 workspace 门禁（选择页 + connecting 占位；设计稿 §2.2）
+  "workspace.gate.title",
+  "workspace.gate.subtitle",
+  "workspace.gate.recentsTitle",
+  "workspace.gate.recentsAriaLabel",
+  "workspace.gate.invalid",
+  "workspace.gate.lastUsedAt",
+  "workspace.gate.inputTitle",
+  "workspace.gate.pathPlaceholder",
+  "workspace.gate.open",
+  "workspace.gate.opening",
+  "workspace.gate.error.invalidRoot",
+  "workspace.gate.error.activeAgent",
+  "workspace.gate.error.sendFailed",
+  "workspace.gate.error.generic",
+  "workspace.boot.connecting",
+  "workspace.boot.errorTitle",
+  "workspace.boot.errorSub",
+  "workspace.boot.retry",
 ] as const;
 
 function flatten(obj: unknown, prefix = ""): Map<string, string> {
@@ -307,11 +326,12 @@ describe("AG-16-② zh-CN 词条完备性", () => {
     expect(empty).toEqual([]);
   });
 
-  it("zh-CN 词条只含 chat + trace + agents + pj 四族（裁剪版，不搬 desk 全量）", () => {
+  it("zh-CN 顶层只含本仓五族（裁剪版，不搬 desk 全量）", () => {
     // P-1 工作台一族（chat.*）+ CL-5 TracePage 一族（trace.*，T2.2）+ M6 T4
-    // 智能体页一族（agents.*）+ T5.4 项目域/图谱页一族（pj.*，单页 master-detail）；
+    // 智能体页一族（agents.*）+ T5.4 项目域/图谱页一族（pj.*，单页
+    // master-detail）+ W3 workspace 门禁一族（workspace.*，选择页/boot 占位）；
     // 顶层不应出现 desk 的 sidebar/settings/kg 等非本仓命名空间。
-    expect(Object.keys(zhCN)).toEqual(["chat", "trace", "agents", "pj"]);
+    expect(Object.keys(zhCN)).toEqual(["chat", "trace", "agents", "pj", "workspace"]);
   });
 });
 

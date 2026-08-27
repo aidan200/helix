@@ -461,7 +461,28 @@ export interface KgProjectsCommand extends CommandFrame<EmptyPayload> {
   type: "kg.projects";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34） */
+// ── workspace 批新增（W1 workspace 绑定闭环；契约 = 设计稿 workspace-feature-design-candidate.md §3.1）──
+
+/**
+ * workspace.get 载荷：绑定门禁读面（全局命令，无参）。结果帧 =
+ * workspace.get.result 点对点回执（TR-AD-21 模式）——前端启动门禁分流
+ * 依据（bound → 主壳 / null → 选择页）。无 close/unbind 命令（v1 裁决：
+ * 切换 = open 另一 root）。
+ */
+export interface WorkspaceGetCommand extends CommandFrame<EmptyPayload> {
+  type: "workspace.get";
+}
+
+/** workspace.open 载荷：显式绑定写面（全局命令）。 */
+export interface WorkspaceOpenPayload {
+  /** 待绑定的工作空间根（daemon 单点校验：realpath 规范化 + 危险根拒绝）。 */
+  root: string;
+}
+export interface WorkspaceOpenCommand extends CommandFrame<WorkspaceOpenPayload> {
+  type: "workspace.open";
+}
+
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -496,7 +517,9 @@ export type CommandEnvelope =
   | KgChangeReportCommand
   | KgNodeConfirmCommand
   | KgIndexStatusCommand
-  | KgProjectsCommand;
+  | KgProjectsCommand
+  | WorkspaceGetCommand
+  | WorkspaceOpenCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
@@ -534,6 +557,8 @@ export const COMMAND_TYPES = [
   "kg.node.confirm",
   "kg.index.status",
   "kg.projects",
+  "workspace.get",
+  "workspace.open",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];

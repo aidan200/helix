@@ -5,7 +5,7 @@
  * draft:true 建会话链消费；缺省 = 全局默认（payload 不携带 model 键）。
  */
 import { describe, expect, it } from "vitest";
-import { chatSendCommand, chatSendDraftCommand, thinkingSetCommand } from "./commands";
+import { chatSendCommand, chatSendDraftCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand } from "./commands";
 
 describe("chatSendDraftCommand（T3：草稿所选模型随首条 chat.send 上送）", () => {
   it("model 缺省 → payload 仅 text + draft:true（不携带 model 键；回归）", () => {
@@ -70,6 +70,24 @@ describe("chatSendDraftCommand mode 载荷（P1 T4：非 default 才带，defaul
 });
 
 // ── thinking 批（契约 v0.11 §17.11；T2.1 P-1 滑块选档命令）──
+
+// ── workspace 族命令（W3 门禁；契约 §15.10）──
+
+describe("workspaceGet/Open 构造器（W3 门禁读/写面；全局命令）", () => {
+  it("workspaceGet：无参全局命令（信封 sessionId 省略 + payload {}）", () => {
+    const cmd = workspaceGetCommand();
+    expect(cmd.type).toBe("workspace.get");
+    expect(cmd.sessionId).toBeUndefined();
+    expect(cmd.payload).toEqual({});
+  });
+
+  it("workspaceOpen：payload { root } 透传（daemon 单点校验，前端零重复实现）", () => {
+    const cmd = workspaceOpenCommand("/ws/helix");
+    expect(cmd.type).toBe("workspace.open");
+    expect(cmd.sessionId).toBeUndefined();
+    expect(cmd.payload).toEqual({ root: "/ws/helix" });
+  });
+});
 
 describe("thinkingSetCommand（thinking 批①；仿 modelSetCommand 形态）", () => {
   it("信封 sessionId 必填 + payload { level }（字符串透传，无关闭态）", () => {

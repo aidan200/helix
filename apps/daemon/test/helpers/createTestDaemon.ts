@@ -68,8 +68,13 @@ export interface TestDaemonOptions {
   readonly sessionIdlePollMs?: number;
   /** kg sync 启动触发+fs-watch 挂接 opt-in（缺省 false=跳过：真 codegraph 构建不进测试进程，T2.2）。 */
   readonly kgSyncStartup?: boolean;
-  /** kg workspace 根覆盖（T5.3：kg.projects 扫描/project 解析作用域指向 tmp；缺省 = daemon 启动 cwd）。 */
-  readonly kgWorkspaceRoot?: string;
+  /**
+   * kg workspace 根初始绑定值（W1 语义演进：等价 restore 预置）。缺省 =
+   * process.cwd()——保既有测试形态（绑定态照常：会话创建门禁放行/kg
+   * 读面可用）；显式 null = 强制 unbound boot 形态（集成测试面：门禁/
+   * 防御契约断言用）。
+   */
+  readonly kgWorkspaceRoot?: string | null;
 }
 
 /**
@@ -122,6 +127,8 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     sessionIdleUnloadMs: options.sessionIdleUnloadMs,
     sessionIdlePollMs: options.sessionIdlePollMs,
     skipKgSyncStartup: options.kgSyncStartup !== true,
-    kgWorkspaceRoot: options.kgWorkspaceRoot,
+    // W1 语义演进：缺省初始绑定 process.cwd()（等价 restore 预置——保既有
+    // 测试形态）；显式 null = 强制 unbound boot（门禁/防御契约集成测试面）。
+    kgWorkspaceRoot: options.kgWorkspaceRoot === undefined ? process.cwd() : options.kgWorkspaceRoot,
   });
 }

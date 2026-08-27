@@ -24,6 +24,16 @@ const newDraft = vi.fn();
 const deleteSession = vi.fn();
 const requestSessionList = vi.fn();
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
+// W4：top-bar workspace 指示器消费面（App 层恒有 Provider——此处 stub
+// main-bound 形态，指示器仅显示不交互）
+vi.mock("@/entities/workspace/WorkspaceContext", () => ({
+  useWorkspace: () => ({
+    state: { phase: "main", current: { root: "/ws/helix" }, switching: false },
+    openWorkspace: () => true,
+    startSwitch: () => {},
+    cancelSwitch: () => {},
+  }),
+}));
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
   return {
@@ -42,6 +52,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       newDraft,
       deleteSession,
       requestSessionList,
+      subscribeWorkspaceFrames: () => () => {}, // W4 刷新链订阅面（无操作 stub）
       requestModelConfig: () => {},
       killInstance,
       subscribeInstance,

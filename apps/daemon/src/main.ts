@@ -51,7 +51,8 @@ async function main(): Promise<void> {
   if (sidecar) {
     // sidecar 形态（headless）：组合根返回即 WS 已监听（Bun.serve 同步绑定），
     // 上报 ready 行后常驻——事件循环由 WS 服务保持，关停走 SIGTERM 信号
-    // （壳侧 SIGTERM→5s→SIGKILL，与 CLI 形态同一优雅退出路径）。
+    // （壳侧 SIGTERM→5s→SIGKILL，与 CLI 形态同一优雅退出路径）。W1 绑定
+    // 闭环：sidecar/desktop 形态不绑定，等 workspace.open RPC（门禁选择）。
     process.stdout.write(
       JSON.stringify({ type: "ready", port: daemon!.ws.port, token: daemon!.devToken }) + "\n",
     );
@@ -63,6 +64,11 @@ async function main(): Promise<void> {
     startParentWatchdog({ onOrphan: gracefulExit });
     return;
   }
+
+  // CLI 例外条款（W1 绑定闭环）：终端站位 = 显式选择——runCli 前绑定 cwd
+  //（不校验不持久化不广播；桌面 current/recents 只由桌面 open 写——防 CLI
+  // 会话污染桌面 recents）。rebind 效应照常（CLI 形态 kg 栈可用）。
+  await daemon.workspace.bindCwd();
 
   try {
     await daemon.runCli();

@@ -68,8 +68,13 @@ export interface SubagentLauncherDeps {
    * ——接受 getter（每次 launch 读现值快照）或静态表。
    */
   readonly apiKeys: Record<string, string> | (() => Record<string, string>);
-  /** 工具沙箱 cwd（子进程 CoreToolExecutor 用）。 */
-  readonly toolCwd: string;
+  /**
+   * 工具沙箱 cwd（子进程 CoreToolExecutor 用）。接受 getter（spawn 时刻读
+   * 现值——W1F-F2：经持有者读绑定 root，重绑后新 spawn 跟随新根；已
+   * spawn 实例 env 已定格，代际生效）或静态字符串（既有测试形态）。
+   * HELIX_TOOL_CWD 键不变（值修正，非新增 env 键——AG-08）。
+   */
+  readonly toolCwd: string | (() => string);
   /**
    * 任务报告目录（F3.0，T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH
    * = <dir>/<instanceId>.md，SubAgent 提示词引导读 env 写报告）——与
@@ -182,6 +187,9 @@ export class SubagentLauncher implements InstanceRunner {
     // spawn 快照：launch 时刻读一次（toggle 后新 spawn 跟随新值，已
     // spawn 实例 env 已定格不受影响——代际生效）
     const snapshot = this.deps.spawnSnapshot?.();
+    // W1F-F2：toolCwd spawn 时刻读现值（getter 形态 = 经持有者读绑定 root；
+    // 静态字符串 = 既有测试形态）——与 apiKeys 同款 getter 注入源模式
+    const toolCwd = typeof this.deps.toolCwd === "function" ? this.deps.toolCwd() : this.deps.toolCwd;
     // F3.0（T4.1）：报告落点 env 传参（未注入 reportDirFor 不传键——既有测试形态不变）
     const reportDir = this.deps.reportDirFor?.(instance.sessionId);
     const proc = Bun.spawn({
@@ -192,7 +200,7 @@ export class SubagentLauncher implements InstanceRunner {
         HELIX_MODEL_JSON: JSON.stringify(model), // 完整对象透传
         HELIX_THINKING_LEVEL: thinkingLevel, // thinking 定格值（字符串透传，无 registry 防重建红线）
         HELIX_API_KEYS_JSON: JSON.stringify(apiKeys),
-        HELIX_TOOL_CWD: this.deps.toolCwd,
+        HELIX_TOOL_CWD: toolCwd,
         ...(reportDir !== undefined ? { HELIX_REPORT_PATH: join(reportDir, `${id}.md`) } : {}),
         ...(snapshot !== undefined
           ? {

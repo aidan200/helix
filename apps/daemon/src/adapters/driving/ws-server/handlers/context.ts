@@ -37,6 +37,7 @@ import type { BrowserPort } from "../../../../application/ports/outbound/Browser
 import type { EventStream, FrameSender } from "../EventStream";
 import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
 import type { KgViewerService } from "../../../../application/services/kg/KgViewerService";
+import type { WorkspaceService } from "../../../../application/services/workspace/WorkspaceService";
 
 /** 每连接状态（Bun.serve 泛型，经 server.upgrade 的 data 携带；handlers/ 共用型）。 */
 export interface ConnState {
@@ -137,6 +138,12 @@ export interface ChatCommandContext {
   readonly sessionStamp: SessionStamp;
   /** session.snapshot 组帧回调（语义 = WsServerAdapter.snapshotFrame）。 */
   readonly snapshotFrame: SnapshotFrame;
+  /**
+   * workspace 绑定态判别面（W1 会话创建门禁：未绑定 → 拒绝并指引
+   * 「请先选择工作空间」）；缺省 = 未装配 workspace 面（stub 测试形态）
+   * 视为已绑定。
+   */
+  workspaceBound?: () => boolean;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
@@ -238,6 +245,8 @@ export interface WebCommandContext {
  * service」；project 参数在 service 内单点解析，handlers 禁自带 join）
  * + 共享辅助。全局命令（信封 sessionId 不消费）；kg 栈未装配 →
  * undefined，handler 回 command.unimplemented（trace.ts 先例）。
+ * W1 绑定闭环：workspaceUnbound = 装配了 workspace 面但未绑定——
+ * kg 读面防御契约（空集结果，非报错；门禁前端本不发这些请求）。
  */
 export interface KgCommandContext {
   /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
@@ -246,8 +255,33 @@ export interface KgCommandContext {
   readonly type: string;
   /** 命令 payload（routeCommand 已解构为 Record）。 */
   readonly payload: Record<string, unknown>;
-  /** P-1 六命令应用编排面（deps.kg 可选装配面直传；未装配 → undefined）。 */
+  /** P-1 六命令应用编排面（deps.kg/workspace 持有者读面；未装配 → undefined）。 */
   readonly kg: KgViewerService | undefined;
+  /** workspace 面已装配且未绑定（unbound 防御契约判别；未装配面 = false）。 */
+  readonly workspaceUnbound: boolean;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/**
+ * workspace 族命令处理上下文（W1 绑定闭环）：WorkspaceService（application
+ * service 面——绑定状态机唯一事实源，handlers 只转发不决策）+ 共享辅助。
+ * 全局命令（信封 sessionId 不消费）；workspace 面未装配（stub 测试形态）
+ * → routeCommand 不分发本族（command.unknown）。
+ */
+export interface WorkspaceCommandContext {
+  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record）。 */
+  readonly payload: Record<string, unknown>;
+  /** 绑定状态机（get 快照/open 写面；service 内单点校验与持久化）。 */
+  readonly workspace: WorkspaceService;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */

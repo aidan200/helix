@@ -34,9 +34,16 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     const modelConfigTypes = new Set<string>(MODEL_CONFIG_EVENT_TYPES);
     const agentConfigTypes = new Set<string>(AGENT_CONFIG_EVENT_TYPES);
     const webTypes = new Set<string>(WEB_EVENT_TYPES);
+    // workspace 族（W3+W4）：两结果帧 + changed 广播经注册表 no-op 正式登记
+    //（连接私有回执/广播——真消费归 entities/workspace 门禁状态机与 W4 各域
+    // 刷新链，SessionContext 转发层先例；PENDING_W34 豁免已全清）。
     for (const type of EVENT_TYPES) {
       expect(
-        route(type) !== undefined || directoryTypes.has(type) || modelConfigTypes.has(type) || agentConfigTypes.has(type) || webTypes.has(type),
+        route(type) !== undefined ||
+          directoryTypes.has(type) ||
+          modelConfigTypes.has(type) ||
+          agentConfigTypes.has(type) ||
+          webTypes.has(type),
         `未消费事件 type：${type}`,
       ).toBe(true);
     }
@@ -101,5 +108,11 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     for (const type of WEB_EVENT_TYPES) {
       expect(route(type), `web 族不应注册会话 store 面：${type}`).toBeUndefined();
     }
+    // workspace 族（W3 门禁 + W4 刷新链）：三 type 经注册表 no-op 正式登记
+    //（连接私有读/写面 + changed 广播，真消费归 entities/workspace 门禁状态
+    // 机与各域刷新链——SessionContext 转发层先例）
+    expect(route("workspace.get.result")).toBeDefined();
+    expect(route("workspace.open.result")).toBeDefined();
+    expect(route("workspace_changed")).toBeDefined();
   });
 });

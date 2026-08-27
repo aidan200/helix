@@ -57,6 +57,7 @@ import type {
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { TraceQueryPort } from "../../../domain/trace/TraceQueryPort";
 import type { KgViewerService } from "../../../application/services/kg/KgViewerService";
+import type { WorkspaceService } from "../../../application/services/workspace/WorkspaceService";
 // AG-12：ws-server 对 domain 仅 type-only——normalize 校验收口在 driven
 // adapter 入口（architecture.md §3.5b「调仓储前」）
 import type { ServerWebSocket } from "bun";
@@ -72,6 +73,7 @@ import type {
   SessionCommandContext,
   TraceCommandContext,
   WebCommandContext,
+  WorkspaceCommandContext,
   WsCommandContext,
 } from "./handlers/context";
 import {
@@ -107,6 +109,7 @@ import {
   handleModelSetDefault,
 } from "./handlers/model";
 import { handleThinkingSet } from "./handlers/thinking";
+import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
 import {
   handleAuthDeleteKey,
   handleAuthList,
@@ -169,8 +172,17 @@ export interface WsServerAdapterDeps {
    * kg 数据面（契约 kg-viewer-api 六命令族，§9）：P-1 图谱查看页命令回口
    * （KgViewerService 应用编排，project 参数 service 内单点解析）；
    * 未装配 → command.unimplemented 回执（trace.ts 同模式）。
+   * W1 重绑接缝：生产面经 workspace 持有者读现值（重绑后自动跟随）；
+   * 直接注入形态保留（stub 测试 rig）。
    */
   readonly kg?: KgViewerService;
+  /**
+   * workspace 绑定面（W1 绑定闭环）：WorkspaceService（绑定状态机唯一
+   * 事实源）——kg 栈持有者读面 + unbound 防御判别 + workspace 族命令回口
+   * + 会话创建门禁。缺省未装配（stub 测试形态：kg 直接注入 + 门禁缺省
+   * 视为已绑定 + workspace 族不分发）。
+   */
+  readonly workspace?: WorkspaceService;
 }
 
 export class WsServerAdapter {
@@ -435,6 +447,15 @@ export class WsServerAdapter {
         return handleKgNodeConfirm(this.kgContext(ws, type, payload));
       case "kg.index.status":
         return handleKgIndexStatus(this.kgContext(ws, type, payload));
+      // ── workspace 族（W1 绑定闭环；handlers/workspace.ts）──
+      case "workspace.get":
+        return this.deps.workspace === undefined
+          ? this.commandError(ws, type, "command.unknown", `未知命令：${type}`)
+          : handleWorkspaceGet(this.workspaceContext(ws, type));
+      case "workspace.open":
+        return this.deps.workspace === undefined
+          ? this.commandError(ws, type, "command.unknown", `未知命令：${type}`)
+          : handleWorkspaceOpen(this.workspaceContext(ws, type, payload));
       // ── v0.6 agent.config 族（智能体配置页；全局命令先例 = model.catalog）──
       case "agent.config.list":
         return handleAgentConfigList(this.resourceContext(ws, type, payload));
@@ -526,6 +547,8 @@ export class WsServerAdapter {
       events: this.deps.events,
       sessionStamp: (view) => this.sessionStamp(view),
       snapshotFrame: (view, model, agentState) => this.snapshotFrame(view, model, agentState),
+      // W1 绑定闭环：草稿建会话门禁判别面（未装配 workspace 面时缺省视为已绑定）
+      ...(this.deps.workspace !== undefined ? { workspaceBound: () => this.deps.workspace!.isBound() } : {}),
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       sendNow: (sender, frame) => this.sendNow(sender, frame),
     };
@@ -593,6 +616,8 @@ export class WsServerAdapter {
    * kg 族命令处理上下文（§9 六命令族）：KgViewerService 应用编排面
    * （未装配 → undefined，handler 回 command.unimplemented——trace.ts 先例）
    * + 共享辅助（本连接绑定，语义 = 本类同名私有方法，机械转发零行为差）。
+   * W1 重绑接缝：生产面 kg 经 workspace 持有者读现值（重绑后自动跟随）；
+   * workspaceUnbound = 防御契约判别（空集结果非报错）。
    */
   private kgContext(
     ws: ServerWebSocket<ConnState>,
@@ -603,7 +628,31 @@ export class WsServerAdapter {
       ws,
       type,
       payload,
-      kg: this.deps.kg,
+      kg: this.deps.kg ?? this.deps.workspace?.stack()?.viewerService,
+      workspaceUnbound: this.deps.workspace !== undefined && !this.deps.workspace.isBound(),
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+      rawSender: () => this.rawSender(ws),
+      sendNow: (sender, frame) => this.sendNow(sender, frame),
+    };
+  }
+
+  /**
+   * workspace 族命令处理上下文（W1 绑定闭环）：WorkspaceService 绑定
+   * 状态机（get 快照/open 写面）+ 共享辅助（本连接绑定，语义 = 本类同名
+   * 私有方法，机械转发零行为差）。无 payload 形状消费在 get；open 的
+   * payload.root 形状校验在 handler 入口。
+   */
+  private workspaceContext(
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown> = {},
+  ): WorkspaceCommandContext {
+    const workspace = this.deps.workspace!;
+    return {
+      ws,
+      type,
+      payload,
+      workspace,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),
       sendNow: (sender, frame) => this.sendNow(sender, frame),
