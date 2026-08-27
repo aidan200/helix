@@ -16,7 +16,8 @@
  *    dev 形态 daemon 经壳 sidecar 机制起跑（contracts/sidecar-lifecycle.md
  *    双形态同构：壳恒 spawn sidecar + ready 行握手，禁形态分支）——本脚本
  *    生成 wrapper 脚本并注入 HELIX_SIDECAR_PATH（AF-3 注入位），wrapper
- *    exec bun 直跑源码；编排直接子进程 = vite dev + cargo tauri dev，
+ *    先 cd 仓库根再 exec bun 直跑源码（daemon cwd 继承 wrapper——TR-AD-6
+ *    拉起方设 cwd，止住 src-tauri 顺链污染）；编排直接子进程 = vite dev + cargo tauri dev，
  *    daemon 为壳 sidecar 子孙（源码直跑）。任一直接子进程退出 → 整体
  *    teardown；daemon 异常退出由壳看护重启（契约 §3）。
  * ③ teardown（TR-TEST-6 三件套）：SIGINT/SIGTERM/子进程退出 → ps 快照
@@ -108,6 +109,40 @@ export function tauriDevConfigOverride(vitePort?: string): string {
 /** tauri dev 命令参数组装（纯函数，override 单源于 tauriDevConfigOverride）。 */
 export function tauriDevArgs(vitePort?: string): string[] {
   return ["tauri", "dev", "--config", tauriDevConfigOverride(vitePort)];
+}
+
+// ── dev sidecar wrapper 生成（cwd 止血）──────────────────
+
+/** buildWrapperScript 入参（wrapper 内容纯函数面）。 */
+export interface WrapperScriptOptions {
+  /** bun 可执行（process.execPath）。 */
+  readonly bunPath: string;
+  /** daemon 源码入口绝对路径（cd 后 exec 目标不受 cwd 影响）。 */
+  readonly mainTsPath: string;
+  /** cd 目标（编排处传仓库根）。 */
+  readonly workspaceRoot: string;
+  /** 可选 --home 注入（HELIX_DESKTOP_HOME dev/测试隔离位）。 */
+  readonly home?: string;
+}
+
+/**
+ * dev sidecar wrapper 脚本内容生成（纯函数，可单测）。
+ *
+ * 关键语义：cd 在 exec 之前——daemon 进程由 wrapper 进程 exec 替换而来，
+ * cwd 顺链继承 wrapper，故先 cd '<workspaceRoot>' 再 exec，daemon 的
+ * process.cwd() 即仓库根。缺省下 kg workspace 根/工具 cwd 均以
+ * process.cwd() 为准（TR-AD-6：生产恒走启动 cwd，不加 argv/env），故由
+ * 拉起方把 cwd 设对——否则 cargo 的 apps/shell/src-tauri 顺链继承，kg
+ * 把其一级子目录当项目批量建 .helix-kg 库，落进 tauri dev 文件监视范围
+ * 触发“杀壳重建”无限重启（本函数即该循环的止血位）。
+ */
+export function buildWrapperScript(options: WrapperScriptOptions): string {
+  const homeArg = options.home ? ` --home '${options.home}'` : "";
+  return (
+    `#!/bin/sh\n` +
+    `cd '${options.workspaceRoot}'\n` +
+    `exec '${options.bunPath}' '${options.mainTsPath}'${homeArg} "$@"\n`
+  );
 }
 
 // ── H-1 动作③：rg 环境无关自动补（幂等，失败不阻塞 dev）─────────
@@ -259,12 +294,17 @@ async function main(): Promise<number> {
   const shellDir = join(root, "apps/shell");
   const workDir = mkdtempSync(join(tmpdir(), "helix-dev-desktop-"));
   // dev sidecar wrapper（AF-3 注入位）：壳恒 spawn sidecar（双形态同构），
-  // wrapper exec bun 直跑 daemon 源码（禁 compile 产物，TR-AD-35）。
+  // wrapper 先 cd 仓库根再 exec bun 直跑 daemon 源码（禁 compile 产物，
+  // TR-AD-35；daemon cwd 继承 wrapper——TR-AD-6 拉起方设 cwd 的止血位）。
   const wrapper = join(workDir, "helix-daemon-dev.sh");
-  const homeArg = process.env.HELIX_DESKTOP_HOME ? ` --home '${process.env.HELIX_DESKTOP_HOME}'` : "";
   writeFileSync(
     wrapper,
-    `#!/bin/sh\nexec '${process.execPath}' '${join(root, "apps/daemon/src/main.ts")}'${homeArg} "$@"\n`,
+    buildWrapperScript({
+      bunPath: process.execPath,
+      mainTsPath: join(root, "apps/daemon/src/main.ts"),
+      workspaceRoot: root,
+      home: process.env.HELIX_DESKTOP_HOME,
+    }),
   );
   chmodSync(wrapper, 0o755);
 
