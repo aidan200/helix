@@ -33,6 +33,12 @@ export function handleChatSend(ctx: ChatCommandContext): void {
   const hasSessionRoute =
     typeof ctx.envelope.sessionId === "string" && ctx.envelope.sessionId !== "";
   if (ctx.payload.draft === true && !hasSessionRoute) {
+    // W1 绑定闭环：会话创建依赖 workspace 绑定（toolCwd 基准 = 绑定 root）——
+    // 未绑定拒绝并指引（门禁前端本不发，此为防御；stub 测试形态未装配
+    // workspace 面时缺省视为已绑定，保持既有行为）。
+    if (ctx.workspaceBound !== undefined && !ctx.workspaceBound()) {
+      return ctx.commandError(ctx.type, "workspace.unbound", "请先选择工作空间（workspace.open）后再开始会话");
+    }
     const sender = ctx.ws.data.sender;
     // payload.model 可选透传（建会话前用户选定模型；缺省 = 全局默认）
     const draftModel =

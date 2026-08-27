@@ -34,9 +34,18 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     const modelConfigTypes = new Set<string>(MODEL_CONFIG_EVENT_TYPES);
     const agentConfigTypes = new Set<string>(AGENT_CONFIG_EVENT_TYPES);
     const webTypes = new Set<string>(WEB_EVENT_TYPES);
+    // W1 过渡豁免：workspace 族三事件（get/open 结果帧 + workspace_changed
+    // 广播）的 shell 消费归 W3（门禁状态机/选择页）与 W4（指示器/刷新链）
+    // 切片——daemon+protocol 先行落地期间显式挂账，非静默遗漏。
+    const PENDING_W34 = new Set<string>(["workspace.get.result", "workspace.open.result", "workspace_changed"]);
     for (const type of EVENT_TYPES) {
       expect(
-        route(type) !== undefined || directoryTypes.has(type) || modelConfigTypes.has(type) || agentConfigTypes.has(type) || webTypes.has(type),
+        route(type) !== undefined ||
+          directoryTypes.has(type) ||
+          modelConfigTypes.has(type) ||
+          agentConfigTypes.has(type) ||
+          webTypes.has(type) ||
+          PENDING_W34.has(type),
         `未消费事件 type：${type}`,
       ).toBe(true);
     }

@@ -33,4 +33,10 @@ export type ErrorCode =
   /** kg 批新增：状态机非法迁移（confirm 非 draft 节点）；发 error 帧连接保持 */
   | "KG_E_STATE"
   /** kg 批新增：索引构建触发失败（kg.index.status rebuild；面板保持 degraded 可重试）；发 error 帧连接保持 */
-  | "KG_E_REBUILD_FAILED";
+  | "KG_E_REBUILD_FAILED"
+  /** workspace 批新增（W1 绑定闭环）：workspace.open root 校验失败（不存在/非目录/不可读/危险根——文件系统根或主目录）；发 error 帧连接保持 */
+  | "WORKSPACE_E_INVALID_ROOT"
+  /** workspace 批新增：存在运行中会话/智能体时拒绝重绑（F2 裁决 v1 禁止切换）；发 error 帧连接保持 */
+  | "WORKSPACE_E_ACTIVE_AGENT"
+  /** workspace 批新增：未绑定工作空间时的依赖面拒绝（会话创建门禁/kg 参数型读面防御）；发 error 帧连接保持 */
+  | "workspace.unbound";

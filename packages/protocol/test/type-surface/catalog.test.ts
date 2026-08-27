@@ -138,7 +138,7 @@ type _V09EventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 34 个 type（… + v0.11 1 + kg 批 6）", () => {
+  test("命令目录恰为 36 个 type（… + v0.11 1 + kg 批 6 + workspace 批 2）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.config.list",
@@ -175,11 +175,13 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "web.start",
         "web.status",
         "web.stop",
+        "workspace.get",
+        "workspace.open",
       ],
     );
   });
 
-  test("事件目录恰为 54 个 type（… + v0.11 1 + kg 批 6 结果帧）", () => {
+  test("事件目录恰为 57 个 type（… + v0.11 1 + kg 批 6 结果帧 + workspace 批 3）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -236,6 +238,9 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "web.status.changed",
         "web.status.result",
         "web.stop.result",
+        "workspace.get.result",
+        "workspace.open.result",
+        "workspace_changed",
       ],
     );
   });
@@ -432,13 +437,19 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "kg.node.detail.result",
       "kg.projects.result",
     ]);
+    expect(roster("workspace")).toEqual([
+      // workspace 批新族（W1 绑定闭环）：两结果帧 + 一广播
+      "workspace.get.result",
+      "workspace.open.result",
+      "workspace_changed",
+    ]);
   });
 
-  test("目录计数（kg 批后）：EVENT_TYPES 54 / EVENT_CHANNELS 54 键 / COMMAND_TYPES 34", () => {
-    expect(EVENT_TYPES.length).toBe(54); // kg 批：+6（kg.*.result）
-    expect(new Set(EVENT_TYPES).size).toBe(54); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(54); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(34); // kg 批：+6（kg 族六命令）
+  test("目录计数（workspace 批后）：EVENT_TYPES 57 / EVENT_CHANNELS 57 键 / COMMAND_TYPES 36", () => {
+    expect(EVENT_TYPES.length).toBe(57); // workspace 批：+3（两结果帧 + 广播）
+    expect(new Set(EVENT_TYPES).size).toBe(57); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(57); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(36); // workspace 批：+2（get/open）
   });
 
 });

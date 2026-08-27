@@ -196,6 +196,9 @@ export interface ToolCallEntryDto {
 | `protocol.version_unsupported` | 握手：protocolVersion ≠ 当前版本位（"0.11"） | 发 error 帧后 **close** |
 | `command.unknown` | 命令：未知 type | 发 error 帧，**连接保持** |
 | `command.invalid_payload` | 命令：payload 不符 | 发 error 帧，**连接保持** |
+| `WORKSPACE_E_INVALID_ROOT` | workspace 批（W1）：workspace.open root 校验失败（不存在/非目录/不可读/危险根——文件系统根或主目录） | 发 error 帧，**连接保持** |
+| `WORKSPACE_E_ACTIVE_AGENT` | workspace 批（W1）：存在运行中会话/智能体时拒绝重绑（F2 裁决 v1 禁止切换） | 发 error 帧，**连接保持** |
+| `workspace.unbound` | workspace 批（W1）：未绑定工作空间时的依赖面拒绝（会话创建门禁/kg 参数型读面防御） | 发 error 帧，**连接保持** |
 | （连接层异常） | 非 WS 帧垃圾数据等 | 不发帧直接 close，前端走重连状态机 |
 
 - **daemon 实现超集注记（D-3）**：daemon 握手期**同时校验**信封 `v` 与
@@ -724,11 +727,11 @@ export interface AgentModelChangedPayload {
   新会话）；转正恰好一次 `agent.instantiated` + `list_changed{created}`
   （draft 链显式广播与补广播去重，不双发）。
 
-## 15. 命令 payload 形状总登记（C→S，34 命令全集）
+## 15. 命令 payload 形状总登记（C→S，36 命令全集）
 
-> **计数声明：34 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
+> **计数声明：36 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
 > 15.4 model 6 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
-> 15.9 kg 6）——与 `COMMAND_TYPES` 常量恰等
+> 15.9 kg 6 + 15.10 workspace 2）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
 > 文档与其逐项对齐（AD-1）；仓外契约文档降为历史定形档案（§17.1）。
@@ -1133,18 +1136,53 @@ workspace 项目列表（F5.0；/project 单页 master-detail 左栏数据源）
 
 （无字段）
 
-## 16. 事件 payload 形状总登记（S→C，54 事件全集）
+### 15.10 workspace 族（2；workspace 批，W1 workspace 绑定闭环）
 
-> **计数声明：54 事件全集**（16.1 notification 2 + 16.2 session 4 +
+> 本族为 workspace 批（v0.11 后 additive 微批，版本位不 bump，§19 同构
+> 先例；批次注记见 §20）登记的绑定闭环两面。全局命令（信封 sessionId
+> 省略）。语义：workspace 从「daemon 启动 cwd 装配期常量」改为「运行时
+> 显式绑定」——未绑定态启动 → `workspace.get` 门禁判定 → `workspace.open`
+> 绑定（daemon 单点校验 + KV 持久化 + kg 栈重建 + `workspace_changed`
+> 广播）。无 close/unbind 命令（v1 裁决：切换 = open 另一 root）。结果
+> 回执 = §16.10 两结果帧；错误码 `WORKSPACE_E_INVALID_ROOT` /
+> `WORKSPACE_E_ACTIVE_AGENT`（§7；发 error 帧连接保持）。
+
+#### `workspace.get`
+
+绑定门禁读面（无参；前端启动分流依据：current 非 null → 主壳，null →
+选择工作空间页）。结果 = `workspace.get.result`（`{current, recents,
+notice?}`；recents MRU 上限 8，get 时惰性探测标 valid）。
+
+（无字段）
+
+#### `workspace.open`
+
+显式绑定写面。daemon 校验（§3.3 单点）：realpath 规范化（消 symlink
+> 双写）+ 存在且为目录且可读 + 危险根拒绝（文件系统根 / 主目录——扫描
+> 面失控，引导选具体目录）；存在运行中会话/智能体时拒绝（F2 裁决 v1
+> 禁止切换）。幂等：同 root 重复 open = 状态零变 + 仍广播一次
+> `workspace_changed`。CLI 形态例外：终端站位 = 显式选择（启动即等价
+> 已 open(cwd)，不持久化）。结果 = `workspace.open.result`
+>（`{root, projects}`；projects 复用 kg.projects 项目行 DTO 口径）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `root` | `string` | 必填 | workspace 批 | 待绑定的工作空间根（daemon realpath 规范化 + 危险根校验） |
+
+## 16. 事件 payload 形状总登记（S→C，57 事件全集）
+
+> **计数声明：57 事件全集**（16.1 notification 2 + 16.2 session 4 +
 > 16.3 chat 10 + 16.4 agent 12 + 16.5 thinking·compaction·usage 5 +
-> 16.6 model 10 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
+> 16.6 model 10 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6 + 16.10 workspace 3）
+> ——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
 >（三面同构，守护断言⑤口径）；auth 族 4 结果帧按 `EVENT_CHANNELS` 登记挂
 > **model 通道**（§16.6 内）。登记锚格式同 §15（`#### \`<type>\`` 锚 +
 > payload 字段表）。类型权威源 = `packages/protocol/src/events/`，文档与其
 > 逐项对齐（AD-1）。点对点结果帧（model/auth 族 `*.result` 9 +
 > `trace.query.result` + agent.config 族两结果帧（v0.6）+ web 族两结果帧
-> （v0.7）+ kg 族六结果帧（kg 批））仅发发起命令的连接，不经 EventStream 广播（TR-AD-21 先例）。
+> （v0.7）+ kg 族六结果帧（kg 批）+ workspace 族两结果帧（workspace 批））
+> 仅发发起命令的连接，不经 EventStream 广播（TR-AD-21 先例）。
 
 ### 16.1 notification 族（2；信封 sessionId = SYSTEM_SESSION_ID）
 
@@ -1678,6 +1716,42 @@ draft 审阅转正命令结果（页面唯一写动作回执；翻转后状态�
 | `symbolCount` | `number` | 可选 | kg 批 | synced 态符号计数 |
 | `degradedNote` | `string` | 可选 | kg 批 | degraded 态影响说明 |
 
+### 16.10 workspace 族（3；workspace 批，W1 workspace 绑定闭环）
+
+> 两命令点对点回执 + 一广播。信封 sessionId = SYSTEM_SESSION_ID、channel
+> = "workspace"。命令面登记见 §15.10。DTO 定义 = `src/types/workspace.ts`
+>（WorkspaceRecent）；projects 行复用 `src/types/kg.ts` KgProjectRow。错误
+> 回执走 connection.error（§7 三码：WORKSPACE_E_INVALID_ROOT /
+> WORKSPACE_E_ACTIVE_AGENT / workspace.unbound；连接保持）。
+
+#### `workspace.get.result`
+
+绑定门禁读面命令结果（点对点回执；快照语义）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `current` | `{ root: string } \| null` | 必填 | workspace 批 | 当前绑定（realpath 规范形）；null = 未绑定 |
+| `recents` | `WorkspaceRecent[]`（`{ root, name, lastUsedAt, valid }`） | 必填 | workspace 批 | 最近使用（MRU 序上限 8；valid = get 时惰性探测，失效不删除） |
+| `notice` | `string` | 可选 | workspace 批 | 降级说明（恢复失败等；无降级缺席） |
+
+#### `workspace.open.result`
+
+绑定写面命令结果（点对点回执）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `root` | `string` | 必填 | workspace 批 | 绑定后的规范形根 |
+| `projects` | `KgProjectRow[]` | 必填 | workspace 批 | 新 root 一层扫描项目行（宽松口径含 absent；与 kg.projects 同 DTO 口径） |
+
+#### `workspace_changed`
+
+绑定变更广播（open 成功/同 root 幂等重开均广播一次——前端各域刷新依据；
+全连接下发，信封 sessionId = SYSTEM_SESSION_ID）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `root` | `string` | 必填 | workspace 批 | 变更后绑定根（规范形） |
+
 ## 17. SoT 声明与守护口径（v0.5 收口）
 
 ### 17.1 SoT 声明
@@ -1997,3 +2071,28 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 >   与通道归属，字段表见 §15.9/§16.9）。
 > - daemon 行为由 T5.3 落地（handlers/kg.ts + KgViewerService；未装配面
 >   回 `command.unimplemented`——trace.ts 先例）。
+
+## 20. workspace 批（W1 workspace 绑定闭环：workspace 选择门禁与绑定；v0.11 后 additive 微批——版本位不 bump）
+
+> 本批为 workspace 绑定闭环的协议面登记（W1 daemon+protocol 切片）：
+> **2 命令**（§15.10 workspace 族：`workspace.get` 门禁读面 /
+> `workspace.open` 显式绑定写面）+ **3 事件**（§16.10 workspace 族：两命令
+> 点对点回执结果帧 + `workspace_changed` 绑定变更广播，workspace 新通道）+
+> **3 错误码**（`WORKSPACE_E_INVALID_ROOT` / `WORKSPACE_E_ACTIVE_AGENT` /
+> `workspace.unbound`，connection.error 载荷、连接保持）。
+> **版本位不 bump**（`PROTOCOL_VERSION = "0.11"` 保持）：全部为新增面
+> （新增命令/事件 type、新增错误码值、新增 channel 值），旧客户端零破坏
+> （additive 纪律，TR-AD-23①；§19 kg 批同构先例）。
+>
+> - 计数演进：命令 34 → 36；事件 54 → 57（守护断言③同步扩）。
+> - 语义源：设计稿 `helix/docs/temp/workspace-feature-design-candidate.md`
+>   §3（workspace 从「daemon 启动 cwd 装配期常量」改为「运行时显式绑定」；
+>   零静默猜测——不存在推导出来的 workspace）。无 close/unbind 命令
+>   （v1 裁决：切换 = open 另一 root）；F2 裁决 v1：运行中 agent 时禁止
+>   切换（`WORKSPACE_E_ACTIVE_AGENT`）。
+> - 防御契约：未绑定态 kg 读面回空集结果（kg.projects → []，非报错）、
+>   会话创建被拒（`workspace.unbound` + 指引文案）——门禁前端本不发这些
+>   请求，此为防御。
+> - CLI 例外条款：CLI 形态终端站位 = 显式选择（启动等价已 open(cwd)，
+>   不持久化——桌面 current/recents 只由桌面 open 写）；desktop/sidecar
+>   形态恒经绑定，无 cwd 兼容缺省。

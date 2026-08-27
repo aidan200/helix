@@ -31,6 +31,7 @@ import type {
   ThinkingStreamDeltaEvent,
   WebStatusChangedEvent,
   WebStatusPayload,
+  WorkspaceChangedEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import { domainEventToEnvelope, sessionMetaDto } from "./DtoMapper";
@@ -235,6 +236,23 @@ export class EventStream implements EventPublisherPort {
       channel: "web",
       type: "web.status.changed",
       payload,
+    };
+    this.push(frame);
+  }
+
+  /**
+   * workspace_changed 广播（W1 绑定闭环）：绑定变更通知——daemon 级
+   * 全局（信封 sessionId = SYSTEM_SESSION_ID → 全连接下发，与
+   * broadcastWebStatusChanged 同构；订阅无关）。open 成功/同 root 幂等
+   * 重开均广播一次（前端各域刷新对齐依据）。
+   */
+  broadcastWorkspaceChanged(payload: { root: string }): void {
+    const frame: WorkspaceChangedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "workspace",
+      type: "workspace_changed",
+      payload: { root: payload.root },
     };
     this.push(frame);
   }

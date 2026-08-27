@@ -49,9 +49,21 @@ import type {
 import type { NodeDigestRow } from "../../../../domain/kg/types";
 import type { KgCommandContext } from "./context";
 
-/** kg.projects（F5.0：宽松口径一层扫描；只读零写）。 */
+/** kg.projects（F5.0：宽松口径一层扫描；只读零写）。W1：unbound 防御契约——空集结果非报错。 */
 export function handleKgProjects(ctx: KgCommandContext): void {
-  if (ctx.kg === undefined) return unimplemented(ctx);
+  if (ctx.kg === undefined) {
+    if (ctx.workspaceUnbound) {
+      const empty: KgProjectsResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "kg",
+        type: "kg.projects.result",
+        payload: { projects: [] },
+      };
+      return ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), empty);
+    }
+    return unimplemented(ctx);
+  }
   const rows = ctx.kg.projects();
   const frame: KgProjectsResultEvent = {
     v: PROTOCOL_VERSION,
@@ -63,9 +75,29 @@ export function handleKgProjects(ctx: KgCommandContext): void {
   ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
 }
 
-/** kg.list（F5.1：q×kind×status 三路过滤叠加 + total/matched）。 */
+/** kg.list（F5.1：q×kind×status 三路过滤叠加 + total/matched）。W1：unbound → 空集结果。 */
 export function handleKgList(ctx: KgCommandContext): void {
-  if (ctx.kg === undefined) return unimplemented(ctx);
+  if (ctx.kg === undefined) {
+    if (ctx.workspaceUnbound) {
+      const project = requireString(ctx, "project");
+      if (project === undefined) return;
+      const q = optionalString(ctx, "q");
+      if (q === null) return;
+      const kind = optionalString(ctx, "kind");
+      if (kind === null) return;
+      const status = optionalString(ctx, "status");
+      if (status === null) return;
+      const empty: KgListResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "kg",
+        type: "kg.list.result",
+        payload: { total: 0, matched: 0, nodes: [] },
+      };
+      return ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), empty);
+    }
+    return unimplemented(ctx);
+  }
   const project = requireString(ctx, "project");
   if (project === undefined) return;
   const q = optionalString(ctx, "q");
@@ -88,7 +120,7 @@ export function handleKgList(ctx: KgCommandContext): void {
 
 /** kg.node.detail（F5.2：六段聚合——描述/规则/锚/关系/supersede 链/变更日志）。 */
 export function handleKgNodeDetail(ctx: KgCommandContext): void {
-  if (ctx.kg === undefined) return unimplemented(ctx);
+  if (ctx.kg === undefined) return unboundOrUnimplemented(ctx);
   const project = requireString(ctx, "project");
   if (project === undefined) return;
   const id = requireString(ctx, "id");
@@ -107,7 +139,7 @@ export function handleKgNodeDetail(ctx: KgCommandContext): void {
 
 /** kg.change.report（F5.3：KgReportService 四类条目直传；缺省=当前迭代）。 */
 export function handleKgChangeReport(ctx: KgCommandContext): void {
-  if (ctx.kg === undefined) return unimplemented(ctx);
+  if (ctx.kg === undefined) return unboundOrUnimplemented(ctx);
   const project = requireString(ctx, "project");
   if (project === undefined) return;
   const iterationId = optionalString(ctx, "iterationId");
@@ -126,7 +158,7 @@ export function handleKgChangeReport(ctx: KgCommandContext): void {
 
 /** kg.node.confirm（F5.4：页面唯一写动作——走 KgWriteService，仅 draft 可转正）。 */
 export function handleKgNodeConfirm(ctx: KgCommandContext): void {
-  if (ctx.kg === undefined) return unimplemented(ctx);
+  if (ctx.kg === undefined) return unboundOrUnimplemented(ctx);
   const project = requireString(ctx, "project");
   if (project === undefined) return;
   const id = requireString(ctx, "id");
@@ -145,7 +177,7 @@ export function handleKgNodeConfirm(ctx: KgCommandContext): void {
 
 /** kg.index.status（F5.5：四态透传；rebuild=纯 codegraph 构建，无知识层写）。 */
 export function handleKgIndexStatus(ctx: KgCommandContext): void {
-  if (ctx.kg === undefined) return unimplemented(ctx);
+  if (ctx.kg === undefined) return unboundOrUnimplemented(ctx);
   const project = requireString(ctx, "project");
   if (project === undefined) return;
   if (ctx.payload.rebuild !== undefined && typeof ctx.payload.rebuild !== "boolean") {
@@ -202,6 +234,20 @@ function unimplemented(ctx: KgCommandContext): void {
   ctx.commandError(ctx.type, "command.unimplemented", "kg 数据面未装配");
 }
 
+/**
+ * unbound 防御契约（W1 绑定闭环）：workspace 面已装配但未绑定——参数型
+ * kg 命令（需具体 project 作用域，无空集形态）回 workspace.unbound 结构化
+ * 错误 + 指引（非 command.unimplemented）；门禁前端本不发这些请求，此为
+ * 防御。列表型读面（kg.projects/kg.list）的空集结果在各自 handler 分支。
+ */
+function unboundOrUnimplemented(ctx: KgCommandContext): void {
+  if (ctx.workspaceUnbound) {
+    ctx.commandError(ctx.type, "workspace.unbound", "未绑定工作空间：请先 workspace.open 选择工作空间");
+    return;
+  }
+  unimplemented(ctx);
+}
+
 /** service 结构化错误 → connection.error 回执（错误码直传；字段路径折叠进文案）。 */
 function viewerError(ctx: KgCommandContext, err: KgViewerError): void {
   ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
@@ -209,7 +255,8 @@ function viewerError(ctx: KgCommandContext, err: KgViewerError): void {
 
 // ── 应用层视图 → 协议 DTO（逐字段直拷；readonly → 可变帧形态） ──
 
-function projectRowToDto(row: KgProjectRowView): KgProjectRow {
+/** 项目行 DTO 映射（kg.projects / workspace.open.result 两处共用同一口径）。 */
+export function projectRowToDto(row: KgProjectRowView): KgProjectRow {
   return {
     name: row.name,
     path: row.path,

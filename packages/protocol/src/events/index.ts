@@ -91,6 +91,11 @@ import type {
   KgNodeDetailResultEvent,
   KgProjectsResultEvent,
 } from "./kg";
+import type {
+  WorkspaceChangedEvent,
+  WorkspaceGetResultEvent,
+  WorkspaceOpenResultEvent,
+} from "./workspace";
 
 export * from "./notification";
 export * from "./session";
@@ -102,6 +107,7 @@ export * from "./trace";
 export * from "./thinking";
 export * from "./web";
 export * from "./kg";
+export * from "./workspace";
 
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
 export type EventEnvelope =
@@ -158,7 +164,10 @@ export type EventEnvelope =
   | KgNodeDetailResultEvent
   | KgChangeReportResultEvent
   | KgNodeConfirmResultEvent
-  | KgIndexStatusResultEvent;
+  | KgIndexStatusResultEvent
+  | WorkspaceGetResultEvent
+  | WorkspaceOpenResultEvent
+  | WorkspaceChangedEvent;
 
 /** 事件目录常量（运行时可用；与 EventEnvelope 联合由测试双向一致性守护） */
 export const EVENT_TYPES = [
@@ -216,6 +225,9 @@ export const EVENT_TYPES = [
   "kg.change.report.result",
   "kg.node.confirm.result",
   "kg.index.status.result",
+  "workspace.get.result",
+  "workspace.open.result",
+  "workspace_changed",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -281,4 +293,7 @@ export const EVENT_CHANNELS = {
   "kg.change.report.result": "kg",
   "kg.node.confirm.result": "kg",
   "kg.index.status.result": "kg",
+  "workspace.get.result": "workspace",
+  "workspace.open.result": "workspace",
+  "workspace_changed": "workspace",
 } as const satisfies Record<EventType, Channel>;

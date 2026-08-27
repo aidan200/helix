@@ -20,5 +20,6 @@ export * from "./types/model";
 export * from "./types/auth";
 export * from "./types/trace";
 export * from "./types/kg";
+export * from "./types/workspace";
 // 投影三域纯函数（T3.1 / CL-4：类型+行为契约）
 export * from "./projection/index";
