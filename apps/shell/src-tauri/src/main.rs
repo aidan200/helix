@@ -52,6 +52,24 @@ fn main() {
             let supervisor_handle = Arc::clone(&supervisor_handle);
             move |app| {
                 let handle = app.handle().clone();
+                // 主窗口提前到应用启动即建（W6c：不候 sidecar ready）——终端
+                // 启动屏（index.html 纯 CSS）即启动屏，覆盖 daemon 启动等待；
+                // 前端以 WS 重连退避（TR-AD-12）+ connecting 屏消化 daemon
+                // 未就绪窗口（端口静态解析：VITE_HELIX_PORT 缺省 7333，与
+                // ready 行无关）。原"ready 后建窗"会留下启动等待期无窗/黑屏
+                // （用户实证）；on_ready 保留幂等兜底（重启场景窗口已在）。
+                if handle.get_webview_window("main").is_none() {
+                    let _ = WebviewWindowBuilder::new(&handle, "main", WebviewUrl::App("index.html".into()))
+                        .title("helix")
+                        .inner_size(1280.0, 800.0)
+                        // 启动屏同色窗口底色（#060910 = tokens.css --void）：
+                        // HTML 到达前的纯原生阶段与启动屏/页面底色无缝衔接
+                        .background_color(tauri::utils::config::Color(6, 9, 16, 255))
+                        // W6a：页面脚本加载前注入 helixPickDirectory（前端经
+                        // seam 探测，纯浏览器 dev 无此挂载点 → 浏览钮不渲染）
+                        .initialization_script(PICK_DIRECTORY_INIT_SCRIPT)
+                        .build();
+                }
                 let spec = resolve_sidecar_spec();
                 let join = std::thread::spawn(move || {
                     let mut hooks = ShellHooks {
@@ -112,9 +130,11 @@ struct ShellHooks {
 impl SupervisorHooks for ShellHooks {
     fn on_ready(&mut self, ready: &ReadyInfo) {
         eprintln!("[helix-shell] sidecar ready：port={}（token 经 ready 行持有，不落壳日志）", ready.port);
+        // 幂等兜底：主窗口已在应用启动即建（W6c 提前，见 setup）；此处仅
+        // 覆盖窗口被用户关闭后的 sidecar 重启场景（前端经 WS 重连退避恢复，
+        // TR-AD-12，壳不干预连接）。
         let handle = self.handle.clone();
         let handle2 = handle.clone();
-        // 重启场景窗口已在：前端经自身重连退避恢复 WS（TR-AD-12），壳不干预
         let _ = handle.run_on_main_thread(move || {
             if handle2.get_webview_window("main").is_none() {
                 let _ = WebviewWindowBuilder::new(&handle2, "main", WebviewUrl::App("index.html".into()))
