@@ -23,6 +23,11 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde_json = "1"
 libc = "0.2"
+# W6f 窗口底色原生设置（v1 desk 同款）：wry/tauri 的 background_color 只写
+# WKWebView underPageBackgroundColor（越界回弹区），空窗期透出的 NSWindow
+# backgroundColor 必须经 objc2 原生 API 设置（v1 window_workspace.rs 实证）
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSColor", "NSAppearance"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
