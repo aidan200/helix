@@ -137,6 +137,8 @@ describe("SystemPromptAssembler 三段组装（M6 T2）", () => {
         "agent_status",
         "agent_inspect",
         "browser",
+        "kg",
+        "kg-update",
       ],
       skills: [],
     });

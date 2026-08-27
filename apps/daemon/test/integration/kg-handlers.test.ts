@@ -1,0 +1,775 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { PassThrough } from "node:stream";
+import { WsServerAdapter } from "../../src/adapters/driving/ws-server/WsServerAdapter";
+import { EventStream } from "../../src/adapters/driving/ws-server/EventStream";
+import { StubBrowserPort } from "../mocks/StubBrowserPort";
+import { KgDatabase, kgDbPath } from "../../src/adapters/driven/sqlite-kg/KgDatabase";
+import { SqliteKnowledgeGraph } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
+import { SqliteKnowledgeStore } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
+import { CodegraphEngineFake } from "../mocks/CodegraphEngineFake";
+import { KgProjectService } from "../../src/application/services/kg/KgProjectService";
+import { KgReportService } from "../../src/application/services/kg/KgReportService";
+import { KgSyncService } from "../../src/application/services/kg/KgSyncService";
+import { KgVerifyService } from "../../src/application/services/kg/KgVerifyService";
+import { KgViewerService } from "../../src/application/services/kg/KgViewerService";
+import { KgWriteService } from "../../src/application/services/kg/KgWriteService";
+import { scanProjectEntries } from "../../src/adapters/driven/workspace-scan";
+import type { EngineSymbol, SymbolBatch, WriteResult } from "../../src/domain/kg/types";
+import { createTestDaemon } from "../helpers/createTestDaemon";
+import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
+import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
+
+/**
+ * kg 六命令族 I 层（T5.3，CL-5.A1~A5/A8~A10 daemon 侧；契约
+ * contracts/kg-viewer-api.md 逐字段）：真 service 栈（KgViewerService/
+ * KgProjectService/KgSyncService/KgWriteService/…）× tmp 真库（KgDatabase
+ * per-project 懒开）× loopback WS 路由（WsServerAdapter.routeCommand →
+ * handlers/kg.ts）。引擎边界 = CodegraphEngineFake（test-design §5 依赖
+ * 策略：codegraph 引擎 fake / sqlite-kg 真库；delayMs 制造 building 窗口）。
+ *
+ * 覆盖：kg.projects 宽松口径扫描+排除清单+absent 不建库（A8）；
+ * kg.list 三路过滤叠加+total/matched+跨项目不串（A1/A10）；
+ * kg.node.detail 六段聚合（A2）；kg.change.report 四类条目（A3）；
+ * kg.node.confirm 唯一写走 F2.3 API+change_log 追加+非 draft KG_E_STATE（A4）；
+ * kg.index.status 四态透传+rebuild 零知识层写+absent 冷启动（A5/A9）；
+ * project 两形态等价/无法解析 KG_E_PARAM（A10）；unimplemented 门控；
+ * 容器接线（kgWorkspaceRoot 注入 + 真组合根 roundtrip）。
+ */
+
+const DAY = 86_400_000;
+const ITER = "iter-20260825-11fo";
+
+interface Frame {
+  v: FrameVersion;
+  type: string;
+  payload: Record<string, unknown>;
+  sessionId?: string;
+  channel?: string;
+}
+
+/** 收集帧的 loopback WS 测试客户端（ws-server-spy.test.ts 同构）。 */
+class TestClient {
+  readonly frames: Frame[] = [];
+  private readonly ws: WebSocket;
+
+  constructor(url: string) {
+    this.ws = new WebSocket(url);
+    this.ws.onmessage = (ev: MessageEvent) => {
+      this.frames.push(JSON.parse(String(ev.data)));
+    };
+  }
+
+  async open(timeoutMs = 3000): Promise<void> {
+    await until(() => this.ws.readyState === WebSocket.OPEN, timeoutMs, "WS 连接建立");
+  }
+
+  send(obj: unknown): void {
+    this.ws.send(JSON.stringify(obj));
+  }
+
+  /** 发 kg 命令并等结果帧或 connection.error 回执（afterIndex 前的旧帧不算）。 */
+  async kg(
+    type: string,
+    payload: Record<string, unknown>,
+    timeoutMs = 5000,
+  ): Promise<{ ok: boolean; result: Record<string, unknown>; error: { code: string; message: string } | null }> {
+    const at = this.frames.length;
+    this.send({ v: PROTOCOL_VERSION, type, payload });
+    await until(
+      () =>
+        this.frames.slice(at).some((f) => f.type === `${type}.result` || f.type === "connection.error"),
+      timeoutMs,
+      `等待 ${type}.result / connection.error`,
+    );
+    const err = this.frames.slice(at).find((f) => f.type === "connection.error");
+    if (err !== undefined) {
+      return { ok: false, result: {}, error: err.payload as { code: string; message: string } };
+    }
+    const res = this.frames.slice(at).find((f) => f.type === `${type}.result`)!;
+    return { ok: true, result: res.payload, error: null };
+  }
+
+  /** 不等待（building 窗口观察用：发出后由调用方自行断言时序）。 */
+  fireAndForget(type: string, payload: Record<string, unknown>): void {
+    this.send({ v: PROTOCOL_VERSION, type, payload });
+  }
+
+  async close(): Promise<void> {
+    if (this.ws.readyState === WebSocket.OPEN) this.ws.close();
+  }
+}
+
+async function until(cond: () => boolean, timeoutMs: number, what: string): Promise<void> {
+  const t0 = Date.now();
+  while (!cond()) {
+    if (Date.now() - t0 > timeoutMs) throw new Error(`等待超时：${what}`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+// ── rig：workspace + 真 service 栈 + WsServerAdapter ─────────────
+
+interface Rig {
+  readonly workspace: string;
+  readonly alpha: string;
+  readonly beta: string;
+  readonly gamma: string;
+  readonly delta: string;
+  readonly database: KgDatabase;
+  readonly write: KgWriteService;
+  readonly store: SqliteKnowledgeStore;
+  readonly sync: KgSyncService;
+  readonly adapter: WsServerAdapter;
+  readonly client: TestClient;
+  readonly engine: CodegraphEngineFake;
+  readonly dispose: () => void;
+}
+
+/** adapter 依赖面 stub（ws-server-spy.test.ts 先例：kg 面外全部 no-op）。 */
+function stubAdapterDeps(events: EventStream) {
+  return {
+    chat: {
+      sendMessage: async () => ({ mode: "turn" as const, turnId: "t", entryId: "e" }),
+      steer: async () => ({ entryId: "e" }),
+      abort: () => {},
+    },
+    directory: {
+      listSessions: async () => [],
+      sessionExists: async () => false,
+      resolveTarget: async () => "s",
+      getSessionView: async () => ({
+        session: {
+          sessionId: "s",
+          createdAt: "2026-08-25T00:00:00.000Z",
+          entries: [],
+          turns: [],
+          pendingSteer: [],
+        },
+        toolCalls: [],
+      }),
+      startDraftSession: async () => {
+        throw new Error("kg 测试不装配草稿链");
+      },
+      deleteSession: async () => {},
+      currentSessionId: () => "s",
+    },
+    system: {
+      getStatus: () => ({
+        running: true,
+        locked: false,
+        home: "/tmp/kg-it",
+        sessionId: "s",
+        agentState: "idle",
+        model: "stub/model",
+      }),
+      shutdown: async () => {},
+    },
+    orchestration: {
+      spawn: () => ({ status: "rejected" as const, error: "kg 测试不装配调度" }),
+      send: () => ({ delivered: false, detail: "stub" }),
+      status: () => [],
+      kill: () => ({ killed: false, error: "stub" }),
+      inspect: () => null,
+    },
+    model: {
+      setModel: async () => {
+        throw new Error("stub");
+      },
+      setThinking: async () => {
+        throw new Error("stub");
+      },
+      getModel: async () => {
+        throw new Error("stub");
+      },
+      catalog: async () => {
+        throw new Error("stub");
+      },
+      catalogRefresh: async () => {
+        throw new Error("stub");
+      },
+      setDefault: async () => {
+        throw new Error("stub");
+      },
+      getDefault: () => ({ model: "stub/model" }),
+      authList: async () => [],
+      authSetKey: async () => {
+        throw new Error("stub");
+      },
+      authDeleteKey: async () => {},
+      authVerify: async () => ({ status: "fail" as const, reason: "stub" }),
+    },
+    resource: {
+      list: async () => {
+        throw new Error("stub");
+      },
+      setEnabled: async () => {
+        throw new Error("stub");
+      },
+      setModelSlot: async () => {
+        throw new Error("stub");
+      },
+      clearModelSlot: async () => {
+        throw new Error("stub");
+      },
+      setThinkingSlot: async () => {
+        throw new Error("stub");
+      },
+      clearThinkingSlot: async () => {
+        throw new Error("stub");
+      },
+    },
+    hasModel: () => false,
+    browser: new StubBrowserPort(),
+    events,
+    token: "kg-it-token",
+    port: 0,
+  };
+}
+
+function makeRig(): Rig {
+  // workspace：alpha（多节点+锚/边/链）/ beta（单节点，跨项目隔离）/
+  // gamma（degraded 基准）/ delta（永远 absent——读面不建库断言载体）；
+  // 排除清单段 + 隐藏目录 + 文件项各一（kg.projects 过滤断言载体）。
+  const workspace = mkdtempSync(path.join(tmpdir(), "helix-kg-ws-"));
+  const mk = (name: string): string => {
+    const dir = path.join(workspace, name);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  };
+  const alpha = mk("alpha");
+  const beta = mk("beta");
+  const gamma = mk("gamma");
+  const delta = mk("delta");
+  mk("docs");
+  mk(".helix");
+  mk(".worktrees");
+  mk("node_modules");
+  mk(".hidden");
+  writeFileSync(path.join(workspace, "README.md"), "文件项不入列\n");
+
+  // 真 service 栈（buildKnowledgeStack 同构接线；引擎边界 = fake——
+  // delayMs=150 制造 building 观察窗；符号面与种子 applySync 同源）
+  const database = new KgDatabase();
+  const store = new SqliteKnowledgeStore({ database });
+  const graph = new SqliteKnowledgeGraph({ database });
+  const write = new KgWriteService({ store });
+  const now = Date.now();
+  const engine = new CodegraphEngineFake({
+    delayMs: 150,
+    symbols: [
+      engineSymbol("fn:layerRule", "layerRule", "src/arch.ts", "function", 11, 40),
+      engineSymbol("fn:saveSession", "saveSession", "src/hot.ts", "function", 1, 9),
+    ],
+    files: [
+      { path: "src/arch.ts", contentHash: "a1", modifiedAt: now - 1 * DAY, indexedAt: now },
+      { path: "src/hot.ts", contentHash: "h1", modifiedAt: now - 1 * DAY, indexedAt: now },
+    ],
+  });
+  const sync = new KgSyncService({ store, graph, engine, debounceMs: 10, retryBackoffMs: 5 });
+  const verify = new KgVerifyService({ graph });
+  const report = new KgReportService({ graph, verify });
+  const project = new KgProjectService({
+    workspaceRoot: workspace,
+    scan: () => scanProjectEntries(workspace),
+    hasIndex: (root) => existsSync(kgDbPath(root)),
+    indexStatus: (root) => sync.getStatus(root),
+    countNodes: (root) => graph.countNodes(root),
+  });
+  const viewer = new KgViewerService({ project, graph, verify, report, write, sync });
+
+  const events = new EventStream();
+  const adapter = new WsServerAdapter({ ...stubAdapterDeps(events), kg: viewer });
+  const client = new TestClient(`ws://127.0.0.1:${adapter.port}`);
+  const dispose = (): void => {
+    sync.dispose();
+    database.closeAll();
+    adapter.stop();
+    rmSync(workspace, { recursive: true, force: true });
+  };
+  return { workspace, alpha, beta, gamma, delta, database, write, store, sync, adapter, client, engine, dispose };
+}
+
+function engineSymbol(id: string, name: string, file: string, kind = "function", start = 1, end = 9): EngineSymbol {
+  return {
+    id,
+    kind,
+    name,
+    qualifiedName: name,
+    filePath: file,
+    language: "typescript",
+    signature: null,
+    startLine: start,
+    endLine: end,
+    startColumn: 1,
+    endColumn: 1,
+  };
+}
+
+function batch(over: Partial<SymbolBatch> & { baseline: string }): SymbolBatch {
+  return { files: [], symbols: [], containsEdges: [], materializedAnchors: [], degraded: false, ...over };
+}
+
+function expectOk(...results: WriteResult[]): void {
+  for (const r of results) {
+    if (!r.ok) throw new Error(`知识层写失败：${r.error.code} ${r.error.message}`);
+  }
+}
+
+/** 知识层表行数（nodes/edges/change_log——rebuild 零知识层写断言载体）。 */
+function knowledgeCounts(rig: Rig, projectRoot: string): { nodes: number; edges: number; log: number } {
+  const db = rig.database.knowledgeConnection(projectRoot);
+  const one = (sql: string): number =>
+    Number((db.query(sql).get() as { c: number | bigint }).c);
+  return {
+    nodes: one("SELECT COUNT(*) AS c FROM nodes"),
+    edges: one("SELECT COUNT(*) AS c FROM edges"),
+    log: one("SELECT COUNT(*) AS c FROM change_log"),
+  };
+}
+
+const rigs: Rig[] = [];
+
+async function openRig(): Promise<Rig> {
+  const rig = makeRig();
+  rigs.push(rig);
+  await rig.client.open();
+  rig.client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: "kg-it-token", protocolVersion: PROTOCOL_VERSION } });
+  await until(() => rig.client.frames.some((f) => f.type === "connection.welcome"), 3000, "握手 welcome");
+  return rig;
+}
+
+afterAll(() => {
+  for (const r of rigs) r.dispose();
+  rigs.length = 0;
+});
+
+// ── 种子（真 sync 管道首拍 + applySync 补拍；详见各断言注释） ──────
+
+async function seedAlpha(rig: Rig): Promise<void> {
+  const w = rig.write;
+  const now = Date.now();
+  expectOk(
+    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "分层依赖单向", digest: "import 只准外层指向内层\n违反即守护失败", body: "依赖必须单向。\n- 外层可指向内层\n- 内层禁止反向依赖", status: "confirmed" } }), // TR-1
+    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "写路径白名单", digest: "落盘写点收口清单", status: "draft" } }), // TR-2
+    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "会话实体", digest: "会话是聚根", domain: "tech", status: "confirmed" } }), // E-1
+    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "写路径守护乙", digest: "冲突对乙", status: "confirmed" } }), // E-2
+    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "旧写路径规则", digest: "旧口径", status: "confirmed" } }), // TR-3（被取代者）
+  );
+  // knowledge_change 载体：updateNode + declareAnchors + addEdge + supersede
+  expectOk(
+    w.write(rig.alpha, { kind: "updateNode", iterationId: ITER, nodeId: "TR-1", patch: { digest: "import 只准外层指向内层（修订版）" } }),
+    w.write(rig.alpha, { kind: "declareAnchors", iterationId: ITER, nodeId: "TR-1", anchors: [{ scopeKind: "symbol", pattern: "src/arch.ts#layerRule" }] }),
+    w.write(rig.alpha, { kind: "addEdge", iterationId: ITER, srcId: "TR-1", verb: "governs", dstId: "TR-2" }),
+    w.write(rig.alpha, { kind: "supersede", iterationId: ITER, nodeId: "TR-3", reason: "写路径口径已演进", replacementNodeDraft: { kind: "rule", name: "新写路径规则", digest: "新口径" } }), // TR-4
+  );
+  // rule_conflict：E-1 ↔ E-2 双向 governs
+  expectOk(
+    w.write(rig.alpha, { kind: "addEdge", iterationId: ITER, srcId: "E-1", verb: "governs", dstId: "E-2" }),
+    w.write(rig.alpha, { kind: "addEdge", iterationId: ITER, srcId: "E-2", verb: "governs", dstId: "E-1" }),
+  );
+  // 符号层首拍：真 sync 管道（triggerManual × fake 引擎）——TR-1 声明锚物化
+  // （span 起点 11）+ lastSyncedAt 落位（syncedAt 面板字段数据源）
+  await rig.sync.triggerManual(rig.alpha);
+  // 补拍：TR-2 锚（src/write-path.ts，下拍后 dead）+ E-1 锚
+  // （src/hot.ts 近期变更——回拨 updated_at 后 stale）
+  rig.store.applySync(rig.alpha, batch({
+    baseline: "2",
+    files: [{ path: "src/write-path.ts", mtime: now - 1 * DAY, sha256: "w1" }],
+    symbols: [
+      { name: "allowWrite", kind: "function", spanStart: 1, spanEnd: 9, file: "src/write-path.ts" },
+    ],
+    materializedAnchors: [
+      { nodeId: "TR-2", anchorPath: "src/write-path.ts", anchorSymbol: "allowWrite", anchorKind: "symbol" },
+      { nodeId: "E-1", anchorPath: "src/hot.ts", anchorSymbol: "saveSession", anchorKind: "symbol" },
+    ],
+  }));
+  // 符号层第二拍：write-path.ts 消亡 → TR-2 锚 orphan（dead）
+  rig.store.applySync(rig.alpha, batch({
+    baseline: "3",
+    files: [{ path: "src/hot.ts", mtime: now - 1 * DAY, sha256: "h1" }],
+    deletedFiles: ["src/write-path.ts"],
+    orphanedAnchors: [{ nodeId: "TR-2", anchorPath: "src/write-path.ts", anchorSymbol: "allowWrite", anchorKind: "symbol" }],
+  }));
+  // E-1 知识滞后 10 天 × hot.ts 1 天前仍变更 → 活跃度启发命中（stale）
+  rig.database
+    .knowledgeConnection(rig.alpha)
+    .prepare("UPDATE nodes SET updated_at = ? WHERE id = ?")
+    .run(new Date(now - 10 * DAY).toISOString(), "E-1");
+}
+
+function seedBeta(rig: Rig): void {
+  expectOk(
+    rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "beta 专属实体", digest: "beta 域", status: "confirmed" } }),
+  );
+}
+
+function seedGamma(rig: Rig): void {
+  // degraded 基准（engine unavailable docs-only 同构：degraded=true 落库）
+  rig.store.applySync(rig.gamma, batch({ baseline: "g1", degraded: true }));
+}
+
+// ── 测试（顺序敏感：projects/list/detail/report 先于 confirm/rebuild 变异现场）──
+
+describe("kg 六命令族 I 层（真 service 栈 + tmp 库 + ws 路由）", () => {
+  test("kg.projects：宽松口径一层扫描 + 排除清单 + 四态行 + absent 不建库（A8）", async () => {
+    const rig = await openRig();
+    await seedAlpha(rig);
+    seedBeta(rig);
+    seedGamma(rig);
+    // delta 保持 absent（无种子）
+
+    const res = await rig.client.kg("kg.projects", {});
+    expect(res.ok).toBe(true);
+    const projects = res.result.projects as Record<string, unknown>[];
+    // 排除清单生效：docs/.helix/.worktrees/node_modules/.hidden/文件项不入列；
+    // 宽松口径：alpha/beta/gamma/delta 全入列（无工程标记要求）
+    expect(projects.map((p) => p.name)).toEqual(["alpha", "beta", "delta", "gamma"]);
+    const alpha = projects.find((p) => p.name === "alpha")!;
+    expect(alpha.path).toBe(rig.alpha);
+    expect(alpha.status).toBe("synced");
+    expect(typeof alpha.symbolCount).toBe("number");
+    expect(typeof alpha.nodeCount).toBe("number");
+    expect(typeof alpha.syncedAt).toBe("string");
+    expect(projects.find((p) => p.name === "gamma")!.status).toBe("degraded");
+    expect(typeof projects.find((p) => p.name === "gamma")!.degradedNote).toBe("string");
+    for (const absent of ["beta", "delta"]) {
+      const row = projects.find((p) => p.name === absent)!;
+      expect(row.status).toBe("absent");
+      expect(row.symbolCount).toBeUndefined();
+      expect(row.nodeCount).toBeUndefined();
+    }
+    // 只读（A8）：absent 项目不建库（读面绝不触发 KgDatabase 连接副作用；
+    // beta 写路径已建库属正常——只对零触达的 delta 断言）
+    expect(existsSync(path.join(rig.delta, ".helix-kg", "kg.db"))).toBe(false);
+  }, 15000);
+
+  test("kg.list：三路过滤叠加 + total/matched + 跨项目不串（A1/A10 数据面）", async () => {
+    const rig = rigs[0]!;
+    const all = await rig.client.kg("kg.list", { project: "alpha" });
+    expect(all.ok).toBe(true);
+    // total=过滤前全集（6 节点：TR-1..4 + E-1/E-2）
+    expect(all.result.total).toBe(6);
+    expect(all.result.matched).toBe(6);
+    const nodes = all.result.nodes as Record<string, unknown>[];
+    const tr1 = nodes.find((n) => n.name === "分层依赖单向")!;
+    // NodeListRow 逐字段（契约 §1）：id/name/kind/domain/status/digest
+    expect(tr1.kind).toBe("rule");
+    expect(tr1.status).toBe("confirmed");
+    expect(tr1.domain).toBeNull();
+    expect(tr1.digest).toBe("import 只准外层指向内层（修订版）");
+    expect(typeof tr1.id).toBe("string");
+
+    // 单路：q 命中 name/digest 子串（仅 TR-1 名含「依赖」）
+    const q = await rig.client.kg("kg.list", { project: "alpha", q: "依赖" });
+    expect(q.result.total).toBe(6);
+    expect(q.result.matched).toBe(1);
+    const qNames = (q.result.nodes as Record<string, unknown>[]).map((n) => n.name);
+    expect(qNames).toEqual(["分层依赖单向"]);
+
+    // 单路：kind=entity（E-1/E-2）
+    const byKind = await rig.client.kg("kg.list", { project: "alpha", kind: "entity" });
+    expect(byKind.result.matched).toBe(2);
+    expect((byKind.result.nodes as Record<string, unknown>[]).every((n) => n.kind === "entity")).toBe(true);
+
+    // 单路：status=draft（TR-2 + supersede 替换稿 TR-4——替换稿缺省 draft）
+    const byStatus = await rig.client.kg("kg.list", { project: "alpha", status: "draft" });
+    expect(byStatus.result.matched).toBe(2);
+    expect((byStatus.result.nodes as Record<string, unknown>[]).map((n) => n.name)).toEqual(["写路径白名单", "新写路径规则"]);
+
+    // 三路叠加：q=白名单 × kind=rule × status=draft → TR-2 唯一
+    const combined = await rig.client.kg("kg.list", { project: "alpha", q: "白名单", kind: "rule", status: "draft" });
+    expect(combined.result.total).toBe(6);
+    expect(combined.result.matched).toBe(1);
+    expect((combined.result.nodes as Record<string, unknown>[])[0]!.name).toBe("写路径白名单");
+
+    // project 作用域（A10）：beta 只见自身节点，alpha 节点不串入
+    //（beta 写路径已建库——baseline 未落 → 四态仍 absent；隔离断言取正向行集）
+    const beta = await rig.client.kg("kg.list", { project: "beta" });
+    expect(beta.ok).toBe(true);
+    expect(beta.result.matched).toBe(1);
+    expect((beta.result.nodes as Record<string, unknown>[]).map((n) => n.name)).toEqual(["beta 专属实体"]);
+    // absent 项目读命令短路：delta 无库 → KG_E_NOT_FOUND（读面绝不新建库文件）
+    const absentRead = await rig.client.kg("kg.list", { project: "delta" });
+    expect(absentRead.ok).toBe(false);
+    expect(absentRead.error!.code).toBe("KG_E_NOT_FOUND");
+  }, 15000);
+
+  test("kg.node.detail：六段聚合（desc/rules/anchors dead-stale-ok/relations/supersede 链/log 最新在上）（A2）", async () => {
+    const rig = rigs[0]!;
+    const res = await rig.client.kg("kg.node.detail", { project: "alpha", id: "TR-1" });
+    expect(res.ok).toBe(true);
+    const d = res.result;
+    // 头部段
+    expect(d.name).toBe("分层依赖单向");
+    expect(d.kind).toBe("rule");
+    expect(d.status).toBe("confirmed");
+    // body 拆分段：叙述=desc，列表行=rules
+    expect(d.desc).toBe("依赖必须单向。");
+    expect(d.rules).toEqual(["外层可指向内层", "内层禁止反向依赖"]);
+    // 锚点段：TR-1 唯一符号锚（声明物化，span 起点 11）
+    const anchors = d.anchors as Record<string, unknown>[];
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]!.symbol).toBe("layerRule");
+    expect(anchors[0]!.path).toBe("src/arch.ts");
+    expect(anchors[0]!.line).toBe(11);
+    expect(anchors[0]!.state).toBe("ok");
+    // 关系段：TR-1 governs TR-2（对方节点引用可跳转）
+    const relations = d.relations as { verb: string; peer: Record<string, unknown> }[];
+    expect(relations).toHaveLength(1);
+    expect(relations[0]!.verb).toBe("governs");
+    expect(relations[0]!.peer.name).toBe("写路径白名单");
+    expect(relations[0]!.peer.id).toBe("TR-2");
+    expect(typeof relations[0]!.peer.digestFirstLine).toBe("string");
+
+    // 锚态谱：TR-2 detail → dead；E-1 detail → stale（活跃度启发命中）
+    const dead = await rig.client.kg("kg.node.detail", { project: "alpha", id: "TR-2" });
+    expect(((dead.result.anchors as Record<string, unknown>[])[0] as { state: string }).state).toBe("dead");
+    const stale = await rig.client.kg("kg.node.detail", { project: "alpha", id: "E-1" });
+    expect(((stale.result.anchors as Record<string, unknown>[])[0] as { state: string }).state).toBe("stale");
+
+    // supersede 链：被取代者 TR-3 → current=新规则 TR-4，history=[TR-3]
+    const old = await rig.client.kg("kg.node.detail", { project: "alpha", id: "TR-3" });
+    const chain = old.result.supersede as { history: Record<string, unknown>[]; current: Record<string, unknown> };
+    expect(chain.current.name).toBe("新写路径规则");
+    expect(chain.history.map((n) => n.name)).toEqual(["旧写路径规则"]);
+
+    // 变更日志段：TR-3 两条（createNode → supersede），最新在上
+    const log = old.result.log as { date: string; iterationId: string; eventText: string }[];
+    expect(log).toHaveLength(2);
+    expect(log[0]!.eventText).toBe("推翻：写路径口径已演进");
+    expect(log[1]!.eventText).toBe("创建节点（新知识入库）");
+    expect(log[0]!.iterationId).toBe(ITER);
+    expect(log[0]!.date >= log[1]!.date).toBe(true);
+    // AD-16：eventText 无 TR-/E- 裸 id
+    for (const entry of log) expect(entry.eventText).not.toMatch(/TR-\d+|E-\d+/);
+
+    // 不存在 id → KG_E_NOT_FOUND
+    const missing = await rig.client.kg("kg.node.detail", { project: "alpha", id: "TR-999" });
+    expect(missing.ok).toBe(false);
+    expect(missing.error!.code).toBe("KG_E_NOT_FOUND");
+  }, 15000);
+
+  test("kg.change.report：四类条目结构（A3 数据面）", async () => {
+    const rig = rigs[0]!;
+    const res = await rig.client.kg("kg.change.report", { project: "alpha" });
+    expect(res.ok).toBe(true);
+    expect(res.result.iterationId as string).toBe(ITER); // 缺省 = 当前迭代（库内最近变更所属）
+    const entries = res.result.entries as Record<string, unknown>[];
+    const kinds = new Set(entries.map((e) => e.kind));
+    expect(kinds.has("dead_anchor")).toBe(true); // TR-2 write-path.ts 消亡
+    expect(kinds.has("rule_conflict")).toBe(true); // E-1 ↔ E-2 双向 governs
+    expect(kinds.has("suspect_stale")).toBe(true); // E-1 滞后 10 天 × 近期变更
+    expect(kinds.has("knowledge_change")).toBe(true); // 五 op 全谱
+    for (const e of entries) {
+      expect(["warn", "info", "ok"]).toContain(e.sev as string);
+      expect(typeof e.label).toBe("string");
+      expect(typeof e.body).toBe("string");
+      expect(Array.isArray(e.options)).toBe(true); // 永远带行动项（AD-5）
+      const refs = e.refs as { nodes: Record<string, unknown>[]; symbols: Record<string, unknown>[] };
+      for (const n of refs.nodes) {
+        expect(typeof n.name).toBe("string");
+        expect(typeof n.digestFirstLine).toBe("string");
+      }
+      for (const s of refs.symbols) expect(typeof s.path).toBe("string");
+      expect(String(e.body)).not.toMatch(/TR-\d+|E-\d+/); // AD-16 无裸 id
+    }
+    // 显式 iterationId 形态
+    const explicit = await rig.client.kg("kg.change.report", { project: "alpha", iterationId: ITER });
+    expect(explicit.result.iterationId).toBe(ITER);
+  }, 15000);
+
+  test("kg.node.confirm：唯一写命令走 F2.3 API + change_log 追加 + 非 draft KG_E_STATE（A4）", async () => {
+    const rig = rigs[0]!;
+    const before = knowledgeCounts(rig, rig.alpha);
+    const logBefore = rig.database
+      .knowledgeConnection(rig.alpha)
+      .prepare("SELECT reason FROM change_log WHERE node_id = ? ORDER BY seq")
+      .all("TR-2") as { reason: string | null }[];
+
+    const res = await rig.client.kg("kg.node.confirm", { project: "alpha", id: "TR-2" });
+    expect(res.ok).toBe(true);
+    expect(res.result.applied).toBe(true);
+    expect((res.result.node as Record<string, unknown>).status).toBe("confirmed");
+
+    // 唯一写路径（A4）：nodes +1 零（改状态不改行数）、edges 零变化、
+    // change_log 恰 +1（审计行——F2.3 API 面的库内痕迹）
+    const after = knowledgeCounts(rig, rig.alpha);
+    expect(after.nodes).toBe(before.nodes);
+    expect(after.edges).toBe(before.edges);
+    expect(after.log).toBe(before.log + 1);
+    const logAfter = rig.database
+      .knowledgeConnection(rig.alpha)
+      .prepare("SELECT reason FROM change_log WHERE node_id = ? ORDER BY seq")
+      .all("TR-2") as { reason: string | null }[];
+    expect(logAfter).toHaveLength(logBefore.length + 1);
+    expect(logAfter[logAfter.length - 1]!.reason).toContain("草稿转正（页面人工确认）");
+
+    // detail log 可见同一审计行（eventText 叙述）
+    const detail = await rig.client.kg("kg.node.detail", { project: "alpha", id: "TR-2" });
+    const top = (detail.result.log as { eventText: string }[])[0]!;
+    expect(top.eventText).toBe("更新节点内容：草稿转正（页面人工确认）");
+
+    // 非 draft → KG_E_STATE（confirmed 复转）
+    const again = await rig.client.kg("kg.node.confirm", { project: "alpha", id: "TR-2" });
+    expect(again.ok).toBe(false);
+    expect(again.error!.code).toBe("KG_E_STATE");
+    // superseded → 同 KG_E_STATE
+    const superseded = await rig.client.kg("kg.node.confirm", { project: "alpha", id: "TR-3" });
+    expect(superseded.ok).toBe(false);
+    expect(superseded.error!.code).toBe("KG_E_STATE");
+    // 不存在 → KG_E_NOT_FOUND
+    const missing = await rig.client.kg("kg.node.confirm", { project: "alpha", id: "TR-999" });
+    expect(missing.ok).toBe(false);
+    expect(missing.error!.code).toBe("KG_E_NOT_FOUND");
+  }, 15000);
+
+  test("kg.index.status：四态透传 + rebuild building + 知识层零写 + absent 冷启动（A5/A9）", async () => {
+    const rig = rigs[0]!;
+
+    // 四态之 synced/degraded（absent 见 delta；building 见下）
+    const synced = await rig.client.kg("kg.index.status", { project: "alpha" });
+    expect(synced.ok).toBe(true);
+    expect(synced.result.state).toBe("synced");
+    expect(typeof synced.result.symbolCount).toBe("number");
+    expect(typeof synced.result.syncedAt).toBe("string");
+    const degraded = await rig.client.kg("kg.index.status", { project: "gamma" });
+    expect(degraded.result.state).toBe("degraded");
+    expect(typeof degraded.result.degradedNote).toBe("string");
+
+    // absent：delta 无库 → absent 且不建库（读面短路）
+    const absent = await rig.client.kg("kg.index.status", { project: "delta" });
+    expect(absent.result.state).toBe("absent");
+    expect(existsSync(path.join(rig.delta, ".helix-kg", "kg.db"))).toBe(false);
+
+    // rebuild=true：触发即 building（引擎 delayMs=150×2 制造窗口；O-6 同通道
+    // 并发轮询观察——rebuild 请求自身在完成后才回 synced 帧）
+    const before = knowledgeCounts(rig, rig.alpha);
+    const at = rig.client.frames.length;
+    rig.client.fireAndForget("kg.index.status", { project: "alpha", rebuild: true });
+    let sawBuilding = false;
+    const t0 = Date.now();
+    while (!sawBuilding && Date.now() - t0 < 3000) {
+      rig.client.send({ v: PROTOCOL_VERSION, type: "kg.index.status", payload: { project: "alpha" } });
+      await new Promise((r) => setTimeout(r, 30));
+      sawBuilding = rig.client.frames
+        .slice(at)
+        .some((f) => f.type === "kg.index.status.result" && (f.payload as { state?: string }).state === "building");
+    }
+    expect(sawBuilding).toBe(true);
+    await until(
+      () =>
+        rig.client.frames
+          .slice(at)
+          .some((f) => f.type === "kg.index.status.result" && (f.payload as { state?: string }).state === "synced"),
+      5000,
+      "rebuild 完成后状态回落 synced",
+    );
+    // 知识层零写（A5：纯 codegraph 动作——nodes/edges/change_log 全零变化）
+    const after = knowledgeCounts(rig, rig.alpha);
+    expect(after.nodes).toBe(before.nodes);
+    expect(after.edges).toBe(before.edges);
+    expect(after.log).toBe(before.log);
+
+    // absent 冷启动（A9/B1）：delta 零触达无库 rebuild → 同一入口首次构建
+    // → synced + 库出现（不依赖 CLI 预建——引擎面即全部前置）
+    expect(existsSync(path.join(rig.delta, ".helix-kg", "kg.db"))).toBe(false);
+    const cold = await rig.client.kg("kg.index.status", { project: "delta", rebuild: true });
+    expect(cold.ok).toBe(true);
+    expect(cold.result.state).toBe("synced");
+    expect(existsSync(path.join(rig.delta, ".helix-kg", "kg.db"))).toBe(true);
+  }, 20000);
+
+  test("project 参数两形态等价 + 无法解析 KG_E_PARAM + 错误回执结构化（A10）", async () => {
+    const rig = rigs[0]!;
+    // 名称形态 ≡ 绝对路径形态
+    const byName = await rig.client.kg("kg.list", { project: "alpha", kind: "entity" });
+    const byPath = await rig.client.kg("kg.list", { project: rig.alpha, kind: "entity" });
+    expect(byPath.ok).toBe(true);
+    expect(byPath.result.matched).toBe(byName.result.matched);
+
+    // 无法解析（不在项目列表）→ KG_E_PARAM + 字段路径（结构化回执）
+    const bad = await rig.client.kg("kg.list", { project: "no-such-project" });
+    expect(bad.ok).toBe(false);
+    expect(bad.error!.code).toBe("KG_E_PARAM");
+    expect(bad.error!.message).toContain("payload.project");
+    expect(bad.error!.message).toContain("no-such-project");
+
+    // project 缺失 → KG_E_PARAM（形状校验在 handler 入口）
+    const missing = await rig.client.kg("kg.list", { kind: "rule" });
+    expect(missing.error!.code).toBe("KG_E_PARAM");
+
+    // 过滤值越界 → KG_E_PARAM（service 枚举校验 + path）
+    const badKind = await rig.client.kg("kg.list", { project: "alpha", kind: "dragon" });
+    expect(badKind.error!.code).toBe("KG_E_PARAM");
+    expect(badKind.error!.message).toContain("payload.kind");
+
+    // rebuild 非法类型 → KG_E_PARAM
+    const badRebuild = await rig.client.kg("kg.index.status", { project: "alpha", rebuild: "yes" });
+    expect(badRebuild.error!.code).toBe("KG_E_PARAM");
+  }, 15000);
+
+  test("unimplemented 门控：kg 栈未装配六命令回 command.unimplemented（不崩溃）", async () => {
+    const events = new EventStream();
+    const adapter = new WsServerAdapter({ ...stubAdapterDeps(events) }); // 无 kg 面
+    const client = new TestClient(`ws://127.0.0.1:${adapter.port}`);
+    try {
+      await client.open();
+      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: "kg-it-token", protocolVersion: PROTOCOL_VERSION } });
+      await until(() => client.frames.some((f) => f.type === "connection.welcome"), 3000, "握手 welcome");
+      for (const type of [
+        "kg.projects",
+        "kg.list",
+        "kg.node.detail",
+        "kg.change.report",
+        "kg.node.confirm",
+        "kg.index.status",
+      ]) {
+        const res = await client.kg(type, { project: "x", id: "TR-1" });
+        expect(res.ok).toBe(false);
+        expect(res.error!.code).toBe("command.unimplemented");
+        expect(res.error!.message).toContain(type); // 回执文案含命令名（commandError 通则）
+      }
+    } finally {
+      adapter.stop();
+      await client.close();
+    }
+  }, 15000);
+
+  test("容器接线：kgWorkspaceRoot 注入 + 真组合根 kg.projects roundtrip", async () => {
+    // 独立 workspace：若 kgWorkspaceRoot 接线失效（回落 process.cwd()），
+    // kg.projects 会列出 daemon 测试 cwd 的真实目录而非 [kappa]——注入面断言。
+    const workspace = mkdtempSync(path.join(tmpdir(), "helix-kg-container-"));
+    mkdirSync(path.join(workspace, "kappa"), { recursive: true });
+    mkdirSync(path.join(workspace, "docs"), { recursive: true });
+    const home = mkdtempSync(path.join(tmpdir(), "helix-kg-container-home-"));
+    const daemon = await createTestDaemon({
+      home,
+      engine: new FakeAgentEngine({ initialModel: "anthropic/claude-sonnet-4-5", replies: [] }),
+      skipConfig: true,
+      skipLock: true,
+      port: 0,
+      cliInput: new PassThrough(),
+      cliOutput: new PassThrough(),
+      kgWorkspaceRoot: workspace,
+    });
+    const client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);
+    try {
+      await client.open();
+      const token = readFileSync(path.join(home, "dev-token"), "utf8");
+      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token, protocolVersion: PROTOCOL_VERSION } });
+      await until(() => client.frames.some((f) => f.type === "connection.welcome"), 3000, "握手 welcome");
+      const res = await client.kg("kg.projects", {});
+      expect(res.ok).toBe(true);
+      expect((res.result.projects as Record<string, unknown>[]).map((p) => p.name)).toEqual(["kappa"]);
+      expect((res.result.projects as Record<string, unknown>[])[0]!.status).toBe("absent");
+    } finally {
+      await client.close();
+      await daemon.shutdown();
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 20000);
+});

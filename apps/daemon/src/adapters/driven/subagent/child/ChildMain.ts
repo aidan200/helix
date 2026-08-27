@@ -21,13 +21,19 @@ import type { Model } from "@earendil-works/pi-ai";
 import { PiAgentEngineAdapter } from "../../pi-engine/PiAgentEngineAdapter";
 import { supportsThinkingLevel } from "../../pi-engine/model-provider";
 import { SubAgentProfile } from "../../pi-engine/runtime/profiles/SubAgentProfile";
-import { CoreToolExecutor } from "../../tools/CoreToolExecutor";
+import { CoreToolExecutor, type KgToolOptions } from "../../tools/CoreToolExecutor";
 import { encodeLine, parseParentLine } from "../transport/wire";
 import type { ChildOutboundLine, SendLine, ToolResponseLine } from "../transport/wire";
 import { RemoteBrowserPort } from "./RemoteBrowserPort";
 import { loadFakeEngineScript, makeScriptedStreamFn } from "./scriptedEngine";
 import type { FakeEngineScript } from "./scriptedEngine";
 import type { InstanceClosurePayload } from "../../../../domain/events/DomainEvent";
+import { KgDatabase } from "../../sqlite-kg/KgDatabase";
+import { SqliteKnowledgeGraph } from "../../sqlite-kg/SqliteKnowledgeGraph";
+import { SqliteKnowledgeStore } from "../../sqlite-kg/SqliteKnowledgeStore";
+import { KgWriteService } from "../../../../application/services/kg/KgWriteService";
+import { KgQueryService } from "../../../../application/services/kg/KgQueryService";
+import { existingKgProjects, scanWorkspaceProjects } from "../../workspace-scan";
 
 // ── argv/env 解析 ──────────────────────────────────────────
 
@@ -140,6 +146,27 @@ export function spawnOverridesFromEnv(
   };
 }
 
+// ── 子进程本地 kg 栈（T3.3：kg/kg-update 双工具注入面） ─────
+
+/**
+ * 子进程本地 kg 栈：独立进程持有自己的 per-project SQLite 连接（WAL +
+ * busy_timeout 跨进程安全——父 daemon 与子进程写事务由 SQLite 写锁串行化）。
+ * 读面项目域 = 已建 .kg 项目（读面绝不新建库文件）；写面目标解析 =
+ * workspace 全扫描。无跨通道会话注册表（任务切片注入在父进程 spawn 时
+ * 已完成——本栈只消费）。ChildMain 是子进程的组合根（CoreToolExecutor
+ * 同款先例），此处 new 具体 adapter/service 不违 AG-02④ 扫描域（driven）。
+ */
+function buildLocalKgStack(workspaceRoot: string): { readonly tools: KgToolOptions; readonly database: KgDatabase } {
+  const database = new KgDatabase();
+  const graph = new SqliteKnowledgeGraph({ database });
+  const query = new KgQueryService({ graph, projects: () => existingKgProjects(workspaceRoot) });
+  const write = new KgWriteService({ store: new SqliteKnowledgeStore({ database }) });
+  return {
+    tools: { query, write, workspaceRoot, scanProjects: () => scanWorkspaceProjects(workspaceRoot) },
+    database,
+  };
+}
+
 // ── 主流程 ─────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -169,7 +196,15 @@ async function main(): Promise<void> {
   // H-3：browser 工具经 wire 转发通道接入 daemon 全局唯一 CDP 单例
   // （子进程零 CDP 知识/零连接状态；ownerId = 本实例 instanceId）
   const remoteBrowser = new RemoteBrowserPort(instanceId, writeLine);
-  const executor = new CoreToolExecutor({ cwd: toolCwd, browser: remoteBrowser, ownerId: instanceId });
+  // T3.3：kg/kg-update 双工具本地栈（子进程组合根装配——SubAgentProfile
+  // 声明两名，未注册则 resolveTools fail-fast）
+  const kg = buildLocalKgStack(toolCwd);
+  const executor = new CoreToolExecutor({
+    cwd: toolCwd,
+    browser: remoteBrowser,
+    ownerId: instanceId,
+    kg: kg.tools,
+  });
   const engine = new PiAgentEngineAdapter({
     profile,
     model, // env JSON 解析的完整对象透传（与父侧深度相等）
@@ -229,6 +264,7 @@ async function main(): Promise<void> {
         taskId: null,
       });
   writeLine({ type: "closure", instanceId, closure });
+  kg.database.closeAll(); // 正常收尾关连接（崩溃路径走 WAL 恢复，无需显式关）
   process.exit(0);
 }
 

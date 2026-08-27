@@ -7,8 +7,8 @@ import type {
 import type { TextContent } from "@earendil-works/pi-ai";
 import {
   createBashTool,
-  createEditTool,
-  createReadTool,
+  createEditTool as createPiEditTool,
+  createReadTool as createPiReadTool,
   createWriteTool,
   NodeExecutionEnv,
 } from "@earendil-works/pi-agent-core/node";
@@ -20,21 +20,28 @@ import type {
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import { createGrepTool, type GrepToolDeps } from "./grep/GrepTool";
+import { createEditTool, type EditToolDeps } from "./edit/EditTool";
+import { createReadTool } from "./read/ReadTool";
+import { createEditLinesTool } from "./edit-lines/EditLinesTool";
+import { createKgTool } from "./kg/KgTool";
+import { createKgUpdateTool } from "./kg-update/KgUpdateTool";
 import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
 import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool, createAgentInspectTool } from "./agent/AgentOrchestrationTools";
 import { imagesOfContent } from "../../../application/services/images";
-
+import type { KgQueryService } from "../../../application/services/kg/KgQueryService";
+import type { KnowledgeWriteOp, WriteResult } from "../../../domain/kg/types";
 /**
  * CoreToolExecutor —— ToolExecutorPort 的真实现（architecture.md §3.4，
  * 落位 adapters/driven/tools，AD-17/AD-10）。
  *
  * 两件事：
  * 1. **执行**（ToolExecutorPort.execute）：service 层工具编排的出口——
- *    按名查找注册表工具并真实执行（bash/edit/read/write 四工具来自
- *    `pi-agent-core/node` 内置，ExecutionEnv 用其 Node 实现；grep 为
- *    自写，同 env 同沙箱 cwd）。
+ *    按名查找注册表工具并真实执行（bash/write 来自 `pi-agent-core/node`
+ *    内置，ExecutionEnv 用其 Node 实现；edit/read/edit-lines 为自写
+ *    （AD-12 同名覆盖 + 失败推荐管线/行号输出），同 env 同沙箱 cwd；
+ *    grep 为自写，同 env 同沙箱 cwd）。
  * 2. **装配**（resolveTools）：把 profile 声明的工具集装配成 pi
  *    AgentTool 清单交给 AgentRuntime——内置工具是 AgentHarnessTool
  *    （execute 多一个 context 参数），经 bindToolContext 闭包绑定
@@ -59,6 +66,15 @@ export function bindToolContext<T extends ExecutionToolContext>(
     execute: (toolCallId, params, signal, onUpdate) =>
       tool.execute(toolCallId, params, signal, onUpdate, context),
   } as AgentTool<any>;
+}
+
+/** kg 双工具注入面（T3.3；query/write 均为结构化面——KgQueryService/
+ * KgWriteService 与测试替身同形）。 */
+export interface KgToolOptions {
+  readonly query: Pick<KgQueryService, "search" | "get" | "locate">;
+  readonly write: { write(projectRoot: string, op: KnowledgeWriteOp): WriteResult };
+  readonly workspaceRoot: string;
+  readonly scanProjects: () => readonly string[];
 }
 
 export interface CoreToolExecutorOptions {
@@ -87,6 +103,19 @@ export interface CoreToolExecutorOptions {
    * 子进程装配不走组合根定格，恒为 ts）。
    */
   readonly grep?: GrepToolDeps;
+  /**
+   * 自写 edit/edit-lines 注入面（T3.1）：notifyWrite 写后通知（T2.2
+   * KgSyncService 契约签名，未到位时容缺空操作）+ onEditApplied 成功路径
+   * 挂点（T3.2 附着接线预留）。缺省 = 全容缺。
+   */
+  readonly edit?: EditToolDeps;
+  /**
+   * kg 双工具注入面（T3.3）：提供则注册 kg（只读 search/get）与
+   * kg-update（即时落账/supersede）。主会话（buildSessionStack）与
+   * SubAgent 子进程（ChildMain 本地栈）均注入；缺省不注册（既有测试
+   * 形态/无 kg 场景 profile 不声明两名）。
+   */
+  readonly kg?: KgToolOptions;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -101,10 +130,16 @@ export class CoreToolExecutor implements ToolExecutorPort {
     });
     this.context = { env };
     const tools: AgentHarnessTool<ExecutionToolContext, any, any>[] = [
+      // pi 内置四工具基线注册（F-20：registry 按 name 平铺，内置无特权）
       createBashTool(),
-      createReadTool(),
+      createPiReadTool(),
       createWriteTool(),
-      createEditTool(),
+      createPiEditTool(),
+      // 自写三件（AD-12）：同名覆盖 pi 内置 edit/read（后注册者胜）+
+      // 新增 edit-lines 行锚编辑；write/bash 保留 pi 注册
+      createReadTool(),
+      createEditTool(options.edit),
+      createEditLinesTool(options.edit),
       createGrepTool(options.grep),
       createWebSearchTool(),
       createWebFetchTool(),
@@ -119,6 +154,18 @@ export class CoreToolExecutor implements ToolExecutorPort {
     }
     if (options.browser !== undefined) {
       tools.push(createBrowserTool(options.browser, options.ownerId ?? "main"));
+    }
+    if (options.kg !== undefined) {
+      // kg 双工具（T3.3）：kg 只读面 + kg-update 即时落账面（薄壳调 service）
+      tools.push(
+        createKgTool({ query: options.kg.query }),
+        createKgUpdateTool({
+          query: options.kg.query,
+          write: options.kg.write,
+          workspaceRoot: options.kg.workspaceRoot,
+          scanProjects: options.kg.scanProjects,
+        }),
+      );
     }
     const registry = new Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>();
     for (const tool of tools) registry.set(tool.name, tool);

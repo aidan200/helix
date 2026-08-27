@@ -56,6 +56,8 @@ export interface TestDaemonOptions {
   readonly builtinSkillsDir?: string;
   /** SubAgent runner 覆盖（integration 注入 fake runner 驱动收口时序）。 */
   readonly subagentRunner?: InstanceRunner;
+  /** findings 落账管道覆盖（F3.0，T4.1：注入替身真 KgWriteService/故障注入；缺省 = kg 栈真体）。 */
+  readonly findingsSink?: Parameters<typeof assembleDaemon>[0]["findingsSinkOverride"];
   /** BrowserPort 覆盖（fake BrowserPort 驱动 web 族命令/广播断言）。 */
   readonly browser?: BrowserPort;
   /** 主时间轴尾窗大小（G-1：缺省 30；测试注入面）。 */
@@ -64,6 +66,10 @@ export interface TestDaemonOptions {
   readonly sessionIdleUnloadMs?: number;
   /** 空闲卸载轮询间隔 ms（测试注入面；缺省 min(60s, 窗口/10)）。 */
   readonly sessionIdlePollMs?: number;
+  /** kg sync 启动触发+fs-watch 挂接 opt-in（缺省 false=跳过：真 codegraph 构建不进测试进程，T2.2）。 */
+  readonly kgSyncStartup?: boolean;
+  /** kg workspace 根覆盖（T5.3：kg.projects 扫描/project 解析作用域指向 tmp；缺省 = daemon 启动 cwd）。 */
+  readonly kgWorkspaceRoot?: string;
 }
 
 /**
@@ -108,11 +114,14 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     legacy: loaded.legacy,
     browserPort: options.browser ?? new CdpConnectionManager({ homeDir: osHomeDir() }),
     subagentRunnerOverride: options.subagentRunner,
+    findingsSinkOverride: options.findingsSink,
     staticDir: options.staticDir,
     tailSize: options.sessionTailSize,
     toolCwd: options.toolCwd,
     builtinSkillsDir: options.builtinSkillsDir,
     sessionIdleUnloadMs: options.sessionIdleUnloadMs,
     sessionIdlePollMs: options.sessionIdlePollMs,
+    skipKgSyncStartup: options.kgSyncStartup !== true,
+    kgWorkspaceRoot: options.kgWorkspaceRoot,
   });
 }

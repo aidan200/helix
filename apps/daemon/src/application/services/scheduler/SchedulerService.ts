@@ -26,7 +26,7 @@ import type { InstanceClosureOutcome, InstanceRunner } from "../InstanceRunner";
 import type { InstanceSnapshotEntry } from "../../ports/inbound/SessionPort";
 import type { RestoredInstance } from "../RestoreService";
 import { SubagentEventTranslator } from "./SubagentEventTranslator";
-import { ClosureRecorder } from "./ClosureRecorder";
+import { ClosureRecorder, type ClosureFindingsSink } from "./ClosureRecorder";
 
 /**
  * SchedulerService —— SubAgent 调度编排门面（architecture.md §4，AD-7）。
@@ -125,14 +125,27 @@ export interface SchedulerServiceDeps {
     readonly thinkingLevel: string | undefined;
   };
   /**
+   * 任务文本切片注入器（T3.3，CL-1 F1.3）：spawn 派发时任务文本 → 图
+   * 查询 → digest+指针切片拼入 task 约束区（组合根接 KgQueryService.
+   * injectTaskSlice——sessionId 即跨通道去重键）。返回值 = 子进程实际收到
+   * 的 task；注入器抛错/缺席 → 原文透传（注入是增强，绝不阻断 spawn）。
+   */
+  readonly taskInjector?: (sessionId: string, task: string) => string;
+  /**
    * 实例终态钩子（CDP 地基）：done/failed/killed 收口链完成后回调——
    * 组合根接 `browserPort.reclaimOwner`（回收该 owner 全部 managed tabs，
    * 浏览器侧资源随 agent 终态释放；idle sweep 兼底）。可选——纯调度测试
    * 形态不注入；迟到/重复收口被门面幂等吞，钩子恰好触发一次。
    */
   readonly onInstanceTerminal?: (agentId: string) => void;
-  /** 日志（容器接 file logger——kill 终止信号失败可观测；缺省静默）。 */
+  /** 日志（容器接 file logger——kill 终止信号失败/findings 落账跳过可观测；缺省静默）。 */
   readonly logger?: { warn: (message: string) => void };
+  /**
+   * findings 落账管道（F3.0③，透传 ClosureRecorder）：closure findings
+   * 非空时映射 kg 写 op 落账（组合根接 kg 栈 KgWriteService 唯一写入口）。
+   * 缺省不落账（纯调度测试形态）。
+   */
+  readonly findingsSink?: ClosureFindingsSink;
 }
 
 /**
@@ -178,6 +191,8 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       clock: deps.clock,
       reportsDirFor: deps.reportsDirFor,
       injectClosure: deps.injectClosure,
+      logger: deps.logger,
+      ...(deps.findingsSink !== undefined ? { findingsSink: deps.findingsSink } : {}),
     });
     // 契约零变化：恰 2 回调注册给 runner，回调体一行转发
     this.deps.runner.setCallbacks({
@@ -365,7 +380,17 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       createdAt: this.deps.clock.now(),
     });
     this.registry.registerInstance(instance);
-    this.tasks.set(agentId, task);
+    // 任务文本切片注入（F1.3）：task 文本成形后、传给 launcher 前单点挂接
+    // ——预算判定通过才注入（reject 不注入）；注入失败原文透传（不阻断）
+    let effectiveTask = task;
+    if (this.deps.taskInjector !== undefined) {
+      try {
+        effectiveTask = this.deps.taskInjector(sessionId, task);
+      } catch {
+        // 注入器异常：原文透传（增强面静默降级——调度语义不受 kg 状态影响）
+      }
+    }
+    this.tasks.set(agentId, effectiveTask);
     if (model !== undefined) this.spawnModels.set(agentId, model); // spawn 时透传解析后模型 id（DTO 填充）
     // T3-A：报告间隔校验（>0 且有限才启用；负数/NaN/0 视为不报告）
     if (typeof reportIntervalMs === "number" && Number.isFinite(reportIntervalMs) && reportIntervalMs > 0) {
@@ -380,7 +405,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     // 出卡事件：预算内直跑也会先发 spawned（卡片进入），再由 started 转 running
     this.publish(instance, "agent.spawned", {
       agentId,
-      task,
+      task: effectiveTask,
       profileKind: instance.profileKind,
       ...(model !== undefined ? { model } : {}),
     } satisfies AgentSpawnedPayload);

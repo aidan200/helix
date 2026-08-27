@@ -11,7 +11,8 @@
  * v0.7 新增 3（web.status.result / web.stop.result / web.status.changed，
  * T4 联网状态图标，web 新族）+ v0.9 新增 1（web.start.result，T7 CDP 显式
  * 启动通路）+ v0.11 新增 1（thinking.changed，thinking 批①，
- * iter-20260823-6ps5 T1.1）。`EventEnvelope` 为
+ * iter-20260823-6ps5 T1.1）+ kg 批新增 6（kg.*.result 点对点回执，
+ * iter-20260825-11fo T5.3：P-1 六命令族；O-6 轮询裁决零推送事件）。`EventEnvelope` 为
  * 判别式联合，前端 switch(event.type) 窄化各分支 payload（投影 reducer）。
  *
  * v0.2 事件类型学（AD-3，契约 A §2）：每事件以 `channel` 字面量登记所属通道
@@ -82,6 +83,14 @@ import type {
   WebStatusResultEvent,
   WebStopResultEvent,
 } from "./web";
+import type {
+  KgChangeReportResultEvent,
+  KgIndexStatusResultEvent,
+  KgListResultEvent,
+  KgNodeConfirmResultEvent,
+  KgNodeDetailResultEvent,
+  KgProjectsResultEvent,
+} from "./kg";
 
 export * from "./notification";
 export * from "./session";
@@ -92,6 +101,7 @@ export * from "./model";
 export * from "./trace";
 export * from "./thinking";
 export * from "./web";
+export * from "./kg";
 
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
 export type EventEnvelope =
@@ -142,7 +152,13 @@ export type EventEnvelope =
   | WebStopResultEvent
   | WebStatusChangedEvent
   | WebStartResultEvent
-  | ThinkingChangedEvent;
+  | ThinkingChangedEvent
+  | KgProjectsResultEvent
+  | KgListResultEvent
+  | KgNodeDetailResultEvent
+  | KgChangeReportResultEvent
+  | KgNodeConfirmResultEvent
+  | KgIndexStatusResultEvent;
 
 /** 事件目录常量（运行时可用；与 EventEnvelope 联合由测试双向一致性守护） */
 export const EVENT_TYPES = [
@@ -194,6 +210,12 @@ export const EVENT_TYPES = [
   "web.status.changed",
   "web.start.result",
   "thinking.changed",
+  "kg.projects.result",
+  "kg.list.result",
+  "kg.node.detail.result",
+  "kg.change.report.result",
+  "kg.node.confirm.result",
+  "kg.index.status.result",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -253,4 +275,10 @@ export const EVENT_CHANNELS = {
   "web.status.changed": "web",
   "web.start.result": "web",
   "thinking.changed": "thinking",
+  "kg.projects.result": "kg",
+  "kg.list.result": "kg",
+  "kg.node.detail.result": "kg",
+  "kg.change.report.result": "kg",
+  "kg.node.confirm.result": "kg",
+  "kg.index.status.result": "kg",
 } as const satisfies Record<EventType, Channel>;

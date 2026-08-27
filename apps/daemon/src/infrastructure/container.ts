@@ -21,6 +21,10 @@ import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManage
 import { createPaths, osHomeDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
+import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
+import { buildEditToolDeps, buildKnowledgeStack, startKgSyncBackground, type KgSyncBackground, type KnowledgeStack } from "./assembly/buildKnowledgeStack";
+import { scanWorkspaceProjects } from "../adapters/driven/workspace-scan";
+import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { ensureDevToken } from "./dev-token";
@@ -102,6 +106,11 @@ export interface Daemon {
   readonly browser: BrowserPort;
   /** 多会话容器（生命周期编排观测面——测试断言懒加载/卸载用）。 */
   readonly registry: SessionRegistry;
+  /**
+   * kg 子系统栈（T2.1：.kg 双 port + codegraph 引擎被动封装；
+   * KgSyncService 挂入归 T2.2）。shutdown 时 dispose 全部 per-project 连接。
+   */
+  readonly knowledge: KnowledgeStack;
   /** fan-out 带名注册表（§4.2.4：序 = 语义唯一权威——测试断言语义序用）。 */
   readonly fanoutTargets: readonly NamedFanoutTarget[];
   /** 装配级资源事件总线（§4.2.3：resources.changed 观测面——不进 WS/不落盘/不进 fan-out）。 */
@@ -140,6 +149,11 @@ export interface AssembleDaemonDeps {
   readonly browserPort: BrowserPort;
   /** SubAgent runner 覆盖（测试注入 fake runner 驱动收口时序；缺省真体/占位降级）。 */
   readonly subagentRunnerOverride?: InstanceRunner;
+  /**
+   * findings 落账管道覆盖（F3.0，T4.1 测试注入替身；缺省 = kg 栈真体：
+   * KgWriteService 唯一写入口 + workspace 项目扫描）。
+   */
+  readonly findingsSinkOverride?: ClosureFindingsSink;
   /** 前端静态产物目录覆盖（缺省取 config.staticDir）。 */
   readonly staticDir?: string;
   /** 工具沙箱 cwd 覆盖（缺省为进程工作区）。 */
@@ -152,6 +166,13 @@ export interface AssembleDaemonDeps {
   readonly sessionIdleUnloadMs?: number;
   /** 空闲卸载轮询间隔 ms 覆盖（注入面；缺省 min(60s, 窗口/10)）。 */
   readonly sessionIdlePollMs?: number;
+  /** 跳过 kg sync 启动触发+fs-watch 挂接（生产缺省启动；测试面默认跳——真 codegraph 构建不进测试，T2.2）。 */
+  readonly skipKgSyncStartup?: boolean;
+  /**
+   * kg workspace 根覆盖（T5.3 测试注入面；缺省 = daemon 启动 cwd，
+   * §3.1/TR-AD-6 零 env 键——生产恒走 cwd，不新增启动参数）。
+   */
+  readonly kgWorkspaceRoot?: string;
 }
 
 /**
@@ -241,6 +262,27 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger.info(`grep 后端定格内置 TS：${grepFreeze.reasons.join("；")}`);
   }
 
+  // ── codegraph 引擎三级解析定格（T2.1/AF-2，TR-AD-32 同模式）──────
+  //    HELIX_CODEGRAPH_PATH/PATH 的 process.env 读取收束于本组合根
+  //    （AG-08 唯一例外面，壳注入的资源定位参数，非配置源）；
+  //    resolve-codegraph.ts 本体零 env/fs 依赖。三级全 miss ≠ 装配失败：
+  //    引擎面定格不可用（binaryPath=null），构建面 degraded（AF-2）。──
+  const codegraphResolution = resolveCodegraphPath({
+    bundlePath: process.env.HELIX_CODEGRAPH_PATH,
+    configPath: config.codegraphPath,
+    pathEnv: process.env.PATH,
+    probe: isExecutableFile,
+  });
+  if (codegraphResolution.kind === "resolved") {
+    logger.info(`codegraph 引擎定格（source=${codegraphResolution.source}）：${codegraphResolution.path}`);
+  } else {
+    logger.info(`codegraph 引擎不可用（构建面 degraded，AF-2）：${codegraphResolution.reasons.join("；")}`);
+  }
+  const kgWorkspaceRoot = deps.kgWorkspaceRoot ?? process.cwd();
+  const knowledge = buildKnowledgeStack({ codegraphResolution, workspaceRoot: kgWorkspaceRoot });
+  // §3.5：workspace 根 = daemon 启动 cwd（同一根供 kg 后台与 edit 挂点归属；
+  // T5.3 测试注入面 deps.kgWorkspaceRoot 覆盖——生产恒 cwd，零 env 键）
+
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   const persistence = buildPersistence({ paths, logger });
   const modelStack = buildModelStack({ paths, logger });
@@ -275,6 +317,33 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     grep: {
       rgPath: grepFreeze.kind === "rg" ? grepFreeze.rgPath : undefined,
       warn: (m) => logger.warn(m),
+    },
+    // kg 挂点（T3.2 附着接线）：每会话闭合 sessionId（跨通道去重键）——
+    // notifyWrite 写后通知入 sync 队列 + edit 成功路径附着 📎 块
+    editDeps: (sessionId) =>
+      buildEditToolDeps({
+        workspaceRoot: kgWorkspaceRoot,
+        syncService: knowledge.syncService,
+        attachment: knowledge.attachmentService,
+        sessionId,
+      }),
+    // kg 双工具装配面（T3.3）：主会话 executor 注册 kg/kg-update（SubAgent
+    // 子进程侧由 ChildMain 本地栈自带）；write 直用 knowledge 栈真体。
+    kgTools: {
+      query: knowledge.queryService,
+      write: knowledge.writeService,
+      workspaceRoot: kgWorkspaceRoot,
+      scanProjects: () => scanWorkspaceProjects(kgWorkspaceRoot),
+    },
+    // spawn 派发任务切片注入（F1.3）：任务文本 → 图查询 → digest+指针切片
+    // 拼入 task 约束区；注入后 markInjected 入跨通道去重注册表（T3.2 同源）
+    taskInjector: (sessionId, task) => knowledge.queryService.injectTaskSlice(sessionId, task),
+    // findings 落账管道（F3.0，T4.1）：closure findings → KgWriteService 唯一
+    // 写入口落账（绝不旁路）；目标项目解析 = workspace 全扫描（与 kg-update
+    // 工具同口径：显式名命中 / 唯一项目自动 / 多项目不猜）。测试可注入替身。
+    findingsSink: deps.findingsSinkOverride ?? {
+      write: (projectRoot, op) => knowledge.writeService.write(projectRoot, op),
+      scanProjects: () => scanWorkspaceProjects(kgWorkspaceRoot),
     },
     builtinSkillsDir: deps.builtinSkillsDir,
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
@@ -404,6 +473,16 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 同样依赖目标已装配；中间构造块 sessionService/chatRouter/cli 均为惰性闭包）。
   await registry.initialize();
 
+  // ── 装配序步 7.5：kg sync 启动触发 + fs-watch 兑底（T2.2，AD-15）──
+  // daemon 启动 cwd = workspace 根（§3.1/TR-AD-6）：一层扫描逐项目异步
+  // onStartup（不阻塞启动，失败吞——退避重试在 service 内）+ 单流 watch
+  // 兑底外部编辑。测试面（createTestDaemon）默认 skip：真 codegraph 构建
+  // 不进测试进程。
+  let kgSyncBackground: KgSyncBackground | undefined;
+  if (!deps.skipKgSyncStartup) {
+    kgSyncBackground = startKgSyncBackground(knowledge, kgWorkspaceRoot);
+  }
+
   let running = true;
   let wsServer: WsServerAdapter | undefined;
   // model 位数据源改会话级（AD-3 model 族 + AD-2）：当前会话
@@ -436,6 +515,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       unsubscribeBrowserStatus(); // web.status.changed 广播订阅退订（先退订再 stop）
       await browserPort.stop(); // 关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
       await persistence.writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
+      kgSyncBackground?.stop(); // 停 fs-watch + 清 sync 计时器（在库连接关闭前）
+      knowledge.dispose(); // .kg per-project 连接全关（库文件保留，T2.1）
       lock?.release();
       logger.info("daemon 已关闭");
     },
@@ -484,6 +565,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     browser: browserPort, // web 族命令族回口（契约 v0.7）
     hasModel: (id) => modelStack.catalog.hasModel(id), // model 型 set 前置校验
     traceQuery: persistence.traceQuery, // trace.query 命令回口（只读面）
+    kg: knowledge.viewerService, // kg 族命令回口（P-1 六命令，§9；project 参数 service 内单点解析）
     events: eventStream,
     token,
     port: deps.port ?? config.port,
@@ -519,6 +601,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     directory: registry,
     browser: browserPort,
     registry,
+    knowledge,
     fanoutTargets: fanoutPublisher.targets,
     resourceEvents,
     runCli: () => cli.run(),

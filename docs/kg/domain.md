@@ -1,3 +1,5 @@
+> 【已停用】SoT 已下沉 .kg 单库（iter-20260825-11fo 迁移）；本文件不再被任何管道解析
+
 ```kg-node
 id: E-AgentRuntime
 kind: entity

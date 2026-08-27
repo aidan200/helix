@@ -724,10 +724,11 @@ export interface AgentModelChangedPayload {
   新会话）；转正恰好一次 `agent.instantiated` + `list_changed{created}`
   （draft 链显式广播与补广播去重，不双发）。
 
-## 15. 命令 payload 形状总登记（C→S，28 命令全集）
+## 15. 命令 payload 形状总登记（C→S，34 命令全集）
 
-> **计数声明：28 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
-> 15.4 model 6 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1）——与 `COMMAND_TYPES` 常量恰等
+> **计数声明：34 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
+> 15.4 model 6 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
+> 15.9 kg 6）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
 > 文档与其逐项对齐（AD-1）；仓外契约文档降为历史定形档案（§17.1）。
@@ -1052,18 +1053,98 @@ iter-20260823 后续批升格：effective=null、后续请求不带 reasoning—
 |---|---|---|---|---|
 | `level` | `string` | 必填 | v0.11 | pi-ai ThinkingLevel 字符串透传（如 `"medium"` / `"high"` / `"off"` 显式关） |
 
-## 16. 事件 payload 形状总登记（S→C，48 事件全集）
+### 15.9 kg 族（6；kg 批，iter-20260825-11fo T5.3 P-1 图谱查看页数据面）
 
-> **计数声明：48 事件全集**（16.1 notification 2 + 16.2 session 4 +
+> 本族为 kg 批（v0.11 后 additive 微批，版本位不 bump，§14/§18 同构先例；
+> 批次注记见 §19）登记的 P-1 数据面六命令。全局命令（信封 sessionId
+> 省略）；后五命令携带**必填 `project`**（项目名 = workspace 一级目录名，
+> 或绝对路径——daemon 单点解析，跨项目不串数据；无法解析 →
+> `KG_E_PARAM`）。结果回执 = `kg.*.result` 点对点结果帧（§16.9）；
+> O-6 轮询裁决零推送事件——索引进度走 `kg.index.status` 命令轮询。错误码
+> `KG_E_PARAM` / `KG_E_NOT_FOUND` / `KG_E_STATE` / `KG_E_REBUILD_FAILED`
+>（§19 登记；发 error 帧连接保持）。响应形状逐字段契约 =
+> `docs/iterations/iter-20260825-11fo/development/contracts/kg-viewer-api.md`。
+
+#### `kg.list`
+
+节点列表+搜索（F5.1；三路过滤可叠加）。结果 = `kg.list.result`
+（`{total, matched, nodes}`；total=项目内全部节点数，matched=过滤后命中数）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg 批 | 项目名或绝对路径（daemon 单点解析） |
+| `kind` | `"rule" \| "entity"` | 可选 | kg 批 | 类型过滤 |
+| `status` | `"draft" \| "confirmed" \| "superseded"` | 可选 | kg 批 | 状态过滤 |
+| `q` | `string` | 可选 | kg 批 | name/digest 子串搜索 |
+
+#### `kg.node.detail`
+
+节点详情（F5.2 六段聚合：desc/rules/anchors/relations/supersede/log）。结果 =
+`kg.node.detail.result`（payload 即六段详情本体）。`id` 不存在 →
+`KG_E_NOT_FOUND`。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg 批 | 项目名或绝对路径 |
+| `id` | `string` | 必填 | kg 批 | 目标节点 id（来自 kg.list 行的 data-id 跳转） |
+
+#### `kg.change.report`
+
+知识变化报告（F5.3；按迭代聚合四类条目，数据源 = T5.1 KgReportService）。
+结果 = `kg.change.report.result`（payload 即报告本体）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg 批 | 项目名或绝对路径 |
+| `iterationId` | `string` | 可选 | kg 批 | 缺省 = 当前迭代（库内最近一次变更所属迭代） |
+
+#### `kg.node.confirm`
+
+draft 审阅转正（F5.4；**页面唯一写动作**，走 F2.3 KgWriteService 非旁路
+直写）。仅 `status=draft` 可转正（非 draft → `KG_E_STATE`；id 不存在 →
+`KG_E_NOT_FOUND`）；change_log 追加「草稿转正（页面人工确认）」。结果 =
+`kg.node.confirm.result`（`{applied:true, node}` 翻转后状态回读）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg 批 | 项目名或绝对路径 |
+| `id` | `string` | 必填 | kg 批 | 目标 draft 节点 id |
+
+#### `kg.index.status`
+
+索引状态面板（F5.5；四态互斥 absent/building/synced/degraded，O-6 轮询
+通道本体）。`rebuild:true` 触发构建/重建（纯 codegraph 机械动作无知识层写，
+AD-10；absent 态触发即首次构建 B1）；触发失败 → `KG_E_REBUILD_FAILED`。
+结果 = `kg.index.status.result`（payload 即四态面板本体）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg 批 | 项目名或绝对路径 |
+| `rebuild` | `boolean` | 可选 | kg 批 | true = 触发构建/重建（absent 态即首次构建） |
+
+#### `kg.projects`
+
+workspace 项目列表（F5.0；/project 单页 master-detail 左栏数据源）。无参
+（workspace 根 = daemon 启动 cwd，TR-AD-6 零 env 键）。宽松口径（V-3 用户
+裁决）：一级目录全部入列，排除清单（`docs`/`.helix`/`.worktrees`/隐藏/
+`node_modules`/文件项）为唯一过滤；未建索引目录必须返回（status=absent）。
+只读命令；冷启动构建入口是 `kg.index.status`。结果 = `kg.projects.result`
+（`{projects}`）。
+
+（无字段）
+
+## 16. 事件 payload 形状总登记（S→C，54 事件全集）
+
+> **计数声明：54 事件全集**（16.1 notification 2 + 16.2 session 4 +
 > 16.3 chat 10 + 16.4 agent 12 + 16.5 thinking·compaction·usage 5 +
-> 16.6 model 10 + 16.7 trace 1 + 16.8 web 4）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
+> 16.6 model 10 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
 >（三面同构，守护断言⑤口径）；auth 族 4 结果帧按 `EVENT_CHANNELS` 登记挂
 > **model 通道**（§16.6 内）。登记锚格式同 §15（`#### \`<type>\`` 锚 +
 > payload 字段表）。类型权威源 = `packages/protocol/src/events/`，文档与其
 > 逐项对齐（AD-1）。点对点结果帧（model/auth 族 `*.result` 9 +
 > `trace.query.result` + agent.config 族两结果帧（v0.6）+ web 族两结果帧
-> （v0.7））仅发发起命令的连接，不经 EventStream 广播（TR-AD-21 先例）。
+> （v0.7）+ kg 族六结果帧（kg 批））仅发发起命令的连接，不经 EventStream 广播（TR-AD-21 先例）。
 
 ### 16.1 notification 族（2；信封 sessionId = SYSTEM_SESSION_ID）
 
@@ -1522,6 +1603,81 @@ reason 含引导用户开 remote debugging 的说明（daemon browser-discovery
 | `status` | `"applied" \| "skipped"` | 必填 | v0.9 | 结果判别位 |
 | `reason` | `string` | 可选 | v0.9 | status="skipped" 时携带：未发现可用浏览器的说明 + remote debugging 引导 |
 
+### 16.9 kg 族（6；kg 批，iter-20260825-11fo T5.3 P-1 图谱查看页数据面）
+
+> 六命令的点对点回执结果帧（TR-AD-21 模式；仅发发起命令的连接，不经
+> EventStream 广播）。信封 sessionId = SYSTEM_SESSION_ID、channel =
+> "kg"。O-6 轮询裁决零推送事件——本族无广播事件，索引进度走
+> `kg.index.status` 命令轮询。命令面登记见 §15.9；响应形状逐字段契约 =
+> `docs/iterations/iter-20260825-11fo/development/contracts/kg-viewer-api.md`。
+> DTO 定义 = `src/types/kg.ts`（KgProjectRow / KgNodeListRow / KgNodeDetailDto /
+> KgChangeReportDto / KgIndexStatusDto；AD-16 引用规范数据层强制：人类可读
+> 字段无 TR-n/E-n 裸 id）。错误回执走 connection.error（§19 四个
+> KG_E_* 错误码；连接保持）。
+
+#### `kg.projects.result`
+
+workspace 项目列表命令结果（点对点回执；只读；宽松口径全入列含 absent）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `projects` | `KgProjectRow[]`（`{ name, path, status, symbolCount?, nodeCount?, syncedAt?, degradedNote? }`） | 必填 | kg 批 | name/path = project 入参两形态；status 四态；synced 态携带计数与时间，degraded 态携带说明 |
+
+#### `kg.list.result`
+
+节点列表+搜索命令结果（三路过滤叠加；q×kind×status）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `total` | `number` | 必填 | kg 批 | 项目内全部节点数（过滤前） |
+| `matched` | `number` | 必填 | kg 批 | 过滤后命中数 |
+| `nodes` | `KgNodeListRow[]`（`{ id, name, kind, domain, status, digest }`） | 必填 | kg 批 | 列表行（id 仅 data-id 跳转；domain null = 未声明） |
+
+#### `kg.node.detail.result`
+
+节点详情六段聚合命令结果（payload 即详情本体）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `id` / `name` / `kind` / `domain` / `status` / `digest` | 基础字段 | 必填 | kg 批 | 节点基础（domain null = 未声明） |
+| `desc` | `string` | 必填 | kg 批 | 描述（body 叙述段） |
+| `rules` | `string[]` | 必填 | kg 批 | 规则条目（body 列表条目行） |
+| `anchors` | `KgAnchorRow[]`（`{ symbol?, path, line?, state }`） | 必填 | kg 批 | 锚点：state=ok/dead（⚠ 失效）/stale（? 长期无命中，启发式） |
+| `relations` | `KgRelationRow[]`（`{ verb, peer: KgNodeRefDto }`） | 必填 | kg 批 | 关系（对方节点引用可跳转） |
+| `supersede.history` | `KgNodeRefDto[]` | 必填 | kg 批 | 取代链历史项（旧→新） |
+| `supersede.current` | `KgNodeRefDto` | 必填 | kg 批 | 现行项 |
+| `log` | `KgLogRow[]`（`{ date, iterationId, eventText }`） | 必填 | kg 批 | 变更日志，最新在上 |
+
+#### `kg.change.report.result`
+
+知识变化报告命令结果（payload 即报告本体；四类条目）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `iterationId` | `string` | 必填 | kg 批 | 聚合迭代 id（缺省入参 = 当前迭代回显） |
+| `entries` | `KgReportEntryDto[]`（`{ kind, sev, label, body, refs, options }`） | 必填 | kg 批 | 四类：dead_anchor/rule_conflict/suspect_stale/knowledge_change；body 事件导向因果叙述（疑似类含限定词） |
+
+#### `kg.node.confirm.result`
+
+draft 审阅转正命令结果（页面唯一写动作回执；翻转后状态回读）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `applied` | `true` | 必填 | kg 批 | 结果判别位（恒 true；失败走 error 帧） |
+| `node` | `KgNodeListRow` | 必填 | kg 批 | 翻转后节点行（status=confirmed） |
+
+#### `kg.index.status.result`
+
+索引状态面板命令结果（四态互斥；轮询通道本体）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `state` | `"absent" \| "building" \| "synced" \| "degraded"` | 必填 | kg 批 | 索引四态 |
+| `progress` | `{ done, total }` | 可选 | kg 批 | building 态符号进度（sync 管道单事务不可分，暂缺省） |
+| `syncedAt` | `string` | 可选 | kg 批 | synced 态完成时间（ISO） |
+| `symbolCount` | `number` | 可选 | kg 批 | synced 态符号计数 |
+| `degradedNote` | `string` | 可选 | kg 批 | degraded 态影响说明 |
+
 ## 17. SoT 声明与守护口径（v0.5 收口）
 
 ### 17.1 SoT 声明
@@ -1817,3 +1973,27 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
   回带 + 建会后无写路径（锁定）。
 - shell（T4）：header 模式选择器（草稿可切/已建只读显示 session.mode）+
   `chat.send` draft 带 mode。
+
+## 19. kg 批（iter-20260825-11fo T5.3：P-1 图谱查看页数据面六命令族；v0.1 additive 批次语义——版本位不 bump）
+
+> 本批为项目知识图谱（kg）迭代 P-1 数据面的协议面登记（T5.3）：
+> **6 命令**（§15.9 kg 族：`kg.projects` / `kg.list` / `kg.node.detail` /
+> `kg.change.report` / `kg.node.confirm` / `kg.index.status`——后五者携带
+> 必填 `project` 按项目作用域，register V-2/V-3 开发期用户裁决）+
+> **6 事件**（§16.9 kg 族：对应六命令的点对点回执结果帧，kg 新通道）+
+> **4 错误码**（`KG_E_PARAM` / `KG_E_NOT_FOUND` / `KG_E_STATE` /
+> `KG_E_REBUILD_FAILED`，connection.error 载荷、连接保持）。
+> **版本位不 bump**（`PROTOCOL_VERSION = "0.11"` 保持）：全部为新增面
+> （新增命令 type / 新增事件 type / 新增错误码值 / 新增 channel 值），
+> 旧客户端零破坏（additive 纪律，TR-AD-23①；§14/§18 微批同构先例；
+> 契约文档注记的「v0.1 additive」指此语义，非版本位回退）。
+>
+> - 计数演进：命令 28 → 34；事件 48 → 54（守护断言③同步扩）。
+> - O-6 轮询裁决：索引进度**零推送事件**——本批六事件全部为命令点对点
+>   回执（TR-AD-21），非广播；前端轮询 `kg.index.status` 获取进度变化。
+> - 响应形状逐字段契约 =
+>   `docs/iterations/iter-20260825-11fo/development/contracts/kg-viewer-api.md`
+>   （T5.3 daemon 数据面与 T5.4 shell 前端的共同约定；本节只登记存在性
+>   与通道归属，字段表见 §15.9/§16.9）。
+> - daemon 行为由 T5.3 落地（handlers/kg.ts + KgViewerService；未装配面
+>   回 `command.unimplemented`——trace.ts 先例）。

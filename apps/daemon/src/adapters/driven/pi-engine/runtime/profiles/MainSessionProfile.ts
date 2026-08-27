@@ -2,6 +2,7 @@ import type { AgentProfile } from "../AgentProfile";
 import { DEFAULT_COMPACTION } from "../AgentProfile";
 import { SteerHooks } from "../hooks/SteerHooks";
 import { MinimalHooks } from "../hooks/MinimalHooks";
+import { BRIEF_ASSEMBLY_GUIDE } from "../templates/guide";
 
 /**
  * 主会话 profile（architecture.md §4.4「实例化」）。
@@ -35,7 +36,7 @@ import { MinimalHooks } from "../hooks/MinimalHooks";
  * 契约句引用的编排工具名是行为指引而非清单枚举；组装器不做
  * 任何状态联动（编排关不删委派段——用户裁决，错配=使用不当）。
  */
-export const MAIN_SESSION_SYSTEM_PROMPT =
+const MAIN_SESSION_BASE_PROMPT =
   "你是 helix 的主会话助手。可使用提供的工具完成文件与命令类任务；" +
   "回答简洁、准确；用户消息中的修正与补充" +
   "（可能经 steer 注入到达）优先于更早的指示。\n" +
@@ -47,6 +48,13 @@ export const MAIN_SESSION_SYSTEM_PROMPT =
   "收到连续零增量的进展报告时用 agent_inspect 核实真实执行轨迹，确无进展可终止（kill）后重派。" +
   "agent_status 仅在用户主动询问进度时使用；运行中可用 agent_send 追加指示；" +
   "不再需要的实例可提醒用户终止。";
+
+/**
+ * T4.2（AD-18）：导出常量 = base + brief 装配指引段（段库目录+三条硬约束
+ * +装配示例引用，templates/guide 同源）——派发时 MainAgent 按段库组任务
+ * brief（brief 装配端；kg 约束切片注入区见段库）。
+ */
+export const MAIN_SESSION_SYSTEM_PROMPT = MAIN_SESSION_BASE_PROMPT + "\n\n" + BRIEF_ASSEMBLY_GUIDE;
 
 export const MainSessionProfile: AgentProfile = {
   kind: "main-session",
@@ -65,6 +73,10 @@ export const MainSessionProfile: AgentProfile = {
     "agent_inspect", // T3-B：死循环核实（编排四工具）
     // 动态族（单 browser 工具 + action 参数；条件注册——CoreToolExecutor options.browser）
     "browser",
+    // kg 双工具（T3.3，CL-4/CL-3）：只读查询面 + 即时落账面
+    //（AD-14 协议行兑现在 edit 现场——findings 收口通道之外的第二通道）
+    "kg",
+    "kg-update",
   ], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：实例化在 AgentRuntime 装配点，每 runtime 独立）

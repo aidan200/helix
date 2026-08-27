@@ -79,10 +79,10 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
     const mainCard = page.locator('[data-agent-card="main-session"]');
     const subCard = page.locator('[data-agent-card="subagent-worker"]');
 
-    // main 12 工具（含编排四件套 + T1 联网两工具 + T3r browser + T3 agent_inspect）+ sub 8（H-3 +browser 转发接入）；snippet 来自 daemon 注册表
-    // （T0.1 实跑跟随：T1/T3r/H-3/T3 扩工具集时 e2e 面计数同步）
-    await expect(mainCard.locator("[data-tool-row]")).toHaveCount(12);
-    await expect(subCard.locator("[data-tool-row]")).toHaveCount(8);
+    // main 14 工具（含编排四件套 + T1 联网两工具 + T3r browser + T3 agent_inspect + T3.3 kg 双工具）+ sub 10（H-3 +browser 转发接入 + kg 双工具）；snippet 来自 daemon 注册表
+    // （T0.1 实跑跟随：T1/T3r/H-3/T3/T3.3 扩工具集时 e2e 面计数同步）
+    await expect(mainCard.locator("[data-tool-row]")).toHaveCount(14);
+    await expect(subCard.locator("[data-tool-row]")).toHaveCount(10);
     await expect(mainCard.locator('[data-tool-row="grep"]')).toContainText("跨文件正则检索并列出匹配行");
 
     // 双层技能：user hello + project proj；坏文件 → invalid_metadata 诊断

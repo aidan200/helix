@@ -9,6 +9,8 @@
  * v0.7 新增 2（web 族，T4 联网状态图标）；
  * v0.9 新增 1（web.start，T7 CDP 显式启动通路）。
  * v0.11 新增 1（thinking.set，thinking 批，iter-20260823-6ps5 T1.1，AD-2/AD-4）。
+ * kg 批新增 6（kg 族，iter-20260825-11fo T5.3：P-1 图谱查看页六命令，
+ * v0.11 后 additive 微批；五图谱命令携带必填 project 按项目作用域）。
  * `CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
  * 分发。会话作用域命令的信封 sessionId 必填（AD-4 路由位，类型层可选、
  * 客户端纪律保证）；全局命令（session.list / model.set_default /
@@ -400,7 +402,66 @@ export interface ThinkingSetCommand extends CommandFrame<ThinkingSetPayload> {
   type: "thinking.set";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28） */
+// ── kg 批新增（iter-20260825-11fo T5.3，P-1 图谱查看页数据面；v0.11 后 additive 微批，版本位不 bump）──
+
+/**
+ * kg 族命令通则（register V-2/V-3）：六命令全部为全局命令（信封 sessionId
+ * 省略）；后五个图谱命令携带必填 `project`（项目名或绝对路径，daemon
+ * 单点解析——contracts/kg-viewer-api.md 总则），跨项目不串数据；kg.projects
+ * 无参（workspace 根 = daemon 启动 cwd，TR-AD-6 零 env 键）。结果 =
+ * kg.*.result 点对点回执帧（events/kg.ts；O-6 轮询裁决零推送事件）。
+ */
+export interface KgListPayload {
+  /** 项目名（workspace 一级目录名）或绝对路径（必填）。 */
+  project: string;
+  kind?: "rule" | "entity";
+  status?: "draft" | "confirmed" | "superseded";
+  q?: string;
+}
+export interface KgListCommand extends CommandFrame<KgListPayload> {
+  type: "kg.list";
+}
+
+export interface KgNodeDetailPayload {
+  project: string;
+  id: string;
+}
+export interface KgNodeDetailCommand extends CommandFrame<KgNodeDetailPayload> {
+  type: "kg.node.detail";
+}
+
+export interface KgChangeReportPayload {
+  project: string;
+  /** 缺省 = 当前迭代（库内最近一次变更所属迭代）。 */
+  iterationId?: string;
+}
+export interface KgChangeReportCommand extends CommandFrame<KgChangeReportPayload> {
+  type: "kg.change.report";
+}
+
+export interface KgNodeConfirmPayload {
+  project: string;
+  id: string;
+}
+/** 页面唯一写动作（走 F2.3 KgWriteService，非旁路直写）；仅 draft 可转正。 */
+export interface KgNodeConfirmCommand extends CommandFrame<KgNodeConfirmPayload> {
+  type: "kg.node.confirm";
+}
+
+export interface KgIndexStatusPayload {
+  project: string;
+  /** true = 触发构建/重建（纯 codegraph 机械动作无知识层写，AD-10；absent 态触发即首次构建 B1）。 */
+  rebuild?: boolean;
+}
+export interface KgIndexStatusCommand extends CommandFrame<KgIndexStatusPayload> {
+  type: "kg.index.status";
+}
+
+export interface KgProjectsCommand extends CommandFrame<EmptyPayload> {
+  type: "kg.projects";
+}
+
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -429,7 +490,13 @@ export type CommandEnvelope =
   | WebStatusCommand
   | WebStopCommand
   | WebStartCommand
-  | ThinkingSetCommand;
+  | ThinkingSetCommand
+  | KgListCommand
+  | KgNodeDetailCommand
+  | KgChangeReportCommand
+  | KgNodeConfirmCommand
+  | KgIndexStatusCommand
+  | KgProjectsCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
@@ -461,6 +528,12 @@ export const COMMAND_TYPES = [
   "web.stop",
   "web.start",
   "thinking.set",
+  "kg.list",
+  "kg.node.detail",
+  "kg.change.report",
+  "kg.node.confirm",
+  "kg.index.status",
+  "kg.projects",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];

@@ -127,6 +127,19 @@ export function summarizeEvent(event: EventEnvelope): string {
     // ── v0.11 thinking 族（thinking 批①；覆盖/生效双位广播）──
     case "thinking.changed":
       return `thinking-changed:${event.payload.override ?? "null"}:${event.payload.effective ?? "null"}`;
+    // ── kg 批（iter-20260825-11fo T5.3；六命令点对点回执）──
+    case "kg.projects.result":
+      return `kg-projects:${event.payload.projects.length}:${event.payload.projects[0]?.status ?? "-"}`;
+    case "kg.list.result":
+      return `kg-list:${event.payload.total}:${event.payload.matched}:${event.payload.nodes.length}`;
+    case "kg.node.detail.result":
+      return `kg-detail:${event.payload.kind}:${event.payload.status}:${event.payload.anchors.length}:${event.payload.relations.length}:${event.payload.log.length}`;
+    case "kg.change.report.result":
+      return `kg-report:${event.payload.iterationId}:${event.payload.entries.length}`;
+    case "kg.node.confirm.result":
+      return `kg-confirm:${event.payload.node.status}`;
+    case "kg.index.status.result":
+      return `kg-index:${event.payload.state}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -201,6 +214,19 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     // ── v0.11 thinking 族（thinking 批①；per-session 覆盖写面）──
     case "thinking.set":
       return `thinking-set:${cmd.sessionId ?? "-"}:${cmd.payload.level}`;
+    // ── kg 批（iter-20260825-11fo T5.3；P-1 数据面六命令）──
+    case "kg.list":
+      return `kg-list:${cmd.payload.project}:${cmd.payload.kind ?? "-"}:${cmd.payload.status ?? "-"}:${cmd.payload.q ?? "-"}`;
+    case "kg.node.detail":
+      return `kg-detail:${cmd.payload.project}:${cmd.payload.id}`;
+    case "kg.change.report":
+      return `kg-report:${cmd.payload.project}:${cmd.payload.iterationId ?? "current"}`;
+    case "kg.node.confirm":
+      return `kg-confirm:${cmd.payload.project}:${cmd.payload.id}`;
+    case "kg.index.status":
+      return `kg-index:${cmd.payload.project}:${cmd.payload.rebuild === true ? "rebuild" : "status"}`;
+    case "kg.projects":
+      return "kg-projects";
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

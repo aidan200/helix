@@ -8,7 +8,7 @@
  * （不读会话 store，TR-AD-8 页面域/会话域分离；主题态由本层 useTheme
  * 注入，S1）；S2：models 独立页退役（模型配置迁入设置页分区，导航位
  * 五位）；skills 位已升格为智能体页（M6 T4，路由 /skills 不动），trace
- * 实页，project 为施工牌占位页（AD-1）。scanline 氛围层全局单份（S1 上提）。
+ * 实页，project 为 P-1 单页 master-detail 实页（V-3：项目域+知识图谱查看）。scanline 氛围层全局单份（S1 上提）。
  */
 import { Activity, FolderKanban, Layers, MessageSquare, Settings } from "lucide-react";
 import { I18nProvider } from "@/shared/i18n";
@@ -19,7 +19,7 @@ import { useSession } from "@/entities/session/SessionContext";
 import ChatPage from "@/pages/chat/ChatPage";
 import AgentPage from "@/pages/skills/AgentPage";
 import TracePage from "@/pages/trace/TracePage";
-import ProjectPage from "@/pages/project/ProjectPage";
+import ProjectPage from "@/pages/P-1/ProjectPage";
 import SettingsPage from "@/pages/settings/SettingsPage";
 import IconRail, { type IconRailItem } from "@/widgets/nav-rail/ui/IconRail";
 import { useTheme } from "@/shared/ui/theme";

@@ -30,6 +30,8 @@
  * agent/trace 族）case 体机械迁出 handlers/{chat,session,agent,trace}.ts
  * （语义逐字节等价；traceInstanceRecordToDto / resolveTargetSession 随族
  * 迁出）；routeCommand 全 22 case 一行转发；族上下文类型承 handlers/
+ * context.ts（kg 族六命令同构接入：handlers/kg.ts + kgContext，P-1 §9；
+ * routeCommand 全 28 case 一行转发）；
  * context.ts（ConnState/WsCommandContext 上收，三模块环解）；
  * sessionStamp/snapshotFrame 盖章链留本类，session/chat handler 经上下文
  * 回调机械引用零行为差（不为省行数造成第二份）。
@@ -54,6 +56,7 @@ import type {
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { TraceQueryPort } from "../../../domain/trace/TraceQueryPort";
+import type { KgViewerService } from "../../../application/services/kg/KgViewerService";
 // AG-12：ws-server 对 domain 仅 type-only——normalize 校验收口在 driven
 // adapter 入口（architecture.md §3.5b「调仓储前」）
 import type { ServerWebSocket } from "bun";
@@ -64,6 +67,7 @@ import type {
   AgentCommandContext,
   ChatCommandContext,
   ConnState,
+  KgCommandContext,
   ResourceCommandContext,
   SessionCommandContext,
   TraceCommandContext,
@@ -84,6 +88,14 @@ import {
   handleSessionUnsubscribe,
 } from "./handlers/session";
 import { handleTraceQuery } from "./handlers/trace";
+import {
+  handleKgChangeReport,
+  handleKgIndexStatus,
+  handleKgList,
+  handleKgNodeConfirm,
+  handleKgNodeDetail,
+  handleKgProjects,
+} from "./handlers/kg";
 import { handleAgentConfigList, handleAgentConfigSetEnabled } from "./handlers/resource";
 import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
 import {
@@ -153,6 +165,12 @@ export interface WsServerAdapterDeps {
    * （只读 domain_events，连接私有读面）；未装配 → command.unimplemented 回执。
    */
   readonly traceQuery?: TraceQueryPort;
+  /**
+   * kg 数据面（契约 kg-viewer-api 六命令族，§9）：P-1 图谱查看页命令回口
+   * （KgViewerService 应用编排，project 参数 service 内单点解析）；
+   * 未装配 → command.unimplemented 回执（trace.ts 同模式）。
+   */
+  readonly kg?: KgViewerService;
 }
 
 export class WsServerAdapter {
@@ -404,6 +422,19 @@ export class WsServerAdapter {
       // ── v0.4 trace 族（契约 v0.4 §1；AD-1 迁出 handlers/trace.ts）──
       case "trace.query":
         return handleTraceQuery(this.traceContext(ws, type, payload));
+      // ── kg 族（P-1 六命令族，契约 kg-viewer-api，§9；handlers/kg.ts）──
+      case "kg.projects":
+        return handleKgProjects(this.kgContext(ws, type, payload));
+      case "kg.list":
+        return handleKgList(this.kgContext(ws, type, payload));
+      case "kg.node.detail":
+        return handleKgNodeDetail(this.kgContext(ws, type, payload));
+      case "kg.change.report":
+        return handleKgChangeReport(this.kgContext(ws, type, payload));
+      case "kg.node.confirm":
+        return handleKgNodeConfirm(this.kgContext(ws, type, payload));
+      case "kg.index.status":
+        return handleKgIndexStatus(this.kgContext(ws, type, payload));
       // ── v0.6 agent.config 族（智能体配置页；全局命令先例 = model.catalog）──
       case "agent.config.list":
         return handleAgentConfigList(this.resourceContext(ws, type, payload));
@@ -552,6 +583,27 @@ export class WsServerAdapter {
       type,
       payload,
       traceQuery: this.deps.traceQuery,
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+      rawSender: () => this.rawSender(ws),
+      sendNow: (sender, frame) => this.sendNow(sender, frame),
+    };
+  }
+
+  /**
+   * kg 族命令处理上下文（§9 六命令族）：KgViewerService 应用编排面
+   * （未装配 → undefined，handler 回 command.unimplemented——trace.ts 先例）
+   * + 共享辅助（本连接绑定，语义 = 本类同名私有方法，机械转发零行为差）。
+   */
+  private kgContext(
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+  ): KgCommandContext {
+    return {
+      ws,
+      type,
+      payload,
+      kg: this.deps.kg,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),
       sendNow: (sender, frame) => this.sendNow(sender, frame),

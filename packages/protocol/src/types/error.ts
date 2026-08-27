@@ -25,4 +25,12 @@ export type ErrorCode =
   /** v0.2 新增（契约 C §4）：auth.* 的 providerId 不在目录 provider 全集 */
   | "provider_not_found"
   /** v0.2 新增（契约 C §4）：目录拉取失败（catalog/catalog_refresh 通路；降级快照仍可用，列表不空） */
-  | "catalog_unreachable";
+  | "catalog_unreachable"
+  /** kg 批新增（iter-20260825-11fo T5.3，契约 kg-viewer-api）：kg 族命令参数非法/无法解析（含 project 不在项目列表、过滤值越界）；发 error 帧连接保持 */
+  | "KG_E_PARAM"
+  /** kg 批新增：目标节点/项目不存在（kg.node.detail / kg.node.confirm）；发 error 帧连接保持 */
+  | "KG_E_NOT_FOUND"
+  /** kg 批新增：状态机非法迁移（confirm 非 draft 节点）；发 error 帧连接保持 */
+  | "KG_E_STATE"
+  /** kg 批新增：索引构建触发失败（kg.index.status rebuild；面板保持 degraded 可重试）；发 error 帧连接保持 */
+  | "KG_E_REBUILD_FAILED";

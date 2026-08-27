@@ -436,24 +436,24 @@ describe("③ 三发布点落盘断言（F5.7 锚 1-2 / F5.9 锚 1；T4：主 in
       await seedMixedSession(rig);
       const { client, sessionId } = rig;
 
-      // 主实例 instantiated：快照 = 组装缓存现值（11 工具不含 grep；提示无 grep 行）
+      // 主实例 instantiated：快照 = 组装缓存现值（13 工具不含 grep；提示无 grep 行）
       const mainInst = await client.traceQuery({ sessionId, types: ["agent.instantiated"], instanceIds: [mainIdOf(rig)] });
       expect(mainInst.events.length).toBe(1);
       const mainSnap = mainInst.events[0]!.payload as {
         profileSnapshot: { systemPrompt: string; tools: string[] };
       };
-      expect(mainSnap.profileSnapshot.tools).toHaveLength(11);
+      expect(mainSnap.profileSnapshot.tools).toHaveLength(13);
       expect(mainSnap.profileSnapshot.tools).not.toContain("grep");
       expect(mainSnap.profileSnapshot.systemPrompt).not.toContain("- grep:");
 
-      // Sub instantiated：快照 = 组装缓存（7 工具不含 read——H-3 后全集 8）+ 槽位模型（非 spawn 透传）
+      // Sub instantiated：快照 = 组装缓存（9 工具不含 read——T3.3 后全集 10）+ 槽位模型（非 spawn 透传）
       const subInst = await client.traceQuery({ sessionId, types: ["agent.instantiated"], agentKind: "subagent" });
       expect(subInst.events.length).toBe(2);
       for (const row of subInst.events) {
         const p = row.payload as {
           profileSnapshot: { systemPrompt: string; tools: string[]; model: string };
         };
-        expect(p.profileSnapshot.tools).toHaveLength(7);
+        expect(p.profileSnapshot.tools).toHaveLength(9);
         expect(p.profileSnapshot.tools).not.toContain("read");
         expect(p.profileSnapshot.model).toBe("anthropic/claude-haiku-4-5"); // profile 槽位第一级（uiModelSlot ?? 全局兜底，T12 两级链）
         expect(p.profileSnapshot.systemPrompt).not.toContain("- read:");

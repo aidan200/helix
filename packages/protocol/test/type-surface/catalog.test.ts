@@ -138,7 +138,7 @@ type _V09EventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 28 个 type（v0 5 + v0.1 3 + v0.2 13 + v0.4 1 + v0.6 2 + v0.7 2 + v0.9 1 + v0.11 1）", () => {
+  test("命令目录恰为 34 个 type（… + v0.11 1 + kg 批 6）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.config.list",
@@ -153,6 +153,12 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "chat.abort",
         "chat.send",
         "chat.steer",
+        "kg.change.report",
+        "kg.index.status",
+        "kg.list",
+        "kg.node.confirm",
+        "kg.node.detail",
+        "kg.projects",
         "model.catalog",
         "model.catalog_refresh",
         "model.get",
@@ -173,7 +179,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 48 个 type（v0 12 + v0.1 11 + 热修 1 + v0.2 2 + T2.2 命令结果 2 + 微批结果帧 9 + v0.4 3 + v0.6 3 + v0.7 3 + v0.9 1 + v0.11 1）", () => {
+  test("事件目录恰为 54 个 type（… + v0.11 1 + kg 批 6 结果帧）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -201,6 +207,12 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "connection.error",
         "connection.welcome",
         "engine.error",
+        "kg.change.report.result",
+        "kg.index.status.result",
+        "kg.list.result",
+        "kg.node.confirm.result",
+        "kg.node.detail.result",
+        "kg.projects.result",
         "model.catalog.result",
         "model.catalog_refresh.result",
         "model.changed",
@@ -411,13 +423,22 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     expect(roster("trace")).toEqual(["trace.query.result"]); // v0.4 新族（点对点结果帧）
     expect(roster("notification")).toEqual(["connection.error", "connection.welcome"]);
     expect(roster("web")).toEqual(["web.start.result", "web.status.changed", "web.status.result", "web.stop.result"]); // v0.7 新族 + v0.9 扩展
+    expect(roster("kg")).toEqual([
+      // kg 批新族（iter-20260825-11fo T5.3）：六命令点对点回执，O-6 零推送事件
+      "kg.change.report.result",
+      "kg.index.status.result",
+      "kg.list.result",
+      "kg.node.confirm.result",
+      "kg.node.detail.result",
+      "kg.projects.result",
+    ]);
   });
 
-  test("v0.11 目录计数：EVENT_TYPES 48 / EVENT_CHANNELS 48 键 / COMMAND_TYPES 28（thinking 批 +1 事件 +1 命令）", () => {
-    expect(EVENT_TYPES.length).toBe(48); // v0.11：+1（thinking.changed）
-    expect(new Set(EVENT_TYPES).size).toBe(48); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(48); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(28); // v0.11：+1（thinking.set）
+  test("目录计数（kg 批后）：EVENT_TYPES 54 / EVENT_CHANNELS 54 键 / COMMAND_TYPES 34", () => {
+    expect(EVENT_TYPES.length).toBe(54); // kg 批：+6（kg.*.result）
+    expect(new Set(EVENT_TYPES).size).toBe(54); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(54); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(34); // kg 批：+6（kg 族六命令）
   });
 
 });

@@ -12,6 +12,7 @@ import { ChatService } from "../../application/services/ChatService";
 import { SessionService } from "../../application/services/SessionService";
 import { RestoreService } from "../../application/services/RestoreService";
 import { SchedulerService } from "../../application/services/scheduler/SchedulerService";
+import type { ClosureFindingsSink } from "../../application/services/scheduler/ClosureRecorder";
 import { SessionProjection } from "../../application/services/SessionProjection";
 import { SessionRegistry, type SessionRuntime } from "../../application/services/SessionRegistry";
 import { profileKindOf } from "../../application/services/modes";
@@ -29,8 +30,9 @@ import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinki
 import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
 import { SkillScanner } from "../../adapters/driven/pi-engine/SkillScanner";
 import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnippets";
-import { CoreToolExecutor } from "../../adapters/driven/tools/CoreToolExecutor";
+import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
+import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 import { AuthStore } from "../auth-store";
 import type { DefaultModelStore } from "../../adapters/driven/sqlite-session/DefaultModelStore";
 import type { ResourceStateStore } from "../../adapters/driven/sqlite-session/ResourceStateStore";
@@ -109,6 +111,29 @@ export interface BuildSessionStackDeps {
   readonly sessionIdlePollMs?: number;
   /** grep 后端定格注入（AF-1 启动定格产物：组合根透传；缺省 = 定格内置 TS）。 */
   readonly grep?: GrepToolDeps;
+  /**
+   * 自写 edit/edit-lines 挂点注入面工厂（T3.2 附着接线）：组合根把 kg 栈
+   * （notifyWrite 写后通知 + KgAttachmentService 附着）经此注入；sessionId
+   * 在 engineFor 闭包内闭合（会话级跨通道去重键）。缺省不注入（SubAgent
+   * 子进程装配/测试）——容缺空操作，EditTool 行为不变。
+   */
+  readonly editDeps?: (sessionId: string) => EditToolDeps;
+  /**
+   * kg 双工具注入面（T3.3）：提供则每会话 executor 注册 kg/kg-update
+   *（结构同 CoreToolExecutorOptions.kg）。缺省不注册（测试形态）。
+   */
+  readonly kgTools?: KgToolOptions;
+  /**
+   * spawn 派发任务切片注入器（T3.3，F1.3）：透传 SchedulerService
+   * （组合根接 KgQueryService.injectTaskSlice）。缺省不注入。
+   */
+  readonly taskInjector?: (sessionId: string, task: string) => string;
+  /**
+   * findings 落账管道（F3.0，T4.1）：透传 SchedulerService→ClosureRecorder
+   * （组合根接 kg 栈 KgWriteService；测试工厂可注入替身）。缺省不注入
+   * （SubAgent 子进程装配/纯调度测试形态）。
+   */
+  readonly findingsSink?: ClosureFindingsSink;
 }
 
 export interface SessionStack {
@@ -241,6 +266,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // 注入源切换：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
           toolCwd,
+          // F3.0（T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH）——
+          // 与 ClosureRecorder 兜底 reportsDirFor 同源同式（<home>/reports/<session>）
+          reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
           // H-3：tool-req 转发目标 = 全局唯一 CDP 单例（ScopedBrowserProxy
           // 归属校验：ownerId 强制 = 通道 instanceId）
           browser: browserPort,
@@ -273,6 +301,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // 契约 v0.3 §1 规则②：spawn 时刻锚（聚合视图读面；内存携带不落盘）
     // ——typed 回填面（registry 就绪后由组合根闭合；闭合前 null 流首）
     spawnAnchorFor: (sessionId) => backfill.computeSpawnAnchor?.(sessionId) ?? null,
+    // spawn 派发任务切片注入（T3.3，F1.3）：组合根接 KgQueryService——
+    // 任务文本成形后/传给 launcher 前单点挂接（SchedulerService 内部消化失败）
+    ...(deps.taskInjector !== undefined ? { taskInjector: deps.taskInjector } : {}),
+    // findings 落账管道（F3.0，T4.1）：透传 ClosureRecorder（组合根接 kg 栈）
+    ...(deps.findingsSink !== undefined ? { findingsSink: deps.findingsSink } : {}),
     // Sub instantiated 快照供给——profile（AD-5，契约 v0.4 §2）
     // 常量全文 + model 两级链解析 id 形态（profile 槽位 ?? 全局兜底，T12 砍
     // spawn 会话快照级；与该实例 launch 实际用模同源同时点——launch 侧
@@ -355,6 +388,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               cwd: toolCwd,
               orchestration: sessionOrchestration,
               grep: deps.grep,
+              // kg 挂点（T3.2）：sessionId 在此闭合进 edit 依赖（附着去重键）
+              ...(deps.editDeps !== undefined ? { edit: deps.editDeps(sessionId) } : {}),
+              // kg 双工具（T3.3）：主会话注册 kg/kg-update（薄壳调 service）
+              ...(deps.kgTools !== undefined ? { kg: deps.kgTools } : {}),
               // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
               // tab 归属）；ChildMain 子进程经 RemoteBrowserPort 转发接入（H-3）
               browser: browserPort,

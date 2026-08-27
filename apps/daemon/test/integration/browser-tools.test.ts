@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
+import { kgToolsStub } from "../helpers/kgToolsStub";
 
 /**
  * T3r 动态族返工 integration：单 browser 工具 + action 参数（用户裁决——
@@ -39,8 +40,9 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
       orchestration,
       browser: new FakeBrowserPort(),
       ownerId: "main",
+      kg: kgToolsStub(tmpdir()), // T3.3：main 全集声明 kg 双工具——替身保持可装配
     });
-    expect(MainSessionProfile.tools).toHaveLength(12); // 10 既有 + agent_inspect（T3-B）+ 动态族单 browser
+    expect(MainSessionProfile.tools).toHaveLength(14); // 10 既有 + agent_inspect（T3-B）+ browser + kg 双工具（T3.3）
     const resolved = executor.resolveTools(MainSessionProfile.tools);
     expect(resolved.map((t) => t.name)).toEqual([...MainSessionProfile.tools]);
     expect(resolved.some((t) => t.name === "browser"), "browser 应装配").toBe(true);

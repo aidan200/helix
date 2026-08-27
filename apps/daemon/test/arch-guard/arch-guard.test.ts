@@ -101,7 +101,9 @@ describe("AG-02：依赖方向矩阵", () => {
   });
 
   test("④ 组合根外不 new 具体 adapter/service 实现（pi-engine 内部装配与 domain 聚合除外）", () => {
-    const concrete = /(ChatService|SessionService|RestoreService|SchedulerService|SubagentLauncher|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine|WsServerAdapter|EventStream|StaticServe|WriteQueue|SqliteSessionRepository|CoreToolExecutor)\s*\(/;
+    // T1.1（iter-20260825-11fo）：kg 栈四类（KgWriteService/KgDatabase/
+    // SqliteKnowledgeStore/SqliteKnowledgeGraph）同列组合根专属构造面。
+    const concrete = /(ChatService|SessionService|RestoreService|SchedulerService|SubagentLauncher|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine|WsServerAdapter|EventStream|StaticServe|WriteQueue|SqliteSessionRepository|CoreToolExecutor|KgWriteService|KgDatabase|SqliteKnowledgeStore|SqliteKnowledgeGraph|CodegraphEngineAdapter)\s*\(/;
     const scanDirs = ["adapters/driving", "application", "domain"];
     for (const dir of scanDirs) {
       for (const rel of listFiles(path.join(srcRoot, ...dir.split("/")))) {
@@ -151,7 +153,7 @@ describe("TP-CL5-1（A 半）：core 四工具接线与封装边界（AD-10 / F(
   const executorRel = path.join(toolsDir, "CoreToolExecutor.ts");
   const toolFactories = ["createBashTool", "createReadTool", "createWriteTool", "createEditTool"];
 
-  test("① 四工具工厂 + NodeExecutionEnv 的 import 源恰为 pi-agent-core/node 子入口", () => {
+  test("① 四工具工厂 + NodeExecutionEnv 的 import 源恰为 pi-agent-core/node 子入口；自写 edit/read/edit-lines 同名覆盖接线在位（T3.1）", () => {
     const src = read(executorRel);
     for (const factory of toolFactories) {
       expect(src.includes(factory), `${executorRel} 缺少 ${factory} 接线`).toBe(true);
@@ -162,6 +164,19 @@ describe("TP-CL5-1（A 半）：core 四工具接线与封装边界（AD-10 / F(
     for (const line of importBlock) {
       expect(line.includes('"@earendil-works/pi-agent-core/node"'), `非 /node 子入口 import：${line}`).toBe(true);
     }
+    // T3.1（AD-12 同名覆盖，AF-1）：自写三件工厂接线在位，pi edit/read 以别名
+    // 基线注册（先注册后覆盖——F-20 registry.set 无特权机制的机械形态）
+    expect(src.includes("createPiEditTool()"), "pi edit 基线注册缺失").toBe(true);
+    expect(src.includes("createPiReadTool()"), "pi read 基线注册缺失").toBe(true);
+    expect(src.includes('from "./edit/EditTool"'), "自写 edit 接线缺失").toBe(true);
+    expect(src.includes('from "./read/ReadTool"'), "自写 read 接线缺失").toBe(true);
+    expect(src.includes('from "./edit-lines/EditLinesTool"'), "edit-lines 接线缺失").toBe(true);
+    // 覆盖次序：自写注册必须在 pi 基线之后（registry.set 后注册者胜）
+    expect(src.indexOf("createEditTool(options.edit)")).toBeGreaterThan(src.indexOf("createPiEditTool()"));
+    expect(src.indexOf("createReadTool()")).toBeGreaterThan(src.indexOf("createPiReadTool()"));
+    // write/bash 保留 pi（AD-12：不自写同名覆盖）
+    expect(src.includes("createWriteTool()")).toBe(true);
+    expect(src.includes("createBashTool()")).toBe(true);
   });
 
   test("② pi 工具符号不外泄：工具工厂只出现在 tools 目录内", () => {
@@ -198,7 +213,7 @@ describe("TP-CL5-2（A 半）：grep 匹配核 framework-free（不碰 fs/node�
 });
 
 describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-coding-agent）", () => {
-  test("daemon dependencies：pi 系恰为 {pi-agent-core, pi-ai}，全集为基线四键（不新增）", () => {
+  test("daemon dependencies：pi 系恰为 {pi-agent-core, pi-ai}，全集为五键（T3.1 +diff：内核复制件 edit-diff 的 diff 展示依赖运行时引入，AF-1 裁决连带）", () => {
     const pkg = JSON.parse(readFileSync(path.join(srcRoot, "..", "package.json"), "utf8")) as {
       dependencies: Record<string, string>;
     };
@@ -206,12 +221,15 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
     // @helix/protocol：workspace 内部协议包（T1.2 引入、T1.6 ws-server 运行时用）；
     // @helix/common：业务无关通用层（AD-1/T3.3；MAIN_INSTANCE_ID 已随 T10c
     // 退役——包级依赖与 AG-15③ 联动断言保留，待包级退役决策）——两包均不计
-    // 入 pi 系口径
+    // 入 pi 系口径；diff@8.0.4（T3.1/AF-1）：VENDORED edit-diff 内核的
+    // generateDiffString/generateUnifiedPatch 运行时依赖，与 pi-agent-core
+    // 同版锁定（pi bump 再同步时同步复核版本）
     expect(deps).toEqual([
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",
       "@helix/common",
       "@helix/protocol",
+      "diff",
     ]);
     const piDeps = deps.filter((d) => d.startsWith("@earendil-works/"));
     expect(piDeps).toEqual(["@earendil-works/pi-agent-core", "@earendil-works/pi-ai"]);
@@ -230,7 +248,6 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
 
 describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", () => {
   const writePatterns: [string, RegExp][] = [
-    ["new Database", /new\s+Database\s*\(/],
     // 限定 db 系接收者：裸 `\.exec(` 会误伤 RegExp.prototype.exec（如 T1.2
     // rg-backend 的行解析正则）——守护目标是 SQLite 写点而非一切 exec 方法。
     ["db.exec 调用", /\bdb\w*\.exec\s*\(/],
@@ -238,25 +255,63 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     ["DELETE FROM", /\bDELETE\s+FROM\b/i],
     ["UPDATE … SET", /\bUPDATE\s+\w+\s+SET\b/i],
   ];
-  const writeQueueRel = path.join("adapters", "driven", "sqlite-session", "WriteQueue.ts");
+  // T1.1（iter-20260825-11fo O-4/AD-15）：.helix-kg 单库两写点扩登记——知识层写
+  // （SqliteKnowledgeStore：writeKnowledge 四表/applySync 符号层事务）与连接
+  // 底座（KgDatabase：new Database/WAL/DDL exec）是 TR-AD-13 语义域外的
+  // 新落盘写路径，与 WriteQueue 并列白名单；库定位 <projectRoot>/.helix-kg/kg.db
+  // （per-project，不在 daemon 全局单写队列语义域内，内部同样执行
+  // 「唯一写点+串行化」：每表域一个写者、BEGIN IMMEDIATE 事务、崩溃一致）。
+  const sqliteWriteWhitelist = new Set([
+    path.join("adapters", "driven", "sqlite-session", "WriteQueue.ts"),
+    path.join("adapters", "driven", "sqlite-kg", "KgDatabase.ts"),
+    path.join("adapters", "driven", "sqlite-kg", "SqliteKnowledgeStore.ts"),
+  ]);
+  // T2.1（AF-2）：codegraph.db 只读读点登记（**非写点**）——codegraph-engine
+  // 投影面 new Database（mode=ro 系只读连接，零 DML/DDL/写类 PRAGMA，绝不
+  // 写/迁移他人库）；new Database 的允许面 = 写点 ∪ 只读读点，写 SQL 仍只
+  // 允许写点（③ 负向守护：只读读点出现写 SQL 即红）。
+  const sqliteReadonlyWhitelist = new Set([path.join("adapters", "driven", "codegraph-engine", "codegraph-db-projection.ts")]);
 
-  test("① src 内 SQLite 写操作调用点仅存在于 sqlite-session/WriteQueue.ts", () => {
+  test("① src 内 SQLite 写操作调用点仅存在于 sqlite-session/WriteQueue.ts 与 sqlite-kg 两写点（new Database 另允许只读读点）", () => {
     for (const rel of listFiles(srcRoot)) {
       const src = read(rel);
-      const isWriteQueue = rel === writeQueueRel;
+      const isWhitelisted = sqliteWriteWhitelist.has(rel);
+      const isReadonly = sqliteReadonlyWhitelist.has(rel);
+      // new Database：写点 ∪ 只读读点
+      const dbCtor = src.match(/new\s+Database\s*\(/);
+      expect(
+        dbCtor === null || isWhitelisted || isReadonly,
+        `${rel} 出现 new Database（仅 WriteQueue / sqlite-kg 两写点 + codegraph-engine 只读读点允许）`,
+      ).toBe(true);
       for (const [label, pattern] of writePatterns) {
         const hit = src.match(pattern);
         expect(
-          hit === null || isWriteQueue,
-          `${rel} 出现 SQLite 写点「${label}」（仅 WriteQueue 允许）`,
+          hit === null || isWhitelisted,
+          `${rel} 出现 SQLite 写点「${label}」（仅 WriteQueue / sqlite-kg 两写点允许）`,
         ).toBe(true);
       }
     }
   });
 
-  test("② 组合根全局单写队列：组合根锚面（container.ts + assembly/**）仅 new 一个 WriteQueue，仓库经它写", () => {
+  test("①b 只读读点机械守护（AF-2 只读边界）：只允许 SELECT——零写 SQL/DDL，连接恒 mode=ro URI", () => {
+    for (const rel of sqliteReadonlyWhitelist) {
+      const src = read(rel);
+      for (const [label, pattern] of [
+        ...writePatterns,
+        ["DDL CREATE", /\bCREATE\s+(TABLE|INDEX|TRIGGER|VIEW)\b/i],
+        ["DDL ALTER", /\bALTER\s+TABLE\b/i],
+      ] as [string, RegExp][]) {
+        expect(src.match(pattern), `${rel} 是只读读点，不得出现「${label}」`).toBeNull();
+      }
+      expect(src.includes("?mode=ro"), `${rel} 连接必须固定 mode=ro 只读 URI（AF-2）`).toBe(true);
+    }
+  });
+
+  test("② 写实例计数：helix.db 单写队列 1 个；.helix-kg 库独立第二写连接 1 个（仓库各经它们写）", () => {
     // T2.2（§4.2.1）：组合根锚面从 container.ts 单文件扩为 container.ts +
     // assembly/**——单写队列不变量不变，断言扫描面随锚面扩。
+    // T1.1（O-4/AD-15）：计数口径扩为两库两写点——helix.db 仍恰一个 WriteQueue；
+    // .helix-kg（per-project 懒连）恰一个 KgDatabase 实例，Store/Graph 仓库经它访问。
     const rootFiles = [read(path.join("infrastructure", "container.ts"))]
       .concat(
         listFiles(path.join(srcRoot, "infrastructure", "assembly")).map((rel) =>
@@ -266,7 +321,12 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
       .join("\n");
     expect(rootFiles.match(/new\s+WriteQueue\(/g)?.length).toBe(1);
     expect(rootFiles.match(/new\s+SqliteSessionRepository\(/g)?.length).toBe(1);
+    expect(rootFiles.match(/new\s+KgDatabase\(/g)?.length).toBe(1);
+    expect(rootFiles.match(/new\s+SqliteKnowledgeStore\(/g)?.length).toBe(1);
+    expect(rootFiles.match(/new\s+SqliteKnowledgeGraph\(/g)?.length).toBe(1);
   });
+
+  const writeQueueRel = path.join("adapters", "driven", "sqlite-session", "WriteQueue.ts");
 
   test("③ T2.3 closure 写面收敛：closure_records/reports 写语句只在 WriteQueue，DDL 只在 schema", () => {
     // closure_records 的 SQL 写语句（INSERT/DELETE/UPDATE）只允许 WriteQueue；
@@ -316,6 +376,8 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // HELIX_RG_PATH（壳注入的 rg bundle 资源定位参数，非配置源）与 PATH
     // （rg 三级解析第③级探测对象）——读取收束于装配层单点作为 resolve-rg
     // 入参（resolve-rg.ts 本体零 env 依赖）。
+    // T2.1（AF-2）：同模式扩 HELIX_CODEGRAPH_PATH（codegraph 三级解析第①级
+    // bundle 注入键，resolve-codegraph.ts 本体零 env 依赖）。
     const whitelistRoot = path.join("adapters", "driven", "subagent");
     const containerRel = path.join("infrastructure", "container.ts");
     for (const rel of listFiles(srcRoot)) {
@@ -323,7 +385,8 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       const src = read(rel);
       if (rel === containerRel) {
         const envKeys = [...new Set([...src.matchAll(/process\.env\.([A-Z_]+)/g)].map((m) => m[1]!))].sort();
-        expect(envKeys, `container.ts 可读 env 键仅限 HELIX_RG_PATH/PATH，实际：${envKeys.join(",")}`).toEqual([
+        expect(envKeys, `container.ts 可读 env 键仅限 HELIX_CODEGRAPH_PATH/HELIX_RG_PATH/PATH，实际：${envKeys.join(",")}`).toEqual([
+          "HELIX_CODEGRAPH_PATH",
           "HELIX_RG_PATH",
           "PATH",
         ]);
@@ -332,13 +395,41 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       expect(src.includes("process.env"), `${rel} 读取了环境变量（AG-08）`).toBe(false);
     }
   });
+
+  test("subagent env IPC 键清单登记（F3.0：新增 HELIX_* 键须同步扩登记——键级守护，防未登记键悄然扩散）", () => {
+    // env 在 subagent/ 内是父子 IPC 通道（非配置源）——通道键是协议面，
+    // 新键（如 F3.0 reportPath 传参的 HELIX_REPORT_PATH）须在此清单登记，
+    // 使键集合变更可评审（扫描面含注释提及：注释与实现同键同责任）。
+    const registered = [
+      "HELIX_API_KEYS_JSON",
+      "HELIX_FAKE_ENGINE_SCRIPT",
+      "HELIX_INSTANCE_ID",
+      "HELIX_MODEL_JSON",
+      "HELIX_REPORT_PATH", // F3.0（T4.1）：报告落点传参（SubagentLauncher 注入 / 提示词引导消费）
+      "HELIX_SYSTEM_PROMPT",
+      "HELIX_THINKING_LEVEL",
+      "HELIX_TOOLS_JSON",
+      "HELIX_TOOL_CWD",
+    ].sort();
+    const found = new Set<string>();
+    const subagentRel = path.join("adapters", "driven", "subagent");
+    for (const rel of listFiles(path.join(srcRoot, subagentRel))) {
+      for (const m of read(path.join(subagentRel, rel)).matchAll(/HELIX_[A-Z_]+/g)) found.add(m[0]!);
+    }
+    expect([...found].sort(), "subagent env IPC 键集合与登记清单不一致——新键须扩登记（AG-08）").toEqual(registered);
+  });
 });
 
 describe("AG-10 + TP-CL4-3：runtime 无编排模式分支", () => {
   const modeWords = /\b(main-session|subagent|phase|kg)\b/i;
   test("runtime 逻辑源码（含 hooks/）不含模式标识符", () => {
     const files = listFiles(path.join(srcRoot, "adapters", "driven", "pi-engine", "runtime"))
-      .filter((rel) => !rel.startsWith(path.join("profiles")));
+      .filter((rel) => !rel.startsWith(path.join("profiles")))
+      // T4.2（AD-18）：templates/ 为提示词资产（段库目录/装配指引，与 profiles
+      // 同域纯声明数据）——场景定名 kg-change-report / 段名「kg 约束切片」为
+      // 架构定名，模式词合法出现在声明数据（同 profiles 豁免口径）；
+      // validate.ts 为逻辑源码，不豁免、仍受扫描。
+      .filter((rel) => !(rel.startsWith(path.join("templates")) && !rel.endsWith("validate.ts")));
     for (const rel of files) {
       const src = read(path.join("adapters", "driven", "pi-engine", "runtime", rel));
       expect(src.match(modeWords), `runtime/${rel} 出现编排模式词：${src.match(modeWords)?.[0]}`).toBeNull();
@@ -397,11 +488,20 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
           // domain 只允许 type-only import（无运行时耦合，无业务规则调用）
           expect(typeOnly(spec, src), `ws-server/${rel} 对 domain 只允许 import type：${spec}`).toBe(true);
         } else {
-          expect(runtimeAllowed(rel, spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
+          // T5.3（iter-20260825-11fo，§9）：kg 族命令回口 = application service
+          //（KgViewerService，architecture.md 明文「driving/kg.ts 调 application
+          // service 不触 driven」）——仅限 type-only（依赖面注入经组合根，
+          // ws-server 零运行时耦合），同 domain 口径。
+          const kgServiceTypeOnly = /\/services\/kg\//.test(spec) && typeOnly(spec, src);
+          if (!kgServiceTypeOnly) {
+            expect(runtimeAllowed(rel, spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
+          }
         }
       }
       // 白名单的否定面：禁 services/infrastructure/driven
+      //（T5.3 例外：application/services/kg/ 的 type-only 面见上——§9 明文回口）
       for (const spec of importSpecifiers(src)) {
+        if (/\/services\/kg\//.test(spec) && typeOnly(spec, src)) continue;
         expect(spec, `ws-server/${rel} 不得依赖 service/infra/driven：${spec}`).not.toMatch(/services\/|infrastructure\/|\/driven\//);
       }
     }

@@ -21,6 +21,13 @@ import type { ReactNode } from "react";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { CommandEnvelope, EventEnvelope, TraceQueryPayload } from "@helix/protocol";
 import type { AgentConfigSetEnabledPayload } from "@helix/protocol";
+import type {
+  KgChangeReportPayload,
+  KgIndexStatusPayload,
+  KgListPayload,
+  KgNodeConfirmPayload,
+  KgNodeDetailPayload,
+} from "@helix/protocol";
 import { HelixWsClient } from "@/shared/api/helix-ws";
 import type { Transport, TransportFactory } from "@/shared/api/helix-ws";
 import {
@@ -34,6 +41,12 @@ import {
   chatSendCommand,
   chatSendDraftCommand,
   chatSteerCommand,
+  kgChangeReportCommand,
+  kgIndexStatusCommand,
+  kgListCommand,
+  kgNodeConfirmCommand,
+  kgNodeDetailCommand,
+  kgProjectsCommand,
   modelCatalogCommand,
   modelCatalogRefreshCommand,
   modelGetDefaultCommand,
@@ -161,6 +174,21 @@ interface SessionContextValue {
   /** 发送 web.start（v0.9，T7 显式启动通路；回执 applied/skipped 点对点 +
    *  状态回 connected 经 web.status.changed 广播写 topology.webStatus）。 */
   sendWebStart: () => boolean;
+  // ── kg 族六命令面（iter-20260825-11fo T5.4，P-1 图谱页；连接私有读面）──
+  /** 发送 kg.projects（左栏项目列表；点对点回执；send 失败返回 false）。 */
+  sendKgProjects: () => boolean;
+  /** 发送 kg.list（节点列表+搜索；三路过滤可叠加）。 */
+  sendKgList: (payload: KgListPayload) => boolean;
+  /** 发送 kg.node.detail（六段聚合详情）。 */
+  sendKgNodeDetail: (payload: KgNodeDetailPayload) => boolean;
+  /** 发送 kg.change.report（知识变化报告；缺省当前迭代）。 */
+  sendKgChangeReport: (payload: KgChangeReportPayload) => boolean;
+  /** 发送 kg.node.confirm（页面唯一写：draft 转正；回执翻转后状态回读）。 */
+  sendKgNodeConfirm: (payload: KgNodeConfirmPayload) => boolean;
+  /** 发送 kg.index.status（索引四态；rebuild:true 触发构建，O-6 轮询通道）。 */
+  sendKgIndexStatus: (payload: KgIndexStatusPayload) => boolean;
+  /** 订阅 kg 族点对点回执（kg.*.result；O-6 零推送事件，回执全走此处）。 */
+  subscribeKgFrames: (listener: (e: EventEnvelope) => void) => () => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -205,9 +233,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const generatingRef = useRef(false);
   generatingRef.current = selectIsGenerating(topology.active);
   // trace 族点对点回执订阅表（T2.2；页面私有消费，不进会话 store）
-  const traceListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
-  // agent.config 族点对点回执订阅表（M6 T4；智能体页私有消费，同 trace 形态）
+  const traceListenersRef = useRef(new Set<(e: EventEnvelope) => void>());  // agent.config 族点对点回执订阅表（M6 T4；智能体页私有消费，同 trace 形态）
   const agentConfigListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
+  // kg 族点对点回执听众（T5.4；页面私有 reducer 消费，会话 store 零写入）
+  const kgListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
 
   if (clientRef.current === null) {
     // prod define 摇除：FAKE_TRANSPORT_DEFINE 构建期为 "" 字面量 → 本比较折叠
@@ -274,6 +303,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       //（dispatcher 侧拓扑级直通不写态；changed 广播走拓扑 revision）
       if (event.type === "agent.config.list.result" || event.type === "agent.config.set_enabled.result") {
         for (const l of agentConfigListenersRef.current) l(event);
+      }
+      // kg 族点对点回执转发（T5.4）：P-1 图谱页页面私有链消费
+      //（全部为命令回执零广播，dispatcher 零写入；错误回执走
+      // connection.error 全局通道，不在此转发）
+      if (event.type.startsWith("kg.") && event.type.endsWith(".result")) {
+        for (const l of kgListenersRef.current) l(event);
       }
       // 草稿 thinking 暂存转正（thinking 批①，draft-model 先例对齐；T2.1）：
       // chat.send 零字段负断言（AD-4①）使覆盖无法随首条上送——草稿态经
@@ -479,6 +514,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // web.start 显式启动写面（v0.9，T7）：popover 启动钮回调（沿 sendWebStop 先例）
   const sendWebStart = useCallback(() => clientRef.current!.send(webStartCommand()), []);
 
+  // kg 族六命令面（T5.4，P-1 图谱页；沿 trace 查询面先例：直发命令 + 订阅点对点回执）
+  const sendKgProjects = useCallback(() => clientRef.current!.send(kgProjectsCommand()), []);
+  const sendKgList = useCallback(
+    (payload: KgListPayload) => clientRef.current!.send(kgListCommand(payload)),
+    [],
+  );
+  const sendKgNodeDetail = useCallback(
+    (payload: KgNodeDetailPayload) => clientRef.current!.send(kgNodeDetailCommand(payload)),
+    [],
+  );
+  const sendKgChangeReport = useCallback(
+    (payload: KgChangeReportPayload) => clientRef.current!.send(kgChangeReportCommand(payload)),
+    [],
+  );
+  const sendKgNodeConfirm = useCallback(
+    (payload: KgNodeConfirmPayload) => clientRef.current!.send(kgNodeConfirmCommand(payload)),
+    [],
+  );
+  const sendKgIndexStatus = useCallback(
+    (payload: KgIndexStatusPayload) => clientRef.current!.send(kgIndexStatusCommand(payload)),
+    [],
+  );
+  const subscribeKgFrames = useCallback((listener: (e: EventEnvelope) => void) => {
+    kgListenersRef.current.add(listener);
+    return () => {
+      kgListenersRef.current.delete(listener);
+    };
+  }, []);
+
   const consumeRestoreToast = useCallback(
     () => dispatch({ type: "ui/consume-restore-toast" }),
     [],
@@ -624,6 +688,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       subscribeAgentConfigFrames,
       sendWebStop,
       sendWebStart,
+      sendKgProjects,
+      sendKgList,
+      sendKgNodeDetail,
+      sendKgChangeReport,
+      sendKgNodeConfirm,
+      sendKgIndexStatus,
+      subscribeKgFrames,
     }),
     [
       state,
@@ -663,6 +734,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       subscribeAgentConfigFrames,
       sendWebStop,
       sendWebStart,
+      sendKgProjects,
+      sendKgList,
+      sendKgNodeDetail,
+      sendKgChangeReport,
+      sendKgNodeConfirm,
+      sendKgIndexStatus,
+      subscribeKgFrames,
     ],
   );
 

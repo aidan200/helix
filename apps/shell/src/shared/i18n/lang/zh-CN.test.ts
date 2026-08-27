@@ -307,10 +307,11 @@ describe("AG-16-② zh-CN 词条完备性", () => {
     expect(empty).toEqual([]);
   });
 
-  it("zh-CN 词条只含 chat + trace + agents 三族（裁剪版，不搬 desk 全量）", () => {
+  it("zh-CN 词条只含 chat + trace + agents + pj 四族（裁剪版，不搬 desk 全量）", () => {
     // P-1 工作台一族（chat.*）+ CL-5 TracePage 一族（trace.*，T2.2）+ M6 T4
-    // 智能体页一族（agents.*）；顶层不应出现 desk 的 sidebar/settings/kg 等非本仓命名空间。
-    expect(Object.keys(zhCN)).toEqual(["chat", "trace", "agents"]);
+    // 智能体页一族（agents.*）+ T5.4 项目域/图谱页一族（pj.*，单页 master-detail）；
+    // 顶层不应出现 desk 的 sidebar/settings/kg 等非本仓命名空间。
+    expect(Object.keys(zhCN)).toEqual(["chat", "trace", "agents", "pj"]);
   });
 });
 

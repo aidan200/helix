@@ -13,6 +13,7 @@ import { buildModels, resolveConfigModel } from "../../src/adapters/driven/pi-en
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { TOOL_PROMPT_SNIPPETS } from "../../src/adapters/driven/tools/ToolPromptSnippets";
 import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
+import { kgToolsStub } from "../helpers/kgToolsStub";
 import { createPaths } from "../../src/infrastructure/paths";
 
 /**
@@ -86,6 +87,8 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
     orchestration,
     // T3r：MainSessionProfile 声明动态族单 browser 工具——注册桩保持 resolveTools 可装配
     browser: new FakeBrowserPort(),
+    // T3.3：main 全集声明 kg 双工具——替身保持可装配
+    kg: kgToolsStub(toolCwd),
   });
   return new PiAgentEngineAdapter({
     profile: MainSessionProfile,
@@ -110,8 +113,10 @@ const MAIN_TOOLS = [
   "agent_status",
   "agent_inspect", // T3-B
   "browser",
+  "kg", // T3.3：kg 双工具
+  "kg-update",
 ];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"]; // H-3：+browser
+const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "kg-update"]; // H-3：+browser；T3.3：+kg 双工具
 
 describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 acceptance ③）", () => {
   test("① main tool toggle：下一 run 的 systemPrompt 与 tools 同步收缩；skipped 不刷新", async () => {

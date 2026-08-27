@@ -12,6 +12,7 @@ import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgen
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
+import { kgToolsStub } from "../helpers/kgToolsStub";
 
 /**
  * TP-CL5-3（I）：剧本 S2 —— 五工具会话内闭环。
@@ -129,6 +130,8 @@ function makeHarness(scripts: ScriptEntry[], browserPort?: FakeBrowserPort): Loo
     // T3r：MainSessionProfile 声明动态族单 browser 工具——注册桩保持 resolveTools 可装配
     // T9：可选注入预置字节的 port（screenshot 剧本）
     browser: browserPort ?? new FakeBrowserPort(),
+    // T3.3：MainSessionProfile 声明 kg 双工具——替身注入保持 resolveTools 可装配
+    kg: kgToolsStub(cwd),
   });
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,

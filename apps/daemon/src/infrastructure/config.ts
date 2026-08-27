@@ -34,6 +34,8 @@ export interface DaemonConfig {
   staticDir?: string;
   /** rg 可执行文件显式路径（rg 三级解析第②级，AD-2/F3.1 §4.4；缺省跳过该级）。 */
   rgPath?: string;
+  /** codegraph 可执行文件显式路径（三级解析第②级，T2.1/AF-2；缺省跳过该级）。 */
+  codegraphPath?: string;
 }
 
 /** 旧格式遗留位（AD-2 迁移读面：组合根写新位后重写瘦身 config.json）。 */
@@ -157,6 +159,16 @@ export function loadConfig(configFilePath: string): LoadedConfig {
     rgPath = obj.rgPath;
   }
 
+  let codegraphPath: string | undefined;
+  if (obj.codegraphPath !== undefined) {
+    if (typeof obj.codegraphPath !== "string" || obj.codegraphPath.trim() === "") {
+      throw new Error(
+        `配置文件字段 codegraphPath 格式错误：${configFilePath}，应为非空字符串（codegraph 可执行文件显式路径，T2.1/AF-2）。`,
+      );
+    }
+    codegraphPath = obj.codegraphPath;
+  }
+
   return {
     config: {
       port,
@@ -164,6 +176,7 @@ export function loadConfig(configFilePath: string): LoadedConfig {
       maxQueued,
       ...(staticDir !== undefined ? { staticDir } : {}),
       ...(rgPath !== undefined ? { rgPath } : {}),
+      ...(codegraphPath !== undefined ? { codegraphPath } : {}),
     },
     legacy,
   };
@@ -174,7 +187,7 @@ export const CONFIG_FILE_MODE = 0o600;
 
 /**
  * 写入配置文件（**全字段序列化**——修复截断：port/maxConcurrent/
- * maxQueued/staticDir/rgPath 全量落盘，旧实现只写三字段会静默丢字段）。
+ * maxQueued/staticDir/rgPath/codegraphPath 全量落盘，旧实现只写三字段会静默丢字段）。
  * 父目录不存在则创建；写入后显式 chmod（覆盖既有宽权限文件时同样收严）。
  */
 export function writeConfig(configFilePath: string, config: DaemonConfig): void {
@@ -187,6 +200,7 @@ export function writeConfig(configFilePath: string, config: DaemonConfig): void 
         maxQueued: config.maxQueued,
         ...(config.staticDir !== undefined ? { staticDir: config.staticDir } : {}),
         ...(config.rgPath !== undefined ? { rgPath: config.rgPath } : {}),
+        ...(config.codegraphPath !== undefined ? { codegraphPath: config.codegraphPath } : {}),
       },
       null,
       2,

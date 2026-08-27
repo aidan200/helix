@@ -57,11 +57,12 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     // 不 spawn 孙进程（单层编排）。T3r：Main 增动态族单 browser 工具；H-3：
     // SubAgent 经 wire 转发通道接入同一 daemon CDP 单例（P0-1 子进程不直连
     // 决策不变——RemoteBrowserPort 进程外实现，ownerId = instanceId）。
+    // T3.3：两 profile 均增 kg/kg-update 双工具（查询面+落账面）。
     // 工具集 = Main 清单去编排三工具
     expect(SubAgentProfile.tools).toEqual(
       MainSessionProfile.tools.filter((t) => !t.startsWith("agent_")),
     );
-    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser"]);
+    expect(SubAgentProfile.tools).toEqual(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "kg-update"]);
   });
 
   test("hooks 装配 SteerHooks（send→steer 转投接线，AD-7⑤；T1 后为构造器引用声明）", () => {
@@ -81,6 +82,17 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     expect(p).toContain("CLOSURE");
     expect(p).toContain("done");
     expect(p).toContain("failed");
+  });
+
+  test("F3.0 报告落盘引导：HELIX_REPORT_PATH 传参说明 + reportPath 填该路径 + 与 T4.2 装配指引协同", () => {
+    const p = SubAgentProfile.systemPrompt;
+    // 报告落盘引导（T4.1）：路径从 env 读、报告写入该文件、closure reportPath 填该路径
+    expect(p).toContain("HELIX_REPORT_PATH");
+    expect(p).toContain("reportPath 填该路径");
+    expect(p).toContain("透传"); // daemon 只透传不代写（不自建第二事实源预期）
+    // T4.2 段库指引仍在（协同非冲突）：report 装配端指引段
+    expect(p).toContain("任务收口装配指引");
+    expect(p).toContain("findings");
   });
 
   test("AgentProfile.model 槽位既有 profile 不受影响（MainSessionProfile 无声明）", () => {
