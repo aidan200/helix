@@ -544,6 +544,7 @@ export const zhCN = {
       lastUsedAt: "上次使用 {time}",
       inputTitle: "输入路径",
       pathPlaceholder: "/path/to/workspace",
+      browse: "浏览…",
       open: "打开",
       opening: "打开中…",
       cancelSwitch: "取消，返回主界面",

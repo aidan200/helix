@@ -18,6 +18,25 @@ use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 /// sidecar 二进制名（externalBin 落位带 target-triple 后缀，前缀匹配）。
 const SIDECAR_BIN_PREFIX: &str = "helix-daemon";
 
+/// W6a 原生目录选择注入脚本（F3 裁决：壳唯一原生 UX 能力面）。
+///
+/// 挂 `window.helixPickDirectory`：调 tauri-plugin-dialog 的 open（directory+
+/// 单选），选中返回平台原生路径字符串（Windows 反斜杠等形态一律透传，
+/// 零业务解析）；取消/空串 → null。`initial`（可选 defaultPath 提示位）由
+/// 前端传入当前输入——相对/无效由对话框自身忽略，壳不预校验。
+///
+/// 注：`__TAURI_INTERNALS__` 字样只允许出现在本 Rust 字符串里（AG-17
+/// FORM_BRANCH_RE 只扫 apps/shell/src 与 scripts/——前端零该字样，经
+/// shared/api/native-capability.ts seam 受控访问 globalThis 挂载点）。
+const PICK_DIRECTORY_INIT_SCRIPT: &str = r#"
+window.helixPickDirectory = (initial) =>
+  window.__TAURI_INTERNALS__.invoke('plugin:dialog|open', {
+    directory: true,
+    multiple: false,
+    ...(initial ? { defaultPath: initial } : {}),
+  }).then((r) => (typeof r === 'string' && r.length > 0 ? r : null));
+"#;
+
 fn main() {
     let shutdown = Arc::new(AtomicBool::new(false));
     // 放弃路径退出码（0 = 运行中/正常关停；1 = Fatal 后用户关窗）
@@ -25,6 +44,8 @@ fn main() {
     let supervisor_handle: Arc<Mutex<Option<JoinHandle<()>>>> = Arc::new(Mutex::new(None));
 
     let app = tauri::Builder::default()
+        // W6a 原生目录选择：官方三平台对话框插件（能力面见 capabilities/default.json）
+        .plugin(tauri_plugin_dialog::init())
         .setup({
             let shutdown = Arc::clone(&shutdown);
             let exit_code = Arc::clone(&exit_code);
@@ -99,6 +120,9 @@ impl SupervisorHooks for ShellHooks {
                 let _ = WebviewWindowBuilder::new(&handle2, "main", WebviewUrl::App("index.html".into()))
                     .title("helix")
                     .inner_size(1280.0, 800.0)
+                    // W6a：页面脚本加载前注入 helixPickDirectory（前端经 seam 探测，
+                    // 纯浏览器 dev 无此挂载点 → 浏览钮不渲染，输入框仍可用）
+                    .initialization_script(PICK_DIRECTORY_INIT_SCRIPT)
                     .build();
             }
         });

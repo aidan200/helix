@@ -539,6 +539,7 @@ export const enUS = {
       lastUsedAt: "Last used {time}",
       inputTitle: "Enter a path",
       pathPlaceholder: "/path/to/workspace",
+      browse: "Browse…",
       open: "Open",
       opening: "Opening…",
       cancelSwitch: "Cancel and go back",
