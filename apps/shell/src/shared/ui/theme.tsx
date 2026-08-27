@@ -35,6 +35,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.classList.toggle("light", theme === "light");
+    // W6e：主题提示回写（壳侧缓存为下次启动的窗口底色；纯浏览器 dev 无
+    // 此挂载点时静默跳过——可选链降级，零形态分支）
+    globalThis.helixThemeHint?.(theme);
   }, [theme]);
 
   const setTheme = useCallback((next: Theme) => {

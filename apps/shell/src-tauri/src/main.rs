@@ -35,41 +35,43 @@ window.helixPickDirectory = (initial) =>
     multiple: false,
     ...(initial ? { defaultPath: initial } : {}),
   }).then((r) => (typeof r === 'string' && r.length > 0 ? r : null));
+// W6e：主题提示回写（挂载时+主题变更时；壳侧缓存为下次启动窗口底色）
+window.helixThemeHint = (theme) =>
+  window.__TAURI_INTERNALS__.invoke('theme_hint', { theme });
 "#;
 
-/// 先导页（W6d 方案 B）：data URL 内联极简页——webview 冷启动首帧前的
-/// 空档在 webview 层只能显示背景色（WebKit 无 pre-document 内容面）；
-/// 先导页把"文档获取"压到零 IO（无网络/无自定义协议往返），首帧只剩
-/// 冷启动本身，期间展示 helix logo（v1 favicon 同构：圆角方 + 青 HX，
-/// 呼吸辉光）。背景 #060910 与窗口底色/启动屏三同色——切换无闪变。
-const PILOT_PAGE_HTML: &str = r##"<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><style>html,body{margin:0;height:100%;background:#060910}.p{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}svg{width:104px;height:104px;filter:drop-shadow(0 0 14px rgba(34,211,238,.45));animation:b 1.6s ease-in-out infinite}@keyframes b{50%{filter:drop-shadow(0 0 28px rgba(34,211,238,.8))}}@media (prefers-reduced-motion: reduce){svg{animation:none}}</style></head><body><div class="p"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#060910" stroke="#22d3ee" stroke-opacity=".35"/><text x="16" y="22" font-family="monospace" font-size="15" font-weight="700" text-anchor="middle" fill="#22d3ee">HX</text></svg></div></body></html>"##;
+// ── 窗口底色主题感知（W6e：先导页方案退役后的简化方案）──────────
+// webview 冷启动首帧前只能显示背景色（WebKit 无 pre-document 内容面）；
+// 先导页时间窗口过短不可靠（用户实证），改为让底色与当前主题一致。
+// 壳读不到 webview localStorage → 前端经 theme_hint 命令回写提示到
+// <app_config_dir>/theme-hint（窗口域能力，非业务解析）；缺失/读失败
+// → 暗色缺省（应用主题缺省即暗）。
 
-/// 先导页 data URL（percent_encode 复用错误页同款——data 载荷需全量编码）。
-fn pilot_page_url() -> tauri::Url {
-    tauri::Url::parse(&format!(
-        "data:text/html;charset=utf-8,{}",
-        percent_encode(PILOT_PAGE_HTML)
-    ))
-    .expect("先导页 data URL 构造失败（静态常量，不可达）")
+/// 主题提示缓存文件路径（app_config_dir 随 tauri 标识位派生）。 */
+fn theme_hint_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("theme-hint"))
 }
 
-/// 真实应用入口 URL（先导页 paint 完成后导航目标）：dev = devUrl+index.html
-/// （vite / 与 /index.html 同源同产物）；打包 = tauri 资产协议（macOS/Linux
-/// tauri://，Windows http://tauri.localhost——平台差异是 tauri 公开契约）。
-fn real_app_url(app: &tauri::AppHandle) -> tauri::Url {
-    if tauri::is_dev() {
-        let base = app
-            .config()
-            .build
-            .dev_url
-            .clone()
-            .unwrap_or_else(|| tauri::Url::parse("http://localhost:5173").expect("静态 URL"));
-        base.join("index.html").expect("devUrl join index.html")
-    } else if cfg!(target_os = "windows") {
-        tauri::Url::parse("http://tauri.localhost/index.html").expect("静态 URL")
+/// 窗口底色：light → #F4F2EC（boot-light 同值），否则 #060910（--void）。 */
+fn theme_window_background(app: &tauri::AppHandle) -> tauri::utils::config::Color {
+    let light = theme_hint_path(app)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|s| s.trim() == "light")
+        .unwrap_or(false);
+    if light {
+        tauri::utils::config::Color(244, 242, 236, 255)
     } else {
-        tauri::Url::parse("tauri://localhost/index.html").expect("静态 URL")
+        tauri::utils::config::Color(6, 9, 16, 255)
     }
+}
+
+/// 前端回写主题提示（挂载时 + 主题变更时调用；写失败静默——缓存仅影响
+/// 下次启动的窗口底色，不影响本次应用主题）。 */
+#[tauri::command]
+fn theme_hint(app: tauri::AppHandle, theme: String) {
+    let Some(dir) = app.path().app_config_dir().ok() else { return };
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(dir.join("theme-hint"), theme);
 }
 
 fn main() {
@@ -81,6 +83,8 @@ fn main() {
     let app = tauri::Builder::default()
         // W6a 原生目录选择：官方三平台对话框插件（能力面见 capabilities/default.json）
         .plugin(tauri_plugin_dialog::init())
+        // W6e：主题提示回写命令（前端挂载时+主题变更时调用；缓存下次启动的窗口底色）
+        .invoke_handler(tauri::generate_handler![theme_hint])
         .setup({
             let shutdown = Arc::clone(&shutdown);
             let exit_code = Arc::clone(&exit_code);
@@ -93,62 +97,20 @@ fn main() {
                 // 未就绪窗口（端口静态解析：VITE_HELIX_PORT 缺省 7333，与
                 // ready 行无关）。原"ready 后建窗"会留下启动等待期无窗/黑屏
                 // （用户实证）；on_ready 保留幂等兜底（重启场景窗口已在）。
-                // W6d 方案 B：首导航指向先导页（data URL 内联 logo，零 IO
-                // 首帧），Finished 后导航到真实应用；先导页背景与窗口底色/
-                // 启动屏三同色，切换无闪变。
+                // W6e：先导页方案退役（时间窗口不可靠，用户实证）——首导航
+                // 直接指向应用；底色主题感知（theme-hint 回写缓存）。
                 if handle.get_webview_window("main").is_none() {
-                    let target = real_app_url(&handle);
-                    let _ = WebviewWindowBuilder::new(
-                        &handle,
-                        "main",
-                        WebviewUrl::External(pilot_page_url()),
-                    )
-                    .title("helix")
-                    .inner_size(1280.0, 800.0)
-                    // 启动屏同色窗口底色（#060910 = tokens.css --void）：
-                    // HTML 到达前的纯原生阶段与启动屏/页面底色无缝衔接
-                    .background_color(tauri::utils::config::Color(6, 9, 16, 255))
-                    // W6a：页面脚本加载前注入 helixPickDirectory（前端经
-                    // seam 探测，纯浏览器 dev 无此挂载点 → 浏览钮不渲染）
-                    .initialization_script(PICK_DIRECTORY_INIT_SCRIPT)
-                    // 先导页 → 真实应用：Finished + 仍在 data: 才切（幂等，
-                    // 真实页的 Finished 不会再触发）
-                    .on_page_load(move |wv, payload| {
-                        if payload.event() == tauri::webview::PageLoadEvent::Finished
-                            && wv.url().map(|u| u.scheme() == "data").unwrap_or(false)
-                        {
-                            // Finished ≠ 已绘制：立即导航会抢在 logo 首帧合成
-                            // 前把页切走（用户实证"没有 logo"）。最小展示延时：
-                            // load 完成后保屏 ~650ms，确保冷启动空档被 logo
-                            // 覆盖且用户可见。
-                            let wv_handle = wv.clone();
-                            let target = target.clone();
-                            std::thread::spawn(move || {
-                                std::thread::sleep(std::time::Duration::from_millis(650));
-                                let inner = wv_handle.clone();
-                                let _ = wv_handle.run_on_main_thread(move || {
-                                    if inner.url().map(|u| u.scheme() == "data").unwrap_or(false) {
-                                        let _ = inner.navigate(target);
-                                    }
-                                });
-                            });
-                        }
-                    })
-                    .build();
-                    // 兑底：page-load 事件异常丢失时防卡死在先导页（2.5s 后
-                    // 仍在 data: 则强制导航）
-                    let guard_handle = handle.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(2500));
-                        let inner = guard_handle.clone();
-                        let _ = guard_handle.run_on_main_thread(move || {
-                            if let Some(wv) = inner.get_webview_window("main") {
-                                if wv.url().map(|u| u.scheme() == "data").unwrap_or(false) {
-                                    let _ = wv.navigate(real_app_url(&inner));
-                                }
-                            }
-                        });
-                    });
+                    let _ = WebviewWindowBuilder::new(&handle, "main", WebviewUrl::App("index.html".into()))
+                        .title("helix")
+                        .inner_size(1280.0, 800.0)
+                        // 窗口底色与当前主题一致（W6e：light=#F4F2EC / dark=
+                        // #060910；缺省暗——HTML 到达前的纯原生阶段与启动屏
+                        // /页面底色无缝衔接，不再突兀）
+                        .background_color(theme_window_background(&handle))
+                        // W6a：页面脚本加载前注入 helixPickDirectory；W6e 追加
+                        // helixThemeHint（前端挂载时+主题变更时回写提示）
+                        .initialization_script(PICK_DIRECTORY_INIT_SCRIPT)
+                        .build();
                 }
                 let spec = resolve_sidecar_spec();
                 let join = std::thread::spawn(move || {
@@ -223,7 +185,7 @@ impl SupervisorHooks for ShellHooks {
                     // 启动屏同色窗口底色（#060910 = tokens.css --void）：HTML
                     // 到达前的纯原生阶段与启动屏/页面底色无缝衔接（初始化
                     // 黑屏阶段不再空突兀——与 index.html 底色兜底配套）
-                    .background_color(tauri::utils::config::Color(6, 9, 16, 255))
+                    .background_color(theme_window_background(&handle2))
                     // W6a：页面脚本加载前注入 helixPickDirectory（前端经 seam 探测，
                     // 纯浏览器 dev 无此挂载点 → 浏览钮不渲染，输入框仍可用）
                     .initialization_script(PICK_DIRECTORY_INIT_SCRIPT)

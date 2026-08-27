@@ -19,3 +19,14 @@ declare const __HELIX_FAKE_TRANSPORT__: string | undefined;
 declare var helixPickDirectory:
   | ((initial?: string) => Promise<string | null>)
   | undefined;
+
+/**
+ * W6e 壳注入的主题提示回写挂载点（同上形态）：ThemeProvider 挂载时与
+ * 主题变更时调用；壳侧写入 <app_config_dir>/theme-hint，作为下次启动的
+ * 窗口底色（light=#F4F2EC / dark=#060910）——窗口创建早于 webview 文档，
+ * 壳读不到 localStorage，故经此回写链。纯浏览器 dev 无此挂载点 → 可选
+ * 链降级静默跳过（零形态分支，AG-17）。
+ */
+declare var helixThemeHint:
+  | ((theme: "dark" | "light") => void)
+  | undefined;
