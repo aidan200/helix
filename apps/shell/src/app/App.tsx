@@ -8,7 +8,8 @@
  * workspace 门禁（W3）在 SessionProvider 之内、主壳之外：连接就绪自动
  * workspace.get → bound（phase=main）渲染主壳（零改动）/ null（gate）
  * 渲染选择页 / 判定前（connecting）终端风连接屏（W6b：与静态启动屏
- * 同类族）——门禁是前端状态，
+ * 同类族；W6o 升格双形态开场：首启 hold 显完整 16 行序列，重连 status
+ * 形态）——门禁是前端状态，
  * 不是壳职责（TR-AD-4）。路由层在 Provider 之内——工作台常驻 DOM
  * （display 切换保状态，F(4.4).2），路由切换不重建 WS/不丢活跃会话与输入。
  * IconRail 为页面域纯展示组件（不读会话 store，TR-AD-8 页面域/会话域
@@ -17,7 +18,7 @@
  * 路由 /skills 不动），trace 实页，project 为 P-1 单页 master-detail 实页
  * （V-3：项目域+知识图谱查看）。scanline 氛围层全局单份（S1 上提）。
  */
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, FolderKanban, Layers, MessageSquare, Settings } from "lucide-react";
 import { I18nProvider } from "@/shared/i18n";
 import { ThemeProvider } from "@/shared/ui/theme";
@@ -111,15 +112,51 @@ function WorkspaceGate() {
 }
 
 /**
- * 门禁分支（W3；W4 切换流复用）：phase=gate → 选择页（首启无导航逃逸；
- * 切换流入口带取消逃逸——switching 态页面自渲染返回钮，首启语义不变）；
- * connecting → 终端风连接屏（W6b；conn=error 时重试占位）；main → 主壳
- * （AppRoutes 零改动）。phase 由 entities/workspace 状态机驱动。
+ * 首启 boot 序列 hold 时长（W6o）：16 行序列末行 --d 1.30s + wipe 0.14s
+ * ≈ 1.44s——序列播完的兜底下限（连接就绪早于此则等待，晚于此由连接
+ * 就绪条件收口）。导出供门禁 hold 测试消费（fake timers 步进基准）。
  */
-function WorkspaceGateBranch() {
+export const BOOT_HOLD_MS = 1440;
+
+/**
+ * 门禁分支（W3；W4 切换流复用；W6o 首启 hold）：phase=gate → 选择页
+ * （首启无导航逃逸；切换流入口带取消逃逸——switching 态页面自渲染返回钮，
+ * 首启语义不变）；connecting → 终端风连接屏（W6b；conn=error 时重试占位）；
+ * main → 主壳（AppRoutes 零改动）。phase 由 entities/workspace 状态机驱动。
+ *
+ * 首启 hold（W6o）：打包形态 JS 内嵌秒载、React 立即替换静态 boot 序列
+ * （来不及播），真实等待转移到 daemon 连接段——连接屏升格为完整开场动画。
+ * 首启在「连接就绪（phase 离开 connecting）且序列播完（挂载起 BOOT_HOLD_MS
+ * 兜底）」前恒显 boot 屏（full 形态，即使 phase 已到 gate/main——gate 选择页
+ * 同受 hold，开场体验统一）；双条件齐备置 firstBootDone（ref+state：ref 供
+ * effect 内同步判重，state 驱动渲染）后恒不复发——此后 phase 回 connecting
+ * （重连）→ status 形态直显（无 hold，中途断连不重播序列防打扰）。切换流
+ * 是 main 态内路由（firstBootDone 已置）不受影响。导出供门禁 hold 测试消费。
+ */
+export function WorkspaceGateBranch() {
   const { state } = useWorkspace();
+  const [seqDone, setSeqDone] = useState(false);
+  const [firstBootDone, setFirstBootDone] = useState(false);
+  const firstBootRef = useRef(false);
+
+  // 序列播完兜底：挂载起计时（非阻塞 setTimeout；卸载清理）
+  useEffect(() => {
+    const timer = setTimeout(() => setSeqDone(true), BOOT_HOLD_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // 双条件齐备 → firstBootDone 恒置（不回退）
+  const connected = state.phase !== "connecting";
+  useEffect(() => {
+    if (!firstBootRef.current && seqDone && connected) {
+      firstBootRef.current = true;
+      setFirstBootDone(true);
+    }
+  }, [seqDone, connected]);
+
+  if (!firstBootDone) return <WorkspaceBootScreen variant="full" />;
+  if (state.phase === "connecting") return <WorkspaceBootScreen variant="status" />;
   if (state.phase === "gate") return <WorkspaceGatePage />;
-  if (state.phase === "connecting") return <WorkspaceBootScreen />;
   return <AppRoutes />;
 }
 
