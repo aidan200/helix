@@ -194,28 +194,7 @@
   <body>
     <!-- 启动屏置于 #root 内：React 挂载首渲自动替换（v1 #app 同构）。
          dev 与 build（frontendDist）双形态同源，零分支。 -->
-    <div id="root">
-      <div class="app-boot-loader">
-        <div class="boot-term">
-          <span class="bl" style="--d: 0.10s">&gt; helix v2 — boot sequence</span>
-          <span class="bl" style="--d: 0.18s">&gt; spinning up the daemon…</span>
-          <span class="bl" style="--d: 0.26s">&gt; attaching sidecar <i>...........</i> <b>OK</b></span>
-          <span class="bl" style="--d: 0.34s">&gt; opening websocket <i>...........</i> <b>OK</b></span>
-          <span class="bl" style="--d: 0.42s">&gt; binding workspace <i>...........</i> <b class="warn">PENDING</b></span>
-          <span class="bl" style="--d: 0.50s">&gt; consulting the kg <i>...........</i> <b>0 NODES</b></span>
-          <span class="bl" style="--d: 0.58s">&gt; git blame --auto <i>............</i> <b class="warn">NOT ME</b></span>
-          <span class="bl" style="--d: 0.66s">&gt; npm install motivation <i>......</i> <b class="err">404</b></span>
-          <span class="bl" style="--d: 0.74s">&gt; asking llm to behave <i>........</i> <b class="err">IT LIED</b></span>
-          <span class="bl" style="--d: 0.82s">&gt; herding sub-agents <i>..........</i> <b class="warn">MOSTLY</b></span>
-          <span class="bl" style="--d: 0.90s">&gt; indexing excuses <i>...........</i> <b>OK</b></span>
-          <span class="bl" style="--d: 0.98s">&gt; calibrating cyan glow <i>.......</i> <b>SHINY</b></span>
-          <span class="bl" style="--d: 1.06s">&gt; hydrating toasts <i>............</i> <b>CRISPY</b></span>
-          <span class="bl" style="--d: 1.14s">&gt; petting rubber duck <i>..........</i> <b>QUACK</b></span>
-          <span class="bl" style="--d: 1.22s">&gt; all systems nominal <i>..........</i> <b class="warn">PROBABLY</b></span>
-          <span class="bl" style="--d: 1.30s">&gt; ready when you are<span class="boot-cursor"></span></span>
-        </div>
-      </div>
-    </div>
+    <div id="root"></div>
     <script>
       // 启动屏主题：读取 v2 已保存的亮/暗偏好（与 useTheme 的存储键一致：
       // helix-theme，AG-14 白名单成员——勿照抄 v1 键名），亮主题下给根节点

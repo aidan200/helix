@@ -43,7 +43,7 @@ function ui(variant: WorkspaceBootVariant = "status") {
 afterEach(cleanup);
 localStorage.setItem("helix-lang", "zh-CN");
 
-/** 行内 --d 延迟（与 index.html 静态序列节奏对齐断言用）。 */
+/** 行内 --d 延迟（W6p：序列压缩至 0.9s 档——步进 0.05s，首行 0.06s）。 */
 const delayOf = (el: Element) => (el as HTMLElement).style.getPropertyValue("--d");
 
 describe("status 形态（会话中重连：仅活状态行）", () => {
@@ -57,17 +57,17 @@ describe("status 形态（会话中重连：仅活状态行）", () => {
     expect(el.querySelector(".boot-term")).not.toBeNull();
     expect(el.querySelectorAll(".bl")).toHaveLength(1);
     expect(el.querySelector(".boot-cursor")).not.toBeNull();
-    expect(el.textContent).toContain("正在连接 daemon");
+    expect(el.textContent).toContain("connecting daemon");
     expect(document.querySelector("button")).toBeNull();
   });
 
-  it("connecting 第 2 次尝试 → 活状态行附「第 2 次尝试」（chat.banner 键复用）", () => {
+  it("connecting 第 2 次尝试 → 活状态行附 (attempt 2)（W6p 英文终端风硬编码）", () => {
     conn = "connecting";
     connAttempts = 2;
     ui("status");
     const el = document.querySelector('[data-wsgate-boot="connecting"]')!;
     expect(el.querySelectorAll(".bl")).toHaveLength(1);
-    expect(el.textContent).toContain("正在连接 daemon…（第 2 次尝试）");
+    expect(el.textContent).toContain("connecting daemon… (attempt 2)");
   });
 
   it("disconnected → 追加自动重连状态行（光标随末行）", () => {
@@ -77,15 +77,15 @@ describe("status 形态（会话中重连：仅活状态行）", () => {
     const el = document.querySelector('[data-wsgate-boot="connecting"]')!;
     const lines = el.querySelectorAll(".bl");
     expect(lines).toHaveLength(2);
-    expect(lines[0]!.textContent).toContain("正在连接 daemon");
-    expect(lines[1]!.textContent).toContain("连接中断，自动重连中");
+    expect(lines[0]!.textContent).toContain("connecting daemon");
+    expect(lines[1]!.textContent).toContain("reconnecting");
     expect(lines[0]!.querySelector(".boot-cursor")).toBeNull();
     expect(lines[1]!.querySelector(".boot-cursor")).not.toBeNull();
   });
 });
 
 describe("full 形态（首启：完整 16 行序列 + 末行活状态）", () => {
-  it("connecting → 16 行 .bl：前 15 行装饰（文案/--d 对齐 index.html）+ 末行活状态 + 光标", () => {
+  it("connecting → 16 行 .bl：前 15 行装饰 + 末行活状态 + 光标（--d 压缩档）", () => {
     conn = "connecting";
     connAttempts = 1;
     ui("full");
@@ -95,25 +95,25 @@ describe("full 形态（首启：完整 16 行序列 + 末行活状态）", () =
     expect(lines).toHaveLength(16);
     // 装饰行抽样：首行/末装饰行文案与 --d 节奏与 index.html 逐行同源
     expect(lines[0]!.textContent).toContain("helix v2 — boot sequence");
-    expect(delayOf(lines[0]!)).toBe("0.10s");
+    expect(delayOf(lines[0]!)).toBe("0.06s");
     expect(lines[7]!.textContent).toContain("npm install motivation");
     expect(lines[7]!.querySelector("b.err")!.textContent).toBe("404");
     expect(lines[14]!.textContent).toContain("all systems nominal");
-    expect(delayOf(lines[14]!)).toBe("1.22s");
-    // 末行 = 活状态（i18n）+ 光标，--d 对齐 index.html 第 16 行节奏
-    expect(lines[15]!.textContent).toContain("正在连接 daemon");
-    expect(delayOf(lines[15]!)).toBe("1.30s");
+    expect(delayOf(lines[14]!)).toBe("0.76s");
+    // 末行 = 活状态（英文终端风硬编码，W6p）+ 光标
+    expect(lines[15]!.textContent).toContain("connecting daemon");
+    expect(delayOf(lines[15]!)).toBe("0.81s");
     expect(lines[15]!.querySelector(".boot-cursor")).not.toBeNull();
     expect(document.querySelector("button")).toBeNull();
   });
 
-  it("connecting 第 3 次尝试 → 末行活状态附「第 3 次尝试」（仍 16 行）", () => {
+  it("connecting 第 3 次尝试 → 末行活状态附 (attempt 3)（仍 16 行）", () => {
     conn = "connecting";
     connAttempts = 3;
     ui("full");
     const el = document.querySelector('[data-wsgate-boot="connecting"]')!;
     expect(el.querySelectorAll(".bl")).toHaveLength(16);
-    expect(el.querySelectorAll(".bl")[15]!.textContent).toContain("正在连接 daemon…（第 3 次尝试）");
+    expect(el.querySelectorAll(".bl")[15]!.textContent).toContain("connecting daemon… (attempt 3)");
   });
 
   it("disconnected → 末行活状态切换为重连中（仍 16 行，装饰序列不重播）", () => {
@@ -123,7 +123,7 @@ describe("full 形态（首启：完整 16 行序列 + 末行活状态）", () =
     const el = document.querySelector('[data-wsgate-boot="connecting"]')!;
     const lines = el.querySelectorAll(".bl");
     expect(lines).toHaveLength(16);
-    expect(lines[15]!.textContent).toContain("连接中断，自动重连中");
+    expect(lines[15]!.textContent).toContain("reconnecting");
     expect(lines[15]!.querySelector(".boot-cursor")).not.toBeNull();
   });
 });

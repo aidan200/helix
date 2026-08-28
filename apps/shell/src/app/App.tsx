@@ -116,7 +116,7 @@ function WorkspaceGate() {
  * ≈ 1.44s——序列播完的兜底下限（连接就绪早于此则等待，晚于此由连接
  * 就绪条件收口）。导出供门禁 hold 测试消费（fake timers 步进基准）。
  */
-export const BOOT_HOLD_MS = 1440;
+export const BOOT_HOLD_MS = 900;
 
 /**
  * 门禁分支（W3；W4 切换流复用；W6o 首启 hold）：phase=gate → 选择页

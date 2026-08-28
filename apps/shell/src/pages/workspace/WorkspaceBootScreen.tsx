@@ -5,16 +5,17 @@
  * 启动屏同一视觉语言：直接复用 index.html head <style> 持久存在的
  * .app-boot-loader/.boot-term/.bl/.boot-cursor 类名渲染（零重复 CSS 定义）。
  *
- * 双形态（W6o，App.tsx 门禁 hold 消费）：
- * - variant="full"（首启）：完整 16 行序列——前 15 行装饰文案（文案/--d
- *   与 index.html 静态序列逐行同源对齐；v1/index.html 同源英文梗，硬编码
- *   不走 i18n）+ 末行为活状态（正在连接（第 N 次尝试）/ 重连中 + 光标）。
- *   任何形态、任何启动时长，终端动画都是开场。
+ * 双形态（W6o，App.tsx 门禁 hold 消费；W6p 调参：序列压缩至 0.9s 档、
+ * 活状态行改英文终端风硬编码）：
+ * - variant="full"（首启）：16 行序列——前 15 行装饰（英文梗硬编码）+
+ *   末行活状态（connecting daemon… (attempt N) / reconnecting… + 光标）。
+ *   静态 index.html 序列已剥（W6p：dev 第一遍只留主题底色，动画唯一一遍
+ *   在此层）——两形态视觉统一为"底色 → 本序列 → gate/main"。
  * - variant="status"（会话中重连）：仅活状态行 + 光标（现行为——中途
  *   daemon 挂掉不重播整套序列，防打扰）。
  *
- * 活状态行（两形态共用）：connecting → workspace.boot.connecting（重试
- * >1 次附「第 N 次尝试」，chat.banner.reconnectAttempt 键复用）；
+ * 活状态行（两形态共用，W6p 英文终端风硬编码）：connecting daemon…
+ * (attempt N) / reconnecting…；
  * status 形态 disconnected 追加重连行（现行为），full 形态末行切换文案
  * （保持 16 行序列恒定）。conn=error（gave-up）→ 连接失败占位
  * （err-icon + hud-btn——ErrorCard 视觉语言）+ 重试钮（useSession().retry，
@@ -38,28 +39,31 @@ export interface WorkspaceBootScreenProps {
  * v1/index.html 同源英文装饰梗——硬编码不走 i18n（brief 裁决）。
  */
 const BOOT_SEQ: readonly { d: string; node: ReactNode }[] = [
-  { d: "0.10s", node: <>helix v2 — boot sequence</> },
-  { d: "0.18s", node: <>spinning up the daemon…</> },
-  { d: "0.26s", node: <>attaching sidecar <i>...........</i> <b>OK</b></> },
-  { d: "0.34s", node: <>opening websocket <i>...........</i> <b>OK</b></> },
-  { d: "0.42s", node: <>binding workspace <i>...........</i> <b className="warn">PENDING</b></> },
-  { d: "0.50s", node: <>consulting the kg <i>...........</i> <b>0 NODES</b></> },
-  { d: "0.58s", node: <>git blame --auto <i>............</i> <b className="warn">NOT ME</b></> },
-  { d: "0.66s", node: <>npm install motivation <i>......</i> <b className="err">404</b></> },
-  { d: "0.74s", node: <>asking llm to behave <i>........</i> <b className="err">IT LIED</b></> },
-  { d: "0.82s", node: <>herding sub-agents <i>..........</i> <b className="warn">MOSTLY</b></> },
-  { d: "0.90s", node: <>indexing excuses <i>...........</i> <b>OK</b></> },
-  { d: "0.98s", node: <>calibrating cyan glow <i>.......</i> <b>SHINY</b></> },
-  { d: "1.06s", node: <>hydrating toasts <i>............</i> <b>CRISPY</b></> },
-  { d: "1.14s", node: <>petting rubber duck <i>..........</i> <b>QUACK</b></> },
-  { d: "1.22s", node: <>all systems nominal <i>..........</i> <b className="warn">PROBABLY</b></> },
+  { d: "0.06s", node: <>helix v2 — boot sequence</> },
+  { d: "0.11s", node: <>spinning up the daemon…</> },
+  { d: "0.16s", node: <>attaching sidecar <i>...........</i> <b>OK</b></> },
+  { d: "0.21s", node: <>opening websocket <i>...........</i> <b>OK</b></> },
+  { d: "0.26s", node: <>binding workspace <i>...........</i> <b className="warn">PENDING</b></> },
+  { d: "0.31s", node: <>consulting the kg <i>...........</i> <b>0 NODES</b></> },
+  { d: "0.36s", node: <>git blame --auto <i>............</i> <b className="warn">NOT ME</b></> },
+  { d: "0.41s", node: <>npm install motivation <i>......</i> <b className="err">404</b></> },
+  { d: "0.46s", node: <>asking llm to behave <i>........</i> <b className="err">IT LIED</b></> },
+  { d: "0.51s", node: <>herding sub-agents <i>..........</i> <b className="warn">MOSTLY</b></> },
+  { d: "0.56s", node: <>indexing excuses <i>...........</i> <b>OK</b></> },
+  { d: "0.61s", node: <>calibrating cyan glow <i>.......</i> <b>SHINY</b></> },
+  { d: "0.66s", node: <>hydrating toasts <i>............</i> <b>CRISPY</b></> },
+  { d: "0.71s", node: <>petting rubber duck <i>..........</i> <b>QUACK</b></> },
+  { d: "0.76s", node: <>all systems nominal <i>..........</i> <b className="warn">PROBABLY</b></> },
 ];
 
-/** 活状态主行文案：connecting → 连接中（重试 >1 次附「第 N 次尝试」）。 */
-function connectingLine(t: (key: string, vars?: Record<string, string | number>) => string, attempts: number): string {
-  const base = t("workspace.boot.connecting");
+/**
+ * 活状态主行文案（W6p 用户裁决：英文终端风硬编码，与装饰序列统一——
+ * 原中文 i18n 行与英文序列混排违和；错误卡片文案保留 i18n）。
+ */
+function connectingLine(attempts: number): string {
+  const base = "connecting daemon…";
   if (attempts <= 1) return base;
-  return `${base}（${t("chat.banner.reconnectAttempt", { n: attempts })}）`;
+  return `${base} (attempt ${attempts})`;
 }
 
 const WorkspaceBootScreen = function WorkspaceBootScreen({ variant }: WorkspaceBootScreenProps) {
@@ -82,11 +86,10 @@ const WorkspaceBootScreen = function WorkspaceBootScreen({ variant }: WorkspaceB
   }
 
   if (variant === "full") {
-    // 首启：15 行装饰序列 + 末行活状态（--d 1.30s = index.html 第 16 行节奏；
+    // 首启：15 行装饰序列 + 末行活状态（--d 0.81s——序列压至 0.9s 档，W6p；
     // disconnected 时末行切换重连文案，16 行恒定）。光标随末行，入场延迟
     // 沿用静态屏 1.5s 默认（按 16 行节奏调的，无需内联提前）。
-    const live =
-      state.conn === "disconnected" ? t("workspace.boot.reconnecting") : connectingLine(t, state.connAttempts);
+    const live = state.conn === "disconnected" ? "reconnecting…" : connectingLine(state.connAttempts);
     return (
       <div className="app-boot-loader" data-wsgate-boot="connecting">
         <div className="boot-term">
@@ -95,7 +98,7 @@ const WorkspaceBootScreen = function WorkspaceBootScreen({ variant }: WorkspaceB
               &gt; {line.node}
             </span>
           ))}
-          <span className="bl" style={{ "--d": "1.30s" } as CSSProperties}>
+          <span className="bl" style={{ "--d": "0.81s" } as CSSProperties}>
             &gt; {live}
             <span className="boot-cursor" />
           </span>
@@ -107,8 +110,8 @@ const WorkspaceBootScreen = function WorkspaceBootScreen({ variant }: WorkspaceB
   // status 形态（会话中重连）：仅活状态行 + 光标（现行为）。
   // 光标随末行（.bl 擦除入场延迟 --d 逐行递增，同静态屏节奏）；1-2 行，
   // 光标 1.5s 默认入场延迟按 16 行节奏调的——内联提前。
-  const lines = [connectingLine(t, state.connAttempts)];
-  if (state.conn === "disconnected") lines.push(t("workspace.boot.reconnecting"));
+  const lines = [connectingLine(state.connAttempts)];
+  if (state.conn === "disconnected") lines.push("reconnecting…");
 
   return (
     <div className="app-boot-loader" data-wsgate-boot="connecting">
