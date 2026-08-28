@@ -223,7 +223,7 @@ describe("F5.0 左栏项目域与主区状态机", () => {
     expect(codegraph!.className).not.toContain("st-synced"); // absent 无边条
   });
 
-  it("选中 synced → 自动折叠窄轨 + 主区 graph；☰ 展开可反复且不改主区；点已选中行仅折叠不重置", () => {
+  it("选中 synced → 自动折叠窄轨 + 主区 graph；点竖排名展开可反复且不改主区；点已选中行仅折叠不重置", () => {
     ui();
     feedProjects();
     enterGraph("helix");
@@ -231,13 +231,20 @@ describe("F5.0 左栏项目域与主区状态机", () => {
     expect(qs('[data-pj-rail="collapsed"]')).not.toBeNull();
     expect(qs('[data-kg-head]')!.textContent).toContain("知识图谱 · helix");
     expect(qs('[data-kg-workspace]')).not.toBeNull();
-    // ☰ 展开：恢复两段列表，主区保持 graph
+    // 窄轨无 ☰ 按钮：竖排项目名即展开触发（title 挂在 rail-name 上）
+    expect(qs(".pj-rail-btn")).toBeNull();
+    expect(qs(".pj-rail-name").getAttribute("title")).toBe("展开项目域");
+    // 点竖排名展开：恢复两段列表，主区保持 graph
     fireEvent.click(screen.getByTitle("展开项目域"));
     expect(qs('[data-pj-domain]')).not.toBeNull();
     expect(qs('[data-kg-workspace]')).not.toBeNull();
     // 再点已选中行 → 仅折叠（graph 不重置：kg-head 仍在）
     fireEvent.click(within(qs('[aria-label="项目列表"]')!).getAllByText("helix")[0]!.closest(".pj-row")!);
     expect(qs('[data-pj-rail="collapsed"]')).not.toBeNull();
+    expect(qs('[data-kg-workspace]')).not.toBeNull();
+    // 键盘可达：窄轨项目名 Enter/Space 展开
+    fireEvent.keyDown(qs(".pj-rail-name"), { key: "Enter" });
+    expect(qs('[data-pj-domain]')).not.toBeNull();
     expect(qs('[data-kg-workspace]')).not.toBeNull();
   });
 
@@ -251,6 +258,10 @@ describe("F5.0 左栏项目域与主区状态机", () => {
     fireEvent.click(screen.getByText("构建索引"));
     expect(sent.index.some((p) => p.project === "codegraph" && p.rebuild === true)).toBe(true);
     expect(qs('[data-pj-main="building"]')).not.toBeNull();
+    // 尚无 progress 回执（buildProgress 仅乐观占位）→ 不确定态，无假「0 / 0」
+    expect(qs(".pj-build-panel")!.textContent).toContain("构建中…");
+    expect(qs(".pj-build-panel")!.textContent).not.toMatch(/0\s*\/\s*0/);
+    expect(qs(".pj-build-panel .kg-progress-fill")!.className).toContain("indeterminate");
     feed("kg.index.status.result", { state: "building", progress: { done: 12, total: 26 } });
     expect(qs(".pj-build-panel")!.textContent).toContain("12 / 26 符号");
     // 左栏行徽章同步翻 building（展开态验证）
@@ -261,6 +272,30 @@ describe("F5.0 左栏项目域与主区状态机", () => {
     expect(qs('[data-pj-main="graph"]')).not.toBeNull();
     expect(qs(".toast-zone")!.textContent).toContain("索引构建完成");
     expect(within(qs('[aria-label="项目列表"]')!).getAllByText("已同步").length).toBeGreaterThan(0);
+  });
+
+  it("building 无真实进度（{state:\"building\"} 仅此）→ 主区/左栏行不确定态；progress 到位后转 N/M", () => {
+    ui();
+    feedProjects();
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("codegraph").closest(".pj-row")!);
+    fireEvent.click(screen.getByText("构建索引"));
+    expect(qs('[data-pj-main="building"]')).not.toBeNull();
+    // 真实 daemon building 回执不带 progress → 主区仍不确定态（无「0 / 0」「0%」假数据）
+    feed("kg.index.status.result", { state: "building" });
+    expect(qs(".pj-build-panel")!.textContent).toContain("构建中…");
+    expect(qs(".pj-build-panel")!.textContent).not.toMatch(/0\s*\/\s*0/);
+    expect(qs(".pj-build-panel")!.textContent).not.toContain("0%");
+    expect(qs(".pj-build-panel .kg-progress-fill")!.className).toContain("indeterminate");
+    expect(qs(".pj-build-panel .kgv-ip-sub")!.textContent).toContain("codegraph 机械抽取中（仅代码层）…");
+    // 左栏行次行同样不确定态（展开验证）
+    fireEvent.click(screen.getByTitle("展开项目域"));
+    const row = qs('.pj-row[data-name="codegraph"]');
+    expect(row.textContent).toContain("构建中…");
+    expect(row.textContent).not.toMatch(/0\s*\/\s*0/);
+    // progress 到位 → N/M 现状不变
+    feed("kg.index.status.result", { state: "building", progress: { done: 12, total: 26 } });
+    expect(qs(".pj-build-panel")!.textContent).toContain("12 / 26 符号");
+    expect(row.textContent).toContain("12 / 26 符号");
   });
 
   it("切项目先清旧态：helix graph → feifei graph（kg-head 项目名切换，旧详情/过滤清空）", () => {
@@ -409,7 +444,13 @@ describe("graph 态 F5.1~F5.5", () => {
     fireEvent.click(within(panel).getByText("重新构建"));
     expect(sent.index.some((p) => p.project === "feifei" && p.rebuild === true)).toBe(true);
     expect(qs('[data-kg-index-panel')!.getAttribute("data-kg-index-panel")).toBe("building");
+    // 重建回执未带 progress 前 → 面板不确定态（无假「0 / 0」）
+    expect(qs('[data-kg-index-panel]')!.textContent).toContain("构建中…");
+    expect(qs('[data-kg-index-panel]')!.textContent).not.toMatch(/0\s*\/\s*0/);
+    expect(qs('[data-kg-index-panel] .kg-progress-fill')!.className).toContain("indeterminate");
     feed("kg.index.status.result", { state: "building", progress: { done: 8, total: 44 } });
+    // 有 progress → 面板 N/M 现状不变
+    expect(qs('[data-kg-index-panel]')!.textContent).toContain("8 / 44 符号");
     feed("kg.index.status.result", { state: "synced", symbolCount: 44, syncedAt: "2026-08-25T15:00:00+08:00" });
     const panel2 = qs('[data-kg-index-panel]')!;
     expect(panel2.getAttribute("data-kg-index-panel")).toBe("synced");

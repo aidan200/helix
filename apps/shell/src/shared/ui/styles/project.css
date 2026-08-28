@@ -77,7 +77,7 @@
 .kg-dot.ok { background: var(--success); box-shadow: 0 0 6px rgb(var(--success-rgb) / 0.6); animation: kg-pulse 2s ease-in-out infinite; }
 @keyframes kg-pulse { 50% { opacity: 0.35; } }
 
-/* F5.0 折叠窄轨：选中后左栏收窄（项目名竖排 + ☰ 展开），可反复 */
+/* F5.0 折叠窄轨：选中后左栏收窄（竖排项目名=展开触发，accent 高亮），可反复 */
 .pj-rail {
   width: 64px; flex: none;
   display: flex; flex-direction: column; align-items: stretch; gap: 12px;
@@ -85,12 +85,13 @@
   animation: kg-rail-in 0.18s ease-out;
 }
 @keyframes kg-rail-in { from { opacity: 0; } }
-.pj-rail-btn { width: 100%; height: 28px; padding: 0; font-size: var(--text-cap); white-space: nowrap; }
 .pj-rail-name {
   flex: 1; min-height: 0; writing-mode: vertical-rl;
-  font-size: var(--text-cap); color: var(--text-dim); letter-spacing: 0.14em;
+  font-size: var(--text-cap); color: var(--accent); letter-spacing: 0.14em;
   overflow: hidden; text-overflow: ellipsis; text-align: center; padding: 6px 0;
+  cursor: pointer;
 }
+.pj-rail-name:hover { color: var(--accent-hover); }
 
 /* ── F5.0 主区四态（empty / absent / building / graph 互斥）── */
 .pj-main { height: 100%; min-width: 0; display: flex; flex-direction: column; }
@@ -124,6 +125,15 @@
   height: 100%; background: var(--accent); transform-origin: left;
   transform: scaleX(0); transition: transform 1.4s cubic-bezier(0.22, 0.9, 0.36, 1);
   box-shadow: 0 0 8px rgb(var(--accent-rgb) / 0.5);
+}
+/* 不确定态（building 无真实进度；仅 transform 动效，reduced-motion 关停） */
+.kg-progress-fill.indeterminate {
+  width: 40%; transition: none;
+  animation: kg-indeterminate 1.2s ease-in-out infinite;
+}
+@keyframes kg-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
 }
 
 /* 页面级按钮变体（原型 primary/sm 形态；零新增 token——accent 实底 +
@@ -225,7 +235,6 @@
 .kgv-ip-body { display: flex; flex-direction: column; gap: 8px; }
 .kgv-ip-label { font-size: var(--text-body); color: var(--text); }
 .kgv-ip-sub { font-size: var(--text-cap); color: var(--text-faint); line-height: 1.6; }
-.kg-dev-label { font-size: var(--text-micro); color: var(--text-faint); letter-spacing: 0.08em; }
 
 /* ── 右区：双 tab ── */
 .kgv-main-pane { display: flex; flex-direction: column; min-height: 0; }
@@ -380,6 +389,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .kg-progress-fill { transition: none; }
+  .kg-progress-fill.indeterminate { animation: none; width: 100%; transform: none; opacity: 0.6; }
   .kg-dot.ok { animation: none; }
 }
 
