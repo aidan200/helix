@@ -149,6 +149,11 @@ export class KgSyncService {
     return this.triggerManual(projectRoot);
   }
 
+  /** 构建中判定（纯内存读面——indexStatus 的 absent 短路前置用，不触库保 A8）。 */
+  isBuilding(projectRoot: string): boolean {
+    return this.states.get(projectRoot)?.running === true;
+  }
+
   /** 索引状态四态 + 基准戳/符号数（T5.3 service 面数据；读库不排队）。 */
   getStatus(projectRoot: string): KgIndexStatus {
     const state = this.states.get(projectRoot);

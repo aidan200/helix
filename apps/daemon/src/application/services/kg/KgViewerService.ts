@@ -111,7 +111,7 @@ export interface KgViewerServiceDeps {
   readonly verify: KgVerifyService;
   readonly report: KgReportService;
   readonly write: KgWriteService;
-  readonly sync: Pick<KgSyncService, "getStatus" | "triggerManual">;
+  readonly sync: Pick<KgSyncService, "getStatus" | "triggerManual" | "isBuilding">;
 }
 
 /** body → 描述/规则条目拆分（迁移后 body 为自由文本：列表行=规则条目，其余=描述段）。 */
@@ -285,6 +285,9 @@ export class KgViewerService {
           },
         };
       }
+    } else if (this.deps.sync.isBuilding(projectRoot)) {
+      // 构建进行中（含冷启动首建、库文件尚未创建）——先于 absent 短路
+      return { ok: true, value: { state: "building" } };
     } else if (!this.deps.project.hasIndex(projectRoot)) {
       // absent 短路：读面绝不新建库文件（getStatus 触库连接即建库）
       return { ok: true, value: { state: "absent" } };

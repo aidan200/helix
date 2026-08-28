@@ -14,7 +14,7 @@ import { KgProjectService } from "../../src/application/services/kg/KgProjectSer
 import { KgReportService } from "../../src/application/services/kg/KgReportService";
 import { KgSyncService } from "../../src/application/services/kg/KgSyncService";
 import { KgVerifyService } from "../../src/application/services/kg/KgVerifyService";
-import { KgViewerService } from "../../src/application/services/kg/KgViewerService";
+import { KgViewerService, type KgViewerServiceDeps } from "../../src/application/services/kg/KgViewerService";
 import { KgWriteService } from "../../src/application/services/kg/KgWriteService";
 import { scanProjectEntries } from "../../src/adapters/driven/workspace-scan";
 import type { EngineSymbol, SymbolBatch, WriteResult } from "../../src/domain/kg/types";
@@ -673,14 +673,69 @@ describe("kg 六命令族 I 层（真 service 栈 + tmp 库 + ws 路由）", () 
     expect(after.edges).toBe(before.edges);
     expect(after.log).toBe(before.log);
 
-    // absent 冷启动（A9/B1）：delta 零触达无库 rebuild → 同一入口首次构建
-    // → synced + 库出现（不依赖 CLI 预建——引擎面即全部前置）
+    // absent 冷启动（A9/B1）：delta 零触达无库 rebuild → 同一入口首次构建。
+    // 构建期间无 rebuild 轮询必须回 building（修复前轮询只会回 absent）——
+    // fireAndForget + 并发轮询同 alpha 段写法。（注：不断言观察时库不存在——
+    // sync 管道起点 getSyncBaseline 开连接即建库，building 可观察时 kg.db 已
+    // 落盘；A8 不建库面由 rebuild 前 absent 断言守护）
     expect(existsSync(path.join(rig.delta, ".helix-kg", "kg.db"))).toBe(false);
-    const cold = await rig.client.kg("kg.index.status", { project: "delta", rebuild: true });
-    expect(cold.ok).toBe(true);
-    expect(cold.result.state).toBe("synced");
+    const coldAt = rig.client.frames.length;
+    rig.client.fireAndForget("kg.index.status", { project: "delta", rebuild: true });
+    let sawColdBuilding = false;
+    const coldT0 = Date.now();
+    while (!sawColdBuilding && Date.now() - coldT0 < 3000) {
+      rig.client.send({ v: PROTOCOL_VERSION, type: "kg.index.status", payload: { project: "delta" } });
+      await new Promise((r) => setTimeout(r, 30));
+      sawColdBuilding = rig.client.frames
+        .slice(coldAt)
+        .some((f) => f.type === "kg.index.status.result" && (f.payload as { state?: string }).state === "building");
+    }
+    expect(sawColdBuilding).toBe(true);
+    // 冷启动完成：rebuild 回执 synced + 库出现（不依赖 CLI 预建——引擎面即全部前置）
+    await until(
+      () =>
+        rig.client.frames
+          .slice(coldAt)
+          .some((f) => f.type === "kg.index.status.result" && (f.payload as { state?: string }).state === "synced"),
+      5000,
+      "delta 冷启动 rebuild 完成后回执 synced",
+    );
     expect(existsSync(path.join(rig.delta, ".helix-kg", "kg.db"))).toBe(true);
   }, 20000);
+
+  test("kg.index.status：building 判定先于 absent 短路（冷启动库未创建窗口）+ 纯内存不触读库", async () => {
+    // 服务层直测：真栈 sync 起点 getSyncBaseline 开连接即建库（与 running
+    // 同步窗口），集成面造不出「building 且 hasIndex=false」——该竞态域用
+    // stub 钉死。修复前此路径回 absent（hasIndex 短路先于 building 判定）
+    let getStatusCalls = 0;
+    let building = true;
+    const syncStub = {
+      isBuilding: () => building,
+      getStatus: () => {
+        getStatusCalls += 1;
+        throw new Error("building/absent 短路不得触 getStatus（触库连接即建库，A8）");
+      },
+      triggerManual: () => Promise.reject(new Error("非 rebuild 面不得触发 sync")),
+    };
+    const viewer = new KgViewerService({
+      project: {
+        resolve: () => "/proj",
+        hasIndex: () => false, // 库文件尚未创建（冷启动首建窗口）
+      } as unknown as KgProjectService,
+      sync: syncStub,
+    } as unknown as KgViewerServiceDeps);
+
+    // 构建进行中 + 无库 → building（先于 absent 短路），且不触 getStatus
+    const during = await viewer.indexStatus("proj", false);
+    expect(during).toEqual({ ok: true, value: { state: "building" } });
+    expect(getStatusCalls).toBe(0);
+
+    // 无构建进行 + 无库 → absent 且不触 getStatus（A8 读面不建库不回归）
+    building = false;
+    const idle = await viewer.indexStatus("proj", false);
+    expect(idle).toEqual({ ok: true, value: { state: "absent" } });
+    expect(getStatusCalls).toBe(0);
+  });
 
   test("project 参数两形态等价 + 无法解析 KG_E_PARAM + 错误回执结构化（A10）", async () => {
     const rig = rigs[0]!;
