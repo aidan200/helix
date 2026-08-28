@@ -96,7 +96,7 @@ test.describe("T5.4 P-1 fidelity：F5.0 项目域 + F5.1~F5.5 图谱（FID-25~32
           // 选中高亮（选中即自动折叠——FID-30 口径；展开后验证行 selected）
           await page.locator('.pj-row[data-name="helix"]').click();
           await expect(page.locator('[data-pj-rail="collapsed"]')).toBeVisible();
-          await page.locator(".pj-rail-btn").click();
+          await page.locator(".pj-rail-name").click();
           await expect(page.locator('.pj-row[data-name="helix"]')).toHaveClass(/selected/);
         },
       },
@@ -132,18 +132,18 @@ test.describe("T5.4 P-1 fidelity：F5.0 项目域 + F5.1~F5.5 图谱（FID-25~32
       },
       {
         id: "FID-30",
-        title: "折叠-展开：选中→64px 窄轨（竖排名+☰ 展开）；展开恢复；可反复；不改主区；点已选中行仅折叠",
+        title: "折叠-展开：选中→64px 窄轨（点竖排名展开）；展开恢复；可反复；不改主区；点已选中行仅折叠",
         run: async () => {
           // 点当前已选中行 → 折叠（FID-26 已展开）→ 窄轨在场 + 主区 graph
           await page.locator('.pj-row[data-name="helix"]').click();
           await expect(page.locator('[data-pj-rail="collapsed"]')).toBeVisible();
           await expect(page.locator(".pj-rail-name")).toHaveText("helix");
-          await expect(page.locator(".pj-rail-btn")).toHaveText("☰ 展开");
+          await expect(page.locator(".pj-rail-name")).toHaveAttribute("title", "展开项目域");
           expect(await computed(page, ".pj-rail", "width")).toBe("64px");
           expect(await computed(page, ".pj-rail-name", "writing-mode")).toContain("vertical");
           await expect(page.locator('[data-pj-main="graph"]')).toBeVisible();
-          // ☰ 展开：恢复两段列表，主区不动
-          await page.locator(".pj-rail-btn").click();
+          // 点竖排名展开：恢复两段列表，主区不动
+          await page.locator(".pj-rail-name").click();
           await expect(page.locator(".pj-domain")).toBeVisible();
           await expect(page.locator('[data-pj-rail="collapsed"]')).toBeHidden();
           await expect(page.locator('[data-pj-main="graph"]')).toBeVisible();
@@ -158,7 +158,7 @@ test.describe("T5.4 P-1 fidelity：F5.0 项目域 + F5.1~F5.5 图谱（FID-25~32
         title: "主区四态互斥：empty→absent（CTA）；切项目先清旧态再进新态",
         run: async () => {
           // graph(helix) → 切 codegraph（absent）：旧图谱清场
-          await page.locator(".pj-rail-btn").click();
+          await page.locator(".pj-rail-name").click();
           await page.locator('.pj-row[data-name="codegraph"]').click();
           await expect(page.locator('[data-pj-main="absent"]')).toBeVisible();
           await expect(page.locator('[data-kg-workspace]')).toBeHidden(); // 旧图谱残影清零
@@ -180,7 +180,7 @@ test.describe("T5.4 P-1 fidelity：F5.0 项目域 + F5.1~F5.5 图谱（FID-25~32
           await expect(page.locator('[data-pj-main="graph"]')).toBeVisible({ timeout: 15_000 });
           await expect(page.locator(".toast-zone")).toContainText("索引构建完成：codegraph · 26 符号");
           // 左栏徽章翻已同步（展开验证）+ 顶栏上下文 chip 在场
-          await page.locator(".pj-rail-btn").click();
+          await page.locator(".pj-rail-name").click();
           await expect(page.locator('.pj-row[data-name="codegraph"] .pb-synced')).toContainText("已同步");
           await expect(page.locator('[data-ctx-proj="codegraph"]')).toBeVisible();
         },
@@ -445,7 +445,7 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
         id: "FID-20/21",
         title: "degraded（feifei）：DEGRADED 徽章+影响说明+重新构建 → building → synced + toast；降级永不静默",
         run: async () => {
-          await page.locator(".pj-rail-btn").click();
+          await page.locator(".pj-rail-name").click();
           await page.locator('.pj-row[data-name="feifei"]').click();
           const panel = page.locator("[data-kg-index-panel]");
           await expect(panel).toHaveAttribute("data-kg-index-panel", "degraded", { timeout: 10_000 });
@@ -463,7 +463,7 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
         title: "骨架与最终布局同构、无通用 spinner",
         run: async () => {
           // 切项目进 graph 即骨架（kg-skel-row 形状 = 行同构；无 spinner 类）
-          await page.locator(".pj-rail-btn").click();
+          await page.locator(".pj-rail-name").click();
           await page.locator('.pj-row[data-name="helix"]').click();
           await expect(page.locator(".kgv-list .kg-skel-row").first()).toBeVisible();
           await expect(page.locator('[data-kg-detail] .kg-skel-card')).toBeVisible();
@@ -542,7 +542,7 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
           expect(await page.locator("[data-proto-annotation]").count()).toBe(0);
           expect(await page.locator("[data-route-note]").count()).toBe(0);
           // 全程交互后 URL 仍 /project（无 /kg、无跳转）
-          await page.locator(".pj-rail-btn").click();
+          await page.locator(".pj-rail-name").click();
           await page.locator('.pj-row[data-name="helix"]').click();
           await page.locator('[data-tab="report"]').click();
           await expect(page.locator('[data-kg-pane="report"]')).toBeVisible();

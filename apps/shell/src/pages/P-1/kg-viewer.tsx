@@ -22,7 +22,6 @@ import type { EventEnvelope, KgProjectRow } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
-import { isDev } from "@/shared/lib/is-dev";
 import {
   createKgViewState,
   filterRows,

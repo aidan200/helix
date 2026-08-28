@@ -8,7 +8,7 @@
  * 实现态必须走既有键，AG-14 白名单）；sidebar = 左栏项目域两段
  * （①项目列表 kg.projects 驱动：行=项目名+四态徽章 compact+次行状态信息，
  * 可选中高亮、无行尾按钮 ②工作树占位空态——无 API 本迭代不实现）或
- * 64px 折叠窄轨（选中自动折叠+☰ 展开可反复，纯形态切换不触碰主区）；
+ * 64px 折叠窄轨（选中自动折叠+点竖排项目名展开可反复，纯形态切换不触碰主区）；
  * children = 主区四态状态机（empty/absent+构建 CTA/building 进度/graph）
  * ——四态互斥，切项目先清旧态（kgToken 递增重挂 KgViewer 防旧图谱残影）。
  *
@@ -90,7 +90,10 @@ function projectDataLine(
   if (row.status === "synced")
     return t("pj.dataLine.synced", { symbols: row.symbolCount ?? 0, nodes: row.nodeCount ?? 0, at: fmtSyncedAt(row.syncedAt) });
   if (row.status === "degraded") return row.degradedNote ?? "";
-  if (row.status === "building") return t("pj.dataLine.building", { done: progress?.done ?? 0, total: progress?.total ?? 0 });
+  if (row.status === "building")
+    return progress === null || progress.total === 0
+      ? t("pj.dataLine.buildingWait")
+      : t("pj.dataLine.building", { done: progress.done, total: progress.total });
   return t("pj.dataLine.absent");
 }
 
@@ -195,6 +198,9 @@ const ProjectPage = function ProjectPage({ path }: { path: string }) {
     state.buildProgress !== null && state.buildProgress.total > 0
       ? state.buildProgress.done / state.buildProgress.total
       : 0;
+  /** 真实 daemon building 回执不带 progress（{state:"building"} 仅此）——
+      无真实进度时不确定态（假「0 / 0」零渲染）。 */
+  const buildWaiting = state.buildProgress === null || state.buildProgress.total === 0;
 
   return (
     <AppLayout
@@ -222,15 +228,18 @@ const ProjectPage = function ProjectPage({ path }: { path: string }) {
       sidebar={
         state.domainCollapsed ? (
           <aside className="pj-rail" aria-label={t("pj.domain.railAriaLabel")} data-pj-rail="collapsed">
-            <button
-              type="button"
-              className="hud-btn hud-btn-ghost pj-rail-btn"
+            <div
+              className="pj-rail-name"
+              role="button"
+              tabIndex={0}
               title={t("pj.domain.expandTitle")}
               onClick={onExpandDomain}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") onExpandDomain();
+              }}
             >
-              {t("pj.domain.expand")}
-            </button>
-            <div className="pj-rail-name">{state.selected ?? ""}</div>
+              {state.selected ?? ""}
+            </div>
           </aside>
         ) : (
           <aside className="pj-domain" aria-label={t("pj.domain.ariaLabel")} data-pj-domain>
@@ -317,13 +326,17 @@ const ProjectPage = function ProjectPage({ path }: { path: string }) {
               <div className="pj-build-panel">
                 <div className="pj-bp-head">
                   <span className="pj-bp-title">{t("pj.main.buildTitle", { name: selectedRow.name })}</span>
-                  <span className="hud-badge pb-building">{t("pj.badge.building", { pct: Math.round(buildRatio * 100) })}</span>
+                  <span className="hud-badge pb-building">
+                    {buildWaiting ? t("pj.badge.buildingWait") : t("pj.badge.building", { pct: Math.round(buildRatio * 100) })}
+                  </span>
                 </div>
                 <div className="kg-progress">
-                  <ProgressFill ratio={buildRatio} />
+                  {buildWaiting ? <ProgressFill indeterminate /> : <ProgressFill ratio={buildRatio} />}
                 </div>
                 <div className="kgv-ip-sub">
-                  {t("pj.main.buildSub", { done: state.buildProgress?.done ?? 0, total: state.buildProgress?.total ?? 0 })}
+                  {buildWaiting
+                    ? t("pj.main.buildSubWait")
+                    : t("pj.main.buildSub", { done: state.buildProgress?.done ?? 0, total: state.buildProgress?.total ?? 0 })}
                 </div>
               </div>
             )}

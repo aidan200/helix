@@ -72,8 +72,8 @@ test.describe("CL-5 B 层：P-1 主用户流全链路（TC2.1）", () => {
     expect((await lastPayload(mock, "kg.node.detail")).project).toBe("helix");
     expect((await lastPayload(mock, "kg.change.report")).project).toBe("helix");
 
-    // ── 2. ☰ 展开恢复两段列表：主区状态与选中不变（FID-30 流口径）──
-    await page.locator(".pj-rail-btn").click();
+    // ── 2. 点竖排名展开恢复两段列表：主区状态与选中不变（FID-30 流口径）──
+    await page.locator(".pj-rail-name").click();
     await expect(page.locator(".pj-domain")).toBeVisible();
     await expect(page.locator('[data-pj-main="graph"]')).toBeVisible();
     await expect(page.locator('[data-kg-head] .kgv-title')).toHaveText("知识图谱 · helix");
@@ -84,7 +84,7 @@ test.describe("CL-5 B 层：P-1 主用户流全链路（TC2.1）", () => {
     await expect(page.locator('[data-kg-detail] .kgv-dh-name')).toHaveText("Steer 消息队列");
 
     // ── 3. 主区四态状态机：graph → absent（先清旧态）→ 回 graph ──
-    await page.locator(".pj-rail-btn").click();
+    await page.locator(".pj-rail-name").click();
     await page.locator('.pj-row[data-name="codegraph"]').click();
     await expect(page.locator('[data-pj-main="absent"]')).toBeVisible();
     await expect(page.locator('[data-kg-workspace]')).toBeHidden(); // 旧图谱残影清零
@@ -92,7 +92,7 @@ test.describe("CL-5 B 层：P-1 主用户流全链路（TC2.1）", () => {
     await expect(page.locator("[data-build-cta]")).toHaveText("构建索引");
     await shotEvidence(page, "kg-flow-absent-state", "CL-5");
     // 回 helix → graph（building 态在 TC2.2 冷启动链路覆盖）
-    await page.locator(".pj-rail-btn").click();
+    await page.locator(".pj-rail-name").click();
     await page.locator('.pj-row[data-name="helix"]').click();
     await expect(page.locator('[data-kg-head] .kgv-title')).toHaveText("知识图谱 · helix");
     await expect(page.locator('[data-kg-detail] .kgv-dh-name')).toHaveText("Steer 消息队列", { timeout: 10_000 });
@@ -143,7 +143,7 @@ test.describe("CL-5 B 层：P-1 主用户流全链路（TC2.1）", () => {
     // ── 7. 索引面板：helix synced → feifei degraded → 重建 building→synced ──
     const panel = page.locator("[data-kg-index-panel]");
     await expect(panel).toHaveAttribute("data-kg-index-panel", "synced");
-    await page.locator(".pj-rail-btn").click();
+    await page.locator(".pj-rail-name").click();
     await page.locator('.pj-row[data-name="feifei"]').click();
     await expect(panel).toHaveAttribute("data-kg-index-panel", "degraded", { timeout: 10_000 });
     await expect(page.locator('[data-kg-head] .kgv-title')).toHaveText("知识图谱 · feifei");
@@ -181,7 +181,7 @@ test.describe("CL-5 B 层：B1 冷启动构建 + draft 转正写动作（TC2.2�
 
     // ── 3. 构建中途展开窄轨：行徽章翻「构建中 · N%」+ 次行「N / M 符号」──
     //    （补 FID-27/FID-28 building 态缺口；O-6 轮询驱动）
-    await page.locator(".pj-rail-btn").click();
+    await page.locator(".pj-rail-name").click();
     await expect(page.locator(".pj-domain")).toBeVisible();
     const row = page.locator('.pj-row[data-name="codegraph"]');
     await expect(row.locator(".pb-building")).toContainText("构建中", { timeout: 10_000 });
