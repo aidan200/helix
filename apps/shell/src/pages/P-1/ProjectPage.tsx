@@ -67,7 +67,18 @@ function ProjectListSkeleton() {
 }
 
 /** F5.0 四态徽章（compact；synced 脉冲点 / degraded DEGRADED 警示 / absent muted）。 */
-function ProjectBadge({ row, pct, t }: { row: KgProjectRow; pct: number; t: ReturnType<typeof useI18n>["t"] }) {
+function ProjectBadge({
+  row,
+  pct,
+  waiting,
+  t,
+}: {
+  row: KgProjectRow;
+  pct: number;
+  /** 无真实进度（daemon 不回 progress）→ 「构建中…」不确定态，不显示假 0%。 */
+  waiting: boolean;
+  t: ReturnType<typeof useI18n>["t"];
+}) {
   if (row.status === "synced")
     return (
       <span className="hud-badge pb-synced">
@@ -77,7 +88,11 @@ function ProjectBadge({ row, pct, t }: { row: KgProjectRow; pct: number; t: Retu
     );
   if (row.status === "degraded") return <span className="kg-sev-badge warn">{t("pj.badge.degraded")}</span>;
   if (row.status === "building")
-    return <span className="hud-badge pb-building">{t("pj.badge.building", { pct: Math.round(pct * 100) })}</span>;
+    return (
+      <span className="hud-badge pb-building">
+        {waiting ? t("pj.badge.buildingWait") : t("pj.badge.building", { pct: Math.round(pct * 100) })}
+      </span>
+    );
   return <span className="hud-badge pb-absent">{t("pj.badge.absent")}</span>;
 }
 
@@ -278,6 +293,9 @@ const ProjectPage = function ProjectPage({ path }: { path: string }) {
                             state.buildProgress.total > 0
                               ? state.buildProgress.done / state.buildProgress.total
                               : 0
+                          }
+                          waiting={
+                            state.buildProgress === null || state.buildProgress.total === 0
                           }
                           t={t}
                         />
