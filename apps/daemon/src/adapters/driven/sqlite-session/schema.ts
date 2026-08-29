@@ -20,7 +20,14 @@
  *   旧表数据迁移由 WriteQueue 构造期守护执行，见 migrateLegacyDefaultModel）；
  * - resource_state：profile kind 维资源启停差异行（主键
  *   (profile_kind, resource_type, name)；缺省无记录 = 启用的语义在 service
- *   层——本表只存用户显式选择过的差异，零配置兼容现状、存量零迁移）。
+ *   层——本表只存用户显式选择过的差异，零配置兼容现状、存量零迁移）；
+ * - job/stage/batch/work_item：任务四表新表域（O-1 用户裁决 2026-08-29，
+ *   architecture.md §3.2 列为权威）：daemon 全局状态（任务可无项目关联
+ *   AD-8），与任务四表分域同库承载。状态列无 CHECK（TR-AD-3：行模型哑、
+ *   domain 聪明）；params/projects/artifact 为 JSON 文本列（projects 空数组
+ *   合法，AD-8）；stage/work_item 复合主键。写者：job/stage/batch 经
+ *   WriteQueue 任务链（父进程单写通道）；work_item 子进程 plan 工具直连
+ *   + 父进程 F3.6 清理面（见 WriteQueue.ts openTaskLedgerDatabase）。
  *
  * 列演进补充（P1 T3）：session_state.mode（会话模式，建会话定格——可空无
  * 默认；旧行 NULL = default 语义，恢复侧 RestoreService 归一，与
@@ -116,4 +123,60 @@ CREATE TABLE IF NOT EXISTS resource_state (
   PRIMARY KEY (profile_kind, resource_type, name)
 );
 CREATE INDEX IF NOT EXISTS idx_resource_state_kind ON resource_state(profile_kind, resource_type);
+`;
+
+/**
+ * 任务四表域 DDL（O-1：helix.db 新表域；§3.2 列为权威）：与 SCHEMA_SQL
+ * 同构幂等（CREATE TABLE IF NOT EXISTS——新库直建 / 老库 additive 补建，
+ * 二次装配 no-op）。状态列不加 CHECK（TR-AD-3：状态机收口在 domain）；
+ * batch 查询/级联删按 (job_id, stage_seq) 走辅助索引（stage/work_item 的
+ * 复合主键前缀已覆盖各自 job/instance 维查询）。
+ */
+export const TASK_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS job (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  params TEXT NOT NULL,
+  projects TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS stage (
+  job_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  artifact TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (job_id, seq)
+);
+
+CREATE TABLE IF NOT EXISTS batch (
+  id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL,
+  stage_seq INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  scope TEXT NOT NULL,
+  status TEXT NOT NULL,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  retry_note TEXT,
+  instance_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_batch_job_stage ON batch(job_id, stage_seq);
+
+CREATE TABLE IF NOT EXISTS work_item (
+  instance_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT NOT NULL,
+  note TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (instance_id, seq)
+);
 `;
