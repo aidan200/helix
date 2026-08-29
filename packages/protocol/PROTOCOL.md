@@ -196,6 +196,10 @@ export interface ToolCallEntryDto {
 | `protocol.version_unsupported` | 握手：protocolVersion ≠ 当前版本位（"0.11"） | 发 error 帧后 **close** |
 | `command.unknown` | 命令：未知 type | 发 error 帧，**连接保持** |
 | `command.invalid_payload` | 命令：payload 不符 | 发 error 帧，**连接保持** |
+| `task.type_unknown` | task 批（T1.5）：createTask 的 type 无对应任务 skill（T2.4 工具面同码） | 发 error 帧，**连接保持** |
+| `task.validation_failed` | task 批：manifest/paramsSchema/projects 基数校验失败（message 带具体违例） | 发 error 帧，**连接保持** |
+| `task.not_found` | task 批：jobId 不存在（detail/artifacts/生命周期命令） | 发 error 帧，**连接保持** |
+| `task.invalid_state` | task 批：生命周期/删除的非法当前态（判断收口引擎 T1.3，handler 透传） | 发 error 帧，**连接保持** |
 | `WORKSPACE_E_INVALID_ROOT` | workspace 批（W1）：workspace.open root 校验失败（不存在/非目录/不可读/危险根——文件系统根或主目录） | 发 error 帧，**连接保持** |
 | `WORKSPACE_E_ACTIVE_AGENT` | workspace 批（W1）：存在运行中会话/智能体时拒绝重绑（F2 裁决 v1 禁止切换） | 发 error 帧，**连接保持** |
 | `workspace.unbound` | workspace 批（W1）：未绑定工作空间时的依赖面拒绝（会话创建门禁/kg 参数型读面防御） | 发 error 帧，**连接保持** |
@@ -731,11 +735,11 @@ export interface AgentModelChangedPayload {
   新会话）；转正恰好一次 `agent.instantiated` + `list_changed{created}`
   （draft 链显式广播与补广播去重，不双发）。
 
-## 15. 命令 payload 形状总登记（C→S，36 命令全集）
+## 15. 命令 payload 形状总登记（C→S，45 命令全集）
 
-> **计数声明：36 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
+> **计数声明：45 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
 > 15.4 model 6 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
-> 15.9 kg 6 + 15.10 workspace 2）——与 `COMMAND_TYPES` 常量恰等
+> 15.9 kg 6 + 15.10 workspace 2 + 15.11 task 9）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
 > 文档与其逐项对齐（AD-1）；仓外契约文档降为历史定形档案（§17.1）。
@@ -1173,22 +1177,130 @@ notice?}`；recents MRU 上限 8，get 时惰性探测标 valid）。
 |---|---|---|---|---|
 | `root` | `string` | 必填 | workspace 批 | 待绑定的工作空间根（daemon realpath 规范化 + 危险根校验） |
 
-## 16. 事件 payload 形状总登记（S→C，57 事件全集）
+### 15.11 task 族（9；task 批，iter-20260829-ys7q T1.5 P-2 任务页数据面）
 
-> **计数声明：57 事件全集**（16.1 notification 2 + 16.2 session 4 +
+> 本族为 task 批（v0.11 后 additive 微批，版本位不 bump，§19/§20 同构
+> 先例；批次注记见 §21）登记的 P-2 任务页九命令。全局命令（信封 sessionId
+> 省略——任务为 daemon 级实体非会话作用域）。**零内容干预（AD-2）：本族
+> 清单即全集**——无 steer/批次重试/内容编辑命令（机械 grep 断言守护）；
+> 任务创建不经本族（§8.2：创建命令按任务类型各有宿主）。结果回执 =
+> 点对点结果帧（`task.*.result`，types/task.ts 窄化接口——**不入
+> EVENT_TYPES 目录**，契约 §0 计数 57→58 仅 task.changed；信封 sessionId =
+> SYSTEM_SESSION_ID、channel = notification）。错误码词表 = 契约 task-api
+> §4（§7 登记；发 error 帧连接保持；状态判断收口引擎 T1.3，handler 透传）。
+> 响应形状逐字段契约 = 本迭代 `development/contracts/task-api.md`。
+
+#### `task.list`
+
+任务列表（F3.1；全局平铺；**服务端排序 = 运行中置顶 + 创建时间倒序**）。
+结果 = `task.list.result`（`{tasks: TaskSummaryDto[]}`，DTO 见 types/task.ts
+——裸 id 纪律 AD-4：title 服务端组装，前端不拼文案）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `status` | `TaskStatus`（六态枚举） | 可选 | task 批 | 状态过滤器（服务端生效；越界 → command.invalid_payload） |
+| `project` | `string` | 可选 | task 批 | 项目过滤器（AD-8：项目标签之一；服务端生效） |
+
+#### `task.detail`
+
+任务详情（F3.2/F3.3：阶段条 + 当前阶段批次 + 实例 plan + 叙述句）。
+结果 = `task.detail.result`（`{task: TaskDetailDto}`）。jobId 不存在 →
+`task.not_found`。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `jobId` | `string` | 必填 | task 批 | 目标任务（join 键，来自 task.list 行 data-id） |
+
+#### `task.artifacts`
+
+结果查询（F3.4，只读：各阶段 stage.artifact + 产出节点人类可读投影）。
+节点详情/修正转 /project 页（AD-10）。结果 = `task.artifacts.result`
+（`{artifacts: TaskArtifactsDto}`）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `jobId` | `string` | 必填 | task 批 | 目标任务 |
+
+#### `task.subscribe`
+
+连接级订阅（F3.2 WS 实时推送；机械定义：连接级订阅集合——携带 jobId 加入
+集合，无 jobId = 全任务通配；`task.changed` 按连接过滤投递，断连清表）。
+结果 = `{ok: true}`。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `jobId` | `string` | 可选 | task 批 | 缺省 = 订阅全部任务变更（通配档） |
+
+#### `task.unsubscribe`
+
+退订（对称语义：携带 jobId 移除该订阅，无 jobId = 清空订阅集与通配档）。
+结果 = `{ok: true}`。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `jobId` | `string` | 可选 | task 批 | 缺省 = 清空全部任务订阅 |
+
+#### `task.pause`
+
+暂停（F3.5；仅 running → paused 合法，O-2：停派新批次 + 在跑自然收口；
+非法态 → `task.invalid_state` 引擎透传）。结果 = `{ok: true, status}`
+（status = 引擎成功后置状态）；成功即广播 `task.changed`
+（§16.1，O-7 逐迁移）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `jobId` | `string` | 必填 | task 批 | 目标任务 |
+
+#### `task.resume`
+
+恢复（仅 paused → running；与断点恢复同路径）。结果 = `{ok: true,
+status}`；成功即广播 `task.changed`。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `jobId` | `string` | 必填 | task 批 | 目标任务 |
+
+#### `task.cancel`
+
+取消（pending/running/paused → cancelled 终态；在跑批次 SIGTERM）。结果 =
+`{ok: true, status}`；成功即广播 `task.changed`。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `jobId` | `string` | 必填 | task 批 | 目标任务 |
+
+#### `task.delete`
+
+任务删除（F3.6，人工操作：**仅终态 done/failed/cancelled 可删**，运行中
+删除 → `task.invalid_state`——判断收口引擎，handler 透传；清理 job/stage/
+batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `jobId` | `string` | 必填 | task 批 | 目标任务（终态） |
+
+## 16. 事件 payload 形状总登记（S→C，58 事件全集）
+
+> **计数声明：58 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> 16.2 session 4 +
 > 16.3 chat 10 + 16.4 agent 12 + 16.5 thinking·compaction·usage 5 +
-> 16.6 model 10 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6 + 16.10 workspace 3）
-> ——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
+> 16.6 model 10 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6 + 16.10 workspace 3
+> ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
 >（三面同构，守护断言⑤口径）；auth 族 4 结果帧按 `EVENT_CHANNELS` 登记挂
-> **model 通道**（§16.6 内）。登记锚格式同 §15（`#### \`<type>\`` 锚 +
-> payload 字段表）。类型权威源 = `packages/protocol/src/events/`，文档与其
-> 逐项对齐（AD-1）。点对点结果帧（model/auth 族 `*.result` 9 +
+> **model 通道**（§16.6 内）；task 批 task.changed 挂既有 **notification
+> 通道**（不新增 Channel 值，契约 task-api §0）。登记锚格式同 §15
+>（`#### \`<type>\`` 锚 + payload 字段表）。类型权威源 =
+> `packages/protocol/src/events/`（task 批 DTO/事件 = `src/types/task.ts`，
+> §15.11 注记），文档与其逐项对齐（AD-1）。点对点结果帧（model/auth 族
+> `*.result` 9 +
 > `trace.query.result` + agent.config 族两结果帧（v0.6）+ web 族两结果帧
-> （v0.7）+ kg 族六结果帧（kg 批）+ workspace 族两结果帧（workspace 批））
+> （v0.7）+ kg 族六结果帧（kg 批）+ workspace 族两结果帧（workspace 批）
+> + task 族九结果帧（task 批，不入本目录——契约 §0 计数，types/task.ts
+> 窄化接口供出））
 > 仅发发起命令的连接，不经 EventStream 广播（TR-AD-21 先例）。
 
-### 16.1 notification 族（2；信封 sessionId = SYSTEM_SESSION_ID）
+### 16.1 notification 族（3；信封 sessionId = SYSTEM_SESSION_ID）
 
 #### `connection.welcome`
 
@@ -1210,6 +1322,21 @@ notice?}`；recents MRU 上限 8，get 时惰性探测标 valid）。
 |---|---|---|---|---|
 | `code` | `ErrorCode` | 必填 | v0 | 错误码（全集见 §7） |
 | `message` | `string` | 必填 | v0 | 错误描述（中文说明） |
+
+#### `task.changed`
+
+任务状态变更广播（task 批，T1.5；O-7 裁决：**逐状态迁移推送、轻负载**
+——引擎每次 job/stage/batch 行 status 迁移即推一帧，不合并去抖；前端
+收到后按 `changed` 面重拉 detail/list，保真优先）。daemon 级全局帧（
+信封 sessionId = SYSTEM_SESSION_ID），但投递**按连接级任务订阅表过滤**
+（task.subscribe 登记：订阅该 jobId 或通配才收，§15.11）——不沿用
+kg 族零推送口径，亦不经会话订阅路由。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `jobId` | `string` | 必填 | task 批 | 变更任务（join 键） |
+| `changed` | `"job" \| "stage" \| "batch" \| "work_item"` | 必填 | task 批 | 变更面（stage/batch/work_item 级变更前端按需重拉 detail） |
+| `status` | `string` | 可选 | task 批 | job 级变更携带新状态（六态 wire 值） |
 
 ### 16.2 session 族（4）
 
@@ -2100,3 +2227,40 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 > - CLI 例外条款：CLI 形态终端站位 = 显式选择（启动等价已 open(cwd)，
 >   不持久化——桌面 current/recents 只由桌面 open 写）；desktop/sidecar
 >   形态恒经绑定，无 cwd 兼容缺省。
+
+## 21. task 批（iter-20260829-ys7q T1.5：P-2 任务页数据面九命令族；v0.11 后 additive 微批——版本位不 bump）
+
+> 本批为任务页（P-2）数据面的协议面登记（T1.5）：
+> **9 命令**（§15.11 task 族：`task.list` / `task.detail` / `task.artifacts` /
+> `task.subscribe` / `task.unsubscribe` / `task.pause` / `task.resume` /
+> `task.cancel` / `task.delete`——全局命令，任务为 daemon 级实体）+
+> **1 事件**（§16.1 内 `task.changed`：O-7 逐迁移轻负载广播，挂既有
+> **notification 通道，不新增 Channel 值**——契约 task-api §0；九命令结果帧
+> 为点对点回执**不入 EVENT_TYPES 目录**，types/task.ts 窄化接口供出）+
+> **4 错误码**（`task.type_unknown` / `task.validation_failed` /
+> `task.not_found` / `task.invalid_state`，§7 登记、连接保持）。
+> **版本位不 bump**（`PROTOCOL_VERSION = "0.11"` 保持）：全部为新增面
+> （新增命令 type / 新增事件 type / 新增错误码值），旧客户端零破坏
+> （additive 纪律，TR-AD-23①；§19/§20 同构先例）。
+>
+> - 计数演进：命令 36 → 45；事件 57 → 58（守护断言③同步扩）。
+> - 零内容干预（AD-2）：本族清单即全集——无 steer/批次重试/内容编辑命令
+>   （机械 grep 断言守护，§15.11）；任务创建不经本族（按任务类型各有宿主：
+>   /project 入口 `kg.bootstrap.create`（T3.2）与 chat 工具 task_create
+>   （T2.4），架构 §8.2）。
+> - task.changed 投送（O-7 裁决）：引擎每次 job/stage/batch 行 status 迁移
+>   即推一帧 `{jobId, changed, status?}`；连接级订阅表过滤（task.subscribe
+>   登记、断连清表；agent.subscribe 通路先例不沿用——本批为真过滤）。
+>   T1.5 接线面 = 生命周期命令（pause/resume/cancel 成功即广播）；stage/
+>   batch 级迁移的触发归编排侧（T2.2 经同一 EventStream.broadcastTaskChanged
+>   通路），创建（T2.4 工具面）同。
+> - 状态枚举 wire 值 = 后端状态机原值（六态 pending/running/paused/done/
+>   failed/cancelled）；前端展示映射（pending→装配中、done→已完成）只在
+>   展示层，wire 不出第二套词表。
+> - 响应形状逐字段契约 =
+>   `docs/iterations/iter-20260829-ys7q/development/contracts/task-api.md`
+>   （T1.5 daemon 协议面与 T3.1 shell 前端的共同约定；本节只登记存在性
+>   与通道归属，字段表见 §15.11/§16.1）。
+> - daemon 行为由 T1.5 落地（handlers/task.ts + TaskQueryService/
+>   TaskEnginePort 回口；未装配面回 `command.unimplemented`——kg.ts 先例；
+>   状态判断收口引擎 T1.3，handler 透传 task.invalid_state）。

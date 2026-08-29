@@ -17,7 +17,9 @@
  * - lastTurnId：领域 turn.completed 发布时聚合轮次已收口、事件不带 turnId，
  *   以最近 turn.started 追踪补齐协议帧的 turnId；
  * - toolStartedAt：tool.call.started → result 的 occurredAt 差值 = durationMs
- *   （协议 ToolCallEntryDto 要求，领域事件载荷未携带）。
+ *   （协议 ToolCallEntryDto 要求，领域事件载荷未携带）；
+ * - taskJobs/taskAll（task 批 §8.1）：连接级任务订阅表——task.changed 广播
+ *   按订阅 jobId（或通配）过滤投递，断连清表（KgViewer 零推送口径不适用）。
  */
 import type { EventPublisherPort, StreamDelta } from "../../../application/ports/outbound/EventPublisherPort";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
@@ -27,6 +29,7 @@ import type {
   EventEnvelope,
   ModelChangedEvent,
   SessionListChangedEvent,
+  TaskChangedEvent,
   ThinkingChangedEvent,
   ThinkingStreamDeltaEvent,
   WebStatusChangedEvent,
@@ -61,12 +64,16 @@ export interface EventStreamDeps {
   readonly mainInstanceIdFor?: (sessionId: string) => string | undefined;
 }
 
-/** 单连接投影状态：会话订阅 tier 表 + v0.1 实例订阅表（通路语义，不过滤）。 */
+/** 单连接投影状态：会话订阅 tier 表 + v0.1 实例订阅表 + task 批连接级任务订阅表（§8.1）。 */
 interface ConnProjection {
   /** 已订阅会话 → 档位（v0.3，契约 §2.1 连接级 Map 取代 v0.2 Set，Q-2b①：一会话一连接一档）。 */
   readonly sessionTiers: Map<string, SubscriptionTier>;
   /** agent.subscribe 登记的实例 id 集（契约 §8-1：v0.1 只记录不过滤）。 */
   readonly instances: Set<string>;
+  /** task.subscribe 登记的 jobId 集（连接级订阅表，task 批 §8.1 机械定义）。 */
+  readonly taskJobs: Set<string>;
+  /** 无 jobId 订阅全部任务变更（通配档；断连清表随 detach）。 */
+  taskAll: boolean;
 }
 
 /** 订阅档位（契约 v0.3 §2.1，Q-2b②）：full = 全量（缺省既有语义）；monitor = 白名单 3 事件。 */
@@ -100,7 +107,7 @@ export class EventStream implements EventPublisherPort {
   attach(sender: FrameSender, sessionId?: string): void {
     const sessionTiers = new Map<string, SubscriptionTier>();
     if (sessionId !== undefined) sessionTiers.set(sessionId, "full"); // 握手默认档 = full（既有语义不变）
-    this.connections.set(sender, { sessionTiers, instances: new Set() });
+    this.connections.set(sender, { sessionTiers, instances: new Set(), taskJobs: new Set(), taskAll: false });
   }
 
   /** 连接关闭/断开后注销（tier 表随连接销毁即丢——daemon 不持跨连接状态，TR-AD-23③）。 */
@@ -133,6 +140,29 @@ export class EventStream implements EventPublisherPort {
 
   unsubscribeInstance(sender: FrameSender, agentId: string): void {
     this.connections.get(sender)?.instances.delete(agentId);
+  }
+
+  /**
+   * task.subscribe / task.unsubscribe（task 批 §8.1 连接级订阅表，机械定义）：
+   * subscribe 携带 jobId → 加入集合；缺省 → 通配全部任务变更。
+   * unsubscribe 携带 jobId → 移除该订阅；缺省 → 清空订阅集与通配档
+   *（对称语义）。断连清表（detach 随连接销毁）。sender 必须为 attach 注册
+   * 的同一发送端（握手后 ws.data.sender）。
+   */
+  subscribeTask(sender: FrameSender, jobId?: string): void {
+    const conn = this.connections.get(sender);
+    if (conn === undefined) return;
+    if (jobId === undefined) conn.taskAll = true;
+    else conn.taskJobs.add(jobId);
+  }
+
+  unsubscribeTask(sender: FrameSender, jobId?: string): void {
+    const conn = this.connections.get(sender);
+    if (conn === undefined) return;
+    if (jobId === undefined) {
+      conn.taskAll = false;
+      conn.taskJobs.clear();
+    } else conn.taskJobs.delete(jobId);
   }
 
   /** 观测面：某连接已登记订阅的实例 id 集（测试/诊断）。 */
@@ -255,6 +285,32 @@ export class EventStream implements EventPublisherPort {
       payload: { root: payload.root },
     };
     this.push(frame);
+  }
+
+  /**
+   * task.changed 广播（task 批 O-7 逐迁移轻负载）：daemon 级全局帧（信封
+   * sessionId = SYSTEM_SESSION_ID、channel = notification），但投递按连接级
+   * 任务订阅表过滤（订阅该 jobId 或通配才收）——不经 push 的会话订阅路由
+   *（任务无会话维），与 session 级广播分道。单连接异常不扩散（push 同口径）。
+   * 触发面：生命周期命令成功（handlers/task.ts）；stage/batch 级迁移归编排
+   * 侧 T2.2 经本通路。
+   */
+  broadcastTaskChanged(payload: { jobId: string; changed: "job" | "stage" | "batch" | "work_item"; status?: string }): void {
+    const frame: TaskChangedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "notification",
+      type: "task.changed",
+      payload: { ...payload },
+    };
+    for (const [sender, conn] of this.connections) {
+      if (!conn.taskAll && !conn.taskJobs.has(payload.jobId)) continue;
+      try {
+        sender(frame);
+      } catch {
+        // 发送失败由该连接自身的 close 流程收尾，此处隔离
+      }
+    }
   }
 
   publish(event: DomainEvent): void {

@@ -147,6 +147,9 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `workspace-open:${event.payload.root}:${event.payload.projects.length}`;
     case "workspace_changed":
       return `workspace-changed:${event.payload.root}`;
+    case "task.changed":
+      // task 批（T1.5）：逐迁移轻负载广播（notification 通道；changed 面独立字段访问）
+      return `task-changed:${event.payload.jobId}:${event.payload.changed}:${event.payload.status ?? "-"}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -239,6 +242,19 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return "workspace-get";
     case "workspace.open":
       return `workspace-open:${cmd.payload.root}`;
+    case "task.list":
+      // task 批（T1.5）：九命令载荷独立字段访问（窄化守护）
+      return `task-list:${cmd.payload.status ?? "-"}:${cmd.payload.project ?? "-"}`;
+    case "task.detail":
+    case "task.artifacts":
+    case "task.pause":
+    case "task.resume":
+    case "task.cancel":
+    case "task.delete":
+      return `task-${cmd.type.split(".")[1]}:${cmd.payload.jobId}`;
+    case "task.subscribe":
+    case "task.unsubscribe":
+      return `task-${cmd.type.split(".")[1]}:${cmd.payload.jobId ?? "*"}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

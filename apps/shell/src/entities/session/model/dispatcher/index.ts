@@ -132,6 +132,16 @@ register({
   apply: (s) => s,
 });
 
+// ── task 族（task 批，iter-20260829-ys7q T1.5；task.changed 逐迁移广播）──
+// 任务页 P-2 连接私有读面：真消费归 entities/tasks 页面 reducer（T3.1
+// tasks-model 听众——connection 面听众转发模式，kg 族先例）；此处 no-op
+// 注册保「EVENT_TYPES 全类型已路由」守护绿，会话 store 零写入（任务非
+// 会话维——帧经 notification 通道 daemon 级下发）。
+register({
+  types: ["task.changed"],
+  apply: (s) => s,
+});
+
 // ── v0.6 agent.config 族（M6 T4 真消费收口）──
 // 三 type（changed 广播 + 两点对点结果帧）全走拓扑级前置门
 // （consumers/agent-config.ts，dispatcher/frame.ts ⓪′）：changed 接真消费

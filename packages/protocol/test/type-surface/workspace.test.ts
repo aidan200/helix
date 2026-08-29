@@ -20,11 +20,12 @@ import type {
 } from "../../src/index";
 
 describe("workspace 批（W1）：命令/事件/通道登记", () => {
-  test("命令目录：workspace.get / workspace.open 登记且排序在 kg 族之后", () => {
+  test("命令目录：workspace.get / workspace.open 登记且排序在 kg 族之后（task 批前尾段）", () => {
     expect(COMMAND_TYPES).toContain("workspace.get");
     expect(COMMAND_TYPES).toContain("workspace.open");
-    expect(COMMAND_TYPES[COMMAND_TYPES.length - 2]).toBe("workspace.get");
-    expect(COMMAND_TYPES[COMMAND_TYPES.length - 1]).toBe("workspace.open");
+    const kgEnd = COMMAND_TYPES.findIndex((t) => t === "kg.projects");
+    expect(COMMAND_TYPES.indexOf("workspace.get")).toBe(kgEnd + 1);
+    expect(COMMAND_TYPES.indexOf("workspace.open")).toBe(kgEnd + 2);
   });
 
   test("事件目录：两个结果帧 + workspace_changed 广播登记", () => {

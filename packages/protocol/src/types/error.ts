@@ -39,4 +39,12 @@ export type ErrorCode =
   /** workspace 批新增：存在运行中会话/智能体时拒绝重绑（F2 裁决 v1 禁止切换）；发 error 帧连接保持 */
   | "WORKSPACE_E_ACTIVE_AGENT"
   /** workspace 批新增：未绑定工作空间时的依赖面拒绝（会话创建门禁/kg 参数型读面防御）；发 error 帧连接保持 */
-  | "workspace.unbound";
+  | "workspace.unbound"
+  /** task 批新增（iter-20260829-ys7q T1.5，契约 task-api §4）：createTask 的 type 无对应任务 skill（T2.4 工具面同码）；发 error 帧连接保持 */
+  | "task.type_unknown"
+  /** task 批新增：manifest/paramsSchema/projects 基数校验失败（message 带具体违例）；发 error 帧连接保持 */
+  | "task.validation_failed"
+  /** task 批新增：jobId 不存在（task.detail/artifacts/生命周期命令）；发 error 帧连接保持 */
+  | "task.not_found"
+  /** task 批新增：生命周期/删除的非法当前态（如 running 任务删除、done 任务暂停——判断收口引擎 T1.3，handler 透传）；发 error 帧连接保持 */
+  | "task.invalid_state";
