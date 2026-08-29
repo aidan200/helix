@@ -121,29 +121,28 @@ describe("SystemPromptAssembler 三段组装（M6 T2）", () => {
     expect(out.split("\n")).toContain("- mystery-tool");
   });
 
-  test("⑦ 双源消除正向面：组装产物含 12 工具名与 snippet（清单只在组装产物出现）", () => {
-    const out = assembler.assemble({
-      basePrompt: "B",
-      toolNames: [
-        "bash",
-        "read",
-        "write",
-        "edit",
-        "grep",
-        "web_search",
-        "web_fetch",
-        "agent_spawn",
-        "agent_send",
-        "agent_status",
-        "agent_inspect",
-        "browser",
-        "kg",
-        "kg-update",
-      ],
-      skills: [],
-    });
-    for (const [name, snippet] of Object.entries(TOOL_PROMPT_SNIPPETS)) {
-      expect(out).toContain(`- ${name}: ${snippet}`);
+  test("⑦ 双源消除正向面：组装产物含工具名与 snippet（清单只在组装产物出现）", () => {
+    const toolNames = [
+      "bash",
+      "read",
+      "write",
+      "edit",
+      "grep",
+      "web_search",
+      "web_fetch",
+      "agent_spawn",
+      "agent_send",
+      "agent_status",
+      "agent_inspect",
+      "browser",
+      "kg",
+      "kg-update",
+    ];
+    const out = assembler.assemble({ basePrompt: "B", toolNames, skills: [] });
+    // T1.4：注册表新增 subagent 独有 plan 三工具——本组装面（main 集）只
+    // 断言集内名；两 profile 全集覆盖断言在 tool-prompt-snippets.test
+    for (const name of toolNames) {
+      expect(out).toContain(`- ${name}: ${TOOL_PROMPT_SNIPPETS[name]}`);
     }
   });
 });

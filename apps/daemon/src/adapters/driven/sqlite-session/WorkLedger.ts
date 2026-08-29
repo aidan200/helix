@@ -1,6 +1,7 @@
 import type { Database, Statement } from "bun:sqlite";
 import type { WorkItemStatus } from "../../../domain/task/types";
 import {
+  openTaskLedgerDatabase,
   prepareWorkLedgerStatements,
   type WorkLedgerStatements,
   type WriteQueue,
@@ -76,6 +77,11 @@ export class WorkLedger implements WorkLedgerPort {
     return rowsToWorkItems(this.selectItems.all(instanceId) as WorkItemRow[]);
   }
 
+  /** 关闭底层直连连接（重复关闭由 LazyWorkLedger 置空守护；父进程面共用 WriteQueue 连接不调本方法）。 */
+  close(): void {
+    this.db.close();
+  }
+
   async deleteByInstanceIds(instanceIds: readonly string[]): Promise<void> {
     if (instanceIds.length === 0) return; // 空集 no-op（不构造非法 IN ()）
     this.db.transaction(() => {
@@ -96,4 +102,54 @@ export type WorkLedgerParentFace = Pick<WorkLedgerPort, "getItems" | "deleteByIn
 /** 父进程面工厂：共用 WriteQueue 连接（读不阻塞；delete = 唯一例外写点）。 */
 export function parentWorkLedger(writeQueue: WriteQueue): WorkLedgerParentFace {
   return new WorkLedger(writeQueue.database);
+}
+
+// ── 子进程惰性直连面（T1.4 ChildMain 装配） ────────────────────
+
+/**
+ * LazyWorkLedger —— 子进程本地栈惰性直连面：首次读写才
+ * openTaskLedgerDatabase（自设 WAL + busy_timeout，连接工厂在 WriteQueue.ts）。
+ *
+ * 惰性动机（TR-TEST-4）：plan 三工具随 SubAgentProfile 全量声明，无 plan
+ * 调用的子进程若构造期即开库会触碰真实 ~/.helix——惰性 = 零 plan 调用零
+ * 文件触碰，既有测试形态不变。dbPath 缺席（父进程未注入 HELIX_DB_PATH）
+ * → 首次调用抛「未装配」（注册常驻、依赖缺席报错，browser 先例）。
+ * close 幂等（未开过 = no-op）。
+ */
+export class LazyWorkLedger {
+  private inner: WorkLedger | null = null;
+
+  constructor(private readonly dbPath: string | undefined) {}
+
+  private face(): WorkLedger {
+    if (this.dbPath === undefined) {
+      throw new Error(
+        "work_item 台账库路径未注入（HELIX_DB_PATH 缺席——父进程未透传）→ plan 工具不可用",
+      );
+    }
+    return (this.inner ??= new WorkLedger(openTaskLedgerDatabase(this.dbPath)));
+  }
+
+  insertItems(instanceId: string, items: readonly WorkItemInput[]): Promise<void> {
+    return this.face().insertItems(instanceId, items);
+  }
+
+  updateItem(
+    instanceId: string,
+    seq: number,
+    status: WorkItemStatus,
+    note?: string | null,
+  ): Promise<void> {
+    return this.face().updateItem(instanceId, seq, status, note);
+  }
+
+  getItems(instanceId: string): readonly WorkItemData[] {
+    return this.face().getItems(instanceId);
+  }
+
+  /** 关闭已开的直连连接（未开过 = no-op；幂等）。 */
+  close(): void {
+    this.inner?.close();
+    this.inner = null;
+  }
 }

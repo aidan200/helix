@@ -82,6 +82,14 @@ export interface SubagentLauncherDeps {
    */
   readonly reportDirFor?: (sessionId: string) => string;
   /**
+   * work_item 台账库路径（T1.4，AD-6①）：子进程经 HELIX_DB_PATH 直连
+   * helix.db（WAL + busy_timeout 自设，表域由父进程先行建库保证）——plan
+   * 三工具的落账目标。接受 getter（组合根 paths.dbPath() 同源注入）或静态
+   * 字符串（测试面）；缺省不传键（既有测试形态——子进程 plan 工具首调报
+   * 未装配，注册常驻不受影响）。
+   */
+  readonly ledgerDbPath?: string | (() => string);
+  /**
    * spawn 快照（代际生效，TR-AD-24 同构）：launch 时刻读一次的组装
    * 产物缓存（组合根在启动与 toggle applied 后刷新；systemPrompt = base +
    * 生效工具清单 + 生效技能段，tools = getEffectiveTools 生效集）。透传
@@ -192,6 +200,10 @@ export class SubagentLauncher implements InstanceRunner {
     const toolCwd = typeof this.deps.toolCwd === "function" ? this.deps.toolCwd() : this.deps.toolCwd;
     // F3.0（T4.1）：报告落点 env 传参（未注入 reportDirFor 不传键——既有测试形态不变）
     const reportDir = this.deps.reportDirFor?.(instance.sessionId);
+    // T1.4：台账库路径 env 传参（未注入 ledgerDbPath 不传键——子进程 plan
+    // 工具注册常驻、首调报未装配；browser 未装配先例）
+    const ledgerDbPath =
+      typeof this.deps.ledgerDbPath === "function" ? this.deps.ledgerDbPath() : this.deps.ledgerDbPath;
     const proc = Bun.spawn({
       cmd: [process.execPath, DAEMON_ENTRY_PATH, "--child-main", "--task", task],
       env: {
@@ -202,6 +214,7 @@ export class SubagentLauncher implements InstanceRunner {
         HELIX_API_KEYS_JSON: JSON.stringify(apiKeys),
         HELIX_TOOL_CWD: toolCwd,
         ...(reportDir !== undefined ? { HELIX_REPORT_PATH: join(reportDir, `${id}.md`) } : {}),
+        ...(ledgerDbPath !== undefined ? { HELIX_DB_PATH: ledgerDbPath } : {}),
         ...(snapshot !== undefined
           ? {
               HELIX_SYSTEM_PROMPT: snapshot.systemPrompt,

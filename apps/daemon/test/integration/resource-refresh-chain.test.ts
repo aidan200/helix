@@ -116,7 +116,7 @@ const MAIN_TOOLS = [
   "kg", // T3.3：kg 双工具
   "kg-update",
 ];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "kg-update"]; // H-3：+browser；T3.3：+kg 双工具
+const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "kg-update", "plan_create", "plan_update", "plan_read"]; // H-3：+browser；T3.3：+kg 双工具；T1.4：+plan 三工具（AD-6①，subagent 独有）
 
 describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 acceptance ③）", () => {
   test("① main tool toggle：下一 run 的 systemPrompt 与 tools 同步收缩；skipped 不刷新", async () => {

@@ -25,6 +25,12 @@ import { createReadTool } from "./read/ReadTool";
 import { createEditLinesTool } from "./edit-lines/EditLinesTool";
 import { createKgTool } from "./kg/KgTool";
 import { createKgUpdateTool } from "./kg-update/KgUpdateTool";
+import {
+  createPlanCreateTool,
+  createPlanReadTool,
+  createPlanUpdateTool,
+  type PlanToolDeps,
+} from "./plan/PlanTools";
 import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
@@ -116,6 +122,14 @@ export interface CoreToolExecutorOptions {
    * 形态/无 kg 场景 profile 不声明两名）。
    */
   readonly kg?: KgToolOptions;
+  /**
+   * plan 三工具注入面（T1.4，AD-6①）：实例工作台账写口（plan_create/
+   * plan_update/plan_read）。仅 SubAgent 子进程（ChildMain 本地栈）注入
+   * ——plan 工具不进 MainAgent 生效集；instanceId 由子进程上下文注入
+   * （工具参数零 instanceId，防伪造）。缺省不注册（既有测试形态/主会话
+   * 装配——SubAgentProfile 声明三名时必须注入，resolveTools fail-fast）。
+   */
+  readonly plan?: PlanToolDeps;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -165,6 +179,15 @@ export class CoreToolExecutor implements ToolExecutorPort {
           workspaceRoot: options.kg.workspaceRoot,
           scanProjects: options.kg.scanProjects,
         }),
+      );
+    }
+    if (options.plan !== undefined) {
+      // plan 三工具（T1.4，AD-6①）：实例工作台账（薄壳调 WorkLedgerService；
+      // 仅 SubAgent 子进程本地栈注入，两域同构）
+      tools.push(
+        createPlanCreateTool(options.plan),
+        createPlanUpdateTool(options.plan),
+        createPlanReadTool(options.plan),
       );
     }
     const registry = new Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>();

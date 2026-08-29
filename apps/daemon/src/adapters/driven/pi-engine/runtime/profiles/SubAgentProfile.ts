@@ -64,6 +64,9 @@ export const SubAgentProfile: AgentProfile = {
     "browser", // H-3：+browser（经 wire 转发通道接 daemon CDP 单例；装配经 CoreToolExecutor.resolveTools）
     "kg", // T3.3：只读查询面（search→get；ChildMain 本地栈装配）
     "kg-update", // T3.3：即时落账面（supersede/createNode；落账主要发生在实现任务现场）
+    "plan_create", // T1.4（AD-6①）：实例工作台账——全量配给所有 SubAgent（chat/task 两域同构；不进 MainAgent）
+    "plan_update",
+    "plan_read",
   ],
   lifecycle: { mode: "single-shot" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：与主会话同坑同填——装配点实例化）

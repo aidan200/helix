@@ -34,6 +34,9 @@ import { SqliteKnowledgeStore } from "../../sqlite-kg/SqliteKnowledgeStore";
 import { KgWriteService } from "../../../../application/services/kg/KgWriteService";
 import { KgQueryService } from "../../../../application/services/kg/KgQueryService";
 import { existingKgProjects, scanWorkspaceProjects } from "../../workspace-scan";
+import { LazyWorkLedger } from "../../sqlite-session/WorkLedger";
+import { WorkLedgerService } from "../../../../application/services/task/WorkLedgerService";
+import type { PlanToolDeps } from "../../tools/plan/PlanTools";
 
 // ── argv/env 解析 ──────────────────────────────────────────
 
@@ -167,6 +170,30 @@ function buildLocalKgStack(workspaceRoot: string): { readonly tools: KgToolOptio
   };
 }
 
+// ── 子进程本地 work_item 栈（T1.4，AD-6①：plan 三工具注入面） ─────
+
+/**
+ * 子进程本地 work_item 栈（buildLocalKgStack 同构）：helix.db 直连
+ * （LazyWorkLedger 首次读写才开库——WAL + busy_timeout 由
+ * openTaskLedgerDatabase 自设，子连接不依赖父进程设置）+ WorkLedgerService
+ * 双面 + plan 三工具装配面。chat/task 两域派出的实例走同一装配（零 kind
+ * 分支，AD-6① 统一性）。
+ *
+ * instanceId 由子进程上下文注入（HELIX_INSTANCE_ID）——工具参数零
+ * instanceId（防 LLM 伪造他实例台账）；dbPath 来自 HELIX_DB_PATH（父进程
+ * spawn 时注入；缺席 → plan 工具首调报未装配，注册常驻——browser 先例）。
+ * 表域由父进程先行建库保证（子进程总是父进程写入 batch.instance_id
+ * 后才被拉起；未拉台账调用不触盘，TR-TEST-4）。
+ */
+export function buildLocalWorkLedgerStack(
+  dbPath: string | undefined,
+  instanceId: string,
+): { readonly tools: PlanToolDeps; readonly ledger: LazyWorkLedger } {
+  const ledger = new LazyWorkLedger(dbPath);
+  const service = new WorkLedgerService({ reader: ledger, writer: ledger });
+  return { tools: { service, instanceId }, ledger };
+}
+
 // ── 主流程 ─────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -199,11 +226,15 @@ async function main(): Promise<void> {
   // T3.3：kg/kg-update 双工具本地栈（子进程组合根装配——SubAgentProfile
   // 声明两名，未注册则 resolveTools fail-fast）
   const kg = buildLocalKgStack(toolCwd);
+  // T1.4：plan 三工具本地栈（AD-6① 全量配给——SubAgentProfile 声明三名；
+  // HELIX_DB_PATH 缺席时注册常驻、首调报未装配）
+  const workLedger = buildLocalWorkLedgerStack(process.env.HELIX_DB_PATH, instanceId);
   const executor = new CoreToolExecutor({
     cwd: toolCwd,
     browser: remoteBrowser,
     ownerId: instanceId,
     kg: kg.tools,
+    plan: workLedger.tools,
   });
   const engine = new PiAgentEngineAdapter({
     profile,
@@ -265,6 +296,7 @@ async function main(): Promise<void> {
       });
   writeLine({ type: "closure", instanceId, closure });
   kg.database.closeAll(); // 正常收尾关连接（崩溃路径走 WAL 恢复，无需显式关）
+  workLedger.ledger.close(); // T1.4：台账直连连接同单点收尾（惰性未开过 = no-op）
   process.exit(0);
 }
 
