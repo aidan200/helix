@@ -229,13 +229,16 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
     // 退役——包级依赖与 AG-15③ 联动断言保留，待包级退役决策）——两包均不计
     // 入 pi 系口径；diff@8.0.4（T3.1/AF-1）：VENDORED edit-diff 内核的
     // generateDiffString/generateUnifiedPatch 运行时依赖，与 pi-agent-core
-    // 同版锁定（pi bump 再同步时同步复核版本）
+    // 同版锁定（pi bump 再同步时同步复核版本）；yaml@2.9.0（T2.3/AF-2.3a）：
+    // TaskSkillRegistry 自解析 SKILL.md frontmatter task 块（pi loadSourcedSkills
+    // 不透传附加字段），与 pi-agent-core pinned 传递依赖同版本零增树
     expect(deps).toEqual([
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",
       "@helix/common",
       "@helix/protocol",
       "diff",
+      "yaml",
     ]);
     const piDeps = deps.filter((d) => d.startsWith("@earendil-works/"));
     expect(piDeps).toEqual(["@earendil-works/pi-agent-core", "@earendil-works/pi-ai"]);

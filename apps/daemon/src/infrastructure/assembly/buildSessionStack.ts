@@ -291,6 +291,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // 实例 env 已定格，代际生效）。deps.toolCwd 显式注入（测试面）
           // 时恒优先（toolCwdOf 优先级链）。
           toolCwd: () => toolCwdOf(),
+          // T1.4（AF-1.11 接线）：work_item 台账库路径 env 传参——与父进程
+          // WriteQueue 同库（O-1：helix.db 任务表域），子进程直连自设
+          // WAL+busy_timeout；启动时刻现值定格
+          ledgerDbPath: () => paths.dbPath(),
           // F3.0（T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH）——
           // 与 ClosureRecorder 兜底 reportsDirFor 同源同式（<home>/reports/<session>）
           reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
