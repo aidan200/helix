@@ -467,3 +467,75 @@ SubAgent 直接写台账；部分实现落库；发明 formalId；幂等判定�
 
 ## 关系
 知识图谱（E-知识图谱）沉淀闭环的裁决面：SubAgent findings sediment 经 propose 落 pending，再由终验人审流转；受 TR-AD-54 管辖（id 策略：正式号仅人审签发，开发期用临时号）；gc_report 正确性类检出直写本台账 pending。
+
+```kg-node
+id: E-任务
+kind: entity
+graph: business
+scope: domain
+stack: shared
+name: 任务（无交互多 agent 任务系统）
+status: active
+digest: 新建任务类型、动任务引擎/编排主 agent/任务页、改 job/stage/batch/work_item 四表、做断点恢复或自动重试时
+updatedIn: iter-20260829-ys7q
+```
+
+## 描述
+helix v2 通用「无交互纯多 agent 任务」系统（iter-20260829-ys7q 落地）——任务 = 持久化一等实体：状态机推进、多 agent 批次执行、中间状态与产出持久化、失败自动重试、断点恢复，全程无需人介入（跑得完、死得起、恢得复）；kg-bootstrap 是首个任务类型。三段式承载（TR-AD-59）：任务引擎（机制代码化）+ 任务类型 skill（builtin 层 SOP）+ 编排主 agent（LLM 判断）；批次执行单元复用 SubAgent 基础设施（共享 maxConcurrent=3 预算）。持久化 = helix.db 新表域四表（job/stage/batch/work_item；表分域写——父进程经 WriteQueue 写 job/stage/batch，子进程经 plan 工具直连写 work_item；O-1 用户裁决：子进程写面 = plan 工具代码边界，LLM 无裸写通道，分库无安全收益）。独立生命周期（pending→running⇄paused→done/failed/cancelled，无中途人审态）；唯一标识 = job id（task-<唯一串>，不进人类界面）；多模块消费（编排主 agent/任务页 P-2/双宿主创建面/kg 产出呈现区经元数据衔接）；任务删除 = 人工操作，仅终态可删，清任务域全部记录（job/stage/batch + 批次实例 work_item），不动 kg 产出。
+
+## 规则
+①职责 = 根据 task 定义完成任务并给出结果（自动重试/生命周期控制/过程与结果查询）；结果后处理（落盘/呈现/修正）是任务类型的域逻辑，任务系统零产出处置概念（TR-AD-60）。②人对运行中任务只有生命周期控制（暂停/继续/取消），内容零干预；任务页零创建，创建按任务类型各有宿主。③确认只在开启前一次（任务内容卡或对话），执行全程无 gate。④阶段是通用结构：创建时定义、确认后冻结、落数据行不落代码；任务间无关系结构。⑤项目关联 = projects[] 0..n 普通标签，基数由任务类型 paramsSchema 声明。⑥批次产出落 kg 经 KgWriteService 唯一入口（含 batchCreateNodes 批量 op），衔接面 = taskId/origin_batchId/layer 三元数据；批次重跑幂等 = 旧产出 supersede + 新跑（TR-AD-64）。⑦daemon 重启扫 running 任务重开编排会话续跑，断点粒度 = stage/batch 行。⑧任务删除（人工）：仅终态可删、清任务域全部记录（含批次实例 plan）、不动 kg 产出。
+
+## 禁忌
+把任务做成 bootstrap 内嵌临时监控（AD-1 否决的选项 A——通用化后才能复用于后续同类任务）；任务页加创建表单或 steer 入口（干预边界失守）；状态机加层间人审 gate（无交互设计破产）；任务系统承载审阅/转正/产出处置逻辑（每加一个任务类型就要改任务页）；批次绕 SchedulerService 直起子进程（预算/closure 通路失守）；删任务时连带删 kg 产出节点（知识归 kg 域，AD-10——清理知识走 /project 图谱页修正/supersede）。
+
+## 关系
+由 TR-AD-59~65 共同 governs（三段式/干预边界/实例台账/阶段通用化/项目标签/元数据衔接/人类可读性七面）；与知识图谱（E-知识图谱）经节点元数据（taskId/origin_batchId/layer）单点衔接——任务产 confirmed 知识（无 draft，以代码事实落盘即正式知识），kg 域呈现与事后修正；执行面复用 E-AgentInstance/E-调度器既有通路；批次实例语义进度由 E-实例plan 承载。
+
+```kg-node
+id: E-任务类型skill
+kind: entity
+graph: business
+scope: domain
+stack: shared
+name: 任务类型 skill（task skill）
+status: active
+digest: 新增任务类型、写或改 builtin 任务 skill、动 frontmatter manifest 字段、改 TaskSkillRegistry 装载口径时
+updatedIn: iter-20260829-ys7q
+```
+
+## 描述
+任务类型的定义载体（iter-20260829-ys7q）——builtin 层 resources/skills/<type>/SKILL.md，随仓分发、产品不可删改（ResourceService builtin-immutable 防护既有）。一文两消费：frontmatter = 机器可读 manifest（task.paramsSchema + stages 策略 fixed/free + confirm/plan 声明），引擎 createTask 时确定性校验；正文 = 编排主 agent 运行期 SOP（各层产出目标与验收/批次划分原则/brief 装配模板/写作规范/完成判定）。首个实例 = kg-bootstrap（L0 核心层→L1 领域层→L2 实体层固定三阶段；准入 = 有索引且无图谱的老项目；产出以代码事实落盘即 confirmed，无 draft）。装载 = SkillScanner 扫描（含 task 块入任务类型注册表，普通技能不受影响）。新增任务类型 = 加一个 skill 文件，引擎零改动。
+
+## 规则
+①frontmatter 必须机器可校验：paramsSchema 声明参数与项目基数（kg-bootstrap 恰好 1 个项目）；stages 策略 fixed → 引擎直接生成阶段行，free → 取发起者确认列表；confirm/plan 声明驱动确认形态与 plan 硬约束。②正文 SOP 约束的是编排 agent 的 LLM 判断面（批次划分/上下文传递/验收），不替代引擎机制。③builtin 层不可删改 = SOP 正确性的工程保障；manifest 校验失败 = 被拒绝的请求，不产 job 行。④kg-bootstrap 正文含写作规范五条（TR-AD-65①），是批次产出验收条件。⑤类型合法性 = 注册表驱动：有对应 skill 才认（task_create 工具与 /project 入口同一 createTask 校验面）。
+
+## 禁忌
+把任务流程硬编码进引擎绕过 skill（三段式破产，TR-AD-59）；manifest 靠 LLM 读正文自觉（确定性校验必须代码化）；把 SOP 放 user/project 层被用户改坏（bootstrap SOP 属产品行为，必须 builtin 层）；skill 正文写引擎机制（状态机/重试细节——机制归代码，skill 只写判断面约束）。
+
+## 关系
+任务（E-任务）三段式的 SOP 段（TR-AD-59②）；manifest 字段与校验纪律由 TR-AD-62 governs；kg-bootstrap 实例的写作规范由 TR-AD-65 governs；经 SkillScanner/SystemPromptAssembler 既有技能体系装载注入（F-8）。
+
+```kg-node
+id: E-实例plan
+kind: entity
+graph: business
+scope: domain
+stack: shared
+name: 实例 plan（实例级工作台账）
+status: active
+digest: 派 SubAgent 写 brief、判子实例进度、做断点接力恢复、改 closure 收口判定、给任务页/chat 加实例进度展示时
+updatedIn: iter-20260829-ys7q
+```
+
+## 描述
+chat/task 统一的 SubAgent 语义级阶段记录（iter-20260829-ys7q，AD-6）——填补「原始 trace 太低层、终点 closure 太晚」之间的进度事实源空白。数据 = work_item 表（instanceId/seq/content/status(pending→in_progress→done/abandoned)/note（关键事实+产物指针：文件/节点 id/卡点）/updatedAt），实例作用域；写口 = plan 工具族三操作（plan_create/plan_update/plan_read）全量配给所有 SubAgent（SubAgent 不感知派发方，chat 与 task 写口完全一致）；读口 = 派发方随时读（chat MainAgent 判进度 / 任务编排器判批次进度 / 任务页渲染中间状态）。与 trace（机器审计原始流）、closure（终点收口）三件套不重叠——plan 是 LLM 策展的语义进度。
+
+## 规则
+①强制程度按 brief 装配：工具常驻可用，长任务（bootstrap 批次）强制、chat 轻量小任务可免（工具常在、纪律按任务配，TR-AD-61⑦）。②硬约束（模板层 LLM 不可裁）：强制 plan 的 brief 必含「先写 plan 再动手」+ 阶段转换必更新；closure 机械判据 = plan 全部 resolve（done 或 abandoned 带理由）。③接力恢复 = 新实例 brief 注入前序 plan 摘要（已完成项+note 事实+产物指针），产物指针让幂等重跑跳过已产。④存储 = helix.db work_item 表（任务四表新表域），子进程经 plan 工具直连写、父进程只读（表分域不竞争，WAL+busy_timeout 跨进程串行化）；任务删除时随任务一并清除（经 batch.instanceId 定位）。⑤阶段产物聚合 = 编排主 agent 聚合批次 plan+closure 写 stage.artifact（任务页阶段产物 tab 与 bootstrap 产出呈现区数据源）。
+
+## 禁忌
+为任务编排器新造专用台账工具与 chat 域分叉（双轨——统一写口是 AD-6 裁决核心）；把 plan 当 trace 记原始工具流（语义层级错乱）；closure 时 plan 留 pending 项也判收口成功（硬约束失守，编排器无法机械判批次成败）；父进程写 work_item 或子进程写 job/stage/batch（表分域写者越界）。
+
+## 关系
+纪律面由 TR-AD-61 governs；宿主 = 任务（E-任务，批次实例台账）与 E-AgentInstance（chat 域实例统一获益）；closure 收口判定与 E-ClosureRecord 协同（plan 全 resolve 是 closure 硬约束）；产物指针衔接 E-知识图谱（批次产出的节点 id 入 note）。

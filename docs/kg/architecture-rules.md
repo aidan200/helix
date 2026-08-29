@@ -2345,3 +2345,231 @@ brief / report / kg-change-report 三场景的提示词模板 = 段库（runtime
 
 ## 反例
 固定四文件模板（每任务全段渲染——F-23 教训复发，agent 为填段执行段外动作）；或 findings 段允许静默缺省（「没写=无发现」与「没收集」不可区分，闭环协议失去机械判据）；或把硬约束交 LLM 判断要不要守（机制层可裁剪——闭环信号可被模板吞掉）。
+
+```kg-node
+id: TR-AD-59
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: 任务系统三段式（引擎代码化机制 + builtin 任务类型 skill + 编排主 agent）
+status: active
+digest: 新增任务类型、写任务 skill、改任务引擎或编排主 agent、动 job/stage/batch 持久化时
+derivedFrom:
+  - AD-1（iter-20260829-ys7q）
+  - AD-3（iter-20260829-ys7q）
+anchors:
+  implementedBy:
+    - apps/daemon/src/domain/task/
+    - apps/daemon/src/application/services/task/
+    - apps/daemon/src/adapters/driven/sqlite-session/
+    - apps/daemon/resources/skills/
+  testedBy:
+    - apps/daemon/test/arch-guard/arch-guard.test.ts
+updatedIn: iter-20260829-ys7q
+```
+
+## 规则
+「无交互纯多 agent 任务」是一等持久化概念，职责切三段：①任务引擎（TS 代码，domain/task + application/services/task + sqlite-session 任务四表新表域）承载全部机制——job/stage/batch 持久化、通用状态机、manifest 校验、断点恢复、自动重试、并发预算、进度汇总，零任务类型语义；②任务类型 skill（builtin 层 resources/skills/<type>/SKILL.md，随仓不可删改）承载 SOP——frontmatter 机器可读 manifest（paramsSchema + stages 策略）+ 正文运行期指引（批次划分原则/brief 模板/写作规范/完成判定），一文两消费；③编排主 agent（每运行中任务一个，OrchestratorProfile，pi-engine 同防腐墙）承载项目实况相关的 LLM 判断——划批次、装配 brief、派 SubAgent、读 closure/plan 判成败、进阶段或重试。批次执行单元 = 普通 SubAgent（SchedulerService 既有 spawn/monitor/closure 通路，共享 maxConcurrent=3 全局预算）。新增任务类型 = 加一个 skill 文件，引擎/页面/恢复框架零改动。
+
+## 理由
+批次划分与层间上下文传递是项目实况相关的 LLM 判断，纯代码做不了；纯 LLM 自由编排不可控——skill 是「LLM 判断 + 人可读可改约束」的已验证形态（v1 phase 体系同构），且 builtin 层随仓分发不可删改使 SOP 正确性有工程保障；引擎与 SOP 分离后任务系统通用性才成立（用户裁决 2026-08-29，方案 C）。
+
+## 适用范围
+新增任何任务类型时；修改任务引擎状态机/恢复/重试机制时；新增或修改 builtin 任务 skill 时；给编排主 agent 或批次 SubAgent 装配工具时；动 job/stage/batch 表结构时。
+
+## 反例
+把 kg-bootstrap 的分层逻辑硬编码进任务引擎 TS 代码（新增任务类型就要改引擎——通用性破产）；或让编排逻辑纯 LLM 自由发挥无 skill 约束（不可控）；或为 bootstrap 在 /project 索引面板做内嵌临时监控方案（AD-1 用户裁决否决的选项 A）；或批次绕过 SchedulerService 直起子进程（预算/监控/closure 通路失守）。
+
+```kg-node
+id: TR-AD-60
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: 任务干预边界与职责分界（任务页零创建零内容干预；确认只开启前一次；结果后处理归任务类型域）
+status: active
+digest: 加任务页功能、加任务相关命令或工具、设计任务状态机迁移、讨论审阅/重试/steer 入口时
+derivedFrom:
+  - AD-2（iter-20260829-ys7q）
+  - AD-5（iter-20260829-ys7q）
+  - AD-10（iter-20260829-ys7q）
+anchors:
+  implementedBy:
+    - apps/daemon/src/application/services/task/
+    - apps/daemon/src/adapters/driving/ws-server/handlers/task.ts
+    - apps/shell/src/pages/tasks/
+updatedIn: iter-20260829-ys7q
+```
+
+## 规则
+①干预边界：任务的作用 = 根据 task 定义完成任务——重试自动；人对运行中任务只有生命周期控制（暂停/继续/取消），内容零干预（无 steer、无批次级人工重试、无内容编辑面）；内容纠偏出口 = 起跑前定义 / 跑完后任务类型域的后处理。②创建入口分离：任务页面不承载创建入口（通用创建表单描述不了任务上下文）；创建按任务类型各有宿主——kg-bootstrap 宿主 = /project 页（kg.bootstrap.create），无项目任务宿主 = chat（task_create 工具，对话即确认）；协议面不设任务通用创建命令。③确认只在开启前一次（确认物 = 干什么 + 怎么分阶段；按任务类型 manifest 可免确认）；执行全程无 gate——状态机无 awaiting-review 中途态，分层计划是执行期中间产物（可观察、非待批件）。④职责分界：任务系统只执行并给结果；结果的后处理（落盘/呈现/修正）是任务类型的域逻辑，不进任务系统——bootstrap 产出呈现与事后修正在 /project 页 kg 域，任务引擎零产出处置概念；任务域 → kg 域唯一衔接面 = kg 节点元数据（taskId/origin_batchId/layer）。
+
+## 理由
+「无交互」指任务内容不受干预，但生命周期是人对长运行实体的正当控制（用户裁决 2026-08-29）；中途 gate 会把任务变成阶段审核逻辑，违背无交互设计；任务系统若承载各任务类型的结果后处理，每个类型都要改任务页，通用性（AD-1）破产——产出处置单位与场景在图谱域（节点/批次/层），不在任务域。
+
+## 适用范围
+给任务页面或任务命令族加任何功能时；设计新任务类型的确认形态与宿主入口时；动任务状态机（加状态/加迁移）时；讨论任务结果的后处理（呈现/修正/重跑）落位时。
+
+## 反例
+在任务详情页加 steer 输入框或「重试此批次」按钮（内容干预，AD-2 否决的选项 C）；在状态机加 awaiting-review 层间人审态（AD-5 否决的选项 A/B——任务变阶段审核逻辑）；把 bootstrap 产出呈现/修正塞进任务详情页（AD-10 纠正的错位——产出处置场景在图谱域）；加 task.create 通用 WS 命令（创建入口必须落宿主上下文）。
+
+```kg-node
+id: TR-AD-61
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: 实例级工作台账（plan 工具族全量配给所有 SubAgent；chat/task 统一写口；closure 硬约束 plan 全 resolve）
+status: active
+digest: 派 SubAgent 写 brief、判子实例进度、做断点接力恢复、改 closure 收口判定、加实例进度展示时
+derivedFrom:
+  - AD-6（iter-20260829-ys7q）
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/tools/plan/
+    - apps/daemon/src/application/services/task/WorkLedgerService.ts
+    - apps/daemon/src/adapters/driven/subagent/child/ChildMain.ts
+updatedIn: iter-20260829-ys7q
+```
+
+## 规则
+①数据 = 实例 plan（work_item 表：instanceId/seq/content/status(pending→in_progress→done/abandoned)/note（关键事实+产物指针）/updatedAt）。②写口 = plan 工具族三操作（plan_create 开工计划 / plan_update 项状态+note / plan_read）全量配给所有 SubAgent——不新造专用台账工具；SubAgent 不感知派发方，chat MainAgent 与任务编排器派出的实例写口完全一致。③读口 = 派发方随时读子实例 plan（chat 判进度不扒代码现场；task 编排器判批次进度 + 任务页渲染中间状态）。④接力恢复 = 新实例 brief 注入前序 plan 摘要（已完成项+note 事实+产物指针）从断点继续，产物指针让幂等重跑跳过已产。⑤三件套不重叠：trace = 机器审计原始流 / 实例 plan = LLM 策展语义进度 / closure = 终点收口。⑥硬约束（模板层 LLM 不可裁）：强制 plan 的任务 brief 必含「先写 plan 再动手」+ 阶段转换必更新；closure 机械判据 = plan 全部 resolve（done 或 abandoned 带理由）。⑦强制程度按 brief 装配——工具常驻可用，长任务（bootstrap 批次）强制，chat 轻量小任务可免（工具常在、纪律按任务配）。
+
+## 理由
+进度事实源原只有原始 trace（太低层）与终点 closure（太晚）——SubAgent 中途出问题时派发方只能扒代码现场猜进度，原工作进度丢失；统一 plan 工具族（而非专用台账工具）让 chat/task 两域同一实现、同一纪律，避免双轨。
+
+## 适用范围
+写任何 SubAgent brief 模板（决定是否强制 plan）时；实现派发方进度判定或断点接力时；改 closure 机械判据时；给任务页或 chat 侧加实例进度展示时。
+
+## 反例
+为任务编排器新造一套专用台账工具与 chat 域分叉（双轨——AD-6 裁决的就是统一写口）；把 plan 当 trace 用记录原始工具流（语义层级错乱——plan 是 LLM 策展的语义进度）；closure 时 plan 留 pending 项也判收口成功（硬约束失守，编排器无法机械判批次成败）；brief 不写 plan 硬约束却要求长任务有台账（纪律按任务配——无硬约束段则无强制）。
+
+```kg-node
+id: TR-AD-62
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: 阶段通用化与 skill manifest（阶段落数据行不落代码；创建时定义确认后冻结；任务间无关系结构）
+status: active
+digest: 动 stage 表或阶段状态机、改任务类型 manifest 字段、加 createTask 校验、想做任务关联/任务编排任务时
+derivedFrom:
+  - AD-9（iter-20260829-ys7q）
+anchors:
+  implementedBy:
+    - apps/daemon/src/domain/task/manifest.ts
+    - apps/daemon/src/application/services/task/TaskEngineService.ts
+updatedIn: iter-20260829-ys7q
+```
+
+## 规则
+①阶段（stage）是任务系统一等通用结构（job.stages[]：名称/状态/摘要/产物集），引擎只做通用阶段状态机（pending→running→done/failed），零语义——bootstrap 的 L0/L1/L2 只是 stage 行的实例数据。②阶段逻辑不落代码落数据行：createTask 时把发起者确认后的阶段计划作为 stage 数据行插入（「每次发起都不一样」= 实例级数据天然成立）；确认落库后冻结 = 不再增删行，引擎只转 status，编排主 agent 只在阶段内展开批次（批次划分是运行期 LLM 判断，阶段划分不是——防执行中阶段漂移）。③任务类型 skill 的 frontmatter 扩展为机器可读 manifest（task.paramsSchema + stages 策略：fixed list → 引擎直接生成阶段行 / free → 取发起者确认列表 + confirm/plan 声明），引擎 createTask 时确定性校验；正文 = 编排 agent 运行期 SOP——一文两消费，SkillScanner 本就解析 frontmatter，新增任务类型 = 加一个 skill 文件不改引擎代码。④任务间无关系结构：projects[] 多标签不是任务↔任务；批次/任务重跑渊源由 batch.retryCount + kg change_log supersede 链承载，不建任务关系表。
+
+## 理由
+阶段是进度呈现/阶段产物/断点恢复的组织单位（必须进引擎通用层），但其内容是实例级的（进创建时确认）——两级骨架 job→stage→batch→SubAgent 实例因此通用，新任务类型零引擎改动；任务关系是开放语义，register 明确不做（范围外），重跑渊源已有审计面承载。
+
+## 适用范围
+修改 stage 表结构或阶段状态机时；给任务类型 manifest 加字段时；实现 createTask 校验或断点恢复重建时；任何想引入任务↔任务关系（依赖/编排/父子）的设计讨论时。
+
+## 反例
+把 L0/L1/L2 写成代码里的枚举驱动逻辑（阶段语义进引擎——新任务类型就要改代码）；编排 agent 运行中增删 stage 行（阶段漂移——冻结语义失守）；建 task_relations 表表达任务依赖（register 明确范围外，重跑渊源走 retryCount + change_log）；manifest 校验放编排 agent 提示词里靠 LLM 自律（确定性校验必须代码化，schema 校验即防线）。
+
+```kg-node
+id: TR-AD-63
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: 任务的项目关联 0..n 普通标签（projects[] 可空多选；基数由任务类型 paramsSchema 声明；引擎不做项目假设）
+status: active
+digest: 动 job 表 projects 字段、加任务类型参数 schema、写任务列表项目过滤/徽章、解析任务目标项目时
+derivedFrom:
+  - AD-8（iter-20260829-ys7q）
+anchors:
+  implementedBy:
+    - apps/daemon/src/domain/task/
+    - apps/daemon/src/application/services/task/
+updatedIn: iter-20260829-ys7q
+```
+
+## 规则
+任务实体的项目关联 = 多选标签数组（job.projects[]，空数组合法、可空）——项目是任务的普通上下文标签，不是组织维度；任务是开放概念，无项目关联是常态（跨项目调研/workspace 级审查/纯文档任务与多项目关联分析都合法）。是否需项目、需几个，由任务类型的 paramsSchema 声明（kg-bootstrap 要求恰好 1 个），引擎按 schema 校验，不对任务实体做项目假设。任务页项目 = 行属性徽章（有才显示）+ 普通过滤器，列表组织维度 = 状态与时间，不分栏。宿主逻辑不变：需项目上下文的任务类型宿主 = /project 页，无项目任务宿主 = chat。
+
+## 理由
+用户裁决（2026-08-29）：projectRoot 作为普通标签、多选、可为 null——把项目升成组织维度会让无项目/多项目任务成为二等公民，且任务页按项目分栏与「全局平铺观察全部任务」的监控定位冲突。
+
+## 适用范围
+修改 job 表或任务 DTO 的项目字段时；设计新任务类型的参数 schema（声明项目基数）时；实现任务列表过滤/分组或项目徽章渲染时；任务内解析目标项目路径时（仍走 TR-AD-56 单点解析）。
+
+## 反例
+job 表设 projectId 单值非空外键（无项目任务无法表达）；任务引擎内置「任务必须有项目」校验（越权——基数判定归任务类型 schema）；任务页按项目分栏组织列表（组织维度 = 状态与时间，项目只是过滤器）；把 projects[] 当任务↔任务关系或工作区分组用（它是普通上下文标签）。
+
+```kg-node
+id: TR-AD-64
+kind: rule
+graph: tech
+layer: arch
+scope: domain
+stack: backend
+name: kg 节点任务元数据衔接面（taskId/origin_batchId/layer 是任务域→kg 域唯一衔接面；批次重跑幂等 = 旧产出
+  supersede + 新跑）
+status: active
+digest: 写 bootstrap 批次产出落库、动 nodes/change_log 表结构、做批次重跑幂等、写按任务/批次/层分组的产出查询时
+derivedFrom:
+  - AD-10（iter-20260829-ys7q）
+  - F2.4（iter-20260829-ys7q）
+anchors:
+  implementedBy:
+    - apps/daemon/src/adapters/driven/sqlite-kg/schema.ts
+    - apps/daemon/src/application/services/kg/KgWriteService.ts
+updatedIn: iter-20260829-ys7q
+```
+
+## 规则
+任务系统产出知识时，任务域 → kg 域的唯一衔接面 = 三个节点元数据：①layer——既有 nodes.layer 列启用（L0/L1/L2，domain/kg/types.ts NodeLayer），bootstrap 分层标记；②origin_batchId——nodes 表 additive 新列（日常落账节点为 NULL），批次产出判据；③taskId——change_log 表 additive 新列（与 iterationId 并列），审计链溯源。写入唯一通道 = 批次 SubAgent 经 KgWriteService（KnowledgeWriteOp additive 扩 taskId?/originBatchId?，schema 校验登记），含 additive 批量 op batchCreateNodes（O-5 用户裁决 2026-08-29 本迭代直接做——LLM/编排器按写入量自选单条 createNode 或批量 op）；bootstrap 产出落库 status=confirmed（无 draft 状态，用户裁决——以代码事实落盘即正式知识）。批次重跑幂等 = 按 origin_batchId 检出旧产出 supersede（理由如实记录）+ 新跑产新节点；实例 plan 的产物指针辅助跳过已完成的探索步骤。任务系统不感知产出处置——产出呈现分组查询（按任务/阶段/批次）由 kg 域经这三个元数据驱动。
+
+## 理由
+AD-10 职责分界的物理兑现：任务只执行并给结果，后处理（呈现/修正）是 kg 域逻辑——衔接面必须窄且确定性（三个元数据列），宽衔接（任务系统读 kg 状态/写处置结论）会让两域耦合，通用性破产；supersede + 新跑（而非原地改）保住 change_log 审计链与「修正代价是重跑不是阻塞」哲学。
+
+## 适用范围
+实现或修改 bootstrap 批次产出落库路径时；给 nodes/change_log 加列或改 KnowledgeWriteOp 时；实现批次自动重试/整任务重跑的幂等逻辑时；写 /project 页产出呈现区的分组查询时。
+
+## 反例
+任务系统直接查 kg 库判产出处置进度或回写处置结论（宽衔接——AD-10 否决；衔接面只有三个元数据列）；批次重跑时原地 updateNode 覆盖旧产出（审计链断裂——必须 supersede + 新号）；绕过 KgWriteService 在编排器里直写 nodes 表（F-1 唯一写入口失守）；给 layer 列加 CHECK 约束冻结词表（F-2：词表待 bootstrap 实践冻结，schema 注释明说不加 CHECK）。
+
+```kg-node
+id: TR-AD-65
+kind: rule
+graph: tech
+layer: arch
+scope: global
+stack: shared
+name: 人类可读性总体原则（图谱内容 + 任务人类界面全部为「人类判断与裁决」设计；bootstrap 写作规范五条）
+status: active
+digest: 写 kg 节点正文/digest、写批次产出摘要或阶段产物、做任务页或产出呈现区渲染、评审任何人类界面文案时
+derivedFrom:
+  - AD-4（iter-20260829-ys7q）
+anchors:
+  implementedBy:
+    - apps/daemon/resources/skills/kg-bootstrap/SKILL.md
+    - apps/daemon/src/application/services/task/TaskQueryService.ts
+updatedIn: iter-20260829-ys7q
+```
+
+## 规则
+不止图谱内容，任务系统提供给人类审核的全部界面物（任务内容卡/进度呈现/批次产出摘要/阶段产物/产出呈现区）同样必须为「人类判断与裁决」设计——人读不懂则修正决策是空话。①bootstrap 写作规范五条（入 kg-bootstrap skill，批次产出验收条件）：正文完整自然语言（语义自包含、禁电报体、引用节点必带 name）；digest ≤2 行叙述式（一句话说清这是什么+何时相关），非触发式电报体；每条知识带「为什么存在」（来源符号/文件+存在理由）；实体/契约必须符号域锚（path#symbol）、规则按三级作用域；closure 自检「人类开发者只看正文不看代码能否理解」，不能则不产出。②任务人类界面遵循 P1 人类可读三原则（事件导向非节点导向/因果链完整/永远带行动项）+ 引用规范（知识节点 = 粗体 name+kind 徽章+digest 首行，代码符号 = 符号名+路径:行号，裸 id 不出现——TR-AD-54 延伸）；数据面（TaskQueryService/KgReportService）组装时即按规范产出，不依赖前端自律。
+
+## 理由
+v1 图谱对人类不可读的教训（电报体 digest/编号语汇/正文稀疏）不得在任务系统重演（用户裁决 2026-08-29，选项 B 全面覆盖）；人类可读是 bootstrap 产出呈现与事后修正（CL-4）的硬前提——呈现区若读不懂，错误知识就无人能发现、事后修正就是形式。
+
+## 适用范围
+写或改任何 kg 节点（digest/正文）时；编排 agent 产阶段摘要/批次 scope 描述时；实现任务页/产出呈现区/报告面渲染时；评审涉及人类界面的 PR 时。
+
+## 反例
+批次产出 digest 写「动 X 时」（触发式电报体，不说清这是什么——bootstrap 写作规范禁；注：daemon 内部规则 digest 的触发式约定（TR-AD-1~58 形态）是机器注入面语汇，不在此例）；任务页批次列表直接渲染 batch-<id>（裸 id 进人类界面）；阶段摘要只堆节点 id 清单无因果叙述（三原则失守）；前端自行拼人类可读文案（规范必须在数据面组装层强制）。
