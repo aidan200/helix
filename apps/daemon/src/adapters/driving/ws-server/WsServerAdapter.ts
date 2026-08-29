@@ -60,6 +60,7 @@ import type {
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { TraceQueryPort } from "../../../domain/trace/TraceQueryPort";
+import type { KgBootstrapService } from "../../../application/services/kg/KgBootstrapService";
 import type { KgViewerService } from "../../../application/services/kg/KgViewerService";
 import type { WorkspaceService } from "../../../application/services/workspace/WorkspaceService";
 import type { TaskQueryService } from "../../../application/services/task/TaskQueryService";
@@ -98,12 +99,17 @@ import {
 } from "./handlers/session";
 import { handleTraceQuery } from "./handlers/trace";
 import {
+  handleKgBootstrapCreate,
+  handleKgBootstrapImpact,
+  handleKgBootstrapProduce,
   handleKgChangeReport,
   handleKgIndexStatus,
   handleKgList,
   handleKgNodeConfirm,
   handleKgNodeDetail,
   handleKgProjects,
+  handleKgNodeSupersede,
+  handleKgNodeUpdate,
 } from "./handlers/kg";
 import { handleAgentConfigList, handleAgentConfigSetEnabled } from "./handlers/resource";
 import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
@@ -201,6 +207,13 @@ export interface WsServerAdapterDeps {
    * 直接注入形态保留（stub 测试 rig）。
    */
   readonly kg?: KgViewerService;
+  /**
+   * kg-bootstrap 数据面（契约 kg-bootstrap-api 五命令，T3.2）：直接注入
+   * 形态（stub 测试 rig）；生产面经解析器注入（读 workspace 现值 stack 组装
+   * KgBootstrapService——组合根 WeakMap 记忆化，W1 重绑后自动跟随）。
+   * 未装配 → command.unimplemented 回执不崩溃（kg.ts 先例）。
+   */
+  readonly kgBootstrap?: KgBootstrapService | (() => KgBootstrapService | undefined);
   /**
    * workspace 绑定面（W1 绑定闭环）：WorkspaceService（绑定状态机唯一
    * 事实源）——kg 栈持有者读面 + unbound 防御判别 + workspace 族命令回口
@@ -484,6 +497,17 @@ export class WsServerAdapter {
         return handleKgNodeConfirm(this.kgContext(ws, type, payload));
       case "kg.index.status":
         return handleKgIndexStatus(this.kgContext(ws, type, payload));
+      // ── kg-bootstrap 批（T3.2，契约 kg-bootstrap-api；handlers/kg.ts）──
+      case "kg.bootstrap.create":
+        return handleKgBootstrapCreate(this.kgContext(ws, type, payload));
+      case "kg.bootstrap.produce":
+        return handleKgBootstrapProduce(this.kgContext(ws, type, payload));
+      case "kg.node.update":
+        return handleKgNodeUpdate(this.kgContext(ws, type, payload));
+      case "kg.node.supersede":
+        return handleKgNodeSupersede(this.kgContext(ws, type, payload));
+      case "kg.bootstrap.impact":
+        return handleKgBootstrapImpact(this.kgContext(ws, type, payload));
       // ── workspace 族（W1 绑定闭环；handlers/workspace.ts）──
       case "workspace.get":
         return this.deps.workspace === undefined
@@ -685,6 +709,12 @@ export class WsServerAdapter {
       type,
       payload,
       kg: this.deps.kg ?? this.deps.workspace?.stack()?.viewerService,
+      bootstrap:
+        this.deps.kgBootstrap === undefined
+          ? undefined
+          : typeof this.deps.kgBootstrap === "function"
+            ? this.deps.kgBootstrap()
+            : this.deps.kgBootstrap,
       workspaceUnbound: this.deps.workspace !== undefined && !this.deps.workspace.isBound(),
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),

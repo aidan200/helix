@@ -12,7 +12,9 @@
  * T4 联网状态图标，web 新族）+ v0.9 新增 1（web.start.result，T7 CDP 显式
  * 启动通路）+ v0.11 新增 1（thinking.changed，thinking 批①，
  * iter-20260823-6ps5 T1.1）+ kg 批新增 6（kg.*.result 点对点回执，
- * iter-20260825-11fo T5.3：P-1 六命令族；O-6 轮询裁决零推送事件）+ workspace
+ * iter-20260825-11fo T5.3：P-1 六命令族；O-6 轮询裁决零推送事件）+
+ * kg-bootstrap 批新增 5（iter-20260829-ys7q T3.2：/project 页 bootstrap 入口
+ * 与产出呈现五命令点对点回执，零广播同规）+ workspace
  * 批新增 3（两结果帧 + workspace_changed 广播，W1）+ task 批新增 1
  *（task.changed 逐迁移轻负载广播，iter-20260829-ys7q T1.5：P-2 任务页九
  * 命令族——挂既有 notification 通道不新增 Channel 值，契约 task-api §0/§3；
@@ -88,11 +90,16 @@ import type {
   WebStopResultEvent,
 } from "./web";
 import type {
+  KgBootstrapCreateResultEvent,
+  KgBootstrapImpactResultEvent,
+  KgBootstrapProduceResultEvent,
   KgChangeReportResultEvent,
   KgIndexStatusResultEvent,
   KgListResultEvent,
   KgNodeConfirmResultEvent,
   KgNodeDetailResultEvent,
+  KgNodeSupersedeResultEvent,
+  KgNodeUpdateResultEvent,
   KgProjectsResultEvent,
 } from "./kg";
 import type {
@@ -170,6 +177,11 @@ export type EventEnvelope =
   | KgChangeReportResultEvent
   | KgNodeConfirmResultEvent
   | KgIndexStatusResultEvent
+  | KgBootstrapCreateResultEvent
+  | KgBootstrapProduceResultEvent
+  | KgNodeUpdateResultEvent
+  | KgNodeSupersedeResultEvent
+  | KgBootstrapImpactResultEvent
   | WorkspaceGetResultEvent
   | WorkspaceOpenResultEvent
   | WorkspaceChangedEvent
@@ -231,6 +243,11 @@ export const EVENT_TYPES = [
   "kg.change.report.result",
   "kg.node.confirm.result",
   "kg.index.status.result",
+  "kg.bootstrap.create.result",
+  "kg.bootstrap.produce.result",
+  "kg.node.update.result",
+  "kg.node.supersede.result",
+  "kg.bootstrap.impact.result",
   "workspace.get.result",
   "workspace.open.result",
   "workspace_changed",
@@ -300,6 +317,11 @@ export const EVENT_CHANNELS = {
   "kg.change.report.result": "kg",
   "kg.node.confirm.result": "kg",
   "kg.index.status.result": "kg",
+  "kg.bootstrap.create.result": "kg",
+  "kg.bootstrap.produce.result": "kg",
+  "kg.node.update.result": "kg",
+  "kg.node.supersede.result": "kg",
+  "kg.bootstrap.impact.result": "kg",
   "workspace.get.result": "workspace",
   "workspace.open.result": "workspace",
   "workspace_changed": "workspace",

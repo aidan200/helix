@@ -20,10 +20,11 @@ import type {
 } from "../../src/index";
 
 describe("workspace 批（W1）：命令/事件/通道登记", () => {
-  test("命令目录：workspace.get / workspace.open 登记且排序在 kg 族之后（task 批前尾段）", () => {
+  test("命令目录：workspace.get / workspace.open 登记且排序在 kg 族之后（kg-bootstrap 批前尾段）", () => {
     expect(COMMAND_TYPES).toContain("workspace.get");
     expect(COMMAND_TYPES).toContain("workspace.open");
-    const kgEnd = COMMAND_TYPES.findIndex((t) => t === "kg.projects");
+    // kg-bootstrap 批（T3.2）：五命令插在 kg 族尾（kg.bootstrap.impact 为 kg 族末位）
+    const kgEnd = COMMAND_TYPES.findIndex((t) => t === "kg.bootstrap.impact");
     expect(COMMAND_TYPES.indexOf("workspace.get")).toBe(kgEnd + 1);
     expect(COMMAND_TYPES.indexOf("workspace.open")).toBe(kgEnd + 2);
   });

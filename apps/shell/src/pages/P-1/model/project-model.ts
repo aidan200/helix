@@ -12,10 +12,63 @@
  * contracts/kg-viewer-api.md）；行级四态（absent/building/synced/degraded）
  * 由 kg.projects 回执与轮询回执共同维护。
  */
-import type { KgIndexStatusDto, KgProjectRow } from "@helix/protocol";
+import type { KgIndexStatusDto, KgProjectRow, KgProjectState, KgProduceGroupDto, KgProduceNodeDto } from "@helix/protocol";
 
 /** 主区四态（互斥；absent=未建索引+构建 CTA，B1 冷启动入口在主区）。 */
 export type MainMode = "empty" | "absent" | "building" | "graph";
+
+// ── bootstrap 扩面（T3.2，CL-1 F1.1 + CL-4 F4.1~F4.3）──
+
+/**
+ * bootstrap 入口五态（互斥，review.md P-1 状态模型）：hidden=已有图谱静默
+ * 不渲染 / guide=absent 引导态 / building=构建中 / ready=可发起 /
+ * launched=已启动（ok-strip）。前四态由项目行机械派生（bootstrapEntryMode），
+ * launched 为会话内启动标记叠加。
+ */
+export type BootstrapEntryMode = "hidden" | "guide" | "building" | "ready" | "launched";
+
+/** bootstrap 入口区会话内状态（启动标记；切项目复位）。 */
+export interface BootstrapAreaState {
+  /** kg.bootstrap.create 成功后置位（隐藏启动钮 + 出 ok-strip）。 */
+  launched: boolean;
+}
+
+/** 呈现区内联修正面（互斥：supersede 理由框 / 修改编辑框，开一个清其余）。 */
+export type ProduceInline =
+  | { kind: "supersede"; nodeId: string }
+  | { kind: "edit"; nodeId: string }
+  | null;
+
+/** 产出呈现区状态（view 三态互斥；切项目全复位）。 */
+export interface ProduceState {
+  view: "loading" | "empty" | "success";
+  groups: KgProduceGroupDto[];
+  /** 展开节点集合（nodeId → true；与内联面独立）。 */
+  openNodes: Record<string, true>;
+  inline: ProduceInline;
+  /** 受影响待复核标记（kg.bootstrap.impact 推导；只标记不自动处置）。 */
+  affected: Record<string, true>;
+}
+
+export function createProduceState(): ProduceState {
+  return { view: "loading", groups: [], openNodes: {}, inline: null, affected: {} };
+}
+
+/**
+ * 准入四态判定纯函数（CL-1 F1.1 机械定义，contracts/kg-bootstrap-api.md §1）：
+ * 显示 bootstrap 入口 ⟺ indexStatus ∈ {synced, degraded} 且 nodeCount === 0
+ *（nodeCount 缺省 = 未知 = 视为非空不显示）；absent → 引导态；building →
+ * 构建中；已有图谱 → 静默。launched 仅叠加在 ready 上（不改变其余态）。
+ */
+export function bootstrapEntryMode(
+  row: { status: KgProjectState; nodeCount?: number },
+  launched: boolean,
+): BootstrapEntryMode {
+  if (row.status === "absent") return "guide";
+  if (row.status === "building") return "building";
+  if (row.nodeCount !== 0) return "hidden"; // >0 或缺省（未知）均不显示
+  return launched ? "launched" : "ready";
+}
 
 export interface ProjectPageState {
   /** kg.projects 回执（左栏两段的项目段数据源）。 */
@@ -32,6 +85,10 @@ export interface ProjectPageState {
   buildProgress: { done: number; total: number } | null;
   /** graph 态重初始化令牌（切项目递增；kg-viewer remount key，防跨项目残影）。 */
   kgToken: number;
+  /** bootstrap 入口区（T3.2：会话内启动标记；切项目/workspace 复位）。 */
+  bootstrap: BootstrapAreaState;
+  /** 产出呈现区（T3.2：分组/内联修正面/展开/连带标记；切项目/workspace 复位）。 */
+  produce: ProduceState;
 }
 
 export function createProjectPageState(): ProjectPageState {
@@ -43,6 +100,8 @@ export function createProjectPageState(): ProjectPageState {
     mainMode: "empty",
     buildProgress: null,
     kgToken: 0,
+    bootstrap: { launched: false },
+    produce: createProduceState(),
   };
 }
 
@@ -60,13 +119,53 @@ export type ProjectAction =
   /** absent 主区「构建索引」CTA：absent→building（乐观置行徽章同步翻）。 */
   | { type: "build-started"; name: string }
   /** kg.index.status 回执（轮询或触发）：更新行状态；选中 building 项目完成→graph。 */
-  | { type: "index-status"; name: string; status: KgIndexStatusDto };
+  | { type: "index-status"; name: string; status: KgIndexStatusDto }
+  // ── bootstrap 扩面（T3.2）──
+  /** kg.bootstrap.create 成功：置已启动（隐藏启动钮 + ok-strip）。 */
+  | { type: "bootstrap-launched" }
+  /** kg.bootstrap.produce 在途（进入 graph / 重拉）。 */
+  | { type: "produce-loading" }
+  /** kg.bootstrap.produce 回执：空 groups → empty，非空 → success（互斥）。 */
+  | { type: "produce-result"; groups: KgProduceGroupDto[] }
+  /** 展开开关收起产出节点（独立于内联面）。 */
+  | { type: "produce-toggle-node"; nodeId: string }
+  /** 开内联修正面（互斥：直接替换；edit 同时展开节点）。 */
+  | { type: "produce-inline-open"; kind: "supersede" | "edit"; nodeId: string }
+  /** 关闭内联修正面（保留展开态）。 */
+  | { type: "produce-inline-close" }
+  /** kg.bootstrap.impact 回执：受影响待复核标记合并（只标记，不改状态）。 */
+  | { type: "produce-affected"; nodeIds: readonly string[] }
+  /** kg.node.update 回执：条目原位替换（保持分组位置）。 */
+  | { type: "produce-node-updated"; node: KgProduceNodeDto }
+  /** kg.node.supersede 回执：条目翻已废弃 + 理由留史 + 内联面关闭。 */
+  | { type: "produce-node-superseded"; nodeId: string; reason: string };
 
 /** 项目行状态 → 主区态映射（synced|degraded→graph；building→building；absent→absent）。 */
 function modeOfStatus(status: KgProjectRow["status"]): Exclude<MainMode, "empty"> {
   if (status === "synced" || status === "degraded") return "graph";
   if (status === "building") return "building";
   return "absent";
+}
+
+/** 产出分组内条目原位替换（保持分组/批次/位置；未命中返回原数组）。 */
+function mapProduceNode(
+  groups: KgProduceGroupDto[],
+  nodeId: string,
+  map: (n: KgProduceNodeDto) => KgProduceNodeDto,
+): KgProduceGroupDto[] {
+  return groups.map((g) => ({
+    ...g,
+    stages: g.stages.map((s) => ({
+      ...s,
+      batches: s.batches.map((b) => {
+        const idx = b.nodes.findIndex((n) => n.nodeId === nodeId);
+        if (idx === -1) return b;
+        const nodes = [...b.nodes];
+        nodes[idx] = map(nodes[idx]!);
+        return { ...b, nodes };
+      }),
+    })),
+  }));
 }
 
 /** 用 IndexStatus 回执补全项目行（保留 nodeCount 等行内既有信息）。 */
@@ -98,7 +197,8 @@ export function projectReducer(state: ProjectPageState, action: ProjectAction): 
       }
       const row = state.projects.find((p) => p.name === action.name);
       if (row === undefined) return state;
-      // 切项目先清旧态（buildProgress 清空 + kgToken 递增）再进新态
+      // 切项目先清旧态（buildProgress 清空 + kgToken 递增 + bootstrap 启动标记
+      // /呈现内联态/展开/连带标记全复位，CL-4-T6）再进新态
       const mode = modeOfStatus(row.status);
       return {
         ...state,
@@ -107,6 +207,8 @@ export function projectReducer(state: ProjectPageState, action: ProjectAction): 
         mainMode: mode,
         buildProgress: mode === "building" ? { done: 0, total: 0 } : null,
         kgToken: state.kgToken + 1,
+        bootstrap: { launched: false },
+        produce: createProduceState(),
       };
     }
     case "expand-domain":
@@ -146,6 +248,56 @@ export function projectReducer(state: ProjectPageState, action: ProjectAction): 
       }
       return { ...state, projects };
     }
+    // ── bootstrap 扩面（T3.2）──
+    case "bootstrap-launched":
+      return { ...state, bootstrap: { launched: true } };
+    case "produce-loading":
+      return { ...state, produce: { ...state.produce, view: "loading" } };
+    case "produce-result":
+      return {
+        ...state,
+        produce: { ...state.produce, view: action.groups.length === 0 ? "empty" : "success", groups: action.groups },
+      };
+    case "produce-toggle-node": {
+      const openNodes = { ...state.produce.openNodes };
+      if (openNodes[action.nodeId] === true) delete openNodes[action.nodeId];
+      else openNodes[action.nodeId] = true;
+      return { ...state, produce: { ...state.produce, openNodes } };
+    }
+    case "produce-inline-open":
+      // 互斥：直接替换（开一个清其余）；edit 面打开即展开节点（编辑上下文可见）
+      return {
+        ...state,
+        produce: {
+          ...state.produce,
+          inline: { kind: action.kind, nodeId: action.nodeId },
+          ...(action.kind === "edit"
+            ? { openNodes: { ...state.produce.openNodes, [action.nodeId]: true as const } }
+            : {}),
+        },
+      };
+    case "produce-inline-close":
+      return { ...state, produce: { ...state.produce, inline: null } };
+    case "produce-affected": {
+      const affected = { ...state.produce.affected };
+      for (const id of action.nodeIds) affected[id] = true;
+      return { ...state, produce: { ...state.produce, affected } };
+    }
+    case "produce-node-updated":
+      return { ...state, produce: { ...state.produce, groups: mapProduceNode(state.produce.groups, action.node.nodeId, () => action.node) } };
+    case "produce-node-superseded":
+      return {
+        ...state,
+        produce: {
+          ...state.produce,
+          inline: null,
+          groups: mapProduceNode(state.produce.groups, action.nodeId, (n) => ({
+            ...n,
+            status: "superseded" as const,
+            supersedeReason: action.reason,
+          })),
+        },
+      };
     default:
       return state;
   }

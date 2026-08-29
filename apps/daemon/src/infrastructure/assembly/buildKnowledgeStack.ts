@@ -107,7 +107,7 @@ export function buildKnowledgeStack(deps: {
     scan: () => scanProjectEntries(deps.workspaceRoot),
     hasIndex: (projectRoot) => existsSync(kgDbPath(projectRoot)), // 读面绝不新建库文件的判定输入
     indexStatus: (projectRoot) => syncService.getStatus(projectRoot),
-    countNodes: (projectRoot) => graph.countNodes(projectRoot),
+    countActiveNodes: (projectRoot) => graph.countActiveNodes(projectRoot),
   });
   const viewerService = new KgViewerService({
     project: projectService,

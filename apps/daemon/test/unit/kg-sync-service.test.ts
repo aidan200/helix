@@ -70,6 +70,10 @@ class StubGraph implements KnowledgeGraphPort {
     return []; // T2.2 F2.7 反查面：sync 测试不消费
   }
 
+  countActiveNodes(): number {
+    return 0; // T3.2 准入口径面：sync 测试不消费
+  }
+
   getSyncBaseline(): SyncBaselineView {
     return this.view;
   }

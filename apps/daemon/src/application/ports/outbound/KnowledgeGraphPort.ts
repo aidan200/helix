@@ -61,11 +61,18 @@ export interface KnowledgeGraphPort {
   getChangeLog(projectRoot: string, iterationId: string): readonly ChangeLogEntry[];
 
   /**
-   * 知识节点计数（T5.3 kg.projects ProjectRow.nodeCount 数据源；只读
-   * SELECT COUNT——页面读面）。仅在 .kg 已存在的项目上调用（调用方
-   * 先行 hasIndex 判定，读面绝不新建库文件）。
+   * 知识节点计数（kg.list total 数据源：过滤前全集，含 superseded 留史行）。
+   * 仅在 .kg 已存在的项目上调用（调用方先行 hasIndex 判定，读面绝不新建
+   * 库文件）。
    */
   countNodes(projectRoot: string): number;
+
+  /**
+   * 非 superseded 节点计数（T3.2，contracts/kg-bootstrap-api.md §1）：
+   * bootstrap 准入「知识层为空」机械定义 + kg.projects nodeCount 口径——
+   * 已被取代的留史行不计入（「知识层为空」= 无现行知识，非无任何行）。
+   */
+  countActiveNodes(projectRoot: string): number;
 
   /**
    * 按产出批次反查节点 id 集（T2.2 F2.7 阶段产物聚合）：nodes.origin_batch

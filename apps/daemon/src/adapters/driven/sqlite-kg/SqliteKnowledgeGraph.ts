@@ -334,10 +334,20 @@ export class SqliteKnowledgeGraph {
     }));
   }
 
-  /** 知识节点计数（T5.3 kg.projects nodeCount 数据源；只读 COUNT）。 */
+  /** 知识节点计数（kg.list total 数据源——过滤前全集含 superseded；只读 COUNT）。 */
   countNodes(projectRoot: string): number {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     const row = db.prepare("SELECT COUNT(*) AS n FROM nodes").get() as { n: number };
+    return row.n;
+  }
+
+  /**
+   * 非 superseded 节点计数（T3.2，contracts/kg-bootstrap-api.md §1：bootstrap
+   * 准入「知识层为空」机械定义 + kg.projects nodeCount 口径——留史行不计入）。
+   */
+  countActiveNodes(projectRoot: string): number {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const row = db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE status != 'superseded'").get() as { n: number };
     return row.n;
   }
 

@@ -105,10 +105,13 @@ register({
   apply: (s) => s,
 });
 
-// ── kg 族六 *.result（iter-20260825-11fo T5.4；连接私有读面）──
+// ── kg 族六 *.result + kg-bootstrap 批五 *.result（iter-20260825-11fo T5.4 +
+//    iter-20260829-ys7q T3.2；连接私有读面）──
 // 点对点回执帧（O-6 零推送事件），真消费归 P-1 图谱页页面查询链
 //（SessionContext 转发层 kgListeners——trace.query.result 先例，
-// dispatcher 侧保持 no-op 注册守护绿，会话 store 零写入）。
+// dispatcher 侧保持 no-op 注册守护绿，会话 store 零写入）。T3.2 五回执
+//（bootstrap.create/produce + node.update/supersede + bootstrap.impact）
+// 同规：真消费归 /project 页 bootstrap 入口卡与产出呈现而组件听众。
 register({
   types: [
     "kg.projects.result",
@@ -117,6 +120,11 @@ register({
     "kg.change.report.result",
     "kg.node.confirm.result",
     "kg.index.status.result",
+    "kg.bootstrap.create.result",
+    "kg.bootstrap.produce.result",
+    "kg.node.update.result",
+    "kg.node.supersede.result",
+    "kg.bootstrap.impact.result",
   ],
   apply: (s) => s,
 });

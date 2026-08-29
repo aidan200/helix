@@ -735,11 +735,11 @@ export interface AgentModelChangedPayload {
   新会话）；转正恰好一次 `agent.instantiated` + `list_changed{created}`
   （draft 链显式广播与补广播去重，不双发）。
 
-## 15. 命令 payload 形状总登记（C→S，45 命令全集）
+## 15. 命令 payload 形状总登记（C→S，50 命令全集）
 
-> **计数声明：45 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
+> **计数声明：50 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
 > 15.4 model 6 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
-> 15.9 kg 6 + 15.10 workspace 2 + 15.11 task 9）——与 `COMMAND_TYPES` 常量恰等
+> 15.9 kg 6+5 + 15.10 workspace 2 + 15.11 task 9）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
 > 文档与其逐项对齐（AD-1）；仓外契约文档降为历史定形档案（§17.1）。
@@ -1144,6 +1144,73 @@ workspace 项目列表（F5.0；/project 单页 master-detail 左栏数据源）
 
 （无字段）
 
+#### `kg.bootstrap.create`
+
+发起 bootstrap 任务（CL-1 F1.1/F1.2，iter-20260829-ys7q T3.2 kg-bootstrap
+批）。后端准入机械复核（索引 synced/degraded ∧ nodeCount==0——不信赖前端；
+未过 → `kg.bootstrap.not_eligible`，message 带原因 `index_absent` /
+`index_building` / `knowledge_not_empty`）→ 调 createTask 同一 API
+（type="kg-bootstrap"、projects=[project]、params={projectRoot, scope?}、
+stages 策略 fixed 由 manifest 生成三行、createdBy="page"——与 chat
+task_create 工具同源，AD-7）。createTask 校验失败 → `task.validation_failed`
+透传。结果 = `kg.bootstrap.create.result`（`{ok:true, jobId}`）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg-bootstrap 批 | 项目名或绝对路径（daemon 单点解析 + 准入复核） |
+| `scope` | `string` | 可选 | kg-bootstrap 批 | 范围参数收窄（进 job.params.scope） |
+
+#### `kg.bootstrap.produce`
+
+bootstrap 产出呈现读面（CL-4 F4.1：任务→阶段→批次三级分组，nodes.
+origin_batch_id → batch 行 → stage/job 行 + layer 列驱动；无 origin_batch_id
+的日常落账节点不进本查询；absent 项目 → 空 groups 不建库）。结果 =
+`kg.bootstrap.produce.result`（`{groups}`）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg-bootstrap 批 | 项目名或绝对路径 |
+
+#### `kg.node.update`
+
+节点修正写面（一）（CL-4 F4.2：内联编辑 digest/正文保存即 updateNode，
+节点保持 confirmed；走 KgWriteService 唯一写入口 + change_log 记理由）。
+digest/body 至少携带其一（空 patch → `task.validation_failed`）；节点不
+存在 → `kg.node.not_found`。结果 = `kg.node.update.result`（`{ok:true,
+node}`——修改后状态回读，payload 即产出条目投影）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg-bootstrap 批 | 项目名或绝对路径 |
+| `nodeId` | `string` | 必填 | kg-bootstrap 批 | 目标节点 id（仅 data-id 键，AD-16） |
+| `digest` | `string` | 可选 | kg-bootstrap 批 | 修订摘要（≤2 行） |
+| `body` | `string` | 可选 | kg-bootstrap 批 | 修订正文 |
+
+#### `kg.node.supersede`
+
+节点修正写面（二）（CL-4 F4.2：superseded 留史 + change_log 记理由，
+动作按钮消失；无转正无否决）。reason 必填非空——前端空理由拦截 +
+后端 `task.validation_failed` 双防线；节点不存在 → `kg.node.not_found`。
+结果 = `kg.node.supersede.result`（`{ok:true}`）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg-bootstrap 批 | 项目名或绝对路径 |
+| `nodeId` | `string` | 必填 | kg-bootstrap 批 | 目标节点 id |
+| `reason` | `string` | 必填 | kg-bootstrap 批 | 推翻理由（进 change_log 审计链） |
+
+#### `kg.bootstrap.impact`
+
+受影响连带只读推导（CL-4 F4.3：edges 表中指向被修正节点（target）的
+source 引用方集合，去重、排除 superseded；不落库零自动写——update/
+supersede 成功后前端调用刷新「受影响待复核」标记）。结果 =
+`kg.bootstrap.impact.result`（`{affected, count}`）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg-bootstrap 批 | 项目名或绝对路径 |
+| `nodeId` | `string` | 必填 | kg-bootstrap 批 | 被修正（update/supersede）的节点 id |
+
 ### 15.10 workspace 族（2；workspace 批，W1 workspace 绑定闭环）
 
 > 本族为 workspace 批（v0.11 后 additive 微批，版本位不 bump，§19 同构
@@ -1279,12 +1346,12 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 |---|---|---|---|---|
 | `jobId` | `string` | 必填 | task 批 | 目标任务（终态） |
 
-## 16. 事件 payload 形状总登记（S→C，58 事件全集）
+## 16. 事件 payload 形状总登记（S→C，63 事件全集）
 
-> **计数声明：58 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> **计数声明：63 事件全集**（16.1 notification 3〔含 task.changed〕 +
 > 16.2 session 4 +
 > 16.3 chat 10 + 16.4 agent 12 + 16.5 thinking·compaction·usage 5 +
-> 16.6 model 10 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6 + 16.10 workspace 3
+> 16.6 model 10 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5 + 16.10 workspace 3
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
 >（三面同构，守护断言⑤口径）；auth 族 4 结果帧按 `EVENT_CHANNELS` 登记挂
@@ -1772,7 +1839,7 @@ reason 含引导用户开 remote debugging 的说明（daemon browser-discovery
 | `status` | `"applied" \| "skipped"` | 必填 | v0.9 | 结果判别位 |
 | `reason` | `string` | 可选 | v0.9 | status="skipped" 时携带：未发现可用浏览器的说明 + remote debugging 引导 |
 
-### 16.9 kg 族（6；kg 批，iter-20260825-11fo T5.3 P-1 图谱查看页数据面）
+### 16.9 kg 族（6+5；kg 批 + kg-bootstrap 批，iter-20260825-11fo T5.3 / iter-20260829-ys7q T3.2）
 
 > 六命令的点对点回执结果帧（TR-AD-21 模式；仅发发起命令的连接，不经
 > EventStream 广播）。信封 sessionId = SYSTEM_SESSION_ID、channel =
@@ -1846,6 +1913,49 @@ draft 审阅转正命令结果（页面唯一写动作回执；翻转后状态�
 | `syncedAt` | `string` | 可选 | kg 批 | synced 态完成时间（ISO） |
 | `symbolCount` | `number` | 可选 | kg 批 | synced 态符号计数 |
 | `degradedNote` | `string` | 可选 | kg 批 | degraded 态影响说明 |
+
+#### `kg.bootstrap.create.result`
+
+bootstrap 任务创建回执（点对点；T3.2 kg-bootstrap 批）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `ok` | `true` | 必填 | kg-bootstrap 批 | 判别位（失败走 connection.error） |
+| `jobId` | `string` | 必填 | kg-bootstrap 批 | 任务 id（前端引导「前往『任务』页观察」） |
+
+#### `kg.bootstrap.produce.result`
+
+产出三级分组回执（点对点；payload 即分组本体）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `groups` | `KgProduceGroupDto[]` | 必填 | kg-bootstrap 批 | 任务→阶段→批次分组（jobId/title/stages{layer,name,batches{batchId,scope,nodes}}）；node = KgProduceNodeDto（nodeId/name/kind/status/digest/body/anchors/rationale/origin/supersedeReason?） |
+
+#### `kg.node.update.result`
+
+节点修改回执（点对点；节点保持 confirmed）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `ok` | `true` | 必填 | kg-bootstrap 批 | 判别位 |
+| `node` | `KgProduceNodeDto` | 必填 | kg-bootstrap 批 | 修改后状态回读（产出条目投影） |
+
+#### `kg.node.supersede.result`
+
+节点 supersede 回执（点对点；留史降档）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `ok` | `true` | 必填 | kg-bootstrap 批 | 判别位（change_log 已记理由） |
+
+#### `kg.bootstrap.impact.result`
+
+受影响连带推导回执（点对点；只读零写）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `affected` | `KgNodeRefLiteDto[]`（`{ nodeId, name, kind, digestFirstLine }`） | 必填 | kg-bootstrap 批 | 引用方集合（AD-16 同规；nodeId 仅 data-id 键） |
+| `count` | `number` | 必填 | kg-bootstrap 批 | 引用方计数（toast 告知数量） |
 
 ### 16.10 workspace 族（3；workspace 批，W1 workspace 绑定闭环）
 

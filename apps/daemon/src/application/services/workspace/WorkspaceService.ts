@@ -27,7 +27,8 @@
  * 文件 TR-AD-6）+ kg 栈工厂/background 工厂（组合根注入，重绑接缝）。
  */
 import type { RuntimeConfigPort } from "../../../application/ports/outbound/RuntimeConfigPort";
-import type { KgProjectRowView } from "../kg/KgProjectService";
+import type { KnowledgeGraphPort } from "../../../application/ports/outbound/KnowledgeGraphPort";
+import type { KgProjectRowView, KgProjectService } from "../kg/KgProjectService";
 import type { KgAttachmentService } from "../kg/KgAttachmentService";
 import type { KgQueryService } from "../kg/KgQueryService";
 import type { KgSyncService } from "../kg/KgSyncService";
@@ -48,7 +49,11 @@ export const WORKSPACE_RECENTS_LIMIT = 8;
  */
 export interface WorkspaceStack {
   readonly viewerService: KgViewerService;
-  readonly projectService: { listProjects(): readonly KgProjectRowView[] };
+  /** 项目发现/解析/四态聚合（T3.2 宽化为完整 service 形态——真体即
+   *  buildKnowledgeStack 的 KgProjectService；既有消费面 listProjects 不受影响）。 */
+  readonly projectService: KgProjectService;
+  /** kg 读 port（T3.2 kg-bootstrap 批：KgBootstrapService 组装面）。 */
+  readonly graph: KnowledgeGraphPort;
   readonly queryService: KgQueryService;
   readonly writeService: KgWriteService;
   readonly syncService: KgSyncService;

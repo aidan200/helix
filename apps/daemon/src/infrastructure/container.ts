@@ -41,6 +41,7 @@ import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
 import { buildPersistence } from "./assembly/buildPersistence";
 import { buildModelStack } from "./assembly/buildModelStack";
 import { buildTaskStack } from "./assembly/buildTaskStack";
+import { KgBootstrapService } from "../application/services/kg/KgBootstrapService";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode } from "./assembly/buildSessionStack";
 import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
@@ -756,6 +757,28 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // thinking 批①：thinking.changed 广播出海（channel=thinking，订阅路由同 model.changed）
     onThinkingChanged: (payload) => eventStream.broadcastThinkingChanged(payload),
   });
+  // kg-bootstrap 数据面解析器（T3.2，契约 kg-bootstrap-api）：workspace 现值
+  // stack（kg 面）+ 任务栈（daemon 级：engine/store/skills）组装，WeakMap 按
+  // stack 记忆化——重绑原子换栈后自动跟随新 workspace（viewerService 同接缝）。
+  const kgBootstrapByStack = new WeakMap<object, KgBootstrapService>();
+  const kgBootstrapResolver = (): KgBootstrapService | undefined => {
+    const stack = workspace.stack();
+    if (stack === null) return undefined;
+    let svc = kgBootstrapByStack.get(stack);
+    if (svc === undefined) {
+      svc = new KgBootstrapService({
+        project: stack.projectService,
+        graph: stack.graph,
+        write: stack.writeService,
+        sync: stack.syncService,
+        taskEngine: taskStack.taskEngine,
+        store: taskStack.orchestratorCore.store,
+        skills: taskStack.orchestratorCore.skills,
+      });
+      kgBootstrapByStack.set(stack, svc);
+    }
+    return svc;
+  };
   const ws = new WsServerAdapter({
     chat: chatRouter,
     directory: registry,
@@ -774,6 +797,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 写面（task.changed 广播在 handlers/task.ts + EventStream 层接线，O-7）
     taskQuery: taskStack.query,
     taskEngine: taskStack.taskEngine,
+    // kg-bootstrap 五命令回口（T3.2）：解析器形态（workspace 现值跟随；直连注入保留给 stub rig）
+    kgBootstrap: kgBootstrapResolver,
     events: eventStream,
     token,
     port: deps.port ?? config.port,

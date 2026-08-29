@@ -21,6 +21,12 @@ import type {
   ChatAbortCommand,
   ChatSendCommand,
   ChatSteerCommand,
+  KgBootstrapCreateCommand,
+  KgBootstrapCreatePayload,
+  KgBootstrapImpactCommand,
+  KgBootstrapImpactPayload,
+  KgBootstrapProduceCommand,
+  KgBootstrapProducePayload,
   KgChangeReportCommand,
   KgChangeReportPayload,
   KgIndexStatusCommand,
@@ -31,6 +37,10 @@ import type {
   KgNodeConfirmPayload,
   KgNodeDetailCommand,
   KgNodeDetailPayload,
+  KgNodeSupersedeCommand,
+  KgNodeSupersedePayload,
+  KgNodeUpdateCommand,
+  KgNodeUpdatePayload,
   KgProjectsCommand,
   ModelCatalogCommand,
   ModelCatalogRefreshCommand,
@@ -42,6 +52,20 @@ import type {
   SessionLoadHistoryCommand,
   SessionSubscribeCommand,
   SessionUnsubscribeCommand,
+  TaskArtifactsCommand,
+  TaskArtifactsPayload,
+  TaskCancelCommand,
+  TaskDeleteCommand,
+  TaskDetailCommand,
+  TaskDetailPayload,
+  TaskListCommand,
+  TaskListPayload,
+  TaskPauseCommand,
+  TaskResumeCommand,
+  TaskSubscribeCommand,
+  TaskSubscribePayload,
+  TaskUnsubscribeCommand,
+  TaskUnsubscribePayload,
   TraceQueryCommand,
   TraceQueryPayload,
   ThinkingSetCommand,
@@ -273,6 +297,36 @@ export function kgIndexStatusCommand(payload: KgIndexStatusPayload): KgIndexStat
   return { v: PROTOCOL_VERSION, type: "kg.index.status", payload };
 }
 
+// ── kg-bootstrap 批五命令（iter-20260829-ys7q T3.2；契约 contracts/kg-bootstrap-api.md）────
+// 全局命令（信封 sessionId 省略）；回执 = kg.*.result 点对点帧（零推送同规）。
+// V-1：产出即 confirmed 无草稿；修正 = update/supersede（理由必填）；连带 =
+// impact 只读推导（不落库零自动写）。
+
+/** kg.bootstrap.create：发起 bootstrap 任务（CL-1；后端准入机械复核 + createTask 同源）。 */
+export function kgBootstrapCreateCommand(payload: KgBootstrapCreatePayload): KgBootstrapCreateCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.bootstrap.create", payload };
+}
+
+/** kg.bootstrap.produce：产出三级分组读面（CL-4 F4.1；absent → 空 groups）。 */
+export function kgBootstrapProduceCommand(payload: KgBootstrapProducePayload): KgBootstrapProduceCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.bootstrap.produce", payload };
+}
+
+/** kg.node.update：修正写面一（内联编辑保存即 updateNode，保持 confirmed）。 */
+export function kgNodeUpdateCommand(payload: KgNodeUpdatePayload): KgNodeUpdateCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.node.update", payload };
+}
+
+/** kg.node.supersede：修正写面二（理由必填双防线 + 留史）。 */
+export function kgNodeSupersedeCommand(payload: KgNodeSupersedePayload): KgNodeSupersedeCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.node.supersede", payload };
+}
+
+/** kg.bootstrap.impact：受影响连带只读推导（CL-4 F4.3；update/supersede 成功后刷新标记）。 */
+export function kgBootstrapImpactCommand(payload: KgBootstrapImpactPayload): KgBootstrapImpactCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.bootstrap.impact", payload };
+}
+
 // ── workspace 族命令（W3 门禁；契约 PROTOCOL.md §15.10）──────────────
 // 两命令均为全局命令（信封 sessionId 省略）；回执 = §16.10 点对点结果帧
 //（workspace.get.result / workspace.open.result，SessionContext 转发层
@@ -287,4 +341,56 @@ export function workspaceGetCommand(): WorkspaceGetCommand {
 /** workspace.open：显式绑定写面（daemon realpath 规范化 + 危险根校验）。 */
 export function workspaceOpenCommand(root: string): WorkspaceOpenCommand {
   return { v: PROTOCOL_VERSION, type: "workspace.open", payload: { root } };
+}
+
+// ── task 族命令（T3.1；契约 contracts/task-api.md §2；iter-20260829-ys7q）──
+// 九命令全部全局命令（信封 sessionId 省略——任务为 daemon 级实体）；
+// 回执 = task.*.result 点对点帧（SessionContext 转发层 → P-2 页面私有
+// reducer；错误走 connection.error，生命周期词表 = 契约 §4）。零内容干预
+//（AD-2）：无 steer/重试命令——九命令即全集。
+
+/** task.list：全局平铺列表（服务端排序 = 运行中置顶+创建时间倒序；
+ *  过滤器入参服务端生效，页面另持客户端镜像派生）。 */
+export function taskListCommand(payload: TaskListPayload = {}): TaskListCommand {
+  return { v: PROTOCOL_VERSION, type: "task.list", payload };
+}
+
+/** task.detail：阶段条 + 当前阶段批次 + 实例 plan + 叙述句（R-4~R-8）。 */
+export function taskDetailCommand(payload: TaskDetailPayload): TaskDetailCommand {
+  return { v: PROTOCOL_VERSION, type: "task.detail", payload };
+}
+
+/** task.artifacts：阶段产物只读投影（F3.4；节点修正转 /project 页 AD-10）。 */
+export function taskArtifactsCommand(payload: TaskArtifactsPayload): TaskArtifactsCommand {
+  return { v: PROTOCOL_VERSION, type: "task.artifacts", payload };
+}
+
+/** task.subscribe：连接级订阅（缺省 jobId = 订阅全部变更；重连重发）。 */
+export function taskSubscribeCommand(payload: TaskSubscribePayload = {}): TaskSubscribeCommand {
+  return { v: PROTOCOL_VERSION, type: "task.subscribe", payload };
+}
+
+/** task.unsubscribe：清空订阅集（对称语义）。 */
+export function taskUnsubscribeCommand(payload: TaskUnsubscribePayload = {}): TaskUnsubscribeCommand {
+  return { v: PROTOCOL_VERSION, type: "task.unsubscribe", payload };
+}
+
+/** task.pause：仅 running→paused（O-2 停派新批次+在跑自然收口）。 */
+export function taskPauseCommand(jobId: string): TaskPauseCommand {
+  return { v: PROTOCOL_VERSION, type: "task.pause", payload: { jobId } };
+}
+
+/** task.resume：仅 paused→running（断点恢复同路径）。 */
+export function taskResumeCommand(jobId: string): TaskResumeCommand {
+  return { v: PROTOCOL_VERSION, type: "task.resume", payload: { jobId } };
+}
+
+/** task.cancel：pending/running/paused→cancelled 终态（在跑批次 SIGTERM）。 */
+export function taskCancelCommand(jobId: string): TaskCancelCommand {
+  return { v: PROTOCOL_VERSION, type: "task.cancel", payload: { jobId } };
+}
+
+/** task.delete：仅终态可删；清任务域全部记录不触 kg 产出（F3.6）。 */
+export function taskDeleteCommand(jobId: string): TaskDeleteCommand {
+  return { v: PROTOCOL_VERSION, type: "task.delete", payload: { jobId } };
 }

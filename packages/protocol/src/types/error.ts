@@ -47,4 +47,8 @@ export type ErrorCode =
   /** task 批新增：jobId 不存在（task.detail/artifacts/生命周期命令）；发 error 帧连接保持 */
   | "task.not_found"
   /** task 批新增：生命周期/删除的非法当前态（如 running 任务删除、done 任务暂停——判断收口引擎 T1.3，handler 透传）；发 error 帧连接保持 */
-  | "task.invalid_state";
+  | "task.invalid_state"
+  /** kg-bootstrap 批新增（iter-20260829-ys7q T3.2，契约 kg-bootstrap-api §2）：bootstrap 准入复核未过（message 带原因：index_absent / index_building / knowledge_not_empty——后端机械复核不信赖前端）；发 error 帧连接保持 */
+  | "kg.bootstrap.not_eligible"
+  /** kg-bootstrap 批新增：目标节点不存在（kg.node.update / kg.node.supersede；kg 族既有 KG_E_NOT_FOUND 同义错误码两形态并存——修正面与 task.validation_failed 词表对齐用本码）；发 error 帧连接保持 */
+  | "kg.node.not_found";

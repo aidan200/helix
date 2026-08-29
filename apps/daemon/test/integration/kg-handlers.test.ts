@@ -276,7 +276,7 @@ function makeRig(): Rig {
     scan: () => scanProjectEntries(workspace),
     hasIndex: (root) => existsSync(kgDbPath(root)),
     indexStatus: (root) => sync.getStatus(root),
-    countNodes: (root) => graph.countNodes(root),
+    countActiveNodes: (root) => graph.countActiveNodes(root),
   });
   const viewer = new KgViewerService({ project, graph, verify, report, write, sync });
 

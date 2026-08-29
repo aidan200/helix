@@ -15,6 +15,8 @@
  * task 批新增 9（task 族，iter-20260829-ys7q T1.5：P-2 任务页九命令，
  * workspace 批后 additive 微批；零内容干预——AD-2：无 steer/批次重试/
  * 内容编辑命令，九命令清单即全集）。
+ * kg-bootstrap 批新增 5（kg 族 additive，iter-20260829-ys7q T3.2：/project 页
+ * bootstrap 入口与产出呈现五命令；契约 contracts/kg-bootstrap-api.md）。
  * `CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
  * 分发。会话作用域命令的信封 sessionId 必填（AD-4 路由位，类型层可选、
  * 客户端纪律保证）；全局命令（session.list / model.set_default /
@@ -466,6 +468,69 @@ export interface KgProjectsCommand extends CommandFrame<EmptyPayload> {
   type: "kg.projects";
 }
 
+// ── kg-bootstrap 批新增（iter-20260829-ys7q T3.2，/project 页 bootstrap 数据面五命令；契约 = contracts/kg-bootstrap-api.md）──
+
+/**
+ * kg-bootstrap 批通则：五命令全部为全局命令（信封 sessionId 省略），携带
+ * 必填 project（项目名或绝对路径，daemon 单点解析）；结果 = kg.*.result
+ * 点对点回执帧（events/kg.ts，O-6 零推送同规）。V-1 语义：bootstrap 无
+ * draft——产出落盘即 confirmed；修正 = kg.node.update / kg.node.supersede
+ * （理由必填，走 KgWriteService 唯一写入口）；连带标记 = kg.bootstrap.impact
+ * 只读推导零写。准入机械定义 = 索引 synced/degraded ∧ nodeCount==0（前后端
+ * 双保险复核；contracts/kg-bootstrap-api.md §1）。
+ */
+export interface KgBootstrapCreatePayload {
+  /** 项目名（kg.projects 项目标识；daemon 复核准入后调 createTask 同源 API）。 */
+  project: string;
+  /** 范围参数（可选收窄，进 job.params.scope）。 */
+  scope?: string;
+}
+/** CL-1 F1.1/F1.2：发起 kg-bootstrap 任务（createdBy="page"，与 chat task_create 同源）。 */
+export interface KgBootstrapCreateCommand extends CommandFrame<KgBootstrapCreatePayload> {
+  type: "kg.bootstrap.create";
+}
+
+export interface KgBootstrapProducePayload {
+  project: string;
+}
+/** CL-4 F4.1：产出呈现读面（任务→阶段→批次三级分组，originBatchId+layer 元数据驱动）。 */
+export interface KgBootstrapProduceCommand extends CommandFrame<KgBootstrapProducePayload> {
+  type: "kg.bootstrap.produce";
+}
+
+export interface KgNodeUpdatePayload {
+  project: string;
+  nodeId: string;
+  /** 至少携带其一（空 patch → task.validation_failed）。 */
+  digest?: string;
+  body?: string;
+}
+/** CL-4 F4.2 修正写面（一）：内联编辑保存即 updateNode，节点保持 confirmed。 */
+export interface KgNodeUpdateCommand extends CommandFrame<KgNodeUpdatePayload> {
+  type: "kg.node.update";
+}
+
+export interface KgNodeSupersedePayload {
+  project: string;
+  nodeId: string;
+  /** 必填非空（前后端双防线；空 → task.validation_failed）。 */
+  reason: string;
+}
+/** CL-4 F4.2 修正写面（二）：superseded 留史 + change_log 记理由；无转正无否决。 */
+export interface KgNodeSupersedeCommand extends CommandFrame<KgNodeSupersedePayload> {
+  type: "kg.node.supersede";
+}
+
+export interface KgBootstrapImpactPayload {
+  project: string;
+  /** 被修正（update/supersede）的节点 id。 */
+  nodeId: string;
+}
+/** CL-4 F4.3：受影响连带只读推导（edges 引用方；不落库零自动写）。 */
+export interface KgBootstrapImpactCommand extends CommandFrame<KgBootstrapImpactPayload> {
+  type: "kg.bootstrap.impact";
+}
+
 // ── workspace 批新增（W1 workspace 绑定闭环；契约 = 设计稿 workspace-feature-design-candidate.md §3.1）──
 
 /**
@@ -571,7 +636,7 @@ export interface TaskDeleteCommand extends CommandFrame<TaskDeletePayload> {
   type: "task.delete";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45） */
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -607,6 +672,11 @@ export type CommandEnvelope =
   | KgNodeConfirmCommand
   | KgIndexStatusCommand
   | KgProjectsCommand
+  | KgBootstrapCreateCommand
+  | KgBootstrapProduceCommand
+  | KgNodeUpdateCommand
+  | KgNodeSupersedeCommand
+  | KgBootstrapImpactCommand
   | WorkspaceGetCommand
   | WorkspaceOpenCommand
   | TaskListCommand
@@ -655,6 +725,11 @@ export const COMMAND_TYPES = [
   "kg.node.confirm",
   "kg.index.status",
   "kg.projects",
+  "kg.bootstrap.create",
+  "kg.bootstrap.produce",
+  "kg.node.update",
+  "kg.node.supersede",
+  "kg.bootstrap.impact",
   "workspace.get",
   "workspace.open",
   "task.list",

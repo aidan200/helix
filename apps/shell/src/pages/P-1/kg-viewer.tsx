@@ -17,8 +17,8 @@
  * - kg.node.confirm（页面唯一写：draft 两步确认后发送；回执翻转列表行
  *   +重发 detail 取 daemon 落账日志）。
  */
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
-import type { EventEnvelope, KgProjectRow } from "@helix/protocol";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Dispatch } from "react";
+import type { EventEnvelope, KgProjectRow, KgProduceNodeDto } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
@@ -28,15 +28,34 @@ import {
   kgReducer,
   pendingCount,
 } from "./model/kg-model";
+import { bootstrapEntryMode, type ProjectAction, type ProduceState } from "./model/project-model";
 import { highlight, KindBadge, StatusBadge } from "./ui/kg-refs";
 import KgDetailPane from "./ui/kg-detail-pane";
 import KgReportPane from "./ui/kg-report-pane";
 import KgIndexPanel from "./ui/kg-index-panel";
+import KgBootstrapEntry from "./ui/kg-bootstrap-entry";
+import KgProducePane from "./ui/kg-produce-pane";
 
 /** 面板重建轮询间隔（O-6 同主区 building 轮询）。 */
 const REBUILD_POLL_MS = 750;
 
-const KgViewer = function KgViewer({ project }: { project: KgProjectRow }) {
+const KgViewer = function KgViewer({
+  project,
+  produce,
+  bootstrapLaunched,
+  projectDispatch,
+  onOpenTasks,
+}: {
+  project: KgProjectRow;
+  /** 产出呈现区状态（T3.2；ProjectPageState.produce——切项目复位）。 */
+  produce: ProduceState;
+  /** bootstrap 启动标记（T3.2；bootstrapEntryMode 叠加位）。 */
+  bootstrapLaunched: boolean;
+  /** projectReducer dispatch（本组件只派发 bootstrap/produce 扩面 action）。 */
+  projectDispatch: Dispatch<ProjectAction>;
+  /** 「前往『任务』页」出口（入口卡 ok-strip 与产出分组任务详情链接）。 */
+  onOpenTasks: () => void;
+}) {
   const { t } = useI18n();
   const toast = useToast();
   const {
@@ -45,12 +64,30 @@ const KgViewer = function KgViewer({ project }: { project: KgProjectRow }) {
     sendKgChangeReport,
     sendKgNodeConfirm,
     sendKgIndexStatus,
+    sendKgBootstrapCreate,
+    sendKgBootstrapProduce,
+    sendKgNodeUpdate,
+    sendKgNodeSupersede,
+    sendKgBootstrapImpact,
     subscribeKgFrames,
   } = useSession();
 
   const [state, dispatch] = useReducer(kgReducer, undefined, createKgViewState);
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  /** kg-bootstrap 批在途单飞（T3.2）：create 布尔 + update/supersede 携带
+   * 关联位（回执零回显——nodeId/name/reason 暂存）。state 驱动钮禁用，
+   * ref 镜像供 listener 读取（listener 闭包不随重渲染更新）。 */
+  type WriteReq = { kind: "update" | "supersede"; nodeId: string; name: string; reason?: string };
+  const [flight, setFlight] = useState<{ create: boolean; write: WriteReq | null }>({ create: false, write: null });
+  const flightRef = useRef(flight);
+  flightRef.current = flight;
+  /** 产出拉取去重（首进 produce tab 发一次；切项目 kgToken 重挂复位）。 */
+  const produceFetchedRef = useRef(false);
+  /** 产出状态镜像（回调查找节点用；避免回调依赖 produce 身份抖动）。 */
+  const produceRef = useRef(produce);
+  produceRef.current = produce;
 
   // 进入 graph 即新数据面：列表骨架 + 详情骨架 + 报告/索引面板并行拉取
   useEffect(() => {
@@ -97,11 +134,63 @@ const KgViewer = function KgViewer({ project }: { project: KgProjectRow }) {
             toast.push("ok", t("pj.kg.promoteToast", { name: e.payload.node.name }));
             return;
           }
+          // ── kg-bootstrap 批五回执（T3.2；单飞 ref 关联——回执零关联位）──
+          case "kg.bootstrap.create.result": {
+            if (!flightRef.current.create) return; // 非本视图发起
+            setFlight((f) => ({ ...f, create: false }));
+            projectDispatch({ type: "bootstrap-launched" });
+            toast.push("ok", t("pj.boot.createOkToast", { name: project.name }));
+            return;
+          }
+          case "kg.bootstrap.produce.result":
+            projectDispatch({ type: "produce-result", groups: [...e.payload.groups] });
+            return;
+          case "kg.node.update.result": {
+            const req = flightRef.current.write;
+            if (req === null || req.kind !== "update" || req.nodeId !== e.payload.node.nodeId) return;
+            setFlight((f) => ({ ...f, write: null }));
+            const node: KgProduceNodeDto = e.payload.node;
+            projectDispatch({ type: "produce-node-updated", node });
+            // F4.3 连带刷新：update 成功后重推 impact（只读推导，幂等）
+            sendKgBootstrapImpact({ project: project.name, nodeId: node.nodeId });
+            toast.push("ok", t("pj.produce.updatedToast", { name: node.name }));
+            return;
+          }
+          case "kg.node.supersede.result": {
+            const req = flightRef.current.write;
+            if (req === null || req.kind !== "supersede") return;
+            setFlight((f) => ({ ...f, write: null }));
+            projectDispatch({ type: "produce-node-superseded", nodeId: req.nodeId, reason: req.reason ?? "" });
+            sendKgBootstrapImpact({ project: project.name, nodeId: req.nodeId });
+            toast.push("ok", t("pj.produce.supersededToast", { name: req.name }));
+            return;
+          }
+          case "kg.bootstrap.impact.result": {
+            // 连带标记合并（只标记；count>0 才 toast——零连带不噪找）
+            const ids = e.payload.affected.map((a) => a.nodeId);
+            projectDispatch({ type: "produce-affected", nodeIds: ids });
+            if (e.payload.count > 0) toast.push("ok", t("pj.produce.affectedToast", { n: e.payload.count }));
+            return;
+          }
+          case "connection.error": {
+            // bootstrap 入口/写面在途失败（单飞门控；非在途不消费）
+            const msg = (e.payload as { message?: string }).message ?? "error";
+            if (flightRef.current.create) {
+              setFlight({ create: false, write: null });
+              toast.push("err", t("pj.boot.createFailToast", { message: msg }));
+              return;
+            }
+            if (flightRef.current.write !== null) {
+              setFlight({ create: false, write: null });
+              toast.push("err", t("pj.produce.writeFailToast", { message: msg }));
+            }
+            return;
+          }
           default:
             return;
         }
       }),
-    [subscribeKgFrames, project.name, sendKgNodeDetail, sendKgList, toast],
+    [subscribeKgFrames, project.name, sendKgNodeDetail, sendKgList, sendKgBootstrapImpact, projectDispatch, toast, t],
   );
 
   // F5.5 面板重建轮询（degraded→building 触发后至离开 building）
@@ -135,13 +224,72 @@ const KgViewer = function KgViewer({ project }: { project: KgProjectRow }) {
     [],
   );
   const onClearFilter = useCallback(() => dispatch({ type: "clear-filter" }), []);
-  const onTab = useCallback((tab: "detail" | "report") => dispatch({ type: "tab", tab }), []);
+  const onTab = useCallback((tab: "detail" | "report" | "produce") => dispatch({ type: "tab", tab }), []);
   const onResolve = useCallback((index: number, value: string) => dispatch({ type: "resolve", index, value }), []);
   const onUnresolve = useCallback((index: number) => dispatch({ type: "unresolve", index }), []);
   const onRebuild = useCallback(() => {
     dispatch({ type: "idx-rebuild-started" });
     sendKgIndexStatus({ project: project.name, rebuild: true });
   }, [project.name, sendKgIndexStatus]);
+
+  // ── bootstrap 入口与产出呈现回调（T3.2；单飞锁在本视图，Pane/Entry 纯展示）──
+  const writeBusy = flight.write !== null;
+  const bootBusy = flight.create || writeBusy;
+  const onLaunchBootstrap = useCallback(() => {
+    if (flightRef.current.create || flightRef.current.write !== null) return;
+    setFlight({ create: true, write: null });
+    if (!sendKgBootstrapCreate({ project: project.name })) {
+      setFlight({ create: false, write: null });
+      toast.push("err", t("pj.boot.sendFail"));
+    }
+  }, [project.name, sendKgBootstrapCreate, toast, t]);
+
+  /** 产出节点名查找（supersede 回执零回显——name 暂存用）。 */
+  const findProduceNode = useCallback(
+    (nodeId: string): KgProduceNodeDto | undefined => {
+      for (const g of produceRef.current.groups)
+        for (const s of g.stages)
+          for (const b of s.batches) {
+            const n = b.nodes.find((x) => x.nodeId === nodeId);
+            if (n !== undefined) return n;
+          }
+      return undefined;
+    },
+    [],
+  );
+  const onLaunchUpdate = useCallback(
+    (nodeId: string, digest: string, body: string) => {
+      if (flightRef.current.write !== null || flightRef.current.create) return;
+      const name = findProduceNode(nodeId)?.name ?? "";
+      setFlight({ create: false, write: { kind: "update", nodeId, name } });
+      if (!sendKgNodeUpdate({ project: project.name, nodeId, digest, body })) {
+        setFlight({ create: false, write: null });
+        toast.push("err", t("pj.produce.sendFail"));
+      }
+    },
+    [project.name, sendKgNodeUpdate, findProduceNode, toast, t],
+  );
+  const onLaunchSupersede = useCallback(
+    (nodeId: string, reason: string) => {
+      if (flightRef.current.write !== null || flightRef.current.create) return;
+      const name = findProduceNode(nodeId)?.name ?? "";
+      setFlight({ create: false, write: { kind: "supersede", nodeId, name, reason } });
+      if (!sendKgNodeSupersede({ project: project.name, nodeId, reason })) {
+        setFlight({ create: false, write: null });
+        toast.push("err", t("pj.produce.sendFail"));
+      }
+    },
+    [project.name, sendKgNodeSupersede, findProduceNode, toast, t],
+  );
+
+  // produce 拉取（首进 tab 发一次；切项目 kgToken 重挂复位 ref）
+  const tab = state.tab;
+  useEffect(() => {
+    if (tab !== "produce" || produceFetchedRef.current) return;
+    produceFetchedRef.current = true;
+    projectDispatch({ type: "produce-loading" });
+    sendKgBootstrapProduce({ project: project.name });
+  }, [tab, project.name, sendKgBootstrapProduce, projectDispatch]);
 
   // ── 展示派生 ─────────────────────────────────────────────
   const rows = useMemo(() => filterRows(state.all, state.filter), [state.all, state.filter]);
@@ -259,6 +407,15 @@ const KgViewer = function KgViewer({ project }: { project: KgProjectRow }) {
           </div>
 
           <KgIndexPanel idx={state.idx} rebuilding={state.idxRebuilding} onRebuild={onRebuild} />
+          {/* T3.2 bootstrap 入口卡（索引面板区下方；准入四态互斥——hidden 静默） */}
+          <KgBootstrapEntry
+            row={project}
+            mode={bootstrapEntryMode(project, bootstrapLaunched)}
+            busy={bootBusy}
+            t={t}
+            onLaunch={onLaunchBootstrap}
+            onOpenTasks={onOpenTasks}
+          />
         </aside>
 
         <section className="kgv-main-pane">
@@ -289,6 +446,15 @@ const KgViewer = function KgViewer({ project }: { project: KgProjectRow }) {
                     : ""}
               </span>
             </button>
+            {/* T3.2 kg-bootstrap 批新增第三 tab：产出呈现（无审阅进度无待审计数） */}
+            <button
+              type="button"
+              className={`kgv-tab${state.tab === "produce" ? " active" : ""}`}
+              data-tab="produce"
+              onClick={() => onTab("produce")}
+            >
+              {t("pj.produce.tab")}
+            </button>
           </nav>
           <div className="kgv-pane-scroll">
             <div className="kgv-pane-inner" data-kg-pane={state.tab}>
@@ -300,7 +466,7 @@ const KgViewer = function KgViewer({ project }: { project: KgProjectRow }) {
                   onGoto={onSelectNode}
                   onConfirm={onConfirm}
                 />
-              ) : (
+              ) : state.tab === "report" ? (
                 <KgReportPane
                   report={state.report}
                   resolved={state.resolved}
@@ -308,6 +474,18 @@ const KgViewer = function KgViewer({ project }: { project: KgProjectRow }) {
                   onGoto={onSelectNode}
                   onResolve={onResolve}
                   onUnresolve={onUnresolve}
+                />
+              ) : (
+                <KgProducePane
+                  produce={produce}
+                  writeBusy={writeBusy}
+                  t={t}
+                  onOpenTasks={onOpenTasks}
+                  onToggle={(nodeId) => projectDispatch({ type: "produce-toggle-node", nodeId })}
+                  onInlineOpen={(kind, nodeId) => projectDispatch({ type: "produce-inline-open", kind, nodeId })}
+                  onInlineClose={() => projectDispatch({ type: "produce-inline-close" })}
+                  onLaunchUpdate={onLaunchUpdate}
+                  onLaunchSupersede={onLaunchSupersede}
                 />
               )}
             </div>

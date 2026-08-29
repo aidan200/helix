@@ -4,6 +4,9 @@ import type {
   KgIndexStatusDto,
   KgNodeDetailDto,
   KgNodeListRow,
+  KgNodeRefLiteDto,
+  KgProduceGroupDto,
+  KgProduceNodeDto,
   KgProjectRow,
 } from "../types/kg";
 
@@ -68,4 +71,55 @@ export interface KgNodeConfirmResultEvent extends EventFrame<KgNodeConfirmResult
 export interface KgIndexStatusResultEvent extends EventFrame<KgIndexStatusResultPayload> {
   channel?: "kg";
   type: "kg.index.status.result";
+}
+
+// ── kg-bootstrap 批新增回执（iter-20260829-ys7q T3.2，五命令；契约 = contracts/kg-bootstrap-api.md）──
+
+/** kg.bootstrap.create.result：任务已创建（前端引导「前往『任务』页观察 →」）。 */
+export interface KgBootstrapCreateResultPayload {
+  ok: true;
+  jobId: string;
+}
+
+/** kg.bootstrap.produce.result：产出三级分组（payload 即分组本体；空 groups = 无 bootstrap 产出）。 */
+export interface KgBootstrapProduceResultPayload {
+  groups: KgProduceGroupDto[];
+}
+
+/** kg.node.update.result：修改后状态回读（节点保持 confirmed；payload = 产出条目投影）。 */
+export interface KgNodeUpdateResultPayload {
+  ok: true;
+  node: KgProduceNodeDto;
+}
+
+/** kg.node.supersede.result：已废弃留史（change_log 记理由；前端翻条目 + 消隐动作钮）。 */
+export interface KgNodeSupersedeResultPayload {
+  ok: true;
+}
+
+/** kg.bootstrap.impact.result：受影响引用方只读推导（前端渲染 warning 标记 + toast count）。 */
+export interface KgBootstrapImpactResultPayload {
+  affected: KgNodeRefLiteDto[];
+  count: number;
+}
+
+export interface KgBootstrapCreateResultEvent extends EventFrame<KgBootstrapCreateResultPayload> {
+  channel?: "kg";
+  type: "kg.bootstrap.create.result";
+}
+export interface KgBootstrapProduceResultEvent extends EventFrame<KgBootstrapProduceResultPayload> {
+  channel?: "kg";
+  type: "kg.bootstrap.produce.result";
+}
+export interface KgNodeUpdateResultEvent extends EventFrame<KgNodeUpdateResultPayload> {
+  channel?: "kg";
+  type: "kg.node.update.result";
+}
+export interface KgNodeSupersedeResultEvent extends EventFrame<KgNodeSupersedeResultPayload> {
+  channel?: "kg";
+  type: "kg.node.supersede.result";
+}
+export interface KgBootstrapImpactResultEvent extends EventFrame<KgBootstrapImpactResultPayload> {
+  channel?: "kg";
+  type: "kg.bootstrap.impact.result";
 }

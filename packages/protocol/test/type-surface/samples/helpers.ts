@@ -140,6 +140,17 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `kg-confirm:${event.payload.node.status}`;
     case "kg.index.status.result":
       return `kg-index:${event.payload.state}`;
+    // ── kg-bootstrap 批（iter-20260829-ys7q T3.2；五命令点对点回执，契约 kg-bootstrap-api）──
+    case "kg.bootstrap.create.result":
+      return `kg-boot-create:${event.payload.jobId}`;
+    case "kg.bootstrap.produce.result":
+      return `kg-boot-produce:${event.payload.groups.length}`;
+    case "kg.node.update.result":
+      return `kg-node-update:${event.payload.node.status}`;
+    case "kg.node.supersede.result":
+      return `kg-node-supersede:${event.payload.ok}`;
+    case "kg.bootstrap.impact.result":
+      return `kg-boot-impact:${event.payload.count}:${event.payload.affected.length}`;
     // ── workspace 批（W1 绑定闭环；两结果帧 + 一广播）──
     case "workspace.get.result":
       return `workspace-get:${event.payload.current?.root ?? "unbound"}:${event.payload.recents.length}:${event.payload.notice ?? "-"}`;
@@ -237,6 +248,17 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `kg-index:${cmd.payload.project}:${cmd.payload.rebuild === true ? "rebuild" : "status"}`;
     case "kg.projects":
       return "kg-projects";
+    // ── kg-bootstrap 批（iter-20260829-ys7q T3.2；五命令载荷独立字段访问——窄化守护）──
+    case "kg.bootstrap.create":
+      return `kg-boot-create:${cmd.payload.project}:${cmd.payload.scope ?? "-"}`;
+    case "kg.bootstrap.produce":
+      return `kg-boot-produce:${cmd.payload.project}`;
+    case "kg.node.update":
+      return `kg-node-update:${cmd.payload.project}:${cmd.payload.nodeId}:${cmd.payload.digest ? "digest" : "-"}:${cmd.payload.body ? "body" : "-"}`;
+    case "kg.node.supersede":
+      return `kg-node-supersede:${cmd.payload.project}:${cmd.payload.nodeId}:${cmd.payload.reason}`;
+    case "kg.bootstrap.impact":
+      return `kg-boot-impact:${cmd.payload.project}:${cmd.payload.nodeId}`;
     // ── workspace 批（W1 绑定闭环；门禁读面 + 显式绑定写面）──
     case "workspace.get":
       return "workspace-get";

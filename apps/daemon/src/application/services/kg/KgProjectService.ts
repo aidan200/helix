@@ -36,8 +36,9 @@ export interface KgProjectServiceDeps {
   readonly hasIndex: (projectRoot: string) => boolean;
   /** 索引四态读面（KgSyncService.getStatus 注入）。 */
   readonly indexStatus: (projectRoot: string) => KgIndexStatus;
-  /** 知识节点计数（KnowledgeGraphPort.countNodes 注入）。 */
-  readonly countNodes: (projectRoot: string) => number;
+  /** 非 superserved 节点计数（KnowledgeGraphPort.countActiveNodes 注入；T3.2
+   *  准入口径——contracts/kg-bootstrap-api.md §1，留史行不计入）。 */
+  readonly countActiveNodes: (projectRoot: string) => number;
 }
 
 /** degraded 态影响说明（F5.5 面板口径的确定性文案）。 */
@@ -86,11 +87,13 @@ export class KgProjectService {
           path: entry.path,
           status: "synced",
           symbolCount: status.symbolCount,
-          nodeCount: this.deps.countNodes(entry.path),
+          nodeCount: this.deps.countActiveNodes(entry.path),
           ...(status.syncedAt !== null ? { syncedAt: status.syncedAt } : {}),
         };
       case "degraded":
-        return { name: entry.name, path: entry.path, status: "degraded", degradedNote: KG_DEGRADED_NOTE };
+        // nodeCount 同步补齐（T3.2 契约 §1：准入判定覆盖 synced ∧ degraded；
+        // 缺省 = 未知 = 前端视为非空不显示入口——降级行不给计数会永不可发起）
+        return { name: entry.name, path: entry.path, status: "degraded", degradedNote: KG_DEGRADED_NOTE, nodeCount: this.deps.countActiveNodes(entry.path) };
       case "building":
         return { name: entry.name, path: entry.path, status: "building" };
       case "absent":
