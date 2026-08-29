@@ -25,6 +25,9 @@ import type { AnchorDeclaration, MaterializedAnchor, SymbolBatch } from "../../s
  * 覆盖：①符号域锚命中（CL-1.A1）②未命中沉默（A2）③快照滞后保守降级
  * ④预算超限特异性裁剪 ⑤管线故障静默（A11）⑥跨通道会话去重（A3）+
  * baseline 戳缓存失效。
+ *
+ * （2026-08-29 裁决：notifyWrite 写后 sync 挂接退役——buildEditToolDeps
+ * 不再注入 notifyWrite，本套纯验附着链路。）
  */
 
 interface Workspace {
@@ -36,7 +39,6 @@ interface Workspace {
   readonly write: KgWriteService;
   readonly attachment: KgAttachmentService;
   readonly env: NodeExecutionEnv;
-  readonly notified: Array<{ projectRoot: string; path: string; hash: string }>;
   readonly toolFor: (sessionId: string) => AgentHarnessTool<ExecutionToolContext, any, any>;
 }
 
@@ -60,11 +62,9 @@ function makeWorkspace(): Workspace {
   const write = new KgWriteService({ store });
   const attachment = new KgAttachmentService({ graph });
   const env = new NodeExecutionEnv({ cwd: root });
-  const notified: Workspace["notified"] = [];
-  const fakeSync = { notifyWrite: (projectRoot: string, p: string, hash: string) => notified.push({ projectRoot, path: p, hash }) };
   const toolFor = (sessionId: string) =>
-    createEditTool(buildEditToolDeps({ workspaceRoot: root, syncService: fakeSync, attachment, sessionId }));
-  const ws: Workspace = { root, proj, database, store, graph, write, attachment, env, notified, toolFor };
+    createEditTool(buildEditToolDeps({ workspaceRoot: root, attachment, sessionId }));
+  const ws: Workspace = { root, proj, database, store, graph, write, attachment, env, toolFor };
   workspaces.push(ws);
   return ws;
 }
@@ -130,10 +130,7 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
     expect(block).toContain("handler 编辑必须保持幂等语义"); // digest
     expect(block).toContain(`kg get ${tr1}`); // 指针
     expect(block).toContain(ATTACHMENT_PROTOCOL_LINE); // 协议行（AD-14）
-    // 写后通知：一次入队、projectRoot 归属正确；附着零 sync 触发（AD-15 无阻塞路径）
-    expect(ws.notified.length).toBe(1);
-    expect(ws.notified[0]!.projectRoot).toBe(ws.proj);
-    expect(ws.notified[0]!.path).toBe(feat);
+    // 附着零 sync 触发（AD-15 无阻塞路径；notifyWrite 挂接已退役不注入）
   });
 
   test("② 未命中（CL-1.A2）：无锚文件 / 域外编辑 → 无 📎、编辑行为不变", async () => {
@@ -241,7 +238,7 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
       const attachment = new KgAttachmentService({ graph: failing });
       const env = new NodeExecutionEnv({ cwd: root });
       const tool = createEditTool(
-        buildEditToolDeps({ workspaceRoot: root, syncService: { notifyWrite: () => {} }, attachment, sessionId: "sess-5a" }),
+        buildEditToolDeps({ workspaceRoot: root, attachment, sessionId: "sess-5a" }),
       );
       writeFileSync(path.join(root, "quiet.ts"), "const quietValue = 1;\n");
       const r = await run(tool, { path: "quiet.ts", edits: [{ oldText: "const quietValue = 1;", newText: "const quietValue = 2;" }] }, env);

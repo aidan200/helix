@@ -14,7 +14,6 @@ import type { CodegraphResolution } from "../../adapters/driven/codegraph-engine
 import { KgDatabase, kgDbPath } from "../../adapters/driven/sqlite-kg/KgDatabase";
 import { SqliteKnowledgeGraph } from "../../adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
 import { SqliteKnowledgeStore } from "../../adapters/driven/sqlite-kg/SqliteKnowledgeStore";
-import { FsWatchAdapter } from "../../adapters/driven/fs-watch/FsWatchAdapter";
 import { KgSyncService } from "../../application/services/kg/KgSyncService";
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 import { existingKgProjects, projectRootOfPath, scanProjectEntries, scanWorkspaceProjects } from "../../adapters/driven/workspace-scan";
@@ -32,10 +31,12 @@ export { existingKgProjects, projectRootOfPath, scanWorkspaceProjects };
  * T2.1（AF-2）：CodegraphEnginePort 适配挂入（三级解析定格产物由组合根
  * 注入——HELIX_CODEGRAPH_PATH/PATH 的 env 读取收束于 container.ts，
  * AG-08 唯一例外面；resolve-codegraph 本体零 env 依赖）。
- * T2.2：KgSyncService 挂入 + startKgSyncBackground（daemon 启动触发 +
- * fs-watch 兑底挂接，container.ts 装配序⑦后调用）。
+ * T2.2：KgSyncService 挂入（双源汇队列/去抖/单飞/四步编排；启动
+ *   触发与 fs-watch 挂接已按 2026-08-29 用户裁决退役——生产唯一触发面
+ *   = 页面手动 triggerManual）。
  * T3.2：KgAttachmentService 挂入（附着编排）+ buildEditToolDeps（edit
- * 工具挂点接线工厂：projectRootOfPath 多项目归属 + notifyWrite + 附着）。
+ * 工具挂点接线工厂：projectRootOfPath 多项目归属 + 附着；notifyWrite
+ * 写后 sync 挂接同期退役，不注入）。
  * T3.3：KgQueryService 挂入（读面聚合 + spawn 派发任务切片注入——
  * projects = 已建 .kg 项目，读面绝不新建库文件）。
  * T5.1：KgVerifyService（三检查，AD-6 只列不修零写路径）+ KgReportService
@@ -143,20 +144,19 @@ export function buildKnowledgeStack(deps: {
 
 /**
  * edit 工具挂点接线工厂（T3.2，CL-1 F1.1）：组合根把 kg 栈接进 EditTool
- * 成功路径——notifyWrite（T2.2 写后通知入队）+ 逐编辑附着（attachAfterEdit
- * 返回 📎 块拼接到工具结果尾部）。sessionId 在调用侧闭合（会话级跨通道
- * 去重键；与 T3.3 任务层注入共用同一 KgAttachmentService 注册表）。
+ * 成功路径——逐编辑附着（attachAfterEdit 返回 📎 块拼接到工具结果尾部）。
+ * sessionId 在调用侧闭合（会话级跨通道去重键；与 T3.3 任务层注入共用
+ * 同一 KgAttachmentService 注册表）。notifyWrite 写后 sync 挂接按
+ * 2026-08-29 用户裁决退役（纯手动触发），不注入。
  */
 export function buildEditToolDeps(args: {
   readonly workspaceRoot: string;
-  readonly syncService: Pick<KgSyncService, "notifyWrite">;
   readonly attachment: KgAttachmentService;
   readonly sessionId: string;
 }): EditToolDeps {
-  const { syncService, attachment, sessionId } = args;
+  const { attachment, sessionId } = args;
   return {
     projectRoot: (absolutePath) => projectRootOfPath(args.workspaceRoot, absolutePath),
-    notifyWrite: (projectRoot, filePath, hash) => syncService.notifyWrite(projectRoot, filePath, hash),
     onEditApplied: async (event) => {
       if (event.projectRoot === undefined) return "";
       let block = "";
@@ -174,44 +174,6 @@ export function buildEditToolDeps(args: {
         if (part !== "") block += (block === "" ? "" : "\n\n") + part;
       }
       return block;
-    },
-  };
-}
-
-/** 启动触发 + fs-watch 兑底挂接产物（stop = daemon 退出/测试清理面）。 */
-export interface KgSyncBackground {
-  readonly stop: () => void;
-}
-
-/**
- * daemon 启动挂接（T2.2，装配序⑦后异步不阻塞）：
- * - 触发面一：workspace 一层扫描 → 每项目 onStartup fire-and-forget
- *   （失败吞——退避重试在 KgSyncService 内）；
- * - 触发面二：FsWatchAdapter 单流 watch workspace 根，事件一级目录即
- *   projectRoot（排除清单前置过滤）；顶层文件/逃出 root 的事件不属任何
- *   项目域——丢弃。
- */
-export function startKgSyncBackground(stack: KnowledgeStack, workspaceRoot: string): KgSyncBackground {
-  for (const projectRoot of scanWorkspaceProjects(workspaceRoot)) {
-    stack.syncService.onStartup(projectRoot).catch(() => {
-      // 启动触发失败不阻塞 daemon（退避重试在 service 内，AD-15）
-    });
-  }
-  const adapter = new FsWatchAdapter({
-    root: workspaceRoot,
-    onEvent: (event) => {
-      // 归属收口 projectRootOfPath（§3.5 同一过滤）：根外/排除段事件不属任何
-      // 项目域——丢弃（与启动扫描口径一致，避免排除目录自行建 .kg）。
-      const projectRoot = projectRootOfPath(workspaceRoot, event.absPath);
-      if (projectRoot === undefined) return;
-      stack.syncService.onFsEvent(projectRoot, event.absPath, event.kind);
-    },
-  });
-  adapter.start();
-  return {
-    stop: () => {
-      adapter.stop();
-      stack.syncService.dispose();
     },
   };
 }

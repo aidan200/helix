@@ -66,8 +66,6 @@ export interface TestDaemonOptions {
   readonly sessionIdleUnloadMs?: number;
   /** 空闲卸载轮询间隔 ms（测试注入面；缺省 min(60s, 窗口/10)）。 */
   readonly sessionIdlePollMs?: number;
-  /** kg sync 启动触发+fs-watch 挂接 opt-in（缺省 false=跳过：真 codegraph 构建不进测试进程，T2.2）。 */
-  readonly kgSyncStartup?: boolean;
   /**
    * kg workspace 根初始绑定值（W1 语义演进：等价 restore 预置）。缺省 =
    * process.cwd()——保既有测试形态（绑定态照常：会话创建门禁放行/kg
@@ -126,7 +124,6 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     builtinSkillsDir: options.builtinSkillsDir,
     sessionIdleUnloadMs: options.sessionIdleUnloadMs,
     sessionIdlePollMs: options.sessionIdlePollMs,
-    skipKgSyncStartup: options.kgSyncStartup !== true,
     // W1 语义演进：缺省初始绑定 process.cwd()（等价 restore 预置——保既有
     // 测试形态）；显式 null = 强制 unbound boot（门禁/防御契约集成测试面）。
     kgWorkspaceRoot: options.kgWorkspaceRoot === undefined ? process.cwd() : options.kgWorkspaceRoot,

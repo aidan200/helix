@@ -57,7 +57,7 @@ export interface WorkspaceStack {
   readonly dispose: () => void;
 }
 
-/** kg 同步 background 停面（真体 = startKgSyncBackground 产物）。 */
+/** kg 同步 background 停面（生产恒 no-op——纯手动裁决；见 container.ts）。 */
 export interface WorkspaceSyncBackground {
   readonly stop: () => void;
 }
@@ -117,7 +117,7 @@ export interface WorkspaceServiceDeps {
   readonly cwd: () => string;
   /** kg 栈工厂（组合根注入 buildKnowledgeStack；重绑 = 重建）。 */
   readonly buildStack: (root: string) => WorkspaceStack;
-  /** kg background 工厂（组合根注入 startKgSyncBackground；测试可注入 no-op）。 */
+  /** kg background 工厂（生产恒 no-op：kg 索引同步纯手动，2026-08-29 裁决；测试可注入替身）。 */
   readonly startSync: (stack: WorkspaceStack, root: string) => WorkspaceSyncBackground;
   /** 绑定变更广播（组合根接 EventStream.broadcastWorkspaceChanged）。 */
   readonly broadcast: (root: string) => void;

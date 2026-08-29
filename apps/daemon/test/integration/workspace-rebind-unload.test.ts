@@ -105,7 +105,6 @@ async function startRig(engine: FakeAgentEngine): Promise<Rig> {
     port: 0,
     cliInput: new PassThrough(),
     cliOutput: new PassThrough(),
-    kgSyncStartup: true,
     kgWorkspaceRoot: null, // 显式 unbound boot（绑定全部走 workspace.open）
   });
   const client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);

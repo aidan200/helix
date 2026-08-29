@@ -10,8 +10,10 @@
  * ④ 锚失效检测（上一基准活跃锚 − 本次 join → orphan 标记保留行，供 T5.1）
  *   + meta 基准戳推进——全部经 KnowledgeStorePort.applySync 单事务落库。
  *
- * 触发面三处：daemon 启动/文件事件（去抖后）/页面手动。多项目按
- * projectRoot 隔离（per-project 队列与状态）。
+ * 触发面：生产唯一入口 = 页面手动 triggerManual（含 getStatus/isBuilding
+ * 读面）。启动 onStartup 全量触发 / fs-watch 兑底挂接 / edit 工具写后
+ * notifyWrite 注入按 2026-08-29 用户裁决全部退役（方法与其行为单测
+ * 保留，能力面不动）。多项目按 projectRoot 隔离（per-project 队列与状态）。
  *
  * 附着不依赖新鲜度（AD-15）：本服务不暴露任何「等 sync」接口；附着读
  * 快照走 KnowledgeGraphPort 直读（滞后合法），本文件零读附着面。
@@ -53,7 +55,7 @@ export interface KgSyncServiceDeps {
   readonly retryBackoffMs?: number;
 }
 
-/** fs-watch 事件归一形态（FsWatchAdapter 产出的兜底信号面）。 */
+/** fs-watch 事件归一形态（兑底信号面；生产挂接已退役，方法保留）。 */
 export type FsEventKind = "write" | "remove";
 
 /** 一次 sync 的结果（triggerManual/onStartup 返回；orphanedAnchors=失效信号供 T5.1 入队）。 */
