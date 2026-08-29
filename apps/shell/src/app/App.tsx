@@ -18,8 +18,8 @@
  * 路由 /skills 不动），trace 实页，project 为 P-1 单页 master-detail 实页
  * （V-3：项目域+知识图谱查看）。scanline 氛围层全局单份（S1 上提）。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, FolderKanban, Layers, MessageSquare, Settings } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Activity, FolderKanban, Layers, ListTodo, MessageSquare, Settings } from "lucide-react";
 import { I18nProvider } from "@/shared/i18n";
 import { ThemeProvider } from "@/shared/ui/theme";
 import { ToastProvider } from "@/shared/ui/Toast";
@@ -30,6 +30,7 @@ import ChatPage from "@/pages/chat/ChatPage";
 import AgentPage from "@/pages/skills/AgentPage";
 import TracePage from "@/pages/trace/TracePage";
 import ProjectPage from "@/pages/P-1/ProjectPage";
+import TasksPage from "@/pages/tasks/ui/TasksPage";
 import SettingsPage from "@/pages/settings/SettingsPage";
 import WorkspaceGatePage from "@/pages/workspace/WorkspaceGatePage";
 import WorkspaceBootScreen from "@/pages/workspace/WorkspaceBootScreen";
@@ -39,24 +40,30 @@ import {
   ROUTE_PROJECT,
   ROUTE_SETTINGS,
   ROUTE_SKILLS,
+  ROUTE_TASKS,
   ROUTE_TRACE,
   ROUTE_WORKBENCH,
   type AppRoute,
 } from "./route";
 import { useAppRoute } from "./useAppRoute";
 
-/** IconRail 五导航位（序沿 review.md §6 R-P4-1 去 models 位；S2：模型配置归设置页）。 */
+/** IconRail 六导航位（序沿 review.md §6 R-P4-1 去 models 位；S2：模型配置归设置页；T3.1：任务位入列）。 */
 const RAIL_ITEMS: readonly IconRailItem<AppRoute>[] = [
   { id: "chat", route: ROUTE_WORKBENCH, labelKey: "chat.nav.pages.chat.label", icon: MessageSquare },
   { id: "skills", route: ROUTE_SKILLS, labelKey: "chat.nav.pages.skills.label", icon: Layers },
   { id: "trace", route: ROUTE_TRACE, labelKey: "chat.nav.pages.trace.label", icon: Activity },
   { id: "project", route: ROUTE_PROJECT, labelKey: "chat.nav.pages.project.label", icon: FolderKanban },
+  { id: "tasks", route: ROUTE_TASKS, labelKey: "chat.nav.pages.tasks.label", icon: ListTodo },
   { id: "settings", route: ROUTE_SETTINGS, labelKey: "chat.nav.pages.settings.label", icon: Settings },
 ];
 
 function AppRoutes() {
   const { route, navigate } = useAppRoute();
   const { theme, setTheme } = useTheme();
+  // 页内指路出口（T3.1/T3.2）：P-2 任务页 → /project；P-1 bootstrap 入口卡与
+  // 产出分组 → /tasks（页面间闭环流转，review.md §页面间闭环）
+  const goProject = useCallback(() => navigate(ROUTE_PROJECT), [navigate]);
+  const goTasks = useCallback(() => navigate(ROUTE_TASKS), [navigate]);
   // T4 web 族（契约 v0.7）：联网状态读面（topology.webStatus，拓扑级消费）
   // + 停止写面（web.stop 命令帧）→ IconRail props 注入（IconRail 纯展示）；
   // T7 显式启动写面（web.start，v0.9）同链注入
@@ -82,7 +89,8 @@ function AppRoutes() {
           </div>
           {route === ROUTE_SKILLS && <AgentPage path={ROUTE_SKILLS} />}
           {route === ROUTE_TRACE && <TracePage path={ROUTE_TRACE} />}
-          {route === ROUTE_PROJECT && <ProjectPage path={ROUTE_PROJECT} />}
+          {route === ROUTE_PROJECT && <ProjectPage path={ROUTE_PROJECT} onOpenTasks={goTasks} />}
+          {route === ROUTE_TASKS && <TasksPage path={ROUTE_TASKS} onOpenProject={goProject} />}
           {route === ROUTE_SETTINGS && <SettingsPage path={ROUTE_SETTINGS} />}
         </div>
       </div>

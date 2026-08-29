@@ -231,6 +231,7 @@ export const enUS = {
         skills: { label: "Agents", preview: "Configure models, tools and skills for the session assistant and SubAgent workers." },
         trace: { label: "Trace" },
         project: { label: "Project", preview: "Workspace docs, knowledge graph, iteration state." },
+        tasks: { label: "Tasks", preview: "Watch task stage progress, batch mid-states and results." },
         settings: { label: "Settings" },
       },
     },
@@ -594,6 +595,105 @@ export const enUS = {
       sendFail: "Send failed: daemon connection unavailable, retry later",
     },
   },
+
+  // ── P-2 tasks page (T3.1; iter-20260829-ys7q; copy source = prototype/P-2-task.html + review.md R-1~R-9/R-19)──
+  tk: {
+    title: "Tasks",
+    status: {
+      pending: "Assembling",
+      running: "Running",
+      paused: "Paused",
+      done: "Done",
+      failed: "Failed",
+      cancelled: "Cancelled",
+    },
+    stage: { pending: "Queued", running: "In progress", done: "Done", failed: "Failed" },
+    batch: { pending: "Queued", running: "In progress", done: "Done", failed: "Failed" },
+    filter: { all: "All", allProjects: "All projects" },
+    countLine: "{n} tasks · running first",
+    list: {
+      loading: "Loading tasks…",
+      progPending: "Assembling",
+      progDone: "All done",
+      progFailed: "Failed",
+      progCancelled: "Cancelled",
+      progRunning: "{stage} · batch {done}/{total}",
+      progPaused: "{stage} · batch {done}/{total}",
+      created: "Created {at}",
+    },
+    dur: {
+      sec: "{n}s",
+      min: "{n} min",
+      hourMin: "{h}h {m}m",
+      running: "Running for {dur}",
+      final: "Ran {dur}",
+      createdAgo: "Created {dur} ago",
+    },
+    emptyList: {
+      title: "No tasks yet",
+      sub: "Tasks start from a host context: pick a project on the Project page to create a kg-bootstrap task, or ask the MainAgent in a session. Created tasks appear here.",
+      cta: "Open the Project page →",
+    },
+    emptyDetail: { title: "Nothing to show", sub: "Once created, tasks show stage progress, batch mid-states and results here." },
+    noSelect: { title: "No task selected", sub: "Pick a task from the list to see stage progress, batch mid-states and results." },
+    filterEmpty: {
+      title: "No matching tasks",
+      sub: "No tasks under the current status / project filters. Try adjusting them.",
+      clear: "Clear filters",
+    },
+    head: { created: "Created {at}", srcPage: "From Project page", srcChat: "From session", narrativeLead: "Now:", goProject: "Open the Project page →" },
+    act: { pause: "Pause", resume: "Resume", cancel: "Cancel", delete: "Delete" },
+    confirm: {
+      cancelText:
+        "Cancel task \"{title}\"? In-flight batches wind down, completed stage output stays (confirmed knowledge), queued batches never start. Cancellation is irreversible.",
+      cancelYes: "Confirm cancel",
+      deleteText:
+        "Delete task \"{title}\"? This clears all task-domain records for it (task / stage / batch rows and per-batch instance work ledgers) irreversibly; kg output (knowledge nodes) is untouched and remains viewable and fixable on the Project page.",
+      deleteYes: "Confirm delete",
+      back: "Back",
+    },
+    toast: {
+      paused: "Task paused: current batch finishes, no new batches dispatched",
+      resumed: "Task resumed: batch dispatch continues from the pause point",
+      cancelled: "Task cancelled: completed stage output kept (confirmed)",
+      deleted: "Task deleted: {title} (task-domain records cleared, kg output kept)",
+      failed: "Action failed: {msg}",
+      sendFailed: "Send failed: daemon connection unavailable, retry later",
+    },
+    stageSub: {
+      done: "Done",
+      doneNodes: " · {n} nodes produced",
+      running: "In progress",
+      runningBatches: " · batch {done}/{total}",
+      failed: "Failed",
+      pending: "Queued",
+    },
+    batches: "Batches",
+    noBatches: {
+      title: "Batches not yet divided",
+      sub: "Once assembly finishes the orchestrator divides batches per stage; instance work ledgers appear here in real time.",
+    },
+    batchPlan: {
+      doneCount: "{done}/{total} items done",
+      doing: "Doing:",
+      open: "Collapse ledger ▴",
+      closed: "Expand ledger ▾",
+      queue: "Queued: batch scope set, waiting for dispatch.",
+    },
+    retry: "Auto-retried {n} times",
+    result: {
+      tabProgress: "Progress",
+      tabResult: "Results",
+      artCount: "{n} nodes produced",
+      emptyTitle: "No stage output yet",
+      emptySub: "When a stage completes, the orchestrator aggregates its output node set and summary here.",
+      nodeLink: "View on the Project page →",
+      footnote:
+        "Output nodes land as confirmed knowledge and join agent attach/inject immediately; node viewing and fixes (edit / supersede) happen on the Project page.",
+    },
+    demo: { full: "All states", empty: "Empty list" },
+  },
+
 
   // ── workspace gate (W3; design §2.2) ──
   workspace: {

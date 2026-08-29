@@ -55,6 +55,7 @@ import {
 } from "@helix/protocol";
 import { browserTransportFactory, type Transport, type TransportFactory, type TransportHandlers } from "./helix-ws";
 import { isKgCommand, kgMockStore, KG_MOCK_LATENCY_MS } from "./kg-mock";
+import { isTaskCommand, tasksMockStore, TASKS_MOCK_LATENCY_MS } from "./tasks-mock";
 
 /** daemon 回环地址前缀（非该前缀 → 真实 WebSocket 透传，HMR 不受扰）。 */
 const DAEMON_WS_PREFIX = "ws://127.0.0.1:";
@@ -392,6 +393,14 @@ class FakeSocket {
       setTimeout(() => {
         if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
       }, KG_MOCK_LATENCY_MS);
+    }
+    // task 族自动应答（T3.1；九命令 mock daemon 镜像——结果帧 + 生命周期
+    // 成功伴发的 task.changed 广播，帧数组逐帧下发）
+    if (frame !== null && isTaskCommand(frame.type)) {
+      const frames = tasksMockStore.reply(frame.type, frame.payload);
+      setTimeout(() => {
+        if (this.readyState === FakeSocket.OPEN) for (const f of frames) this.fireMessage(f);
+      }, TASKS_MOCK_LATENCY_MS);
     }
     // workspace 族自动应答（W3 门禁；mock daemon 镜像，get 恒回预绑定）
     if (frame?.type === "workspace.get" || frame?.type === "workspace.open") {

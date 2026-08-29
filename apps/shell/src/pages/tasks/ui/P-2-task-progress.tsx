@@ -1,0 +1,168 @@
+/**
+ * P-2 任务页进度 tab（T3.1；R-4/R-5）：通用阶段条（stage 行驱动——
+ * 序号/✓/●/✕ + 阶段名 + 四态子行，连接线随完成态着色；bootstrap 三阶段
+ * 与开放阶段同构零特例）+ 批次列表（范围粗体 + 状态徽章 + retryCount>0
+ * warning 徽数与重试原因 note + 实例 plan：进度行 + 「正在：…」+
+ * 可展开四态工作台账，abandoned 带理由；待启动批次队列文案）。
+ */
+import { Fragment } from "react";
+import type { TaskBatchDto, TaskDetailDto, TaskStageDto, WorkItemDto } from "@helix/protocol";
+import { cn } from "@/shared/lib/cn";
+import { EmptyPanel, PhaseBadge, ProgressTrack } from "./P-2-task-atoms";
+
+type T = (key: string, vars?: Record<string, string | number>) => string;
+
+/** 阶段子行（四态：已完成·产出 n 节点 / 进行中·批次 x/y / 失败 / 待启动）。 */
+function stageSub(stage: TaskStageDto, detail: TaskDetailDto, t: T): string {
+  if (stage.status === "done") {
+    const nodes = stage.artifact !== null ? t("tk.stageSub.doneNodes", { n: stage.artifact.nodeCount }) : "";
+    return `${t("tk.stageSub.done")}${nodes}`;
+  }
+  if (stage.status === "running") {
+    const p = detail.progress;
+    const batches =
+      p !== null && p.batchesTotal > 0
+        ? t("tk.stageSub.runningBatches", { done: p.batchesDone, total: p.batchesTotal })
+        : "";
+    return `${t("tk.stageSub.running")}${batches}`;
+  }
+  if (stage.status === "failed") return t("tk.stageSub.failed");
+  return t("tk.stageSub.pending");
+}
+
+/** 通用阶段条（stage 行驱动；连接线 done 着色）。 */
+function StageBar({ detail, t }: { detail: TaskDetailDto; t: T }) {
+  return (
+    <div className="tk-stagebar" data-tk-stagebar>
+      {detail.stages.map((stage, i) => (
+        <Fragment key={stage.seq}>
+          <div className={cn("tk-stage", stage.status)} data-tk-stage={stage.status} data-stage-seq={stage.seq}>
+            <span className="tk-stage-ic" aria-hidden="true">
+              {stage.status === "done" ? "✓" : stage.status === "failed" ? "✕" : stage.status === "running" ? "●" : stage.seq}
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <div className="tk-stage-name">{stage.name}</div>
+              <div className="tk-stage-sub">{stageSub(stage, detail, t)}</div>
+            </div>
+          </div>
+          {i < detail.stages.length - 1 && <div className={cn("tk-stage-conn", stage.status === "done" && "done")} />}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+/** work item 图标（✓done / ●in_progress / ○pending / ✕abandoned）。 */
+function workItemIcon(status: WorkItemDto["status"]): string {
+  if (status === "done") return "✓";
+  if (status === "in_progress") return "●";
+  if (status === "abandoned") return "✕";
+  return "○";
+}
+
+/** 单批次卡（R-5 六件：范围/状态/重试/plan 进度/正在/台账）。 */
+function BatchCard({
+  batch,
+  open,
+  t,
+  onToggle,
+}: {
+  batch: TaskBatchDto;
+  open: boolean;
+  t: T;
+  onToggle: (batchId: string) => void;
+}) {
+  const plan = batch.plan;
+  const done = plan?.filter((w) => w.status === "done").length ?? 0;
+  const ratio = plan !== null && plan.length > 0 ? done / plan.length : 0;
+  const doing = plan?.find((w) => w.status === "in_progress");
+  return (
+    <div className={cn("tk-batch", batch.status === "failed" && "failed")} data-tk-batch data-id={batch.batchId}>
+      <div className="tk-b-top">
+        <span className="tk-b-scope">{batch.scope}</span>
+        <PhaseBadge kind="batch" status={batch.status} label={t(`tk.batch.${batch.status}`)} />
+        {batch.retryCount > 0 && (
+          <span className="tk-b-retry" data-tk-retry>
+            {t("tk.retry", { n: batch.retryCount })}
+          </span>
+        )}
+      </div>
+      {batch.status === "pending" ? (
+        <div className="tk-b-note" data-tk-batch-queued>
+          {t("tk.batchPlan.queue")}
+        </div>
+      ) : plan !== null ? (
+        <>
+          <div className="tk-b-plan">
+            <ProgressTrack ratio={ratio} />
+            <span className="tk-b-plan-t">{t("tk.batchPlan.doneCount", { done, total: plan.length })}</span>
+          </div>
+          {doing !== undefined && (
+            <div className="tk-b-current" data-tk-doing>
+              <span className="ing">{t("tk.batchPlan.doing")}</span>
+              {doing.content}
+            </div>
+          )}
+          <button
+            type="button"
+            className="tk-b-toggle"
+            data-tk-plan-toggle
+            data-plan-open={open ? "on" : "off"}
+            onClick={() => onToggle(batch.batchId)}
+          >
+            {open ? t("tk.batchPlan.open") : t("tk.batchPlan.closed")}
+          </button>
+          {open && (
+            <div className="tk-plan-items" data-tk-plan-items>
+              {plan.map((w) => (
+                <div key={w.seq} className={cn("tk-pi", w.status)} data-tk-work={w.status}>
+                  <span className="tk-pi-ic" aria-hidden="true">
+                    {workItemIcon(w.status)}
+                  </span>
+                  <span className="tk-pi-c">
+                    {w.content}
+                    {w.note !== null && <span className="tk-pi-n"> {w.note}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : null}
+      {batch.retryNote !== null && (
+        <div className="tk-b-note" data-tk-retry-note>
+          {batch.retryNote}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 进度 tab 主体（阶段条 + 批次节）。 */
+export default function TaskProgressPane({
+  detail,
+  planOpen,
+  t,
+  onPlanToggle,
+}: {
+  detail: TaskDetailDto;
+  planOpen: Record<string, boolean>;
+  t: T;
+  onPlanToggle: (batchId: string) => void;
+}) {
+  return (
+    <>
+      <StageBar detail={detail} t={t} />
+      <div className="tk-sec">
+        <div className="tk-sec-h">{t("tk.batches")}</div>
+        {detail.batches.length === 0 ? (
+          <EmptyPanel marker="batches" title={t("tk.noBatches.title")} sub={t("tk.noBatches.sub")} />
+        ) : (
+          detail.batches.map((b) => (
+            <BatchCard key={b.batchId} batch={b} open={planOpen[b.batchId] === true} t={t} onToggle={onPlanToggle} />
+          ))
+        )}
+      </div>
+    </>
+  );
+}
