@@ -40,6 +40,14 @@ export interface TaskEngineServiceDeps {
   /** 父进程面（getItems 读 + deleteByInstanceIds 清理；F3.6 唯一例外写点）。 */
   readonly workLedger: Pick<WorkLedgerPort, "deleteByInstanceIds">;
   readonly clock: ClockPort;
+  /**
+   * task.changed 出站钩子（AF-T1.5.2，O-7）：引擎驱动的行插入/状态迁移
+   * （createTask 落行 + 编排回口八方法）成功后逐帧回调——组合根接
+   * EventStream.broadcastTaskChanged 同一广播单点（不升第二通路）。
+   * 生命周期三命令（pause/resume/cancel）**不经本钩子**（handler 层已接
+   * 同一单点，避免双发）；deleteTask 不广播（非状态迁移，AF-T1.5.2 裁决）。
+   */
+  readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void;
 }
 
 export class TaskEngineService implements TaskEnginePort {
@@ -47,6 +55,15 @@ export class TaskEngineService implements TaskEnginePort {
   private readonly recoveredJobIds = new Set<string>();
 
   constructor(private readonly deps: TaskEngineServiceDeps) {}
+
+  /** task.changed 帧回调（迁移成功后；钩子异常不阻断引擎主流程）。 */
+  private notify(frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }): void {
+    try {
+      this.deps.onTaskChanged?.(frame);
+    } catch {
+      // 广播面异常静默（引擎状态机是事实源，推送是增强）
+    }
+  }
 
   // ── 创建（§4.1 四步 + §5.2 编排启动） ──────────────────────
 
@@ -79,6 +96,7 @@ export class TaskEngineService implements TaskEnginePort {
       updatedAt: now,
       error: null,
     });
+    this.notify({ jobId, changed: "job", status: "pending" }); // 创建帧（双宿主同源：/project 与 chat 工具面）
     for (const stage of stagePlan) {
       await this.deps.store.insertStage({
         jobId,
@@ -88,6 +106,7 @@ export class TaskEngineService implements TaskEnginePort {
         artifact: null,
         updatedAt: now,
       });
+      this.notify({ jobId, changed: "stage", status: "pending" });
     }
     await this.deps.starter.startOrchestrator(jobId);
     return { jobId };
@@ -173,6 +192,7 @@ export class TaskEngineService implements TaskEnginePort {
     // 第一个批次行落库；此后派发闸只认 running）
     if (job.status === "pending") {
       await this.transitionJob(input.jobId, "running");
+      this.notify({ jobId: input.jobId, changed: "job", status: "running" });
     }
     const now = this.deps.clock.now();
     const batchId = crypto.randomUUID();
@@ -190,6 +210,7 @@ export class TaskEngineService implements TaskEnginePort {
       createdAt: now,
       updatedAt: now,
     });
+    this.notify({ jobId: input.jobId, changed: "batch", status: "pending" });
     return { batchId };
   }
 
@@ -208,6 +229,7 @@ export class TaskEngineService implements TaskEnginePort {
       instanceId,
       updatedAt: this.deps.clock.now(),
     });
+    this.notify({ jobId: batch.jobId, changed: "batch", status: "running" });
   }
 
   async completeBatch(batchId: string): Promise<void> {
@@ -217,6 +239,7 @@ export class TaskEngineService implements TaskEnginePort {
       throw new TaskError("task.invalid_state", `批次 ${batchId} 当前状态 ${batch.status}，仅 running 可收口 done`);
     }
     await this.deps.store.updateBatch({ ...batch, status: "done", updatedAt: this.deps.clock.now() });
+    this.notify({ jobId: batch.jobId, changed: "batch", status: "done" });
   }
 
   async failBatch(batchId: string, note: string): Promise<{ retryScheduled: boolean }> {
@@ -240,6 +263,7 @@ export class TaskEngineService implements TaskEnginePort {
       retryNote: note,
       updatedAt: this.deps.clock.now(),
     });
+    this.notify({ jobId: batch.jobId, changed: "batch", status: "failed" });
     // O-3 重试调度：只做判定与落库（重派动作归 T2.2；cancelled 不重试）。
     // 判定用递增后计数：retryCount ≥ 上限 → 不再排期，转入超限上浮。
     const retryScheduled = job.status === "running" && shouldRetryBatch(retryCount);
@@ -248,11 +272,13 @@ export class TaskEngineService implements TaskEnginePort {
       await this.deps.store
         .updateStageStatus(batch.jobId, batch.stageSeq, "failed")
         .catch((error) => this.mapDomainError(error));
+      this.notify({ jobId: batch.jobId, changed: "stage", status: "failed" });
       await this.transitionJob(
         batch.jobId,
         "failed",
         `重试耗尽：批次「${batch.scope}」失败 ${retryCount} 次（上限 ${MAX_BATCH_RETRY}）——${note}`,
       );
+      this.notify({ jobId: batch.jobId, changed: "job", status: "failed" });
     }
     return { retryScheduled };
   }
@@ -264,6 +290,7 @@ export class TaskEngineService implements TaskEnginePort {
       throw new TaskError("task.invalid_state", `stage 不存在：${jobId}#${stageSeq}（阶段行已冻结，AD-9③）`);
     }
     await this.deps.store.updateStageStatus(jobId, stageSeq, "running").catch((error) => this.mapDomainError(error));
+    this.notify({ jobId, changed: "stage", status: "running" });
   }
 
   async writeStageArtifact(jobId: string, stageSeq: number, artifact: StageArtifact): Promise<void> {
@@ -272,6 +299,7 @@ export class TaskEngineService implements TaskEnginePort {
     await this.deps.store
       .updateStageStatus(jobId, stageSeq, "done", artifact)
       .catch((error) => this.mapDomainError(error));
+    this.notify({ jobId, changed: "stage", status: "done" });
   }
 
   async completeJob(jobId: string): Promise<void> {
@@ -289,6 +317,7 @@ export class TaskEngineService implements TaskEnginePort {
       );
     }
     await this.transitionJob(jobId, "done");
+    this.notify({ jobId, changed: "job", status: "done" });
   }
 
   async failJob(jobId: string, error: string): Promise<void> {
@@ -297,6 +326,7 @@ export class TaskEngineService implements TaskEnginePort {
       throw new TaskError("task.invalid_state", `任务 ${jobId} 当前状态 ${job.status}，仅 running 可收口 failed`);
     }
     await this.transitionJob(jobId, "failed", error);
+    this.notify({ jobId, changed: "job", status: "failed" });
   }
 
   // ── 启动恢复扫描（§4.4，F2.3） ────────────────────────────

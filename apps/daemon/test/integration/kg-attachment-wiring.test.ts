@@ -234,6 +234,7 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
         getChangeLog: () => [],
         countNodes: () => 0,
         latestIteration: () => null,
+        listNodeIdsByOriginBatches: () => [], // T2.2 F2.7 反查面（本测试不消费）
       };
       const attachment = new KgAttachmentService({ graph: failing });
       const env = new NodeExecutionEnv({ cwd: root });

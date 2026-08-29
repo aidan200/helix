@@ -4,7 +4,8 @@
  * WriteQueue 单写通道 AG-06 全局链；读面共用 writeQueue.database 连接）。
  *
  * 语义边界：
- * - 配置单元 = profile kind（main-session / subagent-worker）；
+ * - 配置单元 = profile kind（main-session / subagent-worker / orchestrator，
+ *   T2.2 additive 扩第三值）；
  * - 资源类型 ∈ {tool, skill, model, thinking}（thinking = thinking 批扩值）；
  * - **缺省无记录 = 启用**（零配置兼容现状，存量零迁移）——本表只存用户
  *   显式选择过的差异行，全集（profile tools 声明 / 扫描技能）与「无记录
@@ -13,7 +14,11 @@
  *   删除行 = 未设；setModelSlot 为原子替换（主键含 name，非原子会遗留旧行）。
  *   thinking 槽位同构（AD-6 扩维：setThinkingSlot 原子替换，单行不变式相同）。
  */
-export type ProfileKind = "main-session" | "subagent-worker";
+/**
+ * 配置单元 = profile kind（main-session / subagent-worker / orchestrator，
+ * T2.2 增第三值——编排主 agent；additive 扩值，既有两值语义零变化）。
+ */
+export type ProfileKind = "main-session" | "subagent-worker" | "orchestrator";
 
 /** 资源类型（tool/skill = 启停差异行；model/thinking = 槽位单行——
  *  thinking 为 thinking 批扩值（AD-6，iter-20260823-6ps5 T1.3）：档位字符串

@@ -197,10 +197,19 @@ describe("段库资产：三场景段文件齐备（目录↔清单零漂移）"
     }
   });
 
-  test("③ 三场景硬约束段齐备：brief 六段（含任务目标/范围钳制/完成标准三要素载体）、report 四段（含 summary/findings）、kg-change-report 四类条目", () => {
+  test("③ 三场景硬约束段齐备：brief 八段（含任务目标/范围钳制/完成标准三要素载体 + T2.2 批次两段）、report 四段（含 summary/findings）、kg-change-report 四类条目", () => {
     const titles = (scenario: string) =>
       SEGMENT_CATALOG.filter((s) => s.scenario === scenario).map((s) => s.title);
-    expect(titles("brief")).toEqual(["任务目标", "背景", "kg 约束切片", "范围钳制", "测试要求", "完成标准"]);
+    expect(titles("brief")).toEqual([
+      "任务目标",
+      "背景",
+      "kg 约束切片",
+      "范围钳制",
+      "测试要求",
+      "完成标准",
+      "批次 brief 模板",
+      "plan 硬约束",
+    ]);
     expect(titles("report")).toEqual(["summary", "deviation", "findings", "tests 执行记录"]);
     expect(titles("kg-change-report")).toEqual(["失效锚点", "规则冲突", "疑似过时", "知识变化"]);
   });

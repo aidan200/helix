@@ -26,6 +26,11 @@ import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type 
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
 import { buildEditToolDeps, buildKnowledgeStack } from "./assembly/buildKnowledgeStack";
+import { createOrchestratorSessionFactory } from "./assembly/orchestrator-runtime";
+import { TaskOrchestratorService } from "../application/services/task/TaskOrchestratorService";
+import type { TaskOrchestratorStarterPort } from "../application/ports/outbound/TaskOrchestratorStarterPort";
+import { PLAN_HARD_CONSTRAINT_SEGMENT } from "../adapters/driven/pi-engine/runtime/templates/catalog";
+import { resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
 import { scanWorkspaceProjects } from "../adapters/driven/workspace-scan";
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
@@ -343,18 +348,37 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    buildSessionStack 的提示装配扫描器同形同源、无共享状态——扫描现拍现
   //    读）；starter（T2.2 TaskOrchestratorService）真体注入前 no-op；恢复扫描
   //    钩子在 registry.initialize 之后触发（§4.4）。kg 节点投影经 workspace 持有者
-  //    晚绑读现值（W1 重绑接缝同 kgTools/editDeps 工厂；未绑定 → 空投影）。──
+  //    晚绑读现值（W1 重绑接缝同 kgTools/editDeps 工厂；未绑定 → 空投影）。
+  //    task.changed 广播（AF-T1.5.2）与编排服务均晚绑（eventStream/scheduler
+  //    在 buildSessionStack 后才存在——broadcastWorkspaceChanged 同款回填模式，
+  //    引擎只在运行期触发回调，装配窗口零调用）。──
   const bootCwd = deps.toolCwd ?? process.cwd();
+  const taskSkillSource = new SkillScanner({
+    userSkillsDir: paths.skillsHome(),
+    projectSkillsDir: path.join(bootCwd, ".helix", "skills"),
+    builtinSkillsDir: deps.builtinSkillsDir ?? builtinSkillsDir(),
+    cwd: bootCwd,
+  });
+  let broadcastTaskChanged: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void = () => {};
+  let orchestratorService: TaskOrchestratorService | undefined;
+  /** 晚绑 starter 代理（T2.2 真体在 sessionStack 之后构造回填；未回填 = 占位语义）。 */
+  const lateStarter: TaskOrchestratorStarterPort = {
+    startOrchestrator: (jobId) =>
+      orchestratorService === undefined
+        ? Promise.resolve()
+        : orchestratorService.startOrchestrator(jobId),
+    stopOrchestrator: (jobId) =>
+      orchestratorService === undefined
+        ? Promise.resolve()
+        : orchestratorService.stopOrchestrator(jobId),
+  };
   const taskStack = await buildTaskStack({
     writeQueue: persistence.writeQueue,
     clock,
     logger,
-    skillSource: new SkillScanner({
-      userSkillsDir: paths.skillsHome(),
-      projectSkillsDir: path.join(bootCwd, ".helix", "skills"),
-      builtinSkillsDir: deps.builtinSkillsDir ?? builtinSkillsDir(),
-      cwd: bootCwd,
-    }),
+    starterOverride: lateStarter,
+    skillSource: taskSkillSource,
+    onTaskChanged: (frame) => broadcastTaskChanged(frame),
     kgNodeProjector: (nodeIds) => {
       const stack = workspace.stack();
       if (stack === null) return [];
@@ -467,8 +491,59 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     builtinSkillsDir: deps.builtinSkillsDir,
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
     sessionIdlePollMs: deps.sessionIdlePollMs,
+    // T2.2：任务批次实例收口路由——task:* 会话归属 closure 转投编排服务
+    //（晚绑闭包：编排服务在本块之后构造回填）
+    taskClosureSink: (agentId) => orchestratorService?.handleInstanceClosure(agentId),
   });
-  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow } = sessionStack;
+  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow, orchestratorAssembly } = sessionStack;
+
+  // ── T2.2 晚绑闭合：task.changed 广播单点 + 编排服务真体回填──
+  //    AF-T1.5.2：引擎出站钩子经同一 EventStream.broadcastTaskChanged 通路
+  //（生命周期三命令在 handler 层已接——不双发）；编排服务消费 scheduler
+  //（批次 spawn 占预算/收口读面/kill）+ 任务域依赖面（buildTaskStack 同源）。
+  broadcastTaskChanged = (frame) => eventStream.broadcastTaskChanged(frame);
+  orchestratorService = new TaskOrchestratorService({
+    ...taskStack.orchestratorCore,
+    rawSpawn: (sessionId, task) => scheduler.spawn(sessionId, task, undefined, resolveSubagentModelId()),
+    instanceOutcome: (agentId) => {
+      const hit = scheduler.status(agentId)[0];
+      return hit === undefined ? undefined : { state: hit.state, ...(hit.summary !== undefined ? { summary: hit.summary } : {}) };
+    },
+    killInstance: (agentId) => {
+      void scheduler.kill(agentId);
+    },
+    createSession: createOrchestratorSessionFactory({
+      assembly: orchestratorAssembly,
+      model: () => resolveConfigModel(persistence.defaultModel.current(), modelStack.catalog.modelsView()),
+      apiKeys: () => modelStack.authStore.apiKeysSnapshot(),
+      models: modelStack.catalog.modelsView(),
+      toolCwd: toolCwdNow,
+      // kg 只读面（W1：经 workspace 持有者读现值；未绑定 → 剔除 kg 工具）
+      kgRead: () => {
+        const stack = workspace.stack();
+        const root = workspace.boundRoot();
+        return stack !== null && root !== null
+          ? { query: stack.queryService, workspaceRoot: root, scanProjects: () => scanWorkspaceProjects(root) }
+          : undefined;
+      },
+      grep: {
+        rgPath: grepFreeze.kind === "rg" ? grepFreeze.rgPath : undefined,
+        warn: (m: string) => logger.warn(m),
+      },
+      taskEngine: taskStack.orchestratorCore.taskEngine,
+      ledger: taskStack.orchestratorCore.ledger,
+      // 阶段产物 nodeIds 反查（F2.7）：阶段批次 → kg 元数据 origin_batch
+      stageNodeIds: (jobId, stageSeq) => {
+        const stack = workspace.stack();
+        if (stack === null) return [];
+        const batchIds = taskStack.orchestratorCore.store.getBatches(jobId, stageSeq).map((b) => b.id);
+        return stack.queryService.nodeIdsForBatches(batchIds);
+      },
+      logger,
+    }),
+    planHardConstraint: PLAN_HARD_CONSTRAINT_SEGMENT,
+    logger,
+  });
 
   // ── W1 晚绑闭合：workspace 广播与活跃 agent 判定接 eventStream/registry
   //    现值（构造序：WorkspaceService 先于 buildSessionStack 建立以驱动

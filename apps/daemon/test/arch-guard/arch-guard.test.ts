@@ -726,12 +726,13 @@ describe("O-4（T2.1）：任务域新分层目录落位（domain/task、service
     }
   });
 
-  test("③ tools/plan 与 tools/task-create（T1.4 落位即受守护）不 import infrastructure/driving", () => {
-    // T1.4 并行落地中：目录未建时本断言空转跳过，落位后自动生效（防未来
+  test("③ tools/plan、tools/task-create 与 tools/task-ops（T1.4/T2.4/T2.2 落位即受守护）不 import infrastructure/driving", () => {
+    // T1.4/T2.4 并行落地期：目录未建时本断言空转跳过，落位后自动生效（防未来
     // 回归；driven 工具面允许 domain/application ports/service type-only 面）。
     for (const dir of [
       path.join("adapters", "driven", "tools", "plan"),
       path.join("adapters", "driven", "tools", "task-create"),
+      path.join("adapters", "driven", "tools", "task-ops"),
     ]) {
       if (!existsSync(path.join(srcRoot, dir))) continue;
       for (const rel of listFiles(path.join(srcRoot, dir))) {

@@ -97,7 +97,9 @@ export interface AgentModelChangedPayload {
  * ToolPromptSnippets 注册表同源，M6 T4 批内补登；注册表外名 = 空串）。
  */
 export interface AgentConfigProfileBlock {
-  profileKind: "main-session" | "subagent-worker";
+  /** 配置单元 kind（T2.2 additive 扩第三值：任务编排主 agent——读面透传；
+   *  写面（set_enabled）仍两值——编排工具配置 UI 归后续迭代）。 */
+  profileKind: "main-session" | "subagent-worker" | "orchestrator";
   tools: ReadonlyArray<{ name: string; enabled: boolean; snippet: string }>;
   skills: ReadonlyArray<{
     name: string;
@@ -133,7 +135,8 @@ export interface AgentConfigListResultPayload {
  * model 型 name = 模型 id 或 null（clear））。
  */
 export interface AgentConfigChangedPayload {
-  profileKind: "main-session" | "subagent-worker";
+  /** 配置单元 kind（T2.2 additive 扩第三值；写面实际可写仍两值——编排工具配置 UI 归后续迭代）。 */
+  profileKind: "main-session" | "subagent-worker" | "orchestrator";
   /** thinking = v0.11 批内补登（thinking 槽位，AD-6；与 model 同为槽位语义非启停）。 */
   resourceType: "tool" | "skill" | "model" | "thinking";
   /** tools/skills = 资源名；model = 模型 id 或 null（clear）；thinking = 档位字符串或 null（clear）。 */

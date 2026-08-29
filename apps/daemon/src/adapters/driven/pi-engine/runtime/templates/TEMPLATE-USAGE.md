@@ -17,6 +17,8 @@
 | brief | brief/scope-clamp.md | 范围钳制 | 明确不做什么的边界清单，防段外动作（F-23 教训；硬约束①三要素之二，不可省） |
 | brief | brief/test-requirements.md | 测试要求 | TDD 先写失败测试：测试点清单/层级/运行方式/红绿判定 |
 | brief | brief/completion-criteria.md | 完成标准 | 验收条件+交付物+闭环要求——完成判定要素的载体段（硬约束①三要素之三，不可省） |
+| brief | brief/batch-brief-template.md | 批次 brief 模板 | 任务编排批次 brief 的固定段骨架：范围/锚定上层上下文/产出要求/验收（T2.2，AD-3③；skill 可按类型细化不可裁骨架） |
+| brief | brief/plan-hard-constraint.md | plan 硬约束 | 强制 plan 任务的模板层硬约束（先写 plan 再动手+阶段转换必更新+closure 全 resolve；T2.2 派发面机械追加，LLM 不可裁） |
 | report | report/summary.md | summary | 一句话结论+关键证据（硬约束②必含；summary 足够决策要不要深入） |
 | report | report/deviation.md | deviation | 与设计/架构的偏差及理由；无偏差时整段省略（显式「无」可选） |
 | report | report/findings.md | findings | 新知识候选+supersede 声明+理由——kg 落账输入；无发现必须显式写「无」（硬约束②必含） |

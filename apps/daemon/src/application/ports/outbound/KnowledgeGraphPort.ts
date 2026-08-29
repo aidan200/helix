@@ -68,6 +68,12 @@ export interface KnowledgeGraphPort {
   countNodes(projectRoot: string): number;
 
   /**
+   * 按产出批次反查节点 id 集（T2.2 F2.7 阶段产物聚合）：nodes.origin_batch
+   * 元数据 ∈ batchIds，排除 superseded；id 升序确定性。只读零写路径。
+   */
+  listNodeIdsByOriginBatches(projectRoot: string, batchIds: readonly string[]): readonly string[];
+
+  /**
    * 库内最近一次变更所属迭代 id（T5.3 kg.change.report 缺省入参 = 当前
    * 迭代的确定性推导；change_log 空 → null）。仅在 .kg 已存在的项目上调用。
    */

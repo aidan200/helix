@@ -237,7 +237,7 @@ export class EventStream implements EventPublisherPort {
    * 字符串或 null（clear）。
    */
   broadcastAgentConfigChanged(payload: {
-    profileKind: "main-session" | "subagent-worker";
+    profileKind: "main-session" | "subagent-worker" | "orchestrator"; // T2.2 扩第三值（写面实际可写仍两值）
     resourceType: "tool" | "skill" | "model" | "thinking";
     name: string | null;
     enabled: boolean;

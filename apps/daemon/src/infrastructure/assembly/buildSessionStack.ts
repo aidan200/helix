@@ -25,6 +25,11 @@ import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLaunche
 import { PiAgentEngineAdapter } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import {
+  OrchestratorProfile,
+  ORCHESTRATOR_SYSTEM_PROMPT,
+} from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
+import { isTaskSessionId } from "../../application/services/task/TaskOrchestratorService";
 import { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
 import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinking-resolve";
 import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
@@ -153,6 +158,13 @@ export interface BuildSessionStackDeps {
    * （SubAgent 子进程装配/纯调度测试形态）。
    */
   readonly findingsSink?: ClosureFindingsSink;
+  /**
+   * 任务批次实例收口路由（T2.2）：调度器注入回调里 task:* 会话归属实例的
+   * closure 转投编排服务（组合根接 TaskOrchestratorService.handleInstanceClosure
+   * ——不升第二通路；进展报告不入）。缺省不路由（编排未装配形态，冷会话
+   * 补投走既有 warn 路径）。
+   */
+  readonly taskClosureSink?: (agentId: string) => void;
 }
 
 export interface SessionStack {
@@ -178,6 +190,12 @@ export interface SessionStack {
    * 「绑定后 toolCwd 基准正确」）。
    */
   readonly toolCwdNow: () => string;
+  /**
+   * 编排主 agent 组装快照现值读面（T2.2）：编排会话工厂消费（启动/toggle
+   * 后重算缓存；编排会话短生命周期，下一会话生效——与 subagent 快照同
+   * 语义）。
+   */
+  readonly orchestratorAssembly: () => { readonly tools: readonly string[]; readonly systemPrompt: string };
 }
 
 export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<SessionStack> {
@@ -207,6 +225,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     toolsCatalog: {
       "main-session": MainSessionProfile.tools,
       "subagent-worker": SubAgentProfile.tools,
+      "orchestrator": OrchestratorProfile.tools, // T2.2 第三 kind（additive 扩值；编排工具面可配置化）
     } satisfies Record<ProfileKind, readonly string[]>,
     // list 读面 snippet 透传（SystemPromptAssembler 同源注册表单点）
     toolSnippets: TOOL_PROMPT_SNIPPETS,
@@ -227,7 +246,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // 下次 toggle/重启才进提示，§六「profile 全集变更不触发运行期刷新」同族）。
   const promptAssembler = new SystemPromptAssembler({ toolSnippets: TOOL_PROMPT_SNIPPETS });
   const assemblyBase = (kind: ProfileKind): string =>
-    kind === "main-session" ? MAIN_SESSION_SYSTEM_PROMPT : SUBAGENT_SYSTEM_PROMPT;
+    kind === "main-session"
+      ? MAIN_SESSION_SYSTEM_PROMPT
+      : kind === "subagent-worker"
+        ? SUBAGENT_SYSTEM_PROMPT
+        : ORCHESTRATOR_SYSTEM_PROMPT; // orchestrator（T2.2）：与 MainAgent 消费 skill 同构的三段组装
   const computeAssembly = async (
     kind: ProfileKind,
   ): Promise<{ readonly tools: readonly string[]; readonly systemPrompt: string }> => {
@@ -240,6 +263,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   };
   let mainAssembly = await computeAssembly("main-session");
   let subagentAssembly = await computeAssembly("subagent-worker");
+  let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算）
   /** toggle applied 后的重算入口（WS 命令复用面：命令只调 toggle，刷新单点在此）。 */
   const refreshAssembly = async (kind: ProfileKind): Promise<void> => {
     const next = await computeAssembly(kind);
@@ -251,8 +275,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         runtime.chatService.setSystemPrompt(next.systemPrompt);
         runtime.chatService.setTools(next.tools);
       }
-    } else {
+    } else if (kind === "subagent-worker") {
       subagentAssembly = next; // 已 spawn 实例 env 已定格（代际生效，零刷新）
+    } else {
+      orchestratorAssemblyValue = next; // 编排会话短生命周期：下一会话生效（零活跃刷新）
     }
   };
 
@@ -368,7 +394,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // 不可达——活跃实例的会话不会卸载）异步恢复后补投。注册表在本函数内
     // 后置构造——回调仅在运行期（spawn 后）触发，装配窗口内不会被调。
     injectClosure: (agentId, message, source) => {
-      const sessionId = scheduler.instance(agentId)?.sessionId;
+      // T2.2 任务批次实例路由：task:* 会话归属的 closure/收口注入转投编排服务
+      //（进展报告不入——编排会话不被机械信封噪扰）；非任务实例走既有会话路由。
+      const ownerSession = scheduler.instance(agentId)?.sessionId;
+      if (ownerSession !== undefined && isTaskSessionId(ownerSession) && source !== "progress" && deps.taskClosureSink !== undefined) {
+        deps.taskClosureSink(agentId);
+        return;
+      }
+      const sessionId = ownerSession;
       if (sessionId === undefined) return;
       const hot = registry.peek(sessionId);
       if (hot !== undefined) {
@@ -557,5 +590,6 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     refreshAssembly,
     resolveSubagentModelId,
     toolCwdNow: toolCwdOf,
+    orchestratorAssembly: () => orchestratorAssemblyValue,
   };
 }

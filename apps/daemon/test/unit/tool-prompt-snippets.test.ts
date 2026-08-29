@@ -25,7 +25,8 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
   });
 
   test("② snippet 为中文一句话：非空、单行（无换行符）", () => {
-    // 恰 18 条（main 全集 15 + plan 三工具——subagent 独有，单一注册表不分 kind）
+    // 恰 24 条（main 全集 15 + plan 三工具 + 编排 task 回口六工具——T2.2；
+    // 单一注册表不分 kind）
     expect(Object.keys(TOOL_PROMPT_SNIPPETS).sort()).toEqual(
       [
         "agent_inspect",
@@ -42,7 +43,13 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
         "plan_read",
         "plan_update",
         "read",
+        "task_advance_stage",
+        "task_complete_job",
         "task_create",
+        "task_dispatch_batch",
+        "task_fail_job",
+        "task_insert_batch",
+        "task_stage_artifact",
         "web_fetch",
         "web_search",
         "write",

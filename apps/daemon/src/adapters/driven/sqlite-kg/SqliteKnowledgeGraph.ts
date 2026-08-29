@@ -341,6 +341,23 @@ export class SqliteKnowledgeGraph {
     return row.n;
   }
 
+  /**
+   * 按产出批次反查节点 id 集（T2.2 F2.7 阶段产物聚合数据源）：nodes.
+   * origin_batch_id ∈ batchIds（T2.1 元数据列），排除 superseded（已被重跑
+   * 取代的旧产出不进阶段产物）；id 升序确定性。只读，零写路径。
+   */
+  listNodeIdsByOriginBatches(projectRoot: string, batchIds: readonly string[]): readonly string[] {
+    if (batchIds.length === 0) return [];
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const placeholders = batchIds.map(() => "?").join(", ");
+    const rows = db
+      .prepare(
+        `SELECT id FROM nodes WHERE origin_batch_id IN (${placeholders}) AND status != 'superseded' ORDER BY id`,
+      )
+      .all(...batchIds) as { id: string }[];
+    return rows.map((row) => row.id);
+  }
+
   /** 库内最近一次变更所属迭代 id（T5.3 当前迭代确定性推导；空 → null）。 */
   latestIteration(projectRoot: string): string | null {
     const db = this.deps.database.knowledgeConnection(projectRoot);

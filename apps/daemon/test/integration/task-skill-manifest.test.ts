@@ -214,7 +214,7 @@ describe("builtin 防护回归（CL-2-T10）", () => {
     const service = new ResourceService({
       store: new InMemoryResourceState(),
       skills: builtinScanner(),
-      toolsCatalog: { "main-session": ["bash"], "subagent-worker": ["bash"] } as Record<ProfileKind, readonly string[]>,
+      toolsCatalog: { "main-session": ["bash"], "subagent-worker": ["bash"], "orchestrator": ["bash"] } as Record<ProfileKind, readonly string[]>,
       toolSnippets: {},
     });
     const outcome = await service.setEnabled("main-session", "skill", "kg-bootstrap", false);

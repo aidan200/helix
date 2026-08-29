@@ -87,6 +87,19 @@ export class KgQueryService {
   }
 
   /**
+   * 按产出批次反查节点 id 集（T2.2 F2.7 阶段产物聚合）：跨项目汇总
+   * origin_batch 元数据命中（排除 superseded），id 升序确定性。
+   */
+  nodeIdsForBatches(batchIds: readonly string[]): readonly string[] {
+    if (batchIds.length === 0) return [];
+    const out: string[] = [];
+    for (const project of this.deps.projects()) {
+      out.push(...this.deps.graph.listNodeIdsByOriginBatches(project, batchIds));
+    }
+    return out.sort();
+  }
+
+  /**
    * 任务层切片注入（F1.3）：返回注入后的 task 文本（命中追加切片段；
    * 空命中/失败返回原文逐字节不变——空段省略不占位，AD-18）。
    * 注入的 id 即时 markInjected（跨通道去重闭环）。

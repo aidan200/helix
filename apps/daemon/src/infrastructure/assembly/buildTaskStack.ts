@@ -1,4 +1,5 @@
 import type { Logger } from "../logging";
+import { readFile } from "node:fs/promises";
 import type { WriteQueue } from "../../adapters/driven/sqlite-session/WriteQueue";
 import type { SkillSourcePort } from "../../application/ports/outbound/SkillSourcePort";
 import { TaskStore } from "../../adapters/driven/sqlite-session/TaskStore";
@@ -6,12 +7,14 @@ import { parentWorkLedger } from "../../adapters/driven/sqlite-session/WorkLedge
 import { TaskSkillRegistry } from "../../adapters/driven/task-skill-registry/TaskSkillRegistry";
 import { TaskEngineService } from "../../application/services/task/TaskEngineService";
 import { TaskQueryService, type NodeRefData } from "../../application/services/task/TaskQueryService";
+import { WorkLedgerService } from "../../application/services/task/WorkLedgerService";
 import type { TaskEnginePort } from "../../application/ports/inbound/TaskEnginePort";
 import type {
   TaskSkillRegistryPort,
   TaskTypeInfo,
 } from "../../application/ports/outbound/TaskSkillRegistryPort";
 import type { TaskOrchestratorStarterPort } from "../../application/ports/outbound/TaskOrchestratorStarterPort";
+import type { TaskStorePort } from "../../application/ports/outbound/TaskStorePort";
 import type { ClockPort } from "../../application/ports/outbound/ClockPort";
 import type { TaskManifest } from "../../domain/task/types";
 
@@ -38,6 +41,18 @@ export interface TaskStack {
   readonly taskEngine: TaskEnginePort;
   /** P-2 读面投影（listTasks/getTaskDetail/getTaskArtifacts）。 */
   readonly query: TaskQueryService;
+  /**
+   * 编排服务任务域依赖面（T2.2）：组合根在 sessionStack 之后构造
+   * TaskOrchestratorService 时消费（store/engine/ledger/skills + skill
+   * 全文取数）。生命周期 = 与任务栈同库同源（同一 WriteQueue）。
+   */
+  readonly orchestratorCore: {
+    readonly store: TaskStorePort;
+    readonly taskEngine: TaskEnginePort;
+    readonly ledger: WorkLedgerService;
+    readonly skills: TaskSkillRegistryPort;
+    readonly skillTextOf: (type: string) => Promise<string | undefined>;
+  };
 }
 
 export interface BuildTaskStackDeps {
@@ -51,6 +66,12 @@ export interface BuildTaskStackDeps {
   readonly skillSource?: SkillSourcePort;
   /** kg 节点投影注入（产物页人类可读，AD-4②；缺省 = 空投影）。 */
   readonly kgNodeProjector?: (nodeIds: readonly string[]) => readonly NodeRefData[];
+  /**
+   * task.changed 出站钩子（AF-T1.5.2，T2.2）：透传 TaskEngineService——
+   * 组合根接 EventStream.broadcastTaskChanged 同一广播单点（生命周期三
+   * 命令面归 handler，不双发）。缺省不推送（隔离测试形态）。
+   */
+  readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void;
 }
 
 export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStack> {
@@ -64,9 +85,29 @@ export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStac
     await registry.load();
     skills = registry;
   }
-  const engine = new TaskEngineService({ store, skills, starter, workLedger, clock: deps.clock });
+  const engine = new TaskEngineService({
+    store,
+    skills,
+    starter,
+    workLedger,
+    clock: deps.clock,
+    ...(deps.onTaskChanged !== undefined ? { onTaskChanged: deps.onTaskChanged } : {}),
+  });
   const query = new TaskQueryService({ store, workLedger, skills, clock: deps.clock, kgNodeProjector: deps.kgNodeProjector });
-  return { taskEngine: engine, query };
+  // T2.2 编排服务任务域依赖面：台账读面（父进程不持写面，O-1 表分域）+
+  // skill 全文取数（扫描 → 文件读取；组合根 fs 职责，服务层零 IO）
+  const ledger = new WorkLedgerService({ reader: workLedger });
+  const skillTextOf = async (type: string): Promise<string | undefined> => {
+    if (deps.skillSource === undefined) return undefined;
+    const hit = (await deps.skillSource.scan()).skills.find((s) => s.name === type);
+    if (hit === undefined) return undefined;
+    try {
+      return await readFile(hit.filePath, "utf8");
+    } catch {
+      return undefined;
+    }
+  };
+  return { taskEngine: engine, query, orchestratorCore: { store, taskEngine: engine, ledger, skills, skillTextOf } };
 }
 
 /** no-op 编排占位（T2.2 前任务不被驱动；start 调用警示日志可观测）。 */

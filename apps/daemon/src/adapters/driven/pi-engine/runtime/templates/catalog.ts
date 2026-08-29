@@ -1,10 +1,11 @@
 /**
- * 段库目录（architecture.md §7，AD-18，F1.3/F3.1/F3.3）。
+ * 段库目录（architecture.md §7，AD-18，F1.3/F3.1/F3.3；T2.2 增批次两段）。
  *
  * 模板体系 = **段库 + LLM 装配 + 三条硬约束**：brief / report /
  * kg-change-report 三场景各持段库；装配由 LLM 按任务实况选段
- * （派发时 MainAgent 组 brief、收口时 SubAgent 同策略组 report）——
- * 任务形态是开放集合，僵死模板致错配（F-23：agent 为填段执行段外动作）。
+ * （派发时 MainAgent 组 brief、收口时 SubAgent 同策略组 report；T2.2 起
+ * 任务编排主 agent 同策略组批次 brief）——任务形态是开放集合，僵死模板
+ * 致错配（F-23：agent 为填段执行段外动作）。
  *
  * 本模块是段库元数据的**唯一事实源**（段名×场景×用途）：
  * - guide.ts 据此把段目录渲染进 profile 提示词（接线零漂移）；
@@ -35,7 +36,7 @@ export interface SegmentMeta {
   readonly purpose: string;
 }
 
-/** 段库全目录（14 段：brief 6 / report 4 / kg-change-report 4）。 */
+/** 段库全目录（16 段：brief 8 / report 4 / kg-change-report 4；T2.2 brief +批次两段）。 */
 export const SEGMENT_CATALOG: readonly SegmentMeta[] = [
   // ── brief 场景（F1.3：派发时 MainAgent 组任务 brief）──
   {
@@ -73,6 +74,18 @@ export const SEGMENT_CATALOG: readonly SegmentMeta[] = [
     file: "completion-criteria.md",
     title: "完成标准",
     purpose: "验收条件+交付物+闭环要求——完成判定要素的载体段（硬约束①三要素之三，不可省）",
+  },
+  {
+    scenario: "brief",
+    file: "batch-brief-template.md",
+    title: "批次 brief 模板",
+    purpose: "任务编排批次 brief 的固定段骨架：范围/锚定上层上下文/产出要求/验收（T2.2，AD-3③；skill 可按类型细化不可裁骨架）",
+  },
+  {
+    scenario: "brief",
+    file: "plan-hard-constraint.md",
+    title: "plan 硬约束",
+    purpose: "强制 plan 任务的模板层硬约束（先写 plan 再动手+阶段转换必更新+closure 全 resolve；T2.2 派发面机械追加，LLM 不可裁）",
   },
   // ── report 场景（F3.1：收口时 SubAgent 组任务完成报告）──
   {
@@ -147,3 +160,20 @@ export const TEMPLATE_HARD_CONSTRAINTS: readonly HardConstraint[] = [
     text: "空段省略不占位——无实义内容的段整段省略，不得输出「（无内容）/待补充」类占位行",
   },
 ];
+
+/**
+ * plan 硬约束段全文（AD-6⑥，T2.2）：强制 plan 的任务类型（manifest
+ * plan=enforced）批次 brief 的模板层硬约束——任务编排派发面在 spawn 时
+ * **机械追加**（LLM 装配的 brief 无论是否包含，系统都追加本段；模板层
+ * 硬约束 LLM 不可裁）。文本与段文件 brief/plan-hard-constraint.md 同源
+ * （存在性测试断言文件含本段正文——双源零漂移）。
+ */
+export const PLAN_HARD_CONSTRAINT_SEGMENT = [
+  "## plan 硬约束（任务系统追加，模板层强制——不可裁）",
+  "",
+  "本批次为强制 plan（工作台账）任务，必须遵守：",
+  "1. 开工先建工作台账（一次给出全部计划条目）再动手执行；",
+  "2. 阶段转换必须同步更新台账项状态（in_progress/done/abandoned）；",
+  "3. 收口时台账须全部 resolve——每项 done，或 abandoned 且带非空理由 note；",
+  "4. 台账 note 记录关键事实与产物指针（文件路径/知识节点 id），供接力恢复与幂等重跑使用。",
+].join("\n");
