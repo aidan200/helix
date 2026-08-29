@@ -56,9 +56,38 @@ export class KgDatabase {
     db.exec("PRAGMA journal_mode = WAL;"); // 持久库级设置；崩溃一致 + 页面读不阻塞写
     db.exec("PRAGMA busy_timeout = 10000;"); // 双通道并发时另一写者等待而非 BUSY 失败
     db.exec(KG_SCHEMA_SQL); // 幂等直建（冷启动首建 / 旧库重开 no-op）
+    ensureSchemaEvolved(db); // 列级演进守护（老库 ALTER 补列；已演进 no-op）
     channels.set(projectRoot, db);
     return db;
   }
+}
+
+// ── 守护式 schema 演进（T2.1 两列 additive 迁移） ─────────
+
+/**
+ * 启动期列级演进（幂等，每次打开执行，已演进则 no-op；镜像 sqlite-session
+ * WriteQueue.ensureSchemaEvolved 先例——hasColumn 守卫 + ALTER ADD COLUMN）：
+ *
+ * - nodes.origin_batch_id / change_log.task_id（AD-10 任务→kg 唯一衔接面）
+ *   缺列 → ALTER ADD COLUMN TEXT（可空无默认——旧行 NULL = 无任务元数据，
+ *   读取侧前向兼容）。老库既有行/数据不动；新库经 KG_SCHEMA_SQL 直建含
+ *   两列（本函数 no-op）。
+ *
+ * 不做迁移框架（与 sqlite-session 同口径）：无版本表、无回滚——检测即修。
+ */
+function ensureSchemaEvolved(db: Database): void {
+  if (!hasColumn(db, "nodes", "origin_batch_id")) {
+    db.exec("ALTER TABLE nodes ADD COLUMN origin_batch_id TEXT");
+  }
+  if (!hasColumn(db, "change_log", "task_id")) {
+    db.exec("ALTER TABLE change_log ADD COLUMN task_id TEXT");
+  }
+}
+
+/** 列存在性（表不存在视为"无需演进"——随后的 CREATE TABLE 直建新形状）。 */
+function hasColumn(db: Database, table: string, column: string): boolean {
+  const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((row) => row.name);
+  return cols.length === 0 || cols.includes(column);
 }
 
 /** .helix-kg 库文件定位（导出供测试/迁移脚本对账；运行时经 KgDatabase 访问）。 */

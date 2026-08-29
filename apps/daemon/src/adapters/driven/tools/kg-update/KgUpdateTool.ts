@@ -27,6 +27,9 @@ import type {
  *   新节点草稿（新号自动发放，链上双侧可见）。
  * - createNode(kind, name, digest, ...)：新知识即时落账——自动发号
  *   （AD-16）；anchors 可选组合锚声明（第二笔 declareAnchors op）。
+ * - batchCreateNodes(nodes[])（T2.1，O-5 裁决）：批量建点——LLM 按写入量
+ *   自选单条/批量，两 op 并存且结果等价（CL-2-T14）；逐项自动发号，
+ *   任一项失败整批拒绝（先全量校验后单事务）。
  *
  * 与 ClosureDto.findings 收口通道（T4.1）非竞争关系：共用同一 API 入口，
  * 本工具承载 edit 现场的即时兑现（O-2 决策消解）。
@@ -35,7 +38,11 @@ import type {
 const kgUpdateParameters = {
   type: "object",
   properties: {
-    op: { type: "string", enum: ["createNode", "supersede"], description: "操作：createNode 新知识落账 / supersede 推翻既有节点" },
+    op: {
+      type: "string",
+      enum: ["createNode", "supersede", "batchCreateNodes"],
+      description: "操作：createNode 新知识落账 / supersede 推翻既有节点 / batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）",
+    },
     // ── createNode ──
     kind: { type: "string", enum: ["rule", "entity"], description: "createNode 节点类型（rule=规则 / entity=实体）" },
     name: { type: "string", description: "createNode 节点名（重名合法，靠 digest 区分）" },
@@ -53,6 +60,24 @@ const kgUpdateParameters = {
           pattern: { type: "string", description: "path→glob；symbol→path#symbol；global 省略" },
         },
         required: ["scopeKind"],
+        additionalProperties: false,
+      },
+    },
+    // ── batchCreateNodes ──
+    nodes: {
+      type: "array",
+      description: "batchCreateNodes 批量节点载荷：[{kind, name, digest, body?, domain?, layer?}]（逐项自动发号；任一项失败整批拒绝零落库）",
+      items: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["rule", "entity"], description: "节点类型（rule=规则 / entity=实体）" },
+          name: { type: "string", description: "节点名（重名合法，靠 digest 区分）" },
+          digest: { type: "string", description: "摘要（≤2 行）" },
+          body: { type: "string", description: "正文（可选）" },
+          domain: { type: "string", enum: ["tech", "business"], description: "作用域（可选）" },
+          layer: { type: "string", enum: ["L0", "L1", "L2"], description: "分层（可选，AD-11）" },
+        },
+        required: ["kind", "name", "digest"],
         additionalProperties: false,
       },
     },
@@ -113,7 +138,10 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       if (op === "createNode") {
         return text(execCreateNode(deps, args, iterationId));
       }
-      throw new Error(`未知 op "${String(op)}"（合法：createNode / supersede）`);
+      if (op === "batchCreateNodes") {
+        return text(execBatchCreateNodes(deps, args, iterationId));
+      }
+      throw new Error(`未知 op "${String(op)}"（合法：createNode / supersede / batchCreateNodes）`);
     },
   };
 }
@@ -185,6 +213,28 @@ function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWrit
   return { nodeId: result.nodeId };
 }
 
+/**
+ * batchCreateNodes 执行（O-5）：逐项薄壳组载荷（自动发号——工具面不暴露
+ * 显式 id，保号迁移不入 LLM 面），单笔 op 经唯一写入口；项目解析同单条
+ * createNode（多项目必填 project）。
+ */
+function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unknown>, iterationId: string): string {
+  const value = args["nodes"];
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("nodes 必填且为非空数组（批量建点：[{kind, name, digest, …}]）");
+  }
+  const nodes = value.map((item, i) => {
+    const draft = draftOf(item, `nodes[${i}]`);
+    if (draft === null) {
+      throw new Error(`nodes[${i}] 必须为节点草稿对象（kind/name/digest）`);
+    }
+    return { draft };
+  });
+  const project = resolveTargetProject(deps, args);
+  const result = writeOrThrow(deps, project, { kind: "batchCreateNodes", iterationId, nodes });
+  return `已批量建节点 ${nodes.length} 个（project: ${projectName(project)}，自动发号；末节点 ${result.nodeId}）`;
+}
+
 /** createNode 目标项目解析：project 名 → projectRoot；缺省唯一项目自动；多项目必填。 */
 function resolveTargetProject(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
   const scanned = deps.scanProjects();
@@ -226,16 +276,17 @@ function optionalEnum<T extends string>(args: Record<string, unknown>, key: stri
   return typeof value === "string" && value !== "" ? (value as T) : undefined;
 }
 
-function draftOf(value: unknown): NodeDraft | null {
+/** 节点草稿组载荷（label 定位错误消息：单条 replacement / 批量 nodes[i]）。 */
+function draftOf(value: unknown, label = "replacement"): NodeDraft | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("replacement 必须为节点草稿对象（kind/name/digest）");
+    throw new Error(`${label} 必须为节点草稿对象（kind/name/digest）`);
   }
   const record = value as Record<string, unknown>;
   return {
     kind: record["kind"] === "entity" ? "entity" : "rule",
-    name: requireString(record, "name", "（replacement 草稿）"),
-    digest: requireString(record, "digest", "（replacement 草稿）"),
+    name: requireString(record, "name", `（${label} 草稿）`),
+    digest: requireString(record, "digest", `（${label} 草稿）`),
     ...(typeof record["body"] === "string" ? { body: record["body"] } : {}),
     ...(typeof record["domain"] === "string" ? { domain: record["domain"] as NodeDomain } : {}),
     ...(typeof record["layer"] === "string" ? { layer: record["layer"] as NodeLayer } : {}),

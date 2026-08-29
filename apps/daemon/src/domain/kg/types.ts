@@ -40,6 +40,8 @@ export interface KnowledgeNode {
   readonly body: string;
   readonly domain: NodeDomain | null;
   readonly layer: NodeLayer | null;
+  /** 产出批次元数据（AD-10 任务→kg 唯一衔接面；无任务来源 = null；T2.1 起可落值，读面向前兼容可选）。 */
+  readonly originBatchId?: string | null;
   readonly status: NodeStatus;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -119,17 +121,21 @@ export type KnowledgeWriteOpKind =
   | "updateNode"
   | "supersede"
   | "declareAnchors"
-  | "addEdge";
+  | "addEdge"
+  | "batchCreateNodes";
 
 /**
  * 变更日志行：每 op 自动追加（迭代 id/op/nodeId/supersede_of/理由/时间）。
  * supersede_of 语义：本条变更挂入哪个节点的取代链——supersede op 记自身
  * （目标节点翻态进自身历史链）；supersede+replacement 的 replacement
- * createNode 行记被取代者（新节点挂旧节点链）。
+ * createNode 行记被取代者（新节点挂旧节点链）。taskId（T2.1 AD-10）：
+ * 任务产出元数据——op 携带则记账，不携带 = null（旧行为不变）。
  */
 export interface ChangeLogEntry {
   readonly seq: number;
   readonly iterationId: string;
+  /** 任务来源（AD-10 唯一衔接面；非任务产出 = null；读面向前兼容可选）。 */
+  readonly taskId?: string | null;
   readonly op: KnowledgeWriteOpKind;
   readonly nodeId: NodeId;
   readonly supersedeOf: NodeId | null;
@@ -166,15 +172,37 @@ export interface NodePatch {
   readonly reason?: string;
 }
 
-/** 写 op 公共字段：change_log 每行必含迭代 id。 */
+/**
+ * createNode 载荷（kind/iterationId 外的全部字段）：单条 op 的 draft/id 与
+ * batchCreateNodes 逐项同形（O-5：批量与单条混用结果等价，CL-2-T14）。
+ */
+export interface CreateNodePayload {
+  readonly draft: NodeDraft;
+  /** 显式保号 id（仅迁移/保号场景；同单条 createNode 语义）。 */
+  readonly id?: NodeId;
+}
+
+/**
+ * 写 op 公共字段：change_log 每行必含迭代 id。taskId/originBatchId
+ * （T2.1，AD-10 任务→kg 唯一衔接面）：全部可选带缺省——携带时 createNode/
+ * batchCreateNodes 落 nodes.origin_batch_id + change_log.task_id；不携带
+ * 则行为与既有逐字节一致（两列 NULL）。任务系统零「处置」概念：元数据
+ * 仅登记，不进任何状态机。
+ */
 export interface KnowledgeWriteOpBase {
   readonly iterationId: string;
+  /** 任务来源 id（helix.db job 表 id；任务产出落账时携带）。 */
+  readonly taskId?: string;
+  /** 产出批次 id（helix.db batch 表 id；批次产出落账时携带）。 */
+  readonly originBatchId?: string;
 }
 
 /**
  * 知识层写 op 判别式联合（AD-9「schema 校验即防线」的校验对象）：
  * - createNode：日常自动发号；显式 id 仅保号迁移场景（T5.2），冲突在事务内查出；
- * - supersede：翻 status 不换号（supersede.ts 状态机），replacement 另发新号。
+ * - supersede：翻 status 不换号（supersede.ts 状态机），replacement 另发新号；
+ * - batchCreateNodes（T2.1，O-5）：批量建点——先全量校验后单事务，任一节点
+ *   失败整批回滚零部分落库；逐项与单条 createNode 同构（含显式 id 保号）。
  */
 export type KnowledgeWriteOp =
   | (KnowledgeWriteOpBase & { readonly kind: "createNode"; readonly draft: NodeDraft; readonly id?: NodeId })
@@ -195,6 +223,10 @@ export type KnowledgeWriteOp =
       readonly srcId: NodeId;
       readonly verb: EdgeVerb;
       readonly dstId: NodeId;
+    })
+  | (KnowledgeWriteOpBase & {
+      readonly kind: "batchCreateNodes";
+      readonly nodes: readonly CreateNodePayload[];
     });
 
 // ── 写结果（结构化错误） ────────────────────────────────────

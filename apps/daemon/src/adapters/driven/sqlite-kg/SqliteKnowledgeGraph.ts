@@ -147,7 +147,7 @@ export class SqliteKnowledgeGraph {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     const nodeRow = db
       .prepare(
-        "SELECT id, kind, name, digest, body, domain, layer, status, created_at, updated_at FROM nodes WHERE id = ?",
+        "SELECT id, kind, name, digest, body, domain, layer, origin_batch_id, status, created_at, updated_at FROM nodes WHERE id = ?",
       )
       .get(id) as NodeRow | null;
     if (nodeRow === null) return null;
@@ -189,11 +189,14 @@ export class SqliteKnowledgeGraph {
 
     const changeLog = (
       db
-        .prepare("SELECT seq, iteration_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE node_id = ? ORDER BY seq")
+        .prepare(
+          "SELECT seq, iteration_id, task_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE node_id = ? ORDER BY seq",
+        )
         .all(id) as LogRow[]
     ).map<ChangeLogEntry>((row) => ({
       seq: row.seq,
       iterationId: row.iteration_id,
+      taskId: row.task_id,
       op: row.op as ChangeLogEntry["op"],
       nodeId: row.node_id,
       supersedeOf: row.supersede_of,
@@ -276,7 +279,9 @@ export class SqliteKnowledgeGraph {
   getVerifyView(projectRoot: string): VerifyView {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     const nodes = (
-      db.prepare("SELECT id, kind, name, digest, body, domain, layer, status, created_at, updated_at FROM nodes ORDER BY id").all() as NodeRow[]
+      db.prepare(
+        "SELECT id, kind, name, digest, body, domain, layer, origin_batch_id, status, created_at, updated_at FROM nodes ORDER BY id",
+      ).all() as NodeRow[]
     ).map(mapNode);
     const edges = (
       db.prepare("SELECT src_id, verb, dst_id FROM edges ORDER BY src_id, verb, dst_id").all() as RawEdgeDbRow[]
@@ -313,11 +318,14 @@ export class SqliteKnowledgeGraph {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     return (
       db
-        .prepare("SELECT seq, iteration_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE iteration_id = ? ORDER BY seq")
+        .prepare(
+          "SELECT seq, iteration_id, task_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE iteration_id = ? ORDER BY seq",
+        )
         .all(iterationId) as LogRow[]
     ).map((row) => ({
       seq: row.seq,
       iterationId: row.iteration_id,
+      taskId: row.task_id,
       op: row.op as ChangeLogEntry["op"],
       nodeId: row.node_id,
       supersedeOf: row.supersede_of,
@@ -420,6 +428,7 @@ function mapNode(row: NodeRow): KnowledgeNode {
     body: row.body,
     domain: (row.domain as NodeDomain | null) ?? null,
     layer: (row.layer as NodeLayer | null) ?? null,
+    originBatchId: (row.origin_batch_id as string | null) ?? null,
     status: row.status as NodeStatus,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -434,6 +443,7 @@ interface NodeRow {
   body: string;
   domain: string | null;
   layer: string | null;
+  origin_batch_id: string | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -534,6 +544,7 @@ interface InEdgeRow {
 interface LogRow {
   seq: number;
   iteration_id: string;
+  task_id: string | null;
   op: string;
   node_id: string;
   supersede_of: string | null;

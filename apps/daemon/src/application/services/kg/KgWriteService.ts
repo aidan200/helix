@@ -52,6 +52,7 @@ const OP_KINDS = new Set<KnowledgeWriteOp["kind"]>([
   "supersede",
   "declareAnchors",
   "addEdge",
+  "batchCreateNodes",
 ]);
 const NODE_KINDS = new Set(["rule", "entity"]);
 const NODE_DOMAINS = new Set(["tech", "business"]);
@@ -71,6 +72,18 @@ export function validateKnowledgeWriteOp(op: unknown): KgWriteError | null {
   if (typeof candidate.iterationId !== "string" || candidate.iterationId.trim() === "") {
     return schemaError("iterationId 必填（change_log 每行含迭代 id）", "op.iterationId");
   }
+  // 任务元数据（T2.1，AD-10）：全可选——携带则必为非空字符串；不携带时后续
+  // 行为与既有逐字节一致（两列 NULL）。任务系统零「处置」概念，元数据仅
+  // 登记不进任何状态机。
+  if (candidate.taskId !== undefined && (typeof candidate.taskId !== "string" || candidate.taskId.trim() === "")) {
+    return schemaError("taskId 若携带必须为非空字符串（任务产出元数据，AD-10）", "op.taskId");
+  }
+  if (
+    candidate.originBatchId !== undefined &&
+    (typeof candidate.originBatchId !== "string" || candidate.originBatchId.trim() === "")
+  ) {
+    return schemaError("originBatchId 若携带必须为非空字符串（产出批次元数据，AD-10）", "op.originBatchId");
+  }
   const kind = candidate.kind;
   if (typeof kind !== "string" || !OP_KINDS.has(kind as KnowledgeWriteOp["kind"])) {
     return schemaError(
@@ -89,28 +102,55 @@ export function validateKnowledgeWriteOp(op: unknown): KgWriteError | null {
       return validateDeclareAnchors(candidate);
     case "addEdge":
       return validateAddEdge(candidate);
+    case "batchCreateNodes":
+      return validateBatchCreateNodes(candidate);
     default:
       // kind 已在上方 OP_KINDS 校验，走到 default 不可达；静态兑底防未来加 kind 漏 case。
       return schemaError("未知 op.kind", "op.kind");
   }
 }
 
-function validateCreateNode(op: Record<string, unknown>): KgWriteError | null {
-  const draftError = validateNodeDraft(op.draft, "op.draft");
+/**
+ * createNode 载荷校验（单条与批量逐项共用，O-5 混用等价；basePath 定位到
+ * op（单条）或 op.nodes[i]（批量）——错误路径同源）。 */
+function validateCreateNodePayload(record: Record<string, unknown>, basePath: string): KgWriteError | null {
+  const draftError = validateNodeDraft(record.draft, `${basePath}.draft`);
   if (draftError !== null) return draftError;
-  if (op.id !== undefined) {
-    const id = op.id;
+  if (record.id !== undefined) {
+    const id = record.id;
     if (typeof id !== "string" || parseMigrationId(id) === null) {
       return schemaError(
         "显式 id 仅限保号迁移场景，形态必须为 TR-*/E-* 存量形态（TR-AD-47 / TR-TEST-8 / E-客户）或新号空间（TR-n / E-n）",
-        "op.id",
+        `${basePath}.id`,
       );
     }
     const parsed = parseMigrationId(id)!;
-    const draftKind = (op.draft as NodeDraft).kind;
+    const draftKind = (record.draft as NodeDraft).kind;
     if (parsed.kind !== draftKind) {
-      return schemaError(`显式 id 前缀与 kind 不符（${id} 前缀属 ${parsed.kind}）`, "op.id");
+      return schemaError(`显式 id 前缀与 kind 不符（${id} 前缀属 ${parsed.kind}）`, `${basePath}.id`);
     }
+  }
+  return null;
+}
+
+function validateCreateNode(op: Record<string, unknown>): KgWriteError | null {
+  return validateCreateNodePayload(op, "op");
+}
+
+/**
+ * batchCreateNodes 校验（T2.1，O-5）：节点数组非空 + 逐项与单条 createNode
+ * 同构校验（draft/id 同规则）——错误路径携带非法项序号（op.nodes[i]…）。 */
+function validateBatchCreateNodes(op: Record<string, unknown>): KgWriteError | null {
+  if (!Array.isArray(op.nodes) || op.nodes.length === 0) {
+    return schemaError("nodes 必填且为非空数组（批量建点，O-5）", "op.nodes");
+  }
+  for (let i = 0; i < op.nodes.length; i += 1) {
+    const payload = op.nodes[i];
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+      return schemaError("批量节点载荷必须为对象（draft/id 同单条 createNode）", `op.nodes[${i}]`);
+    }
+    const payloadError = validateCreateNodePayload(payload as Record<string, unknown>, `op.nodes[${i}]`);
+    if (payloadError !== null) return payloadError;
   }
   return null;
 }
