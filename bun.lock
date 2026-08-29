@@ -21,6 +21,7 @@
         "@helix/common": "workspace:*",
         "@helix/protocol": "workspace:*",
         "diff": "8.0.4",
+        "yaml": "2.9.0",
       },
     },
     "apps/shell": {

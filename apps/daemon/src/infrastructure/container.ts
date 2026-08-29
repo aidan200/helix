@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { SessionChatPort, SendOutcome } from "../application/ports/inbound/ChatPort";
 import type { SessionPort } from "../application/ports/inbound/SessionPort";
 import type { SystemPort, DaemonStatus } from "../application/ports/inbound/SystemPort";
@@ -20,7 +21,7 @@ import { isMainInstanceId } from "../domain/agent/AgentInstance";
 import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
-import { createPaths, osHomeDir, type HelixPaths } from "./paths";
+import { createPaths, osHomeDir, builtinSkillsDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
@@ -36,6 +37,7 @@ import { buildPersistence } from "./assembly/buildPersistence";
 import { buildModelStack } from "./assembly/buildModelStack";
 import { buildTaskStack } from "./assembly/buildTaskStack";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode } from "./assembly/buildSessionStack";
+import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
 import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
 import { WorkspaceService } from "../application/services/workspace/WorkspaceService";
@@ -337,14 +339,22 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
 
   // ── 装配序步 2-5：任务栈（T1.3，与三 build* 同列）──
-  //    占位件：starter（T2.2 TaskOrchestratorService）/skill 注册表（T2.3）
-  //    真体注入前 no-op/空表（任务可创建可查，但不被驱动）；恢复扫描钩子在
-  //    registry.initialize 之后触发（§4.4）。kg 节点投影经 workspace 持有者
+  //    任务类型注册表（T2.3 真体）：独立 SkillScanner 实例扫 builtin 层（与
+  //    buildSessionStack 的提示装配扫描器同形同源、无共享状态——扫描现拍现
+  //    读）；starter（T2.2 TaskOrchestratorService）真体注入前 no-op；恢复扫描
+  //    钩子在 registry.initialize 之后触发（§4.4）。kg 节点投影经 workspace 持有者
   //    晚绑读现值（W1 重绑接缝同 kgTools/editDeps 工厂；未绑定 → 空投影）。──
-  const taskStack = buildTaskStack({
+  const bootCwd = deps.toolCwd ?? process.cwd();
+  const taskStack = await buildTaskStack({
     writeQueue: persistence.writeQueue,
     clock,
     logger,
+    skillSource: new SkillScanner({
+      userSkillsDir: paths.skillsHome(),
+      projectSkillsDir: path.join(bootCwd, ".helix", "skills"),
+      builtinSkillsDir: deps.builtinSkillsDir ?? builtinSkillsDir(),
+      cwd: bootCwd,
+    }),
     kgNodeProjector: (nodeIds) => {
       const stack = workspace.stack();
       if (stack === null) return [];

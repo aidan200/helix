@@ -1,7 +1,9 @@
 import type { Logger } from "../logging";
 import type { WriteQueue } from "../../adapters/driven/sqlite-session/WriteQueue";
+import type { SkillSourcePort } from "../../application/ports/outbound/SkillSourcePort";
 import { TaskStore } from "../../adapters/driven/sqlite-session/TaskStore";
 import { parentWorkLedger } from "../../adapters/driven/sqlite-session/WorkLedger";
+import { TaskSkillRegistry } from "../../adapters/driven/task-skill-registry/TaskSkillRegistry";
 import { TaskEngineService } from "../../application/services/task/TaskEngineService";
 import { TaskQueryService, type NodeRefData } from "../../application/services/task/TaskQueryService";
 import type { TaskEnginePort } from "../../application/ports/inbound/TaskEnginePort";
@@ -21,9 +23,12 @@ import type { TaskManifest } from "../../domain/task/types";
  *
  * 占位件（同迭代后继任务替换，均为组合根内局部声明）：
  * - TaskOrchestratorStarterPort → T2.2 TaskOrchestratorService（真体注入前
- *   为 no-op 占位：任务可创建/生命周期可控，但不被驱动——start 调用日志警示）；
- * - TaskSkillRegistryPort → T2.3 builtin 层扫描注册表（真体注入前为空表：
- *   createTask 一律 task.type_unknown）。
+ *   为 no-op 占位：任务可创建/生命周期可控，但不被驱动——start 调用日志警示）。
+ *
+ * 任务类型注册表（T2.3 真体已接）：skillSource 注入时装配 TaskSkillRegistry
+ *（builtin 层扫描 → frontmatter task 块解析入表，AD-9②）；缺省 = 空注册表
+ * 占位（测试隔离形态：createTask 一律 task.type_unknown）。装载在装配内
+ * await 完成——函数因此 async（builtin 层随仓不可变，无重扫面）。
  *
  * 装配序契约：位于 buildPersistence 之后（共享 WriteQueue）、registry.initialize
  * 之后由组合根触发 recoverOnStartup（§4.4 daemon 启动钩子）。
@@ -42,18 +47,23 @@ export interface BuildTaskStackDeps {
   readonly logger: Logger;
   /** 编排运行时覆盖（T2.2 真体装配接缝；缺省 = no-op 占位）。 */
   readonly starterOverride?: TaskOrchestratorStarterPort;
-  /** 任务类型注册表覆盖（T2.3 真体装配接缝；缺省 = 空注册表占位）。 */
-  readonly skillsOverride?: TaskSkillRegistryPort;
+  /** builtin 层扫描面（T2.3 真体：TaskSkillRegistry 装载源；缺省 = 空注册表占位——测试隔离形态）。 */
+  readonly skillSource?: SkillSourcePort;
   /** kg 节点投影注入（产物页人类可读，AD-4②；缺省 = 空投影）。 */
   readonly kgNodeProjector?: (nodeIds: readonly string[]) => readonly NodeRefData[];
 }
 
-export function buildTaskStack(deps: BuildTaskStackDeps): TaskStack {
+export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStack> {
   const store = new TaskStore(deps.writeQueue);
   const workLedger = parentWorkLedger(deps.writeQueue);
   const starter: TaskOrchestratorStarterPort =
     deps.starterOverride ?? placeholderStarter(deps.logger);
-  const skills: TaskSkillRegistryPort = deps.skillsOverride ?? EMPTY_SKILL_REGISTRY;
+  let skills: TaskSkillRegistryPort = EMPTY_SKILL_REGISTRY;
+  if (deps.skillSource !== undefined) {
+    const registry = new TaskSkillRegistry({ skills: deps.skillSource, warn: (m) => deps.logger.warn(m) });
+    await registry.load();
+    skills = registry;
+  }
   const engine = new TaskEngineService({ store, skills, starter, workLedger, clock: deps.clock });
   const query = new TaskQueryService({ store, workLedger, skills, clock: deps.clock, kgNodeProjector: deps.kgNodeProjector });
   return { taskEngine: engine, query };
@@ -71,7 +81,7 @@ function placeholderStarter(logger: Logger): TaskOrchestratorStarterPort {
   };
 }
 
-/** 空注册表占位（T2.3 前：createTask 一律 task.type_unknown——防线语义自洽）。 */
+/** 空注册表占位（skillSource 未注入形态：createTask 一律 task.type_unknown——防线语义自洽）。 */
 const EMPTY_SKILL_REGISTRY: TaskSkillRegistryPort = {
   getTaskType(_type: string): TaskManifest | null {
     return null;

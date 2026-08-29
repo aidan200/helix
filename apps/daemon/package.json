@@ -12,6 +12,7 @@
     "@earendil-works/pi-ai": "0.84.2",
     "@helix/common": "workspace:*",
     "@helix/protocol": "workspace:*",
-    "diff": "8.0.4"
+    "diff": "8.0.4",
+    "yaml": "2.9.0"
   }
 }

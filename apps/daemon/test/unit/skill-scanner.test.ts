@@ -102,7 +102,7 @@ describe("SkillScanner（三层目录 → source 标签技能清单）", () => {
     expect(typeof result.diagnostics[0]!.message).toBe("string");
   });
 
-  test("④ 随仓内置技能（真 resources/skills）：web-access 扫出 + frontmatter 合规 + 正文七节齐备", async () => {
+  test("④ 随仓内置技能（真 resources/skills）：web-access 与 kg-bootstrap 扫出 + frontmatter 合规 + 正文节齐备", async () => {
     const missing = path.join(tmpDir("helix-skills-real-none-"), "none");
     const scanner = new SkillScanner({
       userSkillsDir: missing,
@@ -111,9 +111,9 @@ describe("SkillScanner（三层目录 → source 标签技能清单）", () => {
     });
     const result = await scanner.scan();
     expect(result.diagnostics).toEqual([]); // 随仓文件必须合法（frontmatter 合规）
-    expect(result.skills.length).toBe(1);
-    const skill = result.skills[0]!;
-    expect(skill.name).toBe("web-access");
+    // T2.3：随仓内置两技能——web-access（普通）+ kg-bootstrap（任务类型，带 task 块）
+    expect(result.skills.map((s) => s.name).sort()).toEqual(["kg-bootstrap", "web-access"]);
+    const skill = result.skills.find((s) => s.name === "web-access")!;
     expect(skill.source).toBe("builtin");
     expect(skill.description.length).toBeGreaterThan(0);
     expect(skill.filePath).toBe(path.join(builtinSkillsDir(), "web-access", "SKILL.md"));
