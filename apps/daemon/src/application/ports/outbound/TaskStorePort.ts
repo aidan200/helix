@@ -105,6 +105,8 @@ export interface TaskStorePort {
   updateBatch(batch: BatchData): Promise<void>;
   /** 单 job 读（无行 → undefined）。 */
   getJob(id: string): JobData | undefined;
+  /** 单 batch 读（引擎回口按 batchId 寻行；无行 → undefined；T1.3 增补读面）。 */
+  getBatch(id: string): BatchData | undefined;
   /** job 列表（created_at 倒序；可按状态过滤）。 */
   listJobs(filter?: JobListFilter): readonly JobData[];
   /** job 的 stage 行（seq 升序）。 */

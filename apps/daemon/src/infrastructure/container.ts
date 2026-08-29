@@ -3,6 +3,8 @@ import type { SessionPort } from "../application/ports/inbound/SessionPort";
 import type { SystemPort, DaemonStatus } from "../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../application/ports/inbound/AgentOrchestrationPort";
 import type { SessionDirectoryPort } from "../application/ports/inbound/SessionDirectoryPort";
+import type { TaskEnginePort } from "../application/ports/inbound/TaskEnginePort";
+import type { TaskQueryService } from "../application/services/task/TaskQueryService";
 import type { ClockPort } from "../application/ports/outbound/ClockPort";
 import type { BrowserPort } from "../application/ports/outbound/BrowserPort";
 import type { ModelPort } from "../application/ports/inbound/ModelPort";
@@ -32,6 +34,7 @@ import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
 import { buildPersistence } from "./assembly/buildPersistence";
 import { buildModelStack } from "./assembly/buildModelStack";
+import { buildTaskStack } from "./assembly/buildTaskStack";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode } from "./assembly/buildSessionStack";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
 import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
@@ -101,6 +104,10 @@ export interface Daemon {
   readonly resource: ResourceService;
   /** 会话目录入口（AD-4：list/loadHistory/delete/草稿/懒加载取数面）。 */
   readonly directory: SessionDirectoryPort;
+  /** 任务引擎入口（T1.3：createTask/生命周期/编排回口/恢复扫描；T1.5 task.* 命令族回口）。 */
+  readonly task: TaskEnginePort;
+  /** 任务查询入口（P-2 读面人类可读投影；T1.5 task.list/detail/artifacts 回口）。 */
+  readonly taskQuery: TaskQueryService;
   /**
    * 浏览器连接入口（CDP 地基，BrowserPort）：lazy 连接， browser 工具
    * 与状态协议的消费面；生命周期 = daemon 生命周期（shutdown 挂 stop()）。
@@ -329,6 +336,35 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const modelStack = buildModelStack({ paths, logger });
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
 
+  // ── 装配序步 2-5：任务栈（T1.3，与三 build* 同列）──
+  //    占位件：starter（T2.2 TaskOrchestratorService）/skill 注册表（T2.3）
+  //    真体注入前 no-op/空表（任务可创建可查，但不被驱动）；恢复扫描钩子在
+  //    registry.initialize 之后触发（§4.4）。kg 节点投影经 workspace 持有者
+  //    晚绑读现值（W1 重绑接缝同 kgTools/editDeps 工厂；未绑定 → 空投影）。──
+  const taskStack = buildTaskStack({
+    writeQueue: persistence.writeQueue,
+    clock,
+    logger,
+    kgNodeProjector: (nodeIds) => {
+      const stack = workspace.stack();
+      if (stack === null) return [];
+      return nodeIds.flatMap((nodeId) => {
+        const hit = stack.queryService.get(nodeId);
+        if (hit === null) return [];
+        const firstLine = hit.detail.node.digest.split("\n")[0] ?? "";
+        return [
+          {
+            nodeId,
+            name: hit.detail.node.name,
+            kind: hit.detail.node.kind,
+            digestFirstLine: firstLine.length > 120 ? `${firstLine.slice(0, 119)}…` : firstLine,
+            status: hit.detail.node.status,
+          },
+        ];
+      });
+    },
+  });
+
   // ── fan-out 发布面（先建，服务构造即依赖它；目标归 wireEventFanout 装配） ──
   const fanoutPublisher = new FanoutPublisher();
 
@@ -552,6 +588,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 同样依赖目标已装配；中间构造块 sessionService/chatRouter/cli 均为惰性闭包）。
   await registry.initialize();
 
+  // ── 任务引擎启动恢复扫描（§4.4/F2.3，T1.3 钩子）：running/pending 任务断点
+  //    续跑（in-flight 批次 failed 收口走自动重试；幂等种子集合双防护）；
+  //    paused 不自动续（恢复归显式 task.resume）。──
+  const taskRecovery = await taskStack.taskEngine.recoverOnStartup();
+  if (taskRecovery.resumedJobIds.length > 0) {
+    logger.info(`任务恢复扫描：${taskRecovery.resumedJobIds.length} 个任务续跑（编排重开）`);
+  }
+
   let running = true;
   let wsServer: WsServerAdapter | undefined;
   // model 位数据源改会话级（AD-3 model 族 + AD-2）：当前会话
@@ -670,6 +714,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     model: modelService,
     resource: resourceService,
     directory: registry,
+    task: taskStack.taskEngine,
+    taskQuery: taskStack.query,
     browser: browserPort,
     registry,
     workspace,

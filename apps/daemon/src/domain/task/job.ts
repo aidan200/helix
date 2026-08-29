@@ -27,12 +27,17 @@ const STAGE_TRANSITIONS: Readonly<Record<StageStatus, readonly StageStatus[]>> =
   failed: [],
 };
 
-/** batch 合法迁移集（§3.3）：与 stage 同形（failed 由自动重试接管）。 */
+/**
+ * batch 合法迁移集（§3.3 + AF-1.3 增补）：pending→running；running→done/failed；
+ * **failed→running 仅自动重派路径**（§4.5「failed 由自动重试接管」——重试复跑由引擎
+ * 携带 retryCount 递增的新行值把 failed 批次带回 running；MainAgent 裁决 2026-08-29，
+ * job/stage 状态机不动）。
+ */
 const BATCH_TRANSITIONS: Readonly<Record<BatchStatus, readonly BatchStatus[]>> = {
   pending: ["running"],
   running: ["done", "failed"],
   done: [],
-  failed: [],
+  failed: ["running"],
 };
 
 export function canTransitionJob(from: JobStatus, to: JobStatus): boolean {
@@ -84,7 +89,10 @@ export function assertBatchTransition(from: BatchStatus, to: BatchStatus): void 
   }
 }
 
-/** batch 终态判定（done/failed）。 */
+/**
+ * batch 终态判定（AF-1.3）：仅 done 为终态——failed 对 batch 非终态（可重入，
+ * 自动重派路径 failed→running，§4.5）；与 stage（done/failed 皆终态）不同形。
+ */
 export function isTerminalBatch(status: BatchStatus): boolean {
   return BATCH_TRANSITIONS[status].length === 0;
 }

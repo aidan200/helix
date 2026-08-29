@@ -85,6 +85,13 @@ export class TaskStore implements TaskStorePort {
     return row === null ? undefined : rowToJob(row);
   }
 
+  getBatch(id: string): BatchData | undefined {
+    const row = this.writeQueue.database
+      .prepare(`SELECT ${BATCH_COLUMNS} FROM batch WHERE id = ?`)
+      .get(id) as BatchRow | null;
+    return row === null ? undefined : rowToBatch(row);
+  }
+
   listJobs(filter?: JobListFilter): readonly JobData[] {
     const rows =
       filter?.status === undefined
