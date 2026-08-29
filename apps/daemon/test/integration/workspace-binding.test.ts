@@ -4,7 +4,7 @@
  *
  * 形态：真组合根（createTestDaemon，kgWorkspaceRoot: null = 显式 unbound
  * boot 形态——W1 语义演进后的注入面）× loopback WS × tmp workspace 目录。
- * kgSyncStartup: true（本套验证物化时机迁移——unbound 零启动扫描零同步）。
+ * （kg 索引同步纯手动：启动/绑定/换绑零自动触发——2026-08-29 裁决。）
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
@@ -106,7 +106,6 @@ async function startRig(opts: { kgWorkspaceRoot?: string | null; engine?: FakeAg
     port: 0,
     cliInput: new PassThrough(),
     cliOutput: new PassThrough(),
-    kgSyncStartup: true,
     ...(opts.kgWorkspaceRoot !== undefined ? { kgWorkspaceRoot: opts.kgWorkspaceRoot } : {}),
   });
   const client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);
@@ -308,8 +307,7 @@ describe("workspace 绑定闭环（W1）I 层", () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-ws-f2-home-"));
     const ws1 = mkdtempSync(path.join(tmpdir(), "helix-ws-f2-root-"));
     const calls: { env: Record<string, string | undefined> }[] = [];
-    // 按实例 id 取捕获 env：同文件早先 rig（kgSyncStartup: true）的
-    // codegraph 后台 spawn 可能异步落入共享打桩——不能按位置索引取。
+    // 按实例 id 取捕获 env：不能按位置索引取（防御共享打桩串扰）。
     const envOf = (instanceId: string): Record<string, string | undefined> | undefined =>
       calls.find((c) => c.env["HELIX_INSTANCE_ID"] === instanceId)?.env;
     const fakeProc = () =>

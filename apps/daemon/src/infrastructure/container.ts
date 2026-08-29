@@ -22,7 +22,7 @@ import { createPaths, osHomeDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
-import { buildEditToolDeps, buildKnowledgeStack, startKgSyncBackground, type KnowledgeStack } from "./assembly/buildKnowledgeStack";
+import { buildEditToolDeps, buildKnowledgeStack } from "./assembly/buildKnowledgeStack";
 import { scanWorkspaceProjects } from "../adapters/driven/workspace-scan";
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
@@ -175,8 +175,6 @@ export interface AssembleDaemonDeps {
   readonly sessionIdleUnloadMs?: number;
   /** 空闲卸载轮询间隔 ms 覆盖（注入面；缺省 min(60s, 窗口/10)）。 */
   readonly sessionIdlePollMs?: number;
-  /** 跳过 kg sync 启动触发+fs-watch 挂接（生产缺省启动；测试面默认跳——真 codegraph 构建不进测试，T2.2）。 */
-  readonly skipKgSyncStartup?: boolean;
   /**
    * kg workspace 根初始绑定值（W1 语义演进：等价 restore 预置——测试注入面
    * 指向 tmp）。缺省/显式 null = 不预置 → 走 KV restore（生产等价；
@@ -296,9 +294,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
 
   // ── workspace 绑定面（W1 绑定闭环）：绑定状态机唯一事实源 + 绑定 kg 栈
   //    持有者（重绑接缝）。物化时机迁移：unbound boot 零扫描零同步零开库
-  //    ——栈只在 restore 成功/open 成功/初始绑定后建；startSync 由
-  //    skipKgSyncStartup 门控（测试面默认 no-op，真 codegraph 构建不进
-  //    测试进程）。广播、活跃 agent 判定与会话卸载面经晚绑闭包（eventStream/
+  //    ——栈只在 restore 成功/open 成功/初始绑定后建。kg 索引同步按
+  //    2026-08-29 用户裁决改纯手动：startSync 恒 no-op（启动/绑定/换绑
+  //    零自动触发；唯一生产触发面 = 页面手动 KgSyncService.triggerManual）。
+  //    广播、活跃 agent 判定与会话卸载面经晚绑闭包（eventStream/
   //    registry 在 buildSessionStack 后才存在——与 wsServer 同款回填模式）。──
   let broadcastWorkspaceChanged: (root: string) => void = () => {};
   let hasActiveAgentNow: () => boolean = () => false;
@@ -309,9 +308,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     clock: { now: () => new Date().toISOString() },
     cwd: () => process.cwd(), // CLI 例外条款源（终端站位 = 显式选择）
     buildStack: (root) => buildKnowledgeStack({ codegraphResolution, workspaceRoot: root }),
-    startSync: deps.skipKgSyncStartup
-      ? () => ({ stop: () => {} })
-      : (stack, root) => startKgSyncBackground(stack as KnowledgeStack, root),
+    startSync: () => ({ stop: () => {} }),
     broadcast: (root) => broadcastWorkspaceChanged(root),
     hasActiveAgent: () => hasActiveAgentNow(),
     // W4 债清偿：重绑（替换已绑定栈）时卸载全部现有会话——旧会话 executor
@@ -368,7 +365,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       warn: (m) => logger.warn(m),
     },
     // kg 挂点（T3.2 附着接线）：每会话闭合 sessionId（跨通道去重键）——
-    // notifyWrite 写后通知入 sync 队列 + edit 成功路径附着 📎 块。W1：经
+    // edit 成功路径附着 📎 块（notifyWrite 写后 sync 挂接按 2026-08-29
+    // 用户裁决退役，不注入）。W1：经
     // workspace 持有者读现值（重绑后新会话跟随新栈；未绑定 → undefined
     // 无挂点，EditTool 行为不变）。
     editDeps: (sessionId) => {
@@ -377,7 +375,6 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       return stack !== null && root !== null
         ? buildEditToolDeps({
             workspaceRoot: root,
-            syncService: stack.syncService,
             attachment: stack.attachmentService,
             sessionId,
           })
