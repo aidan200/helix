@@ -26,6 +26,7 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   browser: "操控浏览器（action 分发：开 tab/eval/点击/滚动/截图等，携带登录态）",
   kg: "查询项目知识图谱（只读：search 关键词检索 → get 节点全量，id 取自返回行）",
   "kg-update": "知识图谱即时落账（supersede 推翻节点 / createNode 沉淀新知识，必填 iterationId）",
+  task_create: "创建任务并启动执行（与用户确认干什么之后再调用——对话即确认，调用即创建；返回任务回执）",
   plan_create: "创建本实例工作台账（一次给出全部计划条目，开工前调用；创建后不可重建）",
   plan_update: "更新工作台账条目状态（in_progress/done/abandoned——放弃必须带理由 note；可记产物指针）",
   plan_read: "读本实例工作台账全部条目（序号/状态/note；收口前自查全部完成或带理由放弃）",

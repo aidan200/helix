@@ -31,6 +31,7 @@ import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
 import { SkillScanner } from "../../adapters/driven/pi-engine/SkillScanner";
 import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnippets";
 import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
+import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 import { AuthStore } from "../auth-store";
@@ -126,6 +127,15 @@ export interface BuildSessionStackDeps {
    * 重绑后新会话跟随新栈；未绑定 → undefined 不注册）。
    */
   readonly kgTools?: KgToolOptions | (() => KgToolOptions | undefined);
+  /**
+   * task_create 工具注入面（T2.4，AD-7）：主会话 executor 注册 task_create
+   *（chat 第二创建入口；仅 MainAgent 生效集——SubAgent 子进程本地栈不
+   * 注入）。组合根接任务栈（TaskEngineService.createTask + TaskQueryService
+   * 回执读面）；缺省不注册（测试形态——profile 声明该名时 resolveTools
+   * fail-fast，engineFor 未注入时从 main 工具集剔除，与 kg 双工具 W1 模式
+   * 同构）。
+   */
+  readonly taskCreate?: TaskCreateToolDeps;
   /**
    * 会话工具沙箱 cwd 动态解析面（W1 绑定闭环）：基准改绑定的 root——
    * 每会话装配（engineFor）时求值，重绑后新会话跟随。缺省回落启动定格
@@ -424,6 +434,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               grep: deps.grep,
               ...(editDeps !== undefined ? { edit: editDeps } : {}),
               ...(kgTools !== undefined ? { kg: kgTools } : {}),
+              // task_create（T2.4，AD-7）：仅主会话 executor（SubAgent 子进程
+              // 本地栈不注入——生效集隔离，AD-2 创建按宿主）
+              ...(deps.taskCreate !== undefined ? { taskCreate: deps.taskCreate } : {}),
               // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
               // tab 归属）；ChildMain 子进程经 RemoteBrowserPort 转发接入（H-3）
               browser: browserPort,
@@ -447,10 +460,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
                 // W1 绑定闭环：未绑定（kg 双工具未注册）时剔除 kg/kg-update——
                 // profile 声明与 executor 注册面一致（resolveTools 硬校验不破）；
                 // 绑定后新建会话自动恢复注册面。
-                tools:
-                  kgTools === undefined
-                    ? mainAssembly.tools.filter((t) => t !== "kg" && t !== "kg-update")
-                    : mainAssembly.tools,
+                // task_create 同款：未注入（测试形态）时剔除，声明与注册一致。
+                tools: mainAssembly.tools
+                  .filter((t) => kgTools !== undefined || (t !== "kg" && t !== "kg-update"))
+                  .filter((t) => deps.taskCreate !== undefined || t !== "task_create"),
               },
               model: resolveConfigModel(
                 resourceService.modelSlot(profileKindOf(mode)) ?? defaultModel.current(),

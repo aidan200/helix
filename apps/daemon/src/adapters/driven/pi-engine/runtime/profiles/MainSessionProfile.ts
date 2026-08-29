@@ -77,6 +77,10 @@ export const MainSessionProfile: AgentProfile = {
     //（AD-14 协议行兑现在 edit 现场——findings 收口通道之外的第二通道）
     "kg",
     "kg-update",
+    // task_create（T2.4，AD-7）：chat 第二创建入口（对话即确认）——仅
+    // MainAgent 生效集（SubAgent 不能建任务，AD-2 创建按宿主）；与
+    // /project 入口同一 createTask API
+    "task_create",
   ], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：实例化在 AgentRuntime 装配点，每 runtime 独立）

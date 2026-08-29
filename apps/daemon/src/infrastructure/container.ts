@@ -441,6 +441,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           }
         : undefined;
     },
+    // task_create 工具装配面（T2.4，AD-7）：主会话 executor 注册 chat 第二
+    // 创建入口——与 /project 入口同一 createTask API（TaskEngineService 注入）
+    // + 回执读面（TaskQueryService 投影）；SubAgent 子进程本地栈不注入（生效集隔离）
+    taskCreate: { engine: taskStack.taskEngine, query: taskStack.query },
     // spawn 派发任务切片注入（F1.3）：任务文本 → 图查询 → digest+指针切片
     // 拼入 task 约束区；注入后 markInjected 入跨通道去重注册表（T3.2 同源）。
     // W1：未绑定 → 空切片（无图查询面，零副作用）。
@@ -691,6 +695,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // W1 重绑接缝：经 workspace 持有者读现值（deps.kg 直接注入形态保留给
     // stub 测试 rig；未绑定 → handler 空集/拒绝防御契约）
     workspace, // workspace 族命令回口（W1：get/open 两命令 + 门禁判别面）
+    // task 族命令回口（P-2 任务页九命令族，§8.1，T1.5）：读面 + 生命周期
+    // 写面（task.changed 广播在 handlers/task.ts + EventStream 层接线，O-7）
+    taskQuery: taskStack.query,
+    taskEngine: taskStack.taskEngine,
     events: eventStream,
     token,
     port: deps.port ?? config.port,

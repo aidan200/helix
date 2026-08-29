@@ -25,6 +25,7 @@ import { createReadTool } from "./read/ReadTool";
 import { createEditLinesTool } from "./edit-lines/EditLinesTool";
 import { createKgTool } from "./kg/KgTool";
 import { createKgUpdateTool } from "./kg-update/KgUpdateTool";
+import { createTaskCreateTool, type TaskCreateToolDeps } from "./task-create/TaskCreateTool";
 import {
   createPlanCreateTool,
   createPlanReadTool,
@@ -130,6 +131,15 @@ export interface CoreToolExecutorOptions {
    * 装配——SubAgentProfile 声明三名时必须注入，resolveTools fail-fast）。
    */
   readonly plan?: PlanToolDeps;
+  /**
+   * task_create 工具注入面（T2.4，AD-7 chat 第二创建入口）：TaskEngine
+   * createTask 面 + 回执读面。仅主会话（buildSessionStack engineFor）注入
+   * ——task_create 不进 SubAgent 生效集（批次 SubAgent 不能建任务，AD-2
+   * 创建按宿主）；ChildMain 子进程本地栈不注入。缺省不注册（既有测试
+   * 形态/SubAgent 装配——MainSessionProfile 声明该名时必须注入，
+   * resolveTools fail-fast）。
+   */
+  readonly taskCreate?: TaskCreateToolDeps;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -189,6 +199,11 @@ export class CoreToolExecutor implements ToolExecutorPort {
         createPlanUpdateTool(options.plan),
         createPlanReadTool(options.plan),
       );
+    }
+    if (options.taskCreate !== undefined) {
+      // task_create（T2.4，AD-7）：chat 第二创建入口薄壳（与 /project 入口
+      // 同一 createTask API；仅 MainAgent 生效集）
+      tools.push(createTaskCreateTool(options.taskCreate));
     }
     const registry = new Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>();
     for (const tool of tools) registry.set(tool.name, tool);

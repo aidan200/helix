@@ -13,6 +13,7 @@ import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
 import { kgToolsStub } from "../helpers/kgToolsStub";
+import { taskCreateStub } from "../helpers/taskCreateStub";
 
 /**
  * TP-CL5-3（I）：剧本 S2 —— 五工具会话内闭环。
@@ -132,6 +133,8 @@ function makeHarness(scripts: ScriptEntry[], browserPort?: FakeBrowserPort): Loo
     browser: browserPort ?? new FakeBrowserPort(),
     // T3.3：MainSessionProfile 声明 kg 双工具——替身注入保持 resolveTools 可装配
     kg: kgToolsStub(cwd),
+    // T2.4：MainSessionProfile 声明 task_create——替身注入保持 resolveTools 可装配
+    taskCreate: taskCreateStub(),
   });
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,

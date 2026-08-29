@@ -33,10 +33,14 @@ const TOOL_NAMES = [
   "browser",
   "kg", // T3.3：kg 双工具（查询面+落账面）
   "kg-update",
+  "task_create", // T2.4（AD-7）：chat 第二创建入口（仅 MainAgent 生效集）
 ] as const;
 
 /** SubAgent 独有名（T1.4，AD-6①：plan 三工具全量配给 SubAgent、不进 MainAgent——提示词零命中检查覆盖同款）。 */
 const SUBAGENT_ONLY_TOOL_NAMES = ["plan_create", "plan_update", "plan_read"] as const;
+
+/** MainAgent 独有名（T2.4，AD-7/AD-2：chat 第二创建入口不进 SubAgent 生效集——批次 SubAgent 不能建任务）。 */
+const MAIN_ONLY_TOOL_NAMES = ["task_create"] as const;
 
 /** 静态工具名（T3-C 后提示词仍零命中——委派契约句引用的编排工具名是行为指引非清单枚举）。 */
 const STATIC_TOOL_NAMES = [
@@ -60,7 +64,7 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("② SubAgentProfile 系统提示：17 工具名词边界零命中", () => {
+  test("② SubAgentProfile 系统提示：18 工具名词边界零命中", () => {
     for (const name of [...TOOL_NAMES, ...SUBAGENT_ONLY_TOOL_NAMES]) {
       // T3.3 例外："kg" 在 T4.2 段库指引中以概念词出现（"kg 约束切片"/"kg
       // 落账输入"/"kg-change-report" 场景名）——非工具清单枚举（清单唯一源
@@ -73,23 +77,13 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 14 / subagent 13（T3-B +agent_inspect；T3.3 +kg 双工具；T1.4 +plan 三工具 AD-6①）", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 15 / subagent 13（T3-B +agent_inspect；T3.3 +kg 双工具；T1.4 +plan 三工具 AD-6①；T2.4 +task_create AD-7）", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
-    expect(SubAgentProfile.tools).toEqual([
-      "bash",
-      "read",
-      "write",
-      "edit",
-      "grep",
-      "web_search",
-      "web_fetch",
-      "browser",
-      "kg",
-      "kg-update",
-      "plan_create",
-      "plan_update",
-      "plan_read",
-    ]);
+    expect(SubAgentProfile.tools).toEqual(
+      [...TOOL_NAMES, ...SUBAGENT_ONLY_TOOL_NAMES]
+        .filter((t) => !t.startsWith("agent_"))
+        .filter((t) => !(MAIN_ONLY_TOOL_NAMES as readonly string[]).includes(t)),
+    );
   });
 
   test("④ base 只留角色+行为引导：「并行委派」行为策略措辞保留（不列工具名）；closure 协议保留", () => {
