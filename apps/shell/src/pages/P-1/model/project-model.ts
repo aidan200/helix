@@ -2,7 +2,7 @@
  * P-1 ProjectPage 页面私有状态机（F5.0；V-3 单页 master-detail）。
  *
  * 两个正交子模型（review.md「状态模型」）：
- * - 左栏折叠态：expanded（两段列表）/ collapsed（64px 窄轨）——仅形态切换，
+ * - 左栏折叠态：expanded（两段列表）/ collapsed（36px 窄轨）——仅形态切换，
  *   不触碰主区；选中自动折叠、☰ 展开、点当前已选中行仅折叠不重置；
  * - 主区四态状态机：empty / absent / building / graph 互斥，切项目先清旧态
  *   再进新态（kgToken 递增 = kg-viewer 重初始化，防旧图谱残影）。

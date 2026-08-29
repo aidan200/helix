@@ -132,14 +132,14 @@ test.describe("T5.4 P-1 fidelity：F5.0 项目域 + F5.1~F5.5 图谱（FID-25~32
       },
       {
         id: "FID-30",
-        title: "折叠-展开：选中→64px 窄轨（点竖排名展开）；展开恢复；可反复；不改主区；点已选中行仅折叠",
+        title: "折叠-展开：选中→36px 窄轨（点竖排名展开）；展开恢复；可反复；不改主区；点已选中行仅折叠",
         run: async () => {
           // 点当前已选中行 → 折叠（FID-26 已展开）→ 窄轨在场 + 主区 graph
           await page.locator('.pj-row[data-name="helix"]').click();
           await expect(page.locator('[data-pj-rail="collapsed"]')).toBeVisible();
           await expect(page.locator(".pj-rail-name")).toHaveText("helix");
           await expect(page.locator(".pj-rail-name")).toHaveAttribute("title", "展开项目域");
-          expect(await computed(page, ".pj-rail", "width")).toBe("64px");
+          expect(await computed(page, ".pj-rail", "width")).toBe("36px");
           expect(await computed(page, ".pj-rail-name", "writing-mode")).toContain("vertical");
           await expect(page.locator('[data-pj-main="graph"]')).toBeVisible();
           // 点竖排名展开：恢复两段列表，主区不动

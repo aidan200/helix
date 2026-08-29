@@ -79,9 +79,9 @@
 
 /* F5.0 折叠窄轨：选中后左栏收窄（竖排项目名=展开触发，accent 高亮），可反复 */
 .pj-rail {
-  width: 64px; flex: none;
-  display: flex; flex-direction: column; align-items: stretch; gap: 12px;
-  padding: 10px 6px; border-right: 1px solid var(--border);
+  width: 36px; flex: none;
+  display: flex; flex-direction: column; align-items: stretch;
+  padding: 10px 4px; border-right: 1px solid var(--border);
   animation: kg-rail-in 0.18s ease-out;
 }
 @keyframes kg-rail-in { from { opacity: 0; } }
