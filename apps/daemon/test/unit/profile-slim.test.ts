@@ -65,12 +65,16 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("② SubAgentProfile 系统提示：18 工具名词边界零命中", () => {
+  test("② SubAgentProfile 系统提示：工具名词边界零命中（kg/codegraph/kg-update 三名单项放行）", () => {
     for (const name of [...TOOL_NAMES, ...SUBAGENT_ONLY_TOOL_NAMES]) {
       // T3.3 例外："kg" 在 T4.2 段库指引中以概念词出现（"kg 约束切片"/"kg
       // 落账输入"/"kg-change-report" 场景名）——非工具清单枚举（清单唯一源
-      // 仍是组装器），词边界检查对该名单项放行
-      if (name === "kg") continue;
+      // 仍是组装器），词边界检查对该名单项放行。
+      // W3-G 例外："codegraph"/"kg-update" 在「知识纪律」块以行为指引出现
+      // （开工链路 codegraph→kg affected→kg get / 改后纪律 kg-update supersede
+      // 与 createNode——R11 软层 SOP 本体），与 T3-C 委派契约句引用编排工具名
+      // 同性质（行为指引非清单枚举），词边界检查对这两名单项放行。
+      if (name === "kg" || name === "codegraph" || name === "kg-update") continue;
       expect(
         SUBAGENT_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)),
         `SubAgent profile 提示仍含工具名 ${name}`,
