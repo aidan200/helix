@@ -88,6 +88,12 @@ export interface KgToolOptions {
   readonly write?: { write(projectRoot: string, op: KnowledgeWriteOp): WriteResult };
   readonly workspaceRoot: string;
   readonly scanProjects: () => readonly string[];
+  /**
+   * 任务归属上下文（T4.2 机械注入，AD-10）：批次子进程接线层注入——
+   * kg-update 三写路径的 taskId/originBatchId 默认值源（LLM 显式传参
+   * 优先）。缺席 = 非任务上下文（主会话/chat 子进程）→ 零注入。
+   */
+  readonly taskContext?: () => { readonly taskId: string; readonly originBatchId: string } | undefined;
 }
 
 export interface CoreToolExecutorOptions {
@@ -204,6 +210,7 @@ export class CoreToolExecutor implements ToolExecutorPort {
             write: options.kg.write,
             workspaceRoot: options.kg.workspaceRoot,
             scanProjects: options.kg.scanProjects,
+            ...(options.kg.taskContext !== undefined ? { taskContext: options.kg.taskContext } : {}),
           }),
         );
       }

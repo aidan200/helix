@@ -146,6 +146,43 @@ describe("双宿主同源（CL-1-T4）", () => {
   });
 });
 
+describe("insertBatch 机械推进 stage（T4.2，AF-T4.1.5 裂口修复）", () => {
+  test("stage 首个批次落行 → stage pending→running 机械推进（job pending→running 同构）；后续批次不重复推进", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      expect(env.store.getStages(jobId).map((s) => s.status)).toEqual(["pending", "pending", "pending"]);
+      await env.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次 1" });
+      // 机械推进：首个批次落行即 stage running（不再依赖编排 LLM 调 advanceStage）
+      expect(env.store.getStages(jobId).find((s) => s.seq === 1)!.status).toBe("running");
+      // 同 stage 第二批次：stage 保持 running，不报错不重复迁移
+      await env.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次 2" });
+      expect(env.store.getStages(jobId).find((s) => s.seq === 1)!.status).toBe("running");
+      expect(env.store.getBatches(jobId, 1)).toHaveLength(2);
+      // 其他 stage 不受影响
+      expect(env.store.getStages(jobId).find((s) => s.seq === 2)!.status).toBe("pending");
+    });
+  });
+
+  test("advanceStage 幂等兼容：机械推进后再调 advanceStage 为 no-op 成功（编排 LLM 冗余调用不炸）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      await env.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次 1" }); // 机械推进 stage 1 → running
+      await env.engine.advanceStage(jobId, 1); // 幂等 no-op（已是 running）
+      expect(env.store.getStages(jobId).find((s) => s.seq === 1)!.status).toBe("running");
+    });
+  });
+});
+
 describe("pause 语义（CL-3-T7 引擎面，O-2）", () => {
   test("running → paused 落库；在跑批次 completeBatch 照常落 done；派发闸拒绝新批次；resume 重开编排", async () => {
     await withTaskEnv(async (env) => {

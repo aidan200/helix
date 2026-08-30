@@ -108,11 +108,11 @@ const kgUpdateParameters = {
     project: { type: "string", description: "createNode 目标项目目录名（workspace 只有一个项目时可省；多项目必填）" },
     taskId: {
       type: "string",
-      description: "任务来源 id（可选，任务元数据）：任务批次产出落账时携带——取批次 brief 给出的本任务 jobId，change_log 记账溯源",
+      description: "任务来源 id（可选）：任务批次上下文由接线层机械注入默认值（落 change_log.task_id 记账溯源），仅需显式传参覆盖时才携带",
     },
     originBatchId: {
       type: "string",
-      description: "产出批次 id（可选，任务元数据）：任务批次产出落账时携带——取批次 brief 给出的本批次 batchId，产出分组/幂等重跑判据",
+      description: "产出批次 id（可选）：任务批次上下文由接线层机械注入默认值（产出分组/幂等重跑判据），仅需显式传参覆盖时才携带",
     },
   },
   required: ["op", "iterationId"],
@@ -127,6 +127,15 @@ export interface KgUpdateToolDeps {
   readonly workspaceRoot: string;
   /** workspace 全项目扫描（createNode 目标解析；含未建 .kg 项目）。 */
   readonly scanProjects: () => readonly string[];
+  /**
+   * 任务归属上下文（T4.2 机械注入，AD-10/AF-T4.1.4/T4.1.6）：批次子进程
+   * 接线层（ChildMain，HELIX_DB_PATH 同面）从任务台账解析本实例归属
+   * jobId/batchId，对三写路径（单条/批量/supersede replacement）注入
+   * taskId/originBatchId 默认值——LLM 显式传参优先（透传降级为可选覆盖）。
+   * 缺席/返回 undefined = 非任务上下文（主会话/chat 子进程）→ 零注入，
+   * task_id 保持 NULL（kg 更新不强制关联任务），行为与现状逐字节一致。
+   */
+  readonly taskContext?: () => { readonly taskId: string; readonly originBatchId: string } | undefined;
 }
 
 /** kg-update 即时落账工具：注册名 "kg-update"。 */
@@ -175,14 +184,21 @@ function execSupersede(deps: KgUpdateToolDeps, args: Record<string, unknown>, it
     );
   }
   const { project } = hits[0]!;
-  const replacement = draftOf(args["replacement"]);
-  const writeOp: KnowledgeWriteOp = {
+  const context = deps.taskContext?.();
+  const draft = draftOf(args["replacement"]);
+  // T4.2（AF-T4.1.6）：批次上下文内 replacement 默认 confirmed（bootstrap
+  // 无 draft 自约束的机械兑现）；非批次上下文 status 语义不变（缺省 draft）
+  const replacement =
+    draft !== null && context !== undefined && draft.status === undefined
+      ? { ...draft, status: "confirmed" as const }
+      : draft;
+  const writeOp: KnowledgeWriteOp = createOp(deps, args, {
     kind: "supersede",
     iterationId,
     nodeId,
     reason,
     ...(replacement !== null ? { replacementNodeDraft: replacement } : {}),
-  };
+  });
   const result = writeOrThrow(deps, project, writeOp);
   return replacement === null
     ? `已 supersede：${nodeId}（status 翻转，理由已入 change_log）`
@@ -201,7 +217,7 @@ function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>, i
   };
   const anchors = anchorsOf(args["anchors"]);
   const project = resolveTargetProject(deps, args);
-  const result = writeOrThrow(deps, project, createOp(args, { kind: "createNode", iterationId, draft }));
+  const result = writeOrThrow(deps, project, createOp(deps, args, { kind: "createNode", iterationId, draft }));
   let summary = `已建节点 ${result.nodeId}（project: ${projectName(project)}，自动发号）`;
   if (anchors !== null) {
     // 锚声明组合落账（第二笔 op）：失败不回滚建点——结构化报错携带已建 id（可重声明）
@@ -227,10 +243,15 @@ function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWrit
   return { nodeId: result.nodeId };
 }
 
-/** 任务产出元数据（T4.1：op base 可选 taskId/originBatchId——批次 brief 携带则透传）。 */
-function createOp<T extends KnowledgeWriteOp>(args: Record<string, unknown>, op: T): T {
-  const taskId = optionalString(args, "taskId");
-  const originBatchId = optionalString(args, "originBatchId");
+/**
+ * 任务产出元数据（T4.2 机械注入）：LLM 显式传参优先；未传用接线层注入的
+ * 任务归属默认值（批次子进程上下文）；无任务上下文 → 不携带（task_id
+ * 保持 NULL——kg 更新不强制关联任务，非任务上下文零行为变化）。
+ */
+function createOp<T extends KnowledgeWriteOp>(deps: KgUpdateToolDeps, args: Record<string, unknown>, op: T): T {
+  const context = deps.taskContext?.();
+  const taskId = optionalString(args, "taskId") ?? context?.taskId;
+  const originBatchId = optionalString(args, "originBatchId") ?? context?.originBatchId;
   return {
     ...op,
     ...(taskId !== undefined ? { taskId } : {}),
@@ -262,7 +283,7 @@ function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unkno
     return { draft: opLayer !== undefined ? { ...stamped, layer: opLayer } : stamped };
   });
   const project = resolveTargetProject(deps, args);
-  const result = writeOrThrow(deps, project, createOp(args, { kind: "batchCreateNodes", iterationId, nodes }));
+  const result = writeOrThrow(deps, project, createOp(deps, args, { kind: "batchCreateNodes", iterationId, nodes }));
   return `已批量建节点 ${nodes.length} 个（project: ${projectName(project)}，自动发号；末节点 ${result.nodeId}）`;
 }
 

@@ -208,10 +208,12 @@ export class SqliteKnowledgeStore {
     );
     const draft = op.replacementNodeDraft;
     const now = isoNow();
+    // origin_batch_id 同 createNode 落列（T4.2/AF-T4.1.6：replacement 同为批次产出，
+    // 缺列曾致 origin_batch_id 永 NULL 的落章裂口）
     db.prepare(
-      "INSERT INTO nodes (id, kind, name, digest, body, domain, layer, status, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(replacementId, draft.kind, draft.name, draft.digest, draft.body ?? "", draft.domain ?? null, draft.layer ?? null, draft.status ?? "draft", now, now);
+      "INSERT INTO nodes (id, kind, name, digest, body, domain, layer, origin_batch_id, status, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(replacementId, draft.kind, draft.name, draft.digest, draft.body ?? "", draft.domain ?? null, draft.layer ?? null, op.originBatchId ?? null, draft.status ?? "draft", now, now);
     this.appendChangeLog(db, op.iterationId, "createNode", replacementId, op.nodeId, op.reason, op.taskId);
     return { ok: true, nodeId: replacementId };
   }

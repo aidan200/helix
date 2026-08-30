@@ -507,14 +507,15 @@ describe("AF-T1.5.2：TaskEngineService onTaskChanged 出站钩子", () => {
       frames.length = 0;
 
       const { batchId } = await engine.insertBatch({ jobId, stageSeq: 1, scope: "批次 1" });
-      // 首批接管：job pending→running + batch pending
+      // 首批接管：job pending→running + batch pending + stage 机械推进 running（T4.2）
       expect(frames).toContainEqual({ jobId, changed: "job", status: "running" });
+      expect(frames).toContainEqual({ jobId, changed: "stage", status: "running" });
       expect(frames).toContainEqual({ jobId, changed: "batch", status: "pending" });
       frames.length = 0;
 
+      // T4.2 幂等兼容：机械推进后 advanceStage 冗余调用为 no-op（零帧）
       await engine.advanceStage(jobId, 1);
-      expect(frames).toContainEqual({ jobId, changed: "stage", status: "running" });
-      frames.length = 0;
+      expect(frames).toHaveLength(0);
 
       await engine.dispatchBatch(batchId, "inst-a");
       expect(frames).toContainEqual({ jobId, changed: "batch", status: "running" });

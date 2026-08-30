@@ -195,6 +195,16 @@ export class TaskEngineService implements TaskEnginePort {
       await this.transitionJob(input.jobId, "running");
       this.notify({ jobId: input.jobId, changed: "job", status: "running" });
     }
+    // T4.2（AF-T4.1.5 裂口修复）：stage pending→running 机械推进——该 stage
+    // 首个批次落行即推进（与 job 接管同构），不再依赖编排 LLM 调 advanceStage
+    // （真机实测批次 done 而 stage 滞留 pending 的倒挂）；advanceStage 保留
+    // 幂等兼容（已是 running 时 no-op），编排冗余调用不炸。
+    if (stage.status === "pending") {
+      await this.deps.store
+        .updateStageStatus(input.jobId, input.stageSeq, "running")
+        .catch((error) => this.mapDomainError(error));
+      this.notify({ jobId: input.jobId, changed: "stage", status: "running" });
+    }
     const now = this.deps.clock.now();
     const batchId = `batch-${crypto.randomUUID()}`;
     const seq = this.deps.store.getBatches(input.jobId, input.stageSeq).length + 1;
@@ -290,6 +300,9 @@ export class TaskEngineService implements TaskEnginePort {
     if (stage === undefined) {
       throw new TaskError("task.invalid_state", `stage 不存在：${jobId}#${stageSeq}（阶段行已冻结，AD-9③）`);
     }
+    // T4.2 幂等兼容：insertBatch 已机械推进 running 后，编排 LLM 的冗余
+    // 调用为 no-op 成功（不删工具，双通道收口同一状态）
+    if (stage.status === "running") return;
     await this.deps.store.updateStageStatus(jobId, stageSeq, "running").catch((error) => this.mapDomainError(error));
     this.notify({ jobId, changed: "stage", status: "running" });
   }
