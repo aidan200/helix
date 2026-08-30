@@ -69,6 +69,12 @@ export interface ClosureRecorderDeps {
   readonly findingsSink?: ClosureFindingsSink;
   /** 可观测 warn（findings 落账跳过/被拒/异常——不阻塞主流程；缺省静默）。 */
   readonly logger?: { warn: (message: string) => void };
+  /**
+   * pending_sync 的 job 归属解析（W2-D R13：闭环记录点 upsert 的 job_id 列）。
+   * 组合根接线：task:* 会话 → jobId，chat 会话 → null。缺省恒 null（纯调度
+   * 测试形态——job_id 可空列，不阻塞记录）。
+   */
+  readonly pendingSyncJobIdOf?: (sessionId: string) => string | null;
 }
 
 /** findings 落账接口（KgWriteService.write + workspace 项目扫描的最小消费面）。 */
@@ -142,6 +148,22 @@ export class ClosureRecorder {
 
     // F3.0③ findings→kg 落账（断头处接通管道；失败不阻塞收口）
     this.recordFindings(instanceId, closure);
+
+    // W2-D R13 闭环记录点：机械查 tool_calls 有 write 类成功调用才 upsert
+    // pending_sync（不无脑记录）；job 终态扫描提示归编排侧（不进引擎，AD-10）
+    this.recordPendingSync(instance);
+  }
+
+  /**
+   * pending_sync 闭环记录点（W2-D R13/R22）：本 session 有 write 类工具成功
+   * 调用（v1 口径仅 edit/write+completed，bash 不算）→ upsert 台账行
+   *（changed_at=now、notified 复位 0——新变更需重新提示）；无则不记。
+   * 三终态统一记录（failed/killed 也可能已产生实际变更）。
+   */
+  private recordPendingSync(instance: AgentInstance): void {
+    if (!this.deps.repository.hasSuccessfulWriteToolCall(instance.sessionId)) return;
+    const jobId = this.deps.pendingSyncJobIdOf?.(instance.sessionId) ?? null;
+    void this.deps.repository.savePendingSync(instance.sessionId, jobId, this.deps.clock.now());
   }
 
   /** findings 落账管道：sediment 条目映射写 op → sink（跳过/被拒/异常均 warn 不抛）。 */

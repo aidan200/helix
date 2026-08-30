@@ -146,6 +146,11 @@ export interface SchedulerServiceDeps {
    * 缺省不落账（纯调度测试形态）。
    */
   readonly findingsSink?: ClosureFindingsSink;
+  /**
+   * pending_sync job 归属解析（W2-D R13，透传 ClosureRecorder）：task:*
+   * 会话 → jobId、chat 会话 → null；缺省恒 null（job_id 可空列）。
+   */
+  readonly pendingSyncJobIdOf?: (sessionId: string) => string | null;
 }
 
 /**
@@ -193,6 +198,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       injectClosure: deps.injectClosure,
       logger: deps.logger,
       ...(deps.findingsSink !== undefined ? { findingsSink: deps.findingsSink } : {}),
+      ...(deps.pendingSyncJobIdOf !== undefined ? { pendingSyncJobIdOf: deps.pendingSyncJobIdOf } : {}),
     });
     // 契约零变化：恰 2 回调注册给 runner，回调体一行转发
     this.deps.runner.setCallbacks({

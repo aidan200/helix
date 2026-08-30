@@ -29,7 +29,7 @@ import {
   OrchestratorProfile,
   ORCHESTRATOR_SYSTEM_PROMPT,
 } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
-import { isTaskSessionId } from "../../application/services/task/TaskOrchestratorService";
+import { isTaskSessionId, TASK_SESSION_PREFIX } from "../../application/services/task/TaskOrchestratorService";
 import { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
 import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinking-resolve";
 import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
@@ -390,6 +390,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     ...(deps.taskInjector !== undefined ? { taskInjector: deps.taskInjector } : {}),
     // findings 落账管道（F3.0，T4.1）：透传 ClosureRecorder（组合根接 kg 栈）
     ...(deps.findingsSink !== undefined ? { findingsSink: deps.findingsSink } : {}),
+    // pending_sync job 归属解析（W2-D R13）：task:* 会话 → jobId、chat 会话 → null
+    pendingSyncJobIdOf: (sessionId) =>
+      isTaskSessionId(sessionId) ? sessionId.slice(TASK_SESSION_PREFIX.length) : null,
     // Sub instantiated 快照供给——profile（AD-5，契约 v0.4 §2）
     // 常量全文 + model 两级链解析 id 形态（profile 槽位 ?? 全局兜底，T12 砍
     // spawn 会话快照级；与该实例 launch 实际用模同源同时点——launch 侧

@@ -15,6 +15,8 @@ import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue"
 import { SqliteSessionRepository } from "../../src/adapters/driven/sqlite-session/SqliteSessionRepository";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
+import { Session } from "../../src/domain/session/Session";
+import { ToolCallRecord } from "../../src/domain/tools/ToolCallRecord";
 
 /**
  * T2.1 SchedulerService integration（test-design §1.1 integration-① + §2.1 F1.3/F1.9）：
@@ -109,6 +111,8 @@ function makeHarness(options: {
   policy?: SchedulingPolicy;
   hangMs?: number;
   clock?: ClockPort;
+  /** W2-D：pending_sync job 归属解析（透传 ClosureRecorder；缺省不注入 = 恒 null）。 */
+  pendingSyncJobIdOf?: (sessionId: string) => string | null;
 }): Harness {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t21-sched-"));
   const writeQueue = new WriteQueue(path.join(home, "helix.db"));
@@ -131,6 +135,7 @@ function makeHarness(options: {
     repository,
     clock,
     stalledPollMs: 40, // 小轮询：stalled 测试可控（K1 阈值注入配套）
+    ...(options.pendingSyncJobIdOf !== undefined ? { pendingSyncJobIdOf: options.pendingSyncJobIdOf } : {}),
   });
   return {
     scheduler,
@@ -318,6 +323,68 @@ describe("④ 收口事件 + agent_lifecycle 落盘（F1.8）", () => {
       .all(SESSION_ID) as { agent_instance_id: string; type: string }[];
     expect(rows.map((r) => r.type)).toEqual(["agent.spawned", "agent.started", "agent.completed"]);
     expect(rows.every((r) => r.agent_instance_id === a1)).toBe(true);
+  });
+});
+
+describe("W2-D 闭环 pending_sync 记录点（R13/R22：tool_calls 机械判定，不无脑记录）", () => {
+  /** 会话种子：session_state + tool_calls（真库投影；ToolCallRecord 同 pending-sync-store 测试）。 */
+  async function seedTools(
+    h: Harness,
+    sessionId: string,
+    ...tools: { id: string; name: string; ok: boolean }[]
+  ): Promise<void> {
+    const repo = new SqliteSessionRepository(h.writeQueue);
+    const session = Session.create(sessionId, FIXED_NOW);
+    const toolCalls = tools.map((t) => {
+      const record = ToolCallRecord.create(t.id, t.name, { path: "/x" });
+      record.markRunning(FIXED_NOW);
+      if (t.ok) record.complete("ok", FIXED_NOW);
+      else record.fail("boom", FIXED_NOW);
+      return record.toData();
+    });
+    await repo.save({ session: session.toSnapshot(), agentState: "idle", toolCalls });
+  }
+
+  test("有 write 类成功调用 → 三终态收口均 upsert 台账（chat 会话 jobId=null）", async () => {
+    const h = (current = makeHarness({}));
+    const repo = new SqliteSessionRepository(h.writeQueue);
+    await seedTools(h, SESSION_ID, { id: "t1", name: "edit", ok: true });
+    const a1 = spawnId(h, "改动任务");
+    h.runner.forceClosure(a1, { result: "done", closure: DONE_CLOSURE("改完") });
+    await h.writeQueue.flush();
+    expect(repo.queryUnnotifiedPendingSync(SESSION_ID, "job-none")).toEqual([
+      { sessionId: SESSION_ID, jobId: null, changedAt: FIXED_NOW },
+    ]);
+  });
+
+  test("无 write 类成功调用（bash/失败/无记录）→ 不记录", async () => {
+    const h = (current = makeHarness({}));
+    const repo = new SqliteSessionRepository(h.writeQueue);
+    await seedTools(h, SESSION_ID, { id: "t1", name: "bash", ok: true }, { id: "t2", name: "edit", ok: false });
+    const a1 = spawnId(h, "只读任务");
+    h.runner.forceClosure(a1, { result: "done", closure: DONE_CLOSURE("读完") });
+    // 完全无记录的会话也不记
+    const empty = h.scheduler.spawn("s-t21-empty", "另一任务");
+    if (empty.status === "rejected") throw new Error(`spawn 被拒：${empty.error}`);
+    h.runner.forceClosure(empty.agentId, { result: "done", closure: DONE_CLOSURE("空") });
+    await h.writeQueue.flush();
+    expect(repo.queryUnnotifiedPendingSync(SESSION_ID, "job-none")).toEqual([]);
+    expect(repo.queryUnnotifiedPendingSync("s-t21-empty", "job-none")).toEqual([]);
+  });
+
+  test("task:* 会话经 jobIdOf 解析 job_id 列（组合根同构接线）", async () => {
+    const h = (current = makeHarness({
+      pendingSyncJobIdOf: (sid) => (sid.startsWith("task:") ? sid.slice("task:".length) : null),
+    }));
+    const repo = new SqliteSessionRepository(h.writeQueue);
+    await seedTools(h, "task:job-1", { id: "t1", name: "write", ok: true });
+    const outcome = h.scheduler.spawn("task:job-1", "批次任务");
+    if (outcome.status === "rejected") throw new Error(`spawn 被拒：${outcome.error}`);
+    h.runner.forceClosure(outcome.agentId, { result: "done", closure: DONE_CLOSURE("批次完成") });
+    await h.writeQueue.flush();
+    expect(repo.queryUnnotifiedPendingSync("task:job-1", "job-1")).toEqual([
+      { sessionId: "task:job-1", jobId: "job-1", changedAt: FIXED_NOW },
+    ]);
   });
 });
 
