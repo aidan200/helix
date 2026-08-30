@@ -13,7 +13,7 @@
 |---|---|---|---|
 | brief | brief/task-goal.md | 任务目标 | 声明任务要交付什么——可验收的目标句式（硬约束①三要素之一，不可省） |
 | brief | brief/background.md | 背景 | 任务上下文与现状事实（为什么做/已知约束）；无实义内容时整段省略 |
-| brief | brief/kg-constraint-slice.md | kg 约束切片 | 图谱约束注入区：digest+指针切片 + supersede 协议行（T3.3 附着渲染同格式） |
+| brief | brief/kg-constraint-slice.md | kg 约束切片 | 图谱约束注入区：digest+scene+指针切片 + supersede 协议行（附着渲染同格式，R23 索引面必带 scene） |
 | brief | brief/scope-clamp.md | 范围钳制 | 明确不做什么的边界清单，防段外动作（F-23 教训；硬约束①三要素之二，不可省） |
 | brief | brief/test-requirements.md | 测试要求 | TDD 先写失败测试：测试点清单/层级/运行方式/红绿判定 |
 | brief | brief/completion-criteria.md | 完成标准 | 验收条件+交付物+闭环要求——完成判定要素的载体段（硬约束①三要素之三，不可省） |
@@ -62,6 +62,7 @@ plan_mark_done 闭环检查的机械判据。质量不在此判（归验证期�
 
 📎 本次任务命中以下知识节点（digest+指针，详情经 kg get 获取）：
 - **附着匹配三段分工** [rule] — 动作层按 oldText 精确匹配，span 兜底保守不猜
+  适用：改动附着匹配/预算裁剪相关代码前
   ↳ kg get TR-AD-8
 
 若本次改动推翻此节点，随改动提交 supersede（kg-update）

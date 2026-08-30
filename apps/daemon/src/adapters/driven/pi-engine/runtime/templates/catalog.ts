@@ -55,7 +55,7 @@ export const SEGMENT_CATALOG: readonly SegmentMeta[] = [
     scenario: "brief",
     file: "kg-constraint-slice.md",
     title: "kg 约束切片",
-    purpose: "图谱约束注入区：digest+指针切片 + supersede 协议行（T3.3 附着渲染同格式）",
+    purpose: "图谱约束注入区：digest+scene+指针切片 + supersede 协议行（附着渲染同格式，R23 索引面必带 scene）",
   },
   {
     scenario: "brief",
