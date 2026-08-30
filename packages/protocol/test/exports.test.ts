@@ -259,11 +259,11 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（workspace 批：命令 36 / 事件 57；v0.11 版本位保持）", () => {
+  test("② 常量语义值 + 目录计数（task 批：命令 45 / 事件 58；v0.11 版本位保持）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.11"); // v0.11 批次版本位（thinking 批四块 additive，AD-2/AD-4；契约 = PROTOCOL.md §17.11）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(36); // workspace 批：+2（workspace.get/open，W1 绑定闭环；kg 批后 34）
-    expect(protocol.EVENT_TYPES.length).toBe(57); // workspace 批：+3（两结果帧 + workspace_changed 广播；kg 批后 54）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(57); // 登记目录恰等
+    expect(protocol.COMMAND_TYPES.length).toBe(50); // kg-bootstrap 批：+5（kg 族 additive，T3.2；task 批后 45）
+    expect(protocol.EVENT_TYPES.length).toBe(63); // kg-bootstrap 批：+5（五命令点对点回执入 kg 族目录，T3.2；task 批后 58）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(63); // 登记目录恰等
   });
 });

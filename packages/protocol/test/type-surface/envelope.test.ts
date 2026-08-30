@@ -39,8 +39,8 @@ type _EventFrameSessionIdOptional = Expect<Equal<EventFrame["sessionId"], string
 
 type _EventFrameChannelOptional = Expect<Equal<EventFrame["channel"], Channel | undefined>>;
 type _NotificationFamily = Expect<
-  Equal<TypeOfChannel<"notification">, "connection.welcome" | "connection.error">
->;
+  Equal<TypeOfChannel<"notification">, "connection.welcome" | "connection.error" | "task.changed">
+>; // task 批（T1.5）：task.changed 挂既有 notification 通道（不新增 Channel 值）
 
 // ④ 版本位批次标记："0.11"（typeof PROTOCOL_VERSION 单值；FrameVersion / hello 联动见上）
 type _ProtocolVersionV03 = Expect<Equal<typeof PROTOCOL_VERSION, "0.11">>;

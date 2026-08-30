@@ -112,7 +112,14 @@ function projectDataLine(
   return t("pj.dataLine.absent");
 }
 
-const ProjectPage = function ProjectPage({ path }: { path: string }) {
+const ProjectPage = function ProjectPage({
+  path,
+  /** 「前往『任务』页」出口（App 层路由回调；缺省 no-op——路由登记面在 T3.1 页面域接通）。 */
+  onOpenTasks = () => {},
+}: {
+  path: string;
+  onOpenTasks?: () => void;
+}) {
   const { t } = useI18n();
   const toast = useToast();
   const { theme, setTheme } = useTheme();
@@ -329,12 +336,15 @@ const ProjectPage = function ProjectPage({ path }: { path: string }) {
               </div>
             )}
             {state.mainMode === "absent" && selectedRow !== null && (
-              <div className="pj-center-panel">
+              <div className="pj-center-panel" data-boot-entry="guide">
                 <div className="pj-cp-title">{selectedRow.name}</div>
                 <div className="pj-cp-badges">
                   <span className="hud-badge pb-absent">{t("pj.badge.absent")}</span>
+                  {/* T3.2 R-11 引导态：bootstrap 入口前置条件未满足（串联冷启动链） */}
+                  <span className="hud-badge pb-absent">{t("pj.boot.guideBadge")}</span>
                 </div>
                 <div className="pj-cp-sub">{t("pj.main.absentSub")}</div>
+                <div className="pj-cp-sub">{t("pj.boot.guideSub")}</div>
                 <button type="button" className="hud-btn kg-btn-primary" data-build-cta onClick={onBuild}>
                   {t("pj.main.buildCta")}
                 </button>
@@ -361,8 +371,16 @@ const ProjectPage = function ProjectPage({ path }: { path: string }) {
           </div>
         )}
         {state.mainMode === "graph" && selectedRow !== null && (
-          /* 切项目先清旧态再进新态：key=kgToken 强制重挂（新数据面） */
-          <KgViewer key={state.kgToken} project={selectedRow} />
+          /* 切项目先清旧态再进新态：key=kgToken 强制重挂（新数据面）。T3.2：
+             produce/bootstrap 扩面状态与 dispatch 注入（切项目复位在 reducer） */
+          <KgViewer
+            key={state.kgToken}
+            project={selectedRow}
+            produce={state.produce}
+            bootstrapLaunched={state.bootstrap.launched}
+            projectDispatch={dispatch}
+            onOpenTasks={onOpenTasks}
+          />
         )}
       </div>
     </AppLayout>

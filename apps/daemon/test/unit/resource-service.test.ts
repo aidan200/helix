@@ -34,6 +34,7 @@ const TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
     "browser",
   ],
   "subagent-worker": ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"],
+  "orchestrator": ["bash", "read", "grep"], // T2.2 第三 kind（additive 扩值同步）
 };
 
 /** 测试用 snippet 映射（单点注入；注册表外名 = 空串语义由缺省覆盖）。 */

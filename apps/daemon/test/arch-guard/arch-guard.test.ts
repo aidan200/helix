@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -103,7 +103,13 @@ describe("AG-02：依赖方向矩阵", () => {
   test("④ 组合根外不 new 具体 adapter/service 实现（pi-engine 内部装配与 domain 聚合除外）", () => {
     // T1.1（iter-20260825-11fo）：kg 栈四类（KgWriteService/KgDatabase/
     // SqliteKnowledgeStore/SqliteKnowledgeGraph）同列组合根专属构造面。
-    const concrete = /(ChatService|SessionService|RestoreService|SchedulerService|SubagentLauncher|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine|WsServerAdapter|EventStream|StaticServe|WriteQueue|SqliteSessionRepository|CoreToolExecutor|KgWriteService|KgDatabase|SqliteKnowledgeStore|SqliteKnowledgeGraph|CodegraphEngineAdapter)\s*\(/;
+    // T1.1（iter-20260825-11fo）：kg 栈四类（KgWriteService/KgDatabase/
+    // SqliteKnowledgeStore/SqliteKnowledgeGraph）同列组合根专属构造面。
+    // T2.1（iter-20260829-ys7q O-4）：任务栈两类（TaskStore/WorkLedger）同列
+    // ——TaskStore 装配于 assembly/buildTaskStack（父进程）；WorkLedger 两面
+    // 装配（子进程直连面 T1.4 ChildMain / 父进程清理面 parentWorkLedger 工厂）
+    // 均属组合根行为，业务层不得直构。
+    const concrete = /(ChatService|SessionService|RestoreService|SchedulerService|SubagentLauncher|CliAdapter|StdoutEventPublisher|PiAgentEngineAdapter|AgentRuntime|SteerHooks|MinimalHooks|FakeAgentEngine|WsServerAdapter|EventStream|StaticServe|WriteQueue|SqliteSessionRepository|CoreToolExecutor|KgWriteService|KgDatabase|SqliteKnowledgeStore|SqliteKnowledgeGraph|CodegraphEngineAdapter|TaskStore|WorkLedger)\s*\(/;
     const scanDirs = ["adapters/driving", "application", "domain"];
     for (const dir of scanDirs) {
       for (const rel of listFiles(path.join(srcRoot, ...dir.split("/")))) {
@@ -223,13 +229,16 @@ describe("AG-05 / TP-CL5-4：运行时依赖白名单（daemon 不引入 pi-codi
     // 退役——包级依赖与 AG-15③ 联动断言保留，待包级退役决策）——两包均不计
     // 入 pi 系口径；diff@8.0.4（T3.1/AF-1）：VENDORED edit-diff 内核的
     // generateDiffString/generateUnifiedPatch 运行时依赖，与 pi-agent-core
-    // 同版锁定（pi bump 再同步时同步复核版本）
+    // 同版锁定（pi bump 再同步时同步复核版本）；yaml@2.9.0（T2.3/AF-2.3a）：
+    // TaskSkillRegistry 自解析 SKILL.md frontmatter task 块（pi loadSourcedSkills
+    // 不透传附加字段），与 pi-agent-core pinned 传递依赖同版本零增树
     expect(deps).toEqual([
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",
       "@helix/common",
       "@helix/protocol",
       "diff",
+      "yaml",
     ]);
     const piDeps = deps.filter((d) => d.startsWith("@earendil-works/"));
     expect(piDeps).toEqual(["@earendil-works/pi-agent-core", "@earendil-works/pi-ai"]);
@@ -265,6 +274,14 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     path.join("adapters", "driven", "sqlite-session", "WriteQueue.ts"),
     path.join("adapters", "driven", "sqlite-kg", "KgDatabase.ts"),
     path.join("adapters", "driven", "sqlite-kg", "SqliteKnowledgeStore.ts"),
+    // T2.1（iter-20260829-ys7q O-1/O-4）：helix.db 任务四表三条写路径登记——
+    // ① 父进程 job/stage/batch 写点链 + work_item 写语句宿主
+    // （prepareWorkLedgerStatements/openTaskLedgerDatabase）在 WriteQueue.ts
+    // （既有成员，语义扩至任务表域）；② 父进程 F3.6 清理面与 ③ 子进程 plan
+    // 工具直连 work_item 写点的执行体 WorkLedger（insertItems/updateItem/
+    // deleteByInstanceIds——SQL 文本仍只在 WriteQueue，四表 DML/DDL 落位由
+    // O-1 表分域断言另行钉死，见下方 describe）。
+    path.join("adapters", "driven", "sqlite-session", "WorkLedger.ts"),
   ]);
   // T2.1（AF-2）：codegraph.db 只读读点登记（**非写点**）——codegraph-engine
   // 投影面 new Database（mode=ro 系只读连接，零 DML/DDL/写类 PRAGMA，绝不
@@ -324,6 +341,11 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     expect(rootFiles.match(/new\s+KgDatabase\(/g)?.length).toBe(1);
     expect(rootFiles.match(/new\s+SqliteKnowledgeStore\(/g)?.length).toBe(1);
     expect(rootFiles.match(/new\s+SqliteKnowledgeGraph\(/g)?.length).toBe(1);
+    // T2.1（O-4）：任务栈装配计数——TaskStore 恰一个（buildTaskStack）；父进程
+    // work_item 清理面恰一处（parentWorkLedger 工厂调用；子进程直连面在
+    // subagent/ChildMain 装配，不在组合根扫描面，由表分域断言负向守护）。
+    expect(rootFiles.match(/new\s+TaskStore\(/g)?.length).toBe(1);
+    expect(rootFiles.match(/parentWorkLedger\(/g)?.length).toBe(1);
   });
 
   const writeQueueRel = path.join("adapters", "driven", "sqlite-session", "WriteQueue.ts");
@@ -362,6 +384,23 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
     expect(read(path.join("adapters", "driven", "sqlite-session", "schema.ts"))).toContain(
       "CREATE TABLE IF NOT EXISTS closure_records",
     );
+  });
+
+  test("④ 任务写点越界 fixture 自证红（守护有效性非空转，O-4）：假模块直写 job 表 → ① 的扫描谓词全判红", () => {
+    // 构造一个「若落在 src 内必红」的越界 fixture（假模块直连 helix.db 写
+    // job 表）：用 ① 同一套谓词验证它能被检出——守护不是恒真扫描（自证）。
+    // fixture 不落盘 src，只验证谓词判红条件本身。
+    const fixtureRel = path.join("adapters", "driven", "tools", "plan", "FakeJobWriter.ts");
+    const fixtureSrc = [
+      'import { Database } from "bun:sqlite";',
+      'const db = new Database("helix.db");',
+      'db.exec("INSERT INTO job (id, status) VALUES (\'j-1\', \'running\')");',
+    ].join("\n");
+    expect(sqliteWriteWhitelist.has(fixtureRel), "fixture 不在写点白名单（① 判红条件成立）").toBe(false);
+    expect(sqliteReadonlyWhitelist.has(fixtureRel), "fixture 不在只读白名单").toBe(false);
+    expect(fixtureSrc.match(/new\s+Database\s*\(/), "① new Database 判红").not.toBeNull();
+    const writeHit = writePatterns.filter(([, pattern]) => pattern.test(fixtureSrc));
+    expect(writeHit.length, "① SQLite 写点形态判红（db.exec + INSERT INTO）").toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -402,6 +441,7 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // 使键集合变更可评审（扫描面含注释提及：注释与实现同键同责任）。
     const registered = [
       "HELIX_API_KEYS_JSON",
+      "HELIX_DB_PATH", // T1.4（AD-6①）：work_item 台账库路径（SubagentLauncher 注入 / ChildMain 本地栈消费）
       "HELIX_FAKE_ENGINE_SCRIPT",
       "HELIX_INSTANCE_ID",
       "HELIX_MODEL_JSON",
@@ -492,8 +532,11 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
           //（KgViewerService，architecture.md 明文「driving/kg.ts 调 application
           // service 不触 driven」）——仅限 type-only（依赖面注入经组合根，
           // ws-server 零运行时耦合），同 domain 口径。W1 绑定闭环：workspace
-          // 族命令回口同口径（WorkspaceService，仅限 type-only）。
-          const serviceTypeOnly = /\/services\/(kg|workspace)\//.test(spec) && typeOnly(spec, src);
+          // 族命令回口同口径（WorkspaceService，仅限 type-only）。task 批
+          //（iter-20260829-ys7q T1.5，§8.1）：task 族读面回口同口径
+          //（TaskQueryService，仅限 type-only；TaskError 错误映射走
+          // duck-typing err.code，不引运行时类）。
+          const serviceTypeOnly = /\/services\/(kg|workspace|task)\//.test(spec) && typeOnly(spec, src);
           if (!serviceTypeOnly) {
             expect(runtimeAllowed(rel, spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
           }
@@ -501,9 +544,10 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
       }
       // 白名单的否定面：禁 services/infrastructure/driven
       //（T5.3 例外：application/services/kg/ 的 type-only 面见上；W1：
-      // application/services/workspace/ 同口径——§15.10/§16.10 命令回口）
+      // application/services/workspace/ 同口径——§15.10/§16.10 命令回口；
+      // task 批：application/services/task/ 同口径——§15.11/§16.1 命令回口）
       for (const spec of importSpecifiers(src)) {
-        if (/\/services\/(kg|workspace)\//.test(spec) && typeOnly(spec, src)) continue;
+        if (/\/services\/(kg|workspace|task)\//.test(spec) && typeOnly(spec, src)) continue;
         expect(spec, `ws-server/${rel} 不得依赖 service/infra/driven：${spec}`).not.toMatch(/services\/|infrastructure\/|\/driven\//);
       }
     }
@@ -608,6 +652,96 @@ describe("AG-15 / TR-AD-28：@helix/common 业务无关通用层零依赖结构�
       readFileSync(path.join(repoRoot, "packages", "protocol", "package.json"), "utf8"),
     ) as { dependencies?: Record<string, string> };
     expect(protocolPkg.dependencies).toEqual({ "@helix/common": "workspace:*" });
+  });
+});
+
+describe("O-1/O-4（T2.1）：任务四表表分域与子进程写面（job/stage/batch/work_item 只落 helix.db）", () => {
+  const writeQueueRel = path.join("adapters", "driven", "sqlite-session", "WriteQueue.ts");
+  const sessionSchemaRel = path.join("adapters", "driven", "sqlite-session", "schema.ts");
+  // 任务四表 DML/DDL 形态（SQL 邻接匹配——变量名 batch/注释散文不误伤）。
+  // 注意 origin_batch_id/task_id 等下划线复合词不含词边界内的四表名，不命中。
+  const taskTableDml = /(INSERT\s+INTO|DELETE\s+FROM|UPDATE)\s+(job|stage|batch|work_item)\b/i;
+  const taskTableDdl = /CREATE\s+TABLE[^;]*\b(job|stage|batch|work_item)\b/i;
+  // 父进程任务写方法名（WriteQueue 公共面——子进程禁止调用）。
+  const parentTaskWriteMethods =
+    /\b(saveTaskJob|saveTaskStage|saveTaskJobStatus|saveTaskStageStatus|saveTaskBatch|updateTaskBatch|deleteTaskJobCascade)\b/;
+
+  test("① .helix-kg 库面（sqlite-kg/**）零任务四表 SQL——任务表 DDL/写路径不出现在 kg 库代码面（O-1 改判断言）", () => {
+    const kgDir = path.join("adapters", "driven", "sqlite-kg");
+    const files = listFiles(path.join(srcRoot, kgDir));
+    expect(files.length).toBeGreaterThan(0); // 扫描面非空转
+    for (const rel of files) {
+      const src = read(path.join(kgDir, rel));
+      expect(src.match(taskTableDml), `${rel} 出现任务四表 DML（任务表不落 .helix-kg 库）`).toBeNull();
+      expect(src.match(taskTableDdl), `${rel} 出现任务四表 DDL（任务表不落 .helix-kg 库）`).toBeNull();
+    }
+  });
+
+  test("② 全 src 任务四表 DML 只在 WriteQueue.ts、DDL 只在 sqlite-session/schema.ts（写语句宿主唯一，O-1）", () => {
+    for (const rel of listFiles(srcRoot)) {
+      const src = read(rel);
+      if (taskTableDml.test(src)) {
+        expect(rel === writeQueueRel, `${rel} 出现任务四表 DML（只允许 WriteQueue——父进程单写通道）`).toBe(true);
+      }
+      if (taskTableDdl.test(src)) {
+        expect(rel === sessionSchemaRel, `${rel} 出现任务四表 DDL（只允许 sqlite-session/schema.ts）`).toBe(true);
+      }
+    }
+    // 宿主真实持有（扫描面与实现同步——防扫描空转）
+    expect(taskTableDml.test(read(writeQueueRel))).toBe(true);
+    expect(taskTableDdl.test(read(sessionSchemaRel))).toBe(true);
+  });
+
+  test("③ 子进程写面仅 work_item：subagent/** 零 job/stage/batch 写方法调用与写 SQL（父写三表、子不写，O-1 双面装配）", () => {
+    const subagentRoot = path.join("adapters", "driven", "subagent");
+    const threeTableDml = /(INSERT\s+INTO|DELETE\s+FROM|UPDATE)\s+(job|stage|batch)\b/i;
+    for (const rel of listFiles(path.join(srcRoot, subagentRoot))) {
+      const src = read(path.join(subagentRoot, rel));
+      expect(src.match(parentTaskWriteMethods), `${rel} 调用父进程任务写方法（子进程不写 job/stage/batch）`).toBeNull();
+      expect(src.match(threeTableDml), `${rel} 出现 job/stage/batch 写 SQL（子进程写面仅 work_item）`).toBeNull();
+    }
+  });
+});
+
+describe("O-4（T2.1）：任务域新分层目录落位（domain/task、services/task、tools/plan、tools/task-create）", () => {
+  test("① domain/task 在位且零外层 import（domain 纯逻辑纪律定点声明，AG-02① 同口径）", () => {
+    const dir = path.join(srcRoot, "domain", "task");
+    const files = listFiles(dir);
+    expect(files.length).toBeGreaterThan(0); // T1.1 已落位
+    for (const rel of files) {
+      for (const spec of importSpecifiers(read(path.join("domain", "task", rel)))) {
+        expect(spec.startsWith("."), `domain/task/${rel} 不得 import 外层符号：${spec}`).toBe(true);
+      }
+    }
+  });
+
+  test("② services/task 在位且不 import adapters/infrastructure（service 纪律定点声明，AG-02② 同口径）", () => {
+    const dir = path.join(srcRoot, "application", "services", "task");
+    const files = listFiles(dir);
+    expect(files.length).toBeGreaterThan(0); // T1.3 已落位
+    for (const rel of files) {
+      for (const spec of importSpecifiers(read(path.join("application", "services", "task", rel)))) {
+        expect(spec, `services/task/${rel} 不得依赖 adapters/infrastructure：${spec}`).not.toMatch(/adapters|infrastructure/);
+      }
+    }
+  });
+
+  test("③ tools/plan、tools/task-create 与 tools/task-ops（T1.4/T2.4/T2.2 落位即受守护）不 import infrastructure/driving", () => {
+    // T1.4/T2.4 并行落地期：目录未建时本断言空转跳过，落位后自动生效（防未来
+    // 回归；driven 工具面允许 domain/application ports/service type-only 面）。
+    for (const dir of [
+      path.join("adapters", "driven", "tools", "plan"),
+      path.join("adapters", "driven", "tools", "task-create"),
+      path.join("adapters", "driven", "tools", "task-ops"),
+    ]) {
+      if (!existsSync(path.join(srcRoot, dir))) continue;
+      for (const rel of listFiles(path.join(srcRoot, dir))) {
+        const relPath = path.join(dir, rel);
+        for (const spec of importSpecifiers(read(relPath))) {
+          expect(spec, `${relPath} 不得依赖 infrastructure/driving：${spec}`).not.toMatch(/infrastructure|\/driving\//);
+        }
+      }
+    }
   });
 });
 

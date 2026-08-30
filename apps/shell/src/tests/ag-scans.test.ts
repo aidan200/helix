@@ -220,8 +220,10 @@ describe("AG-16 i18n key 纪律（前端半）", () => {
       rel(f).startsWith("shared/i18n/lang/") ||
       // T5.4：kg-mock = F 层 mock daemon 数据面（协议 DTO 载体模拟，镜像
       // daemon 下行的人类面叙述数据——AD-16 数据层强制点在 daemon/mock，
-      // 非 UI 文案；组件层仍零硬编码）。
-      rel(f) === "shared/api/kg-mock.ts";
+      // 非 UI 文案；组件层仍零硬编码）。T3.1：tasks-mock 同类（契约 DTO
+      // 载体模拟，标题/叙述句为服务端组装的人类可读数据非 UI 文案）。
+      rel(f) === "shared/api/kg-mock.ts" ||
+      rel(f) === "shared/api/tasks-mock.ts";
     const offenders: string[] = [];
     for (const f of allFiles) {
       if (exempt(f)) continue;

@@ -260,3 +260,128 @@ describe("fake-transport workspace 族自动应答（W3 门禁读/写面 mock �
     expect(reply.payload).toEqual({ root: "/ws/mock", projects: [] });
   });
 });
+
+// ── D-2：task 族连接级订阅簿记与 task.changed 过滤投递（task-api.md §3 推送面镜像）──
+
+describe("fake-transport task 族订阅簿记（D-2；连接级订阅表 + changed 按订阅过滤投递）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** tasks mock 自动应答延迟（fake-transport TASKS_MOCK_LATENCY_MS）。 */
+  const TASKS_LATENCY_MS = 60;
+
+  /** 建连并返回发送/收帧面（replies 累计该连接全部下发帧）。 */
+  async function setupSocket(): Promise<{ transport: Transport; replies: EventEnvelope[] }> {
+    const replies: EventEnvelope[] = [];
+    const transport: Transport = createFakeTransport("1")(WS_URL, {
+      onOpen: () => {},
+      onMessage: (data) => replies.push(JSON.parse(data) as EventEnvelope),
+      onClose: () => {},
+      onError: () => {},
+    });
+    await window.__helixMock!.open();
+    return { transport, replies };
+  }
+
+  function sendTask(transport: Transport, type: string, payload: Record<string, unknown> = {}): void {
+    transport.send(JSON.stringify({ v: PROTOCOL_VERSION, type, payload }));
+  }
+
+  const types = (replies: EventEnvelope[]): string[] => replies.map((f) => f.type);
+
+  it("未订阅：生命周期成功仅回结果帧，task.changed 不下发（无过滤漂移修复前会下发）", async () => {
+    const { transport, replies } = await setupSocket();
+    sendTask(transport, "task.resume", { jobId: "job-71c4" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(types(replies)).toEqual(["task.resume.result"]); // changed 被订阅表拦截
+    // 复原 store（paused）
+    sendTask(transport, "task.pause", { jobId: "job-71c4" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(types(replies)).toEqual(["task.resume.result", "task.pause.result"]);
+    transport.close();
+  });
+
+  it("subscribe{} 订阅全部 → changed 伴随下发；unsubscribe{} 清空订阅集 → 退订后不再收 changed 帧", async () => {
+    const { transport, replies } = await setupSocket();
+    sendTask(transport, "task.subscribe");
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(types(replies)).toEqual(["task.subscribe.result"]);
+    expect(await window.__helixMock!.taskSubs()).toEqual(["*"]); // 控制面读面：订阅全部簿记
+
+    sendTask(transport, "task.resume", { jobId: "job-71c4" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(types(replies)).toEqual(["task.subscribe.result", "task.resume.result", "task.changed"]);
+    expect(replies[2]).toMatchObject({
+      type: "task.changed",
+      channel: "notification",
+      sessionId: SYSTEM_SESSION_ID,
+      payload: { jobId: "job-71c4", changed: "job", status: "running" },
+    });
+
+    sendTask(transport, "task.unsubscribe");
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(await window.__helixMock!.taskSubs()).toEqual([]); // 清空订阅集（对称语义）
+
+    replies.length = 0;
+    sendTask(transport, "task.pause", { jobId: "job-71c4" }); // 同时复原 store（paused）
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(types(replies)).toEqual(["task.pause.result"]); // 退订后不再收 changed 帧
+    transport.close();
+  });
+
+  it("subscribe{jobId} 按 jobId 过滤：仅订阅任务的 changed 下发；unsubscribe{jobId} 解除该订阅", async () => {
+    const { transport, replies } = await setupSocket();
+    sendTask(transport, "task.subscribe", { jobId: "job-8f21" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(await window.__helixMock!.taskSubs()).toEqual(["job-8f21"]);
+
+    // 未订阅的 job-71c4：changed 被拦（resume 后 pause 复原）
+    sendTask(transport, "task.resume", { jobId: "job-71c4" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    sendTask(transport, "task.pause", { jobId: "job-71c4" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(types(replies)).toEqual(["task.subscribe.result", "task.resume.result", "task.pause.result"]);
+
+    // 订阅的 job-8f21：changed 下发（pause 后 resume 复原）
+    replies.length = 0;
+    sendTask(transport, "task.pause", { jobId: "job-8f21" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    sendTask(transport, "task.resume", { jobId: "job-8f21" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(types(replies)).toEqual(["task.pause.result", "task.changed", "task.resume.result", "task.changed"]);
+
+    // unsubscribe{jobId} 解除该订阅 → changed 不再下发（pause 后 resume 复原）
+    replies.length = 0;
+    sendTask(transport, "task.unsubscribe", { jobId: "job-8f21" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(await window.__helixMock!.taskSubs()).toEqual([]);
+    sendTask(transport, "task.pause", { jobId: "job-8f21" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    sendTask(transport, "task.resume", { jobId: "job-8f21" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(types(replies)).toEqual(["task.unsubscribe.result", "task.pause.result", "task.resume.result"]);
+    transport.close();
+  });
+
+  it("断连即清订阅表（TR-AD-23③ 镜像）：netClose 后新连接未订阅，changed 不下发", async () => {
+    const first = await setupSocket();
+    sendTask(first.transport, "task.subscribe");
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(await window.__helixMock!.taskSubs()).toEqual(["*"]);
+    await window.__helixMock!.netClose(1006);
+
+    const second = await setupSocket();
+    expect(await window.__helixMock!.taskSubs()).toBeNull(); // 新连接零订阅
+    sendTask(second.transport, "task.resume", { jobId: "job-71c4" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(types(second.replies)).toEqual(["task.resume.result"]);
+    sendTask(second.transport, "task.pause", { jobId: "job-71c4" }); // 复原 store
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(types(second.replies)).toEqual(["task.resume.result", "task.pause.result"]);
+    second.transport.close();
+  });
+});

@@ -63,7 +63,9 @@ function makeRig() {
   let activeAgent = false;
   const stackOf = (root: string): WorkspaceStack => ({
     viewerService: {} as never,
-    projectService: { listProjects: () => [{ name: root, path: root, status: "absent" as const }] },
+    // T3.2 宽化（graph/projectService 供容器 KgBootstrapService 组装；本测仅消费 listProjects，never 桩）
+    projectService: { listProjects: () => [{ name: root, path: root, status: "absent" as const }] } as never,
+    graph: {} as never,
     queryService: {} as never,
     writeService: {} as never,
     syncService: {} as never,
@@ -341,7 +343,9 @@ describe("WorkspaceService：bind 异常半途态加固（W1F-F3）", () => {
     let failBuild = false;
     const stackOf = (root: string): WorkspaceStack => ({
       viewerService: {} as never,
-      projectService: { listProjects: () => [{ name: root, path: root, status: "absent" as const }] },
+      // T3.2 宽化（graph/projectService 供容器 KgBootstrapService 组装；本测仅消费 listProjects，never 桩）
+      projectService: { listProjects: () => [{ name: root, path: root, status: "absent" as const }] } as never,
+      graph: {} as never,
       queryService: {} as never,
       writeService: {} as never,
       syncService: {} as never,

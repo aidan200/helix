@@ -25,12 +25,18 @@ import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLaunche
 import { PiAgentEngineAdapter } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import {
+  OrchestratorProfile,
+  ORCHESTRATOR_SYSTEM_PROMPT,
+} from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
+import { isTaskSessionId } from "../../application/services/task/TaskOrchestratorService";
 import { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
 import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinking-resolve";
 import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
 import { SkillScanner } from "../../adapters/driven/pi-engine/SkillScanner";
 import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnippets";
 import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
+import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 import { AuthStore } from "../auth-store";
@@ -127,6 +133,15 @@ export interface BuildSessionStackDeps {
    */
   readonly kgTools?: KgToolOptions | (() => KgToolOptions | undefined);
   /**
+   * task_create 工具注入面（T2.4，AD-7）：主会话 executor 注册 task_create
+   *（chat 第二创建入口；仅 MainAgent 生效集——SubAgent 子进程本地栈不
+   * 注入）。组合根接任务栈（TaskEngineService.createTask + TaskQueryService
+   * 回执读面）；缺省不注册（测试形态——profile 声明该名时 resolveTools
+   * fail-fast，engineFor 未注入时从 main 工具集剔除，与 kg 双工具 W1 模式
+   * 同构）。
+   */
+  readonly taskCreate?: TaskCreateToolDeps;
+  /**
    * 会话工具沙箱 cwd 动态解析面（W1 绑定闭环）：基准改绑定的 root——
    * 每会话装配（engineFor）时求值，重绑后新会话跟随。缺省回落启动定格
    * 值；deps.toolCwd 显式注入时恒优先（测试面）。
@@ -143,6 +158,13 @@ export interface BuildSessionStackDeps {
    * （SubAgent 子进程装配/纯调度测试形态）。
    */
   readonly findingsSink?: ClosureFindingsSink;
+  /**
+   * 任务批次实例收口路由（T2.2）：调度器注入回调里 task:* 会话归属实例的
+   * closure 转投编排服务（组合根接 TaskOrchestratorService.handleInstanceClosure
+   * ——不升第二通路；进展报告不入）。缺省不路由（编排未装配形态，冷会话
+   * 补投走既有 warn 路径）。
+   */
+  readonly taskClosureSink?: (agentId: string) => void;
 }
 
 export interface SessionStack {
@@ -168,6 +190,12 @@ export interface SessionStack {
    * 「绑定后 toolCwd 基准正确」）。
    */
   readonly toolCwdNow: () => string;
+  /**
+   * 编排主 agent 组装快照现值读面（T2.2）：编排会话工厂消费（启动/toggle
+   * 后重算缓存；编排会话短生命周期，下一会话生效——与 subagent 快照同
+   * 语义）。
+   */
+  readonly orchestratorAssembly: () => { readonly tools: readonly string[]; readonly systemPrompt: string };
 }
 
 export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<SessionStack> {
@@ -197,6 +225,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     toolsCatalog: {
       "main-session": MainSessionProfile.tools,
       "subagent-worker": SubAgentProfile.tools,
+      "orchestrator": OrchestratorProfile.tools, // T2.2 第三 kind（additive 扩值；编排工具面可配置化）
     } satisfies Record<ProfileKind, readonly string[]>,
     // list 读面 snippet 透传（SystemPromptAssembler 同源注册表单点）
     toolSnippets: TOOL_PROMPT_SNIPPETS,
@@ -217,7 +246,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // 下次 toggle/重启才进提示，§六「profile 全集变更不触发运行期刷新」同族）。
   const promptAssembler = new SystemPromptAssembler({ toolSnippets: TOOL_PROMPT_SNIPPETS });
   const assemblyBase = (kind: ProfileKind): string =>
-    kind === "main-session" ? MAIN_SESSION_SYSTEM_PROMPT : SUBAGENT_SYSTEM_PROMPT;
+    kind === "main-session"
+      ? MAIN_SESSION_SYSTEM_PROMPT
+      : kind === "subagent-worker"
+        ? SUBAGENT_SYSTEM_PROMPT
+        : ORCHESTRATOR_SYSTEM_PROMPT; // orchestrator（T2.2）：与 MainAgent 消费 skill 同构的三段组装
   const computeAssembly = async (
     kind: ProfileKind,
   ): Promise<{ readonly tools: readonly string[]; readonly systemPrompt: string }> => {
@@ -230,6 +263,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   };
   let mainAssembly = await computeAssembly("main-session");
   let subagentAssembly = await computeAssembly("subagent-worker");
+  let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算）
   /** toggle applied 后的重算入口（WS 命令复用面：命令只调 toggle，刷新单点在此）。 */
   const refreshAssembly = async (kind: ProfileKind): Promise<void> => {
     const next = await computeAssembly(kind);
@@ -241,8 +275,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         runtime.chatService.setSystemPrompt(next.systemPrompt);
         runtime.chatService.setTools(next.tools);
       }
-    } else {
+    } else if (kind === "subagent-worker") {
       subagentAssembly = next; // 已 spawn 实例 env 已定格（代际生效，零刷新）
+    } else {
+      orchestratorAssemblyValue = next; // 编排会话短生命周期：下一会话生效（零活跃刷新）
     }
   };
 
@@ -291,6 +327,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // 实例 env 已定格，代际生效）。deps.toolCwd 显式注入（测试面）
           // 时恒优先（toolCwdOf 优先级链）。
           toolCwd: () => toolCwdOf(),
+          // T1.4（AF-1.11 接线）：work_item 台账库路径 env 传参——与父进程
+          // WriteQueue 同库（O-1：helix.db 任务表域），子进程直连自设
+          // WAL+busy_timeout；启动时刻现值定格
+          ledgerDbPath: () => paths.dbPath(),
           // F3.0（T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH）——
           // 与 ClosureRecorder 兜底 reportsDirFor 同源同式（<home>/reports/<session>）
           reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
@@ -354,7 +394,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // 不可达——活跃实例的会话不会卸载）异步恢复后补投。注册表在本函数内
     // 后置构造——回调仅在运行期（spawn 后）触发，装配窗口内不会被调。
     injectClosure: (agentId, message, source) => {
-      const sessionId = scheduler.instance(agentId)?.sessionId;
+      // T2.2 任务批次实例路由：task:* 会话归属的 closure/收口注入转投编排服务
+      //（进展报告不入——编排会话不被机械信封噪扰）；非任务实例走既有会话路由。
+      const ownerSession = scheduler.instance(agentId)?.sessionId;
+      if (ownerSession !== undefined && isTaskSessionId(ownerSession) && source !== "progress" && deps.taskClosureSink !== undefined) {
+        deps.taskClosureSink(agentId);
+        return;
+      }
+      const sessionId = ownerSession;
       if (sessionId === undefined) return;
       const hot = registry.peek(sessionId);
       if (hot !== undefined) {
@@ -420,6 +467,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               grep: deps.grep,
               ...(editDeps !== undefined ? { edit: editDeps } : {}),
               ...(kgTools !== undefined ? { kg: kgTools } : {}),
+              // task_create（T2.4，AD-7）：仅主会话 executor（SubAgent 子进程
+              // 本地栈不注入——生效集隔离，AD-2 创建按宿主）
+              ...(deps.taskCreate !== undefined ? { taskCreate: deps.taskCreate } : {}),
               // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
               // tab 归属）；ChildMain 子进程经 RemoteBrowserPort 转发接入（H-3）
               browser: browserPort,
@@ -443,10 +493,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
                 // W1 绑定闭环：未绑定（kg 双工具未注册）时剔除 kg/kg-update——
                 // profile 声明与 executor 注册面一致（resolveTools 硬校验不破）；
                 // 绑定后新建会话自动恢复注册面。
-                tools:
-                  kgTools === undefined
-                    ? mainAssembly.tools.filter((t) => t !== "kg" && t !== "kg-update")
-                    : mainAssembly.tools,
+                // task_create 同款：未注入（测试形态）时剔除，声明与注册一致。
+                tools: mainAssembly.tools
+                  .filter((t) => kgTools !== undefined || (t !== "kg" && t !== "kg-update"))
+                  .filter((t) => deps.taskCreate !== undefined || t !== "task_create"),
               },
               model: resolveConfigModel(
                 resourceService.modelSlot(profileKindOf(mode)) ?? defaultModel.current(),
@@ -540,5 +590,6 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     refreshAssembly,
     resolveSubagentModelId,
     toolCwdNow: toolCwdOf,
+    orchestratorAssembly: () => orchestratorAssemblyValue,
   };
 }

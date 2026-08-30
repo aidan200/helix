@@ -22,11 +22,19 @@ import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { CommandEnvelope, EventEnvelope, TraceQueryPayload } from "@helix/protocol";
 import type { AgentConfigSetEnabledPayload } from "@helix/protocol";
 import type {
+  KgBootstrapCreatePayload,
+  KgBootstrapImpactPayload,
+  KgBootstrapProducePayload,
   KgChangeReportPayload,
   KgIndexStatusPayload,
   KgListPayload,
   KgNodeConfirmPayload,
   KgNodeDetailPayload,
+  KgNodeSupersedePayload,
+  KgNodeUpdatePayload,
+  TaskArtifactsPayload,
+  TaskDetailPayload,
+  TaskListPayload,
 } from "@helix/protocol";
 import { HelixWsClient } from "@/shared/api/helix-ws";
 import type { Transport, TransportFactory } from "@/shared/api/helix-ws";
@@ -46,6 +54,11 @@ import {
   kgListCommand,
   kgNodeConfirmCommand,
   kgNodeDetailCommand,
+  kgBootstrapCreateCommand,
+  kgBootstrapImpactCommand,
+  kgBootstrapProduceCommand,
+  kgNodeSupersedeCommand,
+  kgNodeUpdateCommand,
   kgProjectsCommand,
   modelCatalogCommand,
   modelCatalogRefreshCommand,
@@ -55,6 +68,15 @@ import {
   sessionDeleteCommand,
   sessionListCommand,
   sessionLoadHistoryCommand,
+  taskArtifactsCommand,
+  taskCancelCommand,
+  taskDeleteCommand,
+  taskDetailCommand,
+  taskListCommand,
+  taskPauseCommand,
+  taskResumeCommand,
+  taskSubscribeCommand,
+  taskUnsubscribeCommand,
   thinkingSetCommand,
   traceQueryCommand,
   webStatusCommand,
@@ -189,8 +211,41 @@ interface SessionContextValue {
   sendKgNodeConfirm: (payload: KgNodeConfirmPayload) => boolean;
   /** 发送 kg.index.status（索引四态；rebuild:true 触发构建，O-6 轮询通道）。 */
   sendKgIndexStatus: (payload: KgIndexStatusPayload) => boolean;
+  // ── kg-bootstrap 批五命令面（iter-20260829-ys7q T3.2，/project 页 bootstrap 数据面）──
+  /** 发送 kg.bootstrap.create（CL-1：后端准入复核 + createTask 同源 createdBy="page"）。 */
+  sendKgBootstrapCreate: (payload: KgBootstrapCreatePayload) => boolean;
+  /** 发送 kg.bootstrap.produce（CL-4 F4.1 产出三级分组读面）。 */
+  sendKgBootstrapProduce: (payload: KgBootstrapProducePayload) => boolean;
+  /** 发送 kg.node.update（CL-4 F4.2 修正写面一；保存即 updateNode 保持 confirmed）。 */
+  sendKgNodeUpdate: (payload: KgNodeUpdatePayload) => boolean;
+  /** 发送 kg.node.supersede（CL-4 F4.2 修正写面二；理由必填双防线）。 */
+  sendKgNodeSupersede: (payload: KgNodeSupersedePayload) => boolean;
+  /** 发送 kg.bootstrap.impact（CL-4 F4.3 连带只读推导；update/supersede 成功后刷新标记）。 */
+  sendKgBootstrapImpact: (payload: KgBootstrapImpactPayload) => boolean;
   /** 订阅 kg 族点对点回执（kg.*.result；O-6 零推送事件，回执全走此处）。 */
   subscribeKgFrames: (listener: (e: EventEnvelope) => void) => () => void;
+  // ── task 族九命令面（iter-20260829-ys7q T3.1，P-2 任务页；连接私有读面）──
+  /** 发送 task.list（全局平铺；服务端运行中置顶+创建时间倒序）。 */
+  sendTaskList: (payload?: TaskListPayload) => boolean;
+  /** 发送 task.detail（阶段条 + 批次 + 实例 plan + 叙述句）。 */
+  sendTaskDetail: (payload: TaskDetailPayload) => boolean;
+  /** 发送 task.artifacts（阶段产物只读投影）。 */
+  sendTaskArtifacts: (payload: TaskArtifactsPayload) => boolean;
+  /** 发送 task.subscribe（连接级订阅；缺省 = 订阅全部任务变更）。 */
+  sendTaskSubscribe: () => boolean;
+  /** 发送 task.unsubscribe（页面卸载语义位；当前无消费面，对称保留）。 */
+  sendTaskUnsubscribe: () => boolean;
+  /** 发送 task.pause（仅 running→paused 合法）。 */
+  sendTaskPause: (jobId: string) => boolean;
+  /** 发送 task.resume（仅 paused→running）。 */
+  sendTaskResume: (jobId: string) => boolean;
+  /** 发送 task.cancel（pending/running/paused→cancelled 终态）。 */
+  sendTaskCancel: (jobId: string) => boolean;
+  /** 发送 task.delete（仅终态；清任务域记录不触 kg 产出）。 */
+  sendTaskDelete: (jobId: string) => boolean;
+  /** 订阅 task 族帧（task.*.result 点对点回执 + task.changed 广播 +
+   *  connection.error——生命周期在途错误判定，页面单飞门控消费）。 */
+  subscribeTaskFrames: (listener: (e: EventEnvelope) => void) => () => void;
   // ── workspace 族门禁面（W3；契约 PROTOCOL.md §15.10/§16.10）──
   /** 发送 workspace.get（门禁读面；连接就绪自动发一次，重连重发——
    *  webStatus 先例。entities/workspace 状态机消费回执分流 main/gate）。 */
@@ -249,6 +304,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const agentConfigListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
   // kg 族点对点回执听众（T5.4；页面私有 reducer 消费，会话 store 零写入）
   const kgListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
+  // task 族帧听众（T3.1；P-2 任务页私有消费：点对点回执 + changed 广播，
+  // 同 kg 形态；错误回执 connection.error 一并转发——生命周期在途单飞门控）
+  const taskListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
   // workspace 族帧听众（W3 门禁状态机；entities/workspace 消费，同 kg 形态）
   const workspaceListenersRef = useRef(new Set<(e: EventEnvelope) => void>());
 
@@ -318,11 +376,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (event.type === "agent.config.list.result" || event.type === "agent.config.set_enabled.result") {
         for (const l of agentConfigListenersRef.current) l(event);
       }
-      // kg 族点对点回执转发（T5.4）：P-1 图谱页页面私有链消费
-      //（全部为命令回执零广播，dispatcher 零写入；错误回执走
-      // connection.error 全局通道，不在此转发）
-      if (event.type.startsWith("kg.") && event.type.endsWith(".result")) {
+      // kg 族点对点回执转发（T5.4）：P-1 图谱页页面私有链消费（全部为命令
+      // 回执零广播，dispatcher 零写入）。T3.2 kg-bootstrap 批：connection.error
+      // 一并转发（bootstrap 入口/写面在途错误判定靠页面单飞门控，task 族
+      // 先例；既有 kg 听众对非 kg.*.result 帧均 default 直返不受影响）
+      if (
+        event.type === "connection.error" ||
+        (event.type.startsWith("kg.") && event.type.endsWith(".result"))
+      ) {
         for (const l of kgListenersRef.current) l(event);
+      }
+      // task 族帧转发（T3.1）：P-2 任务页私有链消费——点对点回执 +
+      // task.changed 广播（订阅面按连接过滤在 daemon 侧）；connection.error
+      // 一并转发（生命周期命令在途错误判定靠页面单飞门控，trace 先例）
+      if (
+        event.type === "task.changed" ||
+        event.type === "connection.error" ||
+        (event.type.startsWith("task.") && event.type.endsWith(".result"))
+      ) {
+        for (const l of taskListenersRef.current) l(event);
       }
       // workspace 族帧转发（W3 门禁）：两命令点对点回执 + changed 广播直转
       //（entities/workspace 状态机分流/跟随）；connection.error 另行转发
@@ -561,10 +633,58 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     (payload: KgIndexStatusPayload) => clientRef.current!.send(kgIndexStatusCommand(payload)),
     [],
   );
+  // kg-bootstrap 批五命令（T3.2；连接私有读写面——直发命令，回执经 subscribeKgFrames）
+  const sendKgBootstrapCreate = useCallback(
+    (payload: KgBootstrapCreatePayload) => clientRef.current!.send(kgBootstrapCreateCommand(payload)),
+    [],
+  );
+  const sendKgBootstrapProduce = useCallback(
+    (payload: KgBootstrapProducePayload) => clientRef.current!.send(kgBootstrapProduceCommand(payload)),
+    [],
+  );
+  const sendKgNodeUpdate = useCallback(
+    (payload: KgNodeUpdatePayload) => clientRef.current!.send(kgNodeUpdateCommand(payload)),
+    [],
+  );
+  const sendKgNodeSupersede = useCallback(
+    (payload: KgNodeSupersedePayload) => clientRef.current!.send(kgNodeSupersedeCommand(payload)),
+    [],
+  );
+  const sendKgBootstrapImpact = useCallback(
+    (payload: KgBootstrapImpactPayload) => clientRef.current!.send(kgBootstrapImpactCommand(payload)),
+    [],
+  );
   const subscribeKgFrames = useCallback((listener: (e: EventEnvelope) => void) => {
     kgListenersRef.current.add(listener);
     return () => {
       kgListenersRef.current.delete(listener);
+    };
+  }, []);
+
+  // task 族九命令面（T3.1；沿 kg 族先例：直发命令 + 订阅帧——P-2 任务页
+  // 页面私有 reducer 消费，会话 store 零写入）
+  const sendTaskList = useCallback(
+    (payload: TaskListPayload = {}) => clientRef.current!.send(taskListCommand(payload)),
+    [],
+  );
+  const sendTaskDetail = useCallback(
+    (payload: TaskDetailPayload) => clientRef.current!.send(taskDetailCommand(payload)),
+    [],
+  );
+  const sendTaskArtifacts = useCallback(
+    (payload: TaskArtifactsPayload) => clientRef.current!.send(taskArtifactsCommand(payload)),
+    [],
+  );
+  const sendTaskSubscribe = useCallback(() => clientRef.current!.send(taskSubscribeCommand()), []);
+  const sendTaskUnsubscribe = useCallback(() => clientRef.current!.send(taskUnsubscribeCommand()), []);
+  const sendTaskPause = useCallback((jobId: string) => clientRef.current!.send(taskPauseCommand(jobId)), []);
+  const sendTaskResume = useCallback((jobId: string) => clientRef.current!.send(taskResumeCommand(jobId)), []);
+  const sendTaskCancel = useCallback((jobId: string) => clientRef.current!.send(taskCancelCommand(jobId)), []);
+  const sendTaskDelete = useCallback((jobId: string) => clientRef.current!.send(taskDeleteCommand(jobId)), []);
+  const subscribeTaskFrames = useCallback((listener: (e: EventEnvelope) => void) => {
+    taskListenersRef.current.add(listener);
+    return () => {
+      taskListenersRef.current.delete(listener);
     };
   }, []);
 
@@ -733,7 +853,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendKgChangeReport,
       sendKgNodeConfirm,
       sendKgIndexStatus,
+      sendKgBootstrapCreate,
+      sendKgBootstrapProduce,
+      sendKgNodeUpdate,
+      sendKgNodeSupersede,
+      sendKgBootstrapImpact,
       subscribeKgFrames,
+      sendTaskList,
+      sendTaskDetail,
+      sendTaskArtifacts,
+      sendTaskSubscribe,
+      sendTaskUnsubscribe,
+      sendTaskPause,
+      sendTaskResume,
+      sendTaskCancel,
+      sendTaskDelete,
+      subscribeTaskFrames,
       sendWorkspaceGet,
       sendWorkspaceOpen,
       subscribeWorkspaceFrames,
@@ -782,7 +917,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendKgChangeReport,
       sendKgNodeConfirm,
       sendKgIndexStatus,
+      sendKgBootstrapCreate,
+      sendKgBootstrapProduce,
+      sendKgNodeUpdate,
+      sendKgNodeSupersede,
+      sendKgBootstrapImpact,
       subscribeKgFrames,
+      sendTaskList,
+      sendTaskDetail,
+      sendTaskArtifacts,
+      sendTaskSubscribe,
+      sendTaskUnsubscribe,
+      sendTaskPause,
+      sendTaskResume,
+      sendTaskCancel,
+      sendTaskDelete,
+      subscribeTaskFrames,
       sendWorkspaceGet,
       sendWorkspaceOpen,
       subscribeWorkspaceFrames,

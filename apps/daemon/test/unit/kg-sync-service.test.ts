@@ -66,6 +66,14 @@ class StubGraph implements KnowledgeGraphPort {
   view: SyncBaselineView = { files: [], symbols: [], activeAnchors: [], anchorDeclarations: [] };
   status: IndexStatus = { baseline: null, symbolCount: 0, degraded: false };
 
+  listNodeIdsByOriginBatches(): readonly string[] {
+    return []; // T2.2 F2.7 反查面：sync 测试不消费
+  }
+
+  countActiveNodes(): number {
+    return 0; // T3.2 准入口径面：sync 测试不消费
+  }
+
   getSyncBaseline(): SyncBaselineView {
     return this.view;
   }

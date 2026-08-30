@@ -147,7 +147,7 @@ export class SqliteKnowledgeGraph {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     const nodeRow = db
       .prepare(
-        "SELECT id, kind, name, digest, body, domain, layer, status, created_at, updated_at FROM nodes WHERE id = ?",
+        "SELECT id, kind, name, digest, body, domain, layer, origin_batch_id, status, created_at, updated_at FROM nodes WHERE id = ?",
       )
       .get(id) as NodeRow | null;
     if (nodeRow === null) return null;
@@ -189,11 +189,14 @@ export class SqliteKnowledgeGraph {
 
     const changeLog = (
       db
-        .prepare("SELECT seq, iteration_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE node_id = ? ORDER BY seq")
+        .prepare(
+          "SELECT seq, iteration_id, task_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE node_id = ? ORDER BY seq",
+        )
         .all(id) as LogRow[]
     ).map<ChangeLogEntry>((row) => ({
       seq: row.seq,
       iterationId: row.iteration_id,
+      taskId: row.task_id,
       op: row.op as ChangeLogEntry["op"],
       nodeId: row.node_id,
       supersedeOf: row.supersede_of,
@@ -276,7 +279,9 @@ export class SqliteKnowledgeGraph {
   getVerifyView(projectRoot: string): VerifyView {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     const nodes = (
-      db.prepare("SELECT id, kind, name, digest, body, domain, layer, status, created_at, updated_at FROM nodes ORDER BY id").all() as NodeRow[]
+      db.prepare(
+        "SELECT id, kind, name, digest, body, domain, layer, origin_batch_id, status, created_at, updated_at FROM nodes ORDER BY id",
+      ).all() as NodeRow[]
     ).map(mapNode);
     const edges = (
       db.prepare("SELECT src_id, verb, dst_id FROM edges ORDER BY src_id, verb, dst_id").all() as RawEdgeDbRow[]
@@ -313,11 +318,14 @@ export class SqliteKnowledgeGraph {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     return (
       db
-        .prepare("SELECT seq, iteration_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE iteration_id = ? ORDER BY seq")
+        .prepare(
+          "SELECT seq, iteration_id, task_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE iteration_id = ? ORDER BY seq",
+        )
         .all(iterationId) as LogRow[]
     ).map((row) => ({
       seq: row.seq,
       iterationId: row.iteration_id,
+      taskId: row.task_id,
       op: row.op as ChangeLogEntry["op"],
       nodeId: row.node_id,
       supersedeOf: row.supersede_of,
@@ -326,11 +334,38 @@ export class SqliteKnowledgeGraph {
     }));
   }
 
-  /** 知识节点计数（T5.3 kg.projects nodeCount 数据源；只读 COUNT）。 */
+  /** 知识节点计数（kg.list total 数据源——过滤前全集含 superseded；只读 COUNT）。 */
   countNodes(projectRoot: string): number {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     const row = db.prepare("SELECT COUNT(*) AS n FROM nodes").get() as { n: number };
     return row.n;
+  }
+
+  /**
+   * 非 superseded 节点计数（T3.2，contracts/kg-bootstrap-api.md §1：bootstrap
+   * 准入「知识层为空」机械定义 + kg.projects nodeCount 口径——留史行不计入）。
+   */
+  countActiveNodes(projectRoot: string): number {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const row = db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE status != 'superseded'").get() as { n: number };
+    return row.n;
+  }
+
+  /**
+   * 按产出批次反查节点 id 集（T2.2 F2.7 阶段产物聚合数据源）：nodes.
+   * origin_batch_id ∈ batchIds（T2.1 元数据列），排除 superseded（已被重跑
+   * 取代的旧产出不进阶段产物）；id 升序确定性。只读，零写路径。
+   */
+  listNodeIdsByOriginBatches(projectRoot: string, batchIds: readonly string[]): readonly string[] {
+    if (batchIds.length === 0) return [];
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const placeholders = batchIds.map(() => "?").join(", ");
+    const rows = db
+      .prepare(
+        `SELECT id FROM nodes WHERE origin_batch_id IN (${placeholders}) AND status != 'superseded' ORDER BY id`,
+      )
+      .all(...batchIds) as { id: string }[];
+    return rows.map((row) => row.id);
   }
 
   /** 库内最近一次变更所属迭代 id（T5.3 当前迭代确定性推导；空 → null）。 */
@@ -420,6 +455,7 @@ function mapNode(row: NodeRow): KnowledgeNode {
     body: row.body,
     domain: (row.domain as NodeDomain | null) ?? null,
     layer: (row.layer as NodeLayer | null) ?? null,
+    originBatchId: (row.origin_batch_id as string | null) ?? null,
     status: row.status as NodeStatus,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -434,6 +470,7 @@ interface NodeRow {
   body: string;
   domain: string | null;
   layer: string | null;
+  origin_batch_id: string | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -534,6 +571,7 @@ interface InEdgeRow {
 interface LogRow {
   seq: number;
   iteration_id: string;
+  task_id: string | null;
   op: string;
   node_id: string;
   supersede_of: string | null;

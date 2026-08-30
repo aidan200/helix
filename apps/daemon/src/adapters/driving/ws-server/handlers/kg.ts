@@ -19,6 +19,9 @@
  */
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type {
+  KgBootstrapCreateResultEvent,
+  KgBootstrapImpactResultEvent,
+  KgBootstrapProduceResultEvent,
   KgChangeReportDto,
   KgChangeReportResultEvent,
   KgIndexStatusDto,
@@ -29,6 +32,8 @@ import type {
   KgNodeDetailResultEvent,
   KgNodeListRow,
   KgNodeRefDto,
+  KgNodeSupersedeResultEvent,
+  KgNodeUpdateResultEvent,
   KgProjectRow,
   KgProjectsResultEvent,
 } from "@helix/protocol";
@@ -38,6 +43,12 @@ import type {
 import type {
   KgProjectRowView,
 } from "../../../../application/services/kg/KgProjectService";
+import type {
+  KgBootstrapError,
+  KgBootstrapService,
+  ProduceGroupView,
+  ProduceNodeView,
+} from "../../../../application/services/kg/KgBootstrapService";
 import type {
   KgConfirmView,
   KgIndexStatusView,
@@ -204,6 +215,131 @@ export function handleKgIndexStatus(ctx: KgCommandContext): void {
     });
 }
 
+// ── kg-bootstrap 批新增五命令（iter-20260829-ys7q T3.2；契约 contracts/kg-bootstrap-api.md） ──
+
+/** kg.bootstrap.create（CL-1 F1.1/F1.2：后端准入机械复核 → createTask 同源，createdBy="page"）。 */
+export function handleKgBootstrapCreate(ctx: KgCommandContext): void {
+  if (ctx.bootstrap === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const scope = optionalString(ctx, "scope");
+  if (scope === null) return;
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  void ctx.bootstrap
+    .create(project, scope)
+    .then((result) => {
+      if (!result.ok) return bootstrapError(ctx, result.error);
+      const frame: KgBootstrapCreateResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "kg",
+        type: "kg.bootstrap.create.result",
+        payload: { ok: true, jobId: result.value.jobId },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err: unknown) => {
+      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+    });
+}
+
+/** kg.bootstrap.produce（CL-4 F4.1：产出三级分组读面；absent → 空 groups）。 */
+export function handleKgBootstrapProduce(ctx: KgCommandContext): void {
+  if (ctx.bootstrap === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const result = ctx.bootstrap.produce(project);
+  if (!result.ok) return bootstrapError(ctx, result.error);
+  const frame: KgBootstrapProduceResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "kg",
+    type: "kg.bootstrap.produce.result",
+    payload: { groups: result.value.map(groupViewToDto) },
+  };
+  ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
+}
+
+/** kg.node.update（CL-4 F4.2 修正写面一：保存即 updateNode，节点保持 confirmed）。 */
+export function handleKgNodeUpdate(ctx: KgCommandContext): void {
+  if (ctx.bootstrap === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const nodeId = requireString(ctx, "nodeId");
+  if (nodeId === undefined) return;
+  const digest = optionalString(ctx, "digest");
+  if (digest === null) return;
+  const body = optionalString(ctx, "body");
+  if (body === null) return;
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  void ctx.bootstrap
+    .update(project, nodeId, { ...(digest !== undefined ? { digest } : {}), ...(body !== undefined ? { body } : {}) })
+    .then((result) => {
+      if (!result.ok) return bootstrapError(ctx, result.error);
+      const frame: KgNodeUpdateResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "kg",
+        type: "kg.node.update.result",
+        payload: { ok: true, node: nodeViewToDto(result.value.node) },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err: unknown) => {
+      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+    });
+}
+
+/** kg.node.supersede（CL-4 F4.2 修正写面二：理由必填双防线 + 留史）。 */
+export function handleKgNodeSupersede(ctx: KgCommandContext): void {
+  if (ctx.bootstrap === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const nodeId = requireString(ctx, "nodeId");
+  if (nodeId === undefined) return;
+  const reason = requireString(ctx, "reason");
+  if (reason === undefined) return;
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  void ctx.bootstrap
+    .supersede(project, nodeId, reason)
+    .then((result) => {
+      if (!result.ok) return bootstrapError(ctx, result.error);
+      const frame: KgNodeSupersedeResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "kg",
+        type: "kg.node.supersede.result",
+        payload: { ok: true },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err: unknown) => {
+      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+    });
+}
+
+/** kg.bootstrap.impact（CL-4 F4.3：edges 引用方只读推导；零写零广播）。 */
+export function handleKgBootstrapImpact(ctx: KgCommandContext): void {
+  if (ctx.bootstrap === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const nodeId = requireString(ctx, "nodeId");
+  if (nodeId === undefined) return;
+  const result = ctx.bootstrap.impact(project, nodeId);
+  if (!result.ok) return bootstrapError(ctx, result.error);
+  const frame: KgBootstrapImpactResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "kg",
+    type: "kg.bootstrap.impact.result",
+    payload: {
+      affected: result.value.affected.map(refLiteToDto),
+      count: result.value.count,
+    },
+  };
+  ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
+}
+
 // ── payload 字段形状校验（枚举/解析语义归 service） ──────────
 
 /** 必填 string 字段：缺失/非 string → KG_E_PARAM（契约：project 缺失/无法解析）。 */
@@ -250,6 +386,11 @@ function unboundOrUnimplemented(ctx: KgCommandContext): void {
 
 /** service 结构化错误 → connection.error 回执（错误码直传；字段路径折叠进文案）。 */
 function viewerError(ctx: KgCommandContext, err: KgViewerError): void {
+  ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
+}
+
+/** bootstrap service 结构化错误 → connection.error 回执（契约词表：not_eligible/not_found/validation_failed/KG_E_PARAM）。 */
+function bootstrapError(ctx: KgCommandContext, err: KgBootstrapError): void {
   ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
 }
 
@@ -332,4 +473,43 @@ function statusViewToDto(view: KgIndexStatusView): KgIndexStatusDto {
     ...(view.symbolCount !== undefined ? { symbolCount: view.symbolCount } : {}),
     ...(view.degradedNote !== undefined ? { degradedNote: view.degradedNote } : {}),
   };
+}
+
+// ── kg-bootstrap 批新增：产出三级分组 → 协议 DTO（逐字段直拷；AD-16 同规） ──
+
+function nodeViewToDto(view: ProduceNodeView): KgNodeUpdateResultEvent["payload"]["node"] {
+  return {
+    nodeId: view.nodeId,
+    name: view.name,
+    kind: view.kind,
+    status: view.status,
+    digest: view.digest,
+    body: view.body,
+    anchors: view.anchors.map((a) => ({ symbol: a.symbol, path: a.path, line: a.line })),
+    rationale: view.rationale,
+    origin: { taskTitle: view.origin.taskTitle, batchScope: view.origin.batchScope },
+    ...(view.supersedeReason !== undefined ? { supersedeReason: view.supersedeReason } : {}),
+  };
+}
+
+function groupViewToDto(view: ProduceGroupView): KgBootstrapProduceResultEvent["payload"]["groups"][number] {
+  return {
+    jobId: view.jobId,
+    title: view.title,
+    stages: view.stages.map((s) => ({
+      layer: s.layer,
+      name: s.name,
+      batches: s.batches.map((b) => ({
+        batchId: b.batchId,
+        scope: b.scope,
+        nodes: b.nodes.map(nodeViewToDto),
+      })),
+    })),
+  };
+}
+
+/** NodeDigestRow → 受影响引用方人类面投影（AD-16：digest 首行截断）。 */
+function refLiteToDto(row: NodeDigestRow): KgBootstrapImpactResultEvent["payload"]["affected"][number] {
+  const firstLine = row.digest.split("\n")[0] ?? row.digest;
+  return { nodeId: row.id, name: row.name, kind: row.kind, digestFirstLine: firstLine.trim() };
 }

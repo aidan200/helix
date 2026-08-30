@@ -35,6 +35,10 @@
  * context.ts（ConnState/WsCommandContext 上收，三模块环解）；
  * sessionStamp/snapshotFrame 盖章链留本类，session/chat handler 经上下文
  * 回调机械引用零行为差（不为省行数造成第二份）。
+ * task 族九命令同构接入（iter-20260829-ys7q T1.5，P-2 任务页数据面，
+ * §8.1；handlers/task.ts + taskContext：TaskQueryService 读面 +
+ * TaskEnginePort 生命周期回口，task.changed 广播在 EventStream/handler 层
+ * 接线，O-7）；routeCommand 全 45 case 一行转发。
  *
  * 绑定纪律：仅 127.0.0.1，禁止 0.0.0.0/::——构造期即钉死。
  */
@@ -56,8 +60,11 @@ import type {
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { TraceQueryPort } from "../../../domain/trace/TraceQueryPort";
+import type { KgBootstrapService } from "../../../application/services/kg/KgBootstrapService";
 import type { KgViewerService } from "../../../application/services/kg/KgViewerService";
 import type { WorkspaceService } from "../../../application/services/workspace/WorkspaceService";
+import type { TaskQueryService } from "../../../application/services/task/TaskQueryService";
+import type { TaskEnginePort } from "../../../application/ports/inbound/TaskEnginePort";
 // AG-12：ws-server 对 domain 仅 type-only——normalize 校验收口在 driven
 // adapter 入口（architecture.md §3.5b「调仓储前」）
 import type { ServerWebSocket } from "bun";
@@ -71,6 +78,7 @@ import type {
   KgCommandContext,
   ResourceCommandContext,
   SessionCommandContext,
+  TaskCommandContext,
   TraceCommandContext,
   WebCommandContext,
   WorkspaceCommandContext,
@@ -91,12 +99,17 @@ import {
 } from "./handlers/session";
 import { handleTraceQuery } from "./handlers/trace";
 import {
+  handleKgBootstrapCreate,
+  handleKgBootstrapImpact,
+  handleKgBootstrapProduce,
   handleKgChangeReport,
   handleKgIndexStatus,
   handleKgList,
   handleKgNodeConfirm,
   handleKgNodeDetail,
   handleKgProjects,
+  handleKgNodeSupersede,
+  handleKgNodeUpdate,
 } from "./handlers/kg";
 import { handleAgentConfigList, handleAgentConfigSetEnabled } from "./handlers/resource";
 import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
@@ -110,6 +123,17 @@ import {
 } from "./handlers/model";
 import { handleThinkingSet } from "./handlers/thinking";
 import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
+import {
+  handleTaskArtifacts,
+  handleTaskCancel,
+  handleTaskDelete,
+  handleTaskDetail,
+  handleTaskList,
+  handleTaskPause,
+  handleTaskResume,
+  handleTaskSubscribe,
+  handleTaskUnsubscribe,
+} from "./handlers/task";
 import {
   handleAuthDeleteKey,
   handleAuthList,
@@ -184,12 +208,31 @@ export interface WsServerAdapterDeps {
    */
   readonly kg?: KgViewerService;
   /**
+   * kg-bootstrap 数据面（契约 kg-bootstrap-api 五命令，T3.2）：直接注入
+   * 形态（stub 测试 rig）；生产面经解析器注入（读 workspace 现值 stack 组装
+   * KgBootstrapService——组合根 WeakMap 记忆化，W1 重绑后自动跟随）。
+   * 未装配 → command.unimplemented 回执不崩溃（kg.ts 先例）。
+   */
+  readonly kgBootstrap?: KgBootstrapService | (() => KgBootstrapService | undefined);
+  /**
    * workspace 绑定面（W1 绑定闭环）：WorkspaceService（绑定状态机唯一
    * 事实源）——kg 栈持有者读面 + unbound 防御判别 + workspace 族命令回口
    * + 会话创建门禁。缺省未装配（stub 测试形态：kg 直接注入 + 门禁缺省
    * 视为已绑定 + workspace 族不分发）。
    */
   readonly workspace?: WorkspaceService;
+  /**
+   * P-2 任务页读面（契约 task-api 九命令族，§8.1）：TaskQueryService
+   *（AD-4② 人类可读投影服务端组装）；未装配 → command.unimplemented
+   *（kg.ts 先例）。task.subscribe 订阅面同门（数据面关闭时订阅无意义）。
+   */
+  readonly taskQuery?: TaskQueryService;
+  /**
+   * P-2 任务页生命周期写面：TaskEnginePort（只转发不决策——状态判断收口
+   * 引擎 T1.3，task.invalid_state 透传；task.changed 广播在 handler/
+   * EventStream 层接线，O-7）；未装配 → command.unimplemented。
+   */
+  readonly taskEngine?: TaskEnginePort;
 }
 
 export class WsServerAdapter {
@@ -454,6 +497,17 @@ export class WsServerAdapter {
         return handleKgNodeConfirm(this.kgContext(ws, type, payload));
       case "kg.index.status":
         return handleKgIndexStatus(this.kgContext(ws, type, payload));
+      // ── kg-bootstrap 批（T3.2，契约 kg-bootstrap-api；handlers/kg.ts）──
+      case "kg.bootstrap.create":
+        return handleKgBootstrapCreate(this.kgContext(ws, type, payload));
+      case "kg.bootstrap.produce":
+        return handleKgBootstrapProduce(this.kgContext(ws, type, payload));
+      case "kg.node.update":
+        return handleKgNodeUpdate(this.kgContext(ws, type, payload));
+      case "kg.node.supersede":
+        return handleKgNodeSupersede(this.kgContext(ws, type, payload));
+      case "kg.bootstrap.impact":
+        return handleKgBootstrapImpact(this.kgContext(ws, type, payload));
       // ── workspace 族（W1 绑定闭环；handlers/workspace.ts）──
       case "workspace.get":
         return this.deps.workspace === undefined
@@ -463,6 +517,25 @@ export class WsServerAdapter {
         return this.deps.workspace === undefined
           ? this.commandError(ws, type, "command.unknown", `未知命令：${type}`)
           : handleWorkspaceOpen(this.workspaceContext(ws, type, payload));
+      // ── task 族（P-2 任务页九命令族，契约 task-api，§8.1；handlers/task.ts）──
+      case "task.list":
+        return handleTaskList(this.taskContext(ws, type, payload));
+      case "task.detail":
+        return handleTaskDetail(this.taskContext(ws, type, payload));
+      case "task.artifacts":
+        return handleTaskArtifacts(this.taskContext(ws, type, payload));
+      case "task.subscribe":
+        return handleTaskSubscribe(this.taskContext(ws, type, payload));
+      case "task.unsubscribe":
+        return handleTaskUnsubscribe(this.taskContext(ws, type, payload));
+      case "task.pause":
+        return handleTaskPause(this.taskContext(ws, type, payload));
+      case "task.resume":
+        return handleTaskResume(this.taskContext(ws, type, payload));
+      case "task.cancel":
+        return handleTaskCancel(this.taskContext(ws, type, payload));
+      case "task.delete":
+        return handleTaskDelete(this.taskContext(ws, type, payload));
       // ── v0.6 agent.config 族（智能体配置页；全局命令先例 = model.catalog）──
       case "agent.config.list":
         return handleAgentConfigList(this.resourceContext(ws, type, payload));
@@ -636,6 +709,12 @@ export class WsServerAdapter {
       type,
       payload,
       kg: this.deps.kg ?? this.deps.workspace?.stack()?.viewerService,
+      bootstrap:
+        this.deps.kgBootstrap === undefined
+          ? undefined
+          : typeof this.deps.kgBootstrap === "function"
+            ? this.deps.kgBootstrap()
+            : this.deps.kgBootstrap,
       workspaceUnbound: this.deps.workspace !== undefined && !this.deps.workspace.isBound(),
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),
@@ -682,6 +761,31 @@ export class WsServerAdapter {
       payload,
       resource: this.deps.resource,
       hasModel: this.deps.hasModel,
+      events: this.deps.events,
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+      rawSender: () => this.rawSender(ws),
+      sendNow: (sender, frame) => this.sendNow(sender, frame),
+    };
+  }
+
+  /**
+   * task 族命令处理上下文（P-2 九命令族，§8.1）：TaskQueryService 读面 +
+   * TaskEnginePort 生命周期写面（未装配 → undefined，handler 回
+   * command.unimplemented——kg.ts 先例）+ EventStream（连接级任务订阅表 +
+   * task.changed 广播）+ 共享辅助（本连接绑定，语义 = 本类同名私有方法，
+   * 机械转发零行为差）。
+   */
+  private taskContext(
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+  ): TaskCommandContext {
+    return {
+      ws,
+      type,
+      payload,
+      taskQuery: this.deps.taskQuery,
+      taskEngine: this.deps.taskEngine,
       events: this.deps.events,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),

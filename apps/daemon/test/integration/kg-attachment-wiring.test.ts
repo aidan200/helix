@@ -233,7 +233,9 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
         getVerifyView: () => ({ nodes: [], edges: [], anchors: [], anchorDeclarations: [], files: [] }),
         getChangeLog: () => [],
         countNodes: () => 0,
+        countActiveNodes: () => 0, // T3.2 准入口径面（本测试不消费）
         latestIteration: () => null,
+        listNodeIdsByOriginBatches: () => [], // T2.2 F2.7 反查面（本测试不消费）
       };
       const attachment = new KgAttachmentService({ graph: failing });
       const env = new NodeExecutionEnv({ cwd: root });

@@ -58,6 +58,9 @@ export interface TestDaemonOptions {
   readonly subagentRunner?: InstanceRunner;
   /** findings 落账管道覆盖（F3.0，T4.1：注入替身真 KgWriteService/故障注入；缺省 = kg 栈真体）。 */
   readonly findingsSink?: Parameters<typeof assembleDaemon>[0]["findingsSinkOverride"];
+  /** 编排会话 LLM 覆盖（T4.1 E 层：fake 剧本 streamFn 驱动编排批次循环；缺省生产形态）。 */
+  readonly orchestratorLlmOverride?: Parameters<typeof assembleDaemon>[0]["orchestratorLlmOverride"];
+  /** kg workspace 根初始绑定（e2e：指向 tmp fixture workspace；语义同既有字段，见下）。 */
   /** BrowserPort 覆盖（fake BrowserPort 驱动 web 族命令/广播断言）。 */
   readonly browser?: BrowserPort;
   /** 主时间轴尾窗大小（G-1：缺省 30；测试注入面）。 */
@@ -118,6 +121,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     browserPort: options.browser ?? new CdpConnectionManager({ homeDir: osHomeDir() }),
     subagentRunnerOverride: options.subagentRunner,
     findingsSinkOverride: options.findingsSink,
+    orchestratorLlmOverride: options.orchestratorLlmOverride,
     staticDir: options.staticDir,
     tailSize: options.sessionTailSize,
     toolCwd: options.toolCwd,

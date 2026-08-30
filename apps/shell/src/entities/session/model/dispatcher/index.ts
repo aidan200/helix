@@ -105,10 +105,13 @@ register({
   apply: (s) => s,
 });
 
-// ── kg 族六 *.result（iter-20260825-11fo T5.4；连接私有读面）──
+// ── kg 族六 *.result + kg-bootstrap 批五 *.result（iter-20260825-11fo T5.4 +
+//    iter-20260829-ys7q T3.2；连接私有读面）──
 // 点对点回执帧（O-6 零推送事件），真消费归 P-1 图谱页页面查询链
 //（SessionContext 转发层 kgListeners——trace.query.result 先例，
-// dispatcher 侧保持 no-op 注册守护绿，会话 store 零写入）。
+// dispatcher 侧保持 no-op 注册守护绿，会话 store 零写入）。T3.2 五回执
+//（bootstrap.create/produce + node.update/supersede + bootstrap.impact）
+// 同规：真消费归 /project 页 bootstrap 入口卡与产出呈现而组件听众。
 register({
   types: [
     "kg.projects.result",
@@ -117,6 +120,11 @@ register({
     "kg.change.report.result",
     "kg.node.confirm.result",
     "kg.index.status.result",
+    "kg.bootstrap.create.result",
+    "kg.bootstrap.produce.result",
+    "kg.node.update.result",
+    "kg.node.supersede.result",
+    "kg.bootstrap.impact.result",
   ],
   apply: (s) => s,
 });
@@ -129,6 +137,16 @@ register({
 // 会话 store 零写入。W4 豁免全清：changed 广播正式登记。
 register({
   types: ["workspace.get.result", "workspace.open.result", "workspace_changed"],
+  apply: (s) => s,
+});
+
+// ── task 族（task 批，iter-20260829-ys7q T1.5；task.changed 逐迁移广播）──
+// 任务页 P-2 连接私有读面：真消费归 entities/tasks 页面 reducer（T3.1
+// tasks-model 听众——connection 面听众转发模式，kg 族先例）；此处 no-op
+// 注册保「EVENT_TYPES 全类型已路由」守护绿，会话 store 零写入（任务非
+// 会话维——帧经 notification 通道 daemon 级下发）。
+register({
+  types: ["task.changed"],
   apply: (s) => s,
 });
 

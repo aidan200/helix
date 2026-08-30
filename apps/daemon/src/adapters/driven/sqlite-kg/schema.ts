@@ -10,12 +10,15 @@
  * - nodes：知识节点（id 主键 TR-n/E-n；name 非唯一——重名合法靠 digest 区分，
  *   AD-16；domain tech/business 降为属性；status 三值枚举 draft/confirmed/
  *   superseded——AD-11 预留+supersede 终态，CHECK 兜底；layer 为 AD-11
- *   bootstrap 分层预留列，词表下迭代冻结故不加 CHECK）；
+ *   bootstrap 分层预留列，词表下迭代冻结故不加 CHECK；origin_batch_id 为
+ *   任务产出元数据（T2.1，AD-10 唯一衔接面；可空无默认，老库 ALTER 补列
+ *   见 KgDatabase.ensureSchemaEvolved）；
  * - anchor_decl：锚作用域声明（AD-13：scope_kind 三值 CHECK + pattern；
  *   复合主键幂等去重；global 行 pattern 恒空串）；
  * - change_log：变更日志（每 op 自动追加；supersede_of 挂取代链——supersede
  *   行记自身、replacement createNode 行记被取代者；AUTOINCREMENT 保 seq
- *   追加序）；库内即审计界面（AD-9，git 审计废弃后）；
+ *   追加序；task_id 与 iteration_id 并列——任务产出元数据，T2.1 AD-10，
+ *   可空无默认）；库内即审计界面（AD-9，git 审计废弃后）；
  * - edges：知识边（verb 封闭词表校验在 service 层 KG_E_VERB——词表单一来源
  *   domain/kg/types.EDGE_VERBS 不进 DDL；复合主键防重复边）；
  * - files/symbols/contains_edges：符号层三表（sync 管道写，增量基准
@@ -39,6 +42,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   body TEXT NOT NULL DEFAULT '',
   domain TEXT CHECK (domain IN ('tech','business')),
   layer TEXT,
+  origin_batch_id TEXT,
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','confirmed','superseded')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -56,6 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_anchor_decl_node ON anchor_decl(node_id);
 CREATE TABLE IF NOT EXISTS change_log (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   iteration_id TEXT NOT NULL,
+  task_id TEXT,
   op TEXT NOT NULL,
   node_id TEXT NOT NULL,
   supersede_of TEXT,

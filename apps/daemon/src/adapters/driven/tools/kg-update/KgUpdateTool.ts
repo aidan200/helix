@@ -27,6 +27,9 @@ import type {
  *   新节点草稿（新号自动发放，链上双侧可见）。
  * - createNode(kind, name, digest, ...)：新知识即时落账——自动发号
  *   （AD-16）；anchors 可选组合锚声明（第二笔 declareAnchors op）。
+ * - batchCreateNodes(nodes[])（T2.1，O-5 裁决）：批量建点——LLM 按写入量
+ *   自选单条/批量，两 op 并存且结果等价（CL-2-T14）；逐项自动发号，
+ *   任一项失败整批拒绝（先全量校验后单事务）。
  *
  * 与 ClosureDto.findings 收口通道（T4.1）非竞争关系：共用同一 API 入口，
  * 本工具承载 edit 现场的即时兑现（O-2 决策消解）。
@@ -35,7 +38,11 @@ import type {
 const kgUpdateParameters = {
   type: "object",
   properties: {
-    op: { type: "string", enum: ["createNode", "supersede"], description: "操作：createNode 新知识落账 / supersede 推翻既有节点" },
+    op: {
+      type: "string",
+      enum: ["createNode", "supersede", "batchCreateNodes"],
+      description: "操作：createNode 新知识落账 / supersede 推翻既有节点 / batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）",
+    },
     // ── createNode ──
     kind: { type: "string", enum: ["rule", "entity"], description: "createNode 节点类型（rule=规则 / entity=实体）" },
     name: { type: "string", description: "createNode 节点名（重名合法，靠 digest 区分）" },
@@ -43,6 +50,11 @@ const kgUpdateParameters = {
     body: { type: "string", description: "createNode 正文（可选，全文详情）" },
     domain: { type: "string", enum: ["tech", "business"], description: "createNode 作用域（可选）" },
     layer: { type: "string", enum: ["L0", "L1", "L2"], description: "createNode 分层（可选，AD-11）" },
+    status: {
+      type: "string",
+      enum: ["draft", "confirmed"],
+      description: "建库态（可选；缺省 draft）——任务批次产出按 SOP 以 confirmed 落库（bootstrap 无 draft）",
+    },
     anchors: {
       type: "array",
       description: "createNode 锚声明（可选）：[{scopeKind: global|path|symbol, pattern}]（global 不携带 pattern）",
@@ -53,6 +65,24 @@ const kgUpdateParameters = {
           pattern: { type: "string", description: "path→glob；symbol→path#symbol；global 省略" },
         },
         required: ["scopeKind"],
+        additionalProperties: false,
+      },
+    },
+    // ── batchCreateNodes ──
+    nodes: {
+      type: "array",
+      description: "batchCreateNodes 批量节点载荷：[{kind, name, digest, body?, domain?, layer?}]（逐项自动发号；任一项失败整批拒绝零落库）",
+      items: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["rule", "entity"], description: "节点类型（rule=规则 / entity=实体）" },
+          name: { type: "string", description: "节点名（重名合法，靠 digest 区分）" },
+          digest: { type: "string", description: "摘要（≤2 行）" },
+          body: { type: "string", description: "正文（可选）" },
+          domain: { type: "string", enum: ["tech", "business"], description: "作用域（可选）" },
+          layer: { type: "string", enum: ["L0", "L1", "L2"], description: "分层（可选，AD-11）" },
+        },
+        required: ["kind", "name", "digest"],
         additionalProperties: false,
       },
     },
@@ -76,6 +106,14 @@ const kgUpdateParameters = {
     // ── 通用 ──
     iterationId: { type: "string", description: "当前迭代 id（change_log 每行必含，如 iter-20260825-11fo）" },
     project: { type: "string", description: "createNode 目标项目目录名（workspace 只有一个项目时可省；多项目必填）" },
+    taskId: {
+      type: "string",
+      description: "任务来源 id（可选）：任务批次上下文由接线层机械注入默认值（落 change_log.task_id 记账溯源），仅需显式传参覆盖时才携带",
+    },
+    originBatchId: {
+      type: "string",
+      description: "产出批次 id（可选）：任务批次上下文由接线层机械注入默认值（产出分组/幂等重跑判据），仅需显式传参覆盖时才携带",
+    },
   },
   required: ["op", "iterationId"],
   additionalProperties: false,
@@ -89,6 +127,15 @@ export interface KgUpdateToolDeps {
   readonly workspaceRoot: string;
   /** workspace 全项目扫描（createNode 目标解析；含未建 .kg 项目）。 */
   readonly scanProjects: () => readonly string[];
+  /**
+   * 任务归属上下文（T4.2 机械注入，AD-10/AF-T4.1.4/T4.1.6）：批次子进程
+   * 接线层（ChildMain，HELIX_DB_PATH 同面）从任务台账解析本实例归属
+   * jobId/batchId，对三写路径（单条/批量/supersede replacement）注入
+   * taskId/originBatchId 默认值——LLM 显式传参优先（透传降级为可选覆盖）。
+   * 缺席/返回 undefined = 非任务上下文（主会话/chat 子进程）→ 零注入，
+   * task_id 保持 NULL（kg 更新不强制关联任务），行为与现状逐字节一致。
+   */
+  readonly taskContext?: () => { readonly taskId: string; readonly originBatchId: string } | undefined;
 }
 
 /** kg-update 即时落账工具：注册名 "kg-update"。 */
@@ -113,7 +160,10 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       if (op === "createNode") {
         return text(execCreateNode(deps, args, iterationId));
       }
-      throw new Error(`未知 op "${String(op)}"（合法：createNode / supersede）`);
+      if (op === "batchCreateNodes") {
+        return text(execBatchCreateNodes(deps, args, iterationId));
+      }
+      throw new Error(`未知 op "${String(op)}"（合法：createNode / supersede / batchCreateNodes）`);
     },
   };
 }
@@ -134,14 +184,21 @@ function execSupersede(deps: KgUpdateToolDeps, args: Record<string, unknown>, it
     );
   }
   const { project } = hits[0]!;
-  const replacement = draftOf(args["replacement"]);
-  const writeOp: KnowledgeWriteOp = {
+  const context = deps.taskContext?.();
+  const draft = draftOf(args["replacement"]);
+  // T4.2（AF-T4.1.6）：批次上下文内 replacement 默认 confirmed（bootstrap
+  // 无 draft 自约束的机械兑现）；非批次上下文 status 语义不变（缺省 draft）
+  const replacement =
+    draft !== null && context !== undefined && draft.status === undefined
+      ? { ...draft, status: "confirmed" as const }
+      : draft;
+  const writeOp: KnowledgeWriteOp = createOp(deps, args, {
     kind: "supersede",
     iterationId,
     nodeId,
     reason,
     ...(replacement !== null ? { replacementNodeDraft: replacement } : {}),
-  };
+  });
   const result = writeOrThrow(deps, project, writeOp);
   return replacement === null
     ? `已 supersede：${nodeId}（status 翻转，理由已入 change_log）`
@@ -156,10 +213,11 @@ function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>, i
     ...(optionalString(args, "body") !== undefined ? { body: optionalString(args, "body")! } : {}),
     ...(optionalEnum<NodeDomain>(args, "domain") !== undefined ? { domain: optionalEnum<NodeDomain>(args, "domain")! } : {}),
     ...(optionalEnum<NodeLayer>(args, "layer") !== undefined ? { layer: optionalEnum<NodeLayer>(args, "layer")! } : {}),
+    ...(optionalEnum<DraftStatus>(args, "status") !== undefined ? { status: optionalEnum<DraftStatus>(args, "status")! } : {}),
   };
   const anchors = anchorsOf(args["anchors"]);
   const project = resolveTargetProject(deps, args);
-  const result = writeOrThrow(deps, project, { kind: "createNode", iterationId, draft });
+  const result = writeOrThrow(deps, project, createOp(deps, args, { kind: "createNode", iterationId, draft }));
   let summary = `已建节点 ${result.nodeId}（project: ${projectName(project)}，自动发号）`;
   if (anchors !== null) {
     // 锚声明组合落账（第二笔 op）：失败不回滚建点——结构化报错携带已建 id（可重声明）
@@ -185,6 +243,50 @@ function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWrit
   return { nodeId: result.nodeId };
 }
 
+/**
+ * 任务产出元数据（T4.2 机械注入）：LLM 显式传参优先；未传用接线层注入的
+ * 任务归属默认值（批次子进程上下文）；无任务上下文 → 不携带（task_id
+ * 保持 NULL——kg 更新不强制关联任务，非任务上下文零行为变化）。
+ */
+function createOp<T extends KnowledgeWriteOp>(deps: KgUpdateToolDeps, args: Record<string, unknown>, op: T): T {
+  const context = deps.taskContext?.();
+  const taskId = optionalString(args, "taskId") ?? context?.taskId;
+  const originBatchId = optionalString(args, "originBatchId") ?? context?.originBatchId;
+  return {
+    ...op,
+    ...(taskId !== undefined ? { taskId } : {}),
+    ...(originBatchId !== undefined ? { originBatchId } : {}),
+  };
+}
+
+/**
+ * batchCreateNodes 执行（O-5）：逐项薄壳组载荷（自动发号——工具面不暴露
+ * 显式 id，保号迁移不入 LLM 面），单笔 op 经唯一写入口；项目解析同单条
+ * createNode（多项目必填 project）；op 级 status/taskId/originBatchId 逐节点
+ * 同源（任务批次产出的批量落账形态，T4.1）。
+ */
+function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unknown>, iterationId: string): string {
+  const value = args["nodes"];
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("nodes 必填且为非空数组（批量建点：[{kind, name, digest, …}]）");
+  }
+  const opStatus = optionalEnum<DraftStatus>(args, "status");
+  // op 级 layer 逐节点同源（T4.1 修正：与 status/taskId/originBatchId 同型——
+  // 任务批次产出的批量落账形态，layer 在 op 级携带；单条 createNode 先例 :199）
+  const opLayer = optionalEnum<NodeLayer>(args, "layer");
+  const nodes = value.map((item, i) => {
+    const draft = draftOf(item, `nodes[${i}]`);
+    if (draft === null) {
+      throw new Error(`nodes[${i}] 必须为节点草稿对象（kind/name/digest）`);
+    }
+    const stamped = opStatus !== undefined ? { ...draft, status: opStatus } : draft;
+    return { draft: opLayer !== undefined ? { ...stamped, layer: opLayer } : stamped };
+  });
+  const project = resolveTargetProject(deps, args);
+  const result = writeOrThrow(deps, project, createOp(deps, args, { kind: "batchCreateNodes", iterationId, nodes }));
+  return `已批量建节点 ${nodes.length} 个（project: ${projectName(project)}，自动发号；末节点 ${result.nodeId}）`;
+}
+
 /** createNode 目标项目解析：project 名 → projectRoot；缺省唯一项目自动；多项目必填。 */
 function resolveTargetProject(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
   const scanned = deps.scanProjects();
@@ -207,6 +309,9 @@ function resolveTargetProject(deps: KgUpdateToolDeps, args: Record<string, unkno
 
 // ── 参数叶子 ────────────────────────────────────────────────
 
+/** 建库态枚举（draft/confirmed——superseded 只能经 supersede op 到达）。 */
+type DraftStatus = NonNullable<NodeDraft["status"]>;
+
 function requireString(args: Record<string, unknown>, key: string, hint: string): string {
   const value = args[key];
   if (typeof value !== "string" || value.trim() === "") {
@@ -226,16 +331,17 @@ function optionalEnum<T extends string>(args: Record<string, unknown>, key: stri
   return typeof value === "string" && value !== "" ? (value as T) : undefined;
 }
 
-function draftOf(value: unknown): NodeDraft | null {
+/** 节点草稿组载荷（label 定位错误消息：单条 replacement / 批量 nodes[i]）。 */
+function draftOf(value: unknown, label = "replacement"): NodeDraft | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("replacement 必须为节点草稿对象（kind/name/digest）");
+    throw new Error(`${label} 必须为节点草稿对象（kind/name/digest）`);
   }
   const record = value as Record<string, unknown>;
   return {
     kind: record["kind"] === "entity" ? "entity" : "rule",
-    name: requireString(record, "name", "（replacement 草稿）"),
-    digest: requireString(record, "digest", "（replacement 草稿）"),
+    name: requireString(record, "name", `（${label} 草稿）`),
+    digest: requireString(record, "digest", `（${label} 草稿）`),
     ...(typeof record["body"] === "string" ? { body: record["body"] } : {}),
     ...(typeof record["domain"] === "string" ? { domain: record["domain"] as NodeDomain } : {}),
     ...(typeof record["layer"] === "string" ? { layer: record["layer"] as NodeLayer } : {}),

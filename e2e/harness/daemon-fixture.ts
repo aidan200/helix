@@ -24,7 +24,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from "node
 import * as net from "node:net";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import type { DaemonScript, SubagentScript } from "./daemon-script";
+import type { DaemonScript, SubagentScript, OrchestratorScript } from "./daemon-script";
 import type { FakeEngineScript } from "../../apps/daemon/src/adapters/driven/subagent/child/scriptedEngine";
 
 const WORKTREE_ROOT = path.resolve(__dirname, "..", "..");
@@ -59,6 +59,10 @@ export interface DaemonStartOptions {
    *  agent_spawn 真实 spawn detached 子进程（teardown 兜底回收的观测面）。
    *  缺省用 ScriptedSubagentRunner（进程内剧本，无子进程）。 */
   realSubagent?: { engineScript: FakeEngineScript };
+  /** 编排主 agent 剧本（T4.1 bootstrap e2e）：容器接缝切 FakeLLM 驱动批次循环。 */
+  orchestratorScript?: OrchestratorScript;
+  /** kg workspace 预绑根（T4.1：tmp fixture workspace；缺省 createTestDaemon 语义）。 */
+  kgWorkspaceRoot?: string;
   /** 额外环境变量（T4.2 模型链：注入死代理 HTTP(S)_PROXY 使 ModelCatalog
    *  刷新快速失败 → builtin fallback 无外网断言，K-1）。 */
   env?: Record<string, string>;
@@ -86,6 +90,11 @@ export class DaemonProcess {
       subagentEngineScriptFile = path.join(home, "subagent-engine-script.json");
       writeFileSync(subagentEngineScriptFile, JSON.stringify(opts.realSubagent.engineScript), "utf8");
     }
+    let orchestratorScriptFile: string | undefined;
+    if (opts.orchestratorScript) {
+      orchestratorScriptFile = path.join(home, "orchestrator-script.json");
+      writeFileSync(orchestratorScriptFile, JSON.stringify(opts.orchestratorScript), "utf8");
+    }
 
     const args = [
       LAUNCHER,
@@ -101,6 +110,8 @@ export class DaemonProcess {
       toolCwd,
     ];
     if (subagentEngineScriptFile) args.push("--subagent-engine-script", subagentEngineScriptFile);
+    if (orchestratorScriptFile) args.push("--orchestrator-script", orchestratorScriptFile);
+    if (opts.kgWorkspaceRoot) args.push("--kg-workspace-root", opts.kgWorkspaceRoot);
     if (opts.staticDir) args.push("--static-dir", opts.staticDir);
 
     try {

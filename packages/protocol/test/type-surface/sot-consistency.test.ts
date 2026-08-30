@@ -227,6 +227,21 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       { registry: "evt", anchor: "kg.node.confirm.result", field: "node" },
       { registry: "evt", anchor: "kg.index.status.result", field: "state" },
       { registry: "evt", anchor: "kg.index.status.result", field: "degradedNote" },
+      // task 批（iter-20260829-ys7q T1.5：P-2 任务页九命令族）：首登必填字段
+      // presence（防零登记复发；契约 task-api §2 逐命令核对；jobId 为 join 键）
+      { registry: "cmd", anchor: "task.list", field: "status" },
+      { registry: "cmd", anchor: "task.list", field: "project" },
+      { registry: "cmd", anchor: "task.detail", field: "jobId" },
+      { registry: "cmd", anchor: "task.artifacts", field: "jobId" },
+      { registry: "cmd", anchor: "task.subscribe", field: "jobId" },
+      { registry: "cmd", anchor: "task.unsubscribe", field: "jobId" },
+      { registry: "cmd", anchor: "task.pause", field: "jobId" },
+      { registry: "cmd", anchor: "task.resume", field: "jobId" },
+      { registry: "cmd", anchor: "task.cancel", field: "jobId" },
+      { registry: "cmd", anchor: "task.delete", field: "jobId" },
+      { registry: "evt", anchor: "task.changed", field: "jobId" },
+      { registry: "evt", anchor: "task.changed", field: "changed" },
+      { registry: "evt", anchor: "task.changed", field: "status" },
     ];
     const missing: string[] = [];
     for (const item of required) {

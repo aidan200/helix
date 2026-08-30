@@ -10,21 +10,23 @@ import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/pro
  */
 
 describe("ToolPromptSnippets 注册表（M6 T2）", () => {
-  test("① 两 profile 全集全覆盖：main 14 名 + subagent 10 名均有非空 snippet", () => {
+  test("① 两 profile 全集全覆盖：main 14 名 + subagent 13 名均有非空 snippet", () => {
     for (const name of MainSessionProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `main 工具 ${name} 缺 snippet`).toBeTruthy();
     }
     for (const name of SubAgentProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `subagent 工具 ${name} 缺 snippet`).toBeTruthy();
     }
-    // 全集形状锚定（ResourceService toolsCatalog 同源）：main 14 / subagent 10
-    //（T3-B +agent_inspect；T3.3 +kg/kg-update 双工具）
-    expect(MainSessionProfile.tools).toHaveLength(14);
-    expect(SubAgentProfile.tools).toHaveLength(10);
+    // 全集形状锚定（ResourceService toolsCatalog 同源）：main 15 / subagent 13
+    //（T3-B +agent_inspect；T3.3 +kg/kg-update 双工具；T1.4 +plan 三工具 AD-6①；
+    // T2.4 +task_create 仅 main，AD-7）
+    expect(MainSessionProfile.tools).toHaveLength(15);
+    expect(SubAgentProfile.tools).toHaveLength(13);
   });
 
   test("② snippet 为中文一句话：非空、单行（无换行符）", () => {
-    // 恰 14 条（main 全集；subagent 共享其中 10 条——单一注册表不分 kind）
+    // 恰 24 条（main 全集 15 + plan 三工具 + 编排 task 回口六工具——T2.2；
+    // 单一注册表不分 kind）
     expect(Object.keys(TOOL_PROMPT_SNIPPETS).sort()).toEqual(
       [
         "agent_inspect",
@@ -37,7 +39,17 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
         "grep",
         "kg",
         "kg-update",
+        "plan_create",
+        "plan_read",
+        "plan_update",
         "read",
+        "task_advance_stage",
+        "task_complete_job",
+        "task_create",
+        "task_dispatch_batch",
+        "task_fail_job",
+        "task_insert_batch",
+        "task_stage_artifact",
         "web_fetch",
         "web_search",
         "write",

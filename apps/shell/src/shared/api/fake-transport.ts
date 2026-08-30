@@ -35,6 +35,11 @@
  * 过滤维生效，实例面板保持会话级不随过滤收窄；filterEcho/帧组装留本地
  *（帧知识豁免位）；支撑 T2.3 fidelity 五态触发面（success/empty 经过滤器、
  * error 经非法 payload、loading 经 120ms 延迟、断连经 netClose）。
+ * task 族订阅簿记（D-2 修复）：task.subscribe/unsubscribe 连接级订阅表 +
+ * task.changed 按订阅过滤投递（task-api.md §3 推送面镜像），与 session 族
+ * sessionTiers 同轨（send 钩子簿记 + 断连即清）；控制面 taskSubs() 读面供
+ * spec 断言簿记生效。
+ *
  * 「本模块零帧知识」纪律的单一例外：帧类型直引 @helix/protocol（TR-TEST-3
  * 类型即守护），不引 daemon 代码。
  */
@@ -55,6 +60,7 @@ import {
 } from "@helix/protocol";
 import { browserTransportFactory, type Transport, type TransportFactory, type TransportHandlers } from "./helix-ws";
 import { isKgCommand, kgMockStore, KG_MOCK_LATENCY_MS } from "./kg-mock";
+import { isTaskCommand, tasksMockStore, TASKS_MOCK_LATENCY_MS } from "./tasks-mock";
 
 /** daemon 回环地址前缀（非该前缀 → 真实 WebSocket 透传，HMR 不受扰）。 */
 const DAEMON_WS_PREFIX = "ws://127.0.0.1:";
@@ -96,6 +102,11 @@ export interface HelixMockApi {
   activeSession(sessionId?: string): Promise<string | null>;
   /** 剧本会话台账读取（emit 按信封 sessionId 路由累计）。 */
   scenarioSession(sessionId: string): Promise<ScenarioSessionState | null>;
+  /**
+   * task 族连接级订阅簿记读面（D-2；spec 断言「页面连接已订阅」用）。
+   * 返回订阅 jobId 列表（"*" = 订阅全部）；null = 从未订阅。
+   */
+  taskSubs(): Promise<string[] | null>;
 }
 
 interface ClientWaiter {
@@ -344,6 +355,13 @@ class FakeSocket {
 
   readonly url: string;
   readyState = FakeSocket.CONNECTING;
+  /**
+   * task 族连接级订阅簿记（D-2 修复，契约 task-api.md §3 推送面镜像；
+   * 与 sessionTiers 同轨——daemon EventStream 连接级订阅表语义）。
+   * null = 从未订阅；"*" 成员 = 订阅全部（task.subscribe 缺省 jobId）；
+   * 其余成员 = 按 jobId 订阅。断连即清（TR-AD-23③ 镜像，见 close/fireClose）。
+   */
+  private taskSubs: Set<string> | null = null;
 
   constructor(
     url: string,
@@ -374,6 +392,23 @@ class FakeSocket {
       this.registry.sessionTiers.delete(frame.sessionId);
       if (this.registry.lastFullSessionId === frame.sessionId) this.registry.lastFullSessionId = null;
     }
+    // task 族订阅簿记（D-2；task-api.md §3 连接级订阅表 + §2 payload 语义镜像）：
+    // subscribe{jobId} 按 jobId 登记；subscribe{} 订阅全部（"*" 通配）；
+    // unsubscribe{jobId} 移除该 jobId 并解除通配（退订意图优先，保守镜像）；
+    // unsubscribe{} 清空订阅集（commands.ts「对称语义」）。
+    if (frame?.type === "task.subscribe" || frame?.type === "task.unsubscribe") {
+      const jobId = (frame.payload as { jobId?: unknown } | undefined)?.jobId;
+      const specific = typeof jobId === "string" && jobId !== "" ? jobId : null;
+      if (frame.type === "task.subscribe") {
+        if (this.taskSubs === null) this.taskSubs = new Set();
+        this.taskSubs.add(specific ?? "*");
+      } else if (specific !== null) {
+        this.taskSubs?.delete(specific);
+        this.taskSubs?.delete("*");
+      } else {
+        this.taskSubs = new Set();
+      }
+    }
     const hit: ClientWaiter[] = [];
     const rest: ClientWaiter[] = [];
     for (const w of this.registry.commandWaiters) (w.type === frame?.type ? hit : rest).push(w);
@@ -393,6 +428,21 @@ class FakeSocket {
         if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
       }, KG_MOCK_LATENCY_MS);
     }
+    // task 族自动应答（T3.1；九命令 mock daemon 镜像——结果帧 + 生命周期
+    // 成功伴发的 task.changed 广播，帧数组逐帧下发）
+    if (frame !== null && isTaskCommand(frame.type)) {
+      const frames = tasksMockStore.reply(frame.type, frame.payload);
+      setTimeout(() => {
+        if (this.readyState !== FakeSocket.OPEN) return;
+        for (const f of frames) {
+          // task.changed 按连接级订阅表过滤投递（D-2；契约 §3「仅推送给该
+          // 连接已订阅的 jobId（或订阅全部时按连接过滤）」）；点对点结果帧
+          // （*.result / connection.error）豁免——daemon sendNow 直发不过滤。
+          if (f.type === "task.changed" && !this.taskChangedAllowed(f)) continue;
+          this.fireMessage(f);
+        }
+      }, TASKS_MOCK_LATENCY_MS);
+    }
     // workspace 族自动应答（W3 门禁；mock daemon 镜像，get 恒回预绑定）
     if (frame?.type === "workspace.get" || frame?.type === "workspace.open") {
       const reply = workspaceMockReply(frame.type, frame.payload);
@@ -402,9 +452,23 @@ class FakeSocket {
     }
   }
 
+  /** task.changed 投递准入（连接级订阅表：null=未订阅不投递；"*"=全部；否则按 jobId）。 */
+  private taskChangedAllowed(frame: EventEnvelope): boolean {
+    if (this.taskSubs === null) return false;
+    const jobId = (frame.payload as { jobId?: unknown } | undefined)?.jobId;
+    if (this.taskSubs.has("*")) return true;
+    return typeof jobId === "string" && this.taskSubs.has(jobId);
+  }
+
+  /** 控制面读：连接 task 订阅簿记投影（spec 断言面；null=未订阅）。 */
+  taskSubsSnapshot(): string[] | null {
+    return this.taskSubs === null ? null : [...this.taskSubs];
+  }
+
   /** 用户侧主动关闭（stop/retry）：不出网络事件（与 mock-init 口径一致）。 */
   close(): void {
     this.readyState = FakeSocket.CLOSED;
+    this.taskSubs = null; // 断连即清连接级订阅表（TR-AD-23③ 镜像）
   }
 
   // ── 控制面驱动（spec 侧）─────────────────────────────────
@@ -423,6 +487,7 @@ class FakeSocket {
     // 断连即清 tier 表（TR-AD-23③ daemon 不持跨连接状态的 mock 镜像）
     this.registry.sessionTiers.clear();
     this.registry.lastFullSessionId = null;
+    this.taskSubs = null; // task 族连接级订阅表同规清除（D-2）
     this.handlers.onClose({ code, reason: "" });
   }
 
@@ -553,6 +618,9 @@ const mockApi: HelixMockApi = {
   },
   async scenarioSession(sessionId) {
     return registry.scenarioSessions.get(sessionId) ?? null;
+  },
+  async taskSubs() {
+    return (await registry.nextActive()).taskSubsSnapshot();
   },
 };
 

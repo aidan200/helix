@@ -34,6 +34,11 @@ import { SqliteKnowledgeStore } from "../../sqlite-kg/SqliteKnowledgeStore";
 import { KgWriteService } from "../../../../application/services/kg/KgWriteService";
 import { KgQueryService } from "../../../../application/services/kg/KgQueryService";
 import { existingKgProjects, scanWorkspaceProjects } from "../../workspace-scan";
+import { LazyWorkLedger } from "../../sqlite-session/WorkLedger";
+import { WorkLedgerService } from "../../../../application/services/task/WorkLedgerService";
+import type { PlanToolDeps } from "../../tools/plan/PlanTools";
+import { openTaskLedgerDatabase } from "../../sqlite-session/WriteQueue";
+import { readTaskContextByInstance } from "../../sqlite-session/TaskStore";
 
 // ── argv/env 解析 ──────────────────────────────────────────
 
@@ -155,16 +160,97 @@ export function spawnOverridesFromEnv(
  * workspace 全扫描。无跨通道会话注册表（任务切片注入在父进程 spawn 时
  * 已完成——本栈只消费）。ChildMain 是子进程的组合根（CoreToolExecutor
  * 同款先例），此处 new 具体 adapter/service 不违 AG-02④ 扫描域（driven）。
+ *
+ * T4.2（AD-10/AF-T4.1.4）：taskContext 机械注入面——批次子进程的任务归属
+ * （jobId/batchId）由 createKgTaskContextResolver 惰性解析，kg-update 三写
+ * 路径默认值源；非任务上下文（dbPath 缺席/无批次行）零注入。
  */
-function buildLocalKgStack(workspaceRoot: string): { readonly tools: KgToolOptions; readonly database: KgDatabase } {
+function buildLocalKgStack(
+  workspaceRoot: string,
+  taskContext?: () => { readonly taskId: string; readonly originBatchId: string } | undefined,
+): { readonly tools: KgToolOptions; readonly database: KgDatabase } {
   const database = new KgDatabase();
   const graph = new SqliteKnowledgeGraph({ database });
   const query = new KgQueryService({ graph, projects: () => existingKgProjects(workspaceRoot) });
   const write = new KgWriteService({ store: new SqliteKnowledgeStore({ database }) });
   return {
-    tools: { query, write, workspaceRoot, scanProjects: () => scanWorkspaceProjects(workspaceRoot) },
+    tools: {
+      query,
+      write,
+      workspaceRoot,
+      scanProjects: () => scanWorkspaceProjects(workspaceRoot),
+      ...(taskContext !== undefined ? { taskContext } : {}),
+    },
     database,
   };
+}
+
+// ── 任务归属解析器（T4.2，AD-10 衔接面的接线层兑现） ──────────
+
+/**
+ * kg-update 任务归属解析器（机械注入源）：HELIX_DB_PATH + HELIX_INSTANCE_ID
+ * 同面（env 通道既有两键，AG-08 零新键）——惰性直连 helix.db 查
+ * batch.instance_id = 本实例 → { taskId=jobId, originBatchId=batchId }。
+ *
+ * 为何子进程侧解析而非父进程 env 透传：批次归属在 spawn 时刻父进程尚不
+ * 可知（insertBatch→spawn→dispatchBatch 序——batch.instance_id 在
+ * dispatchBatch 才落章，launch 组 env 时为 NULL）；子进程首次 kg-update
+ * 时 instance_id 早已落章，惰性查询机械可靠。命中后记忆化；未命中
+ * （非任务上下文/极早期竞态）不缓存——下次调用重查（退化为现状 LLM
+ * 透传行为，非回归）。dbPath 缺席 → 返回 undefined（零触盘零注入）。
+ */
+/** kg-update 任务归属上下文（jobId/batchId——change_log.task_id / nodes.origin_batch_id 默认值源）。 */
+export interface KgTaskContext {
+  readonly taskId: string;
+  readonly originBatchId: string;
+}
+
+/** 任务归属解析器面（解析 + 连接收尾；惰性未开过 = close no-op）。 */
+export type KgTaskContextResolver = (() => KgTaskContext | undefined) & { close(): void };
+
+export function createKgTaskContextResolver(
+  dbPath: string | undefined,
+  instanceId: string,
+): KgTaskContextResolver | undefined {
+  if (dbPath === undefined) return undefined;
+  let db: ReturnType<typeof openTaskLedgerDatabase> | null = null;
+  let resolved: KgTaskContext | undefined;
+  const resolve = (() => {
+    if (resolved !== undefined) return resolved;
+    db ??= openTaskLedgerDatabase(dbPath);
+    const hit = readTaskContextByInstance(db, instanceId);
+    if (hit !== undefined) resolved = { taskId: hit.jobId, originBatchId: hit.batchId };
+    return resolved;
+  }) as KgTaskContextResolver;
+  resolve.close = () => {
+    db?.close();
+    db = null;
+  };
+  return resolve;
+}
+
+// ── 子进程本地 work_item 栈（T1.4，AD-6①：plan 三工具注入面） ─────
+
+/**
+ * 子进程本地 work_item 栈（buildLocalKgStack 同构）：helix.db 直连
+ * （LazyWorkLedger 首次读写才开库——WAL + busy_timeout 由
+ * openTaskLedgerDatabase 自设，子连接不依赖父进程设置）+ WorkLedgerService
+ * 双面 + plan 三工具装配面。chat/task 两域派出的实例走同一装配（零 kind
+ * 分支，AD-6① 统一性）。
+ *
+ * instanceId 由子进程上下文注入（HELIX_INSTANCE_ID）——工具参数零
+ * instanceId（防 LLM 伪造他实例台账）；dbPath 来自 HELIX_DB_PATH（父进程
+ * spawn 时注入；缺席 → plan 工具首调报未装配，注册常驻——browser 先例）。
+ * 表域由父进程先行建库保证（子进程总是父进程写入 batch.instance_id
+ * 后才被拉起；未拉台账调用不触盘，TR-TEST-4）。
+ */
+export function buildLocalWorkLedgerStack(
+  dbPath: string | undefined,
+  instanceId: string,
+): { readonly tools: PlanToolDeps; readonly ledger: LazyWorkLedger } {
+  const ledger = new LazyWorkLedger(dbPath);
+  const service = new WorkLedgerService({ reader: ledger, writer: ledger });
+  return { tools: { service, instanceId }, ledger };
 }
 
 // ── 主流程 ─────────────────────────────────────────────────
@@ -198,12 +284,19 @@ async function main(): Promise<void> {
   const remoteBrowser = new RemoteBrowserPort(instanceId, writeLine);
   // T3.3：kg/kg-update 双工具本地栈（子进程组合根装配——SubAgentProfile
   // 声明两名，未注册则 resolveTools fail-fast）
-  const kg = buildLocalKgStack(toolCwd);
+  // T4.2：任务归属解析器（HELIX_DB_PATH 同面；批次子进程命中 batch 行 →
+  // kg-update taskId/originBatchId 机械注入；非任务上下文零注入）
+  const taskContext = createKgTaskContextResolver(process.env.HELIX_DB_PATH, instanceId);
+  const kg = buildLocalKgStack(toolCwd, taskContext);
+  // T1.4：plan 三工具本地栈（AD-6① 全量配给——SubAgentProfile 声明三名；
+  // HELIX_DB_PATH 缺席时注册常驻、首调报未装配）
+  const workLedger = buildLocalWorkLedgerStack(process.env.HELIX_DB_PATH, instanceId);
   const executor = new CoreToolExecutor({
     cwd: toolCwd,
     browser: remoteBrowser,
     ownerId: instanceId,
     kg: kg.tools,
+    plan: workLedger.tools,
   });
   const engine = new PiAgentEngineAdapter({
     profile,
@@ -265,6 +358,8 @@ async function main(): Promise<void> {
       });
   writeLine({ type: "closure", instanceId, closure });
   kg.database.closeAll(); // 正常收尾关连接（崩溃路径走 WAL 恢复，无需显式关）
+  workLedger.ledger.close(); // T1.4：台账直连连接同单点收尾（惰性未开过 = no-op）
+  taskContext?.close(); // T4.2：任务归属解析器直连连接同收尾（惰性未开过 = no-op）
   process.exit(0);
 }
 

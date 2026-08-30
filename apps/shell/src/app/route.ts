@@ -16,6 +16,8 @@ export const ROUTE_SKILLS = "/skills";
 export const ROUTE_TRACE = "/trace";
 /** 项目（占位页：施工牌）。 */
 export const ROUTE_PROJECT = "/project";
+/** 任务（P-2 任务页；T3.1，iter-20260829-ys7q）。 */
+export const ROUTE_TASKS = "/tasks";
 /** 设置（S2 实页化：AppLayout 壳 + 分区导航，模型配置为首分区）。 */
 export const ROUTE_SETTINGS = "/settings";
 
@@ -24,6 +26,7 @@ export type AppRoute =
   | typeof ROUTE_SKILLS
   | typeof ROUTE_TRACE
   | typeof ROUTE_PROJECT
+  | typeof ROUTE_TASKS
   | typeof ROUTE_SETTINGS;
 
 /** pathname → 路由（未知路径——含退役 /models 与旧 /settings/models——回落工作台，F-9 既有语义）。 */
@@ -35,6 +38,8 @@ export function routeOfPath(pathname: string): AppRoute {
       return ROUTE_TRACE;
     case ROUTE_PROJECT:
       return ROUTE_PROJECT;
+    case ROUTE_TASKS:
+      return ROUTE_TASKS;
     case ROUTE_SETTINGS:
       return ROUTE_SETTINGS;
     default:

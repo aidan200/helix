@@ -48,6 +48,22 @@ export interface SubagentScriptEntry {
 
 export type SubagentScript = readonly (SubagentScriptEntry | null)[];
 
+/**
+ * 编排主 agent 剧本（T4.1 bootstrap e2e）：JSON 落盘，launcher 读取执行
+ * （container orchestratorLlmOverride 接缝——工具轮 toolUse + 文本轮 stop，
+ * 与 chat FakeLLM 同构）。工具参数/文本字符串值可携带模板占位
+ * `{last.<field>}`：最近一次真实工具结果 JSON 的字段（如 insert_batch 回执
+ * 的 batchId/jobId 组入 agent_spawn 的 brief——任务元数据交批次子进程落账）。
+ * 剧本随 daemon 进程重启从头消费（重启场景传新剧本）。
+ */
+export type OrchestratorScriptEntry =
+  | { kind: "tool"; toolName: string; args?: Record<string, unknown> }
+  | { kind: "reply"; text?: string };
+
+export interface OrchestratorScript {
+  entries: OrchestratorScriptEntry[];
+}
+
 /** 便捷构造：慢速流式回复（默认分片，制造可断言的 streaming 窗口）。 */
 export function slowReply(text: string, chunkDelayMs = 40, chunkSize = 8): DaemonScriptEntry {
   return { kind: "reply", text, chunkSize, chunkDelayMs };

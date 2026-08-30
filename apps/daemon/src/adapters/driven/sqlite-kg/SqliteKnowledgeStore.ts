@@ -47,6 +47,13 @@ export class SqliteKnowledgeStore {
     db.exec("BEGIN IMMEDIATE");
     try {
       const result = this.applyOp(db, op);
+      if (!result.ok) {
+        // 结构化拒绝的回滚路径：单 op 语义下拒绝点先于任何写语句（空事务，
+        // 回滚与提交观察等价）；batchCreateNodes 可能已落前序节点——一律回滚
+        // 保「零部分落库」（O-5 整批原子：任一节点失败整批拒绝）。
+        this.rollbackQuietly(db);
+        return result;
+      }
       db.exec("COMMIT");
       return result;
     } catch (error) {
@@ -64,7 +71,7 @@ export class SqliteKnowledgeStore {
   private applyOp(db: Database, op: KnowledgeWriteOp): WriteResult {
     switch (op.kind) {
       case "createNode":
-        return this.applyCreateNode(db, op.iterationId, op.draft, op.id);
+        return this.applyCreateNode(db, op.iterationId, op.draft, op.id, op.taskId, op.originBatchId);
       case "updateNode":
         return this.applyUpdateNode(db, op);
       case "supersede":
@@ -73,7 +80,44 @@ export class SqliteKnowledgeStore {
         return this.applyDeclareAnchors(db, op);
       case "addEdge":
         return this.applyAddEdge(db, op);
+      case "batchCreateNodes":
+        return this.applyBatchCreateNodes(db, op);
     }
+  }
+
+  /**
+   * batchCreateNodes 落库（T2.1，O-5）：逐项复用单条 createNode 全部语义
+   * （发号/保号/元数据/change_log）；任一项结构化失败 → 携带项序号返回，
+   * 整批回滚由 writeKnowledge 统一执行（零部分落库）。元数据（taskId/
+   * originBatchId）为 op 级——逐节点同源登记。 */
+  private applyBatchCreateNodes(
+    db: Database,
+    op: KnowledgeWriteOp & { kind: "batchCreateNodes" },
+  ): WriteResult {
+    let lastId: string | null = null;
+    for (let i = 0; i < op.nodes.length; i += 1) {
+      const payload = op.nodes[i]!;
+      const result = this.applyCreateNode(
+        db,
+        op.iterationId,
+        payload.draft,
+        payload.id,
+        op.taskId,
+        op.originBatchId,
+      );
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: {
+            code: result.error.code,
+            message: `批量第 ${i} 项（0-based）失败，整批已回滚：${result.error.message}`,
+            path: rebaseBatchPath(result.error.path, i),
+          },
+        };
+      }
+      lastId = result.nodeId;
+    }
+    return { ok: true, nodeId: lastId! };
   }
 
   private applyCreateNode(
@@ -81,6 +125,8 @@ export class SqliteKnowledgeStore {
     iterationId: string,
     draft: NodeDraft,
     explicitId: string | undefined,
+    taskId: string | undefined,
+    originBatchId: string | undefined,
   ): WriteResult {
     let id: string;
     if (explicitId !== undefined) {
@@ -105,10 +151,10 @@ export class SqliteKnowledgeStore {
     }
     const now = isoNow();
     db.prepare(
-      "INSERT INTO nodes (id, kind, name, digest, body, domain, layer, status, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(id, draft.kind, draft.name, draft.digest, draft.body ?? "", draft.domain ?? null, draft.layer ?? null, draft.status ?? "draft", now, now);
-    this.appendChangeLog(db, iterationId, "createNode", id, null, null);
+      "INSERT INTO nodes (id, kind, name, digest, body, domain, layer, origin_batch_id, status, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(id, draft.kind, draft.name, draft.digest, draft.body ?? "", draft.domain ?? null, draft.layer ?? null, originBatchId ?? null, draft.status ?? "draft", now, now);
+    this.appendChangeLog(db, iterationId, "createNode", id, null, null, taskId);
     return { ok: true, nodeId: id };
   }
 
@@ -131,7 +177,7 @@ export class SqliteKnowledgeStore {
       isoNow(),
       op.nodeId,
     );
-    this.appendChangeLog(db, op.iterationId, "updateNode", op.nodeId, null, op.patch.reason ?? null);
+    this.appendChangeLog(db, op.iterationId, "updateNode", op.nodeId, null, op.patch.reason ?? null, op.taskId);
     return { ok: true, nodeId: op.nodeId };
   }
 
@@ -153,7 +199,7 @@ export class SqliteKnowledgeStore {
       op.nodeId,
     );
     // supersede_of=自身：目标节点翻态行挂入自身历史链（supersede 链查询锚点）
-    this.appendChangeLog(db, op.iterationId, "supersede", op.nodeId, op.nodeId, op.reason);
+    this.appendChangeLog(db, op.iterationId, "supersede", op.nodeId, op.nodeId, op.reason, op.taskId);
     if (op.replacementNodeDraft === undefined) return { ok: true, nodeId: op.nodeId };
     // replacement 另发新号（AD-16：新知识新号；createNode 行 supersede_of=被取代者——链上新节点挂旧链）
     const replacementId = formatNodeId(
@@ -162,11 +208,13 @@ export class SqliteKnowledgeStore {
     );
     const draft = op.replacementNodeDraft;
     const now = isoNow();
+    // origin_batch_id 同 createNode 落列（T4.2/AF-T4.1.6：replacement 同为批次产出，
+    // 缺列曾致 origin_batch_id 永 NULL 的落章裂口）
     db.prepare(
-      "INSERT INTO nodes (id, kind, name, digest, body, domain, layer, status, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(replacementId, draft.kind, draft.name, draft.digest, draft.body ?? "", draft.domain ?? null, draft.layer ?? null, draft.status ?? "draft", now, now);
-    this.appendChangeLog(db, op.iterationId, "createNode", replacementId, op.nodeId, op.reason);
+      "INSERT INTO nodes (id, kind, name, digest, body, domain, layer, origin_batch_id, status, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(replacementId, draft.kind, draft.name, draft.digest, draft.body ?? "", draft.domain ?? null, draft.layer ?? null, op.originBatchId ?? null, draft.status ?? "draft", now, now);
+    this.appendChangeLog(db, op.iterationId, "createNode", replacementId, op.nodeId, op.reason, op.taskId);
     return { ok: true, nodeId: replacementId };
   }
 
@@ -187,7 +235,7 @@ export class SqliteKnowledgeStore {
         anchor.pattern ?? "",
       );
     }
-    this.appendChangeLog(db, op.iterationId, "declareAnchors", op.nodeId, null, null);
+    this.appendChangeLog(db, op.iterationId, "declareAnchors", op.nodeId, null, null, op.taskId);
     return { ok: true, nodeId: op.nodeId };
   }
 
@@ -204,7 +252,7 @@ export class SqliteKnowledgeStore {
       op.verb,
       op.dstId,
     );
-    this.appendChangeLog(db, op.iterationId, "addEdge", op.srcId, null, null);
+    this.appendChangeLog(db, op.iterationId, "addEdge", op.srcId, null, null, op.taskId);
     return { ok: true, nodeId: op.srcId };
   }
 
@@ -309,6 +357,10 @@ export class SqliteKnowledgeStore {
     );
   }
 
+  /**
+   * change_log 追加（T2.1 起 task_id 与 iteration_id 并列记账——op 携带
+   * taskId 则落列，不携带 = null，旧行为不变）。
+   */
   private appendChangeLog(
     db: Database,
     iterationId: string,
@@ -316,10 +368,11 @@ export class SqliteKnowledgeStore {
     nodeId: string,
     supersedeOf: string | null,
     reason: string | null,
+    taskId: string | undefined = undefined,
   ): void {
     db.prepare(
-      "INSERT INTO change_log (iteration_id, op, node_id, supersede_of, reason, ts) VALUES (?, ?, ?, ?, ?, ?)",
-    ).run(iterationId, op, nodeId, supersedeOf, reason, isoNow());
+      "INSERT INTO change_log (iteration_id, task_id, op, node_id, supersede_of, reason, ts) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(iterationId, taskId ?? null, op, nodeId, supersedeOf, reason, isoNow());
   }
 
   private nodeExists(db: Database, id: string): boolean {
@@ -356,6 +409,15 @@ interface NodeRow {
 
 function err(code: KgWriteError["code"], message: string, path?: string): WriteResult {
   return { ok: false, error: { code, message, ...(path !== undefined ? { path } : {}) } };
+}
+
+/**
+ * 批量项错误路径改挂（T2.1）：单条语义路径（op.id / op.draft…）→ 批量项
+ * 序号路径（op.nodes[i].id / op.nodes[i].draft…）；无路径 → 序号项本身。
+ */
+function rebaseBatchPath(path: string | undefined, index: number): string {
+  if (path === undefined) return `op.nodes[${index}]`;
+  return path.startsWith("op.") ? `op.nodes[${index}].${path.slice("op.".length)}` : path;
 }
 
 function isoNow(): string {

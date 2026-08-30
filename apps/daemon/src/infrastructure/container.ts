@@ -1,8 +1,11 @@
+import path from "node:path";
 import type { SessionChatPort, SendOutcome } from "../application/ports/inbound/ChatPort";
 import type { SessionPort } from "../application/ports/inbound/SessionPort";
 import type { SystemPort, DaemonStatus } from "../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../application/ports/inbound/AgentOrchestrationPort";
 import type { SessionDirectoryPort } from "../application/ports/inbound/SessionDirectoryPort";
+import type { TaskEnginePort } from "../application/ports/inbound/TaskEnginePort";
+import type { TaskQueryService } from "../application/services/task/TaskQueryService";
 import type { ClockPort } from "../application/ports/outbound/ClockPort";
 import type { BrowserPort } from "../application/ports/outbound/BrowserPort";
 import type { ModelPort } from "../application/ports/inbound/ModelPort";
@@ -18,11 +21,16 @@ import { isMainInstanceId } from "../domain/agent/AgentInstance";
 import { StaticServe } from "../adapters/driven/static-serve/StaticServe";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
-import { createPaths, osHomeDir, type HelixPaths } from "./paths";
+import { createPaths, osHomeDir, builtinSkillsDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
 import { buildEditToolDeps, buildKnowledgeStack } from "./assembly/buildKnowledgeStack";
+import { createOrchestratorSessionFactory } from "./assembly/orchestrator-runtime";
+import { TaskOrchestratorService } from "../application/services/task/TaskOrchestratorService";
+import type { TaskOrchestratorStarterPort } from "../application/ports/outbound/TaskOrchestratorStarterPort";
+import { PLAN_HARD_CONSTRAINT_SEGMENT } from "../adapters/driven/pi-engine/runtime/templates/catalog";
+import { resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
 import { scanWorkspaceProjects } from "../adapters/driven/workspace-scan";
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
@@ -32,7 +40,10 @@ import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
 import { buildPersistence } from "./assembly/buildPersistence";
 import { buildModelStack } from "./assembly/buildModelStack";
+import { buildTaskStack } from "./assembly/buildTaskStack";
+import { KgBootstrapService } from "../application/services/kg/KgBootstrapService";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode } from "./assembly/buildSessionStack";
+import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
 import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
 import { WorkspaceService } from "../application/services/workspace/WorkspaceService";
@@ -101,6 +112,10 @@ export interface Daemon {
   readonly resource: ResourceService;
   /** 会话目录入口（AD-4：list/loadHistory/delete/草稿/懒加载取数面）。 */
   readonly directory: SessionDirectoryPort;
+  /** 任务引擎入口（T1.3：createTask/生命周期/编排回口/恢复扫描；T1.5 task.* 命令族回口）。 */
+  readonly task: TaskEnginePort;
+  /** 任务查询入口（P-2 读面人类可读投影；T1.5 task.list/detail/artifacts 回口）。 */
+  readonly taskQuery: TaskQueryService;
   /**
    * 浏览器连接入口（CDP 地基，BrowserPort）：lazy 连接， browser 工具
    * 与状态协议的消费面；生命周期 = daemon 生命周期（shutdown 挂 stop()）。
@@ -163,6 +178,11 @@ export interface AssembleDaemonDeps {
    * KgWriteService 唯一写入口 + workspace 项目扫描）。
    */
   readonly findingsSinkOverride?: ClosureFindingsSink;
+  /**
+   * 编排会话 LLM 覆盖（T4.1 E 层测试接缝：fake 剧本 streamFn + 可解析 model）。
+   * 透传 createOrchestratorSessionFactory（LLM 面单点替换；缺省生产形态）。
+   */
+  readonly orchestratorLlmOverride?: Parameters<typeof createOrchestratorSessionFactory>[0]["llmOverride"];
   /** 前端静态产物目录覆盖（缺省取 config.staticDir）。 */
   readonly staticDir?: string;
   /** 工具沙箱 cwd 覆盖（缺省为进程工作区）。 */
@@ -329,6 +349,62 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const modelStack = buildModelStack({ paths, logger });
   const clock: ClockPort = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
 
+  // ── 装配序步 2-5：任务栈（T1.3，与三 build* 同列）──
+  //    任务类型注册表（T2.3 真体）：独立 SkillScanner 实例扫 builtin 层（与
+  //    buildSessionStack 的提示装配扫描器同形同源、无共享状态——扫描现拍现
+  //    读）；starter（T2.2 TaskOrchestratorService）真体注入前 no-op；恢复扫描
+  //    钩子在 registry.initialize 之后触发（§4.4）。kg 节点投影经 workspace 持有者
+  //    晚绑读现值（W1 重绑接缝同 kgTools/editDeps 工厂；未绑定 → 空投影）。
+  //    task.changed 广播（AF-T1.5.2）与编排服务均晚绑（eventStream/scheduler
+  //    在 buildSessionStack 后才存在——broadcastWorkspaceChanged 同款回填模式，
+  //    引擎只在运行期触发回调，装配窗口零调用）。──
+  const bootCwd = deps.toolCwd ?? process.cwd();
+  const taskSkillSource = new SkillScanner({
+    userSkillsDir: paths.skillsHome(),
+    projectSkillsDir: path.join(bootCwd, ".helix", "skills"),
+    builtinSkillsDir: deps.builtinSkillsDir ?? builtinSkillsDir(),
+    cwd: bootCwd,
+  });
+  let broadcastTaskChanged: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void = () => {};
+  let orchestratorService: TaskOrchestratorService | undefined;
+  /** 晚绑 starter 代理（T2.2 真体在 sessionStack 之后构造回填；未回填 = 占位语义）。 */
+  const lateStarter: TaskOrchestratorStarterPort = {
+    startOrchestrator: (jobId) =>
+      orchestratorService === undefined
+        ? Promise.resolve()
+        : orchestratorService.startOrchestrator(jobId),
+    stopOrchestrator: (jobId) =>
+      orchestratorService === undefined
+        ? Promise.resolve()
+        : orchestratorService.stopOrchestrator(jobId),
+  };
+  const taskStack = await buildTaskStack({
+    writeQueue: persistence.writeQueue,
+    clock,
+    logger,
+    starterOverride: lateStarter,
+    skillSource: taskSkillSource,
+    onTaskChanged: (frame) => broadcastTaskChanged(frame),
+    kgNodeProjector: (nodeIds) => {
+      const stack = workspace.stack();
+      if (stack === null) return [];
+      return nodeIds.flatMap((nodeId) => {
+        const hit = stack.queryService.get(nodeId);
+        if (hit === null) return [];
+        const firstLine = hit.detail.node.digest.split("\n")[0] ?? "";
+        return [
+          {
+            nodeId,
+            name: hit.detail.node.name,
+            kind: hit.detail.node.kind,
+            digestFirstLine: firstLine.length > 120 ? `${firstLine.slice(0, 119)}…` : firstLine,
+            status: hit.detail.node.status,
+          },
+        ];
+      });
+    },
+  });
+
   // ── fan-out 发布面（先建，服务构造即依赖它；目标归 wireEventFanout 装配） ──
   const fanoutPublisher = new FanoutPublisher();
 
@@ -395,6 +471,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           }
         : undefined;
     },
+    // task_create 工具装配面（T2.4，AD-7）：主会话 executor 注册 chat 第二
+    // 创建入口——与 /project 入口同一 createTask API（TaskEngineService 注入）
+    // + 回执读面（TaskQueryService 投影）；SubAgent 子进程本地栈不注入（生效集隔离）
+    taskCreate: { engine: taskStack.taskEngine, query: taskStack.query },
     // spawn 派发任务切片注入（F1.3）：任务文本 → 图查询 → digest+指针切片
     // 拼入 task 约束区；注入后 markInjected 入跨通道去重注册表（T3.2 同源）。
     // W1：未绑定 → 空切片（无图查询面，零副作用）。
@@ -417,8 +497,60 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     builtinSkillsDir: deps.builtinSkillsDir,
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
     sessionIdlePollMs: deps.sessionIdlePollMs,
+    // T2.2：任务批次实例收口路由——task:* 会话归属 closure 转投编排服务
+    //（晚绑闭包：编排服务在本块之后构造回填）
+    taskClosureSink: (agentId) => orchestratorService?.handleInstanceClosure(agentId),
   });
-  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow } = sessionStack;
+  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow, orchestratorAssembly } = sessionStack;
+
+  // ── T2.2 晚绑闭合：task.changed 广播单点 + 编排服务真体回填──
+  //    AF-T1.5.2：引擎出站钩子经同一 EventStream.broadcastTaskChanged 通路
+  //（生命周期三命令在 handler 层已接——不双发）；编排服务消费 scheduler
+  //（批次 spawn 占预算/收口读面/kill）+ 任务域依赖面（buildTaskStack 同源）。
+  broadcastTaskChanged = (frame) => eventStream.broadcastTaskChanged(frame);
+  orchestratorService = new TaskOrchestratorService({
+    ...taskStack.orchestratorCore,
+    rawSpawn: (sessionId, task) => scheduler.spawn(sessionId, task, undefined, resolveSubagentModelId()),
+    instanceOutcome: (agentId) => {
+      const hit = scheduler.status(agentId)[0];
+      return hit === undefined ? undefined : { state: hit.state, ...(hit.summary !== undefined ? { summary: hit.summary } : {}) };
+    },
+    killInstance: (agentId) => {
+      void scheduler.kill(agentId);
+    },
+    createSession: createOrchestratorSessionFactory({
+      assembly: orchestratorAssembly,
+      model: () => resolveConfigModel(persistence.defaultModel.current(), modelStack.catalog.modelsView()),
+      apiKeys: () => modelStack.authStore.apiKeysSnapshot(),
+      llmOverride: deps.orchestratorLlmOverride,
+      models: modelStack.catalog.modelsView(),
+      toolCwd: toolCwdNow,
+      // kg 只读面（W1：经 workspace 持有者读现值；未绑定 → 剔除 kg 工具）
+      kgRead: () => {
+        const stack = workspace.stack();
+        const root = workspace.boundRoot();
+        return stack !== null && root !== null
+          ? { query: stack.queryService, workspaceRoot: root, scanProjects: () => scanWorkspaceProjects(root) }
+          : undefined;
+      },
+      grep: {
+        rgPath: grepFreeze.kind === "rg" ? grepFreeze.rgPath : undefined,
+        warn: (m: string) => logger.warn(m),
+      },
+      taskEngine: taskStack.orchestratorCore.taskEngine,
+      ledger: taskStack.orchestratorCore.ledger,
+      // 阶段产物 nodeIds 反查（F2.7）：阶段批次 → kg 元数据 origin_batch
+      stageNodeIds: (jobId, stageSeq) => {
+        const stack = workspace.stack();
+        if (stack === null) return [];
+        const batchIds = taskStack.orchestratorCore.store.getBatches(jobId, stageSeq).map((b) => b.id);
+        return stack.queryService.nodeIdsForBatches(batchIds);
+      },
+      logger,
+    }),
+    planHardConstraint: PLAN_HARD_CONSTRAINT_SEGMENT,
+    logger,
+  });
 
   // ── W1 晚绑闭合：workspace 广播与活跃 agent 判定接 eventStream/registry
   //    现值（构造序：WorkspaceService 先于 buildSessionStack 建立以驱动
@@ -552,6 +684,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // 同样依赖目标已装配；中间构造块 sessionService/chatRouter/cli 均为惰性闭包）。
   await registry.initialize();
 
+  // ── 任务引擎启动恢复扫描（§4.4/F2.3，T1.3 钩子）：running/pending 任务断点
+  //    续跑（in-flight 批次 failed 收口走自动重试；幂等种子集合双防护）；
+  //    paused 不自动续（恢复归显式 task.resume）。──
+  const taskRecovery = await taskStack.taskEngine.recoverOnStartup();
+  if (taskRecovery.resumedJobIds.length > 0) {
+    logger.info(`任务恢复扫描：${taskRecovery.resumedJobIds.length} 个任务续跑（编排重开）`);
+  }
+
   let running = true;
   let wsServer: WsServerAdapter | undefined;
   // model 位数据源改会话级（AD-3 model 族 + AD-2）：当前会话
@@ -623,6 +763,28 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // thinking 批①：thinking.changed 广播出海（channel=thinking，订阅路由同 model.changed）
     onThinkingChanged: (payload) => eventStream.broadcastThinkingChanged(payload),
   });
+  // kg-bootstrap 数据面解析器（T3.2，契约 kg-bootstrap-api）：workspace 现值
+  // stack（kg 面）+ 任务栈（daemon 级：engine/store/skills）组装，WeakMap 按
+  // stack 记忆化——重绑原子换栈后自动跟随新 workspace（viewerService 同接缝）。
+  const kgBootstrapByStack = new WeakMap<object, KgBootstrapService>();
+  const kgBootstrapResolver = (): KgBootstrapService | undefined => {
+    const stack = workspace.stack();
+    if (stack === null) return undefined;
+    let svc = kgBootstrapByStack.get(stack);
+    if (svc === undefined) {
+      svc = new KgBootstrapService({
+        project: stack.projectService,
+        graph: stack.graph,
+        write: stack.writeService,
+        sync: stack.syncService,
+        taskEngine: taskStack.taskEngine,
+        store: taskStack.orchestratorCore.store,
+        skills: taskStack.orchestratorCore.skills,
+      });
+      kgBootstrapByStack.set(stack, svc);
+    }
+    return svc;
+  };
   const ws = new WsServerAdapter({
     chat: chatRouter,
     directory: registry,
@@ -637,6 +799,12 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // W1 重绑接缝：经 workspace 持有者读现值（deps.kg 直接注入形态保留给
     // stub 测试 rig；未绑定 → handler 空集/拒绝防御契约）
     workspace, // workspace 族命令回口（W1：get/open 两命令 + 门禁判别面）
+    // task 族命令回口（P-2 任务页九命令族，§8.1，T1.5）：读面 + 生命周期
+    // 写面（task.changed 广播在 handlers/task.ts + EventStream 层接线，O-7）
+    taskQuery: taskStack.query,
+    taskEngine: taskStack.taskEngine,
+    // kg-bootstrap 五命令回口（T3.2）：解析器形态（workspace 现值跟随；直连注入保留给 stub rig）
+    kgBootstrap: kgBootstrapResolver,
     events: eventStream,
     token,
     port: deps.port ?? config.port,
@@ -670,6 +838,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     model: modelService,
     resource: resourceService,
     directory: registry,
+    task: taskStack.taskEngine,
+    taskQuery: taskStack.query,
     browser: browserPort,
     registry,
     workspace,

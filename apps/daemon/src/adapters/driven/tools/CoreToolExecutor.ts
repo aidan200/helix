@@ -25,6 +25,14 @@ import { createReadTool } from "./read/ReadTool";
 import { createEditLinesTool } from "./edit-lines/EditLinesTool";
 import { createKgTool } from "./kg/KgTool";
 import { createKgUpdateTool } from "./kg-update/KgUpdateTool";
+import { createTaskCreateTool, type TaskCreateToolDeps } from "./task-create/TaskCreateTool";
+import { createTaskOpsTools, type TaskOpsToolDeps } from "./task-ops/TaskOpsTools";
+import {
+  createPlanCreateTool,
+  createPlanReadTool,
+  createPlanUpdateTool,
+  type PlanToolDeps,
+} from "./plan/PlanTools";
 import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
@@ -72,9 +80,20 @@ export function bindToolContext<T extends ExecutionToolContext>(
  * KgWriteService 与测试替身同形）。 */
 export interface KgToolOptions {
   readonly query: Pick<KgQueryService, "search" | "get" | "locate">;
-  readonly write: { write(projectRoot: string, op: KnowledgeWriteOp): WriteResult };
+  /**
+   * kg 写面（kg-update 注册开关，T2.2 起可选）：缺席 = 只注册只读 kg 工具
+   * ——编排主 agent 会话（AD-10：编排器不持 kg 写工具）的装配形态；
+   * 主会话/子进程注入 write 则双工具全注册（既有行为不变）。
+   */
+  readonly write?: { write(projectRoot: string, op: KnowledgeWriteOp): WriteResult };
   readonly workspaceRoot: string;
   readonly scanProjects: () => readonly string[];
+  /**
+   * 任务归属上下文（T4.2 机械注入，AD-10）：批次子进程接线层注入——
+   * kg-update 三写路径的 taskId/originBatchId 默认值源（LLM 显式传参
+   * 优先）。缺席 = 非任务上下文（主会话/chat 子进程）→ 零注入。
+   */
+  readonly taskContext?: () => { readonly taskId: string; readonly originBatchId: string } | undefined;
 }
 
 export interface CoreToolExecutorOptions {
@@ -116,6 +135,31 @@ export interface CoreToolExecutorOptions {
    * 形态/无 kg 场景 profile 不声明两名）。
    */
   readonly kg?: KgToolOptions;
+  /**
+   * plan 三工具注入面（T1.4，AD-6①）：实例工作台账写口（plan_create/
+   * plan_update/plan_read）。仅 SubAgent 子进程（ChildMain 本地栈）注入
+   * ——plan 工具不进 MainAgent 生效集；instanceId 由子进程上下文注入
+   * （工具参数零 instanceId，防伪造）。缺省不注册（既有测试形态/主会话
+   * 装配——SubAgentProfile 声明三名时必须注入，resolveTools fail-fast）。
+   */
+  readonly plan?: PlanToolDeps;
+  /**
+   * task_create 工具注入面（T2.4，AD-7 chat 第二创建入口）：TaskEngine
+   * createTask 面 + 回执读面。仅主会话（buildSessionStack engineFor）注入
+   * ——task_create 不进 SubAgent 生效集（批次 SubAgent 不能建任务，AD-2
+   * 创建按宿主）；ChildMain 子进程本地栈不注入。缺省不注册（既有测试
+   * 形态/SubAgent 装配——MainSessionProfile 声明该名时必须注入，
+   * resolveTools fail-fast）。
+   */
+  readonly taskCreate?: TaskCreateToolDeps;
+  /**
+   * 任务引擎回口工具族注入面（T2.2，AD-3③）：六工具（划批次落行/派发落章/
+   * 阶段推进/阶段产物聚合/任务收口）+ 编排者台账读变体。仅编排主 agent
+   * 会话（组合根 orchestrator-runtime 工厂）注入——不进主会话/SubAgent
+   * 生效集（批次成败收口不在 LLM 面，硬约束判定归 TaskOrchestratorService
+   * 代码机械执行）。jobId 由装配面绑定。缺省不注册。
+   */
+  readonly taskOps?: TaskOpsToolDeps;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -156,16 +200,38 @@ export class CoreToolExecutor implements ToolExecutorPort {
       tools.push(createBrowserTool(options.browser, options.ownerId ?? "main"));
     }
     if (options.kg !== undefined) {
-      // kg 双工具（T3.3）：kg 只读面 + kg-update 即时落账面（薄壳调 service）
+      // kg 双工具（T3.3）：kg 只读面恒注册；kg-update 即时落账面仅在 write
+      // 注入时注册（T2.2 write 转可选——编排主 agent 只读形态不注册写面）
+      tools.push(createKgTool({ query: options.kg.query }));
+      if (options.kg.write !== undefined) {
+        tools.push(
+          createKgUpdateTool({
+            query: options.kg.query,
+            write: options.kg.write,
+            workspaceRoot: options.kg.workspaceRoot,
+            scanProjects: options.kg.scanProjects,
+            ...(options.kg.taskContext !== undefined ? { taskContext: options.kg.taskContext } : {}),
+          }),
+        );
+      }
+    }
+    if (options.plan !== undefined) {
+      // plan 三工具（T1.4，AD-6①）：实例工作台账（薄壳调 WorkLedgerService；
+      // 仅 SubAgent 子进程本地栈注入，两域同构）
       tools.push(
-        createKgTool({ query: options.kg.query }),
-        createKgUpdateTool({
-          query: options.kg.query,
-          write: options.kg.write,
-          workspaceRoot: options.kg.workspaceRoot,
-          scanProjects: options.kg.scanProjects,
-        }),
+        createPlanCreateTool(options.plan),
+        createPlanUpdateTool(options.plan),
+        createPlanReadTool(options.plan),
       );
+    }
+    if (options.taskCreate !== undefined) {
+      // task_create（T2.4，AD-7）：chat 第二创建入口薄壳（与 /project 入口
+      // 同一 createTask API；仅 MainAgent 生效集）
+      tools.push(createTaskCreateTool(options.taskCreate));
+    }
+    if (options.taskOps !== undefined) {
+      // 任务引擎回口工具族（T2.2，AD-3③）：仅编排主 agent 会话生效集
+      tools.push(...createTaskOpsTools(options.taskOps));
     }
     const registry = new Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>();
     for (const tool of tools) registry.set(tool.name, tool);

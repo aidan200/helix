@@ -1,7 +1,7 @@
 /**
  * 命令目录（C→S，契约 §4 + 契约 B §1 / 契约 C §1；目录文档见同包 PROTOCOL.md）。
  *
- * 共 27 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
+ * 共 45 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
  * auth 族 4）；v0.3 零新增——三处扩展全部为可选参数/字段（tier /
  * instanceId / anchorEntryId，TR-AD-23① 可选参数优先于新命令对）；
  * v0.4 新增 1（trace 族 trace.query，契约 v0.4 §1，iter-20260819-erio T2.1）；
@@ -11,6 +11,12 @@
  * v0.11 新增 1（thinking.set，thinking 批，iter-20260823-6ps5 T1.1，AD-2/AD-4）。
  * kg 批新增 6（kg 族，iter-20260825-11fo T5.3：P-1 图谱查看页六命令，
  * v0.11 后 additive 微批；五图谱命令携带必填 project 按项目作用域）。
+ * workspace 批新增 2（workspace.get/open，W1 绑定闭环）。
+ * task 批新增 9（task 族，iter-20260829-ys7q T1.5：P-2 任务页九命令，
+ * workspace 批后 additive 微批；零内容干预——AD-2：无 steer/批次重试/
+ * 内容编辑命令，九命令清单即全集）。
+ * kg-bootstrap 批新增 5（kg 族 additive，iter-20260829-ys7q T3.2：/project 页
+ * bootstrap 入口与产出呈现五命令；契约 contracts/kg-bootstrap-api.md）。
  * `CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
  * 分发。会话作用域命令的信封 sessionId 必填（AD-4 路由位，类型层可选、
  * 客户端纪律保证）；全局命令（session.list / model.set_default /
@@ -23,6 +29,7 @@ import type { SessionListResultPayload } from "./events";
 import type { AuthProviderInfo } from "./types/auth";
 import type { CatalogModel } from "./types/model";
 import type { EntryDto } from "./types/session";
+import type { TaskStatus } from "./types/task";
 import type { TraceQueryPageInput, TraceTimeRange } from "./types/trace";
 
 /** chat.send 载荷：发送用户消息（新输入，ChatPort.sendMessage） */
@@ -461,6 +468,69 @@ export interface KgProjectsCommand extends CommandFrame<EmptyPayload> {
   type: "kg.projects";
 }
 
+// ── kg-bootstrap 批新增（iter-20260829-ys7q T3.2，/project 页 bootstrap 数据面五命令；契约 = contracts/kg-bootstrap-api.md）──
+
+/**
+ * kg-bootstrap 批通则：五命令全部为全局命令（信封 sessionId 省略），携带
+ * 必填 project（项目名或绝对路径，daemon 单点解析）；结果 = kg.*.result
+ * 点对点回执帧（events/kg.ts，O-6 零推送同规）。V-1 语义：bootstrap 无
+ * draft——产出落盘即 confirmed；修正 = kg.node.update / kg.node.supersede
+ * （理由必填，走 KgWriteService 唯一写入口）；连带标记 = kg.bootstrap.impact
+ * 只读推导零写。准入机械定义 = 索引 synced/degraded ∧ nodeCount==0（前后端
+ * 双保险复核；contracts/kg-bootstrap-api.md §1）。
+ */
+export interface KgBootstrapCreatePayload {
+  /** 项目名（kg.projects 项目标识；daemon 复核准入后调 createTask 同源 API）。 */
+  project: string;
+  /** 范围参数（可选收窄，进 job.params.scope）。 */
+  scope?: string;
+}
+/** CL-1 F1.1/F1.2：发起 kg-bootstrap 任务（createdBy="page"，与 chat task_create 同源）。 */
+export interface KgBootstrapCreateCommand extends CommandFrame<KgBootstrapCreatePayload> {
+  type: "kg.bootstrap.create";
+}
+
+export interface KgBootstrapProducePayload {
+  project: string;
+}
+/** CL-4 F4.1：产出呈现读面（任务→阶段→批次三级分组，originBatchId+layer 元数据驱动）。 */
+export interface KgBootstrapProduceCommand extends CommandFrame<KgBootstrapProducePayload> {
+  type: "kg.bootstrap.produce";
+}
+
+export interface KgNodeUpdatePayload {
+  project: string;
+  nodeId: string;
+  /** 至少携带其一（空 patch → task.validation_failed）。 */
+  digest?: string;
+  body?: string;
+}
+/** CL-4 F4.2 修正写面（一）：内联编辑保存即 updateNode，节点保持 confirmed。 */
+export interface KgNodeUpdateCommand extends CommandFrame<KgNodeUpdatePayload> {
+  type: "kg.node.update";
+}
+
+export interface KgNodeSupersedePayload {
+  project: string;
+  nodeId: string;
+  /** 必填非空（前后端双防线；空 → task.validation_failed）。 */
+  reason: string;
+}
+/** CL-4 F4.2 修正写面（二）：superseded 留史 + change_log 记理由；无转正无否决。 */
+export interface KgNodeSupersedeCommand extends CommandFrame<KgNodeSupersedePayload> {
+  type: "kg.node.supersede";
+}
+
+export interface KgBootstrapImpactPayload {
+  project: string;
+  /** 被修正（update/supersede）的节点 id。 */
+  nodeId: string;
+}
+/** CL-4 F4.3：受影响连带只读推导（edges 引用方；不落库零自动写）。 */
+export interface KgBootstrapImpactCommand extends CommandFrame<KgBootstrapImpactPayload> {
+  type: "kg.bootstrap.impact";
+}
+
 // ── workspace 批新增（W1 workspace 绑定闭环；契约 = 设计稿 workspace-feature-design-candidate.md §3.1）──
 
 /**
@@ -482,7 +552,91 @@ export interface WorkspaceOpenCommand extends CommandFrame<WorkspaceOpenPayload>
   type: "workspace.open";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36） */
+// ── task 批新增（iter-20260829-ys7q T1.5，P-2 任务页数据面九命令族；契约 = contracts/task-api.md §2）──
+
+/**
+ * task 族命令通则：九命令全部为全局命令（信封 sessionId 省略）——任务
+ * 是 daemon 级实体非会话作用域。零内容干预（AD-2）：无 steer/批次重试/
+ * 内容编辑命令——九命令清单即全集（机械 grep 断言守护）。结果 = 点对点
+ * 结果帧（types/task.ts，不入 EVENT_TYPES 目录——契约 §0 计数 57→58
+ * 仅 task.changed）；生命周期错误码词表 = 契约 §4（handler 透传引擎
+ * TaskError，状态判断收口 T1.3 引擎）。
+ */
+export interface TaskListPayload {
+  /** 状态过滤器（服务端生效；六态枚举，越界 → command.invalid_payload）。 */
+  status?: TaskStatus;
+  /** 项目过滤器（AD-8：0..n 项目标签之一；服务端生效）。 */
+  project?: string;
+}
+export interface TaskListCommand extends CommandFrame<TaskListPayload> {
+  type: "task.list";
+}
+
+export interface TaskDetailPayload {
+  jobId: string;
+}
+export interface TaskDetailCommand extends CommandFrame<TaskDetailPayload> {
+  type: "task.detail";
+}
+
+export interface TaskArtifactsPayload {
+  jobId: string;
+}
+/** 结果只读查询（F3.4）：节点详情/修正转 /project 页（AD-10）。 */
+export interface TaskArtifactsCommand extends CommandFrame<TaskArtifactsPayload> {
+  type: "task.artifacts";
+}
+
+export interface TaskSubscribePayload {
+  /** 缺省 = 订阅全部任务变更（通配档；连接级订阅表机械定义）。 */
+  jobId?: string;
+}
+/** 连接级订阅（F3.2 WS 实时推送；订阅表登记 → task.changed 按连接过滤投递）。 */
+export interface TaskSubscribeCommand extends CommandFrame<TaskSubscribePayload> {
+  type: "task.subscribe";
+}
+
+export interface TaskUnsubscribePayload {
+  /** 缺省 = 清空订阅集与通配档（对称语义）。 */
+  jobId?: string;
+}
+export interface TaskUnsubscribeCommand extends CommandFrame<TaskUnsubscribePayload> {
+  type: "task.unsubscribe";
+}
+
+export interface TaskPausePayload {
+  jobId: string;
+}
+/** 暂停（F3.5；仅 running → paused 合法——O-2 停派新批次+在跑自然收口；非法态 → task.invalid_state 引擎透传）。 */
+export interface TaskPauseCommand extends CommandFrame<TaskPausePayload> {
+  type: "task.pause";
+}
+
+export interface TaskResumePayload {
+  jobId: string;
+}
+/** 恢复（仅 paused → running；与断点恢复同路径）。 */
+export interface TaskResumeCommand extends CommandFrame<TaskResumePayload> {
+  type: "task.resume";
+}
+
+export interface TaskCancelPayload {
+  jobId: string;
+}
+/** 取消（running/paused/pending → cancelled 终态；在跑批次 SIGTERM）。 */
+export interface TaskCancelCommand extends CommandFrame<TaskCancelPayload> {
+  type: "task.cancel";
+}
+
+export interface TaskDeletePayload {
+  jobId: string;
+}
+/** 删除（F3.6：仅终态 done/failed/cancelled 可删；清任务域记录不触 kg 产出；判断收口引擎）。 */
+export interface TaskDeleteCommand extends CommandFrame<TaskDeletePayload> {
+  type: "task.delete";
+}
+
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -518,8 +672,22 @@ export type CommandEnvelope =
   | KgNodeConfirmCommand
   | KgIndexStatusCommand
   | KgProjectsCommand
+  | KgBootstrapCreateCommand
+  | KgBootstrapProduceCommand
+  | KgNodeUpdateCommand
+  | KgNodeSupersedeCommand
+  | KgBootstrapImpactCommand
   | WorkspaceGetCommand
-  | WorkspaceOpenCommand;
+  | WorkspaceOpenCommand
+  | TaskListCommand
+  | TaskDetailCommand
+  | TaskArtifactsCommand
+  | TaskSubscribeCommand
+  | TaskUnsubscribeCommand
+  | TaskPauseCommand
+  | TaskResumeCommand
+  | TaskCancelCommand
+  | TaskDeleteCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
@@ -557,8 +725,22 @@ export const COMMAND_TYPES = [
   "kg.node.confirm",
   "kg.index.status",
   "kg.projects",
+  "kg.bootstrap.create",
+  "kg.bootstrap.produce",
+  "kg.node.update",
+  "kg.node.supersede",
+  "kg.bootstrap.impact",
   "workspace.get",
   "workspace.open",
+  "task.list",
+  "task.detail",
+  "task.artifacts",
+  "task.subscribe",
+  "task.unsubscribe",
+  "task.pause",
+  "task.resume",
+  "task.cancel",
+  "task.delete",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];

@@ -27,7 +27,7 @@ export interface KgProjectRow {
   status: KgProjectState;
   /** synced 态：符号计数。 */
   symbolCount?: number;
-  /** synced 态：知识节点计数。 */
+  /** synced 态：知识节点计数（**bootstrap 准入机械定义**：非 superseded 节点计数；缺省 = 未知，视为非空——前端不显示 bootstrap 入口，contracts/kg-bootstrap-api.md §1）。 */
   nodeCount?: number;
   /** synced 态：最近完成同步时间（ISO）。 */
   syncedAt?: string;
@@ -153,4 +153,73 @@ export interface KgIndexStatusDto {
   symbolCount?: number;
   /** degraded 态：影响说明。 */
   degradedNote?: string;
+}
+
+// ── kg-bootstrap 批新增（iter-20260829-ys7q T3.2；契约 contracts/kg-bootstrap-api.md §3/§5）──
+
+/**
+ * bootstrap 产出节点条目（AD-4② 人类可读投影）：粗体 name + kind 徽章 +
+ * 状态徽章（正式知识 confirmed / 已废弃 superseded）+ digest 首行（收起单行
+ * 截断）；展开 = 正文 / 锚点 / 为什么存在 / 来源。nodeId 仅供 data-id
+ * 跳转键（AD-16 同规），不作可见文本。
+ */
+export interface KgProduceAnchorDto {
+  /** 符号名（AD-16 人类面）。 */
+  symbol: string;
+  path: string;
+  /** 上次 sync 符号 span 起点；缺省 null（无法定位）。 */
+  line: number | null;
+}
+
+export interface KgProduceNodeDto {
+  /** 仅 data-id 键（AD-16）。 */
+  nodeId: string;
+  /** 粗体展示。 */
+  name: string;
+  /** kind 徽章（rule/entity/超集透传）。 */
+  kind: string;
+  status: "confirmed" | "superseded";
+  digest: string;
+  /** 展开：正文（完整自然语言）。 */
+  body: string;
+  /** 展开：锚点（符号名 + 路径:行号）。 */
+  anchors: KgProduceAnchorDto[];
+  /** 展开：为什么存在（body 内「为什么存在」段抽取；无则空串）。 */
+  rationale: string;
+  /** 展开：来源（任务 · 批次）。 */
+  origin: { taskTitle: string; batchScope: string };
+  /** superseded 留史理由（kg-bootstrap 批补登：R-15 理由留史展示；confirmed 缺省）。 */
+  supersedeReason?: string;
+}
+
+/** 批次分组（批次名 + n 节点；仅含有产出节点的批次入列）。 */
+export interface KgProduceBatchDto {
+  batchId: string;
+  /** 批次名（人类可读 scope）。 */
+  scope: string;
+  nodes: KgProduceNodeDto[];
+}
+
+/** 阶段分组（layer 列驱动）。 */
+export interface KgProduceStageDto {
+  layer: "L0" | "L1" | "L2";
+  /** 阶段名（stage 行）。 */
+  name: string;
+  batches: KgProduceBatchDto[];
+}
+
+/** 任务分组（任务 → 阶段 → 批次 三级；taskId+layer+originBatchId 元数据驱动）。 */
+export interface KgProduceGroupDto {
+  jobId: string;
+  /** 任务标题（人类可读，与 task 列表同源组装）。 */
+  title: string;
+  stages: KgProduceStageDto[];
+}
+
+/** 受影响连带标记条目（kg.bootstrap.impact 响应；AD-16 同规）。 */
+export interface KgNodeRefLiteDto {
+  nodeId: string;
+  name: string;
+  kind: string;
+  digestFirstLine: string;
 }

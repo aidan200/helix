@@ -17,7 +17,8 @@
  * application/ports 类型 + bun ServerWebSocket 类型（另 trace 族依赖
  * domain/trace/TraceQueryPort、kg 族依赖 application service KgViewerService
  * ——architecture.md §9 明文「driving/kg.ts 调 application service」的
- * 既有口径，均为 type-only，自身不成为任何环的节点）
+ * 既有口径，均为 type-only，自身不成为任何环的节点；workspace 族
+ * WorkspaceService / task 族 TaskQueryService 同口径 type-only）
  */
 import type { ServerWebSocket } from "bun";
 import type {
@@ -37,7 +38,10 @@ import type { BrowserPort } from "../../../../application/ports/outbound/Browser
 import type { EventStream, FrameSender } from "../EventStream";
 import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
 import type { KgViewerService } from "../../../../application/services/kg/KgViewerService";
+import type { KgBootstrapService } from "../../../../application/services/kg/KgBootstrapService";
 import type { WorkspaceService } from "../../../../application/services/workspace/WorkspaceService";
+import type { TaskQueryService } from "../../../../application/services/task/TaskQueryService";
+import type { TaskEnginePort } from "../../../../application/ports/inbound/TaskEnginePort";
 
 /** 每连接状态（Bun.serve 泛型，经 server.upgrade 的 data 携带；handlers/ 共用型）。 */
 export interface ConnState {
@@ -257,6 +261,10 @@ export interface KgCommandContext {
   readonly payload: Record<string, unknown>;
   /** P-1 六命令应用编排面（deps.kg/workspace 持有者读面；未装配 → undefined）。 */
   readonly kg: KgViewerService | undefined;
+  /** kg-bootstrap 五命令应用编排面（T3.2，契约 kg-bootstrap-api；未装配 →
+   *  undefined，handler 回 command.unimplemented；生产面经容器 workspace
+   *  现值解析器组装，直接注入形态保留给 stub 测试 rig）。 */
+  readonly bootstrap: KgBootstrapService | undefined;
   /** workspace 面已装配且未绑定（unbound 防御契约判别；未装配面 = false）。 */
   readonly workspaceUnbound: boolean;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
@@ -282,6 +290,35 @@ export interface WorkspaceCommandContext {
   readonly payload: Record<string, unknown>;
   /** 绑定状态机（get 快照/open 写面；service 内单点校验与持久化）。 */
   readonly workspace: WorkspaceService;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/**
+ * task 族命令处理上下文（P-2 任务页九命令族，§8.1）：TaskQueryService
+ * 读面 + TaskEnginePort 生命周期写面（architecture §8.1——handlers 只转发
+ * 不决策，状态判断收口引擎，task.invalid_state 透传）+ EventStream
+ *（task.subscribe 连接级订阅表 + 生命周期成功即 task.changed 广播，O-7）
+ * + 共享辅助。全局命令（信封 sessionId 不消费）；任务栈未装配 →
+ * undefined，handler 回 command.unimplemented（kg.ts 先例）。
+ */
+export interface TaskCommandContext {
+  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record）。 */
+  readonly payload: Record<string, unknown>;
+  /** P-2 读面投影（listTasks/getTaskDetail/getTaskArtifacts；未装配 → undefined）。 */
+  readonly taskQuery: TaskQueryService | undefined;
+  /** 生命周期写面（pause/resume/cancel/deleteTask；未装配 → undefined）。 */
+  readonly taskEngine: TaskEnginePort | undefined;
+  /** 事件流（task.changed 广播 + 连接级任务订阅表）。 */
+  readonly events: EventStream;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */

@@ -3,24 +3,27 @@
  *
  * S2：models 独立页退役（路由五页签 / /skills /trace /project /settings；
  * 模型配置迁入 /settings 页内分区）。/models 与旧 /settings/models 同语义
- * ——未知路径回落工作台（不出现 models 页）。
+ * ——未知路径回落工作台（不出现 models 页）。T3.1（iter-20260829-ys7q）：
+ * P-2 任务页 /tasks 入列（路由六页签）。
  */
 import { describe, expect, it } from "vitest";
 import {
   ROUTE_PROJECT,
   ROUTE_SETTINGS,
   ROUTE_SKILLS,
+  ROUTE_TASKS,
   ROUTE_TRACE,
   ROUTE_WORKBENCH,
   routeOfPath,
 } from "./route";
 
 describe("TP-CL4-1 routeOfPath 路径映射", () => {
-  it("五路径各自映射到对应路由位", () => {
+  it("六路径各自映射到对应路由位", () => {
     expect(routeOfPath("/")).toBe(ROUTE_WORKBENCH);
     expect(routeOfPath("/skills")).toBe(ROUTE_SKILLS);
     expect(routeOfPath("/trace")).toBe(ROUTE_TRACE);
     expect(routeOfPath("/project")).toBe(ROUTE_PROJECT);
+    expect(routeOfPath("/tasks")).toBe(ROUTE_TASKS);
     expect(routeOfPath("/settings")).toBe(ROUTE_SETTINGS);
   });
 

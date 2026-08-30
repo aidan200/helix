@@ -1,12 +1,29 @@
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Database, type Statement } from "bun:sqlite";
-import { SCHEMA_SQL } from "./schema";
-import { persistedStateToRows, domainEventToRow } from "./rows/RowMapper";
+import { SCHEMA_SQL, TASK_SCHEMA_SQL } from "./schema";
+import {
+  domainEventToRow,
+  persistedStateToRows,
+} from "./rows/RowMapper";
+import {
+  batchToRow,
+  jobToRow,
+  stageArtifactToText,
+  stageToRow,
+} from "./rows/TaskRowMapper";
 import { LEGACY_MAIN_INSTANCE_ID } from "../../../domain/agent/AgentInstance";
 import type { DomainEvent } from "../../../domain/events/DomainEvent";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type { PersistedDomainState } from "../../../application/ports/outbound/SessionRepositoryPort";
+import type {
+  BatchData,
+  JobData,
+  StageArtifact,
+  StageData,
+  TaskDeleteCounts,
+} from "../../../application/ports/outbound/TaskStorePort";
+import type { JobStatus, StageStatus } from "../../../domain/task/types";
 
 /**
  * WriteQueue —— application 侧单写队列（architecture.md §5.2，AD-16）。
@@ -23,6 +40,14 @@ import type { PersistedDomainState } from "../../../application/ports/outbound/S
  * - 单 job 失败不崩 daemon：经 onError 上报、链继续（后续 job 不受阻断）。
  *
  * v0 单 db 文件（多 workspace 不分库）；WAL 模式保证崩溃一致性。
+ *
+ * 任务表域（O-1，helix.db 新表域）：job/stage/batch 写点链同在本文件（无
+ * 会话维 → 全局链）；work_item 子进程直连写面（plan 工具）与父进程 F3.6
+ * 清理面的写语句也宿主本文件（AG-06：helix.db 全部 INSERT-UPDATE-DELETE
+ * 语句只出现在本文件）——语句工厂 prepareWorkLedgerStatements + 直连
+ * 连接工厂 openTaskLedgerDatabase 导出供 WorkLedger 装配（类在
+ * WorkLedger.ts，零写 SQL）。跨进程串行化 = WAL + busy_timeout（父/子
+ * 连接各自设置；子连接不能依赖父进程设置）。
  */
 
 /** agent 维度默认值：v0 单 main 会话 agent（四维查询的 agent 维预留，AD-7）。 */
@@ -97,6 +122,47 @@ type WriteJob =
       readonly profileKind: string;
       readonly resourceType: string;
       readonly name: string;
+    }
+  // ── 任务表域写点链（O-1：job/stage/batch；无会话维 → 全局链） ──
+  | {
+      /** job 行插入（createTask）。 */
+      readonly kind: "taskJob";
+      readonly job: JobData;
+    }
+  | {
+      /** stage 行插入（createTask 定格阶段计划，AD-9①；此后冻结）。 */
+      readonly kind: "taskStage";
+      readonly stage: StageData;
+    }
+  | {
+      /** job 状态迁移（守卫在 TaskStore 入队前；error 覆盖语义——null 清空）。 */
+      readonly kind: "taskJobStatus";
+      readonly id: string;
+      readonly status: JobStatus;
+      readonly error: string | null;
+    }
+  | {
+      /** stage 状态迁移 + 可选 artifact 聚合落库（undefined = 不动既有值）。 */
+      readonly kind: "taskStageStatus";
+      readonly jobId: string;
+      readonly seq: number;
+      readonly status: StageStatus;
+      readonly artifact?: StageArtifact;
+    }
+  | {
+      /** batch 行插入（编排 agent 阶段内展开）。 */
+      readonly kind: "taskBatchInsert";
+      readonly batch: BatchData;
+    }
+  | {
+      /** batch 行整行替换（重试/实例派发——无状态守卫，语义在引擎 T1.3）。 */
+      readonly kind: "taskBatchUpdate";
+      readonly batch: BatchData;
+    }
+  | {
+      /** 任务删除级联：清 job/stage/batch 三表该 job 全部行（F3.6）。 */
+      readonly kind: "taskJobCascade";
+      readonly jobId: string;
     };
 
 export class WriteQueue {
@@ -108,8 +174,8 @@ export class WriteQueue {
    * 删除行晚于一切写），仓间互不阻塞（A 会话的写高峰不队头阻塞 B 会话）；
    * 无会话维度的 job（reportFile）走全局链。
    */
-  private readonly sessionTails = new Map<string, Promise<void>>();
-  private globalTail: Promise<void> = Promise.resolve();
+  private readonly sessionTails = new Map<string, Promise<unknown>>();
+  private globalTail: Promise<unknown> = Promise.resolve();
   private closed = false;
 
   // 全部写语句在此 prepare（AG-06：src 内唯一 SQLite 写点集合；构造体内赋值）
@@ -130,15 +196,31 @@ export class WriteQueue {
   private readonly upsertRuntimeConfig!: Statement;
   private readonly upsertResourceState!: Statement;
   private readonly clearResourceStateByType!: Statement;
+  // 任务表域写语句（O-1；全部在本文件 prepare——AG-06 唯一写点集合）
+  private readonly insertTaskJob!: Statement;
+  private readonly insertTaskStage!: Statement;
+  private readonly updateTaskJobStatus!: Statement;
+  private readonly updateTaskStageStatus!: Statement;
+  private readonly insertTaskBatch!: Statement;
+  private readonly updateTaskBatchById!: Statement;
+  private readonly deleteTaskJob!: Statement;
+  private readonly deleteTaskStagesByJob!: Statement;
+  private readonly deleteTaskBatchesByJob!: Statement;
 
   constructor(dbPath: string, options: WriteQueueOptions = {}) {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL;");
+    // 跨进程串行化（O-1）：子进程直连写 work_item 后，父连接无 busy_timeout
+    // 会即时 BUSY——补设连接级等待（KgDatabase 先例；两写者短临界区等待即可）
+    this.db.exec("PRAGMA busy_timeout = 10000;");
     // 守护式 schema 演进先于建表：旧库先补列/重建 PK，SCHEMA_SQL 随后幂等
     // 直建新库（新列在 CREATE TABLE 内，索引依赖的列此时必然已存在）。
     ensureSchemaEvolved(this.db);
     this.db.exec(SCHEMA_SQL);
+    // 任务四表域（O-1）：新库直建 / 老库 additive 补建，同构幂等（后续任务表
+    // 列演进挂 ensureSchemaEvolved 守卫链——hasColumn 先例；新表无列演进史）
+    this.db.exec(TASK_SCHEMA_SQL);
     // legacy default_model 单行表 → runtime_config KV 一次性数据迁移（P1 T1：
     // SCHEMA_SQL 建好新表后执行——拷贝+drop 事务包裹，幂等见函数注释）
     migrateLegacyDefaultModel(this.db);
@@ -187,6 +269,32 @@ export class WriteQueue {
     this.clearResourceStateByType = this.db.prepare(
       "DELETE FROM resource_state WHERE profile_kind = ? AND resource_type = ?",
     );
+    this.insertTaskJob = this.db.prepare(
+      "INSERT INTO job (id, type, params, projects, status, created_by, created_at, updated_at, error) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    this.insertTaskStage = this.db.prepare(
+      "INSERT INTO stage (job_id, seq, name, status, artifact, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    );
+    this.updateTaskJobStatus = this.db.prepare(
+      "UPDATE job SET status = ?, error = ?, updated_at = ? WHERE id = ?",
+    );
+    // artifact = COALESCE(?, artifact)：新值 NULL（未携带）不动既有产物
+    this.updateTaskStageStatus = this.db.prepare(
+      "UPDATE stage SET status = ?, artifact = COALESCE(?, artifact), updated_at = ? " +
+        "WHERE job_id = ? AND seq = ?",
+    );
+    this.insertTaskBatch = this.db.prepare(
+      "INSERT INTO batch (id, job_id, stage_seq, seq, scope, status, retry_count, retry_note, instance_id, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    this.updateTaskBatchById = this.db.prepare(
+      "UPDATE batch SET stage_seq = ?, seq = ?, scope = ?, status = ?, retry_count = ?, " +
+        "retry_note = ?, instance_id = ?, updated_at = ? WHERE id = ?",
+    );
+    this.deleteTaskJob = this.db.prepare("DELETE FROM job WHERE id = ?");
+    this.deleteTaskStagesByJob = this.db.prepare("DELETE FROM stage WHERE job_id = ?");
+    this.deleteTaskBatchesByJob = this.db.prepare("DELETE FROM batch WHERE job_id = ?");
   }
   /** 读侧共用连接（SqliteSessionRepository 只读 SELECT；写仍唯一走本队列）。 */
   get database(): Database {
@@ -284,6 +392,52 @@ export class WriteQueue {
     return this.enqueue({ kind: "slotValue", profileKind, resourceType, name });
   }
 
+  // ── 任务表域写点链（O-1：无会话维 → 全局链 FIFO；守卫在 TaskStore） ──
+
+  /** 任务 job 行入队（createTask）。 */
+  saveTaskJob(job: JobData): Promise<void> {
+    return this.enqueue({ kind: "taskJob", job });
+  }
+
+  /** 任务 stage 行入队（createTask 定格；此后冻结无增删）。 */
+  saveTaskStage(stage: StageData): Promise<void> {
+    return this.enqueue({ kind: "taskStage", stage });
+  }
+
+  /** job 状态迁移入队（error 覆盖语义：传值落列、null 清空）。 */
+  saveTaskJobStatus(id: string, status: JobStatus, error: string | null): Promise<void> {
+    return this.enqueue({ kind: "taskJobStatus", id, status, error });
+  }
+
+  /** stage 状态迁移入队（artifact undefined = 不动既有产物）。 */
+  saveTaskStageStatus(
+    jobId: string,
+    seq: number,
+    status: StageStatus,
+    artifact?: StageArtifact,
+  ): Promise<void> {
+    return this.enqueue({ kind: "taskStageStatus", jobId, seq, status, artifact });
+  }
+
+  /** batch 行插入入队（编排 agent 阶段内展开）。 */
+  saveTaskBatch(batch: BatchData): Promise<void> {
+    return this.enqueue({ kind: "taskBatchInsert", batch });
+  }
+
+  /** batch 行整行替换入队（重试/实例派发；无状态守卫，语义在引擎）。 */
+  updateTaskBatch(batch: BatchData): Promise<void> {
+    return this.enqueue({ kind: "taskBatchUpdate", batch });
+  }
+
+  /**
+   * 任务删除级联入队（F3.6）：清 job/stage/batch 三表该 job 全部行；
+   * write-through 计数——返回各表删除行数（work_item 清理在
+   * WorkLedgerPort.deleteByInstanceIds 侧，由引擎收集 instanceId 后调用）。
+   */
+  deleteTaskJobCascade(jobId: string): Promise<TaskDeleteCounts> {
+    return this.enqueue<TaskDeleteCounts>({ kind: "taskJobCascade", jobId });
+  }
+
   /** 等待已入队 job 全部落盘（测试/优雅退出用；分仓后 = 全部仓位 drain）。 */
   async flush(): Promise<void> {
     await this.drainAll();
@@ -312,20 +466,23 @@ export class WriteQueue {
       case "deleteSession":
         return job.sessionId;
       default:
-        return undefined; // reportFile/runtimeConfig/resource_state 族：无会话维（全局链）
+        // reportFile/runtimeConfig/resource_state 族与任务表域链（O-1：任务
+        // 无会话维）均走全局链
+        return undefined;
     }
   }
 
-  private enqueue(job: WriteJob): Promise<void> {
+  private enqueue<T = void>(job: WriteJob): Promise<T> {
     if (this.closed) {
       // 关闭后到达的 job 视为进程退出竞态：上报不崩
       this.onError?.(new Error("WriteQueue 已关闭，job 被丢弃"), job);
-      return Promise.resolve();
+      return Promise.resolve() as unknown as Promise<T>;
     }
     const key = this.chainKeyOf(job);
     const prev = key === undefined ? this.globalTail : (this.sessionTails.get(key) ?? Promise.resolve());
-    const done = prev.then(() => this.apply(job)).catch((error: unknown) => {
+    const done = prev.then((): T => this.apply(job) as T).catch((error: unknown): T => {
       this.onError?.(error, job); // 上报但不断链：单 job 失败不阻断后续落盘
+      return undefined as unknown as T;
     });
     if (key === undefined) this.globalTail = done;
     else this.sessionTails.set(key, done);
@@ -342,7 +499,7 @@ export class WriteQueue {
     }
   }
 
-  private apply(job: WriteJob): void {
+  private apply(job: WriteJob): unknown {
     if (job.kind === "agentLifecycle") {
       this.upsertLifecycle.run(job.sessionId, job.instanceId, job.state, new Date().toISOString());
       return;
@@ -406,6 +563,87 @@ export class WriteQueue {
       writeFileSync(`${job.reportPath}.tmp`, job.content, "utf8");
       renameSync(`${job.reportPath}.tmp`, job.reportPath); // 同目录 rename 原子替换
       return;
+    }
+    if (job.kind === "taskJob") {
+      const row = jobToRow(job.job);
+      this.insertTaskJob.run(
+        row.id,
+        row.type,
+        row.params,
+        row.projects,
+        row.status,
+        row.created_by,
+        row.created_at,
+        row.updated_at,
+        row.error,
+      );
+      return;
+    }
+    if (job.kind === "taskStage") {
+      const row = stageToRow(job.stage);
+      this.insertTaskStage.run(
+        row.job_id,
+        row.seq,
+        row.name,
+        row.status,
+        row.artifact,
+        row.updated_at,
+      );
+      return;
+    }
+    if (job.kind === "taskJobStatus") {
+      this.updateTaskJobStatus.run(job.status, job.error, new Date().toISOString(), job.id);
+      return;
+    }
+    if (job.kind === "taskStageStatus") {
+      this.updateTaskStageStatus.run(
+        job.status,
+        stageArtifactToText(job.artifact),
+        new Date().toISOString(),
+        job.jobId,
+        job.seq,
+      );
+      return;
+    }
+    if (job.kind === "taskBatchInsert") {
+      const row = batchToRow(job.batch);
+      this.insertTaskBatch.run(
+        row.id,
+        row.job_id,
+        row.stage_seq,
+        row.seq,
+        row.scope,
+        row.status,
+        row.retry_count,
+        row.retry_note,
+        row.instance_id,
+        row.created_at,
+        row.updated_at,
+      );
+      return;
+    }
+    if (job.kind === "taskBatchUpdate") {
+      const row = batchToRow(job.batch);
+      this.updateTaskBatchById.run(
+        row.stage_seq,
+        row.seq,
+        row.scope,
+        row.status,
+        row.retry_count,
+        row.retry_note,
+        row.instance_id,
+        row.updated_at,
+        row.id,
+      );
+      return;
+    }
+    if (job.kind === "taskJobCascade") {
+      // 子行先清后清 job 行（无外键约束——满载纪律，顺序仅约定俗成）；
+      // 返回各表删除计数（write-through：await 返回即可查）
+      const stages = this.deleteTaskStagesByJob.run(job.jobId).changes;
+      const batches = this.deleteTaskBatchesByJob.run(job.jobId).changes;
+      const jobs = this.deleteTaskJob.run(job.jobId).changes;
+      return { jobs, stages, batches } satisfies TaskDeleteCounts;
     }
     if (job.kind === "event") {
       const row = domainEventToRow(job.event, job.agentKind);
@@ -571,4 +809,48 @@ function migrateLegacyDefaultModel(db: Database): void {
 
 function tableColumns(db: Database, table: string): string[] {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+}
+
+// ── 任务表域：work_item 直连写面（O-1；AG-06——helix.db 写语句宿主在本文件） ──
+
+/** work_item 写语句集（在调用方连接上 prepare）。 */
+export interface WorkLedgerStatements {
+  readonly insertWorkItem: Statement;
+  readonly updateWorkItemStatus: Statement;
+  readonly updateWorkItemWithNote: Statement;
+  readonly deleteWorkItemsByInstance: Statement;
+}
+
+/**
+ * work_item 写语句工厂：子进程直连面（T1.4 plan 工具）与父进程 F3.6 清理面
+ * 共用——SQL 写语句按 AG-06 只出现在本文件，语句在各自连接上 prepare
+ * （WorkLedger 类持零写 SQL，表分域判据与白名单登记见 O-4/T2.1）。
+ */
+export function prepareWorkLedgerStatements(db: Database): WorkLedgerStatements {
+  return {
+    insertWorkItem: db.prepare(
+      "INSERT INTO work_item (instance_id, seq, content, status, note, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ),
+    updateWorkItemStatus: db.prepare(
+      "UPDATE work_item SET status = ?, updated_at = ? WHERE instance_id = ? AND seq = ?",
+    ),
+    updateWorkItemWithNote: db.prepare(
+      "UPDATE work_item SET status = ?, note = ?, updated_at = ? WHERE instance_id = ? AND seq = ?",
+    ),
+    deleteWorkItemsByInstance: db.prepare("DELETE FROM work_item WHERE instance_id = ?"),
+  };
+}
+
+/**
+ * 子进程直连 helix.db 连接工厂（T1.4 plan 工具装配；O-1）：**必须自设**
+ * WAL + busy_timeout——busy_timeout 是连接级设置，子连接不能依赖父进程
+ * （主连接）的设置（KgDatabase.ts 先例）。表域由父进程先行建库保证
+ * （子进程总是父进程写入 batch.instance_id 后才被拉起）。
+ */
+export function openTaskLedgerDatabase(dbPath: string): Database {
+  mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
+  db.exec("PRAGMA journal_mode = WAL;"); // 持久库级设置；崩溃一致 + 页面读不阻塞写
+  db.exec("PRAGMA busy_timeout = 10000;"); // 与父进程写者并发时等待而非 BUSY 失败
+  return db;
 }

@@ -140,6 +140,17 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `kg-confirm:${event.payload.node.status}`;
     case "kg.index.status.result":
       return `kg-index:${event.payload.state}`;
+    // ── kg-bootstrap 批（iter-20260829-ys7q T3.2；五命令点对点回执，契约 kg-bootstrap-api）──
+    case "kg.bootstrap.create.result":
+      return `kg-boot-create:${event.payload.jobId}`;
+    case "kg.bootstrap.produce.result":
+      return `kg-boot-produce:${event.payload.groups.length}`;
+    case "kg.node.update.result":
+      return `kg-node-update:${event.payload.node.status}`;
+    case "kg.node.supersede.result":
+      return `kg-node-supersede:${event.payload.ok}`;
+    case "kg.bootstrap.impact.result":
+      return `kg-boot-impact:${event.payload.count}:${event.payload.affected.length}`;
     // ── workspace 批（W1 绑定闭环；两结果帧 + 一广播）──
     case "workspace.get.result":
       return `workspace-get:${event.payload.current?.root ?? "unbound"}:${event.payload.recents.length}:${event.payload.notice ?? "-"}`;
@@ -147,6 +158,9 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `workspace-open:${event.payload.root}:${event.payload.projects.length}`;
     case "workspace_changed":
       return `workspace-changed:${event.payload.root}`;
+    case "task.changed":
+      // task 批（T1.5）：逐迁移轻负载广播（notification 通道；changed 面独立字段访问）
+      return `task-changed:${event.payload.jobId}:${event.payload.changed}:${event.payload.status ?? "-"}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -234,11 +248,35 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `kg-index:${cmd.payload.project}:${cmd.payload.rebuild === true ? "rebuild" : "status"}`;
     case "kg.projects":
       return "kg-projects";
+    // ── kg-bootstrap 批（iter-20260829-ys7q T3.2；五命令载荷独立字段访问——窄化守护）──
+    case "kg.bootstrap.create":
+      return `kg-boot-create:${cmd.payload.project}:${cmd.payload.scope ?? "-"}`;
+    case "kg.bootstrap.produce":
+      return `kg-boot-produce:${cmd.payload.project}`;
+    case "kg.node.update":
+      return `kg-node-update:${cmd.payload.project}:${cmd.payload.nodeId}:${cmd.payload.digest ? "digest" : "-"}:${cmd.payload.body ? "body" : "-"}`;
+    case "kg.node.supersede":
+      return `kg-node-supersede:${cmd.payload.project}:${cmd.payload.nodeId}:${cmd.payload.reason}`;
+    case "kg.bootstrap.impact":
+      return `kg-boot-impact:${cmd.payload.project}:${cmd.payload.nodeId}`;
     // ── workspace 批（W1 绑定闭环；门禁读面 + 显式绑定写面）──
     case "workspace.get":
       return "workspace-get";
     case "workspace.open":
       return `workspace-open:${cmd.payload.root}`;
+    case "task.list":
+      // task 批（T1.5）：九命令载荷独立字段访问（窄化守护）
+      return `task-list:${cmd.payload.status ?? "-"}:${cmd.payload.project ?? "-"}`;
+    case "task.detail":
+    case "task.artifacts":
+    case "task.pause":
+    case "task.resume":
+    case "task.cancel":
+    case "task.delete":
+      return `task-${cmd.type.split(".")[1]}:${cmd.payload.jobId}`;
+    case "task.subscribe":
+    case "task.unsubscribe":
+      return `task-${cmd.type.split(".")[1]}:${cmd.payload.jobId ?? "*"}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

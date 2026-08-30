@@ -181,8 +181,9 @@ const MAIN_TOOLS = [
   "browser",
   "kg", // T3.3：kg 双工具
   "kg-update",
+  "task_create", // T2.4：chat 第二创建入口（AD-7，仅 main）
 ];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "kg-update"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）；T3.3：+kg 双工具
+const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "kg-update", "plan_create", "plan_update", "plan_read"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）；T3.3：+kg 双工具；T1.4：+plan 三工具（AD-6①，subagent 独有）
 /** builtin 目录内模型（model-provider.DEFAULT_MODEL_ID 同源；hasModel 读面零网络）。 */
 const ANY_MODEL = "anthropic/claude-sonnet-4-5";
 
