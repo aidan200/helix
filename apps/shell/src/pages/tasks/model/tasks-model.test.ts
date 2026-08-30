@@ -12,7 +12,7 @@
  * paused/done/failed/cancelled；展示映射不出第二套 wire 词表）。
  */
 import { describe, expect, it } from "vitest";
-import type { TaskDetailDto, TaskSummaryDto } from "@helix/protocol";
+import type { TaskArtifactsDto, TaskDetailDto, TaskSummaryDto } from "@helix/protocol";
 import { t } from "@/shared/i18n";
 import { zhCN } from "@/shared/i18n/lang/zh-CN";
 import {
@@ -310,5 +310,40 @@ describe("⑤ wire 状态 → 展示映射（六态徽章）", () => {
     expect(elapsedSpan(45_000)).toEqual({ key: "sec", n: 45 });
     expect(elapsedSpan(47 * 60_000)).toEqual({ key: "min", n: 47 });
     expect(elapsedSpan(((1 * 60 + 52) * 60) * 1000)).toEqual({ key: "hourMin", h: 1, m: 52 });
+  });
+});
+
+// ── ⑥ artifacts 回执归属校验（T4.3 迟到帧第二道防线）─────────
+
+describe("⑥ artifacts 回执归属：页面以请求时在途 ref 的 jobId 派发，reducer 按选中校验", () => {
+  function artifactsOf(tag: string): TaskArtifactsDto {
+    return {
+      stages: [
+        { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: tag, nodes: [] } },
+      ],
+    };
+  }
+
+  it("竞态场景：A 在途 → 切到 B → A 迟到回执（以 A 的 jobId 派发）丢弃；B 在途请求正常落库", () => {
+    let s = tasksReducer(createTasksPageState(), { type: "list-loading" });
+    s = tasksReducer(s, { type: "list-result", tasks: mixedTasks() }); // 自动选中首行 j-run-1（A）
+    // A 的结果 tab 请求在途
+    s = tasksReducer(s, { type: "tab", value: "result" });
+    s = tasksReducer(s, { type: "artifacts-loading", jobId: "j-run-1" });
+    expect(s.artifactsLoading).toBe(true);
+    // 用户切到 B（j-paused）：三件套重置 + 旧产物清空
+    s = tasksReducer(s, { type: "select-task", jobId: "j-paused" });
+    expect(s.artifacts).toBeNull();
+    expect(s.artifactsJob).toBeNull();
+    // A 的迟到回执以请求时 ref 记录的 A 的 jobId 派发 → selected≠jobId 丢弃，不得以 B 落库
+    s = tasksReducer(s, { type: "artifacts-result", jobId: "j-run-1", artifacts: artifactsOf("A 的产物") });
+    expect(s.artifacts).toBeNull();
+    expect(s.artifactsJob).toBeNull();
+    // B 的在途请求回执正常落库
+    s = tasksReducer(s, { type: "artifacts-loading", jobId: "j-paused" });
+    s = tasksReducer(s, { type: "artifacts-result", jobId: "j-paused", artifacts: artifactsOf("B 的产物") });
+    expect(s.artifactsJob).toBe("j-paused");
+    expect(s.artifacts?.stages[0]?.artifact?.summary).toBe("B 的产物");
+    expect(s.artifactsLoading).toBe(false);
   });
 });

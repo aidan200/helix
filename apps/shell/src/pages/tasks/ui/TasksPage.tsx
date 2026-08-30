@@ -21,7 +21,8 @@
  *
  * 零创建（AD-2）：任何状态无创建入口；空态指路宿主（「项目」页/会话）。
  * 已知边界：detail/artifacts 回执无 jobId 回显（契约零成本 DTO 取向），
- * 在途请求靠 ref 关联 + reducer jobId 校验丢弃迟到帧。
+ * 在途请求靠 ref 关联（detail 单点去重 / artifacts FIFO 对号，T4.3）+
+ * reducer jobId 校验丢弃迟到帧。
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type {
@@ -76,6 +77,12 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
 
   /** 生命周期在途命令关联（回执无 jobId 回显——ref 单点关联，trace 先例）。 */
   const lifecycleReqRef = useRef<{ kind: TaskLifecycleAction; jobId: string } | null>(null);
+  /** artifacts 在途 FIFO 关联（T4.3）：回执无 jobId 回显——请求时记 jobId
+   *  入队，回执按序出队对号（daemon handler 同步处理 + 单连接有序，回执按
+   *  请求序到达）；空队 = 无在途，迟到/非本页回执丢弃。不得以 cur.selected
+   *  回填——产物在途时切任务，迟到回执以请求时 jobId 派发，reducer 归属
+   *  校验作第二道防线。 */
+  const artifactsReqRef = useRef<string[]>([]);
   /** 详情拉取单次去重（选中未变不重发——订阅回调身份不稳时防重发）。 */
   const detailFetchedRef = useRef<string | null>(null);
 
@@ -95,6 +102,7 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
     const prev = prevConnRef.current;
     prevConnRef.current = conn;
     if (conn === "connected" && prev !== "connected") {
+      artifactsReqRef.current = []; // 断连死在途清空（旧连接回执不可能再到达）
       sendTaskSubscribe();
       sendTaskList();
       const jobId = stateRef.current.selected;
@@ -135,14 +143,16 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
           return;
         }
         if (e.type === "task.artifacts.result") {
-          const jobId = cur.selected;
-          if (jobId !== null) {
-            dispatch({
-              type: "artifacts-result",
-              jobId,
-              artifacts: (e.payload as TaskArtifactsResultPayload).artifacts,
-            });
-          }
+          // 在途 FIFO 对号（T4.3）：取请求时记录的 jobId 派发，不取
+          // cur.selected——产物在途时切任务，A 的迟到回执不得以新选中
+          // 落库；reducer 的 selected!==jobId 校验作第二道防线丢弃
+          const jobId = artifactsReqRef.current.shift();
+          if (jobId === undefined) return; // 无在途：迟到/非本页回执丢弃
+          dispatch({
+            type: "artifacts-result",
+            jobId,
+            artifacts: (e.payload as TaskArtifactsResultPayload).artifacts,
+          });
           return;
         }
         if (
@@ -213,7 +223,8 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
     if (state.tab !== "result" || selected === null) return;
     if (state.artifactsJob === selected || state.artifactsLoading) return;
     dispatch({ type: "artifacts-loading", jobId: selected });
-    sendTaskArtifacts({ jobId: selected });
+    const ok = sendTaskArtifacts({ jobId: selected });
+    if (ok) artifactsReqRef.current.push(selected); // 发送成功才入队在途关联
   }, [state.tab, state.artifactsJob, state.artifactsLoading, selected, sendTaskArtifacts]);
 
   // ── 行为回调 ───────────────────────────────────────────────

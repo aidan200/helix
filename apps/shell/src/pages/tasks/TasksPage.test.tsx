@@ -338,6 +338,48 @@ describe("P-2 TasksPage：生命周期 + 删除门控（F3.5/F3.6）", () => {
   });
 });
 
+describe("P-2 TasksPage：artifacts 迟到帧竞态（T4.3 在途 ref 关联）", () => {
+  /** 带专属标记的产物回执 fixture（tag 可辨识归属）。 */
+  const art = (tag: string, nodeId: string, name: string): TaskArtifactsResultPayload => ({
+    artifacts: {
+      stages: [
+        {
+          seq: 1,
+          name: "L0 核心层",
+          status: "done",
+          artifact: {
+            summary: `${tag} 摘要`,
+            nodes: [{ nodeId, name, kind: "rule", digestFirstLine: `${tag} digest 首行`, status: "confirmed" }],
+          },
+        },
+      ],
+    },
+  });
+
+  it("A 在途切到 B：A 的迟到回执不以 B 的 jobId 落库（watcher 重拉 B）；B 的在途请求正常落库", () => {
+    ui();
+    feedList();
+    feed("task.detail.result", { task: detailOf(SIX[0]!) } satisfies TaskDetailResultPayload);
+    // A（job-run）结果 tab：请求发出在途
+    fireEvent.click(qs('[data-tk-tab="result"]'));
+    expect(sent.artifacts.map((a) => a.jobId)).toEqual(["job-run"]);
+    // 产物在途时切到 B（job-paused；选任务重置 tab=progress）
+    fireEvent.click(qs('.tk-row[data-id="job-paused"]'));
+    feed("task.detail.result", { task: detailOf(SIX[1]!) } satisfies TaskDetailResultPayload);
+    // A 的迟到回执到达
+    feed("task.artifacts.result", art("A 的产物", "kg-n-a01", "A 的架构基线"));
+    // 切到 B 的结果 tab：A 的回执不得以 B 落库 → artifactsJob≠selected → watcher 重拉 B
+    fireEvent.click(qs('[data-tk-tab="result"]'));
+    expect(sent.artifacts.map((a) => a.jobId)).toEqual(["job-run", "job-paused"]);
+    expect(screen.queryByText("A 的架构基线")).toBeNull(); // A 的产物不在 B 视图
+    // B 的在途请求回执正常落库
+    feed("task.artifacts.result", art("B 的产物", "kg-n-b01", "B 的架构基线"));
+    const nodeRow = qs('[data-tk-node][data-id="kg-n-b01"]');
+    expect(within(nodeRow).getByText("B 的架构基线")).toBeTruthy();
+    expect(screen.queryByText("A 的架构基线")).toBeNull();
+  });
+});
+
 describe("P-2 TasksPage：阶段条 + 批次 plan + 结果查询", () => {
   it("阶段条 stage 行驱动：done ✓ 产出 n 节点 / running ● 批次 x/y / 待启动；批次 retry>0 warning + 台账展开（abandoned 带理由）", () => {
     ui();
