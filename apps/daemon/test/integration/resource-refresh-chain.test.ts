@@ -14,6 +14,7 @@ import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecut
 import { TOOL_PROMPT_SNIPPETS } from "../../src/adapters/driven/tools/ToolPromptSnippets";
 import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
 import { kgToolsStub } from "../helpers/kgToolsStub";
+import { codegraphToolStub } from "../helpers/codegraphToolStub";
 import { taskCreateStub } from "../helpers/taskCreateStub";
 import { createPaths } from "../../src/infrastructure/paths";
 
@@ -90,6 +91,8 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
     browser: new FakeBrowserPort(),
     // T3.3：main 全集声明 kg 双工具——替身保持可装配
     kg: kgToolsStub(toolCwd),
+    // W1-B：main 全集声明 codegraph——替身保持可装配
+    codegraph: codegraphToolStub(toolCwd),
     // T2.4：main 全集声明 task_create——替身保持可装配
     taskCreate: taskCreateStub(),
   });
@@ -118,9 +121,10 @@ const MAIN_TOOLS = [
   "browser",
   "kg", // T3.3：kg 双工具
   "kg-update",
+  "codegraph", // W1-B（R5/R7）：codegraph 只读工具
   "task_create", // T2.4：chat 第二创建入口（AD-7，仅 main）
 ];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "kg-update", "plan_create", "plan_update", "plan_read"]; // H-3：+browser；T3.3：+kg 双工具；T1.4：+plan 三工具（AD-6①，subagent 独有）
+const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "kg-update", "codegraph", "plan_create", "plan_update", "plan_read"]; // H-3：+browser；T3.3：+kg 双工具；T1.4：+plan 三工具（AD-6①，subagent 独有）；W1-B：+codegraph
 
 describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 acceptance ③）", () => {
   test("① main tool toggle：下一 run 的 systemPrompt 与 tools 同步收缩；skipped 不刷新", async () => {

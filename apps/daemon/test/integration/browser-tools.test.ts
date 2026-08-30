@@ -4,6 +4,7 @@ import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecut
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
 import { kgToolsStub } from "../helpers/kgToolsStub";
+import { codegraphToolStub } from "../helpers/codegraphToolStub";
 import { taskCreateStub } from "../helpers/taskCreateStub";
 
 /**
@@ -27,7 +28,7 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
     expect(executor.resolveTools(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"])).toHaveLength(7);
   });
 
-  test("② 有 browser：单名注册；main 全集 15 名一次装配成功", () => {
+  test("② 有 browser：单名注册；main 全集 16 名一次装配成功", () => {
     // 组合根 engineFor 同款接线：orchestration（会话门面）+ browser + ownerId
     const orchestration = {
       spawn: (task: string) => ({ status: "rejected", error: `测试桩不 spawn：${task}` }) as const,
@@ -42,9 +43,10 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
       browser: new FakeBrowserPort(),
       ownerId: "main",
       kg: kgToolsStub(tmpdir()), // T3.3：main 全集声明 kg 双工具——替身保持可装配
+      codegraph: codegraphToolStub(tmpdir()), // W1-B：main 全集声明 codegraph——替身保持可装配
       taskCreate: taskCreateStub(), // T2.4：main 全集声明 task_create——替身保持可装配
     });
-    expect(MainSessionProfile.tools).toHaveLength(15); // T3.3 kg 双工具 + T2.4 task_create（AD-7）
+    expect(MainSessionProfile.tools).toHaveLength(16); // T3.3 kg 双工具 + T2.4 task_create（AD-7）+ W1-B codegraph
     const resolved = executor.resolveTools(MainSessionProfile.tools);
     expect(resolved.map((t) => t.name)).toEqual([...MainSessionProfile.tools]);
     expect(resolved.some((t) => t.name === "browser"), "browser 应装配").toBe(true);

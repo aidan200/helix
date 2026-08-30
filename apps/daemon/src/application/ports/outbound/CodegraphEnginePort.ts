@@ -17,7 +17,32 @@ export type { EngineUnavailableInfo, IndexFreshness, SymbolSet };
  * 统一抛 EngineUnavailable（kind 鸭子判别）；空 SymbolSet = 空索引合法态，
  * 与 degraded 语义显式区分。真实实现在 adapters/driven/codegraph-engine，
  * 测试基建 CodegraphEngineFake（test/mocks）。本文件只有接口/类型定义（AG-01）。
+ *
+ * W1-B（R5/R6）：runQuery 只读查询面——agent 工具 codegraph 的引擎出口
+ * （status/search/node/callers/callees/impact 六 op，**无 explore**，零写类
+ * 子命令）。同样一次性 CLI 即起即退；索引缺失短路在工具层（同
+ * KgProjectService absent 先例——读面绝不触发建索引）。
  */
+
+/**
+ * 只读查询请求（W1-B，R6 六 op 判别联合）。CLI 子命令/旗标映射归适配器
+ * （application/tool 层零 CLI 知识）；op 与 v1 codegraph 工具面语义对齐。
+ */
+export type CodegraphQueryRequest =
+  | { readonly op: "status" }
+  | { readonly op: "search"; readonly pattern: string; readonly kind?: string; readonly limit?: number }
+  | {
+      readonly op: "node";
+      readonly symbol?: string;
+      readonly file?: string;
+      readonly offset?: number;
+      readonly limit?: number;
+      readonly symbolsOnly?: boolean;
+    }
+  | { readonly op: "callers"; readonly symbol: string; readonly limit?: number }
+  | { readonly op: "callees"; readonly symbol: string; readonly limit?: number }
+  | { readonly op: "impact"; readonly symbol: string; readonly depth?: number };
+
 export interface CodegraphEnginePort {
   /**
    * 被动构建/新鲜度判定：status 探测 → 未初始化 init（全量首建）；
@@ -40,4 +65,12 @@ export interface CodegraphEnginePort {
    * CLI delete 面）；kg 侧索引态复位与 watcher 联动由调用方编排。
    */
   deleteIndex(projectRoot: string): Promise<void>;
+
+  /**
+   * 只读查询（W1-B，R5/R6）：六 op 一次性 CLI 调用，返回 stdout 文本
+   *（适配器负责超时与输出截断）。引擎不可用/失败/超时 → 抛
+   * EngineUnavailable。**无任何写面子命令**（init/index/sync 只走
+   * ensureIndex 构建路由；本面不触发任何建索引动作）。
+   */
+  runQuery(projectRoot: string, request: CodegraphQueryRequest): Promise<string>;
 }

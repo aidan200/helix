@@ -1,4 +1,4 @@
-import type { CodegraphEnginePort } from "../../src/application/ports/outbound/CodegraphEnginePort";
+import type { CodegraphEnginePort, CodegraphQueryRequest } from "../../src/application/ports/outbound/CodegraphEnginePort";
 import type { IndexFreshness, SymbolSet } from "../../src/domain/kg/types";
 import { rm } from "node:fs/promises";
 import { EngineUnavailableError } from "../../src/adapters/driven/codegraph-engine/CodegraphEngineAdapter";
@@ -24,9 +24,9 @@ export interface CodegraphEngineFakeOptions {
   readonly ensureResult?: IndexFreshness;
 }
 
-/** 调用记录（T2.2 断言 sync 编排触发面；C1 扩 deleteIndex）。 */
+/** 调用记录（T2.2 断言 sync 编排触发面；C1 扩 deleteIndex；W1-B 扩 runQuery）。 */
 export interface EngineCallRecord {
-  readonly method: "ensureIndex" | "exportSymbols" | "deleteIndex";
+  readonly method: "ensureIndex" | "exportSymbols" | "deleteIndex" | "runQuery";
   readonly projectRoot: string;
 }
 
@@ -83,6 +83,20 @@ export class CodegraphEngineFake implements CodegraphEnginePort {
     this.calls.push({ method: "deleteIndex", projectRoot });
     await rm(codegraphDirPath(projectRoot), { recursive: true, force: true });
   }
+
+  /** runQuery 契约镜像（W1-B）：记录调用 + 返回注入结果（缺省空 JSON 对象文本）。 */
+  async runQuery(projectRoot: string, request: CodegraphQueryRequest): Promise<string> {
+    this.calls.push({ method: "runQuery", projectRoot });
+    this.lastQuery = request;
+    this.assertNotUnavailable();
+    return this.queryResult;
+  }
+
+  /** 最近一次 runQuery 请求（断言 op 映射用）。 */
+  lastQuery: CodegraphQueryRequest | undefined;
+
+  /** runQuery 返回注入（缺省 "{}"）。 */
+  queryResult = "{}";
 
   private async settle(): Promise<void> {
     if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));

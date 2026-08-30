@@ -13,6 +13,7 @@ import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
 import { kgToolsStub } from "../helpers/kgToolsStub";
+import { codegraphToolStub } from "../helpers/codegraphToolStub";
 import { taskCreateStub } from "../helpers/taskCreateStub";
 
 /**
@@ -133,6 +134,8 @@ function makeHarness(scripts: ScriptEntry[], browserPort?: FakeBrowserPort): Loo
     browser: browserPort ?? new FakeBrowserPort(),
     // T3.3：MainSessionProfile 声明 kg 双工具——替身注入保持 resolveTools 可装配
     kg: kgToolsStub(cwd),
+    // W1-B：MainSessionProfile 声明 codegraph——替身注入保持 resolveTools 可装配
+    codegraph: codegraphToolStub(cwd),
     // T2.4：MainSessionProfile 声明 task_create——替身注入保持 resolveTools 可装配
     taskCreate: taskCreateStub(),
   });
