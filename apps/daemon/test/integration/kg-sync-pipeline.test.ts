@@ -125,12 +125,12 @@ describe("KgSyncService 集成管道（tmp 真库）", () => {
     const node = expectOk(s.write.write(s.root, {
       kind: "createNode",
       iterationId: "it",
-      draft: { kind: "rule", name: "r1", digest: "d1" },
+      draft: { kind: "rule", name: "r1", digest: "d1", scene: "测试场景" },
     }));
     const symNode = expectOk(s.write.write(s.root, {
       kind: "createNode",
       iterationId: "it",
-      draft: { kind: "entity", name: "e1", digest: "d1" },
+      draft: { kind: "entity", name: "e1", digest: "d1", scene: "测试场景" },
     }));
     expectOk(s.write.write(s.root, {
       kind: "declareAnchors",
@@ -172,12 +172,12 @@ describe("KgSyncService 集成管道（tmp 真库）", () => {
     const node = expectOk(s.write.write(s.root, {
       kind: "createNode",
       iterationId: "it",
-      draft: { kind: "rule", name: "r1", digest: "d1" },
+      draft: { kind: "rule", name: "r1", digest: "d1", scene: "测试场景" },
     }));
     const symNode = expectOk(s.write.write(s.root, {
       kind: "createNode",
       iterationId: "it",
-      draft: { kind: "entity", name: "e1", digest: "d1" },
+      draft: { kind: "entity", name: "e1", digest: "d1", scene: "测试场景" },
     }));
     expectOk(s.write.write(s.root, { kind: "declareAnchors", iterationId: "it", nodeId: node, anchors: [{ scopeKind: "path", pattern: "src/**" }] }));
     expectOk(s.write.write(s.root, { kind: "declareAnchors", iterationId: "it", nodeId: symNode, anchors: [{ scopeKind: "symbol", pattern: "src/app.ts#Handler" }] }));
@@ -239,7 +239,7 @@ describe("KgSyncService 集成管道（tmp 真库）", () => {
     const symNode = expectOk(s.write.write(s.root, {
       kind: "createNode",
       iterationId: "it",
-      draft: { kind: "entity", name: "e1", digest: "d1" },
+      draft: { kind: "entity", name: "e1", digest: "d1", scene: "测试场景" },
     }));
     expectOk(s.write.write(s.root, { kind: "declareAnchors", iterationId: "it", nodeId: symNode, anchors: [{ scopeKind: "symbol", pattern: "src/app.ts#Handler" }] }));
     await s.service.onStartup(s.root);

@@ -16,7 +16,7 @@
  */
 
 import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort";
-import type { NodeDigestRow, NodeDetail } from "../../../domain/kg/types";
+import type { AnchorReverseHit, NodeDigestRow, NodeDetail } from "../../../domain/kg/types";
 import { extractTaskTerms } from "../../../domain/kg/attachment/task-slice";
 import {
   renderTaskSlice,
@@ -52,6 +52,11 @@ export interface KgNodeHit {
   readonly detail: NodeDetail;
 }
 
+/** affected 命中行（project 伴随——跨项目聚合形态同 search，R20）。 */
+export interface KgAffectedHit extends AnchorReverseHit {
+  readonly project: string;
+}
+
 export class KgQueryService {
   private readonly deps: KgQueryServiceDeps;
 
@@ -79,6 +84,21 @@ export class KgQueryService {
   /** 目标库最近迭代锚（iterationId 机械解析的库内回落，A4 任务二）。 */
   latestIteration(projectRoot: string): string | null {
     return this.deps.graph.latestIteration(projectRoot);
+  }
+
+  /**
+   * 锚反查跨项目聚合（R20 affected op）：target（相对路径 / 符号名 /
+   * path#symbol）→ 各已建 .kg 项目 reverseAnchorLookup 汇总（项目序 +
+   * 项目内节点序，确定性；读面绝不新建库文件——项目列表注入方已过滤）。
+   */
+  affected(target: string): readonly KgAffectedHit[] {
+    const out: KgAffectedHit[] = [];
+    for (const project of this.deps.projects()) {
+      for (const hit of this.deps.graph.reverseAnchorLookup(project, target)) {
+        out.push({ project, ...hit });
+      }
+    }
+    return out;
   }
 
   /** 跨项目全命中（kg-update supersede 目标定位——多命中由调用方裁决）。 */

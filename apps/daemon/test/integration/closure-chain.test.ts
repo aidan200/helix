@@ -463,16 +463,16 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
     };
   }
 
-  test("非空 findings：sediment 新增→createNode、修改/废弃→supersede（change_log/nodes 出现条目，含迭代 id）；非 sediment/缺必填跳过", async () => {
+  test("非空 findings：sediment 新增/修改/废弃→proposeCandidate 候选 pending 行（W1-C 改道；source_task_id 机械注入）；非 sediment/缺必填跳过", async () => {
     const projectRoot = mkdtempSync(path.join(tmpdir(), "helix-t41-proj-"));
     const database = new KgDatabase();
     const service = new KgWriteService({ store: new SqliteKnowledgeStore({ database }) });
     const writes: { projectRoot: string; op: KnowledgeWriteOp }[] = [];
-    // 预建目标节点（供「废弃」supersede 命中真节点）
+    // 预建目标节点（「废弃」候选的 targetNode 引用对象）
     const pre = service.write(projectRoot, {
       kind: "createNode",
       iterationId: "iter-t41",
-      draft: { kind: "rule", name: "旧规则", digest: "将被本次推翻的旧规则" },
+      draft: { kind: "rule", name: "旧规则", digest: "将被本次推翻的旧规则", scene: "测试场景" },
     });
     expect(pre.ok).toBe(true);
     const targetNode = pre.ok ? pre.nodeId : "TR-?";
@@ -509,30 +509,43 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       });
 
       await until(() => eventRows(rig, "agent.completed").length > 0, 5000, "agent.completed 落盘");
-      // 只有两条命中写入口（issue 无 sediment 语义 / 缺 iterationId 跳过）
-      expect(writes.map((w) => w.op.kind)).toEqual(["createNode", "supersede"]);
+      // 只有两条命中写入口（issue 无 sediment 语义 / 缺 iterationId 跳过）——W1-C 改道：均为候选
+      expect(writes.map((w) => w.op.kind)).toEqual(["proposeCandidate", "proposeCandidate"]);
       expect(writes.every((w) => w.projectRoot === projectRoot)).toBe(true);
 
-      // .helix-kg 出现对应条目：nodes 新节点 + 目标翻 superseded；change_log 含迭代 id
+      // .helix-kg 出现对应候选 pending 行（source_task_id/source_iteration_id 机械落列）；
+      // 目标节点不被现场推翻（裁决与落地归人审 decideCandidate）；change_log 含迭代 id
       await until(() => {
         const db = new Database(kgDbPath(projectRoot), { readonly: true });
         try {
           const rows = db.prepare("SELECT iteration_id FROM change_log WHERE iteration_id = ?").all("iter-t41") as unknown[];
-          return rows.length >= 3; // 预建 1 + createNode 1 + supersede 1
+          return rows.length >= 3; // 预建 1 + proposeCandidate 2
         } finally {
           db.close();
         }
       }, 5000, "change_log 落账");
       const db = new Database(kgDbPath(projectRoot), { readonly: true });
       try {
-        const node = db.prepare("SELECT name, status FROM nodes WHERE name = ?").get("报告透传规则") as { name: string; status: string } | null;
-        expect(node).toMatchObject({ name: "报告透传规则", status: "draft" }); // 建库态缺省 draft（确认归验证期 F3.3 面）
+        const candidates = db
+          .prepare("SELECT title, status, source_task_id, source_iteration_id, body FROM candidates ORDER BY id")
+          .all() as { title: string; status: string; source_task_id: string | null; source_iteration_id: string | null; body: string }[];
+        expect(candidates).toHaveLength(2);
+        expect(candidates[0]).toMatchObject({
+          title: "报告透传规则",
+          status: "pending",
+          source_task_id: "T4.1", // closure.taskId 机械注入（AD-10）
+          source_iteration_id: "iter-t41",
+        });
+        expect(candidates[0]!.body).toContain("digest: 自报 reportPath 存在时透传时");
+        expect(candidates[1]).toMatchObject({ title: `废弃：${targetNode}`, status: "pending" });
+        expect(candidates[1]!.body).toContain("reason: 被本次实现推翻");
+        // 改道后闭环现场不再直改节点：目标节点 status 不变（draft），人审裁决前零推翻
         const target = db.prepare("SELECT status FROM nodes WHERE id = ?").get(targetNode) as { status: string };
-        expect(target.status).toBe("superseded");
+        expect(target.status).toBe("draft");
         const ops = db
           .prepare("SELECT op FROM change_log WHERE iteration_id = ? ORDER BY seq")
           .all("iter-t41") as { op: string }[];
-        expect(ops.map((r) => r.op)).toEqual(["createNode", "createNode", "supersede"]);
+        expect(ops.map((r) => r.op)).toEqual(["createNode", "proposeCandidate", "proposeCandidate"]);
       } finally {
         db.close();
       }

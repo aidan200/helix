@@ -82,7 +82,7 @@ async function run(tool: AgentHarnessTool<ExecutionToolContext, any, any>, args:
 
 /** 建节点（返回自动发号 id）。 */
 function makeNode(ws: Workspace, name: string, digest: string): string {
-  const r = ws.write.write(ws.proj, { kind: "createNode", iterationId: "iter-t32", draft: { kind: "rule", name, digest } });
+  const r = ws.write.write(ws.proj, { kind: "createNode", iterationId: "iter-t32", draft: { kind: "rule", name, digest, scene: "测试场景" } });
   if (!r.ok) throw new Error(`建节点失败：${r.error.code} ${r.error.message}`);
   return r.nodeId;
 }
@@ -227,6 +227,7 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
           throw new Error("snapshot read fault");
         },
         search: () => [],
+        reverseAnchorLookup: () => [],
         getNode: () => null,
         getIndexStatus: () => ({ baseline: "1", symbolCount: 3, degraded: false }),
         getSyncBaseline: () => ({ files: [], symbols: [], activeAnchors: [], anchorDeclarations: [] }),

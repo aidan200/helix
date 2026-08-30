@@ -70,8 +70,11 @@ export class KgDatabase {
  *
  * - nodes.origin_batch_id / change_log.task_id（AD-10 任务→kg 唯一衔接面）
  *   缺列 → ALTER ADD COLUMN TEXT（可空无默认——旧行 NULL = 无任务元数据，
- *   读取侧前向兼容）。老库既有行/数据不动；新库经 KG_SCHEMA_SQL 直建含
- *   两列（本函数 no-op）。
+ *   读取侧前向兼容）；
+ * - nodes.scene（R23 适用场景独立列）缺列 → ALTER ADD COLUMN TEXT NOT NULL
+ *   DEFAULT ''（存量行兑底空串不回填——回填归 kg-review；NOT NULL 须带
+ *   缺省否则 ALTER 拒绝含行旧表）。老库既有行/数据不动；新库经
+ *   KG_SCHEMA_SQL 直建含三列（本函数 no-op）。
  *
  * 不做迁移框架（与 sqlite-session 同口径）：无版本表、无回滚——检测即修。
  */
@@ -81,6 +84,9 @@ function ensureSchemaEvolved(db: Database): void {
   }
   if (!hasColumn(db, "change_log", "task_id")) {
     db.exec("ALTER TABLE change_log ADD COLUMN task_id TEXT");
+  }
+  if (!hasColumn(db, "nodes", "scene")) {
+    db.exec("ALTER TABLE nodes ADD COLUMN scene TEXT NOT NULL DEFAULT ''");
   }
 }
 

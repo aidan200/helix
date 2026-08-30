@@ -329,7 +329,7 @@ describe("kg.bootstrap.create 准入机械复核", () => {
     const rig = await openRig();
     seedSynced(rig, rig.beta, "b0");
     expectOk(
-      rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "既有规则", digest: "已有图谱", status: "confirmed" } }),
+      rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "既有规则", digest: "已有图谱", scene: "测试场景", status: "confirmed" } }),
     );
     const r = await rig.client.kg("kg.bootstrap.create", { project: "beta" });
     expect(r.ok).toBe(false);
@@ -383,10 +383,10 @@ describe("kg.bootstrap.produce 三级分组", () => {
     const { batchId: b2 } = await rig.engine.insertBatch({ jobId, stageSeq: 2, scope: "批次：任务引擎域" });
     // 产出节点：b1 × 2（L0）+ b2 × 1（L1）+ 日常落账 1（无元数据，不进）
     expectOk(
-      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, taskId: jobId, originBatchId: b1, draft: { kind: "rule", name: "分层依赖单向", digest: "import 只准外层指向内层", body: "依赖必须单向。\n- 外层可指向内层", status: "confirmed", layer: "L0" } }),
-      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, taskId: jobId, originBatchId: b1, draft: { kind: "rule", name: "写面唯一入口", digest: "全部写经 KgWriteService", status: "confirmed", layer: "L0" } }),
-      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, taskId: jobId, originBatchId: b2, draft: { kind: "entity", name: "任务引擎域", digest: "job/stage/batch 三表", status: "confirmed", layer: "L1" } }),
-      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "日常落账规则", digest: "无批次来源", status: "confirmed" } }),
+      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, taskId: jobId, originBatchId: b1, draft: { kind: "rule", name: "分层依赖单向", digest: "import 只准外层指向内层", scene: "测试场景", body: "依赖必须单向。\n- 外层可指向内层", status: "confirmed", layer: "L0" } }),
+      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, taskId: jobId, originBatchId: b1, draft: { kind: "rule", name: "写面唯一入口", digest: "全部写经 KgWriteService", scene: "测试场景", status: "confirmed", layer: "L0" } }),
+      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, taskId: jobId, originBatchId: b2, draft: { kind: "entity", name: "任务引擎域", digest: "job/stage/batch 三表", scene: "测试场景", status: "confirmed", layer: "L1" } }),
+      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "日常落账规则", digest: "无批次来源", scene: "测试场景", status: "confirmed" } }),
     );
     const r = await rig.client.kg("kg.bootstrap.produce", { project: "alpha" });
     expect(r.ok).toBe(true);
@@ -428,7 +428,7 @@ describe("kg.node.update / kg.node.supersede 修正写面", () => {
   async function seeded(): Promise<{ rig: Rig; nodeId: string }> {
     const rig = await openRig();
     seedSynced(rig, rig.alpha, "a0");
-    const w = rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "待修正规则", digest: "旧 digest", body: "旧正文。", status: "confirmed" } });
+    const w = rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "待修正规则", digest: "旧 digest", scene: "测试场景", body: "旧正文。", status: "confirmed" } });
     expectOk(w);
     return { rig, nodeId: (w as { ok: true; nodeId: string }).nodeId };
   }
@@ -493,11 +493,11 @@ describe("kg.bootstrap.impact 连带推导", () => {
     const rig = await openRig();
     seedSynced(rig, rig.alpha, "a0");
     expectOk(
-      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "上游规则", digest: "被引用的上游", status: "confirmed" } }), // TR-1
-      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "下游甲", digest: "引用上游", status: "confirmed" } }), // E-1
-      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "下游乙", digest: "引用上游", status: "confirmed" } }), // E-2
-      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "已废下游", digest: "引用上游但已废弃", status: "confirmed" } }), // E-3
-      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "无关节点", digest: "不引用", status: "confirmed" } }), // E-4
+      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "上游规则", digest: "被引用的上游", scene: "测试场景", status: "confirmed" } }), // TR-1
+      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "下游甲", digest: "引用上游", scene: "测试场景", status: "confirmed" } }), // E-1
+      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "下游乙", digest: "引用上游", scene: "测试场景", status: "confirmed" } }), // E-2
+      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "已废下游", digest: "引用上游但已废弃", scene: "测试场景", status: "confirmed" } }), // E-3
+      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "无关节点", digest: "不引用", scene: "测试场景", status: "confirmed" } }), // E-4
       rig.write.write(rig.alpha, { kind: "addEdge", iterationId: ITER, srcId: "E-1", verb: "dependsOn", dstId: "TR-1" }),
       rig.write.write(rig.alpha, { kind: "addEdge", iterationId: ITER, srcId: "E-2", verb: "references", dstId: "TR-1" }),
       rig.write.write(rig.alpha, { kind: "addEdge", iterationId: ITER, srcId: "E-3", verb: "dependsOn", dstId: "TR-1" }),

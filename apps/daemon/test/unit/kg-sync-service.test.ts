@@ -3,6 +3,7 @@ import type { KnowledgeGraphPort } from "../../src/application/ports/outbound/Kn
 import type { KnowledgeStorePort } from "../../src/application/ports/outbound/KnowledgeStorePort";
 import { KgSyncService } from "../../src/application/services/kg/KgSyncService";
 import type {
+  AnchorReverseHit,
   AttachmentSnapshot,
   ChangeLogEntry,
   IndexStatus,
@@ -100,6 +101,10 @@ class StubGraph implements KnowledgeGraphPort {
 
   getAttachmentSnapshot(): AttachmentSnapshot {
     return { nodes: [], fileAnchors: [], symbolAnchors: [], contains: [] };
+  }
+
+  reverseAnchorLookup(): readonly AnchorReverseHit[] {
+    return [];
   }
 
   search(): readonly NodeDigestRow[] {

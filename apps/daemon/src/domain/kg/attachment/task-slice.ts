@@ -50,13 +50,14 @@ export interface TaskSliceRenderOptions {
   readonly multiProject: boolean;
 }
 
-/** 单节点条目：粗体 name + kind 徽章 + digest + kg get 指针（与附着条目同构）。 */
+/** 单节点条目：粗体 name + kind 徽章 + digest + scene 段（空 scene 兑底省略）+ kg get 指针（与附着条目同构）。 */
 function renderEntry(candidate: TaskSliceRow, multiProject: boolean): string {
   const { row } = candidate;
   const pointer = multiProject
     ? `kg get ${row.id}（project: ${projectNameOf(candidate.project)}）`
     : `kg get ${row.id}`;
-  return `- **${row.name}** [${row.kind}] — ${row.digest}\n  ↳ ${pointer}`;
+  const sceneLine = row.scene !== "" ? `\n  适用：${row.scene}` : "";
+  return `- **${row.name}** [${row.kind}] — ${row.digest}${sceneLine}\n  ↳ ${pointer}`;
 }
 
 /** projectRoot 尾段即项目名（workspace 一级目录名；AD-16 项目名可见文本不受限）。 */

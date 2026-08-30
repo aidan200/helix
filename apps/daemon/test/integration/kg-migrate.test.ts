@@ -286,9 +286,9 @@ describe("T5.2 kg-migrate：apply 保号入库（AD-16）", () => {
     const ids = stack.graph.getVerifyView(root).nodes.map((n) => n.id);
     expect(parseExistingMax(ids)).toEqual({ rule: 11, entity: 3 });
     // 计数器口径与 parseExistingMax 一致：自动发号从 max+1 起
-    const nextRule = stack.service.write(root, { kind: "createNode", iterationId: "iter-x", draft: { kind: "rule", name: "新规则", digest: "d" } });
+    const nextRule = stack.service.write(root, { kind: "createNode", iterationId: "iter-x", draft: { kind: "rule", name: "新规则", digest: "d", scene: "测试场景" } });
     expect(nextRule).toEqual({ ok: true, nodeId: "TR-12" });
-    const nextEntity = stack.service.write(root, { kind: "createNode", iterationId: "iter-x", draft: { kind: "entity", name: "新实体", digest: "d" } });
+    const nextEntity = stack.service.write(root, { kind: "createNode", iterationId: "iter-x", draft: { kind: "entity", name: "新实体", digest: "d", scene: "测试场景" } });
     expect(nextEntity).toEqual({ ok: true, nodeId: "E-4" });
   });
 
@@ -416,7 +416,7 @@ describe("T5.2 显式保号 id 路径（上游 T1.1 契约修正：存量形态�
     const entityDraft = { kind: "entity" as const, name: "e", digest: "d" };
     expect(service.write(root, { kind: "createNode", iterationId: "iter-1", draft: entityDraft, id: "E-客户" })).toEqual({ ok: true, nodeId: "E-客户" });
     // 非数字尾缀不推进计数器：下一自动号从 47+1 起（TR-TEST-8 已 bump 到 8、TR-AD-47 到 47）
-    const next = service.write(root, { kind: "createNode", iterationId: "iter-1", draft: ruleDraft });
+    const next = service.write(root, { kind: "createNode", iterationId: "iter-1", draft: { ...ruleDraft, scene: "测试场景" } });
     expect(next).toEqual({ ok: true, nodeId: "TR-48" });
 
     const bad1 = service.write(root, { kind: "createNode", iterationId: "iter-1", draft: ruleDraft, id: "SPEC-2" });

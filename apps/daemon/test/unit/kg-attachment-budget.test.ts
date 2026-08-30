@@ -12,11 +12,11 @@ import { renderAttachment } from "../../src/domain/kg/attachment/render";
  */
 
 function symbolAnchor(nodeId: string, name: string, digest: string): MatchedAnchor {
-  return { nodeId, kind: "rule", name, digest, domain: "symbol", layer: 1 };
+  return { nodeId, kind: "rule", name, digest, scene: "", domain: "symbol", layer: 1 };
 }
 
 function pathAnchor(nodeId: string, name: string, digest: string): MatchedAnchor {
-  return { nodeId, kind: "rule", name, digest, domain: "path", layer: 4 };
+  return { nodeId, kind: "rule", name, digest, scene: "", domain: "path", layer: 4 };
 }
 
 describe("applyBudget：会话级去重（CL-1.A3）", () => {

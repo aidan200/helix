@@ -37,6 +37,8 @@ export interface KnowledgeNode {
   readonly kind: NodeKind;
   readonly name: string;
   readonly digest: string;
+  /** 适用场景（R23：「本规则适用于改动 X 类文件 / 做 Y 类决策前」；存量未回填 = ''）。 */
+  readonly scene: string;
   readonly body: string;
   readonly domain: NodeDomain | null;
   readonly layer: NodeLayer | null;
@@ -113,6 +115,40 @@ export interface MaterializedAnchor {
   readonly orphan?: boolean;
 }
 
+// ── 候选台账（D0/R1-R3：md 四分区库内化；写面唯一走 KgWriteService） ──
+
+/** 候选类型封闭词表（service 层校验——同 edges 词表不进 DDL 先例；sediment=闭环发现沉淀）。 */
+export const CANDIDATE_KINDS = ["sediment"] as const;
+
+export type CandidateKind = (typeof CANDIDATE_KINDS)[number];
+
+/** 候选状态机：pending→applied/discarded/deferred（applied/discarded 为终态；deferred 可再裁决）。 */
+export type CandidateStatus = "pending" | "applied" | "discarded" | "deferred";
+
+/** decideCandidate 裁决动作（pending 留在原地非裁决动作，故不在内）。 */
+export type CandidateDecision = "applied" | "discarded" | "deferred";
+
+/** defer 软上限（D0：积压 ≤10 条 / 年龄 ≤2——service 层只警告不拒绝，机械只列不修）。 */
+export const CANDIDATE_DEFER_MAX_AGE = 2;
+export const CANDIDATE_DEFER_MAX_PENDING = 10;
+
+/** 候选行（candidates 表读面形状；ts ISO 8601）。 */
+export interface CandidateRow {
+  readonly id: string;
+  readonly formalId: string | null;
+  readonly kind: CandidateKind;
+  readonly title: string;
+  readonly body: string;
+  readonly status: CandidateStatus;
+  readonly sourceTaskId: string | null;
+  readonly sourceIterationId: string | null;
+  readonly deferAge: number;
+  readonly createdAt: string;
+  readonly decidedAt: string | null;
+  readonly decisionReason: string | null;
+  readonly appliedNodeId: string | null;
+}
+
 // ── 变更日志（supersede 链载体，AD-9 库内审计界面） ──────────
 
 /** 写 op 种类（KnowledgeWriteOp 判别值；change_log.op 取值同源）。 */
@@ -122,7 +158,9 @@ export type KnowledgeWriteOpKind =
   | "supersede"
   | "declareAnchors"
   | "addEdge"
-  | "batchCreateNodes";
+  | "batchCreateNodes"
+  | "proposeCandidate"
+  | "decideCandidate";
 
 /**
  * 变更日志行：每 op 自动追加（迭代 id/op/nodeId/supersede_of/理由/时间）。
@@ -151,6 +189,12 @@ export interface NodeDraft {
   readonly name: string;
   /** ≤2 行摘要（v1 digest 约定沿用；越界 → KG_E_SCHEMA）。 */
   readonly digest: string;
+  /**
+   * 适用场景（R23 沉淀必填）：自动发号 createNode/batchCreateNodes 必带
+   * （KgWriteService 校验机械强制，缺 → KG_E_SCHEMA）；显式保号 id（迁移
+   *   通道）与 supersede replacement 可缺省（存量回填归 kg-review）。
+   */
+  readonly scene?: string;
   readonly body?: string;
   readonly domain?: NodeDomain;
   readonly layer?: NodeLayer;
@@ -227,6 +271,28 @@ export type KnowledgeWriteOp =
   | (KnowledgeWriteOpBase & {
       readonly kind: "batchCreateNodes";
       readonly nodes: readonly CreateNodePayload[];
+    })
+  | (KnowledgeWriteOpBase & {
+      readonly kind: "proposeCandidate";
+      readonly candidateKind: CandidateKind;
+      readonly title: string;
+      readonly body?: string;
+      /** 来源任务（findings 闭环自动落账时机械注入，AD-10 三路径同源）。 */
+      readonly sourceTaskId?: string;
+      readonly sourceIterationId?: string;
+      /** 显式保号 id（CAND-n；仅 md 台账一次性迁移场景，同 createNode 保号先例）。 */
+      readonly id?: string;
+    })
+  | (KnowledgeWriteOpBase & {
+      readonly kind: "decideCandidate";
+      readonly candidateId: string;
+      readonly decision: CandidateDecision;
+      /** 人审理由（discarded 必带；落 decision_reason + change_log 审计）。 */
+      readonly reason?: string;
+      /** 正式编号（applied 时签发；终验人审前恒 NULL）。 */
+      readonly formalId?: string;
+      /** apply 后落到的节点 id（溯源）。 */
+      readonly appliedNodeId?: string;
     });
 
 // ── 写结果（结构化错误） ────────────────────────────────────
@@ -248,8 +314,15 @@ export interface KgWriteError {
   readonly path?: string;
 }
 
-/** 写结果：nodeId = 受影响节点（create/supersede+replacement = 新发号）。 */
-export type WriteResult = { readonly ok: true; readonly nodeId: NodeId } | { readonly ok: false; readonly error: KgWriteError };
+/** 写结果：nodeId = 受影响节点（create/supersede+replacement = 新发号；候选 op = CAND id）。 */
+export type WriteResult =
+  | {
+      readonly ok: true;
+      readonly nodeId: NodeId;
+      /** 软告警（defer 上限等「只警告不拒绝」面——机械只列不修；缺省无告警）。 */
+      readonly warning?: string;
+    }
+  | { readonly ok: false; readonly error: KgWriteError };
 
 // ── 符号层（sync 管道数据面，T2.2 产生） ────────────────────
 
@@ -388,6 +461,25 @@ export interface EngineUnavailableInfo {
   readonly reason: string;
 }
 
+// ── 锚反查（R20：materialized_anchors 反查管辖节点；affected op 数据面） ──
+
+/**
+ * 锚反查命中行（reverseAnchorLookup 返回）：目标文件/符号 → 管辖节点摘要。
+ * viaDecl=true 表示该命中来自 anchor_decl 声明反查（锚尚未物化——索引未建
+ *   或符号面未同步；物化命中恒 false）。scene 存量未回填 = ''（渲染层兑底）。
+ */
+export interface AnchorReverseHit {
+  readonly nodeId: NodeId;
+  readonly kind: NodeKind;
+  readonly name: string;
+  readonly digest: string;
+  readonly scene: string;
+  readonly anchorKind: AnchorKind;
+  readonly anchorPath: string;
+  readonly anchorSymbol: string | null;
+  readonly viaDecl: boolean;
+}
+
 // ── 读面（附着/注入/详情/状态） ─────────────────────────────
 
 /**
@@ -398,6 +490,8 @@ export interface AttachmentAnchor extends MaterializedAnchor {
   readonly nodeKind: NodeKind;
   readonly nodeName: string;
   readonly nodeDigest: string;
+  /** 节点适用场景（R23 渲染数据源）。 */
+  readonly nodeScene: string;
   readonly nodeStatus: NodeStatus;
 }
 
@@ -411,6 +505,8 @@ export interface KgNodeDigestRow {
   readonly name: string;
   /** ≤2 行摘要。 */
   readonly digest: string;
+  /** 适用场景（R23；存量未回填 = ''）。 */
+  readonly scene: string;
   /** 锚作用域域别（global 为防御性过滤键）。 */
   readonly scopeKind: AnchorScopeKind;
 }
@@ -474,6 +570,8 @@ export interface NodeDigestRow {
   readonly kind: NodeKind;
   readonly name: string;
   readonly digest: string;
+  /** 适用场景（R23 索引面渲染数据源；存量未回填 = ''，渲染层兑底省略）。 */
+  readonly scene: string;
   readonly status: NodeStatus;
   readonly domain: NodeDomain | null;
 }

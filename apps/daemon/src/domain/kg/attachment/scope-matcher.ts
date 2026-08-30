@@ -29,6 +29,8 @@ export interface MatchedAnchor {
   readonly kind: KgNodeDigestRow["kind"];
   readonly name: string;
   readonly digest: string;
+  /** 适用场景（R23 渲染数据源；存量未回填 = ''，渲染层兑底省略）。 */
+  readonly scene: string;
   /** 命中域：L1/L2/L3=symbol，L4=path。 */
   readonly domain: AnchorDomain;
   /** 命中层（诊断与测试断言用；1 最特异）。 */
@@ -181,6 +183,7 @@ export function matchAnchors(
         kind: n.kind,
         name: n.name,
         digest: n.digest,
+        scene: n.scene,
         domain: hit.domain,
         layer: hit.layer,
       });

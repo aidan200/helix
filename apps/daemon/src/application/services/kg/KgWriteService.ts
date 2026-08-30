@@ -1,14 +1,15 @@
 import type { KnowledgeStorePort } from "../../ports/outbound/KnowledgeStorePort";
-import { EDGE_VERBS } from "../../../domain/kg/types";
+import { CANDIDATE_KINDS, EDGE_VERBS } from "../../../domain/kg/types";
 import type {
   AnchorScopeKind,
+  CandidateDecision,
   KgWriteError,
   KnowledgeWriteOp,
   NodeDraft,
   NodeStatus,
   WriteResult,
 } from "../../../domain/kg/types";
-import { parseMigrationId } from "../../../domain/kg/node-id";
+import { parseCandidateId, parseMigrationId } from "../../../domain/kg/node-id";
 
 /**
  * KgWriteService —— kg service API（F2.3，AD-9「schema 校验即防线」的
@@ -53,12 +54,15 @@ const OP_KINDS = new Set<KnowledgeWriteOp["kind"]>([
   "declareAnchors",
   "addEdge",
   "batchCreateNodes",
+  "proposeCandidate",
+  "decideCandidate",
 ]);
 const NODE_KINDS = new Set(["rule", "entity"]);
 const NODE_DOMAINS = new Set(["tech", "business"]);
 const NODE_LAYERS = new Set(["L0", "L1", "L2"]);
 const CREATABLE_STATUSES = new Set<NodeStatus>(["draft", "confirmed"]);
 const SCOPE_KINDS = new Set<AnchorScopeKind>(["global", "path", "symbol"]);
+const CANDIDATE_DECISIONS = new Set<CandidateDecision>(["applied", "discarded", "deferred"]);
 
 /**
  * op 形态校验（未知结构/缺必填/枚举越界/digest 超行/verb 越界/显式 id
@@ -104,6 +108,10 @@ export function validateKnowledgeWriteOp(op: unknown): KgWriteError | null {
       return validateAddEdge(candidate);
     case "batchCreateNodes":
       return validateBatchCreateNodes(candidate);
+    case "proposeCandidate":
+      return validateProposeCandidate(candidate);
+    case "decideCandidate":
+      return validateDecideCandidate(candidate);
     default:
       // kind 已在上方 OP_KINDS 校验，走到 default 不可达；静态兑底防未来加 kind 漏 case。
       return schemaError("未知 op.kind", "op.kind");
@@ -114,7 +122,10 @@ export function validateKnowledgeWriteOp(op: unknown): KgWriteError | null {
  * createNode 载荷校验（单条与批量逐项共用，O-5 混用等价；basePath 定位到
  * op（单条）或 op.nodes[i]（批量）——错误路径同源）。 */
 function validateCreateNodePayload(record: Record<string, unknown>, basePath: string): KgWriteError | null {
-  const draftError = validateNodeDraft(record.draft, `${basePath}.draft`);
+  // R23 沉淀必填：自动发号通道 scene 必带（机械强制，缺了写不进去）；
+  // 显式保号 id（迁移通道）豁免——存量节点回填归 kg-review，不在写入面强制。
+  const sceneRequired = record.id === undefined;
+  const draftError = validateNodeDraft(record.draft, `${basePath}.draft`, { sceneRequired });
   if (draftError !== null) return draftError;
   if (record.id !== undefined) {
     const id = record.id;
@@ -206,7 +217,8 @@ function validateSupersede(op: Record<string, unknown>): KgWriteError | null {
     return schemaError("reason 必填（推翻理由进 change_log 审计链）", "op.reason");
   }
   if (op.replacementNodeDraft !== undefined) {
-    return validateNodeDraft(op.replacementNodeDraft, "op.replacementNodeDraft");
+    // replacement 草稿 scene 可缺省（brief 范围：必填仅 createNode/batchCreateNodes）；携带则须合法
+    return validateNodeDraft(op.replacementNodeDraft, "op.replacementNodeDraft", { sceneRequired: false });
   }
   return null;
 }
@@ -268,9 +280,60 @@ function validateAddEdge(op: Record<string, unknown>): KgWriteError | null {
   return null;
 }
 
+// ── 候选台账 op 校验（D0/R2） ─────────────────────────────
+
+function validateProposeCandidate(op: Record<string, unknown>): KgWriteError | null {
+  if (typeof op.candidateKind !== "string" || !(CANDIDATE_KINDS as readonly string[]).includes(op.candidateKind)) {
+    return schemaError(
+      `candidateKind 不在封闭词表（合法集合：${CANDIDATE_KINDS.join(" / ")}）`,
+      "op.candidateKind",
+    );
+  }
+  const titleError = requireNonEmptyString(op.title, "title");
+  if (titleError !== null) return withPath(titleError, "op.title");
+  if (op.body !== undefined && typeof op.body !== "string") {
+    return schemaError("body 必须为字符串", "op.body");
+  }
+  for (const key of ["sourceTaskId", "sourceIterationId"] as const) {
+    if (op[key] !== undefined && (typeof op[key] !== "string" || (op[key] as string).trim() === "")) {
+      return schemaError(`${key} 若携带必须为非空字符串（溯源列）`, `op.${key}`);
+    }
+  }
+  if (op.id !== undefined) {
+    if (typeof op.id !== "string" || parseCandidateId(op.id) === null) {
+      return schemaError("显式 id 仅限 md 台账迁移保号场景，形态必须为 CAND-<seq>（如 CAND-12）", "op.id");
+    }
+  }
+  return null;
+}
+
+function validateDecideCandidate(op: Record<string, unknown>): KgWriteError | null {
+  if (typeof op.candidateId !== "string" || op.candidateId.trim() === "") {
+    return schemaError("candidateId 必填（非空字符串，CAND-<seq>）", "op.candidateId");
+  }
+  if (typeof op.decision !== "string" || !CANDIDATE_DECISIONS.has(op.decision as CandidateDecision)) {
+    return schemaError(
+      `decision 仅接受 ${[...CANDIDATE_DECISIONS].join(" / ")}（pending 留在原地非裁决动作）`,
+      "op.decision",
+    );
+  }
+  if (op.reason !== undefined && (typeof op.reason !== "string" || op.reason.trim() === "")) {
+    return schemaError("reason 若携带必须为非空字符串（人审理由落 decision_reason + change_log）", "op.reason");
+  }
+  if (op.decision === "discarded" && op.reason === undefined) {
+    return schemaError("discarded 必带 reason（丢弃理由是人审审计的最低要求，D0）", "op.reason");
+  }
+  for (const key of ["formalId", "appliedNodeId"] as const) {
+    if (op[key] !== undefined && (typeof op[key] !== "string" || (op[key] as string).trim() === "")) {
+      return schemaError(`${key} 若携带必须为非空字符串`, `op.${key}`);
+    }
+  }
+  return null;
+}
+
 // ── 叶子校验 ───────────────────────────────────────────────
 
-function validateNodeDraft(draft: unknown, path: string): KgWriteError | null {
+function validateNodeDraft(draft: unknown, path: string, options: { sceneRequired: boolean }): KgWriteError | null {
   if (draft === null || typeof draft !== "object" || Array.isArray(draft)) {
     return schemaError("节点草稿必须为对象", path);
   }
@@ -282,6 +345,17 @@ function validateNodeDraft(draft: unknown, path: string): KgWriteError | null {
   if (nameError !== null) return withPath(nameError, `${path}.name`);
   const digestError = requireDigest(record.digest);
   if (digestError !== null) return withPath(digestError, `${path}.digest`);
+  // R23 适用场景：必填通道缺/空白 → 拒绝；可选通道携带时仍须非空字符串
+  if (record.scene === undefined) {
+    if (options.sceneRequired) {
+      return schemaError(
+        "scene 必填（R23 沉淀必填：「本规则适用于：改动 X 类文件 / 做 Y 类决策前」——缺了写不进去）",
+        `${path}.scene`,
+      );
+    }
+  } else if (typeof record.scene !== "string" || record.scene.trim() === "") {
+    return schemaError("scene 必须为非空字符串（适用场景一句话）", `${path}.scene`);
+  }
   if (record.body !== undefined && typeof record.body !== "string") {
     return schemaError("body 必须为字符串", `${path}.body`);
   }

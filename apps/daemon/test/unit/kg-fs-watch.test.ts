@@ -14,6 +14,7 @@ import {
 import { KgSyncService } from "../../src/application/services/kg/KgSyncService";
 import { FsWatchAdapter } from "../../src/adapters/driven/fs-watch/FsWatchAdapter";
 import type {
+  AnchorReverseHit,
   AttachmentSnapshot,
   ChangeLogEntry,
   IndexStatus,
@@ -135,6 +136,10 @@ class StubGraph implements KnowledgeGraphPort {
 
   getAttachmentSnapshot(): AttachmentSnapshot {
     return { nodes: [], fileAnchors: [], symbolAnchors: [], contains: [] };
+  }
+
+  reverseAnchorLookup(): readonly AnchorReverseHit[] {
+    return [];
   }
 
   search(): readonly NodeDigestRow[] {

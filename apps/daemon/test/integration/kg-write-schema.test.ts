@@ -63,7 +63,7 @@ function knowledgeCounts(root: string): { nodes: number; anchor_decl: number; ch
   }
 }
 
-const validDraft = { kind: "rule" as const, name: "写点唯一", digest: "SQLite 写语句只允许出现在白名单写点" };
+const validDraft = { kind: "rule" as const, name: "写点唯一", digest: "SQLite 写语句只允许出现在白名单写点", scene: "测试场景" };
 
 describe("kg service API schema 防线（CL-2.A10）", () => {
   test("① 未知 op kind → KG_E_SCHEMA + 字段路径 op.kind，库零写入", () => {
@@ -87,7 +87,7 @@ describe("kg service API schema 防线（CL-2.A10）", () => {
     const noName = service.write(root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", digest: "d" },
+      draft: { kind: "rule", digest: "d", scene: "测试场景" },
     } as unknown as KnowledgeWriteOp);
     expect(noName).toEqual({
       ok: false,
@@ -105,7 +105,7 @@ describe("kg service API schema 防线（CL-2.A10）", () => {
     const badKind = service.write(root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "ad-hoc", name: "n", digest: "d" },
+      draft: { kind: "ad-hoc", name: "n", digest: "d", scene: "测试场景" },
     } as unknown as KnowledgeWriteOp);
     expect(badKind.ok).toBe(false);
     if (!badKind.ok) {
@@ -120,7 +120,7 @@ describe("kg service API schema 防线（CL-2.A10）", () => {
     const result = service.write(root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "n", digest: "第一行\n第二行\n第三行" },
+      draft: { kind: "rule", name: "n", digest: "第一行\n第二行\n第三行", scene: "测试场景" },
     });
     expect(result).toEqual({
       ok: false,
@@ -131,7 +131,7 @@ describe("kg service API schema 防线（CL-2.A10）", () => {
     const edge = service.write(root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "n", digest: "第一行\n第二行" },
+      draft: { kind: "rule", name: "n", digest: "第一行\n第二行", scene: "测试场景" },
     });
     expect(edge.ok).toBe(true);
   });

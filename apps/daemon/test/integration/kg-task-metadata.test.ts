@@ -184,7 +184,7 @@ describe("createNode 任务元数据（layer / originBatchId / taskId）落值",
       iterationId: "iter-meta",
       taskId: "job-7",
       originBatchId: "batch-9",
-      draft: { kind: "rule", name: "带任务元数据的规则", digest: "摘要", layer: "L1", status: "confirmed" },
+      draft: { kind: "rule", name: "带任务元数据的规则", digest: "摘要", scene: "测试场景", layer: "L1", status: "confirmed" },
     });
     expect(result).toEqual({ ok: true, nodeId: "TR-1" });
     const node = rowsOf(s.root, "SELECT * FROM nodes WHERE id = 'TR-1'")[0]!;
@@ -205,7 +205,7 @@ describe("createNode 任务元数据（layer / originBatchId / taskId）落值",
     const result = s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-plain",
-      draft: { kind: "rule", name: "普通规则", digest: "摘要" },
+      draft: { kind: "rule", name: "普通规则", digest: "摘要", scene: "测试场景" },
     });
     expect(result).toEqual({ ok: true, nodeId: "TR-1" });
     const node = rowsOf(s.root, "SELECT * FROM nodes WHERE id = 'TR-1'")[0]!;
@@ -225,7 +225,7 @@ describe("createNode 任务元数据（layer / originBatchId / taskId）落值",
       kind: "createNode",
       iterationId: "iter-bad",
       taskId: 42,
-      draft: { kind: "rule", name: "n", digest: "d" },
+      draft: { kind: "rule", name: "n", digest: "d", scene: "测试场景" },
     } as unknown as KnowledgeWriteOp);
     expect(bad1.ok).toBe(false);
     if (!bad1.ok) {
@@ -236,7 +236,7 @@ describe("createNode 任务元数据（layer / originBatchId / taskId）落值",
       kind: "createNode",
       iterationId: "iter-bad",
       originBatchId: "  ",
-      draft: { kind: "rule", name: "n", digest: "d" },
+      draft: { kind: "rule", name: "n", digest: "d", scene: "测试场景" },
     } as unknown as KnowledgeWriteOp);
     expect(bad2.ok).toBe(false);
     if (!bad2.ok) {
@@ -253,7 +253,7 @@ describe("batchCreateNodes（先全量校验后单事务，失败整批回滚）
   test("① 5 节点单 op → 全部落库 + 逐节点元数据齐 + change_log 逐行 task_id 记账", () => {
     const s = freshStack();
     const nodes = [1, 2, 3, 4, 5].map((i): CreateNodePayload => ({
-      draft: { kind: "rule", name: `批量规则 ${i}`, digest: `第 ${i} 条摘要`, layer: "L2", status: "confirmed" },
+      draft: { kind: "rule", name: `批量规则 ${i}`, digest: `第 ${i} 条摘要`, scene: "测试场景", layer: "L2", status: "confirmed" },
     }));
     const result = s.service.write(s.root, {
       kind: "batchCreateNodes",
@@ -287,10 +287,10 @@ describe("batchCreateNodes（先全量校验后单事务，失败整批回滚）
       kind: "batchCreateNodes",
       iterationId: "iter-batch",
       nodes: [
-        { draft: { kind: "rule", name: "好 1", digest: "d1" } },
-        { draft: { kind: "rule", name: "好 2", digest: "d2" } },
-        { draft: { kind: "rule", name: "坏 3", digest: "一\n二\n三" } },
-        { draft: { kind: "rule", name: "好 4", digest: "d4" } },
+        { draft: { kind: "rule", name: "好 1", digest: "d1", scene: "测试场景" } },
+        { draft: { kind: "rule", name: "好 2", digest: "d2", scene: "测试场景" } },
+        { draft: { kind: "rule", name: "坏 3", digest: "一\n二\n三", scene: "测试场景" } },
+        { draft: { kind: "rule", name: "好 4", digest: "d4", scene: "测试场景" } },
       ],
     });
     expect(result.ok).toBe(false);
@@ -310,9 +310,9 @@ describe("batchCreateNodes（先全量校验后单事务，失败整批回滚）
       iterationId: "iter-batch",
       taskId: "job-x",
       nodes: [
-        { id: "TR-100", draft: { kind: "rule", name: "先落", digest: "d1" } },
-        { id: "TR-100", draft: { kind: "rule", name: "撞号", digest: "d2" } },
-        { draft: { kind: "rule", name: "第三", digest: "d3" } },
+        { id: "TR-100", draft: { kind: "rule", name: "先落", digest: "d1", scene: "测试场景" } },
+        { id: "TR-100", draft: { kind: "rule", name: "撞号", digest: "d2", scene: "测试场景" } },
+        { draft: { kind: "rule", name: "第三", digest: "d3", scene: "测试场景" } },
       ],
     });
     expect(result.ok).toBe(false);
@@ -355,8 +355,8 @@ describe("batchCreateNodes（先全量校验后单事务，失败整批回滚）
       kind: "batchCreateNodes",
       iterationId: "iter-batch",
       nodes: [
-        { draft: { kind: "entity", name: "实体", digest: "d" } },
-        { id: "TR-9", draft: { kind: "entity", name: "前缀错", digest: "d" } },
+        { draft: { kind: "entity", name: "实体", digest: "d", scene: "测试场景" } },
+        { id: "TR-9", draft: { kind: "entity", name: "前缀错", digest: "d", scene: "测试场景" } },
       ],
     });
     expect(result.ok).toBe(false);
@@ -378,7 +378,7 @@ describe("混用等价：3 单条 + 1 批量(2) 与 5 单条结果集相等", ()
     const draftOf = (i: number): NodeDraft => ({
       kind: "rule",
       name: `混用规则 ${i}`,
-      digest: `第 ${i} 条摘要`,
+      digest: `第 ${i} 条摘要`, scene: "测试场景",
       layer: "L1",
       status: "confirmed",
     });

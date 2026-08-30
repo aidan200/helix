@@ -7,6 +7,7 @@ import type {
   AnchorDeclaration,
   AnchorDeclRow,
   AnchorKind,
+  AnchorReverseHit,
   AttachmentAnchor,
   AttachmentSnapshot,
   ChangeLogEntry,
@@ -61,7 +62,7 @@ export class SqliteKnowledgeGraph {
     // orphan 锚不进快照——T2.2 失效标记即附着静默）
     const flat = db
       .prepare(
-        "SELECT ma.node_id, ma.anchor_path, ma.anchor_symbol, ma.anchor_kind, n.kind, n.name, n.digest, n.status " +
+        "SELECT ma.node_id, ma.anchor_path, ma.anchor_symbol, ma.anchor_kind, n.kind, n.name, n.digest, n.scene, n.status " +
           "FROM materialized_anchors ma JOIN nodes n ON n.id = ma.node_id " +
           "WHERE n.status != 'superseded' AND ma.orphan = 0 " +
           "ORDER BY ma.node_id, ma.anchor_path, ma.anchor_symbol",
@@ -75,12 +76,13 @@ export class SqliteKnowledgeGraph {
       nodeKind: row.kind as NodeKind,
       nodeName: row.name,
       nodeDigest: row.digest,
+      nodeScene: row.scene,
       nodeStatus: row.status as NodeStatus,
     }));
 
     // nodes：按 nodeId 去重（有序稳定基序；scopeKind 取该节点最特异锚域，
     // 仅供匹配层防御性 global 过滤——global 声明本就不物化）
-    const nodesById = new Map<string, { id: string; kind: NodeKind; name: string; digest: string; scopeKind: "symbol" | "path" }>();
+    const nodesById = new Map<string, { id: string; kind: NodeKind; name: string; digest: string; scene: string; scopeKind: "symbol" | "path" }>();
     for (const anchor of anchors) {
       const existing = nodesById.get(anchor.nodeId);
       if (existing === undefined || (existing.scopeKind === "path" && anchor.anchorKind === "symbol")) {
@@ -89,6 +91,7 @@ export class SqliteKnowledgeGraph {
           kind: anchor.nodeKind,
           name: anchor.nodeName,
           digest: anchor.nodeDigest,
+          scene: anchor.nodeScene,
           scopeKind: anchor.anchorKind,
         });
       }
@@ -131,7 +134,7 @@ export class SqliteKnowledgeGraph {
     const like = `%${escaped}%`;
     const rows = db
       .prepare(
-        "SELECT id, kind, name, digest, status, domain FROM nodes " +
+        "SELECT id, kind, name, digest, scene, status, domain FROM nodes " +
           "WHERE name LIKE ? ESCAPE '\\' OR digest LIKE ? ESCAPE '\\' ORDER BY id",
       )
       .all(like, like) as DigestRow[];
@@ -140,16 +143,84 @@ export class SqliteKnowledgeGraph {
       kind: row.kind as NodeKind,
       name: row.name,
       digest: row.digest,
+      scene: row.scene,
       status: row.status as NodeStatus,
       domain: (row.domain as NodeDomain | null) ?? null,
     }));
+  }
+
+  /**
+   * 锚反查（R20）：target = 相对路径 / 符号名 / path#symbol → 活跃物化锚
+   * （orphan=0）join 非 superseded 节点；物化零命中节点退查 anchor_decl
+   * 声明（viaDecl=true）。只读 SELECT（AG-06）。
+   */
+  reverseAnchorLookup(projectRoot: string, target: string): readonly AnchorReverseHit[] {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const materialized = (
+      db
+        .prepare(
+          "SELECT ma.node_id, ma.anchor_kind, ma.anchor_path, ma.anchor_symbol, n.kind, n.name, n.digest, n.scene " +
+            "FROM materialized_anchors ma JOIN nodes n ON n.id = ma.node_id " +
+            "WHERE ma.orphan = 0 AND n.status != 'superseded' " +
+            "AND (ma.anchor_path = ? OR ma.anchor_symbol = ? OR (ma.anchor_path || '#' || ma.anchor_symbol) = ?) " +
+            "ORDER BY ma.node_id, ma.anchor_kind, ma.anchor_path, ma.anchor_symbol",
+        )
+        .all(target, target, target) as ReverseRow[]
+    ).map<AnchorReverseHit>((row) => ({
+      nodeId: row.node_id,
+      kind: row.kind as NodeKind,
+      name: row.name,
+      digest: row.digest,
+      scene: row.scene,
+      anchorKind: row.anchor_kind as AnchorKind,
+      anchorPath: row.anchor_path,
+      anchorSymbol: row.anchor_symbol === "" ? null : row.anchor_symbol,
+      viaDecl: false,
+    }));
+    const hitNodes = new Set(materialized.map((h) => h.nodeId));
+    // 声明反查兑底（「必要时结合 anchor_decl」）：path/symbol 声明 pattern 按
+    // path#symbol 拆解匹配（全等 / path 段 / symbol 段；glob 不展开）；已
+    // 物化命中的节点不重复出声明行（物化优先）。
+    const decls = db
+      .prepare(
+        "SELECT ad.node_id, ad.scope_kind, ad.pattern, n.kind, n.name, n.digest, n.scene " +
+          "FROM anchor_decl ad JOIN nodes n ON n.id = ad.node_id " +
+          "WHERE n.status != 'superseded' AND ad.scope_kind IN ('path','symbol') " +
+          "ORDER BY ad.node_id, ad.scope_kind, ad.pattern",
+      )
+      .all() as DeclJoinRow[];
+    const out = [...materialized];
+    const declSeen = new Set<string>();
+    for (const row of decls) {
+      if (hitNodes.has(row.node_id)) continue;
+      const hashIndex = row.pattern.indexOf("#");
+      const pathPart = hashIndex === -1 ? row.pattern : row.pattern.slice(0, hashIndex);
+      const symbolPart = hashIndex === -1 ? null : row.pattern.slice(hashIndex + 1);
+      const matched =
+        target === row.pattern || target === pathPart || (symbolPart !== null && symbolPart !== "" && target === symbolPart);
+      if (!matched) continue;
+      if (declSeen.has(row.node_id)) continue;
+      declSeen.add(row.node_id);
+      out.push({
+        nodeId: row.node_id,
+        kind: row.kind as NodeKind,
+        name: row.name,
+        digest: row.digest,
+        scene: row.scene,
+        anchorKind: row.scope_kind as AnchorKind,
+        anchorPath: pathPart,
+        anchorSymbol: symbolPart,
+        viaDecl: true,
+      });
+    }
+    return out;
   }
 
   getNode(projectRoot: string, id: string): NodeDetail | null {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     const nodeRow = db
       .prepare(
-        "SELECT id, kind, name, digest, body, domain, layer, origin_batch_id, status, created_at, updated_at FROM nodes WHERE id = ?",
+        "SELECT id, kind, name, digest, scene, body, domain, layer, origin_batch_id, status, created_at, updated_at FROM nodes WHERE id = ?",
       )
       .get(id) as NodeRow | null;
     if (nodeRow === null) return null;
@@ -282,7 +353,7 @@ export class SqliteKnowledgeGraph {
     const db = this.deps.database.knowledgeConnection(projectRoot);
     const nodes = (
       db.prepare(
-        "SELECT id, kind, name, digest, body, domain, layer, origin_batch_id, status, created_at, updated_at FROM nodes ORDER BY id",
+        "SELECT id, kind, name, digest, scene, body, domain, layer, origin_batch_id, status, created_at, updated_at FROM nodes ORDER BY id",
       ).all() as NodeRow[]
     ).map(mapNode);
     const edges = (
@@ -456,6 +527,7 @@ function mapNode(row: NodeRow): KnowledgeNode {
     kind: row.kind as NodeKind,
     name: row.name,
     digest: row.digest,
+    scene: row.scene,
     body: row.body,
     domain: (row.domain as NodeDomain | null) ?? null,
     layer: (row.layer as NodeLayer | null) ?? null,
@@ -471,6 +543,7 @@ interface NodeRow {
   kind: string;
   name: string;
   digest: string;
+  scene: string;
   body: string;
   domain: string | null;
   layer: string | null;
@@ -488,6 +561,7 @@ interface SnapshotRow {
   kind: string;
   name: string;
   digest: string;
+  scene: string;
   status: string;
 }
 
@@ -496,6 +570,7 @@ interface DigestRow {
   kind: string;
   name: string;
   digest: string;
+  scene: string;
   status: string;
   domain: string | null;
 }
@@ -531,6 +606,23 @@ interface ActiveAnchorRow {
   anchor_path: string;
   anchor_symbol: string;
   anchor_kind: string;
+}
+
+interface ReverseRow extends ActiveAnchorRow {
+  kind: string;
+  name: string;
+  digest: string;
+  scene: string;
+}
+
+interface DeclJoinRow {
+  node_id: string;
+  scope_kind: string;
+  pattern: string;
+  kind: string;
+  name: string;
+  digest: string;
+  scene: string;
 }
 
 interface AnchorWithOrphanRow extends ActiveAnchorRow {

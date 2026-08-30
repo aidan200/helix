@@ -1,5 +1,6 @@
 import type {
   AnchorDeclRow,
+  AnchorReverseHit,
   AttachmentSnapshot,
   ChangeLogEntry,
   IndexStatus,
@@ -11,6 +12,7 @@ import type {
 
 export type {
   AnchorDeclRow,
+  AnchorReverseHit,
   AttachmentSnapshot,
   ChangeLogEntry,
   IndexStatus,
@@ -34,6 +36,15 @@ export interface KnowledgeGraphPort {
 
   /** search：name/digest LIKE 子串命中，按 id 确定性排序（重名多行靠 digest 区分）。 */
   search(projectRoot: string, q: string): readonly NodeDigestRow[];
+
+  /**
+   * 锚反查（R20 affected op 数据面）：target（相对路径 / 符号名 / path#symbol
+   * 复合形态）→ materialized_anchors 反查管辖节点摘要（orphan=0 且非
+   *   superseded；失效即静默与附着快照同纪律）；物化零命中的节点退查
+   *   anchor_decl 声明（viaDecl=true——锚未物化/索引未建的兑底面；glob
+   *   pattern 只做精确与 path/symbol 段匹配，不做 glob 展开）。
+   */
+  reverseAnchorLookup(projectRoot: string, target: string): readonly AnchorReverseHit[];
 
   /** 节点详情聚合（锚声明/物化锚/出入边/supersede 链/变更日志）；不存在返回 null。 */
   getNode(projectRoot: string, id: string): NodeDetail | null;

@@ -45,7 +45,7 @@ function createOp(iterationId: string, name: string) {
   return {
     kind: "createNode" as const,
     iterationId,
-    draft: { kind: "rule" as const, name, digest: "d" },
+    draft: { kind: "rule" as const, name, digest: "d", scene: "测试场景" },
   };
 }
 
@@ -73,7 +73,7 @@ describe("编号事务内分配（AD-16）", () => {
     const results = [
       s.service.write(s.root, createOp("iter-1", "r1")),
       s.service.write(s.root, createOp("iter-1", "r2")),
-      s.service.write(s.root, { ...createOp("iter-1", "e1"), draft: { kind: "entity" as const, name: "e1", digest: "d" } }),
+      s.service.write(s.root, { ...createOp("iter-1", "e1"), draft: { kind: "entity" as const, name: "e1", digest: "d", scene: "测试场景" } }),
     ];
     expect(results.map((r) => (r.ok ? r.nodeId : null))).toEqual(["TR-1", "TR-2", "E-1"]);
     expect(tableCount(s.root, "nodes")).toBe(3);

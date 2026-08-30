@@ -343,7 +343,7 @@ describe("kg 维护批（C1）：kg.graph.purge / kg.index.delete I 层", () => 
     const created = rig.write.write(rig.alpha, {
       kind: "createNode",
       iterationId: "iter-c1",
-      draft: { kind: "rule", name: "待清规则", digest: "purge 目标节点" },
+      draft: { kind: "rule", name: "待清规则", digest: "purge 目标节点", scene: "测试场景" },
     });
     expect(created.ok).toBe(true);
     const before = rig.bootstrap.eligibility(rig.alpha);
@@ -409,7 +409,7 @@ describe("kg 维护批（C1）：kg.graph.purge / kg.index.delete I 层", () => 
     rig.write.write(rig.alpha, {
       kind: "createNode",
       iterationId: "iter-c1",
-      draft: { kind: "entity", name: "保留实体", digest: "index-delete 不动知识层" },
+      draft: { kind: "entity", name: "保留实体", digest: "index-delete 不动知识层", scene: "测试场景" },
     });
     expect(rig.fsWatch.isWatching(rig.alpha)).toBe(true);
     const cgDir = plantCodegraph(rig.alpha);

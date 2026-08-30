@@ -86,9 +86,9 @@ describe("kg-update batchCreateNodes 薄壳（O-5：单条/批量两 op 并存�
     const r = await run(f, {
       op: "batchCreateNodes",
       nodes: [
-        { kind: "rule", name: "批量一", digest: "摘要一" },
-        { kind: "rule", name: "批量二", digest: "摘要二" },
-        { kind: "entity", name: "批量实体", digest: "摘要三", domain: "tech" },
+        { kind: "rule", name: "批量一", digest: "摘要一", scene: "测试场景" },
+        { kind: "rule", name: "批量二", digest: "摘要二", scene: "测试场景" },
+        { kind: "entity", name: "批量实体", digest: "摘要三", scene: "测试场景", domain: "tech" },
       ],
       iterationId: "iter-batch-tool",
     });
@@ -111,8 +111,8 @@ describe("kg-update batchCreateNodes 薄壳（O-5：单条/批量两 op 并存�
     const r = await run(f, {
       op: "batchCreateNodes",
       nodes: [
-        { kind: "rule", name: "好", digest: "d" },
-        { kind: "rule", name: "坏" },
+        { kind: "rule", name: "好", digest: "d", scene: "测试场景" },
+        { kind: "rule", name: "坏", scene: "测试场景" },
       ],
       iterationId: "iter-batch-tool",
     });
@@ -137,6 +137,7 @@ describe("kg-update batchCreateNodes 薄壳（O-5：单条/批量两 op 并存�
       kind: "rule",
       name: "单条回归",
       digest: "单条摘要",
+      scene: "测试场景",
       iterationId: "iter-single",
     });
     expect(r.ok).toBe(true);

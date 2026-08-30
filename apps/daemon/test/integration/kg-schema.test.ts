@@ -7,7 +7,7 @@ import { KgDatabase, kgDbPath } from "../../src/adapters/driven/sqlite-kg/KgData
 
 /**
  * I 层（真 SQLite tmp 库）：.helix-kg 冷启动建库 + nodes.status 三值枚举（CL-2.A11）。
- * 8 张域表（知识 4 + 符号 3 + 物化 1）+ meta KV；WAL 生效（journal_mode 断言）。
+ * 9 张域表（知识 4 + 符号 3 + 物化 1 + 候选 1）+ meta KV；WAL 生效（journal_mode 断言）。
  */
 
 const disposers: Array<() => void> = [];
@@ -27,7 +27,7 @@ afterAll(() => {
 });
 
 describe("kg 冷启动建库（CL-2.A1 存储半；AD-9/AD-13）", () => {
-  test("① .helix-kg 缺失的 projectRoot 首次打开 → 建库建表（8 张域表 + meta）且 WAL 生效", () => {
+  test("① .helix-kg 缺失的 projectRoot 首次打开 → 建库建表（9 张域表 + meta）且 WAL 生效", () => {
     const { root, database } = freshProject();
     expect(existsSync(kgDbPath(root))).toBe(false); // 前置：库不存在
     database.knowledgeConnection(root); // 首次打开（懒建）
@@ -44,6 +44,7 @@ describe("kg 冷启动建库（CL-2.A1 存储半；AD-9/AD-13）", () => {
       ).map((row) => row.name);
       expect(tables).toEqual([
         "anchor_decl",
+        "candidates",
         "change_log",
         "contains_edges",
         "edges",

@@ -54,7 +54,7 @@ describe("supersede 落库（I 半：翻 status 不换号 + change_log 链）", 
     const created = s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "旧规", digest: "旧规摘要" },
+      draft: { kind: "rule", name: "旧规", digest: "旧规摘要", scene: "测试场景" },
     });
     expect(created).toEqual({ ok: true, nodeId: "TR-1" });
 
@@ -94,7 +94,7 @@ describe("supersede 落库（I 半：翻 status 不换号 + change_log 链）", 
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "entity", name: "E1", digest: "d" },
+      draft: { kind: "entity", name: "E1", digest: "d", scene: "测试场景" },
     });
     const result = s.service.write(s.root, {
       kind: "supersede",
@@ -108,7 +108,7 @@ describe("supersede 落库（I 半：翻 status 不换号 + change_log 链）", 
     const next = s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-3",
-      draft: { kind: "entity", name: "E2", digest: "d" },
+      draft: { kind: "entity", name: "E2", digest: "d", scene: "测试场景" },
     });
     expect(next).toEqual({ ok: true, nodeId: "E-2" });
   });
@@ -129,7 +129,7 @@ describe("supersede 落库（I 半：翻 status 不换号 + change_log 链）", 
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "n", digest: "d" },
+      draft: { kind: "rule", name: "n", digest: "d", scene: "测试场景" },
     });
     s.service.write(s.root, { kind: "supersede", iterationId: "iter-2", nodeId: "TR-1", reason: "r" });
     const again = s.service.write(s.root, {
@@ -158,7 +158,7 @@ describe("supersede 落库（I 半：翻 status 不换号 + change_log 链）", 
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "A", digest: "dA" },
+      draft: { kind: "rule", name: "A", digest: "dA", scene: "测试场景" },
     });
     s.service.write(s.root, {
       kind: "supersede",

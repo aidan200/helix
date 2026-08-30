@@ -20,6 +20,7 @@ const A1: MatchedAnchor = {
   kind: "rule",
   name: "Renderer 约束",
   digest: "渲染必须走 Cyber HUD 体系，禁止另起风格。",
+  scene: "",
   domain: "symbol",
   layer: 2,
 };
@@ -29,6 +30,7 @@ const A2: MatchedAnchor = {
   kind: "entity",
   name: "render 入口",
   digest: "渲染入口实体，承接一次渲染调用的全部副作用。",
+  scene: "",
   domain: "symbol",
   layer: 1,
 };

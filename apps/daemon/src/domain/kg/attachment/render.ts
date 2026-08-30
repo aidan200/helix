@@ -17,9 +17,10 @@ export const ATTACHMENT_PROTOCOL_LINE =
 
 const HEADER = "📎 本次编辑命中以下知识节点（digest+指针，详情经 kg get 获取）：";
 
-/** 单节点条目：粗体 name + kind 徽章 + digest + kg get 指针。 */
+/** 单节点条目：粗体 name + kind 徽章 + digest + scene 段（空 scene 兑底省略）+ kg get 指针。 */
 function renderEntry(a: MatchedAnchor): string {
-  return `- **${a.name}** [${a.kind}] — ${a.digest}\n  ↳ kg get ${a.nodeId}`;
+  const sceneLine = a.scene !== "" ? `\n  适用：${a.scene}` : "";
+  return `- **${a.name}** [${a.kind}] — ${a.digest}${sceneLine}\n  ↳ kg get ${a.nodeId}`;
 }
 
 /** 渲染附着块；空选择返回 ''（沉默零成本）。 */

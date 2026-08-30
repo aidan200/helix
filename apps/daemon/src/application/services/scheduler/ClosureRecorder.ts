@@ -150,7 +150,7 @@ export class ClosureRecorder {
     if (sink === undefined) return; // 未装配（纯调度测试形态）：断头面保持静默
     const findings = closure.findings ?? [];
     if (findings.length === 0) return; // 显式「无」（空数组/null）：不落账不报错
-    for (const item of mapFindingsToOps(findings)) {
+    for (const item of mapFindingsToOps(findings, closure.taskId ?? undefined)) {
       if (!item.ok) {
         this.warnFindings(instanceId, `跳过（${item.reason}）`);
         continue;
@@ -197,19 +197,24 @@ export type FindingOp =
 /**
  * findings 数组 → kg 写 op 序列（F3.0③ 管道的映射面，纯函数）。
  *
- * 条目消费口径（与 SubAgent 报告模板 findings 段对齐，T4.2 段库）：
+ * 条目消费口径（与 SubAgent 报告模板 findings 段对齐，T4.2 段库）——
+ * **W1-C 改道（D0/R2）：sediment 条目不再直接建点/推翻，改写 candidates
+ * 表 pending 行**（proposeCandidate；落库后人审 decideCandidate 裁决——
+ * 候选写入权 MainAgent 单点，SubAgent 只能经本管道上报）：
  * - 仅 kind="sediment" 条目落账（deviation/issue/boundary 等无落账语义——
  *   全条目无 sediment 语义 = 显式「无」，零落账零报错）；
- * - changeType=新增 → createNode（必填 name/digest/iterationId；nodeKind
- *   可选 rule|entity 缺省 rule；body 可选）；
- * - changeType=修改/废弃 → supersede（必填 targetNode/reason/iterationId）；
+ * - changeType=新增 → title=name（必填；digest 等进 body）；
+ * - changeType=修改/废弃 → title=`${changeType}：${targetNode}`（targetNode
+ *   必填；reason 进 body——裁决与落地归人审，不在闭环现场直改节点）；
+ * - sourceIterationId=条目 iterationId（必填，缺了跳过）；sourceTaskId=
+ *   closure.taskId 机械注入（AD-10 三路径同源；非任务上下文 = 不携带）；
  * - 缺必填/形态非法 → 跳过（原因入 warn，不阻塞其余条目）。
  */
-export function mapFindingsToOps(findings: readonly unknown[]): readonly FindingOp[] {
-  return findings.map((entry) => findingOpOf(entry));
+export function mapFindingsToOps(findings: readonly unknown[], sourceTaskId?: string): readonly FindingOp[] {
+  return findings.map((entry) => findingOpOf(entry, sourceTaskId));
 }
 
-function findingOpOf(entry: unknown): FindingOp {
+function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingOp {
   if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
     return skip("条目非对象");
   }
@@ -218,38 +223,66 @@ function findingOpOf(entry: unknown): FindingOp {
     return skip(`kind=${String(record["kind"])} 无落账语义（仅 sediment 落账）`);
   }
   const iterationId = str(record["iterationId"]);
-  if (iterationId === undefined) return skip("缺 iterationId（change_log 每行必含迭代 id）");
+  if (iterationId === undefined) return skip("缺 iterationId（候选溯源列 source_iteration_id 必填）");
   const project = str(record["project"]);
   const changeType = record["changeType"];
+  const injected = sourceTaskId !== undefined ? { sourceTaskId } : {};
   if (changeType === "新增") {
     const name = str(record["name"]);
-    const digest = str(record["digest"]);
-    if (name === undefined) return skip("新增缺 name（节点名）");
-    if (digest === undefined) return skip("新增缺 digest（≤2 行摘要）");
-    const nodeKind = record["nodeKind"] === "entity" ? "entity" : "rule";
-    const body = str(record["body"]);
+    if (name === undefined) return skip("新增缺 name（候选标题）");
     return {
       ok: true,
       op: {
-        kind: "createNode",
+        kind: "proposeCandidate",
         iterationId,
-        draft: { kind: nodeKind, name, digest, ...(body !== undefined ? { body } : {}) },
+        candidateKind: "sediment",
+        title: name,
+        body: candidateBody(record),
+        sourceIterationId: iterationId,
+        ...injected,
       },
       ...(project !== undefined ? { project } : {}),
     };
   }
   if (changeType === "修改" || changeType === "废弃") {
     const targetNode = str(record["targetNode"]);
-    const reason = str(record["reason"]);
-    if (targetNode === undefined) return skip(`${changeType}缺 targetNode（supersede 目标节点 id）`);
-    if (reason === undefined) return skip(`${changeType}缺 reason（推翻理由入审计链）`);
+    if (targetNode === undefined) return skip(`${changeType}缺 targetNode（候选标题定位目标节点）`);
     return {
       ok: true,
-      op: { kind: "supersede", iterationId, nodeId: targetNode, reason },
+      op: {
+        kind: "proposeCandidate",
+        iterationId,
+        candidateKind: "sediment",
+        title: `${changeType}：${targetNode}`,
+        body: candidateBody(record),
+        sourceIterationId: iterationId,
+        ...injected,
+      },
       ...(project !== undefined ? { project } : {}),
     };
   }
   return skip(`changeType=${String(changeType)} 未知（合法：新增/修改/废弃）`);
+}
+
+/** 候选正文：finding 携带的结构化字段逐行平铺（人审阅读面；缺省字段不出现）。 */
+function candidateBody(record: Record<string, unknown>): string {
+  const lines: string[] = [];
+  for (const key of [
+    "changeType",
+    "targetNode",
+    "digest",
+    "reason",
+    "scope",
+    "evidence",
+    "implementedCode",
+    "implementationStatus",
+    "sourceDecision",
+    "body",
+  ] as const) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim() !== "") lines.push(`${key}: ${value}`);
+  }
+  return lines.join("\n");
 }
 
 /** 目标项目解析：显式 project 名命中扫描集；缺省唯一项目自动；多项目不猜。 */
