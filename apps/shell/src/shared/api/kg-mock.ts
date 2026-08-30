@@ -306,6 +306,22 @@ const INITIAL_PRODUCE_NODES: KgProduceNodeDto[] = [
     rationale: "CL-4 产出呈现与事后修正的宿主面（V-1：无 draft 无转正）。",
     origin: { taskTitle: "helix 知识图谱创建", batchScope: "批次：会话域" },
   },
+  {
+    nodeId: "E-B4",
+    name: "kg 写面单事务入口",
+    kind: "entity",
+    status: "confirmed",
+    digest: "知识层全部写操作经 KgWriteService.write 单 op 单事务进入，五 op 联合校验后落盘。",
+    body: "知识层全部写操作经 KgWriteService.write 单 op 单事务进入：五 op（upsert/supersede/edge/log/rebuild）联合校验后一次事务落盘，任何一步失败整体回滚。",
+    anchors: [
+      { symbol: "KgWriteService.write", path: "apps/daemon/src/services/kg/KgWriteService.ts", line: 88 },
+      // 契约 KgProduceNodeDto anchors[].line: number|null 变体采样（D-3）：
+      // 无法定位行号时 null（索引降级 → 锚点精度降为路径级）——渲染形态 = 仅路径无 :行号
+      { symbol: "kgWriteTransaction", path: "apps/daemon/src/services/kg/KgWriteService.ts", line: null },
+    ],
+    rationale: "写面唯一入口防止多路径写导致的图谱不一致；单事务保证落盘原子性。",
+    origin: { taskTitle: "helix 知识图谱创建", batchScope: "批次：实体与契约锚定" },
+  },
 ];
 
 export class KgMockStore {
@@ -408,6 +424,18 @@ export class KgMockStore {
                 batchId: "b-mock-2",
                 scope: "批次：会话域",
                 nodes: [this.produceNodes.get("E-B2")!, this.produceNodes.get("E-B3")!],
+              },
+            ],
+          },
+          // 契约 layer 三值枚举 L2 变体采样（D-3；L2 实体层分组渲染面）
+          {
+            layer: "L2",
+            name: "L2 实体层",
+            batches: [
+              {
+                batchId: "b-mock-3",
+                scope: "批次：实体与契约锚定",
+                nodes: [this.produceNodes.get("E-B4")!],
               },
             ],
           },

@@ -20,6 +20,7 @@ interface HelixMockGlobal {
   failHandshake(): Promise<void>;
   clientFrames(): Promise<(ClientFrame | null)[]>;
   activeCount(): Promise<number>;
+  taskSubs(): Promise<string[] | null>;
 }
 
 export class MockController {
@@ -80,6 +81,12 @@ export class MockController {
   async scenarioSession(sessionId: string): Promise<{ sessionId: string; eventCount: number } | null> {
     await this.awaitReady();
     return this.page.evaluate((sid) => window.__helixMock!.scenarioSession(sid), sessionId);
+  }
+
+  /** task 族连接级订阅簿记读面（D-2；"*"=订阅全部；null=未订阅）。 */
+  async taskSubs(): Promise<string[] | null> {
+    await this.awaitReady();
+    return this.page.evaluate(() => window.__helixMock!.taskSubs());
   }
 
   async clientFrames(): Promise<ClientFrame[]> {

@@ -346,6 +346,29 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
         ],
       },
     ],
+    // R-6 无产物空态覆盖（T-verification 扩面；契约同构：job 存在 →
+    // task.artifacts 恒回 DTO，阶段 artifact 全 null 即空态——task.not_found
+    // 仅 job 不存在；与 detail 阶段行逐字段镜像）
+    [
+      t3.jobId,
+      {
+        stages: [
+          { seq: 1, name: "L0 核心层", status: "pending", artifact: null },
+          { seq: 2, name: "L1 领域层", status: "pending", artifact: null },
+          { seq: 3, name: "L2 实体层", status: "pending", artifact: null },
+        ],
+      },
+    ],
+    [
+      t5.jobId,
+      {
+        stages: [
+          { seq: 1, name: "L0 核心层", status: "failed", artifact: null },
+          { seq: 2, name: "L1 领域层", status: "pending", artifact: null },
+          { seq: 3, name: "L2 实体层", status: "pending", artifact: null },
+        ],
+      },
+    ],
   ]);
 
   return { summaries: [t1, t2, t3, t4, t5, t6], details, artifacts };
@@ -388,6 +411,9 @@ export class TasksMockStore {
         if (a === undefined) return [this.errorFrame("task.not_found", `任务 ${String(p.jobId)} 不存在`)];
         return [this.frame("task.artifacts.result", { artifacts: a })];
       }
+      // 订阅簿记（连接级订阅表 + changed 过滤投递，契约 §3）在
+      // fake-transport.ts send 钩子承载（sessionTiers 同轨；本 store 为
+      // 跨连接共享单例，不持连接级状态）——此处仅点对点回执。
       case "task.subscribe":
       case "task.unsubscribe":
         return [this.frame(`${type}.result`, { ok: true })];
@@ -432,7 +458,7 @@ export class TasksMockStore {
     const d = this.details.get(jobId);
     if (d !== undefined) d.status = next;
     const changed: TaskChangedPayload = { jobId, changed: "job", status: next };
-    return [this.frame(`${cmd}.result`, { ok: true, status: next }), this.event("task.changed", changed)];
+    return [this.frame(`task.${cmd}.result`, { ok: true, status: next }), this.event("task.changed", changed)];
   }
 
   /** task.list 行（服务端排序 = 运行中置顶 + 创建时间倒序，契约 §2 镜像）。 */
