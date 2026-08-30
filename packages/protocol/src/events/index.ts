@@ -95,6 +95,7 @@ import type {
   KgBootstrapProduceResultEvent,
   KgChangeReportResultEvent,
   KgGraphPurgeResultEvent,
+  KgHealthResultEvent,
   KgIndexDeleteResultEvent,
   KgIndexStatusResultEvent,
   KgListResultEvent,
@@ -103,6 +104,7 @@ import type {
   KgNodeSupersedeResultEvent,
   KgNodeUpdateResultEvent,
   KgProjectsResultEvent,
+  KgReviewCreateResultEvent,
 } from "./kg";
 import type {
   WorkspaceChangedEvent,
@@ -186,6 +188,8 @@ export type EventEnvelope =
   | KgBootstrapImpactResultEvent
   | KgGraphPurgeResultEvent
   | KgIndexDeleteResultEvent
+  | KgHealthResultEvent
+  | KgReviewCreateResultEvent
   | WorkspaceGetResultEvent
   | WorkspaceOpenResultEvent
   | WorkspaceChangedEvent
@@ -254,6 +258,8 @@ export const EVENT_TYPES = [
   "kg.bootstrap.impact.result",
   "kg.graph.purge.result",
   "kg.index.delete.result",
+  "kg.health.result",
+  "kg.review.create.result",
   "workspace.get.result",
   "workspace.open.result",
   "workspace_changed",
@@ -330,6 +336,8 @@ export const EVENT_CHANNELS = {
   "kg.bootstrap.impact.result": "kg",
   "kg.graph.purge.result": "kg",
   "kg.index.delete.result": "kg",
+  "kg.health.result": "kg",
+  "kg.review.create.result": "kg",
   "workspace.get.result": "workspace",
   "workspace.open.result": "workspace",
   "workspace_changed": "workspace",

@@ -158,7 +158,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 52 个 type（… + v0.11 1 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2）", () => {
+  test("命令目录恰为 54 个 type（… + v0.11 1 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.config.list",
@@ -178,6 +178,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "kg.bootstrap.produce",
         "kg.change.report",
         "kg.graph.purge",
+        "kg.health",
         "kg.index.delete",
         "kg.index.status",
         "kg.list",
@@ -186,6 +187,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "kg.node.supersede",
         "kg.node.update",
         "kg.projects",
+        "kg.review.create",
         "model.catalog",
         "model.catalog_refresh",
         "model.get",
@@ -217,7 +219,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 65 个 type（… + v0.11 1 + kg 批 6 结果帧 + workspace 批 3 + task 批 1 + kg-bootstrap 批 5 + kg 维护批 2）", () => {
+  test("事件目录恰为 66 个 type（… + v0.11 1 + kg 批 6 结果帧 + workspace 批 3 + task 批 1 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -250,6 +252,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "kg.bootstrap.produce.result",
         "kg.change.report.result",
         "kg.graph.purge.result",
+        "kg.health.result",
         "kg.index.delete.result",
         "kg.index.status.result",
         "kg.list.result",
@@ -258,6 +261,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "kg.node.supersede.result",
         "kg.node.update.result",
         "kg.projects.result",
+        "kg.review.create.result",
         "model.catalog.result",
         "model.catalog_refresh.result",
         "model.changed",
@@ -479,6 +483,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "kg.bootstrap.produce.result",
       "kg.change.report.result",
       "kg.graph.purge.result",
+      "kg.health.result",
       "kg.index.delete.result",
       "kg.index.status.result",
       "kg.list.result",
@@ -487,6 +492,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "kg.node.supersede.result",
       "kg.node.update.result",
       "kg.projects.result",
+      "kg.review.create.result",
     ]);
     expect(roster("workspace")).toEqual([
       // workspace 批新族（W1 绑定闭环）：两结果帧 + 一广播
@@ -496,11 +502,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（kg 维护批后）：EVENT_TYPES 65 / EVENT_CHANNELS 65 键 / COMMAND_TYPES 52", () => {
-    expect(EVENT_TYPES.length).toBe(65); // kg 维护批：+2（purge/index.delete 点对点回执）
-    expect(new Set(EVENT_TYPES).size).toBe(65); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(65); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(52); // kg 维护批：+2（kg 族 additive）
+  test("目录计数（kg.health 批后）：EVENT_TYPES 67 / EVENT_CHANNELS 67 键 / COMMAND_TYPES 54", () => {
+    expect(EVENT_TYPES.length).toBe(67); // kg.health 批：+1（kg.health 点对点回执）
+    expect(new Set(EVENT_TYPES).size).toBe(67); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(67); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(54); // kg.health 批：+1（kg 族 additive）
   });
 
 });

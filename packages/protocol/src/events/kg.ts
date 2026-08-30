@@ -1,6 +1,7 @@
 import type { EventFrame } from "../envelope";
 import type {
   KgChangeReportDto,
+  KgHealthDto,
   KgIndexStatusDto,
   KgNodeDetailDto,
   KgNodeListRow,
@@ -153,4 +154,27 @@ export interface KgGraphPurgeResultEvent extends EventFrame<KgGraphPurgeResultPa
 export interface KgIndexDeleteResultEvent extends EventFrame<KgIndexDeleteResultPayload> {
   channel?: "kg";
   type: "kg.index.delete.result";
+}
+
+// ── kg.health 批新增回执（W2-E 轨一结构体检看板，一命令）──
+
+/** kg.health.result：结构体检五项读面聚合（payload 即体检本体；absent=空态短路）。 */
+export type KgHealthResultPayload = KgHealthDto;
+
+export interface KgHealthResultEvent extends EventFrame<KgHealthResultPayload> {
+  channel?: "kg";
+  type: "kg.health.result";
+}
+
+// ── kg 评审批新增回执（W2-F 轨二：kg.review.create 一命令）──
+
+/** kg.review.create.result：体检任务已创建（前端引导「前往『任务』页观察 →」，bootstrap 同形）。 */
+export interface KgReviewCreateResultPayload {
+  ok: true;
+  jobId: string;
+}
+
+export interface KgReviewCreateResultEvent extends EventFrame<KgReviewCreateResultPayload> {
+  channel?: "kg";
+  type: "kg.review.create.result";
 }

@@ -227,7 +227,7 @@ function makeRig(): Rig {
     indexStatus: (root) => sync.getStatus(root),
     countActiveNodes: (root) => graph.countActiveNodes(root),
   });
-  const viewer = new KgViewerService({ project, graph, verify: { findActivityMismatch: () => [] } as never, report: {} as never, write, sync });
+  const viewer = new KgViewerService({ project, graph, verify: { findActivityMismatch: () => [], findOrphans: () => [] } as never, /* W2-D R14：rebuild 路径消费 findOrphans——本测试不触，空清单兜底 */ report: {} as never, write, sync });
 
   // 任务栈（真 SQLite @ tmp helix.db；fake skill 注册表收 kg-bootstrap）
   const taskDir = mkdtempSync(path.join(tmpdir(), "helix-kgboot-task-"));

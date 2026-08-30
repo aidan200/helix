@@ -111,8 +111,8 @@ describe("SkillScanner（三层目录 → source 标签技能清单）", () => {
     });
     const result = await scanner.scan();
     expect(result.diagnostics).toEqual([]); // 随仓文件必须合法（frontmatter 合规）
-    // T2.3：随仓内置两技能——web-access（普通）+ kg-bootstrap（任务类型，带 task 块）
-    expect(result.skills.map((s) => s.name).sort()).toEqual(["kg-bootstrap", "web-access"]);
+    // T2.3 + W2-F：随仓内置三技能——web-access（普通）+ kg-bootstrap/kg-review（任务类型，带 task 块）
+    expect(result.skills.map((s) => s.name).sort()).toEqual(["kg-bootstrap", "kg-review", "web-access"]);
     const skill = result.skills.find((s) => s.name === "web-access")!;
     expect(skill.source).toBe("builtin");
     expect(skill.description.length).toBeGreaterThan(0);

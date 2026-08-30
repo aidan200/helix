@@ -149,6 +149,14 @@ export interface CandidateRow {
   readonly appliedNodeId: string | null;
 }
 
+/** candidates 台账四态计数（W2-E kg.health 体检看板数据源；缺态 = 0）。 */
+export interface CandidateStatusCounts {
+  readonly pending: number;
+  readonly deferred: number;
+  readonly applied: number;
+  readonly discarded: number;
+}
+
 // ── 变更日志（supersede 链载体，AD-9 库内审计界面） ──────────
 
 /** 写 op 种类（KnowledgeWriteOp 判别值；change_log.op 取值同源）。 */

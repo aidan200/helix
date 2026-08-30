@@ -50,7 +50,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
   test("命令目录：九命令登记且排序在 workspace 族之后", () => {
     for (const t of TASK_COMMANDS) expect(COMMAND_TYPES).toContain(t);
     expect(COMMAND_TYPES.slice(-TASK_COMMANDS.length)).toEqual([...TASK_COMMANDS]);
-    expect(COMMAND_TYPES.length).toBe(52); // kg 维护批（C1）+2 后当前值
+    expect(COMMAND_TYPES.length).toBe(54); // kg.health 批（W2-E）+1 ∧ kg 评审批（W2-F）+1 后当前值
   });
 
   test("零干预断言（AD-2）：task.* 命令清单恰为九命令，无 steer/内容编辑/批次重试语义命令", () => {
@@ -65,7 +65,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
   test("事件目录：task.changed 唯一新事件登记（+1；结果帧不入目录）", () => {
     expect(EVENT_TYPES).toContain("task.changed");
     expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("task.changed");
-    expect(EVENT_TYPES.length).toBe(65); // kg 维护批（C1）+2 后当前值
+    expect(EVENT_TYPES.length).toBe(67); // kg.health 批（W2-E）+1 ∧ kg 评审批（W2-F）+1 后当前值
     // 九命令结果帧为点对点回执（契约 §0 计数 57→58：仅 task.changed 入目录）
     for (const t of TASK_COMMANDS) {
       expect(EVENT_TYPES).not.toContain(`${t}.result`);
@@ -74,7 +74,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
 
   test("通道归属：task.changed 挂既有 notification 通道（不新增 Channel 值，契约 §0）", () => {
     expect(EVENT_CHANNELS["task.changed"]).toBe("notification");
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(65);
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(67);
   });
 
   test("错误码词表（契约 §4）：四任务码登记 ErrorCode", () => {

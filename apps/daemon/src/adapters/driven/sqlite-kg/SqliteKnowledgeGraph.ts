@@ -10,6 +10,7 @@ import type {
   AnchorReverseHit,
   AttachmentAnchor,
   AttachmentSnapshot,
+  CandidateStatusCounts,
   ChangeLogEntry,
   ContainsEdge,
   EdgeVerb,
@@ -462,6 +463,25 @@ export class SqliteKnowledgeGraph {
       .prepare("SELECT iteration_id FROM change_log ORDER BY seq DESC LIMIT 1")
       .get() as { iteration_id: string } | null;
     return row === null ? null : row.iteration_id;
+  }
+
+  /**
+   * candidates 台账四态计数（W2-E kg.health 数据源：GROUP BY status 一次
+   * 聚合，缺态 = 0；只读，零写路径——调用方先行 hasIndex 判定）。
+   */
+  countCandidatesByStatus(projectRoot: string): CandidateStatusCounts {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const rows = db
+      .prepare("SELECT status, COUNT(*) AS n FROM candidates GROUP BY status")
+      .all() as { status: string; n: number }[];
+    const counts = { pending: 0, deferred: 0, applied: 0, discarded: 0 };
+    for (const row of rows) {
+      if (row.status === "pending") counts.pending = row.n;
+      else if (row.status === "deferred") counts.deferred = row.n;
+      else if (row.status === "applied") counts.applied = row.n;
+      else if (row.status === "discarded") counts.discarded = row.n;
+    }
+    return counts;
   }
 
   // ── supersede 链组装（双向游走） ──────────────────────────
