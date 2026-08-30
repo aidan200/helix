@@ -289,6 +289,14 @@ await page.waitForFunction(
 await page.evaluate((frames) => window.__helixMock.emitAll(frames), [
   { v: V, type: "connection.welcome", payload: { sessionId: "sess-a11y-ag", model: "claude-sonnet-4-5", agentState: "idle" } },
 ]);
+// mock 竞态修复（终验 FV-1）：AgentPage 挂载即发 agent.config.list（clientFrames
+// 记录于连接就绪前），须等连接就绪后再发 list.result，否则回执丢帧页面滞留
+// loading（真实 daemon 无此窗口：服务端只在收帧后回执，天然有序）。
+await page.waitForFunction(
+  () => document.querySelector(".app")?.getAttribute("data-conn") === "connected",
+  null,
+  { timeout: 10_000 },
+);
 await page.waitForFunction(
   () => window.__helixMock.clientFrames().some((f) => f && f.type === "agent.config.list"),
   null,

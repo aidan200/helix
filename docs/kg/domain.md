@@ -144,20 +144,20 @@ anchors:
     - apps/daemon/src/domain/events/DomainEvent.ts
   testedBy:
     - apps/daemon/test/integration/sqlite-persistence.test.ts
-updatedIn: iter-20260815-6tss
+updatedIn: iter-20260829-ys7q
 ```
 
 ## 描述
 领域状态变更的单一通道：聚合变更 → 领域事件 → application 单写队列 → write-through 落盘 SQLite WAL（~/.helix/helix.db）；同一事件向订阅方扇出（WS 事件流推前端，前端 reducer 纯投影）；重连恢复 = daemon 推快照 + 续增量事件。
 
 ## 规则
-落盘唯一路径，无第二写者（任何旁路直写 SQLite 即违规）；write-through + 崩溃恢复语义（崩溃丢当前流，恢复到最后一致里程碑，与 pi LaneRecord 同语义）；扇出与落盘同源（订阅方读到的事件对应已落盘状态）；db 路径经 infrastructure/paths.ts 解析，支持 --home 覆盖（测试 tmp 注入）。
+落盘唯一路径，无第二写者（任何旁路直写 SQLite 即违规——**唯一例外 = O-1 裁决的 work_item 子进程直连写**，见禁忌）；write-through + 崩溃恢复语义（崩溃丢当前流，恢复到最后一致里程碑，与 pi LaneRecord 同语义）；扇出与落盘同源（订阅方读到的事件对应已落盘状态）；db 路径经 infrastructure/paths.ts 解析，支持 --home 覆盖（测试 tmp 注入）。
 
 ## 禁忌
-不允许 adapter 绕过队列直写库；不为流式中间态另设落盘通道；不在前端持久化业务状态再同步回来。
+不允许 adapter 绕过队列直写库——**唯一受控例外（O-1 裁决，iter-20260829-ys7q）**：work_item 表域子进程 plan 工具经 WriteQueue.openTaskLedgerDatabase 开第二写连接直连写（父/子连接各自 WAL+busy_timeout 跨进程串行化；全部写 SQL 仍宿主 WriteQueue prepareWorkLedgerStatements，AG-06「helix.db 写语句唯一宿主」不失守；WorkLedger.ts:23,111 零写 SQL）；不为流式中间态另设落盘通道；不在前端持久化业务状态再同步回来。
 
 ## 关系
-持久化会话聚合（E-会话聚合）的变更；事件经 ws-server adapter 转 protocol DTO 喂前端投影；落盘经 SessionRepositoryPort 与 sqlite-session adapter。
+持久化会话聚合（E-会话聚合）的变更；事件经 ws-server adapter 转 protocol DTO 喂前端投影；落盘经 SessionRepositoryPort 与 sqlite-session adapter；work_item 例外写面衔接 E-实例plan（子进程直连写口）与 E-任务（任务四表新表域）。
 
 ```kg-node
 id: E-SteerQueue
@@ -405,20 +405,20 @@ anchors:
     - apps/daemon/test/unit/resource-service.test.ts
     - apps/daemon/test/unit/skill-scanner.test.ts
     - apps/daemon/test/integration/agent-config-ws.test.ts
-updatedIn: iter-20260823-6ps5
+updatedIn: iter-20260829-ys7q
 ```
 
 ## 描述
-按 profile kind 维度的资源启停/槽位状态（SQLite resource_state 表，主键 (profile_kind, resource_type, name)，全局表走 WriteQueue globalTail 链）：resource_type ∈ {tool, skill, model, thinking} 四类（iter-20260823-6ps5 扩 thinking 槽位型，v0.11 批内补登）。生效集 = profile 静态全集（tools 声明）/扫描全集（skills）∩ kind 启用集；槽位型（model/thinking）语义 = 每 kind 至多一行现值：model 型行 enabled 恒 1、删除行 = 未设；thinking 型同槽位语义——set = 档位字符串零校验透传（enabled=1）、clear = 删除行（缺省无记录 = 未配置，解析链回落兑底 medium，负断言守护）。缺省无记录 = 启用/未配置（零配置兼容现状，存量会话/测试零迁移）。模型槽位链位：main-session 槽位 = 出厂默认（四级解析链 per-session 覆盖 > kind 槽位 > default_model），subagent-worker 槽位 = 解析链 kind 槽位级（launch 期 getter 折叠读现值定格，TR-AD-24/TR-AD-44）UI 化；thinking 槽位同理（subagent-worker 槽位折入 profile 读面，静态声明优先）。skills 扫描三层目录（user=~/.helix/skills 经 paths.ts 单点派生 + project=<工作区>/.helix/skills 启动时定格 + builtin=daemon 随仓 resources/skills，builtin 层不可禁用——ResourceService builtin-immutable 跳过语义；iter-20260821-dg90 终验 L3 复核校正层数宣称），pi loadSourcedSkills 防腐墙内包装，诊断上抛不炸。
+按 profile kind 维度的资源启停/槽位状态（SQLite resource_state 表，主键 (profile_kind, resource_type, name)，全局表走 WriteQueue globalTail 链）：resource_type ∈ {tool, skill, model, thinking} 四类（iter-20260823-6ps5 扩 thinking 槽位型，v0.11 批内补登）。生效集 = profile 静态全集（tools 声明）/扫描全集（skills）∩ kind 启用集；槽位型（model/thinking）语义 = 每 kind 至多一行现值：model 型行 enabled 恒 1、删除行 = 未设；thinking 型同槽位语义——set = 档位字符串零校验透传（enabled=1）、clear = 删除行（缺省无记录 = 未配置，**解析链默认关——TR-AD-40 D 方案无兑底档**，负断言守护；iter-20260829-ys7q 终验 L3 复核校正：「兑底 medium」表述为 D 方案前残留，与 thinking-resolve.ts 实现及 E-AgentProfile 表述对齐）。缺省无记录 = 启用/未配置（零配置兼容现状，存量会话/测试零迁移）。模型槽位链位：main-session 槽位 = 出厂默认（四级解析链 per-session 覆盖 > kind 槽位 > default_model），subagent-worker 槽位 = 解析链 kind 槽位级（launch 期 getter 折叠读现值定格，TR-AD-24/TR-AD-44）UI 化；thinking 槽位同理（subagent-worker 槽位折入 profile 读面，静态声明优先）。skills 扫描三层目录（user=~/.helix/skills 经 paths.ts 单点派生 + project=<工作区>/.helix/skills 启动时定格 + builtin=daemon 随仓 resources/skills，builtin 层不可禁用——ResourceService builtin-immutable 跳过语义；iter-20260821-dg90 终验 L3 复核校正层数宣称），pi loadSourcedSkills 防腐墙内包装，诊断上抛不炸。
 
 ## 规则
 合取语义硬约束：kind 启停不跨 kind 传染；未知名 toggle 显式跳过（skipped 回执，不落库——全集外无生效面）；list 读面只回全集内资源；槽位型写经通用 slotValue 原子替换 job（同 job 内先 DELETE 后 INSERT，model/thinking 同道，替代原 modelSlot 专用 job 的泛化形态）。
 
 ## 禁忌
-不以 enabled=0 表达槽位「未设」（删除行才是未设）；不在 application 层 import profiles（tools 全集经组合根注入映射表，AG-02）；扫描器 pi 类型不得越防腐墙；不兼容 pi 的 ~/.pi 目录（用户裁决：三层自有目录）；不对 thinking 槽位值做档位校验（字符串透传，解析权威在解析链）。
+不以 enabled=0 表达槽位「未设」（删除行才是未设）；不在 application 层 import profiles（tools 全集经组合根注入映射表，AG-02）；扫描器 pi 类型不得越防腐墙；不兼容 pi 的 ~/.pi 目录（用户裁决：三层自有目录）；不对 thinking 槽位值做档位校验（字符串透传，解析权威在解析链）；不在 thinking 槽位语义里复活任何兑底档（D 方案默认关是终态——兑底 medium 已否决）。
 
 ## 关系
-E-AgentProfile 的静态全集是合取的一侧（运行期启用集是另一侧）；E-模型目录 default_model 为 main 槽位的下级兑底；thinking 槽位供 TR-AD-40 解析链消费（经 TR-AD-44 getter 折叠）；agent.config.* 命令族是唯一写入口（set_enabled/changed resourceType 扩 "thinking"；list 读面 profiles[].thinkingLevel string|null）；T2 刷新链消费合取结果直改活跃 runtime。
+E-AgentProfile 的静态全集是合取的一侧（运行期启用集是另一侧）；E-模型目录 default_model 为 main 槽位的下级兑底；thinking 槽位供 TR-AD-40 解析链消费（经 TR-AD-44 getter 折叠；链尽 = 默认关，无兑底档）；agent.config.* 命令族是唯一写入口（set_enabled/changed resourceType 扩 "thinking"；list 读面 profiles[].thinkingLevel string|null）；T2 刷新链消费合取结果直改活跃 runtime。
 
 ```kg-node
 id: E-知识图谱
@@ -453,17 +453,17 @@ stack: shared
 name: 候选台账（candidates）
 status: active
 digest: 写 propose/apply/discard/defer 流转、动 candidates 分区、做 gc_report 或 pending 门控检查时
-updatedIn: iter-20260825-11fo
+updatedIn: iter-20260829-ys7q
 ```
 
 ## 描述
-知识沉淀的人审裁决台账（iter-20260825-11fo 经 verification entity 覆盖率审计确立为独立业务实体）——候选从产生到落库的状态机载体：propose（候选落 pending）→ 终验人审三选一（apply 正式落库发号 / discard 否决留痕可复活 / defer 挂起限龄限量）。独立生命周期（pending/deferred/applied/discarded 四分区流转）；被多模块消费（gc_report 正确性类检出直写、candidates_pending_empty 门控、终验人审编排）。载体演进：v1 = docs/kg/candidates.md 四分区（本迭代已停用）；v2 = .helix-kg 库内（经 KgWriteService，change_log 审计面）。
+知识沉淀的人审裁决台账（iter-20260825-11fo 经 verification entity 覆盖率审计确立为独立业务实体）——候选从产生到落库的状态机载体：propose（候选落 pending）→ 终验人审三选一（apply 正式落库发号 / discard 否决留痕可复活 / defer 挂起限龄限量）。独立生命周期（pending/deferred/applied/discarded 四分区流转）；被多模块消费（gc_report 正确性类检出直写、candidates_pending_empty 门控、终验人审编排）。载体现状（iter-20260829-ys7q 终验 L3 复核校正）：**v1 = docs/kg/candidates.md 四分区仍是活载体**——本迭代 23 条 pending 持续写入 md；v2 库内载体（.helix-kg 库内经 KgWriteService，change_log 审计面）为规划向、未落地（sqlite-kg schema 8 域表+meta 无 candidates 表，KgWriteService 无候选 op——落地时再改写本句）。
 
 ## 规则
-①状态机：propose（候选落 pending）→ 人审三选一 apply（正式节点落库+发号）/ discard（否决留痕可复活）/ defer（挂起，≤10 条且 ≤2 迭代年龄）。②写入权：MainAgent 单点写入；SubAgent 只能经 submit_result findings（kind=sediment）上报，闭环时自动落账。③apply 的 formalId 由终验人审签发，绝不发明正式号；开发期用临时号 KIND-iter-seq。④部分实现不落库——必须完整实现且通过验证。⑤幂等判定仅对 pending/deferred 分区（applied/discarded 历史命中不吞新检出）。⑥v1 载体 md 四分区（已停用）；v2 载体 .helix-kg 库内（经 KgWriteService，change_log 审计）。
+①状态机：propose（候选落 pending）→ 人审三选一 apply（正式节点落库+发号）/ discard（否决留痕可复活）/ defer（挂起，≤10 条且 ≤2 迭代年龄）。②写入权：MainAgent 单点写入；SubAgent 只能经 submit_result findings（kind=sediment）上报，闭环时自动落账。③apply 的 formalId 由终验人审签发，绝不发明正式号；开发期用临时号 KIND-iter-seq。④部分实现不落库——必须完整实现且通过验证。⑤幂等判定仅对 pending/deferred 分区（applied/discarded 历史命中不吞新检出）。⑥载体 = md 四分区（docs/kg/candidates.md，活载体）；v2 库内载体未实现——任何「台账已入库」的宣称均为失实（schema.ts 与 KgWriteService 可对质）。
 
 ## 禁忌
-SubAgent 直接写台账；部分实现落库；发明 formalId；幂等判定命中 applied/discarded 分区即跳过（吞掉正确性类检出——OI-gc-idempotency-swallow 病根）。
+SubAgent 直接写台账；部分实现落库；发明 formalId；幂等判定命中 applied/discarded 分区即跳过（吞掉正确性类检出——OI-gc-idempotency-swallow 病根）；把 v2 库内载体当现状宣称（未落地即未落地——按文找表落空即审计失信）。
 
 ## 关系
 知识图谱（E-知识图谱）沉淀闭环的裁决面：SubAgent findings sediment 经 propose 落 pending，再由终验人审流转；受 TR-AD-54 管辖（id 策略：正式号仅人审签发，开发期用临时号）；gc_report 正确性类检出直写本台账 pending。
@@ -532,10 +532,10 @@ updatedIn: iter-20260829-ys7q
 chat/task 统一的 SubAgent 语义级阶段记录（iter-20260829-ys7q，AD-6）——填补「原始 trace 太低层、终点 closure 太晚」之间的进度事实源空白。数据 = work_item 表（instanceId/seq/content/status(pending→in_progress→done/abandoned)/note（关键事实+产物指针：文件/节点 id/卡点）/updatedAt），实例作用域；写口 = plan 工具族三操作（plan_create/plan_update/plan_read）全量配给所有 SubAgent（SubAgent 不感知派发方，chat 与 task 写口完全一致）；读口 = 派发方随时读（chat MainAgent 判进度 / 任务编排器判批次进度 / 任务页渲染中间状态）。与 trace（机器审计原始流）、closure（终点收口）三件套不重叠——plan 是 LLM 策展的语义进度。
 
 ## 规则
-①强制程度按 brief 装配：工具常驻可用，长任务（bootstrap 批次）强制、chat 轻量小任务可免（工具常在、纪律按任务配，TR-AD-61⑦）。②硬约束（模板层 LLM 不可裁）：强制 plan 的 brief 必含「先写 plan 再动手」+ 阶段转换必更新；closure 机械判据 = plan 全部 resolve（done 或 abandoned 带理由）。③接力恢复 = 新实例 brief 注入前序 plan 摘要（已完成项+note 事实+产物指针），产物指针让幂等重跑跳过已产。④存储 = helix.db work_item 表（任务四表新表域），子进程经 plan 工具直连写、父进程只读（表分域不竞争，WAL+busy_timeout 跨进程串行化）；任务删除时随任务一并清除（经 batch.instanceId 定位）。⑤阶段产物聚合 = 编排主 agent 聚合批次 plan+closure 写 stage.artifact（任务页阶段产物 tab 与 bootstrap 产出呈现区数据源）。
+①强制程度按 brief 装配：工具常驻可用，长任务（bootstrap 批次）强制、chat 轻量小任务可免（工具常在、纪律按任务配，TR-AD-61⑦）。②硬约束（模板层 LLM 不可裁）：强制 plan 的 brief 必含「先写 plan 再动手」+ 阶段转换必更新；closure 机械判据 = plan 全部 resolve（done 或 abandoned 带理由）。③接力恢复 = 新实例 brief 注入前序 plan 摘要（已完成项+note 事实+产物指针），产物指针让幂等重跑跳过已产。④存储 = helix.db work_item 表（任务四表新表域），子进程经 plan 工具直连写、父进程只读（表分域不竞争，WAL+busy_timeout 跨进程串行化）——**父进程唯一例外写点 = F3.6 任务删除清理**（TaskEngineService.deleteTask 经 WorkLedgerPort.deleteByInstanceIds 清实例台账，TaskEngineService.ts:40-41 自注「F3.6 唯一例外写点」；删除 SQL 语句宿主 WriteQueue，WriteQueue.ts:46-49）；任务删除时随任务一并清除（经 batch.instanceId 定位）。⑤阶段产物聚合 = 编排主 agent 聚合批次 plan+closure 写 stage.artifact（任务页阶段产物 tab 与 bootstrap 产出呈现区数据源）。
 
 ## 禁忌
-为任务编排器新造专用台账工具与 chat 域分叉（双轨——统一写口是 AD-6 裁决核心）；把 plan 当 trace 记原始工具流（语义层级错乱）；closure 时 plan 留 pending 项也判收口成功（硬约束失守，编排器无法机械判批次成败）；父进程写 work_item 或子进程写 job/stage/batch（表分域写者越界）。
+为任务编排器新造专用台账工具与 chat 域分叉（双轨——统一写口是 AD-6 裁决核心）；把 plan 当 trace 记原始工具流（语义层级错乱）；closure 时 plan 留 pending 项也判收口成功（硬约束失守，编排器无法机械判批次成败）；父进程写 work_item（**F3.6 删除清理 deleteByInstanceIds 为唯一受控例外**，其余父进程写 = 越界）或子进程写 job/stage/batch（表分域写者越界）。
 
 ## 关系
 纪律面由 TR-AD-61 governs；宿主 = 任务（E-任务，批次实例台账）与 E-AgentInstance（chat 域实例统一获益）；closure 收口判定与 E-ClosureRecord 协同（plan 全 resolve 是 closure 硬约束）；产物指针衔接 E-知识图谱（批次产出的节点 id 入 note）。

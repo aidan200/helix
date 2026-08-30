@@ -1,5 +1,3 @@
-> 【已停用】SoT 已下沉 .kg 单库（iter-20260825-11fo 迁移）；本文件不再被任何管道解析
-
 # 候选台账（candidates）
 
 ## pending
@@ -922,6 +920,256 @@
 - createdIn: task-20260824-t11b
 - decisionLog: 用户裁决「apply吧」（2026-08-24 批量人审）——发号 TR-AD-48 落库
 
+### AD-10-r2
+- changeType: 修改
+- targetNode: AD-10
+- scope: SubAgent 子进程接线层（批次任务归属上下文解析；后续其他批次级上下文可复用同一惰性解析模式）
+- project: helix
+- reason: T4.2 sediment：AD-10 kg↔任务唯一衔接面完整实现——taskId/originBatchId 三写路径（单条/批量/replacement）接线层机械注入默认值，LLM 显式传参优先，非任务上下文零注入；replacement 批次上下文默认 confirmed；衔接面从 LLM 透传升级为机械保证
+- evidence: kg-update-task-context.test.ts 三路径落章 9 例绿；daemon 1394 全绿；development/architecture-feedback.md AF-T4.2.1（env 前提修正：解析下沉子进程接线层惰性反查）；取代 T4.1 部分实现候选（已 discard 留史）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/subagent/child/ChildMain.ts createKgTaskContextResolver; apps/daemon/src/adapters/driven/sqlite-session/TaskStore.ts readTaskContextByInstance; apps/daemon/src/adapters/driven/tools/kg-update/KgUpdateTool.ts
+- sourceTask: T4.2
+- createdIn: iter-20260829-ys7q
+- formalId: AD-10
+- decisionLog: T4.2 sediment：AD-10 kg↔任务唯一衔接面完整实现——taskId/originBatchId 三写路径（单条/批量/replacement）接线层机械注入默认值、LLM 显式传参优先、非任务上下文零注入；衔接面从 LLM 透传升级为机械保证（真机首跑透传断链 85% 的修复），按实现事实定稿归档（apply）。
+
+### AD-6
+- changeType: 修改
+- targetNode: AD-6
+- scope: 任务引擎生命周期语义（pause/resume/cancel/delete）
+- project: helix
+- reason: T4.1 真机首跑 sediment：AD-6 chat/task 统一与任务生命周期语义完整实现——pause/resume/cancel/delete 真机全链验证通过
+- evidence: evidence/first-run/lifecycle-receipts.md（task-73ed9ed3 全链回执+真库断言：pause 停派+在跑自然收口/resume 20s 续派/cancel SIGTERM/delete 四表清零零孤儿 kg 不动）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/services/task/TaskEngineService.ts
+- sourceTask: T4.1
+- createdIn: iter-20260829-ys7q
+- formalId: AD-6
+- decisionLog: T4.1 真机首跑 sediment：AD-6（chat/task 统一实例台账）与任务生命周期语义完整实现——pause/resume/cancel/delete 真机全链验证通过（四表清零、零孤儿、kg 不动），按真机结论定稿归档（apply）。
+
+### E-候选台账
+- changeType: 修改
+- targetNode: E-候选台账
+- scope: E-候选台账节点正文「载体演进」句与规则⑥——v2 载体断言与代码现实不符
+- project: helix
+- reason: L3 复核不一致：E-候选台账宣称 v2 载体在 .helix-kg 库内经 KgWriteService，现实无 candidates 表/无候选 op，md 四分区仍是活载体——需修正「载体演进」句与规则⑥
+- evidence: sqlite-kg/schema.ts:37-121（8 域表+meta 无 candidates）；KgWriteService.ts:87-106（无候选 op）；candidates.md 四分区活载体且本迭代持续写入
+- implementationStatus: 完整实现
+- implementedCode: docs/kg/candidates.md（v1 载体仍活跃）；v2 库内载体无对应实现
+- sourceTask: L3-semantic-review-batch-C
+- createdIn: iter-20260829-ys7q
+- formalId: E-候选台账
+- decisionLog: L3 复核判「载体演进」句与规则⑥失实——v2 库内载体未落地（sqlite-kg schema 无 candidates 表、KgWriteService 无候选 op），md 四分区仍是活载体且本迭代持续写入；按代码现实更正（apply）。
+
+### E-实例plan
+- changeType: 修改
+- targetNode: E-实例plan
+- scope: E-实例plan 规则④与禁忌的「父进程只读」绝对化措辞
+- project: helix
+- reason: L3 复核 minor 补注：E-实例plan 规则④「父进程只读」与禁忌「父进程写 work_item=越界」未注受控例外——F3.6 任务删除时父进程 deleteByInstanceIds 清实例台账（唯一例外写点，语句宿主 WriteQueue）
+- evidence: TaskEngineService.ts:40-41（「F3.6 唯一例外写点」）；WriteQueue.ts:46-49
+- implementationStatus: 完整实现
+- implementedCode: TaskEngineService.ts deleteTask → WorkLedgerPort.deleteByInstanceIds
+- sourceTask: L3-semantic-review-batch-C
+- createdIn: iter-20260829-ys7q
+- formalId: E-实例plan
+- decisionLog: L3 复核 minor 补注：规则④「父进程只读」与禁忌「父进程写 work_item=越界」未注受控例外——F3.6 任务删除时父进程 deleteByInstanceIds 清实例台账是唯一例外写点（语句宿主 WriteQueue）；补注例外（apply）。
+
+### E-智能体配置资源-r2
+- changeType: 修改
+- targetNode: E-智能体配置资源
+- scope: E-智能体配置资源节点正文 thinking 槽位语义一句
+- project: helix
+- reason: L3 复核不一致：E-智能体配置资源 thinking 槽位「回落兑底 medium」与代码「全链未配置=默认关（D 方案无 medium 兑底）」矛盾，且与 E-AgentProfile 表述自相矛盾——「兑底 medium」为 D 方案前残留
+- evidence: thinking-resolve.ts:8-9；SubagentLauncher.ts:177-186；domain.md E-AgentProfile 描述段「解析链默认关（TR-AD-40 D 方案，无兑底档）」
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/thinking-resolve.ts resolveEffectiveThinking（默认关语义完整实现）
+- sourceTask: L3-semantic-review-batch-C
+- createdIn: iter-20260829-ys7q
+- formalId: E-智能体配置资源
+- decisionLog: L3 复核判 thinking 槽位「解析链回落兑底 medium」与代码「全链未配置=默认关（D 方案无 medium 兑底）」矛盾、且与 E-AgentProfile 表述自相矛盾——「兑底 medium」为 D 方案前残留，按 TR-AD-40 现行语义更正（apply）。
+
+### E-领域事件与单写队列
+- changeType: 修改
+- targetNode: E-领域事件与单写队列
+- scope: E-领域事件与单写队列禁忌——需注 O-1 work_item 直连例外
+- project: helix
+- reason: L3 复核 minor 补注：E-领域事件与单写队列禁忌「不允许 adapter 绕过队列直写库」字面已被 O-1 裁决开例外——work_item 子进程 plan 工具经 openTaskLedgerDatabase 直连写（第二写连接，WAL+busy_timeout 串行化；SQL 仍宿主 WriteQueue）
+- evidence: WriteQueue.ts:46-49；WorkLedger.ts:23,111
+- implementationStatus: 完整实现
+- implementedCode: WriteQueue.ts openTaskLedgerDatabase + prepareWorkLedgerStatements
+- sourceTask: L3-semantic-review-batch-C
+- createdIn: iter-20260829-ys7q
+- formalId: E-领域事件与单写队列
+- decisionLog: L3 复核 minor 补注：禁忌「不允许 adapter 绕过队列直写库」字面已被 O-1 裁决开例外——work_item 子进程 plan 工具经 openTaskLedgerDatabase 直连写（第二写连接，WAL+busy_timeout 串行化，SQL 仍宿主 WriteQueue）；补注例外（apply）。
+
+### TR-AD-1-l3
+- changeType: 修改
+- targetNode: TR-AD-1
+- scope: TR-AD-1 规则正文 port 计数（15→19）与 services 枚举（+task 域）
+- project: helix
+- reason: L3 复核不一致：TR-AD-1「outbound 生效 15 个」及 services 枚举陈旧——本迭代任务系统新增 4 outbound port + inbound TaskEnginePort + services/task 域，现 outbound 19 个；四层与依赖方向核心规则仍成立
+- evidence: apps/daemon/src/application/ports/outbound/ 实列 19 port；ports/inbound/TaskEnginePort.ts；application/services/task/ 目录
+- implementationStatus: 完整实现
+- implementedCode: ports/outbound/{TaskOrchestratorStarterPort,TaskSkillRegistryPort,TaskStorePort,WorkLedgerPort}.ts + ports/inbound/TaskEnginePort.ts
+- sourceTask: L3-semantic-review-batch-A
+- createdIn: iter-20260829-ys7q
+- formalId: TR-AD-1
+- decisionLog: L3 复核判枚举面陈旧（任务系统落地后 outbound 15→19、inbound +TaskEnginePort、services +task 域），四层与依赖方向核心规则不变，按实现事实同步（apply）。
+
+### TR-AD-10-r2
+- changeType: 修改
+- targetNode: TR-AD-10
+- scope: TR-AD-10 删除/合并旧版规则块（trust 已落地表述）
+- project: helix
+- reason: L3 复核不一致：TR-AD-10 kg-node 块内含新旧两版完整规则块，旧块把 trust 列为「已落地四类监督者职责」之一，与 src-tauri 零 trust 代码现实矛盾；现行块（trust=规划位零承载）与代码一致——需废弃旧块
+- evidence: TR-AD-10 节点 2 个 ## 规则块并存；grep -ri trust apps/shell/src-tauri/src/ 零命中；lib.rs:4 注释「零业务逻辑」
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src-tauri/src/main.rs:3（职责仅限窗口+sidecar 看护+bundle 资源定位）
+- sourceTask: L3-semantic-review-batch-A
+- createdIn: iter-20260829-ys7q
+- formalId: TR-AD-10
+- decisionLog: L3 复核判节点内新旧两块并存、旧块「trust 已落地四类职责」与 src-tauri 零 trust 代码矛盾——废弃旧版规则块，只保留现行块（trust=规划位零承载，与代码一致）（apply）。
+
+### TR-AD-2-r6
+- changeType: 修改
+- targetNode: TR-AD-2
+- scope: TR-AD-2 规则正文 outbound 计数（15→19）
+- project: helix
+- reason: L3 复核不一致：TR-AD-2「outbound 生效 15 个」及 port 枚举清单陈旧（同 TR-AD-1 根因）；ports 双向结构与零实现规则本身成立
+- evidence: ports/outbound/ 19 文件；arch-guard.test.ts:37-39（接口纯净断言与 ≥9 下限断言在位且与 19 兼容）
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/application/ports/outbound/ 新增 4 个任务域 port
+- sourceTask: L3-semantic-review-batch-A
+- createdIn: iter-20260829-ys7q
+- formalId: TR-AD-2
+- decisionLog: L3 复核判 outbound 枚举陈旧（15→19，任务系统新增四任务域 port），ports 双向结构与零实现规则本身成立，按实现事实同步（apply）；inbound 补 TaskEnginePort 为同根因枚举同步。
+
+### TR-AD-28
+- changeType: 修改
+- targetNode: TR-AD-28
+- scope: TR-AD-28 首成员 MAIN_INSTANCE_ID 段（退役事实同步）
+- project: helix
+- reason: L3 复核不一致：TR-AD-28「首个成员 MAIN_INSTANCE_ID…唯一定义=common/constants.ts」段陈旧——MAIN_INSTANCE_ID 已随 T10c 实例 ID 统一退役，constants.ts 空置，判别由两处局部 LEGACY_MAIN_INSTANCE_ID 承担，与 TR-AD-1 已校正同事实互相矛盾；结构核心（零依赖/AG-15）仍成立
+- evidence: packages/common/src/constants.ts:8 头注释自述空置；AgentInstance.ts:33 LEGACY_MAIN_INSTANCE_ID；protocol/projection/instance.ts:25
+- implementationStatus: 完整实现
+- implementedCode: packages/common/src/constants.ts（空置）; apps/daemon/src/domain/agent/AgentInstance.ts:33
+- sourceTask: L3-semantic-review-batch-A
+- createdIn: iter-20260829-ys7q
+- formalId: TR-AD-28
+- decisionLog: L3 复核判「首成员 MAIN_INSTANCE_ID 唯一定义=constants.ts」段陈旧——MAIN_INSTANCE_ID 已随 T10c 实例 ID 统一退役、constants.ts 空置、判别由两处局部 LEGACY_MAIN_INSTANCE_ID 承担（与 TR-AD-1 已校正同事实一致）；零依赖/AG-15 结构核心不变，按实现事实同步（apply）。
+
+### TR-AD-40-r5
+- changeType: 修改
+- targetNode: TR-AD-40
+- scope: TR-AD-40 删除/合并旧版规则块（兜底 medium 语义）
+- project: helix
+- reason: L3 复核不一致：TR-AD-40 kg-node 块内残留第二版旧规则块含已否决的「兜底 medium」语义，与 D 方案「默认关、无兜底档」现行实现直接矛盾；现行块与代码一致——需废弃旧块
+- evidence: TR-AD-40 节点 2 个 ## 规则块并存；thinking-resolve.ts:8 注释「无 medium 兜底」、:26-35 resolveEffectiveThinking 无兜底档
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/pi-engine/thinking-resolve.ts:8,26-35
+- sourceTask: L3-semantic-review-batch-A
+- createdIn: iter-20260829-ys7q
+- formalId: TR-AD-40
+- decisionLog: L3 复核判节点内残留含「兜底 medium」已否决语义的旧版规则块，与 D 方案「默认关、无兜底档」现行实现直接矛盾——废弃旧块，只保留现行块（与 thinking-resolve.ts:8,26-35 一致）（apply）。
+
+### TR-AD-51-r2
+- changeType: 修改
+- targetNode: TR-AD-51
+- scope: kg sync 触发面（生产语义）；机制面不受影响
+- project: helix
+- reason: L3 复核不一致：TR-AD-51 正文「双源汇队列（notifyWrite + fs-watch 汇入同一队列）」触发模型已按 2026-08-29 用户裁决退役为纯手动 triggerManual；去抖/单飞/四步单事务机制保留一致，触发拓扑语义反转（正文更新后可同步摘除 2 条腐烂锚）
+- evidence: KgSyncService.ts:13-16（生产唯一入口=triggerManual，三触发面退役）,:58（fs-watch 生产挂接已退役）; buildKnowledgeStack.ts:149-151（notifyWrite 不注入）
+- implementationStatus: 部分实现
+- implementedCode: apps/daemon/src/application/services/kg/KgSyncService.ts:13-16,58; buildKnowledgeStack.ts:149-151
+- sourceTask: L3-semantic-review-batch-B
+- createdIn: iter-20260829-ys7q
+- formalId: TR-AD-51
+- decisionLog: L3 复核判触发面语义反转——「双源汇队列（notifyWrite+fs-watch）」已按 2026-08-29 用户裁决退役为纯手动 triggerManual；去抖/单飞/四步单事务机制保留；正文重写并同步摘除两条腐烂锚（FsWatchAdapter.ts、kg-fswatch.test.ts）（apply）。
+
+### TR-AD-56
+- changeType: 修改
+- targetNode: TR-AD-56
+- scope: GC 正确性类检出
+- project: helix
+- reason: rotten-pointer: anchor → apps/daemon/test/unit/kg-kgsync-background.test.ts (docs/kg/architecture-rules.md)
+- evidence: kg gc_report
+- sourceTask: kg-gc
+- createdIn: (gc-report)
+- formalId: TR-AD-56
+- decisionLog: gc_report 检出 testedBy 腐烂锚 kg-kgsync-background.test.ts（文件不存在）——摘除该锚，正文四段不变（apply）。
+
+### TR-AD-58
+- changeType: 修改
+- targetNode: TR-AD-58
+- scope: 提示词段库 brief 段数表述 + 硬约束机械校验消费面接线
+- project: helix
+- reason: L3 复核不一致：TR-AD-58 ①「brief 六段」滞后→现实 8 段；②「validate 机械校验接线于 SubagentLauncher」未兑现——validateBrief/validateReport 无生产消费方，硬约束实际仅靠 guide.ts 提示词面承载（兼有实现缺口，接线与否需裁决）
+- evidence: templates/catalog.ts:18 自注「16 段：brief 8 / report 4 / kg-change-report 4」；templates/brief/ 实 8 文件；grep validateBrief apps/daemon/src 仅命中 validate.ts 自身与测试，SubagentLauncher 零引用
+- implementationStatus: 部分实现
+- implementedCode: templates/catalog.ts:18; templates/validate.ts:89,118
+- sourceTask: L3-semantic-review-batch-B
+- createdIn: iter-20260829-ys7q
+- formalId: TR-AD-58
+- decisionLog: L3 复核判两处失实——①brief 段数滞后（六→八，catalog 16 段自注）；②「validate 接线于 SubagentLauncher」未兑现（零生产消费方）——段数按现实同步，消费面如实写「已写成未接线、硬约束现靠 guide.ts 提示词面承载」，接线缺口登记 ISSUE-FV-validate-not-wired 待用户裁决（apply，按接受提示词面承载的选项②起草）。
+
+### TR-AD-59
+- changeType: 修改
+- targetNode: TR-AD-59
+- scope: 编排主 agent 会话形态与测试注入面（task 域全体编排场景）
+- project: helix
+- reason: 终验架构审计 sediment：编排主 agent 运行形态=daemon 进程内会话（非 SubagentLauncher 子进程）——「编排 loop 不占 SubAgent 预算」由结构保证；剧本经 streamFnOverride 注入。建议作为实现事实补入 TR-AD-59 正文
+- evidence: TaskOrchestratorService.ts:60-66（OrchestratorSessionFace drive/inject/abort）；infrastructure/assembly/orchestrator-runtime.ts；architecture-feedback.md AF-2.2.2
+- implementationStatus: 完整实现
+- implementedCode: TaskOrchestratorService.ts OrchestratorSessionFace:60-66 + orchestrator-runtime.ts 全件
+- sourceTask: final-verification-architecture-audit
+- createdIn: iter-20260829-ys7q
+- formalId: TR-AD-59
+- decisionLog: 终验架构审计 sediment（AF-2.2.2）：编排主 agent 运行形态 = daemon 进程内会话（OrchestratorSessionFace 最小接缝 + orchestrator-runtime.ts 组合根工厂），非 SubagentLauncher 子进程——「编排 loop 不占 SubAgent 预算」由结构保证；作为实现事实补入正文（apply）。
+
+### TR-AD-64
+- changeType: 修改
+- targetNode: TR-AD-64
+- scope: 批次 SubAgent 全部 kg 写路径（createNode/batchCreateNodes/supersede replacement）的任务归属落章
+- project: helix
+- reason: 终验架构审计 sediment（与 AD-10-r2 同源复核确认）：任务→kg 衔接面从「LLM 透传 taskId/originBatchId」升级为「接线层机械注入+LLM 显式覆盖」三路径——真机首跑 LLM 透传断链 85% 的修复，审计链不再依赖 LLM 自觉
+- evidence: KgUpdateTool.ts:134/252-258；ChildMain.ts:211-221；SqliteKnowledgeStore.ts:211-214；architecture-feedback.md AF-T4.2.1/T4.2.2
+- implementationStatus: 完整实现
+- implementedCode: KgUpdateTool.ts:134,252-258 + ChildMain.ts:211-221 + SqliteKnowledgeStore.ts:214
+- sourceTask: final-verification-architecture-audit
+- createdIn: iter-20260829-ys7q
+- formalId: TR-AD-64
+- decisionLog: 终验架构审计 sediment（与 AD-10-r2 同源复核确认）：taskId/originBatchId 落章从「LLM 透传」升级为「接线层机械注入+LLM 显式覆盖」三路径（KgUpdateTool taskContext / ChildMain 惰性解析 / replacement INSERT 补列）——真机首跑 LLM 透传断链 85% 的修复，审计链不再依赖 LLM 自觉；作为实现事实补入正文（apply）。
+
+### TR-AD-7-r4
+- changeType: 修改
+- targetNode: TR-AD-7
+- scope: TR-AD-7 规则正文工具集枚举（+plan/task-create/task-ops）
+- project: helix
+- reason: L3 复核不一致：TR-AD-7 工具集枚举缺本迭代新增的 tools/plan/、tools/task-create/、tools/task-ops/ 三目录；pi 红线本身成立
+- evidence: ls apps/daemon/src/adapters/driven/tools/ 含 plan/、task-create/、task-ops/；grep earendil-works 全仓仍仅 pi-engine/tools/subagent 三域
+- implementationStatus: 完整实现
+- implementedCode: apps/daemon/src/adapters/driven/tools/plan/、task-create/、task-ops/
+- sourceTask: L3-semantic-review-batch-A
+- createdIn: iter-20260829-ys7q
+- formalId: TR-AD-7
+- decisionLog: L3 复核判工具集枚举缺本迭代新增的 plan/task-create/task-ops 三目录，pi 红线本身成立（grep earendil-works 全仓仍仅三域），按实现事实补枚举（apply）。
+
+### TR-AD-8-r3
+- changeType: 修改
+- targetNode: TR-AD-8
+- scope: TR-AD-8 页签枚举（五→六）与 P-1 文件数（十→15）
+- project: helix
+- reason: L3 复核不一致：TR-AD-8「五页签终态」与「pages/P-1/ 十文件」陈旧——本迭代新增 /tasks 第六页签，P-1 实页化后 15 文件
+- evidence: apps/shell/src/app/route.ts:20 ROUTE_TASKS="/tasks" + AppRoute 联合六成员；pages/P-1 实 15 文件
+- implementationStatus: 完整实现
+- implementedCode: apps/shell/src/app/route.ts:20; apps/shell/src/pages/tasks/
+- sourceTask: L3-semantic-review-batch-A
+- createdIn: iter-20260829-ys7q
+- formalId: TR-AD-8
+- decisionLog: L3 复核判页签枚举与 P-1 文件数陈旧（本迭代新增 /tasks 第六页签、P-1 实页化后 15 文件），FSD 五层与主题/i18n 纪律核心规则不变，按实现事实同步（apply）。
+
 ## discarded
 
 ### SPEC-iter-20260815-6tss-2
@@ -1598,3 +1846,71 @@
 - sourceTask: kg-apply
 - createdIn: task-20260824-thinking-unify
 - decisionLog: 级联误报（符号索引过期）：apply TR-AD-47 时锚符号解析失败，但逐一验证全部健在——Session.ts:88 applySteer / SteerQueue.ts:33 class SteerQueue / ChatService.ts:272 steer / :274 steerInstance 调用链完整；codegraph 符号索引 last-indexed 8-16，此后 T10/T11/T12 大量代码变更未重建所致。非节点事实漂移，discard；根治 = codegraph 索引重建（另行安排）
+
+### AD-10
+- changeType: 修改
+- targetNode: AD-10
+- scope: kg-bootstrap 批次产出写路径（KgUpdateTool/ChildMain 接线层）
+- project: helix
+- reason: T4.1 真机首跑 sediment：AD-10 kg↔任务元数据衔接面部分实现——SOP 约束面已落（taskId 强制透传/replacement 元数据，993ed0a），但 change_log.task_id 真机覆盖率仅 25/172，机械注入（KgWriteService 接线层自动补 taskId/originBatchId）未实现，留裁决
+- evidence: 首跑 change_log.task_id 25/172（LLM 透传不可靠）；E-159 replacement 落 draft 无 origin_batch_id；development/architecture-feedback.md AF-T4.1.4/AF-T4.1.6
+- implementationStatus: 部分实现
+- implementedCode: apps/daemon/resources/skills/kg-bootstrap/SKILL.md; apps/daemon/src/adapters/driven/tools/kg-update/KgUpdateTool.ts
+- sourceTask: T4.1
+- createdIn: iter-20260829-ys7q
+- decisionLog: 被 T4.2 完整实现候选取代——T4.1 首跑后机械注入已完成（64791af），部分实现结论过时，重新落账完整实现候选
+
+### TR-AD-60
+- changeType: 修改
+- targetNode: TR-AD-60
+- scope: GC 正确性类检出
+- project: helix
+- reason: rotten-pointer: anchor → apps/daemon/src/adapters/driving/ws-server/handlers/task.ts (docs/kg/architecture-rules.md)
+- evidence: kg gc_report
+- sourceTask: kg-gc
+- createdIn: (gc-report)
+- decisionLog: 终验人审 discard：腐烂锚指向 dev 分支文件，dev→main 合并（6582b89）后锚已自然消解（gc_report 复检 correctness 不再含本节点），无需落盘改动
+
+### TR-AD-61
+- changeType: 修改
+- targetNode: TR-AD-61
+- scope: GC 正确性类检出
+- project: helix
+- reason: rotten-pointer: anchor → apps/daemon/src/application/services/task/WorkLedgerService.ts (docs/kg/architecture-rules.md)
+- evidence: kg gc_report
+- sourceTask: kg-gc
+- createdIn: (gc-report)
+- decisionLog: 终验人审 discard：腐烂锚指向 dev 分支文件，dev→main 合并（6582b89）后锚已自然消解（gc_report 复检 correctness 不再含本节点），无需落盘改动
+
+### TR-AD-62
+- changeType: 修改
+- targetNode: TR-AD-62
+- scope: GC 正确性类检出
+- project: helix
+- reason: rotten-pointer: anchor → apps/daemon/src/application/services/task/TaskEngineService.ts (docs/kg/architecture-rules.md)；rotten-pointer: anchor → apps/daemon/src/domain/task/manifest.ts (docs/kg/architecture-rules.md)
+- evidence: kg gc_report
+- sourceTask: kg-gc
+- createdIn: (gc-report)
+- decisionLog: 终验人审 discard：腐烂锚指向 dev 分支文件，dev→main 合并（6582b89）后锚已自然消解（gc_report 复检 correctness 不再含本节点），无需落盘改动
+
+### TR-AD-65
+- changeType: 修改
+- targetNode: TR-AD-65
+- scope: GC 正确性类检出
+- project: helix
+- reason: rotten-pointer: anchor → apps/daemon/src/application/services/task/TaskQueryService.ts (docs/kg/architecture-rules.md)
+- evidence: kg gc_report
+- sourceTask: kg-gc
+- createdIn: (gc-report)
+- decisionLog: 终验人审 discard：腐烂锚指向 dev 分支文件，dev→main 合并（6582b89）后锚已自然消解（gc_report 复检 correctness 不再含本节点），无需落盘改动
+
+### TR-AD-51
+- changeType: 修改
+- targetNode: TR-AD-51
+- scope: GC 正确性类检出
+- project: helix
+- reason: rotten-pointer: anchor → apps/daemon/src/adapters/driven/fs-watch/FsWatchAdapter.ts (docs/kg/architecture-rules.md)；rotten-pointer: anchor → apps/daemon/test/unit/kg-fswatch.test.ts (docs/kg/architecture-rules.md)
+- evidence: kg gc_report
+- sourceTask: kg-gc
+- createdIn: (gc-report)
+- decisionLog: 终验人审 discard：两条腐烂锚（FsWatchAdapter.ts/kg-fswatch.test.ts）根因 = fs-watch 触发面按 2026-08-29 用户裁决退役，锚摘除已并入 TR-AD-51-r2 正文重写一并落盘，本条不单独处置

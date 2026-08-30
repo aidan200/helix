@@ -132,3 +132,23 @@
 - **选项**：①实时轨扫描面补 toolCall 记录（钉值 = agent_spawn 工具调用 id，反转 T2.1 判断）；②改契约优先级（spawn 钉值恒优先）；③出窗加兑底桶（贴顶/贴底渲染）。
 - **裁决与理由**：选 ①，否 ②③。①用户实测裁决：卡片在 spawn 工具调用前 = bug，正确位置 = 工具调用之后——T2.1「锚落工具卡 = 语义错误」判断反转成立；②契约优先级不动：规则①优先的两承重理由（确定性权威 + 重启兜底）依然成立，且 E-AgentInstance 禁忌禁止锚持久化，完全单轨架构上不可行；③出窗兑底不做——用户裁决「锚出窗的卡片 = 非本页对话历史的卡片，不需要渲染」：聊天流卡片 = 历史锚点标记，运行中实例实时感知归 DrawerRail 活跃事件条（queued+running 全量列表，与装载窗口无关，既有用户裁决行为契约），完成通知归 closure 注入，翻页装载锚后卡片反应式归位（现成行为，零改动）。
 - **结局**：已落地并验证（T6：computeSpawnAnchor 扫描面补 toolCall 记录，TDD 先红后绿，daemon 818/818 + tsc 零错；commit d836470）；E-AgentInstance 描述/规则段同步（hotfix-20260823）。
+
+
+## AD-10 任务系统 vs 任务类型的职责分界：任务只执行并给结果；结果的后处理（落盘/呈现/修正）是任务类型的域逻辑（iter-20260829-ys7q / 落地定稿）
+
+**digest**：给任务系统加产出处置概念、动 kg↔任务衔接面、写批次产出落库或批次重跑幂等、评审任务域与 kg 域边界时读本文。
+
+- **上下文**：通用任务系统（AD-1）首个任务类型 kg-bootstrap 的产出处置（落盘/呈现/修正）若塞进任务系统，每加一个任务类型就要改任务页，通用性破产；产出处置单位与场景在图谱域（节点/批次/层），不在任务域。
+- **选项**：①任务系统承载各任务类型的结果后处理；②任务系统只执行并给结果，后处理是任务类型的域逻辑（bootstrap 的后处理在 kg 域）；③任务系统与 kg 域宽衔接（任务系统读 kg 状态/写处置结论）。
+- **裁决与理由**：选 ②（用户裁决 2026-08-29）。任务系统职责 = 根据 task 定义完成任务 + 给出结果（自动重试/生命周期控制/过程与结果查询），零产出处置概念；bootstrap 拿到结果后以代码事实落盘 kg（confirmed，无 draft——落库即正式知识）并在 /project 页呈现与事后修正（修改/supersede，AD-14 既有通道）。任务域 → kg 域唯一衔接面 = 三个节点元数据（taskId/origin_batchId/layer，TR-AD-64）——衔接面必须窄且确定性（③宽衔接否决）。**衔接面落章机制升级（T4.2）**：taskId/originBatchId 从「LLM 透传」升级为「接线层机械注入 + LLM 显式覆盖」三路径——①KgUpdateTool createOp 注入 taskContext 默认值（LLM 显式传参优先，未传用接线层默认值）；②ChildMain 接线层惰性解析（createKgTaskContextResolver 经任务台账反查本实例归属 jobId/batchId，首次调用才开连接——解析下沉子进程接线层是 AF-T4.2.1 env 前提修正，后续其他批次级上下文可复用同一惰性解析模式）；③supersede replacement INSERT 补 origin_batch_id 列（replacement 同为批次产出，缺列曾致落章裂口）+ 批次上下文内 replacement 默认 confirmed；非任务上下文（主会话/chat 子进程）零注入，task_id 保持 NULL（kg 更新不强制关联任务）。直接动因 = 真机首跑 LLM 透传断链 85%——审计链可靠性不能押在 LLM 记得传参上。
+- **结局**：已落地并验证（kg-update-task-context.test.ts 三路径落章 9 例绿；daemon 1394 全绿；终验架构审计复核确认完整实现——development/architecture-feedback.md AF-T4.2.1/T4.2.2；取代 T4.1 部分实现候选，已 discard 留史）。衔接面从 LLM 透传升级为机械保证：「批次产出必带归属」成为结构事实，LLM 显式传参降级为可选覆盖。约束面由 TR-AD-64 承载（同批候选更新补录三路径实现事实）；产出呈现分组查询（按任务/阶段/批次）由 kg 域经三元数据驱动。
+
+
+## AD-6 实例级工作台账：chat/task 统一的 SubAgent 语义级阶段记录（iter-20260829-ys7q / 落地定稿）
+
+**digest**：派 SubAgent 写 brief、判子实例进度、做断点接力恢复、改 closure 收口判定、动 work_item 台账或任务生命周期语义时读本文。
+
+- **上下文**：进度事实源只有原始 trace（太低层）与终点 closure（太晚）——SubAgent 中途出问题时 MainAgent 只能扒代码现场猜进度，原工作进度丢失（用户提出）；v2 SubAgent 无任何台账/todo 工具（查明）。任务系统（AD-1/AD-2）同时要求「人对运行中任务只有生命周期控制（暂停/继续/取消/删除）、内容零干预」的语义有一等事实源承载。
+- **选项**：①为任务编排器新造专用台账工具（chat/task 双轨分叉）；②chat/task 统一 plan 工具族全量配给所有 SubAgent，强制程度按 brief 装配；③不建中间事实源，只靠 trace+closure。
+- **裁决与理由**：选 ②（用户裁决 B——工具常驻可用，是否强制由 brief 模板按任务重量决定：bootstrap 批次等长任务强制，chat 轻量小任务可免；与 AD-18 分界一致——工具常在、纪律按任务配）。定稿机制七点：①数据 = 实例 plan（work_item 表：instanceId/seq/content/status(pending→in_progress→done/abandoned)/note（关键事实+产物指针：文件/节点 id/卡点）/updatedAt）；②写口 = plan 工具族三操作（plan_create/plan_update/plan_read）全量配给所有 SubAgent——SubAgent 不感知派发方，chat 与 task 写口完全一致（统一写口是本裁决核心）；③读口 = 派发方随时读（chat MainAgent 判进度 / 任务编排器判批次进度 / 任务页渲染中间状态）；④接力恢复 = 新实例 brief 注入前序 plan 摘要（已完成项+note 事实+产物指针），产物指针让幂等重跑跳过已产；⑤三件套不重叠：trace=机器审计原始流 / plan=LLM 策展语义进度 / closure=终点收口（硬约束：plan 须全部 resolve——done 或 abandoned 带理由，机械判据）；⑥硬约束模板层 LLM 不可裁：强制 plan 的 brief 必含「先写 plan 再动手」+ 阶段转换必更新；⑦任务级阶段产物 = 编排主 agent 聚合批次 plan+closure 写 stage.artifact（任务页阶段产物 tab 与产出呈现区数据源）。生命周期语义配套（AD-2/F3.5/F3.6）：pause = 停派新批次、在跑批次自然收口（不 SIGTERM）；resume = 续派；cancel = 在跑实例 SIGTERM 收口 failed；delete = 仅终态可删、清任务域全部记录（job/stage/batch + work_item 经 batch.instanceId 定位清除——F3.6 父进程唯一例外写点）、不动 kg 产出（AD-10）。
+- **结局**：已落地并真机全链验证（T4.1，2026-08-30，task-73ed9ed3，真 daemon + 真实 LLM + 真 WS 协议驱动；证据 evidence/first-run/lifecycle-receipts.md）：pause 回执 ok + 停派（批次 done 后 90s 零新批次落行）+ 在跑自然收口（L0 批次产出 3 节点落 kg：E-160/TR-73/TR-74）；resume 20s 内续派（stage 2 推进 + 2 个 L1 批次并行）；cancel 两在跑批次 SIGTERM → failed、已 done 批次不受影响；delete 四表清零（job/stage/batch 0 行、work_item 12→0）零孤儿、kg 不动（nodes 计数恒 257）。遗留观察（已落 architecture-feedback）：stage 状态完全由编排 LLM 调 advanceStage/writeStageArtifact 驱动，本任务 stage 1 在批次 done 后滞留 pending——不影响落账与暂停/续派语义，影响页面阶段条与审计可读性。约束面由 TR-AD-61（plan 纪律）与 E-实例plan 承载。
