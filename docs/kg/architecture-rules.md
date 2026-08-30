@@ -2041,12 +2041,13 @@ graph: tech
 layer: arch
 scope: domain
 stack: backend
-name: kg sync 纯手动触发+去抖单飞并发模型（表分域写不竞争）
+name: kg sync 两路触发（手动 + fs-watch）+去抖单飞并发模型（表分域写不竞争）
 status: active
-digest: 动 kg 同步触发面、加 sync 写路径、改去抖或单飞语义时
+digest: 动 kg 同步触发面、加 sync 写路径、改去抖或单飞语义、动 fs-watch 挂接/ignore 面时
 derivedFrom:
   - AD-15（iter-20260825-11fo：去抖单飞，附着不依赖新鲜度）
-  - 2026-08-29 用户裁决（触发面收束为纯手动 triggerManual：onStartup 全量触发 / fs-watch 兜底挂接 / edit 写后 notifyWrite 三触发面全部退役）
+  - 2026-08-29 用户裁决（触发面曾收束为纯手动 triggerManual：onStartup 全量触发 / fs-watch 兜底挂接 / edit 写后 notifyWrite 三触发面全部退役）
+  - 2026-08-30 用户裁决（推翻 08-29 中 fs-watch 退役项：恢复进程内 fs-watch 监控——选型 KgSyncService fs-watch 而非 codegraph watch；onStartup/notifyWrite 维持退役）
 anchors:
   implementedBy:
     - apps/daemon/src/application/services/kg/KgSyncService.ts
@@ -2054,20 +2055,21 @@ anchors:
   testedBy:
     - apps/daemon/test/unit/kg-sync-service.test.ts
     - apps/daemon/test/integration/kg-sync-pipeline.test.ts
-updatedIn: iter-20260829-ys7q
+    - apps/daemon/test/unit/kg-fs-watch.test.ts
+updatedIn: iter-20260829-ys7q（2026-08-30 修订：fs-watch 恢复为第二触发路）
 ```
 
 ## 规则
-.helix-kg 符号层与物化锚的新鲜化由单一 sync 管道维护，并发模型三定式：①触发面 = 纯手动——生产唯一入口 = 页面手动 triggerManual（含 getStatus/isBuilding 读面；KgSyncService.ts:13-16）；启动 onStartup 全量触发、fs-watch 兜底挂接、edit 工具写后 notifyWrite 注入按 2026-08-29 用户裁决全部退役（方法与其行为单测保留，能力面不动；fs-watch 生产挂接已退役——KgSyncService.ts:58，buildKnowledgeStack.ts:149-151 notifyWrite 不注入）；②去抖+单飞——去抖窗口批量合并（2-5s），running 标志保证同一时刻至多一个 sync 在写，running 期间新事件合并等待重入队，永不并发写 .helix-kg；sync 是四步单事务（ensure-symbols → 符号+span+contains 导入 → 锚物化 → 基准戳）；③表分域写不竞争——sync 管道写符号层+物化锚+meta，知识层四表只经 KgWriteService，两写者按表分域互不竞争。运行态按 projectRoot 隔离（组合根 per-project 工厂：去抖队列/单飞标志/快照缓存不跨项目共享）。附着读上次 sync 快照、允许滞后（少附/降级/跳过，不错附）——不存在「编辑等同步」的阻塞路径；符号消亡（删/改名）diff 产出锚孤儿信号供验证期检查。
+.helix-kg 符号层与物化锚的新鲜化由单一 sync 管道维护，并发模型三定式：①触发面 = 两路——页面手动 triggerManual（含 getStatus/isBuilding 读面）+ fs-watch 进程内监控（2026-08-30 用户裁决恢复：索引建成（synced）后启动 per-project watcher，事件经 KgFsWatchService 归一喂既有去抖/单飞管道；ignore 面强制排除 .helix-kg/.codegraph 自身产物——防 sync 写库→触发 watch→再 sync 自激励风暴——及 node_modules/.git/dist；跨平台 = macOS/Windows fs.watch recursive 原生、Linux 目录分层兜底（不引 chokidar 不轮询）；KgFsWatchService.stopWatching 为 index-delete 停监控接缝。onStartup 全量触发与 edit 写后 notifyWrite 维持 2026-08-29 退役不恢复）；②去抖+单飞——去抖窗口批量合并（2-5s），running 标志保证同一时刻至多一个 sync 在写，running 期间新事件合并等待重入队，永不并发写 .helix-kg；sync 是四步单事务（ensure-symbols → 符号+span+contains 导入 → 锚物化 → 基准戳）；③表分域写不竞争——sync 管道写符号层+物化锚+meta，知识层四表只经 KgWriteService，两写者按表分域互不竞争。运行态按 projectRoot 隔离（组合根 per-project 工厂：去抖队列/单飞标志/快照缓存不跨项目共享）。附着读上次 sync 快照、允许滞后（少附/降级/跳过，不错附）——不存在「编辑等同步」的阻塞路径；符号消亡（删/改名）diff 产出锚孤儿信号供验证期检查。
 
 ## 理由
-触发拓扑曾双源汇队列（写后通知覆盖 daemon 自有工具高频路径免 watch 抖动，watch 兜底外部修改）；2026-08-29 用户裁决将生产触发面收束为纯手动——附着不依赖新鲜度使手动触发零阻塞代价，自动触发面（onStartup/fs-watch/notifyWrite）的新鲜度承诺超出附着消费所需。去抖吸收 burst，单飞使 SQLite 事务永不交错。per-project 隔离是多 worktree 并发的天然边界（AD-15 定论）。附着若依赖新鲜度会引入编辑→同步阻塞链，与「宁可沉默不可错附」冲突。
+触发拓扑曾双源汇队列（写后通知覆盖 daemon 自有工具高频路径免 watch 抖动，watch 兜底外部修改）；2026-08-29 收束为纯手动（附着不依赖新鲜度使手动零阻塞代价）；2026-08-30 用户裁决恢复 fs-watch 一路——索引后目录变化应自动跟进新鲜度，选型进程内 fs.watch（onFsEvent 直喂既有队列链路最短、不推翻 AF-2 被动抽取器裁决、免长驻子进程管理；codegraph watch 只刷 codegraph.db 无法触发 kg sync 链路反而更长）。去抖吸收 burst，单飞使 SQLite 事务永不交错。per-project 隔离是多 worktree 并发的天然边界（AD-15 定论）。附着若依赖新鲜度会引入编辑→同步阻塞链，与「宁可沉默不可错附」冲突。
 
 ## 适用范围
-修改 KgSyncService 触发/去抖/单飞逻辑、评审任何新增 sync 触发源（生产触发面当前纯手动——新自动触发源须先经用户裁决再挂接）、以及任何想「绕过队列直接写符号层」的场景（应入队而非直写）。
+修改 KgSyncService 触发/去抖/单飞逻辑、动 fs-watch 挂接或 ignore 面（.helix-kg/.codegraph 排除是自激励防线，不可拆）、评审任何新增 sync 触发源（生产触发面 = 手动 + fs-watch 两路——其他新触发源须先经用户裁决再挂接）、以及任何想「绕过队列直接写符号层」的场景（应入队而非直写）。
 
 ## 反例
-未经裁决私接新自动触发面（onStartup/fs-watch/写后通知重生——2026-08-29 裁决的退役面复活，触发拓扑语义再次漂移）；或 sync 完成前阻塞编辑/附着链路返回（引入秒级阻塞，违反附着不依赖新鲜度）；或两个 sync 并发写 .helix-kg（running 标志被绕过——如新触发面直调四步管道不走单飞判定，WAL 下事务交错致基准戳与符号表不一致）。
+未经裁决私接新自动触发面（onStartup/写后通知重生，或绕过裁决再增第三路——触发拓扑语义再次漂移；fs-watch 一路本身已是 2026-08-30 裁决面）；ignore 面漏排 .helix-kg/.codegraph 使 sync 产物回流触发 sync（自激励风暴）；或 sync 完成前阻塞编辑/附着链路返回（引入秒级阻塞，违反附着不依赖新鲜度）；或两个 sync 并发写 .helix-kg（running 标志被绕过——如新触发面直调四步管道不走单飞判定，WAL 下事务交错致基准戳与符号表不一致）。
 
 ```kg-node
 id: TR-AD-52
@@ -2531,23 +2533,24 @@ graph: tech
 layer: arch
 scope: global
 stack: shared
-name: 人类可读性总体原则（图谱内容 + 任务人类界面全部为「人类判断与裁决」设计；bootstrap 写作规范五条）
+name: 人类可读性总体原则（图谱内容 + 任务人类界面按面定调——审核面为裁决设计、通知面如实呈现；bootstrap 写作规范五条）
 status: active
 digest: 写 kg 节点正文/digest、写批次产出摘要或阶段产物、做任务页或产出呈现区渲染、评审任何人类界面文案时
 derivedFrom:
   - AD-4（iter-20260829-ys7q）
+  - 2026-08-30 用户裁决（变化报告是纯通知面——「永远带行动项」原则废弃，报告零交互装置）
 anchors:
   implementedBy:
     - apps/daemon/resources/skills/kg-bootstrap/SKILL.md
     - apps/daemon/src/application/services/task/TaskQueryService.ts
-updatedIn: iter-20260829-ys7q
+updatedIn: iter-20260829-ys7q（2026-08-30 修订：废弃「永远带行动项」，界面按面定调）
 ```
 
 ## 规则
-不止图谱内容，任务系统提供给人类审核的全部界面物（任务内容卡/进度呈现/批次产出摘要/阶段产物/产出呈现区）同样必须为「人类判断与裁决」设计——人读不懂则修正决策是空话。①bootstrap 写作规范五条（入 kg-bootstrap skill，批次产出验收条件）：正文完整自然语言（语义自包含、禁电报体、引用节点必带 name）；digest ≤2 行叙述式（一句话说清这是什么+何时相关），非触发式电报体；每条知识带「为什么存在」（来源符号/文件+存在理由）；实体/契约必须符号域锚（path#symbol）、规则按三级作用域；closure 自检「人类开发者只看正文不看代码能否理解」，不能则不产出。②任务人类界面遵循 P1 人类可读三原则（事件导向非节点导向/因果链完整/永远带行动项）+ 引用规范（知识节点 = 粗体 name+kind 徽章+digest 首行，代码符号 = 符号名+路径:行号，裸 id 不出现——TR-AD-54 延伸）；数据面（TaskQueryService/KgReportService）组装时即按规范产出，不依赖前端自律。
+图谱内容与任务系统提供给人类的全部界面物都必须以人类可读为第一原则——人读不懂则修正决策是空话。①bootstrap 写作规范五条（入 kg-bootstrap skill，批次产出验收条件）：正文完整自然语言（语义自包含、禁电报体、引用节点必带 name；鼓励 markdown 结构——标题/列表/段落自由组织，渲染端按 md 呈现）；digest ≤2 行叙述式（一句话说清这是什么+何时相关），非触发式电报体；每条知识带「为什么存在」（来源符号/文件+存在理由）；实体/契约必须符号域锚（path#symbol）、规则按三级作用域；closure 自检「人类开发者只看正文不看代码能否理解」，不能则不产出。②任务人类界面遵循 P1 人类可读原则（事件导向非节点导向/因果链完整）+ 引用规范（知识节点 = 粗体 name+kind 徽章+digest 首行，代码符号 = 符号名+路径:行号，裸 id 不出现——TR-AD-54 延伸）；数据面（TaskQueryService/KgReportService）组装时即按规范产出，不依赖前端自律。③界面按面定调（2026-08-30 用户裁决）：审核面才为「人类判断与裁决」设计并带行动项；通知面（变化报告等纯事实呈现）如实呈现、零交互装置——变化报告条目全部来自代码事实的机械检查/变更流水，根本没有人审核的逻辑，「永远带行动项」原则在此废弃（原假行动项：radio 选项仅前端标记不落库、点了无区别）。
 
 ## 理由
-v1 图谱对人类不可读的教训（电报体 digest/编号语汇/正文稀疏）不得在任务系统重演（用户裁决 2026-08-29，选项 B 全面覆盖）；人类可读是 bootstrap 产出呈现与事后修正（CL-4）的硬前提——呈现区若读不懂，错误知识就无人能发现、事后修正就是形式。
+v1 图谱对人类不可读的教训（电报体 digest/编号语汇/正文稀疏）不得在任务系统重演（用户裁决 2026-08-29，选项 B 全面覆盖）；人类可读是 bootstrap 产出呈现与事后修正（CL-4）的硬前提——呈现区若读不懂，错误知识就无人能发现、事后修正就是形式。2026-08-30 用户裁决补正：P1 三原则中的「永远带行动项」建立在「报告=审核面」的错误前提上——变化报告逻辑上只有通知（即使迭代功能上线亦然），无人审核逻辑则行动项是形式主义（选项可执行的规范从未兑现）；审核面与通知面分开定调后，各面各得其所。
 
 ## 适用范围
 写或改任何 kg 节点（digest/正文）时；编排 agent 产阶段摘要/批次 scope 描述时；实现任务页/产出呈现区/报告面渲染时；评审涉及人类界面的 PR 时。
