@@ -18,6 +18,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { I18nProvider } from "@/shared/i18n";
 import { ThemeProvider } from "@/shared/ui/theme";
+import { ToastProvider } from "@/shared/ui/Toast";
 import type { WorkspaceState } from "@/entities/workspace/model/workspace-store";
 
 // ── useSession mock（WorkspaceBootScreen 活状态行 + AppRoutes web 面最小形状）──
@@ -62,7 +63,9 @@ function mount() {
   const r = render(
     <ThemeProvider>
       <I18nProvider>
-        <WorkspaceGateBranch />
+        <ToastProvider>
+          <WorkspaceGateBranch />
+        </ToastProvider>
       </I18nProvider>
     </ThemeProvider>,
   );
@@ -74,7 +77,9 @@ function replay() {
   rerenderUi!(
     <ThemeProvider>
       <I18nProvider>
-        <WorkspaceGateBranch />
+        <ToastProvider>
+          <WorkspaceGateBranch />
+        </ToastProvider>
       </I18nProvider>
     </ThemeProvider>,
   );

@@ -18,7 +18,7 @@
  *   +重发 detail 取 daemon 落账日志）。
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Dispatch } from "react";
-import type { EventEnvelope, KgProjectRow, KgProduceNodeDto } from "@helix/protocol";
+import type { EventEnvelope, KgHealthDto, KgProjectRow, KgProduceNodeDto } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
@@ -33,6 +33,7 @@ import KgDetailPane from "./ui/kg-detail-pane";
 import KgReportPane from "./ui/kg-report-pane";
 import KgIndexPanel from "./ui/kg-index-panel";
 import KgBootstrapEntry from "./ui/kg-bootstrap-entry";
+import KgHealthPane from "./ui/kg-health-pane";
 import KgProducePane from "./ui/kg-produce-pane";
 
 /** 面板重建轮询间隔（O-6 同主区 building 轮询）。 */
@@ -70,6 +71,8 @@ const KgViewer = function KgViewer({
     sendKgBootstrapImpact,
     sendKgGraphPurge,
     sendKgIndexDelete,
+    sendKgHealth,
+    sendKgReviewCreate,
     sendKgProjects,
     subscribeKgFrames,
   } = useSession();
@@ -83,14 +86,19 @@ const KgViewer = function KgViewer({
    * ref 镜像供 listener 读取（listener 闭包不随重渲染更新）。
    * C1 扩：purge / indexDelete 两布尔（kg 维护批写面单飞同轨）。 */
   type WriteReq = { kind: "update" | "supersede"; nodeId: string; name: string; reason?: string };
-  const [flight, setFlight] = useState<{ create: boolean; write: WriteReq | null; purge: boolean; indexDelete: boolean }>({
+  const [flight, setFlight] = useState<{ create: boolean; write: WriteReq | null; purge: boolean; indexDelete: boolean; review: boolean }>({
     create: false,
     write: null,
     purge: false,
     indexDelete: false,
+    review: false,
   });
   const flightRef = useRef(flight);
   flightRef.current = flight;
+  /** 体检面板数据面（W2-E；首进 health tab 拉一次——produceFetchedRef 同构）。 */
+  const [healthView, setHealthView] = useState<{ loading: boolean; data: KgHealthDto | null }>({ loading: false, data: null });
+  const healthFetchedRef = useRef(false);
+  const [reviewLaunched, setReviewLaunched] = useState(false);
   /** 产出拉取去重（首进 produce tab 发一次；切项目 kgToken 重挂复位）。 */
   const produceFetchedRef = useRef(false);
   /** 产出状态镜像（回调查找节点用；避免回调依赖 produce 身份抖动）。 */
@@ -203,6 +211,18 @@ const KgViewer = function KgViewer({
             sendKgProjects(); // 左栏徽章权威刷新
             return;
           }
+          // ── kg.health 批 + kg 评审批回执（W2-E/W2-F；review 单飞 ref 关联）──
+          case "kg.health.result": {
+            setHealthView({ loading: false, data: e.payload });
+            return;
+          }
+          case "kg.review.create.result": {
+            if (!flightRef.current.review) return; // 非本视图发起
+            setFlight((f) => ({ ...f, review: false }));
+            setReviewLaunched(true);
+            toast.push("ok", t("pj.health.reviewOkToast", { name: project.name }));
+            return;
+          }
           case "connection.error": {
             // bootstrap 入口/写面/维护面在途失败（单飞门控；非在途不消费）
             const msg = (e.payload as { message?: string }).message ?? "error";
@@ -219,6 +239,11 @@ const KgViewer = function KgViewer({
             if (flightRef.current.create) {
               setFlight((f) => ({ ...f, create: false }));
               toast.push("err", t("pj.boot.createFailToast", { message: msg }));
+              return;
+            }
+            if (flightRef.current.review) {
+              setFlight((f) => ({ ...f, review: false }));
+              toast.push("err", t("pj.health.reviewFailToast", { message: msg }));
               return;
             }
             if (flightRef.current.write !== null) {
@@ -265,7 +290,7 @@ const KgViewer = function KgViewer({
     [],
   );
   const onClearFilter = useCallback(() => dispatch({ type: "clear-filter" }), []);
-  const onTab = useCallback((tab: "detail" | "report" | "produce") => dispatch({ type: "tab", tab }), []);
+  const onTab = useCallback((tab: "detail" | "report" | "produce" | "health") => dispatch({ type: "tab", tab }), []);
   const onRebuild = useCallback(() => {
     dispatch({ type: "idx-rebuild-started" });
     sendKgIndexStatus({ project: project.name, rebuild: true });
@@ -347,6 +372,24 @@ const KgViewer = function KgViewer({
     projectDispatch({ type: "produce-loading" });
     sendKgBootstrapProduce({ project: project.name });
   }, [tab, project.name, sendKgBootstrapProduce, projectDispatch]);
+
+  // health 拉取（W2-E；首进 tab 发一次，回执经 listener 落本地态）
+  useEffect(() => {
+    if (tab !== "health" || healthFetchedRef.current) return;
+    healthFetchedRef.current = true;
+    setHealthView({ loading: true, data: null });
+    sendKgHealth({ project: project.name });
+  }, [tab, project.name, sendKgHealth]);
+
+  // ── kg.review.create 发起（W2-F；单飞锁在本视图，Pane 纯展示）──
+  const onLaunchReview = useCallback(() => {
+    if (flightRef.current.review) return;
+    setFlight((f) => ({ ...f, review: true }));
+    if (!sendKgReviewCreate({ project: project.name })) {
+      setFlight((f) => ({ ...f, review: false }));
+      toast.push("err", t("pj.boot.sendFail"));
+    }
+  }, [project.name, sendKgReviewCreate, toast, t]);
 
   // ── 展示派生 ─────────────────────────────────────────────
   const rows = useMemo(() => filterRows(state.all, state.filter), [state.all, state.filter]);
@@ -547,6 +590,15 @@ const KgViewer = function KgViewer({
             >
               {t("pj.produce.tab")}
             </button>
+            {/* W2-E kg.health 批第四 tab：体检（五项读面只列不修 + 轨二发起入口） */}
+            <button
+              type="button"
+              className={`kgv-tab${state.tab === "health" ? " active" : ""}`}
+              data-tab="health"
+              onClick={() => onTab("health")}
+            >
+              {t("pj.health.tab")}
+            </button>
           </nav>
           <div className="kgv-pane-scroll">
             <div className="kgv-pane-inner" data-kg-pane={state.tab}>
@@ -562,6 +614,17 @@ const KgViewer = function KgViewer({
                 <KgReportPane
                   report={state.report}
                   byId={byId}
+                />
+              ) : state.tab === "health" ? (
+                <KgHealthPane
+                  health={healthView.data}
+                  loading={healthView.loading}
+                  reviewBusy={flight.review}
+                  reviewLaunched={reviewLaunched}
+                  projectName={project.name}
+                  t={t}
+                  onLaunchReview={onLaunchReview}
+                  onOpenTasks={onOpenTasks}
                 />
               ) : (
                 <KgProducePane

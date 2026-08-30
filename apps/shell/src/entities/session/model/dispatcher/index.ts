@@ -129,6 +129,10 @@ register({
     // 页 kg-head 与索引面板组件听众，no-op 注册保守护绿
     "kg.graph.purge.result",
     "kg.index.delete.result",
+    // W2-E 体检看板 + W2-F 评审批回执——同规：真消费归 /project 页体检面板
+    // 组件听众（KgViewer 常驻 listener 单飞关联），no-op 注册保守护绿
+    "kg.health.result",
+    "kg.review.create.result",
   ],
   apply: (s) => s,
 });

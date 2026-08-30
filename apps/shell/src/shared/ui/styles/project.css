@@ -495,3 +495,16 @@
 .kpn-form-label { display: flex; flex-direction: column; gap: 4px; font-size: var(--text-cap); color: var(--text-dim); }
 .kpn-form-label .hud-input { width: 100%; }
 .kpn-form-err { color: var(--error, #e5484d); font-size: var(--text-cap); }
+
+/* ── 体检面板（W2-E kg.health 批第四 tab；五项读面分组 + 轨二发起入口）── */
+.kg-health { display: flex; flex-direction: column; gap: 14px; }
+.kg-health-sec {
+  border: 1px solid rgb(var(--edge-rgb) / 0.12); border-radius: 12px;
+  background: var(--bg-panel, rgb(var(--edge-rgb) / 0.04));
+  padding: 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.kg-health-sec-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kg-health-sec-title { font-size: var(--text-body); font-weight: 600; }
+.kg-health-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.kg-health-item { font-size: var(--text-caption); line-height: 1.55; color: var(--text-body-c); overflow-wrap: anywhere; }
+.kg-health-cand-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

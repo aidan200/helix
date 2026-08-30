@@ -29,8 +29,8 @@ export interface KgFilter {
 }
 
 export type KgPaneView = "loading" | "empty" | "success";
-/** 右区 tab：节点详情 / 变化报告 / 产出呈现（T3.2 kg-bootstrap 批新增第三 tab）。 */
-export type KgTab = "detail" | "report" | "produce";
+/** 右区 tab：节点详情 / 变化报告 / 产出呈现（T3.2 kg-bootstrap 批新增第三 tab）/ 体检（W2-E kg.health 批第四 tab）。 */
+export type KgTab = "detail" | "report" | "produce" | "health";
 
 export interface KgViewState {
   /** 全量节点行（kg.list 无过滤回执；过滤在派生层）。 */

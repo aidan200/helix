@@ -31,6 +31,8 @@ import type {
   KgChangeReportPayload,
   KgGraphPurgeCommand,
   KgGraphPurgePayload,
+  KgHealthCommand,
+  KgHealthPayload,
   KgIndexDeleteCommand,
   KgIndexDeletePayload,
   KgIndexStatusCommand,
@@ -46,6 +48,8 @@ import type {
   KgNodeUpdateCommand,
   KgNodeUpdatePayload,
   KgProjectsCommand,
+  KgReviewCreateCommand,
+  KgReviewCreatePayload,
   ModelCatalogCommand,
   ModelCatalogRefreshCommand,
   ModelGetDefaultCommand,
@@ -344,6 +348,19 @@ export function kgGraphPurgeCommand(payload: KgGraphPurgePayload): KgGraphPurgeC
 /** kg.index.delete：删除索引（停 watcher + 删 .codegraph + 状态复位 absent；可重建）。 */
 export function kgIndexDeleteCommand(payload: KgIndexDeletePayload): KgIndexDeleteCommand {
   return { v: PROTOCOL_VERSION, type: "kg.index.delete", payload };
+}
+
+// ── kg.health 批 + kg 评审批命令（W2-E 体检看板 / W2-F 轨二；契约 PROTOCOL.md §15.9/§23）────
+// 全局命令（信封 sessionId 省略）；回执 = kg.*.result 点对点帧（零推送同规）。
+
+/** kg.health：结构体检五项读面聚合（只列不修零写路径；absent 短路空态不建库）。 */
+export function kgHealthCommand(payload: KgHealthPayload): KgHealthCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.health", payload };
+}
+
+/** kg.review.create：发起语义体检任务（准入从简 = 索引存在即可，允许反复发起）。 */
+export function kgReviewCreateCommand(payload: KgReviewCreatePayload): KgReviewCreateCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.review.create", payload };
 }
 
 // ── workspace 族命令（W3 门禁；契约 PROTOCOL.md §15.10）──────────────

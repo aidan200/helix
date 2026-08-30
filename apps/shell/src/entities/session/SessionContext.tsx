@@ -25,10 +25,12 @@ import type {
   KgBootstrapCreatePayload,
   KgBootstrapImpactPayload,
   KgGraphPurgePayload,
+  KgHealthPayload,
   KgIndexDeletePayload,
   KgBootstrapProducePayload,
   KgChangeReportPayload,
   KgIndexStatusPayload,
+  KgReviewCreatePayload,
   KgListPayload,
   KgNodeConfirmPayload,
   KgNodeDetailPayload,
@@ -53,7 +55,9 @@ import {
   chatSteerCommand,
   kgChangeReportCommand,
   kgGraphPurgeCommand,
+  kgHealthCommand,
   kgIndexDeleteCommand,
+  kgReviewCreateCommand,
   kgIndexStatusCommand,
   kgListCommand,
   kgNodeConfirmCommand,
@@ -231,6 +235,11 @@ interface SessionContextValue {
   sendKgGraphPurge: (payload: KgGraphPurgePayload) => boolean;
   /** 发送 kg.index.delete（删除索引；停 watcher + 删 .codegraph + 状态复位 absent）。 */
   sendKgIndexDelete: (payload: KgIndexDeletePayload) => boolean;
+  // ── kg.health 批 + kg 评审批命令面（W2-E 体检看板 / W2-F 轨二发起入口）──
+  /** 发送 kg.health（五项读面聚合；只列不修零写路径，absent 短路空态）。 */
+  sendKgHealth: (payload: KgHealthPayload) => boolean;
+  /** 发送 kg.review.create（发起语义体检任务；准入从简 = 索引存在即可，允许反复发起）。 */
+  sendKgReviewCreate: (payload: KgReviewCreatePayload) => boolean;
   /** 订阅 kg 族点对点回执（kg.*.result；O-6 零推送事件，回执全走此处）。 */
   subscribeKgFrames: (listener: (e: EventEnvelope) => void) => () => void;
   // ── task 族九命令面（iter-20260829-ys7q T3.1，P-2 任务页；连接私有读面）──
@@ -672,6 +681,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     (payload: KgIndexDeletePayload) => clientRef.current!.send(kgIndexDeleteCommand(payload)),
     [],
   );
+  // kg.health 批 + kg 评审批命令（W2-E/W2-F；连接私有读写面——直发命令，回执经 subscribeKgFrames）
+  const sendKgHealth = useCallback(
+    (payload: KgHealthPayload) => clientRef.current!.send(kgHealthCommand(payload)),
+    [],
+  );
+  const sendKgReviewCreate = useCallback(
+    (payload: KgReviewCreatePayload) => clientRef.current!.send(kgReviewCreateCommand(payload)),
+    [],
+  );
   const subscribeKgFrames = useCallback((listener: (e: EventEnvelope) => void) => {
     kgListenersRef.current.add(listener);
     return () => {
@@ -878,6 +896,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendKgBootstrapImpact,
       sendKgGraphPurge,
       sendKgIndexDelete,
+      sendKgHealth,
+      sendKgReviewCreate,
       subscribeKgFrames,
       sendTaskList,
       sendTaskDetail,
@@ -944,6 +964,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendKgBootstrapImpact,
       sendKgGraphPurge,
       sendKgIndexDelete,
+      sendKgHealth,
+      sendKgReviewCreate,
       subscribeKgFrames,
       sendTaskList,
       sendTaskDetail,

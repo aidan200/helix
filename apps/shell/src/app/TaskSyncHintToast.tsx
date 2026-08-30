@@ -20,23 +20,24 @@ export default function TaskSyncHintToast() {
   const conn = state.conn;
 
   // 连接就绪（首挂/重连）：通配订阅（重连后服务端订阅表已清——补订）
+  //（防御：部分测试 mock 的 session 面不含 task 族——跳过不炸，App.gate-hold 先例）
   const prevConnRef = useRef<string | null>(null);
   useEffect(() => {
+    if (typeof sendTaskSubscribe !== "function") return;
     const prev = prevConnRef.current;
     prevConnRef.current = conn;
     if (conn === "connected" && prev !== "connected") sendTaskSubscribe();
   }, [conn, sendTaskSubscribe]);
 
   // task.changed 随行 syncHint → toast（非提示帧不消费）
-  useEffect(
-    () =>
-      subscribeTaskFrames((e: EventEnvelope) => {
-        if (e.type !== "task.changed") return;
-        const hint = (e.payload as TaskChangedPayload).syncHint;
-        if (typeof hint === "string" && hint !== "") toast.push("warn", hint);
-      }),
-    [subscribeTaskFrames, toast],
-  );
+  useEffect(() => {
+    if (typeof subscribeTaskFrames !== "function") return;
+    return subscribeTaskFrames((e: EventEnvelope) => {
+      if (e.type !== "task.changed") return;
+      const hint = (e.payload as TaskChangedPayload).syncHint;
+      if (typeof hint === "string" && hint !== "") toast.push("warn", hint);
+    });
+  }, [subscribeTaskFrames, toast]);
 
   return null;
 }
