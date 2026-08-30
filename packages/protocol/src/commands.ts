@@ -558,6 +558,37 @@ export interface KgIndexDeleteCommand extends CommandFrame<KgIndexDeletePayload>
   type: "kg.index.delete";
 }
 
+// ── kg.health 批新增（W2-E 轨一结构体检看板；设计 kg-driven-dev-loop-design D5 + R15）──
+
+export interface KgHealthPayload {
+  /** 项目名或绝对路径（daemon 单点解析）。 */
+  project: string;
+}
+/**
+ * 结构体检五项读面聚合（findConflicts / findOrphans / orphan 计数 / index
+ * 状态 / candidates 四态计数）——纯只读零写路径；absent 项目短路返回空态
+ * （不建库）。结果 = kg.health.result 点对点回执帧（O-6 零推送同规）。
+ */
+export interface KgHealthCommand extends CommandFrame<KgHealthPayload> {
+  type: "kg.health";
+}
+
+// ── kg 评审批新增（W2-F 轨二语义体检任务 kg-review；设计 kg-driven-dev-loop-design D5 + R21/R23）──
+
+export interface KgReviewCreatePayload {
+  /** 项目名或绝对路径（daemon 单点解析 + 准入复核：索引存在即可，允许反复发起）。 */
+  project: string;
+}
+/**
+ * 发起 kg-review 语义体检任务（type="kg-review"、projects=[project]、
+ * params={projectRoot}、createdBy="page"，与 kg.bootstrap.create 同源 createTask）。
+ * 与 bootstrap 一次性语义不同：体检面向存量图谱，知识层非空恰是评审对象，
+ * 可反复发起；准入从简 = 索引存在（index_absent → kg.review.not_eligible）。
+ */
+export interface KgReviewCreateCommand extends CommandFrame<KgReviewCreatePayload> {
+  type: "kg.review.create";
+}
+
 // ── workspace 批新增（W1 workspace 绑定闭环；契约 = 设计稿 workspace-feature-design-candidate.md §3.1）──
 
 /**
@@ -663,7 +694,7 @@ export interface TaskDeleteCommand extends CommandFrame<TaskDeletePayload> {
   type: "task.delete";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52） */
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52；kg.health 批 + kg 评审批：52 → 54） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -706,6 +737,8 @@ export type CommandEnvelope =
   | KgBootstrapImpactCommand
   | KgGraphPurgeCommand
   | KgIndexDeleteCommand
+  | KgHealthCommand
+  | KgReviewCreateCommand
   | WorkspaceGetCommand
   | WorkspaceOpenCommand
   | TaskListCommand
@@ -761,6 +794,8 @@ export const COMMAND_TYPES = [
   "kg.bootstrap.impact",
   "kg.graph.purge",
   "kg.index.delete",
+  "kg.health",
+  "kg.review.create",
   "workspace.get",
   "workspace.open",
   "task.list",

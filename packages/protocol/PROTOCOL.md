@@ -2519,7 +2519,7 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 >（`PROTOCOL_VERSION = "0.11"` 保持）：全部为新增面（additive 纪律，
 > TR-AD-23①；§22 同构先例）。
 >
-> - 计数演进：命令 52 → 53；事件 65 → 66（守护断言③同步扩）。
+> - 计数演进：命令 52 → 54（kg.health 批 +1 ∧ 本批 +1）；事件 65 → 67（同两批，守护断言③同步扩）。
 > - 产出纪律（硬）：内容过期/矛盾只提 candidates 台账人审（不直改节点）；
 >   唯一例外 = scene 缺失节点可 updateNode 直补（R23：元数据补全不是内容
 >   推翻）；禁止直改 body/digest、禁止 supersede（推翻权在人审）。

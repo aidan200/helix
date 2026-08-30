@@ -35,6 +35,19 @@ export function kgBootstrapManifest(): TaskManifest {
   };
 }
 
+/** kg-review 同形 manifest（W2-F：fixed 三阶段 L0 预检/L1 规则册/L2 实体册，projects 恰 1 个）。 */
+export function kgReviewManifest(): TaskManifest {
+  return {
+    paramsSchema: {
+      projectRoot: { type: "string", required: true },
+    },
+    stages: { strategy: "fixed", list: ["L0 结构面预检", "L1 规则册逐节点评审", "L2 实体册逐节点评审"] },
+    confirm: "required",
+    plan: "enforced",
+    projects: { min: 1, max: 1 },
+  };
+}
+
 /** 0..n 项目类型 manifest（AD-8：projects 空数组合法）。 */
 export function zeroProjectManifest(): TaskManifest {
   return {

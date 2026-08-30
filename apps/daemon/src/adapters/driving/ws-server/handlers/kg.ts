@@ -39,6 +39,7 @@ import type {
   KgNodeUpdateResultEvent,
   KgProjectRow,
   KgProjectsResultEvent,
+  KgReviewCreateResultEvent,
 } from "@helix/protocol";
 import type {
   ChangeReport,
@@ -52,6 +53,10 @@ import type {
   ProduceGroupView,
   ProduceNodeView,
 } from "../../../../application/services/kg/KgBootstrapService";
+import type {
+  KgReviewError,
+  KgReviewService,
+} from "../../../../application/services/kg/KgReviewService";
 import type {
   KgMaintenanceError,
   KgMaintenanceService,
@@ -420,6 +425,32 @@ export function handleKgHealth(ctx: KgCommandContext): void {
   ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
 }
 
+// ── kg 评审批一命令（W2-F 轨二语义体检任务；契约 PROTOCOL.md §23） ──
+
+/** kg.review.create（准入从简 = 索引存在即可、允许反复发起 → createTask 同源，createdBy="page"）。 */
+export function handleKgReviewCreate(ctx: KgCommandContext): void {
+  if (ctx.review === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  void ctx.review
+    .create(project)
+    .then((result) => {
+      if (!result.ok) return reviewError(ctx, result.error);
+      const frame: KgReviewCreateResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "kg",
+        type: "kg.review.create.result",
+        payload: { ok: true, jobId: result.value.jobId },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err: unknown) => {
+      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+    });
+}
+
 // ── payload 字段形状校验（枚举/解析语义归 service） ──────────
 
 /** 必填 string 字段：缺失/非 string → KG_E_PARAM（契约：project 缺失/无法解析）。 */
@@ -474,6 +505,10 @@ function bootstrapError(ctx: KgCommandContext, err: KgBootstrapError): void {
   ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
 }
 
+/** kg 评审批错误回执（bootstrapError 同构——码域不同形状同）。 */
+function reviewError(ctx: KgCommandContext, err: KgReviewError): void {
+  ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
+}
 /** 维护面结构化错误 → connection.error 回执（词表：KG_E_PARAM / kg.graph.purge_blocked）。 */
 function maintenanceError(ctx: KgCommandContext, err: KgMaintenanceError): void {
   ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);

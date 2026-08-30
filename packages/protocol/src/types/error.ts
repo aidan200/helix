@@ -53,4 +53,6 @@ export type ErrorCode =
   /** kg-bootstrap 批新增：目标节点不存在（kg.node.update / kg.node.supersede；kg 族既有 KG_E_NOT_FOUND 同义错误码两形态并存——修正面与 task.validation_failed 词表对齐用本码）；发 error 帧连接保持 */
   | "kg.node.not_found"
   /** kg 维护批新增（C1）：kg.graph.purge 安全门禁——存在运行中（running/pending）kg-bootstrap 任务时拒绝清空（防 done 任务悬挂引用）；发 error 帧连接保持 */
-  | "kg.graph.purge_blocked";
+  | "kg.graph.purge_blocked"
+  /** kg 评审批新增（W2-F）：kg.review.create 准入复核未过（message 带原因 index_absent——从简准入，允许反复发起与 bootstrap 一次性语义不同）；发 error 帧连接保持 */
+  | "kg.review.not_eligible";

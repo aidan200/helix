@@ -46,6 +46,7 @@ import { buildModelStack } from "./assembly/buildModelStack";
 import { buildTaskStack } from "./assembly/buildTaskStack";
 import { KgBootstrapService } from "../application/services/kg/KgBootstrapService";
 import { KgMaintenanceService } from "../application/services/kg/KgMaintenanceService";
+import { KgReviewService } from "../application/services/kg/KgReviewService";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode } from "./assembly/buildSessionStack";
 import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
@@ -815,6 +816,23 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     }
     return svc;
   };
+  // kg 评审批数据面解析器（W2-F，契约 PROTOCOL.md §23）：workspace 现值
+  // stack（project 面）+ 任务栈 engine 组装，WeakMap 按 stack 记忆化
+  //（kgBootstrap/kgMaintenance 同接缝；只有发起面——无需 graph/write/sync）。
+  const kgReviewByStack = new WeakMap<object, KgReviewService>();
+  const kgReviewResolver = (): KgReviewService | undefined => {
+    const stack = workspace.stack();
+    if (stack === null) return undefined;
+    let svc = kgReviewByStack.get(stack);
+    if (svc === undefined) {
+      svc = new KgReviewService({
+        project: stack.projectService,
+        taskEngine: taskStack.taskEngine,
+      });
+      kgReviewByStack.set(stack, svc);
+    }
+    return svc;
+  };
   const ws = new WsServerAdapter({
     chat: chatRouter,
     directory: registry,
@@ -837,6 +855,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     kgBootstrap: kgBootstrapResolver,
     // kg 维护批两命令回口（C1）：解析器形态（同接缝）
     kgMaintenance: kgMaintenanceResolver,
+    // kg 评审批一命令回口（W2-F）：解析器形态（同接缝）
+    kgReview: kgReviewResolver,
     events: eventStream,
     token,
     port: deps.port ?? config.port,

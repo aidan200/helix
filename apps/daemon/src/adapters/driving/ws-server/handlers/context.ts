@@ -40,6 +40,7 @@ import type { TraceQueryPort } from "../../../../domain/trace/TraceQueryPort";
 import type { KgViewerService } from "../../../../application/services/kg/KgViewerService";
 import type { KgBootstrapService } from "../../../../application/services/kg/KgBootstrapService";
 import type { KgMaintenanceService } from "../../../../application/services/kg/KgMaintenanceService";
+import type { KgReviewService } from "../../../../application/services/kg/KgReviewService";
 import type { WorkspaceService } from "../../../../application/services/workspace/WorkspaceService";
 import type { TaskQueryService } from "../../../../application/services/task/TaskQueryService";
 import type { TaskEnginePort } from "../../../../application/ports/inbound/TaskEnginePort";
@@ -270,6 +271,10 @@ export interface KgCommandContext {
    *  PROTOCOL.md §22；未装配 → undefined，handler 回 command.unimplemented；
    *  生产面经容器 workspace 现值解析器组装，kgBootstrap 同接缝）。 */
   readonly maintenance: KgMaintenanceService | undefined;
+  /** kg 评审批一命令应用编排面（W2-F：kg.review.create，契约 PROTOCOL.md §23；
+   *  未装配 → undefined，handler 回 command.unimplemented；生产面经容器
+   *  workspace 现值解析器组装，kgBootstrap/kgMaintenance 同接缝）。 */
+  readonly review: KgReviewService | undefined;
   /** workspace 面已装配且未绑定（unbound 防御契约判别；未装配面 = false）。 */
   readonly workspaceUnbound: boolean;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
