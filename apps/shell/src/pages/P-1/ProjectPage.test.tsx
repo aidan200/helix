@@ -2,7 +2,7 @@
 /**
  * P-1 ProjectPage 组件测试（F5.0 单页 master-detail + F5.1~F5.5 graph 态；
  * TDD RED 清单：左栏两段与折叠/主区四态/CTA 冷启动/过滤叠加/转正门控两步/
- * 行动项联动/AD-16 反向断言）。
+ * 纯通知报告/AD-16 反向断言）。
  *
  * vi.mock SessionContext 先例（TracePage.test.tsx）：kg 六命令发送面捕获
  * + subscribeKgFrames 帧注入回放（页面私有链）。中文断言语言钉 zh-CN。
@@ -42,8 +42,7 @@ function detailOf(id: string): KgNodeDetailPayload {
     id, name: NODES.find((n) => n.id === id)!.name, kind: NODES.find((n) => n.id === id)!.kind,
     domain: NODES.find((n) => n.id === id)!.domain, status: NODES.find((n) => n.id === id)!.status,
     digest: NODES.find((n) => n.id === id)!.digest,
-    desc: "描述段落",
-    rules: [`写入路径经 {{E-9}} 中转`],
+    body: "## 写入路径\n\n描述段落。\n\n- 写入路径经 {{E-9}} 中转",
     anchors: [
       { symbol: "injectClosure", path: "apps/daemon/src/services/ChatService.ts", line: 309, state: "dead" },
       { symbol: "publish", path: "libs/steer/src/queue.ts", line: 21, state: "ok" },
@@ -65,13 +64,11 @@ const REPORT: KgChangeReportResultPayload = {
       kind: "dead_anchor", sev: "warn", label: "失效锚点",
       body: "你删除了会话服务里的方法 `injectClosure`，它是『Steer 队列』的唯一锚点。",
       refs: { nodes: [{ id: "E-9", name: "Steer 队列", kind: "entity", digestFirstLine: "消息中转" }], symbols: [{ name: "injectClosure", path: "apps/daemon/src/services/ChatService.ts", line: 309 }] },
-      options: ["重挂新位置", "废弃（留史）"],
     },
     {
       kind: "knowledge_change", sev: "ok", label: "知识变化",
       body: "本迭代你把报告生成改为段库装配。",
       refs: { nodes: [], symbols: [] },
-      options: ["确认已阅（归档）"],
     },
   ],
 };
@@ -89,11 +86,15 @@ interface Sent {
   nodeUpdate: { project: string; nodeId: string; digest?: string; body?: string }[];
   nodeSupersede: { project: string; nodeId: string; reason: string }[];
   bootstrapImpact: { project: string; nodeId: string }[];
+  /** C1 kg 维护批两命令发送面（清空图谱 / 删除索引）。 */
+  graphPurge: { project: string }[];
+  indexDelete: { project: string }[];
 }
 
 const sent: Sent = {
   projects: 0, list: [], detail: [], report: 0, confirm: [], index: [],
   bootstrapCreate: [], bootstrapProduce: [], nodeUpdate: [], nodeSupersede: [], bootstrapImpact: [],
+  graphPurge: [], indexDelete: [],
 };
 let listeners: ((e: EventEnvelope) => void)[] = [];
 /** W4 刷新链：workspace 帧订阅注入位。 */
@@ -147,6 +148,14 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendKgBootstrapImpact: (payload: { project: string; nodeId: string }) => {
         sent.bootstrapImpact.push(payload);
+        return true;
+      },
+      sendKgGraphPurge: (payload: { project: string }) => {
+        sent.graphPurge.push(payload);
+        return true;
+      },
+      sendKgIndexDelete: (payload: { project: string }) => {
+        sent.indexDelete.push(payload);
         return true;
       },
       subscribeKgFrames: (cb: (e: EventEnvelope) => void) => {
@@ -230,6 +239,8 @@ afterEach(() => {
   sent.nodeUpdate = [];
   sent.nodeSupersede = [];
   sent.bootstrapImpact = [];
+  sent.graphPurge = [];
+  sent.indexDelete = [];
 });
 
 describe("F5.0 左栏项目域与主区状态机", () => {
@@ -264,6 +275,10 @@ describe("F5.0 左栏项目域与主区状态机", () => {
     // 折叠轨 + 主区 graph 头
     expect(qs('[data-pj-rail="collapsed"]')).not.toBeNull();
     expect(qs('[data-kg-head]')!.textContent).toContain("知识图谱 · helix");
+    // 头部 = 标题 + 索引紧凑形态（只读/迭代 chip 已移除）
+    expect(qs('[data-kg-head]')!.textContent).not.toContain("只读");
+    expect(qs('[data-kg-head]')!.textContent).not.toContain("iter-20260825-11fo");
+    expect(qs('[data-kg-head] [data-kg-index-panel]')).not.toBeNull();
     expect(qs('[data-kg-workspace]')).not.toBeNull();
     // 窄轨无 ☰ 按钮：竖排项目名即展开触发（title 挂在 rail-name 上）
     expect(qs(".pj-rail-btn")).toBeNull();
@@ -385,22 +400,24 @@ describe("graph 态 F5.1~F5.5", () => {
     expect(qs('[data-kg-list] mark')!.textContent).toBe("队列");
   });
 
-  it("F5.2 六段详情：头卡+描述/规则（{{ref}} 替换）/锚点 dead 标记/关系跳转/日志最新在上", () => {
+  it("F5.2 详情：头卡+正文 body 单段 md 渲染（标题/列表/{{ref}} 替换）/锚点 dead 标记/关系跳转/日志最新在上", () => {
     ui();
     feedProjects();
     enterGraph("helix");
     const pane = qs('[data-kg-detail]')!;
-    for (const sec of ["描述", "规则", "锚点", "关系", "supersede 链", "变更日志"]) {
+    for (const sec of ["正文", "锚点", "关系", "supersede 链", "变更日志"]) {
       expect(within(pane).getAllByText(sec).length).toBeGreaterThan(0);
     }
     // 锚点 dead 标记 + 等宽符号 + 路径:行号
     expect(within(pane).getByText(/⚠ 失效/).textContent).toContain("符号已不存在");
     expect(within(pane).getByText("apps/daemon/src/services/ChatService.ts:309")).toBeTruthy();
-    // 规则内 {{E-9}} → 引用替换（粗体 name + 徽章；无裸 id）
-    const nref = pane.querySelector(".kgv-sec-item .kg-nref")!;
-    expect(nref.getAttribute("data-goto")).toBe("E-9");
-    expect(nref.textContent).toContain("Steer 队列");
-    expect(pane.textContent).not.toMatch(/（\{\{|}}）/); // 标记不残留
+    // 正文单段 md 渲染：## → h2；- → li；{{E-9}} → **『Steer 队列』**（无裸 id、无标记残留）
+    const body = pane.querySelector("[data-kg-body]")!;
+    expect(body.querySelector("h2")!.textContent).toBe("写入路径");
+    const li = body.querySelector("li")!;
+    expect(li.textContent).toContain("写入路径经");
+    expect(li.querySelector("strong")!.textContent).toBe("『Steer 队列』");
+    expect(body.textContent).not.toContain("{{");
     // 关系跳转：点 data-goto → 发 kg.node.detail
     fireEvent.click(pane.querySelector('.kg-rel-row [data-goto="E-9"]')!);
     expect(sent.detail.at(-1)).toEqual({ project: "helix", id: "E-9" });
@@ -409,7 +426,7 @@ describe("graph 态 F5.1~F5.5", () => {
     expect(logs[0]).toContain("锚点失效");
   });
 
-  it("F5.3 报告：四类条目 glyph + 行动项待决→已处理（可撤销）→计数联动→清零横幅", () => {
+  it("F5.3 报告：四类条目 glyph + 纯通知面（零交互装置、refs 不跳转、无计数徽章）", () => {
     ui();
     feedProjects();
     enterGraph("helix");
@@ -417,21 +434,19 @@ describe("graph 态 F5.1~F5.5", () => {
     const pane = qs('[data-kg-report]')!;
     expect(within(pane).getByText(/失效锚点 ⚠/)).toBeTruthy();
     expect(within(pane).getByText(/知识变化 ✓/)).toBeTruthy();
-    // tab 计数 = 2 待决
-    expect(qs('[data-kg-report-count]')!.textContent).toBe("2 待决");
-    // 行动项单选 → 已处理 + 撤销 + 计数联动
-    fireEvent.click(within(pane).getAllByLabelText(/重挂新位置|废弃（留史）/)[0]!);
-    expect(within(pane).getByText(/已处理：/)).toBeTruthy();
-    expect(qs('[data-kg-report-count]')!.textContent).toBe("1 待决");
+    // 待决计数徽章随选项消失一并移除
+    expect(document.querySelector("[data-kg-report-count]")).toBeNull();
+    // 通知面非审核面：无 radio 行动项 / 已处理 / 撤销 / 清零横幅
+    expect(pane.querySelectorAll('[data-kg-opt]')).toHaveLength(0);
+    expect(pane.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+    expect(document.querySelector("[data-kg-report-clear]")).toBeNull();
+    // refs 纯信息展示：引用在场但点击不跳转（不发 detail、仍停报告 tab）
+    expect(pane.querySelector(".kg-nref")).not.toBeNull();
+    const before = sent.detail.length;
+    fireEvent.click(pane.querySelector(".kg-nref")!);
+    expect(sent.detail.length).toBe(before);
+    expect(qs("[data-kg-pane]")!.getAttribute("data-kg-pane")).toBe("report");
     // 疑似措辞由数据面承载（本用例无 info 条目——措辞断言归 F 层 mock 全集）
-    // 撤销 → 回待决
-    fireEvent.click(within(pane).getByText("撤销"));
-    expect(qs('[data-kg-report-count]')!.textContent).toBe("2 待决");
-    // 全部处理 → 清零横幅（仍 success 态）
-    const opts = within(pane).getAllByRole("radio");
-    for (const o of opts) fireEvent.click(o);
-    expect(qs('[data-kg-report-clear]')).not.toBeNull();
-    expect(qs('[data-kg-report-count]')!.textContent).toBe("已清零");
   });
 
   it("F5.4 转正门控与两步确认：draft 渲染/非 draft 静默不渲染/确认走 kg.node.confirm/toast", () => {
@@ -466,28 +481,30 @@ describe("graph 态 F5.1~F5.5", () => {
     expect(qs('.kgv-row[data-id="TR-47"]')!.className).not.toContain("draft");
   });
 
-  it("F5.5 索引面板：degraded 起步（徽章+影响+重新构建）→ rebuild → building → synced + toast", () => {
+  it("F5.5 索引状态紧凑形态（kgv-head 右侧）：degraded 起步（徽章+重新构建）→ rebuild → building（N/M）→ synced + toast", () => {
     ui();
     feedProjects();
     enterGraph("feifei");
-    const panel = qs('[data-kg-index-panel]')!;
+    // 紧凑形态在头部右侧（原左列底部大面板位置移除）
+    const panel = qs('[data-kg-head] [data-kg-index-panel]')!;
     expect(panel.getAttribute("data-kg-index-panel")).toBe("degraded");
-    expect(within(panel).getByText("DEGRADED")).toBeTruthy();
-    expect(panel.textContent).toContain("符号层落后");
-    // 重新构建 → rebuild:true + 面板转 building（后续轮询帧 project-only）
+    const badge = within(panel).getByText("DEGRADED");
+    expect(badge).toBeTruthy();
+    expect(badge.getAttribute("title")).toContain("符号层落后"); // 影响说明入 title（degraded 永不静默）
+    // 重新构建 → rebuild:true + 形态转 building（后续轮询帧 project-only）
     fireEvent.click(within(panel).getByText("重新构建"));
     expect(sent.index.some((p) => p.project === "feifei" && p.rebuild === true)).toBe(true);
     expect(qs('[data-kg-index-panel')!.getAttribute("data-kg-index-panel")).toBe("building");
-    // 重建回执未带 progress 前 → 面板不确定态（无假「0 / 0」）
+    // 重建回执未带 progress 前 → 不确定态（仅徽章，无假「0 / 0」）
     expect(qs('[data-kg-index-panel]')!.textContent).toContain("构建中…");
     expect(qs('[data-kg-index-panel]')!.textContent).not.toMatch(/0\s*\/\s*0/);
-    expect(qs('[data-kg-index-panel] .kg-progress-fill')!.className).toContain("indeterminate");
     feed("kg.index.status.result", { state: "building", progress: { done: 8, total: 44 } });
-    // 有 progress → 面板 N/M 现状不变
-    expect(qs('[data-kg-index-panel]')!.textContent).toContain("8 / 44 符号");
+    // 有 progress → 简短 N/M
+    expect(qs('[data-kg-index-panel]')!.textContent).toContain("8 / 44");
     feed("kg.index.status.result", { state: "synced", symbolCount: 44, syncedAt: "2026-08-25T15:00:00+08:00" });
     const panel2 = qs('[data-kg-index-panel]')!;
     expect(panel2.getAttribute("data-kg-index-panel")).toBe("synced");
+    expect(panel2.textContent).toContain("已同步");
     expect(qs(".toast-zone")!.textContent).toContain("索引构建完成");
   });
 });
@@ -766,5 +783,86 @@ describe("T3.2 产出呈现 / 修正 / 连带（R-13~R-16/R-18）", () => {
     feed("kg.change.report.result", REPORT);
     feed("kg.index.status.result", { state: "synced", symbolCount: 43, syncedAt: "2026-08-25T14:32:00+08:00" });
     expect(qs('[data-boot-entry="ready"]')).not.toBeNull();
+  });
+});
+
+describe("C1 kg 维护批（清空图谱 + 删除索引 + 空态文案）", () => {
+  it("purge 两步确认（危险文案）→ 取消不发命令 → 确认发出 kg.graph.purge → 回执后四面刷新 + 空态呈现", () => {
+    ui();
+    feedProjects();
+    enterGraph("helix");
+    // 第一步：点开确认条——文案含「不可恢复」与「运行中任务时不可用」说明
+    fireEvent.click(qs("[data-kg-purge]"));
+    const box = qs("[data-kg-purge-confirm]");
+    expect(box.textContent).toContain("不可恢复");
+    expect(box.textContent).toContain("运行中的知识创建任务时不可用");
+    // 取消：不发命令
+    fireEvent.click(within(box).getByText("取消"));
+    expect(qs("[data-kg-purge-confirm]")).toBeNull();
+    expect(sent.graphPurge).toEqual([]);
+    // 第二步：确认 → 命令发出
+    fireEvent.click(qs("[data-kg-purge]"));
+    fireEvent.click(within(qs("[data-kg-purge-confirm]")).getByText("确认清空"));
+    expect(sent.graphPurge).toEqual([{ project: "helix" }]);
+    const before = { list: sent.list.length, report: sent.report, index: sent.index.length, produce: sent.bootstrapProduce.length, projects: sent.projects };
+    feed("kg.graph.purge.result", { purged: true, nodesRemoved: 4, symbolsRemoved: 56, filesRemoved: 3 });
+    expect(qs(".toast-zone")!.textContent).toContain("已清空图谱");
+    // 四面刷新：列表 / 报告 / 索引态 / 产出 + 左栏项目行（mock 回调每次渲染
+    // 新身份——挂载 effect 会随重渲染补发，断言下界不钉死精确增量）
+    expect(sent.list.length).toBeGreaterThan(before.list);
+    expect(sent.report).toBeGreaterThan(before.report);
+    expect(sent.index.length).toBeGreaterThan(before.index);
+    expect(sent.bootstrapProduce.length).toBe(before.produce + 1);
+    expect(sent.projects).toBe(before.projects + 1);
+    // 空态呈现：图谱区（全库无节点专属文案，无「清除过滤」钮）
+    feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
+    const emptyAll = qs("[data-kg-empty-all]");
+    expect(emptyAll.textContent).toContain("无知识节点");
+    expect(emptyAll.textContent).toContain("尚未发起过知识创建任务，或图谱已被清空");
+    // 变化报告空态
+    feed("kg.change.report.result", { iterationId: "iter-20260825-11fo", entries: [] });
+    fireEvent.click(qs('[data-tab="report"]'));
+    expect(qs("[data-kg-report-empty]").textContent).toContain("无变化报告内容");
+    // 产出呈现空态（产出已被清理口径）
+    fireEvent.click(qs('[data-tab="produce"]'));
+    feed("kg.bootstrap.produce.result", { groups: [] });
+    expect(qs("[data-produce-pane='empty']").textContent).toContain("尚未发起过知识创建任务，或产出已被清理");
+  });
+
+  it("purge 门禁回执（kg.graph.purge_blocked）→ err toast + 单飞解锁可重试", () => {
+    ui();
+    feedProjects();
+    enterGraph("helix");
+    fireEvent.click(qs("[data-kg-purge]"));
+    fireEvent.click(within(qs("[data-kg-purge-confirm]")).getByText("确认清空"));
+    expect(sent.graphPurge).toEqual([{ project: "helix" }]);
+    feed("connection.error", { code: "kg.graph.purge_blocked", message: "存在运行中的 kg-bootstrap 任务：清空不可用" });
+    expect(qs(".toast-zone")!.textContent).toContain("清空图谱未通过");
+    // 解锁后可重试（确认条可再开、命令可再发）
+    fireEvent.click(qs("[data-kg-purge]"));
+    fireEvent.click(within(qs("[data-kg-purge-confirm]")).getByText("确认清空"));
+    expect(sent.graphPurge.length).toBe(2);
+  });
+
+  it("index 删除按钮（synced/degraded 均与重建区并排）+ 两步确认 → kg.index.delete → absent 徽章", () => {
+    ui();
+    feedProjects();
+    enterGraph("helix");
+    // synced 态：删除按钮出现；两步确认
+    fireEvent.click(qs("[data-kg-index-delete]"));
+    const box = qs("[data-kg-index-delete-confirm]");
+    expect(box.textContent).toContain("知识图谱内容保留");
+    fireEvent.click(within(box).getByText("确认删除"));
+    expect(sent.indexDelete).toEqual([{ project: "helix" }]);
+    feed("kg.index.delete.result", { deleted: true, state: "absent", watcherStopped: true });
+    expect(qs(".toast-zone")!.textContent).toContain("已删除索引");
+    // 面板翻 absent 徽章（不静默不假造同步态）
+    feed("kg.index.status.result", { state: "absent" });
+    expect(qs('[data-kg-index-panel="absent"]').textContent).toContain("未建索引");
+    // building 态不开放删除；degraded 态与重建并排（先展开折叠域再切项目）
+    fireEvent.click(screen.getByTitle("展开项目域"));
+    enterGraph("feifei");
+    expect(qs("[data-kg-rebuild]")).not.toBeNull();
+    expect(qs("[data-kg-index-delete]")).not.toBeNull();
   });
 });

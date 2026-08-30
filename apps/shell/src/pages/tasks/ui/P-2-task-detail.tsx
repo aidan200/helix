@@ -1,8 +1,9 @@
 /**
  * P-2 任务页详情头（T3.1；R-7/R-8/R-9/R-19）：类型+状态徽章+标题 +
  * 生命周期按钮（六态门控矩阵 lifecycleActions 单源）+ 元信息（项目 chip +
- * 创建时间 + 时长 + 发起来源双宿主如实）+「当前：…」叙述句（服务端
- * currentNarrative，贯穿六态；终态带行动出口）+ 取消/删除两步内联确认条。
+ * 创建时间 + 时长 + 发起来源双宿主如实）+ 终态「前往『项目』页」出口
+ *（header 首行右端，accent 色 + hover 反馈；narrative-remove：叙述句块
+ * 已拆除）+ 取消/删除两步内联确认条。
  *
  * 门控矩阵（F3.5/F3.6）：pending=取消 / running=暂停+取消 / paused=继续+取消 /
  * 三终态=删除（运行中须先取消，无删除钮）。两步确认文案含清理范围与
@@ -91,6 +92,12 @@ export default function TaskDetailHead({
             </button>
           ))}
         </span>
+        {/* R-8 终态行动出口：header 首行右端（与生命周期按钮同排右对齐） */}
+        {TERMINAL.has(detail.status) && (
+          <button type="button" className="tk-head-link" data-tk-go-project onClick={onOpenProject}>
+            {t("tk.head.goProject")}
+          </button>
+        )}
       </div>
       <div className="tk-head-meta">
         <ProjectChips projects={detail.projects} />
@@ -99,16 +106,6 @@ export default function TaskDetailHead({
         <span data-tk-duration>{dur}</span>
         <span>·</span>
         <span data-tk-source>{src}</span>
-      </div>
-      {/* R-8 事件导向进度：叙述句贯穿六态（服务端组装）；终态行动出口 */}
-      <div className="tk-narrative" data-tk-narrative>
-        <span className="lead">{t("tk.head.narrativeLead")}</span>
-        {detail.currentNarrative}
-        {TERMINAL.has(detail.status) && (
-          <button type="button" className="tk-n-link" data-tk-go-project onClick={onOpenProject}>
-            {t("tk.head.goProject")}
-          </button>
-        )}
       </div>
       {/* F3.5 取消两步确认：批次收口 + 产出保留 + 不可撤销 */}
       {confirmBox === "cancel" && (

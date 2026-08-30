@@ -24,6 +24,8 @@ import type { AgentConfigSetEnabledPayload } from "@helix/protocol";
 import type {
   KgBootstrapCreatePayload,
   KgBootstrapImpactPayload,
+  KgGraphPurgePayload,
+  KgIndexDeletePayload,
   KgBootstrapProducePayload,
   KgChangeReportPayload,
   KgIndexStatusPayload,
@@ -50,6 +52,8 @@ import {
   chatSendDraftCommand,
   chatSteerCommand,
   kgChangeReportCommand,
+  kgGraphPurgeCommand,
+  kgIndexDeleteCommand,
   kgIndexStatusCommand,
   kgListCommand,
   kgNodeConfirmCommand,
@@ -222,6 +226,11 @@ interface SessionContextValue {
   sendKgNodeSupersede: (payload: KgNodeSupersedePayload) => boolean;
   /** 发送 kg.bootstrap.impact（CL-4 F4.3 连带只读推导；update/supersede 成功后刷新标记）。 */
   sendKgBootstrapImpact: (payload: KgBootstrapImpactPayload) => boolean;
+  // ── kg 维护批两命令面（C1，契约 PROTOCOL.md §22）──
+  /** 发送 kg.graph.purge（清空图谱；危险操作——UI 两步确认，daemon 门禁复核）。 */
+  sendKgGraphPurge: (payload: KgGraphPurgePayload) => boolean;
+  /** 发送 kg.index.delete（删除索引；停 watcher + 删 .codegraph + 状态复位 absent）。 */
+  sendKgIndexDelete: (payload: KgIndexDeletePayload) => boolean;
   /** 订阅 kg 族点对点回执（kg.*.result；O-6 零推送事件，回执全走此处）。 */
   subscribeKgFrames: (listener: (e: EventEnvelope) => void) => () => void;
   // ── task 族九命令面（iter-20260829-ys7q T3.1，P-2 任务页；连接私有读面）──
@@ -654,6 +663,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     (payload: KgBootstrapImpactPayload) => clientRef.current!.send(kgBootstrapImpactCommand(payload)),
     [],
   );
+  // kg 维护批两命令（C1；连接私有读写面——直发命令，回执经 subscribeKgFrames）
+  const sendKgGraphPurge = useCallback(
+    (payload: KgGraphPurgePayload) => clientRef.current!.send(kgGraphPurgeCommand(payload)),
+    [],
+  );
+  const sendKgIndexDelete = useCallback(
+    (payload: KgIndexDeletePayload) => clientRef.current!.send(kgIndexDeleteCommand(payload)),
+    [],
+  );
   const subscribeKgFrames = useCallback((listener: (e: EventEnvelope) => void) => {
     kgListenersRef.current.add(listener);
     return () => {
@@ -858,6 +876,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendKgNodeUpdate,
       sendKgNodeSupersede,
       sendKgBootstrapImpact,
+      sendKgGraphPurge,
+      sendKgIndexDelete,
       subscribeKgFrames,
       sendTaskList,
       sendTaskDetail,
@@ -922,6 +942,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendKgNodeUpdate,
       sendKgNodeSupersede,
       sendKgBootstrapImpact,
+      sendKgGraphPurge,
+      sendKgIndexDelete,
       subscribeKgFrames,
       sendTaskList,
       sendTaskDetail,

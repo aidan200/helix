@@ -4,16 +4,16 @@
  *
  * 每次进入 graph（含切项目）由 ProjectPage 以 key=kgToken 强制重挂 =
  * 新数据面：过滤/选中/报告决定/索引面板态全清空（防跨项目骨架竞态）。
- * 内部结构 = 主区顶部项目上下文（「知识图谱 · 项目名」+只读/迭代 chip，
- * 纯标识无返回无导航）+ 左列 380px（搜索/三路过滤/节点列表/底部索引
- * 面板）+ 右区「节点详情 | 变化报告」双 tab。
+ * 内部结构 = 主区顶部项目上下文（「知识图谱 · 项目名」+ 右侧索引状态
+ * 紧凑形态，纯标识无返回无导航）+ 左列 380px（搜索/三路过滤/节点列表）
+ * + 右区「节点详情 | 变化报告 | 产出呈现」三 tab。
  *
  * 数据面（五图谱命令，全部带 project = 当前选中项目）：
  * - kg.list 一次性拉全量 → 客户端三路过滤（原型同型即时交互；命令契约
  *   的 q/kind/status 参数不因此收窄）；
  * - kg.node.detail（默认选中首个实体节点——mock 数据面 E-9 先例）；
- * - kg.change.report（tab 待决计数徽章数据源；迭代 chip 取 iterationId）；
- * - kg.index.status（面板起步态；degraded「重新构建」→ rebuild:true 轮询）；
+ * - kg.change.report（纯通知面：条目无行动项，无待决计数徽章）；
+ * - kg.index.status（头部紧凑形态起步态；degraded「重新构建」→ rebuild:true 轮询）；
  * - kg.node.confirm（页面唯一写：draft 两步确认后发送；回执翻转列表行
  *   +重发 detail 取 daemon 落账日志）。
  */
@@ -26,7 +26,6 @@ import {
   createKgViewState,
   filterRows,
   kgReducer,
-  pendingCount,
 } from "./model/kg-model";
 import { bootstrapEntryMode, type ProjectAction, type ProduceState } from "./model/project-model";
 import { highlight, KindBadge, StatusBadge } from "./ui/kg-refs";
@@ -69,6 +68,9 @@ const KgViewer = function KgViewer({
     sendKgNodeUpdate,
     sendKgNodeSupersede,
     sendKgBootstrapImpact,
+    sendKgGraphPurge,
+    sendKgIndexDelete,
+    sendKgProjects,
     subscribeKgFrames,
   } = useSession();
 
@@ -78,9 +80,15 @@ const KgViewer = function KgViewer({
 
   /** kg-bootstrap 批在途单飞（T3.2）：create 布尔 + update/supersede 携带
    * 关联位（回执零回显——nodeId/name/reason 暂存）。state 驱动钮禁用，
-   * ref 镜像供 listener 读取（listener 闭包不随重渲染更新）。 */
+   * ref 镜像供 listener 读取（listener 闭包不随重渲染更新）。
+   * C1 扩：purge / indexDelete 两布尔（kg 维护批写面单飞同轨）。 */
   type WriteReq = { kind: "update" | "supersede"; nodeId: string; name: string; reason?: string };
-  const [flight, setFlight] = useState<{ create: boolean; write: WriteReq | null }>({ create: false, write: null });
+  const [flight, setFlight] = useState<{ create: boolean; write: WriteReq | null; purge: boolean; indexDelete: boolean }>({
+    create: false,
+    write: null,
+    purge: false,
+    indexDelete: false,
+  });
   const flightRef = useRef(flight);
   flightRef.current = flight;
   /** 产出拉取去重（首进 produce tab 发一次；切项目 kgToken 重挂复位）。 */
@@ -172,16 +180,48 @@ const KgViewer = function KgViewer({
             if (e.payload.count > 0) toast.push("ok", t("pj.produce.affectedToast", { n: e.payload.count }));
             return;
           }
+          // ── kg 维护批两回执（C1；单飞 ref 关联——回执零关联位）──
+          case "kg.graph.purge.result": {
+            if (!flightRef.current.purge) return; // 非本视图发起
+            setFlight((f) => ({ ...f, purge: false }));
+            toast.push("ok", t("pj.kg.purgedToast", { name: project.name, nodes: e.payload.nodesRemoved, symbols: e.payload.symbolsRemoved }));
+            // 空态呈现链：列表/报告/索引态/产出四面刷新（产出复位 loading 防陈旧分组残影）
+            sendKgList({ project: project.name });
+            sendKgChangeReport({ project: project.name });
+            sendKgIndexStatus({ project: project.name });
+            projectDispatch({ type: "produce-loading" });
+            sendKgBootstrapProduce({ project: project.name });
+            sendKgProjects(); // 左栏 nodeCount 权威刷新
+            return;
+          }
+          case "kg.index.delete.result": {
+            if (!flightRef.current.indexDelete) return;
+            setFlight((f) => ({ ...f, indexDelete: false }));
+            toast.push("ok", t("pj.kg.idxDeletedToast", { name: project.name }));
+            sendKgIndexStatus({ project: project.name }); // 面板 → absent 徽章
+            sendKgProjects(); // 左栏徽章权威刷新
+            return;
+          }
           case "connection.error": {
-            // bootstrap 入口/写面在途失败（单飞门控；非在途不消费）
+            // bootstrap 入口/写面/维护面在途失败（单飞门控；非在途不消费）
             const msg = (e.payload as { message?: string }).message ?? "error";
+            if (flightRef.current.purge) {
+              setFlight((f) => ({ ...f, purge: false }));
+              toast.push("err", t("pj.kg.purgeFailToast", { message: msg }));
+              return;
+            }
+            if (flightRef.current.indexDelete) {
+              setFlight((f) => ({ ...f, indexDelete: false }));
+              toast.push("err", t("pj.kg.idxDeleteFailToast", { message: msg }));
+              return;
+            }
             if (flightRef.current.create) {
-              setFlight({ create: false, write: null });
+              setFlight((f) => ({ ...f, create: false }));
               toast.push("err", t("pj.boot.createFailToast", { message: msg }));
               return;
             }
             if (flightRef.current.write !== null) {
-              setFlight({ create: false, write: null });
+              setFlight((f) => ({ ...f, write: null }));
               toast.push("err", t("pj.produce.writeFailToast", { message: msg }));
             }
             return;
@@ -190,7 +230,7 @@ const KgViewer = function KgViewer({
             return;
         }
       }),
-    [subscribeKgFrames, project.name, sendKgNodeDetail, sendKgList, sendKgBootstrapImpact, projectDispatch, toast, t],
+    [subscribeKgFrames, project.name, sendKgNodeDetail, sendKgList, sendKgBootstrapImpact, sendKgChangeReport, sendKgIndexStatus, sendKgBootstrapProduce, sendKgProjects, projectDispatch, toast, t],
   );
 
   // F5.5 面板重建轮询（degraded→building 触发后至离开 building）
@@ -225,21 +265,37 @@ const KgViewer = function KgViewer({
   );
   const onClearFilter = useCallback(() => dispatch({ type: "clear-filter" }), []);
   const onTab = useCallback((tab: "detail" | "report" | "produce") => dispatch({ type: "tab", tab }), []);
-  const onResolve = useCallback((index: number, value: string) => dispatch({ type: "resolve", index, value }), []);
-  const onUnresolve = useCallback((index: number) => dispatch({ type: "unresolve", index }), []);
   const onRebuild = useCallback(() => {
     dispatch({ type: "idx-rebuild-started" });
     sendKgIndexStatus({ project: project.name, rebuild: true });
   }, [project.name, sendKgIndexStatus]);
+
+  // ── kg 维护批写面回调（C1；单飞锁在本视图，Panel 纯展示）──
+  const onLaunchPurge = useCallback(() => {
+    if (flightRef.current.purge || flightRef.current.indexDelete) return;
+    setFlight((f) => ({ ...f, purge: true }));
+    if (!sendKgGraphPurge({ project: project.name })) {
+      setFlight((f) => ({ ...f, purge: false }));
+      toast.push("err", t("pj.boot.sendFail"));
+    }
+  }, [project.name, sendKgGraphPurge, toast, t]);
+  const onLaunchIndexDelete = useCallback(() => {
+    if (flightRef.current.purge || flightRef.current.indexDelete) return;
+    setFlight((f) => ({ ...f, indexDelete: true }));
+    if (!sendKgIndexDelete({ project: project.name })) {
+      setFlight((f) => ({ ...f, indexDelete: false }));
+      toast.push("err", t("pj.boot.sendFail"));
+    }
+  }, [project.name, sendKgIndexDelete, toast, t]);
 
   // ── bootstrap 入口与产出呈现回调（T3.2；单飞锁在本视图，Pane/Entry 纯展示）──
   const writeBusy = flight.write !== null;
   const bootBusy = flight.create || writeBusy;
   const onLaunchBootstrap = useCallback(() => {
     if (flightRef.current.create || flightRef.current.write !== null) return;
-    setFlight({ create: true, write: null });
+    setFlight((f) => ({ ...f, create: true }));
     if (!sendKgBootstrapCreate({ project: project.name })) {
-      setFlight({ create: false, write: null });
+      setFlight((f) => ({ ...f, create: false, write: null }));
       toast.push("err", t("pj.boot.sendFail"));
     }
   }, [project.name, sendKgBootstrapCreate, toast, t]);
@@ -261,9 +317,9 @@ const KgViewer = function KgViewer({
     (nodeId: string, digest: string, body: string) => {
       if (flightRef.current.write !== null || flightRef.current.create) return;
       const name = findProduceNode(nodeId)?.name ?? "";
-      setFlight({ create: false, write: { kind: "update", nodeId, name } });
+      setFlight((f) => ({ ...f, write: { kind: "update", nodeId, name } }));
       if (!sendKgNodeUpdate({ project: project.name, nodeId, digest, body })) {
-        setFlight({ create: false, write: null });
+        setFlight((f) => ({ ...f, create: false, write: null }));
         toast.push("err", t("pj.produce.sendFail"));
       }
     },
@@ -273,9 +329,9 @@ const KgViewer = function KgViewer({
     (nodeId: string, reason: string) => {
       if (flightRef.current.write !== null || flightRef.current.create) return;
       const name = findProduceNode(nodeId)?.name ?? "";
-      setFlight({ create: false, write: { kind: "supersede", nodeId, name, reason } });
+      setFlight((f) => ({ ...f, write: { kind: "supersede", nodeId, name, reason } }));
       if (!sendKgNodeSupersede({ project: project.name, nodeId, reason })) {
-        setFlight({ create: false, write: null });
+        setFlight((f) => ({ ...f, create: false, write: null }));
         toast.push("err", t("pj.produce.sendFail"));
       }
     },
@@ -296,16 +352,55 @@ const KgViewer = function KgViewer({
   /** 主状态派生：全量未到 = loading；过滤无匹配 = empty（即时重渲染，转换干净）。 */
   const view = state.view === "loading" ? "loading" : rows.length === 0 ? "empty" : "success";
   const byId = useMemo(() => new Map(state.all.map((n) => [n.id, n])), [state.all]);
-  const pending = pendingCount(state.report, state.resolved);
+
+  /** purge 两步确认（C1 危险操作；内联确认条——kg-detail-pane confirmOpen 同形态）。 */
+  const [purgeOpen, setPurgeOpen] = useState(false);
 
   return (
     <>
-      {/* F5.0 graph 态项目上下文：纯标识、无返回、无导航（FID-31） */}
+      {/* F5.0 graph 态项目上下文：纯标识、无返回、无导航（FID-31）；
+          右侧 = F5.5 索引状态紧凑形态（原只读/迭代 chip 位）+ C1 清空图谱入口 */}
       <div className="kgv-head" data-kg-head>
         <span className="kgv-title">{t("pj.kg.headTitle", { name: project.name })}</span>
-        <span className="hud-chip">{t("pj.kg.readonlyChip")}</span>
-        {state.report !== null && <span className="hud-chip">{state.report.iterationId}</span>}
+        <KgIndexPanel idx={state.idx} rebuilding={state.idxRebuilding} onRebuild={onRebuild} onDelete={onLaunchIndexDelete} deleting={flight.indexDelete} />
+        <button
+          type="button"
+          className="hud-btn hud-btn-danger kg-btn-sm"
+          data-kg-purge
+          disabled={flight.purge || purgeOpen}
+          onClick={() => setPurgeOpen(true)}
+        >
+          {t("pj.kg.purge")}
+        </button>
       </div>
+      {/* C1 危险操作两步确认（文案含「不可恢复」与「运行中任务时不可用」说明） */}
+      {purgeOpen && (
+        <div className="kgv-confirm-box" data-kg-purge-confirm>
+          <div className="kgv-confirm-text">{t("pj.kg.purgeConfirm")}</div>
+          <div className="kgv-confirm-btns">
+            <button
+              type="button"
+              className="hud-btn hud-btn-danger kg-btn-sm"
+              data-act="confirm"
+              disabled={flight.purge}
+              onClick={() => {
+                setPurgeOpen(false);
+                onLaunchPurge();
+              }}
+            >
+              {t("pj.kg.purgeYes")}
+            </button>
+            <button
+              type="button"
+              className="hud-btn hud-btn-ghost kg-btn-sm"
+              data-act="cancel"
+              onClick={() => setPurgeOpen(false)}
+            >
+              {t("pj.kg.purgeNo")}
+            </button>
+          </div>
+        </div>
+      )}
       <section className="kgv-workspace" data-kg-workspace>
         <aside className="kgv-side">
           <div className="kgv-side-search">
@@ -361,7 +456,14 @@ const KgViewer = function KgViewer({
                   <div className="kg-skel-line" style={{ width: `${70 + ((i * 11) % 25)}%`, height: 8 }} />
                 </div>
               ))}
-            {view === "empty" && (
+            {view === "empty" && state.total === 0 && (
+              /* C1 空态（全库无节点）：原因说明——尚未发起过任务或已被清空 */
+              <div className="kgv-empty" data-kg-empty-all>
+                <div className="kgv-empty-t">{t("pj.kg.emptyAllTitle")}</div>
+                <div className="kgv-empty-s">{t("pj.kg.emptyAllSub")}</div>
+              </div>
+            )}
+            {view === "empty" && state.total > 0 && (
               <div className="kgv-empty">
                 <div className="kgv-empty-t">{t("pj.kg.emptyTitle")}</div>
                 <div className="kgv-empty-s">{t("pj.kg.emptySub")}</div>
@@ -406,8 +508,7 @@ const KgViewer = function KgViewer({
               ))}
           </div>
 
-          <KgIndexPanel idx={state.idx} rebuilding={state.idxRebuilding} onRebuild={onRebuild} />
-          {/* T3.2 bootstrap 入口卡（索引面板区下方；准入四态互斥——hidden 静默） */}
+          {/* T3.2 bootstrap 入口卡（左列底部；准入四态互斥——hidden 静默） */}
           <KgBootstrapEntry
             row={project}
             mode={bootstrapEntryMode(project, bootstrapLaunched)}
@@ -435,16 +536,6 @@ const KgViewer = function KgViewer({
               onClick={() => onTab("report")}
             >
               {t("pj.kg.tabReport")}
-              <span
-                className={`hud-badge ${pending > 0 ? "st-draft" : "st-confirmed"}`}
-                data-kg-report-count
-              >
-                {pending > 0
-                  ? t("pj.kg.reportPending", { n: pending })
-                  : state.report !== null
-                    ? t("pj.kg.reportCleared")
-                    : ""}
-              </span>
             </button>
             {/* T3.2 kg-bootstrap 批新增第三 tab：产出呈现（无审阅进度无待审计数） */}
             <button
@@ -469,11 +560,7 @@ const KgViewer = function KgViewer({
               ) : state.tab === "report" ? (
                 <KgReportPane
                   report={state.report}
-                  resolved={state.resolved}
                   byId={byId}
-                  onGoto={onSelectNode}
-                  onResolve={onResolve}
-                  onUnresolve={onUnresolve}
                 />
               ) : (
                 <KgProducePane

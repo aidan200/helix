@@ -69,11 +69,10 @@ function detailOf(t: TaskSummaryDto): TaskDetailDto {
   return {
     ...t,
     stages: [
-      { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "核心层完成", nodeCount: 3 } },
+      { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "核心层完成" } },
       { seq: 2, name: "L1 领域层", status: "running", artifact: null },
     ],
     batches: [],
-    currentNarrative: "批次进行中",
     params: {},
   };
 }
@@ -198,7 +197,7 @@ describe("③ 六态门控矩阵（纯函数）+ 删除联动", () => {
     expect(selectListView(s).mode).toBe("empty");
   });
 
-  it("取消回执 → 行与详情状态同步翻 cancelled（徽章/叙述句联动数据面）", () => {
+  it("取消回执 → 行与详情状态同步翻 cancelled（徽章联动数据面）", () => {
     let s = tasksReducer(createTasksPageState(), { type: "list-loading" });
     s = tasksReducer(s, { type: "list-result", tasks: mixedTasks() });
     s = tasksReducer(s, { type: "select-task", jobId: "j-run-1" });
@@ -319,7 +318,7 @@ describe("⑥ artifacts 回执归属：页面以请求时在途 ref 的 jobId �
   function artifactsOf(tag: string): TaskArtifactsDto {
     return {
       stages: [
-        { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: tag, nodes: [] } },
+        { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: tag } },
       ],
     };
   }

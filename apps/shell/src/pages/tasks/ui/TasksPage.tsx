@@ -5,7 +5,7 @@
  * 结构（AppLayout 壳，四槽契约）：headerLeft = 「任务」页名；headerRight =
  * 主题切换（复用全局 helix-theme 键）；sidebar = 左栏 380px 任务列表
  * （状态 seg + 项目 seg 过滤 / 全局平铺运行中置顶）；children = 右区详情
- * （头 + 进度/结果查询双 tab）。全局导航（会话/项目/任务）由 IconRail
+ * （头 + 进度/任务结果双 tab）。全局导航（会话/项目/任务）由 IconRail
  * 页面域承载（R-1 壳层口径）。
  *
  * 数据面（连接私有读面，AG-15 页面私有 reducer 不进 session store）：
@@ -244,10 +244,6 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
     dispatch({ type: "clear-filters" });
   }, []);
 
-  const onDemoEmpty = useCallback((on: boolean) => {
-    dispatch({ type: "demo-empty", on });
-  }, []);
-
   const onTab = useCallback((value: "progress" | "result") => {
     dispatch({ type: "tab", value });
   }, []);
@@ -316,7 +312,6 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
           onFilterStatus={onFilterStatus}
           onFilterProject={onFilterProject}
           onClearFilters={onClearFilters}
-          onDemoEmpty={onDemoEmpty}
           onOpenProject={onOpenProject}
         />
       }
@@ -382,7 +377,7 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
                 ) : state.artifactsLoading || state.artifactsJob !== selected ? (
                   <TaskSkeleton lines={4} />
                 ) : state.artifacts !== null ? (
-                  <TaskResultPane artifacts={state.artifacts} t={t} onOpenProject={onOpenProject} />
+                  <TaskResultPane artifacts={state.artifacts} t={t} />
                 ) : (
                   <EmptyPanel marker="artifacts" title={t("tk.result.emptyTitle")} sub={t("tk.result.emptySub")} />
                 )}

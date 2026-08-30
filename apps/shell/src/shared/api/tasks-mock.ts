@@ -5,9 +5,9 @@
  * 校验失败 connection.error），fake 实例对九命令自动回放确定性场景。
  * 数据面 = 原型 P-2-task.html MOCK 区 TASKS 六任务逐字段转契约形状
  * （contracts/task-api.md DTO：TaskSummaryDto/TaskDetailDto/TaskBatchDto/
- * WorkItemDto/TaskArtifactsDto/NodeRefDto——AD-4 人类面规范在 mock 数据层
- * 同样强制：标题/范围/叙述句为人类可读文案，jobId/batchId/nodeId 仅
- * data-id 语义）。
+ * WorkItemDto/TaskArtifactsDto——AD-4 人类面规范在 mock 数据层同样强制：
+ * 标题/范围/摘要为人类可读文案，jobId/batchId 仅 data-id 语义）；批次为
+ * 跨阶段全量返回，stageSeq 为前端分组键（t1/t2 覆盖多阶段多批次样例）。
  *
  * 与 kg-mock 的差异：reply 返回帧数组（结果帧 + 生命周期成功伴发的
  * task.changed 广播——O-7 逐迁移轻负载，daemon handlers/task.ts 同构：
@@ -39,7 +39,6 @@ const iso = (offsetMin: number): string => new Date(MOCK_NOW + offsetMin * 60_00
 function detailOf(
   s: TaskSummaryDto,
   o: {
-    narrative: string;
     stages: TaskDetailDto["stages"];
     batches?: TaskBatchDto[];
     error?: string | null;
@@ -47,7 +46,6 @@ function detailOf(
 ): TaskDetailDto {
   return {
     ...s,
-    currentNarrative: o.narrative,
     stages: o.stages,
     batches: o.batches ?? [],
     params: {},
@@ -132,6 +130,7 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
 
   const b = (
     batchId: string,
+    stageSeq: number,
     seq: number,
     scope: string,
     status: TaskBatchDto["status"],
@@ -139,7 +138,7 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
     retryNote: string | null = null,
     instanceId: string | null = null,
     plan: TaskBatchDto["plan"] = null,
-  ): TaskBatchDto => ({ batchId, seq, scope, status, retryCount, retryNote, instanceId, plan });
+  ): TaskBatchDto => ({ batchId, stageSeq, seq, scope, status, retryCount, retryNote, instanceId, plan });
 
   const wi = (
     seq: number,
@@ -155,25 +154,23 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
 
   const details = new Map<string, TaskDetailDto>([
     detailOf(t1, {
-      narrative:
-        "批次「protocol 命令族扩展」进行中：12 项计划完成 7 项，正在写 task 命令族契约节点；下一批为「daemon 编排器域」。",
       stages: [
-        { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "核心层完成：建立架构基线与全局写作规范，为 L1/L2 提供探索锚点。", nodeCount: 3 } },
+        { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "核心层完成：建立架构基线与全局写作规范，为 L1/L2 提供探索锚点。" } },
         { seq: 2, name: "L1 领域层", status: "running", artifact: null },
         { seq: 3, name: "L2 实体层", status: "pending", artifact: null },
       ],
       batches: [
-        b("batch-1a", 1, "daemon 任务引擎域", "done", 0, null, "inst-a01", [
+        b("batch-1a", 1, 1, "daemon 任务引擎域", "done", 0, null, "inst-a01", [
           wi(1, "探查任务引擎 job / stage / batch 三表", "done"),
           wi(2, "产出任务引擎持久化域实体节点", "done"),
           wi(3, "产出状态机转换规则节点", "done"),
           wi(4, "自检：只看正文能否理解", "done"),
         ]),
-        b("batch-1b", 2, "shell 任务页面域", "done", 1, "首次执行 closure 中 plan 未全部 resolve，按编排规则自动重试 1 次后通过。", "inst-a02", [
+        b("batch-1b", 1, 2, "shell 任务页面域", "done", 1, "首次执行 closure 中 plan 未全部 resolve，按编排规则自动重试 1 次后通过。", "inst-a02", [
           wi(1, "探查 shell 页面域与路由", "done"),
           wi(2, "产出任务页 master-detail 结构节点", "done"),
         ]),
-        b("batch-1c", 3, "protocol 命令族扩展", "running", 0, null, "inst-a03", [
+        b("batch-1c", 2, 3, "protocol 命令族扩展", "running", 0, null, "inst-a03", [
           wi(1, "探查 protocol 既有命令与 additive 扩展先例", "done", "产物指针：P1 六命令族为先例"),
           wi(2, "划定 task.* 命令面", "done"),
           wi(3, "写 task.create / task.list 契约节点", "done"),
@@ -181,26 +178,24 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
           wi(5, "写 WS 推送事件契约节点", "pending"),
           wi(6, "自检：只看正文能否理解", "pending"),
         ]),
-        b("batch-1d", 4, "daemon 编排器域", "pending"),
-        b("batch-1e", 5, "kg 消费面（附着 / 注入）", "pending"),
+        b("batch-1d", 2, 4, "daemon 编排器域", "pending"),
+        b("batch-1e", 2, 5, "kg 消费面（附着 / 注入）", "pending"),
       ],
     }),
     detailOf(t2, {
-      narrative: "已于 10:02 暂停：批次「内容抓取管线」收口后挂起，未派新批次。继续后从批次「渲染与脚本执行域」恢复。",
       stages: [
-        { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "核心层完成：建立 fetch / browse 双通道的架构基线。", nodeCount: 1 } },
+        { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "核心层完成：建立 fetch / browse 双通道的架构基线。" } },
         { seq: 2, name: "L1 领域层", status: "running", artifact: null },
         { seq: 3, name: "L2 实体层", status: "pending", artifact: null },
       ],
       batches: [
-        b("batch-2a", 1, "全局规范与架构基线", "done", 0, null, "inst-b01", [wi(1, "产出架构基线节点", "done")]),
-        b("batch-2b", 2, "内容抓取管线", "done", 0, null, "inst-b02", [wi(1, "产出抓取管线实体节点", "done")]),
-        b("batch-2c", 3, "渲染与脚本执行域", "pending"),
-        b("batch-2d", 4, "结果投影与封存", "pending"),
+        b("batch-2a", 1, 1, "全局规范与架构基线", "done", 0, null, "inst-b01", [wi(1, "产出架构基线节点", "done")]),
+        b("batch-2b", 2, 2, "内容抓取管线", "done", 0, null, "inst-b02", [wi(1, "产出抓取管线实体节点", "done")]),
+        b("batch-2c", 2, 3, "渲染与脚本执行域", "pending"),
+        b("batch-2d", 2, 4, "结果投影与封存", "pending"),
       ],
     }),
     detailOf(t3, {
-      narrative: "任务已创建：skill 校验通过，三阶段计划已冻结，编排器正在装配会话。",
       stages: [
         { seq: 1, name: "L0 核心层", status: "pending", artifact: null },
         { seq: 2, name: "L1 领域层", status: "pending", artifact: null },
@@ -208,15 +203,13 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
       ],
     }),
     detailOf(t4, {
-      narrative: "任务完成：3 个阶段共产出 23 个节点，落盘即 confirmed（正式知识），可在「项目」页查看与修正。",
       stages: [
-        { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "复用既有核心层，补充 2 个缺失规范节点。", nodeCount: 1 } },
-        { seq: 2, name: "L1 领域层", status: "done", artifact: { summary: "领域层完成：6 个领域节点，覆盖 sync 管道、附着、注入、消费面。", nodeCount: 1 } },
-        { seq: 3, name: "L2 实体层", status: "done", artifact: { summary: "实体层完成：15 个实体 / 契约节点，全部带符号域锚（path#symbol）。", nodeCount: 2 } },
+        { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "复用既有核心层，补充 2 个缺失规范节点。" } },
+        { seq: 2, name: "L1 领域层", status: "done", artifact: { summary: "领域层完成：6 个领域节点，覆盖 sync 管道、附着、注入、消费面。" } },
+        { seq: 3, name: "L2 实体层", status: "done", artifact: { summary: "实体层完成：15 个实体 / 契约节点，全部带符号域锚（path#symbol）。" } },
       ],
     }),
     detailOf(t5, {
-      narrative: "批次「构建系统与产物链」两次自动重试均失败（SubAgent 超时无 closure 产出）；阶段 L0 标记失败，任务收口。可在「项目」页确认索引状态后发起新任务。",
       error: t5.error,
       stages: [
         { seq: 1, name: "L0 核心层", status: "failed", artifact: null },
@@ -224,30 +217,21 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
         { seq: 3, name: "L2 实体层", status: "pending", artifact: null },
       ],
       batches: [
-        b("batch-5a", 1, "全局规范与架构基线", "done", 0, null, "inst-c01", [wi(1, "产出架构基线节点", "done")]),
-        b("batch-5b", 2, "构建系统与产物链", "failed", 2, "第 1 次：SubAgent 超时无 closure。第 2 次：closure 缺失 plan，判失败。已达自动重试上限。", "inst-c02", [
+        b("batch-5a", 1, 1, "全局规范与架构基线", "done", 0, null, "inst-c01", [wi(1, "产出架构基线节点", "done")]),
+        b("batch-5b", 1, 2, "构建系统与产物链", "failed", 2, "第 1 次：SubAgent 超时无 closure。第 2 次：closure 缺失 plan，判失败。已达自动重试上限。", "inst-c02", [
           wi(1, "探查构建配置与产物链", "done", "产物指针：构建链草图"),
           wi(2, "产出构建系统实体节点", "abandoned", "放弃：上下文不足，执行实例终止"),
         ]),
       ],
     }),
     detailOf(t6, {
-      narrative: "已于 08-27 17:24 取消：「依赖盘点」阶段产物保留，未启动的批次不再执行。",
       stages: [
-        { seq: 1, name: "依赖盘点", status: "done", artifact: { summary: "盘点完成：两项目共 148 个直接依赖，清单已产出。", nodeCount: 1 } },
+        { seq: 1, name: "依赖盘点", status: "done", artifact: { summary: "盘点完成：两项目共 148 个直接依赖，清单已产出。" } },
         { seq: 2, name: "许可证归类", status: "pending", artifact: null },
         { seq: 3, name: "风险汇总", status: "pending", artifact: null },
       ],
     }),
   ].map((d) => [d.jobId, d] as const));
-
-  const nref = (nodeId: string, name: string, kind: string, digestFirstLine: string, status: "confirmed" | "superseded" = "confirmed") => ({
-    nodeId,
-    name,
-    kind,
-    digestFirstLine,
-    status,
-  });
 
   const artifacts = new Map<string, TaskArtifactsDto>([
     [
@@ -260,11 +244,6 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
             status: "done",
             artifact: {
               summary: "核心层完成：建立架构基线与全局写作规范，为 L1/L2 提供探索锚点。",
-              nodes: [
-                nref("kg-n-101", "daemon 四层架构基线", "rule", "daemon 按 adapters / application / domain / infrastructure 分层，依赖只允许向内。"),
-                nref("kg-n-102", "kg 写面唯一入口", "rule", "知识层全部写操作必须经 KgWriteService.write 单 op 单事务进入。"),
-                nref("kg-n-103", "知识写作规范五条", "rule", "正文完整自然语言、digest 叙述式不超过两行、每条知识带为什么存在。"),
-              ],
             },
           },
           { seq: 2, name: "L1 领域层", status: "running", artifact: null },
@@ -282,7 +261,6 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
             status: "done",
             artifact: {
               summary: "复用既有核心层，补充 2 个缺失规范节点。",
-              nodes: [nref("kg-n-201", "锚点声明作用域规则", "rule", "锚点声明分全局 / 领域 / 实体三级作用域，scope_kind 决定物化范围。")],
             },
           },
           {
@@ -291,7 +269,6 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
             status: "done",
             artifact: {
               summary: "领域层完成：6 个领域节点。",
-              nodes: [nref("kg-n-202", "sync 双源汇队列", "entity", "文件源与符号源汇入同一去抖队列，单飞管道串行处理，重启后从水位线续跑。")],
             },
           },
           {
@@ -300,11 +277,6 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
             status: "done",
             artifact: {
               summary: "实体层完成：15 个实体 / 契约节点，全部带符号域锚。",
-              nodes: [
-                nref("kg-n-203", "KgWriteService", "entity", "知识层唯一写入口，五 op 联合，单 op 单事务。"),
-                nref("kg-n-204", "kg.search 命令契约", "contract", "按 name / digest 关键字检索节点，硬顶 20 条按 id 排序，只读。"),
-                nref("kg-n-205", "固定四段模板", "rule", "每份知识变化报告固定渲染背景、检出、影响、结论四段。", "superseded"),
-              ],
             },
           },
         ],
@@ -320,7 +292,6 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
             status: "done",
             artifact: {
               summary: "盘点完成：两项目共 148 个直接依赖，清单已产出。",
-              nodes: [nref("kg-n-301", "helix 直接依赖清单", "entity", "helix 直接依赖 92 个，其中 11 个许可证类型需人工确认归类。")],
             },
           },
           { seq: 2, name: "许可证归类", status: "pending", artifact: null },
@@ -338,7 +309,6 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
             status: "done",
             artifact: {
               summary: "核心层完成：建立 fetch / browse 双通道的架构基线。",
-              nodes: [nref("kg-n-401", "web-access 双通道架构", "rule", "内容获取分 fetch 与 browse 双通道，按页面动态程度由调用方选择。")],
             },
           },
           { seq: 2, name: "L1 领域层", status: "running", artifact: null },

@@ -36,7 +36,8 @@ export function StatusBadge({ status }: { status: KgNodeStatusDto }) {
   return <span className={`hud-badge st-${status}`}>{statusText(status)}</span>;
 }
 
-/** 知识引用（可跳转；id 仅 data-goto 属性承载——AD-16）。 */
+/** 知识引用（onGoto 在场 = 可跳转；缺省 = 纯信息展示——报告面裁决：
+ * 节点详情查询在详情 tab，报告面不做快捷跳转）。id 仅 data-goto 属性承载——AD-16。 */
 export function NodeRef({
   id,
   name,
@@ -46,11 +47,15 @@ export function NodeRef({
   id: string;
   name: string;
   kind: KgNodeKindDto;
-  onGoto: (id: string) => void;
+  onGoto?: (id: string) => void;
 }) {
   return (
     <>
-      <b className="kg-nref" data-goto={id} onClick={() => onGoto(id)}>
+      <b
+        className={`kg-nref${onGoto === undefined ? " static" : ""}`}
+        data-goto={id}
+        onClick={onGoto === undefined ? undefined : () => onGoto(id)}
+      >
         『{name}』
       </b>
       <KindBadge kind={kind} />
@@ -77,7 +82,7 @@ export function SymbolRef({ name, path, line }: { name: string; path?: string; l
 export function fmtNarrative(
   text: string,
   byId: ReadonlyMap<string, KgNodeListRow>,
-  onGoto: (id: string) => void,
+  onGoto?: (id: string) => void,
 ): ReactNode[] {
   // `code` 先切分；片段内再做 id 替换（code 内不替换）
   const codeSplit = text.split(/`([^`]+)`/g);
@@ -91,7 +96,7 @@ export function fmtNarrative(
 function splitRefs(
   text: string,
   byId: ReadonlyMap<string, KgNodeListRow>,
-  onGoto: (id: string) => void,
+  onGoto?: (id: string) => void,
 ): ReactNode[] {
   const re = /\{\{((?:TR|E)-\d+)\}\}|((?:TR|E)-\d+)/g;
   const out: ReactNode[] = [];
@@ -110,6 +115,23 @@ function splitRefs(
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
+}
+
+/** md 渲染前处理（详情正文 react-markdown 通路）：`{{id}}` 标记与可解析
+ * 裸 id → `**『name』**`（AD-16 粗体引用形的 md 表达；徽章不入 md 文本）。
+ * `code` span 内不替换（与 fmtNarrative 同纪律）；fenced 块不在本通路范围。 */
+export function resolveRefsToMd(text: string, byId: ReadonlyMap<string, KgNodeListRow>): string {
+  const codeSplit = text.split(/(`[^`]+`)/g);
+  const re = /\{\{((?:TR|E)-\d+)\}\}|((?:TR|E)-\d+)/g;
+  return codeSplit
+    .map((chunk, i) => {
+      if (i % 2 === 1) return chunk; // code span 原样（含反引号，交 md 渲染）
+      return chunk.replace(re, (m, g1: string | undefined, g2: string | undefined) => {
+        const node = byId.get(g1 ?? g2 ?? "");
+        return node === undefined ? m : `**『${node.name}』**`;
+      });
+    })
+    .join("");
 }
 
 /** 搜索命中高亮（--search 橙 mark；q 为空原样返回）。 */

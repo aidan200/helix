@@ -125,6 +125,10 @@ register({
     "kg.node.update.result",
     "kg.node.supersede.result",
     "kg.bootstrap.impact.result",
+    // C1 kg 维护批两回执（purge / index.delete）——同规：真消费归 /project
+    // 页 kg-head 与索引面板组件听众，no-op 注册保守护绿
+    "kg.graph.purge.result",
+    "kg.index.delete.result",
   ],
   apply: (s) => s,
 });

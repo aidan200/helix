@@ -1,7 +1,6 @@
 /**
  * P-1 页面状态机纯函数面单测（F5.0 主区四态 + F5.1~F5.5 graph 态；
- * TDD RED 清单：四态互斥/切项目清旧态/kgToken/折叠不改主区/过滤叠加/
- * 待决计数）。
+ * TDD RED 清单：四态互斥/切项目清旧态/kgToken/折叠不改主区/过滤叠加）。
  */
 import { describe, expect, it } from "vitest";
 import type { KgProjectRow } from "@helix/protocol";
@@ -14,7 +13,6 @@ import {
   createKgViewState,
   filterRows,
   kgReducer,
-  pendingCount,
   panelStateOf,
 } from "./kg-model";
 import type { KgNodeListRow, KgNodeDetailDto } from "@helix/protocol";
@@ -29,7 +27,7 @@ const ROWS: KgProjectRow[] = [
 function detailOf(id: string, name: string, status: KgNodeListRow["status"]): KgNodeDetailDto {
   return {
     id, name, kind: id.startsWith("E-") ? "entity" : "rule", domain: "tech", status,
-    digest: "", desc: "", rules: [], anchors: [], relations: [],
+    digest: "", body: "", anchors: [], relations: [],
     supersede: { history: [], current: { id, name, kind: "rule", digestFirstLine: "" } },
     log: [],
   };
@@ -152,7 +150,7 @@ describe("kg-model graph 态", () => {
       type: "detail-result",
       detail: {
         id: "TR-44", name: "规则甲", kind: "rule", domain: "tech", status: "confirmed",
-        digest: "", desc: "", rules: [], anchors: [], relations: [],
+        digest: "", body: "", anchors: [], relations: [],
         supersede: { history: [], current: { id: "TR-44", name: "规则甲", kind: "rule", digestFirstLine: "" } },
         log: [],
       },
@@ -160,15 +158,11 @@ describe("kg-model graph 态", () => {
     expect(s.detail).toBeNull(); // sel≠回执 id → 丢弃
   });
 
-  it("待决计数联动 + 撤销；面板起步态映射", () => {
-    const report = { iterationId: "i1", entries: [{ options: ["a"] }, { options: ["b"] }] } as never;
+  it("报告纯通知面（无 resolved 状态链）；面板起步态映射", () => {
+    const report = { iterationId: "i1", entries: [{}, {}] } as never;
     let s = createKgViewState();
     s = kgReducer(s, { type: "report-result", report });
-    expect(pendingCount(s.report, s.resolved)).toBe(2);
-    s = kgReducer(s, { type: "resolve", index: 0, value: "a" });
-    expect(pendingCount(s.report, s.resolved)).toBe(1);
-    s = kgReducer(s, { type: "unresolve", index: 0 });
-    expect(pendingCount(s.report, s.resolved)).toBe(2);
+    expect(s.report).toBe(report);
     expect(panelStateOf("absent")).toBe("synced"); // graph 态面板不呈现 absent（主区消化）
     expect(panelStateOf("building")).toBe("building");
     expect(panelStateOf("degraded")).toBe("degraded");
@@ -211,7 +205,7 @@ describe("kg-model graph 态", () => {
       type: "detail-result",
       detail: {
         id: "TR-47", name: "规则乙", kind: "rule", domain: "tech", status: "draft",
-        digest: "", desc: "", rules: [], anchors: [], relations: [],
+        digest: "", body: "", anchors: [], relations: [],
         supersede: { history: [], current: { id: "TR-47", name: "规则乙", kind: "rule", digestFirstLine: "" } },
         log: [],
       },

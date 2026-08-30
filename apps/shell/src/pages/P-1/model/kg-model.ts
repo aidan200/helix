@@ -4,11 +4,10 @@
  *
  * 状态模型（review.md「graph 态内部」）：
  * - 主状态互斥：loading（列表/详情骨架）| empty（搜索无匹配）| success；
- *   进入 graph 即新数据面（按项目重初始化：过滤/选中/报告决定/索引面板态
+ *   进入 graph 即新数据面（按项目重初始化：过滤/选中/索引面板态
  *   全清空——由 kg-viewer remount 保证，本 reducer 只持单项目生命周期）；
- * - 报告子状态：待决 → 已处理（单选行动项触发，可撤销）；tab 计数联动；
- *   全部处理 → 清零横幅（仍属 success 态）；
- * - 索引子状态：面板四态中后三态（building/synced/degraded；absent 在主区
+ * - 报告 = 纯通知面（无决定状态：条目无行动项，无 resolved/待决计数）；
+ * - 索引子状态：头部紧凑形态三态（building/synced/degraded；absent 在主区
  *   呈现）——按项目状态起步，重建走 degraded→building→synced 转换。
  *
  * 过滤策略：kg.list 一次性拉全量（三路过滤参数可叠加，本页选客户端过滤
@@ -46,9 +45,7 @@ export interface KgViewState {
   detailLoading: boolean;
   tab: KgTab;
   report: KgChangeReportDto | null;
-  /** 报告行动项决定（条目 index → 选中选项；仅前端标记，转正除外）。 */
-  resolved: Record<number, string>;
-  /** 索引面板状态（kg.index.status 回执；null = 读取中）。 */
+  /** 索引状态（kg.index.status 回执；null = 读取中）。 */
   idx: KgIndexStatusDto | null;
   /** 面板重建进行中（轮询中）。 */
   idxRebuilding: boolean;
@@ -65,7 +62,6 @@ export function createKgViewState(): KgViewState {
     detailLoading: false,
     tab: "detail",
     report: null,
-    resolved: {},
     idx: null,
     idxRebuilding: false,
   };
@@ -82,8 +78,6 @@ export type KgAction =
   | { type: "detail-result"; detail: KgNodeDetailDto }
   | { type: "tab"; tab: KgTab }
   | { type: "report-result"; report: KgChangeReportDto }
-  | { type: "resolve"; index: number; value: string }
-  | { type: "unresolve"; index: number }
   | { type: "idx-result"; idx: KgIndexStatusDto }
   | { type: "idx-rebuild-started" }
   | { type: "confirm-applied"; id: string; status: KgNodeListRow["status"] };
@@ -107,13 +101,7 @@ export function viewOf(all: readonly KgNodeListRow[], matched: number): KgPaneVi
   return matched === 0 ? "empty" : "success";
 }
 
-/** 报告待决计数（tab 徽章联动）。 */
-export function pendingCount(report: KgChangeReportDto | null, resolved: Record<number, string>): number {
-  if (report === null) return 0;
-  return report.entries.length - Object.keys(resolved).length;
-}
-
-/** 索引面板起步态（graph 态仅呈现后三态；absent 归主区）。 */
+/** 索引起步态（graph 态仅呈现后三态；absent 归主区）。 */
 export function panelStateOf(state: KgProjectState): "building" | "synced" | "degraded" {
   return state === "building" ? "building" : state === "degraded" ? "degraded" : "synced";
 }
@@ -162,13 +150,6 @@ export function kgReducer(state: KgViewState, action: KgAction): KgViewState {
       return { ...state, tab: action.tab };
     case "report-result":
       return { ...state, report: action.report };
-    case "resolve":
-      return { ...state, resolved: { ...state.resolved, [action.index]: action.value } };
-    case "unresolve": {
-      const resolved = { ...state.resolved };
-      delete resolved[action.index];
-      return { ...state, resolved };
-    }
     case "idx-result": {
       const done = action.idx.state !== "building";
       return { ...state, idx: action.idx, idxRebuilding: done ? false : state.idxRebuilding };

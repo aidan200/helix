@@ -29,6 +29,10 @@ import type {
   KgBootstrapProducePayload,
   KgChangeReportCommand,
   KgChangeReportPayload,
+  KgGraphPurgeCommand,
+  KgGraphPurgePayload,
+  KgIndexDeleteCommand,
+  KgIndexDeletePayload,
   KgIndexStatusCommand,
   KgIndexStatusPayload,
   KgListCommand,
@@ -325,6 +329,21 @@ export function kgNodeSupersedeCommand(payload: KgNodeSupersedePayload): KgNodeS
 /** kg.bootstrap.impact：受影响连带只读推导（CL-4 F4.3；update/supersede 成功后刷新标记）。 */
 export function kgBootstrapImpactCommand(payload: KgBootstrapImpactPayload): KgBootstrapImpactCommand {
   return { v: PROTOCOL_VERSION, type: "kg.bootstrap.impact", payload };
+}
+
+// ── kg 维护批两命令（C1；契约 PROTOCOL.md §22）────
+// 全局命令（信封 sessionId 省略）；回执 = kg.*.result 点对点帧（零推送同规）。
+// 职责分层：purge 清 kg 库全部内容（不动 .codegraph）；index.delete 删索引
+// 目录（不动知识层）。
+
+/** kg.graph.purge：清空图谱（危险操作——UI 两步确认；daemon 门禁：运行中 kg-bootstrap 任务拒绝）。 */
+export function kgGraphPurgeCommand(payload: KgGraphPurgePayload): KgGraphPurgeCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.graph.purge", payload };
+}
+
+/** kg.index.delete：删除索引（停 watcher + 删 .codegraph + 状态复位 absent；可重建）。 */
+export function kgIndexDeleteCommand(payload: KgIndexDeletePayload): KgIndexDeleteCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.index.delete", payload };
 }
 
 // ── workspace 族命令（W3 门禁；契约 PROTOCOL.md §15.10）──────────────

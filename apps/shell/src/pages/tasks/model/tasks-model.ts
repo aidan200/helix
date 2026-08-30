@@ -133,7 +133,7 @@ export interface TasksPageState {
   /** 当前详情（detail.result；迟到回执按 jobId 丢弃）。 */
   detail: TaskDetailDto | null;
   detailLoading: boolean;
-  /** 结果查询（task.artifacts 回执；artifactsJob = 归属校验）。 */
+  /** 任务结果（task.artifacts 回执；artifactsJob = 归属校验）。 */
   artifacts: TaskArtifactsDto | null;
   artifactsLoading: boolean;
   artifactsJob: string | null;
@@ -143,8 +143,6 @@ export interface TasksPageState {
   planOpen: Record<string, boolean>;
   /** 生命周期命令在途单飞锁（错误回执清锁）。 */
   pendingLifecycle: TaskLifecycleAction | null;
-  /** dev 演示控件态（isDev 门控派发；空列表态演示，prod 恒 false）。 */
-  demoEmpty: boolean;
 }
 
 export function createTasksPageState(): TasksPageState {
@@ -163,7 +161,6 @@ export function createTasksPageState(): TasksPageState {
     confirmBox: "none",
     planOpen: {},
     pendingLifecycle: null,
-    demoEmpty: false,
   };
 }
 
@@ -188,9 +185,7 @@ export type TasksAction =
   | { type: "lifecycle-result"; kind: TaskLifecycleAction; jobId: string; status?: TaskStatus }
   | { type: "delete-result"; jobId: string }
   | { type: "lifecycle-failed" }
-  | { type: "plan-toggle"; batchId: string }
-  /** dev 演示控件（data-demo seg；isDev 门控入口派发，prod 不渲染不派发）。 */
-  | { type: "demo-empty"; on: boolean };
+  | { type: "plan-toggle"; batchId: string };
 
 export function tasksReducer(state: TasksPageState, action: TasksAction): TasksPageState {
   switch (action.type) {
@@ -200,7 +195,7 @@ export function tasksReducer(state: TasksPageState, action: TasksAction): TasksP
       const tasks = sortTasks(action.tasks);
       // 空列表选中清空；已有选中不夺位（job 在新清单消失 → 回落首行）
       let selected = state.selected;
-      if (tasks.length === 0 || state.demoEmpty) selected = null;
+      if (tasks.length === 0) selected = null;
       else if (selected === null || !tasks.some((t) => t.jobId === selected)) selected = tasks[0]!.jobId;
       const detailGone = state.detail !== null && state.detail.jobId !== selected;
       return {
@@ -212,7 +207,7 @@ export function tasksReducer(state: TasksPageState, action: TasksAction): TasksP
       };
     }
     case "workspace-reset":
-      return { ...createTasksPageState(), demoEmpty: state.demoEmpty };
+      return createTasksPageState();
     case "filter-status":
       return { ...state, filterStatus: action.value };
     case "filter-project":
@@ -294,9 +289,6 @@ export function tasksReducer(state: TasksPageState, action: TasksAction): TasksP
       else planOpen[action.batchId] = true;
       return { ...state, planOpen };
     }
-    case "demo-empty":
-      // dev 演示控件（CL-1-T7 空态可演示位）：仅视图态翻转，真数据不动
-      return { ...state, demoEmpty: action.on };
     default:
       return state;
   }
@@ -311,10 +303,9 @@ export interface TasksListView {
   rows: TaskSummaryDto[];
 }
 
-/** 列表视图态派生（互斥；demoEmpty 演示空列表优先——dev 门控入口派发）。 */
+/** 列表视图态派生（互斥四态恰一）。 */
 export function selectListView(state: TasksPageState): TasksListView {
   if (state.listLoading) return { mode: "loading", rows: [] };
-  if (state.demoEmpty) return { mode: "empty", rows: [] };
   if (state.tasks.length === 0) return { mode: "empty", rows: [] };
   const rows = sortTasks(filterTasks(state.tasks, state.filterStatus, state.filterProject));
   if (rows.length === 0) return { mode: "filter-empty", rows: [] };

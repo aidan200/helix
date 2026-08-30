@@ -2,8 +2,7 @@
  * P-2 任务页展示原子（T3.1）：徽章 / 进度条 / 骨架 / 空态面板。
  *
  * 纯展示（零数据面）：六态任务徽章经 hud-badge + st-* 语义修饰类（类名 =
- * wire 枚举，tasks-model taskStatusDisplay 单源）；类型徽章 violet 族；
- * kind 徽章按 rule/entity/contract 映射既有语义色、未知 kind 降档。
+ * wire 枚举，tasks-model taskStatusDisplay 单源）；类型徽章 violet 族。
  * AD-4/AG-16：裸 id 零界面（jobId/batchId/nodeId 只进 data-id 属性）；
  * 文案全部经 t() 注入（组件源码零硬编码 CJK）。
  */
@@ -48,16 +47,6 @@ export function PhaseBadge({
     <span className={cn("hud-badge", `st-${status}`)} data-phase={kind} data-phase-status={status}>
       {status === "running" && <span className="tk-dot-run" aria-hidden="true" />}
       {label}
-    </span>
-  );
-}
-
-/** kind 徽章（结果查询节点；rule=accent / entity=violet / contract=search）。 */
-export function KindBadge({ kind }: { kind: string }) {
-  const cls = kind === "rule" || kind === "entity" || kind === "contract" ? `tk-kind-${kind}` : "tk-kind-other";
-  return (
-    <span className={cn("hud-badge", cls)} data-node-kind={kind}>
-      {kind}
     </span>
   );
 }

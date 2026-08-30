@@ -1,9 +1,12 @@
 /**
  * P-2 任务页进度 tab（T3.1；R-4/R-5）：通用阶段条（stage 行驱动——
  * 序号/✓/●/✕ + 阶段名 + 四态子行，连接线随完成态着色；bootstrap 三阶段
- * 与开放阶段同构零特例）+ 批次列表（范围粗体 + 状态徽章 + retryCount>0
- * warning 徽数与重试原因 note + 实例 plan：进度行 + 「正在：…」+
- * 可展开四态工作台账，abandoned 带理由；待启动批次队列文案）。
+ * 与开放阶段同构零特例）+ 批次节按 stageSeq 分组渲染（每阶段一个小节头：
+ * 阶段名 + 状态徽章 + 阶段子行，批次卡归位其下；运行中阶段小节高亮；
+ * detail.stages 提供分组顺序与阶段信息——daemon 返回跨阶段全量批次）。
+ * 批次卡：范围粗体 + 状态徽章 + retryCount>0 warning 徽数与重试原因 note
+ * + 实例 plan：进度行 + 「正在：…」+ 可展开四态工作台账，abandoned 带理由；
+ * 待启动批次队列文案。
  */
 import { Fragment } from "react";
 import type { TaskBatchDto, TaskDetailDto, TaskStageDto, WorkItemDto } from "@helix/protocol";
@@ -12,12 +15,9 @@ import { EmptyPanel, PhaseBadge, ProgressTrack } from "./P-2-task-atoms";
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
 
-/** 阶段子行（四态：已完成·产出 n 节点 / 进行中·批次 x/y / 失败 / 待启动）。 */
+/** 阶段子行（四态：已完成 / 进行中·批次 x/y / 失败 / 待启动）。 */
 function stageSub(stage: TaskStageDto, detail: TaskDetailDto, t: T): string {
-  if (stage.status === "done") {
-    const nodes = stage.artifact !== null ? t("tk.stageSub.doneNodes", { n: stage.artifact.nodeCount }) : "";
-    return `${t("tk.stageSub.done")}${nodes}`;
-  }
+  if (stage.status === "done") return t("tk.stageSub.done");
   if (stage.status === "running") {
     const p = detail.progress;
     const batches =
@@ -158,9 +158,27 @@ export default function TaskProgressPane({
         {detail.batches.length === 0 ? (
           <EmptyPanel marker="batches" title={t("tk.noBatches.title")} sub={t("tk.noBatches.sub")} />
         ) : (
-          detail.batches.map((b) => (
-            <BatchCard key={b.batchId} batch={b} open={planOpen[b.batchId] === true} t={t} onToggle={onPlanToggle} />
-          ))
+          detail.stages.map((stage) => {
+            const stageBatches = detail.batches.filter((b) => b.stageSeq === stage.seq);
+            return (
+              <div
+                key={stage.seq}
+                className={cn("tk-stagegrp", stage.status === "running" && "running")}
+                data-tk-stage-group
+                data-stage-seq={stage.seq}
+                data-stage-status={stage.status}
+              >
+                <div className="tk-stagegrp-h" data-tk-stage-group-h>
+                  <span className="tk-stagegrp-name">{stage.name}</span>
+                  <PhaseBadge kind="stage" status={stage.status} label={t(`tk.stage.${stage.status}`)} />
+                  <span className="tk-stagegrp-sub">{stageSub(stage, detail, t)}</span>
+                </div>
+                {stageBatches.map((b) => (
+                  <BatchCard key={b.batchId} batch={b} open={planOpen[b.batchId] === true} t={t} onToggle={onPlanToggle} />
+                ))}
+              </div>
+            );
+          })
         )}
       </div>
     </>

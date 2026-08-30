@@ -159,12 +159,11 @@ function detailOf(s: TaskSummaryDto, extra?: Partial<TaskDetailDto>): TaskDetail
   return {
     ...s,
     stages: [
-      { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "核心层完成", nodeCount: 3 } },
+      { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "核心层完成" } },
       { seq: 2, name: "L1 领域层", status: "running", artifact: null },
       { seq: 3, name: "L2 实体层", status: "pending", artifact: null },
     ],
     batches: [],
-    currentNarrative: "批次进行中：12 项计划完成 7 项。",
     params: {},
     ...extra,
   };
@@ -204,7 +203,7 @@ describe("P-2 TasksPage：列表渲染 + 过滤 + 零创建", () => {
     expect(qs("[data-tk-count]").textContent).toContain("共 6 个任务");
   });
 
-  it("连接就绪自动订阅 + 拉清单；选中首行自动拉详情（叙述句贯穿）", () => {
+  it("连接就绪自动订阅 + 拉清单；选中首行自动拉详情（叙述句块已拆除；非终态无前往项目页链接）", () => {
     ui();
     expect(sent.subscribe).toBe(1);
     expect(sent.list).toBe(1);
@@ -212,8 +211,10 @@ describe("P-2 TasksPage：列表渲染 + 过滤 + 零创建", () => {
     expect(sent.detail.map((d) => d.jobId)).toEqual(["job-run"]);
     feed("task.detail.result", { task: detailOf(SIX[0]!) } satisfies TaskDetailResultPayload);
     expect(qs("[data-tk-detail]").dataset.id).toBe("job-run");
-    expect(qs("[data-tk-narrative]").textContent).toContain("当前：");
-    expect(qs("[data-tk-narrative]").textContent).toContain("批次进行中：12 项计划完成 7 项。");
+    // narrative-remove：叙述句块零残留
+    expect(document.querySelector("[data-tk-narrative]")).toBeNull();
+    // 前往项目页链接仅终态显示（running 非终态 → 不渲染）
+    expect(document.querySelector("[data-tk-go-project]")).toBeNull();
   });
 
   it("状态过滤 + 项目过滤 + 无匹配空态（清除过滤恢复全列表）", () => {
@@ -238,6 +239,8 @@ describe("P-2 TasksPage：列表渲染 + 过滤 + 零创建", () => {
     feedList([]);
     expect(qs('[data-tk-empty="list"]').textContent).toContain("暂无任务");
     expect(qs("[data-tk-goto-project]").textContent).toContain("前往「项目」页");
+    // demo-seg-remove：演示 seg 全链零残留
+    expect(document.querySelector("[data-tk-demo]")).toBeNull();
     // 主区空态
     expect(qs('[data-tk-empty="detail-empty"]').textContent).toContain("没有可展示的任务");
     // 零创建（AD-2）：无任何创建语义按钮
@@ -295,17 +298,16 @@ describe("P-2 TasksPage：生命周期 + 删除门控（F3.5/F3.6）", () => {
     feedList();
     fireEvent.click(qs('.tk-row[data-id="job-done"]'));
     feed("task.detail.result", {
-      task: detailOf(SIX[3]!, {
-        status: "done",
-        currentNarrative: "任务完成：3 个阶段共产出 23 个节点。",
-      }),
+      task: detailOf(SIX[3]!, { status: "done" }),
     } satisfies TaskDetailResultPayload);
     const actions = qs("[data-tk-actions]");
     expect(actions.querySelector("[data-act='delete']")).toBeTruthy();
     expect(actions.querySelector("[data-act='pause']")).toBeNull();
     expect(actions.querySelector("[data-act='cancel']")).toBeNull();
-    // 终态行动出口（R-8）
-    expect(qs("[data-tk-go-project]").textContent).toContain("前往「项目」页");
+    // 终态行动出口（R-8）：header 首行右端（accent 链接样式）
+    const goLink = qs(".tk-head-top [data-tk-go-project]");
+    expect(goLink.textContent).toContain("前往「项目」页");
+    expect(goLink.className).toContain("tk-head-link");
     // 两步确认文案：清任务域记录 + kg 产出不动 + 不可撤销
     fireEvent.click(actions.querySelector("[data-act='delete']")!);
     const box = qs('[data-tk-confirm="delete"]');
@@ -340,17 +342,14 @@ describe("P-2 TasksPage：生命周期 + 删除门控（F3.5/F3.6）", () => {
 
 describe("P-2 TasksPage：artifacts 迟到帧竞态（T4.3 在途 ref 关联）", () => {
   /** 带专属标记的产物回执 fixture（tag 可辨识归属）。 */
-  const art = (tag: string, nodeId: string, name: string): TaskArtifactsResultPayload => ({
+  const art = (tag: string): TaskArtifactsResultPayload => ({
     artifacts: {
       stages: [
         {
           seq: 1,
           name: "L0 核心层",
           status: "done",
-          artifact: {
-            summary: `${tag} 摘要`,
-            nodes: [{ nodeId, name, kind: "rule", digestFirstLine: `${tag} digest 首行`, status: "confirmed" }],
-          },
+          artifact: { summary: `${tag} 摘要` },
         },
       ],
     },
@@ -367,28 +366,42 @@ describe("P-2 TasksPage：artifacts 迟到帧竞态（T4.3 在途 ref 关联）"
     fireEvent.click(qs('.tk-row[data-id="job-paused"]'));
     feed("task.detail.result", { task: detailOf(SIX[1]!) } satisfies TaskDetailResultPayload);
     // A 的迟到回执到达
-    feed("task.artifacts.result", art("A 的产物", "kg-n-a01", "A 的架构基线"));
+    feed("task.artifacts.result", art("A 的产物"));
     // 切到 B 的结果 tab：A 的回执不得以 B 落库 → artifactsJob≠selected → watcher 重拉 B
     fireEvent.click(qs('[data-tk-tab="result"]'));
     expect(sent.artifacts.map((a) => a.jobId)).toEqual(["job-run", "job-paused"]);
-    expect(screen.queryByText("A 的架构基线")).toBeNull(); // A 的产物不在 B 视图
+    expect(screen.queryByText("A 的产物 摘要")).toBeNull(); // A 的产物不在 B 视图
     // B 的在途请求回执正常落库
-    feed("task.artifacts.result", art("B 的产物", "kg-n-b01", "B 的架构基线"));
-    const nodeRow = qs('[data-tk-node][data-id="kg-n-b01"]');
-    expect(within(nodeRow).getByText("B 的架构基线")).toBeTruthy();
-    expect(screen.queryByText("A 的架构基线")).toBeNull();
+    feed("task.artifacts.result", art("B 的产物"));
+    expect(qs("[data-tk-art] .tk-art-sum").textContent).toBe("B 的产物 摘要");
+    expect(screen.queryByText("A 的产物 摘要")).toBeNull();
   });
 });
 
-describe("P-2 TasksPage：阶段条 + 批次 plan + 结果查询", () => {
-  it("阶段条 stage 行驱动：done ✓ 产出 n 节点 / running ● 批次 x/y / 待启动；批次 retry>0 warning + 台账展开（abandoned 带理由）", () => {
+describe("P-2 TasksPage：阶段条 + 批次 plan + 任务结果", () => {
+  it("阶段条 stage 行驱动 + 批次节按 stageSeq 分组（运行中阶段高亮）；批次 retry>0 warning + 台账展开（abandoned 带理由）", () => {
     ui();
     feedList();
     feed("task.detail.result", {
       task: detailOf(SIX[0]!, {
         batches: [
           {
+            batchId: "batch-1a",
+            stageSeq: 1,
+            seq: 1,
+            scope: "daemon 任务引擎域",
+            status: "done",
+            retryCount: 0,
+            retryNote: null,
+            instanceId: "inst-a01",
+            plan: [
+              { seq: 1, content: "探查任务引擎三表", status: "done", note: null },
+              { seq: 2, content: "自检", status: "done", note: null },
+            ],
+          },
+          {
             batchId: "batch-1b",
+            stageSeq: 2,
             seq: 2,
             scope: "shell 任务页面域",
             status: "done",
@@ -402,6 +415,7 @@ describe("P-2 TasksPage：阶段条 + 批次 plan + 结果查询", () => {
           },
           {
             batchId: "batch-1c",
+            stageSeq: 2,
             seq: 3,
             scope: "protocol 命令族扩展",
             status: "running",
@@ -415,16 +429,35 @@ describe("P-2 TasksPage：阶段条 + 批次 plan + 结果查询", () => {
               { seq: 4, content: "产出实体节点", status: "abandoned", note: "放弃：上下文不足，执行实例终止" },
             ],
           },
-          { batchId: "batch-1d", seq: 4, scope: "daemon 编排器域", status: "pending", retryCount: 0, retryNote: null, instanceId: null, plan: null },
+          { batchId: "batch-1d", stageSeq: 2, seq: 4, scope: "daemon 编排器域", status: "pending", retryCount: 0, retryNote: null, instanceId: null, plan: null },
         ],
       }),
     } satisfies TaskDetailResultPayload);
-    // 阶段条三行（✓ / ● / 序号）+ 子行文案
+    // 阶段条三行（✓ / ● / 序号）+ 子行文案（done 纯「已完成」——无产出计数）
     const stages = document.querySelectorAll("[data-tk-stage]");
     expect(stages.length).toBe(3);
     expect((stages[0] as HTMLElement).dataset.tkStage).toBe("done");
-    expect(qs("[data-tk-stagebar]").textContent).toContain("产出 3 节点");
+    expect(stages[0]!.querySelector(".tk-stage-sub")!.textContent).toBe("已完成");
     expect(qs("[data-tk-stagebar]").textContent).toContain("批次 3/5");
+    // 批次节按 stageSeq 分组：每阶段一个小节头（名 + 徽章 + 子行），批次卡归位其下
+    const groups = document.querySelectorAll("[data-tk-stage-group]");
+    expect(groups.length).toBe(3);
+    const g1 = qs('[data-tk-stage-group][data-stage-seq="1"]');
+    const g2 = qs('[data-tk-stage-group][data-stage-seq="2"]');
+    const g3 = qs('[data-tk-stage-group][data-stage-seq="3"]');
+    expect(g1.querySelectorAll("[data-tk-batch]").length).toBe(1);
+    expect(g2.querySelectorAll("[data-tk-batch]").length).toBe(3);
+    expect(g3.querySelectorAll("[data-tk-batch]").length).toBe(0);
+    expect(g1.querySelector("[data-tk-stage-group-h] .tk-stagegrp-name")!.textContent).toBe("L0 核心层");
+    expect(g1.querySelector('[data-tk-stage-group-h] [data-phase="stage"]')).toBeTruthy();
+    expect(g1.querySelector("[data-tk-stage-group-h] .tk-stagegrp-sub")!.textContent).toBe("已完成");
+    // 运行中阶段小节高亮
+    expect(g2.className).toContain("running");
+    expect(g2.dataset.stageStatus).toBe("running");
+    expect(g1.className).not.toContain("running");
+    // 批次卡归位：stageSeq=2 的批次在阶段 2 小节下
+    expect(g2.querySelector('[data-tk-batch][data-id="batch-1c"]')).toBeTruthy();
+    expect(g1.querySelector('[data-tk-batch][data-id="batch-1a"]')).toBeTruthy();
     // 批次：retry>0 warning + note
     expect(qs("[data-tk-retry]").textContent).toBe("自动重试 1 次");
     expect(qs("[data-tk-retry-note]").textContent).toContain("自动重试 1 次后通过");
@@ -441,10 +474,12 @@ describe("P-2 TasksPage：阶段条 + 批次 plan + 结果查询", () => {
     expect(runningBatch.querySelector("[data-tk-work='abandoned']")!.textContent).toContain("放弃：上下文不足");
   });
 
-  it("结果查询 tab：产物卡 + 节点条目（粗体 name + kind 徽章 + digest 首行 + 指路链接；裸 id 仅 data-id）+ 尾注 confirmed", () => {
+  it("结果 tab：阶段卡 = 阶段名 + 状态徽章 + summary 纯文字报告（零计数 chip/节点清单/链接/尾注）；tab 名「任务结果」", () => {
     ui();
     feedList();
     feed("task.detail.result", { task: detailOf(SIX[0]!) } satisfies TaskDetailResultPayload);
+    // tab-rename：zh「任务结果」
+    expect(qs('[data-tk-tab="result"]').textContent).toBe("任务结果");
     fireEvent.click(qs('[data-tk-tab="result"]'));
     expect(sent.artifacts.map((a) => a.jobId)).toEqual(["job-run"]);
     feed("task.artifacts.result", {
@@ -454,29 +489,23 @@ describe("P-2 TasksPage：阶段条 + 批次 plan + 结果查询", () => {
             seq: 1,
             name: "L0 核心层",
             status: "done",
-            artifact: {
-              summary: "核心层完成：建立架构基线与全局写作规范。",
-              nodes: [
-                { nodeId: "kg-n-101", name: "daemon 四层架构基线", kind: "rule", digestFirstLine: "daemon 按四层分层，依赖只允许向内。", status: "confirmed" },
-                { nodeId: "kg-n-205", name: "固定四段模板", kind: "rule", digestFirstLine: "每份报告固定四段。", status: "superseded" },
-              ],
-            },
+            artifact: { summary: "核心层完成：建立架构基线与全局写作规范。" },
           },
           { seq: 2, name: "L1 领域层", status: "running", artifact: null },
         ],
       },
     } satisfies TaskArtifactsResultPayload);
-    expect(qs("[data-tk-art-count]").textContent).toBe("产出 2 节点");
-    const nodeRow = qs('[data-tk-node][data-id="kg-n-101"]');
-    expect(within(nodeRow).getByText("daemon 四层架构基线")).toBeTruthy();
-    expect(nodeRow.querySelector("[data-node-kind='rule']")).toBeTruthy();
-    expect(nodeRow.textContent).toContain("daemon 按四层分层，依赖只允许向内。");
-    expect(nodeRow.querySelector("[data-tk-node-link]")!.textContent).toContain("在「项目」页查看");
-    // 裸 id 零界面
-    const text = document.querySelector(".app-layout")!.textContent ?? "";
-    expect(text).not.toContain("kg-n-101");
-    // 尾注 confirmed 语义
-    expect(qs("[data-tk-art-footnote]").textContent).toContain("confirmed");
+    const card = qs('[data-tk-art][data-stage-seq="1"]');
+    expect(card.querySelector(".tk-art-name")!.textContent).toBe("L0 核心层");
+    expect(card.querySelector('[data-phase="stage"][data-phase-status="done"]')).toBeTruthy();
+    expect(card.querySelector(".tk-art-sum")!.textContent).toBe("核心层完成：建立架构基线与全局写作规范。");
+    // result-tab-text-only：计数 chip / 节点清单 / 指路链接 / 尾注 零残留
+    expect(document.querySelector("[data-tk-art-count]")).toBeNull();
+    expect(document.querySelector("[data-tk-nodes]")).toBeNull();
+    expect(document.querySelector("[data-tk-node]")).toBeNull();
+    expect(document.querySelector("[data-tk-node-link]")).toBeNull();
+    expect(document.querySelector("[data-tk-art-footnote]")).toBeNull();
+    expect(document.querySelector("[data-node-kind]")).toBeNull();
   });
 
   it("无产物 → 结果 tab 空态", () => {

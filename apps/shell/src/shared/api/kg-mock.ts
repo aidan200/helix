@@ -4,7 +4,7 @@
  * 先例 = fake-transport trace.query 自动剧本（T2.2 例外条款）：真实 daemon
  * 恒应答 kg.* 命令（点对点结果帧 / 校验失败 connection.error），故 fake
  * 实例对六命令自动回放确定性场景。数据面 = 原型 P-1-kg-viewer.html MOCK
- * 区逐字段转契约形状（ProjectRow / NodeListRow / 六段 detail / 四条目
+ * 区逐字段转契约形状（ProjectRow / NodeListRow / detail 聚合 / 四条目
  * report / IndexStatus 四态），AD-16 人类面规范在 mock 数据层同样强制
  * （正文以名字引用；id 仅 refs 结构与 data 属性）。
  *
@@ -60,12 +60,11 @@ function initialProjects(): KgProjectRow[] {
   return [rows[0]!, rows[1]!, ...rows.slice(2).sort((a, b) => a.name.localeCompare(b.name))];
 }
 
-// ── 节点六段详情（原型 NODES 17 节点转契约形状）──
+// ── 节点详情（原型 NODES 17 节点转契约形状；body 单段原文）──
 
 function node(o: {
   id: string; kind: "rule" | "entity"; domain: "tech" | "business" | null;
-  status: "draft" | "confirmed" | "superseded"; name: string; digest: string; desc: string;
-  rules: string[];
+  status: "draft" | "confirmed" | "superseded"; name: string; digest: string; body: string;
   anchors: { symbol?: string; path: string; line?: number; state: "ok" | "dead" | "stale" }[];
   relations: [string, string][];
   supersede?: { history: string[]; current: string };
@@ -73,7 +72,7 @@ function node(o: {
 }): KgNodeDetailDto {
   return {
     id: o.id, name: o.name, kind: o.kind, domain: o.domain, status: o.status, digest: o.digest,
-    desc: o.desc, rules: o.rules, anchors: o.anchors,
+    body: o.body, anchors: o.anchors,
     relations: o.relations.map(([verb, peerId]) => ({ verb, peer: { id: peerId } })) as KgNodeDetailDto["relations"],
     supersede: (o.supersede ?? { history: [], current: o.id }) as unknown as KgNodeDetailDto["supersede"],
     log: o.log,
@@ -83,8 +82,7 @@ function node(o: {
 const INITIAL_NODES: KgNodeDetailDto[] = [
   node({ id: "TR-44", kind: "rule", domain: "business", status: "confirmed", name: "报告生成走固定四段模板",
     digest: "每份知识变化报告固定渲染背景、检出、影响、结论四段，段序不可调整。",
-    desc: "v1 报告体系的产出规范，约束变化报告生成器的渲染结构。与新的段库装配策略存在待裁决冲突。",
-    rules: ["固定四段：背景、检出、影响、结论", "段数与段序不可按条目形态调整"],
+    body: "v1 报告体系的产出规范，约束变化报告生成器的渲染结构。与新的段库装配策略存在待裁决冲突。\n- 固定四段：背景、检出、影响、结论\n- 段数与段序不可按条目形态调整",
     anchors: [{ symbol: "renderReport", path: "apps/daemon/src/kg/report.ts", line: 88, state: "ok" }],
     relations: [["约束", "E-13"], ["与草稿冲突", "TR-47"]],
     log: [
@@ -93,29 +91,25 @@ const INITIAL_NODES: KgNodeDetailDto[] = [
     ] }),
   node({ id: "TR-45", kind: "rule", domain: "tech", status: "confirmed", name: "样式色值必须引用主题 token",
     digest: "禁止组件内联散落 hex，所有色值从 CSS 变量注册表引用。",
-    desc: "双主题一致性的根基规则。新增色值必须先进注册表再被引用。",
-    rules: ["禁止内联 hex 色值", "新色先入注册表（tokens.md 对应列）再被组件引用"],
+    body: "双主题一致性的根基规则。新增色值必须先进注册表再被引用。\n- 禁止内联 hex 色值\n- 新色先入注册表（tokens.md 对应列）再被组件引用",
     anchors: [{ symbol: "createThemeVars", path: "apps/desk/src/shared/styles/cyber-hud.css", line: 88, state: "ok" }],
     relations: [["约束", "E-11"]],
     log: [{ date: "2026-08-24T10:00:00+08:00", iterationId: ITER, eventText: "从 md 体系迁移入库（保号）" }] }),
   node({ id: "TR-46", kind: "rule", domain: "tech", status: "confirmed", name: "动效只允许 transform 与 opacity",
     digest: "所有过渡动画只作用于 transform 与 opacity，禁止布局属性参与动画。",
-    desc: "性能与 WKWebView 兼容的双重要求，重绘属性在 backdrop-filter 区域有已知问题。",
-    rules: ["过渡目标限定 transform / opacity", "延迟等参数在组件端预计算"],
+    body: "性能与 WKWebView 兼容的双重要求，重绘属性在 backdrop-filter 区域有已知问题。\n- 过渡目标限定 transform / opacity\n- 延迟等参数在组件端预计算",
     anchors: [{ symbol: "transitionRule", path: "apps/desk/src/shared/styles/cyber-hud.css", line: 203, state: "ok" }],
     relations: [],
     log: [{ date: "2026-08-24T10:00:00+08:00", iterationId: ITER, eventText: "从 md 体系迁移入库（保号）" }] }),
   node({ id: "TR-47", kind: "rule", domain: "business", status: "draft", name: "报告条目必须永远带行动项",
-    digest: "每条变化报告条目以「需要你决定」收尾并列出可选项，无行动项的条目不允许产出。",
-    desc: "新写入的草稿规则，与既有固定四段模板规则存在冲突，等待人工裁决（见变化报告）。",
-    rules: ["条目尾部必须有「需要你决定」行动项", "选项必须可执行（重挂 / 废弃 / 排期等）"],
+    digest: "每条变化报告条目以固定行动项收尾并列出可选项，无行动项的条目不允许产出。",
+    body: "新写入的草稿规则，与既有固定四段模板规则存在冲突，等待人工裁决（见变化报告）。\n- 条目尾部必须有固定行动项\n- 选项必须可执行（重挂 / 废弃 / 排期等）",
     anchors: [{ symbol: "assembleEntry", path: "apps/daemon/src/kg/assemble.ts", line: 54, state: "ok" }],
     relations: [["冲突", "TR-44"], ["出自", "E-14"]],
     log: [{ date: "2026-08-25T09:00:00+08:00", iterationId: ITER, eventText: "草稿写入（段库装配改造伴生规则），待审阅" }] }),
   node({ id: "TR-48", kind: "rule", domain: "tech", status: "confirmed", name: "锚粒度必须符号级",
     digest: "锚必须落到 path#symbol，文件级锚视为过期形态，不再产生新文件级锚。",
-    desc: "edit 的 oldText 是唯一精确改动信号，只有符号级锚能与之匹配。",
-    rules: ["新锚一律 path#symbol", "存量文件级锚只出不进"],
+    body: "edit 的 oldText 是唯一精确改动信号，只有符号级锚能与之匹配。\n- 新锚一律 path#symbol\n- 存量文件级锚只出不进",
     anchors: [{ symbol: "resolveAnchor", path: "apps/daemon/src/kg/anchors.ts", line: 31, state: "ok" }],
     relations: [["约束", "E-12"]],
     log: [
@@ -124,15 +118,13 @@ const INITIAL_NODES: KgNodeDetailDto[] = [
     ] }),
   node({ id: "TR-49", kind: "rule", domain: "tech", status: "confirmed", name: "工具同名覆盖必须显式声明",
     digest: "覆盖 pi 工具时必须在注册表声明 replacement，隐式覆盖视为事故。",
-    desc: "自写工具替换上游工具的治理规则，隐式覆盖会造成行为漂移难以审计。",
-    rules: ["注册表声明 replacement 字段", "未声明的同名覆盖按事故处理"],
+    body: "自写工具替换上游工具的治理规则，隐式覆盖会造成行为漂移难以审计。\n- 注册表声明 replacement 字段\n- 未声明的同名覆盖按事故处理",
     anchors: [{ symbol: "registerTools", path: "apps/daemon/src/tools/registry.ts", line: 19, state: "ok" }],
     relations: [],
     log: [{ date: "2026-08-24T10:00:00+08:00", iterationId: ITER, eventText: "从 md 体系迁移入库（保号）" }] }),
   node({ id: "TR-50", kind: "rule", domain: "tech", status: "confirmed", name: "双主题改色只改注册表列",
     digest: "主题调整只允许修改注册表中对应主题列的值，派生变量自动跟随。",
-    desc: "通道同步铁律的落地规则。锚点长期无附着命中，疑似过时（见变化报告）。",
-    rules: ["改色只改目标主题列", "改任何色值必须同步同名通道变量"],
+    body: "通道同步铁律的落地规则。锚点长期无附着命中，疑似过时（见变化报告）。\n- 改色只改目标主题列\n- 改任何色值必须同步同名通道变量",
     anchors: [{ symbol: "applyTheme", path: "apps/desk/src/theme/apply.ts", line: 41, state: "stale" }],
     relations: [],
     log: [
@@ -141,22 +133,19 @@ const INITIAL_NODES: KgNodeDetailDto[] = [
     ] }),
   node({ id: "TR-51", kind: "rule", domain: "business", status: "confirmed", name: "会话写入必须经 Steer 队列",
     digest: "会话服务的消息写入不允许直连存储，必须经 Steer 队列中转保证幂等。",
-    desc: "业务核心约束：直连写入会绕过幂等与重放保障。",
-    rules: ["写入路径：服务 → {{E-9}} → 存储", "禁止直连存储写入会话消息"],
+    body: "业务核心约束：直连写入会绕过幂等与重放保障。\n- 写入路径：服务 → {{E-9}} → 存储\n- 禁止直连存储写入会话消息",
     anchors: [{ symbol: "enqueueMessage", path: "apps/daemon/src/services/ChatService.ts", line: 288, state: "ok" }],
     relations: [["约束", "E-10"], ["约束", "E-9"]],
     log: [{ date: "2026-08-24T10:00:00+08:00", iterationId: ITER, eventText: "从 md 体系迁移入库（保号）" }] }),
   node({ id: "TR-52", kind: "rule", domain: "tech", status: "confirmed", name: "降级状态必须可见",
     digest: "任何 degraded 状态必须在界面露出徽章，不允许静默降级。",
-    desc: "索引或同步降级时，用户必须能看见，否则变化报告的完整性承诺失效。",
-    rules: ["degraded 必须渲染徽章", "不允许吞掉降级错误"],
+    body: "索引或同步降级时，用户必须能看见，否则变化报告的完整性承诺失效。\n- degraded 必须渲染徽章\n- 不允许吞掉降级错误",
     anchors: [{ symbol: "IndexHealthBadge", path: "apps/web/src/components/IndexHealth.tsx", line: 12, state: "ok" }],
     relations: [["约束", "E-16"]],
     log: [{ date: "2026-08-24T10:00:00+08:00", iterationId: ITER, eventText: "从 md 体系迁移入库（保号）" }] }),
   node({ id: "E-9", kind: "entity", domain: "business", status: "confirmed", name: "Steer 消息队列",
     digest: "会话消息的中转中枢，保证幂等与可重放。",
-    desc: "daemon 内部的消息队列实体。会话写入必经它中转后落库。",
-    rules: ["写入不允许直连存储，必须经队列中转（{{TR-51}}）"],
+    body: "## 中转语义\n\ndaemon 内部的消息队列实体。会话写入必经它中转后落库。\n\n## 写入约束\n\n- 写入不允许直连存储，必须经队列中转（{{TR-51}}）\n- 中转保证幂等与可重放",
     anchors: [
       { symbol: "injectClosure", path: "apps/daemon/src/services/ChatService.ts", line: 309, state: "dead" },
       { symbol: "publish", path: "libs/steer/src/queue.ts", line: 21, state: "ok" },
@@ -168,8 +157,7 @@ const INITIAL_NODES: KgNodeDetailDto[] = [
     ] }),
   node({ id: "E-10", kind: "entity", domain: "business", status: "confirmed", name: "会话服务 ChatService",
     digest: "daemon 侧会话生命周期管理，持有消息写入与工具调用编排。",
-    desc: "会话实体的宿主服务。消息写入路径受 Steer 队列约束。",
-    rules: ["写入路径受队列约束（{{TR-51}}）"],
+    body: "会话实体的宿主服务。消息写入路径受 Steer 队列约束。\n- 写入路径受队列约束（{{TR-51}}）",
     anchors: [{ symbol: "ChatService", path: "apps/daemon/src/services/ChatService.ts", line: 1, state: "ok" }],
     relations: [["被中转", "E-9"], ["被约束", "TR-51"]],
     log: [
@@ -178,22 +166,19 @@ const INITIAL_NODES: KgNodeDetailDto[] = [
     ] }),
   node({ id: "E-11", kind: "entity", domain: "tech", status: "confirmed", name: "统一 .kg 单库",
     digest: "图与代码符号共库，SoT 下沉数据库后的唯一存储。",
-    desc: "知识节点与符号层同库共存，空知识层合法（纯符号层）。",
-    rules: ["新色值管理遵循注册表（{{TR-45}}）"],
+    body: "知识节点与符号层同库共存，空知识层合法（纯符号层）。\n- 新色值管理遵循注册表（{{TR-45}}）",
     anchors: [{ symbol: "openKg", path: "apps/daemon/src/kg/db.ts", line: 9, state: "ok" }],
     relations: [["被导入", "E-12"]],
     log: [{ date: "2026-08-24T10:00:00+08:00", iterationId: ITER, eventText: "建库；69 存量节点一次性迁移入库（保号）" }] }),
   node({ id: "E-12", kind: "entity", domain: "tech", status: "confirmed", name: "同步管道",
     digest: "watch 事件驱动的增量抽取，codegraph 产出导入单库。",
-    desc: "代码层机械索引的唯一通道，符号抽取遵循符号级锚规则。",
-    rules: ["锚粒度符号级（{{TR-48}}）"],
+    body: "代码层机械索引的唯一通道，符号抽取遵循符号级锚规则。\n- 锚粒度符号级（{{TR-48}}）",
     anchors: [{ symbol: "syncIncremental", path: "apps/daemon/src/kg/sync.ts", line: 44, state: "ok" }],
     relations: [["导入", "E-11"], ["供数", "E-16"]],
     log: [{ date: "2026-08-24T10:00:00+08:00", iterationId: ITER, eventText: "管道上线（watch 通道兜底）" }] }),
   node({ id: "E-13", kind: "entity", domain: "business", status: "superseded", name: "变化报告生成器",
     digest: "按迭代聚合代码改动与知识变化的报告产出端（固定四段形态）。",
-    desc: "已被段库装配策略取代，本体留史可查。",
-    rules: ["渲染结构受固定四段约束（{{TR-44}}）"],
+    body: "已被段库装配策略取代，本体留史可查。\n- 渲染结构受固定四段约束（{{TR-44}}）",
     anchors: [{ symbol: "renderReport", path: "apps/daemon/src/kg/report.ts", line: 88, state: "ok" }],
     relations: [["被取代", "E-14"]],
     supersede: { history: ["E-13"], current: "E-14" },
@@ -203,23 +188,20 @@ const INITIAL_NODES: KgNodeDetailDto[] = [
     ] }),
   node({ id: "E-14", kind: "entity", domain: "business", status: "confirmed", name: "报告装配策略",
     digest: "段库加 LLM 装配的报告产出端，硬约束段不可裁剪。",
-    desc: "取代固定四段生成器。装配灵活性与闭环纪律在这里分界。",
-    rules: ["硬约束段（summary / findings）不可裁剪", "空段省略不占位"],
+    body: "取代固定四段生成器。装配灵活性与闭环纪律在这里分界。\n- 硬约束段（summary / findings）不可裁剪\n- 空段省略不占位",
     anchors: [{ symbol: "assembleReport", path: "apps/daemon/src/kg/assemble.ts", line: 12, state: "ok" }],
     relations: [["取代", "E-13"], ["产出", "TR-47"]],
     supersede: { history: ["E-13"], current: "E-14" },
     log: [{ date: "2026-08-24T11:00:00+08:00", iterationId: ITER, eventText: "入库并取代『变化报告生成器』" }] }),
   node({ id: "E-15", kind: "entity", domain: "business", status: "draft", name: "SubAgent 报告文件",
     digest: "闭环报告的落盘文件，三重角色：主线按需读 / 人类审计 / kg 落账原始数据。",
-    desc: "新入库的草稿实体，等待人工确认其知识形态描述是否准确。",
-    rules: ["通知与正文分层：一行通知加指针，深入才读"],
+    body: "新入库的草稿实体，等待人工确认其知识形态描述是否准确。\n- 通知与正文分层：一行通知加指针，深入才读",
     anchors: [{ symbol: "writeReport", path: "apps/daemon/src/closure/recorder.ts", line: 37, state: "ok" }],
     relations: [["落账到", "E-11"]],
     log: [{ date: "2026-08-25T09:00:00+08:00", iterationId: ITER, eventText: "草稿写入（closure 通路修复伴生实体），待审阅" }] }),
   node({ id: "E-16", kind: "entity", domain: "tech", status: "confirmed", name: "索引状态信标",
     digest: "单库的同步健康度信号，degraded 时必须暴露在界面。",
-    desc: "连接同步管道与界面徽章的健康度实体。",
-    rules: ["降级必须可见（{{TR-52}}）"],
+    body: "连接同步管道与界面徽章的健康度实体。\n- 降级必须可见（{{TR-52}}）",
     anchors: [{ symbol: "healthOf", path: "apps/daemon/src/kg/sync.ts", line: 120, state: "ok" }],
     relations: [["受供数", "E-12"], ["被约束", "TR-52"]],
     log: [{ date: "2026-08-24T10:00:00+08:00", iterationId: ITER, eventText: "从 md 体系迁移入库（保号）" }] }),
@@ -232,28 +214,24 @@ function initialReport(): KgChangeReportDto {
     entries: [
       { kind: "dead_anchor", sev: "warn", label: "失效锚点",
         body: "你删除了会话服务里的方法 `injectClosure`（apps/daemon/src/services/ChatService.ts:309），它是这条知识在会话服务侧的唯一锚点：『Steer 消息队列』。队列的中转语义失去该侧全部符号附着。",
-        refs: { nodes: [{ id: "E-9", name: "Steer 消息队列", kind: "entity", digestFirstLine: "会话消息的中转中枢，保证幂等与可重放。" }], symbols: [{ name: "injectClosure", path: "apps/daemon/src/services/ChatService.ts", line: 309 }] },
-        options: ["重挂新位置", "废弃（留史）", "排期"] },
+        refs: { nodes: [{ id: "E-9", name: "Steer 消息队列", kind: "entity", digestFirstLine: "会话消息的中转中枢，保证幂等与可重放。" }], symbols: [{ name: "injectClosure", path: "apps/daemon/src/services/ChatService.ts", line: 309 }] } },
       { kind: "rule_conflict", sev: "warn", label: "规则冲突",
         body: "你把新规则『报告条目必须永远带行动项』写入图谱，它与既有规则『报告生成走固定四段模板』对「条目尾部是否必须带行动项」给出相反指令：一个要求条目自适应装配，一个钉死固定四段。",
         refs: { nodes: [
-          { id: "TR-47", name: "报告条目必须永远带行动项", kind: "rule", digestFirstLine: "每条变化报告条目以「需要你决定」收尾并列出可选项。" },
+          { id: "TR-47", name: "报告条目必须永远带行动项", kind: "rule", digestFirstLine: "每条变化报告条目以固定行动项收尾并列出可选项。" },
           { id: "TR-44", name: "报告生成走固定四段模板", kind: "rule", digestFirstLine: "每份知识变化报告固定渲染背景、检出、影响、结论四段。" },
-        ], symbols: [] },
-        options: ["修订新规则", "废弃旧规则（留史）", "标注例外场景"] },
+        ], symbols: [] } },
       { kind: "suspect_stale", sev: "info", label: "疑似过时",
         body: "疑似过时（启发式排序，非结论）：规则『双主题改色只改注册表列』的锚 `applyTheme`（apps/desk/src/theme/apply.ts:41）已 42 天无附着命中，其间 3 次相关提交均未触发。",
-        refs: { nodes: [{ id: "TR-50", name: "双主题改色只改注册表列", kind: "rule", digestFirstLine: "主题调整只允许修改注册表中对应主题列的值。" }], symbols: [{ name: "applyTheme", path: "apps/desk/src/theme/apply.ts", line: 41 }] },
-        options: ["确认仍有效", "修订锚位置", "排期复核"] },
+        refs: { nodes: [{ id: "TR-50", name: "双主题改色只改注册表列", kind: "rule", digestFirstLine: "主题调整只允许修改注册表中对应主题列的值。" }], symbols: [{ name: "applyTheme", path: "apps/desk/src/theme/apply.ts", line: 41 }] } },
       { kind: "knowledge_change", sev: "ok", label: "知识变化",
         body: "本迭代你把报告生成从固定模板改为段库装配：新实体『报告装配策略』入库并取代『变化报告生成器』；伴生规则『报告条目必须永远带行动项』与伴生实体『SubAgent 报告文件』以草稿身份等待审阅。",
         refs: { nodes: [
           { id: "E-14", name: "报告装配策略", kind: "entity", digestFirstLine: "段库加 LLM 装配的报告产出端，硬约束段不可裁剪。" },
           { id: "E-13", name: "变化报告生成器", kind: "entity", digestFirstLine: "按迭代聚合代码改动与知识变化的报告产出端。" },
-          { id: "TR-47", name: "报告条目必须永远带行动项", kind: "rule", digestFirstLine: "每条变化报告条目以「需要你决定」收尾。" },
+          { id: "TR-47", name: "报告条目必须永远带行动项", kind: "rule", digestFirstLine: "每条变化报告条目以固定行动项收尾。" },
           { id: "E-15", name: "SubAgent 报告文件", kind: "entity", digestFirstLine: "闭环报告的落盘文件。" },
-        ], symbols: [] },
-        options: ["确认已阅（归档）"] },
+        ], symbols: [] } },
     ],
   };
 }
@@ -382,6 +360,11 @@ export class KgMockStore {
         return this.replyNodeSupersede(p);
       case "kg.bootstrap.impact":
         return this.replyBootstrapImpact(p);
+      // ── kg 维护批两命令（C1；PROTOCOL.md §22 镜像）──
+      case "kg.graph.purge":
+        return this.replyGraphPurge(p);
+      case "kg.index.delete":
+        return this.replyIndexDelete(p);
       default:
         return this.errorFrame("command.invalid_payload", `未知命令 ${type}`);
     }
@@ -489,6 +472,28 @@ export class KgMockStore {
     return this.frame("kg.bootstrap.impact.result", { affected, count: affected.length });
   }
 
+  /** kg.graph.purge：清空 mock 图谱镜像（节点/报告/产出清零 + 索引态复位 absent）。 */
+  private replyGraphPurge(p: Record<string, unknown>): EventEnvelope {
+    const row = resolveProjectName(p.project, this.projects);
+    if (row === undefined) return this.paramError();
+    const nodesRemoved = this.nodes.length;
+    const symbolsRemoved = row.symbolCount ?? 0;
+    this.nodes = [];
+    this.report = { iterationId: ITER, entries: [] };
+    this.produceNodes.clear();
+    this.produceEdges.clear();
+    Object.assign(row, { status: "absent" as const, symbolCount: undefined, nodeCount: undefined, syncedAt: undefined, degradedNote: undefined });
+    return this.frame("kg.graph.purge.result", { purged: true, nodesRemoved, symbolsRemoved, filesRemoved: symbolsRemoved > 0 ? 1 : 0 });
+  }
+
+  /** kg.index.delete：删索引镜像（状态复位 absent；知识节点保留——职责分层）。 */
+  private replyIndexDelete(p: Record<string, unknown>): EventEnvelope {
+    const row = resolveProjectName(p.project, this.projects);
+    if (row === undefined) return this.paramError();
+    Object.assign(row, { status: "absent" as const, symbolCount: undefined, syncedAt: undefined, degradedNote: undefined });
+    return this.frame("kg.index.delete.result", { deleted: true, state: "absent", watcherStopped: true });
+  }
+
   /** 在途构建推进（elapsed → done/total；完成即 synced）。 */
   private advanceBuilds(): void {
     for (const [name, startedAt] of this.buildingSince) {
@@ -557,7 +562,7 @@ export class KgMockStore {
     return Math.min(total, Math.floor(((Date.now() - startedAt) / BUILD_DURATION_MS) * total));
   }
 
-  /** 六段详情物化（relations/supersede 的 peer 引用补 name/kind——AD-16）。 */
+  /** 详情物化（relations/supersede 的 peer 引用补 name/kind——AD-16）。 */
   private materialize(n: KgNodeDetailDto): KgNodeDetailDto {
     const digestOf = (id: string): { name: string; kind: "rule" | "entity"; digestFirstLine: string } => {
       const peer = this.nodes.find((x) => x.id === id);
@@ -609,6 +614,8 @@ export function isKgCommand(type: string): boolean {
     type === "kg.change.report" || type === "kg.node.confirm" || type === "kg.index.status" ||
     // kg-bootstrap 批五命令（T3.2；mock daemon 镜像同轨）
     type === "kg.bootstrap.create" || type === "kg.bootstrap.produce" ||
-    type === "kg.node.update" || type === "kg.node.supersede" || type === "kg.bootstrap.impact"
+    type === "kg.node.update" || type === "kg.node.supersede" || type === "kg.bootstrap.impact" ||
+    // kg 维护批两命令（C1；mock daemon 镜像同轨）
+    type === "kg.graph.purge" || type === "kg.index.delete"
   );
 }

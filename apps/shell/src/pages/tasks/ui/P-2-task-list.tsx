@@ -5,12 +5,10 @@
  *
  * 状态模型互斥（review.md P-2）：loading 骨架 / empty（零任务，指路宿主——
  * CL-1.A7 零创建面）/ filter-empty（清除过滤出口）/ success 四态恰一渲染。
- * 原型标注（「列表演示」小字）已剥离；演示 seg（全状态/空列表）保留为
- * isDev() 门控 dev 机制（data-demo）。
+ * 原型标注（「列表演示」小字）与演示 seg 已剥离（demo-seg-remove）。
  */
 import type { TaskStatus, TaskSummaryDto } from "@helix/protocol";
 import { cn } from "@/shared/lib/cn";
-import { isDev } from "@/shared/lib/is-dev";
 import {
   projectOptions,
   taskElapsedMs,
@@ -149,7 +147,6 @@ export default function TaskListPane({
   onFilterStatus,
   onFilterProject,
   onClearFilters,
-  onDemoEmpty,
   onOpenProject,
 }: {
   view: TasksListView;
@@ -160,7 +157,6 @@ export default function TaskListPane({
   onFilterStatus: (value: "all" | TaskStatus) => void;
   onFilterProject: (value: string) => void;
   onClearFilters: () => void;
-  onDemoEmpty: (on: boolean) => void;
   /** 空态指路宿主（CL-1.A7：任务页零创建，空态唯一出口是宿主上下文）。 */
   onOpenProject: () => void;
 }) {
@@ -168,25 +164,6 @@ export default function TaskListPane({
   return (
     <aside className="tk-side" aria-label={t("tk.title")} data-tk-list-pane>
       <div className="tk-filters">
-        {/* 演示控件（dev 机制；isDev 门控——prod 不渲染；原型标注「列表演示」已剥离） */}
-        {isDev() && (
-          <div className="tk-seg-row">
-            <div className="kg-seg" data-demo data-tk-demo>
-              <SegButton
-                value="full"
-                active={!state.demoEmpty}
-                label={t("tk.demo.full")}
-                onClick={() => onDemoEmpty(false)}
-              />
-              <SegButton
-                value="empty"
-                active={state.demoEmpty}
-                label={t("tk.demo.empty")}
-                onClick={() => onDemoEmpty(true)}
-              />
-            </div>
-          </div>
-        )}
         <div className="tk-seg-row">
           <div className="kg-seg" data-tk-filter-status>
             <SegButton

@@ -1,7 +1,7 @@
 /* ════════════════════════════════════════════════════════════════
    P-2 任务页（列表 + 详情全状态；T3.1，CL-3 F3.1~F3.6）
    视觉基准 = prototype/P-2-task.html（review.md R-1~R-9 + R-19）；
-   原型标注（列表演示小字）已剥离；演示 seg（全状态/空列表）转 isDev 门控。
+   原型标注（列表演示小字）与演示 seg（全状态/空列表）均已剥离（demo-seg-remove）。
    Token 纪律：零新增 token——色值一律 tokens.css 既有变量（--edge-rgb
    通道派生 edge/track）；圆角 4/6/8/10/12/999 档；动效仅 transform/opacity
    （reduced-motion 全局关停）。复用 app.css：.hud-chip/.hud-badge/.app-header
@@ -29,11 +29,6 @@
 
 /* 任务类型徽章（violet 族；机器类型 = skill 名） */
 .tk-type-badge { color: var(--violet); border-color: rgb(var(--violet-rgb) / 0.35); background: rgb(var(--violet-rgb) / 0.08); }
-/* kind 徽章（结果查询节点；rule=accent / entity=violet / contract=search，其余降档） */
-.tk-kind-rule { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.35); background: rgb(var(--accent-rgb) / 0.08); }
-.tk-kind-entity { color: var(--violet); border-color: rgb(var(--violet-rgb) / 0.35); background: rgb(var(--violet-rgb) / 0.08); }
-.tk-kind-contract { color: var(--search); border-color: rgb(var(--search-rgb) / 0.35); background: rgb(var(--search-rgb) / 0.08); }
-.tk-kind-other { color: var(--text-dim); border-color: rgb(var(--edge-rgb) / 0.12); background: rgb(var(--edge-rgb) / 0.05); }
 
 /* ── 壳层：左栏列表（380px）+ 右区详情（AppLayout sidebar/children 槽）── */
 .tk-page-title { font-size: var(--text-title); font-weight: 600; letter-spacing: 0.01em; }
@@ -87,11 +82,12 @@
   display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap;
   font-size: var(--text-cap); color: var(--text-faint);
 }
-.tk-narrative {
-  margin-top: 10px; font-family: var(--font-sans); font-size: var(--text-main);
-  color: var(--text-muted); line-height: 1.7; max-width: 78ch;
+/* 终态「前往『项目』页」出口（header 首行右端；accent 色 + hover 反馈） */
+.tk-head-link {
+  font-size: var(--text-cap); color: var(--accent); background: none; border: 0;
+  font-family: var(--font-mono); padding: 0; cursor: pointer; white-space: nowrap;
 }
-.tk-narrative .lead { color: var(--text-dim); font-family: var(--font-mono); }
+.tk-head-link:hover { text-decoration: underline; filter: brightness(1.2); }
 
 /* 两步内联确认条（取消/删除同交互） */
 .tk-confirm {
@@ -102,7 +98,7 @@
 .tk-confirm-text { font-size: var(--text-body); color: var(--text); line-height: 1.6; max-width: 52ch; font-family: var(--font-sans); }
 .tk-confirm-btns { display: flex; gap: 8px; }
 
-/* 双 tab（进度 / 结果查询） */
+/* 双 tab（进度 / 任务结果） */
 .tk-tabs { flex: none; display: flex; gap: 4px; padding: 6px 20px 0; border-bottom: 1px solid var(--border); }
 .tk-tab {
   height: 34px; padding: 0 14px; background: none; border: 0; border-bottom: 2px solid transparent;
@@ -142,6 +138,15 @@
 }
 .tk-sec-h::after { content: ""; flex: 1; height: 1px; background: rgb(var(--edge-rgb) / 0.1); }
 
+/* 批次节阶段分组（stageSeq 分组；运行中阶段小节高亮） */
+.tk-stagegrp { margin-top: 16px; }
+.tk-stagegrp.running {
+  border-left: 2px solid rgb(var(--accent-rgb) / 0.5); padding-left: 10px;
+}
+.tk-stagegrp-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.tk-stagegrp-name { font-weight: 600; font-size: var(--text-main); }
+.tk-stagegrp-sub { font-size: var(--text-cap); color: var(--text-faint); }
+
 /* F3.3 批次卡：范围粗体 + 状态 + 重试 + 实例 plan */
 .tk-batch {
   border: 1px solid var(--border); border-radius: 10px; background: var(--card-fill);
@@ -178,7 +183,7 @@
 .tk-pi-n { font-size: var(--text-cap); color: var(--text-faint); }
 .tk-b-note { margin-top: 8px; font-size: var(--text-cap); color: var(--text-faint); line-height: 1.6; font-family: var(--font-sans); }
 
-/* F3.4 结果查询：阶段产物卡 + 节点清单（AD-4②人类可读渲染） */
+/* F3.4 结果 tab：阶段产物卡（纯文字报告——阶段名 + 状态徽章 + 摘要） */
 .tk-art {
   border: 1px solid var(--border); border-radius: 10px; background: var(--card-fill);
   padding: 14px 16px; margin-bottom: 12px;
@@ -186,27 +191,6 @@
 .tk-art-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .tk-art-name { font-weight: 600; font-size: var(--text-main); }
 .tk-art-sum { font-family: var(--font-sans); font-size: var(--text-main); color: var(--text-muted); line-height: 1.7; max-width: 72ch; }
-.tk-nlist { margin-top: 10px; border-top: 1px dashed rgb(var(--edge-rgb) / 0.12); padding-top: 6px; }
-.tk-nrow {
-  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
-  padding: 7px 4px; border-bottom: 1px solid rgb(var(--edge-rgb) / 0.07);
-}
-.tk-nrow:last-child { border-bottom: 0; }
-.tk-n-name { font-weight: 600; font-size: var(--text-main); color: var(--text); }
-/* superseded 留史降档（标题降档；无动作钮） */
-.tk-n-name.dim { color: var(--text-dim); }
-.tk-n-digest {
-  flex-basis: 100%; font-family: var(--font-sans); font-size: var(--text-body);
-  color: var(--text-muted); line-height: 1.6; padding-left: 2px;
-}
-.tk-n-link {
-  margin-left: auto; font-size: var(--text-cap); color: var(--text-faint);
-  text-decoration: none; cursor: pointer; white-space: nowrap; background: none; border: 0;
-  font-family: var(--font-mono); padding: 0;
-}
-.tk-nrow:hover .tk-n-link { color: var(--accent); }
-/* 尾注（confirmed 语义；AD-10 指路） */
-.tk-foot-note { margin-top: 4px; font-size: var(--text-cap); color: var(--text-faint); line-height: 1.6; font-family: var(--font-sans); }
 
 /* 空态 / 骨架 / 居中面板 */
 .tk-empty {

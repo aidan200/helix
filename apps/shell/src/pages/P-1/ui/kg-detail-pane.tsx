@@ -1,17 +1,21 @@
 /**
- * F5.2 节点详情六段（头卡+描述/规则/锚点/关系/supersede 链/变更日志）
+ * F5.2 节点详情（头卡+正文 body 单段/锚点/关系/supersede 链/变更日志）
  * + F5.4 draft 转正（状态门控：仅 draft 渲染按钮；两步内联确认条；
  *   确认走 kg.node.confirm = 页面唯一写入口）。
  *
  * AD-16：锚点行 = 等宽符号 + 路径:行号（dead=⚠ 失效 / stale=? 长期无命中）；
  * 关系行 = 边词 + 粗体『name』+kind 徽章（data-goto 可跳转）；id 永不
- * 作为可见文本。叙述文本（desc/rules）经 fmtNarrative 做 `code` 与节点
- * 引用替换。
+ * 作为可见文本。正文（body 原文单段）经 react-markdown 渲染（标题/列表/
+ * 段落 md 结构；渲染前 resolveRefsToMd 将 `{{id}}` 与可解析裸 id 替换为
+ * **『name』** 粗体引用形——模式同 chat MarkdownMessage，安全口径一致：
+ * react-markdown 默认不渲染原始 HTML）。
  */
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { KgNodeDetailDto, KgNodeListRow } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
-import { fmtNarrative, KindBadge, NodeRef, StatusBadge } from "./kg-refs";
+import { KindBadge, NodeRef, resolveRefsToMd, StatusBadge } from "./kg-refs";
 
 /** 变更日志日期（ISO → YYYY-MM-DD；非法原样）。 */
 function fmtDate(iso: string): string {
@@ -187,17 +191,9 @@ const KgDetailPane = function KgDetailPane({
       </div>
 
       <div className="kgv-sec">
-        <div className="kgv-sec-h">{t("pj.kg.secDesc")}</div>
-        <div className="kgv-sec-body">{detail.desc}</div>
-      </div>
-      <div className="kgv-sec">
-        <div className="kgv-sec-h">{t("pj.kg.secRules")}</div>
-        <div className="kgv-sec-list">
-          {detail.rules.map((r, i) => (
-            <div className="kgv-sec-item" key={i}>
-              {fmtNarrative(r, byId, onGoto)}
-            </div>
-          ))}
+        <div className="kgv-sec-h">{t("pj.kg.secBody")}</div>
+        <div className="kgv-sec-body kgv-md" data-kg-body>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{resolveRefsToMd(detail.body, byId)}</ReactMarkdown>
         </div>
       </div>
       <div className="kgv-sec">
