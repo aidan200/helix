@@ -38,6 +38,7 @@ import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnip
 import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
 import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
+import type { CodegraphToolDeps } from "../../adapters/driven/tools/codegraph/CodegraphTool";
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 import { AuthStore } from "../auth-store";
 import type { DefaultModelStore } from "../../adapters/driven/sqlite-session/DefaultModelStore";
@@ -132,6 +133,20 @@ export interface BuildSessionStackDeps {
    * 重绑后新会话跟随新栈；未绑定 → undefined 不注册）。
    */
   readonly kgTools?: KgToolOptions | (() => KgToolOptions | undefined);
+  /**
+   * codegraph 工具注入面（W1-B，R5/R7）：提供则每会话 executor 注册
+   * codegraph（只读六 op；结构同 CoreToolExecutorOptions.codegraph）。
+   * 缺省不注册（测试形态）。W1 绑定闭环同 kgTools：支持工厂形态（未绑定
+   * → undefined 不注册，engineFor 同步从 main 工具集剔除该名）。
+   */
+  readonly codegraphTool?: CodegraphToolDeps | (() => CodegraphToolDeps | undefined);
+  /**
+   * codegraph 二进制定格路径（W1-B：组合根启动定格产物透传）——
+   * SubagentLauncher 经 HELIX_CODEGRAPH_PATH env 传子进程（子进程三级解析
+   * 缺 config 级——定格值透传保持父子一致，同 HELIX_MODEL_JSON 哲学）。
+   * 缺省/undefined = 子进程仅靠继承 env 自解析（解析失败则工具 degraded）。
+   */
+  readonly codegraphPath?: string;
   /**
    * task_create 工具注入面（T2.4，AD-7）：主会话 executor 注册 task_create
    *（chat 第二创建入口；仅 MainAgent 生效集——SubAgent 子进程本地栈不
@@ -331,6 +346,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // WriteQueue 同库（O-1：helix.db 任务表域），子进程直连自设
           // WAL+busy_timeout；启动时刻现值定格
           ledgerDbPath: () => paths.dbPath(),
+          // W1-B：codegraph 二进制定格路径 env 传参（HELIX_CODEGRAPH_PATH——
+          // 子进程三级解析缺 config 级，定格值透传保持父子一致；未定格不传键，
+          // 子进程靠继承 env 自解析，失败则 codegraph 工具 degraded）
+          codegraphPath: deps.codegraphPath,
           // F3.0（T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH）——
           // 与 ClosureRecorder 兜底 reportsDirFor 同源同式（<home>/reports/<session>）
           reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
@@ -461,12 +480,16 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
             // 剔除，resolveTools 硬校验（声明即注册）不破，绑定后新会话获得）
             const editDeps = deps.editDeps?.(sessionId);
             const kgTools = typeof deps.kgTools === "function" ? deps.kgTools() : deps.kgTools;
+            // W1-B：codegraph 工具同 kgTools W1 模式（工厂读现值；未绑定 → 不注册 + 清单剔除）
+            const codegraphTool =
+              typeof deps.codegraphTool === "function" ? deps.codegraphTool() : deps.codegraphTool;
             const toolExecutor = new CoreToolExecutor({
               cwd: toolCwdOf(),
               orchestration: sessionOrchestration,
               grep: deps.grep,
               ...(editDeps !== undefined ? { edit: editDeps } : {}),
               ...(kgTools !== undefined ? { kg: kgTools } : {}),
+              ...(codegraphTool !== undefined ? { codegraph: codegraphTool } : {}),
               // task_create（T2.4，AD-7）：仅主会话 executor（SubAgent 子进程
               // 本地栈不注入——生效集隔离，AD-2 创建按宿主）
               ...(deps.taskCreate !== undefined ? { taskCreate: deps.taskCreate } : {}),
@@ -496,6 +519,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
                 // task_create 同款：未注入（测试形态）时剔除，声明与注册一致。
                 tools: mainAssembly.tools
                   .filter((t) => kgTools !== undefined || (t !== "kg" && t !== "kg-update"))
+                  .filter((t) => codegraphTool !== undefined || t !== "codegraph")
                   .filter((t) => deps.taskCreate !== undefined || t !== "task_create"),
               },
               model: resolveConfigModel(

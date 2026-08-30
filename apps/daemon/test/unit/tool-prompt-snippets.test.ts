@@ -17,16 +17,16 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
     for (const name of SubAgentProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `subagent 工具 ${name} 缺 snippet`).toBeTruthy();
     }
-    // 全集形状锚定（ResourceService toolsCatalog 同源）：main 15 / subagent 13
+    // 全集形状锚定（ResourceService toolsCatalog 同源）：main 16 / subagent 14
     //（T3-B +agent_inspect；T3.3 +kg/kg-update 双工具；T1.4 +plan 三工具 AD-6①；
-    // T2.4 +task_create 仅 main，AD-7）
-    expect(MainSessionProfile.tools).toHaveLength(15);
-    expect(SubAgentProfile.tools).toHaveLength(13);
+    // T2.4 +task_create 仅 main，AD-7；W1-B +codegraph R5）
+    expect(MainSessionProfile.tools).toHaveLength(16);
+    expect(SubAgentProfile.tools).toHaveLength(14);
   });
 
   test("② snippet 为中文一句话：非空、单行（无换行符）", () => {
-    // 恰 24 条（main 全集 15 + plan 三工具 + 编排 task 回口六工具——T2.2；
-    // 单一注册表不分 kind）
+    // 恰 25 条（main 全集 16 + plan 三工具 + 编排 task 回口六工具——T2.2；
+    // 单一注册表不分 kind；W1-B +codegraph）
     expect(Object.keys(TOOL_PROMPT_SNIPPETS).sort()).toEqual(
       [
         "agent_inspect",
@@ -35,6 +35,7 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
         "agent_status",
         "bash",
         "browser",
+        "codegraph",
         "edit",
         "grep",
         "kg",

@@ -33,6 +33,7 @@ const TOOL_NAMES = [
   "browser",
   "kg", // T3.3：kg 双工具（查询面+落账面）
   "kg-update",
+  "codegraph", // W1-B（R5/R7）：codegraph 只读查询（status/search/node/callers/callees/impact）
   "task_create", // T2.4（AD-7）：chat 第二创建入口（仅 MainAgent 生效集）
 ] as const;
 
@@ -77,7 +78,7 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 15 / subagent 13（T3-B +agent_inspect；T3.3 +kg 双工具；T1.4 +plan 三工具 AD-6①；T2.4 +task_create AD-7）", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 16 / subagent 14（T3-B +agent_inspect；T3.3 +kg 双工具；T1.4 +plan 三工具 AD-6①；T2.4 +task_create AD-7；W1-B +codegraph R5）", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
     expect(SubAgentProfile.tools).toEqual(
       [...TOOL_NAMES, ...SUBAGENT_ONLY_TOOL_NAMES]

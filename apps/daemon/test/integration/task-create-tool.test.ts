@@ -14,6 +14,7 @@ import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/pro
 import { TaskError } from "../../src/application/services/task/TaskError";
 import type { CreateTaskInput, TaskEnginePort } from "../../src/application/ports/inbound/TaskEnginePort";
 import { kgToolsStub } from "../helpers/kgToolsStub";
+import { codegraphToolStub } from "../helpers/codegraphToolStub";
 import { withTaskEnv } from "../helpers/task-fixtures";
 
 /**
@@ -214,6 +215,7 @@ describe("④ 生效集：task_create 只进 MainAgent（AD-2 创建按宿主）
       orchestration,
       browser: undefined,
       kg: kgToolsStub(tmpdir()),
+      codegraph: codegraphToolStub(tmpdir()), // W1-B：main 全集声明 codegraph——替身保持可装配
       taskCreate: {
         engine: new RecordingTaskEngine(async () => ({ jobId: "job-asm" })),
         query: fakeQuery({}),

@@ -464,6 +464,8 @@ describe("OrchestratorProfile 契约", () => {
     expect(OrchestratorProfile.tools).not.toContain("kg-update");
     expect(OrchestratorProfile.tools).not.toContain("write");
     expect(OrchestratorProfile.tools).not.toContain("edit");
+    // W1-B（R7）：codegraph 只挂 Main/SubAgent 两 profile——Orchestrator 不挂
+    expect(OrchestratorProfile.tools).not.toContain("codegraph");
   });
 
   test("profile kind = orchestrator；提示词携带段库装配指引（与 MainAgent 消费 skill 同构）", () => {

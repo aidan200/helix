@@ -387,11 +387,11 @@ async function main(): Promise<void> {
       profile: {
         ...MainSessionProfile,
         // E 层 chat 引擎注册面一致性（T4.1 基线修复）：launcher 的
-        // CoreToolExecutor 不注册 kg/kg-update/task_create（生产组合根注入
+        // CoreToolExecutor 不注册 kg/kg-update/task_create/codegraph（生产组合根注入
         // 面），静态声明面同步剔除——与 buildSessionStack 生产引擎的
         // W1/taskCreate 过滤同构（声明即注册硬校验不破；chat 剧本零 kg 调用）。
         tools: MainSessionProfile.tools.filter(
-          (t) => t !== "kg" && t !== "kg-update" && t !== "task_create",
+          (t) => t !== "kg" && t !== "kg-update" && t !== "task_create" && t !== "codegraph",
         ),
       },
       model: fakeModel,

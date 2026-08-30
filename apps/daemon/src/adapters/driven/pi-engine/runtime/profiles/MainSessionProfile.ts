@@ -77,6 +77,8 @@ export const MainSessionProfile: AgentProfile = {
     //（AD-14 协议行兑现在 edit 现场——findings 收口通道之外的第二通道）
     "kg",
     "kg-update",
+    // codegraph（W1-B，R5/R7）：代码索引只读查询（改代码前 impact 查影响面）
+    "codegraph",
     // task_create（T2.4，AD-7）：chat 第二创建入口（对话即确认）——仅
     // MainAgent 生效集（SubAgent 不能建任务，AD-2 创建按宿主）；与
     // /project 入口同一 createTask API

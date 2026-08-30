@@ -25,6 +25,7 @@ import { createReadTool } from "./read/ReadTool";
 import { createEditLinesTool } from "./edit-lines/EditLinesTool";
 import { createKgTool } from "./kg/KgTool";
 import { createKgUpdateTool } from "./kg-update/KgUpdateTool";
+import { createCodegraphTool, type CodegraphToolDeps } from "./codegraph/CodegraphTool";
 import { createTaskCreateTool, type TaskCreateToolDeps } from "./task-create/TaskCreateTool";
 import { createTaskOpsTools, type TaskOpsToolDeps } from "./task-ops/TaskOpsTools";
 import {
@@ -136,6 +137,13 @@ export interface CoreToolExecutorOptions {
    */
   readonly kg?: KgToolOptions;
   /**
+   * codegraph 工具注入面（W1-B，R5/R7）：提供则注册 codegraph（只读六 op）。
+   * 主会话（buildSessionStack）与 SubAgent 子进程（ChildMain 本地栈）注入——
+   * Orchestrator 不挂（R7，OrchestratorProfile 不声明该名）。缺省不注册
+   * （既有测试形态/未绑定 workspace 时 profile 同步剔除该名）。
+   */
+  readonly codegraph?: CodegraphToolDeps;
+  /**
    * plan 三工具注入面（T1.4，AD-6①）：实例工作台账写口（plan_create/
    * plan_update/plan_read）。仅 SubAgent 子进程（ChildMain 本地栈）注入
    * ——plan 工具不进 MainAgent 生效集；instanceId 由子进程上下文注入
@@ -214,6 +222,10 @@ export class CoreToolExecutor implements ToolExecutorPort {
           }),
         );
       }
+    }
+    if (options.codegraph !== undefined) {
+      // codegraph（W1-B，R5）：只读六 op 薄壳（注册即只读——工具面零写路径）
+      tools.push(createCodegraphTool(options.codegraph));
     }
     if (options.plan !== undefined) {
       // plan 三工具（T1.4，AD-6①）：实例工作台账（薄壳调 WorkLedgerService；

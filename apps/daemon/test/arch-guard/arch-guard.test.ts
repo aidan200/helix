@@ -441,6 +441,7 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // 使键集合变更可评审（扫描面含注释提及：注释与实现同键同责任）。
     const registered = [
       "HELIX_API_KEYS_JSON",
+      "HELIX_CODEGRAPH_PATH", // W1-B：codegraph 二进制定格路径透传（SubagentLauncher 注入 / ChildMain 本地栈三级解析第①级消费）
       "HELIX_DB_PATH", // T1.4（AD-6①）：work_item 台账库路径（SubagentLauncher 注入 / ChildMain 本地栈消费）
       "HELIX_FAKE_ENGINE_SCRIPT",
       "HELIX_INSTANCE_ID",

@@ -39,6 +39,9 @@ import { WorkLedgerService } from "../../../../application/services/task/WorkLed
 import type { PlanToolDeps } from "../../tools/plan/PlanTools";
 import { openTaskLedgerDatabase } from "../../sqlite-session/WriteQueue";
 import { readTaskContextByInstance } from "../../sqlite-session/TaskStore";
+import { accessSync, constants as fsConstants } from "node:fs";
+import { CodegraphEngineAdapter } from "../../codegraph-engine/CodegraphEngineAdapter";
+import { resolveCodegraphPath } from "../../codegraph-engine/resolve-codegraph";
 
 // ── argv/env 解析 ──────────────────────────────────────────
 
@@ -253,6 +256,38 @@ export function buildLocalWorkLedgerStack(
   return { tools: { service, instanceId }, ledger };
 }
 
+// ── 子进程本地 codegraph 栈（W1-B，R5/R7：codegraph 工具注入面） ─────
+
+/**
+ * 子进程本地 codegraph 栈：与 buildLocalKgStack 同构——ChildMain 是子进程
+ * 组合根（new 具体 adapter 不违 AG-02④ 扫描域）。二进制三级解析缺
+ * config 级（子进程不读 config.json）——父进程定格路径经
+ * HELIX_CODEGRAPH_PATH env 透传补齐（bundle 级命中）；PATH 级靠继承 env。
+ * 解析失败 → binaryPath=null（工具仍在，调用 degraded EngineUnavailable，
+ * 不阻断子进程装配）。workspaceRoot = toolCwd（同 kg 栈口径）。
+ */
+function buildLocalCodegraphStack(workspaceRoot: string): { readonly engine: CodegraphEngineAdapter; readonly workspaceRoot: string } {
+  const resolution = resolveCodegraphPath({
+    bundlePath: process.env.HELIX_CODEGRAPH_PATH,
+    pathEnv: process.env.PATH,
+    probe: isExecutableFile,
+  });
+  return {
+    engine: new CodegraphEngineAdapter({ binaryPath: resolution.kind === "resolved" ? resolution.path : null }),
+    workspaceRoot,
+  };
+}
+
+/** 可执行文件探测（container.ts 同款：抛错一律视为不可用）。 */
+function isExecutableFile(p: string): boolean {
+  try {
+    accessSync(p, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── 主流程 ─────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -288,6 +323,9 @@ async function main(): Promise<void> {
   // kg-update taskId/originBatchId 机械注入；非任务上下文零注入）
   const taskContext = createKgTaskContextResolver(process.env.HELIX_DB_PATH, instanceId);
   const kg = buildLocalKgStack(toolCwd, taskContext);
+  // W1-B：codegraph 只读工具本地栈（SubAgentProfile 声明该名；二进制不可达
+  // → degraded 不阻断装配，同 ensureIndex degraded 先例）
+  const codegraph = buildLocalCodegraphStack(toolCwd);
   // T1.4：plan 三工具本地栈（AD-6① 全量配给——SubAgentProfile 声明三名；
   // HELIX_DB_PATH 缺席时注册常驻、首调报未装配）
   const workLedger = buildLocalWorkLedgerStack(process.env.HELIX_DB_PATH, instanceId);
@@ -296,6 +334,7 @@ async function main(): Promise<void> {
     browser: remoteBrowser,
     ownerId: instanceId,
     kg: kg.tools,
+    codegraph,
     plan: workLedger.tools,
   });
   const engine = new PiAgentEngineAdapter({

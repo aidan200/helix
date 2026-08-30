@@ -79,6 +79,7 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
       "browser",
       "kg",
       "kg-update",
+      "codegraph", // W1-B（R5/R7）：codegraph 只读工具（Main/SubAgent 两 profile 同挂）
       "plan_create",
       "plan_update",
       "plan_read",

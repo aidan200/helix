@@ -48,7 +48,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
       builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     try {
-      // tools 全集注入：两 profile 声明面（main 15 含编排四件与动态族单 browser 与 kg 双工具与 task_create（T2.4，AD-7 仅 main）；subagent 13 含 plan 三工具 T1.4）
+      // tools 全集注入：两 profile 声明面（main 16 含编排四件与动态族单 browser 与 kg 双工具与 codegraph（W1-B）与 task_create（T2.4，AD-7 仅 main）；subagent 14 含 plan 三工具 T1.4）
       expect(daemon.resource.getEffectiveTools("main-session")).toEqual([
         "bash",
         "read",
@@ -64,6 +64,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "browser",
         "kg", // T3.3：kg 双工具
         "kg-update",
+        "codegraph", // W1-B（R5/R7）：codegraph 只读工具
         "task_create", // T2.4：chat 第二创建入口（AD-7，仅 main）
       ]);
       expect(daemon.resource.getEffectiveTools("subagent-worker")).toEqual([
@@ -77,6 +78,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "browser", // H-3：+browser（wire 转发通道接 daemon CDP 单例）
         "kg", // T3.3：kg 双工具
         "kg-update",
+        "codegraph", // W1-B（R5/R7）：codegraph 只读工具
         "plan_create", // T1.4：plan 三工具（AD-6①，subagent 独有）
         "plan_update",
         "plan_read",

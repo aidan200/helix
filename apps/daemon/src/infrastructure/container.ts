@@ -461,6 +461,20 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           }
         : undefined;
     },
+    // codegraph 工具装配面（W1-B，R5/R7）：主会话 executor 注册 codegraph
+    //（SubAgent 子进程侧由 ChildMain 本地栈自带）。W1 同 kgTools：工厂经
+    // 持有者读现值（重绑后新会话跟随；未绑定 → 不注册）。引擎适配器持有
+    // 启动定格二进制（buildKnowledgeStack 同源）；二进制不可达时工具仍在，
+    // 调用 degraded（EngineUnavailable），不阻断装配。
+    codegraphTool: () => {
+      const stack = workspace.stack();
+      const root = workspace.boundRoot();
+      return stack !== null && root !== null
+        ? { engine: stack.codegraphEngine, workspaceRoot: root }
+        : undefined;
+    },
+    // codegraph 二进制定格路径（W1-B）：透传 SubAgent 子进程 env（父子一致）
+    ...(codegraphResolution.kind === "resolved" ? { codegraphPath: codegraphResolution.path } : {}),
     // task_create 工具装配面（T2.4，AD-7）：主会话 executor 注册 chat 第二
     // 创建入口——与 /project 入口同一 createTask API（TaskEngineService 注入）
     // + 回执读面（TaskQueryService 投影）；SubAgent 子进程本地栈不注入（生效集隔离）
