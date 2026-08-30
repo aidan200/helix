@@ -354,6 +354,18 @@ export class SqliteKnowledgeGraph {
   }
 
   /**
+   * 非 superseded 且带 layer 的产出节点计数（O-9：bootstrap 准入「知识层为空」
+   * 精化口径——sediment 沉淀节点 layer 为 NULL，不算产出、不阻挡入口）。
+   */
+  countActiveLayeredNodes(projectRoot: string): number {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const row = db
+      .prepare("SELECT COUNT(*) AS n FROM nodes WHERE status != 'superseded' AND layer IS NOT NULL")
+      .get() as { n: number };
+    return row.n;
+  }
+
+  /**
    * 按产出批次反查节点 id 集（T2.2 F2.7 阶段产物聚合数据源）：nodes.
    * origin_batch_id ∈ batchIds（T2.1 元数据列），排除 superseded（已被重跑
    * 取代的旧产出不进阶段产物）；id 升序确定性。只读，零写路径。

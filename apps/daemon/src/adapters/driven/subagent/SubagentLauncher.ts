@@ -1,6 +1,8 @@
 import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import type { Model, Models } from "@earendil-works/pi-ai";
 import { resolveModel } from "../pi-engine/model-provider";
+import { validateBrief, validateReport } from "../pi-engine/runtime/templates/validate";
 import type { AgentInstance } from "../../../domain/agent/AgentInstance";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type {
@@ -120,7 +122,7 @@ export interface SubagentLauncherDeps {
   readonly toolResultMaxBytes?: number;
   /** 线协议观测面（测试断言/诊断；WS 事件映射接线点）。 */
   readonly onLine?: (instanceId: string, line: ChildOutboundLine) => void;
-  /** 日志（容器接 file logger——dispose kill 失败可观测；缺省静默）。 */
+  /** 日志（容器接 file logger——dispose kill 失败 / brief·report 结构违例可观测；缺省静默）。 */
   readonly logger?: { warn: (message: string) => void };
 }
 
@@ -187,6 +189,11 @@ export class SubagentLauncher implements InstanceRunner {
   launch(instance: AgentInstance, task: string): void {
     const id = instance.instanceId;
     if (this.children.has(id)) return;
+    // O-10：派发前 brief 机械校验（validateBrief，TR-AD-58 消费方补接）——
+    // violation 只记日志不拒绝（已裁决：机械兜底恢复设计承诺，不阻塞流程）
+    for (const v of validateBrief(task)) {
+      this.deps.logger?.warn(`[subagent] brief 结构违例（${v.rule}，实例 ${id}）：${v.message}`);
+    }
     // AD-3：两级解析单点（profile 槽位 > 全局兜底 getter；T12 砍 spawn 会话快照级）；
     // apiKeys 读现值（getter 注入源 = auth.json）
     const model = this.resolveModelFor();
@@ -368,6 +375,18 @@ export class SubagentLauncher implements InstanceRunner {
           summary: `任务失败（SubAgent 收口 failed 未附结论${outcome.error !== undefined ? `：${outcome.error}` : ""}）`,
         },
       };
+    }
+    // O-10：回收时 report 机械校验（validateReport）——violation 只记日志
+    // 不拒绝（closure 照常上报；reportPath 缺席 = 无报告产物，不在校验面）
+    const reportPath = outcome.closure.reportPath;
+    if (typeof reportPath === "string" && reportPath !== "") {
+      try {
+        for (const v of validateReport(readFileSync(reportPath, "utf8"))) {
+          this.deps.logger?.warn(`[subagent] report 结构违例（${v.rule}，实例 ${id}）：${v.message}`);
+        }
+      } catch (err) {
+        this.deps.logger?.warn(`[subagent] report 读取失败（实例 ${id}，${reportPath}）：${(err as Error).message}`);
+      }
     }
     this.callbacks?.onInstanceClosure(id, outcome);
   }

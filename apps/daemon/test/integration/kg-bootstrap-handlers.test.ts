@@ -325,11 +325,38 @@ describe("kg.bootstrap.create 准入机械复核", () => {
     await building;
   });
 
-  test("知识层非空 → not_eligible（knowledge_not_empty）", async () => {
+  test("有带 layer 的图谱产出 → not_eligible（knowledge_not_empty）", async () => {
+    const rig = await openRig();
+    seedSynced(rig, rig.beta, "b0");
+    // O-9 精化口径：阻挡项 = 带 layer 的 bootstrap 产出（非全部活跃节点）
+    expectOk(
+      rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "既有产出", digest: "已有图谱产出", status: "confirmed", layer: "L0" } }),
+    );
+    const r = await rig.client.kg("kg.bootstrap.create", { project: "beta" });
+    expect(r.ok).toBe(false);
+    expect(r.error?.code).toBe("kg.bootstrap.not_eligible");
+    expect(r.error?.message).toContain("knowledge_not_empty");
+  });
+
+  test("仅 sediment 节点（layer 为 NULL，无 bootstrap 产出）→ 放行（O-9：沉淀不挡 bootstrap 入口）", async () => {
+    const rig = await openRig();
+    seedSynced(rig, rig.beta, "b0");
+    // sediment 形态：任务闭环沉淀产生，无 layer 元数据
+    expectOk(
+      rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "沉淀规则", digest: "任务闭环沉淀", status: "confirmed" } }),
+    );
+    const r = await rig.client.kg("kg.bootstrap.create", { project: "beta" });
+    expect(r.ok).toBe(true);
+    expect(r.result.ok).toBe(true);
+    expect(rig.taskStore.getJob(r.result.jobId as string)).toBeDefined();
+  });
+
+  test("sediment 节点 + 带 layer 产出并存 → 仍 not_eligible（knowledge_not_empty，阻挡项只在产出）", async () => {
     const rig = await openRig();
     seedSynced(rig, rig.beta, "b0");
     expectOk(
-      rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "既有规则", digest: "已有图谱", status: "confirmed" } }),
+      rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "沉淀规则", digest: "任务闭环沉淀", status: "confirmed" } }),
+      rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "既有产出", digest: "已有图谱产出", status: "confirmed", layer: "L1" } }),
     );
     const r = await rig.client.kg("kg.bootstrap.create", { project: "beta" });
     expect(r.ok).toBe(false);

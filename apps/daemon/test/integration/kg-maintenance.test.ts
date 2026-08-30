@@ -339,11 +339,11 @@ describe("kg 维护批（C1）：kg.graph.purge / kg.index.delete I 层", () => 
     expect(idxB.result.state).toBe("synced");
     expect(rig.fsWatch.isWatching(rig.alpha)).toBe(true); // onSynced 挂接
 
-    // 知识层写入一节点 → 准入 knowledge_not_empty
+    // 知识层写入一带 layer 产出节点 → 准入 knowledge_not_empty（O-9 精化口径：阻挡项 = 带 layer 产出）
     const created = rig.write.write(rig.alpha, {
       kind: "createNode",
       iterationId: "iter-c1",
-      draft: { kind: "rule", name: "待清规则", digest: "purge 目标节点" },
+      draft: { kind: "rule", name: "待清规则", digest: "purge 目标节点", layer: "L0" },
     });
     expect(created.ok).toBe(true);
     const before = rig.bootstrap.eligibility(rig.alpha);

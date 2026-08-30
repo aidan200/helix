@@ -117,6 +117,10 @@ class StubGraph implements KnowledgeGraphPort {
     return 0;
   }
 
+  countActiveLayeredNodes(): number {
+    return 0; // O-9 精化口径面：本测试不消费
+  }
+
   getSyncBaseline(): SyncBaselineView {
     return this.view;
   }

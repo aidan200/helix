@@ -655,3 +655,159 @@ describe("⑧ F3.0 reportPath 经 env IPC 面传参 + 失败 summary 补齐", ()
     }
   });
 });
+
+// ── O-10：validateBrief / validateReport 接线（violation 只记日志不拒绝） ──
+
+describe("⑨ O-10 validateBrief/validateReport 接线（violation 记日志不拒绝，TR-AD-58 消费方补接）", () => {
+  /** Bun.spawn 桩（F3.0 同式）：捕获 spawn 调用；stdout 注入预设 closure 行，exited 恒挂起。 */
+  interface SpawnCall {
+    readonly cmd: readonly string[];
+    readonly env: Record<string, string | undefined>;
+  }
+
+  function patchSpawn(capture: SpawnCall[], stdoutLines: string[] = []): void {
+    const fakeProc = () =>
+      ({
+        pid: 42000 + Math.floor(Math.random() * 900),
+        exited: new Promise(() => {}),
+        stdout: (async function* () {
+          for (const line of stdoutLines) yield new TextEncoder().encode(line);
+        })(),
+        stdin: { write: () => true },
+      }) as unknown as ReturnType<typeof Bun.spawn>;
+    (Bun as unknown as { spawn: unknown }).spawn = (opts: {
+      cmd: readonly string[];
+      env: Record<string, string | undefined>;
+    }) => {
+      capture.push({ cmd: [...opts.cmd], env: { ...opts.env } });
+      return fakeProc();
+    };
+  }
+
+  function restoreSpawn(real: typeof Bun.spawn): void {
+    (Bun as unknown as { spawn: unknown }).spawn = real;
+  }
+
+  /** 三要素齐备的合法 brief（validateBrief 零违例形态）。 */
+  const LEGAL_BRIEF = ["## 任务目标", "做一件小事。", "", "## 范围钳制", "只改一个文件。", "", "## 完成判定", "测试通过。"].join("\n");
+
+  function makeWiredLauncher(home: string, warns: string[]): SubagentLauncher {
+    return new SubagentLauncher({
+      profile: SubAgentProfile,
+      model: fakeModel,
+      apiKeys: { fake: "k" },
+      toolCwd: home,
+      logger: { warn: (m) => warns.push(m) },
+    });
+  }
+
+  test("① 派发缺三要素 brief → logger.warn 逐条记 violation（rule 精确指认），launch 不拒绝（spawn 照常）", async () => {
+    const real = Bun.spawn;
+    const calls: SpawnCall[] = [];
+    patchSpawn(calls);
+    try {
+      const home = mkdtempSync(path.join(tmpdir(), "helix-o10-brief-"));
+      try {
+        const warns: string[] = [];
+        const launcher = makeWiredLauncher(home, warns);
+        launcher.launch(makeInstance("agent-v1"), "随便做点事"); // 无任何段 → 三要素全缺
+        expect(calls).toHaveLength(1); // 不拒绝：spawn 照常发生
+        expect(warns).toHaveLength(3);
+        expect(warns.join("\n")).toContain("brief.missing-task-goal");
+        expect(warns.join("\n")).toContain("brief.missing-scope-clamp");
+        expect(warns.join("\n")).toContain("brief.missing-completion-criteria");
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    } finally {
+      restoreSpawn(real);
+    }
+  });
+
+  test("② 派发合法 brief（三要素齐备）→ 零 warn", async () => {
+    const real = Bun.spawn;
+    const calls: SpawnCall[] = [];
+    patchSpawn(calls);
+    try {
+      const home = mkdtempSync(path.join(tmpdir(), "helix-o10-brief-ok-"));
+      try {
+        const warns: string[] = [];
+        const launcher = makeWiredLauncher(home, warns);
+        launcher.launch(makeInstance("agent-v2"), LEGAL_BRIEF);
+        expect(calls).toHaveLength(1);
+        expect(warns).toEqual([]);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    } finally {
+      restoreSpawn(real);
+    }
+  });
+
+  test("③ 回收 report 缺 findings 段 → warn 记 report.missing-findings，closure 照常上报（不拒绝）", async () => {
+    const real = Bun.spawn;
+    const home = mkdtempSync(path.join(tmpdir(), "helix-o10-report-"));
+    const reportPath = path.join(home, "agent-v3.md");
+    writeFileSync(reportPath, "## 结论\n做完了。\n", "utf8"); // 缺 findings 段
+    const closures: { instanceId: string; outcome: InstanceClosureOutcome }[] = [];
+    patchSpawn(
+      [],
+      [
+        JSON.stringify({
+          type: "closure",
+          instanceId: "agent-v3",
+          closure: { status: "done", summary: "完成", reportPath, findings: null, taskId: null },
+        } satisfies ChildOutboundLine) + "\n",
+      ],
+    );
+    try {
+      const warns: string[] = [];
+      const launcher = makeWiredLauncher(home, warns);
+      launcher.setCallbacks({
+        onInstanceEvent: () => undefined,
+        onInstanceClosure: (instanceId, outcome) => closures.push({ instanceId, outcome }),
+      });
+      launcher.launch(makeInstance("agent-v3"), LEGAL_BRIEF);
+      await until(() => closures.length > 0, 3000, "closure 行到达");
+      expect(closures[0]!.outcome.result).toBe("done"); // 不拒绝：closure 照常上报
+      expect(warns).toHaveLength(1);
+      expect(warns[0]).toContain("report.missing-findings");
+    } finally {
+      restoreSpawn(real);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("④ 回收合法 report（summary + findings 显式「无」）→ 零 warn", async () => {
+    const real = Bun.spawn;
+    const home = mkdtempSync(path.join(tmpdir(), "helix-o10-report-ok-"));
+    const reportPath = path.join(home, "agent-v4.md");
+    writeFileSync(reportPath, "## 结论\n做完了。\n\n## 发现\n无\n", "utf8");
+    const closures: { instanceId: string; outcome: InstanceClosureOutcome }[] = [];
+    patchSpawn(
+      [],
+      [
+        JSON.stringify({
+          type: "closure",
+          instanceId: "agent-v4",
+          closure: { status: "done", summary: "完成", reportPath, findings: [], taskId: null },
+        } satisfies ChildOutboundLine) + "\n",
+      ],
+    );
+    try {
+      const warns: string[] = [];
+      const launcher = makeWiredLauncher(home, warns);
+      launcher.setCallbacks({
+        onInstanceEvent: () => undefined,
+        onInstanceClosure: (instanceId, outcome) => closures.push({ instanceId, outcome }),
+      });
+      launcher.launch(makeInstance("agent-v4"), LEGAL_BRIEF);
+      await until(() => closures.length > 0, 3000, "closure 行到达");
+      expect(closures[0]!.outcome.result).toBe("done");
+      expect(warns).toEqual([]);
+    } finally {
+      restoreSpawn(real);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});

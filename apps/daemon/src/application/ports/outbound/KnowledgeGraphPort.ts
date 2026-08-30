@@ -75,6 +75,14 @@ export interface KnowledgeGraphPort {
   countActiveNodes(projectRoot: string): number;
 
   /**
+   * 非 superseded 且带 layer 的产出节点计数（O-9 准入闸精化）：bootstrap
+   * 准入「知识层为空」精化口径——只有带 layer 的产出（bootstrap 三阶段落账
+   * 形态）才算图谱已有产出；sediment 沉淀节点（layer 为 NULL，任务闭环
+   * 沉淀产生）不计入、不阻挡 bootstrap 入口。
+   */
+  countActiveLayeredNodes(projectRoot: string): number;
+
+  /**
    * 按产出批次反查节点 id 集（T2.2 F2.7 阶段产物聚合）：nodes.origin_batch
    * 元数据 ∈ batchIds，排除 superseded；id 升序确定性。只读零写路径。
    */

@@ -118,14 +118,16 @@ export class KgBootstrapService {
 
   // ── CL-1 F1.1/F1.2 kg.bootstrap.create（准入机械复核 + createTask 同源） ──
 
-  /** 准入机械复核（契约 §1；后端不信赖前端）：synced/degraded ∧ 非 superserved 计数==0。 */
+  /** 准入机械复核（契约 §1；后端不信赖前端）：索引存在 ∧ 非 building ∧ 无带 layer
+   *  产出（O-9 精化：「知识层非空」只数带 layer 的产出节点；sediment 沉淀节点
+   * （layer 为 NULL）不阻挡 bootstrap 入口）。 */
   eligibility(projectRoot: string): BootstrapEligibility {
     if (this.deps.sync.isBuilding(projectRoot)) return { eligible: false, reason: "index_building" };
     if (!this.deps.project.hasIndex(projectRoot)) return { eligible: false, reason: "index_absent" };
     const phase = this.deps.sync.getStatus(projectRoot).phase;
     if (phase === "building") return { eligible: false, reason: "index_building" };
     if (phase === "absent") return { eligible: false, reason: "index_absent" };
-    if (this.deps.graph.countActiveNodes(projectRoot) !== 0) return { eligible: false, reason: "knowledge_not_empty" };
+    if (this.deps.graph.countActiveLayeredNodes(projectRoot) !== 0) return { eligible: false, reason: "knowledge_not_empty" };
     return { eligible: true };
   }
 
@@ -140,7 +142,7 @@ export class KgBootstrapService {
           ? "index_absent：项目尚未构建索引（先完成一次机械构建，B1 冷启动链）"
           : eligibility.reason === "index_building"
             ? "index_building：索引构建进行中，完成后可发起"
-            : "knowledge_not_empty：知识层非空（bootstrap 只为有代码积累、无图谱的老项目补图谱）";
+            : "knowledge_not_empty：知识层已有带 layer 的图谱产出（sediment 沉淀不计入；bootstrap 只为有代码积累、无图谱的老项目补图谱）";
       return { ok: false, error: { code: "kg.bootstrap.not_eligible", message } };
     }
     const projectName = projectRoot.split("/").filter((s) => s !== "").pop() ?? project;
