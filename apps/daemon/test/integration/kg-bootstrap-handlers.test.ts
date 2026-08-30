@@ -330,7 +330,7 @@ describe("kg.bootstrap.create 准入机械复核", () => {
     seedSynced(rig, rig.beta, "b0");
     // O-9 精化口径：阻挡项 = 带 layer 的 bootstrap 产出（非全部活跃节点）
     expectOk(
-      rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "既有产出", digest: "已有图谱产出", status: "confirmed", layer: "L0" } }),
+      rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "既有产出", digest: "已有图谱产出", scene: "测试场景", status: "confirmed", layer: "L0" } }),
     );
     const r = await rig.client.kg("kg.bootstrap.create", { project: "beta" });
     expect(r.ok).toBe(false);
@@ -343,7 +343,7 @@ describe("kg.bootstrap.create 准入机械复核", () => {
     seedSynced(rig, rig.beta, "b0");
     // sediment 形态：任务闭环沉淀产生，无 layer 元数据
     expectOk(
-      rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "沉淀规则", digest: "任务闭环沉淀", status: "confirmed" } }),
+      rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "沉淀规则", digest: "任务闭环沉淀", scene: "测试场景", status: "confirmed" } }),
     );
     const r = await rig.client.kg("kg.bootstrap.create", { project: "beta" });
     expect(r.ok).toBe(true);
