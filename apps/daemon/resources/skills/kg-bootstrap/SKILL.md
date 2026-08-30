@@ -19,7 +19,7 @@ task:
 
 执行形态是**无人工交互的多 agent 编排**：你划批次、装配批次 brief、派批次 SubAgent、读 closure 判成败、推进或重试。全程没有中途人审门——没有「每层等审」的环节，你的判断依据只有代码事实、上层已产出的知识与本 SOP 的约束。产出质量不靠执行中拦截，靠批次 brief 里的写作规范前置 + 任务结束后人工修正（修改/supersede）兜底。
 
-产出落库经 KgWriteService 唯一写入口（createNode 或 batchCreateNodes），每个节点必须带三项元数据：`layer`（L0/L1/L2）、`origin_batchId`（产出批次判据）、`status=confirmed`（bootstrap 无 draft——以代码事实落盘即正式知识）。这三项是任务域到 kg 域的唯一衔接面，缺一项产出就断了来源可溯性。
+产出落库经 KgWriteService 唯一写入口（createNode 或 batchCreateNodes），每个节点必须带三项元数据：`layer`（L0/L1/L2）、`origin_batchId`（产出批次判据）、`status=confirmed`（bootstrap 无 draft——以代码事实落盘即正式知识）；每次 kg-update 调用还必须透传 `taskId`（本任务 jobId，落 change_log.task_id——首跑实测 10 批仅 1 批透传，任务→kg 审计链断 85%，故列为与三项元数据同级的硬要求）。这四项是任务域到 kg 域的唯一衔接面，缺一项产出就断了来源可溯性。
 
 ## 分层拓扑（L0 → L1 → L2）
 
@@ -31,7 +31,7 @@ task:
 
 上层为下层提供探索上下文的具体机制：下层批次开工前，把上层已产节点的 digest 与 kg get 指针注入批次 brief 的锚定段；下层遇到「这是谁的职责/归哪个域」的判断，先查上层产出再下结论。探索数据源两路：codegraph 符号投影（exportSymbols 只读面——结构、规模、符号清单）与下层已产节点（kg search / kg get——已确立的事实）。
 
-**重跑幂等**：重跑一个批次（自动重试或失败重派）时，先按该批次 `origin_batchId` 检出旧产出逐个 supersede（理由如实记录），再产新节点——不许原地改旧节点（审计链断裂）；实例 plan 的 note 产物指针标明哪些探索步骤已完成，可跳过不重做。
+**重跑幂等**：重跑一个批次（自动重试或失败重派）时，先按该批次 `origin_batchId` 检出旧产出逐个 supersede（理由如实记录），再产新节点——不许原地改旧节点（审计链断裂）；实例 plan 的 note 产物指针标明哪些探索步骤已完成，可跳过不重做。supersede 的 replacement 节点（含批次内自我修正）同样是本批产出——必须携带三项元数据 + `taskId` 且 `status=confirmed`，不得落 draft（首跑实测 1 例 replacement 落 draft 断链）。
 
 ## ① 各层产出目标与验收
 
@@ -52,7 +52,7 @@ task:
 - **产出**：具体业务实体节点（E-前缀，含字段/状态机/行为语义）、接口契约（输入输出与副作用）、实体间关联（边——谁依赖谁、谁触发谁）、关联测试（证明关联成立的用例）。**v1 三缺口的主力补齐层**：业务实体数量、符号级锚、边密度。
 - **验收**：实体/契约节点必须带符号域锚（`path#symbol` 形态；索引 degraded 时如实降级为文件级并记录）；每个实体至少说清它与哪些实体/规则相关联（孤立实体 = 边密度缺口未补）；关联测试节点描述的用例真实存在于代码。
 
-各层共同验收（每批 closure 前自检）：产出全部 `status=confirmed` + `layer` 正确 + `origin_batchId` 落章；正文过写作规范五条（见④）。
+各层共同验收（每批 closure 前自检）：产出全部 `status=confirmed` + `layer` 正确 + `origin_batchId` 落章 + 本批每次 kg-update 调用透传 `taskId`；正文过写作规范五条（见④）。
 
 ## ② 批次划分原则
 
@@ -69,9 +69,9 @@ task:
 
 1. **范围段**：本批的探索对象（项目内路径/领域/模块清单）+ scope 参数收窄（如有）+ 目标层（L0/L1/L2）。
 2. **锚定上层上下文段**：上层已产节点的 digest 清单 + kg get 指针（L1 批次注入 L0 产出；L2 批次注入 L0+L1 产出）——本批判断「归哪个域/谁的职责」时先查这些。
-3. **产出要求段**：本批应产出什么（节点类型与规模预期）+ 元数据要求（layer=本层、origin_batchId=本批次、status=confirmed）+ 符号域锚要求（实体/契约必带，degraded 时如实降级）。
+3. **产出要求段**：本批应产出什么（节点类型与规模预期）+ 元数据要求（layer=本层、origin_batchId=本批次、status=confirmed、taskId=本任务 jobId 每次调用透传）+ 符号域锚要求（实体/契约必带，degraded 时如实降级）。
 4. **验收段**：写作规范五条逐条列出（批次 SubAgent 的产出验收条件，见④）+ 关联测试/边密度要求（L2 批次）。
-5. **plan 硬约束段**（本任务 plan=enforced，模板层强制 LLM 不可裁）：开工先 plan_create 写计划再动手；阶段转换必更新 plan 项状态；closure 时 plan 须全部 resolve（done 或 abandoned 带理由）。
+5. **plan 硬约束段**（本任务 plan=enforced，模板层强制 LLM 不可裁）：开工先 plan_create 写计划再动手；阶段转换必更新 plan 项状态；closure 时 plan 须全部 resolve（done 或 abandoned 带理由）。台账项状态迁移按 pending→in_progress→done/abandoned，不可跳迁（引擎状态机拒绝 pending→done 直迁——首跑实测有批次 agent 被此拒后返工）。
 6. **前序上下文段**（重跑/接力批次必含）：前序实例 plan 摘要（已完成项 + note 关键事实 + 产物指针）——从断点继续，不重做已完成探索；重跑批次先按 origin_batchId supersede 旧产出再产新。
 
 ## ④ 写作规范五条（批次产出验收条件）
@@ -82,7 +82,7 @@ task:
 
 **规范 2｜digest 叙述式、≤2 行**：用一句话说清「这是什么 + 何时相关」——不是触发条件清单，不是关键词堆。读者扫 digest 列表就能判断要不要展开正文。
 
-**规范 3｜每条知识带「为什么存在」**：来源（符号/文件锚）+ 存在理由（它解决什么问题/约束什么）。这是 v1 图谱最缺的 why——只有 what 的知识无法支撑「改动前该看什么」的判断。
+**规范 3｜每条知识带「为什么存在」**：来源（符号/文件锚）+ 存在理由（它解决什么问题/约束什么）。这是 v1 图谱最缺的 why——只有 what 的知识无法支撑「改动前该看什么」的判断。「为什么存在」是必备段：closure 前逐节点核对，缺段的节点不得产出（首跑抽检 2/16 缺段，均因此条失守）。
 
 **规范 4｜实体/契约必须符号域锚，规则按三级作用域**：实体与接口契约锚到 `path#symbol`（符号级精度）；规则节点按作用域声明锚——全局域不物化锚、路径域物化文件锚、符号域物化符号锚，按规则实际约束范围选级。
 
