@@ -126,6 +126,13 @@ export interface TaskChangedPayload {
   changed: "job" | "stage" | "batch" | "work_item";
   /** job 级变更携带新状态。 */
   status?: string;
+  /**
+   * kg sync 提示（W2-D R13，additive 可选字段）：job 终态时 pending_sync
+   * 台账有未提示行 → 随行一帧人读提示（「本次任务有代码/文档变更，是否
+   * 触发 kg sync？」——机器只记录只提醒，sync 本体永远要人确认）；服务层
+   * 人读文案前端直渲（kg DTO summary 同规）。
+   */
+  syncHint?: string;
 }
 
 /**

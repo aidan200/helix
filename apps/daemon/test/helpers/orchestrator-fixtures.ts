@@ -203,6 +203,8 @@ export interface OrchestratorEnvOverrides {
   readonly instanceOutcome?: (agentId: string) => { state: string; summary?: string } | undefined;
   /** manifest plan 档位（缺省 enforced）。 */
   readonly plan?: "enforced" | "optional";
+  /** W2-D：job 终态提示面（onJobTerminal 断言采集）。 */
+  readonly onJobTerminal?: (jobId: string, status: string) => void;
 }
 
 export interface OrchestratorEnv {
@@ -298,6 +300,7 @@ export async function withOrchestratorEnv(
     killInstance: () => undefined,
     createSession,
     planHardConstraint: PLAN_HARD_CONSTRAINT_SEGMENT,
+    ...(over.onJobTerminal !== undefined ? { onJobTerminal: over.onJobTerminal } : {}),
   });
   orchestratorRef = orchestrator;
 

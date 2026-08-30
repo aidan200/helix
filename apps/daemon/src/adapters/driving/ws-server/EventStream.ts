@@ -295,7 +295,13 @@ export class EventStream implements EventPublisherPort {
    * 触发面：生命周期命令成功（handlers/task.ts）；stage/batch 级迁移归编排
    * 侧 T2.2 经本通路。
    */
-  broadcastTaskChanged(payload: { jobId: string; changed: "job" | "stage" | "batch" | "work_item"; status?: string }): void {
+  broadcastTaskChanged(payload: {
+    jobId: string;
+    changed: "job" | "stage" | "batch" | "work_item";
+    status?: string;
+    /** W2-D R13：job 终态同步提示（pending_sync 命中时随行——人读文案直渲，kg DTO summary 同规）。 */
+    syncHint?: string;
+  }): void {
     const frame: TaskChangedEvent = {
       v: PROTOCOL_VERSION,
       sessionId: SYSTEM_SESSION_ID,

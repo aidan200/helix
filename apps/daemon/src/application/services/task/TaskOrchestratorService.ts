@@ -79,6 +79,12 @@ export interface TaskOrchestratorServiceDeps {
   readonly createSession: (jobId: string, orchestration: AgentOrchestrationPort) => OrchestratorSessionFace;
   /** plan 硬约束段全文（模板层硬约束——plan=enforced 任务派发面机械追加；段库 catalog 同源注入）。 */
   readonly planHardConstraint: string;
+  /**
+   * job 终态提示面（W2-D R13：reap 终态任务时回调——组合根接 pending_sync
+   * 扫描 + 用户提示广播；编排层挂点不进引擎，守 AD-10）。仅在循环被 reap
+   * 时触发一次（cancel 走 stopOrchestrator 用户主动路径，不触发）；缺省不提示。
+   */
+  readonly onJobTerminal?: (jobId: string, status: JobData["status"]) => void;
   readonly logger?: { warn(message: string): void };
 }
 
@@ -186,6 +192,8 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       if (loop !== undefined) {
         loop.stopped = true;
         this.loops.delete(jobId);
+        // W2-D R13 job 完成提示点：扫描 pending_sync 归组合根（本层只报终态事实）
+        this.deps.onJobTerminal?.(jobId, job.status);
       }
     }
   }

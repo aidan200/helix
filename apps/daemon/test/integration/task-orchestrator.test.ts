@@ -162,6 +162,35 @@ class HangingRunner implements InstanceRunner {
   }
 }
 
+describe("W2-D job 终态提示点（R13：reap 终态任务 → onJobTerminal 恰一次）", () => {
+  test("job done 收口后 hook 以 (jobId, done) 触发一次；幂等清扫不重复触发", async () => {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
+      spawnEntry(BRIEF_1),
+      dispatchEntry(0, 2),
+      { kind: "reply", text: "已派发。" },
+      { kind: "tool", toolName: "task_stage_artifact", args: { stageSeq: 1, summary: "L0 建成。" } },
+      { kind: "tool", toolName: "task_complete_job", args: {} },
+    ];
+    const terminal: { jobId: string; status: string }[] = [];
+    await withOrchestratorEnv({ script, onJobTerminal: (jobId, status) => terminal.push({ jobId, status }) }, async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "fake-task",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      await env.until(() => env.store.getBatches(jobId, 1)[0]?.status === "running");
+      await settleInstance(env, env.recorder.call(1).agentId, { closure: "done", plan: "resolved" });
+      await env.until(() => env.store.getJob(jobId)?.status === "done");
+      // reap 在 drive 轮收口后发生——等 hook 落地（恰一次：循环被删后不再 reap）
+      await env.until(() => terminal.length === 1);
+      expect(terminal).toEqual([{ jobId, status: "done" }]);
+    });
+  });
+});
+
 describe("T2.2 并发预算：共享池 ≤3 + 编排不占 SubAgent 预算（CL-2-T3）", () => {
   test("剧本并发派 4 批次：在跑峰值 3、第 4 个排队；收口后出队", async () => {
     // 专用脚本：4 批 insert+spawn+dispatch（假 spawn 不占用——本组用真调度器）

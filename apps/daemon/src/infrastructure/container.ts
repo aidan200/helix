@@ -27,9 +27,12 @@ import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
 import { buildEditToolDeps, buildKnowledgeStack } from "./assembly/buildKnowledgeStack";
 import { createOrchestratorSessionFactory } from "./assembly/orchestrator-runtime";
-import { TaskOrchestratorService } from "../application/services/task/TaskOrchestratorService";
+import { TaskOrchestratorService, taskSessionIdOf } from "../application/services/task/TaskOrchestratorService";
 import type { TaskOrchestratorStarterPort } from "../application/ports/outbound/TaskOrchestratorStarterPort";
 import { PLAN_HARD_CONSTRAINT_SEGMENT } from "../adapters/driven/pi-engine/runtime/templates/catalog";
+
+/** W2-D R13 job 终态同步提示文案（机器只记录只提醒，sync 本体永远人确认）。 */
+const KG_SYNC_HINT_TEXT = "本次任务有代码/文档变更，是否触发 kg sync？到 /project 页手动触发；sync 后如有孤儿/腐烂锚会附一行体检提示。";
 import { resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
 import { scanWorkspaceProjects, existingKgProjects } from "../adapters/driven/workspace-scan";
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
@@ -546,6 +549,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       logger,
     }),
     planHardConstraint: PLAN_HARD_CONSTRAINT_SEGMENT,
+    // W2-D R13 job 完成提示点（编排层，不进引擎守 AD-10）：job 终态 reap 时
+    // 扫描该 job 相关 session 的 pending_sync（notified=0）→ 置已提示 + 经
+    // 既有 task.changed 广播通路随行 syncHint（机器只记录只提醒，sync 人确认）
+    onJobTerminal: (jobId, status) => {
+      const rows = persistence.repository.queryUnnotifiedPendingSync(taskSessionIdOf(jobId), jobId);
+      if (rows.length === 0) return;
+      void persistence.repository.markPendingSyncNotified(rows.map((r) => r.sessionId));
+      eventStream.broadcastTaskChanged({ jobId, changed: "job", status, syncHint: KG_SYNC_HINT_TEXT });
+    },
     logger,
   });
 
