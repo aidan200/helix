@@ -1,3 +1,5 @@
+> 【已停用】SoT 已下沉 .helix-kg/kg.db candidates 表（W1-C 一次性迁移）；本文件不再被任何管道解析
+
 # 候选台账（candidates）
 
 ## pending
