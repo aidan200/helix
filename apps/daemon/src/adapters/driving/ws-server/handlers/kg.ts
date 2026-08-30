@@ -25,6 +25,7 @@ import type {
   KgChangeReportDto,
   KgChangeReportResultEvent,
   KgGraphPurgeResultEvent,
+  KgHealthResultEvent,
   KgIndexDeleteResultEvent,
   KgIndexStatusDto,
   KgIndexStatusResultEvent,
@@ -57,6 +58,7 @@ import type {
 } from "../../../../application/services/kg/KgMaintenanceService";
 import type {
   KgConfirmView,
+  KgHealthView,
   KgIndexStatusView,
   KgListView,
   KgNodeDetailView,
@@ -399,6 +401,25 @@ export function handleKgIndexDelete(ctx: KgCommandContext): void {
     });
 }
 
+// ── kg.health 批一命令（W2-E 轨一结构体检看板；设计 D5 + R15） ──
+
+/** kg.health（五项读面聚合，只列不修零写路径；absent/building 短路空态不建库）。 */
+export function handleKgHealth(ctx: KgCommandContext): void {
+  if (ctx.kg === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const result = ctx.kg.health(project);
+  if (!result.ok) return viewerError(ctx, result.error);
+  const frame: KgHealthResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "kg",
+    type: "kg.health.result",
+    payload: healthViewToDto(result.value),
+  };
+  ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
+}
+
 // ── payload 字段形状校验（枚举/解析语义归 service） ──────────
 
 /** 必填 string 字段：缺失/非 string → KG_E_PARAM（契约：project 缺失/无法解析）。 */
@@ -534,6 +555,23 @@ function statusViewToDto(view: KgIndexStatusView): KgIndexStatusDto {
     ...(view.syncedAt !== undefined ? { syncedAt: view.syncedAt } : {}),
     ...(view.symbolCount !== undefined ? { symbolCount: view.symbolCount } : {}),
     ...(view.degradedNote !== undefined ? { degradedNote: view.degradedNote } : {}),
+    ...(view.orphanNote !== undefined ? { orphanNote: view.orphanNote } : {}),
+  };
+}
+
+/** 体检聚合视图 → 协议 DTO（conflicts/orphans 只取 kind+人读 summary 直拷，AD-16 同规）。 */
+function healthViewToDto(view: KgHealthView): KgHealthResultEvent["payload"] {
+  return {
+    conflicts: view.conflicts.map((c) => ({ kind: c.kind, summary: c.summary })),
+    orphans: view.orphans.map((o) => ({ kind: o.kind, summary: o.summary })),
+    orphanCount: view.orphanCount,
+    index: statusViewToDto(view.index),
+    candidates: {
+      pending: view.candidates.pending,
+      deferred: view.candidates.deferred,
+      applied: view.candidates.applied,
+      discarded: view.candidates.discarded,
+    },
   };
 }
 

@@ -63,6 +63,14 @@ interface ChatServiceDepsBase {
   readonly session?: Session;
   /** 恢复场景传入历史工具调用记录（重启后工具历史随快照延续）。 */
   readonly restoredToolCalls?: readonly ToolCallRecordData[];
+  /**
+   * 主会话任务切片注入器（W2-D R9/R10，设计 D2 段①）：idle 分支真实用户
+   * 消息（source 缺省）首轮开工前一次性过 kg 约束切片注入——返回引擎实际
+   * 收到的文本；空命中/失败须原文透传（宁可沉默）。steer/closure 注入
+   *（source 携带）不经过——不每轮注入。跨通道去重由注入器内 markInjected
+   *（sessionId 维）保证（orchestrator 派发路径同键）。缺省不注入。
+   */
+  readonly taskSliceInjector?: (sessionId: string, text: string) => string;
 }
 
 /** 完整形态（生产装配面，架构 §4.2.6）：四钩子必填——组合根装配缺钩子 = 编译红，消灭「未装配静默降级」。 */
@@ -234,9 +242,13 @@ export class ChatService implements ChatPort {
         this.publish("turn.started", { turnId: turn.id });
         // ③ idle→running，驱动引擎（await 整个 run：含工具轮与 steer drain 轮）
         this.setLifecycle("running");
+        // W2-D R9/R10：真实用户消息（source 缺省）首轮开工前过一次切片注入——
+        // 仅引擎收到的文本注入，聚合 Entry 恒为用户原文（注入是瞬时提示上下文）
+        const engineText =
+          source === undefined ? (this.deps.taskSliceInjector?.(this.session.id, text) ?? text) : text;
         const run = (async () => {
           try {
-            await this.deps.engine.start(text, (e) => this.onEngineEvent(e), images);
+            await this.deps.engine.start(engineText, (e) => this.onEngineEvent(e), images);
           } catch (err) {
             // 引擎异常不崩会话：可观测（engine.error）+ 轮次收口为中断 + 回 idle
             this.publish("engine.error", { message: (err as Error).message });

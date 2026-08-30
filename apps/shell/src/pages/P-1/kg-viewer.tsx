@@ -130,7 +130,8 @@ const KgViewer = function KgViewer({
             const idx = e.payload;
             dispatch({ type: "idx-result", idx });
             if (wasRebuilding && (idx.state === "synced" || idx.state === "degraded")) {
-              toast.push("ok", t("pj.kg.rebuildDoneToast", { symbols: idx.symbolCount ?? 0 }));
+              // W2-D R14：手动 sync 后 orphan>0 的体检提示行随 DTO 直渲 toast 副行（只提示不处置）
+              toast.push("ok", t("pj.kg.rebuildDoneToast", { symbols: idx.symbolCount ?? 0 }), idx.orphanNote);
             }
             return;
           }

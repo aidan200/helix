@@ -149,6 +149,43 @@ export interface KgIndexStatusDto {
   symbolCount?: number;
   /** degraded 态：影响说明。 */
   degradedNote?: string;
+  /** W2-D R14：手动 sync（rebuild）后 orphan>0 随行体检提示行（只提示不处置；服务层人读文案前端直渲）。 */
+  orphanNote?: string;
+}
+
+// ── kg.health 批新增（W2-E 轨一结构体检看板；设计 kg-driven-dev-loop-design D5 + R15）──
+
+/** 体检冲突条目（findConflicts 只列不修三类的协议投影；summary=服务层人读文案直传）。 */
+export interface KgHealthConflictDto {
+  kind: "mutual_governs" | "self_loop" | "unknown_verb";
+  /** 人读叙述句（AD-16：节点 name 叙述，无裸 id）。 */
+  summary: string;
+}
+
+/** 体检孤儿条目（findOrphans 两口径的协议投影；summary 同上）。 */
+export interface KgHealthOrphanDto {
+  kind: "dead_anchor" | "orphan_node";
+  /** 人读叙述句（AD-16 同规）。 */
+  summary: string;
+}
+
+/** candidates 台账四态计数（candidates 表按 status 聚合，W1-C 已建表）。 */
+export interface KgHealthCandidatesDto {
+  pending: number;
+  deferred: number;
+  applied: number;
+  discarded: number;
+}
+
+/** kg.health 响应：结构体检五项读面聚合（absent 项目 = 空态短路返回，读面不建库）。 */
+export interface KgHealthDto {
+  conflicts: KgHealthConflictDto[];
+  orphans: KgHealthOrphanDto[];
+  /** 孤儿+腐烂锚合计计数（徽章数据源）。 */
+  orphanCount: number;
+  /** 索引状态（kg.index.status 数据复用）。 */
+  index: KgIndexStatusDto;
+  candidates: KgHealthCandidatesDto;
 }
 
 // ── kg-bootstrap 批新增（iter-20260829-ys7q T3.2；契约 contracts/kg-bootstrap-api.md §3/§5）──

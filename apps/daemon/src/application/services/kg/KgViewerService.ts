@@ -25,9 +25,10 @@ import type { ChangeReport } from "./KgReportService";
 import type { KgReportService } from "./KgReportService";
 import { KG_DEGRADED_NOTE, type KgProjectRowView, type KgProjectService } from "./KgProjectService";
 import type { KgSyncService, KgIndexPhase } from "./KgSyncService";
-import type { KgVerifyService } from "./KgVerifyService";
+import type { ConflictItem, KgVerifyService, OrphanItem } from "./KgVerifyService";
 import type { KgWriteService } from "./KgWriteService";
 import type {
+  CandidateStatusCounts,
   KnowledgeNode,
   NodeDigestRow,
   NodeDetail,
@@ -82,6 +83,20 @@ export interface KgIndexStatusView {
   readonly syncedAt?: string;
   readonly symbolCount?: number;
   readonly degradedNote?: string;
+  /** W2-D R14：手动 sync 后 orphan>0 随行体检提示行（只提示不处置；仅 rebuild 路径产出）。 */
+  readonly orphanNote?: string;
+}
+
+/** kg.health 结果（W2-E 轨一体检看板五项读面聚合；只列不修零写路径）。 */
+export interface KgHealthView {
+  readonly conflicts: readonly ConflictItem[];
+  readonly orphans: readonly OrphanItem[];
+  /** 孤儿+腐烂锚合计计数（= orphans.length；徽章数据源）。 */
+  readonly orphanCount: number;
+  /** 索引状态（kg.index.status 同视图复用）。 */
+  readonly index: KgIndexStatusView;
+  /** candidates 台账四态计数（candidates 表聚合）。 */
+  readonly candidates: CandidateStatusCounts;
 }
 
 /** kg.node.confirm 结果（翻转后状态回读）。 */
@@ -268,6 +283,19 @@ export class KgViewerService {
           },
         };
       }
+      // W2-D R14：手动 sync 后 orphan>0 附一行体检提示（只提示不处置——
+      // 体检清单归 kg.health 面板；hasIndex 判定同健康面读纪律）
+      const rebuilt = this.statusView(projectRoot);
+      if ((rebuilt.state === "synced" || rebuilt.state === "degraded") && this.deps.project.hasIndex(projectRoot)) {
+        const orphanCount = this.deps.verify.findOrphans(projectRoot).length;
+        if (orphanCount > 0) {
+          return {
+            ok: true,
+            value: { ...rebuilt, orphanNote: `体检提示：检测到 ${orphanCount} 处孤儿节点/腐烂锚——到体检面板查看（只提示不处置）` },
+          };
+        }
+      }
+      return { ok: true, value: rebuilt };
     } else if (this.deps.sync.isBuilding(projectRoot)) {
       // 构建进行中（含冷启动首建、库文件尚未创建）——先于 absent 短路
       return { ok: true, value: { state: "building" } };
@@ -276,6 +304,40 @@ export class KgViewerService {
       return { ok: true, value: { state: "absent" } };
     }
     return { ok: true, value: this.statusView(projectRoot) };
+  }
+
+  // ── kg.health（W2-E 轨一体检看板：五项读面聚合，只列不修零写路径） ──
+
+  /**
+   * 结构体检聚合：findConflicts / findOrphans / orphan 计数 / index 状态 /
+   * candidates 四态计数。读面纪律：absent（含 building 中）项目短路返回
+   * 空态（非报错）——绝不新建库文件；conflicts/orphans 条目携带 domain 层
+   * 已生成的人读 summary（driving 逐字段直拷，不二次叙述）。
+   */
+  health(project: string): KgViewerResult<KgHealthView> {
+    const resolved = this.deps.project.resolve(project);
+    if (resolved === undefined) return { ok: false, error: this.paramError(project) };
+    const zeroCandidates: CandidateStatusCounts = { pending: 0, deferred: 0, applied: 0, discarded: 0 };
+    if (this.deps.sync.isBuilding(resolved)) {
+      // 构建进行中（库文件可能尚未创建）——先于 absent 短路（indexStatus 同序）
+      return { ok: true, value: { conflicts: [], orphans: [], orphanCount: 0, index: { state: "building" }, candidates: zeroCandidates } };
+    }
+    if (!this.deps.project.hasIndex(resolved)) {
+      // absent 短路：空态返回，读面绝不新建库文件（getStatus/findConflicts 触库连接即建库）
+      return { ok: true, value: { conflicts: [], orphans: [], orphanCount: 0, index: { state: "absent" }, candidates: zeroCandidates } };
+    }
+    const conflicts = this.deps.verify.findConflicts(resolved);
+    const orphans = this.deps.verify.findOrphans(resolved);
+    return {
+      ok: true,
+      value: {
+        conflicts,
+        orphans,
+        orphanCount: orphans.length,
+        index: this.statusView(resolved),
+        candidates: this.deps.graph.countCandidatesByStatus(resolved),
+      },
+    };
   }
 
   // ── 内部 ────────────────────────────────────────────────

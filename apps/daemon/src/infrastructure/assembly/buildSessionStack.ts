@@ -583,6 +583,12 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         // promoteDraft（恰好一次 instantiated + 补 created；闭包仅在运行期
         // 触发——createFresh 发生在 initialize/运行期，注册表已就位）
         onFirstUserEntry: () => registry.promoteDraft(material.session.id),
+        // W2-D R9/R10 主会话切片注入：复用 spawn 派发同一注入器（KgQueryService
+        // .injectTaskSlice——sessionId 跨通道去重同键）；空串回退（未绑定工作
+        // 空间时容器注入面回 ""）视为空命中原文透传
+        ...(deps.taskInjector !== undefined
+          ? { taskSliceInjector: (sid: string, text: string) => deps.taskInjector!(sid, text) || text }
+          : {}),
       });
       // 会话投影消费者（AD-3 §3.2②；多会话 = 按 sessionId 分实例化，
       // architecture-feedback #20 建议采纳）：SubAgent Entry 落聚合 + 账本入账

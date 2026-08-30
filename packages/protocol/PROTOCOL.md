@@ -1975,6 +1975,7 @@ draft 审阅转正命令结果（页面唯一写动作回执；翻转后状态�
 | `syncedAt` | `string` | 可选 | kg 批 | synced 态完成时间（ISO） |
 | `symbolCount` | `number` | 可选 | kg 批 | synced 态符号计数 |
 | `degradedNote` | `string` | 可选 | kg 批 | degraded 态影响说明 |
+| `orphanNote` | `string` | 可选 | W2-D | R14：手动 sync（rebuild=true）后 orphan>0 随行体检提示行（只提示不处置；服务层人读文案前端直渲 toast 副行） |
 
 #### `kg.bootstrap.create.result`
 

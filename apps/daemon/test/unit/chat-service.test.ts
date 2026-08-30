@@ -4,6 +4,7 @@ import { SessionProjection } from "../../src/application/services/SessionProject
 import type { EventPublisherPort, StreamDelta } from "../../src/application/ports/outbound/EventPublisherPort";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
+import type { AgentEnginePort, AgentEngineListener } from "../../src/application/ports/outbound/AgentEnginePort";
 import { InMemorySessionRepository } from "../mocks/InMemorySessionRepository";
 
 /**
@@ -279,6 +280,77 @@ describe("⑥ 回退修复①（verif-rollback）：D-1 观测面 / D-2 messageI
     expect(byId.get("tc-pending")!.endedAt).toBeDefined();
     expect(byId.get("tc-done")!.status).toBe("completed"); // 终态不动
     expect(byId.get("tc-done")!.result).toBe("已完成的原样保留");
+  });
+});
+
+describe("W2-D 主会话切片注入（R9/R10：首轮开工前一次性，空命中原文透传）", () => {
+  /** 输入记录面（FakeAgentEngine 包装：断言引擎实际收到的文本）。 */
+  class InputRecorder implements AgentEnginePort {
+    readonly inputs: string[] = [];
+    constructor(private readonly inner: FakeAgentEngine) {}
+    start(input: string, listener: AgentEngineListener, images?: readonly string[]): Promise<void> {
+      this.inputs.push(input);
+      return this.inner.start(input, listener, images);
+    }
+    steer(text: string): void {
+      this.inner.steer(text);
+    }
+    abort(): void {
+      this.inner.abort();
+    }
+    isStreaming(): boolean {
+      return this.inner.isStreaming();
+    }
+  }
+
+  function makeInjectedChat(injector: ((sessionId: string, text: string) => string) | undefined) {
+    const engine = new InputRecorder(new FakeAgentEngine({ replies: [{ text: "回复。" }] }));
+    const publisher = new RecordingPublisher();
+    const chat = new ChatService({
+      engine,
+      events: publisher,
+      clock: new FixedClock(),
+      ...(injector !== undefined ? { taskSliceInjector: injector } : {}),
+    });
+    return { chat, engine, publisher };
+  }
+
+  test("命中：引擎收到注入文本 + 注入器拿 sessionId；聚合 Entry 恒为用户原文", async () => {
+    const seen: { sessionId: string; text: string }[] = [];
+    const { chat, engine } = makeInjectedChat((sessionId, text) => {
+      seen.push({ sessionId, text });
+      return `${text}\n\n[kg 切片]`;
+    });
+    await chat.sendMessage("第一问");
+    expect(seen).toEqual([{ sessionId: chat.sessionId, text: "第一问" }]);
+    expect(engine.inputs).toEqual(["第一问\n\n[kg 切片]"]);
+    const entries = chat.sessionSnapshot.entries;
+    const user = entries.find((e) => "role" in e && e.role === "user") as { text?: string };
+    expect(user?.text).toBe("第一问"); // 注入只是引擎瞬时上下文，不落聚合
+  });
+
+  test("空命中原文透传 + 未装配注入器原文；steer/closure 不经过注入器（不每轮注入）", async () => {
+    // 空命中：注入器原文透传
+    const identity = makeInjectedChat((_sid, text) => text);
+    await identity.chat.sendMessage("空命中问");
+    expect(identity.engine.inputs).toEqual(["空命中问"]);
+
+    // 未装配：原文
+    const plain = makeInjectedChat(undefined);
+    await plain.chat.sendMessage("无注入器问");
+    expect(plain.engine.inputs).toEqual(["无注入器问"]);
+
+    // steer/closure 不经过：注入器调用计数恒 1（仅首轮 idle 用户消息）
+    let calls = 0;
+    const counting = makeInjectedChat((_sid, text) => {
+      calls += 1;
+      return text;
+    });
+    counting.chat.injectClosure("agent-1 closure: done — 完工", "closure"); // idle → fire-and-forget sendMessage(source=closure)
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls).toBe(0); // closure 注入不过切片注入器
+    await counting.chat.sendMessage("用户问");
+    expect(calls).toBe(1); // 仅真实用户消息首轮过一次
   });
 });
 
