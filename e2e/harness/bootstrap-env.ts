@@ -14,6 +14,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { expect, type Page } from "@playwright/test";
 import type { DaemonScript } from "./daemon-script";
 import type { OrchestratorScriptEntry } from "./daemon-script";
 import type { FakeEngineScript } from "../../apps/daemon/src/adapters/driven/subagent/child/scriptedEngine";
@@ -93,26 +94,6 @@ interface StageSpec {
   readonly summary: string;
 }
 
-export const BOOTSTRAP_STAGES: readonly StageSpec[] = [
-  { seq: 1, layer: "L0", scope: "架构与全局规范", summary: "L0 层建成：架构 2 节点（分层/写通道），锚定文件级。" },
-  { seq: 2, layer: "L1", scope: "领域层（会话管理域）", summary: "L1 层建成：会话管理域 2 节点，锚定 L0 架构事实。" },
-  { seq: 3, layer: "L2", scope: "实体层（购物车模块）", summary: "L2 层建成：购物车实体 2 节点（符号域锚），关联 L1 会话域。" },
-];
-
-/** 单阶段批次循环段：插行 → 推阶段 → 派发三步 → 等待（收口后聚合）。 */
-function stageEntries(stage: StageSpec): OrchestratorScriptEntry[] {
-  const brief = batchBrief(stage);
-  return [
-    { kind: "tool", toolName: "task_insert_batch", args: { stageSeq: stage.seq, scope: `L${stage.seq === 1 ? "0" : stage.seq === 2 ? "1" : "2"} ${stage.scope}` } },
-    { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: stage.seq } },
-    { kind: "tool", toolName: "agent_spawn", args: { task: brief } },
-    { kind: "tool", toolName: "task_dispatch_batch", args: { batchId: "{any.batchId}", instanceId: "{any.agentId}" } },
-    { kind: "reply", text: `批次 #${stage.seq}.1 已派发，等待收口注入。` },
-    // 收口注入后：聚合阶段产物 → （下一轮插下阶段）——由驱动轮继续
-    { kind: "tool", toolName: "task_stage_artifact", args: { stageSeq: stage.seq, summary: stage.summary } },
-  ];
-}
-
 /** 全链路 happy path 剧本：三阶段各一批，末尾申报完成。 */
 export function happyPathOrchestratorScript(): OrchestratorScriptEntry[] {
   return [
@@ -121,6 +102,65 @@ export function happyPathOrchestratorScript(): OrchestratorScriptEntry[] {
     ...stageEntries(BOOTSTRAP_STAGES[2]!),
     { kind: "tool", toolName: "task_complete_job", args: {} },
   ];
+}
+
+/** 剧本二 daemon A 编排剧本：stage1 全量（含聚合）+ stage2 派发轮（batch2 挂起等 SIGTERM 现场）。 */
+export function restartRecoveryScriptA(): OrchestratorScriptEntry[] {
+  return [...stageEntries(BOOTSTRAP_STAGES[0]!), ...stageRoundEntries(BOOTSTRAP_STAGES[1]!)];
+}
+
+/** 剧本二 daemon B 编排剧本：恢复待命 ×2（kickoff 轮 + sweepRetries 重派补漏注入
+ *  轮——两个唤醒源各消费一条，待命轮不推进）→ batch2 重派收口后聚合 stage2 +
+ *  stage3 全量 + 完成申报。轮次：r1 kickoff=reply；r2 重派补漏注入=reply；
+ *  r3 batch2 重跑收口=artifact(2)+stage3 派发轮；r4 batch3 收口=artifact(3)+complete。 */
+export function restartRecoveryScriptB(): OrchestratorScriptEntry[] {
+  return [
+    { kind: "reply", text: "【恢复】现场已重建——等待重派批次收口注入。" },
+    { kind: "reply", text: "【重派补漏已知悉】批次 #2.1 已补派——等待其收口注入，不另派新批。" },
+    stageArtifactEntry(BOOTSTRAP_STAGES[1]!),
+    ...stageRoundEntries(BOOTSTRAP_STAGES[2]!),
+    stageArtifactEntry(BOOTSTRAP_STAGES[2]!),
+    { kind: "tool", toolName: "task_complete_job", args: {} },
+  ];
+}
+
+/** 剧本三编排剧本：stage1 派发轮 →（暂停中 batch1 收口轮）待命 reply →（resume 唤醒轮）聚合 stage1 + stage2 派发轮。
+ *  轮次：r1 kickoff=stage1 派发轮；r2 batch1 收口（paused）=reply；r3 resume 唤醒=artifact(1)+stage2 派发轮。 */
+export function lifecycleScript(): OrchestratorScriptEntry[] {
+  return [
+    ...stageRoundEntries(BOOTSTRAP_STAGES[0]!),
+    { kind: "reply", text: "批次 1 已收口；任务暂停中——等待恢复注入。" },
+    stageArtifactEntry(BOOTSTRAP_STAGES[0]!),
+    ...stageRoundEntries(BOOTSTRAP_STAGES[1]!),
+  ];
+}
+
+export const BOOTSTRAP_STAGES: readonly StageSpec[] = [
+  { seq: 1, layer: "L0", scope: "架构与全局规范", summary: "L0 层建成：架构 2 节点（分层/写通道），锚定文件级。" },
+  { seq: 2, layer: "L1", scope: "领域层（会话管理域）", summary: "L1 层建成：会话管理域 2 节点，锚定 L0 架构事实。" },
+  { seq: 3, layer: "L2", scope: "实体层（购物车模块）", summary: "L2 层建成：购物车实体 2 节点（符号域锚），关联 L1 会话域。" },
+];
+
+/** 单阶段派发轮条目：插行 → 推阶段 → 派发三步 → 等待收口注入（剧本二/三组合用）。 */
+export function stageRoundEntries(stage: StageSpec): OrchestratorScriptEntry[] {
+  const brief = batchBrief(stage);
+  return [
+    { kind: "tool", toolName: "task_insert_batch", args: { stageSeq: stage.seq, scope: `L${stage.seq === 1 ? "0" : stage.seq === 2 ? "1" : "2"} ${stage.scope}` } },
+    { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: stage.seq } },
+    { kind: "tool", toolName: "agent_spawn", args: { task: brief } },
+    { kind: "tool", toolName: "task_dispatch_batch", args: { batchId: "{any.batchId}", instanceId: "{any.agentId}" } },
+    { kind: "reply", text: `批次 #${stage.seq}.1 已派发，等待收口注入。` },
+  ];
+}
+
+/** 阶段产物聚合条目（收口注入驱动轮首条；剧本二/三组合用）。 */
+export function stageArtifactEntry(stage: StageSpec): OrchestratorScriptEntry {
+  return { kind: "tool", toolName: "task_stage_artifact", args: { stageSeq: stage.seq, summary: stage.summary } };
+}
+
+/** 单阶段批次循环段：派发轮 + 收口后聚合（剧本一 happy path 组合单元）。 */
+function stageEntries(stage: StageSpec): OrchestratorScriptEntry[] {
+  return [...stageRoundEntries(stage), stageArtifactEntry(stage)];
 }
 
 // ── 批次子进程剧本（子进程 scriptedEngine 消费；模板从 brief 提取） ──
@@ -151,37 +191,56 @@ function layerNodes(): Record<string, unknown>[] {
   ];
 }
 
+/** 批次子进程工具轮（plan_create → plan_update 链式 → kg-update 批量落账 → plan_update 收尾）。 */
+const BATCH_TOOL_CALLS = [
+  {
+    name: "plan_create",
+    args: { items: ["探索范围内模块结构与符号", "产出知识节点并落账"] },
+  },
+  // work_item 状态机链式（§3.2）：pending → in_progress → done/abandoned
+  //（直达终会被工具层拒绝——链条更新是 SOP 纪律，剧本如实模拟）
+  { name: "plan_update", args: { seq: 1, status: "in_progress" } },
+  { name: "plan_update", args: { seq: 1, status: "done", note: "结构已探索（fixture 两模块）" } },
+  {
+    name: "kg-update",
+    args: {
+      op: "batchCreateNodes",
+      iterationId: "bootstrap-e2e",
+      status: "confirmed",
+      layer: "{layer}",
+      taskId: "{taskId}",
+      originBatchId: "{batchId}",
+      nodes: layerNodes(),
+    },
+  },
+  { name: "plan_update", args: { seq: 2, status: "in_progress" } },
+  { name: "plan_update", args: { seq: 2, status: "done", note: "节点已落库（kg-update 批量）" } },
+] as const;
+
+const BATCH_CLOSURE_REPLY =
+  '批次探索完成，知识节点已落账。\n<<<CLOSURE\n{"status":"done","summary":"批次完成：知识节点已落库","reportPath":null,"findings":[],"taskId":null}\nCLOSURE>>>';
+
 /** 批次子进程剧本：plan_create → plan_update → kg-update 批量落账 → plan_update → closure。 */
 export function batchChildEngineScript(): FakeEngineScript {
   return {
     chunkDelayMs: 2,
-    toolCalls: [
-      {
-        name: "plan_create",
-        args: { items: ["探索范围内模块结构与符号", "产出知识节点并落账"] },
-      },
-      // work_item 状态机链式（§3.2）：pending → in_progress → done/abandoned
-      //（直达终会被工具层拒绝——链条更新是 SOP 纪律，剧本如实模拟）
-      { name: "plan_update", args: { seq: 1, status: "in_progress" } },
-      { name: "plan_update", args: { seq: 1, status: "done", note: "结构已探索（fixture 两模块）" } },
-      {
-        name: "kg-update",
-        args: {
-          op: "batchCreateNodes",
-          iterationId: "bootstrap-e2e",
-          status: "confirmed",
-          layer: "{layer}",
-          taskId: "{taskId}",
-          originBatchId: "{batchId}",
-          nodes: layerNodes(),
-        },
-      },
-      { name: "plan_update", args: { seq: 2, status: "in_progress" } },
-      { name: "plan_update", args: { seq: 2, status: "done", note: "节点已落库（kg-update 批量）" } },
-    ],
-    replies: [
-      '批次探索完成，知识节点已落账。\n<<<CLOSURE\n{"status":"done","summary":"批次完成：知识节点已落库","reportPath":null,"findings":[],"taskId":null}\nCLOSURE>>>',
-    ],
+    toolCalls: BATCH_TOOL_CALLS,
+    replies: [BATCH_CLOSURE_REPLY],
+  };
+}
+
+/** 剧本三批次子进程剧本：工具轮同 batchChildEngineScript，尾部 closure 回复慢速流
+ *  （4 字符/片 × 150ms ≈ 10s+ 在跑窗口）——pause/cancel 生命周期操作的可观测窗口。
+ *  长文本只拉长流式尾（closure 完整到达才判 done；cancel SIGTERM 中断即 killed）。 */
+export function slowBatchChildEngineScript(): FakeEngineScript {
+  const padding =
+    "批次探索进行中：模块结构已扫描，符号面已梳理，知识节点正文按写作规范组装完毕，台账项逐项收口核对中。".repeat(
+      4,
+    );
+  return {
+    chunkDelayMs: 150,
+    toolCalls: BATCH_TOOL_CALLS,
+    replies: [`${padding}\n${BATCH_CLOSURE_REPLY}`],
   };
 }
 
@@ -254,7 +313,7 @@ console.log(JSON.stringify({ jobs: c("job"), stages: c("stage"), batches: c("bat
 export function taskRows(home: string): {
   jobs: { id: string; type: string; status: string; error: string | null }[];
   stages: { job_id: string; seq: number; status: string; artifact: string | null }[];
-  batches: { id: string; job_id: string; stage_seq: number; seq: number; status: string; retry_count: number; instance_id: string | null }[];
+  batches: { id: string; job_id: string; stage_seq: number; seq: number; status: string; retry_count: number; retry_note: string | null; instance_id: string | null }[];
 } {
   const db = path.join(home, "helix.db");
   return runBun(`
@@ -263,7 +322,7 @@ const db = new Database(${JSON.stringify(db)}, { readonly: true });
 console.log(JSON.stringify({
   jobs: db.query("SELECT id, type, status, error FROM job ORDER BY id").all(),
   stages: db.query("SELECT job_id, seq, status, artifact FROM stage ORDER BY job_id, seq").all(),
-  batches: db.query("SELECT id, job_id, stage_seq, seq, status, retry_count, instance_id FROM batch ORDER BY job_id, stage_seq, seq").all(),
+  batches: db.query("SELECT id, job_id, stage_seq, seq, status, retry_count, retry_note, instance_id FROM batch ORDER BY job_id, stage_seq, seq").all(),
 }));
 `) as ReturnType<typeof taskRows>;
 }
@@ -271,4 +330,34 @@ console.log(JSON.stringify({
 /** chat 会话剧本（E 层主链路 daemon 必填；bootstrap 链路无 chat turn——一条空收口兜底）。 */
 export function idleDaemonScript(): DaemonScript {
   return { entries: [{ kind: "reply", text: "（chat 无轮次——bootstrap 链路）" }] };
+}
+
+// ── 共用 UI 路径（剧本一已验证流；剧本二/三复用） ──
+
+/** /project 页发起 bootstrap → 跳转 P-2 任务页（degraded 准入放行 → 入口 → launch → goto tasks）。 */
+export async function launchBootstrapViaUi(page: Page): Promise<void> {
+  await page.locator('.rail-btn[data-page="project"]').click();
+  await expect(page.locator('[data-p1-project="/project"]')).toBeVisible();
+  const row = page.locator(`.pj-row[data-name="${BOOTSTRAP_PROJECT}"]`);
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.click();
+  await expect(page.locator('[data-pj-main="absent"]')).toBeVisible({ timeout: 10_000 });
+  await page.locator("[data-build-cta]").click();
+  // degraded 基准建立（无 codegraph 二进制 → EngineUnavailable → degraded 标记 + baseline）
+  await expect(page.locator('[data-pj-main="graph"]')).toBeVisible({ timeout: 30_000 });
+  const entry = page.locator('[data-boot-entry="ready"]');
+  await expect(entry).toBeVisible({ timeout: 10_000 });
+  await entry.locator("[data-launch-btn]").click();
+  await expect(page.locator("[data-boot-launched]")).toBeVisible({ timeout: 10_000 });
+  await page.locator("[data-goto-tasks]").click();
+  await expect(page.locator('[data-p2-task="/tasks"]')).toBeVisible();
+}
+
+/** 打开任务详情（P-2 列表首行点击 → 详情出现）。 */
+export async function openFirstTaskDetail(page: Page) {
+  const jobRow = page.locator(".tk-row");
+  await expect(jobRow).toHaveCount(1, { timeout: 15_000 });
+  await jobRow.click();
+  await expect(page.locator('[data-tk-detail][data-id^="task-"]')).toBeVisible({ timeout: 15_000 });
+  return jobRow;
 }
