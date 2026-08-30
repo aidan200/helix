@@ -44,7 +44,9 @@ const ORCHESTRATOR_BASE_PROMPT =
   "- 全部阶段完成后申报任务完成——系统会机械复核全部阶段行后收口，未完成会被拒绝并回执原因；\n" +
   "- 任务暂停期间派发与推进会被拒绝——不要重试，等待恢复注入后从现场摘要续跑；\n" +
   "- 你的会话可丢弃：权威状态只有 skill、任务四表行与实例台账，任何时刻可从行状态重建现场；不要在会话内自建平行账本。\n" +
-  "批次 brief 装配（必须遵守）：按段库与任务 skill 的批次 brief 模板段装配；强制台账的任务类型，台账硬约束段由系统在派发时机械追加——你不必重复、不可移除。";
+  "批次 brief 装配（必须遵守）：按段库与任务 skill 的批次 brief 模板段装配；强制台账的任务类型，台账硬约束段由系统在派发时机械追加——你不必重复、不可移除。\n" +
+  "派发提示（W3-G）：任务涉及知识管辖的代码面时，在 brief 中提示执行者走开工链路" +
+  "（codegraph 落地符号 → kg affected 锚反查 → kg get 读全文）。";
 
 /** base + 段库装配指引（AD-18：提示词携带段库+硬约束+装配示例引用）。 */
 export const ORCHESTRATOR_SYSTEM_PROMPT = ORCHESTRATOR_BASE_PROMPT + "\n\n" + BRIEF_ASSEMBLY_GUIDE;

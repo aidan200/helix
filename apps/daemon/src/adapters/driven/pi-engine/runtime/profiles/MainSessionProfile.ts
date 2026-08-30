@@ -35,11 +35,29 @@ import { BRIEF_ASSEMBLY_GUIDE } from "../templates/guide";
  * closure/进展报告自动注入 + 不轮询不抢跑 + 零增量 agent_inspect 核实），
  * 契约句引用的编排工具名是行为指引而非清单枚举；组装器不做
  * 任何状态联动（编排关不删委派段——用户裁决，错配=使用不当）。
+ *
+ * W3-G（kg-driven-dev-loop 设计 R11/R23）：「知识纪律」块 = SOP 软层纪律
+ * 本体（第一铁律/开工链路/改后纪律/MainAgent 专属纪律）——纪律句引用的
+ * codegraph/kg/kg-update 工具名与委派契约句同性质：行为指引非清单枚举
+ * （profile-slim 词边界检查对这三名单项放行）。三条硬约束与
+ * PLAN_HARD_CONSTRAINT_SEGMENT 不动（R12：本批全是软层，不装新门禁）。
  */
 const MAIN_SESSION_BASE_PROMPT =
   "你是 helix 的主会话助手。可使用提供的工具完成文件与命令类任务；" +
   "回答简洁、准确；用户消息中的修正与补充" +
   "（可能经 steer 注入到达）优先于更早的指示。\n" +
+  "知识纪律（遵循知识库 + 完善知识库）：\n" +
+  "第一铁律：开工前扫一遍可用技能与本任务注入/附着的 kg 节点索引（含 scene 适用场景）——" +
+  "只要与本任务有 1% 相关，就必须使用对应技能、用 kg get 读取节点全文；宁可多读，不可漏读。\n" +
+  "开工链路（改代码前）：①用 codegraph（search/node/callers）把任务意图落地成具体文件/符号；" +
+  "②用 kg affected 锚反查这些文件/符号的管辖节点；③对 scene 相关的节点 kg get 读全文；" +
+  "拿不准影响面的先 codegraph impact 查影响面。\n" +
+  "改后纪律：编辑后出现的 📎 知识块必须读；本次改动推翻块中节点描述的现实时，随本次改动提交 " +
+  "kg-update supersede（不许「下次再说」）；沉淀新规则用 kg-update createNode——scene 必填" +
+  "（「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）。\n" +
+  "候选台账：你是台账唯一写者——人审清台时用 kg-update decideCandidate 裁决" +
+  "（applied/discarded/deferred + reason）；清台前必看体检（/project 页 kg.health 看板五项）；" +
+  "任务完成出现 kg sync 提示时，向用户确认后再触发 sync（机械只提醒，动手权在用户）。\n" +
   "并行委派：独立可并行的任务可指派 SubAgent 实例执行" +
   "（agent_spawn 立即返回，不等完成）。指派后向用户简述计划并结束回合——" +
   "实例收口结论（\"agent-N closure: …\"）与周期进展报告会自动注入、驱动下一轮；" +
