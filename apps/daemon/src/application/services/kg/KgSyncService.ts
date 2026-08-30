@@ -10,10 +10,12 @@
  * ④ 锚失效检测（上一基准活跃锚 − 本次 join → orphan 标记保留行，供 T5.1）
  *   + meta 基准戳推进——全部经 KnowledgeStorePort.applySync 单事务落库。
  *
- * 触发面：生产唯一入口 = 页面手动 triggerManual（含 getStatus/isBuilding
- * 读面）。启动 onStartup 全量触发 / fs-watch 兑底挂接 / edit 工具写后
- * notifyWrite 注入按 2026-08-29 用户裁决全部退役（方法与其行为单测
- * 保留，能力面不动）。多项目按 projectRoot 隔离（per-project 队列与状态）。
+ * 触发面：生产入口 = 页面手动 triggerManual（含 getStatus/isBuilding
+ * 读面）+ fs-watch 监控（B3 重新挂接，推翻 2026-08-29 退役裁决：索引
+ * 建成后 KgFsWatchService per-project watcher → onFsEvent 归一入口）；
+ * 启动 onStartup 全量触发 / edit 工具写后 notifyWrite 注入按 2026-08-29
+ * 用户裁决维持退役（方法与其行为单测保留，能力面不动）。多项目按
+ * projectRoot 隔离（per-project 队列与状态）。
  *
  * 附着不依赖新鲜度（AD-15）：本服务不暴露任何「等 sync」接口；附着读
  * 快照走 KnowledgeGraphPort 直读（滞后合法），本文件零读附着面。
@@ -53,6 +55,12 @@ export interface KgSyncServiceDeps {
   readonly debounceMs?: number;
   /** 失败退避基数 ms（指数退避，缺省 1000，上限 RETRY_BACKOFF_MAX_MS）。 */
   readonly retryBackoffMs?: number;
+  /**
+   * sync 成功钩子（B3 fs-watch 挂接缝：索引建成 absent→building→synced 后
+   * 组合根接到 KgFsWatchService.watchProject 启动 per-project watcher；
+   * 每次 sync 成功都调，watchProject 幂等吸收重复挂接）。
+   */
+  readonly onSynced?: (projectRoot: string) => void;
 }
 
 /** fs-watch 事件归一形态（兑底信号面；生产挂接已退役，方法保留）。 */
@@ -231,6 +239,7 @@ export class KgSyncService {
       const result = await this.syncOnce(projectRoot, state, full);
       state.failCount = 0;
       state.lastSyncedAt = result.syncedAt;
+      this.deps.onSynced?.(projectRoot); // B3：索引建成/刷新 → watcher 挂接点
       return result;
     } catch (error) {
       state.failCount += 1;

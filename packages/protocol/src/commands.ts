@@ -531,6 +531,33 @@ export interface KgBootstrapImpactCommand extends CommandFrame<KgBootstrapImpact
   type: "kg.bootstrap.impact";
 }
 
+// ── kg 维护批新增（C1：清空图谱 + 删除索引两命令；全局命令，必填 project）──
+
+export interface KgGraphPurgePayload {
+  /** 项目名或绝对路径（daemon 单点解析）。 */
+  project: string;
+}
+/**
+ * 清空本项目 kg 库全部内容（知识面 + 符号面 + meta 基准，全量清 + 索引态复位
+ * absent——不动 .codegraph，那是 kg.index.delete 的职责）。安全门禁：存在
+ * 运行中（running/pending）kg-bootstrap 任务时拒绝（kg.graph.purge_blocked）。
+ */
+export interface KgGraphPurgeCommand extends CommandFrame<KgGraphPurgePayload> {
+  type: "kg.graph.purge";
+}
+
+export interface KgIndexDeletePayload {
+  /** 项目名或绝对路径（daemon 单点解析）。 */
+  project: string;
+}
+/**
+ * 删除项目 .codegraph 索引目录 + kg 索引态复位 absent（联动停 fs-watch
+ * watcher；知识层不动——下次 triggerManual 重建索引后符号面自动恢复）。
+ */
+export interface KgIndexDeleteCommand extends CommandFrame<KgIndexDeletePayload> {
+  type: "kg.index.delete";
+}
+
 // ── workspace 批新增（W1 workspace 绑定闭环；契约 = 设计稿 workspace-feature-design-candidate.md §3.1）──
 
 /**
@@ -636,7 +663,7 @@ export interface TaskDeleteCommand extends CommandFrame<TaskDeletePayload> {
   type: "task.delete";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50） */
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -677,6 +704,8 @@ export type CommandEnvelope =
   | KgNodeUpdateCommand
   | KgNodeSupersedeCommand
   | KgBootstrapImpactCommand
+  | KgGraphPurgeCommand
+  | KgIndexDeleteCommand
   | WorkspaceGetCommand
   | WorkspaceOpenCommand
   | TaskListCommand
@@ -730,6 +759,8 @@ export const COMMAND_TYPES = [
   "kg.node.update",
   "kg.node.supersede",
   "kg.bootstrap.impact",
+  "kg.graph.purge",
+  "kg.index.delete",
   "workspace.get",
   "workspace.open",
   "task.list",

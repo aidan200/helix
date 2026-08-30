@@ -1,15 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { BatchData, JobData, StageData } from "../../src/application/ports/outbound/TaskStorePort";
 import { TaskError } from "../../src/application/services/task/TaskError";
-import type { NodeRefData } from "../../src/application/services/task/TaskQueryService";
 import { withTaskEnv, childLedger, type TaskEngineEnv } from "../helpers/task-fixtures";
 
 /**
  * TaskQueryService 投影（CL-3-T1 数据面，AD-4②）：
  * 六态任务集 → listTasks 排序（运行中置顶 + 创建时间倒序）+ DTO 字段齐
  * （title 服务端组装非空、progress、error）；过滤面（status/project）；
- * getTaskDetail（阶段条 + 批次 + 实例 plan + currentNarrative 贯穿六态）；
- * getTaskArtifacts（stage.artifact + 节点投影注入面）。
+ * getTaskDetail（阶段条 + 全量批次按 stageSeq 分组键 + 实例 plan）；
+ * getTaskArtifacts（stage.artifact 文字报告 { summary }——结果与 kg 零耦合）。
  */
 
 const T = (min: number): string => `2026-08-29T10:${String(min).padStart(2, "0")}:00.000Z`;
@@ -81,9 +80,13 @@ async function seedSixStates(env: TaskEngineEnv): Promise<SixStateIds> {
   // pending（10:02）：未启动（progress null）
   await s.insertJob(jobOf("job-pending", "pending", T(2)));
   await s.insertStage(stageOf("job-pending", 1, "L0 核心层", "pending"));
-  // done（10:03）：全 stage done + artifact
+  // done（10:03）：全 stage done + artifact（两阶段各带批次——全量批次断言面）
   await s.insertJob(jobOf("job-done", "done", T(3)));
-  await s.insertStage(stageOf("job-done", 1, "L0 核心层", "done", { artifact: { nodeIds: ["TR-1", "TR-2"], summary: "L0 完成：核心规则 2 条" } }));
+  await s.insertStage(stageOf("job-done", 1, "L0 核心层", "done", { artifact: { summary: "L0 完成：核心规则 2 条" } }));
+  await s.insertStage(stageOf("job-done", 2, "L1 领域层", "done", { artifact: { summary: "L1 完成：领域 3 域" } }));
+  await s.insertBatch(batchOf("bat-d1", "job-done", 1, 1, "done", { instanceId: "inst-d1" }));
+  await s.insertBatch(batchOf("bat-d2", "job-done", 1, 2, "done", { instanceId: "inst-d2" }));
+  await s.insertBatch(batchOf("bat-d3", "job-done", 2, 1, "done", { instanceId: "inst-d3" }));
   // failed（10:04）
   await s.insertJob(jobOf("job-failed", "failed", T(4), { error: "重试耗尽：批次 demo 探索 3 次失败" }));
   await s.insertStage(stageOf("job-failed", 1, "L0 核心层", "failed"));
@@ -156,7 +159,7 @@ describe("TaskQueryService 投影（CL-3-T1 数据面）", () => {
     });
   });
 
-  test("getTaskDetail：阶段条 + 当前阶段批次 + 实例 plan + currentNarrative 贯穿六态", async () => {
+  test("getTaskDetail：阶段条 + 全量批次（stageSeq 分组键，跨阶段收集）+ 实例 plan", async () => {
     await withTaskEnv(async (env) => {
       const ids = await seedSixStates(env);
       const detail = env.query.getTaskDetail(ids.running);
@@ -164,19 +167,29 @@ describe("TaskQueryService 投影（CL-3-T1 数据面）", () => {
         [1, "L0 核心层", "running"],
         [2, "L1 领域层", "pending"],
       ]);
-      // 当前阶段批次列表（running job → L0 两批次）
-      expect(detail.batches.map((b) => b.status)).toEqual(["done", "running"]);
+      // 批次带 stageSeq 分组键（running job 仅 stage 1 有两批）
+      expect(detail.batches.map((b) => [b.stageSeq, b.seq, b.status])).toEqual([
+        [1, 1, "done"],
+        [1, 2, "running"],
+      ]);
       const runningBatch = detail.batches[1]!;
       expect(runningBatch.instanceId).toBe("inst-r2");
       expect(runningBatch.plan?.map((p) => [p.seq, p.content, p.status])).toEqual([
         [1, "扫描 demo 项目符号面", "pending"],
         [2, "落 L0 核心节点", "pending"],
       ]);
-      expect(detail.currentNarrative).toContain("L0 核心层");
       expect(detail.params).toEqual({ projectRoot: "/tmp/demo" });
-      // 叙述句贯穿六态（抽查 paused/failed）
-      expect(env.query.getTaskDetail(ids.paused).currentNarrative).toContain("暂停");
-      expect(env.query.getTaskDetail(ids.failed).currentNarrative).toContain("重试耗尽");
+      // 叙述句已拆除（裁决 ③）：DTO 无 currentNarrative 字段
+      expect(detail).not.toHaveProperty("currentNarrative");
+      // done 任务：全部阶段批次返回（不再只是末阶段），按 stage seq + 批次 seq 序
+      const doneDetail = env.query.getTaskDetail(ids.done);
+      expect(doneDetail.batches.map((b) => [b.stageSeq, b.seq])).toEqual([
+        [1, 1],
+        [1, 2],
+        [2, 1],
+      ]);
+      // 进度语义不变：仍按当前阶段折算（done 态 100）
+      expect(doneDetail.progress).toMatchObject({ stageName: null, percent: 100 });
       // 不存在 → task.not_found（code 判定）
       try {
         env.query.getTaskDetail("job-none");
@@ -187,35 +200,19 @@ describe("TaskQueryService 投影（CL-3-T1 数据面）", () => {
     });
   });
 
-  test("getTaskArtifacts：stage.artifact 投影 + 节点人类可读注入面（AD-4②）", async () => {
-    const fakeNodes: NodeRefData[] = [
-      { nodeId: "TR-1", name: "会话投影幂等", kind: "rule", digestFirstLine: "投影以种子集合收口。", status: "confirmed" },
-      { nodeId: "TR-2", name: "单写通道", kind: "rule", digestFirstLine: "全部写经 WriteQueue。", status: "confirmed" },
-    ];
-    await withTaskEnv({ kgNodeProjector: (nodeIds) => fakeNodes.filter((n) => nodeIds.includes(n.nodeId)) }, async (env) => {
+  test("getTaskArtifacts：stage.artifact 文字报告投影（{ summary }，结果与 kg 零耦合）", async () => {
+    await withTaskEnv(async (env) => {
       const ids = await seedSixStates(env);
       const artifacts = env.query.getTaskArtifacts(ids.done);
-      expect(artifacts.stages).toHaveLength(1);
+      expect(artifacts.stages).toHaveLength(2);
       const stage = artifacts.stages[0]!;
       expect(stage).toMatchObject({ seq: 1, name: "L0 核心层", status: "done" });
-      expect(stage.artifact).not.toBeNull();
-      expect(stage.artifact!.summary).toBe("L0 完成：核心规则 2 条");
-      expect(stage.artifact!.nodes.map((n) => [n.nodeId, n.name, n.kind])).toEqual([
-        ["TR-1", "会话投影幂等", "rule"],
-        ["TR-2", "单写通道", "rule"],
-      ]);
-    });
-  });
-
-  test("getTaskArtifacts 缺省（无 kg 投影注入）：结构完整不炸，nodes 空投影", async () => {
-    await withTaskEnv(async (env) => {
-      await env.store.insertJob(jobOf("job-d2", "done", T(9)));
-      await env.store.insertStage(
-        stageOf("job-d2", 1, "L0 核心层", "done", { artifact: { nodeIds: ["TR-9"], summary: "s" } }),
-      );
-      const artifacts = env.query.getTaskArtifacts("job-d2");
-      expect(artifacts.stages[0]!.artifact).toMatchObject({ summary: "s" });
-      expect(artifacts.stages[0]!.artifact!.nodes).toEqual([]);
+      // artifact 恰为 { summary }（无 nodes/nodeIds 残留键）
+      expect(stage.artifact).toEqual({ summary: "L0 完成：核心规则 2 条" });
+      expect(artifacts.stages[1]!.artifact).toEqual({ summary: "L1 完成：领域 3 域" });
+      // 未完成阶段 artifact null（空态不炸）
+      const running = env.query.getTaskArtifacts(ids.running);
+      expect(running.stages.map((s) => s.artifact)).toEqual([null, null]);
     });
   });
 });

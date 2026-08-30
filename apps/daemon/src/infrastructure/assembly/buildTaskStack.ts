@@ -6,7 +6,7 @@ import { TaskStore } from "../../adapters/driven/sqlite-session/TaskStore";
 import { parentWorkLedger } from "../../adapters/driven/sqlite-session/WorkLedger";
 import { TaskSkillRegistry } from "../../adapters/driven/task-skill-registry/TaskSkillRegistry";
 import { TaskEngineService } from "../../application/services/task/TaskEngineService";
-import { TaskQueryService, type NodeRefData } from "../../application/services/task/TaskQueryService";
+import { TaskQueryService } from "../../application/services/task/TaskQueryService";
 import { WorkLedgerService } from "../../application/services/task/WorkLedgerService";
 import type { TaskEnginePort } from "../../application/ports/inbound/TaskEnginePort";
 import type {
@@ -64,8 +64,6 @@ export interface BuildTaskStackDeps {
   readonly starterOverride?: TaskOrchestratorStarterPort;
   /** builtin 层扫描面（T2.3 真体：TaskSkillRegistry 装载源；缺省 = 空注册表占位——测试隔离形态）。 */
   readonly skillSource?: SkillSourcePort;
-  /** kg 节点投影注入（产物页人类可读，AD-4②；缺省 = 空投影）。 */
-  readonly kgNodeProjector?: (nodeIds: readonly string[]) => readonly NodeRefData[];
   /**
    * task.changed 出站钩子（AF-T1.5.2，T2.2）：透传 TaskEngineService——
    * 组合根接 EventStream.broadcastTaskChanged 同一广播单点（生命周期三
@@ -93,7 +91,7 @@ export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStac
     clock: deps.clock,
     ...(deps.onTaskChanged !== undefined ? { onTaskChanged: deps.onTaskChanged } : {}),
   });
-  const query = new TaskQueryService({ store, workLedger, skills, clock: deps.clock, kgNodeProjector: deps.kgNodeProjector });
+  const query = new TaskQueryService({ store, workLedger, skills, clock: deps.clock });
   // T2.2 编排服务任务域依赖面：台账读面（父进程不持写面，O-1 表分域）+
   // skill 全文取数（扫描 → 文件读取；组合根 fs 职责，服务层零 IO）
   const ledger = new WorkLedgerService({ reader: workLedger });

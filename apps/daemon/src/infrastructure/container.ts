@@ -31,7 +31,7 @@ import { TaskOrchestratorService } from "../application/services/task/TaskOrches
 import type { TaskOrchestratorStarterPort } from "../application/ports/outbound/TaskOrchestratorStarterPort";
 import { PLAN_HARD_CONSTRAINT_SEGMENT } from "../adapters/driven/pi-engine/runtime/templates/catalog";
 import { resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
-import { scanWorkspaceProjects } from "../adapters/driven/workspace-scan";
+import { scanWorkspaceProjects, existingKgProjects } from "../adapters/driven/workspace-scan";
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
 import { accessSync, constants as fsConstants } from "node:fs";
@@ -42,6 +42,7 @@ import { buildPersistence } from "./assembly/buildPersistence";
 import { buildModelStack } from "./assembly/buildModelStack";
 import { buildTaskStack } from "./assembly/buildTaskStack";
 import { KgBootstrapService } from "../application/services/kg/KgBootstrapService";
+import { KgMaintenanceService } from "../application/services/kg/KgMaintenanceService";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode } from "./assembly/buildSessionStack";
 import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
@@ -314,9 +315,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
 
   // ── workspace 绑定面（W1 绑定闭环）：绑定状态机唯一事实源 + 绑定 kg 栈
   //    持有者（重绑接缝）。物化时机迁移：unbound boot 零扫描零同步零开库
-  //    ——栈只在 restore 成功/open 成功/初始绑定后建。kg 索引同步按
-  //    2026-08-29 用户裁决改纯手动：startSync 恒 no-op（启动/绑定/换绑
-  //    零自动触发；唯一生产触发面 = 页面手动 KgSyncService.triggerManual）。
+  //    ——栈只在 restore 成功/open 成功/初始绑定后建。kg 索引同步触发面：
+  //    页面手动 triggerManual + fs-watch 监控（B3 重新挂接，推翻 2026-08-29
+  //    退役裁决）——startSync = watcher 补齐接缝：绑定/换绑时对已建
+  //    .helix-kg 的项目批量挂接；absent 项目等索引建成后经
+  //    KgSyncService.onSynced 钩子挂接。启动/换绑不自动跑 sync。
   //    广播、活跃 agent 判定与会话卸载面经晚绑闭包（eventStream/
   //    registry 在 buildSessionStack 后才存在——与 wsServer 同款回填模式）。──
   let broadcastWorkspaceChanged: (root: string) => void = () => {};
@@ -327,8 +330,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     fs: createWorkspaceFs(), // driven 探测端口（realpath/可读目录/危险根判定输入）
     clock: { now: () => new Date().toISOString() },
     cwd: () => process.cwd(), // CLI 例外条款源（终端站位 = 显式选择）
-    buildStack: (root) => buildKnowledgeStack({ codegraphResolution, workspaceRoot: root }),
-    startSync: () => ({ stop: () => {} }),
+    buildStack: (root) => buildKnowledgeStack({ codegraphResolution, workspaceRoot: root, logger }),
+    // B3 fs-watch 补齐挂接：已建 .helix-kg 索引的项目即挂 watcher（索引态
+    // 补齐）；stop = 全停（重绑/dispose 清理面——栈 dispose 内含同调用，幂等）。
+    startSync: (stack, root) => {
+      for (const projectRoot of existingKgProjects(root)) stack.fsWatch.watchProject(projectRoot);
+      return { stop: () => stack.fsWatch.dispose() };
+    },
     broadcast: (root) => broadcastWorkspaceChanged(root),
     hasActiveAgent: () => hasActiveAgentNow(),
     // W4 债清偿：重绑（替换已绑定栈）时卸载全部现有会话——旧会话 executor
@@ -385,24 +393,6 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     starterOverride: lateStarter,
     skillSource: taskSkillSource,
     onTaskChanged: (frame) => broadcastTaskChanged(frame),
-    kgNodeProjector: (nodeIds) => {
-      const stack = workspace.stack();
-      if (stack === null) return [];
-      return nodeIds.flatMap((nodeId) => {
-        const hit = stack.queryService.get(nodeId);
-        if (hit === null) return [];
-        const firstLine = hit.detail.node.digest.split("\n")[0] ?? "";
-        return [
-          {
-            nodeId,
-            name: hit.detail.node.name,
-            kind: hit.detail.node.kind,
-            digestFirstLine: firstLine.length > 120 ? `${firstLine.slice(0, 119)}…` : firstLine,
-            status: hit.detail.node.status,
-          },
-        ];
-      });
-    },
   });
 
   // ── fan-out 发布面（先建，服务构造即依赖它；目标归 wireEventFanout 装配） ──
@@ -539,13 +529,6 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       },
       taskEngine: taskStack.orchestratorCore.taskEngine,
       ledger: taskStack.orchestratorCore.ledger,
-      // 阶段产物 nodeIds 反查（F2.7）：阶段批次 → kg 元数据 origin_batch
-      stageNodeIds: (jobId, stageSeq) => {
-        const stack = workspace.stack();
-        if (stack === null) return [];
-        const batchIds = taskStack.orchestratorCore.store.getBatches(jobId, stageSeq).map((b) => b.id);
-        return stack.queryService.nodeIdsForBatches(batchIds);
-      },
       logger,
     }),
     planHardConstraint: PLAN_HARD_CONSTRAINT_SEGMENT,
@@ -785,6 +768,27 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     }
     return svc;
   };
+  // kg 维护批数据面解析器（C1，契约 PROTOCOL.md §22）：workspace 现值 stack
+  //（project/store/sync/fsWatch/codegraphEngine 面）+ 任务栈 store（purge
+  // 门禁数据源）组装，WeakMap 按 stack 记忆化（kgBootstrap 同接缝）。
+  const kgMaintenanceByStack = new WeakMap<object, KgMaintenanceService>();
+  const kgMaintenanceResolver = (): KgMaintenanceService | undefined => {
+    const stack = workspace.stack();
+    if (stack === null) return undefined;
+    let svc = kgMaintenanceByStack.get(stack);
+    if (svc === undefined) {
+      svc = new KgMaintenanceService({
+        project: stack.projectService,
+        store: stack.store,
+        sync: stack.syncService,
+        fsWatch: stack.fsWatch,
+        codegraph: stack.codegraphEngine,
+        taskStore: taskStack.orchestratorCore.store,
+      });
+      kgMaintenanceByStack.set(stack, svc);
+    }
+    return svc;
+  };
   const ws = new WsServerAdapter({
     chat: chatRouter,
     directory: registry,
@@ -805,6 +809,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     taskEngine: taskStack.taskEngine,
     // kg-bootstrap 五命令回口（T3.2）：解析器形态（workspace 现值跟随；直连注入保留给 stub rig）
     kgBootstrap: kgBootstrapResolver,
+    // kg 维护批两命令回口（C1）：解析器形态（同接缝）
+    kgMaintenance: kgMaintenanceResolver,
     events: eventStream,
     token,
     port: deps.port ?? config.port,

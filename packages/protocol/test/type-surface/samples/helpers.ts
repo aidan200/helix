@@ -151,6 +151,11 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `kg-node-supersede:${event.payload.ok}`;
     case "kg.bootstrap.impact.result":
       return `kg-boot-impact:${event.payload.count}:${event.payload.affected.length}`;
+    // ── kg 维护批（C1；两命令点对点回执）──
+    case "kg.graph.purge.result":
+      return `kg-purge:${event.payload.nodesRemoved}:${event.payload.symbolsRemoved}`;
+    case "kg.index.delete.result":
+      return `kg-index-delete:${event.payload.state}:${event.payload.watcherStopped}`;
     // ── workspace 批（W1 绑定闭环；两结果帧 + 一广播）──
     case "workspace.get.result":
       return `workspace-get:${event.payload.current?.root ?? "unbound"}:${event.payload.recents.length}:${event.payload.notice ?? "-"}`;
@@ -259,6 +264,11 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `kg-node-supersede:${cmd.payload.project}:${cmd.payload.nodeId}:${cmd.payload.reason}`;
     case "kg.bootstrap.impact":
       return `kg-boot-impact:${cmd.payload.project}:${cmd.payload.nodeId}`;
+    // ── kg 维护批（C1；清空图谱 + 删除索引）──
+    case "kg.graph.purge":
+      return `kg-purge:${cmd.payload.project}`;
+    case "kg.index.delete":
+      return `kg-index-delete:${cmd.payload.project}`;
     // ── workspace 批（W1 绑定闭环；门禁读面 + 显式绑定写面）──
     case "workspace.get":
       return "workspace-get";

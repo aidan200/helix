@@ -285,7 +285,7 @@ describe("task 族 I 层：九命令路由（T1.5，contracts/task-api.md §2）
     }
   });
 
-  test("task.detail：阶段条 + 当前阶段批次 + 实例 plan + 叙述句（CL-3-T3/T5）", async () => {
+  test("task.detail：阶段条 + 批次（带 stageSeq 分组键）+ 实例 plan（CL-3-T3/T5）", async () => {
     const { rig, client } = await rigWithClient();
     try {
       const { jobId } = await launchRunningJob(rig.env, { projects: ["demo"] });
@@ -301,9 +301,10 @@ describe("task 族 I 层：九命令路由（T1.5，contracts/task-api.md §2）
       expect(batch.status).toBe("running");
       expect(batch.retryCount).toBe(0);
       expect(batch.instanceId).toBe("inst-a");
+      expect(batch.stageSeq).toBe(1);
       expect(typeof batch.scope).toBe("string");
-      expect(typeof task.currentNarrative).toBe("string");
-      expect(task.currentNarrative).toContain("当前");
+      // 叙述句已拆除（裁决 ③）：结果帧无 currentNarrative 键
+      expect(task).not.toHaveProperty("currentNarrative");
       expect(task.params).toEqual({ projectRoot: "/tmp/demo" });
     } finally {
       await client.close();
@@ -549,6 +550,6 @@ describe("零干预断言（AD-2，CL-2-T12 协议面）", () => {
     ]);
     const forbidden = family.filter((t) => /steer|retry|edit|update|modify|create|write|prompt/i.test(t));
     expect(forbidden).toEqual([]);
-    expect(COMMAND_TYPES.length).toBe(50); // kg-bootstrap 批（T3.2）+5 后当前值
+    expect(COMMAND_TYPES.length).toBe(52); // kg 维护批（C1）+2 后当前值
   });
 });

@@ -61,6 +61,7 @@ import type {
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { TraceQueryPort } from "../../../domain/trace/TraceQueryPort";
 import type { KgBootstrapService } from "../../../application/services/kg/KgBootstrapService";
+import type { KgMaintenanceService } from "../../../application/services/kg/KgMaintenanceService";
 import type { KgViewerService } from "../../../application/services/kg/KgViewerService";
 import type { WorkspaceService } from "../../../application/services/workspace/WorkspaceService";
 import type { TaskQueryService } from "../../../application/services/task/TaskQueryService";
@@ -103,6 +104,8 @@ import {
   handleKgBootstrapImpact,
   handleKgBootstrapProduce,
   handleKgChangeReport,
+  handleKgGraphPurge,
+  handleKgIndexDelete,
   handleKgIndexStatus,
   handleKgList,
   handleKgNodeConfirm,
@@ -214,6 +217,13 @@ export interface WsServerAdapterDeps {
    * 未装配 → command.unimplemented 回执不崩溃（kg.ts 先例）。
    */
   readonly kgBootstrap?: KgBootstrapService | (() => KgBootstrapService | undefined);
+  /**
+   * kg 维护批数据面（C1，契约 PROTOCOL.md §22 两命令）：直接注入形态
+   *（stub 测试 rig）；生产面经解析器注入（读 workspace 现值 stack 组装
+   * KgMaintenanceService——组合根 WeakMap 记忆化，kgBootstrap 同接缝）。
+   * 未装配 → command.unimplemented 回执不崩溃（kg.ts 先例）。
+   */
+  readonly kgMaintenance?: KgMaintenanceService | (() => KgMaintenanceService | undefined);
   /**
    * workspace 绑定面（W1 绑定闭环）：WorkspaceService（绑定状态机唯一
    * 事实源）——kg 栈持有者读面 + unbound 防御判别 + workspace 族命令回口
@@ -508,6 +518,11 @@ export class WsServerAdapter {
         return handleKgNodeSupersede(this.kgContext(ws, type, payload));
       case "kg.bootstrap.impact":
         return handleKgBootstrapImpact(this.kgContext(ws, type, payload));
+      // ── kg 维护批（C1，契约 PROTOCOL.md §22；handlers/kg.ts）──
+      case "kg.graph.purge":
+        return handleKgGraphPurge(this.kgContext(ws, type, payload));
+      case "kg.index.delete":
+        return handleKgIndexDelete(this.kgContext(ws, type, payload));
       // ── workspace 族（W1 绑定闭环；handlers/workspace.ts）──
       case "workspace.get":
         return this.deps.workspace === undefined
@@ -715,6 +730,12 @@ export class WsServerAdapter {
           : typeof this.deps.kgBootstrap === "function"
             ? this.deps.kgBootstrap()
             : this.deps.kgBootstrap,
+      maintenance:
+        this.deps.kgMaintenance === undefined
+          ? undefined
+          : typeof this.deps.kgMaintenance === "function"
+            ? this.deps.kgMaintenance()
+            : this.deps.kgMaintenance,
       workspaceUnbound: this.deps.workspace !== undefined && !this.deps.workspace.isBound(),
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),

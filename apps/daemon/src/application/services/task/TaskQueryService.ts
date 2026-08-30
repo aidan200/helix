@@ -7,7 +7,7 @@ import type { JobStatus } from "../../../domain/task/types";
 
 /**
  * TaskQueryService —— P-2 任务页读面（AD-4② 人类可读投影服务端收口）：
- * title/currentNarrative/progress 全部在此组装，前端不拼文案、裸 id 只做
+ * title/progress 全部在此组装，前端不拼文案、裸 id 只做
  * join 键/data-id。DTO 逐字段按 development/contracts/task-api.md §1
  * （T1.5 协议面 types/task.ts 同源展开）。
  *
@@ -46,6 +46,8 @@ export interface WorkItemDto {
 
 export interface TaskBatchDto {
   readonly batchId: string;
+  /** 所属阶段序号（前端按阶段分组键；批次列表为全量跨阶段收集）。 */
+  readonly stageSeq: number;
   readonly seq: number;
   readonly scope: string;
   readonly status: BatchData["status"];
@@ -59,23 +61,13 @@ export interface TaskStageDto {
   readonly seq: number;
   readonly name: string;
   readonly status: StageData["status"];
-  readonly artifact: { readonly summary: string; readonly nodeCount: number } | null;
+  readonly artifact: { readonly summary: string } | null;
 }
 
 export interface TaskDetailDto extends TaskSummaryDto {
   readonly stages: readonly TaskStageDto[];
   readonly batches: readonly TaskBatchDto[];
-  readonly currentNarrative: string;
   readonly params: Record<string, unknown>;
-}
-
-/** 知识节点人类可读投影（AD-4②；status 超集容纳既有词表，任务产出无 draft）。 */
-export interface NodeRefData {
-  readonly nodeId: string;
-  readonly name: string;
-  readonly kind: string;
-  readonly digestFirstLine: string;
-  readonly status: "draft" | "confirmed" | "superseded";
 }
 
 export interface TaskArtifactsDto {
@@ -83,7 +75,7 @@ export interface TaskArtifactsDto {
     readonly seq: number;
     readonly name: string;
     readonly status: StageData["status"];
-    readonly artifact: { readonly summary: string; readonly nodes: readonly NodeRefData[] } | null;
+    readonly artifact: { readonly summary: string } | null;
   }[];
 }
 
@@ -97,8 +89,6 @@ export interface TaskQueryServiceDeps {
   readonly workLedger: Pick<WorkLedgerPort, "getItems">;
   readonly skills: TaskSkillRegistryPort;
   readonly clock: ClockPort;
-  /** 节点 id → 人类可读投影（组合根晚绑接 kg 读面；缺省 = 空投影不炸）。 */
-  readonly kgNodeProjector?: (nodeIds: readonly string[]) => readonly NodeRefData[];
 }
 
 export class TaskQueryService {
@@ -121,37 +111,30 @@ export class TaskQueryService {
       .map((job) => this.summaryOf(job));
   }
 
-  /** 任务详情（阶段条 + 当前阶段批次 + 实例 plan + 叙述句贯穿六态）。 */
+  /** 任务详情（阶段条 + 全量批次（跨阶段收集，stageSeq 分组键）+ 实例 plan）。 */
   getTaskDetail(jobId: string): TaskDetailDto {
     const job = this.mustJob(jobId);
     const stages = this.deps.store.getStages(jobId);
-    const current = currentStageOf(stages);
-    const batches = current === null ? [] : this.deps.store.getBatches(jobId, current.seq);
+    // 全量批次（裁决 ①：不再只回当前阶段——done 任务末阶段之外的批次
+    // 也要可见）；序 = stage seq 升序 + 阶段内批次 seq 升序（落库序）。
+    const batches = stages.flatMap((s) => this.deps.store.getBatches(jobId, s.seq));
     return {
       ...this.summaryOf(job),
       stages: stages.map((s) => stageDtoOf(s)),
       batches: batches.map((b) => this.batchDtoOf(b)),
-      currentNarrative: narrativeOf(job, stages, batches),
       params: job.params,
     };
   }
 
-  /** 结果查询（F3.4 只读）：stage.artifact + 产出节点人类可读投影。 */
+  /** 结果查询（F3.4 只读）：stage.artifact 文字报告（与 kg 零耦合）。 */
   getTaskArtifacts(jobId: string): TaskArtifactsDto {
     const job = this.mustJob(jobId);
-    const project = this.deps.kgNodeProjector;
     return {
       stages: this.deps.store.getStages(job.id).map((s) => ({
         seq: s.seq,
         name: s.name,
         status: s.status,
-        artifact:
-          s.artifact === null
-            ? null
-            : {
-                summary: s.artifact.summary,
-                nodes: project === undefined ? [] : project(s.artifact.nodeIds),
-              },
+        artifact: s.artifact === null ? null : { summary: s.artifact.summary },
       })),
     };
   }
@@ -183,6 +166,7 @@ export class TaskQueryService {
   private batchDtoOf(batch: BatchData): TaskBatchDto {
     return {
       batchId: batch.id,
+      stageSeq: batch.stageSeq,
       seq: batch.seq,
       scope: batch.scope,
       status: batch.status,
@@ -214,8 +198,7 @@ function stageDtoOf(stage: StageData): TaskStageDto {
     seq: stage.seq,
     name: stage.name,
     status: stage.status,
-    artifact:
-      stage.artifact === null ? null : { summary: stage.artifact.summary, nodeCount: stage.artifact.nodeIds.length },
+    artifact: stage.artifact === null ? null : { summary: stage.artifact.summary },
   };
 }
 
@@ -252,29 +235,4 @@ function progressOf(
     batchesTotal: batches.length,
     percent,
   };
-}
-
-/** 详情头叙述句（贯穿六态，R-8）：状态 + 当前现场一段话。 */
-function narrativeOf(job: JobData, stages: readonly StageData[], batches: readonly BatchData[]): string {
-  const current = currentStageOf(stages);
-  const stageName = current?.name ?? "无阶段";
-  switch (job.status) {
-    case "pending":
-      return `装配中：阶段计划已冻结（${stages.length} 个阶段），等待编排接管`;
-    case "running": {
-      const done = batches.filter((b) => b.status === "done").length;
-      const retrying = batches.filter((b) => b.status === "failed").length;
-      const batchPart = batches.length > 0 ? ` · 批次 ${done}/${batches.length}` : "";
-      const retryPart = retrying > 0 ? `（${retrying} 个批次失败，等待自动重派）` : "";
-      return `当前：${stageName}${batchPart}${retryPart}`;
-    }
-    case "paused":
-      return `已暂停：${stageName} 在跑批次自然收口后停派，恢复后继续`;
-    case "done":
-      return `已完成：${stages.length} 个阶段产物已聚合，结果可在产物页查询`;
-    case "failed":
-      return `失败：${job.error ?? "未知原因"}`;
-    case "cancelled":
-      return "已取消：任务终止（产出保留可查，不可恢复）";
-  }
 }

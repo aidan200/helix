@@ -1,6 +1,7 @@
 import type { CodegraphEnginePort } from "../../../application/ports/outbound/CodegraphEnginePort";
 import type { EngineUnavailableInfo, IndexFreshness, SymbolSet } from "../../../domain/kg/types";
-import { CODEGRAPH_SCHEMA_MAX_VERSION, codegraphDbPath, projectCodegraphSymbols } from "./codegraph-db-projection";
+import { rm } from "node:fs/promises";
+import { CODEGRAPH_SCHEMA_MAX_VERSION, codegraphDbPath, codegraphDirPath, projectCodegraphSymbols } from "./codegraph-db-projection";
 
 export { CODEGRAPH_SCHEMA_MAX_VERSION };
 
@@ -69,6 +70,16 @@ export class CodegraphEngineAdapter implements CodegraphEnginePort {
       // 库缺失/schema 门/缺表/只读打开失败 → 统一 degraded（绝不写/迁移）
       throw new EngineUnavailableError(`只读投影失败：${brief(e)}`);
     }
+  }
+
+  /**
+   * 删除项目索引目录（kg.index.delete 消费，C1）：`<projectRoot>/.codegraph`
+   * 整目录递归删除；幂等（目录不存在 = no-op）。纯文件系统操作不经 CLI
+   * （被动模式无 delete 命令面）；kg 侧状态复位由调用方（KgMaintenanceService）
+   * 编排，本方法只管目录。
+   */
+  async deleteIndex(projectRoot: string): Promise<void> {
+    await rm(codegraphDirPath(projectRoot), { recursive: true, force: true });
   }
 
   /** 二进制不可达（resolve 三级全 miss）→ degraded 第一入口。 */

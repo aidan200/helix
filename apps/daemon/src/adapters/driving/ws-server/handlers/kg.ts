@@ -24,6 +24,8 @@ import type {
   KgBootstrapProduceResultEvent,
   KgChangeReportDto,
   KgChangeReportResultEvent,
+  KgGraphPurgeResultEvent,
+  KgIndexDeleteResultEvent,
   KgIndexStatusDto,
   KgIndexStatusResultEvent,
   KgListResultEvent,
@@ -49,6 +51,10 @@ import type {
   ProduceGroupView,
   ProduceNodeView,
 } from "../../../../application/services/kg/KgBootstrapService";
+import type {
+  KgMaintenanceError,
+  KgMaintenanceService,
+} from "../../../../application/services/kg/KgMaintenanceService";
 import type {
   KgConfirmView,
   KgIndexStatusView,
@@ -129,7 +135,7 @@ export function handleKgList(ctx: KgCommandContext): void {
   ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
 }
 
-/** kg.node.detail（F5.2：六段聚合——描述/规则/锚/关系/supersede 链/变更日志）。 */
+/** kg.node.detail（F5.2：聚合——body 单段/锚/关系/supersede 链/变更日志）。 */
 export function handleKgNodeDetail(ctx: KgCommandContext): void {
   if (ctx.kg === undefined) return unboundOrUnimplemented(ctx);
   const project = requireString(ctx, "project");
@@ -340,6 +346,59 @@ export function handleKgBootstrapImpact(ctx: KgCommandContext): void {
   ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
 }
 
+// ── kg 维护批两命令（C1，契约 PROTOCOL.md §22） ──
+
+/** kg.graph.purge（清空图谱：门禁在 service 机械复核；UI 两步确认不信赖）。 */
+export function handleKgGraphPurge(ctx: KgCommandContext): void {
+  if (ctx.maintenance === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const result = ctx.maintenance.purge(project);
+  if (!result.ok) return maintenanceError(ctx, result.error);
+  const frame: KgGraphPurgeResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "kg",
+    type: "kg.graph.purge.result",
+    payload: {
+      purged: true,
+      nodesRemoved: result.value.nodesRemoved,
+      symbolsRemoved: result.value.symbolsRemoved,
+      filesRemoved: result.value.filesRemoved,
+    },
+  };
+  ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
+}
+
+/** kg.index.delete（删除索引：停 watcher + 删 .codegraph + 状态复位 absent）。 */
+export function handleKgIndexDelete(ctx: KgCommandContext): void {
+  if (ctx.maintenance === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  void ctx.maintenance
+    .deleteIndex(project)
+    .then((result) => {
+      if (!result.ok) return maintenanceError(ctx, result.error);
+      const frame: KgIndexDeleteResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "kg",
+        type: "kg.index.delete.result",
+        payload: {
+          deleted: true,
+          state: result.value.state,
+          watcherStopped: result.value.watcherStopped,
+        },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err: unknown) => {
+      // 意外异常兜底（service 契约面外）：不吞声不崩溃（kg.index.status 同模式）
+      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+    });
+}
+
 // ── payload 字段形状校验（枚举/解析语义归 service） ──────────
 
 /** 必填 string 字段：缺失/非 string → KG_E_PARAM（契约：project 缺失/无法解析）。 */
@@ -394,6 +453,11 @@ function bootstrapError(ctx: KgCommandContext, err: KgBootstrapError): void {
   ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
 }
 
+/** 维护面结构化错误 → connection.error 回执（词表：KG_E_PARAM / kg.graph.purge_blocked）。 */
+function maintenanceError(ctx: KgCommandContext, err: KgMaintenanceError): void {
+  ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
+}
+
 // ── 应用层视图 → 协议 DTO（逐字段直拷；readonly → 可变帧形态） ──
 
 /** 项目行 DTO 映射（kg.projects / workspace.open.result 两处共用同一口径）。 */
@@ -431,8 +495,7 @@ function detailViewToDto(view: KgNodeDetailView): KgNodeDetailDto {
     domain: view.node.domain,
     status: view.node.status,
     digest: view.node.digest,
-    desc: view.desc,
-    rules: [...view.rules],
+    body: view.body,
     anchors: view.anchors.map((a) => ({
       ...(a.symbol !== undefined ? { symbol: a.symbol } : {}),
       path: a.path,
@@ -461,7 +524,6 @@ function reportToDto(report: ChangeReport): KgChangeReportDto {
           ...(s.line !== undefined ? { line: s.line } : {}),
         })),
       },
-      options: [...e.options],
     })),
   };
 }

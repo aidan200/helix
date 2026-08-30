@@ -222,6 +222,28 @@ describe("任务四表建表 + 迁移幂等（CL-2-T1）", () => {
 // ── 2. RowMapper roundtrip（CL-2-T1、AD-8） ──────────────────
 
 describe("任务四表 RowMapper roundtrip", () => {
+  test("旧 artifact JSON（含 nodeIds）兼容读：多余 key 被忽略，读回 { summary } 不炸", async () => {
+    const { dir, dbPath } = tmpHome();
+    try {
+      const queue = new WriteQueue(dbPath);
+      const store = new TaskStore(queue);
+      await store.insertJob(jobOf("task-legacy"));
+      await store.insertStage(stageOf("task-legacy", 1, "L0 探索"));
+      // 旧形状直写（旁路连接模拟历史库行：{ nodeIds, summary }）
+      const legacy = new Database(dbPath);
+      legacy
+        .prepare("UPDATE stage SET artifact = ? WHERE job_id = ? AND seq = ?")
+        .run(JSON.stringify({ nodeIds: ["AD-1", "AD-2"], summary: "历史聚合" }), "task-legacy", 1);
+      legacy.close();
+      const stage = store.getStages("task-legacy")[0]!;
+      expect(stage.artifact).toEqual({ summary: "历史聚合" });
+      expect(stage.artifact).not.toHaveProperty("nodeIds");
+      await queue.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("job/stage/batch/work_item 各插一行读回逐字段相等；projects 空数组往返保 []", async () => {
     const { dir, dbPath } = tmpHome();
     try {
@@ -240,7 +262,7 @@ describe("任务四表 RowMapper roundtrip", () => {
       await store.insertStage(stage);
       expect(store.getStages("task-empty")).toEqual([stage]);
       await store.updateStageStatus("task-empty", 1, "running");
-      const artifact: StageArtifact = { nodeIds: ["AD-1", "AD-2"], summary: "两节点聚合" };
+      const artifact: StageArtifact = { summary: "两节点聚合" };
       await store.updateStageStatus("task-empty", 1, "done", artifact);
       const stageAfter = store.getStages("task-empty")[0]!;
       expect(stageAfter.status).toBe("done");

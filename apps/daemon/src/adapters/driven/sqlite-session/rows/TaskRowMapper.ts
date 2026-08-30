@@ -72,9 +72,18 @@ export function rowToStage(row: StageRow): StageData {
     seq: row.seq,
     name: row.name,
     status: row.status as StageStatus,
-    artifact: row.artifact === null ? null : (JSON.parse(row.artifact) as StageArtifact),
+    artifact: row.artifact === null ? null : parseStageArtifact(row.artifact),
     updatedAt: row.updated_at,
   };
+}
+
+/**
+ * artifact JSON 解析（兼容读：旧形状含 nodeIds 等多余 key 一律忽略，只取
+ * summary——结果面与 kg 零耦合后的瘦身形状 { summary }，历史库行不炸）。
+ */
+function parseStageArtifact(text: string): StageArtifact {
+  const parsed = JSON.parse(text) as { summary?: unknown };
+  return { summary: typeof parsed.summary === "string" ? parsed.summary : "" };
 }
 
 /** artifact 聚合落库文本化（undefined/null → SQL NULL；updateStageStatus 复用）。 */

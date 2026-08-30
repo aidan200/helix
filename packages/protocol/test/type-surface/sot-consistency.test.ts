@@ -242,6 +242,16 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       { registry: "evt", anchor: "task.changed", field: "jobId" },
       { registry: "evt", anchor: "task.changed", field: "changed" },
       { registry: "evt", anchor: "task.changed", field: "status" },
+      // kg 维护批（C1：kg.graph.purge / kg.index.delete 两命令族）：首登必填字段
+      // presence（防零登记复发；project 作用域总则字段逐命令核对）
+      { registry: "cmd", anchor: "kg.graph.purge", field: "project" },
+      { registry: "cmd", anchor: "kg.index.delete", field: "project" },
+      { registry: "evt", anchor: "kg.graph.purge.result", field: "purged" },
+      { registry: "evt", anchor: "kg.graph.purge.result", field: "nodesRemoved" },
+      { registry: "evt", anchor: "kg.graph.purge.result", field: "symbolsRemoved" },
+      { registry: "evt", anchor: "kg.index.delete.result", field: "deleted" },
+      { registry: "evt", anchor: "kg.index.delete.result", field: "state" },
+      { registry: "evt", anchor: "kg.index.delete.result", field: "watcherStopped" },
     ];
     const missing: string[] = [];
     for (const item of required) {

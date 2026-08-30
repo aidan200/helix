@@ -43,8 +43,6 @@ export interface OrchestratorSessionFactoryDeps {
   readonly taskEngine: TaskEnginePort;
   /** 台账读面（编排者 plan_read 变体绑定）。 */
   readonly ledger: WorkLedgerService;
-  /** 阶段产物 nodeIds 反查面（阶段批次 → kg 元数据；未绑定 → 空集）。 */
-  readonly stageNodeIds: (jobId: string, stageSeq: number) => readonly string[];
   readonly logger?: Logger;
   /**
    * 编排会话 LLM 覆盖（T4.1 E 层测试接缝：fake 剧本 streamFn + 可解析 model）。
@@ -72,7 +70,6 @@ export function createOrchestratorSessionFactory(
       jobId,
       taskEngine: deps.taskEngine,
       ledger: deps.ledger,
-      stageNodeIds: (stageSeq) => deps.stageNodeIds(jobId, stageSeq),
     };
     const executor = new CoreToolExecutor({
       cwd: deps.toolCwd(),

@@ -123,3 +123,34 @@ export interface KgBootstrapImpactResultEvent extends EventFrame<KgBootstrapImpa
   channel?: "kg";
   type: "kg.bootstrap.impact.result";
 }
+
+// ── kg 维护批新增回执（C1：kg.graph.purge / kg.index.delete 两命令）──
+
+/** kg.graph.purge.result：清空完成回执（全表清零计数 + 索引态已复位 absent）。 */
+export interface KgGraphPurgeResultPayload {
+  purged: true;
+  /** 清除的知识节点行数（含 superseded 留史行）。 */
+  nodesRemoved: number;
+  /** 清除的符号行数（符号面同步基准一并清零）。 */
+  symbolsRemoved: number;
+  /** 清除的文件基准行数。 */
+  filesRemoved: number;
+}
+
+/** kg.index.delete.result：索引删除回执（.codegraph 已删 + 状态复位 absent + watcher 已停）。 */
+export interface KgIndexDeleteResultPayload {
+  deleted: true;
+  /** 删除后索引态（恒 absent——状态机自洽断言位）。 */
+  state: "absent";
+  /** fs-watch watcher 已停（B3 stopWatching 接缝消费确认）。 */
+  watcherStopped: boolean;
+}
+
+export interface KgGraphPurgeResultEvent extends EventFrame<KgGraphPurgeResultPayload> {
+  channel?: "kg";
+  type: "kg.graph.purge.result";
+}
+export interface KgIndexDeleteResultEvent extends EventFrame<KgIndexDeleteResultPayload> {
+  channel?: "kg";
+  type: "kg.index.delete.result";
+}

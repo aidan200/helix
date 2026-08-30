@@ -1,6 +1,8 @@
 import type { CodegraphEnginePort } from "../../src/application/ports/outbound/CodegraphEnginePort";
 import type { IndexFreshness, SymbolSet } from "../../src/domain/kg/types";
+import { rm } from "node:fs/promises";
 import { EngineUnavailableError } from "../../src/adapters/driven/codegraph-engine/CodegraphEngineAdapter";
+import { codegraphDirPath } from "../../src/adapters/driven/codegraph-engine/codegraph-db-projection";
 
 /**
  * CodegraphEngineFake —— CodegraphEnginePort 内存假实现（test/mocks，
@@ -22,9 +24,9 @@ export interface CodegraphEngineFakeOptions {
   readonly ensureResult?: IndexFreshness;
 }
 
-/** 调用记录（T2.2 断言 sync 编排触发面）。 */
+/** 调用记录（T2.2 断言 sync 编排触发面；C1 扩 deleteIndex）。 */
 export interface EngineCallRecord {
-  readonly method: "ensureIndex" | "exportSymbols";
+  readonly method: "ensureIndex" | "exportSymbols" | "deleteIndex";
   readonly projectRoot: string;
 }
 
@@ -74,6 +76,12 @@ export class CodegraphEngineFake implements CodegraphEnginePort {
     await this.settle();
     this.assertNotUnavailable();
     return this.fixture;
+  }
+
+  /** deleteIndex 契约镜像（C1）：记录调用 + 真删 <root>/.codegraph（幂等）。 */
+  async deleteIndex(projectRoot: string): Promise<void> {
+    this.calls.push({ method: "deleteIndex", projectRoot });
+    await rm(codegraphDirPath(projectRoot), { recursive: true, force: true });
   }
 
   private async settle(): Promise<void> {

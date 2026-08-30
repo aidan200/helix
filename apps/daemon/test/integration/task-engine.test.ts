@@ -183,6 +183,30 @@ describe("insertBatch 机械推进 stage（T4.2，AF-T4.1.5 裂口修复）", ()
   });
 });
 
+describe("insertBatch seq 原子化（同轮并发竞态回归）", () => {
+  test("同阶段并发 insertBatch → seq 严格 1..n（seq 计算在单写线程内，不预算）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      // 同轮并发 5 个批次插入（编排 LLM 一轮多工具调用形态）：竞态下全读
+      // 到 count=0 → seq 全 1（helix.db 实证裂口）；修复后单写线程内原子
+      // count+1，严格 1..5。
+      const n = 5;
+      await Promise.all(
+        Array.from({ length: n }, (_, i) => env.engine.insertBatch({ jobId, stageSeq: 1, scope: `批次 ${i + 1}` })),
+      );
+      const batches = env.store.getBatches(jobId, 1);
+      expect(batches).toHaveLength(n);
+      expect(batches.map((b) => b.seq)).toEqual([1, 2, 3, 4, 5]);
+      expect(new Set(batches.map((b) => b.id)).size).toBe(n);
+    });
+  });
+});
+
 describe("pause 语义（CL-3-T7 引擎面，O-2）", () => {
   test("running → paused 落库；在跑批次 completeBatch 照常落 done；派发闸拒绝新批次；resume 重开编排", async () => {
     await withTaskEnv(async (env) => {
@@ -313,7 +337,7 @@ describe("启动恢复扫描（CL-2-T4 引擎面，F2.3）", () => {
       await env.engine.advanceStage(jobId, 1);
       await env.engine.dispatchBatch(s1.batchId, "inst-1");
       await env.engine.completeBatch(s1.batchId);
-      await env.engine.writeStageArtifact(jobId, 1, { nodeIds: ["TR-1"], summary: "L0 完成：核心规则 1 条" });
+      await env.engine.writeStageArtifact(jobId, 1, { summary: "L0 完成：核心规则 1 条" });
       // stage 2 in-flight 批次（模拟 daemon 崩溃现场）
       const s2 = await env.engine.insertBatch({ jobId, stageSeq: 2, scope: "批次 2" });
       await env.engine.advanceStage(jobId, 2);
@@ -328,7 +352,7 @@ describe("启动恢复扫描（CL-2-T4 引擎面，F2.3）", () => {
       expect(b2.retryCount).toBe(1);
       const stages = env.store.getStages(jobId);
       expect(stages.find((s) => s.seq === 1)!.status).toBe("done"); // done stage 不重跑
-      expect(stages.find((s) => s.seq === 1)!.artifact).toEqual({ nodeIds: ["TR-1"], summary: "L0 完成：核心规则 1 条" });
+      expect(stages.find((s) => s.seq === 1)!.artifact).toEqual({ summary: "L0 完成：核心规则 1 条" });
       expect(env.store.getJob(jobId)!.status).toBe("running"); // 重试预算内 job 保持 running
     });
   });
@@ -408,7 +432,7 @@ describe("job 收口回口（completeJob 机械复核）", () => {
       await env.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次 1" });
       for (const seq of [1, 2, 3]) {
         await env.engine.advanceStage(jobId, seq);
-        await env.engine.writeStageArtifact(jobId, seq, { nodeIds: [], summary: `阶段 ${seq} 完成` });
+        await env.engine.writeStageArtifact(jobId, seq, { summary: `阶段 ${seq} 完成` });
       }
       await env.engine.completeJob(jobId);
       expect(env.store.getJob(jobId)!.status).toBe("done");

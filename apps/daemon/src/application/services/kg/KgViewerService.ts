@@ -66,11 +66,10 @@ export interface KgLogView {
   readonly eventText: string;
 }
 
-/** kg.node.detail 结果（六段聚合视图）。 */
+/** kg.node.detail 结果（聚合视图；body=节点正文原文单段直返，不拆分）。 */
 export interface KgNodeDetailView {
   readonly node: KnowledgeNode;
-  readonly desc: string;
-  readonly rules: readonly string[];
+  readonly body: string;
   readonly anchors: readonly KgAnchorView[];
   readonly relations: readonly KgRelationView[];
   readonly supersede: { readonly history: readonly NodeDigestRow[]; readonly current: NodeDigestRow };
@@ -112,23 +111,6 @@ export interface KgViewerServiceDeps {
   readonly report: KgReportService;
   readonly write: KgWriteService;
   readonly sync: Pick<KgSyncService, "getStatus" | "triggerManual" | "isBuilding">;
-}
-
-/** body → 描述/规则条目拆分（迁移后 body 为自由文本：列表行=规则条目，其余=描述段）。 */
-export function splitBodySegments(body: string): { desc: string; rules: string[] } {
-  if (body === "") return { desc: "", rules: [] };
-  const rules: string[] = [];
-  const prose: string[] = [];
-  for (const rawLine of body.split("\n")) {
-    const bullet = rawLine.match(/^\s*[-*]\s+(.*)$/);
-    if (bullet !== null) {
-      const item = bullet[1]!.trim();
-      if (item !== "") rules.push(item);
-      continue;
-    }
-    prose.push(rawLine);
-  }
-  return { desc: prose.join("\n").trim(), rules };
 }
 
 /** change_log op → 事件叙述（确定性中文标签 + reason；无裸 id，AD-16）。 */
@@ -345,7 +327,7 @@ export class KgViewerService {
     }
   }
 
-  /** 六段详情聚合：锚态标注（dead=orphan / stale=活跃度启发命中）+ 行号 + 关系 peer + 链 + 日志。 */
+  /** 详情聚合：body 原文单段直返 + 锚态标注（dead=orphan / stale=活跃度启发命中）+ 行号 + 关系 peer + 链 + 日志。 */
   private assembleDetail(projectRoot: string, detail: NodeDetail): KgNodeDetailView {
     const { node } = detail;
     const suspects = new Set(
@@ -387,7 +369,6 @@ export class KgViewerService {
       .filter((_, i) => i !== currentIdx)
       .map((link) => peerOf(link.nodeId));
 
-    const { desc, rules } = splitBodySegments(node.body);
     const log: KgLogView[] = [...detail.changeLog]
       .reverse() // 最新在上
       .map((entry) => ({
@@ -396,7 +377,7 @@ export class KgViewerService {
         eventText: logEventText(entry.op, entry.reason),
       }));
 
-    return { node, desc, rules, anchors, relations, supersede: { history, current }, log };
+    return { node, body: node.body, anchors, relations, supersede: { history, current }, log };
   }
 }
 

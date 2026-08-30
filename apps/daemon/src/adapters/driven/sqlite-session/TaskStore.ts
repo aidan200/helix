@@ -71,7 +71,8 @@ export class TaskStore implements TaskStorePort {
     await this.writeQueue.saveTaskStageStatus(jobId, seq, status, artifact);
   }
 
-  insertBatch(batch: BatchData): Promise<void> {
+  /** batch 行插入（seq 由 WriteQueue 单写线程内原子赋予，调用方不预算）。 */
+  insertBatch(batch: Omit<BatchData, "seq">): Promise<void> {
     return this.writeQueue.saveTaskBatch(batch);
   }
 

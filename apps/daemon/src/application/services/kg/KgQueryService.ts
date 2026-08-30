@@ -76,6 +76,11 @@ export class KgQueryService {
     return all.length > 0 ? all[0]! : null;
   }
 
+  /** 目标库最近迭代锚（iterationId 机械解析的库内回落，A4 任务二）。 */
+  latestIteration(projectRoot: string): string | null {
+    return this.deps.graph.latestIteration(projectRoot);
+  }
+
   /** 跨项目全命中（kg-update supersede 目标定位——多命中由调用方裁决）。 */
   locate(nodeId: string): readonly KgNodeHit[] {
     const out: KgNodeHit[] = [];
@@ -84,19 +89,6 @@ export class KgQueryService {
       if (detail !== null) out.push({ project, detail });
     }
     return out;
-  }
-
-  /**
-   * 按产出批次反查节点 id 集（T2.2 F2.7 阶段产物聚合）：跨项目汇总
-   * origin_batch 元数据命中（排除 superseded），id 升序确定性。
-   */
-  nodeIdsForBatches(batchIds: readonly string[]): readonly string[] {
-    if (batchIds.length === 0) return [];
-    const out: string[] = [];
-    for (const project of this.deps.projects()) {
-      out.push(...this.deps.graph.listNodeIdsByOriginBatches(project, batchIds));
-    }
-    return out.sort();
   }
 
   /**

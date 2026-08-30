@@ -15,6 +15,8 @@ import { KgDatabase, kgDbPath } from "../../adapters/driven/sqlite-kg/KgDatabase
 import { SqliteKnowledgeGraph } from "../../adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
 import { SqliteKnowledgeStore } from "../../adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { KgSyncService } from "../../application/services/kg/KgSyncService";
+import { KgFsWatchService, isIgnoredWatchSegment } from "../../application/services/kg/KgFsWatchService";
+import { FsWatchAdapter } from "../../adapters/driven/fs-watch/FsWatchAdapter";
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 import { existingKgProjects, projectRootOfPath, scanProjectEntries, scanWorkspaceProjects } from "../../adapters/driven/workspace-scan";
 
@@ -32,8 +34,9 @@ export { existingKgProjects, projectRootOfPath, scanWorkspaceProjects };
  * 注入——HELIX_CODEGRAPH_PATH/PATH 的 env 读取收束于 container.ts，
  * AG-08 唯一例外面；resolve-codegraph 本体零 env 依赖）。
  * T2.2：KgSyncService 挂入（双源汇队列/去抖/单飞/四步编排；启动
- *   触发与 fs-watch 挂接已按 2026-08-29 用户裁决退役——生产唯一触发面
- *   = 页面手动 triggerManual）。
+ *   触发与 edit 写后 notifyWrite 挂接按 2026-08-29 用户裁决维持退役；
+ *   fs-watch 监控 B3 重新挂接——KgFsWatchService per-project watcher →
+ *   onFsEvent 归一入口，索引建成经 onSynced 钩子挂接）。
  * T3.2：KgAttachmentService 挂入（附着编排）+ buildEditToolDeps（edit
  * 工具挂点接线工厂：projectRootOfPath 多项目归属 + 附着；notifyWrite
  * 写后 sync 挂接同期退役，不注入）。
@@ -74,6 +77,9 @@ export interface KnowledgeStack {
   readonly projectService: KgProjectService;
   /** P-1 六命令应用编排（T5.3，§9：handlers/kg.ts 的唯一 service 面）。 */
   readonly viewerService: KgViewerService;
+  /** per-project 目录文件监控（B3 fs-watch 重新挂接：watchProject 挂接 /
+   *  stopWatching index-delete 接缝 / dispose 全停）。 */
+  readonly fsWatch: KgFsWatchService;
   /** 关闭全部 per-project 连接（daemon 退出/测试清理；库文件保留）。 */
   readonly dispose: () => void;
 }
@@ -82,6 +88,8 @@ export function buildKnowledgeStack(deps: {
   codegraphResolution: CodegraphResolution;
   /** workspace 根（kg 读面项目域扫描/归属；§3.5 = daemon 启动 cwd）。 */
   workspaceRoot: string;
+  /** 可观测日志（B3 fs-watch 挂接/故障留痕；缺省无日志——测试形态）。 */
+  logger?: { info(msg: string): void; warn(msg: string): void };
 }): KnowledgeStack {
   const database = new KgDatabase();
   const store = new SqliteKnowledgeStore({ database });
@@ -93,7 +101,18 @@ export function buildKnowledgeStack(deps: {
   const codegraphEngine = new CodegraphEngineAdapter({
     binaryPath: deps.codegraphResolution.kind === "resolved" ? deps.codegraphResolution.path : null,
   });
-  const syncService = new KgSyncService({ store, graph, engine: codegraphEngine });
+  // B3 fs-watch 重新挂接：fsWatch 晚绑闭合（syncService.onSynced 钩子引用
+  // fsWatchRef，构造环同 container.ts backfill 模式——首次 sync 完成前
+  // fsWatch 已赋值，闭包窗口零触发）。
+  let fsWatchRef: KgFsWatchService | undefined;
+  // 单行构造：组合根 arch-guard（TP-2.3a④）禁行首 engine: 声明形态
+  const syncService = new KgSyncService({ store, graph, engine: codegraphEngine, onSynced: (root) => fsWatchRef?.watchProject(root) });
+  const fsWatch = new KgFsWatchService({
+    sync: syncService,
+    watcher: new FsWatchAdapter({ isIgnoredSegment: isIgnoredWatchSegment }),
+    ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
+  });
+  fsWatchRef = fsWatch;
   const attachmentService = new KgAttachmentService({ graph });
   const queryService = new KgQueryService({
     graph,
@@ -129,7 +148,9 @@ export function buildKnowledgeStack(deps: {
     reportService,
     projectService,
     viewerService,
+    fsWatch,
     dispose: () => {
+      fsWatch.dispose(); // B3：全部 watcher 先停（事件源截断）再收 sync 定时器/连接
       syncService.dispose();
       database.closeAll();
     },

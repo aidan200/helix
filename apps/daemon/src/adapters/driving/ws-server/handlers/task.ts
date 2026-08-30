@@ -25,7 +25,6 @@ import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type {
   ErrorCode,
   EventEnvelope,
-  NodeRefDto,
   TaskArtifactsDto,
   TaskArtifactsResultEvent,
   TaskBatchDto,
@@ -44,7 +43,6 @@ import type {
   WorkItemDto,
 } from "@helix/protocol";
 import type {
-  NodeRefData,
   TaskArtifactsDto as AppTaskArtifactsDto,
   TaskBatchDto as AppTaskBatchDto,
   TaskDetailDto as AppTaskDetailDto,
@@ -357,6 +355,7 @@ function workItemToDto(w: AppWorkItemDto): WorkItemDto {
 function batchToDto(b: AppTaskBatchDto): TaskBatchDto {
   return {
     batchId: b.batchId,
+    stageSeq: b.stageSeq,
     seq: b.seq,
     scope: b.scope,
     status: b.status,
@@ -372,7 +371,7 @@ function stageToDto(s: AppTaskStageDto): TaskStageDto {
     seq: s.seq,
     name: s.name,
     status: s.status,
-    artifact: s.artifact === null ? null : { summary: s.artifact.summary, nodeCount: s.artifact.nodeCount },
+    artifact: s.artifact === null ? null : { summary: s.artifact.summary },
   };
 }
 
@@ -381,20 +380,7 @@ function detailToDto(d: AppTaskDetailDto): TaskDetailDto {
     ...summaryToDto(d),
     stages: d.stages.map(stageToDto),
     batches: d.batches.map(batchToDto),
-    currentNarrative: d.currentNarrative,
     params: d.params,
-  };
-}
-
-function nodeRefToDto(n: NodeRefData): NodeRefDto {
-  // status 超集（app 层容纳 draft）→ wire 窄化（契约 §1 confirmed|superseded）：
-  // 任务产出无 draft（V-1③ 产出即 confirmed）——域不变式信任位，防御面注释钉住。
-  return {
-    nodeId: n.nodeId,
-    name: n.name,
-    kind: n.kind,
-    digestFirstLine: n.digestFirstLine,
-    status: n.status as NodeRefDto["status"],
   };
 }
 
@@ -404,10 +390,7 @@ function artifactsToDto(a: AppTaskArtifactsDto): TaskArtifactsDto {
       seq: s.seq,
       name: s.name,
       status: s.status,
-      artifact:
-        s.artifact === null
-          ? null
-          : { summary: s.artifact.summary, nodes: s.artifact.nodes.map(nodeRefToDto) },
+      artifact: s.artifact === null ? null : { summary: s.artifact.summary },
     })),
   };
 }

@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import type { KgDatabase } from "./KgDatabase";
 import { META_KEYS } from "./schema";
+import type { KgPurgeSummary } from "../../../application/ports/outbound/KnowledgeStorePort";
 import { formatNodeId, parseMigrationId } from "../../../domain/kg/node-id";
 import { supersedeTransition } from "../../../domain/kg/supersede";
 import type {
@@ -322,6 +323,66 @@ export class SqliteKnowledgeStore {
       );
       upsertMeta.run(META_KEYS.baseline, batch.baseline);
       upsertMeta.run(META_KEYS.degraded, batch.degraded ? "1" : "0");
+      db.exec("COMMIT");
+    } catch (error) {
+      this.rollbackQuietly(db);
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  // ── 维护面（C1：kg.graph.purge / kg.index.delete 消费） ─────────
+
+  /**
+   * purge 全清：九表全部清零，单事务（知识层通道连接跨面执行——purge 是
+   * 跨双通道域的管理面操作，busy_timeout 吸收与在途 sync 写的事务竞争；
+   * 调用方已先清 sync 定时器）。meta 全清含 seq 发号计数器——全库归零后
+   * 重新发号自 TR-1/E-1 起（历史行已随库清零，无复用冲突面）。
+   */
+  purgeAll(projectRoot: string): KgPurgeSummary {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const count = (table: string): number =>
+        (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+      const summary: KgPurgeSummary = {
+        nodesRemoved: count("nodes"),
+        symbolsRemoved: count("symbols"),
+        filesRemoved: count("files"),
+      };
+      for (const table of [
+        "nodes",
+        "anchor_decl",
+        "change_log",
+        "edges",
+        "materialized_anchors",
+        "files",
+        "symbols",
+        "contains_edges",
+        "meta",
+      ]) {
+        db.exec(`DELETE FROM ${table}`);
+      }
+      db.exec("COMMIT");
+      return summary;
+    } catch (error) {
+      this.rollbackQuietly(db);
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  /**
+   * 索引面复位（符号层通道）：files/symbols/contains_edges 清零 + meta
+   * sync:baseline/sync:degraded 删除 → getIndexStatus 回落 absent。物化锚
+   * 保留（知识层邻接面；重建 sync 全量重算 upsert 回活跃），seq 计数器不动。
+   */
+  resetIndexFace(projectRoot: string): void {
+    const db = this.deps.database.syncConnection(projectRoot);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec("DELETE FROM contains_edges");
+      db.exec("DELETE FROM symbols");
+      db.exec("DELETE FROM files");
+      db.prepare("DELETE FROM meta WHERE key IN (?, ?)").run(META_KEYS.baseline, META_KEYS.degraded);
       db.exec("COMMIT");
     } catch (error) {
       this.rollbackQuietly(db);

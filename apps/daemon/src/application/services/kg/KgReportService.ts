@@ -9,13 +9,14 @@
  * - suspect_stale（info）：findActivityMismatch（疑似限定词强制）；
  * - knowledge_change（ok）：change_log 按迭代过滤（T4.1 落账含迭代 id）。
  *
- * 人类可读三原则（AD-5 两面性的人类面，CL-3.A8）在数据层强制：
+ * 人类可读原则（AD-5 两面性的人类面，CL-3.A8）在数据层强制：
  * ①事件导向：body 主语=本迭代，完整因果叙述句（代码事实→知识影响→
- *   检查判定）；②因果链完整：叙述句含因果连接；③永远带行动项：options
- *   非空（本迭代仅呈现不落库，原型 finding 边界）。
+ *   检查判定）；②因果链完整：叙述句含因果连接。报告=通知面非审核面
+ *   （条目全部来自代码事实的机械检查/变更流水，无人审核逻辑）——
+ *   条目不携带 options 行动项。
  *
  * AD-16 引用规范在数据层强制：refs.nodes={id,name,kind,digestFirstLine}
- * /refs.symbols={name,path,line?}；label/body/options 等人类可读字段不
+ * /refs.symbols={name,path,line?}；label/body 等人类可读字段不
  * 出现 TR-n/E-n 裸形态（id 仅供链接）。
  *
  * O-7：查询时现算（每次 buildChangeReport 重跑检查与聚合），不预生成
@@ -33,14 +34,13 @@ export type ReportEntryKind = "dead_anchor" | "rule_conflict" | "suspect_stale" 
 /** 严重级：warn→⚠ / info→? / ok→✓（前端 glyph 映射，契约口径）。 */
 export type ReportSev = "warn" | "info" | "ok";
 
-/** 报告条目（契约形状：kind/sev/label/body/refs/options）。 */
+/** 报告条目（契约形状：kind/sev/label/body/refs；通知面无行动项）。 */
 export interface ReportEntry {
   readonly kind: ReportEntryKind;
   readonly sev: ReportSev;
   readonly label: string;
   readonly body: string;
   readonly refs: { readonly nodes: readonly NodeRef[]; readonly symbols: readonly SymbolRef[] };
-  readonly options: readonly string[];
 }
 
 /** 变化报告（按迭代聚合；供 T5.3 kg.change.report 直传）。 */
@@ -53,13 +53,6 @@ export interface KgReportServiceDeps {
   readonly graph: KnowledgeGraphPort;
   readonly verify: KgVerifyService;
 }
-
-const OPTIONS_BY_KIND: Record<ReportEntryKind, readonly string[]> = {
-  dead_anchor: ["重挂锚点到现行符号", "废弃该锚点声明"],
-  rule_conflict: ["人工裁决修正矛盾边", "退回开发核对写入来源"],
-  suspect_stale: ["独立排期更新该知识", "确认仍适用（忽略提示）"],
-  knowledge_change: ["查看节点详情", "确认无误"],
-};
 
 function kindLabel(kind: NodeRef["kind"]): string {
   return kind === "rule" ? "规则" : "实体";
@@ -96,7 +89,6 @@ export class KgReportService {
         label: "规则冲突",
         body: `本迭代机械检查发现：${conflict.summary}`,
         refs: { nodes: conflict.nodes, symbols: [] },
-        options: OPTIONS_BY_KIND.rule_conflict,
       });
     }
     for (const orphan of orphans) {
@@ -110,7 +102,6 @@ export class KgReportService {
           nodes: [orphan.node],
           symbols: [symbolRefOf(orphan.anchor.anchorPath, orphan.anchor.anchorSymbol)],
         },
-        options: OPTIONS_BY_KIND.dead_anchor,
       });
     }
     for (const suspect of suspects) {
@@ -123,7 +114,6 @@ export class KgReportService {
           nodes: [suspect.node],
           symbols: [symbolRefOf(suspect.anchor.anchorPath, suspect.anchor.anchorSymbol)],
         },
-        options: OPTIONS_BY_KIND.suspect_stale,
       });
     }
     const nodesById = new Map(
@@ -143,7 +133,6 @@ export class KgReportService {
         label: "知识变化",
         body,
         refs: { nodes: refs, symbols: [] },
-        options: OPTIONS_BY_KIND.knowledge_change,
       });
     }
 

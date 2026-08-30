@@ -90,13 +90,12 @@ describe("T2.2 编排批次循环（CL-2-T3/T11）", () => {
       await settleInstance(env, env.recorder.call(2).agentId, { closure: "done", plan: "resolved" });
       await env.until(() => env.store.getJob(jobId)?.status === "done");
 
-      // 真库查证：批次 done → stage done + artifact（nodeIds 反查 + summary）→ job done
+      // 真库查证：批次 done → stage done + artifact（{ summary } 文字报告）→ job done
       expect(env.store.getBatches(jobId, 1).every((b) => b.status === "done")).toBe(true);
       const stage = env.store.getStages(jobId).find((s) => s.seq === 1)!;
       expect(stage.status).toBe("done");
-      expect(stage.artifact).toMatchObject({
+      expect(stage.artifact).toEqual({
         summary: "L0 层建成：覆盖 A/B 两模块，产出 2 节点。",
-        nodeIds: ["N-1-1", "N-1-2"],
       });
       expect(env.store.getJob(jobId)).toMatchObject({ status: "done", error: null });
     });
@@ -387,7 +386,7 @@ describe("T2.2 pause 派发闸 + resume 续派", () => {
   });
 });
 
-// ── RED 组 6/7 已并入组 1/2（聚合 artifact 含 nodeIds+summary；完成判定机械复核） ──
+// ── RED 组 6/7 已并入组 1/2（聚合 artifact { summary }；完成判定机械复核） ──
 
 // ── RED 组 8：段库新增（批次 brief 模板段 + plan 硬约束段，CL-2-T13） ──
 
@@ -532,7 +531,7 @@ describe("AF-T1.5.2：TaskEngineService onTaskChanged 出站钩子", () => {
       expect(frames).toHaveLength(0);
 
       await engine.advanceStage(jobId, 1);
-      await engine.writeStageArtifact(jobId, 1, { nodeIds: [], summary: "s" });
+      await engine.writeStageArtifact(jobId, 1, { summary: "s" });
       expect(frames).toContainEqual({ jobId, changed: "stage", status: "done" });
       frames.length = 0;
 
@@ -541,13 +540,13 @@ describe("AF-T1.5.2：TaskEngineService onTaskChanged 出站钩子", () => {
       await engine.advanceStage(jobId, 2);
       await engine.dispatchBatch(b2.id, "inst-b");
       await engine.completeBatch(b2.id);
-      await engine.writeStageArtifact(jobId, 2, { nodeIds: [], summary: "s" });
+      await engine.writeStageArtifact(jobId, 2, { summary: "s" });
       await engine.insertBatch({ jobId, stageSeq: 3, scope: "批次 3" });
       const b3 = env.store.getBatches(jobId, 3)[0]!;
       await engine.advanceStage(jobId, 3);
       await engine.dispatchBatch(b3.id, "inst-c");
       await engine.completeBatch(b3.id);
-      await engine.writeStageArtifact(jobId, 3, { nodeIds: [], summary: "s" });
+      await engine.writeStageArtifact(jobId, 3, { summary: "s" });
       await engine.completeJob(jobId);
       expect(frames).toContainEqual({ jobId, changed: "job", status: "done" });
     });

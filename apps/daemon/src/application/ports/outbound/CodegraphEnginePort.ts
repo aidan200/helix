@@ -33,4 +33,11 @@ export interface CodegraphEnginePort {
    * 库缺失/schema 版本高于已测上限/缺表 → 抛 EngineUnavailable。
    */
   exportSymbols(projectRoot: string): Promise<SymbolSet>;
+
+  /**
+   * 删除项目索引目录（kg.index.delete 消费，C1）：`<projectRoot>/.codegraph`
+   * 整目录递归删除，幂等（不存在 = no-op）。纯文件系统操作（被动模式无
+   * CLI delete 面）；kg 侧索引态复位与 watcher 联动由调用方编排。
+   */
+  deleteIndex(projectRoot: string): Promise<void>;
 }

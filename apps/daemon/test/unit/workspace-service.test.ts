@@ -66,10 +66,14 @@ function makeRig() {
     // T3.2 宽化（graph/projectService 供容器 KgBootstrapService 组装；本测仅消费 listProjects，never 桩）
     projectService: { listProjects: () => [{ name: root, path: root, status: "absent" as const }] } as never,
     graph: {} as never,
+    // C1 宽化（store/codegraphEngine 供容器 KgMaintenanceService 组装；本测不消费，never 桩）
+    store: {} as never,
+    codegraphEngine: {} as never,
     queryService: {} as never,
     writeService: {} as never,
     syncService: {} as never,
     attachmentService: {} as never,
+    fsWatch: {} as never,
     dispose: () => {
       spy.disposed += 1;
     },
@@ -346,10 +350,14 @@ describe("WorkspaceService：bind 异常半途态加固（W1F-F3）", () => {
       // T3.2 宽化（graph/projectService 供容器 KgBootstrapService 组装；本测仅消费 listProjects，never 桩）
       projectService: { listProjects: () => [{ name: root, path: root, status: "absent" as const }] } as never,
       graph: {} as never,
+      // C1 宽化（store/codegraphEngine 供容器 KgMaintenanceService 组装；本测不消费，never 桩）
+      store: {} as never,
+      codegraphEngine: {} as never,
       queryService: {} as never,
       writeService: {} as never,
       syncService: {} as never,
       attachmentService: {} as never,
+      fsWatch: {} as never,
       dispose: () => {
         disposed += 1;
       },

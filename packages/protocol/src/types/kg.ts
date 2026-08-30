@@ -91,7 +91,7 @@ export interface KgLogRow {
   eventText: string;
 }
 
-/** 节点详情六段聚合（kg.node.detail 响应）。 */
+/** 节点详情聚合（kg.node.detail 响应；body=正文原文单段直返，不拆分）。 */
 export interface KgNodeDetailDto {
   id: string;
   name: string;
@@ -99,10 +99,8 @@ export interface KgNodeDetailDto {
   domain: "tech" | "business" | null;
   status: KgNodeStatusDto;
   digest: string;
-  /** 描述（body 的叙述段）。 */
-  desc: string;
-  /** 规则条目（body 的列表条目行）。 */
-  rules: string[];
+  /** 正文（node.body 原文；自然语言散文，前端单段渲染）。 */
+  body: string;
   anchors: KgAnchorRow[];
   relations: KgRelationRow[];
   /** 垂直链：历史项（旧→新）+ 现行项。 */
@@ -123,7 +121,7 @@ export interface KgSymbolRefDto {
   line?: number;
 }
 
-/** 变化报告条目（T5.1 KgReportService 契约形状直传）。 */
+/** 变化报告条目（T5.1 KgReportService 契约形状直传；通知面无行动项）。 */
 export interface KgReportEntryDto {
   kind: KgReportEntryKind;
   sev: KgReportSev;
@@ -132,8 +130,6 @@ export interface KgReportEntryDto {
   /** 因果叙述句（事件导向，主语=你/本迭代；疑似类含限定词）。 */
   body: string;
   refs: { nodes: KgNodeRefDto[]; symbols: KgSymbolRefDto[] };
-  /** 行动项选项（本迭代仅呈现不落库；转正例外走 kg.node.confirm）。 */
-  options: string[];
 }
 
 /** 知识变化报告（kg.change.report 响应；按迭代聚合）。 */

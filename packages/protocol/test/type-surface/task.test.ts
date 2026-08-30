@@ -14,7 +14,6 @@ import type {
   CommandEnvelope,
   EventEnvelope,
   ErrorCode,
-  NodeRefDto,
   TaskArtifactsDto,
   TaskArtifactsResultEvent,
   TaskBatchDto,
@@ -51,7 +50,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
   test("命令目录：九命令登记且排序在 workspace 族之后", () => {
     for (const t of TASK_COMMANDS) expect(COMMAND_TYPES).toContain(t);
     expect(COMMAND_TYPES.slice(-TASK_COMMANDS.length)).toEqual([...TASK_COMMANDS]);
-    expect(COMMAND_TYPES.length).toBe(50); // kg-bootstrap 批（T3.2）+5 后当前值
+    expect(COMMAND_TYPES.length).toBe(52); // kg 维护批（C1）+2 后当前值
   });
 
   test("零干预断言（AD-2）：task.* 命令清单恰为九命令，无 steer/内容编辑/批次重试语义命令", () => {
@@ -66,7 +65,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
   test("事件目录：task.changed 唯一新事件登记（+1；结果帧不入目录）", () => {
     expect(EVENT_TYPES).toContain("task.changed");
     expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("task.changed");
-    expect(EVENT_TYPES.length).toBe(63); // kg-bootstrap 批（T3.2）+5 后当前值
+    expect(EVENT_TYPES.length).toBe(65); // kg 维护批（C1）+2 后当前值
     // 九命令结果帧为点对点回执（契约 §0 计数 57→58：仅 task.changed 入目录）
     for (const t of TASK_COMMANDS) {
       expect(EVENT_TYPES).not.toContain(`${t}.result`);
@@ -75,7 +74,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
 
   test("通道归属：task.changed 挂既有 notification 通道（不新增 Channel 值，契约 §0）", () => {
     expect(EVENT_CHANNELS["task.changed"]).toBe("notification");
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(63);
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(65);
   });
 
   test("错误码词表（契约 §4）：四任务码登记 ErrorCode", () => {
@@ -144,6 +143,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
     const item: WorkItemDto = { seq: 1, content: "盘点 src 依赖", status: "done", note: null };
     const batch: TaskBatchDto = {
       batchId: "b-1",
+      stageSeq: 1,
       seq: 1,
       scope: "批次 1：demo L0 探索",
       status: "running",
@@ -156,30 +156,22 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
       seq: 1,
       name: "L0 核心层",
       status: "running",
-      artifact: { summary: "核心层 12 节点", nodeCount: 12 },
+      artifact: { summary: "核心层建成摘要" },
     };
     const detail: TaskDetailDto = {
       ...summary,
       stages: [stage],
       batches: [batch],
-      currentNarrative: "当前：L0 核心层 · 批次 1/3",
       params: { projectRoot: "/tmp/demo" },
     };
-    const nodeRef: NodeRefDto = {
-      nodeId: "AD-1",
-      name: "分层装配",
-      kind: "rule",
-      digestFirstLine: "daemon 按六边形分层装配",
-      status: "confirmed",
-    };
     const artifacts: TaskArtifactsDto = {
-      stages: [{ seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "12 节点", nodes: [nodeRef] } }],
+      stages: [{ seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "核心层建成摘要" } }],
     };
     // 六态状态枚举（wire 值 = 后端状态机原值，契约 §0）
     const statuses: TaskStatus[] = ["pending", "running", "paused", "done", "failed", "cancelled"];
     expect(statuses.length).toBe(6);
     expect(detail.jobId).toBe("j-1");
-    expect(artifacts.stages[0]!.artifact!.nodes[0]!.status).toBe("confirmed");
+    expect(artifacts.stages[0]!.artifact!.summary).toContain("核心层");
 
     // 其余结果帧类型面可达（编译期）
     const _rest: [

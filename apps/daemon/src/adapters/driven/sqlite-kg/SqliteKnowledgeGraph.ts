@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
+import { existsSync } from "node:fs";
 import type { KgDatabase } from "./KgDatabase";
+import { kgDbPath } from "./KgDatabase";
 import { META_KEYS } from "./schema";
 import type {
   AnchorDeclaration,
@@ -368,8 +370,10 @@ export class SqliteKnowledgeGraph {
     return rows.map((row) => row.id);
   }
 
-  /** 库内最近一次变更所属迭代 id（T5.3 当前迭代确定性推导；空 → null）。 */
+  /** 库内最近一次变更所属迭代 id（T5.3 当前迭代确定性推导；空 → null）。
+   *  读面纪律：库文件缺席 → null（不新建库文件——connectionOf 会 mkdir+建库）。 */
   latestIteration(projectRoot: string): string | null {
+    if (!existsSync(kgDbPath(projectRoot))) return null;
     const db = this.deps.database.knowledgeConnection(projectRoot);
     const row = db
       .prepare("SELECT iteration_id FROM change_log ORDER BY seq DESC LIMIT 1")

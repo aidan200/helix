@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Database } from "bun:sqlite";
@@ -12,6 +12,7 @@ import { createKgUpdateTool } from "../../src/adapters/driven/tools/kg-update/Kg
 import { createKgTaskContextResolver } from "../../src/adapters/driven/subagent/child/ChildMain";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
 import { TaskStore } from "../../src/adapters/driven/sqlite-session/TaskStore";
+import { EDGE_VERBS, type KnowledgeWriteOp } from "../../src/domain/kg/types";
 import { counterClock } from "../helpers/task-fixtures";
 
 /**
@@ -63,7 +64,7 @@ afterAll(() => {
 function changeLogRows(root: string): Record<string, unknown>[] {
   const db = new Database(kgDbPath(root), { readonly: true });
   try {
-    return db.prepare("SELECT op, node_id, task_id FROM change_log ORDER BY rowid").all() as Record<string, unknown>[];
+    return db.prepare("SELECT iteration_id, op, node_id, task_id FROM change_log ORDER BY rowid").all() as Record<string, unknown>[];
   } finally {
     db.close();
   }
@@ -100,6 +101,124 @@ async function call(tool: ReturnType<typeof makeTool>, params: Record<string, un
 
 const CTX = { taskId: "task-job-1", originBatchId: "batch-1" };
 const ITER = "iter-20260829-ys7q";
+
+describe("批次上下文机械注入：组合 declareAnchors op 同盖（A4 丢章复现）", () => {
+  // 复现实证缺陷：bootstrap 首跑 declareAnchors change_log 行 task_id 全 NULL。
+  // 根因 = KgUpdateTool.execCreateNode 内组合第二笔 declareAnchors op 未经
+  // createOp 注入面（仅主 op 走注入）——本断言在修复前失败（declareAnchors 行 NULL）。
+  test("createNode + anchors：createNode 与 declareAnchors 两行 change_log 均落 task_id", async () => {
+    const stack = freshKgStack();
+    const tool = makeTool(stack, () => CTX);
+    const text = await call(tool, {
+      op: "createNode",
+      iterationId: ITER,
+      kind: "rule",
+      name: "锚规则",
+      digest: "摘要",
+      project: "proj",
+      anchors: [{ scopeKind: "global" }, { scopeKind: "path", pattern: "src/**" }],
+    });
+    expect(text).toContain("锚声明 2 条");
+    const rows = changeLogRows(stack.proj);
+    expect(rows.map((r) => r["op"])).toEqual(["createNode", "declareAnchors"]);
+    expect(rows.every((r) => r["task_id"] === CTX.taskId)).toBe(true);
+  });
+
+  test("非任务上下文 createNode + anchors：两行 change_log 均 NULL（零注入语义保持）", async () => {
+    const stack = freshKgStack();
+    const tool = makeTool(stack); // 无注入面
+    await call(tool, {
+      op: "createNode",
+      iterationId: ITER,
+      kind: "rule",
+      name: "锚规则",
+      digest: "摘要",
+      project: "proj",
+      anchors: [{ scopeKind: "global" }],
+    });
+    const rows = changeLogRows(stack.proj);
+    expect(rows.map((r) => r["op"])).toEqual(["createNode", "declareAnchors"]);
+    expect(rows.every((r) => r["task_id"] === null)).toBe(true);
+  });
+});
+
+describe("写入口 6 种 op kind 透传 taskId（逐 op 断言，store 面机械保证）", () => {
+  // 工具面只暴露 createNode/supersede/batchCreateNodes（+组合 declareAnchors）；
+  // updateNode/addEdge 无工具路径——store 面逐 op 断言保证任何写路径（含未来
+  // 新增工具/页面修正面）携带 taskId 即落章。
+  test("createNode/updateNode/supersede/declareAnchors/addEdge/batchCreateNodes 携带 taskId → change_log 全行落章", () => {
+    const stack = freshKgStack();
+    const w = (op: KnowledgeWriteOp): string => {
+      const r = stack.write.write(stack.proj, op);
+      if (!r.ok) throw new Error(`写失败：${r.error.code} ${r.error.message}`);
+      return r.nodeId;
+    };
+    const taskId = "task-six-ops";
+    const a = w({ kind: "createNode", iterationId: ITER, taskId, originBatchId: "b1", draft: { kind: "rule", name: "规则A", digest: "d" } });
+    const b = w({ kind: "batchCreateNodes", iterationId: ITER, taskId, originBatchId: "b1", nodes: [{ draft: { kind: "entity", name: "实体B", digest: "d" } }] });
+    w({ kind: "updateNode", iterationId: ITER, taskId, nodeId: a, patch: { digest: "d2" } });
+    const replacement = w({ kind: "supersede", iterationId: ITER, taskId, nodeId: a, reason: "修正", replacementNodeDraft: { kind: "rule", name: "规则C", digest: "d" } });
+    w({ kind: "declareAnchors", iterationId: ITER, taskId, nodeId: b, anchors: [{ scopeKind: "global", pattern: "" }] });
+    w({ kind: "addEdge", iterationId: ITER, taskId, srcId: b, dstId: replacement, verb: EDGE_VERBS[2] });
+    const rows = changeLogRows(stack.proj);
+    // createNode(1) + batchCreateNodes(1) + updateNode(1) + supersede(2：翻态+replacement) + declareAnchors(1) + addEdge(1)
+    expect(rows).toHaveLength(7);
+    expect(rows.every((r) => r["task_id"] === taskId)).toBe(true);
+  });
+});
+
+describe("iterationId 服务端机械解析（LLM 传参降级为可选覆盖，A4 任务二）", () => {
+  /** 在 workspace 根造迭代状态目录（.helix/iterations/iter-*）。 */
+  function seedWorkspaceIterations(root: string, ids: readonly string[]): void {
+    for (const id of ids) {
+      mkdirSync(path.join(root, ".helix", "iterations", id), { recursive: true });
+      writeFileSync(path.join(root, ".helix", "iterations", id, "phase-state.yaml"), "{}");
+    }
+  }
+
+  test("缺省 iterationId + workspace 迭代状态在 → 机械盖 workspace 当前迭代（最新目录）", async () => {
+    const stack = freshKgStack();
+    seedWorkspaceIterations(stack.root, ["iter-20260825-11fo", "iter-20260829-ys7q"]);
+    const tool = makeTool(stack, () => CTX);
+    await call(tool, { op: "createNode", kind: "rule", name: "无参规则", digest: "摘要", project: "proj" });
+    const rows = changeLogRows(stack.proj);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ iteration_id: "iter-20260829-ys7q", task_id: CTX.taskId });
+  });
+
+  test("无 workspace 迭代状态 → 回落目标库最近迭代锚（库内 change_log 末行）", async () => {
+    const stack = freshKgStack();
+    const seed = await stack.write.write(stack.proj, {
+      kind: "createNode",
+      iterationId: "iter-seed-anchor",
+      draft: { kind: "rule", name: "种子", digest: "d" },
+    });
+    if (!seed.ok) throw new Error("种子建点失败");
+    const tool = makeTool(stack, () => CTX);
+    await call(tool, { op: "createNode", kind: "rule", name: "锚回落", digest: "摘要", project: "proj" });
+    const rows = changeLogRows(stack.proj);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ iteration_id: "iter-seed-anchor" });
+  });
+
+  test("显式 iterationId 覆盖机械解析（覆盖语义保持）", async () => {
+    const stack = freshKgStack();
+    seedWorkspaceIterations(stack.root, ["iter-20260829-ys7q"]);
+    const tool = makeTool(stack, () => CTX);
+    await call(tool, { op: "createNode", iterationId: "iter-explicit", kind: "rule", name: "显式", digest: "摘要", project: "proj" });
+    expect(changeLogRows(stack.proj)[0]).toMatchObject({ iteration_id: "iter-explicit" });
+  });
+
+  test("无任何迭代锚（无 workspace 状态 + 库空）且未显式传参 → 结构化报错不猜", async () => {
+    const stack = freshKgStack();
+    const tool = makeTool(stack, () => CTX);
+    await expect(
+      call(tool, { op: "createNode", kind: "rule", name: "无锚", digest: "摘要", project: "proj" }),
+    ).rejects.toThrow(/iterationId/);
+    // 写入口未被触达（库文件不应被创建——读面/拒绝路径零落库）
+    expect(existsSync(kgDbPath(stack.proj))).toBe(false);
+  });
+});
 
 describe("批次上下文机械注入：三路径落章（不再依赖 LLM 透传）", () => {
   test("单条 createNode：不带 taskId/originBatchId → change_log.task_id + nodes.origin_batch_id 落章", async () => {
@@ -233,7 +352,7 @@ describe("子进程接线层解析器（HELIX_DB_PATH + instanceId 同面惰性�
       });
       await store.insertStage({ jobId: "task-j1", seq: 1, name: "L0", status: "running", artifact: null, updatedAt: now });
       await store.insertBatch({
-        id: "batch-b1", jobId: "task-j1", stageSeq: 1, seq: 1, scope: "s", status: "running",
+        id: "batch-b1", jobId: "task-j1", stageSeq: 1, scope: "s", status: "running",
         retryCount: 0, retryNote: null, instanceId: "inst-x", createdAt: now, updatedAt: now,
       });
       const resolver = createKgTaskContextResolver(dbPath, "inst-x");

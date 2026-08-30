@@ -30,9 +30,8 @@ export interface JobData {
   readonly error: string | null;
 }
 
-/** stage 产物（AD-6⑦：产出节点 id 集 + 阶段摘要，阶段完成时聚合落库）。 */
+/** stage 产物（阶段摘要文字报告，阶段完成时聚合落库；与 kg 零耦合——节点反查链已拆除）。 */
 export interface StageArtifact {
-  readonly nodeIds: readonly string[];
   readonly summary: string;
 }
 
@@ -95,8 +94,12 @@ export interface TaskStorePort {
     status: StageStatus,
     artifact?: StageArtifact,
   ): Promise<void>;
-  /** batch 行插入（编排 agent 阶段内展开批次）。 */
-  insertBatch(batch: BatchData): Promise<void>;
+  /**
+   * batch 行插入（编排 agent 阶段内展开批次）。seq 由写通道原子赋予
+   * （WriteQueue 单写线程内 SELECT count + 1）——调用方不预算（并发
+   * 插入下同预算必重号）。
+   */
+  insertBatch(batch: Omit<BatchData, "seq">): Promise<void>;
   /**
    * batch 行整体替换（无状态守卫——重试复跑语义在引擎 T1.3：failed 批次经
    * retryCount 递增的新行值复跑，domain batch 机 failed 即终态，复跑不经

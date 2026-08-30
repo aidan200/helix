@@ -28,11 +28,13 @@
  */
 import type { RuntimeConfigPort } from "../../../application/ports/outbound/RuntimeConfigPort";
 import type { KnowledgeGraphPort } from "../../../application/ports/outbound/KnowledgeGraphPort";
+import type { KnowledgeStorePort } from "../../../application/ports/outbound/KnowledgeStorePort";
+import type { CodegraphEnginePort } from "../../../application/ports/outbound/CodegraphEnginePort";
 import type { KgProjectRowView, KgProjectService } from "../kg/KgProjectService";
 import type { KgAttachmentService } from "../kg/KgAttachmentService";
 import type { KgQueryService } from "../kg/KgQueryService";
 import type { KgSyncService } from "../kg/KgSyncService";
-import type { KgViewerService } from "../kg/KgViewerService";
+import type { KgFsWatchService } from "../kg/KgFsWatchService";import type { KgViewerService } from "../kg/KgViewerService";
 import type { KgWriteService } from "../kg/KgWriteService";
 
 /** KV 键（helix.db runtime_config 表；不进 config.json——TR-AD-6）。 */
@@ -54,15 +56,21 @@ export interface WorkspaceStack {
   readonly projectService: KgProjectService;
   /** kg 读 port（T3.2 kg-bootstrap 批：KgBootstrapService 组装面）。 */
   readonly graph: KnowledgeGraphPort;
+  /** kg 写 port（C1 kg 维护批：KgMaintenanceService 组装面——purgeAll/resetIndexFace）。 */
+  readonly store: KnowledgeStorePort;
+  /** codegraph 引擎面（C1 kg 维护批：deleteIndex 组装面）。 */
+  readonly codegraphEngine: CodegraphEnginePort;
   readonly queryService: KgQueryService;
   readonly writeService: KgWriteService;
   readonly syncService: KgSyncService;
   readonly attachmentService: KgAttachmentService;
+  /** per-project 目录文件监控（B3 fs-watch：startSync 接缝补齐挂接的消费面）。 */
+  readonly fsWatch: KgFsWatchService;
   /** 关闭全部 per-project 连接（复用 shutdown 既有 dispose 语义）。 */
   readonly dispose: () => void;
 }
 
-/** kg 同步 background 停面（生产恒 no-op——纯手动裁决；见 container.ts）。 */
+/** kg 同步 background 停面（B3 = fs-watch 全停接缝；此前纯手动裁决期恒 no-op）。 */
 export interface WorkspaceSyncBackground {
   readonly stop: () => void;
 }
@@ -122,7 +130,7 @@ export interface WorkspaceServiceDeps {
   readonly cwd: () => string;
   /** kg 栈工厂（组合根注入 buildKnowledgeStack；重绑 = 重建）。 */
   readonly buildStack: (root: string) => WorkspaceStack;
-  /** kg background 工厂（生产恒 no-op：kg 索引同步纯手动，2026-08-29 裁决；测试可注入替身）。 */
+  /** kg background 工厂（B3 = fs-watch 补齐挂接面：按索引态为已建项目挂 watcher，stop=全停）。 */
   readonly startSync: (stack: WorkspaceStack, root: string) => WorkspaceSyncBackground;
   /** 绑定变更广播（组合根接 EventStream.broadcastWorkspaceChanged）。 */
   readonly broadcast: (root: string) => void;

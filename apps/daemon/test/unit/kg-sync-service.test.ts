@@ -59,6 +59,14 @@ class AuditStore implements KnowledgeStorePort {
       this.active -= 1;
     }
   }
+
+  purgeAll(): never {
+    throw new Error("purgeAll 不在 sync 单测面");
+  }
+
+  resetIndexFace(): never {
+    throw new Error("resetIndexFace 不在 sync 单测面");
+  }
 }
 
 /** 可编程基准读面 fake（degraded/增量序列测试注入点）。 */

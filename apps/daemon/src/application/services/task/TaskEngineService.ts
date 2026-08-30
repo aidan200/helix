@@ -207,12 +207,13 @@ export class TaskEngineService implements TaskEnginePort {
     }
     const now = this.deps.clock.now();
     const batchId = `batch-${crypto.randomUUID()}`;
-    const seq = this.deps.store.getBatches(input.jobId, input.stageSeq).length + 1;
+    // seq 不预算：并发 insertBatch 下同阶段全读到 count=0 → seq 全 1（helix.db
+    // 实证）；seq 由 WriteQueue 单写线程内 SELECT count + 1 原子赋予（AG-06
+    // 唯一写通道串行化保证）。
     await this.deps.store.insertBatch({
       id: batchId,
       jobId: input.jobId,
       stageSeq: input.stageSeq,
-      seq,
       scope: input.scope,
       status: "pending",
       retryCount: 0,

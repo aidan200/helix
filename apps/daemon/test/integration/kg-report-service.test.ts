@@ -13,8 +13,9 @@ import type { SymbolBatch } from "../../src/domain/kg/types";
 
 /**
  * I 层（CL-3.A8/A9/A10）：KgReportService 变化报告数据面——按迭代聚合
- * 四类条目；人类可读三原则（事件导向因果叙述/因果链完整/永远带行动项）
- * 与 AD-16 引用规范（无裸 id）在数据层强制（O-7：查询时现算零写）。
+ * 四类条目；人类可读原则（事件导向因果叙述/因果链完整）与 AD-16 引用
+ * 规范（无裸 id）在数据层强制（O-7：查询时现算零写）。报告=通知面非
+ * 审核面：条目纯代码事实机械检查/变更流水，不携带 options 行动项。
  */
 
 const DAY = 86_400_000;
@@ -125,7 +126,7 @@ describe("KgReportService：变化报告数据面（I 层，按迭代聚合）",
     }
   });
 
-  test("② CL-3.A8 三原则：事件导向（主语=本迭代+因果连接）/ 行动项非空 / 因果叙述句", () => {
+  test("② CL-3.A8：事件导向（主语=本迭代+因果连接）/ 因果叙述句；通知面无 options", () => {
     const s = freshStack();
     seed(s);
     const report = s.report.buildChangeReport(s.root, ITER);
@@ -133,8 +134,8 @@ describe("KgReportService：变化报告数据面（I 层，按迭代聚合）",
     for (const entry of report.entries) {
       expect(entry.body).toContain("本迭代"); // 主语标记（事件导向非节点导向）
       expect(entry.body).toMatch(/——|因此|导致|，而/); // 因果链连接词
-      expect(entry.options.length).toBeGreaterThan(0); // 永远带行动项
       expect(entry.body.endsWith("。")).toBe(true); // 完整叙述句（非枚举片段）
+      expect("options" in entry).toBe(false); // 报告=通知面非审核面：无行动项字段
     }
   });
 
@@ -149,7 +150,7 @@ describe("KgReportService：变化报告数据面（I 层，按迭代聚合）",
     }
   });
 
-  test("④ CL-3.A9 引用规范：label/body/options 人类可读字段无裸 id；refs 供全字段（id 仅供链接）", () => {
+  test("④ CL-3.A9 引用规范：label/body 人类可读字段无裸 id；refs 供全字段（id 仅供链接）", () => {
     const s = freshStack();
     seed(s);
     const report = s.report.buildChangeReport(s.root, ITER);
@@ -157,7 +158,6 @@ describe("KgReportService：变化报告数据面（I 层，按迭代聚合）",
     for (const entry of report.entries) {
       expect(entry.label).not.toMatch(BARE_ID_RE);
       expect(entry.body).not.toMatch(BARE_ID_RE);
-      for (const option of entry.options) expect(option).not.toMatch(BARE_ID_RE);
     }
     // refs：知识节点 = id+name+kind+digest 首行；代码符号 = 名+路径
     const dead = report.entries.find((e) => e.kind === "dead_anchor")!;

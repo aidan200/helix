@@ -497,7 +497,7 @@ describe("kg 六命令族 I 层（真 service 栈 + tmp 库 + ws 路由）", () 
     expect(absentRead.error!.code).toBe("KG_E_NOT_FOUND");
   }, 15000);
 
-  test("kg.node.detail：六段聚合（desc/rules/anchors dead-stale-ok/relations/supersede 链/log 最新在上）（A2）", async () => {
+  test("kg.node.detail：聚合（body 原文单段/anchors dead-stale-ok/relations/supersede 链/log 最新在上）（A2）", async () => {
     const rig = rigs[0]!;
     const res = await rig.client.kg("kg.node.detail", { project: "alpha", id: "TR-1" });
     expect(res.ok).toBe(true);
@@ -506,9 +506,10 @@ describe("kg 六命令族 I 层（真 service 栈 + tmp 库 + ws 路由）", () 
     expect(d.name).toBe("分层依赖单向");
     expect(d.kind).toBe("rule");
     expect(d.status).toBe("confirmed");
-    // body 拆分段：叙述=desc，列表行=rules
-    expect(d.desc).toBe("依赖必须单向。");
-    expect(d.rules).toEqual(["外层可指向内层", "内层禁止反向依赖"]);
+    // body 单段：原文直返不拆分（拆分逻辑已删除）
+    expect(d.body).toBe("依赖必须单向。\n- 外层可指向内层\n- 内层禁止反向依赖");
+    expect("desc" in d).toBe(false);
+    expect("rules" in d).toBe(false);
     // 锚点段：TR-1 唯一符号锚（声明物化，span 起点 11）
     const anchors = d.anchors as Record<string, unknown>[];
     expect(anchors).toHaveLength(1);
@@ -567,7 +568,7 @@ describe("kg 六命令族 I 层（真 service 栈 + tmp 库 + ws 路由）", () 
       expect(["warn", "info", "ok"]).toContain(e.sev as string);
       expect(typeof e.label).toBe("string");
       expect(typeof e.body).toBe("string");
-      expect(Array.isArray(e.options)).toBe(true); // 永远带行动项（AD-5）
+      expect("options" in e).toBe(false); // 报告=通知面非审核面：无行动项字段
       const refs = e.refs as { nodes: Record<string, unknown>[]; symbols: Record<string, unknown>[] };
       for (const n of refs.nodes) {
         expect(typeof n.name).toBe("string");

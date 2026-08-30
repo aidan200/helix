@@ -3,6 +3,8 @@ import type {
   AgentToolResult,
   ExecutionToolContext,
 } from "@earendil-works/pi-agent-core/node";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { KgQueryService } from "../../../../application/services/kg/KgQueryService";
 import type { KgWriteService } from "../../../../application/services/kg/KgWriteService";
 import type {
@@ -104,7 +106,11 @@ const kgUpdateParameters = {
       additionalProperties: false,
     },
     // ── 通用 ──
-    iterationId: { type: "string", description: "当前迭代 id（change_log 每行必含，如 iter-20260825-11fo）" },
+    iterationId: {
+      type: "string",
+      description:
+        "当前迭代 id（可选覆盖——缺省服务端机械解析：workspace 当前迭代（.helix/iterations 最新）→ 目标库最近迭代锚；均缺时才需显式传参。change_log 每行必含）",
+    },
     project: { type: "string", description: "createNode 目标项目目录名（workspace 只有一个项目时可省；多项目必填）" },
     taskId: {
       type: "string",
@@ -115,12 +121,19 @@ const kgUpdateParameters = {
       description: "产出批次 id（可选）：任务批次上下文由接线层机械注入默认值（产出分组/幂等重跑判据），仅需显式传参覆盖时才携带",
     },
   },
-  required: ["op", "iterationId"],
+  required: ["op"],
   additionalProperties: false,
 } as const;
 
 export interface KgUpdateToolDeps {
-  readonly query: Pick<KgQueryService, "locate">;
+  readonly query: Pick<KgQueryService, "locate"> & {
+    /**
+     * 目标库最近迭代锚（iterationId 机械解析的库内回落；A4 任务二）。可选——
+     * 结构性缺席（同形测试记录器）时仅退化该级回落，workspace 迭代状态
+     * 解析与显式传参不受影响。
+     */
+    readonly latestIteration?: (projectRoot: string) => string | null;
+  };
   /** KgWriteService 面（结构化注入——测试记录器同形）。 */
   readonly write: { write(projectRoot: string, op: KnowledgeWriteOp): WriteResult };
   /** workspace 根（project 名 → projectRoot 解析）。 */
@@ -147,21 +160,21 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       "知识图谱即时落账（经唯一写入口，schema 校验前置）。supersede：本次改动推翻某知识节点时" +
       "（📎 附着块或任务切片尾部的协议行触发）立即声明——status 翻转 + 理由 + iterationId 入审计链，" +
       "可选 replacement 草稿（新号自动发放）。createNode：沉淀新规则/实体（自动发号，可选锚声明）。" +
-      "两操作均必填 iterationId；多项目 workspace 的 createNode 需 project（项目目录名）。",
+      "iterationId 缺省服务端机械解析（workspace 当前迭代 → 目标库最近迭代锚），显式传参仅作覆盖；" +
+      "多项目 workspace 的 createNode 需 project（项目目录名）。",
     parameters: kgUpdateParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
       const args = params as Record<string, unknown>;
       const op = args["op"];
-      const iterationId = requireString(args, "iterationId", "（change_log 每行必含）");
       if (op === "supersede") {
-        return text(execSupersede(deps, args, iterationId));
+        return text(execSupersede(deps, args));
       }
       if (op === "createNode") {
-        return text(execCreateNode(deps, args, iterationId));
+        return text(execCreateNode(deps, args));
       }
       if (op === "batchCreateNodes") {
-        return text(execBatchCreateNodes(deps, args, iterationId));
+        return text(execBatchCreateNodes(deps, args));
       }
       throw new Error(`未知 op "${String(op)}"（合法：createNode / supersede / batchCreateNodes）`);
     },
@@ -170,7 +183,7 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
 
 // ── op 执行（全部经 KgWriteService——库内唯一写路径） ────────
 
-function execSupersede(deps: KgUpdateToolDeps, args: Record<string, unknown>, iterationId: string): string {
+function execSupersede(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
   const nodeId = requireString(args, "nodeId", "（取自 kg search 返回行或 📎 附着块指针）") as NodeId;
   const reason = requireString(args, "reason", "（推翻理由入审计链）");
   // 目标定位：跨项目全命中——写操作不猜（多命中/零命中均结构化报错）
@@ -184,6 +197,7 @@ function execSupersede(deps: KgUpdateToolDeps, args: Record<string, unknown>, it
     );
   }
   const { project } = hits[0]!;
+  const iterationId = resolveIterationId(deps, args, project);
   const context = deps.taskContext?.();
   const draft = draftOf(args["replacement"]);
   // T4.2（AF-T4.1.6）：批次上下文内 replacement 默认 confirmed（bootstrap
@@ -205,7 +219,7 @@ function execSupersede(deps: KgUpdateToolDeps, args: Record<string, unknown>, it
     : `已 supersede：${nodeId} → 新节点 ${result.nodeId}（理由已入 change_log，链上双侧可见）`;
 }
 
-function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>, iterationId: string): string {
+function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
   const draft: NodeDraft = {
     kind: requireString(args, "kind", "（rule / entity）") === "entity" ? "entity" : "rule",
     name: requireString(args, "name", "（节点名）"),
@@ -217,11 +231,17 @@ function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>, i
   };
   const anchors = anchorsOf(args["anchors"]);
   const project = resolveTargetProject(deps, args);
+  const iterationId = resolveIterationId(deps, args, project);
   const result = writeOrThrow(deps, project, createOp(deps, args, { kind: "createNode", iterationId, draft }));
   let summary = `已建节点 ${result.nodeId}（project: ${projectName(project)}，自动发号）`;
   if (anchors !== null) {
-    // 锚声明组合落账（第二笔 op）：失败不回滚建点——结构化报错携带已建 id（可重声明）
-    const anchorResult = deps.write.write(project, { kind: "declareAnchors", iterationId, nodeId: result.nodeId, anchors });
+    // 锚声明组合落账（第二笔 op）：失败不回滚建点——结构化报错携带已建 id（可重声明）。
+    // A4：组合 op 同走 createOp 注入面——批次上下文内 declareAnchors 的
+    // change_log 行机械落 task_id（实证首跑该路径全 NULL 的丢章裂口修复）
+    const anchorResult = deps.write.write(
+      project,
+      createOp(deps, args, { kind: "declareAnchors", iterationId, nodeId: result.nodeId, anchors }),
+    );
     if (!anchorResult.ok) {
       throw new Error(
         `节点 ${result.nodeId} 已建，但锚声明失败：${anchorResult.error.code} ${anchorResult.error.message}` +
@@ -265,7 +285,7 @@ function createOp<T extends KnowledgeWriteOp>(deps: KgUpdateToolDeps, args: Reco
  * createNode（多项目必填 project）；op 级 status/taskId/originBatchId 逐节点
  * 同源（任务批次产出的批量落账形态，T4.1）。
  */
-function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unknown>, iterationId: string): string {
+function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
   const value = args["nodes"];
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error("nodes 必填且为非空数组（批量建点：[{kind, name, digest, …}]）");
@@ -283,8 +303,41 @@ function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unkno
     return { draft: opLayer !== undefined ? { ...stamped, layer: opLayer } : stamped };
   });
   const project = resolveTargetProject(deps, args);
+  const iterationId = resolveIterationId(deps, args, project);
   const result = writeOrThrow(deps, project, createOp(deps, args, { kind: "batchCreateNodes", iterationId, nodes }));
   return `已批量建节点 ${nodes.length} 个（project: ${projectName(project)}，自动发号；末节点 ${result.nodeId}）`;
+}
+
+/**
+ * iterationId 解析（A4 任务二，服务端机械解析为主）：LLM 显式传参优先
+ * （覆盖语义保持）；缺省 → ① workspace 当前迭代（<workspaceRoot>/.helix/
+ * iterations 最新 iter-* 目录——真实迭代锚，任务上下文无迭代归属时继承
+ * workspace 现值）→ ② 目标库最近迭代锚（change_log 末行，滞后兑底）；
+ * 皆缺 → 结构化报错不猜（不写无归属审计行）。
+ */
+function resolveIterationId(deps: KgUpdateToolDeps, args: Record<string, unknown>, project: string): string {
+  const explicit = optionalString(args, "iterationId");
+  if (explicit !== undefined) return explicit;
+  const workspaceIteration = workspaceCurrentIteration(deps.workspaceRoot);
+  if (workspaceIteration !== undefined) return workspaceIteration;
+  const anchor = deps.query.latestIteration?.(project);
+  if (anchor !== undefined && anchor !== null) return anchor;
+  throw new Error(
+    "缺少必填参数 iterationId（change_log 每行必含迭代 id；服务端机械解析双锚均缺——" +
+      "workspace 无 .helix/iterations 迭代状态且目标库 change_log 为空，请显式传参）",
+  );
+}
+
+/** workspace 当前迭代（.helix/iterations 最新 iter-* 目录名；目录缺席/为空 → undefined）。 */
+function workspaceCurrentIteration(workspaceRoot: string): string | undefined {
+  let entries: string[];
+  try {
+    entries = readdirSync(join(workspaceRoot, ".helix", "iterations"));
+  } catch {
+    return undefined; // 目录缺席（无迭代状态的 workspace）——不猜
+  }
+  const iterations = entries.filter((e) => e.startsWith("iter-")).sort();
+  return iterations.length > 0 ? iterations[iterations.length - 1] : undefined;
 }
 
 /** createNode 目标项目解析：project 名 → projectRoot；缺省唯一项目自动；多项目必填。 */

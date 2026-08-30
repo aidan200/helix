@@ -13,7 +13,7 @@
  * （契约 §0 计数 57→58 仅含 task.changed），帧类型以本文件窄化接口供出。
  *
  * AD-4（裸 id 纪律）：jobId/batchId/nodeId 只做 join 键与 data-id 属性，
- * 人类可读字段（title/scope/summary/currentNarrative）由服务端
+ * 人类可读字段（title/scope/summary）由服务端
  * TaskQueryService 组装（types/task.ts 只定义 wire 形状）。
  */
 
@@ -67,10 +67,12 @@ export interface WorkItemDto {
   note: string | null;
 }
 
-/** 批次行（当前阶段批次列表，R-5）。 */
+/** 批次行（全量批次列表——跨阶段收集，stageSeq 为前端分组键）。 */
 export interface TaskBatchDto {
   /** data-id。 */
   batchId: string;
+  /** 所属阶段序号（前端按阶段分组键）。 */
+  stageSeq: number;
   seq: number;
   /** 批次范围描述（粗体，人类可读）。 */
   scope: string;
@@ -91,41 +93,27 @@ export interface TaskStageDto {
   /** 阶段名（如 "L0 核心层"）。 */
   name: string;
   status: "pending" | "running" | "done" | "failed";
-  /** 阶段产物摘要（done 后非 null）。 */
-  artifact: { summary: string; nodeCount: number } | null;
+  /** 阶段产物摘要（done 后非 null；文字报告，与 kg 零耦合）。 */
+  artifact: { summary: string } | null;
 }
 
-/** 任务详情（阶段条 + 当前阶段批次 + 实例 plan + 叙述句）。 */
+/** 任务详情（阶段条 + 全量批次 + 实例 plan）。 */
 export interface TaskDetailDto extends TaskSummaryDto {
   stages: TaskStageDto[];
   batches: TaskBatchDto[];
-  /** 详情头「当前：…」叙述句（服务端组装，贯穿六态，R-8）。 */
-  currentNarrative: string;
   /** 定格参数（元信息展示）。 */
   params: Record<string, unknown>;
 }
 
 // ── 结果查询（task.artifacts，F3.4 只读；契约 §1） ────────────
 
-/** 知识节点人类可读投影（AD-4②：nodeId 仅 data-id 不渲染）。 */
-export interface NodeRefDto {
-  nodeId: string;
-  /** 粗体。 */
-  name: string;
-  /** kind 徽章。 */
-  kind: string;
-  /** digest 首行（单行截断）。 */
-  digestFirstLine: string;
-  status: "confirmed" | "superseded";
-}
-
-/** 各阶段产物（节点详情/修正转 /project 页，AD-10——本面只读）。 */
+/** 各阶段产物（文字报告 only——结果与 kg 彻底零耦合，节点反查链已拆除）。 */
 export interface TaskArtifactsDto {
   stages: {
     seq: number;
     name: string;
     status: "pending" | "running" | "done" | "failed";
-    artifact: { summary: string; nodes: NodeRefDto[] } | null;
+    artifact: { summary: string } | null;
   }[];
 }
 

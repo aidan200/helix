@@ -201,8 +201,6 @@ export interface OrchestratorEnvOverrides {
   readonly rawSpawn?: (sessionId: string, task: string) => SpawnOutcome;
   /** 实例终态读面覆盖（预算测试注入 scheduler.status）。 */
   readonly instanceOutcome?: (agentId: string) => { state: string; summary?: string } | undefined;
-  /** kg 反查面（阶段产物 nodeIds；缺省 = 阶段批次 → 固定 id 集）。 */
-  readonly stageNodeIds?: (jobId: string, stageSeq: number) => readonly string[];
   /** manifest plan 档位（缺省 enforced）。 */
   readonly plan?: "enforced" | "optional";
 }
@@ -255,8 +253,6 @@ export async function withOrchestratorEnv(
   const recorder = new FakeSpawnRecorder((jobId) =>
     store.getStages(jobId).reduce((n, s) => n + store.getBatches(jobId, s.seq).length, 0),
   );
-  const stageNodeIds = over.stageNodeIds ?? ((_jobId: string, stageSeq: number) => [`N-${stageSeq}-1`, `N-${stageSeq}-2`]);
-
   const scriptedStream = makeScriptedLLM([...over.script]);
   const createSession = (jobId: string, orchestration: AgentOrchestrationPort): OrchestratorSessionFace => {
     const executor = new CoreToolExecutor({
@@ -271,7 +267,6 @@ export async function withOrchestratorEnv(
         jobId,
         taskEngine: engine,
         ledger,
-        stageNodeIds: (stageSeq: number) => stageNodeIds(jobId, stageSeq),
       },
     });
     const adapter = new PiAgentEngineAdapter({

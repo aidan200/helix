@@ -150,9 +150,9 @@ type WriteJob =
       readonly artifact?: StageArtifact;
     }
   | {
-      /** batch 行插入（编排 agent 阶段内展开）。 */
+      /** batch 行插入（编排 agent 阶段内展开；seq 落盘闭包内原子赋予）。 */
       readonly kind: "taskBatchInsert";
-      readonly batch: BatchData;
+      readonly batch: Omit<BatchData, "seq">;
     }
   | {
       /** batch 行整行替换（重试/实例派发——无状态守卫，语义在引擎 T1.3）。 */
@@ -202,6 +202,7 @@ export class WriteQueue {
   private readonly updateTaskJobStatus!: Statement;
   private readonly updateTaskStageStatus!: Statement;
   private readonly insertTaskBatch!: Statement;
+  private readonly countTaskBatches!: Statement;
   private readonly updateTaskBatchById!: Statement;
   private readonly deleteTaskJob!: Statement;
   private readonly deleteTaskStagesByJob!: Statement;
@@ -287,6 +288,9 @@ export class WriteQueue {
     this.insertTaskBatch = this.db.prepare(
       "INSERT INTO batch (id, job_id, stage_seq, seq, scope, status, retry_count, retry_note, instance_id, created_at, updated_at) " +
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    this.countTaskBatches = this.db.prepare(
+      "SELECT COUNT(*) AS c FROM batch WHERE job_id = ? AND stage_seq = ?",
     );
     this.updateTaskBatchById = this.db.prepare(
       "UPDATE batch SET stage_seq = ?, seq = ?, scope = ?, status = ?, retry_count = ?, " +
@@ -419,8 +423,8 @@ export class WriteQueue {
     return this.enqueue({ kind: "taskStageStatus", jobId, seq, status, artifact });
   }
 
-  /** batch 行插入入队（编排 agent 阶段内展开）。 */
-  saveTaskBatch(batch: BatchData): Promise<void> {
+  /** batch 行插入入队（编排 agent 阶段内展开；seq 由落盘闭包原子赋予）。 */
+  saveTaskBatch(batch: Omit<BatchData, "seq">): Promise<void> {
     return this.enqueue({ kind: "taskBatchInsert", batch });
   }
 
@@ -606,7 +610,11 @@ export class WriteQueue {
       return;
     }
     if (job.kind === "taskBatchInsert") {
-      const row = batchToRow(job.batch);
+      // seq 原子化（同阶段并发 insertBatch 竞态修复）：单写线程内 SELECT
+      // count + 1——串行链保证 count 与 INSERT 之间无其他写插入，同阶段
+      // 并发插入严格 1..n（调用方不预算 seq，预算必重号）。
+      const seq = (this.countTaskBatches.get(job.batch.jobId, job.batch.stageSeq) as { c: number }).c + 1;
+      const row = batchToRow({ ...job.batch, seq });
       this.insertTaskBatch.run(
         row.id,
         row.job_id,

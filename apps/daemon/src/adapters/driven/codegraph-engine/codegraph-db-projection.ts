@@ -28,9 +28,14 @@ import type { EngineContainsEdge, EngineFileRecord, EngineSymbol, SymbolSet } fr
  */
 export const CODEGRAPH_SCHEMA_MAX_VERSION = 9;
 
+/** codegraph 索引目录定位（kg.index.delete 删除目标，C1）。 */
+export function codegraphDirPath(projectRoot: string): string {
+  return `${projectRoot}/.codegraph`;
+}
+
 /** codegraph 库定位（导出供测试/冒烟；运行时经 CodegraphEngineAdapter 访问）。 */
 export function codegraphDbPath(projectRoot: string): string {
-  return `${projectRoot}/.codegraph/codegraph.db`;
+  return `${codegraphDirPath(projectRoot)}/codegraph.db`;
 }
 
 /** 只读打开：mode=ro 优先（可见未 checkpoint 的 WAL 内容）；打开惰性，用探活查询逼出真实打开失败后回退 immutable 只读快照。 */

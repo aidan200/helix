@@ -15,8 +15,7 @@ import type { WorkLedgerService } from "../../../../application/services/task/Wo
  * - **批次成败收口（completeBatch/failBatch）不在本工具族**——closure 缺失/
  *   失败与台账未全 resolve 两条硬约束由 TaskOrchestratorService 代码机械
  *   判读执行（不进 LLM 面，LLM 不可越过硬约束改判）；
- * - 阶段产物聚合的 nodeIds 由系统按阶段批次反查（kg 元数据
- *   origin_batchId；编排器不手填，防编造）——LLM 只给人类可读 summary；
+ * - 阶段产物 = 人类可读文字报告（summary only，与 kg 零耦合）；
  * - 完成判定 = LLM 申报（task_complete_job）+ 引擎机械复核全部阶段行。
  *
  * jobId 由装配面绑定（每任务一个编排会话）——工具参数零 jobId（防串任务）。
@@ -33,8 +32,6 @@ export interface TaskOpsToolDeps {
     TaskEnginePort,
     "insertBatch" | "dispatchBatch" | "advanceStage" | "writeStageArtifact" | "completeJob" | "failJob"
   >;
-  /** 阶段产物 nodeIds 反查面（阶段批次 → kg 元数据 origin_batchId 检出；缺省空集）。 */
-  readonly stageNodeIds?: (stageSeq: number) => readonly string[];
   /** 批次实例台账读面（编排者 plan_read 变体：按实例 id 参数读）。 */
   readonly ledger?: Pick<WorkLedgerService, "getPlan">;
 }
@@ -178,15 +175,14 @@ export function createTaskOpsTools(deps: TaskOpsToolDeps): AgentHarnessTool<Exec
       name: "task_stage_artifact",
       label: "task_stage_artifact",
       description:
-        "聚合阶段产物并收口阶段（stage → done）：产出节点 id 集由系统按该阶段批次反查（kg 元数据，" +
-        "编排器不手填），你只提供人类可读的阶段摘要。",
+        "聚合阶段产物并收口阶段（stage → done）：你只提供人类可读的阶段摘要（文字报告），" +
+        "摘要即任务页结果页的数据源。",
       parameters: stageArtifactParameters as any,
       async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
         void toolCallId;
         const { stageSeq, summary } = params as { stageSeq: number; summary: string };
-        const nodeIds = deps.stageNodeIds?.(stageSeq) ?? [];
-        await engineCall(() => deps.taskEngine.writeStageArtifact(deps.jobId, stageSeq, { summary, nodeIds }));
-        return text(JSON.stringify({ ok: true, stageSeq, nodeCount: nodeIds.length }));
+        await engineCall(() => deps.taskEngine.writeStageArtifact(deps.jobId, stageSeq, { summary }));
+        return text(JSON.stringify({ ok: true, stageSeq }));
       },
     },
     {

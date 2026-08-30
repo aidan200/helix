@@ -735,11 +735,11 @@ export interface AgentModelChangedPayload {
   新会话）；转正恰好一次 `agent.instantiated` + `list_changed{created}`
   （draft 链显式广播与补广播去重，不双发）。
 
-## 15. 命令 payload 形状总登记（C→S，50 命令全集）
+## 15. 命令 payload 形状总登记（C→S，52 命令全集）
 
-> **计数声明：50 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
+> **计数声明：52 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
 > 15.4 model 6 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
-> 15.9 kg 6+5 + 15.10 workspace 2 + 15.11 task 9）——与 `COMMAND_TYPES` 常量恰等
+> 15.9 kg 6+5+2 + 15.10 workspace 2 + 15.11 task 9）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
 > 文档与其逐项对齐（AD-1）；仓外契约文档降为历史定形档案（§17.1）。
@@ -1064,7 +1064,7 @@ iter-20260823 后续批升格：effective=null、后续请求不带 reasoning—
 |---|---|---|---|---|
 | `level` | `string` | 必填 | v0.11 | pi-ai ThinkingLevel 字符串透传（如 `"medium"` / `"high"` / `"off"` 显式关） |
 
-### 15.9 kg 族（6；kg 批，iter-20260825-11fo T5.3 P-1 图谱查看页数据面）
+### 15.9 kg 族（6+5+2；kg 批 + kg-bootstrap 批 + kg 维护批，iter-20260825-11fo T5.3 / iter-20260829-ys7q T3.2 / C1）
 
 > 本族为 kg 批（v0.11 后 additive 微批，版本位不 bump，§14/§18 同构先例；
 > 批次注记见 §19）登记的 P-1 数据面六命令。全局命令（信封 sessionId
@@ -1211,6 +1211,37 @@ supersede 成功后前端调用刷新「受影响待复核」标记）。结果 
 | `project` | `string` | 必填 | kg-bootstrap 批 | 项目名或绝对路径 |
 | `nodeId` | `string` | 必填 | kg-bootstrap 批 | 被修正（update/supersede）的节点 id |
 
+#### `kg.graph.purge`
+
+清空图谱（C1 kg 维护批）：清空本项目 kg 库**全部内容**——知识面
+（nodes/edges/anchor_decl/materialized_anchors/change_log）与符号面
+（files/symbols/contains_edges）及 meta（含 sync 基准戳与 seq 发号计数
+器）全量清零，索引态复位 absent（范围决策：全量清 + 索引态复位——清
+symbols 留 meta 基线会让 sync 误判无变化不再导入，状态机破窗）；不动
+`.codegraph`（那是 `kg.index.delete` 的职责，两命令职责严格分层）。
+安全门禁：存在运行中（running/pending）kg-bootstrap 任务时拒绝 →
+`kg.graph.purge_blocked`（防 done 任务悬挂引用）。结果 =
+`kg.graph.purge.result`（`{purged, nodesRemoved, symbolsRemoved,
+filesRemoved}`）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg 维护批 | 项目名或绝对路径（daemon 单点解析） |
+
+#### `kg.index.delete`
+
+删除索引（C1 kg 维护批）：删除项目 `.codegraph` 目录 + kg 索引态复位
+absent（清符号面同步基准：files/symbols/contains_edges + meta
+sync:baseline/sync:degraded；**知识层不动**——nodes/edges/change_log 等
+保留，下次 `kg.index.status {rebuild:true}` 重建索引后符号面自动恢复）。
+联动：删除时停掉该项目 fs-watch watcher（KgFsWatchService.stopWatching
+接缝）；重建成功经既有 onSynced 钩子自动重挂。结果 =
+`kg.index.delete.result`（`{deleted, state, watcherStopped}`）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg 维护批 | 项目名或绝对路径（daemon 单点解析） |
+
 ### 15.10 workspace 族（2；workspace 批，W1 workspace 绑定闭环）
 
 > 本族为 workspace 批（v0.11 后 additive 微批，版本位不 bump，§19 同构
@@ -1346,12 +1377,12 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 |---|---|---|---|---|
 | `jobId` | `string` | 必填 | task 批 | 目标任务（终态） |
 
-## 16. 事件 payload 形状总登记（S→C，63 事件全集）
+## 16. 事件 payload 形状总登记（S→C，65 事件全集）
 
-> **计数声明：63 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> **计数声明：65 事件全集**（16.1 notification 3〔含 task.changed〕 +
 > 16.2 session 4 +
 > 16.3 chat 10 + 16.4 agent 12 + 16.5 thinking·compaction·usage 5 +
-> 16.6 model 10 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5 + 16.10 workspace 3
+> 16.6 model 10 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2 + 16.10 workspace 3
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
 >（三面同构，守护断言⑤口径）；auth 族 4 结果帧按 `EVENT_CHANNELS` 登记挂
@@ -1839,7 +1870,7 @@ reason 含引导用户开 remote debugging 的说明（daemon browser-discovery
 | `status` | `"applied" \| "skipped"` | 必填 | v0.9 | 结果判别位 |
 | `reason` | `string` | 可选 | v0.9 | status="skipped" 时携带：未发现可用浏览器的说明 + remote debugging 引导 |
 
-### 16.9 kg 族（6+5；kg 批 + kg-bootstrap 批，iter-20260825-11fo T5.3 / iter-20260829-ys7q T3.2）
+### 16.9 kg 族（6+5+2；kg 批 + kg-bootstrap 批 + kg 维护批，iter-20260825-11fo T5.3 / iter-20260829-ys7q T3.2 / C1）
 
 > 六命令的点对点回执结果帧（TR-AD-21 模式；仅发发起命令的连接，不经
 > EventStream 广播）。信封 sessionId = SYSTEM_SESSION_ID、channel =
@@ -1956,6 +1987,28 @@ bootstrap 任务创建回执（点对点；T3.2 kg-bootstrap 批）。
 |---|---|---|---|---|
 | `affected` | `KgNodeRefLiteDto[]`（`{ nodeId, name, kind, digestFirstLine }`） | 必填 | kg-bootstrap 批 | 引用方集合（AD-16 同规；nodeId 仅 data-id 键） |
 | `count` | `number` | 必填 | kg-bootstrap 批 | 引用方计数（toast 告知数量） |
+
+#### `kg.graph.purge.result`
+
+清空图谱回执（C1 kg 维护批，点对点；全表清零计数 + 索引态已复位 absent）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `purged` | `true` | 必填 | kg 维护批 | 判别位（kg 库已全量清零） |
+| `nodesRemoved` | `number` | 必填 | kg 维护批 | 清除的知识节点行数（含 superseded 留史行） |
+| `symbolsRemoved` | `number` | 必填 | kg 维护批 | 清除的符号行数（符号面基准一并清零） |
+| `filesRemoved` | `number` | 必填 | kg 维护批 | 清除的文件基准行数 |
+
+#### `kg.index.delete.result`
+
+删除索引回执（C1 kg 维护批，点对点；.codegraph 已删 + 状态复位 absent +
+watcher 已停）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `deleted` | `true` | 必填 | kg 维护批 | 判别位（.codegraph 目录已删除） |
+| `state` | `"absent"` | 必填 | kg 维护批 | 删除后索引态（恒 absent——状态机自洽断言位） |
+| `watcherStopped` | `boolean` | 必填 | kg 维护批 | fs-watch watcher 已停（stopWatching 接缝消费确认） |
 
 ### 16.10 workspace 族（3；workspace 批，W1 workspace 绑定闭环）
 
@@ -2374,3 +2427,27 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 > - daemon 行为由 T1.5 落地（handlers/task.ts + TaskQueryService/
 >   TaskEnginePort 回口；未装配面回 `command.unimplemented`——kg.ts 先例；
 >   状态判断收口引擎 T1.3，handler 透传 task.invalid_state）。
+
+## 22. kg 维护批（C1：清空图谱 kg.graph.purge + 删除索引 kg.index.delete；v0.11 后 additive 微批——版本位不 bump）
+
+> 本批为 kg 库维护两命令的协议面登记（C1）：**2 命令**（§15.9 kg 族：
+> `kg.graph.purge` 清空本项目 kg 库全部内容 / `kg.index.delete` 删除
+> `.codegraph` 索引目录——两命令职责严格分层：purge 不动 `.codegraph`，
+> index-delete 不动知识层）+ **2 事件**（§16.9 kg 族：两命令点对点回执
+> 结果帧，挂既有 kg 通道）+ **1 错误码**（`kg.graph.purge_blocked`：
+> 运行中（running/pending）kg-bootstrap 任务存在时拒绝清空，connection.error
+> 载荷、连接保持）。**版本位不 bump**（`PROTOCOL_VERSION = "0.11"` 保持）：
+> 全部为新增面（新增命令 type / 新增事件 type / 新增错误码值），旧客户端
+> 零破坏（additive 纪律，TR-AD-23①；§19/§20/§21 同构先例）。
+>
+> - 计数演进：命令 50 → 52；事件 63 → 65（守护断言③同步扩）。
+> - 范围决策（purge）：全量清（知识面 + 符号面 + meta 基准/发号计数器）
+>   + 索引态复位 absent——清 symbols 留 meta 基线会让 sync 误判无变化
+>   不再导入（状态机破窗）；清后下一次 triggerManual 重建符号面，bootstrap
+>   准入经「索引 synced ∧ 知识层空」恢复 eligible。
+> - 联动（index-delete）：删除时消费 KgFsWatchService.stopWatching 接缝停
+>   per-project watcher；重建成功经既有 onSynced 钩子自动重挂。
+> - 安全：purge 门禁在 daemon service 侧机械复核（不信赖前端）；UI 侧
+>   两步确认（危险操作文案含「不可恢复」）。
+> - daemon 行为由 C1 落地（handlers/kg.ts + KgMaintenanceService；未装配面
+>   回 `command.unimplemented`——kg 族既有先例）。
