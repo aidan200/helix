@@ -239,6 +239,7 @@ export class KgViewerService {
           kind: node.kind,
           name: node.name,
           digest: node.digest,
+          scene: node.scene,
           status: node.status,
           domain: node.domain,
         },
@@ -356,7 +357,7 @@ export class KgViewerService {
     const digestById = new Map(this.deps.graph.search(projectRoot, "").map((row) => [row.id, row] as const));
     const peerOf = (id: string): NodeDigestRow =>
       // 防御分支（addEdge 事务内已校引用存在）：不可达时不用裸 id 充 name（AD-16）
-      digestById.get(id) ?? { id, kind: node.kind, name: "已删除节点", digest: "", status: "superseded", domain: null };
+      digestById.get(id) ?? { id, kind: node.kind, name: "已删除节点", digest: "", scene: "", status: "superseded", domain: null };
     const relations: KgRelationView[] = detail.edges.map((edge) => ({
       verb: edge.verb,
       peer: peerOf(edge.otherId),

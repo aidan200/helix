@@ -56,7 +56,7 @@ describe("writeKnowledge 多表 op 原子性", () => {
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "n", digest: "d" },
+      draft: { kind: "rule", name: "n", digest: "d", scene: "测试场景" },
     });
     s.service.write(s.root, {
       kind: "declareAnchors",
@@ -92,7 +92,7 @@ describe("writeKnowledge 多表 op 原子性", () => {
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "n", digest: "d" },
+      draft: { kind: "rule", name: "n", digest: "d", scene: "测试场景" },
     });
     // 注入 fault：库内直插 TR-2（模拟计数器不知情的残留行，如崩溃残留/外部写入）
     // —— replacement 自动发号将得到 TR-2，INSERT 在 status UPDATE 之后撞 PK

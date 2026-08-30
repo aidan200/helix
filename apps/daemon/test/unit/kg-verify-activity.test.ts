@@ -20,6 +20,7 @@ function node(id: string, updatedAtDaysAgo: number): KnowledgeNode {
     kind: "rule",
     name: id === "TR-1" ? "分层依赖单向" : id === "TR-2" ? "写路径白名单" : id === "TR-3" ? "会话去重" : "其余规则",
     digest: "摘要行",
+    scene: "",
     body: "",
     domain: "tech",
     layer: null,

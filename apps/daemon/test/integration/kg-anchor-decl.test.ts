@@ -67,7 +67,7 @@ describe("三级作用域声明（AD-13）", () => {
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "n", digest: "d" },
+      draft: { kind: "rule", name: "n", digest: "d", scene: "测试场景" },
     });
     const declared = s.service.write(s.root, {
       kind: "declareAnchors",
@@ -92,7 +92,7 @@ describe("三级作用域声明（AD-13）", () => {
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "n", digest: "d" },
+      draft: { kind: "rule", name: "n", digest: "d", scene: "测试场景" },
     });
     s.service.write(s.root, {
       kind: "declareAnchors",
@@ -115,7 +115,7 @@ describe("三级作用域声明（AD-13）", () => {
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "n", digest: "d" },
+      draft: { kind: "rule", name: "n", digest: "d", scene: "测试场景" },
     });
     const cases: Array<{ op: KnowledgeWriteOp; path: string }> = [
       {
@@ -174,7 +174,7 @@ describe("三级作用域声明（AD-13）", () => {
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "n", digest: "d" },
+      draft: { kind: "rule", name: "n", digest: "d", scene: "测试场景" },
     });
     s.service.write(s.root, {
       kind: "declareAnchors",
@@ -208,7 +208,7 @@ describe("三级作用域声明（AD-13）", () => {
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "n", digest: "d" },
+      draft: { kind: "rule", name: "n", digest: "d", scene: "测试场景" },
     });
     s.service.write(s.root, {
       kind: "declareAnchors",
@@ -227,17 +227,17 @@ describe("读面（KnowledgeGraphPort 雏形：search/attachment snapshot）", (
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "写点唯一", digest: "甲摘要" },
+      draft: { kind: "rule", name: "写点唯一", digest: "甲摘要", scene: "测试场景" },
     });
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "写点唯一", digest: "乙摘要" },
+      draft: { kind: "rule", name: "写点唯一", digest: "乙摘要", scene: "测试场景" },
     });
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "entity", name: "无关", digest: "丙摘要" },
+      draft: { kind: "entity", name: "无关", digest: "丙摘要", scene: "测试场景" },
     });
     const byName = s.graph.search(s.root, "写点唯一");
     expect(byName.map((row) => row.id)).toEqual(["TR-1", "TR-2"]);
@@ -251,11 +251,11 @@ describe("读面（KnowledgeGraphPort 雏形：search/attachment snapshot）", (
     s.service.write(s.root, {
       kind: "createNode",
       iterationId: "iter-1",
-      draft: { kind: "rule", name: "附着规则", digest: "附着摘要" },
+      draft: { kind: "rule", name: "附着规则", digest: "附着摘要", scene: "测试场景" },
     });
     await s.store.applySync(s.root, batch);
     expect(s.graph.getAttachmentSnapshot(s.root)).toEqual({
-      nodes: [{ id: "TR-1", kind: "rule", name: "附着规则", digest: "附着摘要", scopeKind: "symbol" }],
+      nodes: [{ id: "TR-1", kind: "rule", name: "附着规则", digest: "附着摘要", scene: "测试场景", scopeKind: "symbol" }],
       fileAnchors: [],
       symbolAnchors: [
         // span 从符号层 join（上次 sync 值；缺省表示无法参与 L3 兕底——T1.2 契约）

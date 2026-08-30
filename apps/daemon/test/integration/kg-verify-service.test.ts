@@ -73,11 +73,11 @@ function seed(stack: Stack): void {
     for (const r of results) expect(r.ok).toBe(true);
   };
   ok(
-    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "分层依赖单向", digest: "import 只准外层指向内层", status: "confirmed" } }), // TR-1
-    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "双向往返", digest: "禁止双向 import", status: "confirmed" } }), // TR-2
-    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "写路径白名单", digest: "落盘写点收口清单", status: "confirmed" } }), // TR-3
-    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "主代理", digest: "编排实体", status: "confirmed" } }), // E-1 无锚无边（confirmed → 孤儿节点）
-    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "新近草稿", digest: "今日 findings 落账" } }), // TR-4 draft 新建 → 宽限
+    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "分层依赖单向", digest: "import 只准外层指向内层", scene: "测试场景", status: "confirmed" } }), // TR-1
+    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "双向往返", digest: "禁止双向 import", scene: "测试场景", status: "confirmed" } }), // TR-2
+    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "写路径白名单", digest: "落盘写点收口清单", scene: "测试场景", status: "confirmed" } }), // TR-3
+    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "主代理", digest: "编排实体", scene: "测试场景", status: "confirmed" } }), // E-1 无锚无边（confirmed → 孤儿节点）
+    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "新近草稿", digest: "今日 findings 落账", scene: "测试场景" } }), // TR-4 draft 新建 → 宽限
   );
   // 双向 governs 矛盾（TR-1 ↔ TR-2）+ 单向合法边（TR-1 → TR-3）
   ok(

@@ -22,7 +22,7 @@ function node(
   scopeKind: KgNodeDigestRow["scopeKind"],
   kind: KgNodeDigestRow["kind"] = "rule",
 ): KgNodeDigestRow {
-  return { id, kind, name, digest, scopeKind };
+  return { id, kind, name, digest, scene: "", scopeKind };
 }
 
 function snap(partial: Partial<AttachmentSnapshot> = {}): AttachmentSnapshot {

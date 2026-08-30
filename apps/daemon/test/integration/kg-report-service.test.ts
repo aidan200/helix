@@ -59,11 +59,11 @@ function seed(stack: Stack): void {
     for (const r of results) expect(r.ok).toBe(true);
   };
   ok(
-    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "分层依赖单向", digest: "import 只准外层指向内层\n违反即守护失败", status: "confirmed" } }), // TR-1
-    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "写路径白名单", digest: "落盘写点收口清单", status: "confirmed" } }), // TR-2
-    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "双向往返甲", digest: "约束甲", status: "confirmed" } }), // TR-3
-    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "双向往返乙", digest: "约束乙", status: "confirmed" } }), // TR-4
-    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "旧写路径规则", digest: "旧口径", status: "confirmed" } }), // TR-5（被取代者）
+    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "分层依赖单向", digest: "import 只准外层指向内层\n违反即守护失败", scene: "测试场景", status: "confirmed" } }), // TR-1
+    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "写路径白名单", digest: "落盘写点收口清单", scene: "测试场景", status: "confirmed" } }), // TR-2
+    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "双向往返甲", digest: "约束甲", scene: "测试场景", status: "confirmed" } }), // TR-3
+    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "双向往返乙", digest: "约束乙", scene: "测试场景", status: "confirmed" } }), // TR-4
+    w.write(stack.root, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "旧写路径规则", digest: "旧口径", scene: "测试场景", status: "confirmed" } }), // TR-5（被取代者）
   );
   // knowledge_change 五 op 全谱：updateNode / declareAnchors / addEdge / supersede+replacement
   ok(
@@ -191,7 +191,7 @@ describe("KgReportService：变化报告数据面（I 层，按迭代聚合）",
     const s = freshStack();
     seed(s);
     // 另一迭代的写入不进本报告
-    const r = s.write.write(s.root, { kind: "createNode", iterationId: "iter-other", draft: { kind: "rule", name: "他迭代规则", digest: "他迭代摘要" } });
+    const r = s.write.write(s.root, { kind: "createNode", iterationId: "iter-other", draft: { kind: "rule", name: "他迭代规则", digest: "他迭代摘要", scene: "测试场景" } });
     expect(r.ok).toBe(true);
     const report = s.report.buildChangeReport(s.root, ITER);
     expect(report.entries.some((e) => e.kind === "knowledge_change" && e.body.includes("他迭代规则"))).toBe(false);

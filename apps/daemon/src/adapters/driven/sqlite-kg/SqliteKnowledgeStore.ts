@@ -2,13 +2,17 @@ import { Database } from "bun:sqlite";
 import type { KgDatabase } from "./KgDatabase";
 import { META_KEYS } from "./schema";
 import type { KgPurgeSummary } from "../../../application/ports/outbound/KnowledgeStorePort";
-import { formatNodeId, parseMigrationId } from "../../../domain/kg/node-id";
+import { formatCandidateId, formatNodeId, parseCandidateId, parseMigrationId } from "../../../domain/kg/node-id";
 import { supersedeTransition } from "../../../domain/kg/supersede";
+import {
+  CANDIDATE_DEFER_MAX_AGE,
+  CANDIDATE_DEFER_MAX_PENDING,
+} from "../../../domain/kg/types";
 import type {
+  CandidateStatus,
   KgWriteError,
   KnowledgeWriteOp,
   NodeDraft,
-  NodeKind,
   NodeStatus,
   SymbolBatch,
   WriteResult,
@@ -83,6 +87,10 @@ export class SqliteKnowledgeStore {
         return this.applyAddEdge(db, op);
       case "batchCreateNodes":
         return this.applyBatchCreateNodes(db, op);
+      case "proposeCandidate":
+        return this.applyProposeCandidate(db, op);
+      case "decideCandidate":
+        return this.applyDecideCandidate(db, op);
     }
   }
 
@@ -152,9 +160,9 @@ export class SqliteKnowledgeStore {
     }
     const now = isoNow();
     db.prepare(
-      "INSERT INTO nodes (id, kind, name, digest, body, domain, layer, origin_batch_id, status, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(id, draft.kind, draft.name, draft.digest, draft.body ?? "", draft.domain ?? null, draft.layer ?? null, originBatchId ?? null, draft.status ?? "draft", now, now);
+      "INSERT INTO nodes (id, kind, name, digest, scene, body, domain, layer, origin_batch_id, status, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(id, draft.kind, draft.name, draft.digest, draft.scene ?? "", draft.body ?? "", draft.domain ?? null, draft.layer ?? null, originBatchId ?? null, draft.status ?? "draft", now, now);
     this.appendChangeLog(db, iterationId, "createNode", id, null, null, taskId);
     return { ok: true, nodeId: id };
   }
@@ -210,11 +218,11 @@ export class SqliteKnowledgeStore {
     const draft = op.replacementNodeDraft;
     const now = isoNow();
     // origin_batch_id 同 createNode 落列（T4.2/AF-T4.1.6：replacement 同为批次产出，
-    // 缺列曾致 origin_batch_id 永 NULL 的落章裂口）
+    // 缺列曾致 origin_batch_id 永 NULL 的落章裂口）；scene 同（R23 新沉淀可携带）
     db.prepare(
-      "INSERT INTO nodes (id, kind, name, digest, body, domain, layer, origin_batch_id, status, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(replacementId, draft.kind, draft.name, draft.digest, draft.body ?? "", draft.domain ?? null, draft.layer ?? null, op.originBatchId ?? null, draft.status ?? "draft", now, now);
+      "INSERT INTO nodes (id, kind, name, digest, scene, body, domain, layer, origin_batch_id, status, created_at, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(replacementId, draft.kind, draft.name, draft.digest, draft.scene ?? "", draft.body ?? "", draft.domain ?? null, draft.layer ?? null, op.originBatchId ?? null, draft.status ?? "draft", now, now);
     this.appendChangeLog(db, op.iterationId, "createNode", replacementId, op.nodeId, op.reason, op.taskId);
     return { ok: true, nodeId: replacementId };
   }
@@ -255,6 +263,81 @@ export class SqliteKnowledgeStore {
     );
     this.appendChangeLog(db, op.iterationId, "addEdge", op.srcId, null, null, op.taskId);
     return { ok: true, nodeId: op.srcId };
+  }
+
+  // ── 候选台账通道（D0/R2：同知识层四表事务纪律，单 op 单事务） ──
+
+  /**
+   * proposeCandidate 落库（R2/R3）：自动发号 CAND-<seq>（meta 计数器与
+   * 节点号空间独立、只增不减）；显式 id 为 md 台账迁移保号专用（同
+   * createNode 保号先例：冲突 KG_E_ID + 计数器推进）。缺省 pending 行。 */
+  private applyProposeCandidate(
+    db: Database,
+    op: KnowledgeWriteOp & { kind: "proposeCandidate" },
+  ): WriteResult {
+    let id: string;
+    if (op.id !== undefined) {
+      const seq = parseCandidateId(op.id)!; // 形态已在上层校验（CAND-n）
+      if (this.candidateExists(db, op.id)) {
+        return err("KG_E_ID", `候选 ${op.id} 已存在（id 永不回收、永不改写）`, "op.id");
+      }
+      this.bumpSeq(db, "candidate", seq);
+      id = op.id;
+    } else {
+      id = formatCandidateId(this.allocateSeq(db, "candidate"));
+    }
+    db.prepare(
+      "INSERT INTO candidates (id, kind, title, body, status, source_task_id, source_iteration_id, created_at) " +
+        "VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)",
+    ).run(id, op.candidateKind, op.title, op.body ?? "", op.sourceTaskId ?? null, op.sourceIterationId ?? null, isoNow());
+    this.appendChangeLog(db, op.iterationId, "proposeCandidate", id, null, null, op.taskId);
+    return { ok: true, nodeId: id };
+  }
+
+  /**
+   * decideCandidate 落库（R2）：pending/deferred → applied/discarded/
+   * deferred；applied/discarded 为终态（再裁决 KG_E_STATE）。defer →
+   * defer_age+1（decided_at 保持 NULL——D0：pending/deferred 时为人审
+   * 未完成）；defer 软上限（年龄/积压）只警告不拒绝，警告随 WriteResult
+   * 上浮（机械只列不修）。 */
+  private applyDecideCandidate(
+    db: Database,
+    op: KnowledgeWriteOp & { kind: "decideCandidate" },
+  ): WriteResult {
+    const current = this.loadCandidate(db, op.candidateId);
+    if (current === null) {
+      return err("KG_E_ID", `候选 ${op.candidateId} 不存在`, "op.candidateId");
+    }
+    if (current.status === "applied" || current.status === "discarded") {
+      return err(
+        "KG_E_STATE",
+        `候选 ${op.candidateId} 已是 ${current.status} 终态（裁决不可逆；反悔请新开候选）`,
+        "op.candidateId",
+      );
+    }
+    const decision = op.decision;
+    if (decision === "deferred") {
+      const nextAge = current.defer_age + 1;
+      db.prepare(
+        "UPDATE candidates SET status = 'deferred', defer_age = ?, decision_reason = COALESCE(?, decision_reason) WHERE id = ?",
+      ).run(nextAge, op.reason ?? null, op.candidateId);
+      this.appendChangeLog(db, op.iterationId, "decideCandidate", op.candidateId, null, op.reason ?? null, op.taskId);
+      const warnings: string[] = [];
+      if (nextAge >= CANDIDATE_DEFER_MAX_AGE) {
+        warnings.push(`defer_age=${nextAge} 已达软上限 ${CANDIDATE_DEFER_MAX_AGE}——下次终验应强制裁决（applied/discarded）`);
+      }
+      const backlog = (db.prepare("SELECT COUNT(*) AS n FROM candidates WHERE status = 'deferred'").get() as { n: number }).n;
+      if (backlog > CANDIDATE_DEFER_MAX_PENDING) {
+        warnings.push(`deferred 积压 ${backlog} 条超软上限 ${CANDIDATE_DEFER_MAX_PENDING}——终验应清台`);
+      }
+      return { ok: true, nodeId: op.candidateId, ...(warnings.length > 0 ? { warning: warnings.join("；") } : {}) };
+    }
+    db.prepare(
+      "UPDATE candidates SET status = ?, decided_at = ?, decision_reason = ?, formal_id = COALESCE(?, formal_id), " +
+        "applied_node_id = COALESCE(?, applied_node_id) WHERE id = ?",
+    ).run(decision, isoNow(), op.reason ?? null, op.formalId ?? null, op.appliedNodeId ?? null, op.candidateId);
+    this.appendChangeLog(db, op.iterationId, "decideCandidate", op.candidateId, null, op.reason ?? null, op.taskId);
+    return { ok: true, nodeId: op.candidateId };
   }
 
   // ── 符号层通道（sync 单事务，T2.2 消费） ──────────────────
@@ -355,6 +438,7 @@ export class SqliteKnowledgeStore {
         "change_log",
         "edges",
         "materialized_anchors",
+        "candidates",
         "files",
         "symbols",
         "contains_edges",
@@ -393,25 +477,25 @@ export class SqliteKnowledgeStore {
   // ── 内部：发号 / 日志 / 行访问 ────────────────────────────
 
   /** 序号事务内分配（AD-16：计数器只增，+1 后立即落库防复用）。 */
-  private allocateSeq(db: Database, kind: NodeKind): number {
+  private allocateSeq(db: Database, kind: string): number {
     const next = this.currentSeq(db, kind) + 1;
     this.setSeq(db, kind, next);
     return next;
   }
 
   /** 显式保号迁移推进计数器（seq 高于计数器时抬升；低于则不动——只增不减）。 */
-  private bumpSeq(db: Database, kind: NodeKind, seq: number): void {
+  private bumpSeq(db: Database, kind: string, seq: number): void {
     if (seq > this.currentSeq(db, kind)) this.setSeq(db, kind, seq);
   }
 
-  private currentSeq(db: Database, kind: NodeKind): number {
+  private currentSeq(db: Database, kind: string): number {
     const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(`${META_KEYS.seqPrefix}${kind}`) as
       | { value: string }
       | null;
     return row === null ? 0 : Number(row.value);
   }
 
-  private setSeq(db: Database, kind: NodeKind, seq: number): void {
+  private setSeq(db: Database, kind: string, seq: number): void {
     db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
       `${META_KEYS.seqPrefix}${kind}`,
       String(seq),
@@ -440,6 +524,14 @@ export class SqliteKnowledgeStore {
     return db.prepare("SELECT 1 FROM nodes WHERE id = ?").get(id) !== null;
   }
 
+  private candidateExists(db: Database, id: string): boolean {
+    return db.prepare("SELECT 1 FROM candidates WHERE id = ?").get(id) !== null;
+  }
+
+  private loadCandidate(db: Database, id: string): CandidateDbRow | null {
+    return (db.prepare("SELECT id, status, defer_age FROM candidates WHERE id = ?").get(id) as CandidateDbRow | null);
+  }
+
   private loadNode(db: Database, id: string): NodeRow | null {
     return (db.prepare(
       "SELECT id, kind, name, digest, body, domain, layer, status, created_at, updated_at FROM nodes WHERE id = ?",
@@ -466,6 +558,12 @@ interface NodeRow {
   status: string;
   created_at: string;
   updated_at: string;
+}
+
+interface CandidateDbRow {
+  id: string;
+  status: CandidateStatus;
+  defer_age: number;
 }
 
 function err(code: KgWriteError["code"], message: string, path?: string): WriteResult {

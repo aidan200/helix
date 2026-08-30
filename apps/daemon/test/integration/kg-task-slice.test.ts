@@ -68,7 +68,7 @@ function seedNode(f: Fixture, name: string, digest: string): string {
   const r = f.write.write(f.proj, {
     kind: "createNode",
     iterationId: "iter-t33",
-    draft: { kind: "rule", name, digest },
+    draft: { kind: "rule", name, digest, scene: "测试场景" },
   });
   if (!r.ok) throw new Error(`种子建节点失败：${r.error.message}`);
   return r.nodeId;

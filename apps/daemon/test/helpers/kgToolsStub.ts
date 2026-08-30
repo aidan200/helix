@@ -12,6 +12,7 @@ export function kgToolsStub(workspaceRoot: string): KgToolOptions {
       search: () => [],
       get: () => null,
       locate: () => [],
+      affected: () => [],
     },
     write: {
       write: () => ({

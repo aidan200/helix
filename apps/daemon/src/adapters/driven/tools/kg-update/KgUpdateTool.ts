@@ -42,13 +42,20 @@ const kgUpdateParameters = {
   properties: {
     op: {
       type: "string",
-      enum: ["createNode", "supersede", "batchCreateNodes"],
-      description: "操作：createNode 新知识落账 / supersede 推翻既有节点 / batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）",
+      enum: ["createNode", "supersede", "batchCreateNodes", "proposeCandidate", "decideCandidate"],
+      description:
+        "操作：createNode 新知识落账 / supersede 推翻既有节点 / batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）/ " +
+        "proposeCandidate 提候选（仅 MainAgent 可用）/ decideCandidate 裁决候选（仅 MainAgent 可用）",
     },
     // ── createNode ──
     kind: { type: "string", enum: ["rule", "entity"], description: "createNode 节点类型（rule=规则 / entity=实体）" },
     name: { type: "string", description: "createNode 节点名（重名合法，靠 digest 区分）" },
     digest: { type: "string", description: "createNode 摘要（≤2 行——LLM 面默认展示粒度）" },
+    scene: {
+      type: "string",
+      description:
+        "适用场景（R23 沉淀必填——createNode/batchCreateNodes 缺了写不进去）：一句话「本规则适用于：改动 X 类文件 / 做 Y 类决策前」",
+    },
     body: { type: "string", description: "createNode 正文（可选，全文详情）" },
     domain: { type: "string", enum: ["tech", "business"], description: "createNode 作用域（可选）" },
     layer: { type: "string", enum: ["L0", "L1", "L2"], description: "createNode 分层（可选，AD-11）" },
@@ -73,18 +80,19 @@ const kgUpdateParameters = {
     // ── batchCreateNodes ──
     nodes: {
       type: "array",
-      description: "batchCreateNodes 批量节点载荷：[{kind, name, digest, body?, domain?, layer?}]（逐项自动发号；任一项失败整批拒绝零落库）",
+      description: "batchCreateNodes 批量节点载荷：[{kind, name, digest, scene, body?, domain?, layer?}]（scene 必填同单条；逐项自动发号；任一项失败整批拒绝零落库）",
       items: {
         type: "object",
         properties: {
           kind: { type: "string", enum: ["rule", "entity"], description: "节点类型（rule=规则 / entity=实体）" },
           name: { type: "string", description: "节点名（重名合法，靠 digest 区分）" },
           digest: { type: "string", description: "摘要（≤2 行）" },
+          scene: { type: "string", description: "适用场景（必填：「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）" },
           body: { type: "string", description: "正文（可选）" },
           domain: { type: "string", enum: ["tech", "business"], description: "作用域（可选）" },
           layer: { type: "string", enum: ["L0", "L1", "L2"], description: "分层（可选，AD-11）" },
         },
-        required: ["kind", "name", "digest"],
+        required: ["kind", "name", "digest", "scene"],
         additionalProperties: false,
       },
     },
@@ -93,11 +101,12 @@ const kgUpdateParameters = {
     reason: { type: "string", description: "supersede 推翻理由（入 change_log 审计链）" },
     replacement: {
       type: "object",
-      description: "supersede 可选替换新节点草稿（新号自动发放，链上双侧可见）",
+      description: "supersede 可选替换新节点草稿（新号自动发放，链上双侧可见；scene 建议携带）",
       properties: {
         kind: { type: "string", enum: ["rule", "entity"] },
         name: { type: "string" },
         digest: { type: "string" },
+        scene: { type: "string", description: "适用场景（可选——replacement 走创建语义建议携带）" },
         body: { type: "string" },
         domain: { type: "string", enum: ["tech", "business"] },
         layer: { type: "string", enum: ["L0", "L1", "L2"] },
@@ -105,6 +114,21 @@ const kgUpdateParameters = {
       required: ["kind", "name", "digest"],
       additionalProperties: false,
     },
+    // ── proposeCandidate / decideCandidate（仅 MainAgent 可用） ──
+    candidateKind: {
+      type: "string",
+      enum: ["sediment"],
+      description: "proposeCandidate 候选类型（封闭词表：sediment=闭环发现沉淀）",
+    },
+    title: { type: "string", description: "proposeCandidate 候选标题（人审台账的一行识别语）" },
+    candidateId: { type: "string", description: "decideCandidate 目标候选 id（CAND-<seq>，取自 proposeCandidate 回执）" },
+    decision: {
+      type: "string",
+      enum: ["applied", "discarded", "deferred"],
+      description: "decideCandidate 裁决：applied 采纳 / discarded 丢弃（必带 reason）/ deferred 暂缓（defer_age+1）",
+    },
+    formalId: { type: "string", description: "decideCandidate applied 时签发的正式编号（TR-n/E-n；可选）" },
+    appliedNodeId: { type: "string", description: "decideCandidate applied 后落到的节点 id（溯源；可选）" },
     // ── 通用 ──
     iterationId: {
       type: "string",
@@ -159,7 +183,10 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
     description:
       "知识图谱即时落账（经唯一写入口，schema 校验前置）。supersede：本次改动推翻某知识节点时" +
       "（📎 附着块或任务切片尾部的协议行触发）立即声明——status 翻转 + 理由 + iterationId 入审计链，" +
-      "可选 replacement 草稿（新号自动发放）。createNode：沉淀新规则/实体（自动发号，可选锚声明）。" +
+      "可选 replacement 草稿（新号自动发放）。createNode：沉淀新规则/实体（自动发号，可选锚声明）；" +
+      "scene 适用场景必填（「本规则适用于：改动 X 类文件 / 做 Y 类决策前」，缺了写不进去）。" +
+      "proposeCandidate/decideCandidate：候选台账操作——**仅 MainAgent 可用**（SubAgent 闭环发现经 " +
+      "findings 上报自动落候选，不得直接调用候选 op）。" +
       "iterationId 缺省服务端机械解析（workspace 当前迭代 → 目标库最近迭代锚），显式传参仅作覆盖；" +
       "多项目 workspace 的 createNode 需 project（项目目录名）。",
     parameters: kgUpdateParameters as any,
@@ -176,7 +203,15 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       if (op === "batchCreateNodes") {
         return text(execBatchCreateNodes(deps, args));
       }
-      throw new Error(`未知 op "${String(op)}"（合法：createNode / supersede / batchCreateNodes）`);
+      if (op === "proposeCandidate") {
+        return text(execProposeCandidate(deps, args));
+      }
+      if (op === "decideCandidate") {
+        return text(execDecideCandidate(deps, args));
+      }
+      throw new Error(
+        `未知 op "${String(op)}"（合法：createNode / supersede / batchCreateNodes / proposeCandidate / decideCandidate）`,
+      );
     },
   };
 }
@@ -224,6 +259,7 @@ function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): 
     kind: requireString(args, "kind", "（rule / entity）") === "entity" ? "entity" : "rule",
     name: requireString(args, "name", "（节点名）"),
     digest: requireString(args, "digest", "（≤2 行摘要）"),
+    scene: requireString(args, "scene", "（R23 沉淀必填——「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）"),
     ...(optionalString(args, "body") !== undefined ? { body: optionalString(args, "body")! } : {}),
     ...(optionalEnum<NodeDomain>(args, "domain") !== undefined ? { domain: optionalEnum<NodeDomain>(args, "domain")! } : {}),
     ...(optionalEnum<NodeLayer>(args, "layer") !== undefined ? { layer: optionalEnum<NodeLayer>(args, "layer")! } : {}),
@@ -254,13 +290,69 @@ function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): 
 }
 
 /** 写结果归一：失败抛结构化错误（code+message+path 全量透传给 agent）。 */
-function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWriteOp): { nodeId: NodeId } {
+function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWriteOp): { nodeId: NodeId; warning?: string } {
   const result = deps.write.write(project, op);
   if (!result.ok) {
     const path = result.error.path !== undefined ? `（${result.error.path}）` : "";
     throw new Error(`${result.error.code}：${result.error.message}${path}`);
   }
-  return { nodeId: result.nodeId };
+  return { nodeId: result.nodeId, ...(result.warning !== undefined ? { warning: result.warning } : {}) };
+}
+
+/**
+ * proposeCandidate 执行（R2，仅 MainAgent 可用——description 纪律面）：
+ * title/candidateKind/body → pending 行（自动发号 CAND-<seq>）；
+ * source_task_id 批次上下文机械注入（AD-10 三路径同源；LLM 显式传参优先——
+ * 复用 taskId 参数位）；source_iteration_id 取解析后迭代 id（显式 sourceIterationId
+ * 覆盖暂不提供——与 change_log 迭代锚同值即可溯源）。
+ */
+function execProposeCandidate(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
+  const candidateKind = requireString(args, "candidateKind", "（封闭词表：sediment）");
+  const title = requireString(args, "title", "（候选标题）");
+  const project = resolveTargetProject(deps, args);
+  const iterationId = resolveIterationId(deps, args, project);
+  const context = deps.taskContext?.();
+  const sourceTaskId = optionalString(args, "taskId") ?? context?.taskId;
+  const result = writeOrThrow(
+    deps,
+    project,
+    createOp(deps, args, {
+      kind: "proposeCandidate",
+      iterationId,
+      candidateKind: candidateKind as "sediment",
+      title,
+      ...(optionalString(args, "body") !== undefined ? { body: optionalString(args, "body")! } : {}),
+      ...(sourceTaskId !== undefined ? { sourceTaskId } : {}),
+      sourceIterationId: iterationId,
+    }),
+  );
+  return `已提候选 ${result.nodeId}（project: ${projectName(project)}，status=pending——终验人审裁决）`;
+}
+
+/**
+ * decideCandidate 执行（R2，仅 MainAgent 可用）：pending/deferred → applied/
+ * discarded/deferred；defer 软上限警告（只警告不拒绝）透传回执。
+ */
+function execDecideCandidate(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
+  const candidateId = requireString(args, "candidateId", "（CAND-<seq>，取自 proposeCandidate 回执）");
+  const decision = requireString(args, "decision", "（applied / discarded / deferred）");
+  const project = resolveTargetProject(deps, args);
+  const iterationId = resolveIterationId(deps, args, project);
+  const result = writeOrThrow(
+    deps,
+    project,
+    createOp(deps, args, {
+      kind: "decideCandidate",
+      iterationId,
+      candidateId,
+      decision: decision as "applied" | "discarded" | "deferred",
+      ...(optionalString(args, "reason") !== undefined ? { reason: optionalString(args, "reason")! } : {}),
+      ...(optionalString(args, "formalId") !== undefined ? { formalId: optionalString(args, "formalId")! } : {}),
+      ...(optionalString(args, "appliedNodeId") !== undefined ? { appliedNodeId: optionalString(args, "appliedNodeId")! } : {}),
+    }),
+  );
+  const warning = result.warning !== undefined ? `；警告：${result.warning}` : "";
+  return `已裁决候选 ${result.nodeId} → ${decision}（decision_reason 已落账，change_log 审计同行）${warning}`;
 }
 
 /**
@@ -295,7 +387,7 @@ function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unkno
   // 任务批次产出的批量落账形态，layer 在 op 级携带；单条 createNode 先例 :199）
   const opLayer = optionalEnum<NodeLayer>(args, "layer");
   const nodes = value.map((item, i) => {
-    const draft = draftOf(item, `nodes[${i}]`);
+    const draft = draftOf(item, `nodes[${i}]`, { requireScene: true });
     if (draft === null) {
       throw new Error(`nodes[${i}] 必须为节点草稿对象（kind/name/digest）`);
     }
@@ -384,17 +476,22 @@ function optionalEnum<T extends string>(args: Record<string, unknown>, key: stri
   return typeof value === "string" && value !== "" ? (value as T) : undefined;
 }
 
-/** 节点草稿组载荷（label 定位错误消息：单条 replacement / 批量 nodes[i]）。 */
-function draftOf(value: unknown, label = "replacement"): NodeDraft | null {
+/** 节点草稿组载荷（label 定位错误消息：单条 replacement / 批量 nodes[i]；requireScene=批量必填——replacement 可选）。 */
+function draftOf(value: unknown, label = "replacement", options: { requireScene?: boolean } = {}): NodeDraft | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label} 必须为节点草稿对象（kind/name/digest）`);
+    throw new Error(`${label} 必须为节点草稿对象（kind/name/digest${options.requireScene === true ? "/scene" : ""}）`);
   }
   const record = value as Record<string, unknown>;
   return {
     kind: record["kind"] === "entity" ? "entity" : "rule",
     name: requireString(record, "name", `（${label} 草稿）`),
     digest: requireString(record, "digest", `（${label} 草稿）`),
+    ...(options.requireScene === true
+      ? { scene: requireString(record, "scene", `（${label} 草稿——R23 沉淀必填）`) }
+      : typeof record["scene"] === "string" && record["scene"] !== ""
+        ? { scene: record["scene"] }
+        : {}),
     ...(typeof record["body"] === "string" ? { body: record["body"] } : {}),
     ...(typeof record["domain"] === "string" ? { domain: record["domain"] as NodeDomain } : {}),
     ...(typeof record["layer"] === "string" ? { layer: record["layer"] as NodeLayer } : {}),

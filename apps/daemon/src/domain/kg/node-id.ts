@@ -71,3 +71,16 @@ export function parseMigrationId(id: string): { kind: NodeKind; seq: number | nu
 export function isValidNodeRef(id: string): boolean {
   return EXISTING_ID_RE.test(id);
 }
+
+// ── 候选 id（CAND-<seq>；D0：复用 meta 发号计数器模式，与节点号空间独立） ──
+
+/** 序号 → 候选 id（`CAND-7`）。 */
+export function formatCandidateId(seq: number): string {
+  return `CAND-${seq}`;
+}
+
+/** 候选 id 严格形态解析（`CAND-9` → 9；其余形态一律 null——KG_E_SCHEMA 输入面）。 */
+export function parseCandidateId(id: string): number | null {
+  const match = /^CAND-(\d+)$/.exec(id);
+  return match === null ? null : Number(match[1]);
+}

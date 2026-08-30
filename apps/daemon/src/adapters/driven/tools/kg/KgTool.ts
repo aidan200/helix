@@ -25,16 +25,24 @@ import { isValidNodeRef } from "../../../../domain/kg/node-id";
 const kgParameters = {
   type: "object",
   properties: {
-    op: { type: "string", enum: ["search", "get"], description: "操作：search 关键词检索 / get 节点全量" },
+    op: {
+      type: "string",
+      enum: ["search", "get", "affected"],
+      description: "操作：search 关键词检索 / get 节点全量 / affected 锚反查（文件或符号 → 管辖节点）",
+    },
     q: { type: "string", description: "search 关键词（name/digest 子串匹配，确定性非语义）" },
     nodeId: { type: "string", description: "get 目标节点 id（TR-n / E-n——永远取自 search 返回行的 kg get 指针）" },
+    target: {
+      type: "string",
+      description: "affected 反查目标：项目相对路径（src/foo.ts）/ 符号名（allocateSeq）/ 复合形态（src/foo.ts#allocateSeq）——改动前反查管辖该代码的知识节点",
+    },
   },
   required: ["op"],
   additionalProperties: false,
 } as const;
 
 export interface KgToolDeps {
-  readonly query: Pick<KgQueryService, "search" | "get">;
+  readonly query: Pick<KgQueryService, "search" | "get" | "affected">;
 }
 
 /** kg 只读工具：注册名 "kg"。 */
@@ -44,19 +52,28 @@ export function createKgTool(deps: KgToolDeps): AgentHarnessTool<ExecutionToolCo
     label: "kg",
     description:
       "查询项目知识图谱（.kg，只读）。两步用法：先 search(q) 按关键词（名称/摘要子串）" +
-      "检索得到摘要列表（每行含 digest 与 `kg get <id>` 指针，重名靠 digest 区分），" +
+      "检索得到摘要列表（每行含 scene 适用场景、digest 与 `kg get <id>` 指针，重名靠 digest 区分），" +
       "再用返回行指针中的 id 调 get(nodeId) 取节点全量（描述/锚/关系/supersede 链/变更日志）。" +
+      "改动代码前用 affected(target) 锚反查：target 为项目相对路径或符号名（或 path#symbol），" +
+      "返回管辖该代码的节点列表（意图先经 codegraph 落地成符号，再反查——比关键词盲搜准）。" +
       "id 永远取自上一步返回，不要自行构造或猜测。",
     parameters: kgParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
-      const { op, q, nodeId } = params as { op?: string; q?: string; nodeId?: string };
+      const { op, q, nodeId, target } = params as { op?: string; q?: string; nodeId?: string; target?: string };
       if (op === "search") {
         if (typeof q !== "string" || q.trim() === "") {
           throw new Error("kg search 需要 q（非空关键词——name/digest 子串匹配）");
         }
         const hits = deps.query.search(q);
         return text(renderSearch(q, hits));
+      }
+      if (op === "affected") {
+        if (typeof target !== "string" || target.trim() === "") {
+          throw new Error("kg affected 需要 target（项目相对路径 / 符号名 / path#symbol——改动前反查管辖节点）");
+        }
+        const hits = deps.query.affected(target.trim());
+        return text(renderAffected(target.trim(), hits));
       }
       if (op === "get") {
         if (typeof nodeId !== "string" || nodeId.trim() === "") {
@@ -73,7 +90,7 @@ export function createKgTool(deps: KgToolDeps): AgentHarnessTool<ExecutionToolCo
         }
         return text(renderDetail(hit.detail, hit.project));
       }
-      throw new Error(`未知 op "${op}"（合法：search / get）`);
+      throw new Error(`未知 op "${op}"（合法：search / get / affected）`);
     },
   };
 }
@@ -82,7 +99,14 @@ export function createKgTool(deps: KgToolDeps): AgentHarnessTool<ExecutionToolCo
 
 interface HitRow {
   readonly project: string;
-  readonly row: { readonly id: string; readonly kind: string; readonly name: string; readonly digest: string; readonly status?: string };
+  readonly row: {
+    readonly id: string;
+    readonly kind: string;
+    readonly name: string;
+    readonly digest: string;
+    readonly scene?: string;
+    readonly status?: string;
+  };
 }
 
 function renderSearch(q: string, hits: readonly HitRow[]): string {
@@ -93,7 +117,41 @@ function renderSearch(q: string, hits: readonly HitRow[]): string {
   for (const { row } of hits) {
     const statusBadge = row.status === "superseded" ? "（superseded，已被推翻）" : "";
     lines.push(`- **${row.name}** [${row.kind}]${statusBadge} — ${row.digest}`);
+    if (row.scene !== undefined && row.scene !== "") lines.push(`  适用：${row.scene}`);
     lines.push(`  ↳ kg get ${row.id}`);
+  }
+  return lines.join("\n");
+}
+
+interface AffectedRow {
+  readonly project: string;
+  readonly nodeId: string;
+  readonly kind: string;
+  readonly name: string;
+  readonly digest: string;
+  readonly scene: string;
+  readonly anchorKind: string;
+  readonly anchorPath: string;
+  readonly anchorSymbol: string | null;
+  readonly viaDecl: boolean;
+}
+
+/** 锚反查渲染（R20：name | scene | digest | 锚来源 | kg get 指针；空 scene 兑底省略）。 */
+function renderAffected(target: string, hits: readonly AffectedRow[]): string {
+  if (hits.length === 0) {
+    return (
+      `无命中（target="${target}"）——该文件/符号无管辖知识节点（或锚未声明/已失效）；` +
+      `可用 kg search 按关键词补查，或确认路径为项目相对形态`
+    );
+  }
+  const lines = [`命中 ${hits.length} 条（target="${target}"）——改动前按 scene 判断相关性，相关必 kg get 读全文：`];
+  for (const hit of hits) {
+    lines.push(`- **${hit.name}** [${hit.kind}] — ${hit.digest}`);
+    if (hit.scene !== "") lines.push(`  适用：${hit.scene}`);
+    const anchor = hit.anchorSymbol !== null ? `${hit.anchorPath}#${hit.anchorSymbol}` : hit.anchorPath;
+    const via = hit.viaDecl ? "（声明反查——锚未物化/索引未建）" : "";
+    lines.push(`  锚：${hit.anchorKind} ${anchor}${via}（project: ${projectName(hit.project)}）`);
+    lines.push(`  ↳ kg get ${hit.nodeId}`);
   }
   return lines.join("\n");
 }
@@ -104,6 +162,7 @@ interface DetailShape {
     readonly kind: string;
     readonly name: string;
     readonly digest: string;
+    readonly scene?: string;
     readonly body?: string | null;
     readonly domain?: string | null;
     readonly layer?: string | null;
@@ -122,6 +181,7 @@ function renderDetail(detail: DetailShape, project: string): string {
     `${n.id} ${n.name} [${n.kind}] — ${n.status}`,
     `digest: ${n.digest}`,
   ];
+  if (n.scene != null && n.scene !== "") lines.push(`scene: ${n.scene}`);
   if (n.body != null && n.body !== "") lines.push(`body: ${n.body}`);
   const meta = [
     n.domain != null ? `domain=${n.domain}` : null,

@@ -352,11 +352,11 @@ async function seedAlpha(rig: Rig): Promise<void> {
   const w = rig.write;
   const now = Date.now();
   expectOk(
-    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "分层依赖单向", digest: "import 只准外层指向内层\n违反即守护失败", body: "依赖必须单向。\n- 外层可指向内层\n- 内层禁止反向依赖", status: "confirmed" } }), // TR-1
-    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "写路径白名单", digest: "落盘写点收口清单", status: "draft" } }), // TR-2
-    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "会话实体", digest: "会话是聚根", domain: "tech", status: "confirmed" } }), // E-1
-    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "写路径守护乙", digest: "冲突对乙", status: "confirmed" } }), // E-2
-    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "旧写路径规则", digest: "旧口径", status: "confirmed" } }), // TR-3（被取代者）
+    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "分层依赖单向", digest: "import 只准外层指向内层\n违反即守护失败", scene: "测试场景", body: "依赖必须单向。\n- 外层可指向内层\n- 内层禁止反向依赖", status: "confirmed" } }), // TR-1
+    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "写路径白名单", digest: "落盘写点收口清单", scene: "测试场景", status: "draft" } }), // TR-2
+    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "会话实体", digest: "会话是聚根", scene: "测试场景", domain: "tech", status: "confirmed" } }), // E-1
+    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "写路径守护乙", digest: "冲突对乙", scene: "测试场景", status: "confirmed" } }), // E-2
+    w.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "旧写路径规则", digest: "旧口径", scene: "测试场景", status: "confirmed" } }), // TR-3（被取代者）
   );
   // knowledge_change 载体：updateNode + declareAnchors + addEdge + supersede
   expectOk(
@@ -402,7 +402,7 @@ async function seedAlpha(rig: Rig): Promise<void> {
 
 function seedBeta(rig: Rig): void {
   expectOk(
-    rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "beta 专属实体", digest: "beta 域", status: "confirmed" } }),
+    rig.write.write(rig.beta, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "beta 专属实体", digest: "beta 域", scene: "测试场景", status: "confirmed" } }),
   );
 }
 

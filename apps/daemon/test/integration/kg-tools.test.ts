@@ -120,8 +120,8 @@ function mustId(r: WriteResult): string {
 describe("kg / kg-update 工具（真 .helix-kg tmp 库）", () => {
   test("① search(q) LIKE 匹配 + 重名两行 digest 区分（CL-4.A1）；结果含可供 get 的 id（A3 前半）", async () => {
     const f = makeFixture();
-    const a = mustId(seed(f, { kind: "createNode", iterationId: "it-a", draft: { kind: "rule", name: "handler 幂等规则", digest: "handler 编辑必须保持幂等语义" } }));
-    const b = mustId(seed(f, { kind: "createNode", iterationId: "it-a", draft: { kind: "rule", name: "handler 幂等规则", digest: "handler 失败可安全重试，无副作用" } }));
+    const a = mustId(seed(f, { kind: "createNode", iterationId: "it-a", draft: { kind: "rule", name: "handler 幂等规则", digest: "handler 编辑必须保持幂等语义", scene: "测试场景" } }));
+    const b = mustId(seed(f, { kind: "createNode", iterationId: "it-a", draft: { kind: "rule", name: "handler 幂等规则", digest: "handler 失败可安全重试，无副作用", scene: "测试场景" } }));
     expect(a).not.toBe(b); // 重名两节点自动发号互异
 
     const r = await run(f.kg, { op: "search", q: "handler" }, f.env);
@@ -146,8 +146,8 @@ describe("kg / kg-update 工具（真 .helix-kg tmp 库）", () => {
 
   test("② get(nodeId) 五要素全量聚合：节点/锚/关系/supersede 链/变更日志（CL-4.A2）", async () => {
     const f = makeFixture();
-    const t1 = mustId(seed(f, { kind: "createNode", iterationId: "it-b", draft: { kind: "rule", name: "提交面规则", digest: "提交必须走唯一入口", body: "全部写操作经 WriteQueue 单点串行。" } }));
-    const t2 = mustId(seed(f, { kind: "createNode", iterationId: "it-b", draft: { kind: "entity", name: "写队列", digest: "SQLite 单写队列实体" } }));
+    const t1 = mustId(seed(f, { kind: "createNode", iterationId: "it-b", draft: { kind: "rule", name: "提交面规则", digest: "提交必须走唯一入口", scene: "测试场景", body: "全部写操作经 WriteQueue 单点串行。" } }));
+    const t2 = mustId(seed(f, { kind: "createNode", iterationId: "it-b", draft: { kind: "entity", name: "写队列", digest: "SQLite 单写队列实体", scene: "测试场景" } }));
     seed(f, { kind: "declareAnchors", iterationId: "it-b", nodeId: t1, anchors: [{ scopeKind: "symbol", pattern: "src/store.ts#enqueue" }] });
     seed(f, { kind: "addEdge", iterationId: "it-b", srcId: t1, dstId: t2, verb: "governs" });
 
@@ -181,7 +181,7 @@ describe("kg / kg-update 工具（真 .helix-kg tmp 库）", () => {
 
   test("③ 参数供给闭环 + 非法 id 结构化错误（CL-4.A3）：search 返回行 id 可直接用于 get；TR-n/E-n 外形态拒绝", async () => {
     const f = makeFixture();
-    mustId(seed(f, { kind: "createNode", iterationId: "it-d", draft: { kind: "entity", name: "调度器", digest: "实例调度核心实体" } }));
+    mustId(seed(f, { kind: "createNode", iterationId: "it-d", draft: { kind: "entity", name: "调度器", digest: "实例调度核心实体", scene: "测试场景" } }));
     const s = await run(f.kg, { op: "search", q: "调度" }, f.env);
     expect(s.ok).toBe(true);
     if (!s.ok) return;
@@ -208,8 +208,8 @@ describe("kg / kg-update 工具（真 .helix-kg tmp 库）", () => {
 
   test("④ 只读保证（CL-4.A4）：search/get 全链路零写——库文件字节不变 + 写面零调用", async () => {
     const f = makeFixture();
-    mustId(seed(f, { kind: "createNode", iterationId: "it-e", draft: { kind: "rule", name: "只读校验规则", digest: "kg 工具执行前后库不变" } }));
-    const id = mustId(seed(f, { kind: "createNode", iterationId: "it-e", draft: { kind: "rule", name: "详情读取规则", digest: "get 全量聚合只读" } }));
+    mustId(seed(f, { kind: "createNode", iterationId: "it-e", draft: { kind: "rule", name: "只读校验规则", digest: "kg 工具执行前后库不变", scene: "测试场景" } }));
+    const id = mustId(seed(f, { kind: "createNode", iterationId: "it-e", draft: { kind: "rule", name: "详情读取规则", digest: "get 全量聚合只读", scene: "测试场景" } }));
     f.writeCalls.length = 0; // 种子写入不计
     const before = createHash("sha256").update(f.dbFile()).digest("hex");
     await run(f.kg, { op: "search", q: "只读" }, f.env);
@@ -223,7 +223,7 @@ describe("kg / kg-update 工具（真 .helix-kg tmp 库）", () => {
 
   test("⑤ kg-update：supersede 即时落库（无人审）+ createNode 自动发号——全部经 KgWriteService（唯一写路径）", async () => {
     const f = makeFixture();
-    const t1 = mustId(seed(f, { kind: "createNode", iterationId: "it-f", draft: { kind: "rule", name: "旧规则", digest: "待推翻的旧口径" } }));
+    const t1 = mustId(seed(f, { kind: "createNode", iterationId: "it-f", draft: { kind: "rule", name: "旧规则", digest: "待推翻的旧口径", scene: "测试场景" } }));
 
     // supersede：status 翻转 + change_log 留痕（含理由与迭代 id）
     const r = await run(f.kgUpdate, { op: "supersede", nodeId: t1, reason: "口径已被实现推翻", iterationId: "iter-t33" }, f.env);
@@ -240,7 +240,7 @@ describe("kg / kg-update 工具（真 .helix-kg tmp 库）", () => {
     expect(f.writeCalls.some((op) => op.kind === "supersede" && op.nodeId === t1)).toBe(true);
 
     // supersede + replacement：新节点自动发号 + 链上双侧可见
-    const t2 = mustId(seed(f, { kind: "createNode", iterationId: "it-f", draft: { kind: "rule", name: "第二条", digest: "第二条规则摘要" } }));
+    const t2 = mustId(seed(f, { kind: "createNode", iterationId: "it-f", draft: { kind: "rule", name: "第二条", digest: "第二条规则摘要", scene: "测试场景" } }));
     const r2 = await run(f.kgUpdate, {
       op: "supersede",
       nodeId: t2,
@@ -263,6 +263,7 @@ describe("kg / kg-update 工具（真 .helix-kg tmp 库）", () => {
       kind: "entity",
       name: "新实体",
       digest: "由 agent 即时沉淀的新实体摘要",
+      scene: "测试场景",
       body: "正文可选。",
       domain: "tech",
       anchors: [{ scopeKind: "path", pattern: "src/new/**" }],
@@ -279,7 +280,7 @@ describe("kg / kg-update 工具（真 .helix-kg tmp 库）", () => {
     expect(f.graph.search(f.proj, "").length).toBe(before + 1);
 
     // 校验错误走结构化错误（KgWriteService 校验器前置）：digest 超行
-    const bad = await run(f.kgUpdate, { op: "createNode", kind: "rule", name: "坏草稿", digest: "一\n二\n三", iterationId: "iter-t33" }, f.env);
+    const bad = await run(f.kgUpdate, { op: "createNode", kind: "rule", name: "坏草稿", digest: "一\n二\n三", scene: "测试场景", iterationId: "iter-t33" }, f.env);
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.error).toContain("digest");
     // 多项目场景 project 参数解析：fixture 只有一项目 → 省略 project 可用（上文 r3 已证）

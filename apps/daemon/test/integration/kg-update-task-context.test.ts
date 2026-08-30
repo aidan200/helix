@@ -115,6 +115,7 @@ describe("批次上下文机械注入：组合 declareAnchors op 同盖（A4 丢
       kind: "rule",
       name: "锚规则",
       digest: "摘要",
+      scene: "测试场景",
       project: "proj",
       anchors: [{ scopeKind: "global" }, { scopeKind: "path", pattern: "src/**" }],
     });
@@ -133,6 +134,7 @@ describe("批次上下文机械注入：组合 declareAnchors op 同盖（A4 丢
       kind: "rule",
       name: "锚规则",
       digest: "摘要",
+      scene: "测试场景",
       project: "proj",
       anchors: [{ scopeKind: "global" }],
     });
@@ -154,8 +156,8 @@ describe("写入口 6 种 op kind 透传 taskId（逐 op 断言，store 面机�
       return r.nodeId;
     };
     const taskId = "task-six-ops";
-    const a = w({ kind: "createNode", iterationId: ITER, taskId, originBatchId: "b1", draft: { kind: "rule", name: "规则A", digest: "d" } });
-    const b = w({ kind: "batchCreateNodes", iterationId: ITER, taskId, originBatchId: "b1", nodes: [{ draft: { kind: "entity", name: "实体B", digest: "d" } }] });
+    const a = w({ kind: "createNode", iterationId: ITER, taskId, originBatchId: "b1", draft: { kind: "rule", name: "规则A", digest: "d", scene: "测试场景" } });
+    const b = w({ kind: "batchCreateNodes", iterationId: ITER, taskId, originBatchId: "b1", nodes: [{ draft: { kind: "entity", name: "实体B", digest: "d", scene: "测试场景" } }] });
     w({ kind: "updateNode", iterationId: ITER, taskId, nodeId: a, patch: { digest: "d2" } });
     const replacement = w({ kind: "supersede", iterationId: ITER, taskId, nodeId: a, reason: "修正", replacementNodeDraft: { kind: "rule", name: "规则C", digest: "d" } });
     w({ kind: "declareAnchors", iterationId: ITER, taskId, nodeId: b, anchors: [{ scopeKind: "global", pattern: "" }] });
@@ -180,7 +182,7 @@ describe("iterationId 服务端机械解析（LLM 传参降级为可选覆盖，
     const stack = freshKgStack();
     seedWorkspaceIterations(stack.root, ["iter-20260825-11fo", "iter-20260829-ys7q"]);
     const tool = makeTool(stack, () => CTX);
-    await call(tool, { op: "createNode", kind: "rule", name: "无参规则", digest: "摘要", project: "proj" });
+    await call(tool, { op: "createNode", kind: "rule", name: "无参规则", digest: "摘要", scene: "测试场景", project: "proj" });
     const rows = changeLogRows(stack.proj);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ iteration_id: "iter-20260829-ys7q", task_id: CTX.taskId });
@@ -191,11 +193,11 @@ describe("iterationId 服务端机械解析（LLM 传参降级为可选覆盖，
     const seed = await stack.write.write(stack.proj, {
       kind: "createNode",
       iterationId: "iter-seed-anchor",
-      draft: { kind: "rule", name: "种子", digest: "d" },
+      draft: { kind: "rule", name: "种子", digest: "d", scene: "测试场景" },
     });
     if (!seed.ok) throw new Error("种子建点失败");
     const tool = makeTool(stack, () => CTX);
-    await call(tool, { op: "createNode", kind: "rule", name: "锚回落", digest: "摘要", project: "proj" });
+    await call(tool, { op: "createNode", kind: "rule", name: "锚回落", digest: "摘要", scene: "测试场景", project: "proj" });
     const rows = changeLogRows(stack.proj);
     expect(rows).toHaveLength(2);
     expect(rows[1]).toMatchObject({ iteration_id: "iter-seed-anchor" });
@@ -205,7 +207,7 @@ describe("iterationId 服务端机械解析（LLM 传参降级为可选覆盖，
     const stack = freshKgStack();
     seedWorkspaceIterations(stack.root, ["iter-20260829-ys7q"]);
     const tool = makeTool(stack, () => CTX);
-    await call(tool, { op: "createNode", iterationId: "iter-explicit", kind: "rule", name: "显式", digest: "摘要", project: "proj" });
+    await call(tool, { op: "createNode", iterationId: "iter-explicit", kind: "rule", name: "显式", digest: "摘要", scene: "测试场景", project: "proj" });
     expect(changeLogRows(stack.proj)[0]).toMatchObject({ iteration_id: "iter-explicit" });
   });
 
@@ -213,7 +215,7 @@ describe("iterationId 服务端机械解析（LLM 传参降级为可选覆盖，
     const stack = freshKgStack();
     const tool = makeTool(stack, () => CTX);
     await expect(
-      call(tool, { op: "createNode", kind: "rule", name: "无锚", digest: "摘要", project: "proj" }),
+      call(tool, { op: "createNode", kind: "rule", name: "无锚", digest: "摘要", scene: "测试场景", project: "proj" }),
     ).rejects.toThrow(/iterationId/);
     // 写入口未被触达（库文件不应被创建——读面/拒绝路径零落库）
     expect(existsSync(kgDbPath(stack.proj))).toBe(false);
@@ -224,7 +226,7 @@ describe("批次上下文机械注入：三路径落章（不再依赖 LLM 透�
   test("单条 createNode：不带 taskId/originBatchId → change_log.task_id + nodes.origin_batch_id 落章", async () => {
     const stack = freshKgStack();
     const tool = makeTool(stack, () => CTX);
-    const text = await call(tool, { op: "createNode", iterationId: ITER, kind: "rule", name: "规则甲", digest: "摘要甲", project: "proj" });
+    const text = await call(tool, { op: "createNode", iterationId: ITER, kind: "rule", name: "规则甲", digest: "摘要甲", scene: "测试场景", project: "proj" });
     const nodeId = /已建节点 (\S+?)（/.exec(text)?.[1]!;
     expect(changeLogRows(stack.proj).map((r) => r["task_id"])).toEqual([CTX.taskId]);
     expect(nodeRow(stack.proj, nodeId)).toMatchObject({ origin_batch_id: CTX.originBatchId });
@@ -238,8 +240,8 @@ describe("批次上下文机械注入：三路径落章（不再依赖 LLM 透�
       iterationId: ITER,
       project: "proj",
       nodes: [
-        { kind: "rule", name: "规则一", digest: "摘要一" },
-        { kind: "entity", name: "实体一", digest: "摘要二" },
+        { kind: "rule", name: "规则一", digest: "摘要一", scene: "测试场景" },
+        { kind: "entity", name: "实体一", digest: "摘要二", scene: "测试场景" },
       ],
     });
     const lastId = /末节点 (\S+?)）/.exec(text)?.[1]!;
@@ -255,7 +257,7 @@ describe("批次上下文机械注入：三路径落章（不再依赖 LLM 透�
     const seed = await stack.write.write(stack.proj, {
       kind: "createNode",
       iterationId: ITER,
-      draft: { kind: "entity", name: "旧实体", digest: "旧摘要", status: "confirmed" },
+      draft: { kind: "entity", name: "旧实体", digest: "旧摘要", scene: "测试场景", status: "confirmed" },
     });
     if (!seed.ok) throw new Error("种子建点失败");
     const tool = makeTool(stack, () => CTX);
@@ -289,6 +291,7 @@ describe("LLM 显式传参优先于注入默认值", () => {
       kind: "rule",
       name: "规则乙",
       digest: "摘要乙",
+      scene: "测试场景",
       project: "proj",
       taskId: "task-explicit",
       originBatchId: "batch-explicit",
@@ -303,7 +306,7 @@ describe("非任务上下文零行为变化", () => {
   test("无 taskContext：task_id NULL + origin_batch_id NULL（与现状逐字节一致）", async () => {
     const stack = freshKgStack();
     const tool = makeTool(stack); // 无注入面
-    const text = await call(tool, { op: "createNode", iterationId: ITER, kind: "rule", name: "规则丙", digest: "摘要丙", project: "proj" });
+    const text = await call(tool, { op: "createNode", iterationId: ITER, kind: "rule", name: "规则丙", digest: "摘要丙", scene: "测试场景", project: "proj" });
     const nodeId = /已建节点 (\S+?)（/.exec(text)?.[1]!;
     expect(changeLogRows(stack.proj)[0]).toMatchObject({ task_id: null });
     expect(nodeRow(stack.proj, nodeId)).toMatchObject({ origin_batch_id: null });
@@ -314,7 +317,7 @@ describe("非任务上下文零行为变化", () => {
     const seed = await stack.write.write(stack.proj, {
       kind: "createNode",
       iterationId: ITER,
-      draft: { kind: "entity", name: "旧实体", digest: "旧摘要", status: "confirmed" },
+      draft: { kind: "entity", name: "旧实体", digest: "旧摘要", scene: "测试场景", status: "confirmed" },
     });
     if (!seed.ok) throw new Error("种子建点失败");
     const tool = makeTool(stack);

@@ -19,6 +19,7 @@ function node(id: string, over: Partial<KnowledgeNode> = {}): KnowledgeNode {
     kind: "rule",
     name: `知识-${id === "TR-1" ? "分层依赖单向" : id === "TR-2" ? "双向往返" : "其余规则"}`,
     digest: "摘要第一行\n摘要第二行",
+    scene: "",
     body: "",
     domain: "tech",
     layer: null,
