@@ -178,6 +178,11 @@ export interface AssembleDaemonDeps {
    * KgWriteService 唯一写入口 + workspace 项目扫描）。
    */
   readonly findingsSinkOverride?: ClosureFindingsSink;
+  /**
+   * 编排会话 LLM 覆盖（T4.1 E 层测试接缝：fake 剧本 streamFn + 可解析 model）。
+   * 透传 createOrchestratorSessionFactory（LLM 面单点替换；缺省生产形态）。
+   */
+  readonly orchestratorLlmOverride?: Parameters<typeof createOrchestratorSessionFactory>[0]["llmOverride"];
   /** 前端静态产物目录覆盖（缺省取 config.staticDir）。 */
   readonly staticDir?: string;
   /** 工具沙箱 cwd 覆盖（缺省为进程工作区）。 */
@@ -517,6 +522,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       assembly: orchestratorAssembly,
       model: () => resolveConfigModel(persistence.defaultModel.current(), modelStack.catalog.modelsView()),
       apiKeys: () => modelStack.authStore.apiKeysSnapshot(),
+      llmOverride: deps.orchestratorLlmOverride,
       models: modelStack.catalog.modelsView(),
       toolCwd: toolCwdNow,
       // kg 只读面（W1：经 workspace 持有者读现值；未绑定 → 剔除 kg 工具）

@@ -46,6 +46,21 @@ export interface OrchestratorSessionFactoryDeps {
   /** 阶段产物 nodeIds 反查面（阶段批次 → kg 元数据；未绑定 → 空集）。 */
   readonly stageNodeIds: (jobId: string, stageSeq: number) => readonly string[];
   readonly logger?: Logger;
+  /**
+   * 编排会话 LLM 覆盖（T4.1 E 层测试接缝：fake 剧本 streamFn + 可解析 model）。
+   * 缺席 = 生产形态（resolveConfigModel + 真 streamFn）；携带时仅替换 LLM 面
+   * （工具族/引擎状态机/回口全真）——与 chat 会话 streamFnOverride 同哲学。
+   */
+  readonly llmOverride?: {
+    readonly model: () => OrchestratorModel;
+    readonly streamFn: NonNullable<PiEngineOptions["streamFnOverride"]>;
+    /**
+     * provider → apiKey 测试覆盖（浅合并覆盖生产 authStore 快照；缺省 =
+     * 生产快照）——E 层 fake 模型的 provider "fake" 无生产 key，不覆盖时
+     * 引擎首 turn 即 auth fail（engine_error 经 drive 吞没，任务卡 pending）。
+     */
+    readonly apiKeys?: () => Record<string, string>;
+  };
 }
 
 export function createOrchestratorSessionFactory(
@@ -74,9 +89,12 @@ export function createOrchestratorSessionFactory(
         // W1：未绑定（kg 只读面缺席）时剔除 kg——声明与注册面一致（resolveTools 硬校验不破）
         tools: assembly.tools.filter((t) => kgNow !== undefined || t !== "kg"),
       },
-      model: deps.model(),
-      apiKeys: deps.apiKeys,
+      model: deps.llmOverride?.model() ?? deps.model(),
+      // 测试接缝：llmOverride.apiKeys 浅合并覆盖生产 authStore 快照
+      //（fake provider key；缺省 = 生产快照不变）
+      apiKeys: () => ({ ...deps.apiKeys(), ...(deps.llmOverride?.apiKeys?.() ?? {}) }),
       ...(deps.models !== undefined ? { models: deps.models } : {}),
+      ...(deps.llmOverride !== undefined ? { streamFnOverride: deps.llmOverride.streamFn } : {}),
       resolveTools: (names) => executor.resolveTools(names),
     });
     return {

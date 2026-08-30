@@ -50,6 +50,11 @@ const kgUpdateParameters = {
     body: { type: "string", description: "createNode 正文（可选，全文详情）" },
     domain: { type: "string", enum: ["tech", "business"], description: "createNode 作用域（可选）" },
     layer: { type: "string", enum: ["L0", "L1", "L2"], description: "createNode 分层（可选，AD-11）" },
+    status: {
+      type: "string",
+      enum: ["draft", "confirmed"],
+      description: "建库态（可选；缺省 draft）——任务批次产出按 SOP 以 confirmed 落库（bootstrap 无 draft）",
+    },
     anchors: {
       type: "array",
       description: "createNode 锚声明（可选）：[{scopeKind: global|path|symbol, pattern}]（global 不携带 pattern）",
@@ -101,6 +106,14 @@ const kgUpdateParameters = {
     // ── 通用 ──
     iterationId: { type: "string", description: "当前迭代 id（change_log 每行必含，如 iter-20260825-11fo）" },
     project: { type: "string", description: "createNode 目标项目目录名（workspace 只有一个项目时可省；多项目必填）" },
+    taskId: {
+      type: "string",
+      description: "任务来源 id（可选，任务元数据）：任务批次产出落账时携带——取批次 brief 给出的本任务 jobId，change_log 记账溯源",
+    },
+    originBatchId: {
+      type: "string",
+      description: "产出批次 id（可选，任务元数据）：任务批次产出落账时携带——取批次 brief 给出的本批次 batchId，产出分组/幂等重跑判据",
+    },
   },
   required: ["op", "iterationId"],
   additionalProperties: false,
@@ -184,10 +197,11 @@ function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>, i
     ...(optionalString(args, "body") !== undefined ? { body: optionalString(args, "body")! } : {}),
     ...(optionalEnum<NodeDomain>(args, "domain") !== undefined ? { domain: optionalEnum<NodeDomain>(args, "domain")! } : {}),
     ...(optionalEnum<NodeLayer>(args, "layer") !== undefined ? { layer: optionalEnum<NodeLayer>(args, "layer")! } : {}),
+    ...(optionalEnum<DraftStatus>(args, "status") !== undefined ? { status: optionalEnum<DraftStatus>(args, "status")! } : {}),
   };
   const anchors = anchorsOf(args["anchors"]);
   const project = resolveTargetProject(deps, args);
-  const result = writeOrThrow(deps, project, { kind: "createNode", iterationId, draft });
+  const result = writeOrThrow(deps, project, createOp(args, { kind: "createNode", iterationId, draft }));
   let summary = `已建节点 ${result.nodeId}（project: ${projectName(project)}，自动发号）`;
   if (anchors !== null) {
     // 锚声明组合落账（第二笔 op）：失败不回滚建点——结构化报错携带已建 id（可重声明）
@@ -213,25 +227,42 @@ function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWrit
   return { nodeId: result.nodeId };
 }
 
+/** 任务产出元数据（T4.1：op base 可选 taskId/originBatchId——批次 brief 携带则透传）。 */
+function createOp<T extends KnowledgeWriteOp>(args: Record<string, unknown>, op: T): T {
+  const taskId = optionalString(args, "taskId");
+  const originBatchId = optionalString(args, "originBatchId");
+  return {
+    ...op,
+    ...(taskId !== undefined ? { taskId } : {}),
+    ...(originBatchId !== undefined ? { originBatchId } : {}),
+  };
+}
+
 /**
  * batchCreateNodes 执行（O-5）：逐项薄壳组载荷（自动发号——工具面不暴露
  * 显式 id，保号迁移不入 LLM 面），单笔 op 经唯一写入口；项目解析同单条
- * createNode（多项目必填 project）。
+ * createNode（多项目必填 project）；op 级 status/taskId/originBatchId 逐节点
+ * 同源（任务批次产出的批量落账形态，T4.1）。
  */
 function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unknown>, iterationId: string): string {
   const value = args["nodes"];
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error("nodes 必填且为非空数组（批量建点：[{kind, name, digest, …}]）");
   }
+  const opStatus = optionalEnum<DraftStatus>(args, "status");
+  // op 级 layer 逐节点同源（T4.1 修正：与 status/taskId/originBatchId 同型——
+  // 任务批次产出的批量落账形态，layer 在 op 级携带；单条 createNode 先例 :199）
+  const opLayer = optionalEnum<NodeLayer>(args, "layer");
   const nodes = value.map((item, i) => {
     const draft = draftOf(item, `nodes[${i}]`);
     if (draft === null) {
       throw new Error(`nodes[${i}] 必须为节点草稿对象（kind/name/digest）`);
     }
-    return { draft };
+    const stamped = opStatus !== undefined ? { ...draft, status: opStatus } : draft;
+    return { draft: opLayer !== undefined ? { ...stamped, layer: opLayer } : stamped };
   });
   const project = resolveTargetProject(deps, args);
-  const result = writeOrThrow(deps, project, { kind: "batchCreateNodes", iterationId, nodes });
+  const result = writeOrThrow(deps, project, createOp(args, { kind: "batchCreateNodes", iterationId, nodes }));
   return `已批量建节点 ${nodes.length} 个（project: ${projectName(project)}，自动发号；末节点 ${result.nodeId}）`;
 }
 
@@ -256,6 +287,9 @@ function resolveTargetProject(deps: KgUpdateToolDeps, args: Record<string, unkno
 }
 
 // ── 参数叶子 ────────────────────────────────────────────────
+
+/** 建库态枚举（draft/confirmed——superseded 只能经 supersede op 到达）。 */
+type DraftStatus = NonNullable<NodeDraft["status"]>;
 
 function requireString(args: Record<string, unknown>, key: string, hint: string): string {
   const value = args[key];

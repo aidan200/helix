@@ -174,7 +174,10 @@ function patchProject(p: KgProjectRow, status: KgIndexStatusDto): KgProjectRow {
     ...p,
     status: status.state,
     symbolCount: status.state === "synced" ? (status.symbolCount ?? p.symbolCount) : undefined,
-    nodeCount: status.state === "synced" ? (p.nodeCount ?? 0) : undefined,
+    // nodeCount 在 synced 与 degraded 两态均保留（契约 §1 准入覆盖两态；
+    // absent 起步的项目建后无历史行值——?? 0 落空知识层口径，缺省会致
+    // degraded 永不可发起）；building/absent 无意义置 undefined。
+    nodeCount: status.state === "synced" || status.state === "degraded" ? (p.nodeCount ?? 0) : undefined,
     syncedAt: status.state === "synced" ? (status.syncedAt ?? p.syncedAt) : undefined,
     degradedNote: status.state === "degraded" ? (status.degradedNote ?? p.degradedNote) : undefined,
   };

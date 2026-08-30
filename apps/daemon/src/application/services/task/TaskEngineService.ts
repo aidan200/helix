@@ -84,7 +84,8 @@ export class TaskEngineService implements TaskEnginePort {
     }
     // ④ job + stage 行插入（同一 WriteQueue 链 FIFO，stage 冻结）+ 编排启动
     const now = this.deps.clock.now();
-    const jobId = crypto.randomUUID();
+    // id 口径（§3.2）：job/batch id = 带前缀的系统 join 键（不进人类界面）
+    const jobId = `task-${crypto.randomUUID()}`;
     await this.deps.store.insertJob({
       id: jobId,
       type: input.type,
@@ -195,7 +196,7 @@ export class TaskEngineService implements TaskEnginePort {
       this.notify({ jobId: input.jobId, changed: "job", status: "running" });
     }
     const now = this.deps.clock.now();
-    const batchId = crypto.randomUUID();
+    const batchId = `batch-${crypto.randomUUID()}`;
     const seq = this.deps.store.getBatches(input.jobId, input.stageSeq).length + 1;
     await this.deps.store.insertBatch({
       id: batchId,

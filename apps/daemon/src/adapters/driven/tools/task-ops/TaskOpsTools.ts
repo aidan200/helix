@@ -143,7 +143,9 @@ export function createTaskOpsTools(deps: TaskOpsToolDeps): AgentHarnessTool<Exec
             scope: (params as { scope: string }).scope,
           }),
         );
-        return text(JSON.stringify({ batchId }));
+        // jobId 回显（T4.1）：批次 brief 需把任务元数据（taskId/originBatchId）交给
+        // 批次 SubAgent 落账——编排者从回执取 jobId 组入 brief（SKILL ③产出要求段）。
+        return text(JSON.stringify({ batchId, jobId: deps.jobId }));
       },
     },
     {
