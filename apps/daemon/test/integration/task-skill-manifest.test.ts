@@ -109,7 +109,7 @@ describe("kg-bootstrap skill 装载（CL-2-T10）", () => {
   });
 });
 
-describe("SOP 五节锚 + 写作规范五条（CL-2-T10）", () => {
+describe("SOP 五节锚 + 写作规范六条（CL-2-T10；R23 升六条后锚同步）", () => {
   let body: string;
 
   test("④ 五节主题锚齐（产出目标与验收/批次划分/brief 模板/写作规范/完成判定）", async () => {
@@ -117,20 +117,21 @@ describe("SOP 五节锚 + 写作规范五条（CL-2-T10）", () => {
     expect(body).toContain("各层产出目标与验收");
     expect(body).toContain("批次划分原则");
     expect(body).toContain("brief 装配模板");
-    expect(body).toContain("写作规范五条");
+    expect(body).toContain("写作规范六条");
     expect(body).toContain("完成判定");
   });
 
-  test("⑤ 写作规范五条逐条独立编号可 grep（AD-4①）", () => {
-    for (const n of ["规范 1", "规范 2", "规范 3", "规范 4", "规范 5"]) {
+  test("⑤ 写作规范六条逐条独立编号可 grep（AD-4①）", () => {
+    for (const n of ["规范 1", "规范 2", "规范 3", "规范 4", "规范 5", "规范 6"]) {
       expect(body.includes(n), `正文缺少可 grep 编号「${n}」`).toBe(true);
     }
-    // 五条关键内容锚（TR-AD-65①）
+    // 六条关键内容锚（TR-AD-65① + R23 scene 必填）
     expect(body).toContain("自然语言");
     expect(body).toContain("digest");
     expect(body).toContain("为什么存在");
     expect(body).toContain("符号域锚");
     expect(body).toContain("只看正文");
+    expect(body).toContain("scene 必填");
   });
 
   test("⑥ 分层拓扑节：L0→L1→L2 + 层间传递探索上下文 + supersede 重跑幂等（origin_batchId）", () => {
@@ -204,8 +205,75 @@ describe("向后兼容：无 task 块普通技能不受影响（CL-2-T9）", () 
     const registry = await loadRegistry();
     expect(registry.getTaskType("web-access")).toBeNull();
     const scanned = await builtinScanner().scan();
-    expect(scanned.diagnostics).toEqual([]); // 随仓 builtin 层（web-access + kg-bootstrap）零坏文件诊断
-    expect(scanned.skills.map((s) => s.name).sort()).toEqual(["kg-bootstrap", "web-access"]);
+    expect(scanned.diagnostics).toEqual([]); // 随仓 builtin 层（web-access + kg-bootstrap + kg-review）零坏文件诊断
+    expect(scanned.skills.map((s) => s.name).sort()).toEqual(["kg-bootstrap", "kg-review", "web-access"]);
+  });
+});
+
+describe("kg-review skill 装载（W2-F 轨二语义体检任务，R21/R23）", () => {
+  test("① SKILL.md 落位 builtin 层随仓目录 + SkillScanner 扫到（source=builtin）", async () => {
+    const file = path.join(builtinSkillsDir(), "kg-review", "SKILL.md");
+    const text = await readFile(file, "utf8");
+    expect(text.startsWith("---\n")).toBe(true);
+
+    const scanned = await builtinScanner().scan();
+    const hit = scanned.skills.find((s) => s.name === "kg-review");
+    expect(hit).toBeDefined();
+    expect(hit!.source).toBe("builtin");
+    expect(hit!.filePath).toBe(file);
+    expect(hit!.description.length).toBeGreaterThan(0);
+  });
+
+  test("② TaskSkillRegistry 装载 manifest 全字段（paramsSchema + fixed 三阶段 + confirm/plan/projects）", async () => {
+    const registry = await loadRegistry();
+    expect(registry.getTaskType("kg-review")).toEqual({
+      paramsSchema: {
+        projectRoot: { type: "string", required: true },
+      },
+      stages: { strategy: "fixed", list: ["L0 结构面预检", "L1 规则册逐节点评审", "L2 实体册逐节点评审"] },
+      confirm: "required",
+      plan: "enforced",
+      projects: { min: 1, max: 1 },
+    });
+    expect(registry.listTaskTypes().find((t) => t.type === "kg-review")).toBeDefined();
+  });
+
+  test("③ SOP 正文锚：评审口径三问 + 数据源三面（kg/codegraph/锚反查）", async () => {
+    const body = (await readFile(path.join(builtinSkillsDir(), "kg-review", "SKILL.md"), "utf8")).replace(
+      /^---\n[\s\S]*?\n---\n/,
+      "",
+    );
+    // 评审口径三问（代码现实 / scene / 矛盾）
+    expect(body).toContain("代码现实");
+    expect(body).toContain("scene");
+    expect(body).toContain("矛盾");
+    // 数据源三面：kg 全量 + codegraph 工具 + 锚反查（W1-C）
+    expect(body).toContain("kg search");
+    expect(body).toContain("codegraph");
+    expect(body).toContain("锚反查");
+  });
+
+  test("④ 产出纪律硬锚：内容问题只提 candidate / scene 缺失可 updateNode / 禁直改禁 supersede / 不带 layer", async () => {
+    const body = (await readFile(path.join(builtinSkillsDir(), "kg-review", "SKILL.md"), "utf8")).replace(
+      /^---\n[\s\S]*?\n---\n/,
+      "",
+    );
+    expect(body).toContain("candidate");
+    expect(body).toContain("updateNode");
+    expect(body).toContain("supersede");
+    expect(body).toContain("不带 layer");
+    expect(body).toContain("origin_batchId");
+  });
+
+  test("⑤ 完成判定锚：全节点过一遍 + candidates 落账条数 + 遗留清单显式写「无」", async () => {
+    const body = (await readFile(path.join(builtinSkillsDir(), "kg-review", "SKILL.md"), "utf8")).replace(
+      /^---\n[\s\S]*?\n---\n/,
+      "",
+    );
+    expect(body).toContain("完成判定");
+    expect(body).toContain("全节点");
+    expect(body).toContain("落账条数");
+    expect(body).toContain("遗留清单");
   });
 });
 

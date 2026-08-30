@@ -2,6 +2,7 @@ import type {
   AnchorDeclRow,
   AnchorReverseHit,
   AttachmentSnapshot,
+  CandidateStatusCounts,
   ChangeLogEntry,
   IndexStatus,
   NodeDetail,
@@ -104,4 +105,11 @@ export interface KnowledgeGraphPort {
    * 迭代的确定性推导；change_log 空 → null）。仅在 .kg 已存在的项目上调用。
    */
   latestIteration(projectRoot: string): string | null;
+
+  /**
+   * candidates 台账四态计数（W2-E kg.health 体检看板数据源：candidates 表
+   * 按 status 聚合，缺态 = 0）。仅在 .kg 已存在的项目上调用（调用方先行
+   * hasIndex 判定，读面绝不新建库文件）。
+   */
+  countCandidatesByStatus(projectRoot: string): CandidateStatusCounts;
 }

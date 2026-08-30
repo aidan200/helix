@@ -236,6 +236,7 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
         countNodes: () => 0,
         countActiveNodes: () => 0, // T3.2 准入口径面（本测试不消费）
         countActiveLayeredNodes: () => 0, // O-9 精化口径面（本测试不消费）
+        countCandidatesByStatus: () => ({ pending: 0, deferred: 0, applied: 0, discarded: 0 }), // W2-E kg.health 数据源面（本测试不消费）
         latestIteration: () => null,
         listNodeIdsByOriginBatches: () => [], // T2.2 F2.7 反查面（本测试不消费）
       };

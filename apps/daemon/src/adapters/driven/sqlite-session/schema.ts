@@ -21,6 +21,10 @@
  * - resource_state：profile kind 维资源启停差异行（主键
  *   (profile_kind, resource_type, name)；缺省无记录 = 启用的语义在 service
  *   层——本表只存用户显式选择过的差异，零配置兼容现状、存量零迁移）；
+ * - pending_sync：「已变更未同步」台账（W2-D，R13/R22：session 单位——
+ *   SubAgent 闭环时机械查 tool_calls 有 write 类成功调用才 upsert；job 终态
+ *   扫描 notified=0 行提示用户确认 kg sync。运行时状态非知识，落
+ *   sqlite-session 侧）；
  * - job/stage/batch/work_item：任务四表新表域（O-1 用户裁决 2026-08-29，
  *   architecture.md §3.2 列为权威）：daemon 全局状态（任务可无项目关联
  *   AD-8），与任务四表分域同库承载。状态列无 CHECK（TR-AD-3：行模型哑、
@@ -123,6 +127,14 @@ CREATE TABLE IF NOT EXISTS resource_state (
   PRIMARY KEY (profile_kind, resource_type, name)
 );
 CREATE INDEX IF NOT EXISTS idx_resource_state_kind ON resource_state(profile_kind, resource_type);
+
+CREATE TABLE IF NOT EXISTS pending_sync (
+  session_id TEXT NOT NULL,
+  job_id TEXT,
+  changed_at TEXT NOT NULL,
+  notified INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (session_id)
+);
 `;
 
 /**

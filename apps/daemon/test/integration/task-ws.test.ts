@@ -550,6 +550,6 @@ describe("零干预断言（AD-2，CL-2-T12 协议面）", () => {
     ]);
     const forbidden = family.filter((t) => /steer|retry|edit|update|modify|create|write|prompt/i.test(t));
     expect(forbidden).toEqual([]);
-    expect(COMMAND_TYPES.length).toBe(52); // kg 维护批（C1）+2 后当前值
+    expect(COMMAND_TYPES.length).toBe(54); // kg.health 批（W2-E）+1 ∧ kg 评审批（W2-F）+1 后当前值
   });
 });

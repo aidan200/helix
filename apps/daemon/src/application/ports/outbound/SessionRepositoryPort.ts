@@ -79,6 +79,31 @@ export interface SessionRepositoryPort {
    * agent.spawned 载荷重建；仍不对协议/前端暴露，仅内部恢复/trace 用）。
    */
   queryEvents(query?: DomainEventQuery): readonly DomainEvent[];
+  // ── W2-D pending_sync 变更追踪（R13/R22） ─────────────────
+  /**
+   * 写类工具成功调用判定（闭环记录点机械判据；v1 口径：仅 edit/write
+   * 工具名 + status=completed——bash 写操作难判定不算，口径注释见实现）。
+   */
+  hasSuccessfulWriteToolCall(sessionId: string): boolean;
+  /**
+   * pending_sync upsert（闭环记录点：同主键单行——新变更 changed_at 刷新
+   * + notified 复位 0；经单写通道串行）。
+   */
+  savePendingSync(sessionId: string, jobId: string | null, changedAt: string): Promise<void>;
+  /**
+   * pending_sync 未提示行读面（job 终态扫描：任务会话 sessionId 或 job_id
+   * 双径命中，notified=0；确定性序 = session_id 序）。
+   */
+  queryUnnotifiedPendingSync(sessionId: string, jobId: string): readonly PendingSyncRowData[];
+  /** pending_sync 置已提示（提示发出后置位；重复置位幂等）。 */
+  markPendingSyncNotified(sessionIds: readonly string[]): Promise<void>;
+}
+
+/** pending_sync 行读面形状（notified=0 过滤后故不含标记列）。 */
+export interface PendingSyncRowData {
+  readonly sessionId: string;
+  readonly jobId: string | null;
+  readonly changedAt: string;
 }
 
 /** agent_lifecycle 投影行的读面形状（instanceId 维；state 含 main 的会话运行态与 SubAgent 的实例态）。 */

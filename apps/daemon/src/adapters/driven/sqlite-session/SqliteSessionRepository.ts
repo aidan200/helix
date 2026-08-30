@@ -5,6 +5,7 @@ import type {
   ClosureRecordData,
   DomainEventQuery,
   InstanceState,
+  PendingSyncRowData,
   PersistedDomainState,
   SessionMetadataRow,
   SessionRepositoryPort,
@@ -168,6 +169,42 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .prepare("SELECT instance_id, state, updated_at FROM agent_lifecycle WHERE session_id = ? ORDER BY rowid")
       .all(sessionId) as { instance_id: string; state: string; updated_at: string }[];
     return rows.map((r) => ({ instanceId: r.instance_id, state: r.state, updatedAt: r.updated_at }));
+  }
+
+  // ── W2-D pending_sync 变更追踪（R13/R22） ─────────────────
+
+  /**
+   * 写类工具成功调用判定（闭环记录点机械判据）。v1 口径：仅工具名
+   * edit/write + status=completed——bash 写操作难判定不算、edit-lines 不
+   * 在第一版集合内（口径注释 = 设计 D4「第一版只认 edit/write 工具名」）。
+   */
+  hasSuccessfulWriteToolCall(sessionId: string): boolean {
+    const row = this.queue.database
+      .prepare(
+        "SELECT 1 AS hit FROM tool_calls WHERE session_id = ? AND tool_name IN ('edit', 'write') AND status = 'completed' LIMIT 1",
+      )
+      .get(sessionId);
+    return row !== null;
+  }
+
+  /** pending_sync upsert（经 WriteQueue 单写通道；同主键单行复位 notified=0）。 */
+  async savePendingSync(sessionId: string, jobId: string | null, changedAt: string): Promise<void> {
+    await this.queue.savePendingSync(sessionId, jobId, changedAt);
+  }
+
+  /** pending_sync 未提示行读面（任务会话 sessionId 或 job_id 双径命中；session_id 序确定）。 */
+  queryUnnotifiedPendingSync(sessionId: string, jobId: string): readonly PendingSyncRowData[] {
+    const rows = this.queue.database
+      .prepare(
+        "SELECT session_id, job_id, changed_at FROM pending_sync WHERE notified = 0 AND (session_id = ? OR job_id = ?) ORDER BY session_id",
+      )
+      .all(sessionId, jobId) as { session_id: string; job_id: string | null; changed_at: string }[];
+    return rows.map((r) => ({ sessionId: r.session_id, jobId: r.job_id, changedAt: r.changed_at }));
+  }
+
+  /** pending_sync 置已提示（经单写通道；重复置位幂等）。 */
+  async markPendingSyncNotified(sessionIds: readonly string[]): Promise<void> {
+    await this.queue.markPendingSyncNotified(sessionIds);
   }
 
   /** 四维过滤查询（trace 数据面，v0 无对外 API——内部能力 + 测试证明）。 */

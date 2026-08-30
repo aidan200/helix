@@ -16,6 +16,7 @@ import { FsWatchAdapter } from "../../src/adapters/driven/fs-watch/FsWatchAdapte
 import type {
   AnchorReverseHit,
   AttachmentSnapshot,
+  CandidateStatusCounts,
   ChangeLogEntry,
   IndexStatus,
   NodeDetail,
@@ -120,6 +121,10 @@ class StubGraph implements KnowledgeGraphPort {
 
   countActiveLayeredNodes(): number {
     return 0; // O-9 精化口径面：本测试不消费
+  }
+
+  countCandidatesByStatus(): CandidateStatusCounts {
+    return { pending: 0, deferred: 0, applied: 0, discarded: 0 }; // W2-E kg.health 数据源面：本测试不消费
   }
 
   getSyncBaseline(): SyncBaselineView {

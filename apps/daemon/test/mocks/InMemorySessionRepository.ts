@@ -3,6 +3,7 @@ import type {
   ClosureRecordData,
   DomainEventQuery,
   InstanceState,
+  PendingSyncRowData,
   PersistedDomainState,
   SessionMetadataRow,
   SessionRepositoryPort,
@@ -29,6 +30,9 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
   /** 事件流内存副本（T2.4 读面兼容：生产链事件经 WriteQueue 落盘不经本 mock，
    *  此处仅存测试显式注入的事件，供 queryEvents 过滤）。 */
   private events: DomainEvent[] = [];
+
+  /** pending_sync 台账（W2-D；键 sessionId，同主键单行语义）。 */
+  private readonly pendingSync = new Map<string, { jobId: string | null; changedAt: string; notified: boolean }>();
 
   async save(state: PersistedDomainState): Promise<void> {
     this.store.set(state.session.sessionId, structuredClone(state));
@@ -92,6 +96,36 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
     }
     this.closureRecords = this.closureRecords.filter((r) => r.sessionId !== sessionId);
     this.events = this.events.filter((e) => e.sessionId !== sessionId);
+    this.pendingSync.delete(sessionId);
+  }
+
+  // ── W2-D pending_sync 变更追踪（R13/R22；与真实仓同口径） ──
+
+  /** 写类工具成功调用判定（v1 口径：仅 edit/write 工具名 + completed）。 */
+  hasSuccessfulWriteToolCall(sessionId: string): boolean {
+    const state = this.store.get(sessionId);
+    if (state === undefined) return false;
+    return state.toolCalls.some(
+      (r) => (r.toolName === "edit" || r.toolName === "write") && r.status === "completed",
+    );
+  }
+
+  async savePendingSync(sessionId: string, jobId: string | null, changedAt: string): Promise<void> {
+    this.pendingSync.set(sessionId, { jobId, changedAt, notified: false }); // upsert：复位 notified
+  }
+
+  queryUnnotifiedPendingSync(sessionId: string, jobId: string): readonly PendingSyncRowData[] {
+    return [...this.pendingSync]
+      .filter(([sid, row]) => !row.notified && (sid === sessionId || row.jobId === jobId))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([sid, row]) => ({ sessionId: sid, jobId: row.jobId, changedAt: row.changedAt }));
+  }
+
+  async markPendingSyncNotified(sessionIds: readonly string[]): Promise<void> {
+    for (const sid of sessionIds) {
+      const row = this.pendingSync.get(sid);
+      if (row !== undefined) this.pendingSync.set(sid, { ...row, notified: true });
+    }
   }
 
   async queryAgentLifecycles(sessionId: string): Promise<readonly AgentLifecycleRowData[]> {

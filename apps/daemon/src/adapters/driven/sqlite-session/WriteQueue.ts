@@ -163,6 +163,19 @@ type WriteJob =
       /** 任务删除级联：清 job/stage/batch 三表该 job 全部行（F3.6）。 */
       readonly kind: "taskJobCascade";
       readonly jobId: string;
+    }
+  | {
+      /** pending_sync upsert（W2-D R13/R22：闭环记录点——新变更
+       *  changed_at 刷新 + notified 复位 0；会话仓 FIFO）。 */
+      readonly kind: "pendingSync";
+      readonly sessionId: string;
+      readonly jobId: string | null;
+      readonly changedAt: string;
+    }
+  | {
+      /** pending_sync 置已提示（job 终态提示发出后置位；幂等）。 */
+      readonly kind: "pendingSyncNotified";
+      readonly sessionIds: readonly string[];
     };
 
 export class WriteQueue {
@@ -207,6 +220,9 @@ export class WriteQueue {
   private readonly deleteTaskJob!: Statement;
   private readonly deleteTaskStagesByJob!: Statement;
   private readonly deleteTaskBatchesByJob!: Statement;
+  private readonly upsertPendingSync!: Statement;
+  private readonly markPendingSyncNotifiedStmt!: Statement;
+  private readonly deleteSessionPendingSync!: Statement;
 
   constructor(dbPath: string, options: WriteQueueOptions = {}) {
     mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -299,6 +315,14 @@ export class WriteQueue {
     this.deleteTaskJob = this.db.prepare("DELETE FROM job WHERE id = ?");
     this.deleteTaskStagesByJob = this.db.prepare("DELETE FROM stage WHERE job_id = ?");
     this.deleteTaskBatchesByJob = this.db.prepare("DELETE FROM batch WHERE job_id = ?");
+    // pending_sync（W2-D）：upsert 复位 notified=0（新变更需重新提示）；
+    // 置提示/会话删除按 session_id 维
+    this.upsertPendingSync = this.db.prepare(
+      "INSERT INTO pending_sync (session_id, job_id, changed_at, notified) VALUES (?, ?, ?, 0) " +
+        "ON CONFLICT(session_id) DO UPDATE SET job_id = excluded.job_id, changed_at = excluded.changed_at, notified = 0",
+    );
+    this.markPendingSyncNotifiedStmt = this.db.prepare("UPDATE pending_sync SET notified = 1 WHERE session_id = ?");
+    this.deleteSessionPendingSync = this.db.prepare("DELETE FROM pending_sync WHERE session_id = ?");
   }
   /** 读侧共用连接（SqliteSessionRepository 只读 SELECT；写仍唯一走本队列）。 */
   get database(): Database {
@@ -347,11 +371,22 @@ export class WriteQueue {
   }
 
   /**
-   * 会话删除入队（AD-4 删除收口链的删库步）：六表按 session_id 清行；
+   * 会话删除入队（AD-4 删除收口链的删库步）：七表按 session_id 清行
+   *（六表 + W2-D pending_sync 台账行）；
    * 入本会话仓位尾部（此前已入队的写全部先落盘——删除不会被早到的状态写复活）。
    */
   deleteSession(sessionId: string): Promise<void> {
     return this.enqueue({ kind: "deleteSession", sessionId });
+  }
+
+  /** pending_sync upsert 入队（W2-D R13 闭环记录点；同主键单行复位 notified=0）。 */
+  savePendingSync(sessionId: string, jobId: string | null, changedAt: string): Promise<void> {
+    return this.enqueue({ kind: "pendingSync", sessionId, jobId, changedAt });
+  }
+
+  /** pending_sync 置已提示入队（job 终态提示发出后；幂等）。 */
+  markPendingSyncNotified(sessionIds: readonly string[]): Promise<void> {
+    return this.enqueue({ kind: "pendingSyncNotified", sessionIds });
   }
 
   /**
@@ -469,6 +504,8 @@ export class WriteQueue {
       case "closureRecord":
       case "deleteSession":
         return job.sessionId;
+      case "pendingSync":
+        return job.sessionId;
       default:
         // reportFile/runtimeConfig/resource_state 族与任务表域链（O-1：任务
         // 无会话维）均走全局链
@@ -509,13 +546,22 @@ export class WriteQueue {
       return;
     }
     if (job.kind === "deleteSession") {
-      // 六表清行（同仓 FIFO：此前同会话全部写先落盘，删除不会被复活）
+      // 七表清行（同仓 FIFO：此前同会话全部写先落盘，删除不会被复活）
       this.deleteSessionState.run(job.sessionId);
       this.deleteSessionEvents.run(job.sessionId);
       this.deleteSessionLifecycle.run(job.sessionId);
       this.deleteSessionSteer.run(job.sessionId);
       this.deleteSessionToolCalls.run(job.sessionId);
       this.deleteSessionClosures.run(job.sessionId);
+      this.deleteSessionPendingSync.run(job.sessionId);
+      return;
+    }
+    if (job.kind === "pendingSync") {
+      this.upsertPendingSync.run(job.sessionId, job.jobId, job.changedAt);
+      return;
+    }
+    if (job.kind === "pendingSyncNotified") {
+      for (const sessionId of job.sessionIds) this.markPendingSyncNotifiedStmt.run(sessionId);
       return;
     }
     if (job.kind === "runtimeConfig") {
