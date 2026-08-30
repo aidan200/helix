@@ -43,3 +43,7 @@
 ## iter-20260825-11fo — helix v2 项目知识图谱（kg）全链路：单库 SoT + 双通道到达 + 沉淀闭环 + 查看页面
 - 主体：为 helix-v2 增加项目知识图谱（kg）全链路：.helix-kg 单库 SoT（知识层/符号层/物化锚，AD-9/AF-21 终态）+ sync 双源汇队列去抖单飞管道（codegraph 被动引擎）+ 知识到达双通道（动作层附着 📎 四层递降 + 任务层切片注入）+ 即时落账与 supersede + closure 通路三层修复 + 段库模板体系 + P-1 /project 单页 master-detail 图谱查看（六命令族）。协议 v0.1 additive 六命令（28→34）；自写 edit/read/edit-lines（VENDORED 内核复制收口）。验证：daemon 1198/protocol 93/shell 536 全绿 + CL-5 E2E F+B 层全绿（FID 32/32）。终验：生产就绪 3 PASS+1 WARN（亮主题对比度）、全局审计优、L3 复核 54/54、kg 终态 81 节点（TR-AD-50~58+2 entity 落库，v2 库经 kg-migrate 恢复）。遗留：TR-AD-31 违反（KgQueryService 可选消费）、亮主题对比度、sedimentLedger 落账 bug 等 18 项优化池；162 条 workspace 台账历史死账明文接受。
 - 状态：已沉淀
+
+## iter-20260829-ys7q — kg P2：通用任务系统 + kg-bootstrap
+- 主体：交付通用任务系统 + kg-bootstrap（CL-1~CL-4 四闭环 E2E 全绿）：任务引擎/编排/四表存储、P-2 任务页、P-1 bootstrap 准入与产出呈现、kg↔任务衔接面机械注入。终验沉淀：kg 规则 TR-AD-59~65 及三实体落库并 L3 复核 60/60，23 条候选清台（18 apply/5 discard），AD-6/AD-10 决策档案入 decisions.md。
+- 状态：已沉淀
