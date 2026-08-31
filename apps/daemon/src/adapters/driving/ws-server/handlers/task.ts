@@ -363,6 +363,7 @@ function batchToDto(b: AppTaskBatchDto): TaskBatchDto {
     retryNote: b.retryNote,
     instanceId: b.instanceId,
     plan: b.plan === null ? null : b.plan.map(workItemToDto),
+    ledger: b.ledger === null ? null : { total: b.ledger.total, done: b.ledger.done, inProgress: b.ledger.inProgress },
   };
 }
 

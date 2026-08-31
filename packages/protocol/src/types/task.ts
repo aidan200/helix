@@ -67,6 +67,19 @@ export interface WorkItemDto {
   note: string | null;
 }
 
+/**
+ * 批次实例台账计数摘要（P1-⑥ 批次-实例-台账可见性：服务端组装，前端零拼装，
+ * AD-4② 同规）。与 plan 同源同 null 语义；条目本体走既有 plan 字段，不双写。
+ */
+export interface TaskBatchLedgerDto {
+  /** 台账总条数（= plan.length）。 */
+  total: number;
+  /** 已完成条数。 */
+  done: number;
+  /** 进行中条数。 */
+  inProgress: number;
+}
+
 /** 批次行（全量批次列表——跨阶段收集，stageSeq 为前端分组键）。 */
 export interface TaskBatchDto {
   /** data-id。 */
@@ -83,8 +96,10 @@ export interface TaskBatchDto {
   retryNote: string | null;
   /** 当前/最近执行 SubAgent 实例（data-id；未派发 null）。 */
   instanceId: string | null;
-  /** 批次实例 plan（running/done/failed 批次携带；未派发 null）。 */
+  /** 批次实例 plan（running/done/failed 批次携带；未派发或无台账 null）。 */
   plan: WorkItemDto[] | null;
+  /** 台账计数摘要（P1-⑥ additive；与 plan 同源同 null 语义：未派发或无台账 null）。 */
+  ledger: TaskBatchLedgerDto | null;
 }
 
 /** 阶段行（通用阶段条数据源，R-4；stage 行驱动）。 */

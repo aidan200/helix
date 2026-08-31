@@ -44,6 +44,13 @@ export interface WorkItemDto {
   readonly note: string | null;
 }
 
+/** 台账计数摘要（P1-⑥ 批次-实例-台账可见性；与 plan 同源同 null 语义）。 */
+export interface TaskBatchLedger {
+  readonly total: number;
+  readonly done: number;
+  readonly inProgress: number;
+}
+
 export interface TaskBatchDto {
   readonly batchId: string;
   /** 所属阶段序号（前端按阶段分组键；批次列表为全量跨阶段收集）。 */
@@ -55,6 +62,7 @@ export interface TaskBatchDto {
   readonly retryNote: string | null;
   readonly instanceId: string | null;
   readonly plan: readonly WorkItemDto[] | null;
+  readonly ledger: TaskBatchLedger | null;
 }
 
 export interface TaskStageDto {
@@ -164,6 +172,11 @@ export class TaskQueryService {
   }
 
   private batchDtoOf(batch: BatchData): TaskBatchDto {
+    // 台账同源双读面（P1-⑥）：rows 一次读 → plan 全行 + ledger 计数摘要；
+    // 未派发（instanceId=null）或零行（轻量实例未建 plan；终态清理后同构
+    // ——deleteTask 连批次行级联清，可见批次只余零行形态）→ 双 null 如实呈现。
+    const rows = batch.instanceId === null ? [] : this.deps.workLedger.getItems(batch.instanceId);
+    const hasLedger = rows.length > 0;
     return {
       batchId: batch.id,
       stageSeq: batch.stageSeq,
@@ -173,15 +186,21 @@ export class TaskQueryService {
       retryCount: batch.retryCount,
       retryNote: batch.retryNote,
       instanceId: batch.instanceId,
-      plan:
-        batch.instanceId === null
-          ? null
-          : this.deps.workLedger.getItems(batch.instanceId).map((item) => ({
-              seq: item.seq,
-              content: item.content,
-              status: item.status,
-              note: item.note,
-            })),
+      plan: hasLedger
+        ? rows.map((item) => ({
+            seq: item.seq,
+            content: item.content,
+            status: item.status,
+            note: item.note,
+          }))
+        : null,
+      ledger: hasLedger
+        ? {
+            total: rows.length,
+            done: rows.filter((item) => item.status === "done").length,
+            inProgress: rows.filter((item) => item.status === "in_progress").length,
+          }
+        : null,
     };
   }
 }

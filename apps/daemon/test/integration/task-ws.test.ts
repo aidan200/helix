@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { WsServerAdapter } from "../../src/adapters/driving/ws-server/WsServerAdapter";
 import { EventStream } from "../../src/adapters/driving/ws-server/EventStream";
 import { StubBrowserPort } from "../mocks/StubBrowserPort";
-import { buildTaskEngineEnv, launchRunningJob, type TaskEngineEnv } from "../helpers/task-fixtures";
+import { buildTaskEngineEnv, childLedger, launchRunningJob, type TaskEngineEnv } from "../helpers/task-fixtures";
 import { COMMAND_TYPES, PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 
 /**
@@ -286,10 +286,17 @@ describe("task 族 I 层：九命令路由（T1.5，contracts/task-api.md §2）
     }
   });
 
-  test("task.detail：阶段条 + 批次（带 stageSeq 分组键）+ 实例 plan（CL-3-T3/T5）", async () => {
+  test("task.detail：阶段条 + 批次（带 stageSeq 分组键）+ 实例 plan + 台账摘要 ledger（CL-3-T3/T5 + P1-⑥）", async () => {
     const { rig, client } = await rigWithClient();
     try {
       const { jobId } = await launchRunningJob(rig.env, { projects: ["demo"] });
+      // 实例台账（inst-a）：#1 in_progress + #2 pending → ledger 计数上 wire
+      const child = childLedger(rig.env.dbPath);
+      await child.insertItems("inst-a", [
+        { seq: 1, content: "扫描 demo 项目符号面" },
+        { seq: 2, content: "落 L0 核心节点" },
+      ]);
+      await child.updateItem("inst-a", 1, "in_progress");
       const res = await client.task("task.detail", { jobId });
       expect(res.ok).toBe(true);
       const task = res.result["task"] as Record<string, any>;
@@ -304,6 +311,12 @@ describe("task 族 I 层：九命令路由（T1.5，contracts/task-api.md §2）
       expect(batch.instanceId).toBe("inst-a");
       expect(batch.stageSeq).toBe(1);
       expect(typeof batch.scope).toBe("string");
+      // 台账摘要 wire 形状（P1-⑥）：服务端计数 + plan 全行
+      expect(batch.ledger).toEqual({ total: 2, done: 0, inProgress: 1 });
+      expect(batch.plan).toEqual([
+        { seq: 1, content: "扫描 demo 项目符号面", status: "in_progress", note: null },
+        { seq: 2, content: "落 L0 核心节点", status: "pending", note: null },
+      ]);
       // 叙述句已拆除（裁决 ③）：结果帧无 currentNarrative 键
       expect(task).not.toHaveProperty("currentNarrative");
       expect(task.params).toEqual({ projectRoot: "/tmp/demo" });
