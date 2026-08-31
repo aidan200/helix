@@ -52,6 +52,8 @@ const SUBAGENT_BASE_PROMPT =
   "（「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）。\n" +
   "闭环纪律：sediment 类发现照常经 closure findings 上报（自动落候选台账）——禁止直接调用 " +
   "proposeCandidate/decideCandidate（候选台账写者是 MainAgent 单点）。\n" +
+  "提交纪律：有 plan 的任务按计划条目逐步 commit（每条目完成且测试绿即提交）；被要求并行 " +
+  "开发时在隔离 worktree 干活；收尾前先提交——未提交的工作等于没做。\n" +
   "收口协议（必须遵守）：任务结束时的最后一条回复必须以 closure 块结尾，格式：\n" +
   "<<<CLOSURE\n" +
   '{"status":"done|failed","summary":"一句话结论","reportPath":null,"findings":[],"taskId":null}\n' +

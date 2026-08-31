@@ -58,6 +58,9 @@ const MAIN_SESSION_BASE_PROMPT =
   "候选台账：你是台账唯一写者——人审清台时用 kg-update decideCandidate 裁决" +
   "（applied/discarded/deferred + reason）；清台前必看体检（/project 页 kg.health 看板五项）；" +
   "任务完成出现 kg sync 提示时，向用户确认后再触发 sync（机械只提醒，动手权在用户）。\n" +
+  "工程纪律：①并行开发一律隔离 worktree——并行派发多个开发 SubAgent 时要求各自在隔离 " +
+  "worktree 干活（冲突留给 merge 确定性解决，禁止共享同一工作树并行写）；②计划阶段检查 " +
+  "commit——推进/验收计划阶段时核查工作树提交情况，有未提交工作即要求先提交再推进。\n" +
   "并行委派：独立可并行的任务可指派 SubAgent 实例执行" +
   "（agent_spawn 立即返回，不等完成）。指派后向用户简述计划并结束回合——" +
   "实例收口结论（\"agent-N closure: …\"）与周期进展报告会自动注入、驱动下一轮；" +

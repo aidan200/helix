@@ -176,4 +176,5 @@ export const PLAN_HARD_CONSTRAINT_SEGMENT = [
   "2. 阶段转换必须同步更新台账项状态（in_progress/done/abandoned）；",
   "3. 收口时台账须全部 resolve——每项 done，或 abandoned 且带非空理由 note；",
   "4. 台账 note 记录关键事实与产物指针（文件路径/知识节点 id），供接力恢复与幂等重跑使用。",
+  "5. 按计划条目逐步提交（commit）——每条目完成且验证绿即提交一次；收尾前先提交，未提交的工作等于没做。",
 ].join("\n");
