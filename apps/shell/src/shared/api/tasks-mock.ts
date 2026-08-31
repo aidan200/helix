@@ -138,7 +138,19 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
     retryNote: string | null = null,
     instanceId: string | null = null,
     plan: TaskBatchDto["plan"] = null,
-  ): TaskBatchDto => ({ batchId, stageSeq, seq, scope, status, retryCount, retryNote, instanceId, plan });
+  ): TaskBatchDto => {
+    // 台账计数摘要（P1-⑥）：daemon batchDtoOf 同构——服务端从 plan 行组装，
+    // 未派发或零行 → 双 null
+    const ledger =
+      plan !== null && plan.length > 0
+        ? {
+            total: plan.length,
+            done: plan.filter((w) => w.status === "done").length,
+            inProgress: plan.filter((w) => w.status === "in_progress").length,
+          }
+        : null;
+    return { batchId, stageSeq, seq, scope, status, retryCount, retryNote, instanceId, plan, ledger };
+  };
 
   const wi = (
     seq: number,

@@ -17,6 +17,7 @@ import type {
   TaskArtifactsDto,
   TaskArtifactsResultEvent,
   TaskBatchDto,
+  TaskBatchLedgerDto,
   TaskCancelResultEvent,
   TaskChangedEvent,
   TaskDetailDto,
@@ -141,6 +142,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
       error: null,
     };
     const item: WorkItemDto = { seq: 1, content: "盘点 src 依赖", status: "done", note: null };
+    const ledger: TaskBatchLedgerDto = { total: 1, done: 1, inProgress: 0 };
     const batch: TaskBatchDto = {
       batchId: "b-1",
       stageSeq: 1,
@@ -151,6 +153,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
       retryNote: null,
       instanceId: "agent-x",
       plan: [item],
+      ledger,
     };
     const stage: TaskStageDto = {
       seq: 1,

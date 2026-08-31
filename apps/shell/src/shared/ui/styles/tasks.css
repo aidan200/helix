@@ -155,10 +155,16 @@
 .tk-batch.failed { border-color: rgb(var(--error-rgb) / 0.4); }
 .tk-b-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tk-b-scope { font-weight: 600; font-size: var(--text-main); color: var(--text); }
+/* 实例徽标（P1-⑥）：agent- 短形态 mono chip，title 持全 id；不用 hud-badge（其大写变形会失真 hex id） */
+.tk-b-inst {
+  font-family: var(--font-mono); font-size: var(--text-cap); color: var(--text-dim);
+  border: 1px solid rgb(var(--edge-rgb) / 0.14); background: rgb(var(--edge-rgb) / 0.04);
+  padding: 1px 6px; border-radius: 4px; letter-spacing: 0.02em; white-space: nowrap;
+}
 .tk-b-retry { font-size: var(--text-cap); color: var(--warning); }
 .tk-b-plan { margin-top: 8px; display: flex; align-items: center; gap: 10px; }
 .tk-b-plan-t { font-size: var(--text-body); color: var(--text-muted); white-space: nowrap; }
-.tk-b-current { margin-top: 6px; font-family: var(--font-sans); font-size: var(--text-body); color: var(--text-muted); line-height: 1.6; }
+.tk-b-current { margin-top: 6px; font-family: var(--font-sans); font-size: var(--text-body); color: var(--text-muted); line-height: 1.6; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tk-b-current .ing { color: var(--accent); font-family: var(--font-mono); }
 .tk-b-toggle {
   margin-top: 8px; font-size: var(--text-cap); color: var(--text-faint);

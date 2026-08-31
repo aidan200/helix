@@ -125,6 +125,14 @@ export function fmtShort(iso: string): string {
   return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
 }
 
+/**
+ * instanceId → 实例徽标短形态（P1-⑥：agent- 前缀 + 6 位指纹，共 13 字符；
+ * 短于 13 原样）。全 id 经 title 属性可达（悬浮可览，不占版面）。
+ */
+export function fmtInstance(instanceId: string): string {
+  return instanceId.length > 13 ? instanceId.slice(0, 13) : instanceId;
+}
+
 /** elapsedSpan 结构 → 展示串（i18n 组装点）。 */
 export function fmtElapsed(ms: number, t: T): string {
   const span = elapsedSpan(ms);

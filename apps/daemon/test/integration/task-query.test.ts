@@ -200,6 +200,36 @@ describe("TaskQueryService 投影（CL-3-T1 数据面）", () => {
     });
   });
 
+  test("getTaskDetail 批次行台账摘要 ledger（P1-⑥ 三径：有台账计数 / 未派发 null / 落章零行 null）", async () => {
+    await withTaskEnv(async (env) => {
+      const ids = await seedSixStates(env);
+      // 推进 inst-r2 台账：#1 → in_progress；#2 → done（计数断言面）
+      const child = childLedger(env.dbPath);
+      await child.updateItem("inst-r2", 1, "in_progress");
+      await child.updateItem("inst-r2", 2, "in_progress");
+      await child.updateItem("inst-r2", 2, "done");
+      const detail = env.query.getTaskDetail(ids.running);
+      // 径 1 有台账：服务端组装计数（AD-4② 前端零拼装）+ plan 全行同源
+      const withLedger = detail.batches.find((b) => b.instanceId === "inst-r2")!;
+      expect(withLedger.ledger).toEqual({ total: 2, done: 1, inProgress: 1 });
+      expect(withLedger.plan?.map((p) => p.seq)).toEqual([1, 2]);
+      // 径 2 未派发（instanceId=null）→ ledger=null + plan=null
+      await env.store.insertBatch(batchOf("bat-p1", ids.paused, 1, 1, "pending"));
+      const pausedDetail = env.query.getTaskDetail(ids.paused);
+      expect(pausedDetail.batches[0]!.instanceId).toBeNull();
+      expect(pausedDetail.batches[0]!.ledger).toBeNull();
+      expect(pausedDetail.batches[0]!.plan).toBeNull();
+      // 径 3 落章零行（轻量实例未建 plan；终态清理后同构——deleteTask 连批次行
+      // 一起级联清，可见批次只余零行形态）→ 如实 null
+      const ledgerless = detail.batches.find((b) => b.instanceId === "inst-r1")!;
+      expect(ledgerless.ledger).toBeNull();
+      expect(ledgerless.plan).toBeNull();
+      // 终态批次台账可读性：任务在即台账在（inst-d1..d3 零行 → null 非炸）
+      const doneDetail = env.query.getTaskDetail(ids.done);
+      expect(doneDetail.batches.every((b) => b.ledger === null && b.plan === null)).toBe(true);
+    });
+  });
+
   test("getTaskArtifacts：stage.artifact 文字报告投影（{ summary }，结果与 kg 零耦合）", async () => {
     await withTaskEnv(async (env) => {
       const ids = await seedSixStates(env);
