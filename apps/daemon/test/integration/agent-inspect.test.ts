@@ -77,6 +77,8 @@ function makeHarness(): Harness {
     status: (agentId) => scheduler.status(agentId),
     kill: (agentId) => scheduler.kill(agentId),
     inspect: (agentId) => scheduler.inspect(agentId),
+      park: (agentId) => scheduler.park(agentId),
+      resume: (agentId) => scheduler.resume(agentId),
   };
   const executor = new CoreToolExecutor({ cwd: "/tmp", orchestration });
   return {

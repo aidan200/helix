@@ -99,6 +99,8 @@ function makeToolHarness(policy?: SchedulingPolicy): ToolHarness {
     status: (agentId) => scheduler.status(agentId),
     kill: (agentId) => scheduler.kill(agentId),
     inspect: (agentId) => scheduler.inspect(agentId),
+    park: (agentId) => scheduler.park(agentId),
+    resume: (agentId) => scheduler.resume(agentId),
   };
   const executor = new CoreToolExecutor({ cwd: tmpdir(), orchestration });
   return { executor, scheduler, runner, events };
@@ -244,6 +246,8 @@ describe("② agent_send 经 SchedulerService.send → 子进程 stdin → Agent
       status: (agentId) => scheduler.status(agentId),
       kill: (agentId) => scheduler.kill(agentId),
       inspect: (agentId) => scheduler.inspect(agentId),
+      park: (agentId) => scheduler.park(agentId),
+      resume: (agentId) => scheduler.resume(agentId),
     };
     const executor = new CoreToolExecutor({ cwd: home, orchestration: sessionOrchestration });
     try {

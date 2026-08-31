@@ -30,6 +30,8 @@ const TOOL_NAMES = [
   "agent_send",
   "agent_status",
   "agent_inspect", // T3-B：编排四工具
+  "agent_park", // ⑤ 链 C：挂起/恢复（P1 裁决仅 Main——编排工具族主会话专属）
+  "agent_resume",
   "browser",
   "kg", // T3.3：kg 双工具（查询面+落账面）
   "kg-update",
@@ -83,7 +85,7 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 16 / subagent 13（D8 W-R6 摘 kg-update）", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 18 / subagent 13（D8 W-R6 摘 kg-update；⑤ 链 C +agent_park/agent_resume 仅 main）", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
     expect(SubAgentProfile.tools).toEqual(
       [...TOOL_NAMES, ...SUBAGENT_ONLY_TOOL_NAMES]

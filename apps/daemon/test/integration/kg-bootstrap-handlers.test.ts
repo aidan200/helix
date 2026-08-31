@@ -163,6 +163,8 @@ function stubAdapterDeps(events: EventStream) {
       status: () => [],
       kill: () => ({ killed: false, error: "stub" }),
       inspect: () => null,
+      park: () => ({ parked: false as const, error: "测试桩不挂起" }),
+      resume: () => ({ resumed: false as const, error: "测试桩不恢复" }),
     },
     model: {
       setModel: async () => { throw new Error("stub"); },

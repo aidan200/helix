@@ -94,6 +94,8 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         status: () => [],
         kill: () => ({ killed: false, error: "spy 不装配调度" }),
         inspect: () => null,
+        park: () => ({ parked: false as const, error: "测试桩不挂起" }),
+        resume: () => ({ resumed: false as const, error: "测试桩不恢复" }),
       },
       model: {
         // T2.3（AD-2）：spy 不触发真实模型链——全部 no-op/抛错回执
@@ -263,6 +265,8 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         status: () => [],
         kill: () => ({ killed: false, error: "spy 不装配调度" }),
         inspect: () => null,
+        park: () => ({ parked: false as const, error: "测试桩不挂起" }),
+        resume: () => ({ resumed: false as const, error: "测试桩不恢复" }),
       },
       model,
       resource: {
@@ -370,6 +374,8 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
       status: () => [],
       kill: () => ({ killed: false, error: "spy 不装配调度" }),
       inspect: () => null,
+      park: () => ({ parked: false as const, error: "测试桩不挂起" }),
+      resume: () => ({ resumed: false as const, error: "测试桩不恢复" }),
     },
     model: {
       setModel: async () => { throw new Error("spy 不装配模型链"); },

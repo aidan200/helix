@@ -209,6 +209,8 @@ describe("④ 生效集：task_create 只进 MainAgent（AD-2 创建按宿主）
       status: () => [],
       kill: () => ({ killed: false, error: "测试桩不 kill" }),
       inspect: () => null,
+      park: () => ({ parked: false as const, error: "测试桩不挂起" }),
+      resume: () => ({ resumed: false as const, error: "测试桩不恢复" }),
     };
     const executor = new CoreToolExecutor({
       cwd: tmpdir(),
