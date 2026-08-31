@@ -39,6 +39,9 @@ export interface KgViewState {
   total: number;
   view: KgPaneView;
   filter: KgFilter;
+  /** P2③ superseded 折叠组展开位（默认折叠；仅 status=all 视图生效——
+   * 显式选「已取代」段时全量直显不折叠；过滤/清除不动本位）。 */
+  supersededOpen: boolean;
   /** 选中节点 id（仅 data-id 属性承载，不作可见文本——AD-16）。 */
   sel: string | null;
   detail: KgNodeDetailDto | null;
@@ -57,6 +60,7 @@ export function createKgViewState(): KgViewState {
     total: 0,
     view: "loading",
     filter: { q: "", kind: "all", status: "all" },
+    supersededOpen: false,
     sel: null,
     detail: null,
     detailLoading: false,
@@ -73,6 +77,7 @@ export type KgAction =
   | { type: "filter-kind"; kind: KgFilter["kind"] }
   | { type: "filter-status"; status: KgFilter["status"] }
   | { type: "clear-filter" }
+  | { type: "toggle-superseded" }
   | { type: "select-node"; id: string }
   | { type: "detail-loading"; id: string }
   | { type: "detail-result"; detail: KgNodeDetailDto }
@@ -99,6 +104,17 @@ export function filterRows(all: readonly KgNodeListRow[], filter: KgFilter): KgN
 export function viewOf(all: readonly KgNodeListRow[], matched: number): KgPaneView {
   if (all.length === 0) return "loading"; // 数据未到（kg.list 在途）
   return matched === 0 ? "empty" : "success";
+}
+
+/** P2③ 默认选中：避开 superseded（列表默认折叠，首屏详情与列表同观感；
+ * 优先序 = 现行实体 → 现行任意 → 实体（全废回落旧序，审计仍可查）。 */
+export function pickInitial(nodes: readonly KgNodeListRow[]): KgNodeListRow | undefined {
+  return (
+    nodes.find((n) => n.kind === "entity" && n.status !== "superseded") ??
+    nodes.find((n) => n.status !== "superseded") ??
+    nodes.find((n) => n.kind === "entity") ??
+    nodes[0]
+  );
 }
 
 /** 索引起步态（graph 态仅呈现后三态；absent 归主区）。 */
@@ -132,6 +148,8 @@ export function kgReducer(state: KgViewState, action: KgAction): KgViewState {
       return { ...state, filter: { ...state.filter, status: action.status } };
     case "clear-filter":
       return { ...state, filter: { q: "", kind: "all", status: "all" } };
+    case "toggle-superseded":
+      return { ...state, supersededOpen: !state.supersededOpen };
     case "select-node": {
       // 选中即跳详情（FID-09/10/13「引用可跳转」：report 态下行/引用点击
       // 也要切回 detail）；同节点且已在详情 = 无操作，不重拉

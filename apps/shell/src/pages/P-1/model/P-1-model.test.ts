@@ -14,6 +14,7 @@ import {
   filterRows,
   kgReducer,
   panelStateOf,
+  pickInitial,
 } from "./kg-model";
 import type { KgNodeListRow, KgNodeDetailDto } from "@helix/protocol";
 
@@ -138,6 +139,38 @@ describe("kg-model graph 态", () => {
     expect(filterRows(NODES, { q: "", kind: "all", status: "draft" })).toHaveLength(1);
     expect(filterRows(NODES, { q: "aaa", kind: "entity", status: "confirmed" })).toHaveLength(1);
     expect(filterRows(NODES, { q: "zzz", kind: "all", status: "all" })).toHaveLength(0);
+  });
+
+  it("P2③ superseded 折叠位：默认折叠；toggle 翻转；过滤/清除不动折叠位", () => {
+    // 过滤语义不变：status=all 仍匹配 superseded（折叠只发生在渲染层，读面数据不丢）
+    expect(filterRows(NODES, { q: "", kind: "all", status: "all" })).toHaveLength(4);
+    expect(filterRows(NODES, { q: "", kind: "all", status: "superseded" })).toHaveLength(1);
+    let s = createKgViewState();
+    expect(s.supersededOpen).toBe(false); // 默认折叠
+    s = kgReducer(s, { type: "toggle-superseded" });
+    expect(s.supersededOpen).toBe(true);
+    s = kgReducer(s, { type: "filter-status", status: "superseded" });
+    expect(s.supersededOpen).toBe(true); // 过滤不动折叠位
+    s = kgReducer(s, { type: "clear-filter" });
+    expect(s.supersededOpen).toBe(true);
+    s = kgReducer(s, { type: "toggle-superseded" });
+    expect(s.supersededOpen).toBe(false);
+  });
+
+  it("P2③ 默认选中避开 superseded：实体 → 任意 → 全废时回落旧序", () => {
+    const SUP_FIRST: KgNodeListRow[] = [
+      { id: "E-1", name: "废实体", kind: "entity", domain: null, status: "superseded", digest: "" },
+      { id: "E-2", name: "现行实体", kind: "entity", domain: null, status: "confirmed", digest: "" },
+      { id: "TR-1", name: "规则", kind: "rule", domain: null, status: "confirmed", digest: "" },
+    ];
+    expect(pickInitial(SUP_FIRST)?.id).toBe("E-2"); // 首实体 superseded → 让位现行实体
+    expect(pickInitial(NODES)?.id).toBe("E-9"); // 既有口径：首选现行实体
+    const ALL_SUP: KgNodeListRow[] = [
+      { id: "TR-1", name: "废规则", kind: "rule", domain: null, status: "superseded", digest: "" },
+      { id: "E-1", name: "废实体", kind: "entity", domain: null, status: "superseded", digest: "" },
+    ];
+    expect(pickInitial(ALL_SUP)?.id).toBe("E-1"); // 全 superseded → 回落旧序（实体优先）
+    expect(pickInitial([])).toBeUndefined();
   });
 
   it("列表回执置 success + 默认选中（initialSel）；迟到 detail 丢弃", () => {
