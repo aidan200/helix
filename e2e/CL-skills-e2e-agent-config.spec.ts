@@ -60,16 +60,18 @@ function prepHome(): string {
 /** 空剧本（本 spec 无 LLM 交互面；daemon 命令族全走 driving 层）。 */
 const SCRIPT: DaemonScript = { entries: [] };
 
-/** 进智能体页并等首帧 list 收口（bash 工具行在场）。 */
+/** 进智能体页并等首帧 list 收口（左栏四条目 + 默认选中 main 后 bash 工具行在场）。 */
 async function openAgents(page: import("@playwright/test").Page): Promise<void> {
   await page.locator('.rail-btn[data-page="skills"]').click();
   await expect(page.locator('[data-agents-page="/skills"]')).toBeVisible();
+  await expect(page.locator("[data-agent-row]")).toHaveCount(4, { timeout: 15_000 });
+  await page.locator('[data-agent-row="main-session"]').click();
   const mainCard = page.locator('[data-agent-card="main-session"]');
   await expect(mainCard.locator('[data-tool-row="bash"]')).toBeVisible({ timeout: 15_000 });
 }
 
 test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
-  test("T1 list 渲染：双层技能目录 + 诊断 + 工具 snippet（真 SkillScanner）", async ({ e2e, page }) => {
+  test("T1 list 渲染：双层技能目录 + 诊断 + 工具 snippet + master-detail 系统派生组（真 SkillScanner）", async ({ e2e, page }) => {
     const home = prepHome();
     await e2e.startDaemon({ script: SCRIPT, home, env: DEAD_PROXY });
     await e2e.openApp(page);
@@ -77,13 +79,24 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
     await openAgents(page);
 
     const mainCard = page.locator('[data-agent-card="main-session"]');
-    const subCard = page.locator('[data-agent-card="subagent-worker"]');
 
-    // main 14 工具（含编排四件套 + T1 联网两工具 + T3r browser + T3 agent_inspect + T3.3 kg 双工具）+ sub 10（H-3 +browser 转发接入 + kg 双工具）；snippet 来自 daemon 注册表
-    // （T0.1 实跑跟随：T1/T3r/H-3/T3/T3.3 扩工具集时 e2e 面计数同步）
-    await expect(mainCard.locator("[data-tool-row]")).toHaveCount(14);
-    await expect(subCard.locator("[data-tool-row]")).toHaveCount(10);
+    // main 16 工具 / sub 13（工具集随 profile 发版演进，计数与声明全集同步）；
+    // snippet 来自 daemon 注册表
+    await expect(mainCard.locator("[data-tool-row]")).toHaveCount(16);
     await expect(mainCard.locator('[data-tool-row="grep"]')).toContainText("跨文件正则检索并列出匹配行");
+
+    // master-detail 系统派生组（真 daemon 派生）：orchestrator 声明全集 +
+    // kg-writer = worker 生效集 + kg-update（恒在徽标 + 派生说明位）
+    await page.locator('[data-agent-row="orchestrator"]').click();
+    const orchCard = page.locator('[data-agent-card="orchestrator"]');
+    await expect(orchCard.locator("[data-ro-tool-row]")).toHaveCount(12, { timeout: 10_000 });
+    await expect(orchCard.locator("[data-switch]")).toHaveCount(0);
+    await page.locator('[data-agent-row="subagent-kg-writer"]').click();
+    const kgwCard = page.locator('[data-agent-card="subagent-kg-writer"]');
+    await expect(kgwCard.locator("[data-ro-tool-row]")).toHaveCount(14, { timeout: 10_000 }); // sub 13 + kg-update
+    await expect(kgwCard.locator('[data-ro-tool-row="kg-update"] [data-pinned-chip]')).toHaveText("恒在");
+    await expect(kgwCard.locator("[data-derived-note]")).toContainText("跟随 subagent-worker");
+    await page.locator('[data-agent-row="main-session"]').click();
 
     // 双层技能：user hello + project proj；坏文件 → invalid_metadata 诊断
     await expect(mainCard.locator('[data-skill-row="hello-skill"] [data-source-chip]')).toHaveText("user");
@@ -106,8 +119,9 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
       "agents-e2e",
       "txt",
       [
-        "M6 T4 CL-skills E 层 agent.config 真链路",
-        "断言: list 双层技能目录渲染+诊断+snippet/toggle 落库+changed 广播+reload 持久/",
+        "agent-roster 批 CL-skills E 层 agent.config 真链路",
+        "断言: master-detail 两组列表+只读徽标/只读详情零控件+派生说明+恒在徽标",
+        "  /list 双层技能目录渲染+诊断+snippet/toggle 落库+changed 广播+reload 持久/",
         "  模型下拉 S3a 可用性过滤（仅 configured 组）/模型槽位 set+clear/skipped 磁盘漂移回执",
         "结果: PASS",
       ].join("\n"),

@@ -8,6 +8,7 @@ import type {
   AgentConfigChangedEvent,
   AgentConfigListResultEvent,
   AgentConfigProfileBlock,
+  AgentConfigSystemBlock,
   AgentConfigSetEnabledResultEvent,
   AgentInstanceDto,
   AgentStateDto,
@@ -633,14 +634,18 @@ export interface ClientFrame {
 
 // ── v0.6 agent.config 族帧构造（M6 T4 智能体页；TR-TEST-3 纪律②：形状直引协议类型）──
 
-/** agent.config.list.result（点对点回执；profiles 块序 = main-session 在前）。 */
-export function agentConfigListResult(profiles: AgentConfigProfileBlock[]): AgentConfigListResultEvent {
+/** agent.config.list.result（点对点回执；profiles 块序 = main-session 在前；
+ *  system 只读块可选携带——agent-roster 批 additive，旧形态不传不破）。 */
+export function agentConfigListResult(
+  profiles: AgentConfigProfileBlock[],
+  system?: AgentConfigSystemBlock[],
+): AgentConfigListResultEvent {
   return {
     v: V,
     sessionId: SYSTEM_SESSION_ID,
     channel: "agent",
     type: "agent.config.list.result",
-    payload: { profiles },
+    payload: system === undefined ? { profiles } : { profiles, system },
   };
 }
 
