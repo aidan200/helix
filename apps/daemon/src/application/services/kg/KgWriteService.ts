@@ -173,7 +173,7 @@ function validateUpdateNode(op: Record<string, unknown>): KgWriteError | null {
   if (patch === null || typeof patch !== "object" || Array.isArray(patch)) {
     return schemaError("patch 必填且为对象", "op.patch");
   }
-  const known = new Set(["name", "digest", "body", "domain", "layer", "status", "reason"]);
+  const known = new Set(["name", "digest", "body", "scene", "domain", "layer", "status", "reason"]);
   const keys = Object.keys(patch as Record<string, unknown>);
   if (keys.length === 0) {
     return schemaError("patch 至少含一个可更新字段", "op.patch");
@@ -194,6 +194,12 @@ function validateUpdateNode(op: Record<string, unknown>): KgWriteError | null {
   }
   if (record.body !== undefined && typeof record.body !== "string") {
     return schemaError("body 必须为字符串", "op.patch.body");
+  }
+  // scene（R23 元数据补全通道）：携带则非空字符串（同 draft.scene 口径——
+  // 空白补全无意义，拒绝；清空不属于补全语义）
+  if (record.scene !== undefined) {
+    const e = requireNonEmptyString(record.scene, "scene");
+    if (e !== null) return withPath(e, "op.patch.scene");
   }
   if (record.domain !== undefined && record.domain !== null && !NODE_DOMAINS.has(String(record.domain))) {
     return schemaError("domain 仅接受 tech / business（或 null 清除）", "op.patch.domain");

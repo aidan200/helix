@@ -225,4 +225,61 @@ describe("kg service API schema 防线（CL-2.A10）", () => {
     if (!notObject.ok) expect(notObject.error.code).toBe("KG_E_SCHEMA");
     expect(knowledgeCounts(root).change_log).toBe(0);
   });
+
+  test("⑦ updateNode patch 契约：scene 入可更新集（R23 补全通道，D8 遗留①）——合法补全落库 / 空白拒绝 / 未知字段拒绝", () => {
+    const { root, service } = freshStack();
+    const created = service.write(root, {
+      kind: "createNode",
+      iterationId: "iter-1",
+      id: "TR-101",
+      draft: { kind: "rule", name: "存量无场景", digest: "d", status: "confirmed" },
+    } as KnowledgeWriteOp);
+    expect(created).toEqual({ ok: true, nodeId: "TR-101" });
+
+    // scene 合法补全 → 落库 + change_log 记 updateNode 行
+    const patched = service.write(root, {
+      kind: "updateNode",
+      iterationId: "iter-1",
+      nodeId: "TR-101",
+      patch: { scene: "本规则适用于：改动 kg 写通道前" },
+    });
+    expect(patched).toEqual({ ok: true, nodeId: "TR-101" });
+    expect(knowledgeCounts(root)).toEqual({ nodes: 1, anchor_decl: 0, change_log: 2, edges: 0 });
+
+    // scene 空白 → KG_E_SCHEMA + op.patch.scene（非空字符串，同 draft.scene 口径）
+    const blank = service.write(root, {
+      kind: "updateNode",
+      iterationId: "iter-1",
+      nodeId: "TR-101",
+      patch: { scene: "   " },
+    });
+    expect(blank).toEqual({
+      ok: false,
+      error: { code: "KG_E_SCHEMA", message: expect.any(String), path: "op.patch.scene" },
+    });
+
+    // 未知字段 → KG_E_SCHEMA（封闭可更新集）
+    const unknownField = service.write(root, {
+      kind: "updateNode",
+      iterationId: "iter-1",
+      nodeId: "TR-101",
+      patch: { kind: "entity" },
+    } as unknown as KnowledgeWriteOp);
+    expect(unknownField).toEqual({
+      ok: false,
+      error: { code: "KG_E_SCHEMA", message: expect.any(String), path: "op.patch.kind" },
+    });
+
+    // nodeId 不存在 → KG_E_ID（存量形态错误码沿用）
+    const missing = service.write(root, {
+      kind: "updateNode",
+      iterationId: "iter-1",
+      nodeId: "TR-404",
+      patch: { scene: "s" },
+    });
+    expect(missing).toEqual({
+      ok: false,
+      error: { code: "KG_E_ID", message: expect.any(String), path: "op.nodeId" },
+    });
+  });
 });

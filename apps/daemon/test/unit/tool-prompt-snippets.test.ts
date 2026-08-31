@@ -68,4 +68,8 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
       expect(/[\u4e00-\u9fff]/.test(snippet), `${name} snippet 应含中文`).toBe(true);
     }
   });
+
+  test("③ kg-update snippet 词表同步：updateNode op 入列（D8 遗留①——服务层写面早有，工具描述句补齐）", () => {
+    expect(TOOL_PROMPT_SNIPPETS["kg-update"]).toContain("updateNode");
+  });
 });

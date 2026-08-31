@@ -213,11 +213,14 @@ export interface NodeDraft {
 /**
  * 节点内容补丁（updateNode；status 不接受 superseded——归 supersede op）。
  * reason（T5.3 kg.node.confirm 消费）：可选审计叙述，落 change_log.reason
- * （如「草稿转正（页面人工确认）」）；缺省 null（既有行为不变）。 */
+ * （如「草稿转正（页面人工确认）」）；缺省 null（既有行为不变）。
+ * scene（D8 遗留①，R23）：元数据补全通道——kg-review 体检「scene 缺失 →
+ * updateNode 直补」的载体列（携带则非空字符串；存量回填不是内容推翻）。 */
 export interface NodePatch {
   readonly name?: string;
   readonly digest?: string;
   readonly body?: string;
+  readonly scene?: string;
   readonly domain?: NodeDomain | null;
   readonly layer?: NodeLayer | null;
   readonly status?: Exclude<NodeStatus, "superseded">;

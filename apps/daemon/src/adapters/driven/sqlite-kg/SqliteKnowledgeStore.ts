@@ -176,10 +176,14 @@ export class SqliteKnowledgeStore {
       return err("KG_E_ID", `节点 ${op.nodeId} 不存在`, "op.nodeId");
     }
     const patch = op.patch;
-    db.prepare("UPDATE nodes SET name = ?, digest = ?, body = ?, domain = ?, layer = ?, status = ?, updated_at = ? WHERE id = ?").run(
+    db.prepare(
+      "UPDATE nodes SET name = ?, digest = ?, body = ?, scene = ?, domain = ?, layer = ?, status = ?, updated_at = ? WHERE id = ?",
+    ).run(
       patch.name ?? current.name,
       patch.digest ?? current.digest,
       patch.body ?? current.body,
+      // scene 补全通道（R23）：携带则覆盖，缺省保持现值（元数据补全不清空）
+      patch.scene ?? current.scene,
       patch.domain !== undefined ? patch.domain : current.domain,
       patch.layer !== undefined ? patch.layer : current.layer,
       patch.status ?? current.status,
@@ -534,7 +538,7 @@ export class SqliteKnowledgeStore {
 
   private loadNode(db: Database, id: string): NodeRow | null {
     return (db.prepare(
-      "SELECT id, kind, name, digest, body, domain, layer, status, created_at, updated_at FROM nodes WHERE id = ?",
+      "SELECT id, kind, name, digest, scene, body, domain, layer, status, created_at, updated_at FROM nodes WHERE id = ?",
     ).get(id) as NodeRow | null);
   }
 
@@ -552,6 +556,7 @@ interface NodeRow {
   kind: string;
   name: string;
   digest: string;
+  scene: string;
   body: string;
   domain: string | null;
   layer: string | null;
