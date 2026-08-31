@@ -26,8 +26,9 @@ import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
  * kg-review manifest）× loopback WS 路由。kg-bootstrap-handlers.test.ts 同构。
  *
  * 覆盖：合法链（job 创建 type/params/projects/createdBy + fixed 三阶段行 +
- * **允许反复发起**——知识层非空恰是评审对象，与 bootstrap 一次性语义不同）；
- * 准入（absent → kg.review.not_eligible 带 index_absent）；project 无法解析
+ * **终态后可再发**——知识层非空恰是评审对象，与 bootstrap 一次性语义不同；
+ * P0① 仅禁并发：非终态 kg-review job 存在 → 拒绝 task_running）；准入（absent
+ * → kg.review.not_eligible 带 index_absent）；project 无法解析
  * KG_E_PARAM；unimplemented 门控。
  */
 
@@ -247,7 +248,7 @@ afterAll(() => {
 // ── 测试 ─────────────────────────────────────────────────
 
 describe("kg.review.create 发起链路（W2-F 轨二，R21）", () => {
-  test("合法链：job 创建（type/params/projects/createdBy）+ fixed 三阶段行 + 允许反复发起", async () => {
+  test("合法链：job 创建（type/params/projects/createdBy）+ fixed 三阶段行；并发禁入 task_running、终态后可再发（P0①）", async () => {
     const rig = await openRig();
 
     const res = await rig.client.kg("kg.review.create", { project: "alpha" });
@@ -269,8 +270,18 @@ describe("kg.review.create 发起链路（W2-F 轨二，R21）", () => {
       "L2 实体册逐节点评审",
     ]);
 
-    // 允许反复发起（与 bootstrap 一次性语义不同：知识层非空恰是评审对象——
-    // alpha 已有节点照样过检；两次发起各得一个新 job）
+    // 并发禁入（P0① 仅禁并发，不绑一次性）：首个 job 非终态（pending）→
+    // 再发拒绝 kg.review.not_eligible（message 带 task_running），不产新 job 行
+    const concurrent = await rig.client.kg("kg.review.create", { project: "alpha" });
+    expect(concurrent.ok).toBe(false);
+    expect(concurrent.error!.code).toBe("kg.review.not_eligible");
+    expect(concurrent.error!.message).toContain("task_running");
+    expect(rig.taskStore.listJobs()).toHaveLength(1);
+
+    // 终态后可再发（保留反复发起语义：知识层非空恰是评审对象——alpha 已有
+    // 节点照样过检；终态后新发起各得一个新 job）
+    await rig.taskStore.updateJobStatus(jobId, "running");
+    await rig.taskStore.updateJobStatus(jobId, "done");
     const again = await rig.client.kg("kg.review.create", { project: "alpha" });
     expect(again.ok).toBe(true);
     expect(again.result.jobId).not.toBe(jobId);

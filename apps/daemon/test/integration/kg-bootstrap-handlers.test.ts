@@ -37,7 +37,9 @@ import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
  *
  * 覆盖：kg.bootstrap.create 准入机械复核三违例（absent/building/非空 →
  * kg.bootstrap.not_eligible 带原因）+ 合法链（createdBy="page" + stage 三行，
- * CL-1-T4/T8）；kg.bootstrap.produce 三级分组（任务→阶段→批次，origin_batchId
+ * CL-1-T4/T8）+ P0① 双启动防护（非终态同类型 job → task_running 拒绝；
+ * 终态后放行；kg.projects 行 bootstrapRunning 标志）；kg.bootstrap.produce
+ * 三级分组（任务→阶段→批次，origin_batchId
  * +layer 元数据驱动；无 origin_batch_id 日常落账不进查询，CL-4-T1）；
  * kg.node.update/supersede 走 KgWriteService 落库 + change_log 记理由 + 空
  * 理由/空 patch 拒绝（CL-4-T3）；kg.bootstrap.impact edges 引用方推导 +
@@ -397,6 +399,76 @@ describe("kg.bootstrap.create 准入机械复核", () => {
     expect(withScope.ok).toBe(true);
     const params = rig.taskStore.getJob(withScope.result.jobId as string)?.params as Record<string, unknown>;
     expect(params.scope).toBe("src/");
+  });
+
+  // ── P0① 双启动防护：第四条准入（非终态 kg-bootstrap job → task_running） ──
+
+  test("已有非终态 kg-bootstrap job → not_eligible（task_running）禁双启动；不产新 job 行", async () => {
+    const rig = await openRig();
+    seedSynced(rig, rig.alpha, "a0");
+    const first = await rig.client.kg("kg.bootstrap.create", { project: "alpha" });
+    expect(first.ok).toBe(true);
+    // 窗口期（job 已建、首节点未产出）：旧实现此处恒 eligible 可重复 create
+    const second = await rig.client.kg("kg.bootstrap.create", { project: "alpha" });
+    expect(second.ok).toBe(false);
+    expect(second.error?.code).toBe("kg.bootstrap.not_eligible");
+    expect(second.error?.message).toContain("task_running");
+    expect(rig.taskStore.listJobs()).toHaveLength(1); // 双启动被拦，仅首个 job 行
+  });
+
+  test("job 终态后 → 放行（终态后可再发；知识层仍空口径下新 job 落地）", async () => {
+    const rig = await openRig();
+    seedSynced(rig, rig.alpha, "a0");
+    const first = await rig.client.kg("kg.bootstrap.create", { project: "alpha" });
+    const jobId = first.result.jobId as string;
+    await rig.taskStore.updateJobStatus(jobId, "running");
+    await rig.taskStore.updateJobStatus(jobId, "cancelled"); // 终态且零产出 → 知识层仍空
+    const again = await rig.client.kg("kg.bootstrap.create", { project: "alpha" });
+    expect(again.ok).toBe(true);
+    expect(again.result.jobId).not.toBe(jobId);
+  });
+
+  test("job 非终态且知识层已有带 layer 产出 → knowledge_not_empty 先挡（第四条在产出口径之后）", async () => {
+    const rig = await openRig();
+    seedSynced(rig, rig.alpha, "a0");
+    const first = await rig.client.kg("kg.bootstrap.create", { project: "alpha" });
+    expect(first.ok).toBe(true);
+    expectOk(
+      rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "运行中产出", digest: "首节点已落盘", scene: "测试场景", status: "confirmed", layer: "L0" } }),
+    );
+    const second = await rig.client.kg("kg.bootstrap.create", { project: "alpha" });
+    expect(second.ok).toBe(false);
+    expect(second.error?.message).toContain("knowledge_not_empty");
+  });
+});
+
+// ── ①′ kg.projects 行 bootstrapRunning 标志（P0① 入口卡数据源） ──
+
+describe("kg.projects 行 bootstrapRunning 标志", () => {
+  function rowByName(res: { ok: boolean; result: Record<string, unknown> }, name: string): Record<string, unknown> {
+    const rows = res.result.projects as Array<Record<string, unknown>>;
+    const row = rows.find((r) => r.name === name);
+    if (row === undefined) throw new Error(`kg.projects 无 ${name} 行`);
+    return row;
+  }
+
+  test("非终态 job 覆盖项目 → true；其他项目缺省；终态后回落", async () => {
+    const rig = await openRig();
+    seedSynced(rig, rig.alpha, "a0");
+    const before = await rig.client.kg("kg.projects", {});
+    expect(rowByName(before, "alpha").bootstrapRunning).not.toBe(true);
+
+    const created = await rig.client.kg("kg.bootstrap.create", { project: "alpha" });
+    expect(created.ok).toBe(true);
+    const during = await rig.client.kg("kg.projects", {});
+    expect(rowByName(during, "alpha").bootstrapRunning).toBe(true);
+    expect(rowByName(during, "beta").bootstrapRunning).not.toBe(true); // 无任务项目缺省
+
+    const jobId = created.result.jobId as string;
+    await rig.taskStore.updateJobStatus(jobId, "running");
+    await rig.taskStore.updateJobStatus(jobId, "done");
+    const after = await rig.client.kg("kg.projects", {});
+    expect(rowByName(after, "alpha").bootstrapRunning).not.toBe(true);
   });
 });
 
