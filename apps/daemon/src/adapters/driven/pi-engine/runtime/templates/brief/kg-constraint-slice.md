@@ -15,8 +15,11 @@ kg affected 主动反查路径（R20）。
   适用：scene 适用场景（空 scene 时此行省略）
   ↳ kg get <节点id>
 
-若本次改动推翻此节点，随改动提交 supersede（kg-update）
+若本次改动推翻此节点，将 supersede 声明写入 closure findings
 
 要点：
 - 无命中节点时整段省略（硬约束③）；有命中则协议行必随（AD-14 第一道防线）。
+- 协议行受众分叉（D8 W-R6）：brief 段与 spawn 机械注入的受众都是批次 SubAgent
+  （无 kg-update，supersede 改经 closure findings 申报）；主会话 📎 附着块
+  保持「随改动提交 supersede（kg-update）」措辞（main 版，持有即时落账面）。
 - 切片只是被动注入：改代码前还可主动用 kg affected（文件/符号锚反查）查管辖节点——与切片同源查询；命中按 scene 判断相关性，相关必 kg get 读全文。
