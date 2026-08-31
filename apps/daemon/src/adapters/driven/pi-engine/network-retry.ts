@@ -11,6 +11,10 @@
  * - 退避序列固定 10s→30s→60s 三次（LLM_RETRY_BACKOFF_MS 常量注入，
  *   测试可换假时钟）；退避耗尽 → 原样转发最后一次 error 终帧，
  *   closure/错误语义与无重试时逐事件一致；
+ * - P8 配额语义：配额类快速失败服务人工切账号——配额耗尽（token
+ *   用尽/欠费，429+insufficient_quota/quota_exceeded/billing/balance
+ *   类文案或 402 余额类）重试无意义，判永久类立即走既有失败路径，
+ *   不吃 10/30/60 退避；其余 429（真限流）仍属瞬时类照常重试；
  * - 仅重试「零事件前导的请求期失败」（pi-ai 的 start 帧在 HTTP 响应
  *   到达后才发——连接失败/超时/429/5xx 均为纯 error 单帧）。已转发
  *   任何事件（中途断流）后不再重试：agentLoop 在 start 帧会把 partial
@@ -42,6 +46,20 @@ const TRANSIENT_MESSAGE_PATTERNS: readonly RegExp[] = [
   /rate limit|too many requests|overloaded|service unavailable|internal server error|bad gateway|gateway timeout/i,
 ];
 
+/**
+ * P8 配额耗尽文案特征（429+配额标记/402 余额类判据）：命中即永久类——
+ * 配额类快速失败服务人工切账号。导出供单测直接覆盖特征面。
+ * 词边界防护：'balance' 不误伤 "unbalanced"；连写形态
+ * （insufficient_quota/quota_exceeded，下划线为 \w 需独立条目）单独列。
+ */
+export const QUOTA_MESSAGE_PATTERNS: readonly RegExp[] = [
+  /insufficient[ _-]?quota/i, // OpenAI insufficient_quota 连写形态
+  /quota[ _-]?(?:exceeded|exhausted)/i, // quota_exceeded / quota exhausted
+  /\bquota\b/i, // 宽松兑底：独立 quota 词（429 配额语境）
+  /\bbilling\b/i, // 计费（402 Payment Required 语境）
+  /\bbalance\b/i, // 余额（词边界防 "unbalanced" 误伤）
+];
+
 /** 独立三位数 HTTP 状态码提取（"429: …"/"(503) …"/"HTTP 500 …" 等嵌入形态）。 */
 const HTTP_STATUS_RE = /\b([45]\d{2})\b/;
 
@@ -50,8 +68,10 @@ const HTTP_STATUS_RE = /\b([45]\d{2})\b/;
  *
  * - stopReason 非 "error"（含 "aborted"/"stop" 等）→ 永久：重试只针对
  *   请求失败的 error 终帧，用户 abort 永不重试；
+ * - 配额耗尽文案（QUOTA_MESSAGE_PATTERNS 命中）→ 永久（P8）：优先于
+ *   状态码裁决——429+quota 标记与 402 余额类一律零重试立即失败；
  * - 消息中嵌入 HTTP 状态码 → 状态码裁决：408/409/429/5xx 瞬时，
- *   其余 4xx（401/403/400 等鉴权/参数/配额）永久；
+ *   其余 4xx（401/403/400/402 等鉴权/参数/余额）永久；
  * - 无状态码 → 网络错/超时关键词命中 → 瞬时；
  * - 未知形态 → 永久（安全缺省：不重试未知错误，立即走既有失败路径）。
  */
@@ -59,6 +79,8 @@ export function classifyLlmError(stopReason: string, errorMessage: string | unde
   if (stopReason !== "error") return "permanent";
   const message = errorMessage ?? "";
   if (message.trim() === "") return "permanent";
+  // P8：配额耗尽优先于状态码裁决——账号资源问题任何状态下重试都无意义
+  if (QUOTA_MESSAGE_PATTERNS.some((re) => re.test(message))) return "permanent";
   const status = HTTP_STATUS_RE.exec(message)?.[1];
   if (status !== undefined) {
     const code = Number(status);

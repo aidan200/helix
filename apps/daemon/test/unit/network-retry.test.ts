@@ -13,6 +13,8 @@ import {
 /**
  * P2 ⑦ 引擎级网络重试单测：
  * - classifyLlmError 纯函数分类面（瞬时/永久/缺省安全）；
+ * - P8 配额特征精化：429+quota/billing/balance 文案与 402 余额类 → 永久
+ *   （配额耗尽快速失败服务人工切账号，真限流仍瞬时）；
  * - withNetworkRetry：失败 2 次后成功（假时钟断言退避序列消费）、
  *   持续瞬时失败恰 4 次尝试（1+3）后退避耗尽走既有失败路径、
  *   永久类 1 次即失败、abort 打断等待、中途断流不重试。
@@ -111,9 +113,8 @@ describe("classifyLlmError", () => {
     expect(classifyLlmError("error", "read EPIPE")).toBe("transient");
   });
 
-  test("HTTP 429/5xx/408 → 瞬时（嵌入任意形态）", () => {
+  test("HTTP 429/5xx/408 → 瞬时（嵌入任意形态；429 配额文案除外——见 P8 配额组）", () => {
     expect(classifyLlmError("error", "429: {\"code\":\"1308\"}")).toBe("transient");
-    expect(classifyLlmError("error", "provider 429 quota exceeded")).toBe("transient");
     expect(classifyLlmError("error", "503 Service Unavailable")).toBe("transient");
     expect(classifyLlmError("error", "anthropic (500): Internal Server Error")).toBe("transient");
     expect(classifyLlmError("error", "HTTP 502 Bad Gateway")).toBe("transient");
@@ -135,6 +136,40 @@ describe("classifyLlmError", () => {
     expect(classifyLlmError("error", "boom 未知形态")).toBe("permanent");
     expect(classifyLlmError("error", undefined)).toBe("permanent");
     expect(classifyLlmError("error", "  ")).toBe("permanent");
+  });
+
+  // ── P8 配额特征精化（park-resume-design.md P8）──
+  // 配额耗尽（token 用尽/欠费）重试无意义，立即失败让用户切账号。
+
+  test("P8：429 + 配额特征 → 永久（配额耗尽快速失败，服务人工切账号）", () => {
+    // OpenAI 真实形态（insufficient_quota 连写）
+    expect(
+      classifyLlmError("error", "429 insufficient_quota: You exceeded your current quota, please check your plan and billing details"),
+    ).toBe("permanent");
+    expect(classifyLlmError("error", "429: quota_exceeded — token limit reached")).toBe("permanent");
+    expect(classifyLlmError("error", "provider 429 quota exceeded")).toBe("permanent"); // P2 ⑦ 原瞬时例——P8 语义迁移
+    expect(classifyLlmError("error", "429 billing hard limit reached")).toBe("permanent");
+    expect(classifyLlmError("error", "429 You have insufficient balance")).toBe("permanent");
+  });
+
+  test("P8：429 纯限流（无配额特征）→ 瞬时（真限流维持退避重试）", () => {
+    expect(classifyLlmError("error", "429 Too Many Requests")).toBe("transient");
+    expect(classifyLlmError("error", "429 rate limit reached for requests")).toBe("transient");
+  });
+
+  test("P8：402 余额类 → 永久（Payment Required 同属配额耗尽语义）", () => {
+    expect(classifyLlmError("error", "402 Payment Required")).toBe("permanent");
+    expect(classifyLlmError("error", "402: insufficient balance, please top up")).toBe("permanent");
+  });
+
+  test("P8：无状态码纯配额文案 → 永久（显式配额规则，非缺省兜底）", () => {
+    expect(classifyLlmError("error", "You have exceeded your monthly quota")).toBe("permanent");
+    expect(classifyLlmError("error", "billing not active for this account")).toBe("permanent");
+  });
+
+  test("P8：balance 词边界——'unbalanced' 类不误伤", () => {
+    expect(classifyLlmError("error", "503 unbalanced load on upstream")).toBe("transient"); // 5xx 瞬时裁决不受影响
+    expect(classifyLlmError("error", "unbalanced request rejected")).toBe("permanent"); // 无状态码未知形态仍走安全缺省
   });
 });
 
@@ -196,6 +231,23 @@ describe("withNetworkRetry", () => {
     expect(clock.slept).toEqual([]);
     expect(retries).toEqual([]);
     expect(events.map((e) => e.type)).toEqual(["error"]);
+  });
+
+  test("P8 配额错误（429 insufficient_quota）：恰 1 次调用，零退避零 onRetry，error 终帧原样转发", async () => {
+    const clock = fakeClock();
+    const retries: LlmRetryInfo[] = [];
+    const quotaMessage = "429 insufficient_quota: You exceeded your current quota, please check your plan and billing details";
+    const { fn, callCount } = scriptedStreamFn([{ kind: "error", message: quotaMessage }]);
+    const wrapped = withNetworkRetry(fn, { sleep: clock.sleep, onRetry: (i) => retries.push(i) });
+
+    const events = await collect(wrapped(fakeModel, { messages: [] as never }, {}));
+
+    expect(callCount()).toBe(1); // 恰 1 次——配额快速失败，不吃 10/30/60 退避
+    expect(clock.slept).toEqual([]);
+    expect(retries).toEqual([]);
+    expect(events.map((e) => e.type)).toEqual(["error"]);
+    const terminal = events[0] as Extract<AssistantMessageEvent, { type: "error" }>;
+    expect(terminal.error.errorMessage).toBe(quotaMessage); // provider 原文保留（人工切账号决策依据）
   });
 
   test("abort 终帧不重试（用户 kill/中断直通）", async () => {
