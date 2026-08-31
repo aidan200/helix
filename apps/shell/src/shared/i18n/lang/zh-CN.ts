@@ -481,6 +481,8 @@ export const zhCN = {
       segConfirmed: "已确认",
       segDraft: "草稿",
       segSuperseded: "已取代",
+      supToggleOpen: "已取代 {n} 条 · 展开 ▾",
+      supToggleClose: "已取代 {n} 条 · 收起 ▴",
       countLine: "{total} 节点 · 匹配 {matched}",
       loading: "读取中…",
       listAria: "节点列表",

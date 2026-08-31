@@ -368,20 +368,29 @@ describe("F5.0 左栏项目域与主区状态机", () => {
 });
 
 describe("graph 态 F5.1~F5.5", () => {
-  it("F5.1 行形态 + draft 高亮 + superseded 降档 + 三路过滤叠加 + 计数行 + 空态清除", () => {
+  it("F5.1 行形态 + draft 高亮 + superseded 默认折叠/可展开 + 三路过滤叠加 + 计数行 + 空态清除", () => {
     ui();
     feedProjects();
     enterGraph("helix");
     const list = qs('[data-kg-list]')!;
-    expect(list.querySelectorAll(".kgv-row")).toHaveLength(4);
+    // P2③ superseded 默认折叠：默认 3 行（E-13 不在列），折叠徽标行在场
+    expect(list.querySelectorAll(".kgv-row")).toHaveLength(3);
+    expect(list.querySelector('.kgv-row[data-id="E-13"]')).toBeNull();
     expect(within(list).getAllByText("规则").length).toBeGreaterThan(0);
     expect(within(list).getAllByText("实体").length).toBeGreaterThan(0);
     const draftRow = list.querySelector('.kgv-row[data-id="TR-47"]')!;
     expect(draftRow.className).toContain("draft");
+    // 折叠徽标行（计数）+ 展开后 superseded 行入列（降档样式）+ 再收起
+    expect(qs('[data-kg-sup-toggle]')!.textContent).toBe("已取代 1 条 · 展开 ▾");
+    fireEvent.click(qs('[data-kg-sup-toggle]')!);
+    expect(list.querySelectorAll(".kgv-row")).toHaveLength(4);
     expect(list.querySelector('.kgv-row[data-id="E-13"]')!.className).toContain("superseded");
+    expect(qs('[data-kg-sup-toggle]')!.textContent).toBe("已取代 1 条 · 收起 ▴");
+    fireEvent.click(qs('[data-kg-sup-toggle]')!);
+    expect(list.querySelectorAll(".kgv-row")).toHaveLength(3);
     // 裸 id 不作为可见文本（AD-16）
     expect(list.textContent).not.toMatch(/TR-\d+|E-\d+/);
-    // 计数行
+    // 计数行：matched 含 superseded（过滤语义不变，折叠不吞计数）
     expect(qs('[data-kg-count]')!.textContent).toBe("4 节点 · 匹配 4");
     // 类型 seg 过滤
     fireEvent.click(within(qs('[data-kg-seg-kind]')!).getByText("规则"));
@@ -397,6 +406,17 @@ describe("graph 态 F5.1~F5.5", () => {
     // 关键词命中 mark 高亮
     fireEvent.change(qs('[data-kg-q]')!, { target: { value: "队列" } });
     expect(qs('[data-kg-list] mark')!.textContent).toBe("队列");
+    // 关键词仅命中 superseded：不落空态（折叠徽标行在场可展开，匹配计数如实）
+    fireEvent.change(qs('[data-kg-q]')!, { target: { value: "报告" } });
+    expect(screen.queryByText("没有匹配的节点")).toBeNull();
+    expect(qs('[data-kg-count]')!.textContent).toBe("4 节点 · 匹配 1");
+    expect(qs('[data-kg-sup-toggle]')!.textContent).toBe("已取代 1 条 · 展开 ▾");
+    fireEvent.change(qs('[data-kg-q]')!, { target: { value: "" } });
+    // 状态 seg 选「已取代」= 显式过滤：无折叠徽标行，superseded 全量直显
+    fireEvent.click(within(qs('[data-kg-seg-status]')!).getByText("已取代"));
+    expect(list.querySelectorAll(".kgv-row")).toHaveLength(1);
+    expect(list.querySelector('.kgv-row[data-id="E-13"]')).not.toBeNull();
+    expect(document.querySelector("[data-kg-sup-toggle]")).toBeNull();
   });
 
   it("F5.2 详情：头卡+正文 body 单段 md 渲染（标题/列表/{{ref}} 替换）/锚点 dead 标记/关系跳转/日志最新在上", () => {

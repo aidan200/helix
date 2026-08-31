@@ -183,6 +183,15 @@
 .kgv-row-main { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; padding-right: 44px; }
 .kgv-row-name { font-weight: 600; font-size: var(--text-main); color: var(--text); }
 .kgv-row.superseded .kgv-row-name { color: var(--text-dim); }
+/* P2③ superseded 折叠组：默认折叠，计数徽标行展开（kpn-toggle 同形降档文字钮 + 分隔线） */
+.kgv-sup-toggle {
+  display: block; width: 100%; text-align: left;
+  background: none; border: 0; border-top: 1px solid rgb(var(--edge-rgb) / 0.12);
+  padding: 6px 10px 4px 12px; margin-top: 4px; cursor: pointer;
+  color: var(--text-dim); font-size: var(--text-cap); font-family: var(--font-mono);
+  transition: color 0.15s;
+}
+.kgv-sup-toggle:hover { color: var(--accent); }
 .kgv-row-digest {
   font-size: var(--text-body); color: var(--text-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

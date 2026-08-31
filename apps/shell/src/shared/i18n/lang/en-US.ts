@@ -476,6 +476,8 @@ export const enUS = {
       segConfirmed: "Confirmed",
       segDraft: "Draft",
       segSuperseded: "Superseded",
+      supToggleOpen: "Superseded ({n}) · Expand ▾",
+      supToggleClose: "Superseded ({n}) · Collapse ▴",
       countLine: "{total} nodes · {matched} matched",
       loading: "Loading…",
       listAria: "Node list",

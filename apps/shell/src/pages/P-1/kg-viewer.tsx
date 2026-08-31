@@ -18,7 +18,7 @@
  *   +重发 detail 取 daemon 落账日志）。
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Dispatch } from "react";
-import type { EventEnvelope, KgHealthDto, KgProjectRow, KgProduceNodeDto } from "@helix/protocol";
+import type { EventEnvelope, KgHealthDto, KgNodeListRow, KgProjectRow, KgProduceNodeDto } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
@@ -26,6 +26,7 @@ import {
   createKgViewState,
   filterRows,
   kgReducer,
+  pickInitial,
 } from "./model/kg-model";
 import { bootstrapEntryMode, type ProjectAction, type ProduceState } from "./model/project-model";
 import { highlight, KindBadge, StatusBadge } from "./ui/kg-refs";
@@ -119,10 +120,10 @@ const KgViewer = function KgViewer({
         switch (e.type) {
           case "kg.list.result": {
             const nodes = [...e.payload.nodes];
-            // 默认选中首个实体节点（原型 E-9 先例：进入即见失效锚点详情）。
+            // 默认选中首个现行实体节点（P2③：避开 superseded——列表默认折叠，
+            // 首屏详情与列表同观感；全废回落旧序，审计仍可查）。
             // 仅首载（sel 空）应用——转正后 list 刷新不得重置当前选中/详情
-            const initial =
-              stateRef.current.sel === null ? (nodes.find((n) => n.kind === "entity") ?? nodes[0]) : undefined;
+            const initial = stateRef.current.sel === null ? pickInitial(nodes) : undefined;
             dispatch({ type: "list-result", total: e.payload.total, nodes, initialSel: initial?.id });
             if (initial !== undefined) sendKgNodeDetail({ project: project.name, id: initial.id });
             return;
@@ -393,9 +394,56 @@ const KgViewer = function KgViewer({
 
   // ── 展示派生 ─────────────────────────────────────────────
   const rows = useMemo(() => filterRows(state.all, state.filter), [state.all, state.filter]);
+  /** P2③ superseded 折叠：仅 status=all 视图生效（显式选「已取代」段 =
+   *  全量直显；confirmed/draft 段本就无 superseded）。matched 计数含
+   *  superseded（过滤语义不变），折叠只作用于行渲染。 */
+  const collapsedSup = state.filter.status === "all";
+  const activeRows = useMemo(
+    () => (collapsedSup ? rows.filter((n) => n.status !== "superseded") : rows),
+    [rows, collapsedSup],
+  );
+  const supersededRows = useMemo(
+    () => (collapsedSup ? rows.filter((n) => n.status === "superseded") : []),
+    [rows, collapsedSup],
+  );
   /** 主状态派生：全量未到 = loading；过滤无匹配 = empty（即时重渲染，转换干净）。 */
   const view = state.view === "loading" ? "loading" : rows.length === 0 ? "empty" : "success";
   const byId = useMemo(() => new Map(state.all.map((n) => [n.id, n])), [state.all]);
+
+  /** F5.1 节点行（现行区与 P2③ superseded 折叠区共用同一行形态）。 */
+  const rowNode = (n: KgNodeListRow) => (
+    <div
+      key={n.id}
+      className={`kgv-row${n.status === "draft" ? " draft" : ""}${n.status === "superseded" ? " superseded" : ""}${
+        state.sel === n.id ? " selected" : ""
+      }`}
+      data-id={n.id}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelectNode(n.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onSelectNode(n.id);
+      }}
+    >
+      <div className="kgv-row-main">
+        <span className="kgv-row-name">{highlight(n.name, state.filter.q)}</span>
+        <KindBadge kind={n.kind} />
+        <StatusBadge status={n.status} />
+      </div>
+      <div className="kgv-row-digest">{highlight(n.digest, state.filter.q)}</div>
+      {/* AD-16：id 只存在于「详情 →」链接的 data-id 属性 */}
+      <a
+        className="kgv-row-link"
+        data-id={n.id}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelectNode(n.id);
+        }}
+      >
+        {t("pj.kg.detailLink")}
+      </a>
+    </div>
+  );
 
   /** purge 两步确认（C1 危险操作；内联确认条——kg-detail-pane confirmOpen 同形态）。 */
   const [purgeOpen, setPurgeOpen] = useState(false);
@@ -516,40 +564,29 @@ const KgViewer = function KgViewer({
                 </button>
               </div>
             )}
-            {view === "success" &&
-              rows.map((n) => (
-                <div
-                  key={n.id}
-                  className={`kgv-row${n.status === "draft" ? " draft" : ""}${n.status === "superseded" ? " superseded" : ""}${
-                    state.sel === n.id ? " selected" : ""
-                  }`}
-                  data-id={n.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onSelectNode(n.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") onSelectNode(n.id);
-                  }}
-                >
-                  <div className="kgv-row-main">
-                    <span className="kgv-row-name">{highlight(n.name, state.filter.q)}</span>
-                    <KindBadge kind={n.kind} />
-                    <StatusBadge status={n.status} />
+            {view === "success" && (
+              <>
+                {activeRows.map((n) => rowNode(n))}
+                {/* P2③ superseded 折叠组：计数徽标行默认折叠，展开后降档直显
+                    （审计路径不动：详情/报告引用跳转仍可选中不可见行） */}
+                {supersededRows.length > 0 && (
+                  <div className="kgv-sup-group" data-kg-sup-group>
+                    <button
+                      type="button"
+                      className="kgv-sup-toggle"
+                      data-kg-sup-toggle
+                      aria-expanded={state.supersededOpen}
+                      onClick={() => dispatch({ type: "toggle-superseded" })}
+                    >
+                      {state.supersededOpen
+                        ? t("pj.kg.supToggleClose", { n: supersededRows.length })
+                        : t("pj.kg.supToggleOpen", { n: supersededRows.length })}
+                    </button>
+                    {state.supersededOpen && supersededRows.map((n) => rowNode(n))}
                   </div>
-                  <div className="kgv-row-digest">{highlight(n.digest, state.filter.q)}</div>
-                  {/* AD-16：id 只存在于「详情 →」链接的 data-id 属性 */}
-                  <a
-                    className="kgv-row-link"
-                    data-id={n.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectNode(n.id);
-                    }}
-                  >
-                    {t("pj.kg.detailLink")}
-                  </a>
-                </div>
-              ))}
+                )}
+              </>
+            )}
           </div>
 
           {/* T3.2 bootstrap 入口卡（左列底部；准入四态互斥——hidden 静默） */}
