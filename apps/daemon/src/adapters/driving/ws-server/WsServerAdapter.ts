@@ -190,6 +190,12 @@ export interface WsServerAdapterDeps {
    * 注入 = catalog.hasModel，ModelService.setModel 先例）。
    */
   readonly hasModel: (modelId: string) => boolean;
+  /**
+   * kg-writer 派生面恒在工具名（agent-roster 批）：注入 = 组合根
+   * SUBAGENT_KG_WRITER_EXTRA_TOOLS 增量常量单源（driving 不得 import
+   * driven，窄数据面传递）——list 缺省全量的 system 只读块派生用。
+   */
+  readonly kgWriterPinnedTools: readonly string[];
   /** 事件流（组合根构造并装配进 fan-out 的 EventPublisherPort 实现）。 */
   readonly events: EventStream;
   /** 本次启动生成的 dev token（与 <home>/dev-token 文件内容一致）。 */
@@ -804,6 +810,7 @@ export class WsServerAdapter {
       payload,
       resource: this.deps.resource,
       hasModel: this.deps.hasModel,
+      kgWriterPinnedTools: this.deps.kgWriterPinnedTools,
       events: this.deps.events,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),

@@ -222,6 +222,7 @@ function stubAdapterDeps(events: EventStream) {
       },
     },
     hasModel: () => false,
+      kgWriterPinnedTools: ["kg-update"],
     browser: new StubBrowserPort(),
     events,
     token: "kg-it-token",

@@ -20,11 +20,20 @@
  * （既有拆分后结构裁量：量小内聚族处理，不入 DtoMapper 的领域事件面）。
  * 仍在 driving adapter 内（TR-AD-1 分层不变，零新 port 之外的决策）：
  * 依赖面经 ResourceCommandContext 由 WsServerAdapter 供出。
+ *
+ * agent-roster 批 additive：读面缺省全量附带只读系统派生双块
+ * （system[]：orchestrator 声明全集 / subagent-kg-writer = worker 当前
+ * 生效集 + kg-update 恒在，随 worker toggle 动态跟随）；写面对只读
+ * kind 恒拒（agent.config.read_only，连接保持——前端只读只是表现，后端
+ * 拒绝才是事实）。恒在工具名经 ctx.kgWriterPinnedTools 注入
+ * （SUBAGENT_KG_WRITER_EXTRA_TOOLS 增量常量单源——driving 不得 import
+ * driven，组合根经窄函数面传递，hasModel 先例）。
  */
 import type {
   AgentConfigListResultEvent,
   AgentConfigProfileBlock,
   AgentConfigSetEnabledResultEvent,
+  AgentConfigSystemBlock,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { ResourceConfigBlock } from "../../../../application/ports/inbound/ResourceConfigPort";
@@ -42,6 +51,12 @@ interface SetEnabledInput {
 /** set_enabled payload 形状校验（失败 → command.invalid_payload，连接保持）。 */
 function normalizeSetEnabled(ctx: ResourceCommandContext, payload: Record<string, unknown>): SetEnabledInput | undefined {
   const { profileKind, resourceType, name, enabled } = payload;
+  if (profileKind === "orchestrator" || profileKind === "subagent-kg-writer") {
+    // agent-roster 批：只读系统派生 kind 写面拒绝（新错误码；连接保持）——
+    // 硬层拒绝不依赖前端只读表现；其余未知 kind 仍 invalid_payload。
+    ctx.commandError(ctx.type, "agent.config.read_only", `payload.profileKind ${profileKind} 为只读系统派生 kind（可见不可编辑，写面拒绝）`);
+    return undefined;
+  }
   if (profileKind !== "main-session" && profileKind !== "subagent-worker") {
     ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\"");
     return undefined;
@@ -73,23 +88,79 @@ function toProfileBlockDto(block: ResourceConfigBlock): AgentConfigProfileBlock 
   };
 }
 
+/**
+ * 只读系统派生双块派生（agent-roster 批；序固定 orchestrator 在前）：
+ * - orchestrator = 声明全集（resource.list 同源读面——写面拒绝放无差异
+ *   行，enabled 位恒 true，纯展示面不携带）；
+ * - kg-writer = worker 当前生效集（enabled 过滤）+ 恒在工具（ctx.kgWriter
+ *   PinnedTools 单源）；恒在行 snippet 从 main 目录面同名行取回（注册表
+ *   单源，越权复制零容忍；worker 目录无此名）。
+ */
+function toSystemBlocksDto(
+  main: ResourceConfigBlock,
+  worker: ResourceConfigBlock,
+  orch: ResourceConfigBlock,
+  pinnedTools: readonly string[],
+): readonly AgentConfigSystemBlock[] {
+  return [
+    {
+      profileKind: "orchestrator",
+      tools: orch.tools.map((t) => ({ name: t.name, snippet: t.snippet })),
+    },
+    {
+      profileKind: "subagent-kg-writer",
+      tools: [
+        ...worker.tools.filter((t) => t.enabled).map((t) => ({ name: t.name, snippet: t.snippet })),
+        ...pinnedTools.map((name) => ({
+          name,
+          snippet: main.tools.find((t) => t.name === name)?.snippet ?? "",
+        })),
+      ],
+      derivedFrom: "subagent-worker",
+      pinnedTools: [...pinnedTools],
+    },
+  ];
+}
+
 /** agent.config.list（全局读面）：agent.config.list.result 点对点回执。 */
 export function handleAgentConfigList(ctx: ResourceCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const kind = ctx.payload.profileKind;
   if (kind !== undefined && kind !== "main-session" && kind !== "subagent-worker") {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\"");
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\"（只读系统派生 kind 随缺省全量下发）");
   }
-  // 缺省 = 全部 kind（序固定：main-session 在前；type 层 profileKind 可选）
-  const kinds: readonly ProfileKind[] = kind !== undefined ? [kind] : ["main-session", "subagent-worker"];
+  // 单 kind：单块回执（过滤请求面向可编辑 kind——system 只读块不携带）
+  if (kind !== undefined) {
+    void ctx.resource.list(kind)
+      .then((block) => {
+        const frame: AgentConfigListResultEvent = {
+          v: PROTOCOL_VERSION,
+          sessionId: SYSTEM_SESSION_ID,
+          channel: "agent",
+          type: "agent.config.list.result",
+          payload: { profiles: [toProfileBlockDto(block)] },
+        };
+        ctx.sendNow(sender, frame);
+      })
+      .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `配置读面组装失败：${(err as Error).message}`));
+    return;
+  }
+  // 缺省 = 全部可编辑 kind（main-session 在前，序固定）+ 只读系统派生双块
+  // （agent-roster 批 additive：orchestrator 块复用同源读面；kg-writer 块
+  // 由 worker 生效集 + 恒在工具派生——与 buildSessionStack 装配快照同法）
+  const kinds: readonly ProfileKind[] = ["main-session", "subagent-worker", "orchestrator"];
   void Promise.all(kinds.map((k) => ctx.resource.list(k)))
     .then((blocks) => {
+      const [main, sub, orch] = [blocks[0]!, blocks[1]!, blocks[2]!];
       const frame: AgentConfigListResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID, // 全局命令：会话无关（model.catalog.result 同构）
         channel: "agent",
         type: "agent.config.list.result",
-        payload: { profiles: blocks.map(toProfileBlockDto) },
+        payload: {
+          profiles: [main, sub].map(toProfileBlockDto),
+          system: toSystemBlocksDto(main, sub, orch, ctx.kgWriterPinnedTools),
+        },
       };
       ctx.sendNow(sender, frame);
     })

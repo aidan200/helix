@@ -208,6 +208,7 @@ function stubAdapterDeps(events: EventStream) {
       clearThinkingSlot: async () => { throw new Error("stub"); },
     },
     hasModel: () => false,
+      kgWriterPinnedTools: ["kg-update"],
     browser: new StubBrowserPort(),
     events,
     token: "kgmaint-it-token",

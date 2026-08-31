@@ -214,6 +214,13 @@ export interface ResourceCommandContext {
   readonly resource: ResourceConfigPort;
   /** 合并目录校验面（model 型 set 前置校验；目录外 → skipped/unknown-model）。 */
   readonly hasModel: (modelId: string) => boolean;
+  /**
+   * kg-writer 派生面恒在工具名（agent-roster 批）：组合根注入
+   * SUBAGENT_KG_WRITER_EXTRA_TOOLS 增量常量单源——driving 不得 import
+   * driven，经窄数据面传递（hasModel 同法）。list 缺省全量时读面派生
+   * system 只读块用。
+   */
+  readonly kgWriterPinnedTools: readonly string[];
   /** 事件流（applied → agent.config.changed 广播）。 */
   readonly events: EventStream;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */

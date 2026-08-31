@@ -185,6 +185,21 @@ const MAIN_TOOLS = [
   "task_create", // T2.4：chat 第二创建入口（AD-7，仅 main）
 ];
 const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "plan_create", "plan_update", "plan_read"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）；T3.3：+kg；T1.4：+plan 三工具（AD-6①，subagent 独有）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）
+/** agent-roster 批：只读系统派生块双序（orchestrator 在前）。OrchestratorProfile.tools 声明全集同源。 */
+const ORCH_TOOLS = [
+  "bash",
+  "read",
+  "grep",
+  "agent_spawn",
+  "plan_read",
+  "kg",
+  "task_insert_batch",
+  "task_dispatch_batch",
+  "task_advance_stage",
+  "task_stage_artifact",
+  "task_complete_job",
+  "task_fail_job",
+];
 /** builtin 目录内模型（model-provider.DEFAULT_MODEL_ID 同源；hasModel 读面零网络）。 */
 const ANY_MODEL = "anthropic/claude-sonnet-4-5";
 
@@ -256,6 +271,80 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       expect(profiles).toHaveLength(1);
       expect(profiles[0]!.profileKind).toBe("subagent-worker");
       expect(profiles[0]!.tools.map((t) => t.name)).toEqual(SUB_TOOLS);
+      // 单 kind 过滤请求不携带 system（agent-roster 批：可选块零变化面）
+      expect(result.payload.system).toBeUndefined();
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+
+  // ── agent-roster 批：只读系统派生块读面 ──
+  interface SystemBlock {
+    profileKind: string;
+    tools: { name: string; snippet: string }[];
+    derivedFrom?: string;
+    pinnedTools?: string[];
+  }
+
+  test("②a 全量 list 携带 system 双块：orchestrator 声明全集 / kg-writer = worker 生效集 + kg-update（派生说明位）", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      await helloHandshake(client, rig.token);
+
+      client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: {} });
+      const result = await client.expect("agent.config.list.result");
+      const system = result.payload.system as SystemBlock[];
+      expect(system).toHaveLength(2);
+      // 序固定：orchestrator 在前；无派生说明位
+      const [orch, kgw] = system;
+      expect(orch!.profileKind).toBe("orchestrator");
+      expect(orch!.tools.map((t) => t.name)).toEqual(ORCH_TOOLS);
+      expect(orch!.derivedFrom).toBeUndefined();
+      expect(orch!.pinnedTools).toBeUndefined();
+      // 纯展示行形状：name + snippet（无启停位）；snippet 注册表同源
+      expect(orch!.tools.every((t) => typeof t.snippet === "string")).toBe(true);
+      const orchBash = orch!.tools.find((t) => t.name === "bash")!;
+      expect(orchBash.snippet).toBe("在沙箱工作目录执行 shell 命令并返回输出");
+      // kg-writer：worker 生效集（缺省全启用）+ kg-update 恒在 + 派生说明位
+      expect(kgw!.profileKind).toBe("subagent-kg-writer");
+      expect(kgw!.derivedFrom).toBe("subagent-worker");
+      expect(kgw!.pinnedTools).toEqual(["kg-update"]);
+      expect(kgw!.tools.map((t) => t.name)).toEqual([...SUB_TOOLS, "kg-update"]);
+      // kg-update snippet 注册表同源（main 目录面同名行单源取回）
+      const kgUpdate = kgw!.tools.find((t) => t.name === "kg-update")!;
+      expect(kgUpdate.snippet).toContain("知识图谱即时落账");
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+
+  test("②b kg-writer 工具清单动态跟随 worker toggle：禁用 worker 工具 → 重 list → 生效集收窄", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      await helloHandshake(client, rig.token);
+
+      // 禁用 worker 的 grep（agent.config.changed 全局广播不阻塞回执序）
+      client.send({
+        v: PROTOCOL_VERSION,
+        type: "agent.config.set_enabled",
+        payload: { profileKind: "subagent-worker", resourceType: "tool", name: "grep", enabled: false },
+      });
+      await client.expect("agent.config.set_enabled.result");
+      client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: {} });
+      const result = await client.expect("agent.config.list.result");
+      const system = result.payload.system as SystemBlock[];
+      const kgw = system.find((b) => b.profileKind === "subagent-kg-writer")!;
+      // 生效集收窄：grep 退出，kg-update 仍恒在
+      expect(kgw.tools.map((t) => t.name)).toEqual([...SUB_TOOLS.filter((n) => n !== "grep"), "kg-update"]);
+      // kind 隔离：orchestrator 声明全集不受 worker toggle 影响（grep 仍在）
+      const orch = system.find((b) => b.profileKind === "orchestrator")!;
+      expect(orch.tools.map((t) => t.name)).toContain("grep");
     } finally {
       await client.close();
       await rig.dispose();
@@ -529,6 +618,38 @@ describe("agent.config 前置校验（payload 形状）", () => {
 
       client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: { profileKind: "bogus" } });
       await client.waitForInvalidPayload("agent.config.list");
+
+      // agent-roster 批：只读 kind 写面拒绝（新错误码；连接保持——后续命令仍可通）
+      client.send({
+        v: PROTOCOL_VERSION,
+        type: "agent.config.set_enabled",
+        payload: { profileKind: "orchestrator", resourceType: "tool", name: "grep", enabled: false },
+      });
+      {
+        const at = client.frames.length;
+        await until(
+          () => client.frames.slice(at).some((f) => f.type === "connection.error" && f.payload.code === "agent.config.read_only"),
+          3000,
+          "等待 read_only 拒绝",
+        );
+      }
+      client.send({
+        v: PROTOCOL_VERSION,
+        type: "agent.config.set_enabled",
+        payload: { profileKind: "subagent-kg-writer", resourceType: "model", name: "-", enabled: false },
+      });
+      {
+        const at = client.frames.length;
+        await until(
+          () => client.frames.slice(at).some((f) => f.type === "connection.error" && f.payload.code === "agent.config.read_only"),
+          3000,
+          "等待 read_only 拒绝（kg-writer）",
+        );
+      }
+      // 连接保持 + 零落库（只读 kind 无用户可写面）
+      client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: { profileKind: "main-session" } });
+      await client.expect("agent.config.list.result");
+      expect(rig.daemon.resource.getEffectiveTools("subagent-worker").includes("grep")).toBe(true);
     } finally {
       await client.close();
       await rig.dispose();
