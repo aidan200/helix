@@ -18,7 +18,8 @@ import { KgSyncService } from "../../application/services/kg/KgSyncService";
 import { KgFsWatchService, isIgnoredWatchSegment } from "../../application/services/kg/KgFsWatchService";
 import { FsWatchAdapter } from "../../adapters/driven/fs-watch/FsWatchAdapter";
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
-import { existingKgProjects, projectRootOfPath, scanProjectEntries, scanWorkspaceProjects } from "../../adapters/driven/workspace-scan";
+import { existingKgProjects, kgReadProjects, projectRootOfPath, scanProjectEntries, scanWorkspaceProjects } from "../../adapters/driven/workspace-scan";
+import { resolveMainRepoPath } from "../../domain/kg/project-discovery";
 
 // §3.5 扫描/归属/existingKgProjects 已抽取 adapters/driven/workspace-scan.ts
 // （T3.3：组合根与 SubAgent 子进程本地 kg 栈共用同一口径）——此处重导出
@@ -116,7 +117,9 @@ export function buildKnowledgeStack(deps: {
   const attachmentService = new KgAttachmentService({ graph });
   const queryService = new KgQueryService({
     graph,
-    projects: () => existingKgProjects(deps.workspaceRoot),
+    // W-R3 读穿透（D8）：workspaceRoot 位于 .worktrees 下 → 只读直读主仓
+    // kg.db（kgReadProjects 归一；主仓无库空集，读面绝不新建库文件）。
+    projects: () => kgReadProjects(deps.workspaceRoot),
     attachment: attachmentService,
   });
   const verifyService = new KgVerifyService({ graph });
@@ -177,7 +180,10 @@ export function buildEditToolDeps(args: {
 }): EditToolDeps {
   const { attachment, sessionId } = args;
   return {
-    projectRoot: (absolutePath) => projectRootOfPath(args.workspaceRoot, absolutePath),
+    // W-R3 附着穿透（D8）：worktree 内编辑的落盘路径先归一主仓等价路径
+    // （resolveMainRepoPath 单点）——归属解析与锚表相对路径同源主仓；
+    // 非 worktree 路径归一零影响（projectRootOfPath 既有口径不变）。
+    projectRoot: (absolutePath) => projectRootOfPath(args.workspaceRoot, resolveMainRepoPath(absolutePath)),
     onEditApplied: async (event) => {
       if (event.projectRoot === undefined) return "";
       let block = "";
@@ -185,7 +191,7 @@ export function buildEditToolDeps(args: {
         const part = await attachment.attachAfterEdit({
           projectRoot: event.projectRoot,
           sessionId,
-          filePath: event.filePath,
+          filePath: resolveMainRepoPath(event.filePath), // worktree 路径 → 主仓等价（锚表项目相对语义）
           oldText: edit.oldText,
           newText: edit.newText,
           editLineStart: edit.editLineStart,
