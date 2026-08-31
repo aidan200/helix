@@ -156,7 +156,8 @@ function validateCreateNode(op: Record<string, unknown>): KgWriteError | null {
 
 /**
  * batchCreateNodes 校验（T2.1，O-5）：节点数组非空 + 逐项与单条 createNode
- * 同构校验（draft/id 同规则）——错误路径携带非法项序号（op.nodes[i]…）。 */
+ * 同构校验（draft/id 同规则；P1 ② 起逐项可携带 anchors，锚声明错误整批
+ * 拒绝零落库）——错误路径携带非法项序号（op.nodes[i]…）。 */
 function validateBatchCreateNodes(op: Record<string, unknown>): KgWriteError | null {
   if (!Array.isArray(op.nodes) || op.nodes.length === 0) {
     return schemaError("nodes 必填且为非空数组（批量建点，O-5）", "op.nodes");
@@ -168,6 +169,10 @@ function validateBatchCreateNodes(op: Record<string, unknown>): KgWriteError | n
     }
     const payloadError = validateCreateNodePayload(payload as Record<string, unknown>, `op.nodes[${i}]`);
     if (payloadError !== null) return payloadError;
+    if ((payload as Record<string, unknown>).anchors !== undefined) {
+      const anchorError = validateAnchorDeclarations((payload as Record<string, unknown>).anchors, `op.nodes[${i}].anchors`);
+      if (anchorError !== null) return anchorError;
+    }
   }
   return null;
 }
@@ -235,46 +240,53 @@ function validateSupersede(op: Record<string, unknown>): KgWriteError | null {
   return null;
 }
 
-function validateDeclareAnchors(op: Record<string, unknown>): KgWriteError | null {
-  const nodeError = requireNodeId(op.nodeId);
-  if (nodeError !== null) return nodeError;
-  if (!Array.isArray(op.anchors)) {
-    return schemaError("anchors 必填且为数组（空数组 = 显式清空声明）", "op.anchors");
+/**
+ * 锚声明数组校验（单条 declareAnchors 与批量逐项共用，P1 ② 抽取）：
+ * basePath 定位到 op.anchors（单条）或 op.nodes[i].anchors（批量逐项）。 */
+function validateAnchorDeclarations(anchors: unknown, basePath: string): KgWriteError | null {
+  if (!Array.isArray(anchors)) {
+    return schemaError("anchors 必填且为数组（空数组 = 显式清空声明）", basePath);
   }
   const seen = new Set<string>();
-  for (let i = 0; i < op.anchors.length; i += 1) {
-    const anchor = op.anchors[i];
+  for (let i = 0; i < anchors.length; i += 1) {
+    const anchor = anchors[i];
     if (anchor === null || typeof anchor !== "object" || Array.isArray(anchor)) {
-      return schemaError("锚声明必须为对象", `op.anchors[${i}]`);
+      return schemaError("锚声明必须为对象", `${basePath}[${i}]`);
     }
     const record = anchor as Record<string, unknown>;
     if (typeof record.scopeKind !== "string" || !SCOPE_KINDS.has(record.scopeKind as AnchorScopeKind)) {
       return schemaError(
         "scopeKind 仅接受 global / path / symbol（AD-13 三级作用域）",
-        `op.anchors[${i}].scopeKind`,
+        `${basePath}[${i}].scopeKind`,
       );
     }
     const pattern = record.pattern ?? "";
     if (typeof pattern !== "string") {
-      return schemaError("pattern 必须为字符串", `op.anchors[${i}].pattern`);
+      return schemaError("pattern 必须为字符串", `${basePath}[${i}].pattern`);
     }
     if (record.scopeKind === "global") {
       if (pattern !== "") {
-        return schemaError("global 声明不携带 pattern（常驻层系统提示到达，永不物化）", `op.anchors[${i}].pattern`);
+        return schemaError("global 声明不携带 pattern（常驻层系统提示到达，永不物化）", `${basePath}[${i}].pattern`);
       }
     } else if (pattern.trim() === "") {
       return schemaError(
         `scopeKind=${record.scopeKind} 的 pattern 必填（path→glob；symbol→path#symbol）`,
-        `op.anchors[${i}].pattern`,
+        `${basePath}[${i}].pattern`,
       );
     }
     const dedupeKey = `${record.scopeKind}\u0000${pattern}`;
     if (seen.has(dedupeKey)) {
-      return schemaError("重复锚声明（同一作用域+pattern 只声明一次）", `op.anchors[${i}]`);
+      return schemaError("重复锚声明（同一作用域+pattern 只声明一次）", `${basePath}[${i}]`);
     }
     seen.add(dedupeKey);
   }
   return null;
+}
+
+function validateDeclareAnchors(op: Record<string, unknown>): KgWriteError | null {
+  const nodeError = requireNodeId(op.nodeId);
+  if (nodeError !== null) return nodeError;
+  return validateAnchorDeclarations(op.anchors, "op.anchors");
 }
 
 function validateAddEdge(op: Record<string, unknown>): KgWriteError | null {

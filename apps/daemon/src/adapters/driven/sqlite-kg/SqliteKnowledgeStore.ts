@@ -98,7 +98,8 @@ export class SqliteKnowledgeStore {
    * batchCreateNodes 落库（T2.1，O-5）：逐项复用单条 createNode 全部语义
    * （发号/保号/元数据/change_log）；任一项结构化失败 → 携带项序号返回，
    * 整批回滚由 writeKnowledge 统一执行（零部分落库）。元数据（taskId/
-   * originBatchId）为 op 级——逐节点同源登记。 */
+   * originBatchId）为 op 级——逐节点同源登记。P1 ②：逐项可携带 anchors
+   * （同事务原子——复用单条锚声明管道，锚错误整批拒绝零落库）。 */
   private applyBatchCreateNodes(
     db: Database,
     op: KnowledgeWriteOp & { kind: "batchCreateNodes" },
@@ -123,6 +124,20 @@ export class SqliteKnowledgeStore {
             path: rebaseBatchPath(result.error.path, i),
           },
         };
+      }
+      if (payload.anchors !== undefined) {
+        const anchorError = this.applyAnchorRows(db, result.nodeId, payload.anchors);
+        if (anchorError !== null) {
+          return {
+            ok: false,
+            error: {
+              code: anchorError.code,
+              message: `批量第 ${i} 项（0-based）锚声明失败，整批已回滚：${anchorError.message}`,
+              path: rebaseBatchPath(anchorError.path, i),
+            },
+          };
+        }
+        this.appendChangeLog(db, op.iterationId, "declareAnchors", result.nodeId, null, null, op.taskId);
       }
       lastId = result.nodeId;
     }
@@ -238,18 +253,36 @@ export class SqliteKnowledgeStore {
     if (!this.nodeExists(db, op.nodeId)) {
       return err("KG_E_ID", `节点 ${op.nodeId} 不存在`, "op.nodeId");
     }
-    // 声明语义 = 全集替换（declarative：本次声明即当前作用域全集）
-    db.prepare("DELETE FROM anchor_decl WHERE node_id = ?").run(op.nodeId);
-    for (const anchor of op.anchors) {
-      // pattern 缺省归一 ""（global 声明可省略；上层已校验 path/symbol 必携带）
-      db.prepare("INSERT INTO anchor_decl (node_id, scope_kind, pattern) VALUES (?, ?, ?)").run(
-        op.nodeId,
-        anchor.scopeKind,
-        anchor.pattern ?? "",
-      );
-    }
+    const anchorError = this.applyAnchorRows(db, op.nodeId, op.anchors);
+    if (anchorError !== null) return { ok: false, error: anchorError };
     this.appendChangeLog(db, op.iterationId, "declareAnchors", op.nodeId, null, null, op.taskId);
     return { ok: true, nodeId: op.nodeId };
+  }
+
+  /**
+   * 锚声明行落库（单条 declareAnchors 与批量逐项共用管道，P1 ② 抽取）：
+   * 声明语义 = 全集替换（declarative：本次声明即当前作用域全集）。形态
+   * 已在上层校验——此处仅防御 DB 层失败（返回结构化错误，事务回滚归调用方）。
+   */
+  private applyAnchorRows(
+    db: Database,
+    nodeId: string,
+    anchors: readonly { readonly scopeKind: string; readonly pattern?: string }[],
+  ): KgWriteError | null {
+    try {
+      db.prepare("DELETE FROM anchor_decl WHERE node_id = ?").run(nodeId);
+      const insert = db.prepare("INSERT INTO anchor_decl (node_id, scope_kind, pattern) VALUES (?, ?, ?)");
+      for (const anchor of anchors) {
+        // pattern 缺省归一 ""（global 声明可省略；上层已校验 path/symbol 必携带）
+        insert.run(nodeId, anchor.scopeKind, anchor.pattern ?? "");
+      }
+      return null;
+    } catch (error) {
+      return {
+        code: "KG_E_INTERNAL",
+        message: `锚声明落库失败：${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
   }
 
   private applyAddEdge(db: Database, op: KnowledgeWriteOp & { kind: "addEdge" }): WriteResult {

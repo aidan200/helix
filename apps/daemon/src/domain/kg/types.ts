@@ -232,11 +232,16 @@ export interface NodePatch {
 /**
  * createNode 载荷（kind/iterationId 外的全部字段）：单条 op 的 draft/id 与
  * batchCreateNodes 逐项同形（O-5：批量与单条混用结果等价，CL-2-T14）。
+ * anchors（P1 ②）：批量逐项可选携带锚声明（形态同单条 createNode 的组合
+ * 第二拍，但同事务原子——锚非法整批拒绝零落库）；单条 op 不携带（单条
+ * 走 declareAnchors 组合第二拍先例）。
  */
 export interface CreateNodePayload {
   readonly draft: NodeDraft;
   /** 显式保号 id（仅迁移/保号场景；同单条 createNode 语义）。 */
   readonly id?: NodeId;
+  /** 锚声明（可选；批量建点直接带锚，免「先建无锚→supersede→重建」噪音）。 */
+  readonly anchors?: readonly AnchorDeclaration[];
 }
 
 /**

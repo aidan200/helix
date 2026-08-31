@@ -21,7 +21,7 @@ task:
 
 **worktree 豁免（W-R5）：本任务类型不开 worktree，主工作树执行**——kg 库是 SQLite 单写面，隔离副本各自写库合并必分叉；批次 SubAgent 不适用通用开发任务的 worktree 隔离纪律。
 
-产出落库经 KgWriteService 唯一写入口（createNode 或 batchCreateNodes），每个节点必须带三项元数据：`layer`（L0/L1/L2）、`origin_batchId`（产出批次判据）、`status=confirmed`（bootstrap 无 draft——以代码事实落盘即正式知识）。其中 `taskId`（本任务 jobId，落 change_log.task_id）与 `origin_batchId` 由接线层机械注入（批次子进程上下文默认值，LLM 无需透传；显式传参仅用于覆盖）——任务→kg 审计链不再依赖 LLM 自觉。`layer`、`status=confirmed` 与 `scene`（适用场景，R23 必填）仍为 LLM 必带的内容属性——`scene` 缺了写不进去（createNode/batchCreateNodes 机械拒绝，整批被拒）。这些元数据是任务域到 kg 域的唯一衔接面，缺一项产出就断了来源可溯性。
+产出落库经 KgWriteService 唯一写入口（createNode 或 batchCreateNodes），每个节点必须带三项元数据：`layer`（L0/L1/L2）、`origin_batchId`（产出批次判据）、`status=confirmed`（bootstrap 无 draft——以代码事实落盘即正式知识）。锚声明在建点时直接携带：单条 createNode 的 `anchors` 参数与批量 batchCreateNodes 逐项的 `anchors` 字段同形态（`{scopeKind: global|path|symbol, pattern}`；global 不携带 pattern）——批量建点直接带锚，不需要也不应该「先建无锚→supersede→重建」（锚非法会整批拒绝零落库，逐项检查后再提交）。其中 `taskId`（本任务 jobId，落 change_log.task_id）与 `origin_batchId` 由接线层机械注入（批次子进程上下文默认值，LLM 无需透传；显式传参仅用于覆盖）——任务→kg 审计链不再依赖 LLM 自觉。`layer`、`status=confirmed` 与 `scene`（适用场景，R23 必填）仍为 LLM 必带的内容属性——`scene` 缺了写不进去（createNode/batchCreateNodes 机械拒绝，整批被拒）。这些元数据是任务域到 kg 域的唯一衔接面，缺一项产出就断了来源可溯性。
 
 ## 分层拓扑（L0 → L1 → L2）
 
@@ -71,7 +71,7 @@ task:
 
 1. **范围段**：本批的探索对象（项目内路径/领域/模块清单）+ scope 参数收窄（如有）+ 目标层（L0/L1/L2）。
 2. **锚定上层上下文段**：上层已产节点的 digest 清单 + kg get 指针（L1 批次注入 L0 产出；L2 批次注入 L0+L1 产出）——本批判断「归哪个域/谁的职责」时先查这些。
-3. **产出要求段**：本批应产出什么（节点类型与规模预期）+ 元数据要求（layer=本层、status=confirmed、scene=适用场景一句话必带——R23 必填，缺了写不进去；taskId/origin_batchId 接线层机械注入无需透传）+ 符号域锚要求（实体/契约必带，degraded 时如实降级）。
+3. **产出要求段**：本批应产出什么（节点类型与规模预期）+ 元数据要求（layer=本层、status=confirmed、scene=适用场景一句话必带——R23 必填，缺了写不进去；taskId/origin_batchId 接线层机械注入无需透传）+ 符号域锚要求（实体/契约必带，degraded 时如实降级；批量建点逐项直接带 anchors——形态同 createNode，锚非法整批拒绝零落库）。
 4. **验收段**：写作规范六条逐条列出（批次 SubAgent 的产出验收条件，见④）+ 关联测试/边密度要求（L2 批次）。
 5. **plan 硬约束段**（本任务 plan=enforced，模板层强制 LLM 不可裁）：开工先 plan_create 写计划再动手；阶段转换必更新 plan 项状态；closure 时 plan 须全部 resolve（done 或 abandoned 带理由）。台账项状态迁移按 pending→in_progress→done/abandoned，不可跳迁（引擎状态机拒绝 pending→done 直迁——首跑实测有批次 agent 被此拒后返工）。
 6. **前序上下文段**（重跑/接力批次必含）：前序实例 plan 摘要（已完成项 + note 关键事实 + 产物指针）——从断点继续，不重做已完成探索；重跑批次先按 origin_batchId supersede 旧产出再产新。
@@ -86,7 +86,7 @@ task:
 
 **规范 3｜每条知识带「为什么存在」**：来源（符号/文件锚）+ 存在理由（它解决什么问题/约束什么）。这是 v1 图谱最缺的 why——只有 what 的知识无法支撑「改动前该看什么」的判断。「为什么存在」是必备段：closure 前逐节点核对，缺段的节点不得产出（首跑抽检 2/16 缺段，均因此条失守）。
 
-**规范 4｜实体/契约必须符号域锚，规则按三级作用域**：实体与接口契约锚到 `path#symbol`（符号级精度）；规则节点按作用域声明锚——全局域不物化锚、路径域物化文件锚、符号域物化符号锚，按规则实际约束范围选级。
+**规范 4｜实体/契约必须符号域锚，规则按三级作用域**：实体与接口契约锚到 `path#symbol`（符号级精度）；规则节点按作用域声明锚——全局域不物化锚、路径域物化文件锚、符号域物化符号锚，按规则实际约束范围选级。锚在建点时同步声明：单条 createNode 携 `anchors` 参数、批量 batchCreateNodes 逐项携 `anchors` 字段（同形态）——建点与锚声明同事务原子，锚非法整批拒绝零落库；禁止产出无锚节点后再补锚（无补锚通道，被迫 supersede 重建是本规范最常见的返工原因）。
 
 **规范 5｜closure 自检「人类可读」**：收口前自问——一个人类开发者只看正文、不看代码，能否理解这条知识？不能则不产出（回到探索补正文）。
 

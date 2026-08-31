@@ -84,7 +84,7 @@ const kgUpdateParameters = {
     // ── batchCreateNodes ──
     nodes: {
       type: "array",
-      description: "batchCreateNodes 批量节点载荷：[{kind, name, digest, scene, body?, domain?, layer?}]（scene 必填同单条；逐项自动发号；任一项失败整批拒绝零落库）",
+      description: "batchCreateNodes 批量节点载荷：[{kind, name, digest, scene, body?, domain?, layer?, anchors?}]（scene 必填同单条；逐项自动发号；任一项失败（含锚声明错误）整批拒绝零落库）",
       items: {
         type: "object",
         properties: {
@@ -95,6 +95,19 @@ const kgUpdateParameters = {
           body: { type: "string", description: "正文（可选）" },
           domain: { type: "string", enum: ["tech", "business"], description: "作用域（可选）" },
           layer: { type: "string", enum: ["L0", "L1", "L2"], description: "分层（可选，AD-11）" },
+          anchors: {
+            type: "array",
+            description: "锚声明（可选，形态同单条 createNode 的 anchors）：[{scopeKind: global|path|symbol, pattern}]（global 不携带 pattern）——批量建点直接带锚，锚非法整批拒绝",
+            items: {
+              type: "object",
+              properties: {
+                scopeKind: { type: "string", enum: ["global", "path", "symbol"] },
+                pattern: { type: "string", description: "path→glob；symbol→path#symbol；global 省略" },
+              },
+              required: ["scopeKind"],
+              additionalProperties: false,
+            },
+          },
         },
         required: ["kind", "name", "digest", "scene"],
         additionalProperties: false,
@@ -436,7 +449,8 @@ function createOp<T extends KnowledgeWriteOp>(deps: KgUpdateToolDeps, args: Reco
  * batchCreateNodes 执行（O-5）：逐项薄壳组载荷（自动发号——工具面不暴露
  * 显式 id，保号迁移不入 LLM 面），单笔 op 经唯一写入口；项目解析同单条
  * createNode（多项目必填 project）；op 级 status/taskId/originBatchId 逐节点
- * 同源（任务批次产出的批量落账形态，T4.1）。
+ * 同源（任务批次产出的批量落账形态，T4.1）。P1 ②：逐项可携带 anchors
+ * （形态同单条；非法锚薄壳直拒——任何写入前拒绝，整批零落库）。
  */
 function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
   const value = args["nodes"];
@@ -447,18 +461,23 @@ function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unkno
   // op 级 layer 逐节点同源（T4.1 修正：与 status/taskId/originBatchId 同型——
   // 任务批次产出的批量落账形态，layer 在 op 级携带；单条 createNode 先例 :199）
   const opLayer = optionalEnum<NodeLayer>(args, "layer");
+  let anchorTotal = 0;
   const nodes = value.map((item, i) => {
     const draft = draftOf(item, `nodes[${i}]`, { requireScene: true });
     if (draft === null) {
       throw new Error(`nodes[${i}] 必须为节点草稿对象（kind/name/digest）`);
     }
+    const anchors = anchorsOf((item as Record<string, unknown>)["anchors"], `nodes[${i}].anchors`);
+    if (anchors !== null) anchorTotal += anchors.length;
     const stamped = opStatus !== undefined ? { ...draft, status: opStatus } : draft;
-    return { draft: opLayer !== undefined ? { ...stamped, layer: opLayer } : stamped };
+    const draftStamped = opLayer !== undefined ? { ...stamped, layer: opLayer } : stamped;
+    return { draft: draftStamped, ...(anchors !== null ? { anchors } : {}) };
   });
   const project = resolveTargetProject(deps, args);
   const iterationId = resolveIterationId(deps, args, project);
   const result = writeOrThrow(deps, project, createOp(deps, args, { kind: "batchCreateNodes", iterationId, nodes }));
-  return `已批量建节点 ${nodes.length} 个（project: ${projectName(project)}，自动发号；末节点 ${result.nodeId}）`;
+  const anchorNote = anchorTotal > 0 ? `；锚声明 ${anchorTotal} 条` : "";
+  return `已批量建节点 ${nodes.length} 个（project: ${projectName(project)}，自动发号；末节点 ${result.nodeId}${anchorNote}）`;
 }
 
 /**
@@ -539,17 +558,17 @@ function draftOf(value: unknown, label = "replacement", options: { requireScene?
   };
 }
 
-function anchorsOf(value: unknown): AnchorDeclaration[] | null {
+function anchorsOf(value: unknown, label = "anchors"): AnchorDeclaration[] | null {
   if (value === undefined || value === null) return null;
-  if (!Array.isArray(value)) throw new Error("anchors 必须为数组 [{scopeKind, pattern}]");
+  if (!Array.isArray(value)) throw new Error(`${label} 必须为数组 [{scopeKind, pattern}]`);
   return value.map((item, i) => {
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
-      throw new Error(`anchors[${i}] 必须为对象`);
+      throw new Error(`${label}[${i}] 必须为对象`);
     }
     const record = item as Record<string, unknown>;
     const scopeKind = record["scopeKind"];
     if (scopeKind !== "global" && scopeKind !== "path" && scopeKind !== "symbol") {
-      throw new Error(`anchors[${i}].scopeKind 仅接受 global / path / symbol`);
+      throw new Error(`${label}[${i}].scopeKind 仅接受 global / path / symbol`);
     }
     const pattern = typeof record["pattern"] === "string" ? record["pattern"] : "";
     return { scopeKind, pattern } satisfies AnchorDeclaration;

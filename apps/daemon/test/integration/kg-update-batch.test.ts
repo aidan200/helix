@@ -80,6 +80,95 @@ async function run(f: Fixture, args: unknown): Promise<RunResult> {
   }
 }
 
+describe("kg-update batchCreateNodes 批量带锚（P1 ②：items 补 anchors，形态同单条）", () => {
+  test("① 批量带锚 → 节点 + anchor_decl + declareAnchors 审计行齐建（单事务原子）", async () => {
+    const f = makeFixture();
+    const r = await run(f, {
+      op: "batchCreateNodes",
+      nodes: [
+        { kind: "rule", name: "带锚规则", digest: "摘要一", scene: "测试场景", anchors: [{ scopeKind: "global" }, { scopeKind: "path", pattern: "src/**" }] },
+        { kind: "entity", name: "带锚实体", digest: "摘要二", scene: "测试场景", anchors: [{ scopeKind: "symbol", pattern: "src/x.ts#fn" }] },
+      ],
+      iterationId: "iter-batch-anchor",
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.text).toContain("锚声明 3 条");
+    const db = f.database.knowledgeConnection(f.proj);
+    // 节点 2 + 锚声明 3 行（逐项全集替换语义）
+    expect((db.prepare("SELECT COUNT(*) AS n FROM nodes").get() as { n: number }).n).toBe(2);
+    const decls = db.prepare("SELECT node_id, scope_kind, pattern FROM anchor_decl ORDER BY node_id, scope_kind").all() as Record<string, string>[];
+    expect(decls).toEqual([
+      { node_id: "E-1", scope_kind: "symbol", pattern: "src/x.ts#fn" },
+      { node_id: "TR-1", scope_kind: "global", pattern: "" },
+      { node_id: "TR-1", scope_kind: "path", pattern: "src/**" },
+    ]);
+    // 审计链：createNode ×2 + declareAnchors ×2（与单条两拍同形）
+    const ops = (db.prepare("SELECT op FROM change_log ORDER BY rowid").all() as { op: string }[]).map((x) => x.op);
+    expect(ops).toEqual(["createNode", "declareAnchors", "createNode", "declareAnchors"]);
+  });
+
+  test("② 部分项带锚：无锚项照常（锚可选，不携带零 declareAnchors 行）", async () => {
+    const f = makeFixture();
+    const r = await run(f, {
+      op: "batchCreateNodes",
+      nodes: [
+        { kind: "rule", name: "带锚", digest: "摘要一", scene: "测试场景", anchors: [{ scopeKind: "global" }] },
+        { kind: "rule", name: "无锚", digest: "摘要二", scene: "测试场景" },
+      ],
+      iterationId: "iter-batch-anchor",
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const db = f.database.knowledgeConnection(f.proj);
+    const ops = (db.prepare("SELECT op FROM change_log ORDER BY rowid").all() as { op: string }[]).map((x) => x.op);
+    expect(ops).toEqual(["createNode", "declareAnchors", "createNode"]);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM anchor_decl").get() as { n: number }).n).toBe(1);
+  });
+
+  test("③ 锚参数非法（nodes[0].anchors scopeKind 越界）→ 整批拒绝零落库", async () => {
+    const f = makeFixture();
+    const r = await run(f, {
+      op: "batchCreateNodes",
+      nodes: [
+        { kind: "rule", name: "坏锚", digest: "摘要一", scene: "测试场景", anchors: [{ scopeKind: "weird" }] },
+        { kind: "rule", name: "好项", digest: "摘要二", scene: "测试场景" },
+      ],
+      iterationId: "iter-batch-anchor",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContain("nodes[0]");
+      expect(r.error).toContain("scopeKind");
+    }
+    const db = f.database.knowledgeConnection(f.proj);
+    for (const table of ["nodes", "anchor_decl", "change_log"]) {
+      expect((db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n).toBe(0);
+    }
+  });
+
+  test("④ 锚形态非法（path 锚空 pattern）→ 服务层 KG_E_SCHEMA 序号路径（防线二道）", async () => {
+    const f = makeFixture();
+    const r = f.write.write(f.proj, {
+      kind: "batchCreateNodes",
+      iterationId: "iter-svc",
+      nodes: [
+        {
+          draft: { kind: "rule", name: "服务层校验", digest: "d", scene: "测试场景" },
+          anchors: [{ scopeKind: "path", pattern: "" }],
+        },
+      ],
+    } as never) as { ok: boolean; error?: { code: string; path?: string } };
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error!.code).toBe("KG_E_SCHEMA");
+      expect(r.error!.path).toBe("op.nodes[0].anchors[0].pattern");
+    }
+    const db = f.database.knowledgeConnection(f.proj);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM nodes").get() as { n: number }).n).toBe(0);
+  });
+});
+
 describe("kg-update batchCreateNodes 薄壳（O-5：单条/批量两 op 并存）", () => {
   test("① 3 节点批量 → 单 op 经 KgWriteService 落库 + 全部自动发号", async () => {
     const f = makeFixture();
