@@ -6,25 +6,42 @@
  * - 读面四态互斥：idle（未拉）→ loading → ready / error；有数据时的静默
  *   重拉不降级回 loading（防闪烁，保 ready）；
  * - profiles：双 kind 块按 profileKind 归位（单 kind 响应只覆写该块）；
+ * - system（agent-roster 批）：只读系统派生块按 kind 归位（orchestrator /
+ *   subagent-kg-writer；未携带不覆盖——旧 daemon 容忍）；
+ * - selected（agent-roster 批）：master-detail 选中维（null = 空态；重拉
+ *   不清——选中是视图态非数据态，P-1/tasks 先例）；
  * - pending：写面在途行（key = kind:resourceType:name；model/thinking 槽位
  *   统一空名键——set/clear 同键单飞）。结果帧无请求回显（契约 §16.4），
  *   单飞纪律在页面侧（pending 非空不再发新写命令）；新鲜 list.result 到达
  *   全清（changed 广播 → 重拉收口），skipped 回执定向清。
  * 纯函数纪律（AG-14）：无 React / 无 IO / 无 Date.now。
  */
-import type { AgentConfigProfileBlock } from "@helix/protocol";
+import type { AgentConfigProfileBlock, AgentConfigSystemBlock } from "@helix/protocol";
 
 /** profile kind 维（与协议 profileKind 字面量同源）。 */
 export type AgentKind = "main-session" | "subagent-worker";
 
+/** 只读系统派生 kind（agent-roster 批；可见不可编辑）。 */
+export type SystemAgentKind = "orchestrator" | "subagent-kg-writer";
+
+/** 列表/详情统一 id（master-detail 选中维）。 */
+export type AgentId = AgentKind | SystemAgentKind;
+
 /** 双 kind 固定卡序（协议 list.result 缺省块序同构）。 */
 export const AGENT_KINDS: readonly AgentKind[] = ["main-session", "subagent-worker"];
+
+/** 只读系统派生块固定序（协议 system 块序同构：orchestrator 在前）。 */
+export const SYSTEM_AGENT_KINDS: readonly SystemAgentKind[] = ["orchestrator", "subagent-kg-writer"];
 
 export interface AgentPageState {
   /** 读面状态（idle → loading → ready / error 互斥；静默重拉保 ready） */
   status: "idle" | "loading" | "ready" | "error";
   error: string | null;
   profiles: Readonly<Record<AgentKind, AgentConfigProfileBlock | null>>;
+  /** 只读系统派生块（agent-roster 批；未携带 = null → 详情骨架态）。 */
+  system: Readonly<Record<SystemAgentKind, AgentConfigSystemBlock | null>>;
+  /** master-detail 选中（null = 未选空态；重拉不清——选中是视图态非数据态）。 */
+  selected: AgentId | null;
   /** 写面在途行 key 集（单飞：结果帧无回显，页面侧保证同刻至多一条） */
   pending: ReadonlySet<string>;
 }
@@ -46,14 +63,17 @@ export function createAgentPageState(): AgentPageState {
     status: "idle",
     error: null,
     profiles: { "main-session": null, "subagent-worker": null },
+    system: { orchestrator: null, "subagent-kg-writer": null },
+    selected: null,
     pending: new Set<string>(),
   };
 }
 
 export type AgentPageAction =
   | { type: "list-started" }
-  | { type: "list-result"; profiles: readonly AgentConfigProfileBlock[] }
+  | { type: "list-result"; profiles: readonly AgentConfigProfileBlock[]; system?: readonly AgentConfigSystemBlock[] }
   | { type: "list-failed"; reason: string }
+  | { type: "select-agent"; id: AgentId | null }
   | { type: "toggle-started"; kind: AgentKind; resourceType: AgentWriteResource; name: string }
   | { type: "toggle-settled"; kind: AgentKind; resourceType: AgentWriteResource; name: string };
 
@@ -73,8 +93,22 @@ export function agentPageReducer(s: AgentPageState, action: AgentPageAction): Ag
           profiles[block.profileKind] = block;
         }
       }
-      return { ...s, status: "ready", error: null, profiles, pending: new Set<string>() };
+      // system 只读块（agent-roster 批 additive）：未携带 = 保持既有（旧
+      // daemon / 单 kind 响应容忍——不闪空）；携带 = 按 kind 归位全量覆盖。
+      let system = s.system;
+      if (action.system !== undefined) {
+        const next: Record<SystemAgentKind, AgentConfigSystemBlock | null> = { ...s.system };
+        for (const block of action.system) {
+          if (block.profileKind === "orchestrator" || block.profileKind === "subagent-kg-writer") {
+            next[block.profileKind] = block;
+          }
+        }
+        system = next;
+      }
+      return { ...s, status: "ready", error: null, profiles, system, pending: new Set<string>() };
     }
+    case "select-agent":
+      return { ...s, selected: action.id };
     case "list-failed":
       return { ...s, status: hasData(s) ? s.status : "error", error: action.reason };
     case "toggle-started": {

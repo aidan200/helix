@@ -12,8 +12,10 @@
  * ⑤ 纯函数纪律（AG-14）：无 React / 无 IO / 无 Date.now。
  */
 import { describe, expect, it } from "vitest";
-import type { AgentConfigProfileBlock } from "@helix/protocol";
+import type { AgentConfigProfileBlock, AgentConfigSystemBlock } from "@helix/protocol";
 import {
+  AGENT_KINDS,
+  SYSTEM_AGENT_KINDS,
   createAgentPageState,
   pendingKeyOf,
   selectAgentPageView,
@@ -116,5 +118,52 @@ describe("智能体页页面模型（M6 T4）", () => {
     expect(s.pending.size).toBe(1); // 同键覆盖，不叠加
     s = agentPageReducer(s, { type: "toggle-settled", kind: "subagent-worker", resourceType: "model", name: "" });
     expect(s.pending.size).toBe(0);
+  });
+});
+
+// ── agent-roster 批：只读系统派生块 + 选中态（master-detail） ──
+
+const ORCH_BLOCK: AgentConfigSystemBlock = {
+  profileKind: "orchestrator",
+  tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务" }],
+};
+const KGW_BLOCK: AgentConfigSystemBlock = {
+  profileKind: "subagent-kg-writer",
+  tools: [
+    { name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
+    { name: "kg-update", snippet: "知识图谱即时落账" },
+  ],
+  derivedFrom: "subagent-worker",
+  pinnedTools: ["kg-update"],
+};
+
+describe("智能体页页面模型（agent-roster：system 块 + 选中态）", () => {
+  it("⑤ system 块按 kind 归位；未携带（旧 daemon / 单 kind 响应）不覆盖既有值；常量序固定", () => {
+    expect(AGENT_KINDS).toEqual(["main-session", "subagent-worker"]);
+    expect(SYSTEM_AGENT_KINDS).toEqual(["orchestrator", "subagent-kg-writer"]);
+    let s = createAgentPageState();
+    expect(s.system["orchestrator"]).toBeNull();
+    expect(s.system["subagent-kg-writer"]).toBeNull();
+    expect(s.selected).toBeNull(); // 初值无选中（master-detail 空态）
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_BLOCK, KGW_BLOCK] });
+    expect(s.system["orchestrator"]).toBe(ORCH_BLOCK);
+    expect(s.system["subagent-kg-writer"]).toBe(KGW_BLOCK);
+    // system 未携带：既有块保持（additive 容忍——不闪空）
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK] });
+    expect(s.system["orchestrator"]).toBe(ORCH_BLOCK);
+  });
+
+  it("⑥ select-agent：选中可切换（可编辑/只读两类 id 均可）；重拉不清选中", () => {
+    let s = createAgentPageState();
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_BLOCK, KGW_BLOCK] });
+    s = agentPageReducer(s, { type: "select-agent", id: "subagent-kg-writer" });
+    expect(s.selected).toBe("subagent-kg-writer");
+    // 重拉（worker toggle → changed → 重拉）选中保持
+    const next = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_BLOCK, KGW_BLOCK] });
+    expect(next.selected).toBe("subagent-kg-writer");
+    s = agentPageReducer(s, { type: "select-agent", id: "main-session" });
+    expect(s.selected).toBe("main-session");
+    s = agentPageReducer(s, { type: "select-agent", id: null });
+    expect(s.selected).toBeNull();
   });
 });
