@@ -9,6 +9,7 @@ import type {
   CodegraphEnginePort,
   CodegraphQueryRequest,
 } from "../../../../application/ports/outbound/CodegraphEnginePort";
+import { resolveMainRepoPath } from "../../../../domain/kg/project-discovery";
 import { codegraphDirPath } from "../../codegraph-engine/codegraph-db-projection";
 
 /**
@@ -22,6 +23,9 @@ import { codegraphDirPath } from "../../codegraph-engine/codegraph-db-projection
  *   一律不给 agent——读面绝不触发建索引。
  * - projectPath：工作区一级子目录名（join workspaceRoot）或绝对路径
  *  （含 .codegraph/ 的项目根）；相对路径含分隔符/.. 拒绝（防逃逸一级）。
+ * - W-R2 worktree 读穿透（D8）：projectPath 在 .worktrees 下 → 归一主仓后
+ *  查询（resolveMainRepoPath 单点）——worktree 内无索引不短路，路由主仓
+ *  .codegraph（status 同样报主仓），绝不建副本索引。
  * - 索引缺失短路（同 KgProjectService absent 先例）：.codegraph 目录
  *   不在 → 返回「请先构建索引」提示，**不触引擎**（CLI status 本身不建库，
  *   但查询类命令在缺索引项目上的行为不做依赖——短路统一且可测）。
@@ -77,7 +81,8 @@ export function createCodegraphTool(deps: CodegraphToolDeps): AgentHarnessTool<E
       "查询项目代码索引（.codegraph，只读——绝不触发建索引）。op 六选：status 看索引在不在/新不新鲜；" +
       "search(pattern) 按名字定位符号（只返回位置）；node(symbol|file) 读符号源码或文件（带行号+依赖面）；" +
       "callers/callees(symbol) 查调用关系；impact(symbol) 查改动影响面。**改代码前先用 impact 查影响面；" +
-      "探索结构用 search/node/callers**。projectPath 传工作区一级子目录名或含 .codegraph/ 的绝对路径；" +
+      "探索结构用 search/node/callers**。projectPath 传工作区一级子目录名或含 .codegraph/ 的绝对路径" +
+      "（worktree 内传 worktree 路径会自动穿透主仓索引）；" +
       "索引缺失会返回提示——请改用 read/grep，不要尝试自行构建索引。",
     parameters: codegraphParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
@@ -98,14 +103,22 @@ export function createCodegraphTool(deps: CodegraphToolDeps): AgentHarnessTool<E
       if (!OPS.includes(op)) {
         throw new Error(`未知 op "${p.op}"（合法：${OPS.join(" / ")}——无 explore，写类 op 不开放）`);
       }
-      const root = resolveProjectRoot(deps.workspaceRoot, p.projectPath);
+      // W-R2 worktree 读穿透（D8）：projectPath 在 .worktrees 下 → 归一主仓
+      // （resolveMainRepoPath 单点；非 worktree 路径零影响）——索引存在性判定
+      // 与查询一律指向主仓 .codegraph，status 同样报主仓索引状态；绝不建副本索引。
+      const requested = resolveProjectRoot(deps.workspaceRoot, p.projectPath);
+      const root = resolveMainRepoPath(requested);
+      const passthrough = root !== requested;
       if (!indexExists(root)) {
         return text(
-          `项目 ${p.projectPath} 尚未建立 codegraph 索引（${codegraphDirPath(root)} 不存在）——` +
+          `项目 ${root} 尚未建立 codegraph 索引（${codegraphDirPath(root)} 不存在）——` +
             "请先构建索引（构建是用户侧动作，读面绝不触发建索引）；索引进场前改用 read/grep 探索。",
         );
       }
-      return text(await deps.engine.runQuery(root, buildRequest(op, p)));
+      const body = await deps.engine.runQuery(root, buildRequest(op, p));
+      return text(
+        passthrough ? `${body}\n（worktree 透传：查询已路由主仓 ${root} 的 .codegraph 索引——worktree 不建副本索引）` : body,
+      );
     },
   };
 }
