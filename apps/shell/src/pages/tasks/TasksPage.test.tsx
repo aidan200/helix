@@ -394,6 +394,7 @@ describe("P-2 TasksPage：阶段条 + 批次 plan + 任务结果", () => {
             retryCount: 0,
             retryNote: null,
             instanceId: "inst-a01",
+            ledger: { total: 2, done: 2, inProgress: 0 },
             plan: [
               { seq: 1, content: "探查任务引擎三表", status: "done", note: null },
               { seq: 2, content: "自检", status: "done", note: null },
@@ -408,6 +409,7 @@ describe("P-2 TasksPage：阶段条 + 批次 plan + 任务结果", () => {
             retryCount: 1,
             retryNote: "首次执行 closure 中 plan 未全部 resolve，自动重试 1 次后通过。",
             instanceId: "inst-a02",
+            ledger: { total: 2, done: 2, inProgress: 0 },
             plan: [
               { seq: 1, content: "探查 shell 页面域与路由", status: "done", note: null },
               { seq: 2, content: "产出任务页结构节点", status: "done", note: null },
@@ -422,6 +424,7 @@ describe("P-2 TasksPage：阶段条 + 批次 plan + 任务结果", () => {
             retryCount: 0,
             retryNote: null,
             instanceId: "inst-a03",
+            ledger: { total: 4, done: 1, inProgress: 1 },
             plan: [
               { seq: 1, content: "划定 task.* 命令面", status: "done", note: null },
               { seq: 2, content: "写契约节点", status: "in_progress", note: null },
@@ -429,7 +432,7 @@ describe("P-2 TasksPage：阶段条 + 批次 plan + 任务结果", () => {
               { seq: 4, content: "产出实体节点", status: "abandoned", note: "放弃：上下文不足，执行实例终止" },
             ],
           },
-          { batchId: "batch-1d", stageSeq: 2, seq: 4, scope: "daemon 编排器域", status: "pending", retryCount: 0, retryNote: null, instanceId: null, plan: null },
+          { batchId: "batch-1d", stageSeq: 2, seq: 4, scope: "daemon 编排器域", status: "pending", retryCount: 0, retryNote: null, instanceId: null, ledger: null, plan: null },
         ],
       }),
     } satisfies TaskDetailResultPayload);
@@ -472,6 +475,79 @@ describe("P-2 TasksPage：阶段条 + 批次 plan + 任务结果", () => {
     fireEvent.click(runningBatch.querySelector("[data-tk-plan-toggle]")!);
     expect(runningBatch.querySelectorAll("[data-tk-work]").length).toBe(4);
     expect(runningBatch.querySelector("[data-tk-work='abandoned']")!.textContent).toContain("放弃：上下文不足");
+  });
+
+  it("P1-⑥ 批次行实例徽标 + ledger 服务端计数摘要 + 无台账如实显示", () => {
+    ui();
+    feedList();
+    feed("task.detail.result", {
+      task: detailOf(SIX[0]!, {
+        batches: [
+          {
+            batchId: "batch-2a",
+            stageSeq: 1,
+            seq: 1,
+            scope: "daemon 任务引擎域",
+            status: "running",
+            retryCount: 0,
+            retryNote: null,
+            instanceId: "agent-3f9c2ab4d05e67890abcdef12345678",
+            ledger: { total: 5, done: 3, inProgress: 1 },
+            plan: [
+              { seq: 1, content: "探查任务引擎三表", status: "done", note: null },
+              { seq: 2, content: "探查编排器读面", status: "done", note: null },
+              { seq: 3, content: "写台账摘要测试", status: "done", note: null },
+              { seq: 4, content: "写实例徽标测试", status: "in_progress", note: null },
+              { seq: 5, content: "自检收尾", status: "pending", note: null },
+            ],
+          },
+          {
+            batchId: "batch-2b",
+            stageSeq: 2,
+            seq: 2,
+            scope: "shell 任务页面域",
+            status: "done",
+            retryCount: 0,
+            retryNote: null,
+            instanceId: "agent-9d81c44e2a7b05f3c6d8e1a2b3c4d5f",
+            ledger: null,
+            plan: null,
+          },
+          {
+            batchId: "batch-2c",
+            stageSeq: 3,
+            seq: 3,
+            scope: "protocol 协议面",
+            status: "pending",
+            retryCount: 0,
+            retryNote: null,
+            instanceId: null,
+            ledger: null,
+            plan: null,
+          },
+        ],
+      }),
+    } satisfies TaskDetailResultPayload);
+    // 实例徽标：agent- 短形态（前 13 字符）+ title 持全 id（哪个 agent 在做哪个批次一眼可见）
+    const badge = qs('[data-tk-batch][data-id="batch-2a"] [data-tk-instance]');
+    expect(badge.textContent).toBe("agent-3f9c2ab");
+    expect(badge.getAttribute("title")).toBe("agent-3f9c2ab4d05e67890abcdef12345678");
+    // 未派发批次（pending，instanceId=null）无徽标
+    expect(document.querySelector('[data-tk-batch][data-id="batch-2c"] [data-tk-instance]')).toBeNull();
+    // 进度摘要：ledger 服务端计数直渲（3/5，前端零拼装）+ 正在 = 首个 in_progress content
+    expect(qs('[data-tk-batch][data-id="batch-2a"] .tk-b-plan-t').textContent).toBe("3/5 项完成");
+    expect(qs("[data-tk-doing]").textContent).toContain("写实例徽标测试");
+    // 可展开看台账全清单（5 行四态）
+    expect(qs('[data-tk-batch][data-id="batch-2a"]').querySelector("[data-tk-plan-items]")).toBeNull(); // 默认收起
+    fireEvent.click(qs('[data-tk-batch][data-id="batch-2a"] [data-tk-plan-toggle]'));
+    expect(qs('[data-tk-batch][data-id="batch-2a"]').querySelectorAll("[data-tk-work]").length).toBe(5);
+    // 无台账批次：徽标仍在（实例可辨识）+ 如实显「无台账」，不虚构 0/0 进度行
+    expect(qs('[data-tk-batch][data-id="batch-2b"] [data-tk-instance]').textContent).toBe("agent-9d81c44");
+    expect(qs('[data-tk-batch][data-id="batch-2b"] [data-tk-plan-none]').textContent).toBe("该实例未建工作台账。");
+    expect(document.querySelector('[data-tk-batch][data-id="batch-2b"] .tk-b-plan-t')).toBeNull();
+    expect(document.querySelector('[data-tk-batch][data-id="batch-2b"] [data-tk-plan-toggle]')).toBeNull();
+    // 待启动批次：队列文案（非「无台账」）
+    expect(qs("[data-tk-batch-queued]").textContent).toContain("队列中等待派发");
   });
 
   it("结果 tab：阶段卡 = 阶段名 + 状态徽章 + summary 纯文字报告（零计数 chip/节点清单/链接/尾注）；tab 名「任务结果」", () => {

@@ -719,6 +719,7 @@ export const enUS = {
       open: "Collapse ledger ▴",
       closed: "Expand ledger ▾",
       queue: "Queued: batch scope set, waiting for dispatch.",
+      none: "No work ledger for this instance.",
     },
     retry: "Auto-retried {n} times",
     result: {

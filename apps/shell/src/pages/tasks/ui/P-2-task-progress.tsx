@@ -5,13 +5,15 @@
  * 阶段名 + 状态徽章 + 阶段子行，批次卡归位其下；运行中阶段小节高亮；
  * detail.stages 提供分组顺序与阶段信息——daemon 返回跨阶段全量批次）。
  * 批次卡：范围粗体 + 状态徽章 + retryCount>0 warning 徽数与重试原因 note
- * + 实例 plan：进度行 + 「正在：…」+ 可展开四态工作台账，abandoned 带理由；
+ * + 实例徽标（P1-⑥：agent- 短形态，title 持全 id——哪个 agent 在做哪个
+ * 批次一眼可见）+ 实例 plan：进度行（ledger 服务端计数）+ 「正在：…」+ 可
+ * 展开四态工作台账，abandoned 带理由；未建台账实例如实显「无台账」；
  * 待启动批次队列文案。
  */
 import { Fragment } from "react";
 import type { TaskBatchDto, TaskDetailDto, TaskStageDto, WorkItemDto } from "@helix/protocol";
 import { cn } from "@/shared/lib/cn";
-import { EmptyPanel, PhaseBadge, ProgressTrack } from "./P-2-task-atoms";
+import { EmptyPanel, PhaseBadge, ProgressTrack, fmtInstance } from "./P-2-task-atoms";
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -60,7 +62,7 @@ function workItemIcon(status: WorkItemDto["status"]): string {
   return "○";
 }
 
-/** 单批次卡（R-5 六件：范围/状态/重试/plan 进度/正在/台账）。 */
+/** 单批次卡（R-5 + P1-⑥：范围/状态/重试/实例徽标/ledger 进度/正在/台账/无台账）。 */
 function BatchCard({
   batch,
   open,
@@ -73,14 +75,21 @@ function BatchCard({
   onToggle: (batchId: string) => void;
 }) {
   const plan = batch.plan;
-  const done = plan?.filter((w) => w.status === "done").length ?? 0;
-  const ratio = plan !== null && plan.length > 0 ? done / plan.length : 0;
+  const ledger = batch.ledger;
+  // 计数摘要服务端收口（AD-4② 同规）：前端零拼装，直接消费 ledger
+  const done = ledger?.done ?? 0;
+  const ratio = ledger !== null && ledger.total > 0 ? done / ledger.total : 0;
   const doing = plan?.find((w) => w.status === "in_progress");
   return (
     <div className={cn("tk-batch", batch.status === "failed" && "failed")} data-tk-batch data-id={batch.batchId}>
       <div className="tk-b-top">
         <span className="tk-b-scope">{batch.scope}</span>
         <PhaseBadge kind="batch" status={batch.status} label={t(`tk.batch.${batch.status}`)} />
+        {batch.instanceId !== null && (
+          <span className="tk-b-inst" data-tk-instance title={batch.instanceId}>
+            {fmtInstance(batch.instanceId)}
+          </span>
+        )}
         {batch.retryCount > 0 && (
           <span className="tk-b-retry" data-tk-retry>
             {t("tk.retry", { n: batch.retryCount })}
@@ -91,11 +100,11 @@ function BatchCard({
         <div className="tk-b-note" data-tk-batch-queued>
           {t("tk.batchPlan.queue")}
         </div>
-      ) : plan !== null ? (
+      ) : ledger !== null ? (
         <>
           <div className="tk-b-plan">
             <ProgressTrack ratio={ratio} />
-            <span className="tk-b-plan-t">{t("tk.batchPlan.doneCount", { done, total: plan.length })}</span>
+            <span className="tk-b-plan-t">{t("tk.batchPlan.doneCount", { done, total: ledger.total })}</span>
           </div>
           {doing !== undefined && (
             <div className="tk-b-current" data-tk-doing>
@@ -114,7 +123,7 @@ function BatchCard({
           </button>
           {open && (
             <div className="tk-plan-items" data-tk-plan-items>
-              {plan.map((w) => (
+              {plan?.map((w) => (
                 <div key={w.seq} className={cn("tk-pi", w.status)} data-tk-work={w.status}>
                   <span className="tk-pi-ic" aria-hidden="true">
                     {workItemIcon(w.status)}
@@ -128,7 +137,12 @@ function BatchCard({
             </div>
           )}
         </>
-      ) : null}
+      ) : (
+        // 未派发或轻量实例未建台账（终态清理后同构）→ 如实呈现，不虚构 0/0
+        <div className="tk-b-note" data-tk-plan-none>
+          {t("tk.batchPlan.none")}
+        </div>
+      )}
       {batch.retryNote !== null && (
         <div className="tk-b-note" data-tk-retry-note>
           {batch.retryNote}

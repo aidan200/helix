@@ -725,6 +725,7 @@ export const zhCN = {
       open: "收起工作台账 ▴",
       closed: "展开工作台账 ▾",
       queue: "待启动：批次范围已划定，队列中等待派发。",
+      none: "该实例未建工作台账。",
     },
     retry: "自动重试 {n} 次",
     result: {
