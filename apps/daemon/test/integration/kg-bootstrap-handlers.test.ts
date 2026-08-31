@@ -19,6 +19,7 @@ import { TaskStore } from "../../src/adapters/driven/sqlite-session/TaskStore";
 import { parentWorkLedger } from "../../src/adapters/driven/sqlite-session/WorkLedger";
 import { TaskEngineService } from "../../src/application/services/task/TaskEngineService";
 import { scanProjectEntries } from "../../src/adapters/driven/workspace-scan";
+import { hasActiveJob } from "../../src/application/services/kg/job-activity";
 import type { EngineSymbol, SymbolBatch, WriteResult } from "../../src/domain/kg/types";
 import {
   FakeOrchestratorStarter,
@@ -229,6 +230,8 @@ function makeRig(): Rig {
     hasIndex: (root) => existsSync(kgDbPath(root)),
     indexStatus: (root) => sync.getStatus(root),
     countActiveNodes: (root) => graph.countActiveNodes(root),
+    // P0① 行标志数据源（与组合根同口径）
+    hasRunningBootstrapJob: (name) => hasActiveJob(taskStore.listJobs(), "kg-bootstrap", name),
   });
   const viewer = new KgViewerService({ project, graph, verify: { findActivityMismatch: () => [], findOrphans: () => [] } as never, /* W2-D R14：rebuild 路径消费 findOrphans——本测试不触，空清单兜底 */ report: {} as never, write, sync });
 

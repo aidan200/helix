@@ -526,6 +526,8 @@ export function projectRowToDto(row: KgProjectRowView): KgProjectRow {
     ...(row.nodeCount !== undefined ? { nodeCount: row.nodeCount } : {}),
     ...(row.syncedAt !== undefined ? { syncedAt: row.syncedAt } : {}),
     ...(row.degradedNote !== undefined ? { degradedNote: row.degradedNote } : {}),
+    // P0① 运行中标志：true 才携带（false/缺省省略——旧 shell 兼容零感知）
+    ...(row.bootstrapRunning ? { bootstrapRunning: true } : {}),
   };
 }
 

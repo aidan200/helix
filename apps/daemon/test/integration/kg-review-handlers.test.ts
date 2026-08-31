@@ -214,7 +214,7 @@ function makeRig(): Rig {
   );
   const taskEngine = new TaskEngineService({ store: taskStore, skills, starter, workLedger, clock: counterClock() });
 
-  const review = new KgReviewService({ project, taskEngine });
+  const review = new KgReviewService({ project, taskEngine, store: taskStore });
 
   const events = new EventStream();
   const adapter = new WsServerAdapter({ ...stubAdapterDeps(events), kgReview: review });

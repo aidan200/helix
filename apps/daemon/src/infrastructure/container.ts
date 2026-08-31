@@ -48,6 +48,8 @@ import { buildTaskStack } from "./assembly/buildTaskStack";
 import { KgBootstrapService } from "../application/services/kg/KgBootstrapService";
 import { KgMaintenanceService } from "../application/services/kg/KgMaintenanceService";
 import { KgReviewService } from "../application/services/kg/KgReviewService";
+import { hasActiveJob } from "../application/services/kg/job-activity";
+import type { TaskStorePort } from "../application/ports/outbound/TaskStorePort";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode } from "./assembly/buildSessionStack";
 import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
@@ -330,12 +332,22 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   let broadcastWorkspaceChanged: (root: string) => void = () => {};
   let hasActiveAgentNow: () => boolean = () => false;
   let unloadSessionsOnRebind: () => void = () => {};
+  // P0① kg.projects 行 bootstrapRunning 数据源：任务栈在 workspace 之后建——
+  // 晚绑回填（buildStack 闭包读取现值；kg.projects 调用必在 boot 完成后）
+  let taskStoreForProjectRows: TaskStorePort | undefined;
   const workspace = new WorkspaceService({
     kv: persistence.runtimeConfig, // KV 底座（AG-06 单写通道；不进 config.json，TR-AD-6）
     fs: createWorkspaceFs(), // driven 探测端口（realpath/可读目录/危险根判定输入）
     clock: { now: () => new Date().toISOString() },
     cwd: () => process.cwd(), // CLI 例外条款源（终端站位 = 显式选择）
-    buildStack: (root) => buildKnowledgeStack({ codegraphResolution, workspaceRoot: root, logger }),
+    buildStack: (root) =>
+      buildKnowledgeStack({
+        codegraphResolution,
+        workspaceRoot: root,
+        logger,
+        hasRunningBootstrapJob: (projectName) =>
+          taskStoreForProjectRows !== undefined && hasActiveJob(taskStoreForProjectRows.listJobs(), "kg-bootstrap", projectName),
+      }),
     // B3 fs-watch 补齐挂接：已建 .helix-kg 索引的项目即挂 watcher（索引态
     // 补齐）；stop = 全停（重绑/dispose 清理面——栈 dispose 内含同调用，幂等）。
     startSync: (stack, root) => {
@@ -399,6 +411,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     skillSource: taskSkillSource,
     onTaskChanged: (frame) => broadcastTaskChanged(frame),
   });
+  // P0① 回填：kg 栈 projectService 的 bootstrapRunning 查询面接任务库现值
+  taskStoreForProjectRows = taskStack.orchestratorCore.store;
 
   // ── fan-out 发布面（先建，服务构造即依赖它；目标归 wireEventFanout 装配） ──
   const fanoutPublisher = new FanoutPublisher();
@@ -833,6 +847,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       svc = new KgReviewService({
         project: stack.projectService,
         taskEngine: taskStack.taskEngine,
+        store: taskStack.orchestratorCore.store,
       });
       kgReviewByStack.set(stack, svc);
     }

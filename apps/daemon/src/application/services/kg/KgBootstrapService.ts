@@ -14,9 +14,10 @@
  * task.* 命令（F4.4 审阅不阻塞——本服务读任务表但不写任务域）。
  *
  * 错误模型（契约 §2/§4）：kg.bootstrap.not_eligible（message 带原因
- * index_absent / index_building / knowledge_not_empty）/ kg.node.not_found /
- * task.validation_failed（createTask 透传 + 空 patch / 空理由双防线——
- * KgWriteService KG_E_SCHEMA 归一为契约词表）。
+ * index_absent / index_building / knowledge_not_empty / task_running（P0①
+ * 双启动防护：已有非终态 kg-bootstrap job 拒绝，终态后可再发））/
+ * kg.node.not_found / task.validation_failed（createTask 透传 + 空 patch /
+ * 空理由双防线——KgWriteService KG_E_SCHEMA 归一为契约词表）。
  */
 
 import type { TaskEnginePort } from "../../ports/inbound/TaskEnginePort";
@@ -27,11 +28,13 @@ import type { KgProjectService } from "./KgProjectService";
 import type { KgSyncService } from "./KgSyncService";
 import type { KgWriteService } from "./KgWriteService";
 import type { KnowledgeNode, NodeDigestRow } from "../../../domain/kg/types";
+import { hasActiveJob, projectNameOf } from "./job-activity";
 
 // ── 结果形状（应用层视图；协议 DTO 由 driving 层逐字段映射） ──
 
-/** 准入复核结论（create 前置；reason = 契约词表 index_absent / index_building / knowledge_not_empty）。 */
-export type BootstrapEligibility = { readonly eligible: true } | { readonly eligible: false; readonly reason: "index_absent" | "index_building" | "knowledge_not_empty" };
+/** 准入复核结论（create 前置；reason = 契约词表 index_absent / index_building /
+ * knowledge_not_empty / task_running（P0① 第四条：非终态同类型 job 并发禁入））。 */
+export type BootstrapEligibility = { readonly eligible: true } | { readonly eligible: false; readonly reason: "index_absent" | "index_building" | "knowledge_not_empty" | "task_running" };
 
 /** kg.bootstrap.create 结果。 */
 export interface KgBootstrapCreateView {
@@ -120,7 +123,9 @@ export class KgBootstrapService {
 
   /** 准入机械复核（契约 §1；后端不信赖前端）：索引存在 ∧ 非 building ∧ 无带 layer
    *  产出（O-9 精化：「知识层非空」只数带 layer 的产出节点；sediment 沉淀节点
-   * （layer 为 NULL）不阻挡 bootstrap 入口）。 */
+   * （layer 为 NULL）不阻挡 bootstrap 入口）∧ 无非终态同类型 job（P0① 第四条
+   * task_running：窗口期（job 已建、首节点未产出）内拒绝重复 create，堵双
+   * 编排器并行产出；终态后放行）。 */
   eligibility(projectRoot: string): BootstrapEligibility {
     if (this.deps.sync.isBuilding(projectRoot)) return { eligible: false, reason: "index_building" };
     if (!this.deps.project.hasIndex(projectRoot)) return { eligible: false, reason: "index_absent" };
@@ -128,6 +133,7 @@ export class KgBootstrapService {
     if (phase === "building") return { eligible: false, reason: "index_building" };
     if (phase === "absent") return { eligible: false, reason: "index_absent" };
     if (this.deps.graph.countActiveLayeredNodes(projectRoot) !== 0) return { eligible: false, reason: "knowledge_not_empty" };
+    if (hasActiveJob(this.deps.store.listJobs(), "kg-bootstrap", projectNameOf(projectRoot))) return { eligible: false, reason: "task_running" };
     return { eligible: true };
   }
 
@@ -142,7 +148,9 @@ export class KgBootstrapService {
           ? "index_absent：项目尚未构建索引（先完成一次机械构建，B1 冷启动链）"
           : eligibility.reason === "index_building"
             ? "index_building：索引构建进行中，完成后可发起"
-            : "knowledge_not_empty：知识层已有带 layer 的图谱产出（sediment 沉淀不计入；bootstrap 只为有代码积累、无图谱的老项目补图谱）";
+            : eligibility.reason === "task_running"
+              ? "task_running：该项目已有进行中的知识创建任务（kg-bootstrap）；可在「任务」页观察进度，任务终态后可再次发起（禁双启动）"
+              : "knowledge_not_empty：知识层已有带 layer 的图谱产出（sediment 沉淀不计入；bootstrap 只为有代码积累、无图谱的老项目补图谱）";
       return { ok: false, error: { code: "kg.bootstrap.not_eligible", message } };
     }
     const projectName = projectRoot.split("/").filter((s) => s !== "").pop() ?? project;
@@ -387,10 +395,8 @@ export class KgBootstrapService {
 
 // ── 纯 helper ────────────────────────────────────────────
 
-/** projectRoot → workspace 一级目录名（job.projects 标签匹配键）。 */
-function projectNameOf(projectRoot: string): string {
-  return projectRoot.split("/").filter((s) => s !== "").pop() ?? projectRoot;
-}
+// projectNameOf / hasActiveJob → job-activity.ts（P0① 起三面共用：bootstrap
+// 准入第四条、review 并发禁入、kg.projects 行 bootstrapRunning）
 
 /** 阶段名 → layer（kg-bootstrap manifest 冻结三阶段「L0 核心层」形；解析失败按序兜底）。 */
 function layerOfStage(name: string, seq: number): "L0" | "L1" | "L2" {
