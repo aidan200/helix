@@ -129,11 +129,12 @@ export interface TaskEngineEnv {
 }
 
 export interface TaskEnvOverrides {
-  // 当前无覆盖项（kgNodeProjector 已随结果面去 kg 耦合拆除）。
+  /** 批次实例调度态读面（⑤ 链 A：parked 徽标数据源；缺省不装配 → DTO instanceState 省略）。 */
+  readonly instanceStateOf?: (agentId: string) => string | undefined;
 }
 
 /** 真库 + fake 依赖的引擎/查询环境（每 test 独立 tmp home）。 */
-export function buildTaskEngineEnv(_over: TaskEnvOverrides = {}): TaskEngineEnv {
+export function buildTaskEngineEnv(over: TaskEnvOverrides = {}): TaskEngineEnv {
   const dir = mkdtempSync(path.join(tmpdir(), "helix-task-engine-"));
   const dbPath = path.join(dir, "helix.db");
   const queue = new WriteQueue(dbPath);
@@ -149,7 +150,13 @@ export function buildTaskEngineEnv(_over: TaskEnvOverrides = {}): TaskEngineEnv 
   skills.register("zero-project-scan", zeroProjectManifest(), "全库零项目扫描任务");
   const clock = counterClock();
   const engine = new TaskEngineService({ store, skills, starter, workLedger, clock });
-  const query = new TaskQueryService({ store, workLedger, skills, clock });
+  const query = new TaskQueryService({
+    store,
+    workLedger,
+    skills,
+    clock,
+    ...(over.instanceStateOf !== undefined ? { instanceStateOf: over.instanceStateOf } : {}),
+  });
   return {
     engine,
     query,

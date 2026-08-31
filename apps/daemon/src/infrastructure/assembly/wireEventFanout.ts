@@ -6,13 +6,15 @@ import type { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import type { StdoutEventPublisher } from "../../adapters/driving/cli/CliAdapter";
 import type { WriteQueue } from "../../adapters/driven/sqlite-session/WriteQueue";
 import { MAIN_AGENT_KIND } from "../../adapters/driven/sqlite-session/WriteQueue";
+import { TASK_SESSION_PREFIX } from "../../application/services/task/TaskOrchestratorService";
 
 /**
  * 装配函数 ④ 事件扇出（architecture §4.2.1/§4.2.4）：组合根的一部分
  * （AG-02④ 豁免面 infrastructure/assembly/**）。
  *
  * fan-out 发布面（FanoutPublisher）由组合根先构造——服务构造期（scheduler/
- * ChatService 族）依赖稳定引用；本函数在其后装配六目标。**带名注册表序
+ * ChatService 族）依赖稳定引用；本函数在其后装配七目标（⑤ 链 A 新增
+ * task-park-bridge）。**带名注册表序
  * 即语义唯一权威**（断言面）——重排一行即断言红。
  */
 export interface NamedFanoutTarget {
@@ -47,6 +49,28 @@ export class FanoutPublisher implements EventPublisherPort {
   }
 }
 
+/**
+ * 任务域实例挂起/恢复可见性桥（⑤ 链 A）：task:* 会话的 agent.parked /
+ * agent.resumed 领域事件 → broadcastTaskChanged(changed=batch)——驱动任务页
+ * 重拉 detail（批次行状态保持 running，实例 parked 态经 DTO instanceState
+ * 透出）。chat 域挂起（链 C）不触发任务推送（会话前缀判别）。
+ */
+export function taskParkBridgeTarget(
+  eventStream: Pick<EventStream, "broadcastTaskChanged">,
+): EventPublisherPort {
+  return {
+    publish: (event) => {
+      if (event.type !== "agent.parked" && event.type !== "agent.resumed") return;
+      if (!event.sessionId.startsWith(TASK_SESSION_PREFIX)) return;
+      eventStream.broadcastTaskChanged({
+        jobId: event.sessionId.slice(TASK_SESSION_PREFIX.length),
+        changed: "batch",
+      });
+    },
+    publishDelta: () => undefined,
+  };
+}
+
 export interface WireEventFanoutDeps {
   readonly registry: SessionRegistry;
   readonly sessionService: SessionService;
@@ -79,6 +103,7 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
     },
   });
   publisher.add({ name: "ws-event-stream", target: eventStream });
+  publisher.add({ name: "task-park-bridge", target: taskParkBridgeTarget(eventStream) });
   publisher.add({
     name: "event-row-persistence",
     // 事件行持久化：行级四维落位（session_id 列 = 事件携带 sessionId——

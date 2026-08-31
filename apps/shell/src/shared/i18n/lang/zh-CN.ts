@@ -735,6 +735,8 @@ export const zhCN = {
       none: "该实例未建工作台账。",
     },
     retry: "自动重试 {n} 次",
+    /** ⑤ 链 A：批次行实例徽标 parked 形态尾缀（「agent-3 · 挂起(任务暂停)」）。 */
+    instParked: "挂起(任务暂停)",
     result: {
       tabProgress: "进度",
       tabResult: "任务结果",

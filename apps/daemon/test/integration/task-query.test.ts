@@ -230,6 +230,27 @@ describe("TaskQueryService 投影（CL-3-T1 数据面）", () => {
     });
   });
 
+  test("getTaskDetail 批次行实例调度态 instanceState（⑤ 链 A：parked 徽标数据源；未装配/不在册省略）", async () => {
+    await withTaskEnv(
+      { instanceStateOf: (agentId) => (agentId === "inst-r2" ? "parked" : agentId === "inst-r1" ? "done" : undefined) },
+      async (env) => {
+        const ids = await seedSixStates(env);
+        const detail = env.query.getTaskDetail(ids.running);
+        // 在册实例透出调度态（批次行状态保持 running，实例级态新增透出）
+        const parked = detail.batches.find((b) => b.instanceId === "inst-r2")!;
+        expect(parked.status).toBe("running");
+        expect(parked.instanceState).toBe("parked");
+        const doneInst = detail.batches.find((b) => b.instanceId === "inst-r1")!;
+        expect(doneInst.instanceState).toBe("done");
+        // 不在册（读面 undefined）→ 字段 undefined（wire 上省略，additive）
+        await env.store.insertBatch(batchOf("bat-ns1", ids.paused, 1, 1, "running", { instanceId: "inst-gone" }));
+        const pausedDetail = env.query.getTaskDetail(ids.paused);
+        const gone = pausedDetail.batches.find((b) => b.instanceId === "inst-gone")!;
+        expect(gone.instanceState).toBeUndefined();
+      },
+    );
+  });
+
   test("getTaskArtifacts：stage.artifact 文字报告投影（{ summary }，结果与 kg 零耦合）", async () => {
     await withTaskEnv(async (env) => {
       const ids = await seedSixStates(env);

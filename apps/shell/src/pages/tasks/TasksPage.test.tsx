@@ -614,3 +614,101 @@ describe("P-2 TasksPage：阶段条 + 批次 plan + 任务结果", () => {
     expect(sent.detail.length).toBe(detailCalls + 2);
   });
 });
+
+// ── ⑤ 链 A：批次行实例徽标 parked 形态 ──────────────────────
+
+describe("P-2 TasksPage：批次实例徽标 parked 形态（⑤ 链 A）", () => {
+  it("instanceState=parked → 「agent-3 · 挂起(任务暂停)」+ data-parked=on + warning 类；非 parked 徽标不带尾缀", () => {
+    ui();
+    feedList();
+    feed("task.detail.result", {
+      task: detailOf(SIX[0]!, {
+        batches: [
+          {
+            batchId: "batch-p1",
+            stageSeq: 2,
+            seq: 1,
+            scope: "daemon 编排器域",
+            status: "running",
+            retryCount: 0,
+            retryNote: null,
+            instanceId: "agent-3",
+            instanceState: "parked",
+            ledger: null,
+            plan: null,
+          },
+          {
+            batchId: "batch-p2",
+            stageSeq: 2,
+            seq: 2,
+            scope: "shell 任务页面域",
+            status: "running",
+            retryCount: 0,
+            retryNote: null,
+            instanceId: "agent-4",
+            ledger: null,
+            plan: null,
+          },
+        ],
+      }),
+    } satisfies TaskDetailResultPayload);
+    const parkedBadge = qs('[data-tk-batch][data-id="batch-p1"] [data-tk-instance]');
+    // parked 形态：实例短 id + 挂起尾缀（批次行状态保持 running——徽标即实例级态）
+    expect(parkedBadge.textContent).toBe("agent-3 · 挂起(任务暂停)");
+    expect(parkedBadge.dataset.parked).toBe("on");
+    expect(parkedBadge.className).toContain("parked");
+    // 非 parked 徽标不变：纯实例短形态
+    const plainBadge = qs('[data-tk-batch][data-id="batch-p2"] [data-tk-instance]');
+    expect(plainBadge.textContent).toBe("agent-4");
+    expect(plainBadge.dataset.parked).toBeUndefined();
+    expect(plainBadge.className).not.toContain("parked");
+  });
+
+  it("agent.parked 驱动的 task.changed(changed=batch) 重拉后徽标随 instanceState 更新（挂起→恢复切换）", () => {
+    ui();
+    feedList();
+    feed("task.detail.result", {
+      task: detailOf(SIX[0]!, {
+        batches: [
+          {
+            batchId: "batch-p1",
+            stageSeq: 2,
+            seq: 1,
+            scope: "daemon 编排器域",
+            status: "running",
+            retryCount: 0,
+            retryNote: null,
+            instanceId: "agent-3",
+            instanceState: "parked",
+            ledger: null,
+            plan: null,
+          },
+        ],
+      }),
+    } satisfies TaskDetailResultPayload);
+    expect(qs("[data-tk-instance]").textContent).toContain("挂起(任务暂停)");
+    // 恢复：桥接的 task.changed 触发重拉 → instanceState 回 running → 尾缀消失
+    feed("task.changed", { jobId: "job-run", changed: "batch" });
+    feed("task.detail.result", {
+      task: detailOf(SIX[0]!, {
+        batches: [
+          {
+            batchId: "batch-p1",
+            stageSeq: 2,
+            seq: 1,
+            scope: "daemon 编排器域",
+            status: "running",
+            retryCount: 0,
+            retryNote: null,
+            instanceId: "agent-3",
+            instanceState: "running",
+            ledger: null,
+            plan: null,
+          },
+        ],
+      }),
+    } satisfies TaskDetailResultPayload);
+    expect(qs("[data-tk-instance]").textContent).toBe("agent-3");
+    expect(qs("[data-tk-instance]").dataset.parked).toBeUndefined();
+  });
+});

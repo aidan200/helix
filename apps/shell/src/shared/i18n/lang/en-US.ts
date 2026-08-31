@@ -729,6 +729,8 @@ export const enUS = {
       none: "No work ledger for this instance.",
     },
     retry: "Auto-retried {n} times",
+    /** ⑤ 链 A：批次行实例徽标 parked 形态尾缀（「agent-3 · Parked (task paused)」）。 */
+    instParked: "Parked (task paused)",
     result: {
       tabProgress: "Progress",
       tabResult: "Task Results",

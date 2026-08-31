@@ -96,6 +96,13 @@ export interface TaskBatchDto {
   retryNote: string | null;
   /** 当前/最近执行 SubAgent 实例（data-id；未派发 null）。 */
   instanceId: string | null;
+  /**
+   * 批次实例调度态（⑤ 链 A additive：queued/running/parked/done/failed/
+   * cancelled——parked = 挂起徽标数据源「agent-3 · 挂起(任务暂停)」；批次行
+   * 状态保持 running，实例级态经本字段透出。实例已不在调度注册表（重启
+   * 清理后）或缺省未装配读面 → 省略）。
+   */
+  instanceState?: string;
   /** 批次实例 plan（running/done/failed 批次携带；未派发或无台账 null）。 */
   plan: WorkItemDto[] | null;
   /** 台账计数摘要（P1-⑥ additive；与 plan 同源同 null 语义：未派发或无台账 null）。 */

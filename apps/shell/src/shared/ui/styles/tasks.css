@@ -161,6 +161,8 @@
   border: 1px solid rgb(var(--edge-rgb) / 0.14); background: rgb(var(--edge-rgb) / 0.04);
   padding: 1px 6px; border-radius: 4px; letter-spacing: 0.02em; white-space: nowrap;
 }
+/* ⑤ 链 A：挂起形态（warning 色——「agent-3 · 挂起(任务暂停)」，与 retry 徽章同色系） */
+.tk-b-inst.parked { color: var(--warning); border-color: rgb(var(--warning-rgb) / 0.4); }
 .tk-b-retry { font-size: var(--text-cap); color: var(--warning); }
 .tk-b-plan { margin-top: 8px; display: flex; align-items: center; gap: 10px; }
 .tk-b-plan-t { font-size: var(--text-body); color: var(--text-muted); white-space: nowrap; }

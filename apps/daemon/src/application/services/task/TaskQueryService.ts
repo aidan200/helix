@@ -61,6 +61,8 @@ export interface TaskBatchDto {
   readonly retryCount: number;
   readonly retryNote: string | null;
   readonly instanceId: string | null;
+  /** 批次实例调度态（⑤ 链 A：parked = 挂起徽标数据源；未装配/不在册省略）。 */
+  readonly instanceState: string | undefined;
   readonly plan: readonly WorkItemDto[] | null;
   readonly ledger: TaskBatchLedger | null;
 }
@@ -97,6 +99,11 @@ export interface TaskQueryServiceDeps {
   readonly workLedger: Pick<WorkLedgerPort, "getItems">;
   readonly skills: TaskSkillRegistryPort;
   readonly clock: ClockPort;
+  /**
+   * 批次实例调度态读面（⑤ 链 A：组合根接 scheduler.status——任务页批次行
+   * 实例徽标 parked 形态数据源；未注入/实例不在注册表 → 字段省略）。
+   */
+  readonly instanceStateOf?: (agentId: string) => string | undefined;
 }
 
 export class TaskQueryService {
@@ -177,6 +184,8 @@ export class TaskQueryService {
     // ——deleteTask 连批次行级联清，可见批次只余零行形态）→ 双 null 如实呈现。
     const rows = batch.instanceId === null ? [] : this.deps.workLedger.getItems(batch.instanceId);
     const hasLedger = rows.length > 0;
+    // 批次实例调度态（⑤ 链 A）：实例在册才携带（parked 徽标数据源）
+    const instanceState = batch.instanceId === null ? undefined : this.deps.instanceStateOf?.(batch.instanceId);
     return {
       batchId: batch.id,
       stageSeq: batch.stageSeq,
@@ -186,6 +195,7 @@ export class TaskQueryService {
       retryCount: batch.retryCount,
       retryNote: batch.retryNote,
       instanceId: batch.instanceId,
+      instanceState,
       plan: hasLedger
         ? rows.map((item) => ({
             seq: item.seq,

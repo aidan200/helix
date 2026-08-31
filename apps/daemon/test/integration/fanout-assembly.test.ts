@@ -5,10 +5,12 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { Database } from "bun:sqlite";
 import type { Daemon } from "../../src/infrastructure/container";
+import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { createTestDaemon } from "../helpers/createTestDaemon";
 import { createPaths } from "../../src/infrastructure/paths";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { PROTOCOL_VERSION } from "@helix/protocol";
+import { taskParkBridgeTarget } from "../../src/infrastructure/assembly/wireEventFanout";
 
 /**
  * T2.2 组合根结构批装配面集成（test-design TP-2.2a/b/c，架构 §4.2）：
@@ -21,11 +23,12 @@ import { PROTOCOL_VERSION } from "@helix/protocol";
  *   domain_events、不进 fan-out 注册表（架构 §4.2.3）。
  */
 
-/** 六名语义序（架构 §4.2.4；fan-out 派发序 = 注册表数组序）。 */
+/** 七名语义序（架构 §4.2.4；fan-out 派发序 = 注册表数组序；⑤ 链 A 新增 task-park-bridge）。 */
 const FANOUT_NAMES = [
   "cli-stdout",
   "cli-current-session-feedback",
   "ws-event-stream",
+  "task-park-bridge",
   "event-row-persistence",
   "session-projection",
   "directory-runstate-bridge",
@@ -110,7 +113,7 @@ async function makeRig(): Promise<Rig> {
 }
 
 describe("TP-2.2a：fan-out 带名注册表（架构 §4.2.4）", () => {
-  test("注册表名字序列恰等六名语义序（cli-stdout 最前；事件行先于状态行）", async () => {
+  test("注册表名字序列恰等七名语义序（cli-stdout 最前；事件行先于状态行；task-park-bridge 紧随 WS 事件流）", async () => {
     const rig = await makeRig();
     try {
       const names = rig.daemon.fanoutTargets.map((t) => t.name);
@@ -121,6 +124,31 @@ describe("TP-2.2a：fan-out 带名注册表（架构 §4.2.4）", () => {
     } finally {
       await rig.dispose();
     }
+  });
+});
+
+describe("⑤ 链 A：task-park-bridge（任务域实例挂起/恢复 → task.changed 任务页重拉）", () => {
+  test("task:* 会话的 agent.parked/resumed → broadcastTaskChanged(changed=batch)；chat 会话/其他事件零转发", () => {
+    const broadcasted: { jobId: string; changed: string }[] = [];
+    const target = taskParkBridgeTarget({
+      broadcastTaskChanged: (p) => broadcasted.push({ jobId: p.jobId, changed: p.changed }),
+    });
+    const parkedEvent: DomainEvent = {
+      type: "agent.parked",
+      sessionId: "task:task-abc",
+      instanceId: "agent-1",
+      payload: {},
+      occurredAt: "2026-08-31T00:00:00.000Z",
+    } as DomainEvent;
+    target.publish(parkedEvent);
+    target.publish({ ...parkedEvent, type: "agent.resumed" });
+    // chat 会话挂起（链 C）与无关事件零转发
+    target.publish({ ...parkedEvent, sessionId: "s-chat" });
+    target.publish({ ...parkedEvent, type: "agent.spawned" });
+    expect(broadcasted).toEqual([
+      { jobId: "task-abc", changed: "batch" },
+      { jobId: "task-abc", changed: "batch" },
+    ]);
   });
 });
 

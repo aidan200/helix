@@ -80,14 +80,22 @@ function BatchCard({
   const done = ledger?.done ?? 0;
   const ratio = ledger !== null && ledger.total > 0 ? done / ledger.total : 0;
   const doing = plan?.find((w) => w.status === "in_progress");
+  // ⑤ 链 A：实例徽标 parked 形态（批次行 running + 实例挂起——「agent-3 · 挂起(任务暂停)」）
+  const parked = batch.instanceState === "parked";
   return (
     <div className={cn("tk-batch", batch.status === "failed" && "failed")} data-tk-batch data-id={batch.batchId}>
       <div className="tk-b-top">
         <span className="tk-b-scope">{batch.scope}</span>
         <PhaseBadge kind="batch" status={batch.status} label={t(`tk.batch.${batch.status}`)} />
         {batch.instanceId !== null && (
-          <span className="tk-b-inst" data-tk-instance title={batch.instanceId}>
+          <span
+            className={cn("tk-b-inst", parked && "parked")}
+            data-tk-instance
+            data-parked={parked ? "on" : undefined}
+            title={batch.instanceId}
+          >
             {fmtInstance(batch.instanceId)}
+            {parked ? ` · ${t("tk.instParked")}` : ""}
           </span>
         )}
         {batch.retryCount > 0 && (

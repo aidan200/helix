@@ -392,6 +392,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   });
   let broadcastTaskChanged: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void = () => {};
   let orchestratorService: TaskOrchestratorService | undefined;
+  /** 调度器晚绑引用（⑤ 链 A：任务栈 instanceStateOf 闭包读现值）。 */
+  let schedulerLate: { status(agentId?: string): { state: string }[] } | undefined;
   /** 晚绑 starter 代理（T2.2 真体在 sessionStack 之后构造回填；未回填 = 占位语义）。 */
   const lateStarter: TaskOrchestratorStarterPort = {
     startOrchestrator: (jobId) =>
@@ -419,6 +421,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     starterOverride: lateStarter,
     skillSource: taskSkillSource,
     onTaskChanged: (frame) => broadcastTaskChanged(frame),
+    // 链 A（⑤）：批次实例调度态读面（任务页 parked 徽标数据源）——晚绑闭包
+    // 读 scheduler 现值（sessionStack 在本块之后建，构造窗口零调用）
+    instanceStateOf: (agentId) => schedulerLate?.status(agentId)[0]?.state,
   });
   // P0① 回填：kg 栈 projectService 的 bootstrapRunning 查询面接任务库现值
   taskStoreForProjectRows = taskStack.orchestratorCore.store;
@@ -537,6 +542,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     taskClosureSink: (agentId) => orchestratorService?.handleInstanceClosure(agentId),
   });
   const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow, orchestratorAssembly } = sessionStack;
+  schedulerLate = scheduler; // 链 A 晚绑闭合：instanceStateOf 读面接调度器现值
 
   // ── T2.2 晚绑闭合：task.changed 广播单点 + 编排服务真体回填──
   //    AF-T1.5.2：引擎出站钩子经同一 EventStream.broadcastTaskChanged 通路

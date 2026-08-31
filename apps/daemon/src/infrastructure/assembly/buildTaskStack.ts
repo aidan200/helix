@@ -70,6 +70,11 @@ export interface BuildTaskStackDeps {
    * 命令面归 handler，不双发）。缺省不推送（隔离测试形态）。
    */
   readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void;
+  /**
+   * 批次实例调度态读面（⑤ 链 A：组合根接 scheduler.status——晚绑闭包，
+   * 调度器在 sessionStack 之后建；未注入 → DTO instanceState 省略）。
+   */
+  readonly instanceStateOf?: (agentId: string) => string | undefined;
 }
 
 export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStack> {
@@ -91,7 +96,13 @@ export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStac
     clock: deps.clock,
     ...(deps.onTaskChanged !== undefined ? { onTaskChanged: deps.onTaskChanged } : {}),
   });
-  const query = new TaskQueryService({ store, workLedger, skills, clock: deps.clock });
+  const query = new TaskQueryService({
+    store,
+    workLedger,
+    skills,
+    clock: deps.clock,
+    ...(deps.instanceStateOf !== undefined ? { instanceStateOf: deps.instanceStateOf } : {}),
+  });
   // T2.2 编排服务任务域依赖面：台账读面（父进程不持写面，O-1 表分域）+
   // skill 全文取数（扫描 → 文件读取；组合根 fs 职责，服务层零 IO）
   const ledger = new WorkLedgerService({ reader: workLedger });
