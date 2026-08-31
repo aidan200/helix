@@ -90,6 +90,24 @@ describe("bootstrapEntryMode 准入四态判定（CL-1-T8 机械定义）", () =
   });
 });
 
+describe("bootstrapEntryMode running 态（P0① 双启动防护：bootstrapRunning 优先）", () => {
+  const RUNNING_READY: KgProjectRow = { name: "helix", path: "/ws/helix", status: "synced", symbolCount: 56, nodeCount: 0, bootstrapRunning: true };
+  const RUNNING_FULL: KgProjectRow = { name: "pi-src", path: "/ws/pi-src", status: "synced", symbolCount: 81, nodeCount: 81, bootstrapRunning: true };
+  const RUNNING_BUILDING: KgProjectRow = { name: "rising", path: "/ws/rising", status: "building", bootstrapRunning: true };
+
+  it("bootstrapRunning=true 优先于其他条件：ready/launched/hidden/building 位全让位", () => {
+    expect(bootstrapEntryMode(RUNNING_READY, false)).toBe("running");
+    expect(bootstrapEntryMode(RUNNING_READY, true)).toBe("running"); // 会话内启动标记也让位（任务确在跑）
+    expect(bootstrapEntryMode(RUNNING_FULL, false)).toBe("running"); // 优先于 hidden（窗口期后产出中仍可见出口）
+    expect(bootstrapEntryMode(RUNNING_BUILDING, false)).toBe("running");
+  });
+
+  it("bootstrapRunning 缺省/false → 既有四态不动（旧 daemon 兼容）", () => {
+    expect(bootstrapEntryMode({ status: "synced", nodeCount: 0 }, false)).toBe("ready");
+    expect(bootstrapEntryMode(ROWS[0]!, false)).toBe("ready"); // 旧行无字段 = 无任务在跑
+  });
+});
+
 describe("bootstrap 入口启动标记与产出呈现状态", () => {
   it("bootstrap-launched 置位（启动成功回执）", () => {
     let s = loaded();

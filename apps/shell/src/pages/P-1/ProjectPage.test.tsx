@@ -559,6 +559,7 @@ describe("W4 workspace_changed 刷新链（项目域 + kg 视图）", () => {
 const BOOT_PROJECTS: KgProjectRow[] = [
   { name: "helix", path: "/ws/helix", status: "synced", symbolCount: 56, nodeCount: 17, syncedAt: "2026-08-25T14:32:00+08:00" },
   { name: "legacy", path: "/ws/legacy", status: "synced", symbolCount: 43, nodeCount: 0, syncedAt: "2026-08-25T14:32:00+08:00" },
+  { name: "wiring", path: "/ws/wiring", status: "synced", symbolCount: 7, nodeCount: 0, bootstrapRunning: true }, // P0① 运行中位
 ];
 
 /** 产出分组夹具（任务 → L0/L1 两阶段 → 两批次 → 三节点）。 */
@@ -664,6 +665,21 @@ describe("T3.2 bootstrap 入口准入与任务内容卡（R-11/R-12）", () => {
     expect(qs('[data-boot-entry="launched"]')).not.toBeNull();
     expect(qs("[data-boot-launched]")!.textContent).toContain("已创建并进入执行");
     expect(qs("[data-goto-tasks]")!.textContent).toContain("前往「任务」页观察");
+  });
+
+  it("P0① 运行中项目入口卡 running 态：徽标 + 前往任务页出口，无启动钮/范围输入", () => {
+    ui();
+    feedBootProjects();
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("wiring").closest(".pj-row")!);
+    feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
+    feed("kg.change.report.result", REPORT);
+    feed("kg.index.status.result", { state: "synced", symbolCount: 7, syncedAt: "2026-08-25T14:32:00+08:00" });
+    const entry = qs('[data-boot-entry="running"]');
+    expect(entry).not.toBeNull();
+    expect(entry.textContent).toContain("图谱构建进行中");
+    expect(entry.querySelector("[data-goto-tasks]")).not.toBeNull(); // 「前往『任务』页观察 →」出口
+    expect(entry.querySelector("[data-launch-btn]")).toBeNull(); // 无启动钮
+    expect(entry.textContent).not.toContain("范围参数"); // 无范围输入行
   });
 });
 
