@@ -435,8 +435,6 @@ export const zhCN = {
       projectsAriaLabel: "项目列表",
       countLine: "{n} 个项目 · {m} 已建索引",
       loading: "读取项目列表…",
-      worktreesTitle: "工作树",
-      worktreesEmpty: "暂无数据 · 占位",
       expandTitle: "展开项目域",
     },
     badge: {

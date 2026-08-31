@@ -430,8 +430,6 @@ export const enUS = {
       projectsAriaLabel: "Project list",
       countLine: "{n} projects · {m} indexed",
       loading: "Loading projects…",
-      worktreesTitle: "Worktrees",
-      worktreesEmpty: "No data · placeholder",
       expandTitle: "Expand project domain",
     },
     badge: {

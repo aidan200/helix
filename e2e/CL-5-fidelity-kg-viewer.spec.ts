@@ -9,7 +9,7 @@
  * - FID-01/02 单页顶栏与氛围层；FID-03~06 F5.1 列表/过滤/空态；
  * - FID-07~11 F5.2 六段详情；FID-12~15 F5.3 报告；FID-16~18 F5.4 转正；
  * - FID-19~21 F5.5 索引面板；FID-22~24 主题/骨架/toast；
- * - FID-25~32 F5.0 项目域与主区状态机（含 B1 冷启动全链）。
+ * - FID-25~32 F5.0 项目域与主区状态机（含 B1 冷启动全链；FID-29 工作树占位段已随 D8 W-R7 删除退役）。
  * - 机械核对五点：裸 id 不可见 / 符号等宽 / 因果叙述句式 / 状态互斥
  *   结构 / 转正入口唯一（test-design §3.4）。
  * - 反向断言：data-proto-annotation 不存在；全程无路由跳转（URL 恒 /project）。
@@ -65,7 +65,7 @@ test.describe("T5.4 P-1 fidelity：F5.0 项目域 + F5.1~F5.5 图谱（FID-25~32
     const checks: FidelityCheck[] = [
       {
         id: "FID-25",
-        title: "单页 master-detail：页顶栏唯一（项目+workspace 徽章+主题切换+选中后上下文 chip）；左栏两段+主区；无「查看图谱」/返回入口",
+        title: "单页 master-detail：页顶栏唯一（项目+workspace 徽章+主题切换+选中后上下文 chip）；左栏+主区；无「查看图谱」/返回入口",
         run: async () => {
           // 页顶栏唯一（可见口径：ChatPage 常驻 DOM display:none 属 F(4.4).2
           // 保状态架构，隐藏 header 不构成用户可见顶栏——:visible scope）
@@ -120,17 +120,6 @@ test.describe("T5.4 P-1 fidelity：F5.0 项目域 + F5.1~F5.5 图谱（FID-25~32
         },
       },
       {
-        id: "FID-29",
-        title: "工作树占位段：段头「工作树」+计数 0+空态行「暂无数据 · 占位」；无数据行",
-        run: async () => {
-          const wt = page.locator('.pj-dsec-wt');
-          await expect(wt.locator(".pj-dsec-title")).toHaveText("工作树");
-          await expect(wt.locator(".pj-dsec-count")).toHaveText("0");
-          await expect(wt.locator(".pj-wt-empty")).toHaveText("暂无数据 · 占位");
-          expect(await wt.locator(".pj-row").count()).toBe(0); // 不造数据行
-        },
-      },
-      {
         id: "FID-30",
         title: "折叠-展开：选中→36px 窄轨（点竖排名展开）；展开恢复；可反复；不改主区；点已选中行仅折叠",
         run: async () => {
@@ -142,7 +131,7 @@ test.describe("T5.4 P-1 fidelity：F5.0 项目域 + F5.1~F5.5 图谱（FID-25~32
           expect(await computed(page, ".pj-rail", "width")).toBe("36px");
           expect(await computed(page, ".pj-rail-name", "writing-mode")).toContain("vertical");
           await expect(page.locator('[data-pj-main="graph"]')).toBeVisible();
-          // 点竖排名展开：恢复两段列表，主区不动
+          // 点竖排名展开：恢复列表，主区不动
           await page.locator(".pj-rail-name").click();
           await expect(page.locator(".pj-domain")).toBeVisible();
           await expect(page.locator('[data-pj-rail="collapsed"]')).toBeHidden();

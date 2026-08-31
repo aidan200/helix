@@ -244,10 +244,9 @@ afterEach(() => {
 });
 
 describe("F5.0 左栏项目域与主区状态机", () => {
-  it("初始：主区 empty 空态 + 左栏两段（项目列表 + 工作树占位空态）+ 项目行可选中无按钮", () => {
+  it("初始：主区 empty 空态 + 左栏项目列表段 + 项目行可选中无按钮", () => {
     ui();
     expect(screen.getByText("从左侧选择项目")).toBeTruthy();
-    expect(qs(".pj-wt-empty")!.textContent).toBe("暂无数据 · 占位");
     expect(qs('[aria-label="项目列表"]')!.querySelectorAll(".pj-row")).toHaveLength(0);
     feedProjects();
     const rows = qs('[aria-label="项目列表"]')!.querySelectorAll(".pj-row");

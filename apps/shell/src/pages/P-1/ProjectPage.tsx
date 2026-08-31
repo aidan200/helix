@@ -315,13 +315,6 @@ const ProjectPage = function ProjectPage({
                 )}
               </div>
             </section>
-            <section className="pj-dsec pj-dsec-wt" aria-label={t("pj.domain.worktreesTitle")}>
-              <div className="pj-dsec-head">
-                <span className="pj-dsec-title">{t("pj.domain.worktreesTitle")}</span>
-                <span className="pj-dsec-count">0</span>
-              </div>
-              <div className="pj-wt-empty">{t("pj.domain.worktreesEmpty")}</div>
-            </section>
           </aside>
         )
       }

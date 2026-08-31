@@ -24,15 +24,6 @@
 .pj-dsec-title { font-size: var(--text-cap); color: var(--text-dim); letter-spacing: 0.14em; }
 .pj-dsec-count { font-size: var(--text-micro); color: var(--text-faint); letter-spacing: 0.03em; }
 .pj-plist { flex: 1; overflow-y: auto; min-height: 0; padding: 2px 8px 8px; }
-.pj-dsec-wt { flex: none; border-top: 1px solid var(--border); }
-
-/* F5.0 工作树空态：设计意图占位（虚线框 + muted 文案），非破损观感 */
-.pj-wt-empty {
-  margin: 8px 14px 14px; padding: 16px 10px;
-  border: 1px dashed rgb(var(--edge-rgb) / 0.12); border-radius: 8px;
-  text-align: center; color: var(--text-faint); font-size: var(--text-cap);
-  letter-spacing: 0.04em;
-}
 
 /* F5.0 项目行：可选中（无行尾动作按钮）；次行状态信息单行截断 */
 .pj-row {
