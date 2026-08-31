@@ -76,8 +76,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "web_search",
         "web_fetch",
         "browser", // H-3：+browser（wire 转发通道接 daemon CDP 单例）
-        "kg", // T3.3：kg 双工具
-        "kg-update",
+        "kg", // T3.3：kg 只读查询面（D8 W-R6：-kg-update 写面收权）
         "codegraph", // W1-B（R5/R7）：codegraph 只读工具
         "plan_create", // T1.4：plan 三工具（AD-6①，subagent 独有）
         "plan_update",

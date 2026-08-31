@@ -132,8 +132,9 @@ export interface CoreToolExecutorOptions {
   /**
    * kg 双工具注入面（T3.3）：提供则注册 kg（只读 search/get）与
    * kg-update（即时落账/supersede）。主会话（buildSessionStack）与
-   * SubAgent 子进程（ChildMain 本地栈）均注入；缺省不注册（既有测试
-   * 形态/无 kg 场景 profile 不声明两名）。
+   * SubAgent 子进程（ChildMain 本地栈）均注入；D8 W-R6 后工具集归属：
+   * subagent-worker 只声明 kg、subagent-kg-writer（图谱产出型批次）声明
+   * 双工具；注册面恒宽（声明面管控谁可见）；缺省不注册（既有测试形态）。
    */
   readonly kg?: KgToolOptions;
   /**
