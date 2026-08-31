@@ -6,12 +6,17 @@
  *
  *   argv/env 解析（--task / HELIX_MODEL_JSON 透传 / HELIX_API_KEYS_JSON /
  * HELIX_TOOL_CWD / HELIX_FAKE_ENGINE_SCRIPT 剧本注入）
- *     → PiAgentEngineAdapter + SubAgentProfile 装配
+ *     → PiAgentEngineAdapter + SubAgentProfile 装配（+ ParkGuardHooks 挂起硬拦截）
  *     → started 行（含 pid + model 回显）
- *     → stdin send 行 → engine.steer()（AD-7⑤：Agent.steer() 内建队列）
+ *     → stdin send 行 → 协议指令分派（park/resume 标记）或 Agent.steer()
  *     → 单次驱动 engine.start(task)（single-shot，不进 persistent 循环）
+ *     → park/resume 循环（⑤ park/resume 批）：run 结束点检测
+ *       <<<PARK {...} PARK>>> 标记 → parked 行上行 + 挂起等待（不收口不退出）
+ *       → RESUME 注入唤醒 → continueRun 续跑（同一会话，PARK 摘要在对话
+ *       历史 + 暂存 steer 随 run drain）→ 可多次挂起/恢复
  *     → 最后一条 assistant 文本解析 closure 块（五字段）→ closure 行 → exit(0)
- *     → SIGTERM（O-6 优雅路径）→ abort → failed(terminated) closure → exit(0)
+ *     → SIGTERM（O-6 优雅路径）→ abort / 唤醒挂起等待 → failed(terminated)
+ *       closure → exit(0)
  *     → 任何异常 → crash 行 → exit(1)（父侧崩溃检测判 failed）
  *
  * 本模块只在 `bun run ChildMain.ts` 直跑时执行 main（import.meta.main 守卫，
@@ -25,10 +30,17 @@ import { CoreToolExecutor, type KgToolOptions } from "../../tools/CoreToolExecut
 import { encodeLine, parseParentLine } from "../transport/wire";
 import type { ChildOutboundLine, SendLine, ToolResponseLine } from "../transport/wire";
 import { RemoteBrowserPort } from "./RemoteBrowserPort";
+import { ParkGuardHooks } from "./ParkGuardHooks";
+import {
+  isParkInstruction,
+  isResumeInstruction,
+  parseParkBlock,
+} from "../../../../application/services/scheduler/parkProtocol";
 import { loadFakeEngineScript, makeScriptedStreamFn } from "./scriptedEngine";
 import type { FakeEngineScript } from "./scriptedEngine";
 import type { InstanceClosurePayload } from "../../../../domain/events/DomainEvent";
 import { KgDatabase } from "../../sqlite-kg/KgDatabase";
+import type { AgentEngineEvent } from "../../../../application/ports/outbound/AgentEnginePort";
 import { SqliteKnowledgeGraph } from "../../sqlite-kg/SqliteKnowledgeGraph";
 import { SqliteKnowledgeStore } from "../../sqlite-kg/SqliteKnowledgeStore";
 import { KgWriteService } from "../../../../application/services/kg/KgWriteService";
@@ -109,9 +121,20 @@ export function buildFallbackSummary(lastAssistantText: string, lastEngineError:
   return `未按 closure 协议收口${reason}：${lastAssistantText.slice(0, 80)}`;
 }
 
-// ── stdin 父侧行读取（AD-7⑤ send → Agent.steer()；H-3 tool-res → RemoteBrowserPort） ──────
+// ── stdin 父侧行读取（AD-7⑤ send → Agent.steer()；H-3 tool-res → RemoteBrowserPort；
+//      park/resume 协议指令分派 → 挂起标志/唤醒） ──────
 
-function readStdin(instanceId: string, onLine: (line: SendLine | ToolResponseLine) => void): void {
+/** 协议指令分派结果（readStdin 消费面）。 */
+interface StdinDispatch {
+  /** park 请求到达（置挂起标志 + steer 指令）。 */
+  onPark: (text: string) => void;
+  /** resume 到达（清挂起标志 + steer 指令 + 唤醒挂起等待）。 */
+  onResume: (text: string) => void;
+  /** 普通注入（含挂起期暂存——steer 队列内建缓冲，resume run 一并 drain）。 */
+  onSteer: (text: string) => void;
+}
+
+function readStdin(instanceId: string, dispatch: StdinDispatch, onToolRes: (line: ToolResponseLine) => void): void {
   void (async () => {
     const decoder = new TextDecoder();
     let buf = "";
@@ -124,8 +147,12 @@ function readStdin(instanceId: string, onLine: (line: SendLine | ToolResponseLin
           buf = buf.slice(nl + 1);
           if (!raw) continue;
           const line = parseParentLine(raw);
-          if (line) onLine(line);
-          else writeLine({ type: "log", instanceId, text: `忽略无法解析的 stdin 行：${raw.slice(0, 60)}` });
+          if (line) {
+            if (line.type === "tool-res") onToolRes(line);
+            else if (isParkInstruction(line.text)) dispatch.onPark(line.text);
+            else if (isResumeInstruction(line.text)) dispatch.onResume(line.text);
+            else dispatch.onSteer(line.text);
+          } else writeLine({ type: "log", instanceId, text: `忽略无法解析的 stdin 行：${raw.slice(0, 60)}` });
         }
       }
     } catch {
@@ -340,6 +367,11 @@ async function main(): Promise<void> {
     codegraph,
     plan: workLedger.tools,
   });
+  // ⑤ park/resume 批：挂起协议子进程侧状态（共享对象——stdin 读取器写、
+  // ParkGuardHooks 读；P6 双保险：标志位即硬拦截输入）
+  const parkState = { parkRequested: false };
+  /** 挂起等待唤醒器（parked 循环内量；RESUME/SIGTERM 解除）。 */
+  let parkedWake: (() => void) | undefined;
   const engine = new PiAgentEngineAdapter({
     profile,
     model, // env JSON 解析的完整对象透传（与父侧深度相等）
@@ -352,25 +384,24 @@ async function main(): Promise<void> {
       ? { resolveThinking: (m: Model<any>) => (supportsThinkingLevel(m, thinkingLevel) ? thinkingLevel : undefined) }
       : {}),
     resolveTools: (names) => executor.resolveTools(names),
+    // ⑤ park/resume 批：挂起硬拦截入链（R12 预留位首个实例）
+    extraHooks: [new ParkGuardHooks(parkState)],
   });
 
-  // O-6 优雅路径：SIGTERM → abort 当前 run → drive 收敛 → failed closure → exit(0)
+  // O-6 优雅路径：SIGTERM → abort 当前 run / 唤醒挂起等待 → drive 收敛 →
+  // failed closure → exit(0)
   let terminated = false;
   process.on("SIGTERM", () => {
     terminated = true;
+    parkState.parkRequested = false; // 终止路径解除拦截（收尾无新工具）
+    parkedWake?.(); // 挂起等待唤醒 → failed(terminated) closure 路径
     engine.abort();
   });
 
   let lastAssistantText = "";
   let lastEngineError: string | undefined; // 多轮错误取末条 engine_error message（单变量覆盖）
-  writeLine({ type: "started", instanceId, pid: process.pid, model });
-  readStdin(instanceId, (line) => {
-    if (line.type === "send") engine.steer(line.text); // AD-7⑤：Agent.steer() 内建队列
-    else remoteBrowser.handleResponse(line); // H-3：tool-res → pending 关联 settle
-  });
-
-  // single-shot：驱动一次 run（含 steer drain 轮），结束即收口
-  await engine.start(task, (event) => {
+  /** 引擎事件回调（start/continueRun 同一翻译链：上行 + 末条 assistant 跟踪）。 */
+  const onEngineEvent = (event: AgentEngineEvent) => {
     if (event.type === "message_end" && event.role === "assistant" && event.stopReason !== "error") {
       lastAssistantText = event.text;
     }
@@ -385,7 +416,47 @@ async function main(): Promise<void> {
       );
     }
     writeLine({ type: "event", instanceId, event });
-  });
+  };
+  writeLine({ type: "started", instanceId, pid: process.pid, model });
+  readStdin(
+    instanceId,
+    {
+      // park 指令：置挂起标志（硬拦截立即生效——在飞工具完成后新调用一律拒）
+      // + 指令 steer 入队（协作式第一层：turn 边界 drain 为新 turn）
+      onPark: (text) => {
+        parkState.parkRequested = true;
+        engine.steer(text);
+      },
+      // resume 指令：清拦截标志（复活）+ 指令 steer 入队（continue 的 drain
+      // 首条 user 消息）+ 唤醒挂起等待
+      onResume: (text) => {
+        parkState.parkRequested = false;
+        engine.steer(text);
+        parkedWake?.();
+      },
+      onSteer: (text) => engine.steer(text), // AD-7⑤：Agent.steer() 内建队列（挂起期即暂存）
+    },
+    (line) => remoteBrowser.handleResponse(line), // H-3：tool-res → pending 关联 settle
+  );
+
+  // single-shot：驱动一次 run（含 steer drain 轮）
+  await engine.start(task, onEngineEvent);
+
+  // ⑤ park/resume 批：挂起/恢复循环——run 结束点检测 PARK 标记（协作式第一
+  // 层）。挂起等待不收口不退出（进程驻留、上下文在内存、零 token）；RESUME
+  // 唤醒后 continueRun 从断点续跑（PARK 摘要已在对话历史，暂存 steer 随 run
+  // drain）。可多次挂起/恢复；无标记/terminated → 走收口路径。
+  while (!terminated) {
+    const parked = parseParkBlock(lastAssistantText);
+    if (parked === undefined) break; // 无挂起标记：正常收口
+    writeLine({ type: "parked", instanceId, summary: parked });
+    await new Promise<void>((resolve) => {
+      parkedWake = resolve;
+    });
+    parkedWake = undefined;
+    if (terminated) break; // SIGTERM 唤醒：走收口路径（failed terminated）
+    await engine.continueRun(onEngineEvent); // 恢复续跑（同一会话）
+  }
 
   // H-3：退出清场——abort/异常中断的在飞转发请求统一拒绝（定时器同清）
   remoteBrowser.rejectAll("子进程退出清场");

@@ -58,6 +58,12 @@ export interface PiEngineOptions {
   /** 工具集装配器（CoreToolExecutor.resolveTools，组合根接线）。 */
   readonly resolveTools?: AgentRuntimeDeps["resolveTools"];
   /**
+   * 额外钩子实例（park/resume 批）：透传 AgentRuntimeDeps.extraHooks——
+   * 需要运行期状态注入的钩子（子进程 ParkGuardHooks 挂起标志位）经此面
+   * 接入 hooks 链；缺省不追加（既有装配行为不变）。
+   */
+  readonly extraHooks?: AgentRuntimeDeps["extraHooks"];
+  /**
    * 网络重试配置（P2 ⑦，引擎级全局生效：主会话/子进程编排器同源包装）：
    * backoffMs/sleep 注入 = 测试假时钟面；缺省 10/30/60s 退避 + 真等待
    * （abort 感知）。重试进入等待时经监听器发 engine_retrying 事件
@@ -114,6 +120,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
       models,
       getApiKey: explicitGetApiKey(options.apiKeys),
       resolveTools: options.resolveTools,
+      ...(options.extraHooks !== undefined ? { extraHooks: options.extraHooks } : {}),
       // turn 边界 compaction 产物 → port 事件（失败走 engine_error，不崩会话）
       onCompactionCompleted: (r) =>
         this.listener?.({
@@ -132,6 +139,20 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     this.listener = listener;
     try {
       await this.runtime.drive(input, images);
+    } finally {
+      this.listener = null;
+    }
+  }
+
+  /**
+   * 从当前转录继续驱动（park/resume 批，子进程挂起恢复专用）：agent.continue()
+   * 语义——末消息 assistant 时 drain steer 队列（暂存注入 + RESUME 指令）
+   * 作为新 run 输入。事件时序与 start 同源（同一监听器翻译链）。
+   */
+  async continueRun(listener: AgentEngineListener): Promise<void> {
+    this.listener = listener;
+    try {
+      await this.runtime.continueRun();
     } finally {
       this.listener = null;
     }

@@ -49,6 +49,12 @@ export interface AgentRuntimeDeps {
   readonly onCompactionCompleted?: (result: CompactionOutcome) => void;
   /** turn 边界 compaction 失败上抛（不崩会话，继续 turn）。 */
   readonly onCompactionFailed?: (message: string) => void;
+  /**
+   * 额外钩子实例（park/resume 批）：装配期已实例化的 HookSet 直接入链
+   * ——profile.hooks 是构造器引用（T1 纯声明），需要运行期状态注入的钩子
+   * （如子进程 ParkGuardHooks 共享挂起标志位）经此面接入。缺省不追加。
+   */
+  readonly extraHooks?: readonly HookSet[];
 }
 
 export class AgentRuntime {
@@ -59,7 +65,8 @@ export class AgentRuntime {
     const compaction = compactionHooks(profile, deps);
     // hooks 声明为构造器引用（纯数据，T1）：在此装配点每 runtime 实例化——
     // SteerHooks.bind 绑 agent 引用，共享实例即跨 runtime 串台（P0）。
-    const hooks = [...profile.hooks.map((H) => new H()), ...compaction];
+    // extraHooks（park/resume 批）为已实例化钩子（运行期状态注入面）直接追加。
+    const hooks = [...profile.hooks.map((H) => new H()), ...compaction, ...(deps.extraHooks ?? [])];
     this.agent = new Agent({
       initialState: {
         systemPrompt: profile.systemPrompt,
@@ -85,6 +92,17 @@ export class AgentRuntime {
   async drive(input: string, images?: readonly string[]): Promise<void> {
     const imageContents = images === undefined || images.length === 0 ? undefined : images.map(toImageContent);
     await this.agent.prompt(input, imageContents);
+    await this.agent.waitForIdle();
+  }
+
+  /**
+   * 从当前转录继续驱动（park/resume 批）：agent.continue() 语义——末消息为
+   * assistant 时 drain steer 队列（挂起期暂存注入 + RESUME 指令）作为新
+   * run 输入；末消息为 user/toolResult 时直接续跑。挂起恢复后同一会话
+   * 从断点续跑的单点。
+   */
+  async continueRun(): Promise<void> {
+    await this.agent.continue();
     await this.agent.waitForIdle();
   }
 
