@@ -172,7 +172,7 @@ interface DetailShape {
   readonly materializedAnchors: readonly { readonly anchorKind: string; readonly anchorPath: string; readonly anchorSymbol: string | null }[];
   readonly edges: readonly { readonly verb: string; readonly otherId: string; readonly direction: string }[];
   readonly supersedeChain: readonly { readonly nodeId: string; readonly name: string; readonly status: string; readonly relation: string }[];
-  readonly changeLog: readonly { readonly iterationId: string; readonly op: string; readonly supersedeOf: string | null; readonly reason: string | null }[];
+  readonly changeLog: readonly { readonly iterationId: string | null; readonly taskId?: string | null; readonly op: string; readonly supersedeOf: string | null; readonly reason: string | null }[];
 }
 
 function renderDetail(detail: DetailShape, project: string): string {
@@ -212,7 +212,11 @@ function renderDetail(detail: DetailShape, project: string): string {
   for (const entry of detail.changeLog) {
     const chain = entry.supersedeOf !== null ? ` → ${entry.supersedeOf}` : "";
     const reason = entry.reason !== null ? `（${entry.reason}）` : "";
-    lines.push(`- [${entry.iterationId}] ${entry.op}${chain}${reason}`);
+    // P0 ④：溯源主锚 task_id 优先，iteration_id 非空照旧、空不展示
+    const stamp = [entry.taskId ?? null, entry.iterationId]
+      .filter((v): v is string => typeof v === "string" && v !== "")
+      .join(" / ");
+    lines.push(`- ${stamp !== "" ? `[${stamp}] ` : ""}${entry.op}${chain}${reason}`);
   }
   return lines.join("\n");
 }

@@ -57,7 +57,7 @@ const KgReportPane = function KgReportPane({
     <div data-kg-report>
       <div className="kgv-report-head">
         <span className="kgv-report-title">{t("pj.kg.reportTitle")}</span>
-        <span className="hud-chip">{report.iterationId}</span>
+        {report.iterationId != null && <span className="hud-chip">{report.iterationId}</span>}
         <span className="hud-chip">{t("pj.kg.reportCount", { n: report.entries.length })}</span>
       </div>
       {report.entries.map((en, i) => {

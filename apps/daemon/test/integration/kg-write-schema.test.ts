@@ -210,20 +210,44 @@ describe("kg service API schema 防线（CL-2.A10）", () => {
     expect(knowledgeCounts(root)).toEqual({ nodes: 2, anchor_decl: 0, change_log: 2, edges: 0 });
   });
 
-  test("⑥ 缺 iterationId / 非对象 op → KG_E_SCHEMA（change_log 每行需迭代 id）", () => {
+  test("⑥ iterationId 可空（P0 ④）：缺省/NULL 合法落 change_log NULL；空字符串拒绝；非对象 op 拒绝", () => {
     const { root, service } = freshStack();
+    // 缺省（未携带）→ 合法：节点落库 + change_log 行 iteration_id NULL
     const noIteration = service.write(root, {
       kind: "createNode",
       draft: validDraft,
     } as unknown as KnowledgeWriteOp);
-    expect(noIteration).toEqual({
+    expect(noIteration).toEqual({ ok: true, nodeId: "TR-1" });
+    // 显式 null 同形（工具面解析失败时的落空形态）
+    const nullIteration = service.write(root, {
+      kind: "createNode",
+      iterationId: null,
+      draft: validDraft,
+    } as unknown as KnowledgeWriteOp);
+    expect(nullIteration).toEqual({ ok: true, nodeId: "TR-2" });
+    const iterationColumn = (root: string): (string | null)[] => {
+      const db = new Database(kgDbPath(root), { readonly: true });
+      try {
+        return (db.prepare("SELECT iteration_id FROM change_log ORDER BY rowid").all() as { iteration_id: string | null }[]).map((r) => r.iteration_id);
+      } finally {
+        db.close();
+      }
+    };
+    expect(iterationColumn(root)).toEqual([null, null]);
+    // 空字符串 → KG_E_SCHEMA（携带则必非空）
+    const empty = service.write(root, {
+      kind: "createNode",
+      iterationId: "",
+      draft: validDraft,
+    } as unknown as KnowledgeWriteOp);
+    expect(empty).toEqual({
       ok: false,
       error: { code: "KG_E_SCHEMA", message: expect.any(String), path: "op.iterationId" },
     });
     const notObject = service.write(root, "createNode" as unknown as KnowledgeWriteOp);
     expect(notObject.ok).toBe(false);
     if (!notObject.ok) expect(notObject.error.code).toBe("KG_E_SCHEMA");
-    expect(knowledgeCounts(root).change_log).toBe(0);
+    expect(knowledgeCounts(root).change_log).toBe(2);
   });
 
   test("⑦ updateNode patch 契约：scene 入可更新集（R23 补全通道，D8 遗留①）——合法补全落库 / 空白拒绝 / 未知字段拒绝", () => {

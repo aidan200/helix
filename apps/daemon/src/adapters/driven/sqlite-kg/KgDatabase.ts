@@ -76,6 +76,12 @@ export class KgDatabase {
  *   缺省否则 ALTER 拒绝含行旧表）。老库既有行/数据不动；新库经
  *   KG_SCHEMA_SQL 直建含三列（本函数 no-op）。
  *
+ * - change_log.iteration_id NOT NULL → 可空（P0 ④：iteration_id 去 v1 化，
+ *   双锚缺失落 NULL 不再报错）：SQLite 无法 ALTER 放宽列约束，走一次性
+ *   表重建（change_log 为 append-only 审计表，行序/序号/全列原样搬迁，
+ *   重建后索引原位恢复、AUTOINCREMENT 计数器随 max(seq) 续号不回卷）。
+ *   已是新形状 → no-op。
+ *
  * 不做迁移框架（与 sqlite-session 同口径）：无版本表、无回滚——检测即修。
  */
 function ensureSchemaEvolved(db: Database): void {
@@ -87,6 +93,53 @@ function ensureSchemaEvolved(db: Database): void {
   }
   if (!hasColumn(db, "nodes", "scene")) {
     db.exec("ALTER TABLE nodes ADD COLUMN scene TEXT NOT NULL DEFAULT ''");
+  }
+  relaxChangeLogIterationNotNull(db);
+}
+
+/** change_log.iteration_id 带 NOT NULL（旧形状）→ 表重建为可空（P0 ④）；新形状 no-op。 */
+function relaxChangeLogIterationNotNull(db: Database): void {
+  const cols = db.prepare("PRAGMA table_info(change_log)").all() as { name: string; notnull: number }[];
+  const iteration = cols.find((c) => c.name === "iteration_id");
+  if (iteration === undefined || iteration.notnull === 0) return; // 表缺席（随建新形状）/ 已可空
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("ALTER TABLE change_log RENAME TO change_log_legacy");
+    db.exec(
+      "CREATE TABLE change_log (" +
+        "seq INTEGER PRIMARY KEY AUTOINCREMENT, " +
+        "iteration_id TEXT, " +
+        "task_id TEXT, " +
+        "op TEXT NOT NULL, " +
+        "node_id TEXT NOT NULL, " +
+        "supersede_of TEXT, " +
+        "reason TEXT, " +
+        "ts TEXT NOT NULL)",
+    );
+    db.exec(
+      "INSERT INTO change_log (seq, iteration_id, task_id, op, node_id, supersede_of, reason, ts) " +
+        "SELECT seq, iteration_id, task_id, op, node_id, supersede_of, reason, ts FROM change_log_legacy",
+    );
+    db.exec("DROP TABLE change_log_legacy");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_change_log_node ON change_log(node_id)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_change_log_supersede_of ON change_log(supersede_of)");
+    // AUTOINCREMENT 计数器对齐 max(seq)（RENAME 后 sqlite_sequence 条目名随表，
+    // 显式校准防发号回卷；sqlite_sequence 允许直接写，SQLite 官方口径）
+    db.exec(
+      "INSERT INTO sqlite_sequence (name, seq) SELECT 'change_log', IFNULL((SELECT MAX(seq) FROM change_log), 0) " +
+        "WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'change_log')",
+    );
+    db.exec(
+      "UPDATE sqlite_sequence SET seq = IFNULL((SELECT MAX(seq) FROM change_log), 0) WHERE name = 'change_log'",
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // 事务未开——无半态
+    }
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }
 
