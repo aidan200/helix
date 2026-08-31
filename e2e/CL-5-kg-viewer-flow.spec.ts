@@ -119,6 +119,8 @@ test.describe("CL-5 B 层：P-1 主用户流全链路（TC2.1）", () => {
     await page.locator(".kg-rel-row .kg-nref").first().click();
     await expect(pane.locator(".kgv-dh-name")).toHaveText("会话服务 ChatService");
     // supersede 链跳转：E-13（历史）→ 链上现行项 nref → E-14（现行）
+    // P2③ superseded 默认折叠：先展开折叠组再点历史节点
+    await page.locator('[data-kg-sup-toggle]').click();
     await page.locator('.kgv-row[data-id="E-13"]').click();
     await expect(page.locator(".kg-chain")).toContainText("历史（留史可查）");
     await page.locator(".kg-chain-item.cur .kg-nref").click();

@@ -218,6 +218,10 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
           await expect(row.locator(".kgv-row-name")).toHaveCSS("font-weight", "600");
           expect(await computed(page, '.kgv-row[data-id="TR-44"] .kind-rule', "color")).toBe(CYAN);
           expect(await computed(page, '.kgv-row[data-id="E-9"] .kind-entity', "color")).toBe(VIOLET);
+          // P2③ superseded 默认折叠：E-13 不在列，计数徽标行在场；展开后降档行入列
+          await expect(page.locator('.kgv-row[data-id="E-13"]')).toHaveCount(0);
+          await expect(page.locator('[data-kg-sup-toggle]')).toHaveText("已取代 1 条 · 展开 ▾");
+          await page.locator('[data-kg-sup-toggle]').click();
           await expect(page.locator('.kgv-row[data-id="E-13"] .st-superseded')).toHaveText("已取代");
           expect(await visibleText(page)).not.toMatch(/\b(TR|E)-\d+\b/); // 机械核对①
         },
