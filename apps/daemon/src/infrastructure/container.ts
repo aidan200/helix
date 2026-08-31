@@ -780,6 +780,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     status: (agentId) => scheduler.status(agentId),
     kill: (agentId) => scheduler.kill(agentId),
     inspect: (agentId) => scheduler.inspect(agentId), // T3-B
+    park: (agentId) => scheduler.park(agentId), // ⑤ 链 C：reason 缺省 user（chat 域入口）
+    resume: (agentId) => scheduler.resume(agentId), // ⑤ 链 C
   };
   // 模型/认证管理门面（AD-2）：WS model.*/auth.* 命令族回口；
   // model.changed 经 EventStream 广播（channel=model，订阅路由）

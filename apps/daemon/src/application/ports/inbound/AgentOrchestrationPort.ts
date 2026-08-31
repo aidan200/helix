@@ -24,6 +24,23 @@ export interface SendOutcome {
 /** kill 结果：killed=false 附中文原因（WS 侧回 connection.error，契约 §4）。 */
 export type KillOutcome = { readonly killed: true } | { readonly killed: false; readonly error: string };
 
+/**
+ * park 结果（⑤ 链 C，与 SchedulerService.park 同形）：parked=true = 请求已
+ * 受理（协议指令经 steer 通道注入，状态转 parked 待子进程 PARK 确认上行
+ * ——回合边界生效）；拒绝附中文原因（不存在/终态/排队中/非 subagent）。
+ */
+export type ParkOutcome = { readonly parked: true } | { readonly parked: false; readonly error: string };
+
+/**
+ * resume 结果（⑤ 链 C，与 SchedulerService.resume 同形）：预算内立即恢复；
+ * queued=true = 预算满与重派同队排队（P3，空位后机械恢复不重新 launch）；
+ * 拒绝附中文原因。
+ */
+export type ResumeOutcome =
+  | { readonly resumed: true; readonly queued: false }
+  | { readonly resumed: true; readonly queued: true; readonly position: number }
+  | { readonly resumed: false; readonly error: string };
+
 /** 实例状态条目（agent_status 工具/观测面取数形状）。 */
 export interface AgentInstanceStatus {
   readonly agentId: string;
@@ -102,4 +119,12 @@ export interface AgentOrchestrationPort {
    * closure.status="failed"，回执 agent.killed 事件）。
    */
   kill(agentId: string): KillOutcome;
+  /**
+   * 挂起运行中实例（⑤ 链 C chat 域入口：reason 恒 user——任务域批量挂起
+   * （taskPause）归 TaskEngine 接线，不经本端口）。协议指令经 steer 通道
+   * 注入，状态转 parked 待子进程 PARK 确认上行；幂等/终态赢/排队中拒绝。
+   */
+  park(agentId: string): ParkOutcome;
+  /** 恢复挂起实例（同一实例同一会话从断点继续；预算满与重派同队排队，P3）。 */
+  resume(agentId: string): ResumeOutcome;
 }

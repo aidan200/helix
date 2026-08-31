@@ -17,10 +17,11 @@ import { BRIEF_ASSEMBLY_GUIDE } from "../templates/guide";
  * 实例化在 AgentRuntime 装配点（每 runtime 新建）。快照读面用类的
  * hookName（与实例 .name 等值）。
  *
- * 工具集：十二工具按名声明（编排四工具 + 静态联网两工具 +
+ * 工具集：十八工具按名声明（编排六工具 + 静态联网两工具 +
  * 动态族单 browser 工具），装配在组合根
  * （CoreToolExecutor → resolveTools；bash/read/write/edit 为 pi 内置、grep 自写、
- * agent_spawn/agent_send/agent_status/agent_inspect 经 AgentOrchestrationPort 回调度器，
+ * agent_spawn/agent_send/agent_status/agent_inspect/agent_park/agent_resume
+ * 经 AgentOrchestrationPort 回调度器，
  * browser 经 BrowserPort 薄转投（零 CDP 知识），同一沙箱 cwd 与端口注入）。
  *
  * compaction：默认参数保留（实测值）；摘要执行受 provider
@@ -71,7 +72,10 @@ const MAIN_SESSION_BASE_PROMPT =
   "长任务 spawn 时设 reportIntervalMs（预估执行超过 10 分钟再设，建议 600000 起步，由你自估）；" +
   "收到连续零增量的进展报告时用 agent_inspect 核实真实执行轨迹，确无进展可终止（kill）后重派。" +
   "agent_status 仅在用户主动询问进度时使用；运行中可用 agent_send 追加指示；" +
-  "不再需要的实例可提醒用户终止。";
+  "不再需要的实例可提醒用户终止。" +
+  "用户要求暂停某实例时用 agent_park（完成当前工具调用后暂停，上下文保留零消耗）；" +
+  "用户要求继续时先 agent_status 查看 parked 实例再 agent_resume 恢复" +
+  "（closure 会照常注入驱动下一轮）。";
 
 /**
  * T4.2（AD-18）：导出常量 = base + brief 装配指引段（段库目录+三条硬约束
@@ -95,6 +99,10 @@ export const MainSessionProfile: AgentProfile = {
     "agent_send",
     "agent_status",
     "agent_inspect", // T3-B：死循环核实（编排四工具）
+    // ⑤ 链 C 挂起/恢复（P1 裁决：专用工具仅 Main——挂起是调度器级机械
+    // 动作不靠 LLM 措辞；SubAgent/Orchestrator/kg-writer 均不声明）
+    "agent_park",
+    "agent_resume",
     // 动态族（单 browser 工具 + action 参数；条件注册——CoreToolExecutor options.browser）
     "browser",
     // kg 双工具（T3.3，CL-4/CL-3）：只读查询面 + 即时落账面
