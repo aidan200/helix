@@ -571,6 +571,8 @@ export const zhCN = {
       launchNote: "启动后可在「任务」页观察进度与批次中间状态；阶段计划确认后冻结。",
       launchedStrip: "任务「{name} 知识图谱创建」已创建并进入执行。",
       goTasks: "前往「任务」页观察 →",
+      runningBadge: "图谱构建进行中",
+      runningStrip: "「{name}」的知识创建任务（kg-bootstrap）运行中；可在「任务」页观察进度与批次中间状态，任务终态后此处恢复可发起。",
       createOkToast: "任务已创建：{name} 知识图谱创建",
       createFailToast: "任务创建未通过：{message}",
       sendFail: "发送失败：与 daemon 的连接不可用，请稍后重试",

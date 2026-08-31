@@ -3,12 +3,13 @@
  * 索引面板区下方挂载（准入判定数据源 = 项目行索引态 + nodeCount，机械
  * 定义见 project-model.bootstrapEntryMode）。
  *
- * 四态互斥（review.md P-1 状态模型）：hidden（已有图谱/nodeCount 未知 →
- * 静默不渲染，V-1：无降级态无提示文案）/ ready（准入条件行 + 任务说明 +
- * 目标项目 + 范围参数 + 三阶段计划 L0/L1/L2 + 启动钮；degraded 附
- * warning 条如实提示）/ launched（ready 卡 + ok-strip + 「前往『任务』页
- * 观察 →」）。guide/building 态不在此渲染（absent/building 项目不进
- * graph 态——主区四态机消化，ProjectPage 引导链）。
+ * 六态互斥（review.md P-1 状态模型 + P0①）：hidden（已有图谱/nodeCount 未知
+ * → 静默不渲染，V-1：无降级态无提示文案）/ ready（准入条件行 + 任务说明 +
+ * 目标项目 + 范围参数 + 三阶段计划 L0/L1/L2 + 启动钮；degraded 附 warning 条
+ * 如实提示）/ launched（ready 卡 + ok-strip + 「前往『任务』页观察 →」）/
+ * running（P0①：非终态 kg-bootstrap job 运行中——「图谱构建进行中」徽标 +
+ * 前往任务页出口，无启动钮无范围输入）。guide/building 态不在此渲染
+ *（absent/building 项目不进 graph 态——主区四态机消化，ProjectPage 引导链）。
  *
  * 纯展示组件：命令发送与回执消费归 KgViewer 常驻 listener（单飞关联），
  * 本组件只回调 onLaunch。AD-5：启动钮即「开启前一次确认」位——确认的
@@ -46,6 +47,26 @@ export default function KgBootstrapEntry({
   // V-1 静默：已有图谱（nodeCount>0/未知）与 guide/building 不渲染（后者
   // 理论不可达——graph 态行只余 synced/degraded；防御性同归静默）
   if (mode === "hidden" || mode === "guide" || mode === "building") return null;
+  // P0① running 态：任务运行中——只留观察出口，无启动钮无范围输入（禁双启动）
+  if (mode === "running") {
+    return (
+      <div className="kg-boot-entry" data-boot-entry="running" data-boot-project={row.name}>
+        <div className="kbe-head">
+          <span className="kbe-title">{t("pj.boot.sectionTitle")}</span>
+          <span className="hud-badge kbe-type">{t("pj.boot.typeBadge")}</span>
+          <span className="hud-badge" data-boot-running-badge>{t("pj.boot.runningBadge")}</span>
+        </div>
+        <div className="kbe-body">
+          <div className="kg-ok-strip" data-boot-running>
+            <span>{t("pj.boot.runningStrip", { name: row.name })}</span>
+            <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
+              {t("pj.boot.goTasks")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const degraded = row.status === "degraded";
   return (
     <div className="kg-boot-entry" data-boot-entry={mode} data-boot-project={row.name}>

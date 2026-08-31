@@ -566,6 +566,8 @@ export const enUS = {
       launchNote: "After launch, watch progress and batch mid-states on the Tasks page; the stage plan freezes once confirmed.",
       launchedStrip: "Task \"{name} knowledge graph creation\" has been created and is running.",
       goTasks: "Open the Tasks page →",
+      runningBadge: "Graph build in progress",
+      runningStrip: "A knowledge-graph creation task (kg-bootstrap) is running for \"{name}\"; watch progress and batch mid-states on the Tasks page. Launching becomes available again once the task reaches a terminal state.",
       createOkToast: "Task created: {name} knowledge graph creation",
       createFailToast: "Task creation rejected: {message}",
       sendFail: "Send failed: daemon connection unavailable, retry later",

@@ -22,10 +22,11 @@ export type MainMode = "empty" | "absent" | "building" | "graph";
 /**
  * bootstrap 入口五态（互斥，review.md P-1 状态模型）：hidden=已有图谱静默
  * 不渲染 / guide=absent 引导态 / building=构建中 / ready=可发起 /
- * launched=已启动（ok-strip）。前四态由项目行机械派生（bootstrapEntryMode），
- * launched 为会话内启动标记叠加。
+ * launched=已启动（ok-strip）/ running=任务运行中（P0① 双启动防护：
+ * bootstrapRunning=true 优先于其他条件——窗口期入口不再现启动钮）。前四
+ * 态由项目行机械派生（bootstrapEntryMode），launched 为会话内启动标记叠加。
  */
-export type BootstrapEntryMode = "hidden" | "guide" | "building" | "ready" | "launched";
+export type BootstrapEntryMode = "hidden" | "guide" | "building" | "ready" | "launched" | "running";
 
 /** bootstrap 入口区会话内状态（启动标记；切项目复位）。 */
 export interface BootstrapAreaState {
@@ -59,11 +60,15 @@ export function createProduceState(): ProduceState {
  * 显示 bootstrap 入口 ⟺ indexStatus ∈ {synced, degraded} 且 nodeCount === 0
  *（nodeCount 缺省 = 未知 = 视为非空不显示）；absent → 引导态；building →
  * 构建中；已有图谱 → 静默。launched 仅叠加在 ready 上（不改变其余态）。
+ * P0①：bootstrapRunning=true（kg.projects 行，非终态 kg-bootstrap job
+ * 覆盖该项目）优先于其他条件 → running（含 launched 位——任务确在跑，
+ * 入口只留观察出口；缺省/undefined = 旧 daemon 兼容 = 无任务在跑）。
  */
 export function bootstrapEntryMode(
-  row: { status: KgProjectState; nodeCount?: number },
+  row: { status: KgProjectState; nodeCount?: number; bootstrapRunning?: boolean },
   launched: boolean,
 ): BootstrapEntryMode {
+  if (row.bootstrapRunning === true) return "running";
   if (row.status === "absent") return "guide";
   if (row.status === "building") return "building";
   if (row.nodeCount !== 0) return "hidden"; // >0 或缺省（未知）均不显示
