@@ -65,16 +65,17 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("② SubAgentProfile 系统提示：工具名词边界零命中（kg/codegraph/kg-update 三名单项放行）", () => {
+  test("② SubAgentProfile 系统提示：工具名词边界零命中（kg/codegraph 两名单项放行；kg-update 零出现，W-R6）", () => {
     for (const name of [...TOOL_NAMES, ...SUBAGENT_ONLY_TOOL_NAMES]) {
       // T3.3 例外："kg" 在 T4.2 段库指引中以概念词出现（"kg 约束切片"/"kg
       // 落账输入"/"kg-change-report" 场景名）——非工具清单枚举（清单唯一源
       // 仍是组装器），词边界检查对该名单项放行。
-      // W3-G 例外："codegraph"/"kg-update" 在「知识纪律」块以行为指引出现
-      // （开工链路 codegraph→kg affected→kg get / 改后纪律 kg-update supersede
-      // 与 createNode——R11 软层 SOP 本体），与 T3-C 委派契约句引用编排工具名
-      // 同性质（行为指引非清单枚举），词边界检查对这两名单项放行。
-      if (name === "kg" || name === "codegraph" || name === "kg-update") continue;
+      // W3-G 例外："codegraph" 在「知识纪律」块以行为指引出现（开工链路
+      // codegraph→kg affected→kg get——R11 软层 SOP 本体），与 T3-C 委派契约
+      // 句引用编排工具名同性质（行为指引非清单枚举）。
+      // D8 W-R6："kg-update" 不再放行——收权后 worker 提示词零出现（写通道
+      // 改走 closure findings，工具面也注册不到），词边界检查升格为硬断言。
+      if (name === "kg" || name === "codegraph") continue;
       expect(
         SUBAGENT_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)),
         `SubAgent profile 提示仍含工具名 ${name}`,
@@ -82,12 +83,13 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 16 / subagent 14（T3-B +agent_inspect；T3.3 +kg 双工具；T1.4 +plan 三工具 AD-6①；T2.4 +task_create AD-7；W1-B +codegraph R5）", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 16 / subagent 13（D8 W-R6 摘 kg-update）", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
     expect(SubAgentProfile.tools).toEqual(
       [...TOOL_NAMES, ...SUBAGENT_ONLY_TOOL_NAMES]
         .filter((t) => !t.startsWith("agent_"))
-        .filter((t) => !(MAIN_ONLY_TOOL_NAMES as readonly string[]).includes(t)),
+        .filter((t) => !(MAIN_ONLY_TOOL_NAMES as readonly string[]).includes(t))
+        .filter((t) => t !== "kg-update"), // D8 W-R6 写面收权
     );
   });
 

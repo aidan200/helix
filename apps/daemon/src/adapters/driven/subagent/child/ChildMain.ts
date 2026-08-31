@@ -319,8 +319,9 @@ async function main(): Promise<void> {
   // H-3：browser 工具经 wire 转发通道接入 daemon 全局唯一 CDP 单例
   // （子进程零 CDP 知识/零连接状态；ownerId = 本实例 instanceId）
   const remoteBrowser = new RemoteBrowserPort(instanceId, writeLine);
-  // T3.3：kg/kg-update 双工具本地栈（子进程组合根装配——SubAgentProfile
-  // 声明两名，未注册则 resolveTools fail-fast）
+  // T3.3：kg/kg-update 双工具本地栈（子进程组合根装配——D8 W-R6 后
+  // subagent-worker 只声明 kg、subagent-kg-writer（图谱产出型批次）声明双工具；
+  // 注册面恒宽（声明面管控谁可见）
   // T4.2：任务归属解析器（HELIX_DB_PATH 同面；批次子进程命中 batch 行 →
   // kg-update taskId/originBatchId 机械注入；非任务上下文零注入）
   const taskContext = createKgTaskContextResolver(process.env.HELIX_DB_PATH, instanceId);

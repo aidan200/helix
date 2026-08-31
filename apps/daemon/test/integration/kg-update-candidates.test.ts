@@ -188,11 +188,14 @@ describe("② 候选 op（R2：proposeCandidate / decideCandidate）", () => {
     ).rejects.toThrow("decision");
   });
 
-  test("工具 description 写明候选操作仅 MainAgent 可用（profile 裁不了时的纪律面）", () => {
+  test("工具 description 不写「仅 MainAgent 可用」（W-R6：收权后注册面管控，描述不做角色枚举）", () => {
     const stack = freshStack();
     const tool = makeTool(stack);
-    expect(tool.description).toContain("MainAgent");
     expect(tool.description).toContain("proposeCandidate");
+    expect(tool.description).toContain("decideCandidate");
+    // findings 通道纪律面保留（SubAgent 闭环发现经 findings 落候选）
+    expect(tool.description).toContain("findings");
+    expect(tool.description).not.toContain("仅 MainAgent 可用");
   });
 });
 

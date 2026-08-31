@@ -31,8 +31,14 @@ import { REPORT_ASSEMBLY_GUIDE } from "../templates/guide";
  *
  * W3-G（kg-driven-dev-loop 设计 R11/R23）：「知识纪律」块 = SOP 软层纪律
  * 本体（第一铁律/开工链路/改后纪律/闭环纪律）——纪律句引用的
- * codegraph/kg/kg-update 工具名是行为指引非清单枚举（profile-slim 词边界
- * 检查对这三名单项放行，同 Main profile 先例）。
+ * codegraph/kg 工具名是行为指引非清单枚举（profile-slim 词边界检查对这两名
+ * 单项放行）。
+ *
+ * D8 W-R6（kg 写面收权，2026-08-30 裁决）：tools 摘除 kg-update——通用
+ * worker 不再持即时落账面，supersede/createNode 声明改经 closure findings
+ * 申报、MainAgent 阶段检查点统一落账（改后纪律同步改写）；图谱产出型任务
+ * （kg-bootstrap/kg-review）经 SubAgentKgWriterProfile（=本 profile 工具集
+ * + kg-update）豁免，编排层分流（TaskOrchestratorService.dispatchProfileKindOf）。
  */
 const SUBAGENT_BASE_PROMPT =
   "你是 helix 的 SubAgent worker，负责独立完成一个被指派的任务。\n" +
@@ -47,9 +53,9 @@ const SUBAGENT_BASE_PROMPT =
   "开工链路（改代码前）：①用 codegraph（search/node/callers）把任务意图落地成具体文件/符号；" +
   "②用 kg affected 锚反查这些文件/符号的管辖节点；③对 scene 相关的节点 kg get 读全文；" +
   "拿不准影响面的先 codegraph impact 查影响面。\n" +
-  "改后纪律：编辑后出现的 📎 知识块必须读；本次改动推翻块中节点描述的现实时，随本次改动提交 " +
-  "kg-update supersede（不许「下次再说」）；沉淀新规则用 kg-update createNode——scene 必填" +
-  "（「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）。\n" +
+  "改后纪律：编辑后出现的 📎 知识块必须读；本次改动推翻块中节点描述的现实或沉淀出新规则时，" +
+  "将 supersede/createNode 声明（含 scene——「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）" +
+  "写入 closure findings 申报，由 MainAgent 在阶段检查点统一落账（不许「下次再说」）。\n" +
   "闭环纪律：sediment 类发现照常经 closure findings 上报（自动落候选台账）——禁止直接调用 " +
   "proposeCandidate/decideCandidate（候选台账写者是 MainAgent 单点）。\n" +
   "提交纪律：有 plan 的任务按计划条目逐步 commit（每条目完成且测试绿即提交）；被要求并行 " +
@@ -82,8 +88,7 @@ export const SubAgentProfile: AgentProfile = {
     "web_search",
     "web_fetch",
     "browser", // H-3：+browser（经 wire 转发通道接 daemon CDP 单例；装配经 CoreToolExecutor.resolveTools）
-    "kg", // T3.3：只读查询面（search→get；ChildMain 本地栈装配）
-    "kg-update", // T3.3：即时落账面（supersede/createNode；落账主要发生在实现任务现场）
+    "kg", // T3.3：只读查询面（search→get；ChildMain 本地栈装配）；D8 W-R6：无 kg-update（写面收权——豁免面在 SubAgentKgWriterProfile）
     "codegraph", // W1-B（R5/R7）：代码索引只读查询（ChildMain 本地栈装配）
     "plan_create", // T1.4（AD-6①）：实例工作台账——全量配给所有 SubAgent（chat/task 两域同构；不进 MainAgent）
     "plan_update",

@@ -198,13 +198,15 @@ export interface OrchestratorEnvOverrides {
   /** 编排 LLM 剧本（跨 drive 共享队列）。 */
   readonly script: readonly ScriptEntry[];
   /** spawn 面覆盖（预算测试注入真调度器绑定形态）。 */
-  readonly rawSpawn?: (sessionId: string, task: string) => SpawnOutcome;
+  readonly rawSpawn?: (sessionId: string, task: string, profileKind?: string) => SpawnOutcome;
   /** 实例终态读面覆盖（预算测试注入 scheduler.status）。 */
   readonly instanceOutcome?: (agentId: string) => { state: string; summary?: string } | undefined;
   /** manifest plan 档位（缺省 enforced）。 */
   readonly plan?: "enforced" | "optional";
   /** W2-D：job 终态提示面（onJobTerminal 断言采集）。 */
   readonly onJobTerminal?: (jobId: string, status: string) => void;
+  /** 额外注册的任务类型（W-R6 分流测试：kg-bootstrap/kg-review 同形 manifest）。 */
+  readonly extraTypes?: readonly string[];
 }
 
 export interface OrchestratorEnv {
@@ -232,6 +234,9 @@ export async function withOrchestratorEnv(
   const ledger = new WorkLedgerService({ reader: workLedgerParent });
   const skills = new FakeTaskSkillRegistry();
   skills.register("fake-task", singleStageManifest(over.plan ?? "enforced"), "测试任务类型");
+  for (const type of over.extraTypes ?? []) {
+    skills.register(type, singleStageManifest(over.plan ?? "enforced"), `${type}（测试注册）`);
+  }
   const clock = counterClock();
 
   // 编排服务经 starter 代理后填（引擎 ↔ 编排环）

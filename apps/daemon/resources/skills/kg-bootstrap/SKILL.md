@@ -19,6 +19,8 @@ task:
 
 执行形态是**无人工交互的多 agent 编排**：你划批次、装配批次 brief、派批次 SubAgent、读 closure 判成败、推进或重试。全程没有中途人审门——没有「每层等审」的环节，你的判断依据只有代码事实、上层已产出的知识与本 SOP 的约束。产出质量不靠执行中拦截，靠批次 brief 里的写作规范前置 + 任务结束后人工修正（修改/supersede）兜底。
 
+**worktree 豁免（W-R5）：本任务类型不开 worktree，主工作树执行**——kg 库是 SQLite 单写面，隔离副本各自写库合并必分叉；批次 SubAgent 不适用通用开发任务的 worktree 隔离纪律。
+
 产出落库经 KgWriteService 唯一写入口（createNode 或 batchCreateNodes），每个节点必须带三项元数据：`layer`（L0/L1/L2）、`origin_batchId`（产出批次判据）、`status=confirmed`（bootstrap 无 draft——以代码事实落盘即正式知识）。其中 `taskId`（本任务 jobId，落 change_log.task_id）与 `origin_batchId` 由接线层机械注入（批次子进程上下文默认值，LLM 无需透传；显式传参仅用于覆盖）——任务→kg 审计链不再依赖 LLM 自觉。`layer`、`status=confirmed` 与 `scene`（适用场景，R23 必填）仍为 LLM 必带的内容属性——`scene` 缺了写不进去（createNode/batchCreateNodes 机械拒绝，整批被拒）。这些元数据是任务域到 kg 域的唯一衔接面，缺一项产出就断了来源可溯性。
 
 ## 分层拓扑（L0 → L1 → L2）

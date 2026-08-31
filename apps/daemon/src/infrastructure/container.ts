@@ -485,8 +485,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     taskCreate: { engine: taskStack.taskEngine, query: taskStack.query },
     // spawn 派发任务切片注入（F1.3）：任务文本 → 图查询 → digest+指针切片
     // 拼入 task 约束区；注入后 markInjected 入跨通道去重注册表（T3.2 同源）。
-    // W1：未绑定 → 空切片（无图查询面，零副作用）。
-    taskInjector: (sessionId, task) => workspace.stack()?.queryService.injectTaskSlice(sessionId, task) ?? "",
+    // W1：未绑定 → 空切片（无图查询面，零副作用）。audience（D8 W-R6）：
+    // SubAgent spawn 链传 "worker"（协议行 findings 申报措辞），主会话
+    // ChatService 链传/缺省 "main"（kg-update 直落措辞）——buildSessionStack 按消费链分叉。
+    taskInjector: (sessionId, task, audience) =>
+      workspace.stack()?.queryService.injectTaskSlice(sessionId, task, audience) ?? "",
     // findings 落账管道（F3.0，T4.1）：closure findings → KgWriteService 唯一
     // 写入口落账（绝不旁路）；目标项目解析 = workspace 全扫描（与 kg-update
     // 工具同口径：显式名命中 / 唯一项目自动 / 多项目不猜）。测试可注入替身。
@@ -518,7 +521,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   broadcastTaskChanged = (frame) => eventStream.broadcastTaskChanged(frame);
   orchestratorService = new TaskOrchestratorService({
     ...taskStack.orchestratorCore,
-    rawSpawn: (sessionId, task) => scheduler.spawn(sessionId, task, undefined, resolveSubagentModelId()),
+    rawSpawn: (sessionId, task, profileKind) =>
+      scheduler.spawn(sessionId, task, profileKind, resolveSubagentModelId()),
     instanceOutcome: (agentId) => {
       const hit = scheduler.status(agentId)[0];
       return hit === undefined ? undefined : { state: hit.state, ...(hit.summary !== undefined ? { summary: hit.summary } : {}) };

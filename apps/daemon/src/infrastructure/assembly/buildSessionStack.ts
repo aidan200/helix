@@ -26,6 +26,10 @@ import { PiAgentEngineAdapter } from "../../adapters/driven/pi-engine/PiAgentEng
 import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import {
+  SUBAGENT_KG_WRITER_EXTRA_TOOLS,
+  SUBAGENT_KG_WRITER_PROMPT_SUFFIX,
+} from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
+import {
   OrchestratorProfile,
   ORCHESTRATOR_SYSTEM_PROMPT,
 } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
@@ -164,9 +168,11 @@ export interface BuildSessionStackDeps {
   readonly resolveToolCwd?: () => string;
   /**
    * spawn 派发任务切片注入器（T3.3，F1.3）：透传 SchedulerService
-   * （组合根接 KgQueryService.injectTaskSlice）。缺省不注入。
+   * （组合根接 KgQueryService.injectTaskSlice）。缺省不注入。第三参
+   * audience（D8 W-R6）：本函数经两条消费链分叉——SchedulerService
+   * （SubAgent spawn）传 "worker"，ChatService（主会话）传 "main"。
    */
-  readonly taskInjector?: (sessionId: string, task: string) => string;
+  readonly taskInjector?: (sessionId: string, task: string, audience?: "main" | "worker") => string;
   /**
    * findings 落账管道（F3.0，T4.1）：透传 SchedulerService→ClosureRecorder
    * （组合根接 kg 栈 KgWriteService；测试工厂可注入替身）。缺省不注入
@@ -278,6 +284,24 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   };
   let mainAssembly = await computeAssembly("main-session");
   let subagentAssembly = await computeAssembly("subagent-worker");
+  // D8 W-R6：kg-writer 组装快照 = 通用 worker 生效集 + kg-update + 图谱产出型
+  // 一句（增量常量单源 SubAgentKgWriterProfile；kg-update 不进 resource_state
+  // 目录——不可 toggle，豁免面恒在）。toggle 刷新 worker 时同步重算（派生面）。
+  const computeKgWriterAssembly = async (): Promise<{
+    readonly tools: readonly string[];
+    readonly systemPrompt: string;
+  }> => {
+    const worker = await computeAssembly("subagent-worker");
+    const tools = [...worker.tools];
+    for (const t of SUBAGENT_KG_WRITER_EXTRA_TOOLS) {
+      if (!tools.includes(t)) tools.push(t);
+    }
+    return { tools, systemPrompt: `${worker.systemPrompt}\n\n${SUBAGENT_KG_WRITER_PROMPT_SUFFIX}` };
+  };
+  let kgWriterAssembly = await computeKgWriterAssembly();
+  /** 批次实例组装快照按 profileKind 派发（W-R6 编排分流的装配端消费点）。 */
+  const subagentAssemblyFor = (profileKind: string | undefined): typeof subagentAssembly =>
+    profileKind === "subagent-kg-writer" ? kgWriterAssembly : subagentAssembly;
   let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算）
   /** toggle applied 后的重算入口（WS 命令复用面：命令只调 toggle，刷新单点在此）。 */
   const refreshAssembly = async (kind: ProfileKind): Promise<void> => {
@@ -292,6 +316,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       }
     } else if (kind === "subagent-worker") {
       subagentAssembly = next; // 已 spawn 实例 env 已定格（代际生效，零刷新）
+      kgWriterAssembly = await computeKgWriterAssembly(); // W-R6 派生面同刷（kg-writer 生效集随 worker toggle 联动）
     } else {
       orchestratorAssemblyValue = next; // 编排会话短生命周期：下一会话生效（零活跃刷新）
     }
@@ -333,8 +358,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
             const slot = resourceService.modelSlot("subagent-worker");
             return slot === undefined ? undefined : resolveConfigModel(slot, catalog.modelsView());
           },
-          // spawn 快照：组装产物缓存（启动/toggle 后重算，launch 读现值定格）
-          spawnSnapshot: () => subagentAssembly,
+          // spawn 快照：组装产物缓存（启动/toggle 后重算，launch 读现值定格）。
+          // W-R6：按实例 profileKind 派发——subagent-kg-writer（图谱产出型批次）
+          // 领 worker 生效集 + kg-write 面；其余（缺省）领通用 worker 快照。
+          spawnSnapshot: (profileKind: string) => subagentAssemblyFor(profileKind),
           // 注入源切换：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
           // W1F-F2：子进程 env cwd = spawn 时刻现值（toolCwdOf 同源求值——
@@ -385,9 +412,12 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // 契约 v0.3 §1 规则②：spawn 时刻锚（聚合视图读面；内存携带不落盘）
     // ——typed 回填面（registry 就绪后由组合根闭合；闭合前 null 流首）
     spawnAnchorFor: (sessionId) => backfill.computeSpawnAnchor?.(sessionId) ?? null,
-    // spawn 派发任务切片注入（T3.3，F1.3）：组合根接 KgQueryService——
-    // 任务文本成形后/传给 launcher 前单点挂接（SchedulerService 内部消化失败）
-    ...(deps.taskInjector !== undefined ? { taskInjector: deps.taskInjector } : {}),
+    // spawn 派发任务切片注入（T3.3，F1.3）：任务文本成形后/传给 launcher 前
+    // 单点挂接（SchedulerService 内部消化失败）。D8 W-R6：spawn 链恒 worker
+    // 受众（协议行 findings 申报措辞——SubAgent 无 kg-update）。
+    ...(deps.taskInjector !== undefined
+      ? { taskInjector: (sessionId: string, task: string) => deps.taskInjector!(sessionId, task, "worker") }
+      : {}),
     // findings 落账管道（F3.0，T4.1）：透传 ClosureRecorder（组合根接 kg 栈）
     ...(deps.findingsSink !== undefined ? { findingsSink: deps.findingsSink } : {}),
     // pending_sync job 归属解析（W2-D R13）：task:* 会话 → jobId、chat 会话 → null
@@ -397,14 +427,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // 常量全文 + model 两级链解析 id 形态（profile 槽位 ?? 全局兜底，T12 砍
     // spawn 会话快照级；与该实例 launch 实际用模同源同时点——launch 侧
     // resolveModelFor 同序同值，仅 id → Model 对象的解析在 launcher，AD-3 联动）。
-    subagentSnapshotFor: () => ({
+    subagentSnapshotFor: (profileKind?: string) => ({
       // 快照供给改读组装缓存（消观测漂移——与 launch 实际注入同源
-      // 同时点）；model 链与 launcher resolveModelFor 同序：profile 槽位 ??
-      // kind 槽位（uiModelSlot）?? 全局兑底
+      // 同时点；W-R6：按实例 profileKind 派发 kg-writer/worker 快照）；model
+      // 链与 launcher resolveModelFor 同序：profile 槽位 ?? kind 槽位（uiModelSlot）?? 全局兑底
       thinkingLevel: SubAgentProfile.thinkingLevel ?? resourceService.thinkingSlot("subagent-worker"), // 与 resolveThinkingFor 同源同时点（AD-4④）；无配置 → undefined = 默认关
       profileSnapshot: {
-        systemPrompt: subagentAssembly.systemPrompt,
-        tools: [...subagentAssembly.tools],
+        systemPrompt: subagentAssemblyFor(profileKind).systemPrompt,
+        tools: [...subagentAssemblyFor(profileKind).tools],
         model: resolveSubagentModelId(),
         hooks: SubAgentProfile.hooks.map((H) => H.hookName),
       },
@@ -585,9 +615,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         onFirstUserEntry: () => registry.promoteDraft(material.session.id),
         // W2-D R9/R10 主会话切片注入：复用 spawn 派发同一注入器（KgQueryService
         // .injectTaskSlice——sessionId 跨通道去重同键）；空串回退（未绑定工作
-        // 空间时容器注入面回 ""）视为空命中原文透传
+        // 空间时容器注入面回 ""）视为空命中原文透传。D8 W-R6：主会话链恒
+        // main 受众（协议行 kg-update 直落措辞——与 spawn 链 worker 版分叉）。
         ...(deps.taskInjector !== undefined
-          ? { taskSliceInjector: (sid: string, text: string) => deps.taskInjector!(sid, text) || text }
+          ? { taskSliceInjector: (sid: string, text: string) => deps.taskInjector!(sid, text, "main") || text }
           : {}),
       });
       // 会话投影消费者（AD-3 §3.2②；多会话 = 按 sessionId 分实例化，

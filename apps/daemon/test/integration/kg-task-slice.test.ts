@@ -15,7 +15,7 @@ import type { EventPublisherPort } from "../../src/application/ports/outbound/Ev
 import type { ClockPort } from "../../src/application/ports/outbound/ClockPort";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { InMemorySessionRepository } from "../mocks/InMemorySessionRepository";
-import { ATTACHMENT_PROTOCOL_LINE } from "../../src/domain/kg/attachment/render";
+import { ATTACHMENT_PROTOCOL_LINE, ATTACHMENT_PROTOCOL_LINE_WORKER } from "../../src/domain/kg/attachment/render";
 
 /**
  * I 层：任务层切片注入（T3.3，CL-1 F1.3，F-14 病根修复）。
@@ -147,6 +147,20 @@ describe("任务层切片注入（F1.3）", () => {
     expect(pointers).toBeGreaterThan(0);
     expect(pointers).toBeLessThan(names.length); // 超限裁剪发生
     expect(slice.length).toBeLessThanOrEqual(800 * 4); // token 硬顶（估算=chars/4）
+  });
+
+  test("⑦ W-R6 协议行受众分叉：audience=worker → worker 版协议行；缺省 → main 版不变", () => {
+    const f = makeFixture();
+    seedNode(f, "限流规则", "网关限流必须按租户隔离");
+    const task = "改造网关限流的租户隔离逻辑";
+    // 缺省（主会话 ChatService 注入链）：main 版措辞
+    const mainOut = f.query.injectTaskSlice("sess-M", task);
+    expect(mainOut).toContain(ATTACHMENT_PROTOCOL_LINE);
+    expect(mainOut).not.toContain(ATTACHMENT_PROTOCOL_LINE_WORKER);
+    // worker（SubAgent spawn 注入链）：无 kg-update，改 closure findings 申报
+    const workerOut = f.query.injectTaskSlice("sess-N", "改造网关限流的租户隔离与熔断逻辑", "worker");
+    expect(workerOut).toContain(ATTACHMENT_PROTOCOL_LINE_WORKER);
+    expect(workerOut).not.toContain(ATTACHMENT_PROTOCOL_LINE);
   });
 
   test("⑥ spawn 派发挂点（探查 A 六跳链挂点）：SchedulerService.taskInjector → task 文本携带切片", () => {

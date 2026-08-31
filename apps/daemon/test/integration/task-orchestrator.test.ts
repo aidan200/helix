@@ -277,6 +277,108 @@ describe("T2.2 并发预算：共享池 ≤3 + 编排不占 SubAgent 预算（CL
 
 // ── RED 组 3：closure 失败重试 + 接力 brief（CL-2-T5/T13） ──
 
+// ── D8 W-R6：编排分流（kg-bootstrap/kg-review → subagent-kg-writer） ──
+
+describe("D8 W-R6 编排分流：批次实例 profileKind 按任务类型路由", () => {
+  /** 真调度器绑定形态（预算组同款）：rawSpawn 透传 profileKind → 调度器登记面断言。 */
+  async function dispatchCase(
+    type: string,
+    extraTypes: readonly string[],
+    expected: string,
+  ): Promise<void> {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
+      spawnEntry(BRIEF_1),
+      dispatchEntry(0, 2),
+      { kind: "reply", text: "已派发。" },
+      // 收口后聚合收口（驱动第二轮）
+      { kind: "tool", toolName: "task_stage_artifact", args: { stageSeq: 1, summary: "L0 层建成。" } },
+      { kind: "tool", toolName: "task_complete_job", args: {} },
+    ];
+    const home = mkdtempSync(path.join(tmpdir(), "helix-orch-dispatch-"));
+    const queue = new WriteQueue(path.join(home, "helix.db"));
+    const repository = new SqliteSessionRepository(queue);
+    const events: DomainEvent[] = [];
+    const publisher: EventPublisherPort = { publish: (e) => void events.push(e), publishDelta: () => undefined };
+    const clock: ClockPort = { now: () => "2026-08-29T00:00:00.000Z", nowMs: () => Date.now() };
+    const runner = new HangingRunner();
+    // closure 路由晚绑（生产同构：buildSessionStack injectClosure →
+    // taskClosureSink → TaskOrchestratorService.handleInstanceClosure）
+    let orchestratorRef: { handleInstanceClosure(agentId: string): void } | undefined;
+    const scheduler = new SchedulerService({
+      policy: new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
+      runner,
+      events: publisher,
+      repository,
+      clock,
+      stalledPollMs: 60_000,
+      injectClosure: (agentId) => orchestratorRef?.handleInstanceClosure(agentId),
+    });
+    const spawnedProfileKinds: Array<string | undefined> = [];
+
+    try {
+      await withOrchestratorEnv(
+        {
+          script,
+          extraTypes,
+          rawSpawn: (sessionId, task, profileKind) => {
+            spawnedProfileKinds.push(profileKind);
+            return scheduler.spawn(sessionId, task, profileKind);
+          },
+          instanceOutcome: (agentId) => {
+            const hit = scheduler.status(agentId)[0];
+            return hit === undefined ? undefined : { state: hit.state, summary: hit.summary };
+          },
+        },
+        async (env) => {
+          orchestratorRef = env.orchestrator;
+          const { jobId } = await env.engine.createTask({
+            type,
+            projects: ["demo"],
+            params: { projectRoot: "/tmp/demo" },
+            createdBy: "page",
+          });
+          await env.until(() => runner.launched.length === 1 && env.store.getBatches(jobId, 1).every((b) => b.status === "running"));
+          // rawSpawn 收到分流结果（W-R6：编排层按任务类型路由）
+          expect(spawnedProfileKinds).toEqual([expected]);
+          // 真调度器登记面：实例 profileKind 落 AgentInstance（观测面/恢复面同源）
+          expect(scheduler.status().every((s) => s.profileKind === expected)).toBe(true);
+          // agent.spawned 事件载荷同源
+          const spawnedEvents = events.filter((e) => e.type === "agent.spawned");
+          expect(spawnedEvents.length).toBeGreaterThanOrEqual(1);
+          for (const e of spawnedEvents) {
+            expect((e.payload as { profileKind?: string }).profileKind).toBe(expected);
+          }
+          // 收口驱动收尾（脚本耗尽 → job done，避免挂起）
+          runner.forceClosure(runner.launched[0]!, {
+            result: "done",
+            closure: { status: "done", summary: "完成", reportPath: null, findings: null, taskId: null },
+          });
+          await env.until(() => env.store.getJob(jobId)?.status === "done");
+        },
+      );
+    } finally {
+      orchestratorRef = undefined;
+      scheduler.stop();
+      runner.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+
+  test("kg-bootstrap 批次 → subagent-kg-writer", async () => {
+    await dispatchCase("kg-bootstrap", ["kg-bootstrap"], "subagent-kg-writer");
+  });
+
+  test("kg-review 批次 → subagent-kg-writer", async () => {
+    await dispatchCase("kg-review", ["kg-review"], "subagent-kg-writer");
+  });
+
+  test("普通任务批次 → subagent-worker（缺省形态不变）", async () => {
+    await dispatchCase("fake-task", [], "subagent-worker");
+  });
+});
+
 describe("T2.2 closure 失败自动重试 + 接力 brief（CL-2-T5/T13）", () => {
   test("closure failed → failBatch（retryCount+1）→ 自动重派：新实例 brief 含前序 plan 摘要（已完成项 + note 指针）+ supersede 指令", async () => {
     const script: ScriptEntry[] = [

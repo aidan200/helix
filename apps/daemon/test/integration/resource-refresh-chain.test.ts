@@ -124,7 +124,7 @@ const MAIN_TOOLS = [
   "codegraph", // W1-B（R5/R7）：codegraph 只读工具
   "task_create", // T2.4：chat 第二创建入口（AD-7，仅 main）
 ];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "kg-update", "codegraph", "plan_create", "plan_update", "plan_read"]; // H-3：+browser；T3.3：+kg 双工具；T1.4：+plan 三工具（AD-6①，subagent 独有）；W1-B：+codegraph
+const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "plan_create", "plan_update", "plan_read"]; // H-3：+browser；T3.3：+kg；T1.4：+plan 三工具（AD-6①，subagent 独有）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）
 
 describe("toggle → 活跃 runtime 刷新（FakeLLM 链路捕获，M6 T2 acceptance ③）", () => {
   test("① main tool toggle：下一 run 的 systemPrompt 与 tools 同步收缩；skipped 不刷新", async () => {

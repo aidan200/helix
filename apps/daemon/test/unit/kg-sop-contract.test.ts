@@ -40,7 +40,7 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
     }
   });
 
-  describe("开工链路与改后纪律（Main + SubAgent）", () => {
+  describe("开工链路（Main + SubAgent 同构）", () => {
     for (const [label, prompt] of [
       ["Main", MAIN_SESSION_SYSTEM_PROMPT],
       ["SubAgent", SUBAGENT_SYSTEM_PROMPT],
@@ -52,15 +52,29 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
         expect(prompt).toContain("锚反查");
         expect(prompt).toContain("impact 查影响面");
       });
-
-      test(`${label}：改后纪律（📎 必读 / kg-update supersede 随改动 / createNode scene 必填）`, () => {
-        expect(prompt).toContain("📎 知识块必须读");
-        expect(prompt).toContain("kg-update supersede");
-        expect(prompt).toContain("不许「下次再说」");
-        expect(prompt).toContain("createNode");
-        expect(prompt).toContain("scene 必填");
-      });
     }
+  });
+
+  describe("改后纪律（W-R6 写面收权分叉：Main 直落 / SubAgent findings 申报）", () => {
+    test("Main：📎 必读 / kg-update supersede 随改动直落 / createNode scene 必填（收权后 Main 独占即时落账面）", () => {
+      const p = MAIN_SESSION_SYSTEM_PROMPT;
+      expect(p).toContain("📎 知识块必须读");
+      expect(p).toContain("kg-update supersede");
+      expect(p).toContain("不许「下次再说」");
+      expect(p).toContain("createNode");
+      expect(p).toContain("scene 必填");
+    });
+
+    test("SubAgent：supersede/createNode 声明（含 scene）写入 closure findings 申报，由 MainAgent 在阶段检查点统一落账", () => {
+      const p = SUBAGENT_SYSTEM_PROMPT;
+      expect(p).toContain("📎 知识块必须读");
+      expect(p).toContain("supersede/createNode 声明（含 scene");
+      expect(p).toContain("写入 closure findings 申报");
+      expect(p).toContain("由 MainAgent 在阶段检查点统一落账");
+      expect(p).toContain("不许「下次再说」");
+      // W-R6 收权：worker 提示词不再引导直接调 kg-update（工具面也注册不到）
+      expect(p).not.toContain("kg-update");
+    });
   });
 
   describe("SubAgent 专属：闭环纪律（R2 候选单点重申）", () => {
@@ -86,6 +100,18 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
     test("SubAgent 不携带 Main 专属纪律（台账裁决/sync 提示职责不进 worker prompt）", () => {
       expect(SUBAGENT_SYSTEM_PROMPT).not.toContain("decideCandidate 裁决");
       expect(SUBAGENT_SYSTEM_PROMPT).not.toContain("kg.health");
+    });
+  });
+
+  describe("W-R4/W-R6 检查点落账 + W-R5 worktree 豁免（Main 工程纪律）", () => {
+    test("阶段检查点落账 SubAgent 经 findings 申报的 kg 变更（supersede/createNode 走 kg-update，知识与代码同一检查点合入）", () => {
+      expect(MAIN_SESSION_SYSTEM_PROMPT).toContain("落账 SubAgent 经 findings 申报的 kg 变更");
+      expect(MAIN_SESSION_SYSTEM_PROMPT).toContain("supersede/createNode 走 kg-update");
+      expect(MAIN_SESSION_SYSTEM_PROMPT).toContain("知识与代码同一检查点合入");
+    });
+
+    test("工程纪律①：图谱产出型任务（kg-bootstrap/kg-review）不开 worktree，主工作树执行（W-R5）", () => {
+      expect(MAIN_SESSION_SYSTEM_PROMPT).toContain("图谱产出型任务（kg-bootstrap/kg-review）不开 worktree，主工作树执行");
     });
   });
 

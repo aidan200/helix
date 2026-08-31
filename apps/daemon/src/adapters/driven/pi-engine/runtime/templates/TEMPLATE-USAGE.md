@@ -65,7 +65,7 @@ plan_mark_done 闭环检查的机械判据。质量不在此判（归验证期�
   适用：改动附着匹配/预算裁剪相关代码前
   ↳ kg get TR-AD-8
 
-若本次改动推翻此节点，随改动提交 supersede（kg-update）
+若本次改动推翻此节点，将 supersede 声明写入 closure findings
 
 ## 范围钳制
 

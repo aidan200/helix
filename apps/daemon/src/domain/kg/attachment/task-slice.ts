@@ -45,9 +45,15 @@ export interface TaskSliceRow {
   readonly row: NodeDigestRow;
 }
 
-/** 渲染参数：多项目标记（单项目时指针行不带项目尾注，保持简洁）。 */
+/** 渲染参数：多项目标记（单项目时指针行不带项目尾注，保持简洁）+ 协议行（角色分叉）。 */
 export interface TaskSliceRenderOptions {
   readonly multiProject: boolean;
+  /**
+   * 块尾协议行（D8 W-R6 受众分叉）：缺省 = main 版（kg-update 直落）；
+   * worker 受众（SubAgent spawn 注入链）传 ATTACHMENT_PROTOCOL_LINE_WORKER
+   * （closure findings 申报）。估算与渲染同源（budget/taskSliceChars 同 options）。
+   */
+  readonly protocolLine?: string;
 }
 
 /** 单节点条目：粗体 name + kind 徽章 + digest + scene 段（空 scene 兑底省略）+ kg get 指针（与附着条目同构）。 */
@@ -68,7 +74,7 @@ function projectNameOf(projectRoot: string): string {
 
 /**
  * 渲染切片段；空候选返回 ''（空命中整段省略——调用方不拼接）。
- * 结构：标题行 + digest+指针行们 + 协议行（AD-14 同源常量）。
+ * 结构：标题行 + digest+指针行们 + 协议行（AD-14 同源常量；W-R6 按受众分叉）。
  */
 export function renderTaskSlice(
   rows: readonly TaskSliceRow[],
@@ -78,7 +84,7 @@ export function renderTaskSlice(
   return [
     TASK_SLICE_HEADER,
     ...rows.map((c) => renderEntry(c, options.multiProject)),
-    ATTACHMENT_PROTOCOL_LINE,
+    options.protocolLine ?? ATTACHMENT_PROTOCOL_LINE,
   ].join("\n");
 }
 

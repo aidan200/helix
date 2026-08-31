@@ -103,9 +103,10 @@ export interface SubagentLauncherDeps {
    * 产物缓存（组合根在启动与 toggle applied 后刷新；systemPrompt = base +
    * 生效工具清单 + 生效技能段，tools = getEffectiveTools 生效集）。透传
    * env（HELIX_SYSTEM_PROMPT / HELIX_TOOLS_JSON），子进程定格消费；缺省
-   * 不注入（既有测试形态回退 profile 声明面）。
+   * 不注入（既有测试形态回退 profile 声明面）。W-R6：入参 = 实例
+   * profileKind（subagent-kg-writer 领豁免面快照，其余通用 worker）。
    */
-  readonly spawnSnapshot?: () => {
+  readonly spawnSnapshot?: (profileKind: string) => {
     readonly tools: readonly string[];
     readonly systemPrompt: string;
   };
@@ -207,8 +208,9 @@ export class SubagentLauncher implements InstanceRunner {
     const thinkingLevel = this.resolveThinkingFor(); // launch 时刻定格（AD-1：spawn 快照）
     const apiKeys = typeof this.deps.apiKeys === "function" ? this.deps.apiKeys() : this.deps.apiKeys;
     // spawn 快照：launch 时刻读一次（toggle 后新 spawn 跟随新值，已
-    // spawn 实例 env 已定格不受影响——代际生效）
-    const snapshot = this.deps.spawnSnapshot?.();
+    // spawn 实例 env 已定格不受影响——代际生效）。W-R6：按实例 profileKind
+    // 派发（kg-writer 批次领豁免面快照）
+    const snapshot = this.deps.spawnSnapshot?.(instance.profileKind);
     // W1F-F2：toolCwd spawn 时刻读现值（getter 形态 = 经持有者读绑定 root；
     // 静态字符串 = 既有测试形态）——与 apiKeys 同款 getter 注入源模式
     const toolCwd = typeof this.deps.toolCwd === "function" ? this.deps.toolCwd() : this.deps.toolCwd;
