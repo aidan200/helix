@@ -644,6 +644,71 @@ describe("重放幂等（v0.1 全事件面）", () => {
 });
 
 // ── 终验热修：engine.error 帧投影（瞬态错误卡数据源）──────────
+// ── P2 ⑦ 网络重试批：engine.retrying 帧投影（退避等待状态卡数据源）──
+
+describe("engine.retrying 帧投影（P2 ⑦ 网络重试批）", () => {
+  const retryFrame = ev({
+    v: 0,
+    type: "engine.retrying",
+    payload: { attempt: 1, totalAttempts: 3, waitMs: 10_000, message: "fetch failed" },
+  });
+
+  it("帧到达 → engineRetrying 槽位携带 attempt/total/waitMs/原文；后续帧叠加（第 N 次）", () => {
+    const state = sessionReducer(createInitialSessionState(), retryFrame);
+    expect(state.engineRetrying).toEqual({
+      attempt: 1,
+      totalAttempts: 3,
+      waitMs: 10_000,
+      message: "fetch failed",
+    });
+    const second = sessionReducer(state, ev({
+      v: 0,
+      type: "engine.retrying",
+      payload: { attempt: 2, totalAttempts: 3, waitMs: 30_000, message: "ECONNRESET" },
+    }));
+    expect(second.engineRetrying).toMatchObject({ attempt: 2, waitMs: 30_000, message: "ECONNRESET" });
+  });
+
+  it("主线 delta 到达（重试成功、流恢复）→ 清除；engine.error 到达（最终失败）→ 换错误卡并清除", () => {
+    const waiting = sessionReducer(createInitialSessionState(), retryFrame);
+    const resumed = sessionReducer(waiting, ev({
+      v: 0,
+      type: "chat.stream.delta",
+      payload: { messageId: "e5", delta: "流恢复" },
+    }));
+    expect(resumed.engineRetrying).toBeNull();
+
+    const failed = sessionReducer(waiting, ev({
+      v: 0,
+      type: "engine.error",
+      payload: { message: "503 Service Unavailable" },
+    }));
+    expect(failed.engineRetrying).toBeNull();
+    expect(failed.engineError).toEqual({ message: "503 Service Unavailable" });
+  });
+
+  it("轮次终制（turn.completed）与 agent idle → 清除（abort 打断等待的收口面）", () => {
+    const waiting = sessionReducer(createInitialSessionState(), retryFrame);
+    const afterTurn = sessionReducer(waiting, ev({
+      v: 0,
+      type: "chat.turn.completed",
+      payload: { turnId: "t1", reason: "aborted" },
+    }));
+    expect(afterTurn.engineRetrying).toBeNull();
+
+    const waiting2 = sessionReducer(createInitialSessionState(), retryFrame);
+    const idle = sessionReducer(waiting2, ev({
+      v: 0,
+      type: "agent.state.changed",
+      payload: { state: "idle" },
+    }));
+    expect(idle.engineRetrying).toBeNull();
+  });
+
+  it("初始 state 恒 null（瞬态不落盘，整页刷新天然归零）", () => {
+    expect(createInitialSessionState().engineRetrying).toBeNull();
+  });
+});
 
 describe("engine.error 帧投影（终验热修）", () => {
   it("帧到达 → engineError 槽位携带 provider 原文；turn.completed 不清除（卡片存续到下一轮）", () => {

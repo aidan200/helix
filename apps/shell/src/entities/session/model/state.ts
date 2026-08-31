@@ -344,6 +344,13 @@ export interface SessionState {
   /** 引擎/模型调用失败（终验热修：engine.error 帧 → 聊天流错误卡片；
    *  瞬态不落盘——新轮开始即清；持久事实在 daemon 日志与领域事件流） */
   engineError: { message: string } | null;
+  /**
+   * LLM 网络重试等待中（P2 ⑦ 网络重试批：engine.retrying 帧 → 聊天流
+   * 状态卡「网络重试中（第 N/3 次，约 Xs 后）」）。瞬态不落盘——主线
+   * 流恢复（chat.stream.delta）/ 最终失败（engine.error，换错误卡）/ 轮次
+   * 终制即清；重试本体在 daemon 引擎层（退避 10/30/60s×3）。
+   */
+  engineRetrying: { attempt: number; totalAttempts: number; waitMs: number; message: string } | null;
   /** 手动重试挂起（welcome 后 toast 走 retry 文案而非 restore） */
   pendingManualRetry: boolean;
   /** 是否曾连接成功过（区分首连与重连：仅重连触发恢复 toast） */
@@ -480,6 +487,7 @@ export function createInitialSessionState(): SessionState {
     connAttempts: 1,
     connError: null,
     engineError: null,
+    engineRetrying: null,
     pendingManualRetry: false,
     hasConnected: false,
     toastPending: null,
