@@ -141,6 +141,10 @@ async function makeRig(home: string, opts: { initialModel?: string; replies?: { 
     port: 0,
     cliInput: new PassThrough(),
     cliOutput: new PassThrough(),
+    // D8 W-R3 后进程 cwd（主树/隔离 worktree）可能携带真实 kg 项目
+    //（worktree 读穿透主仓 kg.db）——绑定 tmp home 隔离，任务切片注入零命中
+    //（TR-TEST-4 密闭性；不随套件运行地漂移）。
+    kgWorkspaceRoot: home,
   });
   const token = readFileSync(path.join(home, "dev-token"), "utf8");
   const client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);
