@@ -21,7 +21,10 @@
  * - change_log：变更日志（每 op 自动追加；supersede_of 挂取代链——supersede
  *   行记自身、replacement createNode 行记被取代者；AUTOINCREMENT 保 seq
  *   追加序；task_id 与 iteration_id 并列——任务产出元数据，T2.1 AD-10，
- *   可空无默认）；库内即审计界面（AD-9，git 审计废弃后）；
+ *   可空无默认；iteration_id 可空（P0 ④ 2026-08-31 裁决「保留可空」——v1
+ *   迭代状态目录停用后不再强溯源，双锚缺失落 NULL；老库 NOT NULL 形状
+ *   由 KgDatabase.ensureSchemaEvolved 表重建演进，见下）；库内即审计界面
+ *   （AD-9，git 审计废弃后）；
  * - edges：知识边（verb 封闭词表校验在 service 层 KG_E_VERB——词表单一来源
  *   domain/kg/types.EDGE_VERBS 不进 DDL；复合主键防重复边）；
  * - files/symbols/contains_edges：符号层三表（sync 管道写，增量基准
@@ -69,7 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_anchor_decl_node ON anchor_decl(node_id);
 
 CREATE TABLE IF NOT EXISTS change_log (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
-  iteration_id TEXT NOT NULL,
+  iteration_id TEXT,
   task_id TEXT,
   op TEXT NOT NULL,
   node_id TEXT NOT NULL,

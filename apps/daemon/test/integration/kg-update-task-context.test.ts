@@ -169,8 +169,8 @@ describe("写入口 6 种 op kind 透传 taskId（逐 op 断言，store 面机�
   });
 });
 
-describe("iterationId 服务端机械解析（LLM 传参降级为可选覆盖，A4 任务二）", () => {
-  /** 在 workspace 根造迭代状态目录（.helix/iterations/iter-*）。 */
+describe("iterationId 解析去 v1 化（P0 ④：.helix/iterations 回落移除；无法解析落空不报错）", () => {
+  /** 在 workspace 根造 v1 迭代状态目录（.helix/iterations/iter-*）——修复后不再被读取。 */
   function seedWorkspaceIterations(root: string, ids: readonly string[]): void {
     for (const id of ids) {
       mkdirSync(path.join(root, ".helix", "iterations", id), { recursive: true });
@@ -178,17 +178,19 @@ describe("iterationId 服务端机械解析（LLM 传参降级为可选覆盖，
     }
   }
 
-  test("缺省 iterationId + workspace 迭代状态在 → 机械盖 workspace 当前迭代（最新目录）", async () => {
+  test("v1 目录在场也不再读取：缺省 + 库无锚 → 写成功且 iteration_id 落 NULL（写面不被溯源章卡死）", async () => {
     const stack = freshKgStack();
     seedWorkspaceIterations(stack.root, ["iter-20260825-11fo", "iter-20260829-ys7q"]);
     const tool = makeTool(stack, () => CTX);
-    await call(tool, { op: "createNode", kind: "rule", name: "无参规则", digest: "摘要", scene: "测试场景", project: "proj" });
+    const text = await call(tool, { op: "createNode", kind: "rule", name: "无参规则", digest: "摘要", scene: "测试场景", project: "proj" });
+    expect(text).toContain("已建节点");
     const rows = changeLogRows(stack.proj);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ iteration_id: "iter-20260829-ys7q", task_id: CTX.taskId });
+    // v1 冻结值（iter-20260829-ys7q）不得再被盖章；task 章照常机械注入
+    expect(rows[0]).toMatchObject({ iteration_id: null, task_id: CTX.taskId });
   });
 
-  test("无 workspace 迭代状态 → 回落目标库最近迭代锚（库内 change_log 末行）", async () => {
+  test("缺省 iterationId → 回落目标库最近迭代锚（库内 change_log 末行，滞后兑底）", async () => {
     const stack = freshKgStack();
     const seed = await stack.write.write(stack.proj, {
       kind: "createNode",
@@ -203,6 +205,28 @@ describe("iterationId 服务端机械解析（LLM 传参降级为可选覆盖，
     expect(rows[1]).toMatchObject({ iteration_id: "iter-seed-anchor" });
   });
 
+  test("库锚取末行字面值：末行 NULL → 后续缺省写不回填旧锚（v1 冻结值不得再自我延续）", async () => {
+    const stack = freshKgStack();
+    const seed = stack.write.write(stack.proj, {
+      kind: "createNode",
+      iterationId: "iter-seed-anchor",
+      draft: { kind: "rule", name: "种子", digest: "d", scene: "测试场景" },
+    });
+    if (!seed.ok) throw new Error("种子建点失败");
+    const nullRow = stack.write.write(stack.proj, {
+      kind: "createNode",
+      iterationId: null,
+      draft: { kind: "rule", name: "无锚行", digest: "d", scene: "测试场景" },
+    });
+    if (!nullRow.ok) throw new Error("无锚建点失败");
+    const tool = makeTool(stack, () => CTX);
+    await call(tool, { op: "createNode", kind: "rule", name: "后续", digest: "摘要", scene: "测试场景", project: "proj" });
+    const rows = changeLogRows(stack.proj);
+    // 末行（无锚）之后不再回填 iter-seed-anchor——末行 NULL = 当前无迭代归属，
+    // 老库 v1 冻结值不会经库锚回落自我延续
+    expect(rows[2]).toMatchObject({ iteration_id: null });
+  });
+
   test("显式 iterationId 覆盖机械解析（覆盖语义保持）", async () => {
     const stack = freshKgStack();
     seedWorkspaceIterations(stack.root, ["iter-20260829-ys7q"]);
@@ -211,14 +235,12 @@ describe("iterationId 服务端机械解析（LLM 传参降级为可选覆盖，
     expect(changeLogRows(stack.proj)[0]).toMatchObject({ iteration_id: "iter-explicit" });
   });
 
-  test("无任何迭代锚（无 workspace 状态 + 库空）且未显式传参 → 结构化报错不猜", async () => {
+  test("双锚缺失（无 v1 目录 + 库空）且未显式传参 → 不再报错：写成功且 iteration_id NULL", async () => {
     const stack = freshKgStack();
-    const tool = makeTool(stack, () => CTX);
-    await expect(
-      call(tool, { op: "createNode", kind: "rule", name: "无锚", digest: "摘要", scene: "测试场景", project: "proj" }),
-    ).rejects.toThrow(/iterationId/);
-    // 写入口未被触达（库文件不应被创建——读面/拒绝路径零落库）
-    expect(existsSync(kgDbPath(stack.proj))).toBe(false);
+    const tool = makeTool(stack); // 非任务上下文：task_id 亦 NULL（零注入语义）
+    const text = await call(tool, { op: "createNode", kind: "rule", name: "无锚", digest: "摘要", scene: "测试场景", project: "proj" });
+    expect(text).toContain("已建节点");
+    expect(changeLogRows(stack.proj)[0]).toMatchObject({ iteration_id: null, task_id: null });
   });
 });
 

@@ -226,7 +226,8 @@ const KgDetailPane = function KgDetailPane({
         {detail.log.map((l, i) => (
           <div className="kg-log-row" key={i}>
             <span className="kg-log-d">{fmtDate(l.date)}</span>
-            <span className="kg-log-it">{l.iterationId}</span>
+            {l.taskId != null && <span className="kg-log-it">{l.taskId}</span>}
+            {l.iterationId != null && <span className="kg-log-it">{l.iterationId}</span>}
             <span className="kg-log-t">{l.eventText}</span>
           </div>
         ))}

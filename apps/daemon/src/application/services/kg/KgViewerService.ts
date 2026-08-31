@@ -60,10 +60,13 @@ export interface KgRelationView {
   readonly peer: NodeDigestRow;
 }
 
-/** 变更日志行（契约 LogRow；eventText 无裸 id，AD-16）。 */
+/** 变更日志行（契约 LogRow；eventText 无裸 id，AD-16）。P0 ④：溯源主锚
+ *  切 task_id（该列 AD-10 机械注入一直正确）；iterationId 可空——空值前端
+ *  不展示，非空照旧（历史行兼容）。 */
 export interface KgLogView {
   readonly date: string;
-  readonly iterationId: string;
+  readonly iterationId: string | null;
+  readonly taskId?: string | null;
   readonly eventText: string;
 }
 
@@ -191,14 +194,15 @@ export class KgViewerService {
     return { ok: true, value: this.assembleDetail(resolved.value, detail) };
   }
 
-  // ── F5.3 kg.change.report（KgReportService 直传；缺省=当前迭代） ──
+  // ── F5.3 kg.change.report（KgReportService 直传；缺省=当前迭代，无锚→无归属聚合） ──
 
   changeReport(project: string, iterationId?: string): KgViewerResult<ChangeReport> {
     const resolved = this.resolveIndexed(project);
     if (!resolved.ok) return resolved;
+    // P0 ④：缺省回落库内末行锚；无锚（含末行 NULL）→ null（无归属行聚合）
     const iteration = iterationId !== undefined && iterationId.trim() !== ""
       ? iterationId
-      : (this.deps.graph.latestIteration(resolved.value) ?? "");
+      : this.deps.graph.latestIteration(resolved.value);
     return { ok: true, value: this.deps.report.buildChangeReport(resolved.value, iteration) };
   }
 
@@ -221,13 +225,8 @@ export class KgViewerService {
         },
       };
     }
-    const iterationId = this.deps.graph.latestIteration(resolved.value);
-    if (iterationId === null) {
-      return {
-        ok: false,
-        error: { code: "KG_E_STATE", message: "库内无迭代锚（change_log 空），无法归属审计行" },
-      };
-    }
+    // P0 ④：无库内锚不再拒绝——审计行落空归属（写面不被溯源章卡死）
+    const iterationId = this.deps.graph.latestIteration(resolved.value) ?? null;
     const write = this.deps.write.write(resolved.value, {
       kind: "updateNode",
       iterationId,
@@ -437,6 +436,7 @@ export class KgViewerService {
       .map((entry) => ({
         date: entry.ts,
         iterationId: entry.iterationId,
+        ...(entry.taskId !== undefined && entry.taskId !== null ? { taskId: entry.taskId } : {}),
         eventText: logEventText(entry.op, entry.reason),
       }));
 

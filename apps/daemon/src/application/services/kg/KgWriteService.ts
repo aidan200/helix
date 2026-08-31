@@ -73,8 +73,14 @@ export function validateKnowledgeWriteOp(op: unknown): KgWriteError | null {
     return schemaError("op 必须是对象", "op");
   }
   const candidate = op as Record<string, unknown>;
-  if (typeof candidate.iterationId !== "string" || candidate.iterationId.trim() === "") {
-    return schemaError("iterationId 必填（change_log 每行含迭代 id）", "op.iterationId");
+  // iterationId 可空（P0 ④）：未携带/null = 无迭代归属（change_log 落 NULL，
+  // 双锚缺失不再卡写面）；携带则必为非空字符串（空串拒绝）。
+  if (
+    candidate.iterationId !== undefined &&
+    candidate.iterationId !== null &&
+    (typeof candidate.iterationId !== "string" || candidate.iterationId.trim() === "")
+  ) {
+    return schemaError("iterationId 若携带必须为非空字符串（缺省/null = 无迭代归属，落空）", "op.iterationId");
   }
   // 任务元数据（T2.1，AD-10）：全可选——携带则必为非空字符串；不携带时后续
   // 行为与既有逐字节一致（两列 NULL）。任务系统零「处置」概念，元数据仅

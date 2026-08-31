@@ -583,6 +583,31 @@ describe("kg 六命令族 I 层（真 service 栈 + tmp 库 + ws 路由）", () 
     expect(explicit.result.iterationId).toBe(ITER);
   }, 15000);
 
+  test("kg.node.detail 变更日志行主锚切 task_id（P0 ④）：task 章在场下发；无迭代归属行 iterationId 下发 null", async () => {
+    const rig = rigs[0]!;
+    // 无迭代归属（NULL）+ 带 task 章的写入（去 v1 化后的常态形态）——置于
+    // report 默认迭代断言之后（顺序敏感现场，不扰动其 latestIteration 取值）
+    expectOk(
+      rig.write.write(rig.alpha, {
+        kind: "createNode",
+        iterationId: null,
+        taskId: "task-anchor-primary",
+        draft: { kind: "rule", name: "无迭代归属规则", digest: "无锚摘要", scene: "测试场景", status: "confirmed" },
+      }),
+    );
+    const res = await rig.client.kg("kg.node.detail", { project: "alpha", id: "TR-5" });
+    expect(res.ok).toBe(true);
+    const log = res.result.log as { date: string; iterationId: string | null; taskId?: string | null; eventText: string }[];
+    expect(log).toHaveLength(1);
+    expect(log[0]!.iterationId).toBe(null); // 空不展示（前端条件渲染）；非空照旧（历史行兼容）
+    expect(log[0]!.taskId).toBe("task-anchor-primary"); // 主锚切 task_id
+    // 历史行（有迭代无任务）照旧：iterationId 字符串 + taskId 空缺省
+    const old = await rig.client.kg("kg.node.detail", { project: "alpha", id: "TR-1" });
+    const oldLog = old.result.log as { iterationId: string | null; taskId?: string | null }[];
+    expect(oldLog[0]!.iterationId).toBe(ITER);
+    expect(oldLog[0]!.taskId == null).toBe(true);
+  }, 15000);
+
   test("kg.node.confirm：唯一写命令走 F2.3 API + change_log 追加 + 非 draft KG_E_STATE（A4）", async () => {
     const rig = rigs[0]!;
     const before = knowledgeCounts(rig, rig.alpha);

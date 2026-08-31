@@ -131,7 +131,7 @@ export class SqliteKnowledgeStore {
 
   private applyCreateNode(
     db: Database,
-    iterationId: string,
+    iterationId: string | null,
     draft: NodeDraft,
     explicitId: string | undefined,
     taskId: string | undefined,
@@ -508,11 +508,12 @@ export class SqliteKnowledgeStore {
 
   /**
    * change_log 追加（T2.1 起 task_id 与 iteration_id 并列记账——op 携带
-   * taskId 则落列，不携带 = null，旧行为不变）。
+   * taskId 则落列，不携带 = null，旧行为不变；iterationId 可空 P0 ④——
+   * null 直落 NULL）。
    */
   private appendChangeLog(
     db: Database,
-    iterationId: string,
+    iterationId: string | null,
     op: KnowledgeWriteOp["kind"],
     nodeId: string,
     supersedeOf: string | null,

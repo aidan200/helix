@@ -560,7 +560,12 @@ function detailViewToDto(view: KgNodeDetailView): KgNodeDetailDto {
     })),
     relations: view.relations.map((r) => ({ verb: r.verb, peer: nodeRefDto(r.peer) })),
     supersede: { history: view.supersede.history.map(nodeRefDto), current: nodeRefDto(view.supersede.current) },
-    log: view.log.map((l) => ({ date: l.date, iterationId: l.iterationId, eventText: l.eventText })),
+    log: view.log.map((l) => ({
+      date: l.date,
+      iterationId: l.iterationId,
+      ...(l.taskId !== undefined && l.taskId !== null ? { taskId: l.taskId } : {}),
+      eventText: l.eventText,
+    })),
   };
 }
 

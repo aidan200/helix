@@ -82,11 +82,14 @@ export interface KgRelationRow {
   peer: KgNodeRefDto;
 }
 
-/** 变更日志行（最新在上，由 daemon 排序后下发）。 */
+/** 变更日志行（最新在上，由 daemon 排序后下发）。P0 ④：溯源主锚切 task_id；
+ *  iterationId 可空（无归属行下发 null，前端空不展示；非空照旧历史行兼容）。 */
 export interface KgLogRow {
   /** ISO 时间戳。 */
   date: string;
-  iterationId: string;
+  iterationId: string | null;
+  /** 任务来源章（P0 ④ 主锚；非任务产出缺省）。 */
+  taskId?: string;
   /** 事件叙述（无裸 id，AD-16）。 */
   eventText: string;
 }
@@ -132,9 +135,10 @@ export interface KgReportEntryDto {
   refs: { nodes: KgNodeRefDto[]; symbols: KgSymbolRefDto[] };
 }
 
-/** 知识变化报告（kg.change.report 响应；按迭代聚合）。 */
+/** 知识变化报告（kg.change.report 响应；按迭代聚合；iterationId 可空——
+ *  P0 ④ 无归属报告下发 null，报告头空值不展示）。 */
 export interface KgChangeReportDto {
-  iterationId: string;
+  iterationId: string | null;
   entries: KgReportEntryDto[];
 }
 

@@ -3,8 +3,6 @@ import type {
   AgentToolResult,
   ExecutionToolContext,
 } from "@earendil-works/pi-agent-core/node";
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
 import type { KgQueryService } from "../../../../application/services/kg/KgQueryService";
 import type { KgWriteService } from "../../../../application/services/kg/KgWriteService";
 import type {
@@ -163,7 +161,7 @@ const kgUpdateParameters = {
     iterationId: {
       type: "string",
       description:
-        "当前迭代 id（可选覆盖——缺省服务端机械解析：workspace 当前迭代（.helix/iterations 最新）→ 目标库最近迭代锚；均缺时才需显式传参。change_log 每行必含）",
+        "当前迭代 id（可选——缺省回落目标库最近迭代锚（change_log 末行）；双锚缺失落空不报错（P0 ④：溯源主锚切 taskId）",
     },
     project: { type: "string", description: "createNode 目标项目目录名（workspace 只有一个项目时可省；多项目必填）" },
     taskId: {
@@ -219,7 +217,7 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       "内容改动走候选人审。" +
       "proposeCandidate/decideCandidate：候选台账操作（SubAgent 闭环发现经 findings 上报自动落候选，" +
       "不得直接调用候选 op——工具注册面管控谁可见本工具，描述不做角色枚举，W-R6）。" +
-      "iterationId 缺省服务端机械解析（workspace 当前迭代 → 目标库最近迭代锚），显式传参仅作覆盖；" +
+      "iterationId 缺省回落目标库最近迭代锚（change_log 末行），无锚落空不报错（P0 ④），显式传参仅作覆盖；" +
       "多项目 workspace 的 createNode 需 project（项目目录名）。",
     parameters: kgUpdateParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
@@ -385,7 +383,8 @@ function execProposeCandidate(deps: KgUpdateToolDeps, args: Record<string, unkno
       title,
       ...(optionalString(args, "body") !== undefined ? { body: optionalString(args, "body")! } : {}),
       ...(sourceTaskId !== undefined ? { sourceTaskId } : {}),
-      sourceIterationId: iterationId,
+      // P0 ④：无迭代归属时省略（溯源列可空；主锚 task_id）
+      ...(iterationId !== null ? { sourceIterationId: iterationId } : {}),
     }),
   );
   return `已提候选 ${result.nodeId}（project: ${projectName(project)}，status=pending——终验人审裁决）`;
@@ -463,35 +462,15 @@ function execBatchCreateNodes(deps: KgUpdateToolDeps, args: Record<string, unkno
 }
 
 /**
- * iterationId 解析（A4 任务二，服务端机械解析为主）：LLM 显式传参优先
- * （覆盖语义保持）；缺省 → ① workspace 当前迭代（<workspaceRoot>/.helix/
- * iterations 最新 iter-* 目录——真实迭代锚，任务上下文无迭代归属时继承
- * workspace 现值）→ ② 目标库最近迭代锚（change_log 末行，滞后兑底）；
- * 皆缺 → 结构化报错不猜（不写无归属审计行）。
+ * iterationId 解析（P0 ④ 去 v1 化）：LLM 显式传参优先（覆盖语义保持）；
+ * 缺省 → 目标库最近迭代锚（change_log 末行，滞后兑底）；无锚 → null
+ * （change_log 落 NULL，不报错——写面永不被溯源章卡死；溯源主锚切
+ * task_id，机械注入一直正确）。
  */
-function resolveIterationId(deps: KgUpdateToolDeps, args: Record<string, unknown>, project: string): string {
+function resolveIterationId(deps: KgUpdateToolDeps, args: Record<string, unknown>, project: string): string | null {
   const explicit = optionalString(args, "iterationId");
   if (explicit !== undefined) return explicit;
-  const workspaceIteration = workspaceCurrentIteration(deps.workspaceRoot);
-  if (workspaceIteration !== undefined) return workspaceIteration;
-  const anchor = deps.query.latestIteration?.(project);
-  if (anchor !== undefined && anchor !== null) return anchor;
-  throw new Error(
-    "缺少必填参数 iterationId（change_log 每行必含迭代 id；服务端机械解析双锚均缺——" +
-      "workspace 无 .helix/iterations 迭代状态且目标库 change_log 为空，请显式传参）",
-  );
-}
-
-/** workspace 当前迭代（.helix/iterations 最新 iter-* 目录名；目录缺席/为空 → undefined）。 */
-function workspaceCurrentIteration(workspaceRoot: string): string | undefined {
-  let entries: string[];
-  try {
-    entries = readdirSync(join(workspaceRoot, ".helix", "iterations"));
-  } catch {
-    return undefined; // 目录缺席（无迭代状态的 workspace）——不猜
-  }
-  const iterations = entries.filter((e) => e.startsWith("iter-")).sort();
-  return iterations.length > 0 ? iterations[iterations.length - 1] : undefined;
+  return deps.query.latestIteration?.(project) ?? null;
 }
 
 /** createNode 目标项目解析：project 名 → projectRoot；缺省唯一项目自动；多项目必填。 */

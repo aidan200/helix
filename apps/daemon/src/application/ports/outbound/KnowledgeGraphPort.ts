@@ -67,10 +67,10 @@ export interface KnowledgeGraphPort {
   getVerifyView(projectRoot: string): VerifyView;
 
   /**
-   * 变更日志按迭代过滤（T5.1 变化报告 knowledge_change 数据源；
-   * seq 正序）。
+   * 变更日志按迭代过滤（T5.1 变化报告 knowledge_change 数据源；seq 正序）。
+   * iterationId=null（P0 ④）→ 无迭代归属行（iteration_id IS NULL 聚合）。
    */
-  getChangeLog(projectRoot: string, iterationId: string): readonly ChangeLogEntry[];
+  getChangeLog(projectRoot: string, iterationId: string | null): readonly ChangeLogEntry[];
 
   /**
    * 知识节点计数（kg.list total 数据源：过滤前全集，含 superseded 留史行）。
@@ -102,7 +102,8 @@ export interface KnowledgeGraphPort {
 
   /**
    * 库内最近一次变更所属迭代 id（T5.3 kg.change.report 缺省入参 = 当前
-   * 迭代的确定性推导；change_log 空 → null）。仅在 .kg 已存在的项目上调用。
+   * 迭代的确定性推导；change_log 空 / 末行无归属（P0 ④ 可空）→ null）。
+   * 仅在 .kg 已存在的项目上调用。
    */
   latestIteration(projectRoot: string): string | null;
 

@@ -201,6 +201,29 @@ describe("KgReportService：变化报告数据面（I 层，按迭代聚合）",
     expect(otherChanges[0]!.body).toContain("他迭代规则");
   });
 
+  test("⑧ P0 ④：无迭代归属（NULL）报告：buildChangeReport(root, null) 聚合 NULL 行；有值迭代报告不串（隔离保持）", () => {
+    const s = freshStack();
+    seed(s);
+    const nullWrite = s.write.write(s.root, {
+      kind: "createNode",
+      iterationId: null,
+      taskId: "task-null-iter",
+      draft: { kind: "rule", name: "无迭代归属规则", digest: "无锚摘要", scene: "测试场景", status: "confirmed" },
+    });
+    expect(nullWrite.ok).toBe(true);
+    const nullReport = s.report.buildChangeReport(s.root, null);
+    expect(nullReport.iterationId).toBe(null);
+    const nullChanges = nullReport.entries.filter((e) => e.kind === "knowledge_change");
+    expect(nullChanges).toHaveLength(1);
+    expect(nullChanges[0]!.body).toContain("无迭代归属规则");
+    // 检查类条目照田（验证面与迭代归属无关）
+    expect(nullReport.entries.some((e) => e.kind === "dead_anchor")).toBe(true);
+    // 有值迭代报告不含 NULL 行（隔离保持，历史行兼容）
+    const iterReport = s.report.buildChangeReport(s.root, ITER);
+    expect(iterReport.iterationId).toBe(ITER);
+    expect(iterReport.entries.some((e) => e.kind === "knowledge_change" && e.body.includes("无迭代归属规则"))).toBe(false);
+  });
+
   test("⑦ O-7 查询时聚合零写：buildChangeReport 前后库文件字节不变", () => {
     const s = freshStack();
     seed(s);

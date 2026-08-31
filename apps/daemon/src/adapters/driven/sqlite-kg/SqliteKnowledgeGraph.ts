@@ -387,16 +387,25 @@ export class SqliteKnowledgeGraph {
     return { nodes, edges, anchors, anchorDeclarations, files };
   }
 
-  /** 变更日志按迭代过滤（T5.1 报告 knowledge_change 数据源；seq 正序）。 */
-  getChangeLog(projectRoot: string, iterationId: string): readonly ChangeLogEntry[] {
+  /** 变更日志按迭代过滤（T5.1 报告 knowledge_change 数据源；seq 正序）。
+   *  iterationId=null（P0 ④）→ 无迭代归属行（WHERE iteration_id IS NULL——
+   *  去残留聚合口径；历史非空行照旧按值过滤）。 */
+  getChangeLog(projectRoot: string, iterationId: string | null): readonly ChangeLogEntry[] {
     const db = this.deps.database.knowledgeConnection(projectRoot);
-    return (
-      db
-        .prepare(
-          "SELECT seq, iteration_id, task_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE iteration_id = ? ORDER BY seq",
-        )
-        .all(iterationId) as LogRow[]
-    ).map((row) => ({
+    const rows = (
+      iterationId === null
+        ? db
+            .prepare(
+              "SELECT seq, iteration_id, task_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE iteration_id IS NULL ORDER BY seq",
+            )
+            .all()
+        : db
+            .prepare(
+              "SELECT seq, iteration_id, task_id, op, node_id, supersede_of, reason, ts FROM change_log WHERE iteration_id = ? ORDER BY seq",
+            )
+            .all(iterationId)
+    ) as LogRow[];
+    return rows.map((row) => ({
       seq: row.seq,
       iterationId: row.iteration_id,
       taskId: row.task_id,
@@ -455,13 +464,15 @@ export class SqliteKnowledgeGraph {
   }
 
   /** 库内最近一次变更所属迭代 id（T5.3 当前迭代确定性推导；空 → null）。
-   *  读面纪律：库文件缺席 → null（不新建库文件——connectionOf 会 mkdir+建库）。 */
+   *  P0 ④：取 change_log 末行字面值——末行无归属（NULL）即无锚（老库 v1
+   *  冻结值不随末行 NULL 自我延续）；读面纪律：库文件缺席 → null
+   *  （不新建库文件——connectionOf 会 mkdir+建库）。 */
   latestIteration(projectRoot: string): string | null {
     if (!existsSync(kgDbPath(projectRoot))) return null;
     const db = this.deps.database.knowledgeConnection(projectRoot);
     const row = db
       .prepare("SELECT iteration_id FROM change_log ORDER BY seq DESC LIMIT 1")
-      .get() as { iteration_id: string } | null;
+      .get() as { iteration_id: string | null } | null;
     return row === null ? null : row.iteration_id;
   }
 
@@ -698,7 +709,7 @@ interface InEdgeRow {
 
 interface LogRow {
   seq: number;
-  iteration_id: string;
+  iteration_id: string | null;
   task_id: string | null;
   op: string;
   node_id: string;

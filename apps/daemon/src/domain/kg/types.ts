@@ -176,10 +176,12 @@ export type KnowledgeWriteOpKind =
  * （目标节点翻态进自身历史链）；supersede+replacement 的 replacement
  * createNode 行记被取代者（新节点挂旧节点链）。taskId（T2.1 AD-10）：
  * 任务产出元数据——op 携带则记账，不携带 = null（旧行为不变）。
+ * iterationId 可空（P0 ④ 2026-08-31 裁决「保留可空」）：v1 状态目录回落
+ * 移除后双锚缺失不再报错，行落 NULL（溯源主锚切 task_id）。
  */
 export interface ChangeLogEntry {
   readonly seq: number;
-  readonly iterationId: string;
+  readonly iterationId: string | null;
   /** 任务来源（AD-10 唯一衔接面；非任务产出 = null；读面向前兼容可选）。 */
   readonly taskId?: string | null;
   readonly op: KnowledgeWriteOpKind;
@@ -238,14 +240,15 @@ export interface CreateNodePayload {
 }
 
 /**
- * 写 op 公共字段：change_log 每行必含迭代 id。taskId/originBatchId
- * （T2.1，AD-10 任务→kg 唯一衔接面）：全部可选带缺省——携带时 createNode/
- * batchCreateNodes 落 nodes.origin_batch_id + change_log.task_id；不携带
- * 则行为与既有逐字节一致（两列 NULL）。任务系统零「处置」概念：元数据
- * 仅登记，不进任何状态机。
+ * 写 op 公共字段：iterationId 可空（P0 ④：v1 迭代状态目录回落移除后，
+ * 双锚缺失不再报错——写面永不被溯源章卡死；携带则必非空字符串，溯源
+ * 主锚切 task_id）。taskId/originBatchId（T2.1，AD-10 任务→kg 唯一衔接
+ * 面）：全部可选带缺省——携带时 createNode/batchCreateNodes 落
+ * nodes.origin_batch_id + change_log.task_id；不携带则行为与既有逐字节
+ * 一致（两列 NULL）。任务系统零「处置」概念：元数据仅登记，不进任何状态机。
  */
 export interface KnowledgeWriteOpBase {
-  readonly iterationId: string;
+  readonly iterationId: string | null;
   /** 任务来源 id（helix.db job 表 id；任务产出落账时携带）。 */
   readonly taskId?: string;
   /** 产出批次 id（helix.db batch 表 id；批次产出落账时携带）。 */

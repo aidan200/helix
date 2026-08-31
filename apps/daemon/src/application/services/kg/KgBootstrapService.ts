@@ -235,10 +235,8 @@ export class KgBootstrapService {
     if ((digest === undefined || digest === "") && (body === undefined || body === "")) {
       return { ok: false, error: { code: "task.validation_failed", message: "digest / body 至少携带其一（空更新拒绝）" } };
     }
-    const iterationId = this.deps.graph.latestIteration(projectRoot);
-    if (iterationId === null) {
-      return { ok: false, error: { code: "task.validation_failed", message: "库内无迭代锚（change_log 空），无法归属审计行" } };
-    }
+    // P0 ④：无库内锚不再拒绝——审计行落空归属（写面不被溯源章卡死）
+    const iterationId = this.deps.graph.latestIteration(projectRoot) ?? null;
     const write = this.deps.write.write(projectRoot, {
       kind: "updateNode",
       iterationId,
@@ -264,10 +262,8 @@ export class KgBootstrapService {
     if (typeof reason !== "string" || reason.trim() === "") {
       return { ok: false, error: { code: "task.validation_failed", message: "supersede 理由必填（如实记录进入变更日志）", path: "payload.reason" } };
     }
-    const iterationId = this.deps.graph.latestIteration(projectRoot);
-    if (iterationId === null) {
-      return { ok: false, error: { code: "task.validation_failed", message: "库内无迭代锚（change_log 空），无法归属审计行" } };
-    }
+    // P0 ④：无库内锚不再拒绝——审计行落空归属（写面不被溯源章卡死）
+    const iterationId = this.deps.graph.latestIteration(projectRoot) ?? null;
     const write = this.deps.write.write(projectRoot, { kind: "supersede", iterationId, nodeId, reason: reason.trim() });
     if (!write.ok) return { ok: false, error: { code: "task.validation_failed", message: write.error.message, path: write.error.path } };
     return { ok: true, value: { ok: true } };

@@ -43,9 +43,10 @@ export interface ReportEntry {
   readonly refs: { readonly nodes: readonly NodeRef[]; readonly symbols: readonly SymbolRef[] };
 }
 
-/** 变化报告（按迭代聚合；供 T5.3 kg.change.report 直传）。 */
+/** 变化报告（按迭代聚合；供 T5.3 kg.change.report 直传；iterationId 可空
+ *  P0 ④：无归属报告（null）= 去残留聚合，报告头空值不展示）。 */
 export interface ChangeReport {
-  readonly iterationId: string;
+  readonly iterationId: string | null;
   readonly entries: readonly ReportEntry[];
 }
 
@@ -74,8 +75,9 @@ export class KgReportService {
     this.deps = deps;
   }
 
-  /** 按迭代聚合变化报告（O-7 现算；确定性序：冲突→失效锚→疑似→知识变化）。 */
-  buildChangeReport(projectRoot: string, iterationId: string): ChangeReport {
+  /** 按迭代聚合变化报告（O-7 现算；确定性序：冲突→失效锚→疑似→知识变化）。
+   *  iterationId=null（P0 ④）→ 无归属行聚合（iteration_id IS NULL）。 */
+  buildChangeReport(projectRoot: string, iterationId: string | null): ChangeReport {
     const conflicts = this.deps.verify.findConflicts(projectRoot);
     const orphans = this.deps.verify.findOrphans(projectRoot);
     const suspects = this.deps.verify.findActivityMismatch(projectRoot);
