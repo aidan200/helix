@@ -8,8 +8,8 @@
  * - profiles：双 kind 块按 profileKind 归位（单 kind 响应只覆写该块）；
  * - system（agent-roster 批）：只读系统派生块按 kind 归位（orchestrator /
  *   subagent-kg-writer；未携带不覆盖——旧 daemon 容忍）；
- * - selected（agent-roster 批）：master-detail 选中维（null = 空态；重拉
- *   不清——选中是视图态非数据态，P-1/tasks 先例）；
+ * - selected（agent-roster 批）：master-detail 选中维（默认 main-session；
+ *   重拉不清——选中是视图态非数据态，P-1/tasks 先例）；
  * - pending：写面在途行（key = kind:resourceType:name；model/thinking 槽位
  *   统一空名键——set/clear 同键单飞）。结果帧无请求回显（契约 §16.4），
  *   单飞纪律在页面侧（pending 非空不再发新写命令）；新鲜 list.result 到达
@@ -40,7 +40,7 @@ export interface AgentPageState {
   profiles: Readonly<Record<AgentKind, AgentConfigProfileBlock | null>>;
   /** 只读系统派生块（agent-roster 批；未携带 = null → 详情骨架态）。 */
   system: Readonly<Record<SystemAgentKind, AgentConfigSystemBlock | null>>;
-  /** master-detail 选中（null = 未选空态；重拉不清——选中是视图态非数据态）。 */
+  /** master-detail 选中（默认 main-session——brief ④；select-agent null 可达空态为防御位；重拉不清——选中是视图态非数据态）。 */
   selected: AgentId | null;
   /** 写面在途行 key 集（单飞：结果帧无回显，页面侧保证同刻至多一条） */
   pending: ReadonlySet<string>;
@@ -64,7 +64,7 @@ export function createAgentPageState(): AgentPageState {
     error: null,
     profiles: { "main-session": null, "subagent-worker": null },
     system: { orchestrator: null, "subagent-kg-writer": null },
-    selected: null,
+    selected: "main-session", // 默认选中 main-session（brief ④）
     pending: new Set<string>(),
   };
 }

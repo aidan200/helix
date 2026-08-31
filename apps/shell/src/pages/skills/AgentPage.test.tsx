@@ -256,8 +256,9 @@ describe("智能体页组件（M6 T4）", () => {
     expect(document.querySelector(".ag-head")).toBeNull();
     expect(document.querySelectorAll(".scanline-overlay").length).toBe(0);
     act(() => feedList());
-    // master-detail：未选中空态在先
-    expect(await screen.findByText("从左侧选择智能体")).toBeTruthy();
+    // master-detail 默认选中 main-session（brief ④）：空态不渲染，main 详情卡直接在场
+    expect(document.querySelector("[data-agents-empty]")).toBeNull();
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy();
     // 左栏两组分组（可配置 / 系统派生）+ 四条目 + 只读组徽标
     expect(document.querySelector('[data-agent-group="editable"]')!.textContent).toBe("可配置");
     expect(document.querySelector('[data-agent-group="system"]')!.textContent).toBe("系统派生");
@@ -267,9 +268,8 @@ describe("智能体页组件（M6 T4）", () => {
     const roRows = document.querySelectorAll('[data-ro="true"]');
     expect(roRows).toHaveLength(2);
     expect(roRows[0]!.querySelector("[data-ro-badge]")!.textContent).toBe("只读");
-    // 选中 main → 详情卡在场（空态退出）
+    // 点已选中的 main 行（幂等）：详情卡仍在场
     act(() => selectAgent("main-session"));
-    expect(document.querySelector("[data-agents-empty]")).toBeNull();
     expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy();
     // 工具行：名称 + snippet + 开关（a11y role/aria-checked）
     const grepSwitch = document.querySelector('[data-switch="grep"]') as HTMLButtonElement;
@@ -319,7 +319,8 @@ describe("智能体页组件（M6 T4）", () => {
     mock.catalog = CATALOG;
     ui();
     act(() => feedList());
-    await screen.findByText("从左侧选择智能体");
+    // 默认选中 main（brief ④）：ready 后 main 详情卡在场
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy();
     // orchestrator：声明全集纯展示
     act(() => selectAgent("orchestrator"));
     const orchCard = document.querySelector('[data-agent-card="orchestrator"]')!;
@@ -523,7 +524,7 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     ui();
     act(() => feedList({ model: "anthropic/claude-opus-4.1" }, { model: "anthropic/claude-opus-4.1" }));
-    await screen.findByText("从左侧选择智能体");
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy(); // 默认选中 main（brief ④）
     act(() => selectAgent("subagent-worker"));
     const field = fieldOf("subagent-worker");
     // 落位：模型槽位（.ag-model）正下方
@@ -549,7 +550,7 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     const view = ui();
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1" }));
-    await screen.findByText("从左侧选择智能体");
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy(); // 默认选中 main（brief ④）
     act(() => selectAgent("subagent-worker"));
     // 开关 off → on：槽位空 → 立即写中位档（defaultLevelFor：六档 idx2 = medium）
     fireEvent.click(fieldOf("subagent-worker").querySelector('[data-switch="thinking"]')!);
@@ -585,7 +586,7 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     const view = ui();
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "high" }));
-    await screen.findByText("从左侧选择智能体");
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy(); // 默认选中 main（brief ④）
     act(() => selectAgent("subagent-worker"));
     const field = fieldOf("subagent-worker");
     expect((field.querySelector('[data-switch="thinking"]') as HTMLButtonElement).getAttribute("aria-checked")).toBe("true");
@@ -610,7 +611,7 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     ui();
     // 三档模型 + configured：刻度数 = 3（能力位原样透传）
     act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "low" }));
-    await screen.findByText("从左侧选择智能体");
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy(); // 默认选中 main（brief ④）
     act(() => selectAgent("subagent-worker"));
     let field = fieldOf("subagent-worker");
     expect([...field.querySelectorAll(".tl-tick")].map((b) => b.getAttribute("data-level"))).toEqual([
@@ -642,7 +643,7 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = null;
     ui();
     act(() => feedList());
-    await screen.findByText("从左侧选择智能体");
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy(); // 默认选中 main（brief ④）
     act(() => selectAgent("subagent-worker"));
     const field = fieldOf("subagent-worker");
     const sw = field.querySelector('[data-switch="thinking"]') as HTMLButtonElement;
@@ -655,7 +656,7 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     ui();
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "xhigh" }));
-    await screen.findByText("从左侧选择智能体");
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy(); // 默认选中 main（brief ④）
     act(() => selectAgent("subagent-worker"));
     // 槽位换三档模型（daemon 收口后的新块：配置值本体不动）
     act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "xhigh" }));
@@ -674,7 +675,7 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     ui();
     act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "high" }));
-    await screen.findByText("从左侧选择智能体");
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy(); // 默认选中 main（brief ④）
     act(() => selectAgent("subagent-worker"));
     let field = fieldOf("subagent-worker");
     expect(field.querySelector(".tl-box")!.classList.contains("peak")).toBe(true);
@@ -693,7 +694,7 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     ui();
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "high" }));
-    await screen.findByText("从左侧选择智能体");
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy(); // 默认选中 main（brief ④）
     act(() => selectAgent("subagent-worker"));
     const field = fieldOf("subagent-worker");
     // configured 态无 off 态残留（class / ghost thumb）

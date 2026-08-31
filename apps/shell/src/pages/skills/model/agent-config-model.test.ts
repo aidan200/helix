@@ -144,7 +144,7 @@ describe("智能体页页面模型（agent-roster：system 块 + 选中态）", 
     let s = createAgentPageState();
     expect(s.system["orchestrator"]).toBeNull();
     expect(s.system["subagent-kg-writer"]).toBeNull();
-    expect(s.selected).toBeNull(); // 初值无选中（master-detail 空态）
+    expect(s.selected).toBe("main-session"); // 默认选中 main-session（brief ④；重挂复位同源）
     s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_BLOCK, KGW_BLOCK] });
     expect(s.system["orchestrator"]).toBe(ORCH_BLOCK);
     expect(s.system["subagent-kg-writer"]).toBe(KGW_BLOCK);

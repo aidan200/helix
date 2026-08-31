@@ -14,7 +14,8 @@
  *   ——前端只读只是表现，后端 set_enabled 拒绝（agent.config.read_only）
  *   才是事实；
  * - 状态互斥：loading（列表骨架 + 主区加载位）/ error（主区错误卡 + 重试）/
- *   empty（未选中空态）/ ready 四态恰一渲染；有数据静默重拉不闪骨架。
+ *   empty（select-agent null 可达的防御位；默认选中 main-session——brief
+ *   ④，常态不达）/ ready 四态恰一渲染；有数据静默重拉不闪骨架。
  *
  * 数据通道（AG-15 页面私有 reducer，trace 先例；T3 遗留②收口）：
  * - 读面：进页/重连/changed 广播（拓扑 agentConfig.revision 递增）→
