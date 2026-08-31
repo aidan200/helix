@@ -44,6 +44,10 @@ import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "@helix/proto
  *   落 closure_records + agent_lifecycle 行更新 failed；closure 注入主线
  *   SteerQueue（source=closure，下轮 turn 消费）——**不自动续跑**：注入只
  *   入队不驱动引擎（零新事件流），恢复代码零 spawn。
+ * - parked → failed 收口（park/resume 批，物理边界不变——上下文在子进程
+ *   内存不持久化，重启后与 running 同命）：同 running 收口路径；挂起的
+ *   子进程随 daemon 生命周期终止（graceful shutdown 走 dispose kill），
+ *   无自动恢复（无链 B 自动复活）。
  * - queued → cancelled（区别于 failed）：队列不落盘重启即清，
  *   agent_lifecycle 行收口 cancelled；**不产生 closure 记录**（未开跑）；
  *   不自动重派。
@@ -95,7 +99,7 @@ export interface RestoredDomainState {
 }
 
 /** agent_lifecycle 行中 SubAgent 实例的可恢复状态集（main 行不在此列）。 */
-const SUBAGENT_STATES: readonly string[] = ["queued", "running", "done", "failed", "cancelled"];
+const SUBAGENT_STATES: readonly string[] = ["queued", "running", "parked", "done", "failed", "cancelled"];
 
 export class RestoreService {
   constructor(private readonly deps: RestoreServiceDeps) {}
@@ -291,10 +295,12 @@ export class RestoreService {
         // spawn 时刻模型快照随恢复产物回填（调度器 spawnModels）
         ...(spawn?.model !== undefined ? { model: spawn.model } : {}),
       };
-      if (row.state === "running") {
-        // running → failed 收口（D-1 同构）：状态机迁移经 domain 权威校验
-        // （非法行抛 DomainError 即暴露投影行损坏——恢复快速失败不带病启动）
-        AgentInstance.restore({ ...base, state: "running" }).fail();
+      if (row.state === "running" || row.state === "parked") {
+        // running/parked → failed 收口（D-1 同构；park/resume 批：parked 与
+        // running 同命——物理边界不变，挂起上下文不持久化）：状态机迁移经
+        // domain 权威校验（非法行抛 DomainError 即暴露投影行损坏——恢复快速
+        // 失败不带病启动）
+        AgentInstance.restore({ ...base, state: row.state }).fail();
         const closure: InstanceClosurePayload = {
           status: "failed",
           summary: RESTART_CLOSURE_SUMMARY,

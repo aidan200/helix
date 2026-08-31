@@ -168,6 +168,46 @@ describe("T2.4 ① running → failed 收口（AD-10：D-1 同构）", () => {
   }, 20000);
 });
 
+describe("T2.4 ①b parked → failed 收口（park/resume 批：重启矩阵补行——物理边界不变，与 running 同命）", () => {
+  test("挂起投影行 → 重启：failed + closure 落盘 + 注入主线 + 零新事件流（无自动恢复）", async () => {
+    const home = tmpHome();
+    try {
+      // 现场构造：spawn（running 投影）→ 优雅停机（drain 落盘）→ 直接改行
+      // 为 parked（调度器运行期 parked 由 persistLifecycle 写入——此处 SQL
+      // 置位模拟停机前已挂起，恢复契约不变：行说 parked → failed 收口）
+      const runner1 = new HangingRunner();
+      const d1 = await makeDaemon(home, new FakeAgentEngine({}), runner1);
+      const spawn1 = d1.orchestration.spawn("挂起中的任务");
+      if (spawn1.status !== "run") throw new Error("unreachable");
+      const agentId = spawn1.agentId;
+      await d1.shutdown();
+      const db = new Database(path.join(home, "helix.db"));
+      db.prepare("UPDATE agent_lifecycle SET state = 'parked' WHERE instance_id = ?").run(agentId);
+      db.close();
+
+      const engine2 = new FakeAgentEngine({});
+      const runner2 = new HangingRunner();
+      const d2 = await makeDaemon(home, engine2, runner2);
+
+      // 与 running 同命：failed 收口 + closure 固定文案 + 注册表恢复
+      const entry = instanceOf(d2, agentId);
+      expect(entry).toBeDefined();
+      expect(entry!["state"]).toBe("failed");
+      expect((entry!["closure"] as Record<string, unknown>)["summary"]).toBe(RESTART_SUMMARY);
+      expect(lifecycleRows(home)[agentId]).toBe("failed");
+      expect(closureRows(home)[agentId]).toMatchObject({ status: "failed", summary: RESTART_SUMMARY });
+      // closure 注入主线 + 不自动续跑（挂起无自动恢复——链 B 已裁删）
+      const pending = d2.session.getSnapshot().session.pendingSteer;
+      expect(pending.map((i) => i.text)).toContain(`${agentId} closure: failed — ${RESTART_SUMMARY}`);
+      expect(engine2.events).toHaveLength(0);
+      expect(runner2.launched).toHaveLength(0);
+      await d2.shutdown();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 20000);
+});
+
 describe("T2.4 ② queued → cancelled（队列不落盘，重启清队；无 closure 记录）", () => {
   test("3 running + 1 queued → 重启：cancelled 渲染态区别 failed + 不自动重派 + 无 closure 行", async () => {
     const home = tmpHome();
