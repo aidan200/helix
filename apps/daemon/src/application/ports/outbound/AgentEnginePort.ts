@@ -94,7 +94,23 @@ export type AgentEngineEvent =
       /** 摘要调用量（provider 上报时携带；缺省 = 未报）。 */
       readonly usage?: AgentEngineUsage;
     }
-  | { readonly type: "engine_error"; readonly message: string };
+  | { readonly type: "engine_error"; readonly message: string }
+  | {
+      /**
+       * LLM 调用瞬时失败进入退避重试（P2 ⑦，网络重试批）：等待期可观测事件
+       * ——chat 状态行「网络重试中第 N/3 次」数据源；退避耗尽仍走既有
+       * engine_error 语义，本事件不改变任何收口语义。
+       */
+      readonly type: "engine_retrying";
+      /** 即将执行的重试序号（1 起，最大 = totalAttempts）。 */
+      readonly attempt: number;
+      /** 重试总次数（退避序列长度）。 */
+      readonly totalAttempts: number;
+      /** 本次重试前等待毫秒数。 */
+      readonly waitMs: number;
+      /** 触发重试的 provider 错误原文。 */
+      readonly message: string;
+    };
 
 export type AgentEngineListener = (event: AgentEngineEvent) => void;
 
