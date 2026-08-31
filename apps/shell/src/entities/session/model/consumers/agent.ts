@@ -23,6 +23,11 @@ export const AGENT_EVENT_TYPES = [
   "agent.completed",
   "agent.failed",
   "agent.killed",
+  // park/resume 批：挂起/恢复事件登记消费（无静默吞帧，dispatcher 守护）；
+  // parked 卡片形态/徽标归后续波次（本批 no-op——卡片状态不变，恢复仍由
+  // agent.started 驱动）
+  "agent.parked",
+  "agent.resumed",
 ] as const;
 
 export function applyAgentEvent(s: SessionState, event: EventEnvelope, ts?: number): SessionState {
@@ -178,6 +183,11 @@ export function applyAgentEvent(s: SessionState, event: EventEnvelope, ts?: numb
         killToast: { instanceId: event.payload.agentId }, // F1.2 终止链末端 toast（一次性）
       };
     }
+    // park/resume 批：挂起/恢复 no-op 消费（登记防静默吞帧；卡片 parked 形态
+    // 与挂起徽标归后续波次——resume 后续 agent.started 照常驱动 running）
+    case "agent.parked":
+    case "agent.resumed":
+      return s;
     default:
       return s;
   }

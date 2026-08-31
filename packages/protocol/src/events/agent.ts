@@ -55,6 +55,26 @@ export interface AgentKilledPayload {
   closure: ClosureDto;
 }
 
+// ── park/resume 批新增 payload（设计稿 park-resume §5；additive 广播帧） ──
+
+/** 挂起原因枚举：user=用户/主 agent 主动挂起；taskPause=任务暂停链（后续波次接线）。 */
+export type ParkReasonDto = "user" | "taskPause";
+
+/** agent.parked：实例挂起（非终态——不写 closure、不触发收口链；PARK 标记确认上行时广播） */
+export interface AgentParkedPayload {
+  agentId: string;
+  reason: ParkReasonDto;
+  /** 挂起时刻（ISO 8601）。 */
+  parkedAt: string;
+  /** PARK 标记摘要（progress/next；子进程上报，缺席不携带）。 */
+  summary?: { progress: string; next: string };
+}
+
+/** agent.resumed：挂起实例恢复（预算内直恢复时广播；排队恢复空位后广播）。 */
+export interface AgentResumedPayload {
+  agentId: string;
+}
+
 // ── v0.4 新增 payload：trace 命令族 + agent 执行上下文面（契约 v0.4 §1/§2/§3；iter-20260819-erio T2.1） ──
 
 /**
@@ -217,6 +237,19 @@ export interface AgentFailedEvent extends EventFrame<AgentFailedPayload> {
 export interface AgentKilledEvent extends EventFrame<AgentKilledPayload> {
   channel?: "agent";
   type: "agent.killed";
+}
+
+// ── park/resume 批新增信封（挂 agent 族广播帧） ──
+
+/** agent.parked：实例挂起（非终态；卡片 parked 形态归后续波次，本批登记数据面） */
+export interface AgentParkedEvent extends EventFrame<AgentParkedPayload> {
+  channel?: "agent";
+  type: "agent.parked";
+}
+/** agent.resumed：挂起实例恢复（同一实例同一会话从断点继续） */
+export interface AgentResumedEvent extends EventFrame<AgentResumedPayload> {
+  channel?: "agent";
+  type: "agent.resumed";
 }
 
 // ── v0.4 新增信封（契约 v0.4；iter-20260819-erio T2.1） ──

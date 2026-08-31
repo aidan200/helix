@@ -174,6 +174,11 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "engine.retrying":
       // 网络重试批（P2 ⑦）：退避等待可见反馈（瞬态；attempt/total/waitMs 语义面）
       return `engine-retrying:${event.payload.attempt}/${event.payload.totalAttempts}:${Math.round(event.payload.waitMs / 1000)}s`;
+    // ── park/resume 批（⑤ 挂起恢复原语；agent 族非终态广播帧）──
+    case "agent.parked":
+      return `agent-parked:${event.payload.agentId}:${event.payload.reason}:${event.payload.parkedAt}`;
+    case "agent.resumed":
+      return `agent-resumed:${event.payload.agentId}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;

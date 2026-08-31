@@ -393,6 +393,30 @@ describe("③ agent.* 编排生命周期族 → 协议事件帧（T2.3，契约 
     expect(stalled).toMatchObject({ type: "agent.stalled", instanceId: "agent-2", payload: { agentId: "agent-2", idleMs: 1200 } });
   });
 
+  test("park/resume 批：agent.parked/resumed 帧（原因/时刻/摘要透传；channel=agent）", () => {
+    const parked = domainEventToEnvelope({
+      ...agentBase,
+      type: "agent.parked",
+      payload: { agentId: "agent-2", reason: "taskPause", parkedAt: "2026-08-16T00:00:05.000Z", summary: { progress: "调研完成一半", next: "从实现阶段继续" } },
+    });
+    expect(parked).toMatchObject({
+      type: "agent.parked",
+      instanceId: "agent-2",
+      channel: "agent",
+      payload: { agentId: "agent-2", reason: "taskPause", parkedAt: "2026-08-16T00:00:05.000Z", summary: { progress: "调研完成一半", next: "从实现阶段继续" } },
+    });
+
+    const parkedNoSummary = domainEventToEnvelope({
+      ...agentBase,
+      type: "agent.parked",
+      payload: { agentId: "agent-2", reason: "user", parkedAt: "2026-08-16T00:00:05.000Z" },
+    });
+    expect(parkedNoSummary?.payload).toEqual({ agentId: "agent-2", reason: "user", parkedAt: "2026-08-16T00:00:05.000Z" }); // 摘要缺席不携带
+
+    const resumed = domainEventToEnvelope({ ...agentBase, type: "agent.resumed", payload: { agentId: "agent-2" } });
+    expect(resumed).toMatchObject({ type: "agent.resumed", instanceId: "agent-2", channel: "agent", payload: { agentId: "agent-2" } });
+  });
+
   test("三终态事件携带五字段 ClosureDto（缺失字段显式 null）+ envelope 挂 instanceId", () => {
     const closure = { status: "done" as const, summary: "任务完成", reportPath: null, findings: [{ kind: "sediment" }], taskId: null };
     const completed = domainEventToEnvelope({

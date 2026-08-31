@@ -18,6 +18,9 @@ type _AgentFamily = Expect<
     | "agent.completed"
     | "agent.failed"
     | "agent.killed"
+    // park/resume 批（⑤ 挂起恢复原语；非终态广播帧）
+    | "agent.parked"
+    | "agent.resumed"
     | "agent.instantiated"
     | "agent.model.changed"
     | "agent.config.changed"

@@ -19,6 +19,8 @@ import type {
   AgentCompletedEvent,
   AgentFailedEvent,
   AgentKilledEvent,
+  AgentParkedEvent,
+  AgentResumedEvent,
   ThinkingCompletedEvent,
   CompactionCompletedEvent,
   UsageRecordedEvent,
@@ -47,6 +49,8 @@ import type {
   AgentSpawnedPayload,
   AgentStartedPayload,
   AgentStalledPayload,
+  AgentParkedPayload,
+  AgentResumedPayload,
 } from "../../../domain/events/DomainEvent";
 import {
   compactionEntryDto,
@@ -303,6 +307,33 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         v: PROTOCOL_VERSION,
         type: "agent.killed",
         payload: { agentId: p.agentId, closure: p.closure },
+      };
+      return frame;
+    }
+
+    // ── park/resume 批（设计稿 park-resume §5；additive 广播帧） ──
+
+    case "agent.parked": {
+      const p = event.payload as AgentParkedPayload;
+      const frame: AgentParkedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.parked",
+        payload: {
+          agentId: p.agentId,
+          reason: p.reason,
+          parkedAt: p.parkedAt,
+          ...(p.summary !== undefined ? { summary: p.summary } : {}),
+        },
+      };
+      return frame;
+    }
+
+    case "agent.resumed": {
+      const p = event.payload as AgentResumedPayload;
+      const frame: AgentResumedEvent = {
+        v: PROTOCOL_VERSION,
+        type: "agent.resumed",
+        payload: { agentId: p.agentId },
       };
       return frame;
     }

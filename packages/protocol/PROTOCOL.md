@@ -1418,11 +1418,11 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 |---|---|---|---|---|
 | `jobId` | `string` | 必填 | task 批 | 目标任务（终态） |
 
-## 16. 事件 payload 形状总登记（S→C，67 事件全集）
+## 16. 事件 payload 形状总登记（S→C，70 事件全集）
 
-> **计数声明：68 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> **计数声明：70 事件全集**（16.1 notification 3〔含 task.changed〕 +
 > 16.2 session 4 +
-> 16.3 chat 11〔含 engine.retrying 网络重试批〕 + 16.4 agent 12 + 16.5 thinking·compaction·usage 5 +
+> 16.3 chat 11〔含 engine.retrying 网络重试批〕 + 16.4 agent 14〔含 park/resume 批 2〕 + 16.5 thinking·compaction·usage 5 +
 > 16.6 model 10 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1 + 16.10 workspace 3
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
@@ -1606,7 +1606,7 @@ LLM 调用瞬时失败进入退避重试（P2 ⑦ 网络重试批）：等待期
 | `waitMs` | `number` | 必填 | 网络重试批 | 本次重试前等待毫秒数 |
 | `message` | `string` | 必填 | 网络重试批 | 触发重试的 provider 错误原文（领域数据不 i18n） |
 
-### 16.4 agent 族（12）
+### 16.4 agent 族（14）
 
 #### `agent.spawned`
 
@@ -1661,6 +1661,28 @@ spawn 工具秒回出卡（不等执行，AD-8 异步交付）。
 |---|---|---|---|---|
 | `agentId` | `string` | 必填 | v0.1 | 实例 id |
 | `closure` | `ClosureDto` | 必填 | v0.1 | 用户 kill 收口（closure.status="failed"，lifecycle terminated） |
+
+#### `agent.parked`
+
+实例挂起（park/resume 批，设计稿 park-resume §5；**非终态**——不写 closure、
+不触发收口链、不注入主线。子进程检测 PARK 标记进入挂起等待时广播；
+parked 不占并发预算，恢复等价新派发排队）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | park/resume 批 | 实例 id |
+| `reason` | `"user" \| "taskPause"` | 必填 | park/resume 批 | 挂起原因（taskPause=任务暂停链，后续波次接线；链 B 网络自动挂起已裁删） |
+| `parkedAt` | `string` | 必填 | park/resume 批 | 挂起时刻（ISO 8601） |
+| `summary` | `{ progress: string, next: string }` | 可选 | park/resume 批 | PARK 标记摘要（progress=当前进展一句话，next=恢复后第一步；缺席 = 子进程未携带） |
+
+#### `agent.resumed`
+
+挂起实例恢复（同一实例同一会话从断点继续；预算内直恢复与排队空位后恢复
+两路径均广播）。`InstanceState` 同批 additive 扩 `parked` 值（非终态）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `agentId` | `string` | 必填 | park/resume 批 | 实例 id |
 
 #### `agent.instantiated`
 
