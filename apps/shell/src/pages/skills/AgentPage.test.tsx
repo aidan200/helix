@@ -25,7 +25,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import type { CatalogModel, EventEnvelope } from "@helix/protocol";
 import { I18nProvider } from "@/shared/i18n";
 import { ToastProvider } from "@/shared/ui/Toast";
-import type { AgentConfigProfileBlock } from "@helix/protocol";
+import type { AgentConfigProfileBlock, AgentConfigSystemBlock } from "@helix/protocol";
 
 const MAIN_BLOCK: AgentConfigProfileBlock = {
   profileKind: "main-session",
@@ -71,6 +71,24 @@ const SUB_BLOCK: AgentConfigProfileBlock = {
   diagnostics: [],
   model: null,
   thinkingLevel: null, // v0.11 批内补登编译跟随（T1.3；UI 消费面归 T2.2）
+};
+
+/** agent-roster 批：只读系统派生双块（orchestrator 声明全集 / kg-writer 派生面）。 */
+const ORCH_BLOCK: AgentConfigSystemBlock = {
+  profileKind: "orchestrator",
+  tools: [
+    { name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" },
+    { name: "kg", snippet: "查询项目知识图谱（只读）" },
+  ],
+};
+const KGW_BLOCK: AgentConfigSystemBlock = {
+  profileKind: "subagent-kg-writer",
+  tools: [
+    { name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
+    { name: "kg-update", snippet: "知识图谱即时落账" },
+  ],
+  derivedFrom: "subagent-worker",
+  pinnedTools: ["kg-update"],
 };
 
 const CATALOG: CatalogModel[] = [
@@ -177,8 +195,16 @@ function feedList(mainOver: Partial<AgentConfigProfileBlock> = {}, subOver: Part
     sessionId: "__system__",
     channel: "agent",
     type: "agent.config.list.result",
-    payload: { profiles: [{ ...MAIN_BLOCK, ...mainOver }, { ...SUB_BLOCK, ...subOver }] },
+    payload: {
+      profiles: [{ ...MAIN_BLOCK, ...mainOver }, { ...SUB_BLOCK, ...subOver }],
+      system: [ORCH_BLOCK, KGW_BLOCK],
+    },
   } as EventEnvelope);
+}
+
+/** master-detail 选中（agent-roster 批）：点左栏行。 */
+function selectAgent(kind: string): void {
+  fireEvent.click(document.querySelector(`[data-agent-row="${kind}"]`)!);
 }
 
 function feedSetResult(payload: { status: "applied" } | { status: "skipped"; reason: string }): void {
@@ -215,7 +241,7 @@ describe("智能体页组件（M6 T4）", () => {
     mock.sentSetEnabled = [];
   });
 
-  it("① 进页拉取 + AppLayout 壳 + 双卡片渲染：工具 snippet / 技能来源分组与诊断 / 模型下拉缺省项与 optgroup", async () => {
+  it("① 进页拉取 + AppLayout 壳 + master-detail：左栏两组分组/只读徽标；选中 main 后详情卡渲染", async () => {
     mock.catalog = CATALOG;
     const { rerender } = ui();
     // 进页：list（全 kind）+ 目录拉取 + auth.list（S3a 可用性过滤数据源）
@@ -229,11 +255,22 @@ describe("智能体页组件（M6 T4）", () => {
     expect(document.querySelector(".ag-page")).toBeNull();
     expect(document.querySelector(".ag-head")).toBeNull();
     expect(document.querySelectorAll(".scanline-overlay").length).toBe(0);
-    expect(document.querySelector('[data-agents-page="/skills"]')!.className).toContain("pg");
     act(() => feedList());
-    // 双卡片锚
-    expect(await screen.findByText("主会话助手")).toBeTruthy();
-    expect(screen.getByText("SubAgent worker")).toBeTruthy();
+    // master-detail：未选中空态在先
+    expect(await screen.findByText("从左侧选择智能体")).toBeTruthy();
+    // 左栏两组分组（可配置 / 系统派生）+ 四条目 + 只读组徽标
+    expect(document.querySelector('[data-agent-group="editable"]')!.textContent).toBe("可配置");
+    expect(document.querySelector('[data-agent-group="system"]')!.textContent).toBe("系统派生");
+    expect(
+      [...document.querySelectorAll("[data-agent-row]")].map((r) => r.getAttribute("data-agent-row")),
+    ).toEqual(["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer"]);
+    const roRows = document.querySelectorAll('[data-ro="true"]');
+    expect(roRows).toHaveLength(2);
+    expect(roRows[0]!.querySelector("[data-ro-badge]")!.textContent).toBe("只读");
+    // 选中 main → 详情卡在场（空态退出）
+    act(() => selectAgent("main-session"));
+    expect(document.querySelector("[data-agents-empty]")).toBeNull();
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy();
     // 工具行：名称 + snippet + 开关（a11y role/aria-checked）
     const grepSwitch = document.querySelector('[data-switch="grep"]') as HTMLButtonElement;
     expect(grepSwitch.getAttribute("role")).toBe("switch");
@@ -265,19 +302,60 @@ describe("智能体页组件（M6 T4）", () => {
     expect(sel.options[0]!.textContent).toBe("跟随全局默认");
     expect(sel.value).toBe(""); // 槽位未设
     expect(sel.querySelectorAll("optgroup").length).toBe(2);
-    // subagent 卡缺省项文案（T12 两级链语义：不再跟随会话）
+    // 切到 sub → sub 详情卡（缺省项文案；T12 两级链语义：不再跟随会话）
+    act(() => selectAgent("subagent-worker"));
     const subSel = document.getElementById("sel-model-subagent-worker") as HTMLSelectElement;
+    expect(subSel).toBeTruthy();
     expect(subSel.options[0]!.textContent).toBe("跟随全局默认");
     // 两级关系说明注解在场
+    act(() => selectAgent("main-session"));
     expect(document.querySelector('[data-note="main"]')!.textContent).toContain("已手动切换的会话不受影响");
+    act(() => selectAgent("subagent-worker"));
     expect(document.querySelector('[data-note="sub"]')!.textContent).toContain("运行中实例不受影响");
     void rerender;
+  });
+
+  it("①b 只读详情（agent-roster）：纯展示——无开关/无下拉/无技能组；派生说明位 + 恒在徽标；选中切换回可编辑卡", async () => {
+    mock.catalog = CATALOG;
+    ui();
+    act(() => feedList());
+    await screen.findByText("从左侧选择智能体");
+    // orchestrator：声明全集纯展示
+    act(() => selectAgent("orchestrator"));
+    const orchCard = document.querySelector('[data-agent-card="orchestrator"]')!;
+    expect(orchCard).toBeTruthy();
+    expect(orchCard.querySelector("[data-ro-badge]")!.textContent).toBe("只读");
+    // 无任何可操作控件：零开关 / 零下拉 / 零推理级别字段 / 零技能组
+    expect(orchCard.querySelectorAll("[data-switch]")).toHaveLength(0);
+    expect(orchCard.querySelectorAll("select")).toHaveLength(0);
+    expect(orchCard.querySelector(".tl-field")).toBeNull();
+    expect(orchCard.textContent).not.toContain("技能");
+    // 模型位：静态「跟随全局默认」（非下拉选项，是纯文本展示）
+    expect(orchCard.querySelector("[data-ro-model]")!.textContent).toBe("跟随全局默认");
+    // 工具行：data-ro-tool-row + snippet（无 data-tool-row/无开关）
+    expect(orchCard.querySelector('[data-ro-tool-row="agent_spawn"]')!.textContent).toContain("并行委派");
+    expect(orchCard.querySelectorAll("[data-tool-row]")).toHaveLength(0);
+    expect(orchCard.querySelector("[data-derived-note]")).toBeNull(); // orchestrator 无派生说明
+    // kg-writer：派生说明位 + kg-update 恒在徽标
+    act(() => selectAgent("subagent-kg-writer"));
+    const kgwCard = document.querySelector('[data-agent-card="subagent-kg-writer"]')!;
+    expect(kgwCard.querySelector("[data-derived-note]")!.textContent).toBe(
+      "工具集跟随 subagent-worker，额外固定 kg-update",
+    );
+    expect(kgwCard.querySelector('[data-ro-tool-row="kg-update"] [data-pinned-chip]')!.textContent).toBe("恒在");
+    expect(kgwCard.querySelector('[data-ro-tool-row="bash"] [data-pinned-chip]')).toBeNull();
+    expect(kgwCard.querySelectorAll("[data-switch]")).toHaveLength(0);
+    // 切回可编辑：开关回场（两组形态互斥）
+    act(() => selectAgent("main-session"));
+    expect(document.querySelectorAll('[data-agent-card="main-session"] [data-switch]').length).toBeGreaterThan(0);
   });
 
   it("② 开关流：点击 → set_enabled 命令 → pending 禁用 → applied + changed → 重拉 → 态翻转", async () => {
     const view = ui();
     act(() => feedList());
-    const grepSwitch = (await screen.findByText("主会话助手")) && (document.querySelector('[data-switch="grep"]') as HTMLButtonElement);
+    act(() => selectAgent("main-session"));
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy();
+    const grepSwitch = document.querySelector('[data-switch="grep"]') as HTMLButtonElement;
     fireEvent.click(grepSwitch);
     // 命令 payload 四字段（关闭 grep）
     expect(mock.sentSetEnabled).toEqual([
@@ -300,7 +378,8 @@ describe("智能体页组件（M6 T4）", () => {
   it("③ skipped 回执：toast 呈现原因 + 在途清（开关回可用、态不翻转）", async () => {
     const view = ui();
     act(() => feedList());
-    await screen.findByText("主会话助手");
+    act(() => selectAgent("main-session"));
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy();
     const bashSwitch = document.querySelector('[data-switch="bash"]') as HTMLButtonElement;
     fireEvent.click(bashSwitch);
     expect(bashSwitch.disabled).toBe(true);
@@ -319,7 +398,8 @@ describe("智能体页组件（M6 T4）", () => {
     mock.catalog = CATALOG;
     const view = ui();
     act(() => feedList());
-    await screen.findByText("主会话助手");
+    act(() => selectAgent("main-session"));
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy();
     const sel = document.getElementById("sel-model-main-session") as HTMLSelectElement;
     // 选模型 → set 槽位
     fireEvent.change(sel, { target: { value: "anthropic/claude-sonnet-4-5" } });
@@ -353,14 +433,18 @@ describe("智能体页组件（M6 T4）", () => {
     };
     const view = ui();
     act(() => feedList());
-    await screen.findByText("主会话助手");
+    act(() => selectAgent("main-session"));
+    expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy();
     const sel = document.getElementById("sel-model-main-session") as HTMLSelectElement;
     // ① configured 过滤：anthropic 组在场，openai 组整体隐藏（子卡同步）
     expect(sel.querySelectorAll("optgroup").length).toBe(1);
     expect(sel.querySelector("optgroup")!.getAttribute("label")).toBe("anthropic");
     expect(sel.querySelectorAll("option[value='openai/gpt-5.2']").length).toBe(0);
+    // 切 sub（同口径断言）
+    act(() => selectAgent("subagent-worker"));
     const subSel = document.getElementById("sel-model-subagent-worker") as HTMLSelectElement;
     expect(subSel.querySelectorAll("option[value='openai/gpt-5.2']").length).toBe(0);
+    act(() => selectAgent("main-session"));
 
     // ② 当前槽位兑底：agent 已配 openai 模型但 provider 未 configured → 仍可见
     act(() => feedList({ model: "openai/gpt-5.2" }));
@@ -439,7 +523,8 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     ui();
     act(() => feedList({ model: "anthropic/claude-opus-4.1" }, { model: "anthropic/claude-opus-4.1" }));
-    await screen.findByText("SubAgent worker");
+    await screen.findByText("从左侧选择智能体");
+    act(() => selectAgent("subagent-worker"));
     const field = fieldOf("subagent-worker");
     // 落位：模型槽位（.ag-model）正下方
     expect(field.previousElementSibling!.className).toContain("ag-model");
@@ -464,7 +549,8 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     const view = ui();
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1" }));
-    await screen.findByText("SubAgent worker");
+    await screen.findByText("从左侧选择智能体");
+    act(() => selectAgent("subagent-worker"));
     // 开关 off → on：槽位空 → 立即写中位档（defaultLevelFor：六档 idx2 = medium）
     fireEvent.click(fieldOf("subagent-worker").querySelector('[data-switch="thinking"]')!);
     expect(mock.sentSetEnabled).toEqual([
@@ -499,7 +585,8 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     const view = ui();
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "high" }));
-    await screen.findByText("SubAgent worker");
+    await screen.findByText("从左侧选择智能体");
+    act(() => selectAgent("subagent-worker"));
     const field = fieldOf("subagent-worker");
     expect((field.querySelector('[data-switch="thinking"]') as HTMLButtonElement).getAttribute("aria-checked")).toBe("true");
     fireEvent.click(field.querySelector('[data-switch="thinking"]')!);
@@ -523,7 +610,8 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     ui();
     // 三档模型 + configured：刻度数 = 3（能力位原样透传）
     act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "low" }));
-    await screen.findByText("SubAgent worker");
+    await screen.findByText("从左侧选择智能体");
+    act(() => selectAgent("subagent-worker"));
     let field = fieldOf("subagent-worker");
     expect([...field.querySelectorAll(".tl-tick")].map((b) => b.getAttribute("data-level"))).toEqual([
       "low",
@@ -554,7 +642,8 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = null;
     ui();
     act(() => feedList());
-    await screen.findByText("SubAgent worker");
+    await screen.findByText("从左侧选择智能体");
+    act(() => selectAgent("subagent-worker"));
     const field = fieldOf("subagent-worker");
     const sw = field.querySelector('[data-switch="thinking"]') as HTMLButtonElement;
     expect(sw.disabled).toBe(true);
@@ -566,7 +655,8 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     ui();
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "xhigh" }));
-    await screen.findByText("SubAgent worker");
+    await screen.findByText("从左侧选择智能体");
+    act(() => selectAgent("subagent-worker"));
     // 槽位换三档模型（daemon 收口后的新块：配置值本体不动）
     act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "xhigh" }));
     const field = fieldOf("subagent-worker");
@@ -584,7 +674,8 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     ui();
     act(() => feedList({}, { model: "openai/gpt-5-mini", thinkingLevel: "high" }));
-    await screen.findByText("SubAgent worker");
+    await screen.findByText("从左侧选择智能体");
+    act(() => selectAgent("subagent-worker"));
     let field = fieldOf("subagent-worker");
     expect(field.querySelector(".tl-box")!.classList.contains("peak")).toBe(true);
     expect(field.querySelector(".tl-box .beam")).not.toBeNull();
@@ -602,7 +693,8 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.catalog = CAP_CATALOG;
     ui();
     act(() => feedList({}, { model: "anthropic/claude-opus-4.1", thinkingLevel: "high" }));
-    await screen.findByText("SubAgent worker");
+    await screen.findByText("从左侧选择智能体");
+    act(() => selectAgent("subagent-worker"));
     const field = fieldOf("subagent-worker");
     // configured 态无 off 态残留（class / ghost thumb）
     expect(field.querySelector(".tl-thumb.ghost")).toBeNull();

@@ -1,33 +1,38 @@
 /**
  * 智能体页（M6 T4；skills 施工牌升格，路由 /skills 不动——URL 稳定，导航名
  * 改「智能体」。S3a 应用壳统一：迁 AppLayout（headerLeft = 页名；main =
- * 原 ag-body 内容，.pg 版心保留在 main 内），ag-page/ag-head 自建壳与
- * 页内 scanline 副本退役（氛围层全局单份在 App.tsx；滚动只发生在
- * .layout-main）。
+ * 详情区），ag-page/ag-head 自建壳与页内 scanline 副本退役（氛围层全局
+ * 单份在 App.tsx；滚动只发生在 .layout-main）。
  *
- * 页面形态（规划 §三定稿）：双 profile kind 卡片——
- * - main-session「主会话助手」：模型槽位下拉（数据 = topology.modelConfig
- *   目录面，P-3/P-4 同源；S3a 口径对齐 chat：filterAvailableModels
- *   configured 过滤 + 当前项兜底 + authLoaded 门控，进页/重连补发
- *   auth.list；缺省项「跟随全局默认」= 四级链出厂默认语义，注解两级
- *   关系）+ 工具组（8 项，snippet 一句话）+ 技能组（user/project
- *   来源分组 + 扫描诊断警示）；
- * - subagent-worker：同构，缺省项「跟随全局默认」（T12 两级链——SubAgent
- *   只认自身 profile 槽位，不再跟随会话模型），注解
- *   「spawn 时刻定格」语义。
+ * agent-roster 批：master-detail 重构（P-1/tasks 同构）——左栏 agent 列表
+ * 两组分组（「可配置」= main-session/subagent-worker；「系统派生」=
+ * orchestrator/subagent-kg-writer，条目带只读徽标），右栏选中详情。
+ * - 可编辑详情：既有能力全保留（模型槽位下拉 + P-2 推理级别 + 工具组 +
+ *   技能组 + 扫描诊断）；
+ * - 只读详情：纯展示（工具清单无开关；模型位静态「跟随全局默认」；
+ *   kg-writer 派生说明「工具集跟随 subagent-worker，额外固定 kg-update」）
+ *   ——前端只读只是表现，后端 set_enabled 拒绝（agent.config.read_only）
+ *   才是事实；
+ * - 状态互斥：loading（列表骨架 + 主区加载位）/ error（主区错误卡 + 重试）/
+ *   empty（未选中空态）/ ready 四态恰一渲染；有数据静默重拉不闪骨架。
  *
  * 数据通道（AG-15 页面私有 reducer，trace 先例；T3 遗留②收口）：
  * - 读面：进页/重连/changed 广播（拓扑 agentConfig.revision 递增）→
- *   agent.config.list → list.result 双块（SessionContext 转发层订阅）；
+ *   agent.config.list → list.result（profiles 双块 + system 只读双块）；
  * - 写面：开关/下拉 → agent.config.set_enabled（单飞——结果帧无请求回显，
  *   pending 非空不再发新写）→ applied 等 changed 重拉收口；skipped 回执
  *   toast 呈现原因 + 在途清（态不翻转，daemon 权威）；
  * - 多页一致性：changed 广播 → revision → 重拉（不本地写态）。
  * 状态模型：idle → loading → ready/error 互斥（有数据静默重拉防闪烁）；
- * pending 行集（model 槽位空名键）。
+ * pending 行集（model 槽位空名键）；selected 选中维（重拉不清——视图态）。
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
-import type { AgentConfigListResultPayload, AgentConfigProfileBlock, CatalogModel } from "@helix/protocol";
+import type {
+  AgentConfigListResultPayload,
+  AgentConfigProfileBlock,
+  AgentConfigSystemBlock,
+  CatalogModel,
+} from "@helix/protocol";
 import { ChevronDown, RotateCw, TriangleAlert } from "lucide-react";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
@@ -39,9 +44,11 @@ import type { AuthProviderEntry } from "@/entities/session/model/state";
 import type { EventEnvelope } from "@helix/protocol";
 import {
   AGENT_KINDS,
+  SYSTEM_AGENT_KINDS,
   agentPageReducer,
   createAgentPageState,
   selectAgentPageView,
+  type AgentId,
   type AgentKind,
   type AgentWriteResource,
 } from "./model/agent-config-model";
@@ -50,6 +57,14 @@ import { resolveThinkingCapability } from "@/features/thinking-level/model/think
 
 /** 写面载荷（resourceType 收窄于协议四值，页面只发这四类）。 */
 type WriteResource = AgentWriteResource;
+
+/** 列表条目名（左栏行 + 详情头共用；只读组由 kind 分派）。 */
+function agentTitleOf(t: (key: string) => string, kind: AgentId): string {
+  if (kind === "main-session") return t("agents.mainTitle");
+  if (kind === "subagent-worker") return t("agents.subTitle");
+  if (kind === "orchestrator") return t("agents.orchestratorTitle");
+  return t("agents.kgWriterTitle");
+}
 
 /** 开关（语义化 role=switch + aria-checked；track+thumb+状态词）。 */
 function AgentSwitch({
@@ -287,6 +302,117 @@ function ProfileCard({
   );
 }
 
+/** 只读系统派生详情卡（agent-roster 批）：纯展示——无开关/无下拉/无技能组；
+ *  kg-writer 附派生说明位；恒在工具行带恒在徽标。 */
+function SystemProfileCard({ kind, block }: { kind: "orchestrator" | "subagent-kg-writer"; block: AgentConfigSystemBlock | null }) {
+  const { t } = useI18n();
+  const isKgWriter = kind === "subagent-kg-writer";
+  return (
+    <section className="hud-card ag-card ag-card-ro" data-agent-card={kind}>
+      <header className="ag-card-head">
+        <h2 className="ag-card-title">{agentTitleOf(t, kind)}</h2>
+        <span className="hud-chip" data-kind-chip>
+          {kind}
+        </span>
+        <span className="hud-badge hud-badge-off" data-ro-badge>
+          {t("agents.roBadge")}
+        </span>
+      </header>
+
+      {/* 模型位：静态展示「跟随全局默认」（不可操作——系统派生形态不设槽位） */}
+      <div className="ag-model">
+        <span className="hud-label">{t("agents.modelLabel")}</span>
+        <p className="ag-ro-model-value" data-ro-model>
+          {t("agents.roModelValue")}
+        </p>
+      </div>
+
+      {/* 派生说明位（kg-writer 独有）：工具集跟随 + 恒在面 */}
+      {isKgWriter && (
+        <p className="ag-note" data-derived-note>
+          {t("agents.derivedNote")}
+        </p>
+      )}
+
+      {/* 工具清单：纯展示（无开关；行 = 名称 + snippet；恒在行带徽标） */}
+      <div className="ag-group">
+        <h3 className="ag-group-label">{t("agents.toolsLabel")}</h3>
+        {block === null ? (
+          <div className="ag-skel" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <div className="ag-skel-row" key={i}>
+                <span className="ag-skel-bar" style={{ width: 96 }} />
+                <span className="ag-skel-bar" style={{ width: `${58 - i * 8}%` }} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          block.tools.map((tool) => {
+            const pinned = block.pinnedTools?.includes(tool.name) ?? false;
+            return (
+              <div className="ag-row ag-ro-row" data-ro-tool-row={tool.name} key={tool.name}>
+                <div className="ag-row-main">
+                  <span className="ag-name">{tool.name}</span>
+                  <span className="ag-desc">{tool.snippet}</span>
+                </div>
+                {pinned && (
+                  <span className="hud-chip" data-pinned-chip>
+                    {t("agents.pinnedTag")}
+                  </span>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** 左栏列表条目（可配置/系统派生两组共用；只读组带只读徽标）。 */
+function AgentEntry({
+  kind,
+  title,
+  readOnly,
+  selected,
+  onSelect,
+}: {
+  kind: AgentId;
+  title: string;
+  readOnly: boolean;
+  selected: boolean;
+  onSelect: (id: AgentId) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div
+      className={cn("ag-entry", selected && "selected")}
+      data-agent-row={kind}
+      data-ro={readOnly ? "true" : undefined}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onClick={() => onSelect(kind)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(kind);
+        }
+      }}
+    >
+      <div className="ag-entry-main">
+        <span className="ag-entry-name">{title}</span>
+        {readOnly && (
+          <span className="hud-badge hud-badge-off" data-ro-badge>
+            {t("agents.roBadge")}
+          </span>
+        )}
+      </div>
+      <span className="ag-entry-kind">{kind}</span>
+    </div>
+  );
+}
+
 const AgentPage = function AgentPage({ path }: { path: string }) {
   const { t } = useI18n();
   const toast = useToast();
@@ -334,7 +460,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
       subscribeAgentConfigFrames((e: EventEnvelope) => {
         if (e.type === "agent.config.list.result") {
           const p = (e as { payload: AgentConfigListResultPayload }).payload;
-          dispatch({ type: "list-result", profiles: p.profiles });
+          dispatch({ type: "list-result", profiles: p.profiles, system: p.system });
         } else if (e.type === "agent.config.set_enabled.result") {
           const p = (e as { payload: { status: string; reason?: string } }).payload;
           if (p.status === "skipped") {
@@ -395,49 +521,116 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     [onToggle],
   );
 
+  const onSelectAgent = useCallback((id: AgentId) => {
+    dispatch({ type: "select-agent", id });
+  }, []);
+
   const view = selectAgentPageView(state);
   const writePending = state.pending.size > 0;
   const { auth, authLoaded } = topology.modelConfig;
   const catalog = topology.modelConfig.catalog?.models ?? null;
+  const listPending = view === "idle" || view === "loading";
 
-  // S3a AppLayout 组装：headerLeft = 页名（页名进 header 槽固定置顶，
-  // 滚动只发生在 layout-main）；main = 原 ag-body 内容（.pg 版心保留；
-  // data-agents-page 断言锚挂 main 内容根，语义等价——e2e/单测同步）。
-  // 页内 scanline 副本已删（App.tsx 全局单份）。
+  // S3a AppLayout 组装（agent-roster 批 master-detail）：headerLeft = 页名；
+  // sidebar = 左栏 agent 列表（两组分组，pj-domain/tk-side 同构 300px）；
+  // main = 右栏详情（error/empty/详情三态互斥；滚动只发生在 ag-pane-scroll）。
   return (
-    <AppLayout headerLeft={<h1 className="ag-title">{t("agents.title")}</h1>}>
-      <div className="pg ag-body" data-agents-page={path}>
-        {AGENT_KINDS.map((kind) => (
-          <ProfileCard
-            key={kind}
-            kind={kind}
-            block={state.profiles[kind]}
-            skeleton={(view === "loading" || view === "idle") && state.profiles[kind] === null}
-            catalog={catalog}
-            defaultModel={topology.modelConfig.defaultModel}
-            auth={auth}
-            authLoaded={authLoaded}
-            writePending={writePending}
-            onToggle={onToggle}
-            onModelChange={onModelChange}
-          />
-        ))}
-        {view === "loading" && (
-          <p className="ag-loading" role="status">
-            {t("agents.loading")}
-          </p>
-        )}
-        {view === "error" && (
-          <div className="ag-error" role="alert">
-            <div className="err-icon">
-              <TriangleAlert size={20} strokeWidth={1.75} />
+    <AppLayout
+      headerLeft={<h1 className="ag-title">{t("agents.title")}</h1>}
+      sidebar={
+        <aside className="ag-side" aria-label={t("agents.title")} data-agents-side>
+        <div className="ag-list" data-agents-list>
+          {listPending || view === "error" ? (
+            <div className="ag-skel" aria-hidden="true">
+              {[0, 1, 2, 3].map((i) => (
+                <div className="ag-skel-row" key={i}>
+                  <span className="ag-skel-bar" style={{ width: 140 }} />
+                  <span className="ag-skel-bar" style={{ width: `${40 - i * 6}%`, height: 8 }} />
+                </div>
+              ))}
             </div>
-            <p className="err-t">{t("agents.errorTitle")}</p>
-            {state.error !== null && <p className="err-r">{state.error}</p>}
-            <button type="button" className="hud-btn hud-btn-danger sm" onClick={runList}>
-              <RotateCw size={14} strokeWidth={1.75} />
-              {t("agents.retry")}
-            </button>
+          ) : (
+            <>
+              <div className="ag-group-head" data-agent-group="editable">
+                {t("agents.groupEditable")}
+              </div>
+              {AGENT_KINDS.map((kind) => (
+                <AgentEntry
+                  key={kind}
+                  kind={kind}
+                  title={agentTitleOf(t, kind)}
+                  readOnly={false}
+                  selected={state.selected === kind}
+                  onSelect={onSelectAgent}
+                />
+              ))}
+              <div className="ag-group-head" data-agent-group="system">
+                {t("agents.groupSystem")}
+              </div>
+              {SYSTEM_AGENT_KINDS.map((kind) => (
+                <AgentEntry
+                  key={kind}
+                  kind={kind}
+                  title={agentTitleOf(t, kind)}
+                  readOnly
+                  selected={state.selected === kind}
+                  onSelect={onSelectAgent}
+                />
+              ))}
+            </>
+          )}
+        </div>
+      </aside>
+      }
+    >
+      <div className="ag-main" data-agents-page={path}>
+        {view === "error" ? (
+          <div className="ag-center">
+            <div className="ag-error" role="alert">
+              <div className="err-icon">
+                <TriangleAlert size={20} strokeWidth={1.75} />
+              </div>
+              <p className="err-t">{t("agents.errorTitle")}</p>
+              {state.error !== null && <p className="err-r">{state.error}</p>}
+              <button type="button" className="hud-btn hud-btn-danger sm" onClick={runList}>
+                <RotateCw size={14} strokeWidth={1.75} />
+                {t("agents.retry")}
+              </button>
+            </div>
+          </div>
+        ) : listPending ? (
+          <div className="ag-center">
+            <p className="ag-loading" role="status">
+              {t("agents.loading")}
+            </p>
+          </div>
+        ) : state.selected === null ? (
+          <div className="ag-center">
+            <div className="ag-center-panel" data-agents-empty>
+              <div className="ag-cp-title">{t("agents.noSelectTitle")}</div>
+              <div className="ag-cp-sub">{t("agents.noSelectSub")}</div>
+            </div>
+          </div>
+        ) : (
+          <div className="ag-pane-scroll">
+            <div className="ag-pane-inner">
+              {state.selected === "main-session" || state.selected === "subagent-worker" ? (
+                <ProfileCard
+                  kind={state.selected}
+                  block={state.profiles[state.selected]}
+                  skeleton={state.profiles[state.selected] === null}
+                  catalog={catalog}
+                  defaultModel={topology.modelConfig.defaultModel}
+                  auth={auth}
+                  authLoaded={authLoaded}
+                  writePending={writePending}
+                  onToggle={onToggle}
+                  onModelChange={onModelChange}
+                />
+              ) : (
+                <SystemProfileCard kind={state.selected} block={state.system[state.selected]} />
+              )}
+            </div>
           </div>
         )}
       </div>

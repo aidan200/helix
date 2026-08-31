@@ -19,6 +19,58 @@
 .ag-title { font-size: var(--text-title); font-weight: 600; color: var(--text); }
 .ag-body { display: flex; flex-direction: column; gap: 16px; }
 
+/* ── master-detail 壳层（agent-roster 批；pj-domain/tk-side 同构）── */
+.ag-side {
+  width: 300px; flex: none;
+  display: flex; flex-direction: column; min-height: 0;
+  border-right: 1px solid var(--border);
+}
+.ag-list { flex: 1; overflow-y: auto; min-height: 0; padding: 8px 8px 12px; }
+.ag-group-head {
+  font-size: var(--text-cap); color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.14em;
+  padding: 10px 8px 6px;
+}
+/* 列表条目（可配置/系统派生两组共用；pj-row 形态复用） */
+.ag-entry {
+  padding: 8px 10px 9px 12px;
+  border: 1px solid transparent; border-left: 2px solid transparent;
+  border-radius: 8px; margin-bottom: 2px; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ag-entry:hover { background: var(--bg-hover); }
+.ag-entry.selected { background: var(--bg-selected); border-color: rgb(var(--accent-rgb) / 0.3); border-left-color: var(--accent); }
+.ag-entry-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ag-entry-name {
+  font-weight: 600; font-size: var(--text-main); color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ag-entry-kind {
+  display: block; font-family: var(--font-mono); font-size: var(--text-cap);
+  color: var(--text-faint); margin-top: 2px;
+}
+/* 右栏详情（tk-main 同构：列向 flex，滚动只发生在 ag-pane-scroll） */
+.ag-main { height: 100%; min-width: 0; display: flex; flex-direction: column; }
+.ag-pane-scroll { flex: 1; overflow-y: auto; min-height: 0; padding: 16px 20px 48px; }
+.ag-pane-inner { max-width: 920px; margin: 0 auto; }
+/* 居中三态（loading / error / empty；pj-main-center 同构） */
+.ag-center {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  min-height: 0; padding: 24px;
+}
+.ag-center-panel { text-align: center; max-width: 400px; }
+.ag-cp-title { font-family: var(--font-mono); font-size: var(--text-title); color: var(--text); font-weight: 600; }
+.ag-cp-sub { margin-top: 8px; font-size: var(--text-cap); color: var(--text-faint); line-height: 1.7; }
+
+/* ── 只读系统派生详情（agent-roster 批；样式区分可编辑态：零开关零下拉）── */
+.ag-card-ro .ag-card-head .hud-badge { margin-left: auto; }
+.ag-ro-model-value {
+  font-family: var(--font-mono); font-size: var(--text-main); color: var(--text-dim);
+  padding: 6px 0 2px;
+}
+.ag-ro-row { padding-right: 0; }
+.ag-ro-row .ag-desc { color: var(--text-faint); }
+
 /* ── 单 kind 配置卡（hud-card 载体）───────────────────────── */
 .ag-card { display: flex; flex-direction: column; gap: 14px; }
 .ag-card-head { display: flex; align-items: center; gap: 10px; }
