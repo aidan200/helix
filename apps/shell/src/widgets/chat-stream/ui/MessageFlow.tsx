@@ -35,6 +35,7 @@ import DraftEmpty from "./P-1-draft-empty";
 import LoadEarlier from "./P-1s-load-earlier";
 import CompactionBar from "./CompactionBar";
 import EngineErrorCard from "./EngineErrorCard";
+import NetworkRetryCard from "./NetworkRetryCard";
 import { ThinkingEntryView, ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
 
 function EntryView({ entry, mainInstanceId }: { entry: EntryDto; mainInstanceId: string }) {
@@ -183,6 +184,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
               streamingText={state.streaming.text}
             />
           )}
+          {/* P2 ⑦ 网络重试批：退避等待状态卡（瞬态；流恢复即清，最终失败换错误卡） */}
+          <NetworkRetryCard />
           {/* 终验热修：引擎/模型失败卡（瞬态；随轮清除） */}
           <EngineErrorCard />
         </div>

@@ -48,6 +48,9 @@ export const enUS = {
       title: "Generation failed",
       hint: "You can retry later; details are in the daemon log",
     },
+    engineRetry: {
+      title: "Network retrying (attempt {n}/{total}, in ~{secs}s)",
+    },
     composer: {
       placeholder: "Type a message, Alt+Enter to send",
       placeholderConnecting: "Establishing connection…",

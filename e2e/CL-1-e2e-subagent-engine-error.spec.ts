@@ -26,9 +26,10 @@ import { reply, toolCall, type DaemonScript } from "./harness/daemon-script";
 const BUN = process.env.HELIX_E2E_BUN ?? "bun";
 
 const TASK = "provider 错误剧本验证任务";
-/** provider 原文（与 CL-7 主线错误剧本同形态：429 限额）。 */
-const ERROR_TEXT = "429: {\"code\":\"1308\",\"message\":\"已达到 5 小时的使用上限。\"}";
-const ERROR_FRAGMENT = "已达到 5 小时的使用上限";
+// P2 ⑦ 网络重试批：429 现属瞬时类（引擎级退避重试会拖入真实等待），错误
+// 透传链路验证改用永久类 401 鉴权错误——首帧即失败，断言面不变。
+const ERROR_TEXT = "401: {\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}";
+const ERROR_FRAGMENT = "invalid x-api-key";
 
 /** 通用前置：建 home+沙箱（fixture teardown 统一清理，本 spec 无旁路清理）。 */
 function prepHome(): string {

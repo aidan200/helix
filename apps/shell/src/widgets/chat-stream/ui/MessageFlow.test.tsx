@@ -341,3 +341,57 @@ describe("T9 图片渲染（气泡 + 工具卡缩略图）", () => {
     expect(img.closest(".tool-card")).not.toBeNull();
   });
 });
+
+/**
+ * P2 ⑦ 网络重试批：NetworkRetryCard 内联等待卡——engine.retrying 帧
+ * 到达渲染「网络重试中（第 N/3 次，约 Xs 后）」；流恢复（主线 delta）
+ * 即清；最终失败换 EngineErrorCard（两卡不叠加）。
+ */
+describe("MessageFlow 网络重试状态卡（P2 ⑦）", () => {
+  const welcome: EventEnvelope = {
+    v: 0,
+    type: "connection.welcome",
+    payload: { sessionId: "s1", model: "claude-sonnet-4-5", agentState: "running" },
+  };
+  const retrying = (attempt: number, waitMs: number): EventEnvelope => ({
+    v: 0,
+    type: "engine.retrying",
+    payload: { attempt, totalAttempts: 3, waitMs, message: "fetch failed" },
+  });
+  const play = (events: EventEnvelope[]): SessionState =>
+    events.reduce((s, e) => sessionReducer(s, { type: "event", event: e }), createInitialSessionState());
+
+  it("engine.retrying 帧 → 状态卡「网络重试中（第 2/3 次，约 30s 后）」+ provider 原文", () => {
+    stateRef.current = play([welcome, retrying(2, 30_000)]);
+    ui(<MessageFlow />);
+    expect(screen.getByText("网络重试中（第 2/3 次，约 30s 后）")).not.toBeNull();
+    expect(screen.getByText("fetch failed")).not.toBeNull();
+  });
+
+  it("无重试帧不渲染（null 卡零占位）", () => {
+    stateRef.current = play([welcome]);
+    ui(<MessageFlow />);
+    expect(document.querySelector(".network-retry-card")).toBeNull();
+  });
+
+  it("流恢复（主线 delta）→ 状态卡消失；最终失败 → 换错误卡不叠加", () => {
+    stateRef.current = play([welcome, retrying(1, 10_000), {
+      v: 0,
+      type: "chat.stream.delta",
+      payload: { messageId: "e5", delta: "流恢复" },
+    }]);
+    const resumed = ui(<MessageFlow />);
+    expect(document.querySelector(".network-retry-card")).toBeNull();
+    cleanup();
+
+    stateRef.current = play([welcome, retrying(1, 10_000), {
+      v: 0,
+      type: "engine.error",
+      payload: { message: "503 Service Unavailable" },
+    }]);
+    ui(<MessageFlow />);
+    expect(document.querySelector(".network-retry-card")).toBeNull();
+    expect(document.querySelector(".engine-error-card")).not.toBeNull();
+    void resumed;
+  });
+});

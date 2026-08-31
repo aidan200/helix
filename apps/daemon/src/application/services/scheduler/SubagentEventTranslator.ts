@@ -221,6 +221,18 @@ export class SubagentEventTranslator {
       this.publishEngineError(instance, event.message);
       return;
     }
+    if (event.type === "engine_retrying") {
+      // P2 ⑦：SubAgent 重试等待可观测——mirror 主线 engine.retrying 同口径
+      //（挂 instanceId 领域事件，trace 数据面；WS 帧由 mapper SubAgent 守卫
+      // 抑制，不弹主聊天流）；子进程侧另有 stderr 日志（ChildMain）。
+      this.publish(instance, "engine.retrying", {
+        attempt: event.attempt,
+        totalAttempts: event.totalAttempts,
+        waitMs: event.waitMs,
+        message: event.message,
+      });
+      return;
+    }
     // 其余引擎事件：观测面增量已计（lastEventAt 刷新），无 per-instance 领域动作
   }
 

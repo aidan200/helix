@@ -602,6 +602,30 @@ html.light .bubble code.inline { color: var(--accent); }
   word-break: break-word; white-space: pre-wrap; font-family: var(--font-mono, monospace);
 }
 .ee-hint { font-size: var(--text-small); color: var(--text-faint); }
+
+/* ═══ 网络重试状态卡（P2 ⑦：engine.retrying 帧 → 退避等待可见反馈）═══ */
+.network-retry-card {
+  margin: 8px 0; border: 1px solid rgb(var(--warning-rgb) / 0.3); border-radius: 10px;
+  background: rgb(var(--warning-rgb) / 0.05); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 6px; max-width: 72%; margin-left: auto;
+}
+.nr-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: var(--text-body); font-weight: 600; color: var(--warning);
+}
+.nr-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--warning);
+  box-shadow: 0 0 6px rgb(var(--warning-rgb) / 0.5); flex: none;
+  animation: nr-pulse 1.6s ease-in-out infinite;
+}
+@keyframes nr-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.nr-body {
+  font-size: var(--text-body); color: var(--text); line-height: 1.55;
+  word-break: break-word; white-space: pre-wrap; font-family: var(--font-mono, monospace);
+}
 .hud-btn {
   display: inline-flex; height: 32px; align-items: center; justify-content: center; gap: 6px;
   padding: 0 14px; border-radius: 6px;

@@ -23,6 +23,7 @@ import type {
   CompactionCompletedEvent,
   UsageRecordedEvent,
   EngineErrorEvent,
+  EngineRetryingEvent,
   EventType,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, EVENT_CHANNELS } from "@helix/protocol";
@@ -30,6 +31,7 @@ import { PROTOCOL_VERSION, EVENT_CHANNELS } from "@helix/protocol";
 import type {
   AgentStateChangedPayload,
   DomainEvent,
+  EngineRetryingPayload,
   MessageCompletedPayload,
   SteerPayload,
   ThinkingCompletedPayload,
@@ -349,6 +351,25 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         v: PROTOCOL_VERSION,
         type: "engine.error",
         payload: { message: p.message },
+      };
+      return frame;
+    }
+
+    // P2 ⑦ 网络重试批：LLM 瞬时失败退避等待可见反馈（chat 状态行数据源）。
+    // SubAgent 守卫与 engine.error 同口径（无 instanceId 分流，不抑制会
+    // 错位弹主聊天流）；主线帧行为不变。
+    case "engine.retrying": {
+      if (!isWireMainAttribution(event.instanceId, mainId)) return null;
+      const p = event.payload as EngineRetryingPayload;
+      const frame: EngineRetryingEvent = {
+        v: PROTOCOL_VERSION,
+        type: "engine.retrying",
+        payload: {
+          attempt: p.attempt,
+          totalAttempts: p.totalAttempts,
+          waitMs: p.waitMs,
+          message: p.message,
+        },
       };
       return frame;
     }

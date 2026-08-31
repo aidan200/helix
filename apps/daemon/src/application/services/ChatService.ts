@@ -426,6 +426,16 @@ export class ChatService implements ChatPort {
       case "tool_execution_end": this.recordToolExecutionEnd(e); break;
       // 可观测（无聚合动作，不崩会话）
       case "engine_error": this.publish("engine.error", { message: e.message }); break;
+      // P2 ⑦：LLM 瞬时失败退避重试——chat 可见反馈（状态行数据源；瞬态非
+      // 里程碑：流恢复（chat.stream.delta）/engine.error/轮终由前端清除）
+      case "engine_retrying":
+        this.publish("engine.retrying", {
+          attempt: e.attempt,
+          totalAttempts: e.totalAttempts,
+          waitMs: e.waitMs,
+          message: e.message,
+        });
+        break;
       default:
         break; // agent_start/turn_start 无领域动作
     }

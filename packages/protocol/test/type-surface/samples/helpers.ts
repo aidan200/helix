@@ -171,6 +171,9 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "task.changed":
       // task 批（T1.5）：逐迁移轻负载广播（notification 通道；changed 面独立字段访问）
       return `task-changed:${event.payload.jobId}:${event.payload.changed}:${event.payload.status ?? "-"}`;
+    case "engine.retrying":
+      // 网络重试批（P2 ⑦）：退避等待可见反馈（瞬态；attempt/total/waitMs 语义面）
+      return `engine-retrying:${event.payload.attempt}/${event.payload.totalAttempts}:${Math.round(event.payload.waitMs / 1000)}s`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;

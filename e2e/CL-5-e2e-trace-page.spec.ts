@@ -53,9 +53,10 @@ const SA_REPLY =
   `子任务完成：${SA_MARKER}。\n` +
   '<<<CLOSURE\n{"status":"done","summary":"子任务完成","reportPath":null,"findings":[],"taskId":null}\nCLOSURE>>>';
 
-/** engine.error 可见性场景的 provider 原文（与 T1.4 同形态 429）。 */
-const ERROR_TEXT = "429: {\"code\":\"1308\",\"message\":\"已达到 5 小时的使用上限。\"}";
-const ERROR_FRAGMENT = "已达到 5 小时的使用上限";
+// P2 ⑦ 网络重试批：429 现属瞬时类（引擎级退避重试会拖入真实等待），错误
+// 透传链路验证改用永久类 401 鉴权错误——首帧即失败，断言面不变。
+const ERROR_TEXT = "401: {\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}";
+const ERROR_FRAGMENT = "invalid x-api-key";
 
 /** 直插的历史实例（无 agent.instantiated → 快照缺失降级构造面）。 */
 const LEGACY_ID = "agent-legacy-1";

@@ -377,6 +377,13 @@ async function main(): Promise<void> {
     if (event.type === "engine_error") {
       lastEngineError = event.message;
     }
+    // P2 ⑦：网络重试等待可观测（stderr inherit 直达 daemon 日志——子进程无
+    // 注入 logger，console 走既有 stderr 通道；父侧另有 engine.retrying 领域事件）
+    if (event.type === "engine_retrying") {
+      console.warn(
+        `[subagent:${instanceId}] LLM 网络重试（第 ${event.attempt}/${event.totalAttempts} 次，约 ${Math.round(event.waitMs / 1000)}s 后）：${event.message}`,
+      );
+    }
     writeLine({ type: "event", instanceId, event });
   });
 

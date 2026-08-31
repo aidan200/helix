@@ -53,6 +53,9 @@ export const zhCN = {
       title: "生成失败",
       hint: "可稍后重试发送；错误详情可在 daemon 日志查看",
     },
+    engineRetry: {
+      title: "网络重试中（第 {n}/{total} 次，约 {secs}s 后）",
+    },
     composer: {
       placeholder: "输入消息，Alt+Enter 发送",
       placeholderConnecting: "正在建立连接…",

@@ -9,6 +9,8 @@
  *   entryId 确认）与徽标两态（SM-3）；
  * - engine.error（终验热修族归 chat）：错误卡片数据，瞬态不落盘——
  *   chat.turn.started 清除、turn.completed 收流时序由本族内闭环；
+ * - engine.retrying（P2 ⑦ 网络重试批同族）：退避等待状态卡数据，
+ *   流恢复/最终失败/轮次终制即清；
  * - tool.call.started / tool.call.result：主线工具卡三态（SM-4）；SubAgent
  *   工具只进 per-instance channel（F1.6 分流）；
  * - agent.state.changed：主线会话运行态（idle 清流式收口）——非 SubAgent
@@ -31,6 +33,7 @@ export const CHAT_EVENT_TYPES = [
   "steer.queued",
   "steer.drained",
   "engine.error",
+  "engine.retrying",
   "tool.call.started",
   "tool.call.result",
   "agent.state.changed",
@@ -87,7 +90,8 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
         s.streaming && s.streaming.messageId === messageId
           ? { messageId, text: s.streaming.text + delta }
           : { messageId, text: delta };
-      return { ...s, streaming };
+      // 主线 delta 到达 = 重试已成功、流恢复 → 清网络重试状态卡（P2 ⑦）
+      return { ...s, streaming, engineRetrying: null };
     }
     case "chat.message.completed": {
       const entry = event.payload.entry;
@@ -123,10 +127,10 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
       return { ...s, entries: upsertEntry(s.entries, entry), streaming: cleared };
     }
     case "chat.turn.started":
-      // 新轮开始：清上一轮的引擎错误卡（瞬态语义，终验热修）
-      return { ...s, engineError: null }; // 轮次里程碑（v0 无 UI 投影面）
+      // 新轮开始：清上一轮的引擎错误卡（瞬态语义，终验热修）+ 网络重试卡（P2 ⑦）
+      return { ...s, engineError: null, engineRetrying: null }; // 轮次里程碑（v0 无 UI 投影面）
     case "chat.turn.completed":
-      return { ...s, streaming: null };
+      return { ...s, streaming: null, engineRetrying: null };
     case "steer.queued": {
       // 定向帧（T2.3：信封 instanceId=目标）只认同目标 echo；缺省/主实例 id
       //（kind 判别）= 主线 echo（匹配本地无 instanceId 的主线 echo）
@@ -146,7 +150,20 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
     // 终验热修：引擎/模型调用失败 → 错误卡片数据（provider 原文透传；
     // 随后的 turn.completed 收流，新 turn.started 清除——瞬态不落盘）
     case "engine.error":
-      return { ...s, engineError: { message: event.payload.message } };
+      // P2 ⑦：最终失败换错误卡，重试状态卡同时收（两卡不叠加）
+      return { ...s, engineError: { message: event.payload.message }, engineRetrying: null };
+    // P2 ⑦ 网络重试批：LLM 瞬时失败退避等待可见反馈（状态卡数据；
+    // 流恢复/最终失败/轮次终制清除——瞬态不落盘，快照重建天然归零）
+    case "engine.retrying":
+      return {
+        ...s,
+        engineRetrying: {
+          attempt: event.payload.attempt,
+          totalAttempts: event.payload.totalAttempts,
+          waitMs: event.payload.waitMs,
+          message: event.payload.message,
+        },
+      };
     case "tool.call.started":
     case "tool.call.result": {
       const entry = event.payload.entry;
@@ -160,7 +177,13 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
     }
     case "agent.state.changed": {
       const agentState = event.payload.state;
-      return { ...s, agentState, streaming: agentState === "idle" ? null : s.streaming };
+      // idle 收流式态 + 网络重试卡（run 终结——含 abort 打断等待的场景）
+      return {
+        ...s,
+        agentState,
+        streaming: agentState === "idle" ? null : s.streaming,
+        engineRetrying: agentState === "idle" ? null : s.engineRetrying,
+      };
     }
     default:
       return s;

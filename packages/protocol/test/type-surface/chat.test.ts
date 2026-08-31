@@ -22,6 +22,7 @@ type _ChatFamily = Expect<
     | "tool.call.result"
     | "agent.state.changed"
     | "engine.error"
+    | "engine.retrying"
   >
 >;
 

@@ -27,6 +27,23 @@ export interface EngineErrorPayload {
   message: string;
 }
 
+/**
+ * LLM 瞬时失败进入退避重试（P2 ⑦ 网络重试批）：等待期可见反馈帧——
+ * 前端状态行「网络重试中（第 N/3 次，约 Xs 后）」数据源。瞬态帧不落盘：
+ * 流恢复（chat.stream.delta）/engine.error/轮次终制即清除；退避耗尽仍走
+ * 既有 engine.error 语义，本帧不改变任何收口语义。
+ */
+export interface EngineRetryingPayload {
+  /** 即将执行的重试序号（1 起，最大 = totalAttempts）。 */
+  attempt: number;
+  /** 重试总次数（退避序列长度）。 */
+  totalAttempts: number;
+  /** 本次重试前等待毫秒数。 */
+  waitMs: number;
+  /** 触发重试的 provider 错误原文（领域数据不 i18n）。 */
+  message: string;
+}
+
 /** 一条消息完成（落盘事件；entry 为 kind="message" 且含最终 content） */
 export interface ChatMessageCompletedPayload {
   entry: EntryDto;
@@ -110,4 +127,9 @@ export interface EngineErrorEvent extends EventFrame<EngineErrorPayload> {
   /** chat（reducer 现归类：热修透传链路走 chat 消费路径） */
   channel?: "chat";
   type: "engine.error";
+}
+export interface EngineRetryingEvent extends EventFrame<EngineRetryingPayload> {
+  /** chat（与 engine.error 同族：瞬态反馈归 chat 消费路径） */
+  channel?: "chat";
+  type: "engine.retrying";
 }

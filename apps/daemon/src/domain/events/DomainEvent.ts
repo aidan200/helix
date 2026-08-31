@@ -20,6 +20,7 @@ export type DomainEventType =
   | "tool.call.result"
   | "agent.state.changed"
   | "engine.error"
+  | "engine.retrying"
   // ── agent.* 编排生命周期族（契约 protocol-v0.1.md §5.1）──
   | "agent.spawned"
   | "agent.queued"
@@ -93,6 +94,18 @@ export interface ToolResultPayload extends ToolCallPayload {
 
 export interface AgentStateChangedPayload {
   readonly state: "idle" | "running" | "steering" | "aborting" | "stopped";
+}
+
+/** LLM 瞬时失败进入退避重试（P2 ⑦ 网络重试批）：等待期可观测——chat 状态行「网络重试中第 N/3 次」数据源；瞬态非里程碑（流恢复/轮终即过，不入账）。 */
+export interface EngineRetryingPayload {
+  /** 即将执行的重试序号（1 起，最大 = totalAttempts）。 */
+  readonly attempt: number;
+  /** 重试总次数（退避序列长度）。 */
+  readonly totalAttempts: number;
+  /** 本次重试前等待毫秒数。 */
+  readonly waitMs: number;
+  /** 触发重试的 provider 错误原文。 */
+  readonly message: string;
 }
 
 // ── agent.* 编排生命周期族载荷（契约 §5.1/§5.3） ─────────────

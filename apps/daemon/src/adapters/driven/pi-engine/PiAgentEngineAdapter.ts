@@ -11,6 +11,7 @@ import { AgentRuntime } from "./runtime/AgentRuntime";
 import type { AgentProfile } from "./runtime/AgentProfile";
 import type { AgentRuntimeDeps } from "./runtime/AgentRuntime";
 import { buildModels, createStreamFn, explicitGetApiKey, resolveModel, resolveModelSlot, wrapStreamFnThinking } from "./model-provider";
+import { withNetworkRetry } from "./network-retry";
 import { stopReasonOf, errorMessageOf, textOfContent, textOfMessage, usageOf } from "./mappers/SessionMapper";
 import { imagesOfContent } from "../../../application/services/images";
 
@@ -56,6 +57,16 @@ export interface PiEngineOptions {
   readonly resolveThinking?: (model: Model<any>) => string | undefined;
   /** 工具集装配器（CoreToolExecutor.resolveTools，组合根接线）。 */
   readonly resolveTools?: AgentRuntimeDeps["resolveTools"];
+  /**
+   * 网络重试配置（P2 ⑦，引擎级全局生效：主会话/子进程编排器同源包装）：
+   * backoffMs/sleep 注入 = 测试假时钟面；缺省 10/30/60s 退避 + 真等待
+   * （abort 感知）。重试进入等待时经监听器发 engine_retrying 事件
+   * （chat 可见反馈/日志数据源）。
+   */
+  readonly retry?: {
+    readonly backoffMs?: readonly number[];
+    readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  };
 }
 
 export class PiAgentEngineAdapter implements AgentEnginePort {
@@ -79,8 +90,24 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     // （streamFnOverride）同样被注入器包裹（定格值进 options.reasoning 可捕获），
     // override 槽位语义不被破坏（仍是唯一 streamFn 来源）
     const baseStreamFn = options.streamFnOverride ?? createStreamFn(models);
-    const streamFn =
+    const thinkingStreamFn =
       options.resolveThinking === undefined ? baseStreamFn : wrapStreamFnThinking(baseStreamFn, options.resolveThinking);
+    // P2 ⑦ 网络重试：重试包装在最外层（每轮重试重新过 thinking 解析）；
+    // 主会话/子进程/编排器三装配点同源生效。fake 剧本通道同被包裹——
+    // 仅瞬时类错误（网络错/超时/429/5xx）触发重试，既有永久类错误剧本
+    // 行为零变化。重试回调经监听器发 engine_retrying（等待期可观测）
+    const streamFn = withNetworkRetry(thinkingStreamFn, {
+      ...(options.retry?.backoffMs !== undefined ? { backoffMs: options.retry.backoffMs } : {}),
+      ...(options.retry?.sleep !== undefined ? { sleep: options.retry.sleep } : {}),
+      onRetry: (info) =>
+        this.listener?.({
+          type: "engine_retrying",
+          attempt: info.attempt,
+          totalAttempts: info.totalAttempts,
+          waitMs: info.waitMs,
+          message: info.message,
+        }),
+    });
     this.runtime = new AgentRuntime(options.profile, {
       streamFn,
       model: resolveModelSlot(options.profile.model, options.model, models),
