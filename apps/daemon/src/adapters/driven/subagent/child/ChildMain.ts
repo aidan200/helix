@@ -33,7 +33,7 @@ import { SqliteKnowledgeGraph } from "../../sqlite-kg/SqliteKnowledgeGraph";
 import { SqliteKnowledgeStore } from "../../sqlite-kg/SqliteKnowledgeStore";
 import { KgWriteService } from "../../../../application/services/kg/KgWriteService";
 import { KgQueryService } from "../../../../application/services/kg/KgQueryService";
-import { existingKgProjects, scanWorkspaceProjects } from "../../workspace-scan";
+import { kgReadProjects, scanWorkspaceProjects } from "../../workspace-scan";
 import { LazyWorkLedger } from "../../sqlite-session/WorkLedger";
 import { WorkLedgerService } from "../../../../application/services/task/WorkLedgerService";
 import type { PlanToolDeps } from "../../tools/plan/PlanTools";
@@ -174,7 +174,9 @@ function buildLocalKgStack(
 ): { readonly tools: KgToolOptions; readonly database: KgDatabase } {
   const database = new KgDatabase();
   const graph = new SqliteKnowledgeGraph({ database });
-  const query = new KgQueryService({ graph, projects: () => existingKgProjects(workspaceRoot) });
+  // W-R3 读穿透（D8）：toolCwd 在 .worktrees 下 → 读面只读直读主仓 kg.db
+  //（kgReadProjects 归一）；写面 scanProjects 仍原口径（kg-update 行为本任务不改）。
+  const query = new KgQueryService({ graph, projects: () => kgReadProjects(workspaceRoot) });
   const write = new KgWriteService({ store: new SqliteKnowledgeStore({ database }) });
   return {
     tools: {

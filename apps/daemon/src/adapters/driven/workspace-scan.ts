@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   isWorkspaceProjectDir,
+  resolveMainRepoPath,
   resolveProjectArg,
   WORKSPACE_EXCLUDED,
   type ProjectDirEntry,
@@ -66,4 +67,17 @@ export function existingKgProjects(workspaceRoot: string): string[] {
   return scanWorkspaceProjects(workspaceRoot).filter((projectRoot) =>
     existsSync(path.join(projectRoot, ".helix-kg", "kg.db")),
   );
+}
+
+/**
+ * kg 读面项目域（D8 W-R3 读穿透）：基座（daemon/子进程的 workspaceRoot 或
+ * toolCwd）位于 .worktrees 下 → 归一主仓——主仓有 kg.db 即 [主仓]（只读直读
+ * 主仓 .helix-kg/kg.db），无库空集（读面绝不新建库文件）；普通 workspace →
+ * existingKgProjects 既有口径不变。归一纯逻辑单点 = domain
+ * resolveMainRepoPath；写面（kg-update scanProjects）不经本函数。
+ */
+export function kgReadProjects(base: string): string[] {
+  const main = resolveMainRepoPath(base);
+  if (main === base) return existingKgProjects(base);
+  return existsSync(path.join(main, ".helix-kg", "kg.db")) ? [main] : [];
 }

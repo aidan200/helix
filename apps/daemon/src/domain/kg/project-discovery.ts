@@ -47,3 +47,34 @@ export function resolveProjectArg(entries: readonly ProjectDirEntry[], project: 
   }
   return undefined;
 }
+
+/**
+ * worktree 路径 → 主仓归一（D8 W-R2/W-R3 读穿透，零 IO 纯函数）。
+ *
+ * W-R1 落点口径：worktree 统一住 `<workspaceRoot>/.worktrees/{project}-{slug}`
+ * ——worktree 内无 .codegraph/.helix-kg（绝不建副本索引/库），读面一律穿透
+ * 主仓。本函数是唯一归一点：
+ *
+ * - 路径含 `/.worktrees/{project}-{slug}` 段 → 主仓等价路径——根形态
+ *   `/ws/.worktrees/helix-foo` → `/ws/helix`（首个 `-` 前为 project，slug
+ *   可含 `-`）；深层形态保留尾段（`/ws/.worktrees/helix-foo/a/b.ts` →
+ *   `/ws/helix/a/b.ts`，附着/文件语义消费）；尾斜杠归一去尾。
+ * - 不含该段 / 目录名不合 {project}-{slug} 契约（无 `-`、`-` 打头、空名）/
+ *   `.worktrees` 直结尾 → 原样返回（逐字节不变——非 worktree 场景零影响）。
+ * - 多段嵌套取首个 `/.worktrees/`（外层 worktree 管辖）。
+ */
+export function resolveMainRepoPath(input: string): string {
+  const marker = "/.worktrees/";
+  const idx = input.indexOf(marker);
+  if (idx < 0) return input;
+  const before = input.slice(0, idx); // idx=0（/.worktrees 紧贴根）→ ""，模板拼出 /{project}
+  const tail = input.slice(idx + marker.length);
+  const stripped = tail.endsWith("/") && tail.length > 1 ? tail.slice(0, -1) : tail;
+  const segments = stripped.split("/");
+  const dir = segments[0] ?? "";
+  const dash = dir.indexOf("-");
+  if (dir === "" || dash <= 0) return input; // 不合 {project}-{slug} 契约 → 不归一
+  const project = dir.slice(0, dash);
+  const rest = segments.slice(1).join("/");
+  return rest === "" ? `${before}/${project}` : `${before}/${project}/${rest}`;
+}

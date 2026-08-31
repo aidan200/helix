@@ -93,6 +93,9 @@ async function makeRig(engineOptions: { replies?: never[] } = {}): Promise<Rig> 
     subagentRunner: runner,
     cliInput: new PassThrough(),
     cliOutput: new PassThrough(),
+    // D8 W-R3 后 cwd（主树/worktree）可能携带真实 kg 项目——绑定 tmp home 隔离
+    //（任务切片注入零命中，TR-TEST-4 密闭性）。
+    kgWorkspaceRoot: home,
   });
   return {
     home,
