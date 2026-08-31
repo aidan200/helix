@@ -41,9 +41,9 @@ type _EntryThinking = Expect<Equal<Extract<EntryDto, { kind: "thinking" }>, Thin
 
 type _EntryCompaction = Expect<Equal<Extract<EntryDto, { kind: "compaction" }>, CompactionEntryDto>>;
 
-// InstanceState 五态恰等（cancelled 仅重启时 queued 收口，AD-10）
+// InstanceState 六态恰等（cancelled 仅重启时 queued 收口，AD-10；parked = park/resume 批挂起非终态）
 type _InstanceState = Expect<
-  Equal<InstanceState, "queued" | "running" | "done" | "failed" | "cancelled">
+  Equal<InstanceState, "queued" | "running" | "parked" | "done" | "failed" | "cancelled">
 >;
 
 // UsageDto 七字段恰等（pi Usage 防腐映射，cost 拍平 number）

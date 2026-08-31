@@ -30,10 +30,12 @@ export interface ClosureDto {
 }
 
 /**
- * 实例状态（编排四态 + cancelled）。
- * cancelled 仅重启恢复时 queued 收口使用（AD-10），运行期不产生。
+ * 实例状态（编排四态 + cancelled + parked）。
+ * cancelled 仅重启恢复时 queued 收口使用（AD-10），运行期不产生；
+ * parked（park/resume 批）= 活着但不干活（非终态：进程驻留、上下文原封、
+ * 零 token；resume 复活同一实例）。
  */
-export type InstanceState = "queued" | "running" | "done" | "failed" | "cancelled";
+export type InstanceState = "queued" | "running" | "parked" | "done" | "failed" | "cancelled";
 
 /**
  * 实例清单条目（SessionSnapshotDto.instances 载体；重启恢复卡片/抽屉骨架）。

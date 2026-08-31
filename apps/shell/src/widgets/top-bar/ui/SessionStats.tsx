@@ -24,7 +24,7 @@ import type { SessionState } from "@/entities/session/model/session-reducer";
 // ── 行派生（纯函数，单一状态源）────────────────────────────
 
 /** 状态 chip 值（SubAgent/compaction = 协议 InstanceState 字面量；idle = main 空闲） */
-export type UsageChipState = "queued" | "running" | "done" | "failed" | "cancelled" | "idle";
+export type UsageChipState = "queued" | "running" | "parked" | "done" | "failed" | "cancelled" | "idle";
 
 export interface UsageRow {
   /** 行 id（主实例 id（快照习得，legacy 字面 "main" / 新形态 agent-<hex>）/ agentId / "compaction"） */
@@ -168,6 +168,7 @@ const CHIP_CLASS: Record<UsageChipState, string> = {
   running: "st-running",
   failed: "st-failed",
   queued: "",
+  parked: "", // park/resume 批：类型面 additive（挂起非终态）；专用徽标形态归后续波次
   cancelled: "",
   idle: "",
 };
@@ -177,6 +178,7 @@ const CHIP_DOT: Record<UsageChipState, string> = {
   running: "hud-dot-accent hud-dot-pulse",
   failed: "hud-dot-error",
   queued: "hud-dot-idle",
+  parked: "hud-dot-idle",
   cancelled: "hud-dot-idle",
   idle: "hud-dot-idle",
 };

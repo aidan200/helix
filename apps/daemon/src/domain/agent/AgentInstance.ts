@@ -55,12 +55,18 @@ export function isMainInstanceId(instanceId: string | undefined, mainInstanceId:
 export type InstanceKind = "main" | "subagent";
 
 /**
- * 实例状态（编排四态 + cancelled）。
+ * 实例状态（编排四态 + cancelled + parked）。
  * 与 AgentLifecycleState（会话级运行态）是两个状态机：本态描述实例窗口
  * 生命周期，AgentLifecycleState 描述主实例会话运行态（steering/aborting 等
  * 只对主会话有意义）。
+ *
+ * parked（park/resume 批，设计稿 §2.1）：活着但不干活——子进程驻留、上下文
+ * 原封不动、零 token；非终态（不写 closure、不触发收口链、不注入主线）。
+ * 迁移：running ──park──▶ parked ──resume──▶ running；parked → failed
+ *（kill/崩溃/重启收口）。budget 释放后 resume 等价新派发排队（排队中状态
+ * 仍 parked——执行载体还活着，不重新 launch）。
  */
-export type InstanceState = "queued" | "running" | "done" | "failed" | "cancelled";
+export type InstanceState = "queued" | "running" | "parked" | "done" | "failed" | "cancelled";
 
 export type TerminalInstanceState = Extract<InstanceState, "done" | "failed" | "cancelled">;
 
@@ -78,13 +84,14 @@ export interface AgentInstanceData {
 /** 合法迁移矩阵（from → 允许的 to 集合）。 */
 const LEGAL_TRANSITIONS: Record<InstanceState, readonly InstanceState[]> = {
   queued: ["running", "failed", "cancelled"],
-  running: ["done", "failed"], // kill/崩溃/重启收口均为 failed（AD-10；cancelled 仅自 queued）
+  running: ["done", "failed", "parked"], // kill/崩溃/重启收口均为 failed（AD-10；cancelled 仅自 queued）；park 挂起（park/resume 批）
+  parked: ["running", "failed"], // resume 复活；kill/崩溃/重启收口 failed（挂起期无自然收口——不直达 done）
   done: [],
   failed: [],
   cancelled: [],
 };
 
-const INSTANCE_STATES: readonly InstanceState[] = ["queued", "running", "done", "failed", "cancelled"];
+const INSTANCE_STATES: readonly InstanceState[] = ["queued", "running", "parked", "done", "failed", "cancelled"];
 
 export class AgentInstance {
   private _state: InstanceState;
@@ -168,6 +175,16 @@ export class AgentInstance {
 
   /** 出队/预算内直跑：queued→running。 */
   markRunning(): void {
+    this.transition("running");
+  }
+
+  /** 挂起：running→parked（非终态——不写 closure/不收口；park/resume 批）。 */
+  park(): void {
+    this.transition("parked");
+  }
+
+  /** 恢复：parked→running（同一实例同一会话继续，预算满则由调度器排队）。 */
+  resume(): void {
     this.transition("running");
   }
 

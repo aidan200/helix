@@ -131,6 +131,43 @@ describe("② 实例状态机合法迁移矩阵", () => {
     a.assertIn("running");
     expect(() => a.assertIn("queued")).toThrow(DomainError);
   });
+
+  // ── ⑤ park/resume：parked 非终态（设计稿 park-resume §2.1） ──
+
+  test("running ──park──▶ parked ──resume──▶ running 往返", () => {
+    const a = subagent(1);
+    a.markRunning();
+    a.park();
+    expect(a.current).toBe("parked");
+    expect(a.isTerminal).toBe(false); // 非终态：不写 closure、不触发收口链
+    a.resume();
+    expect(a.current).toBe("running");
+    a.complete(); // resume 后正常收口
+    expect(a.current).toBe("done");
+  });
+
+  test("parked → failed 合法（kill/崩溃/重启收口）；park 仅自 running", () => {
+    const killed = subagent(1);
+    killed.markRunning();
+    killed.park();
+    killed.fail("parked 期间 kill");
+    expect(killed.current).toBe("failed");
+
+    const queued = subagent(2); // queued 无执行载体不可 park
+    expect(() => queued.park()).toThrow(DomainError);
+    expect(queued.current).toBe("queued");
+
+    const parked = subagent(3, "running");
+    parked.park();
+    expect(() => parked.park()).toThrow(DomainError); // parked 不可再 park
+    expect(() => parked.complete()).toThrow(DomainError); // parked 不可直达 done（挂起期无自然收口）
+    expect(parked.current).toBe("parked"); // 非法迁移无半态
+  });
+
+  test('restore("parked") 合法（快照往返保留挂起态）', () => {
+    const a = subagent(1, "parked");
+    expect(AgentInstance.restore(a.toData()).current).toBe("parked");
+  });
 });
 
 describe("③ 终态封闭（F1.9：终态不回 running）", () => {
@@ -142,7 +179,7 @@ describe("③ 终态封闭（F1.9：终态不回 running）", () => {
       a.markRunning();
       a.complete();
     }
-    for (const to of ["queued", "running", "done", "failed", "cancelled"] as const) {
+    for (const to of ["queued", "running", "parked", "done", "failed", "cancelled"] as const) {
       expect(a.canTransition(to)).toBe(false);
       expect(() => a.transition(to)).toThrow(DomainError);
     }
