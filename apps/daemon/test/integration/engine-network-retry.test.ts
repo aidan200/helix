@@ -16,7 +16,9 @@ import type { AgentEngineEvent } from "../../src/application/ports/outbound/Agen
  *   retry.backoffMs/sleep 假时钟注入；
  * - 瞬时失败 2 次后成功：监听器收 engine_retrying×2（attempt/total/waitMs/
  *   message 逐字段）+ 最终 message_end 成功，无 engine_error；
- * - 永久类（401）：零 engine_retrying，直接既有 engine_error 路径。
+ * - 永久类（401）：零 engine_retrying，直接既有 engine_error 路径；
+ * - P8 配额耗尽（429 insufficient_quota）：恰 1 次调用零重试零退避，
+ *   直接既有 engine_error 路径（provider 原文直达用户，服务人工切账号）。
  */
 
 const fakeModel = {
@@ -177,5 +179,30 @@ describe("PiAgentEngineAdapter 网络重试装配（engine_retrying 可观测）
       message: "503 Service Unavailable",
     });
     expect(events.some((e) => e.type === "message_end" && e.role === "assistant" && e.stopReason === "error")).toBe(true);
+  });
+
+  test("P8 配额耗尽（429 insufficient_quota）：恰 1 次调用零重试零退避，直接既有 engine_error 路径", async () => {
+    const quotaMessage = "429 insufficient_quota: You exceeded your current quota, please check your plan and billing details";
+    const slept: number[] = [];
+    const { streamFn, calls } = scriptedStreamFn([{ err: quotaMessage }]);
+    const engine = new PiAgentEngineAdapter({
+      profile: retryProfile,
+      model: fakeModel,
+      apiKeys: { anthropic: "explicit-key" },
+      streamFnOverride: streamFn,
+      retry: { backoffMs: [10, 30, 60], sleep: fakeSleep(slept) },
+    });
+
+    const events: AgentEngineEvent[] = [];
+    await engine.start("你好", (e) => events.push(e));
+
+    expect(calls).toEqual([`err:${quotaMessage}`]); // 恰 1 次调用——不吃 10/30/60 退避
+    expect(slept).toEqual([]); // 零退避
+    expect(events.filter((e) => e.type === "engine_retrying")).toEqual([]); // 零重试观测
+    const err = events.find((e) => e.type === "engine_error");
+    expect(err).toMatchObject({ type: "engine_error", message: quotaMessage }); // provider 原文直达用户（切账号决策依据）
+    // 既有失败语义：message_end(assistant, stopReason=error) + agent_end 收口
+    expect(events.some((e) => e.type === "message_end" && e.role === "assistant" && e.stopReason === "error")).toBe(true);
+    expect(events.some((e) => e.type === "agent_end")).toBe(true);
   });
 });
