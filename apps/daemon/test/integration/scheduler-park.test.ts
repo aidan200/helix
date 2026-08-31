@@ -335,3 +335,63 @@ describe("④ 观测面：agent_status parked 状态 + 原因 + parkedAt", () =>
     expect(h.scheduler.status(a1)[0]).not.toHaveProperty("parkedReason");
   });
 });
+
+describe("⑤ 在途竞态修复：park 已注入未确认 → resume 取消 pending（不卡 parked）", () => {
+  /**
+   * 竞态窗口（链 A 上报边界）：park 指令已注入、子进程尚未确认（当前工具
+   * 调用收尾期）时调 resume——修复前因实例仍 running 被拒，pending 残留，
+   * 实例随后自行 park 卡到人工处置。修复语义 = 取消等待 + 注入 RESUME
+   * 抵消（双保险）：子进程 steer 队列中的 RESUME 指令驱动 run 继续走完
+   * （末条 assistant 不再是 PARK 标记 → 不进挂起等待），即使极端路径仍
+   * 输出标记上行，防御性受理照旧可达（可再 resume，不失控）。
+   */
+  test("park 在途 → resume：取消等待 + RESUME 抵消注入，实例保持 running", () => {
+    const h = (current = makeHarness());
+    const a1 = spawnId(h);
+    expect(h.scheduler.park(a1)).toEqual({ parked: true }); // 指令已注入、确认未上行
+    expect(h.scheduler.instance(a1)?.state).toBe("running");
+
+    const outcome = h.scheduler.resume(a1);
+    expect(outcome).toEqual({ resumed: true, queued: false }); // 受理（不再拒「未挂起」）
+    expect(h.scheduler.instance(a1)?.state).toBe("running"); // 不迁移 parked、不卡挂起
+    // 双保险：RESUME 指令注入抵消已注入的 PARK（经同一 steer 通道）
+    expect(h.runner.sent).toEqual([
+      { instanceId: a1, text: PARK_INSTRUCTION_TEXT },
+      { instanceId: a1, text: RESUME_INSTRUCTION_TEXT },
+    ]);
+    // 无状态迁移事件（实例全程 running——不产 agent.parked/agent.resumed）
+    expect(payloadsOf(h, "agent.parked", a1)).toHaveLength(0);
+    expect(payloadsOf(h, "agent.resumed", a1)).toHaveLength(0);
+
+    // pending 已清除（可观测：再次 park 受理并重发指令，而非幂等吞掉）
+    expect(h.scheduler.park(a1)).toEqual({ parked: true });
+    expect(h.runner.sent.filter((s) => s.text === PARK_INSTRUCTION_TEXT)).toHaveLength(2);
+  });
+
+  test("取消后子进程仍输出 PARK 标记（极端路径）：防御性受理照旧 parked，可再 resume 不失控", () => {
+    const h = (current = makeHarness());
+    const a1 = spawnId(h);
+    h.scheduler.park(a1);
+    expect(h.scheduler.resume(a1)).toEqual({ resumed: true, queued: false });
+
+    // 子进程无视 RESUME 抵消仍输出标记上行（子进程确实进入挂起等待）：
+    // 状态保真受理（reason 缺省 user）——实例真实 parked，非失控半态
+    h.runner.reportParked(a1, { progress: "无视恢复指令", next: "仍挂起" });
+    expect(h.scheduler.instance(a1)?.state).toBe("parked");
+    expect(payloadsOf(h, "agent.parked", a1)).toHaveLength(1);
+
+    // 恢复入口照常可达：再 resume → running（RESUME 唤醒挂起等待）
+    expect(h.scheduler.resume(a1)).toEqual({ resumed: true, queued: false });
+    expect(h.scheduler.instance(a1)?.state).toBe("running");
+    expect(h.runner.sent.at(-1)).toEqual({ instanceId: a1, text: RESUME_INSTRUCTION_TEXT });
+  });
+
+  test("无 pending 的 running 实例 resume 仍拒（回归：未挂起无需 resume）", () => {
+    const h = (current = makeHarness());
+    const a1 = spawnId(h); // 从未 park
+    const outcome = h.scheduler.resume(a1);
+    expect(outcome.resumed).toBe(false);
+    expect((outcome as { error: string }).error).toContain("未挂起");
+    expect(h.runner.sent).toHaveLength(0); // 不注入任何指令
+  });
+});

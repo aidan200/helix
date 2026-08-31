@@ -567,12 +567,25 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
    * 判定等价新派发（P3）：有空位立即恢复（RESUME 注入 + parked→running +
    * agent.resumed）；预算满则与重派同队排队（状态保持 parked，空位释放后
    * 出队恢复——**不重新 launch**，执行载体驻留未退出）。拒绝：未挂起/终态/未知。
+   *
+   * 在途竞态增补（链 A 上报边界）：park 指令已注入、确认未上行（当前工具
+   * 调用收尾期）时调 resume → 取消等待（清除 pending，不再迁移 parked）
+   * + 注入 RESUME 抵消（双保险：子进程 steer 队列中的 RESUME 使 run 继续
+   * 走完——末条 assistant 不再是 PARK 标记即不进挂起等待；已入等待则唤醒）。
+   * 实例全程 running（从未离开运行位，无预算判定）；极端路径子进程仍输出
+   * 标记上行 → onInstanceParked 防御性受理照旧（状态保真，可再 resume）。
    */
   resume(agentId: string): ResumeOutcome {
     const instance = this.registry.findInstance(agentId);
     if (!instance) return { resumed: false, error: `实例 ${agentId} 不存在（无法 resume）` };
     if (instance.isTerminal) {
       return { resumed: false, error: `实例 ${agentId} 已终态（${instance.current}），终态不可复活（重派 = 新实例）` };
+    }
+    // 在途 pending park：取消等待 + RESUME 抵消（状态不迁移，继续 running）
+    if (instance.current === "running" && this.pendingParks.has(agentId)) {
+      this.pendingParks.delete(agentId);
+      if (this.deps.runner.send !== undefined) this.deps.runner.send(agentId, RESUME_INSTRUCTION_TEXT);
+      return { resumed: true, queued: false };
     }
     if (instance.current !== "parked") {
       return { resumed: false, error: `实例 ${agentId} 未挂起（当前 ${instance.current}），无需 resume` };
