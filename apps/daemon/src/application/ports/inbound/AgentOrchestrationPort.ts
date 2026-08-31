@@ -31,10 +31,14 @@ export interface AgentInstanceStatus {
   readonly profileKind: string;
   /** 被指派任务（spawn 入参留档）。 */
   readonly task?: string;
-  /** FIFO 位次（仅 state=queued 携带，1 起）。 */
+  /** FIFO 位次（queued 与排队恢复中的 parked 携带，1 起）。 */
   readonly position?: number;
   /** 终态摘要（closure.summary；运行中/排队不携带）。 */
   readonly summary?: string;
+  /** 挂起原因（park/resume 批；仅 state=parked 携带）。 */
+  readonly parkedReason?: "user" | "taskPause";
+  /** 挂起时刻（ISO 8601；仅 state=parked 携带）。 */
+  readonly parkedAt?: string;
 }
 
 /** 执行轨迹项（T3-B 环缓冲元素；tool → name，assistant → text 尾部 200 字）。 */

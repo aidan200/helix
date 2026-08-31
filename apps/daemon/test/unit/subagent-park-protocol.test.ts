@@ -5,7 +5,7 @@ import {
   PARK_INSTRUCTION_TEXT,
   parseParkBlock,
   RESUME_INSTRUCTION_TEXT,
-} from "../../src/adapters/driven/subagent/parkProtocol";
+} from "../../src/application/services/scheduler/parkProtocol";
 
 /**
  * park/resume 批 T3：挂起协议纯数据面单测——

@@ -3,13 +3,17 @@ import { AgentLifecycle } from "../../../domain/agent/AgentLifecycle";
 import type { SchedulingPolicy } from "../../../domain/agent/SchedulingPolicy";
 import type {
   AgentInstantiatedPayload,
+  AgentParkedPayload,
   AgentQueuedPayload,
+  AgentResumedPayload,
   AgentSpawnedPayload,
   AgentStartedPayload,
   AgentStalledPayload,
   DomainEvent,
   InstanceClosurePayload,
+  ParkReason,
 } from "../../../domain/events/DomainEvent";
+import { PARK_INSTRUCTION_TEXT, RESUME_INSTRUCTION_TEXT } from "./parkProtocol";
 import type { EventPublisherPort } from "../../ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../../ports/outbound/ClockPort";
 import type { SessionRepositoryPort } from "../../ports/outbound/SessionRepositoryPort";
@@ -76,6 +80,15 @@ import { ClosureRecorder, type ClosureFindingsSink } from "./ClosureRecorder";
  */
 
 export type { SpawnOutcome };
+
+/** park 结果：parked=true = 请求已受理（经 steer 通道注入挂起指令；状态转 parked 待子进程 PARK 确认上行）；拒绝附中文原因。 */
+export type ParkOutcome = { readonly parked: true } | { readonly parked: false; readonly error: string };
+
+/** resume 结果：queued=true = 预算满排队（与重派同队，状态保持 parked，空位后机械恢复）；拒绝附中文原因。 */
+export type ResumeOutcome =
+  | { readonly resumed: true; readonly queued: false }
+  | { readonly resumed: true; readonly queued: true; readonly position: number }
+  | { readonly resumed: false; readonly error: string };
 
 /** profileKind 缺省值（Q-6=A：单一通用 worker）。 */
 const DEFAULT_PROFILE_KIND = "subagent-worker";
@@ -189,6 +202,13 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   private readonly translator: SubagentEventTranslator;
   /** closure 收口链（拆分：归一/双产物/投影/终态事件/SteerQueue 注入）。 */
   private readonly recorder: ClosureRecorder;
+  // ── park/resume 批（设计稿 §2.1/§4）：挂起语义 per-instance 登记面 ──
+  /** 实例 → park 请求已注入待确认（running 期；parked 上行时消费——原因随行）。 */
+  private readonly pendingParks = new Map<string, ParkReason>();
+  /** 实例 → 挂起观测字段（agent_status parkedReason/parkedAt；resume/终态清理）。 */
+  private readonly parkedInfos = new Map<string, { reason: ParkReason; parkedAt: string }>();
+  /** 队列内待恢复实例（resume 预算满入队；出队时 RESUME 恢复而非 launch——执行载体还活着）。 */
+  private readonly resumePending = new Set<string>();
 
   constructor(private readonly deps: SchedulerServiceDeps) {
     this.translator = new SubagentEventTranslator({ events: deps.events, clock: deps.clock });
@@ -202,10 +222,11 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       ...(deps.findingsSink !== undefined ? { findingsSink: deps.findingsSink } : {}),
       ...(deps.pendingSyncJobIdOf !== undefined ? { pendingSyncJobIdOf: deps.pendingSyncJobIdOf } : {}),
     });
-    // 契约零变化：恰 2 回调注册给 runner，回调体一行转发
+    // 契约（park/resume 批起：3 回调——新增 onInstanceParked 转发，回调体一行转发）
     this.deps.runner.setCallbacks({
       onInstanceEvent: (instanceId, event) => this.onInstanceEvent(instanceId, event),
       onInstanceClosure: (instanceId, outcome) => this.onInstanceClosure(instanceId, outcome),
+      onInstanceParked: (instanceId, summary) => this.onInstanceParked(instanceId, summary),
     });
     const poll = deps.stalledPollMs ?? Math.max(1, Math.floor(deps.policy.stalledThresholdMs / 2));
     this.monitor = setInterval(() => this.checkStalled(), poll);
@@ -291,11 +312,15 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     return this.spawnAnchors.get(instanceId);
   }
 
-  /** 会话是否有活跃实例（运行态观测/空闲卸载判定——queued/running 均算活跃）。 */
+  /** 会话是否有活跃实例（运行态观测/空闲卸载判定——queued/running/parked 均算活跃：parked 窗口未销毁、进程驻留）。 */
   hasActiveInstances(sessionId: string): boolean {
     return this.registry
       .listInstances()
-      .some((i) => i.sessionId === sessionId && (i.current === "running" || i.current === "queued"));
+      .some(
+        (i) =>
+          i.sessionId === sessionId &&
+          (i.current === "running" || i.current === "queued" || i.current === "parked"),
+      );
   }
 
   /**
@@ -459,6 +484,10 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       return { delivered: false, detail: `实例 ${agentId} 的执行载体不支持注入（runner 未实现 send）` };
     }
     this.deps.runner.send(agentId, message);
+    // park/resume 批：挂起期注入照常投递——子进程 steer 队列暂存，resume 驱动的新 run 一并送达
+    if (instance.current === "parked") {
+      return { delivered: true, detail: `已注入 ${agentId}（挂起中暂存，恢复后送达）` };
+    }
     return { delivered: true, detail: `已注入 ${agentId}（turn 边界生效）` };
   }
 
@@ -503,6 +532,71 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     return { killed: true };
   }
 
+  // ── park/resume（挂起/恢复原语，⑤ park/resume 批；通用层——任务域/chat 域
+  //    接线归后续波次。仅 subagent kind 生效（P5：主会话不参与挂起）──
+
+  /**
+   * park：经既有 steer 通道（runner.send）注入带协议标记的挂起指令
+   * （协作式第一层）；状态迁移**待子进程 PARK 确认上行**（onInstanceParked
+   * ——回合边界生效，当前工具调用完成后才挂起）。指令注入后至确认前实例
+   * 仍 running（占预算）。幂等：pending 期重复请求不重发；已 parked no-op；
+   * 终态拒（park 与自然收口竞态 = 终态赢，park 迟到作废）。
+   */
+  park(agentId: string, reason: ParkReason = "user"): ParkOutcome {
+    const instance = this.registry.findInstance(agentId);
+    if (!instance) return { parked: false, error: `实例 ${agentId} 不存在（无法 park）` };
+    if (instance.kind !== "subagent") {
+      return { parked: false, error: `实例 ${agentId} 为主会话实例，不参与挂起（P5：主会话网络错误不致命，用户重发即续）` };
+    }
+    if (instance.isTerminal) {
+      return { parked: false, error: `实例 ${agentId} 已终态（${instance.current}），park 作废（终态赢）` };
+    }
+    if (instance.current === "parked") return { parked: true }; // 已挂起幂等 no-op
+    if (instance.current === "queued") {
+      return { parked: false, error: `实例 ${agentId} 排队中（无执行载体），不可挂起——可先 kill 或等待出队` };
+    }
+    if (this.deps.runner.send === undefined) {
+      return { parked: false, error: `实例 ${agentId} 的执行载体不支持注入（runner 未实现 send），无法挂起` };
+    }
+    if (!this.pendingParks.has(agentId)) {
+      this.pendingParks.set(agentId, reason);
+      this.deps.runner.send(agentId, PARK_INSTRUCTION_TEXT);
+    }
+    return { parked: true };
+  }
+
+  /**
+   * resume：向 parked 实例注入恢复指令（同一实例同一会话从断点继续）。预算
+   * 判定等价新派发（P3）：有空位立即恢复（RESUME 注入 + parked→running +
+   * agent.resumed）；预算满则与重派同队排队（状态保持 parked，空位释放后
+   * 出队恢复——**不重新 launch**，执行载体驻留未退出）。拒绝：未挂起/终态/未知。
+   */
+  resume(agentId: string): ResumeOutcome {
+    const instance = this.registry.findInstance(agentId);
+    if (!instance) return { resumed: false, error: `实例 ${agentId} 不存在（无法 resume）` };
+    if (instance.isTerminal) {
+      return { resumed: false, error: `实例 ${agentId} 已终态（${instance.current}），终态不可复活（重派 = 新实例）` };
+    }
+    if (instance.current !== "parked") {
+      return { resumed: false, error: `实例 ${agentId} 未挂起（当前 ${instance.current}），无需 resume` };
+    }
+    if (this.resumePending.has(agentId)) {
+      return { resumed: true, queued: true, position: this.queue.indexOf(agentId) + 1 }; // 已在恢复队列幂等
+    }
+    const decision = this.deps.policy.decideSpawn(this.runningCount(), this.queue.length);
+    if (decision.action === "reject") {
+      return { resumed: false, error: `恢复预算已耗尽（运行位满且队列满），无法排队恢复实例 ${agentId}` };
+    }
+    if (decision.action === "run") {
+      this.resumeInstance(instance);
+      return { resumed: true, queued: false };
+    }
+    this.resumePending.add(agentId);
+    this.queue.push(agentId);
+    this.republishPositions();
+    return { resumed: true, queued: true, position: this.queue.length };
+  }
+
   // ── runner 回调（实例执行载体 → 编排；回调体一行转发） ──────
 
   /**
@@ -526,6 +620,10 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   private onInstanceClosure(instanceId: string, outcome: InstanceClosureOutcome): void {
     const instance = this.registry.findInstance(instanceId);
     if (!instance || instance.isTerminal) return; // kill 与自然收口竞态：后到者吞
+    // park/resume 批：挂起登记面随终态清理（pendingParks 同时作废——park 请求未及确认即收口）
+    this.pendingParks.delete(instanceId);
+    this.parkedInfos.delete(instanceId);
+    this.resumePending.delete(instanceId);
 
     // 流式/落树事件生产状态清理（终态后迟到引擎事件不再产条目事件）——
     // 四 delete 原序单点在 translator（streamEntryIds → entrySeqs →
@@ -534,10 +632,14 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     this.clearProgressReporting(instanceId); // T3-A：终态清报告定时器（与上同一清理序列位）
 
     // 状态机迁移（非法迁移不可达：queued/running 均可收口 failed/killed；
-    // done 仅自 running——queued 实例重外部已完成时补记 running 再收口，
-    // 不因乱序到达而抛错（任意序列不崩、无非法半态）
+    // done 仅自 running——queued/parked 实例重外部已完成时补记 running 再收口，
+    // 不因乱序到达而抛错（任意序列不崩、无非法半态；parked 后到达 done 为
+    // 协议不可达的防御位——子进程挂起等待期不产自然收口）
     if (outcome.result === "done" && instance.current === "queued") {
       instance.markRunning(); // 补记：实际已执行完毕（迟到/乱序 done）
+    }
+    if (outcome.result === "done" && instance.current === "parked") {
+      instance.resume(); // 补记：挂起确认后仍自然收口（防御，同 queued 口径）
     }
     switch (outcome.result) {
       case "done":
@@ -570,6 +672,41 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
 
     // 空位释放 → FIFO 出队（queued 收口不释放运行位，maybeDequeue 自会按预算判定）
     this.maybeDequeue();
+  }
+
+  /**
+   * 实例挂起确认（park/resume 批）：子进程检测 PARK 标记进入挂起等待。
+   * 幂等/竞态守卫：仅 running 态受理（终态 = closure 先到 park 作废；已
+   * parked 的重复上行忽略）。挂起非终态：不写 closure、不触发收口链、
+   * 不注入主线；预算释放（P3：maxConcurrent 只数非 parked）→ 触发出队。
+   */
+  private onInstanceParked(instanceId: string, summary: { progress: string; next: string }): void {
+    const instance = this.registry.findInstance(instanceId);
+    if (!instance || instance.isTerminal || instance.current !== "running") return; // park 迟到作废 / 重复上行幂等
+    const reason = this.pendingParks.get(instanceId) ?? "user"; // 未登记 park 请求的意外上行（防卸性受理）
+    this.pendingParks.delete(instanceId);
+    instance.park();
+    const parkedAt = this.deps.clock.now();
+    this.parkedInfos.set(instanceId, { reason, parkedAt });
+    this.persistLifecycle(instance); // parked 投影行（重启 parked→failed 收口的读面）
+    this.publish(instance, "agent.parked", {
+      agentId: instanceId,
+      reason,
+      parkedAt,
+      summary,
+    } satisfies AgentParkedPayload);
+    this.maybeDequeue(); // 预算释放 → 队首出队
+  }
+
+  /** 恢复实例（预算内直恢复 / 出队恢复同路径）：RESUME 注入 + parked→running + agent.resumed。 */
+  private resumeInstance(instance: AgentInstance): void {
+    const instanceId = instance.instanceId;
+    instance.resume();
+    this.parkedInfos.delete(instanceId);
+    this.translator.touchLastEventAt(instanceId); // 恢复起算 idle 计时（防瞬时 stalled 误报）
+    this.persistLifecycle(instance); // running 投影行
+    if (this.deps.runner.send !== undefined) this.deps.runner.send(instanceId, RESUME_INSTRUCTION_TEXT);
+    this.publish(instance, "agent.resumed", { agentId: instanceId } satisfies AgentResumedPayload);
   }
 
   // ── 内部：启动/出队/stalled ───────────────────────────────
@@ -607,6 +744,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       this.clearProgressReporting(instanceId); // 防御：实例已不在/终态（迟到 tick）
       return;
     }
+    if (instance.current !== "running") return; // park/resume 批：parked 零消耗不报告（P4 无自动超时；定时器保留随 resume 复报）
     const metrics = this.translator.metricsOf(instanceId);
     const prev = this.lastReportedMetrics.get(instanceId) ?? { toolCalls: 0, assistantChars: 0, turns: 0 };
     this.lastReportedMetrics.set(instanceId, metrics);
@@ -647,13 +785,20 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       const agentId = this.queue.shift()!;
       this.republishPositions(); // 剩余位次整体递减重发（仅出队触发）
       const instance = this.registry.findInstance(agentId);
-      if (instance && !instance.isTerminal) this.startInstance(instance);
+      if (!instance || instance.isTerminal) continue; // 排队期已收口：摘队即完毕
+      // park/resume 批：排队中的待恢复实例 → RESUME 恢复（执行载体驻留，
+      // 不重新 launch——与重派同队但派发动作不同）；普通排队 → launch
+      if (this.resumePending.delete(agentId)) this.resumeInstance(instance);
+      else this.startInstance(instance);
     }
   }
 
-  /** 队列位次重发（队列序即位次序，1 起）。 */
+  /** 队列位次重发（队列序即位次序，1 起）。park/resume 批：排队中的待恢复
+ *  实例不重发 agent.queued（状态仍 parked——它不是待启动的 spawn，位次经
+ *  agent_status position 观测；避免前端卡被误投影为 queued）。 */
   private republishPositions(): void {
     this.queue.forEach((agentId, i) => {
+      if (this.resumePending.has(agentId)) return;
       const instance = this.registry.findInstance(agentId);
       if (instance) {
         this.publish(instance, "agent.queued", { agentId, position: i + 1 } satisfies AgentQueuedPayload);
@@ -682,12 +827,13 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     return this.registry.listInstances().filter((i) => i.kind === "subagent" && i.current === "running").length;
   }
 
-  /** AgentInstance → agent_status 观测条目（位次/任务/终态摘要按态携带）。 */
+  /** AgentInstance → agent_status 观测条目（位次/任务/终态摘要按态携带；park/resume 批：挂起原因/时刻）。 */
   private toStatus(instance: AgentInstance): AgentInstanceStatus {
     const agentId = instance.instanceId;
     const task = this.tasks.get(agentId);
     const position = this.queue.indexOf(agentId);
     const closure = this.closures.get(agentId);
+    const parked = this.parkedInfos.get(agentId);
     return {
       agentId,
       state: instance.current,
@@ -695,6 +841,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       ...(task !== undefined ? { task } : {}),
       ...(position >= 0 ? { position: position + 1 } : {}),
       ...(closure !== undefined ? { summary: closure.summary } : {}),
+      ...(parked !== undefined ? { parkedReason: parked.reason, parkedAt: parked.parkedAt } : {}),
     };
   }
 
