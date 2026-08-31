@@ -61,6 +61,8 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "agent_send",
         "agent_status",
         "agent_inspect", // T3-B
+        "agent_park", // ⑤ 链 C：挂起（P1 仅 main）
+        "agent_resume", // ⑤ 链 C：恢复（P1 仅 main）
         "browser",
         "kg", // T3.3：kg 双工具
         "kg-update",

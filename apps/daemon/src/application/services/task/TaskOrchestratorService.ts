@@ -438,6 +438,10 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
         return { killed: true };
       },
       inspect: () => null,
+      // ⑤ 链 C：编排会话不声明 agent_park/agent_resume（P1 仅 Main）——
+      // 任务域批量挂起归 TaskEngine 接线（reason=taskPause），不经编排会话 LLM 面
+      park: () => ({ parked: false, error: "任务批次实例不支持编排会话挂起" }),
+      resume: () => ({ resumed: false, error: "任务批次实例不支持编排会话恢复" }),
     };
   }
 

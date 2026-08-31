@@ -3,8 +3,10 @@
  *
  * 落位 adapters/driven/tools/（与工具实现同目录，pi 工具符号封装边界不扩）：
  * SystemPromptAssembler 的工具段（- name: snippet 扁平清单）数据源。
- * main 11 工具 + subagent 7 工具共享单一注册表（subagent 全集 = main 去编排
- * 三件套与动态族单 browser 工具，是否进清单由 ResourceService.getEffectiveTools(kind)
+ * main 18 工具 + subagent 13 工具共享单一注册表（subagent 全集 = main 去编排
+ * 六件套（agent_spawn/send/status/inspect/park/resume）与 kg 双工具、
+ * codegraph、task_create、动态族单 browser 工具之外叠加 plan 三工具，是否
+ * 进清单由 ResourceService.getEffectiveTools(kind)
  * 生效集决定，本表只管「名 → 中文一句话」映射）。
  *
  * snippet 约束：中文一句话、单行（进 system prompt 的清单行——多行破坏
@@ -21,8 +23,10 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   web_fetch: "抓取网页并转为 Markdown 返回（直连主通道，Jina 备选）",
   agent_spawn: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）",
   agent_send: "向运行中的 SubAgent 实例追加补充指示",
-  agent_status: "查询 SubAgent 实例的当前执行状态（仅用户主动询问进度时用）",
+  agent_status: "查询 SubAgent 实例状态（含挂起中）；用户询问进度或要恢复挂起实例时先用",
   agent_inspect: "核实 SubAgent 实例真实执行轨迹（进展零增量时判断是否死循环）",
+  agent_park: "挂起运行中的 SubAgent 实例（完成当前工具调用后暂停，上下文保留零消耗；用户要求暂停某工作时用）",
+  agent_resume: "恢复挂起的 SubAgent 实例（同会话从断点继续）",
   browser: "操控浏览器（action 分发：开 tab/eval/点击/滚动/截图等，携带登录态）",
   kg: "查询项目知识图谱（只读：search 关键词检索 → get 节点全量 / affected 锚反查——改代码前用文件或符号反查管辖节点，id 取自返回行）",
   "kg-update":

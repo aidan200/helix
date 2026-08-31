@@ -507,6 +507,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               status: (agentId) => scheduler.status(agentId),
               kill: (agentId) => scheduler.kill(agentId),
               inspect: (agentId) => scheduler.inspect(agentId), // T3-B
+              park: (agentId) => scheduler.park(agentId), // ⑤ 链 C：reason 缺省 user（chat 域入口）
+              resume: (agentId) => scheduler.resume(agentId), // ⑤ 链 C
             };
             // W1：kg 挂点/双工具经 workspace 持有者读现值（未绑定 → 不注册/
             // 无挂点——edit 行为不变；kg/kg-update 同步从 profile 工具清单

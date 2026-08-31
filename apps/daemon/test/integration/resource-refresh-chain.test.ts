@@ -62,6 +62,8 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
     status: () => [],
     kill: (agentId: string) => ({ killed: false, error: `测试桩不 kill：${agentId}` }),
     inspect: () => null,
+    park: () => ({ parked: false as const, error: "测试桩不挂起" }),
+    resume: () => ({ resumed: false as const, error: "测试桩不恢复" }),
   };
   const streamFn: StreamFn = (model: Model<any>, context) => {
     const ctx = context as unknown as { systemPrompt?: string; tools?: Array<{ name: string }> };
@@ -118,6 +120,8 @@ const MAIN_TOOLS = [
   "agent_send",
   "agent_status",
   "agent_inspect", // T3-B
+  "agent_park", // ⑤ 链 C：挂起（P1 仅 main）
+  "agent_resume", // ⑤ 链 C：恢复（P1 仅 main）
   "browser",
   "kg", // T3.3：kg 双工具
   "kg-update",

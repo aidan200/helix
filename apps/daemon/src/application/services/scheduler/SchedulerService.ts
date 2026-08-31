@@ -23,6 +23,8 @@ import type {
   AgentInstanceStatus,
   AgentOrchestrationPort,
   KillOutcome,
+  ParkOutcome,
+  ResumeOutcome,
   SendOutcome,
   SpawnOutcome,
 } from "../../ports/inbound/AgentOrchestrationPort";
@@ -81,14 +83,9 @@ import { ClosureRecorder, type ClosureFindingsSink } from "./ClosureRecorder";
 
 export type { SpawnOutcome };
 
-/** park 结果：parked=true = 请求已受理（经 steer 通道注入挂起指令；状态转 parked 待子进程 PARK 确认上行）；拒绝附中文原因。 */
-export type ParkOutcome = { readonly parked: true } | { readonly parked: false; readonly error: string };
-
-/** resume 结果：queued=true = 预算满排队（与重派同队，状态保持 parked，空位后机械恢复）；拒绝附中文原因。 */
-export type ResumeOutcome =
-  | { readonly resumed: true; readonly queued: false }
-  | { readonly resumed: true; readonly queued: true; readonly position: number }
-  | { readonly resumed: false; readonly error: string };
+// ParkOutcome/ResumeOutcome 单源在 AgentOrchestrationPort（⑤ 链 C 工具面
+// 接入；结构同前——本地双源消除）
+export type { ParkOutcome, ResumeOutcome };
 
 /** profileKind 缺省值（Q-6=A：单一通用 worker）。 */
 const DEFAULT_PROFILE_KIND = "subagent-worker";

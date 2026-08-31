@@ -336,6 +336,12 @@ const lazyOrchestration: AgentOrchestrationPort = {
   inspect(agentId) {
     return orchestrationRef!.inspect(agentId);
   },
+  park(agentId) {
+    return orchestrationRef!.park(agentId);
+  },
+  resume(agentId) {
+    return orchestrationRef!.resume(agentId);
+  },
 };
 
 // ── 装配与生命周期 ──────────────────────────────────────────

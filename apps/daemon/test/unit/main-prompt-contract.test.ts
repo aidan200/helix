@@ -20,4 +20,10 @@ describe("T3-C 主会话提示词正向契约", () => {
     expect(MAIN_SESSION_SYSTEM_PROMPT).toContain("agent_inspect 核实");
     expect(MAIN_SESSION_SYSTEM_PROMPT).toContain("agent_status 仅在用户主动询问进度时使用");
   });
+
+  test("③ 链 C 挂起/恢复指引：暂停用 agent_park；继续先查 parked 再 agent_resume（closure 照常注入）", () => {
+    expect(MAIN_SESSION_SYSTEM_PROMPT).toContain("用户要求暂停某实例时用 agent_park");
+    expect(MAIN_SESSION_SYSTEM_PROMPT).toContain("先 agent_status 查看 parked 实例再 agent_resume 恢复");
+    expect(MAIN_SESSION_SYSTEM_PROMPT).toContain("closure 会照常注入驱动下一轮");
+  });
 });

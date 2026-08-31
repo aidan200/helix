@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
+import type { AgentOrchestrationPort } from "../../src/application/ports/inbound/AgentOrchestrationPort";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
 import { kgToolsStub } from "../helpers/kgToolsStub";
@@ -30,12 +31,15 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
 
   test("② 有 browser：单名注册；main 全集 16 名一次装配成功", () => {
     // 组合根 engineFor 同款接线：orchestration（会话门面）+ browser + ownerId
-    const orchestration = {
+    //（注解 AgentOrchestrationPort：上下文化保留 resumed/parked 字面量窄类型）
+    const orchestration: AgentOrchestrationPort = {
       spawn: (task: string) => ({ status: "rejected", error: `测试桩不 spawn：${task}` }) as const,
       send: () => ({ delivered: false, detail: "测试桩不投递" }),
       status: () => [],
       kill: () => ({ killed: false, error: "测试桩不 kill" }),
       inspect: () => null,
+      park: () => ({ parked: false, error: "测试桩不挂起" }),
+      resume: () => ({ resumed: false, error: "测试桩不恢复" }),
     };
     const executor = new CoreToolExecutor({
       cwd: tmpdir(),
@@ -46,7 +50,7 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
       codegraph: codegraphToolStub(tmpdir()), // W1-B：main 全集声明 codegraph——替身保持可装配
       taskCreate: taskCreateStub(), // T2.4：main 全集声明 task_create——替身保持可装配
     });
-    expect(MainSessionProfile.tools).toHaveLength(16); // T3.3 kg 双工具 + T2.4 task_create（AD-7）+ W1-B codegraph
+    expect(MainSessionProfile.tools).toHaveLength(18); // T3.3 kg 双工具 + T2.4 task_create（AD-7）+ W1-B codegraph + ⑤ 链 C park/resume 双工具（P1 仅 main）
     const resolved = executor.resolveTools(MainSessionProfile.tools);
     expect(resolved.map((t) => t.name)).toEqual([...MainSessionProfile.tools]);
     expect(resolved.some((t) => t.name === "browser"), "browser 应装配").toBe(true);

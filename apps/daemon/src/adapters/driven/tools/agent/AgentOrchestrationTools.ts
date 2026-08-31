@@ -6,17 +6,20 @@ import type {
 import type { AgentOrchestrationPort } from "../../../../application/ports/inbound/AgentOrchestrationPort";
 
 /**
- * 编排三工具：agent_spawn / agent_send / agent_status。
+ * 编排工具族：agent_spawn / agent_send / agent_status / agent_inspect /
+ * agent_park / agent_resume（⑤ 链 C 挂起/恢复，仅 Main 生效集）。
  *
  * 落位 adapters/driven/tools/agent/（TR-AD-1/2 说明：driven 工具域）。
- * 三个工具都是「薄转投」——业务判定全部经 AgentOrchestrationPort 回
+ * 全部工具都是「薄转投」——业务判定全部经 AgentOrchestrationPort 回
  * SchedulerService（TR-AD-9 编排收敛），本文件不含调度逻辑；port 引用由
  * 组合根注入（CoreToolExecutor 注册时传入），不 import 任何其他 adapter。
  *
  * - agent_spawn：秒回 {agentId, spawned, queued?}（不等收口，AD-8）；
  * - 队列满 → isError 错误字符串回 LLM（reject 通路汇流）；
  * - agent_send：port.send → runner → transport → 子进程 stdin → Agent.steer()；
- * - agent_status：无参全量（状态/位次/摘要）/有参单实例。
+ * - agent_status：无参全量（状态/位次/摘要）/有参单实例；
+ * - agent_park/agent_resume：port.park/resume 透传（挂起原语归调度器）；
+ *   错误形态对齐 agent_send——JSON outcome 携可读中文 error（调度器单源）。
  */
 
 /** 三工具共用的参数 schema 风格（手写 JSON Schema，与 GrepTool 同构）。 */
@@ -61,6 +64,16 @@ const inspectParameters = {
     agentId: { type: "string", description: "目标实例 id（agent-N）" },
   },
   required: ["agentId"],
+  additionalProperties: false,
+} as const;
+
+/** park/resume 共用参数（单实例 id；挂起原因归系统——chat 域恒 user）。 */
+const instanceParameters = {
+  type: "object",
+  properties: {
+    instanceId: { type: "string", description: "目标实例 id（agent-N）" },
+  },
+  required: ["instanceId"],
   additionalProperties: false,
 } as const;
 
@@ -159,6 +172,48 @@ export function createAgentInspectTool(
       void toolCallId;
       const { agentId } = params as { agentId: string };
       return textResult(JSON.stringify(orchestration.inspect(agentId)));
+    },
+  };
+}
+
+/**
+ * agent_park：挂起运行中实例（⑤ 链 C chat 域用户驱动；reason 恒 user——
+ * 工具面不携 reason，任务域批量挂起归 TaskEngine 接线）。秒回受理——
+ * 协议=完成当前工具调用后挂起（状态转 parked 待子进程 PARK 确认上行）。
+ */
+export function createAgentParkTool(
+  orchestration: AgentOrchestrationPort,
+): AgentHarnessTool<ExecutionToolContext, any, undefined> {
+  return {
+    name: "agent_park",
+    label: "agent_park",
+    description:
+      "挂起运行中的 SubAgent 实例（完成当前工具调用后暂停，上下文保留零消耗；用户要求暂停某工作时用）。" +
+      "挂起后实例保持驻留不收口，恢复时同会话从断点继续；排队中/已终态实例不可挂起。",
+    parameters: instanceParameters as any,
+    async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
+      void toolCallId;
+      const { instanceId } = params as { instanceId: string };
+      return textResult(JSON.stringify(orchestration.park(instanceId)));
+    },
+  };
+}
+
+/** agent_resume：恢复挂起实例（同一实例同一会话从断点继续；预算满自动排队）。 */
+export function createAgentResumeTool(
+  orchestration: AgentOrchestrationPort,
+): AgentHarnessTool<ExecutionToolContext, any, undefined> {
+  return {
+    name: "agent_resume",
+    label: "agent_resume",
+    description:
+      "恢复挂起的 SubAgent 实例（同会话从断点继续）。恢复后实例继续执行，" +
+      "收口结论照常自动注入主线；仅挂起中（parked）实例可恢复。",
+    parameters: instanceParameters as any,
+    async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
+      void toolCallId;
+      const { instanceId } = params as { instanceId: string };
+      return textResult(JSON.stringify(orchestration.resume(instanceId)));
     },
   };
 }

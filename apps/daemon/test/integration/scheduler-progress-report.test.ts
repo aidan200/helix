@@ -255,6 +255,8 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
       status: (agentId) => h!.scheduler.status(agentId),
       kill: (agentId) => h!.scheduler.kill(agentId),
       inspect: (agentId) => h!.scheduler.inspect(agentId),
+      park: (agentId) => h!.scheduler.park(agentId),
+      resume: (agentId) => h!.scheduler.resume(agentId),
     };
     const executor = new CoreToolExecutor({ cwd: "/tmp", orchestration });
     const result = await executor.execute({

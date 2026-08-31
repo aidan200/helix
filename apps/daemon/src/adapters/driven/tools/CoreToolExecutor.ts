@@ -37,7 +37,7 @@ import {
 import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
-import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool, createAgentInspectTool } from "./agent/AgentOrchestrationTools";
+import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool, createAgentInspectTool, createAgentParkTool, createAgentResumeTool } from "./agent/AgentOrchestrationTools";
 import { imagesOfContent } from "../../../application/services/images";
 import type { KgQueryService } from "../../../application/services/kg/KgQueryService";
 import type { KnowledgeWriteOp, WriteResult } from "../../../domain/kg/types";
@@ -104,9 +104,10 @@ export interface CoreToolExecutorOptions {
   readonly shellPath?: string;
   readonly shellEnv?: Record<string, string>;
   /**
-   * 编排端口：提供则注册 agent_spawn/agent_send/agent_status/agent_inspect 四工具
+   * 编排端口：提供则注册 agent_spawn/agent_send/agent_status/agent_inspect
+   * + agent_park/agent_resume（⑤ 链 C，仅 Main 声明）六工具
    * （经 port 回 SchedulerService，TR-AD-9）；缺省不注册（SubAgent 子进程
-   * 装配/无编排场景的 profile 不声明这四名）。
+   * 装配/无编排场景的 profile 不声明这些名）。
    */
   readonly orchestration?: AgentOrchestrationPort;
   /**
@@ -203,6 +204,8 @@ export class CoreToolExecutor implements ToolExecutorPort {
         createAgentSendTool(options.orchestration),
         createAgentStatusTool(options.orchestration),
         createAgentInspectTool(options.orchestration), // T3-B
+        createAgentParkTool(options.orchestration), // ⑤ 链 C：挂起（仅 Main 声明）
+        createAgentResumeTool(options.orchestration), // ⑤ 链 C：恢复（仅 Main 声明）
       );
     }
     if (options.browser !== undefined) {
