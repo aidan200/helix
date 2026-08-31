@@ -20,6 +20,7 @@ import {
   agentConfigChangedThinkingSet,
   agentConfigChangedTool,
   agentConfigListResult,
+  agentConfigListResultSystem,
   agentConfigListSingle,
   agentConfigModelClear,
   agentConfigModelSet,
@@ -28,6 +29,7 @@ import {
   agentConfigThinkingClear,
   agentConfigThinkingSet,
 } from "./samples/v06";
+import type { AgentConfigSystemBlock, ErrorCode } from "../../src/index";
 
 // ── 命令 payload 类型级断言（编译期） ───────────────────────
 
@@ -163,5 +165,45 @@ describe("agent.config 事件族 payload（v0.6）", () => {
     } else {
       throw new Error("skipped 分支窄化失败");
     }
+  });
+
+  // ── additive 微批（agent-roster）：只读系统派生块 + 写面拒绝错误码 ──
+  // 编译期：system 块两形态可构造；越界字面量拒绝。
+  const _systemKgWriter: AgentConfigSystemBlock = {
+    profileKind: "subagent-kg-writer",
+    tools: [{ name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" }],
+    derivedFrom: "subagent-worker",
+    pinnedTools: ["kg-update"],
+  };
+  const _systemOrchestrator: AgentConfigSystemBlock = {
+    profileKind: "orchestrator",
+    tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务" }],
+  };
+  // @ts-expect-error 只读块 profileKind 只接受 orchestrator/subagent-kg-writer（可编辑 kind 编译期拒绝）
+  const _systemBadKind: AgentConfigSystemBlock = { profileKind: "main-session", tools: [] };
+  // @ts-expect-error derivedFrom 只接受 subagent-worker（派生说明位单一事实源）
+  const _systemBadDerived: AgentConfigSystemBlock = { profileKind: "orchestrator", tools: [], derivedFrom: "orchestrator" };
+  // 错误码登记：只读 kind 写面拒绝码
+  const _readOnlyCode: ErrorCode = "agent.config.read_only";
+
+  test("system 只读块（additive）：list.result.system 双块形态 + profiles 两形态不变（缺省不携带 system）", () => {
+    // 旧形态零变化：system 未携带（additive——旧客户端不感知）
+    expect(agentConfigListResult.payload.system).toBeUndefined();
+    expect(agentConfigListResult.payload.profiles).toHaveLength(2);
+    // 新形态：双可编辑块 + 双只读块（orchestrator 在前）；kg-writer 携带派生说明位与恒在工具
+    const system = agentConfigListResultSystem.payload.system!;
+    expect(system).toHaveLength(2);
+    expect(system[0]!.profileKind).toBe("orchestrator");
+    expect(system[0]!.derivedFrom).toBeUndefined();
+    expect(system[0]!.pinnedTools).toBeUndefined();
+    expect(system[1]!.profileKind).toBe("subagent-kg-writer");
+    expect(system[1]!.derivedFrom).toBe("subagent-worker");
+    expect(system[1]!.pinnedTools).toEqual(["kg-update"]);
+    // kg-writer 工具清单 = worker 生效集 + kg-update（行形状 name+snippet，无启停位）
+    expect(system[1]!.tools.map((t) => t.name)).toEqual(["bash", "kg-update"]);
+    expect(system[1]!.tools[1]!.snippet.length).toBeGreaterThan(0);
+    void _systemKgWriter;
+    void _systemOrchestrator;
+    void _readOnlyCode;
   });
 });

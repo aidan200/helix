@@ -127,6 +127,39 @@ export interface AgentConfigProfileBlock {
 export interface AgentConfigListResultPayload {
   /** 携带 profileKind 请求 = 单块；缺省 = 两块（main-session 在前，序固定）。 */
   profiles: readonly AgentConfigProfileBlock[];
+  /**
+   * 只读系统派生块（agent-roster 批 additive：可见不可编辑）：缺省全量请求
+   * 时携带（orchestrator 在前序固定）；单 kind 过滤请求不携带。旧客户端
+   * 可选字段不感知（零破坏）。
+   */
+  system?: readonly AgentConfigSystemBlock[];
+}
+
+/** 只读系统派生块工具行（纯展示：name + 一句话 snippet；无启停位——
+ *  清单即生效集/声明全集）。 */
+export interface AgentConfigSystemToolRow {
+  name: string;
+  /** 工具一句话说明（daemon ToolPromptSnippets 注册表同源；注册表外名 = 空串）。 */
+  snippet: string;
+}
+
+/**
+ * agent.config.list.result 只读系统派生块：orchestrator / subagent-kg-writer
+ * 元信息（agent-roster 批 additive）。可见不可编辑——写面对只读 kind 恒拒
+ * （connection.error code=agent.config.read_only，连接保持）。工具清单从
+ * 真实 profile 派生：orchestrator = 声明全集（toolsCatalog 同源）；
+ * kg-writer = subagent-worker 当前生效集 + pinnedTools（kg-update 恒在，
+ * 随 worker toggle 动态跟随——派生面无自有状态）。
+ */
+export interface AgentConfigSystemBlock {
+  /** 系统派生 kind（不在写面枚举：orchestrator 系统形态；kg-writer 装配端派生）。 */
+  profileKind: "orchestrator" | "subagent-kg-writer";
+  /** 工具清单（纯展示；orchestrator = 声明全集，kg-writer = worker 生效集 + pinned）。 */
+  tools: ReadonlyArray<AgentConfigSystemToolRow>;
+  /** 派生说明位：kg-writer = 派生自 subagent-worker（工具集跟随 worker）；orchestrator 不携带。 */
+  derivedFrom?: "subagent-worker";
+  /** 派生面恒在工具（kg-writer = ["kg-update"]；orchestrator 不携带）。 */
+  pinnedTools?: readonly string[];
 }
 
 /**

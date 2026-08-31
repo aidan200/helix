@@ -179,13 +179,58 @@ export const agentConfigSetResultUnknownName: AgentConfigSetEnabledResultEvent =
   payload: { status: "skipped", reason: "unknown-name" },
 };
 
-/** agent.config.set_enabled.result：skipped unknown-model（不在合并目录） */
+/** agent.config.list.result：skipped unknown-model（不在合并目录） */
 export const agentConfigSetResultUnknownModel: AgentConfigSetEnabledResultEvent = {
   v: PROTOCOL_VERSION,
   sessionId: "__system__",
   channel: "agent",
   type: "agent.config.set_enabled.result",
   payload: { status: "skipped", reason: "unknown-model" },
+};
+
+/** agent.config.list.result：只读系统派生双块（additive 微批：system 可选块——
+ *  orchestrator 声明全集 / kg-writer = worker 生效集 + kg-update 恒在）。
+ *  注：不入 v06Events 目录数组——既有事件 type 的新形态（type 计数不变）。 */
+export const agentConfigListResultSystem: AgentConfigListResultEvent = {
+  v: PROTOCOL_VERSION,
+  sessionId: "__system__",
+  channel: "agent",
+  type: "agent.config.list.result",
+  payload: {
+    profiles: [
+      {
+        profileKind: "main-session",
+        tools: [{ name: "bash", enabled: true, snippet: "在沙箱工作目录执行 shell 命令并返回输出" }],
+        skills: [],
+        diagnostics: [],
+        model: null,
+        thinkingLevel: null,
+      },
+      {
+        profileKind: "subagent-worker",
+        tools: [{ name: "bash", enabled: true, snippet: "在沙箱工作目录执行 shell 命令并返回输出" }],
+        skills: [],
+        diagnostics: [],
+        model: null,
+        thinkingLevel: null,
+      },
+    ],
+    system: [
+      {
+        profileKind: "orchestrator",
+        tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" }],
+      },
+      {
+        profileKind: "subagent-kg-writer",
+        tools: [
+          { name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
+          { name: "kg-update", snippet: "知识图谱即时落账（supersede 推翻节点 / createNode 沉淀新知识）" },
+        ],
+        derivedFrom: "subagent-worker",
+        pinnedTools: ["kg-update"],
+      },
+    ],
+  },
 };
 
 export const v06Commands: CommandEnvelope[] = [

@@ -200,6 +200,7 @@ export interface ToolCallEntryDto {
 | `task.validation_failed` | task 批：manifest/paramsSchema/projects 基数校验失败（message 带具体违例） | 发 error 帧，**连接保持** |
 | `task.not_found` | task 批：jobId 不存在（detail/artifacts/生命周期命令） | 发 error 帧，**连接保持** |
 | `task.invalid_state` | task 批：生命周期/删除的非法当前态（判断收口引擎 T1.3，handler 透传） | 发 error 帧，**连接保持** |
+| `agent.config.read_only` | agent-roster 批：agent.config.set_enabled 对只读系统派生 kind（orchestrator / subagent-kg-writer）的写面拒绝（前端只读只是表现，后端拒绝才是事实） | 发 error 帧，**连接保持** |
 | `WORKSPACE_E_INVALID_ROOT` | workspace 批（W1）：workspace.open root 校验失败（不存在/非目录/不可读/危险根——文件系统根或主目录） | 发 error 帧，**连接保持** |
 | `WORKSPACE_E_ACTIVE_AGENT` | workspace 批（W1）：存在运行中会话/智能体时拒绝重绑（F2 裁决 v1 禁止切换） | 发 error 帧，**连接保持** |
 | `workspace.unbound` | workspace 批（W1）：未绑定工作空间时的依赖面拒绝（会话创建门禁/kg 参数型读面防御） | 发 error 帧，**连接保持** |
@@ -886,6 +887,11 @@ deamon 级全局——信封 sessionId = SYSTEM_SESSION_ID）。model 型语义 
 set/clear：enabled=true 设 name 为槽位模型（先经合并目录校验，目录外 →
 skipped reason=unknown-model）；enabled=false 清槽（name 忽略）。tool/skill
 名在全集外 → skipped reason=unknown-name（不落库）。
+
+只读 kind 写面拒绝（agent-roster 批）：profileKind 携带只读系统派生 kind
+（`"orchestrator"` / `"subagent-kg-writer"`）→ `connection.error { code:
+"agent.config.read_only" }`（连接保持）——系统派生形态无用户可写面，硬层
+拒绝不依赖前端表现；其余未知 kind 仍 `command.invalid_payload`。
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
@@ -1674,6 +1680,11 @@ spawn 工具秒回出卡（不等执行，AD-8 异步交付）。
 | `profiles[].diagnostics` | `{ code, message, path, source }[]` | 必填 | v0.6 | 扫描诊断（坏文件上抛不炸） |
 | `profiles[].model` | `string \| null` | 必填 | v0.6 | model 槽位现值（未设 = null） |
 | `profiles[].thinkingLevel` | `string \| null` | 必填 | v0.11 | thinking 槽位现值（未配置 = null；v0.11 批内补登 T1.3） |
+| `system` | `AgentConfigSystemBlock[]` | 可选 | agent-roster 批 | 只读系统派生块（可见不可编辑）：缺省全量请求时携带（orchestrator 在前序固定）；单 kind 过滤请求不携带；旧客户端可选字段不感知 |
+| `system[].profileKind` | `"orchestrator" \| "subagent-kg-writer"` | 必填 | agent-roster 批 | 系统派生 kind（不在写面枚举——写面携带 → `agent.config.read_only` 拒绝） |
+| `system[].tools` | `{ name, snippet }[]` | 必填 | agent-roster 批 | 工具清单纯展示（orchestrator = 声明全集；kg-writer = subagent-worker 当前生效集 + pinnedTools，随 worker toggle 动态跟随；无启停位——清单即生效集） |
+| `system[].derivedFrom` | `"subagent-worker"` | 可选 | agent-roster 批 | 派生说明位：kg-writer = 派生自 subagent-worker；orchestrator 不携带 |
+| `system[].pinnedTools` | `string[]` | 可选 | agent-roster 批 | 派生面恒在工具（kg-writer = ["kg-update"]；orchestrator 不携带） |
 
 #### `agent.config.changed`
 
