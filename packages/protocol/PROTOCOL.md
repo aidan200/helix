@@ -1153,9 +1153,11 @@ workspace 项目列表（F5.0；/project 单页 master-detail 左栏数据源）
 #### `kg.bootstrap.create`
 
 发起 bootstrap 任务（CL-1 F1.1/F1.2，iter-20260829-ys7q T3.2 kg-bootstrap
-批）。后端准入机械复核（索引 synced/degraded ∧ nodeCount==0——不信赖前端；
-未过 → `kg.bootstrap.not_eligible`，message 带原因 `index_absent` /
-`index_building` / `knowledge_not_empty`）→ 调 createTask 同一 API
+批）。后端准入机械复核（索引 synced/degraded ∧ nodeCount==0 ∧ 无非终态
+kg-bootstrap job——不信赖前端；未过 → `kg.bootstrap.not_eligible`，message
+带原因 `index_absent` / `index_building` / `knowledge_not_empty` /
+`task_running`（P0① 双启动防护：已有非终态同类型 job 拒绝，终态后可再发））→ 调
+createTask 同一 API
 （type="kg-bootstrap"、projects=[project]、params={projectRoot, scope?}、
 stages 策略 fixed 由 manifest 生成三行、createdBy="page"——与 chat
 task_create 工具同源，AD-7）。createTask 校验失败 → `task.validation_failed`
@@ -1263,8 +1265,11 @@ findConflicts / findOrphans / orphan 合计计数 / 索引状态 / candidates �
 
 发起 kg-review 语义体检任务（W2-F 轨二，设计 kg-driven-dev-loop-design D5
 + R21/R23）。准入从简（与 bootstrap 一次性语义不同）：索引存在即可，
-**允许反复发起**——体检面向存量图谱，知识层非空恰是评审对象；未建索引
-→ `kg.review.not_eligible`（message 带原因 `index_absent`）。过检 → 调
+**允许反复发起**（终态后可再发）——体检面向存量图谱，知识层非空恰是
+评审对象；未建索引 → `kg.review.not_eligible`（message 带原因
+`index_absent`）。P0① 并发禁入同口径：该项目存在非终态 kg-review job →
+`kg.review.not_eligible`（message 带原因 `task_running`，仅禁并发不绑一
+次性）。过检 → 调
 createTask 同一 API（type="kg-review"、projects=[project]、
 params={projectRoot}、stages 策略 fixed 由 manifest 生成三行（L0 结构面
 预检 / L1 规则册逐节点评审 / L2 实体册逐节点评审）、createdBy="page"——
@@ -1930,7 +1935,7 @@ workspace 项目列表命令结果（点对点回执；只读；宽松口径全�
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
-| `projects` | `KgProjectRow[]`（`{ name, path, status, symbolCount?, nodeCount?, syncedAt?, degradedNote? }`） | 必填 | kg 批 | name/path = project 入参两形态；status 四态；synced 态携带计数与时间，degraded 态携带说明 |
+| `projects` | `KgProjectRow[]`（`{ name, path, status, symbolCount?, nodeCount?, syncedAt?, degradedNote?, bootstrapRunning? }`） | 必填 | kg 批 | name/path = project 入参两形态；status 四态；synced 态携带计数与时间，degraded 态携带说明；bootstrapRunning（P0① 批）= 该项目存在非终态 kg-bootstrap job（缺省 = 无，旧 daemon 兼容）——入口卡 running 态数据源 |
 
 #### `kg.list.result`
 
