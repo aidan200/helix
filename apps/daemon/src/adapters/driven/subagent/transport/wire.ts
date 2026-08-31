@@ -9,8 +9,11 @@ import type { InstanceClosurePayload } from "../../../../domain/events/DomainEve
  *   / event（引擎事件逐条上行，AgentEngineEvent 形状）/ closure（五字段收口）
  *   / crash（子进程异常说明）/ log（诊断行，非致命）
  *   / tool-req（H-3：RemoteBrowserPort 转发请求——方法名 + 位置参数数组，
- *   全 JSON 可序列化；白名单 12 个 browser 工具可达方法，管理面 4 方法不上线）。
- * - 父 → 子（stdin）：send（steer 注入消息，AD-7⑤）
+ *   全 JSON 可序列化；白名单 12 个 browser 工具可达方法，管理面 4 方法不上线）
+ *   / parked（park/resume 批：子进程检测 PARK 标记进入挂起等待的确认行，
+ *   携 progress/next 摘要——非收口，进程驻留不退出）。
+ * - 父 → 子（stdin）：send（steer 注入消息，AD-7⑤；park/resume 指令同为
+ *   本通道——子进程按协议标记分派，见 parkProtocol.ts）
  *   / tool-res（H-3：tool-req 回执，reqId 关联；ok 判别字段 value/error 互斥）。
  *
  * kill 不走 JSON 消息——父侧直接发 OS 信号（O-6 序列：SIGTERM 进程组 →
@@ -22,6 +25,13 @@ export type ChildOutboundLine =
   | { readonly type: "started"; readonly instanceId: string; readonly pid: number; readonly model: unknown }
   | { readonly type: "event"; readonly instanceId: string; readonly event: AgentEngineEvent }
   | { readonly type: "closure"; readonly instanceId: string; readonly closure: InstanceClosurePayload }
+  | {
+      /** park/resume 批：挂起确认（子进程进入挂起等待——不收口不退出；RESUME 唤醒）。 */
+      readonly type: "parked";
+      readonly instanceId: string;
+      /** PARK 标记摘要（progress/next；缺字段容错空串）。 */
+      readonly summary: { readonly progress: string; readonly next: string };
+    }
   | { readonly type: "crash"; readonly instanceId: string; readonly error: string }
   | { readonly type: "log"; readonly instanceId: string; readonly text: string }
   | {

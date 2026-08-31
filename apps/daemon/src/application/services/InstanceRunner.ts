@@ -41,6 +41,13 @@ export interface InstanceRunnerCallbacks {
    * 回调为 no-op（kill 与自然收口竞态的后到者被吞）。
    */
   onInstanceClosure(instanceId: string, outcome: InstanceClosureOutcome): void;
+  /**
+   * 实例挂起确认（park/resume 批，可选成员——挂起能力载体才实现）：子进程
+   * 检测 PARK 标记进入挂起等待（不收口不退出）时上报；progress/next 摘要
+   * 随行。调度侧幂等：非 running 态实例的迟到 parked 行忽略（park 与自然
+   * 收口竞态 = 终态赢，park 迟到作废）。
+   */
+  onInstanceParked?(instanceId: string, summary: { progress: string; next: string }): void;
 }
 
 export interface InstanceRunner {

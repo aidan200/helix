@@ -29,6 +29,9 @@ export type DomainEventType =
   | "agent.completed"
   | "agent.failed"
   | "agent.killed"
+  // ── park/resume 批（设计稿 park-resume §5；additive）──
+  | "agent.parked"
+  | "agent.resumed"
   // ── 通道族（契约 protocol-v0.1.md §5.2；AD-3/AD-9）──
   // thinking.stream.delta 是流式中间态不入本表（TR-AD-5，走流式通道）
   | "thinking.completed"
@@ -163,6 +166,29 @@ export interface AgentFailedPayload {
 export interface AgentKilledPayload {
   readonly agentId: string;
   readonly closure: InstanceClosurePayload;
+}
+
+// ── park/resume 批载荷（设计稿 park-resume §2.1/§5；非终态事件） ────────
+
+/**
+ * 挂起原因枚举（设计稿 §5）：taskPause=任务暂停链（后续波次接线）；
+ * user=用户/主 agent 主动挂起。本批 park API 留字段（链 B 网络自动挂起已裁删）。
+ */
+export type ParkReason = "user" | "taskPause";
+
+/** agent.parked：实例挂起（非终态——不写 closure、不触发收口链、不注入主线）。 */
+export interface AgentParkedPayload {
+  readonly agentId: string;
+  readonly reason: ParkReason;
+  /** 挂起时刻（ISO 8601，ClockPort）。 */
+  readonly parkedAt: string;
+  /** PARK 标记摘要（子进程上报的 progress/next；缺席 = 未携带）。 */
+  readonly summary?: { readonly progress: string; readonly next: string };
+}
+
+/** agent.resumed：挂起实例恢复（同一实例同一会话继续；预算满时排队中不发）。 */
+export interface AgentResumedPayload {
+  readonly agentId: string;
 }
 
 // ── 通道族载荷（契约 §5.2/§6.1）────────────────────

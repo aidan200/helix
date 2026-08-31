@@ -321,6 +321,12 @@ export class SubagentLauncher implements InstanceRunner {
       });
       return;
     }
+    if (line.type === "parked") {
+      // park/resume 批：挂起确认上行（非收口——entry 不置 closed，进程驻留
+      // 继续；迟到/乱序行由调度侧幂等守卫）
+      this.callbacks?.onInstanceParked?.(id, line.summary);
+      return;
+    }
     if (line.type === "crash") {
       this.reportClosure(id, {
         result: "failed",
