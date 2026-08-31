@@ -219,7 +219,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 66 个 type（… + v0.11 1 + kg 批 6 结果帧 + workspace 批 3 + task 批 1 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1）", () => {
+  test("事件目录恰为 68 个 type（… + kg 评审批 1 + 网络重试批 1）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -247,6 +247,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "connection.error",
         "connection.welcome",
         "engine.error",
+        "engine.retrying",
         "kg.bootstrap.create.result",
         "kg.bootstrap.impact.result",
         "kg.bootstrap.produce.result",
@@ -431,6 +432,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "chat.turn.completed",
         "chat.turn.started",
         "engine.error",
+        "engine.retrying",
         "steer.drained",
         "steer.queued",
         "tool.call.result",
@@ -502,10 +504,10 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（kg.health 批后）：EVENT_TYPES 67 / EVENT_CHANNELS 67 键 / COMMAND_TYPES 54", () => {
-    expect(EVENT_TYPES.length).toBe(67); // kg.health 批：+1（kg.health 点对点回执）
-    expect(new Set(EVENT_TYPES).size).toBe(67); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(67); // 登记目录恰等
+  test("目录计数（网络重试批后）：EVENT_TYPES 68 / EVENT_CHANNELS 68 键 / COMMAND_TYPES 54", () => {
+    expect(EVENT_TYPES.length).toBe(68); // 网络重试批：+1（engine.retrying 瞬态反馈帧）
+    expect(new Set(EVENT_TYPES).size).toBe(68); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(68); // 登记目录恰等
     expect(COMMAND_TYPES.length).toBe(54); // kg.health 批：+1（kg 族 additive）
   });
 

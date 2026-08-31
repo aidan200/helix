@@ -331,6 +331,27 @@ describe("② 领域事件 → 协议事件帧", () => {
     });
     expect(mainline).toMatchObject({ type: "engine.error", payload: { message: "provider boom" } });
   });
+
+  test("engine.retrying 透传下发（P2 ⑦ 网络重试批）；SubAgent 帧守卫同 engine.error 口径", () => {
+    const retrying = domainEventToEnvelope({
+      ...base,
+      type: "engine.retrying",
+      payload: { attempt: 1, totalAttempts: 3, waitMs: 10_000, message: "fetch failed" },
+    });
+    expect(retrying).toMatchObject({
+      type: "engine.retrying",
+      payload: { attempt: 1, totalAttempts: 3, waitMs: 10_000, message: "fetch failed" },
+    });
+
+    // SubAgent 实例帧抑制（trace 落盘在 WriteQueue，不产 WS 帧不弹主聊天流）
+    const sub = domainEventToEnvelope({
+      ...base,
+      type: "engine.retrying",
+      instanceId: "agent-2",
+      payload: { attempt: 2, totalAttempts: 3, waitMs: 30_000, message: "ECONNRESET" },
+    });
+    expect(sub).toBeNull();
+  });
 });
 
 describe("③ agent.* 编排生命周期族 → 协议事件帧（T2.3，契约 §5.1）", () => {

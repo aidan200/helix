@@ -18,7 +18,9 @@
  * 批新增 3（两结果帧 + workspace_changed 广播，W1）+ task 批新增 1
  *（task.changed 逐迁移轻负载广播，iter-20260829-ys7q T1.5：P-2 任务页九
  * 命令族——挂既有 notification 通道不新增 Channel 值，契约 task-api §0/§3；
- * 九命令结果帧为点对点回执不入目录，types/task.ts）。`EventEnvelope` 为
+ * 九命令结果帧为点对点回执不入目录，types/task.ts）+ 网络重试批新增 1
+ *（engine.retrying，P2 ⑦：LLM 瞬时失败退避等待可见反馈，瞬态帧归 chat
+ * 通道）。`EventEnvelope` 为
  * 判别式联合，前端 switch(event.type) 窄化各分支 payload（投影 reducer）。
  *
  * v0.2 事件类型学（AD-3，契约 A §2）：每事件以 `channel` 字面量登记所属通道
@@ -44,6 +46,7 @@ import type {
   ChatTurnCompletedEvent,
   ChatTurnStartedEvent,
   EngineErrorEvent,
+  EngineRetryingEvent,
   SteerDrainedEvent,
   SteerQueuedEvent,
   ToolCallResultEvent,
@@ -143,6 +146,7 @@ export type EventEnvelope =
   | ToolCallResultEvent
   | AgentStateChangedEvent
   | EngineErrorEvent
+  | EngineRetryingEvent
   | AgentSpawnedEvent
   | AgentQueuedEvent
   | AgentStartedEvent
@@ -213,6 +217,7 @@ export const EVENT_TYPES = [
   "tool.call.result",
   "agent.state.changed",
   "engine.error",
+  "engine.retrying",
   "agent.spawned",
   "agent.queued",
   "agent.started",
@@ -291,6 +296,7 @@ export const EVENT_CHANNELS = {
   "tool.call.result": "chat",
   "agent.state.changed": "chat",
   "engine.error": "chat",
+  "engine.retrying": "chat",
   "agent.spawned": "agent",
   "agent.queued": "agent",
   "agent.started": "agent",
