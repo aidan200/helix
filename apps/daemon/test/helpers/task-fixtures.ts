@@ -78,13 +78,29 @@ export class FakeTaskSkillRegistry implements TaskSkillRegistryPort {
 export class FakeOrchestratorStarter implements TaskOrchestratorStarterPort {
   readonly starts: string[] = [];
   readonly stops: string[] = [];
+  readonly parks: string[] = [];
+  readonly resumes: string[] = [];
+  /** 调用序观测（链 A：resume → resumeAll 先于 startOrchestrator 断言）。 */
+  readonly calls: string[] = [];
 
   async startOrchestrator(jobId: string): Promise<void> {
     this.starts.push(jobId);
+    this.calls.push(`start:${jobId}`);
   }
 
   async stopOrchestrator(jobId: string): Promise<void> {
     this.stops.push(jobId);
+    this.calls.push(`stop:${jobId}`);
+  }
+
+  async parkAll(jobId: string): Promise<void> {
+    this.parks.push(jobId);
+    this.calls.push(`park:${jobId}`);
+  }
+
+  async resumeAll(jobId: string): Promise<void> {
+    this.resumes.push(jobId);
+    this.calls.push(`resume:${jobId}`);
   }
 
   startCount(jobId: string): number {

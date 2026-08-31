@@ -9,6 +9,7 @@ import type {
 import type { WorkItemData } from "../../ports/outbound/WorkLedgerPort";
 import { isTerminalJob } from "../../../domain/task/job";
 import { MAX_BATCH_RETRY } from "../../../domain/task/retry";
+import type { ParkReason } from "../../../domain/events/DomainEvent";
 import type { WorkLedgerService } from "./WorkLedgerService";
 
 /**
@@ -75,6 +76,12 @@ export interface OrchestratorSessionFace {
 /** 实例终态读面（closure 判据：state done=收口成功，failed/killed=收口失败）。 */
 export type InstanceOutcomeFace = { readonly state: string; readonly summary?: string } | undefined;
 
+/** 批次实例挂起请求结果（SchedulerService.park 结构面；拒绝附中文原因）。 */
+export type BatchParkOutcome = { readonly parked: boolean; readonly error?: string };
+
+/** 批次实例恢复结果（SchedulerService.resume 结构面；queued=true = 预算满排队恢复）。 */
+export type BatchResumeOutcome = { readonly resumed: boolean; readonly queued?: boolean; readonly error?: string };
+
 export interface TaskOrchestratorServiceDeps {
   readonly store: TaskStorePort;
   readonly taskEngine: TaskEnginePort;
@@ -93,6 +100,18 @@ export interface TaskOrchestratorServiceDeps {
   readonly instanceOutcome: (agentId: string) => InstanceOutcomeFace;
   /** 在跑批次 SIGTERM（cancel 通路收口在调度器 kill）。 */
   readonly killInstance: (agentId: string) => void;
+  /**
+   * 批次实例挂起原语（⑤ 链 A：组合根接 scheduler.park——parkAll 消费，
+   * reason=taskPause；协作式：指令经 steer 通道注入，PARK 确认上行后
+   * 实例转 parked 释放预算）。
+   */
+  readonly parkInstance: (agentId: string, reason: ParkReason) => BatchParkOutcome;
+  /**
+   * parked 批次实例复活原语（⑤ 链 A：组合根接 scheduler.resume——resumeAll
+   * 消费；同实例同会话续跑，预算满与重派同队排队恢复）。未挂起/终态实例
+   * 拒绝（resumed=false）为良性——resumeAll 按批次行全量调用。
+   */
+  readonly resumeInstance: (agentId: string) => BatchResumeOutcome;
   /** 编排会话工厂（每任务一个；ports = 派批次 SubAgent 的任务绑定编排口）。 */
   readonly createSession: (jobId: string, orchestration: AgentOrchestrationPort) => OrchestratorSessionFace;
   /** plan 硬约束段全文（模板层硬约束——plan=enforced 任务派发面机械追加；段库 catalog 同源注入）。 */
@@ -114,6 +133,15 @@ interface LoopState {
   readonly briefs: Map<string, string>;
   running: boolean;
   stopped: boolean;
+  /**
+   * 链 A 挂起位（任务 pause 置位 / resume 清位）：置位期间 wake 只入
+   * stashedWakes 暂存队列，不驱动编排器回合。编排器自身是 daemon 内会话
+   * ——不需要子进程 PARK 协议（pause 时它通常在等批次 closure，无「回合中」
+   * 挂起问题；恰逢回合中则当前 drive 自然收口后挂起生效）。
+   */
+  parked: boolean;
+  /** 挂起期间暂存的唤醒（resume 时回放驱动编排器）。 */
+  readonly stashedWakes: string[];
 }
 
 const RESUME_NOTICE = "【恢复通知】任务已恢复（running）——按现场摘要与任务 skill SOP 续跑。";
@@ -147,6 +175,8 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       briefs: new Map(),
       running: false,
       stopped: false,
+      parked: false,
+      stashedWakes: [],
     };
     this.loops.set(jobId, loop);
     void this.sweepRetries(jobId); // 暂停期失败未重派的批次补派（§4.5）
@@ -158,6 +188,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     const loop = this.loops.get(jobId);
     if (loop !== undefined) {
       loop.stopped = true;
+      loop.stashedWakes.length = 0; // 终止丢弃暂存唤醒（cancel 语义：无回放）
       loop.session.abort();
       this.loops.delete(jobId);
     }
@@ -165,6 +196,48 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       if (batch.status === "running" && batch.instanceId !== null) {
         this.deps.killInstance(batch.instanceId); // kill 收口链回调被 stopped 循环吞（幂等）
       }
+    }
+  }
+
+  // ── 任务域挂起/恢复（⑤ 链 A：park/resume 原语的任务级接线） ──
+
+  /**
+   * 任务暂停挂起：编排 loop 冻结（wake 暂存）+ 全部 running 批次实例发
+   * park(reason=taskPause)。序：先置挂起位再逐实例 park——park 确认在途
+   * 期间自然收口的 closure 唤醒即落入暂存（机械判定照常落库，终态赢）。
+   * 批次行状态保持 running（实例级 parked 态经可见性面展示）。
+   */
+  async parkAll(jobId: string): Promise<void> {
+    const loop = this.loops.get(jobId);
+    if (loop !== undefined && !loop.stopped) loop.parked = true;
+    for (const batch of this.allBatches(jobId)) {
+      if (batch.status !== "running" || batch.instanceId === null) continue;
+      const outcome = this.deps.parkInstance(batch.instanceId, "taskPause");
+      if (!outcome.parked) {
+        this.warn(`批次实例挂起请求被拒（任务 ${jobId} 批次 ${batch.id} 实例 ${batch.instanceId}）：${outcome.error ?? "未知原因"}`);
+      }
+    }
+  }
+
+  /**
+   * 任务恢复复活：逐个 resume parked 批次实例（同会话续跑；未挂起/终态
+   * 拒绝为良性——挂起期自然收口的批次行已终态，被 status 过滤）+ loop
+   * 解冻并回放暂存唤醒。引擎调用序保证先于 startOrchestrator（kick）。
+   */
+  async resumeAll(jobId: string): Promise<void> {
+    for (const batch of this.allBatches(jobId)) {
+      if (batch.status !== "running" || batch.instanceId === null) continue;
+      const outcome = this.deps.resumeInstance(batch.instanceId);
+      if (!outcome.resumed) {
+        // 未挂起（park 确认在途竞态/早已复活）或终态：不阻断其余实例复活
+        this.warn(`批次实例复活被拒（任务 ${jobId} 批次 ${batch.id} 实例 ${batch.instanceId}）：${outcome.error ?? "未知原因"}`);
+      }
+    }
+    const loop = this.loops.get(jobId);
+    if (loop !== undefined && !loop.stopped && loop.parked) {
+      loop.parked = false;
+      const stashed = loop.stashedWakes.splice(0);
+      for (const prompt of stashed) this.wake(loop, prompt); // 回放（循环内 round-robin：闲时逐条 drive/运行中注入同 wake 语义）
     }
   }
 
@@ -182,9 +255,13 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
 
   // ── 内部：会话驱动（唤醒/注入路由） ──────────────────────
 
-  /** 唤醒编排会话：运行中 → 注入（turn 边界 drain）；闲时 → 新驱动轮。 */
+  /** 唤醒编排会话：运行中 → 注入（turn 边界 drain）；闲时 → 新驱动轮；挂起中 → 暂存（链 A）。 */
   private wake(loop: LoopState, prompt: string): void {
     if (loop.stopped) return;
+    if (loop.parked) {
+      loop.stashedWakes.push(prompt); // 链 A：挂起期间唤醒只暂存不驱动回合（resume 回放）
+      return;
+    }
     if (loop.running) {
       loop.session.inject(prompt);
       return;

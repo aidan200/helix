@@ -207,13 +207,15 @@ describe("insertBatch seq 原子化（同轮并发竞态回归）", () => {
   });
 });
 
-describe("pause 语义（CL-3-T7 引擎面，O-2）", () => {
-  test("running → paused 落库；在跑批次 completeBatch 照常落 done；派发闸拒绝新批次；resume 重开编排", async () => {
+describe("pause 语义（CL-3-T7 引擎面，O-2 + ⑤ 链 A 编排层挂起接线）", () => {
+  test("running → paused 落库 + parkAll 挂起编排；在跑批次 completeBatch 照常落 done；派发闸拒绝新批次；resume = resumeAll 先行 + startOrchestrator", async () => {
     await withTaskEnv(async (env) => {
       const { jobId, batchId } = await launchRunningJob(env);
       await env.engine.pause(jobId);
       expect(env.store.getJob(jobId)!.status).toBe("paused");
-      // 在跑批次自然收口：照常终态化
+      // 链 A：落库后编排层挂起（parkAll 恰一次）
+      expect(env.starter.parks).toEqual([jobId]);
+      // 在跑批次自然收口：照常终态化（终态赢，机械判定不依赖编排状态）
       await env.engine.completeBatch(batchId);
       const batches = env.store.getBatches(jobId, 1);
       expect(batches).toHaveLength(1);
@@ -223,11 +225,14 @@ describe("pause 语义（CL-3-T7 引擎面，O-2）", () => {
         code: "task.invalid_state",
       });
       expect(env.store.getBatches(jobId, 2)).toHaveLength(0);
-      // resume：paused→running + startOrchestrator 重开（与恢复同路径）
+      // resume：paused→running + resumeAll（先复活实例/解冻 loop）先于 startOrchestrator（kick）
       const startsBefore = env.starter.startCount(jobId);
+      env.starter.calls.length = 0;
       await env.engine.resume(jobId);
       expect(env.store.getJob(jobId)!.status).toBe("running");
       expect(env.starter.startCount(jobId)).toBe(startsBefore + 1);
+      expect(env.starter.calls).toEqual([`resume:${jobId}`, `start:${jobId}`]); // 序 = 先复活再 kick
+      expect(env.starter.resumes).toEqual([jobId]);
     });
   });
 

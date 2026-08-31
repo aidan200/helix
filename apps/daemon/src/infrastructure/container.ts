@@ -402,6 +402,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       orchestratorService === undefined
         ? Promise.resolve()
         : orchestratorService.stopOrchestrator(jobId),
+    // 链 A（⑤）：任务 pause/resume → 编排层 parkAll/resumeAll 晚绑透传
+    parkAll: (jobId) =>
+      orchestratorService === undefined
+        ? Promise.resolve()
+        : orchestratorService.parkAll(jobId),
+    resumeAll: (jobId) =>
+      orchestratorService === undefined
+        ? Promise.resolve()
+        : orchestratorService.resumeAll(jobId),
   };
   const taskStack = await buildTaskStack({
     writeQueue: persistence.writeQueue,
@@ -545,6 +554,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     killInstance: (agentId) => {
       void scheduler.kill(agentId);
     },
+    // 链 A（⑤）：批次实例挂起/复活原语接调度器（parkAll/resumeAll 消费）
+    parkInstance: (agentId, reason) => scheduler.park(agentId, reason),
+    resumeInstance: (agentId) => scheduler.resume(agentId),
     createSession: createOrchestratorSessionFactory({
       assembly: orchestratorAssembly,
       model: () => resolveConfigModel(persistence.defaultModel.current(), modelStack.catalog.modelsView()),

@@ -477,17 +477,14 @@ describe("T2.2 plan 硬约束判读（CL-2-T8）", () => {
 
 // ── RED 组 5：pause 派发闸（与 T1.3 联用） ──
 
-describe("T2.2 pause 派发闸 + resume 续派", () => {
-  test("job paused 后编排不再插新 batch 行；resume 后续派", async () => {
+describe("T2.2 pause 派发闸 + resume 续派（⑤ 链 A 升级：挂起期唤醒暂存，resume 回放续派）", () => {
+  test("job paused 后编排不再插新 batch 行（收口唤醒暂存零回合）；resume 后回放驱动续插批次 2", async () => {
     const script: ScriptEntry[] = [
       insertBatchEntry(1, "批次 1：探索 A 模块"),
       spawnEntry(BRIEF_1),
       dispatchEntry(0, 1),
       { kind: "reply", text: "已派发。" },
-      // 收口注入轮：暂停中尝试插新批次（引擎拒绝 → 工具 error 结果）
-      insertBatchEntry(1, "批次 2：探索 B 模块"),
-      { kind: "reply", text: "暂停中派发被拒，等待恢复。" },
-      // resume 唤醒轮：续插批次 2
+      // 链 A：挂起期收口唤醒暂存不驱动回合；resume 回放轮（脚本由回放消费）：续插批次 2
       insertBatchEntry(1, "批次 2：探索 B 模块"),
       { kind: "reply", text: "已续派。" },
     ];
@@ -499,20 +496,23 @@ describe("T2.2 pause 派发闸 + resume 续派", () => {
         createdBy: "page",
       });
       await env.until(() => env.recorder.calls.length >= 1);
-      // 暂停在跑批次收口之前：O-2 停派新批次
+      const drivesAtPause = env.sessionLog.filter((e) => e.kind === "drive").length;
+      // 暂停在跑批次收口之前：O-2 停派新批次 + 链 A 编排器挂起
       await env.engine.pause(jobId);
       expect(env.store.getJob(jobId)?.status).toBe("paused");
-      // 在跑批次自然收口（pause 下照常落库，不触发推进）
+      // 在跑批次自然收口（pause 下照常落库，不触发推进；收口唤醒暂存）
       await settleInstance(env, env.recorder.call(1).agentId, { closure: "done", plan: "resolved" });
       await env.until(() => env.store.getBatches(jobId, 1)[0]?.status === "done");
-      // 收口注入轮已尝试插批次 2 且被派发闸拒绝
-      await env.until(() => env.store.getJob(jobId)?.status === "paused");
+      // 链 A：挂起期间零新编排回合（收口唤醒在暂存队列，不驱动剧本消费）
+      expect(env.sessionLog.filter((e) => e.kind === "drive").length).toBe(drivesAtPause);
       expect(env.store.getBatches(jobId, 1)).toHaveLength(1); // 无新 batch 行
 
-      // resume：重开编排（与断点恢复同路径）→ 唤醒轮续插批次 2
+      // resume：resumeAll 回放暂存唤醒（批次收口通知驱动剧本插批次 2）+ startOrchestrator kick
       await env.engine.resume(jobId);
       await env.until(() => env.store.getBatches(jobId, 1).length === 2);
       expect(env.store.getJob(jobId)?.status).toBe("running");
+      // 回放驱动确实发生（收口通知驱动了编排回合）
+      expect(env.sessionLog.filter((e) => e.kind === "drive").length).toBeGreaterThan(drivesAtPause);
     });
   });
 });

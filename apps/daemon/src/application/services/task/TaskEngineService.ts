@@ -117,11 +117,15 @@ export class TaskEngineService implements TaskEnginePort {
 
   async pause(jobId: string): Promise<void> {
     const job = this.mustJob(jobId);
-    // O-2 机械定义：立即 running→paused 落库；停派新批次（派发闸），在跑自然收口
+    // O-2 机械定义：立即 running→paused 落库；停派新批次（派发闸）。
+    // 链 A（⑤）语义升级：落库后编排层挂起——loop wake 队列冻结（挂起期
+    // 收到的批次 closure 唤醒暂存）+ 在跑批次实例全部 park（协作式，
+    // reason=taskPause；与自然收口竞态 = 终态赢）。resume 全部原样续跑。
     if (job.status !== "running") {
       throw new TaskError("task.invalid_state", `任务 ${jobId} 当前状态 ${job.status}，仅 running 可暂停`);
     }
     await this.transitionJob(jobId, "paused");
+    await this.deps.starter.parkAll(jobId);
   }
 
   async resume(jobId: string): Promise<void> {
@@ -130,7 +134,10 @@ export class TaskEngineService implements TaskEnginePort {
       throw new TaskError("task.invalid_state", `任务 ${jobId} 当前状态 ${job.status}，仅 paused 可恢复`);
     }
     await this.transitionJob(jobId, "running");
-    // 与断点恢复同路径：重开编排（§4.2/§4.4）
+    // 链 A（⑤）：先复活 parked 批次实例 + 解冻编排 loop（暂存唤醒回放），
+    // 再 kick 编排——避免编排看到批次「仍在跑」（实例未复活）误判。
+    await this.deps.starter.resumeAll(jobId);
+    // 与断点恢复同路径：重开编排（§4.2/§4.4；sweepRetries 补派暂停期失败批次）
     await this.deps.starter.startOrchestrator(jobId);
   }
 

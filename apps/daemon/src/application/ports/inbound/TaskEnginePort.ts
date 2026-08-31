@@ -42,9 +42,17 @@ export interface TaskEnginePort {
    * 插入（同一 WriteQueue 链，stage 冻结）→ startOrchestrator。
    */
   createTask(input: CreateTaskInput): Promise<{ jobId: string }>;
-  /** 暂停（O-2：立即 running→paused 落库；停派新批次，在跑自然收口）。 */
+  /**
+   * 暂停（O-2：立即 running→paused 落库 + 停派新批次；链 A ⑤：落库后
+   * starter.parkAll——编排 loop 挂起（wake 暂存）+ 在跑批次实例全部挂起
+   * reason=taskPause，与自然收口竞态终态赢；resume 原样续跑）。
+   */
   pause(jobId: string): Promise<void>;
-  /** 恢复（paused→running + startOrchestrator，与断点恢复同路径）。 */
+  /**
+   * 恢复（paused→running + starter.resumeAll 先复活实例/解冻 loop +
+   * startOrchestrator 重开编排——与断点恢复同路径；sweepRetries 补派
+   * 暂停期失败批次）。
+   */
   resume(jobId: string): Promise<void>;
   /** 取消（pending/running/paused → cancelled 终态；停编排 + 批次行收口 failed 不重试）。 */
   cancel(jobId: string): Promise<void>;

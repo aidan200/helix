@@ -207,6 +207,10 @@ export interface OrchestratorEnvOverrides {
   readonly onJobTerminal?: (jobId: string, status: string) => void;
   /** 额外注册的任务类型（W-R6 分流测试：kg-bootstrap/kg-review 同形 manifest）。 */
   readonly extraTypes?: readonly string[];
+  /** 链 A（⑤）：批次实例挂起原语覆盖（缺省 = 即时挂起成立的 fake）。 */
+  readonly parkInstance?: (agentId: string, reason: "user" | "taskPause") => { parked: boolean; error?: string };
+  /** 链 A（⑤）：批次实例复活原语覆盖（缺省 = 即时复活成立的 fake）。 */
+  readonly resumeInstance?: (agentId: string) => { resumed: boolean; queued?: boolean; error?: string };
 }
 
 export interface OrchestratorEnv {
@@ -215,6 +219,8 @@ export interface OrchestratorEnv {
   readonly orchestrator: TaskOrchestratorService;
   readonly recorder: FakeSpawnRecorder;
   readonly dbPath: string;
+  /** 编排会话驱动日志（drive/inject 观测——挂起期「不驱动回合」断言依据，链 A）。 */
+  readonly sessionLog: { kind: "drive" | "inject"; text: string }[];
   /** 子进程形态台账直写面（模拟批次实例 plan 落账）。 */
   childLedger(): WorkLedger;
   /** 条件等待（编排链路异步收口确定性锚）。 */
@@ -248,6 +254,12 @@ export async function withOrchestratorEnv(
     async stopOrchestrator(jobId: string): Promise<void> {
       await orchestratorRef?.stopOrchestrator(jobId);
     },
+    async parkAll(jobId: string): Promise<void> {
+      await orchestratorRef?.parkAll(jobId);
+    },
+    async resumeAll(jobId: string): Promise<void> {
+      await orchestratorRef?.resumeAll(jobId);
+    },
   };
   const engine = new TaskEngineService({
     store,
@@ -261,6 +273,7 @@ export async function withOrchestratorEnv(
     store.getStages(jobId).reduce((n, s) => n + store.getBatches(jobId, s.seq).length, 0),
   );
   const scriptedStream = makeScriptedLLM([...over.script]);
+  const sessionLog: { kind: "drive" | "inject"; text: string }[] = [];
   const createSession = (jobId: string, orchestration: AgentOrchestrationPort): OrchestratorSessionFace => {
     const executor = new CoreToolExecutor({
       cwd: dir,
@@ -286,9 +299,13 @@ export async function withOrchestratorEnv(
     });
     return {
       drive: async (prompt) => {
+        sessionLog.push({ kind: "drive", text: prompt });
         await adapter.start(prompt, () => undefined);
       },
-      inject: (text) => adapter.steer(text),
+      inject: (text) => {
+        sessionLog.push({ kind: "inject", text });
+        adapter.steer(text);
+      },
       abort: () => adapter.abort(),
     };
   };
@@ -303,6 +320,9 @@ export async function withOrchestratorEnv(
     instanceOutcome:
       over.instanceOutcome ?? ((agentId) => recorder.outcomes.get(agentId) ?? { state: "running" }),
     killInstance: () => undefined,
+    // 链 A（⑤）：缺省 fake（即时成立）；真调度器级测链归 task-park-resume.test
+    parkInstance: over.parkInstance ?? (() => ({ parked: true })),
+    resumeInstance: over.resumeInstance ?? (() => ({ resumed: true, queued: false })),
     createSession,
     planHardConstraint: PLAN_HARD_CONSTRAINT_SEGMENT,
     ...(over.onJobTerminal !== undefined ? { onJobTerminal: over.onJobTerminal } : {}),
@@ -318,7 +338,7 @@ export async function withOrchestratorEnv(
   };
 
   try {
-    await fn({ engine, store, orchestrator, recorder, dbPath, childLedger: () => childLedger(dbPath), until, dispose: async () => {
+    await fn({ engine, store, orchestrator, recorder, dbPath, sessionLog, childLedger: () => childLedger(dbPath), until, dispose: async () => {
       await queue.close();
       rmSync(dir, { recursive: true, force: true });
     } });
