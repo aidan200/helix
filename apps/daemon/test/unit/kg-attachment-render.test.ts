@@ -106,7 +106,7 @@ describe("W-R6 协议行角色分叉：main 版 kg-update 直落 / worker 版 cl
           name: "写通道唯一",
           digest: "kg 写入必须走 KgWriteService。",
           scene: "",
-          status: "active" as const,
+          status: "confirmed" as const,
           domain: null,
         },
       },

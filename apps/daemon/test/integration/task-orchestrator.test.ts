@@ -303,6 +303,9 @@ describe("D8 W-R6 编排分流：批次实例 profileKind 按任务类型路由"
     const publisher: EventPublisherPort = { publish: (e) => void events.push(e), publishDelta: () => undefined };
     const clock: ClockPort = { now: () => "2026-08-29T00:00:00.000Z", nowMs: () => Date.now() };
     const runner = new HangingRunner();
+    // closure 路由晚绑（生产同构：buildSessionStack injectClosure →
+    // taskClosureSink → TaskOrchestratorService.handleInstanceClosure）
+    let orchestratorRef: { handleInstanceClosure(agentId: string): void } | undefined;
     const scheduler = new SchedulerService({
       policy: new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
       runner,
@@ -310,6 +313,7 @@ describe("D8 W-R6 编排分流：批次实例 profileKind 按任务类型路由"
       repository,
       clock,
       stalledPollMs: 60_000,
+      injectClosure: (agentId) => orchestratorRef?.handleInstanceClosure(agentId),
     });
     const spawnedProfileKinds: Array<string | undefined> = [];
 
@@ -328,6 +332,7 @@ describe("D8 W-R6 编排分流：批次实例 profileKind 按任务类型路由"
           },
         },
         async (env) => {
+          orchestratorRef = env.orchestrator;
           const { jobId } = await env.engine.createTask({
             type,
             projects: ["demo"],
@@ -354,6 +359,7 @@ describe("D8 W-R6 编排分流：批次实例 profileKind 按任务类型路由"
         },
       );
     } finally {
+      orchestratorRef = undefined;
       scheduler.stop();
       runner.dispose();
       rmSync(home, { recursive: true, force: true });

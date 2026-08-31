@@ -17,6 +17,7 @@
 
 import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort";
 import type { AnchorReverseHit, NodeDigestRow, NodeDetail } from "../../../domain/kg/types";
+import { ATTACHMENT_PROTOCOL_LINE_WORKER } from "../../../domain/kg/attachment/render";
 import { extractTaskTerms } from "../../../domain/kg/attachment/task-slice";
 import {
   renderTaskSlice,
@@ -56,6 +57,13 @@ export interface KgNodeHit {
 export interface KgAffectedHit extends AnchorReverseHit {
   readonly project: string;
 }
+
+/**
+ * 切片受众（D8 W-R6 协议行分叉）：main = 主会话（持 kg-update，supersede
+ * 直落措辞）；worker = SubAgent spawn 注入（无 kg-update，supersede 改经
+ * closure findings 申报措辞）。缺省 main（主会话 ChatService 注入链）。
+ */
+export type TaskSliceAudience = "main" | "worker";
 
 export class KgQueryService {
   private readonly deps: KgQueryServiceDeps;
@@ -114,13 +122,18 @@ export class KgQueryService {
   /**
    * 任务层切片注入（F1.3）：返回注入后的 task 文本（命中追加切片段；
    * 空命中/失败返回原文逐字节不变——空段省略不占位，AD-18）。
-   * 注入的 id 即时 markInjected（跨通道去重闭环）。
+   * 注入的 id 即时 markInjected（跨通道去重闭环）。audience（W-R6）：
+   * worker 受众协议行改 findings 申报措辞（组合根 spawn 链传 "worker"，
+   * 主会话 ChatService 链缺省/传 "main"）。
    */
-  injectTaskSlice(sessionId: string, taskText: string): string {
+  injectTaskSlice(sessionId: string, taskText: string, audience: TaskSliceAudience = "main"): string {
     try {
       const projects = this.deps.projects();
       if (projects.length === 0 || taskText.trim() === "") return taskText;
-      const renderOptions: TaskSliceRenderOptions = { multiProject: projects.length > 1 };
+      const renderOptions: TaskSliceRenderOptions = {
+        multiProject: projects.length > 1,
+        ...(audience === "worker" ? { protocolLine: ATTACHMENT_PROTOCOL_LINE_WORKER } : {}),
+      };
       const candidates = this.collectCandidates(taskText, projects);
       if (candidates.length === 0) return taskText;
       const exclude = this.deps.attachment?.seenInSession(sessionId) ?? new Set<string>();

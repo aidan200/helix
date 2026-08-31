@@ -48,6 +48,20 @@ export function isTaskSessionId(sessionId: string): boolean {
   return sessionId.startsWith(TASK_SESSION_PREFIX);
 }
 
+/** 图谱产出型任务类型集合（D8 W-R5/W-R6）：不开 worktree 主树执行 + 批次实例走 subagent-kg-writer profile。 */
+const KG_PRODUCING_TASK_TYPES = new Set(["kg-bootstrap", "kg-review"]);
+
+/**
+ * 批次实例 profileKind 分流（D8 W-R6 编排层单点）：图谱产出型
+ * （kg-bootstrap/kg-review）→ "subagent-kg-writer"（通用 worker 工具集
+ * + kg-update）；其余 → "subagent-worker"（缺省不变）。spawn 链：
+ * spawnBatch → rawSpawn → scheduler.spawn 登记 AgentInstance.profileKind
+ * → 组合根组装快照按 kind 派发生效集（buildSessionStack 单点）。
+ */
+export function dispatchProfileKindOf(jobType: string): "subagent-worker" | "subagent-kg-writer" {
+  return KG_PRODUCING_TASK_TYPES.has(jobType) ? "subagent-kg-writer" : "subagent-worker";
+}
+
 /** 编排会话驱动面（编排服务消费的最小接缝；生产实现 = pi 引擎装配，组合根注入）。 */
 export interface OrchestratorSessionFace {
   /** 驱动一轮 run（含工具轮与注入 drain 轮；run 结束 resolve）。 */
@@ -69,8 +83,12 @@ export interface TaskOrchestratorServiceDeps {
   readonly skills: TaskSkillRegistryPort;
   /** 任务 skill 全文取数（kickoff 装配；组合根/测试注入）。 */
   readonly skillTextOf: (type: string) => Promise<string | undefined>;
-  /** 批次 SubAgent spawn 原面（调度器绑定：task:* 会话归属；占预算）。 */
-  readonly rawSpawn: (sessionId: string, task: string) => SpawnOutcome;
+  /**
+   * 批次 SubAgent spawn 原面（调度器绑定：task:* 会话归属；占预算）。
+   * 第三参 profileKind（D8 W-R6 分流产物：kg-bootstrap/kg-review →
+   * subagent-kg-writer，其余 subagent-worker）透传 scheduler.spawn 登记。
+   */
+  readonly rawSpawn: (sessionId: string, task: string, profileKind?: string) => SpawnOutcome;
   /** 实例终态读面（调度器 status 映射）。 */
   readonly instanceOutcome: (agentId: string) => InstanceOutcomeFace;
   /** 在跑批次 SIGTERM（cancel 通路收口在调度器 kill）。 */
@@ -297,13 +315,17 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
 
   // ── 内部：批次 spawn 通路（brief 硬约束追加 + 登记簿） ──────
 
-  /** 派批次 SubAgent：plan=enforced 任务机械追加硬约束段（LLM 装配不可裁）→ 调度器 spawn（占预算）。 */
+  /**
+   * 派批次 SubAgent：plan=enforced 任务机械追加硬约束段（LLM 装配不可裁）→
+   * 调度器 spawn（占预算；D8 W-R6：profileKind 按任务类型分流——图谱产出型
+   * kg-bootstrap/kg-review 走 subagent-kg-writer，其余缺省 subagent-worker）。
+   */
   private spawnBatch(jobId: string, brief: string): SpawnOutcome {
     const job = this.deps.store.getJob(jobId);
     if (job === undefined) return { status: "rejected", error: `任务 ${jobId} 不存在` };
     const enforced = this.deps.skills.getTaskType(job.type)?.plan === "enforced";
     const effective = enforced && this.deps.planHardConstraint !== "" ? `${brief}\n\n${this.deps.planHardConstraint}` : brief;
-    const outcome = this.deps.rawSpawn(taskSessionIdOf(jobId), effective);
+    const outcome = this.deps.rawSpawn(taskSessionIdOf(jobId), effective, dispatchProfileKindOf(job.type));
     if (outcome.status !== "rejected") {
       this.loops.get(jobId)?.briefs.set(outcome.agentId, effective); // 重派接力源
     }
@@ -312,6 +334,9 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
 
   /** 任务绑定编排口（编排会话 executor 的 spawn 工具面；send/status/inspect 不进编排生效集）。 */
   private taskOrchestrationPort(jobId: string): AgentOrchestrationPort {
+    const job = this.deps.store.getJob(jobId);
+    // D8 W-R6：观测面同源分流结果（批次实例 profileKind 按任务类型路由）
+    const profileKind = job !== undefined ? dispatchProfileKindOf(job.type) : "subagent-worker";
     return {
       spawn: (task: string) => this.spawnBatch(jobId, task),
       send: () => ({ delivered: false, detail: "任务批次实例不支持编排会话消息注入" }),
@@ -326,7 +351,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
           {
             agentId,
             state,
-            profileKind: "subagent-worker",
+            profileKind,
             ...(outcome.summary !== undefined ? { summary: outcome.summary } : {}),
           },
         ];

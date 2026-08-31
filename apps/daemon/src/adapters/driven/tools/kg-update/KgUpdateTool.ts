@@ -45,7 +45,7 @@ const kgUpdateParameters = {
       enum: ["createNode", "supersede", "batchCreateNodes", "proposeCandidate", "decideCandidate"],
       description:
         "操作：createNode 新知识落账 / supersede 推翻既有节点 / batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）/ " +
-        "proposeCandidate 提候选（仅 MainAgent 可用）/ decideCandidate 裁决候选（仅 MainAgent 可用）",
+        "proposeCandidate 提候选 / decideCandidate 裁决候选",
     },
     // ── createNode ──
     kind: { type: "string", enum: ["rule", "entity"], description: "createNode 节点类型（rule=规则 / entity=实体）" },
@@ -114,7 +114,7 @@ const kgUpdateParameters = {
       required: ["kind", "name", "digest"],
       additionalProperties: false,
     },
-    // ── proposeCandidate / decideCandidate（仅 MainAgent 可用） ──
+    // ── proposeCandidate / decideCandidate（候选台账操作——R2）──
     candidateKind: {
       type: "string",
       enum: ["sediment"],
@@ -185,8 +185,8 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       "（📎 附着块或任务切片尾部的协议行触发）立即声明——status 翻转 + 理由 + iterationId 入审计链，" +
       "可选 replacement 草稿（新号自动发放）。createNode：沉淀新规则/实体（自动发号，可选锚声明）；" +
       "scene 适用场景必填（「本规则适用于：改动 X 类文件 / 做 Y 类决策前」，缺了写不进去）。" +
-      "proposeCandidate/decideCandidate：候选台账操作——**仅 MainAgent 可用**（SubAgent 闭环发现经 " +
-      "findings 上报自动落候选，不得直接调用候选 op）。" +
+      "proposeCandidate/decideCandidate：候选台账操作（SubAgent 闭环发现经 findings 上报自动落候选，" +
+      "不得直接调用候选 op——工具注册面管控谁可见本工具，描述不做角色枚举，W-R6）。" +
       "iterationId 缺省服务端机械解析（workspace 当前迭代 → 目标库最近迭代锚），显式传参仅作覆盖；" +
       "多项目 workspace 的 createNode 需 project（项目目录名）。",
     parameters: kgUpdateParameters as any,
@@ -300,7 +300,7 @@ function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWrit
 }
 
 /**
- * proposeCandidate 执行（R2，仅 MainAgent 可用——description 纪律面）：
+ * proposeCandidate 执行（R2；D8 W-R6 后无角色措辞——注册面管控）：
  * title/candidateKind/body → pending 行（自动发号 CAND-<seq>）；
  * source_task_id 批次上下文机械注入（AD-10 三路径同源；LLM 显式传参优先——
  * 复用 taskId 参数位）；source_iteration_id 取解析后迭代 id（显式 sourceIterationId
@@ -330,7 +330,7 @@ function execProposeCandidate(deps: KgUpdateToolDeps, args: Record<string, unkno
 }
 
 /**
- * decideCandidate 执行（R2，仅 MainAgent 可用）：pending/deferred → applied/
+ * decideCandidate 执行（R2）：pending/deferred → applied/
  * discarded/deferred；defer 软上限警告（只警告不拒绝）透传回执。
  */
 function execDecideCandidate(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
