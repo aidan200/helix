@@ -14,6 +14,7 @@ import type {
   NodeDomain,
   NodeId,
   NodeLayer,
+  NodePatch,
   WriteResult,
 } from "../../../../domain/kg/types";
 
@@ -35,6 +36,10 @@ import type {
  *
  * 与 ClosureDto.findings 收口通道（T4.1）非竞争关系：共用同一 API 入口，
  * 本工具承载 edit 现场的即时兑现（O-2 决策消解）。
+ *
+ * - updateNode(nodeId, patch)（D8 遗留①）：既有节点元数据补全——服务层写面
+ *   早有（ws kg.node.update /project 页在用），工具面补齐；仅限 scene 等
+ *   元数据补全，内容改动走候选人审（对齐 kg-review SKILL 产出纪律）。
  */
 
 const kgUpdateParameters = {
@@ -42,9 +47,10 @@ const kgUpdateParameters = {
   properties: {
     op: {
       type: "string",
-      enum: ["createNode", "supersede", "batchCreateNodes", "proposeCandidate", "decideCandidate"],
+      enum: ["createNode", "supersede", "updateNode", "batchCreateNodes", "proposeCandidate", "decideCandidate"],
       description:
-        "操作：createNode 新知识落账 / supersede 推翻既有节点 / batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）/ " +
+        "操作：createNode 新知识落账 / supersede 推翻既有节点 / updateNode 补全既有节点元数据（仅限 scene 等元数据补全）/ " +
+        "batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）/ " +
         "proposeCandidate 提候选 / decideCandidate 裁决候选",
     },
     // ── createNode ──
@@ -96,8 +102,32 @@ const kgUpdateParameters = {
         additionalProperties: false,
       },
     },
+    // ── updateNode（D8 遗留①：仅限 scene 等元数据补全——内容改动走候选人审） ──
+    patch: {
+      type: "object",
+      description:
+        "updateNode 补丁（至少一个字段；仅限 scene 等元数据补全，内容改动走候选人审）：{scene?（体检补全主通道）/ name? / digest? / body? / domain? / layer? / status? / reason?}",
+      properties: {
+        scene: {
+          type: "string",
+          description: "适用场景补全（R23 元数据补全主通道：存量节点 scene 缺失直补，非空字符串）",
+        },
+        name: { type: "string", description: "节点名（重名合法，靠 digest 区分）" },
+        digest: { type: "string", description: "摘要（≤2 行——LLM 面默认展示粒度）" },
+        body: { type: "string", description: "正文" },
+        domain: { type: "string", enum: ["tech", "business"], description: "作用域" },
+        layer: { type: "string", enum: ["L0", "L1", "L2"], description: "分层（AD-11）" },
+        status: {
+          type: "string",
+          enum: ["draft", "confirmed"],
+          description: "状态（不接受 superseded——推翻归 supersede op）",
+        },
+        reason: { type: "string", description: "审计叙述（落 change_log.reason）" },
+      },
+      additionalProperties: false,
+    },
     // ── supersede ──
-    nodeId: { type: "string", description: "supersede 目标节点 id（取自 kg search 返回行 / 附着块指针）" },
+    nodeId: { type: "string", description: "supersede/updateNode 目标节点 id（取自 kg search 返回行 / 附着块指针）" },
     reason: { type: "string", description: "supersede 推翻理由（入 change_log 审计链）" },
     replacement: {
       type: "object",
@@ -185,6 +215,8 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       "（📎 附着块或任务切片尾部的协议行触发）立即声明——status 翻转 + 理由 + iterationId 入审计链，" +
       "可选 replacement 草稿（新号自动发放）。createNode：沉淀新规则/实体（自动发号，可选锚声明）；" +
       "scene 适用场景必填（「本规则适用于：改动 X 类文件 / 做 Y 类决策前」，缺了写不进去）。" +
+      "updateNode：补全既有节点元数据（scene 缺失直补——kg-review 体检通道）；仅限 scene 等元数据补全，" +
+      "内容改动走候选人审。" +
       "proposeCandidate/decideCandidate：候选台账操作（SubAgent 闭环发现经 findings 上报自动落候选，" +
       "不得直接调用候选 op——工具注册面管控谁可见本工具，描述不做角色枚举，W-R6）。" +
       "iterationId 缺省服务端机械解析（workspace 当前迭代 → 目标库最近迭代锚），显式传参仅作覆盖；" +
@@ -196,6 +228,9 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       const op = args["op"];
       if (op === "supersede") {
         return text(execSupersede(deps, args));
+      }
+      if (op === "updateNode") {
+        return text(execUpdateNode(deps, args));
       }
       if (op === "createNode") {
         return text(execCreateNode(deps, args));
@@ -210,7 +245,7 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
         return text(execDecideCandidate(deps, args));
       }
       throw new Error(
-        `未知 op "${String(op)}"（合法：createNode / supersede / batchCreateNodes / proposeCandidate / decideCandidate）`,
+        `未知 op "${String(op)}"（合法：createNode / supersede / updateNode / batchCreateNodes / proposeCandidate / decideCandidate）`,
       );
     },
   };
@@ -287,6 +322,33 @@ function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): 
     summary += `；锚声明 ${anchors.length} 条`;
   }
   return summary;
+}
+
+/**
+ * updateNode 执行（D8 遗留①）：目标定位同 supersede（locate 全命中唯一
+ * 目标，不猜跨项目）；patch 整体透传——字段级校验归 KgWriteService 唯一
+ * 写入口（封闭可更新集：scene / name / digest / body / domain / layer /
+ * status / reason）。定位语义：仅限 scene 等元数据补全，内容改动走
+ * 候选人审（对齐 kg-review SKILL 产出纪律）。
+ */
+function execUpdateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
+  const nodeId = requireString(args, "nodeId", "（取自 kg search 返回行 / 附着块指针）") as NodeId;
+  const hits = deps.query.locate(nodeId);
+  if (hits.length === 0) {
+    throw new Error(`节点 ${nodeId} 不存在（先 kg search 确认；id 取自返回行指针）`);
+  }
+  if (hits.length > 1) {
+    throw new Error(
+      `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}——不支持跨项目猜测，请人工确认目标项目`,
+    );
+  }
+  const { project } = hits[0]!;
+  const iterationId = resolveIterationId(deps, args, project);
+  // patch 整体透传（薄壳零自判——空/未知字段/枚举越界均由服务层校验前置拒绝）
+  const patch = args["patch"] as NodePatch;
+  writeOrThrow(deps, project, createOp(deps, args, { kind: "updateNode", iterationId, nodeId, patch }));
+  const fields = Object.keys((patch ?? {}) as Record<string, unknown>).join("/");
+  return `已更新节点 ${nodeId}（字段：${fields}；审计行已入 change_log）`;
 }
 
 /** 写结果归一：失败抛结构化错误（code+message+path 全量透传给 agent）。 */
