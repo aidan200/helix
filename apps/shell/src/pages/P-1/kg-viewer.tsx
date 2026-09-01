@@ -221,6 +221,7 @@ const KgViewer = function KgViewer({
             if (!flightRef.current.review) return; // 非本视图发起
             setFlight((f) => ({ ...f, review: false }));
             setReviewLaunched(true);
+            sendKgProjects(); // 行级 reviewRunning 权威化（体检入口运行态数据源）
             toast.push("ok", t("pj.health.reviewOkToast", { name: project.name }));
             return;
           }
@@ -658,6 +659,7 @@ const KgViewer = function KgViewer({
                   loading={healthView.loading}
                   reviewBusy={flight.review}
                   reviewLaunched={reviewLaunched}
+                  reviewRunning={project.reviewRunning === true}
                   projectName={project.name}
                   t={t}
                   onLaunchReview={onLaunchReview}

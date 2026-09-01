@@ -35,6 +35,8 @@ export interface KgProjectRow {
   degradedNote?: string;
   /** 该项目存在非终态（pending/running/paused）kg-bootstrap job（P0① 双启动防护）；缺省 = 无进行中任务（旧 daemon 兼容）——前端入口卡 running 态数据源，优先于 nodeCount/索引态推导。 */
   bootstrapRunning?: boolean;
+  /** 该项目存在非终态 kg-review job（体检入口运行态数据源，bootstrapRunning 同规）；缺省 = 无进行中任务（旧 daemon 兼容）。前端「发起语义体检」钮据此置运行态（无启动钮只留任务页出口），终态后恢复可发起。 */
+  reviewRunning?: boolean;
 }
 
 /** 节点类别徽章（rule=cyan / entity=violet，前端色映射）。 */

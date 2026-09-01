@@ -658,6 +658,8 @@ export const enUS = {
       reviewDesc: "LLM reviews every node against code reality (L0 structural pre-check → L1 rule book → L2 entity book). All findings go to the candidates ledger for human review — nodes are never rewritten directly; repeatable.",
       reviewLaunch: "Launch semantic review",
       reviewLaunchNote: "Runs in background: no interaction, auto-retry on failure.",
+      reviewRunningBadge: "Review running",
+      reviewRunningStrip: "A semantic review task (kg-review) for \"{name}\" is running; watch progress on the Tasks page. This entry becomes launchable again once the task reaches a terminal state (no concurrent launches).",
       reviewLaunched: "Review task launched ({name})",
       reviewGoTasks: "Watch on the Tasks page →",
       reviewOkToast: "Review task launched: {name}",

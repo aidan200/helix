@@ -663,6 +663,8 @@ export const zhCN = {
       reviewDesc: "LLM 逐节点评审「节点内容 vs 代码现实是否一致」（L0 结构面预检 → L1 规则册逐节点评审 → L2 实体册逐节点评审）。产出全部走 candidates 台账人审、不直改节点；可反复发起。",
       reviewLaunch: "发起语义体检",
       reviewLaunchNote: "任务在后台执行，无交互、失败自动重试。",
+      reviewRunningBadge: "体检任务进行中",
+      reviewRunningStrip: "「{name}」的语义体检任务（kg-review）运行中；可在「任务」页观察进度，任务终态后此处恢复可发起（仅禁并发）。",
       reviewLaunched: "体检任务已发起（{name}）",
       reviewGoTasks: "前往『任务』页观察 →",
       reviewOkToast: "体检任务已发起：{name}",

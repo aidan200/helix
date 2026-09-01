@@ -2025,7 +2025,7 @@ workspace 项目列表命令结果（点对点回执；只读；宽松口径全�
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
-| `projects` | `KgProjectRow[]`（`{ name, path, status, symbolCount?, nodeCount?, syncedAt?, degradedNote?, bootstrapRunning? }`） | 必填 | kg 批 | name/path = project 入参两形态；status 四态；synced 态携带计数与时间，degraded 态携带说明；bootstrapRunning（P0① 批）= 该项目存在非终态 kg-bootstrap job（缺省 = 无，旧 daemon 兼容）——入口卡 running 态数据源 |
+| `projects` | `KgProjectRow[]`（`{ name, path, status, symbolCount?, nodeCount?, syncedAt?, degradedNote?, bootstrapRunning?, reviewRunning? }`） | 必填 | kg 批 | name/path = project 入参两形态；status 四态；synced 态携带计数与时间，degraded 态携带说明；bootstrapRunning（P0① 批）= 该项目存在非终态 kg-bootstrap job（缺省 = 无，旧 daemon 兼容）——入口卡 running 态数据源；reviewRunning 同规 = 非终态 kg-review job——体检面板「发起语义体检」钮运行态数据源 |
 
 #### `kg.list.result`
 

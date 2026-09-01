@@ -528,6 +528,8 @@ export function projectRowToDto(row: KgProjectRowView): KgProjectRow {
     ...(row.degradedNote !== undefined ? { degradedNote: row.degradedNote } : {}),
     // P0① 运行中标志：true 才携带（false/缺省省略——旧 shell 兼容零感知）
     ...(row.bootstrapRunning ? { bootstrapRunning: true } : {}),
+    // 体检入口运行态同规：非终态 kg-review job 覆盖项目时携带
+    ...(row.reviewRunning ? { reviewRunning: true } : {}),
   };
 }
 

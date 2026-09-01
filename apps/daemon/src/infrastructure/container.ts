@@ -349,6 +349,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         logger,
         hasRunningBootstrapJob: (projectName) =>
           taskStoreForProjectRows !== undefined && hasActiveJob(taskStoreForProjectRows.listJobs(), "kg-bootstrap", projectName),
+        hasRunningReviewJob: (projectName) =>
+          taskStoreForProjectRows !== undefined && hasActiveJob(taskStoreForProjectRows.listJobs(), "kg-review", projectName),
       }),
     // B3 fs-watch 补齐挂接：已建 .helix-kg 索引的项目即挂 watcher（索引态
     // 补齐）；stop = 全停（重绑/dispose 清理面——栈 dispose 内含同调用，幂等）。

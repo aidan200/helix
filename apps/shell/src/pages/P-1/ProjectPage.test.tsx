@@ -89,12 +89,15 @@ interface Sent {
   /** C1 kg 维护批两命令发送面（清空图谱 / 删除索引）。 */
   graphPurge: { project: string }[];
   indexDelete: { project: string }[];
+  /** W2-E/W2-F 体检面两命令发送面（健康拉取 / 发起语义体检）。 */
+  health: { project: string }[];
+  reviewCreate: { project: string }[];
 }
 
 const sent: Sent = {
   projects: 0, list: [], detail: [], report: 0, confirm: [], index: [],
   bootstrapCreate: [], bootstrapProduce: [], nodeUpdate: [], nodeSupersede: [], bootstrapImpact: [],
-  graphPurge: [], indexDelete: [],
+  graphPurge: [], indexDelete: [], health: [], reviewCreate: [],
 };
 let listeners: ((e: EventEnvelope) => void)[] = [];
 /** W4 刷新链：workspace 帧订阅注入位。 */
@@ -156,6 +159,14 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendKgIndexDelete: (payload: { project: string }) => {
         sent.indexDelete.push(payload);
+        return true;
+      },
+      sendKgHealth: (payload: { project: string }) => {
+        sent.health.push(payload);
+        return true;
+      },
+      sendKgReviewCreate: (payload: { project: string }) => {
+        sent.reviewCreate.push(payload);
         return true;
       },
       subscribeKgFrames: (cb: (e: EventEnvelope) => void) => {
@@ -241,6 +252,8 @@ afterEach(() => {
   sent.bootstrapImpact = [];
   sent.graphPurge = [];
   sent.indexDelete = [];
+  sent.health = [];
+  sent.reviewCreate = [];
 });
 
 describe("F5.0 左栏项目域与主区状态机", () => {
@@ -899,5 +912,72 @@ describe("C1 kg 维护批（清空图谱 + 删除索引 + 空态文案）", () =
     enterGraph("feifei");
     expect(qs("[data-kg-rebuild]")).not.toBeNull();
     expect(qs("[data-kg-index-delete]")).not.toBeNull();
+  });
+});
+
+// ═══ W2-F 体检面板运行态（kg.projects 行 reviewRunning：服务端为准，
+//      组件重挂后仍持正确态——bootstrapRunning 入口卡 running 同构）═══
+
+/** 体检面项目清单：helix（无运行任务 → 可发起）/ auditing（reviewRunning → 运行态）。 */
+const REVIEW_PROJECTS: KgProjectRow[] = [
+  { name: "helix", path: "/ws/helix", status: "synced", symbolCount: 56, nodeCount: 17, syncedAt: "2026-08-25T14:32:00+08:00" },
+  { name: "auditing", path: "/ws/auditing", status: "synced", symbolCount: 30, nodeCount: 5, syncedAt: "2026-08-25T14:32:00+08:00", reviewRunning: true },
+];
+
+/** 健康空态夹具（零冲突零孤儿——面板 ready 态最小形状）。 */
+const HEALTH_EMPTY = {
+  conflicts: [],
+  orphans: [],
+  orphanCount: 0,
+  index: { state: "synced", symbolCount: 56, syncedAt: "2026-08-25T14:32:00+08:00" },
+  candidates: { pending: 0, deferred: 0, applied: 0, discarded: 0 },
+};
+
+describe("W2-F 体检面板运行态（reviewRunning 行标志）", () => {
+  /** 进指定项目 graph 态并切到 health tab（拉取发出 + 健康回执就绪）。 */
+  function inHealthPane(name: "helix" | "auditing") {
+    ui();
+    feed("kg.projects.result", { projects: REVIEW_PROJECTS } satisfies KgProjectsResultPayload);
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText(name).closest(".pj-row")!);
+    feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
+    feed("kg.change.report.result", REPORT);
+    feed("kg.index.status.result", { state: "synced", symbolCount: 30, syncedAt: "2026-08-25T14:32:00+08:00" });
+    fireEvent.click(qs('[data-tab="health"]')!);
+    expect(sent.health).toEqual([{ project: name }]); // 首进拉取一次
+    feed("kg.health.result", HEALTH_EMPTY);
+  }
+
+  it("reviewRunning 行 → 运行态：运行中徽标 + 观察出口，无启动钮", () => {
+    inHealthPane("auditing");
+    const sec = qs("[data-kg-health-review]");
+    expect(sec).not.toBeNull();
+    expect(qs("[data-review-running]")).not.toBeNull();
+    expect(sec.textContent).toContain("体检任务进行中");
+    expect(sec.querySelector("[data-goto-tasks]")).not.toBeNull(); // 「前往『任务』页观察 →」出口
+    expect(sec.querySelector("[data-review-launch-btn]")).toBeNull(); // 无启动钮——不可再发起
+    // 未发起过本视图回执 → ok-strip 不出现（运行态 ≠ 本视图刚发起）
+    expect(qs("[data-review-launched]")).toBeNull();
+  });
+
+  it("无运行任务行 → 发起入口在：启动钮 + 说明，无运行态条", () => {
+    inHealthPane("helix");
+    const sec = qs("[data-kg-health-review]");
+    expect(sec).not.toBeNull();
+    expect(qs("[data-review-launch-btn]")).not.toBeNull();
+    expect(qs("[data-review-running]")).toBeNull();
+    expect(qs("[data-review-running-badge]")).toBeNull();
+  });
+
+  it("发起 → 回执 → ok-strip + kg.projects 重拉（行标志权威化）", () => {
+    inHealthPane("helix");
+    const projectsBefore = sent.projects;
+    fireEvent.click(qs("[data-review-launch-btn]")!);
+    expect(sent.reviewCreate).toEqual([{ project: "helix" }]);
+    expect(qs("[data-review-launched]")).toBeNull(); // 回执前不出 ok-strip
+    feed("kg.review.create.result", { ok: true, jobId: "job-r1" });
+    expect(qs("[data-review-launched]")).not.toBeNull();
+    expect(qs("[data-review-launched]")!.textContent).toContain("体检任务已发起");
+    expect(qs("[data-goto-tasks]")!.textContent).toContain("前往『任务』页观察");
+    expect(sent.projects).toBe(projectsBefore + 1); // 发起成功重拉行数据——reviewRunning 即时置位
   });
 });

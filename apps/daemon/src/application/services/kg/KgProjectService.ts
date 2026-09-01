@@ -28,6 +28,9 @@ export interface KgProjectRowView {
   /** 该项目存在非终态 kg-bootstrap job（P0① 入口卡 running 态数据源；
    *  终态后回落 false）。 */
   readonly bootstrapRunning: boolean;
+  /** 该项目存在非终态 kg-review job（体检面板运行态数据源，bootstrapRunning
+   *  同规；终态后回落 false——体检仅禁并发不绑一次性）。 */
+  readonly reviewRunning: boolean;
 }
 
 export interface KgProjectServiceDeps {
@@ -45,6 +48,9 @@ export interface KgProjectServiceDeps {
   /** 该项目存在非终态 kg-bootstrap job 判定（P0① TaskStorePort 查询注入；
    *  缺省 = 恒 false——未装配任务栈的组装面/测试 rig）。 */
   readonly hasRunningBootstrapJob?: (projectName: string) => boolean;
+  /** 该项目存在非终态 kg-review job 判定（体检面板运行态数据源，
+   *  hasRunningBootstrapJob 同规；缺省 = 恒 false）。 */
+  readonly hasRunningReviewJob?: (projectName: string) => boolean;
 }
 
 /** degraded 态影响说明（F5.5 面板口径的确定性文案）。 */
@@ -81,11 +87,12 @@ export class KgProjectService {
   }
 
   /** 单项目行组装（absent 短路：不触任何读 port——连接即建库；
-   *  bootstrapRunning 机械定义与索引态无关：job 查询不触 kg 库）。 */
+   *  bootstrapRunning/reviewRunning 机械定义与索引态无关：job 查询不触 kg 库）。 */
   private rowOf(entry: ProjectDirEntry): KgProjectRowView {
     const bootstrapRunning = this.deps.hasRunningBootstrapJob?.(entry.name) ?? false;
+    const reviewRunning = this.deps.hasRunningReviewJob?.(entry.name) ?? false;
     if (!this.deps.hasIndex(entry.path)) {
-      return { name: entry.name, path: entry.path, status: "absent", bootstrapRunning };
+      return { name: entry.name, path: entry.path, status: "absent", bootstrapRunning, reviewRunning };
     }
     const status = this.deps.indexStatus(entry.path);
     switch (status.phase) {
@@ -98,15 +105,16 @@ export class KgProjectService {
           nodeCount: this.deps.countActiveNodes(entry.path),
           ...(status.syncedAt !== null ? { syncedAt: status.syncedAt } : {}),
           bootstrapRunning,
+          reviewRunning,
         };
       case "degraded":
         // nodeCount 同步补齐（T3.2 契约 §1：准入判定覆盖 synced ∧ degraded；
         // 缺省 = 未知 = 前端视为非空不显示入口——降级行不给计数会永不可发起）
-        return { name: entry.name, path: entry.path, status: "degraded", degradedNote: KG_DEGRADED_NOTE, nodeCount: this.deps.countActiveNodes(entry.path), bootstrapRunning };
+        return { name: entry.name, path: entry.path, status: "degraded", degradedNote: KG_DEGRADED_NOTE, nodeCount: this.deps.countActiveNodes(entry.path), bootstrapRunning, reviewRunning };
       case "building":
-        return { name: entry.name, path: entry.path, status: "building", bootstrapRunning };
+        return { name: entry.name, path: entry.path, status: "building", bootstrapRunning, reviewRunning };
       case "absent":
-        return { name: entry.name, path: entry.path, status: "absent", bootstrapRunning };
+        return { name: entry.name, path: entry.path, status: "absent", bootstrapRunning, reviewRunning };
     }
   }
 }

@@ -9,6 +9,8 @@ import { KgDatabase, kgDbPath } from "../../src/adapters/driven/sqlite-kg/KgData
 import { SqliteKnowledgeGraph } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
 import { SqliteKnowledgeStore } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { KgProjectService } from "../../src/application/services/kg/KgProjectService";
+import { KgViewerService } from "../../src/application/services/kg/KgViewerService";
+import { hasActiveJob } from "../../src/application/services/kg/job-activity";
 import { KgWriteService } from "../../src/application/services/kg/KgWriteService";
 import { KgReviewService } from "../../src/application/services/kg/KgReviewService";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
@@ -200,6 +202,8 @@ function makeRig(): Rig {
     hasIndex: (root) => existsSync(kgDbPath(root)),
     indexStatus: () => ({ phase: "synced", baseline: "b", symbolCount: 0, syncedAt: null, degraded: false }),
     countActiveNodes: (root) => graph.countActiveNodes(root),
+    // 体检面板运行态数据源（container.ts 同口径；闭包引用后声明的 taskStore）
+    hasRunningReviewJob: (name) => hasActiveJob(taskStore.listJobs(), "kg-review", name),
   });
 
   // 任务栈（真 SQLite @ tmp helix.db；fake skill 注册表收 kg-review）
@@ -218,8 +222,19 @@ function makeRig(): Rig {
 
   const review = new KgReviewService({ project, taskEngine, store: taskStore });
 
+  // kg.projects 可达面（kg-bootstrap-handlers rig 同构：viewer 包 project
+  // 挂 adapter kg 位；verify/report/sync 本测试不触，空 stub 兜底）
+  const viewer = new KgViewerService({
+    project,
+    graph,
+    verify: { findActivityMismatch: () => [], findOrphans: () => [] } as never,
+    report: {} as never,
+    write,
+    sync: {} as never,
+  });
+
   const events = new EventStream();
-  const adapter = new WsServerAdapter({ ...stubAdapterDeps(events), kgReview: review });
+  const adapter = new WsServerAdapter({ ...stubAdapterDeps(events), kg: viewer, kgReview: review });
   const client = new TestClient(`ws://127.0.0.1:${adapter.port}`);
   const dispose = async (): Promise<void> => {
     database.closeAll();
@@ -323,5 +338,44 @@ describe("kg.review.create 发起链路（W2-F 轨二，R21）", () => {
       adapter.stop();
       await client.close();
     }
+  }, 15000);
+});
+
+// ── kg.projects 行 reviewRunning 标志（体检面板运行态数据源；
+//    bootstrapRunning 标志测试同构，P0① 同口径） ────────────
+
+describe("kg.projects 行 reviewRunning 标志", () => {
+  function rowByName(res: { ok: boolean; result: Record<string, unknown> }, name: string): Record<string, unknown> {
+    const rows = res.result.projects as Array<Record<string, unknown>>;
+    const row = rows.find((r) => r.name === name);
+    if (row === undefined) throw new Error(`kg.projects 无 ${name} 行`);
+    return row;
+  }
+
+  test("非终态 kg-review job 覆盖项目 → true；无任务项目缺省；终态后回落（仅禁并发不绑一次性）", async () => {
+    const rig = await openRig();
+    const before = await rig.client.kg("kg.projects", {});
+    expect(rowByName(before, "alpha").reviewRunning).not.toBe(true);
+
+    const created = await rig.client.kg("kg.review.create", { project: "alpha" });
+    expect(created.ok).toBe(true);
+    const during = await rig.client.kg("kg.projects", {});
+    expect(rowByName(during, "alpha").reviewRunning).toBe(true);
+    expect(rowByName(during, "delta").reviewRunning).not.toBe(true); // 无任务项目缺省
+
+    const jobId = created.result.jobId as string;
+    await rig.taskStore.updateJobStatus(jobId, "running");
+    await rig.taskStore.updateJobStatus(jobId, "done");
+    const after = await rig.client.kg("kg.projects", {});
+    expect(rowByName(after, "alpha").reviewRunning).not.toBe(true);
+  }, 15000);
+
+  test("与 bootstrapRunning 互不串扰：非终态 kg-review job 不点亮 bootstrapRunning", async () => {
+    const rig = await openRig();
+    const created = await rig.client.kg("kg.review.create", { project: "alpha" });
+    expect(created.ok).toBe(true);
+    const rows = await rig.client.kg("kg.projects", {});
+    expect(rowByName(rows, "alpha").reviewRunning).toBe(true);
+    expect(rowByName(rows, "alpha").bootstrapRunning).not.toBe(true); // 本 rig 未接 bootstrap 判定，缺省 false
   }, 15000);
 });
