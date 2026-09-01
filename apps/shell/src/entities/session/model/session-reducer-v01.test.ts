@@ -416,6 +416,29 @@ describe("thinking/compaction/usage 状态槽位", () => {
     expect(entry?.kind).toBe("thinking");
   });
 
+  it("wire 归一 “main” 帧 → 快照习得 hex 主实例后按 hex 槽位累积/清槽（R5 键翻译：渲染读键 = state.mainInstanceId）", () => {
+    // 真实场景复刻：T10a 主实例 hex 化（快照 kind=main 条目）+ T10d wire 归一 "main"
+    const s0 = run(
+      [
+        snapshotOf([], {
+          instances: [
+            { instanceId: "agent-hex-main", kind: "main", profileKind: "main-session", state: "done", createdAt: "2026-08-16T14:00:00.000Z" },
+          ],
+        }),
+      ],
+      base(),
+    );
+    expect(s0.mainInstanceId).toBe("agent-hex-main"); // 前置：快照习得 hex
+
+    const s1 = run([thinkDelta("main", "流式增量…")], s0); // wire 帧仍是归一 "main"
+    expect(s1.thinkingStreams["agent-hex-main"]).toBe("流式增量…"); // 翻译后落 hex 槽（MessageFlow 渲染读键）
+    expect(s1.thinkingStreams["main"]).toBeUndefined(); // 不留 legacy 槽
+
+    const s2 = run([thinkCompleted(thinkEntry("th-r5", "main", "全文"))], s1); // completed entry 同为归一 "main"
+    expect(s2.thinkingStreams["agent-hex-main"]).toBeUndefined(); // hex 槽被正确清除
+    expect(s2.entries.find((e) => e.id === "th-r5")).toBeDefined(); // 主流落账不受影响
+  });
+
   it("compaction.completed 落 Entry（新 kind 入流，渲染归 T4.2）", () => {
     const s = run([compactionCompleted(compactEntry("cp-1", "main", usage({ totalTokens: 32_000, cost: 0.11 })))], base());
     const entry = s.entries.find((e) => e.id === "cp-1");

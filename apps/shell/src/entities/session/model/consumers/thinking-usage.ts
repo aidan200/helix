@@ -35,16 +35,21 @@ export function applyThinkingUsageEvent(
   switch (event.type) {
     case "thinking.stream.delta": {
       // thinking 流式中间态不落盘（TR-AD-5）：按 instanceId 累积；渲染归 T4.2
+      // R5 键翻译：wire 主实例归一 “main”/缺省（EventStream T10d）→ state 槽位键
+      // 归一回快照习得主实例 id（T10a hex）——渲染读键 = state.mainInstanceId，
+      // 同构 chat.stream.delta 的 isMainChannel 分流判别；subagent hex 直通
       const { instanceId, delta } = event.payload;
-      const prev = s.thinkingStreams[instanceId] ?? "";
-      return { ...s, thinkingStreams: { ...s.thinkingStreams, [instanceId]: prev + delta } };
+      const key = isMainChannel(instanceId, s.mainInstanceId) ? s.mainInstanceId : instanceId;
+      const prev = s.thinkingStreams[key] ?? "";
+      return { ...s, thinkingStreams: { ...s.thinkingStreams, [key]: prev + delta } };
     }
     case "thinking.completed": {
       // 完成落 Entry（complete-collapsed 不可逆）；流式槽位随实例清空（他实例不受扰）；
       // F1.6 分流（kind 判别）：SubAgent thinking 只进实例 channel（抽屉折叠块），不进主消息流
+      // R5 键翻译同 delta 分支：entry.instanceId wire 归一 “main” → 清除键归一回 hex
       const entry = event.payload.entry;
       const streams = { ...s.thinkingStreams };
-      delete streams[entry.instanceId];
+      delete streams[isMainChannel(entry.instanceId, s.mainInstanceId) ? s.mainInstanceId : entry.instanceId];
       const cleared: SessionState = { ...s, thinkingStreams: streams };
       if (!isMainChannel(entry.instanceId, s.mainInstanceId)) {
         return upsertChannelEntry(cleared, entry.instanceId, entry);
