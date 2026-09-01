@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Database } from "bun:sqlite";
@@ -592,6 +592,62 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       "注入照常",
     );
   }, 12000);
+
+  // findings 双通道（task-778eb18a 截断三连败修复）：闭包 findings 空（块被
+  // 截断/损坏的形态）+ 旁路文件在 → 机械读文件落账；闭包非空优先不双落
+  test("截断兜底：closure findings=null + 旁路文件 findings.json 在 → 机械落账；闭包非空时不读文件（无双落）", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "helix-t41-bypass-"));
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "helix-t41-bypass-proj-"));
+    const writes: { projectRoot: string; op: KnowledgeWriteOp }[] = [];
+    const rig = (current = await makeSinkRig(
+      {
+        write: (root, op) => {
+          writes.push({ projectRoot: root, op });
+          return { ok: true, nodeId: "TR-0" };
+        },
+        scanProjects: () => [projectRoot],
+      },
+      home,
+    ));
+    try {
+      // ① 截断形态：闭包 findings=null（块损坏解析不出）+ 旁路文件在
+      const spawnA = rig.daemon.orchestration.spawn("截断兜底任务");
+      if (spawnA.status !== "run") throw new Error("unreachable");
+      const reportsDir = path.join(home, "reports", rig.sessionId);
+      mkdirSync(reportsDir, { recursive: true });
+      writeFileSync(
+        path.join(reportsDir, `${spawnA.agentId}.findings.json`),
+        JSON.stringify([{ kind: "sediment", changeType: "新增", name: "旁路恢复规则", reason: "闭包截断经文件恢复", iterationId: "iter-t41" }]),
+      );
+      rig.runner.forceClosure(spawnA.agentId, {
+        result: "failed",
+        closure: { status: "failed", summary: "未按 closure 协议收口（截断）", reportPath: null, findings: null, taskId: "T-bypass" },
+      });
+      await until(() => eventRows(rig, "agent.failed").length > 0, 5000, "agent.failed 落盘");
+      expect(writes).toHaveLength(1); // 旁路文件恢复落账
+      expect(writes[0]!.op).toMatchObject({ kind: "proposeCandidate", title: "旁路恢复规则", sourceTaskId: "T-bypass" });
+
+      // ② 闭包非空优先：同一旁路文件仍在 → 只落闭包一份，不双落
+      writes.length = 0;
+      const spawnB = rig.daemon.orchestration.spawn("非空优先任务");
+      if (spawnB.status !== "run") throw new Error("unreachable");
+      writeFileSync(
+        path.join(reportsDir, `${spawnB.agentId}.findings.json`),
+        JSON.stringify([{ kind: "sediment", changeType: "新增", name: "文件里的发现", iterationId: "iter-t41" }]),
+      );
+      rig.runner.forceClosure(spawnB.agentId, {
+        result: "done",
+        closure: { status: "done", summary: "闭包携带 findings", reportPath: null, findings: [{ kind: "sediment", changeType: "新增", name: "闭包里的发现", iterationId: "iter-t41" }], taskId: null },
+      });
+      await until(() => eventRows(rig, "agent.completed").length > 0, 5000, "agent.completed 落盘");
+      expect(writes).toHaveLength(1); // 恰一份（闭包优先，旁路不重复落）
+      expect(writes[0]!.op).toMatchObject({ kind: "proposeCandidate", title: "闭包里的发现" });
+    } finally {
+      await rig.dispose();
+      rmSync(projectRoot, { recursive: true, force: true });
+      current = undefined;
+    }
+  }, 15000);
 
   test("落账故障不影响 closure 收口（写入口抛异常 → 事件/注入照常，不冒泡）", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-t41-fail-"));

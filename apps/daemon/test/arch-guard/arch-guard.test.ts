@@ -444,6 +444,7 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       "HELIX_CODEGRAPH_PATH", // W1-B：codegraph 二进制定格路径透传（SubagentLauncher 注入 / ChildMain 本地栈三级解析第①级消费）
       "HELIX_DB_PATH", // T1.4（AD-6①）：work_item 台账库路径（SubagentLauncher 注入 / ChildMain 本地栈消费）
       "HELIX_FAKE_ENGINE_SCRIPT",
+      "HELIX_FINDINGS_PATH", // task-778eb18a 截断兑底：findings 旁路文件落点（SubagentLauncher 注入 / 提示词引导预写 / ClosureRecorder 机械读）
       "HELIX_INSTANCE_ID",
       "HELIX_MODEL_JSON",
       "HELIX_REPORT_PATH", // F3.0（T4.1）：报告落点传参（SubagentLauncher 注入 / 提示词引导消费）

@@ -73,7 +73,11 @@ const SUBAGENT_BASE_PROMPT =
   "报告落盘（必须遵守）：任务完成报告由你按「任务收口装配指引」的段库组稿，全文写入" +
   "环境变量 HELIX_REPORT_PATH 指向的文件（路径可在命令行查看该变量取值；变量缺席时" +
   "报告并入最后回复，closure 块 reportPath 填 null）；报告写盘成功后 closure 块的" +
-  "reportPath 填该路径——daemon 只透传该路径给主线，不会代写或改写你的报告。";
+  "reportPath 填该路径——daemon 只透传该路径给主线，不会代写或改写你的报告。\n" +
+  "findings 旁路预写（findings 非空时必须遵守）：在输出 closure 块之前（尚在工具轮时），" +
+  "先把与 closure 块 findings 字段完全相同的 JSON 数组原样写入环境变量 HELIX_FINDINGS_PATH" +
+  "指向的文件；若最终 closure 块因流截断损坏，daemon 会机械读该文件恢复落账你的发现" +
+  "（该文件不会替代 closure 块，两者都要写）。";
 
 /** base + report 装配指引（AD-18：提示词携带段库+硬约束+装配示例引用）。 */
 export const SUBAGENT_SYSTEM_PROMPT = SUBAGENT_BASE_PROMPT + "\n\n" + REPORT_ASSEMBLY_GUIDE;

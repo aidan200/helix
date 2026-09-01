@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AgentInstance } from "../../../domain/agent/AgentInstance";
 import type {
   AgentCompletedPayload,
@@ -67,6 +67,11 @@ export interface ClosureRecorderDeps {
    * （O-2：共用同一 API 入口）。
    */
   readonly findingsSink?: ClosureFindingsSink;
+  /**
+   * findings 旁路文件读（task-778eb18a 截断兜底）：组合根接 fs 只读实现
+   *（application 零 IO，AG 守卫）；缺省不兜底（测试形态）。
+   */
+  readonly readFindingsFile?: (path: string) => string | null;
   /** 可观测 warn（findings 落账跳过/被拒/异常——不阻塞主流程；缺省静默）。 */
   readonly logger?: { warn: (message: string) => void };
   /**
@@ -152,7 +157,7 @@ export class ClosureRecorder {
     );
 
     // F3.0③ findings→kg 落账（断头处接通管道；失败不阻塞收口）
-    this.recordFindings(instanceId, closure);
+    this.recordFindings(instance, closure);
 
     // W2-D R13 闭环记录点：机械查 tool_calls 有 write 类成功调用才 upsert
     // pending_sync（不无脑记录）；job 终态扫描提示归编排侧（不进引擎，AD-10）
@@ -171,20 +176,31 @@ export class ClosureRecorder {
     void this.deps.repository.savePendingSync(instance.sessionId, jobId, this.deps.clock.now());
   }
 
-  /** findings 落账管道：sediment 条目映射写 op → sink（跳过/被拒/异常均 warn 不抛）。 */
-  private recordFindings(instanceId: string, closure: InstanceClosurePayload): void {
+  /**
+   * findings 落账管道：sediment 条目映射写 op → sink（跳过/被拒/异常均 warn 不抛）。
+   *
+   * 双通道（task-778eb18a 截断三连败修复）：闭包 findings 非空优先；空/null
+   * （块被截断/损坏的形态）时 best-effort 读旁路文件
+   * `<reportsDir>/<instanceId>.findings.json`（实例按提示在收口前工具轮
+   * 预写，早于截断点落盘）→ 合法 JSON 数组则机械落账（同一 mapFindingsToOps
+   * 管道，不旁路单写入口）；读不到/非法静默（退回现状丢失，不劣化）。
+   */
+  private recordFindings(instance: AgentInstance, closure: InstanceClosurePayload): void {
     const sink = this.deps.findingsSink;
     if (sink === undefined) return; // 未装配（纯调度测试形态）：断头面保持静默
-    const findings = closure.findings ?? [];
-    if (findings.length === 0) return; // 显式「无」（空数组/null）：不落账不报错
+    let findings: readonly unknown[] = closure.findings ?? [];
+    if (findings.length === 0) {
+      findings = this.readBypassFindings(instance, closure);
+    }
+    if (findings.length === 0) return; // 显式「无」且无旁路：不落账不报错
     for (const item of mapFindingsToOps(findings, closure.taskId ?? undefined)) {
       if (!item.ok) {
-        this.warnFindings(instanceId, `跳过（${item.reason}）`);
+        this.warnFindings(instance.instanceId, `跳过（${item.reason}）`);
         continue;
       }
       const projectRoot = resolveFindingProject(sink, item.project);
       if (projectRoot === undefined) {
-        this.warnFindings(instanceId, "跳过（目标项目无法解析：project 名未命中或 workspace 多项目未显式指明——写操作不猜）");
+        this.warnFindings(instance.instanceId, "跳过（目标项目无法解析：project 名未命中或 workspace 多项目未显式指明——写操作不猜）");
         continue;
       }
       // 迭代锚回落：finding 缺 iterationId 时回落目标库最近迭代锚（与 kg-update
@@ -199,12 +215,32 @@ export class ClosureRecorder {
       try {
         const result = sink.write(projectRoot, op);
         if (!result.ok) {
-          this.warnFindings(instanceId, `落账被拒（${result.error.code}：${result.error.message}）`);
+          this.warnFindings(instance.instanceId, `落账被拒（${result.error.code}：${result.error.message}）`);
         }
       } catch (err) {
         // 落账失败不阻塞 closure 主流程（注入与落库照常；可重试语义由 change_log 幂等保证）
-        this.warnFindings(instanceId, `落账异常（${(err as Error).message}）`);
+        this.warnFindings(instance.instanceId, `落账异常（${(err as Error).message}）`);
       }
+    }
+  }
+
+  /** 旁路文件读：自报 reportPath 同目录优先，否则 reportsDir；<instanceId>.findings.json（缺失/非法 → 空数组，恢复成功才 warn）。 */
+  private readBypassFindings(instance: AgentInstance, closure: InstanceClosurePayload): readonly unknown[] {
+    const read = this.deps.readFindingsFile;
+    if (read === undefined) return [];
+    const dir = closure.reportPath != null ? dirname(closure.reportPath) : this.deps.reportsDirFor?.(instance.sessionId);
+    if (dir === undefined) return [];
+    const raw = read(join(dir, `${instance.instanceId}.findings.json`));
+    if (raw === null) return [];
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      if (parsed.length > 0) {
+        this.warnFindings(instance.instanceId, `闭包 findings 空——经旁路文件恢复 ${parsed.length} 条（闭包被截断/损坏时的机械兜底）`);
+      }
+      return parsed;
+    } catch {
+      return [];
     }
   }
 

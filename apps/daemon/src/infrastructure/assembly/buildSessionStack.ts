@@ -8,6 +8,7 @@ import type { ProfileKind } from "../../application/ports/outbound/ResourceState
 import type { InstanceRunner } from "../../application/services/InstanceRunner";
 import type { ProfileSnapshotData } from "../../domain/events/DomainEvent";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { ChatService } from "../../application/services/ChatService";
 import { SessionService } from "../../application/services/SessionService";
 import { RestoreService } from "../../application/services/RestoreService";
@@ -459,6 +460,15 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     clock,
     // O-5：<home>/reports/<session>/<agentId>.md——按实例归属会话解析
     reportsDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
+    // findings 旁路文件读（task-778eb18a 截断兜底）：fs 只读经回调注入
+    //（application 零 IO——AG 守卫）；缺失/异常归一 null（best-effort）
+    readFindingsFile: (p) => {
+      try {
+        return readFileSync(p, "utf8");
+      } catch {
+        return null;
+      }
+    },
     // 契约 v0.3 §1 规则②：spawn 时刻锚（聚合视图读面；内存携带不落盘）
     // ——typed 回填面（registry 就绪后由组合根闭合；闭合前 null 流首）
     spawnAnchorFor: (sessionId) => backfill.computeSpawnAnchor?.(sessionId) ?? null,

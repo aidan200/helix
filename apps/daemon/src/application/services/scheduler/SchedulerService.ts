@@ -108,6 +108,11 @@ export interface SchedulerServiceDeps {
    */
   readonly reportsDirFor?: (sessionId: string) => string;
   /**
+   * findings 旁路文件读（task-778eb18a 截断兜底）：透传 ClosureRecorder；
+   * 组合根接 fs 只读实现（application 零 IO）；缺省不兜底（测试形态）。
+   */
+  readonly readFindingsFile?: (path: string) => string | null;
+  /**
    * closure 注入主线回调（AD-8 双通道之一；组合根接 ChatService.injectClosure）。
    * 可选——无主线编排场景（纯调度 integration）不注入。
    * source（T11a）：closure=收口注入（ClosureRecorder 链）；progress=周期进展报告。
@@ -214,6 +219,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       events: deps.events,
       clock: deps.clock,
       reportsDirFor: deps.reportsDirFor,
+      readFindingsFile: deps.readFindingsFile,
       injectClosure: deps.injectClosure,
       logger: deps.logger,
       ...(deps.findingsSink !== undefined ? { findingsSink: deps.findingsSink } : {}),

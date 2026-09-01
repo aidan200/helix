@@ -81,9 +81,15 @@ export interface ParsedClosure {
  * 从 assistant 文本解析 `<<<CLOSURE {...} CLOSURE>>>` 块。
  * 无块 / 非法 JSON / status 非法 / summary 缺失 → undefined（调用方按
  * 「未按 closure 协议收口」failed 处理）。
+ *
+ * 闭标记容错（task-778eb18a 三连败修复）：provider SSE 丢尾 delta 会
+ * 精确截掉最后一个字符（6 样本 5 截，`CLOSURE>>>` → `CLOSURE>>`）——
+ * 闭标记放宽为 ≥2 个 `>`，信封残缺但信件（JSON）完整即接受；开标记
+ * 保持恰好 3 个 `<` 不放宽（报告/正文讨论协议的字面示例不误收口），
+ * JSON 合法性仍是从严门梣（残缺标记 + 非法 JSON 照拒）。
  */
 export function parseClosureBlock(text: string): ParsedClosure | undefined {
-  const match = text.match(/<<<CLOSURE\s*([\s\S]*?)\s*CLOSURE>>>/);
+  const match = text.match(/<<<CLOSURE\s*([\s\S]*?)\s*CLOSURE>{2,}/);
   if (!match) return undefined;
   try {
     const raw = JSON.parse(match[1]!) as {

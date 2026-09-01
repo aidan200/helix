@@ -239,6 +239,9 @@ export class SubagentLauncher implements InstanceRunner {
         HELIX_API_KEYS_JSON: JSON.stringify(apiKeys),
         HELIX_TOOL_CWD: toolCwd,
         ...(reportDir !== undefined ? { HELIX_REPORT_PATH: join(reportDir, `${id}.md`) } : {}),
+        // findings 旁路文件（task-778eb18a 截断兜底）：实例在收口前工具轮预写，
+        // 闭包被截断/损坏时 ClosureRecorder 机械读它落账（与报告同目录同 id）
+        ...(reportDir !== undefined ? { HELIX_FINDINGS_PATH: join(reportDir, `${id}.findings.json`) } : {}),
         ...(ledgerDbPath !== undefined ? { HELIX_DB_PATH: ledgerDbPath } : {}),
         // W1-B：codegraph 定格路径透传（子进程 codegraph 工具二进制解析第①级）
         ...(this.deps.codegraphPath !== undefined ? { HELIX_CODEGRAPH_PATH: this.deps.codegraphPath } : {}),

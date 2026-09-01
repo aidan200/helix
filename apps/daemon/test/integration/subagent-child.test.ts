@@ -169,6 +169,20 @@ describe("closure 块解析（子进程收口协议）", () => {
     expect(parseClosureBlock("<<<CLOSURE\n{不是json}\nCLOSURE>>>")).toBeUndefined();
     expect(parseClosureBlock('<<<CLOSURE\n{"status":"bogus","summary":"x"}\nCLOSURE>>>')).toBeUndefined();
   });
+
+  // 尾部截断容错（task-778eb18a：provider SSE 丢尾 delta——`CLOSURE>>>` 精确丢
+  // 最后 1 个 `>`，6 样本 5 截；JSON 完整但闭标记残缺信封被整封退回）
+  test("闭标记残缺容错：≥2 个 `>` 命中（JSON 完整即可）；1 个仍拒；开标记单 `<` 不命中（防协议讨论误报）", () => {
+    // 2 个 `>`（实测截断形态）：JSON 完整 → 接受
+    const truncated = '总结。\n<<<CLOSURE\n{"status":"done","summary":"完成"}\nCLOSURE>>';
+    expect(parseClosureBlock(truncated)).toEqual({ status: "done", summary: "完成", reportPath: null, findings: null, taskId: null });
+    // 1 个 `>`：不接受（过度残缺——从严）
+    expect(parseClosureBlock('<<<CLOSURE\n{"status":"done","summary":"x"}\nCLOSURE>')).toBeUndefined();
+    // 开标记不放宽：单 `<` 不命中——报告/正文中讨论协议（如 `<CLOSURE {...}` 字面示例）不误收口
+    expect(parseClosureBlock('<CLOSURE\n{"status":"done","summary":"x"}\nCLOSURE>>>')).toBeUndefined();
+    // 闭标记残缺 + JSON 非法 → 仍拒（JSON 合法是容错的强门梣）
+    expect(parseClosureBlock('<<<CLOSURE\n{坏了}\nCLOSURE>>')).toBeUndefined();
+  });
 });
 
 describe("C：closure 块缺 taskId → 回落 jobId（taskContext 机械注入）", () => {
