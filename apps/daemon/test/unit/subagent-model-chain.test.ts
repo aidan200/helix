@@ -66,14 +66,14 @@ describe("F1.3 两级解析单点（SubagentLauncher.resolveModelFor，AD-3 锚 
       models: modelsStub,
       spies,
     });
-    expect(launcher.resolveModelFor()).toBe(profileModel);
+    expect(launcher.resolveModelFor("subagent-worker")).toBe(profileModel);
     expect(spies.globalCalls).toBe(0); // 高档有值 → 低档短路
   });
 
   test("第二级：profile 未声明 → 落全局兜底 getter（不再经过 spawn 会话快照级）", () => {
     const spies: Spies = { globalCalls: 0 };
     const launcher = makeLauncher({ spies });
-    expect(launcher.resolveModelFor()).toBe(globalModel);
+    expect(launcher.resolveModelFor("subagent-worker")).toBe(globalModel);
     expect(spies.globalCalls).toBe(1);
   });
 
@@ -83,6 +83,6 @@ describe("F1.3 两级解析单点（SubagentLauncher.resolveModelFor，AD-3 锚 
       profile: { ...SubAgentProfile, model: "fake/profile-declared" },
       spies,
     });
-    expect(() => launcher.resolveModelFor()).toThrow(/fake\/profile-declared/);
+    expect(() => launcher.resolveModelFor("subagent-worker")).toThrow(/fake\/profile-declared/);
   });
 });

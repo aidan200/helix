@@ -86,6 +86,7 @@ import type {
   ModelGetDefaultResultEvent,
   ModelGetResultEvent,
   ModelSetDefaultResultEvent,
+  ModelSetThinkingDefaultResultEvent,
 } from "./model";
 import type { TraceQueryResultEvent } from "./trace";
 import type { ThinkingChangedEvent } from "./thinking";
@@ -168,6 +169,7 @@ export type EventEnvelope =
   | ModelCatalogResultEvent
   | ModelCatalogRefreshResultEvent
   | ModelSetDefaultResultEvent
+  | ModelSetThinkingDefaultResultEvent
   | ModelGetDefaultResultEvent
   | AuthListResultEvent
   | AuthSetKeyResultEvent
@@ -241,6 +243,7 @@ export const EVENT_TYPES = [
   "model.catalog.result",
   "model.catalog_refresh.result",
   "model.set_default.result",
+  "model.set_thinking_default.result",
   "model.get_default.result",
   "auth.list.result",
   "auth.set_key.result",
@@ -322,6 +325,7 @@ export const EVENT_CHANNELS = {
   "model.catalog.result": "model",
   "model.catalog_refresh.result": "model",
   "model.set_default.result": "model",
+  "model.set_thinking_default.result": "model",
   "model.get_default.result": "model",
   "auth.list.result": "model",
   "auth.set_key.result": "model",

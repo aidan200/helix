@@ -24,8 +24,10 @@ export interface ModelPort {
   catalogRefresh(): Promise<CatalogSnapshot & { degraded: readonly string[] }>;
   /** model.set_default：全局默认（新会话继承；既有会话不跟随）。 */
   setDefault(model: string): Promise<{ previous: string }>;
+  /** model.set_thinking_default（R7 全局兜底批）：全局默认推理强度；null = 清除。 */
+  setThinkingDefault(level: string | null): Promise<{ previous: string | null }>;
   /** model.get_default：SQLite 读面（builtin 兜底）。 */
-  getDefault(): { model: string };
+  getDefault(): { model: string; thinkingDefault: string | null };
   /** auth.list：provider 全集 × 凭据状态（脱敏）。 */
   authList(): Promise<AuthProviderStatus[]>;
   /** auth.set_key：写 auth.json（空值协议层拒绝前的 daemon 侧防线）。 */

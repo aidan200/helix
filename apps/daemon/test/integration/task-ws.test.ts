@@ -163,10 +163,10 @@ function stubAdapterDeps(events: EventStream) {
       catalogRefresh: async () => {
         throw new Error("stub");
       },
-      setDefault: async () => {
+      setThinkingDefault: async () => ({ previous: null }), setDefault: async () => {
         throw new Error("stub");
       },
-      getDefault: () => ({ model: "stub/model" }),
+      getDefault: () => ({ model: "stub/model", thinkingDefault: null }),
       authList: async () => [],
       authSetKey: async () => {
         throw new Error("stub");
@@ -190,7 +190,7 @@ function stubAdapterDeps(events: EventStream) {
       setThinkingSlot: async () => {
         throw new Error("stub");
       },
-      clearThinkingSlot: async () => {
+      modelSlot: () => undefined, thinkingSlot: () => undefined, clearThinkingSlot: async () => {
         throw new Error("stub");
       },
     },
@@ -566,6 +566,6 @@ describe("零干预断言（AD-2，CL-2-T12 协议面）", () => {
     ]);
     const forbidden = family.filter((t) => /steer|retry|edit|update|modify|create|write|prompt/i.test(t));
     expect(forbidden).toEqual([]);
-    expect(COMMAND_TYPES.length).toBe(54); // kg.health 批（W2-E）+1 ∧ kg 评审批（W2-F）+1 后当前值
+    expect(COMMAND_TYPES.length).toBe(55); // R7 全局兜底批 +1（model.set_thinking_default）后当前值
   });
 });

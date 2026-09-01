@@ -237,6 +237,8 @@ export interface ModelConfigState {
   catalog: ModelCatalogState | null;
   /** 全局默认模型（"" = 未请求；model.get_default / set_default 乐观同步） */
   defaultModel: string;
+  /** 全局默认推理强度（R7 全局兜底批；null = 未配置；get_default 随行 + set_thinking_default 乐观同步） */
+  defaultThinking: string | null;
   /** provider 凭据行（auth.list 整体替换 + verify/set_key/delete_key 增量） */
   auth: Record<string, AuthProviderEntry>;
   /** auth.list 首批到达标记（T5.3：P-3 可用性过滤在首批到达前不生效，
@@ -259,6 +261,7 @@ export function createInitialModelConfigState(): ModelConfigState {
   return {
     catalog: null,
     defaultModel: "",
+    defaultThinking: null,
     auth: {},
     authLoaded: false,
     verifyInflight: null,
@@ -475,6 +478,7 @@ export type SessionAction =
   | { type: "model/delete-key-started"; providerId: string }
   /** 默认模型选择：乐观更新 defaultModel + in-flight（set_default.result 清） */
   | { type: "model/set-default-started"; model: string }
+  | { type: "model/set-thinking-default-started"; level: string | null }
   /** 刷新目录：置 catalogRefreshing（catalog_refresh.result 到达即清） */
   | { type: "model/catalog-refresh-started" };
 

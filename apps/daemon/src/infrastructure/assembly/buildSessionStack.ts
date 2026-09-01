@@ -28,6 +28,7 @@ import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/p
 import {
   SUBAGENT_KG_WRITER_EXTRA_TOOLS,
   SUBAGENT_KG_WRITER_PROMPT_SUFFIX,
+  SubAgentKgWriterProfile,
 } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
 import {
   OrchestratorProfile,
@@ -46,6 +47,7 @@ import type { CodegraphToolDeps } from "../../adapters/driven/tools/codegraph/Co
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 import { AuthStore } from "../auth-store";
 import type { DefaultModelStore } from "../../adapters/driven/sqlite-session/DefaultModelStore";
+import type { DefaultThinkingStore } from "../../adapters/driven/sqlite-session/DefaultThinkingStore";
 import type { ResourceStateStore } from "../../adapters/driven/sqlite-session/ResourceStateStore";
 import { builtinSkillsDir } from "../paths";
 import type { HelixPaths } from "../paths";
@@ -101,6 +103,8 @@ export interface BuildSessionStackDeps {
   readonly authStore: AuthStore;
   readonly catalog: ModelCatalog;
   readonly defaultModel: DefaultModelStore;
+  /** R7 全局兜底批：全局默认推理强度（各 agent thinking 链尾兜底）。 */
+  readonly defaultThinking?: DefaultThinkingStore;
   readonly browserPort: BrowserPort;
   /** fan-out 发布面（组合根先建、wireEventFanout 后装目标——服务构造期依赖稳定引用）。 */
   readonly events: EventPublisherPort;
@@ -202,7 +206,7 @@ export interface SessionStack {
    * subagent-worker kind 槽位 ?? 全局兜底）——spawn 透传（AgentInstanceDto.model
    * 填充）与 instantiated 快照供给同源；container 编排门面共用。
    */
-  readonly resolveSubagentModelId: () => string;
+  readonly resolveSubagentModelId: (profileKind?: string) => string;
   /**
    * 会话工具沙箱 cwd 求值单点现值读面（W1F-F1）：engineFor 每会话装配
    * （CoreToolExecutor.cwd）与 SubAgent spawn（HELIX_TOOL_CWD）共用
@@ -222,6 +226,9 @@ export interface SessionStack {
 export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<SessionStack> {
   const { paths, config, logger, repository, resourceState, clock, authStore, catalog, defaultModel, browserPort, events, backfill } =
     deps;
+  const defaultThinking = deps.defaultThinking; // R7 全局兜底（可选注入——测试缺省无兜底）
+  /** R7 全局兜底读面：未注入/未配置 → undefined（链尾自然短路）。 */
+  const globalThinking = (): string | undefined => defaultThinking?.stored() ?? undefined;
   const { engineMode } = deps;
 
   // ── 资源数据域：resource_state 差异行 + 三层技能扫描 + 合取服务 ──
@@ -247,6 +254,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       "main-session": MainSessionProfile.tools,
       "subagent-worker": SubAgentProfile.tools,
       "orchestrator": OrchestratorProfile.tools, // T2.2 第三 kind（additive 扩值；编排工具面可配置化）
+      // R7 系统槽位批第四 kind：kg-writer 目录全集（声明面 = 快照派生同源；
+      // tool/skill 启停写面仍拒——目录仅供槽位族读面形状完整）
+      "subagent-kg-writer": SubAgentKgWriterProfile.tools,
     } satisfies Record<ProfileKind, readonly string[]>,
     // list 读面 snippet 透传（SystemPromptAssembler 同源注册表单点）
     toolSnippets: TOOL_PROMPT_SNIPPETS,
@@ -327,8 +337,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // 透传（AgentInstanceDto.model 填充链）与 instantiated 快照供给同源同点；
   // launcher launch 实际用模同序（id → Model 对象解析在 launcher，AD-3 联动）。
   // T12 砍 spawn 会话快照级：SubAgent 只认自身 profile，不继承 main session 选择。
-  const resolveSubagentModelId = (): string =>
-    SubAgentProfile.model ?? resourceService.modelSlot("subagent-worker") ?? defaultModel.current();
+  const resolveSubagentModelId = (profileKind?: string): string =>
+    // R7 per-kind：kg-writer 自身槽位（不联动 worker）；profile 静态声明优先
+    (profileKind === "subagent-kg-writer" ? SubAgentKgWriterProfile.model : SubAgentProfile.model) ??
+    resourceService.modelSlot(profileKind === "subagent-kg-writer" ? "subagent-kg-writer" : "subagent-worker") ??
+    defaultModel.current();
 
   // ── driven：SubAgent 子进程运行器（SubagentLauncher 真体，O-7 候选 A）──
   // 装配形态由 engineMode 判别字段显式声明（AD-2 + §4.3 显式模式）
@@ -342,10 +355,22 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // （model 先例：声明即最高），未声明合并 resource_state kind 槽位
           // 现值（launch 时刻 getter 读取定格——配置变更后新 spawn 跟随，
           // 已 spawn 实例 env 已定格，代际生效）
-          profile: () => ({
-            ...SubAgentProfile,
-            thinkingLevel: SubAgentProfile.thinkingLevel ?? resourceService.thinkingSlot("subagent-worker"),
-          }),
+          // R7 per-kind：worker/kg-writer 各自 profile + 各自 kind 槽位 + 全局兜底
+          //（不再联动 worker 槽位；未配槽位且未配全局 → undefined = 默认关）
+          profile: (profileKind: string) =>
+            profileKind === "subagent-kg-writer"
+              ? {
+                  ...SubAgentKgWriterProfile,
+                  thinkingLevel:
+                    SubAgentKgWriterProfile.thinkingLevel ??
+                    resourceService.thinkingSlot("subagent-kg-writer") ??
+                    globalThinking(),
+                }
+              : {
+                  ...SubAgentProfile,
+                  thinkingLevel:
+                    SubAgentProfile.thinkingLevel ?? resourceService.thinkingSlot("subagent-worker") ?? globalThinking(),
+                },
           // 可观测 logger（dispose kill 失败 warn；缺省静默）
           logger,
           // 两级链末级（AD-3/T12）：全局兜底现值解析（set_default 后新子进程跟随）
@@ -354,8 +379,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           models: catalog.modelsView(),
           // 模型槽位（profile 槽位 UI 化）：resource_state kind 槽位现值
           // （launch 时刻读取定格；未设 → 全局兜底）
-          uiModelSlot: () => {
-            const slot = resourceService.modelSlot("subagent-worker");
+          uiModelSlot: (profileKind: string) => {
+            // R7 per-kind：kg-writer 读自身槽位（不联动 worker）
+            const slot = resourceService.modelSlot(profileKind === "subagent-kg-writer" ? "subagent-kg-writer" : "subagent-worker");
             return slot === undefined ? undefined : resolveConfigModel(slot, catalog.modelsView());
           },
           // spawn 快照：组装产物缓存（启动/toggle 后重算，launch 读现值定格）。
@@ -431,11 +457,15 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       // 快照供给改读组装缓存（消观测漂移——与 launch 实际注入同源
       // 同时点；W-R6：按实例 profileKind 派发 kg-writer/worker 快照）；model
       // 链与 launcher resolveModelFor 同序：profile 槽位 ?? kind 槽位（uiModelSlot）?? 全局兑底
-      thinkingLevel: SubAgentProfile.thinkingLevel ?? resourceService.thinkingSlot("subagent-worker"), // 与 resolveThinkingFor 同源同时点（AD-4④）；无配置 → undefined = 默认关
+      // R7 per-kind + 全局兜底：与 launcher resolveThinkingFor/resolveModelFor 同源同时点（AD-4④）
+      thinkingLevel:
+        (profileKind === "subagent-kg-writer" ? SubAgentKgWriterProfile.thinkingLevel : SubAgentProfile.thinkingLevel) ??
+        resourceService.thinkingSlot(profileKind === "subagent-kg-writer" ? "subagent-kg-writer" : "subagent-worker") ??
+        globalThinking(),
       profileSnapshot: {
         systemPrompt: subagentAssemblyFor(profileKind).systemPrompt,
         tools: [...subagentAssemblyFor(profileKind).tools],
-        model: resolveSubagentModelId(),
+        model: resolveSubagentModelId(profileKind),
         hooks: SubAgentProfile.hooks.map((H) => H.hookName),
       },
     }),
@@ -565,8 +595,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               models: catalog.modelsView(),
               resolveModelById: (modelId) => resolveConfigModel(modelId, catalog.modelsView()),
               resolveThinking: (model) =>
+                // R7 全局兜底：链尾追加全局默认（未配槽位且未配全局 → 默认关不变）
                 resolveEffectiveThinking(
-                  [adapter?.thinkingOverride(), resourceService.thinkingSlot(profileKindOf(mode))],
+                  [adapter?.thinkingOverride(), resourceService.thinkingSlot(profileKindOf(mode)), globalThinking()],
                   model,
                 ),
               resolveTools: (names) => toolExecutor.resolveTools(names),

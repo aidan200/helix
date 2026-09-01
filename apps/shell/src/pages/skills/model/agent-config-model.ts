@@ -21,8 +21,12 @@ import type { AgentConfigProfileBlock, AgentConfigSystemBlock } from "@helix/pro
 /** profile kind 维（与协议 profileKind 字面量同源）。 */
 export type AgentKind = "main-session" | "subagent-worker";
 
-/** 只读系统派生 kind（agent-roster 批；可见不可编辑）。 */
+/** 系统派生 kind（agent-roster 批；R7 系统槽位批起 model/thinking 槽位
+ * 可编辑——工具集仍只读派生）。 */
 export type SystemAgentKind = "orchestrator" | "subagent-kg-writer";
+
+/** 写面 kind（R7：可编辑两 kind + 系统派生两 kind 的槽位型写）。 */
+export type WritableKind = AgentKind | SystemAgentKind;
 
 /** 列表/详情统一 id（master-detail 选中维）。 */
 export type AgentId = AgentKind | SystemAgentKind;
@@ -51,7 +55,7 @@ export type AgentWriteResource = "tool" | "skill" | "model" | "thinking";
 
 /** 写面在途 key（model/thinking 槽位统一空名——set/clear 同键单飞）。 */
 export function pendingKeyOf(
-  kind: AgentKind,
+  kind: WritableKind,
   resourceType: AgentWriteResource,
   name: string,
 ): string {
@@ -74,8 +78,8 @@ export type AgentPageAction =
   | { type: "list-result"; profiles: readonly AgentConfigProfileBlock[]; system?: readonly AgentConfigSystemBlock[] }
   | { type: "list-failed"; reason: string }
   | { type: "select-agent"; id: AgentId | null }
-  | { type: "toggle-started"; kind: AgentKind; resourceType: AgentWriteResource; name: string }
-  | { type: "toggle-settled"; kind: AgentKind; resourceType: AgentWriteResource; name: string };
+  | { type: "toggle-started"; kind: WritableKind; resourceType: AgentWriteResource; name: string }
+  | { type: "toggle-settled"; kind: WritableKind; resourceType: AgentWriteResource; name: string };
 
 function hasData(s: AgentPageState): boolean {
   return s.profiles["main-session"] !== null || s.profiles["subagent-worker"] !== null;

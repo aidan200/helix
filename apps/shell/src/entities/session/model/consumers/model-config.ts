@@ -28,6 +28,7 @@ export const MODEL_CONFIG_EVENT_TYPES = [
   "model.catalog_refresh.result",
   "model.set_default.result",
   "model.get_default.result",
+  "model.set_thinking_default.result",
   "auth.list.result",
   "auth.set_key.result",
   "auth.delete_key.result",
@@ -115,7 +116,12 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
       next = { ...mc, setDefaultInflight: null };
       break;
     case "model.get_default.result":
-      next = { ...mc, defaultModel: frame.payload.model };
+      // R7：全局默认推理强度随行（旧 daemon 不携带 → null = 未配置）
+      next = { ...mc, defaultModel: frame.payload.model, defaultThinking: frame.payload.thinkingDefault ?? null };
+      break;
+    case "model.set_thinking_default.result":
+      // 乐观值已由 set-thinking-default-started 写入；回执仅确认（无 in-flight 锁——档位选择器本地幂等）
+      next = mc;
       break;
     case "auth.list.result":
       next = replaceAuth(mc, frame.payload.providers);
@@ -167,6 +173,9 @@ export function applyModelConfigAction(mc: ModelConfigState, action: SessionActi
     case "model/set-default-started":
       // 乐观更新（选择器即时反映）+ 回执锁定
       return { ...mc, defaultModel: action.model, setDefaultInflight: action.model };
+    case "model/set-thinking-default-started":
+      // R7 乐观更新（null = 清除）
+      return { ...mc, defaultThinking: action.level };
     case "model/catalog-refresh-started":
       return { ...mc, catalogRefreshing: true };
     default:

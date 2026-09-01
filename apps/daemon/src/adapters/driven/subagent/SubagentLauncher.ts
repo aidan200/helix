@@ -52,7 +52,13 @@ export interface SubagentLauncherDeps {
    * （thinking/model 配置面）合并进解析输入；model/apiKeys 注入源模式同构先例）
    * 或静态对象。
    */
-  readonly profile: AgentProfile | (() => AgentProfile);
+  /**
+   * 实例 profile 读面（R7 per-kind 化）：入参 = 实例 profileKind——
+   * worker → SubAgentProfile 合并面；kg-writer → SubAgentKgWriterProfile
+   * 合并面（组合根各自合并 kind 槽位 + 全局兜底，launch 时刻读现值定格）。
+   * 静态形态（无函数）保留 = 测试回退（不分 kind，旧行为）。
+   */
+  readonly profile: AgentProfile | ((profileKind: string) => AgentProfile);
   /**
    * 全局兜底模型完整对象（解析单点产物，经 env JSON 透传子进程）。
    * 注入源为全局兜底模型存储（AD-2）——接受 getter（每次 launch 读现值，
@@ -111,11 +117,12 @@ export interface SubagentLauncherDeps {
     readonly systemPrompt: string;
   };
   /**
-   * 模型槽位（profile 槽位 UI 化）：resource_state kind 槽位读面
-   * （组合根注入——槽位 id → 完整 Model 对象解析后返回；未设 = undefined
-   * 走后续档）。launch 时刻读取定格（同 spawn 快照语义）。
+   * 模型槽位（profile 槽位 UI 化）：resource_state kind 槽位读面（R7
+   * per-kind：入参 = 实例 profileKind——kg-writer 读自身槽位，不联动
+   * worker；组合根注入——槽位 id → 完整 Model 对象解析后返回；未设 =
+   * undefined 走后续档）。launch 时刻读取定格（同 spawn 快照语义）。
    */
-  readonly uiModelSlot?: () => Model<any> | undefined;
+  readonly uiModelSlot?: (profileKind: string) => Model<any> | undefined;
   /** O-6 SIGKILL 升级阈值 ms（缺省 3000；测试注入小值）。 */
   readonly graceMs?: number;
   /** 剧本文件路径（测试注入；生产 undefined → 子进程用真实 streamFn）。 */
@@ -151,7 +158,8 @@ export class SubagentLauncher implements InstanceRunner {
   }
 
   /**
-   * AD-3 两级模型解析单点（TR-AD-24，T12 砍 spawn 会话快照级）：
+   * AD-3 两级模型解析单点（TR-AD-24，T12 砍 spawn 会话快照级；R7 per-kind 化——
+   * uiModelSlot 按实例 kind 读槽位，kg-writer 不联动 worker）：
    * ①profile.model（真实槽位，声明即最高优先级，装配期 resolveModel 解析）
    * → ②uiModelSlot（resource_state kind 槽位 UI 化，launch
    * 时刻读取）→ ③deps.model（全局兜底 getter）。高档有值即短路（低档不
@@ -159,8 +167,8 @@ export class SubagentLauncher implements InstanceRunner {
    * 链——不继承 main session 选择（spawn 透传值仅填充 AgentInstanceDto.model，
    * 不进本链）。
    */
-  resolveModelFor(): Model<any> {
-    const slot = this.profileNow().model;
+  resolveModelFor(profileKind: string): Model<any> {
+    const slot = this.profileNow(profileKind).model;
     if (slot !== undefined) {
       if (this.deps.models === undefined) {
         throw new Error(
@@ -170,27 +178,28 @@ export class SubagentLauncher implements InstanceRunner {
       }
       return resolveModel(this.deps.models, slot); // 失败 fail-fast 含 id（resolveModel 契约）
     }
-    const uiSlot = this.deps.uiModelSlot?.();
+    const uiSlot = this.deps.uiModelSlot?.(profileKind);
     if (uiSlot !== undefined) return uiSlot;
     return typeof this.deps.model === "function" ? this.deps.model() : this.deps.model;
   }
 
-  /** profile 声明读面（getter 注入源模式：launch 时刻读现值定格）。 */
-  private profileNow(): AgentProfile {
-    return typeof this.deps.profile === "function" ? this.deps.profile() : this.deps.profile;
+  /** profile 声明读面（getter 注入源模式：launch 时刻读现值定格；R7 入参
+   * profileKind——函数形态按 kind 派发，静态形态不分 kind 测试回退）。 */
+  private profileNow(profileKind: string): AgentProfile {
+    return typeof this.deps.profile === "function" ? this.deps.profile(profileKind) : this.deps.profile;
   }
 
   /**
    * thinking 解析单点（AD-1 落点二，thinking 批 T1.3）：单点短路链
-   * ——仅自身 profile.thinkingLevel 槽位（含组合根合并的 subagent-worker
-   * 槽位），无兜底（默认关 D 方案：未配置 → undefined → env 缺席 → 子
+   * ——仅自身 profile.thinkingLevel 槽位（R7：组合根合并 **本 kind** 槽位 +
+   * 全局默认兜底），未配置 → undefined → env 缺席 → 子
    * 进程不装注入器 = pi-ai 不传 reasoning 显式关）。有意短于模型两级链：
    * SubAgent 无 UI/快照级覆盖（红线：主会话覆盖永不进入本链——输入只有
    * profile 槽位，无会话覆盖读面）。launch 段唯一消费点（调用一次，结果
    * 经 env 定格透传子进程——代际生效，运行期不变）。
    */
-  resolveThinkingFor(): string | undefined {
-    return this.profileNow().thinkingLevel;
+  resolveThinkingFor(profileKind: string): string | undefined {
+    return this.profileNow(profileKind).thinkingLevel;
   }
 
   /** 启动实例执行（秒回：spawn + 接线，不 await 收口）。同一实例不重复 launch。 */
@@ -204,8 +213,8 @@ export class SubagentLauncher implements InstanceRunner {
     }
     // AD-3：两级解析单点（profile 槽位 > 全局兜底 getter；T12 砍 spawn 会话快照级）；
     // apiKeys 读现值（getter 注入源 = auth.json）
-    const model = this.resolveModelFor();
-    const thinkingLevel = this.resolveThinkingFor(); // launch 时刻定格（AD-1：spawn 快照）
+    const model = this.resolveModelFor(instance.profileKind);
+    const thinkingLevel = this.resolveThinkingFor(instance.profileKind); // launch 时刻定格（AD-1：spawn 快照；R7 per-kind）
     const apiKeys = typeof this.deps.apiKeys === "function" ? this.deps.apiKeys() : this.deps.apiKeys;
     // spawn 快照：launch 时刻读一次（toggle 后新 spawn 跟随新值，已
     // spawn 实例 env 已定格不受影响——代际生效）。W-R6：按实例 profileKind

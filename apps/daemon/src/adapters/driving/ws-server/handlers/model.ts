@@ -23,6 +23,7 @@ import type {
   ModelGetDefaultResultEvent,
   ModelGetResultEvent,
   ModelSetDefaultResultEvent,
+  ModelSetThinkingDefaultResultEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { WsCommandContext } from "./context";
@@ -130,6 +131,28 @@ export function handleModelSetDefault(ctx: WsCommandContext): void {
     .catch((err) => ctx.commandError(ctx.type, ctx.modelErrorCode(err), (err as Error).message));
 }
 
+/** model.set_thinking_default（R7 全局兜底批）：全局默认推理强度；null = 清除。 */
+export function handleModelSetThinkingDefault(ctx: WsCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const level = ctx.payload.level;
+  if (level !== null && (typeof level !== "string" || level.trim() === "")) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.level 应为非空 string（pi-ai ThinkingLevel 透传）或 null（清除）");
+  }
+  void ctx.model
+    .setThinkingDefault(level)
+    .then((r) => {
+      const frame: ModelSetThinkingDefaultResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "model",
+        type: "model.set_thinking_default.result",
+        payload: { previous: r.previous },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err) => ctx.commandError(ctx.type, ctx.modelErrorCode(err), (err as Error).message));
+}
+
 /** model.get_default（全局默认模型读）：model.get_default.result 点对点回执（同步直发）。 */
 export function handleModelGetDefault(ctx: WsCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
@@ -139,7 +162,8 @@ export function handleModelGetDefault(ctx: WsCommandContext): void {
     sessionId: SYSTEM_SESSION_ID,
     channel: "model",
     type: "model.get_default.result",
-    payload: { model: r.model },
+    // R7：全局默认推理强度随行下发（旧前端可选字段不感知）
+    payload: { model: r.model, thinkingDefault: r.thinkingDefault },
   };
   ctx.sendNow(sender, frame);
 }

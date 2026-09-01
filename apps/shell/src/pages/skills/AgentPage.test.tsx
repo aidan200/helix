@@ -315,24 +315,25 @@ describe("智能体页组件（M6 T4）", () => {
     void rerender;
   });
 
-  it("①b 只读详情（agent-roster）：纯展示——无开关/无下拉/无技能组；派生说明位 + 恒在徽标；选中切换回可编辑卡", async () => {
+  it("①b 系统详情（agent-roster + R7 系统槽位批）：模型/推理槽位可配、工具集只读派生；恒在徽标；选中切换回可编辑卡", async () => {
     mock.catalog = CATALOG;
     ui();
     act(() => feedList());
     // 默认选中 main（brief ④）：ready 后 main 详情卡在场
     expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy();
-    // orchestrator：声明全集纯展示
+    // orchestrator：模型/推理可配 + 工具只读
     act(() => selectAgent("orchestrator"));
     const orchCard = document.querySelector('[data-agent-card="orchestrator"]')!;
     expect(orchCard).toBeTruthy();
-    expect(orchCard.querySelector("[data-ro-badge]")!.textContent).toBe("只读");
-    // 无任何可操作控件：零开关 / 零下拉 / 零推理级别字段 / 零技能组
-    expect(orchCard.querySelectorAll("[data-switch]")).toHaveLength(0);
-    expect(orchCard.querySelectorAll("select")).toHaveLength(0);
-    expect(orchCard.querySelector(".tl-field")).toBeNull();
+    expect(orchCard.querySelector("[data-ro-badge]")!.textContent).toBe("工具只读");
+    // R7：模型下拉 + 推理级别字段在场（独立槽位）；工具行零开关（唯一 switch = thinking 开关）/零技能组
+    expect(orchCard.querySelectorAll("select")).toHaveLength(1);
+    expect(orchCard.querySelector(".tl-field")).not.toBeNull();
+    expect(orchCard.querySelectorAll("[data-switch]")).toHaveLength(1); // thinking 字段 on/off 开关
     expect(orchCard.textContent).not.toContain("技能");
-    // 模型位：静态「跟随全局默认」（非下拉选项，是纯文本展示）
-    expect(orchCard.querySelector("[data-ro-model]")!.textContent).toBe("跟随全局默认");
+    // 模型下拉缺省项 = 跟随全局默认（两级链文案）
+    const sel = orchCard.querySelector("select")! as HTMLSelectElement;
+    expect(sel.options[0]!.textContent).toBe("跟随全局默认");
     // 工具行：data-ro-tool-row + snippet（无 data-tool-row/无开关）
     expect(orchCard.querySelector('[data-ro-tool-row="agent_spawn"]')!.textContent).toContain("并行委派");
     expect(orchCard.querySelectorAll("[data-tool-row]")).toHaveLength(0);
@@ -345,7 +346,7 @@ describe("智能体页组件（M6 T4）", () => {
     );
     expect(kgwCard.querySelector('[data-ro-tool-row="kg-update"] [data-pinned-chip]')!.textContent).toBe("恒在");
     expect(kgwCard.querySelector('[data-ro-tool-row="bash"] [data-pinned-chip]')).toBeNull();
-    expect(kgwCard.querySelectorAll("[data-switch]")).toHaveLength(0);
+    expect(kgwCard.querySelectorAll("[data-switch]")).toHaveLength(1); // R7：thinking 字段开关（工具零开关）
     // 切回可编辑：开关回场（两组形态互斥）
     act(() => selectAgent("main-session"));
     expect(document.querySelectorAll('[data-agent-card="main-session"] [data-switch]').length).toBeGreaterThan(0);

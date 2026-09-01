@@ -52,12 +52,14 @@ interface SetEnabledInput {
 function normalizeSetEnabled(ctx: ResourceCommandContext, payload: Record<string, unknown>): SetEnabledInput | undefined {
   const { profileKind, resourceType, name, enabled } = payload;
   if (profileKind === "orchestrator" || profileKind === "subagent-kg-writer") {
-    // agent-roster 批：只读系统派生 kind 写面拒绝（新错误码；连接保持）——
-    // 硬层拒绝不依赖前端只读表现；其余未知 kind 仍 invalid_payload。
-    ctx.commandError(ctx.type, "agent.config.read_only", `payload.profileKind ${profileKind} 为只读系统派生 kind（可见不可编辑，写面拒绝）`);
-    return undefined;
-  }
-  if (profileKind !== "main-session" && profileKind !== "subagent-worker") {
+    if (resourceType !== "model" && resourceType !== "thinking") {
+      // R7 系统槽位批：系统派生 kind 仅 model/thinking 槽位型可写（独立配置，
+      // 未配跟随全局）；tool/skill 启停写面仍拒（硬层拒绝不依赖前端表现）。
+      ctx.commandError(ctx.type, "agent.config.read_only", `payload.profileKind ${profileKind} 为系统派生 kind：仅 model/thinking 槽位可配，tool/skill 启停只读（写面拒绝）`);
+      return undefined;
+    }
+    // 槽位型放行（校验后续通用段：resourceType/name/enabled 形状）
+  } else if (profileKind !== "main-session" && profileKind !== "subagent-worker") {
     ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\"");
     return undefined;
   }
@@ -79,7 +81,9 @@ function normalizeSetEnabled(ctx: ResourceCommandContext, payload: Record<string
 /** ResourceConfigBlock（domain 面）→ AgentConfigProfileBlock（协议 DTO）：model/thinkingLevel undefined → null。 */
 function toProfileBlockDto(block: ResourceConfigBlock): AgentConfigProfileBlock {
   return {
-    profileKind: block.profileKind,
+    // R7：ProfileKind 扩四值后此处仅可编辑 kind 经过（kg-writer 走 system 块），
+    // 调用面恒 [main, sub]——收窄断言安全
+    profileKind: block.profileKind as AgentConfigProfileBlock["profileKind"],
     tools: block.tools.map((t) => ({ ...t })),
     skills: block.skills.map((s) => ({ ...s })),
     diagnostics: block.diagnostics.map((d) => ({ ...d })),
@@ -101,11 +105,16 @@ function toSystemBlocksDto(
   worker: ResourceConfigBlock,
   orch: ResourceConfigBlock,
   pinnedTools: readonly string[],
+  kgwModel: string | undefined,
+  kgwThinking: string | undefined,
 ): readonly AgentConfigSystemBlock[] {
   return [
     {
       profileKind: "orchestrator",
       tools: orch.tools.map((t) => ({ name: t.name, snippet: t.snippet })),
+      // R7 系统槽位：独立配置，未配跟随全局（不联动 worker）
+      model: orch.model ?? null,
+      thinkingLevel: orch.thinkingLevel ?? null,
     },
     {
       profileKind: "subagent-kg-writer",
@@ -118,6 +127,10 @@ function toSystemBlocksDto(
       ],
       derivedFrom: "subagent-worker",
       pinnedTools: [...pinnedTools],
+      // R7：kg-writer 独立槽位（工具集仍派生 worker——职责语义；
+      // 模型/推理不联动）
+      model: kgwModel ?? null,
+      thinkingLevel: kgwThinking ?? null,
     },
   ];
 }
@@ -159,7 +172,7 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
         type: "agent.config.list.result",
         payload: {
           profiles: [main, sub].map(toProfileBlockDto),
-          system: toSystemBlocksDto(main, sub, orch, ctx.kgWriterPinnedTools),
+          system: toSystemBlocksDto(main, sub, orch, ctx.kgWriterPinnedTools, ctx.resource.modelSlot("subagent-kg-writer"), ctx.resource.thinkingSlot("subagent-kg-writer")),
         },
       };
       ctx.sendNow(sender, frame);

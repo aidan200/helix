@@ -180,6 +180,17 @@ export interface AgentConfigSystemBlock {
   derivedFrom?: "subagent-worker";
   /** 派生面恒在工具（kg-writer = ["kg-update"]；orchestrator 不携带）。 */
   pinnedTools?: readonly string[];
+  /**
+   * 模型槽位现值（R7 系统槽位批 additive）：未配置 = null（跟随全局默认模型，
+   * 两级链与可编辑 kind 同构——不联动 worker 槽位）。仅槽位型可写
+   * （set_enabled resourceType=model）；tool/skill 启停写面对 system kind 恒拒。
+   */
+  model?: string | null;
+  /**
+   * thinking 槽位现值（R7 additive）：未配置 = null（跟随全局默认推理强度，
+   * 未配全局 → 默认关）。同 model 仅槽位型可写。
+   */
+  thinkingLevel?: string | null;
 }
 
 /**
@@ -188,8 +199,8 @@ export interface AgentConfigSystemBlock {
  * model 型 name = 模型 id 或 null（clear））。
  */
 export interface AgentConfigChangedPayload {
-  /** 配置单元 kind（T2.2 additive 扩第三值；写面实际可写仍两值——编排工具配置 UI 归后续迭代）。 */
-  profileKind: "main-session" | "subagent-worker" | "orchestrator";
+  /** 配置单元 kind（R7 扩四值：system kind 仅 model/thinking 槽位变更广播）。 */
+  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer";
   /** thinking = v0.11 批内补登（thinking 槽位，AD-6；与 model 同为槽位语义非启停）。 */
   resourceType: "tool" | "skill" | "model" | "thinking";
   /** tools/skills = 资源名；model = 模型 id 或 null（clear）；thinking = 档位字符串或 null（clear）。 */

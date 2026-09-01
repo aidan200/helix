@@ -6,6 +6,7 @@ import { WriteQueue } from "../../adapters/driven/sqlite-session/WriteQueue";
 import { SqliteSessionRepository } from "../../adapters/driven/sqlite-session/SqliteSessionRepository";
 import { SqliteTraceQueryAdapter } from "../../adapters/driven/sqlite-session/SqliteTraceQueryAdapter";
 import { DefaultModelStore } from "../../adapters/driven/sqlite-session/DefaultModelStore";
+import { DefaultThinkingStore } from "../../adapters/driven/sqlite-session/DefaultThinkingStore";
 import { RuntimeConfigStore } from "../../adapters/driven/sqlite-session/RuntimeConfigStore";
 import { ResourceStateStore } from "../../adapters/driven/sqlite-session/ResourceStateStore";
 import { DEFAULT_MODEL_ID } from "../../adapters/driven/pi-engine/model-provider";
@@ -22,6 +23,7 @@ export interface PersistenceStack {
   readonly traceQuery: TraceQueryPort;
   readonly runtimeConfig: RuntimeConfigStore;
   readonly defaultModel: DefaultModelStore;
+  readonly defaultThinking: DefaultThinkingStore;
   readonly resourceState: ResourceStateStore;
 }
 
@@ -38,6 +40,8 @@ export function buildPersistence(deps: { readonly paths: HelixPaths; readonly lo
   // + builtin 兑底——消费面 DefaultModelPort 签名不变，只换存储底座）
   const runtimeConfig = new RuntimeConfigStore(writeQueue);
   const defaultModel = new DefaultModelStore(runtimeConfig, DEFAULT_MODEL_ID);
+  // R7 全局兜底批：全局默认推理强度（KV 第二键；无 builtin 兜底——null = 未配置）
+  const defaultThinking = new DefaultThinkingStore(runtimeConfig);
   const resourceState = new ResourceStateStore(writeQueue);
-  return { writeQueue, repository, traceQuery, runtimeConfig, defaultModel, resourceState };
+  return { writeQueue, repository, traceQuery, runtimeConfig, defaultModel, defaultThinking, resourceState };
 }

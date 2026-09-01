@@ -26,6 +26,8 @@
  * normal|armed（单值，超时复原）。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import ThinkingLevelSlider from "@/features/thinking-level/ui/ThinkingLevelSlider";
+import { defaultLevelFor, resolveThinkingCapability } from "@/features/thinking-level/model/thinking-capability";
 import {
   AlertCircle,
   ChevronDown,
@@ -116,6 +118,7 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
     requestAuthList,
     refreshModelCatalog,
     setDefaultModel,
+    setThinkingDefault,
     verifyProvider,
     setProviderKey,
     deleteProviderKey,
@@ -240,6 +243,41 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
                   </optgroup>
                 ))}
               </select>
+              {(() => {
+                // R7 全局兜底批：全局默认推理强度（档位解析基准 = 全局默认模型能力）
+                const capability = resolveThinkingCapability(mc.defaultModel === "" ? "" : mc.defaultModel, mc.catalog?.models ?? undefined);
+                const levels = capability?.thinkingLevels ?? [];
+                if (levels.length === 0) {
+                  return (
+                    <p className="ag-note" data-global-thinking-unsupported>
+                      {t("chat.modelsConfig.thinkingUnsupported")}
+                    </p>
+                  );
+                }
+                return (
+                  <div className="fld" data-global-thinking>
+                    <span className="hud-label">{t("chat.modelsConfig.thinkingDefaultLabel")}</span>
+                    <ThinkingLevelSlider
+                      levels={levels}
+                      value={mc.defaultThinking !== null && levels.includes(mc.defaultThinking) ? mc.defaultThinking : null}
+                      ghostValue={defaultLevelFor(levels)}
+                      disabled={mc.catalog === null}
+                      onSelect={(level) => setThinkingDefault(level)}
+                      ariaLabel={t("chat.modelsConfig.thinkingDefaultLabel")}
+                    />
+                    {mc.defaultThinking !== null && (
+                      <button
+                        type="button"
+                        className="hud-btn hud-btn-ghost hud-btn sm"
+                        onClick={() => setThinkingDefault(null)}
+                        data-global-thinking-clear
+                      >
+                        {t("chat.modelsConfig.thinkingDefaultClear")}
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
               <span className="sel-chev">
                 <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
               </span>

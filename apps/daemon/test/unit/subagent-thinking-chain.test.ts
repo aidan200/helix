@@ -67,12 +67,12 @@ function makeLauncher(profile: AgentProfile | (() => AgentProfile)): SubagentLau
 describe("resolveThinkingFor（SubAgent 链解析单点：仅 profile 槽位，无兜底）", () => {
   test("profile.thinkingLevel 在位 → 槽位值", () => {
     const launcher = makeLauncher({ ...SubAgentProfile, thinkingLevel: "xhigh" });
-    expect(launcher.resolveThinkingFor()).toBe("xhigh");
+    expect(launcher.resolveThinkingFor("subagent-worker")).toBe("xhigh");
   });
 
   test("profile 留空 → undefined（默认关，D 方案：无 medium 兜底）", () => {
     const launcher = makeLauncher(SubAgentProfile);
-    expect(launcher.resolveThinkingFor()).toBeUndefined();
+    expect(launcher.resolveThinkingFor("subagent-worker")).toBeUndefined();
   });
 
   test("profile getter 形态：launch 时刻读现值（resource_state 槽位合并面，配置变更后新 spawn 跟随）", () => {
@@ -81,9 +81,9 @@ describe("resolveThinkingFor（SubAgent 链解析单点：仅 profile 槽位，�
       ...SubAgentProfile,
       ...(slot !== undefined ? { thinkingLevel: slot } : {}),
     }));
-    expect(launcher.resolveThinkingFor()).toBeUndefined(); // 未配置 → 默认关
+    expect(launcher.resolveThinkingFor("subagent-worker")).toBeUndefined(); // 未配置 → 默认关
     slot = "high";
-    expect(launcher.resolveThinkingFor()).toBe("high"); // 读现值
+    expect(launcher.resolveThinkingFor("subagent-worker")).toBe("high"); // 读现值
   });
 
   test("隔离负断言（AD-1 红线）：main-session 槽位/主会话覆盖存在时 SubAgent 解析零影响", () => {
@@ -94,7 +94,7 @@ describe("resolveThinkingFor（SubAgent 链解析单点：仅 profile 槽位，�
       ...SubAgentProfile,
       ...(slots["subagent-worker"] !== undefined ? { thinkingLevel: slots["subagent-worker"] } : {}),
     }));
-    expect(launcher.resolveThinkingFor()).toBeUndefined(); // main 的 max 不传染
+    expect(launcher.resolveThinkingFor("subagent-worker")).toBeUndefined(); // main 的 max 不传染
   });
 });
 

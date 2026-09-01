@@ -73,6 +73,7 @@ import {
   modelGetDefaultCommand,
   modelSetCommand,
   modelSetDefaultCommand,
+  modelSetThinkingDefaultCommand,
   sessionDeleteCommand,
   sessionListCommand,
   sessionLoadHistoryCommand,
@@ -178,6 +179,8 @@ interface SessionContextValue {
   refreshModelCatalog: () => void;
   /** 全局默认写入（P-4 选择器；乐观更新 + 回执锁定）。 */
   setDefaultModel: (model: string) => void;
+  /** R7：全局默认推理强度（null = 清除）。 */
+  setThinkingDefault: (level: string | null) => void;
   /** 连通验证（P-4 测试连通；started 先清旧态）。 */
   verifyProvider: (providerId: string) => void;
   /** key 保存（P-4 弹层；写 ~/.helix/auth.json）。 */
@@ -828,6 +831,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     clientRef.current!.send(modelSetDefaultCommand(model));
   }, []);
 
+  /** R7 全局兜底批：全局默认推理强度（null = 清除回未配置态）。 */
+  const setThinkingDefault = useCallback((level: string | null) => {
+    dispatch({ type: "model/set-thinking-default-started", level });
+    clientRef.current!.send(modelSetThinkingDefaultCommand(level));
+  }, []);
+
   const verifyProvider = useCallback((providerId: string) => {
     dispatch({ type: "model/verify-started", providerId }); // 先清旧态置 verifying
     clientRef.current!.send(authVerifyCommand(providerId));
@@ -873,6 +882,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       requestAuthList,
       refreshModelCatalog,
       setDefaultModel,
+      setThinkingDefault,
       verifyProvider,
       setProviderKey,
       deleteProviderKey,

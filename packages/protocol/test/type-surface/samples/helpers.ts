@@ -179,6 +179,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `agent-parked:${event.payload.agentId}:${event.payload.reason}:${event.payload.parkedAt}`;
     case "agent.resumed":
       return `agent-resumed:${event.payload.agentId}`;
+    case "model.set_thinking_default.result":
+      return `model-set-thinking-default:${event.payload.previous}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -305,6 +307,8 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "task.subscribe":
     case "task.unsubscribe":
       return `task-${cmd.type.split(".")[1]}:${cmd.payload.jobId ?? "*"}`;
+    case "model.set_thinking_default":
+      return `model-set-thinking-default:${String(cmd.payload.level)}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

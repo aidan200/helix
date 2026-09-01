@@ -635,17 +635,26 @@ describe("agent.config 前置校验（payload 形状）", () => {
           "等待 read_only 拒绝",
         );
       }
+      // R7 系统槽位批：kg-writer 的 model/thinking 槽位可写（独立配置）；
+      // tool/skill 启停仍拒。此处 clear model 槽位 → applied 回执（不再 read_only）。
       client.send({
         v: PROTOCOL_VERSION,
         type: "agent.config.set_enabled",
         payload: { profileKind: "subagent-kg-writer", resourceType: "model", name: "-", enabled: false },
+      });
+      await client.expect("agent.config.set_enabled.result");
+      // kg-writer tool 启停仍拒（read_only）
+      client.send({
+        v: PROTOCOL_VERSION,
+        type: "agent.config.set_enabled",
+        payload: { profileKind: "subagent-kg-writer", resourceType: "tool", name: "grep", enabled: false },
       });
       {
         const at = client.frames.length;
         await until(
           () => client.frames.slice(at).some((f) => f.type === "connection.error" && f.payload.code === "agent.config.read_only"),
           3000,
-          "等待 read_only 拒绝（kg-writer）",
+          "等待 read_only 拒绝（kg-writer tool）",
         );
       }
       // 连接保持 + 零落库（只读 kind 无用户可写面）

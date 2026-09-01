@@ -158,7 +158,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 54 个 type（… + v0.11 1 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1）", () => {
+  test("命令目录恰为 55 个 type（… + v0.11 1 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.config.list",
@@ -194,6 +194,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "model.get_default",
         "model.set",
         "model.set_default",
+    "model.set_thinking_default",
         "session.delete",
         "session.list",
         "session.loadHistory",
@@ -219,7 +220,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 70 个 type（… + kg 评审批 1 + 网络重试批 1 + park/resume 批 2）", () => {
+  test("事件目录恰为 71 个 type（… + kg 评审批 1 + 网络重试批 1 + park/resume 批 2）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -271,6 +272,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "model.get.result",
         "model.get_default.result",
         "model.set_default.result",
+      "model.set_thinking_default.result",
         "session.list.result",
         "session.list_changed",
         "session.loadHistory.result",
@@ -477,6 +479,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "model.get.result",
       "model.get_default.result",
       "model.set_default.result",
+      "model.set_thinking_default.result",
     ]);
     expect(roster("interaction")).toEqual([]); // 占位族：无事件挂靠
     expect(roster("trace")).toEqual(["trace.query.result"]); // v0.4 新族（点对点结果帧）
@@ -508,11 +511,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（网络重试批后）：EVENT_TYPES 68 / EVENT_CHANNELS 68 键 / COMMAND_TYPES 54", () => {
-    expect(EVENT_TYPES.length).toBe(70); // 网络重试批：+1（engine.retrying 瞬态反馈帧）
-    expect(new Set(EVENT_TYPES).size).toBe(70); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(70); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(54); // kg.health 批：+1（kg 族 additive）
+  test("目录计数（R7 全局兜底批后）：EVENT_TYPES 71 / EVENT_CHANNELS 71 键 / COMMAND_TYPES 55", () => {
+    expect(EVENT_TYPES.length).toBe(71); // R7 全局兜底批：+1（model.set_thinking_default.result）
+    expect(new Set(EVENT_TYPES).size).toBe(71); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(71); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(55); // R7 全局兜底批：+1（model.set_thinking_default）
   });
 
 });

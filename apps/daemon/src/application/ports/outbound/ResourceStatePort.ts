@@ -15,10 +15,12 @@
  *   thinking 槽位同构（AD-6 扩维：setThinkingSlot 原子替换，单行不变式相同）。
  */
 /**
- * 配置单元 = profile kind（main-session / subagent-worker / orchestrator，
- * T2.2 增第三值——编排主 agent；additive 扩值，既有两值语义零变化）。
+ * 配置单元 = profile kind（main-session / subagent-worker / orchestrator /
+ * subagent-kg-writer）。T2.2 增第三值；R7 系统槽位批增第四值——两个系统
+ * 派生 kind 开 model/thinking 槽位（独立配置，未配跟随全局，不联动
+ * worker）；tool/skill 启停写面对系统 kind 仍拒（agent.config.read_only）。
  */
-export type ProfileKind = "main-session" | "subagent-worker" | "orchestrator";
+export type ProfileKind = "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer";
 
 /** 资源类型（tool/skill = 启停差异行；model/thinking = 槽位单行——
  *  thinking 为 thinking 批扩值（AD-6，iter-20260823-6ps5 T1.3）：档位字符串

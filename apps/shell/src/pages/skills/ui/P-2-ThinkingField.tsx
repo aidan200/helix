@@ -43,10 +43,10 @@ import type { CatalogModel } from "@helix/protocol";
 import ThinkingLevelSlider from "@/features/thinking-level/ui/ThinkingLevelSlider";
 import { defaultLevelFor, isPeakLevel } from "@/features/thinking-level/model/thinking-capability";
 import { resolveEffectiveLevel } from "@/features/thinking-level/model/thinking-resolution";
-import type { AgentKind } from "../model/agent-config-model";
+import type { AgentKind, SystemAgentKind } from "../model/agent-config-model";
 
 export interface P2ThinkingFieldProps {
-  kind: AgentKind;
+  kind: AgentKind | SystemAgentKind; // R7：system 卡槽位同构复用
   /** AgentProfile 配置资源 thinking 槽位现值（null = 未配置 = 开关 off）。 */
   thinkingLevel: string | null;
   /** 槽位模型能力位（undefined = 目录未到达或模型不在目录）。 */

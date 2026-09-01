@@ -46,9 +46,19 @@ export interface ModelSetDefaultResultPayload {
   previous: string;
 }
 
+/** model.set_thinking_default.result（R7）：全局默认推理强度回执（previous = 变更前；null = 未配） */
+export interface ModelSetThinkingDefaultResultPayload {
+  previous: string | null;
+}
+
 /** model.get_default.result：全局默认读面（SQLite，builtin 兜底） */
 export interface ModelGetDefaultResultPayload {
   model: string;
+  /**
+   * 全局默认推理强度（R7 additive）：null = 未配置（各 agent 未配槽位时默认关）；
+   * 旧 daemon 不携带（可选字段，前端缺省按 null 处理）。
+   */
+  thinkingDefault?: string | null;
 }
 
 /** auth.list.result：provider 全集 × 凭据状态（脱敏，P-4 列表行数据） */
@@ -105,6 +115,11 @@ export interface ModelCatalogRefreshResultEvent
 export interface ModelSetDefaultResultEvent extends EventFrame<ModelSetDefaultResultPayload> {
   channel?: "model";
   type: "model.set_default.result";
+}
+/** model.set_thinking_default.result 帧（R7） */
+export interface ModelSetThinkingDefaultResultEvent extends EventFrame<ModelSetThinkingDefaultResultPayload> {
+  channel?: "model";
+  type: "model.set_thinking_default.result";
 }
 /** model.get_default.result：全局默认读面回执（点对点；全局命令） */
 export interface ModelGetDefaultResultEvent extends EventFrame<ModelGetDefaultResultPayload> {

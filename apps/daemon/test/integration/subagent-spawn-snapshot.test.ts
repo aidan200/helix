@@ -238,7 +238,7 @@ describe("uiModelSlot：profile 槽位 UI 化（M6 T2；T12 两级链）", () =>
         return mkModel("slot-model");
       },
     });
-    expect(l1.resolveModelFor().id).toBe("profile-model");
+    expect(l1.resolveModelFor("subagent-worker").id).toBe("profile-model");
     expect(counters()).toEqual({ slotCalls: 0, globalCalls: 0 }); // 低档零调用
 
     // 档②：uiModelSlot（resource_state kind 槽位）> 全局兜底
@@ -255,7 +255,7 @@ describe("uiModelSlot：profile 槽位 UI 化（M6 T2；T12 两级链）", () =>
         return mkModel("slot-model");
       },
     });
-    expect(l2.resolveModelFor().id).toBe("slot-model");
+    expect(l2.resolveModelFor("subagent-worker").id).toBe("slot-model");
     expect(counters()).toEqual({ slotCalls: 1, globalCalls: 0 });
 
     // 档③：无 profile 槽位（静态声明 + kind 槽位均缺席）→ 全局兜底
@@ -273,7 +273,7 @@ describe("uiModelSlot：profile 槽位 UI 化（M6 T2；T12 两级链）", () =>
         return undefined; // 槽位未设
       },
     });
-    expect(l3.resolveModelFor().id).toBe("global");
+    expect(l3.resolveModelFor("subagent-worker").id).toBe("global");
     expect(counters()).toEqual({ slotCalls: 2, globalCalls: 1 });
   });
 });

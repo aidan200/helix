@@ -27,7 +27,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       topology: {
         modelConfig: {
           catalog: null,
-          defaultModel: "",
+          defaultModel: "", defaultThinking: null,
           auth: {},
           authLoaded: false,
           verifyInflight: null,

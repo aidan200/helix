@@ -5,6 +5,7 @@ import type { WorkLedgerService } from "../../application/services/task/WorkLedg
 import { PiAgentEngineAdapter, type PiEngineOptions } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import type { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
 import { OrchestratorProfile } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
+import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinking-resolve";
 import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
 import type { TaskOpsToolDeps } from "../../adapters/driven/tools/task-ops/TaskOpsTools";
@@ -29,6 +30,19 @@ export interface OrchestratorSessionFactoryDeps {
   readonly assembly: () => { readonly tools: readonly string[]; readonly systemPrompt: string };
   /** 全局兜底模型完整对象（解析单点产物透传）。 */
   readonly model: () => OrchestratorModel;
+  /**
+   * R7 系统槽位批：orchestrator kind 模型槽位现值（id 形态；未设 = undefined
+   * → 走全局兜底 deps.model()）。组合根注入 resourceService.modelSlot 读面。
+   */
+  readonly modelSlot?: () => string | undefined;
+  /** R7：id → 完整 Model 对象解析（与 deps.model 同目录同法）。 */
+  readonly resolveModelById?: (modelId: string) => OrchestratorModel;
+  /**
+   * R7：编排会话 thinking 解析链 [orchestrator 槽位, 全局默认]（未配 →
+   * undefined = 默认关；与主会话 resolveEffectiveThinking 链同构，无会话
+   * 覆盖位——编排会话无 UI 覆盖入口）。组合根注入。
+   */
+  readonly thinkingChain?: () => readonly (string | undefined)[];
   /** provider → apiKey（auth.json 现值快照 getter）。 */
   readonly apiKeys: () => Record<string, string>;
   /** 模型目录（compaction/换模解析；可选，PiEngineOptions 同源形态）。 */
@@ -86,7 +100,12 @@ export function createOrchestratorSessionFactory(
         // W1：未绑定（kg 只读面缺席）时剔除 kg——声明与注册面一致（resolveTools 硬校验不破）
         tools: assembly.tools.filter((t) => kgNow !== undefined || t !== "kg"),
       },
-      model: deps.llmOverride?.model() ?? deps.model(),
+      // R7 两级链：orchestrator 槽位 ?? 全局兜底（llmOverride 测试面恒最高）
+      model: deps.llmOverride?.model() ?? (deps.modelSlot !== undefined && deps.resolveModelById !== undefined && deps.modelSlot() !== undefined ? deps.resolveModelById(deps.modelSlot()!) : deps.model()),
+      // R7：thinking 链注入（wrapStreamFnThinking 消费——每 turn 读现值）
+      ...(deps.thinkingChain !== undefined
+        ? { resolveThinking: (model: Parameters<NonNullable<PiEngineOptions["resolveThinking"]>>[0]) => resolveEffectiveThinking(deps.thinkingChain!(), model) }
+        : {}),
       // 测试接缝：llmOverride.apiKeys 浅合并覆盖生产 authStore 快照
       //（fake provider key；缺省 = 生产快照不变）
       apiKeys: () => ({ ...deps.apiKeys(), ...(deps.llmOverride?.apiKeys?.() ?? {}) }),

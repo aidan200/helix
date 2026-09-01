@@ -64,6 +64,8 @@ export interface ModelServiceDeps {
   readonly auth: AuthStorePort;
   /** 全局默认模型存储（SQLite 单写通道）。 */
   readonly defaultModel: DefaultModelPort;
+  /** R7 全局兜底批：全局默认推理强度 KV（可选——测试缺省直返 null）。 */
+  readonly defaultThinking?: { stored(): string | null; set(level: string | null): Promise<void> };
   /** model.changed 广播出海（容器接 EventStream；channel=model）。 */
   readonly onModelChanged: (payload: { sessionId: string; model: string; previous: string; effective: "next-turn" }) => void;
   /** thinking.changed 广播出海（thinking 批①；容器接 EventStream；channel=thinking）。 */
@@ -129,8 +131,18 @@ export class ModelService implements ModelPort {
     return { previous };
   }
 
-  getDefault(): { model: string } {
-    return { model: this.deps.defaultModel.current() };
+  getDefault(): { model: string; thinkingDefault: string | null } {
+    return { model: this.deps.defaultModel.current(), thinkingDefault: this.deps.defaultThinking?.stored() ?? null };
+  }
+
+  /** R7 全局兜底批：全局默认推理强度写（null = 清除回未配置态）。 */
+  async setThinkingDefault(level: string | null): Promise<{ previous: string | null }> {
+    if (level !== null && (typeof level !== "string" || level.trim() === "")) {
+      throw new ModelNotFoundError(String(level)); // 形状防线（透传档位本不校验，空串归形状错）
+    }
+    const previous = this.deps.defaultThinking?.stored() ?? null;
+    await this.deps.defaultThinking?.set(level);
+    return { previous };
   }
 
   async authList(): Promise<AuthProviderStatus[]> {

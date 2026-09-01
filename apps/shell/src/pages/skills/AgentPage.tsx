@@ -52,6 +52,7 @@ import {
   type AgentId,
   type AgentKind,
   type AgentWriteResource,
+  type SystemAgentKind,
 } from "./model/agent-config-model";
 import P2ThinkingField from "./ui/P-2-ThinkingField";
 import { resolveThinkingCapability } from "@/features/thinking-level/model/thinking-capability";
@@ -303,30 +304,110 @@ function ProfileCard({
   );
 }
 
-/** 只读系统派生详情卡（agent-roster 批）：纯展示——无开关/无下拉/无技能组；
+/** 系统派生详情卡（agent-roster 批 + R7 系统槽位批）：model/thinking 槽位
+ *  可编辑（独立配置，未配跟随全局——不联动 worker）；工具集只读派生；
  *  kg-writer 附派生说明位；恒在工具行带恒在徽标。 */
-function SystemProfileCard({ kind, block }: { kind: "orchestrator" | "subagent-kg-writer"; block: AgentConfigSystemBlock | null }) {
+function SystemProfileCard({
+  kind,
+  block,
+  catalog,
+  defaultModel,
+  auth,
+  authLoaded,
+  writePending,
+  onToggle,
+  onModelChange,
+}: {
+  kind: SystemAgentKind;
+  block: AgentConfigSystemBlock | null;
+  catalog: CatalogModel[] | null;
+  defaultModel: string | undefined;
+  auth: Record<string, AuthProviderEntry>;
+  authLoaded: boolean;
+  writePending: boolean;
+  onToggle: (kind: AgentKind | SystemAgentKind, resourceType: AgentWriteResource, name: string, enabled: boolean) => void;
+  onModelChange: (kind: AgentKind | SystemAgentKind, model: string) => void;
+}) {
   const { t } = useI18n();
   const isKgWriter = kind === "subagent-kg-writer";
+  const selId = `sel-model-${kind}`;
+  /** S3a 可用性口径（ProfileCard 同一过滤函数/数据源/兜底链） */
+  const modelsByProvider = useMemo(() => {
+    const effective = block?.model ?? defaultModel ?? "";
+    const visible = filterAvailableModels({
+      models: catalog ?? [],
+      auth,
+      authLoaded,
+      currentModel: effective || undefined,
+      query: "",
+    });
+    const map = new Map<string, CatalogModel[]>();
+    for (const m of visible) {
+      const list = map.get(m.providerId);
+      if (list) list.push(m);
+      else map.set(m.providerId, [m]);
+    }
+    return map;
+  }, [catalog, auth, authLoaded, block?.model, defaultModel]);
+  const thinkingCapability = useMemo(
+    () => resolveThinkingCapability(block?.model ?? defaultModel ?? "", catalog ?? undefined),
+    [block?.model, defaultModel, catalog],
+  );
   return (
-    <section className="hud-card ag-card ag-card-ro" data-agent-card={kind}>
+    <section className="hud-card ag-card" data-agent-card={kind}>
       <header className="ag-card-head">
         <h2 className="ag-card-title">{agentTitleOf(t, kind)}</h2>
         <span className="hud-chip" data-kind-chip>
           {kind}
         </span>
+        {/* R7：工具集只读派生；模型/推理槽位可配 */}
         <span className="hud-badge hud-badge-off" data-ro-badge>
-          {t("agents.roBadge")}
+          {t("agents.roToolsBadge")}
         </span>
       </header>
 
-      {/* 模型位：静态展示「跟随全局默认」（不可操作——系统派生形态不设槽位） */}
+      {/* 模型槽位（R7）：独立配置，缺省项 = 跟随全局默认（不联动 worker） */}
       <div className="ag-model">
-        <span className="hud-label">{t("agents.modelLabel")}</span>
-        <p className="ag-ro-model-value" data-ro-model>
-          {t("agents.roModelValue")}
+        <label className="hud-label" htmlFor={selId}>
+          {t("agents.modelLabel")}
+        </label>
+        <div className="sel-wrap">
+          <select
+            id={selId}
+            className="hud-input"
+            value={block?.model ?? ""}
+            disabled={catalog === null || writePending}
+            onChange={(e) => onModelChange(kind, e.target.value)}
+          >
+            <option value="">{t("agents.modelFollowGlobal")}</option>
+            {[...modelsByProvider.entries()].map(([providerId, models]) => (
+              <optgroup label={providerId} key={providerId}>
+                {models.map((m) => (
+                  <option value={m.id} key={m.id}>
+                    {m.id}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <span className="sel-chev">
+            <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+          </span>
+        </div>
+        <p className="ag-note" data-ro-note>
+          {t("agents.modelNoteSystem")}
         </p>
       </div>
+
+      {/* 推理强度槽位（R7）：与可编辑卡同构（档位透传；clear = "-" 占位） */}
+      <P2ThinkingField
+        kind={kind}
+        thinkingLevel={block?.thinkingLevel ?? null}
+        capability={thinkingCapability}
+        disabled={writePending}
+        onSelect={(level) => onToggle(kind, "thinking", level, true)}
+        onClear={() => onToggle(kind, "thinking", "-", false)}
+      />
 
       {/* 派生说明位（kg-writer 独有）：工具集跟随 + 恒在面 */}
       {isKgWriter && (
@@ -453,7 +534,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
   }, [requestModelConfig, requestAuthList, runList]);
 
   /** 最近一次写命令（结果帧无请求回显——skipped 定向清在途用）。 */
-  const lastWriteRef = useRef<{ kind: AgentKind; resourceType: WriteResource; name: string } | null>(null);
+  const lastWriteRef = useRef<{ kind: AgentKind | SystemAgentKind; resourceType: WriteResource; name: string } | null>(null);
 
   // 点对点回执消费（页面私有 reducer；AG-15 不进 session store）
   useEffect(
@@ -504,7 +585,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
 
   /** 写面单飞：pending 非空不再发（结果帧无回显，同刻至多一条在途）。 */
   const onToggle = useCallback(
-    (kind: AgentKind, resourceType: WriteResource, name: string, enabled: boolean) => {
+    (kind: AgentKind | SystemAgentKind, resourceType: WriteResource, name: string, enabled: boolean) => {
       if (stateRef.current.pending.size > 0) return;
       dispatch({ type: "toggle-started", kind, resourceType, name });
       lastWriteRef.current = { kind, resourceType, name };
@@ -516,7 +597,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
   /** 模型槽位：选中 = set（name=模型 id，enabled=true）；缺省项 = clear
    *  （name = 忽略位占位 "-"——契约钉非空，v06 样例同形）。 */
   const onModelChange = useCallback(
-    (kind: AgentKind, model: string) => {
+    (kind: AgentKind | SystemAgentKind, model: string) => {
       onToggle(kind, "model", model === "" ? "-" : model, model !== "");
     },
     [onToggle],
@@ -629,7 +710,17 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
                   onModelChange={onModelChange}
                 />
               ) : (
-                <SystemProfileCard kind={state.selected} block={state.system[state.selected]} />
+                <SystemProfileCard
+                  kind={state.selected}
+                  block={state.system[state.selected]}
+                  catalog={catalog}
+                  defaultModel={topology.modelConfig.defaultModel}
+                  auth={auth}
+                  authLoaded={authLoaded}
+                  writePending={writePending}
+                  onToggle={onToggle}
+                  onModelChange={onModelChange}
+                />
               )}
             </div>
           </div>

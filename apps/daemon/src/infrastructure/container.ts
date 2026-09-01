@@ -445,6 +445,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     authStore: modelStack.authStore,
     catalog: modelStack.catalog,
     defaultModel: persistence.defaultModel,
+    defaultThinking: persistence.defaultThinking, // R7 全局兜底批
     browserPort,
     events: fanoutPublisher,
     publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
@@ -552,7 +553,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   orchestratorService = new TaskOrchestratorService({
     ...taskStack.orchestratorCore,
     rawSpawn: (sessionId, task, profileKind) =>
-      scheduler.spawn(sessionId, task, profileKind, resolveSubagentModelId()),
+      scheduler.spawn(sessionId, task, profileKind, resolveSubagentModelId(profileKind)),
     instanceOutcome: (agentId) => {
       const hit = scheduler.status(agentId)[0];
       return hit === undefined ? undefined : { state: hit.state, ...(hit.summary !== undefined ? { summary: hit.summary } : {}) };
@@ -566,6 +567,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     createSession: createOrchestratorSessionFactory({
       assembly: orchestratorAssembly,
       model: () => resolveConfigModel(persistence.defaultModel.current(), modelStack.catalog.modelsView()),
+      // R7 系统槽位批：orchestrator 槽位优先（未配走全局）；thinking 两级链
+      modelSlot: () => sessionStack.resourceService.modelSlot("orchestrator"),
+      resolveModelById: (modelId) => resolveConfigModel(modelId, modelStack.catalog.modelsView()),
+      thinkingChain: () => [sessionStack.resourceService.thinkingSlot("orchestrator"), persistence.defaultThinking.stored() ?? undefined],
       apiKeys: () => modelStack.authStore.apiKeysSnapshot(),
       llmOverride: deps.orchestratorLlmOverride,
       models: modelStack.catalog.modelsView(),
@@ -791,7 +796,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         registry.currentSessionId(),
         task,
         profileKind,
-        resolveSubagentModelId(),
+        resolveSubagentModelId(profileKind),
         reportIntervalMs, // T3-A：进展报告间隔透传
       ),
     send: (agentId, message) => scheduler.send(agentId, message),

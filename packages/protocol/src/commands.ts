@@ -236,6 +236,19 @@ export interface ModelSetDefaultCommand extends CommandFrame<ModelSetDefaultPayl
   type: "model.set_default";
 }
 
+/**
+ * model.set_thinking_default 载荷（R7 全局推理强度兜底批）：全局默认推理
+ * 强度——level = 档位字符串透传（pi-ai ThinkingLevel，AD-2）；null = 清除
+ *（回退未配置态：各 agent 未配槽位 → 默认关）。与 model.set_default 同构
+ *（全局命令，无信封 sessionId；runtime_config 单键存储）。
+ */
+export interface ModelSetThinkingDefaultPayload {
+  level: string | null;
+}
+export interface ModelSetThinkingDefaultCommand extends CommandFrame<ModelSetThinkingDefaultPayload> {
+  type: "model.set_thinking_default";
+}
+
 /** model.get_default 结果载荷 */
 export interface ModelGetDefaultResult {
   model: string;
@@ -345,7 +358,13 @@ export interface AgentConfigListCommand extends CommandFrame<AgentConfigListPayl
  * agent.config.changed 广播（daemon 级全局）。
  */
 export interface AgentConfigSetEnabledPayload {
-  profileKind: "main-session" | "subagent-worker";
+  /**
+   * 配置单元 kind（R7 系统槽位批扩四值）：可编辑两 kind 全 resourceType 可写；
+   * 系统派生两 kind（orchestrator / subagent-kg-writer）仅 model/thinking
+   * 槽位型可写（独立配置，未配跟随全局——不联动 worker 槽位），tool/skill
+   * 启停写面仍拒（agent.config.read_only）。
+   */
+  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer";
   resourceType: "tool" | "skill" | "model" | "thinking";
   /** 资源名（model 型 = "provider/model-id"；thinking 型 = 档位字符串；clear 时忽略）。 */
   name: string;
@@ -712,6 +731,7 @@ export type CommandEnvelope =
   | ModelCatalogCommand
   | ModelCatalogRefreshCommand
   | ModelSetDefaultCommand
+  | ModelSetThinkingDefaultCommand
   | ModelGetDefaultCommand
   | AuthListCommand
   | AuthSetKeyCommand
@@ -769,6 +789,7 @@ export const COMMAND_TYPES = [
   "model.catalog",
   "model.catalog_refresh",
   "model.set_default",
+  "model.set_thinking_default",
   "model.get_default",
   "auth.list",
   "auth.set_key",

@@ -33,6 +33,10 @@ export type ResourceToggleOutcome =
 export interface ResourceConfigPort {
   /** 单 kind 配置读面（driving 层按请求 kind 集拼块）。 */
   list(profileKind: ProfileKind): Promise<ResourceConfigBlock>;
+  /** model 槽位现值同步读（R7：system 块组装用——kg-writer 等派生块不整 list）。 */
+  modelSlot(profileKind: ProfileKind): string | undefined;
+  /** thinking 槽位现值同步读（R7 同上）。 */
+  thinkingSlot(profileKind: ProfileKind): string | undefined;
   /** tool/skill 启停写面（model 型走槽位 API，调用方分流）。 */
   setEnabled(
     profileKind: ProfileKind,

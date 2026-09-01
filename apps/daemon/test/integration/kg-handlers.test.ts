@@ -192,10 +192,10 @@ function stubAdapterDeps(events: EventStream) {
       catalogRefresh: async () => {
         throw new Error("stub");
       },
-      setDefault: async () => {
+      setThinkingDefault: async () => ({ previous: null }), setDefault: async () => {
         throw new Error("stub");
       },
-      getDefault: () => ({ model: "stub/model" }),
+      getDefault: () => ({ model: "stub/model", thinkingDefault: null }),
       authList: async () => [],
       authSetKey: async () => {
         throw new Error("stub");
@@ -219,7 +219,7 @@ function stubAdapterDeps(events: EventStream) {
       setThinkingSlot: async () => {
         throw new Error("stub");
       },
-      clearThinkingSlot: async () => {
+      modelSlot: () => undefined, thinkingSlot: () => undefined, clearThinkingSlot: async () => {
         throw new Error("stub");
       },
     },

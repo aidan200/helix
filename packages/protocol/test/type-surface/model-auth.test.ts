@@ -17,6 +17,7 @@ type _ModelFamily = Expect<
     | "model.catalog.result"
     | "model.catalog_refresh.result"
     | "model.set_default.result"
+    | "model.set_thinking_default.result"
     | "model.get_default.result"
     | "auth.list.result"
     | "auth.set_key.result"

@@ -104,8 +104,8 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         getModel: async () => { throw new Error("spy 不装配模型链"); },
         catalog: async () => { throw new Error("spy 不装配模型链"); },
         catalogRefresh: async () => { throw new Error("spy 不装配模型链"); },
-        setDefault: async () => { throw new Error("spy 不装配模型链"); },
-        getDefault: () => ({ model: "spy/model" }),
+        setThinkingDefault: async () => ({ previous: null }), setDefault: async () => { throw new Error("spy 不装配模型链"); },
+        getDefault: () => ({ model: "spy/model", thinkingDefault: null }),
         authList: async () => [],
         authSetKey: async () => { throw new Error("spy 不装配模型链"); },
         authDeleteKey: async () => {},
@@ -118,7 +118,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
         clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
         setThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
-        clearThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+        modelSlot: () => undefined, thinkingSlot: () => undefined, clearThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       },
       hasModel: () => false,
     kgWriterPinnedTools: ["kg-update"],
@@ -215,13 +215,13 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         modelCalls.push("catalogRefresh");
         return { models: [catalogView], refreshedAt: 1_760_000_100_000, source: "builtin", degraded: ["moonshotai: 拉取失败：ENOTFOUND"] };
       },
-      setDefault: async (modelId) => {
-        modelCalls.push(`setDefault:${modelId}`);
+      setThinkingDefault: async () => ({ previous: null }), setDefault: async (modelId) => {
+        modelCalls.push(`setThinkingDefault: async () => ({ previous: null }), setDefault:${modelId}`);
         return { previous: "anthropic/claude-sonnet-4-5" };
       },
       getDefault: () => {
         modelCalls.push("getDefault");
-        return { model: "anthropic/claude-sonnet-4-5" };
+        return { model: "anthropic/claude-sonnet-4-5", thinkingDefault: null };
       },
       authList: async () => [{ providerId: "moonshotai", configured: true, keyMasked: "····7f3a" }],
       authSetKey: async (providerId, apiKey) => {
@@ -276,7 +276,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
         setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
         clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
         setThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
-        clearThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+        modelSlot: () => undefined, thinkingSlot: () => undefined, clearThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       },
       hasModel: () => false,
       kgWriterPinnedTools: ["kg-update"],
@@ -315,14 +315,14 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       expect(refresh.payload).toEqual({ models: [{ ...catalogView }], refreshedAt: 1_760_000_100_000, source: "builtin", degraded: ["moonshotai: 拉取失败：ENOTFOUND"] }); // 降级说明字段；v0.11 能力位真实映射直透（T1.3）
 
       expect(resultOf("model.set_default.result").payload).toEqual({ previous: "anthropic/claude-sonnet-4-5" });
-      expect(resultOf("model.get_default.result").payload).toEqual({ model: "anthropic/claude-sonnet-4-5" });
+      expect(resultOf("model.get_default.result").payload).toEqual({ model: "anthropic/claude-sonnet-4-5", thinkingDefault: null }); // R7 全局兜底随行
       expect(resultOf("auth.list.result").payload).toEqual({ providers: [{ providerId: "moonshotai", configured: true, keyMasked: "····7f3a" }] });
       expect(resultOf("auth.set_key.result").payload).toEqual({ keyMasked: "····7f3a" });
       expect(resultOf("auth.delete_key.result").payload).toEqual({});
       expect(resultOf("auth.verify.result").payload).toEqual({ status: "ok", latencyMs: 120 });
       // spy 原则：payload 原样送达 port（不吞不改）
       expect(modelCalls).toContain("authSetKey:anthropic:sk-spy-1");
-      expect(modelCalls).toContain("setDefault:moonshotai/kimi-k2");
+      expect(modelCalls).toContain("setThinkingDefault: async () => ({ previous: null }), setDefault:moonshotai/kimi-k2");
 
       // 新错误码映射（微批）：model_not_found / provider_not_found / catalog_unreachable
       ws.send(JSON.stringify({ v: PROTOCOL_VERSION, sessionId: "spy-s1", type: "model.set", payload: { model: "bogus/x" } }));
@@ -383,8 +383,8 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
       getModel: async () => { throw new Error("spy 不装配模型链"); },
       catalog: async () => { throw new Error("spy 不装配模型链"); },
       catalogRefresh: async () => { throw new Error("spy 不装配模型链"); },
-      setDefault: async () => { throw new Error("spy 不装配模型链"); },
-      getDefault: () => ({ model: "spy/model" }),
+      setThinkingDefault: async () => ({ previous: null }), setDefault: async () => { throw new Error("spy 不装配模型链"); },
+      getDefault: () => ({ model: "spy/model", thinkingDefault: null }),
       authList: async () => [],
       authSetKey: async () => { throw new Error("spy 不装配模型链"); },
       authDeleteKey: async () => {},
@@ -397,7 +397,7 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
       setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       setThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
-      clearThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
+      modelSlot: () => undefined, thinkingSlot: () => undefined, clearThinkingSlot: async () => { throw new Error("spy 不装配资源配置链"); },
     },
     hasModel: () => false,
     kgWriterPinnedTools: ["kg-update"],

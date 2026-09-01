@@ -126,6 +126,7 @@ import {
   handleModelGetDefault,
   handleModelSet,
   handleModelSetDefault,
+  handleModelSetThinkingDefault,
 } from "./handlers/model";
 import { handleThinkingSet } from "./handlers/thinking";
 import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
@@ -596,6 +597,8 @@ export class WsServerAdapter {
         return handleModelCatalog(this.commandContext(ws, type, payload, envelope));
       case "model.catalog_refresh":
         return handleModelCatalogRefresh(this.commandContext(ws, type, payload, envelope));
+      case "model.set_thinking_default":
+        return handleModelSetThinkingDefault(this.commandContext(ws, type, payload, envelope));
       case "model.set_default":
         return handleModelSetDefault(this.commandContext(ws, type, payload, envelope));
       case "model.get_default":

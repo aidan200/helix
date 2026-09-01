@@ -55,6 +55,7 @@ import type {
   ModelGetDefaultCommand,
   ModelSetCommand,
   ModelSetDefaultCommand,
+  ModelSetThinkingDefaultCommand,
   SessionDeleteCommand,
   SessionListCommand,
   SessionLoadHistoryCommand,
@@ -206,6 +207,10 @@ export function modelGetDefaultCommand(): ModelGetDefaultCommand {
 }
 
 /** model.set_default：写全局默认（全局命令；P-4 选择器）。 */
+export function modelSetThinkingDefaultCommand(level: string | null): ModelSetThinkingDefaultCommand {
+  return { v: PROTOCOL_VERSION, type: "model.set_thinking_default", payload: { level } };
+}
+
 export function modelSetDefaultCommand(model: string): ModelSetDefaultCommand {
   return { v: PROTOCOL_VERSION, type: "model.set_default", payload: { model } };
 }
