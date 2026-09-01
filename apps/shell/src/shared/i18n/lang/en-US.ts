@@ -742,6 +742,8 @@ export const enUS = {
       none: "No work ledger for this instance.",
     },
     retry: "Auto-retried {n} times",
+    /** History prefix for retained retryNote once the batch is past the failure (done / re-dispatched running). */
+    retryNoteHistory: "History: {note}",
     /** ⑤ 链 A：批次行实例徽标 parked 形态尾缀（「agent-3 · Parked (task paused)」）。 */
     instParked: "Parked (task paused)",
     result: {

@@ -748,6 +748,8 @@ export const zhCN = {
       none: "该实例未建工作台账。",
     },
     retry: "自动重试 {n} 次",
+    /** retryNote 留史前缀：批次已越过失败（done/重派 running）时标注——区别于 failed 态的当前失败原因。 */
+    retryNoteHistory: "历史：{note}",
     /** ⑤ 链 A：批次行实例徽标 parked 形态尾缀（「agent-3 · 挂起(任务暂停)」）。 */
     instParked: "挂起(任务暂停)",
     result: {

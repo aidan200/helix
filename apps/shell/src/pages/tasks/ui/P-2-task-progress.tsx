@@ -153,7 +153,9 @@ function BatchCard({
       )}
       {batch.retryNote !== null && (
         <div className="tk-b-note" data-tk-retry-note>
-          {batch.retryNote}
+          {/* retryNote 落库后不清空（completeBatch 保留留史）：failed 态 = 当前失败原因直渲；
+              已越过失败（done / 重派 running）→ 加「历史」前缀防误读为当前异常 */}
+          {batch.status === "failed" ? batch.retryNote : t("tk.retryNoteHistory", { note: batch.retryNote })}
         </div>
       )}
     </div>

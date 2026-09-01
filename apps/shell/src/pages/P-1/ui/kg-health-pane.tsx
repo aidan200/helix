@@ -130,6 +130,7 @@ export default function KgHealthPane({
           <span className="hud-badge kbe-type">kg-review</span>
         </div>
         <div className="kbe-row">
+          <span className="kbe-k">{t("pj.boot.desc")}</span>
           <span className="kbe-v muted">{t("pj.health.reviewDesc")}</span>
         </div>
         <div className="kbe-actions">

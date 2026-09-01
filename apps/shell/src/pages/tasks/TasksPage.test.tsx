@@ -461,9 +461,9 @@ describe("P-2 TasksPage：阶段条 + 批次 plan + 任务结果", () => {
     // 批次卡归位：stageSeq=2 的批次在阶段 2 小节下
     expect(g2.querySelector('[data-tk-batch][data-id="batch-1c"]')).toBeTruthy();
     expect(g1.querySelector('[data-tk-batch][data-id="batch-1a"]')).toBeTruthy();
-    // 批次：retry>0 warning + note
+    // 批次：retry>0 warning + note（done 态 retryNote 留史 → 「历史」前缀）
     expect(qs("[data-tk-retry]").textContent).toBe("自动重试 1 次");
-    expect(qs("[data-tk-retry-note]").textContent).toContain("自动重试 1 次后通过");
+    expect(qs("[data-tk-retry-note]").textContent).toBe("历史：首次执行 closure 中 plan 未全部 resolve，自动重试 1 次后通过。");
     // 待启动批次队列文案
     expect(qs('[data-tk-batch-queued]').textContent).toContain("队列中等待派发");
     const runningBatch = qs('[data-tk-batch][data-id="batch-1c"]');
