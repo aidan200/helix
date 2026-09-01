@@ -10,7 +10,7 @@ import { createTestDaemon } from "../helpers/createTestDaemon";
 import { createPaths } from "../../src/infrastructure/paths";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { PROTOCOL_VERSION } from "@helix/protocol";
-import { taskParkBridgeTarget } from "../../src/infrastructure/assembly/wireEventFanout";
+import { isStoppedStateChange, taskParkBridgeTarget } from "../../src/infrastructure/assembly/wireEventFanout";
 
 /**
  * T2.2 组合根结构批装配面集成（test-design TP-2.2a/b/c，架构 §4.2）：
@@ -234,5 +234,63 @@ describe("TP-2.2c：resources.changed 事件通道边界（三负断言，架构
     }
     rmSync(home, { recursive: true, force: true });
     rmSync(builtinDir, { recursive: true, force: true }); // 泄漏修复：builtin 隔离目录随收尾清
+  });
+});
+
+describe("stopped 状态变更只广播不落盘（R-停止事件冗余：sealAll 跨重启重复追加 stopped）", () => {
+  test("isStoppedStateChange 只命中 agent.state.changed{stopped}", () => {
+    const base: DomainEvent = {
+      type: "agent.state.changed",
+      sessionId: "s-1",
+      payload: { state: "stopped" },
+      occurredAt: "2026-09-01T00:00:00.000Z",
+    } as DomainEvent;
+    expect(isStoppedStateChange(base)).toBe(true);
+    expect(isStoppedStateChange({ ...base, payload: { state: "running" } })).toBe(false);
+    expect(isStoppedStateChange({ ...base, payload: { state: "idle" } })).toBe(false);
+    expect(isStoppedStateChange({ ...base, payload: { state: "steering" } })).toBe(false);
+    expect(isStoppedStateChange({ ...base, payload: { state: "aborting" } })).toBe(false);
+    expect(isStoppedStateChange({ ...base, type: "agent.spawned" })).toBe(false);
+  });
+
+  test("sealAll 停机不追加 stopped 到 domain_events；running/idle 仍落盘", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "helix-stopped-event-"));
+    const builtinDir = mkdtempSync(path.join(tmpdir(), "helix-stopped-skills-"));
+    const engine = new FakeAgentEngine({});
+    const daemon = await createTestDaemon({
+      home,
+      engine,
+      skipConfig: true,
+      port: 0,
+      skipLock: true,
+      cliInput: new PassThrough(),
+      cliOutput: new PassThrough(),
+      toolCwd: home,
+      builtinSkillsDir: builtinDir,
+    });
+    try {
+      await daemon.chat.sendMessage("你好"); // 会话转正 + 一轮对话（running→idle）
+      await daemon.shutdown(); // sealAll → stop（stopped 应被短路不落事件行）
+
+      const probe = new Database(path.join(home, "helix.db"), { readonly: true });
+      try {
+        const count = (state: string) =>
+          (
+            probe
+              .prepare(
+                "SELECT COUNT(*) AS n FROM domain_events WHERE type = 'agent.state.changed' AND json_extract(payload, '$.state') = ?",
+              )
+              .get(state) as { n: number }
+          ).n;
+        expect(count("stopped")).toBe(0);
+        expect(count("running")).toBe(1);
+        expect(count("idle")).toBe(1);
+      } finally {
+        probe.close();
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(builtinDir, { recursive: true, force: true }); // 泄漏修复：builtin 隔离目录随收尾清
+    }
   });
 });

@@ -71,6 +71,19 @@ export function taskParkBridgeTarget(
   };
 }
 
+/**
+ * stopped 是 per-process 停机事实（非会话持久里程碑）：daemon 每次 shutdown
+ * 的 sealAll 会对每个热会话各发一条 agent.state.changed{stopped}，且
+ * RestoreService「生命周期不回注（进程重启自然从 idle 起）」使下次 shutdown
+ * 又 idle→stopped 再发一条——append-only domain_events 跨重启累积冗余 stopped
+ * 行（R-停止事件冗余）。故 stopped 只广播、不落 domain_events 事件行；
+ * running/idle/steering/aborting 是真实逐 turn 迁移，保留落盘。
+ */
+export function isStoppedStateChange(event: DomainEvent): boolean {
+  if (event.type !== "agent.state.changed") return false;
+  return (event.payload as { state?: string } | undefined)?.state === "stopped";
+}
+
 export interface WireEventFanoutDeps {
   readonly registry: SessionRegistry;
   readonly sessionService: SessionService;
@@ -111,6 +124,8 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
     // 单点（T10a）：该会话主实例 id / legacy "main" / 缺省均判 main）
     target: {
       publish: (event) => {
+        // stopped 是 per-process 停机事实，只广播不落 domain_events（R-停止事件冗余）
+        if (isStoppedStateChange(event)) return;
         void writeQueue.appendEvent(
           event,
           registry.isMainInstance(event.sessionId, event.instanceId)
