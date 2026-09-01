@@ -25,6 +25,7 @@ import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLaunche
 import { PiAgentEngineAdapter, type PiEngineOptions } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { seedMessagesOf, type AgentMessage } from "../../adapters/driven/pi-engine/mappers/SessionMapper";
 import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
+import { DEFAULT_COMPACTION, type CompactionSettings } from "../../adapters/driven/pi-engine/runtime/AgentProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import {
   SUBAGENT_KG_WRITER_EXTRA_TOOLS,
@@ -49,6 +50,7 @@ import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
 import { AuthStore } from "../auth-store";
 import type { DefaultModelStore } from "../../adapters/driven/sqlite-session/DefaultModelStore";
 import type { DefaultThinkingStore } from "../../adapters/driven/sqlite-session/DefaultThinkingStore";
+import type { CompactionConfigPort } from "../../application/ports/outbound/CompactionConfigPort";
 import type { ResourceStateStore } from "../../adapters/driven/sqlite-session/ResourceStateStore";
 import { builtinSkillsDir } from "../paths";
 import type { HelixPaths } from "../paths";
@@ -118,6 +120,8 @@ export interface BuildSessionStackDeps {
   readonly defaultModel: DefaultModelStore;
   /** R7 全局兜底批：全局默认推理强度（各 agent thinking 链尾兜底）。 */
   readonly defaultThinking?: DefaultThinkingStore;
+  /** 压缩参数配置（可选——测试缺省回落 DEFAULT_COMPACTION）。 */
+  readonly compactionConfig?: CompactionConfigPort;
   readonly browserPort: BrowserPort;
   /** fan-out 发布面（组合根先建、wireEventFanout 后装目标——服务构造期依赖稳定引用）。 */
   readonly events: EventPublisherPort;
@@ -244,6 +248,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   const defaultThinking = deps.defaultThinking; // R7 全局兜底（可选注入——测试缺省无兜底）
   /** R7 全局兜底读面：未注入/未配置 → undefined（链尾自然短路）。 */
   const globalThinking = (): string | undefined => defaultThinking?.stored() ?? undefined;
+  /** 压缩参数读面：未注入/未配置 → DEFAULT_COMPACTION（内置默认阈值）。 */
+  const compactionSettings = (): CompactionSettings => {
+    const c = deps.compactionConfig?.current();
+    return c === undefined ? DEFAULT_COMPACTION : { enabled: true, reserveTokens: c.reserveTokens, keepRecentTokens: c.keepRecentTokens };
+  };
   const { engineMode } = deps;
 
   // ── 资源数据域：resource_state 差异行 + 三层技能扫描 + 合取服务 ──
@@ -601,6 +610,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
                   .filter((t) => kgTools !== undefined || (t !== "kg" && t !== "kg-update"))
                   .filter((t) => codegraphTool !== undefined || t !== "codegraph")
                   .filter((t) => deps.taskCreate !== undefined || t !== "task_create"),
+                // 压缩参数可配置（KV 存储值 ?? DEFAULT_COMPACTION）；每会话装配读现值。
+                compaction: compactionSettings(),
               },
               model: deps.mainSessionLlmOverride?.model() ?? resolveConfigModel(
                 resourceService.modelSlot(profileKindOf(mode)) ?? defaultModel.current(),
@@ -671,7 +682,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           tools: [...mainAssembly.tools],
           model: engine.currentModel?.() ?? defaultModel.current(),
           ...(MainSessionProfile.compaction !== undefined
-            ? { compaction: MainSessionProfile.compaction }
+            ? { compaction: compactionSettings() }
             : {}),
           hooks: MainSessionProfile.hooks.map((H) => H.hookName),
         }),

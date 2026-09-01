@@ -28,6 +28,7 @@ import type {
   SessionSnapshotEvent,
 } from "@helix/protocol";
 import type { ModelPort } from "../../../../application/ports/inbound/ModelPort";
+import type { CompactionConfigPort } from "../../../../application/ports/outbound/CompactionConfigPort";
 import type { SystemPort } from "../../../../application/ports/inbound/SystemPort";
 import type { SessionDirectoryPort } from "../../../../application/ports/inbound/SessionDirectoryPort";
 import type { SessionChatPort } from "../../../../application/ports/inbound/ChatPort";
@@ -77,6 +78,8 @@ export interface WsCommandContext {
   readonly envelope: { sessionId?: unknown };
   /** 模型/认证管理入口（AD-2 回口，只转发不决策）。 */
   readonly model: ModelPort;
+  /** 压缩参数配置读写面（config 族命令回口；未装配 → undefined，handler 回 unimplemented）。 */
+  readonly compactionConfig?: CompactionConfigPort;
   /** 缺省会话回退源（system.getStatus().sessionId，v0 兼容读）。 */
   readonly system: SystemPort;
   /** 命令错误回执（connection.error 帧；语义 = WsServerAdapter.commandError）。 */

@@ -21,6 +21,8 @@ import type {
   ChatAbortCommand,
   ChatSendCommand,
   ChatSteerCommand,
+  ConfigGetCompactionCommand,
+  ConfigSetCompactionCommand,
   KgBootstrapCreateCommand,
   KgBootstrapCreatePayload,
   KgBootstrapImpactCommand,
@@ -213,6 +215,16 @@ export function modelSetThinkingDefaultCommand(level: string | null): ModelSetTh
 
 export function modelSetDefaultCommand(model: string): ModelSetDefaultCommand {
   return { v: PROTOCOL_VERSION, type: "model.set_default", payload: { model } };
+}
+
+/** config.get_compaction：压缩参数读面（全局命令）。 */
+export function configGetCompactionCommand(): ConfigGetCompactionCommand {
+  return { v: PROTOCOL_VERSION, type: "config.get_compaction", payload: {} };
+}
+
+/** config.set_compaction：压缩参数写面（全局命令；token 绝对值）。 */
+export function configSetCompactionCommand(reserveTokens: number, keepRecentTokens: number): ConfigSetCompactionCommand {
+  return { v: PROTOCOL_VERSION, type: "config.set_compaction", payload: { reserveTokens, keepRecentTokens } };
 }
 
 /** auth.list：provider 凭据清单（全局命令；P-4 列表数据）。 */

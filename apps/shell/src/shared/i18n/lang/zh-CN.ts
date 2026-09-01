@@ -235,6 +235,14 @@ export const zhCN = {
       nav: {
         label: "设置",
         models: "模型设置",
+        general: "通用设置",
+      },
+      general: {
+        title: "通用配置",
+        reserveTokens: "压缩预留余量（reserveTokens）",
+        keepRecentTokens: "保留最近 token 数（keepRecentTokens）",
+        save: "保存",
+        saved: "已保存",
       },
     },
     nav: {

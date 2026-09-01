@@ -29,6 +29,8 @@ export const MODEL_CONFIG_EVENT_TYPES = [
   "model.set_default.result",
   "model.get_default.result",
   "model.set_thinking_default.result",
+  "config.get_compaction.result",
+  "config.set_compaction.result",
   "auth.list.result",
   "auth.set_key.result",
   "auth.delete_key.result",
@@ -122,6 +124,11 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
     case "model.set_thinking_default.result":
       // 乐观值已由 set-thinking-default-started 写入；回执仅确认（无 in-flight 锁——档位选择器本地幂等）
       next = mc;
+      break;
+    case "config.get_compaction.result":
+    case "config.set_compaction.result":
+      // 压缩参数读/写回执：整体覆盖（无乐观更新——写面靠 result 帧驱动）
+      next = { ...mc, compaction: { reserveTokens: frame.payload.reserveTokens, keepRecentTokens: frame.payload.keepRecentTokens } };
       break;
     case "auth.list.result":
       next = replaceAuth(mc, frame.payload.providers);

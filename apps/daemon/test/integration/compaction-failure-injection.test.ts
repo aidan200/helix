@@ -5,7 +5,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import type { Api, AssistantMessage, Model, Models } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { AgentTool, StreamFn } from "@earendil-works/pi-agent-core";
 import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import type { AgentProfile } from "../../src/adapters/driven/pi-engine/runtime/AgentProfile";
@@ -58,7 +58,19 @@ const fakeModel = {
   maxTokens: 8192,
 } as unknown as Model<any>;
 
-function textMessage(text: string, withUsage: boolean): AssistantMessage {
+/** 触发 agent-loop 继续（tool_use 循环）的 no-op 工具（pi 0.84.4 语义：
+ *  prepareNextTurn/compaction 仅在 loop 继续时触发，纯问答 run 不触发）。 */
+const noopTool = {
+  name: "noop",
+  label: "noop",
+  description: "no-op tool for triggering agent-loop continuation",
+  parameters: { type: "object", properties: {}, additionalProperties: false },
+  execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+} as unknown as AgentTool;
+
+type FakeToolCall = { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> };
+
+function textMessage(text: string, withUsage: boolean, toolCalls?: FakeToolCall[]): AssistantMessage {
   const usage = withUsage
     ? {
         input: 11,
@@ -72,12 +84,12 @@ function textMessage(text: string, withUsage: boolean): AssistantMessage {
     : undefined;
   return {
     role: "assistant",
-    content: [{ type: "text", text }],
+    content: [{ type: "text", text }, ...(toolCalls ?? [])],
     api: "anthropic-messages",
     provider: "anthropic",
     model: "fake-model",
     ...(usage !== undefined ? { usage } : {}),
-    stopReason: "stop",
+    stopReason: toolCalls !== undefined && toolCalls.length > 0 ? "toolUse" : "stop",
     timestamp: Date.now(),
   } as unknown as AssistantMessage;
 }
@@ -117,11 +129,12 @@ function summarizerErrorMessage(errorMessage: string): AssistantMessage {
   } as unknown as AssistantMessage;
 }
 
-/** 剧本化 FakeLLM（逐条消费；无 thinking 块——本 spec 只关心 compaction 边界）。 */
-function makeFakeLLM(scripts: { text: string; withUsage?: boolean }[]) {
+/** 剧本化 FakeLLM（逐条消费；无 thinking 块——本 spec 只关心 compaction 边界）。
+ *  toolCalls 可选：携带时让 agent-loop 继续（tool_use → prepareNextTurn）。 */
+function makeFakeLLM(scripts: { text: string; withUsage?: boolean; toolCalls?: FakeToolCall[] }[]) {
   const streamFn: StreamFn = (_model, _context) => {
     const script = scripts.shift() ?? { text: "（剧本耗尽）" };
-    const final = textMessage(script.text, script.withUsage !== false);
+    const final = textMessage(script.text, script.withUsage !== false, script.toolCalls);
     const stream = createAssistantMessageEventStream();
     void (async () => {
       stream.push({ type: "start", partial: final });
@@ -129,7 +142,16 @@ function makeFakeLLM(scripts: { text: string; withUsage?: boolean }[]) {
         await new Promise((r) => setTimeout(r, 1));
         stream.push({ type: "text_delta", contentIndex: 0, delta: script.text.slice(i, i + 8), partial: final });
       }
-      stream.push({ type: "done", reason: "stop", message: final });
+      for (let ti = 0; ti < (script.toolCalls?.length ?? 0); ti++) {
+        const tc = script.toolCalls![ti]!;
+        stream.push({ type: "toolcall_start", contentIndex: 1 + ti, partial: final });
+        stream.push({ type: "toolcall_end", contentIndex: 1 + ti, toolCall: tc, partial: final });
+      }
+      stream.push({
+        type: "done",
+        reason: script.toolCalls !== undefined && script.toolCalls.length > 0 ? "toolUse" : "stop",
+        message: final,
+      });
     })();
     return stream;
   };
@@ -166,7 +188,7 @@ function makeInjectableModels(initial: SummarizerBehavior) {
 const injectionProfile: AgentProfile = {
   kind: "test-compaction-injection",
   systemPrompt: "测试系统提示",
-  tools: [],
+  tools: ["noop"],
   lifecycle: { mode: "persistent" },
   hooks: [SteerHooks, MinimalHooks],
   compaction: { enabled: true, reserveTokens: 800, keepRecentTokens: 100 },
@@ -191,7 +213,7 @@ interface InjectDaemon {
 
 async function createInjectionDaemon(
   home: string,
-  scripts: { text: string; withUsage?: boolean }[],
+  scripts: { text: string; withUsage?: boolean; toolCalls?: FakeToolCall[] }[],
   summarizer: SummarizerBehavior,
 ): Promise<{ d: InjectDaemon; setSummarizer: (next: SummarizerBehavior) => void; modes: string[] }> {
   const { streamFn } = makeFakeLLM(scripts);
@@ -202,6 +224,7 @@ async function createInjectionDaemon(
     apiKeys: { anthropic: "explicit-key" },
     models: injectable.models,
     streamFnOverride: streamFn,
+    resolveTools: (names) => names.map(() => noopTool),
   });
   const daemon = await createTestDaemon({
     home,
@@ -270,7 +293,8 @@ describe("T5.3 CL-4 compaction 失败注入：场景① provider 拒绝（comple
       const { d } = await createInjectionDaemon(
         home,
         [
-          { text: LONG_TEXT, withUsage: false }, // turn1：超阈值 → 边界触发注入失败
+          { text: LONG_TEXT, withUsage: false, toolCalls: [{ type: "toolCall", id: "tc1", name: "noop", arguments: {} }] }, // turn1 第一轮：tool_use 触发注入失败
+          { text: "第一问继续回复。", withUsage: false }, // turn1 第二轮：失败后 loop 继续
           { text: "失败后的继续回复。（完INJ1）" }, // turn2：短回复带 usage
         ],
         { mode: "throw", error: new Error("provider summarization rejected-503") },
@@ -286,7 +310,7 @@ describe("T5.3 CL-4 compaction 失败注入：场景① provider 拒绝（comple
       await d.send("第二问");
       expect(hasMessageText(d.snapshot(), "失败后的继续回复。（完INJ1）")).toBe(true);
       expect(d.agentState()).toBe("idle");
-      expectSessionIntact(d.snapshot(), 4, 0); // 2 user + 2 assistant；失败 compaction 不落树
+      expectSessionIntact(d.snapshot(), 5, 0); // 2 user + 3 assistant（turn1 两轮 LLM + turn2 一轮）；失败 compaction 不落树
 
       // 账目：失败调用零入账（pi throw 路径不携带 usage）——source=compaction
       // 恰 0 条；turn 账恰 1 条（仅 turn2 携带 usage）
@@ -315,8 +339,10 @@ describe("T5.3 CL-4 compaction 失败注入：场景② 摘要过程异常（sto
       const { d, setSummarizer, modes } = await createInjectionDaemon(
         home,
         [
-          { text: LONG_TEXT, withUsage: false }, // turn1：触发 → 注入 stopReason:error
-          { text: LONG_TEXT, withUsage: false }, // turn2：累计仍超阈值 → 边界再次触发（此时已切回正常 → 成功）
+          { text: LONG_TEXT, withUsage: false, toolCalls: [{ type: "toolCall", id: "tc1", name: "noop", arguments: {} }] }, // turn1 第一轮：tool_use 触发（error-message）
+          { text: "第一问继续回复。", withUsage: false }, // turn1 第二轮：失败后 loop 继续
+          { text: LONG_TEXT, withUsage: false, toolCalls: [{ type: "toolCall", id: "tc2", name: "noop", arguments: {} }] }, // turn2 第一轮：tool_use 触发（已切回 ok → 成功）
+          { text: "第二问继续回复。", withUsage: false }, // turn2 第二轮：压缩后 loop 继续
           { text: "压缩后的继续回复。（完INJ2）" }, // turn3：压缩后上下文可继续对话
         ],
         { mode: "error-message", message: "503 Service Unavailable" },
@@ -355,7 +381,7 @@ describe("T5.3 CL-4 compaction 失败注入：场景② 摘要过程异常（sto
       await d.send("第三问");
       expect(hasMessageText(d.snapshot(), "压缩后的继续回复。（完INJ2）")).toBe(true);
       expect(d.agentState()).toBe("idle");
-      expectSessionIntact(d.snapshot(), 6, 1); // 3 user + 3 assistant + 恰 1 条 compaction
+      expectSessionIntact(d.snapshot(), 8, 1); // 3 user + 5 assistant（turn1/turn2 各两轮 LLM）+ 恰 1 条 compaction
       expect(d.usageEvents.filter((u) => u.source === "compaction")).toHaveLength(1);
       expect(d.engineErrors).toHaveLength(1); // 全程仅一次失败事件（恢复后无新错误）
 

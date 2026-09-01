@@ -7,9 +7,11 @@ import { SqliteSessionRepository } from "../../adapters/driven/sqlite-session/Sq
 import { SqliteTraceQueryAdapter } from "../../adapters/driven/sqlite-session/SqliteTraceQueryAdapter";
 import { DefaultModelStore } from "../../adapters/driven/sqlite-session/DefaultModelStore";
 import { DefaultThinkingStore } from "../../adapters/driven/sqlite-session/DefaultThinkingStore";
+import { CompactionConfigStore } from "../../adapters/driven/sqlite-session/CompactionConfigStore";
 import { RuntimeConfigStore } from "../../adapters/driven/sqlite-session/RuntimeConfigStore";
 import { ResourceStateStore } from "../../adapters/driven/sqlite-session/ResourceStateStore";
 import { DEFAULT_MODEL_ID } from "../../adapters/driven/pi-engine/model-provider";
+import { DEFAULT_COMPACTION } from "../../adapters/driven/pi-engine/runtime/AgentProfile";
 
 /**
  * 装配函数 ① 持久化族（architecture §4.2.1）：组合根的一部分
@@ -24,6 +26,7 @@ export interface PersistenceStack {
   readonly runtimeConfig: RuntimeConfigStore;
   readonly defaultModel: DefaultModelStore;
   readonly defaultThinking: DefaultThinkingStore;
+  readonly compactionConfig: CompactionConfigStore;
   readonly resourceState: ResourceStateStore;
 }
 
@@ -42,6 +45,8 @@ export function buildPersistence(deps: { readonly paths: HelixPaths; readonly lo
   const defaultModel = new DefaultModelStore(runtimeConfig, DEFAULT_MODEL_ID);
   // R7 全局兜底批：全局默认推理强度（KV 第二键；无 builtin 兜底——null = 未配置）
   const defaultThinking = new DefaultThinkingStore(runtimeConfig);
+  // 压缩参数配置（KV 第三键；JSON 序列化；缺省回落 DEFAULT_COMPACTION）
+  const compactionConfig = new CompactionConfigStore(runtimeConfig, DEFAULT_COMPACTION);
   const resourceState = new ResourceStateStore(writeQueue);
-  return { writeQueue, repository, traceQuery, runtimeConfig, defaultModel, defaultThinking, resourceState };
+  return { writeQueue, repository, traceQuery, runtimeConfig, defaultModel, defaultThinking, compactionConfig, resourceState };
 }

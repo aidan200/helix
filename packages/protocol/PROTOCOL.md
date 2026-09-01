@@ -738,8 +738,8 @@ export interface AgentModelChangedPayload {
 
 ## 15. 命令 payload 形状总登记（C→S，55 命令全集）
 
-> **计数声明：55 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
-> 15.4 model 7 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
+> **计数声明：57 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
+> 15.4 model 7 + config 2 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
 > 15.9 kg 6+5+2+1+1 + 15.10 workspace 2 + 15.11 task 9）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
@@ -900,7 +900,7 @@ skipped reason=unknown-model）；enabled=false 清槽（name 忽略）。tool/s
 | `name` | `string` | 必填 | v0.6 | 资源名（model/thinking 型 = "provider/model-id" / 档位字符串；clear 时忽略） |
 | `enabled` | `boolean` | 必填 | v0.6 | tool/skill = 启停；model = set（true）/ clear（false）槽位 |
 
-### 15.4 model 族（6）
+### 15.4 model + config 族（9）
 
 #### `model.set`
 
@@ -967,6 +967,25 @@ skipped reason=unknown-model）；enabled=false 清槽（name 忽略）。tool/s
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `level` | `string \| null` | 必填 | R7 | 档位字符串（透传）或 null（清除） |
+
+#### `config.set_compaction`
+
+设置压缩参数（token 绝对值；SQLite KV 单键 JSON）。路由：全局命令（无信封
+sessionId）。结果帧：`config.set_compaction.result`（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `reserveTokens` | `number` | 必填 | config | 压缩预留余量（contextTokens > contextWindow - reserveTokens 触发） |
+| `keepRecentTokens` | `number` | 必填 | config | 压缩后保留的最近 token 数（尾部保留窗） |
+
+#### `config.get_compaction`
+
+查询压缩参数。路由：全局命令。结果帧：`config.get_compaction.result`
+（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | config | 空载荷 |
 
 ### 15.5 auth 族（4）
 
@@ -1432,10 +1451,10 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 
 ## 16. 事件 payload 形状总登记（S→C，71 事件全集）
 
-> **计数声明：71 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> **计数声明：73 事件全集**（16.1 notification 3〔含 task.changed〕 +
 > 16.2 session 4 +
 > 16.3 chat 11〔含 engine.retrying 网络重试批〕 + 16.4 agent 14〔含 park/resume 批 2〕 + 16.5 thinking·compaction·usage 5 +
-> 16.6 model 11 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1 + 16.10 workspace 3
+> 16.6 model 13 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1 + 16.10 workspace 3
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
 >（三面同构，守护断言⑤口径）；auth 族 4 结果帧按 `EVENT_CHANNELS` 登记挂
@@ -1809,7 +1828,7 @@ daemon 处理 `thinking.set` 后经 domain_events 单写队列落盘（TR-AD-5�
 | `override` | `string \| null` | 必填 | v0.11 | 会话覆盖意图（用户拖到的档）；null = 无覆盖 |
 | `effective` | `string \| null` | 必填 | v0.11 | 引擎按当前模型能力解析的生效档；null = 全链不支持（不传参，provider 默认） |
 
-### 16.6 model 族（11；含 model/auth 9 结果帧——auth 结果帧按 EVENT_CHANNELS 挂 model 通道）
+### 16.6 model 族（13；含 model/auth 9 结果帧 + config 2 结果帧——auth/config 结果帧按 EVENT_CHANNELS 挂 model 通道）
 
 #### `model.changed`
 
@@ -1873,6 +1892,20 @@ daemon 处理 `thinking.set` 后经 domain_events 单写队列落盘（TR-AD-5�
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `previous` | `string \| null` | 必填 | R7 | 变更前全局默认推理强度（null = 未配置） |
+
+#### `config.get_compaction.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `reserveTokens` | `number` | 必填 | config | 压缩预留余量 |
+| `keepRecentTokens` | `number` | 必填 | config | 保留最近 token 数 |
+
+#### `config.set_compaction.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `reserveTokens` | `number` | 必填 | config | 写后的压缩预留余量 |
+| `keepRecentTokens` | `number` | 必填 | config | 写后的保留最近 token 数 |
 
 #### `auth.list.result`
 

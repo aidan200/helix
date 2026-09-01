@@ -47,6 +47,7 @@ import type { SystemPort } from "../../../application/ports/inbound/SystemPort";
 import type { AgentOrchestrationPort } from "../../../application/ports/inbound/AgentOrchestrationPort";
 import type { SessionDirectoryPort } from "../../../application/ports/inbound/SessionDirectoryPort";
 import type { ModelPort } from "../../../application/ports/inbound/ModelPort";
+import type { CompactionConfigPort } from "../../../application/ports/outbound/CompactionConfigPort";
 import type { ResourceConfigPort } from "../../../application/ports/inbound/ResourceConfigPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import type {
@@ -128,6 +129,7 @@ import {
   handleModelSetDefault,
   handleModelSetThinkingDefault,
 } from "./handlers/model";
+import { handleConfigGetCompaction, handleConfigSetCompaction } from "./handlers/config";
 import { handleThinkingSet } from "./handlers/thinking";
 import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
 import {
@@ -175,6 +177,8 @@ export interface WsServerAdapterDeps {
    * *.result 结果帧点对点回执（契约 C §2.2）。
    */
   readonly model: ModelPort;
+  /** 压缩参数配置读写面（config 族命令回口；可选——测试缺省回 unimplemented）。 */
+  readonly compactionConfig?: CompactionConfigPort;
   /**
    * 资源配置面（契约 v0.6）：agent.config 命令族回口（profile kind 维
    * tool/skill 启停 + model 槽位；只转发不决策，AG-12）。
@@ -603,6 +607,11 @@ export class WsServerAdapter {
         return handleModelSetDefault(this.commandContext(ws, type, payload, envelope));
       case "model.get_default":
         return handleModelGetDefault(this.commandContext(ws, type, payload, envelope));
+      // ── config 族（压缩参数配置；全局命令）──
+      case "config.get_compaction":
+        return handleConfigGetCompaction(this.commandContext(ws, type, payload, envelope));
+      case "config.set_compaction":
+        return handleConfigSetCompaction(this.commandContext(ws, type, payload, envelope));
       // ── v0.11 thinking 族（thinking 批①，契约 §17.11；handlers/thinking.ts，model.set 同构）──
       case "thinking.set":
         return handleThinkingSet(this.commandContext(ws, type, payload, envelope));
@@ -638,6 +647,7 @@ export class WsServerAdapter {
       payload,
       envelope,
       model: this.deps.model,
+      compactionConfig: this.deps.compactionConfig,
       system: this.deps.system,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       modelErrorCode: (err) => this.modelErrorCode(err),

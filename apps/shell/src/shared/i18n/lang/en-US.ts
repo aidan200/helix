@@ -230,6 +230,14 @@ export const enUS = {
       nav: {
         label: "Settings",
         models: "Models",
+        general: "General",
+      },
+      general: {
+        title: "General",
+        reserveTokens: "Compaction reserve (reserveTokens)",
+        keepRecentTokens: "Keep recent tokens (keepRecentTokens)",
+        save: "Save",
+        saved: "Saved",
       },
     },
     nav: {

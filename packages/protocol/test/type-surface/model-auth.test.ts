@@ -19,6 +19,8 @@ type _ModelFamily = Expect<
     | "model.set_default.result"
     | "model.set_thinking_default.result"
     | "model.get_default.result"
+    | "config.get_compaction.result"
+    | "config.set_compaction.result"
     | "auth.list.result"
     | "auth.set_key.result"
     | "auth.delete_key.result"

@@ -68,6 +68,8 @@ import {
   kgNodeSupersedeCommand,
   kgNodeUpdateCommand,
   kgProjectsCommand,
+  configGetCompactionCommand,
+  configSetCompactionCommand,
   modelCatalogCommand,
   modelCatalogRefreshCommand,
   modelGetDefaultCommand,
@@ -181,6 +183,10 @@ interface SessionContextValue {
   setDefaultModel: (model: string) => void;
   /** R7：全局默认推理强度（null = 清除）。 */
   setThinkingDefault: (level: string | null) => void;
+  /** 压缩参数拉取（通用配置分区进入；未请求态才发）。 */
+  requestCompactionConfig: () => void;
+  /** 压缩参数写入（通用配置分区；result 帧驱动更新）。 */
+  setCompactionConfig: (reserveTokens: number, keepRecentTokens: number) => void;
   /** 连通验证（P-4 测试连通；started 先清旧态）。 */
   verifyProvider: (providerId: string) => void;
   /** key 保存（P-4 弹层；写 ~/.helix/auth.json）。 */
@@ -837,6 +843,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     clientRef.current!.send(modelSetThinkingDefaultCommand(level));
   }, []);
 
+  /** 压缩参数拉取（通用配置分区进入；未请求态才发）。 */
+  const requestCompactionConfig = useCallback(() => {
+    if (topologyRef.current.modelConfig.compaction === null) {
+      clientRef.current!.send(configGetCompactionCommand());
+    }
+  }, []);
+
+  /** 压缩参数写入（通用配置分区；result 帧驱动更新，无乐观更新）。 */
+  const setCompactionConfig = useCallback((reserveTokens: number, keepRecentTokens: number) => {
+    clientRef.current!.send(configSetCompactionCommand(reserveTokens, keepRecentTokens));
+  }, []);
+
   const verifyProvider = useCallback((providerId: string) => {
     dispatch({ type: "model/verify-started", providerId }); // 先清旧态置 verifying
     clientRef.current!.send(authVerifyCommand(providerId));
@@ -883,6 +901,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       refreshModelCatalog,
       setDefaultModel,
       setThinkingDefault,
+      requestCompactionConfig,
+      setCompactionConfig,
       verifyProvider,
       setProviderKey,
       deleteProviderKey,
@@ -951,6 +971,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       requestAuthList,
       refreshModelCatalog,
       setDefaultModel,
+      requestCompactionConfig,
+      setCompactionConfig,
       verifyProvider,
       setProviderKey,
       deleteProviderKey,

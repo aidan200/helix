@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Api, AssistantMessage, Model, Models } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { AgentTool, StreamFn } from "@earendil-works/pi-agent-core";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import type { AgentProfile } from "../../src/adapters/driven/pi-engine/runtime/AgentProfile";
 import { SteerHooks } from "../../src/adapters/driven/pi-engine/runtime/hooks/SteerHooks";
@@ -31,9 +31,25 @@ const fakeModel = {
   maxTokens: 8192,
 } as unknown as Model<any>;
 
+/** 触发 agent-loop 继续（tool_use 循环）的 no-op 工具——pi 0.84.4 起
+ *  prepareNextTurn（compaction 挂点）仅在 loop 继续（有 tool call）时触发，
+ *  纯问答 run 不触发；测试用本工具让第一轮 LLM 发 tool call 以进入压缩点。 */
+const noopTool = {
+  name: "noop",
+  label: "noop",
+  description: "no-op tool for triggering agent-loop continuation",
+  parameters: { type: "object", properties: {}, additionalProperties: false },
+  execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+} as unknown as AgentTool;
+
 /** 一条带 thinking 块与 usage 的完整 AssistantMessage（withUsage=false 时不携带
  *  usage——compaction 触发判定走字符启发式，不受 provider usage 遮蔽）。 */
-function fullMessage(thinking: string, text: string, withUsage = true): AssistantMessage {
+function fullMessage(
+  thinking: string,
+  text: string,
+  withUsage = true,
+  toolCalls?: { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }[],
+): AssistantMessage {
   const usage = withUsage
     ? {
         input: 11,
@@ -50,12 +66,13 @@ function fullMessage(thinking: string, text: string, withUsage = true): Assistan
     content: [
       ...(thinking !== "" ? [{ type: "thinking", thinking }] : []),
       { type: "text", text },
+      ...(toolCalls ?? []),
     ],
     api: "anthropic-messages",
     provider: "anthropic",
     model: "fake-model",
     ...(usage !== undefined ? { usage } : {}),
-    stopReason: "stop",
+    stopReason: toolCalls !== undefined && toolCalls.length > 0 ? "toolUse" : "stop",
     timestamp: Date.now(),
   } as unknown as AssistantMessage;
 }
@@ -87,6 +104,8 @@ interface FakeScript {
   /** 携带 usage（缺省 true，七字段提取断言用）；compaction 测试传 false——
    *  estimateContextTokens 优先用 provider usage，会遮蔽字符启发式估 token。 */
   withUsage?: boolean;
+  /** 携带 tool_use 块（触发 agent-loop 继续 → prepareNextTurn/compaction）。 */
+  toolCalls?: { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }[];
 }
 
 /**
@@ -99,7 +118,7 @@ function makeFakeLLM(scripts: FakeScript[]) {
   const streamFn: StreamFn = (_model, context) => {
     seenContexts.push({ messages: [...(context.messages as { role: string }[])] });
     const script = scripts.shift() ?? { thinking: "", text: "（剧本耗尽）" };
-    const final = fullMessage(script.thinking, script.text, script.withUsage !== false);
+    const final = fullMessage(script.thinking, script.text, script.withUsage !== false, script.toolCalls);
     const stream = createAssistantMessageEventStream();
     void (async () => {
       stream.push({ type: "start", partial: final });
@@ -125,7 +144,17 @@ function makeFakeLLM(scripts: FakeScript[]) {
           partial: final,
         });
       }
-      stream.push({ type: "done", reason: "stop", message: final });
+      // tool_use 块（contentIndex 2 起）：触发 agent-loop 继续 → prepareNextTurn
+      for (let ti = 0; ti < (script.toolCalls?.length ?? 0); ti++) {
+        const tc = script.toolCalls![ti]!;
+        stream.push({ type: "toolcall_start", contentIndex: 2 + ti, partial: final });
+        stream.push({ type: "toolcall_end", contentIndex: 2 + ti, toolCall: tc, partial: final });
+      }
+      stream.push({
+        type: "done",
+        reason: script.toolCalls !== undefined && script.toolCalls.length > 0 ? "toolUse" : "stop",
+        message: final,
+      });
     })();
     return stream;
   };
@@ -152,6 +181,7 @@ function makeAdapter(profile: AgentProfile, streamFn: StreamFn, models: Models) 
     apiKeys: { anthropic: "explicit-key" },
     models,
     streamFnOverride: streamFn,
+    resolveTools: (names) => names.map(() => noopTool),
   });
   const events: AgentEngineEvent[] = [];
   return {
@@ -166,7 +196,7 @@ function compactionProfile(reserveTokens: number): AgentProfile {
   return {
     kind: "test-channel",
     systemPrompt: "测试系统提示",
-    tools: [],
+    tools: ["noop"],
     lifecycle: { mode: "persistent" },
     hooks: [SteerHooks, MinimalHooks],
     compaction: { enabled: true, reserveTokens, keepRecentTokens: 100 },
@@ -225,24 +255,26 @@ describe("T3.1 adapter：message_end usage 七字段提取（cost 拍平）", ()
   });
 });
 
-describe("T3.1 runtime：turn 边界 compaction 全链（小阈值触发）", () => {
-  test("超阈值 → compaction_completed 携带四字段 + 后续 prompt 上下文变 summary+retainedTail", async () => {
-    // 4 轮回复累计 ≈ 250 tokens > 阈值 200（cw 1000 - reserve 800）→ 第 4 轮 turn 边界触发；
-    // keepRecent 100 → 保留尾部 ~2-3 条，早期历史进摘要（真实下降非同量置换）
+describe("T3.1 runtime：loop 内 compaction 全链（pi 0.84.4 语义：tool call 触发 prepareNextTurn）", () => {
+  test("超阈值 → tool_use 触发 compaction_completed 携带四字段 + 后续 prompt 上下文变 summary+retainedTail", async () => {
+    // pi 0.84.4 起 prepareNextTurn（compaction 挂点）仅在 agent-loop 继续（有 tool
+    // call）时触发：前三轮纯问答累积历史（不触发），第四轮 LLM 回复（累计超阈值
+    // 200）+ noop tool call → 执行工具 → prepareNextTurn 触发压缩 → 第五轮 LLM
+    // 用压缩后上下文回复。
     const { streamFn, seenContexts } = makeFakeLLM([
       { thinking: "", text: MEDIUM_TEXT, withUsage: false },
       { thinking: "", text: MEDIUM_TEXT, withUsage: false },
       { thinking: "", text: MEDIUM_TEXT, withUsage: false },
-      { thinking: "", text: MEDIUM_TEXT, withUsage: false },
+      { thinking: "", text: MEDIUM_TEXT, withUsage: false, toolCalls: [{ type: "toolCall", id: "tc1", name: "noop", arguments: {} }] },
       { thinking: "", text: "压缩后的短回复。", withUsage: false },
     ]);
     const { models, calls } = makeFakeModels("【摘要】此前对话讨论了测试主题。代号 MARLIN-77 已记录。");
     const h = makeAdapter(compactionProfile(800), streamFn, models);
 
-    await h.drive("第一问");
-    await h.drive("第二问");
-    await h.drive("第三问");
-    await h.drive("第四问"); // 此轮 turn 边界触发 compaction
+    await h.drive("第一问"); // 纯问答（不触发）
+    await h.drive("第二问"); // 纯问答（不触发）
+    await h.drive("第三问"); // 纯问答（不触发）
+    await h.drive("第四问"); // tool_use → tool → prepareNextTurn(compaction) → LLM
     expect(calls.length).toBeGreaterThanOrEqual(1); // 摘要调用真实发生
 
     const compacted = h.events.find((e) => e.type === "compaction_completed") as {
@@ -256,9 +288,7 @@ describe("T3.1 runtime：turn 边界 compaction 全链（小阈值触发）", ()
     expect(compacted.summary).toContain("MARLIN-77");
     expect(compacted.usage).toMatchObject({ input: expect.any(Number), totalTokens: expect.any(Number) });
 
-    // 会话可继续：下一问的 provider 上下文 = 压缩后窗口（compaction 摘要以
-    // user 消息形式打头——pi convertToLlm 转换，summary 内容可达 provider）
-    await h.drive("第五问");
+    // 压缩后第五轮 LLM 上下文 = compactionSummary（user 打头）+ retainedTail
     expect(seenContexts.length).toBe(5);
     const after = seenContexts[4]!.messages as unknown as {
       role: string;
@@ -266,7 +296,7 @@ describe("T3.1 runtime：turn 边界 compaction 全链（小阈值触发）", ()
     }[];
     expect(after[0]!.role).toBe("user");
     expect(JSON.stringify(after[0])).toContain("MARLIN-77");
-    // 压缩前全量历史（4 轮 8 条）比压缩后 prompt（summary+尾部+新问）短不了多少也要短
+    // 压缩前全量历史（3 轮）比压缩后 prompt（summary+尾部）长
     const beforeChars = JSON.stringify(seenContexts[3]!.messages).length;
     const afterChars = JSON.stringify(after).length;
     expect(afterChars).toBeLessThan(beforeChars);
@@ -274,23 +304,21 @@ describe("T3.1 runtime：turn 边界 compaction 全链（小阈值触发）", ()
 
   test("compaction 摘要失败（provider 抛错）→ engine_error 事件 + 会话无损可继续", async () => {
     const { streamFn, seenContexts } = makeFakeLLM([
-      { thinking: "", text: LONG_TEXT, withUsage: false }, // ≈ 320 tokens > 200 阈值 → 触发
+      { thinking: "", text: LONG_TEXT, withUsage: false, toolCalls: [{ type: "toolCall", id: "tc1", name: "noop", arguments: {} }] },
       { thinking: "", text: "失败后的继续回复。" },
     ]);
     const { models } = makeFakeModels("摘要", { failWith: new Error("provider summarization down") });
     const h = makeAdapter(compactionProfile(800), streamFn, models);
 
-    await h.drive("第一问");
+    await h.drive("第一问"); // 单 drive 内：tool_use 触发 prepareNextTurn → compaction 摘要抛错 → engine_error
     const err = h.events.find((e) => e.type === "engine_error") as { message: string };
     expect(err).toBeDefined();
     expect(err.message).toContain("provider summarization down");
     // 未收到 compaction_completed（失败不产生完成事件）
     expect(h.events.find((e) => e.type === "compaction_completed")).toBeUndefined();
 
-    // 会话无损：继续对话正常完成（上下文未被破坏）
-    await h.drive("第二问");
+    // 会话无损：压缩失败后 agent-loop 继续，第二轮 LLM 正常完成
     expect(seenContexts.length).toBe(2);
-    expect(seenContexts[1]!.messages.length).toBeGreaterThan(0);
     const end = h.events.filter(
       (e) => e.type === "message_end" && (e as { role: string }).role === "assistant",
     );

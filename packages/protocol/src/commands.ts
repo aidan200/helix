@@ -259,6 +259,22 @@ export interface ModelGetDefaultCommand extends CommandFrame<EmptyPayload> {
   type: "model.get_default";
 }
 
+// ── config 族（压缩参数配置；全局命令，无信封 sessionId；runtime_config 单键 JSON） ──
+
+/** config.set_compaction 载荷：压缩参数（token 绝对值）。 */
+export interface ConfigSetCompactionPayload {
+  reserveTokens: number;
+  keepRecentTokens: number;
+}
+export interface ConfigSetCompactionCommand extends CommandFrame<ConfigSetCompactionPayload> {
+  type: "config.set_compaction";
+}
+
+/** config.get_compaction 载荷：全局命令。 */
+export interface ConfigGetCompactionCommand extends CommandFrame<EmptyPayload> {
+  type: "config.get_compaction";
+}
+
 // ── v0.2 新增：auth 管理族（契约 C §1.3；G-6 定名） ──
 
 /** auth.list 结果载荷 */
@@ -733,6 +749,8 @@ export type CommandEnvelope =
   | ModelSetDefaultCommand
   | ModelSetThinkingDefaultCommand
   | ModelGetDefaultCommand
+  | ConfigSetCompactionCommand
+  | ConfigGetCompactionCommand
   | AuthListCommand
   | AuthSetKeyCommand
   | AuthDeleteKeyCommand
@@ -791,6 +809,8 @@ export const COMMAND_TYPES = [
   "model.set_default",
   "model.set_thinking_default",
   "model.get_default",
+  "config.set_compaction",
+  "config.get_compaction",
   "auth.list",
   "auth.set_key",
   "auth.delete_key",

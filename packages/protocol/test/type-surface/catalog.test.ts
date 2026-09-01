@@ -158,7 +158,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 55 个 type（… + v0.11 1 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1）", () => {
+  test("命令目录恰为 57 个 type（… + config 批 2 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.config.list",
@@ -173,6 +173,8 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "chat.abort",
         "chat.send",
         "chat.steer",
+        "config.get_compaction",
+        "config.set_compaction",
         "kg.bootstrap.create",
         "kg.bootstrap.impact",
         "kg.bootstrap.produce",
@@ -220,7 +222,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 71 个 type（… + kg 评审批 1 + 网络重试批 1 + park/resume 批 2）", () => {
+  test("事件目录恰为 73 个 type（… + config 批 2 + kg 评审批 1 + 网络重试批 1 + park/resume 批 2）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -247,6 +249,8 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "chat.turn.completed",
         "chat.turn.started",
         "compaction.completed",
+        "config.get_compaction.result",
+        "config.set_compaction.result",
         "connection.error",
         "connection.welcome",
         "engine.error",
@@ -473,6 +477,8 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "auth.list.result",
       "auth.set_key.result",
       "auth.verify.result",
+      "config.get_compaction.result",
+      "config.set_compaction.result",
       "model.catalog.result",
       "model.catalog_refresh.result",
       "model.changed",
@@ -511,11 +517,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（R7 全局兜底批后）：EVENT_TYPES 71 / EVENT_CHANNELS 71 键 / COMMAND_TYPES 55", () => {
-    expect(EVENT_TYPES.length).toBe(71); // R7 全局兜底批：+1（model.set_thinking_default.result）
-    expect(new Set(EVENT_TYPES).size).toBe(71); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(71); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(55); // R7 全局兜底批：+1（model.set_thinking_default）
+  test("目录计数（config 批后）：EVENT_TYPES 73 / EVENT_CHANNELS 73 键 / COMMAND_TYPES 57", () => {
+    expect(EVENT_TYPES.length).toBe(73); // config 批：+2（config.*.result）
+    expect(new Set(EVENT_TYPES).size).toBe(73); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(73); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(57); // config 批：+2（config.set/get_compaction）
   });
 
 });

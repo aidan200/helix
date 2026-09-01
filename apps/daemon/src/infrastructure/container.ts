@@ -448,6 +448,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     catalog: modelStack.catalog,
     defaultModel: persistence.defaultModel,
     defaultThinking: persistence.defaultThinking, // R7 全局兜底批
+    compactionConfig: persistence.compactionConfig, // 压缩参数可配置
     browserPort,
     events: fanoutPublisher,
     publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
@@ -890,6 +891,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     system,
     orchestration: currentOrchestration, // agent.kill 命令链回调度
     model: modelService, // model.*/auth.* 命令族回口（AD-2）
+    compactionConfig: persistence.compactionConfig, // config 族命令回口（压缩参数）
     resource: resourceService, // agent.config 命令族回口（契约 v0.6）
     browser: browserPort, // web 族命令族回口（契约 v0.7）
     hasModel: (id) => modelStack.catalog.hasModel(id), // model 型 set 前置校验

@@ -13,6 +13,7 @@ import { useI18n } from "@/shared/i18n";
 import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import ModelsSettingsSection from "./ui/ModelsSettingsSection";
 import WorkspaceSettingsSection from "./ui/WorkspaceSettingsSection";
+import GeneralSettingsSection from "./ui/GeneralSettingsSection";
 import SettingsNav, {
   SETTINGS_SECTIONS,
   type SettingsSectionId,
@@ -32,6 +33,7 @@ const SettingsPage = function SettingsPage({ path }: { path: string }) {
       >
         {section === "models" && <ModelsSettingsSection />}
         {section === "workspace" && <WorkspaceSettingsSection />}
+        {section === "general" && <GeneralSettingsSection />}
       </AppLayout>
     </div>
   );

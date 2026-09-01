@@ -88,6 +88,10 @@ import type {
   ModelSetDefaultResultEvent,
   ModelSetThinkingDefaultResultEvent,
 } from "./model";
+import type {
+  ConfigGetCompactionResultEvent,
+  ConfigSetCompactionResultEvent,
+} from "./config";
 import type { TraceQueryResultEvent } from "./trace";
 import type { ThinkingChangedEvent } from "./thinking";
 import type {
@@ -126,6 +130,7 @@ export * from "./chat";
 export * from "./agent";
 export * from "./channels";
 export * from "./model";
+export * from "./config";
 export * from "./trace";
 export * from "./thinking";
 export * from "./web";
@@ -171,6 +176,8 @@ export type EventEnvelope =
   | ModelSetDefaultResultEvent
   | ModelSetThinkingDefaultResultEvent
   | ModelGetDefaultResultEvent
+  | ConfigGetCompactionResultEvent
+  | ConfigSetCompactionResultEvent
   | AuthListResultEvent
   | AuthSetKeyResultEvent
   | AuthDeleteKeyResultEvent
@@ -245,6 +252,8 @@ export const EVENT_TYPES = [
   "model.set_default.result",
   "model.set_thinking_default.result",
   "model.get_default.result",
+  "config.get_compaction.result",
+  "config.set_compaction.result",
   "auth.list.result",
   "auth.set_key.result",
   "auth.delete_key.result",
@@ -327,6 +336,8 @@ export const EVENT_CHANNELS = {
   "model.set_default.result": "model",
   "model.set_thinking_default.result": "model",
   "model.get_default.result": "model",
+  "config.get_compaction.result": "model",
+  "config.set_compaction.result": "model",
   "auth.list.result": "model",
   "auth.set_key.result": "model",
   "auth.delete_key.result": "model",
