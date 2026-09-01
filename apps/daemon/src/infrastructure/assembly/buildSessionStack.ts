@@ -23,8 +23,7 @@ import { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import { lastMainAnchorId } from "@helix/protocol"; // 锚扫描基元单源 projection
 import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
 import { PiAgentEngineAdapter, type PiEngineOptions } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
-import { seedMessagesOf } from "../../adapters/driven/pi-engine/mappers/SessionMapper";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { seedMessagesOf, type AgentMessage } from "../../adapters/driven/pi-engine/mappers/SessionMapper";
 import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import {

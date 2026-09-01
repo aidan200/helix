@@ -6,6 +6,10 @@ import type { SessionEntryData } from "../../../../domain/session/SessionSnapsho
 import type { AgentEngineUsage } from "../../../../application/ports/outbound/AgentEnginePort";
 import { parseDataUrlImages } from "../../../../application/services/images";
 
+// 防腐墙出口：pi 消息类型经本映射层 re-export 给外层（infrastructure 装配）
+// 作 type-only 消费——外层不得直接 import @earendil-works/pi-*（AG-04）。
+export type { AgentMessage } from "@earendil-works/pi-agent-core";
+
 /**
  * SessionMapper —— pi 消息 ↔ domain 聚合的薄映射（architecture.md §3.5/§5.5）。
  *
