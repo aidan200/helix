@@ -17,8 +17,8 @@ body {
   overflow: hidden;
   line-height: 1.6;
   background-image:
-    linear-gradient(rgb(var(--edge-rgb) / 0.14) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--edge-rgb) / 0.14) 1px, transparent 1px);
+    linear-gradient(rgb(var(--edge-rgb) / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--edge-rgb) / 0.05) 1px, transparent 1px);
   background-size: 26px 26px;
 }
 button { font-family: inherit; }

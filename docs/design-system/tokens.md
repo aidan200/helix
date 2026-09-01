@@ -131,7 +131,7 @@ Tailwind 映射：`text-micro / text-cap / text-body / text-main / text-title / 
 | 徽标底 / 徽标边 | 0.08-0.1 / 0.3-0.4 | 同 | hud-badge 组件类 |
 | 头像 / 气泡底 | 0.1 / 0.06 | 同 | avatar、user 气泡（violet 派生） |
 | 辉光 ring / 弥散 | 0.25 / 0.18 | **0.20 / 0.10** | `--glow-*`（亮色降档） |
-| 蓝图网格线 | 0.14 | **0.045-0.06** | GridPattern / body 亮色底纹（亮色调淡） |
+| 蓝图网格线 | 0.05 | **0.045-0.06** | GridPattern / body 亮色底纹（亮色调淡） |
 | 扫描线 | 0.025（常驻） | **关闭** | 氛围层（亮色隐藏） |
 | glass blur 半径 | 6px | **4px** | `.glass` |
 | popover blur 半径 | 14px | **10px** | `.hud-popover` |
