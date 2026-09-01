@@ -20,6 +20,7 @@ import {
   selectCanSend,
   selectIsEmpty,
   selectIsGenerating,
+  selectWorkPhase,
   type SessionAction,
   type SessionState,
 } from "./session-reducer";
@@ -494,5 +495,51 @@ describe("T11b entry.source 到渲染链（实时帧 + 快照）", () => {
     ]);
     const e = s.entries.find((x) => x.id === "p1") as MessageEntryDto;
     expect(e.source).toBe("progress");
+  });
+});
+
+// ── 工作段位派生（WorkPhaseDot 右下角呼吸光点数据源）─────────
+
+describe("selectWorkPhase 工作段位派生（aborting > thinking > tool > reply > working；idle 熄灭）", () => {
+  const running = ev({ v: 0, type: "agent.state.changed", payload: { state: "running" } });
+  const textDelta = (d: string) => ev({ v: 0, type: "chat.stream.delta", payload: { messageId: "t1", delta: d } });
+  const thinkDelta = (d: string) => ev({ v: 0, type: "thinking.stream.delta", payload: { instanceId: "main", delta: d } });
+  const toolStarted = (id: string) =>
+    ev({ v: 0, type: "tool.call.started", payload: { entry: tool(id, "grep", "running") } });
+
+  it("idle：无生成态且槽位全空 → 熄灭", () => {
+    expect(selectWorkPhase(run([welcome()]))).toBe("idle");
+  });
+
+  it("aborting：优先于一切活跃槽（中断瞬间仍亮）", () => {
+    const s = run([running, textDelta("x"), ev({ v: 0, type: "agent.state.changed", payload: { state: "aborting" } })]);
+    expect(selectWorkPhase(s)).toBe("aborting");
+  });
+
+  it("thinking：主槽 thinkingStreams 非空 → 思考中（副色段）", () => {
+    expect(selectWorkPhase(run([running, thinkDelta("推理…")]))).toBe("thinking");
+  });
+
+  it("tool：running 工具卡存在 → 执行工具（优先于 reply 槽）", () => {
+    const s = run([running, toolStarted("tc1"), textDelta("x")]);
+    expect(selectWorkPhase(s)).toBe("tool");
+  });
+
+  it("reply：streaming 非空且无 thinking/tool → 生成回复", () => {
+    expect(selectWorkPhase(run([running, textDelta("Hel")]))).toBe("reply");
+  });
+
+  it("working：running/steering 但槽位全空 → 静默兜底段（首 token 等待/工具间隙）", () => {
+    expect(selectWorkPhase(run([running]))).toBe("working");
+    expect(selectWorkPhase(run([ev({ v: 0, type: "agent.state.changed", payload: { state: "steering" } })]))).toBe("working");
+  });
+
+  it("tool done 不再占段：结束后回落 reply/working", () => {
+    const s = run([
+      running,
+      toolStarted("tc1"),
+      ev({ v: 0, type: "tool.call.result", payload: { entry: tool("tc1", "grep", "done") } }),
+    ]);
+    expect(selectWorkPhase(s)).toBe("working");
   });
 });

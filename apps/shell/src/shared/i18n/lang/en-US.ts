@@ -126,6 +126,13 @@ export const enUS = {
       streaming: "Thinking",
       done: "Thought for {s}s · {n} tokens",
     },
+    phase: {
+      thinking: "Thinking",
+      tool: "Running tool",
+      reply: "Composing",
+      working: "Working",
+      aborting: "Aborting",
+    },
     compact: {
       bar: "Context compacted {before}→{after}",
       note: "Tail messages and SubAgent card states retained · summary call usage accounted (see popover compaction row)",

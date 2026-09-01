@@ -395,3 +395,39 @@ describe("MessageFlow 网络重试状态卡（P2 ⑦）", () => {
     void resumed;
   });
 });
+
+// ── 工作段位呼吸光点（WorkPhaseDot 挂载；数据源 selectWorkPhase 见 reducer 用例）──
+
+describe("MessageFlow 工作段位呼吸光点", () => {
+  const welcome: EventEnvelope = {
+    v: 0,
+    type: "connection.welcome",
+    payload: { sessionId: "s1", model: "claude-sonnet-4-5", agentState: "idle" },
+  };
+  const running: EventEnvelope = { v: 0, type: "agent.state.changed", payload: { state: "running" } };
+  const thinkDelta: EventEnvelope = {
+    v: 0,
+    type: "thinking.stream.delta",
+    payload: { instanceId: "main", delta: "推理…" },
+  };
+
+  it("idle 不渲染光点；thinking 段渲染 violet 思考中光点", () => {
+    stateRef.current = sessionReducer(
+      createInitialSessionState(),
+      { type: "event", event: welcome } as never,
+    );
+    const { unmount } = ui(<MessageFlow />);
+    expect(document.querySelector(".wp-float")).toBeNull();
+    unmount();
+
+    stateRef.current = [running, thinkDelta].reduce(
+      (s, e) => sessionReducer(s, { type: "event", event: e } as never),
+      stateRef.current,
+    );
+    ui(<MessageFlow />);
+    const dot = document.querySelector(".wp-float");
+    expect(dot).not.toBeNull();
+    expect(dot?.getAttribute("data-phase")).toBe("thinking");
+    expect(dot?.textContent).toContain("思考中");
+  });
+});

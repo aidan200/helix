@@ -62,6 +62,29 @@ export function selectIsGenerating(s: SessionState): boolean {
 }
 
 /**
+ * 工作段位（WorkPhaseDot 右下角呼吸光点数据源；槽位活跃推导，零协议改动）：
+ * - aborting：中断瞬间（优先于一切活跃槽——语义色警示）；
+ * - thinking：主槽 thinkingStreams 非空（副色 = 对内思考惯例）；
+ * - tool：entries 存在 running 工具卡（主色 = 对外产出惯例；优先于 reply）；
+ * - reply：streaming 非空（主色）；
+ * - working：running/steering 但槽位全空——静默兜底段（首 token 等待/工具
+ *   间隙/轮次切换，中性色不抢戏）；
+ * - idle：熄灭不渲染。
+ * 段位边界为槽位活跃推导（非 daemon 显式 phase 广播），段间间隙落入
+ * working——对弱指示光点足够，不为此外扩协议。
+ */
+export type WorkPhase = "idle" | "aborting" | "thinking" | "tool" | "reply" | "working";
+
+export function selectWorkPhase(s: SessionState): WorkPhase {
+  if (s.agentState === "aborting") return "aborting";
+  if (!selectIsGenerating(s)) return "idle";
+  if (s.thinkingStreams[s.mainInstanceId] !== undefined) return "thinking";
+  if (s.entries.some((e) => e.kind === "tool-call" && e.state === "running")) return "tool";
+  if (s.streaming !== null) return "reply";
+  return "working";
+}
+
+/**
  * 发送前置条件 = connected 且视图就绪（SM 规则 6：非 connected 不给出可发
  * 入口；P-1s 两阶段：切换 loading 骨架期间输入禁用，快照到达恢复）。
  */

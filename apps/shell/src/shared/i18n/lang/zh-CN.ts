@@ -131,6 +131,13 @@ export const zhCN = {
       streaming: "思考中",
       done: "已思考 {s}s · {n} tokens",
     },
+    phase: {
+      thinking: "思考中",
+      tool: "执行工具",
+      reply: "生成回复",
+      working: "工作中",
+      aborting: "正在中断",
+    },
     compact: {
       bar: "上下文已压缩 {before}→{after}",
       note: "保留尾部消息与 SubAgent 卡片状态 · 摘要调用 usage 已入账（见账目 popover compaction 行）",

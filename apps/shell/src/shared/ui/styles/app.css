@@ -31,6 +31,35 @@ button { font-family: inherit; }
 *::-webkit-scrollbar-thumb { background: rgb(var(--accent-rgb) / 0.28); border-radius: 9999px; }
 *::-webkit-scrollbar-thumb:hover { background: rgb(var(--accent-rgb) / 0.55); }
 
+/* ── 工作段位呼吸光点（WorkPhaseDot；右下角 sticky 浮层，不占流布局）──
+   主副配色语义：主色 accent = 对外产出（tool/reply），副色 violet = 对内
+   思考（thinking 惯例同源 think-live 光标/steer 族）；working 中性，
+   aborting 警示。全部 tokens.css 变量，暗/亮主题自动跟随。 */
+.wp-float {
+  position: sticky; bottom: 10px;
+  width: fit-content; margin-left: auto; margin-right: 18px;
+  pointer-events: none; z-index: 15;
+  align-items: center; gap: 7px;
+  display: flex;
+  transition: opacity .3s;
+}
+.wp-float .wp-dot {
+  width: 10px; height: 10px;
+  box-shadow: 0 0 8px currentColor, 0 0 2px currentColor;
+}
+.wp-float .wp-label {
+  font-size: var(--text-cap); letter-spacing: .08em;
+  color: var(--text-dim);
+}
+.wp-float[data-phase="thinking"] .wp-dot { background: var(--violet); color: var(--violet); }
+.wp-float[data-phase="tool"] .wp-dot,
+.wp-float[data-phase="reply"] .wp-dot { background: var(--accent); color: var(--accent); }
+.wp-float[data-phase="working"] .wp-dot { background: var(--text-dim); color: var(--text-dim); }
+.wp-float[data-phase="aborting"] .wp-dot { background: var(--warning); color: var(--warning); }
+@media (prefers-reduced-motion: reduce) {
+  .wp-float .wp-dot { animation: none !important; }
+}
+
 /* ── 全局氛围：扫描线（暗色常驻，亮色关闭见 tokens.css）── */
 .scanline-overlay {
   position: fixed; inset: 0; z-index: 60; pointer-events: none;

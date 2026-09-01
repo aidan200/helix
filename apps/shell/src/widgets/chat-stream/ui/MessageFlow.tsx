@@ -37,6 +37,8 @@ import CompactionBar from "./CompactionBar";
 import EngineErrorCard from "./EngineErrorCard";
 import NetworkRetryCard from "./NetworkRetryCard";
 import { ThinkingEntryView, ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
+import { WorkPhaseDot } from "./WorkPhaseDot";
+import { selectWorkPhase } from "@/entities/session/model/session-reducer";
 
 function EntryView({ entry, mainInstanceId }: { entry: EntryDto; mainInstanceId: string }) {
   // 正向穷尽分发（EntryDto 四成员；新增 kind 时 default 分支编译报错）
@@ -128,6 +130,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
   const empty = selectIsEmpty(state);
   // 主线 thinking 流式槽位（T10c：键 = 快照习得的主实例 id；局部常量供窄化）
   const mainThinkingStream = state.thinkingStreams[state.mainInstanceId];
+  // 工作段位呼吸光点（右下角；idle 熄灭不渲染）
+  const workPhase = selectWorkPhase(state);
 
   // ── CL-1 v0.3 时间轴内联：按 DTO spawn 锚点把卡片交织进 entries 序列 ──
   // head = 流首锚点（null）；byAnchor = entry id → 该 entry 之后渲染的卡；
@@ -191,6 +195,7 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
         </div>
         {empty && (state.sessionId === null ? <DraftEmpty /> : <SessionEmpty />)}
       </div>
+      {workPhase !== "idle" && <WorkPhaseDot phase={workPhase} />}
       {children /* conn-overlay 等浮层（pages 层组装） */}
     </main>
   );
