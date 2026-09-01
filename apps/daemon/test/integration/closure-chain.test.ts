@@ -466,7 +466,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
     };
   }
 
-  test("非空 findings：sediment 新增/修改/废弃→proposeCandidate 候选 pending 行（W1-C 改道；source_task_id 机械注入）；非 sediment/缺必填跳过", async () => {
+  test("非空 findings：sediment 新增/修改/废弃→proposeCandidate 候选 pending 行（W1-C 改道；source_task_id 机械注入）；非 sediment 跳过/缺 iterationId 回落库内锚", async () => {
     const projectRoot = mkdtempSync(path.join(tmpdir(), "helix-t41-proj-"));
     const database = new KgDatabase();
     const service = new KgWriteService({ store: new SqliteKnowledgeStore({ database }) });
@@ -488,6 +488,8 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
           return service.write(root, op);
         },
         scanProjects: () => [projectRoot],
+        // 迭代锚回落：缺 iterationId 的 finding 回落本库内锚（与 kg-update 工具同语义）
+        latestIteration: () => "iter-t41",
       },
       home,
     ));
@@ -506,14 +508,14 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
             { kind: "sediment", changeType: "新增", name: "报告透传规则", digest: "自报 reportPath 存在时透传时", reason: "任务沉淀的可复用规则", iterationId: "iter-t41" }, // project 缺省 → 唯一扫描项目自动
             { kind: "sediment", changeType: "废弃", targetNode, reason: "被本次实现推翻", iterationId: "iter-t41" },
             { kind: "issue", description: "非 sediment 语义不落账" },
-            { kind: "sediment", changeType: "新增", name: "缺迭代 id 的条目", digest: "应被跳过" }, // 缺 iterationId
+            { kind: "sediment", changeType: "新增", name: "缺迭代 id 的条目", digest: "应回落库内锚" }, // 缺 iterationId → 回落 latestIteration
           ],
         },
       });
 
       await until(() => eventRows(rig, "agent.completed").length > 0, 5000, "agent.completed 落盘");
-      // 只有两条命中写入口（issue 无 sediment 语义 / 缺 iterationId 跳过）——W1-C 改道：均为候选
-      expect(writes.map((w) => w.op.kind)).toEqual(["proposeCandidate", "proposeCandidate"]);
+      // 三条命中写入口（issue 无 sediment 语义跳过 / 缺 iterationId 回落库内锚）——均为候选
+      expect(writes.map((w) => w.op.kind)).toEqual(["proposeCandidate", "proposeCandidate", "proposeCandidate"]);
       expect(writes.every((w) => w.projectRoot === projectRoot)).toBe(true);
 
       // .helix-kg 出现对应候选 pending 行（source_task_id/source_iteration_id 机械落列）；
@@ -522,7 +524,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
         const db = new Database(kgDbPath(projectRoot), { readonly: true });
         try {
           const rows = db.prepare("SELECT iteration_id FROM change_log WHERE iteration_id = ?").all("iter-t41") as unknown[];
-          return rows.length >= 3; // 预建 1 + proposeCandidate 2
+          return rows.length >= 4; // 预建 1 + proposeCandidate 3
         } finally {
           db.close();
         }
@@ -532,7 +534,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
         const candidates = db
           .prepare("SELECT title, status, source_task_id, source_iteration_id, body FROM candidates ORDER BY id")
           .all() as { title: string; status: string; source_task_id: string | null; source_iteration_id: string | null; body: string }[];
-        expect(candidates).toHaveLength(2);
+        expect(candidates).toHaveLength(3);
         expect(candidates[0]).toMatchObject({
           title: "报告透传规则",
           status: "pending",
@@ -542,13 +544,16 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
         expect(candidates[0]!.body).toContain("digest: 自报 reportPath 存在时透传时");
         expect(candidates[1]).toMatchObject({ title: `废弃：${targetNode}`, status: "pending" });
         expect(candidates[1]!.body).toContain("reason: 被本次实现推翻");
+        // 缺 iterationId 的条目：回落库内锚落账（source_iteration_id = iter-t41）
+        expect(candidates[2]).toMatchObject({ title: "缺迭代 id 的条目", status: "pending", source_iteration_id: "iter-t41" });
+        expect(candidates[2]!.body).toContain("digest: 应回落库内锚");
         // 改道后闭环现场不再直改节点：目标节点 status 不变（draft），人审裁决前零推翻
         const target = db.prepare("SELECT status FROM nodes WHERE id = ?").get(targetNode) as { status: string };
         expect(target.status).toBe("draft");
         const ops = db
           .prepare("SELECT op FROM change_log WHERE iteration_id = ? ORDER BY seq")
           .all("iter-t41") as { op: string }[];
-        expect(ops.map((r) => r.op)).toEqual(["createNode", "proposeCandidate", "proposeCandidate"]);
+        expect(ops.map((r) => r.op)).toEqual(["createNode", "proposeCandidate", "proposeCandidate", "proposeCandidate"]);
       } finally {
         db.close();
       }

@@ -85,6 +85,15 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
       expect(SUBAGENT_SYSTEM_PROMPT).toContain("禁止直接调用 proposeCandidate/decideCandidate");
       expect(SUBAGENT_SYSTEM_PROMPT).toContain("MainAgent 单点");
     });
+
+    test("findings 结构化 schema 明确（changeType/name/targetNode/project + iterationId/taskId 接线层回落）", () => {
+      const p = SUBAGENT_SYSTEM_PROMPT;
+      expect(p).toContain("changeType");
+      expect(p).toContain("targetNode");
+      expect(p).toContain("project");
+      expect(p).toContain("iterationId 由接线层回落");
+      expect(p).toContain("taskId 由接线层机械注入");
+    });
   });
 
   describe("Main 专属：候选台账 + 体检 + sync 确认（R2/R16/R13）", () => {

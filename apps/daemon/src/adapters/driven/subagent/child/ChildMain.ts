@@ -461,21 +461,31 @@ async function main(): Promise<void> {
   // H-3：退出清场——abort/异常中断的在飞转发请求统一拒绝（定时器同清）
   remoteBrowser.rejectAll("子进程退出清场");
 
+  // 任务归属机械注入（缺口修复）：closure 的 taskId 缺省回落本实例归属 jobId——
+  // 与 kg-update 工具 taskContext 同源；LLM 显式写优先，缺省机械注入（kg-review
+  // SOP「接线层机械注入，LLM 无需透传」的兑现）；非任务上下文零注入。
+  const resolvedTask = taskContext?.();
   const closure: InstanceClosurePayload = terminated
     ? {
         status: "failed",
         summary: "terminated by user（SIGTERM）",
         reportPath: null,
         findings: null,
-        taskId: null,
+        taskId: resolvedTask?.taskId ?? null,
       }
-    : (parseClosureBlock(lastAssistantText) ?? {
-        status: "failed",
-        summary: buildFallbackSummary(lastAssistantText, lastEngineError),
-        reportPath: null,
-        findings: null,
-        taskId: null,
-      });
+    : (() => {
+        const parsed = parseClosureBlock(lastAssistantText);
+        if (parsed === undefined) {
+          return {
+            status: "failed",
+            summary: buildFallbackSummary(lastAssistantText, lastEngineError),
+            reportPath: null,
+            findings: null,
+            taskId: resolvedTask?.taskId ?? null,
+          };
+        }
+        return { ...parsed, taskId: parsed.taskId ?? resolvedTask?.taskId ?? null };
+      })();
   writeLine({ type: "closure", instanceId, closure });
   kg.database.closeAll(); // 正常收尾关连接（崩溃路径走 WAL 恢复，无需显式关）
   workLedger.ledger.close(); // T1.4：台账直连连接同单点收尾（惰性未开过 = no-op）

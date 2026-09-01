@@ -66,8 +66,10 @@ const SUBAGENT_BASE_PROMPT =
   '{"status":"done|failed","summary":"一句话结论","reportPath":null,"findings":[],"taskId":null}\n' +
   "CLOSURE>>>\n" +
   "其中 status=done 表示已完成、failed 表示无法完成；summary 为给主线的一句话结论；" +
-  "reportPath 为报告文件路径（无则 null）；findings 为结构化发现数组（无则 []）；" +
-  "taskId 为关联任务号（无则 null）。\n" +
+  "reportPath 为报告文件路径（无则 null）；taskId 由接线层机械注入（无需写）。\n" +
+  "findings 为结构化发现数组（无则 []）；每条 sediment 发现的结构：" +
+  '{"kind":"sediment","changeType":"新增|修改|废弃","name":"新节点名（仅新增）","targetNode":"目标节点 id（仅修改/废弃）","project":"项目目录名（多项目必填）","reason":"理由","evidence":"证据","digest":"摘要"}；' +
+  "kind 固定 sediment（其余 kind 无落账语义）；iterationId 由接线层回落（无需写）。\n" +
   "报告落盘（必须遵守）：任务完成报告由你按「任务收口装配指引」的段库组稿，全文写入" +
   "环境变量 HELIX_REPORT_PATH 指向的文件（路径可在命令行查看该变量取值；变量缺席时" +
   "报告并入最后回复，closure 块 reportPath 填 null）；报告写盘成功后 closure 块的" +

@@ -67,7 +67,7 @@ interface Harness {
 
 function makeHarness(
   script: object,
-  opts: { graceMs?: number; browser?: FakeBrowserPort; profile?: AgentProfile; model?: Model<any> } = {},
+  opts: { graceMs?: number; browser?: FakeBrowserPort; profile?: AgentProfile; model?: Model<any>; ledgerDbPath?: string } = {},
 ): Harness {
   const home = mkdtempSync(path.join(tmpdir(), "helix-t22-child-"));
   const scriptPath = path.join(home, "script.json");
@@ -82,6 +82,7 @@ function makeHarness(
     toolCwd: home,
     graceMs: opts.graceMs,
     fakeEngineScript: scriptPath,
+    ...(opts.ledgerDbPath !== undefined ? { ledgerDbPath: opts.ledgerDbPath } : {}),
     ...(opts.browser !== undefined ? { browser: opts.browser } : {}),
     onLine: (instanceId, line) => lines.push({ instanceId, line }),
   });
@@ -168,6 +169,37 @@ describe("closure 块解析（子进程收口协议）", () => {
     expect(parseClosureBlock("<<<CLOSURE\n{不是json}\nCLOSURE>>>")).toBeUndefined();
     expect(parseClosureBlock('<<<CLOSURE\n{"status":"bogus","summary":"x"}\nCLOSURE>>>')).toBeUndefined();
   });
+});
+
+describe("C：closure 块缺 taskId → 回落 jobId（taskContext 机械注入）", () => {
+  test("batch 行命中 → closure.taskId 回落 jobId（LLM 未写 taskId）", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "helix-t22-taskctx-"));
+    const dbPath = path.join(dbDir, "helix.db");
+    // 建库 + 预建 batch 行（instance_id = agent-1 → job_id = job-1）
+    const wq = new WriteQueue(dbPath);
+    wq.database
+      .prepare(
+        "INSERT INTO batch (id, job_id, stage_seq, seq, scope, status, retry_count, retry_note, instance_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run("batch-1", "job-1", 0, 0, "测试批次", "running", 0, null, "agent-1", FIXED_NOW, FIXED_NOW);
+    await wq.close();
+
+    try {
+      const h = (current = makeHarness(
+        { replies: [`完成。${closureBlock("任务完成", "done")}`] },
+        { ledgerDbPath: dbPath },
+      ));
+      launch(h, "验证 taskId 回落");
+      await until(() => h.closures.length > 0, 10000, "等待 closure 上报");
+      expect(h.closures[0]!.outcome.closure).toMatchObject({
+        status: "done",
+        summary: "任务完成",
+        taskId: "job-1", // closure 块 taskId=null → 回落 taskContext.jobId
+      });
+    } finally {
+      rmSync(dbDir, { recursive: true, force: true });
+    }
+  }, 20000);
 });
 
 describe("①②③ launch → 事件上行 → send→steer → closure 回传（真 Bun.spawn）", () => {

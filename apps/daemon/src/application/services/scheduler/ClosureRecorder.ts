@@ -83,6 +83,11 @@ export interface ClosureFindingsSink {
   readonly write: (projectRoot: string, op: KnowledgeWriteOp) => WriteResult;
   /** workspace 项目扫描（显式 project 名解析 + 唯一项目自动；多项目不猜）。 */
   readonly scanProjects: () => readonly string[];
+  /**
+   * 目标库最近迭代锚（iterationId 库内回落，与 kg-update 工具 resolveIterationId
+   * 同语义）。可选——测试形态可缺省（缺省 = 无回落，iterationId 缺省落 null）。
+   */
+  readonly latestIteration?: (projectRoot: string) => string | null;
 }
 
 export class ClosureRecorder {
@@ -182,8 +187,17 @@ export class ClosureRecorder {
         this.warnFindings(instanceId, "跳过（目标项目无法解析：project 名未命中或 workspace 多项目未显式指明——写操作不猜）");
         continue;
       }
+      // 迭代锚回落：finding 缺 iterationId 时回落目标库最近迭代锚（与 kg-update
+      // 工具 resolveIterationId 同语义——无锚 null 不报错，溯源主锚切 source_task_id）
+      const op =
+        item.needsIterationFallback === true
+          ? (() => {
+              const iter = sink.latestIteration?.(projectRoot) ?? null;
+              return { ...item.op, iterationId: iter, ...(iter !== null ? { sourceIterationId: iter } : {}) };
+            })()
+          : item.op;
       try {
-        const result = sink.write(projectRoot, item.op);
+        const result = sink.write(projectRoot, op);
         if (!result.ok) {
           this.warnFindings(instanceId, `落账被拒（${result.error.code}：${result.error.message}）`);
         }
@@ -213,7 +227,7 @@ export class ClosureRecorder {
 
 /** 单条 finding 映射结果：ok=可落账 op（含可选 project 名）；否则跳过原因（warn 可观测）。 */
 export type FindingOp =
-  | { readonly ok: true; readonly op: KnowledgeWriteOp; readonly project?: string }
+  | { readonly ok: true; readonly op: KnowledgeWriteOp; readonly project?: string; readonly needsIterationFallback?: boolean }
   | { readonly ok: false; readonly reason: string };
 
 /**
@@ -244,8 +258,15 @@ function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingO
   if (record["kind"] !== "sediment") {
     return skip(`kind=${String(record["kind"])} 无落账语义（仅 sediment 落账）`);
   }
+  // iterationId 缺省不再 skip——由 recordFindings 回落目标库最近迭代锚（与
+  // kg-update 工具 resolveIterationId 同语义：显式携带优先，缺省回落 latestIteration，
+  // 无锚 null 不报错；溯源主锚切 source_task_id）。
   const iterationId = str(record["iterationId"]);
-  if (iterationId === undefined) return skip("缺 iterationId（候选溯源列 source_iteration_id 必填）");
+  const needsIterationFallback = iterationId === undefined;
+  const iterFields =
+    iterationId !== undefined
+      ? { iterationId, sourceIterationId: iterationId }
+      : { iterationId: null as string | null }; // 缺省先落 null，回落时 recordFindings 重填
   const project = str(record["project"]);
   const changeType = record["changeType"];
   const injected = sourceTaskId !== undefined ? { sourceTaskId } : {};
@@ -256,13 +277,13 @@ function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingO
       ok: true,
       op: {
         kind: "proposeCandidate",
-        iterationId,
+        ...iterFields,
         candidateKind: "sediment",
         title: name,
         body: candidateBody(record),
-        sourceIterationId: iterationId,
         ...injected,
       },
+      ...(needsIterationFallback ? { needsIterationFallback: true } : {}),
       ...(project !== undefined ? { project } : {}),
     };
   }
@@ -273,13 +294,13 @@ function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingO
       ok: true,
       op: {
         kind: "proposeCandidate",
-        iterationId,
+        ...iterFields,
         candidateKind: "sediment",
         title: `${changeType}：${targetNode}`,
         body: candidateBody(record),
-        sourceIterationId: iterationId,
         ...injected,
       },
+      ...(needsIterationFallback ? { needsIterationFallback: true } : {}),
       ...(project !== undefined ? { project } : {}),
     };
   }

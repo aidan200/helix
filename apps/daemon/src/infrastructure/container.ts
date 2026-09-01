@@ -537,6 +537,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         const root = workspace.boundRoot();
         return root !== null ? scanWorkspaceProjects(root) : [];
       },
+      // 迭代锚回落（缺口修复：findings 缺 iterationId 时回落库内锚——与 kg-update
+      // 工具 resolveIterationId 同语义；未绑定返回 null 不报错）
+      latestIteration: (projectRoot) => workspace.stack()?.queryService.latestIteration(projectRoot) ?? null,
     },
     builtinSkillsDir: deps.builtinSkillsDir,
     sessionIdleUnloadMs: deps.sessionIdleUnloadMs,
