@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { entryDataOf, textOfContent, textOfMessage, userMessage } from "../../src/adapters/driven/pi-engine/mappers/SessionMapper";
+import {
+  agentMessageOfEntry,
+  entryDataOf,
+  seedMessagesOf,
+  textOfContent,
+  textOfMessage,
+  userMessage,
+} from "../../src/adapters/driven/pi-engine/mappers/SessionMapper";
 import type { EntryData } from "../../src/domain/session/Entry";
+import type { SessionEntryData } from "../../src/domain/session/SessionSnapshot";
+import type { AssistantMessage, UserMessage } from "@earendil-works/pi-ai";
 
 /**
  * TP-CL8-4：薄防腐映射往返——domain Entry 形态 → pi 消息形态 → domain，
@@ -81,5 +90,108 @@ describe("TS3-a：textOfContent 的 toolCall 块贡献空串", () => {
   test("thinking 块贡献空串（T3.1 一等通道化：独立 Entry，不再占位污染正文）；未知块 [type] 占位保持", () => {
     expect(textOfContent([{ type: "thinking", thinking: "思考" }])).toBe("");
     expect(textOfContent([{}])).toBe("[unknown]");
+  });
+});
+
+describe("反向映射：Entry → pi AgentMessage（恢复回填）", () => {
+  const meta = { api: "anthropic-messages", provider: "anthropic", model: "fake-model" };
+
+  test("user entry（纯文本）→ UserMessage 文本无损", () => {
+    const entry: EntryData = {
+      id: "e1",
+      role: "user",
+      text: "你好",
+      turnId: "t1",
+      isSteer: false,
+      instanceId: "agent-main",
+      createdAt: "2024-01-01T00:00:01.000Z",
+    };
+    const msg = agentMessageOfEntry(entry, meta);
+    expect(msg?.role).toBe("user");
+    expect(textOfMessage(msg!)).toBe("你好");
+  });
+
+  test("user entry（含图片）→ content 含 text + image 块", () => {
+    const entry: EntryData = {
+      id: "e1",
+      role: "user",
+      text: "看图",
+      turnId: "t1",
+      isSteer: false,
+      instanceId: "agent-main",
+      createdAt: "2024-01-01T00:00:01.000Z",
+      images: ["data:image/png;base64,iVBORw0KGgo="],
+    };
+    const msg = agentMessageOfEntry(entry, meta) as UserMessage;
+    const content = msg.content as { type: string; text?: string; data?: string }[];
+    expect(content[0]).toEqual({ type: "text", text: "看图" });
+    expect(content[1]?.type).toBe("image");
+    expect((content[1] as { data?: string }).data).toBe("iVBORw0KGgo=");
+  });
+
+  test("assistant entry → AssistantMessage（零 usage + stop + model 元数据）", () => {
+    const entry: EntryData = {
+      id: "e2",
+      role: "assistant",
+      text: "回答",
+      turnId: "t1",
+      isSteer: false,
+      instanceId: "agent-main",
+      createdAt: "2024-01-01T00:00:02.000Z",
+    };
+    const msg = agentMessageOfEntry(entry, meta) as AssistantMessage;
+    expect(msg.role).toBe("assistant");
+    expect(msg.content).toEqual([{ type: "text", text: "回答" }]);
+    expect(msg.model).toBe("fake-model");
+    expect(msg.stopReason).toBe("stop");
+    expect(msg.usage.totalTokens).toBe(0);
+  });
+
+  test("tool entry → null（工具中间态不回填）", () => {
+    const entry: EntryData = {
+      id: "e3",
+      role: "tool",
+      text: "结果",
+      turnId: "t1",
+      isSteer: false,
+      instanceId: "agent-main",
+      createdAt: "2024-01-01T00:00:03.000Z",
+    };
+    expect(agentMessageOfEntry(entry, meta)).toBeNull();
+  });
+
+  test("createdAt 非法 → null（损坏行防御）", () => {
+    const entry: EntryData = {
+      id: "e4",
+      role: "user",
+      text: "坏时间",
+      turnId: "t1",
+      isSteer: false,
+      instanceId: "agent-main",
+      createdAt: "not-a-date",
+    };
+    expect(agentMessageOfEntry(entry, meta)).toBeNull();
+  });
+});
+
+describe("seedMessagesOf：按 mainInstanceId 过滤 + 只回填 message 条目", () => {
+  const meta = { api: "anthropic-messages", provider: "anthropic", model: "fake-model" };
+
+  test("跳过 SubAgent 条目 / thinking / compaction，只回填 main 的 user/assistant 且保序", () => {
+    const entries: SessionEntryData[] = [
+      { id: "e1", role: "user", text: "问题", turnId: "t1", isSteer: false, instanceId: "agent-main", createdAt: "2024-01-01T00:00:01.000Z" },
+      { id: "th1", kind: "thinking", instanceId: "agent-main", text: "思考", durationMs: 10, reasoningTokens: 0, createdAt: "2024-01-01T00:00:02.000Z" },
+      { id: "e2", role: "assistant", text: "回答", turnId: "t1", isSteer: false, instanceId: "agent-main", createdAt: "2024-01-01T00:00:03.000Z" },
+      { id: "e3", role: "assistant", text: "子 agent 输出", turnId: null, isSteer: false, instanceId: "agent-sub", createdAt: "2024-01-01T00:00:04.000Z" },
+      { id: "c1", kind: "compaction", instanceId: "agent-main", tokensBefore: 100, tokensAfter: 50, summary: "摘要", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 2, cost: 0 }, createdAt: "2024-01-01T00:00:05.000Z" },
+    ];
+    const msgs = seedMessagesOf(entries, "agent-main", meta);
+    expect(msgs.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(textOfMessage(msgs[0]!)).toBe("问题");
+    expect(textOfMessage(msgs[1]!)).toBe("回答");
+  });
+
+  test("空 entries → []", () => {
+    expect(seedMessagesOf([], "agent-main", meta)).toEqual([]);
   });
 });

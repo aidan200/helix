@@ -60,6 +60,8 @@ export interface TestDaemonOptions {
   readonly findingsSink?: Parameters<typeof assembleDaemon>[0]["findingsSinkOverride"];
   /** 编排会话 LLM 覆盖（T4.1 E 层：fake 剧本 streamFn 驱动编排批次循环；缺省生产形态）。 */
   readonly orchestratorLlmOverride?: Parameters<typeof assembleDaemon>[0]["orchestratorLlmOverride"];
+  /** 主会话 LLM 覆盖（测试接缝：fake 剧本 streamFn + 可解析 model；缺省生产形态）。 */
+  readonly mainSessionLlmOverride?: Parameters<typeof assembleDaemon>[0]["mainSessionLlmOverride"];
   /** kg workspace 根初始绑定（e2e：指向 tmp fixture workspace；语义同既有字段，见下）。 */
   /** BrowserPort 覆盖（fake BrowserPort 驱动 web 族命令/广播断言）。 */
   readonly browser?: BrowserPort;
@@ -122,6 +124,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     subagentRunnerOverride: options.subagentRunner,
     findingsSinkOverride: options.findingsSink,
     orchestratorLlmOverride: options.orchestratorLlmOverride,
+    mainSessionLlmOverride: options.mainSessionLlmOverride,
     staticDir: options.staticDir,
     tailSize: options.sessionTailSize,
     toolCwd: options.toolCwd,

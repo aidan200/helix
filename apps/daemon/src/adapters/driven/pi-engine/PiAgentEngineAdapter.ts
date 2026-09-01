@@ -4,7 +4,7 @@ import type {
   AgentEnginePort,
   AgentThinkingState,
 } from "../../../application/ports/outbound/AgentEnginePort";
-import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Model, Models } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { AgentRuntime } from "./runtime/AgentRuntime";
@@ -64,6 +64,12 @@ export interface PiEngineOptions {
    */
   readonly extraHooks?: AgentRuntimeDeps["extraHooks"];
   /**
+   * 恢复回填的初始 transcript（恢复回填批）：透传 AgentRuntimeDeps.initialMessages
+   * ——mainAgent 实例窗口销毁重建后回填它自己的历史（组合根经 seedMessagesOf
+   * 派生）；缺省 = 空历史（新建会话/新实例）。
+   */
+  readonly initialMessages?: readonly AgentMessage[];
+  /**
    * 网络重试配置（P2 ⑦，引擎级全局生效：主会话/子进程编排器同源包装）：
    * backoffMs/sleep 注入 = 测试假时钟面；缺省 10/30/60s 退避 + 真等待
    * （abort 感知）。重试进入等待时经监听器发 engine_retrying 事件
@@ -121,6 +127,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
       getApiKey: explicitGetApiKey(options.apiKeys),
       resolveTools: options.resolveTools,
       ...(options.extraHooks !== undefined ? { extraHooks: options.extraHooks } : {}),
+      ...(options.initialMessages !== undefined ? { initialMessages: options.initialMessages } : {}),
       // turn 边界 compaction 产物 → port 事件（失败走 engine_error，不崩会话）
       onCompactionCompleted: (r) =>
         this.listener?.({

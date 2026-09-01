@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import { AgentRuntime } from "../../src/adapters/driven/pi-engine/runtime/AgentRuntime";
+import { textOfContent } from "../../src/adapters/driven/pi-engine/mappers/SessionMapper";
 import type { AgentProfile } from "../../src/adapters/driven/pi-engine/runtime/AgentProfile";
 import { MinimalHooks } from "../../src/adapters/driven/pi-engine/runtime/hooks/MinimalHooks";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
@@ -172,5 +173,63 @@ describe("PiAgentEngineAdapter 直改面（M6 T2）", () => {
     expect(() => engine.setTools(["bash"])).toThrow(/resolveTools|工具/);
     // setSystemPrompt 不依赖 resolveTools：仍可用
     engine.setSystemPrompt("仅提示直改");
+  });
+});
+
+describe("AgentRuntime initialMessages（恢复回填）", () => {
+  test("initialMessages 注入 initialState.messages：首轮 LLM 上下文含历史 + 新 prompt", async () => {
+    const seen: Array<Array<{ role: string; text: string }>> = [];
+    const streamFn: StreamFn = (_model, context) => {
+      const ctx = context as unknown as { messages?: Array<{ role: string; content: unknown }> };
+      seen.push((ctx.messages ?? []).map((m) => ({ role: m.role, text: textOfContent(m.content) })));
+      const stream = createAssistantMessageEventStream();
+      const final = assistantMessage("ok");
+      void (async () => {
+        stream.push({ type: "start", partial: final });
+        stream.push({ type: "text_end", contentIndex: 0, content: "ok", partial: final });
+        stream.push({ type: "done", reason: "stop", message: final });
+      })();
+      return stream;
+    };
+    const runtime = new AgentRuntime(TestProfile, {
+      streamFn,
+      model: fakeModel,
+      getApiKey: () => "k",
+      resolveTools: () => [],
+      initialMessages: [
+        { role: "user", content: "历史问题", timestamp: 1 } as AgentMessage,
+        assistantMessage("历史回答"),
+      ],
+    });
+    await runtime.drive("新问题");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(seen[0]![0]!.text).toBe("历史问题");
+    expect(seen[0]![1]!.text).toBe("历史回答");
+    expect(seen[0]![2]!.text).toBe("新问题");
+  });
+
+  test("未传 initialMessages：上下文仅新 prompt（基线，防止未来过度回填）", async () => {
+    const seen: Array<Array<{ role: string }>> = [];
+    const streamFn: StreamFn = (_model, context) => {
+      const ctx = context as unknown as { messages?: Array<{ role: string }> };
+      seen.push((ctx.messages ?? []).map((m) => ({ role: m.role })));
+      const stream = createAssistantMessageEventStream();
+      const final = assistantMessage("ok");
+      void (async () => {
+        stream.push({ type: "start", partial: final });
+        stream.push({ type: "done", reason: "stop", message: final });
+      })();
+      return stream;
+    };
+    const runtime = new AgentRuntime(TestProfile, {
+      streamFn,
+      model: fakeModel,
+      getApiKey: () => "k",
+      resolveTools: () => [],
+    });
+    await runtime.drive("只有新问题");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.map((m) => m.role)).toEqual(["user"]);
   });
 });

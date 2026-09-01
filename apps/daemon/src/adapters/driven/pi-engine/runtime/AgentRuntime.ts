@@ -55,6 +55,12 @@ export interface AgentRuntimeDeps {
    * （如子进程 ParkGuardHooks 共享挂起标志位）经此面接入。缺省不追加。
    */
   readonly extraHooks?: readonly HookSet[];
+  /**
+   * 恢复回填的初始 transcript（恢复回填批）：装配时注入 Agent 的
+   * initialState.messages——mainAgent 实例窗口销毁重建后回填它自己的历史
+   * （调用方经 seedMessagesOf 派生）；缺省 = 空历史（新建会话/新实例）。
+   */
+  readonly initialMessages?: readonly AgentMessage[];
 }
 
 export class AgentRuntime {
@@ -72,6 +78,11 @@ export class AgentRuntime {
         systemPrompt: profile.systemPrompt,
         model: deps.model,
         tools: deps.resolveTools ? deps.resolveTools(profile.tools) : [],
+        // 恢复回填：mainAgent 实例窗口销毁重建后回填它自己的历史（恢复回填批）；
+        // 空/缺省 = 新实例（新建会话/阶段切换新实例）无历史。
+        ...(deps.initialMessages !== undefined && deps.initialMessages.length > 0
+          ? { messages: [...deps.initialMessages] }
+          : {}),
       },
       streamFn: deps.streamFn,
       getApiKey: deps.getApiKey,

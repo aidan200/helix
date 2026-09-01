@@ -22,7 +22,9 @@ import { SchedulingPolicy } from "../../domain/agent/SchedulingPolicy";
 import { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import { lastMainAnchorId } from "@helix/protocol"; // 锚扫描基元单源 projection
 import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
-import { PiAgentEngineAdapter } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
+import { PiAgentEngineAdapter, type PiEngineOptions } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
+import { seedMessagesOf } from "../../adapters/driven/pi-engine/mappers/SessionMapper";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import {
@@ -93,6 +95,18 @@ export type EngineAssemblyMode =
   | { readonly kind: "production" }
   | { readonly kind: "override"; readonly factory: (sessionId: string) => AgentEnginePort };
 
+/**
+ * 主会话 LLM 覆盖（测试接缝：fake 剧本 streamFn + 可解析 model + apiKeys）。
+ * 缺省 = 生产形态（resolveConfigModel + 真 streamFn）；携带时仅替换 LLM 面
+ *（工具族/引擎状态机/事件翻译全真）——与 orchestratorLlmOverride 同哲学。
+ */
+export interface MainSessionLlmOverride {
+  readonly model: () => ReturnType<typeof resolveConfigModel>;
+  readonly streamFn: NonNullable<PiEngineOptions["streamFnOverride"]>;
+  /** provider → apiKey 测试覆盖（浅合并覆盖生产 authStore 快照）。 */
+  readonly apiKeys?: () => Record<string, string>;
+}
+
 export interface BuildSessionStackDeps {
   readonly paths: HelixPaths;
   readonly config: DaemonConfig;
@@ -114,6 +128,8 @@ export interface BuildSessionStackDeps {
   readonly backfill: AssemblyBackfill;
   /** 引擎装配形态（§4.3 显式模式：production 真引擎 / override 测试工厂注入）。 */
   readonly engineMode: EngineAssemblyMode;
+  /** 主会话 LLM 覆盖（测试接缝；缺省生产形态——resolveConfigModel + 真 streamFn）。 */
+  readonly mainSessionLlmOverride?: MainSessionLlmOverride;
   /** SubAgent runner 覆盖（测试工厂注入 fake runner 驱动收口时序；缺省走真体/占位降级）。 */
   readonly subagentRunnerOverride?: InstanceRunner;
   /** 工具沙箱 cwd 覆盖（测试指向 tmp；缺省为进程工作区）。 */
@@ -526,10 +542,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // mode 解析（profileKindOf；default → main-session，行为零变化；P2 多模式
   // 自动跟随注册表）。override 工厂（测试注入）不接 mode——结构兼容（参数
   // 少的函数可赋参数多的类型），Fake 引擎无槽位语义不受影响。
-  const engineFor: (sessionId: string, mode?: string) => AgentEnginePort =
+  const engineFor: (sessionId: string, mode?: string, seed?: readonly AgentMessage[]) => AgentEnginePort =
     engineMode.kind === "override"
-      ? engineMode.factory
-      : (sessionId: string, mode?: string): AgentEnginePort => {
+      ? (sessionId: string) => engineMode.factory(sessionId)
+      : (sessionId: string, mode?: string, seed?: readonly AgentMessage[]): AgentEnginePort => {
             const sessionOrchestration: AgentOrchestrationPort = {
               spawn: (task, profileKind, reportIntervalMs) =>
                 scheduler.spawn(sessionId, task, profileKind, resolveSubagentModelId(), reportIntervalMs),
@@ -587,11 +603,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
                   .filter((t) => codegraphTool !== undefined || t !== "codegraph")
                   .filter((t) => deps.taskCreate !== undefined || t !== "task_create"),
               },
-              model: resolveConfigModel(
+              model: deps.mainSessionLlmOverride?.model() ?? resolveConfigModel(
                 resourceService.modelSlot(profileKindOf(mode)) ?? defaultModel.current(),
                 catalog.modelsView(),
               ),
-              apiKeys: () => authStore.apiKeysSnapshot(),
+              apiKeys: () => ({ ...authStore.apiKeysSnapshot(), ...(deps.mainSessionLlmOverride?.apiKeys?.() ?? {}) }),
               models: catalog.modelsView(),
               resolveModelById: (modelId) => resolveConfigModel(modelId, catalog.modelsView()),
               resolveThinking: (model) =>
@@ -601,6 +617,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
                   model,
                 ),
               resolveTools: (names) => toolExecutor.resolveTools(names),
+              // 测试接缝：mainSessionLlmOverride 恒最高（缺省生产形态）
+              ...(deps.mainSessionLlmOverride !== undefined ? { streamFnOverride: deps.mainSessionLlmOverride.streamFn } : {}),
+              // 恢复回填：mainAgent 实例窗口销毁重建后回填它自己的历史（seed
+              // 由 buildRuntime 经 seedMessagesOf 派生；新建会话 = undefined）。
+              ...(seed !== undefined ? { initialMessages: seed } : {}),
             });
             return adapter;
           };
@@ -612,7 +633,20 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     restore: (sessionId) => restoreService.restore(sessionId),
     // 会话运行时工厂（组合根唯一 new 面）：Session + ChatService 族 + 投影绑定
     buildRuntime: (material): SessionRuntime => {
-      const engine = engineFor(material.session.id, material.session.mode);
+      // 恢复回填（三层模型）：实例窗口（LLM 上下文）销毁重建后，从 Entry 树按
+      // mainInstanceId 过滤回填该 mainAgent 自己的 user/assistant 历史——空闲卸载/
+      // 重启后的「同一实例复活」延续上下文；新建会话/阶段切换新实例无历史 = 空 seed。
+      // model 元数据取当前解析模型（与 engineFor 生产分支同序同值；assistant 回填元数据源）。
+      const seedModel = deps.mainSessionLlmOverride?.model() ?? resolveConfigModel(
+        resourceService.modelSlot(profileKindOf(material.session.mode)) ?? defaultModel.current(),
+        catalog.modelsView(),
+      );
+      const seed = seedMessagesOf(material.session.entryList(), material.session.mainInstanceId, {
+        api: seedModel.api,
+        provider: seedModel.provider,
+        model: seedModel.id,
+      });
+      const engine = engineFor(material.session.id, material.session.mode, seed);
       // thinking 批③跨冷恢复（AD-4③）：回放末值覆盖直写引擎内存态——
       // 不走 ChatService.setThinking 发布面（零新事件流零落盘铁律，恢复不重放）；
       // 区别于 model.set 不跨冷恢复现状（TR-AD-41 反例钉死，差异不动）。

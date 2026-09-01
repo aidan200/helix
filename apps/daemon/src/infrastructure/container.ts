@@ -50,7 +50,7 @@ import { KgMaintenanceService } from "../application/services/kg/KgMaintenanceSe
 import { KgReviewService } from "../application/services/kg/KgReviewService";
 import { hasActiveJob } from "../application/services/kg/job-activity";
 import type { TaskStorePort } from "../application/ports/outbound/TaskStorePort";
-import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode } from "./assembly/buildSessionStack";
+import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode, type MainSessionLlmOverride } from "./assembly/buildSessionStack";
 import { SkillScanner } from "../adapters/driven/pi-engine/SkillScanner";
 import { FanoutPublisher, wireEventFanout, type NamedFanoutTarget } from "./assembly/wireEventFanout";
 import { createResourceEventBus, type ResourceEventBus } from "./assembly/resource-events";
@@ -191,6 +191,8 @@ export interface AssembleDaemonDeps {
    * 透传 createOrchestratorSessionFactory（LLM 面单点替换；缺省生产形态）。
    */
   readonly orchestratorLlmOverride?: Parameters<typeof createOrchestratorSessionFactory>[0]["llmOverride"];
+  /** 主会话 LLM 覆盖（测试接缝：fake 剧本 streamFn + 可解析 model；缺省生产形态）。 */
+  readonly mainSessionLlmOverride?: MainSessionLlmOverride;
   /** 前端静态产物目录覆盖（缺省取 config.staticDir）。 */
   readonly staticDir?: string;
   /** 工具沙箱 cwd 覆盖（缺省为进程工作区）。 */
@@ -451,6 +453,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
     backfill,
     engineMode: deps.engineMode,
+    mainSessionLlmOverride: deps.mainSessionLlmOverride,
     subagentRunnerOverride: deps.subagentRunnerOverride,
     toolCwd: deps.toolCwd,
     // W1F-F1：会话工具沙箱 cwd 动态解析接线（评审缺口修复：此前仅传启动

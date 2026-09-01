@@ -1,8 +1,10 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Usage, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, TextContent, Usage, UserMessage } from "@earendil-works/pi-ai";
 import { LEGACY_MAIN_INSTANCE_ID } from "../../../../domain/agent/AgentInstance";
 import type { EntryData } from "../../../../domain/session/Entry";
+import type { SessionEntryData } from "../../../../domain/session/SessionSnapshot";
 import type { AgentEngineUsage } from "../../../../application/ports/outbound/AgentEnginePort";
+import { parseDataUrlImages } from "../../../../application/services/images";
 
 /**
  * SessionMapper —— pi 消息 ↔ domain 聚合的薄映射（architecture.md §3.5/§5.5）。
@@ -110,4 +112,86 @@ export function entryDataOf(message: AgentMessage, fallbackTurnId: string | null
     };
   }
   return null;
+}
+
+// ── 反向映射：Entry → pi AgentMessage（恢复回填） ─────────────────────
+
+/** 回填 assistant 消息的模型元数据（历史消息以当前引擎模型补齐元数据）。 */
+export interface SeedModelMeta {
+  readonly api: string;
+  readonly provider: string;
+  readonly model: string;
+}
+
+/** 零值 usage（回填的历史 assistant 消息不携带真实计费——账目归 UsageLedger 事件流）。 */
+const ZERO_USAGE: Usage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+/**
+ * domain Entry → pi AgentMessage（恢复回填的单条映射）。
+ * user（含图片）→ UserMessage；assistant → AssistantMessage（零 usage + stop）；
+ * 其余角色（tool）→ null（工具中间态不回填——恢复是「重新开对话」非「续工具轮」）。
+ * createdAt 解析失败（损坏行）→ null（防御跳过）。
+ */
+export function agentMessageOfEntry(entry: EntryData, meta: SeedModelMeta): AgentMessage | null {
+  const timestamp = Date.parse(entry.createdAt);
+  if (!Number.isFinite(timestamp)) return null;
+  if (entry.role === "user") {
+    const content: (TextContent | ImageContent)[] = [{ type: "text", text: entry.text }];
+    if (entry.images !== undefined) {
+      for (const url of entry.images) {
+        try {
+          const decoded = parseDataUrlImages([url])[0];
+          if (decoded !== undefined) {
+            content.push({ type: "image", mimeType: decoded.mimeType, data: decoded.data });
+          }
+        } catch {
+          // 损坏图片防御：跳过该图（历史文本仍回填）
+        }
+      }
+    }
+    return { role: "user", content, timestamp } as UserMessage;
+  }
+  if (entry.role === "assistant") {
+    return {
+      role: "assistant",
+      content: [{ type: "text", text: entry.text }],
+      api: meta.api,
+      provider: meta.provider,
+      model: meta.model,
+      usage: ZERO_USAGE,
+      stopReason: "stop",
+      timestamp,
+    } as AssistantMessage;
+  }
+  return null; // tool（工具中间态）不回填
+}
+
+/**
+ * 从会话条目派生 mainAgent 回填种子（恢复回填的入口纯函数）。
+ * 只回填 instanceId === mainInstanceId 的 message 条目（user/assistant），
+ * 按 Entry 树序（append 序）；thinking/compaction/SubAgent 条目跳过——
+ * 与「会话聚合跨实例全历史 vs 实例窗口独立上下文」的三层模型对齐：
+ * 每个 mainAgent 实例只回填它自己的对话历史，未来阶段切换新实例天然
+ * 只回填自己的（新实例无历史 = 空 + 交接摘要）。
+ */
+export function seedMessagesOf(
+  entries: readonly SessionEntryData[],
+  mainInstanceId: string,
+  meta: SeedModelMeta,
+): AgentMessage[] {
+  const out: AgentMessage[] = [];
+  for (const entry of entries) {
+    if (!("role" in entry)) continue; // thinking/compaction 不回填
+    if (entry.instanceId !== mainInstanceId) continue; // 仅当前 mainAgent 实例
+    const message = agentMessageOfEntry(entry, meta);
+    if (message !== null) out.push(message);
+  }
+  return out;
 }
