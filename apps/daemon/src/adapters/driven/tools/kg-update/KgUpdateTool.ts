@@ -60,7 +60,11 @@ const kgUpdateParameters = {
       description:
         "适用场景（R23 沉淀必填——createNode/batchCreateNodes 缺了写不进去）：一句话「本规则适用于：改动 X 类文件 / 做 Y 类决策前」",
     },
-    body: { type: "string", description: "createNode 正文（可选，全文详情）" },
+    body: {
+      type: "string",
+      description:
+        "createNode 正文（可选，全文详情）。写作规范（全产线统一，bootstrap SOP 提升）：完整自然语言禁电报体；markdown 结构自由组织（推荐「## 这是什么 / ## 为什么存在」段式）；必含「为什么存在」——来源与存在理由（解决什么问题/约束什么），缺 why 的知识无法支撑「改动前该看什么」判断",
+    },
     domain: { type: "string", enum: ["tech", "business"], description: "createNode 作用域（可选）" },
     layer: { type: "string", enum: ["L0", "L1", "L2"], description: "createNode 分层（可选，AD-11）" },
     status: {
@@ -92,7 +96,7 @@ const kgUpdateParameters = {
           name: { type: "string", description: "节点名（重名合法，靠 digest 区分）" },
           digest: { type: "string", description: "摘要（≤2 行）" },
           scene: { type: "string", description: "适用场景（必填：「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）" },
-          body: { type: "string", description: "正文（可选）" },
+          body: { type: "string", description: "正文（可选）。写作规范同单条 createNode：完整自然语言 + markdown 结构 + 必含「为什么存在」段" },
           domain: { type: "string", enum: ["tech", "business"], description: "作用域（可选）" },
           layer: { type: "string", enum: ["L0", "L1", "L2"], description: "分层（可选，AD-11）" },
           anchors: {
