@@ -297,6 +297,49 @@ describe("P1 T3：session_state.mode 列（建会话定格 mode 随状态行落�
   });
 });
 
+describe("updated_at 语义修复回填（历史脏行 → 真实活动时间）", () => {
+  test("打开旧库：脏行 updated_at 回填为末条 entry createdAt；空 entries 兜底 created_at；幂等重开零变化", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      // 造「sealAll 落盘墙钟」污染的脏库：updated_at 远晚于真实活动时间
+      const raw = new Database(dbPath);
+      raw.exec(
+        "CREATE TABLE session_state (session_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, entries TEXT NOT NULL, turns TEXT NOT NULL, updated_at TEXT NOT NULL)",
+      );
+      const entries = JSON.stringify([
+        { id: "e1", role: "user", text: "问", createdAt: "2024-01-01T00:00:01.000Z" },
+        { id: "e2", role: "assistant", text: "答", createdAt: "2024-01-01T00:00:09.000Z" },
+      ]);
+      raw.exec(
+        `INSERT INTO session_state VALUES ('s-dirty', '2024-01-01T00:00:00.000Z', '${entries}', '[]', '2026-09-01T04:10:05.000Z')`,
+      );
+      raw.exec(
+        "INSERT INTO session_state VALUES ('s-empty', '2024-01-02T00:00:00.000Z', '[]', '[]', '2026-09-01T04:10:05.000Z')",
+      );
+      raw.close();
+
+      const queue = new WriteQueue(dbPath); // 守护迁移：回填
+      const db = new Database(dbPath, { readonly: true });
+      const dirty = db.prepare("SELECT updated_at FROM session_state WHERE session_id = 's-dirty'").get() as { updated_at: string };
+      const empty = db.prepare("SELECT updated_at FROM session_state WHERE session_id = 's-empty'").get() as { updated_at: string };
+      db.close();
+      expect(dirty.updated_at).toBe("2024-01-01T00:00:09.000Z"); // 末条 entry createdAt
+      expect(empty.updated_at).toBe("2024-01-02T00:00:00.000Z"); // 空 entries 兜底 created_at
+
+      // 幂等：重开同库零变化（WHERE IS NOT 不再命中）
+      const reopened = new WriteQueue(dbPath);
+      const db2 = new Database(dbPath, { readonly: true });
+      const again = db2.prepare("SELECT updated_at FROM session_state WHERE session_id = 's-dirty'").get() as { updated_at: string };
+      db2.close();
+      expect(again.updated_at).toBe("2024-01-01T00:00:09.000Z");
+      await reopened.close();
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});
+
 describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产物（O-5）", () => {
   test("saveClosureRecord 落盘后重开（进程内级重启）可读回；findings 保 JSON", async () => {
     const dbPath = tmpDbPath();

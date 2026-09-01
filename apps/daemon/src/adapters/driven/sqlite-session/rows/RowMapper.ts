@@ -15,7 +15,12 @@ import type {
 /**
  * RowMapper —— 充血聚合 ↔ 贫血行模型的转换（AD-17 第 4/5 条）。
  * 转换归属本层：domain 不见行模型、行模型不见行为；序列化（JSON）在此收口。
- * updated_at 取映射时刻墙钟（投影元数据，非领域数据——不经 ClockPort）。
+ * session_state.updated_at = 会话真实活动时间（最后一条 entry 的 createdAt，
+ * 空会话兜底 created_at）——清单排序键（listSessionMetadata ORDER BY updated_at
+ * / metaFromRow lastActivityAt）。**不得取落盘墙钟**：sealAll（shutdown stopped
+ * 里程碑）/空闲卸载等「非活动落盘」会把全部会话 updated_at 抹平成同一时刻，
+ * 清单「最近使用」排序被打乱（F-会话排序乱 教训）。
+ * lifecycle.updated_at 仍取映射时刻墙钟（状态行投影元数据，非排序键，不经 ClockPort）。
  */
 
 // ── 领域事件 ↔ domain_events 行 ─────────────────────────────
@@ -55,13 +60,18 @@ export interface PersistedStateRows {
 export function persistedStateToRows(state: PersistedDomainState): PersistedStateRows {
   const now = new Date().toISOString();
   const sessionId = state.session.sessionId;
+  const entries = state.session.entries;
+  // 会话真实活动时间：entries 追加有序（append-only），末条即最新活动；空会话
+  // （零条目草稿——理论不经 write-through 落库，防御兜底）取 created_at。
+  const lastEntry = entries[entries.length - 1];
+  const lastActivityAt = lastEntry !== undefined ? lastEntry.createdAt : state.session.createdAt;
   return {
     session: {
       session_id: sessionId,
       created_at: state.session.createdAt,
-      entries: JSON.stringify(state.session.entries),
+      entries: JSON.stringify(entries),
       turns: JSON.stringify(state.session.turns),
-      updated_at: now,
+      updated_at: lastActivityAt,
       // T10a 方案 A：会话主实例 id 随状态行落盘（恢复重建 Session.mainInstanceId
       // 唯一事实源；旧聚合缺省 null = legacy "main"——理论不可达，新聚合恒携带）
       main_instance_id: state.session.mainInstanceId ?? null,

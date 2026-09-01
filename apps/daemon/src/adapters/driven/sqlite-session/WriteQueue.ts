@@ -817,6 +817,19 @@ function ensureSchemaEvolved(db: Database): void {
       throw error; // 迁移失败快速失败：daemon 不带病启动
     }
   }
+  // updated_at 语义修复回填（R-会话排序）：updated_at 历史上取「落盘墙钟」，
+  // daemon 关闭 sealAll（stopped 里程碑落盘）/空闲卸载会把全部会话 updated_at
+  // 抹平成同一时刻——清单 ORDER BY updated_at 的「最近使用」排序被破坏。
+  // 写面已改取最后一条 entry 的 createdAt（RowMapper.persistedStateToRows），
+  // 此处把历史脏行一次性回填为真实活动时间（空 entries 兑底 created_at）。
+  // 幂等：已修好的行不满足 WHERE（IS NOT 处理 NULL 三值比较），重跑零写；
+  // 表不存在（新库——随后 SCHEMA_SQL 直建）= 无需回填。
+  if (tableColumns(db, "session_state").length > 0) {
+    db.exec(
+      "UPDATE session_state SET updated_at = COALESCE(json_extract(entries, '$[#-1].createdAt'), created_at) " +
+        "WHERE updated_at IS NOT COALESCE(json_extract(entries, '$[#-1].createdAt'), created_at)",
+    );
+  }
 }
 
 /** 列存在性（表不存在视为"无需演进"——随后的 CREATE TABLE 直建新形状）。 */

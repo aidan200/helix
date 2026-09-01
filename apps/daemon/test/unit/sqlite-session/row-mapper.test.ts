@@ -44,6 +44,25 @@ function richState(): PersistedDomainState {
 }
 
 describe("TP-CL8-5：RowMapper 往返等价", () => {
+  test("session_state.updated_at = 末条 entry 的 createdAt（真实活动时间，非落盘墙钟）", () => {
+    const session = Session.create("s-ua", "2024-01-01T00:00:00.000Z");
+    session.appendUserEntry("第一问", "2024-01-01T00:00:01.000Z");
+    const turn = session.beginTurn("e1", "2024-01-01T00:00:02.000Z");
+    void turn;
+    session.appendAssistantEntry("第一答", "2024-01-01T00:00:05.000Z");
+    const rows = RowMapper.persistedStateToRows({ session: session.toSnapshot(), agentState: "idle", toolCalls: [] });
+    // 排序键 = 会话真实活动时间（末条 entry）——sealAll/空闲卸载等「非活动落盘」不刷新它
+    expect(rows.session.updated_at).toBe("2024-01-01T00:00:05.000Z");
+    // lifecycle 行仍是映射时刻墙钟（投影元数据，非排序键）——与 session 行区分开
+    expect(rows.lifecycle.updated_at).not.toBe(rows.session.updated_at);
+  });
+
+  test("空会话 updated_at 兜底 created_at（零条目防御）", () => {
+    const session = Session.create("s-empty", "2024-01-01T00:00:00.000Z");
+    const rows = RowMapper.persistedStateToRows({ session: session.toSnapshot(), agentState: "idle", toolCalls: [] });
+    expect(rows.session.updated_at).toBe("2024-01-01T00:00:00.000Z");
+  });
+
   test("① PersistedDomainState → 行 → PersistedDomainState 深等价（四类状态）", () => {
     const state = richState();
     const rows = RowMapper.persistedStateToRows(state);
