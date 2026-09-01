@@ -81,12 +81,13 @@ describe("domain/kg/verify/orphans：腐烂锚与孤儿节点判定（纯函数�
     expect(items[0]!.summary).not.toMatch(/TR-\d+/);
   });
 
-  test("④ 宽限与豁免：draft 新建 7 天内不列；draft 超宽限/confirmed 均列", () => {
+  test("④ 宽限与豁免：draft 新建 7 天内不列；draft 超宽限/confirmed 均列；superseded 留史不列（与 dead_anchor 口径对称——CAND-3）", () => {
     const freshDraft = node("TR-1", { status: "draft", createdAt: new Date(NOW - 1 * DAY).toISOString() });
     const staleDraft = node("TR-2", { status: "draft", createdAt: new Date(NOW - (ORPHAN_DRAFT_GRACE_MS + DAY)).toISOString() });
     const freshConfirmed = node("TR-3", { createdAt: new Date(NOW - 1 * DAY).toISOString() });
-    const items = findOrphanItems(scan({ nodes: [freshDraft, staleDraft, freshConfirmed] }));
-    expect(items.map((i) => i.node.id)).toEqual(["TR-2", "TR-3"]); // 宽限期边界外全列
+    const retired = node("TR-4", { status: "superseded" }); // 留史节点：无活锚是常态，不列孤儿
+    const items = findOrphanItems(scan({ nodes: [freshDraft, staleDraft, freshConfirmed, retired] }));
+    expect(items.map((i) => i.node.id)).toEqual(["TR-2", "TR-3"]); // 宽限期边界外全列；superseded 不列
   });
 
   test("⑤ 有边（入/出任一）、有锚（含死锚）、有作用域声明（global 等）→ 均不列 orphan_node", () => {

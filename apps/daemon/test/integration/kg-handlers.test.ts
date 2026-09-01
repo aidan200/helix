@@ -883,15 +883,14 @@ describe("kg.health I 层（真 service 栈 + tmp 库 + ws 路由）", () => {
     expect(conflicts[0]!.kind).toBe("mutual_governs");
     expect(conflicts[0]!.summary).toContain("会话实体");
     expect(conflicts[0]!.summary).toContain("写路径守护乙");
-    // ② orphans：TR-2 死锚（write-path.ts 消亡）+ TR-3 orphan_node（superseded
-    // 留史节点无锚无边——orphan_node 口径不排除 superseded）；orphanCount = 清单长度
+    // ② orphans：TR-2 死锚（write-path.ts 消亡）；TR-3 superseded 留史节点
+    // 不再列（orphan_node 口径 superseded 对称豁免——CAND-3，与 dead_anchor 同规）；
+    // orphanCount = 清单长度
     const orphans = res.result.orphans as { kind: string; summary: string }[];
-    expect(orphans).toHaveLength(2);
+    expect(orphans).toHaveLength(1);
     expect(orphans[0]!.kind).toBe("dead_anchor");
     expect(orphans[0]!.summary).toContain("写路径白名单");
-    expect(orphans[1]!.kind).toBe("orphan_node");
-    expect(orphans[1]!.summary).toContain("旧写路径规则");
-    expect(res.result.orphanCount).toBe(2);
+    expect(res.result.orphanCount).toBe(1);
     // AD-16：summary 人读叙述无裸 id
     for (const c of conflicts) expect(c.summary).not.toMatch(/TR-\d+|E-\d+/);
     for (const o of orphans) expect(o.summary).not.toMatch(/TR-\d+|E-\d+/);
@@ -971,8 +970,9 @@ describe("kg.index.status rebuild 随行 orphanNote（W2-D R14）", () => {
     expect(res.result.state).toBe("synced");
     expect(typeof res.result.orphanNote).toBe("string");
     expect(res.result.orphanNote as string).toContain("体检提示");
-    // rebuild 后机械口径 3 处：TR-2 死锚 + E-1 锚随全量重建转 dead + TR-3 orphan_node
-    expect(res.result.orphanNote as string).toContain("3 处");
+    // rebuild 后机械口径 2 处：TR-2 死锚 + E-1 锚随全量重建转 dead（TR-3
+    // superseded 留史节点不再列——orphan_node 口径对称豁免 CAND-3）
+    expect(res.result.orphanNote as string).toContain("2 处");
 
     // 非 rebuild 读面不带 orphanNote（R14 只挂手动 sync 面）
     const plain = await rig.client.kg("kg.index.status", { project: "alpha" });

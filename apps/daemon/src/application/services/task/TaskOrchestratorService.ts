@@ -122,7 +122,8 @@ export interface TaskOrchestratorServiceDeps {
    * 时触发一次（cancel 走 stopOrchestrator 用户主动路径，不触发）；缺省不提示。
    */
   readonly onJobTerminal?: (jobId: string, status: JobData["status"]) => void;
-  readonly logger?: { warn(message: string): void };
+  /** 卡装配修复：info 面（驱动开始/完成可观测）+ warn 面（异常/重试链）。 */
+  readonly logger?: { info(message: string): void; warn(message: string): void };
 }
 
 /** 单任务编排循环态（会话 + 派发 brief 登记簿 + 驱动中标记）。 */
@@ -255,7 +256,9 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
 
   // ── 内部：会话驱动（唤醒/注入路由） ──────────────────────
 
-  /** 唤醒编排会话：运行中 → 注入（turn 边界 drain）；闲时 → 新驱动轮；挂起中 → 暂存（链 A）。 */
+  /** 唤醒编排会话：运行中 → 注入（turn 边界 drain）；闲时 → 新驱动轮；挂起中 → 暂存（链 A）。
+   * 卡装配修复（task-8659b320）：drive 全程日志可观测（六分钟静默无从判别死活）
+   * + 首轮抛错后单次重试（原先只 warn 无重试——job 滞留 pending 等外部事件）。 */
   private wake(loop: LoopState, prompt: string): void {
     if (loop.stopped) return;
     if (loop.parked) {
@@ -268,10 +271,25 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     }
     loop.running = true;
     void (async () => {
+      const t0 = Date.now();
+      this.info(`编排会话驱动开始（任务 ${loop.jobId}）：${prompt.slice(0, 80)}`);
       try {
         await loop.session.drive(prompt);
+        this.info(`编排会话驱动完成（任务 ${loop.jobId}，耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s）`);
       } catch (err) {
-        this.warn(`编排会话驱动异常（任务 ${loop.jobId}）：${(err as Error).message}`);
+        const message = (err as Error).message;
+        this.warn(`编排会话驱动异常（任务 ${loop.jobId}）：${message}——5s 后单次重试`);
+        await new Promise((r) => setTimeout(r, 5000));
+        if (!loop.stopped) {
+          try {
+            await loop.session.drive(prompt);
+            this.warn(`编排会话重试驱动成功（任务 ${loop.jobId}）`);
+          } catch (err2) {
+            this.warn(
+              `编排会话重试仍失败（任务 ${loop.jobId}）：${(err2 as Error).message}——放弃本轮，等待下一外部事件唤醒（job 若无批次将滞留 pending，可 cancel 重发）`,
+            );
+          }
+        }
       } finally {
         loop.running = false;
         this.reapIfTerminal(loop.jobId); // run 收口后顺带清扫终态任务
@@ -502,6 +520,10 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       lines.push(`（任务当前状态 ${job.status}——派发与推进会被拒绝，等待恢复注入。）`);
     }
     return lines.join("\n");
+  }
+
+  private info(message: string): void {
+    this.deps.logger?.info(`[orchestrator] ${message}`);
   }
 
   private warn(message: string): void {

@@ -211,6 +211,8 @@ export interface OrchestratorEnvOverrides {
   readonly parkInstance?: (agentId: string, reason: "user" | "taskPause") => { parked: boolean; error?: string };
   /** 链 A（⑤）：批次实例复活原语覆盖（缺省 = 即时复活成立的 fake）。 */
   readonly resumeInstance?: (agentId: string) => { resumed: boolean; queued?: boolean; error?: string };
+  /** 卡装配修复面：前 N 次 drive 抛错（模拟首轮驱动异常——重试唤醒链断言注入）。 */
+  readonly failFirstDrives?: number;
 }
 
 export interface OrchestratorEnv {
@@ -221,6 +223,8 @@ export interface OrchestratorEnv {
   readonly dbPath: string;
   /** 编排会话驱动日志（drive/inject 观测——挂起期「不驱动回合」断言依据，链 A）。 */
   readonly sessionLog: { kind: "drive" | "inject"; text: string }[];
+  /** 编排服务日志捕获（info/warn 平铺——驱动可观测性与重试链断言面）。 */
+  readonly orchestratorLog: string[];
   /** 子进程形态台账直写面（模拟批次实例 plan 落账）。 */
   childLedger(): WorkLedger;
   /** 条件等待（编排链路异步收口确定性锚）。 */
@@ -274,6 +278,8 @@ export async function withOrchestratorEnv(
   );
   const scriptedStream = makeScriptedLLM([...over.script]);
   const sessionLog: { kind: "drive" | "inject"; text: string }[] = [];
+  const orchestratorLog: string[] = [];
+  let driveFailuresLeft = over.failFirstDrives ?? 0;
   const createSession = (jobId: string, orchestration: AgentOrchestrationPort): OrchestratorSessionFace => {
     const executor = new CoreToolExecutor({
       cwd: dir,
@@ -300,6 +306,10 @@ export async function withOrchestratorEnv(
     return {
       drive: async (prompt) => {
         sessionLog.push({ kind: "drive", text: prompt });
+        if (driveFailuresLeft > 0) {
+          driveFailuresLeft -= 1;
+          throw new Error(`scripted drive failure（剩余注入 ${driveFailuresLeft} 次）`);
+        }
         await adapter.start(prompt, () => undefined);
       },
       inject: (text) => {
@@ -325,6 +335,10 @@ export async function withOrchestratorEnv(
     resumeInstance: over.resumeInstance ?? (() => ({ resumed: true, queued: false })),
     createSession,
     planHardConstraint: PLAN_HARD_CONSTRAINT_SEGMENT,
+    logger: {
+      info: (m: string) => orchestratorLog.push(`[INFO] ${m}`),
+      warn: (m: string) => orchestratorLog.push(`[WARN] ${m}`),
+    },
     ...(over.onJobTerminal !== undefined ? { onJobTerminal: over.onJobTerminal } : {}),
   });
   orchestratorRef = orchestrator;
@@ -338,7 +352,7 @@ export async function withOrchestratorEnv(
   };
 
   try {
-    await fn({ engine, store, orchestrator, recorder, dbPath, sessionLog, childLedger: () => childLedger(dbPath), until, dispose: async () => {
+    await fn({ engine, store, orchestrator, recorder, dbPath, sessionLog, orchestratorLog, childLedger: () => childLedger(dbPath), until, dispose: async () => {
       await queue.close();
       rmSync(dir, { recursive: true, force: true });
     } });

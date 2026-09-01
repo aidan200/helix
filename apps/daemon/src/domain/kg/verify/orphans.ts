@@ -92,7 +92,9 @@ export function findOrphanItems(input: OrphanScanInput): OrphanItem[] {
     items.push({ kind: "dead_anchor", anchor, node: ref, summary: deadAnchorSummary(anchor, ref) });
   }
 
-  // ② 孤儿节点：无任何物化锚行 + 无入出边 + 无锚声明 + 过 draft 宽限
+  // ② 孤儿节点：无任何物化锚行 + 无入出边 + 无锚声明 + 过 draft 宽限 +
+  // 非 superseded（与 ① dead_anchor 口径对称——CAND-3：留史节点无活锚是
+  // 常态，superseded 重建链就是它的挂接面，不应误报孤儿）
   const anchoredNodeIds = new Set(anchors.map((a) => a.nodeId));
   const declaredNodeIds = new Set(anchorDeclarations.map((d) => d.nodeId));
   const edgedNodeIds = new Set<string>();
@@ -105,6 +107,7 @@ export function findOrphanItems(input: OrphanScanInput): OrphanItem[] {
     .filter((n) => !edgedNodeIds.has(n.id))
     .filter((n) => !declaredNodeIds.has(n.id))
     .filter((n) => !(n.status === "draft" && now - Date.parse(n.createdAt) < ORPHAN_DRAFT_GRACE_MS))
+    .filter((n) => n.status !== "superseded")
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const node of orphanCandidates) {
     const ref = toNodeRef(node);

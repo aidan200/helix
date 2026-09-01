@@ -114,7 +114,14 @@ export function createOrchestratorSessionFactory(
       resolveTools: (names) => executor.resolveTools(names),
     });
     return {
-      drive: (prompt) => adapter.start(prompt, () => undefined),
+      // 卡装配修复（task-8659b320）：engine_error（模型调用失败/provider 原文）原先被
+      // no-op listener 吞没——接 logger 后驱动挂起/失败可在 daemon.log 判别。
+      drive: (prompt) =>
+        adapter.start(prompt, (event) => {
+          if (event.type === "engine_error") {
+            deps.logger?.warn(`[orchestrator] 编排会话 engine_error（任务 ${jobId}）：${event.message}`);
+          }
+        }),
       inject: (text) => adapter.steer(text),
       abort: () => adapter.abort(),
     };
