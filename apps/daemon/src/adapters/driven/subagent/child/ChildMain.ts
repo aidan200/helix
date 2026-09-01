@@ -465,6 +465,26 @@ async function main(): Promise<void> {
   // 与 kg-update 工具 taskContext 同源；LLM 显式写优先，缺省机械注入（kg-review
   // SOP「接线层机械注入，LLM 无需透传」的兑现）；非任务上下文零注入。
   const resolvedTask = taskContext?.();
+  // closure 块预解析（兜底在组装前 await——process.exit 不等未决 Promise）
+  const parsedClosure = terminated ? undefined : parseClosureBlock(lastAssistantText);
+  // closure done 收口前机械兑底（task-8659b320 三连败修复）：实例忘
+  // plan_update 标记收口项（in_progress 悬置）时，父进程判据②会
+  // failBatch → 重试耗尽全损。closure done = 实例已自证完成，此处只兑
+  // 「忘标记」的 in_progress（带机械 note 可追溯）；pending（声明未开工）
+  // 不兑——真漏做照旧未决。同步写，writeLine 前完成可见。
+  if (parsedClosure?.status === "done") {
+    try {
+      const out = await workLedger.tools.service.forceResolveInProgress(
+        instanceId,
+        "closure done 机械兑底（实例未逐项标记，收口前置机械补标）",
+      );
+      if (out.resolved > 0) {
+        writeLine({ type: "log", instanceId, text: `closure 兑底：${out.resolved} 项 in_progress 机械补标 done` });
+      }
+    } catch (err) {
+      writeLine({ type: "log", instanceId, text: `closure 兑底失败（照常上送 closure，父侧判据裁决）：${(err as Error).message}` });
+    }
+  }
   const closure: InstanceClosurePayload = terminated
     ? {
         status: "failed",
@@ -473,19 +493,15 @@ async function main(): Promise<void> {
         findings: null,
         taskId: resolvedTask?.taskId ?? null,
       }
-    : (() => {
-        const parsed = parseClosureBlock(lastAssistantText);
-        if (parsed === undefined) {
-          return {
-            status: "failed",
-            summary: buildFallbackSummary(lastAssistantText, lastEngineError),
-            reportPath: null,
-            findings: null,
-            taskId: resolvedTask?.taskId ?? null,
-          };
+    : parsedClosure === undefined
+      ? {
+          status: "failed",
+          summary: buildFallbackSummary(lastAssistantText, lastEngineError),
+          reportPath: null,
+          findings: null,
+          taskId: resolvedTask?.taskId ?? null,
         }
-        return { ...parsed, taskId: parsed.taskId ?? resolvedTask?.taskId ?? null };
-      })();
+      : { ...parsedClosure, taskId: parsedClosure.taskId ?? resolvedTask?.taskId ?? null };
   writeLine({ type: "closure", instanceId, closure });
   kg.database.closeAll(); // 正常收尾关连接（崩溃路径走 WAL 恢复，无需显式关）
   workLedger.ledger.close(); // T1.4：台账直连连接同单点收尾（惰性未开过 = no-op）

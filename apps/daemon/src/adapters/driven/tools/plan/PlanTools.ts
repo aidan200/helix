@@ -64,7 +64,7 @@ const planReadParameters = {
 
 export interface PlanToolDeps {
   /** WorkLedgerService 面（结构化注入——测试记录器同形；经 port 落表）。 */
-  readonly service: Pick<WorkLedgerService, "createPlan" | "updateItem" | "getPlan">;
+  readonly service: Pick<WorkLedgerService, "createPlan" | "updateItem" | "getPlan" | "forceResolveInProgress">;
   /** 本实例 id（子进程上下文注入——工具参数零 instanceId，防伪造）。 */
   readonly instanceId: string;
 }

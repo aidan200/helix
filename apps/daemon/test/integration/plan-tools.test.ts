@@ -328,3 +328,43 @@ describe("⑥ 跨进程：子连接写 work_item 时父连接读不阻塞（WAL�
     expect(f.parent.getPlan("agent-w1")[49]).toMatchObject({ seq: 50, status: "in_progress" });
   });
 });
+
+// ── ⑦ closure done 收口前机械兜底（task-8659b320 三连败修复：
+//    实例忘 plan_update 标记收口项 → 父进程判据② failBatch → 重试耗尽全损）──
+
+describe("⑦ forceResolveInProgress：closure done 收口前机械兜底（仅 in_progress）", () => {
+  test("in_progress→done 带机械 note；pending 不兜（真漏做照旧未决）；幂等无害", async () => {
+    const f = makeFixture("agent-b1");
+    await f.service.createPlan("agent-b1", ["开工项", "收口项", "从未开工项"]);
+    await f.service.updateItem("agent-b1", 1, "in_progress");
+    await f.service.updateItem("agent-b1", 1, "done");
+    await f.service.updateItem("agent-b1", 2, "in_progress"); // 忘标记的收口项（task-8659b320 #5 同型）
+    // #3 留 pending
+
+    const out = await f.service.forceResolveInProgress("agent-b1", "closure done 机械兜底（实例未逐项标记）");
+    expect(out).toEqual({ resolved: 1 }); // 只兜 in_progress 的 #2
+
+    const plan = f.service.getPlan("agent-b1");
+    expect(plan[1]).toMatchObject({ seq: 2, status: "done", note: "closure done 机械兜底（实例未逐项标记）" });
+    expect(plan[2]).toMatchObject({ seq: 3, status: "pending", note: null }); // pending 不兜——防漏做判据保留
+
+    // 父读口同见（跨连接可见性——父进程 settleInstance 判据②读取面）
+    const verdict = f.parent.isFullyResolved("agent-b1");
+    expect(verdict.resolved).toBe(false); // #3 pending 仍判未决（有意保守）
+    expect(verdict.unresolved).toEqual([{ seq: 3, status: "pending" }]);
+
+    // 幂等：全 done/in_progress 清零后再调 → resolved 0
+    await f.service.updateItem("agent-b1", 3, "in_progress");
+    await f.service.updateItem("agent-b1", 3, "done");
+    expect(await f.service.forceResolveInProgress("agent-b1", "再兜")).toEqual({ resolved: 0 });
+  });
+
+  test("只读面（父进程构造）调用 → 写面未装配错误（O-1 表分域不破）", async () => {
+    const f = makeFixture("agent-b2");
+    await f.service.createPlan("agent-b2", ["x"]);
+    await f.service.updateItem("agent-b2", 1, "in_progress");
+    expect(f.parent.forceResolveInProgress("agent-b2", "n").catch((e: Error) => e.message)).resolves.toContain(
+      "写面未装配",
+    );
+  });
+});
