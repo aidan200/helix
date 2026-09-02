@@ -29,6 +29,8 @@ import type {
   EventEnvelope,
   ModelChangedEvent,
   SessionListChangedEvent,
+  SessionPlanChangedEvent,
+  SessionPlanChangedPayload,
   TaskChangedEvent,
   ThinkingChangedEvent,
   ThinkingStreamDeltaEvent,
@@ -283,6 +285,24 @@ export class EventStream implements EventPublisherPort {
       channel: "workspace",
       type: "workspace_changed",
       payload: { root: payload.root },
+    };
+    this.push(frame);
+  }
+
+  /**
+   * session.plan.changed 广播（main-session plan 批）：主会话工作台账变更
+   * 通知——channel=session，信封 sessionId = 台账归属会话（broadcastModelChanged
+   * 同构：push 按 per-session 订阅路由，只有订阅该会话的连接收到）。触发面
+   * = 主会话 plan 三工具执行成功（装配层包装发布，不入 WorkLedgerService）；
+   * payload 由 sessionPlanPayloadOf 单源组装（plan 行 + ledger 计数摘要）。
+   */
+  broadcastPlanChanged(payload: SessionPlanChangedPayload): void {
+    const frame: SessionPlanChangedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: payload.sessionId,
+      channel: "session",
+      type: "session.plan.changed",
+      payload,
     };
     this.push(frame);
   }

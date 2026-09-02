@@ -146,11 +146,13 @@ export interface CoreToolExecutorOptions {
    */
   readonly codegraph?: CodegraphToolDeps;
   /**
-   * plan 三工具注入面（T1.4，AD-6①）：实例工作台账写口（plan_create/
-   * plan_update/plan_read）。仅 SubAgent 子进程（ChildMain 本地栈）注入
-   * ——plan 工具不进 MainAgent 生效集；instanceId 由子进程上下文注入
-   * （工具参数零 instanceId，防伪造）。缺省不注册（既有测试形态/主会话
-   * 装配——SubAgentProfile 声明三名时必须注入，resolveTools fail-fast）。
+   * plan 三工具注入面（T1.4，AD-6①；main-session plan 批扩双宿主）：
+   * 实例工作台账写口（plan_create/plan_update/plan_read）。SubAgent 子进程
+   * （ChildMain 本地栈）与主会话（buildSessionStack 主会话 executor——
+   * instanceId = sessionId 作用域）均注入；instanceId 由装配面注入（工具
+   * 参数零 instanceId，防伪造）。缺省不注册（既有测试形态——profile 声明
+   * 三名时必须注入，resolveTools fail-fast；主会话未注入时 engineFor 同步
+   * 剔除三名）。
    */
   readonly plan?: PlanToolDeps;
   /**

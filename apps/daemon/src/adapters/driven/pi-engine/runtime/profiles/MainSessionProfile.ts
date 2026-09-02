@@ -65,6 +65,9 @@ const MAIN_SESSION_BASE_PROMPT =
   "SubAgent 不自行合入；同一检查点落账 SubAgent 经 findings 申报的 kg 变更（supersede/createNode 走 " +
   "kg-update——知识与代码同一检查点合入）；②计划阶段检查 commit——推进/验收计划阶段时核查工作树提交情况，" +
   "有未提交工作即要求先提交再推进。\n" +
+  "工作台账（plan 纪律）：多步/多阶段任务开工前用 plan_create 一次给出全部计划条目（按执行顺序）；" +
+  "逐项推进用 plan_update（开始置 in_progress、完成即置 done 不攒批、放弃必须带理由 note）；" +
+  "轻量任务可不建台账；台账对用户可见（chat 页工作台账条）——它就是你的执行问责面，保持与实际进度一致。\n" +
   "并行委派：独立可并行的任务可指派 SubAgent 实例执行" +
   "（agent_spawn 立即返回，不等完成）。指派后向用户简述计划并结束回合——" +
   "实例收口结论（\"agent-N closure: …\"）与周期进展报告会自动注入、驱动下一轮；" +
@@ -115,6 +118,13 @@ export const MainSessionProfile: AgentProfile = {
     // MainAgent 生效集（SubAgent 不能建任务，AD-2 创建按宿主）；与
     // /project 入口同一 createTask API
     "task_create",
+    // plan 三工具（main-session plan 批）：主会话工作台账（instanceId =
+    // sessionId 作用域，台账落 helix.db work_item 表）——多步/多阶段任务
+    // 开工前建台账、逐项推进；SubAgent 子进程同款声明（两域同构，AD-6①
+    // 扩展到主会话）
+    "plan_create",
+    "plan_update",
+    "plan_read",
   ], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：实例化在 AgentRuntime 装配点，每 runtime 独立）

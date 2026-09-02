@@ -92,8 +92,12 @@ export function createPlanCreateTool(
         }
         return item;
       });
-      const { created } = await deps.service.createPlan(deps.instanceId, items);
-      return text(`已创建工作台账 ${created} 项（#1~#${created}，全部待开始 pending）`);
+      const { created, rebuilt } = await deps.service.createPlan(deps.instanceId, items);
+      return text(
+        rebuilt
+          ? `旧台账已全部办结——已重建工作台账 ${created} 项（#1~#${created}，全部待开始 pending）`
+          : `已创建工作台账 ${created} 项（#1~#${created}，全部待开始 pending）`,
+      );
     },
   };
 }

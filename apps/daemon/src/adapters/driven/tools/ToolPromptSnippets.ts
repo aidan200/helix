@@ -39,7 +39,7 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   task_stage_artifact: "聚合阶段产物并收口阶段（你给人类可读摘要，产出节点 id 集由系统按批次反查）",
   task_complete_job: "申报任务完成（系统机械复核全部阶段行 done 后收口）",
   task_fail_job: "申报任务失败（附失败理由；job → failed 终态）",
-  plan_create: "创建本实例工作台账（一次给出全部计划条目，开工前调用；创建后不可重建）",
+  plan_create: "创建本会话工作台账（一次给出全部计划条目，开工前调用；全部办结后可重建重开）",
   plan_update: "更新工作台账条目状态（in_progress/done/abandoned——放弃必须带理由 note；可记产物指针）",
-  plan_read: "读工作台账条目（SubAgent 读本实例收口自查；编排主 agent 按实例 id 读批次台账判进度）",
+  plan_read: "读工作台账条目（收口/交代前自查全部办结或带理由放弃；台账对用户可见）",
 };
