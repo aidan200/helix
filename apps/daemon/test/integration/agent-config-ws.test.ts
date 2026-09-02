@@ -185,8 +185,11 @@ const MAIN_TOOLS = [
   "kg-update",
   "codegraph", // W1-B（R5/R7）：codegraph 只读工具
   "task_create", // T2.4：chat 第二创建入口（AD-7，仅 main）
+  "plan_create", // main-session plan 批：主会话同含 plan 三名（两域同构）
+  "plan_update",
+  "plan_read",
 ];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "plan_create", "plan_update", "plan_read"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）；T3.3：+kg；T1.4：+plan 三工具（AD-6①，subagent 独有）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）
+const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "plan_create", "plan_update", "plan_read"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）；T3.3：+kg；T1.4：+plan 三工具（AD-6①；main-session plan 批起 Main 同含——两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）
 /** agent-roster 批：只读系统派生块双序（orchestrator 在前）。OrchestratorProfile.tools 声明全集同源。 */
 const ORCH_TOOLS = [
   "bash",

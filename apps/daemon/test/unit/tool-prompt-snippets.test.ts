@@ -11,7 +11,7 @@ import { SubAgentKgWriterProfile } from "../../src/adapters/driven/pi-engine/run
  */
 
 describe("ToolPromptSnippets 注册表（M6 T2）", () => {
-  test("① 三 profile 全集全覆盖：main 18 名 + subagent 13 名 + kg-writer 14 名均有非空 snippet", () => {
+  test("① 三 profile 全集全覆盖：main 21 名 + subagent 13 名 + kg-writer 14 名均有非空 snippet", () => {
     for (const name of MainSessionProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `main 工具 ${name} 缺 snippet`).toBeTruthy();
     }
@@ -21,12 +21,13 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
     for (const name of SubAgentKgWriterProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `kg-writer 工具 ${name} 缺 snippet`).toBeTruthy();
     }
-    // 全集形状锚定（ResourceService toolsCatalog 同源）：main 18 / subagent 13
+    // 全集形状锚定（ResourceService toolsCatalog 同源）：main 21 / subagent 13
     //（T3-B +agent_inspect；T3.3 +kg；T1.4 +plan 三工具 AD-6①；
     // T2.4 +task_create 仅 main，AD-7；W1-B +codegraph R5；D8 W-R6 -kg-update
-    // 收权；⑤ 链 C +agent_park/agent_resume 仅 main，P1）；kg-writer = subagent
+    // 收权；⑤ 链 C +agent_park/agent_resume 仅 main，P1；main-session plan 批
+    // Main 同含 plan 三名两域同构——subagent 计数不变）；kg-writer = subagent
     // + kg-update（14，豁免面）
-    expect(MainSessionProfile.tools).toHaveLength(18);
+    expect(MainSessionProfile.tools).toHaveLength(21);
     expect(SubAgentProfile.tools).toHaveLength(13);
     expect(SubAgentKgWriterProfile.tools).toHaveLength(14);
   });

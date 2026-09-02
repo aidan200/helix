@@ -15,6 +15,7 @@ import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
 import { kgToolsStub } from "../helpers/kgToolsStub";
 import { codegraphToolStub } from "../helpers/codegraphToolStub";
 import { taskCreateStub } from "../helpers/taskCreateStub";
+import { planToolStub } from "../helpers/planToolStub";
 
 /**
  * TP-CL5-3（I）：剧本 S2 —— 五工具会话内闭环。
@@ -140,6 +141,8 @@ function makeHarness(scripts: ScriptEntry[], browserPort?: FakeBrowserPort): Loo
     codegraph: codegraphToolStub(cwd),
     // T2.4：MainSessionProfile 声明 task_create——替身注入保持 resolveTools 可装配
     taskCreate: taskCreateStub(),
+    // main-session plan 批：MainSessionProfile 声明 plan 三名——替身注入保持 resolveTools 可装配
+    plan: planToolStub(),
   });
   const engine = new PiAgentEngineAdapter({
     profile: MainSessionProfile,
