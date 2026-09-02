@@ -86,7 +86,7 @@ export function applyThinkingUsageEvent(
       //（compaction 归属 main 实例执行——对齐 daemon UsageLedger，AD-9③）；
       // compaction 源另计独立小计；total = Σ实例（含 compaction 贡献，与
       // daemon 快照面数值一致——同一 store 增量/快照两路径口径自此统一）
-      const { instanceId, usage: u, source } = event.payload;
+      const { instanceId, usage: u, source, turnId } = event.payload;
       // 上下文水位（非账目）：source=turn 时最近一次 LLM 调用的 totalTokens
       //（input+cache R/W+output，provider 实测）≈ 该实例当前上下文占用；
       // source=compaction 不覆盖（摘要调用 input 是压缩前全文——compaction.completed
@@ -97,6 +97,11 @@ export function applyThinkingUsageEvent(
           : s.usage.ctxByInstance;
       return {
         ...s,
+        // per-turn 挂载面（轮末 token 用量显示）：帧携带 turnId 才记录
+        //（additive——SubAgent/compaction/旧帧无 turnId 不动本表；账目面不受影响）
+        ...(turnId !== undefined
+          ? { turnUsage: { ...s.turnUsage, [turnId]: addUsage(s.turnUsage[turnId], u) } }
+          : {}),
         usage: {
           total: addUsage(s.usage.total, u),
           compaction: source === "compaction" ? addUsage(s.usage.compaction, u) : s.usage.compaction,

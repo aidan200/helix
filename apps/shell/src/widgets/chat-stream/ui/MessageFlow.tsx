@@ -22,7 +22,7 @@
  * 之前；SubAgent 实例 thinking 流式槽位归抽屉消费（F1.6 实例分流）。
  */
 import { useLayoutEffect, useRef, Fragment, type ReactNode } from "react";
-import type { EntryDto } from "@helix/protocol";
+import type { EntryDto, UsageDto } from "@helix/protocol";
 import { isMainChannel } from "@/entities/session/model/session-reducer";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
 import type { InstanceCardState } from "@/entities/session/model/session-reducer";
@@ -42,7 +42,16 @@ import SteerQueueDock from "./SteerQueueDock";
 import { WorkPhaseDot } from "./WorkPhaseDot";
 import { selectWorkPhase } from "@/entities/session/model/session-reducer";
 
-function EntryView({ entry, mainInstanceId }: { entry: EntryDto; mainInstanceId: string }) {
+function EntryView({
+  entry,
+  mainInstanceId,
+  turnUsage,
+}: {
+  entry: EntryDto;
+  mainInstanceId: string;
+  /** per-turn 账目表（SessionState.turnUsage；轮末 token 用量显示面查表源） */
+  turnUsage: Record<string, UsageDto>;
+}) {
   // 正向穷尽分发（EntryDto 四成员；新增 kind 时 default 分支编译报错）
   switch (entry.kind) {
     case "tool-call":
@@ -66,7 +75,11 @@ function EntryView({ entry, mainInstanceId }: { entry: EntryDto; mainInstanceId:
       ) {
         return <DirectedSteer target={entry.instanceId} text={entry.content} />;
       }
-      return <MessageBubble entry={entry} />;
+      // 轮末 token 用量（assistant 气泡 meta 行）：按 entry.turnId 查表——
+      // 未到账/无 turnId/无账目 = undefined → 气泡不显示（骨架免闪烁）
+      const bubbleTurnUsage =
+        entry.role === "assistant" && entry.turnId !== undefined ? turnUsage[entry.turnId] : undefined;
+      return <MessageBubble entry={entry} turnUsage={bubbleTurnUsage} />;
     case "thinking":
       return <ThinkingEntryView entry={entry} />;
     case "compaction":
@@ -177,7 +190,7 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
           {headCards.map(renderCard)}
           {state.entries.map((entry) => (
             <Fragment key={entry.id}>
-              <EntryView entry={entry} mainInstanceId={state.mainInstanceId} />
+              <EntryView entry={entry} mainInstanceId={state.mainInstanceId} turnUsage={state.turnUsage} />
               {byAnchor.get(entry.id)?.map(renderCard)}
             </Fragment>
           ))}

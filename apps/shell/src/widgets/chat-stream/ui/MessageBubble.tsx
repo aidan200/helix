@@ -7,9 +7,9 @@
  * 用户 steer 两态。
  */
 import { memo } from "react";
-import type { MessageEntryDto } from "@helix/protocol";
+import type { MessageEntryDto, UsageDto } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
-import { formatTs } from "@/shared/lib/format";
+import { formatTs, fmtTokens } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 import MarkdownMessage from "./MarkdownMessage";
 import ImageStrip from "@/shared/ui/ImageStrip";
@@ -34,12 +34,24 @@ interface MessageBubbleProps {
   streaming?: boolean;
   /** 流式文本（streaming=true 时替代 markdown 正文，末尾接光标） */
   streamingText?: string;
+  /**
+   * 本轮 token 用量（轮末显示面，assistant meta 行 who·ts 同行右侧）：
+   * 调用方按 entry.turnId 查 SessionState.turnUsage 解析后传入；未到账/
+   * 无 turnId/无账目 = undefined → 不显示（骨架免闪烁，不错位占位）。
+   */
+  turnUsage?: UsageDto;
+}
+
+/** 轮用量成本格式化：≥0.01 两位小数（与顶栏同观感）；小成本四位（不把分以下抹成 $0.00）。 */
+function fmtTurnCost(cost: number): string {
+  return cost >= 0.01 ? cost.toFixed(2) : cost.toFixed(4);
 }
 
 const MessageBubble = memo(function MessageBubble({
   entry,
   streaming = false,
   streamingText,
+  turnUsage,
 }: MessageBubbleProps) {
   const { t } = useI18n();
   const isUser = entry.role === "user";
@@ -50,6 +62,12 @@ const MessageBubble = memo(function MessageBubble({
         <div className="meta">
           <span className="who">{isUser ? t("chat.msg.you") : t("chat.msg.agent")}</span>
           <span className="ts">{formatTs(entry.ts, t("chat.tsFormat"))}</span>
+          {/* 轮末 token 用量（assistant 专用；未到账/无 turnId/无账目不显示） */}
+          {!isUser && turnUsage !== undefined && (
+            <span className="turn-usage">
+              ↑ {fmtTokens(turnUsage.input)} ↓ {fmtTokens(turnUsage.output)} · ${fmtTurnCost(turnUsage.cost)}
+            </span>
+          )}
         </div>
         {entry.steerState && <SteerBadge state={entry.steerState} />}
         <div className="bubble">

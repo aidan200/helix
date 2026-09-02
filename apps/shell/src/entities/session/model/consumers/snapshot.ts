@@ -287,6 +287,9 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         instanceChannels: merged,
         nextChannelSeq: nextSeq,
         usage: usageFromSnapshot(snap.usage, snap.instances, mainId, snap.entries), // additive：账目重建（权威）
+        // per-turn 账目重建（轮末 token 用量显示面，additive）：快照 usage.byTurn
+        // 为权威整体替换（切换/重连后历史轮用量原位可见）；缺省 = 空表
+        turnUsage: { ...(snap.usage?.byTurn ?? {}) },
         // additive：thinking 切片重建（权威）；缺省保留现值（含草稿暂存——
         // 建会话快照未携带时暂存值不丢，provider 补发 thinking.set 后广播收权）
         thinking: snapThinking !== undefined
