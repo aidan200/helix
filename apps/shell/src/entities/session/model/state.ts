@@ -164,8 +164,22 @@ export interface HistoryPaging {
 }
 
 /**
+ * 降级时刻「活跃期已见」游标（未读存量对账锚）：
+ * 降级（切走/新建草稿）后、daemon 降档生效前的竞态窗口内，该会话 full 档
+ * 推送的存量帧（轮次收尾/伴随事件）会晚到——其锚（entry id / turnId）若
+ * 命中本游标，即为用户活跃期已见内容，不计未读。list 直接播种的后台会话
+ * = 空游标（从未活跃过，保守全计）。
+ */
+export interface BackgroundSeenCursor {
+  /** entries 尾窗 id + 流式中 messageId + 实例流式 messageId（D-2：与最终 entry id 同源） */
+  entryIds: readonly string[];
+  /** 降级时进行中的轮次 id（turn.completed 已消费后为 null——无锚可免，保守计） */
+  turnId: string | null;
+}
+
+/**
  * 后台会话轻量 store（AD-3 §3.4：标题/运行态徽标/未读，**不存 entries**——
- * 类型级机械判据：键集恰为轻量五字段，无 entries/channelStreams）。
+ * 类型级机械判据：键集恰为轻量六字段，无 entries/channelStreams）。
  * 数据源：session.list/list_changed 元数据 + 该会话事件帧驱动（未读 +1、
  * runState 投影）；切回该会话时移除（转活跃完整 store，未读随之消解）。
  */
@@ -176,8 +190,10 @@ export interface BackgroundSessionState {
   runState: "idle" | "streaming" | "subagent_running";
   /** epoch ms（session.list/list_changed 元数据同源） */
   lastActivityAt: number;
-  /** 未读计数：该会话事件帧 +1（收帧驱动；不渲染 entries 只计数） */
+  /** 未读计数：白名单 3 类帧且存量对账未命中才 +1（frame.ts consumeBackground） */
   unread: number;
+  /** 降级时刻已见游标（存量对账；list 播种 = 空游标） */
+  seen: BackgroundSeenCursor;
 }
 
 /**
@@ -401,6 +417,12 @@ export interface SessionState {
   /** 会话 thinking 档切片（thinking 批；广播 + 快照驱动，纯投影） */
   thinking: ThinkingSlice;
   agentState: AgentStateDto;
+  /**
+   * 进行中轮次 id（chat.turn.started 写入 / turn.completed 清空）：后台未读
+   * 游标对账锚（demote 时入 background.seen.turnId）。快照 spread 保留——
+   * 重连恢复 open turn 同 id 续跑恰好对上；loading 重建归零。
+   */
+  currentTurnId: string | null;
   /** 会话投影（daemon 权威；快照整体替换 + 增量事件 upsert） */
   entries: EntryDto[];
   streaming: StreamingState | null;
@@ -526,6 +548,7 @@ export function createInitialSessionState(): SessionState {
     mode: DEFAULT_MODE_ID,
     thinking: { override: null, effective: null },
     agentState: "idle",
+    currentTurnId: null,
     entries: [],
     streaming: null,
     draft: "",

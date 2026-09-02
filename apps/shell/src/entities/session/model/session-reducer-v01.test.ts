@@ -783,6 +783,13 @@ describe("engine.error 帧投影（终验热修）", () => {
     expect(next.engineError).toBeNull();
   });
 
+  it("turn.started → currentTurnId 记录；turn.completed → 清空（后台未读游标对账锚）", () => {
+    const started = sessionReducer(createInitialSessionState(), ev({ v: 0, type: "chat.turn.started", payload: { turnId: "t2" } }));
+    expect(started.currentTurnId).toBe("t2");
+    const completed = sessionReducer(started, ev({ v: 0, type: "chat.turn.completed", payload: { turnId: "t2", reason: "completed" } }));
+    expect(completed.currentTurnId).toBeNull();
+  });
+
   it("快照重建不影响 engineError（瞬态不落盘；整页刷新经 initial state 天然清零，同页重连卡片存续供用户确认）", () => {
     const errored = sessionReducer(createInitialSessionState(), ev({
       v: 0,

@@ -130,9 +130,10 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
     }
     case "chat.turn.started":
       // 新轮开始：清上一轮的引擎错误卡（瞬态语义，终验热修）+ 网络重试卡（P2 ⑦）
-      return { ...s, engineError: null, engineRetrying: null }; // 轮次里程碑（v0 无 UI 投影面）
+      // currentTurnId 记录：后台未读游标对账锚（demote 时入 background.seen.turnId）
+      return { ...s, engineError: null, engineRetrying: null, currentTurnId: event.payload.turnId };
     case "chat.turn.completed":
-      return { ...s, streaming: null, engineRetrying: null };
+      return { ...s, streaming: null, engineRetrying: null, currentTurnId: null };
     case "steer.queued": {
       // 定向帧（T2.3：信封 instanceId=目标）只认同目标 echo；缺省/主实例 id
       //（kind 判别）= 主线 echo（匹配本地无 instanceId 的主线 echo）

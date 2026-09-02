@@ -95,9 +95,9 @@ function base(): TopologyState {
 // ── ① 轻量 store 类型级判据 ─────────────────────────────────
 
 describe("后台轻量 store（AD-3 机械判据：不含 entries/channelStreams）", () => {
-  it("类型级：BackgroundSessionState 键集恰为轻量五字段（无 entries/channelStreams）", () => {
+  it("类型级：BackgroundSessionState 键集恰为轻量六字段（无 entries/channelStreams）", () => {
     expectTypeOf<keyof BackgroundSessionState>().toEqualTypeOf<
-      "sessionId" | "title" | "runState" | "lastActivityAt" | "unread"
+      "sessionId" | "title" | "runState" | "lastActivityAt" | "unread" | "seen"
     >();
   });
 
@@ -109,6 +109,28 @@ describe("后台轻量 store（AD-3 机械判据：不含 entries/channelStreams
     expect(bg.runState).toBe("idle");
     expect(JSON.stringify(bg)).not.toContain("entries");
     expect(JSON.stringify(bg)).not.toContain("channelStreams");
+  });
+
+  it("降级填充已见游标（seen）：entries 尾窗 id + 流式 messageId + 进行中轮次 turnId", () => {
+    let topo = base(); // 活跃 A：entries [e2, e1]
+    topo = topologyReducer(topo, ev({
+      v: PROTOCOL_VERSION,
+      sessionId: A,
+      channel: "chat",
+      type: "chat.turn.started",
+      payload: { turnId: "t7" },
+    }));
+    topo = topologyReducer(topo, ev({
+      v: PROTOCOL_VERSION,
+      sessionId: A,
+      channel: "chat",
+      type: "chat.stream.delta",
+      payload: { messageId: "m-stream", delta: "流式中" },
+    }));
+    const next = topologyReducer(topo, { type: "session/switch-started", sessionId: B });
+    const bg = next.background[A]!;
+    expect(bg.seen.turnId).toBe("t7");
+    expect(bg.seen.entryIds).toEqual(expect.arrayContaining(["e2", "e1", "m-stream"]));
   });
 });
 
@@ -144,14 +166,14 @@ describe("切换两阶段互斥（loading → success）", () => {
 
   it("切换回原会话：目标会话轻量态转活跃，未读清零后从零计数", () => {
     let topo = base();
-    // 后台 B 收两帧内容事件 → 未读 2
+    // 后台 B 收两帧白名单内新内容（seen 空游标，保守全计）→ 未读 2
     topo = topologyReducer(topo, ev({
-      v: PROTOCOL_VERSION, sessionId: B, channel: "chat", type: "chat.stream.delta",
-      payload: { messageId: "b1", delta: "后台流式" },
+      v: PROTOCOL_VERSION, sessionId: B, channel: "chat", type: "chat.message.completed",
+      payload: { entry: msg("b1", "assistant", "后台完成一", 1) },
     }));
     topo = topologyReducer(topo, ev({
-      v: PROTOCOL_VERSION, sessionId: B, channel: "chat", type: "chat.stream.delta",
-      payload: { messageId: "b2", delta: "继续" },
+      v: PROTOCOL_VERSION, sessionId: B, channel: "chat", type: "chat.message.completed",
+      payload: { entry: msg("b2", "assistant", "后台完成二", 2) },
     }));
     expect(topo.background[B]!.unread).toBe(2);
     // 切到 B：轻量态移除（未读随之消解）

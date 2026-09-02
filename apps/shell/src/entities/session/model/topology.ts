@@ -45,7 +45,10 @@ export function selectActiveRunState(active: SessionState): BackgroundSessionSta
   return active.agentState === "idle" ? "idle" : "streaming";
 }
 
-/** 旧活跃 store → 后台轻量态（标题/运行态取清单元数据；未读从零起算）。 */
+/** 旧活跃 store → 后台轻量态（标题/运行态取清单元数据；未读从零起算）。
+ *  seen 游标收集降级时刻活跃期已见锚（entries 尾窗 id + 流式 messageId +
+ *  实例流式 messageId + 进行中轮次 turnId）——降级竞态窗口内晚到的存量帧
+ *  经其对账不计未读（frame.ts consumeBackground）。 */
 function demoteToBackground(active: SessionState, list: SessionMeta[]): BackgroundSessionState | null {
   if (active.sessionId === null) return null; // 无会话上下文（草稿/首连前）：无轻量态可转
   const meta = list.find((m) => m.sessionId === active.sessionId);
@@ -55,6 +58,14 @@ function demoteToBackground(active: SessionState, list: SessionMeta[]): Backgrou
     runState: selectActiveRunState(active),
     lastActivityAt: meta?.lastActivityAt ?? 0,
     unread: 0,
+    seen: {
+      entryIds: [
+        ...active.entries.map((e) => e.id),
+        ...(active.streaming !== null ? [active.streaming.messageId] : []),
+        ...Object.values(active.channelStreams).map((cs) => cs.messageId),
+      ],
+      turnId: active.currentTurnId,
+    },
   };
 }
 

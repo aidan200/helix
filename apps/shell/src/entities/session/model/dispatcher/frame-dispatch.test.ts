@@ -79,26 +79,28 @@ describe("dispatcher 帧路由（v0.2 信封 sessionId）", () => {
     expect(next.active.streaming).toEqual({ messageId: "m1", text: "旧帧" });
   });
 
-  it("后台会话帧 → 轻量 store 消费：unread +1、runState 徽标更新、活跃 store 不动", () => {
+  it("后台会话帧 → 轻量 store 消费：runState 徽标更新、活跃 store 不动；白名单外帧（delta）不计未读（存量对账批）", () => {
     const topo = topologyWithBackground();
     const before = topo.active;
     const next = dispatchFrame(topo, frame("chat.stream.delta", { messageId: "b1", delta: "后台流式" }, { sessionId: B, channel: "chat" }), 0);
-    expect(next.background[B]!.unread).toBe(1);
+    // chat.stream.delta 不在 monitor 白名单（daemon monitor 档不推）——后台收到
+    // 即降级竞态窗口内的 full 档存量（推送时刻该会话仍活跃），一律不计未读
+    expect(next.background[B]!.unread).toBe(0);
     expect(next.background[B]!.runState).toBe("streaming");
     // 不渲染 entries：活跃完整 store 引用不变（未被误写）
     expect(next.active).toBe(before);
   });
 
-  it("后台编排帧 → runState=subagent_running；model.changed 非内容事件不计未读", () => {
+  it("后台编排帧 → runState=subagent_running 投影保留、unread 不计（agent.* 白名单外）；model/thinking.changed 非内容事件不计未读", () => {
     const topo = topologyWithBackground();
     const spawned = dispatchFrame(topo, frame("agent.spawned", { agentId: "ag-1", task: "后台任务", profileKind: "subagent-worker" }, { sessionId: B, channel: "agent" }), 0);
     expect(spawned.background[B]!.runState).toBe("subagent_running");
-    expect(spawned.background[B]!.unread).toBe(1);
+    expect(spawned.background[B]!.unread).toBe(0); // agent.* 白名单外：monitor 档 daemon 不推，到达即存量 → 不计
     const model = dispatchFrame(spawned, frame("model.changed", { sessionId: B, model: "openai/gpt-5.2", previous: "anthropic/claude-sonnet-4-5", effective: "next-turn" }, { sessionId: B, channel: "model" }), 0);
-    expect(model.background[B]!.unread).toBe(1); // 换模非内容事件
+    expect(model.background[B]!.unread).toBe(0); // 换模非内容事件
     // thinking.changed（thinking 批①）同判：会话参数变更非内容事件，不计未读
     const thinking = dispatchFrame(model, frame("thinking.changed", { override: "high", effective: "high" }, { sessionId: B, channel: "thinking" }), 0);
-    expect(thinking.background[B]!.unread).toBe(1);
+    expect(thinking.background[B]!.unread).toBe(0);
   });
 
   it("未知会话帧（既非活跃也非后台）→ 状态原样（多会话隔离）", () => {
@@ -244,6 +246,76 @@ describe("dispatcher 与既有 reducer 组合面", () => {
   });
 });
 
+describe("后台未读存量对账（游标对账：降级竞态窗口晚到帧不计未读）", () => {
+  /** 带已见游标的后台 B（模拟降级时刻：entries 尾窗含 e8/e9、流式中 m-stream、进行中轮次 t3）。 */
+  function topologyWithSeenBg(seen: { entryIds: readonly string[]; turnId: string | null } = { entryIds: ["e8", "e9", "m-stream"], turnId: "t3" }): TopologyState {
+    const topo = topologyWithBackground();
+    return {
+      ...topo,
+      background: { ...topo.background, [B]: { ...topo.background[B]!, seen } },
+    };
+  }
+
+  const completedEntry = (id: string) => ({ kind: "message" as const, id, role: "assistant" as const, content: "正文", ts: 1 });
+
+  it("存量 message.completed（entry.id ∈ seen.entryIds——降级窗口晚到的收尾帧）→ 不计未读", () => {
+    const next = dispatchFrame(topologyWithSeenBg(), frame("chat.message.completed", { entry: completedEntry("e9") }, { sessionId: B, channel: "chat" }), 0);
+    expect(next.background[B]!.unread).toBe(0);
+  });
+
+  it("存量 message.completed（entry.id = 流式 messageId，D-2 同源：流式中降级、后台完成的帧）→ 不计未读", () => {
+    const next = dispatchFrame(topologyWithSeenBg(), frame("chat.message.completed", { entry: completedEntry("m-stream") }, { sessionId: B, channel: "chat" }), 0);
+    expect(next.background[B]!.unread).toBe(0);
+  });
+
+  it("新内容 message.completed（seen 外新 entry id——后台真新消息）→ 未读 +1", () => {
+    const next = dispatchFrame(topologyWithSeenBg(), frame("chat.message.completed", { entry: completedEntry("e-new") }, { sessionId: B, channel: "chat" }), 0);
+    expect(next.background[B]!.unread).toBe(1);
+  });
+
+  it("存量 turn.completed（turnId = seen.turnId 降级时进行中轮次的收尾帧）→ 不计未读", () => {
+    const next = dispatchFrame(topologyWithSeenBg(), frame("chat.turn.completed", { turnId: "t3", reason: "completed" }, { sessionId: B, channel: "chat" }), 0);
+    expect(next.background[B]!.unread).toBe(0);
+  });
+
+  it("存量 turn.started（同轮 started 晚到）→ 不计；新轮次 turn.started（新 turnId）→ 未读 +1（后台新活动，设计内未读）", () => {
+    const same = dispatchFrame(topologyWithSeenBg(), frame("chat.turn.started", { turnId: "t3" }, { sessionId: B, channel: "chat" }), 0);
+    expect(same.background[B]!.unread).toBe(0);
+    const fresh = dispatchFrame(topologyWithSeenBg(), frame("chat.turn.started", { turnId: "t4" }, { sessionId: B, channel: "chat" }), 0);
+    expect(fresh.background[B]!.unread).toBe(1);
+  });
+
+  it("无锚可免（seen.turnId=null——降级时已无进行中轮次）：turn.completed 保守计未读", () => {
+    const topo = topologyWithSeenBg({ entryIds: ["e9"], turnId: null });
+    const next = dispatchFrame(topo, frame("chat.turn.completed", { turnId: "t3", reason: "completed" }, { sessionId: B, channel: "chat" }), 0);
+    expect(next.background[B]!.unread).toBe(1);
+  });
+
+  it("白名单外类型（usage.recorded / compaction.completed / agent.* / thinking.*）→ 一律不计（monitor 档 daemon 不推，到达即存量）", () => {
+    let topo = topologyWithSeenBg();
+    topo = dispatchFrame(topo, frame("usage.recorded", { instanceId: "agent-x", usage: {} }, { sessionId: B, channel: "usage" }), 0);
+    topo = dispatchFrame(topo, frame("compaction.completed", { entry: { kind: "compaction", id: "c1" } }, { sessionId: B, channel: "compaction" }), 0);
+    topo = dispatchFrame(topo, frame("agent.completed", { agentId: "ag-1" }, { sessionId: B, channel: "agent" }), 0);
+    topo = dispatchFrame(topo, frame("thinking.completed", { entry: { kind: "thinking", id: "th1" } }, { sessionId: B, channel: "thinking" }), 0);
+    expect(topo.background[B]!.unread).toBe(0);
+  });
+
+  it("list 直接播种的后台（seen 空游标）→ 白名单帧保守全计", () => {
+    const topo = topologyWithBackground(); // metaOf 首次播种：seen = 空游标
+    expect(topo.background[B]!.seen).toEqual({ entryIds: [], turnId: null });
+    const next = dispatchFrame(topo, frame("chat.message.completed", { entry: completedEntry("e9") }, { sessionId: B, channel: "chat" }), 0);
+    expect(next.background[B]!.unread).toBe(1);
+  });
+
+  it("list_changed 元数据同步保留 seen 游标与未读计数", () => {
+    const topo = topologyWithSeenBg();
+    const meta: SessionMeta = { sessionId: B, title: "改后标题", lastActivityAt: 600, runState: "streaming", loaded: true };
+    const next = dispatchFrame(topo, frame("session.list_changed", { kind: "state_changed", sessionId: B, session: meta }, { sessionId: SYSTEM_SESSION_ID, channel: "session" }), 0);
+    expect(next.background[B]!.seen).toEqual({ entryIds: ["e8", "e9", "m-stream"], turnId: "t3" });
+    expect(next.background[B]!.title).toBe("改后标题");
+  });
+});
+
 describe("草稿态帧路由（bug3 流式串台修复：后台路由不依赖 activeId 非空）", () => {
   /** 草稿态拓扑：A 流式中用户新建草稿（A 转后台轻量已播种，active.sessionId=null）。 */
   function draftTopology(): TopologyState {
@@ -257,7 +329,8 @@ describe("草稿态帧路由（bug3 流式串台修复：后台路由不依赖 a
     const topo = draftTopology();
     const before = topo.active;
     const next = dispatchFrame(topo, frame("chat.stream.delta", { messageId: "m1", delta: "旧会话流式" }, { sessionId: A, channel: "chat" }), 0);
-    expect(next.background[A]!.unread).toBe(1);
+    // 白名单外帧不计未读（存量对账批）；路由与徽标投影不变（bug3 钉核心）
+    expect(next.background[A]!.unread).toBe(0);
     expect(next.background[A]!.runState).toBe("streaming");
     // 串台修复：旧会话流式帧不写入活跃草稿 store（引用不变 + streaming 仍 null）
     expect(next.active).toBe(before);

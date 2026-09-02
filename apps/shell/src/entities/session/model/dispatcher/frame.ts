@@ -26,7 +26,7 @@
  * 纯函数纪律（AG-14）：无 React / 无 IO / 无 Date.now。
  */
 import { SYSTEM_SESSION_ID } from "@helix/protocol";
-import type { EventEnvelope } from "@helix/protocol";
+import type { ChatMessageCompletedPayload, ChatTurnStartedPayload, EventEnvelope } from "@helix/protocol";
 import type { BackgroundSessionState, TopologyState } from "../state";
 import { applyDirectoryEvent, isDirectoryEventType } from "../consumers/directory";
 import {
@@ -106,16 +106,50 @@ function applyBackgroundFrame(topo: TopologyState, frame: EventEnvelope): Topolo
   return { ...topo, background: { ...topo.background, [sid]: consumeBackground(bg, frame) } };
 }
 
-/** 后台帧消费：未读 +1（内容事件）+ 运行态徽标投影（不渲染 entries 只计数）。 */
+/**
+ * 未读候选类型（与 monitor 档白名单同规 3 类型；daemon 单源 = EventStream
+ * MONITOR_TIER_EVENT_TYPES，shell 侧禁引 daemon——fake-transport 同规先例）。
+ * 关键推论：monitor 档下 daemon 只推这 3 类——**白名单外帧到达后台会话 ⟹
+ * 必是降级竞态窗口内的 full 档存量**（推送时刻该会话仍活跃、内容用户已见）
+ * ⟹ 一律不计未读。只有白名单 3 类可能代表「后台新内容」，需存量对账区分。
+ */
+const UNREAD_CANDIDATE_TYPES: ReadonlySet<string> = new Set([
+  "chat.turn.started",
+  "chat.turn.completed",
+  "chat.message.completed",
+]);
+
+/** 存量对账：帧锚（entry id / turnId）命中降级时刻已见游标 → 活跃期已读内容，不计未读。 */
+function isSeenFrame(bg: BackgroundSessionState, frame: EventEnvelope): boolean {
+  switch (frame.type) {
+    case "chat.message.completed":
+      // D-2：流式 delta 的 messageId 与最终 entry id 同源——流式中降级、后台
+      // 完成的帧其 entry.id 命中 seen.entryIds（含流式 messageId）
+      return bg.seen.entryIds.includes((frame.payload as ChatMessageCompletedPayload).entry.id);
+    case "chat.turn.started":
+    case "chat.turn.completed":
+      // 窗口内晚到的 turn 帧只会是降级时进行中轮次的（WS 有序，更早轮次的帧
+      // 不可能晚到）；seen.turnId=null（降级时已无进行中轮次）→ 无锚可免，保守计
+      return (
+        bg.seen.turnId !== null &&
+        (frame.payload as ChatTurnStartedPayload).turnId === bg.seen.turnId
+      );
+    default:
+      return false;
+  }
+}
+
+/** 后台帧消费：未读 +1（白名单 3 类且存量对账未命中）+ 运行态徽标投影（不渲染 entries 只计数）。 */
 function consumeBackground(bg: BackgroundSessionState, frame: EventEnvelope): BackgroundSessionState {
   // model.changed / thinking.changed（thinking 批①同判）：会话参数变更非内容
   // 事件——不计未读、轻量态无对应字段
   if (frame.type === "model.changed" || frame.type === "thinking.changed") return bg;
-  const isSessionChannel = frame.channel === "session";
+  const countsUnread =
+    frame.channel !== "session" && UNREAD_CANDIDATE_TYPES.has(frame.type) && !isSeenFrame(bg, frame);
   return {
     ...bg,
     runState: backgroundRunStateOf(frame, bg.runState),
-    unread: isSessionChannel ? bg.unread : bg.unread + 1,
+    unread: countsUnread ? bg.unread + 1 : bg.unread,
   };
 }
 

@@ -14,7 +14,10 @@
  * 纯函数纪律（AG-14）：无 React / 无 IO / 无 Date.now。
  */
 import type { EventEnvelope, SessionMeta } from "@helix/protocol";
-import type { BackgroundSessionState, TopologyState } from "../state";
+import type { BackgroundSeenCursor, BackgroundSessionState, TopologyState } from "../state";
+
+/** 空游标（list 直接播种的后台会话：从未活跃过，无存量可免——保守全计）。 */
+const EMPTY_SEEN: BackgroundSeenCursor = { entryIds: [], turnId: null };
 
 /** 本块承接的帧事件 type（拓扑级注册面；dispatcher/frame.ts 消费）。 */
 export const SESSION_DIRECTORY_EVENT_TYPES = ["session.list.result", "session.list_changed"] as const;
@@ -24,7 +27,7 @@ export function isDirectoryEventType(type: string): type is (typeof SESSION_DIRE
   return (SESSION_DIRECTORY_EVENT_TYPES as readonly string[]).includes(type);
 }
 
-/** SessionMeta → 轻量 store 元数据投影（unread 由既有轻量态保留）。 */
+/** SessionMeta → 轻量 store 元数据投影（unread 与 seen 游标由既有轻量态保留）。 */
 function metaOf(meta: SessionMeta, prev?: BackgroundSessionState): BackgroundSessionState {
   return {
     sessionId: meta.sessionId,
@@ -32,6 +35,7 @@ function metaOf(meta: SessionMeta, prev?: BackgroundSessionState): BackgroundSes
     runState: meta.runState,
     lastActivityAt: meta.lastActivityAt,
     unread: prev?.unread ?? 0,
+    seen: prev?.seen ?? EMPTY_SEEN,
   };
 }
 
