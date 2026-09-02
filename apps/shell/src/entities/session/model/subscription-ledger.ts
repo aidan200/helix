@@ -208,6 +208,24 @@ export class SubscriptionLedger {
   }
 
   /**
+   * connection.welcome 活跃习得（list 抢跑竞态防线）：welcome 载荷带 daemon
+   * 当前会话（握手 attach 即 full）——无活跃位时习得之，与 conn 消费者的
+   * sessionId 习得对称（store 习得而簿记不习得 = 两者对「活跃」认知分叉的
+   * 根因）。两类到达形态：
+   * - 快照先到（常规）：簿记空 → 静默登记 full（同 onSnapshot ②，零命令）；
+   * - list.result 先到（hello 的冷会话快照组装 await 期间 session.list 插队）：
+   *   syncList 已把活跃会话打成 monitor（daemon 档位真被降）→ 重发 full 修复。
+   * 已有活跃位（重连 replay 后）原样不覆盖——用户当前选择优先。
+   */
+  learnAttached(sessionId: string): SubscriptionCommand[] {
+    if (this.activeId !== null) return [];
+    this.activeId = sessionId;
+    if (this.tiers.get(sessionId) === "monitor") return [this.set(sessionId, "full")];
+    this.tiers.set(sessionId, "full");
+    return [];
+  }
+
+  /**
    * 断连重连重放（TR-AD-5）：daemon tier 表随连接销毁 → 按当前分档重放全
    * 订阅图（活跃 full 先行 + 簿记其余 monitor；无条件重发——幂等 subscribe
    * 天然收敛）。pending 跨重连保留：重连后 daemon 自动 attach 当前会话并

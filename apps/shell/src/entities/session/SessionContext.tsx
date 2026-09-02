@@ -390,6 +390,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           sendAll(verdict.commands);
           return !verdict.dispatch;
         }
+        case "connection.welcome": {
+          // welcome 活跃习得（list 抢跑竞态防线）：welcome 载荷带 daemon 当前会话
+          // （握手 attach 即 full）——无活跃位时习得（与 conn 消费者 sessionId 习得
+          // 对称）。防 hello 的冷会话快照组装（await getSessionView）期间
+          // session.list 插队先回：syncList 无活跃可依把活跃会话打成 monitor，
+          // 随后 attach 快照被当 ack 噪声吞掉 → 活跃会话永久 monitor
+          // （thinking/tool/stream 增量全被档位过滤，phase 光点永远兜底「工作中」）。
+          if (
+            event.payload.draft !== true &&
+            typeof event.payload.sessionId === "string" &&
+            event.payload.sessionId !== ""
+          ) {
+            sendAll(ledger.learnAttached(event.payload.sessionId));
+          }
+          return false; // welcome 仍进 dispatcher（conn 消费者承接）
+        }
         default:
           return false;
       }

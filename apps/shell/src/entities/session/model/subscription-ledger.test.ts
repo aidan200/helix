@@ -249,3 +249,37 @@ describe("SubscriptionLedger —— 重连重放（replay）", () => {
     expect(ack.commands).toEqual([]);
   });
 });
+
+describe("SubscriptionLedger —— welcome 活跃习得（learnAttached，list 抢跑竞态防线）", () => {
+  test("welcome 先行（快照前）：活跃习得 full 静默簿记，syncList 不降档、attach 快照进 dispatcher", () => {
+    const l = new SubscriptionLedger();
+    expect(l.learnAttached("a")).toEqual([]); // daemon attach 即 full——零命令静默簿记
+    expect(l.tierOf("a")).toBe("full");
+    expect(proj(l.syncList(["a", "b"]))).toEqual([["session.subscribe", "b", "monitor"]]);
+    expect(l.onSnapshot("a")).toEqual({ commands: [], dispatch: true }); // 活跃重建
+  });
+
+  test("list 抢跑（syncList 已把活跃打成 monitor）后 welcome 到达：习得 + 补发 full 修复 daemon 档位", () => {
+    const l = new SubscriptionLedger();
+    // 首连竞态实测形态：hello 的 await getSessionView（冷会话懒加载慢）期间
+    // session.list 插队完成 → list.result 先到 → syncList 无活跃可依，全图
+    // monitor（含 daemon 的当前会话）
+    expect(proj(l.syncList(["a", "b"]))).toEqual([
+      ["session.subscribe", "a", "monitor"],
+      ["session.subscribe", "b", "monitor"],
+    ]);
+    // welcome 随后到达：习得活跃 + 重发 full（修复已被降档的 daemon 档位）
+    expect(proj(l.learnAttached("a"))).toEqual([["session.subscribe", "a", "full"]]);
+    expect(l.tierOf("a")).toBe("full");
+    // attach 快照（晚到）：活跃重建进 dispatcher（不再被当 ack 噪声吞掉）
+    expect(l.onSnapshot("a")).toEqual({ commands: [], dispatch: true });
+  });
+
+  test("已有活跃位（重连 replay 后 welcome 再到）：不覆盖用户当前选择", () => {
+    const l = new SubscriptionLedger();
+    activateFirst(l, "a");
+    expect(l.learnAttached("b")).toEqual([]);
+    expect(l.tierOf("b")).toBeUndefined();
+    expect(l.onSnapshot("b").dispatch).toBe(false); // b 的快照仍是 ack 噪声
+  });
+});
