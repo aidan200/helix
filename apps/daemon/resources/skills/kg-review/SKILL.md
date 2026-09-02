@@ -37,7 +37,7 @@ task:
 
 ## ③ 产出纪律（硬约束，逐条不可谈判）
 
-- **内容过期/矛盾 → 只准提 candidate**：批次 SubAgent 的评审发现经 closure findings 上报（sediment 类），机械落 candidates 台账。findings 每条结构 = `{"kind":"sediment","changeType":"修改|废弃","targetNode":"<节点 id>","project":"<项目名>","reason":"...","evidence":"代码现实出处 file:line"}`——内容过期/矛盾/body 不合规 → `changeType:"修改"`（targetNode=节点 id）；节点整体失效 → `changeType:"废弃"`（targetNode=节点 id）；`iterationId` 由接线层回落无需写；`project` 填目标项目目录名（多项目 workspace 必填）。编排主 agent 汇总阶段也可用 `proposeCandidate`（kind=sediment）直提。**推翻权在人审**——体检不替人做决定。
+- **内容过期/矛盾 → 只准提 candidate**：批次 SubAgent 的评审发现经 closure findings 上报（sediment 类），机械落 candidates 台账。findings 每条结构 = `{"kind":"sediment","changeType":"修改|废弃","targetNode":"<节点 id>","project":"<项目名>","reason":"...","evidence":"代码现实出处 file:line"}`——**`reason` 是台账裁决叙事的唯一来源，人审只看它决定改不改，必须按 TR-56 三要素自包含**：①事实描述——代码现实是什么、节点当前记的是什么、差异在哪（业务语言，锚点编号只作附注不作正文主线）；②决策的点——建议怎么改，一句话说清裁决对象；③决策后的效果——applied/不裁决各自的后果与风险。缺决策点与决策后效果的机器报告格式实锤造成人审无法裁决（2026-09-02 用户反馈）。内容过期/矛盾/body 不合规 → `changeType:"修改"`（targetNode=节点 id）；节点整体失效 → `changeType:"废弃"`（targetNode=节点 id）；`iterationId` 由接线层回落无需写；`project` 填目标项目目录名（多项目 workspace 必填）。编排主 agent 汇总阶段也可用 `proposeCandidate`（kind=sediment）直提。**推翻权在人审**——体检不替人做决定。
 - **scene 缺失 → 可 updateNode 直接补 scene**：scene 是元数据补全不是内容推翻（R23），体检通道允许 `kg-update` 的 `updateNode` op 直补（仅限 scene 字段；scene 已存在但「不准」的判断属于内容问题，走 candidate 不直改）。
 - **禁止直改 body/digest、禁止 supersede**：任何内容改写与节点推翻都只能以 candidate 形式进人审台账。体检产出**不带 layer**（layer 是 bootstrap 分层产出的属性；体检候选带 layer 会污染 bootstrap 准入口径 O-9）。
 - **批次产出必带 taskId/origin_batchId**：由接线层机械注入（批次子进程上下文默认值，LLM 无需透传；显式传参仅用于覆盖）——任务→kg 审计链不依赖 LLM 自觉。
