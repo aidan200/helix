@@ -133,6 +133,7 @@ export const enUS = {
     think: {
       streaming: "Thinking",
       done: "Thought for {s}s",
+      generating: "Generating",
     },
     phase: {
       thinking: "Thinking",

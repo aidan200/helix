@@ -441,6 +441,71 @@ describe("MessageFlow 网络重试状态卡（P2 ⑦）", () => {
   });
 });
 
+// ── 生成中占位卡（切回/刷新仍在生成的会话；条件派生零新字段）────────────
+
+describe("MessageFlow 生成中占位卡（切回仍生成会话的尾部呼吸占位）", () => {
+  /** 直接构造投影态（占位卡条件 = view/agentState/streaming/thinking 槽派生）。 */
+  const stateWith = (over: Partial<SessionState>): SessionState => ({
+    ...createInitialSessionState(),
+    sessionId: "s1",
+    conn: "connected",
+    view: "ready",
+    ...over,
+  });
+  const placeholder = () => document.querySelector('[data-kind="generating-placeholder"]');
+
+  it("① agentState=running 且无 streaming/thinking 槽 → 占位卡出现（「回复生成中」）", () => {
+    stateRef.current = stateWith({ agentState: "running" });
+    ui(<MessageFlow />);
+    expect(placeholder()).not.toBeNull();
+    expect(screen.getByText("回复生成中")).toBeTruthy();
+  });
+
+  it("② streaming 气泡出现 → 占位让位消失（条件互斥派生）", () => {
+    stateRef.current = stateWith({
+      agentState: "running",
+      streaming: { messageId: "m1", text: "半截回复" },
+    });
+    ui(<MessageFlow />);
+    expect(placeholder()).toBeNull();
+  });
+
+  it("③ agentState→idle / stopped → 占位消失；view≠ready（loading 骨架期）也不渲染", () => {
+    stateRef.current = stateWith({ agentState: "idle" });
+    ui(<MessageFlow />);
+    expect(placeholder()).toBeNull();
+    cleanup();
+
+    stateRef.current = stateWith({ agentState: "stopped" });
+    ui(<MessageFlow />);
+    expect(placeholder()).toBeNull();
+    cleanup();
+
+    stateRef.current = stateWith({ agentState: "running", view: "loading" });
+    ui(<MessageFlow />);
+    expect(placeholder()).toBeNull();
+  });
+
+  it("④ 主线 thinking 流式槽非空 → 占位让位 ThinkingLiveView（互斥不同现）", () => {
+    stateRef.current = stateWith({
+      agentState: "running",
+      thinkingStreams: { main: "推理中…" },
+    });
+    ui(<MessageFlow />);
+    expect(placeholder()).toBeNull();
+    expect(document.querySelector(".think-live")).not.toBeNull();
+  });
+
+  it("steering/aborting 活跃态同样出占位（非 idle/stopped 即生成中）", () => {
+    for (const agentState of ["steering", "aborting"] as const) {
+      cleanup();
+      stateRef.current = stateWith({ agentState });
+      ui(<MessageFlow />);
+      expect(placeholder()).not.toBeNull();
+    }
+  });
+});
+
 // ── 工作段位呼吸光点（WorkPhaseDot 挂载；数据源 selectWorkPhase 见 reducer 用例）──
 
 describe("MessageFlow 工作段位呼吸光点", () => {

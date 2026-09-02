@@ -38,6 +38,7 @@ import CompactionBar from "./CompactionBar";
 import EngineErrorCard from "./EngineErrorCard";
 import NetworkRetryCard from "./NetworkRetryCard";
 import { ThinkingEntryView, ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
+import GeneratingPlaceholder from "./GeneratingPlaceholder";
 import SteerQueueDock from "./SteerQueueDock";
 import { WorkPhaseDot } from "./WorkPhaseDot";
 import { selectWorkPhase } from "@/entities/session/model/session-reducer";
@@ -96,6 +97,18 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
   const prevFirstIdRef = useRef<string | null>(null);
   const prevSessionIdRef = useRef<string | null>(null);
 
+  // 主线 thinking 流式槽位（T10c：键 = 快照习得的主实例 id；局部常量供窄化）
+  const mainThinkingStream = state.thinkingStreams[state.mainInstanceId];
+  // 生成中占位卡（切回/刷新仍生成的会话）：快照 agentState 活跃但流式槽全空
+  // （streaming 不落盘、切走即弃，快照重建 streaming=null）——与 streaming
+  // 气泡/ThinkingLiveView 互斥派生，message.completed 到达后自然让位转正。
+  const showGeneratingPlaceholder =
+    state.view === "ready" &&
+    state.agentState !== "idle" &&
+    state.agentState !== "stopped" &&
+    state.streaming === null &&
+    mainThinkingStream === undefined;
+
   useLayoutEffect(() => {
     const el = flowRef.current;
     if (!el) return;
@@ -129,6 +142,7 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
     state.mainInstanceId, // T10c：主实例 id 习得（快照）变化时重采基线（thinking 槽位键随之切换）
     state.thinkingStreams[state.mainInstanceId],
     state.engineError !== null, // 终验热修：错误卡出入视口同样贴底
+    showGeneratingPlaceholder, // 占位卡出入（agentState 切换不吃条目变化时）同样贴底
   ]);
 
   // H-2：滚动到顶自动加载更早已退役（三重误触发 + e2e 竞态源头），加载更早
@@ -136,8 +150,6 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
   // hasMore/loading 门控归 provider selectCanLoadEarlier）
 
   const empty = selectIsEmpty(state);
-  // 主线 thinking 流式槽位（T10c：键 = 快照习得的主实例 id；局部常量供窄化）
-  const mainThinkingStream = state.thinkingStreams[state.mainInstanceId];
   // 工作段位呼吸光点（右下角；idle 熄灭不渲染）
   const workPhase = selectWorkPhase(state);
 
@@ -197,6 +209,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
               streamingText={state.streaming.text}
             />
           )}
+          {/* 生成中占位卡：与上两块互斥（条件派生）；错误卡/重试卡独立共存 */}
+          {showGeneratingPlaceholder && <GeneratingPlaceholder />}
           {/* P2 ⑦ 网络重试批：退避等待状态卡（瞬态；流恢复即清，最终失败换错误卡） */}
           <NetworkRetryCard />
           {/* 终验热修：引擎/模型失败卡（瞬态；随轮清除） */}

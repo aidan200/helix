@@ -403,6 +403,10 @@ html.light .bubble code.inline { color: var(--accent); }
 .think-live .tl-label .hud-dot-pulse { background: var(--accent); }
 .think-live .tl-text { white-space: pre-wrap; word-break: break-word; }
 .think-live .stream-cursor { background: rgb(var(--text-muted-rgb) / 0.7); }
+/* 生成中占位卡（切回仍生成会话的尾部呼吸占位）：复用 think-live 视觉族，
+   仅标签无边文本——占位即语义，不虚构流式内容 */
+.gen-placeholder { display: inline-flex; }
+.gen-placeholder .tl-label { margin-bottom: 0; }
 
 /* ═══ flow-bar 折叠条（F2.3 complete / F4.1 compaction 共用，AD-9 组件层落位）═══
    thinking 💭 accent；compaction ⇄ violet（.compact 变体）*/
