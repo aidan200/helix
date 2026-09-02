@@ -31,17 +31,18 @@ button { font-family: inherit; }
 *::-webkit-scrollbar-thumb { background: rgb(var(--accent-rgb) / 0.28); border-radius: 9999px; }
 *::-webkit-scrollbar-thumb:hover { background: rgb(var(--accent-rgb) / 0.55); }
 
-/* ── 工作段位呼吸光点（WorkPhaseDot；右下角 sticky 浮层，不占流布局）──
+/* ── 工作段位呼吸光点（WorkPhaseDot；消息流区域右下角浮层，不占流布局）──
    主副配色语义：主色 accent = 对外产出（tool/reply），副色 violet = 对内
    思考（thinking 惯例同源 think-live 光标/steer 族）；working 中性，
-   aborting 警示。全部 tokens.css 变量，暗/亮主题自动跟随。 */
+   aborting 警示。全部 tokens.css 变量，暗/亮主题自动跟随。
+   T-webkit-repaint：absolute 钉 .msg-flow-wrap 右下（不驻滚动容器）——
+   WKWebView 对 sticky 元素内文本更新存在不重绘缺陷（颜色对/文字陈旧，
+   resize/DevTools 开关强制重绘才恢复）；同时修复内容不满一屏时 sticky 不钉底。 */
 .wp-float {
-  position: sticky; bottom: 10px;
-  width: fit-content; margin-left: auto; margin-right: 18px;
+  position: absolute; bottom: 10px; right: 18px;
   pointer-events: none; z-index: 15;
   align-items: center; gap: 7px;
   display: flex;
-  transition: opacity .3s;
 }
 .wp-float .wp-dot {
   width: 10px; height: 10px;
@@ -250,6 +251,13 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
 .conn-banner .retry-n { color: var(--text-faint); }
 
 /* ═══ 消息流 ═══ */
+/* T-webkit-repaint：wrap = 滚动容器外壳（flex:1 收缩 + 光点 absolute 锚）——
+   .msg-flow 保持滚动职责不变；光点在 wrap 层钉区域右下，不参与滚动 */
+.msg-flow-wrap {
+  flex: 1; min-height: 0;
+  position: relative;
+  display: flex; flex-direction: column;
+}
 .msg-flow { flex: 1; overflow-y: auto; position: relative; }
 .flow-inner {
   max-width: 860px; margin: 0 auto; padding: 20px 20px 28px;

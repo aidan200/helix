@@ -231,6 +231,7 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         mainInstanceId: mainId, // T10c：主实例 id 习得（kind=main 条目；快照权威）
         streaming: null, // 快照为落盘终态；进行中的流随重连作废
         thinkingStreams: {}, // 同上：thinking 流式中间态不落盘，重建后由后续 delta 重新累积
+        lastStreamKind: null, // 同上：流式通道信号随槽位重建重置
         channelStreams: {}, // 同上：channel 流式消息为不落盘中间态
         instances: snap.instances ? instancesFromSnapshot(dtos) : [], // additive：实例清单重建卡片（无字段旧剧本兼容 → 空）
         instanceChannels: merged,

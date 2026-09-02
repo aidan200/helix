@@ -90,8 +90,10 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
         s.streaming && s.streaming.messageId === messageId
           ? { messageId, text: s.streaming.text + delta }
           : { messageId, text: delta };
-      // 主线 delta 到达 = 重试已成功、流恢复 → 清网络重试状态卡（P2 ⑦）
-      return { ...s, streaming, engineRetrying: null };
+      // 主线 delta 到达 = 重试已成功、流恢复 → 清网络重试状态卡（P2 ⑦）；
+      // T-glm-stream：正文 delta 即最近通道切 chat（GLM 同消息 thinking→正文
+      // 连流，thinking.completed 迟至 message_end——phase 派生按此信号判段）
+      return { ...s, streaming, engineRetrying: null, lastStreamKind: "chat" };
     }
     case "chat.message.completed": {
       const entry = event.payload.entry;

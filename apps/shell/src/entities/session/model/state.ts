@@ -417,6 +417,10 @@ export interface SessionState {
   nextChannelSeq: number;
   /** thinking 流式槽位（按 instanceId 累积；completed 落 Entry 并清槽；渲染归 T4.2） */
   thinkingStreams: Record<string, string>;
+  /** 最近主线流式通道（T-glm-stream：GLM 同消息 thinking→正文连流，daemon
+   *  thinking.completed 待 message_end 才发——phase 派生需按最近到达的 delta
+   *  通道判段，不能只看槽位非空；快照重建重置 null，与 thinkingStreams 同生命周期） */
+  lastStreamKind: "chat" | "thinking" | null;
   /** 账目投影（usage.recorded/快照驱动；流式中冻结；渲染归 T4.2） */
   usage: SessionUsageProjection;
   /** spawn 秒回 toast（一次性，UI 消费） */
@@ -525,6 +529,7 @@ export function createInitialSessionState(): SessionState {
     channelStreams: {},
     nextChannelSeq: 1,
     thinkingStreams: {},
+    lastStreamKind: null,
     usage: { total: ZERO_USAGE, compaction: ZERO_USAGE, byInstance: {} },
     spawnToast: null,
     killToast: null,

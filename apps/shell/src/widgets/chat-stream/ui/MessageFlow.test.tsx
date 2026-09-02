@@ -430,4 +430,18 @@ describe("MessageFlow 工作段位呼吸光点", () => {
     expect(dot?.getAttribute("data-phase")).toBe("thinking");
     expect(dot?.textContent).toContain("思考中");
   });
+
+  it("T-webkit-repaint：光点驻 .msg-flow-wrap 内、滚动容器 .msg-flow 外（脱离 sticky 重绘缺陷路径）", () => {
+    stateRef.current = [running, thinkDelta].reduce(
+      (s, e) => sessionReducer(s, { type: "event", event: e } as never),
+      sessionReducer(createInitialSessionState(), { type: "event", event: welcome } as never),
+    );
+    ui(<MessageFlow />);
+    const dot = document.querySelector(".wp-float");
+    const wrap = document.querySelector(".msg-flow-wrap");
+    const flow = document.querySelector(".msg-flow");
+    expect(wrap).not.toBeNull();
+    expect(dot?.parentElement).toBe(wrap); // 钉 wrap 右下（absolute 锚）
+    expect(flow?.contains(dot!)).toBe(false); // 不在滚动容器内（sticky 旧路径退役）
+  });
 });

@@ -154,7 +154,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
   );
 
   return (
-    <main className="msg-flow" ref={flowRef}>
+    <div className="msg-flow-wrap">
+      <main className="msg-flow" ref={flowRef}>
       <div className="flow-inner">
         <div className="session-active">
           <LoadEarlier
@@ -195,9 +196,16 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
         </div>
         {empty && (state.sessionId === null ? <DraftEmpty /> : <SessionEmpty />)}
       </div>
-      {workPhase !== "idle" && <WorkPhaseDot phase={workPhase} />}
       {children /* conn-overlay 等浮层（pages 层组装） */}
-    </main>
+      </main>
+      {/* 工作段位呼吸光点（右下角；idle 炄灭不渲染）。T-webkit-repaint：
+          光点在滚动容器外、absolute 钉 wrap 右下——旧形态（sticky 驻滚动容器内）
+          在 WKWebView（Tauri 桌面端）命中 WebKit 对 sticky 元素内文本更新
+          不重绘的缺陷（颜色随 data-phase 样式失效正常、文字纹理陈旧；
+          resize/DevTools 开关强制重绘才恢复）；脱离滚动流同时修复内容不满
+          一屏时 sticky 不钉底的视觉偏差 */}
+      {workPhase !== "idle" && <WorkPhaseDot phase={workPhase} />}
+    </div>
   );
 };
 

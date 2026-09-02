@@ -64,7 +64,10 @@ export function selectIsGenerating(s: SessionState): boolean {
 /**
  * 工作段位（WorkPhaseDot 右下角呼吸光点数据源；槽位活跃推导，零协议改动）：
  * - aborting：中断瞬间（优先于一切活跃槽——语义色警示）；
- * - thinking：主槽 thinkingStreams 非空（副色 = 对内思考惯例）；
+ * - thinking：主槽 thinkingStreams 非空且最近流式通道 = thinking（副色 = 对内
+ *   思考惯例）——T-glm-stream：GLM 同消息 thinking→正文连流，daemon
+ *   thinking.completed 迟至 message_end 才发，槽位非空不足以判段，需叠加
+ *   lastStreamKind（正文 delta 到达即转 reply；交错回思考段重亮）；
  * - tool：entries 存在 running 工具卡（主色 = 对外产出惯例；优先于 reply）；
  * - reply：streaming 非空（主色）；
  * - working：running/steering 但槽位全空——静默兜底段（首 token 等待/工具
@@ -78,7 +81,7 @@ export type WorkPhase = "idle" | "aborting" | "thinking" | "tool" | "reply" | "w
 export function selectWorkPhase(s: SessionState): WorkPhase {
   if (s.agentState === "aborting") return "aborting";
   if (!selectIsGenerating(s)) return "idle";
-  if (s.thinkingStreams[s.mainInstanceId] !== undefined) return "thinking";
+  if (s.thinkingStreams[s.mainInstanceId] !== undefined && s.lastStreamKind === "thinking") return "thinking";
   if (s.entries.some((e) => e.kind === "tool-call" && e.state === "running")) return "tool";
   if (s.streaming !== null) return "reply";
   return "working";

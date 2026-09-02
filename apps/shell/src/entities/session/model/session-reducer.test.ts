@@ -520,6 +520,23 @@ describe("selectWorkPhase 工作段位派生（aborting > thinking > tool > repl
     expect(selectWorkPhase(run([running, thinkDelta("推理…")]))).toBe("thinking");
   });
 
+  it("T-glm-stream：thinking 槽未清（completed 未到）但正文 delta 已到 → reply（GLM 同消息 thinking→正文连流形态；daemon thinking.completed 待 message_end 才发，派生层需按最近流式通道判段）", () => {
+    // GLM 形态：think delta 流式（槽位建）→ 无 thinking.completed → 正文 delta 直接开始
+    const s = run([running, thinkDelta("推理…"), textDelta("正文开始")]);
+    expect(selectWorkPhase(s)).toBe("reply");
+    // 交错回思考段：新 thinking delta 到 → 回 thinking（最近通道切回）
+    const s2 = run([running, thinkDelta("推理…"), textDelta("正文"), thinkDelta("再思考")]);
+    expect(selectWorkPhase(s2)).toBe("thinking");
+    // completed 正常到达（Claude 形态）→ 槽清 → 不再 thinking
+    const s3 = run([
+      running,
+      thinkDelta("推理…"),
+      ev({ v: 0, type: "thinking.completed", payload: { entry: { id: "t1", kind: "thinking", instanceId: "main", text: "推理…", durationMs: 100, reasoningTokens: 10, createdAt: "2026-09-02T00:00:00.000Z" } } }),
+      textDelta("正文"),
+    ]);
+    expect(selectWorkPhase(s3)).toBe("reply");
+  });
+
   it("tool：running 工具卡存在 → 执行工具（优先于 reply 槽）", () => {
     const s = run([running, toolStarted("tc1"), textDelta("x")]);
     expect(selectWorkPhase(s)).toBe("tool");

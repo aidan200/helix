@@ -41,7 +41,13 @@ export function applyThinkingUsageEvent(
       const { instanceId, delta } = event.payload;
       const key = isMainChannel(instanceId, s.mainInstanceId) ? s.mainInstanceId : instanceId;
       const prev = s.thinkingStreams[key] ?? "";
-      return { ...s, thinkingStreams: { ...s.thinkingStreams, [key]: prev + delta } };
+      // T-glm-stream：主槽 delta 即最近通道切 thinking（交错流回段重亮；
+      // 判定面 selectWorkPhase，槽位生命周期不变——completed 照常清槽）
+      return {
+        ...s,
+        thinkingStreams: { ...s.thinkingStreams, [key]: prev + delta },
+        ...(isMainChannel(instanceId, s.mainInstanceId) ? { lastStreamKind: "thinking" as const } : {}),
+      };
     }
     case "thinking.completed": {
       // 完成落 Entry（complete-collapsed 不可逆）；流式槽位随实例清空（他实例不受扰）；

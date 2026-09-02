@@ -192,10 +192,15 @@ describe("S1 应用壳统一（AppLayout 迁移）", () => {
     ]);
     const body = layout.querySelector(".layout-body")!;
     expect(body.querySelector(".sidebar")).not.toBeNull();
-    // .app 落位 main.layout-main；直系子序保持既有断言面
+    // .app 落位 main.layout-main；直系子序保持既有断言面（T-webkit-repaint：
+    //   msg-flow-wrap 取代 msg-flow 为 .app 直系子——光点脱离滚动容器的结构错位；
+    //   main.msg-flow 驻 wrap 内保持滚动职责，结构唯一性由链路断言示证）
     const main = body.querySelector("main.layout-main")!;
     expect(main.querySelector(".app")).not.toBeNull();
-    expect(appChildClasses()).toEqual(["conn-banner", "msg-flow", "composer-wrap"]);
+    expect(appChildClasses()).toEqual(["conn-banner", "msg-flow-wrap", "composer-wrap"]);
+    const flow = document.querySelector(".msg-flow");
+    expect(flow?.tagName).toBe("MAIN");
+    expect(flow?.parentElement?.className).toBe("msg-flow-wrap");
   });
 
   it("header 槽清理：无 brand / 无主题分段钮 / 无齿轮；scanline 副本删除（归 App.tsx 单份）", () => {
