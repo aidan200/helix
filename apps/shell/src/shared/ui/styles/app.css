@@ -249,6 +249,55 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
 .app[data-conn="connecting"] .conn-banner { background: rgb(var(--warning-rgb) / 0.07); color: var(--warning); border-bottom-color: rgb(var(--warning-rgb) / 0.3); }
 .conn-banner .retry-n { color: var(--text-faint); }
 
+/* ── 工作台账条（main-session plan 批；conn-banner 之下、消息流之上常驻条）──
+   三态：无台账整条隐藏（组件渲染 null）；收起态一行摘要；展开态条目清单。
+   状态点配色与 tasks 页批次 plan 同构（done=success / in_progress=accent /
+   pending=faint / abandoned=warning 灰显）。 */
+.wl-bar {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: rgb(var(--edge-rgb) / 0.04);
+  animation: banner-in 0.24s ease-out;
+}
+.wl-summary {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 16px; background: none; border: 0; cursor: pointer;
+  font-size: var(--text-body); color: var(--text-muted); text-align: left;
+}
+.wl-summary:hover { color: var(--text); }
+.wl-ic { color: var(--accent); font-size: var(--text-cap); }
+.wl-count { font-family: var(--font-mono); white-space: nowrap; }
+.wl-doing {
+  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-family: var(--font-sans); color: var(--text-muted);
+}
+.wl-doing .ing { color: var(--accent); font-family: var(--font-mono); margin-right: 4px; }
+.wl-arrow { color: var(--text-faint); }
+.wl-items {
+  border-top: 1px dashed rgb(var(--edge-rgb) / 0.12);
+  padding: 6px 16px 8px;
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 180px; overflow-y: auto;
+}
+.wl-pi { display: flex; gap: 8px; align-items: baseline; font-size: var(--text-body); line-height: 1.6; }
+.wl-pi-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; align-self: center; background: var(--text-faint); }
+.wl-pi.done .wl-pi-dot { background: var(--success); }
+.wl-pi.in_progress .wl-pi-dot { background: var(--accent); box-shadow: 0 0 6px rgb(var(--accent-rgb) / 0.6); }
+.wl-pi.pending .wl-pi-dot { background: var(--text-faint); }
+.wl-pi.abandoned .wl-pi-dot { background: var(--warning); }
+.wl-pi-c { font-family: var(--font-sans); color: var(--text-muted); }
+.wl-pi.done .wl-pi-c { color: var(--text); }
+.wl-pi.pending .wl-pi-c { color: var(--text-faint); }
+/* in_progress 高亮（进行中行 = 问责面当前焦点） */
+.wl-pi.in_progress .wl-pi-c { color: var(--accent); }
+/* abandoned 灰显带理由（note 必载——daemon 写面机械判据） */
+.wl-pi.abandoned .wl-pi-c { color: var(--text-faint); text-decoration: line-through; }
+.wl-pi-n {
+  margin-left: auto; padding-left: 12px; text-align: right;
+  font-size: var(--text-cap); color: var(--text-faint);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 45%;
+}
+
 /* ═══ 消息流 ═══ */
 /* T-webkit-repaint：wrap = 滚动容器外壳（flex:1 收缩 + 光点 absolute 锚）——
    .msg-flow 保持滚动职责不变；光点在 wrap 层钉区域右下，不参与滚动 */

@@ -30,6 +30,14 @@ export const zhCN = {
       reconnectAttempt: "第 {n} 次尝试",
       reconnectingAddr: "正在重新连接 daemon",
     },
+    // 工作台账条（main-session plan 批）：chat 页主区常驻条三态文案
+    //（计数摘要 = ledger 服务端计数直渲；与 tasks 页 tk.batchPlan 措辞同构）
+    planbar: {
+      doneCount: "{done}/{total} 项完成",
+      doing: "正在：",
+      open: "收起工作台账",
+      closed: "展开工作台账",
+    },
     overlay: {
       connecting: "正在连接 daemon",
       addr: "{addr}",

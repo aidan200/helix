@@ -17,6 +17,7 @@ import Composer from "@/features/send-message/ui/Composer";
 import ComposerThinkingPicker from "@/features/thinking-level/ui/ComposerThinkingPicker";
 import ErrorCard from "@/features/reconnect/ui/ErrorCard";
 import ConnBanner from "./ui/ConnBanner";
+import WorkLedgerBar from "./ui/WorkLedgerBar";
 import ConnOverlay from "./ui/ConnOverlay";
 import Workbench from "./ui/P-1-workbench";
 
@@ -75,6 +76,8 @@ const ChatPage = function ChatPage() {
           data-drawer={selectedAgentId ? "1" : undefined}
         >
           <ConnBanner />
+          {/* 工作台账条（main-session plan 批）：无台账整条隐藏（渲染 null） */}
+          <WorkLedgerBar />
           <MessageFlow onOpenInstance={openInstance}>
             <ConnOverlay />
             <ErrorCard />
