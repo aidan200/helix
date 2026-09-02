@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
-import type { EventEnvelope, ThinkingEntryDto } from "@helix/protocol";
+import type { EntryDto, ErrorEntryDto, EventEnvelope, ThinkingEntryDto } from "@helix/protocol";
 import { createInitialSessionState, sessionReducer, type SessionState } from "@/entities/session/model/session-reducer";
 
 // ── SessionContext mock（state 注入；selectIsEmpty 等保持真体）──
@@ -438,6 +438,70 @@ describe("MessageFlow 网络重试状态卡（P2 ⑦）", () => {
     expect(document.querySelector(".network-retry-card")).toBeNull();
     expect(document.querySelector(".engine-error-card")).not.toBeNull();
     void resumed;
+  });
+});
+
+// ── error entry 批：错误条目时间轴原位红条（EntryView error 分支）──
+
+describe("MessageFlow 错误条目原位红条（error entry 批）", () => {
+  const welcome: EventEnvelope = {
+    v: 0,
+    type: "connection.welcome",
+    payload: { sessionId: "s1", model: "claude-sonnet-4-5", agentState: "idle" },
+  };
+  const errorEntry = (id: string, message: string): ErrorEntryDto => ({
+    kind: "error",
+    id,
+    instanceId: "main",
+    message,
+    turnId: "t1",
+    createdAt: "2026-09-03T00:00:01.000Z",
+  });
+  const play = (events: EventEnvelope[]): SessionState =>
+    events.reduce((s, e) => sessionReducer(s, { type: "event", event: e }), createInitialSessionState());
+
+  it("快照 entries 含 error 条目 → 原位渲染红色错误条（ee-head/ee-body 族；刷新后原位可见）", () => {
+    stateRef.current = play([
+      welcome,
+      {
+        v: 0,
+        type: "session.snapshot",
+        payload: {
+          snapshot: {
+            sessionId: "s1",
+            model: "claude-sonnet-4-5",
+            agentState: "idle",
+            revision: 2,
+            entries: [
+              { kind: "message", id: "m1", role: "user", content: "问一句", ts: 1 },
+              errorEntry("e2", "429: 限额已满"),
+            ],
+          },
+        },
+      },
+    ]);
+    ui(<MessageFlow />);
+    const bar = document.querySelector(".engine-error-card");
+    expect(bar).not.toBeNull();
+    expect(bar!.querySelector(".ee-head")).not.toBeNull();
+    expect(screen.getByText("429: 限额已满")).not.toBeNull();
+    // 原位：错误条在 m1 之后（ entries 序列序）
+    const kids = Array.from(document.querySelector(".session-active")!.children);
+    const msgIdx = kids.findIndex((k) => k.contains(screen.getByText("问一句")));
+    const errIdx = kids.findIndex((k) => k === bar || k.contains(bar!));
+    expect(msgIdx).toBeGreaterThanOrEqual(0);
+    expect(errIdx).toBeGreaterThan(msgIdx);
+  });
+
+  it("失败链帧序（engine.error → error.entry）→ 同一错误不双显（瞬态卡清除，原位条留存）", () => {
+    stateRef.current = play([
+      welcome,
+      { v: 0, type: "engine.error", payload: { message: "503 Service Unavailable" } },
+      { v: 0, type: "error.entry", payload: { entry: errorEntry("e9", "503 Service Unavailable") } },
+    ]);
+    ui(<MessageFlow />);
+    // 原位红条唯一呈现面（瞬态卡已随 error.entry 帧清除）
+    expect(document.querySelectorAll(".engine-error-card")).toHaveLength(1);
   });
 });
 

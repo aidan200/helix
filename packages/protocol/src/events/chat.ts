@@ -1,7 +1,7 @@
 import type { EventFrame } from "../envelope";
 import type { AgentStateDto } from "../types/agent";
 import type { SteerSource, TurnCompletionReason } from "../types/chat";
-import type { EntryDto } from "../types/session";
+import type { EntryDto, ErrorEntryDto } from "../types/session";
 
 // ── payload ──────────────────────────────────────────────────
 
@@ -47,6 +47,16 @@ export interface EngineRetryingPayload {
 /** 一条消息完成（落盘事件；entry 为 kind="message" 且含最终 content） */
 export interface ChatMessageCompletedPayload {
   entry: EntryDto;
+}
+
+/**
+ * error.entry（error entry 批）：引擎/模型失败的错误条目落时间轴（entry 为
+ * kind="error" 变体，携带完整条目——仿 compaction.completed 先例）。与
+ * engine.error 同失败链并存：engine.error 是瞬态反馈帧（不落盘），本帧是
+ * 落盘条目帧——前端据本帧把瞬态卡转正为原位红条（同一错误不双显）。
+ */
+export interface ErrorEntryPayload {
+  entry: ErrorEntryDto;
 }
 
 /** 消息入 steer 队列（前端徽标「STEER·已入队」依据） */
@@ -132,4 +142,9 @@ export interface EngineRetryingEvent extends EventFrame<EngineRetryingPayload> {
   /** chat（与 engine.error 同族：瞬态反馈归 chat 消费路径） */
   channel?: "chat";
   type: "engine.retrying";
+}
+export interface ErrorEntryEvent extends EventFrame<ErrorEntryPayload> {
+  /** chat（与 engine.error 同族：错误条目帧归 chat 消费路径） */
+  channel?: "chat";
+  type: "error.entry";
 }

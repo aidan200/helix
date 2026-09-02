@@ -184,11 +184,16 @@ describe("seedMessagesOf：按 mainInstanceId 过滤 + 只回填 message 条目"
       { id: "e2", role: "assistant", text: "回答", turnId: "t1", isSteer: false, instanceId: "agent-main", createdAt: "2024-01-01T00:00:03.000Z" },
       { id: "e3", role: "assistant", text: "子 agent 输出", turnId: null, isSteer: false, instanceId: "agent-sub", createdAt: "2024-01-01T00:00:04.000Z" },
       { id: "c1", kind: "compaction", instanceId: "agent-main", tokensBefore: 100, tokensAfter: 50, summary: "摘要", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 2, cost: 0 }, createdAt: "2024-01-01T00:00:05.000Z" },
+      // error 条目（error entry 批）：非 message kind——失败是展示面里程碑，
+      // 不是对话历史，天然不回填 LLM 上下文（TR-45 回归钉）
+      { id: "err1", kind: "error", instanceId: "agent-main", message: "429: 限额已满", turnId: "t1", createdAt: "2024-01-01T00:00:06.000Z" },
     ];
     const msgs = seedMessagesOf(entries, "agent-main", meta);
     expect(msgs.map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(textOfMessage(msgs[0]!)).toBe("问题");
     expect(textOfMessage(msgs[1]!)).toBe("回答");
+    // error 条目不洩漏进回填种子（错误原文不进 LLM 上下文）
+    expect(msgs.some((m) => textOfMessage(m).includes("限额已满"))).toBe(false);
   });
 
   test("空 entries → []", () => {

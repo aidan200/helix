@@ -8,7 +8,10 @@
  * - steer.queued / steer.drained：本地 echo 对账（LOCAL_PREFIX + daemon
  *   entryId 确认）与徽标两态（SM-3）；
  * - engine.error（终验热修族归 chat）：错误卡片数据，瞬态不落盘——
- *   chat.turn.started 清除、turn.completed 收流时序由本族内闭环；
+ *   瞬态卡清除时机 = error.entry 帧到达（error entry 批）；chat.turn.started
+ *   清除保留作兜底，turn.completed 收流时序由本族内闭环；
+ * - error.entry（error entry 批）：错误条目落时间轴（原位红条）——entries
+ *   原位追加 + 瞬态 engineError 卡清除（同一错误不双显）；
  * - engine.retrying（P2 ⑦ 网络重试批同族）：退避等待状态卡数据，
  *   流恢复/最终失败/轮次终制即清；
  * - tool.call.started / tool.call.result：主线工具卡三态（SM-4）；SubAgent
@@ -34,6 +37,7 @@ export const CHAT_EVENT_TYPES = [
   "steer.drained",
   "engine.error",
   "engine.retrying",
+  "error.entry",
   "tool.call.started",
   "tool.call.result",
   "agent.state.changed",
@@ -167,10 +171,14 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
     case "steer.drained":
       return drainSteer(s, event.payload.entryId, event.payload.source);
     // 终验热修：引擎/模型调用失败 → 错误卡片数据（provider 原文透传；
-    // 随后的 turn.completed 收流，新 turn.started 清除——瞬态不落盘）
+    // 瞬态卡存续到 error.entry 帧到达转正（error entry 批）或新 turn.started 兜底清除）
     case "engine.error":
       // P2 ⑦：最终失败换错误卡，重试状态卡同时收（两卡不叠加）
       return { ...s, engineError: { message: event.payload.message }, engineRetrying: null };
+    // error entry 批：错误条目帧到达 → entries 原位追加（时间轴原位红条）
+    // + 瞬态卡清除（同一错误不双显；SubAgent 帧已由 daemon mapper 抑制）
+    case "error.entry":
+      return { ...s, entries: upsertEntry(s.entries, event.payload.entry), engineError: null };
     // P2 ⑦ 网络重试批：LLM 瞬时失败退避等待可见反馈（状态卡数据；
     // 流恢复/最终失败/轮次终制清除——瞬态不落盘，快照重建天然归零）
     case "engine.retrying":

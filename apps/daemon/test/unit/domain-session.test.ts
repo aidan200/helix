@@ -210,3 +210,74 @@ describe("Session 快照往返（TP-CL4-1 ①②）", () => {
     expect(typeof st).toBe("string");
   });
 });
+
+describe("Session 错误条目（error entry 批：引擎/模型失败落时间轴原位红条）", () => {
+  test("appendErrorEntry：open turn 内追加合法（kind/id/instanceId/message/turnId/createdAt）", () => {
+    const s = Session.create("s-err");
+    const u = s.appendUserEntry("问一句");
+    const turn = s.beginTurn(u.id);
+    const entry = s.appendErrorEntry({
+      kind: "error",
+      instanceId: s.mainInstanceId,
+      message: "429: 限额已满",
+      createdAt: "2026-09-03T00:00:01.000Z",
+    });
+    expect(entry.toData()).toEqual({
+      kind: "error",
+      id: entry.id,
+      instanceId: s.mainInstanceId,
+      message: "429: 限额已满",
+      turnId: turn.id, // 挂出错轮（原位可见的锚）
+      createdAt: "2026-09-03T00:00:01.000Z",
+    });
+    expect(s.entryList().some((e) => "kind" in e && e.kind === "error")).toBe(true);
+  });
+
+  test("无 open turn 时 appendErrorEntry 抛错（错误条目属于某个失败轮次）", () => {
+    const s = Session.create("s-err2");
+    expect(() =>
+      s.appendErrorEntry({
+        kind: "error",
+        instanceId: s.mainInstanceId,
+        message: "boom",
+        createdAt: "2026-09-03T00:00:01.000Z",
+      }),
+    ).toThrow(/无进行中的轮次/);
+  });
+
+  test("空 message 拒绝（空文本不是语义单元，与 Entry/ThinkingEntry 同口径）", () => {
+    const s = Session.create("s-err3");
+    const u = s.appendUserEntry("问");
+    s.beginTurn(u.id);
+    expect(() =>
+      s.appendErrorEntry({
+        kind: "error",
+        instanceId: s.mainInstanceId,
+        message: "   ",
+        createdAt: "2026-09-03T00:00:01.000Z",
+      }),
+    ).toThrow();
+  });
+
+  test("快照往返：含 error 条目深等价（刷新/切换后原位可见的数据源）", () => {
+    const s = Session.create("s-err-snap");
+    const u = s.appendUserEntry("第一问");
+    s.beginTurn(u.id);
+    s.appendErrorEntry({
+      kind: "error",
+      instanceId: s.mainInstanceId,
+      message: "503 Service Unavailable",
+      createdAt: "2026-09-03T00:00:02.000Z",
+    });
+    s.interruptTurn(); // 失败收尾：先落错误条目再收口
+
+    const snap: SessionSnapshot = s.toSnapshot();
+    const restored = Session.restoreFrom(snap);
+    expect(restored.toSnapshot()).toEqual(snap); // 重建后再快照 → 深等价
+    const err = restored.entryList().find((e) => "kind" in e && e.kind === "error");
+    expect(err).toBeDefined();
+    // 计数器不回卷：恢复后新条目 id 延续
+    const u2 = restored.appendUserEntry("再来");
+    expect(u2.id).not.toBe(u.id);
+  });
+});

@@ -108,6 +108,30 @@ describe("TP-CL8-5：RowMapper 往返等价", () => {
     expect(entry.id).toBe("e4"); // 计数器从数据推导，不回卷
   });
 
+  test("error 条目：kind=error 经 session_state entries JSON 列往返不丢（零 schema 改动）", () => {
+    const session = Session.create("s-err-rm", "2024-01-01T00:00:00.000Z");
+    session.appendUserEntry("问", "2024-01-01T00:00:01.000Z");
+    session.beginTurn("e1", "2024-01-01T00:00:02.000Z");
+    session.appendErrorEntry({
+      kind: "error",
+      instanceId: session.mainInstanceId,
+      message: "429: 限额已满",
+      createdAt: "2024-01-01T00:00:03.000Z",
+    });
+    session.interruptTurn("2024-01-01T00:00:04.000Z");
+    const rows = RowMapper.persistedStateToRows({ session: session.toSnapshot(), agentState: "idle", toolCalls: [] });
+    // entries 为 JSON 文本列——联合加变体零 schema 改动，原样序列化
+    const rawEntries = JSON.parse(rows.session.entries) as { kind?: string }[];
+    expect(rawEntries.some((e) => e.kind === "error")).toBe(true);
+    // TR-51：updated_at = 末条 entry createdAt（error 条目同样是活动时间的候选）
+    expect(rows.session.updated_at).toBe("2024-01-01T00:00:03.000Z");
+    const back = RowMapper.rowsToPersistedState(rows.session, rows.lifecycle, rows.steer, rows.toolCalls);
+    expect(back.session).toEqual(session.toSnapshot());
+    // restoreFrom 重建聚合同样携带（刷新/切换后原位可见的数据链）
+    const restored = Session.restoreFrom(back.session);
+    expect(restored.entryList().some((e) => "kind" in e && e.kind === "error")).toBe(true);
+  });
+
   test("T9 图片：user Entry images 经 session_state JSON 列往返不丢（持久化一致性专项）", () => {    const session = Session.create("s-img", "2024-01-01T00:00:00.000Z");
     const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
     session.appendUserEntry("看图", "2024-01-01T00:00:01.000Z", [dataUrl, dataUrl]);

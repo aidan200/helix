@@ -7,6 +7,7 @@
  */
 import type { ThinkingEntryData } from "../session/ThinkingEntry";
 import type { CompactionEntryData } from "../session/CompactionEntry";
+import type { ErrorEntryData } from "../session/ErrorEntry";
 import type { UsageSummary } from "../session/SessionSnapshot";
 
 export type DomainEventType =
@@ -36,6 +37,7 @@ export type DomainEventType =
   // thinking.stream.delta 是流式中间态不入本表（TR-AD-5，走流式通道）
   | "thinking.completed"
   | "compaction.completed"
+  | "error.entry"
   | "usage.recorded"
   // ── v0.4 执行上下文面（AD-5/AD-6；只落盘不广播）──
   | "agent.instantiated"
@@ -211,6 +213,16 @@ export interface ThinkingCompletedPayload {
 /** compaction 完成（tokensBefore/tokensAfter/summary/usage 全字段条目）。 */
 export interface CompactionCompletedPayload {
   readonly entry: CompactionEntryData;
+}
+
+/**
+ * error.entry（error entry 批）：引擎/模型失败的错误条目落时间轴——payload
+ * 携带完整 entry（仿 compaction.completed 先例；前端据帧原位渲染红条并把
+ * 瞬态 engineError 卡转正）。与 engine.error 同失败链并存：engine.error
+ * 是瞬态可观测事件（trace 链不动），本事件是落盘条目里程碑。
+ */
+export interface ErrorEntryPayload {
+  readonly entry: ErrorEntryData;
 }
 
 /** 用量入账（turn 完成 / compaction 摘要调用；流式中不发，AD-4）。 */

@@ -23,6 +23,7 @@ type _ChatFamily = Expect<
     | "agent.state.changed"
     | "engine.error"
     | "engine.retrying"
+    | "error.entry"
   >
 >;
 

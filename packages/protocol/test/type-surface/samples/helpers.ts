@@ -73,6 +73,9 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `usage:${event.payload.instanceId}:${event.payload.usage.totalTokens}:${event.payload.source}`;
     case "engine.error":
       return `engine-error:${event.payload.message.slice(0, 20)}`;
+    case "error.entry":
+      // error entry 批：错误条目原位落时间轴帧（entry 全字段；channel=chat）
+      return `error-entry:${event.payload.entry.id}:${event.payload.entry.turnId}:${event.payload.entry.message.slice(0, 20)}`;
     // ── v0.2 model 族 ──
     case "model.changed":
       return `model-changed:${event.payload.sessionId}:${event.payload.model}:${event.payload.previous}:${event.payload.effective}`;
@@ -395,5 +398,7 @@ export function describeEntry(entry: EntryDto): string {
       return `thinking:${entry.instanceId}:${entry.durationMs}`;
     case "compaction":
       return `compaction:${entry.instanceId}:${entry.tokensBefore}:${entry.tokensAfter}:${entry.usage.cost}`;
+    case "error":
+      return `error:${entry.instanceId}:${entry.turnId}:${entry.message}`;
   }
 }

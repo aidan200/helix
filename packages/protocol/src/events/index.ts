@@ -23,7 +23,9 @@
  * 通道）+ park/resume 批新增 2（agent.parked/agent.resumed，⑤ 挂起恢复
  * 原语广播帧，挂 agent 族——InstanceState 同批 additive 扩 parked）+ main-session
  * plan 批新增 1（session.plan.changed，主会话工作台账广播——挂既有 session
- * 通道不新增 Channel 值；快照 plan/ledger 同批 additive 字段）。`EventEnvelope` 为
+ * 通道不新增 Channel 值；快照 plan/ledger 同批 additive 字段）+ error entry
+ * 批新增 1（error.entry：引擎/模型失败的错误条目落时间轴原位红条——挂既
+ * 有 chat 通道不新增 Channel 值；EntryDto 同批 additive 第五变体 error）。`EventEnvelope` 为
  * 判别式联合，前端 switch(event.type) 窄化各分支 payload（投影 reducer）。
  *
  * v0.2 事件类型学（AD-3，契约 A §2）：每事件以 `channel` 字面量登记所属通道
@@ -51,6 +53,7 @@ import type {
   ChatTurnStartedEvent,
   EngineErrorEvent,
   EngineRetryingEvent,
+  ErrorEntryEvent,
   SteerDrainedEvent,
   SteerQueuedEvent,
   ToolCallResultEvent,
@@ -161,6 +164,7 @@ export type EventEnvelope =
   | AgentStateChangedEvent
   | EngineErrorEvent
   | EngineRetryingEvent
+  | ErrorEntryEvent
   | AgentSpawnedEvent
   | AgentQueuedEvent
   | AgentStartedEvent
@@ -239,6 +243,7 @@ export const EVENT_TYPES = [
   "agent.state.changed",
   "engine.error",
   "engine.retrying",
+  "error.entry",
   "agent.spawned",
   "agent.queued",
   "agent.started",
@@ -325,6 +330,7 @@ export const EVENT_CHANNELS = {
   "agent.state.changed": "chat",
   "engine.error": "chat",
   "engine.retrying": "chat",
+  "error.entry": "chat",
   "agent.spawned": "agent",
   "agent.queued": "agent",
   "agent.started": "agent",
