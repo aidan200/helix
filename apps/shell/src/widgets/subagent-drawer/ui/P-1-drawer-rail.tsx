@@ -58,7 +58,7 @@ const RailRow = function RailRow({
   const { t } = useI18n();
   const spec = ACTIVITY_TYPES.subagent;
   const Icon = spec.icon;
-  const elapsed = useRunningElapsed(card.state === "running");
+  const elapsed = useRunningElapsed(card.state === "running", card.startedAtMs, card.elapsedMs ?? 0);
   const status =
     card.state === "queued"
       ? t("chat.sa.card.queued", { n: card.queuedPosition ?? 0 })

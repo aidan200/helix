@@ -52,6 +52,8 @@ function instancesFromSnapshot(dtos: AgentInstanceDto[]): InstanceCardState[] {
       state: d.state,
       task: d.task ?? "",
       profileKind: d.profileKind,
+      ...(d.elapsedMs !== undefined ? { elapsedMs: d.elapsedMs } : {}),
+      ...(d.startedAtMs !== undefined ? { startedAtMs: d.startedAtMs } : {}),
       ...(d.model !== undefined ? { model: d.model } : {}),
       ...(d.state === "queued" && d.queuedPosition !== undefined
         ? { queuedPosition: d.queuedPosition }

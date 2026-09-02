@@ -349,7 +349,7 @@ describe("stalled 警示行与恢复（F1.8/§8-3）", () => {
     const reStall = play([welcome, spawned("agent-s"), stalled("agent-s", 300_000)]);
     const afterStart = sessionReducer(reStall, {
       type: "event",
-      event: { v: 0, type: "agent.started", payload: { agentId: "agent-s" } },
+      event: { v: 0, type: "agent.started", payload: { agentId: "agent-s", startedAtMs: 0 } },
     });
     expect(afterStart.instances[0]!.stalledMs).toBeUndefined();
   });

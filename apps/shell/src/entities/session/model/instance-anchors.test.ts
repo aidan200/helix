@@ -111,7 +111,7 @@ describe("spawn 帧锚点直读（CL-1 v0.3；DTO 唯一权威）", () => {
       completed("m1"),
       spawn("a1", "m1"),
       { v: 0, type: "agent.queued", payload: { agentId: "a1", position: 1 } },
-      { v: 0, type: "agent.started", payload: { agentId: "a1" } },
+      { v: 0, type: "agent.started", payload: { agentId: "a1", startedAtMs: 0 } },
       { v: 0, type: "agent.completed", payload: { agentId: "a1", closure } },
       completed("m2"),
     ]);

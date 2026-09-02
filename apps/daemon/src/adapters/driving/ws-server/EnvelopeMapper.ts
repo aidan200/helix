@@ -266,7 +266,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       const frame: AgentStartedEvent = {
         v: PROTOCOL_VERSION,
         type: "agent.started",
-        payload: { agentId: p.agentId },
+        payload: { agentId: p.agentId, startedAtMs: p.startedAtMs },
       };
       return frame;
     }
@@ -333,7 +333,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       const frame: AgentResumedEvent = {
         v: PROTOCOL_VERSION,
         type: "agent.resumed",
-        payload: { agentId: p.agentId },
+        payload: { agentId: p.agentId, startedAtMs: p.startedAtMs, elapsedMs: p.elapsedMs },
       };
       return frame;
     }

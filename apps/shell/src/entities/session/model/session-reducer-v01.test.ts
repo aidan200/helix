@@ -77,7 +77,7 @@ const queued = (agentId: string, position: number): SessionAction =>
   ev({ v: 0, type: "agent.queued", payload: { agentId, position } });
 
 const started = (agentId: string): SessionAction =>
-  ev({ v: 0, type: "agent.started", payload: { agentId } });
+  ev({ v: 0, type: "agent.started", payload: { agentId, startedAtMs: 0 } });
 
 const stalled = (agentId: string, idleMs: number): SessionAction =>
   ev({ v: 0, type: "agent.stalled", payload: { agentId, idleMs } });
@@ -645,6 +645,8 @@ describe("重放幂等（v0.1 全事件面）", () => {
             task: c.task,
             profileKind: c.profileKind,
             ...(c.queuedPosition !== undefined ? { queuedPosition: c.queuedPosition } : {}),
+            ...(c.startedAtMs !== undefined ? { startedAtMs: c.startedAtMs } : {}),
+            ...(c.elapsedMs !== undefined ? { elapsedMs: c.elapsedMs } : {}),
             ...(c.closure ? { closure: c.closure } : {}),
             ...(prefix.usage.byInstance[c.instanceId]
               ? { usage: prefix.usage.byInstance[c.instanceId] }
@@ -764,5 +766,55 @@ describe("engine.error 帧投影（终验热修）", () => {
     }));
     const restored = sessionReducer(errored, snapshotOf([], {}));
     expect(restored.engineError).toEqual({ message: "boom" }); // 同页重连保留；新页初始态为 null
+  });
+});
+
+describe("执行时长记账（真实锚点透传：agent.started/resumed 帧 + 快照）", () => {
+  const base = () =>
+    [welcome(), spawned("agent-x")].reduce(sessionReducer, createInitialSessionState());
+
+  it("agent.started 帧携带 startedAtMs → 卡片记录真实段起点", () => {
+    const state = sessionReducer(base(), ev({
+      v: 0,
+      type: "agent.started",
+      payload: { agentId: "agent-x", startedAtMs: 1_700_000_000_000 },
+    }));
+    expect(state.instances.find((c) => c.instanceId === "agent-x")?.startedAtMs).toBe(1_700_000_000_000);
+  });
+
+  it("agent.resumed 帧 → 基线 + 新段起点对齐（park 期虚增段被校正）", () => {
+    let state = base();
+    state = sessionReducer(state, ev({
+      v: 0,
+      type: "agent.started",
+      payload: { agentId: "agent-x", startedAtMs: 1_000 },
+    }));
+    state = sessionReducer(state, ev({
+      v: 0,
+      type: "agent.resumed",
+      payload: { agentId: "agent-x", startedAtMs: 5_000, elapsedMs: 4_000 },
+    }));
+    const card = state.instances.find((c) => c.instanceId === "agent-x");
+    expect(card?.startedAtMs).toBe(5_000);
+    expect(card?.elapsedMs).toBe(4_000);
+  });
+
+  it("快照 instances 重建透传时长字段（重连/重启恢复口径不漂移）", () => {
+    const snap = snapshotOf([], {
+      instances: [{
+        instanceId: "agent-y",
+        kind: "subagent",
+        profileKind: "subagent-worker",
+        state: "running",
+        task: "t",
+        createdAt: "2024-01-01T00:00:00.000Z",
+        startedAtMs: 9_000,
+        elapsedMs: 2_500,
+      } as never],
+    });
+    const state = sessionReducer(createInitialSessionState(), snap);
+    const card = state.instances.find((c) => c.instanceId === "agent-y");
+    expect(card?.startedAtMs).toBe(9_000);
+    expect(card?.elapsedMs).toBe(2_500);
   });
 });

@@ -18,7 +18,9 @@ import { DomainError } from "../../src/domain/DomainError";
  *    重派 = 新 instanceId 新实例）；
  * ④ 多实例并存：乱序交错序列互不干扰、不产生非法半态；
  * ⑤ AgentLifecycle 注册表语义（会话内多实例并存，AD-3）；
- * ⑥ T10a 方案 A：实例 id 统一生成单点 + legacy "main" 只读兼容判别。
+ * ⑥ T10a 方案 A：实例 id 统一生成单点 + legacy "main" 只读兼容判别；
+ * ⑧ 执行时长记账：markRunning 段起点 / park 结算 / resume 新段 / 终态定格、
+ *    toData-restore 往返一致（「总执行时间」真实口径——修复抽屉展开起算 bug）。
  */
 
 function subagent(n: number, state?: AgentInstanceData["state"]): AgentInstance {
@@ -263,6 +265,83 @@ describe("⑤ AgentLifecycle 注册表语义（AD-3：会话内实例注册表�
     lc.transition("running"); // 既有主状态机行为不变
     expect(lc.current).toBe("running");
     expect(lc.instanceCount).toBe(2);
+  });
+});
+
+describe("⑧ 执行时长记账（markRunning 段起点 / park 结算 / resume 新段 / 终态定格）", () => {
+  const T0 = 1_000_000;
+
+  test("queued 态零时长；markRunning 记录段起点、elapsed 实时增长", () => {
+    const a = subagent(1);
+    expect(a.elapsedMs(Date.now())).toBe(0); // 未跑过
+    a.markRunning(T0);
+    expect(a.startedAtMs).toBe(T0);
+    expect(a.elapsedMs(T0 + 2_500)).toBe(2_500);
+  });
+
+  test("running 态重复 markRunning 仍属非法迁移（TR-35 既有语义；补记场景由调用点状态前置防）", () => {
+    const a = subagent(1);
+    a.markRunning(T0);
+    expect(() => a.markRunning(T0 + 999)).toThrow(DomainError);
+    expect(a.startedAtMs).toBe(T0); // 抛错不改状态不改起点
+  });
+
+  test("park 结算当前段：挂起期不计入总时长", () => {
+    const a = subagent(1);
+    a.markRunning(T0);
+    a.park(T0 + 4_000);
+    expect(a.startedAtMs).toBeUndefined();
+    expect(a.elapsedMs(T0 + 100_000)).toBe(4_000); // 挂起 96s 不计
+  });
+
+  test("resume 开新段：总时长 = 累计基线 + 新段增量", () => {
+    const a = subagent(1);
+    a.markRunning(T0);
+    a.park(T0 + 4_000);
+    a.resume(T0 + 10_000);
+    expect(a.startedAtMs).toBe(T0 + 10_000);
+    expect(a.elapsedMs(T0 + 13_000)).toBe(7_000); // 4s + 3s
+  });
+
+  test("终态结算定格（complete/fail/cancel/destroy 同结算）", () => {
+    const a = subagent(1);
+    a.markRunning(T0);
+    a.complete(T0 + 6_000);
+    expect(a.startedAtMs).toBeUndefined();
+    expect(a.elapsedMs(T0 + 999_999)).toBe(6_000); // 终态后不随时钟增长
+
+    const b = subagent(2);
+    b.markRunning(T0);
+    b.fail("crash", T0 + 3_000);
+    expect(b.elapsedMs()).toBe(3_000);
+
+    const c = subagent(3);
+    c.cancel(T0); // queued 直接收口：零时长
+    expect(c.elapsedMs(T0 + 50_000)).toBe(0);
+
+    const d = subagent(4);
+    d.markRunning(T0);
+    d.destroy("failed", T0 + 2_000);
+    expect(d.elapsedMs()).toBe(2_000);
+  });
+
+  test("toData-restore 往返一致（running 段起点保留、累计不双计）", () => {
+    const a = subagent(1);
+    a.markRunning(T0);
+    a.park(T0 + 1_000);
+    a.resume(T0 + 2_000);
+    const d = a.toData();
+    expect(d.startedAtMs).toBe(T0 + 2_000);
+    expect(d.elapsedMs).toBe(1_000); // 段基线不含当前段（防 restore 双计）
+    const back = AgentInstance.restore(d);
+    expect(back.elapsedMs(T0 + 2_500)).toBe(1_500); // 1s 基线 + 0.5s 新段
+  });
+
+  test("markRunning 缺省钟（无参 Date.now()；真实时间粗校验）", () => {
+    const before = Date.now();
+    const a = subagent(1);
+    a.markRunning();
+    expect(a.startedAtMs).toBeGreaterThanOrEqual(before);
   });
 });
 

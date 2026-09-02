@@ -48,7 +48,7 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
   const stream = state.channelStreams[agentId];
   const thinkingLive = state.thinkingStreams[agentId];
   const running = card?.state === "running";
-  const elapsed = useRunningElapsed(running); // hooks 先于早退（实例不在状态源的防御分支）
+  const elapsed = useRunningElapsed(running, card?.startedAtMs, card?.elapsedMs ?? 0); // hooks 先于早退（实例不在状态源的防御分支）
 
   // ── 订阅生命周期（开订/关退订；实例切换 = 换订）──
   useEffect(() => {

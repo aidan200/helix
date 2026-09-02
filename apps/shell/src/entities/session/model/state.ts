@@ -82,6 +82,10 @@ export interface InstanceCardState {
   /** spawn 携带的任务描述 */
   task: string;
   profileKind: string;
+  /** 累计执行毫秒基线（park/resume 结算；不含当前段——真实总时长 = 基线 + 段增量） */
+  elapsedMs?: number;
+  /** 当前 running 段起点（epoch ms；agent.started/resumed 帧与快照携带） */
+  startedAtMs?: number;
   /** "provider/model-id"；未声明时缺省继承当前模型（AD-6） */
   model?: string;
   /** 仅 state=queued；位次随出队递减由 agent.queued 重发驱动（不自行计算） */

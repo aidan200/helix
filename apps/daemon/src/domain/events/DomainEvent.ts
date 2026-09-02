@@ -131,6 +131,8 @@ export interface AgentQueuedPayload {
 
 export interface AgentStartedPayload {
   readonly agentId: string;
+  /** 当前 running 段起点（epoch ms；前端真实执行时长锚点）。 */
+  readonly startedAtMs: number;
 }
 
 /** stalled 非状态迁移（实例仍 running），可随 idle 持续重复推送（契约 §8.3）。 */
@@ -189,6 +191,10 @@ export interface AgentParkedPayload {
 /** agent.resumed：挂起实例恢复（同一实例同一会话继续；预算满时排队中不发）。 */
 export interface AgentResumedPayload {
   readonly agentId: string;
+  /** 恢复后的新段起点（epoch ms）。 */
+  readonly startedAtMs: number;
+  /** 恢复时刻的累计执行基线（park 结算不含挂起期；毫秒）。 */
+  readonly elapsedMs: number;
 }
 
 // ── 通道族载荷（契约 §5.2/§6.1）────────────────────

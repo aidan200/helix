@@ -69,7 +69,7 @@ export const v01Events: EventEnvelope[] = [
     payload: { agentId: "agent-1", task: "修协议守护测试", profileKind: "subagent-worker", model: "moonshot/kimi-k2" },
   },
   { v: 0, type: "agent.queued", payload: { agentId: "agent-1", position: 2 } },
-  { v: 0, type: "agent.started", payload: { agentId: "agent-1" } },
+  { v: 0, type: "agent.started", payload: { agentId: "agent-1", startedAtMs: 1_700_000_000_000 } },
   { v: 0, type: "agent.stalled", payload: { agentId: "agent-1", idleMs: 330_000 } },
   { v: 0, type: "agent.completed", payload: { agentId: "agent-1", closure: sampleClosure } },
   {

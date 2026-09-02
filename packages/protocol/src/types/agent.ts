@@ -54,6 +54,10 @@ export interface AgentInstanceDto {
   /** 仅 state=queued 携带（队列位次，随出队递减） */
   queuedPosition?: number;
   createdAt: string;
+  /** 累计执行毫秒（park/终态结算基线；不含当前 running 段——防 restore 双计；additive） */
+  elapsedMs?: number;
+  /** 当前 running 段起点（epoch ms；queued/parked/终态不携带；additive） */
+  startedAtMs?: number;
   /** 终态实例（done/failed）携带；其余不携带 */
   closure?: ClosureDto;
   /** 该实例累计（popover 行数据） */

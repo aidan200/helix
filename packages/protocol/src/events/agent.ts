@@ -25,9 +25,10 @@ export interface AgentQueuedPayload {
   position: number;
 }
 
-/** agent.started：出队/预算内直跑（卡片 running 态） */
+/** agent.started：出队/预算内直跑（卡片 running 态）；startedAtMs = 真实执行时长锚点（epoch ms） */
 export interface AgentStartedPayload {
   agentId: string;
+  startedAtMs: number;
 }
 
 /** agent.stalled：idle 超阈值无事件增量（AD-7④ 警示不自动杀；可再次发生，非状态迁移） */
@@ -70,9 +71,11 @@ export interface AgentParkedPayload {
   summary?: { progress: string; next: string };
 }
 
-/** agent.resumed：挂起实例恢复（预算内直恢复时广播；排队恢复空位后广播）。 */
+/** agent.resumed：挂起实例恢复（预算内直恢复时广播；排队恢复空位后广播）。startedAtMs = 新段起点；elapsedMs = park 结算后的累计基线（挂起期不计）。 */
 export interface AgentResumedPayload {
   agentId: string;
+  startedAtMs: number;
+  elapsedMs: number;
 }
 
 // ── v0.4 新增 payload：trace 命令族 + agent 执行上下文面（契约 v0.4 §1/§2/§3；iter-20260819-erio T2.1） ──

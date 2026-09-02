@@ -55,7 +55,7 @@ const SubAgentCard = memo(function SubAgentCard({ card, onOpenDrawer }: SubAgent
   // cancelled 仅快照恢复态（AD-10）：区别 failed 的中性收口呈现
   const isCancelled = card.state === "cancelled";
 
-  const elapsed = useRunningElapsed(isRunning);
+  const elapsed = useRunningElapsed(isRunning, card.startedAtMs, card.elapsedMs ?? 0);
   const terminalAt = useTerminalAt(isDone || isFailed);
 
   const open = () => onOpenDrawer(card.instanceId);

@@ -175,6 +175,8 @@ function instanceDto(
     profileKind: entry.profileKind,
     state: entry.state,
     createdAt: entry.createdAt,
+    ...(entry.elapsedMs !== undefined ? { elapsedMs: entry.elapsedMs } : {}),
+    ...(entry.startedAtMs !== undefined ? { startedAtMs: entry.startedAtMs } : {}),
     ...(entry.task !== undefined ? { task: entry.task } : {}),
     ...(entry.usage !== undefined ? { usage: usageTotal(entry.usage) } : {}),
     ...(entry.model !== undefined ? { model: entry.model } : {}),

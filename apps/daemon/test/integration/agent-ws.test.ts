@@ -166,7 +166,7 @@ describe("agent.* 事件经真实 WS 连接可被订阅方收到（契约 §5.1/
 
     const started = await rig.client.expect("agent.started");
     expect(started.instanceId).toBe(agentId);
-    expect(started.payload).toEqual({ agentId });
+    expect(started.payload).toMatchObject({ agentId });
 
     rig.runner.forceClosure(agentId, {
       result: "done",

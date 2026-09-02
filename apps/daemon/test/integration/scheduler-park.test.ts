@@ -225,7 +225,7 @@ describe("② resume → running（预算满则排队，空位后恢复不重新
     expect(outcome).toEqual({ resumed: true, queued: false });
     expect(h.scheduler.instance(a1)?.state).toBe("running");
     expect(h.runner.sent.at(-1)).toEqual({ instanceId: a1, text: RESUME_INSTRUCTION_TEXT });
-    expect(payloadsOf(h, "agent.resumed", a1)).toEqual([{ agentId: a1 }]);
+    expect(payloadsOf(h, "agent.resumed", a1)).toMatchObject([{ agentId: a1 }]);
   });
 
   test("预算释放（P3）：3 running 挂起 1 个后第 4 个 spawn 直跑", () => {
@@ -257,7 +257,7 @@ describe("② resume → running（预算满则排队，空位后恢复不重新
       { result: "done", closure: DONE_CLOSURE("任务2 完成") },
     );
     expect(h.scheduler.instance(a1)?.state).toBe("running");
-    expect(payloadsOf(h, "agent.resumed", a1)).toEqual([{ agentId: a1 }]);
+    expect(payloadsOf(h, "agent.resumed", a1)).toMatchObject([{ agentId: a1 }]);
     expect(h.runner.sent.at(-1)).toEqual({ instanceId: a1, text: RESUME_INSTRUCTION_TEXT });
     expect(h.runner.launched).toHaveLength(launchedBefore); // 不重新 launch（执行载体还活着）
   });

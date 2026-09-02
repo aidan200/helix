@@ -79,6 +79,10 @@ export interface AgentInstanceData {
   readonly sessionId: string;
   readonly state: InstanceState;
   readonly createdAt: string;
+  /** 累计执行毫秒（park/终态结算并入；不含当前 running 段——防 restore 双计）。 */
+  readonly elapsedMs?: number;
+  /** 当前 running 段起点（epoch ms；queued/parked/终态不携带）。 */
+  readonly startedAtMs?: number;
 }
 
 /** 合法迁移矩阵（from → 允许的 to 集合）。 */
@@ -95,9 +99,15 @@ const INSTANCE_STATES: readonly InstanceState[] = ["queued", "running", "parked"
 
 export class AgentInstance {
   private _state: InstanceState;
+  /** 累计执行毫秒（已结算段；running 时另计当前段）。 */
+  private _elapsedMs: number;
+  /** 当前 running 段起点（epoch ms；非 running 态为 undefined）。 */
+  private _startedAtMs: number | undefined;
 
   private constructor(private readonly data: AgentInstanceData) {
     this._state = data.state;
+    this._elapsedMs = data.elapsedMs ?? 0;
+    this._startedAtMs = data.startedAtMs;
   }
 
   /**
@@ -134,6 +144,16 @@ export class AgentInstance {
   get createdAt(): string {
     return this.data.createdAt;
   }
+  /** 当前 running 段起点（epoch ms；非 running 态 undefined）。 */
+  get startedAtMs(): number | undefined {
+    return this._startedAtMs;
+  }
+  /** 累计执行时长（running 时含当前段实时增量；now 注入供测试确定性）。 */
+  elapsedMs(now: number = Date.now()): number {
+    return this._startedAtMs === undefined
+      ? this._elapsedMs
+      : this._elapsedMs + Math.max(0, now - this._startedAtMs);
+  }
   get current(): InstanceState {
     return this._state;
   }
@@ -143,7 +163,12 @@ export class AgentInstance {
   }
 
   toData(): AgentInstanceData {
-    return { ...this.data, state: this._state };
+    return {
+      ...this.data,
+      state: this._state,
+      elapsedMs: this._elapsedMs,
+      ...(this._startedAtMs !== undefined ? { startedAtMs: this._startedAtMs } : {}),
+    };
   }
 
   // ── 状态机（非法迁移抛 DomainError 且不改状态） ──────────
@@ -172,36 +197,52 @@ export class AgentInstance {
   }
 
   // ── 命名迁移（语义编码：fail 自 queued|running；cancel 仅自 queued） ──
+  // 时刻注入约定（仿 ToolCallRecord）：迁移方法接受可选 now（epoch ms，缺省
+  // Date.now()），同时维护执行时长记账（startedAtMs/elapsedMs）。
 
-  /** 出队/预算内直跑：queued→running。 */
-  markRunning(): void {
-    this.transition("running");
+  /** 结算当前 running 段入累计（park/终态时调用）。 */
+  private settle(now: number): void {
+    if (this._startedAtMs !== undefined) {
+      this._elapsedMs += Math.max(0, now - this._startedAtMs);
+      this._startedAtMs = undefined;
+    }
   }
 
-  /** 挂起：running→parked（非终态——不写 closure/不收口；park/resume 批）。 */
-  park(): void {
+  /** 出队/预算内直跑：queued→running（首次起点定格，重复调用幂等）。 */
+  markRunning(now: number = Date.now()): void {
+    this.transition("running");
+    if (this._startedAtMs === undefined) this._startedAtMs = now;
+  }
+
+  /** 挂起：running→parked（非终态——不写 closure/不收口；park/resume 批；当前段结算）。 */
+  park(now: number = Date.now()): void {
     this.transition("parked");
+    this.settle(now);
   }
 
-  /** 恢复：parked→running（同一实例同一会话继续，预算满则由调度器排队）。 */
-  resume(): void {
+  /** 恢复：parked→running（同一实例同一会话继续，预算满则由调度器排队；开新段）。 */
+  resume(now: number = Date.now()): void {
     this.transition("running");
+    this._startedAtMs = now;
   }
 
-  /** 自然收口：running→done。 */
-  complete(): void {
+  /** 自然收口：running→done（段结算定格）。 */
+  complete(now: number = Date.now()): void {
     this.transition("done");
+    this.settle(now);
   }
 
   /** 崩溃/kill/重启 running 收口（queued 也可直接收口 failed，F1.9 乱序）。 */
-  fail(_reason?: string): void {
+  fail(_reason?: string, now: number = Date.now()): void {
     void _reason; // 原因进 closure 记录（T2.x ClosureRecord），状态机只管状态
     this.transition("failed");
+    this.settle(now);
   }
 
   /** 重启清队收口（AD-10：仅自 queued）。 */
-  cancel(): void {
+  cancel(now: number = Date.now()): void {
     this.transition("cancelled");
+    this.settle(now);
   }
 
   /**
@@ -209,8 +250,9 @@ export class AgentInstance {
    * 目标须为当前态合法迁移（如 running 不可 destroy("cancelled")）；
    * 已终态幂等 no-op。实例窗口销毁后会话聚合持续存在（AD-1 三层模型）。
    */
-  destroy(final: TerminalInstanceState): void {
+  destroy(final: TerminalInstanceState, now: number = Date.now()): void {
     if (this.isTerminal) return;
     this.transition(final);
+    this.settle(now);
   }
 }

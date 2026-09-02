@@ -722,7 +722,11 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     this.translator.touchLastEventAt(instanceId); // 恢复起算 idle 计时（防瞬时 stalled 误报）
     this.persistLifecycle(instance); // running 投影行
     if (this.deps.runner.send !== undefined) this.deps.runner.send(instanceId, RESUME_INSTRUCTION_TEXT);
-    this.publish(instance, "agent.resumed", { agentId: instanceId } satisfies AgentResumedPayload);
+    this.publish(instance, "agent.resumed", {
+      agentId: instanceId,
+      startedAtMs: instance.startedAtMs!,
+      elapsedMs: instance.elapsedMs(),
+    } satisfies AgentResumedPayload);
   }
 
   // ── 内部：启动/出队/stalled ───────────────────────────────
@@ -731,7 +735,10 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     instance.markRunning();
     this.translator.touchLastEventAt(instance.instanceId);
     this.persistLifecycle(instance); // running 投影（重启 running→failed 收口的读面，AD-10）
-    this.publish(instance, "agent.started", { agentId: instance.instanceId } satisfies AgentStartedPayload);
+    this.publish(instance, "agent.started", {
+      agentId: instance.instanceId,
+      startedAtMs: instance.startedAtMs!,
+    } satisfies AgentStartedPayload);
     // T3-A：报告间隔已登记才建 per-instance 定时器（queued 期不报告——无执行载体无事件）
     const interval = this.reportIntervals.get(instance.instanceId);
     if (interval !== undefined) {

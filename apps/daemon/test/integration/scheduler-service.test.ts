@@ -209,7 +209,7 @@ describe("① 预算内直跑 + ⑥ spawn 秒回（F1.3/F1.5）", () => {
     expect(payloadsOf(h.events, "agent.spawned", a1)).toEqual([
       { agentId: a1, task: "调研调度器现状", profileKind: "subagent-worker" },
     ]);
-    expect(payloadsOf(h.events, "agent.started", a1)).toEqual([{ agentId: a1 }]);
+    expect(payloadsOf(h.events, "agent.started", a1)).toMatchObject([{ agentId: a1 }]);
     // 秒回语义：返回时无任何终态事件，实例 running
     expect(h.events.some((e) => e.type.startsWith("agent.") && /completed|failed|killed/.test(e.type))).toBe(false);
     expect(h.scheduler.instance(a1)?.state).toBe("running");
@@ -247,7 +247,7 @@ describe("② 第 4 个入队 + 位次递减重发（F1.3）", () => {
 
     // 收口释放空位 → 队首出队 started；剩余位次递减重发（仅出队触发）
     h.runner.forceClosure(a1, { result: "done", closure: DONE_CLOSURE("任务1 完成") });
-    expect(payloadsOf(h.events, "agent.started", a4)).toEqual([{ agentId: a4 }]);
+    expect(payloadsOf(h.events, "agent.started", a4)).toMatchObject([{ agentId: a4 }]);
     expect(payloadsOf(h.events, "agent.queued", a5)).toEqual([
       { agentId: a5, position: 2 },
       { agentId: a5, position: 1 }, // 递减重发
@@ -275,7 +275,7 @@ describe("③ 队列满 reject（预算真实耗尽）", () => {
 
     // daemon 不崩：收口后调度继续（队首 ids[3] 出队）
     h.runner.forceClosure(ids[0]!, { result: "done", closure: DONE_CLOSURE("ok") });
-    expect(payloadsOf(h.events, "agent.started", ids[3])).toEqual([{ agentId: ids[3] }]);
+    expect(payloadsOf(h.events, "agent.started", ids[3])).toMatchObject([{ agentId: ids[3] }]);
   });
 });
 
