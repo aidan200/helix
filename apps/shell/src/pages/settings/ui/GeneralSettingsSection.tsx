@@ -1,16 +1,26 @@
 /**
- * 设置页「通用」分区（压缩参数配置）。
+ * 设置页「通用」分区（语言切换 + 压缩参数配置）。
  *
- * 数据面：topology.modelConfig.compaction（config.get/set_compaction 帧驱动，
- * 无乐观更新——写面靠 result 帧回填）；进入分区时 requestCompactionConfig
- * 拉取现值。两个 token 绝对值输入框 + 保存按钮（非负整数校验）。
+ * 语言切换：useI18n().setLang 直写（helix-lang localStorage 持久化 +
+ * document.lang 同步），纯壳端偏好不走 daemon 配置命令。
+ * 压缩参数数据面：topology.modelConfig.compaction（config.get/set_compaction
+ * 帧驱动，无乐观更新——写面靠 result 帧回填）；进入分区时
+ * requestCompactionConfig 拉取现值。两个 token 绝对值输入框 + 保存按钮
+ * （非负整数校验）。
  */
 import { useEffect, useState } from "react";
-import { useI18n } from "@/shared/i18n";
+import { useI18n, type Lang } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
+import { cn } from "@/shared/lib/cn";
+
+/** 语言选项（按钮文案自命名词条：chat.settings.general.langZh/langEn）。 */
+const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
+  { id: "zh-CN", labelKey: "chat.settings.general.langZh" },
+  { id: "en-US", labelKey: "chat.settings.general.langEn" },
+];
 
 const GeneralSettingsSection = function GeneralSettingsSection() {
-  const { t } = useI18n();
+  const { t, lang, setLang } = useI18n();
   const { topology, requestCompactionConfig, setCompactionConfig } = useSession();
   const compaction = topology.modelConfig.compaction;
 
@@ -42,6 +52,28 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
   return (
     <div className="pg" data-general-section>
       <h2 className="pg-title">{t("chat.settings.general.title")}</h2>
+
+      {/* 语言切换（壳端偏好：helix-lang 持久化，即切即生效） */}
+      <div className="hud-card">
+        <div className="fld">
+          <span className="hud-label">{t("chat.settings.general.language")}</span>
+          <div className="lang-switch" data-lang-switch role="group" aria-label={t("chat.settings.general.language")}>
+            {LANG_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                className={cn("hud-btn sm", lang === opt.id ? "hud-btn-cyan" : "hud-btn-ghost")}
+                data-lang-option={opt.id}
+                aria-pressed={lang === opt.id}
+                onClick={() => setLang(opt.id)}
+              >
+                {t(opt.labelKey)}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="hud-card">
         <div className="fld">
           <label className="hud-label" htmlFor="compaction-reserve">

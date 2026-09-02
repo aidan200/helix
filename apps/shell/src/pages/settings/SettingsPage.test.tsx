@@ -75,7 +75,7 @@ describe("S2 设置页实页化", () => {
     expect(document.querySelector(".app-layout")).not.toBeNull();
     const header = document.querySelector(".app-header")!;
     expect(header).not.toBeNull();
-    expect(header.querySelector(".tb-title")!.textContent).toBe("设置 settings");
+    expect(header.querySelector(".tb-title")!.textContent).toBe("设置");
     // 根锚（沿 TracePage/AgentPage data-*-page 模式）
     expect(document.querySelector('[data-settings-page="/settings"]')).not.toBeNull();
   });

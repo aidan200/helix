@@ -239,6 +239,9 @@ export const enUS = {
       },
       general: {
         title: "General",
+        language: "Language / 语言",
+        langZh: "中文",
+        langEn: "English",
         reserveTokens: "Compaction reserve (reserveTokens)",
         keepRecentTokens: "Keep recent tokens (keepRecentTokens)",
         save: "Save",

@@ -246,6 +246,9 @@ export const zhCN = {
       },
       general: {
         title: "通用配置",
+        language: "语言 / Language",
+        langZh: "中文",
+        langEn: "English",
         reserveTokens: "压缩预留余量（reserveTokens）",
         keepRecentTokens: "保留最近 token 数（keepRecentTokens）",
         save: "保存",
@@ -257,12 +260,12 @@ export const zhCN = {
       plannedBadge: "规划中",
       themeToggle: "切换明暗主题",
       pages: {
-        chat: { label: "聊天 chat" },
+        chat: { label: "聊天" },
         skills: { label: "智能体", preview: "配置会话助手与 SubAgent worker 的模型、工具与技能。" },
-        trace: { label: "追踪 trace" },
-        project: { label: "项目 project", preview: "工作区文档、知识图谱与迭代状态的总览入口。" },
-        tasks: { label: "任务 tasks", preview: "观察任务阶段进度、批次中间状态与产出结果。" },
-        settings: { label: "设置 settings" },
+        trace: { label: "追踪" },
+        project: { label: "项目", preview: "工作区文档、知识图谱与迭代状态的总览入口。" },
+        tasks: { label: "任务", preview: "观察任务阶段进度、批次中间状态与产出结果。" },
+        settings: { label: "设置" },
       },
     },
     web: {

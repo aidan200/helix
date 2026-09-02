@@ -438,6 +438,7 @@
   color: var(--text-dim); pointer-events: none; display: inline-flex;
 }
 .spin { animation: spin 0.9s linear infinite; }
+.lang-switch { display: flex; gap: 8px; }
 
 /* provider 分组与卡片（F(3.4).1） */
 .pgroup-label {
