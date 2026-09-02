@@ -35,6 +35,7 @@ describe("T3.2 domain UsageLedger 纯语义", () => {
     expect(aggregateSession(empty)).toEqual({
       total: u({}),
       compaction: u({}),
+      ctx: {}, // 水位空形状（TR-59：无事件 → 无水位 → shell 全降级 "—"）
     });
     expect(instanceUsageOf(empty, "main")).toEqual(u({}));
     expect(instanceUsageOf(empty, "agent-9")).toEqual(u({}));

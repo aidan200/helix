@@ -8,12 +8,14 @@ import { isMainInstanceId } from "../../domain/agent/AgentInstance";
 // projection（AG-02② application 白名单内）。
 import {
   aggregateSession,
+  applyCompaction,
   applyUsage,
   emptyUsageLedger,
   instanceUsageOf,
   type UsageLedgerData,
 } from "@helix/protocol";
 import type {
+  CompactionCompletedPayload,
   MessageCompletedPayload,
   ThinkingCompletedPayload,
   ToolCallPayload,
@@ -118,6 +120,15 @@ export class SessionProjection implements EventPublisherPort {
         const p = event.payload as UsageRecordedPayload;
         if (p.usage === undefined || p.source === undefined) return; // 损坏载荷防御
         this.usageLedger = applyUsage(this.usageLedger, p.instanceId, p.usage, p.source);
+        return;
+      }
+      case "compaction.completed": {
+        // 水位重置（TR-59 观察面）：窗口被摘要替换为 tokensAfter。条目落树
+        // 由 ChatService 直接完成（main-only），此处只动账本——不动账目面
+        // （compaction 入账走独立的 usage.recorded(source=compaction) 事件）。
+        const p = event.payload as CompactionCompletedPayload;
+        if (p.entry?.tokensAfter === undefined || !Number.isFinite(p.entry.tokensAfter)) return; // 损坏载荷防御
+        this.usageLedger = applyCompaction(this.usageLedger, event.instanceId ?? "main", p.entry.tokensAfter);
         return;
       }
       case "message.completed": {

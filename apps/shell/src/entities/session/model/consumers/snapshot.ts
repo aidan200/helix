@@ -79,12 +79,14 @@ function usageFromSnapshot(
   for (const d of instances ?? []) {
     if (d.usage) byInstance[d.instanceId] = d.usage;
   }
-  // 上下文水位：快照面无逐实例观测值——压缩后重连场景兑底 main = 最后一条
-  // compaction entry 的 tokensAfter（其后无新 turn 时即当前水位）；SubAgent
-  // 水位待下一条 usage.recorded(source=turn) 到达（“—”降级）
-  const ctxByInstance: Record<string, number> = {};
-  const lastCompact = [...entries].reverse().find((e): e is CompactionEntryDto => e.kind === "compaction");
-  if (lastCompact) ctxByInstance[mainId] = lastCompact.tokensAfter;
+  // 上下文水位（TR-59 观察面）：优先 daemon 账本重建值（usage.ctx——事件
+  // 重放精确到终态实例，重启即准）；旧 daemon 未携带时兑底 main = 最后
+  // 一条 compaction entry 的 tokensAfter（其后无新 turn 时即当前水位）
+  const ctxByInstance: Record<string, number> = { ...(usageDto?.ctx ?? {}) };
+  if (ctxByInstance[mainId] === undefined) {
+    const lastCompact = [...entries].reverse().find((e): e is CompactionEntryDto => e.kind === "compaction");
+    if (lastCompact) ctxByInstance[mainId] = lastCompact.tokensAfter;
+  }
   if (!usageDto) return { total: ZERO_USAGE, compaction: ZERO_USAGE, byInstance, ctxByInstance };
   return { total: usageDto.total, compaction: usageDto.compaction, byInstance, ctxByInstance };
 }

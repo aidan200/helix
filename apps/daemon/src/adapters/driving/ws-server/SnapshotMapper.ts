@@ -221,5 +221,10 @@ export function sessionMetaDto(meta: SessionMetaView): SessionMeta {
 }
 
 function usageDto(summary: SessionUsageSummary): SessionUsageDto {
-  return { total: usageTotal(summary.total), compaction: usageTotal(summary.compaction) };
+  return {
+    total: usageTotal(summary.total),
+    compaction: usageTotal(summary.compaction),
+    // 水位直通（TR-59 观察面；undefined/空对象 → 缺席，shell 回落兑底）
+    ...(summary.ctx !== undefined && Object.keys(summary.ctx).length > 0 ? { ctx: { ...summary.ctx } } : {}),
+  };
 }

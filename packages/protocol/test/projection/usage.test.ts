@@ -3,6 +3,7 @@ import {
   ZERO_USAGE,
   addUsage,
   aggregateSession,
+  applyCompaction,
   applyUsage,
   emptyUsageLedger,
   instanceUsageOf,
@@ -34,7 +35,7 @@ const u = (over: Partial<UsageDto>): UsageDto => ({
 describe("usage 域：账本纯函数（基线 = daemon usage-ledger.test.ts）", () => {
   test("空账零值形状：aggregate 全零、未知实例小计零形状", () => {
     const empty = emptyUsageLedger();
-    expect(aggregateSession(empty)).toEqual({ total: u({}), compaction: u({}) });
+    expect(aggregateSession(empty)).toEqual({ total: u({}), compaction: u({}), ctx: {} });
     expect(instanceUsageOf(empty, "main")).toEqual(u({}));
     expect(instanceUsageOf(empty, "agent-9")).toEqual(u({}));
   });
@@ -58,7 +59,7 @@ describe("usage 域：账本纯函数（基线 = daemon usage-ledger.test.ts）"
     expect(cost).toBeCloseTo(0.15, 10); // 浮点直加（pi 直算值只加不改写）
     expect(instanceUsageOf(ledger, "agent-1")).toEqual(u({ input: 100, output: 200, totalTokens: 300, cost: 0.5 }));
     // applyUsage 返回新值，不改写入参（不可变投影）
-    expect(aggregateSession(frozen)).toEqual({ total: u({}), compaction: u({}) });
+    expect(aggregateSession(frozen)).toEqual({ total: u({}), compaction: u({}), ctx: {} });
   });
 
   test("source 分流：compaction 计入实例小计与 compaction 小计、turn 不动 compaction 小计（AD-9③）", () => {
@@ -130,5 +131,28 @@ describe("usage 域：累加基元（基线 = shell 增量路径 addUsage 私有
     expect(byInstance["main"]).toEqual(instanceUsageOf(ledger, "main")); // main 小计含 compaction 贡献
     expect(byInstance["agent-1"]).toEqual(instanceUsageOf(ledger, "agent-1"));
     expect(byInstance["main"]!.totalTokens).toBe(40 + 12 + 32); // 基线 = shell v01 compaction 段统一后值
+  });
+
+  test("水位投影（TR-59 观察面）：turn 覆写 / compaction 摘要不覆写 / completed 重置；账目面不动", () => {
+    let ledger = emptyUsageLedger();
+    // turn 入账 → 水位 = 该次 totalTokens（窗口占用，只覆写不累加）
+    ledger = applyUsage(ledger, "main", u({ input: 10, totalTokens: 11 }), "turn");
+    ledger = applyUsage(ledger, "main", u({ input: 20, totalTokens: 21 }), "turn");
+    ledger = applyUsage(ledger, "agent-1", u({ input: 30, totalTokens: 31 }), "turn");
+    expect(ledger.ctx).toEqual({ main: 21, "agent-1": 31 });
+    // compaction 摘要入账不动水位（其 input = 压缩前全文，不代表压缩后窗口）
+    ledger = applyUsage(ledger, "main", u({ input: 40, output: 6, totalTokens: 46 }), "compaction");
+    expect(ledger.ctx).toEqual({ main: 21, "agent-1": 31 });
+    // compaction.completed → 重置为 tokensAfter；实例小计不变（账目面归 usage.recorded）
+    const before = instanceUsageOf(ledger, "main").totalTokens;
+    ledger = applyCompaction(ledger, "main", 5_000);
+    expect(ledger.ctx).toEqual({ main: 5_000, "agent-1": 31 });
+    expect(instanceUsageOf(ledger, "main").totalTokens).toBe(before);
+    // 重置后再 turn → 水位收敛到新值；聚合透出 ctx（快照恢复种子）
+    ledger = applyUsage(ledger, "main", u({ input: 60, totalTokens: 61 }), "turn");
+    expect(ledger.ctx).toEqual({ main: 61, "agent-1": 31 });
+    expect(aggregateSession(ledger).ctx).toEqual({ main: 61, "agent-1": 31 });
+    // 空账水位空形状（重启旧库：无事件 → 无水位 → shell 全降级 "—"）
+    expect(aggregateSession(emptyUsageLedger()).ctx).toEqual({});
   });
 });

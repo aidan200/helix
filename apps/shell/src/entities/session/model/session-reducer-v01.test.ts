@@ -654,7 +654,7 @@ describe("重放幂等（v0.1 全事件面）", () => {
           }),
         ),
       ],
-      usage: { total: prefix.usage.total, compaction: prefix.usage.compaction },
+      usage: { total: prefix.usage.total, compaction: prefix.usage.compaction, ctx: prefix.usage.ctxByInstance },
     });
 
     const merged = run([...actions.slice(0, k), daemonSnapshot, ...actions.slice(k)]);
@@ -665,19 +665,31 @@ describe("重放幂等（v0.1 全事件面）", () => {
     expect(merged.usage.total).toEqual(full.usage.total);
     expect(merged.usage.compaction).toEqual(full.usage.compaction);
     expect(merged.usage.byInstance).toEqual(full.usage.byInstance);
-    // 上下文水位面（观测缓存，非落盘）：快照重建 = main 由最后 compaction
-    // entry 兜底（tokensAfter）；快照前已终态实例的水位不还原（快照 DTO 无
-    // 逐实例水位字段）——merged 缺 agent-1 槽位属预期降级，活跃实例随增量
-    // usage.recorded(source=turn) 收敛
-    expect(merged.usage.ctxByInstance["main"]).toBe(full.usage.ctxByInstance["main"]);
-    for (const id of Object.keys(full.usage.ctxByInstance)) {
-      if (id in merged.usage.ctxByInstance) {
-        expect(merged.usage.ctxByInstance[id]).toBe(full.usage.ctxByInstance[id]);
-      }
-    }
+    // 上下文水位面（TR-59 观察面）：快照 DTO 携带 ctx 种子（daemon 事件重放
+    // 重建）→ 纯重放升级——含快照前已终态实例（agent-1）在内全部槽位精确
+    // 恢复，无需增量事件收敛
+    expect(merged.usage.ctxByInstance).toEqual(full.usage.ctxByInstance);
     expect(merged.entries).toEqual(full.entries);
     expect(merged.thinkingStreams).toEqual(full.thinkingStreams);
     expect(merged.streaming).toBeNull();
+  });
+
+  it("旧 daemon 快照（无 ctx 字段）：main 走 compaction 兜底、SubAgent 缺席降级（兼容路径）", () => {
+    const entries: EntryDto[] = [
+      { kind: "message", id: "e-1", role: "user", content: "问", ts: 1, instanceId: "main" },
+      compactEntry("cp-1", "main", usage({ input: 40, totalTokens: 46 })),
+    ];
+    const s = run([
+      welcome(),
+      snapshotOf(entries, {
+        instances: [inst("agent-1", "done"), inst("main", "running")],
+        usage: { total: usage({ input: 50 }), compaction: usage({ input: 46 }) }, // 无 ctx：旧 daemon
+      }),
+    ]);
+    // main = 最后一条 compaction 的 tokensAfter（其后无新 turn 时即当前水位）
+    expect(s.usage.ctxByInstance["main"]).toBe(20_000);
+    // SubAgent 无兜底源 → 缺席（"—"降级，待活事件收敛）
+    expect(s.usage.ctxByInstance["agent-1"]).toBeUndefined();
   });
 });
 

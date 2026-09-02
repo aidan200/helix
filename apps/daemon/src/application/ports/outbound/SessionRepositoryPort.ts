@@ -129,6 +129,8 @@ export interface DomainEventQuery {
   /** 实例维（trace 四维 session × instance × type × time）。 */
   readonly instanceId?: string;
   readonly type?: string;
+  /** 多类型单次查询（水位重建：usage.recorded + compaction.completed 需全局序合并重放；与 type 五斥，同给优先 types）。 */
+  readonly types?: readonly string[];
   /** ISO 8601 下界（含）。 */
   readonly since?: string;
   /** ISO 8601 上界（含）。 */

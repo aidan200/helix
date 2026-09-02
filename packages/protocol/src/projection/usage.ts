@@ -30,6 +30,14 @@ export interface UsageLedgerData {
   readonly instances: Readonly<Record<string, UsageDto>>;
   /** compaction 摘要小计（session 级独立行；含在 total 内，AD-9③）。 */
   readonly compaction: UsageDto;
+  /**
+   * 上下文水位（instanceId → 该实例最后一条 turn 源用量的 totalTokens，
+   * 即最近一次调用的窗口占用；观察面 TR-59——账目累计只增，水位只覆写）。
+   * turn 入账覆写；compaction 摘要入账不覆写（其 input 是压缩前全文，
+   * 不代表压缩后窗口）；compaction.completed 重置为 tokensAfter
+   * （applyCompaction）。重启恢复 = 事件重放同规则重建（终态实例也精确）。
+   */
+  readonly ctx: Readonly<Record<string, number>>;
 }
 
 /** 零值用量（七字段全 0；provider 未报/空账占位，账目行保持完整）。 */
@@ -59,7 +67,7 @@ export function addUsage(a: UsageDto | undefined, b: UsageDto): UsageDto {
 
 /** 空账本。 */
 export function emptyUsageLedger(): UsageLedgerData {
-  return { instances: {}, compaction: { ...ZERO_USAGE } };
+  return { instances: {}, compaction: { ...ZERO_USAGE }, ctx: {} };
 }
 
 /**
@@ -76,7 +84,21 @@ export function applyUsage(
   return {
     instances: { ...ledger.instances, [instanceId]: addUsage(ledger.instances[instanceId], usage) },
     compaction: source === "compaction" ? addUsage(ledger.compaction, usage) : ledger.compaction,
+    ctx: source === "turn" ? { ...ledger.ctx, [instanceId]: usage.totalTokens } : ledger.ctx,
   };
+}
+
+/**
+ * compaction.completed → 水位重置（窗口被摘要替换为 tokensAfter；与 shell
+ * 活路径消费语义同构，TR-59 双面口径）。账目面不动（compaction 入账走
+ * applyUsage 的独立 usage.recorded 事件——事件序：completed 先、摘要入账后）。
+ */
+export function applyCompaction(
+  ledger: UsageLedgerData,
+  instanceId: string,
+  tokensAfter: number,
+): UsageLedgerData {
+  return { ...ledger, ctx: { ...ledger.ctx, [instanceId]: tokensAfter } };
 }
 
 /** per-instance 小计（未见过的实例 = 零值形状，不隐式登记）。 */
@@ -84,11 +106,11 @@ export function instanceUsageOf(ledger: UsageLedgerData, instanceId: string): Us
   return ledger.instances[instanceId] ?? { ...ZERO_USAGE };
 }
 
-/** 聚合：total = Σ 全部实例小计；compaction = 独立小计直通（契约 §6.2）。 */
+/** 聚合：total = Σ 全部实例小计；compaction = 独立小计直通（契约 §6.2）；ctx = 水位直通（观察面，恢复种子）。 */
 export function aggregateSession(ledger: UsageLedgerData): SessionUsageDto {
   let total: UsageDto = { ...ZERO_USAGE };
   for (const id of Object.keys(ledger.instances)) {
     total = addUsage(total, ledger.instances[id]!);
   }
-  return { total, compaction: { ...ledger.compaction } };
+  return { total, compaction: { ...ledger.compaction }, ctx: { ...ledger.ctx } };
 }

@@ -158,7 +158,9 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
       (e) =>
         (query.sessionId === undefined || e.sessionId === query.sessionId) &&
         (query.instanceId === undefined || (e.instanceId ?? "main") === query.instanceId) &&
-        (query.type === undefined || e.type === query.type) &&
+        (query.types !== undefined && query.types.length > 0
+          ? query.types.includes(e.type)
+          : query.type === undefined || e.type === query.type) &&
         (query.since === undefined || e.occurredAt >= query.since) &&
         (query.until === undefined || e.occurredAt <= query.until),
     );

@@ -223,7 +223,10 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       where.push("agent_instance_id = ?");
       params.push(query.instanceId);
     }
-    if (query.type !== undefined) {
+    if (query.types !== undefined && query.types.length > 0) {
+      where.push(`type IN (${query.types.map(() => "?").join(",")})`);
+      params.push(...query.types);
+    } else if (query.type !== undefined) {
       where.push("type = ?");
       params.push(query.type);
     }

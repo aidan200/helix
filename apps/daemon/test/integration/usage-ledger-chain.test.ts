@@ -165,6 +165,10 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
       expect(received.filter((s) => s === "compaction")).toHaveLength(1);
       await readQueue.close();
 
+      // ── 活路径水位（TR-59 观察面）：turn 覆写 / 摘要不动 / completed 重置 ──
+      // main 终值 = 最后 turn U3（3）：U2(50) → compaction.completed 重置 90 → 摘要不覆写 → U3(3)
+      expect(view1.usage!.ctx).toEqual({ [mainId]: 3, [agentId]: 300 });
+
       // ── 第三段：重启（进程内级）→ RestoreService 事件流重放重建账本 ──
       const engine2 = new FakeAgentEngine({ replies: [{ text: "重启后新答。" }] });
       const d2 = await createUsageDaemon(home, engine2);
@@ -176,6 +180,9 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
       expect(instanceUsage(view2, mainId)).toEqual(instanceUsage(view1, mainId));
       expect(instanceUsage(view2, agentId)).toEqual(instanceUsage(view1, agentId));
       expect(view2.usage!.total.totalTokens).toBe(usage1.total.totalTokens);
+      // 水位重启后精确重建（TR-59 恢复链路核心验收：终态 SubAgent 也带水位，
+      // 双类型事件序重放——compaction 重置与后续 turn 覆写顺序正确）
+      expect(view2.usage!.ctx).toEqual({ [mainId]: 3, [agentId]: 300 });
 
       // 重启后账目延续：续对话入账在恢复基线上累加（+1 条 turn 账）
       await d2.chat.sendMessage("续问");

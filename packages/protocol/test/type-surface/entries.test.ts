@@ -56,7 +56,11 @@ type _UsageFields = Expect<
 
 type _UsageCostNumber = Expect<Equal<UsageDto["cost"], number>>;
 
-type _SessionUsageShape = Expect<Equal<keyof SessionUsageDto, "total" | "compaction">>;
+// ctx 可选观察面字段（TR-59 上下文水位；缺省 = 旧 daemon 兼容）
+type _SessionUsageShape = Expect<Equal<keyof SessionUsageDto, "total" | "compaction" | "ctx">>;
+type _SessionUsageCtxOptional = Expect<
+  Equal<Pick<SessionUsageDto, "ctx">, { ctx?: Readonly<Record<string, number>> }>
+>;
 
 // ClosureDto：status 二值；全字段名恰等
 type _ClosureStatus = Expect<Equal<ClosureDto["status"], "done" | "failed">>;

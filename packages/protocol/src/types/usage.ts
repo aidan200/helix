@@ -29,4 +29,11 @@ export interface SessionUsageDto {
   total: UsageDto;
   /** compaction 摘要小计（popover 独立行 + 归属说明） */
   compaction: UsageDto;
+  /**
+   * 上下文水位（instanceId → 最近一次调用的窗口占用 tokens；观察面 TR-59）。
+   * 缺省 = 旧 daemon 未携带（shell 回落 compaction 兜底）；daemon 侧由事件
+   * 重放/活投影维护，重启恢复精确到终态实例——徽标百分比以此 ÷ 行模型
+   * contextWindow。与账目累计正交：账目只增、水位只覆写。
+   */
+  ctx?: Readonly<Record<string, number>>;
 }

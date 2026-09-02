@@ -6,6 +6,7 @@ import type {
   InstanceClosurePayload,
   DomainEvent,
   AgentSpawnedPayload,
+  CompactionCompletedPayload,
   MessageCompletedPayload,
   ThinkingCompletedPayload,
   ToolCallPayload,
@@ -17,7 +18,7 @@ import { Session } from "../../domain/session/Session";
 import { resolveModeId } from "./modes";
 import { AgentInstance, isMainInstanceId, type InstanceState } from "../../domain/agent/AgentInstance";
 // 投影收敛：账本重放基元单源 @helix/protocol projection
-import { applyUsage, emptyUsageLedger, type UsageLedgerData } from "@helix/protocol";
+import { applyCompaction, applyUsage, emptyUsageLedger, type UsageLedgerData } from "@helix/protocol";
 
 /**
  * RestoreService —— 重启恢复（architecture.md §3.4 / §5.4 / §8.2）。
@@ -136,17 +137,30 @@ export class RestoreService {
   // ── 账目重建（AD-4 事件即账） ─────────────────────
 
   /**
-   * usage.recorded 事件流重放 → 账本（合计 + per-instance 明细 + compaction
-   * 小计）。事件即账：重放即重建，与停机前快照聚合双源一致（integration
-   * 核对）；旧库无账目行 → 空账本（零值形状）。
+   * usage.recorded + compaction.completed 事件流重放 → 账本（合计 +
+   * per-instance 明细 + compaction 小计 + 上下文水位）。事件即账：重放即
+   * 重建，与停机前快照聚合双源一致（integration 核对）；旧库无账目行 →
+   * 空账本（零值形状）。水位（TR-59 观察面）同规则重建：turn 入账覆写、
+   * compaction.completed 重置为 tokensAfter——两类事件单次查询全局序重放
+   * （queryEvents ORDER BY id），终态实例也精确、无需首轮对话收敛。
    */
   private restoreUsageLedger(sessionId: string, mainInstanceId: string): UsageLedgerData {
-    const events = this.deps.repository.queryEvents({ sessionId, type: "usage.recorded" });
+    const events = this.deps.repository.queryEvents({
+      sessionId,
+      types: ["usage.recorded", "compaction.completed"],
+    });
     let ledger = emptyUsageLedger();
     for (const event of events) {
+      const instanceId = event.instanceId ?? mainInstanceId;
+      if (event.type === "compaction.completed") {
+        const entry = (event.payload as Partial<CompactionCompletedPayload> | undefined)?.entry;
+        if (entry?.tokensAfter === undefined || !Number.isFinite(entry.tokensAfter)) continue; // 损坏行防御：跳过不崩
+        ledger = applyCompaction(ledger, instanceId, entry.tokensAfter);
+        continue;
+      }
       const payload = event.payload as Partial<UsageRecordedPayload> | undefined;
       if (payload?.usage === undefined || payload.source === undefined) continue; // 损坏行防御：跳过不崩
-      ledger = applyUsage(ledger, payload.instanceId ?? event.instanceId ?? mainInstanceId, payload.usage, payload.source);
+      ledger = applyUsage(ledger, payload.instanceId ?? instanceId, payload.usage, payload.source);
     }
     return ledger;
   }

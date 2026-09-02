@@ -71,8 +71,9 @@ export interface UsageSummary {
   readonly cost: number;
 }
 
-/** 会话账目聚合：total = 各实例行合计；compaction = 摘要调用小计（AD-9③）。 */
+/** 会话账目聚合：total = 各实例行合计；compaction = 摘要调用小计（AD-9③）；ctx = 上下文水位（TR-59 观察面，重启恢复种子）。 */
 export interface SessionUsageSummary {
   readonly total: UsageSummary;
   readonly compaction: UsageSummary;
+  readonly ctx?: Readonly<Record<string, number>>;
 }

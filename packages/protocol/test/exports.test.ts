@@ -242,6 +242,7 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       "ZERO_USAGE",
       "addUsage",
       "aggregateSession",
+      "applyCompaction",
       "applyUsage",
       // 投影·instance 域（迁自 daemon SpawnAnchor + EntryDtoMapper ↔ shell entryTimelineKey 同构收敛）
       "computeAnchorEntryId",
