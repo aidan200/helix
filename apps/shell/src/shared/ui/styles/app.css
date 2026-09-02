@@ -347,7 +347,7 @@ html.light .bubble code.inline { color: var(--accent); }
   font-size: var(--text-body); color: var(--text-muted); line-height: 1.65;
 }
 .think-live .tl-label {
-  display: inline-flex; align-items: center; gap: 6px; margin-bottom: 3px;
+  display: flex; align-items: center; gap: 6px; margin-bottom: 3px;
   font-size: var(--text-micro); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim);
 }
 .think-live .tl-label .hud-dot { width: 6px; height: 6px; background: var(--text-dim); }

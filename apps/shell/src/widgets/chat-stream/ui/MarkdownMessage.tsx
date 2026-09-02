@@ -6,6 +6,7 @@
 import { memo, isValidElement, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 
 /** 递归提取 React 子树的纯文本（代码块语言行与 pre 内容用）。 */
 function extractText(node: ReactNode): string {
@@ -55,7 +56,9 @@ const MarkdownMessage = memo(function MarkdownMessage({ text }: MarkdownMessageP
   if (!text.trim()) return null;
   return (
     <div className="md-body">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      {/* remark-breaks：段内单换行渲染为 <br>（聊天语义——user 多行输入与
+          assistant 输出的回车可见；双换行仍分段、代码块内换行原样保留） */}
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
         {text}
       </ReactMarkdown>
     </div>
