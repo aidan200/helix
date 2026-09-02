@@ -8,7 +8,8 @@
  *   折叠/工具卡/steer 标记/closure 卡（done 绿 failed 红）；queued 空态 ch-hint；
  * - kill 两步状态机：首击确认态（3s 复原）/再击发 agent.kill/终态禁用优先；
  * - stalled 徽标：仅 running 显示（活动恢复/终态隐藏）；channel 对应 warn 行；
- * - 实例切换：channel 全量重渲染无残留。
+ * - 实例切换：channel 全量重渲染无残留；
+ * - 滚动语义：stick-to-bottom——用户上滚暂停自动跟随、回底（≤40px 容差）恢复。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -364,5 +365,60 @@ describe("stalled 徽标（F1.8）", () => {
     // 无倒计时/自动终止：stalled 后 channel 仍只有事件驱动的行
     const lcRows = document.querySelectorAll(".lc-row").length;
     expect(lcRows).toBeGreaterThanOrEqual(3); // spawned/模型解析/terminated（无自动终止行）
+  });
+});
+
+// ── 滚动语义（stick-to-bottom 用户意图感知） ──────────────────
+
+describe("滚动语义（用户意图感知贴底）", () => {
+  /** jsdom 无布局：在 .d-body 实例上覆写 scrollHeight/clientHeight 驱动滚动数学。 */
+  function fakeScrollGeom(el: HTMLElement, scrollH: number, clientH: number) {
+    Object.defineProperty(el, "scrollHeight", { value: scrollH, configurable: true });
+    Object.defineProperty(el, "clientHeight", { value: clientH, configurable: true });
+  }
+
+  const rerenderDrawer = (rerender: (node: React.ReactElement) => void) =>
+    rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <SubagentDrawer agentId="agent-run" onClose={vi.fn()} />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+
+  it("贴底时新内容自动跟随；用户上滚后流式新内容不再拽回底部（scrollTop 保持）", () => {
+    stateRef.current = play(runningScenario());
+    const { rerender } = ui("agent-run");
+    const el = document.querySelector(".d-body") as HTMLDivElement;
+    fakeScrollGeom(el, 2000, 600);
+    // 初始贴底态（atBottomRef 缺省 true）→ 新事件到达 → 跟随贴底
+    stateRef.current = play([...runningScenario(), saDelta("agent-run", "m-1", " first tail")]);
+    rerenderDrawer(rerender);
+    expect(el.scrollTop).toBe(2000);
+    // 用户上滚浏览历史（距底 1100 > 40 容差）→ 暂停跟随
+    el.scrollTop = 300;
+    fireEvent.scroll(el);
+    // 流式增量继续到达（stream.text 高频变更）→ 不打扰用户浏览位置
+    stateRef.current = play([
+      ...runningScenario(),
+      saDelta("agent-run", "m-1", " first tail"),
+      saDelta("agent-run", "m-1", " second tail"),
+    ]);
+    rerenderDrawer(rerender);
+    expect(el.scrollTop).toBe(300);
+  });
+
+  it("回到底部（距底 ≤40px 容差）后恢复自动跟随", () => {
+    stateRef.current = play(runningScenario());
+    const { rerender } = ui("agent-run");
+    const el = document.querySelector(".d-body") as HTMLDivElement;
+    fakeScrollGeom(el, 2000, 600);
+    el.scrollTop = 300;
+    fireEvent.scroll(el); // 上滚 → 暂停
+    el.scrollTop = 1970; // 距底 30 ≤ 40 → 恢复贴底判定
+    fireEvent.scroll(el);
+    stateRef.current = play([...runningScenario(), saDelta("agent-run", "m-1", " tail")]);
+    rerenderDrawer(rerender);
+    expect(el.scrollTop).toBe(2000);
   });
 });

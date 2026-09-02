@@ -104,17 +104,29 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
     }
   }, [steerCount, agentId, toast, t]);
 
-  // ── 滚动语义：新事件贴底（scrollTop 直设，无滚动监听）；实例切换回顶 ──
+  // ── 滚动语义：用户意图感知贴底（stick-to-bottom）──
+  // 流式/事件驱动的新内容仅在用户贴底时自动跟随（scrollTop 直设）；用户上滚
+  // 浏览历史即暂停跟随，回到底部（距底 ≤40px 容差）自动恢复——否则流式期间
+  // stream.text 高频变更会把滚动位置连续钉死在底部，用户无法回看执行过程
+  // （2026-09「无法滚动查看」实锤）；实例切换回顶并恢复跟随。
   const bodyRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
   const agentIdRef = useRef(agentId);
+  const onBodyScroll = useCallback(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 40;
+  }, []);
   useEffect(() => {
     const el = bodyRef.current;
     if (!el) return;
     if (agentIdRef.current !== agentId) {
       agentIdRef.current = agentId;
+      atBottomRef.current = true;
       el.scrollTop = 0;
       return;
     }
+    if (!atBottomRef.current) return; // 用户上滚浏览中：不打扰
     el.scrollTop = el.scrollHeight;
   }, [agentId, items.length, stream?.text, thinkingLive]);
 
@@ -195,7 +207,7 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
           <div className="task-meta">{t("chat.drawer.instanceMeta")}</div>
         </div>
 
-        <div className="d-body" ref={bodyRef}>
+        <div className="d-body" ref={bodyRef} onScroll={onBodyScroll}>
           <div className="d-seclabel">{t("chat.drawer.channel")}</div>
           <ChannelTimeline
             agentId={card.instanceId}
