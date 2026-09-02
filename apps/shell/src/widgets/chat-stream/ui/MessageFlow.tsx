@@ -1,8 +1,12 @@
 /**
  * 消息流（widgets/chat-stream 聚合件）：投影 entries + SubAgent 时间轴内联卡
- * + 流式尾部气泡 + empty 态 + P-1s 分页胶囊（T3.2）。滚动语义照原型：新内容贴底
- * （scrollTop 直设，无滚动监听）；历史前插保持视口锚定（增量在上方时按
- * 高度差补偿，不跳底）；会话切换（含首连/草稿转正）恒贴底 + 锚定基线重置
+ * + 流式尾部气泡 + empty 态 + P-1s 分页胶囊（T3.2）。滚动语义：吸附态
+ * （atBottomRef）下新内容贴底（scrollTop 直设）；用户上滚脱附后流式新内容
+ * 不再拽回底部（scrollTop 保持），滚回底部经 1s 驻留（呼吸底线视觉提示）
+ * 才恢复吸附——避免误触阈值即拽回的画面抖动；驻留期取消条件 = 用户主动
+ * 滚离（scroll 事件采样——内容增长不触发 scroll 事件，驻留不被流式增长
+ * 误取消）。历史前插保持视口锚定（增量在上方时按高度差补偿，不跳底）；
+ * 会话切换（含首连/草稿转正）恒贴底 + 锚定基线重置 + 吸附态复位
  * （H-2：切换不得误判为前插吃旧会话陈旧高度）。加载更早唯一触发面 =
  * 分页胶囊点击（H-2：滚动到顶自动触发退役——scrollTop<=0 吃橡皮筋过冲/
  * 短内容恒 0/程序化落顶自触发三重误触发，且是 e2e beforeCount 竞态源头）。
@@ -21,7 +25,7 @@
  * 主线 thinking 流式块（F2.3 streaming 态）插在 entries 之后、streaming 气泡
  * 之前；SubAgent 实例 thinking 流式槽位归抽屉消费（F1.6 实例分流）。
  */
-import { useLayoutEffect, useRef, Fragment, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, Fragment, type ReactNode } from "react";
 import type { EntryDto, UsageDto } from "@helix/protocol";
 import { isMainChannel } from "@/entities/session/model/session-reducer";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
@@ -97,6 +101,11 @@ function EntryView({
 
 const noop = () => {};
 
+/** 贴底判定阈值（px）：距底 ≤ 40 视为在底部（SubagentDrawer 同口径）。 */
+const AT_BOTTOM_PX = 40;
+/** 回底驻留时长（ms）：用户滚回底部后驻留满 1s 才恢复吸附（防误触阈值即拽回的抖动）。 */
+const STICK_DWELL_MS = 1000;
+
 interface MessageFlowProps {
   children?: ReactNode;
   /** 开实例抽屉（T4.3 接线；当前占位）——payload = instanceId（≡ agentId，AD-3） */
@@ -112,6 +121,50 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
   const prevHeightRef = useRef(0);
   const prevFirstIdRef = useRef<string | null>(null);
   const prevSessionIdRef = useRef<string | null>(null);
+  // 贴底吸附态（初始吸附：新会话/流式默认跟随）；驻留计时与视觉提示态
+  const atBottomRef = useRef(true);
+  const dwellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [stickPending, setStickPending] = useState(false);
+
+  const cancelStickDwell = useCallback(() => {
+    if (dwellTimerRef.current !== null) {
+      clearTimeout(dwellTimerRef.current);
+      dwellTimerRef.current = null;
+    }
+    setStickPending(false);
+  }, []);
+
+  // 滚动监听只维护吸附态/驻留（不触发加载更早——H-2 退役语义保持）：
+  // 已吸附时用户滚离 → 脱附；未吸附时用户滚回底部 → 1s 驻留（视觉提示）后
+  // 正式吸附（直设贴底）；驻留期内用户主动滚离 → 取消。距底判定只在 scroll
+  // 事件采样——内容增长不触发 scroll 事件，驻留不会被流式增长误取消。
+  const onFlowScroll = useCallback(() => {
+    const el = flowRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_PX;
+    if (atBottomRef.current) {
+      // 程序化贴底触发的 scroll 距底恒 ≈0，不会误入脱附分支
+      if (!atBottom) atBottomRef.current = false;
+      return;
+    }
+    if (!atBottom) {
+      if (dwellTimerRef.current !== null) cancelStickDwell();
+      return;
+    }
+    if (dwellTimerRef.current === null) {
+      setStickPending(true);
+      dwellTimerRef.current = setTimeout(() => {
+        dwellTimerRef.current = null;
+        setStickPending(false);
+        atBottomRef.current = true;
+        const cur = flowRef.current;
+        if (cur) cur.scrollTop = cur.scrollHeight;
+      }, STICK_DWELL_MS);
+    }
+  }, [cancelStickDwell]);
+
+  // 卸载清驻留计时（防泄漏/卸载后 setState）
+  useEffect(() => cancelStickDwell, [cancelStickDwell]);
 
   // 主线 thinking 流式槽位（T10c：键 = 快照习得的主实例 id；局部常量供窄化）
   const mainThinkingStream = state.thinkingStreams[state.mainInstanceId];
@@ -135,6 +188,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
       prevSessionIdRef.current = state.sessionId;
       prevFirstIdRef.current = null;
       prevHeightRef.current = 0;
+      atBottomRef.current = true; // 新视图复位吸附态（取消未决驻留）
+      cancelStickDwell();
       el.scrollTop = el.scrollHeight;
       return;
     }
@@ -144,12 +199,14 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
     if (isPrepend && prevHeightRef.current > 0) {
       // AD-1 前插：保持原首条在视口内的位置（高度差补偿，不跳底）
       el.scrollTop = el.scrollHeight - prevHeightRef.current + el.scrollTop;
-    } else {
+    } else if (atBottomRef.current) {
+      // 仅吸附态贴底：用户上滚脱附后流式新内容不拽回底部
       el.scrollTop = el.scrollHeight;
     }
     prevHeightRef.current = el.scrollHeight;
     prevFirstIdRef.current = firstId;
   }, [
+    cancelStickDwell,
     state.sessionId, // H-2：切换 commit 必入（loading 坍塌期重采基线）
     state.view, // H-2：快照到达（loading→ready）必入——entries 等长切换不失聪
     state.entries.length,
@@ -191,7 +248,7 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
 
   return (
     <div className="msg-flow-wrap">
-      <main className="msg-flow" ref={flowRef}>
+      <main className="msg-flow" ref={flowRef} onScroll={onFlowScroll}>
       <div className="flow-inner">
         <div className="session-active">
           <LoadEarlier
@@ -236,6 +293,9 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
       </div>
       {children /* conn-overlay 等浮层（pages 层组装） */}
       </main>
+      {/* 回底驻留视觉提示：用户滚回底部后 1s 驻留期的呼吸底线（正式吸附即消）；
+          钉 wrap 底部不驻滚动容器（E-89 同构——勿 sticky/absolute 进滚动流） */}
+      {stickPending && <div className="snap-dwell" data-testid="snap-dwell" aria-hidden="true" />}
       {/* steer 队列坞（左下角；queued 注入的观察面，与 WorkPhaseDot 对称钉位） */}
       <SteerQueueDock />
       {/* 工作段位呼吸光点（右下角；idle 炄灭不渲染）。T-webkit-repaint：

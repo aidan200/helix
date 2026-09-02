@@ -6,7 +6,7 @@
  * MessageFlow 集成断言按 FSD 分层归位 widgets/chat-stream）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import type { EntryDto, ErrorEntryDto, EventEnvelope, ThinkingEntryDto } from "@helix/protocol";
 import { createInitialSessionState, sessionReducer, type SessionState } from "@/entities/session/model/session-reducer";
@@ -323,6 +323,87 @@ describe("MessageFlow 滚动语义（H-2 热修）", () => {
     stateRef.current = stateWith("sA", ["m0", "m1", "m2", "m3"]);
     rerender(<I18nProvider><MessageFlow /></I18nProvider>);
     expect(flowEl().scrollTop).toBe(300); // 1300-1000+0：原首条保持在视口原位
+  });
+});
+
+// ── 回底驻留吸附（1s dwell）：上滚脱附 / 回底驻留视觉 / 期满吸附 / 驻留取消 ──
+
+describe("MessageFlow 回底驻留吸附（1s dwell）", () => {
+  const msg = (id: string) =>
+    ({ kind: "message", id, role: "user", content: `text-${id}`, ts: 1 }) as const;
+  const stateWith = (sessionId: string, ids: string[], streaming: string | null = null): SessionState => ({
+    ...createInitialSessionState(),
+    sessionId,
+    view: "ready",
+    entries: ids.map((id) => msg(id)),
+    streaming: streaming === null ? null : { messageId: "sm-1", text: streaming },
+    history: { hasMore: true, nextCursor: "cursor-1", loading: false, total: 99, paged: true },
+  });
+  const flowEl = () => document.querySelector<HTMLElement>(".msg-flow")!;
+  const setScrollHeight = (h: number) =>
+    Object.defineProperty(flowEl(), "scrollHeight", { value: h, configurable: true });
+  const renderFlow = () => render(<I18nProvider><MessageFlow /></I18nProvider>);
+  /** 快进到「吸附态且已贴底」（初始吸附，追加流式 chunk 采样基线）。 */
+  const engageAtBottom = (rerender: (n: React.ReactElement) => void) => {
+    setScrollHeight(1000);
+    stateRef.current = stateWith("sA", ["m1", "m2"], "chunk-1");
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    expect(flowEl().scrollTop).toBe(1000); // 吸附态跟随贴底
+  };
+
+  afterEach(() => vi.useRealTimers());
+
+  it("用户上滚脱附后：流式 chunk 不再拽回底部（scrollTop 保持）", () => {
+    stateRef.current = stateWith("sA", ["m1", "m2"]);
+    const { rerender } = renderFlow();
+    engageAtBottom(rerender);
+    // 用户上滚（距底 700 > 40）→ 脱附
+    fireEvent.scroll(flowEl(), { target: { scrollTop: 300 } });
+    setScrollHeight(1200);
+    stateRef.current = stateWith("sA", ["m1", "m2"], "chunk-2");
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    expect(flowEl().scrollTop).toBe(300);
+  });
+
+  it("滚回底部 → 1s 驻留（视觉提示）→ 期满正式吸附", () => {
+    vi.useFakeTimers();
+    stateRef.current = stateWith("sA", ["m1", "m2"]);
+    const { rerender } = renderFlow();
+    engageAtBottom(rerender);
+    fireEvent.scroll(flowEl(), { target: { scrollTop: 300 } }); // 脱附
+    // 用户滚回底部（距底 30 ≤ 40）→ 驻留开始，呼吸底线出现
+    fireEvent.scroll(flowEl(), { target: { scrollTop: 970 } });
+    expect(screen.queryByTestId("snap-dwell")).not.toBeNull();
+    // 驻留期内流式增长：视口不被拽动（内容增长不触发 scroll，驻留不误取消）
+    setScrollHeight(1200);
+    stateRef.current = stateWith("sA", ["m1", "m2"], "chunk-2");
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    expect(flowEl().scrollTop).toBe(970);
+    // 驻留满 1s → 正式吸附：贴到新底部 + 视觉提示消失；后续 chunk 恢复跟随
+    act(() => vi.advanceTimersByTime(1000));
+    expect(flowEl().scrollTop).toBe(1200);
+    expect(screen.queryByTestId("snap-dwell")).toBeNull();
+    setScrollHeight(1400);
+    stateRef.current = stateWith("sA", ["m1", "m2"], "chunk-3");
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    expect(flowEl().scrollTop).toBe(1400);
+  });
+
+  it("驻留期内用户主动滚离 → 驻留取消（提示消失，期满不吸附）", () => {
+    vi.useFakeTimers();
+    stateRef.current = stateWith("sA", ["m1", "m2"]);
+    const { rerender } = renderFlow();
+    engageAtBottom(rerender);
+    fireEvent.scroll(flowEl(), { target: { scrollTop: 300 } }); // 脱附
+    fireEvent.scroll(flowEl(), { target: { scrollTop: 970 } }); // 回底 → 驻留开始
+    expect(screen.queryByTestId("snap-dwell")).not.toBeNull();
+    fireEvent.scroll(flowEl(), { target: { scrollTop: 500 } }); // 驻留期内滚离 → 取消
+    expect(screen.queryByTestId("snap-dwell")).toBeNull();
+    act(() => vi.advanceTimersByTime(1500));
+    setScrollHeight(1200);
+    stateRef.current = stateWith("sA", ["m1", "m2"], "chunk-2");
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    expect(flowEl().scrollTop).toBe(500); // 未吸附：流式不拽回
   });
 });
 

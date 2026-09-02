@@ -307,6 +307,16 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
   display: flex; flex-direction: column;
 }
 .msg-flow { flex: 1; overflow-y: auto; position: relative; }
+/* 回底驻留吸附提示（MessageFlow 1s 驻留期）：呼吸底线钉 wrap 底部，
+   不驻滚动容器（E-89 同构——WKWebView sticky/滚动流内重绘缺陷回避） */
+.snap-dwell {
+  position: absolute; left: 15%; right: 15%; bottom: 0;
+  height: 2px; border-radius: 9999px;
+  background: linear-gradient(90deg, transparent, rgb(var(--accent-rgb) / 0.85), transparent);
+  animation: snap-dwell-breathe 1s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes snap-dwell-breathe { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
 .flow-inner {
   max-width: 860px; margin: 0 auto; padding: 20px 20px 28px;
   display: flex; flex-direction: column; gap: 14px;
