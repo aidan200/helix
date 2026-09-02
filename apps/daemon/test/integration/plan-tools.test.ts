@@ -368,3 +368,64 @@ describe("⑦ forceResolveInProgress：closure done 收口前机械兜底（仅 
     );
   });
 });
+
+// ── ⑦ 重建语义（main-session plan 批：台账为空或全部 resolved 时允许重建）──
+
+describe("⑦ plan_create 重建语义（main-session plan 批；子进程 single-shot 到不了该分支，语义零变化）", () => {
+  test("全部 resolved（done + abandoned 带 note）→ plan_create 重建成功：旧行清、seq 重开 1..n、原子零残留", async () => {
+    const f = makeFixture("agent-rebuild-1");
+    await f.service.createPlan("agent-rebuild-1", ["旧一", "旧二", "旧三"]);
+    await f.service.updateItem("agent-rebuild-1", 1, "in_progress");
+    await f.service.updateItem("agent-rebuild-1", 1, "done");
+    await f.service.updateItem("agent-rebuild-1", 2, "in_progress");
+    await f.service.updateItem("agent-rebuild-1", 2, "done", "产物在 /tmp/x");
+    await f.service.updateItem("agent-rebuild-1", 3, "in_progress");
+    await f.service.updateItem("agent-rebuild-1", 3, "abandoned", "被 #2 覆盖，不做");
+
+    const r = await f.service.createPlan("agent-rebuild-1", ["新一", "新二"]);
+    expect(r.created).toBe(2);
+
+    // 旧行清 + 新行 seq 1..2 恒 pending（重建 = 原子重开，非追加）
+    expect(f.parent.getPlan("agent-rebuild-1").map((x) => [x.seq, x.content, x.status, x.note])).toEqual([
+      [1, "新一", "pending", null],
+      [2, "新二", "pending", null],
+    ]);
+    const raw = f.queue.database
+      .prepare("SELECT COUNT(*) AS n FROM work_item WHERE instance_id = ?")
+      .get("agent-rebuild-1") as { n: number };
+    expect(raw.n).toBe(2);
+  });
+
+  test("存在未决项（pending / in_progress / abandoned 空 note 脏行）→ 重建拒绝（旧行不动）", async () => {
+    const f = makeFixture("agent-rebuild-2");
+    await f.service.createPlan("agent-rebuild-2", ["一", "二"]);
+    await f.service.updateItem("agent-rebuild-2", 1, "in_progress");
+    await f.service.updateItem("agent-rebuild-2", 1, "done");
+    // #2 仍 pending → 未决
+    await expect(f.service.createPlan("agent-rebuild-2", ["重来"])).rejects.toThrow(/已有工作台账|未全部办结/);
+    expect(f.parent.getPlan("agent-rebuild-2")).toHaveLength(2);
+
+    // in_progress 未决同判
+    await f.service.updateItem("agent-rebuild-2", 2, "in_progress");
+    await expect(f.service.createPlan("agent-rebuild-2", ["重来"])).rejects.toThrow(/已有工作台账|未全部办结/);
+
+    // abandoned 空 note 脏行（写面守卫外直写）→ 照样未决拒绝（机械判据不信任写路径）
+    f.queue.database
+      .prepare("UPDATE work_item SET status = 'abandoned', note = NULL WHERE instance_id = ? AND seq = 2")
+      .run("agent-rebuild-2");
+    await expect(f.service.createPlan("agent-rebuild-2", ["重来"])).rejects.toThrow(/已有工作台账|未全部办结/);
+    expect(f.parent.getPlan("agent-rebuild-2").map((x) => x.seq)).toEqual([1, 2]);
+  });
+
+  test("重建后再重建（全 resolved）→ 仍可；重建行状态机照常（pending→in_progress→done）", async () => {
+    const f = makeFixture("agent-rebuild-3");
+    await f.service.createPlan("agent-rebuild-3", ["a"]);
+    await f.service.updateItem("agent-rebuild-3", 1, "in_progress");
+    await f.service.updateItem("agent-rebuild-3", 1, "done");
+    expect((await f.service.createPlan("agent-rebuild-3", ["b"])).created).toBe(1);
+    await f.service.updateItem("agent-rebuild-3", 1, "in_progress"); // 新行状态机照常
+    await f.service.updateItem("agent-rebuild-3", 1, "done");
+    expect((await f.service.createPlan("agent-rebuild-3", ["c", "d"])).created).toBe(2);
+    expect(f.parent.getPlan("agent-rebuild-3").map((x) => x.content)).toEqual(["c", "d"]);
+  });
+});
