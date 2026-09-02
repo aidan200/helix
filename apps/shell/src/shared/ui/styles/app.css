@@ -185,7 +185,6 @@ button.mode-chip .mb-chev { color: var(--text-faint); }
   color: var(--text-dim); padding: 0 2px;
 }
 .sp-title .total { color: var(--accent); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
-.sp-title .total .ctx { color: var(--text-faint); font-size: var(--text-cap); }
 .sp-rows { display: flex; flex-direction: column; gap: 2px; }
 .sp-row {
   display: flex; flex-direction: column; gap: 3px;

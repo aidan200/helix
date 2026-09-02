@@ -299,11 +299,7 @@ describe("UsagePopover（F3.4 popover）", () => {
     topologyRef.current = { modelConfig: { catalog: { models: CATALOG } } };
     ui(<UsagePopover onClose={() => {}} />);
     expect(screen.getByText("会话账目 · 分实例")).toBeTruthy();
-    // 头部概要：会话合计 + 当前会话 agent（main）的窗口占用（剧本 main 10%）
-    const totalEl = document.querySelector(".sp-title .total")!;
-    expect(totalEl.textContent).toContain("270k tok · $0.61");
-    expect(totalEl.textContent).toContain("ctx 10%");
-    expect(document.querySelector(".sp-title .total .ctx")!.getAttribute("title")).toBe("20k / 200k");
+    expect(screen.getByText("270k tok · $0.61", { selector: ".sp-title .total" })).toBeTruthy();
     // main 行（div，无动作）与 compaction 归属说明
     expect(document.querySelector('[data-row-id="main"]')!.textContent).toContain("主会话");
     expect(document.querySelector('[data-row-id="main"]')!.textContent).toContain("空闲");
@@ -317,14 +313,6 @@ describe("UsagePopover（F3.4 popover）", () => {
     expect(screen.getByText("reasoning 8k")).toBeTruthy();
     expect(screen.getByText("cache R 89k · W 12k")).toBeTruthy();
     expect(screen.getByText("main 150k→20k")).toBeTruthy();
-  });
-
-  it("降级：目录未拉取 → 头部不显示 ctx（保持合计干净）", () => {
-    stateRef.current = play(SCENARIO);
-    topologyRef.current = { modelConfig: { catalog: { models: [] } } };
-    ui(<UsagePopover onClose={() => {}} />);
-    expect(document.querySelector(".sp-title .total")!.textContent).toBe("270k tok · $0.61");
-    expect(document.querySelector(".sp-title .total .ctx")).toBeNull();
   });
 
   it("点外部关闭（document click）；Esc 关闭", () => {

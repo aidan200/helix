@@ -251,9 +251,6 @@ export const UsagePopover = memo(function UsagePopover({
 
   const rows = deriveUsageRows(state, topology.modelConfig.catalog?.models ?? []);
   const total = state.usage.total;
-  // 头部概要：当前会话 agent（main）的上下文窗口占用（水位/行模型窗口；
-  // 目录未拉取/水位不可得时不显示——头部保持干净，详情见行内 “—”）
-  const mainRow = rows.find((r) => r.main);
 
   return (
     <div className="stats-pop open" role="dialog" aria-label={t("chat.stats.popTitle")} ref={rootRef}>
@@ -264,14 +261,6 @@ export const UsagePopover = memo(function UsagePopover({
             tokens: fmtTokens(total.totalTokens),
             cost: total.cost.toFixed(2),
           })}
-          {mainRow?.pct !== undefined && (
-            <span
-              className="ctx"
-              title={`${fmtTokens(mainRow.ctxTokens!)} / ${fmtTokens(mainRow.ctxWindow!)}`}
-            >
-              {` · ctx ${fmtPct(mainRow.pct)}`}
-            </span>
-          )}
         </span>
       </div>
       <div className="sp-rows">
