@@ -90,8 +90,8 @@ describe("S2 设置页实页化", () => {
     expect(item.getAttribute("aria-selected")).toBe("true");
     expect(item.className).toContain("on");
     // W4：追加「工作空间」分区 + config 批：追加「通用」分区（有实内容才入列表）
-    expect(nav.querySelectorAll(".set-nav-item")).toHaveLength(3);
-    expect(nav.querySelector('[data-section="workspace"]')!.textContent).toBe("工作空间");
+    // 后裁决：工作空间撤项并入通用（单配置独占一页浪费）→ 两分区
+    expect(nav.querySelectorAll(".set-nav-item")).toHaveLength(2);
     expect(nav.querySelector('[data-section="general"]')!.textContent).toBe("通用设置");
   });
 

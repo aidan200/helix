@@ -19,12 +19,28 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   return {
     ...orig,
     useSession: () => ({
-      topology: { modelConfig: { compaction: null } },
+      state: { agentState: "idle", instances: [] },
+      topology: { modelConfig: { compaction: null }, list: [] },
       requestCompactionConfig,
       setCompactionConfig: vi.fn(),
     }),
   };
 });
+
+vi.mock("@/entities/workspace/WorkspaceContext", () => ({
+  useWorkspace: () => ({
+    state: {
+      phase: "main",
+      current: { root: "/ws/helix" },
+      recents: [],
+      notice: null,
+      opening: false,
+      openError: null,
+      switching: false,
+    },
+    startSwitch: vi.fn(),
+  }),
+}));
 
 import GeneralSettingsSection from "./ui/GeneralSettingsSection";
 
@@ -75,5 +91,13 @@ describe("通用配置分区：语言切换", () => {
     ui();
     expect(requestCompactionConfig).toHaveBeenCalledTimes(1);
     expect(document.querySelector("[data-compaction-save]")).not.toBeNull();
+  });
+
+  it("工作空间卡并入通用分区（独立分区撤项）：绑定路径与切换按钮在场", () => {
+    ui();
+    const card = document.querySelector("[data-workspace-section]")!;
+    expect(card).not.toBeNull();
+    expect(card.querySelector("[data-ws-set-root]")!.textContent).toBe("/ws/helix");
+    expect(card.querySelector("[data-ws-set-switch]")).not.toBeNull();
   });
 });
