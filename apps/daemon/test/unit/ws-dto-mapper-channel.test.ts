@@ -202,3 +202,76 @@ describe("T3.2 快照：usage 聚合 + instances[].usage 小计 DTO 映射（契
     expect(dto.instances![1]!.usage!.totalTokens).toBe(300);
   });
 });
+
+describe("轮末 token 用量：turnId/byTurn wire 面（additive）", () => {
+  test("usage.recorded 帧 payload.turnId 透传（载荷携带时）；缺省不携带键", () => {
+    const frame = domainEventToEnvelope({
+      ...base,
+      type: "usage.recorded",
+      turnId: "turn-7",
+      instanceId: "main",
+      payload: {
+        instanceId: "main",
+        usage: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 30, cost: 0.01 },
+        source: "turn",
+        turnId: "turn-7",
+      },
+    } as DomainEvent);
+    expect((frame as { payload: { turnId?: string } }).payload.turnId).toBe("turn-7");
+
+    // 缺省（SubAgent/compaction 入账）不携带键（additive 旧形状）
+    const frame2 = domainEventToEnvelope({
+      ...base,
+      type: "usage.recorded",
+      instanceId: "agent-9",
+      payload: {
+        instanceId: "agent-9",
+        usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 3, cost: 0.001 },
+        source: "turn",
+      },
+    } as DomainEvent);
+    expect("turnId" in (frame2 as { payload: object }).payload).toBe(false);
+  });
+
+  test("MessageEntryDto.turnId 透传：entry.turnId 非 null 携带；null 不携带键", () => {
+    const mkEntry = (id: string, turnId: string | null) => ({
+      id,
+      role: "assistant" as const,
+      text: "答",
+      turnId,
+      isSteer: false,
+      instanceId: "main",
+      createdAt: new Date(1000).toISOString(),
+    });
+    const view = {
+      session: {
+        sessionId: "s-1",
+        createdAt: new Date(0).toISOString(),
+        entries: [mkEntry("e1", "turn-1"), mkEntry("e2", null)],
+        turns: [],
+        pendingSteer: [],
+      },
+      toolCalls: [],
+    };
+    const dto = toSnapshotDto(view, "anthropic/fake", "idle");
+    const e1 = dto.entries.find((e) => e.id === "e1");
+    const e2 = dto.entries.find((e) => e.id === "e2");
+    expect(e1?.kind === "message" && e1.turnId).toBe("turn-1");
+    expect(e2?.kind === "message" && "turnId" in e2).toBe(false);
+  });
+
+  test("快照 usage.byTurn 透传（非空携带；空/缺席不下发）", () => {
+    const u = { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 30, cost: 0.01 };
+    const view = {
+      session: { sessionId: "s-1", createdAt: new Date(0).toISOString(), entries: [], turns: [], pendingSteer: [] },
+      toolCalls: [],
+      usage: { total: u, compaction: { ...u, input: 0 }, byTurn: { "turn-1": u } },
+    };
+    const dto = toSnapshotDto(view, "anthropic/fake", "idle");
+    expect(dto.usage?.byTurn?.["turn-1"]).toEqual(u);
+
+    const viewEmpty = { ...view, usage: { total: u, compaction: { ...u, input: 0 }, byTurn: {} } };
+    const dtoEmpty = toSnapshotDto(viewEmpty, "anthropic/fake", "idle");
+    expect(dtoEmpty.usage && "byTurn" in dtoEmpty.usage).toBe(false);
+  });
+});

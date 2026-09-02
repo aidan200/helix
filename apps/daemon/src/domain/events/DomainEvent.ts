@@ -218,6 +218,8 @@ export interface UsageRecordedPayload {
   readonly instanceId: string;
   readonly usage: UsageSummary;
   readonly source: "turn" | "compaction";
+  /** 入账轮次 id（additive，轮末 token 用量显示面）：主线 turn 入账携带；compaction/SubAgent 入账不携带。 */
+  readonly turnId?: string;
 }
 
 // ── v0.4 执行上下文面载荷（契约 v0.4 §2/§3；AD-5/AD-6）──

@@ -155,3 +155,46 @@ describe("T3.2 ④ compaction 与 turn 入账并存不重复", () => {
     expect(events.find((e) => e.payload.source === "compaction")!.payload.usage.totalTokens).toBe(46);
   });
 });
+
+describe("轮末 token 用量：usage.recorded 携带 turnId（per-turn 显示面挂载源）", () => {
+  test("turn 入账载荷 turnId = 本轮 turn.started 的 turnId；信封 turnId 同源", async () => {
+    const engine = new FakeAgentEngine({
+      replies: [
+        { text: "第一答。", usage: { input: 10, output: 20, totalTokens: 30, cost: 0.01 } },
+        { text: "第二答。", usage: { input: 40, output: 50, totalTokens: 90, cost: 0.02 } },
+      ],
+    });
+    const { chat, publisher } = makeChat(engine);
+    await chat.sendMessage("第一问");
+    await chat.sendMessage("第二问");
+
+    const turnIds = publisher.domainEvents
+      .filter((e) => e.type === "turn.started")
+      .map((e) => (e.payload as { turnId: string }).turnId);
+    expect(turnIds).toHaveLength(2);
+
+    const events = usageEvents(publisher);
+    expect(events).toHaveLength(2);
+    expect(events[0]!.payload.turnId).toBe(turnIds[0]);
+    expect(events[1]!.payload.turnId).toBe(turnIds[1]);
+    expect(events[0]!.turnId).toBe(turnIds[0]); // 信封同源
+  });
+
+  test("compaction 入账不携带 turnId（摘要调用不属轮次显示面）", async () => {
+    const engine = new FakeAgentEngine({
+      replies: [
+        {
+          text: "答。",
+          usage: { input: 1, totalTokens: 2 },
+          compaction: { tokensBefore: 100, tokensAfter: 20, summary: "摘要", usage: { input: 5, totalTokens: 6, cost: 0.001 } },
+        },
+      ],
+    });
+    const { chat, publisher } = makeChat(engine);
+    await chat.sendMessage("问");
+
+    const compactionEvents = usageEvents(publisher).filter((e) => e.payload.source === "compaction");
+    expect(compactionEvents).toHaveLength(1);
+    expect(compactionEvents[0]!.payload.turnId).toBeUndefined();
+  });
+});
