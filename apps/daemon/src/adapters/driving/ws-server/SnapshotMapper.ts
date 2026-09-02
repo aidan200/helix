@@ -14,9 +14,11 @@ import type {
   UsageDto,
 } from "@helix/protocol";
 import type { SessionMeta } from "@helix/protocol";
+import type { SessionPlanChangedPayload, TaskBatchLedgerDto, WorkItemDto } from "@helix/protocol";
 import type { SessionStateView, InstanceSnapshotEntry } from "../../../application/ports/inbound/SessionPort";
 import type { SessionMetaView } from "../../../application/ports/inbound/SessionDirectoryPort";
 import type { SessionUsageSummary, UsageSummary } from "../../../domain/session/SessionSnapshot";
+import type { WorkItemData } from "../../../application/ports/outbound/WorkLedgerPort";
 import { isMainAxisEntry, sessionEntryDto, toolCallEntryDto, WIRE_LEGACY_MAIN_ID } from "./EntryDtoMapper";
 // 投影收敛：entry 排序基元 + spawn 锚权威计算单源 @helix/protocol
 // projection（原 EntryDtoMapper.entrySortKey / SpawnAnchor.ts 两纯函数迁出）
@@ -43,6 +45,44 @@ export interface HistoryPage {
   readonly entries: EntryDto[];
   readonly hasMore: boolean;
   readonly nextCursor: string | null;
+}
+
+// ── 主会话工作台账投影（main-session plan 批；快照与广播同源单点）────
+
+/**
+ * 台账行 → wire DTO（WorkItemDto；字段同形直映射——status 为 task 域状态机
+ * 原值，展示映射归前端）。
+ */
+function workItemDtoOf(item: WorkItemData): WorkItemDto {
+  return { seq: item.seq, content: item.content, status: item.status, note: item.note };
+}
+
+/**
+ * ledger 计数摘要服务端组装（前端零拼装，AD-4② 同规）：total/done/inProgress
+ * 从 plan 行算得——与 task 域 TaskQueryService.batchDtoOf 同口径。
+ */
+function ledgerDtoOf(rows: readonly WorkItemData[]): TaskBatchLedgerDto {
+  return {
+    total: rows.length,
+    done: rows.filter((item) => item.status === "done").length,
+    inProgress: rows.filter((item) => item.status === "in_progress").length,
+  };
+}
+
+/**
+ * session.plan.changed 载荷组装（发布点 = 装配层包装；快照 plan/ledger 同源）：
+ * 无台账（零行）→ plan/ledger 双 null（null 语义与 task 批次行同构）。
+ */
+export function sessionPlanPayloadOf(
+  sessionId: string,
+  rows: readonly WorkItemData[],
+): SessionPlanChangedPayload {
+  const has = rows.length > 0;
+  return {
+    sessionId,
+    plan: has ? rows.map(workItemDtoOf) : null,
+    ledger: has ? ledgerDtoOf(rows) : null,
+  };
 }
 
 // ── 快照 ────────────────────────────────────────────────────
@@ -104,6 +144,15 @@ export function toSnapshotDto(
         }
       : {}),
     ...(view.usage !== undefined ? { usage: usageDto(view.usage) } : {}),
+    // 主会话工作台账（main-session plan 批，additive）：携带才下发——plan
+    // 全行 + ledger 计数摘要（服务端组装）；空台账 = 双 null；缺省 = 未携带
+    //（旧装配/未接 plan 读面兼容，读侧保持现值）
+    ...(view.plan !== undefined
+      ? (() => {
+          const p = sessionPlanPayloadOf(view.session.sessionId, view.plan);
+          return { plan: p.plan, ledger: p.ledger };
+        })()
+      : {}),
   };
 }
 

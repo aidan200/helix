@@ -14,6 +14,7 @@ import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/pro
 import { TaskError } from "../../src/application/services/task/TaskError";
 import type { CreateTaskInput, TaskEnginePort } from "../../src/application/ports/inbound/TaskEnginePort";
 import { kgToolsStub } from "../helpers/kgToolsStub";
+import { planToolStub } from "../helpers/planToolStub";
 import { codegraphToolStub } from "../helpers/codegraphToolStub";
 import { withTaskEnv } from "../helpers/task-fixtures";
 
@@ -222,6 +223,8 @@ describe("④ 生效集：task_create 只进 MainAgent（AD-2 创建按宿主）
         engine: new RecordingTaskEngine(async () => ({ jobId: "job-asm" })),
         query: fakeQuery({}),
       },
+      // main-session plan 批：main 全集声明 plan 三名——替身保持可装配
+      plan: planToolStub(),
     });
     // main 全集（减动态族 browser——条件注册面，与本任务无关）
     const names = MainSessionProfile.tools.filter((t) => t !== "browser");

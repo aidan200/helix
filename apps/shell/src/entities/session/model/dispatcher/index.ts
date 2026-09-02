@@ -29,6 +29,7 @@ import {
   applyThinkingLevelEvent,
   THINKING_LEVEL_EVENT_TYPES,
 } from "../consumers/thinking-level";
+import { applyPlanEvent, PLAN_EVENT_TYPES } from "../consumers/plan";
 
 // ── v0.6 agent.config 族（M6 T4 真消费）：拓扑级前置路由（consumers/agent-config.ts）──
 // changed → agentConfig.revision 失效重拉信号；两结果帧拓扑级直通（真消费归
@@ -79,6 +80,9 @@ register({ types: MODEL_EVENT_TYPES, apply: applyModelChangedEvent });
 // thinking.changed（thinking 批①，T2.1）：会话 thinking 切片（override/
 // effective 双位；活跃 store 滑块/trigger 数据源）——model.changed 同构先例
 register({ types: THINKING_LEVEL_EVENT_TYPES, apply: applyThinkingLevelEvent });
+// session.plan.changed（main-session plan 批）：主会话工作台账增量面——全量帧
+// 整体替换 state.plan/ledger（恢复种子面 = 快照 plan 字段，consumers/snapshot）
+register({ types: PLAN_EVENT_TYPES, apply: applyPlanEvent });
 // session.loadHistory.result：历史前插 + 翻页位（仅活跃会话路由至此）
 register({ types: HISTORY_EVENT_TYPES, apply: applyHistoryEvent });
 // session.list.result / session.list_changed：拓扑级清单消费者

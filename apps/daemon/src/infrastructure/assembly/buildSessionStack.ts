@@ -21,6 +21,9 @@ import { ResourceService } from "../../application/services/ResourceService";
 import { SystemPromptAssembler } from "../../application/services/SystemPromptAssembler";
 import { SchedulingPolicy } from "../../domain/agent/SchedulingPolicy";
 import { EventStream } from "../../adapters/driving/ws-server/EventStream";
+import { sessionPlanPayloadOf } from "../../adapters/driving/ws-server/SnapshotMapper";
+import { LazyWorkLedger } from "../../adapters/driven/sqlite-session/WorkLedger";
+import { WorkLedgerService } from "../../application/services/task/WorkLedgerService";
 import { lastMainAnchorId } from "@helix/protocol"; // 锚扫描基元单源 projection
 import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
 import { PiAgentEngineAdapter, type PiEngineOptions } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
@@ -44,6 +47,7 @@ import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
 import { SkillScanner } from "../../adapters/driven/pi-engine/SkillScanner";
 import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnippets";
 import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
+import type { PlanToolDeps } from "../../adapters/driven/tools/plan/PlanTools";
 import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
 import type { CodegraphToolDeps } from "../../adapters/driven/tools/codegraph/CodegraphTool";
@@ -204,6 +208,15 @@ export interface BuildSessionStackDeps {
    */
   readonly findingsSink?: ClosureFindingsSink;
   /**
+   * 主会话 plan 三工具装配面（main-session plan 批）：提供则每会话 executor
+   * 注册 plan 三工具（instanceId = sessionId 作用域——主会话台账跨重启
+   * 稳定，不与 agent-N 实例撞名）；台账写面 = 父进程 LazyWorkLedger 直连
+   *（dbPath 缺省 paths.dbPath()；同库 WAL + busy_timeout 跨进程安全）；
+   * 执行成功后装配层广播 session.plan.changed（观察面即问责面）。缺省不
+   * 注册（engineFor 从 main 工具集剔除三名——隔离测试形态）。
+   */
+  readonly mainPlan?: { readonly dbPath?: string };
+  /**
    * 任务批次实例收口路由（T2.2）：调度器注入回调里 task:* 会话归属实例的
    * closure 转投编排服务（组合根接 TaskOrchestratorService.handleInstanceClosure
    * ——不升第二通路；进展报告不入）。缺省不路由（编排未装配形态，冷会话
@@ -241,6 +254,25 @@ export interface SessionStack {
    * 语义）。
    */
   readonly orchestratorAssembly: () => { readonly tools: readonly string[]; readonly systemPrompt: string };
+}
+
+/**
+ * main 工具集装配过滤（W1/taskCreate/plan 同构：声明面 = 注册面一致）：
+ * 未注入依赖的名从清单剔除（resolveTools 声明即注册硬校验不破）。
+ * 纯函数（main-session plan 批抽出一一供未注入剔除面单测）。
+ */
+export function effectiveMainToolNames(
+  declared: readonly string[],
+  injected: { readonly kg: boolean; readonly codegraph: boolean; readonly taskCreate: boolean; readonly plan: boolean },
+): string[] {
+  return declared
+    .filter((t) => injected.kg || (t !== "kg" && t !== "kg-update"))
+    .filter((t) => injected.codegraph || t !== "codegraph")
+    .filter((t) => injected.taskCreate || t !== "task_create")
+    .filter(
+      (t) =>
+        injected.plan || (t !== "plan_create" && t !== "plan_update" && t !== "plan_read"),
+    );
 }
 
 export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<SessionStack> {
@@ -546,6 +578,46 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     mainInstanceIdFor: (sessionId) => backfill.mainInstanceIdFor?.(sessionId),
   });
 
+  // ── 主会话 plan 栈（main-session plan 批）：父进程写面 LazyWorkLedger
+  // 直连 helix.db（同库 WAL + busy_timeout 跨进程安全；惰性开库——零 plan
+  // 调用零文件触碰）；写后广播包装 = 发布点在装配层（不入 WorkLedgerService）。
+  // instanceId 维度 = sessionId（engineFor 每会话注入 deps.plan.instanceId）。──
+  const mainPlanStack =
+    deps.mainPlan === undefined
+      ? undefined
+      : (() => {
+          const ledger = new LazyWorkLedger(deps.mainPlan?.dbPath ?? paths.dbPath());
+          const service = new WorkLedgerService({ reader: ledger, writer: ledger });
+          /** 成功后广播（失败路径不发布：写面抛错即工具 error 结果，无事件）。 */
+          const publish = (instanceId: string): void => {
+            eventStream.broadcastPlanChanged(sessionPlanPayloadOf(instanceId, service.getPlan(instanceId)));
+          };
+          /** 包装面：plan 三工具执行成功后发布 session.plan.changed（三工具
+           *  全量发布——plan_read 成功也发一帧幂等快照，观察面即问责面）。 */
+          const planToolService: PlanToolDeps["service"] = {
+            createPlan: async (instanceId, items) => {
+              const r = await service.createPlan(instanceId, items);
+              publish(instanceId);
+              return r;
+            },
+            updateItem: async (instanceId, seq, status, note) => {
+              await service.updateItem(instanceId, seq, status, note);
+              publish(instanceId);
+            },
+            getPlan: (instanceId) => {
+              const rows = service.getPlan(instanceId);
+              publish(instanceId);
+              return rows;
+            },
+            forceResolveInProgress: async (instanceId, note) => {
+              const r = await service.forceResolveInProgress(instanceId, note);
+              publish(instanceId);
+              return r;
+            },
+          };
+          return { ledger, planToolService };
+        })();
+
   // ── service：多会话容器（AD-4 主承载） ─────────────────────
   // 会话绑定引擎工厂：测试注入实例 = 全部会话共享（单会话测试形态）；
   // 工厂 = 每会话独立；生产路径 = 真引擎 + 会话绑定工具执行器（编排三工具
@@ -582,6 +654,13 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
             // W1-B：codegraph 工具同 kgTools W1 模式（工厂读现值；未绑定 → 不注册 + 清单剔除）
             const codegraphTool =
               typeof deps.codegraphTool === "function" ? deps.codegraphTool() : deps.codegraphTool;
+            // main-session plan 批：instanceId = sessionId 作用域注入（工具参数
+            // 零 instanceId 防伪造——PlanTools 语义不变）；未注入（隔离测试形态）
+            // → 不注册 + 清单剔除（声明面 = 注册面一致）
+            const planDeps =
+              mainPlanStack === undefined
+                ? undefined
+                : { service: mainPlanStack.planToolService, instanceId: sessionId };
             const toolExecutor = new CoreToolExecutor({
               cwd: toolCwdOf(),
               orchestration: sessionOrchestration,
@@ -592,6 +671,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               // task_create（T2.4，AD-7）：仅主会话 executor（SubAgent 子进程
               // 本地栈不注入——生效集隔离，AD-2 创建按宿主）
               ...(deps.taskCreate !== undefined ? { taskCreate: deps.taskCreate } : {}),
+              // 主会话 plan 三工具（main-session plan 批）：台账写面 + 广播包装
+              ...(planDeps !== undefined ? { plan: planDeps } : {}),
               // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
               // tab 归属）；ChildMain 子进程经 RemoteBrowserPort 转发接入（H-3）
               browser: browserPort,
@@ -615,11 +696,13 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
                 // W1 绑定闭环：未绑定（kg 双工具未注册）时剔除 kg/kg-update——
                 // profile 声明与 executor 注册面一致（resolveTools 硬校验不破）；
                 // 绑定后新建会话自动恢复注册面。
-                // task_create 同款：未注入（测试形态）时剔除，声明与注册一致。
-                tools: mainAssembly.tools
-                  .filter((t) => kgTools !== undefined || (t !== "kg" && t !== "kg-update"))
-                  .filter((t) => codegraphTool !== undefined || t !== "codegraph")
-                  .filter((t) => deps.taskCreate !== undefined || t !== "task_create"),
+                // task_create/plan 三名同款：未注入（测试形态）时剔除，声明与注册一致。
+                tools: effectiveMainToolNames(mainAssembly.tools, {
+                  kg: kgTools !== undefined,
+                  codegraph: codegraphTool !== undefined,
+                  taskCreate: deps.taskCreate !== undefined,
+                  plan: planDeps !== undefined,
+                }),
                 // 压缩参数可配置（KV 存储值 ?? DEFAULT_COMPACTION）；每会话装配读现值。
                 compaction: compactionSettings(),
               },
@@ -720,6 +803,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       return { sessionId: material.session.id, chatService, projection };
     },
     onListChanged: (change) => eventStream.broadcastListChanged(change),
+    // 主会话工作台账读面（main-session plan 批）：快照组装附 plan 全行
+    //（未接 plan 栈 = 缺省不携带——旧装配兼容）
+    ...(mainPlanStack !== undefined
+      ? { mainPlanOf: (sessionId: string) => mainPlanStack.ledger.getItems(sessionId) }
+      : {}),
     idleUnloadMs: deps.sessionIdleUnloadMs,
     idlePollMs: deps.sessionIdlePollMs,
     logger,

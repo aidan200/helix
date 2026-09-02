@@ -519,6 +519,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 创建入口——与 /project 入口同一 createTask API（TaskEngineService 注入）
     // + 回执读面（TaskQueryService 投影）；SubAgent 子进程本地栈不注入（生效集隔离）
     taskCreate: { engine: taskStack.taskEngine, query: taskStack.query },
+    // 主会话 plan 三工具装配面（main-session plan 批）：instanceId = sessionId
+    // 作用域；写面 = 父进程 LazyWorkLedger 直连 helix.db（同库 WAL 跨进程
+    // 安全）；执行成功后装配层广播 session.plan.changed + 快照附 plan 读面
+    //（SubAgent 子进程本地栈不受影响——两栈独立）
+    mainPlan: {},
     // spawn 派发任务切片注入（F1.3）：任务文本 → 图查询 → digest+指针切片
     // 拼入 task 约束区；注入后 markInjected 入跨通道去重注册表（T3.2 同源）。
     // W1：未绑定 → 空切片（无图查询面，零副作用）。audience（D8 W-R6）：

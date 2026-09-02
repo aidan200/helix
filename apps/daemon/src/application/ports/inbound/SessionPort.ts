@@ -3,6 +3,7 @@ import type { AgentLifecycleState } from "../../../domain/agent/AgentLifecycle";
 import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 import type { DomainEvent, InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type { StreamDelta } from "../outbound/EventPublisherPort";
+import type { WorkItemData } from "../outbound/WorkLedgerPort";
 import type { AgentInstanceData } from "../../../domain/agent/AgentInstance";
 
 /**
@@ -49,6 +50,13 @@ export interface SessionStateView {
     /** 引擎按当前模型能力解析的生效档；null = 全链不支持（不传参，provider 默认）。 */
     readonly effective: string | null;
   };
+  /**
+   * 主会话工作台账全行（main-session plan 批，additive）：instanceId 维度 =
+   * sessionId（主会话 plan 三工具写面落 work_item 表）；快照读面（重连/
+   * 恢复种子，增量面 = session.plan.changed 广播）。缺省 = 未接 plan 读面
+   * （旧装配兼容）；携带时空数组 = 无台账（wire 面 null）。
+   */
+  readonly plan?: readonly WorkItemData[];
 }
 
 /** 实例快照条目（AgentInstanceData + task/closure/usage/model；契约 AgentInstanceDto 的 domain 侧镜像）。 */

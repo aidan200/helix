@@ -16,10 +16,12 @@ import type {
   InstanceState,
   SessionMeta,
   SessionUsageDto,
+  TaskBatchLedgerDto,
   ThinkingEntryDto,
   ToolCallEntryDto,
   UsageDto,
   WebStatusPayload,
+  WorkItemDto,
 } from "@helix/protocol";
 import { DEFAULT_MODE_ID, ZERO_USAGE as PROTOCOL_ZERO_USAGE } from "@helix/protocol";
 
@@ -458,6 +460,15 @@ export interface SessionState {
   killToast: KillToast | null;
   /** 切换两阶段（P-1s）：loading 骨架 ↔ ready 互斥；快照到达即转 ready */
   view: SessionViewPhase;
+  /**
+   * 主会话工作台账（main-session plan 批）：plan 全行 + ledger 服务端计数
+   * 摘要（双 null = 无台账——观察面条整条隐藏）。写面：session.plan.changed
+   * 增量（consumers/plan）+ session.snapshot 恢复种子（additive——缺省保留
+   * 现值，旧 daemon 兼容）。UI 消费 = chat 页工作台账条（WorkLedgerBar）。
+   */
+  plan: WorkItemDto[] | null;
+  /** 台账计数摘要（与 plan 同源同 null 语义；服务端组装，前端零拼装）。 */
+  ledger: TaskBatchLedgerDto | null;
   /** 向上分页状态（AD-1；快照 tailStartCursor 初始化，loadHistory.result 推进） */
   history: HistoryPaging;
 }
@@ -564,6 +575,8 @@ export function createInitialSessionState(): SessionState {
     spawnToast: null,
     killToast: null,
     view: "loading",
+    plan: null, // 主会话工作台账（main-session plan 批）：无台账基线（快照/plan.changed 写入）
+    ledger: null,
     history: { hasMore: false, nextCursor: null, loading: false, total: null, paged: false },
   };
 }

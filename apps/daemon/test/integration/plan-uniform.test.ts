@@ -26,9 +26,9 @@ import { AgentInstance } from "../../src/domain/agent/AgentInstance";
  * ① 装配面——chat 域 fixture 与 task 域 fixture 各自走子进程组合根工厂
  *   （buildLocalWorkLedgerStack，唯一装配面）+ resolveTools(SubAgentProfile.tools)，
  *   断言两 fixture 的工具名集与参数 schema JSON 相等，且 plan 三名在集；
- * ② 配给面——SubAgentProfile 工具声明含且必含 plan 三名；MainSessionProfile
- *   零 plan 名（不进 MainAgent 生效集）；工具面零派发方语义词（SubAgent
- *   不感知谁派发）；
+ * ② 配给面——SubAgentProfile 与 MainSessionProfile 工具声明同含 plan 三名
+ *   （main-session plan 批：两域同构——子进程 instanceId = agent-N、主会话
+ *   instanceId = sessionId）；工具面零派发方语义词（SubAgent 不感知谁派发）；
  * ③ 子进程级——chat 域经 SchedulerService.spawn（chat MainAgent 既有派发路）、
  *   task 域经 launcher.launch（编排器将走的同一 InstanceRunner 面）各拉一个
  *   真子进程（fake 剧本 toolCall plan_create），断言两实例行落同一 work_item
@@ -94,11 +94,11 @@ describe("① 装配统一：两域 fixture 的工具名集与 schema 逐字节�
   });
 });
 
-describe("② 配给面：plan 三工具全量配给 SubAgent、不进 MainAgent（AD-6① 机械判据）", () => {
-  test("SubAgentProfile 声明含且必含 plan 三名；MainSessionProfile 零 plan 名", () => {
+describe("② 配给面：plan 三工具两域同构配给（SubAgent 子进程 + 主会话，main-session plan 批）", () => {
+  test("SubAgentProfile 与 MainSessionProfile 声明同含 plan 三名（两域同构，AD-6① 扩展到主会话）", () => {
     for (const name of PLAN_TOOL_NAMES) {
       expect(SubAgentProfile.tools).toContain(name);
-      expect(MainSessionProfile.tools).not.toContain(name);
+      expect(MainSessionProfile.tools).toContain(name);
     }
   });
 

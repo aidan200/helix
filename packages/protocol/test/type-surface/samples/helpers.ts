@@ -187,6 +187,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `model-set-thinking-default:${event.payload.previous}`;
     case "kg.candidates.list.result":
       return `kg-candidates-list:${event.payload.total}:${event.payload.rows.length}`;
+    case "session.plan.changed":
+      return `plan-changed:${event.payload.sessionId}:${event.payload.plan?.length ?? 0}:${event.payload.ledger?.total ?? 0}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;

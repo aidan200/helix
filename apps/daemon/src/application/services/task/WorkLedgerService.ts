@@ -5,16 +5,19 @@ import type { WorkItemStatus } from "../../../domain/task/types";
  * WorkLedgerService —— work_item（实例 plan，AD-6①）应用服务：plan 工具族
  * 支撑（写面）+ 派发方读口（读面）+ closure 全 resolve 机械判定（AD-6⑤）。
  *
- * 双面装配（O-1 表分域的装配镜像）：
- * - 写面（createPlan/updateItem）仅子进程本地栈装配——ChildMain 以
- *   { reader, writer } 双面构造（writer = 同一 LazyWorkLedger）；
+ * 双面装配（O-1 表分域的装配镜像，main-session plan 批双形态）：
+ * - 子进程写面：ChildMain 以 { reader, writer } 双面构造（writer = 同一
+ *   LazyWorkLedger）——plan 三工具直连；
+ * - 父进程主会话写面：buildSessionStack 主会话 executor 同持双面
+ *   （instanceId 维度 = sessionId；观察面即问责面，chat 域无收口概念）；
  * - 读面（getPlan/isFullyResolved）父进程/派发方共用同一读口（AD-6③：
- *   chat MainAgent 与编排器不各自扒表）——父进程组合根以 { reader }
- *   单面构造（不持写面，「父进程不持 plan 写面」机械可查）。
+ *   chat MainAgent 与编排器不各自扒表）。
  *
  * 校验语义（brief 决策消解）：
- * - plan_create：一次全量建（seq 1..n，恒 pending）；同实例重复 create →
- *   拒绝（半份/双份 plan 无消费意义）；
+ * - plan_create：一次全量建（seq 1..n，恒 pending）；台账为空或全部
+ *   resolved（done 或 abandoned 带 note）→ 允许重建（清旧行原子重开，
+ *   main-session plan 批）；存在未决项 → 拒绝（半份/双份 plan 无消费
+ *   意义，未决台账不可静默覆盖）；
  * - plan_update：状态机 pending→in_progress→done/abandoned（终态无出边，
  *   §3.2）；abandoned 必须 note 非空（trim 后 >0——「带理由」机械判据）；
  * - isFullyResolved：resolved ⟺ 全部项 status=done 或（abandoned 且 note
@@ -40,8 +43,8 @@ export interface PlanResolution {
 export interface WorkLedgerServiceDeps {
   /** 读面（父/子进程均装配）。 */
   readonly reader: Pick<WorkLedgerPort, "getItems">;
-  /** 写面（仅子进程本地栈装配；父进程组合根不注入——O-1 表分域）。 */
-  readonly writer?: Pick<WorkLedgerPort, "insertItems" | "updateItem">;
+  /** 写面（子进程本地栈 + 父进程主会话 plan 工具栈装配，main-session plan 批双形态）。 */
+  readonly writer?: Pick<WorkLedgerPort, "insertItems" | "replaceItems" | "updateItem">;
 }
 
 export class WorkLedgerService {
@@ -51,9 +54,17 @@ export class WorkLedgerService {
 
   /**
    * 建实例 plan（plan_create）：seq 1..n、恒 pending、note 空。
-   * 已有台账的实例拒绝重建（推进用 updateItem，查看用 getPlan）。
+   *
+   * 重建语义（main-session plan 批）：台账为空或全部 resolved（done 或
+   * abandoned 带 note）→ 允许重建——清旧行原子重开 seq 1..n（子进程
+   * single-shot 到不了该分支，子进程语义零变化）；存在未决项
+   * （pending/in_progress/abandoned 空 note 脏行）→ 仍拒绝（推进中台账
+   * 不可静默覆盖）。原子性：清 + 插同事务（replaceItems 面）。
    */
-  async createPlan(instanceId: string, items: readonly string[]): Promise<{ created: number }> {
+  async createPlan(
+    instanceId: string,
+    items: readonly string[],
+  ): Promise<{ created: number; rebuilt: boolean }> {
     const writer = this.requireWriter();
     if (items.length === 0) {
       throw new Error("工作台账条目不能为空（plan_create 需一次给出全部计划条目）");
@@ -63,16 +74,29 @@ export class WorkLedgerService {
         throw new Error(`第 ${i + 1} 条台账内容为空（每条须为一项非空工作描述）`);
       }
     }
-    if (this.deps.reader.getItems(instanceId).length > 0) {
-      throw new Error(
-        `实例 ${instanceId} 已有工作台账（plan_create 仅一次）——推进用 plan_update、查看用 plan_read`,
+    const existing = this.deps.reader.getItems(instanceId);
+    if (existing.length > 0) {
+      const resolved = existing.every(
+        (item) =>
+          item.status === "done" || (item.status === "abandoned" && (item.note ?? "").trim() !== ""),
       );
+      if (!resolved) {
+        throw new Error(
+          `实例 ${instanceId} 已有工作台账且未全部办结（plan_create 不覆盖未决台账）` +
+            `——推进用 plan_update、查看用 plan_read；全部办结后可重建`,
+        );
+      }
+      await writer.replaceItems(
+        instanceId,
+        items.map((content, i) => ({ seq: i + 1, content })),
+      );
+      return { created: items.length, rebuilt: true };
     }
     await writer.insertItems(
       instanceId,
       items.map((content, i) => ({ seq: i + 1, content })),
     );
-    return { created: items.length };
+    return { created: items.length, rebuilt: false };
   }
 
   /**
@@ -138,9 +162,9 @@ export class WorkLedgerService {
 
   // ── 内部 ─────────────────────────────────────────────────
 
-  private requireWriter(): Pick<WorkLedgerPort, "insertItems" | "updateItem"> {
+  private requireWriter(): Pick<WorkLedgerPort, "insertItems" | "replaceItems" | "updateItem"> {
     if (this.deps.writer === undefined) {
-      throw new Error("工作台账写面未装配（本服务以只读面构造——写操作仅子进程本地栈可用）");
+      throw new Error("工作台账写面未装配（本服务以只读面构造——写操作仅子进程本地栈/主会话 plan 栈可用）");
     }
     return this.deps.writer;
   }

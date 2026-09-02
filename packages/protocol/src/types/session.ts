@@ -9,6 +9,7 @@ import type { AgentInstanceDto, AgentStateDto } from "./agent";
 import type { MessageEntryDto } from "./chat";
 import type { ToolCallEntryDto } from "./tool";
 import type { SessionUsageDto, UsageDto } from "./usage";
+import type { TaskBatchLedgerDto, WorkItemDto } from "./task";
 
 /** 会话条目：判别式联合，按 `kind` 窄化（message | tool-call | thinking | compaction） */
 export type EntryDto =
@@ -107,4 +108,13 @@ export interface SessionSnapshotDto {
    * 缺省 = 未携带（旧剧本/旧 daemon 兼容，读侧按 "default" 兜底）。
    */
   mode?: string;
+  /**
+   * 主会话工作台账全行（main-session plan 批，additive）：instanceId 维度
+   * = sessionId（主会话 plan 三工具写面落 work_item）；重连/恢复种子——
+   * 增量面 = session.plan.changed。携带时 null = 无台账（轻量任务未建）；
+   * 缺省 = 未携带（旧 daemon 兼容，读侧保持现值）。
+   */
+  plan?: WorkItemDto[] | null;
+  /** 台账计数摘要（与 plan 同源同 null 语义，服务端组装；缺省 = 未携带）。 */
+  ledger?: TaskBatchLedgerDto | null;
 }

@@ -7,6 +7,7 @@ import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
 import { kgToolsStub } from "../helpers/kgToolsStub";
 import { codegraphToolStub } from "../helpers/codegraphToolStub";
 import { taskCreateStub } from "../helpers/taskCreateStub";
+import { planToolStub } from "../helpers/planToolStub";
 
 /**
  * T3r 动态族返工 integration：单 browser 工具 + action 参数（用户裁决——
@@ -29,7 +30,7 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
     expect(executor.resolveTools(["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"])).toHaveLength(7);
   });
 
-  test("② 有 browser：单名注册；main 全集 16 名一次装配成功", () => {
+  test("② 有 browser：单名注册；main 全集 21 名一次装配成功", () => {
     // 组合根 engineFor 同款接线：orchestration（会话门面）+ browser + ownerId
     //（注解 AgentOrchestrationPort：上下文化保留 resumed/parked 字面量窄类型）
     const orchestration: AgentOrchestrationPort = {
@@ -49,8 +50,9 @@ describe("CoreToolExecutor 条件注册（options.browser 先例 = orchestration
       kg: kgToolsStub(tmpdir()), // T3.3：main 全集声明 kg 双工具——替身保持可装配
       codegraph: codegraphToolStub(tmpdir()), // W1-B：main 全集声明 codegraph——替身保持可装配
       taskCreate: taskCreateStub(), // T2.4：main 全集声明 task_create——替身保持可装配
+      plan: planToolStub(), // main-session plan 批：main 全集声明 plan 三名——替身保持可装配
     });
-    expect(MainSessionProfile.tools).toHaveLength(18); // T3.3 kg 双工具 + T2.4 task_create（AD-7）+ W1-B codegraph + ⑤ 链 C park/resume 双工具（P1 仅 main）
+    expect(MainSessionProfile.tools).toHaveLength(21); // T3.3 kg 双工具 + T2.4 task_create（AD-7）+ W1-B codegraph + ⑤ 链 C park/resume 双工具（P1 仅 main）+ main-session plan 批 plan 三名（两域同构）
     const resolved = executor.resolveTools(MainSessionProfile.tools);
     expect(resolved.map((t) => t.name)).toEqual([...MainSessionProfile.tools]);
     expect(resolved.some((t) => t.name === "browser"), "browser 应装配").toBe(true);

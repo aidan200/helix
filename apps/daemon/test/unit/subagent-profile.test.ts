@@ -52,7 +52,7 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     expect(SubAgentProfile.model).toBeUndefined();
   });
 
-  test("全工具集：Main 清单去编排四工具与 task_create 与 kg-update（D8 W-R6 写面收权）+ plan 三工具（SubAgent 独有，AD-6①）", () => {
+  test("全工具集：Main 清单去编排四工具与 task_create 与 kg-update（D8 W-R6 写面收权）——plan 三工具随 Main 清单两域同构（main-session plan 批）", () => {
     // T2.3：Main 增 agent_spawn/agent_send/agent_status（编排回口）；SubAgent
     // 不 spawn 孙进程（单层编排）。T3r：Main 增动态族单 browser 工具；H-3：
     // SubAgent 经 wire 转发通道接入同一 daemon CDP 单例（P0-1 子进程不直连
@@ -61,16 +61,16 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     // D8 W-R6（2026-08-30 裁决）：SubAgent 摘 kg-update（写面收权——
     // supersede/createNode 改经 closure findings 申报）；豁免面
     // SubAgentKgWriterProfile（=本工具集 + kg-update）归其专测。
-    // T1.4（AD-6①）：SubAgent 增 plan 三工具（实例工作台账全量配给——
-    // chat/task 两域同构；plan 工具不进 MainAgent 生效集）。
+    // T1.4（AD-6①）：SubAgent 增 plan 三工具（实例工作台账全量配给）；
+    // main-session plan 批起 Main 同含三名（两域同构——子进程 instanceId =
+    // agent-N、主会话 instanceId = sessionId），三名随 Main 清单直传不再拼。
     // T2.4（AD-7/AD-2）：Main 增 task_create（chat 第二创建入口）——不进
     // SubAgent 生效集（批次 SubAgent 不能建任务，创建按宿主）。
     expect(SubAgentProfile.tools).toEqual(
       MainSessionProfile.tools
         .filter((t) => !t.startsWith("agent_"))
         .filter((t) => t !== "task_create")
-        .filter((t) => t !== "kg-update")
-        .concat(["plan_create", "plan_update", "plan_read"]),
+        .filter((t) => t !== "kg-update"),
     );
     expect(SubAgentProfile.tools).toEqual([
       "bash",

@@ -25,6 +25,12 @@ export const enUS = {
       reconnectAttempt: "Attempt {n}",
       reconnectingAddr: "Reconnecting to daemon",
     },
+    planbar: {
+      doneCount: "{done}/{total} items done",
+      doing: "Doing:",
+      open: "Collapse work ledger",
+      closed: "Expand work ledger",
+    },
     overlay: {
       connecting: "Connecting to daemon",
       addr: "{addr}",

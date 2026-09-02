@@ -223,6 +223,8 @@ export class WriteQueue {
   private readonly upsertPendingSync!: Statement;
   private readonly markPendingSyncNotifiedStmt!: Statement;
   private readonly deleteSessionPendingSync!: Statement;
+  /** 会话删除顺带清主会话台账行（main-session plan 批：instanceId = sessionId——F3.6 清理面既有形态扩展，防孤儿）。 */
+  private readonly deleteSessionWorkItems!: Statement;
 
   constructor(dbPath: string, options: WriteQueueOptions = {}) {
     mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -323,6 +325,9 @@ export class WriteQueue {
     );
     this.markPendingSyncNotifiedStmt = this.db.prepare("UPDATE pending_sync SET notified = 1 WHERE session_id = ?");
     this.deleteSessionPendingSync = this.db.prepare("DELETE FROM pending_sync WHERE session_id = ?");
+    // 主会话台账行清理（main-session plan 批）：语句复用 prepareWorkLedgerStatements
+    // 工厂（零新 SQL 文本；AG-06 写语句宿主仍仅本文件）
+    this.deleteSessionWorkItems = prepareWorkLedgerStatements(this.db).deleteWorkItemsByInstance;
   }
   /** 读侧共用连接（SqliteSessionRepository 只读 SELECT；写仍唯一走本队列）。 */
   get database(): Database {
@@ -546,7 +551,9 @@ export class WriteQueue {
       return;
     }
     if (job.kind === "deleteSession") {
-      // 七表清行（同仓 FIFO：此前同会话全部写先落盘，删除不会被复活）
+      // 八表清行（同仓 FIFO：此前同会话全部写先落盘，删除不会被复活）；
+      // 末位 = 主会话台账行（main-session plan 批：instanceId = sessionId，
+      // F3.6 清理面既有形态扩展——防孤儿）
       this.deleteSessionState.run(job.sessionId);
       this.deleteSessionEvents.run(job.sessionId);
       this.deleteSessionLifecycle.run(job.sessionId);
@@ -554,6 +561,7 @@ export class WriteQueue {
       this.deleteSessionToolCalls.run(job.sessionId);
       this.deleteSessionClosures.run(job.sessionId);
       this.deleteSessionPendingSync.run(job.sessionId);
+      this.deleteSessionWorkItems.run(job.sessionId);
       return;
     }
     if (job.kind === "pendingSync") {

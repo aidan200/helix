@@ -255,6 +255,11 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         thinking: snapThinking !== undefined
           ? { override: snapThinking.override, effective: snapThinking.effective }
           : s.thinking,
+        // additive：主会话工作台账恢复种子（main-session plan 批）——携带时
+        // 整体替换（null = 无台账如实落）；缺省保留现值（旧 daemon 兼容，
+        // 与 thinking 切片同判）
+        plan: snap.plan !== undefined ? snap.plan : s.plan,
+        ledger: snap.plan !== undefined ? (snap.ledger ?? null) : s.ledger,
         spawnToast: null, // 快照为新会话视图；旧 toast 不跨会话残留
         killToast: null,
         restoreToast: s.toastPending ? { kind: s.toastPending, count: snap.entries.length } : s.restoreToast,

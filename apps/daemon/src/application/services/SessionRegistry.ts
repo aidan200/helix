@@ -10,6 +10,7 @@ import type { UsageLedgerData } from "@helix/protocol";
 import { parseDataUrlImages } from "./images";
 import { profileKindOf, resolveModeId } from "./modes";
 import type { InstanceSnapshotEntry, SessionStateView } from "../ports/inbound/SessionPort";
+import type { WorkItemData } from "../ports/outbound/WorkLedgerPort";
 import type {
   SessionDirectoryPort,
   SessionListChange,
@@ -114,6 +115,11 @@ export interface SessionRegistryDeps {
   readonly settleTimeoutMs?: number;
   /** 日志（容器接 file logger；缺省静默）。 */
   readonly logger?: { info: (message: string) => void; warn: (message: string) => void };
+  /**
+   * 主会话工作台账读面（main-session plan 批）：快照组装附 plan 全行
+   *（instanceId 维度 = sessionId）。缺省不携带（未接 plan 栈——旧装配兼容）。
+   */
+  readonly mainPlanOf?: (sessionId: string) => readonly WorkItemData[];
 }
 
 /** 触发 runState 重算（list_changed{state_changed} 判定）的事件集。 */
@@ -665,6 +671,11 @@ export class SessionRegistry implements SessionDirectoryPort {
       // thinking 批③：additive 携带覆盖/生效双位（引擎未实现观测面 → 缺省不携带）
       ...(runtime.chatService.currentThinking !== undefined
         ? { thinking: runtime.chatService.currentThinking }
+        : {}),
+      // 主会话工作台账（main-session plan 批，additive）：读面注入才携带
+      //（未接 plan 栈的旧装配/测试形态不附带——快照缺省兼容）
+      ...(this.deps.mainPlanOf !== undefined
+        ? { plan: this.deps.mainPlanOf(runtime.sessionId) }
         : {}),
       instances: [
         {
