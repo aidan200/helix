@@ -63,6 +63,9 @@ function demoteToBackground(active: SessionState, list: SessionMeta[]): Backgrou
         ...active.entries.map((e) => e.id),
         ...(active.streaming !== null ? [active.streaming.messageId] : []),
         ...Object.values(active.channelStreams).map((cs) => cs.messageId),
+        // steerQueue 预分配 entryId：drain 落盘的 message.completed 锚
+        //（排队注入 = 用户已知内容，后台落盘不计未读）
+        ...active.steerQueue.map((item) => item.id),
       ],
       turnId: active.currentTurnId,
     },

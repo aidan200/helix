@@ -52,27 +52,34 @@ describe("Session 会话聚合（TP-CL4-1 ①③）", () => {
 });
 
 describe("Session steer 全链（TP-CL4-1 ④）", () => {
-  test("applySteer 入队（isSteer entry + SteerQueue 可观测）→ drain 逐条消费", () => {
+  test("applySteer 入队（预分配 id 入队不落条目）→ drain 落盘（生效时机）逐条消费", () => {
     const s = Session.create("s-4");
     const u = s.appendUserEntry("写一首诗");
     s.beginTurn(u.id);
+    const entriesBefore = s.toSnapshot().entries.length;
 
     const st1 = s.applySteer("改成散文");
     const st2 = s.applySteer("加上月亮");
-    expect(st1.isSteer).toBe(true);
+    expect(typeof st1).toBe("string"); // 返回预分配 entryId
     expect(s.steerQueueSize).toBe(2);
+    // 新语义：queued 期间不落时间轴条目（drain 时才进 entries）
+    expect(s.toSnapshot().entries.length).toBe(entriesBefore);
 
-    // one-at-a-time drain：turn 边界逐条取
+    // one-at-a-time drain：turn 边界逐条取；drain 落盘 = 生效时机位置
     const d1 = s.dequeueSteer();
-    expect(d1?.entryId).toBe(st1.id);
+    expect(d1?.entryId).toBe(st1);
     expect(s.steerQueueSize).toBe(1);
+    const drained = s.appendSteerEntryAtDrain(d1!);
+    expect(drained.id).toBe(st1); // 预分配 id 同源落盘（D-2）
+    expect(drained.isSteer).toBe(true);
+    expect(s.toSnapshot().entries.length).toBe(entriesBefore + 1);
 
     s.appendAssistantEntry("（按注入调整后的回复）");
     s.completeTurn();
     expect(s.steerQueueSize).toBe(1); // 未消费的保留（等下一轮）
 
     // drainAll：turn 完成后可整批取余
-    expect(s.drainAllSteer().map((x) => x.entryId)).toEqual([st2.id]);
+    expect(s.drainAllSteer().map((x) => x.entryId)).toEqual([st2]);
     expect(s.steerQueueSize).toBe(0);
   });
 
@@ -192,12 +199,14 @@ describe("Session 快照往返（TP-CL4-1 ①②）", () => {
     restored.beginTurn(u3.id);
     expect(restored.turnCount).toBe(3);
 
-    // steer 队列经快照存活（spike ④：steerQueueSurvivesCrash）
+    // steer 队列经快照存活（spike ④：steerQueueSurvivesCrash）；
+    // 新语义：queued 不落条目——预分配 entryId 随队列快照往返
     const s2 = Session.create("s-snap2");
     const u = s2.appendUserEntry("x");
     s2.beginTurn(u.id);
     const queued = s2.applySteer("等恢复后注入");
-    expect(Session.restoreFrom(s2.toSnapshot()).dequeueSteer()?.entryId).toBe(queued.id);
-    expect(st.isSteer).toBe(true);
+    expect(Session.restoreFrom(s2.toSnapshot()).dequeueSteer()?.entryId).toBe(queued);
+    // drain 落盘后的条目才是 isSteer entry
+    expect(typeof st).toBe("string");
   });
 });

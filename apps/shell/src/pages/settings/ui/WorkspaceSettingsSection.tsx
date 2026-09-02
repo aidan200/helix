@@ -1,5 +1,6 @@
 /**
- * 设置页「工作空间」分区（W4；设计稿 §2.3 / brief 任务 2）。
+ * 工作空间设置卡（W4；原独立「工作空间」分区，后并入「通用配置」分区——
+ * 单配置独占一页浪费，S2 分区列表同步撤项）。
  *
  * 当前绑定（全路径）+ 切换按钮 → 进入 WorkspaceGatePage 切换流（App 门禁
  * 分支接管渲染；从主壳进入带取消逃逸——首启 gate 无逃逸语义不变）。
@@ -10,8 +11,7 @@
  * 侧 WORKSPACE_E_ACTIVE_AGENT 门禁兜底，前端禁用为 UX 前置）。
  *
  * 数据面：entities/workspace（useWorkspace）+ entities/session 活跃信号；
- * 本页零 WS 依赖（设置页分区纯展示 + store 注入分工，ModelsSettingsSection
- * 先例）。
+ * 本卡零 WS 依赖（设置页分区纯展示 + store 注入分工）。
  */
 import { useI18n } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
@@ -30,32 +30,29 @@ const WorkspaceSettingsSection = function WorkspaceSettingsSection() {
     selectActiveRunState(session) !== "idle" || topology.list.some((m) => m.runState !== "idle");
 
   return (
-    <div className="pg" data-workspace-section>
-      <h2 className="pg-title">{t("workspace.settings.title")}</h2>
-      <div className="hud-card">
-        <div className="ws-set-row">
-          <div className="ws-set-info">
-            <div className="ws-set-label">{t("workspace.settings.currentLabel")}</div>
-            <div className="ws-set-root" data-ws-set-root>
-              {root ?? t("workspace.settings.unbound")}
-            </div>
+    <div className="hud-card" data-workspace-section>
+      <div className="ws-set-row">
+        <div className="ws-set-info">
+          <div className="ws-set-label">{t("workspace.settings.currentLabel")}</div>
+          <div className="ws-set-root" data-ws-set-root>
+            {root ?? t("workspace.settings.unbound")}
           </div>
-          <button
-            type="button"
-            className="hud-btn hud-btn-cyan"
-            data-ws-set-switch
-            disabled={agentBusy}
-            onClick={startSwitch}
-          >
-            {t("workspace.settings.switchAction")}
-          </button>
         </div>
-        {agentBusy && (
-          <div className="ws-set-note" data-ws-set-busy>
-            {t("workspace.settings.busyNote")}
-          </div>
-        )}
+        <button
+          type="button"
+          className="hud-btn hud-btn-cyan"
+          data-ws-set-switch
+          disabled={agentBusy}
+          onClick={startSwitch}
+        >
+          {t("workspace.settings.switchAction")}
+        </button>
       </div>
+      {agentBusy && (
+        <div className="ws-set-note" data-ws-set-busy>
+          {t("workspace.settings.busyNote")}
+        </div>
+      )}
     </div>
   );
 };

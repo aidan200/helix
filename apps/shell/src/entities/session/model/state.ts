@@ -16,6 +16,7 @@ import type {
   InstanceState,
   SessionMeta,
   SessionUsageDto,
+  SteerSource,
   TaskBatchLedgerDto,
   ThinkingEntryDto,
   ToolCallEntryDto,
@@ -56,6 +57,19 @@ export const ZERO_USAGE = PROTOCOL_ZERO_USAGE;
 
 /** 本地 steer echo id 前缀（确定性 id，保证重放幂等；消费：chat 消费者对账 + ui/send echo）。 */
 export const LOCAL_PREFIX = "local:";
+
+/** steer 队列坞条目（drain 落盘语义：queued 不上时间轴——本地 echo 经
+ *  steer.queued 换 daemon 预分配 entryId 确认；steer.drained 移除）。 */
+export interface SteerQueueDockItem {
+  /** 本地 echo = local:N；steer.queued 确认后 = daemon 预分配 entryId */
+  id: string;
+  text: string;
+  /** 注入来源（closure/progress 徽标变体依据；缺省 = user） */
+  source?: SteerSource;
+  /** true = 已经 daemon steer.queued 确认（echo → 权威对账完成） */
+  confirmed: boolean;
+  ts: number;
+}
 
 /** 连接四态（互斥；SM-1）。loading = connecting 的可视形态，不设第五态。 */
 export type ConnState = "connecting" | "connected" | "disconnected" | "error";
@@ -438,6 +452,10 @@ export interface SessionState {
   attachments: string[];
   /** 本地 steer echo 序号（确定性 id，保证重放幂等） */
   nextLocalSeq: number;
+  /** steer 队列坞（drain 落盘语义：queued 期间的可观测面——本地 echo 与
+   *  daemon steer.queued 确认对账；steer.drained/快照重建移除；渲染归
+   *  SteerQueueDock 左下角浮动坞） */
+  steerQueue: SteerQueueDockItem[];
   /** SubAgent 卡片投影（agent.* 事件族 + 快照 instances；v0.1） */
   instances: InstanceCardState[];
   /** per-instance channel 单一时间线（P-2 抽屉消费；五物种；T4.3） */
@@ -565,6 +583,7 @@ export function createInitialSessionState(): SessionState {
     draft: "",
     attachments: [],
     nextLocalSeq: 1,
+    steerQueue: [],
     instances: [],
     instanceChannels: {},
     channelStreams: {},

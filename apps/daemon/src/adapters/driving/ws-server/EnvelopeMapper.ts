@@ -146,7 +146,7 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         content: p.text,
         ts,
       };
-      if (p.role === "user" && p.isSteer) entry.steerState = "queued"; // 事件时点刚入队
+      if (p.role === "user" && p.isSteer) entry.steerState = p.steerState ?? "queued"; // 载荷优先；缺省 = 旧路径（事件时点刚入队）
       // 注入来源透传（T11b：idle closure/progress 注入实时帧区分；缺省不携带键）
       if (p.source !== undefined) entry.source = p.source;
       // SubAgent 消息帧携带条目 instanceId（前端实例分流；AD-3）

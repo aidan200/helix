@@ -542,10 +542,12 @@ describe("⑥ closure/steer 注入来源区分（T11a：source 贯通 Entry/事�
 
     const queued = publisher.domainEvents.find((e) => e.type === "steer.queued");
     expect(payloadSource(queued)).toBe("user");
-    const steerEntry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer);
-    expect(steerEntry && "source" in steerEntry ? steerEntry.source : undefined).toBe("user");
+    // 新语义：queued 期间不落时间轴条目（drain 才落盘）
+    expect(chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer)).toBeUndefined();
 
     await run;
+    const steerEntry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer);
+    expect(steerEntry && "source" in steerEntry ? steerEntry.source : undefined).toBe("user");
     const drained = publisher.domainEvents.find((e) => e.type === "steer.drained");
     expect(payloadSource(drained)).toBe("user");
   });
@@ -563,10 +565,11 @@ describe("⑥ closure/steer 注入来源区分（T11a：source 贯通 Entry/事�
 
     const queued = publisher.domainEvents.find((e) => e.type === "steer.queued");
     expect(payloadSource(queued)).toBe("closure");
-    const steerEntry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer);
-    expect(steerEntry && "source" in steerEntry ? steerEntry.source : undefined).toBe("closure");
+    expect(chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer)).toBeUndefined();
 
     await run;
+    const steerEntry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer);
+    expect(steerEntry && "source" in steerEntry ? steerEntry.source : undefined).toBe("closure");
     const drained = publisher.domainEvents.find((e) => e.type === "steer.drained");
     expect(payloadSource(drained)).toBe("closure");
   });
@@ -584,10 +587,11 @@ describe("⑥ closure/steer 注入来源区分（T11a：source 贯通 Entry/事�
 
     const queued = publisher.domainEvents.find((e) => e.type === "steer.queued");
     expect(payloadSource(queued)).toBe("progress");
-    const steerEntry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer);
-    expect(steerEntry && "source" in steerEntry ? steerEntry.source : undefined).toBe("progress");
+    expect(chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer)).toBeUndefined();
 
     await run;
+    const steerEntry = chat.sessionSnapshot.entries.find((e) => "role" in e && e.isSteer);
+    expect(steerEntry && "source" in steerEntry ? steerEntry.source : undefined).toBe("progress");
     const drained = publisher.domainEvents.find((e) => e.type === "steer.drained");
     expect(payloadSource(drained)).toBe("progress");
   });

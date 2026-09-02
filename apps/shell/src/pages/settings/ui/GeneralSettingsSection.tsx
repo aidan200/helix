@@ -1,8 +1,10 @@
 /**
- * 设置页「通用」分区（语言切换 + 压缩参数配置）。
+ * 设置页「通用」分区（语言切换 + 工作空间 + 压缩参数配置）。
  *
  * 语言切换：useI18n().setLang 直写（helix-lang localStorage 持久化 +
  * document.lang 同步），纯壳端偏好不走 daemon 配置命令。
+ * 工作空间：原独立分区撤项并入（单配置独占一页浪费），卡片本体在
+ * WorkspaceSettingsSection（当前绑定 + 切换入口，F2 活跃禁用语义不变）。
  * 压缩参数数据面：topology.modelConfig.compaction（config.get/set_compaction
  * 帧驱动，无乐观更新——写面靠 result 帧回填）；进入分区时
  * requestCompactionConfig 拉取现值。两个 token 绝对值输入框 + 保存按钮
@@ -12,6 +14,7 @@ import { useEffect, useState } from "react";
 import { useI18n, type Lang } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
+import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
 
 /** 语言选项（按钮文案自命名词条：chat.settings.general.langZh/langEn）。 */
 const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
@@ -73,6 +76,9 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
           </div>
         </div>
       </div>
+
+      {/* 工作空间卡（原独立分区并入；绑定展示 + 切换入口语义不变） */}
+      <WorkspaceSettingsSection />
 
       <div className="hud-card">
         <div className="fld">

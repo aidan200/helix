@@ -144,6 +144,17 @@ export function toSnapshotDto(
         }
       : {}),
     ...(view.usage !== undefined ? { usage: usageDto(view.usage) } : {}),
+    // 未消费 steer 队列（additive）：队列坞重建数据源——drain 落盘语义下
+    // queued 项不在 entries 里；空队列不携带键
+    ...(snapshot.pendingSteer.length > 0
+      ? {
+          pendingSteer: snapshot.pendingSteer.map((item) => ({
+            entryId: item.entryId,
+            text: item.text,
+            ...(item.source !== undefined ? { source: item.source } : {}),
+          })),
+        }
+      : {}),
     // 主会话工作台账（main-session plan 批，additive）：携带才下发——plan
     // 全行 + ledger 计数摘要（服务端组装）；空台账 = 双 null；缺省 = 未携带
     //（旧装配/未接 plan 读面兼容，读侧保持现值）

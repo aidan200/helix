@@ -274,7 +274,8 @@ describe("F1.7：instanceId 新列 RowMapper 往返（TR-AD-14）", () => {
     expect(restored.mainInstanceId).toMatch(/^agent-/);
     expect(restored.mainInstanceId).not.toBe("main");
     expect(restored.entryList().every((e) => e.instanceId === restored.mainInstanceId)).toBe(true);
-    expect(restored.entryList().map((e) => e.id)).toEqual(["e1", "e2", "e3"]);
+    // drain 落盘语义：queued steer 不落条目（e3 是队列项预分配 id，非 entries 成员）
+    expect(restored.entryList().map((e) => e.id)).toEqual(["e1", "e2"]);
     // T1.2 边界：instances 清单的权威投影在 agent_lifecycle 每实例行；快照装配/落盘由 T2.x 接
   });
 });

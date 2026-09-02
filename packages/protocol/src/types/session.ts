@@ -6,7 +6,7 @@
  * 投影全量来自快照 + 增量事件。
  */
 import type { AgentInstanceDto, AgentStateDto } from "./agent";
-import type { MessageEntryDto } from "./chat";
+import type { MessageEntryDto, SteerSource } from "./chat";
 import type { ToolCallEntryDto } from "./tool";
 import type { SessionUsageDto, UsageDto } from "./usage";
 import type { TaskBatchLedgerDto, WorkItemDto } from "./task";
@@ -64,6 +64,15 @@ export interface SessionMeta {
   loaded: boolean;
 }
 
+/** 未消费 steer 队列项（SessionSnapshotDto.pendingSteer 元素；domain SteerItem 同构）。 */
+export interface PendingSteerDto {
+  /** 预分配 entry id（D-2 同源：drain 落盘时条目的 id） */
+  entryId: string;
+  text: string;
+  /** 注入来源（缺省 = user 语义） */
+  source?: SteerSource;
+}
+
 export interface SessionSnapshotDto {
   sessionId: string;
   /** 展示用模型名（P-1 header 模型徽标；T2.3（AD-2）：会话级模型——引擎观测值，缺省回退 SQLite 默认表 + builtin 兜底） */
@@ -90,6 +99,12 @@ export interface SessionSnapshotDto {
    * null = 已含全部历史（禁用加载更早）。缺省 = 未携带。
    */
   tailStartCursor?: string | null;
+  /**
+   * 未消费 steer 队列（additive）：前端队列坞重建数据源——drain 落盘语义下
+   * queued 项不是时间轴条目（不在 entries 里），切换/重连/重启后队列坞从
+   * 本字段重建。缺省/空 = 无排队注入（旧剧本兼容）。
+   */
+  pendingSteer?: PendingSteerDto[];
   /**
    * 会话 thinking 覆盖/生效双位（v0.11 批内补登，thinking 批③ F-8 修复——
    * daemon SessionStateView.thinking 的 wire 面接通）：切换会话/重连/重启

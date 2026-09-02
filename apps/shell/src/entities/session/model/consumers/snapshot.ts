@@ -23,6 +23,8 @@ import type {
   CompactionEntryDto,
   EntryDto,
   EventEnvelope,
+  MessageEntryDto,
+  PendingSteerDto,
   SessionUsageDto,
   UsageDto,
 } from "@helix/protocol";
@@ -36,6 +38,7 @@ import {
   type InstanceCardState,
   type SessionState,
   type SessionUsageProjection,
+  type SteerQueueDockItem,
   type ThinkingSlice,
 } from "../state";
 /** 本块承接的帧事件 type（dispatcher 注册面）。 */
@@ -179,6 +182,30 @@ function mainInstanceIdOf(dtos: readonly AgentInstanceDto[], fallback: string): 
   return dtos.find((d) => d.kind === "main")?.instanceId ?? fallback;
 }
 
+/** steer 队列坞重建：快照 pendingSteer（additive 权威）优先；缺省回退
+ *  entries 抽取的 queued 条目（旧 daemon wire 无 pendingSteer 字段 / 旧数据）。 */
+function steerQueueFromSnapshot(
+  snap: { pendingSteer?: PendingSteerDto[] },
+  queuedEntries: readonly MessageEntryDto[],
+): SteerQueueDockItem[] {
+  if (snap.pendingSteer !== undefined) {
+    return snap.pendingSteer.map((item) => ({
+      id: item.entryId,
+      text: item.text,
+      confirmed: true,
+      ts: 0, // pendingSteer 无时间戳（FIFO 数组序即权威序）
+      ...(item.source !== undefined ? { source: item.source } : {}),
+    }));
+  }
+  return queuedEntries.map((e) => ({
+    id: e.id,
+    text: e.content,
+    confirmed: true,
+    ts: e.ts,
+    ...(e.source !== undefined ? { source: e.source } : {}),
+  }));
+}
+
 export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: number): SessionState {
   switch (event.type) {
     case "session.snapshot": {
@@ -193,8 +220,15 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
       // 重放保留）同时保留归组（dto.channels 缺省时的 channel 重建 fallback 面）
       const mainEntries: EntryDto[] = [];
       const entriesByInstance = new Map<string, EntryDto[]>();
+      // drain 落盘语义：queued steer 不上时间轴——从主流抽取归队列坞重建
+      //（旧版本落盘的 queued entry 同规抽取；定向 steer 恒 drained 不误伤）
+      const queuedSteerEntries: MessageEntryDto[] = [];
       for (const e of snap.entries) {
         const main = isMainChannel(e.instanceId, mainId);
+        if (main && e.kind === "message" && e.steerState === "queued") {
+          queuedSteerEntries.push(e);
+          continue;
+        }
         const directedSteer =
           !main &&
           e.kind === "message" &&
@@ -235,6 +269,9 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
       return {
         ...s,
         entries: mainEntries, // 整体替换：重连恢复全量来自 daemon（无本地补齐）；F1.6 分流见上
+        // steer 队列坞重建（drain 落盘语义）：快照 pendingSteer 为权威（additive——
+        // 新 daemon 携带）；缺省回退 entries 抽取的 queued 条目（旧 daemon/旧数据兼容）
+        steerQueue: steerQueueFromSnapshot(snap, queuedSteerEntries),
         model: snap.model,
         // P1 T4 快照 mode 收权：建会话定格值回带（草稿转正/切换/重连共用）；
         // 缺省 = default 兜底（旧 daemon 兼容）——此后无写路径（只读锁定）

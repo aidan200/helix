@@ -21,7 +21,7 @@ import type { EventEnvelope, MessageEntryDto } from "@helix/protocol";
 import { applyConnAction, isConnAction } from "./consumers/conn";
 import { channelOf } from "./channel";
 import { route } from "./dispatcher";
-import { LOCAL_PREFIX, type SessionAction, type SessionState } from "./state";
+import { LOCAL_PREFIX, type SessionAction, type SessionState, type SteerQueueDockItem } from "./state";
 
 // ── 组合导出（原导出面不变；类型/常量/工厂落 state.ts，路径零变更）──
 export { isMainChannel, createInitialSessionState } from "./state";
@@ -151,20 +151,19 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         return state.attachments.length === 0 ? state : { ...state, attachments: [] };
       }
       if (action.mode === "steer") {
-        // steer echo：立即可见的 user 气泡 + queued 徽标；id 对账交给 steer.queued
-        const echo: MessageEntryDto = {
-          kind: "message",
+        // steer echo → 队列坞（drain 落盘语义：queued 不上时间轴）；id 对账
+        // 交给 steer.queued（确认后换 daemon 预分配 entryId）
+        const echo: SteerQueueDockItem = {
           id: `${LOCAL_PREFIX}${state.nextLocalSeq}`,
-          role: "user",
-          content: text,
+          text,
+          confirmed: false,
           ts: action.ts,
-          steerState: "queued",
         };
         return {
           ...state,
           draft: "",
           attachments: [], // T9：steer 不带图，发送即清（生成中不可挂附件，防御）
-          entries: [...state.entries, echo],
+          steerQueue: [...state.steerQueue, echo],
           nextLocalSeq: state.nextLocalSeq + 1,
         };
       }

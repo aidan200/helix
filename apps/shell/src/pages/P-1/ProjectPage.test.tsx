@@ -191,7 +191,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   };
 });
 
-import ProjectPage from "./ProjectPage";
+import ProjectPage, { resetRememberedProjectForTest } from "./ProjectPage";
 
 // jsdom navigator.language 默认 en-US：钉 zh-CN（产品断言语言，AG-14 白名单键）
 localStorage.setItem("helix-lang", "zh-CN");
@@ -261,6 +261,7 @@ afterEach(() => {
   sent.health = [];
   sent.reviewCreate = [];
   sent.candidatesList = [];
+  resetRememberedProjectForTest();
 });
 
 describe("F5.0 左栏项目域与主区状态机", () => {
@@ -549,7 +550,7 @@ describe("graph 态 F5.1~F5.5", () => {
 });
 
 describe("全局（AD-16 反向 + 原型标注剥离）", () => {
-  it("全页可见文本零 TR-\\d+/E-\\d+ 裸形态；无 data-proto-annotation；主题切换用 helix-theme 键", () => {
+  it("全页可见文本零 TR-\\d+/E-\\d+ 裸形态；无 data-proto-annotation", () => {
     ui();
     feedProjects();
     enterGraph("helix");
@@ -559,10 +560,8 @@ describe("全局（AD-16 反向 + 原型标注剥离）", () => {
     // 原型标注剥离（反向断言）
     expect(document.querySelectorAll("[data-proto-annotation]").length).toBe(0);
     expect(document.querySelectorAll("[data-route-note]").length).toBe(0);
-    // 主题切换走既有 helix-theme 键（AF-5）
-    localStorage.removeItem("helix-theme");
-    fireEvent.click(qs("[data-theme-toggle]")!);
-    expect(localStorage.getItem("helix-theme")).toBe("light");
+    // 页面级无主题切换钮（归全局导航栏 IconRail 单钮）
+    expect(document.querySelectorAll("[data-theme-toggle]").length).toBe(0);
   });
 });
 
@@ -590,6 +589,49 @@ describe("W4 workspace_changed 刷新链（项目域 + kg 视图）", () => {
     const before = sent.projects;
     feedWorkspace("workspace.open.result", { root: "/ws/two", projects: [] });
     expect(sent.projects).toBe(before);
+  });
+});
+
+describe("会话内项目记忆（模块级内存态）", () => {
+  it("选中后离开再进：清单到位自动恢复选中（免重选，走点选同路径）", () => {
+    const first = ui();
+    feedProjects();
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
+    expect(qs("[data-ctx-proj]")!.textContent).toBe("helix");
+    first.unmount(); // 离开 /project（组件卸载，记忆留存）
+
+    ui(); // 再进：清单未到位仍 empty，不抢先选中
+    expect(screen.getByText("从左侧选择项目")).toBeTruthy();
+    const listBefore = sent.list.length;
+    feedProjects();
+    // 自动恢复：header chip 回来 + 主区进 graph（KgViewer 重挂发起 kg.list）
+    expect(qs("[data-ctx-proj]")!.textContent).toBe("helix");
+    expect(sent.list.length).toBeGreaterThan(listBefore);
+    expect(sent.list.some((p) => p.project === "helix")).toBe(true);
+  });
+
+  it("记忆项目已从新清单消失 → 保持 empty 不强行选中（记忆仅提示非权威）", () => {
+    const first = ui();
+    feedProjects();
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
+    first.unmount();
+
+    ui();
+    feed("kg.projects.result", {
+      projects: PROJECTS.filter((p) => p.name !== "helix"),
+    } satisfies KgProjectsResultPayload);
+    expect(screen.getByText("从左侧选择项目")).toBeTruthy();
+    expect(qs("[data-ctx-proj]")).toBeNull();
+  });
+
+  it("workspace_changed 后记忆作废：新域清单到位不自动恢复（同名项目也不选）", () => {
+    ui();
+    feedProjects();
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
+    feedWorkspace("workspace_changed", { root: "/ws/two" });
+    feedProjects(); // 新域清单（helix 同名在列也不恢复——记忆已随项目域作废）
+    expect(qs("[data-ctx-proj]")).toBeNull();
+    expect(screen.getByText("从左侧选择项目")).toBeTruthy();
   });
 });
 

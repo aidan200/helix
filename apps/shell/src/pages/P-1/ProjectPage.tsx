@@ -3,9 +3,8 @@
  * V-3 用户裁决：/project 唯一路由页，无跳转、无 /kg 路由）。
  *
  * 结构（AppLayout 壳）：headerLeft = 「项目」标题 + workspace 徽章 + 选中后
- * 当前项目名上下文 chip（纯标识非导航）；headerRight = 主题切换（全页唯一
- * 一枚，复用既有 helix-theme 键——AF-5：原型 p1-theme 键是原型自持实现，
- * 实现态必须走既有键，AG-14 白名单）；sidebar = 左栏项目域两段
+ * 当前项目名上下文 chip（纯标识非导航）；headerRight 无（主题切换归全局
+ * 导航栏 IconRail 单钮，页面级不重复）；sidebar = 左栏项目域两段
  * （①项目列表 kg.projects 驱动：行=项目名+四态徽章 compact+次行状态信息，
  * 可选中高亮、无行尾按钮 ②工作树占位空态——无 API 本迭代不实现）或
  * 36px 折叠窄轨（选中自动折叠+点竖排项目名展开可反复，纯形态切换不触碰主区）；
@@ -17,6 +16,10 @@
  * （B1 冷启动）；building 态 O-6 同通道轮询（750ms）至离开 building；
  * graph 态整组件树归 KgViewer（F5.1~F5.5）。
  *
+ * 会话内项目记忆（模块级内存态）：记住最近一次选中项目，离开 /project
+ * 再回来清单到位后自动恢复选中免重选；刷新即丢（刻意内存态不落盘），
+ * workspace_changed 随项目域作废弃置。
+ *
  * 已知边界：kg.*.result 回执帧无 project 回显/关联 id（契约 v0.1 零成本
  * DTO 取向），快速切项目时在途回执可能瞬态落进新实例（单飞+按序回执
  * 保证被下一帧立即覆盖）——记 architecture-feedback，留待 additive 批次。
@@ -27,13 +30,24 @@ import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
-import { useTheme } from "@/shared/ui/theme";
 import { createProjectPageState, projectReducer } from "./model/project-model";
 import KgViewer from "./kg-viewer";
 import { ProgressFill } from "./ui/kg-progress";
 
 /** building 轮询间隔（O-6：500ms-1s 由前端定）。 */
 const INDEX_POLL_MS = 750;
+
+/**
+ * P-1 当前项目会话内记忆（模块级内存态）：最近一次选中项目名。路由切换
+ * 不丢（离开再进免重选），浏览器刷新即丢（刻意内存态不落盘）；
+ * workspace_changed 换工作空间时置 null（旧选中在新域可能不存在）。
+ */
+let rememberedProject: string | null = null;
+
+/** 测试专用：清空项目记忆（模块级态跨用例复位）。 */
+export function resetRememberedProjectForTest(): void {
+  rememberedProject = null;
+}
 
 /** ISO → 「MM-DD HH:mm」短格式（次行完成时间；非法输入原样返回）。 */
 function fmtSyncedAt(iso: string | undefined): string {
@@ -122,7 +136,6 @@ const ProjectPage = function ProjectPage({
 }) {
   const { t } = useI18n();
   const toast = useToast();
-  const { theme, setTheme } = useTheme();
   const { state: session, sendKgProjects, sendKgIndexStatus, subscribeKgFrames, subscribeWorkspaceFrames } = useSession();
   const conn = session.conn;
 
@@ -149,6 +162,7 @@ const ProjectPage = function ProjectPage({
     () =>
       subscribeWorkspaceFrames((e) => {
         if (e.type !== "workspace_changed") return;
+        rememberedProject = null; // 新工作空间：旧选中记忆随项目域作废
         dispatch({ type: "workspace-reset" });
         sendKgProjects();
       }),
@@ -206,8 +220,18 @@ const ProjectPage = function ProjectPage({
   }, [sendKgIndexStatus]);
 
   const onSelectProject = useCallback((name: string) => {
+    rememberedProject = name; // 记入会话内记忆（离开 /project 再进自动恢复）
     dispatch({ type: "select-project", name });
   }, []);
+
+  // 记忆恢复：清单到位且尚未选中时，命中记忆项目走点选同路径进主区态
+  //（项目已从新清单消失 → 保持 empty 不强行选中——记忆仅提示非权威）
+  useEffect(() => {
+    if (state.listLoading || state.selected !== null || rememberedProject === null) return;
+    if (state.projects.some((p) => p.name === rememberedProject)) {
+      dispatch({ type: "select-project", name: rememberedProject });
+    }
+  }, [state.listLoading, state.selected, state.projects]);
 
   const onExpandDomain = useCallback(() => dispatch({ type: "expand-domain" }), []);
 
@@ -236,16 +260,6 @@ const ProjectPage = function ProjectPage({
             </span>
           )}
         </>
-      }
-      headerRight={
-        <button
-          type="button"
-          className="hud-btn hud-btn-ghost kg-btn-sm"
-          data-theme-toggle
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-        >
-          {theme === "dark" ? "LIGHT" : "DARK"}
-        </button>
       }
       sidebar={
         state.domainCollapsed ? (

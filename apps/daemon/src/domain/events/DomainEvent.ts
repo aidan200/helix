@@ -64,6 +64,9 @@ export interface MessageCompletedPayload {
   readonly role: "user" | "assistant" | "tool";
   readonly text: string;
   readonly isSteer: boolean;
+  /** steer 条目落盘时点的两态（additive）：drain 落盘 = "drained"（生效时序
+   *  落盘后队列已出账）；缺省 = 旧路径回退（事件时点刚入队 = "queued"）。 */
+  readonly steerState?: "queued" | "drained";
   /** 注入来源（T11b：user/closure/progress；idle closure 注入实时帧区分依据；缺省 = 用户输入）。 */
   readonly source?: "user" | "closure" | "progress";
   /** 图片附件（上行）：base64 data URL 数组；仅 user 消息携带，缺省 = 纯文本。 */

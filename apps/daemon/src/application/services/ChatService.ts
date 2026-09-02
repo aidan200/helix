@@ -277,13 +277,13 @@ export class ChatService implements ChatPort {
       return this.steerInstance(instanceId, text);
     }
     this.lifecycle.assertIn("running", "steering");
-    const entry = this.session.applySteer(text, this.now(), "user");
+    const entryId = this.session.applySteer(text, this.now(), "user");
     if (this.lifecycle.current === "running") {
       this.setLifecycle("steering"); // running→steering：有注入待 drain
     }
-    this.publish<SteerPayload>("steer.queued", { entryId: entry.id, text, source: "user" });
+    this.publish<SteerPayload>("steer.queued", { entryId, text, source: "user" });
     this.deps.engine.steer(text);
-    return { entryId: entry.id };
+    return { entryId };
   }
 
   /** 定向 steer 分支（契约 v0.3 §3.2，Q-3a）：① 转投 AgentOrchestrationPort.send（agent_send 同链路）；② delivered=false → SteerTargetNotRunningError，不落 Entry 不入队（TR-AD-21）；③ 已投递 → applyDirectedSteer 落主时间轴（不入主 SteerQueue、不双写实例 channel）+ steer.queued 信封挂 instanceId=目标。 */
@@ -319,11 +319,11 @@ export class ChatService implements ChatPort {
       case "running":
       case "steering": {
         try {
-          const entry = this.session.applySteer(text, this.now(), source);
+          const entryId = this.session.applySteer(text, this.now(), source);
           if (this.lifecycle.current === "running") {
             this.setLifecycle("steering"); // 同用户 steer：有注入待 drain
           }
-          this.publish<SteerPayload>("steer.queued", { entryId: entry.id, text, source });
+          this.publish<SteerPayload>("steer.queued", { entryId, text, source });
           this.deps.engine.steer(text);
         } catch (err) {
           this.publish("engine.error", { message: `closure 注入失败：${(err as Error).message}` });
@@ -462,11 +462,15 @@ export class ChatService implements ChatPort {
 
   // ── 状态机族（生命周期/Turn 状态推进） ─────────────────────
 
-  /** message_start(user, steer-drain)：注入消费——收口旧 Turn（reason=steerDrained）+ domain 队列出账 + 以注入消息开新 Turn + steering→running 回转（注入已消费，续跑）。 */
+  /** message_start(user, steer-drain)：注入消费——收口旧 Turn（reason=steerDrained）+ domain 队列出账 + drain 落盘（条目位置 = 生效时机）+ 以注入消息开新 Turn + steering→running 回转（注入已消费，续跑）。 */
   private drainSteerTurn(): void {
     this.finishOpenTurn("steerDrained");
     const item = this.session.dequeueSteer();
     if (item) {
+      // drain 落盘：条目在此刻进时间轴（旧轮已收尾、新轮开启前——真正的对话
+      // 时序）；steerState=drained（队列已出账，事件载荷显式携带）
+      const entry = this.session.appendSteerEntryAtDrain(item, this.now());
+      this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
       // source 同源透传（T11a：入队时来源 → drain 事件载荷；缺省老项不携带键）
       this.publish<SteerPayload>("steer.drained", {
         entryId: item.entryId,
@@ -512,8 +516,9 @@ export class ChatService implements ChatPort {
     // 消费机会已永久消失（pi run 收尾不消费残留 pending，现场 00386a2c）——
     // domain 队列残留若不清即孤儿（永久滞留 steer_queue 表，下次发消息还可能
     // 被补注入过时 closure）。与 stopped 分支同族文案可观测丢弃：注入对象已
-    // 不在即放弃（closure 文本已在 entry 树可回看），不强行补注入（避免重复
-    // 回复）。只清 domain 队列；closureBuffer 走下方既有 T2 续送链。
+    // 不在即放弃，不强行补注入（避免重复回复）；丢弃项未落时间轴条目（drain
+    // 落盘语义）——文本随本条 engine.error 可观测留存。只清 domain 队列；
+    // closureBuffer 走下方既有 T2 续送链。
     const orphaned = this.session.drainAllSteer();
     for (const item of orphaned) {
       this.publish("engine.error", {
@@ -640,13 +645,15 @@ export class ChatService implements ChatPort {
   }
 
   private publishMessageCompleted(
-    entryId: string, role: MessageCompletedPayload["role"], text: string, isSteer: boolean, images?: readonly string[], source?: SteerSource,
+    entryId: string, role: MessageCompletedPayload["role"], text: string, isSteer: boolean, images?: readonly string[], source?: SteerSource, steerState?: "queued" | "drained",
   ): void {
     this.publish<MessageCompletedPayload>("message.completed", {
       entryId,
       role,
       text,
       isSteer,
+      // 落盘时点两态（drain 落盘 = drained；缺省 = 旧路径回退 queued）
+      ...(steerState !== undefined ? { steerState } : {}),
       // 注入来源透传（T11b：idle closure/progress 注入实时帧区分；缺省不携带键）
       ...(source !== undefined ? { source } : {}),
       // 图片上行：user 消息携带图片附件（data URL 原样，事件/投影同源）

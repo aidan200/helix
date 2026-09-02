@@ -217,9 +217,10 @@ describe("MessageFlow 挂载（三态分流；消费 T4.1 槽位）", () => {
     expect(screen.getByText("主线 steer")).toBeTruthy(); // 主实例 steer = 普通气泡
   });
 
-  it("系统注入细条化：主实例 source=closure/progress 条目渲染细条（非气泡）；source=user/缺省保持气泡", () => {
+  it("系统注入细条化：主实例 source=closure/progress 条目渲染细条（非气泡）；source=user/缺省保持气泡；queued steer 归队列坞", () => {
     // 时间轴语义分层：气泡 = 人说的话，细条 = 系统的注入（closure/progress）。
-    // source 判别优先于 instanceId——主实例的 closure/progress 条目同样细条化
+    // source 判别优先于 instanceId——主实例的 closure/progress 条目同样细条化；
+    // drain 落盘语义：快照里 steerState=queued 的条目抽取归队列坞（不上时间轴）
     const snap: EventEnvelope = {
       v: 0,
       type: "session.snapshot",
@@ -233,8 +234,10 @@ describe("MessageFlow 挂载（三态分流；消费 T4.1 槽位）", () => {
             { kind: "message", id: "u-1", role: "user", content: "用户原话", ts: 1, instanceId: "agent-m1" },
             { kind: "message", id: "c-1", role: "user", content: "agent-3 closure: 收口摘要", ts: 2, source: "closure", instanceId: "agent-m1" },
             { kind: "message", id: "p-1", role: "user", content: "进展报告中", ts: 3, source: "progress", steerState: "drained", instanceId: "agent-m1" },
-            { kind: "message", id: "s-1", role: "user", content: "手动 steer", ts: 4, source: "user", steerState: "queued", instanceId: "agent-m1" },
+            { kind: "message", id: "s-1", role: "user", content: "手动 steer", ts: 4, source: "user", steerState: "drained", instanceId: "agent-m1" },
+            { kind: "message", id: "q-1", role: "user", content: "排队中的 steer", ts: 5, steerState: "queued", instanceId: "agent-m1" },
           ],
+          pendingSteer: [{ entryId: "q-1", text: "排队中的 steer" }],
           instances: [
             { instanceId: "agent-m1", kind: "main", profileKind: "main-session", state: "running", createdAt: "2026-08-16T14:00:00.000Z" },
           ],
@@ -250,10 +253,14 @@ describe("MessageFlow 挂载（三态分流；消费 T4.1 槽位）", () => {
     expect(injects).toHaveLength(2);
     expect(document.querySelector('[data-source="closure"]')!.textContent).toContain("agent-3 closure: 收口摘要");
     expect(document.querySelector('[data-source="progress"]')!.textContent).toContain("进展报告中");
-    // 细条不披气泡形态；用户原话与手动 steer（source=user）仍是气泡
+    // 细条不披气泡形态；用户原话与手动 steer（drained 落盘）仍是气泡
     expect(document.querySelector('[data-source="closure"]')!.closest(".msg")).toBeNull();
     expect(screen.getByText("用户原话").closest(".msg")).not.toBeNull();
     expect(screen.getByText("手动 steer").closest(".msg")).not.toBeNull();
+    // queued steer 不上时间轴——归左下角队列坞（data-kind=steer-dock）
+    expect(screen.queryByText("排队中的 steer")?.closest(".msg") ?? null).toBeNull();
+    const dock = document.querySelector('[data-kind="steer-dock"]');
+    expect(dock).not.toBeNull();
   });
 });
 

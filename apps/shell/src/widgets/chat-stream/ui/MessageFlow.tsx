@@ -38,6 +38,7 @@ import CompactionBar from "./CompactionBar";
 import EngineErrorCard from "./EngineErrorCard";
 import NetworkRetryCard from "./NetworkRetryCard";
 import { ThinkingEntryView, ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
+import SteerQueueDock from "./SteerQueueDock";
 import { WorkPhaseDot } from "./WorkPhaseDot";
 import { selectWorkPhase } from "@/entities/session/model/session-reducer";
 
@@ -205,6 +206,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
       </div>
       {children /* conn-overlay 等浮层（pages 层组装） */}
       </main>
+      {/* steer 队列坞（左下角；queued 注入的观察面，与 WorkPhaseDot 对称钉位） */}
+      <SteerQueueDock />
       {/* 工作段位呼吸光点（右下角；idle 炄灭不渲染）。T-webkit-repaint：
           光点在滚动容器外、absolute 钉 wrap 右下——旧形态（sticky 驻滚动容器内）
           在 WKWebView（Tauri 桌面端）命中 WebKit 对 sticky 元素内文本更新

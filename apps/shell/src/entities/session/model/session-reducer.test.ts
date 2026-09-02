@@ -98,9 +98,8 @@ describe("TP-CL7-5-① 重放幂等", () => {
     const first = run(actions);
     const second = run(actions);
     expect(second).toEqual(first);
-    // 抽查关键字段：steer 徽标已 drain、流式已清、草稿已清
-    const steer = second.entries.find((e) => e.id === "st1") as MessageEntryDto;
-    expect(steer.steerState).toBe("drained");
+    // 抽查关键字段：steer 队列坞已出账（drained）、流式已清、草稿已清
+    expect(second.steerQueue).toEqual([]);
     expect(second.streaming).toBeNull();
     expect(second.draft).toBe("");
   });
@@ -235,22 +234,24 @@ describe("SM-3 steer 徽标（事件驱动两态）", () => {
       ev({ v: 0, type: "agent.state.changed", payload: { state: "running" } }),
     ]);
 
-  it("生成中发送 → 本地 echo 气泡带 queued 徽标；steer.queued 确认 id；drained 转绿", () => {
+  it("生成中发送 → 本地 echo 进队列坞（不上时间轴）；steer.queued 确认换 id；drained 出账", () => {
     const sent = run([{ type: "ui/send", text: "别引新类型", mode: "steer", ts: 10 }], ready());
     expect(sent.draft).toBe("");
-    const echo = sent.entries.at(-1) as MessageEntryDto;
-    expect(echo.kind).toBe("message");
-    expect(echo.role).toBe("user");
-    expect(echo.content).toBe("别引新类型");
-    expect(echo.steerState).toBe("queued");
+    // drain 落盘语义：echo 进队列坞（entries 零增长）
+    expect(sent.entries).toEqual([]);
+    expect(sent.steerQueue).toHaveLength(1);
+    const echo = sent.steerQueue[0]!;
+    expect(echo.text).toBe("别引新类型");
+    expect(echo.confirmed).toBe(false);
+    expect(echo.id.startsWith("local:")).toBe(true);
 
     const confirmed = run([ev({ v: 0, type: "steer.queued", payload: { entryId: "st1" } })], sent);
-    expect(confirmed.entries.some((e) => e.id === "st1")).toBe(true);
-    expect(confirmed.entries.some((e) => e.id === echo.id)).toBe(false);
+    expect(confirmed.steerQueue).toHaveLength(1);
+    expect(confirmed.steerQueue[0]!.id).toBe("st1"); // 换 daemon 预分配 entryId
+    expect(confirmed.steerQueue[0]!.confirmed).toBe(true);
 
     const drained = run([ev({ v: 0, type: "steer.drained", payload: { entryId: "st1" } })], confirmed);
-    const badge = drained.entries.find((e) => e.id === "st1") as MessageEntryDto;
-    expect(badge.steerState).toBe("drained");
+    expect(drained.steerQueue).toHaveLength(0); // drain 出账（条目经 message.completed 上时间轴）
   });
 
   it("空闲发送（turn 模式）不产生本地 echo，气泡由 daemon 事件投影", () => {
@@ -415,7 +416,7 @@ describe("T9 附件草稿（attachments ui state）", () => {
 
 // ── T11b：closure/steer source 显示区分（消费链对账） ─────────
 
-describe("T11b steer 事件 source 对账（queued/drained 载荷 → 渲染条目）", () => {
+describe("T11b steer 事件 source 对账（queued/drained 载荷 → 队列坞/旧数据条目）", () => {
   const ready = (): SessionState =>
     run([
       welcome(),
@@ -423,42 +424,50 @@ describe("T11b steer 事件 source 对账（queued/drained 载荷 → 渲染条�
       ev({ v: 0, type: "agent.state.changed", payload: { state: "running" } }),
     ]);
 
-  it("steer.queued 携带 source=closure → echo 对账条目标记 closure（徽标变体依据）", () => {
+  it("steer.queued 携带 source=closure → 队列坞对账条目标记 closure（徽标变体依据）", () => {
     const sent = run([{ type: "ui/send", text: "收口注入", mode: "steer", ts: 10 }], ready());
     const s = run(
       [ev({ v: 0, type: "steer.queued", payload: { entryId: "st1", source: "closure" } })],
       sent,
     );
-    const e = s.entries.find((x) => x.id === "st1") as MessageEntryDto;
-    expect(e.source).toBe("closure");
-    expect(e.steerState).toBe("queued");
+    expect(s.steerQueue).toHaveLength(1);
+    expect(s.steerQueue[0]!.id).toBe("st1");
+    expect(s.steerQueue[0]!.source).toBe("closure");
+    expect(s.steerQueue[0]!.confirmed).toBe(true);
   });
 
-  it("steer.drained 携带 source=progress → 对账条目 source 更新为 progress", () => {
+  it("steer.drained → 队列坞出账；旧数据兼容面：entries 里旧版落盘的 queued entry 徽标转 drained + source 更新", () => {
     const sent = run([{ type: "ui/send", text: "进展", mode: "steer", ts: 10 }], ready());
     const confirmed = run(
       [ev({ v: 0, type: "steer.queued", payload: { entryId: "st1", source: "progress" } })],
       sent,
     );
+    // 旧数据现场：entries 里存在旧版本落盘的 queued steer entry（同 entryId）
+    const legacy: SessionState = {
+      ...confirmed,
+      entries: [
+        { kind: "message", id: "st1", role: "user", content: "进展", ts: 10, steerState: "queued" },
+      ],
+    };
     const drained = run(
       [ev({ v: 0, type: "steer.drained", payload: { entryId: "st1", source: "progress" } })],
-      confirmed,
+      legacy,
     );
+    expect(drained.steerQueue).toHaveLength(0); // 队列坞出账
     const e = drained.entries.find((x) => x.id === "st1") as MessageEntryDto;
-    expect(e.source).toBe("progress");
+    expect(e.source).toBe("progress"); // 旧数据徽标兼容面保留
     expect(e.steerState).toBe("drained");
   });
 
-  it("回归钉：steer.queued/drained 缺省 source（老事件）→ 条目不携带 source（按 user 渲染）", () => {
+  it("回归钉：steer.queued/drained 缺省 source（老事件）→ 队列坞条目不携带 source（按 user 渲染）", () => {
     const sent = run([{ type: "ui/send", text: "用户 steer", mode: "steer", ts: 10 }], ready());
     const confirmed = run([ev({ v: 0, type: "steer.queued", payload: { entryId: "st1" } })], sent);
+    expect(confirmed.steerQueue[0]!.source).toBeUndefined();
     const drained = run(
       [ev({ v: 0, type: "steer.drained", payload: { entryId: "st1" } })],
       confirmed,
     );
-    const e = drained.entries.find((x) => x.id === "st1") as MessageEntryDto;
-    expect(e.source).toBeUndefined();
-    expect(e.steerState).toBe("drained");
+    expect(drained.steerQueue).toHaveLength(0);
   });
 });
 

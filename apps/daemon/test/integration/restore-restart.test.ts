@@ -115,11 +115,11 @@ describe("TP-CL8-6 强杀变体：kill -9 → 恢复到最后一致里程碑", (
       const repo = new SqliteSessionRepository(readQueue);
       const crashed = await repo.restore((await repo.listSessionIds()).at(-1)!);
       expect(crashed).toBeDefined();
-      // 最后一致里程碑：user entry + turn.started(generating) + steer entry 已落盘；
+      // 最后一致里程碑：user entry + turn.started(generating) 已落盘；
+      // steer 队列项已落盘（steer_queue 表；drain 落盘语义——未消费不进 entries）；
       // 半截 assistant 流式正文未落盘（delta 不进队列）
       expect(crashed!.session.entries.filter((e): e is NonNullable<typeof crashed>["session"]["entries"][number] & { role: "user" | "assistant"; text: string } => "role" in e).map((e) => [e.role, e.text])).toEqual([
         ["user", "会话开始的问题"],
-        ["user", "流式中注入的一条消息"],
       ]);
       expect(crashed!.session.turns[0]!.status).toBe("generating"); // run 未收尾
       expect(crashed!.session.pendingSteer).toHaveLength(1); // 未消费 steer 已落盘
@@ -142,7 +142,7 @@ describe("TP-CL8-6 强杀变体：kill -9 → 恢复到最后一致里程碑", (
       const snap = daemon.session.getSnapshot();
       // 恢复语义：已完成条目保留；未完成 turn 收口 interrupted（半截流式按语义丢弃）
       expect(snap.session.sessionId).toBe(crashed!.session.sessionId);
-      expect(snap.session.entries.filter((e): e is (typeof snap.session.entries)[number] & { role: "user" | "assistant" } => "role" in e).map((e) => e.role)).toEqual(["user", "user"]); // 无半截 assistant
+      expect(snap.session.entries.filter((e): e is (typeof snap.session.entries)[number] & { role: "user" | "assistant" } => "role" in e).map((e) => e.role)).toEqual(["user"]); // 无半截 assistant；queued steer 不落条目（pendingSteer 存活）
       expect(snap.session.turns[0]!.status).toBe("interrupted");
       expect(snap.session.pendingSteer).toEqual(crashed!.session.pendingSteer); // steer 队列随会话保留
       expect(daemon.system.getStatus().agentState).toBe("idle"); // 重启后无 run 在飞

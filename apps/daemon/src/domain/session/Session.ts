@@ -87,31 +87,44 @@ export class Session {
   }
 
   /**
-   * 运行中注入 steer：落 isSteer entry + 入 SteerQueue（drain 前 domain 可观测）。
+   * 运行中注入 steer：预分配 entry id 入 SteerQueue（**不落时间轴条目**）。
+   * 条目在 drain（真正注入生效）时刻才经 appendSteerEntryAtDrain 落盘——位置 =
+   * 生效时机（drain 时序 = 真正的对话时序：旧轮收尾之后、新轮回复之前）；
+   * queued 期间的可观测面 = steer.queued 事件 + 快照 pendingSteer（队列坞）。
    * source：注入来源标记（user=用户输入；closure=SubAgent 收口注入，AD-8；
-   * progress=周期进展报告，T11a 起贯通 Entry/事件/SQLite）。
+   * progress=周期进展报告，T11a 起贯通）。返回预分配的 entryId（D-2 同源：
+   * steer.queued 事件载荷/回执/abort 丢弃成空洞无害）。
    */
-  applySteer(text: string, at?: string, source?: SteerSource): Entry {
+  applySteer(text: string, at?: string, source?: SteerSource): string {
     const turn = this.requireOpenTurn("applySteer");
     if (!turn.isSteerable()) {
       throw new DomainError(`轮次 ${turn.id} 状态 ${turn.status} 不允许注入 steer（须为 generating/toolRunning）`);
     }
-    return this.steerEntry(text, at, source, turn.id);
+    return this.enqueueSteer(text, source);
   }
 
   /**
    * 恢复场景注入（AD-10）：无 open turn（重启收口后）时把 closure 注入
    * SteerQueue——与运行中注入同队列同语义（下轮 turn 边界消费，FIFO），但不
-   * 驱动引擎（「不自动续跑」：零新事件流，恢复代码零 spawn）。entry 不挂轮次
-   * （turnId=null，待下轮 drain 时作为新 turn 输入回放）。
+   * 驱动引擎（「不自动续跑」：零新事件流，恢复代码零 spawn）。与 applySteer
+   * 同不落条目（drain 时经 appendSteerEntryAtDrain 作为新 turn 输入落盘）。
    */
-  restoreSteer(text: string, at?: string, source?: SteerSource): Entry {
+  restoreSteer(text: string, at?: string, source?: SteerSource): string {
     if (this.currentTurn !== null) {
       throw new DomainError(
         `会话 ${this.id} 轮次 ${this.currentTurn.id} 进行中，恢复注入不适用（请用 applySteer）`,
       );
     }
-    return this.steerEntry(text, at, source, null);
+    return this.enqueueSteer(text, source);
+  }
+
+  /**
+   * drain 落盘（turn 边界消费时调用）：队列项落为时间轴条目——位置 = 生效时机
+   * （真正的对话时序）。turnId=null（与 appendUserEntry 同惯例：entry 是新轮
+   * 输入，Turn.inputEntryId 反向关联）；id = 入队时预分配的 entryId（D-2 同源）。
+   */
+  appendSteerEntryAtDrain(item: SteerItem, at?: string): Entry {
+    return this.pushEntry("user", item.text, null, true, at, item.entryId, undefined, undefined, item.source);
   }
 
   /**
@@ -130,12 +143,16 @@ export class Session {
     return this.pushEntry("user", text, this.currentTurn?.id ?? null, true, at, undefined, instanceId);
   }
 
-  private steerEntry(text: string, at: string | undefined, source: SteerSource | undefined, turnId: string | null): Entry {
-    // source 落 Entry（快照/投影行往返携带）+ SteerQueue 项（事件载荷与
-    // SQLite steer_queue.source 列贯通，T11a）；缺省 = 用户输入语义
-    const entry = this.pushEntry("user", text, turnId, true, at, undefined, undefined, undefined, source);
-    this.steerQueue.enqueue({ entryId: entry.id, text, ...(source !== undefined ? { source } : {}) });
-    return entry;
+  /** 注入入队（applySteer/restoreSteer 共用）：入队前做空文本校验（与
+   *  Entry.create 同口径——落盘延迟到 drain，校验不能随之延迟）；id 预分配
+   * （D-2：steer.queued 事件/回执/drain 落盘同源；abort 丢弃成空洞无害）。 */
+  private enqueueSteer(text: string, source: SteerSource | undefined): string {
+    if (text.trim().length === 0) {
+      throw new DomainError("内容不能为空");
+    }
+    const entryId = this.reserveEntryId();
+    this.steerQueue.enqueue({ entryId, text, ...(source !== undefined ? { source } : {}) });
+    return entryId;
   }
 
   private pushEntry(
@@ -323,8 +340,13 @@ export class Session {
       s.turns.push(Turn.create({ ...t }));
     }
     s.steerQueueFrom(snapshot.pendingSteer);
-    // 计数器从数据推导（对任意来源的快照稳健），不依赖快照额外字段
-    s.nextEntrySeq = s.entries.reduce(maxSeq("e"), 0) + 1;
+    // 计数器从数据推导（对任意来源的快照稳健），不依赖快照额外字段。
+    // pendingSteer 预分配 id 必须纳入下界（drain 落盘语义：队列项持有未来
+    // entry 的 id——跳过它会让恢复后新分配 id 与队列项冲突）
+    s.nextEntrySeq = Math.max(
+      s.entries.reduce(maxSeq("e"), 0),
+      snapshot.pendingSteer.reduce((acc, item) => maxSeq("e")(acc, { id: item.entryId }), 0),
+    ) + 1;
     s.nextTurnSeq = s.turns.reduce(maxSeq("t"), 0) + 1;
     // open turn（generating/toolRunning）恢复后仍是 open——由恢复方决定收口方式
     s.currentTurn = [...s.turns].reverse().find((t) => t.status === "generating" || t.status === "toolRunning") ?? null;

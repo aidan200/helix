@@ -502,6 +502,46 @@ html.light .bubble code.inline { color: var(--accent); }
 .system-inject .si-text { color: var(--text); min-width: 0; word-break: break-word; }
 .system-inject .si-state { flex-shrink: 0; font-size: var(--text-micro); color: var(--text-dim); white-space: nowrap; }
 
+/* ═══ steer 队列坞（drain 落盘语义的 queued 观察面；左下角 absolute 钉
+   .msg-flow-wrap——E-89 教训勿 sticky 驻滚动容器；与 WorkPhaseDot 右下对称）═══ */
+.steer-dock {
+  position: absolute; left: 12px; bottom: 12px; z-index: 5;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  max-width: min(420px, 60%);
+}
+.steer-dock .sdq-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgb(var(--violet-rgb) / 0.4); background: rgb(var(--violet-rgb) / 0.1);
+  font-size: var(--text-micro); color: var(--violet); letter-spacing: 0.04em;
+}
+.steer-dock .sdq-toggle:hover { border-color: rgb(var(--violet-rgb) / 0.65); background: rgb(var(--violet-rgb) / 0.16); }
+.steer-dock .sdq-toggle .q-dot { width: 5px; height: 5px; border-radius: 999px; background: currentColor; animation: hud-pulse 2s ease-in-out infinite; }
+.steer-dock .sdq-list {
+  display: flex; flex-direction: column; gap: 4px; width: 100%;
+  padding: 6px; border-radius: 8px;
+  border: 1px solid var(--edge); background: var(--panel);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+  animation: log-rise 0.2s ease-out;
+}
+.steer-dock .sdq-item {
+  display: flex; align-items: baseline; gap: 8px;
+  border-left: 2px solid rgb(var(--violet-rgb) / 0.55);
+  background: rgb(var(--violet-rgb) / 0.04);
+  border-radius: 0 6px 6px 0;
+  padding: 5px 8px; font-size: var(--text-body);
+}
+.steer-dock .sdq-item[data-source="closure"] { border-left-color: rgb(var(--warning-rgb) / 0.55); background: rgb(var(--warning-rgb) / 0.04); }
+.steer-dock .sdq-item[data-source="progress"] { border-left-color: rgb(var(--accent-rgb) / 0.55); background: rgb(var(--accent-rgb) / 0.04); }
+.steer-dock .sdq-src {
+  flex-shrink: 0; padding: 1px 6px; border-radius: 999px;
+  font-size: var(--text-micro); letter-spacing: 0.04em; white-space: nowrap;
+  border: 1px solid rgb(var(--warning-rgb) / 0.4); background: rgb(var(--warning-rgb) / 0.1); color: var(--warning);
+}
+.steer-dock .sdq-src.progress { border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.1); color: var(--accent); }
+.steer-dock .sdq-text { color: var(--text); min-width: 0; word-break: break-word; }
+.steer-dock .sdq-state { flex-shrink: 0; margin-left: auto; font-size: var(--text-micro); color: var(--text-dim); white-space: nowrap; }
+
 /* ═══ 工具调用卡（F(7).2 三态，tokens.md 14 节形态契约）═══ */
 .tool-card {
   width: 100%; border-radius: 8px; border: 1px solid rgb(var(--accent-rgb) / 0.2);

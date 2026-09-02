@@ -77,10 +77,10 @@ describe("TP-CL8-1：四类状态经 repository 存取重建", () => {
 
       const restored = await repo.restore("s-cl8-1");
       expect(restored).toBeDefined();
-      // ① 会话聚合（Entry 树/轮次）
+      // ① 会话聚合（Entry 树/轮次）——drain 落盘语义：queued steer 不进
+      // entries（e2 是队列项预分配 id），drain 时才落时间轴
       expect(restored!.session.entries.filter((e): e is NonNullable<typeof restored>["session"]["entries"][number] & { id: string; role: "user" | "assistant"; text: string; isSteer: boolean } => "role" in e).map((e) => [e.id, e.role, e.text, e.isSteer])).toEqual([
         ["e1", "user", "跑个命令", false],
-        ["e2", "user", "改用 grep", true],
       ]);
       expect(restored!.session.turns[0]!.status).toBe("generating");
       // ② agent 生命周期

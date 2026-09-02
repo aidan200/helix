@@ -2,8 +2,9 @@
  * P-2 TasksPage —— 任务页（列表 + 详情全状态；T3.1，CL-3 F3.1~F3.6 +
  * CL-1.A7 零创建）。
  *
- * 结构（AppLayout 壳，四槽契约）：headerLeft = 「任务」页名；headerRight =
- * 主题切换（复用全局 helix-theme 键）；sidebar = 左栏 380px 任务列表
+ * 结构（AppLayout 壳，四槽契约）：headerLeft = 「任务」页名；headerRight 无
+ * （主题切换归全局导航栏 IconRail 单钮，页面级不重复）；sidebar = 左栏
+ * 380px 任务列表
  * （状态 seg + 项目 seg 过滤 / 全局平铺运行中置顶）；children = 右区详情
  * （头 + 进度/任务结果双 tab）。全局导航（会话/项目/任务）由 IconRail
  * 页面域承载（R-1 壳层口径）。
@@ -38,7 +39,6 @@ import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
-import { useTheme } from "@/shared/ui/theme";
 import { cn } from "@/shared/lib/cn";
 import {
   createTasksPageState,
@@ -55,7 +55,6 @@ import { EmptyPanel, TaskSkeleton } from "./P-2-task-atoms";
 const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; onOpenProject: () => void }) {
   const { t } = useI18n();
   const toast = useToast();
-  const { theme, setTheme } = useTheme();
   const {
     state: session,
     sendTaskList,
@@ -292,16 +291,6 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
   return (
     <AppLayout
       headerLeft={<h1 className="tk-page-title">{t("tk.title")}</h1>}
-      headerRight={
-        <button
-          type="button"
-          className="hud-btn hud-btn-ghost kg-btn-sm"
-          data-theme-toggle
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-        >
-          {theme === "dark" ? "LIGHT" : "DARK"}
-        </button>
-      }
       sidebar={
         <TaskListPane
           view={view}

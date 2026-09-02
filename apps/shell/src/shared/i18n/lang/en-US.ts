@@ -90,6 +90,8 @@ export const enUS = {
       closureBadge: "CLOSURE",
       progressBadge: "PROGRESS",
       directedChip: "steer → {id}",
+      dockTitle: "{n} injection(s) queued",
+      dockPending: "confirming",
     },
     restore: {
       toast: "Session restored",
@@ -823,8 +825,6 @@ export const enUS = {
     },
     // ── settings section (W4; design §2.3) ──
     settings: {
-      nav: "Workspace",
-      title: "Workspace",
       currentLabel: "Current binding",
       unbound: "Not bound",
       switchAction: "Switch workspace",

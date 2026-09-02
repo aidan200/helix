@@ -39,32 +39,51 @@ export const CHAT_EVENT_TYPES = [
   "agent.state.changed",
 ] as const;
 
-/** steer.queued：把最早的未确认本地 echo 换成 daemon entryId（确认对账）。
- *  v0.3（CL-3 契约 §3.2）：定向 steer 帧信封挂 instanceId=目标——echo 匹配
- *  限定同目标（缺省/main 帧只认无 instanceId 的主线 echo，防并发 echo 错位）。 */
-function confirmSteerEcho(entries: EntryDto[], entryId: string, instanceId?: string, source?: SteerSource): EntryDto[] {
-  const idx = entries.findIndex(
-    (e) =>
-      e.kind === "message" &&
-      e.id.startsWith(LOCAL_PREFIX) &&
-      e.steerState === "queued" &&
-      (instanceId === undefined ? e.instanceId === undefined : e.instanceId === instanceId),
-  );
-  if (idx === -1) return entries; // 无 echo（他端发送等场景）：等快照对账
-  const next = entries.slice();
-  const echo = next[idx] as MessageEntryDto;
-  // source 透传（T11b：closure/progress 徽标变体依据；缺省不携带键 = 老事件按 user）
-  next[idx] = { ...echo, id: entryId, ...(source !== undefined ? { source } : {}) };
-  return next;
+/** steer.queued：主线 echo 对账——队列坞最早未确认项换 daemon 预分配
+ *  entryId（drain 落盘语义：queued 不上时间轴，对账面 = 队列坞非 entries）。
+ *  定向 steer（信封 instanceId=目标）仍走 entries echo 对账（定向即时落
+ *  时间轴，不经主线队列）。 */
+function confirmSteerEcho(
+  s: SessionState,
+  entryId: string,
+  instanceId?: string,
+  source?: SteerSource,
+): SessionState {
+  // 定向分支（entries echo；契约 §3.2 Q-3a）
+  if (instanceId !== undefined) {
+    const idx = s.entries.findIndex(
+      (e) =>
+        e.kind === "message" &&
+        e.id.startsWith(LOCAL_PREFIX) &&
+        e.steerState === "queued" &&
+        e.instanceId === instanceId,
+    );
+    if (idx === -1) return s; // 无 echo（他端发送等场景）：等快照对账
+    const next = s.entries.slice();
+    const echo = next[idx] as MessageEntryDto;
+    next[idx] = { ...echo, id: entryId, ...(source !== undefined ? { source } : {}) };
+    return { ...s, entries: next };
+  }
+  // 主线分支（队列坞 echo）
+  const idx = s.steerQueue.findIndex((item) => item.id.startsWith(LOCAL_PREFIX) && !item.confirmed);
+  if (idx === -1) return s; // 无 echo：等快照对账
+  const next = s.steerQueue.slice();
+  next[idx] = { ...next[idx]!, id: entryId, confirmed: true, ...(source !== undefined ? { source } : {}) };
+  return { ...s, steerQueue: next };
 }
 
-/** steer.drained：徽标 queued → drained（SM-3 第二态）；source 同源更新（T11b）。 */
-function drainSteer(entries: EntryDto[], entryId: string, source?: SteerSource): EntryDto[] {
-  return entries.map((e) =>
+/** steer.drained：队列坞出账（entryId 匹配移除）；entries 旧数据（旧版本落盘
+ *  的 queued entry）徽标两态更新保留（快照重建前的实时兼容面）。 */
+function drainSteer(s: SessionState, entryId: string, source?: SteerSource): SessionState {
+  const steerQueue = s.steerQueue.some((item) => item.id === entryId)
+    ? s.steerQueue.filter((item) => item.id !== entryId)
+    : s.steerQueue;
+  const entries = s.entries.map((e) =>
     e.kind === "message" && e.id === entryId && e.steerState === "queued"
       ? { ...e, steerState: "drained" as const, ...(source !== undefined ? { source } : {}) }
       : e,
   );
+  return { ...s, steerQueue, entries };
 }
 
 export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: number): SessionState {
@@ -136,20 +155,17 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
       return { ...s, streaming: null, engineRetrying: null, currentTurnId: null };
     case "steer.queued": {
       // 定向帧（T2.3：信封 instanceId=目标）只认同目标 echo；缺省/主实例 id
-      //（kind 判别）= 主线 echo（匹配本地无 instanceId 的主线 echo）
+      //（kind 判别）= 主线 echo（队列坞对账）
       const iid = event.instanceId;
-      return {
-        ...s,
-        entries: confirmSteerEcho(
-          s.entries,
-          event.payload.entryId,
-          iid !== undefined && !isMainChannel(iid, s.mainInstanceId) ? iid : undefined,
-          event.payload.source,
-        ),
-      };
+      return confirmSteerEcho(
+        s,
+        event.payload.entryId,
+        iid !== undefined && !isMainChannel(iid, s.mainInstanceId) ? iid : undefined,
+        event.payload.source,
+      );
     }
     case "steer.drained":
-      return { ...s, entries: drainSteer(s.entries, event.payload.entryId, event.payload.source) };
+      return drainSteer(s, event.payload.entryId, event.payload.source);
     // 终验热修：引擎/模型调用失败 → 错误卡片数据（provider 原文透传；
     // 随后的 turn.completed 收流，新 turn.started 清除——瞬态不落盘）
     case "engine.error":

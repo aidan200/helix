@@ -97,6 +97,8 @@ export const zhCN = {
       closureBadge: "CLOSURE",
       progressBadge: "PROGRESS",
       directedChip: "steer → {id}",
+      dockTitle: "{n} 条注入排队中",
+      dockPending: "待确认",
     },
     restore: {
       toast: "会话已恢复",
@@ -830,8 +832,6 @@ export const zhCN = {
     },
     // ── 设置页分区（W4；设计稿 §2.3）──
     settings: {
-      nav: "工作空间",
-      title: "工作空间",
       currentLabel: "当前绑定",
       unbound: "未绑定",
       switchAction: "切换工作空间",
