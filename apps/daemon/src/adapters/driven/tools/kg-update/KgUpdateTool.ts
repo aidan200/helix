@@ -31,6 +31,10 @@ import type {
  * - batchCreateNodes(nodes[])（T2.1，O-5 裁决）：批量建点——LLM 按写入量
  *   自选单条/批量，两 op 并存且结果等价（CL-2-T14）；逐项自动发号，
  *   任一项失败整批拒绝（先全量校验后单事务）。
+ * - declareAnchors(nodeId, anchors[])：存量节点补锚声明——写面早已支持
+ *   （createNode 组合锚第二笔内部在用），工具面补齐；目标定位同
+ *   supersede（locate 唯一命中不猜）；anchor_decl 复合主键幂等去重，
+ *   同锚重声明无副作用。
  *
  * 与 ClosureDto.findings 收口通道（T4.1）非竞争关系：共用同一 API 入口，
  * 本工具承载 edit 现场的即时兑现（O-2 决策消解）。
@@ -45,10 +49,10 @@ const kgUpdateParameters = {
   properties: {
     op: {
       type: "string",
-      enum: ["createNode", "supersede", "updateNode", "batchCreateNodes", "proposeCandidate", "decideCandidate"],
+      enum: ["createNode", "supersede", "updateNode", "batchCreateNodes", "declareAnchors", "proposeCandidate", "decideCandidate"],
       description:
         "操作：createNode 新知识落账 / supersede 推翻既有节点 / updateNode 补全既有节点元数据（仅限 scene 等元数据补全）/ " +
-        "batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）/ " +
+        "batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）/ declareAnchors 存量节点补锚声明（幂等）/ " +
         "proposeCandidate 提候选 / decideCandidate 裁决候选",
     },
     // ── createNode ──
@@ -74,7 +78,7 @@ const kgUpdateParameters = {
     },
     anchors: {
       type: "array",
-      description: "createNode 锚声明（可选）：[{scopeKind: global|path|symbol, pattern}]（global 不携带 pattern）",
+      description: "createNode/declareAnchors 锚声明：[{scopeKind: global|path|symbol, pattern}]（global 不携带 pattern）",
       items: {
         type: "object",
         properties: {
@@ -141,8 +145,8 @@ const kgUpdateParameters = {
       },
       additionalProperties: false,
     },
-    // ── supersede ──
-    nodeId: { type: "string", description: "supersede/updateNode 目标节点 id（取自 kg search 返回行 / 附着块指针）" },
+    // ── supersede / updateNode / declareAnchors ──
+    nodeId: { type: "string", description: "supersede/updateNode/declareAnchors 目标节点 id（取自 kg search 返回行 / 附着块指针）" },
     reason: { type: "string", description: "supersede 推翻理由（入 change_log 审计链）" },
     replacement: {
       type: "object",
@@ -235,7 +239,8 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       "可选 replacement 草稿（新号自动发放）。createNode：沉淀新规则/实体（自动发号，可选锚声明）；" +
       "scene 适用场景必填（「本规则适用于：改动 X 类文件 / 做 Y 类决策前」，缺了写不进去）。" +
       "updateNode：补全既有节点元数据（scene 缺失直补——kg-review 体检通道）；仅限 scene 等元数据补全，" +
-      "内容改动走候选人审。" +
+      "内容改动走候选人审。declareAnchors：存量节点补锚声明（nodeId + anchors 数组，幂等去重——" +
+      "人审重写/体检补锚的现场通道）。" +
       "proposeCandidate/decideCandidate：候选台账操作（SubAgent 闭环发现经 findings 上报自动落候选，" +
       "不得直接调用候选 op——工具注册面管控谁可见本工具，描述不做角色枚举，W-R6）。" +
       "iterationId 缺省回落目标库最近迭代锚（change_log 末行），无锚落空不报错（P0 ④），显式传参仅作覆盖；" +
@@ -257,6 +262,9 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       if (op === "batchCreateNodes") {
         return text(execBatchCreateNodes(deps, args));
       }
+      if (op === "declareAnchors") {
+        return text(execDeclareAnchors(deps, args));
+      }
       if (op === "proposeCandidate") {
         return text(execProposeCandidate(deps, args));
       }
@@ -264,7 +272,7 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
         return text(execDecideCandidate(deps, args));
       }
       throw new Error(
-        `未知 op "${String(op)}"（合法：createNode / supersede / updateNode / batchCreateNodes / proposeCandidate / decideCandidate）`,
+        `未知 op "${String(op)}"（合法：createNode / supersede / updateNode / batchCreateNodes / declareAnchors / proposeCandidate / decideCandidate）`,
       );
     },
   };
@@ -368,6 +376,27 @@ function execUpdateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): 
   writeOrThrow(deps, project, createOp(deps, args, { kind: "updateNode", iterationId, nodeId, patch }));
   const fields = Object.keys((patch ?? {}) as Record<string, unknown>).join("/");
   return `已更新节点 ${nodeId}（字段：${fields}；审计行已入 change_log）`;
+}
+
+function execDeclareAnchors(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
+  const nodeId = requireString(args, "nodeId", "（取自 kg search 返回行 / 附着块指针）") as NodeId;
+  const anchors = anchorsOf(args["anchors"]);
+  if (anchors === null || anchors.length === 0) {
+    throw new Error("declareAnchors 需要 anchors（非空数组 [{scopeKind, pattern}]——path→glob；symbol→path#symbol；global 不携带 pattern）");
+  }
+  const hits = deps.query.locate(nodeId);
+  if (hits.length === 0) {
+    throw new Error(`节点 ${nodeId} 不存在（先 kg search 确认；id 取自返回行指针）`);
+  }
+  if (hits.length > 1) {
+    throw new Error(
+      `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}——不支持跨项目猜测，请人工确认目标项目`,
+    );
+  }
+  const { project } = hits[0]!;
+  const iterationId = resolveIterationId(deps, args, project);
+  writeOrThrow(deps, project, createOp(deps, args, { kind: "declareAnchors", iterationId, nodeId, anchors }));
+  return `已声明锚 ${nodeId}（${anchors.length} 条，幂等去重；审计行已入 change_log）`;
 }
 
 /** 写结果归一：失败抛结构化错误（code+message+path 全量透传给 agent）。 */
