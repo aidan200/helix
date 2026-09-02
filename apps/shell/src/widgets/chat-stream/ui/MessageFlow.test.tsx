@@ -216,6 +216,45 @@ describe("MessageFlow 挂载（三态分流；消费 T4.1 槽位）", () => {
     expect(document.querySelector('[data-target="agent-s1"]')).not.toBeNull();
     expect(screen.getByText("主线 steer")).toBeTruthy(); // 主实例 steer = 普通气泡
   });
+
+  it("系统注入细条化：主实例 source=closure/progress 条目渲染细条（非气泡）；source=user/缺省保持气泡", () => {
+    // 时间轴语义分层：气泡 = 人说的话，细条 = 系统的注入（closure/progress）。
+    // source 判别优先于 instanceId——主实例的 closure/progress 条目同样细条化
+    const snap: EventEnvelope = {
+      v: 0,
+      type: "session.snapshot",
+      payload: {
+        snapshot: {
+          sessionId: "s1",
+          model: "claude-sonnet-4-5",
+          agentState: "idle",
+          revision: 2,
+          entries: [
+            { kind: "message", id: "u-1", role: "user", content: "用户原话", ts: 1, instanceId: "agent-m1" },
+            { kind: "message", id: "c-1", role: "user", content: "agent-3 closure: 收口摘要", ts: 2, source: "closure", instanceId: "agent-m1" },
+            { kind: "message", id: "p-1", role: "user", content: "进展报告中", ts: 3, source: "progress", steerState: "drained", instanceId: "agent-m1" },
+            { kind: "message", id: "s-1", role: "user", content: "手动 steer", ts: 4, source: "user", steerState: "queued", instanceId: "agent-m1" },
+          ],
+          instances: [
+            { instanceId: "agent-m1", kind: "main", profileKind: "main-session", state: "running", createdAt: "2026-08-16T14:00:00.000Z" },
+          ],
+        },
+      },
+    };
+    stateRef.current = [welcome, snap].reduce(
+      (s, e) => sessionReducer(s, { type: "event", event: e }),
+      createInitialSessionState(),
+    );
+    ui(<MessageFlow />);
+    const injects = document.querySelectorAll('[data-kind="system-inject"]');
+    expect(injects).toHaveLength(2);
+    expect(document.querySelector('[data-source="closure"]')!.textContent).toContain("agent-3 closure: 收口摘要");
+    expect(document.querySelector('[data-source="progress"]')!.textContent).toContain("进展报告中");
+    // 细条不披气泡形态；用户原话与手动 steer（source=user）仍是气泡
+    expect(document.querySelector('[data-source="closure"]')!.closest(".msg")).toBeNull();
+    expect(screen.getByText("用户原话").closest(".msg")).not.toBeNull();
+    expect(screen.getByText("手动 steer").closest(".msg")).not.toBeNull();
+  });
 });
 
 // ── H-2 热修：滚动语义（去滚动触发 + 切换贴底 + 前插补偿回归）────────

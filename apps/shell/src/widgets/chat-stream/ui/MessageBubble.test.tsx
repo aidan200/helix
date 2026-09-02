@@ -1,16 +1,14 @@
 // @vitest-environment jsdom
 /**
- * MessageBubble steer/closure 徽标变体测试（T11b：closure/steer source 显示区分⑤）。
+ * MessageBubble steer 徽标测试。
  *
- * 钉四态：
- * - source="closure" → CLOSURE 徽标（amber 新族，与用户 steer violet 脉冲视觉分离）；
- *   idle 注入（无 steerState）也带 CLOSURE 标记（实时帧 MessageCompletedPayload.source
- *   透传后即时可见）。
- * - source="progress" → PROGRESS 徽标。
- * - source="user" / 缺省（老数据）→ 既有 STEER 徽标两态不变（回归钉）。
+ * 时间轴语义分层后（系统注入细条化）：source=closure/progress 条目不再进入
+ * 气泡渲染面（MessageFlow EntryView 分发为 SystemInjectBar 细条），气泡徽标
+ * 只剩用户 steer 两态（queued/drained）。本文件钉用户 steer 回归与
+ * 「无 steerState 无徽标」边界。
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import type { MessageEntryDto } from "@helix/protocol";
 import MessageBubble from "./MessageBubble";
@@ -35,48 +33,8 @@ function ui(node: React.ReactElement) {
   return render(<I18nProvider>{node}</I18nProvider>);
 }
 
-describe("MessageBubble 徽标 source 变体（T11b）", () => {
-  it("source=closure 且 idle 注入（无 steerState）→ CLOSURE 徽标（无 STEER 字样）", () => {
-    const { container } = ui(<MessageBubble entry={entry({ source: "closure" })} />);
-    const badge = container.querySelector(".steer-badge");
-    expect(badge).not.toBeNull();
-    expect(badge!.className).toContain("closure");
-    expect(badge!.textContent).toContain("CLOSURE");
-    expect(badge!.textContent).not.toContain("STEER");
-  });
-
-  it("source=closure + steerState=queued（running 注入）→ CLOSURE 徽标 + 已入队", () => {
-    const { container } = ui(
-      <MessageBubble entry={entry({ source: "closure", steerState: "queued" })} />,
-    );
-    const badge = container.querySelector(".steer-badge");
-    expect(badge!.className).toContain("closure");
-    expect(badge!.textContent).toContain("CLOSURE");
-    expect(badge!.textContent).toContain("已入队");
-  });
-
-  it("source=closure + steerState=drained → CLOSURE 徽标 + 已注入", () => {
-    const { container } = ui(
-      <MessageBubble entry={entry({ source: "closure", steerState: "drained" })} />,
-    );
-    const badge = container.querySelector(".steer-badge");
-    expect(badge!.className).toContain("closure");
-    expect(badge!.className).toContain("drained");
-    expect(badge!.textContent).toContain("CLOSURE");
-    expect(badge!.textContent).toContain("已注入");
-  });
-
-  it("source=progress + steerState=queued → PROGRESS 徽标", () => {
-    const { container } = ui(
-      <MessageBubble entry={entry({ source: "progress", steerState: "queued" })} />,
-    );
-    const badge = container.querySelector(".steer-badge");
-    expect(badge!.className).toContain("progress");
-    expect(badge!.textContent).toContain("PROGRESS");
-    expect(badge!.textContent).toContain("已入队");
-  });
-
-  it("回归钉：source=user + steerState=queued → 既有 STEER 徽标不变（无 CLOSURE/PROGRESS）", () => {
+describe("MessageBubble 用户 steer 徽标（两态）", () => {
+  it("回归钉：source=user + steerState=queued → STEER 徽标（无 CLOSURE/PROGRESS）", () => {
     const { container } = ui(
       <MessageBubble entry={entry({ source: "user", steerState: "queued" })} />,
     );

@@ -30,6 +30,7 @@ import MessageBubble from "./MessageBubble";
 import SubAgentCard from "./SubAgentCard";
 import ToolCard from "@/shared/ui/ToolCard";
 import DirectedSteer from "@/shared/ui/DirectedSteer";
+import SystemInjectBar from "@/shared/ui/SystemInjectBar";
 import SessionEmpty from "./SessionEmpty";
 import DraftEmpty from "./P-1-draft-empty";
 import LoadEarlier from "./P-1s-load-earlier";
@@ -46,6 +47,12 @@ function EntryView({ entry, mainInstanceId }: { entry: EntryDto; mainInstanceId:
     case "tool-call":
       return <ToolCard entry={entry} />;
     case "message":
+      // 时间轴语义分层：气泡 = 人说的话，细条 = 系统的注入。source=closure/
+      // progress 条目（SubAgent 收口/进展报告注入）渲染系统注入细条——判别
+      // 优先于定向 steer（定向 entry source 缺省，两条件不重叠）
+      if (entry.role === "user" && (entry.source === "closure" || entry.source === "progress")) {
+        return <SystemInjectBar source={entry.source} text={entry.content} steerState={entry.steerState} />;
+      }
       // CL-3 定向 steer（契约 §3.2 Q-3a 时间轴侧）：isSteer（DTO 面 = user +
       // steerState 携带）且非主实例（kind 判别：isMainChannel 单点，含 legacy
       // 缺省/"main" 推断）→ 定向细条（非气泡；判别不用 steerState——定向

@@ -475,6 +475,33 @@ html.light .bubble code.inline { color: var(--accent); }
 }
 .steer-directed .sd-text { color: var(--text); min-width: 0; word-break: break-word; }
 
+/* ═══ 系统注入细条（时间轴语义分层：气泡=人说的话，细条=系统的注入；
+   closure/progress 条目非气泡——与 .steer-directed 同族形态，色面随源分族）═══ */
+.system-inject {
+  display: flex; align-items: baseline; gap: 8px;
+  border-left: 2px solid rgb(var(--warning-rgb) / 0.55);
+  background: rgb(var(--warning-rgb) / 0.04);
+  border-radius: 0 6px 6px 0;
+  padding: 6px 10px; font-size: var(--text-body);
+  animation: log-rise 0.24s ease-out;
+}
+.system-inject.progress {
+  border-left-color: rgb(var(--accent-rgb) / 0.55);
+  background: rgb(var(--accent-rgb) / 0.04);
+}
+.system-inject .si-chip {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 6px; border-radius: 999px;
+  border: 1px solid rgb(var(--warning-rgb) / 0.4); background: rgb(var(--warning-rgb) / 0.1);
+  font-size: var(--text-micro); color: var(--warning); letter-spacing: 0.04em; white-space: nowrap;
+}
+.system-inject.progress .si-chip {
+  border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.1);
+  color: var(--accent);
+}
+.system-inject .si-text { color: var(--text); min-width: 0; word-break: break-word; }
+.system-inject .si-state { flex-shrink: 0; font-size: var(--text-micro); color: var(--text-dim); white-space: nowrap; }
+
 /* ═══ 工具调用卡（F(7).2 三态，tokens.md 14 节形态契约）═══ */
 .tool-card {
   width: 100%; border-radius: 8px; border: 1px solid rgb(var(--accent-rgb) / 0.2);
