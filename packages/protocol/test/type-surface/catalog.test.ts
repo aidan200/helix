@@ -382,7 +382,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "killed:agent-1:failed",
       // v0.1 通道族
       "think-delta:agent-1:思考增量半句",
-      "think-done:tk-1:900",
+      "think-done:tk-1:4200",
       "compaction:cp-1:340000:20000:-:-", // v0.1 帧不带扩字段（additive 兼容）
       "usage:main:11640:turn",
       // v0.2 新增

@@ -170,7 +170,7 @@ describe("entries：EntryDto 判别式联合与快照 additive + 通道族承载
   test("switch(entry.kind) 四分支窄化：thinking/compaction 变体可描述", () => {
     expect(snapshotV01.entries.map(describeEntry)).toEqual([
       "msg:assistant:委托完成",
-      "thinking:main:900",
+      "thinking:main:4200",
       "compaction:main:340000:20000:0.0213",
     ]);
     expect(badThinkingEntry.kind).toBe("thinking");
