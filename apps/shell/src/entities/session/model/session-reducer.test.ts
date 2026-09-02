@@ -531,7 +531,7 @@ describe("selectWorkPhase 工作段位派生（aborting > thinking > tool > repl
     const s3 = run([
       running,
       thinkDelta("推理…"),
-      ev({ v: 0, type: "thinking.completed", payload: { entry: { id: "t1", kind: "thinking", instanceId: "main", text: "推理…", durationMs: 100, reasoningTokens: 10, createdAt: "2026-09-02T00:00:00.000Z" } } }),
+      ev({ v: 0, type: "thinking.completed", payload: { entry: { id: "t1", kind: "thinking", instanceId: "main", text: "推理…", durationMs: 100, createdAt: "2026-09-02T00:00:00.000Z" } } }),
       textDelta("正文"),
     ]);
     expect(selectWorkPhase(s3)).toBe("reply");

@@ -146,7 +146,6 @@ describe("Session.isEmpty 草稿判定（TP-1.2a：任何条目皆无才空，�
       instanceId: "main",
       text: "推理中…",
       durationMs: 120,
-      reasoningTokens: 12,
       createdAt: "2026-08-21T00:00:00.000Z",
     });
     expect(s.isEmpty()).toBe(false);

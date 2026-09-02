@@ -36,7 +36,6 @@ function thinkEntry(over: Partial<ThinkingEntryDto> = {}): ThinkingEntryDto {
     instanceId: "main",
     text: "盘点当前态：并发预算 3，前三个立即执行，依赖扫描进 FIFO 队列。",
     durationMs: 12_400,
-    reasoningTokens: 847,
     createdAt: "2026-08-16T14:02:00+08:00",
     ...over,
   };

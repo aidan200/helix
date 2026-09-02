@@ -95,7 +95,6 @@ const thinkDone = (iid: string): SessionAction =>
         instanceId: iid,
         text: "thinking full text",
         durationMs: 6_000,
-        reasoningTokens: 412,
         createdAt: "2026-08-16T14:02:30.000Z",
       },
     },

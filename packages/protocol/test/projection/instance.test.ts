@@ -46,7 +46,6 @@ const think = (id: string, createdAt: string, instanceId = "main"): ThinkingEntr
   instanceId,
   text: `thinking ${id}`,
   durationMs: 100,
-  reasoningTokens: 10,
   createdAt,
 });
 const compact = (id: string, createdAt: string): EntryDto => ({

@@ -129,7 +129,7 @@ export const zhCN = {
     },
     think: {
       streaming: "思考中",
-      done: "已思考 {s}s · {n} tokens",
+      done: "已思考 {s}s",
     },
     phase: {
       thinking: "思考中",

@@ -23,7 +23,6 @@ const thinkingEntry: ThinkingEntryData = {
   instanceId: "main",
   text: "思考全文",
   durationMs: 120,
-  reasoningTokens: 7,
   createdAt: new Date(2000).toISOString(),
 };
 
@@ -59,7 +58,6 @@ describe("T3.1 DtoMapper：通道族事件 → WS 帧", () => {
           instanceId: "main",
           text: "思考全文",
           durationMs: 120,
-          reasoningTokens: 7,
           createdAt: new Date(2000).toISOString(),
         },
       },

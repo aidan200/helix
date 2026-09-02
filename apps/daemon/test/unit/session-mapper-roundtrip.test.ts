@@ -180,7 +180,7 @@ describe("seedMessagesOf：按 mainInstanceId 过滤 + 只回填 message 条目"
   test("跳过 SubAgent 条目 / thinking / compaction，只回填 main 的 user/assistant 且保序", () => {
     const entries: SessionEntryData[] = [
       { id: "e1", role: "user", text: "问题", turnId: "t1", isSteer: false, instanceId: "agent-main", createdAt: "2024-01-01T00:00:01.000Z" },
-      { id: "th1", kind: "thinking", instanceId: "agent-main", text: "思考", durationMs: 10, reasoningTokens: 0, createdAt: "2024-01-01T00:00:02.000Z" },
+      { id: "th1", kind: "thinking", instanceId: "agent-main", text: "思考", durationMs: 10, createdAt: "2024-01-01T00:00:02.000Z" },
       { id: "e2", role: "assistant", text: "回答", turnId: "t1", isSteer: false, instanceId: "agent-main", createdAt: "2024-01-01T00:00:03.000Z" },
       { id: "e3", role: "assistant", text: "子 agent 输出", turnId: null, isSteer: false, instanceId: "agent-sub", createdAt: "2024-01-01T00:00:04.000Z" },
       { id: "c1", kind: "compaction", instanceId: "agent-main", tokensBefore: 100, tokensAfter: 50, summary: "摘要", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 2, cost: 0 }, createdAt: "2024-01-01T00:00:05.000Z" },

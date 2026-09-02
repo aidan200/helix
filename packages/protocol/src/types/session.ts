@@ -28,7 +28,6 @@ export interface ThinkingEntryDto {
   /** 全文（完成态） */
   text: string;
   durationMs: number;
-  reasoningTokens: number;
   createdAt: string;
 }
 

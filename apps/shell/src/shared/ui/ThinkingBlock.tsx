@@ -16,7 +16,6 @@
 import { memo, useState } from "react";
 import type { ThinkingEntryDto } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
-import { fmtTokens } from "@/shared/lib/format";
 import FlowBar from "./FlowBar";
 
 /**
@@ -37,8 +36,9 @@ export const ThinkingLiveView = memo(function ThinkingLiveView({ text }: { text:
   );
 });
 
-/** complete 态：折叠条「💭 已思考 Ns · N tokens」+ 实例 chip（AD-3），
- *  点击展开全文回看；Ns = durationMs/1000 取整秒，N = reasoningTokens 档位。 */
+/** complete 态：折叠条「💭 已思考 Ns」+ 实例 chip（AD-3），
+ *  点击展开全文回看；Ns = durationMs/1000 取整秒（CAND-35：token 消耗
+ *  不再随块显示——账目唯一权威源 usage.recorded，思考条不展示）。 */
 export const ThinkingEntryView = memo(function ThinkingEntryView({
   entry,
 }: {
@@ -53,7 +53,6 @@ export const ThinkingEntryView = memo(function ThinkingEntryView({
       entryId={entry.id}
       title={t("chat.think.done", {
         s: Math.round(entry.durationMs / 1000),
-        n: fmtTokens(entry.reasoningTokens),
       })}
       meta={<span className="who-chip">{entry.instanceId}</span>}
       expanded={expanded}

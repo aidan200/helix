@@ -124,7 +124,7 @@ export const enUS = {
     },
     think: {
       streaming: "Thinking",
-      done: "Thought for {s}s · {n} tokens",
+      done: "Thought for {s}s",
     },
     phase: {
       thinking: "Thinking",

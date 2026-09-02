@@ -66,7 +66,7 @@ export function summarizeEvent(event: EventEnvelope): string {
     case "thinking.stream.delta":
       return `think-delta:${event.payload.instanceId}:${event.payload.delta}`;
     case "thinking.completed":
-      return `think-done:${event.payload.entry.id}:${event.payload.entry.reasoningTokens}`;
+      return `think-done:${event.payload.entry.id}:${event.payload.entry.durationMs}`;
     case "compaction.completed":
       return `compaction:${event.payload.entry.id}:${event.payload.entry.tokensBefore}:${event.payload.entry.tokensAfter}:${event.payload.tailKept ?? "-"}:${event.payload.filesCompacted ?? "-"}`;
     case "usage.recorded":
@@ -390,7 +390,7 @@ export function describeEntry(entry: EntryDto): string {
     case "tool-call":
       return `tool:${entry.name}:${entry.state}${entry.durationMs ? `:${entry.durationMs}ms` : ""}`;
     case "thinking":
-      return `thinking:${entry.instanceId}:${entry.reasoningTokens}`;
+      return `thinking:${entry.instanceId}:${entry.durationMs}`;
     case "compaction":
       return `compaction:${entry.instanceId}:${entry.tokensBefore}:${entry.tokensAfter}:${entry.usage.cost}`;
   }

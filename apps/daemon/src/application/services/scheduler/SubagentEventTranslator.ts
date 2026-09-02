@@ -18,8 +18,8 @@ import type { AgentEngineEvent } from "../../ports/outbound/AgentEnginePort";
  *
  * 【职责】runner 上行的引擎事件 → 领域事件/流式 delta 翻译（thinking 累积 /
  * message 落树含 message_update 流式 / tool 记录 / usage 入账 / engine.error
- * 镜像），持有 **6 个 per-instance Map 写侧**（streamEntryIds / entrySeqs /
- * thinkingStartsMs / pendingThinking / subToolArgs / lastEventAtMs）与
+ * 镜像），持有 **5 个 per-instance Map 写侧**（streamEntryIds / entrySeqs /
+ * thinkingStartsMs / subToolArgs / lastEventAtMs）与
  * entry id 分配（nextEntryId——entrySeqs 状态在此）。
  *
  * 【只产事件，不写聚合】（AD-3 职责回归）：thinking 累积 / message
@@ -27,8 +27,10 @@ import type { AgentEngineEvent } from "../../ports/outbound/AgentEnginePort";
  * 会话投影消费者（SessionProjection）消费事件后落 Session 聚合（SubAgent
  * Entry 进聚合，instanceId 归属；MainAgent 上下文零混入——closure 注入仍是
  * 唯一入口）。事件载荷携完整条目数据（id 为 agent 作用域 `${instanceId}#N`，
- * 与流式 messageId 同源）。流序对齐主线：thinking 块先于消息完成
- * （delta×N → thinking.completed → message.completed → usage）。
+ * entry id 为 agent 作用域 `${instanceId}#N`，
+ * 与流式 messageId 同源）。流序对齐主线（T35 即时化）：thinking_end 即时
+ * 完成（delta×N → thinking.completed），消息完成与账目收口在 message_end
+ * （message.completed → usage）。
  *
  * 【onInstanceClosure 清理序列单点持有】onClosureCleanup()：四个流式/落树
  * 状态 Map 的 delete 序列（streamEntryIds → entrySeqs → thinkingStartsMs →
@@ -54,8 +56,6 @@ export class SubagentEventTranslator {
   private readonly entrySeqs = new Map<string, number>();
   /** 实例 → thinking 块开始时刻（epoch ms；durationMs = start→end）。 */
   private readonly thinkingStartsMs = new Map<string, Map<number, number>>();
-  /** 实例 → 在途 thinking 块（message_end 时关联 reasoningTokens 后产事件）。 */
-  private readonly pendingThinking = new Map<string, { contentIndex: number; text: string; startedMs: number }[]>();
   // ── T3-A 机械计数器（过程监督：进展报告 Δ 数据源；只计数不裁决） ──
   /** 实例 → 工具调用完成累计数（tool_execution_end +1）。 */
   private readonly toolCallsCompleted = new Map<string, number>();
@@ -117,7 +117,6 @@ export class SubagentEventTranslator {
       // 投影落树沿用同一 id）——与主线不同：不触碰会话聚合计数器
       this.streamEntryIds.set(instanceId, this.nextEntryId(instanceId));
       this.thinkingStartsMs.set(instanceId, new Map());
-      this.pendingThinking.set(instanceId, []);
       this.streamCharsInFlight.set(instanceId, 0); // T3-A：新消息流式计数复位
       return;
     }
@@ -151,12 +150,22 @@ export class SubagentEventTranslator {
       return;
     }
     if (event.type === "thinking_end") {
+      // T35 即时化：完成块即时发布（durationMs = start→end 真实墙钟差），
+      // 不再暂存等 message_end 关联 usage（reasoningTokens 已退役，CAND-35 方向②）。
+      if (event.content.trim() === "") return; // 空文本不是语义单元（与主线同口径）
       const starts = this.thinkingStartsMs.get(instanceId);
       const startedMs = starts?.get(event.contentIndex) ?? this.deps.clock.nowMs();
       starts?.delete(event.contentIndex);
-      const pending = this.pendingThinking.get(instanceId) ?? [];
-      pending.push({ contentIndex: event.contentIndex, text: event.content, startedMs });
-      this.pendingThinking.set(instanceId, pending);
+      this.publish(instance, "thinking.completed", {
+        entry: {
+          kind: "thinking",
+          id: this.nextEntryId(instanceId),
+          instanceId,
+          text: event.content,
+          durationMs: Math.max(0, this.deps.clock.nowMs() - startedMs),
+          createdAt: this.deps.clock.now(),
+        },
+      } satisfies ThinkingCompletedPayload);
       return;
     }
     if (event.type === "message_end" && event.role === "assistant") {
@@ -169,25 +178,8 @@ export class SubagentEventTranslator {
       if (event.text.trim() !== "") {
         this.pushTrace(instanceId, { t: this.deps.clock.now(), kind: "assistant", text: event.text.slice(-200) });
       }
-      // ① thinking 块先落（reasoningTokens 关联本消息 usage.reasoning 收口）
-      const reasoning = event.usage?.reasoning ?? 0;
-      for (const block of this.pendingThinking.get(instanceId) ?? []) {
-        if (block.text.trim() === "") continue;
-        this.publish(instance, "thinking.completed", {
-          entry: {
-            kind: "thinking",
-            id: this.nextEntryId(instanceId),
-            instanceId,
-            text: block.text,
-            durationMs: Math.max(0, this.deps.clock.nowMs() - block.startedMs),
-            reasoningTokens: reasoning,
-            createdAt: this.deps.clock.now(),
-          },
-        } satisfies ThinkingCompletedPayload);
-      }
-      this.pendingThinking.delete(instanceId);
-      this.thinkingStartsMs.delete(instanceId);
-      // ② 消息完成（空文本不落——空文本不是语义单元，与主线同口径）
+      // ① thinking 块已在 thinking_end 即时落（T35），此处无 thinking 收口；
+      // 消息完成（空文本不落——空文本不是语义单元，与主线同口径）
       const reserved = this.streamEntryIds.get(instanceId);
       if (event.text.trim() !== "" && reserved !== undefined) {
         this.publish(instance, "message.completed", {
@@ -198,7 +190,7 @@ export class SubagentEventTranslator {
         } satisfies MessageCompletedPayload);
       }
       this.streamEntryIds.delete(instanceId);
-      // ③ turn 入账（事件即账，AD-4——账本投影在 SessionProjection 单点接入；
+      // ② turn 入账（事件即账，AD-4——账本投影在 SessionProjection 单点接入；
       // 工具批中间 message_end(无 usage)/delta 不入账；error 轮零值 usage
       // 不入账（零成本不是真实计费调用，与主线终验热修同口径））
       if (event.usage !== undefined && event.stopReason !== "error") {
@@ -238,16 +230,15 @@ export class SubagentEventTranslator {
 
   /**
    * onInstanceClosure 清理序列（拆分单点持有，原序保持）：
-   * 终态后迟到引擎事件不再产条目事件——四 delete 顺序与拆分前逐行对照
+   * 终态后迟到引擎事件不再产条目事件——三 delete 顺序与拆分前逐行对照
    * （原 SchedulerService L565-568）：streamEntryIds → entrySeqs →
-   * thinkingStartsMs → pendingThinking。调用点次序不得重排（清理 →
+   * thinkingStartsMs。调用点次序不得重排（清理 →
    * 状态机迁移 → 收口链，见门面 onInstanceClosure）。
    */
   onClosureCleanup(instanceId: string): void {
     this.streamEntryIds.delete(instanceId);
     this.entrySeqs.delete(instanceId);
     this.thinkingStartsMs.delete(instanceId);
-    this.pendingThinking.delete(instanceId);
     // T3-A 机械计数器随终态清理（同一清理序列；门面在调用点同步清报告定时器）
     this.toolCallsCompleted.delete(instanceId);
     this.assistantChars.delete(instanceId);

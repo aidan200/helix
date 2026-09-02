@@ -40,7 +40,6 @@ export const thinkingEntry: ThinkingEntryDto = {
   instanceId: "main",
   text: "先查类型面，再扩事件目录",
   durationMs: 4_200,
-  reasoningTokens: 900,
   createdAt: "2026-08-16T12:00:00.000Z",
 };
 

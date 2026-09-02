@@ -119,7 +119,7 @@ const compactionCompleted = (entry: CompactionEntryDto): SessionAction =>
   ev({ v: 0, type: "compaction.completed", payload: { entry } });
 
 function thinkEntry(id: string, instanceId: string, text: string): ThinkingEntryDto {
-  return { kind: "thinking", id, instanceId, text, durationMs: 12_000, reasoningTokens: 847, createdAt: "2026-08-16T14:02:00.000Z" };
+  return { kind: "thinking", id, instanceId, text, durationMs: 12_000, createdAt: "2026-08-16T14:02:00.000Z" };
 }
 
 function compactEntry(id: string, instanceId: string, u: UsageDto): CompactionEntryDto {

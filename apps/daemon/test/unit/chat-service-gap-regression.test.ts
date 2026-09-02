@@ -87,14 +87,12 @@ describe("G3：steer drain 轮 × thinking 交错（三态重置无残留串扰�
     await chat.steer("追加指示");
     await run;
 
-    // 两轮 thinking 块各自独立落账（drain 轮 message_start 重置三态：
-    // 第一轮块已随本轮 message_end flush，无残留串入 drain 轮）
+    // 两轮 thinking 块各自独立落账（T35 即时化：thinking_end 即落，
+    // 无跨轮残留语义天然成立——计时缓冲随 message_start 重置）
     const thinking = thinkingEntries(chat);
     expect(thinking).toHaveLength(2);
     expect(thinking[0]!.text).toBe("第一轮思考内容。");
-    expect(thinking[0]!.reasoningTokens).toBe(5); // 关联第一轮 usage.reasoning
     expect(thinking[1]!.text).toBe("drain 轮独立思考。");
-    expect(thinking[1]!.reasoningTokens).toBe(9); // 关联 drain 轮 usage.reasoning（重置后重新关联）
 
     // 两轮 assistant 文本各自落账
     const texts = messageEntries(chat).filter((e) => e.role === "assistant").map((e) => e.text);
@@ -143,7 +141,6 @@ describe("G4：abort 轮 pendingThinking flush（reasoning=0 落账）", () => {
     const thinking = thinkingEntries(chat);
     expect(thinking).toHaveLength(1);
     expect(thinking[0]!.text).toBe("中断前已完成的思考。");
-    expect(thinking[0]!.reasoningTokens).toBe(0);
     expect(thinking[0]!.durationMs).toBeGreaterThanOrEqual(0);
 
     // assistant 空文本不落 Entry（abort 非语义单元）；无 usage.recorded 入账

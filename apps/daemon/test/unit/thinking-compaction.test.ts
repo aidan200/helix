@@ -80,14 +80,13 @@ describe("① thinking 流式直达 + 完成落 Entry（TP-AD-5 / F2.1）", () =
     // T10a：主实例 id = 会话创建生成的 agent-<唯一串>（非 "main"）
     expect(thinkingDeltas.every((d) => d.instanceId === chat.sessionView.mainInstanceId)).toBe(true);
 
-    // 完成：ThinkingEntry 落树（kind/instanceId/text/durationMs/reasoningTokens）
+    // 完成：ThinkingEntry 落树（kind/instanceId/text/durationMs；T35 即时落账）
     const snap = chat.sessionSnapshot;
     const thinkingEntry = snap.entries.find((e): e is ThinkingEntryData => "kind" in e && e.kind === "thinking");
     expect(thinkingEntry).toBeDefined();
     expect(thinkingEntry!.instanceId).toBe(chat.sessionView.mainInstanceId);
     expect(thinkingEntry!.text).toBe("先分析问题的结构，再决定切入角度。");
     expect(thinkingEntry!.durationMs).toBeGreaterThanOrEqual(0);
-    expect(thinkingEntry!.reasoningTokens).toBe(5);
 
     // 领域事件：thinking.completed（在 assistant message.completed 之前；
     // 第一个 message.completed 是 user 落账，取末位定位 assistant）
@@ -205,7 +204,6 @@ describe("③ domain Session：thinking/compaction 条目快照往返", () => {
       instanceId: "main",
       text: "思考全文",
       durationMs: 120,
-      reasoningTokens: 7,
       createdAt: new Date(2).toISOString(),
     });
     const comp = s.appendCompactionEntry({

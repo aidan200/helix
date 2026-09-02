@@ -19,34 +19,25 @@ import type {
 
 type EngineEventOf<T extends AgentEngineEvent["type"]> = Extract<AgentEngineEvent, { type: T }>;
 
-/** ThinkingBuffer —— thinking 块两态缓冲（原 thinkingStarts/pendingThinking 收编；两态 = 计时中→暂存，第三态「已落账」归 domain ThinkingEntry）。streamEntryId 不入 Buffer——message_update（非 thinking 事件）也消费，归 ChatService 流式族。 */
+/** ThinkingBuffer —— thinking 块计时缓冲（T35 即时化后仅存墙钟起点：thinking_end 即时落账，不再暂存块）。“已落账”态归 domain ThinkingEntry。streamEntryId 不入 Buffer——message_update（非 thinking 事件）也消费，归 ChatService 流式族。 */
 class ThinkingBuffer {
   private readonly starts = new Map<number, string>();
-  private pending: { contentIndex: number; text: string; startedAt: string }[] = [];
 
   /** thinking_started：记墙钟起点（durationMs = start→end，ClockPort）。 */
   start(contentIndex: number, startedAt: string): void {
     this.starts.set(contentIndex, startedAt);
   }
 
-  /** thinking_end：计时取出 + 完成块暂存（起点缺失防御取 now——thunk 惰性求值，clock 调用面不变）。 */
-  end(contentIndex: number, text: string, now: () => string): void {
+  /** thinking_end：计时取出（起点缺失防御取 now——thunk 惰性求值，clock 调用面不变）。 */
+  end(contentIndex: number, now: () => string): string {
     const startedAt = this.starts.get(contentIndex) ?? now();
     this.starts.delete(contentIndex);
-    this.pending.push({ contentIndex, text, startedAt });
+    return startedAt;
   }
 
-  /** message_start(assistant)：新消息两态整体重置（上轮残留不串入新消息）。 */
+  /** message_start(assistant)：新消息计时整体重置（上轮残留不串入新消息）。 */
   reset(): void {
     this.starts.clear();
-    this.pending = [];
-  }
-
-  /** message_end 消费：取出全部暂存块（取后清空）。 */
-  drain(): readonly { contentIndex: number; text: string; startedAt: string }[] {
-    const blocks = this.pending;
-    this.pending = [];
-    return blocks;
   }
 }
 
@@ -420,7 +411,7 @@ export class ChatService implements ChatPort {
         if (e.role === "assistant") this.recordAssistantMessage(e);
         break;
       case "thinking_started": this.thinking.start(e.contentIndex, this.now()); break;
-      case "thinking_end": this.stageThinkingBlock(e); break;
+      case "thinking_end": this.recordThinkingBlock(e); break;
       case "compaction_completed": this.recordCompaction(e); break;
       case "tool_execution_start": this.recordToolExecutionStart(e); break;
       case "tool_execution_end": this.recordToolExecutionEnd(e); break;
@@ -554,9 +545,8 @@ export class ChatService implements ChatPort {
 
   // ── 落盘族（领域状态落聚合 + 里程碑事件） ─────────────────
 
-  /** message_end(assistant)：thinking 块先落（流序对齐契约 §5.2；reasoningTokens 取本 turn usage.reasoning 收口）→ 非空文本落 Entry + message.completed → usage 入账子调用 → 预留清空。abort 空消息不落 Entry（空文本非语义单元），但已暂存 thinking 块仍以 reasoning=0 落账（锚定面）；user/toolResult 已在注入/工具事件落账，不重复。 */
+  /** message_end(assistant)：非空文本落 Entry + message.completed → usage 入账子调用 → 预留清空。thinking 块已在 thinking_end 即时落账（T35），此处无 thinking 收口；user/toolResult 已在注入/工具事件落账，不重复。 */
   private recordAssistantMessage(e: EngineEventOf<"message_end">): void {
-    this.flushPendingThinking(e.usage?.reasoning ?? 0);
     if (e.text.trim() !== "") {
       const entry = this.session.appendAssistantEntry(e.text, this.now(), this.streamEntryId ?? undefined);
       this.publishMessageCompleted(entry.id, "assistant", e.text, false);
@@ -567,9 +557,19 @@ export class ChatService implements ChatPort {
     this.streamEntryId = null; // 预留消耗完毕（空文本/abort 轮同样清空）
   }
 
-  /** thinking_end：完成块暂存入 Buffer（待 message_end 关联落账）。 */
-  private stageThinkingBlock(e: EngineEventOf<"thinking_end">): void {
-    this.thinking.end(e.contentIndex, e.content, () => this.now());
+  /** thinking_end：完成块即时落账——ThinkingEntry 落树 + thinking.completed 事件（T35：块结束是实时事实，不等 message_end 账目收口；durationMs = start→end 真实墙钟差，无 flush 时刻虚高；CAND-35 方向②）。 */
+  private recordThinkingBlock(e: EngineEventOf<"thinking_end">): void {
+    if (e.content.trim() === "") return; // 空文本不是语义单元（与 abort 锚定面旧口径一致）
+    const startedAt = this.thinking.end(e.contentIndex, () => this.now());
+    const entry = this.session.appendThinkingEntry({
+      kind: "thinking",
+      instanceId: this.session.mainInstanceId,
+      text: e.content,
+      durationMs: Math.max(0, Date.parse(this.now()) - Date.parse(startedAt)),
+      createdAt: this.now(),
+    });
+    const data: ThinkingEntryData = entry.toData();
+    this.publish<ThinkingCompletedPayload>("thinking.completed", { entry: data }, undefined, this.session.mainInstanceId);
   }
 
   /** compaction_completed：CompactionEntry 落树 + 里程碑事件 + usage 入账子调用（AD-9③；provider 未报 usage 时零值占位仍入账——账目行完整）。 */
@@ -609,22 +609,6 @@ export class ChatService implements ChatPort {
       toolCallId: e.toolCallId, toolName: e.toolName, args: record?.args, isError: e.isError, result: e.result,
       ...(e.images !== undefined && e.images.length > 0 ? { images: [...e.images] } : {}),
     });
-  }
-
-  /** 落 Buffer 暂存的 thinking 块：每块一条 ThinkingEntry + thinking.completed 事件（reasoningTokens 为本 turn 关联值——块间共享，账目归 UsageLedger）。 */
-  private flushPendingThinking(reasoningTokens: number): void {
-    for (const block of this.thinking.drain()) {
-      const entry = this.session.appendThinkingEntry({
-        kind: "thinking",
-        instanceId: this.session.mainInstanceId,
-        text: block.text,
-        durationMs: Math.max(0, Date.parse(this.now()) - Date.parse(block.startedAt)),
-        reasoningTokens,
-        createdAt: this.now(),
-      });
-      const data: ThinkingEntryData = entry.toData();
-      this.publish<ThinkingCompletedPayload>("thinking.completed", { entry: data }, undefined, this.session.mainInstanceId);
-    }
   }
 
   // ── usage 族（AD-4 事件即账：账本投影归组合根 fan-out 末端） ──

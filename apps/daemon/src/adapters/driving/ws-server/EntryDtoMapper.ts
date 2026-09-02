@@ -82,7 +82,6 @@ export function thinkingEntryDto(
     instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
     text: entry.text,
     durationMs: entry.durationMs,
-    reasoningTokens: entry.reasoningTokens,
     createdAt: entry.createdAt,
   };
 }

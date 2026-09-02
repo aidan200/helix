@@ -26,7 +26,6 @@ function thinkEntry(over: Partial<ThinkingEntryDto> = {}): ThinkingEntryDto {
     instanceId: "main",
     text: "盘点当前态：并发预算 3，前三个立即执行，依赖扫描进 FIFO 队列。",
     durationMs: 12_400,
-    reasoningTokens: 847,
     createdAt: "2026-08-16T14:02:00+08:00",
     ...over,
   };
@@ -50,15 +49,10 @@ describe("ThinkingLiveView（streaming 态）", () => {
 });
 
 describe("ThinkingEntryView（complete 折叠条）", () => {
-  it("「💭 已思考 12s · 847 tokens」+ 实例 chip；duration 取整秒、<1k 原值", () => {
+  it("「💭 已思考 12s」+ 实例 chip；duration 取整秒、不携带 token（CAND-35）", () => {
     ui(<ThinkingEntryView entry={thinkEntry()} />);
-    expect(screen.getByText("已思考 12s · 847 tokens")).toBeTruthy();
+    expect(screen.getByText("已思考 12s")).toBeTruthy();
     expect(screen.getByText("main", { selector: ".who-chip" })).toBeTruthy();
-  });
-
-  it("tokens 走 fmtTokens 档位（8400 → 8k）", () => {
-    ui(<ThinkingEntryView entry={thinkEntry({ reasoningTokens: 8_400 })} />);
-    expect(screen.getByText("已思考 12s · 8k tokens")).toBeTruthy();
   });
 
   it("点击展开全文回看再收起：aria-expanded 与 .open 同步（F2.4）", () => {

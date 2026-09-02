@@ -268,7 +268,7 @@ describe("nextChannelSeq per-store 单调（切换重建从快照重算）", () 
             createdAt: "2026-08-16T00:00:00.000Z",
             channels: {
               messages: [{ kind: "message", id: "sa-m1", role: "assistant", content: "实例消息", ts: 1, instanceId: "agent-1" }],
-              thinking: [{ kind: "thinking", id: "sa-t1", instanceId: "agent-1", text: "实例思考", durationMs: 10, reasoningTokens: 1, createdAt: "2026-08-16T00:00:01.000Z" }],
+              thinking: [{ kind: "thinking", id: "sa-t1", instanceId: "agent-1", text: "实例思考", durationMs: 10, createdAt: "2026-08-16T00:00:01.000Z" }],
             },
           }],
         },
