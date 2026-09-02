@@ -36,6 +36,12 @@ export interface UsageRecordedPayload {
   instanceId: string;
   usage: UsageDto;
   source: "turn" | "compaction";
+  /**
+   * 入账轮次 id（additive，轮末 token 用量显示面）：source=turn 且主线
+   * 轮次在飞时携带（与信封 turnId 同源）；compaction 摘要/SubAgent 入账
+   * 不携带。缺省 = 旧 daemon 未携带（per-turn 显示面跳过该帧）。
+   */
+  turnId?: string;
 }
 
 // ── v0.1 新增信封（契约 protocol-v0.1.md §5） ──

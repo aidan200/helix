@@ -36,4 +36,11 @@ export interface SessionUsageDto {
    * contextWindow。与账目累计正交：账目只增、水位只覆写。
    */
   ctx?: Readonly<Record<string, number>>;
+  /**
+   * per-turn 账目（additive，轮末 token 用量显示面）：turnId → 该轮
+   * usage.recorded(source=turn) 入账累计。与 total/byInstance 同一事件流
+   * 的挂载投影（AD-9③ 不双计——账本 byTurn 槽，事件重放同规则重建）。
+   * 缺省 = 旧 daemon 未携带（气泡 meta 行不显示）。
+   */
+  byTurn?: Readonly<Record<string, UsageDto>>;
 }

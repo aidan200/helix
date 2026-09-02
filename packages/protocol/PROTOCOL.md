@@ -170,6 +170,7 @@ export interface MessageEntryDto {
   steerState?: "queued" | "drained";  // 仅 chat.steer 产生的用户消息携带
   source?: "user" | "closure" | "progress";  // v0.11 批内补登（T11a）：注入来源；仅注入类 user 消息携带，缺省 = 用户输入
   images?: readonly string[];  // v0.10（T9）：图片附件 base64 data URL 数组；仅 user 消息携带（assistant 不产图）；缺省 = 纯文本旧形态
+  turnId?: string;          // 所属轮次 id（additive，轮末 token 用量显示面）：主线条目携带；SubAgent/恢复注入（turnId=null）不携带
 }
 
 export interface ToolCallEntryDto {
@@ -348,7 +349,7 @@ Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重�
 | `thinking.stream.delta` | `ThinkingStreamDeltaPayload` | `{ instanceId, delta }` | thinking 流式增量（中间态不落盘，TR-AD-5） |
 | `thinking.completed` | `ThinkingCompletedPayload` | `{ entry: ThinkingEntryDto }` | thinking 完成落 Entry |
 | `compaction.completed` | `CompactionCompletedPayload` | `{ entry: CompactionEntryDto }` | compaction 完成（含 usage） |
-| `usage.recorded` | `UsageRecordedPayload` | `{ instanceId, usage: UsageDto, source: "turn"\|"compaction" }` | turn 完成 / compaction 摘要调用完成（流式中不发） |
+| `usage.recorded` | `UsageRecordedPayload` | `{ instanceId, usage: UsageDto, source: "turn"\|"compaction", turnId?: string }` | turn 完成 / compaction 摘要调用完成（流式中不发）；turnId = 入账轮次（additive，轮末 token 用量显示面） |
 
 - 三个终态事件（completed / failed / killed）都携带完整 `ClosureDto`
   （前端卡片 / 抽屉 closure 卡同源同构）。
@@ -396,8 +397,10 @@ interface ClosureDto {
   （cancelled 仅重启恢复时 queued 收口使用，AD-10）。
 - **UsageDto 七字段**（pi Usage 防腐映射，cost 拍平为 number）：`{ input,
   output, cacheRead, cacheWrite, reasoning, totalTokens, cost }`；
-  **SessionUsageDto** = `{ total: UsageDto, compaction: UsageDto }`（total =
-  各实例行合计徽标值，数字自洽；compaction = 摘要小计独立行 + 归属说明）。
+  **SessionUsageDto** = `{ total: UsageDto, compaction: UsageDto, ctx?, byTurn? }`（total =
+  各实例行合计徽标值，数字自洽；compaction = 摘要小计独立行 + 归属说明；
+  byTurn = per-turn 账目 additive——turnId → 该轮 usage.recorded(source=turn)
+  入账累计，轮末 token 用量显示面（气泡 meta 行），事件重放同规则重建）。
 - 落盘不涉协议：持久化走领域事件与行模型（TR-AD-14 兜底），协议 DTO 不直接落盘。
 
 ### 10.6 v0.1 设计取舍记录（三条）
@@ -1846,6 +1849,7 @@ skills/tools 同构；model 型 name = 模型 id 或 null（clear）。
 | `instanceId` | `string` | 必填 | v0.1 | 归属实例 |
 | `usage` | `UsageDto` | 必填 | v0.1 | 七字段用量（§10.5） |
 | `source` | `"turn" \| "compaction"` | 必填 | v0.1 | 来源（turn 完成 / compaction 摘要调用完成；流式中不发） |
+| `turnId` | `string` | 可选 | v0.11 | 入账轮次 id（additive，轮末 token 用量显示面）：source=turn 且主线轮次在飞时携带；compaction/SubAgent 入账不携带；缺省 = 旧 daemon 未携带 |
 
 #### `thinking.changed`
 
