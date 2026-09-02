@@ -92,12 +92,14 @@ interface Sent {
   /** W2-E/W2-F 体检面两命令发送面（健康拉取 / 发起语义体检）。 */
   health: { project: string }[];
   reviewCreate: { project: string }[];
+  /** 台账读面三件套：kg.candidates.list 发送面（status 过滤形态透传）。 */
+  candidatesList: { project: string; status?: string }[];
 }
 
 const sent: Sent = {
   projects: 0, list: [], detail: [], report: 0, confirm: [], index: [],
   bootstrapCreate: [], bootstrapProduce: [], nodeUpdate: [], nodeSupersede: [], bootstrapImpact: [],
-  graphPurge: [], indexDelete: [], health: [], reviewCreate: [],
+  graphPurge: [], indexDelete: [], health: [], reviewCreate: [], candidatesList: [],
 };
 let listeners: ((e: EventEnvelope) => void)[] = [];
 /** W4 刷新链：workspace 帧订阅注入位。 */
@@ -167,6 +169,10 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendKgReviewCreate: (payload: { project: string }) => {
         sent.reviewCreate.push(payload);
+        return true;
+      },
+      sendKgCandidatesList: (payload: { project: string; status?: string }) => {
+        sent.candidatesList.push(payload);
         return true;
       },
       subscribeKgFrames: (cb: (e: EventEnvelope) => void) => {
@@ -254,6 +260,7 @@ afterEach(() => {
   sent.indexDelete = [];
   sent.health = [];
   sent.reviewCreate = [];
+  sent.candidatesList = [];
 });
 
 describe("F5.0 左栏项目域与主区状态机", () => {
@@ -979,5 +986,86 @@ describe("W2-F 体检面板运行态（reviewRunning 行标志）", () => {
     expect(qs("[data-review-launched]")!.textContent).toContain("体检任务已发起");
     expect(qs("[data-goto-tasks]")!.textContent).toContain("前往『任务』页观察");
     expect(sent.projects).toBe(projectsBefore + 1); // 发起成功重拉行数据——reviewRunning 即时置位
+  });
+});
+
+// ── 候选台账查看面板（台账读面三件套之三：kg.candidates.list 数据面；只读零裁决） ──
+
+describe("候选台账面板（health tab 内：列表 + 四态徽章过滤联动 + 选中展开详情）", () => {
+  const CAND_ROWS = [
+    { id: "CAND-3", title: "候选丙", status: "applied" as const, kind: "sediment", targetNode: null, deferAge: 0, createdAt: "2026-09-02T10:00:00.000Z", body: "changeType: 新增\nname: 规则丙" },
+    { id: "CAND-2", title: "候选乙", status: "deferred" as const, kind: "sediment", targetNode: null, deferAge: 2, createdAt: "2026-09-01T09:00:00.000Z", body: "" },
+    { id: "CAND-1", title: "候选甲", status: "pending" as const, kind: "sediment", targetNode: "TR-7", deferAge: 0, createdAt: "2026-08-31T08:00:00.000Z", body: "changeType: 修改\nreason: 口径已演进" },
+  ];
+
+  /** 进 health tab 并装配台账回执（首进即拉全量）。 */
+  function inCandPanel() {
+    ui();
+    feedProjects();
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
+    feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
+    feed("kg.change.report.result", REPORT);
+    feed("kg.index.status.result", { state: "synced", symbolCount: 56, syncedAt: "2026-08-25T14:32:00+08:00" });
+    fireEvent.click(qs('[data-tab="health"]')!);
+    expect(sent.health).toEqual([{ project: "helix" }]);
+    expect(sent.candidatesList).toEqual([{ project: "helix" }]); // 首进 health tab 同窗口拉一次（全量）
+    feed("kg.health.result", HEALTH_EMPTY); // 徽章渲染前提（体检面板数据就绪）
+    feed("kg.candidates.list.result", { total: 3, rows: CAND_ROWS });
+  }
+
+  it("列表渲染（title/status 徽章/created_at）+ 只读零裁决（无任何裁决按钮）", () => {
+    inCandPanel();
+    const panel = qs("[data-kg-cand-panel]");
+    expect(panel).not.toBeNull();
+    const items = panel!.querySelectorAll("[data-cand-id]");
+    expect(items).toHaveLength(3);
+    expect(panel!.textContent).toContain("候选甲");
+    expect(panel!.textContent).toContain("候选乙");
+    expect(panel!.textContent).toContain("候选丙");
+    expect(panel!.textContent).toContain("共 3 条");
+    // 只读：面板内无裁决动作（applied/discarded/deferred 决定按钮不存在——
+    // 过滤按钮是查看语义非写语义，不算裁决）
+    for (const btn of panel!.querySelectorAll("button")) {
+      expect(btn.hasAttribute("data-cand-filter")).toBe(true);
+    }
+    // 未展开行不渲染 body / targetNode
+    expect(panel!.textContent).not.toContain("口径已演进");
+    expect(panel!.textContent).not.toContain("TR-7");
+  });
+
+  it("选中行展开 body 全文 + 目标节点；再点收起", () => {
+    inCandPanel();
+    fireEvent.click(qs('[data-cand-id="CAND-1"]')!);
+    const detail = qs("[data-cand-detail]");
+    expect(detail).not.toBeNull();
+    expect(detail!.textContent).toContain("目标节点：TR-7");
+    expect(detail!.textContent).toContain("changeType: 修改");
+    expect(detail!.textContent).toContain("reason: 口径已演进");
+    fireEvent.click(qs('[data-cand-id="CAND-1"]')!);
+    expect(qs("[data-cand-detail]")).toBeNull(); // 再点收起
+  });
+
+  it("四态徽章点击 → 设过滤重拉（体检面板与台账面板过滤态联动高亮）", () => {
+    inCandPanel();
+    fireEvent.click(qs("[data-cand-count='pending']")!);
+    expect(sent.candidatesList).toEqual([{ project: "helix" }, { project: "helix", status: "pending" }]);
+    expect((qs("[data-cand-count='pending']") as HTMLElement).className).toContain("active");
+    expect((qs("[data-cand-filter='pending']") as HTMLElement).className).toContain("active");
+    // 回执零行 → 空态
+    feed("kg.candidates.list.result", { total: 0, rows: [] });
+    expect(qs('[data-kg-cand="empty"]')!.textContent).toContain("暂无候选条目");
+    // 面板过滤按钮切回 all（status 不携带）
+    fireEvent.click(qs("[data-cand-filter='all']")!);
+    expect(sent.candidatesList[2]).toEqual({ project: "helix" });
+  });
+
+  it("体检面板四态计数直渲（health 回执）+ deferred 行展示暂缓次数", () => {
+    inCandPanel();
+    feed("kg.health.result", { ...HEALTH_EMPTY, candidates: { pending: 1, deferred: 2, applied: 0, discarded: 0 } });
+    const sec = qs("[data-kg-health-candidates]");
+    expect(sec!.textContent).toContain("待审 1");
+    expect(sec!.textContent).toContain("暂缓 2");
+    const deferredRow = qs('[data-cand-id="CAND-2"]');
+    expect(deferredRow!.textContent).toContain("第 2 次暂缓");
   });
 });

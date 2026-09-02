@@ -508,3 +508,25 @@
 .kg-health-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .kg-health-item { font-size: var(--text-caption); line-height: 1.55; color: var(--text-body-c); overflow-wrap: anywhere; }
 .kg-health-cand-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 候选台账查看面板（台账读面三件套；只读零裁决） */
+.kg-cand-count-badge { border: 1px solid transparent; cursor: pointer; font: inherit; }
+.kg-cand-count-badge.active { border-color: var(--accent, #6ea8fe); }
+.kg-cand-panel { margin-top: 12px; }
+.kg-cand-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.kg-cand-item { border: 1px solid var(--border, rgba(127, 127, 127, 0.3)); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+.kg-cand-item:hover { border-color: var(--accent, #6ea8fe); }
+.kg-cand-item.open { border-color: var(--accent, #6ea8fe); }
+.kg-cand-item-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kg-cand-title { font-size: var(--text-body); font-weight: 600; overflow-wrap: anywhere; }
+.kg-cand-badge { font-size: var(--text-caption); padding: 1px 8px; border-radius: 999px; }
+.kg-cand-badge.st-pending { background: rgba(240, 180, 60, 0.18); }
+.kg-cand-badge.st-deferred { background: rgba(140, 140, 160, 0.18); }
+.kg-cand-badge.st-applied { background: rgba(90, 190, 120, 0.18); }
+.kg-cand-badge.st-discarded { background: rgba(220, 100, 100, 0.16); }
+.kg-cand-defer { font-size: var(--text-caption); color: var(--text-caption-c, #999); }
+.kg-cand-item-meta { font-size: var(--text-caption); color: var(--text-caption-c, #999); margin-top: 2px; }
+.kg-cand-detail { margin-top: 8px; border-top: 1px dashed var(--border, rgba(127, 127, 127, 0.3)); padding-top: 8px; }
+.kg-cand-target { font-size: var(--text-caption); margin-bottom: 6px; }
+.kg-cand-body-title { font-size: var(--text-caption); color: var(--text-caption-c, #999); margin-bottom: 4px; }
+.kg-cand-body { margin: 0; white-space: pre-wrap; font-size: var(--text-caption); line-height: 1.55; overflow-wrap: anywhere; font-family: inherit; }
+.kg-cand-note { margin-top: 8px; font-size: var(--text-caption); }

@@ -334,6 +334,7 @@ function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingO
         candidateKind: "sediment",
         title: `${changeType}：${targetNode}`,
         body: candidateBody(record),
+        targetNode, // 结构化透传（读面定位列 target_node——不只在 body 平铺）
         ...injected,
       },
       ...(needsIterationFallback ? { needsIterationFallback: true } : {}),

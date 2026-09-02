@@ -166,6 +166,10 @@ const kgUpdateParameters = {
       description: "proposeCandidate 候选类型（封闭词表：sediment=闭环发现沉淀）",
     },
     title: { type: "string", description: "proposeCandidate 候选标题（人审台账的一行识别语）" },
+    targetNode: {
+      type: "string",
+      description: "proposeCandidate 目标节点 id（可选：修改/废弃候选的定位列 target_node——TR-n/E-n；新增候选不携带）",
+    },
     candidateId: { type: "string", description: "decideCandidate 目标候选 id（CAND-<seq>，取自 proposeCandidate 回执）" },
     decision: {
       type: "string",
@@ -399,6 +403,7 @@ function execProposeCandidate(deps: KgUpdateToolDeps, args: Record<string, unkno
       candidateKind: candidateKind as "sediment",
       title,
       ...(optionalString(args, "body") !== undefined ? { body: optionalString(args, "body")! } : {}),
+      ...(optionalString(args, "targetNode") !== undefined ? { targetNode: optionalString(args, "targetNode")! } : {}),
       ...(sourceTaskId !== undefined ? { sourceTaskId } : {}),
       // P0 ④：无迭代归属时省略（溯源列可空；主锚 task_id）
       ...(iterationId !== null ? { sourceIterationId: iterationId } : {}),

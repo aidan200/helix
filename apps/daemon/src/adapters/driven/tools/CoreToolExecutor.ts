@@ -80,7 +80,7 @@ export function bindToolContext<T extends ExecutionToolContext>(
 /** kg 双工具注入面（T3.3；query/write 均为结构化面——KgQueryService/
  * KgWriteService 与测试替身同形）。 */
 export interface KgToolOptions {
-  readonly query: Pick<KgQueryService, "search" | "get" | "locate" | "affected">;
+  readonly query: Pick<KgQueryService, "search" | "get" | "locate" | "affected" | "listCandidates">;
   /**
    * kg 写面（kg-update 注册开关，T2.2 起可选）：缺席 = 只注册只读 kg 工具
    * ——编排主 agent 会话（AD-10：编排器不持 kg 写工具）的装配形态；

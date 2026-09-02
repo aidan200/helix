@@ -25,6 +25,7 @@ import type {
   KgBootstrapCreatePayload,
   KgBootstrapImpactPayload,
   KgGraphPurgePayload,
+  KgCandidatesListPayload,
   KgHealthPayload,
   KgIndexDeletePayload,
   KgBootstrapProducePayload,
@@ -55,6 +56,7 @@ import {
   chatSteerCommand,
   kgChangeReportCommand,
   kgGraphPurgeCommand,
+  kgCandidatesListCommand,
   kgHealthCommand,
   kgIndexDeleteCommand,
   kgReviewCreateCommand,
@@ -249,6 +251,8 @@ interface SessionContextValue {
   sendKgHealth: (payload: KgHealthPayload) => boolean;
   /** 发送 kg.review.create（发起语义体检任务；准入从简 = 索引存在即可，允许反复发起）。 */
   sendKgReviewCreate: (payload: KgReviewCreatePayload) => boolean;
+  /** 发送 kg.candidates.list（候选台账列表读面；status 四态过滤，行含 body 全文；只读零裁决）。 */
+  sendKgCandidatesList: (payload: KgCandidatesListPayload) => boolean;
   /** 订阅 kg 族点对点回执（kg.*.result；O-6 零推送事件，回执全走此处）。 */
   subscribeKgFrames: (listener: (e: EventEnvelope) => void) => () => void;
   // ── task 族九命令面（iter-20260829-ys7q T3.1，P-2 任务页；连接私有读面）──
@@ -699,6 +703,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     (payload: KgReviewCreatePayload) => clientRef.current!.send(kgReviewCreateCommand(payload)),
     [],
   );
+  const sendKgCandidatesList = useCallback(
+    (payload: KgCandidatesListPayload) => clientRef.current!.send(kgCandidatesListCommand(payload)),
+    [],
+  );
   const subscribeKgFrames = useCallback((listener: (e: EventEnvelope) => void) => {
     kgListenersRef.current.add(listener);
     return () => {
@@ -928,6 +936,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendKgIndexDelete,
       sendKgHealth,
       sendKgReviewCreate,
+      sendKgCandidatesList,
       subscribeKgFrames,
       sendTaskList,
       sendTaskDetail,

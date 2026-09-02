@@ -2,6 +2,8 @@ import type {
   AnchorDeclRow,
   AnchorReverseHit,
   AttachmentSnapshot,
+  CandidateListQuery,
+  CandidateRow,
   CandidateStatusCounts,
   ChangeLogEntry,
   IndexStatus,
@@ -15,6 +17,8 @@ export type {
   AnchorDeclRow,
   AnchorReverseHit,
   AttachmentSnapshot,
+  CandidateListQuery,
+  CandidateRow,
   ChangeLogEntry,
   IndexStatus,
   NodeDetail,
@@ -113,4 +117,13 @@ export interface KnowledgeGraphPort {
    * hasIndex 判定，读面绝不新建库文件）。
    */
   countCandidatesByStatus(projectRoot: string): CandidateStatusCounts;
+
+  /**
+   * candidates 台账列表读面（台账读面三件套：agent kg candidates op /
+   * WS kg.candidates.list / P-1 台账面板的共同数据面）：status 过滤 +
+   * limit/offset 分页，缺省全量最新在前（rowid 序）；行含 body 全文
+   * （agent 清台判读需要）。只读零写路径，仅在 .kg 已存在的项目上调用
+   * （调用方先行 hasIndex 判定，读面绝不新建库文件）。
+   */
+  listCandidates(projectRoot: string, query: CandidateListQuery): readonly CandidateRow[];
 }

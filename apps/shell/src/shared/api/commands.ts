@@ -29,6 +29,8 @@ import type {
   KgBootstrapImpactPayload,
   KgBootstrapProduceCommand,
   KgBootstrapProducePayload,
+  KgCandidatesListCommand,
+  KgCandidatesListPayload,
   KgChangeReportCommand,
   KgChangeReportPayload,
   KgGraphPurgeCommand,
@@ -373,6 +375,11 @@ export function kgIndexDeleteCommand(payload: KgIndexDeletePayload): KgIndexDele
 /** kg.health：结构体检五项读面聚合（只列不修零写路径；absent 短路空态不建库）。 */
 export function kgHealthCommand(payload: KgHealthPayload): KgHealthCommand {
   return { v: PROTOCOL_VERSION, type: "kg.health", payload };
+}
+
+/** kg.candidates.list：候选台账列表（status 四态过滤 + 分页；行含 body 全文；只读零裁决）。 */
+export function kgCandidatesListCommand(payload: KgCandidatesListPayload): KgCandidatesListCommand {
+  return { v: PROTOCOL_VERSION, type: "kg.candidates.list", payload };
 }
 
 /** kg.review.create：发起语义体检任务（准入从简 = 索引存在即可，允许反复发起）。 */

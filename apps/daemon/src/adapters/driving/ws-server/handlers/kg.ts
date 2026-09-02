@@ -22,6 +22,7 @@ import type {
   KgBootstrapCreateResultEvent,
   KgBootstrapImpactResultEvent,
   KgBootstrapProduceResultEvent,
+  KgCandidatesListResultEvent,
   KgChangeReportDto,
   KgChangeReportResultEvent,
   KgGraphPurgeResultEvent,
@@ -63,6 +64,7 @@ import type {
 } from "../../../../application/services/kg/KgMaintenanceService";
 import type {
   KgConfirmView,
+  KgCandidatesListView,
   KgHealthView,
   KgIndexStatusView,
   KgListView,
@@ -451,6 +453,59 @@ export function handleKgReviewCreate(ctx: KgCommandContext): void {
     });
 }
 
+// ── kg.candidates.list 批一命令（台账读面三件套之三：P-1 台账查看面板；只读零裁决） ──
+
+/**
+ * kg.candidates.list（候选台账列表：status 四态过滤 + limit/offset 分页，
+ * 缺省全量最新在前；行含 body 全文）。unbound 防御 = 空集结果非报错
+ * （kg.list 列表型读面同规）；absent → KG_E_NOT_FOUND（读面不建库）。
+ */
+export function handleKgCandidatesList(ctx: KgCommandContext): void {
+  if (ctx.kg === undefined) {
+    if (ctx.workspaceUnbound) {
+      const project = requireString(ctx, "project");
+      if (project === undefined) return;
+      const status = optionalString(ctx, "status");
+      if (status === null) return;
+      const empty: KgCandidatesListResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "kg",
+        type: "kg.candidates.list.result",
+        payload: { total: 0, rows: [] },
+      };
+      return ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), empty);
+    }
+    return unimplemented(ctx);
+  }
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const status = optionalString(ctx, "status");
+  if (status === null) return;
+  for (const key of ["limit", "offset"] as const) {
+    const value = ctx.payload[key];
+    if (value === undefined) continue;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+      ctx.commandError(ctx.type, "KG_E_PARAM", `payload.${key} 应为非负整数`);
+      return;
+    }
+  }
+  const result = ctx.kg.candidatesList(project, {
+    ...(status !== undefined ? { status: status as "pending" | "deferred" | "applied" | "discarded" } : {}),
+    ...(typeof ctx.payload.limit === "number" ? { limit: ctx.payload.limit } : {}),
+    ...(typeof ctx.payload.offset === "number" ? { offset: ctx.payload.offset } : {}),
+  });
+  if (!result.ok) return viewerError(ctx, result.error);
+  const frame: KgCandidatesListResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "kg",
+    type: "kg.candidates.list.result",
+    payload: candidatesViewToDto(result.value),
+  };
+  ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
+}
+
 // ── payload 字段形状校验（枚举/解析语义归 service） ──────────
 
 /** 必填 string 字段：缺失/非 string → KG_E_PARAM（契约：project 缺失/无法解析）。 */
@@ -616,6 +671,23 @@ function healthViewToDto(view: KgHealthView): KgHealthResultEvent["payload"] {
       applied: view.candidates.applied,
       discarded: view.candidates.discarded,
     },
+  };
+}
+
+/** 候选台账视图 → 协议 DTO（行字段直拷；body 全文直传——选中行展开详情数据源）。 */
+function candidatesViewToDto(view: KgCandidatesListView): KgCandidatesListResultEvent["payload"] {
+  return {
+    total: view.total,
+    rows: view.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      kind: row.kind,
+      targetNode: row.targetNode,
+      deferAge: row.deferAge,
+      createdAt: row.createdAt,
+      body: row.body,
+    })),
   };
 }
 

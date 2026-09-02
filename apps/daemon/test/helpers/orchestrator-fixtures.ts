@@ -285,7 +285,7 @@ export async function withOrchestratorEnv(
       cwd: dir,
       orchestration,
       kg: {
-        query: { search: () => [], get: () => null, locate: () => [], affected: () => [] },
+        query: { search: () => [], get: () => null, locate: () => [], affected: () => [], listCandidates: () => [] },
         workspaceRoot: dir,
         scanProjects: () => [],
       },

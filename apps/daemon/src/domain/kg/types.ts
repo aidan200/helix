@@ -143,6 +143,8 @@ export interface CandidateRow {
   readonly sourceTaskId: string | null;
   readonly sourceIterationId: string | null;
   readonly deferAge: number;
+  /** 目标节点（修改/废弃候选的定位；新增候选恒 NULL——列级演进后可空）。 */
+  readonly targetNode: string | null;
   readonly createdAt: string;
   readonly decidedAt: string | null;
   readonly decisionReason: string | null;
@@ -155,6 +157,13 @@ export interface CandidateStatusCounts {
   readonly deferred: number;
   readonly applied: number;
   readonly discarded: number;
+}
+
+/** candidates 台账列表查询（读面三件套：status 过滤 + limit/offset 分页；缺省全量最新在前）。 */
+export interface CandidateListQuery {
+  readonly status?: CandidateStatus;
+  readonly limit?: number;
+  readonly offset?: number;
 }
 
 // ── 变更日志（supersede 链载体，AD-9 库内审计界面） ──────────
@@ -296,6 +305,8 @@ export type KnowledgeWriteOp =
       readonly candidateKind: CandidateKind;
       readonly title: string;
       readonly body?: string;
+      /** 目标节点（修改/废弃候选的定位；findings targetNode 结构化字段透传，TR-46）。 */
+      readonly targetNode?: string;
       /** 来源任务（findings 闭环自动落账时机械注入，AD-10 三路径同源）。 */
       readonly sourceTaskId?: string;
       readonly sourceIterationId?: string;

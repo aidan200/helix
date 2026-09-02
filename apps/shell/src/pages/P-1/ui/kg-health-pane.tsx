@@ -23,6 +23,14 @@ const STATE_KEY = {
   degraded: "pj.health.stateDegraded",
 } as const;
 
+/** 台账四态 → i18n 键位（与 KgCandidatesPanel 共用词条；静态映射不拼接）。 */
+const CAND_KEY = {
+  pending: "pj.health.candPending",
+  deferred: "pj.health.candDeferred",
+  applied: "pj.health.candApplied",
+  discarded: "pj.health.candDiscarded",
+} as const;
+
 export default function KgHealthPane({
   health,
   loading,
@@ -30,7 +38,9 @@ export default function KgHealthPane({
   reviewLaunched,
   reviewRunning,
   projectName,
+  candFilter,
   t,
+  onCandFilter,
   onLaunchReview,
   onOpenTasks,
 }: {
@@ -46,7 +56,11 @@ export default function KgHealthPane({
    *  出口；终态后恢复可发起（仅禁并发不绑一次性）。 */
   reviewRunning: boolean;
   projectName: string;
+  /** 台账过滤态（与 KgCandidatesPanel 共享；点击徽章设过滤——active 高亮）。 */
+  candFilter: "all" | "pending" | "deferred" | "applied" | "discarded";
   t: T;
+  /** 四态徽章点击 → 设台账过滤并拉取（KgViewer 持拉取面）。 */
+  onCandFilter: (filter: "all" | "pending" | "deferred" | "applied" | "discarded") => void;
   onLaunchReview: () => void;
   onOpenTasks: () => void;
 }) {
@@ -102,7 +116,8 @@ export default function KgHealthPane({
         </>
       )}
 
-      {/* ② 计数/状态行：index 状态 + candidates 四态计数（只读聚合直渲） */}
+      {/* ② 计数/状态行：index 状态 + candidates 四态计数（可交互——点击
+          徽章设台账面板过滤并拉取；active 态高亮当前过滤） */}
       <section className="kg-health-sec" data-kg-health-index>
         <div className="kg-health-sec-head">
           <span className="kg-health-sec-title">{t("pj.health.indexTitle")}</span>
@@ -114,18 +129,23 @@ export default function KgHealthPane({
           <span className="kg-health-sec-title">{t("pj.health.candidatesTitle")}</span>
         </div>
         <div className="kg-health-cand-row">
-          <span className="hud-badge">
-            {t("pj.health.candPending")} {health.candidates.pending}
-          </span>
-          <span className="hud-badge">
-            {t("pj.health.candDeferred")} {health.candidates.deferred}
-          </span>
-          <span className="hud-badge">
-            {t("pj.health.candApplied")} {health.candidates.applied}
-          </span>
-          <span className="hud-badge">
-            {t("pj.health.candDiscarded")} {health.candidates.discarded}
-          </span>
+          {([
+            ["pending", health.candidates.pending],
+            ["deferred", health.candidates.deferred],
+            ["applied", health.candidates.applied],
+            ["discarded", health.candidates.discarded],
+          ] as const).map(([status, count]) => (
+            <button
+              key={status}
+              type="button"
+              className={`kg-cand-count-badge hud-badge${candFilter === status ? " active" : ""}`}
+              data-cand-count={status}
+              aria-pressed={candFilter === status}
+              onClick={() => onCandFilter(status)}
+            >
+              {t(CAND_KEY[status])} {count}
+            </button>
+          ))}
         </div>
       </section>
 

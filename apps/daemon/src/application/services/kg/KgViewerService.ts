@@ -28,7 +28,9 @@ import type { KgSyncService, KgIndexPhase } from "./KgSyncService";
 import type { ConflictItem, KgVerifyService, OrphanItem } from "./KgVerifyService";
 import type { KgWriteService } from "./KgWriteService";
 import type {
+  CandidateListQuery,
   CandidateStatusCounts,
+  CandidateStatus,
   KnowledgeNode,
   NodeDigestRow,
   NodeDetail,
@@ -106,6 +108,13 @@ export interface KgHealthView {
 export interface KgConfirmView {
   readonly applied: true;
   readonly row: KgListRow;
+}
+
+/** kg.candidates.list 结果（台账读面三件套之三：P-1 台账面板数据面；只读零裁决）。 */
+export interface KgCandidatesListView {
+  /** 过滤后全集计数（分页不改变）。 */
+  readonly total: number;
+  readonly rows: readonly import("../../../domain/kg/types").CandidateRow[];
 }
 
 /** 结构化错误（契约错误模型：错误码+字段路径）。 */
@@ -337,6 +346,29 @@ export class KgViewerService {
         candidates: this.deps.graph.countCandidatesByStatus(resolved),
       },
     };
+  }
+
+  // ── kg.candidates.list（台账读面三件套之三；只读零裁决——无页面裁决写命令） ──
+
+  /**
+   * candidates 台账列表（status 四态过滤 + limit/offset 分页，缺省全量
+   * 最新在前）：行含 body 全文（选中行展开详情数据源）。读面纪律同 kg.list
+   * ——resolveIndexed（absent → KG_E_NOT_FOUND，绝不新建库文件）；状态
+   * 枚举越界 KG_E_PARAM（path=payload.status）。
+   */
+  candidatesList(project: string, query: CandidateListQuery): KgViewerResult<KgCandidatesListView> {
+    const statusError = this.enumError(query.status, ["pending", "deferred", "applied", "discarded"], "payload.status");
+    if (statusError !== null) return { ok: false, error: statusError };
+    const resolved = this.resolveIndexed(project);
+    if (!resolved.ok) return resolved;
+    // 一次全量（status 过滤后）→ total = 全集计数；分页在内存切片（台账量级
+    // defer 上限 10 / bootstrap 级别几十行，全量取回零压力；port 的 limit/
+    // offset 语义留给工具面直连消费）
+    const filtered = this.deps.graph.listCandidates(resolved.value, { status: query.status });
+    const limit = query.limit !== undefined && query.limit > 0 ? query.limit : undefined;
+    const offset = query.offset !== undefined && query.offset > 0 ? query.offset : 0;
+    const rows = limit === undefined && offset === 0 ? filtered : filtered.slice(offset, limit === undefined ? undefined : offset + limit);
+    return { ok: true, value: { total: filtered.length, rows } };
   }
 
   // ── 内部 ────────────────────────────────────────────────

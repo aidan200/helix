@@ -222,3 +222,41 @@ describe("⑤⑥ 工具面渲染 + absent 短路", () => {
     expect(out).toContain("projA"); // project 伴随（跨项目聚合形态同 search）
   });
 });
+
+// ── kg candidates op（台账读面三件套之一：agent 工具面——MainAgent 清台判读） ──
+
+describe("⑦ candidates op：台账列表读面（status 过滤 + body 全文 + project 伴随）", () => {
+  test("无过滤 → 各已建 .kg 项目 candidates 聚合（id/title/status/target_node/body 全文/project）；未建库项目不出现", async () => {
+    const f = makeFixture();
+    f.write.write(f.projA, { kind: "proposeCandidate", iterationId: "iter-aff", candidateKind: "sediment", title: "候选甲", body: "正文甲\n第二行", targetNode: "TR-9" });
+    f.write.write(f.projA, { kind: "proposeCandidate", iterationId: "iter-aff", candidateKind: "sediment", title: "候选乙" });
+    f.write.write(f.projA, { kind: "decideCandidate", iterationId: "iter-aff", candidateId: "CAND-2", decision: "deferred" });
+
+    const out = await execText(f, { op: "candidates" });
+    expect(out).toContain("CAND-1");
+    expect(out).toContain("候选甲");
+    expect(out).toContain("pending");
+    expect(out).toContain("TR-9"); // target_node 定位列
+    expect(out).toContain("正文甲"); // body 全文（agent 清台判读需要）
+    expect(out).toContain("projA"); // project 伴随（跨项目聚合形态同 search）
+    expect(out).toContain("deferred"); // 状态过滤提示面
+    expect(out).not.toContain("projB"); // absent 短路（读面绝不新建库文件）
+  });
+
+  test("status=pending → 只列 pending 行；status 越界 → 结构化报错；空台账给提示", async () => {
+    const f = makeFixture();
+    f.write.write(f.projA, { kind: "proposeCandidate", iterationId: "iter-aff", candidateKind: "sediment", title: "唯一待审" });
+    f.write.write(f.projA, { kind: "decideCandidate", iterationId: "iter-aff", candidateId: "CAND-1", decision: "applied", reason: "ok" });
+
+    const out = await execText(f, { op: "candidates", status: "pending" });
+    expect(out).toContain("台账为空"); // applied-only → pending 过滤零行提示
+
+    f.write.write(f.projA, { kind: "proposeCandidate", iterationId: "iter-aff", candidateKind: "sediment", title: "新的待审" });
+    const again = await execText(f, { op: "candidates", status: "pending" });
+    expect(again).toContain("CAND-2");
+    expect(again).toContain("新的待审");
+    expect(again).not.toContain("CAND-1"); // 已裁决行不混入 pending 过滤
+
+    await expect(execText(f, { op: "candidates", status: "bogus" })).rejects.toThrow("status");
+  });
+});

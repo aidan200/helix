@@ -7,12 +7,15 @@ import type { KgQueryService } from "../../../../application/services/kg/KgQuery
 import { isValidNodeRef } from "../../../../domain/kg/node-id";
 
 /**
- * kg 工具（T3.3，CL-4 F4.1，AD-16）——单工具两操作只读薄壳：
+ * kg 工具（T3.3，CL-4 F4.1，AD-16）——单工具四操作只读薄壳：
  *
  * - search(q)：name/digest LIKE 确定性匹配（无 embedding，F-6）→ 摘要列表
  *   （digest+指针形态：粗体 name + kind 徽章 + digest + `kg get <id>` 指针；
  *   无裸 id 主展示）。重名多行共存靠 digest 区分。
  * - get(nodeId)：节点全量聚合（节点/锚/关系/supersede 链/变更日志）。
+ * - candidates(status?)：candidates 台账列表读面（读面三件套之一——agent
+ *   清台判读通道；行含 id/title/status/kind/target_node/defer_age/
+ *   created_at + body 全文；status 可选四态过滤）。
  *
  * **ID 永远取自上一步返回**（参数供给闭环，CL-4.A3）：search 返回行必含
  * 指针 id；get 校验 id 形态（TR-n/E-n 或保号复合形态）——非法结构化报错
@@ -27,8 +30,8 @@ const kgParameters = {
   properties: {
     op: {
       type: "string",
-      enum: ["search", "get", "affected"],
-      description: "操作：search 关键词检索 / get 节点全量 / affected 锚反查（文件或符号 → 管辖节点）",
+      enum: ["search", "get", "affected", "candidates"],
+      description: "操作：search 关键词检索 / get 节点全量 / affected 锚反查（文件或符号 → 管辖节点）/ candidates 候选台账列表（status 可选四态过滤）",
     },
     q: { type: "string", description: "search 关键词（name/digest 子串匹配，确定性非语义）" },
     nodeId: { type: "string", description: "get 目标节点 id（TR-n / E-n——永远取自 search 返回行的 kg get 指针）" },
@@ -36,13 +39,18 @@ const kgParameters = {
       type: "string",
       description: "affected 反查目标：项目相对路径（src/foo.ts）/ 符号名（allocateSeq）/ 复合形态（src/foo.ts#allocateSeq）——改动前反查管辖该代码的知识节点",
     },
+    status: {
+      type: "string",
+      enum: ["pending", "deferred", "applied", "discarded"],
+      description: "candidates 台账状态过滤（可选：pending 待审 / deferred 暂缓 / applied 已转正 / discarded 已废弃；缺省全量最新在前）",
+    },
   },
   required: ["op"],
   additionalProperties: false,
 } as const;
 
 export interface KgToolDeps {
-  readonly query: Pick<KgQueryService, "search" | "get" | "affected">;
+  readonly query: Pick<KgQueryService, "search" | "get" | "affected" | "listCandidates">;
 }
 
 /** kg 只读工具：注册名 "kg"。 */
@@ -56,11 +64,13 @@ export function createKgTool(deps: KgToolDeps): AgentHarnessTool<ExecutionToolCo
       "再用返回行指针中的 id 调 get(nodeId) 取节点全量（描述/锚/关系/supersede 链/变更日志）。" +
       "改动代码前用 affected(target) 锚反查：target 为项目相对路径或符号名（或 path#symbol），" +
       "返回管辖该代码的节点列表（意图先经 codegraph 落地成符号，再反查——比关键词盲搜准）。" +
+      "candidates(status?) 读候选台账（id/标题/状态/目标节点/正文全文，status 可选四态过滤）——" +
+      "收口阶段核对 sediment 发现是否已落台账时用。" +
       "id 永远取自上一步返回，不要自行构造或猜测。",
     parameters: kgParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
-      const { op, q, nodeId, target } = params as { op?: string; q?: string; nodeId?: string; target?: string };
+      const { op, q, nodeId, target, status } = params as { op?: string; q?: string; nodeId?: string; target?: string; status?: string };
       if (op === "search") {
         if (typeof q !== "string" || q.trim() === "") {
           throw new Error("kg search 需要 q（非空关键词——name/digest 子串匹配）");
@@ -74,6 +84,13 @@ export function createKgTool(deps: KgToolDeps): AgentHarnessTool<ExecutionToolCo
         }
         const hits = deps.query.affected(target.trim());
         return text(renderAffected(target.trim(), hits));
+      }
+      if (op === "candidates") {
+        if (status !== undefined && !["pending", "deferred", "applied", "discarded"].includes(status)) {
+          throw new Error(`status "${status}" 越界（合法：pending / deferred / applied / discarded——或省略返回全量）`);
+        }
+        const hits = deps.query.listCandidates(status === undefined ? {} : { status: status as "pending" | "deferred" | "applied" | "discarded" });
+        return text(renderCandidates(status, hits));
       }
       if (op === "get") {
         if (typeof nodeId !== "string" || nodeId.trim() === "") {
@@ -90,7 +107,7 @@ export function createKgTool(deps: KgToolDeps): AgentHarnessTool<ExecutionToolCo
         }
         return text(renderDetail(hit.detail, hit.project));
       }
-      throw new Error(`未知 op "${op}"（合法：search / get / affected）`);
+      throw new Error(`未知 op "${op}"（合法：search / get / affected / candidates）`);
     },
   };
 }
@@ -153,6 +170,24 @@ function renderAffected(target: string, hits: readonly AffectedRow[]): string {
     lines.push(`  锚：${hit.anchorKind} ${anchor}${via}（project: ${projectName(hit.project)}）`);
     lines.push(`  ↳ kg get ${hit.nodeId}`);
   }
+  return lines.join("\n");
+}
+
+/** 候选台账渲染（读面三件套之一：id/title/status/kind/target_node/defer_age/created_at + body 全文——agent 清台判读需要）。 */
+function renderCandidates(status: string | undefined, hits: readonly { project: string; row: { id: string; kind: string; title: string; body: string; status: string; targetNode: string | null; deferAge: number; createdAt: string } }[]): string {
+  const scope = status === undefined ? "全量" : `status=${status}`;
+  if (hits.length === 0) {
+    return `台账为空（${scope}）——尚无候选条目（或过滤后零命中）`;
+  }
+  const lines = [`候选台账 ${hits.length} 条（${scope}，最新在前）：`];
+  for (const { project, row } of hits) {
+    const defer = row.status === "deferred" ? `（defer_age=${row.deferAge}）` : "";
+    const target = row.targetNode !== null ? ` → 目标 ${row.targetNode}` : "";
+    lines.push(`- ${row.id} [${row.kind}] ${row.status}${defer}：${row.title}${target}`);
+    lines.push(`  提出于 ${row.createdAt}（project: ${projectName(project)}）`);
+    if (row.body !== "") lines.push(`  body: ${row.body}`);
+  }
+  lines.push("（台账只读——裁决归 kg-review 人审 / decideCandidate 写面，本 op 不做裁决）");
   return lines.join("\n");
 }
 

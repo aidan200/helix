@@ -324,9 +324,18 @@ export class SqliteKnowledgeStore {
       id = formatCandidateId(this.allocateSeq(db, "candidate"));
     }
     db.prepare(
-      "INSERT INTO candidates (id, kind, title, body, status, source_task_id, source_iteration_id, created_at) " +
-        "VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)",
-    ).run(id, op.candidateKind, op.title, op.body ?? "", op.sourceTaskId ?? null, op.sourceIterationId ?? null, isoNow());
+      "INSERT INTO candidates (id, kind, title, body, status, source_task_id, source_iteration_id, target_node, created_at) " +
+        "VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
+    ).run(
+      id,
+      op.candidateKind,
+      op.title,
+      op.body ?? "",
+      op.sourceTaskId ?? null,
+      op.sourceIterationId ?? null,
+      op.targetNode ?? null,
+      isoNow(),
+    );
     this.appendChangeLog(db, op.iterationId, "proposeCandidate", id, null, null, op.taskId);
     return { ok: true, nodeId: id };
   }
@@ -601,8 +610,19 @@ interface NodeRow {
 
 interface CandidateDbRow {
   id: string;
-  status: CandidateStatus;
+  formal_id: string | null;
+  kind: string;
+  title: string;
+  body: string;
+  status: string;
+  source_task_id: string | null;
+  source_iteration_id: string | null;
   defer_age: number;
+  target_node: string | null;
+  created_at: string;
+  decided_at: string | null;
+  decision_reason: string | null;
+  applied_node_id: string | null;
 }
 
 function err(code: KgWriteError["code"], message: string, path?: string): WriteResult {

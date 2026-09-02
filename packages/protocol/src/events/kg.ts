@@ -1,5 +1,6 @@
 import type { EventFrame } from "../envelope";
 import type {
+  KgCandidatesListDto,
   KgChangeReportDto,
   KgHealthDto,
   KgIndexStatusDto,
@@ -164,6 +165,16 @@ export type KgHealthResultPayload = KgHealthDto;
 export interface KgHealthResultEvent extends EventFrame<KgHealthResultPayload> {
   channel?: "kg";
   type: "kg.health.result";
+}
+
+// ── kg.candidates.list 批新增回执（台账读面三件套之三，一命令） ──
+
+/** kg.candidates.list.result：候选台账列表（payload 即台账本体；unbound = 空集非报错）。 */
+export type KgCandidatesListResultPayload = KgCandidatesListDto;
+
+export interface KgCandidatesListResultEvent extends EventFrame<KgCandidatesListResultPayload> {
+  channel?: "kg";
+  type: "kg.candidates.list.result";
 }
 
 // ── kg 评审批新增回执（W2-F 轨二：kg.review.create 一命令）──
