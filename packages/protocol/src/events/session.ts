@@ -4,12 +4,29 @@ import type {
   SessionMeta,
   SessionSnapshotDto,
 } from "../types/session";
+import type { TaskBatchLedgerDto, WorkItemDto } from "../types/task";
 
 // ── payload ──────────────────────────────────────────────────
 
 /** session.snapshot：全量快照（握手后/重连后；AD-16 快照+增量；v0.2 尾窗口径 additive） */
 export interface SessionSnapshotPayload {
   snapshot: SessionSnapshotDto;
+}
+
+/**
+ * session.plan.changed：主会话工作台账变更广播（main-session plan 批）。
+ * 触发：主会话 plan 三工具（plan_create/plan_update/plan_read）执行成功后
+ * 由 daemon 装配层发布（信封 sessionId = 台账归属会话，per-session 订阅
+ * 路由）；plan/ledger 复用 task 域批次 DTO 形状（WorkItemDto/
+ * TaskBatchLedgerDto，对齐批次 DTO 口径），ledger 服务端从 plan 行组装
+ * （前端零拼装）；无台账 = 双 null（null 语义与 task 批次行同构）。
+ */
+export interface SessionPlanChangedPayload {
+  sessionId: string;
+  /** 台账全行（seq 升序）；null = 无台账。 */
+  plan: WorkItemDto[] | null;
+  /** 计数摘要（与 plan 同源同 null 语义）。 */
+  ledger: TaskBatchLedgerDto | null;
 }
 
 // ── v0.2 新增 payload：session/model 族（契约 B §2 / 契约 C §2） ──
@@ -38,6 +55,12 @@ export interface SessionListChangedEvent
   extends EventFrame<SessionListChangedPayload> {
   channel?: "session";
   type: "session.list_changed";
+}
+/** session.plan.changed 广播（main-session plan 批；信封 sessionId = 台账归属会话）。 */
+export interface SessionPlanChangedEvent
+  extends EventFrame<SessionPlanChangedPayload> {
+  channel?: "session";
+  type: "session.plan.changed";
 }
 /**
  * session.list.result：会话清单命令结果（v0.2 新增，契约 B §1.1 定稿）。

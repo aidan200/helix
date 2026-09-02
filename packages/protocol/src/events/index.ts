@@ -21,7 +21,9 @@
  * 九命令结果帧为点对点回执不入目录，types/task.ts）+ 网络重试批新增 1
  *（engine.retrying，P2 ⑦：LLM 瞬时失败退避等待可见反馈，瞬态帧归 chat
  * 通道）+ park/resume 批新增 2（agent.parked/agent.resumed，⑤ 挂起恢复
- * 原语广播帧，挂 agent 族——InstanceState 同批 additive 扩 parked）。`EventEnvelope` 为
+ * 原语广播帧，挂 agent 族——InstanceState 同批 additive 扩 parked）+ main-session
+ * plan 批新增 1（session.plan.changed，主会话工作台账广播——挂既有 session
+ * 通道不新增 Channel 值；快照 plan/ledger 同批 additive 字段）。`EventEnvelope` 为
  * 判别式联合，前端 switch(event.type) 窄化各分支 payload（投影 reducer）。
  *
  * v0.2 事件类型学（AD-3，契约 A §2）：每事件以 `channel` 字面量登记所属通道
@@ -38,6 +40,7 @@ import type {
   SessionListChangedEvent,
   SessionListResultEvent,
   SessionLoadHistoryResultEvent,
+  SessionPlanChangedEvent,
   SessionSnapshotEvent,
 } from "./session";
 import type {
@@ -144,6 +147,7 @@ export type EventEnvelope =
   | ConnectionErrorEvent
   | SessionSnapshotEvent
   | SessionListChangedEvent
+  | SessionPlanChangedEvent
   | SessionListResultEvent
   | SessionLoadHistoryResultEvent
   | ChatStreamDeltaEvent
@@ -221,6 +225,7 @@ export const EVENT_TYPES = [
   "connection.error",
   "session.snapshot",
   "session.list_changed",
+  "session.plan.changed",
   "session.list.result",
   "session.loadHistory.result",
   "chat.stream.delta",
@@ -306,6 +311,7 @@ export const EVENT_CHANNELS = {
   "connection.error": "notification",
   "session.snapshot": "session",
   "session.list_changed": "session",
+  "session.plan.changed": "session",
   "session.list.result": "session",
   "session.loadHistory.result": "session",
   "chat.stream.delta": "chat",

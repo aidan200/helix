@@ -1467,8 +1467,8 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 
 ## 16. 事件 payload 形状总登记（S→C，71 事件全集）
 
-> **计数声明：74 事件全集**（16.1 notification 3〔含 task.changed〕 +
-> 16.2 session 4 +
+> **计数声明：75 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> 16.2 session 5〔含 main-session plan 批 session.plan.changed〕 +
 > 16.3 chat 11〔含 engine.retrying 网络重试批〕 + 16.4 agent 14〔含 park/resume 批 2〕 + 16.5 thinking·compaction·usage 5 +
 > 16.6 model 13 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1 + 16.10 workspace 3
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
@@ -1525,7 +1525,7 @@ kg 族零推送口径，亦不经会话订阅路由。
 | `status` | `string` | 可选 | task 批 | job 级变更携带新状态（六态 wire 值） |
 | `syncHint` | `string` | 可选 | W2-D | kg sync 提示（R13：job 终态且 pending_sync 台账有未提示行时随行一帧——机器只记录只提醒，sync 永远人确认；服务层人读文案前端直渲 toast） |
 
-### 16.2 session 族（4）
+### 16.2 session 族（5；main-session plan 批 +1）
 
 #### `session.snapshot`
 
@@ -1536,6 +1536,24 @@ kg 族零推送口径，亦不经会话订阅路由。
 | `snapshot` | `SessionSnapshotDto` | 必填 | v0 | 全量快照（§6；additive 扩展 §10.5 / §11.5） |
 | `snapshot.thinking` | `{ override: string \| null; effective: string \| null }` | 可选 | v0.11 | 会话 thinking 覆盖/生效双位（thinking 批③ F-8 修复：SessionStateView → wire 接通；切换会话/重连/重启恢复后 UI 与引擎一致；null = 无覆盖 / 全链不支持不传参；缺省 = 未携带，旧剧本兼容） |
 | `snapshot.mode` | `string` | 可选 | P1 会话模式微批（§18） | 会话模式回带：建会话时定格（chat.send draft 链 mode 透传落库；此后无写路径，快照只读回带）；缺省 = 未携带（旧剧本兼容，读侧按 `"default"` 兜底） |
+| `snapshot.plan` | `WorkItemDto[] \| null` | 可选 | main-session plan 批 | 主会话工作台账全行（seq 升序）：instanceId 维度 = sessionId（主会话 plan 三工具写面落 work_item 表）；重连/恢复种子，增量面 = `session.plan.changed`；携带时 null = 无台账（轻量任务未建）；缺省 = 未携带（旧 daemon 兼容，读侧保持现值） |
+| `snapshot.ledger` | `TaskBatchLedgerDto \| null` | 可选 | main-session plan 批 | 台账计数摘要（`{ total, done, inProgress }`；与 `snapshot.plan` 同源同 null 语义，服务端从 plan 行组装——前端零拼装）；缺省 = 未携带 |
+
+#### `session.plan.changed`
+
+主会话工作台账变更广播（main-session plan 批）：主会话 plan 三工具
+（`plan_create` / `plan_update` / `plan_read`）执行成功后由 daemon 装配层
+发布——信封 sessionId = 台账归属会话（per-session 订阅路由，与
+`model.changed` 同构）。plan/ledger 复用 task 域批次 DTO 形状
+（`WorkItemDto` / `TaskBatchLedgerDto`，§15.11 注记同源）；无台账 = 双
+null（null 语义与 task 批次行同构，非空数组）。台账行清理随 session
+删除写链（deleteSession 顺带清 work_item——防孤儿）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `sessionId` | `string` | 必填 | main-session plan 批 | 台账归属会话（instanceId 维度 = sessionId，跨重启稳定） |
+| `plan` | `WorkItemDto[] \| null` | 必填 | main-session plan 批 | 台账全行（seq 升序；`{ seq, content, status: pending/in_progress/done/abandoned, note }`）；null = 无台账 |
+| `ledger` | `TaskBatchLedgerDto \| null` | 必填 | main-session plan 批 | 计数摘要（`{ total, done, inProgress }`；与 plan 同源同 null 语义，服务端组装） |
 
 #### `session.list_changed`
 
