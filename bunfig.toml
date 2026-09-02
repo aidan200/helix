@@ -5,7 +5,8 @@
 # lockfile（bun.lock）提交入库，固定依赖树。
 
 [test]
-# 测试运行器四层分离（TR-TEST-1）：裸 `bun test`（含相位门控）= daemon 单测；
+# 测试运行器四层分离（TR-TEST-1）：根 `bun run test` = daemon 单测 + protocol 守护（经 test:protocol 子命令，包内自跑）；
+# 裸 `bun test`（含相位门控）= daemon 单测；
 # protocol 守护测试在 packages/protocol 内自跑（cwd 子目录不受本 root 限制）；
 # shell = vitest（jsdom 组件环境）；e2e = playwright（.spec.ts 不入 bun 收集面）。
 # root 限定使 bun 不误收集 vitest-only shell 测试与 playwright spec（环境性失败）。
