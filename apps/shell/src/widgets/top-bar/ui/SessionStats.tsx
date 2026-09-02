@@ -270,25 +270,30 @@ export const UsagePopover = memo(function UsagePopover({
             : row.chipLabel;
           const inner = (
             <>
-              <span className="kind">
-                <span className={cn("hud-dot", CHIP_DOT[row.chip])} aria-hidden="true" />
-                <span className="nm">
-                  {row.id}
-                  <span className="nm-sub"> · {t(row.kindKey)}</span>
+              <span className="sp-head">
+                <span className="kind">
+                  <span className={cn("hud-dot", CHIP_DOT[row.chip])} aria-hidden="true" />
+                  <span className="nm">
+                    {row.id}
+                    <span className="nm-sub"> · {t(row.kindKey)}</span>
+                  </span>
                 </span>
+                <span className={cn("sp-state", CHIP_CLASS[row.chip])}>{label}</span>
               </span>
-              <span className="model">{row.model}</span>
-              <span className="nums">
-                <span className="tok">{fmtTokens(row.tokens)}</span>
-                <span
-                  className="pct"
-                  title={row.pct !== undefined ? `${fmtTokens(row.ctxTokens!)} / ${fmtTokens(row.ctxWindow!)}` : undefined}
-                >
-                  {row.pct !== undefined ? fmtPct(row.pct) : "—"}
+              <span className="sp-data">
+                <span className="model">{row.model}</span>
+                <span className="nums">
+                  <span className="tok">{fmtTokens(row.tokens)}</span>
+                  <span
+                    className="pct"
+                    title={row.pct !== undefined ? `${fmtTokens(row.ctxTokens!)} / ${fmtTokens(row.ctxWindow!)}` : undefined}
+                  >
+                    {row.pct !== undefined ? fmtPct(row.pct) : "—"}
+                  </span>
+                  <span className="cost">${row.cost.toFixed(2)}</span>
                 </span>
-                <span className="cost">${row.cost.toFixed(2)}</span>
+                {row.sub && <span className="sub">{t(`chat.stats.${row.sub.key}`, row.sub.vars)}</span>}
               </span>
-              <span className={cn("sp-state", CHIP_CLASS[row.chip])}>{label}</span>
             </>
           );
           return (
@@ -311,14 +316,9 @@ export const UsagePopover = memo(function UsagePopover({
                   {inner}
                 </div>
               )}
-              {row.sub && <div className="sp-sub">{t(`chat.stats.${row.sub.key}`, row.sub.vars)}</div>}
             </Fragment>
           );
         })}
-      </div>
-      <div className="sp-foot">
-        <span className="hud-dot hud-dot-idle" aria-hidden="true" />
-        {t("chat.stats.footNote")}
       </div>
     </div>
   );

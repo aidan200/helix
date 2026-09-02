@@ -187,8 +187,8 @@ button.mode-chip .mb-chev { color: var(--text-faint); }
 .sp-title .total { color: var(--accent); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
 .sp-rows { display: flex; flex-direction: column; gap: 2px; }
 .sp-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px; border-radius: 6px;
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 7px 8px; border-radius: 6px;
   border: 1px solid transparent;
   background: transparent;
   font-family: var(--font-mono); text-align: left; text-decoration: none;
@@ -197,10 +197,14 @@ button.mode-chip .mb-chev { color: var(--text-faint); }
 button.sp-row { cursor: pointer; transition: background 0.15s, border-color 0.15s; }
 button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); }
 .sp-row .kind { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.sp-row .sp-head { display: flex; align-items: center; gap: 8px; }
+.sp-row .sp-head .sp-state { margin-left: auto; }
+.sp-row .sp-data { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-variant-numeric: tabular-nums; }
 .sp-row .nm { font-weight: 600; }
 .sp-row .nm-sub { font-size: var(--text-micro); color: var(--text-faint); font-weight: 400; }
-.sp-row .model { font-size: var(--text-micro); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-row .model { flex: 1; min-width: 0; font-size: var(--text-micro); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-row .nums { margin-left: auto; flex-shrink: 0; display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.sp-row .sub { flex-shrink: 0; font-size: var(--text-micro); color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .sp-row .tok { color: var(--text); font-size: var(--text-body); }
 .sp-row .pct { color: var(--text-faint); font-size: var(--text-cap); min-width: 4ch; text-align: right; }
 .sp-row .cost { color: var(--text-muted); font-size: var(--text-cap); }
@@ -213,13 +217,6 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
 .sp-state.st-done { border-color: rgb(var(--success-rgb) / 0.3); background: rgb(var(--success-rgb) / 0.08); color: var(--success); }
 .sp-state.st-running { border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.1); color: var(--accent); }
 .sp-state.st-failed { border-color: rgb(var(--error-rgb) / 0.35); background: rgb(var(--error-rgb) / 0.1); color: var(--error); }
-.sp-sub { display: flex; gap: 10px; padding: 0 8px 2px 22px; margin-top: -4px; font-size: var(--text-micro); color: var(--text-faint); font-variant-numeric: tabular-nums; }
-.sp-foot {
-  display: flex; align-items: center; gap: 6px;
-  border-top: 1px dashed rgb(var(--edge-rgb) / 0.08); padding-top: 8px; margin-top: 2px;
-  font-size: var(--text-micro); color: var(--text-faint);
-}
-.sp-foot .hud-dot { width: 5px; height: 5px; }
 /* running 状态点 accent 通道（popover 行内 StatusDot）*/
 .hud-dot-accent { background: var(--accent); }
 

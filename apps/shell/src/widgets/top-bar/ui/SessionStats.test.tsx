@@ -313,7 +313,6 @@ describe("UsagePopover（F3.4 popover）", () => {
     expect(screen.getByText("reasoning 8k")).toBeTruthy();
     expect(screen.getByText("cache R 89k · W 12k")).toBeTruthy();
     expect(screen.getByText("main 150k→20k")).toBeTruthy();
-    expect(screen.getByText(/tokens\/cost 为累计账目 · 百分比 = 上下文窗口占用/)).toBeTruthy();
   });
 
   it("点外部关闭（document click）；Esc 关闭", () => {

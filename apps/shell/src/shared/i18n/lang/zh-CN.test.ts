@@ -85,7 +85,6 @@ const REQUIRED_KEYS = [
   "chat.stats.badge",
   "chat.stats.popTitle",
   "chat.stats.total",
-  "chat.stats.footNote",
   "chat.stats.cacheSub",
   "chat.stats.reasoningSub",
   "chat.stats.compactSub",
