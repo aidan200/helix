@@ -4,7 +4,7 @@ import type { AgentEngineEvent, AgentEnginePort, AgentThinkingState } from "../p
 import type { EventPublisherPort } from "../ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../ports/outbound/ClockPort";
 import { AgentLifecycle, type AgentLifecycleState } from "../../domain/agent/AgentLifecycle";
-import type { SteerSource } from "../../domain/agent/SteerQueue";
+import type { SteerSource, SteerItem } from "../../domain/agent/SteerQueue";
 import { Session } from "../../domain/session/Session";
 import type { ThinkingEntryData } from "../../domain/session/ThinkingEntry";
 import { ZERO_USAGE, type ErrorCode } from "@helix/protocol"; // ZERO_USAGE = projection 单源
@@ -101,6 +101,8 @@ export class ChatService implements ChatPort {
   private readonly toolCalls = new Map<string, ToolCallRecord>();
   /** 流式期间预分配的 assistant entry id（D-2：delta.messageId 对齐最终 entry id；归流式族非 ThinkingBuffer）。 */
   private streamEntryId: string | null = null;
+  /** drain 暂存（steer 时序修复）：pi 引擎 steer 注入时 message_start(user, steer-drain) 先于 message_end(assistant) 到达——若 message_start 时立即落盘 steer，steer 会排在旧轮回复之前（entries push 序）。故 drain 时暂存 item，待 message_end(assistant) 落盘回复后再落盘 steer + 开新 turn（对话时序原位）。 */
+  private pendingDrainSteerItem: SteerItem | null = null;
   /** thinking 块两态缓冲（原 thinkingStarts/pendingThinking 收编）。 */
   private readonly thinking = new ThinkingBuffer();
   /** 在飞 run 的 promise（AD-4 删除收口链）：开 run 登记、收口清空——currentRun()/whenSettled() 等待面。 */
@@ -463,23 +465,27 @@ export class ChatService implements ChatPort {
 
   // ── 状态机族（生命周期/Turn 状态推进） ─────────────────────
 
-  /** message_start(user, steer-drain)：注入消费——收口旧 Turn（reason=steerDrained）+ domain 队列出账 + drain 落盘（条目位置 = 生效时机）+ 以注入消息开新 Turn + steering→running 回转（注入已消费，续跑）。 */
+  /** message_start(user, steer-drain)：注入消费——收口旧 Turn（reason=steerDrained）+ domain 队列出账 + steer 落盘（位置 = 生效时机）+ 以注入消息开新 Turn + steering→running 回转。
+   *  时序分支：真实 pi 引擎 steer 注入时 message_start(user, steer-drain) 先于 message_end(assistant)（steer 打断当前回复）——此时 streamEntryId 非空（旧轮有 pending 回复），steer 落盘延迟到 recordAssistantMessage 后（回复落盘后，对话时序原位）。FakeAgentEngine 的 steer drain 在旧轮 turn_end 之后（新轮开始）——streamEntryId 为空，steer 立即落盘。 */
   private drainSteerTurn(): void {
     this.finishOpenTurn("steerDrained");
     const item = this.session.dequeueSteer();
     if (item) {
-      // drain 落盘：条目在此刻进时间轴（旧轮已收尾、新轮开启前——真正的对话
-      // 时序）；steerState=drained（队列已出账，事件载荷显式携带）
-      const entry = this.session.appendSteerEntryAtDrain(item, this.now());
-      this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
-      // source 同源透传（T11a：入队时来源 → drain 事件载荷；缺省老项不携带键）
+      if (this.streamEntryId !== null) {
+        // 真实 pi 事件序：旧轮回复未落盘，steer 落盘延迟到 recordAssistantMessage 后
+        this.pendingDrainSteerItem = item;
+      } else {
+        // FakeAgentEngine 事件序：旧轮已结束，steer 立即落盘 + 开新 turn
+        const entry = this.session.appendSteerEntryAtDrain(item, this.now());
+        this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
+        const turn = this.session.beginTurn(item.entryId, this.now());
+        this.publish("turn.started", { turnId: turn.id });
+      }
       this.publish<SteerPayload>("steer.drained", {
         entryId: item.entryId,
         text: item.text,
         ...(item.source !== undefined ? { source: item.source } : {}),
       });
-      const turn = this.session.beginTurn(item.entryId, this.now());
-      this.publish("turn.started", { turnId: turn.id });
     }
     if (this.lifecycle.current === "steering") {
       this.setLifecycle("running");
@@ -551,7 +557,7 @@ export class ChatService implements ChatPort {
 
   // ── 落盘族（领域状态落聚合 + 里程碑事件） ─────────────────
 
-  /** message_end(assistant)：非空文本落 Entry + message.completed → usage 入账子调用 → 预留清空。thinking 块已在 thinking_end 即时落账（T35），此处无 thinking 收口；user/toolResult 已在注入/工具事件落账，不重复。 */
+  /** message_end(assistant)：非空文本落 Entry + message.completed → usage 入账子调用 → 预留清空。thinking 块已在 thinking_end 即时落账（T35），此处无 thinking 收口；user/toolResult 已在注入/工具事件落账，不重复。回复落盘后检查 drain 暂存 steer item——pi 事件序 message_start(user, steer-drain) 先于 message_end(assistant)，steer 落盘延迟至此（回复落盘后，对话时序原位）。 */
   private recordAssistantMessage(e: EngineEventOf<"message_end">): void {
     if (e.text.trim() !== "") {
       const entry = this.session.appendAssistantEntry(e.text, this.now(), this.streamEntryId ?? undefined);
@@ -561,6 +567,15 @@ export class ChatService implements ChatPort {
       this.publishTurnUsage(e.usage);
     }
     this.streamEntryId = null; // 预留消耗完毕（空文本/abort 轮同样清空）
+    // drain 暂存 steer 落盘：回复已落盘（或空回复轮），steer 此刻进时间轴原位
+    if (this.pendingDrainSteerItem) {
+      const item = this.pendingDrainSteerItem;
+      this.pendingDrainSteerItem = null;
+      const entry = this.session.appendSteerEntryAtDrain(item, this.now());
+      this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
+      const turn = this.session.beginTurn(item.entryId, this.now());
+      this.publish("turn.started", { turnId: turn.id });
+    }
   }
 
   /**

@@ -87,6 +87,24 @@ describe("Session steer 全链（TP-CL4-1 ④）", () => {
     const s = Session.create("s-5");
     expect(() => s.applySteer("没有轮次")).toThrow();
   });
+
+  test("drain 落盘 steer entry 的 createdAt = drain 时刻（排在旧轮回复之后，对话时序原位）", () => {
+    const s = Session.create("s-6");
+    const u = s.appendUserEntry("问");
+    s.beginTurn(u.id);
+    const stId = s.applySteer("中途补充");
+    // 旧轮回复先落盘（drain 时刻更晚）
+    const reply = s.appendAssistantEntry("旧轮回复");
+    s.completeTurn();
+
+    // drain 落盘：createdAt 应取 drain 时刻（>= 旧轮回复），使条目排在旧轮回复之后
+    const d = s.dequeueSteer()!;
+    const entry = s.appendSteerEntryAtDrain(d);
+    expect(entry.id).toBe(stId);
+    const entries = s.toSnapshot().entries;
+    expect(entries.map((e) => e.id)).toEqual([u.id, reply.id, stId]);
+    expect(entry.createdAt >= reply.createdAt).toBe(true);
+  });
 });
 
 describe("D-2：entry id 预分配（reserveEntryId / appendAssistantEntry reservedId）", () => {
