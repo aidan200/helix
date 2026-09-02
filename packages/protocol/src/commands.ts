@@ -608,6 +608,27 @@ export interface KgHealthCommand extends CommandFrame<KgHealthPayload> {
   type: "kg.health";
 }
 
+// ── kg.candidates.list 批新增（台账读面三件套之三：P-1 台账查看面板数据面；只读零裁决） ──
+
+export interface KgCandidatesListPayload {
+  /** 项目名或绝对路径（daemon 单点解析）。 */
+  project: string;
+  /** 状态过滤（可选四态；缺省全量最新在前）。 */
+  status?: "pending" | "deferred" | "applied" | "discarded";
+  /** 分页（可选：行数上限 / 跳过行数；缺省全量）。 */
+  limit?: number;
+  offset?: number;
+}
+/**
+ * 候选台账列表读面（candidates 表 status 过滤 + 分页；行含 body 全文——
+ * 选中行展开详情数据源）。只读零写路径——本轮无页面裁决写命令（裁决归
+ * kg-review 人审 / decideCandidate）；unbound 防御 = 空集结果非报错
+ * （kg.list 同规）。结果 = kg.candidates.list.result 点对点回执帧。
+ */
+export interface KgCandidatesListCommand extends CommandFrame<KgCandidatesListPayload> {
+  type: "kg.candidates.list";
+}
+
 // ── kg 评审批新增（W2-F 轨二语义体检任务 kg-review；设计 kg-driven-dev-loop-design D5 + R21/R23）──
 
 export interface KgReviewCreatePayload {
@@ -729,7 +750,7 @@ export interface TaskDeleteCommand extends CommandFrame<TaskDeletePayload> {
   type: "task.delete";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52；kg.health 批 + kg 评审批：52 → 54） */
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52；kg.health 批 + kg 评审批：52 → 54；kg.candidates.list 批：54 → 55） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -777,6 +798,7 @@ export type CommandEnvelope =
   | KgIndexDeleteCommand
   | KgHealthCommand
   | KgReviewCreateCommand
+  | KgCandidatesListCommand
   | WorkspaceGetCommand
   | WorkspaceOpenCommand
   | TaskListCommand
@@ -837,6 +859,7 @@ export const COMMAND_TYPES = [
   "kg.index.delete",
   "kg.health",
   "kg.review.create",
+  "kg.candidates.list",
   "workspace.get",
   "workspace.open",
   "task.list",

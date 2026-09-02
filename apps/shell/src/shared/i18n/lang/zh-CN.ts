@@ -670,6 +670,19 @@ export const zhCN = {
       reviewOkToast: "体检任务已发起：{name}",
       reviewFailToast: "体检任务发起失败：{message}",
     },
+    // ── 候选台账查看面板（台账读面三件套之三；只读零裁决） ──
+    cand: {
+      panelTitle: "候选台账",
+      loading: "读取候选台账…",
+      empty: "暂无候选条目",
+      filterAll: "全部",
+      countLine: "共 {total} 条",
+      target: "目标节点：{node}",
+      deferAge: "第 {n} 次暂缓",
+      createdAt: "提出于 {at}",
+      readonlyNote: "只读查看——裁决归 kg-review 人审 / decideCandidate 通道，本面板无裁决动作",
+      bodyTitle: "正文",
+    },
   },
 
 

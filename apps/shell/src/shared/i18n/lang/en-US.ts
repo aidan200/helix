@@ -665,6 +665,19 @@ export const enUS = {
       reviewOkToast: "Review task launched: {name}",
       reviewFailToast: "Failed to launch review: {message}",
     },
+    // ── candidates ledger panel (read-only, no adjudication) ──
+    cand: {
+      panelTitle: "Candidates ledger",
+      loading: "Loading candidates…",
+      empty: "No candidates yet",
+      filterAll: "All",
+      countLine: "{total} entries",
+      target: "Target node: {node}",
+      deferAge: "Deferred {n} time(s)",
+      createdAt: "Proposed at {at}",
+      readonlyNote: "Read-only — adjudication lives in kg-review human review / decideCandidate; no actions here",
+      bodyTitle: "Body",
+    },
   },
 
   // ── P-2 tasks page (T3.1; iter-20260829-ys7q; copy source = prototype/P-2-task.html + review.md R-1~R-9/R-19)──

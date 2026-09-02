@@ -108,6 +108,7 @@ import {
   handleKgChangeReport,
   handleKgGraphPurge,
   handleKgHealth,
+  handleKgCandidatesList,
   handleKgIndexDelete,
   handleKgIndexStatus,
   handleKgList,
@@ -547,6 +548,9 @@ export class WsServerAdapter {
       // ── kg.health 批（W2-E 轨一体检看板；handlers/kg.ts）──
       case "kg.health":
         return handleKgHealth(this.kgContext(ws, type, payload));
+      // ── kg.candidates.list 批（台账读面三件套之三；handlers/kg.ts）──
+      case "kg.candidates.list":
+        return handleKgCandidatesList(this.kgContext(ws, type, payload));
       // ── kg 评审批（W2-F 轨二体检任务发起；handlers/kg.ts）──
       case "kg.review.create":
         return handleKgReviewCreate(this.kgContext(ws, type, payload));

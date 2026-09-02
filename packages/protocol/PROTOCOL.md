@@ -738,9 +738,9 @@ export interface AgentModelChangedPayload {
 
 ## 15. 命令 payload 形状总登记（C→S，55 命令全集）
 
-> **计数声明：57 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
+> **计数声明：58 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
 > 15.4 model 7 + config 2 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
-> 15.9 kg 6+5+2+1+1 + 15.10 workspace 2 + 15.11 task 9）——与 `COMMAND_TYPES` 常量恰等
+> 15.9 kg 6+5+2+1+1+1 + 15.10 workspace 2 + 15.11 task 9）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
 > 文档与其逐项对齐（AD-1）；仓外契约文档降为历史定形档案（§17.1）。
@@ -1101,7 +1101,7 @@ iter-20260823 后续批升格：effective=null、后续请求不带 reasoning—
 |---|---|---|---|---|
 | `level` | `string` | 必填 | v0.11 | pi-ai ThinkingLevel 字符串透传（如 `"medium"` / `"high"` / `"off"` 显式关） |
 
-### 15.9 kg 族（6+5+2+1+1；kg 批 + kg-bootstrap 批 + kg 维护批 + kg.health 批 + kg 评审批，iter-20260825-11fo T5.3 / iter-20260829-ys7q T3.2 / C1 / W2-E / W2-F）
+### 15.9 kg 族（6+5+2+1+1+1；kg 批 + kg-bootstrap 批 + kg 维护批 + kg.health 批 + kg 评审批 + kg.candidates.list 批，iter-20260825-11fo T5.3 / iter-20260829-ys7q T3.2 / C1 / W2-E / W2-F / 台账读面三件套）
 
 > 本族为 kg 批（v0.11 后 additive 微批，版本位不 bump，§14/§18 同构先例；
 > 批次注记见 §19）登记的 P-1 数据面六命令。全局命令（信封 sessionId
@@ -1310,6 +1310,22 @@ params={projectRoot}、stages 策略 fixed 由 manifest 生成三行（L0 结构
 直改节点），唯一例外 = scene 缺失节点可 updateNode 直补（R23 元数据
 补全不是内容推翻）；禁止直改 body/digest、禁止 supersede（推翻权在人审）。
 
+#### `kg.candidates.list`
+
+候选台账列表读面（台账读面三件套之三：P-1 台账查看面板数据面；只读零
+裁决——本轮无页面裁决写命令，裁决归 kg-review 人审 / decideCandidate 写面）。
+candidates 表 status 过滤 + limit/offset 分页，缺省全量最新在前（rowid 序）；
+行含 body 全文（选中行展开详情数据源）。absent 项目 → `KG_E_NOT_FOUND`
+（读面绝不新建库文件，kg.list 同先例）；unbound 防御 = 空集结果非报错。
+结果 = `kg.candidates.list.result`（`KgCandidatesListDto`）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `project` | `string` | 必填 | kg.candidates.list 批 | 项目名或绝对路径（daemon 单点解析） |
+| `status` | `"pending" \| "deferred" \| "applied" \| "discarded"` | 可选 | kg.candidates.list 批 | 状态过滤（缺省全量） |
+| `limit` | `number` | 可选 | kg.candidates.list 批 | 行数上限 |
+| `offset` | `number` | 可选 | kg.candidates.list 批 | 跳过行数（分页） |
+
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `project` | `string` | 必填 | kg 评审批 | 项目名或绝对路径（daemon 单点解析 + 准入复核） |
@@ -1451,10 +1467,10 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 
 ## 16. 事件 payload 形状总登记（S→C，71 事件全集）
 
-> **计数声明：73 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> **计数声明：74 事件全集**（16.1 notification 3〔含 task.changed〕 +
 > 16.2 session 4 +
 > 16.3 chat 11〔含 engine.retrying 网络重试批〕 + 16.4 agent 14〔含 park/resume 批 2〕 + 16.5 thinking·compaction·usage 5 +
-> 16.6 model 13 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1 + 16.10 workspace 3
+> 16.6 model 13 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1 + 16.10 workspace 3
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
 >（三面同构，守护断言⑤口径）；auth 族 4 结果帧按 `EVENT_CHANNELS` 登记挂
@@ -2007,7 +2023,7 @@ reason 含引导用户开 remote debugging 的说明（daemon browser-discovery
 | `status` | `"applied" \| "skipped"` | 必填 | v0.9 | 结果判别位 |
 | `reason` | `string` | 可选 | v0.9 | status="skipped" 时携带：未发现可用浏览器的说明 + remote debugging 引导 |
 
-### 16.9 kg 族（6+5+2+1+1；kg 批 + kg-bootstrap 批 + kg 维护批 + kg.health 批 + kg 评审批，iter-20260825-11fo T5.3 / iter-20260829-ys7q T3.2 / C1 / W2-E / W2-F）
+### 16.9 kg 族（6+5+2+1+1+1；kg 批 + kg-bootstrap 批 + kg 维护批 + kg.health 批 + kg 评审批 + kg.candidates.list 批，iter-20260825-11fo T5.3 / iter-20260829-ys7q T3.2 / C1 / W2-E / W2-F / 台账读面三件套）
 
 > 六命令的点对点回执结果帧（TR-AD-21 模式；仅发发起命令的连接，不经
 > EventStream 广播）。信封 sessionId = SYSTEM_SESSION_ID、channel =
@@ -2169,6 +2185,16 @@ conflicts / orphans / orphanCount / index / candidates 五项聚合）。
 |---|---|---|---|---|
 | `ok` | `true` | 必填 | kg 评审批 | 判别位（失败走 connection.error） |
 | `jobId` | `string` | 必填 | kg 评审批 | 任务 id（kg-review 任务；产出走 candidates 台账人审） |
+
+#### `kg.candidates.list.result`
+
+候选台账列表回执（kg.candidates.list 批，点对点；payload = `KgCandidatesListDto`——
+status 过滤后行集 + 全集计数；unbound = 空集非报错）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `total` | `number` | 必填 | kg.candidates.list 批 | 过滤后全集计数（分页不改变） |
+| `rows` | `KgCandidateRowDto[]`（`{ id, title, status, kind, targetNode, deferAge, createdAt, body }`） | 必填 | kg.candidates.list 批 | 台账行（最新在前；body 全文——选中行展开详情数据源；targetNode = 修改/废弃候选的目标节点定位，新增候选 null） |
 
 ### 16.10 workspace 族（3；workspace 批，W1 workspace 绑定闭环）
 

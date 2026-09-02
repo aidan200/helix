@@ -13,6 +13,7 @@ export function kgToolsStub(workspaceRoot: string): KgToolOptions {
       get: () => null,
       locate: () => [],
       affected: () => [],
+      listCandidates: () => [], // 台账读面三件套：替身零库零 IO
     },
     write: {
       write: () => ({

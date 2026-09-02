@@ -158,7 +158,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 57 个 type（… + config 批 2 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1）", () => {
+  test("命令目录恰为 58 个 type（… + config 批 2 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1 + kg.candidates.list 批 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.config.list",
@@ -178,6 +178,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "kg.bootstrap.create",
         "kg.bootstrap.impact",
         "kg.bootstrap.produce",
+        "kg.candidates.list",
         "kg.change.report",
         "kg.graph.purge",
         "kg.health",
@@ -222,7 +223,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 73 个 type（… + config 批 2 + kg 评审批 1 + 网络重试批 1 + park/resume 批 2）", () => {
+  test("事件目录恰为 74 个 type（… + config 批 2 + kg 评审批 1 + 网络重试批 1 + park/resume 批 2 + kg.candidates.list 批 1）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.completed",
@@ -258,6 +259,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "kg.bootstrap.create.result",
         "kg.bootstrap.impact.result",
         "kg.bootstrap.produce.result",
+        "kg.candidates.list.result",
         "kg.change.report.result",
         "kg.graph.purge.result",
         "kg.health.result",
@@ -496,6 +498,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "kg.bootstrap.create.result",
       "kg.bootstrap.impact.result",
       "kg.bootstrap.produce.result",
+      "kg.candidates.list.result",
       "kg.change.report.result",
       "kg.graph.purge.result",
       "kg.health.result",
@@ -517,11 +520,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（config 批后）：EVENT_TYPES 73 / EVENT_CHANNELS 73 键 / COMMAND_TYPES 57", () => {
-    expect(EVENT_TYPES.length).toBe(73); // config 批：+2（config.*.result）
-    expect(new Set(EVENT_TYPES).size).toBe(73); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(73); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(57); // config 批：+2（config.set/get_compaction）
+  test("目录计数（kg.candidates.list 批后）：EVENT_TYPES 74 / EVENT_CHANNELS 74 键 / COMMAND_TYPES 58", () => {
+    expect(EVENT_TYPES.length).toBe(74); // kg.candidates.list 批：+1（kg.candidates.list.result）
+    expect(new Set(EVENT_TYPES).size).toBe(74); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(74); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(58); // kg.candidates.list 批：+1（kg.candidates.list）
   });
 
 });

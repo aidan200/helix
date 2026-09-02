@@ -992,3 +992,89 @@ describe("kg.index.status rebuild 随行 orphanNote（W2-D R14）", () => {
     expect(healthy.result.orphanNote).toBeUndefined();
   }, 20000);
 });
+
+// ── kg.candidates.list（台账读面三件套之三：WS 命令——P-1 台账面板数据面） ──
+
+describe("kg.candidates.list I 层（真 service 栈 + tmp 库 + ws 路由）", () => {
+  test("正常径：行字段齐全（body 全文 + targetNode + deferAge）+ 最新在前 + status 过滤 + limit/offset", async () => {
+    const rig = await openRig();
+    await seedAlpha(rig);
+    expectOk(
+      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选甲", body: "正文甲", targetNode: "TR-1" }),
+      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选乙" }),
+      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选丙" }),
+    );
+    expectOk(
+      rig.write.write(rig.alpha, { kind: "decideCandidate", iterationId: ITER, candidateId: "CAND-2", decision: "deferred" }),
+      rig.write.write(rig.alpha, { kind: "decideCandidate", iterationId: ITER, candidateId: "CAND-3", decision: "applied", reason: "采纳" }),
+    );
+
+    const res = await rig.client.kg("kg.candidates.list", { project: "alpha" });
+    expect(res.ok).toBe(true);
+    expect(res.result.total).toBe(3);
+    const rows = res.result.rows as Record<string, unknown>[];
+    expect(rows.map((r) => r.id)).toEqual(["CAND-3", "CAND-2", "CAND-1"]); // 最新在前
+    const first = rows.find((r) => r.id === "CAND-1")!;
+    expect(first.title).toBe("候选甲");
+    expect(first.body).toBe("正文甲"); // body 全文（详情展开数据源）
+    expect(first.targetNode).toBe("TR-1");
+    expect(first.status).toBe("pending");
+    expect(first.kind).toBe("sediment");
+    expect(first.deferAge).toBe(0);
+    expect(typeof first.createdAt).toBe("string");
+    const second = rows.find((r) => r.id === "CAND-2")!;
+    expect(second.status).toBe("deferred");
+    expect(second.deferAge).toBe(1);
+
+    // status 过滤
+    const pending = await rig.client.kg("kg.candidates.list", { project: "alpha", status: "pending" });
+    expect((pending.result.rows as Record<string, unknown>[]).map((r) => r.id)).toEqual(["CAND-1"]);
+    expect(pending.result.total).toBe(1);
+
+    // 分页
+    const page = await rig.client.kg("kg.candidates.list", { project: "alpha", limit: 2, offset: 2 });
+    expect((page.result.rows as Record<string, unknown>[]).map((r) => r.id)).toEqual(["CAND-1"]);
+    expect(page.result.total).toBe(3); // total 恒为过滤后全集（分页不改变）
+
+    // 跨项目不串：beta 无候选 → 空集
+    seedBeta(rig);
+    const beta = await rig.client.kg("kg.candidates.list", { project: "beta" });
+    expect(beta.ok).toBe(true);
+    expect(beta.result.rows).toEqual([]);
+    expect(beta.result.total).toBe(0);
+  }, 15000);
+
+  test("防御径：absent KG_E_NOT_FOUND + status 越界 KG_E_PARAM + project 缺失 + unimplemented 门控", async () => {
+    // 独立 rig：主 rig 的 delta 已被 index.status 冷启动测试建库（顺序敏感现场）
+    const rig = await openRig();
+    // absent（delta 无库）：读面绝不新建库文件（kg.list 同先例）
+    const absent = await rig.client.kg("kg.candidates.list", { project: "delta" });
+    expect(absent.ok).toBe(false);
+    expect(absent.error!.code).toBe("KG_E_NOT_FOUND");
+
+    const badStatus = await rig.client.kg("kg.candidates.list", { project: "alpha", status: "bogus" });
+    expect(badStatus.ok).toBe(false);
+    expect(badStatus.error!.code).toBe("KG_E_PARAM");
+    expect(badStatus.error!.message).toContain("payload.status");
+
+    const noProject = await rig.client.kg("kg.candidates.list", {});
+    expect(noProject.ok).toBe(false);
+    expect(noProject.error!.code).toBe("KG_E_PARAM");
+
+    // unimplemented：kg 栈未装配 → command.unimplemented（不崩溃）
+    const events = new EventStream();
+    const adapter = new WsServerAdapter({ ...stubAdapterDeps(events) });
+    const client = new TestClient(`ws://127.0.0.1:${adapter.port}`);
+    try {
+      await client.open();
+      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: { token: "kg-it-token", protocolVersion: PROTOCOL_VERSION } });
+      await until(() => client.frames.some((f) => f.type === "connection.welcome"), 3000, "握手 welcome");
+      const res = await client.kg("kg.candidates.list", { project: "x" });
+      expect(res.ok).toBe(false);
+      expect(res.error!.code).toBe("command.unimplemented");
+    } finally {
+      adapter.stop();
+      await client.close();
+    }
+  }, 15000);
+});

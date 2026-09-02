@@ -196,6 +196,41 @@ export interface KgHealthDto {
   candidates: KgHealthCandidatesDto;
 }
 
+// ── kg.candidates.list 批新增（台账读面三件套之三：WS 命令——P-1 台账面板数据面） ──
+
+/** 候选状态四态（kg.candidates.list 过滤参数与行字段共用枚举）。 */
+export type KgCandidateStatusDto = "pending" | "deferred" | "applied" | "discarded";
+
+/**
+ * 候选台账行（kg.candidates.list 响应行；只读——无裁决动作字段，裁决归
+ * kg-review 人审 / decideCandidate 写面）。body 全文直返（选中行展开详情
+ * 数据源，同 kg.node.detail body 同规）。
+ */
+export interface KgCandidateRowDto {
+  /** 候选 id（CAND-<seq>）。 */
+  id: string;
+  /** 候选标题（人审台账的一行识别语）。 */
+  title: string;
+  status: KgCandidateStatusDto;
+  /** 候选类型（封闭词表：sediment）。 */
+  kind: string;
+  /** 目标节点 id（修改/废弃候选的定位；新增候选恒 null——列级演进后可空）。 */
+  targetNode: string | null;
+  /** 暂缓次数（deferred 态有意义，其余 0）。 */
+  deferAge: number;
+  /** 提出时间（ISO）。 */
+  createdAt: string;
+  /** 正文全文（finding 结构化字段平铺；选中行展开详情数据源）。 */
+  body: string;
+}
+
+/** kg.candidates.list 响应：status 过滤后的台账行（最新在前）+ 过滤后全集计数。 */
+export interface KgCandidatesListDto {
+  /** 过滤后全集计数（分页不改变）。 */
+  total: number;
+  rows: KgCandidateRowDto[];
+}
+
 // ── kg-bootstrap 批新增（iter-20260829-ys7q T3.2；契约 contracts/kg-bootstrap-api.md §3/§5）──
 
 /**

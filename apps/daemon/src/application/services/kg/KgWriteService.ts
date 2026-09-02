@@ -323,6 +323,11 @@ function validateProposeCandidate(op: Record<string, unknown>): KgWriteError | n
       return schemaError(`${key} 若携带必须为非空字符串（溯源列）`, `op.${key}`);
     }
   }
+  // targetNode（台账读面定位列）：携带则必须为节点 id 形态（TR-n / E-n 或
+  // 保号复合形态 TR-AD-47——同显式 id 口径；非 TR/E 前缀拒绝，零落库）
+  if (op.targetNode !== undefined && (typeof op.targetNode !== "string" || parseMigrationId(op.targetNode) === null)) {
+    return schemaError("targetNode 若携带必须为节点 id 形态（TR-n / E-n 或保号复合形态——修改/废弃候选的目标定位）", "op.targetNode");
+  }
   if (op.id !== undefined) {
     if (typeof op.id !== "string" || parseCandidateId(op.id) === null) {
       return schemaError("显式 id 仅限 md 台账迁移保号场景，形态必须为 CAND-<seq>（如 CAND-12）", "op.id");

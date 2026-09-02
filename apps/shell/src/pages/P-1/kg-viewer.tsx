@@ -18,7 +18,7 @@
  *   +重发 detail 取 daemon 落账日志）。
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Dispatch } from "react";
-import type { EventEnvelope, KgHealthDto, KgNodeListRow, KgProjectRow, KgProduceNodeDto } from "@helix/protocol";
+import type { EventEnvelope, KgCandidateRowDto, KgHealthDto, KgNodeListRow, KgProjectRow, KgProduceNodeDto } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
@@ -35,6 +35,7 @@ import KgReportPane from "./ui/kg-report-pane";
 import KgIndexPanel from "./ui/kg-index-panel";
 import KgBootstrapEntry from "./ui/kg-bootstrap-entry";
 import KgHealthPane from "./ui/kg-health-pane";
+import KgCandidatesPanel, { type CandFilter } from "./ui/kg-candidates-panel";
 import KgProducePane from "./ui/kg-produce-pane";
 
 /** 面板重建轮询间隔（O-6 同主区 building 轮询）。 */
@@ -74,6 +75,7 @@ const KgViewer = function KgViewer({
     sendKgIndexDelete,
     sendKgHealth,
     sendKgReviewCreate,
+    sendKgCandidatesList,
     sendKgProjects,
     subscribeKgFrames,
   } = useSession();
@@ -100,6 +102,15 @@ const KgViewer = function KgViewer({
   const [healthView, setHealthView] = useState<{ loading: boolean; data: KgHealthDto | null }>({ loading: false, data: null });
   const healthFetchedRef = useRef(false);
   const [reviewLaunched, setReviewLaunched] = useState(false);
+  /** 候选台账面板数据面（台账读面三件套；与 health 同窗口拉取——
+   *  首进 tab 一次；过滤/选中为本地态，行集由回执刷新）。 */
+  const [candView, setCandView] = useState<{
+    loading: boolean;
+    rows: readonly KgCandidateRowDto[];
+    total: number;
+    filter: CandFilter;
+    sel: string | null;
+  }>({ loading: false, rows: [], total: 0, filter: "all", sel: null });
   /** 产出拉取去重（首进 produce tab 发一次；切项目 kgToken 重挂复位）。 */
   const produceFetchedRef = useRef(false);
   /** 产出状态镜像（回调查找节点用；避免回调依赖 produce 身份抖动）。 */
@@ -215,6 +226,10 @@ const KgViewer = function KgViewer({
           // ── kg.health 批 + kg 评审批回执（W2-E/W2-F；review 单飞 ref 关联）──
           case "kg.health.result": {
             setHealthView({ loading: false, data: e.payload });
+            return;
+          }
+          case "kg.candidates.list.result": {
+            setCandView((v) => ({ loading: false, rows: e.payload.rows, total: e.payload.total, filter: v.filter, sel: v.sel }));
             return;
           }
           case "kg.review.create.result": {
@@ -375,13 +390,31 @@ const KgViewer = function KgViewer({
     sendKgBootstrapProduce({ project: project.name });
   }, [tab, project.name, sendKgBootstrapProduce, projectDispatch]);
 
-  // health 拉取（W2-E；首进 tab 发一次，回执经 listener 落本地态）
+  // health + 台账拉取（W2-E + 三件套；首进 tab 各发一次，回执经 listener 落本地态）
   useEffect(() => {
     if (tab !== "health" || healthFetchedRef.current) return;
     healthFetchedRef.current = true;
     setHealthView({ loading: true, data: null });
+    setCandView((v) => ({ ...v, loading: true }));
     sendKgHealth({ project: project.name });
-  }, [tab, project.name, sendKgHealth]);
+    sendKgCandidatesList({ project: project.name });
+  }, [tab, project.name, sendKgHealth, sendKgCandidatesList]);
+
+  /** 台账过滤（面板按钮 + 体检四态徽章联动同一入口）：设过滤 + 重拉。 */
+  const onCandFilter = useCallback(
+    (filter: CandFilter) => {
+      setCandView((v) => ({ ...v, filter, loading: true }));
+      if (!sendKgCandidatesList({ project: project.name, ...(filter !== "all" ? { status: filter } : {}) })) {
+        setCandView((v) => ({ ...v, loading: false }));
+        toast.push("err", t("pj.boot.sendFail"));
+      }
+    },
+    [project.name, sendKgCandidatesList, toast, t],
+  );
+  /** 台账行点击：切换选中展开 body 详情（再点收起）。 */
+  const onCandSelect = useCallback((id: string) => {
+    setCandView((v) => ({ ...v, sel: v.sel === id ? null : id }));
+  }, []);
 
   // ── kg.review.create 发起（W2-F；单飞锁在本视图，Pane 纯展示）──
   const onLaunchReview = useCallback(() => {
@@ -654,17 +687,31 @@ const KgViewer = function KgViewer({
                   byId={byId}
                 />
               ) : state.tab === "health" ? (
-                <KgHealthPane
-                  health={healthView.data}
-                  loading={healthView.loading}
-                  reviewBusy={flight.review}
-                  reviewLaunched={reviewLaunched}
-                  reviewRunning={project.reviewRunning === true}
-                  projectName={project.name}
-                  t={t}
-                  onLaunchReview={onLaunchReview}
-                  onOpenTasks={onOpenTasks}
-                />
+                <>
+                  <KgHealthPane
+                    health={healthView.data}
+                    loading={healthView.loading}
+                    reviewBusy={flight.review}
+                    reviewLaunched={reviewLaunched}
+                    reviewRunning={project.reviewRunning === true}
+                    projectName={project.name}
+                    candFilter={candView.filter}
+                    t={t}
+                    onCandFilter={onCandFilter}
+                    onLaunchReview={onLaunchReview}
+                    onOpenTasks={onOpenTasks}
+                  />
+                  <KgCandidatesPanel
+                    loading={candView.loading}
+                    rows={candView.rows}
+                    total={candView.total}
+                    filter={candView.filter}
+                    sel={candView.sel}
+                    t={t}
+                    onFilter={onCandFilter}
+                    onSelect={onCandSelect}
+                  />
+                </>
               ) : (
                 <KgProducePane
                   produce={produce}

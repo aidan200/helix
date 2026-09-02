@@ -40,7 +40,9 @@
  *   复用 meta 发号计数器模式；status 四值 CHECK 状态机 pending→applied/
  *   discarded/deferred；kind 词表（sediment 等）与 defer 上限校验在 service
  *   层——同 edges 词表不进 DDL 先例；formal_id 终验人审签发前恒 NULL；
- *   source_task_id/source_iteration_id 溯源列与 change_log.task_id 同风格）；
+ *   source_task_id/source_iteration_id 溯源列与 change_log.task_id 同风格；
+ *   target_node：修改/废弃候选的目标节点 id（TR-n/E-n；新增候选恒 NULL——
+ *   台账读面清台判读定位列；列级演进见 KgDatabase.ensureSchemaEvolved）；
  * - meta：KV（导入基准戳 sync:baseline + degraded 标记 sync:degraded +
  *   每 kind seq 计数器 seq:rule/seq:entity/seq:candidate——发号落库事务内
  *   分配，AD-16）。
@@ -135,6 +137,7 @@ CREATE TABLE IF NOT EXISTS candidates (
     CHECK (status IN ('pending','applied','discarded','deferred')),
   source_task_id TEXT,
   source_iteration_id TEXT,
+  target_node TEXT,
   defer_age INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   decided_at TEXT,

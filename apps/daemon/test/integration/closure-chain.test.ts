@@ -532,8 +532,8 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       const db = new Database(kgDbPath(projectRoot), { readonly: true });
       try {
         const candidates = db
-          .prepare("SELECT title, status, source_task_id, source_iteration_id, body FROM candidates ORDER BY id")
-          .all() as { title: string; status: string; source_task_id: string | null; source_iteration_id: string | null; body: string }[];
+          .prepare("SELECT title, status, source_task_id, source_iteration_id, body, target_node FROM candidates ORDER BY id")
+          .all() as { title: string; status: string; source_task_id: string | null; source_iteration_id: string | null; body: string; target_node: string | null }[];
         expect(candidates).toHaveLength(3);
         expect(candidates[0]).toMatchObject({
           title: "报告透传规则",
@@ -544,6 +544,8 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
         expect(candidates[0]!.body).toContain("digest: 自报 reportPath 存在时透传时");
         expect(candidates[1]).toMatchObject({ title: `废弃：${targetNode}`, status: "pending" });
         expect(candidates[1]!.body).toContain("reason: 被本次实现推翻");
+        expect(candidates[1]!.target_node).toBe(targetNode); // targetNode 结构化透传（读面定位列，不只埋在 body）
+        expect(candidates[0]!.target_node).toBeNull(); // 新增候选无目标
         // 缺 iterationId 的条目：回落库内锚落账（source_iteration_id = iter-t41）
         expect(candidates[2]).toMatchObject({ title: "缺迭代 id 的条目", status: "pending", source_iteration_id: "iter-t41" });
         expect(candidates[2]!.body).toContain("digest: 应回落库内锚");

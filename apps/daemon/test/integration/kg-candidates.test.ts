@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Database } from "bun:sqlite";
 import { KgDatabase, kgDbPath } from "../../src/adapters/driven/sqlite-kg/KgDatabase";
+import { SqliteKnowledgeGraph } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeGraph";
 import { SqliteKnowledgeStore } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { KgWriteService } from "../../src/application/services/kg/KgWriteService";
 import type { KnowledgeWriteOp } from "../../src/domain/kg/types";
@@ -28,6 +29,7 @@ interface Fixture {
   readonly database: KgDatabase;
   readonly store: SqliteKnowledgeStore;
   readonly write: KgWriteService;
+  readonly graph: SqliteKnowledgeGraph;
 }
 
 const fixtures: Fixture[] = [];
@@ -44,8 +46,9 @@ function makeFixture(): Fixture {
   const root = mkdtempSync(path.join(tmpdir(), "kg-candidates-it-"));
   const database = new KgDatabase();
   const store = new SqliteKnowledgeStore({ database });
+  const graph = new SqliteKnowledgeGraph({ database });
   const write = new KgWriteService({ store });
-  const fixture: Fixture = { root, database, store, write };
+  const fixture: Fixture = { root, database, store, write, graph };
   fixtures.push(fixture);
   return fixture;
 }
@@ -64,6 +67,8 @@ interface CandidateRow {
   decided_at: string | null;
   decision_reason: string | null;
   applied_node_id: string | null;
+  /** 目标节点（修改/废弃候选的定位；新增候选恒 NULL——列级演进后可空）。 */
+  target_node: string | null;
 }
 
 function probe<T>(root: string, sql: string, ...params: (string | number)[]): T[] {
@@ -294,5 +299,131 @@ describe("⑥ purge 全清含 candidates（计数器随 meta 归零）", () => {
     expect(rows(f.root)).toHaveLength(0);
     const r = f.write.write(f.root, propose("重启"));
     expect(r.ok && r.nodeId === "CAND-1").toBe(true);
+  });
+});
+
+describe("⑦ target_node 列级演进 + 落库透传（老库无列 → ALTER 补列；存量行不回填）", () => {
+  /** 无 target_node 列的旧库形态（演进前 candidates 子集 + 既有行）。 */
+  function buildLegacyDb(root: string): void {
+    const dbPath = kgDbPath(root);
+    mkdirSync(path.dirname(dbPath), { recursive: true });
+    const db = new Database(dbPath);
+    db.exec(`
+CREATE TABLE IF NOT EXISTS candidates (
+  id TEXT PRIMARY KEY,
+  formal_id TEXT,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','applied','discarded','deferred')),
+  source_task_id TEXT,
+  source_iteration_id TEXT,
+  defer_age INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  decided_at TEXT,
+  decision_reason TEXT,
+  applied_node_id TEXT
+);
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`);
+    db.prepare(
+      "INSERT INTO candidates (id, kind, title, status, defer_age, created_at) " +
+        "VALUES ('CAND-1', 'sediment', '既有候选', 'pending', 0, '2026-01-01T00:00:00.000Z')",
+    ).run();
+    db.close();
+  }
+
+  test("老库打开 → 自动补 target_node 列，存量行 NULL 零变化；二次打开幂等", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "kg-cand-legacy-"));
+    const database = new KgDatabase();
+    fixtures.push({ root, database, store: null!, write: null!, graph: null! });
+    buildLegacyDb(root);
+
+    database.knowledgeConnection(root); // 打开触发演进
+    const probe = new Database(kgDbPath(root));
+    try {
+      const cols = (probe.prepare("PRAGMA table_info(candidates)").all() as { name: string }[]).map((c) => c.name);
+      expect(cols.filter((c) => c === "target_node")).toHaveLength(1);
+      const row = probe.prepare("SELECT target_node FROM candidates WHERE id = 'CAND-1'").get() as { target_node: string | null };
+      expect(row.target_node).toBeNull(); // 存量行不回填
+    } finally {
+      probe.close();
+    }
+
+    // 二次打开幂等（ALTER 不重复执行）
+    const again = new KgDatabase();
+    again.knowledgeConnection(root);
+    again.closeAll();
+    const probe2 = new Database(kgDbPath(root));
+    try {
+      const cols = (probe2.prepare("PRAGMA table_info(candidates)").all() as { name: string }[]).map((c) => c.name);
+      expect(cols.filter((c) => c === "target_node")).toHaveLength(1);
+    } finally {
+      probe2.close();
+    }
+  });
+
+  test("proposeCandidate 携带 targetNode → 落库 target_node；缺省 → NULL（旧行为不变）", () => {
+    const f = makeFixture();
+    f.write.write(f.root, propose("带目标", { targetNode: "TR-1" }));
+    f.write.write(f.root, propose("无目标"));
+    const all = rows(f.root);
+    expect(all).toHaveLength(2);
+    const withTarget = all.find((r) => r.id === "CAND-1")!;
+    const without = all.find((r) => r.id === "CAND-2")!;
+    expect(withTarget.target_node).toBe("TR-1");
+    expect(without.target_node).toBeNull();
+  });
+});
+
+describe("⑧ 读面 listCandidates + targetNode 写面校验（agent 工具/WS 命令共同数据面）", () => {
+  test("listCandidates 无过滤 → 全量行最新在前（含 body 全文 + targetNode + deferAge）；status 过滤 / limit / offset 分页", () => {
+    const f = makeFixture();
+    f.write.write(f.root, propose("候选一", { body: "正文一", targetNode: "TR-7" }));
+    f.write.write(f.root, propose("候选二"));
+    f.write.write(f.root, propose("候选三"));
+    f.write.write(f.root, decide("CAND-1", "deferred"));
+    f.write.write(f.root, decide("CAND-3", "applied", { reason: "采纳" }));
+
+    const all = f.graph.listCandidates(f.root, {});
+    expect(all.map((r) => r.id)).toEqual(["CAND-3", "CAND-2", "CAND-1"]); // 最新在前（rowid 序）
+    const first = all.find((r) => r.id === "CAND-1")!;
+    expect(first.title).toBe("候选一");
+    expect(first.body).toBe("正文一"); // body 全文（agent 清台判读需要）
+    expect(first.targetNode).toBe("TR-7");
+    expect(first.status).toBe("deferred");
+    expect(first.deferAge).toBe(1);
+    expect(first.kind).toBe("sediment");
+    expect(typeof first.createdAt).toBe("string");
+    expect(all.find((r) => r.id === "CAND-3")!.status).toBe("applied");
+    expect(all.find((r) => r.id === "CAND-3")!.decisionReason).toBe("采纳");
+
+    const pendingOnly = f.graph.listCandidates(f.root, { status: "pending" });
+    expect(pendingOnly.map((r) => r.id)).toEqual(["CAND-2"]);
+    const deferred = f.graph.listCandidates(f.root, { status: "deferred" });
+    expect(deferred.map((r) => r.id)).toEqual(["CAND-1"]);
+
+    const page1 = f.graph.listCandidates(f.root, { limit: 2 });
+    expect(page1.map((r) => r.id)).toEqual(["CAND-3", "CAND-2"]);
+    const page2 = f.graph.listCandidates(f.root, { limit: 2, offset: 2 });
+    expect(page2.map((r) => r.id)).toEqual(["CAND-1"]);
+  });
+
+  test("targetNode 写面校验：非法形态（非 TR-/E- 前缀 / 空串）→ KG_E_SCHEMA 零落库；保号复合形态合法", () => {
+    const f = makeFixture();
+    f.database.knowledgeConnection(f.root);
+    const badPrefix = f.write.write(f.root, propose("坏前缀", { targetNode: "SPEC-2" }));
+    expect(!badPrefix.ok && badPrefix.error.code === "KG_E_SCHEMA" && badPrefix.error.path === "op.targetNode").toBe(true);
+    const empty = f.write.write(f.root, propose("空串", { targetNode: "" }));
+    expect(!empty.ok && empty.error.code === "KG_E_SCHEMA").toBe(true);
+    const compound = f.write.write(f.root, propose("保号形态", { targetNode: "TR-AD-47" }));
+    expect(compound.ok).toBe(true);
+    const plain = f.write.write(f.root, propose("新号形态", { targetNode: "E-3" }));
+    expect(plain.ok).toBe(true);
+    expect(rows(f.root)).toHaveLength(2);
   });
 });

@@ -146,6 +146,10 @@ describe("workspace 绑定闭环（W1）I 层", () => {
       const projects = await rig.client.call("kg.projects", {});
       expect(projects?.type).toBe("kg.projects.result");
       expect(projects?.payload).toEqual({ projects: [] });
+      // kg.candidates.list 同规（列表型读面：unbound → 空集非报错；台账读面三件套）
+      const cands = await rig.client.call("kg.candidates.list", { project: "any" });
+      expect(cands?.type).toBe("kg.candidates.list.result");
+      expect(cands?.payload).toEqual({ total: 0, rows: [] });
 
       // ③ 会话创建依赖绑定：draft 链拒绝 + 指引文案
       const draft = await rig.client.call("chat.send", { text: "你好", draft: true });

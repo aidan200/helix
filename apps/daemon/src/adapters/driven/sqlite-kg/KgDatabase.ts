@@ -94,6 +94,11 @@ function ensureSchemaEvolved(db: Database): void {
   if (!hasColumn(db, "nodes", "scene")) {
     db.exec("ALTER TABLE nodes ADD COLUMN scene TEXT NOT NULL DEFAULT ''");
   }
+  if (!hasColumn(db, "candidates", "target_node")) {
+    // 候选台账读面（kg candidates op / kg.candidates.list / P-1 台账面板）：
+    // 修改/废弃候选定位目标节点——可空无默认（存量行 NULL = 无目标，不回填）
+    db.exec("ALTER TABLE candidates ADD COLUMN target_node TEXT");
+  }
   relaxChangeLogIterationNotNull(db);
 }
 

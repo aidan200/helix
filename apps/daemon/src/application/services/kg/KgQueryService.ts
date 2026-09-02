@@ -16,7 +16,7 @@
  */
 
 import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort";
-import type { AnchorReverseHit, NodeDigestRow, NodeDetail } from "../../../domain/kg/types";
+import type { AnchorReverseHit, CandidateListQuery, CandidateRow, NodeDigestRow, NodeDetail } from "../../../domain/kg/types";
 import { ATTACHMENT_PROTOCOL_LINE_WORKER } from "../../../domain/kg/attachment/render";
 import { extractTaskTerms } from "../../../domain/kg/attachment/task-slice";
 import {
@@ -56,6 +56,12 @@ export interface KgNodeHit {
 /** affected 命中行（project 伴随——跨项目聚合形态同 search，R20）。 */
 export interface KgAffectedHit extends AnchorReverseHit {
   readonly project: string;
+}
+
+/** candidates 台账命中行（project 伴随——跨项目聚合形态同 search；读面三件套之一）。 */
+export interface KgCandidateHit {
+  readonly project: string;
+  readonly row: CandidateRow;
 }
 
 /**
@@ -104,6 +110,21 @@ export class KgQueryService {
     for (const project of this.deps.projects()) {
       for (const hit of this.deps.graph.reverseAnchorLookup(project, target)) {
         out.push({ project, ...hit });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * candidates 台账跨项目聚合（读面三件套之一：agent kg candidates op 消费）：
+   * 各已建 .kg 项目 listCandidates 汇总（项目序 + 项目内最新在前，确定性；
+   * 读面绝不新建库文件——项目列表注入方已过滤）。
+   */
+  listCandidates(query: CandidateListQuery): readonly KgCandidateHit[] {
+    const out: KgCandidateHit[] = [];
+    for (const project of this.deps.projects()) {
+      for (const row of this.deps.graph.listCandidates(project, query)) {
+        out.push({ project, row });
       }
     }
     return out;

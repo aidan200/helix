@@ -10,6 +10,8 @@ import type {
   AnchorReverseHit,
   AttachmentAnchor,
   AttachmentSnapshot,
+  CandidateListQuery,
+  CandidateRow,
   CandidateStatusCounts,
   ChangeLogEntry,
   ContainsEdge,
@@ -495,6 +497,43 @@ export class SqliteKnowledgeGraph {
     return counts;
   }
 
+  /**
+   * candidates 台账列表读面（三件套共同数据面）：status 过滤 + limit/offset
+   * 分页，缺省全量最新在前（rowid 序——插入序与 CAND-<seq> 发号序一致，
+   * 避免 TEXT id 字典序 CAND-10 < CAND-2 乱序）；行含 body 全文（agent
+   * 清台判读需要）。只读 SELECT（AG-06 写点白名单不含本文件）。
+   */
+  listCandidates(projectRoot: string, query: CandidateListQuery): readonly CandidateRow[] {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const sql =
+      "SELECT id, formal_id, kind, title, body, status, source_task_id, source_iteration_id, defer_age, target_node, " +
+      "created_at, decided_at, decision_reason, applied_node_id FROM candidates " +
+      (query.status !== undefined ? "WHERE status = ? " : "") +
+      "ORDER BY rowid DESC LIMIT ? OFFSET ?";
+    const limit = query.limit !== undefined && Number.isInteger(query.limit) && query.limit > 0 ? query.limit : -1;
+    const offset = query.offset !== undefined && Number.isInteger(query.offset) && query.offset > 0 ? query.offset : 0;
+    const rows = (
+      query.status !== undefined
+        ? db.prepare(sql).all(query.status, limit, offset)
+        : db.prepare(sql).all(limit, offset)
+    ) as CandidateListDbRow[];
+    return rows.map((row) => ({
+      id: row.id,
+      formalId: row.formal_id,
+      kind: row.kind as CandidateRow["kind"],
+      title: row.title,
+      body: row.body,
+      status: row.status as CandidateRow["status"],
+      sourceTaskId: row.source_task_id,
+      sourceIterationId: row.source_iteration_id,
+      deferAge: row.defer_age,
+      targetNode: row.target_node,
+      createdAt: row.created_at,
+      decidedAt: row.decided_at,
+      decisionReason: row.decision_reason,
+      appliedNodeId: row.applied_node_id,
+    }));
+  }
   // ── supersede 链组装（双向游走） ──────────────────────────
 
   /**
@@ -716,4 +755,22 @@ interface LogRow {
   supersede_of: string | null;
   reason: string | null;
   ts: string;
+}
+
+/** candidates 台账行（listCandidates 读面投影形状；列级演进后 target_node 可空）。 */
+interface CandidateListDbRow {
+  id: string;
+  formal_id: string | null;
+  kind: string;
+  title: string;
+  body: string;
+  status: string;
+  source_task_id: string | null;
+  source_iteration_id: string | null;
+  defer_age: number;
+  target_node: string | null;
+  created_at: string;
+  decided_at: string | null;
+  decision_reason: string | null;
+  applied_node_id: string | null;
 }
