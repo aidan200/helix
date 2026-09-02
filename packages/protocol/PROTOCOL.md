@@ -450,7 +450,7 @@ re-export 同批删除，legacy 判别由读侧 helper 承担，见 §17.11。�
 ### 11.3 事件类型学（八族 + 系统通道）
 
 `channel` 判别字段按事件登记（events.ts 字面量 + `EVENT_CHANNELS` 运行时
-目录，daemon 下发侧单点消费）：chat（v0 chat 族 10，含 engine.error 热修 + engine.retrying 网络重试批）/
+目录，daemon 下发侧单点消费）：chat（v0 chat 族 10，含 engine.error 热修 + engine.retrying 网络重试批 + error entry 批 error.entry）/
 agent（编排族 7）/ thinking（2）/ usage（1）/ compaction（1）/ session
 （snapshot + 新增 `session.list_changed`）/ model（新增 `model.changed`）/
 interaction（占位，无事件挂靠）/ notification（connection.* 系统事件）。
@@ -1465,11 +1465,11 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 |---|---|---|---|---|
 | `jobId` | `string` | 必填 | task 批 | 目标任务（终态） |
 
-## 16. 事件 payload 形状总登记（S→C，71 事件全集）
+## 16. 事件 payload 形状总登记（S→C，76 事件全集）
 
-> **计数声明：75 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> **计数声明：76 事件全集**（16.1 notification 3〔含 task.changed〕 +
 > 16.2 session 5〔含 main-session plan 批 session.plan.changed〕 +
-> 16.3 chat 11〔含 engine.retrying 网络重试批〕 + 16.4 agent 14〔含 park/resume 批 2〕 + 16.5 thinking·compaction·usage 5 +
+> 16.3 chat 12〔含 engine.retrying 网络重试批 + error entry 批 error.entry〕 + 16.4 agent 14〔含 park/resume 批 2〕 + 16.5 thinking·compaction·usage 5 +
 > 16.6 model 13 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1 + 16.10 workspace 3
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
@@ -1583,7 +1583,7 @@ null（null 语义与 task 批次行同构，非空数组）。台账行清理�
 | `hasMore` | `boolean` | 必填 | v0.2 | 是否还有更早页 |
 | `nextCursor` | `string \| null` | 必填 | v0.2 | 下一页游标（无更早页 = null） |
 
-### 16.3 chat 族（11）
+### 16.3 chat 族（12；error entry 批 +1）
 
 #### `chat.stream.delta`
 
@@ -1663,6 +1663,22 @@ LLM 调用瞬时失败进入退避重试（P2 ⑦ 网络重试批）：等待期
 耗尽仍走既有 `engine.error` 语义，本帧不改变任何收口语义。SubAgent 实例
 的同类领域事件只落 domain_events（trace 数据面），WS 帧由 mapper 守卫
 抑制（与 `engine.error` 同口径，不弹主聊天流）。
+
+#### `error.entry`
+
+引擎/模型失败的错误条目落时间轴（error entry 批）：entry 为 `kind="error"`
+变体（EntryDto 第五变体），携带完整条目——与 `engine.error` 同失败链并存：
+`engine.error` 是瞬态反馈帧（不落盘，state.engineError 内存卡），本帧是
+落盘条目帧（进会话 entries）——前端据本帧把瞬态卡转正为原位红条（同一
+错误不双显；瞬态卡清除时机 = 本帧到达，`chat.turn.started` 清除保留作兜底）。
+刷新/切换后经 session.snapshot 的 entries 原位可见。SubAgent 实例的同类
+领域事件只落 domain_events（trace 数据面），WS 帧由 mapper 守卫抑制（与
+`engine.error` 同口径，不弹主聊天流）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `entry` | `ErrorEntryDto` | 必填 | error entry 批 | 错误条目（kind="error" 变体：id/instanceId/message/turnId/createdAt；turnId = 出错轮次，原位锚） |
+
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|

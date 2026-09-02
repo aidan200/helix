@@ -11,12 +11,31 @@ import type { ToolCallEntryDto } from "./tool";
 import type { SessionUsageDto, UsageDto } from "./usage";
 import type { TaskBatchLedgerDto, WorkItemDto } from "./task";
 
-/** 会话条目：判别式联合，按 `kind` 窄化（message | tool-call | thinking | compaction） */
+/** 会话条目：判别式联合，按 `kind` 窄化（message | tool-call | thinking | compaction | error） */
 export type EntryDto =
   | MessageEntryDto
   | ToolCallEntryDto
   | ThinkingEntryDto
-  | CompactionEntryDto;
+  | CompactionEntryDto
+  | ErrorEntryDto;
+
+/**
+ * error 条目（error entry 批，EntryDto 的 error 变体）：引擎/模型失败的
+ * 时间轴原位红条数据源。瞬态 engine.error 帧（state.engineError 内存卡）
+ * 只服务当页即时反馈；本变体落盘进会话 entries——刷新/切换后错误在出错
+ * 轮（turnId）原位可见。非 message kind：不回填 LLM 上下文（TR-45 天然过滤）。
+ */
+export interface ErrorEntryDto {
+  kind: "error";
+  id: string;
+  /** 实例归属（wire 边界编码：主实例编 legacy "main" 字面，必填位同 thinking/compaction） */
+  instanceId: string;
+  /** 错误描述（provider 原文透传，领域数据不 i18n——同 engine.error 口径） */
+  message: string;
+  /** 出错轮次（原位锚：错误属于哪个失败轮） */
+  turnId: string;
+  createdAt: string;
+}
 
 /**
  * thinking 条目（v0.1 新增，EntryDto 的 thinking 变体；AD-3 挂 instanceId）。

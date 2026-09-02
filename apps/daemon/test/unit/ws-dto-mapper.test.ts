@@ -92,6 +92,29 @@ describe("① 快照 → SessionSnapshotDto", () => {
     expect(e2).toMatchObject({ kind: "message", id: "e2", source: "closure" });
     expect(e3).toMatchObject({ kind: "message", id: "e3", source: "progress", steerState: "drained" });
   });
+
+  test("error 条目快照映射（error entry 批）：ErrorEntryDto 全字段 + 主实例编 legacy \"main\" + 进主轴", () => {
+    const dto = toSnapshotDto(
+      view({
+        entries: [
+          { id: "e1", role: "user", text: "问", turnId: null, isSteer: false, instanceId: "main", createdAt: "2026-08-15T00:00:01.000Z" },
+          { id: "e2", kind: "error", instanceId: "main", message: "503 Service Unavailable", turnId: "t1", createdAt: "2026-08-15T00:00:02.000Z" },
+        ],
+        pendingSteer: [],
+      }),
+      "m",
+      "idle",
+    );
+    expect(dto.entries).toHaveLength(2);
+    expect(dto.entries[1]).toEqual({
+      kind: "error",
+      id: "e2",
+      instanceId: "main",
+      message: "503 Service Unavailable",
+      turnId: "t1",
+      createdAt: "2026-08-15T00:00:02.000Z",
+    });
+  });
 });
 
 describe("①-b D-1：快照合并工具调用记录（SessionStateView → 时间序 entries）", () => {
@@ -349,6 +372,41 @@ describe("② 领域事件 → 协议事件帧", () => {
       type: "engine.retrying",
       instanceId: "agent-2",
       payload: { attempt: 2, totalAttempts: 3, waitMs: 30_000, message: "ECONNRESET" },
+    });
+    expect(sub).toBeNull();
+  });
+
+  test("error.entry → error.entry 帧（entry 全字段、channel=chat）；SubAgent 帧守卫同 engine.error 口径（error entry 批）", () => {
+    const entry = {
+      kind: "error" as const,
+      id: "e9",
+      instanceId: "main",
+      message: "429: 限额已满",
+      turnId: "t1",
+      createdAt: "2026-09-03T00:00:01.000Z",
+    };
+    const frame = domainEventToEnvelope({ ...base, type: "error.entry", payload: { entry } });
+    expect(frame).toMatchObject({
+      type: "error.entry",
+      channel: "chat",
+      payload: {
+        entry: {
+          kind: "error",
+          id: "e9",
+          instanceId: "main", // 主实例编 legacy \"main\" 字面（协议类型必填位，同 thinking/compaction）
+          message: "429: 限额已满",
+          turnId: "t1",
+          createdAt: "2026-09-03T00:00:01.000Z",
+        },
+      },
+    });
+
+    // SubAgent 实例帧抑制（shell consumers 无 instanceId 分流，与 engine.error 同口径）
+    const sub = domainEventToEnvelope({
+      ...base,
+      type: "error.entry",
+      instanceId: "agent-2",
+      payload: { entry: { ...entry, instanceId: "agent-2" } },
     });
     expect(sub).toBeNull();
   });

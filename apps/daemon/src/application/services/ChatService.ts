@@ -13,7 +13,7 @@ import { ToolCallRecord, type ToolCallRecordData } from "../../domain/tools/Tool
 import { parseDataUrlImages, ImageValidationError } from "./images";
 import type {
   AgentInstantiatedPayload, AgentModelChangedPayload, AgentStateChangedPayload, AgentThinkingChangedPayload, CompactionCompletedPayload,
-  DomainEvent, MessageCompletedPayload, ProfileSnapshotData, SteerPayload, ThinkingCompletedPayload,
+  DomainEvent, ErrorEntryPayload, MessageCompletedPayload, ProfileSnapshotData, SteerPayload, ThinkingCompletedPayload,
   ToolCallPayload, ToolResultPayload, TurnCompletedPayload, UsageRecordedPayload,
 } from "../../domain/events/DomainEvent";
 
@@ -241,8 +241,9 @@ export class ChatService implements ChatPort {
           try {
             await this.deps.engine.start(engineText, (e) => this.onEngineEvent(e), images);
           } catch (err) {
-            // 引擎异常不崩会话：可观测（engine.error）+ 轮次收口为中断 + 回 idle
-            this.publish("engine.error", { message: (err as Error).message });
+            // 引擎异常不崩会话：可观测（engine.error）+ 轮次失败收尾时先落
+            // 错误条目（时间轴原位红条）再收口为中断 + 回 idle
+            this.recordEngineError((err as Error).message);
             this.settleRunEnd("aborted");
           }
         })();
@@ -415,8 +416,8 @@ export class ChatService implements ChatPort {
       case "compaction_completed": this.recordCompaction(e); break;
       case "tool_execution_start": this.recordToolExecutionStart(e); break;
       case "tool_execution_end": this.recordToolExecutionEnd(e); break;
-      // 可观测（无聚合动作，不崩会话）
-      case "engine_error": this.publish("engine.error", { message: e.message }); break;
+      // 可观测+失败落账（不崩会话）：engine_error 落 error 条目（error entry 批）
+      case "engine_error": this.recordEngineError(e.message); break;
       // P2 ⑦：LLM 瞬时失败退避重试——chat 可见反馈（状态行数据源；瞬态非
       // 里程碑：流恢复（chat.stream.delta）/engine.error/轮终由前端清除）
       case "engine_retrying":
@@ -560,6 +561,26 @@ export class ChatService implements ChatPort {
       this.publishTurnUsage(e.usage);
     }
     this.streamEntryId = null; // 预留消耗完毕（空文本/abort 轮同样清空）
+  }
+
+  /**
+   * 引擎失败统一落点（error entry 批）：engine.error 可观测事件（不变，
+   * trace 链）+ open turn 内落 error 条目（时间轴原位红条：挂出错轮）+
+   * error.entry 事件（携带完整 entry，仿 compaction.completed 先例——
+   * 前端据帧把瞬态 engineError 卡转正）。无 open turn 时只发 engine.error
+   * （防御：错误条目属于某个失败轮，无轮不落——turn 失败收尾路径在
+   * 收口前调用本方法，open turn 恒在）。
+   */
+  private recordEngineError(message: string): void {
+    this.publish("engine.error", { message });
+    if (this.session.openTurn === null) return;
+    const entry = this.session.appendErrorEntry({
+      kind: "error",
+      instanceId: this.session.mainInstanceId,
+      message,
+      createdAt: this.now(),
+    });
+    this.publish<ErrorEntryPayload>("error.entry", { entry: entry.toData() }, undefined, this.session.mainInstanceId);
   }
 
   /** thinking_end：完成块即时落账——ThinkingEntry 落树 + thinking.completed 事件（T35：块结束是实时事实，不等 message_end 账目收口；durationMs = start→end 真实墙钟差，无 flush 时刻虚高；CAND-35 方向②）。 */

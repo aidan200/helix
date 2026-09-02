@@ -2,6 +2,7 @@ import { DomainError } from "../DomainError";
 import { Entry, type EntryData } from "./Entry";
 import { ThinkingEntry, type ThinkingEntryData } from "./ThinkingEntry";
 import { CompactionEntry, type CompactionEntryData } from "./CompactionEntry";
+import { ErrorEntry, type ErrorEntryData } from "./ErrorEntry";
 import type { SessionEntryData, SessionSnapshot } from "./SessionSnapshot";
 import { Turn, type TurnData } from "./Turn";
 import { SteerQueue, type SteerItem, type SteerSource } from "../agent/SteerQueue";
@@ -24,7 +25,7 @@ import {
  * 重启恢复（RestoreService）的统一载荷，重建后行为延续（计数器不回卷）。
  */
 export class Session {
-  private readonly entries: (Entry | ThinkingEntry | CompactionEntry)[] = [];
+  private readonly entries: (Entry | ThinkingEntry | CompactionEntry | ErrorEntry)[] = [];
   private readonly turns: Turn[] = [];
   private readonly steerQueue = new SteerQueue();
   private currentTurn: Turn | null = null;
@@ -223,6 +224,20 @@ export class Session {
     return entry;
   }
 
+  /**
+   * 追加 error 条目（error entry 批：引擎/模型失败落时间轴原位红条）。
+   * 要求 open turn——错误总属于某个失败轮（轮次失败收尾时先落错误条目
+   * 再收口，不违反轮次不变式 TR-25）；turnId 由聚合挂当前 open turn
+   * （原位锚，调用方不指定）。无 open turn 抛错（与 appendAssistantEntry
+   * 同口径）。
+   */
+  appendErrorEntry(data: Omit<ErrorEntryData, "id" | "turnId"> & { id?: string }): ErrorEntry {
+    const turn = this.requireOpenTurn("appendErrorEntry");
+    const entry = ErrorEntry.create({ ...data, id: data.id ?? `e${this.nextEntrySeq++}`, turnId: turn.id });
+    this.entries.push(entry);
+    return entry;
+  }
+
   // ── Turn 生命周期（聚合中介，Service 不直接摸 Turn 状态迁移） ──
 
   /** 开新轮次；open turn 未收尾（completed/interrupted）前抛错（防重入）。 */
@@ -332,6 +347,8 @@ export class Session {
         s.entries.push(Entry.create({ ...e, instanceId: e.instanceId ?? s.mainInstanceId }));
       } else if (e.kind === "thinking") {
         s.entries.push(ThinkingEntry.create(e));
+      } else if (e.kind === "error") {
+        s.entries.push(ErrorEntry.create(e));
       } else {
         s.entries.push(CompactionEntry.create(e));
       }

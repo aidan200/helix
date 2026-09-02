@@ -35,7 +35,7 @@ import SessionEmpty from "./SessionEmpty";
 import DraftEmpty from "./P-1-draft-empty";
 import LoadEarlier from "./P-1s-load-earlier";
 import CompactionBar from "./CompactionBar";
-import EngineErrorCard from "./EngineErrorCard";
+import EngineErrorCard, { ErrorEntryBar } from "./EngineErrorCard";
 import NetworkRetryCard from "./NetworkRetryCard";
 import { ThinkingEntryView, ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
 import GeneratingPlaceholder from "./GeneratingPlaceholder";
@@ -72,6 +72,9 @@ function EntryView({ entry, mainInstanceId }: { entry: EntryDto; mainInstanceId:
       return <ThinkingEntryView entry={entry} />;
     case "compaction":
       return <CompactionBar entry={entry} />;
+    case "error":
+      // error entry 批：错误条目时间轴原位红条（复用 EngineErrorCard 红系视觉）
+      return <ErrorEntryBar entry={entry} />;
     default: {
       const exhaustive: never = entry;
       return exhaustive;

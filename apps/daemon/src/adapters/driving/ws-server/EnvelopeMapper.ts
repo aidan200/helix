@@ -23,6 +23,7 @@ import type {
   AgentResumedEvent,
   ThinkingCompletedEvent,
   CompactionCompletedEvent,
+  ErrorEntryEvent,
   UsageRecordedEvent,
   EngineErrorEvent,
   EngineRetryingEvent,
@@ -38,6 +39,7 @@ import type {
   SteerPayload,
   ThinkingCompletedPayload,
   CompactionCompletedPayload,
+  ErrorEntryPayload,
   UsageRecordedPayload,
   ToolCallPayload,
   ToolResultPayload,
@@ -54,6 +56,7 @@ import type {
 } from "../../../domain/events/DomainEvent";
 import {
   compactionEntryDto,
+  errorEntryDto,
   isWireMainAttribution,
   safeJson,
   thinkingEntryDto,
@@ -356,6 +359,20 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         v: PROTOCOL_VERSION,
         type: "compaction.completed",
         payload: { entry: compactionEntryDto(p.entry, mainId) },
+      };
+      return frame;
+    }
+
+    // error entry 批：错误条目落时间轴帧（entry 全字段经 errorEntryDto 编码）。
+    // SubAgent 守卫与 engine.error 同口径（shell consumers 无 instanceId 分流，
+    // 不抑制会错位弹主聊天流）；主线帧行为 = 原位红条转正数据源。
+    case "error.entry": {
+      if (!isWireMainAttribution(event.instanceId, mainId)) return null;
+      const p = event.payload as ErrorEntryPayload;
+      const frame: ErrorEntryEvent = {
+        v: PROTOCOL_VERSION,
+        type: "error.entry",
+        payload: { entry: errorEntryDto(p.entry, mainId) },
       };
       return frame;
     }

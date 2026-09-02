@@ -4,12 +4,15 @@ import type { SteerItem } from "../agent/SteerQueue";
 import type { AgentInstanceData } from "../agent/AgentInstance";
 import type { ThinkingEntryData } from "./ThinkingEntry";
 import type { CompactionEntryData } from "./CompactionEntry";
+import type { ErrorEntryData } from "./ErrorEntry";
 
 /**
- * 会话条目数据联合：message（EntryData）/ thinking / compaction
- * 三类变体同树混排（判别键 kind——message 变体无 kind，以 "role" in 判别）。
+ * 会话条目数据联合：message（EntryData）/ thinking / compaction / error
+ * 四类变体同树混排（判别键 kind——message 变体无 kind，以 "role" in 判别）。
+ * error 变体（error entry 批）：引擎/模型失败的错误条目，挂出错轮（turnId）——
+ * 时间轴原位红条数据源；非 message kind 天然不回填 LLM 上下文（TR-45）。
  */
-export type SessionEntryData = EntryData | ThinkingEntryData | CompactionEntryData;
+export type SessionEntryData = EntryData | ThinkingEntryData | CompactionEntryData | ErrorEntryData;
 
 /**
  * 会话快照（architecture.md §3.3，值对象）：domain 聚合的可序列化全量视图。
@@ -34,7 +37,7 @@ export interface SessionSnapshot {
    * domain 不持协议常量，仅携带原始 string）。
    */
   readonly mode?: string;
-  /** 全量条目（语义单元，不含流式中间态；message/thinking/compaction 混排，每条挂 instanceId，AD-3）。 */
+  /** 全量条目（语义单元，不含流式中间态；message/thinking/compaction/error 混排，每条挂 instanceId，AD-3）。 */
   readonly entries: readonly SessionEntryData[];
   /** 全量轮次。 */
   readonly turns: readonly TurnData[];

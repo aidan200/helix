@@ -10,6 +10,7 @@ import type {
   CompactionCompletedPayload,
   CompactionEntryDto,
   EntryDto,
+  ErrorEntryDto,
   EventEnvelope,
   HelloCommand,
   InstanceChannelHistory,
@@ -40,6 +41,9 @@ type _EntryTool = Expect<Equal<Extract<EntryDto, { kind: "tool-call" }>, ToolCal
 type _EntryThinking = Expect<Equal<Extract<EntryDto, { kind: "thinking" }>, ThinkingEntryDto>>;
 
 type _EntryCompaction = Expect<Equal<Extract<EntryDto, { kind: "compaction" }>, CompactionEntryDto>>;
+
+// error entry 批：EntryDto 判别式联合第五变体（错误条目原位红条）
+type _EntryError = Expect<Equal<Extract<EntryDto, { kind: "error" }>, ErrorEntryDto>>;
 
 // InstanceState 六态恰等（cancelled 仅重启时 queued 收口，AD-10；parked = park/resume 批挂起非终态）
 type _InstanceState = Expect<
@@ -134,6 +138,18 @@ const badThinkingEntry: ThinkingEntryDto = { kind: "thinking", id: "x", instance
 const badSource: UsageRecordedPayload = { instanceId: "main", usage: sampleUsage, source: "stream" };
 
 describe("entries：EntryDto 判别式联合与快照 additive + 通道族承载与负向回读（源 TP-CL2-④ / TP-v0.1-①② / TP-v0.2-①③ / TP-v0.3-①）", () => {
+  test("error 变体（error entry 批）：五分支窄化——message/turnId/instanceId 字段结构", () => {
+    const err: ErrorEntryDto = {
+      kind: "error",
+      id: "e9",
+      instanceId: "main",
+      message: "429: 限额已满",
+      turnId: "t1",
+      createdAt: "2026-09-03T00:00:01.000Z",
+    };
+    expect(describeEntry(err)).toBe("error:main:t1:429: 限额已满");
+  });
+
   test("switch(entry.kind) 四分支窄化：steerState 仅 message 变体", () => {
     expect(snapshot.entries.map(describeEntry)).toEqual([
       "msg:user:跑一下单测",

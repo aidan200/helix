@@ -264,7 +264,7 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.11"); // v0.11 批次版本位（thinking 批四块 additive，AD-2/AD-4；契约 = PROTOCOL.md §17.11）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
     expect(protocol.COMMAND_TYPES.length).toBe(58); // kg.candidates.list 批：+1（kg.candidates.list；config 批后 57）
-    expect(protocol.EVENT_TYPES.length).toBe(75); // main-session plan 批：+1（session.plan.changed；kg.candidates.list 批后 74）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(75); // 登记目录恰等（main-session plan 批 +1）
+    expect(protocol.EVENT_TYPES.length).toBe(76); // error entry 批：+1（error.entry；main-session plan 批后 75）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(76); // 登记目录恰等（error entry 批 +1）
   });
 });

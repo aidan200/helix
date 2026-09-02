@@ -11,12 +11,14 @@ import type {
   MessageEntryDto,
   ThinkingEntryDto,
   CompactionEntryDto,
+  ErrorEntryDto,
   ToolCallEntryDto,
 } from "@helix/protocol";
 import type { EntryData } from "../../../domain/session/Entry";
 import type { SessionEntryData } from "../../../domain/session/SessionSnapshot";
 import type { ThinkingEntryData } from "../../../domain/session/ThinkingEntry";
 import type { CompactionEntryData } from "../../../domain/session/CompactionEntry";
+import type { ErrorEntryData } from "../../../domain/session/ErrorEntry";
 import type { ToolCallRecordData } from "../../../domain/tools/ToolCallRecord";
 
 /**
@@ -57,15 +59,17 @@ export function isMainAxisEntry(entry: EntryDto): boolean {
   return entry.kind === "message" && entry.role === "user" && entry.steerState !== undefined;
 }
 
-/** 单条 SessionEntryData → 对应 EntryDto（message/thinking/compaction
- *  分派；thinking/compaction 变体 createdAt 保持 ISO 字符串，契约 §6.1）。 */
+/** 单条 SessionEntryData → 对应 EntryDto（message/thinking/compaction/error
+ *  分派；thinking/compaction/error 变体 createdAt 保持 ISO 字符串，契约 §6.1）。 */
 export function sessionEntryDto(
   entry: SessionEntryData,
   queuedSteer: Set<string>,
   mainInstanceId: string = WIRE_LEGACY_MAIN_ID,
 ): EntryDto[] {
   if ("kind" in entry) {
-    return entry.kind === "thinking" ? [thinkingEntryDto(entry, mainInstanceId)] : [compactionEntryDto(entry, mainInstanceId)];
+    if (entry.kind === "thinking") return [thinkingEntryDto(entry, mainInstanceId)];
+    if (entry.kind === "error") return [errorEntryDto(entry, mainInstanceId)];
+    return [compactionEntryDto(entry, mainInstanceId)];
   }
   return messageEntryDto(entry, queuedSteer, mainInstanceId);
 }
@@ -82,6 +86,22 @@ export function thinkingEntryDto(
     instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
     text: entry.text,
     durationMs: entry.durationMs,
+    createdAt: entry.createdAt,
+  };
+}
+
+/** domain ErrorEntryData → ErrorEntryDto（error entry 批：全字段同形；实例
+ *  归属编码同 thinkingEntryDto——主实例编 legacy "main" 字面，协议类型必填位）。 */
+export function errorEntryDto(
+  entry: ErrorEntryData,
+  mainInstanceId: string = WIRE_LEGACY_MAIN_ID,
+): ErrorEntryDto {
+  return {
+    kind: "error",
+    id: entry.id,
+    instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
+    message: entry.message,
+    turnId: entry.turnId,
     createdAt: entry.createdAt,
   };
 }

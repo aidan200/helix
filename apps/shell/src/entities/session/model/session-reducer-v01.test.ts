@@ -18,6 +18,7 @@ import type {
   ClosureDto,
   CompactionEntryDto,
   EntryDto,
+  ErrorEntryDto,
   EventEnvelope,
   InstanceState,
   MessageEntryDto,
@@ -798,6 +799,56 @@ describe("engine.error 帧投影（终验热修）", () => {
     }));
     const restored = sessionReducer(errored, snapshotOf([], {}));
     expect(restored.engineError).toEqual({ message: "boom" }); // 同页重连保留；新页初始态为 null
+  });
+});
+
+describe("error.entry 帧投影（error entry 批：错误条目落时间轴原位红条）", () => {
+  const errorEntry = (id: string, message: string): ErrorEntryDto => ({
+    kind: "error",
+    id,
+    instanceId: "main",
+    message,
+    turnId: "t1",
+    createdAt: "2026-09-03T00:00:01.000Z",
+  });
+
+  it("error.entry 帧到达 → entries 原位追加 error 条目 + 瞬态卡清除（同一错误不双显）", () => {
+    // 失败链帧序：engine.error（瞬态卡）→ error.entry（原位条目转正）
+    const errored = sessionReducer(base(), ev({
+      v: 0,
+      type: "engine.error",
+      payload: { message: "503 Service Unavailable" },
+    }));
+    expect(errored.engineError).not.toBeNull();
+    const landed = sessionReducer(errored, ev({
+      v: 0,
+      type: "error.entry",
+      payload: { entry: errorEntry("e9", "503 Service Unavailable") },
+    }));
+    expect(landed.entries.at(-1)).toEqual(errorEntry("e9", "503 Service Unavailable"));
+    expect(landed.engineError).toBeNull(); // 瞬态卡清除时机 = 错误条目帧到达
+  });
+
+  it("快照重建：error 条目随快照 entries 原位可见（刷新/切换后错误在出错轮原位）", () => {
+    const restored = run([
+      welcome(),
+      snapshotOf([
+        msg("e1", "user", "问一句", 1),
+        errorEntry("e2", "429: 限额已满"),
+      ]),
+    ]);
+    expect(restored.entries[1]).toEqual(errorEntry("e2", "429: 限额已满"));
+    expect(restored.engineError).toBeNull(); // 瞬态卡不经快照重建
+  });
+
+  it("turn.started 清除瞬态卡保留作兜底（无 error.entry 帧路径不回归）", () => {
+    const errored = sessionReducer(base(), ev({
+      v: 0,
+      type: "engine.error",
+      payload: { message: "boom" },
+    }));
+    const next = sessionReducer(errored, ev({ v: 0, type: "chat.turn.started", payload: { turnId: "t2" } }));
+    expect(next.engineError).toBeNull();
   });
 });
 
