@@ -155,6 +155,7 @@ button.mode-chip .mb-chev { color: var(--text-faint); }
 .stats-btn:hover { background: rgb(var(--accent-rgb) / 0.1); border-color: var(--accent); }
 .stats-btn:active { transform: translateY(1px); }
 .stats-btn .sb-dot { width: 5px; height: 5px; border-radius: 999px; background: currentColor; flex-shrink: 0; }
+.stats-btn .sb-ctx { color: var(--text-faint); }
 /* flash 辉光层：key 重挂重放动画；opacity 动效（仅动 transform/opacity 纪律），
    常驻 opacity:0 无需定时器；reduced-motion 由下方媒体查询关停 */
 .stats-btn .sb-flash {

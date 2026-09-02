@@ -60,18 +60,26 @@ export interface UsageRow {
  * 合计 = state.usage.total = Σ行（reducer addUsage 结构保证，数字自洽）。
  * catalog = 模型目录（TopologyState.modelConfig.catalog——拓扑级状态，调用方
  * 显式注入保持纯函数；未拉取/缺省 = 上下文占用比全行降级。 */
+
+/** 上下文窗口占用比（0–100）= ctxTokens ÷ ctxWindow（行模型目录解析；
+ * 目录缺失/水位未知 → 空）。徽标（main）与 popover 行共用同一口径单源。 */
+export function ctxRatioOf(
+  s: SessionState,
+  instanceId: string,
+  model: string,
+  catalog: CatalogModel[],
+): Pick<UsageRow, "pct" | "ctxTokens" | "ctxWindow"> {
+  const ctxTokens = s.usage.ctxByInstance[instanceId];
+  const ctxWindow = resolveCatalogMatch(model, catalog)?.contextWindow;
+  if (ctxTokens === undefined || ctxWindow === undefined || ctxWindow <= 0) return {};
+  return { pct: (ctxTokens / ctxWindow) * 100, ctxTokens, ctxWindow };
+}
+
 export function deriveUsageRows(s: SessionState, catalog: CatalogModel[] = []): UsageRow[] {
   const rows: UsageRow[] = [];
   // 上下文占用比：水位（ctxByInstance）÷ 行模型目录窗口；目录缺失/水位未知 →
   // undefined（渲染 “—”）
-  const ctxWindowOf = (model: string): number | undefined =>
-    resolveCatalogMatch(model, catalog)?.contextWindow;
-  const ctxPct = (instanceId: string, model: string): Pick<UsageRow, "pct" | "ctxTokens" | "ctxWindow"> => {
-    const ctxTokens = s.usage.ctxByInstance[instanceId];
-    const ctxWindow = ctxWindowOf(model);
-    if (ctxTokens === undefined || ctxWindow === undefined || ctxWindow <= 0) return {};
-    return { pct: (ctxTokens / ctxWindow) * 100, ctxTokens, ctxWindow };
-  };
+  const ctxPct = (instanceId: string, model: string) => ctxRatioOf(s, instanceId, model, catalog);
 
   // main 行（T10c：id/账目跟随快照习得的主实例 id——新形态 agent-<hex>，
   // legacy 会话/快照未达 = 字面 "main"）：reasoning sub（Q-11③：main 行
@@ -152,8 +160,16 @@ export const StatsBadge = memo(function StatsBadge({
   onToggle: () => void;
 }) {
   const { t } = useI18n();
-  const { state } = useSession();
+  const { state, topology } = useSession();
   const total = state.usage.total;
+  // 当前会话 agent（main）的上下文窗口占用（水位/会话模型窗口；目录未拉取
+  // /水位不可得时不显示——与 popover 行内同一口径单源 ctxRatioOf）
+  const mainCtx = ctxRatioOf(
+    state,
+    state.mainInstanceId,
+    state.model,
+    topology.modelConfig.catalog?.models ?? [],
+  );
   // 值标识（totalTokens:cost）——引用每帧皆新，值比较驱动 flash
   const valueKey = `${total.totalTokens}:${total.cost}`;
   const [flashSeq, setFlashSeq] = useState(0);
@@ -178,6 +194,14 @@ export const StatsBadge = memo(function StatsBadge({
           tokens: fmtTokens(total.totalTokens),
           cost: total.cost.toFixed(2),
         })}
+        {mainCtx.pct !== undefined && (
+          <span
+            className="sb-ctx"
+            title={`${fmtTokens(mainCtx.ctxTokens!)} / ${fmtTokens(mainCtx.ctxWindow!)}`}
+          >
+            {` · ${fmtPct(mainCtx.pct)}`}
+          </span>
+        )}
       </span>
       {flashSeq > 0 && (
         <span key={flashSeq} className="sb-flash" data-flash="on" aria-hidden="true" />

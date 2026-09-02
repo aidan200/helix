@@ -260,6 +260,22 @@ describe("StatsBadge（F3.3 徽标）", () => {
     expect(document.querySelector(".sb-flash")).toBeNull();
   });
 
+  it("目录注入 → 徽标面追加 main 窗口占用（· 10%，title 带分子/分母）", () => {
+    stateRef.current = play(SCENARIO);
+    topologyRef.current = { modelConfig: { catalog: { models: CATALOG } } };
+    ui(<StatsBadge open={false} onToggle={() => {}} />);
+    expect(document.querySelector(".sb-text")!.textContent).toBe("270k tok · $0.61 · 10%");
+    expect(document.querySelector(".sb-ctx")!.getAttribute("title")).toBe("20k / 200k");
+  });
+
+  it("降级：目录未拉取 → 徽标仅合计（无 ctx 段）", () => {
+    stateRef.current = play(SCENARIO);
+    topologyRef.current = { modelConfig: { catalog: { models: [] } } };
+    ui(<StatsBadge open={false} onToggle={() => {}} />);
+    expect(document.querySelector(".sb-text")!.textContent).toBe("270k tok · $0.61");
+    expect(document.querySelector(".sb-ctx")).toBeNull();
+  });
+
   it("usage.recorded 到达 → 值刷新（828k tok · $0.61）+ flash 辉光层挂载", () => {
     stateRef.current = play([welcome]);
     const { rerender } = ui(<StatsBadge open={false} onToggle={() => {}} />);
