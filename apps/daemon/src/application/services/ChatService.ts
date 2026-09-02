@@ -561,7 +561,9 @@ export class ChatService implements ChatPort {
   private recordAssistantMessage(e: EngineEventOf<"message_end">): void {
     if (e.text.trim() !== "") {
       const entry = this.session.appendAssistantEntry(e.text, this.now(), this.streamEntryId ?? undefined);
-      this.publishMessageCompleted(entry.id, "assistant", e.text, false);
+      // 轮末 token 显示面查表键：载荷携带条目 turnId（发布点单源=持久化条目值；
+      // appendAssistantEntry 恒挂 open turn，null 仅防御缺省不携带键）
+      this.publishMessageCompleted(entry.id, "assistant", e.text, false, undefined, undefined, undefined, entry.turnId ?? undefined);
     }
     if (e.usage !== undefined && e.stopReason !== "error") {
       this.publishTurnUsage(e.usage);
@@ -686,7 +688,7 @@ export class ChatService implements ChatPort {
   }
 
   private publishMessageCompleted(
-    entryId: string, role: MessageCompletedPayload["role"], text: string, isSteer: boolean, images?: readonly string[], source?: SteerSource, steerState?: "queued" | "drained",
+    entryId: string, role: MessageCompletedPayload["role"], text: string, isSteer: boolean, images?: readonly string[], source?: SteerSource, steerState?: "queued" | "drained", turnId?: string,
   ): void {
     this.publish<MessageCompletedPayload>("message.completed", {
       entryId,
@@ -699,6 +701,8 @@ export class ChatService implements ChatPort {
       ...(source !== undefined ? { source } : {}),
       // 图片上行：user 消息携带图片附件（data URL 原样，事件/投影同源）
       ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}),
+      // 条目所属轮次（assistant 发布点单源=持久化条目 turnId；user/SubAgent 不携带键）
+      ...(turnId !== undefined ? { turnId } : {}),
     });
   }
 

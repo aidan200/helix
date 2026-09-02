@@ -197,4 +197,20 @@ describe("轮末 token 用量：usage.recorded 携带 turnId（per-turn 显示�
     expect(compactionEvents).toHaveLength(1);
     expect(compactionEvents[0]!.payload.turnId).toBeUndefined();
   });
+
+  test("assistant message.completed 载荷携带条目 turnId（实时帧轮末 token 显示面查表键）；user 消息不携带", async () => {
+    const engine = new FakeAgentEngine({
+      replies: [{ text: "答。", usage: { input: 10, output: 20, totalTokens: 30, cost: 0.01 } }],
+    });
+    const { chat, publisher } = makeChat(engine);
+    await chat.sendMessage("问");
+
+    const turnId = (publisher.domainEvents.find((e) => e.type === "turn.started")!.payload as { turnId: string }).turnId;
+    const completed = publisher.domainEvents.filter((e) => e.type === "message.completed");
+    const assistant = completed.find((e) => (e.payload as { role: string }).role === "assistant")!;
+    const user = completed.find((e) => (e.payload as { role: string }).role === "user")!;
+    // 载荷 turnId = 条目落盘时的 open turn（发布点单源，权威值——信封 turnId 不落盘非权威不回填）
+    expect((assistant.payload as { turnId?: string }).turnId).toBe(turnId);
+    expect((user.payload as { turnId?: string }).turnId).toBeUndefined();
+  });
 });

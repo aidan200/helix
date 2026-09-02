@@ -158,6 +158,8 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       }
       // 图片下行：user 消息携带图片附件（载荷 images → entry.images 透传）
       if (p.images !== undefined && p.images.length > 0) entry.images = [...p.images];
+      // 条目所属轮次透传（轮末 token 显示面实时帧查表键；载荷缺省=user/SubAgent 条目，不携带键）
+      if (p.turnId !== undefined) entry.turnId = p.turnId;
       const frame: ChatMessageCompletedEvent = {
         v: PROTOCOL_VERSION,
         type: "chat.message.completed",

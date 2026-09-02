@@ -252,6 +252,25 @@ describe("② 领域事件 → 协议事件帧", () => {
     });
   });
 
+  test("message.completed 载荷 turnId → entry.turnId 透传（实时帧轮末 token 显示面查表键）；缺省不带键", () => {
+    const withTurn = domainEventToEnvelope({
+      ...base,
+      type: "message.completed",
+      payload: { entryId: "e10", role: "assistant", text: "回复", isSteer: false, turnId: "t1" },
+    });
+    expect(withTurn).toMatchObject({
+      type: "chat.message.completed",
+      payload: { entry: { kind: "message", id: "e10", role: "assistant", turnId: "t1" } },
+    });
+    // 缺省（user 消息 / SubAgent 条目 / 老载荷）→ entry 不携带 turnId 键
+    const legacy = domainEventToEnvelope({
+      ...base,
+      type: "message.completed",
+      payload: { entryId: "e11", role: "assistant", text: "回复", isSteer: false },
+    });
+    expect(legacy).not.toMatchObject({ payload: { entry: { turnId: expect.anything() } } });
+  });
+
   test("steer.queued/drained 直接映射 entryId", () => {
     const q = domainEventToEnvelope({ ...base, type: "steer.queued", payload: { entryId: "e6", text: "x" } });
     expect(q).toMatchObject({ type: "steer.queued", payload: { entryId: "e6" } });

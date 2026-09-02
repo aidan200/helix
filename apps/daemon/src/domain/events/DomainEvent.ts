@@ -73,6 +73,10 @@ export interface MessageCompletedPayload {
   readonly source?: "user" | "closure" | "progress";
   /** 图片附件（上行）：base64 data URL 数组；仅 user 消息携带，缺省 = 纯文本。 */
   readonly images?: readonly string[];
+  /** 条目所属轮次（additive）：assistant 条目落盘时的 open turn id（发布点单源，
+   *  权威值=持久化条目 turnId——实时帧轮末 token 显示面查表键；user/SubAgent
+   *  条目 turnId=null 不携带键）。 */
+  readonly turnId?: string;
 }
 
 export interface SteerPayload {
