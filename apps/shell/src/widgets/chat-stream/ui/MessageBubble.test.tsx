@@ -63,3 +63,42 @@ describe("MessageBubble 用户 steer 徽标（两态）", () => {
     expect(container.querySelector(".steer-badge")).toBeNull();
   });
 });
+
+describe("MessageBubble 轮末 token 用量（assistant meta 行 · who·ts 同行右侧）", () => {
+  const turnUsage = {
+    input: 1234,
+    output: 340,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    totalTokens: 1574,
+    cost: 0.0042,
+  };
+
+  it("assistant + turnUsage → meta 行显示 ↑ in ↓ out · $cost（fmtTokens 档位 + 小成本四位）", () => {
+    const { container } = ui(
+      <MessageBubble entry={entry({ role: "assistant", turnId: "t1" })} turnUsage={turnUsage} />,
+    );
+    const el = container.querySelector(".meta .turn-usage");
+    expect(el).not.toBeNull();
+    expect(el!.textContent).toBe("↑ 1k ↓ 340 · $0.0042");
+  });
+
+  it("成本 ≥0.01 → 两位小数", () => {
+    const { container } = ui(
+      <MessageBubble
+        entry={entry({ role: "assistant", turnId: "t1" })}
+        turnUsage={{ ...turnUsage, cost: 0.25 }}
+      />,
+    );
+    expect(container.querySelector(".meta .turn-usage")!.textContent).toContain("$0.25");
+  });
+
+  it("未到账/无 turnUsage → 不显示（骨架免闪烁）；user 气泡永不显示", () => {
+    const noUsage = ui(<MessageBubble entry={entry({ role: "assistant", turnId: "t1" })} />);
+    expect(noUsage.container.querySelector(".turn-usage")).toBeNull();
+    cleanup();
+    const userBubble = ui(<MessageBubble entry={entry({ role: "user" })} turnUsage={turnUsage} />);
+    expect(userBubble.container.querySelector(".turn-usage")).toBeNull();
+  });
+});

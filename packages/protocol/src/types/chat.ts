@@ -42,6 +42,12 @@ export interface MessageEntryDto {
   /** 注入来源（v0.11 批内补登 T11a）：仅注入类 user 消息携带；缺省 = 用户输入 */
   source?: SteerSource;
   /**
+   * 所属轮次 id（additive，轮末 token 用量显示面）：assistant/user 主线
+   * 条目携带（domain Entry.turnId 透传）；SubAgent 条目/恢复注入
+   * （turnId=null）不携带。缺省 = 旧 daemon 未携带（meta 行无轮用量）。
+   */
+  turnId?: string;
+  /**
    * 图片附件（v0.10 新增，T9 图片上下行）：base64 data URL 数组
    * （`data:image/png;base64,…`，自包含免文件服务）；仅 user 消息携带
    * （chat.send.images 透传；assistant 不产图不带）。缺省 = 纯文本旧形态

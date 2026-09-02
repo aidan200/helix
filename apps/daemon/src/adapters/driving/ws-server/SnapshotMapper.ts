@@ -286,5 +286,9 @@ function usageDto(summary: SessionUsageSummary): SessionUsageDto {
     compaction: usageTotal(summary.compaction),
     // 水位直通（TR-59 观察面；undefined/空对象 → 缺席，shell 回落兑底）
     ...(summary.ctx !== undefined && Object.keys(summary.ctx).length > 0 ? { ctx: { ...summary.ctx } } : {}),
+    // per-turn 账目直通（轮末 token 用量显示面；空/缺席不下发——additive）
+    ...(summary.byTurn !== undefined && Object.keys(summary.byTurn).length > 0
+      ? { byTurn: { ...summary.byTurn } }
+      : {}),
   };
 }

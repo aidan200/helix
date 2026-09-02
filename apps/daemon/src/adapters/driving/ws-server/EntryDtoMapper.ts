@@ -146,6 +146,9 @@ function messageEntryDto(
   if (!wireMainAware(entry.instanceId, mainInstanceId)) dto.instanceId = entry.instanceId;
   // 注入来源下行（T11a：closure/progress/user；缺省不携带——老快照前向兼容）
   if (entry.source !== undefined) dto.source = entry.source;
+  // 所属轮次下行（轮末 token 用量显示面 additive）：turnId=null（SubAgent
+  // 条目/恢复注入）不携带键——气泡按 turnId 查 turnUsage，缺省不显示
+  if (entry.turnId !== null) dto.turnId = entry.turnId;
   // 图片下行：user 消息携带图片附件（快照投影重建同源；缺省不携带）
   if (entry.images !== undefined && entry.images.length > 0) dto.images = [...entry.images];
   return [dto];

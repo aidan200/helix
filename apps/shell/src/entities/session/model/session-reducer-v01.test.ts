@@ -901,3 +901,68 @@ describe("执行时长记账（真实锚点透传：agent.started/resumed 帧 + 
     expect(card?.elapsedMs).toBe(2_500);
   });
 });
+
+// ── 轮末 token 用量（turnUsage：usage.recorded turnId 挂载 + 快照 byTurn 重建）──
+
+const usageRecordedTurn = (
+  instanceId: string,
+  u: UsageDto,
+  turnId: string,
+): SessionAction => ev({ v: 0, type: "usage.recorded", payload: { instanceId, usage: u, source: "turn", turnId } });
+
+describe("轮末 token 用量（turnUsage 投影；AD-9③ 同一事件流挂载面不双计）", () => {
+  it("usage.recorded 携带 turnId → turnUsage[turnId] 入账；同 turnId 多条累加", () => {
+    const s = run(
+      [
+        usageRecordedTurn("main", usage({ input: 10, output: 20, totalTokens: 30, cost: 0.25 }), "turn-1"),
+        usageRecordedTurn("main", usage({ input: 5, output: 5, totalTokens: 10, cost: 0.125 }), "turn-2"),
+        usageRecordedTurn("main", usage({ input: 1, output: 1, totalTokens: 2, cost: 0.125 }), "turn-1"),
+      ],
+      base(),
+    );
+    expect(s.turnUsage["turn-1"]).toEqual(usage({ input: 11, output: 21, totalTokens: 32, cost: 0.375 }));
+    expect(s.turnUsage["turn-2"]).toEqual(usage({ input: 5, output: 5, totalTokens: 10, cost: 0.125 }));
+  });
+
+  it("无 turnId 的入账（SubAgent/compaction/旧帧兼容）不动 turnUsage；账目面照常", () => {
+    const s = run([usageRecorded("main", usage({ totalTokens: 40, cost: 0.25 }), "turn")], base());
+    expect(s.turnUsage).toEqual({});
+    expect(s.usage.total).toEqual(usage({ totalTokens: 40, cost: 0.25 }));
+  });
+
+  it("快照 usage.byTurn → turnUsage 重建；缺省 = 空（旧快照兼容）", () => {
+    const withByTurn = run(
+      [
+        snapshotOf([], {
+          usage: {
+            total: usage({ totalTokens: 30, cost: 0.25 }),
+            compaction: usage(),
+            byTurn: { "turn-1": usage({ totalTokens: 30, cost: 0.25 }) },
+          },
+        }),
+      ],
+      base(),
+    );
+    expect(withByTurn.turnUsage["turn-1"]).toEqual(usage({ totalTokens: 30, cost: 0.25 }));
+
+    const without = run(
+      [snapshotOf([], { usage: { total: usage({ totalTokens: 9 }), compaction: usage() } })],
+      base(),
+    );
+    expect(without.turnUsage).toEqual({});
+  });
+
+  it("快照为权威：重建覆盖增量累积的 turnUsage（切换/重连后历史轮用量原位可见）", () => {
+    const inc = run([usageRecordedTurn("main", usage({ totalTokens: 99 }), "turn-x")], base());
+    expect(inc.turnUsage["turn-x"]).toBeDefined();
+    const snap = run(
+      [
+        snapshotOf([], {
+          usage: { total: usage(), compaction: usage(), byTurn: { "turn-1": usage({ totalTokens: 1 }) } },
+        }),
+      ],
+      inc,
+    );
+    expect(snap.turnUsage).toEqual({ "turn-1": usage({ totalTokens: 1 }) });
+  });
+});

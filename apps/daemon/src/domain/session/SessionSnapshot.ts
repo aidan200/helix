@@ -74,9 +74,11 @@ export interface UsageSummary {
   readonly cost: number;
 }
 
-/** 会话账目聚合：total = 各实例行合计；compaction = 摘要调用小计（AD-9③）；ctx = 上下文水位（TR-59 观察面，重启恢复种子）。 */
+/** 会话账目聚合：total = 各实例行合计；compaction = 摘要调用小计（AD-9③）；ctx = 上下文水位（TR-59 观察面，重启恢复种子）；byTurn = per-turn 账目（轮末 token 用量显示面，additive）。 */
 export interface SessionUsageSummary {
   readonly total: UsageSummary;
   readonly compaction: UsageSummary;
   readonly ctx?: Readonly<Record<string, number>>;
+  /** per-turn 账目（turnId → 该轮入账累计；additive，键缺席 = 未携带）。 */
+  readonly byTurn?: Readonly<Record<string, UsageSummary>>;
 }

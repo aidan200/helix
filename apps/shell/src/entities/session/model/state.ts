@@ -472,6 +472,14 @@ export interface SessionState {
   lastStreamKind: "chat" | "thinking" | null;
   /** 账目投影（usage.recorded/快照驱动；流式中冻结；渲染归 T4.2） */
   usage: SessionUsageProjection;
+  /**
+   * per-turn 账目（轮末 token 用量显示面，additive）：turnId → 该轮
+   * usage.recorded(source=turn) 入账累计。与 usage 投影同一事件流的挂载面
+   * （AD-9③ 不双计——增量 = usage.recorded 携带 turnId 时记录；快照 =
+   * usage.byTurn 重建，快照为权威整体替换）。气泡 meta 行按 entry.turnId
+   * 查本表显示；无 turnId/无账目 = 不显示。缺省 = 空表。
+   */
+  turnUsage: Record<string, UsageDto>;
   /** spawn 秒回 toast（一次性，UI 消费） */
   spawnToast: SpawnToast | null;
   /** kill 到达 toast（一次性，UI 消费；agent.killed 终止链末端） */
@@ -591,6 +599,7 @@ export function createInitialSessionState(): SessionState {
     thinkingStreams: {},
     lastStreamKind: null,
     usage: { total: ZERO_USAGE, compaction: ZERO_USAGE, byInstance: {}, ctxByInstance: {} },
+    turnUsage: {},
     spawnToast: null,
     killToast: null,
     view: "loading",

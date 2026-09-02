@@ -142,6 +142,15 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
       expect(usage1.compaction).toEqual({ input: 40, output: 6, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 46, cost: 0.03 });
       expect(usage1.compaction.totalTokens).toBeLessThanOrEqual(usage1.total.totalTokens);
 
+      // ①b per-turn 账目（轮末 token 用量显示面）：主线三 turn 各挂一条
+      //（U1/U2/U3，turnId 与事件信封同源）；compaction（UC）与 SubAgent
+      //（USUB）入账无 turnId 不进 byTurn（AD-9③ 同一事件流挂载投影，不双计）
+      const byTurn1 = usage1.byTurn!;
+      expect(byTurn1).toBeDefined();
+      expect(Object.keys(byTurn1)).toHaveLength(3);
+      const byTurnValues = Object.values(byTurn1).map((u) => u.totalTokens).sort((a, b) => a - b);
+      expect(byTurnValues).toEqual([3, 35, 50]); // U3/U1/U2（不含 UC=46 与 USUB=300）
+
       await d1.shutdown(); // 优雅退出：drain 写队列（domain_events 落账）
 
       // ── 第二段：四维查询（session × instance × type × time；agent_kind 附带维） ──
@@ -160,6 +169,13 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
       // source 维度核对（payload）：turn 4 条 + compaction 恰 1 条（不重复发）
       const sources = allUsage.map((e) => (e.payload as UsageRecordedPayload).source).sort();
       expect(sources).toEqual(["compaction", "turn", "turn", "turn", "turn"]);
+      // byTurn 键集 = 主线 turn 入账行载荷 turnId（同源钉——domain_events 不落
+      // 信封 turnId，载荷是唯一持久化来源）；compaction/SubAgent 行无 turnId
+      const mainTurnIds = allUsage
+        .filter((e) => (e.instanceId ?? mainId) === mainId && (e.payload as UsageRecordedPayload).source === "turn")
+        .map((e) => (e.payload as UsageRecordedPayload).turnId);
+      expect(mainTurnIds.every((t) => typeof t === "string")).toBe(true);
+      expect([...mainTurnIds].sort()).toEqual(Object.keys(byTurn1).sort());
       // 订阅方收到的账目事件与落盘行等量（turn 4 + compaction 1）
       expect(received.filter((s) => s === "turn")).toHaveLength(4);
       expect(received.filter((s) => s === "compaction")).toHaveLength(1);
@@ -183,6 +199,10 @@ describe("T3.2 usage 账目全链路（container 级）", () => {
       // 水位重启后精确重建（TR-59 恢复链路核心验收：终态 SubAgent 也带水位，
       // 双类型事件序重放——compaction 重置与后续 turn 覆写顺序正确）
       expect(view2.usage!.ctx).toEqual({ [mainId]: 3, [agentId]: 300 });
+      // per-turn 账目重启后事件重放精确重建（重放链 turnId 同源）——上方
+      // view2.usage toEqual usage1 已含 byTurn 深等，此处显式钉键集与取值
+      expect(Object.keys(view2.usage!.byTurn ?? {}).sort()).toEqual(Object.keys(byTurn1).sort());
+      expect(view2.usage!.byTurn).toEqual(byTurn1);
 
       // 重启后账目延续：续对话入账在恢复基线上累加（+1 条 turn 账）
       await d2.chat.sendMessage("续问");

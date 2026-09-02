@@ -38,6 +38,13 @@ export interface UsageLedgerData {
    * （applyCompaction）。重启恢复 = 事件重放同规则重建（终态实例也精确）。
    */
   readonly ctx: Readonly<Record<string, number>>;
+  /**
+   * per-turn 账目（additive，轮末 token 用量显示面）：turnId → 该轮入账
+   * 累计（usage.recorded 携带 turnId 时入账，同 turnId 多条累加）。与
+   * instances/compaction 同一事件流的挂载投影（不双计）；重放同规则
+   * 重建。键缺席 = 旧账本/未携带（快照 SessionUsageDto.byTurn 不下发）。
+   */
+  readonly byTurn?: Readonly<Record<string, UsageDto>>;
 }
 
 /** 零值用量（七字段全 0；provider 未报/空账占位，账目行保持完整）。 */
@@ -80,11 +87,18 @@ export function applyUsage(
   instanceId: string,
   usage: UsageDto,
   source: UsageSource,
+  turnId?: string,
 ): UsageLedgerData {
   return {
     instances: { ...ledger.instances, [instanceId]: addUsage(ledger.instances[instanceId], usage) },
     compaction: source === "compaction" ? addUsage(ledger.compaction, usage) : ledger.compaction,
     ctx: source === "turn" ? { ...ledger.ctx, [instanceId]: usage.totalTokens } : ledger.ctx,
+    // per-turn 挂载投影：携带 turnId 才入账（同 turnId 累加）；无 turnId 入账保留既有槽
+    ...(turnId !== undefined
+      ? { byTurn: { ...ledger.byTurn, [turnId]: addUsage(ledger.byTurn?.[turnId], usage) } }
+      : ledger.byTurn !== undefined
+        ? { byTurn: ledger.byTurn }
+        : {}),
   };
 }
 
@@ -112,5 +126,13 @@ export function aggregateSession(ledger: UsageLedgerData): SessionUsageDto {
   for (const id of Object.keys(ledger.instances)) {
     total = addUsage(total, ledger.instances[id]!);
   }
-  return { total, compaction: { ...ledger.compaction }, ctx: { ...ledger.ctx } };
+  return {
+    total,
+    compaction: { ...ledger.compaction },
+    ctx: { ...ledger.ctx },
+    // per-turn 账目直通（additive：空/缺席不下发，旧端兼容）
+    ...(ledger.byTurn !== undefined && Object.keys(ledger.byTurn).length > 0
+      ? { byTurn: { ...ledger.byTurn } }
+      : {}),
+  };
 }

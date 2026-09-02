@@ -60,8 +60,9 @@ type _UsageFields = Expect<
 
 type _UsageCostNumber = Expect<Equal<UsageDto["cost"], number>>;
 
-// ctx 可选观察面字段（TR-59 上下文水位；缺省 = 旧 daemon 兼容）
-type _SessionUsageShape = Expect<Equal<keyof SessionUsageDto, "total" | "compaction" | "ctx">>;
+// ctx 可选观察面字段（TR-59 上下文水位；缺省 = 旧 daemon 兼容）+ byTurn 可选
+// per-turn 账目（轮末 token 用量显示面，additive）
+type _SessionUsageShape = Expect<Equal<keyof SessionUsageDto, "total" | "compaction" | "ctx" | "byTurn">>;
 type _SessionUsageCtxOptional = Expect<
   Equal<Pick<SessionUsageDto, "ctx">, { ctx?: Readonly<Record<string, number>> }>
 >;

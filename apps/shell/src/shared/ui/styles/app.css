@@ -326,6 +326,8 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
 .msg .meta { display: flex; align-items: baseline; gap: 8px; }
 .msg .who { font-size: var(--text-micro); color: var(--text-faint); letter-spacing: 0.1em; text-transform: uppercase; }
 .msg .ts { font-size: var(--text-micro); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+/* 轮末 token 用量（assistant meta 行 who·ts 同行右侧）：等宽数字 + 弱色，与 ts 同观感 */
+.msg .turn-usage { font-size: var(--text-micro); color: var(--text-faint); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
 .bubble { padding: 8px 12px; font-size: var(--text-main); line-height: 1.6; }
 .msg.user .bubble {
   border-radius: 8px 2px 8px 8px;

@@ -156,3 +156,40 @@ describe("usage 域：累加基元（基线 = shell 增量路径 addUsage 私有
     expect(aggregateSession(emptyUsageLedger()).ctx).toEqual({});
   });
 });
+
+describe("usage 域：per-turn 账目（byTurn——轮末用量显示面挂载，additive）", () => {
+  test("applyUsage 携带 turnId → byTurn[turnId] 入账；aggregateSession 携带 byTurn", () => {
+    let ledger = emptyUsageLedger();
+    ledger = applyUsage(ledger, "main", u({ input: 10, output: 20, totalTokens: 30, cost: 0.01 }), "turn", "turn-1");
+    ledger = applyUsage(ledger, "main", u({ input: 5, output: 5, totalTokens: 10, cost: 0.005 }), "turn", "turn-2");
+    expect(ledger.byTurn?.["turn-1"]).toEqual(u({ input: 10, output: 20, totalTokens: 30, cost: 0.01 }));
+    expect(ledger.byTurn?.["turn-2"]).toEqual(u({ input: 5, output: 5, totalTokens: 10, cost: 0.005 }));
+    const agg = aggregateSession(ledger);
+    expect(agg.byTurn?.["turn-1"]).toEqual(u({ input: 10, output: 20, totalTokens: 30, cost: 0.01 }));
+    expect(agg.byTurn?.["turn-2"]).toEqual(u({ input: 5, output: 5, totalTokens: 10, cost: 0.005 }));
+  });
+
+  test("同一 turnId 多条入账累加（同轮多次 message_end 不丢账、不重写）", () => {
+    let ledger = emptyUsageLedger();
+    ledger = applyUsage(ledger, "main", u({ input: 10, totalTokens: 10, cost: 0.01 }), "turn", "turn-1");
+    ledger = applyUsage(ledger, "main", u({ input: 20, totalTokens: 20, cost: 0.02 }), "turn", "turn-1");
+    expect(ledger.byTurn?.["turn-1"]).toEqual(u({ input: 30, totalTokens: 30, cost: 0.03 }));
+  });
+
+  test("无 turnId / compaction 源入账不触 byTurn；空账本 byTurn 键缺席（additive 旧端兼容）", () => {
+    let ledger = emptyUsageLedger();
+    expect(ledger.byTurn).toBeUndefined();
+    ledger = applyUsage(ledger, "main", u({ input: 40, totalTokens: 40 }), "compaction");
+    expect(ledger.byTurn).toBeUndefined();
+    ledger = applyUsage(ledger, "main", u({ input: 10, totalTokens: 10 }), "turn"); // 无 turnId（SubAgent 路径）
+    expect(ledger.byTurn).toBeUndefined();
+    expect(aggregateSession(ledger).byTurn).toBeUndefined(); // 空 byTurn 不下发（缺省 = 未携带）
+  });
+
+  test("既有 byTurn 在无 turnId 入账时保留（不被清掉）", () => {
+    let ledger = emptyUsageLedger();
+    ledger = applyUsage(ledger, "main", u({ input: 10, totalTokens: 10 }), "turn", "turn-1");
+    ledger = applyUsage(ledger, "agent-9", u({ input: 99, totalTokens: 99 }), "turn"); // SubAgent 无 turnId
+    expect(ledger.byTurn?.["turn-1"]).toEqual(u({ input: 10, totalTokens: 10 }));
+  });
+});

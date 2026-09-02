@@ -119,7 +119,16 @@ export class SessionProjection implements EventPublisherPort {
         // 账本入账（AD-4 事件即账；原组合根内联投影闭包并入）
         const p = event.payload as UsageRecordedPayload;
         if (p.usage === undefined || p.source === undefined) return; // 损坏载荷防御
-        this.usageLedger = applyUsage(this.usageLedger, p.instanceId, p.usage, p.source);
+        this.usageLedger = applyUsage(
+          this.usageLedger,
+          p.instanceId,
+          p.usage,
+          p.source,
+          // byTurn 挂载只认载荷 turnId（发布点单源显式填写——domain_events
+          // 不落信封 turnId，恢复链重放同规则只能靠载荷）；compaction/
+          // SubAgent 发布点不填即不进 byTurn
+          p.turnId,
+        );
         return;
       }
       case "compaction.completed": {

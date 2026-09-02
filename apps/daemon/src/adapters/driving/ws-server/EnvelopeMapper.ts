@@ -379,10 +379,19 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
 
     case "usage.recorded": {
       const p = event.payload as UsageRecordedPayload;
+      // 轮末 token 用量显示面：只透传载荷 turnId（发布点单源；compaction/
+      // SubAgent 不携带——信封 turnId 不落盘非权威，不回填防错挂当轮）
+      const turnId = p.turnId;
       const frame: UsageRecordedEvent = {
         v: PROTOCOL_VERSION,
         type: "usage.recorded",
-        payload: { instanceId: p.instanceId, usage: p.usage, source: p.source },
+        payload: {
+          instanceId: p.instanceId,
+          usage: p.usage,
+          source: p.source,
+          // 轮末 token 用量显示面（additive）：携带才下发，缺省不携带键
+          ...(turnId !== undefined ? { turnId } : {}),
+        },
       };
       return frame;
     }

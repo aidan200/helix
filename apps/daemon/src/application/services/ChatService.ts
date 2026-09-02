@@ -639,11 +639,16 @@ export class ChatService implements ChatPort {
 
   // ── usage 族（AD-4 事件即账：账本投影归组合根 fan-out 末端） ──
 
-  /** turn 入账：message_end 携带 usage 即一条 usage.recorded(source=turn)。error 轮零值不入账（终验热修——零成本非真实计费）；工具轮中间 message_end(stopReason=toolUse) 无 usage 不入账。 */
+  /** turn 入账：message_end 携带 usage 即一条 usage.recorded(source=turn)。error 轮零值不入账（终验热修——零成本非真实计费）；工具轮中间 message_end(stopReason=toolUse) 无 usage 不入账。turnId 载荷携带（轮末 token 用量显示面挂载源；轮次在飞恒存在——message_end 先于 agent_end 收口）。 */
   private publishTurnUsage(usage: UsageRecordedPayload["usage"]): void {
     this.publish<UsageRecordedPayload>(
       "usage.recorded",
-      { instanceId: this.session.mainInstanceId, usage, source: "turn" },
+      {
+        instanceId: this.session.mainInstanceId,
+        usage,
+        source: "turn",
+        ...(this.session.openTurn !== null ? { turnId: this.session.openTurn.id } : {}),
+      },
       undefined,
       this.session.mainInstanceId,
     );

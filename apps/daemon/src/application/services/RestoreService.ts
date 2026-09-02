@@ -160,7 +160,15 @@ export class RestoreService {
       }
       const payload = event.payload as Partial<UsageRecordedPayload> | undefined;
       if (payload?.usage === undefined || payload.source === undefined) continue; // 损坏行防御：跳过不崩
-      ledger = applyUsage(ledger, payload.instanceId ?? instanceId, payload.usage, payload.source);
+      ledger = applyUsage(
+        ledger,
+        payload.instanceId ?? instanceId,
+        payload.usage,
+        payload.source,
+        // byTurn 挂载只认载荷 turnId（SessionProjection 活路径同口径；
+        // domain_events 不落信封 turnId——重放唯一来源即载荷）
+        payload.turnId,
+      );
     }
     return ledger;
   }
