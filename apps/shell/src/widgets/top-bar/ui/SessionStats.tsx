@@ -14,9 +14,10 @@
  * 行 → 锚点滚动到最后一条 compaction 里程碑条。
  */
 import { Fragment, memo, useEffect, useRef, useState } from "react";
-import type { CompactionEntryDto } from "@helix/protocol";
+import type { CatalogModel, CompactionEntryDto } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
-import { fmtTokens } from "@/shared/lib/format";
+import { resolveCatalogMatch } from "@/shared/lib/catalog-match";
+import { fmtPct, fmtTokens } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 import { selectIsGenerating, useSession } from "@/entities/session/SessionContext";
 import type { SessionState } from "@/entities/session/model/session-reducer";
@@ -35,6 +36,15 @@ export interface UsageRow {
   kindKey: string;
   model: string;
   tokens: number;
+  /** 上下文窗口占用比（0–100）= ctxTokens ÷ ctxWindow（行模型目录
+   *  contextWindow）。undefined = 不可得（模型不在目录 / 水位未知：快照
+   *  重连后首条 turn 前 / compaction 账目行），渲染降级 “—”。分子 = 该实例
+   *  当前上下文水位（最近一次 LLM 调用实测，compaction 后归位 tokensAfter），
+   *  非累计账目 tokens。 */
+  pct?: number;
+  /** 水位分子/分母（title 展示用；pct 可得时必在） */
+  ctxTokens?: number;
+  ctxWindow?: number;
   cost: number;
   chip: UsageChipState;
   /** chip 文案（SubAgent/compaction 用协议状态字面量——领域词汇；main 由渲染层取词条） */
@@ -47,9 +57,21 @@ export interface UsageRow {
 
 /** 账目行投影（F3.4）：main 行 + instances 卡片行（spawn 时序）+ compaction
  *  独立行（usage.compaction 小计 + 最近里程碑 before→after 归属说明 sub）。
- *  合计 = state.usage.total = Σ行（reducer addUsage 结构保证，数字自洽）。 */
-export function deriveUsageRows(s: SessionState): UsageRow[] {
+ * 合计 = state.usage.total = Σ行（reducer addUsage 结构保证，数字自洽）。
+ * catalog = 模型目录（TopologyState.modelConfig.catalog——拓扑级状态，调用方
+ * 显式注入保持纯函数；未拉取/缺省 = 上下文占用比全行降级。 */
+export function deriveUsageRows(s: SessionState, catalog: CatalogModel[] = []): UsageRow[] {
   const rows: UsageRow[] = [];
+  // 上下文占用比：水位（ctxByInstance）÷ 行模型目录窗口；目录缺失/水位未知 →
+  // undefined（渲染 “—”）
+  const ctxWindowOf = (model: string): number | undefined =>
+    resolveCatalogMatch(model, catalog)?.contextWindow;
+  const ctxPct = (instanceId: string, model: string): Pick<UsageRow, "pct" | "ctxTokens" | "ctxWindow"> => {
+    const ctxTokens = s.usage.ctxByInstance[instanceId];
+    const ctxWindow = ctxWindowOf(model);
+    if (ctxTokens === undefined || ctxWindow === undefined || ctxWindow <= 0) return {};
+    return { pct: (ctxTokens / ctxWindow) * 100, ctxTokens, ctxWindow };
+  };
 
   // main 行（T10c：id/账目跟随快照习得的主实例 id——新形态 agent-<hex>，
   // legacy 会话/快照未达 = 字面 "main"）：reasoning sub（Q-11③：main 行
@@ -62,6 +84,7 @@ export function deriveUsageRows(s: SessionState): UsageRow[] {
     kindKey: "chat.stats.kindMain",
     model: s.model,
     tokens: mainUsage?.totalTokens ?? 0,
+    ...ctxPct(s.mainInstanceId, s.model),
     cost: mainUsage?.cost ?? 0,
     chip: generating ? "running" : "idle",
     chipLabel: "",
@@ -84,6 +107,7 @@ export function deriveUsageRows(s: SessionState): UsageRow[] {
       kindKey: "chat.stats.kindSub",
       model: card.model ?? s.model,
       tokens: u?.totalTokens ?? 0,
+      ...ctxPct(card.instanceId, card.model ?? s.model),
       cost: u?.cost ?? 0,
       chip: card.state,
       chipLabel: card.state,
@@ -102,6 +126,7 @@ export function deriveUsageRows(s: SessionState): UsageRow[] {
       kindKey: "chat.stats.kindCompact",
       model: s.model, // 摘要调用由 main 发起，模型随会话（DTO 无模型字段）
       tokens: cu.totalTokens,
+      // 账目子集视图：上下文占用比不适用（无窗口归属），渲染 “—”
       cost: cu.cost,
       chip: "done",
       chipLabel: "done",
@@ -202,7 +227,7 @@ export const UsagePopover = memo(function UsagePopover({
   onOpenInstance?: (instanceId: string) => void;
 }) {
   const { t } = useI18n();
-  const { state } = useSession();
+  const { state, topology } = useSession();
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   // 开合状态机（F3.4）：点外部（popover 与徽标之外）/ Esc 关闭；popover 内部
@@ -224,7 +249,7 @@ export const UsagePopover = memo(function UsagePopover({
     };
   }, [onClose]);
 
-  const rows = deriveUsageRows(state);
+  const rows = deriveUsageRows(state, topology.modelConfig.catalog?.models ?? []);
   const total = state.usage.total;
 
   return (
@@ -255,6 +280,12 @@ export const UsagePopover = memo(function UsagePopover({
               <span className="model">{row.model}</span>
               <span className="nums">
                 <span className="tok">{fmtTokens(row.tokens)}</span>
+                <span
+                  className="pct"
+                  title={row.pct !== undefined ? `${fmtTokens(row.ctxTokens!)} / ${fmtTokens(row.ctxWindow!)}` : undefined}
+                >
+                  {row.pct !== undefined ? fmtPct(row.pct) : "—"}
+                </span>
                 <span className="cost">${row.cost.toFixed(2)}</span>
               </span>
               <span className={cn("sp-state", CHIP_CLASS[row.chip])}>{label}</span>

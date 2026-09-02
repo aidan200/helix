@@ -64,8 +64,22 @@ export function applyThinkingUsageEvent(
     }
     case "compaction.completed":
       // 里程碑条数据源（entry.usage 为展示面）；账目入账唯一驱动 = usage.recorded/
-      // 快照——若此处再累加将与 usage.recorded(source=compaction) 双计（AD-9③防线）
-      return { ...s, entries: upsertEntry(s.entries, event.payload.entry) };
+      // 快照——若此处再累加将与 usage.recorded(source=compaction) 双计（AD-9③防线）。
+      // 上下文水位归位：压缩后上下文 = tokensAfter（estimateContextTokens 复算值），
+      // 覆盖 main 实例旧水位（entry.instanceId wire 归一 “main”→状态主实例键，同 delta 分支）
+      return {
+        ...s,
+        entries: upsertEntry(s.entries, event.payload.entry),
+        usage: {
+          ...s.usage,
+          ctxByInstance: {
+            ...s.usage.ctxByInstance,
+            [isMainChannel(event.payload.entry.instanceId, s.mainInstanceId)
+              ? s.mainInstanceId
+              : event.payload.entry.instanceId]: event.payload.entry.tokensAfter,
+          },
+        },
+      };
     case "usage.recorded": {
       // 账目聚合（流式中冻结由「delta 分支不触碰 usage」结构性保证）：
       // 【口径统一修正，AF-2/T3.1】turn/compaction 源均计入 per-instance 小计
@@ -73,6 +87,14 @@ export function applyThinkingUsageEvent(
       // compaction 源另计独立小计；total = Σ实例（含 compaction 贡献，与
       // daemon 快照面数值一致——同一 store 增量/快照两路径口径自此统一）
       const { instanceId, usage: u, source } = event.payload;
+      // 上下文水位（非账目）：source=turn 时最近一次 LLM 调用的 totalTokens
+      //（input+cache R/W+output，provider 实测）≈ 该实例当前上下文占用；
+      // source=compaction 不覆盖（摘要调用 input 是压缩前全文——compaction.completed
+      // 的 tokensAfter 才是压缩后水位，两事件到达序无关）
+      const ctxByInstance =
+        source === "turn"
+          ? { ...s.usage.ctxByInstance, [instanceId]: u.totalTokens }
+          : s.usage.ctxByInstance;
       return {
         ...s,
         usage: {
@@ -82,6 +104,7 @@ export function applyThinkingUsageEvent(
             ...s.usage.byInstance,
             [instanceId]: addUsage(s.usage.byInstance[instanceId] ?? ZERO_USAGE, u),
           },
+          ctxByInstance,
         },
       };
     }

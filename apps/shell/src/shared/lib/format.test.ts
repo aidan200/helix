@@ -7,7 +7,7 @@
  * 两种都不命中时回退 "1"（非零失败的无结构化启发式）。
  */
 import { describe, expect, it } from "vitest";
-import { extractExitCode, fmtTokens, relativeTimeSpan } from "./format";
+import { extractExitCode, fmtPct, fmtTokens, relativeTimeSpan } from "./format";
 
 describe("fmtTokens 档位格式化（F3.3 徽标；T4.2 消费）", () => {
   it("≥1M：一位小数 M（1_200_000 → 1.2M；1_000_000 边界 → 1.0M）", () => {
@@ -26,6 +26,16 @@ describe("fmtTokens 档位格式化（F3.3 徽标；T4.2 消费）", () => {
   it("<1k：原值（999 → 999；0 → 0）", () => {
     expect(fmtTokens(999)).toBe("999");
     expect(fmtTokens(0)).toBe("0");
+  });
+});
+
+describe("fmtPct 占比格式化（F3.4 popover 行）", () => {
+  it("档位：0 → 0%；(0,1) → <1%；<10 一位小数；≥10 取整", () => {
+    expect(fmtPct(0)).toBe("0%");
+    expect(fmtPct(0.4)).toBe("<1%");
+    expect(fmtPct(3.859)).toBe("3.9%");
+    expect(fmtPct(65.7)).toBe("66%");
+    expect(fmtPct(100)).toBe("100%");
   });
 });
 

@@ -14,14 +14,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
-import type { EventEnvelope, UsageDto } from "@helix/protocol";
+import type { CatalogModel, EventEnvelope, UsageDto } from "@helix/protocol";
 import { createInitialSessionState, sessionReducer, type SessionState } from "@/entities/session/model/session-reducer";
 
 // ── SessionContext mock（state 注入；selectIsGenerating 等保持真体）──
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
+// 模型目录常驻（UsagePopover 从 topology.modelConfig.catalog 注入 deriveUsageRows）
+const topologyRef = {
+  current: { modelConfig: { catalog: { models: [] as CatalogModel[] } } },
+};
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
-  return { ...orig, useSession: () => ({ state: stateRef.current }) };
+  return { ...orig, useSession: () => ({ state: stateRef.current, topology: topologyRef.current }) };
 });
 
 import { StatsBadge, UsagePopover, deriveUsageRows } from "./SessionStats";
@@ -45,13 +49,31 @@ function usage(over: Partial<UsageDto> = {}): UsageDto {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0, cost: 0, ...over };
 }
 
-/** 剧本：main turn + agent-1 done turn + compaction 入账（原型 INSTANCES 口径子集）。 */
+/** 目录（contextWindow 分母面）：main 会话 200k 窗 · agent-1 模型 400k 窗。 */
+function catalogModel(id: string, contextWindow: number): CatalogModel {
+  return {
+    id,
+    providerId: id.split("/")[0]!,
+    contextWindow,
+    cost: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+    source: "builtin",
+    reasoning: true,
+    thinkingLevels: [],
+  };
+}
+const CATALOG: CatalogModel[] = [
+  catalogModel("anthropic/claude-sonnet-4-5", 200_000),
+  catalogModel("openai/gpt-5-mini", 400_000),
+];
+
+/** 剧本：main turn（水位 142k）+ agent-1 done turn（水位 96k）+ compaction
+ *  （main 归位 20k）+ 摘要调用入账（不覆盖水位）。 */
 const SCENARIO: EventEnvelope[] = [
   welcome,
-  { v: 0, type: "agent.spawned", payload: { agentId: "agent-1", task: "补齐单测", profileKind: "subagent-worker" } },
+  { v: 0, type: "agent.spawned", payload: { agentId: "agent-1", task: "补齐单测", profileKind: "subagent-worker", model: "openai/gpt-5-mini" } },
   { v: 0, type: "agent.completed", payload: { agentId: "agent-1", closure: { status: "done", summary: "14 例全绿", reportPath: null, findings: null, taskId: null } } },
-  { v: 0, type: "usage.recorded", payload: { instanceId: "main", usage: usage({ reasoning: 8_400, totalTokens: 512_000, cost: 0.31 }), source: "turn" } },
-  { v: 0, type: "usage.recorded", payload: { instanceId: "agent-1", usage: usage({ cacheRead: 89_000, cacheWrite: 12_000, totalTokens: 284_000, cost: 0.19 }), source: "turn" } },
+  { v: 0, type: "usage.recorded", payload: { instanceId: "main", usage: usage({ reasoning: 8_400, totalTokens: 142_000, cost: 0.31 }), source: "turn" } },
+  { v: 0, type: "usage.recorded", payload: { instanceId: "agent-1", usage: usage({ cacheRead: 89_000, cacheWrite: 12_000, totalTokens: 96_000, cost: 0.19 }), source: "turn" } },
   {
     v: 0,
     type: "compaction.completed",
@@ -60,7 +82,7 @@ const SCENARIO: EventEnvelope[] = [
         kind: "compaction",
         id: "compact-1",
         instanceId: "main",
-        tokensBefore: 340_000,
+        tokensBefore: 150_000,
         tokensAfter: 20_000,
         summary: "会话前段摘要",
         usage: usage({ totalTokens: 32_000, cost: 0.11 }),
@@ -83,10 +105,11 @@ localStorage.setItem("helix-lang", "zh-CN");
 // ── deriveUsageRows（纯函数）──────────────────────────────
 
 describe("deriveUsageRows（F3.4 行投影）", () => {
-  it("初始态：仅 main 行（idle、零账、无 sub）", () => {
-    const rows = deriveUsageRows(play([welcome]));
+  it("初始态：仅 main 行（idle、零账、无 sub、无上下文占比）", () => {
+    const rows = deriveUsageRows(play([welcome]), CATALOG);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: "main", chip: "idle", tokens: 0, cost: 0 });
+    expect(rows[0]!.pct).toBeUndefined(); // 无水位 → 无占比
     expect(rows[0]!.sub).toBeUndefined();
   });
 
@@ -98,13 +121,38 @@ describe("deriveUsageRows（F3.4 行投影）", () => {
     expect(main!.sub).toEqual({ key: "reasoningSub", vars: { n: "8k" } });
     expect(main!.model).toBe("claude-sonnet-4-5");
     // agent-1：done chip + cache R/W sub + 抽屉行尾动作
-    expect(agent).toMatchObject({ chip: "done", chipLabel: "done", tokens: 284_000, cost: 0.19 });
+    expect(agent).toMatchObject({ chip: "done", chipLabel: "done", tokens: 96_000, cost: 0.19 });
+    expect(agent!.model).toBe("openai/gpt-5-mini"); // spawn 声明模型（分母 = 自身窗口）
     expect(agent!.sub).toEqual({ key: "cacheSub", vars: { r: "89k", w: "12k" } });
     expect(agent!.action).toEqual({ type: "drawer", instanceId: "agent-1" });
     // compaction：账目小计 + 最近里程碑归属说明 + 锚点滚动动作
     expect(compact).toMatchObject({ chip: "done", tokens: 32_000, cost: 0.11 });
-    expect(compact!.sub).toEqual({ key: "compactSub", vars: { before: "340k", after: "20k" } });
+    expect(compact!.sub).toEqual({ key: "compactSub", vars: { before: "150k", after: "20k" } });
     expect(compact!.action).toEqual({ type: "compaction" });
+  });
+
+  it("上下文占用比：pct = 水位/行模型窗口（各模型独立分母）；compaction 行无 pct", () => {
+    const rows = deriveUsageRows(play(SCENARIO), CATALOG);
+    const [main, agent, compact] = rows;
+    // main：turn 水位 142k → compaction.completed 归位 tokensAfter 20k（200k 窗 → 10%）；
+    // 随后的 usage.recorded(source=compaction) 不覆盖水位
+    expect(main!.pct).toBeCloseTo((20_000 / 200_000) * 100, 6); // 10%
+    expect(main).toMatchObject({ ctxTokens: 20_000, ctxWindow: 200_000 });
+    // agent-1：水位 96k（最近 turn totalTokens）÷ 自身模型 400k 窗 → 24%（与会话模型分母无关）
+    expect(agent!.pct).toBeCloseTo((96_000 / 400_000) * 100, 6); // 24%
+    expect(agent).toMatchObject({ ctxTokens: 96_000, ctxWindow: 400_000 });
+    // compaction 行 = 账目子集视图，上下文口径不适用
+    expect(compact!.pct).toBeUndefined();
+  });
+
+  it("降级：目录未注入/模型不在目录/水位未知 → pct undefined", () => {
+    const s = play(SCENARIO);
+    // 目录未注入（catalog 未拉取）：全行降级
+    for (const r of deriveUsageRows(s)) expect(r.pct).toBeUndefined();
+    // 模型不在目录（main 会话模型无目录条目）：main 降级，agent-1 正常
+    const rows = deriveUsageRows(s, [CATALOG[1]!]);
+    expect(rows[0]!.pct).toBeUndefined();
+    expect(rows[1]!.pct).toBeCloseTo(24, 6);
   });
 
   it("数字自洽：Σ实例行 tokens/cost = 徽标值（state.usage.total，单一状态源）", () => {
@@ -116,7 +164,7 @@ describe("deriveUsageRows（F3.4 行投影）", () => {
     const instanceRows = rows.filter((r) => r.id !== "compaction");
     const sumTokens = instanceRows.reduce((a, r) => a + r.tokens, 0);
     const sumCost = instanceRows.reduce((a, r) => a + r.cost, 0);
-    expect(sumTokens).toBe(s.usage.total.totalTokens); // 828_000（main 544k 含 compaction 32k + agent 284k）
+    expect(sumTokens).toBe(s.usage.total.totalTokens); // 270_000（main 174k 含 compaction 32k + agent 96k）
     expect(sumCost).toBeCloseTo(s.usage.total.cost, 10); // 0.61
     // compaction 行 = 独立小计（⊆ total，不再与实例行求和叠加）
     const compactRow = rows.find((r) => r.id === "compaction")!;
@@ -164,6 +212,42 @@ describe("deriveUsageRows（F3.4 行投影）", () => {
     expect(rows[0]).toMatchObject({ id: mainId, main: true, tokens: 512_000, cost: 0.31 });
     expect(rows[0]!.sub).toEqual({ key: "reasoningSub", vars: { n: "8k" } });
   });
+
+  it("快照恢复兜底：最后一条 compaction entry 的 tokensAfter → main 水位（重连后无 turn 前可显示）", () => {
+    const s = play([
+      welcome,
+      {
+        v: 0,
+        type: "session.snapshot",
+        payload: {
+          snapshot: {
+            sessionId: "s1",
+            model: "claude-sonnet-4-5",
+            agentState: "idle",
+            revision: 1,
+            entries: [
+              {
+                kind: "compaction",
+                id: "compact-1",
+                instanceId: "main",
+                tokensBefore: 150_000,
+                tokensAfter: 24_000,
+                summary: "前段摘要",
+                usage: usage({ totalTokens: 32_000, cost: 0.11 }),
+                createdAt: "2026-08-16T14:05:00.000Z",
+              },
+            ],
+            instances: [
+              { instanceId: "main", kind: "main", profileKind: "main-session", state: "running", createdAt: "2026-08-16T14:00:00.000Z" },
+            ],
+          },
+        },
+      },
+    ]);
+    const rows = deriveUsageRows(s, CATALOG);
+    expect(rows[0]!.pct).toBeCloseTo((24_000 / 200_000) * 100, 6); // 12%
+    expect(rows[0]).toMatchObject({ ctxTokens: 24_000, ctxWindow: 200_000 });
+  });
 });
 
 // ── StatsBadge（F3.3）─────────────────────────────────────
@@ -181,14 +265,14 @@ describe("StatsBadge（F3.3 徽标）", () => {
     const { rerender } = ui(<StatsBadge open={false} onToggle={() => {}} />);
     stateRef.current = play(SCENARIO);
     rerender(<I18nProvider><StatsBadge open={false} onToggle={() => {}} /></I18nProvider>);
-    expect(screen.getByText("828k tok · $0.61")).toBeTruthy();
+    expect(screen.getByText("270k tok · $0.61")).toBeTruthy();
     expect(document.querySelector('[data-flash="on"]')).not.toBeNull();
   });
 
   it("流式中冻结：delta 到达但 usage 槽位不变 → 徽标值与 flash 均不变", () => {
     stateRef.current = play(SCENARIO);
     const { rerender } = ui(<StatsBadge open={false} onToggle={() => {}} />);
-    const before = screen.getByText("828k tok · $0.61").textContent;
+    const before = screen.getByText("270k tok · $0.61").textContent;
     // 流式 delta（含主线 chat 流与 thinking 流）不触碰 usage（reducer 冻结保证）
     stateRef.current = play([
       ...SCENARIO,
@@ -196,7 +280,7 @@ describe("StatsBadge（F3.3 徽标）", () => {
       { v: 0, type: "thinking.stream.delta", payload: { instanceId: "main", delta: "思考中" } },
     ]);
     rerender(<I18nProvider><StatsBadge open={false} onToggle={() => {}} /></I18nProvider>);
-    expect(screen.getByText("828k tok · $0.61").textContent).toBe(before);
+    expect(screen.getByText("270k tok · $0.61").textContent).toBe(before);
     expect(document.querySelector('[data-flash="on"]')).toBeNull();
   });
 
@@ -212,16 +296,24 @@ describe("StatsBadge（F3.3 徽标）", () => {
 describe("UsagePopover（F3.4 popover）", () => {
   it("行结构渲染：标题/合计/行 id·kind·model·tokens·cost/chip 文案/sub 行", () => {
     stateRef.current = play(SCENARIO);
+    topologyRef.current = { modelConfig: { catalog: { models: CATALOG } } };
     ui(<UsagePopover onClose={() => {}} />);
     expect(screen.getByText("会话账目 · 分实例")).toBeTruthy();
-    expect(screen.getByText("828k tok · $0.61", { selector: ".sp-title .total" })).toBeTruthy();
+    expect(screen.getByText("270k tok · $0.61", { selector: ".sp-title .total" })).toBeTruthy();
     // main 行（div，无动作）与 compaction 归属说明
     expect(document.querySelector('[data-row-id="main"]')!.textContent).toContain("主会话");
     expect(document.querySelector('[data-row-id="main"]')!.textContent).toContain("空闲");
+    // 每行上下文占用比（水位/行模型窗口）：main 10%（compaction 归位 20k/200k）·
+    // agent-1 24%（96k/400k）· compaction 行降级 “—”；title 携带分子/分母
+    expect(document.querySelector('[data-row-id="main"]')!.textContent).toContain("10%");
+    expect(document.querySelector('[data-row-id="main"] .pct')!.getAttribute("title")).toBe("20k / 200k");
+    expect(document.querySelector('[data-row-id="agent-1"]')!.textContent).toContain("24%");
+    expect(document.querySelector('[data-row-id="agent-1"] .pct')!.getAttribute("title")).toBe("96k / 400k");
+    expect(document.querySelector('[data-row-id="compaction"] .pct')!.textContent).toBe("—");
     expect(screen.getByText("reasoning 8k")).toBeTruthy();
     expect(screen.getByText("cache R 89k · W 12k")).toBeTruthy();
-    expect(screen.getByText("main 340k→20k")).toBeTruthy();
-    expect(screen.getByText(/turn 完成时刷新 · 流式中账面冻结/)).toBeTruthy();
+    expect(screen.getByText("main 150k→20k")).toBeTruthy();
+    expect(screen.getByText(/tokens\/cost 为累计账目 · 百分比 = 上下文窗口占用/)).toBeTruthy();
   });
 
   it("点外部关闭（document click）；Esc 关闭", () => {

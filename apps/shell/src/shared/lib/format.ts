@@ -22,6 +22,14 @@ export function fmtTokens(n: number): string {
   return String(n);
 }
 
+/** 占比格式化（F3.4 popover 行，输入 0–100）：0 → "0%"；(0,1) → "<1%"；
+ *  <10 一位小数；否则取整。 */
+export function fmtPct(pct: number): string {
+  if (pct <= 0) return "0%";
+  if (pct < 1) return "<1%";
+  return pct < 10 ? `${pct.toFixed(1)}%` : `${Math.round(pct)}%`;
+}
+
 /** epoch 毫秒 → 相对时间（P-2 会话卡片）：刚刚 / N 分钟前 / N 小时前 /
  *  昨天 / N 天前（文案 key 由调用方 i18n，本函数只定档位与参数）。
  *  now 由调用方注入（重放确定性；组件传 Date.now()）。 */

@@ -117,6 +117,13 @@ export interface SessionUsageProjection {
   compaction: UsageDto;
   /** per-instance 小计（popover 行数据） */
   byInstance: Record<string, UsageDto>;
+  /** per-instance 当前上下文 token 水位（非账目——运行时观测面）：
+   *  最近一条 usage.recorded(source=turn) 的 totalTokens 覆盖（本轮 LLM
+   *  调用实测的上下文+生成量 ≈ 会话当前占用）；compaction.completed 归位
+   *  tokensAfter（压缩后复算值）。source=compaction 不覆盖（摘要调用 input
+   *  是压缩前全文，不代表压缩后水位）。快照面无逐实例水位——恢复后由最后
+   *  一条 compaction entry 的 tokensAfter 兜底 main，其余实例待下一条 turn。 */
+  ctxByInstance: Record<string, number>;
 }
 
 /** spawn 秒回 toast（agent.spawned 置位，UI 消费后置空；F1.5）。 */
@@ -530,7 +537,7 @@ export function createInitialSessionState(): SessionState {
     nextChannelSeq: 1,
     thinkingStreams: {},
     lastStreamKind: null,
-    usage: { total: ZERO_USAGE, compaction: ZERO_USAGE, byInstance: {} },
+    usage: { total: ZERO_USAGE, compaction: ZERO_USAGE, byInstance: {}, ctxByInstance: {} },
     spawnToast: null,
     killToast: null,
     view: "loading",

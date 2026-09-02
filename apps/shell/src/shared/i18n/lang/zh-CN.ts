@@ -146,7 +146,7 @@ export const zhCN = {
       badge: "{tokens} tok · ${cost}",
       popTitle: "会话账目 · 分实例",
       total: "{tokens} tok · ${cost}",
-      footNote: "turn 完成时刷新 · 流式中账面冻结 · 含 compaction 摘要调用",
+      footNote: "tokens/cost 为累计账目 · 百分比 = 上下文窗口占用（按各模型） · turn 完成时刷新",
       cacheSub: "cache R {r} · W {w}",
       reasoningSub: "reasoning {n}",
       compactSub: "main {before}→{after}",

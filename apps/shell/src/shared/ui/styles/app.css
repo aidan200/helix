@@ -202,6 +202,7 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
 .sp-row .model { font-size: var(--text-micro); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-row .nums { margin-left: auto; flex-shrink: 0; display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
 .sp-row .tok { color: var(--text); font-size: var(--text-body); }
+.sp-row .pct { color: var(--text-faint); font-size: var(--text-cap); min-width: 4ch; text-align: right; }
 .sp-row .cost { color: var(--text-muted); font-size: var(--text-cap); }
 .sp-state {
   flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;

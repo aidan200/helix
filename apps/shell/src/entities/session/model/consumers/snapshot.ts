@@ -20,6 +20,7 @@
  */
 import type {
   AgentInstanceDto,
+  CompactionEntryDto,
   EntryDto,
   EventEnvelope,
   SessionUsageDto,
@@ -69,13 +70,23 @@ function instancesFromSnapshot(dtos: AgentInstanceDto[]): InstanceCardState[] {
 function usageFromSnapshot(
   usageDto: SessionUsageDto | undefined,
   instances: AgentInstanceDto[] | undefined,
+  /** main 实例 id（水位兑底写入键） */
+  mainId: string,
+  /** 快照全部条目（扫最后一条 compaction 兑底 main 水位） */
+  entries: EntryDto[],
 ): SessionUsageProjection {
   const byInstance: Record<string, UsageDto> = {};
   for (const d of instances ?? []) {
     if (d.usage) byInstance[d.instanceId] = d.usage;
   }
-  if (!usageDto) return { total: ZERO_USAGE, compaction: ZERO_USAGE, byInstance };
-  return { total: usageDto.total, compaction: usageDto.compaction, byInstance };
+  // 上下文水位：快照面无逐实例观测值——压缩后重连场景兑底 main = 最后一条
+  // compaction entry 的 tokensAfter（其后无新 turn 时即当前水位）；SubAgent
+  // 水位待下一条 usage.recorded(source=turn) 到达（“—”降级）
+  const ctxByInstance: Record<string, number> = {};
+  const lastCompact = [...entries].reverse().find((e): e is CompactionEntryDto => e.kind === "compaction");
+  if (lastCompact) ctxByInstance[mainId] = lastCompact.tokensAfter;
+  if (!usageDto) return { total: ZERO_USAGE, compaction: ZERO_USAGE, byInstance, ctxByInstance };
+  return { total: usageDto.total, compaction: usageDto.compaction, byInstance, ctxByInstance };
 }
 
 /** 快照 entries → 实例 channel 条目（user 消息 → steer 标记；compaction 不入 channel，M2 main 语义）。
@@ -236,7 +247,7 @@ export function applySnapshotEvent(s: SessionState, event: EventEnvelope, _ts?: 
         instances: snap.instances ? instancesFromSnapshot(dtos) : [], // additive：实例清单重建卡片（无字段旧剧本兼容 → 空）
         instanceChannels: merged,
         nextChannelSeq: nextSeq,
-        usage: usageFromSnapshot(snap.usage, snap.instances), // additive：账目重建（权威）
+        usage: usageFromSnapshot(snap.usage, snap.instances, mainId, snap.entries), // additive：账目重建（权威）
         // additive：thinking 切片重建（权威）；缺省保留现值（含草稿暂存——
         // 建会话快照未携带时暂存值不丢，provider 补发 thinking.set 后广播收权）
         thinking: snapThinking !== undefined

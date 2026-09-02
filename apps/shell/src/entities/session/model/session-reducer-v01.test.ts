@@ -661,7 +661,20 @@ describe("重放幂等（v0.1 全事件面）", () => {
     const full = run(actions);
 
     expect(merged.instances).toEqual(full.instances);
-    expect(merged.usage).toEqual(full.usage);
+    // 账目面（落盘投影，AF-2 纯重放性质）：total/compaction/byInstance 深度相等
+    expect(merged.usage.total).toEqual(full.usage.total);
+    expect(merged.usage.compaction).toEqual(full.usage.compaction);
+    expect(merged.usage.byInstance).toEqual(full.usage.byInstance);
+    // 上下文水位面（观测缓存，非落盘）：快照重建 = main 由最后 compaction
+    // entry 兜底（tokensAfter）；快照前已终态实例的水位不还原（快照 DTO 无
+    // 逐实例水位字段）——merged 缺 agent-1 槽位属预期降级，活跃实例随增量
+    // usage.recorded(source=turn) 收敛
+    expect(merged.usage.ctxByInstance["main"]).toBe(full.usage.ctxByInstance["main"]);
+    for (const id of Object.keys(full.usage.ctxByInstance)) {
+      if (id in merged.usage.ctxByInstance) {
+        expect(merged.usage.ctxByInstance[id]).toBe(full.usage.ctxByInstance[id]);
+      }
+    }
     expect(merged.entries).toEqual(full.entries);
     expect(merged.thinkingStreams).toEqual(full.thinkingStreams);
     expect(merged.streaming).toBeNull();

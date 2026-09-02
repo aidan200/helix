@@ -141,7 +141,7 @@ export const enUS = {
       badge: "{tokens} tok · ${cost}",
       popTitle: "Session usage · by instance",
       total: "{tokens} tok · ${cost}",
-      footNote: "Refreshed on turn completion · frozen while streaming · compaction summary calls included",
+      footNote: "tokens/cost are cumulative · % = context window used (per model) · refreshed on turn completion",
       cacheSub: "cache R {r} · W {w}",
       reasoningSub: "reasoning {n}",
       compactSub: "main {before}→{after}",
