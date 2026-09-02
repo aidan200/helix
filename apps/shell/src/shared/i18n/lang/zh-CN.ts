@@ -320,6 +320,8 @@ export const zhCN = {
       colOutput: "输出",
       colCacheRead: "缓存读",
       colCacheWrite: "缓存写",
+      colActions: "操作",
+      setAsDefault: "设为默认",
       tableCaption: "价格单位 $ / 1M tokens",
       defaultChip: "default",
       modalTitle: "配置 {provider} API key",

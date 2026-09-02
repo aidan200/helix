@@ -19,7 +19,9 @@
  *   tabular-nums）；默认行高亮 + DEFAULT chip；
  * - F(3.4).5 刷新目录：catalog_refresh 强制拉（图标转动 → 结果帧清
  *   in-flight → 时间戳更新）；
- * - F(3.4).6 全局默认选择器：写 SQLite（model.set_default 乐观更新）。
+ * - F(3.4).6 全局默认：顶部只读展示当前默认模型（不下拉）；改默认在展开
+ *   的模型表行内「设为默认」按钮（model.set_default 乐观更新）；折叠
+ *   provider 行若托管默认模型则显示默认模型标签。
  * S2 迁移口径：剥离原 .p4-page/.p4-head 页壳与返回钮（onBack 删除），
  * .pg 版心 + 全部功能逻辑零行为变更；分区标题 = 原 chat.settings.title。
  * 状态模型：连通徽标四态互斥；弹层 open|closed；校验 clean|error；删除
@@ -30,7 +32,6 @@ import ThinkingLevelSlider from "@/features/thinking-level/ui/ThinkingLevelSlide
 import { defaultLevelFor, resolveThinkingCapability } from "@/features/thinking-level/model/thinking-capability";
 import {
   AlertCircle,
-  ChevronDown,
   ChevronRight,
   Clock,
   KeyRound,
@@ -212,78 +213,54 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
     <div className="pg" data-models-section>
       <h2 className="pg-title">{t("chat.settings.title")}</h2>
 
-      {/* 工具卡：全局默认选择器（F(3.4).6）+ 目录刷新（F(3.4).5） */}
+      {/* 工具卡：全局默认展示（只读，改默认在下方模型表行内操作）+ 推理强度
+          + 目录刷新（F(3.4).5）——两行收紧布局 */}
       <div className="hud-card">
         <div className="toolbar">
-          <div className="fld">
-            <label className="hud-label" htmlFor="sel-default">
-              {t("chat.modelsConfig.defaultLabel")}
-            </label>
-            <div className="sel-wrap">
-              <select
-                id="sel-default"
-                className="hud-input"
-                value={mc.defaultModel === "" ? undefined : mc.defaultModel}
-                disabled={mc.catalog === null}
-                onChange={(e) => {
-                  setDefaultModel(e.target.value);
-                  toast.push(
-                    "ok",
-                    t("chat.modelsConfig.defaultUpdatedToast", { model: e.target.value }),
-                  );
-                }}
-              >
-                {[...modelsByProvider.entries()].map(([providerId, models]) => (
-                  <optgroup label={providerId} key={providerId}>
-                    {models.map((m) => (
-                      <option value={m.id} key={m.id}>
-                        {m.id}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              {(() => {
-                // R7 全局兜底批：全局默认推理强度（档位解析基准 = 全局默认模型能力）
-                const capability = resolveThinkingCapability(mc.defaultModel === "" ? "" : mc.defaultModel, mc.catalog?.models ?? undefined);
-                const levels = capability?.thinkingLevels ?? [];
-                if (levels.length === 0) {
-                  return (
-                    <p className="ag-note" data-global-thinking-unsupported>
-                      {t("chat.modelsConfig.thinkingUnsupported")}
-                    </p>
-                  );
-                }
-                return (
-                  <div className="fld" data-global-thinking>
-                    <span className="hud-label">{t("chat.modelsConfig.thinkingDefaultLabel")}</span>
-                    <ThinkingLevelSlider
-                      levels={levels}
-                      value={mc.defaultThinking !== null && levels.includes(mc.defaultThinking) ? mc.defaultThinking : null}
-                      ghostValue={defaultLevelFor(levels)}
-                      disabled={mc.catalog === null}
-                      onSelect={(level) => setThinkingDefault(level)}
-                      ariaLabel={t("chat.modelsConfig.thinkingDefaultLabel")}
-                    />
-                    {mc.defaultThinking !== null && (
-                      <button
-                        type="button"
-                        className="hud-btn hud-btn-ghost hud-btn sm"
-                        onClick={() => setThinkingDefault(null)}
-                        data-global-thinking-clear
-                      >
-                        {t("chat.modelsConfig.thinkingDefaultClear")}
-                      </button>
-                    )}
-                  </div>
-                );
-              })()}
-              <span className="sel-chev">
-                <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+          <div className="toolbar-row">
+            <div className="fld">
+              <span className="hud-label">{t("chat.modelsConfig.defaultLabel")}</span>
+              <span className="default-model" data-default-model>
+                {mc.defaultModel === "" ? t("chat.modelsConfig.unconfigured") : mc.defaultModel}
               </span>
             </div>
+            {(() => {
+              // R7 全局兜底批：全局默认推理强度（档位解析基准 = 全局默认模型能力）
+              const capability = resolveThinkingCapability(mc.defaultModel === "" ? "" : mc.defaultModel, mc.catalog?.models ?? undefined);
+              const levels = capability?.thinkingLevels ?? [];
+              if (levels.length === 0) {
+                return (
+                  <p className="ag-note" data-global-thinking-unsupported>
+                    {t("chat.modelsConfig.thinkingUnsupported")}
+                  </p>
+                );
+              }
+              return (
+                <div className="fld" data-global-thinking>
+                  <span className="hud-label">{t("chat.modelsConfig.thinkingDefaultLabel")}</span>
+                  <ThinkingLevelSlider
+                    levels={levels}
+                    value={mc.defaultThinking !== null && levels.includes(mc.defaultThinking) ? mc.defaultThinking : null}
+                    ghostValue={defaultLevelFor(levels)}
+                    disabled={mc.catalog === null}
+                    onSelect={(level) => setThinkingDefault(level)}
+                    ariaLabel={t("chat.modelsConfig.thinkingDefaultLabel")}
+                  />
+                  {mc.defaultThinking !== null && (
+                    <button
+                      type="button"
+                      className="hud-btn hud-btn-ghost hud-btn sm"
+                      onClick={() => setThinkingDefault(null)}
+                      data-global-thinking-clear
+                    >
+                      {t("chat.modelsConfig.thinkingDefaultClear")}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
           </div>
-          <div className="toolbar-right">
+          <div className="toolbar-row toolbar-row-meta">
             <button
               className="hud-btn hud-btn-ghost"
               id="btn-refresh-catalog"
@@ -336,6 +313,19 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
                   onClick={() => setExpanded(open ? null : row.providerId)}
                 >
                   <span className="prov-name">{row.providerId}</span>
+                  {(() => {
+                    // 折叠行默认模型标签：本 provider 托管全局默认模型时展示
+                    const hasDefault =
+                      mc.defaultModel !== "" &&
+                      (modelsByProvider.get(row.providerId) ?? []).some((m) => m.id === mc.defaultModel);
+                    if (!hasDefault) return null;
+                    return (
+                      <span className="prov-default-tag" data-prov-default-tag>
+                        {mc.defaultModel}
+                        <span className="hud-chip">{t("chat.modelsConfig.defaultChip")}</span>
+                      </span>
+                    );
+                  })()}
                   {row.configured && row.keyMasked !== undefined ? (
                     <span className="key-chip">
                       key ····<span className="k4">{row.keyMasked.slice(-4)}</span>
@@ -413,6 +403,7 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
                           <th className="num">{t("chat.modelsConfig.colOutput")}</th>
                           <th className="num">{t("chat.modelsConfig.colCacheRead")}</th>
                           <th className="num">{t("chat.modelsConfig.colCacheWrite")}</th>
+                          <th className="num">{t("chat.modelsConfig.colActions")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -434,6 +425,24 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
                               <td className="num">{fmtRate(m.cost.output)}</td>
                               <td className="num">{fmtRate(m.cost.cacheRead)}</td>
                               <td className="num">{fmtRate(m.cost.cacheWrite)}</td>
+                              <td className="num">
+                                {!isDefault && (
+                                  <button
+                                    className="hud-btn hud-btn-ghost sm"
+                                    type="button"
+                                    data-set-default={m.id}
+                                    onClick={() => {
+                                      setDefaultModel(m.id);
+                                      toast.push(
+                                        "ok",
+                                        t("chat.modelsConfig.defaultUpdatedToast", { model: m.id }),
+                                      );
+                                    }}
+                                  >
+                                    {t("chat.modelsConfig.setAsDefault")}
+                                  </button>
+                                )}
+                              </td>
                             </tr>
                           );
                         })}

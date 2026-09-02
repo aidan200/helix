@@ -313,6 +313,8 @@ export const enUS = {
       colOutput: "Output",
       colCacheRead: "Cache read",
       colCacheWrite: "Cache write",
+      colActions: "Actions",
+      setAsDefault: "Set as default",
       tableCaption: "Prices in $ / 1M tokens",
       defaultChip: "default",
       modalTitle: "Configure {provider} API key",
