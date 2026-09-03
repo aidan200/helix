@@ -28,6 +28,7 @@
  * pending 行集（model 槽位空名键）；selected 选中维（重拉不清——视图态）。
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import type { ReactNode } from "react";
 import type {
   AgentBasePromptGetResultPayload,
   AgentConfigListResultPayload,
@@ -90,16 +91,20 @@ function BasePromptSection({
   const { t } = useI18n();
   return (
     <div className="ag-group" data-base-prompt={kind}>
-      <h3 className="ag-group-label">{t("agents.basePromptLabel")}</h3>
-      <button
-        type="button"
-        className="hud-btn sm"
-        data-base-prompt-toggle
-        disabled={pending}
-        onClick={() => onToggle(kind)}
-      >
-        {open ? t("agents.basePromptHide") : t("agents.basePromptView")}
-      </button>
+      {/* 头部行：组标签 + ghost 查看钮（trace 页 p1-payload-head 同构——
+          次要查看入口走 hud-btn-ghost 弱化变体，按钮钉行右） */}
+      <div className="ag-bp-head">
+        <h3 className="ag-group-label">{t("agents.basePromptLabel")}</h3>
+        <button
+          type="button"
+          className="hud-btn hud-btn-ghost sm"
+          data-base-prompt-toggle
+          disabled={pending}
+          onClick={() => onToggle(kind)}
+        >
+          {open ? t("agents.basePromptHide") : t("agents.basePromptView")}
+        </button>
+      </div>
       {open && (
         <>
           <p className="ag-note">{t("agents.basePromptNote")}</p>
@@ -162,6 +167,7 @@ function ProfileCard({
   writePending,
   onToggle,
   onModelChange,
+  basePrompt,
 }: {
   kind: AgentKind;
   block: AgentConfigProfileBlock | null;
@@ -173,6 +179,8 @@ function ProfileCard({
   writePending: boolean;
   onToggle: (kind: AgentKind, resourceType: WriteResource, name: string, enabled: boolean) => void;
   onModelChange: (kind: AgentKind, model: string) => void;
+  /** base prompt 批：base 段系统提示词查看区槽位（工具组正上方渲染）。 */
+  basePrompt: ReactNode;
 }) {
   const { t } = useI18n();
   const isMain = kind === "main-session";
@@ -259,6 +267,9 @@ function ProfileCard({
         onSelect={(level) => onToggle(kind, "thinking", level, true)}
         onClear={() => onToggle(kind, "thinking", "-", false)}
       />
+
+      {/* base prompt 批：base 段系统提示词查看区（工具组正上方） */}
+      {basePrompt}
 
       {/* 工具组：名称 + snippet 一句话 + 开关 */}
       <div className="ag-group">
@@ -367,6 +378,7 @@ function SystemProfileCard({
   writePending,
   onToggle,
   onModelChange,
+  basePrompt,
 }: {
   kind: SystemAgentKind;
   block: AgentConfigSystemBlock | null;
@@ -377,6 +389,8 @@ function SystemProfileCard({
   writePending: boolean;
   onToggle: (kind: AgentKind | SystemAgentKind, resourceType: AgentWriteResource, name: string, enabled: boolean) => void;
   onModelChange: (kind: AgentKind | SystemAgentKind, model: string) => void;
+  /** base prompt 批：base 段系统提示词查看区槽位（工具清单正上方渲染）。 */
+  basePrompt: ReactNode;
 }) {
   const { t } = useI18n();
   const isKgWriter = kind === "subagent-kg-writer";
@@ -465,6 +479,9 @@ function SystemProfileCard({
           {t("agents.derivedNote")}
         </p>
       )}
+
+      {/* base prompt 批：base 段系统提示词查看区（工具清单正上方） */}
+      {basePrompt}
 
       {/* 工具清单：纯展示（无开关；行 = 名称 + snippet；恒在行带徽标） */}
       <div className="ag-group">
@@ -685,6 +702,18 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
   const catalog = topology.modelConfig.catalog?.models ?? null;
   const listPending = view === "idle" || view === "loading";
 
+  /** base prompt 批：查看区节点（四 kind 共用）——经 basePrompt 槽传入详情卡，
+   *  渲染于工具组正上方（系统派生 kind 同可观察）。 */
+  const basePromptSection = state.selected !== null ? (
+    <BasePromptSection
+      kind={state.selected}
+      text={state.basePrompts[state.selected]}
+      pending={state.basePromptPending.has(state.selected)}
+      open={state.basePromptOpen === state.selected}
+      onToggle={onBasePromptToggle}
+    />
+  ) : null;
+
   // S3a AppLayout 组装（agent-roster 批 master-detail）：headerLeft = 页名；
   // sidebar = 左栏 agent 列表（两组分组，pj-domain/tk-side 同构 300px）；
   // main = 右栏详情（error/empty/详情三态互斥；滚动只发生在 ag-pane-scroll）。
@@ -780,6 +809,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
                   writePending={writePending}
                   onToggle={onToggle}
                   onModelChange={onModelChange}
+                  basePrompt={basePromptSection}
                 />
               ) : (
                 <SystemProfileCard
@@ -792,17 +822,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
                   writePending={writePending}
                   onToggle={onToggle}
                   onModelChange={onModelChange}
-                />
-              )}
-              {/* base prompt 批：base 段系统提示词查看区（四 kind 共用——
-                  选中详情下方；系统派生 kind 同可观察） */}
-              {state.selected !== null && (
-                <BasePromptSection
-                  kind={state.selected}
-                  text={state.basePrompts[state.selected]}
-                  pending={state.basePromptPending.has(state.selected)}
-                  open={state.basePromptOpen === state.selected}
-                  onToggle={onBasePromptToggle}
+                  basePrompt={basePromptSection}
                 />
               )}
             </div>

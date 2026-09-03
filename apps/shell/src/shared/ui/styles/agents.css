@@ -196,6 +196,12 @@
   .ag-skel-bar::after { animation: none; }
 }
 
+/* base prompt 批：查看区头部行（组标签左 + ghost 查看钮右；trace 页
+   p1-payload-head .hud-btn margin-left:auto 同构，零新组件族） */
+.ag-bp-head { display: flex; align-items: center; }
+.ag-bp-head .ag-group-label { margin: 6px 0 4px; }
+.ag-bp-head .hud-btn { margin-left: auto; }
+
 /* base prompt 批：base 段系统提示词查看区（等宽滚动文本块） */
 .ag-base-prompt {
   margin: 8px 0 0; padding: 12px 14px; max-height: 320px; overflow: auto;

@@ -771,4 +771,15 @@ describe("base prompt 批：base 段系统提示词查看区", () => {
     });
     expect(mock.sentBasePromptGet).toEqual(["main-session", "subagent-kg-writer"]);
   });
+
+  it("查看区渲染于工具组正上方（卡内槽位；比较文档序）", () => {
+    ui();
+    act(() => feedList());
+    const bp = document.querySelector('[data-base-prompt="main-session"]')!;
+    const firstToolRow = document.querySelector('[data-tool-row]')!;
+    expect(bp).not.toBeNull();
+    expect(firstToolRow).not.toBeNull();
+    // Node.DOCUMENT_POSITION_FOLLOWING = 4：工具行在查看区之后
+    expect(bp.compareDocumentPosition(firstToolRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
