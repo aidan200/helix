@@ -299,10 +299,10 @@ function execSupersede(deps: KgUpdateToolDeps, args: Record<string, unknown>): s
   const draft = draftOf(args["replacement"]);
   // T4.2（AF-T4.1.6）：批次上下文内 replacement 默认 confirmed（bootstrap
   // 无 draft 自约束的机械兑现）；非批次上下文 status 语义不变（缺省 draft）
+  // M26：删除 `draft.status === undefined` 恒真死分支——draftOf 不支持 status
+  // 字段（schema 无此键），该判定恒为 true
   const replacement =
-    draft !== null && context !== undefined && draft.status === undefined
-      ? { ...draft, status: "confirmed" as const }
-      : draft;
+    draft !== null && context !== undefined ? { ...draft, status: "confirmed" as const } : draft;
   const writeOp: KnowledgeWriteOp = createOp(deps, args, {
     kind: "supersede",
     iterationId,

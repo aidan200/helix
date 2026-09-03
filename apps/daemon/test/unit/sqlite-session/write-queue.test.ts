@@ -36,6 +36,49 @@ function stateOf(sessionId: string): PersistedDomainState {
   return { session: session.toSnapshot(), agentState: "running", toolCalls: [] };
 }
 
+describe("M15：deleteSession 落定后 sessionTails 仓位条目清理（杜绝无界增长）", () => {
+  test("deleteSession 后该会话 tail 条目删除；后续写重建仓位且行为不变", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      const tails = (queue as unknown as { sessionTails: Map<string, Promise<unknown>> }).sessionTails;
+      await queue.appendEvent(ev(1, "s-del"));
+      expect(tails.has("s-del")).toBe(true);
+      await queue.deleteSession("s-del");
+      // 落定后仓位条目清理（微任务冲洗确保清理链跑完）
+      await queue.flush();
+      expect(tails.has("s-del")).toBe(false);
+      // 删除后新写重建仓位，行为不变（写-读往返正常）
+      await queue.appendEvent(ev(2, "s-del"));
+      expect(tails.has("s-del")).toBe(true);
+      const db = new Database(dbPath, { readonly: true });
+      const rows = db.prepare("SELECT payload FROM domain_events WHERE session_id = 's-del'").all();
+      db.close();
+      expect(rows.length).toBe(1); // 仅删除后写入的 ev(2)
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  test("deleteSession 后新入队的同会话写不被误清（尾部位移守卫）", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      const tails = (queue as unknown as { sessionTails: Map<string, Promise<unknown>> }).sessionTails;
+      const del = queue.deleteSession("s-race");
+      const write = queue.appendEvent(ev(3, "s-race")); // 删除后同会话新写（尾部位移）
+      await Promise.all([del, write]);
+      await queue.flush();
+      // 清理只删「尾部仍为本 delete job」的条目——新写入队后 tail 已位移，不误清
+      expect(tails.has("s-race")).toBe(true);
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});
+
 describe("TP-CL8-2：WriteQueue FIFO 保序 + drain", () => {
   test("① 并发 N 事件入队 → 落盘顺序与入队序一致", async () => {
     const dbPath = tmpDbPath();

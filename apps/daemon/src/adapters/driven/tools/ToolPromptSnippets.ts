@@ -18,7 +18,7 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   read: "读取文件内容（文本或图片）",
   write: "创建新文件或整体写入文件",
   edit: "按精确文本匹配做字符串替换编辑",
-  grep: "跨文件正则检索并列出匹配行",
+  grep: "跨文件子串检索并列出匹配行（非正则）", // H11：实现是 --fixed-strings 子串语义，原文案误导为正则
   web_search: "联网搜索（DuckDuckGo 主/Bing 兜底），返回标题/链接/摘要列表",
   web_fetch: "抓取网页并转为 Markdown 返回（直连主通道，Jina 备选）",
   agent_spawn: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）",

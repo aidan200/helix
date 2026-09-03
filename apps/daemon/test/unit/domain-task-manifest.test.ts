@@ -110,6 +110,20 @@ describe("params 校验（CL-1-T5 ⑤）", () => {
     expect(() => validateTaskParams(manifest, { projectRoot: "/repo" }, ["/repo"])).not.toThrow();
   });
 
+  test("M2：paramsSchema 外未知键 → DomainError 且 message 含未知键名（子集外声明一律拒绝哲学对齐）", () => {
+    const manifest = parseValid();
+    expect(() =>
+      validateTaskParams(manifest, { projectRoot: "/repo", bogus: "x" }, ["/repo"]),
+    ).toThrow(DomainError);
+    expect(() =>
+      validateTaskParams(manifest, { projectRoot: "/repo", bogus: "x" }, ["/repo"]),
+    ).toThrow(/bogus/);
+    // 多未知键全列
+    expect(() =>
+      validateTaskParams(manifest, { projectRoot: "/repo", a: 1, b: 2 }, ["/repo"]),
+    ).toThrow(/a.*b|b.*a/);
+  });
+
   test("缺 required → DomainError 且 message 含违例字段名", () => {
     const manifest = parseValid();
     expect(() => validateTaskParams(manifest, {}, ["/repo"])).toThrow(DomainError);

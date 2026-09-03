@@ -132,6 +132,8 @@ export interface SubagentLauncherDeps {
   readonly uiModelSlot?: (profileKind: string) => Model<any> | undefined;
   /** O-6 SIGKILL 升级阈值 ms（缺省 3000；测试注入小值）。 */
   readonly graceMs?: number;
+  /** M21 children entry 清理延迟 ms（exit+closure 双落定后排期；缺省 60s，测试注入小值）。 */
+  readonly entryCleanupMs?: number;
   /** 剧本文件路径（测试注入；生产 undefined → 子进程用真实 streamFn）。 */
   readonly fakeEngineScript?: string;
   /**
@@ -152,7 +154,14 @@ interface ChildEntry {
   readonly transport: ChildProcessTransport;
   /** 已上报收口（防重；late crash 行被吞）。 */
   closed: boolean;
+  /** 进程 exit 已观测（崩溃检测 watcher 落定；M21 双落定清理判据之一）。 */
+  exited: boolean;
+  /** M21 清理已排期（防重复 timer）。 */
+  cleanupScheduled?: boolean;
 }
+
+/** M21 entry 清理缺省延迟（观测面/launch 去重保守窗口）。 */
+const ENTRY_CLEANUP_MS = 60_000;
 
 export class SubagentLauncher implements InstanceRunner {
   private callbacks: InstanceRunnerCallbacks | undefined;
@@ -270,7 +279,7 @@ export class SubagentLauncher implements InstanceRunner {
       detached: true, // 独立进程组（O-6 负 pgid 组回收前提）
     });
     const transport = new ChildProcessTransport(proc, this.deps.graceMs ?? 3000);
-    this.children.set(id, { transport, closed: false });
+    this.children.set(id, { transport, closed: false, exited: false });
     transport.onLine((line) => this.onChildLine(id, line));
     // 崩溃检测：exit 后先等 stdout 排空（closure 行可能尚在管道缓冲），
     // 仍未收口才判 failed（cap 500ms 防孙进程长期占住管道）。
@@ -278,6 +287,12 @@ export class SubagentLauncher implements InstanceRunner {
       const code = await transport.exited;
       await Promise.race([transport.drained, new Promise((r) => setTimeout(r, 500))]);
       this.onChildExit(id, code);
+      // M21：exit 落定——与 closure 双落定后排期延迟清理
+      const entry = this.children.get(id);
+      if (entry !== undefined) {
+        entry.exited = true;
+        this.maybeScheduleEntryCleanup(id);
+      }
     })();
   }
 
@@ -427,6 +442,28 @@ export class SubagentLauncher implements InstanceRunner {
       }
     }
     this.callbacks?.onInstanceClosure(id, outcome);
+    // M21：closure 落定——与 exit 双落定后排期延迟清理
+    this.maybeScheduleEntryCleanup(id);
+  }
+
+  /**
+   * M21：entry 延迟清理——exit+closure 双落定后才排期删除（缺任一保留）。
+   * 清理时机保守的理由（勿提前）：
+   * ① launch 去重依赖 entry 存在（`children.has(id)` 直接 return）——双落定
+   *    即删会让同 id 立即可重 launch，失去去重保护窗口；
+   * ② childPid/childExit 观测面在收口后短暂可读（exit 码诊断/测试断言）。
+   * 延迟到点后复查「同一 entry 且双落定」再删（防窗口内被替换/复活）。
+   */
+  private maybeScheduleEntryCleanup(id: string): void {
+    const entry = this.children.get(id);
+    if (entry === undefined || !entry.closed || !entry.exited) return;
+    if (entry.cleanupScheduled === true) return;
+    entry.cleanupScheduled = true;
+    const timer = setTimeout(() => {
+      const cur = this.children.get(id);
+      if (cur === entry && cur.closed && cur.exited) this.children.delete(id);
+    }, this.deps.entryCleanupMs ?? ENTRY_CLEANUP_MS);
+    timer.unref?.(); // 清理计时器不挂住进程退出
   }
 }
 

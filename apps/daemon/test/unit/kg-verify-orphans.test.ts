@@ -90,6 +90,13 @@ describe("domain/kg/verify/orphans：腐烂锚与孤儿节点判定（纯函数�
     expect(items.map((i) => i.node.id)).toEqual(["TR-2", "TR-3"]); // 宽限期边界外全列；superseded 不列
   });
 
+  test("⑥ M1：draft createdAt 不可解析（NaN）→ 防御跳过不列孤儿（对齐 activity-mismatch 口径）", () => {
+    const broken = node("TR-1", { status: "draft", createdAt: "not-a-date" });
+    const staleDraft = node("TR-2", { status: "draft", createdAt: new Date(NOW - (ORPHAN_DRAFT_GRACE_MS + DAY)).toISOString() });
+    const items = findOrphanItems(scan({ nodes: [broken, staleDraft] }));
+    expect(items.map((i) => i.node.id)).toEqual(["TR-2"]); // 时间戳不可解析防御跳过；正常超宽限仍列
+  });
+
   test("⑤ 有边（入/出任一）、有锚（含死锚）、有作用域声明（global 等）→ 均不列 orphan_node", () => {
     const edgeful = node("TR-1");
     const anchored = node("TR-2");

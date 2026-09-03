@@ -1,4 +1,4 @@
-import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
+import type { BrowserPort, ScrollDirection, ScreenshotFormat } from "../../../application/ports/outbound/BrowserPort";
 
 /**
  * ScopedBrowserProxy —— daemon 侧 tool-req 归属代理（H-3 方案 A，纯函数面）。
@@ -63,6 +63,21 @@ export async function scopedBrowserCall(
   const tab = (await browser.listTabs()).find((t) => t.tabId === tabId);
   if (tab === undefined || tab.ownerId !== instanceId) {
     throw new Error(`tab ${tabId} 不属于实例 ${instanceId}（或不存在）`);
+  }
+  // H9：可选参 null 占位 → undefined 还原（wire 定长占位协议；port 缺省值归实现侧）
+  if (method === "scrollTab") {
+    return browser.scrollTab(
+      tabId,
+      (args[1] ?? undefined) as number | undefined,
+      (args[2] ?? undefined) as ScrollDirection | undefined,
+    );
+  }
+  if (method === "screenshotTab") {
+    return browser.screenshotTab(
+      tabId,
+      (args[1] ?? undefined) as string | undefined,
+      (args[2] ?? undefined) as ScreenshotFormat | undefined,
+    );
   }
   return (browser as unknown as Record<string, (...a: readonly unknown[]) => Promise<unknown>>)[method]!(...args);
 }

@@ -44,7 +44,14 @@ async function main(): Promise<void> {
   // SIGTERM：优雅退出（停输入 → 释放锁）；CLI 形态下 SIGINT 由 CLI 适配器
   // 接管（生成中 → abort；空闲 → 退出）
   const gracefulExit = (): void => {
-    void daemon!.shutdown().then(() => process.exit(0));
+    // M27：shutdown 拒绝兑底——console.error 可观测 + 非零退出（杜绝静默挂起）
+    void daemon!.shutdown().then(
+      () => process.exit(0),
+      (err) => {
+        console.error(`[daemon] 优雅退出失败：${(err as Error).message}`);
+        process.exit(1);
+      },
+    );
   };
   process.on("SIGTERM", gracefulExit);
 

@@ -208,7 +208,8 @@ export function createEditTool(
         const finalContent = bom + restoreLineEndings(newContent, originalEnding);
         const writeResult = await env.writeFile(absolutePath, finalContent, signal);
         if (!writeResult.ok) throw editAccessError(filePath, writeResult.error);
-        if (signal?.aborted) throw new Error("Operation aborted");
+        // M23：写后不再查 abort（对齐 EditLinesTool 写前查一次即可）——文件已落盘，
+        // 写后 abort 抛错会跳过 notifyWrite/kg 同步 hooks 并吞掉成功结果（事实与回执分裂）
         const attachment = await deliverHooks(deps, absolutePath, finalContent, newContent, baseContent, edits);
         const diffResult = generateDiffString(baseContent, newContent);
         const summary = `Successfully replaced ${edits.length} block(s) in ${filePath}.`;

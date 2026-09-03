@@ -180,12 +180,13 @@ describe("TP-1.5b/TP-1.5a：判别点等价 + 无 code 旧对象兜底（handler
     ]);
   });
 
-  test("判别点②：既有会话 ImageValidationError → command.invalid_payload；无 code 旧对象走 console.warn 兜底", async () => {
+  test("判别点②：既有会话 ImageValidationError → command.invalid_payload；无 code 旧对象走 daemon.internal 回执 + console.warn（H5 行为升级）", async () => {
     const plain = new Error("boom（无 code 旧对象）");
     const { errors, warns } = await capture((errors) => {
       handleChatSend(chatSendCtx({}, plain, errors) as ChatCommandContext);
     });
-    expect(errors).toEqual([]); // 兜底：不回执（additive 缺省语义 = 既有行为）
+    // H5：兑底也回执 daemon.internal（客户端零感知静默失败修复）+ warn 保留
+    expect(errors).toEqual([{ type: "chat.send", code: "daemon.internal", message: "boom（无 code 旧对象）" }]);
     expect(warns.some((w) => w.includes("boom"))).toBe(true);
 
     const imgErr = new ImageValidationError("图片附件最多 4 张（收到 5 张）");
@@ -197,7 +198,7 @@ describe("TP-1.5b/TP-1.5a：判别点等价 + 无 code 旧对象兜底（handler
     ]);
   });
 
-  test("判别点③：steer SteerTargetNotRunningError → command.invalid_payload；无 code 旧对象 console.warn", async () => {
+  test("判别点③：steer SteerTargetNotRunningError → command.invalid_payload；无 code 旧对象 daemon.internal + console.warn（H5 行为升级）", async () => {
     const steerErr = new SteerTargetNotRunningError("实例 inst-1 非运行中");
     const { errors } = await capture((errors) => {
       handleChatSteer(steerCtx(steerErr, errors) as ChatCommandContext);
@@ -210,7 +211,8 @@ describe("TP-1.5b/TP-1.5a：判别点等价 + 无 code 旧对象兜底（handler
     const { errors: errors2, warns } = await capture((errors) => {
       handleChatSteer(steerCtx(plain, errors) as ChatCommandContext);
     });
-    expect(errors2).toEqual([]);
+    // H5：兑底同回执 daemon.internal + warn 保留
+    expect(errors2).toEqual([{ type: "chat.steer", code: "daemon.internal", message: "plain-boom" }]);
     expect(warns.some((w) => w.includes("plain-boom"))).toBe(true);
   });
 

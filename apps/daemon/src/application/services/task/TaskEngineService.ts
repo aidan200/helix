@@ -145,6 +145,31 @@ export class TaskEngineService implements TaskEnginePort {
       throw new TaskError("task.invalid_state", `任务 ${jobId} 当前状态 ${job.status}，仅 paused 可恢复`);
     }
     await this.transitionJob(jobId, "running");
+    // H1 暂停期重试耗尽补上浮：failBatch 仅在 job=running 时上浮，暂停期收口
+    // 的超限批次（retryCount>=MAX_BATCH_RETRY 且 status=failed）会滞留 failed
+    // ——sweepRetries 也不再捞（TaskOrchestratorService 同口径跳过）。resume 刚把
+    // job 置 running，在此补判：该阶段其他批次全终态时执行与 failBatch 超限
+    // 分支相同的上浮（stage failed → job failed + haltJob 清场），不再续跑。
+    for (const batch of this.allBatches(jobId)) {
+      if (batch.status !== "failed" || batch.retryCount < MAX_BATCH_RETRY) continue;
+      const stageBatches = this.deps.store.getBatches(jobId, batch.stageSeq);
+      const othersTerminal = stageBatches.every(
+        (b) => b.id === batch.id || b.status === "done" || b.status === "failed",
+      );
+      if (!othersTerminal) continue; // 同阶段仍有在跑批次（parked 待复活）→ 正常续跑
+      await this.deps.store
+        .updateStageStatus(jobId, batch.stageSeq, "failed")
+        .catch((error) => this.mapDomainError(error));
+      this.notify({ jobId, changed: "stage", status: "failed" });
+      await this.transitionJob(
+        jobId,
+        "failed",
+        `重试耗尽：批次「${batch.scope}」失败 ${batch.retryCount} 次（上限 ${MAX_BATCH_RETRY}）——暂停期收口，恢复时上浮${batch.retryNote !== null ? `——${batch.retryNote}` : ""}`,
+      );
+      this.notify({ jobId, changed: "job", status: "failed" });
+      this.deps.starter.haltJob(jobId);
+      return;
+    }
     // 链 A（⑤）：先复活 parked 批次实例 + 解冻编排 loop（暂存唤醒回放），
     // 再 kick 编排——避免编排看到批次「仍在跑」（实例未复活）误判。
     await this.deps.starter.resumeAll(jobId);

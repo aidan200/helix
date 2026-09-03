@@ -55,6 +55,10 @@ export class KgAttachmentService {
   private readonly deps: KgAttachmentServiceDeps;
   /** 会话级跨通道去重注册表（本服务唯一持有者；T3.3 经 markInjected 接入同一状态）。 */
   private readonly sessionSeen = new Map<string, Set<string>>();
+  /** M6 容量上限（LRU 256 条）：超限淘汰最久未触会话（取实现最简者——Map 插入序
+   *  + 触及重插刷新）。淘汰语义：被汰会话再次附着时 seen 重建（可能重复注入一次
+   *  📎 块，代价远小于会话注册表无界增长）。 */
+  private static readonly SESSION_SEEN_CAP = 256;
   private readonly snapshots = new Map<string, SnapshotCacheEntry>();
 
   constructor(deps: KgAttachmentServiceDeps) {
@@ -108,11 +112,19 @@ export class KgAttachmentService {
   }
 
   private seenOf(sessionId: string): Set<string> {
-    let seen = this.sessionSeen.get(sessionId);
-    if (seen === undefined) {
-      seen = new Set<string>();
-      this.sessionSeen.set(sessionId, seen);
+    const existing = this.sessionSeen.get(sessionId);
+    if (existing !== undefined) {
+      // M6 LRU：触及重插刷新插入序（最近使用沉底，淘汰取队首）
+      this.sessionSeen.delete(sessionId);
+      this.sessionSeen.set(sessionId, existing);
+      return existing;
     }
+    const seen = new Set<string>();
+    if (this.sessionSeen.size >= KgAttachmentService.SESSION_SEEN_CAP) {
+      const oldest = this.sessionSeen.keys().next().value;
+      if (oldest !== undefined) this.sessionSeen.delete(oldest);
+    }
+    this.sessionSeen.set(sessionId, seen);
     return seen;
   }
 

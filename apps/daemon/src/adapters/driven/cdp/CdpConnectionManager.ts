@@ -490,7 +490,13 @@ export class CdpConnectionManager implements BrowserPort {
       if (p !== undefined) {
         clearTimeout(p.timer);
         this.pending.delete(msg.id);
-        p.resolve(msg);
+        // M20：{id,error} 响应统一 reject——navigateTab/evalInTab 等不查
+        // resp.error 的调用方不再把 CDP 失败静默当成功
+        if (msg.error !== undefined) {
+          p.reject(new Error(`CDP 错误（${(msg.error as { message?: string }).message ?? JSON.stringify(msg.error)}）`));
+        } else {
+          p.resolve(msg);
+        }
       }
     }
   }

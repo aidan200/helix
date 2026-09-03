@@ -286,6 +286,23 @@ describe("KgSyncService：单飞互斥（AD-15）", () => {
     await service.triggerManual(ROOT); // 服务仍可用（failCount 已清零）
     expect(store.batches.length).toBe(2);
   });
+
+  test("⑧b drain 后 getSyncBaseline 抛错 → 窗口事件回填不丢（H3：退避重试仍处理该文件）", async () => {
+    const graph = new StubGraph();
+    const base = graph.getSyncBaseline.bind(graph);
+    let failures = 1;
+    graph.getSyncBaseline = () => {
+      if (failures-- > 0) throw new Error("注入故障：baseline 读取失败");
+      return base();
+    };
+    const { service, store } = makeService({ graph });
+    active.push(service);
+    service.notifyWrite(ROOT, `${ROOT}/src/a.ts`, "h1");
+    await sleep(100); // 去抖开跑 → 抛错 → 退避重试消费回填窗口
+    // 未回填则事件永丢：重试跑空窗口，batches 为空或批内无该文件
+    expect(store.batches.length).toBe(1);
+    expect(store.batches[0]!.files.map((f) => f.path)).toEqual(["src/a.ts"]);
+  });
 });
 
 describe("KgSyncService：四步编排与状态面", () => {

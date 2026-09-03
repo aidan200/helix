@@ -107,20 +107,44 @@ describe("T3.1 EventStream：thinking delta 流式帧（不落盘通道）", () 
     const frames: unknown[] = [];
     const sender: FrameSender = (f) => frames.push(f);
     const stream = new EventStream();
-    stream.attach(sender);
+    stream.attach(sender, "s-1"); // M13 后无归属 delta 被丢弃：测试会话显式订阅
 
-    stream.publishDelta({ messageId: "t1", delta: "思", channel: "thinking", instanceId: "main" });
-    stream.publishDelta({ messageId: "e2", delta: "正" });
+    stream.publishDelta({ sessionId: "s-1", messageId: "t1", delta: "思", channel: "thinking", instanceId: "main" });
+    stream.publishDelta({ sessionId: "s-1", messageId: "e2", delta: "正" });
 
     expect(frames).toHaveLength(2);
     expect(frames[0]).toEqual({
       v: PROTOCOL_VERSION,
+      sessionId: "s-1",
       channel: "thinking",
       type: "thinking.stream.delta",
       instanceId: "main",
       payload: { instanceId: "main", delta: "思" },
     });
     expect((frames[1] as { type: string }).type).toBe("chat.stream.delta");
+  });
+
+  test("M13：delta.sessionId 与 defaultSessionId 均缺省 → 丢弃不发帧（无 sessionId 帧会广播全部连接）", () => {
+    const frames: unknown[] = [];
+    const sender: FrameSender = (f) => frames.push(f);
+    const stream = new EventStream(); // 无 defaultSessionId 兑底
+    stream.attach(sender);
+
+    stream.publishDelta({ messageId: "e1", delta: "正" });
+    stream.publishDelta({ messageId: "t1", delta: "思", channel: "thinking" });
+
+    expect(frames).toHaveLength(0);
+  });
+
+  test("M13 回归：defaultSessionId 兑底 + 已订阅连接 → 帧正常下发", () => {
+    const frames: unknown[] = [];
+    const sender: FrameSender = (f) => frames.push(f);
+    const stream = new EventStream({ defaultSessionId: "s-1" });
+    stream.attach(sender, "s-1");
+
+    stream.publishDelta({ messageId: "e1", delta: "正" });
+    expect(frames).toHaveLength(1);
+    expect((frames[0] as { sessionId?: string }).sessionId).toBe("s-1");
   });
 });
 

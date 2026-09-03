@@ -617,3 +617,34 @@ describe("CdpConnectionManager 生命周期", () => {
     await h.manager.stop();
   });
 });
+
+describe("M20：{id,error} CDP 响应统一 reject（不查 error 的调用方不再静默当成功）", () => {
+  test("navigateTab 遇 error 响应 → reject 透传 CDP 错误", async () => {
+    const h = createHarness({
+      respond: defaultRespond({
+        "Page.navigate": () => ({ error: { code: -32602, message: "Cannot navigate to invalid URL" } }),
+      }),
+    });
+    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
+    await expect(h.manager.navigateTab(tabId, "chrome://bad")).rejects.toThrow(/Cannot navigate to invalid URL/);
+    await h.manager.stop();
+  });
+
+  test("evalInTab 遇 error 响应 → reject 透传 CDP 错误", async () => {
+    const h = createHarness({
+      respond: defaultRespond({
+        "Runtime.evaluate": () => ({ error: { code: -32000, message: "Session closed" } }),
+      }),
+    });
+    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
+    await expect(h.manager.evalInTab(tabId, "1+1")).rejects.toThrow(/Session closed/);
+    await h.manager.stop();
+  });
+
+  test("正常 result 响应仍 resolve（回归）", async () => {
+    const h = createHarness({});
+    const { tabId } = await h.manager.openTab("about:blank", "agent-1");
+    await h.manager.navigateTab(tabId, "https://example.com/");
+    await h.manager.stop();
+  });
+});

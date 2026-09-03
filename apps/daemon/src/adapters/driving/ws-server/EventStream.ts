@@ -364,6 +364,9 @@ export class EventStream implements EventPublisherPort {
     // v0.2 信封章印：sessionId 必发（生产侧携带或 defaultSessionId 兜底）+
     // channel 判别（缺省通道 = chat；thinking 通道同构）
     const sessionId = delta.sessionId ?? this.deps.defaultSessionId;
+    // M13：sessionId 与 defaultSessionId 均缺省 → 丢弃该 delta 不发帧
+    //（无 sessionId 帧在 push 面放行全部连接——广播串话事故面）
+    if (sessionId === undefined) return;
     if (delta.channel === "thinking") {
       // T10a/T10d wire 归属编码一致性：thinking delta 载荷/信封 instanceId 与
       // thinking.completed 的 entry.instanceId 同一编码——判别走 TR-39 单点

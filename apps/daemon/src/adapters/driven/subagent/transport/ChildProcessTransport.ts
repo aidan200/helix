@@ -104,8 +104,14 @@ export class ChildProcessTransport {
           const raw = buf.slice(0, nl).trim();
           buf = buf.slice(nl + 1);
           if (!raw) continue;
-          const line = parseChildLine(raw);
-          if (line) this.lineCb?.(line);
+          // H8：单行 try/catch 隔离——一行非法形状致回调崩溃不终止整个
+          // stdout 读取循环（后续行仍送达；循环级异常才走外层 catch）
+          try {
+            const line = parseChildLine(raw);
+            if (line) this.lineCb?.(line);
+          } catch {
+            /* 单行消费异常隔离：丢弃该行继续读流 */
+          }
         }
       }
     } catch {

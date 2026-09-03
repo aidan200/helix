@@ -38,9 +38,13 @@ describe("RemoteBrowserPort ② 12 方法映射（method/args 逐字段）", () 
       { invoke: () => port.clickInTab("tab-9", "#btn"), method: "clickInTab", args: ["tab-9", "#btn"], value: { clicked: true } },
       { invoke: () => port.clickAtInTab("tab-9", "#file"), method: "clickAtInTab", args: ["tab-9", "#file"], value: { clicked: true, x: 1, y: 2 } },
       { invoke: () => port.setFilesInTab("tab-9", "input[type=file]", ["/tmp/a.png"]), method: "setFilesInTab", args: ["tab-9", "input[type=file]", ["/tmp/a.png"]], value: { success: true, count: 1 } },
-      { invoke: () => port.scrollTab("tab-9"), method: "scrollTab", args: ["tab-9"], value: { value: "scrolled down 3000px" } },
+      { invoke: () => port.scrollTab("tab-9"), method: "scrollTab", args: ["tab-9", null, null], value: { value: "scrolled down 3000px" } },
       { invoke: () => port.scrollTab("tab-9", 500, "up"), method: "scrollTab", args: ["tab-9", 500, "up"], value: { value: "scrolled up 500px" } },
-      { invoke: () => port.screenshotTab("tab-9"), method: "screenshotTab", args: ["tab-9"], value: { saved: "/tmp/s.png" } },
+      // H9：定长占位——y 缺省 direction 给定时不许稀疏（direction 落 y 位事故）
+      { invoke: () => port.scrollTab("tab-9", undefined, "bottom"), method: "scrollTab", args: ["tab-9", null, "bottom"], value: { value: "scrolled to bottom" } },
+      { invoke: () => port.screenshotTab("tab-9"), method: "screenshotTab", args: ["tab-9", null, null], value: { saved: "/tmp/s.png" } },
+      // H9：file 缺省 format 给定时同样定长占位
+      { invoke: () => port.screenshotTab("tab-9", undefined, "jpeg"), method: "screenshotTab", args: ["tab-9", null, "jpeg"], value: { saved: "/tmp/s.png" } },
       { invoke: () => port.screenshotTab("tab-9", "/tmp/s.png", "jpeg"), method: "screenshotTab", args: ["tab-9", "/tmp/s.png", "jpeg"], value: { saved: "/tmp/s.png" } },
       { invoke: () => port.closeTab("tab-9"), method: "closeTab", args: ["tab-9"], value: null },
       { invoke: () => port.getStatus(), method: "getStatus", args: [], value: { state: "connected", tabCount: 1 } },

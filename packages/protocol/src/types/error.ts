@@ -61,4 +61,6 @@ export type ErrorCode =
   /** kg 评审批新增（W2-F）：kg.review.create 准入复核未过（message 带原因 index_absent——从简准入，允许反复发起与 bootstrap 一次性语义不同）；发 error 帧连接保持 */
   | "kg.review.not_eligible"
   /** agent-roster 批新增：agent.config.set_enabled 对只读系统派生 kind（orchestrator / subagent-kg-writer）的写面拒绝——前端只读只是表现，后端拒绝才是事实；发 error 帧连接保持 */
-  | "agent.config.read_only";
+  | "agent.config.read_only"
+  /** H5 新增：命令处理意外异常兑底回执（chat 族等 catch 非判别类异常透传 message——客户端可感知不静默；发 error 帧连接保持） */
+  | "daemon.internal";

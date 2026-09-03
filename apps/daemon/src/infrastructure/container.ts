@@ -619,7 +619,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       // trace 面板按 task:<jobId> 会话可查编排过程
       eventSink: {
         publish: (event) => {
-          void persistence.writeQueue.appendEvent(event, "orchestrator");
+          // M34：void appendEvent 补 .catch 挂 logger.warn（对齐 buildPersistence
+          // onError 先例）——编排事件镜像落盘失败不再静默 unhandled
+          void persistence.writeQueue.appendEvent(event, "orchestrator").catch((err) => {
+            logger.warn(`编排事件镜像落盘失败（${event.type}）：${(err as Error).message}`);
+          });
         },
         clock,
       },

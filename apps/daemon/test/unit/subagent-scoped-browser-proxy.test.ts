@@ -67,6 +67,36 @@ describe("ScopedBrowserProxy ③ tabId 归属校验", () => {
   });
 });
 
+describe("ScopedBrowserProxy ③ H9 可选参 null 占位 → undefined 还原", () => {
+  test("scrollTab [tabId, null, \"bottom\"] → port 收到 (tabId, undefined, \"bottom\")（direction 不落 y 位）", async () => {
+    const browser = new FakeBrowserPort();
+    browser.tabs = [tab("tab-1", "agent-7")];
+    await scopedBrowserCall(browser, "agent-7", "scrollTab", ["tab-1", null, "bottom"]);
+    const args = browser.lastCall("scrollTab")!.args;
+    expect(args[0]).toBe("tab-1");
+    expect(args[1]).toBeUndefined();
+    expect(args[2]).toBe("bottom");
+  });
+
+  test("scrollTab 全缺省 [tabId, null, null] → port 收到 (tabId, undefined, undefined)（缺省值归实现侧）", async () => {
+    const browser = new FakeBrowserPort();
+    browser.tabs = [tab("tab-1", "agent-7")];
+    await scopedBrowserCall(browser, "agent-7", "scrollTab", ["tab-1", null, null]);
+    const args = browser.lastCall("scrollTab")!.args;
+    expect(args[1]).toBeUndefined();
+    expect(args[2]).toBeUndefined();
+  });
+
+  test("screenshotTab [tabId, file, null] → port 收到 (tabId, file, undefined)（format 缺省归实现侧）", async () => {
+    const browser = new FakeBrowserPort();
+    browser.tabs = [tab("tab-1", "agent-7")];
+    await scopedBrowserCall(browser, "agent-7", "screenshotTab", ["tab-1", "/tmp/s.png", null]);
+    const args = browser.lastCall("screenshotTab")!.args;
+    expect(args[1]).toBe("/tmp/s.png");
+    expect(args[2]).toBeUndefined();
+  });
+});
+
 describe("ScopedBrowserProxy ③ listTabs 过滤 / getStatus 透传 / 白名单外", () => {
   test("listTabs 只回 owner 维度子集", async () => {
     const browser = new FakeBrowserPort();

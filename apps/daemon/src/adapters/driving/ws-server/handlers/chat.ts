@@ -68,6 +68,9 @@ export function handleChatSend(ctx: ChatCommandContext): void {
             ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
             return;
           }
+          // H5：兑底也回执 connection.error（daemon.internal 透传 message）——
+          // 客户端可感知不静默；console.warn 保留服务端可观测
+          ctx.commandError(ctx.type, "daemon.internal", (err as Error).message);
           console.warn(`[ws] 草稿建会话失败：${(err as Error).message}`);
         });
       return;
@@ -82,6 +85,8 @@ export function handleChatSend(ctx: ChatCommandContext): void {
       ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
       return;
     }
+    // H5：兑底同回执 daemon.internal（客户端零感知静默失败修复）
+    ctx.commandError(ctx.type, "daemon.internal", (err as Error).message);
     console.warn(`[ws] chat.send 处理失败：${(err as Error).message}`);
   });
 }
@@ -108,6 +113,8 @@ export function handleChatSteer(ctx: ChatCommandContext): void {
       ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
       return;
     }
+    // H5：兑底同回执 daemon.internal（客户端零感知静默失败修复）
+    ctx.commandError(ctx.type, "daemon.internal", (err as Error).message);
     console.warn(`[ws] chat.steer 处理失败：${(err as Error).message}`);
   });
 }
