@@ -27,18 +27,15 @@ import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
 import { buildEditToolDeps, buildKnowledgeStack } from "./assembly/buildKnowledgeStack";
 import { createOrchestratorSessionFactory } from "./assembly/orchestrator-runtime";
-import { TaskOrchestratorService, taskSessionIdOf } from "../application/services/task/TaskOrchestratorService";
+import { TaskOrchestratorService } from "../application/services/task/TaskOrchestratorService";
 import type { TaskOrchestratorStarterPort } from "../application/ports/outbound/TaskOrchestratorStarterPort";
-import { PLAN_HARD_CONSTRAINT_SEGMENT } from "../adapters/driven/pi-engine/runtime/templates/catalog";
 import { SUBAGENT_KG_WRITER_EXTRA_TOOLS, SubAgentKgWriterProfile } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
 import { SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS, SubAgentCodeReviewerProfile } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentCodeReviewerProfile";
 import { MainSessionProfile } from "../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { OrchestratorProfile } from "../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
 
-/** W2-D R13 job 终态同步提示文案（机器只记录只提醒，sync 本体永远人确认）。 */
-const KG_SYNC_HINT_TEXT = "本次任务有代码/文档变更，是否触发 kg sync？到 /project 页手动触发；sync 后如有孤儿/腐烂锚会附一行体检提示。";
-import { resolveConfigModel } from "../adapters/driven/pi-engine/model-provider";
+/** W2-D R13 job 终态同步提示文案随编排服务切片迁 assembly/buildTaskOrchestrator（M29）。 */
 import { scanWorkspaceProjects, existingKgProjects } from "../adapters/driven/workspace-scan";
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
@@ -51,6 +48,7 @@ import { buildPersistence } from "./assembly/buildPersistence";
 import { buildModelStack } from "./assembly/buildModelStack";
 import { buildTaskStack } from "./assembly/buildTaskStack";
 import { buildKgResolverGroup } from "./assembly/buildKgResolverGroup";
+import { buildTaskOrchestrator } from "./assembly/buildTaskOrchestrator";
 import { hasActiveJob } from "../application/services/kg/job-activity";
 import type { TaskStorePort } from "../application/ports/outbound/TaskStorePort";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode, type MainSessionLlmOverride } from "./assembly/buildSessionStack";
@@ -585,77 +583,29 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
 
   // ── T2.2 晚绑闭合：task.changed 广播单点 + 编排服务真体回填──
   //    AF-T1.5.2：引擎出站钩子经同一 EventStream.broadcastTaskChanged 通路
-  //（生命周期三命令在 handler 层已接——不双发）；编排服务消费 scheduler
-  //（批次 spawn 占预算/收口读面/kill）+ 任务域依赖面（buildTaskStack 同源）。
+  //（生命周期三命令在 handler 层已接——不双发）；编排服务（M29 切片，
+  // assembly/buildTaskOrchestrator）消费 scheduler（批次 spawn 占预算/收口
+  // 读面/kill）+ 任务域依赖面（buildTaskStack 同源）。
   broadcastTaskChanged = (frame) => eventStream.broadcastTaskChanged(frame);
-  orchestratorService = new TaskOrchestratorService({
-    ...taskStack.orchestratorCore,
-    rawSpawn: (sessionId, task, profileKind) =>
-      scheduler.spawn(sessionId, task, profileKind, resolveSubagentModelId(profileKind)),
-    instanceOutcome: (agentId) => {
-      const hit = scheduler.status(agentId)[0];
-      return hit === undefined ? undefined : { state: hit.state, ...(hit.summary !== undefined ? { summary: hit.summary } : {}) };
+  orchestratorService = buildTaskOrchestrator({
+    orchestratorCore: taskStack.orchestratorCore,
+    scheduler,
+    resolveSubagentModelId,
+    orchestratorAssembly,
+    resourceService: sessionStack.resourceService,
+    persistence,
+    modelStack,
+    workspace,
+    grep: {
+      rgPath: grepFreeze.kind === "rg" ? grepFreeze.rgPath : undefined,
+      unavailableReasons: grepFreeze.kind === "unavailable" ? grepFreeze.reasons : undefined,
     },
-    killInstance: (agentId) => {
-      void scheduler.kill(agentId);
-    },
-    // 链 A（⑤）：批次实例挂起/复活原语接调度器（parkAll/resumeAll 消费）
-    parkInstance: (agentId, reason) => scheduler.park(agentId, reason),
-    resumeInstance: (agentId) => scheduler.resume(agentId),
-    createSession: createOrchestratorSessionFactory({
-      assembly: orchestratorAssembly,
-      model: () => resolveConfigModel(persistence.defaultModel.current(), modelStack.catalog.modelsView()),
-      // R7 系统槽位批：orchestrator 槽位优先（未配走全局）；thinking 两级链
-      modelSlot: () => sessionStack.resourceService.modelSlot("orchestrator"),
-      resolveModelById: (modelId) => resolveConfigModel(modelId, modelStack.catalog.modelsView()),
-      thinkingChain: () => [sessionStack.resourceService.thinkingSlot("orchestrator"), persistence.defaultThinking.stored() ?? undefined],
-      apiKeys: () => modelStack.authStore.apiKeysSnapshot(),
-      llmOverride: deps.orchestratorLlmOverride,
-      // 编排会话事件镜像落盘（任务域观测面）：翻译后领域事件直写
-      // domain_events（kind="orchestrator"；不经 fanout 零广播副作用）——
-      // trace 面板按 task:<jobId> 会话可查编排过程
-      eventSink: {
-        publish: (event) => {
-          // M34：void appendEvent 补 .catch 挂 logger.warn（对齐 buildPersistence
-          // onError 先例）——编排事件镜像落盘失败不再静默 unhandled
-          void persistence.writeQueue.appendEvent(event, "orchestrator").catch((err) => {
-            logger.warn(`编排事件镜像落盘失败（${event.type}）：${(err as Error).message}`);
-          });
-        },
-        clock,
-      },
-      models: modelStack.catalog.modelsView(),
-      toolCwd: toolCwdNow,
-      // kg 只读面（W1：经 workspace 持有者读现值；未绑定 → 剔除 kg 工具）
-      kgRead: () => {
-        const stack = workspace.stack();
-        const root = workspace.boundRoot();
-        return stack !== null && root !== null
-          ? { query: stack.queryService, workspaceRoot: root, scanProjects: () => scanWorkspaceProjects(root) }
-          : undefined;
-      },
-      grep: {
-        rgPath: grepFreeze.kind === "rg" ? grepFreeze.rgPath : undefined,
-        unavailableReasons: grepFreeze.kind === "unavailable" ? grepFreeze.reasons : undefined,
-      },
-      taskEngine: taskStack.orchestratorCore.taskEngine,
-      ledger: taskStack.orchestratorCore.ledger,
-      logger,
-    }),
-    planHardConstraint: PLAN_HARD_CONSTRAINT_SEGMENT,
-    // D6：任务报告目录（kickoff 起跑信息携带——与 SubagentLauncher reportDirFor /
-    // ClosureRecorder reportsDirFor 同源同式 <home>/reports/<sessionId>）
-    reportsDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
-    // W2-D R13 job 完成提示点（编排层，不进引擎守 AD-10）：job 终态 reap 时
-    // 扫描该 job 相关 session 的 pending_sync（notified=0）→ 置已提示 + 经
-    // 既有 task.changed 广播通路随行 syncHint（机器只记录只提醒，sync 人确认）
-    onJobTerminal: (jobId, status) => {
-      const rows = persistence.repository.queryUnnotifiedPendingSync(taskSessionIdOf(jobId), jobId);
-      if (rows.length === 0) return;
-      void persistence.repository.markPendingSyncNotified(rows.map((r) => r.sessionId));
-      eventStream.broadcastTaskChanged({ jobId, changed: "job", status, syncHint: KG_SYNC_HINT_TEXT });
-    },
+    clock,
     logger,
+    paths,
+    toolCwdNow,
+    eventStream,
+    llmOverride: deps.orchestratorLlmOverride,
   });
 
   // ── W1 晚绑闭合：workspace 广播与活跃 agent 判定接 eventStream/registry
