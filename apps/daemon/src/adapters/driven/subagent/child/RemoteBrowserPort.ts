@@ -107,16 +107,12 @@ export class RemoteBrowserPort implements BrowserPort {
     return this.call("setFilesInTab", [tabId, selector, files]);
   }
   scrollTab(tabId: string, y?: number, direction?: ScrollDirection): Promise<ScrollResult> {
-    const args: unknown[] = [tabId];
-    if (y !== undefined) args.push(y);
-    if (direction !== undefined) args.push(direction);
-    return this.call("scrollTab", args);
+    // H9：定长占位（y ?? null / direction ?? null）——杜绝稀疏数组让 direction 落 y 位
+    return this.call("scrollTab", [tabId, y ?? null, direction ?? null]);
   }
   screenshotTab(tabId: string, file?: string, format?: ScreenshotFormat): Promise<ScreenshotResult> {
-    const args: unknown[] = [tabId];
-    if (file !== undefined) args.push(file);
-    if (format !== undefined) args.push(format);
-    return this.call("screenshotTab", args);
+    // H9：定长占位（file ?? null / format ?? null），同上
+    return this.call("screenshotTab", [tabId, file ?? null, format ?? null]);
   }
   closeTab(tabId: string): Promise<void> {
     return this.call("closeTab", [tabId]);
