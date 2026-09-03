@@ -1417,7 +1417,7 @@ notice?}`；recents MRU 上限 8，get 时惰性探测标 valid）。
 
 #### `task.artifacts`
 
-结果查询（F3.4，只读：各阶段 stage.artifact + 产出节点人类可读投影）。
+结果查询（F3.4，只读：各阶段 stage.artifact 文字报告——形状 `{ summary: string, body?: string }`，body 为 code-review 批 additive 扩展的阶段产物全文（markdown），未携带即缺省；与 kg 零耦合）。
 节点详情/修正转 /project 页（AD-10）。结果 = `task.artifacts.result`
 （`{artifacts: TaskArtifactsDto}`）。
 
