@@ -62,6 +62,46 @@ import { resolveThinkingCapability } from "@/features/thinking-level/model/think
 /** 写面载荷（resourceType 收窄于协议四值，页面只发这四类）。 */
 type WriteResource = AgentWriteResource;
 
+/** M49：ProfileCard/SystemProfileCard 共用派生——S3a 可用性过滤后按 provider
+ *  分组（P-4 optgroup 形态）+ P-2 推理能力位（F2.2 防腐字段预览）。 */
+function useAgentModelSelectors({
+  catalog,
+  auth,
+  authLoaded,
+  currentModel,
+  capabilityModel,
+}: {
+  catalog: CatalogModel[] | null;
+  auth: Record<string, AuthProviderEntry>;
+  authLoaded: boolean;
+  /** available 过滤兜底锚（provider 未配置仍保留当前项，防下拉找不到当前项）。 */
+  currentModel: string | undefined;
+  /** 能力位预览基准（槽位留空 = 跟随全局默认）。 */
+  capabilityModel: string;
+}) {
+  const modelsByProvider = useMemo(() => {
+    const visible = filterAvailableModels({
+      models: catalog ?? [],
+      auth,
+      authLoaded,
+      currentModel,
+      query: "",
+    });
+    const map = new Map<string, CatalogModel[]>();
+    for (const m of visible) {
+      const list = map.get(m.providerId);
+      if (list) list.push(m);
+      else map.set(m.providerId, [m]);
+    }
+    return map;
+  }, [catalog, auth, authLoaded, currentModel]);
+  const thinkingCapability = useMemo(
+    () => resolveThinkingCapability(capabilityModel, catalog ?? undefined),
+    [capabilityModel, catalog],
+  );
+  return { modelsByProvider, thinkingCapability };
+}
+
 /** 列表条目名（左栏行 + 详情头共用；只读组由 kind 分派）。 */
 function agentTitleOf(t: (key: string) => string, kind: AgentId): string {
   if (kind === "main-session") return t("agents.mainTitle");
@@ -189,32 +229,17 @@ function ProfileCard({
   /** S3a 可用性口径（与 chat P-3 同一过滤函数、同一数据源）：configured
    * provider join + 当前槽位模型兜底（provider 未配置仍保留，防下拉里
    * 找不到当前项）+ authLoaded=false 不过滤（防骨架期空列表闪烁）；
-   * 过滤后按 providerId 分组（组间/组内序沿目录；P-4 optgroup 形态）。 */
-  const modelsByProvider = useMemo(() => {
-    const visible = filterAvailableModels({
-      models: catalog ?? [],
-      auth,
-      authLoaded,
-      currentModel: block?.model ?? undefined,
-      query: "",
-    });
-    const map = new Map<string, CatalogModel[]>();
-    for (const m of visible) {
-      const list = map.get(m.providerId);
-      if (list) list.push(m);
-      else map.set(m.providerId, [m]);
-    }
-    return map;
-  }, [catalog, auth, authLoaded, block?.model]);
-
-  /** P-2 能力位数据源（F2.2）：槽位选定模型的 CatalogModel 防腐字段；槽位
-   *  留空 = 跟随全局默认（main/sub 同——T12 后 sub 不再跟随会话模型，spawn
-   *  时刻定格；本页为全局配置面，展示位以全局默认模型为预览基准，与 sub
-   *  spawn 实际模型天然同源）。 */
-  const thinkingCapability = useMemo(
-    () => resolveThinkingCapability(block?.model ?? defaultModel ?? "", catalog ?? undefined),
-    [block?.model, defaultModel, catalog],
-  );
+   * 过滤后按 providerId 分组（组间/组内序沿目录；P-4 optgroup 形态）。
+   *  P-2 能力位数据源（F2.2）：槽位选定模型的 CatalogModel 防腐字段；槽位
+   *  留空 = 跟随全局默认（本页为全局配置面，展示位以全局默认模型为预览
+   *  基准，与 sub spawn 实际模型天然同源）。M49：两卡共用 hook。 */
+  const { modelsByProvider, thinkingCapability } = useAgentModelSelectors({
+    catalog,
+    auth,
+    authLoaded,
+    currentModel: block?.model ?? undefined,
+    capabilityModel: block?.model ?? defaultModel ?? "",
+  });
 
   return (
     <section className="hud-card ag-card" data-agent-card={kind}>
@@ -397,28 +422,15 @@ function SystemProfileCard({
   const isKgWriter = kind === "subagent-kg-writer";
   const isReviewer = kind === "subagent-code-reviewer"; // D5 第五 kind：派生自 worker − write/edit
   const selId = `sel-model-${kind}`;
-  /** S3a 可用性口径（ProfileCard 同一过滤函数/数据源/兜底链） */
-  const modelsByProvider = useMemo(() => {
-    const effective = block?.model ?? defaultModel ?? "";
-    const visible = filterAvailableModels({
-      models: catalog ?? [],
-      auth,
-      authLoaded,
-      currentModel: effective || undefined,
-      query: "",
-    });
-    const map = new Map<string, CatalogModel[]>();
-    for (const m of visible) {
-      const list = map.get(m.providerId);
-      if (list) list.push(m);
-      else map.set(m.providerId, [m]);
-    }
-    return map;
-  }, [catalog, auth, authLoaded, block?.model, defaultModel]);
-  const thinkingCapability = useMemo(
-    () => resolveThinkingCapability(block?.model ?? defaultModel ?? "", catalog ?? undefined),
-    [block?.model, defaultModel, catalog],
-  );
+  /** S3a 可用性口径（ProfileCard 同一过滤函数/数据源/兜底链；M49 共用 hook） */
+  const effective = block?.model ?? defaultModel ?? "";
+  const { modelsByProvider, thinkingCapability } = useAgentModelSelectors({
+    catalog,
+    auth,
+    authLoaded,
+    currentModel: effective || undefined,
+    capabilityModel: effective,
+  });
   return (
     <section className="hud-card ag-card" data-agent-card={kind}>
       <header className="ag-card-head">
@@ -659,8 +671,14 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
       requestModelConfig();
       requestAuthList();
       runList();
+      // M50：base prompt 在途回执随断连丢失——重连对 pending 且未缓存的
+      // kind 重发懒查询（查看钮不再永久 disabled 等死）
+      const st = stateRef.current;
+      for (const kind of st.basePromptPending) {
+        if (st.basePrompts[kind] === null) sendAgentBasePromptGet({ profileKind: kind });
+      }
     }
-  }, [conn, runList, requestModelConfig, requestAuthList]);
+  }, [conn, runList, requestModelConfig, requestAuthList, sendAgentBasePromptGet]);
 
   /** 写面单飞：pending 非空不再发（结果帧无回显，同刻至多一条在途）。 */
   const onToggle = useCallback(
@@ -668,9 +686,14 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
       if (stateRef.current.pending.size > 0) return;
       dispatch({ type: "toggle-started", kind, resourceType, name });
       lastWriteRef.current = { kind, resourceType, name };
-      sendAgentConfigSetEnabled({ profileKind: kind, resourceType, name, enabled });
+      if (!sendAgentConfigSetEnabled({ profileKind: kind, resourceType, name, enabled })) {
+        // M48：发送失败（未连接）即收口——清在途 + err toast（runList 发送失败先例）
+        lastWriteRef.current = null;
+        dispatch({ type: "toggle-settled", kind, resourceType, name });
+        toast.push("err", t("agents.notConnected"));
+      }
     },
-    [sendAgentConfigSetEnabled],
+    [sendAgentConfigSetEnabled, toast, t],
   );
 
   /** 模型槽位：选中 = set（name=模型 id，enabled=true）；缺省项 = clear
