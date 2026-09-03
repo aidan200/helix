@@ -79,5 +79,26 @@ export async function scopedBrowserCall(
       (args[2] ?? undefined) as ScreenshotFormat | undefined,
     );
   }
-  return (browser as unknown as Record<string, (...a: readonly unknown[]) => Promise<unknown>>)[method]!(...args);
+  // 余下 7 个 tabId 方法：显式分发（M22 类型安全——动态索引 + 双重非空
+  // 断言退役，白名单内逐方法接线；位置参数按 BrowserPort 签名取位）
+  switch (method) {
+    case "navigateTab":
+      return browser.navigateTab(tabId, args[1] as string);
+    case "backTab":
+      return browser.backTab(tabId);
+    case "evalInTab":
+      return browser.evalInTab(tabId, args[1] as string);
+    case "clickInTab":
+      return browser.clickInTab(tabId, args[1] as string);
+    case "clickAtInTab":
+      return browser.clickAtInTab(tabId, args[1] as string);
+    case "setFilesInTab":
+      return browser.setFilesInTab(tabId, args[1] as string, args[2] as readonly string[]);
+    case "closeTab":
+      return browser.closeTab(tabId);
+    default:
+      // 白名单 12 方法在此已穷尽（openTab/listTabs/getStatus/scrollTab/
+      // screenshotTab 归上方显式分支）——防御性不可达
+      throw new Error(`未知 browser 转发方法 "${method}"（白名单内但无分发分支——接线缺失）`);
+  }
 }
