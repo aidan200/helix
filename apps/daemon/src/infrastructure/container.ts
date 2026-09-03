@@ -50,10 +50,7 @@ import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
 import { buildPersistence } from "./assembly/buildPersistence";
 import { buildModelStack } from "./assembly/buildModelStack";
 import { buildTaskStack } from "./assembly/buildTaskStack";
-import { KgBootstrapService } from "../application/services/kg/KgBootstrapService";
-import { KgMaintenanceService } from "../application/services/kg/KgMaintenanceService";
-import { KgReviewService } from "../application/services/kg/KgReviewService";
-import { CodeReviewService } from "../application/services/kg/CodeReviewService";
+import { buildKgResolverGroup } from "./assembly/buildKgResolverGroup";
 import { hasActiveJob } from "../application/services/kg/job-activity";
 import type { TaskStorePort } from "../application/ports/outbound/TaskStorePort";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode, type MainSessionLlmOverride } from "./assembly/buildSessionStack";
@@ -874,84 +871,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // thinking 批①：thinking.changed 广播出海（channel=thinking，订阅路由同 model.changed）
     onThinkingChanged: (payload) => eventStream.broadcastThinkingChanged(payload),
   });
-  // kg-bootstrap 数据面解析器（T3.2，契约 kg-bootstrap-api）：workspace 现值
-  // stack（kg 面）+ 任务栈（daemon 级：engine/store/skills）组装，WeakMap 按
-  // stack 记忆化——重绑原子换栈后自动跟随新 workspace（viewerService 同接缝）。
-  const kgBootstrapByStack = new WeakMap<object, KgBootstrapService>();
-  const kgBootstrapResolver = (): KgBootstrapService | undefined => {
-    const stack = workspace.stack();
-    if (stack === null) return undefined;
-    let svc = kgBootstrapByStack.get(stack);
-    if (svc === undefined) {
-      svc = new KgBootstrapService({
-        project: stack.projectService,
-        graph: stack.graph,
-        write: stack.writeService,
-        sync: stack.syncService,
-        taskEngine: taskStack.taskEngine,
-        store: taskStack.orchestratorCore.store,
-        skills: taskStack.orchestratorCore.skills,
-      });
-      kgBootstrapByStack.set(stack, svc);
-    }
-    return svc;
-  };
-  // kg 维护批数据面解析器（C1，契约 PROTOCOL.md §22）：workspace 现值 stack
-  //（project/store/sync/fsWatch/codegraphEngine 面）+ 任务栈 store（purge
-  // 门禁数据源）组装，WeakMap 按 stack 记忆化（kgBootstrap 同接缝）。
-  const kgMaintenanceByStack = new WeakMap<object, KgMaintenanceService>();
-  const kgMaintenanceResolver = (): KgMaintenanceService | undefined => {
-    const stack = workspace.stack();
-    if (stack === null) return undefined;
-    let svc = kgMaintenanceByStack.get(stack);
-    if (svc === undefined) {
-      svc = new KgMaintenanceService({
-        project: stack.projectService,
-        store: stack.store,
-        sync: stack.syncService,
-        fsWatch: stack.fsWatch,
-        codegraph: stack.codegraphEngine,
-        taskStore: taskStack.orchestratorCore.store,
-      });
-      kgMaintenanceByStack.set(stack, svc);
-    }
-    return svc;
-  };
-  // kg 评审批数据面解析器（W2-F，契约 PROTOCOL.md §23）：workspace 现值
-  // stack（project 面）+ 任务栈 engine 组装，WeakMap 按 stack 记忆化
-  //（kgBootstrap/kgMaintenance 同接缝；只有发起面——无需 graph/write/sync）。
-  const kgReviewByStack = new WeakMap<object, KgReviewService>();
-  const kgReviewResolver = (): KgReviewService | undefined => {
-    const stack = workspace.stack();
-    if (stack === null) return undefined;
-    let svc = kgReviewByStack.get(stack);
-    if (svc === undefined) {
-      svc = new KgReviewService({
-        project: stack.projectService,
-        taskEngine: taskStack.taskEngine,
-        store: taskStack.orchestratorCore.store,
-      });
-      kgReviewByStack.set(stack, svc);
-    }
-    return svc;
-  };
-  // code-review 批数据面解析器（code-review v1.5，kgReview 同接缝：workspace
-  // 现值 stack + 任务栈 engine 组装，WeakMap 按 stack 记忆化；只有发起面）。
-  const codeReviewByStack = new WeakMap<object, CodeReviewService>();
-  const codeReviewResolver = (): CodeReviewService | undefined => {
-    const stack = workspace.stack();
-    if (stack === null) return undefined;
-    let svc = codeReviewByStack.get(stack);
-    if (svc === undefined) {
-      svc = new CodeReviewService({
-        project: stack.projectService,
-        taskEngine: taskStack.taskEngine,
-        store: taskStack.orchestratorCore.store,
-      });
-      codeReviewByStack.set(stack, svc);
-    }
-    return svc;
-  };
+  // kg 族命令回口解析器群（M29/M30 切片，assembly/buildKgResolverGroup）：
+  // 四解析器同接缝——workspace 现值 stack + 任务栈组装，memoizedByStack
+  // 按 stack 记忆化（重绑原子换栈自动跟随；未绑定 → undefined 防御契约）。
+  const { kgBootstrapResolver, kgMaintenanceResolver, kgReviewResolver, codeReviewResolver } = buildKgResolverGroup({
+    stack: () => workspace.stack(),
+    taskEngine: taskStack.taskEngine,
+    taskStore: taskStack.orchestratorCore.store,
+    skills: taskStack.orchestratorCore.skills,
+  });
   const ws = new WsServerAdapter({
     chat: chatRouter,
     directory: registry,
