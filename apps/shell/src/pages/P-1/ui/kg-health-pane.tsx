@@ -1,10 +1,11 @@
 /**
  * P-1 体检面板（W2-E 轨一结构体检看板，设计 kg-driven-dev-loop-design D5 +
  * R15）：kg.health 五项读面分组展示——逻辑冲突清单 / 孤儿·腐烂锚清单
- * （计数徽章）/ 索引状态 / candidates 台账四态计数 + 轨二（kg.review.create，
- * W2-F）发起入口（含运行态：项目行 reviewRunning 置位时无启动钮只留
- * 任务页观察出口——与 KgBootstrapEntry running 态同构，服务端为准，
- * 组件重挂后仍持正确态）。
+ * （计数徽章）/ 索引状态 / candidates 台账四态计数 + 体检发起区双类型
+ * 并排：知识图谱体检（kg.review.create，W2-F）+ 代码评审
+ * （code.review.create，code-review v1.5）——运行态（项目行级标记
+ * 置位时无启动钮只留任务页观察出口——与 KgBootstrapEntry running 态
+ * 同构，服务端为准，组件重挂后仍持正确态，两类徽标各行其是）。
  *
  * 展示纪律：只列不修零写路径（发起入口按钮除外——只调既有 ws 命令）；
  * conflicts/orphans 条目 summary = 服务层人读文案直渲（AD-16 同规，前端零
@@ -37,11 +38,15 @@ export default function KgHealthPane({
   reviewBusy,
   reviewLaunched,
   reviewRunning,
+  codeReviewBusy,
+  codeReviewLaunched,
+  codeReviewRunning,
   projectName,
   candFilter,
   t,
   onCandFilter,
   onLaunchReview,
+  onLaunchCodeReview,
   onOpenTasks,
 }: {
   /** kg.health 回执（null = 未拉取/读取中）。 */
@@ -55,6 +60,13 @@ export default function KgHealthPane({
    *  bootstrapRunning 同规）：体检入口置运行态——无启动钮只留任务页
    *  出口；终态后恢复可发起（仅禁并发不绑一次性）。 */
   reviewRunning: boolean;
+  /** code.review.create 在途（发起钮禁用；单飞锁在 KgViewer）。 */
+  codeReviewBusy: boolean;
+  /** 发起成功标记（ok-strip + 前往任务页出口）。 */
+  codeReviewLaunched: boolean;
+  /** 该项目存在非终态 code-review job（kg.projects 行 codeReviewRunning，
+   *  reviewRunning 同规）。 */
+  codeReviewRunning: boolean;
   projectName: string;
   /** 台账过滤态（与 KgCandidatesPanel 共享；点击徽章设过滤——active 高亮）。 */
   candFilter: "all" | "pending" | "deferred" | "applied" | "discarded";
@@ -62,6 +74,7 @@ export default function KgHealthPane({
   /** 四态徽章点击 → 设台账过滤并拉取（KgViewer 持拉取面）。 */
   onCandFilter: (filter: "all" | "pending" | "deferred" | "applied" | "discarded") => void;
   onLaunchReview: () => void;
+  onLaunchCodeReview: () => void;
   onOpenTasks: () => void;
 }) {
   if (loading || health === null) {
@@ -189,6 +202,53 @@ export default function KgHealthPane({
             {reviewLaunched && (
               <div className="kg-ok-strip" data-review-launched>
                 <span>{t("pj.health.reviewLaunched", { name: projectName })}</span>
+                <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
+                  {t("pj.health.reviewGoTasks")}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+      {/* 代码评审发起入口（code.review.create，code-review v1.5）：与知识
+          图谱体检并排，运行态徽标各行其是（kg.projects 行级标记，服务
+          端为准） */}
+      <section className="kg-health-sec" data-kg-health-code-review>
+        <div className="kg-health-sec-head">
+          <span className="kg-health-sec-title">{t("pj.health.codeReviewTitle")}</span>
+          <span className="hud-badge kbe-type">code-review</span>
+          {codeReviewRunning && <span className="hud-badge" data-code-review-running-badge>{t("pj.health.reviewRunningBadge")}</span>}
+        </div>
+        {codeReviewRunning ? (
+          <div className="kbe-body">
+            <div className="kg-ok-strip" data-code-review-running>
+              <span>{t("pj.health.codeReviewRunningStrip", { name: projectName })}</span>
+              <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
+                {t("pj.health.reviewGoTasks")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="kbe-row">
+              <span className="kbe-k">{t("pj.boot.desc")}</span>
+              <span className="kbe-v muted">{t("pj.health.codeReviewDesc")}</span>
+            </div>
+            <div className="kbe-actions">
+              <button
+                type="button"
+                className="hud-btn kg-btn-primary"
+                data-code-review-launch-btn
+                disabled={codeReviewBusy}
+                onClick={onLaunchCodeReview}
+              >
+                {t("pj.health.codeReviewLaunch")}
+              </button>
+              <span className="kbe-note muted">{t("pj.health.codeReviewLaunchNote")}</span>
+            </div>
+            {codeReviewLaunched && (
+              <div className="kg-ok-strip" data-code-review-launched>
+                <span>{t("pj.health.codeReviewLaunched", { name: projectName })}</span>
                 <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
                   {t("pj.health.reviewGoTasks")}
                 </button>

@@ -64,6 +64,7 @@ import type { TraceQueryPort } from "../../../domain/trace/TraceQueryPort";
 import type { KgBootstrapService } from "../../../application/services/kg/KgBootstrapService";
 import type { KgMaintenanceService } from "../../../application/services/kg/KgMaintenanceService";
 import type { KgReviewService } from "../../../application/services/kg/KgReviewService";
+import type { CodeReviewService } from "../../../application/services/kg/CodeReviewService";
 import type { KgViewerService } from "../../../application/services/kg/KgViewerService";
 import type { WorkspaceService } from "../../../application/services/workspace/WorkspaceService";
 import type { TaskQueryService } from "../../../application/services/task/TaskQueryService";
@@ -116,6 +117,7 @@ import {
   handleKgNodeDetail,
   handleKgProjects,
   handleKgReviewCreate,
+  handleCodeReviewCreate,
   handleKgNodeSupersede,
   handleKgNodeUpdate,
 } from "./handlers/kg";
@@ -259,6 +261,9 @@ export interface WsServerAdapterDeps {
    * 未装配 → command.unimplemented 回执不崩溃（kg.ts 先例）。
    */
   readonly kgReview?: KgReviewService | (() => KgReviewService | undefined);
+  /** code-review 批回口（code-review v1.5：CodeReviewService——组合根
+   *  WeakMap 记忆化，kgReview 同接缝）。未装配 → command.unimplemented。 */
+  readonly codeReview?: CodeReviewService | (() => CodeReviewService | undefined);
   /**
    * workspace 绑定面（W1 绑定闭环）：WorkspaceService（绑定状态机唯一
    * 事实源）——kg 栈持有者读面 + unbound 防御判别 + workspace 族命令回口
@@ -567,6 +572,9 @@ export class WsServerAdapter {
       // ── kg 评审批（W2-F 轨二体检任务发起；handlers/kg.ts）──
       case "kg.review.create":
         return handleKgReviewCreate(this.kgContext(ws, type, payload));
+      // ── code-review 批（code-review v1.5 体检区代码评审入口；handlers/kg.ts）──
+      case "code.review.create":
+        return handleCodeReviewCreate(this.kgContext(ws, type, payload));
       // ── workspace 族（W1 绑定闭环；handlers/workspace.ts）──
       case "workspace.get":
         return this.deps.workspace === undefined
@@ -797,6 +805,12 @@ export class WsServerAdapter {
           : typeof this.deps.kgReview === "function"
             ? this.deps.kgReview()
             : this.deps.kgReview,
+      codeReview:
+        this.deps.codeReview === undefined
+          ? undefined
+          : typeof this.deps.codeReview === "function"
+            ? this.deps.codeReview()
+            : this.deps.codeReview,
       workspaceUnbound: this.deps.workspace !== undefined && !this.deps.workspace.isBound(),
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),

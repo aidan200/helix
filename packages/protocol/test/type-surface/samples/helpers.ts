@@ -190,6 +190,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `model-set-thinking-default:${event.payload.previous}`;
     case "kg.candidates.list.result":
       return `kg-candidates-list:${event.payload.total}:${event.payload.rows.length}`;
+    case "code.review.create.result":
+      return `code-review-create:${event.payload.jobId}`;
     case "agent.base_prompt.get.result":
       return `base-prompt:${event.payload.profileKind}:${event.payload.basePrompt.length}`;
     case "session.plan.changed":
@@ -307,6 +309,8 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `kg-health:${cmd.payload.project}`;
     case "kg.review.create":
       return `kg-review-create:${cmd.payload.project}`;
+    case "code.review.create":
+      return `code-review-create:${cmd.payload.project}`;
     // ── workspace 批（W1 绑定闭环；门禁读面 + 显式绑定写面）──
     case "workspace.get":
       return "workspace-get";

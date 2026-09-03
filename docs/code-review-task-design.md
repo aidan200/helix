@@ -117,7 +117,7 @@ SOP 骨架（对照 kg-review 结构，内容全部面向代码）：
 ### D4：发起入口分期
 
 - **v1**：仅 chat 入口（`task_create type="code-review"`，零改动）。「帮我评审一下 X 项目」对话即发起。
-- **v1.5（延后）**：page 入口住 **P-1 项目页体检区**（kg-health-pane 轨二发起入口同区）——该区扩为两个类型入口并排：**知识图谱体检（kg-review）** 与 **代码评审（code-review）**，类型徽章区分。命令族各自独立：`kg.review.create` 已有；新增 `code.review.create` + `CodeReviewService`（准入 = codegraph 索引存在 + `hasActiveJob("code-review")` 并发禁入，KgReviewService 同构）。运行态检测各行其是（kg.projects 行 reviewRunning 现有面不管 code-review——code-review 运行徽标需 projects DTO additive 扩一个 running 标记位或入口区自查 job 列表，实施时定）。
+- **v1.5（已实施，2026-09-02）**：page 入口住 **P-1 项目页体检区**（kg-health-pane 轨二发起入口同区）——双类型入口并排：**知识图谱体检（kg-review）** 与 **代码评审（code-review）**，类型徽章区分。已落地：`code.review.create` 命令族（protocol 命令/事件目录 +1+1，错误码 `task.task_running` 入词表）+ `CodeReviewService`（KgReviewService 同构窄服务；**实施时裁决：无准入门槛**——评审对象是代码不是图谱，不要求 .helix-kg 索引存在，仅 `hasActiveJob("code-review")` 并发禁入）+ kg.projects 行 `codeReviewRunning` 标记（hasRunningCodeReviewJob 全链接线）+ shell 双入口 UI（KgViewer 单飞/回执消费 + KgHealthPane 并排区块 + 中英文案）。
 
 ### D5：专用 SubAgent profile `subagent-code-reviewer`（机械解耦，非 SOP 软约束）
 

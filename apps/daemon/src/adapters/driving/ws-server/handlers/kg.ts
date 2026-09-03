@@ -41,6 +41,7 @@ import type {
   KgProjectRow,
   KgProjectsResultEvent,
   KgReviewCreateResultEvent,
+  CodeReviewCreateResultEvent,
 } from "@helix/protocol";
 import type {
   ChangeReport,
@@ -58,6 +59,10 @@ import type {
   KgReviewError,
   KgReviewService,
 } from "../../../../application/services/kg/KgReviewService";
+import type {
+  CodeReviewError,
+  CodeReviewService,
+} from "../../../../application/services/kg/CodeReviewService";
 import type {
   KgMaintenanceError,
   KgMaintenanceService,
@@ -561,6 +566,34 @@ function bootstrapError(ctx: KgCommandContext, err: KgBootstrapError): void {
 }
 
 /** kg 评审批错误回执（bootstrapError 同构——码域不同形状同）。 */
+/** code.review.create（code-review v1.5；无准入门槛——评审对象是代码不是图谱，createTask 同源，createdBy="page"）。 */
+export function handleCodeReviewCreate(ctx: KgCommandContext): void {
+  if (ctx.codeReview === undefined) return unboundOrUnimplemented(ctx);
+  const project = requireString(ctx, "project");
+  if (project === undefined) return;
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  void ctx.codeReview
+    .create(project)
+    .then((result) => {
+      if (!result.ok) return codeReviewError(ctx, result.error);
+      const frame: CodeReviewCreateResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "kg",
+        type: "code.review.create.result",
+        payload: { ok: true, jobId: result.value.jobId },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err: unknown) => {
+      ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
+    });
+}
+
+function codeReviewError(ctx: KgCommandContext, err: CodeReviewError): void {
+  ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
+}
+
 function reviewError(ctx: KgCommandContext, err: KgReviewError): void {
   ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
 }
@@ -585,6 +618,8 @@ export function projectRowToDto(row: KgProjectRowView): KgProjectRow {
     ...(row.bootstrapRunning ? { bootstrapRunning: true } : {}),
     // 体检入口运行态同规：非终态 kg-review job 覆盖项目时携带
     ...(row.reviewRunning ? { reviewRunning: true } : {}),
+    // code-review v1.5 体检区代码评审入口运行态同规
+    ...(row.codeReviewRunning ? { codeReviewRunning: true } : {}),
   };
 }
 

@@ -37,6 +37,8 @@ export interface KgProjectRow {
   bootstrapRunning?: boolean;
   /** 该项目存在非终态 kg-review job（体检入口运行态数据源，bootstrapRunning 同规）；缺省 = 无进行中任务（旧 daemon 兼容）。前端「发起语义体检」钮据此置运行态（无启动钮只留任务页出口），终态后恢复可发起。 */
   reviewRunning?: boolean;
+  /** 该项目存在非终态 code-review job（code-review v1.5 体检区代码评审入口运行态数据源，reviewRunning 同规）；缺省 = 无进行中任务（旧 daemon 兼容）。 */
+  codeReviewRunning?: boolean;
 }
 
 /** 节点类别徽章（rule=cyan / entity=violet，前端色映射）。 */

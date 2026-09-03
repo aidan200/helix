@@ -688,6 +688,14 @@ export const enUS = {
       reviewGoTasks: "Watch on the Tasks page →",
       reviewOkToast: "Review task launched: {name}",
       reviewFailToast: "Failed to launch review: {message}",
+      codeReviewTitle: "Code review (code-review)",
+      codeReviewDesc: "LLM reviews code quality module by module (design / logic / simplification / hygiene, evidence must carry file:line). Findings land in the task report and stage artifacts, not in the candidates ledger; can be launched repeatedly.",
+      codeReviewLaunch: "Launch code review",
+      codeReviewLaunchNote: "Runs in the background, non-interactive, auto-retried on failure.",
+      codeReviewRunningStrip: "A code review task (code-review) is running for \"{name}\"; watch progress on the Tasks page. This entry becomes available again once the task finishes (concurrency only).",
+      codeReviewLaunched: "Code review task launched ({name})",
+      codeReviewOkToast: "Code review task launched: {name}",
+      codeReviewFailToast: "Failed to launch code review: {message}",
     },
     // ── candidates ledger panel (read-only, no adjudication) ──
     cand: {

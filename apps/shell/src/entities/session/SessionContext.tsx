@@ -32,6 +32,7 @@ import type {
   KgChangeReportPayload,
   KgIndexStatusPayload,
   KgReviewCreatePayload,
+  CodeReviewCreatePayload,
   KgListPayload,
   KgNodeConfirmPayload,
   KgNodeDetailPayload,
@@ -61,6 +62,7 @@ import {
   kgHealthCommand,
   kgIndexDeleteCommand,
   kgReviewCreateCommand,
+  codeReviewCreateCommand,
   kgIndexStatusCommand,
   kgListCommand,
   kgNodeConfirmCommand,
@@ -256,6 +258,8 @@ interface SessionContextValue {
   sendKgHealth: (payload: KgHealthPayload) => boolean;
   /** 发送 kg.review.create（发起语义体检任务；准入从简 = 索引存在即可，允许反复发起）。 */
   sendKgReviewCreate: (payload: KgReviewCreatePayload) => boolean;
+  /** 发送 code.review.create（发起代码评审任务，code-review v1.5；无准入门槛，允许反复发起）。 */
+  sendCodeReviewCreate: (payload: CodeReviewCreatePayload) => boolean;
   /** 发送 kg.candidates.list（候选台账列表读面；status 四态过滤，行含 body 全文；只读零裁决）。 */
   sendKgCandidatesList: (payload: KgCandidatesListPayload) => boolean;
   /** 订阅 kg 族点对点回执（kg.*.result；O-6 零推送事件，回执全走此处）。 */
@@ -730,6 +734,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     (payload: KgReviewCreatePayload) => clientRef.current!.send(kgReviewCreateCommand(payload)),
     [],
   );
+  const sendCodeReviewCreate = useCallback(
+    (payload: CodeReviewCreatePayload) => clientRef.current!.send(codeReviewCreateCommand(payload)),
+    [],
+  );
   const sendKgCandidatesList = useCallback(
     (payload: KgCandidatesListPayload) => clientRef.current!.send(kgCandidatesListCommand(payload)),
     [],
@@ -964,6 +972,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendKgIndexDelete,
       sendKgHealth,
       sendKgReviewCreate,
+      sendCodeReviewCreate,
       sendKgCandidatesList,
       subscribeKgFrames,
       sendTaskList,
@@ -1036,6 +1045,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendKgIndexDelete,
       sendKgHealth,
       sendKgReviewCreate,
+      sendCodeReviewCreate,
       subscribeKgFrames,
       sendTaskList,
       sendTaskDetail,

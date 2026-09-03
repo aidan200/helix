@@ -662,6 +662,21 @@ export interface KgReviewCreateCommand extends CommandFrame<KgReviewCreatePayloa
   type: "kg.review.create";
 }
 
+// ── code.review.create（code-review v1.5：P-1 体检区双入口之代码评审发起）──
+
+export interface CodeReviewCreatePayload {
+  /** 项目名或绝对路径（daemon 单点解析；准入从简——无索引门槛，允许反复发起）。 */
+  project: string;
+}
+/**
+ * 发起 code-review 代码评审任务（type="code-review"、projects=[project]、
+ * params={projectRoot}、createdBy="page"，与 kg.review.create 同源 createTask）。
+ * 无准入门槛（不要求 .helix-kg 索引——评审对象是代码不是图谱）。
+ */
+export interface CodeReviewCreateCommand extends CommandFrame<CodeReviewCreatePayload> {
+  type: "code.review.create";
+}
+
 // ── workspace 批新增（W1 workspace 绑定闭环；契约 = 设计稿 workspace-feature-design-candidate.md §3.1）──
 
 /**
@@ -816,6 +831,7 @@ export type CommandEnvelope =
   | KgIndexDeleteCommand
   | KgHealthCommand
   | KgReviewCreateCommand
+  | CodeReviewCreateCommand
   | KgCandidatesListCommand
   | WorkspaceGetCommand
   | WorkspaceOpenCommand
@@ -878,6 +894,7 @@ export const COMMAND_TYPES = [
   "kg.index.delete",
   "kg.health",
   "kg.review.create",
+  "code.review.create",
   "kg.candidates.list",
   "workspace.get",
   "workspace.open",

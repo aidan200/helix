@@ -158,7 +158,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 59 个 type（… + config 批 2 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1 + kg.candidates.list 批 1 + base prompt 批 1）", () => {
+  test("命令目录恰为 60 个 type（… + config 批 2 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1 + kg.candidates.list 批 1 + base prompt 批 1 + code.review.create 批 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -174,6 +174,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "chat.abort",
         "chat.send",
         "chat.steer",
+        "code.review.create",
         "config.get_compaction",
         "config.set_compaction",
         "kg.bootstrap.create",
@@ -224,7 +225,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 77 个 type（… + park/resume 批 2 + kg.candidates.list 批 1 + main-session plan 批 1 + error entry 批 1 + base prompt 批 1）", () => {
+  test("事件目录恰为 78 个 type（… + park/resume 批 2 + kg.candidates.list 批 1 + main-session plan 批 1 + error entry 批 1 + base prompt 批 1 + code.review.create 批 1）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get.result",
@@ -251,6 +252,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "chat.stream.delta",
         "chat.turn.completed",
         "chat.turn.started",
+        "code.review.create.result",
         "compaction.completed",
         "config.get_compaction.result",
         "config.set_compaction.result",
@@ -502,6 +504,8 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     expect(roster("web")).toEqual(["web.start.result", "web.status.changed", "web.status.result", "web.stop.result"]); // v0.7 新族 + v0.9 扩展
     expect(roster("kg")).toEqual([
       // kg 批新族（iter-20260825-11fo T5.3）：六命令点对点回执，O-6 零推送事件
+      // code-review v1.5：code.review.create.result 挂既有 kg 通道（不新增 Channel 值）
+      "code.review.create.result",
       "kg.bootstrap.create.result",
       "kg.bootstrap.impact.result",
       "kg.bootstrap.produce.result",
@@ -528,10 +532,10 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
   });
 
   test("目录计数（error entry 批后）：EVENT_TYPES 76 / EVENT_CHANNELS 76 键 / COMMAND_TYPES 58", () => {
-    expect(EVENT_TYPES.length).toBe(77); // base prompt 批：+1（agent.base_prompt.get.result）
-    expect(new Set(EVENT_TYPES).size).toBe(77); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(77); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(59); // base prompt 批：+1（agent.base_prompt.get）
+    expect(EVENT_TYPES.length).toBe(78); // code.review.create 批：+1（code.review.create.result）
+    expect(new Set(EVENT_TYPES).size).toBe(78); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(78); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(60); // code.review.create 批：+1（code.review.create）
   });
 
 });

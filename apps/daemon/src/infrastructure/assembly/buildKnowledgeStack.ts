@@ -97,6 +97,9 @@ export function buildKnowledgeStack(deps: {
   /** 该项目存在非终态 kg-review job 判定（kg.projects 行 reviewRunning
    *  数据源，hasRunningBootstrapJob 同规；缺省恒 false）。 */
   hasRunningReviewJob?: (projectName: string) => boolean;
+  /** 该项目存在非终态 code-review job 判定（kg.projects 行 codeReviewRunning
+   *  数据源，code-review v1.5；同规缺省恒 false）。 */
+  hasRunningCodeReviewJob?: (projectName: string) => boolean;
 }): KnowledgeStack {
   const database = new KgDatabase();
   const store = new SqliteKnowledgeStore({ database });
@@ -138,6 +141,7 @@ export function buildKnowledgeStack(deps: {
     countActiveNodes: (projectRoot) => graph.countActiveNodes(projectRoot),
     ...(deps.hasRunningBootstrapJob !== undefined ? { hasRunningBootstrapJob: deps.hasRunningBootstrapJob } : {}),
     ...(deps.hasRunningReviewJob !== undefined ? { hasRunningReviewJob: deps.hasRunningReviewJob } : {}),
+    ...(deps.hasRunningCodeReviewJob !== undefined ? { hasRunningCodeReviewJob: deps.hasRunningCodeReviewJob } : {}),
   });
   const viewerService = new KgViewerService({
     project: projectService,

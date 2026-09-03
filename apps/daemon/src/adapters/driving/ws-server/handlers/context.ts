@@ -42,6 +42,7 @@ import type { KgViewerService } from "../../../../application/services/kg/KgView
 import type { KgBootstrapService } from "../../../../application/services/kg/KgBootstrapService";
 import type { KgMaintenanceService } from "../../../../application/services/kg/KgMaintenanceService";
 import type { KgReviewService } from "../../../../application/services/kg/KgReviewService";
+import type { CodeReviewService } from "../../../../application/services/kg/CodeReviewService";
 import type { WorkspaceService } from "../../../../application/services/workspace/WorkspaceService";
 import type { TaskQueryService } from "../../../../application/services/task/TaskQueryService";
 import type { TaskEnginePort } from "../../../../application/ports/inbound/TaskEnginePort";
@@ -300,6 +301,10 @@ export interface KgCommandContext {
    *  未装配 → undefined，handler 回 command.unimplemented；生产面经容器
    *  workspace 现值解析器组装，kgBootstrap/kgMaintenance 同接缝）。 */
   readonly review: KgReviewService | undefined;
+  /** code-review 批一命令应用编排面（code-review v1.5：code.review.create；
+   *  未装配 → undefined，handler 回 command.unimplemented；生产面经容器
+   *  workspace 现值解析器组装，kgReview 同接缝）。 */
+  readonly codeReview: CodeReviewService | undefined;
   /** workspace 面已装配且未绑定（unbound 防御契约判别；未装配面 = false）。 */
   readonly workspaceUnbound: boolean;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */

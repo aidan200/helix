@@ -56,6 +56,8 @@ import type {
   KgProjectsCommand,
   KgReviewCreateCommand,
   KgReviewCreatePayload,
+  CodeReviewCreateCommand,
+  CodeReviewCreatePayload,
   ModelCatalogCommand,
   ModelCatalogRefreshCommand,
   ModelGetDefaultCommand,
@@ -393,6 +395,11 @@ export function kgCandidatesListCommand(payload: KgCandidatesListPayload): KgCan
 /** kg.review.create：发起语义体检任务（准入从简 = 索引存在即可，允许反复发起）。 */
 export function kgReviewCreateCommand(payload: KgReviewCreatePayload): KgReviewCreateCommand {
   return { v: PROTOCOL_VERSION, type: "kg.review.create", payload };
+}
+
+/** code.review.create：发起代码评审任务（code-review v1.5；准入从简——无索引门槛，允许反复发起）。 */
+export function codeReviewCreateCommand(payload: CodeReviewCreatePayload): CodeReviewCreateCommand {
+  return { v: PROTOCOL_VERSION, type: "code.review.create", payload };
 }
 
 // ── workspace 族命令（W3 门禁；契约 PROTOCOL.md §15.10）──────────────

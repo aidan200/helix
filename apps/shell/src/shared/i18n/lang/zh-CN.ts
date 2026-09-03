@@ -695,6 +695,14 @@ export const zhCN = {
       reviewGoTasks: "前往『任务』页观察 →",
       reviewOkToast: "体检任务已发起：{name}",
       reviewFailToast: "体检任务发起失败：{message}",
+      codeReviewTitle: "代码评审（code-review）",
+      codeReviewDesc: "LLM 按模块分批评审代码质量（设计合理性 / 逻辑问题 / 可简化点 / 卫生性，证据必带 file:line）。产出落任务报告与阶段产物，不进 candidates 台账；可反复发起。",
+      codeReviewLaunch: "发起代码评审",
+      codeReviewLaunchNote: "任务在后台执行，无交互、失败自动重试。",
+      codeReviewRunningStrip: "「{name}」的代码评审任务（code-review）运行中；可在「任务」页观察进度，任务终态后此处恢复可发起（仅禁并发）。",
+      codeReviewLaunched: "代码评审任务已发起（{name}）",
+      codeReviewOkToast: "代码评审任务已发起：{name}",
+      codeReviewFailToast: "代码评审任务发起失败：{message}",
     },
     // ── 候选台账查看面板（台账读面三件套之三；只读零裁决） ──
     cand: {

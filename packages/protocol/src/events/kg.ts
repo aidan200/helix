@@ -189,3 +189,14 @@ export interface KgReviewCreateResultEvent extends EventFrame<KgReviewCreateResu
   channel?: "kg";
   type: "kg.review.create.result";
 }
+
+/** code.review.create.result：代码评审任务已创建（code-review v1.5；kg.review.create.result 同形）。 */
+export interface CodeReviewCreateResultPayload {
+  ok: true;
+  jobId: string;
+}
+
+export interface CodeReviewCreateResultEvent extends EventFrame<CodeReviewCreateResultPayload> {
+  channel?: "kg";
+  type: "code.review.create.result";
+}

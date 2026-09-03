@@ -75,6 +75,7 @@ const KgViewer = function KgViewer({
     sendKgIndexDelete,
     sendKgHealth,
     sendKgReviewCreate,
+    sendCodeReviewCreate,
     sendKgCandidatesList,
     sendKgProjects,
     subscribeKgFrames,
@@ -89,12 +90,13 @@ const KgViewer = function KgViewer({
    * ref 镜像供 listener 读取（listener 闭包不随重渲染更新）。
    * C1 扩：purge / indexDelete 两布尔（kg 维护批写面单飞同轨）。 */
   type WriteReq = { kind: "update" | "supersede"; nodeId: string; name: string; reason?: string };
-  const [flight, setFlight] = useState<{ create: boolean; write: WriteReq | null; purge: boolean; indexDelete: boolean; review: boolean }>({
+  const [flight, setFlight] = useState<{ create: boolean; write: WriteReq | null; purge: boolean; indexDelete: boolean; review: boolean; codeReview: boolean }>({
     create: false,
     write: null,
     purge: false,
     indexDelete: false,
     review: false,
+    codeReview: false,
   });
   const flightRef = useRef(flight);
   flightRef.current = flight;
@@ -102,6 +104,7 @@ const KgViewer = function KgViewer({
   const [healthView, setHealthView] = useState<{ loading: boolean; data: KgHealthDto | null }>({ loading: false, data: null });
   const healthFetchedRef = useRef(false);
   const [reviewLaunched, setReviewLaunched] = useState(false);
+  const [codeReviewLaunched, setCodeReviewLaunched] = useState(false);
   /** 候选台账面板数据面（台账读面三件套；与 health 同窗口拉取——
    *  首进 tab 一次；过滤/选中为本地态，行集由回执刷新）。 */
   const [candView, setCandView] = useState<{
@@ -240,6 +243,14 @@ const KgViewer = function KgViewer({
             toast.push("ok", t("pj.health.reviewOkToast", { name: project.name }));
             return;
           }
+          case "code.review.create.result": {
+            if (!flightRef.current.codeReview) return; // 非本视图发起
+            setFlight((f) => ({ ...f, codeReview: false }));
+            setCodeReviewLaunched(true);
+            sendKgProjects(); // 行级 codeReviewRunning 权威化（运行态数据源）
+            toast.push("ok", t("pj.health.codeReviewOkToast", { name: project.name }));
+            return;
+          }
           case "connection.error": {
             // bootstrap 入口/写面/维护面在途失败（单飞门控；非在途不消费）
             const msg = (e.payload as { message?: string }).message ?? "error";
@@ -261,6 +272,11 @@ const KgViewer = function KgViewer({
             if (flightRef.current.review) {
               setFlight((f) => ({ ...f, review: false }));
               toast.push("err", t("pj.health.reviewFailToast", { message: msg }));
+              return;
+            }
+            if (flightRef.current.codeReview) {
+              setFlight((f) => ({ ...f, codeReview: false }));
+              toast.push("err", t("pj.health.codeReviewFailToast", { message: msg }));
               return;
             }
             if (flightRef.current.write !== null) {
@@ -425,6 +441,16 @@ const KgViewer = function KgViewer({
       toast.push("err", t("pj.boot.sendFail"));
     }
   }, [project.name, sendKgReviewCreate, toast, t]);
+
+  // ── code.review.create 发起（code-review v1.5；单飞锁在本视图）──
+  const onLaunchCodeReview = useCallback(() => {
+    if (flightRef.current.codeReview) return;
+    setFlight((f) => ({ ...f, codeReview: true }));
+    if (!sendCodeReviewCreate({ project: project.name })) {
+      setFlight((f) => ({ ...f, codeReview: false }));
+      toast.push("err", t("pj.boot.sendFail"));
+    }
+  }, [project.name, sendCodeReviewCreate, toast, t]);
 
   // ── 展示派生 ─────────────────────────────────────────────
   const rows = useMemo(() => filterRows(state.all, state.filter), [state.all, state.filter]);
@@ -694,11 +720,15 @@ const KgViewer = function KgViewer({
                     reviewBusy={flight.review}
                     reviewLaunched={reviewLaunched}
                     reviewRunning={project.reviewRunning === true}
+                    codeReviewBusy={flight.codeReview}
+                    codeReviewLaunched={codeReviewLaunched}
+                    codeReviewRunning={project.codeReviewRunning === true}
                     projectName={project.name}
                     candFilter={candView.filter}
                     t={t}
                     onCandFilter={onCandFilter}
                     onLaunchReview={onLaunchReview}
+                    onLaunchCodeReview={onLaunchCodeReview}
                     onOpenTasks={onOpenTasks}
                   />
                   <KgCandidatesPanel

@@ -137,6 +137,9 @@ register({
     // 组件听众（KgViewer 常驻 listener 单飞关联），no-op 注册保守护绿
     "kg.health.result",
     "kg.review.create.result",
+    // code-review v1.5：code.review.create 回执——同规：真消费归体检区代码
+    // 评审入口（KgViewer 常驻 listener），no-op 注册保守护绿
+    "code.review.create.result",
     // 台账读面三件套：kg.candidates.list 回执——同规：真消费归 /project 页
     // 候选台账面板（KgViewer 常驻 listener），no-op 注册保守护绿
     "kg.candidates.list.result",

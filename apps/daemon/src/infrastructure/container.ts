@@ -52,6 +52,7 @@ import { buildTaskStack } from "./assembly/buildTaskStack";
 import { KgBootstrapService } from "../application/services/kg/KgBootstrapService";
 import { KgMaintenanceService } from "../application/services/kg/KgMaintenanceService";
 import { KgReviewService } from "../application/services/kg/KgReviewService";
+import { CodeReviewService } from "../application/services/kg/CodeReviewService";
 import { hasActiveJob } from "../application/services/kg/job-activity";
 import type { TaskStorePort } from "../application/ports/outbound/TaskStorePort";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode, type MainSessionLlmOverride } from "./assembly/buildSessionStack";
@@ -354,6 +355,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
           taskStoreForProjectRows !== undefined && hasActiveJob(taskStoreForProjectRows.listJobs(), "kg-bootstrap", projectName),
         hasRunningReviewJob: (projectName) =>
           taskStoreForProjectRows !== undefined && hasActiveJob(taskStoreForProjectRows.listJobs(), "kg-review", projectName),
+        hasRunningCodeReviewJob: (projectName) =>
+          taskStoreForProjectRows !== undefined && hasActiveJob(taskStoreForProjectRows.listJobs(), "code-review", projectName),
       }),
     // B3 fs-watch 补齐挂接：已建 .helix-kg 索引的项目即挂 watcher（索引态
     // 补齐）；stop = 全停（重绑/dispose 清理面——栈 dispose 内含同调用，幂等）。
@@ -911,6 +914,23 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     }
     return svc;
   };
+  // code-review 批数据面解析器（code-review v1.5，kgReview 同接缝：workspace
+  // 现值 stack + 任务栈 engine 组装，WeakMap 按 stack 记忆化；只有发起面）。
+  const codeReviewByStack = new WeakMap<object, CodeReviewService>();
+  const codeReviewResolver = (): CodeReviewService | undefined => {
+    const stack = workspace.stack();
+    if (stack === null) return undefined;
+    let svc = codeReviewByStack.get(stack);
+    if (svc === undefined) {
+      svc = new CodeReviewService({
+        project: stack.projectService,
+        taskEngine: taskStack.taskEngine,
+        store: taskStack.orchestratorCore.store,
+      });
+      codeReviewByStack.set(stack, svc);
+    }
+    return svc;
+  };
   const ws = new WsServerAdapter({
     chat: chatRouter,
     directory: registry,
@@ -952,6 +972,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     kgMaintenance: kgMaintenanceResolver,
     // kg 评审批一命令回口（W2-F）：解析器形态（同接缝）
     kgReview: kgReviewResolver,
+    // code-review 批一命令回口（code-review v1.5）：解析器形态（同接缝）
+    codeReview: codeReviewResolver,
     events: eventStream,
     token,
     port: deps.port ?? config.port,
