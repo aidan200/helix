@@ -271,95 +271,102 @@ export class KgSyncService {
    */
   private async syncOnce(projectRoot: string, state: ProjectRunState, full: boolean): Promise<SyncResult> {
     const windowKinds = this.drainWindow(state);
-    const baselineView: SyncBaselineView = this.deps.graph.getSyncBaseline(projectRoot);
-
-    let degraded = false;
-    let symbolSet: SymbolSet = { symbols: [], containsEdges: [], files: [] };
+    // H3：drain 之后任意抛错（baseline 读取/引擎非可用类异常/域计算/落库）统一
+    // refillWindow 回填——窗口 fs 事件不丢，退避重试域保真（现状 drain 在 try
+    // 外、仅 applySync 失败回填，其余异常路径窗口永丢）。
     try {
-      await this.deps.engine.ensureIndex(projectRoot);
-      symbolSet = await this.deps.engine.exportSymbols(projectRoot);
-    } catch (e) {
-      if (!isEngineUnavailable(e)) throw e;
-      degraded = true;
-    }
+      const baselineView: SyncBaselineView = this.deps.graph.getSyncBaseline(projectRoot);
 
-    const engineFiles = new Map(symbolSet.files.map((f) => [f.path, f]));
-    const prevFiles = new Map(baselineView.files.map((f) => [f.path, f]));
-    const filePaths: readonly string[] = degraded
-      ? baselineView.files.map((f) => f.path) // docs-only：上一基准文件面（滞后合法）
-      : [...engineFiles.keys()];
-
-    const importFiles: SymbolFileRecord[] = [];
-    const deletedFiles: string[] = [];
-    const seen = new Set<string>();
-    if (!degraded) {
-      // 域：full=引擎面全量∪窗口（手动/启动/首建）；窗口路径=只处理窗口内变更文件
-      const domainPaths: readonly string[] = full ? [...filePaths, ...windowKinds.keys()] : [...windowKinds.keys()];
-      for (const p of domainPaths) {
-        if (seen.has(p)) continue;
-        seen.add(p);
-        const engineFile = engineFiles.get(p);
-        if (engineFile === undefined) {
-          // 引擎面无此文件：窗口 remove/改名/非源文件 → 上一基准有则整文件清除
-          if (prevFiles.has(p)) deletedFiles.push(p);
-          continue;
-        }
-        const prev = prevFiles.get(p);
-        if (prev !== undefined && prev.mtime === engineFile.modifiedAt && prev.sha256 === engineFile.contentHash) {
-          continue; // mtime/hash 未变跳过（增量基准）
-        }
-        importFiles.push({ path: p, mtime: engineFile.modifiedAt, sha256: engineFile.contentHash });
+      let degraded = false;
+      let symbolSet: SymbolSet = { symbols: [], containsEdges: [], files: [] };
+      try {
+        await this.deps.engine.ensureIndex(projectRoot);
+        symbolSet = await this.deps.engine.exportSymbols(projectRoot);
+      } catch (e) {
+        if (!isEngineUnavailable(e)) throw e;
+        degraded = true;
       }
-    }
 
-    const symbolFace = degraded ? [] : symbolSet.symbols.filter((s) => !s.id.startsWith("file:"));
-    const importDomain = new Set(importFiles.map((f) => f.path));
-    const symbols: SymbolRecord[] = symbolFace
-      .filter((s) => importDomain.has(s.filePath))
-      .map((s) => ({ name: s.name, kind: s.kind, spanStart: s.startLine, spanEnd: s.endLine, file: s.filePath }));
-    const containsEdges = degraded ? [] : projectContains(symbolSet, importDomain);
-
-    // 锚物化（确定性 join 全量重算；degraded docs-only：symbol 面空 → symbol 声明零锚）
-    const materializedAnchors = materializeAnchors({
-      declarations: baselineView.anchorDeclarations,
-      filePaths,
-      symbols: symbolFace.map((s) => ({ name: s.name, file: s.filePath })),
-    });
-    // 锚失效检测：上一基准活跃锚 − 本次 join（符号消亡/声明撤销 → orphan）
-    const orphanedAnchors: MaterializedAnchor[] = degraded
-      ? [] // degraded 不做 diff：symbol 锚保持旧态滞后合法（恢复后下次 sync 重算）
-      : baselineView.activeAnchors.filter((a) => !new Set(materializedAnchors.map(anchorKey)).has(anchorKey(a)));
-
-    const baseline = this.nextBaseline(projectRoot, state);
-    const syncedAt = new Date().toISOString();
-    const batch: SymbolBatch = {
-      files: importFiles,
-      symbols,
-      containsEdges,
-      materializedAnchors,
-      deletedFiles,
-      orphanedAnchors,
-      baseline,
-      degraded,
-    };
-    try {
-      await this.deps.store.applySync(projectRoot, batch);
+      const engineFiles = new Map(symbolSet.files.map((f) => [f.path, f]));
+      const prevFiles = new Map(baselineView.files.map((f) => [f.path, f]));
+      const filePaths: readonly string[] = degraded
+        ? baselineView.files.map((f) => f.path) // docs-only：上一基准文件面（滞后合法）
+        : [...engineFiles.keys()];
+  
+      const importFiles: SymbolFileRecord[] = [];
+      const deletedFiles: string[] = [];
+      const seen = new Set<string>();
+      if (!degraded) {
+        // 域：full=引擎面全量∪窗口（手动/启动/首建）；窗口路径=只处理窗口内变更文件
+        const domainPaths: readonly string[] = full ? [...filePaths, ...windowKinds.keys()] : [...windowKinds.keys()];
+        for (const p of domainPaths) {
+          if (seen.has(p)) continue;
+          seen.add(p);
+          const engineFile = engineFiles.get(p);
+          if (engineFile === undefined) {
+            // 引擎面无此文件：窗口 remove/改名/非源文件 → 上一基准有则整文件清除
+            if (prevFiles.has(p)) deletedFiles.push(p);
+            continue;
+          }
+          const prev = prevFiles.get(p);
+          if (prev !== undefined && prev.mtime === engineFile.modifiedAt && prev.sha256 === engineFile.contentHash) {
+            continue; // mtime/hash 未变跳过（增量基准）
+          }
+          importFiles.push({ path: p, mtime: engineFile.modifiedAt, sha256: engineFile.contentHash });
+        }
+      }
+  
+      const symbolFace = degraded ? [] : symbolSet.symbols.filter((s) => !s.id.startsWith("file:"));
+      const importDomain = new Set(importFiles.map((f) => f.path));
+      const symbols: SymbolRecord[] = symbolFace
+        .filter((s) => importDomain.has(s.filePath))
+        .map((s) => ({ name: s.name, kind: s.kind, spanStart: s.startLine, spanEnd: s.endLine, file: s.filePath }));
+      const containsEdges = degraded ? [] : projectContains(symbolSet, importDomain);
+  
+      // 锚物化（确定性 join 全量重算；degraded docs-only：symbol 面空 → symbol 声明零锚）
+      const materializedAnchors = materializeAnchors({
+        declarations: baselineView.anchorDeclarations,
+        filePaths,
+        symbols: symbolFace.map((s) => ({ name: s.name, file: s.filePath })),
+      });
+      // 锚失效检测：上一基准活跃锚 − 本次 join（符号消亡/声明撤销 → orphan）
+      const orphanedAnchors: MaterializedAnchor[] = degraded
+        ? [] // degraded 不做 diff：symbol 锚保持旧态滞后合法（恢复后下次 sync 重算）
+        : baselineView.activeAnchors.filter((a) => !new Set(materializedAnchors.map(anchorKey)).has(anchorKey(a)));
+  
+      const baseline = this.nextBaseline(projectRoot, state);
+      const syncedAt = new Date().toISOString();
+      const batch: SymbolBatch = {
+        files: importFiles,
+        symbols,
+        containsEdges,
+        materializedAnchors,
+        deletedFiles,
+        orphanedAnchors,
+        baseline,
+        degraded,
+      };
+      try {
+        await this.deps.store.applySync(projectRoot, batch);
+      } catch (error) {
+        // 失败回填：本批域回窗口（write=引擎面在册/remove=删除），由外层 catch 统一 refill
+        for (const f of importFiles) windowKinds.set(f.path, "write");
+        for (const p of deletedFiles) windowKinds.set(p, "remove");
+        throw error;
+      }
+      return {
+        projectRoot,
+        baseline,
+        degraded,
+        importedFiles: importFiles.length,
+        deletedFiles: deletedFiles.length,
+        orphanedAnchors,
+        syncedAt,
+      };
     } catch (error) {
-      // 失败回填：本批域回窗口（write=引擎面在册/remove=删除），重试域保真不丢事件
-      for (const f of importFiles) windowKinds.set(f.path, "write");
-      for (const p of deletedFiles) windowKinds.set(p, "remove");
       this.refillWindow(state, windowKinds);
       throw error;
     }
-    return {
-      projectRoot,
-      baseline,
-      degraded,
-      importedFiles: importFiles.length,
-      deletedFiles: deletedFiles.length,
-      orphanedAnchors,
-      syncedAt,
-    };
   }
 
   // ── 队列/窗口/基准戳 ──────────────────────────────────────
