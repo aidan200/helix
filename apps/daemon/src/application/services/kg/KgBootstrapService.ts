@@ -27,7 +27,7 @@ import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort
 import type { KgProjectService } from "./KgProjectService";
 import type { KgSyncService } from "./KgSyncService";
 import type { KgWriteService } from "./KgWriteService";
-import type { KnowledgeNode, NodeDigestRow } from "../../../domain/kg/types";
+import type { KnowledgeNode, NodeDetail, NodeDigestRow } from "../../../domain/kg/types";
 import { claimCreateSlot, hasActiveJob, projectNameOf, releaseCreateSlot } from "./job-activity";
 
 // ── 结果形状（应用层视图；协议 DTO 由 driving 层逐字段映射） ──
@@ -203,6 +203,15 @@ export class KgBootstrapService {
       .filter((j) => j.type === "kg-bootstrap" && j.projects.includes(projectNameOf(projectRoot)))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 
+    // M9：顶层预建批量映射，消 N+1 全量读——附着快照 span 映射单次构建
+    //（此前每节点各调一次 getAttachmentSnapshot 全量读）；节点详情按 id
+    // 预取一轮（nodeView 内不再逐点回读）。
+    const spanByKey = this.spanLineByKey(projectRoot);
+    const detailById = new Map<string, NodeDetail | null>();
+    for (const node of produced) {
+      detailById.set(node.id, this.deps.graph.getNode(projectRoot, node.id));
+    }
+
     // 批次 → 产出节点分桶（batch id 全局唯一，跨 job 无碰撞）
     const nodesByBatch = new Map<string, KnowledgeNode[]>();
     for (const node of produced) {
@@ -225,7 +234,7 @@ export class KgBootstrapService {
           batchViews.push({
             batchId: batch.id,
             scope: batch.scope,
-            nodes: nodes.map((n) => this.nodeView(projectRoot, n, job, batch)),
+            nodes: nodes.map((n) => this.nodeView(n, detailById.get(n.id) ?? null, spanByKey, job, batch)),
           });
         }
         if (batchViews.length === 0) continue;
@@ -264,7 +273,7 @@ export class KgBootstrapService {
       },
     });
     if (!write.ok) return { ok: false, error: { code: "task.validation_failed", message: write.error.message, path: write.error.path } };
-    return this.afterWriteView(projectRoot, project, nodeId);
+    return this.afterWriteView(projectRoot, nodeId);
   }
 
   async supersede(project: string, nodeId: string, reason: string): Promise<KgBootstrapResult<{ ok: true }>> {
@@ -333,14 +342,24 @@ export class KgBootstrapService {
     return job.projects.length > 0 ? `${base}（${job.projects.join("、")}）` : base;
   }
 
-  /** 产出节点条目组装（锚点行号 join 物化 span；为什么存在段抽取；留史理由取 change_log）。 */
-  private nodeView(projectRoot: string, node: KnowledgeNode, job: JobData, batch: BatchData): ProduceNodeView {
-    const detail = this.deps.graph.getNode(projectRoot, node.id);
-    const spanByKey = new Map(
+  /** 附着快照 → 锚行号映射（M9 单次构建单点：symbol 锚 `path\0symbol` → span 起始行；
+   *  produce 全量与 afterWriteView 直定位共用——此前 nodeView 内每节点全量重读）。 */
+  private spanLineByKey(projectRoot: string): ReadonlyMap<string, number | null> {
+    return new Map(
       this.deps.graph
         .getAttachmentSnapshot(projectRoot)
         .symbolAnchors.map((a) => [`${a.path}\u0000${a.symbol}`, a.span?.startLine ?? null] as const),
     );
+  }
+
+  /** 产出节点条目组装（锚点行号 join 物化 span；为什么存在段抽取；留史理由取 change_log）。 */
+  private nodeView(
+    node: KnowledgeNode,
+    detail: NodeDetail | null,
+    spanByKey: ReadonlyMap<string, number | null>,
+    job: JobData,
+    batch: BatchData,
+  ): ProduceNodeView {
     const anchors = (detail?.materializedAnchors ?? [])
       .filter((a) => a.orphan !== true)
       .map((a) => ({
@@ -365,23 +384,27 @@ export class KgBootstrapService {
     };
   }
 
-  /** update 后回读（nodeView 组装；job/batch 取产出分组上下文——回读条目归位呈现）。 */
-  private afterWriteView(projectRoot: string, project: string, nodeId: string): KgBootstrapResult<KgNodeUpdateView> {
-    const groups = this.produce(project);
-    if (!groups.ok) return groups;
-    for (const group of groups.value) {
-      for (const stage of group.stages) {
-        for (const batch of stage.batches) {
-          const hit = batch.nodes.find((n) => n.nodeId === nodeId);
-          if (hit !== undefined) return { ok: true, value: { node: hit } };
-        }
-      }
-    }
-    // 节点不在任何产出分组（防御：修正面只对产出条目开放）——直接取详情拼装
+  /** update 后回读（nodeView 组装；job/batch 取产出分组上下文——回读条目归位呈现）。
+   *  M9：按 originBatchId 直定位（getBatch → getJob），不再全量重跑 produce 后
+   *  线性查找；任务行缺失/非本项目 kg-bootstrap 批次归防御路径（与原 produce
+   *  未命中语义一致）。 */
+  private afterWriteView(projectRoot: string, nodeId: string): KgBootstrapResult<KgNodeUpdateView> {
     const detail = this.deps.graph.getNode(projectRoot, nodeId);
     if (detail === null) {
       return { ok: false, error: { code: "kg.node.not_found", message: `节点 ${nodeId} 回读失败`, path: "payload.nodeId" } };
     }
+    // 直定位：originBatchId → batch/job 行（与 produce 分组同口径——仅本项目
+    // kg-bootstrap job 的批次命中呈现分组；其余（sediment 带批次章/跨项目）
+    // 归防御路径，保持原「produce 未命中」语义）
+    const originBatchId = detail.node.originBatchId;
+    if (originBatchId !== null && originBatchId !== undefined) {
+      const batch = this.deps.store.getBatch(originBatchId);
+      const job = batch !== undefined ? this.deps.store.getJob(batch.jobId) : undefined;
+      if (batch !== undefined && job !== undefined && job.type === "kg-bootstrap" && job.projects.includes(projectNameOf(projectRoot))) {
+        return { ok: true, value: { node: this.nodeView(detail.node, detail, this.spanLineByKey(projectRoot), job, batch) } };
+      }
+    }
+    // 节点不在任何产出分组（防御：修正面只对产出条目开放）——直接取详情拼装
     const view: ProduceNodeView = {
       nodeId: detail.node.id,
       name: detail.node.name,

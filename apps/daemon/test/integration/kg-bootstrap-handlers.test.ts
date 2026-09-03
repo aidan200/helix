@@ -555,6 +555,30 @@ describe("kg.node.update / kg.node.supersede 修正写面", () => {
     expect(log[0]!.reason).toContain("页面");
   });
 
+  test("update 直定位回读与全量 produce 深等价（M9 对账：afterWriteView 按 originBatchId 直定位）", async () => {
+    const rig = await openRig();
+    seedSynced(rig, rig.alpha, "a0");
+    const { jobId } = await rig.engine.createTask({ type: "kg-bootstrap", projects: ["alpha"], params: { projectRoot: rig.alpha }, createdBy: "chat" });
+    const { batchId } = await rig.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次：全局规范与架构基线" });
+    const w = rig.write.write(rig.alpha, { kind: "createNode", iterationId: ITER, taskId: jobId, originBatchId: batchId, draft: { kind: "rule", name: "对账规则", digest: "旧 digest", scene: "测试场景", body: "旧正文。", status: "confirmed", layer: "L0" } });
+    expectOk(w);
+    const nodeId = (w as { ok: true; nodeId: string }).nodeId;
+    // 修正写面回读 = afterWriteView 直定位路径产物
+    const r = await rig.client.kg("kg.node.update", { project: "alpha", nodeId, digest: "修订 digest", body: "修订正文。" });
+    expect(r.ok).toBe(true);
+    // 全量 produce 路径定位同节点——两路径产物深等价（含 origin 上下文/锚/rationale）
+    const p = await rig.client.kg("kg.bootstrap.produce", { project: "alpha" });
+    expect(p.ok).toBe(true);
+    const allNodes = (p.result.groups as Array<Record<string, unknown>>).flatMap((g) =>
+      (g.stages as Array<Record<string, unknown>>).flatMap((s) =>
+        (s.batches as Array<Record<string, unknown>>).flatMap((b) => b.nodes as Array<Record<string, unknown>>),
+      ),
+    );
+    const hit = allNodes.find((n) => n.nodeId === nodeId);
+    expect(hit).toBeDefined();
+    expect(r.result.node).toEqual(hit);
+  });
+
   test("update 空 patch（digest/body 均缺）→ task.validation_failed", async () => {
     const { rig, nodeId } = await seeded();
     const r = await rig.client.kg("kg.node.update", { project: "alpha", nodeId });
