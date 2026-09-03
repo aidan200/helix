@@ -205,8 +205,8 @@ describe("向后兼容：无 task 块普通技能不受影响（CL-2-T9）", () 
     const registry = await loadRegistry();
     expect(registry.getTaskType("web-access")).toBeNull();
     const scanned = await builtinScanner().scan();
-    expect(scanned.diagnostics).toEqual([]); // 随仓 builtin 层（web-access + kg-bootstrap + kg-review）零坏文件诊断
-    expect(scanned.skills.map((s) => s.name).sort()).toEqual(["kg-bootstrap", "kg-review", "web-access"]);
+    expect(scanned.diagnostics).toEqual([]); // 随仓 builtin 层（web-access + kg-bootstrap + kg-review + code-review）零坏文件诊断
+    expect(scanned.skills.map((s) => s.name).sort()).toEqual(["code-review", "kg-bootstrap", "kg-review", "web-access"]);
   });
 });
 
@@ -273,6 +273,76 @@ describe("kg-review skill 装载（W2-F 轨二语义体检任务，R21/R23）", 
     expect(body).toContain("完成判定");
     expect(body).toContain("全节点");
     expect(body).toContain("落账条数");
+    expect(body).toContain("遗留清单");
+  });
+});
+
+describe("code-review skill 装载（代码质量评审任务，D1）", () => {
+  test("① SKILL.md 落位 builtin 层随仓目录 + SkillScanner 扫到（source=builtin）", async () => {
+    const file = path.join(builtinSkillsDir(), "code-review", "SKILL.md");
+    const text = await readFile(file, "utf8");
+    expect(text.startsWith("---\n")).toBe(true);
+
+    const scanned = await builtinScanner().scan();
+    const hit = scanned.skills.find((s) => s.name === "code-review");
+    expect(hit).toBeDefined();
+    expect(hit!.source).toBe("builtin");
+    expect(hit!.filePath).toBe(file);
+    expect(hit!.description.length).toBeGreaterThan(0);
+  });
+
+  test("② TaskSkillRegistry 装载 manifest 全字段（paramsSchema 含可选 scope + fixed 三阶段 + confirm/plan/projects）", async () => {
+    const registry = await loadRegistry();
+    expect(registry.getTaskType("code-review")).toEqual({
+      paramsSchema: {
+        projectRoot: { type: "string", required: true },
+        scope: { type: "string" },
+      },
+      stages: { strategy: "fixed", list: ["评审范围盘点与分批", "分批评审", "汇总报告"] },
+      confirm: "required",
+      plan: "enforced",
+      projects: { min: 1, max: 1 },
+    });
+    expect(registry.listTaskTypes().find((t) => t.type === "code-review")).toBeDefined();
+  });
+
+  test("③ SOP 正文锚：评审口径四问 + 证据纪律（四要素 + 严重度四级）", async () => {
+    const body = (await readFile(path.join(builtinSkillsDir(), "code-review", "SKILL.md"), "utf8")).replace(
+      /^---\n[\s\S]*?\n---\n/,
+      "",
+    );
+    // 评审口径四问
+    expect(body).toContain("设计合理性");
+    expect(body).toContain("逻辑问题");
+    expect(body).toContain("可简化");
+    expect(body).toContain("卫生性");
+    // 证据纪律：file:line + 符号名 + 严重度 + 建议；严重度四级
+    expect(body).toContain("file:line");
+    expect(body).toContain("阻断");
+    expect(body).toContain("无证据");
+  });
+
+  test("④ 产出纪律硬锚：issue 进报告与 findings / sediment 唯一例外 / 禁改代码与 kg / 汇总报告固定落点", async () => {
+    const body = (await readFile(path.join(builtinSkillsDir(), "code-review", "SKILL.md"), "utf8")).replace(
+      /^---\n[\s\S]*?\n---\n/,
+      "",
+    );
+    expect(body).toContain('"issue"');
+    expect(body).toContain("sediment");
+    expect(body).toContain("禁止修改项目代码");
+    expect(body).toContain("summary.md");
+    expect(body).toContain("HELIX_REPORT_PATH");
+    expect(body).toContain("origin_batchId");
+  });
+
+  test("⑤ 完成判定锚：模块零遗漏 + 发现条数如实 + 遗留清单显式写「无」", async () => {
+    const body = (await readFile(path.join(builtinSkillsDir(), "code-review", "SKILL.md"), "utf8")).replace(
+      /^---\n[\s\S]*?\n---\n/,
+      "",
+    );
+    expect(body).toContain("完成判定");
+    expect(body).toContain("模块零遗漏");
+    expect(body).toContain("如实");
     expect(body).toContain("遗留清单");
   });
 });
