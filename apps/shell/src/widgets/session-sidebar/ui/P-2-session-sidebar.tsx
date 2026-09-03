@@ -17,7 +17,7 @@
  *   会话按钮 + 展开把手），不渲染每会话入口——折叠态不可切会话，展开
  *   即可（用户裁决：折叠后不该像导航）。
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
@@ -46,11 +46,7 @@ function writeCollapsed(v: boolean): void {
   }
 }
 
-const focusInput = () => {
-  (document.getElementById("msg-input") as HTMLInputElement | null)?.focus();
-};
-
-const SessionSidebar = function SessionSidebar() {
+const SessionSidebar = function SessionSidebar({ onFocusInput }: { onFocusInput?: () => void }) {
   const { t } = useI18n();
   const toast = useToast();
   const { state, topology, switchSession, newDraft, deleteSession, requestSessionList, subscribeWorkspaceFrames } = useSession();
@@ -84,22 +80,38 @@ const SessionSidebar = function SessionSidebar() {
 
   const onNewSession = useCallback(() => {
     newDraft();
-    focusInput();
-  }, [newDraft]);
+    onFocusInput?.(); // M52：聚焦走 props 回调（pages 层接线 Composer ref）
+  }, [newDraft, onFocusInput]);
 
   // confirming 互斥：进入前清他卡（单值状态即互斥保证）
   const onDeleteRequest = useCallback((sessionId: string) => {
     setConfirmingId((prev) => (prev === sessionId ? null : sessionId));
   }, []);
   const onDeleteCancel = useCallback(() => setConfirmingId(null), []);
+  /** M51：删除在途锚（成功 toast 由 list_changed{deleted} 卡片移除驱动）。 */
+  const pendingDeleteRef = useRef<string | null>(null);
+
   const onDeleteConfirm = useCallback(
     (sessionId: string) => {
       setConfirmingId(null);
-      deleteSession(sessionId);
-      toast.push("err", t("chat.sidebar.deleteToast"), t("chat.sidebar.deleteToastSub"));
+      // M51：toast 结果驱动——send 失败即 err；成功待 daemon 确认（下方 effect）
+      if (!deleteSession(sessionId)) {
+        toast.push("err", t("chat.sidebar.deleteFailToast"));
+        return;
+      }
+      pendingDeleteRef.current = sessionId;
     },
     [deleteSession, t, toast],
   );
+
+  // daemon 确认（事件驱动卡片移除）→ 成功色 toast（不再无条件 err 色假反馈）
+  useEffect(() => {
+    const pending = pendingDeleteRef.current;
+    if (pending === null) return;
+    if (topology.list.some((m) => m.sessionId === pending)) return;
+    pendingDeleteRef.current = null;
+    toast.push("ok", t("chat.sidebar.deleteToast"), t("chat.sidebar.deleteToastSub"));
+  }, [topology.list, toast, t]);
 
   const isDraft = state.sessionId === null;
   const draftVisible = state.conn === "connected" && isDraft;
@@ -186,11 +198,11 @@ const SessionSidebar = function SessionSidebar() {
               className="ses active"
               data-session-card="draft"
               data-active="1"
-              onClick={focusInput}
+              onClick={() => onFocusInput?.()}
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") focusInput();
+                if (e.key === "Enter" || e.key === " ") onFocusInput?.();
               }}
             >
               <div className="ses-row1">

@@ -10,7 +10,7 @@
  *   subagent_running（main 空闲）/ idle 禁用（abort 只中断 main 生成）；
  * - 脚注 kbd 键帽提示（[[x]] 标记渲染）。
  */
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ImagePlus, Square, X } from "lucide-react";
 import { useI18n } from "@/shared/i18n";
 import { selectCanSend, selectIsGenerating, useSession } from "@/entities/session/SessionContext";
@@ -57,7 +57,13 @@ export interface ComposerProps {
   footEnd?: ReactNode;
 }
 
-const Composer = function Composer({ footEnd }: ComposerProps) {
+/** M52：聚焦能力出口（pages 层 ref 接线——SessionEmpty/SessionSidebar 的
+ *  「建议 chip / 新建会话 → 聚焦输入框」经 props 回调传导，不做魔法 id DOM 直达）。 */
+export interface ComposerHandle {
+  focus: () => void;
+}
+
+const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ footEnd }, ref) {
   const { t } = useI18n();
   const { state, setDraft, submit, abort, attachImages, removeAttachment } = useSession();
   const canSend = selectCanSend(state);
@@ -67,8 +73,12 @@ const Composer = function Composer({ footEnd }: ComposerProps) {
   const abortable = selectActiveRunState(state) === "streaming";
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // M52：聚焦出口（pages 层经 ref 调起；替代跨层 getElementById 直达）
+  useImperativeHandle(ref, () => ({ focus: () => taRef.current?.focus() }), []);
   // 附件超限提示（T9：第 5 张选择预检拦截；移除/成功 attach 后消隐）
   const [limitTip, setLimitTip] = useState(false);
+  // M53：附件读取失败临时提示（FileReader 错误；3s 自动消隐）
+  const [pickError, setPickError] = useState(false);
 
   // 自动增高：内容高度增长至上限后内滚。jsdom 无布局（scrollHeight=0）时
   // 不落内联高度，交还 CSS 默认单行。
@@ -121,10 +131,17 @@ const Composer = function Composer({ footEnd }: ComposerProps) {
       setLimitTip(true);
       return;
     }
-    void Promise.all(files.map(readAsDataURL)).then((urls) => {
-      setLimitTip(false);
-      attachImages(urls);
-    });
+    void Promise.all(files.map(readAsDataURL))
+      .then((urls) => {
+        setLimitTip(false);
+        attachImages(urls);
+      })
+      .catch(() => {
+        // M53：读取失败交代——临时错误提示（3s 消隐）+ 收口 limitTip（不残留）
+        setLimitTip(false);
+        setPickError(true);
+        window.setTimeout(() => setPickError(false), 3000);
+      });
   };
 
   const onRemoveAttachment = (index: number) => {
@@ -157,6 +174,7 @@ const Composer = function Composer({ footEnd }: ComposerProps) {
           </div>
         )}
         {limitTip && <div className="attach-limit">{t("chat.attach.limit")}</div>}
+        {pickError && <div className="attach-limit" data-attach-error>{t("chat.attach.readFail")}</div>}
         <div className="chat-inputbar">
           <span className="prompt">&gt;</span>
           {/* T9 附件钮（图片上传；steer 带图非目标——生成中禁用）+ 隐藏 file picker */}
@@ -222,6 +240,6 @@ const Composer = function Composer({ footEnd }: ComposerProps) {
       </div>
     </footer>
   );
-};
+});
 
 export default Composer;

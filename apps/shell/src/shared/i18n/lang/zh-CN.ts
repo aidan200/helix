@@ -88,6 +88,7 @@ export const zhCN = {
       remove: "移除图片",
       enlarge: "放大图片",
       limit: "最多 4 张图片",
+      readFail: "图片读取失败，请重试",
       imageAlt: "图片 {n}",
     },
     steer: {
@@ -212,7 +213,8 @@ export const zhCN = {
       deleteConfirm: "删除",
       deleteCancel: "取消",
       deleteToast: "会话已删除",
-      deleteToastSub: "已请求取消全部执行 · daemon 确认后移除",
+      deleteToastSub: "全部执行已取消 · 会话已移除",
+      deleteFailToast: "删除失败：与 daemon 的连接不可用，请稍后重试",
       timeJustNow: "刚刚",
       timeMinutes: "{n} 分钟前",
       timeHours: "{n} 小时前",

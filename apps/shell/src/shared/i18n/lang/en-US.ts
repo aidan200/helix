@@ -81,6 +81,7 @@ export const enUS = {
       remove: "Remove image",
       enlarge: "Enlarge image",
       limit: "Up to 4 images",
+      readFail: "Failed to read image, please retry",
       imageAlt: "Image {n}",
     },
     steer: {
@@ -205,7 +206,8 @@ export const enUS = {
       deleteConfirm: "Delete",
       deleteCancel: "Cancel",
       deleteToast: "Session deleted",
-      deleteToastSub: "Cancel requested · removed once daemon confirms",
+      deleteToastSub: "All execution cancelled · session removed",
+      deleteFailToast: "Delete failed: connection to daemon unavailable, please retry later",
       timeJustNow: "just now",
       timeMinutes: "{n} min ago",
       timeHours: "{n} h ago",

@@ -110,9 +110,11 @@ interface MessageFlowProps {
   children?: ReactNode;
   /** 开实例抽屉（T4.3 接线；当前占位）——payload = instanceId（≡ agentId，AD-3） */
   onOpenInstance?: (instanceId: string) => void;
+  /** M52：空态建议 chip 聚焦输入框回调（pages 层接线 Composer ref）。 */
+  onFocusInput?: () => void;
 }
 
-const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: MessageFlowProps) {
+const MessageFlow = function MessageFlow({ children, onOpenInstance = noop, onFocusInput }: MessageFlowProps) {
   const { state, loadEarlierHistory } = useSession();
   const flowRef = useRef<HTMLElement>(null);
   // 历史前插视口锚定：上一次布局后高度 + 首条 id（区分贴底与前插补偿）；
@@ -289,7 +291,7 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop }: Me
           {/* 终验热修：引擎/模型失败卡（瞬态；随轮清除） */}
           <EngineErrorCard />
         </div>
-        {empty && (state.sessionId === null ? <DraftEmpty /> : <SessionEmpty />)}
+        {empty && (state.sessionId === null ? <DraftEmpty /> : <SessionEmpty onFocusInput={onFocusInput} />)}
       </div>
       {children /* conn-overlay 等浮层（pages 层组装） */}
       </main>

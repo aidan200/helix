@@ -23,6 +23,7 @@ const switchSession = vi.fn();
 const newDraft = vi.fn();
 const deleteSession = vi.fn();
 const requestSessionList = vi.fn();
+const setDraft = vi.fn();
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
 // W4：top-bar workspace 指示器消费面（App 层恒有 Provider——此处 stub
 // main-bound 形态，指示器仅显示不交互）
@@ -52,6 +53,11 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       newDraft,
       deleteSession,
       requestSessionList,
+      setDraft,
+      submit: vi.fn(),
+      abort: vi.fn(),
+      attachImages: vi.fn(),
+      removeAttachment: vi.fn(),
       subscribeWorkspaceFrames: () => () => {}, // W4 刷新链订阅面（无操作 stub）
       requestModelConfig: () => {},
       killInstance,
@@ -210,5 +216,36 @@ describe("S1 应用壳统一（AppLayout 迁移）", () => {
     expect(header.querySelector(".brand, [data-brand-logo]")).toBeNull();
     expect(header.querySelector("#btn-dark, #btn-light, #btn-settings")).toBeNull();
     expect(document.querySelector(".scanline-overlay")).toBeNull();
+  });
+});
+
+describe("M52 聚焦接线（props 回调由 pages 层接线，非魔法 id DOM 直达）", () => {
+  it("空态建议 chip 点击 → 回填草稿 + composer textarea 聚焦", () => {
+    stateRef.current = {
+      ...play([
+        ev({
+          v: 0,
+          type: "connection.welcome",
+          payload: { sessionId: "s1", model: "claude-sonnet-4-5", agentState: "idle" },
+        }),
+      ]),
+      conn: "connected",
+      view: "ready",
+    };
+    ui();
+    const chip = document.querySelector(".empty-suggest button")!;
+    fireEvent.click(chip);
+    expect(setDraft).toHaveBeenCalled();
+    const ta = document.querySelector("#msg-input") as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(ta);
+  });
+
+  it("侧栏「新建会话」→ newDraft + composer textarea 聚焦（focusInput 同款改 props 接线）", () => {
+    stateRef.current = { ...createInitialSessionState(), conn: "connected", view: "ready" };
+    ui();
+    fireEvent.click(screen.getByText("新建会话"));
+    expect(newDraft).toHaveBeenCalledTimes(1);
+    const ta = document.querySelector("#msg-input") as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(ta);
   });
 });

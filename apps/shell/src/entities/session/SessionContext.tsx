@@ -152,8 +152,9 @@ interface SessionContextValue {
    *  mode 随首条 chat.send{draft:true, mode} 上送，建会话后快照收权锁定 */
   setDraftMode: (mode: string) => void;
   /** 删除会话（F(1.2).4）：发 session.delete（daemon 取消全部执行 → 删库 →
-   *  list_changed{deleted}）；删活跃会话则本地先切草稿态（视图即转空态） */
-  deleteSession: (sessionId: string) => void;
+   *  list_changed{deleted}）；删活跃会话则本地先切草稿态（视图即转空态）。
+   *  返回 send 结果（M51：调用侧 toast 结果驱动——false = 未连接发送失败） */
+  deleteSession: (sessionId: string) => boolean;
   /** 滚动到顶加载更早历史（selectCanLoadEarlier 门控；发 session.loadHistory） */
   loadEarlierHistory: () => void;
   /** 拉取会话清单（session.list 全局命令；结果 = session.list.result 点对点回推） */
@@ -614,7 +615,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const deleteSession = useCallback((sessionId: string) => {
+  const deleteSession = useCallback((sessionId: string): boolean => {
     // daemon 顺序：取消全部执行 → 删库 → list_changed{deleted}（前端零权威：
     // 卡片移除由事件驱动）；删的是活跃会话 → 本地先切草稿态（原型 F(1.2).4：
     // 视图即转空态，不等事件）
@@ -622,7 +623,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       ledgerRef.current!.dropActive(); // 订阅簿记活跃位置零（退订归 deleted 帧驱动）
       dispatch({ type: "session/new-draft" });
     }
-    clientRef.current!.send(sessionDeleteCommand(sessionId));
+    return clientRef.current!.send(sessionDeleteCommand(sessionId));
   }, []);
 
   const loadEarlierHistory = useCallback(() => {

@@ -1,11 +1,12 @@
 /**
  * 空会话引导（P-1 empty 态）：HX 方标（violet 辉光）+ 呼吸文案 + violet 方块
  * 光标 + 建议 chip 三枚（点击回填输入框并聚焦）。
+ * M52：聚焦走 props 回调（pages 层接线 Composer ref），不做魔法 id DOM 直达。
  */
 import { useI18n } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 
-const SessionEmpty = function SessionEmpty() {
+const SessionEmpty = function SessionEmpty({ onFocusInput }: { onFocusInput?: () => void }) {
   const { t } = useI18n();
   const { setDraft } = useSession();
 
@@ -17,7 +18,7 @@ const SessionEmpty = function SessionEmpty() {
 
   const onSuggest = (text: string) => {
     setDraft(text);
-    (document.getElementById("msg-input") as HTMLInputElement | null)?.focus();
+    onFocusInput?.();
   };
 
   return (

@@ -20,6 +20,8 @@ import type { TopologyState } from "@/entities/session/model/topology";
 const switchSession = vi.fn();
 const newDraft = vi.fn();
 const deleteSession = vi.fn();
+/** M51：deleteSession send 结果可变位（toast 结果驱动测试）。 */
+let deleteSendOk = true;
 const requestSessionList = vi.fn();
 /** W4 刷新链：workspace 帧订阅注入位。 */
 let wsListeners: ((e: EventEnvelope) => void)[] = [];
@@ -62,7 +64,10 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       topology: topologyRef.current,
       switchSession,
       newDraft,
-      deleteSession,
+      deleteSession: (sessionId: string) => {
+        deleteSession(sessionId);
+        return deleteSendOk;
+      },
       requestSessionList,
       subscribeWorkspaceFrames,
       killInstance: vi.fn(),
@@ -92,6 +97,7 @@ function ui() {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  deleteSendOk = true;
   wsListeners = [];
 });
 
@@ -191,5 +197,53 @@ describe("W4 workspace_changed 刷新链", () => {
         l({ v: 0, type: "workspace.open.result", sessionId: "__system__", channel: "workspace", payload: { root: "/ws/two", projects: [] } } as EventEnvelope);
     });
     expect(requestSessionList).toHaveBeenCalledTimes(1); // 仅首拉
+  });
+});
+
+describe("M51 删除 toast 结果驱动（deleteSession 结果 + daemon 确认）", () => {
+  function setupList() {
+    stateRef.current = makeState("s1");
+    topologyRef.current = { active: stateRef.current, background: {}, list: LIST, modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null }, webStatus: null };
+  }
+  function confirmDelete() {
+    const card = screen.getAllByText("修复调度器竞态问题")[0]!.closest("[data-session-card]")!;
+    fireEvent.click(card.querySelector(".ses-del")!);
+    fireEvent.click(card.querySelector("[data-del-confirm]")!);
+  }
+  function tree() {
+    return (
+      <ThemeProvider>
+        <I18nProvider>
+          <ToastProvider>
+            <SessionSidebar />
+          </ToastProvider>
+        </I18nProvider>
+      </ThemeProvider>
+    );
+  }
+
+  it("send 失败 → err toast「删除失败」+ 无成功 toast", () => {
+    setupList();
+    deleteSendOk = false;
+    ui();
+    confirmDelete();
+    const zone = document.querySelector(".toast-zone")!;
+    expect(zone.querySelector(".toast.err")!.textContent).toContain("删除失败");
+    expect(zone.querySelector(".toast.ok")).toBeNull();
+  });
+
+  it("send 成功 → 待 daemon 确认（list_changed 移除卡片）才弹 ok 色成功 toast（不再无条件 err 色）", () => {
+    setupList();
+    const view = ui();
+    confirmDelete();
+    expect(deleteSession).toHaveBeenCalledWith("s1");
+    // daemon 未确认：不弹（不假反馈）
+    expect(document.querySelector(".toast-zone")!.querySelector(".toast")).toBeNull();
+    // list_changed{deleted} 事件驱动卡片移除 → 成功色 toast
+    topologyRef.current = { ...topologyRef.current, list: LIST.filter((m) => m.sessionId !== "s1") };
+    act(() => view.rerender(tree()));
+    const zone = document.querySelector(".toast-zone")!;
+    expect(zone.querySelector(".toast.ok")!.textContent).toContain("会话已删除");
+    expect(zone.querySelector(".toast.err")).toBeNull();
   });
 });

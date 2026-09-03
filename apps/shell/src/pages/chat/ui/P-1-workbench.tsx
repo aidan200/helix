@@ -27,9 +27,11 @@ export interface WorkbenchProps {
   children: ReactNode;
   /** 开实例抽屉（rail 点击 → 最近实例；卡片入口归消息流） */
   onOpenInstance: (instanceId: string) => void;
+  /** M52：侧栏「新建会话」后聚焦输入框回调（pages 层接线 Composer ref）。 */
+  onFocusInput?: () => void;
 }
 
-const Workbench = function Workbench({ children, onOpenInstance }: WorkbenchProps) {
+const Workbench = function Workbench({ children, onOpenInstance, onFocusInput }: WorkbenchProps) {
   // header 槽开合状态（受控注入 TopBarActions；popover 渲染在本层）
   const [statsOpen, setStatsOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -46,7 +48,7 @@ const Workbench = function Workbench({ children, onOpenInstance }: WorkbenchProp
             onToggleModelMenu={() => setModelMenuOpen((v) => !v)}
           />
         }
-        sidebar={<SessionSidebar />}
+        sidebar={<SessionSidebar onFocusInput={onFocusInput} />}
       >
         <div className="wb-main">
           {children}
