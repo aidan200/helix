@@ -190,11 +190,12 @@ const MAIN_TOOLS = [
   "plan_read",
 ];
 const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "plan_create", "plan_update", "plan_read"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）；T3.3：+kg；T1.4：+plan 三工具（AD-6①；main-session plan 批起 Main 同含——两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）
-/** agent-roster 批：只读系统派生块双序（orchestrator 在前）。OrchestratorProfile.tools 声明全集同源。 */
+/** agent-roster 批：只读系统派生块三序（orchestrator 在前，reviewer 在后）。OrchestratorProfile.tools 声明全集同源（D6：+write 任务产物落盘）。 */
 const ORCH_TOOLS = [
   "bash",
   "read",
   "grep",
+  "write", // D6：任务报告目录内产物落盘（任务级汇总报告）——不加 edit
   "agent_spawn",
   "plan_read",
   "kg",
@@ -302,9 +303,9 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: {} });
       const result = await client.expect("agent.config.list.result");
       const system = result.payload.system as SystemBlock[];
-      expect(system).toHaveLength(2);
-      // 序固定：orchestrator 在前；无派生说明位
-      const [orch, kgw] = system;
+      expect(system).toHaveLength(3);
+      // 序固定：orchestrator 在前、kg-writer 居中、reviewer 在后；无派生说明位
+      const [orch, kgw, reviewer] = system;
       expect(orch!.profileKind).toBe("orchestrator");
       expect(orch!.tools.map((t) => t.name)).toEqual(ORCH_TOOLS);
       expect(orch!.derivedFrom).toBeUndefined();
@@ -321,6 +322,13 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       // kg-update snippet 注册表同源（main 目录面同名行单源取回）
       const kgUpdate = kgw!.tools.find((t) => t.name === "kg-update")!;
       expect(kgUpdate.snippet).toContain("知识图谱即时落账");
+      // D5 reviewer：worker 生效集（缺省全启用）− write/edit 恒摘除 + 派生说明位（代码写面机械关闭）
+      expect(reviewer!.profileKind).toBe("subagent-code-reviewer");
+      expect(reviewer!.derivedFrom).toBe("subagent-worker");
+      expect(reviewer!.tools.map((t) => t.name)).toEqual(SUB_TOOLS.filter((n) => n !== "write" && n !== "edit"));
+      expect(reviewer!.tools.map((t) => t.name)).not.toContain("write");
+      expect(reviewer!.tools.map((t) => t.name)).not.toContain("edit");
+      expect(reviewer!.tools.map((t) => t.name)).not.toContain("kg-update");
     } finally {
       await client.close();
       await rig.dispose();
@@ -350,6 +358,11 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       // kind 隔离：orchestrator 声明全集不受 worker toggle 影响（grep 仍在）
       const orch = system.find((b) => b.profileKind === "orchestrator")!;
       expect(orch.tools.map((t) => t.name)).toContain("grep");
+      // D5 reviewer：随 worker toggle 动态跟随（grep 退出），write/edit 恒不在面
+      const reviewer = system.find((b) => b.profileKind === "subagent-code-reviewer")!;
+      expect(reviewer.tools.map((t) => t.name)).toEqual(
+        SUB_TOOLS.filter((n) => n !== "write" && n !== "edit" && n !== "grep"),
+      );
     } finally {
       await client.close();
       await rig.dispose();
@@ -660,6 +673,26 @@ describe("agent.config 前置校验（payload 形状）", () => {
           "等待 read_only 拒绝（kg-writer tool）",
         );
       }
+      // D5 reviewer 同例：model 槽位可写（独立配置），tool 启停仍拒（read_only）
+      client.send({
+        v: PROTOCOL_VERSION,
+        type: "agent.config.set_enabled",
+        payload: { profileKind: "subagent-code-reviewer", resourceType: "model", name: "-", enabled: false },
+      });
+      await client.expect("agent.config.set_enabled.result");
+      client.send({
+        v: PROTOCOL_VERSION,
+        type: "agent.config.set_enabled",
+        payload: { profileKind: "subagent-code-reviewer", resourceType: "tool", name: "grep", enabled: false },
+      });
+      {
+        const at = client.frames.length;
+        await until(
+          () => client.frames.slice(at).some((f) => f.type === "connection.error" && f.payload.code === "agent.config.read_only"),
+          3000,
+          "等待 read_only 拒绝（reviewer tool）",
+        );
+      }
       // 连接保持 + 零落库（只读 kind 无用户可写面）
       client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: { profileKind: "main-session" } });
       await client.expect("agent.config.list.result");
@@ -672,14 +705,14 @@ describe("agent.config 前置校验（payload 形状）", () => {
 });
 
 describe("agent.base_prompt.get（base prompt 批：base 段系统提示词懒查询读面）", () => {
-  test("⑬ 四 kind 全可读：点对点回执 basePrompt = profile 静态声明单源（kg-writer 含图谱产出型后缀）", async () => {
+  test("⑬ 五 kind 全可读：点对点回执 basePrompt = profile 静态声明单源（kg-writer 含图谱产出型后缀 / reviewer 含评审纪律后缀）", async () => {
     const rig = await makeRig();
     const client = new TestClient(rig.url);
     try {
       await client.open();
       await helloHandshake(client, rig.token);
 
-      const kinds = ["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer"] as const;
+      const kinds = ["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer", "subagent-code-reviewer"] as const;
       for (const kind of kinds) {
         const at = client.frames.length;
         client.send({ v: PROTOCOL_VERSION, type: "agent.base_prompt.get", payload: { profileKind: kind } });
@@ -700,6 +733,12 @@ describe("agent.base_prompt.get（base prompt 批：base 段系统提示词懒�
       client.send({ v: PROTOCOL_VERSION, type: "agent.base_prompt.get", payload: { profileKind: "subagent-kg-writer" } });
       const kgw = await client.expectAfter("agent.base_prompt.get.result", at2);
       expect(kgw.payload.basePrompt).toContain("图谱产出型");
+      // D5 reviewer：通用 worker base + 评审纪律后缀（只读评审）
+      const at3 = client.frames.length;
+      client.send({ v: PROTOCOL_VERSION, type: "agent.base_prompt.get", payload: { profileKind: "subagent-code-reviewer" } });
+      const reviewer = await client.expectAfter("agent.base_prompt.get.result", at3);
+      expect(reviewer.payload.basePrompt).toContain("只读");
+      expect(reviewer.payload.basePrompt).toContain("禁止修改项目代码");
     } finally {
       await client.close();
       await rig.dispose();

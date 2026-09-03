@@ -26,6 +26,11 @@ import { BRIEF_ASSEMBLY_GUIDE } from "../templates/guide";
  * **不持知识图谱写工具**（AD-10 边界：产出落库是批次 SubAgent 的职责，
  * 编排器只编排）——机械断言在 profile 契约测试。
  *
+ * D6（code-review 任务设计）：tools +write（不加 edit）——编排器不改
+ * 项目代码，write 仅用于任务报告目录内的产物落盘（任务级汇总报告
+ * 固定落点 <home>/reports/task:<jobId>/summary.md，目录路径由 kickoff
+ * 起跑信息携带，orchestrator 不需自己猜）。
+ *
  * 系统提示 = base + 段库装配指引（三段组装：SystemPromptAssembler，
  * 与 MainAgent 消费 skill 同构——F-8）。
  */
@@ -46,7 +51,8 @@ const ORCHESTRATOR_BASE_PROMPT =
   "- 你的会话可丢弃：权威状态只有 skill、任务四表行与实例台账，任何时刻可从行状态重建现场；不要在会话内自建平行账本。\n" +
   "批次 brief 装配（必须遵守）：按段库与任务 skill 的批次 brief 模板段装配；强制台账的任务类型，台账硬约束段由系统在派发时机械追加——你不必重复、不可移除。\n" +
   "派发提示（W3-G）：任务涉及知识管辖的代码面时，在 brief 中提示执行者走开工链路" +
-  "（codegraph 落地符号 → kg affected 锚反查 → kg get 读全文）。";
+  "（codegraph 落地符号 → kg affected 锚反查 → kg get 读全文）。\n" +
+  "产物落盘纪律（D6）：write 仅用于任务报告目录内的任务产物落盘（任务级汇总报告等，目录路径见起跑信息）——项目代码零写，不持 edit 编辑面。";
 
 /** base + 段库装配指引（AD-18：提示词携带段库+硬约束+装配示例引用）。 */
 export const ORCHESTRATOR_SYSTEM_PROMPT = ORCHESTRATOR_BASE_PROMPT + "\n\n" + BRIEF_ASSEMBLY_GUIDE;
@@ -55,10 +61,12 @@ export const OrchestratorProfile: AgentProfile = {
   kind: "orchestrator",
   systemPrompt: ORCHESTRATOR_SYSTEM_PROMPT,
   tools: [
-    // 只读基础工具（规模预估/批次划分输入；不持写/编辑面——编排器不产码）
+    // 只读基础工具（规模预估/批次划分输入；不改项目代码，write 仅用于
+    // 任务报告目录内的产物落盘——D6：任务级汇总报告固定落点）
     "bash",
     "read",
     "grep",
+    "write",
     // 派批次 SubAgent（编排工具族既有面；批次实例占预算，编排 loop 不占）
     "agent_spawn",
     // 读批次实例工作台账（编排者变体：按实例 id 参数读，非本实例）

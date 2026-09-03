@@ -270,9 +270,9 @@ describe("智能体页组件（M6 T4）", () => {
     expect(document.querySelector('[data-agent-group="system"]')!.textContent).toBe("系统派生");
     expect(
       [...document.querySelectorAll("[data-agent-row]")].map((r) => r.getAttribute("data-agent-row")),
-    ).toEqual(["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer"]);
+    ).toEqual(["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer", "subagent-code-reviewer"]);
     const roRows = document.querySelectorAll('[data-ro="true"]');
-    expect(roRows).toHaveLength(2);
+    expect(roRows).toHaveLength(3); // D5：系统派生三块（orchestrator / kg-writer / reviewer）
     expect(roRows[0]!.querySelector("[data-ro-badge]")!.textContent).toBe("只读");
     // 点已选中的 main 行（幂等）：详情卡仍在场
     act(() => selectAgent("main-session"));

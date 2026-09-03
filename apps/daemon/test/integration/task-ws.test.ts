@@ -196,6 +196,7 @@ function stubAdapterDeps(events: EventStream) {
     },
     hasModel: () => false,
       kgWriterPinnedTools: ["kg-update"],
+      reviewerRemovedTools: ["write", "edit"], // D5 第五 kind 派生面（WsServerAdapter 必填注入）
       basePrompts: {},
     browser: new StubBrowserPort(),
     events,

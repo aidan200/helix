@@ -22,8 +22,8 @@ import type { AgentConfigProfileBlock, AgentConfigSystemBlock } from "@helix/pro
 export type AgentKind = "main-session" | "subagent-worker";
 
 /** 系统派生 kind（agent-roster 批；R7 系统槽位批起 model/thinking 槽位
- * 可编辑——工具集仍只读派生）。 */
-export type SystemAgentKind = "orchestrator" | "subagent-kg-writer";
+ * 可编辑——工具集仍只读派生；D5 增 reviewer 第五 kind）。 */
+export type SystemAgentKind = "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
 
 /** 写面 kind（R7：可编辑两 kind + 系统派生两 kind 的槽位型写）。 */
 export type WritableKind = AgentKind | SystemAgentKind;
@@ -34,8 +34,8 @@ export type AgentId = AgentKind | SystemAgentKind;
 /** 双 kind 固定卡序（协议 list.result 缺省块序同构）。 */
 export const AGENT_KINDS: readonly AgentKind[] = ["main-session", "subagent-worker"];
 
-/** 只读系统派生块固定序（协议 system 块序同构：orchestrator 在前）。 */
-export const SYSTEM_AGENT_KINDS: readonly SystemAgentKind[] = ["orchestrator", "subagent-kg-writer"];
+/** 只读系统派生块固定序（协议 system 块序同构：orchestrator 在前、reviewer 在后）。 */
+export const SYSTEM_AGENT_KINDS: readonly SystemAgentKind[] = ["orchestrator", "subagent-kg-writer", "subagent-code-reviewer"];
 
 export interface AgentPageState {
   /** 读面状态（idle → loading → ready / error 互斥；静默重拉保 ready） */
@@ -78,10 +78,10 @@ export function createAgentPageState(): AgentPageState {
     status: "idle",
     error: null,
     profiles: { "main-session": null, "subagent-worker": null },
-    system: { orchestrator: null, "subagent-kg-writer": null },
+    system: { orchestrator: null, "subagent-kg-writer": null, "subagent-code-reviewer": null },
     selected: "main-session", // 默认选中 main-session（brief ④）
     pending: new Set<string>(),
-    basePrompts: { "main-session": null, "subagent-worker": null, orchestrator: null, "subagent-kg-writer": null },
+    basePrompts: { "main-session": null, "subagent-worker": null, orchestrator: null, "subagent-kg-writer": null, "subagent-code-reviewer": null },
     basePromptPending: new Set<AgentId>(),
     basePromptOpen: null,
   };
@@ -120,7 +120,7 @@ export function agentPageReducer(s: AgentPageState, action: AgentPageAction): Ag
       if (action.system !== undefined) {
         const next: Record<SystemAgentKind, AgentConfigSystemBlock | null> = { ...s.system };
         for (const block of action.system) {
-          if (block.profileKind === "orchestrator" || block.profileKind === "subagent-kg-writer") {
+          if (block.profileKind === "orchestrator" || block.profileKind === "subagent-kg-writer" || block.profileKind === "subagent-code-reviewer") {
             next[block.profileKind] = block;
           }
         }

@@ -203,8 +203,14 @@ export interface WsServerAdapterDeps {
    */
   readonly kgWriterPinnedTools: readonly string[];
   /**
+   * reviewer 派生面恒摘除工具名（D5 第五 kind）：注入 = 组合根
+   * SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS 摘除常量单源（driving 不得
+   * import driven，窄数据面传递）——list 缺省全量的 system 只读块派生用。
+   */
+  readonly reviewerRemovedTools: readonly string[];
+  /**
    * base 段系统提示词读面（base prompt 批）：kind → profile 静态声明
-   * prompt 全文（四 kind；组合根从四 profile systemPrompt 字段单源注入，
+   * prompt 全文（五 kind；组合根从五 profile systemPrompt 字段单源注入，
    * driving 不得 import driven，窄数据面传递）——agent.base_prompt.get
    * 命令回口。
    */
@@ -838,6 +844,7 @@ export class WsServerAdapter {
       resource: this.deps.resource,
       hasModel: this.deps.hasModel,
       kgWriterPinnedTools: this.deps.kgWriterPinnedTools,
+      reviewerRemovedTools: this.deps.reviewerRemovedTools,
       basePrompts: this.deps.basePrompts,
       events: this.deps.events,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),

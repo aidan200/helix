@@ -140,7 +140,7 @@ const KGW_BLOCK: AgentConfigSystemBlock = {
 describe("智能体页页面模型（agent-roster：system 块 + 选中态）", () => {
   it("⑤ system 块按 kind 归位；未携带（旧 daemon / 单 kind 响应）不覆盖既有值；常量序固定", () => {
     expect(AGENT_KINDS).toEqual(["main-session", "subagent-worker"]);
-    expect(SYSTEM_AGENT_KINDS).toEqual(["orchestrator", "subagent-kg-writer"]);
+    expect(SYSTEM_AGENT_KINDS).toEqual(["orchestrator", "subagent-kg-writer", "subagent-code-reviewer"]);
     let s = createAgentPageState();
     expect(s.system["orchestrator"]).toBeNull();
     expect(s.system["subagent-kg-writer"]).toBeNull();

@@ -67,6 +67,7 @@ function agentTitleOf(t: (key: string) => string, kind: AgentId): string {
   if (kind === "main-session") return t("agents.mainTitle");
   if (kind === "subagent-worker") return t("agents.subTitle");
   if (kind === "orchestrator") return t("agents.orchestratorTitle");
+  if (kind === "subagent-code-reviewer") return t("agents.reviewerTitle");
   return t("agents.kgWriterTitle");
 }
 
@@ -394,6 +395,7 @@ function SystemProfileCard({
 }) {
   const { t } = useI18n();
   const isKgWriter = kind === "subagent-kg-writer";
+  const isReviewer = kind === "subagent-code-reviewer"; // D5 第五 kind：派生自 worker − write/edit
   const selId = `sel-model-${kind}`;
   /** S3a 可用性口径（ProfileCard 同一过滤函数/数据源/兜底链） */
   const modelsByProvider = useMemo(() => {
@@ -473,10 +475,15 @@ function SystemProfileCard({
         onClear={() => onToggle(kind, "thinking", "-", false)}
       />
 
-      {/* 派生说明位（kg-writer 独有）：工具集跟随 + 恒在面 */}
+      {/* 派生说明位（kg-writer / reviewer 各有其辞）：工具集跟随 + 恒在/恒摘面 */}
       {isKgWriter && (
         <p className="ag-note" data-derived-note>
           {t("agents.derivedNote")}
+        </p>
+      )}
+      {isReviewer && (
+        <p className="ag-note" data-derived-note>
+          {t("agents.reviewerDerivedNote")}
         </p>
       )}
 

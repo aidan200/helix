@@ -277,6 +277,38 @@ describe("T2.2 并发预算：共享池 ≤3 + 编排不占 SubAgent 预算（CL
 
 // ── RED 组 3：closure 失败重试 + 接力 brief（CL-2-T5/T13） ──
 
+// ── D6：kickoff 起跑信息携带任务报告目录（任务级汇总报告固定落点） ──
+
+describe("D6 kickoff 任务报告目录（orchestrator 持 write 后的汇总报告固定落点）", () => {
+  test("首个 drive（kickoff prompt）含任务报告目录行 = <home>/reports/task:<jobId>（与 reportDirFor/reportsDirFor 同源同式）", async () => {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      spawnEntry(BRIEF_1),
+      dispatchEntry(0, 1),
+      { kind: "reply", text: "已派发。" },
+      // 收口后聚合收口（驱动第二轮——收尾防泄漏，dispatchCase 同构）
+      { kind: "tool", toolName: "task_stage_artifact", args: { stageSeq: 1, summary: "阶段产物。" } },
+      { kind: "tool", toolName: "task_complete_job", args: {} },
+    ];
+    await withOrchestratorEnv({ script }, async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "fake-task",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      await env.until(() => env.sessionLog.some((e) => e.kind === "drive"));
+      const kickoff = env.sessionLog.find((e) => e.kind === "drive")!.text;
+      expect(kickoff).toContain("任务报告目录");
+      expect(kickoff).toContain(path.join(env.homeDir, "reports", `task:${jobId}`));
+      // 收尾：实例收口成功 → 聚合 → 任务完成（脚本耗尽防挂起）
+      await env.until(() => env.recorder.calls.length >= 1);
+      await settleInstance(env, env.recorder.call(1).agentId, { closure: "done" });
+      await env.until(() => env.store.getJob(jobId)?.status === "done");
+    });
+  });
+});
+
 // ── D8 W-R6：编排分流（kg-bootstrap/kg-review → subagent-kg-writer） ──
 
 describe("D8 W-R6 编排分流：批次实例 profileKind 按任务类型路由", () => {
@@ -372,6 +404,11 @@ describe("D8 W-R6 编排分流：批次实例 profileKind 按任务类型路由"
 
   test("kg-review 批次 → subagent-kg-writer", async () => {
     await dispatchCase("kg-review", ["kg-review"], "subagent-kg-writer");
+  });
+
+  // D5：code-review 批次走专用只读评审 profile（类型→kind 映射第三支）
+  test("code-review 批次 → subagent-code-reviewer（D5 专用评审 profile）", async () => {
+    await dispatchCase("code-review", ["code-review"], "subagent-code-reviewer");
   });
 
   test("普通任务批次 → subagent-worker（缺省形态不变）", async () => {
@@ -576,11 +613,12 @@ describe("T2.2 段库新增 + plan 硬约束机械追加（CL-2-T13）", () => {
 // ── Profile 契约（AD-10 边界：kg 写面禁入；工具集声明） ──
 
 describe("OrchestratorProfile 契约", () => {
-  test("工具集 = spawn + plan_read + kg 只读 + read/grep/bash + task 引擎回口；不含 kg 写/写文件工具（AD-10）", () => {
+  test("工具集 = spawn + plan_read + kg 只读 + read/grep/bash + write（D6 任务产物落盘）+ task 引擎回口；不含 kg 写/edit（AD-10）", () => {
     expect(OrchestratorProfile.tools).toEqual([
       "bash",
       "read",
       "grep",
+      "write", // D6：任务级汇总报告固定落点（任务报告目录内产物），不加 edit——编排器写产物不改码
       "agent_spawn",
       "plan_read",
       "kg",
@@ -591,12 +629,16 @@ describe("OrchestratorProfile 契约", () => {
       "task_complete_job",
       "task_fail_job",
     ]);
-    // AD-10 机械断言：编排器不持 kg 写工具
+    // AD-10 机械断言：编排器不持 kg 写工具；D6：write 仅限报告目录产物落盘，edit 仍不入面
     expect(OrchestratorProfile.tools).not.toContain("kg-update");
-    expect(OrchestratorProfile.tools).not.toContain("write");
     expect(OrchestratorProfile.tools).not.toContain("edit");
     // W1-B（R7）：codegraph 只挂 Main/SubAgent 两 profile——Orchestrator 不挂
     expect(OrchestratorProfile.tools).not.toContain("codegraph");
+  });
+
+  test("D6 产物落盘纪律句存在（write 仅用于任务报告目录内产物，项目代码零写）", () => {
+    expect(ORCHESTRATOR_SYSTEM_PROMPT).toContain("任务报告目录");
+    expect(ORCHESTRATOR_SYSTEM_PROMPT).toContain("项目代码零写");
   });
 
   test("profile kind = orchestrator；提示词携带段库装配指引（与 MainAgent 消费 skill 同构）", () => {
@@ -607,7 +649,9 @@ describe("OrchestratorProfile 契约", () => {
 
   test("提示词静态工具名零命中（profile 瘦身契约）", () => {
     for (const name of ["bash", "read", "write", "edit", "grep", "agent_spawn", "kg", "task_create", "plan_read"]) {
-      if (name === "kg") continue; // 概念词例外（段库指引）
+      // kg = 概念词例外（段库指引）；write/edit = D6 产物落盘纪律句例外（「write 仅用于
+      // 任务报告目录内产物落盘……不持 edit」——纪律措辞非清单枚举，与 worker 版 codegraph/kg 放行同构）
+      if (name === "kg" || name === "write" || name === "edit") continue;
       expect(ORCHESTRATOR_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)), `编排 profile 提示含工具名 ${name}`).toBeNull();
     }
   });

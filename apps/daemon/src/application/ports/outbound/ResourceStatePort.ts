@@ -16,11 +16,12 @@
  */
 /**
  * 配置单元 = profile kind（main-session / subagent-worker / orchestrator /
- * subagent-kg-writer）。T2.2 增第三值；R7 系统槽位批增第四值——两个系统
- * 派生 kind 开 model/thinking 槽位（独立配置，未配跟随全局，不联动
- * worker）；tool/skill 启停写面对系统 kind 仍拒（agent.config.read_only）。
+ * subagent-kg-writer / subagent-code-reviewer）。T2.2 增第三值；R7 系统槽位
+ * 批增第四值；D5（code-review 任务设计）增第五值——三个系统派生 kind 开
+ * model/thinking 槽位（独立配置，未配跟随全局，不联动 worker）；tool/skill
+ * 启停写面对系统 kind 仍拒（agent.config.read_only）。
  */
-export type ProfileKind = "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer";
+export type ProfileKind = "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
 
 /** 资源类型（tool/skill = 启停差异行；model/thinking = 槽位单行——
  *  thinking 为 thinking 批扩值（AD-6，iter-20260823-6ps5 T1.3）：档位字符串

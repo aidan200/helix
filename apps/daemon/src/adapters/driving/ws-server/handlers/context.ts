@@ -225,9 +225,16 @@ export interface ResourceCommandContext {
    */
   readonly kgWriterPinnedTools: readonly string[];
   /**
+   * reviewer 派生面恒摘除工具名（D5 第五 kind）：组合根注入
+   * SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS 摘除常量单源——driving 不得
+   * import driven，经窄数据面传递（kgWriterPinnedTools 同法）。list 缺省
+   * 全量时读面派生 system 只读块用（worker 生效集 − 摘除面）。
+   */
+  readonly reviewerRemovedTools: readonly string[];
+  /**
    * base 段系统提示词读面（base prompt 批）：kind → profile 静态声明
-   * prompt 全文（四 kind 含系统派生；kg-writer = SUBAGENT base + 图谱产出
-   * 型后缀，profile 声明单源）。组合根从四 profile 的 systemPrompt 字段
+   * prompt 全文（五 kind 含系统派生；kg-writer = SUBAGENT base + 图谱产出
+   * 型后缀 / reviewer = SUBAGENT base + 评审纪律后缀，profile 声明单源）。组合根从四 profile 的 systemPrompt 字段
    * 取值注入——driving 不得 import driven，经窄数据面传递
    * （kgWriterPinnedTools/hasModel 同法）。agent.base_prompt.get 读面用。
    */

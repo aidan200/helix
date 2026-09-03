@@ -31,6 +31,7 @@ import { TaskOrchestratorService, taskSessionIdOf } from "../application/service
 import type { TaskOrchestratorStarterPort } from "../application/ports/outbound/TaskOrchestratorStarterPort";
 import { PLAN_HARD_CONSTRAINT_SEGMENT } from "../adapters/driven/pi-engine/runtime/templates/catalog";
 import { SUBAGENT_KG_WRITER_EXTRA_TOOLS, SubAgentKgWriterProfile } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
+import { SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS, SubAgentCodeReviewerProfile } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentCodeReviewerProfile";
 import { MainSessionProfile } from "../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { OrchestratorProfile } from "../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
@@ -611,6 +612,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       logger,
     }),
     planHardConstraint: PLAN_HARD_CONSTRAINT_SEGMENT,
+    // D6：任务报告目录（kickoff 起跑信息携带——与 SubagentLauncher reportDirFor /
+    // ClosureRecorder reportsDirFor 同源同式 <home>/reports/<sessionId>）
+    reportsDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
     // W2-D R13 job 完成提示点（编排层，不进引擎守 AD-10）：job 终态 reap 时
     // 扫描该 job 相关 session 的 pending_sync（notified=0）→ 置已提示 + 经
     // 既有 task.changed 广播通路随行 syncHint（机器只记录只提醒，sync 人确认）
@@ -910,14 +914,18 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // agent-roster 批：kg-writer 派生面恒在工具（增量常量单源——driving
     // 不得 import driven，经窄数据面注入；list 缺省全量的 system 只读块派生用）
     kgWriterPinnedTools: SUBAGENT_KG_WRITER_EXTRA_TOOLS,
-    // base prompt 批：base 段系统提示词读面（四 profile 声明单源——
-    // kg-writer = SUBAGENT base + 图谱产出型后缀已在 profile 声明拼好；
-    // 窄数据面注入，driving 不 import driven）
+    // D5 第五 kind：reviewer 派生面恒摘除工具（摘除常量单源——窄数据面注入，
+    // kgWriterPinnedTools 同法；list 缺省全量的 system 只读块派生用）
+    reviewerRemovedTools: SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS,
+    // base prompt 批：base 段系统提示词读面（五 profile 声明单源——
+    // kg-writer = SUBAGENT base + 图谱产出型后缀 / reviewer = SUBAGENT base
+    // + 评审纪律后缀，均已在 profile 声明拼好；窄数据面注入，driving 不 import driven）
     basePrompts: {
       "main-session": MainSessionProfile.systemPrompt,
       "subagent-worker": SubAgentProfile.systemPrompt,
       "orchestrator": OrchestratorProfile.systemPrompt,
       "subagent-kg-writer": SubAgentKgWriterProfile.systemPrompt,
+      "subagent-code-reviewer": SubAgentCodeReviewerProfile.systemPrompt,
     },
     traceQuery: persistence.traceQuery, // trace.query 命令回口（只读面）
     // kg 族命令回口（P-1 六命令，§9；project 参数 service 内单点解析）——

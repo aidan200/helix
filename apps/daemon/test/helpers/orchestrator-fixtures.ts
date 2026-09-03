@@ -225,6 +225,8 @@ export interface OrchestratorEnv {
   readonly sessionLog: { kind: "drive" | "inject"; text: string }[];
   /** 编排服务日志捕获（info/warn 平铺——驱动可观测性与重试链断言面）。 */
   readonly orchestratorLog: string[];
+  /** 测试 home 目录（D6：kickoff 任务报告目录断言基准——<home>/reports/<sessionId>）。 */
+  readonly homeDir: string;
   /** 子进程形态台账直写面（模拟批次实例 plan 落账）。 */
   childLedger(): WorkLedger;
   /** 条件等待（编排链路异步收口确定性锚）。 */
@@ -335,6 +337,8 @@ export async function withOrchestratorEnv(
     resumeInstance: over.resumeInstance ?? (() => ({ resumed: true, queued: false })),
     createSession,
     planHardConstraint: PLAN_HARD_CONSTRAINT_SEGMENT,
+    // D6：任务报告目录（kickoff 起跑信息携带——与生产容器 paths.home/reports/<sessionId> 同源同式）
+    reportsDirFor: (sessionId) => path.join(dir, "reports", sessionId),
     logger: {
       info: (m: string) => orchestratorLog.push(`[INFO] ${m}`),
       warn: (m: string) => orchestratorLog.push(`[WARN] ${m}`),
@@ -352,7 +356,7 @@ export async function withOrchestratorEnv(
   };
 
   try {
-    await fn({ engine, store, orchestrator, recorder, dbPath, sessionLog, orchestratorLog, childLedger: () => childLedger(dbPath), until, dispose: async () => {
+    await fn({ engine, store, orchestrator, recorder, dbPath, sessionLog, orchestratorLog, homeDir: dir, childLedger: () => childLedger(dbPath), until, dispose: async () => {
       await queue.close();
       rmSync(dir, { recursive: true, force: true });
     } });

@@ -49,18 +49,27 @@ export function isTaskSessionId(sessionId: string): boolean {
   return sessionId.startsWith(TASK_SESSION_PREFIX);
 }
 
-/** 图谱产出型任务类型集合（D8 W-R5/W-R6）：不开 worktree 主树执行 + 批次实例走 subagent-kg-writer profile。 */
-const KG_PRODUCING_TASK_TYPES = new Set(["kg-bootstrap", "kg-review"]);
+/**
+ * 任务类型 → 批次实例 profileKind 映射（D8 W-R6 起；D5 扩第三支）：
+ * - kg-bootstrap / kg-review → "subagent-kg-writer"（图谱产出型：通用 worker 工具集 + kg-update 豁免）；
+ * - code-review → "subagent-code-reviewer"（D5 只读评审：worker 生效集 − write/edit + 评审纪律后缀）；
+ * - 其余 → "subagent-worker"（缺省不变）。
+ */
+const DISPATCH_PROFILE_KINDS: Readonly<Record<string, DispatchProfileKind>> = {
+  "kg-bootstrap": "subagent-kg-writer",
+  "kg-review": "subagent-kg-writer",
+  "code-review": "subagent-code-reviewer",
+};
+
+type DispatchProfileKind = "subagent-worker" | "subagent-kg-writer" | "subagent-code-reviewer";
 
 /**
- * 批次实例 profileKind 分流（D8 W-R6 编排层单点）：图谱产出型
- * （kg-bootstrap/kg-review）→ "subagent-kg-writer"（通用 worker 工具集
- * + kg-update）；其余 → "subagent-worker"（缺省不变）。spawn 链：
- * spawnBatch → rawSpawn → scheduler.spawn 登记 AgentInstance.profileKind
+ * 批次实例 profileKind 分流（编排层单点）：类型→kind 映射（缺省 subagent-worker）。
+ * spawn 链：spawnBatch → rawSpawn → scheduler.spawn 登记 AgentInstance.profileKind
  * → 组合根组装快照按 kind 派发生效集（buildSessionStack 单点）。
  */
-export function dispatchProfileKindOf(jobType: string): "subagent-worker" | "subagent-kg-writer" {
-  return KG_PRODUCING_TASK_TYPES.has(jobType) ? "subagent-kg-writer" : "subagent-worker";
+export function dispatchProfileKindOf(jobType: string): DispatchProfileKind {
+  return DISPATCH_PROFILE_KINDS[jobType] ?? "subagent-worker";
 }
 
 /** 编排会话驱动面（编排服务消费的最小接缝；生产实现 = pi 引擎装配，组合根注入）。 */
@@ -116,6 +125,13 @@ export interface TaskOrchestratorServiceDeps {
   readonly createSession: (jobId: string, orchestration: AgentOrchestrationPort) => OrchestratorSessionFace;
   /** plan 硬约束段全文（模板层硬约束——plan=enforced 任务派发面机械追加；段库 catalog 同源注入）。 */
   readonly planHardConstraint: string;
+  /**
+   * 任务报告目录解析（D6：kickoff 起跑信息携带——任务级汇总报告固定落点
+   * <home>/reports/task:<jobId>，orchestrator 持 write 自己写不绕道汇总批次）；
+   * 与 SubagentLauncher reportDirFor / ClosureRecorder reportsDirFor 同源同式
+   * （paths.home/reports/<sessionId>，组合根注入）。
+   */
+  readonly reportsDirFor: (sessionId: string) => string;
   /**
    * job 终态提示面（W2-D R13：reap 终态任务时回调——组合根接 pending_sync
    * 扫描 + 用户提示广播；编排层挂点不进引擎，守 AD-10）。仅在循环被 reap
@@ -485,6 +501,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       `任务类型：${job.type}`,
       `参数：${JSON.stringify(job.params)}`,
       `项目标签：${JSON.stringify(job.projects)}`,
+      `任务报告目录：${this.deps.reportsDirFor(taskSessionIdOf(job.id))}（任务级汇总报告固定落点：该目录下 summary.md；各批次报告同目录——write 仅用于该目录内产物落盘，项目代码零写）`,
       "",
       "【阶段计划（已冻结，不重议不增删）】",
       ...stageLines,

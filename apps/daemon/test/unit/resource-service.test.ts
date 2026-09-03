@@ -35,6 +35,7 @@ const TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
   ],
   "subagent-worker": ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"],
   "subagent-kg-writer": ["kg-update"],
+    "subagent-code-reviewer": ["bash", "read", "grep"], // D5 第五 kind（worker − write/edit 声明面；本文件只作合取计算输入）
     "orchestrator": ["bash", "read", "grep"], // T2.2 第三 kind（additive 扩值同步）
 };
 

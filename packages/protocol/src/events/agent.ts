@@ -176,7 +176,7 @@ export interface AgentConfigSystemToolRow {
  */
 export interface AgentConfigSystemBlock {
   /** 系统派生 kind（不在写面枚举：orchestrator 系统形态；kg-writer 装配端派生）。 */
-  profileKind: "orchestrator" | "subagent-kg-writer";
+  profileKind: "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
   /** 工具清单（纯展示；orchestrator = 声明全集，kg-writer = worker 生效集 + pinned）。 */
   tools: ReadonlyArray<AgentConfigSystemToolRow>;
   /** 派生说明位：kg-writer = 派生自 subagent-worker（工具集跟随 worker）；orchestrator 不携带。 */
@@ -203,7 +203,7 @@ export interface AgentConfigSystemBlock {
  */
 export interface AgentConfigChangedPayload {
   /** 配置单元 kind（R7 扩四值：system kind 仅 model/thinking 槽位变更广播）。 */
-  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer";
+  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
   /** thinking = v0.11 批内补登（thinking 槽位，AD-6；与 model 同为槽位语义非启停）。 */
   resourceType: "tool" | "skill" | "model" | "thinking";
   /** tools/skills = 资源名；model = 模型 id 或 null（clear）；thinking = 档位字符串或 null（clear）。 */
@@ -229,7 +229,7 @@ export type AgentConfigSetEnabledResultPayload =
  * 快照面）。
  */
 export interface AgentBasePromptGetResultPayload {
-  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer";
+  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
   basePrompt: string;
 }
 
