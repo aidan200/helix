@@ -134,6 +134,20 @@ describe("validateReport：summary+findings 硬约束与显式「无」原则（
     const report = ["## summary", "", "## findings", "无"].join("\n");
     expect(validateReport(report).map((v) => v.rule)).toEqual(["report.missing-summary"]);
   });
+
+  test("⑨ M19：同名段多现时按 some 语义判——首个命中空、后续同名段有内容 → 通过（对齐 validateBrief hasElement）", () => {
+    const report = [
+      "## summary",
+      "", // 首个 summary 段空壳
+      "## findings",
+      "（无内容）", // 首个 findings 段占位
+      "## summary（补充）",
+      "四件套交付，测试全绿。",
+      "## findings（补充）",
+      "无",
+    ].join("\n");
+    expect(validateReport(report)).toEqual([]);
+  });
 });
 
 // ───────────────────────────── checkEmptySectionOmission（硬约束③） ─────────────────────────────

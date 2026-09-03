@@ -119,21 +119,22 @@ export function validateReport(report: string): Violation[] {
   const sections = parseSections(report);
   const violations: Violation[] = [];
 
-  const summary = sections.find((s) => SUMMARY_TITLE_RE.test(s.title));
-  if (summary === undefined || summary.body.trim() === "") {
+  // M19：判据从 sections.find 首个命中改 hasElement/some 语义（对齐 validateBrief）——
+  // 同名段多现时首个空壳不误报，任一同名段有非空内容即要素在
+  if (!hasElement(sections, SUMMARY_TITLE_RE)) {
     violations.push({
       rule: "report.missing-summary",
       message: "report 缺「summary」要素：无标题含 summary/结论/摘要 且内容非空的段（硬约束②）",
     });
   }
 
-  const findings = sections.find((s) => FINDINGS_TITLE_RE.test(s.title));
-  if (findings === undefined) {
+  const findingsSections = sections.filter((s) => FINDINGS_TITLE_RE.test(s.title));
+  if (findingsSections.length === 0) {
     violations.push({
       rule: "report.missing-findings",
       message: "report 缺「findings」段（硬约束②：findings 是闭环判定与知识落账的输入，不可缺失）",
     });
-  } else if (findings.body.trim() === "" || isPlaceholderBody(findings.body)) {
+  } else if (!findingsSections.some((s) => s.body.trim() !== "" && !isPlaceholderBody(s.body))) {
     violations.push({
       rule: "report.findings-not-explicit-none",
       message: "findings 段为空或占位：无发现必须显式写「无」（显式「无」原则，AD-14）",
