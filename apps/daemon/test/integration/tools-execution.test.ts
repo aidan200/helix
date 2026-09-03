@@ -25,6 +25,13 @@ afterAll(() => {
   for (const dir of sandboxes) rmSync(dir, { recursive: true, force: true });
 });
 
+/** 宿主机 rg 定位（grep 为 rg 单后端：缺 rg 直接失败，不静默跳过）。 */
+function hostRg(): string {
+  const rg = Bun.which("rg");
+  if (rg === null) throw new Error("测试前置失败：宿主机无 rg（brew install ripgrep）");
+  return rg;
+}
+
 describe("TP-CL5-1（I）：四工具 tmp 沙箱真实执行", () => {
   test("bash：命令真实执行，stdout 回传", async () => {
     const ex = new CoreToolExecutor({ cwd: makeSandbox() });
@@ -80,7 +87,7 @@ describe("TP-CL5-1（I）：四工具 tmp 沙箱真实执行", () => {
     mkdirSync(join(cwd, "src"));
     writeFileSync(join(cwd, "src/a.ts"), "export const marker = 'HELIX-GREP-77';\n", "utf8");
     writeFileSync(join(cwd, "src/b.md"), "# HELIX-GREP-77 手册\n", "utf8");
-    const ex = new CoreToolExecutor({ cwd });
+    const ex = new CoreToolExecutor({ cwd, grep: { rgPath: hostRg() } });
     const r = await ex.execute({
       toolCallId: "t-grep-1",
       toolName: "grep",

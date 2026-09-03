@@ -49,7 +49,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:net";
 import { PROTOCOL_VERSION } from "@helix/protocol";
-import { installFromRelease, isInstalled } from "./fetch-rg";
+import { installFromRelease, isInstalled, RG_DEST } from "./fetch-rg";
 
 // ── 前置自检（F4.1，纯函数面）──────────────────────────────
 
@@ -89,8 +89,9 @@ function pathProbe(bin: string): boolean {
 
 /**
  * tauri dev --config override（H-1）：dev 形态不消费 externalBin（daemon
- * 经壳 sidecar wrapper 跑源码）与 bundle.resources（dev rg 走 PATH/config
- * 三级解析），剥离后干净态 dev 不再被 tauri-build 生产资源校验误伤。
+ * 经壳 sidecar wrapper 跑源码）与 bundle.resources（dev rg 由本脚本经
+ * HELIX_RG_PATH 注入 RG_DEST——与打包形态同走 bundle 级，无 PATH 级），
+ * 剥离后干净态 dev 不再被 tauri-build 生产资源校验误伤。
  *
  * 写法硬约束（2026-08-22 实测，tauri-cli 2.11.4 / tauri-build 2.6.3 双侧
  * 均用 json_patch::merge = RFC 7386 JSON Merge Patch）：
@@ -404,7 +405,8 @@ export interface RgEnsureResult {
 /**
  * rg 存在性检查 + 缺失自动 fetch（H-1：环境无关 + 为 build 暖场）。
  * 探测/安装函数注入（全分支可单测）；探测抛错视为未装；安装失败
- * 不抛出——返回一行警告由调用面输出，dev 继续（PATH/config 三级解析兜底）。
+ * 不抛出——返回一行警告由调用面输出，dev 继续（grep 将响亮失败，
+ * 仅剩 config.json rgPath 逃生门）。
  */
 export async function ensureRgAvailable(
   probe: () => Promise<boolean>,
@@ -426,7 +428,8 @@ export async function ensureRgAvailable(
       ok: false,
       warning:
         `⚠ dev:desktop 自动获取 rg 失败（${e instanceof Error ? e.message : e}）——` +
-        `dev 继续（grep 走 PATH/config 三级解析兜底）；为 build 暖场可手动 bun scripts/fetch-rg.ts`,
+        `dev 继续，但 grep 工具将响亮失败（rg 二级解析仅剩 config.json rgPath 逃生门）；` +
+        `可手动 bun scripts/fetch-rg.ts 修复`,
     };
   }
 }
@@ -591,7 +594,7 @@ async function main(): Promise<number> {
         // vite 端口覆盖位透传 → devUrl 随动（tauri dev 前端等待钉对端口）
         cmd: ["cargo", ...tauriDevArgs(process.env.HELIX_DESKTOP_VITE_PORT)],
         cwd: shellDir,
-        env: { ...process.env, HELIX_SIDECAR_PATH: wrapper },
+        env: { ...process.env, HELIX_SIDECAR_PATH: wrapper, HELIX_RG_PATH: RG_DEST },
         stdin: "ignore",
         stdout: "inherit",
         stderr: "inherit",

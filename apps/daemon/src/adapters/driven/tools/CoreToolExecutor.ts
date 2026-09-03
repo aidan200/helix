@@ -120,8 +120,8 @@ export interface CoreToolExecutorOptions {
   readonly ownerId?: string;
   /**
    * grep 后端定格注入（AF-1 启动定格产物：组合根一次性 resolve+探针后
-   * 经此注入 rg 路径与降级 warning 面；缺省 = 定格内置 TS——ChildMain
-   * 子进程装配不走组合根定格，恒为 ts）。
+   * 经此注入 rg 路径；rg 单后端——缺省 = unavailable 定格，工具响亮失败。
+   * ChildMain 子进程经 HELIX_RG_PATH env 透传消费）。
    */
   readonly grep?: GrepToolDeps;
   /**

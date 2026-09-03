@@ -209,12 +209,14 @@ describe("TP-CL5-1（A 半）：core 四工具接线与封装边界（AD-10 / F(
   });
 });
 
-describe("TP-CL5-2（A 半）：grep 匹配核 framework-free（不碰 fs/node）", () => {
-  test("grep/backends/ts-backend.ts 无 node:* / fs import（遍历经注入的 ExecutionEnv）", () => {
-    // T1.1（CL-3 域目录化）：匹配核随迁至 grep/backends/ts-backend.ts，同口径断言
-    const src = read(path.join("adapters", "driven", "tools", "grep", "backends", "ts-backend.ts"));
-    expect(src.includes('"node:'), "ts-backend.ts 不得 import node 内建").toBe(false);
-    expect(src.includes("require("), "ts-backend.ts 不得 require").toBe(false);
+describe("TP-CL5-2（A 半）：grep 语义契约面 framework-free（不碰 fs/node）", () => {
+  test("grep/contract.ts 零 import（类型 + globToRegExp 唯一实现源，纯函数）", () => {
+    // rg 唯一化：语义基准自 ts-backend 上收 contract.ts（globToRegExp 迁入），
+    // 同口径断言——契约面必须保持 framework-free 可单测
+    const src = read(path.join("adapters", "driven", "tools", "grep", "contract.ts"));
+    expect(src.includes('"node:'), "contract.ts 不得 import node 内建").toBe(false);
+    expect(src.includes("require("), "contract.ts 不得 require").toBe(false);
+    expect(importSpecifiers(src), "contract.ts 不得有任何 import").toEqual([]);
   });
 });
 
@@ -412,9 +414,10 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // 源头仍且仅是 auth.json（AuthStore，0600+文件锁；旧 config.json 含
     // apiKeys 字段时启动迁移，见 infrastructure/config.ts）。
     // T1.1（AD-2/F3.1）新增组合根唯一例外：container.ts 可读且仅可读
-    // HELIX_RG_PATH（壳注入的 rg bundle 资源定位参数，非配置源）与 PATH
-    // （rg 三级解析第③级探测对象）——读取收束于装配层单点作为 resolve-rg
-    // 入参（resolve-rg.ts 本体零 env 依赖）。
+    // HELIX_RG_PATH（壳注入的 rg bundle 资源定位参数，非配置源）——读取
+    // 收束于装配层单点作为 resolve-rg 入参（resolve-rg.ts 本体零 env
+    // 依赖）。rg 唯一化后其 PATH 级已砍；PATH 键保留仅为 codegraph
+    // 三级解析第③级探测对象。
     // T2.1（AF-2）：同模式扩 HELIX_CODEGRAPH_PATH（codegraph 三级解析第①级
     // bundle 注入键，resolve-codegraph.ts 本体零 env 依赖）。
     const whitelistRoot = path.join("adapters", "driven", "subagent");
@@ -448,6 +451,7 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       "HELIX_INSTANCE_ID",
       "HELIX_MODEL_JSON",
       "HELIX_REPORT_PATH", // F3.0（T4.1）：报告落点传参（SubagentLauncher 注入 / 提示词引导消费）
+      "HELIX_RG_PATH", // rg 二进制定格路径透传（SubagentLauncher 注入 / ChildMain grep 门面消费；rg 单后端）
       "HELIX_SYSTEM_PROMPT",
       "HELIX_THINKING_LEVEL",
       "HELIX_TOOLS_JSON",

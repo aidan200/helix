@@ -119,8 +119,11 @@ const sandboxes: string[] = [];
 function makeHarness(scripts: ScriptEntry[], browserPort?: FakeBrowserPort): LoopHarness {
   const cwd = mkdtempSync(join(tmpdir(), "helix-t15-loop-"));
   sandboxes.push(cwd);
+  const rg = Bun.which("rg");
+  if (rg === null) throw new Error("测试前置失败：宿主机无 rg（grep 为 rg 单后端，brew install ripgrep）");
   const executor = new CoreToolExecutor({
     cwd,
+    grep: { rgPath: rg },
     orchestration: {
       // T2.3：MainSessionProfile 声明编排三工具——工具循环测试不驱动调度，
       // 注入 no-op 编排口保持 resolveTools 可装配

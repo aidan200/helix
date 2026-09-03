@@ -1,56 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { globToRegExp, matchFiles } from "../../src/adapters/driven/tools/grep/backends/ts-backend";
+import type { ExecutionToolContext } from "@earendil-works/pi-agent-core/node";
+import { globToRegExp } from "../../src/adapters/driven/tools/grep/contract";
+import { createGrepTool } from "../../src/adapters/driven/tools/grep/GrepTool";
 
 /**
- * TP-CL5-2（U）：grep 匹配核心纯函数——输入内存数据（文件清单 + 查询），
- * 输出命中行列表。本文件**只 import 纯函数符号**（不触 fs/node API、
- * 不实例化工具），即 test-design「framework-free 可单测」的机械证明。
- * 四情形：多命中 / 零命中 / 路径过滤（glob）/ 大小写开关。
+ * TP-CL5-2（U）：grep 工具门面的 framework-free 面——
+ * ① globToRegExp（glob 路径过滤唯一实现源，contract.ts）纯函数矩阵；
+ * ② unavailable 定格的响亮失败（deps 无 rgPath → execute 抛明确错误文案，
+ *    零 spawn 零 fs——失败发生在任何后端调用之前）。
+ * rg 真实检索行为锚在 integration 侧（grep-contract.test.ts golden fixture）。
  */
-
-/** 内存 fixture：三个文件、若干行（行号即数组序 +1）。 */
-const FIXTURE = [
-  { path: "src/alpha.ts", lines: ["const marker = 'HELIX';", "const other = 1;", "// HELIX 注释"] },
-  { path: "src/beta.ts", lines: ["import { HELIX } from './alpha';", "export const x = 2;"] },
-  { path: "docs/note.md", lines: ["# HELIX 手册", "正文无关键词"] },
-  { path: "root.txt", lines: ["顶层一行 HELIX"] },
-];
-
-describe("TP-CL5-2：grep 纯函数四情形", () => {
-  test("① 多命中：跨文件跨行收集所有命中（path + 1-based 行号 + 行文本）", () => {
-    const matches = matchFiles(FIXTURE, { pattern: "HELIX" });
-    expect(matches).toEqual([
-      { path: "src/alpha.ts", lineNumber: 1, line: "const marker = 'HELIX';" },
-      { path: "src/alpha.ts", lineNumber: 3, line: "// HELIX 注释" },
-      { path: "src/beta.ts", lineNumber: 1, line: "import { HELIX } from './alpha';" },
-      { path: "docs/note.md", lineNumber: 1, line: "# HELIX 手册" },
-      { path: "root.txt", lineNumber: 1, line: "顶层一行 HELIX" },
-    ]);
-  });
-
-  test("② 零命中：返回空数组（不抛错）", () => {
-    expect(matchFiles(FIXTURE, { pattern: "NO_SUCH_TOKEN_42" })).toEqual([]);
-  });
-
-  test("③ 路径过滤：glob 只保留匹配文件（* 可跨目录）", () => {
-    const matches = matchFiles(FIXTURE, { pattern: "HELIX", glob: "*.md" });
-    expect(matches.map((m) => m.path)).toEqual(["docs/note.md"]);
-    const tsOnly = matchFiles(FIXTURE, { pattern: "HELIX", glob: "*.ts" });
-    expect(tsOnly.map((m) => m.path)).toEqual(["src/alpha.ts", "src/alpha.ts", "src/beta.ts"]); // alpha 两处命中都保留
-    expect([...new Set(tsOnly.map((m) => m.path))]).toEqual(["src/alpha.ts", "src/beta.ts"]);
-  });
-
-  test("④ 大小写：默认区分；ignoreCase 打开后大小写不敏感", () => {
-    expect(matchFiles(FIXTURE, { pattern: "helix" })).toEqual([]); // 区分：全小写不命中
-    const ci = matchFiles(FIXTURE, { pattern: "helix", ignoreCase: true });
-    expect(ci.length).toBe(5);
-    expect(ci[0]).toEqual({ path: "src/alpha.ts", lineNumber: 1, line: "const marker = 'HELIX';" });
-  });
-
-  test("边界：空 pattern 拒绝（fail-fast，避免「全命中」误用）", () => {
-    expect(() => matchFiles(FIXTURE, { pattern: "" })).toThrow(/pattern/);
-  });
-});
 
 describe("globToRegExp（路径过滤的实现核）", () => {
   test("* 跨目录（grep --include 语义）、? 单字符、其余字面量转义", () => {
@@ -60,5 +19,29 @@ describe("globToRegExp（路径过滤的实现核）", () => {
     expect(globToRegExp("a?c.ts").test("ac.ts")).toBe(false);
     expect(globToRegExp("v1.0.txt").test("v1x0.txt")).toBe(false); // . 被转义为字面量
     expect(globToRegExp("v1.0.txt").test("v1.0.txt")).toBe(true);
+  });
+});
+
+describe("grep 门面 unavailable 定格：响亮失败", () => {
+  const fakeContext = {} as ExecutionToolContext; // 响亮失败先于任何 context 消费
+
+  test("缺省 deps（无 rgPath）→ 抛明确错误：含原因与修复指引，不静默", async () => {
+    const tool = createGrepTool();
+    await expect(
+      tool.execute("tc-1", { pattern: "x", path: "." }, undefined, undefined, fakeContext),
+    ).rejects.toThrow(/grep 工具不可用/);
+  });
+
+  test("unavailableReasons 透传进错误文案（启动定格原因对 agent 可见）", async () => {
+    const tool = createGrepTool({ unavailableReasons: ["bundle：HELIX_RG_PATH 未注入或为空", "config：未配置 rgPath"] });
+    try {
+      await tool.execute("tc-1", { pattern: "x", path: "." }, undefined, undefined, fakeContext);
+      expect.unreachable("应抛响亮失败");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      expect(msg).toContain("HELIX_RG_PATH 未注入");
+      expect(msg).toContain("config.json 配置 rgPath"); // 修复指引
+      expect(msg).toContain("fetch-rg"); // 开发者修复路径
+    }
   });
 });

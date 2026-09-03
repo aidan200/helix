@@ -148,7 +148,7 @@ export interface BuildSessionStackDeps {
   readonly sessionIdleUnloadMs?: number;
   /** 空闲卸载轮询间隔 ms 覆盖（测试注入面；缺省 min(60s, 窗口/10)）。 */
   readonly sessionIdlePollMs?: number;
-  /** grep 后端定格注入（AF-1 启动定格产物：组合根透传；缺省 = 定格内置 TS）。 */
+  /** grep 后端定格注入（AF-1 启动定格产物：组合根透传；rg 单后端，缺省 = unavailable 响亮失败）。 */
   readonly grep?: GrepToolDeps;
   /**
    * 自写 edit/edit-lines 挂点注入面工厂（T3.2 附着接线）：组合根把 kg 栈

@@ -372,6 +372,9 @@ async function main(): Promise<void> {
     kg: kg.tools,
     codegraph,
     plan: workLedger.tools,
+    // grep rg 单后端：父进程定格路径经 HELIX_RG_PATH env 透传（SubagentLauncher
+    // 显式注入或形态 env 继承——bundle 级）；缺席 → 门面响亮失败（无 TS 兜底）
+    grep: { rgPath: process.env.HELIX_RG_PATH },
   });
   // ⑤ park/resume 批：挂起协议子进程侧状态（共享对象——stdin 读取器写、
   // ParkGuardHooks 读；P6 双保险：标志位即硬拦截输入）

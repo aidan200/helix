@@ -1,32 +1,31 @@
 import type { ExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import { globToRegExp } from "../contract";
 import type { GrepBackend, GrepMatch, GrepQuery } from "../contract";
-import { globToRegExp } from "./ts-backend";
 
 /**
  * rg 后端 + 行为归一适配层（CL-3/F3.1，AD-2，architecture §4.5/§6.3）。
  *
- * 经 T1.1 resolve-rg 解析出的**注入路径** spawn 真 rg（本模块只接受注入
+ * 经 resolve-rg 解析出的**注入路径** spawn 真 rg（本模块只接受注入
  * 路径，禁止 spawn("rg") 裸名直撞 PATH——R1 解析单点守护），把 rg 原生
- * 语义逐项对齐到内置 TS 后端语义（宁失速不失真）：
- * - 子串匹配 → `--fixed-strings` 恒在（TS includes 语义，非正则）；
- * - gitignore → `--no-ignore` 恒在（TS 遍历零 gitignore 概念，显式抵消 rg 默认）；
- * - 隐藏文件 → `--hidden` 恒在（TS walkDir 不跳隐藏文件）；
- * - 跳过目录 → `-g '!node_modules' -g '!.git'`（basename 匹配，等价 TS SKIP_DIRS）；
- * - glob 过滤 → **不传 rg**，rg 全量搜后由本适配层用与 TS 同一个
- *   `globToRegExp` 过滤命中行（单源语义，规避 rg glob 与 TS `*` 跨目录差异）；
+ * 语义逐项对齐到 grep 契约语义（contract.ts 为语义基准，宁失速不失真）：
+ * - 子串匹配 → `--fixed-strings` 恒在（includes 语义，非正则）；
+ * - gitignore → `--no-ignore` 恒在（契约遍历零 gitignore 概念，显式抵消 rg 默认）；
+ * - 隐藏文件 → `--hidden` 恒在（契约遍历不跳隐藏文件）；
+ * - 跳过目录 → `-g '!node_modules' -g '!.git'`（basename 匹配，契约既定排除集）；
+ * - glob 过滤 → **不传 rg**，rg 全量搜后由本适配层用契约单源
+ *   `globToRegExp` 过滤命中行（规避 rg glob 与契约 `*` 跨目录差异）；
  * - 大小写 → `ignoreCase=true` 时传 `-i`；
- * - 空 pattern → 与 TS 同语义抛错（spawn 前判定，零进程开销）；
- * - 结果顺序 → 按 (path, lineNumber) 字典序排序后返回（TS readdir 发现序
- *   不契约化；parity 断言排序后相等，见 T1.3）；
- * - MAX_FILES=1000 防爆 → **不复制**（TS 遍历保护；rg 侧由 RG_TIMEOUT_MS
- *   超时兜底，差异已记录，parity fixture 不构造 >1000 文件场景）。
+ * - 空 pattern → spawn 前判定抛错（零进程开销）；
+ * - 结果顺序 → 按 (path, lineNumber) 字典序排序后返回；
+ * - 无文件数上限（历史 TS 遍历的 MAX_FILES=1000 保护已随 TS 后端删除；
+ *   rg 侧由 RG_TIMEOUT_MS 超时兜底，超大目录以「收窄 path/glob」引导）。
  *
  * 输出消费 `--json` 结构化事件流（非 `path:行号:` 文本切分）：只取 match
  * 事件的 path/lines/line_number 三字段——Windows 盘符（`C:\...:42:`）与
  * 路径/行内容含冒号的边角在文本协议下必错切，JSON 协议天然免疫。
  * 执行面：以注入 ExecutionEnv 的 cwd 为子进程 cwd，传**相对** rootPath，
- * rg 输出路径即 cwd 相对投影（与 TS 后端 relativeToCwd 产物同口径）。
- * exit 1（零命中）归一为空数组，与 TS「零命中返回 []」同形状。
+ * rg 输出路径即 cwd 相对投影（`./` 前缀在解析层剥除）。
+ * exit 1（零命中）归一为空数组。
  */
 
 /** 单次检索调用上限（超时即 kill 子进程并抛 RgTimeoutError）。 */
@@ -44,7 +43,7 @@ export class RgExecError extends Error {
   }
 }
 
-/** rg 检索超时（已 kill 子进程；门面降级分类用，T1.3 消费）。 */
+/** rg 检索超时（已 kill 子进程；门面透传为工具错误，文案含收窄引导）。 */
 export class RgTimeoutError extends Error {
   public constructor(message: string) {
     super(message);
@@ -124,6 +123,8 @@ export function parseRgJson(stdout: string, glob?: string): GrepMatch[] {
 /**
  * rg 后端：构造面注入 rg 绝对路径 + 执行环境（cwd）+ 相对 rootPath +
  * 超时上限；search 只消费查询，返回恒为排序后的 GrepMatch[]。
+ * 单后端定位：rg 为 grep 工具唯一实现（无 TS 兜底），执行失败
+ * （RgExecError/RgTimeoutError）原样上抛由门面透传为工具错误。
  */
 export function createRgBackend(
   rgPath: string,
@@ -136,7 +137,7 @@ export function createRgBackend(
     name: "rg",
     async search(query: GrepQuery): Promise<GrepMatch[]> {
       if (query.pattern === "") {
-        // 与 TS 后端同语义（matchFiles 同款文案），spawn 前判定
+        // 契约语义（grep pattern 为空会命中所有行，属误用），spawn 前判定
         throw new Error("grep pattern 不能为空字符串（会命中所有行，属误用）");
       }
       let proc: ReturnType<typeof Bun.spawn>;
@@ -164,9 +165,11 @@ export function createRgBackend(
           proc.exited,
         ]);
         if (timedOut) {
-          throw new RgTimeoutError(`rg 检索超时（>${opts.timeoutMs}ms），已终止子进程：${rgPath}`);
+          throw new RgTimeoutError(
+            `rg 检索超时（>${opts.timeoutMs}ms），已终止子进程——请收窄 path 或加 glob 过滤后重试`,
+          );
         }
-        if (exitCode === 1) return []; // rg 零命中语义 → TS「返回空数组」同形状
+        if (exitCode === 1) return []; // rg 零命中语义 → 返回空数组
         if (exitCode !== 0) throw new RgExecError(exitCode, stderr.trim());
         return parseRgJson(stdoutText, query.glob);
       } catch (e) {

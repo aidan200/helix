@@ -3,12 +3,9 @@ import type {
   AgentToolResult,
   ExecutionToolContext,
 } from "@earendil-works/pi-agent-core/node";
-import { createTsBackend } from "./backends/ts-backend";
 import {
   createRgBackend,
   RG_TIMEOUT_MS,
-  RgExecError,
-  RgTimeoutError,
 } from "./backends/rg-backend";
 import type { GrepMatch, GrepQuery } from "./contract";
 
@@ -19,15 +16,14 @@ import type { GrepMatch, GrepQuery } from "./contract";
  * （pattern/path/glob/ignoreCase 四键）、输出格式 `path:行号: 行内容` /
  * `(no matches for "...")` 文案——既有工具契约零变化。
  *
- * 门面只做后端接线与输出格式化，不含匹配逻辑（匹配核在
- * backends/ts-backend.ts）。后端选择编排（T1.3，AF-1 启动定格语义）：
- * - **启动定格**：组合根一次性 resolve + 探针的产物经 deps.rgPath 注入
- *   （见 freeze-backend.ts）；缺省 = 定格内置 TS。门面运行期只读内存
- *   标识选后端——零解析、零探针、零逐次降级判断。
- * - **首败永久降级**：定格 rg 时某次调用抛 RgExecError/RgTimeoutError
- *   → 当轮用 ts 重跑同一查询返回结果（不向 agent 抛错）+ warning 日志
- *   一次 + 内存标识翻转为 ts（此后直走 ts，无任何代码路径翻回）。
- *   非降级类错误（如空 pattern 语义错）原样抛出，不吞咽不翻转。
+ * 门面只做后端接线与输出格式化，不含匹配逻辑。**rg 单后端**（TS 内置
+ * 后端已删——分发形态只有安装包与 dev 两种，均有 bundle 级 rg 保障）：
+ * - **启动定格**：组合根一次性 resolve + 探针的产物经 deps 注入
+ *   （见 freeze-backend.ts）。门面运行期只读定格结果——零解析、零探针。
+ * - **响亮失败**（unavailable 定格）：工具仍注册，execute 返回明确
+ *   错误文案（原因 + 修复指引），不静默、不让 daemon 起不来。
+ * - **运行期失败透传**：RgExecError/RgTimeoutError 原样上抛转为工具
+ *   错误（无 TS 兜底可降级）；超时文案含「收窄 path/glob」自愈引导。
  */
 
 /** grep 工具参数（JSON Schema，手写；与 typebox Type.Object 产物同构，
@@ -44,29 +40,38 @@ const grepParameters = {
   additionalProperties: false,
 } as const;
 
-/** 门面注入面（组合根装配时填充；全缺省 = 定格内置 TS）。 */
+/** 门面注入面（组合根装配时填充——启动定格产物的机械投影）。 */
 export interface GrepToolDeps {
   /**
-   * 启动定格的 rg 路径（AF-1：freeze-backend 产物；提供 = 定格 rg 后端，
-   * 缺省 = 定格内置 TS）。运行期零重新解析。
+   * 启动定格的 rg 路径（AF-1：freeze-backend 产物；提供 = rg 可用，
+   * 缺省 = unavailable 定格，工具响亮失败）。运行期零重新解析。
    */
   readonly rgPath?: string;
-  /** 降级 warning 日志面（首败翻转时记录一次；只进日志面，对 agent 无感）。 */
-  readonly warn?: (message: string) => void;
+  /** unavailable 定格的缺失原因清单（响亮失败文案用；rgPath 缺省时由组合根透传）。 */
+  readonly unavailableReasons?: readonly string[];
   /** rg 单次检索超时上限覆盖（测试注入面；缺省 RG_TIMEOUT_MS=10s）。 */
   readonly rgTimeoutMs?: number;
 }
 
+/** grep unavailable 定格时的响亮失败文案（原因 + 修复指引，对 agent 可见）。 */
+function unavailableMessage(reasons: readonly string[]): string {
+  return (
+    "grep 工具不可用：rg 后端启动定格失败。\n" +
+    `原因：${reasons.join("；")}\n` +
+    "修复：安装包形态请重装（包内应含 rg 二进制）；开发者请先运行 " +
+    "bun scripts/fetch-rg.ts 并经 dev-desktop 启动；或在 config.json 配置 rgPath 指向可用的 ripgrep。"
+  );
+}
+
 /** 自写 grep 工具：实现 core 的 Tool 接口（AgentHarnessTool 形态）。 */
 export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<ExecutionToolContext, any, undefined> {
-  /** 内存标识（AF-1）：非 undefined = 定格 rg；首败翻转为 undefined（永久降级，无翻回路径）。 */
-  let rgPath = deps.rgPath;
   return {
     name: "grep",
     label: "grep",
     description:
       "在指定文件或目录内递归搜索文本（子串匹配），返回命中行（格式 path:行号: 行内容）。" +
-      "可用 glob 过滤文件（* 可跨目录）、ignoreCase 忽略大小写。跳过 node_modules 与 .git。",
+      "可用 glob 过滤文件（* 可跨目录）、ignoreCase 忽略大小写。跳过 node_modules 与 .git。" +
+      "单次检索有超时上限；超大目录建议收窄 path 或加 glob 过滤。",
     parameters: grepParameters as any,
     async execute(toolCallId, params, signal, _onUpdate, context): Promise<AgentToolResult<undefined>> {
       void toolCallId;
@@ -76,8 +81,7 @@ export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<Execut
         glob?: string;
         ignoreCase?: boolean;
       };
-      const query: GrepQuery = { pattern, glob, ignoreCase };
-      const matches = await search(query, path, context, signal);
+      const matches = await search({ pattern, glob, ignoreCase }, path, context, signal);
       const text =
         matches.length > 0
           ? matches.map((m) => `${m.path}:${m.lineNumber}: ${m.line}`).join("\n")
@@ -86,26 +90,24 @@ export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<Execut
     },
   };
 
-  /** 后端分流：只读内存标识；rg 首败 → 当轮 ts 重跑 + warning + 永久翻转。 */
+  /** 后端执行：rg 唯一直通；unavailable 定格 → 响亮失败。 */
   async function search(
     query: GrepQuery,
     rootPath: string,
     context: ExecutionToolContext,
     signal: AbortSignal | undefined,
   ): Promise<GrepMatch[]> {
-    if (rgPath === undefined) {
-      return createTsBackend(context.env, rootPath, signal).search(query);
+    if (deps.rgPath === undefined) {
+      throw new Error(
+        unavailableMessage(deps.unavailableReasons ?? ["rg 路径未注入（启动定格为 unavailable）"]),
+      );
     }
-    const rg = createRgBackend(rgPath, context.env, rootPath, { timeoutMs: deps.rgTimeoutMs ?? RG_TIMEOUT_MS }, signal);
-    try {
-      return await rg.search(query);
-    } catch (e) {
-      if (e instanceof RgExecError || e instanceof RgTimeoutError) {
-        deps.warn?.(`grep rg 后端首败（${e.name}），当轮回退内置 TS 后端并永久降级：${e.message}`);
-        rgPath = undefined; // 永久翻转：此后直走 ts，零判断（AF-1 机械判据）
-        return createTsBackend(context.env, rootPath, signal).search(query);
-      }
-      throw e; // 非降级类错误（如空 pattern 语义错）原样抛出
-    }
+    return createRgBackend(
+      deps.rgPath,
+      context.env,
+      rootPath,
+      { timeoutMs: deps.rgTimeoutMs ?? RG_TIMEOUT_MS },
+      signal,
+    ).search(query);
   }
 }

@@ -105,6 +105,13 @@ export interface SubagentLauncherDeps {
    */
   readonly codegraphPath?: string;
   /**
+   * rg 二进制定格路径（rg 唯一化）：父进程启动定格产物——经 HELIX_RG_PATH
+   * env 传子进程（既有键值透传，非新增 env 键，AG-08；定格透传保持父子
+   * 一致，同 codegraphPath/HELIX_MODEL_JSON 哲学）。缺省不传键（子进程
+   * 靠继承 env；二级解析缺 config 级——config 级 rg 必须经本显式透传）。
+   */
+  readonly rgPath?: string;
+  /**
    * spawn 快照（代际生效，TR-AD-24 同构）：launch 时刻读一次的组装
    * 产物缓存（组合根在启动与 toggle applied 后刷新；systemPrompt = base +
    * 生效工具清单 + 生效技能段，tools = getEffectiveTools 生效集）。透传
@@ -245,6 +252,8 @@ export class SubagentLauncher implements InstanceRunner {
         ...(ledgerDbPath !== undefined ? { HELIX_DB_PATH: ledgerDbPath } : {}),
         // W1-B：codegraph 定格路径透传（子进程 codegraph 工具二进制解析第①级）
         ...(this.deps.codegraphPath !== undefined ? { HELIX_CODEGRAPH_PATH: this.deps.codegraphPath } : {}),
+        // rg 定格路径透传（子进程 grep 工具唯一后端；config 级 rg 靠此显式透传）
+        ...(this.deps.rgPath !== undefined ? { HELIX_RG_PATH: this.deps.rgPath } : {}),
         ...(snapshot !== undefined
           ? {
               HELIX_SYSTEM_PROMPT: snapshot.systemPrompt,

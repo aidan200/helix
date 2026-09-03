@@ -279,16 +279,16 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const legacy = deps.legacy;
 
   // ── grep 后端启动定格（AD-2/F3.1/F3.2，AF-1 权威语义：装配层一次性──
-  //    resolve-rg 三级解析 + rg --version 探针（2s 超时/退出码 0），结果──
-  //    内存定格——进程生命周期内不重新解析、不升级）──
-  // HELIX_RG_PATH/PATH 的 process.env 读取收束于本组合根（AG-08 唯一例外面，
+  //    resolve-rg 二级解析（bundle → config；无 PATH 级——版本不可控与──
+  //    pin 确定性相悖）+ rg --version 探针（2s 超时/退出码 0），结果内存──
+  //    定格——进程生命周期内不重新解析、不升级）──
+  // HELIX_RG_PATH 的 process.env 读取收束于本组合根（AG-08 唯一例外面，
   // 壳注入的资源定位参数，非配置源）；resolve-rg.ts 本体零 env/fs 依赖。
-  // 定格产物经 buildSessionStack → CoreToolExecutor 注入 grep 门面（门面
-  // 运行期只读内存标识选后端；首败永久降级编排见 GrepTool.ts）。
+  // 定格产物经 buildSessionStack → CoreToolExecutor 注入 grep 门面（rg 单
+  // 后端：unavailable 定格时工具响亮失败，无 TS 兜底）。
   const rgResolution = resolveRgPath({
     bundlePath: process.env.HELIX_RG_PATH,
     configPath: config.rgPath,
-    pathEnv: process.env.PATH,
     probe: isExecutableFile,
   });
   const rgProbe =
@@ -299,7 +299,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   if (grepFreeze.kind === "rg") {
     logger.info(`grep 后端定格 rg（source=${grepFreeze.source}）：${grepFreeze.rgPath}`);
   } else {
-    logger.info(`grep 后端定格内置 TS：${grepFreeze.reasons.join("；")}`);
+    logger.warn(`grep 后端定格 unavailable（工具将响亮失败）：${grepFreeze.reasons.join("；")}`);
   }
 
   // ── codegraph 引擎三级解析定格（T2.1/AF-2，TR-AD-32 同模式）──────
@@ -464,11 +464,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 规范形；未绑定回落启动 cwd）；deps.toolCwd 显式注入（测试面）时恒
     // 优先（toolCwdOf 优先级链）。
     resolveToolCwd: () => workspace.boundRoot() ?? process.cwd(),
-    // grep 启动定格产物（AF-1）：rg 定格时注入路径 + 降级 warning 面；
-    // ts 定格时仅注入 warning 面（降级路径不会触发，门面恒走 ts）。
+    // grep 启动定格产物（AF-1，rg 单后端）：rg 定格注入路径；unavailable
+    // 定格注入原因清单（门面响亮失败文案用）。
     grep: {
       rgPath: grepFreeze.kind === "rg" ? grepFreeze.rgPath : undefined,
-      warn: (m) => logger.warn(m),
+      unavailableReasons: grepFreeze.kind === "unavailable" ? grepFreeze.reasons : undefined,
     },
     // kg 挂点（T3.2 附着接线）：每会话闭合 sessionId（跨通道去重键）——
     // edit 成功路径附着 📎 块（notifyWrite 写后 sync 挂接按 2026-08-29
@@ -515,6 +515,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     },
     // codegraph 二进制定格路径（W1-B）：透传 SubAgent 子进程 env（父子一致）
     ...(codegraphResolution.kind === "resolved" ? { codegraphPath: codegraphResolution.path } : {}),
+    // rg 二进制定格路径（rg 唯一化）：透传 SubAgent 子进程 env（父子一致；
+    // config 级 rg 无此透传则子进程只剩 bundle 级）
+    ...(grepFreeze.kind === "rg" ? { rgPath: grepFreeze.rgPath } : {}),
     // task_create 工具装配面（T2.4，AD-7）：主会话 executor 注册 chat 第二
     // 创建入口——与 /project 入口同一 createTask API（TaskEngineService 注入）
     // + 回执读面（TaskQueryService 投影）；SubAgent 子进程本地栈不注入（生效集隔离）
@@ -599,7 +602,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       },
       grep: {
         rgPath: grepFreeze.kind === "rg" ? grepFreeze.rgPath : undefined,
-        warn: (m: string) => logger.warn(m),
+        unavailableReasons: grepFreeze.kind === "unavailable" ? grepFreeze.reasons : undefined,
       },
       taskEngine: taskStack.orchestratorCore.taskEngine,
       ledger: taskStack.orchestratorCore.ledger,
