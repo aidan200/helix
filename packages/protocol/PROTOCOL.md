@@ -200,6 +200,7 @@ export interface ToolCallEntryDto {
 | `task.type_unknown` | task 批（T1.5）：createTask 的 type 无对应任务 skill（T2.4 工具面同码） | 发 error 帧，**连接保持** |
 | `task.validation_failed` | task 批：manifest/paramsSchema/projects 基数校验失败（message 带具体违例） | 发 error 帧，**连接保持** |
 | `task.internal` | code-review M7 批：createTask 未分类内部错误（原统一改标 validation_failed 失真） | 发 error 帧，**连接保持** |
+| `daemon.internal` | code-review H5 批：chat.send/steer 等非 invalid_payload 的未分类异常兜底回执（原静默丢消息） | 发 error 帧，**连接保持** |
 | `task.not_found` | task 批：jobId 不存在（detail/artifacts/生命周期命令） | 发 error 帧，**连接保持** |
 | `task.invalid_state` | task 批：生命周期/删除的非法当前态（判断收口引擎 T1.3，handler 透传） | 发 error 帧，**连接保持** |
 | `agent.config.read_only` | agent-roster 批：agent.config.set_enabled 对只读系统派生 kind（orchestrator / subagent-kg-writer）的写面拒绝（前端只读只是表现，后端拒绝才是事实） | 发 error 帧，**连接保持** |
