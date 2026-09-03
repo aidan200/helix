@@ -26,9 +26,11 @@
  */
 import type { CommandFrame } from "./envelope";
 import type { SessionListResultPayload } from "./events";
+import type { SessionLoadHistoryResultEventPayload } from "./events/session";
 import type { AuthProviderInfo } from "./types/auth";
 import type { CatalogModel } from "./types/model";
 import type { EntryDto } from "./types/session";
+import type { ProfileKind } from "./types/agent";
 import type { TaskStatus } from "./types/task";
 import type { TraceQueryPageInput, TraceTimeRange } from "./types/trace";
 
@@ -162,12 +164,8 @@ export interface SessionLoadHistoryPayload {
   limit?: number;
 }
 
-/** session.loadHistory 结果载荷 */
-export interface SessionLoadHistoryResult {
-  entries: EntryDto[];
-  hasMore: boolean;
-  nextCursor: string | null;
-}
+/** session.loadHistory 结果载荷（code-review M56：收敛为 events 侧载荷的类型别名——T4.1 同规消同形双定义漂移面） */
+export type SessionLoadHistoryResult = SessionLoadHistoryResultEventPayload;
 
 export interface SessionLoadHistoryCommand
   extends CommandFrame<SessionLoadHistoryPayload> {
@@ -375,12 +373,12 @@ export interface AgentConfigListCommand extends CommandFrame<AgentConfigListPayl
  */
 export interface AgentConfigSetEnabledPayload {
   /**
-   * 配置单元 kind（R7 系统槽位批扩四值）：可编辑两 kind 全 resourceType 可写；
-   * 系统派生两 kind（orchestrator / subagent-kg-writer）仅 model/thinking
-   * 槽位型可写（独立配置，未配跟随全局——不联动 worker 槽位），tool/skill
-   * 启停写面仍拒（agent.config.read_only）。
+   * 配置单元 kind（写面五值，types/agent.ts ProfileKind 单点）：可编辑两 kind
+   * 全 resourceType 可写；系统派生 kind（orchestrator / subagent-kg-writer /
+   * subagent-code-reviewer）仅 model/thinking 槽位型可写（独立配置，未配跟随
+   * 全局——不联动 worker 槽位），tool/skill 启停写面仍拒（agent.config.read_only）。
    */
-  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
+  profileKind: ProfileKind;
   resourceType: "tool" | "skill" | "model" | "thinking";
   /** 资源名（model 型 = "provider/model-id"；thinking 型 = 档位字符串；clear 时忽略）。 */
   name: string;
@@ -402,7 +400,7 @@ export interface AgentConfigSetEnabledCommand extends CommandFrame<AgentConfigSe
  */
 export interface AgentBasePromptGetPayload {
   /** 目标 kind（四值全可读——含系统派生两 kind；kg-writer = SUBAGENT base + 图谱产出型后缀同 profile 声明）。 */
-  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
+  profileKind: ProfileKind;
 }
 
 export interface AgentBasePromptGetCommand extends CommandFrame<AgentBasePromptGetPayload> {

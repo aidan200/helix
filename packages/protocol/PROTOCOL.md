@@ -188,6 +188,13 @@ export interface ToolCallEntryDto {
 
 ## 7. 错误码表
 
+> **命名风格裁决（code-review M55，D5 用户裁决 2026-09-03）**：`ErrorCode`
+> 以**点分风格为基准**（`task.not_found` / `kg.review.not_eligible` 族）。
+> 大写下划线风格存量码（`KG_E_PARAM` / `WORKSPACE_E_INVALID_ROOT` 等）
+> 保留可用、不批量改名；**新增错误码一律点分风格**（近例：task.internal /
+> daemon.internal / task.task_running）；旧码若需迁移走 alias 兼容
+> （新旧码同语义并存一个版本周期后再收口）。
+
 `ErrorCode`（connection.error.payload.code 取值全集）：
 
 | code | 场景 | 连接处置 |

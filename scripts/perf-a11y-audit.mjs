@@ -79,16 +79,54 @@ function ratio(fg, bg) {
   const [l1, l2] = [lum(fg), lum(bg)].sort((a, b) => b - a);
   return ((l1 + 0.05) / (l2 + 0.05)).toFixed(2);
 }
-const combos = {
-  dark: {
-    bg: "#0a0e16", elevated: "#0f1521", panel: "#0B1120",
-    text: "#E2E8F0", muted: "#94A3B8", dim: "#718198", faint: "#728299", accent: "#22D3EE", violet: "#A855F7", error: "#F87171", success: "#34D399",
-  },
-  light: {
-    bg: "#FFFFFF", elevated: "#FFFFFF", panel: "#FFFFFF",
-    text: "#0F172A", muted: "#475569", dim: "#64748B", faint: "#5B6B81", accent: "#2563EB", violet: "#9333EA", error: "#B91C1C", success: "#15803D",
-  },
+
+// code-review M57：色表不再硬编码镜像 tokens.css——从真值源解析（tokens
+// 演进后审计仍验旧色值 = 闸门静默失真）。解析失败/必需变量缺失即 FAIL 退出。
+import { readFileSync } from "node:fs";
+
+const COMBO_VARS = {
+  bg: "--bg", elevated: "--bg-elevated", panel: "--panel-solid",
+  text: "--text", muted: "--text-muted", dim: "--text-dim", faint: "--text-faint",
+  accent: "--accent", violet: "--violet", error: "--error", success: "--success",
 };
+
+/** 从 tokens.css 指定块（:root / html.light）解析 --var: #hex 映射。 */
+function parseTokenBlock(css, blockSelector) {
+  const start = css.indexOf(`${blockSelector} {`);
+  if (start < 0) throw new Error(`tokens.css 未找到块：${blockSelector} {`);
+  const end = css.indexOf("\n}", start);
+  if (end < 0) throw new Error(`tokens.css 块未闭合：${blockSelector}`);
+  const body = css.slice(start, end);
+  const vars = {};
+  for (const m of body.matchAll(/(--[a-z-]+):\s*(#[0-9a-fA-F]{6})\s*;/g)) {
+    vars[m[1]] = m[2];
+  }
+  return vars;
+}
+
+function loadCombos() {
+  const css = readFileSync(path.join(SHELL, "src/shared/ui/styles/tokens.css"), "utf8");
+  const combos = {};
+  const missing = [];
+  for (const [theme, selector] of [["dark", ":root"], ["light", "html.light"]]) {
+    const vars = parseTokenBlock(css, selector);
+    combos[theme] = {};
+    for (const [key, varName] of Object.entries(COMBO_VARS)) {
+      if (vars[varName] === undefined) {
+        missing.push(`${theme} ${varName}（combo 键 ${key}）`);
+      } else {
+        combos[theme][key] = vars[varName];
+      }
+    }
+  }
+  if (missing.length > 0) {
+    console.error(`FAIL：tokens.css 缺少对比度审计必需变量（审计面与真值源漂移）：\n  ${missing.join("\n  ")}`);
+    process.exit(1);
+  }
+  return combos;
+}
+
+const combos = loadCombos();
 console.log("═══ A. WCAG 对比度（正文标准 4.5:1 / 大文本与 UI 组件 3:1）═══");
 for (const [theme, t] of Object.entries(combos)) {
   const rows = [];

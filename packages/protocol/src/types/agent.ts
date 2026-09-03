@@ -2,6 +2,26 @@ import type { EntryDto } from "./session";
 import type { UsageDto } from "./usage";
 
 /**
+ * Profile kind 单点定义（code-review M54 收敛：原五值字面量联合在
+ * commands.ts/events/agent.ts 四处内联重复，新增 kind 需同步 5+ 处）。
+ * - ProfileKind：写面五值（set_enabled/base_prompt.get 等写面命令枚举）；
+ * - ReadableProfileKind：agent.config.list 用户面 profile 块读面三值；
+ * - SystemProfileKind：系统派生块读面三值（orchestrator/kg-writer/reviewer）。
+ */
+export type ProfileKind =
+  | "main-session"
+  | "subagent-worker"
+  | "orchestrator"
+  | "subagent-kg-writer"
+  | "subagent-code-reviewer";
+
+/** 读面用户 profile 块 kind 三值（ProfileKind 的读面子集）。 */
+export type ReadableProfileKind = "main-session" | "subagent-worker" | "orchestrator";
+
+/** 系统派生块 kind 三值（不在写面枚举语义：orchestrator 系统形态 + 两派生 kind）。 */
+export type SystemProfileKind = "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
+
+/**
  * Agent 生命周期状态（契约 §6；AD-17.5：前端显示贫血 DTO）。
  *
  * 由 agent.state.changed 事件、connection.welcome、SessionSnapshotDto 携带。
