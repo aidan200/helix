@@ -258,12 +258,33 @@ describe("TaskQueryService 投影（CL-3-T1 数据面）", () => {
       expect(artifacts.stages).toHaveLength(2);
       const stage = artifacts.stages[0]!;
       expect(stage).toMatchObject({ seq: 1, name: "L0 核心层", status: "done" });
-      // artifact 恰为 { summary }（无 nodes/nodeIds 残留键）
+      // artifact 恰为 { summary }（无 nodes/nodeIds 残留键；无 body 不携带键）
       expect(stage.artifact).toEqual({ summary: "L0 完成：核心规则 2 条" });
+      expect(stage.artifact).not.toHaveProperty("body");
       expect(artifacts.stages[1]!.artifact).toEqual({ summary: "L1 完成：领域 3 域" });
       // 未完成阶段 artifact null（空态不炸）
       const running = env.query.getTaskArtifacts(ids.running);
       expect(running.stages.map((s) => s.artifact)).toEqual([null, null]);
+    });
+  });
+
+  test("artifact body additive（D2）：getTaskArtifacts / getTaskDetail 双投影透传 body", async () => {
+    await withTaskEnv(async (env) => {
+      const body = "## 发现\n\n- [阻断] a.ts:1 空指针\n- [高] b.ts:2 竞态";
+      await env.store.insertJob(jobOf("job-body", "done", T(6)));
+      await env.store.insertStage(
+        stageOf("job-body", 1, "L0 核心层", "done", { artifact: { summary: "审 3 模块：阻断 1 / 高 1", body } }),
+      );
+      await env.store.insertStage(stageOf("job-body", 2, "L1 领域层", "done", { artifact: { summary: "仅摘要" } }));
+      // 结果查询投影
+      const artifacts = env.query.getTaskArtifacts("job-body");
+      expect(artifacts.stages[0]!.artifact).toEqual({ summary: "审 3 模块：阻断 1 / 高 1", body });
+      expect(artifacts.stages[1]!.artifact).toEqual({ summary: "仅摘要" });
+      expect(artifacts.stages[1]!.artifact).not.toHaveProperty("body");
+      // 详情投影（阶段条同形状）
+      const detail = env.query.getTaskDetail("job-body");
+      expect(detail.stages[0]!.artifact).toEqual({ summary: "审 3 模块：阻断 1 / 高 1", body });
+      expect(detail.stages[1]!.artifact).not.toHaveProperty("body");
     });
   });
 });

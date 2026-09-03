@@ -33,6 +33,8 @@ export interface JobData {
 /** stage 产物（阶段摘要文字报告，阶段完成时聚合落库；与 kg 零耦合——节点反查链已拆除）。 */
 export interface StageArtifact {
   readonly summary: string;
+  /** 阶段产物全文（D2 additive：markdown 发现清单；summary 保持一句话。缺席 = 历史行/未携带）。 */
+  readonly body?: string;
 }
 
 export interface StageData {

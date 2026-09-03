@@ -79,11 +79,13 @@ export function rowToStage(row: StageRow): StageData {
 
 /**
  * artifact JSON 解析（兼容读：旧形状含 nodeIds 等多余 key 一律忽略，只取
- * summary——结果面与 kg 零耦合后的瘦身形状 { summary }，历史库行不炸）。
+ * summary——结果面与 kg 零耦合后的瘦身形状 { summary }，历史库行不炸；
+ * D2 additive：body 为 string 时带出，缺席/非 string 不携带键）。
  */
 function parseStageArtifact(text: string): StageArtifact {
-  const parsed = JSON.parse(text) as { summary?: unknown };
-  return { summary: typeof parsed.summary === "string" ? parsed.summary : "" };
+  const parsed = JSON.parse(text) as { summary?: unknown; body?: unknown };
+  const summary = typeof parsed.summary === "string" ? parsed.summary : "";
+  return typeof parsed.body === "string" ? { summary, body: parsed.body } : { summary };
 }
 
 /** artifact 聚合落库文本化（undefined/null → SQL NULL；updateStageStatus 复用）。 */

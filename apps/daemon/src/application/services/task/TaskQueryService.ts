@@ -1,6 +1,6 @@
 import type { ClockPort } from "../../ports/outbound/ClockPort";
 import { TaskError } from "./TaskError";
-import type { TaskStorePort, BatchData, JobData, StageData } from "../../ports/outbound/TaskStorePort";
+import type { TaskStorePort, BatchData, JobData, StageData, StageArtifact } from "../../ports/outbound/TaskStorePort";
 import type { WorkLedgerPort } from "../../ports/outbound/WorkLedgerPort";
 import type { TaskSkillRegistryPort } from "../../ports/outbound/TaskSkillRegistryPort";
 import type { JobStatus } from "../../../domain/task/types";
@@ -71,7 +71,7 @@ export interface TaskStageDto {
   readonly seq: number;
   readonly name: string;
   readonly status: StageData["status"];
-  readonly artifact: { readonly summary: string } | null;
+  readonly artifact: { readonly summary: string; readonly body?: string } | null;
 }
 
 export interface TaskDetailDto extends TaskSummaryDto {
@@ -85,7 +85,7 @@ export interface TaskArtifactsDto {
     readonly seq: number;
     readonly name: string;
     readonly status: StageData["status"];
-    readonly artifact: { readonly summary: string } | null;
+    readonly artifact: { readonly summary: string; readonly body?: string } | null;
   }[];
 }
 
@@ -149,7 +149,7 @@ export class TaskQueryService {
         seq: s.seq,
         name: s.name,
         status: s.status,
-        artifact: s.artifact === null ? null : { summary: s.artifact.summary },
+        artifact: artifactDtoOf(s.artifact),
       })),
     };
   }
@@ -227,8 +227,14 @@ function stageDtoOf(stage: StageData): TaskStageDto {
     seq: stage.seq,
     name: stage.name,
     status: stage.status,
-    artifact: stage.artifact === null ? null : { summary: stage.artifact.summary },
+    artifact: artifactDtoOf(stage.artifact),
   };
+}
+
+/** artifact 投影（D2 additive：body 存在才携带键，无 body 保持 { summary } 原形）。 */
+function artifactDtoOf(artifact: StageArtifact | null): { readonly summary: string; readonly body?: string } | null {
+  if (artifact === null) return null;
+  return artifact.body === undefined ? { summary: artifact.summary } : { summary: artifact.summary, body: artifact.body };
 }
 
 /** 标题：skill 任务说明首段 + 项目语境（服务端组装，前端不拼文案）。 */

@@ -15,7 +15,7 @@ import type { WorkLedgerService } from "../../../../application/services/task/Wo
  * - **批次成败收口（completeBatch/failBatch）不在本工具族**——closure 缺失/
  *   失败与台账未全 resolve 两条硬约束由 TaskOrchestratorService 代码机械
  *   判读执行（不进 LLM 面，LLM 不可越过硬约束改判）；
- * - 阶段产物 = 人类可读文字报告（summary only，与 kg 零耦合）；
+ * - 阶段产物 = 人类可读文字报告（summary 一句话 + 可选 body 全文，与 kg 零耦合）；
  * - 完成判定 = LLM 申报（task_complete_job）+ 引擎机械复核全部阶段行。
  *
  * jobId 由装配面绑定（每任务一个编排会话）——工具参数零 jobId（防串任务）。
@@ -88,7 +88,12 @@ const stageArtifactParameters = {
     summary: {
       type: "string",
       description:
-        "阶段摘要（人类可读：本层建了什么、覆盖哪些域/模块、有什么已知缺口；任务页与审阅视图的数据源）",
+        "阶段摘要（人类可读一句话：本层建了什么、覆盖哪些域/模块、有什么已知缺口；任务页与审阅视图的数据源）",
+    },
+    body: {
+      type: "string",
+      description:
+        "阶段产物全文（可选，markdown：发现清单/明细报告；summary 保持一句话，全文进 body）",
     },
   },
   required: ["stageSeq", "summary"],
@@ -175,13 +180,19 @@ export function createTaskOpsTools(deps: TaskOpsToolDeps): AgentHarnessTool<Exec
       name: "task_stage_artifact",
       label: "task_stage_artifact",
       description:
-        "聚合阶段产物并收口阶段（stage → done）：你只提供人类可读的阶段摘要（文字报告），" +
-        "摘要即任务页结果页的数据源。",
+        "聚合阶段产物并收口阶段（stage → done）：summary 为一句话阶段摘要（任务页结果页数据源），" +
+        "可选 body 承载 markdown 阶段产物全文（发现清单/明细报告）。",
       parameters: stageArtifactParameters as any,
       async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
         void toolCallId;
-        const { stageSeq, summary } = params as { stageSeq: number; summary: string };
-        await engineCall(() => deps.taskEngine.writeStageArtifact(deps.jobId, stageSeq, { summary }));
+        const { stageSeq, summary, body } = params as { stageSeq: number; summary: string; body?: string };
+        await engineCall(() =>
+          deps.taskEngine.writeStageArtifact(
+            deps.jobId,
+            stageSeq,
+            body === undefined ? { summary } : { summary, body },
+          ),
+        );
         return text(JSON.stringify({ ok: true, stageSeq }));
       },
     },
