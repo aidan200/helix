@@ -36,7 +36,7 @@ import { ensureRgAvailable, tauriDevArgs, TAURI_DEV_CONFIG_OVERRIDE } from "./de
 import { prebindWorkspace } from "./dev-desktop";
 
 // TDD-RED：wrapper cwd 止血 + W5 两形态——buildWrapperScript 尚未实现（先红后绿）
-import { buildWrapperScript, resolveDevWorkspaceRoot } from "./dev-desktop";
+import { buildWrapperScript, parseDevDesktopArgs, resolveDevWorkspaceRoot } from "./dev-desktop";
 
 const root = join(import.meta.dir, "..");
 const SCRIPT = join(root, "scripts/dev-desktop.ts");
@@ -329,7 +329,7 @@ describe("tauriDevArgs（H-1 方案 C：dev 剥离 bundle 资源生产校验）"
   });
 
   test("vite 端口覆盖位注入 → devUrl 随动（tauri dev 前端等待钉对端口）", () => {
-    // F4.2 隐患修复：HELIX_DESKTOP_VITE_PORT 覆盖后 tauri dev 的 devUrl
+    // F4.2 隐患修复：--vite-port 覆盖后 tauri dev 的 devUrl
     // 等待必须钉覆盖端口，否则等默认 5173 空等 180s exit(1)，编排永远起不来
     const args = tauriDevArgs("15173");
     const override = JSON.parse(args[args.indexOf("--config") + 1]!);
@@ -440,26 +440,57 @@ describe("buildWrapperScript（wrapper 内容纯函数：cd 在 exec 前；W5 �
   });
 });
 
-// ── dev workspace 预绑定根解析（W5 旋钮降级：env 校验 + 缺省放行两分支）──
+// ── dev workspace 预绑定根解析（W5 旋钮降级：传参校验 + 缺省放行两分支）──
 
-describe("resolveDevWorkspaceRoot（W5：env 校验 / 缺省放行，全注入面）", () => {
+describe("resolveDevWorkspaceRoot（W5：传参校验 / 缺省放行，全注入面）", () => {
   const exists = new Set(["/ws", "/tmp/picked"]);
   const existsDir = (p: string) => exists.has(p);
 
-  test("env 显式指认且存在 → 返回 root（wrapper cd + 预绑定目标）", () => {
-    expect(resolveDevWorkspaceRoot({ envRoot: "/ws", existsDir })).toBe("/ws");
+  test("显式指认且存在 → 返回 root（wrapper cd + 预绑定目标）", () => {
+    expect(resolveDevWorkspaceRoot({ root: "/ws", existsDir })).toBe("/ws");
   });
 
-  test("env 指认不存在 → fail-fast（显式输入错误不回退不猜测，起编排前拦截）", () => {
-    expect(() => resolveDevWorkspaceRoot({ envRoot: "/nope", existsDir })).toThrow("不存在");
+  test("指认不存在 → fail-fast（显式输入错误不回退不猜测，起编排前拦截）", () => {
+    expect(() => resolveDevWorkspaceRoot({ root: "/nope", existsDir })).toThrow("不存在");
+    expect(() => resolveDevWorkspaceRoot({ root: "/nope", existsDir })).toThrow("--workspace-root");
   });
 
-  test("env 未设 → undefined 放行（daemon 未绑定态启动，前端门禁引导）", () => {
+  test("未传 → undefined 放行（daemon 未绑定态启动，前端门禁引导）", () => {
     expect(resolveDevWorkspaceRoot({ existsDir })).toBeUndefined();
   });
 
-  test("env 空白字符串 → 同未设（放行）", () => {
-    expect(resolveDevWorkspaceRoot({ envRoot: "   ", existsDir })).toBeUndefined();
+  test("空白字符串 → 同未传（放行）", () => {
+    expect(resolveDevWorkspaceRoot({ root: "   ", existsDir })).toBeUndefined();
+  });
+});
+
+// ── argv 旋钮解析（--flag=value / --flag value 双形态 + 未知参数/缺值 fail-fast）──
+
+describe("parseDevDesktopArgs（argv 旋钮面）", () => {
+  test("空 argv → 两键缺席", () => {
+    expect(parseDevDesktopArgs([])).toEqual({});
+  });
+
+  test("--flag=value 形态", () => {
+    expect(parseDevDesktopArgs(["--workspace-root=/ws", "--vite-port=5174"])).toEqual({
+      workspaceRoot: "/ws",
+      vitePort: "5174",
+    });
+  });
+
+  test("--flag value 分词形态", () => {
+    expect(parseDevDesktopArgs(["--workspace-root", "/ws", "--vite-port", "5174"])).toEqual({
+      workspaceRoot: "/ws",
+      vitePort: "5174",
+    });
+  });
+
+  test("未知参数 → fail-fast（不静默吞掉拼错的旋钮）", () => {
+    expect(() => parseDevDesktopArgs(["--workspace-rooot=/ws"])).toThrow("未知参数");
+  });
+
+  test("缺值 → fail-fast", () => {
+    expect(() => parseDevDesktopArgs(["--vite-port"])).toThrow("缺值");
   });
 });
 
@@ -593,7 +624,7 @@ test(
   async () => {
     for (let round = 1; round <= 2; round++) {
       // 端口隔离（TR-TEST-4 同口径：不依赖本机 7333/5173 空闲——daemon 端口
-      // 经 <home>/config.json 既有配置面注入，vite 端口经 HELIX_DESKTOP_VITE_PORT
+      // 经 <home>/config.json 既有配置面注入，vite 端口经 --vite-port argv
       // 注入；窗口 devUrl 不随动，编排面断言不依赖窗口内容）
       const daemonPort = await freePort();
       const vitePort = await freePort();
@@ -607,13 +638,16 @@ test(
       let proc: ReturnType<typeof Bun.spawn> | undefined;
       try {
         proc = Bun.spawn({
-          cmd: [process.execPath, SCRIPT],
+          cmd: [
+            process.execPath,
+            SCRIPT,
+            `--workspace-root=${workspace}`,
+            `--vite-port=${vitePort}`,
+          ],
           cwd: root,
           env: {
             ...process.env,
             HELIX_DESKTOP_HOME: home,
-            HELIX_DESKTOP_WORKSPACE_ROOT: workspace,
-            HELIX_DESKTOP_VITE_PORT: String(vitePort),
             TMPDIR: sandbox,
           },
           stdout: "pipe",
@@ -687,7 +721,7 @@ test(
 // ── W5：env 未设 → 未绑定态正常起编排（提示日志 + UI 门禁引导语义）──
 
 test(
-  "W5 env 未设 → 正常起编排（提示日志）+ SIGINT 优雅 teardown（无预绑定）",
+  "W5 未传 --workspace-root → 正常起编排（提示日志）+ SIGINT 优雅 teardown（无预绑定）",
   async () => {
     const vitePort = await freePort();
     const sandbox = mkdtempSync(join(tmpdir(), "helix-dev-desktop-unbound-"));
@@ -698,13 +732,11 @@ test(
       const env: Record<string, string | undefined> = {
         ...process.env,
         HELIX_DESKTOP_HOME: home,
-        // HELIX_DESKTOP_WORKSPACE_ROOT 故意不设——W5 旋钮降级：不再 fail-fast
-        HELIX_DESKTOP_VITE_PORT: String(vitePort),
+        // --workspace-root 故意不传——W5 旋钮降级：不再 fail-fast
         TMPDIR: sandbox,
       };
-      delete env.HELIX_DESKTOP_WORKSPACE_ROOT;
       proc = Bun.spawn({
-        cmd: [process.execPath, SCRIPT],
+        cmd: [process.execPath, SCRIPT, `--vite-port=${vitePort}`],
         cwd: root,
         env,
         stdout: "pipe",
@@ -719,16 +751,16 @@ test(
       void drain(proc.stdout as ReadableStream<Uint8Array>);
       void drain(proc.stderr as ReadableStream<Uint8Array>);
 
-      // 提示日志（①自检后）：未设 → 未绑定态启动，前端门禁引导
+      // 提示日志（①自检后）：未传 → 未绑定态启动，前端门禁引导
       await waitFor(
-        () => Promise.resolve(outTail.includes("未设 HELIX_DESKTOP_WORKSPACE_ROOT")),
+        () => Promise.resolve(outTail.includes("未传 --workspace-root")),
         60_000,
-        `未设提示日志\n${outTail}`,
+        `未传提示日志\n${outTail}`,
       );
       expect(outTail).toContain("daemon 未绑定态启动");
 
       // 正常起编排：vite 端口监听（直接子进程；不依赖 cargo 编译完成）
-      await waitFor(() => tcpOpen(vitePort), 120_000, "env 未设不阻塞编排（vite dev 监听）");
+      await waitFor(() => tcpOpen(vitePort), 120_000, "未传参不阻塞编排（vite dev 监听）");
 
       // SIGINT → 优雅退出（未绑定态无预绑定动作日志——提示文案本身含“预绑定”字样不算）
       expect(outTail).not.toContain("workspace 预绑定");
@@ -750,18 +782,18 @@ test(
   300_000,
 );
 
-// ── W5：env 已设但目录不存在 → 起编排前 fail-fast（现状保留）─────────
+// ── W5：--workspace-root 已传但目录不存在 → 起编排前 fail-fast（现状保留）─
 
 test(
-  "W5 env 已设目录不存在 → 起编排前 fail-fast（非零退出 + 零进程起）",
+  "W5 --workspace-root 目录不存在 → 起编排前 fail-fast（非零退出 + 零进程起）",
   async () => {
     const emptyPath = mkdtempSync(join(tmpdir(), "helix-dev-desktop-nopath-"));
     const before = orchestrationPids();
     try {
       const proc = Bun.spawn({
-        cmd: [process.execPath, SCRIPT],
+        cmd: [process.execPath, SCRIPT, `--workspace-root=${join(emptyPath, "no-such-dir")}`],
         cwd: root,
-        env: { PATH: emptyPath, HELIX_DESKTOP_WORKSPACE_ROOT: join(emptyPath, "no-such-dir") },
+        env: { PATH: emptyPath },
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -771,7 +803,7 @@ test(
         new Response(proc.stderr).text(),
       ]);
       expect(code).toBe(1); // 非零退出
-      expect(out + err).toContain("HELIX_DESKTOP_WORKSPACE_ROOT");
+      expect(out + err).toContain("--workspace-root");
       expect(out + err).toContain("不存在");
       // 零进程起：编排特征进程集合无新增
       const after = orchestrationPids();
@@ -789,7 +821,7 @@ test(
   "W5 预绑定失败（危险根被 daemon 拒）→ 非零退出 + daemon 端口释放",
   async () => {
     // daemon 危险根 = 文件系统根 / 用户主目录（WorkspaceService §3.3）——
-    // 用真实 homedir() 作 env 值：目录存在（过编排侧校验）但 daemon open
+    // 用真实 homedir() 作传参值：目录存在（过编排侧校验）但 daemon open
     // 拒绝 → WORKSPACE_E_INVALID_ROOT 回执 → 预绑定失败非零退出
     const daemonPort = await freePort();
     const vitePort = await freePort();
@@ -800,13 +832,16 @@ test(
     let proc: ReturnType<typeof Bun.spawn> | undefined;
     try {
       proc = Bun.spawn({
-        cmd: [process.execPath, SCRIPT],
+        cmd: [
+          process.execPath,
+          SCRIPT,
+          `--workspace-root=${homedir()}`,
+          `--vite-port=${vitePort}`,
+        ],
         cwd: root,
         env: {
           ...process.env,
           HELIX_DESKTOP_HOME: home,
-          HELIX_DESKTOP_WORKSPACE_ROOT: homedir(),
-          HELIX_DESKTOP_VITE_PORT: String(vitePort),
           TMPDIR: sandbox,
         },
         stdout: "pipe",

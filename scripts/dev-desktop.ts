@@ -28,21 +28,24 @@
  * - HELIX_DESKTOP_HOME：注入 daemon `--home`（dev/测试隔离位；缺省 =
  *   daemon 默认 ~/.helix）。daemon 端口经 `<home>/config.json` 的 port
  *   键注入（既有配置面，非本脚本旋钮）。
- * - HELIX_DESKTOP_WORKSPACE_ROOT：workspace **可选预绑定**（W5 旋钮降级，
- *   设计稿 §7 迁移与兼容）：未设 → 正常起编排，daemon 以未绑定态启动，
+ *
+ * argv 旋钮面（编排脚本自身参数，非 env——运行期配置走既有配置面，
+ * env 只留 bootstrap 定位键）：
+ * - --workspace-root=<dir>：workspace **可选预绑定**（W5 旋钮降级，
+ *   设计稿 §7 迁移与兼容）：缺省 → 正常起编排，daemon 以未绑定态启动，
  *   前端门禁（W3）引导 UI 选择（旧 TTY prompt 机制已删——UI 门禁取代
- *   之）；已设（目录须存在，否则起编排前 fail-fast）→ wrapper cd 保留 +
+ *   之）；已传（目录须存在，否则起编排前 fail-fast）→ wrapper cd 保留 +
  *   daemon ready 后经 WS 发 workspace.open {root} 预绑定（token =
  *   `<home>/dev-token` 文件，端口 = `<home>/config.json` port 键，缺省
  *   7333），预绑定失败（超时/校验错）非零退出——显式指认错误的
- *   fail-fast 精神保留。e2e/无头场景设它跳过交互门禁。
- * - HELIX_DESKTOP_VITE_PORT：vite dev 端口覆盖（测试隔离位；缺省 =
+ *   fail-fast 精神保留。e2e/无头场景传它跳过交互门禁。
+ * - --vite-port=<port>：vite dev 端口覆盖（测试隔离位；缺省 =
  *   vite 默认 5173，与 tauri.conf devUrl 对齐）。覆盖后经 --config 同步
  *   override build.devUrl 随动——tauri dev 启动前等待 devUrl 可达，不随动
  *   会空等默认 5173 致 180s 超时退出（F4.2 隐患，H-1 顺带修复）。
  *
  * 工程层脚本，不被 apps 任何层 import（架构 §5.2）。
- * 用法：bun run dev:desktop
+ * 用法：bun run dev:desktop [--workspace-root=<dir>] [--vite-port=<port>]
  */
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -105,7 +108,7 @@ export const TAURI_DEV_CONFIG_OVERRIDE = '{"bundle":{"externalBin":[],"resources
 
 /**
  * tauri dev --config override JSON 组装（纯函数，可单测）。
- * vitePort 注入位（HELIX_DESKTOP_VITE_PORT 测试隔离位）：覆盖后 devUrl
+ * vitePort 注入位（--vite-port 测试隔离位）：覆盖后 devUrl
  * 必须随动——tauri dev 启动前会等待 devUrl 可达（CLI 侧 90×2s=180s
  * 超时 exit(1)），不随动则空等默认 5173 致编排永远起不来（F4.2 隐患）。
  */
@@ -120,6 +123,44 @@ export function tauriDevConfigOverride(vitePort?: string): string {
 /** tauri dev 命令参数组装（纯函数，override 单源于 tauriDevConfigOverride）。 */
 export function tauriDevArgs(vitePort?: string): string[] {
   return ["tauri", "dev", "--config", tauriDevConfigOverride(vitePort)];
+}
+
+// ── argv 旋钮解析（编排脚本自身参数面，非 env）────────────────
+
+/** dev-desktop argv 旋钮（parseDevDesktopArgs 产物）。 */
+export interface DevDesktopFlags {
+  /** --workspace-root：workspace 可选预绑定根（W5）。 */
+  readonly workspaceRoot?: string;
+  /** --vite-port：vite dev 端口覆盖（测试隔离位）。 */
+  readonly vitePort?: string;
+}
+
+/**
+ * argv 解析（--flag=value / --flag value 双形态；未知参数/缺值 fail-fast）。
+ * 纯函数可单测。承接原 HELIX_DESKTOP_WORKSPACE_ROOT / HELIX_DESKTOP_VITE_PORT
+ * 两 env 旋钮——运行期配置走既有配置面（<home>/config.json），env 只留
+ * bootstrap 定位键（HELIX_DESKTOP_HOME），脚本编排旋钮归 argv。
+ */
+export function parseDevDesktopArgs(argv: readonly string[]): DevDesktopFlags {
+  let workspaceRoot: string | undefined;
+  let vitePort: string | undefined;
+  const usage = "用法：bun run dev:desktop [--workspace-root=<dir>] [--vite-port=<port>]";
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    const eq = arg.indexOf("=");
+    const flag = eq >= 0 ? arg.slice(0, eq) : arg;
+    const inline = eq >= 0 ? arg.slice(eq + 1) : undefined;
+    const takeValue = (): string => {
+      if (inline !== undefined) return inline;
+      const v = i + 1 < argv.length ? argv[++i] : undefined;
+      if (v === undefined) throw new Error(`${flag} 缺值（${usage}）`);
+      return v;
+    };
+    if (flag === "--workspace-root") workspaceRoot = takeValue();
+    else if (flag === "--vite-port") vitePort = takeValue();
+    else throw new Error(`未知参数：${arg}（${usage}）`);
+  }
+  return { workspaceRoot, vitePort };
 }
 
 // ── dev sidecar wrapper 生成（cwd 止血）──────────────────
@@ -147,7 +188,7 @@ export interface WrapperScriptOptions {
  * 拉起方把 cwd 设对——否则 cargo 的 apps/shell/src-tauri 顺链继承，kg
  * 把其一级子目录当项目批量建 .helix-kg 库，落进 tauri dev 文件监视范围
  * 触发“杀壳重建”无限重启（本函数即该循环的止血位）。workspaceRoot
- * 省略时（W5：env 未设）无 cd 行——daemon 未绑定态，workspace 绑定
+ * 省略时（W5：未传 --workspace-root）无 cd 行——daemon 未绑定态，workspace 绑定
  * 恒经 WS（workspace.open），无 cwd 兼容缺省（W1/TR-AD-6 补款）。
  */
 export function buildWrapperScript(options: WrapperScriptOptions): string {
@@ -164,8 +205,8 @@ export function buildWrapperScript(options: WrapperScriptOptions): string {
 
 /** resolveDevWorkspaceRoot 注入面（全分支可单测）。 */
 export interface WorkspaceRootDeps {
-  /** HELIX_DESKTOP_WORKSPACE_ROOT（可选预绑定指认）。 */
-  readonly envRoot?: string;
+  /** --workspace-root argv 旋钮值（可选预绑定指认）。 */
+  readonly root?: string;
   /** 目录存在校验读面（缺省 statSync；测试注入）。 */
   readonly existsDir?: (p: string) => boolean;
 }
@@ -173,12 +214,12 @@ export interface WorkspaceRootDeps {
 /**
  * dev 形态 workspace 预绑定根解析（W5：可选预绑定，两分支）。
  *
- * - env 已设（非空白）：目录必须存在——不存在 → 抛错（起编排前
+ * - 已传（非空白）：目录必须存在——不存在 → 抛错（起编排前
  *   fail-fast，显式指认错误应修正，不回退不猜测）；存在 → 返回 root
  *   （wrapper cd 目标 + WS workspace.open 预绑定目标）。
- * - env 未设：返回 undefined——正常起编排，daemon 以未绑定态启动，
+ * - 未传：返回 undefined——正常起编排，daemon 以未绑定态启动，
  *   前端门禁（W3）引导开发者 UI 选择（设计稿 §7：交互开发走前端门禁，
- *   旧 TTY prompt/readline 机制已删；e2e/无头场景设 env 以预绑定）。
+ *   旧 TTY prompt/readline 机制已删；e2e/无头场景传参以预绑定）。
  */
 export function resolveDevWorkspaceRoot(deps: WorkspaceRootDeps): string | undefined {
   const existsDir = deps.existsDir ?? ((p: string) => {
@@ -188,17 +229,17 @@ export function resolveDevWorkspaceRoot(deps: WorkspaceRootDeps): string | undef
       return false;
     }
   });
-  const envRoot = deps.envRoot?.trim();
-  if (envRoot === undefined || envRoot === "") return undefined;
-  if (!existsDir(envRoot)) {
+  const root = deps.root?.trim();
+  if (root === undefined || root === "") return undefined;
+  if (!existsDir(root)) {
     throw new Error(
-      `HELIX_DESKTOP_WORKSPACE_ROOT 指向的目录不存在：${envRoot}（显式指认错误应修正，不做缺省回退）`,
+      `--workspace-root 指向的目录不存在：${root}（显式指认错误应修正，不做缺省回退）`,
     );
   }
-  return envRoot;
+  return root;
 }
 
-// ── WS 预绑定（W5：env 已设时 daemon ready 后 workspace.open）────────
+// ── WS 预绑定（W5：已传 --workspace-root 时 daemon ready 后 workspace.open）──
 
 /** 预绑定总超时（对齐握手超时量级；超时 → 非零退出）。 */
 export const PREBIND_TIMEOUT_MS = 15_000;
@@ -230,7 +271,7 @@ export interface PrebindDeps {
 /**
  * workspace 预绑定编排（W5）：等 daemon WS 端口可达 → 读 dev-token →
  * hello 握手 + workspace.open {root} → 等 workspace.open.result。
- * 任何环节失败（含整体超时兑底）抛错——编排面据此非零退出：env 已设即
+ * 任何环节失败（含整体超时兑底）抛错——编排面据此非零退出：已传参即
  * 预绑定意图明确，失败不静默放行（显式指认错误的 fail-fast 精神）。
  */
 export async function prebindWorkspace(deps: PrebindDeps): Promise<void> {
@@ -527,13 +568,12 @@ async function killTree(rootPids: readonly number[]): Promise<void> {
 // ── 编排主流程 ──────────────────────────────────────────────
 
 async function main(): Promise<number> {
-  // ⓪ workspace 预绑定根决议（W5 旋钮降级：可选预绑定）——env 已设但
-  // 目录不存在时在任何前置工作（自检/rg fetch/进程编排）之前 fail-fast；
-  // 未设 → undefined（正常起编排，daemon 未绑定态启动）。回显在①自检后
+  // ⓪ workspace 预绑定根决议（W5 旋钮降级：可选预绑定）——已传 --workspace-root
+  // 但目录不存在时在任何前置工作（自检/rg fetch/进程编排）之前 fail-fast；
+  // 未传 → undefined（正常起编排，daemon 未绑定态启动）。回显在①自检后
   //（不污染 F4.1 一行提示契约）。
-  const workspaceRoot = resolveDevWorkspaceRoot({
-    envRoot: process.env.HELIX_DESKTOP_WORKSPACE_ROOT,
-  });
+  const flags = parseDevDesktopArgs(process.argv.slice(2));
+  const workspaceRoot = resolveDevWorkspaceRoot({ root: flags.workspaceRoot });
 
   // ① 前置自检：缺失 → 一行提示 + 非零退出，不起任何进程
   const precheck = checkRustToolchain(pathProbe);
@@ -543,8 +583,8 @@ async function main(): Promise<number> {
   }
   console.error(
     workspaceRoot === undefined
-      ? "[dev-desktop] 未设 HELIX_DESKTOP_WORKSPACE_ROOT——daemon 未绑定态启动，前端将引导选择（e2e/无头场景请设置以预绑定）"
-      : `[dev-desktop] workspace 根（env 预绑定）：${workspaceRoot}`,
+      ? "[dev-desktop] 未传 --workspace-root——daemon 未绑定态启动，前端将引导选择（e2e/无头场景请传参以预绑定）"
+      : `[dev-desktop] workspace 根（argv 预绑定）：${workspaceRoot}`,
   );
 
   // H-1 动作③：rg 存在性检查 + 缺失自动 fetch（幂等）；失败一行警告不阻塞
@@ -557,7 +597,7 @@ async function main(): Promise<number> {
   // dev sidecar wrapper（AF-3 注入位）：壳恒 spawn sidecar（双形态同构），
   // wrapper 先 cd workspace 预绑定根再 exec bun 直跑 daemon 源码（禁
   // compile 产物，TR-AD-35；daemon cwd 继承 wrapper——TR-AD-6 拉起方设
-  // cwd 的止血位）；env 未设时无 cd 行（daemon 未绑定态，绑定恒经 WS）。
+  // cwd 的止血位）；未传 --workspace-root 时无 cd 行（daemon 未绑定态，绑定恒经 WS）。
   const wrapper = join(workDir, "helix-daemon-dev.sh");
   writeFileSync(
     wrapper,
@@ -573,9 +613,7 @@ async function main(): Promise<number> {
   // ② 三进程编排：vite dev + cargo tauri dev（daemon 经壳 sidecar wrapper 起跑）。
   //    vite --strictPort：5173 被占时 fail-fast（tauri.conf devUrl 钉死 5173，
   //    静默漂移会让窗口加载落空），退出码经「任一退出 → 整体 teardown」传导。
-  const vitePortArgs = process.env.HELIX_DESKTOP_VITE_PORT
-    ? ["--port", process.env.HELIX_DESKTOP_VITE_PORT]
-    : [];
+  const vitePortArgs = flags.vitePort ? ["--port", flags.vitePort] : [];
   const children = [
     {
       name: "vite dev",
@@ -592,7 +630,7 @@ async function main(): Promise<number> {
       proc: Bun.spawn({
         // H-1 方案 C：--config override 剥离 bundle 资源生产校验（常量单源）；
         // vite 端口覆盖位透传 → devUrl 随动（tauri dev 前端等待钉对端口）
-        cmd: ["cargo", ...tauriDevArgs(process.env.HELIX_DESKTOP_VITE_PORT)],
+        cmd: ["cargo", ...tauriDevArgs(flags.vitePort)],
         cwd: shellDir,
         env: { ...process.env, HELIX_SIDECAR_PATH: wrapper, HELIX_RG_PATH: RG_DEST },
         stdin: "ignore",
@@ -602,7 +640,7 @@ async function main(): Promise<number> {
     },
   ];
 
-  // ②‘ WS 预绑定任务（W5）：env 已设时等 daemon ready（WS 端口可达）后读
+  // ②‘ WS 预绑定任务（W5）：已传 --workspace-root 时等 daemon ready（WS 端口可达）后读
   //    dev-token + 发 workspace.open；成功一行日志，失败（超时/校验错）→
   //    非零退出（预绑定意图明确，不静默放行）。
   const prebindTask: Promise<string | null> =
