@@ -150,7 +150,13 @@ const TracePage = function TracePage({ path }: { path: string }) {
   useEffect(() => {
     const prevConn = prevConnRef.current;
     prevConnRef.current = conn;
-    if (conn !== "connected") return;
+    if (conn !== "connected") {
+      // M42：断连清「已请求」位——旧连接的回执不可能再到达，不清位则首次
+      // 请求失败后清单永不重拉；重连转换后按未请求态重发
+      requestedListRef.current = false;
+      return;
+    }
+    if (topology.list.length > 0) requestedListRef.current = false; // M42：拉取成功复位（后续清空可重拉）
     sendTaskList(); // 任务会话清单（首挂/重连重拉）
     if (topology.list.length === 0) {
       if (!requestedListRef.current) {

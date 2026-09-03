@@ -104,20 +104,23 @@ const sent: Sent = {
 let listeners: ((e: EventEnvelope) => void)[] = [];
 /** W4 刷新链：workspace 帧订阅注入位。 */
 let wsListeners: ((e: EventEnvelope) => void)[] = [];
+/** M40/M41：连接态与读面 send 结果可变位（断线重连重发 / 发送失败 toast 测试驱动）。 */
+let mockConn: "connected" | "connecting" | "disconnected" = "connected";
+let kgReadSendOk = true;
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
   return {
     ...orig,
     useSession: () => ({
-      state: { conn: "connected", sessionId: null },
+      state: { conn: mockConn, sessionId: null },
       sendKgProjects: () => {
         sent.projects += 1;
         return true;
       },
       sendKgList: (payload: KgListPayload) => {
         sent.list.push(payload);
-        return true;
+        return kgReadSendOk;
       },
       sendKgNodeDetail: (payload: KgNodeDetailPayload) => {
         sent.detail.push(payload);
@@ -125,7 +128,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendKgChangeReport: () => {
         sent.report += 1;
-        return true;
+        return kgReadSendOk;
       },
       sendKgNodeConfirm: (payload: KgNodeConfirmPayload) => {
         sent.confirm.push(payload);
@@ -133,7 +136,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendKgIndexStatus: (payload: KgIndexStatusPayload) => {
         sent.index.push(payload);
-        return true;
+        return kgReadSendOk;
       },
       sendKgBootstrapCreate: (payload: { project: string }) => {
         sent.bootstrapCreate.push(payload);
@@ -196,16 +199,20 @@ import ProjectPage, { resetRememberedProjectForTest } from "./ProjectPage";
 // jsdom navigator.language 默认 en-US：钉 zh-CN（产品断言语言，AG-14 白名单键）
 localStorage.setItem("helix-lang", "zh-CN");
 
-function ui() {
-  return render(
+function element() {
+  return (
     <ThemeProvider>
       <I18nProvider>
         <ToastProvider>
           <ProjectPage path="/project" onOpenTasks={() => {}} />
         </ToastProvider>
       </I18nProvider>
-    </ThemeProvider>,
+    </ThemeProvider>
   );
+}
+
+function ui() {
+  return render(element());
 }
 
 /** querySelector 的 HTMLElement 收窄（jsdom 测试面：目标均为元素节点）。 */
@@ -261,6 +268,8 @@ afterEach(() => {
   sent.health = [];
   sent.reviewCreate = [];
   sent.candidatesList = [];
+  mockConn = "connected";
+  kgReadSendOk = true;
   resetRememberedProjectForTest();
 });
 
@@ -1109,5 +1118,37 @@ describe("候选台账面板（health tab 内：列表 + 四态徽章过滤联�
     expect(sec!.textContent).toContain("暂缓 2");
     const deferredRow = qs('[data-cand-id="CAND-2"]');
     expect(deferredRow!.textContent).toContain("第 2 次暂缓");
+  });
+});
+
+describe("M40/M41 首挂三读面（kg.list/kg.change.report/kg.index.status）连接态", () => {
+  it("断线重连后三读面重发（M40：读面幂等，ProjectPage prevConnRef 先例）", () => {
+    const view = ui();
+    feedProjects();
+    enterGraph("helix");
+    expect(sent.list).toHaveLength(1);
+    expect(sent.report).toBe(1);
+    expect(sent.index).toHaveLength(1);
+    // 断线：不重发
+    mockConn = "disconnected";
+    view.rerender(element());
+    expect(sent.list).toHaveLength(1);
+    expect(sent.report).toBe(1);
+    expect(sent.index).toHaveLength(1);
+    // 重连：三读面重发（断线期间图谱可能已推进——不再永久陈旧）
+    mockConn = "connected";
+    view.rerender(element());
+    expect(sent.list).toHaveLength(2);
+    expect(sent.report).toBe(2);
+    expect(sent.index).toHaveLength(2);
+    expect(sent.list[1]).toEqual({ project: "helix" });
+  });
+
+  it("首挂发送失败（send 返回 false）→ err toast（M41：对齐写面发送失败门控）", () => {
+    kgReadSendOk = false;
+    ui();
+    feedProjects();
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
+    expect(qs(".toast-zone")!.textContent).toContain("发送失败");
   });
 });
