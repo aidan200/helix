@@ -10,7 +10,7 @@
  * requestCompactionConfig 拉取现值。两个 token 绝对值输入框 + 保存按钮
  * （非负整数校验）。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useI18n, type Lang } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
@@ -30,26 +30,42 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
   const [reserve, setReserve] = useState("");
   const [keepRecent, setKeepRecent] = useState("");
   const [saved, setSaved] = useState(false);
+  /** 用户未保存编辑（M46：脏态下结果帧不回填覆盖输入框）。 */
+  const dirtyRef = useRef(false);
+  /** 保存在途（M44：「已保存」由 set_compaction.result 结果帧驱动，非乐观置位）。 */
+  const pendingSaveRef = useRef(false);
 
   // 进入分区拉取现值（未请求态才发）
   useEffect(() => {
     requestCompactionConfig();
   }, [requestCompactionConfig]);
 
-  // 结果帧到达 → 回填输入框
+  // 结果帧到达：保存在途对账 → 落「已保存」（M44 真实反馈）；
+  // 非在途且用户有未保存编辑 → 不回填覆盖（M46 dirty 门控）
   useEffect(() => {
-    if (compaction !== null) {
+    if (compaction === null) return;
+    if (pendingSaveRef.current) {
+      pendingSaveRef.current = false;
+      dirtyRef.current = false;
       setReserve(String(compaction.reserveTokens));
       setKeepRecent(String(compaction.keepRecentTokens));
+      setSaved(true);
+      return;
     }
+    if (dirtyRef.current) return;
+    setReserve(String(compaction.reserveTokens));
+    setKeepRecent(String(compaction.keepRecentTokens));
   }, [compaction]);
 
   const save = () => {
+    // M45：显式拒空串（Number("")===0 过整数校验会静默写 0）
+    if (reserve.trim() === "" || keepRecent.trim() === "") return;
     const r = Number(reserve);
     const k = Number(keepRecent);
     if (!Number.isInteger(r) || !Number.isInteger(k) || r < 0 || k < 0) return;
+    pendingSaveRef.current = true;
+    setSaved(false);
     setCompactionConfig(r, k);
-    setSaved(true);
   };
 
   return (
@@ -97,6 +113,7 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             data-compaction-reserve
             onChange={(e) => {
               setReserve(e.target.value);
+              dirtyRef.current = true;
               setSaved(false);
             }}
           />
@@ -114,6 +131,7 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             data-compaction-keep-recent
             onChange={(e) => {
               setKeepRecent(e.target.value);
+              dirtyRef.current = true;
               setSaved(false);
             }}
           />

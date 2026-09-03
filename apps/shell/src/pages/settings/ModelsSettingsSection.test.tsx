@@ -17,6 +17,9 @@ import type { CatalogModel } from "@helix/protocol";
 
 const setDefaultModel = vi.fn();
 const setThinkingDefault = vi.fn();
+const refreshModelCatalog = vi.fn();
+/** M47：目录刷新在途可变位（结果帧驱动 toast 测试）。 */
+let mockRefreshing = false;
 
 function model(id: string, providerId: string): CatalogModel {
   return {
@@ -61,10 +64,10 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   return {
     ...orig,
     useSession: () => ({
-      topology: { modelConfig: mc },
+      topology: { modelConfig: { ...mc, catalogRefreshing: mockRefreshing } },
       requestModelConfig: vi.fn(),
       requestAuthList: vi.fn(),
-      refreshModelCatalog: vi.fn(),
+      refreshModelCatalog,
       setDefaultModel,
       setThinkingDefault,
       verifyProvider: vi.fn(),
@@ -78,6 +81,7 @@ import ModelsSettingsSection from "./ui/ModelsSettingsSection";
 
 afterEach(() => {
   cleanup();
+  mockRefreshing = false;
   vi.clearAllMocks();
 });
 
@@ -90,6 +94,16 @@ function ui() {
         <ModelsSettingsSection />
       </ToastProvider>
     </I18nProvider>,
+  );
+}
+
+function element() {
+  return (
+    <I18nProvider>
+      <ToastProvider>
+        <ModelsSettingsSection />
+      </ToastProvider>
+    </I18nProvider>
   );
 }
 
@@ -132,5 +146,23 @@ describe("模型设置分区：全局默认显示逻辑", () => {
     expect(rows[0]!.querySelector("[data-global-thinking-unsupported]")).not.toBeNull();
     expect(rows[1]!.querySelector("#btn-refresh-catalog")).not.toBeNull();
     expect(rows[1]!.querySelector("[data-catalog-meta]")).not.toBeNull();
+  });
+});
+
+describe("M47：目录刷新 toast 结果帧驱动", () => {
+  it("点击不即弹；catalogRefreshing true→false 转换（结果帧到达）才弹「模型目录已刷新」", () => {
+    const view = ui();
+    fireEvent.click(document.querySelector("#btn-refresh-catalog")!);
+    expect(refreshModelCatalog).toHaveBeenCalledTimes(1);
+    // 点击即时：不弹（不假反馈）
+    expect(document.querySelector(".toast-zone")!.textContent).not.toContain("模型目录已刷新");
+    // 在途中：不弹
+    mockRefreshing = true;
+    view.rerender(element());
+    expect(document.querySelector(".toast-zone")!.textContent).not.toContain("模型目录已刷新");
+    // 结果帧到达（refreshing 复位）→ 弹
+    mockRefreshing = false;
+    view.rerender(element());
+    expect(document.querySelector(".toast-zone")!.textContent).toContain("模型目录已刷新");
   });
 });

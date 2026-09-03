@@ -143,6 +143,16 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
     requestAuthList();
   }, [requestModelConfig, requestAuthList]);
 
+  // M47：目录刷新 toast 等结果帧——catalogRefreshing true→false 转换（catalog_refresh
+  // 结果帧到达）才弹，点击不即弹（不假反馈）
+  const refreshPendingRef = useRef(false);
+  const catalogRefreshing = mc.catalogRefreshing;
+  useEffect(() => {
+    if (!refreshPendingRef.current || catalogRefreshing) return;
+    refreshPendingRef.current = false;
+    toast.push("ok", t("chat.modelsConfig.refreshedToast"));
+  }, [catalogRefreshing, toast, t]);
+
   // armed 超时复原（2.5s；unmount 清理）
   useEffect(() => {
     return () => {
@@ -267,8 +277,8 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
               type="button"
               disabled={mc.catalogRefreshing}
               onClick={() => {
+                refreshPendingRef.current = true; // M47：toast 归结果帧转换效应
                 refreshModelCatalog();
-                toast.push("ok", t("chat.modelsConfig.refreshedToast"));
               }}
             >
               <RefreshCw
