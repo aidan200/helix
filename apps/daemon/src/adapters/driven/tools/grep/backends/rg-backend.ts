@@ -21,6 +21,9 @@ import { globToRegExp } from "./ts-backend";
  * - MAX_FILES=1000 防爆 → **不复制**（TS 遍历保护；rg 侧由 RG_TIMEOUT_MS
  *   超时兜底，差异已记录，parity fixture 不构造 >1000 文件场景）。
  *
+ * 输出消费 `--json` 结构化事件流（非 `path:行号:` 文本切分）：只取 match
+ * 事件的 path/lines/line_number 三字段——Windows 盘符（`C:\...:42:`）与
+ * 路径/行内容含冒号的边角在文本协议下必错切，JSON 协议天然免疫。
  * 执行面：以注入 ExecutionEnv 的 cwd 为子进程 cwd，传**相对** rootPath，
  * rg 输出路径即 cwd 相对投影（与 TS 后端 relativeToCwd 产物同口径）。
  * exit 1（零命中）归一为空数组，与 TS「零命中返回 []」同形状。
@@ -50,18 +53,17 @@ export class RgTimeoutError extends Error {
 }
 
 /**
- * rg argv 构造（纯函数，归一判据的机械投影）：恒带六个归一 flag +
- * SKIP_DIRS 排除；ignoreCase → -i；pattern 经 `-e` 传入（pattern 以 `-`
- * 开头不被吞成 flag）；rootPath 经 `--` 隔离。glob **不进** argv。
+ * rg argv 构造（纯函数，归一判据的机械投影）：恒带 `--json` 结构化输出 +
+ * 三个归一 flag + SKIP_DIRS 排除；ignoreCase → -i；pattern 经 `-e` 传入
+ * （pattern 以 `-` 开头不被吞成 flag）；rootPath 经 `--` 隔离。glob **不进**
+ * argv。
  */
 export function buildRgArgv(query: GrepQuery, rootPath: string): string[] {
   const argv = [
     "--fixed-strings",
     "--no-ignore",
     "--hidden",
-    "--line-number",
-    "--with-filename",
-    "--no-heading",
+    "--json",
     "-g",
     "!node_modules",
     "-g",
@@ -72,25 +74,47 @@ export function buildRgArgv(query: GrepQuery, rootPath: string): string[] {
   return argv;
 }
 
+/** rg --json 事件流的最小消费形状（只取 match 事件三字段；begin/end/summary 忽略）。 */
+interface RgJsonMessage {
+  readonly type: string;
+  readonly data?: {
+    readonly path?: { readonly text?: string };
+    readonly lines?: { readonly text?: string };
+    readonly line_number?: number;
+  };
+}
+
 /**
- * rg stdout → GrepMatch[]（纯函数）：逐行解析 `path:行号:内容`，glob 在
- * 本适配层过滤（与 TS 同一 globToRegExp），结果按 (path, lineNumber)
- * 字典序排序。行号段以「首个 :数字: 锚」切分——路径含冒号（非数字段）
- * 不误切，行内容含冒号原样保留（macOS only，Windows 盘符不适用）。
+ * rg --json stdout → GrepMatch[]（纯函数）：逐行 JSON.parse，只消费 match
+ * 事件；glob 在本适配层过滤（与 TS 同一 globToRegExp）；结果按
+ * (path, lineNumber) 字典序排序。
+ * 跳过规则：非 match 事件（begin/end/summary）与 JSON 解析失败行（防御：
+ * rg 告警混入不产幽灵行）；path/lines 为 bytes 形态（非 UTF-8）跳过——
+ * 对齐 TS readTextFile 解码失败跳过整文件的语义。
  * 路径投影归一：rg 对相对 rootPath（如 `.`）的输出带 `./` 前缀，剥除后
  * 与 TS relativeToCwd 产物同口径（`./src/a.ts` → `src/a.ts`）。
+ * 行文本剥尾换行（rg lines.text 含行终止符；CRLF 一并剥除）。
  */
-export function parseRgStdout(stdout: string, glob?: string): GrepMatch[] {
+export function parseRgJson(stdout: string, glob?: string): GrepMatch[] {
   const globRe = glob === undefined ? undefined : globToRegExp(glob);
   const matches: GrepMatch[] = [];
   for (const rawLine of stdout.split("\n")) {
     if (rawLine === "") continue;
-    const m = /^(.+?):(\d+):(.*)$/.exec(rawLine);
-    if (m === null) continue; // 非命中行（防御：rg 告警混入 stdout 时不产幽灵行）
-    let path = m[1] as string;
+    let msg: RgJsonMessage;
+    try {
+      msg = JSON.parse(rawLine) as RgJsonMessage;
+    } catch {
+      continue; // 防御：非 JSON 行（告警混入）不产幽灵命中
+    }
+    if (msg.type !== "match") continue;
+    const pathText = msg.data?.path?.text;
+    const lineText = msg.data?.lines?.text;
+    const lineNumber = msg.data?.line_number;
+    if (pathText === undefined || lineText === undefined || typeof lineNumber !== "number") continue;
+    let path = pathText;
     if (path.startsWith("./")) path = path.slice(2); // rg 相对 rootPath 的 ./ 前缀归一
     if (globRe !== undefined && !globRe.test(path)) continue;
-    matches.push({ path, lineNumber: Number(m[2]), line: m[3] as string });
+    matches.push({ path, lineNumber, line: lineText.replace(/\r?\n$/, "") });
   }
   return matches.sort((a, b) =>
     a.path === b.path ? a.lineNumber - b.lineNumber : a.path < b.path ? -1 : 1,
@@ -144,7 +168,7 @@ export function createRgBackend(
         }
         if (exitCode === 1) return []; // rg 零命中语义 → TS「返回空数组」同形状
         if (exitCode !== 0) throw new RgExecError(exitCode, stderr.trim());
-        return parseRgStdout(stdoutText, query.glob);
+        return parseRgJson(stdoutText, query.glob);
       } catch (e) {
         // spawn 异步失败（如部分运行时的 ENOENT 走 exited reject）同样归为 RgExecError
         if (e instanceof RgExecError || e instanceof RgTimeoutError) throw e;

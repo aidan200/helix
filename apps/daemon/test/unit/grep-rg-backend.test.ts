@@ -1,26 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildRgArgv,
-  parseRgStdout,
+  parseRgJson,
 } from "../../src/adapters/driven/tools/grep/backends/rg-backend";
 
 /**
- * TP-CL-3/F3.1（U，T1.2）：rg 后端的两个纯函数面——argv 构造与 stdout 解析。
+ * TP-CL-3/F3.1（U，T1.2）：rg 后端的两个纯函数面——argv 构造与 --json 解析。
  * 本文件只 import 纯函数符号（不 spawn、不触 fs），同 grep-tool.test.ts 的
  * framework-free 口径。argv 断言是 AD-2 归一判据的机械守护：--fixed-strings /
- * --no-ignore / --hidden 恒在，glob 不进 argv（适配层单源过滤）。
+ * --no-ignore / --hidden / --json 恒在，glob 不进 argv（适配层单源过滤）。
  */
 
 describe("buildRgArgv：归一判据的 argv 投影", () => {
-  test("恒带 --fixed-strings/--no-ignore/--hidden/--line-number/--with-filename/--no-heading + SKIP_DIRS 排除", () => {
+  test("恒带 --fixed-strings/--no-ignore/--hidden/--json + SKIP_DIRS 排除", () => {
     const argv = buildRgArgv({ pattern: "HELIX" }, "src");
     expect(argv).toEqual([
       "--fixed-strings",
       "--no-ignore",
       "--hidden",
-      "--line-number",
-      "--with-filename",
-      "--no-heading",
+      "--json",
       "-g",
       "!node_modules",
       "-g",
@@ -53,10 +51,31 @@ describe("buildRgArgv：归一判据的 argv 投影", () => {
   });
 });
 
-describe("parseRgStdout：rg 输出 → GrepMatch[] 归一", () => {
-  test("基本解析：path:行号:内容 逐行 → GrepMatch（1-based 行号为 number）", () => {
-    const stdout = "src/a.ts:3:HELIX one\nsrc/a.ts:7:x HELIX y\ndocs/n.md:1:# HELIX\n";
-    expect(parseRgStdout(stdout)).toEqual([
+/** 构造一行 rg --json 事件（测试夹具）。 */
+function jsonLine(msg: unknown): string {
+  return `${JSON.stringify(msg)}\n`;
+}
+
+function matchEvent(path: string, line: string, lineNumber: number): unknown {
+  return {
+    type: "match",
+    data: {
+      path: { text: path },
+      lines: { text: `${line}\n` },
+      line_number: lineNumber,
+      absolute_offset: 0,
+      submatches: [],
+    },
+  };
+}
+
+describe("parseRgJson：rg --json 事件流 → GrepMatch[] 归一", () => {
+  test("基本解析：match 事件 → GrepMatch（1-based 行号为 number，行尾换行剥除）", () => {
+    const stdout =
+      jsonLine(matchEvent("src/a.ts", "HELIX one", 3)) +
+      jsonLine(matchEvent("src/a.ts", "x HELIX y", 7)) +
+      jsonLine(matchEvent("docs/n.md", "# HELIX", 1));
+    expect(parseRgJson(stdout)).toEqual([
       { path: "docs/n.md", lineNumber: 1, line: "# HELIX" },
       { path: "src/a.ts", lineNumber: 3, line: "HELIX one" },
       { path: "src/a.ts", lineNumber: 7, line: "x HELIX y" },
@@ -64,35 +83,72 @@ describe("parseRgStdout：rg 输出 → GrepMatch[] 归一", () => {
   });
 
   test("结果按 (path, lineNumber) 字典序排序（乱序输入归一为稳定序）", () => {
-    const stdout = "b.ts:10:L\nb.ts:2:L\na.ts:9:L\n";
-    expect(parseRgStdout(stdout).map((m) => `${m.path}:${m.lineNumber}`)).toEqual([
+    const stdout =
+      jsonLine(matchEvent("b.ts", "L", 10)) +
+      jsonLine(matchEvent("b.ts", "L", 2)) +
+      jsonLine(matchEvent("a.ts", "L", 9));
+    expect(parseRgJson(stdout).map((m) => `${m.path}:${m.lineNumber}`)).toEqual([
       "a.ts:9",
       "b.ts:2",
       "b.ts:10",
     ]);
   });
 
-  test("边界：路径含冒号（非数字段）不误切；行内容含冒号原样保留", () => {
-    const stdout = "dir:sub/f.ts:2:hel:ix 内容\n";
-    expect(parseRgStdout(stdout)).toEqual([
+  test("非 match 事件（begin/end/summary）全部忽略", () => {
+    const stdout =
+      jsonLine({ type: "begin", data: { path: { text: "a.ts" } } }) +
+      jsonLine(matchEvent("a.ts", "X", 5)) +
+      jsonLine({ type: "end", data: { path: { text: "a.ts" }, binary_offset: null, stats: {} } }) +
+      jsonLine({ type: "summary", data: { elapsed_total: {}, stats: {} } });
+    expect(parseRgJson(stdout)).toEqual([{ path: "a.ts", lineNumber: 5, line: "X" }]);
+  });
+
+  test("路径/行内容含冒号、Windows 盘符路径：结构化字段免切分，原样保留", () => {
+    const stdout =
+      jsonLine(matchEvent("dir:sub/f.ts", "hel:ix 内容", 2)) +
+      jsonLine(matchEvent("C:\\src\\a.ts", "win HELIX", 42));
+    expect(parseRgJson(stdout)).toEqual([
+      { path: "C:\\src\\a.ts", lineNumber: 42, line: "win HELIX" },
       { path: "dir:sub/f.ts", lineNumber: 2, line: "hel:ix 内容" },
     ]);
   });
 
-  test("边界：空内容行（行即命中整行为空串场景外）与空 pattern 行尾的尾换行不产幽灵行", () => {
-    expect(parseRgStdout("a.ts:5:\n")).toEqual([{ path: "a.ts", lineNumber: 5, line: "" }]);
-    expect(parseRgStdout("")).toEqual([]);
-    expect(parseRgStdout("\n")).toEqual([]);
+  test("CRLF 行终止符剥除；空行内容原样为空串", () => {
+    const stdout = jsonLine({
+      type: "match",
+      data: { path: { text: "a.ts" }, lines: { text: "crlf X\r\n" }, line_number: 3 },
+    });
+    expect(parseRgJson(stdout)).toEqual([{ path: "a.ts", lineNumber: 3, line: "crlf X" }]);
+  });
+
+  test("边界：空输入与解析失败行不产幽灵命中", () => {
+    expect(parseRgJson("")).toEqual([]);
+    expect(parseRgJson("\n")).toEqual([]);
+    expect(parseRgJson("not json at all\n")).toEqual([]);
+  });
+
+  test("非 UTF-8（bytes 形态）path/lines 跳过——对齐 TS 解码失败跳过语义", () => {
+    const stdout =
+      jsonLine({
+        type: "match",
+        data: { path: { bytes: "AAE=" }, lines: { text: "X\n" }, line_number: 1 },
+      }) +
+      jsonLine({
+        type: "match",
+        data: { path: { text: "a.ts" }, lines: { bytes: "AAE=" }, line_number: 2 },
+      }) +
+      jsonLine(matchEvent("b.ts", "Y", 3));
+    expect(parseRgJson(stdout)).toEqual([{ path: "b.ts", lineNumber: 3, line: "Y" }]);
   });
 
   test("路径投影归一：rg 相对 rootPath 输出的 ./ 前缀剥除（与 TS relativeToCwd 同口径）", () => {
-    const stdout = "./src/a.ts:1:X\n./b.ts:2:X\n";
-    expect(parseRgStdout(stdout).map((m) => m.path)).toEqual(["b.ts", "src/a.ts"]);
+    const stdout = jsonLine(matchEvent("./src/a.ts", "X", 1)) + jsonLine(matchEvent("./b.ts", "X", 2));
+    expect(parseRgJson(stdout).map((m) => m.path)).toEqual(["b.ts", "src/a.ts"]);
   });
 
   test("glob 过滤在适配层生效（与 TS 同一 globToRegExp，* 跨目录）", () => {
-    const stdout = "src/a.ts:1:X\ndocs/n.md:2:X\n";
-    const matches = parseRgStdout(stdout, "*.md");
+    const stdout = jsonLine(matchEvent("src/a.ts", "X", 1)) + jsonLine(matchEvent("docs/n.md", "X", 2));
+    const matches = parseRgJson(stdout, "*.md");
     expect(matches).toEqual([{ path: "docs/n.md", lineNumber: 2, line: "X" }]);
   });
 });
