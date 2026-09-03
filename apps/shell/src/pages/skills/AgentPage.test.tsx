@@ -120,7 +120,7 @@ interface SetEnabledCall {
 }
 
 const mock = {
-  conn: "connected" as const,
+  conn: "connected" as "connected" | "connecting" | "disconnected" | "error",
   revision: 0,
   catalog: null as CatalogModel[] | null,
   auth: {} as Record<string, { providerId: string; configured: boolean; verifyStatus: "unverified" }>,
@@ -245,6 +245,7 @@ describe("智能体页组件（M6 T4）", () => {
     mock.sendOk = true;
     mock.sentSetEnabled = [];
     mock.sentBasePromptGet = [];
+    mock.conn = "connected";
   });
 
   it("① 进页拉取 + AppLayout 壳 + master-detail：左栏两组分组/只读徽标；选中 main 后详情卡渲染", async () => {
@@ -526,6 +527,7 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.sendOk = true;
     mock.sentSetEnabled = [];
     mock.sentBasePromptGet = [];
+    mock.conn = "connected";
   });
 
   it("① 落位 + off 默认关：开关 off（停用状态词）+ 无滑块/无徽标/无说明行；挂载零写命令", async () => {
@@ -737,6 +739,7 @@ describe("base prompt 批：base 段系统提示词查看区", () => {
     mock.sendOk = true;
     mock.sentSetEnabled = [];
     mock.sentBasePromptGet = [];
+    mock.conn = "connected";
   });
 
   it("查看 → 懒查询命令 → 回执渲染全文；再点收起（零新命令）；系统派生 kind 同可观察", async () => {
@@ -781,5 +784,77 @@ describe("base prompt 批：base 段系统提示词查看区", () => {
     expect(firstToolRow).not.toBeNull();
     // Node.DOCUMENT_POSITION_FOLLOWING = 4：工具行在查看区之后
     expect(bp.compareDocumentPosition(firstToolRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe("M48/M50 写面发送失败收口 + base prompt 断连重发", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mock.revision = 0;
+    mock.catalog = null;
+    mock.auth = {};
+    mock.authLoaded = false;
+    mock.sentList = 0;
+    mock.sendOk = true;
+    mock.sentSetEnabled = [];
+    mock.sentBasePromptGet = [];
+    mock.conn = "connected";
+  });
+
+  function rerenderWith(view: { rerender: (ui: React.ReactNode) => void }) {
+    view.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <AgentPage path="/skills" />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+  }
+
+  it("M48：onToggle 发送失败（send 返回 false）→ toggle-settled 收口 + err toast（可继续操作）", () => {
+    ui();
+    act(() => feedList());
+    act(() => selectAgent("main-session"));
+    mock.sendOk = false;
+    const grepSwitch = document.querySelector('[data-switch="grep"]') as HTMLButtonElement;
+    fireEvent.click(grepSwitch);
+    expect(mock.sentSetEnabled).toHaveLength(1);
+    // 收口：开关回可用（pending 清）+ err toast（runList 先例同文案）
+    expect(grepSwitch.disabled).toBe(false);
+    expect(document.querySelector(".toast-zone")!.textContent).toContain("未连接 daemon");
+    // 恢复后可再发（单飞未被死在途卡死）
+    mock.sendOk = true;
+    fireEvent.click(document.querySelector('[data-switch="grep"]')!);
+    expect(mock.sentSetEnabled).toHaveLength(2);
+  });
+
+  it("M50：base prompt 在途回执随断连丢失 → 重连对 pending 且未缓存的 kind 重发", () => {
+    const view = ui();
+    act(() => feedList());
+    fireEvent.click(document.querySelector('[data-base-prompt="main-session"] [data-base-prompt-toggle]')!);
+    expect(mock.sentBasePromptGet).toEqual(["main-session"]);
+    // 回执未达先断连 → 重连（mountedListRef 已置位）
+    act(() => {
+      mock.conn = "disconnected";
+      rerenderWith(view);
+    });
+    act(() => {
+      mock.conn = "connected";
+      rerenderWith(view);
+    });
+    // 重发懒查询（查看钮不再永久 disabled 等死）
+    expect(mock.sentBasePromptGet).toEqual(["main-session", "main-session"]);
+    // 回执到达归位
+    act(() =>
+      feed({
+        v: "0.11",
+        sessionId: "__system__",
+        channel: "agent",
+        type: "agent.base_prompt.get.result",
+        payload: { profileKind: "main-session", basePrompt: "BASE BODY" },
+      } as EventEnvelope),
+    );
+    expect(document.querySelector('[data-base-prompt="main-session"] [data-base-prompt-text]')!.textContent).toContain("BASE BODY");
   });
 });

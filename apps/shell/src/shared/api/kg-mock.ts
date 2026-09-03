@@ -15,7 +15,9 @@
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type {
   EventEnvelope,
+  KgCandidatesListDto,
   KgChangeReportDto,
+  KgHealthDto,
   KgIndexStatusDto,
   KgNodeDetailDto,
   KgNodeListRow,
@@ -365,6 +367,25 @@ export class KgMockStore {
         return this.replyGraphPurge(p);
       case "kg.index.delete":
         return this.replyIndexDelete(p);
+      // ── 体检/台账/评审发起批四命令（M39；W2-E/W2-F/code-review v1.5 镜像）──
+      case "kg.health":
+        return this.replyHealth(p);
+      case "kg.candidates.list":
+        return this.replyCandidatesList(p);
+      case "kg.review.create": {
+        const row = resolveProjectName(p.project, this.projects);
+        if (row === undefined) return this.paramError();
+        if (row.status === "absent")
+          return this.errorFrame("kg.review.not_eligible", "index_absent：项目尚未构建索引（先完成一次机械构建）");
+        this.jobSeq += 1;
+        return this.frame("kg.review.create.result", { ok: true, jobId: `job-review-mock-${this.jobSeq}` });
+      }
+      case "code.review.create": {
+        const row = resolveProjectName(p.project, this.projects);
+        if (row === undefined) return this.paramError();
+        this.jobSeq += 1;
+        return this.frame("code.review.create.result", { ok: true, jobId: `job-code-review-mock-${this.jobSeq}` });
+      }
       default:
         return this.errorFrame("command.invalid_payload", `未知命令 ${type}`);
     }
@@ -544,15 +565,41 @@ export class KgMockStore {
       }
     }
     this.advanceBuilds();
-    const status: KgIndexStatusDto =
-      row.status === "synced"
-        ? { state: "synced", symbolCount: row.symbolCount, syncedAt: row.syncedAt }
-        : row.status === "degraded"
-          ? { state: "degraded", degradedNote: row.degradedNote }
-          : row.status === "building"
-            ? { state: "building", progress: { done: this.buildDone(row.name), total: MOCK_BUILD_TOTALS[row.name] ?? 28 } }
-            : { state: "absent" };
-    return this.frame("kg.index.status.result", status);
+    return this.frame("kg.index.status.result", this.indexDto(row));
+  }
+
+  /** 行 → 索引状态 DTO（replyIndex 与 kg.health 复用）。 */
+  private indexDto(row: KgProjectRow): KgIndexStatusDto {
+    return row.status === "synced"
+      ? { state: "synced", symbolCount: row.symbolCount, syncedAt: row.syncedAt }
+      : row.status === "degraded"
+        ? { state: "degraded", degradedNote: row.degradedNote }
+        : row.status === "building"
+          ? { state: "building", progress: { done: this.buildDone(row.name), total: MOCK_BUILD_TOTALS[row.name] ?? 28 } }
+          : { state: "absent" };
+  }
+
+  /** kg.health：空态体检镜像（conflicts/orphans 空集 + 索引状态复用 + 台账四态零计）。 */
+  private replyHealth(p: Record<string, unknown>): EventEnvelope {
+    const row = resolveProjectName(p.project, this.projects);
+    if (row === undefined) return this.paramError();
+    this.advanceBuilds();
+    const dto: KgHealthDto = {
+      conflicts: [],
+      orphans: [],
+      orphanCount: 0,
+      index: this.indexDto(row),
+      candidates: { pending: 0, deferred: 0, applied: 0, discarded: 0 },
+    };
+    return this.frame("kg.health.result", dto);
+  }
+
+  /** kg.candidates.list：空态台账镜像（unbound = 空集非报错）。 */
+  private replyCandidatesList(p: Record<string, unknown>): EventEnvelope {
+    const row = resolveProjectName(p.project, this.projects);
+    if (row === undefined) return this.paramError();
+    const dto: KgCandidatesListDto = { total: 0, rows: [] };
+    return this.frame("kg.candidates.list.result", dto);
   }
 
   private buildDone(name: string): number {
@@ -616,6 +663,9 @@ export function isKgCommand(type: string): boolean {
     type === "kg.bootstrap.create" || type === "kg.bootstrap.produce" ||
     type === "kg.node.update" || type === "kg.node.supersede" || type === "kg.bootstrap.impact" ||
     // kg 维护批两命令（C1；mock daemon 镜像同轨）
-    type === "kg.graph.purge" || type === "kg.index.delete"
+    type === "kg.graph.purge" || type === "kg.index.delete" ||
+    // 体检/台账/评审发起批四命令（M39；mock daemon 镜像同轨）
+    type === "kg.health" || type === "kg.candidates.list" ||
+    type === "kg.review.create" || type === "code.review.create"
   );
 }

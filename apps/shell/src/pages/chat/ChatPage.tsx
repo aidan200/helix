@@ -6,14 +6,14 @@
  * data-drawer 驱动全部状态表象（四态互斥 CSS 门控）；恢复 toast 由
  * restoreToast 投影触发。scanline 氛围层上提 App.tsx 全局单份（S1）。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
 import MessageFlow from "@/widgets/chat-stream/ui/MessageFlow";
 import RestoreSkeleton from "@/widgets/chat-stream/ui/P-1s-restore-skeleton";
 import SubagentDrawer from "@/widgets/subagent-drawer/ui/SubagentDrawer";
-import Composer from "@/features/send-message/ui/Composer";
+import Composer, { type ComposerHandle } from "@/features/send-message/ui/Composer";
 import ComposerThinkingPicker from "@/features/thinking-level/ui/ComposerThinkingPicker";
 import ErrorCard from "@/features/reconnect/ui/ErrorCard";
 import ConnBanner from "./ui/ConnBanner";
@@ -65,9 +65,14 @@ const ChatPage = function ChatPage() {
 
   const empty = selectIsEmpty(state);
 
+  // M52：输入框聚焦出口（Composer ref）——SessionEmpty 建议 chip 与侧栏
+  // 「新建会话」的聚焦回调统一由本层接线（替代跨层魔法 id DOM 直达）
+  const composerRef = useRef<ComposerHandle>(null);
+  const focusComposer = useCallback(() => composerRef.current?.focus(), []);
+
   return (
     <>
-      <Workbench onOpenInstance={openInstance}>
+      <Workbench onOpenInstance={openInstance} onFocusInput={focusComposer}>
         <div
           className="app"
           data-conn={state.conn}
@@ -78,7 +83,7 @@ const ChatPage = function ChatPage() {
           <ConnBanner />
           {/* 工作台账条（main-session plan 批）：无台账整条隐藏（渲染 null） */}
           <WorkLedgerBar />
-          <MessageFlow onOpenInstance={openInstance}>
+          <MessageFlow onOpenInstance={openInstance} onFocusInput={focusComposer}>
             <ConnOverlay />
             <ErrorCard />
             {/* P-1s 切换两阶段：loading 骨架（CSS 门控 data-view，与
@@ -87,7 +92,7 @@ const ChatPage = function ChatPage() {
           </MessageFlow>
           {/* P-1 composer + foot 右侧推理强度 picker（thinking 批 T2.1；
               pages 层装配注入——AG-15 FSD 同层禁互引） */}
-          <Composer footEnd={<ComposerThinkingPicker />} />
+          <Composer ref={composerRef} footEnd={<ComposerThinkingPicker />} />
         </div>
       </Workbench>
       {/* P-2 抽屉：页内 overlay（非路由）；衬底 = 真实 P-1 弱化（data-drawer 门控） */}

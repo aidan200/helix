@@ -61,6 +61,7 @@ const KgViewer = function KgViewer({
   const { t } = useI18n();
   const toast = useToast();
   const {
+    state: sessionState,
     sendKgList,
     sendKgNodeDetail,
     sendKgChangeReport,
@@ -80,6 +81,7 @@ const KgViewer = function KgViewer({
     sendKgProjects,
     subscribeKgFrames,
   } = useSession();
+  const conn = sessionState.conn;
 
   const [state, dispatch] = useReducer(kgReducer, undefined, createKgViewState);
   const stateRef = useRef(state);
@@ -120,12 +122,20 @@ const KgViewer = function KgViewer({
   const produceRef = useRef(produce);
   produceRef.current = produce;
 
-  // 进入 graph 即新数据面：列表骨架 + 详情骨架 + 报告/索引面板并行拉取
+  // 进入 graph 即新数据面：列表骨架 + 详情骨架 + 报告/索引面板并行拉取。
+  // 连接转换驱动（M40：首挂已连即拉 + 断线重连重发——读面幂等，ProjectPage
+  // prevConnRef 先例；断连挂载不发送，待转换 connected 才发，不再永久陈旧）；
+  // 发送失败（send 返回 false）落 err toast（M41：对齐写面发送失败门控）。
+  const prevConnRef = useRef<string | null>(null);
   useEffect(() => {
-    sendKgList({ project: project.name });
-    sendKgChangeReport({ project: project.name });
-    sendKgIndexStatus({ project: project.name });
-  }, [project.name, sendKgList, sendKgChangeReport, sendKgIndexStatus]);
+    const prev = prevConnRef.current;
+    prevConnRef.current = conn;
+    if (conn !== "connected" || prev === "connected") return;
+    const okList = sendKgList({ project: project.name });
+    const okReport = sendKgChangeReport({ project: project.name });
+    const okIdx = sendKgIndexStatus({ project: project.name });
+    if (!(okList && okReport && okIdx)) toast.push("err", t("pj.boot.sendFail"));
+  }, [conn, project.name, sendKgList, sendKgChangeReport, sendKgIndexStatus, toast, t]);
 
   // kg 族点对点回执消费（页面私有 reducer）
   useEffect(

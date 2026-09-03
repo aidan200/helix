@@ -368,3 +368,26 @@ describe("⑦ artifact body（D2 additive）：回执 DTO 含 body 原样落库"
     expect(s.artifacts?.stages[1]?.artifact).not.toHaveProperty("body");
   });
 });
+
+// ── ⑧ artifacts 在途失败（M43）：connection.error 清骨架 + 标记归属防重发风暴 ──
+
+describe("⑧ artifacts-failed（M43：在途失败清骨架 + 归属标记防 watcher 自动重发）", () => {
+  it("在途失败 → artifactsLoading 解除 + artifactsJob 标记（结果 tab 转空态，不再永久骨架）", () => {
+    let s = tasksReducer(createTasksPageState(), { type: "list-loading" });
+    s = tasksReducer(s, { type: "list-result", tasks: mixedTasks() }); // 选中 j-run-1
+    s = tasksReducer(s, { type: "tab", value: "result" });
+    s = tasksReducer(s, { type: "artifacts-loading", jobId: "j-run-1" });
+    expect(s.artifactsLoading).toBe(true);
+    s = tasksReducer(s, { type: "artifacts-failed", jobId: "j-run-1" });
+    expect(s.artifactsLoading).toBe(false);
+    expect(s.artifacts).toBeNull();
+    expect(s.artifactsJob).toBe("j-run-1"); // 归属标记：watcher 条件命中不自动重发（防错误风暴）
+  });
+
+  it("非在途（artifactsLoading=false）→ 原样（非本页错误帧不误清）", () => {
+    let s = tasksReducer(createTasksPageState(), { type: "list-result", tasks: mixedTasks() });
+    const before = s;
+    s = tasksReducer(s, { type: "artifacts-failed", jobId: "j-run-1" });
+    expect(s).toBe(before);
+  });
+});

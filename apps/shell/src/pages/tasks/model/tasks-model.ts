@@ -181,6 +181,9 @@ export type TasksAction =
   | { type: "detail-result"; task: TaskDetailDto }
   | { type: "artifacts-loading"; jobId: string }
   | { type: "artifacts-result"; jobId: string; artifacts: TaskArtifactsDto }
+  /** M43：artifacts 在途失败（connection.error 同查）——解除骨架 + 标记归属
+   *  （防 watcher 条件命中自动重发成错误风暴；切任务/重进经 select-task 复位可重试）。 */
+  | { type: "artifacts-failed"; jobId: string }
   | { type: "tab"; value: "progress" | "result" }
   | { type: "confirm-open"; box: "cancel" | "delete" }
   | { type: "confirm-close" }
@@ -245,6 +248,10 @@ export function tasksReducer(state: TasksPageState, action: TasksAction): TasksP
     case "artifacts-result": {
       if (state.selected !== action.jobId) return state;
       return { ...state, artifacts: action.artifacts, artifactsJob: action.jobId, artifactsLoading: false };
+    }
+    case "artifacts-failed": {
+      if (!state.artifactsLoading) return state; // 非在途：非本页错误帧不误清
+      return { ...state, artifactsLoading: false, artifacts: null, artifactsJob: action.jobId };
     }
     case "tab":
       return state.tab === action.value ? state : { ...state, tab: action.value };

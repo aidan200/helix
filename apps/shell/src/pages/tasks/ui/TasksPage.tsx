@@ -189,12 +189,30 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
         }
         if (e.type === "connection.error") {
           // 生命周期命令在途失败（单飞门控；非本页在途的 connection.error 不消费）
-          const req = lifecycleReqRef.current;
-          if (req === null) return;
-          lifecycleReqRef.current = null;
-          dispatch({ type: "lifecycle-failed" });
           const msg = (e.payload as { message?: string }).message ?? e.type;
-          toast.push("err", t("tk.toast.failed", { msg }));
+          let consumed = false;
+          const req = lifecycleReqRef.current;
+          if (req !== null) {
+            lifecycleReqRef.current = null;
+            dispatch({ type: "lifecycle-failed" });
+            toast.push("err", t("tk.toast.failed", { msg }));
+            consumed = true;
+          }
+          // M43：task.artifacts 在途同查——清 FIFO 在途关联 + 解除骨架（防结果
+          // tab 永久骨架与迟到回执错位对号）；归属标记防 watcher 自动重发成风暴
+          const artifactsJob =
+            artifactsReqRef.current.length > 0
+              ? artifactsReqRef.current[0]!
+              : cur.artifactsLoading
+                ? cur.selected
+                : null;
+          if (artifactsJob !== null) {
+            artifactsReqRef.current = [];
+            dispatch({ type: "artifacts-failed", jobId: artifactsJob });
+            if (!consumed) toast.push("err", t("tk.toast.failed", { msg }));
+            consumed = true;
+          }
+          if (!consumed) return;
           return;
         }
         if (e.type === "task.changed") {

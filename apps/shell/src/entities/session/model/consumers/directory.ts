@@ -17,7 +17,7 @@ import type { EventEnvelope, SessionMeta } from "@helix/protocol";
 import type { BackgroundSeenCursor, BackgroundSessionState, TopologyState } from "../state";
 
 /** 空游标（list 直接播种的后台会话：从未活跃过，无存量可免——保守全计）。 */
-const EMPTY_SEEN: BackgroundSeenCursor = { entryIds: [], turnId: null };
+const EMPTY_SEEN: BackgroundSeenCursor = { entryIds: new Set<string>(), turnId: null };
 
 /** 本块承接的帧事件 type（拓扑级注册面；dispatcher/frame.ts 消费）。 */
 export const SESSION_DIRECTORY_EVENT_TYPES = ["session.list.result", "session.list_changed"] as const;

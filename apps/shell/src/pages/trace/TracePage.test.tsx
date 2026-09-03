@@ -101,6 +101,8 @@ interface MockSession {
   sendOk: boolean;
   listeners: ((e: EventEnvelope) => void)[];
   taskListeners: ((e: EventEnvelope) => void)[];
+  /** M42：会话清单可变位（空清单 → requestSessionList 请求路径测试）。 */
+  list: typeof SESSIONS;
 }
 
 const mock: MockSession = {
@@ -110,6 +112,7 @@ const mock: MockSession = {
   sendOk: true,
   listeners: [],
   taskListeners: [],
+  list: SESSIONS,
 };
 const requestSessionList = vi.fn();
 const retry = vi.fn();
@@ -120,7 +123,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     ...orig,
     useSession: () => ({
       state: { conn: mock.conn, sessionId: mock.activeSessionId },
-      topology: { active: { conn: mock.conn, sessionId: mock.activeSessionId }, background: {}, list: SESSIONS },
+      topology: { active: { conn: mock.conn, sessionId: mock.activeSessionId }, background: {}, list: mock.list },
       requestSessionList,
       retry,
       sendTraceQuery: (payload: TraceQueryPayload) => {
@@ -200,6 +203,7 @@ afterEach(() => {
   mock.sendOk = true;
   mock.listeners = [];
   mock.taskListeners = [];
+  mock.list = SESSIONS;
   vi.clearAllMocks();
 });
 
@@ -423,5 +427,41 @@ describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）",
     fireEvent.click(screen.getByRole("button", { name: "engine.error" }));
     const sent = mock.sentQueries[1]!;
     expect(sent.types).toEqual(["engine.error"]); // 下推：types 进查询 payload
+  });
+});
+
+describe("M42 会话清单请求位（requestedListRef）失败/断连恢复", () => {
+  it("空清单首次请求后断连 → 重连重拉（ref 断连清位，清单不再永不重拉）", () => {
+    mock.list = [];
+    const view = ui();
+    expect(requestSessionList).toHaveBeenCalledTimes(1);
+    // 回执未达先断连
+    mock.conn = "disconnected";
+    view.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <TracePage path="/trace" />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    // 重连（清单仍空）→ 允许再次请求
+    mock.conn = "connected";
+    view.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <TracePage path="/trace" />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(requestSessionList).toHaveBeenCalledTimes(2);
+    // 同一 connected 周期内不重复发（单飞去重保持）
+    view.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <TracePage path="/trace" />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(requestSessionList).toHaveBeenCalledTimes(2);
   });
 });

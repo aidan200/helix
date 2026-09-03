@@ -125,7 +125,7 @@ function isSeenFrame(bg: BackgroundSessionState, frame: EventEnvelope): boolean 
     case "chat.message.completed":
       // D-2：流式 delta 的 messageId 与最终 entry id 同源——流式中降级、后台
       // 完成的帧其 entry.id 命中 seen.entryIds（含流式 messageId）
-      return bg.seen.entryIds.includes((frame.payload as ChatMessageCompletedPayload).entry.id);
+      return bg.seen.entryIds.has((frame.payload as ChatMessageCompletedPayload).entry.id);
     case "chat.turn.started":
     case "chat.turn.completed":
       // 窗口内晚到的 turn 帧只会是降级时进行中轮次的（WS 有序，更早轮次的帧

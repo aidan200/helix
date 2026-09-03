@@ -324,3 +324,31 @@ describe("T9 · 发送载荷（带图提交）", () => {
     expect(submit).toHaveBeenCalledWith("纯文本", undefined);
   });
 });
+
+describe("M53 · 附件读取失败交代（Promise.all catch）", () => {
+  it("FileReader 失败 → 临时错误提示（data-attach-error）+ 不 attach + 不残留超限提示", async () => {
+    stateRef.current = connectedReady();
+    // FileReader 打桩：readAsDataURL 即 error
+    const OrigFR = globalThis.FileReader;
+    class FailReader {
+      onload: (() => void) | null = null;
+      onerror: ((e: unknown) => void) | null = null;
+      error = new Error("read fail");
+      readAsDataURL() {
+        setTimeout(() => this.onerror?.(this.error), 0);
+      }
+    }
+    vi.stubGlobal("FileReader", FailReader);
+    try {
+      ui();
+      await pickFiles([imageFile(PNG_BYTES, "image/png", "bad.png")]);
+      expect(attach).not.toHaveBeenCalled();
+      const tip = document.querySelector("[data-attach-error]");
+      expect(tip).not.toBeNull();
+      expect(tip!.textContent).toContain("图片读取失败");
+      expect(document.body.textContent).not.toContain("最多 4 张");
+    } finally {
+      vi.stubGlobal("FileReader", OrigFR);
+    }
+  });
+});

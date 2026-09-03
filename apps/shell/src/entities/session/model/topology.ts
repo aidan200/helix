@@ -46,9 +46,10 @@ export function selectActiveRunState(active: SessionState): BackgroundSessionSta
 }
 
 /** 旧活跃 store → 后台轻量态（标题/运行态取清单元数据；未读从零起算）。
- *  seen 游标收集降级时刻活跃期已见锚（entries 尾窗 id + 流式 messageId +
- *  实例流式 messageId + 进行中轮次 turnId）——降级竞态窗口内晚到的存量帧
- *  经其对账不计未读（frame.ts consumeBackground）。 */
+ *  seen 游标收集降级时刻活跃期已见锚（entries 全量装载窗口 id + 流式
+ *  messageId + 实例流式 messageId + 进行中轮次 turnId）——降级竞态窗口内
+ *  晚到的存量帧经其对账不计未读（frame.ts consumeBackground）；entryIds
+ *  用 Set 承载（M35：对账 O(1)）。 */
 function demoteToBackground(active: SessionState, list: SessionMeta[]): BackgroundSessionState | null {
   if (active.sessionId === null) return null; // 无会话上下文（草稿/首连前）：无轻量态可转
   const meta = list.find((m) => m.sessionId === active.sessionId);
@@ -59,14 +60,14 @@ function demoteToBackground(active: SessionState, list: SessionMeta[]): Backgrou
     lastActivityAt: meta?.lastActivityAt ?? 0,
     unread: 0,
     seen: {
-      entryIds: [
+      entryIds: new Set<string>([
         ...active.entries.map((e) => e.id),
         ...(active.streaming !== null ? [active.streaming.messageId] : []),
         ...Object.values(active.channelStreams).map((cs) => cs.messageId),
         // steerQueue 预分配 entryId：drain 落盘的 message.completed 锚
         //（排队注入 = 用户已知内容，后台落盘不计未读）
         ...active.steerQueue.map((item) => item.id),
-      ],
+      ]),
       turnId: active.currentTurnId,
     },
   };
