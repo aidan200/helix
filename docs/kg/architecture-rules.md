@@ -1248,16 +1248,16 @@ updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
-所有随包捆绑或外部可用的三方二进制（本期 rg，后续 codegraph 同模式）的路径解析收束于单一解析模块（rg 的落位 = adapters/driven/tools/grep/resolve-rg.ts；后续三方二进制按同模式建各自解析器）。解析顺序固定三级：①包内 bundle 资源（Tauri resources/bin，路径由壳经 sidecar 启动参数注入，TR-AD-6/TR-AD-10 bundle 资源定位口径）→ ②用户配置显式路径（~/.helix/config.json，经 paths.ts 单点派生）→ ③宿主 PATH 探测。三级全部缺失或不可用即走该工具声明的降级路径（rg → 内置 TS grep），不抛裸错。禁止工具/业务代码散落 spawn 裸名（spawn("rg") 直撞 PATH）或各自拼接包内资源路径；dev 形态下 bundle 级缺失即自然落到 ②③。
+所有随包捆绑的三方二进制（rg 与 codegraph 已同模式接入）的路径解析收束于各自单一解析模块（rg = adapters/driven/tools/grep/resolve-rg.ts；codegraph = adapters/driven/tools/codegraph/resolve-codegraph.ts）。解析顺序固定二级：①包内 bundle 资源（Tauri resources/bin，路径由壳经 sidecar 启动 env 注入，TR-AD-6/TR-AD-10 bundle 资源定位口径）→ ②用户配置显式路径（~/.helix/config.json，经 paths.ts 单点派生）。二级全部缺失即走该工具声明的失败路径（rg → 工具响亮失败含修复指引；codegraph → EngineUnavailable degraded 三入口），不抛裸错。PATH 环境探测已砍（rg 唯一化/codegraph bundle-only 改造起）——行为确定性优先，分发形态只有安装包，dev 形态由 dev-desktop 注入仓内 resources/bin 树（fetch 脚本幂等落位）。禁止工具/业务代码散落 spawn 裸名（spawn("rg") 直撞 PATH）或各自拼接包内资源路径。
 
 ## 理由
-iter-20260822-m1uc F3.1 定三级解析顺序；解析散落多处会使降级语义、配置覆盖、bundle 注入三处口径漂移（v1 rg 依赖问题即解析与调用混散的教训）；单点收口使「包内 → 配置 → PATH」成为可单测的纯函数，且 codegraph 等后续三方二进制有固定接入模式可复用（AD-1 分化策略的执行面）。
+iter-20260822-m1uc F3.1 定三级解析顺序；解析散落多处会使降级语义、配置覆盖、bundle 注入三处口径漂移（v1 rg 依赖问题即解析与调用混散的教训）；单点收口使「包内 → 配置」成为可单测的纯函数，且 codegraph 等后续三方二进制有固定接入模式可复用（AD-1 分化策略的执行面）。rg 唯一化/codegraph bundle-only 改造将三级收为二级（砍 PATH 探测）：分发形态只有安装包，PATH 级引入版本不可控与行为不确定性。
 
 ## 适用范围
 接入任何三方二进制（rg/codegraph/未来工具）时；grep 域 resolve-rg 实现与评审；涉及 spawn 外部可执行文件的新代码评审；用户配置项（rg 路径类）的文件布局评审。
 
 ## 反例
-在 rg-backend.ts 里直接 spawn("rg") 让 PATH 解析「顺便发生」——bundle 注入与用户配置两级被绕过，打包形态下用户配置覆盖失效且降级不可观测；或为图快在壳里解析 rg 路径后写进业务配置——业务路径回流壳，违背 TR-AD-6（壳只管 bundle 资源定位，注入走启动参数）。
+在 rg-backend.ts 里直接 spawn("rg") 让 PATH 解析「顺便发生」——bundle 注入与用户配置两级被绕过，打包形态下用户配置覆盖失效且失败路径不可观测；或为图快在壳里解析 rg 路径后写进业务配置——业务路径回流壳，违背 TR-AD-6（壳只管 bundle 资源定位，注入走启动参数）。
 
 ```kg-node
 id: TR-AD-33
@@ -1266,8 +1266,8 @@ graph: tech
 layer: arch
 scope: domain
 stack: backend
-name: grep 双后端一致性契约（语义对齐先于加速）
-status: active
+name: grep 双后端一致性契约（语义对齐先于加速）[已推翻——见下注]
+status: superseded
 digest: 改 grep 工具、加检索后端、写一致性对比测试时
 derivedFrom:
   - AD-2
@@ -1285,6 +1285,7 @@ updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
+【已推翻——rg 唯一化改造（2026-09，E-49→E-96）：内置 TS 后端与首败降级链已删除，grep 收敛为 rg 唯一后端。本节点历史叙述保留备查；现行语义基准 = grep/contract.ts（globToRegExp 单源）+ golden fixture 契约测试（test/contract/grep-contract.test.ts）六维断言锚定 rg 实际输出；rg 输出消费为 --json 结构化事件流。以下原文存档：】
 内置 TS 后端与 rg 后端对同一检索请求必须产出语义一致的结果，契约逐项固化：gitignore 遵守、隐藏文件处理、glob 过滤、大小写开关、上下文行、返回格式（恒为 GrepMatch：path/lineNumber/line）。契约由双后端对比测试机械守护（同一请求对 fixture 仓库跑真实两后端做结果对比断言，不用 mock 替代 rg——TR-TEST-3 契约等价口径）；新增任何语义维必须双端同批扩展并同步扩契约断言。一致性未覆盖的 rg 差异行为一律在 rg 后端适配层对齐到内置 TS 语义（rg 默认遵守 .gitignore、跳过隐藏文件——与内置行为不一致即适配层归一），宁失速不失真：加速不得改变检索结果。降级链（AF-1 裁决语义：启动定格 + 首败永久降级）：组合根装配时一次性执行 resolve-rg 三级解析 + 轻量可用性探针（rg --version，2s 超时），结果内存定格——成功定格 rg 后端，失败定格 ts 标识 + startup info 日志（含缺失原因），进程生命周期内不重新解析、不升级；grep 每次调用只读内存标识选后端，零逐次降级判断；运行期首败永久降级——定格 rg 后某次调用失败/超时 → 当轮 ts 重跑返回结果 + warning 日志 + 翻转标识为 ts（此后直接 ts），判断只发生在失败路径一次；用户与 agent 无感。
 
 ## 理由
@@ -1315,6 +1316,7 @@ anchors:
     - apps/shell/src-tauri/tauri.conf.json
     - scripts/build-desktop.ts
     - scripts/fetch-rg.ts
+    - scripts/fetch-codegraph.ts
   testedBy:
     - scripts/tauri-conf.test.ts
     - scripts/build-desktop.test.ts
@@ -1325,7 +1327,7 @@ updatedIn: iter-20260822-m1uc
 ```
 
 ## 规则
-打包产物的资源落位分三条固定通道：①daemon 编译单文件（bun build --compile 产物）走 Tauri externalBin（sidecar 机制）——sidecar 语义 = 被壳看护的 daemon 进程，壳 spawn 并做进程看护；②三方二进制（本期 rg macOS arm64，后续 codegraph 同通道）走 bundle resources，包内落位 resources/bin/（tauri.conf bundle.resources 必须用 map 形式显式指定包内目标位，slice 形式会保留配置相对路径前缀致落位错位，AF-6）；③shell 静态产物（vite build dist）走 frontendDist。三类资源禁止错位：三方二进制不得塞进 externalBin（sidecar 语义专属被看护 daemon），daemon sidecar 不得散落成普通 resources，前端产物不走 resources 手工拷贝。架构目标 arm64 only：所有捆绑二进制只产单架构，不做 universal 双份（AD-6）。构建管线一条命令依序编排：fetch-rg → bun build --compile → 等价验证 → vite build → tauri build，任一步失败即中断报错（CL-2 F2.1）；签名配置位读环境变量（有=签名+公证/无=ad-hoc，AD-5），不硬编码证书。
+打包产物的资源落位分三条固定通道：①daemon 编译单文件（bun build --compile 产物）走 Tauri externalBin（sidecar 机制）——sidecar 语义 = 被壳看护的 daemon 进程，壳 spawn 并做进程看护；②三方二进制（rg 与 codegraph darwin-arm64 同通道）走 bundle resources，包内落位 resources/bin/（tauri.conf bundle.resources 必须用 map 形式显式指定包内目标位，slice 形式会保留配置相对路径前缀致落位错位，AF-6；codegraph 为自包含目录树 codegraph-darwin-arm64，整个树挂入 resources）；③shell 静态产物（vite build dist）走 frontendDist。三类资源禁止错位：三方二进制不得塞进 externalBin（sidecar 语义专属被看护 daemon），daemon sidecar 不得散落成普通 resources，前端产物不走 resources 手工拷贝。架构目标 arm64 only：所有捆绑二进制只产单架构，不做 universal 双份（AD-6）。构建管线一条命令依序编排：fetch-rg + fetch-codegraph → bun build --compile → 等价验证 → vite build → tauri build，任一步失败即中断报错（CL-2 F2.1）；签名配置位读环境变量（有=签名+公证/无=ad-hoc，AD-5），不硬编码证书。
 
 ## 理由
 iter-20260822-m1uc AD-4/F2.3 定三通道布局；externalBin 与 resources 在 Tauri 语义上是两种机制（进程看护目标 vs 数据资源），错位会使壳的 spawn/看护逻辑与资源定位逻辑纠缠；arm64 only 是用户确认的范围裁决（universal 需 rg/daemon 双份，工作量 +30% 收益小）；管线失败即断保证分发物不会产生「半截打包」的歧义状态。

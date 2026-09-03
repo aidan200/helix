@@ -205,6 +205,8 @@ pub struct SidecarSpec {
     pub args: Vec<String>,
     /// 包内 rg 绝对路径（Some → 经 env HELIX_RG_PATH 注入；dev 形态 None = 不注入）。
     pub rg_path: Option<PathBuf>,
+    /// 包内 codegraph launcher 绝对路径（Some → 经 env HELIX_CODEGRAPH_PATH 注入）。
+    pub codegraph_path: Option<PathBuf>,
 }
 
 /// 看护事件回口（main.rs 实现：窗口加载/日志转发）。重启后每次握手成功都会
@@ -332,6 +334,9 @@ fn spawn_sidecar(spec: &SidecarSpec, stderr_tail: &StderrTail) -> std::io::Resul
         .stderr(Stdio::piped());
     if let Some(rg) = &spec.rg_path {
         command.env("HELIX_RG_PATH", rg);
+    }
+    if let Some(cg) = &spec.codegraph_path {
+        command.env("HELIX_CODEGRAPH_PATH", cg);
     }
     // 独立进程组：SIGKILL 兑底杀整组——sidecar 子孙进程（rg 等）继承 stdio
     // 管道，只杀主进程会导致管道不 EOF、stderr 收尾线程悬挂。
@@ -632,6 +637,7 @@ mod tests {
             program,
             args: vec!["--sidecar".into()],
             rg_path: None,
+            codegraph_path: None,
         }
     }
 

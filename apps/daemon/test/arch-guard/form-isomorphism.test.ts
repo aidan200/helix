@@ -12,7 +12,7 @@ import path from "node:path";
  *   invoke_handler/generate_handler!；前端禁 invoke( / __TAURI__ / @tauri-apps/api）；
  * - AG-17：壳/脚本层无内嵌 HTTP 直连绕过 WS（fetch/XHR/EventSource 唯一
  *   例外 = shared/api/helix-ws.ts 的 GET /helix-dev-token 握手前提端点；
- *   scripts 唯一例外 = fetch-rg.ts 的 GitHub releases rg 下载——均非业务
+ *   scripts 例外 = fetch-rg/fetch-codegraph 的 GitHub releases 二进制下载——均非业务
  *   数据通道）+ 壳/脚本层无形态分支连接逻辑（禁 __TAURI__ 形态检测词）；
  * - AG-18：daemon 内无 isCompiled/$bunfs 类形态检测分支（R4/TR-AD-35：
  *   资源定位差异只允许经启动参数注入消解，禁「检测自身形态走另一路径」）。
@@ -156,8 +156,8 @@ const RUST_HTTP_RE = /\breqwest::|\bureq::|\bhyper::|\bisahc::|\bsurf::/;
 
 /** token 端点唯一例外（TR-AD-12 白名单句：GET /helix-dev-token 是握手前提，非业务数据通道）。 */
 const TOKEN_FETCH_FILE = path.join("shared", "api", "helix-ws.ts");
-/** rg 下载唯一例外（scripts 面：GitHub releases 拉取，非 daemon 通道）。 */
-const RG_FETCH_FILE = "fetch-rg.ts";
+/** 三方二进制下载例外集（scripts 面：GitHub releases 拉取，非 daemon 通道——rg + codegraph）。 */
+const BINARY_FETCH_FILES: readonly string[] = ["fetch-rg.ts", "fetch-codegraph.ts"];
 /**
  * W5 预绑定通道唯一例外（scripts 面）：dev-desktop 经 daemon 公开 WS 协议
  *（hello 握手 + workspace.open，与前端同一通道——非绕过 TR-AD-12）做
@@ -210,9 +210,9 @@ describe("AG-17（CL-4/F4.3，TR-AD-12 禁区②③）：壳/脚本层无 HTTP �
       const src = readFileSync(path.join(scriptsDir, rel), "utf8");
       const httpHits = findBannedHits(src, HTTP_CALL_RE);
       const wsHits = findBannedHits(src, WS_CALL_RE);
-      if (rel === RG_FETCH_FILE) {
-        expect(httpHits.length, `${rel} 应实际含 rg 下载 fetch（守护面非空转）`).toBeGreaterThan(0);
-        // rg 下载唯一对象 = GitHub releases：不得触 daemon 回环/WS
+      if (BINARY_FETCH_FILES.includes(rel)) {
+        expect(httpHits.length, `${rel} 应实际含二进制下载 fetch（守护面非空转）`).toBeGreaterThan(0);
+        // 下载唯一对象 = GitHub releases：不得触 daemon 回环/WS
         const daemonHits = findBannedHits(src, /127\.0\.0\.1|localhost|ws:\/\//);
         expect(daemonHits, `${rel} 不得触 daemon 回环地址：${JSON.stringify(daemonHits)}`).toEqual([]);
         continue;

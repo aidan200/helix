@@ -2,14 +2,15 @@
 /**
  * build-desktop —— CL-2/F2.1/F2.4 一条命令桌面端构建管线（architecture §4.3/§4.7）。
  *
- * 五步依序（任一步非零退出即中断：打印 ✗ 步骤N + 透传 stderr 末 50 行 +
+ * 六步依序（任一步非零退出即中断：打印 ✗ 步骤N + 透传 stderr 末 50 行 +
  * 以该 code 退出，后续步骤不启动——机械判据见 brief「决策消解」）：
  *   ① fetch-rg（bun scripts/fetch-rg.ts，幂等：已存在且 arm64 校验通过则跳过）
- *   ② compile（bun scripts/compile-daemon.ts，daemon → arm64 单文件 sidecar）
- *   ③ F2.2 等价验证（bun smoke/verify-compiled-daemon.ts，双形态三探针对照，
+ *   ② fetch-codegraph（bun scripts/fetch-codegraph.ts，幂等：树完整+vendored node arm64 校验通过则跳过）
+ *   ③ compile（bun scripts/compile-daemon.ts，daemon → arm64 单文件 sidecar）
+ *   ④ F2.2 等价验证（bun smoke/verify-compiled-daemon.ts，双形态三探针对照，
  *      失败即断——管线内步骤，非手工检查项，架构 §4.3）
- *   ④ vite build（apps/shell → 静态产物，frontendDist 消费位）
- *   ⑤ tauri build（cargo tauri build，捆绑 sidecar + rg + 静态产物 →
+ *   ⑤ vite build（apps/shell → 静态产物，frontendDist 消费位）
+ *   ⑥ tauri build（cargo tauri build，捆绑 sidecar + rg + codegraph + 静态产物 →
  *      src-tauri/target/release/bundle/{macos/*.app, dmg/*.dmg}，arm64 only AD-6）
  *
  * 签名配置位（F2.4/AD-5）：resolveSigning 纯函数集中判定 tauri 官方环境
@@ -94,6 +95,7 @@ export function pipelineSteps(root: string): StepSpec[] {
   const shellDir = join(root, "apps/shell");
   return [
     { name: "fetch-rg（rg arm64 获取，幂等）", cmd: [bun, join(root, "scripts/fetch-rg.ts")], cwd: root },
+    { name: "fetch-codegraph（codegraph arm64 树获取，幂等）", cmd: [bun, join(root, "scripts/fetch-codegraph.ts")], cwd: root },
     { name: "compile（daemon → arm64 sidecar）", cmd: [bun, join(root, "scripts/compile-daemon.ts")], cwd: root },
     { name: "F2.2 等价验证（双形态探针对照）", cmd: [bun, join(root, "smoke/verify-compiled-daemon.ts")], cwd: root },
     { name: "vite build（shell 静态产物）", cmd: [bun, "run", "build"], cwd: shellDir },

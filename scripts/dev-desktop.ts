@@ -53,6 +53,11 @@ import { join } from "node:path";
 import { connect } from "node:net";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import { installFromRelease, isInstalled, RG_DEST } from "./fetch-rg";
+import {
+  CODEGRAPH_LAUNCHER,
+  installFromRelease as installCodegraphFromRelease,
+  isInstalled as isCodegraphInstalled,
+} from "./fetch-codegraph";
 
 // ── 前置自检（F4.1，纯函数面）──────────────────────────────
 
@@ -485,6 +490,16 @@ async function rgInstall(): Promise<unknown> {
   return installFromRelease();
 }
 
+/** 生产面：fetch-codegraph 默认落位（CODEGRAPH_DEST_DIR 树）的存在性校验。 */
+function cgProbe(): Promise<boolean> {
+  return isCodegraphInstalled();
+}
+
+/** 生产面：fetch-codegraph 固定版本下载安装（幂等）。 */
+async function cgInstall(): Promise<unknown> {
+  return installCodegraphFromRelease();
+}
+
 // ── 进程树枚举（macOS dev 面：ps 快照 + ppid 递推）─────────
 
 /** `ps -Ao pid=,ppid=` 输出解析（纯函数，可单测）。 */
@@ -591,6 +606,15 @@ async function main(): Promise<number> {
   const rg = await ensureRgAvailable(rgProbe, rgInstall);
   if (!rg.ok) console.error(rg.warning);
 
+  // codegraph 同模式（bundle-only 定位）：缺失自动 fetch；失败警告不阻塞
+  // （工具 degraded EngineUnavailable，仅剩 config.json codegraphPath 逃生门）。
+  const cg = await ensureRgAvailable(cgProbe, cgInstall);
+  if (!cg.ok)
+    console.error(
+      `⚠ dev:desktop codegraph 不可用（${cg.warning || "未知原因"}）——` +
+        `codegraph 工具将 degraded；可手动 bun scripts/fetch-codegraph.ts 修复`,
+    );
+
   const root = join(import.meta.dir, "..");
   const shellDir = join(root, "apps/shell");
   const workDir = mkdtempSync(join(tmpdir(), "helix-dev-desktop-"));
@@ -632,7 +656,12 @@ async function main(): Promise<number> {
         // vite 端口覆盖位透传 → devUrl 随动（tauri dev 前端等待钉对端口）
         cmd: ["cargo", ...tauriDevArgs(flags.vitePort)],
         cwd: shellDir,
-        env: { ...process.env, HELIX_SIDECAR_PATH: wrapper, HELIX_RG_PATH: RG_DEST },
+        env: {
+          ...process.env,
+          HELIX_SIDECAR_PATH: wrapper,
+          HELIX_RG_PATH: RG_DEST,
+          HELIX_CODEGRAPH_PATH: CODEGRAPH_LAUNCHER,
+        },
         stdin: "ignore",
         stdout: "inherit",
         stderr: "inherit",

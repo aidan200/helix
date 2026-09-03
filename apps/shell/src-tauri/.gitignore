@@ -6,4 +6,7 @@
 
 # rg 捆绑二进制（T3.1 落位，不入库）
 /resources/bin/rg
+
+# codegraph 捆绑树（fetch-codegraph 落位，不入库；~245MB vendored node 树）
+/resources/codegraph/
 /gen

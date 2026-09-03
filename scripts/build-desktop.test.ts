@@ -111,21 +111,22 @@ describe("resolveSigning（签名配置位纯函数，tauri 官方环境变量�
 
 // ── F2.1 管线编排（假命令注入成败，调用序列断言）────────────
 
-describe("pipelineSteps（五步契约）", () => {
-  test("五步依序：fetch-rg → compile → F2.2 验证 → vite build → tauri build", () => {
+describe("pipelineSteps（六步契约）", () => {
+  test("六步依序：fetch-rg → fetch-codegraph → compile → F2.2 验证 → vite build → tauri build", () => {
     const steps = pipelineSteps(root);
-    expect(steps.length).toBe(5);
+    expect(steps.length).toBe(6);
     expect(steps[0]!.name).toContain("fetch-rg");
-    expect(steps[1]!.name).toContain("compile");
-    expect(steps[2]!.name).toContain("F2.2");
-    expect(steps[3]!.name).toContain("vite build");
-    expect(steps[4]!.name).toContain("tauri build");
+    expect(steps[1]!.name).toContain("fetch-codegraph");
+    expect(steps[2]!.name).toContain("compile");
+    expect(steps[3]!.name).toContain("F2.2");
+    expect(steps[4]!.name).toContain("vite build");
+    expect(steps[5]!.name).toContain("tauri build");
   });
 
   test("vite build / tauri build 工作目录 = apps/shell", () => {
     const steps = pipelineSteps(root);
-    expect(steps[3]!.cwd).toBe(join(root, "apps/shell"));
     expect(steps[4]!.cwd).toBe(join(root, "apps/shell"));
+    expect(steps[5]!.cwd).toBe(join(root, "apps/shell"));
   });
 });
 
@@ -147,7 +148,7 @@ function fakeRunner(
 }
 
 describe("runPipeline（F2.1 失败即中断）", () => {
-  test("全部成功 → 返回 0，五步依序执行，日志带步骤号", async () => {
+  test("全部成功 → 返回 0，六步依序执行，日志带步骤号", async () => {
     const steps = pipelineSteps(root);
     const { runner, calls } = fakeRunner(null);
     const logs: string[] = [];
@@ -185,9 +186,9 @@ describe("runPipeline（F2.1 失败即中断）", () => {
     expect(out).not.toContain("line-10"); // 第 50 行之前被截断
   });
 
-  test("步骤5（tauri build）失败 → 全部五步执行后以非零退出", async () => {
+  test("末步（tauri build）失败 → 全部六步执行后以非零退出", async () => {
     const steps = pipelineSteps(root);
-    const { runner, calls } = fakeRunner(5, 1);
+    const { runner, calls } = fakeRunner(6, 1);
     const code = await runPipeline(steps, runner, () => {});
     expect(code).toBe(1);
     expect(calls).toEqual(steps.map((s) => s.name));

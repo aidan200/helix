@@ -300,14 +300,21 @@ impl SupervisorHooks for ShellHooks {
 ///
 /// rg 注入接线位（契约 §1）：包内 `Resources/bin/rg` 存在 → 经 env
 /// `HELIX_RG_PATH` 注入；dev 形态无该资源 → 自然不注入（rg 二进制 T3.1 落位）。
+/// codegraph 同理：包内 `Resources/codegraph/bin/codegraph` 存在 → 经 env
+/// `HELIX_CODEGRAPH_PATH` 注入（bundle 目录树，tauri resources 整目录映射）。
 fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
     let mut rg_path = None;
+    let mut codegraph_path = None;
     if let Ok(exe) = std::env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
-            // macOS bundle 布局：<app>/Contents/MacOS/exe → <app>/Contents/Resources/bin/rg
-            let candidate = exe_dir.join("../Resources/bin/rg");
-            if candidate.is_file() {
-                rg_path = candidate.canonicalize().ok();
+            // macOS bundle 布局：<app>/Contents/MacOS/exe → <app>/Contents/Resources/...
+            let rg_candidate = exe_dir.join("../Resources/bin/rg");
+            if rg_candidate.is_file() {
+                rg_path = rg_candidate.canonicalize().ok();
+            }
+            let cg_candidate = exe_dir.join("../Resources/codegraph/bin/codegraph");
+            if cg_candidate.is_file() {
+                codegraph_path = cg_candidate.canonicalize().ok();
             }
         }
     }
@@ -317,6 +324,7 @@ fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
             program: PathBuf::from(path),
             args: vec!["--sidecar".into()],
             rg_path,
+            codegraph_path,
         });
     }
 
@@ -333,6 +341,7 @@ fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
                 program: entry.path(),
                 args: vec!["--sidecar".into()],
                 rg_path,
+                codegraph_path,
             });
         }
     }

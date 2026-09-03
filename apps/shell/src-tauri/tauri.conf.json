@@ -24,7 +24,8 @@
       "binaries/helix-daemon"
     ],
     "resources": {
-      "resources/bin/rg": "bin/rg"
+      "resources/bin/rg": "bin/rg",
+      "resources/codegraph": "codegraph"
     },
     "macOS": {
       "entitlements": null
