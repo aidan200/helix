@@ -250,6 +250,54 @@ describe("pause 语义（CL-3-T7 引擎面，O-2 + ⑤ 链 A 编排层挂起接�
   });
 });
 
+describe("resume 暂停期重试耗尽上浮（H1）", () => {
+  test("暂停期 failBatch 耗尽重试预算 → resume 置 running 后上浮 stage/job failed + haltJob 清场，不续跑", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId, batchId, scope } = await launchRunningJob(env);
+      // 预算内两次失败（running：排期重试 → 重派回 running）
+      await env.engine.failBatch(batchId, "第一次失败");
+      await env.engine.dispatchBatch(batchId, "inst-b");
+      await env.engine.failBatch(batchId, "第二次失败");
+      await env.engine.dispatchBatch(batchId, "inst-c");
+      // 暂停期第三次失败：retryCount=3 超限，但 job=paused 不上浮（failBatch 仅 running 上浮）
+      await env.engine.pause(jobId);
+      await env.engine.failBatch(batchId, "暂停期失败");
+      expect(env.store.getBatch(batchId)!.retryCount).toBe(3);
+      expect(env.store.getJob(jobId)!.status).toBe("paused");
+      env.starter.calls.length = 0;
+      await env.engine.resume(jobId);
+      // 上浮：stage failed → job failed（error 含 scope 与 retryCount）+ haltJob 清场
+      expect(env.store.getStages(jobId).find((s) => s.seq === 1)!.status).toBe("failed");
+      const job = env.store.getJob(jobId)!;
+      expect(job.status).toBe("failed");
+      expect(job.error).toContain(scope);
+      expect(job.error).toContain("3");
+      expect(env.starter.halts).toEqual([jobId]);
+      // 不续跑：resumeAll/startOrchestrator 均不调用
+      expect(env.starter.calls).toEqual([`halt:${jobId}`]);
+    });
+  });
+
+  test("同阶段仍有在跑批次（parked 待复活）→ resume 正常续跑不上浮", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId, batchId } = await launchRunningJob(env);
+      const { batchId: batchId2 } = await env.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次 2" });
+      await env.engine.dispatchBatch(batchId2, "inst-d");
+      await env.engine.failBatch(batchId, "f1");
+      await env.engine.dispatchBatch(batchId, "inst-b");
+      await env.engine.failBatch(batchId, "f2");
+      await env.engine.dispatchBatch(batchId, "inst-c");
+      await env.engine.pause(jobId);
+      await env.engine.failBatch(batchId, "f3");
+      env.starter.calls.length = 0;
+      await env.engine.resume(jobId);
+      // 阶段仍有 running 批次（parked 待复活）→ 不上浮，正常续跑
+      expect(env.store.getJob(jobId)!.status).toBe("running");
+      expect(env.starter.calls).toEqual([`resume:${jobId}`, `start:${jobId}`]);
+    });
+  });
+});
+
 describe("cancel 语义（CL-3-T7）", () => {
   test("cancel：编排 stop 被调 + job cancelled + 在跑批次标 failed（retry_note=cancelled）", async () => {
     await withTaskEnv(async (env) => {
