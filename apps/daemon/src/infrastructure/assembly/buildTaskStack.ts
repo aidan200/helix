@@ -135,6 +135,9 @@ function placeholderStarter(logger: Logger): TaskOrchestratorStarterPort {
     async stopOrchestrator(_jobId: string): Promise<void> {
       // no-op：占位期无 loop 可停
     },
+    haltJob(_jobId: string): void {
+      // no-op：占位期无 loop 可停摆
+    },
     async parkAll(_jobId: string): Promise<void> {
       // no-op：占位期无 loop 可冻结、无实例登记面（pause 仍落库停派，O-2 既有语义）
     },

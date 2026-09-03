@@ -159,6 +159,14 @@ interface LoopState {
   parked: boolean;
   /** 挂起期间暂存的唤醒（resume 时回放驱动编排器）。 */
   readonly stashedWakes: string[];
+  /**
+   * 失败停摆位（haltJob：failBatch 超限上浮 → job failed）：置位后不再
+   * 驱动任何编排回合（wake 全丢）但保留收口落库（locate 放行）——在跑
+   * 实例自然收口、排队实例已摘队，全部 in-flight 收口后循环自清
+   * （reapDrained）。区别于 stopped 单用：stopped 循环收口被丢弃，drain
+   * 循环收口照常落库（done 行保留，人工重试不重跑）。
+   */
+  drain: boolean;
 }
 
 const RESUME_NOTICE = "【恢复通知】任务已恢复（running）——按现场摘要与任务 skill SOP 续跑。";
@@ -182,8 +190,9 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     }
     const existing = this.loops.get(jobId);
     if (existing !== undefined && !existing.stopped) {
-      this.wake(existing, RESUME_NOTICE); // resume/重复 start：唤醒续跑
-      void this.sweepRetries(jobId);
+      // B3：补派先落行再唤醒——RESUME_NOTICE 与补派注入的现场一致（LLM 不重复派）
+      await this.sweepRetries(jobId);
+      this.wake(existing, RESUME_NOTICE);
       return;
     }
     const loop: LoopState = {
@@ -193,27 +202,57 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       running: false,
       stopped: false,
       parked: false,
+      drain: false,
       stashedWakes: [],
     };
     this.loops.set(jobId, loop);
-    void this.sweepRetries(jobId); // 暂停期失败未重派的批次补派（§4.5）
+    // B3（resume 双派竞态）：补派先落行——kickoff 快照含已补派批次的新实例号，
+    // 编排 LLM 看到 running+实例号即不自行重派（历史 void 异步曾致 LLM 快照读旧
+    // failed 态后自派重复实例，产物无法接线全部丢弃）
+    await this.sweepRetries(jobId); // 暂停期失败未重派的批次补派（§4.5）
     this.wake(loop, await this.kickoffPrompt(job)); // fire-and-forget：循环已启动即 resolve
   }
 
   /** 停 loop + 在跑批次 SIGTERM（cancel 通路；引擎已先停批行迁移前的调用序）。 */
   async stopOrchestrator(jobId: string): Promise<void> {
     const loop = this.loops.get(jobId);
+    const spawned = loop !== undefined ? [...loop.briefs.keys()] : [];
     if (loop !== undefined) {
       loop.stopped = true;
       loop.stashedWakes.length = 0; // 终止丢弃暂存唤醒（cancel 语义：无回放）
       loop.session.abort();
       this.loops.delete(jobId);
     }
-    for (const batch of this.allBatches(jobId)) {
-      if (batch.status === "running" && batch.instanceId !== null) {
-        this.deps.killInstance(batch.instanceId); // kill 收口链回调被 stopped 循环吞（幂等）
+    // 本循环 spawn 过的全部实例（含游离/排队）+ 在跑批次的接线实例（跨循环
+    // 残留）——cancel 清场：排队摘队、在跑终止；kill 任意状态幂等（已终态 no-op）
+    const linked = this.allBatches(jobId)
+      .filter((b) => b.status === "running" && b.instanceId !== null)
+      .map((b) => b.instanceId as string);
+    for (const agentId of new Set([...spawned, ...linked])) {
+      this.deps.killInstance(agentId); // kill 收口链回调被 stopped 循环吞（幂等）
+    }
+  }
+
+  /**
+   * 任务失败停摆（B2 fail-stop：failBatch 超限上浮 → 引擎调用）：停驱动
+   * （abort + 丢弃暂存唤醒）+ 摘队排队实例；在跑实例不杀——drain 态自然
+   * 收口照常落库，全部 in-flight 收口后循环自清（reapDrained）。
+   */
+  haltJob(jobId: string): void {
+    const loop = this.loops.get(jobId);
+    if (loop === undefined || loop.drain) return; // 幂等：无循环（未开编排/已收口）或已停摆
+    loop.stopped = true; // wake 全丢（closureNotice 不再驱动编排回合）
+    loop.drain = true; // locate 放行：收口继续落库
+    loop.stashedWakes.length = 0;
+    loop.session.abort(); // 中断当前 LLM 回合（防停摆后回合内继续 spawn）
+    for (const agentId of loop.briefs.keys()) {
+      if (this.deps.instanceOutcome(agentId)?.state === "queued") {
+        this.deps.killInstance(agentId); // 排队未起跑：摘队（零 token 浪费；收口落 failed 行）
       }
     }
+    this.info(`任务失败停摆（任务 ${jobId}）：驱动中止 + 排队实例摘队；在跑实例自然收口（drain）`);
+    this.deps.onJobTerminal?.(jobId, "failed"); // 终态提示前移到停摆点（不等回合结束）
+    this.reapDrained(loop); // 无在飞时立即自清
   }
 
   // ── 任务域挂起/恢复（⑤ 链 A：park/resume 原语的任务级接线） ──
@@ -313,12 +352,12 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     })();
   }
 
-  /** 任务终态 → 丢弃循环（会话可丢弃；权威状态全在行）。 */
+  /** 任务终态 → 丢弃循环（会话可丢弃；权威状态全在行）。drain 态例外——haltJob 已提示且收口未完，归 reapDrained 自清。 */
   private reapIfTerminal(jobId: string): void {
     const job = this.deps.store.getJob(jobId);
     if (job !== undefined && isTerminalJob(job.status)) {
       const loop = this.loops.get(jobId);
-      if (loop !== undefined) {
+      if (loop !== undefined && !loop.drain) {
         loop.stopped = true;
         this.loops.delete(jobId);
         // W2-D R13 job 完成提示点：扫描 pending_sync 归组合根（本层只报终态事实）
@@ -332,7 +371,10 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
   /** 实例收口机械判读 + 引擎落库 + 重派/通知。 */
   private async settleInstance(agentId: string): Promise<void> {
     const hit = this.locate(agentId);
-    if (hit === undefined) return; // 非本编排在册实例 / 已停循环 / 已收口批次
+    if (hit === undefined) {
+      this.noticeUnlinked(agentId); // B1 可观测：本循环 spawn 但未接线批次行的游离收口
+      return; // 非本编排在册实例 / 已停循环 / 已收口批次
+    }
     const { loop, batch } = hit;
     if (batch.status !== "running") return; // 迟到收口幂等（cancel 已标 failed 等）
     const outcome = this.deps.instanceOutcome(agentId);
@@ -364,12 +406,46 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       this.warn(`批次收口引擎调用异常（任务 ${loop.jobId} 批次 ${batch.id}）：${(err as Error).message}`);
     }
     this.wake(loop, this.closureNotice(agentId, batch, verdict, redispatched));
+    this.reapDrained(loop); // drain 态（haltJob 后）收口清扫
   }
 
-  /** agentId → 在册循环 + 批次行（按 brief 登记簿定位 jobId 再查行）。 */
-  private locate(agentId: string): { loop: LoopState; batch: BatchData } | undefined {
+  /**
+   * B1 可观测：游离实例收口（本循环 spawn 过但未接线任何批次行——spawn 后
+   * 未 task_dispatch_batch）：产物丢弃不进任务台账，warn + 纠偏注入编排
+   * 会话（失败重派由引擎负责，勿自行另派）。
+   */
+  private noticeUnlinked(agentId: string): void {
     for (const loop of this.loops.values()) {
       if (loop.stopped || !loop.briefs.has(agentId)) continue;
+      this.warn(
+        `游离实例收口被丢弃（任务 ${loop.jobId} 实例 ${agentId}）：spawn 未接线任何批次行（insertBatch 后未 task_dispatch_batch）——产物不进任务台账`,
+      );
+      this.wake(
+        loop,
+        `【派发纠偏】实例 ${agentId} 已收口但未接线任何批次行，产物已丢弃。失败批次重派由引擎自动负责——不要自行 agent_spawn 同范围另派；新批次必须 insertBatch 落行后立即 task_dispatch_batch 接线。`,
+      );
+      return;
+    }
+  }
+
+  /** drain（haltJob 后）收口清扫：全部实例终态且无 running 批次 → 丢弃循环。 */
+  private reapDrained(loop: LoopState): void {
+    if (!loop.drain) return;
+    const inFlight = [...loop.briefs.keys()].some(
+      (id) =>
+        this.deps.instanceOutcome(id)?.state === "queued" || this.deps.instanceOutcome(id)?.state === "running",
+    );
+    if (inFlight) return;
+    if (this.allBatches(loop.jobId).some((b) => b.status === "running")) return;
+    loop.stopped = true;
+    this.loops.delete(loop.jobId);
+    this.info(`drain 完成，编排循环自清（任务 ${loop.jobId}）`);
+  }
+
+  /** agentId → 在册循环 + 批次行（按 brief 登记簿定位 jobId 再查行）。drain 态循环放行（收口照常落库）。 */
+  private locate(agentId: string): { loop: LoopState; batch: BatchData } | undefined {
+    for (const loop of this.loops.values()) {
+      if ((loop.stopped && !loop.drain) || !loop.briefs.has(agentId)) continue;
       const batch = this.allBatches(loop.jobId).find((b) => b.instanceId === agentId);
       if (batch !== undefined) return { loop, batch };
     }
@@ -439,6 +515,12 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
   private spawnBatch(jobId: string, brief: string): SpawnOutcome {
     const job = this.deps.store.getJob(jobId);
     if (job === undefined) return { status: "rejected", error: `任务 ${jobId} 不存在` };
+    // B1 派发闸：非 pending/running（paused/failed/cancelled/done）拒绝——停摆/
+    // 终态后编排 LLM 不得再 spawn（历史事故：job failed 后 LLM 回合内继续
+    // agent_spawn，产物无法接线全部丢弃）
+    if (job.status !== "pending" && job.status !== "running") {
+      return { status: "rejected", error: `任务 ${jobId} 状态 ${job.status}——不可派发批次实例（失败重派由引擎自动重试/人工重试负责）` };
+    }
     const enforced = this.deps.skills.getTaskType(job.type)?.plan === "enforced";
     const effective = enforced && this.deps.planHardConstraint !== "" ? `${brief}\n\n${this.deps.planHardConstraint}` : brief;
     const outcome = this.deps.rawSpawn(taskSessionIdOf(jobId), effective, dispatchProfileKindOf(job.type));
@@ -514,6 +596,8 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       "【恢复现场（批次行状态——权威状态，从这续跑）】",
       ...batchLines,
       ...(doneBatches.length > 0 ? ["已完成批次：" + doneBatches.join("、")] : []),
+      "",
+      "【派发纪律】running/failed 批次已由引擎派发或自动重派（上表实例号即证据）——不要对它们自行另派实例；新批次须 insertBatch 落行、spawn 后立即 task_dispatch_batch 接线，未接线实例的产物会被丢弃。",
       "",
       "【任务 skill 全文】",
       skillText ?? `（skill "${job.type}" 全文不可得——按任务类型名与阶段行自行组织批次划分，或申报任务失败。）`,

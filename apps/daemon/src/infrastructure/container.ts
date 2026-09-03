@@ -415,6 +415,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       orchestratorService === undefined
         ? Promise.resolve()
         : orchestratorService.stopOrchestrator(jobId),
+    // B2 fail-stop：failBatch 超限上浮 → 编排停摆（停驱动 + 摘队排队实例）
+    haltJob: (jobId) => {
+      if (orchestratorService !== undefined) orchestratorService.haltJob(jobId);
+    },
     // 链 A（⑤）：任务 pause/resume → 编排层 parkAll/resumeAll 晚绑透传
     parkAll: (jobId) =>
       orchestratorService === undefined

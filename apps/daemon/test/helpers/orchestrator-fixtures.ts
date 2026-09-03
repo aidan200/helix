@@ -213,6 +213,8 @@ export interface OrchestratorEnvOverrides {
   readonly resumeInstance?: (agentId: string) => { resumed: boolean; queued?: boolean; error?: string };
   /** 卡装配修复面：前 N 次 drive 抛错（模拟首轮驱动异常——重试唤醒链断言注入）。 */
   readonly failFirstDrives?: number;
+  /** kill 面覆盖（fail-stop 停摆/取消清场断言；缺省记录到 killLog）。 */
+  readonly killInstance?: (agentId: string) => void;
 }
 
 export interface OrchestratorEnv {
@@ -225,6 +227,10 @@ export interface OrchestratorEnv {
   readonly sessionLog: { kind: "drive" | "inject"; text: string }[];
   /** 编排服务日志捕获（info/warn 平铺——驱动可观测性与重试链断言面）。 */
   readonly orchestratorLog: string[];
+  /** kill 面记录（fail-stop 摘队/取消清场断言面）。 */
+  readonly killLog: string[];
+  /** 任务绑定编排口取面（spawn 闸单元级断言：portOf(jobId).spawn(...)）。 */
+  portOf(jobId: string): AgentOrchestrationPort | undefined;
   /** 测试 home 目录（D6：kickoff 任务报告目录断言基准——<home>/reports/<sessionId>）。 */
   readonly homeDir: string;
   /** 子进程形态台账直写面（模拟批次实例 plan 落账）。 */
@@ -260,6 +266,9 @@ export async function withOrchestratorEnv(
     async stopOrchestrator(jobId: string): Promise<void> {
       await orchestratorRef?.stopOrchestrator(jobId);
     },
+    haltJob(jobId: string): void {
+      orchestratorRef?.haltJob(jobId);
+    },
     async parkAll(jobId: string): Promise<void> {
       await orchestratorRef?.parkAll(jobId);
     },
@@ -281,8 +290,11 @@ export async function withOrchestratorEnv(
   const scriptedStream = makeScriptedLLM([...over.script]);
   const sessionLog: { kind: "drive" | "inject"; text: string }[] = [];
   const orchestratorLog: string[] = [];
+  const killLog: string[] = [];
   let driveFailuresLeft = over.failFirstDrives ?? 0;
+  const sessionPorts = new Map<string, AgentOrchestrationPort>();
   const createSession = (jobId: string, orchestration: AgentOrchestrationPort): OrchestratorSessionFace => {
+    sessionPorts.set(jobId, orchestration);
     const executor = new CoreToolExecutor({
       cwd: dir,
       orchestration,
@@ -331,7 +343,7 @@ export async function withOrchestratorEnv(
     rawSpawn: over.rawSpawn ?? ((sessionId, task) => recorder.spawn(sessionId, task)),
     instanceOutcome:
       over.instanceOutcome ?? ((agentId) => recorder.outcomes.get(agentId) ?? { state: "running" }),
-    killInstance: () => undefined,
+    killInstance: over.killInstance ?? ((agentId) => killLog.push(agentId)),
     // 链 A（⑤）：缺省 fake（即时成立）；真调度器级测链归 task-park-resume.test
     parkInstance: over.parkInstance ?? (() => ({ parked: true })),
     resumeInstance: over.resumeInstance ?? (() => ({ resumed: true, queued: false })),
@@ -356,7 +368,7 @@ export async function withOrchestratorEnv(
   };
 
   try {
-    await fn({ engine, store, orchestrator, recorder, dbPath, sessionLog, orchestratorLog, homeDir: dir, childLedger: () => childLedger(dbPath), until, dispose: async () => {
+    await fn({ engine, store, orchestrator, recorder, dbPath, sessionLog, orchestratorLog, killLog, homeDir: dir, portOf: (jobId) => sessionPorts.get(jobId), childLedger: () => childLedger(dbPath), until, dispose: async () => {
       await queue.close();
       rmSync(dir, { recursive: true, force: true });
     } });

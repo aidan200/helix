@@ -25,6 +25,14 @@ export interface TaskOrchestratorStarterPort {
   /** 停编排 loop + SIGTERM 在跑批次实例（cancel 通路）。 */
   stopOrchestrator(jobId: string): Promise<void>;
   /**
+   * 任务失败停摆（failBatch 超限上浮 → job failed 后引擎调用）：停编排驱动
+   * （abort 当前回合 + 丢弃暂存唤醒，杜绝停摆后 LLM 继续派发）+ 摘队全部
+   * 排队实例（未起跑零 token 浪费）；**在跑实例不杀**——自然收口照常落库
+   * （done 行保留，人工重试不重跑）。循环转入 drain 态：收口继续落库但不
+   * 再驱动编排回合，全部 in-flight 收口后循环自清。
+   */
+  haltJob(jobId: string): void;
+  /**
    * 任务暂停挂起（⑤ 链 A）：编排 loop 挂起（wake 队列冻结——挂起期间收到
    * 的批次 closure 唤醒暂存，不驱动编排器回合）+ 对全部 running 且有
    * instanceId 的批次实例发 scheduler.park(reason="taskPause")（协作式，

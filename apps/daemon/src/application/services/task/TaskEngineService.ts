@@ -359,6 +359,9 @@ export class TaskEngineService implements TaskEnginePort {
         `重试耗尽：批次「${batch.scope}」失败 ${retryCount} 次（上限 ${MAX_BATCH_RETRY}）——${note}`,
       );
       this.notify({ jobId: batch.jobId, changed: "job", status: "failed" });
+      // B2 fail-stop：停编排驱动 + 摘队排队实例（在跑自然收口落库）——历史
+      // 事故：上浮后无停摆，编排 LLM 回合内继续 spawn + 队列实例逐个放行
+      this.deps.starter.haltJob(batch.jobId);
     }
     return { retryScheduled };
   }

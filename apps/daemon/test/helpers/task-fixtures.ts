@@ -80,6 +80,8 @@ export class FakeOrchestratorStarter implements TaskOrchestratorStarterPort {
   readonly stops: string[] = [];
   readonly parks: string[] = [];
   readonly resumes: string[] = [];
+  /** fail-stop 停摆记录（B2：failBatch 超限上浮 → haltJob 断言面）。 */
+  readonly halts: string[] = [];
   /** 调用序观测（链 A：resume → resumeAll 先于 startOrchestrator 断言）。 */
   readonly calls: string[] = [];
 
@@ -91,6 +93,11 @@ export class FakeOrchestratorStarter implements TaskOrchestratorStarterPort {
   async stopOrchestrator(jobId: string): Promise<void> {
     this.stops.push(jobId);
     this.calls.push(`stop:${jobId}`);
+  }
+
+  haltJob(jobId: string): void {
+    this.halts.push(jobId);
+    this.calls.push(`halt:${jobId}`);
   }
 
   async parkAll(jobId: string): Promise<void> {

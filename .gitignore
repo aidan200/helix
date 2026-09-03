@@ -7,3 +7,4 @@ playwright-report/
 
 # v2 kg 库本地运行态（AF-21 二次裁决 2026-08-26：v2 落 .helix-kg/，v1 .kg/kg.db 恢复 git 跟踪）
 .helix-kg/
+helix.db

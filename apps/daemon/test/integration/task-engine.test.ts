@@ -490,6 +490,8 @@ describe("重试超限上浮（CL-2-T5 上浮面，O-3）", () => {
       expect(job.status).toBe("failed");
       expect(job.error).toContain(scope);
       expect(job.error).toContain("3");
+      // B2 fail-stop：超限上浮同步触发编排停摆（停驱动 + 摘队排队实例）
+      expect(env.starter.halts).toContain(jobId);
     });
   });
 });
