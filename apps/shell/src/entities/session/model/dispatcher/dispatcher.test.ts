@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 import { EVENT_TYPES } from "@helix/protocol";
 import type { EventEnvelope } from "@helix/protocol";
-import { route, register } from "./index";
+import { route, register, PASSTHROUGH_EVENT_TYPES } from "./index";
 import { SESSION_DIRECTORY_EVENT_TYPES } from "../consumers/directory";
 import { MODEL_CONFIG_EVENT_TYPES } from "../consumers/model-config";
 import { AGENT_CONFIG_EVENT_TYPES } from "../consumers/agent-config";
@@ -29,6 +29,9 @@ import { applyModelChangedEvent } from "../consumers/model";
 import { applyThinkingLevelEvent } from "../consumers/thinking-level";
 
 describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
+  // M36：直通清单集合（连接私有回执/广播唯一登记点核查面）
+  const passthroughTypes = new Set<string>(PASSTHROUGH_EVENT_TYPES);
+
   it("协议全部事件 type（EVENT_TYPES）均被消费：route（会话 store 级）或 directory/modelConfig/agentConfig/web（拓扑级）", () => {
     const directoryTypes = new Set<string>(SESSION_DIRECTORY_EVENT_TYPES);
     const modelConfigTypes = new Set<string>(MODEL_CONFIG_EVENT_TYPES);
@@ -37,6 +40,12 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     // workspace 族（W3+W4）：两结果帧 + changed 广播经注册表 no-op 正式登记
     //（连接私有回执/广播——真消费归 entities/workspace 门禁状态机与 W4 各域
     // 刷新链，SessionContext 转发层先例；PENDING_W34 豁免已全清）。
+    // M36：连接私有回执/广播统一收敛为 PASSTHROUGH_EVENT_TYPES 声明式清单，
+    // 本守护先核查清单自身再查路由（清单 = 唯一登记点）。
+    expect(
+      passthroughTypes.size,
+      "PASSTHROUGH_EVENT_TYPES 存在重复登记",
+    ).toBe(PASSTHROUGH_EVENT_TYPES.length);
     for (const type of EVENT_TYPES) {
       expect(
         route(type) !== undefined ||
@@ -46,6 +55,10 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
           webTypes.has(type),
         `未消费事件 type：${type}`,
       ).toBe(true);
+    }
+    // 清单项必须全部已注册（漏登记 = 守护假绿防线）
+    for (const type of PASSTHROUGH_EVENT_TYPES) {
+      expect(route(type), `直通清单项未注册：${type}`).toBeDefined();
     }
   });
 
@@ -109,11 +122,27 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     for (const type of WEB_EVENT_TYPES) {
       expect(route(type), `web 族不应注册会话 store 面：${type}`).toBeUndefined();
     }
-    // workspace 族（W3 门禁 + W4 刷新链）：三 type 经注册表 no-op 正式登记
+    // workspace 族（W3 门禁 + W4 刷新链）：三 type 经直通清单正式登记
     //（连接私有读/写面 + changed 广播，真消费归 entities/workspace 门禁状态
-    // 机与各域刷新链——SessionContext 转发层先例）
+    // 机与各域刷新链——SessionContext 转发层先例；M36 起登记点 =
+    // PASSTHROUGH_EVENT_TYPES 清单）
+    expect(passthroughTypes.has("workspace.get.result")).toBe(true);
+    expect(passthroughTypes.has("workspace.open.result")).toBe(true);
+    expect(passthroughTypes.has("workspace_changed")).toBe(true);
     expect(route("workspace.get.result")).toBeDefined();
     expect(route("workspace.open.result")).toBeDefined();
     expect(route("workspace_changed")).toBeDefined();
+  });
+
+  it("直通清单（M36）：连接私有回执/广播全量 no-op 登记（store 零写入）", () => {
+    // 清单项路由到的处理函数必须为 no-op（原状态返回）——真消费在 dispatcher
+    // 外（SessionContext 转发层 / 页面查询链），会话 store 零写入语义钉死
+    const probe = { sessionId: "probe" } as unknown as SessionState;
+    const frame = { type: "probe" } as unknown as EventEnvelope;
+    for (const type of PASSTHROUGH_EVENT_TYPES) {
+      const handler = route(type);
+      expect(handler, `直通清单项未注册：${type}`).toBeDefined();
+      expect(handler!(probe, frame), `直通项应原状态返回：${type}`).toBe(probe);
+    }
   });
 });
