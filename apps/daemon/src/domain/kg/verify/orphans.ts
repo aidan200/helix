@@ -106,7 +106,14 @@ export function findOrphanItems(input: OrphanScanInput): OrphanItem[] {
     .filter((n) => !anchoredNodeIds.has(n.id))
     .filter((n) => !edgedNodeIds.has(n.id))
     .filter((n) => !declaredNodeIds.has(n.id))
-    .filter((n) => !(n.status === "draft" && now - Date.parse(n.createdAt) < ORPHAN_DRAFT_GRACE_MS))
+    // M1：createdAt 不可解析（NaN）→ 防御跳过不列（对齐 activity-mismatch 同目录口径；
+    // NaN 参与比较恒 false，会穿透宽限把新近草稿误报为孤儿）
+    .filter((n) => {
+      if (n.status !== "draft") return true;
+      const createdMs = Date.parse(n.createdAt);
+      if (Number.isNaN(createdMs)) return false;
+      return now - createdMs >= ORPHAN_DRAFT_GRACE_MS;
+    })
     .filter((n) => n.status !== "superseded")
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const node of orphanCandidates) {
