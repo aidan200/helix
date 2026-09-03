@@ -63,7 +63,8 @@ describe("TP-CL8-1：四类状态经 repository 存取重建", () => {
 
       const ok = ToolCallRecord.create("tc-ok", "bash", { command: "echo hi" });
       ok.markRunning("2024-01-01T00:00:04.000Z");
-      ok.complete("hi", "2024-01-01T00:00:05.000Z");
+      // H6：下行图片随 completed 入账，restore 往返必须保真（读点漏 SELECT images 会抹除）
+      ok.complete("hi", "2024-01-01T00:00:05.000Z", ["data:image/png;base64,AAAA"]);
       const bad = ToolCallRecord.create("tc-bad", "read", { path: "/x" });
       bad.markRunning("2024-01-01T00:00:06.000Z");
       bad.fail("no such file", "2024-01-01T00:00:07.000Z");
@@ -91,8 +92,9 @@ describe("TP-CL8-1：四类状态经 repository 存取重建", () => {
         .prepare("SELECT entry_id, text, source FROM steer_queue WHERE session_id = 's-cl8-1'")
         .get() as { entry_id: string; text: string; source: string | null };
       expect(steerRow).toEqual({ entry_id: "e2", text: "改用 grep", source: "closure" });
-      // ④ 工具调用记录（结果/错误/时间全保真）
+      // ④ 工具调用记录（结果/错误/时间/images 全保真）
       expect(restored!.toolCalls).toEqual([ok.toData(), bad.toData()]);
+      expect(restored!.toolCalls[0]!.images).toEqual(["data:image/png;base64,AAAA"]);
 
       // 重建行为延续
       const rebuilt = Session.restoreFrom(restored!.session);

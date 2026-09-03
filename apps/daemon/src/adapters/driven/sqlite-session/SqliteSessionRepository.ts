@@ -73,7 +73,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .all(sessionId) as SteerQueueRow[];
     const toolCalls = db
       .prepare(
-        "SELECT id, session_id, instance_id, tool_name, args, status, result, error, started_at, ended_at " +
+        "SELECT id, session_id, instance_id, tool_name, args, status, result, error, images, started_at, ended_at " +
           "FROM tool_calls WHERE session_id = ? ORDER BY rowid",
       )
       .all(sessionId) as ToolCallRow[];
