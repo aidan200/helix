@@ -20,7 +20,7 @@
 import type { TaskEnginePort } from "../../ports/inbound/TaskEnginePort";
 import type { TaskStorePort } from "../../ports/outbound/TaskStorePort";
 import type { KgProjectService } from "./KgProjectService";
-import { hasActiveJob, projectNameOf } from "./job-activity";
+import { claimCreateSlot, hasActiveJob, projectNameOf, releaseCreateSlot } from "./job-activity";
 
 /** 准入复核结论（create 前置；reason = 契约词表 index_absent / task_running
  *（P0① 并发禁入；终态后放行，保留反复发起语义））。 */
@@ -32,7 +32,7 @@ export interface KgReviewCreateView {
 }
 
 /** 结构化错误（契约词表；与 KgBootstrapError 同构但码域不同）。 */
-export type KgReviewErrorCode = "kg.review.not_eligible" | "task.validation_failed" | "task.type_unknown" | "KG_E_PARAM";
+export type KgReviewErrorCode = "kg.review.not_eligible" | "task.validation_failed" | "task.type_unknown" | "task.internal" | "KG_E_PARAM";
 
 export interface KgReviewError {
   readonly code: KgReviewErrorCode;
@@ -84,24 +84,34 @@ export class KgReviewService {
         },
       };
     }
-    const projectName = projectRoot.split("/").filter((s) => s !== "").pop() ?? project;
+    const projectName = projectNameOf(projectRoot);
+    if (!claimCreateSlot("kg-review", projectName)) {
+      return {
+        ok: false,
+        error: { code: "kg.review.not_eligible", message: "task_running：该项目已有进行中的语义体检任务（kg-review）；可在「任务」页观察进度，任务终态后可再次发起（仅禁并发）" },
+      };
+    }
     try {
-      // createTask 同一 API（type/params/projects/createdBy 与 kg.bootstrap.create 同源）；
-      // stages 策略 fixed 由 manifest 生成三行（L0 结构面预检 / L1 规则册逐节点评审 / L2 实体册逐节点评审）
-      const { jobId } = await this.deps.taskEngine.createTask({
-        type: "kg-review",
-        projects: [projectName],
-        params: { projectRoot },
-        createdBy: "page",
-      });
-      return { ok: true, value: { jobId } };
-    } catch (err) {
-      const code = (err as { code?: unknown }).code;
-      const message = err instanceof Error ? err.message : String(err);
-      if (code === "task.validation_failed" || code === "task.type_unknown") {
-        return { ok: false, error: { code, message } };
+      try {
+        // createTask 同一 API（type/params/projects/createdBy 与 kg.bootstrap.create 同源）；
+        // stages 策略 fixed 由 manifest 生成三行（L0 结构面预检 / L1 规则册逐节点评审 / L2 实体册逐节点评审）
+        const { jobId } = await this.deps.taskEngine.createTask({
+          type: "kg-review",
+          projects: [projectName],
+          params: { projectRoot },
+          createdBy: "page",
+        });
+        return { ok: true, value: { jobId } };
+      } catch (err) {
+        const code = (err as { code?: unknown }).code;
+        const message = err instanceof Error ? err.message : String(err);
+        if (code === "task.validation_failed" || code === "task.type_unknown") {
+          return { ok: false, error: { code, message } };
+        }
+        return { ok: false, error: { code: typeof code === "string" && code !== "" ? (code as KgReviewErrorCode) : "task.internal", message } };
       }
-      return { ok: false, error: { code: "task.validation_failed", message } };
+    } finally {
+      releaseCreateSlot("kg-review", projectName);
     }
   }
 }

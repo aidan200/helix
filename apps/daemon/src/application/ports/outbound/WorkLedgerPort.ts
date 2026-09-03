@@ -42,13 +42,15 @@ export interface WorkLedgerPort {
   replaceItems(instanceId: string, items: readonly WorkItemInput[]): Promise<void>;
   /**
    * 单项状态迁移/记 note（plan_update；note undefined = 不动既有值，
-   * 显式 null = 清空）。
+   * 显式 null = 清空）。expectedStatus 携带时 UPDATE 带前态谓词
+   *（code-review M16 TOCTOU 收口），未命中抛并发变更错误。
    */
   updateItem(
     instanceId: string,
     seq: number,
     status: WorkItemStatus,
     note?: string | null,
+    expectedStatus?: WorkItemStatus,
   ): Promise<void>;
   /** 实例 plan 读（seq 升序；派发方判进度 AD-6③，WAL 读不阻塞子写）。 */
   getItems(instanceId: string): readonly WorkItemData[];

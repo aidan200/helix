@@ -447,7 +447,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   taskStoreForProjectRows = taskStack.orchestratorCore.store;
 
   // ── fan-out 发布面（先建，服务构造即依赖它；目标归 wireEventFanout 装配） ──
-  const fanoutPublisher = new FanoutPublisher();
+  const fanoutPublisher = new FanoutPublisher(logger);
 
   // ── driven：CDP 浏览器连接（地基；无独立 proxy/HTTP 层，连接内嵌 daemon）──
   // lazy 连接——装配不触网；homeDir 经 paths.ts 单点取（AG-07：adapter 不直接展开主目录）。

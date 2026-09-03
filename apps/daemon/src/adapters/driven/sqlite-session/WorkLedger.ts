@@ -90,8 +90,23 @@ export class WorkLedger implements WorkLedgerPort {
     seq: number,
     status: WorkItemStatus,
     note?: string | null,
+    expectedStatus?: WorkItemStatus,
   ): Promise<void> {
     const now = new Date().toISOString();
+    if (expectedStatus !== undefined) {
+      // TOCTOU 收口（code-review M16）：读-判-写非原子时父子进程并发可绕过
+      // 状态机守卫——前态谓词并入 UPDATE（原子），并发变更即 changes=0 抛错。
+      const result =
+        note === undefined
+          ? this.stmts.updateWorkItemStatusGuarded.run(status, now, instanceId, seq, expectedStatus)
+          : this.stmts.updateWorkItemWithNoteGuarded.run(status, note, now, instanceId, seq, expectedStatus);
+      if (result.changes !== 1) {
+        throw new Error(
+          `工作项 #${seq} 状态已并发变更（期望前态 ${expectedStatus}，未命中）——刷新台账（plan_read）后重试`,
+        );
+      }
+      return;
+    }
     if (note === undefined) {
       this.stmts.updateWorkItemStatus.run(status, now, instanceId, seq);
     } else {
@@ -171,8 +186,9 @@ export class LazyWorkLedger {
     seq: number,
     status: WorkItemStatus,
     note?: string | null,
+    expectedStatus?: WorkItemStatus,
   ): Promise<void> {
-    return this.face().updateItem(instanceId, seq, status, note);
+    return this.face().updateItem(instanceId, seq, status, note, expectedStatus);
   }
 
   getItems(instanceId: string): readonly WorkItemData[] {

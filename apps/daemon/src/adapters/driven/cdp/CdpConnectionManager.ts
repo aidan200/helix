@@ -174,6 +174,16 @@ export class CdpConnectionManager implements BrowserPort {
 
   /** 手动停止：关全部 managed tabs → 断 WS → 回 idle。幂等；未连接安全 no-op。 */
   async stop(): Promise<void> {
+    // 握手进行中的 stop（code-review H10）：等在飞连接落定（吞错）再清场——
+    // 否则 doConnect 完成后会把已 stop 的管理器 setState(connected)+startSweep，
+    // 留下活动连接与 sweep 定时器。
+    if (this.connectingPromise !== undefined) {
+      try {
+        await this.connectingPromise;
+      } catch {
+        /* 连接失败走 error 态，下方 else 分支统一清场 */
+      }
+    }
     this.registry.stopSweep();
     if (this.ws !== undefined) {
       for (const id of this.registry.list().map((t) => t.tabId)) {

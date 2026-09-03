@@ -377,12 +377,13 @@ describe("WorkspaceService：bind 异常半途态加固（W1F-F3）", () => {
     expect(service.stack()).not.toBe(null);
     failBuild = true;
     await expect(service.open(WS_B)).rejects.toThrow("注入建栈失败");
-    // 半途态加固：旧栈已 dispose、持有者置空（后续消费面走 unbound 路径
-    // 而非死栈）；current 不变；KV/broadcast 不受污染（异常先于持久化）；
-    // 会话卸载不在此刻发生（无栈态卸载会让重访重建永久无 kg 工具）而是
-    // 挂起顺延到下次成功绑定（W4 债清偿配套）
+    // 半途态加固：旧栈已 dispose、持有者与 current 同步置空（code-review M4：
+    // 原「current 不变」让 isBound()=true 而 stack()=null，门禁与能力背离）；
+    // KV/broadcast 不受污染（异常先于持久化）；会话卸载不在此刻发生（无栈
+    // 态卸载会让重访重建永久无 kg 工具）而是挂起顺延到下次成功绑定（W4 债清偿配套）
     expect(service.stack()).toBe(null);
-    expect(service.boundRoot()).toBe(WS_A);
+    expect(service.boundRoot()).toBe(null);
+    expect(service.isBound()).toBe(false);
     expect(disposed).toBe(1);
     expect(rig.unloads).toHaveLength(0); // 失败窗口不卸载（挂起）
     expect(rig.kv.get("workspace.current")).toBe(WS_A);

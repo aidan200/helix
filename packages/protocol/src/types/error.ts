@@ -44,6 +44,8 @@ export type ErrorCode =
   | "task.type_unknown"
   /** task 批新增：manifest/paramsSchema/projects 基数校验失败（message 带具体违例）；发 error 帧连接保持 */
   | "task.validation_failed"
+  /** code-review M7 批新增：createTask 未分类内部错误（原统一改标 task.validation_failed 失真）；发 error 帧连接保持 */
+  | "task.internal"
   /** task 批新增：jobId 不存在（task.detail/artifacts/生命周期命令）；发 error 帧连接保持 */
   | "task.not_found"
   /** task 批新增：生命周期/删除的非法当前态（如 running 任务删除、done 任务暂停——判断收口引擎 T1.3，handler 透传）；发 error 帧连接保持 */

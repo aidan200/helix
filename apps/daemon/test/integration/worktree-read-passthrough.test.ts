@@ -56,7 +56,7 @@ function makeFixture(): Fixture {
   const store = new SqliteKnowledgeStore({ database });
   const graph = new SqliteKnowledgeGraph({ database });
   const write = new KgWriteService({ store });
-  const attachment = new KgAttachmentService({ graph });
+  const attachment = new KgAttachmentService({ graph, hasIndex: () => true });
   const f: Fixture = { root, proj, worktree, database, store, write, attachment };
   fixtures.push(f);
   return f;

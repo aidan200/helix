@@ -369,12 +369,15 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
       if (/renameSync/.test(src)) {
         // T2.3（AD-2）：原子替换写新增两合法面——auth.json（infrastructure/
         // auth-store.ts，0600+锁）与 models-store.json（pi-engine/model-
-        // catalog.ts 落盘兑底）；SQLite reportFile 原子写仍只允许 WriteQueue
+        // catalog.ts 落盘兑底）；SQLite reportFile 原子写仍只允许 WriteQueue。
+        // code-review M28 新增第三合法面：config.json（infrastructure/
+        // config.ts tmp+rename 原子写——崩溃窗口不留半截配置）。
         const isAuthStore = rel === path.join("infrastructure", "auth-store.ts");
         const isModelCatalog = rel === path.join("adapters", "driven", "pi-engine", "model-catalog.ts");
+        const isConfig = rel === path.join("infrastructure", "config.ts");
         expect(
-          isWriteQueue || isAuthStore || isModelCatalog,
-          `${rel} 出现原子替换写（只允许 WriteQueue reportFile / auth-store / model-catalog）`,
+          isWriteQueue || isAuthStore || isModelCatalog || isConfig,
+          `${rel} 出现原子替换写（只允许 WriteQueue reportFile / auth-store / model-catalog / config）`,
         ).toBe(true);
       }
     }

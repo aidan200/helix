@@ -579,11 +579,11 @@ export class WsServerAdapter {
       // ── workspace 族（W1 绑定闭环；handlers/workspace.ts）──
       case "workspace.get":
         return this.deps.workspace === undefined
-          ? this.commandError(ws, type, "command.unknown", `未知命令：${type}`)
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleWorkspaceGet(this.workspaceContext(ws, type));
       case "workspace.open":
         return this.deps.workspace === undefined
-          ? this.commandError(ws, type, "command.unknown", `未知命令：${type}`)
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
           : handleWorkspaceOpen(this.workspaceContext(ws, type, payload));
       // ── task 族（P-2 任务页九命令族，契约 task-api，§8.1；handlers/task.ts）──
       case "task.list":

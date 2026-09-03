@@ -125,6 +125,8 @@ export class ModelCatalog implements ModelCatalogPort {
   private readonly providerIdList: readonly string[];
   private readonly verifyModelTransform: ((model: Model<Api>) => Model<Api>) | undefined;
   private readonly store = new Map<string, OverlayEntry>();
+  /** catalog() 过期刷新的在飞去重登记（M18；finally 摘除）。 */
+  private inFlightRefresh: Promise<{ failures: string[] }> | undefined;
 
   constructor(options: ModelCatalogOptions = {}) {
     this.base = options.models ?? builtinModels();
@@ -143,7 +145,12 @@ export class ModelCatalog implements ModelCatalogPort {
   /** 目录读面（4h 缓存口径）：任一 provider 过期 → 条件刷新；失败保缓存。 */
   async catalog(): Promise<CatalogSnapshot> {
     if (this.stale()) {
-      await this.refreshAll(false);
+      // in-flight 去重（code-review M18）：并发 catalog() 共享同一次刷新——
+      // 否则各自触发 refreshAll，per-provider 重复条件请求（304 拦不住首次并发）。
+      this.inFlightRefresh ??= this.refreshAll(false).finally(() => {
+        this.inFlightRefresh = undefined;
+      });
+      await this.inFlightRefresh;
     }
     return this.snapshot(undefined);
   }

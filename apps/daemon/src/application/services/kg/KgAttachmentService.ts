@@ -27,6 +27,8 @@ import { renderAttachment } from "../../../domain/kg/attachment/render";
 
 export interface KgAttachmentServiceDeps {
   readonly graph: KnowledgeGraphPort;
+  /** .helix-kg/kg.db 存在性探测（读面绝不新建库文件：absent 短路返回空快照）。 */
+  readonly hasIndex: (projectRoot: string) => boolean;
 }
 
 /** attachAfterEdit 入参：一次成功 edit 的单编辑现场（brief T3.2 契约）。 */
@@ -121,6 +123,10 @@ export class KgAttachmentService {
    * 下次 sync 后收敛。
    */
   private snapshotOf(projectRoot: string): AttachmentSnapshot {
+    // absent 短路：无 .helix-kg 项目直返空快照——getIndexStatus/
+    // getAttachmentSnapshot 经 connectionOf 会静默建库（mkdir+DDL），
+    // 破坏「读面绝不新建库文件」契约（端口注释明示调用方先行 hasIndex 判定）。
+    if (!this.deps.hasIndex(projectRoot)) return EMPTY_SNAPSHOT;
     const { baseline } = this.deps.graph.getIndexStatus(projectRoot);
     const cached = this.snapshots.get(projectRoot);
     if (cached !== undefined && cached.baseline === baseline) return cached.snapshot;
@@ -129,6 +135,9 @@ export class KgAttachmentService {
     return snapshot;
   }
 }
+
+/** absent 项目空快照（常量复用，零分配）。 */
+const EMPTY_SNAPSHOT: AttachmentSnapshot = { nodes: [], fileAnchors: [], symbolAnchors: [], contains: [] };
 
 /** 事件路径归一：绝对路径 → 相对 projectRoot（锚表/符号表相对语义同源，KgSyncService 同款）。 */
 function relPathOf(projectRoot: string, filePath: string): string {

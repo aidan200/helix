@@ -28,6 +28,11 @@ import type { GrepMatch, GrepQuery } from "./contract";
 
 /** grep 工具参数（JSON Schema，手写；与 typebox Type.Object 产物同构，
  *  pi-ai 校验层兼容；daemon 不直接依赖 typebox）。 */
+
+/** 输出截断口径（code-review M24，与 read/bash 的 2000 行/50KB 同轨）。 */
+const MAX_GREP_LINES = 2000;
+const MAX_GREP_CHARS = 50 * 1024;
+
 const grepParameters = {
   type: "object",
   properties: {
@@ -82,10 +87,27 @@ export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<Execut
         ignoreCase?: boolean;
       };
       const matches = await search({ pattern, glob, ignoreCase }, path, context, signal);
-      const text =
-        matches.length > 0
-          ? matches.map((m) => `${m.path}:${m.lineNumber}: ${m.line}`).join("\n")
-          : `(no matches for "${pattern}")`;
+      // 输出截断（code-review M24）：与 read/bash 同口径（2000 行 / 50KB 先到
+      // 先截 + 截断注明 + 收窄提示）——高频 pattern 全量 join 可向模型上下文
+      // 注入数十万行。
+      let text: string;
+      if (matches.length === 0) {
+        text = `(no matches for "${pattern}")`;
+      } else {
+        const lines = matches.map((m) => `${m.path}:${m.lineNumber}: ${m.line}`);
+        let truncatedByLines = false;
+        let body = lines.slice(0, MAX_GREP_LINES).join("\n");
+        if (lines.length > MAX_GREP_LINES) truncatedByLines = true;
+        let truncatedByBytes = false;
+        if (body.length > MAX_GREP_CHARS) {
+          body = body.slice(0, MAX_GREP_CHARS);
+          truncatedByBytes = true;
+        }
+        text =
+          truncatedByLines || truncatedByBytes
+            ? `${body}\n\n（命中过多已截断：共 ${matches.length} 行命中${truncatedByLines ? `，仅保留前 ${MAX_GREP_LINES} 行` : ""}${truncatedByBytes ? "，按 50KB 截断" : ""}——请收窄 path 或加 glob/更精确 pattern 后重试）`
+            : body;
+      }
       return { content: [{ type: "text", text }], details: undefined };
     },
   };

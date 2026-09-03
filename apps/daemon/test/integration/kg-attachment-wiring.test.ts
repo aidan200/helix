@@ -60,7 +60,7 @@ function makeWorkspace(): Workspace {
   const store = new SqliteKnowledgeStore({ database });
   const graph = new SqliteKnowledgeGraph({ database });
   const write = new KgWriteService({ store });
-  const attachment = new KgAttachmentService({ graph });
+  const attachment = new KgAttachmentService({ graph, hasIndex: () => true });
   const env = new NodeExecutionEnv({ cwd: root });
   const toolFor = (sessionId: string) =>
     createEditTool(buildEditToolDeps({ workspaceRoot: root, attachment, sessionId }));
@@ -218,6 +218,30 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
     expect(block).toContain(`kg get ${symbols[0]!.id}`);
   });
 
+  test("⑥ absent 短路：无 .helix-kg 项目不触图读面（读面绝不新建库文件，code-review H2）", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "kg-attach-absent-"));
+    try {
+      let graphCalls = 0;
+      const probe = new Proxy({} as KnowledgeGraphPort, {
+        get: () => () => {
+          graphCalls += 1;
+          throw new Error("absent 项目不得触达图读面");
+        },
+      });
+      const attachment = new KgAttachmentService({ graph: probe, hasIndex: () => false });
+      const env = new NodeExecutionEnv({ cwd: root });
+      const tool = createEditTool(
+        buildEditToolDeps({ workspaceRoot: root, attachment, sessionId: "sess-absent" }),
+      );
+      writeFileSync(path.join(root, "plain.ts"), "const plainValue = 1;\n");
+      const r = await run(tool, { path: "plain.ts", edits: [{ oldText: "const plainValue = 1;", newText: "const plainValue = 2;" }] }, env);
+      expect(r.ok).toBe(true);
+      expect(graphCalls).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("⑤ 管线故障静默（CL-1.A11）：快照读抛错 / 挂点 reject → edit 成功返回、无 📎、零错误暴露", async () => {
     // (a) 快照读故障：fake port 抛错 → 服务捕获返回 '' → 结果原样
     const root = mkdtempSync(path.join(tmpdir(), "kg-attach-quiet-"));
@@ -241,7 +265,7 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
         latestIteration: () => null,
         listNodeIdsByOriginBatches: () => [], // T2.2 F2.7 反查面（本测试不消费）
       };
-      const attachment = new KgAttachmentService({ graph: failing });
+      const attachment = new KgAttachmentService({ graph: failing, hasIndex: () => true });
       const env = new NodeExecutionEnv({ cwd: root });
       const tool = createEditTool(
         buildEditToolDeps({ workspaceRoot: root, attachment, sessionId: "sess-5a" }),

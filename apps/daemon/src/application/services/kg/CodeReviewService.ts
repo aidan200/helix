@@ -15,7 +15,7 @@
 import type { TaskEnginePort } from "../../ports/inbound/TaskEnginePort";
 import type { TaskStorePort } from "../../ports/outbound/TaskStorePort";
 import type { KgProjectService } from "./KgProjectService";
-import { hasActiveJob, projectNameOf } from "./job-activity";
+import { claimCreateSlot, hasActiveJob, projectNameOf, releaseCreateSlot } from "./job-activity";
 
 /** code.review.create 结果。 */
 export interface CodeReviewCreateView {
@@ -23,7 +23,7 @@ export interface CodeReviewCreateView {
 }
 
 /** 结构化错误（与 KgReviewError 同构但无 not_eligible——无准入门槛）。 */
-export type CodeReviewErrorCode = "task.validation_failed" | "task.type_unknown" | "task.task_running" | "KG_E_PARAM";
+export type CodeReviewErrorCode = "task.validation_failed" | "task.type_unknown" | "task.internal" | "task.task_running" | "KG_E_PARAM";
 
 export interface CodeReviewError {
   readonly code: CodeReviewErrorCode;
@@ -62,23 +62,33 @@ export class CodeReviewService {
         },
       };
     }
+    if (!claimCreateSlot("code-review", projectName)) {
+      return {
+        ok: false,
+        error: { code: "task.task_running", message: "task_running：该项目已有进行中的代码评审任务（code-review）；可在「任务」页观察进度，任务终态后可再次发起（仅禁并发）" },
+      };
+    }
     try {
-      // createTask 同一 API（type/params/projects/createdBy 与 kg.review.create 同源）；
-      // stages 策略 fixed 由 manifest 生成三行（盘点分批 / 分批评审 / 汇总报告）
-      const { jobId } = await this.deps.taskEngine.createTask({
-        type: "code-review",
-        projects: [projectName],
-        params: { projectRoot },
-        createdBy: "page",
-      });
-      return { ok: true, value: { jobId } };
-    } catch (err) {
-      const code = (err as { code?: unknown }).code;
-      const message = err instanceof Error ? err.message : String(err);
-      if (code === "task.validation_failed" || code === "task.type_unknown") {
-        return { ok: false, error: { code, message } };
+      try {
+        // createTask 同一 API（type/params/projects/createdBy 与 kg.review.create 同源）；
+        // stages 策略 fixed 由 manifest 生成三行（盘点分批 / 分批评审 / 汇总报告）
+        const { jobId } = await this.deps.taskEngine.createTask({
+          type: "code-review",
+          projects: [projectName],
+          params: { projectRoot },
+          createdBy: "page",
+        });
+        return { ok: true, value: { jobId } };
+      } catch (err) {
+        const code = (err as { code?: unknown }).code;
+        const message = err instanceof Error ? err.message : String(err);
+        if (code === "task.validation_failed" || code === "task.type_unknown") {
+          return { ok: false, error: { code, message } };
+        }
+        return { ok: false, error: { code: typeof code === "string" && code !== "" ? (code as CodeReviewErrorCode) : "task.internal", message } };
       }
-      return { ok: false, error: { code: "task.validation_failed", message } };
+    } finally {
+      releaseCreateSlot("code-review", projectName);
     }
   }
 }

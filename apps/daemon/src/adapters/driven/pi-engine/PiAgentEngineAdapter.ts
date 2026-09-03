@@ -147,6 +147,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     try {
       await this.runtime.drive(input, images);
     } finally {
+      this.steeredTexts.length = 0; // run 边界清理（code-review M17）：abort/提前结束的残留防下一 run 同文 prompt 误判 steer-drain
       this.listener = null;
     }
   }
@@ -161,6 +162,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     try {
       await this.runtime.continueRun();
     } finally {
+      this.steeredTexts.length = 0; // run 边界清理（M17 同 start）
       this.listener = null;
     }
   }

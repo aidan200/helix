@@ -28,7 +28,7 @@ import type { KgProjectService } from "./KgProjectService";
 import type { KgSyncService } from "./KgSyncService";
 import type { KgWriteService } from "./KgWriteService";
 import type { KnowledgeNode, NodeDigestRow } from "../../../domain/kg/types";
-import { hasActiveJob, projectNameOf } from "./job-activity";
+import { claimCreateSlot, hasActiveJob, projectNameOf, releaseCreateSlot } from "./job-activity";
 
 // ── 结果形状（应用层视图；协议 DTO 由 driving 层逐字段映射） ──
 
@@ -85,7 +85,7 @@ export interface KgNodeUpdateView {
 }
 
 /** 结构化错误（契约词表；与 KgViewerError 同构但码域不同——本面归 task.* 词表）。 */
-export type KgBootstrapErrorCode = "kg.bootstrap.not_eligible" | "kg.node.not_found" | "task.validation_failed" | "task.type_unknown" | "KG_E_PARAM";
+export type KgBootstrapErrorCode = "kg.bootstrap.not_eligible" | "kg.node.not_found" | "task.validation_failed" | "task.type_unknown" | "task.internal" | "KG_E_PARAM";
 
 export interface KgBootstrapError {
   readonly code: KgBootstrapErrorCode;
@@ -153,25 +153,33 @@ export class KgBootstrapService {
               : "knowledge_not_empty：知识层已有带 layer 的图谱产出（sediment 沉淀不计入；bootstrap 只为有代码积累、无图谱的老项目补图谱）";
       return { ok: false, error: { code: "kg.bootstrap.not_eligible", message } };
     }
-    const projectName = projectRoot.split("/").filter((s) => s !== "").pop() ?? project;
-    const params: Record<string, unknown> = { projectRoot, ...(scope !== undefined && scope.trim() !== "" ? { scope } : {}) };
+    const projectName = projectNameOf(projectRoot);
+    if (!claimCreateSlot("kg-bootstrap", projectName)) {
+      return { ok: false, error: { code: "kg.bootstrap.not_eligible", message: "task_running：该项目已有进行中的知识创建任务（kg-bootstrap）；可在「任务」页观察进度，任务终态后可再次发起（禁双启动）" } };
+    }
     try {
-      // createTask 同一 API（type/params/projects/createdBy 与 chat task_create 工具同源，AD-7）；
-      // 校验失败（task.validation_failed / task.type_unknown）由引擎抛出透传
-      const { jobId } = await this.deps.taskEngine.createTask({
-        type: "kg-bootstrap",
-        projects: [projectName],
-        params,
-        createdBy: "page",
-      });
-      return { ok: true, value: { jobId } };
-    } catch (err) {
-      const code = (err as { code?: unknown }).code;
-      const message = err instanceof Error ? err.message : String(err);
-      if (code === "task.validation_failed" || code === "task.type_unknown") {
-        return { ok: false, error: { code, message } };
+      const params: Record<string, unknown> = { projectRoot, ...(scope !== undefined && scope.trim() !== "" ? { scope } : {}) };
+      try {
+        // createTask 同一 API（type/params/projects/createdBy 与 chat task_create 工具同源，AD-7）；
+        // 校验失败（task.validation_failed / task.type_unknown）由引擎抛出透传
+        const { jobId } = await this.deps.taskEngine.createTask({
+          type: "kg-bootstrap",
+          projects: [projectName],
+          params,
+          createdBy: "page",
+        });
+        return { ok: true, value: { jobId } };
+      } catch (err) {
+        const code = (err as { code?: unknown }).code;
+        const message = err instanceof Error ? err.message : String(err);
+        if (code === "task.validation_failed" || code === "task.type_unknown") {
+          return { ok: false, error: { code, message } };
+        }
+        // 未分类内部错误不再伪装 validation_failed（code-review M7）：透传原 code，无 code 用 task.internal
+        return { ok: false, error: { code: typeof code === "string" && code !== "" ? (code as KgBootstrapErrorCode) : "task.internal", message } };
       }
-      return { ok: false, error: { code: "task.validation_failed", message } };
+    } finally {
+      releaseCreateSlot("kg-bootstrap", projectName);
     }
   }
 

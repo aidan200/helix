@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync } from "node:fs";
 import path from "node:path";
 import { DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 
@@ -189,6 +189,8 @@ export const CONFIG_FILE_MODE = 0o600;
  * 写入配置文件（**全字段序列化**——修复截断：port/maxConcurrent/
  * maxQueued/staticDir/rgPath/codegraphPath 全量落盘，旧实现只写三字段会静默丢字段）。
  * 父目录不存在则创建；写入后显式 chmod（覆盖既有宽权限文件时同样收严）。
+ * 原子写（tmp+rename，code-review M28；对齐 auth-store persist 先例）——
+ * 崩溃窗口不留半截 config.json（直写下启动 loadConfig 会抛错 fail-fast）。
  */
 export function writeConfig(configFilePath: string, config: DaemonConfig): void {
   mkdirSync(path.dirname(configFilePath), { recursive: true });
@@ -205,8 +207,10 @@ export function writeConfig(configFilePath: string, config: DaemonConfig): void 
       null,
       2,
     ) + "\n";
-  writeFileSync(configFilePath, body, { encoding: "utf8" });
-  chmodSync(configFilePath, CONFIG_FILE_MODE);
+  const tmp = `${configFilePath}.tmp`;
+  writeFileSync(tmp, body, { encoding: "utf8" });
+  chmodSync(tmp, CONFIG_FILE_MODE);
+  renameSync(tmp, configFilePath);
 }
 
 /**

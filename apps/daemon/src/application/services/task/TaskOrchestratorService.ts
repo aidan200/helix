@@ -402,8 +402,22 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
         verdict = "成功（closure done + 台账全 resolve）";
       }
     } catch (err) {
-      verdict = `收口处理异常（引擎拒绝：${(err as Error).message}）`;
-      this.warn(`批次收口引擎调用异常（任务 ${loop.jobId} 批次 ${batch.id}）：${(err as Error).message}`);
+      // 兜底（code-review M5，D4 口径）：引擎调用异常时实例已终态、不再有任何
+      // 事件驱动——批次行滞留 running 即永久卡死。退避重试一次兜底 failBatch；
+      // 仍失败则如实标记滞留（人工 task.retry/cancel 介入面）。
+      this.warn(
+        `批次收口引擎调用异常（任务 ${loop.jobId} 批次 ${batch.id}）：${(err as Error).message}——5s 后兜底重试一次 failBatch`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      try {
+        await this.deps.taskEngine.failBatch(batch.id, `收口引擎异常兜底：${(err as Error).message}`);
+        verdict = `失败（收口引擎异常，兜底 failBatch 成功：${(err as Error).message}）`;
+      } catch (retryErr) {
+        verdict = `收口处理异常且兜底 failBatch 仍失败（批次滞留 running，需人工介入：${(retryErr as Error).message}）`;
+        this.warn(
+          `兜底 failBatch 仍失败（任务 ${loop.jobId} 批次 ${batch.id}）：${(retryErr as Error).message}——批次滞留 running，需人工介入（task.retry / cancel）`,
+        );
+      }
     }
     this.wake(loop, this.closureNotice(agentId, batch, verdict, redispatched));
     this.reapDrained(loop); // drain 态（haltJob 后）收口清扫

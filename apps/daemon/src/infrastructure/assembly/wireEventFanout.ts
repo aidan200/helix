@@ -26,9 +26,13 @@ export interface NamedFanoutTarget {
 /**
  * fan-out 发布面：先构造（空注册表）后装配目标的稳定引用。
  * 派发为同步顺序 for 循环（无 await）——注册表数组序即执行序。
+ * 逐目标异常隔离（code-review M32）：任一 target 抛错不得中断后续目标
+ *（含事件行落盘与会话投影）——单消费者异常不得放大为全局断流。
  */
 export class FanoutPublisher implements EventPublisherPort {
   private readonly named: NamedFanoutTarget[] = [];
+
+  constructor(private readonly logger?: { warn(message: string): void }) {}
 
   /** 带名注册表（wireEventFanout 装配后不再变更；测试断言语义序的读面）。 */
   get targets(): readonly NamedFanoutTarget[] {
@@ -41,11 +45,23 @@ export class FanoutPublisher implements EventPublisherPort {
   }
 
   publish(event: DomainEvent): void {
-    for (const { target } of this.named) target.publish(event);
+    for (const { name, target } of this.named) {
+      try {
+        target.publish(event);
+      } catch (err) {
+        this.logger?.warn(`fanout publish 目标 ${name} 异常（已隔离，后续目标照常）：${(err as Error).message}`);
+      }
+    }
   }
 
   publishDelta(delta: StreamDelta): void {
-    for (const { target } of this.named) target.publishDelta(delta);
+    for (const { name, target } of this.named) {
+      try {
+        target.publishDelta(delta);
+      } catch (err) {
+        this.logger?.warn(`fanout publishDelta 目标 ${name} 异常（已隔离，后续目标照常）：${(err as Error).message}`);
+      }
+    }
   }
 }
 

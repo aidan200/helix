@@ -123,7 +123,7 @@ export function buildKnowledgeStack(deps: {
     ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
   });
   fsWatchRef = fsWatch;
-  const attachmentService = new KgAttachmentService({ graph });
+  const attachmentService = new KgAttachmentService({ graph, hasIndex: (projectRoot) => existsSync(kgDbPath(projectRoot)) });
   const queryService = new KgQueryService({
     graph,
     // W-R3 读穿透（D8）：workspaceRoot 位于 .worktrees 下 → 只读直读主仓

@@ -318,12 +318,16 @@ export class WorkspaceService {
     try {
       next = this.deps.buildStack(root);
     } catch (err) {
-      // 半途态加固（W1F-F3）：建栈失败时旧 background 已停、旧栈已
-      // dispose——持有者置空（current 不变），后续消费面走 unbound 路径
-      // 而非打到已 dispose 死栈；异常上抛（open → handler 结构化错误；
-      // restore → 装配序 fail-fast）。旧栈已死 → 卸载挂起顺延（不在无栈
-      // 态卸载：此刻重访重建会永久无 kg 工具，等下次成功绑定重建读新栈）。
+      // 半途态加固（W1F-F3 + code-review M4）：旧 background 已停、旧栈已
+      // dispose——持有者与 current 同步置空。原「current 不变」让 isBound()=true
+      // 而 stack()=null：WsServerAdapter 门禁判已绑定、kg 工具链静默空回退，
+      // 门禁与实际能力背离。后续消费面走 unbound 路径；异常上抛（open →
+      // handler 结构化错误；restore → 装配序 fail-fast）。旧栈已死 → 卸载
+      // 挂起顺延（不在无栈态卸载：此刻重访重建会永久无 kg 工具，等下次
+      // 成功绑定重建读新栈）。
       this.bound = null;
+      this.current = null;
+      this.notice = `workspace 绑定失败（建栈异常，已回退未绑定态）：${(err as Error).message}`;
       if (hadStack) this.pendingUnload = true;
       throw err;
     }

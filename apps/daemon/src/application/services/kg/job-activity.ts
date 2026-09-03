@@ -22,3 +22,24 @@ export function projectNameOf(projectRoot: string): string {
 export function hasActiveJob(jobs: readonly JobData[], type: string, projectName: string): boolean {
   return jobs.some((j) => j.type === type && j.projects.includes(projectName) && !isTerminalJob(j.status));
 }
+
+/**
+ * create check-then-act 互斥槽（code-review M10）：hasActiveJob 检查与
+ * createTask 落库之间的 await 窗口内，并发 create 可双双通过检查——claim 与
+ * 准入检查在同一同步段完成（JS 单线程无抢占），占住即拒后来者；createTask
+ * 落定（成功或抛错）后 finally 释放。
+ */
+const createSlots = new Set<string>();
+
+/** 占用发起槽（同 type+project 已有在途 create 返回 false）。 */
+export function claimCreateSlot(type: string, projectName: string): boolean {
+  const key = `${type}::${projectName}`;
+  if (createSlots.has(key)) return false;
+  createSlots.add(key);
+  return true;
+}
+
+/** 释放发起槽（finally 必调）。 */
+export function releaseCreateSlot(type: string, projectName: string): void {
+  createSlots.delete(`${type}::${projectName}`);
+}

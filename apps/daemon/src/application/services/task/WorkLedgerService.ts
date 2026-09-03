@@ -118,7 +118,7 @@ export class WorkLedgerService {
       const legal = WORK_ITEM_TRANSITIONS[current.status].join("/") || "无（终态）";
       throw new Error(`非法工作项状态迁移：${current.status}→${status}（合法目标：${legal}）`);
     }
-    await writer.updateItem(instanceId, seq, status, note);
+    await writer.updateItem(instanceId, seq, status, note, current.status);
   }
 
   /**

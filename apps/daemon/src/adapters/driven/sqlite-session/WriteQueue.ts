@@ -907,6 +907,9 @@ export interface WorkLedgerStatements {
   readonly insertWorkItem: Statement;
   readonly updateWorkItemStatus: Statement;
   readonly updateWorkItemWithNote: Statement;
+  /** 前态谓词版（code-review M16 TOCTOU 收口）：WHERE 带 AND status=?，并发变更即 changes=0。 */
+  readonly updateWorkItemStatusGuarded: Statement;
+  readonly updateWorkItemWithNoteGuarded: Statement;
   readonly deleteWorkItemsByInstance: Statement;
 }
 
@@ -925,6 +928,12 @@ export function prepareWorkLedgerStatements(db: Database): WorkLedgerStatements 
     ),
     updateWorkItemWithNote: db.prepare(
       "UPDATE work_item SET status = ?, note = ?, updated_at = ? WHERE instance_id = ? AND seq = ?",
+    ),
+    updateWorkItemStatusGuarded: db.prepare(
+      "UPDATE work_item SET status = ?, updated_at = ? WHERE instance_id = ? AND seq = ? AND status = ?",
+    ),
+    updateWorkItemWithNoteGuarded: db.prepare(
+      "UPDATE work_item SET status = ?, note = ?, updated_at = ? WHERE instance_id = ? AND seq = ? AND status = ?",
     ),
     deleteWorkItemsByInstance: db.prepare("DELETE FROM work_item WHERE instance_id = ?"),
   };

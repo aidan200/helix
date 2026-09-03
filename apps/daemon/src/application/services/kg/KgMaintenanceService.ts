@@ -16,12 +16,11 @@
  * index-delete 的职责）；purge 不停 watcher——watcher 是兜底信号面，
  * 事件驱动的增量 sync 在清后库上行为自洽（等价手动重建）。
  *
- * 【purge 安全门禁】存在运行中（running/pending）的 kg-bootstrap 任务时
- * 拒绝（kg.graph.purge_blocked）——防 done 任务悬挂引用（验证期手工清库
- * 后的悬挂态教训）；判定口径 = TaskStorePort.listJobs 按 type=kg-bootstrap
- * ∧ status ∈ {running,pending} ∧ projects 含本项目名（目录名，与
- * KgBootstrapService 的 job.projects 写入键同源）。paused 不在门禁内
- *（brief 口径：running/pending）。
+ * 【purge 安全门禁】存在非终态（!isTerminalJob：running/pending/paused）
+ * 的 kg-bootstrap 任务时拒绝（kg.graph.purge_blocked）——防 done 任务悬挂
+ * 引用，亦防 paused 任务在清库（含发号计数器清零）后恢复写入破坏 E-8
+ * 「id 永不复用」不变式（code-review H4：原门禁仅 running/pending，paused
+ * 可穿透）。判定口径 = hasActiveJob 同口径（job-activity 单源）。
  *
  * 【index-delete 范围】删除 .codegraph（引擎 deleteIndex）+ kg 索引态
  * 复位 absent（store.resetIndexFace：清符号面同步基准，**知识层不动**——
@@ -40,6 +39,7 @@ import type { TaskStorePort } from "../../ports/outbound/TaskStorePort";
 import type { KgFsWatchService } from "./KgFsWatchService";
 import type { KgProjectService } from "./KgProjectService";
 import type { KgSyncService } from "./KgSyncService";
+import { projectNameOf } from "./job-activity";
 
 // ── 结果形状（应用层视图；协议 DTO 由 driving 层逐字段映射） ──
 
@@ -69,8 +69,8 @@ export interface KgMaintenanceError {
 
 export type KgMaintenanceResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: KgMaintenanceError };
 
-/** purge 门禁覆盖的任务状态（brief 口径：running/pending；paused 不在内）。 */
-const PURGE_GATE_STATUSES: ReadonlySet<string> = new Set(["running", "pending"]);
+/** purge 门禁覆盖的任务状态（code-review H4 起与 hasActiveJob 同口径：非终态即拒绝，含 paused）。 */
+import { isTerminalJob } from "../../../domain/task/job";
 
 export interface KgMaintenanceServiceDeps {
   /** 项目解析/存在性（§3.5 单点；hasIndex = .helix-kg/kg.db 存在性探测）。 */
@@ -101,11 +101,11 @@ export class KgMaintenanceService {
     if (!resolved.ok) return resolved;
     const projectRoot = resolved.value;
 
-    // 安全门禁：运行中（running/pending）kg-bootstrap 任务存在时拒绝
+    // 安全门禁：非终态（!isTerminalJob，含 paused）kg-bootstrap 任务存在时拒绝
     const projectName = projectNameOf(projectRoot);
     const blocking = this.deps.taskStore
       .listJobs()
-      .filter((j) => j.type === "kg-bootstrap" && PURGE_GATE_STATUSES.has(j.status) && j.projects.includes(projectName))
+      .filter((j) => j.type === "kg-bootstrap" && !isTerminalJob(j.status) && j.projects.includes(projectName))
       .sort((a, b) => a.id.localeCompare(b.id))[0];
     if (blocking !== undefined) {
       return {
@@ -155,11 +155,4 @@ export class KgMaintenanceService {
     }
     return { ok: true, value: resolved };
   }
-}
-
-// ── 纯 helper ────────────────────────────────────────────
-
-/** projectRoot → workspace 一级目录名（job.projects 标签匹配键；KgBootstrapService 同口径）。 */
-function projectNameOf(projectRoot: string): string {
-  return projectRoot.split("/").filter((s) => s !== "").pop() ?? projectRoot;
 }

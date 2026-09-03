@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseDuckDuckGoHtml, parseBingHtml } from "../../src/adapters/driven/tools/web/WebSearchTool";
-import { htmlToMarkdown, toJinaUrl } from "../../src/adapters/driven/tools/web/WebFetchTool";
+import { classifyIp, htmlToMarkdown, toJinaUrl } from "../../src/adapters/driven/tools/web/WebFetchTool";
 
 /**
  * T1 静态联网工具族：解析核与转换核纯函数 unit（只 import 纯函数符号，
@@ -131,5 +131,46 @@ describe("toJinaUrl（Jina 备选通道 URL 投影）", () => {
     expect(toJinaUrl("https://example.com/a?b=1")).toBe("example.com/a?b=1");
     expect(toJinaUrl("http://sub.example.org/")).toBe("sub.example.org/");
     expect(toJinaUrl("example.com/no-scheme")).toBe("example.com/no-scheme");
+  });
+});
+
+describe("classifyIp（SSRF 守卫 IP 分类，code-review H12 口径 D1）", () => {
+  test("环回放行（本机 dev server 合法场景）", () => {
+    expect(classifyIp("127.0.0.1")).toBe("loopback");
+    expect(classifyIp("127.255.0.1")).toBe("loopback");
+    expect(classifyIp("::1")).toBe("loopback");
+  });
+  test("公网放行", () => {
+    expect(classifyIp("1.1.1.1")).toBe("public");
+    expect(classifyIp("203.0.113.10")).toBe("public");
+    expect(classifyIp("2606:4700:4700::1111")).toBe("public");
+  });
+  test("私网/链路本地/云 metadata/CGNAT/保留段拒绝", () => {
+    expect(classifyIp("10.0.0.1")).toBe("blocked");
+    expect(classifyIp("172.16.0.1")).toBe("blocked");
+    expect(classifyIp("172.31.255.255")).toBe("blocked");
+    expect(classifyIp("172.15.0.1")).toBe("public"); // 172.16/12 边界外是公网
+    expect(classifyIp("192.168.1.1")).toBe("blocked");
+    expect(classifyIp("169.254.169.254")).toBe("blocked"); // 云 metadata
+    expect(classifyIp("169.254.0.1")).toBe("blocked");
+    expect(classifyIp("100.64.0.1")).toBe("blocked"); // CGNAT
+    expect(classifyIp("100.127.255.255")).toBe("blocked");
+    expect(classifyIp("100.128.0.1")).toBe("public"); // CGNAT 边界外
+    expect(classifyIp("0.0.0.0")).toBe("blocked");
+    expect(classifyIp("224.0.0.1")).toBe("blocked"); // 组播
+  });
+  test("IPv6：ULA/链路本地/未指定拒绝；v4-mapped 递归分类", () => {
+    expect(classifyIp("fc00::1")).toBe("blocked");
+    expect(classifyIp("fd12:3456::1")).toBe("blocked");
+    expect(classifyIp("fe80::1")).toBe("blocked");
+    expect(classifyIp("febf::1")).toBe("blocked");
+    expect(classifyIp("::")).toBe("blocked");
+    expect(classifyIp("::ffff:127.0.0.1")).toBe("loopback");
+    expect(classifyIp("::ffff:192.168.0.1")).toBe("blocked");
+    expect(classifyIp("::ffff:8.8.8.8")).toBe("public");
+  });
+  test("非 IP 输入拒绝", () => {
+    expect(classifyIp("not-an-ip")).toBe("blocked");
+    expect(classifyIp("")).toBe("blocked");
   });
 });

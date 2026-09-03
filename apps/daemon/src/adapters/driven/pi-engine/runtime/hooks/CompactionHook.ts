@@ -31,7 +31,7 @@ export interface CompactionHookDeps {
   readonly settings: CompactionSettings;
   /** pi 模型目录（摘要调用 completeSimple 走它；装配期必传）。 */
   readonly models: Models;
-  /** 当前模型（contextWindow 阈值基准 + 摘要调用目标）。 */
+  /** 装配期兑底模型（运行期换模前/现场模型缺席时兜底；正常路径读 agent.state.model——code-review H7）。 */
   readonly model: Model<any>;
   /** 压缩完成上抛（adapter → port compaction_completed 事件）。 */
   readonly onCompleted?: (result: CompactionOutcome) => void;
@@ -61,7 +61,11 @@ export class CompactionHook implements HookSet {
   async prepareNextTurn(signal?: AbortSignal): Promise<AgentLoopTurnUpdate | undefined> {
     const agent = this.agent;
     if (!agent) return undefined;
-    const { settings, model, models } = this.deps;
+    const { settings, models } = this.deps;
+    // 运行期换模跟随（code-review H7）：阈值基准与摘要目标读 agent 现场模型——
+    // 装配期固化的 deps.model 不随 setModel 演进，换到更小窗口模型时压缩
+    // 可能永不触发（上下文溢出）且摘要调用走旧 provider。
+    const model = (agent.state.model ?? this.deps.model) as Model<any>;
     try {
       const messages = agent.state.messages;
       const est = estimateContextTokens(messages);

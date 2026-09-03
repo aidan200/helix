@@ -40,6 +40,7 @@ import type {
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import { domainEventToEnvelope, sessionMetaDto } from "./DtoMapper";
+import { isWireMainAttribution, WIRE_LEGACY_MAIN_ID } from "./EntryDtoMapper";
 import type { SessionListChange } from "../../../application/ports/inbound/SessionDirectoryPort";
 
 /** 单连接的协议帧发送端（WsServerAdapter 按连接构造，内含 readyState 守卫）。 */
@@ -365,12 +366,12 @@ export class EventStream implements EventPublisherPort {
     const sessionId = delta.sessionId ?? this.deps.defaultSessionId;
     if (delta.channel === "thinking") {
       // T10a/T10d wire 归属编码一致性：thinking delta 载荷/信封 instanceId 与
-      // thinking.completed 的 entry.instanceId 同一编码——主实例归一 legacy
-      // “main”（wireMainAware 同规），否则 shell thinkingStreams 槽位键与
-      // completed 清除键错位（hex vs "main"），think-live/cursor 永挂（R4 实锤）。
+      // thinking.completed 的 entry.instanceId 同一编码——判别走 TR-39 单点
+      // isWireMainAttribution（code-review M12：原内联重写双源，漂移会复发
+      // R4 槽位键错位）；mainId 缺席时以 legacy "main" 代入（与内联版全等价）。
       const raw = delta.instanceId;
       const mainId = sessionId !== undefined ? this.deps.mainInstanceIdFor?.(sessionId) : undefined;
-      const isMain = raw === undefined || raw === mainId || raw === "main";
+      const isMain = isWireMainAttribution(raw, mainId ?? WIRE_LEGACY_MAIN_ID);
       const instanceId = isMain ? "main" : raw!;
       const frame: ThinkingStreamDeltaEvent = {
         v: PROTOCOL_VERSION,

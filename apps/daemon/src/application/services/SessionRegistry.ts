@@ -169,6 +169,8 @@ export class SessionRegistry implements SessionDirectoryPort {
   /** 六台账收敛单台账（H2.1）：record 聚合六类状态（SessionRecord）——
    *  delete/unload = record 整体销毁、promoteDraft = 字段翻转，清理点 N→1。 */
   private readonly sessions = new Map<string, SessionRecord>();
+  /** 冷会话懒加载在飞去重登记（M3：并发触达共享同一 restore promise；finally 摘除）。 */
+  private readonly loading = new Map<string, Promise<SessionRuntime>>();
   private current: string | undefined;
   private monitor: ReturnType<typeof setInterval> | undefined;
   private readonly idleUnloadMs: number;
@@ -503,6 +505,19 @@ export class SessionRegistry implements SessionDirectoryPort {
   private async load(sessionId: string): Promise<SessionRuntime> {
     const existing = this.sessions.get(sessionId)?.runtime;
     if (existing !== undefined) return existing;
+    // in-flight 去重（code-review M3）：并发触达同一冷会话共享同一 restore
+    // promise——否则各自 restore+buildRuntime+register，后注册覆盖先注册，
+    // 首个调用方拿到的 runtime 收不到投影事件且完整运行时泄漏。
+    const inFlight = this.loading.get(sessionId);
+    if (inFlight !== undefined) return inFlight;
+    const promise = this.doLoad(sessionId).finally(() => {
+      this.loading.delete(sessionId);
+    });
+    this.loading.set(sessionId, promise);
+    return promise;
+  }
+
+  private async doLoad(sessionId: string): Promise<SessionRuntime> {
     const restored = await this.deps.restore(sessionId);
     if (restored === undefined) throw new SessionNotFoundError(sessionId);
     // 调度器注册表/序号基线注入（幂等：已登记实例跳过重注册——卸载后重载场景）

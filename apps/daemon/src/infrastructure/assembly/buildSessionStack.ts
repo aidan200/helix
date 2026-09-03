@@ -835,7 +835,15 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         // 首个用户条目；恢复路径不重发）。
         instantiatedSnapshot: (): ProfileSnapshotData => ({
           systemPrompt: mainAssembly.systemPrompt,
-          tools: [...mainAssembly.tools],
+          // 声明面=注册面铁律（code-review M33）：快照 tools 与引擎装配面同过
+          // effectiveMainToolNames——未绑定/测试形态时不得快照广告未注册工具。
+          tools: effectiveMainToolNames(mainAssembly.tools, {
+            kg: (typeof deps.kgTools === "function" ? deps.kgTools() : deps.kgTools) !== undefined,
+            codegraph: (typeof deps.codegraphTool === "function" ? deps.codegraphTool() : deps.codegraphTool) !== undefined,
+            taskCreate: deps.taskCreate !== undefined,
+            taskReport: deps.taskReport !== undefined,
+            plan: mainPlanStack !== undefined,
+          }),
           model: engine.currentModel?.() ?? defaultModel.current(),
           ...(MainSessionProfile.compaction !== undefined
             ? { compaction: compactionSettings() }
