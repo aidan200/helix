@@ -649,6 +649,48 @@ describe("⑨ 注入面：notifyWrite（T2.2 契约）与 onEditApplied（T3.2 �
     expect(applied.length).toBe(1);
   });
 
+  test("M23：写完成后 abort 不跳过 hooks——notifyWrite/onEditApplied 照常投递（对齐 edit-lines 写前查一次）", async () => {
+    const { dir: d, env: e } = makeEnv();
+    const notified: string[] = [];
+    const applied: unknown[] = [];
+    const tool = createEditTool({
+      projectRoot: "/proj",
+      notifyWrite: (root, p) => notified.push(`${root}:${p}`),
+      onEditApplied: (ev) => {
+        applied.push(ev);
+        return "";
+      },
+    });
+    writeFileSync(path.join(d, "m23.txt"), "old\n");
+    const controller = new AbortController();
+    // 写落盘后才 abort 的 env 包装（写后 abort 场景：文件已写，hooks 不许被跳过）
+    const wrapped = new Proxy(e, {
+      get(t, p, r) {
+        if (p === "writeFile") {
+          return async (...args: unknown[]) => {
+            const res = await (t as unknown as { writeFile: (...a: unknown[]) => Promise<unknown> }).writeFile(...args);
+            controller.abort();
+            return res;
+          };
+        }
+        const v = Reflect.get(t, p, r) as unknown;
+        return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(t) : v;
+      },
+    });
+    const result = await tool.execute(
+      "tc-1",
+      { path: "m23.txt", edits: [{ oldText: "old", newText: "new" }] } as never,
+      controller.signal as never,
+      undefined,
+      { env: wrapped as unknown as NodeExecutionEnv },
+    );
+    expect((result.content as any[])[0].text).toContain("Successfully replaced");
+    expect(notified).toEqual([`/proj:${path.join(d, "m23.txt")}`]);
+    expect(applied.length).toBe(1);
+    // 文件已落盘（写后 abort 不回滚、不吞成功结果）
+    expect(readFileSync(path.join(d, "m23.txt"), "utf8")).toBe("new\n");
+  });
+
   test("依赖容缺：不注入 deps 时 edit/edit-lines 正常工作", async () => {
     const { dir: d, env: e } = makeEnv();
     writeFileSync(path.join(d, "bare.txt"), "a\n");
