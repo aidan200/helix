@@ -249,6 +249,9 @@ export const zhCN = {
       },
       general: {
         title: "通用配置",
+        groupLanguage: "语言",
+        groupWorkspace: "工作空间",
+        groupCompaction: "上下文压缩",
         language: "语言 / Language",
         langZh: "中文",
         langEn: "English",

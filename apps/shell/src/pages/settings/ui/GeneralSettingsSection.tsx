@@ -57,6 +57,7 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
       <h2 className="pg-title">{t("chat.settings.general.title")}</h2>
 
       {/* 语言切换（壳端偏好：helix-lang 持久化，即切即生效） */}
+      <h3 className="section-label gen-group-label first">{t("chat.settings.general.groupLanguage")}</h3>
       <div className="hud-card">
         <div className="fld">
           <span className="hud-label">{t("chat.settings.general.language")}</span>
@@ -78,8 +79,10 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
       </div>
 
       {/* 工作空间卡（原独立分区并入；绑定展示 + 切换入口语义不变） */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupWorkspace")}</h3>
       <WorkspaceSettingsSection />
 
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupCompaction")}</h3>
       <div className="hud-card">
         <div className="fld">
           <label className="hud-label" htmlFor="compaction-reserve">

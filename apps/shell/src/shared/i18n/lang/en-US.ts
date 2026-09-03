@@ -242,6 +242,9 @@ export const enUS = {
       },
       general: {
         title: "General",
+        groupLanguage: "Language",
+        groupWorkspace: "Workspace",
+        groupCompaction: "Context compaction",
         language: "Language / 语言",
         langZh: "中文",
         langEn: "English",

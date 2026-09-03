@@ -301,6 +301,10 @@
   margin: 0 0 14px;
 }
 
+/* 通用配置分区：配置项分组小标题（复用 .section-label 视觉，组间加大留白） */
+.gen-group-label { margin-top: 36px; margin-bottom: 16px; }
+.gen-group-label.first { margin-top: 8px; }
+
 /* ── 工作空间分区（W4 设置页：当前绑定 + 切换；F2 活跃 agent 禁用态）── */
 .ws-set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .ws-set-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
