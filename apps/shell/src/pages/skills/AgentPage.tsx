@@ -29,6 +29,7 @@
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type {
+  AgentBasePromptGetResultPayload,
   AgentConfigListResultPayload,
   AgentConfigProfileBlock,
   AgentConfigSystemBlock,
@@ -66,6 +67,55 @@ function agentTitleOf(t: (key: string) => string, kind: AgentId): string {
   if (kind === "subagent-worker") return t("agents.subTitle");
   if (kind === "orchestrator") return t("agents.orchestratorTitle");
   return t("agents.kgWriterTitle");
+}
+
+/**
+ * base 段系统提示词查看区（base prompt 批）：折叠入口——首次展开懒查询
+ * （agent.base_prompt.get 点对点），缓存后本地开/关。说明行明示本面仅
+ * 静态 base 段（工具/技能清单为运行期动态拼入，生效全量走 trace 快照）。
+ */
+function BasePromptSection({
+  kind,
+  text,
+  pending,
+  open,
+  onToggle,
+}: {
+  kind: AgentId;
+  text: string | null;
+  pending: boolean;
+  open: boolean;
+  onToggle: (kind: AgentId) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="ag-group" data-base-prompt={kind}>
+      <h3 className="ag-group-label">{t("agents.basePromptLabel")}</h3>
+      <button
+        type="button"
+        className="hud-btn sm"
+        data-base-prompt-toggle
+        disabled={pending}
+        onClick={() => onToggle(kind)}
+      >
+        {open ? t("agents.basePromptHide") : t("agents.basePromptView")}
+      </button>
+      {open && (
+        <>
+          <p className="ag-note">{t("agents.basePromptNote")}</p>
+          {text === null ? (
+            <p className="ag-loading" role="status">
+              {t("agents.basePromptLoading")}
+            </p>
+          ) : (
+            <pre className="ag-base-prompt" data-base-prompt-text>
+              {text}
+            </pre>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 /** 开关（语义化 role=switch + aria-checked；track+thumb+状态词）。 */
@@ -505,6 +555,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     requestAuthList,
     sendAgentConfigList,
     sendAgentConfigSetEnabled,
+    sendAgentBasePromptGet,
     subscribeAgentConfigFrames,
   } = useSession();
   const conn = session.conn;
@@ -551,6 +602,10 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
             toast.push("err", t("agents.skippedToast", { reason: p.reason ?? "" }));
           }
           // applied：不清在途——等 changed 广播 → 重拉的新鲜数据收口（防闪回）
+        } else if (e.type === "agent.base_prompt.get.result") {
+          // base prompt 批：回执带 profileKind 回显——定向归位缓存
+          const p = (e as { payload: AgentBasePromptGetResultPayload }).payload;
+          dispatch({ type: "base-prompt-result", kind: p.profileKind, basePrompt: p.basePrompt });
         }
       }),
     [subscribeAgentConfigFrames, toast, t],
@@ -606,6 +661,23 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
   const onSelectAgent = useCallback((id: AgentId) => {
     dispatch({ type: "select-agent", id });
   }, []);
+
+  /** base prompt 批：折叠开/关——未缓存先懒查询（在途防重复发；send 失败
+   *  不开区），已缓存本地开/关（静态数据拉一次常驻）。 */
+  const onBasePromptToggle = useCallback(
+    (kind: AgentId) => {
+      const st = stateRef.current;
+      if (st.basePrompts[kind] !== null) {
+        dispatch({ type: "base-prompt-toggle", kind });
+        return;
+      }
+      if (st.basePromptPending.has(kind)) return;
+      if (sendAgentBasePromptGet({ profileKind: kind })) {
+        dispatch({ type: "base-prompt-started", kind });
+      }
+    },
+    [sendAgentBasePromptGet],
+  );
 
   const view = selectAgentPageView(state);
   const writePending = state.pending.size > 0;
@@ -720,6 +792,17 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
                   writePending={writePending}
                   onToggle={onToggle}
                   onModelChange={onModelChange}
+                />
+              )}
+              {/* base prompt 批：base 段系统提示词查看区（四 kind 共用——
+                  选中详情下方；系统派生 kind 同可观察） */}
+              {state.selected !== null && (
+                <BasePromptSection
+                  kind={state.selected}
+                  text={state.basePrompts[state.selected]}
+                  pending={state.basePromptPending.has(state.selected)}
+                  open={state.basePromptOpen === state.selected}
+                  onToggle={onBasePromptToggle}
                 />
               )}
             </div>

@@ -122,6 +122,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       },
       hasModel: () => false,
     kgWriterPinnedTools: ["kg-update"],
+      basePrompts: {},
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
       events: eventStream,
       token: "spy-token",
@@ -280,6 +281,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       },
       hasModel: () => false,
       kgWriterPinnedTools: ["kg-update"],
+      basePrompts: {},
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
       events: new EventStream(),
       token: "spy-token",
@@ -401,6 +403,7 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
     },
     hasModel: () => false,
     kgWriterPinnedTools: ["kg-update"],
+      basePrompts: {},
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
     events,
     token: "spy-token",

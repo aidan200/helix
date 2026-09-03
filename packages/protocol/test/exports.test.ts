@@ -263,8 +263,8 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
   test("② 常量语义值 + 目录计数（task 批：命令 45 / 事件 58；v0.11 版本位保持）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.11"); // v0.11 批次版本位（thinking 批四块 additive，AD-2/AD-4；契约 = PROTOCOL.md §17.11）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(58); // kg.candidates.list 批：+1（kg.candidates.list；config 批后 57）
-    expect(protocol.EVENT_TYPES.length).toBe(76); // error entry 批：+1（error.entry；main-session plan 批后 75）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(76); // 登记目录恰等（error entry 批 +1）
+    expect(protocol.COMMAND_TYPES.length).toBe(59); // base prompt 批：+1（agent.base_prompt.get；kg.candidates.list 批后 58）
+    expect(protocol.EVENT_TYPES.length).toBe(77); // base prompt 批：+1（agent.base_prompt.get.result；error entry 批后 76）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(77); // 登记目录恰等（base prompt 批 +1）
   });
 });

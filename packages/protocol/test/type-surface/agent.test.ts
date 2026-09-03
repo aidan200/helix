@@ -26,6 +26,8 @@ type _AgentFamily = Expect<
     | "agent.config.changed"
     | "agent.config.list.result"
     | "agent.config.set_enabled.result"
+    // base prompt 批（agent 页 base 段系统提示词懒查询回执）
+    | "agent.base_prompt.get.result"
   >
 >;
 

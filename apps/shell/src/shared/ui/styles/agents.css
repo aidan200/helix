@@ -195,3 +195,12 @@
 @media (prefers-reduced-motion: reduce) {
   .ag-skel-bar::after { animation: none; }
 }
+
+/* base prompt 批：base 段系统提示词查看区（等宽滚动文本块） */
+.ag-base-prompt {
+  margin: 8px 0 0; padding: 12px 14px; max-height: 320px; overflow: auto;
+  font-family: var(--font-mono); font-size: var(--text-cap); line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word; color: var(--text-dim, var(--text-muted));
+  border: 1px solid rgb(var(--edge-rgb) / 0.16); border-radius: 10px;
+  background: rgb(var(--accent-rgb) / 0.04);
+}

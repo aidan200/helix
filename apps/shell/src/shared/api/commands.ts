@@ -11,6 +11,8 @@
  */
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type {
+  AgentBasePromptGetCommand,
+  AgentBasePromptGetPayload,
   AgentConfigListCommand,
   AgentConfigSetEnabledCommand,
   AgentConfigSetEnabledPayload,
@@ -269,6 +271,12 @@ export function agentConfigListCommand(): AgentConfigListCommand {
  *  set_enabled.result 点对点 + applied 时 agent.config.changed 全局广播）。 */
 export function agentConfigSetEnabledCommand(payload: AgentConfigSetEnabledPayload): AgentConfigSetEnabledCommand {
   return { v: PROTOCOL_VERSION, type: "agent.config.set_enabled", payload };
+}
+
+/** agent.base_prompt.get：base 段系统提示词懒查询读面（base prompt 批；
+ *  全局命令；回执 = agent.base_prompt.get.result 点对点）。 */
+export function agentBasePromptGetCommand(payload: AgentBasePromptGetPayload): AgentBasePromptGetCommand {
+  return { v: PROTOCOL_VERSION, type: "agent.base_prompt.get", payload };
 }
 
 /** web.status：CDP 连接状态读面（全局命令；回执 = web.status.result 点对点）。 */

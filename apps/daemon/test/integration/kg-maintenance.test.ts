@@ -211,6 +211,7 @@ function stubAdapterDeps(events: EventStream) {
     },
     hasModel: () => false,
       kgWriterPinnedTools: ["kg-update"],
+      basePrompts: {},
     browser: new StubBrowserPort(),
     events,
     token: "kgmaint-it-token",

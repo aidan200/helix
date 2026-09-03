@@ -158,9 +158,10 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 58 个 type（… + config 批 2 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1 + kg.candidates.list 批 1）", () => {
+  test("命令目录恰为 59 个 type（… + config 批 2 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1 + kg.candidates.list 批 1 + base prompt 批 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
+        "agent.base_prompt.get",
         "agent.config.list",
         "agent.config.set_enabled",
         "agent.kill",
@@ -223,9 +224,10 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 76 个 type（… + park/resume 批 2 + kg.candidates.list 批 1 + main-session plan 批 1 + error entry 批 1）", () => {
+  test("事件目录恰为 77 个 type（… + park/resume 批 2 + kg.candidates.list 批 1 + main-session plan 批 1 + error entry 批 1 + base prompt 批 1）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
+        "agent.base_prompt.get.result",
         "agent.completed",
         "agent.config.changed",
         "agent.config.list.result",
@@ -453,6 +455,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       ],
     );
     expect(roster("agent")).toEqual([
+      "agent.base_prompt.get.result",
       "agent.completed",
       "agent.config.changed",
       "agent.config.list.result",
@@ -525,10 +528,10 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
   });
 
   test("目录计数（error entry 批后）：EVENT_TYPES 76 / EVENT_CHANNELS 76 键 / COMMAND_TYPES 58", () => {
-    expect(EVENT_TYPES.length).toBe(76); // error entry 批：+1（error.entry）
-    expect(new Set(EVENT_TYPES).size).toBe(76); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(76); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(58); // kg.candidates.list 批：+1（kg.candidates.list）
+    expect(EVENT_TYPES.length).toBe(77); // base prompt 批：+1（agent.base_prompt.get.result）
+    expect(new Set(EVENT_TYPES).size).toBe(77); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(77); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(59); // base prompt 批：+1（agent.base_prompt.get）
   });
 
 });

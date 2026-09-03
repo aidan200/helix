@@ -167,3 +167,34 @@ describe("智能体页页面模型（agent-roster：system 块 + 选中态）", 
     expect(s.selected).toBeNull();
   });
 });
+
+describe("base prompt 批：base 段系统提示词缓存与折叠态", () => {
+  it("⑦ started → 在途 + 展开；result 定向归位缓存清在途；toggle 恰一展开/同卡收起；重拉不清缓存", () => {
+    let s = createAgentPageState();
+    expect(s.basePrompts["main-session"]).toBeNull();
+    expect(s.basePromptOpen).toBeNull();
+    // started：在途 + 展开该卡
+    s = agentPageReducer(s, { type: "base-prompt-started", kind: "main-session" });
+    expect(s.basePromptPending.has("main-session")).toBe(true);
+    expect(s.basePromptOpen).toBe("main-session");
+    // result：定向归位 + 清在途（缓存常驻）
+    s = agentPageReducer(s, { type: "base-prompt-result", kind: "main-session", basePrompt: "BASE-MAIN" });
+    expect(s.basePromptPending.has("main-session")).toBe(false);
+    expect(s.basePrompts["main-session"]).toBe("BASE-MAIN");
+    expect(s.basePromptOpen).toBe("main-session");
+    // 他卡 result 不串位
+    s = agentPageReducer(s, { type: "base-prompt-started", kind: "subagent-kg-writer" });
+    expect(s.basePromptOpen).toBe("subagent-kg-writer"); // 恰一展开：新展开顶替
+    s = agentPageReducer(s, { type: "base-prompt-result", kind: "subagent-kg-writer", basePrompt: "BASE-KGW" });
+    expect(s.basePrompts["main-session"]).toBe("BASE-MAIN");
+    expect(s.basePrompts["subagent-kg-writer"]).toBe("BASE-KGW");
+    // toggle：切到他卡展开；同卡再点 = 收起
+    s = agentPageReducer(s, { type: "base-prompt-toggle", kind: "main-session" });
+    expect(s.basePromptOpen).toBe("main-session");
+    s = agentPageReducer(s, { type: "base-prompt-toggle", kind: "main-session" });
+    expect(s.basePromptOpen).toBeNull();
+    // 重拉（changed 链）不清 base prompt 缓存（静态数据拉一次常驻）
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_BLOCK, KGW_BLOCK] });
+    expect(s.basePrompts["main-session"]).toBe("BASE-MAIN");
+  });
+});

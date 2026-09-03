@@ -48,6 +48,17 @@ export interface AgentPageState {
   selected: AgentId | null;
   /** 写面在途行 key 集（单飞：结果帧无回显，页面侧保证同刻至多一条） */
   pending: ReadonlySet<string>;
+  /**
+   * base 段系统提示词缓存（base prompt 批）：kind → 已拉取全文；null =
+   * 未拉取。静态数据（不随 toggle 变）——拉一次常驻，changed 重拉链不
+   * 清（list-result 不覆写本面）。在途集合防重复发（结果帧带回显
+   * profileKind，定向归位，无需单飞）。
+   */
+  basePrompts: Readonly<Record<AgentId, string | null>>;
+  /** base prompt 懒查询在途 kind 集（按钮 loading 态 + 防重复发）。 */
+  basePromptPending: ReadonlySet<AgentId>;
+  /** base prompt 查看区展开 kind（恰一展开；null = 全收——视图态）。 */
+  basePromptOpen: AgentId | null;
 }
 
 /** 写面资源维（协议收窄值：tool/skill 启停 + model/thinking 槽位）。 */
@@ -70,6 +81,9 @@ export function createAgentPageState(): AgentPageState {
     system: { orchestrator: null, "subagent-kg-writer": null },
     selected: "main-session", // 默认选中 main-session（brief ④）
     pending: new Set<string>(),
+    basePrompts: { "main-session": null, "subagent-worker": null, orchestrator: null, "subagent-kg-writer": null },
+    basePromptPending: new Set<AgentId>(),
+    basePromptOpen: null,
   };
 }
 
@@ -79,7 +93,10 @@ export type AgentPageAction =
   | { type: "list-failed"; reason: string }
   | { type: "select-agent"; id: AgentId | null }
   | { type: "toggle-started"; kind: WritableKind; resourceType: AgentWriteResource; name: string }
-  | { type: "toggle-settled"; kind: WritableKind; resourceType: AgentWriteResource; name: string };
+  | { type: "toggle-settled"; kind: WritableKind; resourceType: AgentWriteResource; name: string }
+  | { type: "base-prompt-started"; kind: AgentId }
+  | { type: "base-prompt-result"; kind: AgentId; basePrompt: string }
+  | { type: "base-prompt-toggle"; kind: AgentId };
 
 function hasData(s: AgentPageState): boolean {
   return s.profiles["main-session"] !== null || s.profiles["subagent-worker"] !== null;
@@ -125,6 +142,19 @@ export function agentPageReducer(s: AgentPageState, action: AgentPageAction): Ag
       pending.delete(pendingKeyOf(action.kind, action.resourceType, action.name));
       return { ...s, pending };
     }
+    case "base-prompt-started": {
+      const basePromptPending = new Set(s.basePromptPending);
+      basePromptPending.add(action.kind);
+      return { ...s, basePromptPending, basePromptOpen: action.kind };
+    }
+    case "base-prompt-result": {
+      const basePromptPending = new Set(s.basePromptPending);
+      basePromptPending.delete(action.kind);
+      return { ...s, basePromptPending, basePrompts: { ...s.basePrompts, [action.kind]: action.basePrompt } };
+    }
+    case "base-prompt-toggle":
+      // 已缓存的折叠开/关（恰一展开；点同一卡 = 收起）
+      return { ...s, basePromptOpen: s.basePromptOpen === action.kind ? null : action.kind };
   }
 }
 

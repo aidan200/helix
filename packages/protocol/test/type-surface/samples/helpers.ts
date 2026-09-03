@@ -190,6 +190,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `model-set-thinking-default:${event.payload.previous}`;
     case "kg.candidates.list.result":
       return `kg-candidates-list:${event.payload.total}:${event.payload.rows.length}`;
+    case "agent.base_prompt.get.result":
+      return `base-prompt:${event.payload.profileKind}:${event.payload.basePrompt.length}`;
     case "session.plan.changed":
       return `plan-changed:${event.payload.sessionId}:${event.payload.plan?.length ?? 0}:${event.payload.ledger?.total ?? 0}`;
     default: {
@@ -327,6 +329,8 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `model-set-thinking-default:${String(cmd.payload.level)}`;
     case "kg.candidates.list":
       return `kg-candidates-list:${cmd.payload.project}:${cmd.payload.status ?? "*"}`;
+    case "agent.base_prompt.get":
+      return `base-prompt-get:${cmd.payload.profileKind}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

@@ -14,9 +14,9 @@
  *   提升为 topology 级 slots 槽位轻量读面（草稿徽标链/刻度基准第二级回退，
  *   selectModeSlot 解析）。数据源复用本帧（AgentPage 页面链同帧各取所需），
  *   **不新建第三条平行配置读面**；
- * - agent.config.set_enabled.result：点对点回执，真消费归页面查询链
- *   （SessionContext 转发层 → 页面私有 reducer，trace.query.result 先例）
- *   ——拓扑级路由仅作前置门，拓扑态原引用返回。
+ * - agent.config.set_enabled.result / agent.base_prompt.get.result：点对点
+ *   回执，真消费归页面查询链（SessionContext 转发层 → 页面私有 reducer，
+ *   trace.query.result 先例）——拓扑级路由仅作前置门，拓扑态原引用返回。
  * 纯函数纪律（AG-14）：无 React / 无 IO / 无 Date.now。
  */
 import type { EventEnvelope } from "@helix/protocol";
@@ -28,6 +28,7 @@ export const AGENT_CONFIG_EVENT_TYPES = [
   "agent.config.changed",
   "agent.config.list.result",
   "agent.config.set_enabled.result",
+  "agent.base_prompt.get.result",
 ] as const;
 
 /** 是否 agent.config 配置族事件（dispatcher 路由前置判定）。 */

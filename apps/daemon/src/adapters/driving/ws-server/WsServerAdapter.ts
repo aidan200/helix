@@ -119,7 +119,7 @@ import {
   handleKgNodeSupersede,
   handleKgNodeUpdate,
 } from "./handlers/kg";
-import { handleAgentConfigList, handleAgentConfigSetEnabled } from "./handlers/resource";
+import { handleAgentBasePromptGet, handleAgentConfigList, handleAgentConfigSetEnabled } from "./handlers/resource";
 import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
 import {
   handleModelCatalog,
@@ -202,6 +202,13 @@ export interface WsServerAdapterDeps {
    * driven，窄数据面传递）——list 缺省全量的 system 只读块派生用。
    */
   readonly kgWriterPinnedTools: readonly string[];
+  /**
+   * base 段系统提示词读面（base prompt 批）：kind → profile 静态声明
+   * prompt 全文（四 kind；组合根从四 profile systemPrompt 字段单源注入，
+   * driving 不得 import driven，窄数据面传递）——agent.base_prompt.get
+   * 命令回口。
+   */
+  readonly basePrompts: Readonly<Record<string, string>>;
   /** 事件流（组合根构造并装配进 fan-out 的 EventPublisherPort 实现）。 */
   readonly events: EventStream;
   /** 本次启动生成的 dev token（与 <home>/dev-token 文件内容一致）。 */
@@ -587,6 +594,9 @@ export class WsServerAdapter {
         return handleAgentConfigList(this.resourceContext(ws, type, payload));
       case "agent.config.set_enabled":
         return handleAgentConfigSetEnabled(this.resourceContext(ws, type, payload));
+      // ── base prompt 批（agent 页 base 段系统提示词懒查询读面；agent.config 同族）──
+      case "agent.base_prompt.get":
+        return handleAgentBasePromptGet(this.resourceContext(ws, type, payload));
       // ── v0.7 web 族（联网状态图标；全局命令先例 = agent.config 族）──
       // v0.9 +web.start（CDP 显式启动通路）
       case "web.status":
@@ -828,6 +838,7 @@ export class WsServerAdapter {
       resource: this.deps.resource,
       hasModel: this.deps.hasModel,
       kgWriterPinnedTools: this.deps.kgWriterPinnedTools,
+      basePrompts: this.deps.basePrompts,
       events: this.deps.events,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),

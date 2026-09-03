@@ -739,9 +739,9 @@ export interface AgentModelChangedPayload {
   新会话）；转正恰好一次 `agent.instantiated` + `list_changed{created}`
   （draft 链显式广播与补广播去重，不双发）。
 
-## 15. 命令 payload 形状总登记（C→S，55 命令全集）
+## 15. 命令 payload 形状总登记（C→S，59 命令全集）
 
-> **计数声明：58 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 5 +
+> **计数声明：59 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 6 +
 > 15.4 model 7 + config 2 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
 > 15.9 kg 6+5+2+1+1+1 + 15.10 workspace 2 + 15.11 task 9）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
@@ -844,7 +844,7 @@ sessionId **必填**。回执：daemon 重推该会话全量 `session.snapshot`�
 |---|---|---|---|---|
 | （无字段） | `EmptyPayload` | — | v0.2 | 空载荷（目标会话在信封 sessionId） |
 
-### 15.3 agent 族（5）
+### 15.3 agent 族（6）
 
 #### `agent.kill`
 
@@ -902,6 +902,21 @@ skipped reason=unknown-model）；enabled=false 清槽（name 忽略）。tool/s
 | `resourceType` | `"tool" \| "skill" \| "model" \| "thinking"` | 必填 | v0.6 | 资源类型（model/thinking = 槽位语义非启停；thinking = v0.11 批内补登 T1.3：槽位语义同 model，set/clear，零档位校验） |
 | `name` | `string` | 必填 | v0.6 | 资源名（model/thinking 型 = "provider/model-id" / 档位字符串；clear 时忽略） |
 | `enabled` | `boolean` | 必填 | v0.6 | tool/skill = 启停；model = set（true）/ clear（false）槽位 |
+
+#### `agent.base_prompt.get`
+
+base 段系统提示词读面（base prompt 批；agent 页「查看 base 提示词」入口）。
+路由：全局命令（信封 sessionId 省略）。结果帧：`agent.base_prompt.get.result`
+（点对点，§16.4）。base 段 = profile 静态声明 prompt（系统提示三段组装的
+第①段，无工具/技能清单——动态两段由 SystemPromptAssembler 运行期拼入，
+不在本读面）；静态不随 toggle 变化，故为独立懒查询（不并入
+`agent.config.list.result`，避免 changed 重拉携带大文本）。系统派生两
+kind 同可读（写面只读≠读面拒绝；kg-writer = SUBAGENT base + 图谱产出型
+后缀，profile 声明单源）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `profileKind` | `"main-session" \| "subagent-worker" \| "orchestrator" \| "subagent-kg-writer"` | 必填 | v0.11 | 目标 kind（四值全可读） |
 
 ### 15.4 model + config 族（9）
 
@@ -1468,11 +1483,11 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 |---|---|---|---|---|
 | `jobId` | `string` | 必填 | task 批 | 目标任务（终态） |
 
-## 16. 事件 payload 形状总登记（S→C，76 事件全集）
+## 16. 事件 payload 形状总登记（S→C，77 事件全集）
 
-> **计数声明：76 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> **计数声明：77 事件全集**（16.1 notification 3〔含 task.changed〕 +
 > 16.2 session 5〔含 main-session plan 批 session.plan.changed〕 +
-> 16.3 chat 12〔含 engine.retrying 网络重试批 + error entry 批 error.entry〕 + 16.4 agent 14〔含 park/resume 批 2〕 + 16.5 thinking·compaction·usage 5 +
+> 16.3 chat 12〔含 engine.retrying 网络重试批 + error entry 批 error.entry〕 + 16.4 agent 15〔含 park/resume 批 2 + base prompt 批 1〕 + 16.5 thinking·compaction·usage 5 +
 > 16.6 model 13 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1 + 16.10 workspace 3
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
@@ -1690,7 +1705,7 @@ LLM 调用瞬时失败进入退避重试（P2 ⑦ 网络重试批）：等待期
 | `waitMs` | `number` | 必填 | 网络重试批 | 本次重试前等待毫秒数 |
 | `message` | `string` | 必填 | 网络重试批 | 触发重试的 provider 错误原文（领域数据不 i18n） |
 
-### 16.4 agent 族（14）
+### 16.4 agent 族（15）
 
 #### `agent.spawned`
 
@@ -1834,6 +1849,15 @@ skills/tools 同构；model 型 name = 模型 id 或 null（clear）。
 |---|---|---|---|---|
 | `status` | `"applied" \| "skipped"` | 必填 | v0.6 | 结果判别位 |
 | `reason` | `string` | skipped 分支必填 | v0.6 | 跳过原因：unknown-name（tool/skill 名不在全集，不落库）/ unknown-model（目录外模型，ModelService.setModel 先例）等 |
+
+#### `agent.base_prompt.get.result`
+
+base 段系统提示词读面回执（点对点；全局命令，base prompt 批）。payload：
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `profileKind` | `"main-session" \| "subagent-worker" \| "orchestrator" \| "subagent-kg-writer"` | 必填 | v0.11 | 目标 kind |
+| `basePrompt` | `string` | 必填 | v0.11 | base 段系统提示词全文（profile 静态声明；工具/技能两段为运行期动态拼入不在本面——生效全量提示词走 trace 快照面观察） |
 
 ### 16.5 thinking · compaction · usage 通道族（5）
 

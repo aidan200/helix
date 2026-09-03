@@ -1,7 +1,7 @@
 /**
  * 事件目录（S→C，契约 A §2；目录文档见同包 PROTOCOL.md）。
  *
- * 共 58 个事件：v0 12 + v0.1 编排族 7 + v0.1 通道族 4 + 热修 engine.error 1
+ * 共 59 个事件：v0 12 + v0.1 编排族 7 + v0.1 通道族 4 + 热修 engine.error 1
  * + v0.2 新增 2（session.list_changed / model.changed）+ T2.2 命令结果 2
  * （session.list.result / session.loadHistory.result）+ T2.3-result-frames
  * 微批 9（model/auth 命令结果帧，契约 C §2.2）+ v0.4 新增 3
@@ -25,7 +25,9 @@
  * plan 批新增 1（session.plan.changed，主会话工作台账广播——挂既有 session
  * 通道不新增 Channel 值；快照 plan/ledger 同批 additive 字段）+ error entry
  * 批新增 1（error.entry：引擎/模型失败的错误条目落时间轴原位红条——挂既
- * 有 chat 通道不新增 Channel 值；EntryDto 同批 additive 第五变体 error）。`EventEnvelope` 为
+ * 有 chat 通道不新增 Channel 值；EntryDto 同批 additive 第五变体 error）+ base
+ * prompt 批新增 1（agent.base_prompt.get.result：agent 页 base 段系统提示词
+ * 懒查询点对点回执，挂 agent 族）。`EventEnvelope` 为
  * 判别式联合，前端 switch(event.type) 窄化各分支 payload（投影 reducer）。
  *
  * v0.2 事件类型学（AD-3，契约 A §2）：每事件以 `channel` 字面量登记所属通道
@@ -64,6 +66,7 @@ import type {
   AgentConfigChangedEvent,
   AgentConfigListResultEvent,
   AgentConfigSetEnabledResultEvent,
+  AgentBasePromptGetResultEvent,
   AgentFailedEvent,
   AgentInstantiatedEvent,
   AgentKilledEvent,
@@ -197,6 +200,7 @@ export type EventEnvelope =
   | AgentConfigListResultEvent
   | AgentConfigChangedEvent
   | AgentConfigSetEnabledResultEvent
+  | AgentBasePromptGetResultEvent
   | WebStatusResultEvent
   | WebStopResultEvent
   | WebStatusChangedEvent
@@ -276,6 +280,7 @@ export const EVENT_TYPES = [
   "agent.config.changed",
   "agent.config.list.result",
   "agent.config.set_enabled.result",
+  "agent.base_prompt.get.result",
   "web.status.result",
   "web.stop.result",
   "web.status.changed",
@@ -363,6 +368,7 @@ export const EVENT_CHANNELS = {
   "agent.config.changed": "agent",
   "agent.config.list.result": "agent",
   "agent.config.set_enabled.result": "agent",
+  "agent.base_prompt.get.result": "agent",
   "web.status.result": "web",
   "web.stop.result": "web",
   "web.status.changed": "web",

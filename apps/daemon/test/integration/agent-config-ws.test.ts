@@ -670,3 +670,60 @@ describe("agent.config 前置校验（payload 形状）", () => {
     }
   });
 });
+
+describe("agent.base_prompt.get（base prompt 批：base 段系统提示词懒查询读面）", () => {
+  test("⑬ 四 kind 全可读：点对点回执 basePrompt = profile 静态声明单源（kg-writer 含图谱产出型后缀）", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      await helloHandshake(client, rig.token);
+
+      const kinds = ["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer"] as const;
+      for (const kind of kinds) {
+        const at = client.frames.length;
+        client.send({ v: PROTOCOL_VERSION, type: "agent.base_prompt.get", payload: { profileKind: kind } });
+        const result = await client.expectAfter("agent.base_prompt.get.result", at);
+        expect(result.v).toBe(PROTOCOL_VERSION);
+        expect(result.channel).toBe("agent");
+        expect(result.sessionId).toBe(SYSTEM_SESSION_ID); // 全局命令：会话无关
+        expect(result.payload.profileKind).toBe(kind);
+        expect(typeof result.payload.basePrompt).toBe("string");
+        expect((result.payload.basePrompt as string).length).toBeGreaterThan(0);
+      }
+      // 内容锚点：profile 声明单源（主会话角色段 / kg-writer 图谱产出型后缀）
+      const at = client.frames.length;
+      client.send({ v: PROTOCOL_VERSION, type: "agent.base_prompt.get", payload: { profileKind: "main-session" } });
+      const main = await client.expectAfter("agent.base_prompt.get.result", at);
+      expect(main.payload.basePrompt).toContain("helix");
+      const at2 = client.frames.length;
+      client.send({ v: PROTOCOL_VERSION, type: "agent.base_prompt.get", payload: { profileKind: "subagent-kg-writer" } });
+      const kgw = await client.expectAfter("agent.base_prompt.get.result", at2);
+      expect(kgw.payload.basePrompt).toContain("图谱产出型");
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+
+  test("⑭ 非法 kind → connection.error{command.invalid_payload}（连接保持——后续命令仍可通）", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      await helloHandshake(client, rig.token);
+
+      client.send({ v: PROTOCOL_VERSION, type: "agent.base_prompt.get", payload: { profileKind: "bogus" } });
+      await client.waitForInvalidPayload("agent.base_prompt.get");
+      client.send({ v: PROTOCOL_VERSION, type: "agent.base_prompt.get", payload: {} });
+      await client.waitForInvalidPayload("agent.base_prompt.get");
+      // 连接保持
+      client.send({ v: PROTOCOL_VERSION, type: "agent.base_prompt.get", payload: { profileKind: "orchestrator" } });
+      const ok = await client.expect("agent.base_prompt.get.result");
+      expect(ok.payload.profileKind).toBe("orchestrator");
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+});

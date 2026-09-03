@@ -222,6 +222,17 @@ export type AgentConfigSetEnabledResultPayload =
   | { status: "applied" }
   | { status: "skipped"; reason: string };
 
+/**
+ * agent.base_prompt.get.result：base 段系统提示词读面回执（点对点；全局
+ * 命令）。basePrompt = profile 静态声明 prompt 全文（三段组装第①段；
+ * 工具/技能两段为运行期动态拼入不在本面——观察生效全量提示词走 trace
+ * 快照面）。
+ */
+export interface AgentBasePromptGetResultPayload {
+  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer";
+  basePrompt: string;
+}
+
 // ── v0.1 新增信封（契约 protocol-v0.1.md §5） ──
 
 export interface AgentSpawnedEvent extends EventFrame<AgentSpawnedPayload> {
@@ -295,4 +306,10 @@ export interface AgentConfigChangedEvent extends EventFrame<AgentConfigChangedPa
 export interface AgentConfigSetEnabledResultEvent extends EventFrame<AgentConfigSetEnabledResultPayload> {
   channel?: "agent";
   type: "agent.config.set_enabled.result";
+}
+
+/** agent.base_prompt.get.result：base 段系统提示词读面回执（点对点；信封 sessionId = SYSTEM_SESSION_ID）。 */
+export interface AgentBasePromptGetResultEvent extends EventFrame<AgentBasePromptGetResultPayload> {
+  channel?: "agent";
+  type: "agent.base_prompt.get.result";
 }

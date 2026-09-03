@@ -30,6 +30,7 @@
  * driven，组合根经窄函数面传递，hasModel 先例）。
  */
 import type {
+  AgentBasePromptGetResultEvent,
   AgentConfigListResultEvent,
   AgentConfigProfileBlock,
   AgentConfigSetEnabledResultEvent,
@@ -178,6 +179,37 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
       ctx.sendNow(sender, frame);
     })
     .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `配置读面组装失败：${(err as Error).message}`));
+}
+
+/** agent.base_prompt.get 合法 kind（四值全可读——含系统派生两 kind；写面只读≠读面拒绝）。 */
+const BASE_PROMPT_KINDS = ["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer"] as const;
+
+/**
+ * agent.base_prompt.get（base prompt 批）：base 段系统提示词懒查询读面。
+ * base 段 = profile 静态声明 prompt（三段组装第①段），经 ctx.basePrompts
+ * 窄数据面取回（组合根从四 profile systemPrompt 单源注入）；未知 kind →
+ * command.invalid_payload（连接保持）。点对点回执（TR-AD-21 模式，同
+ * agent.config.list.result）。
+ */
+export function handleAgentBasePromptGet(ctx: ResourceCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const kind = ctx.payload.profileKind;
+  if (typeof kind !== "string" || !(BASE_PROMPT_KINDS as readonly string[]).includes(kind)) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", `payload.profileKind 应为 "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer"`);
+  }
+  const basePrompt = ctx.basePrompts[kind];
+  if (basePrompt === undefined) {
+    // 组合根未注入该 kind（防御位——正常路径四 kind 全注入）
+    return ctx.commandError(ctx.type, "command.invalid_payload", `base 段提示词读面未装配：${kind}`);
+  }
+  const frame: AgentBasePromptGetResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID, // 全局命令：会话无关（agent.config.list.result 同构）
+    channel: "agent",
+    type: "agent.base_prompt.get.result",
+    payload: { profileKind: kind as (typeof BASE_PROMPT_KINDS)[number], basePrompt },
+  };
+  ctx.sendNow(sender, frame);
 }
 
 /** agent.config.set_enabled（全局写面）：四路径回执 + applied 广播。 */

@@ -20,7 +20,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import type { ReactNode } from "react";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type { CommandEnvelope, EventEnvelope, TraceQueryPayload } from "@helix/protocol";
-import type { AgentConfigSetEnabledPayload } from "@helix/protocol";
+import type { AgentBasePromptGetPayload, AgentConfigSetEnabledPayload } from "@helix/protocol";
 import type {
   KgBootstrapCreatePayload,
   KgBootstrapImpactPayload,
@@ -45,6 +45,7 @@ import { HelixWsClient } from "@/shared/api/helix-ws";
 import type { Transport, TransportFactory } from "@/shared/api/helix-ws";
 import {
   agentConfigListCommand,
+  agentBasePromptGetCommand,
   agentConfigSetEnabledCommand,
   authDeleteKeyCommand,
   authListCommand,
@@ -210,6 +211,10 @@ interface SessionContextValue {
   /** 订阅 agent.config 族点对点回执（list.result / set_enabled.result；
    *  changed 广播走拓扑级消费，不在此转发）。 */
   subscribeAgentConfigFrames: (listener: (e: EventEnvelope) => void) => () => void;
+  /** 发送 agent.base_prompt.get（base prompt 批：base 段系统提示词懒查询；
+   *  回执 agent.base_prompt.get.result 点对点，经 subscribeAgentConfigFrames
+   *  同一转发链到页面 reducer）。 */
+  sendAgentBasePromptGet: (payload: AgentBasePromptGetPayload) => boolean;
   // ── web 族联网状态面（T4，契约 v0.7；IconRail 联网钮）──
   /** 发送 web.stop（停止并清理；回执 applied + 状态回 idle 经
    *  web.status.changed 广播写 topology.webStatus）。 */
@@ -420,7 +425,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
       // agent.config 族点对点回执转发（M6 T4）：智能体页页面查询链消费
       //（dispatcher 侧拓扑级直通不写态；changed 广播走拓扑 revision）
-      if (event.type === "agent.config.list.result" || event.type === "agent.config.set_enabled.result") {
+      if (event.type === "agent.config.list.result" || event.type === "agent.config.set_enabled.result" || event.type === "agent.base_prompt.get.result") {
         for (const l of agentConfigListenersRef.current) l(event);
       }
       // kg 族点对点回执转发（T5.4）：P-1 图谱页页面私有链消费（全部为命令
@@ -650,6 +655,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       agentConfigListenersRef.current.delete(listener);
     };
   }, []);
+  // base prompt 批：base 段系统提示词懒查询（智能体页卡片折叠查看区；
+  // 回执走上方 agentConfigListenersRef 同一转发链）
+  const sendAgentBasePromptGet = useCallback(
+    (payload: AgentBasePromptGetPayload) => clientRef.current!.send(agentBasePromptGetCommand(payload)),
+    [],
+  );
 
   // web 族联网状态面（T4，契约 v0.7）：停止并清理写面（读面初值见上方
   // 连接就绪 effect；变更走广播拓扑级消费 topology.webStatus）
@@ -934,6 +945,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       subscribeTraceFrames,
       sendAgentConfigList,
       sendAgentConfigSetEnabled,
+      sendAgentBasePromptGet,
       subscribeAgentConfigFrames,
       sendWebStop,
       sendWebStart,
@@ -1005,6 +1017,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       subscribeTraceFrames,
       sendAgentConfigList,
       sendAgentConfigSetEnabled,
+      sendAgentBasePromptGet,
       subscribeAgentConfigFrames,
       sendWebStop,
       sendWebStart,

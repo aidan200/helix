@@ -459,6 +459,12 @@ export const enUS = {
     notConnected: "Not connected to daemon",
     switchOn: "On",
     switchOff: "Off",
+    // base prompt batch: base-segment system prompt viewer (lazy query on expand)
+    basePromptLabel: "System Prompt · Base Segment",
+    basePromptView: "View",
+    basePromptHide: "Collapse",
+    basePromptLoading: "Loading base prompt",
+    basePromptNote: "Static base segment (role and behavior guidance); tool/skill lists are assembled at runtime from enablement state. See the trace snapshot for the effective full prompt.",
     // P-2 thinking level field (T3: on/off switch — off = empty slot by default, on writes the median level)
     thinking: {
       label: "Thinking Level · THINKING LEVEL",

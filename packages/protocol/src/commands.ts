@@ -392,6 +392,23 @@ export interface AgentConfigSetEnabledCommand extends CommandFrame<AgentConfigSe
   type: "agent.config.set_enabled";
 }
 
+/**
+ * agent.base_prompt.get 载荷：base 段系统提示词读面（全局命令，信封
+ * sessionId 省略）。base 段 = profile 静态声明 prompt（三段组装的第①段，
+ * 无工具/技能清单——动态两段由 SystemPromptAssembler 运行期拼入，不在本
+ * 读面）；静态不随 toggle 变化，故走独立懒查询而非塞进 list.result（避免
+ * changed 重拉携带大文本）。结果帧 = agent.base_prompt.get.result 点对点
+ * 回执（TR-AD-21 模式）。
+ */
+export interface AgentBasePromptGetPayload {
+  /** 目标 kind（四值全可读——含系统派生两 kind；kg-writer = SUBAGENT base + 图谱产出型后缀同 profile 声明）。 */
+  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer";
+}
+
+export interface AgentBasePromptGetCommand extends CommandFrame<AgentBasePromptGetPayload> {
+  type: "agent.base_prompt.get";
+}
+
 // ── v0.7 新增：web 族（T4 联网状态图标；daemon BrowserPort 单例 CDP 连接面） ──
 
 /**
@@ -750,7 +767,7 @@ export interface TaskDeleteCommand extends CommandFrame<TaskDeletePayload> {
   type: "task.delete";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52；kg.health 批 + kg 评审批：52 → 54；kg.candidates.list 批：54 → 55） */
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52；kg.health 批 + kg 评审批：52 → 54；kg.candidates.list 批：54 → 55；base prompt 批：55 → 56） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -779,6 +796,7 @@ export type CommandEnvelope =
   | TraceQueryCommand
   | AgentConfigListCommand
   | AgentConfigSetEnabledCommand
+  | AgentBasePromptGetCommand
   | WebStatusCommand
   | WebStopCommand
   | WebStartCommand
@@ -840,6 +858,7 @@ export const COMMAND_TYPES = [
   "trace.query",
   "agent.config.list",
   "agent.config.set_enabled",
+  "agent.base_prompt.get",
   "web.status",
   "web.stop",
   "web.start",

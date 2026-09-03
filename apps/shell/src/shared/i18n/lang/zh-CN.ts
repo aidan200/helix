@@ -466,6 +466,12 @@ export const zhCN = {
     notConnected: "未连接 daemon",
     switchOn: "启用",
     switchOff: "停用",
+    // base prompt 批：base 段系统提示词查看区（折叠懒查询）
+    basePromptLabel: "系统提示词 · base 段",
+    basePromptView: "查看",
+    basePromptHide: "收起",
+    basePromptLoading: "正在读取 base 段提示词",
+    basePromptNote: "静态 base 段（角色与行为引导）；工具/技能清单为运行期按启停动态拼入，生效全量提示词见 trace 快照。",
     // P-2 推理级别字段（T3：on/off 开关形态——off = 槽位空默认关，开 on 立即写中位档）
     thinking: {
       label: "推理级别 · THINKING LEVEL",

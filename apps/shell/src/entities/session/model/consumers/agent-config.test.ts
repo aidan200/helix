@@ -3,7 +3,8 @@
  * 槽位轻量读面真消费）。
  *
  * 机械判据：
- * ① 注册面恰为 agent.config 族三 type（changed 广播 + 两点对点结果帧）；
+ * ① 注册面恰为 agent.config 族四 type（changed 广播 + 三点对点结果帧，
+ *    含 base prompt 批 agent.base_prompt.get.result）；
  * ② changed → agentConfig.revision 递增（每次广播 +1；智能体页失效重拉面）；
  * ③ set_enabled.result → 拓扑原引用返回（点对点回执归页面查询链）；
  * ④ list.result → 槽位轻量读面真消费（P1 T4）：profiles[].model/
@@ -29,11 +30,12 @@ function frameOf(type: string, payload: Record<string, unknown>): EventEnvelope 
 }
 
 describe("agent-config 拓扑级消费者（M6 T4 真消费）", () => {
-  it("① 注册面恰为 agent.config 族三 type；判定函数窄化正确", () => {
+  it("① 注册面恰为 agent.config 族四 type；判定函数窄化正确", () => {
     expect([...AGENT_CONFIG_EVENT_TYPES]).toEqual([
       "agent.config.changed",
       "agent.config.list.result",
       "agent.config.set_enabled.result",
+      "agent.base_prompt.get.result",
     ]);
     for (const type of AGENT_CONFIG_EVENT_TYPES) {
       expect(isAgentConfigEventType(type)).toBe(true);

@@ -30,7 +30,10 @@ import { createOrchestratorSessionFactory } from "./assembly/orchestrator-runtim
 import { TaskOrchestratorService, taskSessionIdOf } from "../application/services/task/TaskOrchestratorService";
 import type { TaskOrchestratorStarterPort } from "../application/ports/outbound/TaskOrchestratorStarterPort";
 import { PLAN_HARD_CONSTRAINT_SEGMENT } from "../adapters/driven/pi-engine/runtime/templates/catalog";
-import { SUBAGENT_KG_WRITER_EXTRA_TOOLS } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
+import { SUBAGENT_KG_WRITER_EXTRA_TOOLS, SubAgentKgWriterProfile } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
+import { MainSessionProfile } from "../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
+import { SubAgentProfile } from "../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import { OrchestratorProfile } from "../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
 
 /** W2-D R13 job 终态同步提示文案（机器只记录只提醒，sync 本体永远人确认）。 */
 const KG_SYNC_HINT_TEXT = "本次任务有代码/文档变更，是否触发 kg sync？到 /project 页手动触发；sync 后如有孤儿/腐烂锚会附一行体检提示。";
@@ -907,6 +910,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // agent-roster 批：kg-writer 派生面恒在工具（增量常量单源——driving
     // 不得 import driven，经窄数据面注入；list 缺省全量的 system 只读块派生用）
     kgWriterPinnedTools: SUBAGENT_KG_WRITER_EXTRA_TOOLS,
+    // base prompt 批：base 段系统提示词读面（四 profile 声明单源——
+    // kg-writer = SUBAGENT base + 图谱产出型后缀已在 profile 声明拼好；
+    // 窄数据面注入，driving 不 import driven）
+    basePrompts: {
+      "main-session": MainSessionProfile.systemPrompt,
+      "subagent-worker": SubAgentProfile.systemPrompt,
+      "orchestrator": OrchestratorProfile.systemPrompt,
+      "subagent-kg-writer": SubAgentKgWriterProfile.systemPrompt,
+    },
     traceQuery: persistence.traceQuery, // trace.query 命令回口（只读面）
     // kg 族命令回口（P-1 六命令，§9；project 参数 service 内单点解析）——
     // W1 重绑接缝：经 workspace 持有者读现值（deps.kg 直接注入形态保留给

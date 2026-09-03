@@ -128,6 +128,7 @@ const mock = {
   sentList: 0,
   sendOk: true,
   sentSetEnabled: [] as SetEnabledCall[],
+  sentBasePromptGet: [] as string[],
   listeners: [] as ((e: EventEnvelope) => void)[],
 };
 const requestModelConfig = vi.fn();
@@ -158,6 +159,10 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendAgentConfigSetEnabled: (call: SetEnabledCall) => {
         mock.sentSetEnabled.push(call);
+        return mock.sendOk;
+      },
+      sendAgentBasePromptGet: (call: { profileKind: string }) => {
+        mock.sentBasePromptGet.push(call.profileKind);
         return mock.sendOk;
       },
       subscribeAgentConfigFrames: (cb: (e: EventEnvelope) => void) => {
@@ -239,6 +244,7 @@ describe("智能体页组件（M6 T4）", () => {
     mock.sentList = 0;
     mock.sendOk = true;
     mock.sentSetEnabled = [];
+    mock.sentBasePromptGet = [];
   });
 
   it("① 进页拉取 + AppLayout 壳 + master-detail：左栏两组分组/只读徽标；选中 main 后详情卡渲染", async () => {
@@ -519,6 +525,7 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     mock.sentList = 0;
     mock.sendOk = true;
     mock.sentSetEnabled = [];
+    mock.sentBasePromptGet = [];
   });
 
   it("① 落位 + off 默认关：开关 off（停用状态词）+ 无滑块/无徽标/无说明行；挂载零写命令", async () => {
@@ -715,5 +722,53 @@ describe("P-2 profile 推理级别字段（T2.2 落位 + T3 开关形态）", ()
     expect(document.querySelector("[data-proto-annotation]")).toBeNull();
     expect(all).not.toContain("切换下方模型槽位即演示");
     expect(all).not.toContain("留空态（F2.1）");
+  });
+});
+
+describe("base prompt 批：base 段系统提示词查看区", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mock.revision = 0;
+    mock.catalog = null;
+    mock.auth = {};
+    mock.authLoaded = false;
+    mock.sentList = 0;
+    mock.sendOk = true;
+    mock.sentSetEnabled = [];
+    mock.sentBasePromptGet = [];
+  });
+
+  it("查看 → 懒查询命令 → 回执渲染全文；再点收起（零新命令）；系统派生 kind 同可观察", async () => {
+    ui();
+    act(() => feedList());
+    // 默认选中 main-session：点「查看」→ 发 agent.base_prompt.get（懒查询）
+    act(() => {
+      fireEvent.click(document.querySelector('[data-base-prompt="main-session"] [data-base-prompt-toggle]')!);
+    });
+    expect(mock.sentBasePromptGet).toEqual(["main-session"]);
+    // 回执（带 profileKind 回显）→ pre 渲染全文
+    act(() =>
+      feed({
+        v: "0.11",
+        sessionId: "__system__",
+        channel: "agent",
+        type: "agent.base_prompt.get.result",
+        payload: { profileKind: "main-session", basePrompt: "BASE-MAIN-TEXT" },
+      } as EventEnvelope),
+    );
+    expect(document.querySelector('[data-base-prompt="main-session"] [data-base-prompt-text]')?.textContent).toContain("BASE-MAIN-TEXT");
+    // 已缓存再点 = 收起（本地开/关，零新命令）
+    act(() => {
+      fireEvent.click(document.querySelector('[data-base-prompt="main-session"] [data-base-prompt-toggle]')!);
+    });
+    expect(mock.sentBasePromptGet).toEqual(["main-session"]);
+    expect(document.querySelector('[data-base-prompt="main-session"] [data-base-prompt-text]')).toBeNull();
+    // 系统派生 kind 同可观察（写面只读≠读面拒绝）
+    act(() => selectAgent("subagent-kg-writer"));
+    act(() => {
+      fireEvent.click(document.querySelector('[data-base-prompt="subagent-kg-writer"] [data-base-prompt-toggle]')!);
+    });
+    expect(mock.sentBasePromptGet).toEqual(["main-session", "subagent-kg-writer"]);
   });
 });

@@ -224,6 +224,14 @@ export interface ResourceCommandContext {
    * system 只读块用。
    */
   readonly kgWriterPinnedTools: readonly string[];
+  /**
+   * base 段系统提示词读面（base prompt 批）：kind → profile 静态声明
+   * prompt 全文（四 kind 含系统派生；kg-writer = SUBAGENT base + 图谱产出
+   * 型后缀，profile 声明单源）。组合根从四 profile 的 systemPrompt 字段
+   * 取值注入——driving 不得 import driven，经窄数据面传递
+   * （kgWriterPinnedTools/hasModel 同法）。agent.base_prompt.get 读面用。
+   */
+  readonly basePrompts: Readonly<Record<string, string>>;
   /** 事件流（applied → agent.config.changed 广播）。 */
   readonly events: EventStream;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
