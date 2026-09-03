@@ -217,5 +217,6 @@ test("根 package.json build:desktop 接线，既有 dev/test 不受影响", () 
   };
   expect(pkg.scripts["build:desktop"]).toContain("build-desktop");
   expect(pkg.scripts["dev"]).toBe("bun apps/daemon/src/main.ts");
-  expect(pkg.scripts["test"]).toBe("bun test apps/daemon");
+  // test 脚本可挂后缀链（如 test:protocol），只锚 daemon 测试主链仍在首位
+  expect(pkg.scripts["test"]).toContain("bun test apps/daemon");
 });
