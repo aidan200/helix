@@ -21,8 +21,9 @@
  *                    观测面，不靠猜）；
  * 6. watchdog.sigkill SIGKILL sidecar → 壳看护重启恢复（新 pid、父=壳、端口重听）
  *                    → WS 重连 welcome（F1.4）；
- * 7. grep.degrade    降级可用：重启前使包内 rg 不可执行（chmod 000）→ 重启后
- *                    定格日志「内置 TS」+ 同一检索仍命中（ts 后端）；
+ * 7. grep.unavailable 响亮失败：重启前使包内 rg 不可执行（chmod 000）→ 重启后
+ *                    定格日志「grep 后端定格 unavailable」+ 同一检索返回
+ *                    「grep 工具不可用」响亮失败文案（rg 单后端，无 TS 降级）；
  * 8. residue.zero    零残留（TR-TEST-6）：壳/守护进程树清零 + 端口释放 + tmp 删除
  *                    + 包内 rg 权限复原。
  *
@@ -431,7 +432,7 @@ function checkSanitizer(): boolean {
   return true;
 }
 
-// ── 阶段 3-7：遮蔽启动 → 检索 → 看护 → 降级 ─────────────────
+// ── 阶段 3-7：遮蔽启动 → 检索 → 看护 → 响亮失败 ─────────────────
 
 interface RunContext {
   readonly tmp: string;
@@ -463,6 +464,25 @@ async function grepProbe(ws: WsProbe, searchDir: string): Promise<string> {
   const result = entry.result ?? "";
   if (!result.includes(SEARCH_TOKEN) || !result.includes("notes.txt")) {
     throw new Error(`grep 结果未命中夹具：${result.slice(0, 200)}（检索目录 ${searchDir}）`);
+  }
+  return result.split("\n")[0]!;
+}
+
+/** 响亮失败探针：chat.send → grep tool.call.result 返回「grep 工具不可用」文案。 */
+async function grepProbeExpectUnavailable(ws: WsProbe): Promise<string> {
+  ws.send("auth.set_key", { providerId: DEFAULT_MODEL.provider, apiKey: "smoke-fake-key" });
+  await ws.waitFor((f) => f.type === "auth.set_key.result" || f.type === "connection.error", 10_000);
+  ws.send("chat.send", { text: "请用 grep 工具检索指定内容", draft: true });
+  const resultFrame = await ws.waitFor(
+    (f) =>
+      f.type === "tool.call.result" &&
+      (f.payload as { entry?: { name?: string } }).entry?.name === "grep",
+    PROBE_TIMEOUT_MS,
+  );
+  const entry = (resultFrame.payload as { entry?: { state?: string; result?: string } }).entry;
+  const result = entry?.result ?? "";
+  if (!result.includes("grep 工具不可用")) {
+    throw new Error(`grep 未返回响亮失败文案：state=${entry?.state} result=${result.slice(0, 200)}`);
   }
   return result.split("\n")[0]!;
 }
@@ -586,14 +606,14 @@ async function runSmoke(layout: { rgPath: string; shellExe: string }): Promise<v
       return;
     }
 
-    // ── 6+7. 使包内 rg 不可执行 → SIGKILL sidecar → 看护重启 → 降级可用 ──
+    // ── 6+7. 使包内 rg 不可执行 → SIGKILL sidecar → 看护重启 → 响亮失败 ──
     const shellPid = ctx.shell.pid;
     const oldDaemons = daemonChildrenOf(shellPid);
     if (oldDaemons.length !== 1) {
       record("watchdog.sigkill", "SIGKILL 看护", false, `未定位唯一 daemon 子进程（ppid=${shellPid}）：${oldDaemons}`);
       return;
     }
-    chmodSync(ctx.rgPath, 0o000); // 降级注入：包内 rg 不可执行（finally 复原）
+    chmodSync(ctx.rgPath, 0o000); // 响亮失败注入：包内 rg 不可执行（finally 复原）
     process.kill(oldDaemons[0]!, "SIGKILL");
 
     const restarted = await waitUntil(() => {
@@ -629,21 +649,21 @@ async function runSmoke(layout: { rgPath: string; shellExe: string }): Promise<v
       `SIGKILL daemon(pid=${oldDaemons[0]}) → 壳看护重启新 daemon(pid=${newPid}，父=壳 ${shellPid}) → 端口重听 + 新 token WS 重连 welcome（F1.4）`,
     );
 
-    // 7. 降级可用：定格日志翻「内置 TS」+ 同一检索 ts 后端仍命中
+    // 7. 响亮失败：定格日志翻「unavailable」+ 同一检索返回「grep 工具不可用」文案
     try {
       const log = daemonLog();
-      if (!log.includes("grep 后端定格内置 TS")) {
-        throw new Error(`定格日志未见「内置 TS」降级行（日志尾：${log.slice(-300)}）`);
+      if (!log.includes("grep 后端定格 unavailable")) {
+        throw new Error(`定格日志未见「unavailable」行（日志尾：${log.slice(-300)}）`);
       }
-      const firstLine = await grepProbe(ctx.ws, searchDir);
+      const errLine = await grepProbeExpectUnavailable(ctx.ws);
       record(
-        "grep.degrade",
-        "降级可用",
+        "grep.unavailable",
+        "响亮失败",
         true,
-        `包内 rg chmod 000 → 重启定格日志「grep 后端定格内置 TS」+ 同一检索经 ts 后端仍命中（${firstLine}）`,
+        `包内 rg chmod 000 → 重启定格日志「grep 后端定格 unavailable」+ 同一检索响亮失败（${errLine}）`,
       );
     } catch (err) {
-      record("grep.degrade", "降级可用", false, (err as Error).message);
+      record("grep.unavailable", "响亮失败", false, (err as Error).message);
       return;
     }
   } finally {
@@ -741,7 +761,7 @@ function renderReport(): string {
     "",
     "- 包内 rg 命中观测面 = daemon 定格日志（AF-1：装配层一次性 resolve+探针，日志行",
     "  「grep 后端定格 rg（source=bundle）」）+ 一次真实检索的 tool.call.result 帧；不靠猜。",
-    "- 降级观测面 = 定格日志「grep 后端定格内置 TS」行 + 同一检索在 ts 后端下仍命中。",
+    "- 响亮失败观测面 = 定格日志「grep 后端定格 unavailable」行 + 同一检索返回「grep 工具不可用」文案。",
     "- 检索驱动链全真实面：WS auth.set_key（录假 key）→ chat.send(draft) → 主引擎 turn",
     "  → tool_use(grep) → CoreToolExecutor → GrepTool 门面 → tool.call.result。主引擎 LLM",
     "  = 127.0.0.1 回环假 Anthropic SSE server（models-store.json overlay 注入 baseUrl，",
@@ -774,7 +794,7 @@ async function main(): Promise<void> {
   const layout = checkLayout();
   const sanitized = checkSanitizer();
   if (layout !== undefined && sanitized) {
-    // 阶段 3-8：遮蔽启动 → 检索 → 看护 → 降级 → 零残留
+    // 阶段 3-8：遮蔽启动 → 检索 → 看护 → 响亮失败 → 零残留
     await runSmoke(layout);
   }
 
