@@ -426,6 +426,24 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     }
   };
 
+  // ── SubAgent profile 三叉单点助手（M31：kg-writer/code-reviewer/worker
+  //    三叉 + thinking 链 + 槽位 kind 归一的逐字重复消重）──────────────
+  // TR-42 per-kind 语义不变：kg-writer/reviewer 读自身槽位（不联动 worker），
+  // 两级链 = profile 静态声明 ?? 本 kind 槽位 ?? 全局兜底。
+  /** SubAgent profile 静态声明三叉（W-R6/D5：kg-writer / code-reviewer / 缺省 worker）。 */
+  const subagentProfileFor = (profileKind: string | undefined) =>
+    profileKind === "subagent-kg-writer"
+      ? SubAgentKgWriterProfile
+      : profileKind === "subagent-code-reviewer"
+        ? SubAgentCodeReviewerProfile
+        : SubAgentProfile;
+  /** 槽位 kind 归一（R7 per-kind + D5 第三支：kg-writer/reviewer 读自身槽位；其余/缺省 → subagent-worker）。 */
+  const slotKindOf = (profileKind: string | undefined): ProfileKind =>
+    profileKind === "subagent-kg-writer" || profileKind === "subagent-code-reviewer" ? profileKind : "subagent-worker";
+  /** thinking 两级链单点（TR-42：profile 静态声明 ?? 本 kind 槽位 ?? 全局兜底——per-kind 零联动）。 */
+  const thinkingChainOf = (profileKind: string | undefined): string | undefined =>
+    subagentProfileFor(profileKind).thinkingLevel ?? resourceService.thinkingSlot(slotKindOf(profileKind)) ?? globalThinking();
+
   // ── SubAgent 模型两级链解析单点（id 形态，AD-3/T12）──────────────────
   // profile.model 静态声明 ?? subagent-worker kind 槽位 ?? 全局兜底——spawn
   // 透传（AgentInstanceDto.model 填充链）与 instantiated 快照供给同源同点；
@@ -433,15 +451,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // T12 砍 spawn 会话快照级：SubAgent 只认自身 profile，不继承 main session 选择。
   const resolveSubagentModelId = (profileKind?: string): string =>
     // R7 per-kind + D5 第三支：kg-writer/reviewer 自身槽位（不联动 worker）；profile 静态声明优先
-    (profileKind === "subagent-kg-writer"
-      ? SubAgentKgWriterProfile.model
-      : profileKind === "subagent-code-reviewer"
-        ? SubAgentCodeReviewerProfile.model
-        : SubAgentProfile.model) ??
-    resourceService.modelSlot(
-      profileKind === "subagent-kg-writer" || profileKind === "subagent-code-reviewer" ? profileKind : "subagent-worker",
-    ) ??
-    defaultModel.current();
+    subagentProfileFor(profileKind).model ?? resourceService.modelSlot(slotKindOf(profileKind)) ?? defaultModel.current();
 
   // ── driven：SubAgent 子进程运行器（SubagentLauncher 真体，O-7 候选 A）──
   // 装配形态由 engineMode 判别字段显式声明（AD-2 + §4.3 显式模式）
@@ -457,28 +467,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // 已 spawn 实例 env 已定格，代际生效）
           // R7 per-kind：worker/kg-writer 各自 profile + 各自 kind 槽位 + 全局兜底
           //（不再联动 worker 槽位；未配槽位且未配全局 → undefined = 默认关）
-          profile: (profileKind: string) =>
-            profileKind === "subagent-kg-writer"
-              ? {
-                  ...SubAgentKgWriterProfile,
-                  thinkingLevel:
-                    SubAgentKgWriterProfile.thinkingLevel ??
-                    resourceService.thinkingSlot("subagent-kg-writer") ??
-                    globalThinking(),
-                }
-              : profileKind === "subagent-code-reviewer"
-                ? {
-                    ...SubAgentCodeReviewerProfile,
-                    thinkingLevel:
-                      SubAgentCodeReviewerProfile.thinkingLevel ??
-                      resourceService.thinkingSlot("subagent-code-reviewer") ??
-                      globalThinking(),
-                  }
-                : {
-                    ...SubAgentProfile,
-                    thinkingLevel:
-                      SubAgentProfile.thinkingLevel ?? resourceService.thinkingSlot("subagent-worker") ?? globalThinking(),
-                  },
+          // M31：三叉 + thinking 链收敛 subagentProfileFor/thinkingChainOf 单点（语义不变）
+          profile: (profileKind: string) => ({
+            ...subagentProfileFor(profileKind),
+            thinkingLevel: thinkingChainOf(profileKind),
+          }),
           // 可观测 logger（dispose kill 失败 warn；缺省静默）
           logger,
           // 两级链末级（AD-3/T12）：全局兜底现值解析（set_default 后新子进程跟随）
@@ -489,9 +482,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // （launch 时刻读取定格；未设 → 全局兜底）
           uiModelSlot: (profileKind: string) => {
             // R7 per-kind + D5 第三支：kg-writer/reviewer 读自身槽位（不联动 worker）
-            const slot = resourceService.modelSlot(
-              profileKind === "subagent-kg-writer" || profileKind === "subagent-code-reviewer" ? profileKind : "subagent-worker",
-            );
+            const slot = resourceService.modelSlot(slotKindOf(profileKind));
             return slot === undefined ? undefined : resolveConfigModel(slot, catalog.modelsView());
           },
           // spawn 快照：组装产物缓存（启动/toggle 后重算，launch 读现值定格）。
@@ -577,16 +568,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       // 同时点；W-R6：按实例 profileKind 派发 kg-writer/worker 快照）；model
       // 链与 launcher resolveModelFor 同序：profile 槽位 ?? kind 槽位（uiModelSlot）?? 全局兑底
       // R7 per-kind + 全局兜底：与 launcher resolveThinkingFor/resolveModelFor 同源同时点（AD-4④）
-      thinkingLevel:
-        (profileKind === "subagent-kg-writer"
-          ? SubAgentKgWriterProfile.thinkingLevel
-          : profileKind === "subagent-code-reviewer"
-            ? SubAgentCodeReviewerProfile.thinkingLevel
-            : SubAgentProfile.thinkingLevel) ??
-        resourceService.thinkingSlot(
-          profileKind === "subagent-kg-writer" || profileKind === "subagent-code-reviewer" ? profileKind : "subagent-worker",
-        ) ??
-        globalThinking(),
+      // M31：thinking 链收敛 thinkingChainOf 单点（语义不变）
+      thinkingLevel: thinkingChainOf(profileKind),
       profileSnapshot: {
         systemPrompt: subagentAssemblyFor(profileKind).systemPrompt,
         tools: [...subagentAssemblyFor(profileKind).tools],
