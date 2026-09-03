@@ -525,6 +525,16 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 创建入口——与 /project 入口同一 createTask API（TaskEngineService 注入）
     // + 回执读面（TaskQueryService 投影）；SubAgent 子进程本地栈不注入（生效集隔离）
     taskCreate: { engine: taskStack.taskEngine, query: taskStack.query },
+    // task_report 工具装配面（D3）：主会话 executor 注册 chat 回流通用报告
+    // 查询面——任务读面（TaskQueryService list/detail）+ closure_records 读面
+    //（SessionRepositoryPort.queryClosureRecords）+ 报告目录约定（与
+    // ClosureRecorder 兜底 reportsDirFor 同源同式 <home>/reports/<sessionId>）；
+    // SubAgent 子进程本地栈与编排主 agent 不注入（生效集隔离）
+    taskReport: {
+      query: taskStack.query,
+      closureRecords: (sessionId) => persistence.repository.queryClosureRecords(sessionId),
+      reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
+    },
     // 主会话 plan 三工具装配面（main-session plan 批）：instanceId = sessionId
     // 作用域；写面 = 父进程 LazyWorkLedger 直连 helix.db（同库 WAL 跨进程
     // 安全）；执行成功后装配层广播 session.plan.changed + 快照附 plan 读面

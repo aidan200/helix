@@ -16,6 +16,7 @@ import { FakeBrowserPort } from "../mocks/FakeBrowserPort";
 import { kgToolsStub } from "../helpers/kgToolsStub";
 import { codegraphToolStub } from "../helpers/codegraphToolStub";
 import { taskCreateStub } from "../helpers/taskCreateStub";
+import { taskReportStub } from "../helpers/taskReportStub";
 import { planToolStub } from "../helpers/planToolStub";
 import { createPaths } from "../../src/infrastructure/paths";
 
@@ -98,6 +99,8 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
     codegraph: codegraphToolStub(toolCwd),
     // T2.4：main 全集声明 task_create——替身保持可装配
     taskCreate: taskCreateStub(),
+    // D3：main 全集声明 task_report——替身保持可装配
+    taskReport: taskReportStub(),
     // main-session plan 批：main 全集声明 plan 三名——替身保持可装配
     plan: planToolStub(),
   });
@@ -130,6 +133,7 @@ const MAIN_TOOLS = [
   "kg-update",
   "codegraph", // W1-B（R5/R7）：codegraph 只读工具
   "task_create", // T2.4：chat 第二创建入口（AD-7，仅 main）
+  "task_report", // D3：chat 回流通用报告查询面（仅 main）
   "plan_create", // main-session plan 批：主会话同含 plan 三名（两域同构）
   "plan_update",
   "plan_read",

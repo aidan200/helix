@@ -3,9 +3,9 @@
  *
  * 落位 adapters/driven/tools/（与工具实现同目录，pi 工具符号封装边界不扩）：
  * SystemPromptAssembler 的工具段（- name: snippet 扁平清单）数据源。
- * main 18 工具 + subagent 13 工具共享单一注册表（subagent 全集 = main 去编排
+ * main 19 工具 + subagent 13 工具共享单一注册表（subagent 全集 = main 去编排
  * 六件套（agent_spawn/send/status/inspect/park/resume）与 kg 双工具、
- * codegraph、task_create、动态族单 browser 工具之外叠加 plan 三工具，是否
+ * codegraph、task_create、task_report、动态族单 browser 工具之外叠加 plan 三工具，是否
  * 进清单由 ResourceService.getEffectiveTools(kind)
  * 生效集决定，本表只管「名 → 中文一句话」映射）。
  *
@@ -33,6 +33,7 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
     "知识图谱即时落账（supersede 推翻节点 / createNode 沉淀新知识——scene 适用场景必填 / updateNode 补全节点元数据（仅限 scene 等，内容改动走候选人审）；iterationId 缺省服务端机械解析，显式传参仅作覆盖；proposeCandidate/decideCandidate 候选台账操作）",
   codegraph: "查询代码索引（只读：status/search 定位符号/node 读源码/callers/callees/impact 查影响面——改代码前先 impact）",
   task_create: "创建任务并启动执行（与用户确认干什么之后再调用——对话即确认，调用即创建；返回任务回执）",
+  task_report: "查询任务结果与报告（只读：list 最近任务清单 / get 指定任务阶段产物、批次收口摘要与报告路径——全文用 read 按路径读）",
   task_insert_batch: "在指定阶段插入批次行（划批次落库，返回批次号；暂停/终态会被拒）",
   task_dispatch_batch: "批次派发落章（批次号 + 实例 id；仅 pending/failed 可派发）",
   task_advance_stage: "推进阶段行到 running（上一阶段产物落库后推进下一阶段）",

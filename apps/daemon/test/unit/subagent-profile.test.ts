@@ -66,10 +66,13 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     // agent-N、主会话 instanceId = sessionId），三名随 Main 清单直传不再拼。
     // T2.4（AD-7/AD-2）：Main 增 task_create（chat 第二创建入口）——不进
     // SubAgent 生效集（批次 SubAgent 不能建任务，创建按宿主）。
+    // D3：Main 增 task_report（chat 回流通用报告查询面）——不进 SubAgent
+    // 生效集（批次面无查询其他任务报告职责）。
     expect(SubAgentProfile.tools).toEqual(
       MainSessionProfile.tools
         .filter((t) => !t.startsWith("agent_"))
         .filter((t) => t !== "task_create")
+        .filter((t) => t !== "task_report")
         .filter((t) => t !== "kg-update"),
     );
     expect(SubAgentProfile.tools).toEqual([

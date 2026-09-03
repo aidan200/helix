@@ -37,13 +37,14 @@ const TOOL_NAMES = [
   "kg-update",
   "codegraph", // W1-B（R5/R7）：codegraph 只读查询（status/search/node/callers/callees/impact）
   "task_create", // T2.4（AD-7）：chat 第二创建入口（仅 MainAgent 生效集）
+  "task_report", // D3：chat 回流通用报告查询面（仅 MainAgent 生效集）
   "plan_create", // main-session plan 批：主会话同含 plan 三名（两域同构——SubAgent 与 Main 共享）
   "plan_update",
   "plan_read",
 ] as const;
 
-/** MainAgent 独有名（T2.4，AD-7/AD-2：chat 第二创建入口不进 SubAgent 生效集——批次 SubAgent 不能建任务）。 */
-const MAIN_ONLY_TOOL_NAMES = ["task_create"] as const;
+/** MainAgent 独有名（T2.4，AD-7/AD-2：chat 第二创建入口不进 SubAgent 生效集——批次 SubAgent 不能建任务；D3 task_report 同理——批次/编排面无查询任务报告职责）。 */
+const MAIN_ONLY_TOOL_NAMES = ["task_create", "task_report"] as const;
 
 /** 静态工具名（T3-C 后提示词仍零命中——委派契约句引用的编排工具名是行为指引非清单枚举）。 */
 const STATIC_TOOL_NAMES = [
@@ -85,7 +86,7 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
     }
   });
 
-  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 21 / subagent 13（D8 W-R6 摘 kg-update；⑤ 链 C +agent_park/agent_resume 仅 main；main-session plan 批 Main 同含 plan 三名两域同构）", () => {
+  test("③ 静态全集声明不动（resource toolsCatalog 事实源）：main 22 / subagent 13（D8 W-R6 摘 kg-update；⑤ 链 C +agent_park/agent_resume 仅 main；main-session plan 批 Main 同含 plan 三名两域同构；D3 +task_report 仅 main）", () => {
     expect(MainSessionProfile.tools).toEqual([...TOOL_NAMES]);
     expect(SubAgentProfile.tools).toEqual(
       TOOL_NAMES.filter((t) => !t.startsWith("agent_"))
