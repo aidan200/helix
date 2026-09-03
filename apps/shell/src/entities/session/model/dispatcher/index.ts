@@ -98,75 +98,71 @@ register({ types: HISTORY_EVENT_TYPES, apply: applyHistoryEvent });
 // isModelConfigEventType(type)（dispatcher.test.ts）。本注册表不再持有
 // 9 类占位（no-op 注册会拦截前置路由之后的语义路径，占位已由真消费取代）。
 
-// ── v0.4 trace 族 + agent 执行上下文面（T2.1 契约 v0.4 no-op 占位；T1.2 先例，
-//    T2.2 TracePage 接真消费，architecture.md §3.4）──
-// trace.query.result：连接私有读面（点对点结果帧），真消费归 TracePage 查询链
-// （shared/api transport 一次性查询，不建会话 store 副本）；agent.instantiated /
-// agent.model.changed 只落盘不广播（daemon DtoMapper 零 case），正常路径不可达。
-// 注册仅保「EVENT_TYPES 全类型已路由」守护绿，主 reducer 原状态返回。
-register({
-  types: ["trace.query.result", "agent.instantiated", "agent.model.changed"],
-  apply: (s) => s,
-});
+// ── 连接私有回执/广播直通清单（M36 注册表化：五段 no-op 占位块收敛为单一声明式
+//    清单；语义 = 路由完整性登记，会话 store 零写入）──
+// 本清单事件的真消费全部在 dispatcher 之外（SessionContext 转发层听众 / 页面
+// 查询链）；登记在本注册表仅以 no-op 处理函数保「EVENT_TYPES 全类型已路由」
+// 守护绿（主 reducer 原状态返回 = 未注册 default 语义）。新增连接私有回执/
+// 广播帧时在此追加一行即完成登记（守护测试直接核查本清单，见 dispatcher.test.ts）。
+export const PASSTHROUGH_EVENT_TYPES = [
+  // v0.4 trace 族 + agent 执行上下文面（T2.1 契约 v0.4 占位；T1.2 先例，
+  // T2.2 TracePage 接真消费，architecture.md §3.4）：trace.query.result =
+  // 连接私有读面（点对点结果帧），真消费归 TracePage 查询链（shared/api
+  // transport 一次性查询，不建会话 store 副本）；agent.instantiated /
+  // agent.model.changed 只落盘不广播（daemon DtoMapper 零 case），正常路径不可达。
+  "trace.query.result",
+  "agent.instantiated",
+  "agent.model.changed",
+  // kg 族六 *.result + kg-bootstrap 批五 *.result（iter-20260825-11fo T5.4 +
+  // iter-20260829-ys7q T3.2；连接私有读面）：点对点回执帧（O-6 零推送事件），
+  // 真消费归 P-1 图谱页页面查询链（SessionContext 转发层 kgListeners——
+  // trace.query.result 先例）。T3.2 五回执（bootstrap.create/produce +
+  // node.update/supersede + bootstrap.impact）同规：真消费归 /project 页
+  // bootstrap 入口卡与产出呈现组件听众。
+  "kg.projects.result",
+  "kg.list.result",
+  "kg.node.detail.result",
+  "kg.change.report.result",
+  "kg.node.confirm.result",
+  "kg.index.status.result",
+  "kg.bootstrap.create.result",
+  "kg.bootstrap.produce.result",
+  "kg.node.update.result",
+  "kg.node.supersede.result",
+  "kg.bootstrap.impact.result",
+  // C1 kg 维护批两回执（purge / index.delete）——同规：真消费归 /project
+  // 页 kg-head 与索引面板组件听众
+  "kg.graph.purge.result",
+  "kg.index.delete.result",
+  // W2-E 体检看板 + W2-F 评审批回执——同规：真消费归 /project 页体检面板
+  // 组件听众（KgViewer 常驻 listener 单飞关联）
+  "kg.health.result",
+  "kg.review.create.result",
+  // code-review v1.5：code.review.create 回执——同规：真消费归体检区代码
+  // 评审入口（KgViewer 常驻 listener）
+  "code.review.create.result",
+  // 台账读面三件套：kg.candidates.list 回执——同规：真消费归 /project 页
+  // 候选台账面板（KgViewer 常驻 listener）
+  "kg.candidates.list.result",
+  // workspace 族（W3 门禁读/写面 + W4 changed 广播；连接私有回执/广播）：
+  // workspace.get.result / workspace.open.result 点对点回执与 workspace_changed
+  // 广播，真消费归 entities/workspace 门禁状态机（SessionContext 转发层
+  // workspaceListeners——kg 族先例）与 W4 各域刷新链（ProjectPage/会话清单
+  // 重拉，经同转发层订阅）。W4 豁免全清：changed 广播正式登记。
+  "workspace.get.result",
+  "workspace.open.result",
+  "workspace_changed",
+  // task 族（task 批，iter-20260829-ys7q T1.5；task.changed 逐迁移广播）：
+  // 任务页 P-2 连接私有读面，真消费归 entities/tasks 页面 reducer（T3.1
+  // tasks-model 听众——connection 面听众转发模式，kg 族先例）；任务非会话维
+  // ——帧经 notification 通道 daemon 级下发，会话 store 零写入。
+  "task.changed",
+] as const;
 
-// ── kg 族六 *.result + kg-bootstrap 批五 *.result（iter-20260825-11fo T5.4 +
-//    iter-20260829-ys7q T3.2；连接私有读面）──
-// 点对点回执帧（O-6 零推送事件），真消费归 P-1 图谱页页面查询链
-//（SessionContext 转发层 kgListeners——trace.query.result 先例，
-// dispatcher 侧保持 no-op 注册守护绿，会话 store 零写入）。T3.2 五回执
-//（bootstrap.create/produce + node.update/supersede + bootstrap.impact）
-// 同规：真消费归 /project 页 bootstrap 入口卡与产出呈现而组件听众。
-register({
-  types: [
-    "kg.projects.result",
-    "kg.list.result",
-    "kg.node.detail.result",
-    "kg.change.report.result",
-    "kg.node.confirm.result",
-    "kg.index.status.result",
-    "kg.bootstrap.create.result",
-    "kg.bootstrap.produce.result",
-    "kg.node.update.result",
-    "kg.node.supersede.result",
-    "kg.bootstrap.impact.result",
-    // C1 kg 维护批两回执（purge / index.delete）——同规：真消费归 /project
-    // 页 kg-head 与索引面板组件听众，no-op 注册保守护绿
-    "kg.graph.purge.result",
-    "kg.index.delete.result",
-    // W2-E 体检看板 + W2-F 评审批回执——同规：真消费归 /project 页体检面板
-    // 组件听众（KgViewer 常驻 listener 单飞关联），no-op 注册保守护绿
-    "kg.health.result",
-    "kg.review.create.result",
-    // code-review v1.5：code.review.create 回执——同规：真消费归体检区代码
-    // 评审入口（KgViewer 常驻 listener），no-op 注册保守护绿
-    "code.review.create.result",
-    // 台账读面三件套：kg.candidates.list 回执——同规：真消费归 /project 页
-    // 候选台账面板（KgViewer 常驻 listener），no-op 注册保守护绿
-    "kg.candidates.list.result",
-  ],
-  apply: (s) => s,
-});
+/** 直通处理函数（no-op）：真消费在 dispatcher 外，主 reducer 原状态返回。 */
+const passthrough: SessionEventHandler = (s) => s;
 
-// ── workspace 族（W3 门禁读/写面 + W4 changed 广播；连接私有回执/广播）──
-// workspace.get.result / workspace.open.result 点对点回执与 workspace_changed
-// 广播，真消费归 entities/workspace 门禁状态机（SessionContext 转发层
-// workspaceListeners——kg 族先例）与 W4 各域刷新链（ProjectPage/会话清单
-// 重拉，经同转发层订阅）；no-op 注册保「EVENT_TYPES 全类型已路由」守护绿，
-// 会话 store 零写入。W4 豁免全清：changed 广播正式登记。
-register({
-  types: ["workspace.get.result", "workspace.open.result", "workspace_changed"],
-  apply: (s) => s,
-});
-
-// ── task 族（task 批，iter-20260829-ys7q T1.5；task.changed 逐迁移广播）──
-// 任务页 P-2 连接私有读面：真消费归 entities/tasks 页面 reducer（T3.1
-// tasks-model 听众——connection 面听众转发模式，kg 族先例）；此处 no-op
-// 注册保「EVENT_TYPES 全类型已路由」守护绿，会话 store 零写入（任务非
-// 会话维——帧经 notification 通道 daemon 级下发）。
-register({
-  types: ["task.changed"],
-  apply: (s) => s,
-});
+register({ types: PASSTHROUGH_EVENT_TYPES, apply: passthrough });
 
 // ── v0.6 agent.config 族（M6 T4 真消费收口）──
 // 三 type（changed 广播 + 两点对点结果帧）全走拓扑级前置门
