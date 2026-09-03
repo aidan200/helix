@@ -187,8 +187,9 @@ export interface HistoryPaging {
  * = 空游标（从未活跃过，保守全计）。
  */
 export interface BackgroundSeenCursor {
-  /** entries 尾窗 id + 流式中 messageId + 实例流式 messageId（D-2：与最终 entry id 同源） */
-  entryIds: readonly string[];
+  /** entries 全量装载窗口 id + 流式中 messageId + 实例流式 messageId
+   *  （D-2：与最终 entry id 同源）；Set 承载（M35：O(1) 存量对账） */
+  entryIds: ReadonlySet<string>;
   /** 降级时进行中的轮次 id（turn.completed 已消费后为 null——无锚可免，保守计） */
   turnId: string | null;
 }

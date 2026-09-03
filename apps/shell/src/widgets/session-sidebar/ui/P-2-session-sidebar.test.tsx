@@ -102,7 +102,7 @@ describe("P-2 会话侧栏", () => {
     stateRef.current = makeState("s1", "running");
     topologyRef.current = {
       active: stateRef.current,
-      background: { s2: { sessionId: "s2", title: LIST[1]!.title, runState: "idle", lastActivityAt: 5_000, unread: 3, seen: { entryIds: [], turnId: null } } },
+      background: { s2: { sessionId: "s2", title: LIST[1]!.title, runState: "idle", lastActivityAt: 5_000, unread: 3, seen: { entryIds: new Set<string>(), turnId: null } } },
       list: LIST,
       modelConfig: createInitialModelConfigState(), agentConfig: { revision: 0, slots: null },
       webStatus: null,

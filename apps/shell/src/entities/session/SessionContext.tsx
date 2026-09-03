@@ -1022,6 +1022,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       requestAuthList,
       refreshModelCatalog,
       setDefaultModel,
+      setThinkingDefault,
       requestCompactionConfig,
       setCompactionConfig,
       verifyProvider,

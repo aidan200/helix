@@ -111,7 +111,7 @@ describe("后台轻量 store（AD-3 机械判据：不含 entries/channelStreams
     expect(JSON.stringify(bg)).not.toContain("channelStreams");
   });
 
-  it("降级填充已见游标（seen）：entries 尾窗 id + 流式 messageId + 进行中轮次 turnId", () => {
+  it("降级填充已见游标（seen）：装载窗口 entry id + 流式 messageId + 进行中轮次 turnId（Set 承载，M35）", () => {
     let topo = base(); // 活跃 A：entries [e2, e1]
     topo = topologyReducer(topo, ev({
       v: PROTOCOL_VERSION,
@@ -130,7 +130,8 @@ describe("后台轻量 store（AD-3 机械判据：不含 entries/channelStreams
     const next = topologyReducer(topo, { type: "session/switch-started", sessionId: B });
     const bg = next.background[A]!;
     expect(bg.seen.turnId).toBe("t7");
-    expect(bg.seen.entryIds).toEqual(expect.arrayContaining(["e2", "e1", "m-stream"]));
+    expect(bg.seen.entryIds).toBeInstanceOf(Set);
+    expect([...bg.seen.entryIds].sort()).toEqual(["e1", "e2", "m-stream"]);
   });
 });
 

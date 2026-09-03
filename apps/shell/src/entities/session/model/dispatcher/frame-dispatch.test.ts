@@ -247,8 +247,8 @@ describe("dispatcher 与既有 reducer 组合面", () => {
 });
 
 describe("后台未读存量对账（游标对账：降级竞态窗口晚到帧不计未读）", () => {
-  /** 带已见游标的后台 B（模拟降级时刻：entries 尾窗含 e8/e9、流式中 m-stream、进行中轮次 t3）。 */
-  function topologyWithSeenBg(seen: { entryIds: readonly string[]; turnId: string | null } = { entryIds: ["e8", "e9", "m-stream"], turnId: "t3" }): TopologyState {
+  /** 带已见游标的后台 B（模拟降级时刻：装载窗口含 e8/e9、流式中 m-stream、进行中轮次 t3）。 */
+  function topologyWithSeenBg(seen: { entryIds: ReadonlySet<string>; turnId: string | null } = { entryIds: new Set(["e8", "e9", "m-stream"]), turnId: "t3" }): TopologyState {
     const topo = topologyWithBackground();
     return {
       ...topo,
@@ -286,7 +286,7 @@ describe("后台未读存量对账（游标对账：降级竞态窗口晚到帧�
   });
 
   it("无锚可免（seen.turnId=null——降级时已无进行中轮次）：turn.completed 保守计未读", () => {
-    const topo = topologyWithSeenBg({ entryIds: ["e9"], turnId: null });
+    const topo = topologyWithSeenBg({ entryIds: new Set(["e9"]), turnId: null });
     const next = dispatchFrame(topo, frame("chat.turn.completed", { turnId: "t3", reason: "completed" }, { sessionId: B, channel: "chat" }), 0);
     expect(next.background[B]!.unread).toBe(1);
   });
@@ -302,7 +302,7 @@ describe("后台未读存量对账（游标对账：降级竞态窗口晚到帧�
 
   it("list 直接播种的后台（seen 空游标）→ 白名单帧保守全计", () => {
     const topo = topologyWithBackground(); // metaOf 首次播种：seen = 空游标
-    expect(topo.background[B]!.seen).toEqual({ entryIds: [], turnId: null });
+    expect(topo.background[B]!.seen).toEqual({ entryIds: new Set<string>(), turnId: null });
     const next = dispatchFrame(topo, frame("chat.message.completed", { entry: completedEntry("e9") }, { sessionId: B, channel: "chat" }), 0);
     expect(next.background[B]!.unread).toBe(1);
   });
@@ -311,7 +311,7 @@ describe("后台未读存量对账（游标对账：降级竞态窗口晚到帧�
     const topo = topologyWithSeenBg();
     const meta: SessionMeta = { sessionId: B, title: "改后标题", lastActivityAt: 600, runState: "streaming", loaded: true };
     const next = dispatchFrame(topo, frame("session.list_changed", { kind: "state_changed", sessionId: B, session: meta }, { sessionId: SYSTEM_SESSION_ID, channel: "session" }), 0);
-    expect(next.background[B]!.seen).toEqual({ entryIds: ["e8", "e9", "m-stream"], turnId: "t3" });
+    expect(next.background[B]!.seen).toEqual({ entryIds: new Set(["e8", "e9", "m-stream"]), turnId: "t3" });
     expect(next.background[B]!.title).toBe("改后标题");
   });
 });
