@@ -21,9 +21,10 @@ import { DomainError } from "../../src/domain/DomainError";
  * ④ stage/batch 迁移集合 = pending→running→done/failed。
  */
 
-/** §3.3 job 状态机全部合法迁移（pending→running；running→paused/done/failed/cancelled；paused→running/cancelled）。 */
+/** §3.3 job 状态机全部合法迁移（pending→running/cancelled；running→paused/done/failed/cancelled；paused→running/cancelled）。 */
 const LEGAL_JOB: ReadonlySet<string> = new Set([
   "pending->running",
+  "pending->cancelled",
   "running->paused",
   "running->done",
   "running->failed",
@@ -73,7 +74,7 @@ describe("job 状态机（CL-2-T2 ①②③）", () => {
 
   test("非法迁移 message 含 from→to", () => {
     expect(() => assertJobTransition("paused", "done")).toThrow(/paused→done/);
-    expect(() => assertJobTransition("pending", "cancelled")).toThrow(/pending→cancelled/);
+    expect(() => assertJobTransition("pending", "done")).toThrow(/pending→done/);
     expect(() => assertJobTransition("done", "running")).toThrow(/done→running/);
   });
 

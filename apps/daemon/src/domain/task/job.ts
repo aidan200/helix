@@ -9,9 +9,9 @@ import type { BatchStatus, JobStatus, StageStatus } from "./types";
  * 此处只有状态迁移守卫。
  */
 
-/** job 合法迁移集（§3.3）：pending→running；running→paused/done/failed/cancelled；paused→running/cancelled；终态无出边。 */
+/** job 合法迁移集（§3.3）：pending→running/cancelled；running→paused/done/failed/cancelled；paused→running/cancelled；终态无出边。 */
 const JOB_TRANSITIONS: Readonly<Record<JobStatus, readonly JobStatus[]>> = {
-  pending: ["running"],
+  pending: ["running", "cancelled"],
   running: ["paused", "done", "failed", "cancelled"],
   paused: ["running", "cancelled"],
   done: [],

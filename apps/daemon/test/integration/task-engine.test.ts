@@ -263,6 +263,21 @@ describe("cancel 语义（CL-3-T7）", () => {
     });
   });
 
+  test("pending job 可直接 cancel（编排未接管/零批次滞留场景，协议面 pending/running/paused→cancelled 契约）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["demo"],
+        params: { projectRoot: "/d" },
+        createdBy: "page",
+      });
+      expect(env.store.getJob(jobId)!.status).toBe("pending");
+      await env.engine.cancel(jobId);
+      expect(env.starter.stops).toContain(jobId);
+      expect(env.store.getJob(jobId)!.status).toBe("cancelled");
+    });
+  });
+
   test("cancel 后迟到 failBatch 不触发重试（重试调度前查 job.status）", async () => {
     await withTaskEnv(async (env) => {
       const { jobId, batchId } = await launchRunningJob(env);
