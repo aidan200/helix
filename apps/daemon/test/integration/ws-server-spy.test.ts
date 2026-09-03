@@ -122,6 +122,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       },
       hasModel: () => false,
     kgWriterPinnedTools: ["kg-update"],
+      reviewerRemovedTools: ["write", "edit"], // D5 第五 kind 派生面（WsServerAdapter 必填注入）
       basePrompts: {},
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
       events: eventStream,
@@ -281,6 +282,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       },
       hasModel: () => false,
       kgWriterPinnedTools: ["kg-update"],
+      reviewerRemovedTools: ["write", "edit"], // D5 第五 kind 派生面（WsServerAdapter 必填注入）
       basePrompts: {},
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
       events: new EventStream(),
@@ -403,6 +405,7 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
     },
     hasModel: () => false,
     kgWriterPinnedTools: ["kg-update"],
+      reviewerRemovedTools: ["write", "edit"], // D5 第五 kind 派生面（WsServerAdapter 必填注入）
       basePrompts: {},
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
     events,

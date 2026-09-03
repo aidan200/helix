@@ -231,6 +231,7 @@ describe("T5.1：多会话切换快照盖章 = 目标会话自身状态（串台
       },
       hasModel: () => false,
       kgWriterPinnedTools: ["kg-update"],
+      reviewerRemovedTools: ["write", "edit"], // D5 第五 kind 派生面（WsServerAdapter 必填注入）
       basePrompts: {},
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
       events: new EventStream(),

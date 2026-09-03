@@ -380,7 +380,7 @@ export interface AgentConfigSetEnabledPayload {
    * 槽位型可写（独立配置，未配跟随全局——不联动 worker 槽位），tool/skill
    * 启停写面仍拒（agent.config.read_only）。
    */
-  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer";
+  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
   resourceType: "tool" | "skill" | "model" | "thinking";
   /** 资源名（model 型 = "provider/model-id"；thinking 型 = 档位字符串；clear 时忽略）。 */
   name: string;
@@ -402,7 +402,7 @@ export interface AgentConfigSetEnabledCommand extends CommandFrame<AgentConfigSe
  */
 export interface AgentBasePromptGetPayload {
   /** 目标 kind（四值全可读——含系统派生两 kind；kg-writer = SUBAGENT base + 图谱产出型后缀同 profile 声明）。 */
-  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer";
+  profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
 }
 
 export interface AgentBasePromptGetCommand extends CommandFrame<AgentBasePromptGetPayload> {

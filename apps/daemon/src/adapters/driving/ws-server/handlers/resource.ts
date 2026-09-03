@@ -21,13 +21,16 @@
  * 仍在 driving adapter 内（TR-AD-1 分层不变，零新 port 之外的决策）：
  * 依赖面经 ResourceCommandContext 由 WsServerAdapter 供出。
  *
- * agent-roster 批 additive：读面缺省全量附带只读系统派生双块
+ * agent-roster 批 additive：读面缺省全量附带只读系统派生三块
  * （system[]：orchestrator 声明全集 / subagent-kg-writer = worker 当前
- * 生效集 + kg-update 恒在，随 worker toggle 动态跟随）；写面对只读
- * kind 恒拒（agent.config.read_only，连接保持——前端只读只是表现，后端
- * 拒绝才是事实）。恒在工具名经 ctx.kgWriterPinnedTools 注入
- * （SUBAGENT_KG_WRITER_EXTRA_TOOLS 增量常量单源——driving 不得 import
- * driven，组合根经窄函数面传递，hasModel 先例）。
+ * 生效集 + kg-update 恒在 / subagent-code-reviewer = worker 当前生效集
+ * − write/edit 恒摘除（D5 第五 kind），后两者随 worker toggle 动态
+ * 跟随）；写面对只读 kind 恒拒（agent.config.read_only，连接保持——
+ * 前端只读只是表现，后端拒绝才是事实）。恒在/恒摘工具名经
+ * ctx.kgWriterPinnedTools / ctx.reviewerRemovedTools 注入
+ * （SUBAGENT_KG_WRITER_EXTRA_TOOLS / SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS
+ * 增量常量单源——driving 不得 import driven，组合根经窄函数面传递，
+ * hasModel 先例）。
  */
 import type {
   AgentBasePromptGetResultEvent,
@@ -52,9 +55,9 @@ interface SetEnabledInput {
 /** set_enabled payload 形状校验（失败 → command.invalid_payload，连接保持）。 */
 function normalizeSetEnabled(ctx: ResourceCommandContext, payload: Record<string, unknown>): SetEnabledInput | undefined {
   const { profileKind, resourceType, name, enabled } = payload;
-  if (profileKind === "orchestrator" || profileKind === "subagent-kg-writer") {
+  if (profileKind === "orchestrator" || profileKind === "subagent-kg-writer" || profileKind === "subagent-code-reviewer") {
     if (resourceType !== "model" && resourceType !== "thinking") {
-      // R7 系统槽位批：系统派生 kind 仅 model/thinking 槽位型可写（独立配置，
+      // R7 系统槽位批 + D5 第五 kind：系统派生 kind 仅 model/thinking 槽位型可写（独立配置，
       // 未配跟随全局）；tool/skill 启停写面仍拒（硬层拒绝不依赖前端表现）。
       ctx.commandError(ctx.type, "agent.config.read_only", `payload.profileKind ${profileKind} 为系统派生 kind：仅 model/thinking 槽位可配，tool/skill 启停只读（写面拒绝）`);
       return undefined;
@@ -94,12 +97,15 @@ function toProfileBlockDto(block: ResourceConfigBlock): AgentConfigProfileBlock 
 }
 
 /**
- * 只读系统派生双块派生（agent-roster 批；序固定 orchestrator 在前）：
+ * 只读系统派生三块派生（agent-roster 批 + D5 第五 kind；序固定 orchestrator
+ * 在前、reviewer 在后）：
  * - orchestrator = 声明全集（resource.list 同源读面——写面拒绝放无差异
  *   行，enabled 位恒 true，纯展示面不携带）；
  * - kg-writer = worker 当前生效集（enabled 过滤）+ 恒在工具（ctx.kgWriter
  *   PinnedTools 单源）；恒在行 snippet 从 main 目录面同名行取回（注册表
  *   单源，越权复制零容忍；worker 目录无此名）。
+ * - reviewer = worker 当前生效集 − 恒摘除工具（ctx.reviewerRemovedTools
+ *   单源——write/edit 代码写面机械关闭，随 worker toggle 动态跟随）。
  */
 function toSystemBlocksDto(
   main: ResourceConfigBlock,
@@ -108,7 +114,11 @@ function toSystemBlocksDto(
   pinnedTools: readonly string[],
   kgwModel: string | undefined,
   kgwThinking: string | undefined,
+  removedTools: readonly string[],
+  reviewerModel: string | undefined,
+  reviewerThinking: string | undefined,
 ): readonly AgentConfigSystemBlock[] {
+  const workerEffective = worker.tools.filter((t) => t.enabled).map((t) => ({ name: t.name, snippet: t.snippet }));
   return [
     {
       profileKind: "orchestrator",
@@ -120,7 +130,7 @@ function toSystemBlocksDto(
     {
       profileKind: "subagent-kg-writer",
       tools: [
-        ...worker.tools.filter((t) => t.enabled).map((t) => ({ name: t.name, snippet: t.snippet })),
+        ...workerEffective,
         ...pinnedTools.map((name) => ({
           name,
           snippet: main.tools.find((t) => t.name === name)?.snippet ?? "",
@@ -132,6 +142,15 @@ function toSystemBlocksDto(
       // 模型/推理不联动）
       model: kgwModel ?? null,
       thinkingLevel: kgwThinking ?? null,
+    },
+    {
+      profileKind: "subagent-code-reviewer",
+      tools: workerEffective.filter((t) => !removedTools.includes(t.name)),
+      derivedFrom: "subagent-worker",
+      // D5：reviewer 独立槽位（工具集派生 worker − 摘除面——职责语义；
+      // 模型/推理不联动，TR-42 两级链）
+      model: reviewerModel ?? null,
+      thinkingLevel: reviewerThinking ?? null,
     },
   ];
 }
@@ -173,7 +192,7 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
         type: "agent.config.list.result",
         payload: {
           profiles: [main, sub].map(toProfileBlockDto),
-          system: toSystemBlocksDto(main, sub, orch, ctx.kgWriterPinnedTools, ctx.resource.modelSlot("subagent-kg-writer"), ctx.resource.thinkingSlot("subagent-kg-writer")),
+          system: toSystemBlocksDto(main, sub, orch, ctx.kgWriterPinnedTools, ctx.resource.modelSlot("subagent-kg-writer"), ctx.resource.thinkingSlot("subagent-kg-writer"), ctx.reviewerRemovedTools, ctx.resource.modelSlot("subagent-code-reviewer"), ctx.resource.thinkingSlot("subagent-code-reviewer")),
         },
       };
       ctx.sendNow(sender, frame);
@@ -181,8 +200,8 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
     .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `配置读面组装失败：${(err as Error).message}`));
 }
 
-/** agent.base_prompt.get 合法 kind（四值全可读——含系统派生两 kind；写面只读≠读面拒绝）。 */
-const BASE_PROMPT_KINDS = ["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer"] as const;
+/** agent.base_prompt.get 合法 kind（五值全可读——含系统派生三 kind；写面只读≠读面拒绝）。 */
+const BASE_PROMPT_KINDS = ["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer", "subagent-code-reviewer"] as const;
 
 /**
  * agent.base_prompt.get（base prompt 批）：base 段系统提示词懒查询读面。
@@ -195,11 +214,11 @@ export function handleAgentBasePromptGet(ctx: ResourceCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const kind = ctx.payload.profileKind;
   if (typeof kind !== "string" || !(BASE_PROMPT_KINDS as readonly string[]).includes(kind)) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", `payload.profileKind 应为 "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer"`);
+    return ctx.commandError(ctx.type, "command.invalid_payload", `payload.profileKind 应为 "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer"`);
   }
   const basePrompt = ctx.basePrompts[kind];
   if (basePrompt === undefined) {
-    // 组合根未注入该 kind（防御位——正常路径四 kind 全注入）
+    // 组合根未注入该 kind（防御位——正常路径五 kind 全注入）
     return ctx.commandError(ctx.type, "command.invalid_payload", `base 段提示词读面未装配：${kind}`);
   }
   const frame: AgentBasePromptGetResultEvent = {
