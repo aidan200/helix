@@ -185,6 +185,7 @@ const MAIN_TOOLS = [
   "kg-update",
   "codegraph", // W1-B（R5/R7）：codegraph 只读工具
   "task_create", // T2.4：chat 第二创建入口（AD-7，仅 main）
+  "task_report", // D3：chat 回流通用报告查询面（仅 main）
   "plan_create", // main-session plan 批：主会话同含 plan 三名（两域同构）
   "plan_update",
   "plan_read",

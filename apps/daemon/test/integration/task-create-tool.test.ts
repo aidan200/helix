@@ -15,6 +15,7 @@ import { TaskError } from "../../src/application/services/task/TaskError";
 import type { CreateTaskInput, TaskEnginePort } from "../../src/application/ports/inbound/TaskEnginePort";
 import { kgToolsStub } from "../helpers/kgToolsStub";
 import { planToolStub } from "../helpers/planToolStub";
+import { taskReportStub } from "../helpers/taskReportStub";
 import { codegraphToolStub } from "../helpers/codegraphToolStub";
 import { withTaskEnv } from "../helpers/task-fixtures";
 
@@ -223,6 +224,8 @@ describe("④ 生效集：task_create 只进 MainAgent（AD-2 创建按宿主）
         engine: new RecordingTaskEngine(async () => ({ jobId: "job-asm" })),
         query: fakeQuery({}),
       },
+      // D3：main 全集声明 task_report——替身保持可装配
+      taskReport: taskReportStub(),
       // main-session plan 批：main 全集声明 plan 三名——替身保持可装配
       plan: planToolStub(),
     });

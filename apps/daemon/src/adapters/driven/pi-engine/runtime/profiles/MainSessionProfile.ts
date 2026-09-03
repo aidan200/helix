@@ -118,6 +118,10 @@ export const MainSessionProfile: AgentProfile = {
     // MainAgent 生效集（SubAgent 不能建任务，AD-2 创建按宿主）；与
     // /project 入口同一 createTask API
     "task_create",
+    // task_report（D3）：chat 回流通用报告查询面（list/get 只读，全任务
+    // 类型通用）——仅 MainAgent 生效集；报告全文不进回执，MainAgent 用
+    // read 按路径按需读（token 经济）
+    "task_report",
     // plan 三工具（main-session plan 批）：主会话工作台账（instanceId =
     // sessionId 作用域，台账落 helix.db work_item 表）——多步/多阶段任务
     // 开工前建台账、逐项推进；SubAgent 子进程同款声明（两域同构，AD-6①

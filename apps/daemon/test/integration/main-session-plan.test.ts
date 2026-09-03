@@ -254,9 +254,9 @@ describe("① 主会话装配面（main-session plan 批）", () => {
 
   test("effectiveMainToolNames：plan 注入时三名保留；未注入时三名剔除（声明面 = 注册面一致）", () => {
     const declared = MainSessionProfile.tools;
-    const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, plan: true });
+    const kept = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: true });
     expect(kept).toEqual([...declared]);
-    const dropped = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, plan: false });
+    const dropped = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: true, plan: false });
     for (const name of ["plan_create", "plan_update", "plan_read"]) {
       expect(dropped).not.toContain(name);
     }
@@ -264,6 +264,9 @@ describe("① 主会话装配面（main-session plan 批）", () => {
     expect(dropped.filter((t) => !t.startsWith("plan_"))).toEqual(
       declared.filter((t) => !t.startsWith("plan_")),
     );
+    // taskReport 未注入 → task_report 剔除（taskCreate/plan 同构：声明面 = 注册面一致）
+    const noReport = effectiveMainToolNames(declared, { kg: true, codegraph: true, taskCreate: true, taskReport: false, plan: true });
+    expect(noReport).not.toContain("task_report");
   });
 });
 

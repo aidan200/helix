@@ -11,7 +11,7 @@ import { SubAgentKgWriterProfile } from "../../src/adapters/driven/pi-engine/run
  */
 
 describe("ToolPromptSnippets 注册表（M6 T2）", () => {
-  test("① 三 profile 全集全覆盖：main 21 名 + subagent 13 名 + kg-writer 14 名均有非空 snippet", () => {
+  test("① 三 profile 全集全覆盖：main 22 名 + subagent 13 名 + kg-writer 14 名均有非空 snippet", () => {
     for (const name of MainSessionProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `main 工具 ${name} 缺 snippet`).toBeTruthy();
     }
@@ -21,20 +21,20 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
     for (const name of SubAgentKgWriterProfile.tools) {
       expect(TOOL_PROMPT_SNIPPETS[name], `kg-writer 工具 ${name} 缺 snippet`).toBeTruthy();
     }
-    // 全集形状锚定（ResourceService toolsCatalog 同源）：main 21 / subagent 13
+    // 全集形状锚定（ResourceService toolsCatalog 同源）：main 22 / subagent 13
     //（T3-B +agent_inspect；T3.3 +kg；T1.4 +plan 三工具 AD-6①；
-    // T2.4 +task_create 仅 main，AD-7；W1-B +codegraph R5；D8 W-R6 -kg-update
+    // T2.4 +task_create 仅 main，AD-7；D3 +task_report 仅 main；W1-B +codegraph R5；D8 W-R6 -kg-update
     // 收权；⑤ 链 C +agent_park/agent_resume 仅 main，P1；main-session plan 批
     // Main 同含 plan 三名两域同构——subagent 计数不变）；kg-writer = subagent
     // + kg-update（14，豁免面）
-    expect(MainSessionProfile.tools).toHaveLength(21);
+    expect(MainSessionProfile.tools).toHaveLength(22);
     expect(SubAgentProfile.tools).toHaveLength(13);
     expect(SubAgentKgWriterProfile.tools).toHaveLength(14);
   });
 
   test("② snippet 为中文一句话：非空、单行（无换行符）", () => {
-    // 恰 27 条（main 全集 18 + plan 三工具 + 编排 task 回口六工具——T2.2；
-    // 单一注册表不分 kind；W1-B +codegraph；⑤ 链 C +agent_park/agent_resume）
+    // 恰 28 条（main 全集 18 + plan 三工具 + 编排 task 回口六工具——T2.2 + D3
+    // task_report；单一注册表不分 kind；W1-B +codegraph；⑤ 链 C +agent_park/agent_resume）
     expect(Object.keys(TOOL_PROMPT_SNIPPETS).sort()).toEqual(
       [
         "agent_inspect",
@@ -57,6 +57,7 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
         "task_advance_stage",
         "task_complete_job",
         "task_create",
+        "task_report",
         "task_dispatch_batch",
         "task_fail_job",
         "task_insert_batch",

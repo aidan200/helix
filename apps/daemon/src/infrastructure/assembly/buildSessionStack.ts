@@ -54,6 +54,7 @@ import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnip
 import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
 import type { PlanToolDeps } from "../../adapters/driven/tools/plan/PlanTools";
 import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
+import type { TaskReportToolDeps } from "../../adapters/driven/tools/task-report/TaskReportTool";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
 import type { CodegraphToolDeps } from "../../adapters/driven/tools/codegraph/CodegraphTool";
 import type { EditToolDeps } from "../../adapters/driven/tools/edit/EditTool";
@@ -194,6 +195,14 @@ export interface BuildSessionStackDeps {
    */
   readonly taskCreate?: TaskCreateToolDeps;
   /**
+   * task_report 工具注入面（D3）：主会话 executor 注册 task_report（chat
+   * 回流通用报告查询面；仅 MainAgent 生效集——SubAgent 子进程本地栈与
+   * 编排主 agent 均不注入）。组合根接任务栈查询面（TaskQueryService
+   * list/detail）+ closure_records 读面 + 报告目录约定；缺省不注册
+   *（测试形态——engineFor 未注入时从 main 工具集剔除，taskCreate 同构）。
+   */
+  readonly taskReport?: TaskReportToolDeps;
+  /**
    * 会话工具沙箱 cwd 动态解析面（W1 绑定闭环）：基准改绑定的 root——
    * 每会话装配（engineFor）时求值，重绑后新会话跟随。缺省回落启动定格
    * 值；deps.toolCwd 显式注入时恒优先（测试面）。
@@ -268,12 +277,13 @@ export interface SessionStack {
  */
 export function effectiveMainToolNames(
   declared: readonly string[],
-  injected: { readonly kg: boolean; readonly codegraph: boolean; readonly taskCreate: boolean; readonly plan: boolean },
+  injected: { readonly kg: boolean; readonly codegraph: boolean; readonly taskCreate: boolean; readonly taskReport: boolean; readonly plan: boolean },
 ): string[] {
   return declared
     .filter((t) => injected.kg || (t !== "kg" && t !== "kg-update"))
     .filter((t) => injected.codegraph || t !== "codegraph")
     .filter((t) => injected.taskCreate || t !== "task_create")
+    .filter((t) => injected.taskReport || t !== "task_report")
     .filter(
       (t) =>
         injected.plan || (t !== "plan_create" && t !== "plan_update" && t !== "plan_read"),
@@ -720,6 +730,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               // task_create（T2.4，AD-7）：仅主会话 executor（SubAgent 子进程
               // 本地栈不注入——生效集隔离，AD-2 创建按宿主）
               ...(deps.taskCreate !== undefined ? { taskCreate: deps.taskCreate } : {}),
+              // task_report（D3）：仅主会话 executor（SubAgent 子进程本地栈与
+              // 编排主 agent 不注入——生效集隔离，taskCreate 同构）
+              ...(deps.taskReport !== undefined ? { taskReport: deps.taskReport } : {}),
               // 主会话 plan 三工具（main-session plan 批）：台账写面 + 广播包装
               ...(planDeps !== undefined ? { plan: planDeps } : {}),
               // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
@@ -750,6 +763,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
                   kg: kgTools !== undefined,
                   codegraph: codegraphTool !== undefined,
                   taskCreate: deps.taskCreate !== undefined,
+                  taskReport: deps.taskReport !== undefined,
                   plan: planDeps !== undefined,
                 }),
                 // 压缩参数可配置（KV 存储值 ?? DEFAULT_COMPACTION）；每会话装配读现值。

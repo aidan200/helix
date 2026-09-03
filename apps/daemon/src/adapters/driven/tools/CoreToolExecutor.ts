@@ -27,6 +27,7 @@ import { createKgTool } from "./kg/KgTool";
 import { createKgUpdateTool } from "./kg-update/KgUpdateTool";
 import { createCodegraphTool, type CodegraphToolDeps } from "./codegraph/CodegraphTool";
 import { createTaskCreateTool, type TaskCreateToolDeps } from "./task-create/TaskCreateTool";
+import { createTaskReportTool, type TaskReportToolDeps } from "./task-report/TaskReportTool";
 import { createTaskOpsTools, type TaskOpsToolDeps } from "./task-ops/TaskOpsTools";
 import {
   createPlanCreateTool,
@@ -165,6 +166,15 @@ export interface CoreToolExecutorOptions {
    */
   readonly taskCreate?: TaskCreateToolDeps;
   /**
+   * task_report 工具注入面（D3，chat 回流通用报告查询面）：任务读面
+   *（TaskQueryService list/detail 投影）+ closure_records 读面 + 报告目录
+   * 约定。仅主会话（buildSessionStack engineFor）注入——task_report 不进
+   * SubAgent/编排主 agent 生效集（批次/编排面无查询其他任务报告职责）；
+   * ChildMain 子进程本地栈不注入。缺省不注册（既有测试形态——
+   * MainSessionProfile 声明该名时必须注入，resolveTools fail-fast）。
+   */
+  readonly taskReport?: TaskReportToolDeps;
+  /**
    * 任务引擎回口工具族注入面（T2.2，AD-3③）：六工具（划批次落行/派发落章/
    * 阶段推进/阶段产物聚合/任务收口）+ 编排者台账读变体。仅编排主 agent
    * 会话（组合根 orchestrator-runtime 工厂）注入——不进主会话/SubAgent
@@ -246,6 +256,11 @@ export class CoreToolExecutor implements ToolExecutorPort {
       // task_create（T2.4，AD-7）：chat 第二创建入口薄壳（与 /project 入口
       // 同一 createTask API；仅 MainAgent 生效集）
       tools.push(createTaskCreateTool(options.taskCreate));
+    }
+    if (options.taskReport !== undefined) {
+      // task_report（D3）：chat 回流通用报告查询面（list/get 只读；
+      // 仅 MainAgent 生效集——报告全文不进回执，MainAgent 用 read 按需读）
+      tools.push(createTaskReportTool(options.taskReport));
     }
     if (options.taskOps !== undefined) {
       // 任务引擎回口工具族（T2.2，AD-3③）：仅编排主 agent 会话生效集
