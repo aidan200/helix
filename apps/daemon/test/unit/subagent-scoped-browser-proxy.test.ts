@@ -87,13 +87,13 @@ describe("ScopedBrowserProxy ③ H9 可选参 null 占位 → undefined 还原",
     expect(args[2]).toBeUndefined();
   });
 
-  test("screenshotTab [tabId, null, \"jpeg\"] → port 收到 (tabId, undefined, \"jpeg\")", async () => {
+  test("screenshotTab [tabId, file, null] → port 收到 (tabId, file, undefined)（format 缺省归实现侧）", async () => {
     const browser = new FakeBrowserPort();
     browser.tabs = [tab("tab-1", "agent-7")];
-    await scopedBrowserCall(browser, "agent-7", "screenshotTab", ["tab-1", null, "jpeg"]);
+    await scopedBrowserCall(browser, "agent-7", "screenshotTab", ["tab-1", "/tmp/s.png", null]);
     const args = browser.lastCall("screenshotTab")!.args;
-    expect(args[1]).toBeUndefined();
-    expect(args[2]).toBe("jpeg");
+    expect(args[1]).toBe("/tmp/s.png");
+    expect(args[2]).toBeUndefined();
   });
 });
 
