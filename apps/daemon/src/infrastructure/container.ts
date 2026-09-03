@@ -302,15 +302,14 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger.warn(`grep 后端定格 unavailable（工具将响亮失败）：${grepFreeze.reasons.join("；")}`);
   }
 
-  // ── codegraph 引擎三级解析定格（T2.1/AF-2，TR-AD-32 同模式）──────
-  //    HELIX_CODEGRAPH_PATH/PATH 的 process.env 读取收束于本组合根
+  // ── codegraph 引擎二级解析定格（T2.1/AF-2，TR-AD-32 同模式）──────
+  //    HELIX_CODEGRAPH_PATH 的 process.env 读取收束于本组合根
   //    （AG-08 唯一例外面，壳注入的资源定位参数，非配置源）；
-  //    resolve-codegraph.ts 本体零 env/fs 依赖。三级全 miss ≠ 装配失败：
+  //    resolve-codegraph.ts 本体零 env/fs 依赖。二级全 miss ≠ 装配失败：
   //    引擎面定格不可用（binaryPath=null），构建面 degraded（AF-2）。──
   const codegraphResolution = resolveCodegraphPath({
     bundlePath: process.env.HELIX_CODEGRAPH_PATH,
     configPath: config.codegraphPath,
-    pathEnv: process.env.PATH,
     probe: isExecutableFile,
   });
   if (codegraphResolution.kind === "resolved") {

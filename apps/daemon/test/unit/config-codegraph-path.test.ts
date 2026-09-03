@@ -5,7 +5,7 @@ import path from "node:path";
 import { loadConfig, writeConfig } from "../../src/infrastructure/config";
 
 /**
- * T2.1（U，config 面）：config.json 新键 `codegraphPath`（codegraph 三级
+ * T2.1（U，config 面）：config.json 新键 `codegraphPath`（codegraph 二级
  * 解析第②级，AF-2 裁决）——与 rgPath 完全同口径：
  * - 逐字段校验：非空字符串，非法值 fail-fast；
  * - writeConfig 全字段序列化：codegraphPath 写入不丢既有字段（截断回归锚）；
@@ -17,7 +17,7 @@ function makeTmp(): { dir: string; file: string } {
   return { dir, file: path.join(dir, "config.json") };
 }
 
-describe("config codegraphPath 键（T2.1 三级解析第②级读面）", () => {
+describe("config codegraphPath 键（T2.1 二级解析第②级读面）", () => {
   test("合法 codegraphPath 读出；缺省时字段为 undefined（不注入默认）", () => {
     const { dir, file } = makeTmp();
     try {

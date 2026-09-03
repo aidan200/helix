@@ -416,10 +416,10 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // T1.1（AD-2/F3.1）新增组合根唯一例外：container.ts 可读且仅可读
     // HELIX_RG_PATH（壳注入的 rg bundle 资源定位参数，非配置源）——读取
     // 收束于装配层单点作为 resolve-rg 入参（resolve-rg.ts 本体零 env
-    // 依赖）。rg 唯一化后其 PATH 级已砍；PATH 键保留仅为 codegraph
-    // 三级解析第③级探测对象。
-    // T2.1（AF-2）：同模式扩 HELIX_CODEGRAPH_PATH（codegraph 三级解析第①级
-    // bundle 注入键，resolve-codegraph.ts 本体零 env 依赖）。
+    // 依赖）。rg 唯一化后其 PATH 级已砍。
+    // T2.1（AF-2）：同模式扩 HELIX_CODEGRAPH_PATH（codegraph 二级解析第①级
+    // bundle 注入键，resolve-codegraph.ts 本体零 env 依赖）；codegraph
+    // bundle-only 化后 PATH 级同砍，container.ts env 读取面收至两键。
     const whitelistRoot = path.join("adapters", "driven", "subagent");
     const containerRel = path.join("infrastructure", "container.ts");
     for (const rel of listFiles(srcRoot)) {
@@ -427,10 +427,9 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       const src = read(rel);
       if (rel === containerRel) {
         const envKeys = [...new Set([...src.matchAll(/process\.env\.([A-Z_]+)/g)].map((m) => m[1]!))].sort();
-        expect(envKeys, `container.ts 可读 env 键仅限 HELIX_CODEGRAPH_PATH/HELIX_RG_PATH/PATH，实际：${envKeys.join(",")}`).toEqual([
+        expect(envKeys, `container.ts 可读 env 键仅限 HELIX_CODEGRAPH_PATH/HELIX_RG_PATH，实际：${envKeys.join(",")}`).toEqual([
           "HELIX_CODEGRAPH_PATH",
           "HELIX_RG_PATH",
-          "PATH",
         ]);
         continue;
       }
@@ -444,7 +443,7 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // 使键集合变更可评审（扫描面含注释提及：注释与实现同键同责任）。
     const registered = [
       "HELIX_API_KEYS_JSON",
-      "HELIX_CODEGRAPH_PATH", // W1-B：codegraph 二进制定格路径透传（SubagentLauncher 注入 / ChildMain 本地栈三级解析第①级消费）
+      "HELIX_CODEGRAPH_PATH", // W1-B：codegraph 二进制定格路径透传（SubagentLauncher 注入 / ChildMain 本地栈二级解析第①级消费）
       "HELIX_DB_PATH", // T1.4（AD-6①）：work_item 台账库路径（SubagentLauncher 注入 / ChildMain 本地栈消费）
       "HELIX_FAKE_ENGINE_SCRIPT",
       "HELIX_FINDINGS_PATH", // task-778eb18a 截断兑底：findings 旁路文件落点（SubagentLauncher 注入 / 提示词引导预写 / ClosureRecorder 机械读）

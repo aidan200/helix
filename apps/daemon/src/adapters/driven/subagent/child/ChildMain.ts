@@ -297,14 +297,13 @@ export function buildLocalWorkLedgerStack(
  * 子进程本地 codegraph 栈：与 buildLocalKgStack 同构——ChildMain 是子进程
  * 组合根（new 具体 adapter 不违 AG-02④ 扫描域）。二进制三级解析缺
  * config 级（子进程不读 config.json）——父进程定格路径经
- * HELIX_CODEGRAPH_PATH env 透传补齐（bundle 级命中）；PATH 级靠继承 env。
+ * HELIX_CODEGRAPH_PATH env 透传补齐（bundle 级命中）。
  * 解析失败 → binaryPath=null（工具仍在，调用 degraded EngineUnavailable，
  * 不阻断子进程装配）。workspaceRoot = toolCwd（同 kg 栈口径）。
  */
 function buildLocalCodegraphStack(workspaceRoot: string): { readonly engine: CodegraphEngineAdapter; readonly workspaceRoot: string } {
   const resolution = resolveCodegraphPath({
     bundlePath: process.env.HELIX_CODEGRAPH_PATH,
-    pathEnv: process.env.PATH,
     probe: isExecutableFile,
   });
   return {
