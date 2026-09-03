@@ -537,6 +537,13 @@ export class WriteQueue {
     });
     if (key === undefined) this.globalTail = done;
     else this.sessionTails.set(key, done);
+    // M15：deleteSession 落定后清仓位条目（现状永不删除无界增长）——仅当尾部
+    // 仍为本 job 的 done 时删；此后同会话新入队的写会使尾部位移（守卫不误清）
+    if (job.kind === "deleteSession" && key !== undefined) {
+      void done.then(() => {
+        if (this.sessionTails.get(key) === done) this.sessionTails.delete(key);
+      });
+    }
     return done;
   }
 
