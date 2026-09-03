@@ -54,7 +54,7 @@ export function filterTasks(
 }
 
 /** 生命周期+删除门控矩阵（CL-3-T7/T12；F3.5/F3.6 机械定义）。 */
-export type TaskLifecycleAction = "pause" | "resume" | "cancel" | "delete";
+export type TaskLifecycleAction = "pause" | "resume" | "cancel" | "retry" | "delete";
 
 export function lifecycleActions(status: TaskStatus): readonly TaskLifecycleAction[] {
   switch (status) {
@@ -64,8 +64,11 @@ export function lifecycleActions(status: TaskStatus): readonly TaskLifecycleActi
       return ["resume", "cancel"];
     case "pending":
       return ["cancel"];
+    case "failed":
+      // failed：人工重试（task.retry 复活——批次预算归零留痕 + failed 阶段重开）+ 终态删除
+      return ["retry", "delete"];
     default:
-      // done / failed / cancelled：仅终态删除（运行中须先取消，无删除钮）
+      // done / cancelled：仅终态删除（运行中须先取消，无删除钮）
       return ["delete"];
   }
 }

@@ -9,22 +9,22 @@ import type { BatchStatus, JobStatus, StageStatus } from "./types";
  * 此处只有状态迁移守卫。
  */
 
-/** job 合法迁移集（§3.3）：pending→running/cancelled；running→paused/done/failed/cancelled；paused→running/cancelled；终态无出边。 */
+/** job 合法迁移集（§3.3）：pending→running/cancelled；running→paused/done/failed/cancelled；paused→running/cancelled；failed→running 仅人工重试复活口（task.retry，batch failed→running 先例同构）；done/cancelled 无出边。 */
 const JOB_TRANSITIONS: Readonly<Record<JobStatus, readonly JobStatus[]>> = {
   pending: ["running", "cancelled"],
   running: ["paused", "done", "failed", "cancelled"],
   paused: ["running", "cancelled"],
   done: [],
-  failed: [],
+  failed: ["running"],
   cancelled: [],
 };
 
-/** stage 合法迁移集（§3.3）：pending→running→done/failed。 */
+/** stage 合法迁移集（§3.3）：pending→running→done/failed；failed→running 仅人工重试重开阶段口（task.retry 引擎面，编排 LLM 无此通道）。 */
 const STAGE_TRANSITIONS: Readonly<Record<StageStatus, readonly StageStatus[]>> = {
   pending: ["running"],
   running: ["done", "failed"],
   done: [],
-  failed: [],
+  failed: ["running"],
 };
 
 /**
@@ -53,9 +53,13 @@ export function assertJobTransition(from: JobStatus, to: JobStatus): void {
   }
 }
 
-/** job 终态判定（终态三值：done/failed/cancelled）。 */
+/**
+ * job 终态判定（终态三值：done/failed/cancelled）——显式集合，不从出边推导：
+ * failed 虽有人工重试复活出边（task.retry），对收口/删除/清扫/活跃判定仍是终态
+ * （复活前 deleteTask 可删、reapIfTerminal 清扫、hasActiveJob 不计活跃）。
+ */
 export function isTerminalJob(status: JobStatus): boolean {
-  return JOB_TRANSITIONS[status].length === 0;
+  return status === "done" || status === "failed" || status === "cancelled";
 }
 
 export function canTransitionStage(from: StageStatus, to: StageStatus): boolean {
@@ -71,9 +75,12 @@ export function assertStageTransition(from: StageStatus, to: StageStatus): void 
   }
 }
 
-/** stage 终态判定（done/failed）。 */
+/**
+ * stage 终态判定（done/failed）——显式集合同 isTerminalJob：failed 有人工重试
+ * 重开出边，但对阶段收口语义仍是终态。
+ */
 export function isTerminalStage(status: StageStatus): boolean {
-  return STAGE_TRANSITIONS[status].length === 0;
+  return status === "done" || status === "failed";
 }
 
 export function canTransitionBatch(from: BatchStatus, to: BatchStatus): boolean {

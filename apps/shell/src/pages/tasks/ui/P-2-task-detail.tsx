@@ -25,6 +25,7 @@ const ACTION_LABEL: Readonly<Record<TaskLifecycleAction, string>> = {
   pause: "tk.act.pause",
   resume: "tk.act.resume",
   cancel: "tk.act.cancel",
+  retry: "tk.act.retry",
   delete: "tk.act.delete",
 };
 
@@ -32,6 +33,7 @@ const ACTION_CLASS: Readonly<Record<TaskLifecycleAction, string>> = {
   pause: "hud-btn hud-btn-ghost",
   resume: "hud-btn kg-btn-primary",
   cancel: "hud-btn hud-btn-danger",
+  retry: "hud-btn kg-btn-primary",
   delete: "hud-btn hud-btn-danger",
 };
 

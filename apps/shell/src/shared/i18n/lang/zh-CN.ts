@@ -766,7 +766,7 @@ export const zhCN = {
       clear: "清除过滤",
     },
     head: { created: "{at} 创建", srcPage: "「项目」页发起", srcChat: "会话发起", goProject: "前往「项目」页 →" },
-    act: { pause: "暂停", resume: "继续", cancel: "取消", delete: "删除" },
+    act: { pause: "暂停", resume: "继续", cancel: "取消", retry: "重试", delete: "删除" },
     confirm: {
       cancelText:
         "确认取消任务「{title}」？进行中的批次会收口，已完成阶段的产出保留（confirmed 正式知识），未启动的批次不再执行。取消不可撤销。",
@@ -779,6 +779,7 @@ export const zhCN = {
     toast: {
       paused: "任务已暂停：当前批次完成后挂起，未派新批次",
       resumed: "任务已继续：从挂起点恢复批次派发",
+      retried: "任务已重试：失败批次预算已重置，从失败阶段继续（已完成阶段不重跑）",
       cancelled: "任务已取消：已完成阶段产出保留（confirmed）",
       deleted: "任务已删除：{title}（任务域记录已清理，kg 产出保留）",
       failed: "操作失败：{msg}",

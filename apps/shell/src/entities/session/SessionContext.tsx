@@ -86,6 +86,7 @@ import {
   sessionLoadHistoryCommand,
   taskArtifactsCommand,
   taskCancelCommand,
+  taskRetryCommand,
   taskDeleteCommand,
   taskDetailCommand,
   taskListCommand,
@@ -281,6 +282,8 @@ interface SessionContextValue {
   sendTaskResume: (jobId: string) => boolean;
   /** 发送 task.cancel（pending/running/paused→cancelled 终态）。 */
   sendTaskCancel: (jobId: string) => boolean;
+  /** 发送 task.retry（仅 failed→running 人工复活；批次预算归零留痕 + failed 阶段重开）。 */
+  sendTaskRetry: (jobId: string) => boolean;
   /** 发送 task.delete（仅终态；清任务域记录不触 kg 产出）。 */
   sendTaskDelete: (jobId: string) => boolean;
   /** 订阅 task 族帧（task.*.result 点对点回执 + task.changed 广播 +
@@ -768,6 +771,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const sendTaskPause = useCallback((jobId: string) => clientRef.current!.send(taskPauseCommand(jobId)), []);
   const sendTaskResume = useCallback((jobId: string) => clientRef.current!.send(taskResumeCommand(jobId)), []);
   const sendTaskCancel = useCallback((jobId: string) => clientRef.current!.send(taskCancelCommand(jobId)), []);
+  const sendTaskRetry = useCallback((jobId: string) => clientRef.current!.send(taskRetryCommand(jobId)), []);
   const sendTaskDelete = useCallback((jobId: string) => clientRef.current!.send(taskDeleteCommand(jobId)), []);
   const subscribeTaskFrames = useCallback((listener: (e: EventEnvelope) => void) => {
     taskListenersRef.current.add(listener);
@@ -983,6 +987,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendTaskPause,
       sendTaskResume,
       sendTaskCancel,
+      sendTaskRetry,
       sendTaskDelete,
       subscribeTaskFrames,
       sendWorkspaceGet,
@@ -1055,6 +1060,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sendTaskPause,
       sendTaskResume,
       sendTaskCancel,
+      sendTaskRetry,
       sendTaskDelete,
       subscribeTaskFrames,
       sendWorkspaceGet,

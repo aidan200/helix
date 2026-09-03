@@ -774,6 +774,14 @@ export interface TaskCancelCommand extends CommandFrame<TaskCancelPayload> {
   type: "task.cancel";
 }
 
+export interface TaskRetryPayload {
+  jobId: string;
+}
+/** 人工重试（仅 failed → running 复活：批次重试预算归零留痕 + 失败阶段重开 + 重开编排——token 耗尽换 key 后续跑场景，已 done 阶段/批次不动）。 */
+export interface TaskRetryCommand extends CommandFrame<TaskRetryPayload> {
+  type: "task.retry";
+}
+
 export interface TaskDeletePayload {
   jobId: string;
 }
@@ -843,6 +851,7 @@ export type CommandEnvelope =
   | TaskPauseCommand
   | TaskResumeCommand
   | TaskCancelCommand
+  | TaskRetryCommand
   | TaskDeleteCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
@@ -906,6 +915,7 @@ export const COMMAND_TYPES = [
   "task.pause",
   "task.resume",
   "task.cancel",
+  "task.retry",
   "task.delete",
 ] as const;
 

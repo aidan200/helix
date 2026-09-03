@@ -237,3 +237,7 @@ export interface TaskCancelResultEvent extends EventFrame<TaskLifecycleResultPay
   channel?: "notification";
   type: "task.cancel.result";
 }
+export interface TaskRetryResultEvent extends EventFrame<TaskLifecycleResultPayload> {
+  channel?: "notification";
+  type: "task.retry.result";
+}

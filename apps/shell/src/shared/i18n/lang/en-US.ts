@@ -758,7 +758,7 @@ export const enUS = {
       clear: "Clear filters",
     },
     head: { created: "Created {at}", srcPage: "From Project page", srcChat: "From session", goProject: "Open the Project page →" },
-    act: { pause: "Pause", resume: "Resume", cancel: "Cancel", delete: "Delete" },
+    act: { pause: "Pause", resume: "Resume", cancel: "Cancel", retry: "Retry", delete: "Delete" },
     confirm: {
       cancelText:
         "Cancel task \"{title}\"? In-flight batches wind down, completed stage output stays (confirmed knowledge), queued batches never start. Cancellation is irreversible.",
@@ -771,6 +771,7 @@ export const enUS = {
     toast: {
       paused: "Task paused: current batch finishes, no new batches dispatched",
       resumed: "Task resumed: batch dispatch continues from the pause point",
+      retried: "Task retried: failed batch budget reset, continuing from the failed stage (completed stages are not re-run)",
       cancelled: "Task cancelled: completed stage output kept (confirmed)",
       deleted: "Task deleted: {title} (task-domain records cleared, kg output kept)",
       failed: "Action failed: {msg}",

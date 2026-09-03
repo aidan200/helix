@@ -385,7 +385,7 @@ describe("task 族 I 层：入参校验", () => {
   test("缺 jobId → command.invalid_payload（detail/artifacts/pause/resume/cancel/delete）", async () => {
     const { client } = await rigWithClient();
     try {
-      for (const type of ["task.detail", "task.artifacts", "task.pause", "task.resume", "task.cancel", "task.delete"]) {
+      for (const type of ["task.detail", "task.artifacts", "task.pause", "task.resume", "task.cancel", "task.retry", "task.delete"]) {
         const res = await client.task(type, {});
         expect(res.ok).toBe(false);
         expect(res.error!.code).toBe("command.invalid_payload");
@@ -414,10 +414,10 @@ describe("task 族 I 层：入参校验", () => {
 // ── 3. 服务未装配 → command.unimplemented（kg.ts 先例） ─────────
 
 describe("task 族 I 层：unimplemented 门控", () => {
-  test("任务栈未装配 → 九命令全部 command.unimplemented 回执不崩溃", async () => {
+  test("任务栈未装配 → 十命令全部 command.unimplemented 回执不崩溃", async () => {
     const { client } = await rigWithClient(false);
     try {
-      for (const type of ["task.list", "task.detail", "task.artifacts", "task.subscribe", "task.unsubscribe", "task.pause", "task.resume", "task.cancel", "task.delete"]) {
+      for (const type of ["task.list", "task.detail", "task.artifacts", "task.subscribe", "task.unsubscribe", "task.pause", "task.resume", "task.cancel", "task.retry", "task.delete"]) {
         const res = await client.task(type, type === "task.list" ? {} : { jobId: "j-1" });
         expect(res.ok).toBe(false);
         expect(res.error!.code).toBe("command.unimplemented");
@@ -565,12 +565,37 @@ describe("task 生命周期与删除（F3.5/F3.6）", () => {
       await client.close();
     }
   });
+
+  test("task.retry：failed 任务复活回执 running + task.changed 广播；非 failed → task.invalid_state 透传", async () => {
+    const { rig, client } = await rigWithClient();
+    try {
+      const { jobId, batchId } = await launchRunningJob(rig.env);
+      // 非 failed 拒绝（running 态）
+      const early = await client.task("task.retry", { jobId });
+      expect(early.ok).toBe(false);
+      expect(early.error!.code).toBe("task.invalid_state");
+      // 打满三次失败 → 超限上浮 job failed
+      for (const note of ["一", "二", "三"]) {
+        await rig.env.engine.failBatch(batchId, `closure 失败（${note}）`);
+        if (note !== "三") await rig.env.engine.dispatchBatch(batchId, `inst-${note}`);
+      }
+      expect(rig.env.store.getJob(jobId)!.status).toBe("failed");
+      const retry = await client.task("task.retry", { jobId });
+      expect(retry.result).toEqual({ ok: true, status: "running" });
+      // 复活后行状态：批次预算归零留痕 + stage 重开 + error 清空
+      expect(rig.env.store.getBatch(batchId)).toMatchObject({ status: "failed", retryCount: 0 });
+      expect(rig.env.store.getBatch(batchId)!.retryNote).toContain("人工重试");
+      expect(rig.env.store.getJob(jobId)!).toMatchObject({ status: "running", error: null });
+    } finally {
+      await client.close();
+    }
+  });
 });
 
 // ── 7. 零干预断言（AD-2）：协议面不存在 steer/内容编辑/批次重试命令 ──
 
 describe("零干预断言（AD-2，CL-2-T12 协议面）", () => {
-  test("task.* 命令清单恰为九命令全集，grep 无 steer/retry/edit 语义命令", () => {
+  test("task.* 命令清单恰为十命令全集，grep 无 steer/edit 语义命令（task.retry 白名单例外——job 级人工复活）", () => {
     const family = COMMAND_TYPES.filter((t) => t.startsWith("task."));
     expect(family).toEqual([
       "task.list",
@@ -581,10 +606,12 @@ describe("零干预断言（AD-2，CL-2-T12 协议面）", () => {
       "task.pause",
       "task.resume",
       "task.cancel",
+      "task.retry",
       "task.delete",
     ]);
-    const forbidden = family.filter((t) => /steer|retry|edit|update|modify|create|write|prompt/i.test(t));
+    // task.retry 为白名单例外：job 级生命周期人工复活，非批次重试/内容干预（AD-2 保持）
+    const forbidden = family.filter((t) => t !== "task.retry" && /steer|retry|edit|update|modify|create|write|prompt/i.test(t));
     expect(forbidden).toEqual([]);
-    expect(COMMAND_TYPES.length).toBe(60); // code.review.create 批 +1 后当前值
+    expect(COMMAND_TYPES.length).toBe(61); // task.retry 批 +1 后当前值
   });
 });

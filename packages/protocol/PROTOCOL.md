@@ -739,11 +739,11 @@ export interface AgentModelChangedPayload {
   新会话）；转正恰好一次 `agent.instantiated` + `list_changed{created}`
   （draft 链显式广播与补广播去重，不双发）。
 
-## 15. 命令 payload 形状总登记（C→S，60 命令全集）
+## 15. 命令 payload 形状总登记（C→S，61 命令全集）
 
-> **计数声明：60 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 6 +
+> **计数声明：61 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 6 +
 > 15.4 model 7 + config 2 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
-> 15.9 kg 6+5+2+1+1+1+1 + 15.10 workspace 2 + 15.11 task 9）——与 `COMMAND_TYPES` 常量恰等
+> 15.9 kg 6+5+2+1+1+1+1 + 15.10 workspace 2 + 15.11 task 10）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
 > 文档与其逐项对齐（AD-1）；仓外契约文档降为历史定形档案（§17.1）。
@@ -1401,12 +1401,14 @@ notice?}`；recents MRU 上限 8，get 时惰性探测标 valid）。
 |---|---|---|---|---|
 | `root` | `string` | 必填 | workspace 批 | 待绑定的工作空间根（daemon realpath 规范化 + 危险根校验） |
 
-### 15.11 task 族（9；task 批，iter-20260829-ys7q T1.5 P-2 任务页数据面）
+### 15.11 task 族（10；task 批 + task.retry 批，iter-20260829-ys7q T1.5 P-2 任务页数据面）
 
 > 本族为 task 批（v0.11 后 additive 微批，版本位不 bump，§19/§20 同构
-> 先例；批次注记见 §21）登记的 P-2 任务页九命令。全局命令（信封 sessionId
+> 先例；批次注记见 §21）登记的 P-2 任务页十命令（task.retry 为后续 additive
+> 增补——任务级人工复活，见 §21 增补注记）。全局命令（信封 sessionId
 > 省略——任务为 daemon 级实体非会话作用域）。**零内容干预（AD-2）：本族
-> 清单即全集**——无 steer/批次重试/内容编辑命令（机械 grep 断言守护）；
+> 清单即全集**——无 steer/批次重试/内容编辑命令（机械 grep 断言守护；
+> task.retry 是 job 级生命周期复活而非批次重试/内容干预，AD-2 语义保持）；
 > 任务创建不经本族（§8.2：创建命令按任务类型各有宿主）。结果回执 =
 > 点对点结果帧（`task.*.result`，types/task.ts 窄化接口——**不入
 > EVENT_TYPES 目录**，契约 §0 计数 57→58 仅 task.changed；信封 sessionId =
@@ -1493,6 +1495,18 @@ status}`；成功即广播 `task.changed`。
 |---|---|---|---|---|
 | `jobId` | `string` | 必填 | task 批 | 目标任务 |
 
+#### `task.retry`
+
+人工重试（task.retry 批 additive：**仅 failed → running 复活**——批次重试
+预算归零留痕（此前失败次数入 retryNote）+ failed 阶段重开 running + 清
+error + 重开编排；已 done 阶段/批次不动。token 耗尽换 key 后续跑场景，
+不浪费已耗 token；其余状态 → `task.invalid_state` 引擎透传）。结果 =
+`{ok: true, status}`；成功即广播 `task.changed`。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `jobId` | `string` | 必填 | task.retry 批 | 目标任务（failed 终态） |
+
 #### `task.delete`
 
 任务删除（F3.6，人工操作：**仅终态 done/failed/cancelled 可删**，运行中
@@ -1520,7 +1534,7 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 > `*.result` 9 +
 > `trace.query.result` + agent.config 族两结果帧（v0.6）+ web 族两结果帧
 > （v0.7）+ kg 族六结果帧（kg 批）+ workspace 族两结果帧（workspace 批）
-> + task 族九结果帧（task 批，不入本目录——契约 §0 计数，types/task.ts
+> + task 族十结果帧（task 批 9 + task.retry 批 1，不入本目录——契约 §0 计数，types/task.ts
 > 窄化接口供出））
 > 仅发发起命令的连接，不经 EventStream 广播（TR-AD-21 先例）。
 
@@ -2669,14 +2683,17 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 >   不持久化——桌面 current/recents 只由桌面 open 写）；desktop/sidecar
 >   形态恒经绑定，无 cwd 兼容缺省。
 
-## 21. task 批（iter-20260829-ys7q T1.5：P-2 任务页数据面九命令族；v0.11 后 additive 微批——版本位不 bump）
+## 21. task 批（iter-20260829-ys7q T1.5：P-2 任务页数据面九命令族 + task.retry 批 additive 第十命令；v0.11 后 additive 微批——版本位不 bump）
 
 > 本批为任务页（P-2）数据面的协议面登记（T1.5）：
 > **9 命令**（§15.11 task 族：`task.list` / `task.detail` / `task.artifacts` /
 > `task.subscribe` / `task.unsubscribe` / `task.pause` / `task.resume` /
 > `task.cancel` / `task.delete`——全局命令，任务为 daemon 级实体）+
+> **task.retry 批 additive 增补**（`task.retry`：job 级人工复活，仅 failed →
+> running——批次重试预算归零留痕 + failed 阶段重开 + 重开编排；token 耗尽
+> 换 key 后续跑场景。AD-2 零内容干预语义保持：非 steer/批次重试/内容编辑）+
 > **1 事件**（§16.1 内 `task.changed`：O-7 逐迁移轻负载广播，挂既有
-> **notification 通道，不新增 Channel 值**——契约 task-api §0；九命令结果帧
+> **notification 通道，不新增 Channel 值**——契约 task-api §0；十命令结果帧
 > 为点对点回执**不入 EVENT_TYPES 目录**，types/task.ts 窄化接口供出）+
 > **4 错误码**（`task.type_unknown` / `task.validation_failed` /
 > `task.not_found` / `task.invalid_state`，§7 登记、连接保持）。
@@ -2684,9 +2701,9 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 > （新增命令 type / 新增事件 type / 新增错误码值），旧客户端零破坏
 > （additive 纪律，TR-AD-23①；§19/§20 同构先例）。
 >
-> - 计数演进：命令 36 → 45；事件 57 → 58（守护断言③同步扩）。
+> - 计数演进：命令 36 → 45；事件 57 → 58（守护断言③同步扩）。task.retry 批：命令 45 → 46。
 > - 零内容干预（AD-2）：本族清单即全集——无 steer/批次重试/内容编辑命令
->   （机械 grep 断言守护，§15.11）；任务创建不经本族（按任务类型各有宿主：
+>   （机械 grep 断言守护，§15.11；task.retry 为 job 级生命周期复活，不违 AD-2）；任务创建不经本族（按任务类型各有宿主：
 >   /project 入口 `kg.bootstrap.create`（T3.2）与 chat 工具 task_create
 >   （T2.4），架构 §8.2）。
 > - task.changed 投送（O-7 裁决）：引擎每次 job/stage/batch 行 status 迁移

@@ -143,6 +143,7 @@ import {
   handleTaskList,
   handleTaskPause,
   handleTaskResume,
+  handleTaskRetry,
   handleTaskSubscribe,
   handleTaskUnsubscribe,
 } from "./handlers/task";
@@ -601,6 +602,8 @@ export class WsServerAdapter {
         return handleTaskResume(this.taskContext(ws, type, payload));
       case "task.cancel":
         return handleTaskCancel(this.taskContext(ws, type, payload));
+      case "task.retry":
+        return handleTaskRetry(this.taskContext(ws, type, payload));
       case "task.delete":
         return handleTaskDelete(this.taskContext(ws, type, payload));
       // ── v0.6 agent.config 族（智能体配置页；全局命令先例 = model.catalog）──

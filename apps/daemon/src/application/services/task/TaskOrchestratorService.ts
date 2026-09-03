@@ -407,14 +407,19 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     }
   }
 
-  /** 恢复扫描面重派补漏：暂停期/停循环期失败的批次（retry 有余量）在唤醒时补派。 */
+  /**
+   * 恢复扫描面重派补漏：暂停期/停循环期失败的批次（retry 有余量）在唤醒时补派。
+   * 人工重试（task.retry）归零的 failed 批次同口补派——retryCount===0 的 failed
+   * 批次只会由人工重试预算重置产生（cancel 路径产出的归零 failed 批次属 cancelled
+   * 终态任务，上方 job.status 闸已拦）。
+   */
   private async sweepRetries(jobId: string): Promise<void> {
     const loop = this.loops.get(jobId);
     if (loop === undefined || loop.stopped) return;
     const job = this.deps.store.getJob(jobId);
     if (job === undefined || job.status !== "running") return;
     for (const batch of this.allBatches(jobId)) {
-      if (batch.status !== "failed" || batch.retryCount <= 0 || batch.retryCount >= MAX_BATCH_RETRY) continue;
+      if (batch.status !== "failed" || batch.retryCount >= MAX_BATCH_RETRY) continue;
       const current = this.deps.store.getBatch(batch.id);
       if (current === undefined || current.status !== "failed") continue; // 并发迁移守卫
       const agentId = await this.reDispatch(loop, current);
@@ -492,7 +497,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
         ? ["（尚无批次行——从第一阶段开始划批次。）"]
         : batches.map(
             (b) =>
-              `#${b.stageSeq}.${b.seq}「${b.scope}」${b.status}${b.retryCount > 0 ? `（重试 ${b.retryCount} 次：${b.retryNote ?? ""}）` : ""}${b.instanceId !== null ? `，实例 ${b.instanceId}` : ""}`,
+              `#${b.stageSeq}.${b.seq}「${b.scope}」${b.status}${b.retryNote !== null ? `（重试 ${b.retryCount} 次：${b.retryNote}）` : ""}${b.instanceId !== null ? `，实例 ${b.instanceId}` : ""}`,
           );
     const doneBatches = batches.filter((b) => b.status === "done").map((b) => `#${b.stageSeq}.${b.seq}「${b.scope}」`);
     return [

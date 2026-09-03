@@ -173,6 +173,47 @@ export class TaskEngineService implements TaskEnginePort {
     await this.transitionJob(jobId, "cancelled");
   }
 
+  /**
+   * 人工重试（方案 A，failed 任务复活——token 耗尽换 key 后续跑，不浪费已耗 token）。
+   * 序：① stopOrchestrator 杀在跑残留实例（终态 loop 已 reap，幂等）→ ② 残留
+   * running 批次 failBatch 收口（job 尚 failed：只落库不调度不上浮）→ ③ failed
+   * 批次 retryCount 归零 + 留痕（此前失败次数与原 note 入新 retryNote）→
+   * ④ failed stage 重开 running（done/pending 不动）→ ⑤ job failed→running
+   *（清 error）→ ⑥ startOrchestrator 重开编排（sweepRetries 补派归零批次）。
+   */
+  async retry(jobId: string): Promise<void> {
+    const job = this.mustJob(jobId);
+    if (job.status !== "failed") {
+      throw new TaskError("task.invalid_state", `任务 ${jobId} 当前状态 ${job.status}，仅 failed 可人工重试`);
+    }
+    await this.deps.starter.stopOrchestrator(jobId);
+    for (const batch of this.allBatches(jobId)) {
+      if (batch.status !== "running") continue;
+      await this.failBatch(batch.id, "人工重试：任务 failed 时残留的 in-flight 批次收口");
+    }
+    const now = this.deps.clock.now();
+    for (const batch of this.allBatches(jobId)) {
+      if (batch.status !== "failed" || batch.retryCount === 0) continue;
+      await this.deps.store.updateBatch({
+        ...batch,
+        retryCount: 0,
+        retryNote: `人工重试：重试预算重置（此前失败 ${batch.retryCount} 次${batch.retryNote !== null ? `——${batch.retryNote}` : ""}）`,
+        updatedAt: now,
+      });
+    }
+    for (const stage of this.deps.store.getStages(jobId)) {
+      if (stage.status !== "failed") continue;
+      await this.deps.store
+        .updateStageStatus(jobId, stage.seq, "running")
+        .catch((error) => this.mapDomainError(error));
+      this.notify({ jobId, changed: "stage", status: "running" });
+    }
+    await this.transitionJob(jobId, "running"); // error=null 清失败理由
+    this.notify({ jobId, changed: "job", status: "running" });
+    // 与断点恢复同路径：重开编排（sweepRetries 补派归零的失败批次）
+    await this.deps.starter.startOrchestrator(jobId);
+  }
+
   async deleteTask(jobId: string): Promise<{ deletedCounts: TaskDeleteCounts }> {
     const job = this.mustJob(jobId);
     // F3.6：仅终态可删（done/failed/cancelled）

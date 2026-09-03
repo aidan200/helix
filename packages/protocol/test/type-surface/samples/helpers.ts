@@ -317,13 +317,14 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
     case "workspace.open":
       return `workspace-open:${cmd.payload.root}`;
     case "task.list":
-      // task 批（T1.5）：九命令载荷独立字段访问（窄化守护）
+      // task 批（T1.5）：九命令载荷独立字段访问（窄化守护）+ task.retry 批第十命令
       return `task-list:${cmd.payload.status ?? "-"}:${cmd.payload.project ?? "-"}`;
     case "task.detail":
     case "task.artifacts":
     case "task.pause":
     case "task.resume":
     case "task.cancel":
+    case "task.retry":
     case "task.delete":
       return `task-${cmd.type.split(".")[1]}:${cmd.payload.jobId}`;
     case "task.subscribe":

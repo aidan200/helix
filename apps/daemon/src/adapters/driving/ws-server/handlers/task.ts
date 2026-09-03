@@ -35,6 +35,7 @@ import type {
   TaskListResultEvent,
   TaskPauseResultEvent,
   TaskResumeResultEvent,
+  TaskRetryResultEvent,
   TaskStageDto,
   TaskStatus,
   TaskSubscribeResultEvent,
@@ -185,6 +186,11 @@ export function handleTaskCancel(ctx: TaskCommandContext): void {
   lifecycle(ctx, "cancel", "cancelled", (engine, jobId) => engine.cancel(jobId));
 }
 
+/** task.retry（仅 failed → running 复活：批次预算归零留痕 + failed 阶段重开 + 重开编排）。 */
+export function handleTaskRetry(ctx: TaskCommandContext): void {
+  lifecycle(ctx, "retry", "running", (engine, jobId) => engine.retry(jobId));
+}
+
 /** task.delete（F3.6：仅终态可删，判断收口引擎；成功无广播——删除非状态迁移，前端重拉 list 自达）。 */
 export function handleTaskDelete(ctx: TaskCommandContext): void {
   const engine = ctx.taskEngine;
@@ -209,7 +215,7 @@ export function handleTaskDelete(ctx: TaskCommandContext): void {
 /** 生命周期命令共通：引擎调用 → 成功即广播 task.changed（O-7）+ 后置状态回执。 */
 function lifecycle(
   ctx: TaskCommandContext,
-  verb: "pause" | "resume" | "cancel",
+  verb: "pause" | "resume" | "cancel" | "retry",
   postStatus: TaskStatus,
   call: (engine: NonNullable<TaskCommandContext["taskEngine"]>, jobId: string) => Promise<void>,
 ): void {
@@ -313,6 +319,7 @@ type TaskResultFrame =
   | TaskPauseResultEvent
   | TaskResumeResultEvent
   | TaskCancelResultEvent
+  | TaskRetryResultEvent
   | TaskDeleteResultEvent;
 
 /**

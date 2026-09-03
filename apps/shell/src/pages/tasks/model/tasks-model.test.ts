@@ -169,12 +169,13 @@ describe("③ 六态门控矩阵（纯函数）+ 删除联动", () => {
     expect(lifecycleActions("paused")).toEqual(["resume", "cancel"]);
   });
 
-  it("三终态（done/failed/cancelled）= 删除（运行中须先取消，无删除钮）", () => {
+  it("终态门控：done/cancelled=仅删除；failed=重试+删除（task.retry 人工复活）；非终态无删除钮", () => {
     expect(lifecycleActions("done")).toEqual(["delete"]);
-    expect(lifecycleActions("failed")).toEqual(["delete"]);
+    expect(lifecycleActions("failed")).toEqual(["retry", "delete"]);
     expect(lifecycleActions("cancelled")).toEqual(["delete"]);
     for (const st of ["pending", "running", "paused"] as const) {
       expect(lifecycleActions(st)).not.toContain("delete");
+      expect(lifecycleActions(st)).not.toContain("retry");
     }
   });
 

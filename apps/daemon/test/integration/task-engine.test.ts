@@ -494,6 +494,89 @@ describe("重试超限上浮（CL-2-T5 上浮面，O-3）", () => {
   });
 });
 
+describe("人工重试（task.retry，failed 复活——方案 A 预算归零留痕）", () => {
+  test("超限上浮后 retry：stop 先行 + 批次 retryCount 归零留痕 + stage 重开 running + job running 清 error + startOrchestrator 重开", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId, batchId } = await launchRunningJob(env);
+      // 打满三次失败 → 超限上浮 batch/stage/job failed
+      for (const note of ["一", "二", "三"]) {
+        await env.engine.failBatch(batchId, `closure 失败（${note}）`);
+        if (note !== "三") await env.engine.dispatchBatch(batchId, `inst-${note}`);
+      }
+      expect(env.store.getJob(jobId)!.status).toBe("failed");
+      const callsBefore = env.starter.calls.length;
+      await env.engine.retry(jobId);
+      // 调用序：stop 先于 start（杀残留 → 重开编排）
+      expect(env.starter.calls.slice(callsBefore)).toEqual([`stop:${jobId}`, `start:${jobId}`]);
+      // 批次：retryCount 归零 + 留痕（此前失败次数入 note）
+      const batch = env.store.getBatch(batchId)!;
+      expect(batch.status).toBe("failed");
+      expect(batch.retryCount).toBe(0);
+      expect(batch.retryNote).toContain("人工重试");
+      expect(batch.retryNote).toContain("此前失败 3 次");
+      // stage 重开 running；job 复活 running + error 清空
+      expect(env.store.getStages(jobId).find((s) => s.seq === 1)!.status).toBe("running");
+      const job = env.store.getJob(jobId)!;
+      expect(job.status).toBe("running");
+      expect(job.error).toBeNull();
+      // 复活后重派通道恢复：failed 批次可 dispatchBatch（failed→running）
+      await env.engine.dispatchBatch(batchId, "inst-retry");
+      expect(env.store.getBatch(batchId)).toMatchObject({ status: "running", instanceId: "inst-retry" });
+    });
+  });
+
+  test("残留 running 批次收口 failed 并一并归零；已 done stage 不动", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId, batchId } = await launchRunningJob(env);
+      // stage1 批次一 done + 产物落库收口 stage1；stage2 两个批次：一个打满上浮、一个残留 running
+      await env.engine.completeBatch(batchId);
+      await env.engine.writeStageArtifact(jobId, 1, { summary: "阶段一产物" });
+      const { batchId: b2 } = await env.engine.insertBatch({ jobId, stageSeq: 2, scope: "批次 2" });
+      await env.engine.dispatchBatch(b2, "inst-b2");
+      const { batchId: b3 } = await env.engine.insertBatch({ jobId, stageSeq: 2, scope: "批次 3" });
+      await env.engine.dispatchBatch(b3, "inst-b3");
+      for (const note of ["一", "二", "三"]) {
+        await env.engine.failBatch(b2, `失败（${note}）`);
+        if (note !== "三") await env.engine.dispatchBatch(b2, `inst-b2-${note}`);
+      }
+      expect(env.store.getJob(jobId)!.status).toBe("failed");
+      expect(env.store.getBatch(b3)!.status).toBe("running"); // 残留 in-flight
+      await env.engine.retry(jobId);
+      // 残留批次：先 failBatch 收口（retryCount+1）再归零留痕
+      const b3After = env.store.getBatch(b3)!;
+      expect(b3After.status).toBe("failed");
+      expect(b3After.retryCount).toBe(0);
+      expect(b3After.retryNote).toContain("人工重试");
+      // 已 done stage1 不动；failed stage2 重开 running
+      const stages = env.store.getStages(jobId);
+      expect(stages.find((s) => s.seq === 1)!.status).toBe("done");
+      expect(stages.find((s) => s.seq === 2)!.status).toBe("running");
+      expect(env.store.getJob(jobId)!.status).toBe("running");
+    });
+  });
+
+  test("非 failed 状态 retry → task.invalid_state（running/paused/done/cancelled/pending 全拒）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId, batchId } = await launchRunningJob(env);
+      await expect(env.engine.retry(jobId)).rejects.toMatchObject({ code: "task.invalid_state" }); // running
+      await env.engine.pause(jobId);
+      await expect(env.engine.retry(jobId)).rejects.toMatchObject({ code: "task.invalid_state" }); // paused
+      await env.engine.cancel(jobId);
+      await expect(env.engine.retry(jobId)).rejects.toMatchObject({ code: "task.invalid_state" }); // cancelled
+      const done = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["demo"],
+        params: { projectRoot: "/d2" },
+        createdBy: "page",
+      });
+      await expect(env.engine.retry(done.jobId)).rejects.toMatchObject({ code: "task.invalid_state" }); // pending
+      await expect(env.engine.retry("task-nonexistent")).rejects.toMatchObject({ code: "task.not_found" });
+      // batchId 占位防未用告警
+      expect(batchId).toBeTruthy();
+    });
+  });
+});
+
 describe("job 收口回口（completeJob 机械复核）", () => {
   test("全 stage done → completeJob 落 done；有未 done stage → task.invalid_state", async () => {
     await withTaskEnv(async (env) => {

@@ -63,6 +63,7 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
     sendTaskSubscribe,
     sendTaskPause,
     sendTaskResume,
+    sendTaskRetry,
     sendTaskCancel,
     sendTaskDelete,
     subscribeTaskFrames,
@@ -157,16 +158,23 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
         if (
           e.type === "task.pause.result" ||
           e.type === "task.resume.result" ||
-          e.type === "task.cancel.result"
+          e.type === "task.cancel.result" ||
+          e.type === "task.retry.result"
         ) {
           const req = lifecycleReqRef.current;
           if (req === null) return; // 非本页发起
           lifecycleReqRef.current = null;
           const status = (e.payload as TaskLifecycleResultPayload).status;
           dispatch({ type: "lifecycle-result", kind: req.kind, jobId: req.jobId, status });
-          const kind = e.type.slice("task.".length, -".result".length) as "pause" | "resume" | "cancel";
+          const kind = e.type.slice("task.".length, -".result".length) as "pause" | "resume" | "cancel" | "retry";
           const toastKey =
-            kind === "pause" ? "tk.toast.paused" : kind === "resume" ? "tk.toast.resumed" : "tk.toast.cancelled";
+            kind === "pause"
+              ? "tk.toast.paused"
+              : kind === "resume"
+                ? "tk.toast.resumed"
+                : kind === "retry"
+                  ? "tk.toast.retried"
+                  : "tk.toast.cancelled";
           toast.push("ok", t(toastKey));
           return;
         }
@@ -273,14 +281,16 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
             ? sendTaskResume(jobId)
             : kind === "cancel"
               ? sendTaskCancel(jobId)
-              : sendTaskDelete(jobId);
+              : kind === "retry"
+                ? sendTaskRetry(jobId)
+                : sendTaskDelete(jobId);
       if (!ok) {
         lifecycleReqRef.current = null;
         dispatch({ type: "lifecycle-failed" });
         toast.push("err", t("tk.toast.sendFailed"));
       }
     },
-    [sendTaskPause, sendTaskResume, sendTaskCancel, sendTaskDelete, toast, t],
+    [sendTaskPause, sendTaskResume, sendTaskCancel, sendTaskRetry, sendTaskDelete, toast, t],
   );
 
   // ── 展示派生 ───────────────────────────────────────────────

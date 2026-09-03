@@ -32,10 +32,11 @@ interface Sent {
   pause: string[];
   resume: string[];
   cancel: string[];
+  retry: string[];
   delete: string[];
 }
 
-const sent: Sent = { list: 0, subscribe: 0, detail: [], artifacts: [], pause: [], resume: [], cancel: [], delete: [] };
+const sent: Sent = { list: 0, subscribe: 0, detail: [], artifacts: [], pause: [], resume: [], cancel: [], retry: [], delete: [] };
 let listeners: ((e: EventEnvelope) => void)[] = [];
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
@@ -70,6 +71,10 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendTaskCancel: (jobId: string) => {
         sent.cancel.push(jobId);
+        return true;
+      },
+      sendTaskRetry: (jobId: string) => {
+        sent.retry.push(jobId);
         return true;
       },
       sendTaskDelete: (jobId: string) => {
@@ -179,6 +184,7 @@ afterEach(() => {
   sent.pause = [];
   sent.resume = [];
   sent.cancel = [];
+  sent.retry = [];
   sent.delete = [];
 });
 
@@ -337,6 +343,24 @@ describe("P-2 TasksPage：生命周期 + 删除门控（F3.5/F3.6）", () => {
     expect(sent.resume).toEqual(["job-paused"]);
     feed("task.resume.result", { ok: true, status: "running" });
     expect(qs("[data-tk-detail] [data-task-status='running']").textContent).toBe("运行中");
+  });
+
+  it("failed 详情：重试+删除钮；重试命令回执 → 运行中 + toast", () => {
+    ui();
+    feedList();
+    fireEvent.click(qs('.tk-row[data-id="job-failed"]'));
+    feed("task.detail.result", { task: detailOf(SIX[4]!) } satisfies TaskDetailResultPayload);
+    const actions = qs("[data-tk-actions]");
+    expect(actions.querySelector("[data-act='retry']")).toBeTruthy();
+    expect(actions.querySelector("[data-act='delete']")).toBeTruthy();
+    expect(actions.querySelector("[data-act='pause']")).toBeNull();
+    expect(actions.querySelector("[data-act='cancel']")).toBeNull();
+    fireEvent.click(actions.querySelector("[data-act='retry']")!);
+    expect(sent.retry).toEqual(["job-failed"]);
+    feed("task.retry.result", { ok: true, status: "running" });
+    expect(qs("[data-tk-detail] [data-task-status='running']").textContent).toBe("运行中");
+    expect(qs('.tk-row[data-id="job-failed"]').dataset.task).toBe("running");
+    expect(screen.getAllByText(/任务已重试/).length).toBeGreaterThan(0); // toast
   });
 });
 

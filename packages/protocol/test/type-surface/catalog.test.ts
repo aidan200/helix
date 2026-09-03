@@ -137,7 +137,7 @@ type _V09EventMembers = Expect<
   Equal<Extract<EnvelopeTypeOf<EventEnvelope>, V09EventTypes>, V09EventTypes>
 >;
 
-// task 批新增九命令 type 字面量全部在联合中（iter-20260829-ys7q T1.5；漏任一 → Extract 不等）
+// task 批新增九命令 + task.retry 批第十命令 type 字面量全部在联合中（iter-20260829-ys7q T1.5；漏任一 → Extract 不等）
 type TaskCommandTypes =
   | "task.list"
   | "task.detail"
@@ -147,6 +147,7 @@ type TaskCommandTypes =
   | "task.pause"
   | "task.resume"
   | "task.cancel"
+  | "task.retry"
   | "task.delete";
 
 type _TaskCommandMembers = Expect<
@@ -158,7 +159,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 60 个 type（… + config 批 2 + kg 批 6 + workspace 批 2 + task 批 9 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1 + kg.candidates.list 批 1 + base prompt 批 1 + code.review.create 批 1）", () => {
+  test("命令目录恰为 61 个 type（… + config 批 2 + kg 批 6 + workspace 批 2 + task 批 9 + task.retry 批 1 + kg-bootstrap 批 5 + kg 维护批 2 + kg 评审批 1 + kg.health 1 + kg.candidates.list 批 1 + base prompt 批 1 + code.review.create 批 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -212,6 +213,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "task.list",
         "task.pause",
         "task.resume",
+        "task.retry",
         "task.subscribe",
         "task.unsubscribe",
         "thinking.set",
@@ -531,11 +533,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（error entry 批后）：EVENT_TYPES 76 / EVENT_CHANNELS 76 键 / COMMAND_TYPES 58", () => {
+  test("目录计数（task.retry 批后）：EVENT_TYPES 78 / EVENT_CHANNELS 78 键 / COMMAND_TYPES 61", () => {
     expect(EVENT_TYPES.length).toBe(78); // code.review.create 批：+1（code.review.create.result）
     expect(new Set(EVENT_TYPES).size).toBe(78); // 无重复
     expect(Object.keys(EVENT_CHANNELS).length).toBe(78); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(60); // code.review.create 批：+1（code.review.create）
+    expect(COMMAND_TYPES.length).toBe(61); // task.retry 批：+1（task.retry）
   });
 
 });

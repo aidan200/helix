@@ -57,6 +57,15 @@ export interface TaskEnginePort {
   /** 取消（pending/running/paused → cancelled 终态；停编排 + 批次行收口 failed 不重试）。 */
   cancel(jobId: string): Promise<void>;
   /**
+   * 人工重试（failed → running 复活；token 耗尽换 key 后续跑场景——不浪费已耗 token）：
+   * 残留 running 批次收口 failed → failed 批次 retryCount 归零留痕（此前失败
+   * 次数与原 note 入新 retryNote，O-3 如实呈现）→ failed stage 重开 running
+   * → job failed→running（清 error）→ startOrchestrator 重开编排（sweepRetries
+   * 补派归零批次，与断点恢复同路径）。已 done 阶段/批次不动。仅 failed 可调，
+   * 其余状态 task.invalid_state。
+   */
+  retry(jobId: string): Promise<void>;
+  /**
    * 删除（F3.6：仅终态 done/failed/cancelled 可删，否则 task.invalid_state）；
    * 清 job/stage/batch + 各批次实例 work_item（经 batch.instanceId 收集）；
    * 不触任何 kg 写面（import 面机械可审）。

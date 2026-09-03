@@ -79,6 +79,7 @@ import type {
   TaskListPayload,
   TaskPauseCommand,
   TaskResumeCommand,
+  TaskRetryCommand,
   TaskSubscribeCommand,
   TaskSubscribePayload,
   TaskUnsubscribeCommand,
@@ -463,6 +464,11 @@ export function taskResumeCommand(jobId: string): TaskResumeCommand {
 /** task.cancel：pending/running/paused→cancelled 终态（在跑批次 SIGTERM）。 */
 export function taskCancelCommand(jobId: string): TaskCancelCommand {
   return { v: PROTOCOL_VERSION, type: "task.cancel", payload: { jobId } };
+}
+
+/** task.retry：仅 failed→running 人工复活（批次预算归零留痕 + failed 阶段重开 + 重开编排）。 */
+export function taskRetryCommand(jobId: string): TaskRetryCommand {
+  return { v: PROTOCOL_VERSION, type: "task.retry", payload: { jobId } };
 }
 
 /** task.delete：仅终态可删；清任务域全部记录不触 kg 产出（F3.6）。 */

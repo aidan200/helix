@@ -21,7 +21,7 @@ import { DomainError } from "../../src/domain/DomainError";
  * ④ stage/batch 迁移集合 = pending→running→done/failed。
  */
 
-/** §3.3 job 状态机全部合法迁移（pending→running/cancelled；running→paused/done/failed/cancelled；paused→running/cancelled）。 */
+/** §3.3 job 状态机全部合法迁移（pending→running/cancelled；running→paused/done/failed/cancelled；paused→running/cancelled；failed→running 人工重试复活口）。 */
 const LEGAL_JOB: ReadonlySet<string> = new Set([
   "pending->running",
   "pending->cancelled",
@@ -31,13 +31,15 @@ const LEGAL_JOB: ReadonlySet<string> = new Set([
   "running->cancelled",
   "paused->running",
   "paused->cancelled",
+  "failed->running",
 ]);
 
-/** stage 状态机全部合法迁移（pending→running；running→done/failed）。 */
+/** stage 状态机全部合法迁移（pending→running；running→done/failed；failed→running 人工重试重开阶段口）。 */
 const LEGAL_STAGE: ReadonlySet<string> = new Set([
   "pending->running",
   "running->done",
   "running->failed",
+  "failed->running",
 ]);
 
 /**
@@ -78,7 +80,7 @@ describe("job 状态机（CL-2-T2 ①②③）", () => {
     expect(() => assertJobTransition("done", "running")).toThrow(/done→running/);
   });
 
-  test("终态判定：done/failed/cancelled 为终态，pending/running/paused 非终态", () => {
+  test("终态判定：done/failed/cancelled 为终态，pending/running/paused 非终态（failed 有人工复活出边但终态语义不变——显式集合）", () => {
     for (const status of JOB_STATUSES) {
       const expected = status === "done" || status === "failed" || status === "cancelled";
       expect(isTerminalJob(status)).toBe(expected);
@@ -117,7 +119,7 @@ describe("stage/batch 状态机（CL-2-T2 ④）", () => {
     expect(() => assertBatchTransition("done", "running")).toThrow(/done→running/);
   });
 
-  test("终态判定：stage done/failed 终态；batch 仅 done 终态（failed 可重入，AF-1.3）", () => {
+  test("终态判定：stage done/failed 终态（failed 可人工重开但终态语义不变）；batch 仅 done 终态（failed 可重入，AF-1.3）", () => {
     for (const status of STAGE_STATUSES) {
       expect(isTerminalStage(status)).toBe(status === "done" || status === "failed");
     }

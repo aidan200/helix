@@ -31,10 +31,11 @@ import type {
   TaskDeleteResultEvent,
   TaskPauseResultEvent,
   TaskResumeResultEvent,
+  TaskRetryResultEvent,
   WorkItemDto,
 } from "../../src/index";
 
-/** task 族命令全集（契约 §2；清单即全集——多一个都不行，AD-2 零内容干预）。 */
+/** task 族命令全集（契约 §2 + task.retry 批 additive；清单即全集——多一个都不行，AD-2 零内容干预）。 */
 const TASK_COMMANDS = [
   "task.list",
   "task.detail",
@@ -44,22 +45,27 @@ const TASK_COMMANDS = [
   "task.pause",
   "task.resume",
   "task.cancel",
+  "task.retry",
   "task.delete",
 ] as const;
 
 describe("task 批（T1.5）：命令/事件/通道登记", () => {
-  test("命令目录：九命令登记且排序在 workspace 族之后", () => {
+  test("命令目录：十命令登记且排序在 workspace 族之后", () => {
     for (const t of TASK_COMMANDS) expect(COMMAND_TYPES).toContain(t);
     expect(COMMAND_TYPES.slice(-TASK_COMMANDS.length)).toEqual([...TASK_COMMANDS]);
-    expect(COMMAND_TYPES.length).toBe(60); // code.review.create 批 +1 后当前值
+    expect(COMMAND_TYPES.length).toBe(61); // task.retry 批 +1 后当前值
   });
 
-  test("零干预断言（AD-2）：task.* 命令清单恰为九命令，无 steer/内容编辑/批次重试语义命令", () => {
+  test("零干预断言（AD-2）：task.* 命令清单恰为十命令，无 steer/内容编辑/批次重试语义命令", () => {
     const family = COMMAND_TYPES.filter((t) => t.startsWith("task."));
     // 清单即全集（上条已证排序尾段 = TASK_COMMANDS；此处机械 grep 断言）
     expect(family).toEqual([...TASK_COMMANDS]);
-    // 否定面：零干预词表不得出现在 task 族命令名中（steer/重试/编辑/创建旁路）
-    const forbidden = family.filter((t) => /steer|retry|edit|update|modify|create|write|prompt/i.test(t));
+    // 否定面：零干预词表不得出现在 task 族命令名中（steer/重试/编辑/创建旁路）——
+    // task.retry 为白名单例外：job 级生命周期人工复活（failed→running），非批次
+    // 重试/内容干预，AD-2 语义保持（task.retry 批裁决，PROTOCOL.md §21 注记）。
+    const forbidden = family.filter(
+      (t) => t !== "task.retry" && /steer|retry|edit|update|modify|create|write|prompt/i.test(t),
+    );
     expect(forbidden).toEqual([]);
   });
 
@@ -184,6 +190,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
       TaskUnsubscribeResultEvent,
       TaskResumeResultEvent,
       TaskCancelResultEvent,
+      TaskRetryResultEvent,
       TaskDeleteResultEvent,
       TaskChangedEvent,
     ] = null as never; // 仅类型引用，无运行时值

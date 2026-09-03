@@ -413,6 +413,8 @@ export class TasksMockStore {
         return this.lifecycle(String(p.jobId), "resume", "running", ["paused"]);
       case "task.cancel":
         return this.lifecycle(String(p.jobId), "cancel", "cancelled", ["pending", "running", "paused"]);
+      case "task.retry":
+        return this.lifecycle(String(p.jobId), "retry", "running", ["failed"]);
       case "task.delete": {
         const jobId = String(p.jobId);
         const row = this.summaries.find((t) => t.jobId === jobId);
@@ -434,7 +436,7 @@ export class TasksMockStore {
   /** 生命周期命令：状态门控（非法态 → task.invalid_state）+ 成功伴发 changed 广播。 */
   private lifecycle(
     jobId: string,
-    cmd: "pause" | "resume" | "cancel",
+    cmd: "pause" | "resume" | "cancel" | "retry",
     next: TaskStatus,
     allowedFrom: readonly TaskStatus[],
   ): EventEnvelope[] {
@@ -511,6 +513,7 @@ export function isTaskCommand(type: string): boolean {
     type === "task.pause" ||
     type === "task.resume" ||
     type === "task.cancel" ||
+    type === "task.retry" ||
     type === "task.delete"
   );
 }
