@@ -22,6 +22,9 @@ docs:
   - name: kg/decisions.md
     purpose: 架构决策节点（AD-N，上下文/选项/裁决与理由/结局四节；终验沉淀跨迭代有效的设计事实）
     updatedAt: 2026-08-20T05:05:00.000Z
+  - name: code-review-task-design.md
+    purpose: code-review 任务类型设计（代码质量评审四问；现状事实清单 + 缺口 G1-G4 + 决策 D1-D5；草案待评审）
+    updatedAt: 2026-09-05T00:00:00.000Z
 ---
 
 # helix 文档索引
@@ -35,6 +38,7 @@ docs:
 | [kg/architecture-rules.md](kg/architecture-rules.md) | 架构规则（技术规则 TR-AD-N） |
 | [kg/testing-rules.md](kg/testing-rules.md) | 测试规则（技术规则 TR-TEST-N） |
 | [kg/decisions.md](kg/decisions.md) | 架构决策节点（AD-N，上下文/选项/裁决与理由/结局四节；终验沉淀跨迭代有效的设计事实） |
+| [code-review-task-design.md](code-review-task-design.md) | code-review 任务类型设计（草案待评审） |
 
 ## 迭代历史
 见 [ITERATIONS.md](ITERATIONS.md)
