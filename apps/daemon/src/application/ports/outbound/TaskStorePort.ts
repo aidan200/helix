@@ -74,6 +74,16 @@ export interface TaskDeleteCounts {
   readonly jobs: number;
   readonly stages: number;
   readonly batches: number;
+  /** 任务会话 domain_events 行（trace 会话详情级联）。 */
+  readonly events: number;
+  /** 任务会话 agent_lifecycle 行。 */
+  readonly lifecycleRows: number;
+  /** 任务会话 closure_records 行（批次收口档案）。 */
+  readonly closures: number;
+  /** 任务会话 steer_queue / tool_calls / pending_sync 行（防御性清零，常态 0）。 */
+  readonly steerRows: number;
+  readonly toolCallRows: number;
+  readonly pendingSyncs: number;
 }
 
 export interface TaskStorePort {
@@ -123,5 +133,5 @@ export interface TaskStorePort {
    * 删除计数）。work_item 清理不在本端口——引擎收集 batch.instanceId 后经
    * WorkLedgerPort.deleteByInstanceIds 清孤儿台账。
    */
-  deleteJobCascade(jobId: string): Promise<TaskDeleteCounts>;
+  deleteJobCascade(jobId: string, sessionId: string): Promise<TaskDeleteCounts>;
 }

@@ -160,9 +160,13 @@ type WriteJob =
       readonly batch: BatchData;
     }
   | {
-      /** 任务删除级联：清 job/stage/batch 三表该 job 全部行（F3.6）。 */
+      /** 任务删除级联：清 job/stage/batch 三表 + 任务会话六表（domain_events/
+       *  agent_lifecycle/closure_records/steer_queue/tool_calls/pending_sync——
+       *  trace 会话详情与批次收口档案随任务同灭，会话维表与 deleteSession 同构）。 */
       readonly kind: "taskJobCascade";
       readonly jobId: string;
+      /** 任务批次归属会话 id（task:<jobId>——引擎侧 taskSessionIdOf 算好传入）。 */
+      readonly sessionId: string;
     }
   | {
       /** pending_sync upsert（W2-D R13/R22：闭环记录点——新变更
@@ -474,12 +478,13 @@ export class WriteQueue {
   }
 
   /**
-   * 任务删除级联入队（F3.6）：清 job/stage/batch 三表该 job 全部行；
-   * write-through 计数——返回各表删除行数（work_item 清理在
-   * WorkLedgerPort.deleteByInstanceIds 侧，由引擎收集 instanceId 后调用）。
+   * 任务删除级联入队（F3.6）：清 job/stage/batch 三表该 job 全部行 + 任务会话
+   * 六表（sessionId 维，语句与 deleteSession 同组复用）；write-through 计数——
+   * 返回各表删除行数（work_item 清理在 WorkLedgerPort.deleteByInstanceIds 侧，
+   * 由引擎收集 instanceId 后调用）。
    */
-  deleteTaskJobCascade(jobId: string): Promise<TaskDeleteCounts> {
-    return this.enqueue<TaskDeleteCounts>({ kind: "taskJobCascade", jobId });
+  deleteTaskJobCascade(jobId: string, sessionId: string): Promise<TaskDeleteCounts> {
+    return this.enqueue<TaskDeleteCounts>({ kind: "taskJobCascade", jobId, sessionId });
   }
 
   /** 等待已入队 job 全部落盘（测试/优雅退出用；分仓后 = 全部仓位 drain）。 */
@@ -701,11 +706,20 @@ export class WriteQueue {
     }
     if (job.kind === "taskJobCascade") {
       // 子行先清后清 job 行（无外键约束——满载纪律，顺序仅约定俗成）；
-      // 返回各表删除计数（write-through：await 返回即可查）
+      // 返回各表删除计数（write-through：await 返回即可查）。
+      // 会话维六表与 deleteSession 同构（任务会话 = task:<jobId>，批次 trace
+      // 事件/收口档案/生命周期投影随任务同灭；steer/tool_calls/pending_sync
+      // 常态零行，防御性清零防未来孤儿）。
+      const events = this.deleteSessionEvents.run(job.sessionId).changes;
+      const lifecycleRows = this.deleteSessionLifecycle.run(job.sessionId).changes;
+      const closures = this.deleteSessionClosures.run(job.sessionId).changes;
+      const steerRows = this.deleteSessionSteer.run(job.sessionId).changes;
+      const toolCallRows = this.deleteSessionToolCalls.run(job.sessionId).changes;
+      const pendingSyncs = this.deleteSessionPendingSync.run(job.sessionId).changes;
       const stages = this.deleteTaskStagesByJob.run(job.jobId).changes;
       const batches = this.deleteTaskBatchesByJob.run(job.jobId).changes;
       const jobs = this.deleteTaskJob.run(job.jobId).changes;
-      return { jobs, stages, batches } satisfies TaskDeleteCounts;
+      return { jobs, stages, batches, events, lifecycleRows, closures, steerRows, toolCallRows, pendingSyncs } satisfies TaskDeleteCounts;
     }
     if (job.kind === "event") {
       const row = domainEventToRow(job.event, job.agentKind);

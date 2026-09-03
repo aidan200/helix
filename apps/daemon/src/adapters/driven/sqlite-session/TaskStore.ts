@@ -122,8 +122,8 @@ export class TaskStore implements TaskStorePort {
     return rows.map(rowToBatch);
   }
 
-  deleteJobCascade(jobId: string): Promise<TaskDeleteCounts> {
-    return this.writeQueue.deleteTaskJobCascade(jobId);
+  deleteJobCascade(jobId: string, sessionId: string): Promise<TaskDeleteCounts> {
+    return this.writeQueue.deleteTaskJobCascade(jobId, sessionId);
   }
 }
 

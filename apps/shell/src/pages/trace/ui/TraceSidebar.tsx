@@ -16,8 +16,10 @@ import { cn } from "@/shared/lib/cn";
 import InstancePanel from "./P-1-instance-panel";
 
 export interface TraceSidebarProps {
-  /** 会话清单（topology.list，按最近活动降序）。 */
+  /** 会话清单（任务会话 task:<jobId> 排前 + topology.list，按最近活动降序）。 */
   sessions: readonly SessionMeta[];
+  /** 任务会话类型徽章查表（sessionId → 任务类型；非任务会话无条目）。 */
+  taskKinds?: ReadonlyMap<string, string>;
   /** 当前会话（"" = 尚未解析——下分区退「未选会话」空态）。 */
   sessionId: string;
   /** 实例摘要块（选中会话查询结果，AF-5 会话级 fold）。 */
@@ -34,6 +36,7 @@ export interface TraceSidebarProps {
 
 const TraceSidebar = function TraceSidebar({
   sessions,
+  taskKinds,
   sessionId,
   instances,
   selectedInstance,
@@ -55,19 +58,25 @@ const TraceSidebar = function TraceSidebar({
           {sessions.length === 0 ? (
             <p className="tsb-empty">{t("trace.sidebar.sessionsEmpty")}</p>
           ) : (
-            sessions.map((s) => (
-              <button
-                key={s.sessionId}
-                type="button"
-                className={cn("tsb-ses", s.sessionId === sessionId && "on")}
-                data-session-id={s.sessionId}
-                aria-pressed={s.sessionId === sessionId}
-                onClick={() => onSelectSession(s.sessionId)}
-              >
-                <span className="tsb-name">{s.title !== "" ? s.title : s.sessionId}</span>
-                {s.title !== "" && <span className="tsb-id">{s.sessionId}</span>}
-              </button>
-            ))
+            sessions.map((s) => {
+              const taskKind = taskKinds?.get(s.sessionId);
+              return (
+                <button
+                  key={s.sessionId}
+                  type="button"
+                  className={cn("tsb-ses", s.sessionId === sessionId && "on")}
+                  data-session-id={s.sessionId}
+                  aria-pressed={s.sessionId === sessionId}
+                  onClick={() => onSelectSession(s.sessionId)}
+                >
+                  <span className="tsb-name">
+                    {taskKind !== undefined && <span className="tsb-task-badge">{taskKind}</span>}
+                    {s.title !== "" ? s.title : s.sessionId}
+                  </span>
+                  {s.title !== "" && <span className="tsb-id">{s.sessionId}</span>}
+                </button>
+              );
+            })
           )}
         </div>
       </section>

@@ -100,6 +100,7 @@ interface MockSession {
   sentQueries: TraceQueryPayload[];
   sendOk: boolean;
   listeners: ((e: EventEnvelope) => void)[];
+  taskListeners: ((e: EventEnvelope) => void)[];
 }
 
 const mock: MockSession = {
@@ -108,6 +109,7 @@ const mock: MockSession = {
   sentQueries: [],
   sendOk: true,
   listeners: [],
+  taskListeners: [],
 };
 const requestSessionList = vi.fn();
 const retry = vi.fn();
@@ -129,6 +131,14 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
         mock.listeners.push(cb);
         return () => {
           mock.listeners = mock.listeners.filter((l) => l !== cb);
+        };
+      },
+      // 任务会话清单面（B：trace 纳入 task:<jobId> 会话）——mock 零任务形态
+      sendTaskList: () => true,
+      subscribeTaskFrames: (cb: (e: EventEnvelope) => void) => {
+        mock.taskListeners.push(cb);
+        return () => {
+          mock.taskListeners = mock.taskListeners.filter((l) => l !== cb);
         };
       },
     }),
@@ -189,6 +199,7 @@ afterEach(() => {
   mock.sentQueries = [];
   mock.sendOk = true;
   mock.listeners = [];
+  mock.taskListeners = [];
   vi.clearAllMocks();
 });
 
@@ -247,6 +258,44 @@ describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）",
     const items = document.querySelectorAll(".tsb-ses");
     expect(items[0]!.getAttribute("aria-pressed")).toBe("false");
     expect(items[1]!.getAttribute("aria-pressed")).toBe("true"); // 激活态随查询即时切换
+  });
+
+  it("任务会话入侧栏（B）：task.list.result → task:<jobId> 条目排前 + 类型徽章 + 点击发起 task 会话查询", () => {
+    ui();
+    act(() => feedResult());
+    // 推任务清单（task.list.result 点对点回执，宽松形状同 TasksPage 先例）
+    act(() => {
+      for (const cb of mock.taskListeners) {
+        cb({
+          v: 1,
+          type: "task.list.result",
+          payload: {
+            tasks: [
+              {
+                jobId: "job-x1",
+                type: "code-review",
+                title: "代码评审：daemon 任务域",
+                status: "done",
+                projects: ["helix"],
+                createdBy: "page",
+                createdAt: new Date(TS0).toISOString(),
+                updatedAt: new Date(TS0 + 60_000).toISOString(),
+                progress: null,
+              },
+            ],
+          },
+        } as unknown as EventEnvelope);
+      }
+    });
+    // 侧栏：任务会话排前 + 徽章渲染
+    const items = document.querySelectorAll(".tsb-ses");
+    expect(items[0]!.getAttribute("data-session-id")).toBe("task:job-x1");
+    const badge = items[0]!.querySelector(".tsb-task-badge");
+    expect(badge?.textContent).toBe("code-review");
+    expect(items[0]!.textContent).toContain("代码评审：daemon 任务域");
+    // 点击任务会话 → session 域查询（task:<jobId> 直查 domain_events）
+    fireEvent.click(items[0]!);
+    expect(mock.sentQueries.some((q) => q.sessionId === "task:job-x1")).toBe(true);
   });
 
   it("success：混排表头四列（时间/实例/类型/摘要）+ 命中计数 + 行展开 payload（手风琴 + aria-expanded）", () => {

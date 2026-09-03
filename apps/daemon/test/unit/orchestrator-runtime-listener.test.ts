@@ -78,3 +78,47 @@ describe("orchestrator-runtime drive listener：engine_error 经 logger 落日�
     await expect(session.drive("kickoff")).resolves.toBeUndefined();
   });
 });
+
+describe("orchestrator-runtime 事件镜像（eventSink）：引擎事件翻译落盘供 trace 查询", () => {
+  const fakeClock = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
+
+  test("注入 eventSink → engine_error 翻译为 engine.error 领域事件（sessionId=task:<jobId>，instanceId=orchestrator，原文入载荷）", async () => {
+    const events: { type: string; sessionId: string; instanceId?: string; payload: unknown }[] = [];
+    const factory = createOrchestratorSessionFactory({
+      assembly: () => ({ tools: [], systemPrompt: "" }),
+      model: () => fakeModel,
+      apiKeys: () => ({ fake: "key" }),
+      toolCwd: () => "/tmp",
+      taskEngine: {} as unknown as TaskEnginePort,
+      ledger: {} as unknown as WorkLedgerService,
+      models: fakeModels,
+      llmOverride: { model: () => fakeModel, streamFn: errorStreamFn("provider 502 upstream unavailable") },
+      eventSink: { publish: (e) => events.push(e as never), clock: fakeClock },
+    });
+    const session = factory("job-sink-1", orchestrationStub);
+    await session.drive("kickoff");
+    const engineError = events.find((e) => e.type === "engine.error");
+    expect(engineError).toBeDefined();
+    expect(engineError!.sessionId).toBe("task:job-sink-1");
+    expect(engineError!.instanceId).toBe("orchestrator");
+    expect((engineError!.payload as { message: string }).message).toContain("provider 502 upstream unavailable");
+  });
+
+  test("未注入 eventSink（缺省）→ 零事件发布（现状兼容，纯 logger 形态）", async () => {
+    // 缺省形态已由上一 describe 两用例覆盖（drive 正常 resolve 不崩）；
+    // 本用例锁定「无 sink 不产事件」的边界：工厂无 eventSink 参 → 无回调面可观测，
+    // 等价断言 = drive resolve 且不抛（翻译器未装配零副作用）。
+    const factory = createOrchestratorSessionFactory({
+      assembly: () => ({ tools: [], systemPrompt: "" }),
+      model: () => fakeModel,
+      apiKeys: () => ({ fake: "key" }),
+      toolCwd: () => "/tmp",
+      taskEngine: {} as unknown as TaskEnginePort,
+      ledger: {} as unknown as WorkLedgerService,
+      models: fakeModels,
+      llmOverride: { model: () => fakeModel, streamFn: errorStreamFn("x") },
+    });
+    const session = factory("job-sink-2", orchestrationStub);
+    await expect(session.drive("kickoff")).resolves.toBeUndefined();
+  });
+});

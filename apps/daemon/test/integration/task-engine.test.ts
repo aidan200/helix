@@ -322,13 +322,69 @@ describe("deleteTask（CL-3-T12 引擎面，F3.6）", () => {
       // 终态后删除
       await env.engine.cancel(jobId);
       const { deletedCounts } = await env.engine.deleteTask(jobId);
-      expect(deletedCounts).toEqual({ jobs: 1, stages: 3, batches: 1 });
+      expect(deletedCounts).toEqual({
+        jobs: 1,
+        stages: 3,
+        batches: 1,
+        events: 0,
+        lifecycleRows: 0,
+        closures: 0,
+        steerRows: 0,
+        toolCallRows: 0,
+        pendingSyncs: 0,
+      });
+      expect(env.reportDirRemoved).toEqual([jobId]); // 报告目录级联调用
       expect(env.store.getJob(jobId)).toBeUndefined();
       expect(env.store.getStages(jobId)).toHaveLength(0);
       expect(env.store.getBatches(jobId, 1)).toHaveLength(0);
       expect(env.workLedger.getItems("inst-a")).toHaveLength(0); // work_item 一并清（四表清零）
       expect(env.store.getJob(other.jobId)).toBeDefined(); // 他任务不动
       expect(env.store.getStages(other.jobId)).toHaveLength(3);
+    });
+  });
+
+  test("任务会话六表级联清零（trace 事件/收口档案/生命周期投影随任务同灭）+ 他会话不动", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await launchRunningJob(env);
+      const other = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["other"],
+        params: { projectRoot: "/o" },
+        createdBy: "chat",
+      });
+      // 造任务会话痕迹：domain_events ×2 + agent_lifecycle ×1 + closure_records ×1
+      const sid = `task:${jobId}`;
+      await env.queue.appendEvent(
+        { type: "tool.call.started", sessionId: sid, instanceId: "inst-a", payload: { toolCallId: "t1", toolName: "read", args: {} }, occurredAt: new Date().toISOString() },
+        "subagent",
+      );
+      await env.queue.appendEvent(
+        { type: "message.completed", sessionId: sid, instanceId: "inst-a", payload: { entryId: "inst-a#1", role: "assistant", content: "x" }, occurredAt: new Date().toISOString() },
+        "subagent",
+      );
+      await env.queue.saveAgentLifecycle(sid, "inst-a", "running");
+      await env.queue.saveClosureRecord(sid, "inst-a", "done", { status: "done", summary: "收口", findings: [] });
+      // 他会话痕迹（不受本次删除影响）
+      const otherSid = `task:${other.jobId}`;
+      await env.queue.appendEvent(
+        { type: "agent.spawned", sessionId: otherSid, instanceId: "inst-b", payload: { agentId: "inst-b", task: "t", profileKind: "subagent-worker" }, occurredAt: new Date().toISOString() },
+        "subagent",
+      );
+      const countOf = (table: string, sessionId: string): number =>
+        (env.queue.database.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE session_id = ?`).get(sessionId) as { c: number }).c;
+      expect(countOf("domain_events", sid)).toBe(2);
+      expect(countOf("agent_lifecycle", sid)).toBe(1);
+      expect(countOf("closure_records", sid)).toBe(1);
+
+      await env.engine.cancel(jobId);
+      const { deletedCounts } = await env.engine.deleteTask(jobId);
+      expect(deletedCounts.events).toBe(2);
+      expect(deletedCounts.lifecycleRows).toBe(1);
+      expect(deletedCounts.closures).toBe(1);
+      expect(countOf("domain_events", sid)).toBe(0);
+      expect(countOf("agent_lifecycle", sid)).toBe(0);
+      expect(countOf("closure_records", sid)).toBe(0);
+      expect(countOf("domain_events", otherSid)).toBe(1); // 他会话不动
     });
   });
 

@@ -528,8 +528,18 @@ describe("deleteJobCascade 级联删除 + work_item 关联清理", () => {
         .filter((id): id is string => id !== null);
       expect(instances.sort()).toEqual(["agent-a1", "agent-a2"]);
 
-      const counts = await store.deleteJobCascade("task-a");
-      expect(counts).toEqual({ jobs: 1, stages: 2, batches: 3 });
+      const counts = await store.deleteJobCascade("task-a", "task:task-a");
+      expect(counts).toEqual({
+        jobs: 1,
+        stages: 2,
+        batches: 3,
+        events: 0,
+        lifecycleRows: 0,
+        closures: 0,
+        steerRows: 0,
+        toolCallRows: 0,
+        pendingSyncs: 0,
+      });
       await parent.deleteByInstanceIds(instances);
 
       // 任务 A 四表清零

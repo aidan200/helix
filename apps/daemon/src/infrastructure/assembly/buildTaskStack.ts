@@ -75,6 +75,11 @@ export interface BuildTaskStackDeps {
    * 调度器在 sessionStack 之后建；未注入 → DTO instanceState 省略）。
    */
   readonly instanceStateOf?: (agentId: string) => string | undefined;
+  /**
+   * 任务报告目录清理（F3.6 级联扩展）：组合根注入 fs 实现（~<home>/reports/
+   *  task:<jobId>/ 整目录 rm）；缺省跳过（隔离测试形态零 fs）。
+   */
+  readonly removeTaskReportDir?: (jobId: string) => Promise<void> | void;
 }
 
 export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStack> {
@@ -95,6 +100,8 @@ export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStac
     workLedger,
     clock: deps.clock,
     ...(deps.onTaskChanged !== undefined ? { onTaskChanged: deps.onTaskChanged } : {}),
+    ...(deps.removeTaskReportDir !== undefined ? { removeTaskReportDir: deps.removeTaskReportDir } : {}),
+    warn: (m) => deps.logger.warn(m),
   });
   const query = new TaskQueryService({
     store,

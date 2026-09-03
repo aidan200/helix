@@ -22,8 +22,8 @@
  * trace.css 零硬编码 hex）。scanline 氛围层 = App.tsx 全局单份（S1 上提，
  * 页内副本 S3b 清理）。
  */
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
-import type { EventEnvelope, TraceQueryResultPayload } from "@helix/protocol";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import type { EventEnvelope, SessionMeta, TaskSummaryDto, TraceQueryResultPayload } from "@helix/protocol";
 import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
@@ -53,12 +53,17 @@ const TracePage = function TracePage({ path }: { path: string }) {
     retry,
     sendTraceQuery,
     subscribeTraceFrames,
+    sendTaskList,
+    subscribeTaskFrames,
   } = useSession();
   const conn = session.conn;
 
   const [state, dispatch] = useReducer(traceReducer, undefined, createTracePageState);
   const stateRef = useRef(state);
   stateRef.current = state;
+  /** 任务会话清单（task.list 拉取；task:<jobId> 会话与 chat 会话同栏可选——
+   *  任务批次/编排事件落 domain_events 同表，trace.query 直查无需 daemon 改动）。 */
+  const [tasks, setTasks] = useState<readonly TaskSummaryDto[]>([]);
 
   /** 查询主链：构造 payload+echo（同产防漂移）→ 先置 loading 清旧态 → 发送；
    *  发送失败（未连接）即落 error 态。beforeId 非空 = 分页追加（不收口视图）。 */
@@ -99,14 +104,44 @@ const TracePage = function TracePage({ path }: { path: string }) {
     [subscribeTraceFrames],
   );
 
+  // task 族帧消费：task.list.result → 任务会话清单（点对点回执，协议窄化
+  // 接口——EventEnvelope 联合外宽松判别，TasksPage 先例同构）
+  useEffect(
+    () =>
+      subscribeTaskFrames((envelope: EventEnvelope) => {
+        const e = envelope as { type: string; payload: unknown };
+        if (e.type === "task.list.result") {
+          setTasks([...(e.payload as { tasks: readonly TaskSummaryDto[] }).tasks]);
+        }
+      }),
+    [subscribeTaskFrames],
+  );
+
   /** 会话解析：已选合法 → 保持；否则活跃会话优先，回落清单首条（最新）。 */
+  const mergedSessions = useMemo<readonly SessionMeta[]>(() => {
+    // 任务会话映射为 SessionMeta 形态排前（runState 按 job.status 映射；
+    // loaded=false——任务会话不在会话注册表，恒冷会话）
+    const taskMetas: SessionMeta[] = tasks.map((tk) => ({
+      sessionId: `task:${tk.jobId}`,
+      title: tk.title,
+      lastActivityAt: Date.parse(tk.updatedAt),
+      runState: tk.status === "running" || tk.status === "paused" ? "subagent_running" : "idle",
+      loaded: false,
+    }));
+    return [...taskMetas, ...topology.list];
+  }, [tasks, topology.list]);
+  /** 任务会话类型徽章查表（sessionId → 任务类型；TraceSidebar 徽章数据源）。 */
+  const taskKinds = useMemo<ReadonlyMap<string, string>>(
+    () => new Map(tasks.map((tk) => [`task:${tk.jobId}`, tk.type])),
+    [tasks],
+  );
   const resolvedSessionId = useMemo(() => {
     const cur = state.filter.sessionId;
-    if (cur !== "" && topology.list.some((s) => s.sessionId === cur)) return cur;
+    if (cur !== "" && mergedSessions.some((s) => s.sessionId === cur)) return cur;
     const active = session.sessionId;
     if (active !== null && topology.list.some((s) => s.sessionId === active)) return active;
-    return topology.list[0]?.sessionId ?? null;
-  }, [state.filter.sessionId, session.sessionId, topology.list]);
+    return mergedSessions[0]?.sessionId ?? null;
+  }, [state.filter.sessionId, session.sessionId, mergedSessions, topology.list]);
 
   // 会话清单拉取（未请求态才发）+ 进页/重连自动查询
   const requestedListRef = useRef(false);
@@ -116,6 +151,7 @@ const TracePage = function TracePage({ path }: { path: string }) {
     const prevConn = prevConnRef.current;
     prevConnRef.current = conn;
     if (conn !== "connected") return;
+    sendTaskList(); // 任务会话清单（首挂/重连重拉）
     if (topology.list.length === 0) {
       if (!requestedListRef.current) {
         requestedListRef.current = true;
@@ -140,7 +176,7 @@ const TracePage = function TracePage({ path }: { path: string }) {
       runQuery(cur.filter, null, "filter");
       toast.push("ok", t("trace.state.reconnectedToast"));
     }
-  }, [conn, resolvedSessionId, topology.list.length, requestSessionList, runQuery, toast, t]);
+  }, [conn, resolvedSessionId, topology.list.length, requestSessionList, runQuery, toast, t, sendTaskList]);
 
   // ── 控制条交互（任何筛选变更 = 新查询：清旧态 + 游标/展开/折叠重置）──
   // 会话选择入口在 TraceSidebar 上分区（S3b；session 域全量重置）
@@ -218,7 +254,8 @@ const TracePage = function TracePage({ path }: { path: string }) {
       headerLeft={<h1 className="p1-title">{t("trace.title")}</h1>}
       sidebar={
         <TraceSidebar
-          sessions={topology.list}
+          sessions={mergedSessions}
+          taskKinds={taskKinds}
           sessionId={state.filter.sessionId !== "" ? state.filter.sessionId : (resolvedSessionId ?? "")}
           instances={state.instances}
           selectedInstance={state.filter.instanceId}

@@ -121,10 +121,13 @@ export interface TaskEngineEnv {
   readonly engine: TaskEngineService;
   readonly query: TaskQueryService;
   readonly store: TaskStore;
+  readonly queue: WriteQueue;
   readonly starter: FakeOrchestratorStarter;
   readonly skills: FakeTaskSkillRegistry;
   readonly workLedger: WorkLedgerParentFace;
   readonly dbPath: string;
+  /** removeTaskReportDir fake 调用记录（F3.6 级联扩展断言面）。 */
+  readonly reportDirRemoved: string[];
   dispose(): Promise<void>;
 }
 
@@ -149,7 +152,17 @@ export function buildTaskEngineEnv(over: TaskEnvOverrides = {}): TaskEngineEnv {
   );
   skills.register("zero-project-scan", zeroProjectManifest(), "全库零项目扫描任务");
   const clock = counterClock();
-  const engine = new TaskEngineService({ store, skills, starter, workLedger, clock });
+  const reportDirRemoved: string[] = [];
+  const engine = new TaskEngineService({
+    store,
+    skills,
+    starter,
+    workLedger,
+    clock,
+    removeTaskReportDir: (jobId) => {
+      reportDirRemoved.push(jobId);
+    },
+  });
   const query = new TaskQueryService({
     store,
     workLedger,
@@ -161,10 +174,12 @@ export function buildTaskEngineEnv(over: TaskEnvOverrides = {}): TaskEngineEnv {
     engine,
     query,
     store,
+    queue,
     starter,
     skills,
     workLedger,
     dbPath,
+    reportDirRemoved,
     dispose: async () => {
       await queue.close();
       rmSync(dir, { recursive: true, force: true });

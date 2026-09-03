@@ -43,6 +43,7 @@ import { scanWorkspaceProjects, existingKgProjects } from "../adapters/driven/wo
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
 import { accessSync, constants as fsConstants } from "node:fs";
+import { rm } from "node:fs/promises";
 import { ensureDevToken } from "./dev-token";
 import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
@@ -434,6 +435,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 链 A（⑤）：批次实例调度态读面（任务页 parked 徽标数据源）——晚绑闭包
     // 读 scheduler 现值（sessionStack 在本块之后建，构造窗口零调用）
     instanceStateOf: (agentId) => schedulerLate?.status(agentId)[0]?.state,
+    // F3.6 级联扩展：任务报告目录（批次报告 md/findings 旁路/summary.md）
+    // 随任务同灭——force:true 幂等（目录不存在不炸），库级联成功后调用
+    removeTaskReportDir: (jobId) => rm(path.join(paths.home, "reports", `task:${jobId}`), { recursive: true, force: true }),
   });
   // P0① 回填：kg 栈 projectService 的 bootstrapRunning 查询面接任务库现值
   taskStoreForProjectRows = taskStack.orchestratorCore.store;
@@ -606,6 +610,15 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
       thinkingChain: () => [sessionStack.resourceService.thinkingSlot("orchestrator"), persistence.defaultThinking.stored() ?? undefined],
       apiKeys: () => modelStack.authStore.apiKeysSnapshot(),
       llmOverride: deps.orchestratorLlmOverride,
+      // 编排会话事件镜像落盘（任务域观测面）：翻译后领域事件直写
+      // domain_events（kind="orchestrator"；不经 fanout 零广播副作用）——
+      // trace 面板按 task:<jobId> 会话可查编排过程
+      eventSink: {
+        publish: (event) => {
+          void persistence.writeQueue.appendEvent(event, "orchestrator");
+        },
+        clock,
+      },
       models: modelStack.catalog.modelsView(),
       toolCwd: toolCwdNow,
       // kg 只读面（W1：经 workspace 持有者读现值；未绑定 → 剔除 kg 工具）

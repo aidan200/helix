@@ -5,6 +5,7 @@ import { MAX_BATCH_RETRY, nextRetryCount, shouldRetryBatch } from "../../../doma
 import type { StagePlan } from "../../../domain/task/types";
 import type { TaskEnginePort, CreateTaskInput } from "../../ports/inbound/TaskEnginePort";
 import { TaskError } from "./TaskError";
+import { taskSessionIdOf } from "./TaskOrchestratorService";
 import type { TaskStorePort, BatchData, JobData, StageArtifact, TaskDeleteCounts } from "../../ports/outbound/TaskStorePort";
 import type { WorkLedgerPort } from "../../ports/outbound/WorkLedgerPort";
 import type { TaskSkillRegistryPort } from "../../ports/outbound/TaskSkillRegistryPort";
@@ -20,7 +21,8 @@ import type { ClockPort } from "../../ports/outbound/ClockPort";
  *
  * 【写纪律】job/stage/batch 全部状态迁移经 TaskStorePort 单写通道（domain
  * 守卫先行）；本服务 import 面**无任何 kg 依赖**（F3.6 删除不触 kg 产出，
- * 机械可审——deleteTask 只清任务四表 + 实例 plan 台账）。
+ * 机械可审——deleteTask 清任务四表 + 实例 plan 台账 + 任务会话六表
+ * （trace 事件/收口档案/生命周期投影等）+ 报告目录，kg 面零调用）。
  *
  * 【事件钩子（T1.5 接线位）】每次 job/stage/batch 状态迁移后的 task.changed
  * 推送不在此实现——T1.5 在 handler/context 层以最小接线注入（EventStream
@@ -48,6 +50,15 @@ export interface TaskEngineServiceDeps {
    * 同一单点，避免双发）；deleteTask 不广播（非状态迁移，AF-T1.5.2 裁决）。
    */
   readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void;
+  /**
+   * 任务报告目录清理（F3.6 级联扩展）：~<home>/reports/task:<jobId>/ 整目录
+   * 删除（批次报告 md/findings 旁路/summary.md 随任务同灭）。组合根注入 fs
+   * 实现（rm -rf 同构）；缺省跳过（纯引擎测试形态零 fs）。删除失败只 warn
+   * 不阻断（目录缺失/权限问题不反转已完成的库级联）。
+   */
+  readonly removeTaskReportDir?: (jobId: string) => Promise<void> | void;
+  /** 可观测 warn（报告目录删除失败上报；缺省静默）。 */
+  readonly warn?: (message: string) => void;
 }
 
 export class TaskEngineService implements TaskEnginePort {
@@ -176,8 +187,17 @@ export class TaskEngineService implements TaskEnginePort {
       .map((b) => b.instanceId)
       .filter((id): id is string => id !== null);
     await this.deps.workLedger.deleteByInstanceIds(instanceIds);
-    // job/stage/batch 级联清（不触任何 kg 产出——删任务≠删知识，AD-10）
-    const deletedCounts = await this.deps.store.deleteJobCascade(jobId);
+    // job/stage/batch 级联清 + 任务会话六表（trace 事件/收口档案等同灭——
+    // 不触任何 kg 产出：删任务≠删知识，AD-10）
+    const deletedCounts = await this.deps.store.deleteJobCascade(jobId, taskSessionIdOf(jobId));
+    // 报告目录级联（库删除成功后；失败只 warn 不反转）
+    if (this.deps.removeTaskReportDir !== undefined) {
+      try {
+        await this.deps.removeTaskReportDir(jobId);
+      } catch (err) {
+        this.deps.warn?.(`任务 ${jobId} 报告目录删除失败（库级联已完成）：${(err as Error).message}`);
+      }
+    }
     return { deletedCounts };
   }
 

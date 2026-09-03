@@ -1,7 +1,12 @@
 import type { AgentOrchestrationPort } from "../../application/ports/inbound/AgentOrchestrationPort";
 import type { TaskEnginePort } from "../../application/ports/inbound/TaskEnginePort";
 import type { OrchestratorSessionFace } from "../../application/services/task/TaskOrchestratorService";
+import { taskSessionIdOf } from "../../application/services/task/TaskOrchestratorService";
 import type { WorkLedgerService } from "../../application/services/task/WorkLedgerService";
+import { SubagentEventTranslator } from "../../application/services/scheduler/SubagentEventTranslator";
+import { AgentInstance } from "../../domain/agent/AgentInstance";
+import type { DomainEvent } from "../../domain/events/DomainEvent";
+import type { ClockPort } from "../../application/ports/outbound/ClockPort";
 import { PiAgentEngineAdapter, type PiEngineOptions } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import type { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
 import { OrchestratorProfile } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
@@ -24,6 +29,9 @@ import type { Logger } from "../logging";
 
 /** 模型对象形态（AG-04：pi 类型不进 infrastructure——经 driven 解析函数返回型推导）。 */
 type OrchestratorModel = ReturnType<typeof resolveConfigModel>;
+
+/** 编排者实例 id（domain_events.agent_instance_id 落值；trace 面板实例过滤键）。 */
+const ORCHESTRATOR_INSTANCE_ID = "orchestrator";
 
 export interface OrchestratorSessionFactoryDeps {
   /** 编排组装快照现值（buildSessionStack.orchestratorAssembly）。 */
@@ -59,6 +67,18 @@ export interface OrchestratorSessionFactoryDeps {
   readonly ledger: WorkLedgerService;
   readonly logger?: Logger;
   /**
+   * 编排会话事件镜像落盘（任务域观测面）：引擎事件经 SubagentEventTranslator
+   * 翻译成领域事件（tool.call 族 / thinking.completed / message.completed /
+   * usage.recorded / engine.error）后回调——组合根接 WriteQueue.appendEvent
+   * （kind "orchestrator"）直写 domain_events（不经 fanout：不广播 WS/CLI，
+   * 仅落盘供 trace 面板按 task:<jobId> 会话查询；翻译异常只 warn 不阻断编排）。
+   * 缺省 = 现状纯 logger（测试形态零落盘）。
+   */
+  readonly eventSink?: {
+    readonly publish: (event: DomainEvent) => void;
+    readonly clock: ClockPort;
+  };
+  /**
    * 编排会话 LLM 覆盖（T4.1 E 层测试接缝：fake 剧本 streamFn + 可解析 model）。
    * 缺席 = 生产形态（resolveConfigModel + 真 streamFn）；携带时仅替换 LLM 面
    * （工具族/引擎状态机/回口全真）——与 chat 会话 streamFnOverride 同哲学。
@@ -93,6 +113,27 @@ export function createOrchestratorSessionFactory(
       taskOps,
     });
     const assembly = deps.assembly();
+    // 编排事件镜像（可选装配）：翻译器 + 编排者实例身份（不注册调度器、不占
+    // 预算；instanceId 固定 "orchestrator" = domain_events.agent_instance_id
+    // 落值，trace 面板实例过滤可用）
+    const sink = deps.eventSink;
+    const translator =
+      sink !== undefined
+        ? new SubagentEventTranslator({
+            events: { publish: (e) => sink.publish(e), publishDelta: () => undefined },
+            clock: sink.clock,
+          })
+        : undefined;
+    const orchInstance =
+      sink !== undefined
+        ? AgentInstance.create({
+            instanceId: ORCHESTRATOR_INSTANCE_ID,
+            kind: "subagent",
+            profileKind: "orchestrator",
+            sessionId: taskSessionIdOf(jobId),
+            createdAt: sink.clock.now(),
+          })
+        : undefined;
     const adapter = new PiAgentEngineAdapter({
       profile: {
         ...OrchestratorProfile,
@@ -118,6 +159,13 @@ export function createOrchestratorSessionFactory(
       // no-op listener 吞没——接 logger 后驱动挂起/失败可在 daemon.log 判别。
       drive: (prompt) =>
         adapter.start(prompt, (event) => {
+          if (translator !== undefined && orchInstance !== undefined) {
+            try {
+              translator.onInstanceEvent(orchInstance, event);
+            } catch (err) {
+              deps.logger?.warn(`[orchestrator] 编排事件镜像异常（任务 ${jobId}）：${(err as Error).message}`);
+            }
+          }
           if (event.type === "engine_error") {
             deps.logger?.warn(`[orchestrator] 编排会话 engine_error（任务 ${jobId}）：${event.message}`);
           }
