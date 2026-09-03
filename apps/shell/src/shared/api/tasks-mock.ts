@@ -218,7 +218,15 @@ function buildStore(): { summaries: TaskSummaryDto[]; details: Map<string, TaskD
       stages: [
         { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "复用既有核心层，补充 2 个缺失规范节点。" } },
         { seq: 2, name: "L1 领域层", status: "done", artifact: { summary: "领域层完成：6 个领域节点，覆盖 sync 管道、附着、注入、消费面。" } },
-        { seq: 3, name: "L2 实体层", status: "done", artifact: { summary: "实体层完成：15 个实体 / 契约节点，全部带符号域锚（path#symbol）。" } },
+        {
+          seq: 3,
+          name: "L2 实体层",
+          status: "done",
+          artifact: {
+            summary: "实体层完成：15 个实体 / 契约节点，全部带符号域锚（path#symbol）。",
+            body: "## 实体清单\n\n- 会话聚合（domain/session/Session.ts#Session）\n- 快照映射（SnapshotMapper.ts#toSnapshotDto）\n- 写通道（WriteQueue.ts#WriteQueue）\n\n## 已知缺口\n\n- usage 域实体待下一轮补充。",
+          },
+        },
       ],
     }),
     detailOf(t5, {

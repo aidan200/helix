@@ -346,3 +346,24 @@ describe("⑥ artifacts 回执归属：页面以请求时在途 ref 的 jobId �
     expect(s.artifactsLoading).toBe(false);
   });
 });
+
+// ── ⑦ artifact body additive（D2）：reducer 原样透传 ─────────
+
+describe("⑦ artifact body（D2 additive）：回执 DTO 含 body 原样落库", () => {
+  it("artifacts-result 携带 body → state.artifacts 保留 body；无 body → 字段缺席", () => {
+    const body = "## 发现\n\n- [高] a.ts:1 竞态";
+    const artifacts: TaskArtifactsDto = {
+      stages: [
+        { seq: 1, name: "L0 核心层", status: "done", artifact: { summary: "审 3 模块", body } },
+        { seq: 2, name: "L1 领域层", status: "done", artifact: { summary: "仅摘要" } },
+      ],
+    };
+    let s = tasksReducer(createTasksPageState(), { type: "list-loading" });
+    s = tasksReducer(s, { type: "list-result", tasks: mixedTasks() });
+    s = tasksReducer(s, { type: "artifacts-loading", jobId: "j-run-1" });
+    s = tasksReducer(s, { type: "artifacts-result", jobId: "j-run-1", artifacts });
+    expect(s.artifacts?.stages[0]?.artifact?.body).toBe(body);
+    expect(s.artifacts?.stages[1]?.artifact).toEqual({ summary: "仅摘要" });
+    expect(s.artifacts?.stages[1]?.artifact).not.toHaveProperty("body");
+  });
+});

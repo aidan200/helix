@@ -115,8 +115,8 @@ export interface TaskStageDto {
   /** 阶段名（如 "L0 核心层"）。 */
   name: string;
   status: "pending" | "running" | "done" | "failed";
-  /** 阶段产物摘要（done 后非 null；文字报告，与 kg 零耦合）。 */
-  artifact: { summary: string } | null;
+  /** 阶段产物摘要（done 后非 null；文字报告，与 kg 零耦合；D2 additive：可选 body 为 markdown 产物全文）。 */
+  artifact: { summary: string; body?: string } | null;
 }
 
 /** 任务详情（阶段条 + 全量批次 + 实例 plan）。 */
@@ -129,13 +129,13 @@ export interface TaskDetailDto extends TaskSummaryDto {
 
 // ── 结果查询（task.artifacts，F3.4 只读；契约 §1） ────────────
 
-/** 各阶段产物（文字报告 only——结果与 kg 彻底零耦合，节点反查链已拆除）。 */
+/** 各阶段产物（文字报告 only——结果与 kg 彻底零耦合，节点反查链已拆除；D2 additive：可选 body 为 markdown 产物全文）。 */
 export interface TaskArtifactsDto {
   stages: {
     seq: number;
     name: string;
     status: "pending" | "running" | "done" | "failed";
-    artifact: { summary: string } | null;
+    artifact: { summary: string; body?: string } | null;
   }[];
 }
 

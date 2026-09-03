@@ -238,6 +238,44 @@ describe("任务四表 RowMapper roundtrip", () => {
       const stage = store.getStages("task-legacy")[0]!;
       expect(stage.artifact).toEqual({ summary: "历史聚合" });
       expect(stage.artifact).not.toHaveProperty("nodeIds");
+      // D2 additive：旧行无 body → body 键缺席（undefined 语义，不炸）
+      expect(stage.artifact).not.toHaveProperty("body");
+      await queue.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("artifact body additive（D2）：含 body 形状直写兼容读 + updateStageStatus 聚合往返", async () => {
+    const { dir, dbPath } = tmpHome();
+    try {
+      const queue = new WriteQueue(dbPath);
+      const store = new TaskStore(queue);
+      await store.insertJob(jobOf("task-body"));
+      await store.insertStage(stageOf("task-body", 1, "L0 探索"));
+      await store.insertStage(stageOf("task-body", 2, "L1 规则"));
+      // 含 body 的 JSON 直写（旁路连接）：兼容读把 body 带出
+      const direct = new Database(dbPath);
+      direct
+        .prepare("UPDATE stage SET artifact = ? WHERE job_id = ? AND seq = ?")
+        .run(JSON.stringify({ summary: "审 3 模块", body: "## 发现\n\n- A\n- B" }), "task-body", 1);
+      direct.close();
+      const stageDirect = store.getStages("task-body")[0]!;
+      expect(stageDirect.artifact).toEqual({ summary: "审 3 模块", body: "## 发现\n\n- A\n- B" });
+      // 写路径：updateStageStatus 聚合 { summary, body } 落库往返逐字段相等
+      await store.updateStageStatus("task-body", 2, "running");
+      const artifact: StageArtifact = { summary: "两节点聚合", body: "### 明细\n正文" };
+      await store.updateStageStatus("task-body", 2, "done", artifact);
+      const stageAfter = store.getStages("task-body")[1]!;
+      expect(stageAfter.status).toBe("done");
+      expect(stageAfter.artifact).toEqual(artifact);
+      // 未携带 body 的写 → 读回无 body 键（语义不变）
+      await store.insertStage(stageOf("task-body", 3, "L2 实体"));
+      await store.updateStageStatus("task-body", 3, "running");
+      await store.updateStageStatus("task-body", 3, "done", { summary: "仅摘要" });
+      const stageNoBody = store.getStages("task-body")[2]!;
+      expect(stageNoBody.artifact).toEqual({ summary: "仅摘要" });
+      expect(stageNoBody.artifact).not.toHaveProperty("body");
       await queue.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });

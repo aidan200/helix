@@ -191,7 +191,7 @@
 .tk-pi-n { font-size: var(--text-cap); color: var(--text-faint); }
 .tk-b-note { margin-top: 8px; font-size: var(--text-cap); color: var(--text-faint); line-height: 1.6; font-family: var(--font-sans); }
 
-/* F3.4 结果 tab：阶段产物卡（纯文字报告——阶段名 + 状态徽章 + 摘要） */
+/* F3.4 结果 tab：阶段产物卡（纯文字报告——阶段名 + 状态徽章 + 摘要 + 可选全文） */
 .tk-art {
   border: 1px solid var(--border); border-radius: 10px; background: var(--card-fill);
   padding: 14px 16px; margin-bottom: 12px;
@@ -199,6 +199,12 @@
 .tk-art-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .tk-art-name { font-weight: 600; font-size: var(--text-main); }
 .tk-art-sum { font-family: var(--font-sans); font-size: var(--text-main); color: var(--text-muted); line-height: 1.7; max-width: 72ch; }
+/* D2：产物全文（markdown 原文按段留白渲染，纯文字风格不解析语法元素） */
+.tk-art-body {
+  margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);
+  font-family: var(--font-sans); font-size: var(--text-main); color: var(--text-main);
+  line-height: 1.7; max-width: 72ch; white-space: pre-wrap; word-break: break-word;
+}
 
 /* 空态 / 骨架 / 居中面板 */
 .tk-empty {

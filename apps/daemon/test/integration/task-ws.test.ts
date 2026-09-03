@@ -328,7 +328,7 @@ describe("task 族 I 层：九命令路由（T1.5，contracts/task-api.md §2）
     }
   });
 
-  test("task.artifacts：阶段产物只读投影（CL-3-T6；AD-4② 人类可读）", async () => {
+  test("task.artifacts：阶段产物只读投影（CL-3-T6；AD-4② 人类可读；D2 body additive 透传）", async () => {
     const { rig, client } = await rigWithClient();
     try {
       const { jobId } = await launchRunningJob(rig.env, { projects: ["demo"] });
@@ -337,6 +337,23 @@ describe("task 族 I 层：九命令路由（T1.5，contracts/task-api.md §2）
       const artifacts = res.result["artifacts"] as Record<string, any>;
       expect(artifacts.stages.length).toBe(3);
       expect(artifacts.stages[0].artifact).toBeNull(); // 未完成阶段无产物
+      // D2：引擎聚合含 body 的产物 → wire DTO 原样带出；无 body 阶段不携带键
+      const body = "## 发现\n\n- [高] a.ts:1 竞态";
+      await rig.env.engine.writeStageArtifact(jobId, 1, { summary: "L0 摘要：审 2 模块", body });
+      await rig.env.engine.advanceStage(jobId, 2);
+      const { batchId: b2 } = await rig.env.engine.insertBatch({ jobId, stageSeq: 2, scope: "批次 1：L1" });
+      await rig.env.engine.dispatchBatch(b2, "inst-b");
+      await rig.env.engine.writeStageArtifact(jobId, 2, { summary: "L1 仅摘要" });
+      const res2 = await client.task("task.artifacts", { jobId });
+      const artifacts2 = res2.result["artifacts"] as Record<string, any>;
+      expect(artifacts2.stages[0].artifact).toEqual({ summary: "L0 摘要：审 2 模块", body });
+      expect(artifacts2.stages[1].artifact).toEqual({ summary: "L1 仅摘要" });
+      expect(artifacts2.stages[1].artifact).not.toHaveProperty("body");
+      // 详情帧同形状（阶段条 DTO）
+      const detailRes = await client.task("task.detail", { jobId });
+      const task = detailRes.result["task"] as Record<string, any>;
+      expect(task.stages[0].artifact).toEqual({ summary: "L0 摘要：审 2 模块", body });
+      expect(task.stages[1].artifact).not.toHaveProperty("body");
     } finally {
       await client.close();
     }

@@ -372,7 +372,12 @@ function stageToDto(s: AppTaskStageDto): TaskStageDto {
     seq: s.seq,
     name: s.name,
     status: s.status,
-    artifact: s.artifact === null ? null : { summary: s.artifact.summary },
+    artifact:
+      s.artifact === null
+        ? null
+        : s.artifact.body === undefined
+          ? { summary: s.artifact.summary }
+          : { summary: s.artifact.summary, body: s.artifact.body },
   };
 }
 
@@ -391,7 +396,12 @@ function artifactsToDto(a: AppTaskArtifactsDto): TaskArtifactsDto {
       seq: s.seq,
       name: s.name,
       status: s.status,
-      artifact: s.artifact === null ? null : { summary: s.artifact.summary },
+      artifact:
+        s.artifact === null
+          ? null
+          : s.artifact.body === undefined
+            ? { summary: s.artifact.summary }
+            : { summary: s.artifact.summary, body: s.artifact.body },
     })),
   };
 }
