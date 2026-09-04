@@ -56,6 +56,7 @@ const OP_KINDS = new Set<KnowledgeWriteOp["kind"]>([
   "batchCreateNodes",
   "proposeCandidate",
   "decideCandidate",
+  "prune",
 ]);
 const NODE_KINDS = new Set(["rule", "entity"]);
 const NODE_DOMAINS = new Set(["tech", "business"]);
@@ -118,6 +119,8 @@ export function validateKnowledgeWriteOp(op: unknown): KgWriteError | null {
       return validateProposeCandidate(candidate);
     case "decideCandidate":
       return validateDecideCandidate(candidate);
+    case "prune":
+      return validatePrune(candidate);
     default:
       // kind 已在上方 OP_KINDS 校验，走到 default 不可达；静态兑底防未来加 kind 漏 case。
       return schemaError("未知 op.kind", "op.kind");
@@ -356,6 +359,17 @@ function validateDecideCandidate(op: Record<string, unknown>): KgWriteError | nu
     if (op[key] !== undefined && (typeof op[key] !== "string" || (op[key] as string).trim() === "")) {
       return schemaError(`${key} 若携带必须为非空字符串`, `op.${key}`);
     }
+  }
+  return null;
+}
+
+/**
+ * prune 校验（tombstone 物理清理）：nodeId 可选——携带则必非空字符串
+ * （定向清该节点 orphan=1 物化锚）；缺省 = 清目标项目全部。
+ */
+function validatePrune(op: Record<string, unknown>): KgWriteError | null {
+  if (op.nodeId !== undefined && (typeof op.nodeId !== "string" || op.nodeId.trim() === "")) {
+    return schemaError("nodeId 若携带必须为非空字符串（缺省 = 全项目清理）", "op.nodeId");
   }
   return null;
 }

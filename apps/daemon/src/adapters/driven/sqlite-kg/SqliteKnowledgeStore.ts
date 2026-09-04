@@ -13,6 +13,7 @@ import type {
   KgWriteError,
   KnowledgeWriteOp,
   NodeDraft,
+  NodeId,
   NodeStatus,
   SymbolBatch,
   WriteResult,
@@ -91,6 +92,8 @@ export class SqliteKnowledgeStore {
         return this.applyProposeCandidate(db, op);
       case "decideCandidate":
         return this.applyDecideCandidate(db, op);
+      case "prune":
+        return this.applyPrune(db, op);
     }
   }
 
@@ -384,6 +387,34 @@ export class SqliteKnowledgeStore {
     ).run(decision, isoNow(), op.reason ?? null, op.formalId ?? null, op.appliedNodeId ?? null, op.candidateId);
     this.appendChangeLog(db, op.iterationId, "decideCandidate", op.candidateId, null, op.reason ?? null, op.taskId);
     return { ok: true, nodeId: op.candidateId };
+  }
+
+  /**
+   * prune 落库（2026-09-03 人审清台缺口）：物理删除 orphan=1 物化锚
+   * tombstone 行（CL-2.A7 保留行——读面已全排除，本 op 给「确认不要了」
+   * 的物理出口）。nodeId 携带 = 定向该节点（节点须存在）；缺省 = 全项目。
+   * 审计按受影响节点逐节点落 change_log（零删除 = 幂等 ok 不落行——
+   * 重跑无副作用）。声明层（anchor_decl）不动——declareAnchors 全集替换
+   * 语义已覆盖声明修正。 */
+  private applyPrune(db: Database, op: KnowledgeWriteOp & { kind: "prune" }): WriteResult {
+    if (op.nodeId !== undefined && !this.nodeExists(db, op.nodeId)) {
+      return err("KG_E_ID", `节点 ${op.nodeId} 不存在`, "op.nodeId");
+    }
+    const victims = db
+      .prepare(
+        op.nodeId !== undefined
+          ? "SELECT node_id FROM materialized_anchors WHERE orphan = 1 AND node_id = ? GROUP BY node_id"
+          : "SELECT node_id FROM materialized_anchors WHERE orphan = 1 GROUP BY node_id",
+      )
+      .all(...(op.nodeId !== undefined ? [op.nodeId] : [])) as { node_id: string }[];
+    const deleted =
+      op.nodeId !== undefined
+        ? db.prepare("DELETE FROM materialized_anchors WHERE orphan = 1 AND node_id = ?").run(op.nodeId).changes
+        : db.prepare("DELETE FROM materialized_anchors WHERE orphan = 1").run().changes;
+    for (const victim of victims) {
+      this.appendChangeLog(db, op.iterationId, "prune", victim.node_id, null, null, op.taskId);
+    }
+    return { ok: true, nodeId: op.nodeId ?? ("*" as NodeId), prunedCount: deleted };
   }
 
   // ── 符号层通道（sync 单事务，T2.2 消费） ──────────────────

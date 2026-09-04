@@ -49,11 +49,11 @@ const kgUpdateParameters = {
   properties: {
     op: {
       type: "string",
-      enum: ["createNode", "supersede", "updateNode", "batchCreateNodes", "declareAnchors", "proposeCandidate", "decideCandidate"],
+      enum: ["createNode", "supersede", "updateNode", "batchCreateNodes", "declareAnchors", "proposeCandidate", "decideCandidate", "prune"],
       description:
         "操作：createNode 新知识落账 / supersede 推翻既有节点 / updateNode 补全既有节点元数据（仅限 scene 等元数据补全）/ " +
         "batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）/ declareAnchors 存量节点补锚声明（幂等）/ " +
-        "proposeCandidate 提候选 / decideCandidate 裁决候选",
+        "proposeCandidate 提候选 / decideCandidate 裁决候选 / prune 物理清理腐烂物化锚（orphan=1 tombstone；nodeId 可选，缺省清全项目）",
     },
     // ── createNode ──
     kind: { type: "string", enum: ["rule", "entity"], description: "createNode 节点类型（rule=规则 / entity=实体）" },
@@ -146,7 +146,7 @@ const kgUpdateParameters = {
       additionalProperties: false,
     },
     // ── supersede / updateNode / declareAnchors ──
-    nodeId: { type: "string", description: "supersede/updateNode/declareAnchors 目标节点 id（取自 kg search 返回行 / 附着块指针）" },
+    nodeId: { type: "string", description: "supersede/updateNode/declareAnchors/prune 目标节点 id（取自 kg search 返回行 / 附着块指针；prune 缺省 = 清目标项目全部 tombstone）" },
     reason: { type: "string", description: "supersede 推翻理由（入 change_log 审计链）" },
     replacement: {
       type: "object",
@@ -243,6 +243,7 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       "人审重写/体检补锚的现场通道）。" +
       "proposeCandidate/decideCandidate：候选台账操作（SubAgent 闭环发现经 findings 上报自动落候选，" +
       "不得直接调用候选 op——工具注册面管控谁可见本工具，描述不做角色枚举，W-R6）。" +
+      "prune：物理清理腐烂物化锚（orphan=1 tombstone——符号消亡/声明撤销的保留行；nodeId 定向或缺省全项目，幂等）。" +
       "iterationId 缺省回落目标库最近迭代锚（change_log 末行），无锚落空不报错（P0 ④），显式传参仅作覆盖；" +
       "多项目 workspace 的 createNode 需 project（项目目录名）。",
     parameters: kgUpdateParameters as any,
@@ -271,8 +272,11 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       if (op === "decideCandidate") {
         return text(execDecideCandidate(deps, args));
       }
+      if (op === "prune") {
+        return text(execPrune(deps, args));
+      }
       throw new Error(
-        `未知 op "${String(op)}"（合法：createNode / supersede / updateNode / batchCreateNodes / declareAnchors / proposeCandidate / decideCandidate）`,
+        `未知 op "${String(op)}"（合法：createNode / supersede / updateNode / batchCreateNodes / declareAnchors / proposeCandidate / decideCandidate / prune）`,
       );
     },
   };
@@ -400,13 +404,50 @@ function execDeclareAnchors(deps: KgUpdateToolDeps, args: Record<string, unknown
 }
 
 /** 写结果归一：失败抛结构化错误（code+message+path 全量透传给 agent）。 */
-function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWriteOp): { nodeId: NodeId; warning?: string } {
+function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWriteOp): { nodeId: NodeId; warning?: string; prunedCount?: number } {
   const result = deps.write.write(project, op);
   if (!result.ok) {
     const path = result.error.path !== undefined ? `（${result.error.path}）` : "";
     throw new Error(`${result.error.code}：${result.error.message}${path}`);
   }
-  return { nodeId: result.nodeId, ...(result.warning !== undefined ? { warning: result.warning } : {}) };
+  return {
+    nodeId: result.nodeId,
+    ...(result.warning !== undefined ? { warning: result.warning } : {}),
+    ...(result.prunedCount !== undefined ? { prunedCount: result.prunedCount } : {}),
+  };
+}
+
+/**
+ * prune 执行（2026-09-03 人审清台缺口）：物理删除 orphan=1 物化锚
+ * tombstone（CL-2.A7 失效通道保留行——读面已全排除，本 op 给「确认不要了」
+ * 的物理出口）。nodeId 携带 = 定向（locate 唯一命中不猜）；缺省 = 目标项目
+ * 全量（project 解析同 createNode）。幂等：零 tombstone → prunedCount=0。
+ */
+function execPrune(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
+  const nodeId = optionalString(args, "nodeId") as NodeId | undefined;
+  let project: string;
+  if (nodeId !== undefined) {
+    const hits = deps.query.locate(nodeId);
+    if (hits.length === 0) {
+      throw new Error(`节点 ${nodeId} 不存在（先 kg search 确认；id 取自返回行指针）`);
+    }
+    if (hits.length > 1) {
+      throw new Error(
+        `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，请人工确认目标项目`,
+      );
+    }
+    project = hits[0]!.project;
+  } else {
+    project = resolveTargetProject(deps, args);
+  }
+  const iterationId = resolveIterationId(deps, args, project);
+  const result = writeOrThrow(
+    deps,
+    project,
+    createOp(deps, args, { kind: "prune", iterationId, ...(nodeId !== undefined ? { nodeId } : {}) }),
+  );
+  const scope = nodeId !== undefined ? `节点 ${nodeId}` : `项目 ${projectName(project)}`;
+  return `已清理 ${scope} 的腐烂物化锚 ${result.prunedCount ?? 0} 行（orphan=1 tombstone 物理删除，change_log 审计同行；零删除 = 本就干净）`;
 }
 
 /**

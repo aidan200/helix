@@ -177,7 +177,8 @@ export type KnowledgeWriteOpKind =
   | "addEdge"
   | "batchCreateNodes"
   | "proposeCandidate"
-  | "decideCandidate";
+  | "decideCandidate"
+  | "prune";
 
 /**
  * 变更日志行：每 op 自动追加（迭代 id/op/nodeId/supersede_of/理由/时间）。
@@ -323,6 +324,18 @@ export type KnowledgeWriteOp =
       readonly formalId?: string;
       /** apply 后落到的节点 id（溯源）。 */
       readonly appliedNodeId?: string;
+    })
+  | (KnowledgeWriteOpBase & {
+      /**
+       * prune（2026-09-03 人审清台缺口补）：物理删除 materialized_anchors
+       * orphan=1 tombstone 行（CL-2.A7 失效通道的保留行——符号消亡/声明撤销
+       * 的 diff 产物，读面已全排除但永不物理消失）。nodeId 携带 = 只清该
+       * 节点；缺省 = 清目标项目全部。审计：按受影响节点逐节点落 change_log
+       * （零删除 = 幂等 ok 不落行）。声明层（anchor_decl）不归本 op——
+       * declareAnchors 全集替换语义已覆盖。
+       */
+      readonly kind: "prune";
+      readonly nodeId?: NodeId;
     });
 
 // ── 写结果（结构化错误） ────────────────────────────────────
@@ -351,6 +364,8 @@ export type WriteResult =
       readonly nodeId: NodeId;
       /** 软告警（defer 上限等「只警告不拒绝」面——机械只列不修；缺省无告警）。 */
       readonly warning?: string;
+      /** prune op 物理删除的 tombstone 行数（其余 op 缺省）。 */
+      readonly prunedCount?: number;
     }
   | { readonly ok: false; readonly error: KgWriteError };
 
