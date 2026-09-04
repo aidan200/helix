@@ -386,9 +386,9 @@ describe("fake-transport task 族订阅簿记（D-2；连接级订阅表 + chang
   });
 });
 
-// ── trace.query 应答 gate（F 层确定性 hold/release；慢机 skeleton 瞬态断言）──
+// ── 自动应答 gate（F 层确定性 hold/release；慢机 skeleton 瞬态断言；trace/kg/task 三族）──
 
-describe("fake-transport trace.query 应答 gate（hold 挂起 / release 直发放行）", () => {
+describe("fake-transport 自动应答 gate（hold 挂起 / release 直发放行）", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -406,12 +406,12 @@ describe("fake-transport trace.query 应答 gate（hold 挂起 / release 直发�
     });
     await window.__helixMock!.open();
     try {
-      await window.__helixMock!.holdTraceReply();
+      await window.__helixMock!.holdAutoReply();
       transport.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "trace.query", payload: { sessionId: "ses_a" } }));
       vi.advanceTimersByTime(REPLY_LATENCY_MS * 4);
       expect(replies, "hold 期间应答挂起不回（skeleton 瞬态钉住）").toHaveLength(0);
 
-      await window.__helixMock!.releaseTraceReplies();
+      await window.__helixMock!.releaseAutoReplies();
       expect(replies, "release 后挂起帧直发放行").toHaveLength(1);
       expect(replies[0]!.type).toBe("trace.query.result");
 
@@ -422,7 +422,30 @@ describe("fake-transport trace.query 应答 gate（hold 挂起 / release 直发�
       vi.advanceTimersByTime(REPLY_LATENCY_MS);
       expect(replies, "延迟窗到后照常应答").toHaveLength(1);
     } finally {
-      await window.__helixMock!.releaseTraceReplies(); // 复位防跨用例泄漏
+      await window.__helixMock!.releaseAutoReplies(); // 复位防跨用例泄漏
+      transport.close();
+    }
+  });
+
+  it("kg 族应答同过 gate（hold 期间 kg.get.list 应答挂起；release 直发）", async () => {
+    const replies: EventEnvelope[] = [];
+    const transport: Transport = createFakeTransport("1")(WS_URL, {
+      onOpen: () => {},
+      onMessage: (data) => replies.push(JSON.parse(data) as EventEnvelope),
+      onClose: () => {},
+      onError: () => {},
+    });
+    await window.__helixMock!.open();
+    try {
+      await window.__helixMock!.holdAutoReply();
+      transport.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "kg.list", payload: { project: "helix" } }));
+      vi.advanceTimersByTime(REPLY_LATENCY_MS * 4);
+      expect(replies, "hold 期间 kg 应答挂起不回（kg 骨架钉住）").toHaveLength(0);
+      await window.__helixMock!.releaseAutoReplies();
+      expect(replies, "release 后 kg 应答直发").toHaveLength(1);
+      expect(replies[0]!.type).toBe("kg.list.result");
+    } finally {
+      await window.__helixMock!.releaseAutoReplies();
       transport.close();
     }
   });

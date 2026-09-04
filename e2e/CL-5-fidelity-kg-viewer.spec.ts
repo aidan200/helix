@@ -460,7 +460,10 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
         id: "FID-23",
         title: "骨架与最终布局同构、无通用 spinner",
         run: async () => {
-          // 切项目进 graph 即骨架（kg-skel-row 形状 = 行同构；无 spinner 类）
+          // 切项目进 graph 即骨架（kg-skel-row 形状 = 行同构；无 spinner 类）。
+          // gate 钉住：hold 后 kg 应答挂起，骨架停留到断言完（慢机 60ms 延迟窗 <
+          // 采样往返时长会勈 no element——CI 收敛批次）；release 后数据到、详情落定。
+          await mock.holdAutoReply();
           await page.locator(".pj-rail-name").click();
           await page.locator('.pj-row[data-name="helix"]').click();
           await expect(page.locator(".kgv-list .kg-skel-row").first()).toBeVisible();
@@ -469,6 +472,7 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
           // 骨架 pulse 动效（关键帧在场）
           const anim = await computed(page, ".kg-skel-line", "animation-name");
           expect(anim).toContain("kg-pulse");
+          await mock.releaseAutoReplies();
           await expect(page.locator('[data-kg-detail] .kgv-dh-name')).toHaveText("Steer 消息队列", { timeout: 10_000 });
         },
       },

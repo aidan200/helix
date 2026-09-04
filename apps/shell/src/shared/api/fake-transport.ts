@@ -108,15 +108,15 @@ export interface HelixMockApi {
    */
   taskSubs(): Promise<string[] | null>;
   /**
-   * 挂起 trace.query 自动应答（F 层确定性 gate）：置位后应答帧入队不回，
-   * releaseTraceReplies() 放行。用于 spec 断言 skeleton 瞬态时钉住 loading
-   * 态——慢机上 120ms 延迟窗小于断言往返时长会导致互斥采样劈叉（CI 慢机
-   * 抖动，2026-09 e2e CI 收敛批次）。成对使用，勿跨连接悬挂。
+   * 挂起数据读面自动应答（F 层确定性 gate）：置位后 trace/kg/task 三族
+   * 自动应答帧入队不回，releaseAutoReplies() 放行。用于 spec 断言 skeleton
+   * 瞬态时钉住 loading 态——慢机上延迟窗（120/60ms）小于断言往返时长会
+   * 势互斥采样劈叉（CI 慢机抖动，2026-09 e2e CI 收敛批次）。workspace 族
+   * 不挂（W3 门禁回执悬挂会卡 boot）。成对使用，勿跨连接悬挂。
    */
-  holdTraceReply(): Promise<void>;
-  /** 放行全部挂起的 trace.query 应答（对当前活跃实例直发；不复位将后续
-   * 应答持续入队的 hold 位由本方法一并复位）。 */
-  releaseTraceReplies(): Promise<void>;
+  holdAutoReply(): Promise<void>;
+  /** 放行全部挂起的自动应答（对当前活跃实例直发；同时复位 hold 位）。 */
+  releaseAutoReplies(): Promise<void>;
 }
 
 interface ClientWaiter {
@@ -427,35 +427,31 @@ class FakeSocket {
     // trace.query 自动应答（mock daemon 读面镜像；点对点回执，延迟 = loading 态触发面）
     if (frame?.type === "trace.query") {
       const reply = buildTraceReply(frame.payload);
-      if (this.registry.traceHold) {
-        this.registry.heldTraceReplies.push(reply); // gate：spec 断言 skeleton 瞬态期挂起
-      } else {
-        setTimeout(() => {
-          if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
-        }, TRACE_MOCK_LATENCY_MS);
-      }
+      this.sendAutoReply(reply, TRACE_MOCK_LATENCY_MS);
     }
     // kg 族自动应答（T5.4；六命令 mock daemon 镜像，含 confirm 写与 rebuild 时基）
     if (frame !== null && isKgCommand(frame.type)) {
       const reply = kgMockStore.reply(frame.type, frame.payload);
-      setTimeout(() => {
-        if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
-      }, KG_MOCK_LATENCY_MS);
+      this.sendAutoReply(reply, KG_MOCK_LATENCY_MS);
     }
     // task 族自动应答（T3.1；九命令 mock daemon 镜像——结果帧 + 生命周期
     // 成功伴发的 task.changed 广播，帧数组逐帧下发）
     if (frame !== null && isTaskCommand(frame.type)) {
       const frames = tasksMockStore.reply(frame.type, frame.payload);
-      setTimeout(() => {
-        if (this.readyState !== FakeSocket.OPEN) return;
-        for (const f of frames) {
-          // task.changed 按连接级订阅表过滤投递（D-2；契约 §3「仅推送给该
-          // 连接已订阅的 jobId（或订阅全部时按连接过滤）」）；点对点结果帧
-          // （*.result / connection.error）豁免——daemon sendNow 直发不过滤。
-          if (f.type === "task.changed" && !this.taskChangedAllowed(f)) continue;
-          this.fireMessage(f);
-        }
-      }, TASKS_MOCK_LATENCY_MS);
+      if (this.registry.autoReplyHold) {
+        this.registry.heldAutoReplies.push(...frames); // gate：挂起（含 changed 广播，随 release 一并放行）
+      } else {
+        setTimeout(() => {
+          if (this.readyState !== FakeSocket.OPEN) return;
+          for (const f of frames) {
+            // task.changed 按连接级订阅表过滤投递（D-2；契约 §3「仅推送给该
+            // 连接已订阅的 jobId（或订阅全部时按连接过滤）」）；点对点结果帧
+            // （*.result / connection.error）豁免——daemon sendNow 直发不过滤。
+            if (f.type === "task.changed" && !this.taskChangedAllowed(f)) continue;
+            this.fireMessage(f);
+          }
+        }, TASKS_MOCK_LATENCY_MS);
+      }
     }
     // workspace 族自动应答（W3 门禁；mock daemon 镜像，get 恒回预绑定）
     if (frame?.type === "workspace.get" || frame?.type === "workspace.open") {
@@ -464,6 +460,20 @@ class FakeSocket {
         if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
       }, WORKSPACE_MOCK_LATENCY_MS);
     }
+  }
+
+  /**
+   * 单帧自动应答统一出口（trace/kg 族；延迟 = loading 态触发面）：gate 置位
+   * 时入队不回（钉住 skeleton 瞬态），否则按延迟窗下发。
+   */
+  private sendAutoReply(reply: EventEnvelope, latencyMs: number): void {
+    if (this.registry.autoReplyHold) {
+      this.registry.heldAutoReplies.push(reply);
+      return;
+    }
+    setTimeout(() => {
+      if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
+    }, latencyMs);
   }
 
   /** task.changed 投递准入（连接级订阅表：null=未订阅不投递；"*"=全部；否则按 jobId）。 */
@@ -522,10 +532,10 @@ class Registry {
   lastFullSessionId: string | null = null;
   /** 剧本会话台账（emit 按信封 sessionId 路由累计；monitor 档被过滤帧不入账）。 */
   readonly scenarioSessions = new Map<string, ScenarioSessionState>();
-  /** trace.query 应答挂起位（F 层确定性 gate；见 HelixMockApi.holdTraceReply）。 */
-  traceHold = false;
-  /** 挂起的 trace.query 应答队列（releaseTraceReplies 放行）。 */
-  heldTraceReplies: EventEnvelope[] = [];
+  /** 数据读面自动应答挂起位（F 层确定性 gate；见 HelixMockApi.holdAutoReply）。 */
+  autoReplyHold = false;
+  /** 挂起的自动应答队列（releaseAutoReplies 放行）。 */
+  heldAutoReplies: EventEnvelope[] = [];
 
   /**
    * monitor 档白名单过滤（daemon EventStream.push 单点过滤的 mock 镜像，
@@ -640,12 +650,12 @@ const mockApi: HelixMockApi = {
   async taskSubs() {
     return (await registry.nextActive()).taskSubsSnapshot();
   },
-  async holdTraceReply() {
-    registry.traceHold = true;
+  async holdAutoReply() {
+    registry.autoReplyHold = true;
   },
-  async releaseTraceReplies() {
-    registry.traceHold = false;
-    const held = registry.heldTraceReplies.splice(0);
+  async releaseAutoReplies() {
+    registry.autoReplyHold = false;
+    const held = registry.heldAutoReplies.splice(0);
     const inst = registry.activeInstance();
     if (inst) for (const f of held) inst.fireMessage(f);
   },
