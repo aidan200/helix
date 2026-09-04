@@ -469,6 +469,10 @@ export const enUS = {
     basePromptHide: "Collapse",
     basePromptLoading: "Loading base prompt",
     basePromptNote: "Static base segment (role and behavior guidance); tool/skill lists are assembled at runtime from enablement state. See the trace snapshot for the effective full prompt.",
+    // skill-content batch: skill body (full SKILL.md) viewer (per-row lazy query)
+    skillContentView: "View",
+    skillContentHide: "Collapse",
+    skillContentLoading: "Loading skill content",
     // P-2 thinking level field (T3: on/off switch — off = empty slot by default, on writes the median level)
     thinking: {
       label: "Thinking Level · THINKING LEVEL",

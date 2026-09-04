@@ -476,6 +476,10 @@ export const zhCN = {
     basePromptHide: "收起",
     basePromptLoading: "正在读取 base 段提示词",
     basePromptNote: "静态 base 段（角色与行为引导）；工具/技能清单为运行期按启停动态拼入，生效全量提示词见 trace 快照。",
+    // skill-content 批：skill 正文（SKILL.md 全文）查看区（行内折叠懒查询）
+    skillContentView: "查看",
+    skillContentHide: "收起",
+    skillContentLoading: "正在读取 skill 正文",
     // P-2 推理级别字段（T3：on/off 开关形态——off = 槽位空默认关，开 on 立即写中位档）
     thinking: {
       label: "推理级别 · THINKING LEVEL",
