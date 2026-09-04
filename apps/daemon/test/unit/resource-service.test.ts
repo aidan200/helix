@@ -324,3 +324,48 @@ describe("ResourceService：技能受众 × kind 可见性（audience 分类注�
     expect(await service.getEffectiveSkills("orchestrator")).toEqual([]);
   });
 });
+
+describe("ResourceService：skills+tools 成套装配（批三裁决）", () => {
+  const BUNDLED: readonly SkillDescriptor[] = [
+    { name: "web-access", description: "联网操作指引", filePath: "/b/agent/web-access/SKILL.md", source: "builtin", audience: "agent" },
+    {
+      name: "plan-workflow",
+      description: "工作台账使用规范",
+      filePath: "/b/agent/plan-workflow/SKILL.md",
+      source: "builtin",
+      audience: "agent",
+      tools: ["plan_create", "plan_update", "plan_read"],
+    },
+  ];
+
+  test("⑭ 持全部成套工具的 kind → 技能列出；缺任一成套工具的 kind → 技能随之下线（SOP 与工具不拆开出现）", async () => {
+    const skills = new FakeSkillSource({ skills: BUNDLED, diagnostics: [] });
+    const store = new InMemoryResourceState();
+    const { service } = makeService(store, skills);
+    // makeService 的 toolsCatalog 两 kind 仅含 bash——plan 三工具缺席 → plan-workflow 下线，web-access（未声明成套）恒在
+    for (const kind of ["main-session", "subagent-worker"] as const) {
+      const effective = await service.getEffectiveSkills(kind);
+      expect(effective.map((s) => s.name)).toEqual(["web-access"]);
+    }
+  });
+
+  test("⑮ 生效工具集含 plan 三工具 → plan-workflow 列出；禁用其中一件 → 技能联动下线", async () => {
+    const skills = new FakeSkillSource({ skills: BUNDLED, diagnostics: [] });
+    const store = new InMemoryResourceState();
+    const service = new ResourceService({
+      store,
+      skills,
+      toolsCatalog: {
+        "main-session": ["bash", "plan_create", "plan_update", "plan_read"],
+        "subagent-worker": ["bash", "plan_create", "plan_update", "plan_read"],
+        "subagent-kg-writer": ["bash"],
+        "subagent-code-reviewer": ["bash"],
+        orchestrator: ["bash", "plan_read"], // 仅 plan_read 非全套 → 不成套（且 orchestrator 技能面恒空）
+      },
+      toolSnippets: {},
+    });
+    expect((await service.getEffectiveSkills("main-session")).map((s) => s.name).sort()).toEqual(["plan-workflow", "web-access"]);
+    await service.setEnabled("main-session", "tool", "plan_read", false);
+    expect((await service.getEffectiveSkills("main-session")).map((s) => s.name)).toEqual(["web-access"]);
+  });
+});

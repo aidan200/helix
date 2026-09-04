@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { TOOL_PROMPT_SNIPPETS } from "../../src/adapters/driven/tools/ToolPromptSnippets";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -232,7 +233,7 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       expect(main!.tools.every((t) => t.enabled)).toBe(true); // 缺省无记录 = 全启用
       // tools 行 snippet 一句话说明（ToolPromptSnippets 注册表同源；M6 T4 补登）
       const bashRow = main!.tools.find((t) => t.name === "bash")!;
-      expect(bashRow.snippet).toBe("在沙箱工作目录执行 shell 命令并返回输出");
+      expect(bashRow.snippet).toBe(TOOL_PROMPT_SNIPPETS["bash"]!);
       expect(main!.tools.every((t) => t.snippet.length > 0)).toBe(true);
       expect(main!.skills).toEqual([
         {
@@ -315,7 +316,7 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       // 纯展示行形状：name + snippet（无启停位）；snippet 注册表同源
       expect(orch!.tools.every((t) => typeof t.snippet === "string")).toBe(true);
       const orchBash = orch!.tools.find((t) => t.name === "bash")!;
-      expect(orchBash.snippet).toBe("在沙箱工作目录执行 shell 命令并返回输出");
+      expect(orchBash.snippet).toBe(TOOL_PROMPT_SNIPPETS["bash"]!);
       // kg-writer：worker 生效集（缺省全启用）+ kg-update 恒在 + 派生说明位
       expect(kgw!.profileKind).toBe("subagent-kg-writer");
       expect(kgw!.derivedFrom).toBe("subagent-worker");

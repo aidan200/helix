@@ -1,4 +1,6 @@
 import { loadSourcedSkills, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import { readFile } from "node:fs/promises";
+import { parse as parseYaml } from "yaml";
 import type {
   SkillAudience,
   SkillDescriptor,
@@ -77,12 +79,44 @@ export class SkillScanner implements SkillSourcePort {
       path: d.path,
       source: splitTag(d.source).source,
     }));
-    const descriptors: SkillDescriptor[] = skills.map(({ skill, source }) => ({
-      name: skill.name,
-      description: skill.description,
-      filePath: skill.filePath,
-      ...splitTag(source),
-    }));
+    const descriptors: SkillDescriptor[] = await Promise.all(
+      skills.map(async ({ skill, source }) => ({
+        name: skill.name,
+        description: skill.description,
+        filePath: skill.filePath,
+        ...splitTag(source),
+        // 成套工具声明（frontmatter 可选 tools 字段；读取失败/缺字段 = undefined 不炸扫描）
+        ...(await this.readCompanionTools(skill.filePath)),
+      })),
+    );
     return { skills: descriptors, diagnostics: mapped };
+  }
+
+  /**
+   * 读 SKILL.md frontmatter 的可选 tools 字段（成套工具声明，批三）。
+   * 与 TaskSkillRegistry.readFrontmatter 同哲学：坏形状静默回落 undefined，
+   * 不出诊断（skills+tools 成套是增强声明，缺省 = 恒列技能）。
+   */
+  private async readCompanionTools(filePath: string): Promise<{ tools?: readonly string[] }> {
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf8");
+    } catch {
+      return {};
+    }
+    const normalized = raw.replace(/\r\n/g, "\n");
+    if (!normalized.startsWith("---\n")) return {};
+    const endIndex = normalized.indexOf("\n---", 3);
+    if (endIndex === -1) return {};
+    try {
+      const parsed = parseYaml(normalized.slice(4, endIndex)) as Record<string, unknown> | null;
+      const tools = parsed?.["tools"];
+      if (Array.isArray(tools) && tools.every((t) => typeof t === "string")) {
+        return { tools: tools as readonly string[] };
+      }
+      return {};
+    } catch {
+      return {};
+    }
   }
 }

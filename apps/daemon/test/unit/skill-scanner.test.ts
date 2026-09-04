@@ -121,14 +121,19 @@ describe("SkillScanner（三层目录 → source 标签技能清单）", () => {
     });
     const result = await scanner.scan();
     expect(result.diagnostics).toEqual([]); // 随仓文件必须合法（frontmatter 合规）
-    // T2.3 + W2-F + code-review：随仓内置四技能——agent/ 层 web-access（行为技能）
+    // 随仓内置五技能——agent/ 层 web-access + plan-workflow（行为技能）
     // + task/ 层 kg-bootstrap/kg-review/code-review（任务类型 SOP，带 task 块）
-    expect(result.skills.map((s) => s.name).sort()).toEqual(["code-review", "kg-bootstrap", "kg-review", "web-access"]);
+    expect(result.skills.map((s) => s.name).sort()).toEqual(["code-review", "kg-bootstrap", "kg-review", "plan-workflow", "web-access"]);
     const skill = result.skills.find((s) => s.name === "web-access")!;
     expect(skill.source).toBe("builtin");
     expect(skill.audience).toBe("agent");
     expect(skill.description.length).toBeGreaterThan(0);
     expect(skill.filePath).toBe(path.join(builtinSkillsDir(), "agent", "web-access", "SKILL.md"));
+    expect(skill.tools).toBeUndefined(); // 未声明成套工具 = 恒列技能
+    // plan-workflow：成套工具声明（frontmatter tools 字段，批三）
+    const planWorkflow = result.skills.find((s) => s.name === "plan-workflow")!;
+    expect(planWorkflow.audience).toBe("agent");
+    expect(planWorkflow.tools).toEqual(["plan_create", "plan_update", "plan_read"]);
     // task/ 层三技能 audience = task（不进任何 agent 的技能清单）
     for (const name of ["kg-bootstrap", "kg-review", "code-review"]) {
       const t = result.skills.find((s) => s.name === name)!;

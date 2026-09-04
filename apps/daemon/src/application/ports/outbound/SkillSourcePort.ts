@@ -36,6 +36,12 @@ export interface SkillDescriptor {
   readonly source: SkillSource;
   /** 受众分类（agent/task）——提示注入过滤与任务注册表装载的共同判据。 */
   readonly audience: SkillAudience;
+  /**
+   * 成套工具声明（frontmatter 可选 tools 字段）：声明后技能与工具成套
+   * 提供——生效工具集含全部声明工具的 kind 才会在提示中列出本技能
+   *（skills+tools 成套装配，批三裁决：SOP 与工具不拆开出现）。
+   */
+  readonly tools?: readonly string[];
 }
 
 /** 扫描诊断（坏文件上抛不炸；code 为稳定诊断码字符串）。 */

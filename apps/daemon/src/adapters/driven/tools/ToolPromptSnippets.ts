@@ -14,11 +14,14 @@
  * SystemPromptAssembler）。
  */
 export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
-  bash: "在沙箱工作目录执行 shell 命令并返回输出",
-  read: "读取文件内容（文本或图片）",
-  write: "创建新文件或整体写入文件",
-  edit: "按精确文本匹配做字符串替换编辑",
-  grep: "跨文件子串检索并列出匹配行（非正则）", // H11：实现是 --fixed-strings 子串语义，原文案误导为正则
+  // 通用工具优先级（裁决：专用工具优先，bash 兑底——修改首选 edit、新建
+  // 用 write、搜索首选 grep、查看首选 read；bash 在专用工具覆盖不到或
+  // 综合性能/边界考量后更适合时才用）
+  bash: "兑底执行面——专用工具（read/write/edit/grep 等）覆盖不到、或综合性能/边界考量后 shell 更适合时才用",
+  read: "读取文件内容（文本或图片）——查看文件的首选",
+  write: "新建文件或整体覆写——创建文件用它；局部修改优先 edit",
+  edit: "修改已有文件的首选——按精确文本匹配做字符串替换编辑",
+  grep: "搜索文件内容的首选——跨文件子串检索并列出匹配行（非正则）", // H11：实现是 --fixed-strings 子串语义，原文案误导为正则
   web_search: "联网搜索（DuckDuckGo 主/Bing 兜底），返回标题/链接/摘要列表",
   web_fetch: "抓取网页并转为 Markdown 返回（直连主通道，Jina 备选）",
   agent_spawn: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）",

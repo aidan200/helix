@@ -120,8 +120,14 @@ export class ResourceService implements ResourceConfigPort {
   /** 生效技能集（消费面：提示注入三字段 + source 的完整描述符）。 */
   async getEffectiveSkills(kind: ProfileKind): Promise<readonly SkillDescriptor[]> {
     const scanned = await this.deps.skills.scan();
+    const effectiveTools = new Set(this.getEffectiveTools(kind));
     return scanned.skills
       .filter((s) => skillVisibleToKind(kind, s))
+      // skills+tools 成套装配（批三裁决）：声明了成套工具的技能，仅当本
+      // kind 生效工具集含全部声明工具时才列出——SOP 与工具不拆开出现
+      //（如 plan-workflow 只在持 plan 三工具的 kind 出现；禁用任一 plan
+      // 工具 → 技能随之下线）
+      .filter((s) => s.tools === undefined || s.tools.every((t) => effectiveTools.has(t)))
       .filter((s) => this.enabledOf(kind, "skill", s.name));
   }
 

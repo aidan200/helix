@@ -206,7 +206,7 @@ describe("向后兼容：无 task 块普通技能不受影响（CL-2-T9）", () 
     expect(registry.getTaskType("web-access")).toBeNull();
     const scanned = await builtinScanner().scan();
     expect(scanned.diagnostics).toEqual([]); // 随仓 builtin 层（web-access + kg-bootstrap + kg-review + code-review）零坏文件诊断
-    expect(scanned.skills.map((s) => s.name).sort()).toEqual(["code-review", "kg-bootstrap", "kg-review", "web-access"]);
+    expect(scanned.skills.map((s) => s.name).sort()).toEqual(["code-review", "kg-bootstrap", "kg-review", "plan-workflow", "web-access"]);
   });
 });
 
