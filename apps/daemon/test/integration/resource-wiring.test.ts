@@ -97,6 +97,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
           description: "组合根接线验证技能",
           filePath: path.join(skillDir, "SKILL.md"),
           source: "user",
+          audience: "agent",
           enabled: true,
         },
       ]);

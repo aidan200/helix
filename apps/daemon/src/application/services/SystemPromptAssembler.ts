@@ -1,4 +1,5 @@
 import type { SkillDescriptor } from "../ports/outbound/SkillSourcePort";
+import type { TaskTypeInfo } from "../ports/outbound/TaskSkillRegistryPort";
 
 /**
  * SystemPromptAssembler —— 系统提示三段组装器（设计定稿 §三）。
@@ -24,11 +25,17 @@ export interface SystemPromptAssemblerDeps {
   readonly toolSnippets: Readonly<Record<string, string>>;
 }
 
-/** 组装入参：base + 生效工具集 + 生效技能集（ResourceService 读面）。 */
+/** 组装入参：base + 生效工具集 + 生效技能集（ResourceService 读面）+ 可选任务类型清单（仅 main-session 注入）。 */
 export interface PromptAssemblyInput {
   readonly basePrompt: string;
   readonly toolNames: readonly string[];
   readonly skills: readonly SkillDescriptor[];
+  /**
+   * 可用任务类型清单（TaskSkillRegistry.listTaskTypes 读面）——仅
+   * main-session 传入：任务类型 SOP 不进技能清单（audience=task 不过
+   * 技能面），MainAgent 的发起面是 task_create（对话即确认）。
+   */
+  readonly taskTypes?: readonly TaskTypeInfo[];
 }
 
 export class SystemPromptAssembler {
@@ -45,6 +52,9 @@ export class SystemPromptAssembler {
     });
     if (toolLines.length > 0) segments.push(["可用工具：", ...toolLines].join("\n"));
     if (input.skills.length > 0) segments.push(this.skillSection(input.skills));
+    if (input.taskTypes !== undefined && input.taskTypes.length > 0) {
+      segments.push(this.taskTypeSection(input.taskTypes));
+    }
     return segments.join("\n\n");
   }
 
@@ -60,6 +70,20 @@ export class SystemPromptAssembler {
       lines.push(`- name: ${skill.name}`);
       lines.push(`  description: ${foldToSingleLine(skill.description)}`);
       lines.push(`  location: ${skill.filePath}`);
+    }
+    return lines.join("\n");
+  }
+
+  /** 任务类型段：标题 + 两句引导语（task_create 发起 / 不要自己读 SOP 执行）+ 逐类型 name/description 子块。 */
+  private taskTypeSection(taskTypes: readonly TaskTypeInfo[]): string {
+    const lines: string[] = [
+      "可用任务类型（无交互多 agent 任务）：",
+      "以下任务类型由编排 agent 按各自任务 SOP 的固定流程执行；当用户需求与某类型的描述匹配时，用 task_create 发起（与用户确认干什么之后再调用——对话即确认，调用即创建）。",
+      "任务 SOP 全文在任务 kickoff 时注入编排 agent——你不要自己读取任务 SKILL.md 并按其指引执行（那是编排 agent 的角色）。",
+    ];
+    for (const t of taskTypes) {
+      lines.push(`- name: ${t.type}`);
+      lines.push(`  description: ${foldToSingleLine(t.description)}`);
     }
     return lines.join("\n");
   }

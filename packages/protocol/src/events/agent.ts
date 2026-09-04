@@ -130,6 +130,8 @@ export interface AgentConfigProfileBlock {
     filePath: string;
     /** 来源层：user（~/.helix/skills）/ project（工作区 .helix/skills）/ builtin（daemon 随仓 resources/skills，v0.8）。 */
     source: "user" | "project" | "builtin";
+    /** 受众分类（提示词树形分层重构 additive）：agent = 行为技能（进技能清单）/ task = 任务类型 SOP（只进任务注册表与编排 kickoff）。 */
+    audience: "agent" | "task";
     enabled: boolean;
   }>;
   /** 扫描诊断（code/message/path/source；SkillScanner 域形状同构）。 */

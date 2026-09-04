@@ -58,8 +58,9 @@ const _setEnabledThinkingClear: AgentConfigSetEnabledPayload = { profileKind: "s
 const _skillBuiltin: AgentConfigProfileBlock["skills"][number] = {
   name: "web-access",
   description: "联网操作指引",
-  filePath: "/daemon/resources/skills/web-access/SKILL.md",
+  filePath: "/daemon/resources/skills/agent/web-access/SKILL.md",
   source: "builtin",
+  audience: "agent",
   enabled: true,
 };
 // @ts-expect-error source 只接受 user/project/builtin（越界字面量编译期拒绝）

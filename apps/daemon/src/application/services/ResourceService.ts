@@ -120,7 +120,9 @@ export class ResourceService implements ResourceConfigPort {
   /** 生效技能集（消费面：提示注入三字段 + source 的完整描述符）。 */
   async getEffectiveSkills(kind: ProfileKind): Promise<readonly SkillDescriptor[]> {
     const scanned = await this.deps.skills.scan();
-    return scanned.skills.filter((s) => this.enabledOf(kind, "skill", s.name));
+    return scanned.skills
+      .filter((s) => skillVisibleToKind(kind, s))
+      .filter((s) => this.enabledOf(kind, "skill", s.name));
   }
 
   /** model 槽位现值（未设 → undefined = 走四级/三级链后续级）。 */
@@ -167,4 +169,16 @@ export class ResourceService implements ResourceConfigPort {
   clearModel(kind: ProfileKind): Promise<void> {
     return this.clearModelSlot(kind);
   }
+}
+
+/**
+ * 技能受众 × profile kind 可见性（audience 分类注入，批二裁决）：
+ * - agent 类行为技能 → 执行面 agent（main-session + subagent 各族）可见；
+ * - task 类任务类型 SOP → 不进任何 agent 的技能清单（消费通道 =
+ *   TaskSkillRegistry 注册 → task_create → 编排 kickoff 全文注入）；
+ * - orchestrator 不持技能清单——它的 SOP 就是任务 skill 全文（kickoff）。
+ */
+function skillVisibleToKind(kind: ProfileKind, skill: SkillDescriptor): boolean {
+  if (kind === "orchestrator") return false;
+  return skill.audience === "agent";
 }

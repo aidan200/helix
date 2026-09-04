@@ -19,6 +19,7 @@ import { SessionRegistry, type SessionRuntime } from "../../application/services
 import { profileKindOf } from "../../application/services/modes";
 import { ResourceService } from "../../application/services/ResourceService";
 import { SystemPromptAssembler } from "../../application/services/SystemPromptAssembler";
+import type { TaskTypeInfo } from "../../application/ports/outbound/TaskSkillRegistryPort";
 import { SchedulingPolicy } from "../../domain/agent/SchedulingPolicy";
 import { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import { sessionPlanPayloadOf } from "../../adapters/driving/ws-server/SnapshotMapper";
@@ -203,6 +204,13 @@ export interface BuildSessionStackDeps {
    */
   readonly taskReport?: TaskReportToolDeps;
   /**
+   * 可用任务类型清单读面（audience 分类注入，批二）：MainAgent 提示的
+   * 「可用任务类型」段数据源（TaskSkillRegistry.listTaskTypes 同源）——
+   * 任务类型 SOP 不进技能清单，MainAgent 经 task_create 发起。仅
+   * main-session 组装消费；缺省 = 无任务类型段（测试形态）。
+   */
+  readonly taskTypesOf?: () => readonly TaskTypeInfo[];
+  /**
    * 会话工具沙箱 cwd 动态解析面（W1 绑定闭环）：基准改绑定的 root——
    * 每会话装配（engineFor）时求值，重绑后新会话跟随。缺省回落启动定格
    * 值；deps.toolCwd 显式注入时恒优先（测试面）。
@@ -364,7 +372,16 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     const skills = await resourceService.getEffectiveSkills(kind);
     return {
       tools,
-      systemPrompt: promptAssembler.assemble({ basePrompt: assemblyBase(kind), toolNames: tools, skills }),
+      systemPrompt: promptAssembler.assemble({
+        basePrompt: assemblyBase(kind),
+        toolNames: tools,
+        skills,
+        // 任务类型段仅 MainAgent（发起面 = task_create；SubAgent 不能建任务
+        // AD-2，orchestrator 的 SOP 走 kickoff 全文注入）
+        ...(kind === "main-session" && deps.taskTypesOf !== undefined
+          ? { taskTypes: deps.taskTypesOf() }
+          : {}),
+      }),
     };
   };
   let mainAssembly = await computeAssembly("main-session");

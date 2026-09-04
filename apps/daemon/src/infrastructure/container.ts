@@ -526,6 +526,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 创建入口——与 /project 入口同一 createTask API（TaskEngineService 注入）
     // + 回执读面（TaskQueryService 投影）；SubAgent 子进程本地栈不注入（生效集隔离）
     taskCreate: { engine: taskStack.taskEngine, query: taskStack.query },
+    // 可用任务类型段数据源（audience 分类注入，批二）：MainAgent 提示的
+    // 任务类型清单 = 任务注册表读面（与 task_create 的类型校验同一事实源）
+    taskTypesOf: () => taskStack.orchestratorCore.skills.listTaskTypes(),
     // task_report 工具装配面（D3）：主会话 executor 注册 chat 回流通用报告
     // 查询面——任务读面（TaskQueryService list/detail）+ closure_records 读面
     //（SessionRepositoryPort.queryClosureRecords）+ 报告目录约定（与

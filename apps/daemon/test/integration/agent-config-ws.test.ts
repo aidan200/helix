@@ -110,7 +110,7 @@ afterAll(() => {
 interface ProfileBlock {
   profileKind: string;
   tools: { name: string; enabled: boolean; snippet: string }[];
-  skills: { name: string; description: string; filePath: string; source: string; enabled: boolean }[];
+  skills: { name: string; description: string; filePath: string; source: string; audience: string; enabled: boolean }[];
   diagnostics: { code: string; message: string; path: string; source: string }[];
   model: string | null;
   thinkingLevel: string | null; // v0.11 批内补登（T1.3）
@@ -240,6 +240,7 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
           description: "问候技能",
           filePath: expect.stringContaining("hello-skill"),
           source: "user",
+          audience: "agent", // user/project 层恒为 agent 类（audience 分类注入，批二）
           enabled: true,
         },
       ]);

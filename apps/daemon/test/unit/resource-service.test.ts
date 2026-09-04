@@ -46,8 +46,8 @@ const TOOL_SNIPPETS: Readonly<Record<string, string>> = {
 };
 
 const SKILLS: readonly SkillDescriptor[] = [
-  { name: "code-review", description: "审查代码变更质量", filePath: "/tmp/x/code-review/SKILL.md", source: "user" },
-  { name: "deploy-helper", description: "部署流程向导", filePath: "/tmp/y/deploy-helper/SKILL.md", source: "project" },
+  { name: "code-review", description: "审查代码变更质量", filePath: "/tmp/x/code-review/SKILL.md", source: "user", audience: "agent" },
+  { name: "deploy-helper", description: "部署流程向导", filePath: "/tmp/y/deploy-helper/SKILL.md", source: "project", audience: "agent" },
 ];
 
 /** 内存假实现：镜像 ResourceStatePort 语义（含 model 槽位单行不变式）。 */
@@ -272,7 +272,7 @@ describe("ResourceService：model 槽位", () => {
 describe("ResourceService：builtin 技能不可禁用防护（T5 内置第三源）", () => {
   const BUILTIN: readonly SkillDescriptor[] = [
     ...SKILLS,
-    { name: "web-access", description: "联网操作指引", filePath: "/daemon/resources/skills/web-access/SKILL.md", source: "builtin" },
+    { name: "web-access", description: "联网操作指引", filePath: "/daemon/resources/skills/agent/web-access/SKILL.md", source: "builtin", audience: "agent" },
   ];
 
   test("⑪ setEnabled 对 builtin 技能 → skipped(builtin-immutable)、零落库、读面恒启用", async () => {
@@ -301,5 +301,26 @@ describe("ResourceService：builtin 技能不可禁用防护（T5 内置第三�
     expect(store.rows.size).toBe(0);
     // user/project 技能不受防护影响（applied 先例保持）
     expect((await service.toggle("main-session", "skill", "code-review", false)).status).toBe("applied");
+  });
+});
+
+describe("ResourceService：技能受众 × kind 可见性（audience 分类注入，批二）", () => {
+  const AUDIENCED: readonly SkillDescriptor[] = [
+    { name: "web-access", description: "联网操作指引", filePath: "/b/agent/web-access/SKILL.md", source: "builtin", audience: "agent" },
+    { name: "kg-bootstrap", description: "知识图谱批量创建", filePath: "/b/task/kg-bootstrap/SKILL.md", source: "builtin", audience: "task" },
+    { name: "user-skill", description: "用户技能", filePath: "/u/user-skill/SKILL.md", source: "user", audience: "agent" },
+  ];
+
+  test("⑫ main-session/subagent-worker：只见 agent 类（任务类型 SOP 不进技能清单）", async () => {
+    const { service } = makeService(new InMemoryResourceState(), new FakeSkillSource({ skills: AUDIENCED, diagnostics: [] }));
+    for (const kind of ["main-session", "subagent-worker"] as const) {
+      const effective = await service.getEffectiveSkills(kind);
+      expect(effective.map((s) => s.name).sort()).toEqual(["user-skill", "web-access"]);
+    }
+  });
+
+  test("⑬ orchestrator：技能清单为空（它的 SOP = 任务 skill 全文 kickoff 注入）", async () => {
+    const { service } = makeService(new InMemoryResourceState(), new FakeSkillSource({ skills: AUDIENCED, diagnostics: [] }));
+    expect(await service.getEffectiveSkills("orchestrator")).toEqual([]);
   });
 });

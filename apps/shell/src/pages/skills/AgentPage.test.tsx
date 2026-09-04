@@ -39,6 +39,7 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
       description: "问候技能",
       filePath: "/home/dev/.helix/skills/hello-skill/SKILL.md",
       source: "user",
+      audience: "agent",
       enabled: true,
     },
     {
@@ -46,6 +47,7 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
       description: "工作区技能",
       filePath: "/ws/.helix/skills/ws-skill/SKILL.md",
       source: "project",
+      audience: "agent",
       enabled: false,
     },
     {
@@ -54,6 +56,7 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
       description: "联网操作指引",
       filePath: "/daemon/resources/skills/web-access/SKILL.md",
       source: "builtin",
+      audience: "agent",
       enabled: true,
     },
   ],

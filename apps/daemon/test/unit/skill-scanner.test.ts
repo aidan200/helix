@@ -43,18 +43,21 @@ describe("SkillScanner（三层目录 → source 标签技能清单）", () => {
     const builtinDir = tmpDir("helix-skills-builtin-");
     const userFile = makeSkill(userDir, "code-review", "name: code-review\ndescription: 审查代码变更质量");
     makeSkill(projectDir, "deploy-helper", "name: deploy-helper\ndescription: 部署流程向导");
-    const builtinFile = makeSkill(builtinDir, "web-access", "name: web-access\ndescription: 联网操作指引");
+    // builtin 层目录二分（audience 分类即目录）：agent/ = 行为技能，task/ = 任务类型 SOP
+    const builtinFile = makeSkill(path.join(builtinDir, "agent"), "web-access", "name: web-access\ndescription: 联网操作指引");
+    const builtinTaskFile = makeSkill(path.join(builtinDir, "task"), "kg-bootstrap", "name: kg-bootstrap\ndescription: 知识图谱批量创建");
 
     const scanner = new SkillScanner({ userSkillsDir: userDir, projectSkillsDir: projectDir, builtinSkillsDir: builtinDir });
     const result = await scanner.scan();
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.skills.length).toBe(3);
+    expect(result.skills.length).toBe(4);
 
     const byName = new Map(result.skills.map((s) => [s.name, s]));
     const review = byName.get("code-review");
     expect(review).toBeDefined();
     expect(review!.source).toBe("user");
+    expect(review!.audience).toBe("agent"); // user/project 层恒为 agent 类
     expect(review!.description).toBe("审查代码变更质量");
     expect(review!.filePath).toBe(userFile); // 绝对路径指向 SKILL.md 本体
 
@@ -62,11 +65,18 @@ describe("SkillScanner（三层目录 → source 标签技能清单）", () => {
     expect(deploy).toBeDefined();
     expect(deploy!.source).toBe("project");
 
-    // T5 内置第三源：daemon 随仓目录（产品不可删改）→ source = "builtin"
+    // T5 内置第三源：daemon 随仓目录（产品不可删改）→ source = "builtin"；
+    // audience 由子目录决定（agent/ → agent，task/ → task）
     const builtin = byName.get("web-access");
     expect(builtin).toBeDefined();
     expect(builtin!.source).toBe("builtin");
+    expect(builtin!.audience).toBe("agent");
     expect(builtin!.filePath).toBe(builtinFile);
+    const builtinTask = byName.get("kg-bootstrap");
+    expect(builtinTask).toBeDefined();
+    expect(builtinTask!.source).toBe("builtin");
+    expect(builtinTask!.audience).toBe("task");
+    expect(builtinTask!.filePath).toBe(builtinTaskFile);
   });
 
   test("② 目录缺失 → 零异常、零技能、零诊断（静默跳过，首启常态）", async () => {
@@ -111,12 +121,20 @@ describe("SkillScanner（三层目录 → source 标签技能清单）", () => {
     });
     const result = await scanner.scan();
     expect(result.diagnostics).toEqual([]); // 随仓文件必须合法（frontmatter 合规）
-    // T2.3 + W2-F + code-review：随仓内置四技能——web-access（普通）+ kg-bootstrap/kg-review/code-review（任务类型，带 task 块）
+    // T2.3 + W2-F + code-review：随仓内置四技能——agent/ 层 web-access（行为技能）
+    // + task/ 层 kg-bootstrap/kg-review/code-review（任务类型 SOP，带 task 块）
     expect(result.skills.map((s) => s.name).sort()).toEqual(["code-review", "kg-bootstrap", "kg-review", "web-access"]);
     const skill = result.skills.find((s) => s.name === "web-access")!;
     expect(skill.source).toBe("builtin");
+    expect(skill.audience).toBe("agent");
     expect(skill.description.length).toBeGreaterThan(0);
-    expect(skill.filePath).toBe(path.join(builtinSkillsDir(), "web-access", "SKILL.md"));
+    expect(skill.filePath).toBe(path.join(builtinSkillsDir(), "agent", "web-access", "SKILL.md"));
+    // task/ 层三技能 audience = task（不进任何 agent 的技能清单）
+    for (const name of ["kg-bootstrap", "kg-review", "code-review"]) {
+      const t = result.skills.find((s) => s.name === name)!;
+      expect(t.source).toBe("builtin");
+      expect(t.audience).toBe("task");
+    }
     // 正文七节齐备（浏览哲学/工具选择/页面就绪契约/登录判断/技术事实/程序化 vs GUI/反爬风险）
     const body = readFileSync(skill.filePath, "utf8");
     for (const section of ["浏览哲学", "工具选择", "页面就绪契约", "登录判断", "技术事实", "程序化 vs GUI", "反爬风险"]) {

@@ -35,6 +35,7 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
       description: "问候技能",
       filePath: "/home/dev/.helix/skills/hello-skill/SKILL.md",
       source: "user",
+      audience: "agent",
       enabled: true,
     },
   ],

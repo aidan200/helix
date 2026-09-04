@@ -84,14 +84,16 @@ export const agentConfigListResult: AgentConfigListResultEvent = {
             description: "问候技能",
             filePath: "/home/dev/.helix/skills/hello-skill/SKILL.md",
             source: "user",
+            audience: "agent",
             enabled: true,
           },
           {
             // v0.8：builtin 第三源（daemon 随仓内置技能；不可禁用——读面恒 enabled=true）
             name: "web-access",
             description: "联网操作指引",
-            filePath: "/daemon/resources/skills/web-access/SKILL.md",
+            filePath: "/daemon/resources/skills/agent/web-access/SKILL.md",
             source: "builtin",
+            audience: "agent",
             enabled: true,
           },
         ],

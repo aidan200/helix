@@ -12,8 +12,10 @@ import type {
 /**
  * TaskSkillRegistry —— 任务类型 manifest 注册表真体（architecture §4.3/§7.1，
  * AD-9②）：实现 outbound TaskSkillRegistryPort，消费 SkillScanner 扫描产物
- * 的 builtin 层（F-8：任务类型 skill 随仓分发、产品不可删改——user/project
- * 层技能即使带 task 块也不入表，任务类型是产品功能不是用户扩展点）。
+ * 的 builtin task/ 层（audience="task"；F-8：任务类型 skill 随仓分发、产品
+ * 不可删改——user/project 层与 builtin agent/ 层技能即使带 task 块也不
+ * 入表，任务类型是产品功能不是用户扩展点；分类即目录，agent/ 放任务
+ * skill = 放错目录不入表）。
  *
  * 装载口径：scan() → builtin 技能 → 读 SKILL.md frontmatter（yaml 解析，
  * 与 pi loadSourcedSkills 底层同一解析器同版本）→ domain/task
@@ -39,16 +41,22 @@ export class TaskSkillRegistry implements TaskSkillRegistryPort {
 
   constructor(private readonly deps: TaskSkillRegistryDeps) {}
 
-  /** 装载（一次性）：扫描 builtin 层并解析全部 task 块入表。 */
+  /** 装载（一次性）：扫描 builtin task/ 层并解析全部 task 块入表。 */
   async load(): Promise<void> {
     const scanned = await this.deps.skills.scan();
     for (const skill of scanned.skills) {
-      if (skill.source !== "builtin") continue;
+      if (skill.source !== "builtin" || skill.audience !== "task") continue;
       const frontmatter = await this.readFrontmatter(skill.filePath, skill.name);
       if (frontmatter === null) continue;
       try {
         const manifest = parseTaskManifest(frontmatter);
-        if (manifest === null) continue; // 无 task 块 → 普通技能，不入表
+        if (manifest === null) {
+          // task/ 目录 = 任务类型 SOP 的机械约定：缺 task 块 = 放错目录，warning 不入表
+          this.deps.warn(
+            `任务类型 skill "${skill.name}" 缺 task 块（task/ 目录技能必须携带任务 manifest——放错目录？），未入注册表（${skill.filePath}）`,
+          );
+          continue;
+        }
         this.table.set(skill.name, { manifest, description: skill.description });
       } catch (error) {
         this.deps.warn(

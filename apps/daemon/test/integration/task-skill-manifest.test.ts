@@ -65,16 +65,16 @@ async function loadRegistry(builtin = builtinSkillsDir()): Promise<TaskSkillRegi
   return registry;
 }
 
-/** 造一个技能 fixture：<builtin>/<name>/SKILL.md。 */
+/** 造一个任务类型技能 fixture：<builtin>/task/<name>/SKILL.md（audience 分类即目录——task/ 层才会入任务注册表）。 */
 function makeSkill(builtin: string, name: string, frontmatter: string, body = "技能正文"): void {
-  const dir = path.join(builtin, name);
+  const dir = path.join(builtin, "task", name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "SKILL.md"), `---\n${frontmatter}\n---\n\n${body}\n`, "utf8");
 }
 
 describe("kg-bootstrap skill 装载（CL-2-T10）", () => {
   test("① SKILL.md 落位 builtin 层随仓目录 + SkillScanner 扫到（source=builtin）", async () => {
-    const file = path.join(builtinSkillsDir(), "kg-bootstrap", "SKILL.md");
+    const file = path.join(builtinSkillsDir(), "task", "kg-bootstrap", "SKILL.md");
     const text = await readFile(file, "utf8");
     expect(text.startsWith("---\n")).toBe(true); // frontmatter 在文件头
 
@@ -113,7 +113,7 @@ describe("SOP 五节锚 + 写作规范六条（CL-2-T10；R23 升六条后锚同
   let body: string;
 
   test("④ 五节主题锚齐（产出目标与验收/批次划分/brief 模板/写作规范/完成判定）", async () => {
-    body = (await readFile(path.join(builtinSkillsDir(), "kg-bootstrap", "SKILL.md"), "utf8")).replace(/^---\n[\s\S]*?\n---\n/, "");
+    body = (await readFile(path.join(builtinSkillsDir(), "task", "kg-bootstrap", "SKILL.md"), "utf8")).replace(/^---\n[\s\S]*?\n---\n/, "");
     expect(body).toContain("各层产出目标与验收");
     expect(body).toContain("批次划分原则");
     expect(body).toContain("brief 装配模板");
@@ -212,7 +212,7 @@ describe("向后兼容：无 task 块普通技能不受影响（CL-2-T9）", () 
 
 describe("kg-review skill 装载（W2-F 轨二语义体检任务，R21/R23）", () => {
   test("① SKILL.md 落位 builtin 层随仓目录 + SkillScanner 扫到（source=builtin）", async () => {
-    const file = path.join(builtinSkillsDir(), "kg-review", "SKILL.md");
+    const file = path.join(builtinSkillsDir(), "task", "kg-review", "SKILL.md");
     const text = await readFile(file, "utf8");
     expect(text.startsWith("---\n")).toBe(true);
 
@@ -239,7 +239,7 @@ describe("kg-review skill 装载（W2-F 轨二语义体检任务，R21/R23）", 
   });
 
   test("③ SOP 正文锚：评审口径三问 + 数据源三面（kg/codegraph/锚反查）", async () => {
-    const body = (await readFile(path.join(builtinSkillsDir(), "kg-review", "SKILL.md"), "utf8")).replace(
+    const body = (await readFile(path.join(builtinSkillsDir(), "task", "kg-review", "SKILL.md"), "utf8")).replace(
       /^---\n[\s\S]*?\n---\n/,
       "",
     );
@@ -254,7 +254,7 @@ describe("kg-review skill 装载（W2-F 轨二语义体检任务，R21/R23）", 
   });
 
   test("④ 产出纪律硬锚：内容问题只提 candidate / scene 缺失可 updateNode / 禁直改禁 supersede / 不带 layer", async () => {
-    const body = (await readFile(path.join(builtinSkillsDir(), "kg-review", "SKILL.md"), "utf8")).replace(
+    const body = (await readFile(path.join(builtinSkillsDir(), "task", "kg-review", "SKILL.md"), "utf8")).replace(
       /^---\n[\s\S]*?\n---\n/,
       "",
     );
@@ -266,7 +266,7 @@ describe("kg-review skill 装载（W2-F 轨二语义体检任务，R21/R23）", 
   });
 
   test("⑤ 完成判定锚：全节点过一遍 + candidates 落账条数 + 遗留清单显式写「无」", async () => {
-    const body = (await readFile(path.join(builtinSkillsDir(), "kg-review", "SKILL.md"), "utf8")).replace(
+    const body = (await readFile(path.join(builtinSkillsDir(), "task", "kg-review", "SKILL.md"), "utf8")).replace(
       /^---\n[\s\S]*?\n---\n/,
       "",
     );
@@ -279,7 +279,7 @@ describe("kg-review skill 装载（W2-F 轨二语义体检任务，R21/R23）", 
 
 describe("code-review skill 装载（代码质量评审任务，D1）", () => {
   test("① SKILL.md 落位 builtin 层随仓目录 + SkillScanner 扫到（source=builtin）", async () => {
-    const file = path.join(builtinSkillsDir(), "code-review", "SKILL.md");
+    const file = path.join(builtinSkillsDir(), "task", "code-review", "SKILL.md");
     const text = await readFile(file, "utf8");
     expect(text.startsWith("---\n")).toBe(true);
 
@@ -307,7 +307,7 @@ describe("code-review skill 装载（代码质量评审任务，D1）", () => {
   });
 
   test("③ SOP 正文锚：评审口径四问 + 证据纪律（四要素 + 严重度四级）", async () => {
-    const body = (await readFile(path.join(builtinSkillsDir(), "code-review", "SKILL.md"), "utf8")).replace(
+    const body = (await readFile(path.join(builtinSkillsDir(), "task", "code-review", "SKILL.md"), "utf8")).replace(
       /^---\n[\s\S]*?\n---\n/,
       "",
     );
@@ -323,7 +323,7 @@ describe("code-review skill 装载（代码质量评审任务，D1）", () => {
   });
 
   test("④ 产出纪律硬锚：issue 进报告与 findings / sediment 唯一例外 / 禁改代码与 kg / 汇总报告固定落点", async () => {
-    const body = (await readFile(path.join(builtinSkillsDir(), "code-review", "SKILL.md"), "utf8")).replace(
+    const body = (await readFile(path.join(builtinSkillsDir(), "task", "code-review", "SKILL.md"), "utf8")).replace(
       /^---\n[\s\S]*?\n---\n/,
       "",
     );
@@ -336,7 +336,7 @@ describe("code-review skill 装载（代码质量评审任务，D1）", () => {
   });
 
   test("⑤ 完成判定锚：模块零遗漏 + 发现条数如实 + 遗留清单显式写「无」", async () => {
-    const body = (await readFile(path.join(builtinSkillsDir(), "code-review", "SKILL.md"), "utf8")).replace(
+    const body = (await readFile(path.join(builtinSkillsDir(), "task", "code-review", "SKILL.md"), "utf8")).replace(
       /^---\n[\s\S]*?\n---\n/,
       "",
     );

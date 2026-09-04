@@ -10,7 +10,7 @@ import path from "node:path";
  * - disciplines/  —— 通用纪律层：全局静态 md，所有 profile 如实注入。
  *
  * 解析根 = import.meta.dir 上溯五级到 apps/daemon 包根（与 paths.ts
- * builtinSkillsDir 同款 bun 直跑 .ts 解析，不经 os.homedir/cwd）。
+ * builtinSkillsDir 同款 bun 直跑 .ts 解析，不展开用户主目录、不依赖 cwd）。
  * 缺文件/读取失败 = 模块加载期 throw（fail-fast——提示词缺块不允许
  * 静默降级成空 prompt）。
  */

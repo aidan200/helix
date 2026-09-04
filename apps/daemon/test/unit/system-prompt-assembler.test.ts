@@ -22,6 +22,7 @@ const skill = (over: Partial<SkillDescriptor> = {}): SkillDescriptor => ({
   description: "审查代码变更的质量与风险",
   filePath: "/home/u/.helix/skills/code-review/SKILL.md",
   source: "user",
+  audience: "agent",
   ...over,
 });
 
@@ -67,7 +68,7 @@ describe("SystemPromptAssembler 三段组装（M6 T2）", () => {
         skill({
           name: "web-access",
           description: "联网操作指引",
-          filePath: "/daemon/resources/skills/web-access/SKILL.md",
+          filePath: "/daemon/resources/skills/agent/web-access/SKILL.md",
           source: "builtin",
         }),
       ],
@@ -84,7 +85,7 @@ describe("SystemPromptAssembler 三段组装（M6 T2）", () => {
     // builtin 技能三行子块齐备（技能段含 builtin 断言）
     expect(out).toContain("- name: web-access");
     expect(out).toContain("  description: 联网操作指引");
-    expect(out).toContain("  location: /daemon/resources/skills/web-access/SKILL.md");
+    expect(out).toContain("  location: /daemon/resources/skills/agent/web-access/SKILL.md");
   });
 
   test("③ description 含换行 → 折成单行（单行防御：子块行结构不被多行 description 破坏）", () => {
@@ -144,5 +145,34 @@ describe("SystemPromptAssembler 三段组装（M6 T2）", () => {
     for (const name of toolNames) {
       expect(out).toContain(`- ${name}: ${TOOL_PROMPT_SNIPPETS[name]}`);
     }
+  });
+});
+
+describe("SystemPromptAssembler 任务类型段（audience 分类注入，批二）", () => {
+  test("④ taskTypes 传入 → 「可用任务类型」段渲染（task_create 发起面 + 不自读 SOP 指引 + 逐类型子块）", () => {
+    const out = assembler.assemble({
+      basePrompt: "B",
+      toolNames: ["bash"],
+      skills: [skill()],
+      taskTypes: [
+        { type: "kg-bootstrap", description: "为项目批量创建知识图谱内容" },
+        { type: "code-review", description: "对项目代码做质量评审" },
+      ],
+    });
+    expect(out).toContain("可用任务类型（无交互多 agent 任务）：");
+    expect(out).toContain("用 task_create 发起");
+    expect(out).toContain("你不要自己读取任务 SKILL.md 并按其指引执行");
+    expect(out).toContain("- name: kg-bootstrap");
+    expect(out).toContain("  description: 为项目批量创建知识图谱内容");
+    expect(out).toContain("- name: code-review");
+  });
+
+  test("⑤ taskTypes 缺省/空集 → 任务类型段整体省略（与工具/技能段同款空集语义）", () => {
+    expect(
+      assembler.assemble({ basePrompt: "B", toolNames: ["bash"], skills: [] }),
+    ).not.toContain("可用任务类型");
+    expect(
+      assembler.assemble({ basePrompt: "B", toolNames: ["bash"], skills: [], taskTypes: [] }),
+    ).not.toContain("可用任务类型");
   });
 });
