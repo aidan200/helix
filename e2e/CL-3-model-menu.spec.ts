@@ -170,7 +170,7 @@ test.describe("T3.3 CL-3 P-3 模型切换菜单", () => {
     await expect(page.locator('.rail-btn[data-page="settings"]')).toBeVisible();
   });
 
-  test("F(3.3).2 选中即切：model.set（信封 sessionId）+ 徽标即时更新（model.changed 回流）+ 不关菜单", async ({ mock, page }) => {
+  test("F(3.3).2 选中即切：model.set（信封 sessionId）+ 徽标即时更新（model.changed 回流）+ 选中即关（T9 B 方案）", async ({ mock, page }) => {
     await mock.connect([], { model: CURRENT });
     await openMenu(mock, page);
     const menu = page.locator("[data-model-menu]");
@@ -184,13 +184,15 @@ test.describe("T3.3 CL-3 P-3 模型切换菜单", () => {
     expect(cmd.sessionId).toBe("sess-e2e");
     expect(cmd.payload).toEqual({ model: SWITCH_TO });
 
-    // 选中不关菜单（连续比对）
-    await expect(page.locator("[data-model-menu]")).toBeVisible();
+    // T9（b235fe4，推翻 2015f0e 连续比对旧设计）：选中即关——菜单卸载
+    await expect(page.locator("[data-model-menu]")).toHaveCount(0);
 
     // 徽标即时更新：model.changed 广播回流（前端零权威，非本地写）
     await mock.emit(modelChanged("sess-e2e", SWITCH_TO, CURRENT));
     await expect(page.locator("[data-model-badge]")).toContainText(SWITCH_TO);
-    // 选中态随 store 同步切换（gpt-5.2 行 sel，opus 行退出）
+    // 选中态随 store 同步切换（重开菜单验证：gpt-5.2 行 sel，opus 行退出）
+    await page.locator("[data-model-badge]").click();
+    await expect(page.locator("[data-model-menu]")).toBeVisible();
     await expect(menu.locator(`[data-model-item="${SWITCH_TO}"]`)).toHaveClass(/sel/);
     await expect(menu.locator(`[data-model-item="${CURRENT}"]`)).not.toHaveClass(/sel/);
   });
@@ -204,14 +206,16 @@ test.describe("T3.3 CL-3 P-3 模型切换菜单", () => {
     const reset = menu.locator("#btn-model-reset");
     await expect(reset).toBeVisible();
 
-    // 点击恢复 → model.set 目标 = 全局默认
+    // 点击恢复 → model.set 目标 = 全局默认（T9：reset 同路径选中即关）
     await reset.click();
     const cmd = await mock.waitForCommand("model.set");
     expect(cmd.payload).toEqual({ model: DEFAULT_MODEL });
+    await expect(page.locator("[data-model-menu]")).toHaveCount(0);
     await mock.emit(modelChanged("sess-e2e", DEFAULT_MODEL, CURRENT));
     await expect(page.locator("[data-model-badge]")).toContainText("claude-sonnet-4-5");
 
-    // 相等后入口隐藏（菜单仍开）
+    // 相等后入口隐藏（重开菜单验证）
+    await page.locator("[data-model-badge]").click();
     await expect(page.locator("[data-model-menu]")).toBeVisible();
     await expect(menu.locator("#btn-model-reset")).toHaveCount(0);
   });

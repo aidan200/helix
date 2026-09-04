@@ -8,50 +8,58 @@
  * - TP-CL4-3 IconRail 形态与序（64px glass 竖条 + 五钮序 + lucide 同名图标）；
  * - TP-CL4-4 激活态三件套静态特征 + 恰一激活 + hover 提亮 + 点击迁移
  *   （reduced-motion 关停 BorderBeam；不做帧级动画断言）；
- * - TP-CL4-5/6 施工牌同构 + 无路线暗示文案 + 与断连态三重区分
- *   （trace 已换真 TracePage——契约依据 f413587；skills 已换真智能体页
- *   ——M6 T4；S2 settings 已换真设置页（模型配置分区）；真页还原归
- *   CL-5-fidelity-trace-page / CL-skills / CL-3 套件背书）；
+ * - TP-CL4-5/6 施工牌全退役核销（T5.4 project 换真页后零占位）+ 未建连
+ *   门禁 boot 屏语义（W6o）；真页还原归 CL-5-fidelity-trace-page /
+ *   CL-skills / CL-3 / CL-1-CL-4 套件背书；
  * - TP-CL4-7 双主题（DARK/LIGHT 渲染正常）。
  * TP-CL4-8 页面域/会话域分离守护落 arch-guard（apps/shell/src/tests/ag-scans.test.ts）。
  */
 import { test, expect } from "./harness/fixtures";
 import { streamDelta } from "./harness/protocol";
 
-/** 五路由位（序 = IconRail 钮序；icon = lucide kebab 名，同名断言面；S2 去 models 位）。 */
+/** 六路由位（序 = IconRail 钮序；icon = lucide kebab 名，同名断言面；S2 去
+ *  models 位；T3.1 任务位入列——project 与 settings 之间）。 */
 const PAGES = [
   { id: "chat", path: "/", icon: "message-square" },
   { id: "skills", path: "/skills", icon: "layers" },
   { id: "trace", path: "/trace", icon: "activity" },
   { id: "project", path: "/project", icon: "folder-kanban" },
+  { id: "tasks", path: "/tasks", icon: "list-todo" },
   { id: "settings", path: "/settings", icon: "settings" },
 ] as const;
 
-/** 占位页（施工牌；S2 仅剩 project——trace/skills/settings 均已换真页）。 */
-const PLACEHOLDERS = PAGES.filter((p) => p.id === "project");
+/** 施工牌占位页：已全退役（T5.4 project 换真 ProjectPage 后 ConstructionBoard
+ *  零消费面——六路由全真页）。保留空数组作演进锚（TP-CL4-5/6 注记）。 */
+const PLACEHOLDERS: readonly (typeof PAGES)[number][] = [];
 
 /** fake transport 标准入口（URL 形态默认剧本，spec 手动驱动）。 */
 const FAKE = "?fakeTransport=1";
 
 /** 路由位 → 页面可见锚（chat = 既有工作台（.route-layer 作用域——S2 起
  *  settings 真页亦用 .app-layout 壳）；trace = 真 TracePage（f413587）；
- * skills = 真智能体页（M6 T4）；settings = 真设置页（S2，含模型配置
- * 分区）；其余占位 = 施工牌）。 */
+ *  skills = 真智能体页（M6 T4）；project = 真 ProjectPage（T5.4）；
+ *  tasks = 真 TasksPage（T3.1）；settings = 真设置页（S2，含模型配置
+ *  分区）——施工牌全退役后六路由皆真页锚）。 */
 function pageAnchor(path: string): string {
   if (path === "/") return ".route-layer .app-layout";
   if (path === "/trace") return `[data-trace-page="${path}"]`;
   if (path === "/skills") return `[data-agents-page="${path}"]`;
-  if (path === "/settings") return `[data-settings-page="${path}"]`;
-  return `[data-construction="${path}"]`;
+  if (path === "/project") return `[data-p1-project="${path}"]`;
+  if (path === "/tasks") return `[data-p2-task="${path}"]`;
+  return `[data-settings-page="${path}"]`;
 }
 
 test.describe("T3.4 CL-4 IconRail 页签导航框架", () => {
-  test("TP-CL4-1 五路由深链直达 + 未知/旧路径回落工作台（不出现模型独立页）", async ({ mock, page }) => {
+  test("TP-CL4-1 六路由深链直达 + 未知/旧路径回落工作台（不出现模型独立页）", async ({ mock, page }) => {
     await mock.awaitReady();
 
-    // 深链矩阵：五独立路径各自渲染对应页（路由层在连接态之外，无需建连）
+    // 深链矩阵：六独立路径各自渲染对应页。W6o 门禁语义：路由层不再独立于
+    // 连接态——深链先落地 boot 屏（full 序列），重驱握手 + workspace.get
+    // 预绑定进门禁 main 后目标页渲染（序列断言 = 深链可达性保持）
     for (const p of PAGES) {
       await page.goto(`${p.path}${FAKE}`);
+      await expect(page.locator('[data-wsgate-boot="connecting"]')).toBeVisible();
+      await mock.connect();
       await expect(page.locator("nav.icon-rail")).toBeVisible();
       await expect(page.locator(pageAnchor(p.path))).toBeVisible();
       // 页面域五态互斥：其余页不渲染（chat 常驻 DOM 但 display 切换隐藏）。
@@ -72,6 +80,7 @@ test.describe("T3.4 CL-4 IconRail 页签导航框架", () => {
 
     // S2 退役路径 /models：回落工作台（不出现设置页/模型分区）
     await page.goto(`/models${FAKE}`);
+    await mock.connect();
     await expect(page.locator(".route-layer .app-layout")).toBeVisible();
     await expect(page.locator("[data-settings-page]")).toHaveCount(0);
     await expect(page.locator("[data-trace-page]")).toHaveCount(0);
@@ -79,6 +88,7 @@ test.describe("T3.4 CL-4 IconRail 页签导航框架", () => {
 
     // 旧路径 /settings/models 不保兼容 → 回落工作台（Q-4b：不出现模型独立页）
     await page.goto(`/settings/models${FAKE}`);
+    await mock.connect();
     await expect(page.locator(".route-layer .app-layout")).toBeVisible();
     await expect(page.locator("[data-settings-page]")).toHaveCount(0);
     await expect(page.locator("[data-trace-page]")).toHaveCount(0);
@@ -86,13 +96,14 @@ test.describe("T3.4 CL-4 IconRail 页签导航框架", () => {
 
     // 未知路径回落工作台（F-9 既有语义）
     await page.goto(`/nope${FAKE}`);
+    await mock.connect();
     await expect(page.locator(".route-layer .app-layout")).toBeVisible();
     await expect(page.locator("[data-settings-page]")).toHaveCount(0);
     await expect(page.locator("[data-trace-page]")).toHaveCount(0);
     await expect(page.locator("[data-construction]")).toHaveCount(0);
   });
 
-  test("TP-CL4-3 IconRail 形态与序：64px 常驻 + HelixLogo + 五钮序 + 主题单钮 + 底部头像块", async ({ mock, page }) => {
+  test("TP-CL4-3 IconRail 形态与序：64px 常驻 + HelixLogo + 六钮序 + 主题单钮 + 底部头像块", async ({ mock, page }) => {
     await mock.connect();
 
     const rail = page.locator("nav.icon-rail");
@@ -102,9 +113,9 @@ test.describe("T3.4 CL-4 IconRail 页签导航框架", () => {
     await expect(rail.locator(".rail-logo [data-brand-logo]")).toBeAttached();
     await expect(rail.locator(".rail-avatar")).toBeAttached();
 
-    // 五图标钮（rail-nav 内）：序 = chat/skills/trace/project/settings（S2 去 models）
+    // 六图标钮（rail-nav 内）：序 = chat/skills/trace/project/tasks/settings（S2 去 models；T3.1 任务位入列）
     const btns = rail.locator(".rail-nav .rail-btn");
-    await expect(btns).toHaveCount(5);
+    await expect(btns).toHaveCount(6);
     const order = await btns.evaluateAll((els) => els.map((el) => el.getAttribute("data-page")));
     expect(order).toEqual(PAGES.map((p) => p.id));
 
@@ -214,51 +225,27 @@ test.describe("T3.4 CL-4 IconRail 页签导航框架", () => {
     expect(await helloCount()).toBe(helloBefore);
   });
 
-  test("TP-CL4-5/6 施工牌（S2 后仅 project）同构 + 预告无时间承诺词 + 与断连态三重区分", async ({ mock, page }) => {
+  test("TP-CL4-5/6 施工牌全退役（六路由真页锚）+ 未建连门禁 boot 屏语义", async ({ mock, page }) => {
     await mock.awaitReady();
-    // 路线暗示黑名单（Q-4c：不做时间承诺）
-    const BLACKLIST = /即将|下版本|下一版|敬请期待|Q[1-4]|coming\s*soon|roadmap/i;
+    // 演进注记（2026-09）：施工牌随 project 换真 ProjectPage（T5.4）全退役，
+    // ConstructionBoard 组件零消费面——原「施工牌同构 + 预告无时间承诺 +
+    // 与断连态三重区分」覆盖意图由真页锚 + 门禁 boot 屏断言承接
+    expect(PLACEHOLDERS).toHaveLength(0);
 
-    const structureSignatures: string[] = [];
-    for (const p of PLACEHOLDERS) {
+    // 六路由全真页锚 + 施工牌零残留
+    for (const p of PAGES) {
+      if (p.path === "/") continue; // chat 常驻 DOM（TP-CL4-2 覆盖）
       await page.goto(`${p.path}${FAKE}`);
-      const board = page.locator(`[data-construction="${p.path}"]`);
-      await expect(board).toBeVisible();
-
-      // 模板结构：虚线围挡 + 64px 图标格 + 页名 + 路由行 + 预告 + 「规划中」徽标
-      const frame = board.locator(".construction-frame");
-      await expect(frame).toHaveCSS("border-style", "dashed"); // 线型区分（vs 断连实边）
-      await expect(frame.locator(".cs-icon")).toHaveCSS("width", "64px");
-      await expect(frame.locator(".cs-icon svg")).toBeVisible();
-      await expect(frame.locator(".cs-name")).not.toBeEmpty();
-      await expect(frame.locator(".cs-route")).toHaveText(p.path);
-
-      const preview = (await frame.locator(".cs-preview").textContent()) ?? "";
-      expect(preview.length).toBeGreaterThan(0);
-      expect(preview.length).toBeLessThanOrEqual(32); // ≤32ch 一句话预告
-      expect(preview).not.toMatch(BLACKLIST);
-
-      // 「规划中」徽标（hud-badge-cyan = accent 色相，vs 断连 error 色相）
-      const badge = frame.locator(".hud-badge.hud-badge-cyan");
-      await expect(badge).toBeVisible();
-      expect(await badge.textContent()).not.toMatch(BLACKLIST);
-
-      // 可交互性区分：全静态无操作入口（无按钮，断连态有重连按钮）
-      await expect(frame.locator("button")).toHaveCount(0);
-      await expect(frame.locator(".hud-btn-danger")).toHaveCount(0);
-
-      // 同构签名（结构一致仅文案/图标异：类名骨架全等）
-      structureSignatures.push(
-        await frame.evaluate(
-          (el) => `${el.className}>${Array.from(el.children).map((c) => c.className).join(",")}`,
-        ),
-      );
+      await mock.connect();
+      await expect(page.locator(pageAnchor(p.path))).toBeVisible();
+      await expect(page.locator("[data-construction]")).toHaveCount(0);
     }
-    expect(new Set(structureSignatures).size).toBe(1);
 
-    // 断连态既有形态不回归：chat 页未建连时 conn-overlay 照常（与施工牌两码事）
+    // 未建连门禁（三重区分演进）：无页面内容、无 conn-overlay——恒 boot 屏
     await page.goto(`/${FAKE}`);
-    await expect(page.locator(".app-layout .conn-overlay")).toBeVisible();
+    await expect(page.locator('[data-wsgate-boot="connecting"]')).toBeVisible();
+    await expect(page.locator(".conn-overlay")).toHaveCount(0);
+    await expect(page.locator(".route-layer .app-layout")).toHaveCount(0);
   });
 
   test("TP-CL4-7 双主题：IconRail / 施工牌 DARK·LIGHT 渲染正常", async ({ mock, page }) => {
@@ -268,7 +255,7 @@ test.describe("T3.4 CL-4 IconRail 页签导航框架", () => {
       // S1：主题单钮（toggle；循环序 dark→light→dark 与单击节奏吻合）
       await page.locator("#btn-theme-toggle").click();
       if (theme === "light") {
-        await expect(page.locator("html")).toHaveClass("light");
+        await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
       } else {
         await expect(page.locator("html")).not.toHaveClass(/light/);
       }
@@ -276,10 +263,8 @@ test.describe("T3.4 CL-4 IconRail 页签导航框架", () => {
       await expect(page.locator(".rail-btn.on")).toHaveCount(1);
 
       await page.locator('.rail-btn[data-page="project"]').click();
-      await expect(page.locator('[data-construction="/project"]')).toBeVisible();
-      await expect(
-        page.locator('[data-construction="/project"] .hud-badge.hud-badge-cyan'),
-      ).toBeVisible();
+      // T5.4：project 已换真 ProjectPage（施工牌全退役）
+      await expect(page.locator('[data-p1-project="/project"]')).toBeVisible();
 
       await page.locator('.rail-btn[data-page="chat"]').click();
       await expect(page.locator(".app-layout")).toBeVisible();

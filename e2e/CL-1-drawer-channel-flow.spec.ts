@@ -109,7 +109,7 @@ test.describe("T4.4 S2 CL-1 抽屉全流（五物种 + kill + stalled + steer）
     await mock.emit(thinkingCompleted(DRAWER_THINK_ENTRY));
     const folded = drawer.locator('.fb-wrap[data-kind="thinking"]');
     await expect(folded).toHaveCount(1);
-    await expect(folded.locator(".fb-text")).toHaveText("已思考 4s · 3k tokens"); // 2.6k 档位取整
+    await expect(folded.locator(".fb-text")).toHaveText("已思考 4s"); // CAND-35：reasoningTokens 退役，折叠条不再带 token 档
     await expect(folded.locator(".who-chip")).toHaveText(DRAWER_AGENT);
     await expect(drawer.locator(".think-live")).toHaveCount(0); // 完成即折叠，不可逆
     // 展开回看（F2.4）

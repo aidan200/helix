@@ -47,8 +47,8 @@ async function openProject(mock: MockController, page: Page): Promise<void> {
   await mock.waitForConn("connected");
   await page.locator('.rail-btn[data-page="project"]').click();
   await expect(page.locator('[data-p1-project="/project"]')).toBeVisible();
-  // kg.projects 自动应答（60ms 延迟）→ 13 行
-  await expect(page.locator(".pj-row")).toHaveCount(13, { timeout: 10_000 });
+  // kg.projects 自动应答（60ms 延迟）→ 14 行（056c38b 增 legacy 空产出项目）
+  await expect(page.locator(".pj-row")).toHaveCount(14, { timeout: 10_000 });
 }
 
 /** 选中项目进 graph 态并等默认详情收口（默认选首个实体 = E-9 Steer 消息队列）。 */
@@ -72,7 +72,8 @@ test.describe("T5.4 P-1 fidelity：F5.0 项目域 + F5.1~F5.5 图谱（FID-25~32
           await expect(page.locator(".app-header:visible")).toHaveCount(1);
           await expect(page.locator(".app-header:visible .p1-title")).toHaveText("项目");
           await expect(page.locator(".app-header:visible .hud-chip").first()).toContainText("workspace · ws");
-          await expect(page.locator("[data-theme-toggle]")).toBeVisible();
+          // S1：主题单钮全局唯一归 IconRail（页顶栏不再各挂 [data-theme-toggle]）
+          await expect(page.locator("#btn-theme-toggle")).toBeVisible();
           await expect(page.locator(".pj-domain")).toBeVisible();
           await expect(page.locator('[data-pj-main="empty"]')).toBeVisible();
           // 无跳转入口：全页无「查看图谱」/返回 chip 文案
@@ -152,7 +153,8 @@ test.describe("T5.4 P-1 fidelity：F5.0 项目域 + F5.1~F5.5 图谱（FID-25~32
           await expect(page.locator('[data-pj-main="absent"]')).toBeVisible();
           await expect(page.locator('[data-kg-workspace]')).toBeHidden(); // 旧图谱残影清零
           await expect(page.locator(".pj-center-panel")).toContainText("codegraph");
-          await expect(page.locator(".pj-center-panel .pb-absent")).toHaveText("未建索引");
+          // T3.2：absent 面板双徽标（未建索引 + bootstrap 引导态）——取首枚断文案
+          await expect(page.locator(".pj-center-panel .pb-absent").first()).toHaveText("未建索引");
           await expect(page.locator("[data-build-cta]")).toHaveText("构建索引");
         },
       },
@@ -181,7 +183,7 @@ test.describe("T5.4 P-1 fidelity：F5.0 项目域 + F5.1~F5.5 图谱（FID-25~32
           const names = await page.locator(".pj-row").evaluateAll((rows) =>
             rows.map((r) => (r as HTMLElement).dataset.name),
           );
-          expect(names).toHaveLength(13);
+          expect(names).toHaveLength(14); // 056c38b 增 legacy
           for (const banned of ["docs", ".helix", ".worktrees", "aaa.txt", "ng-ai.zip"])
             expect(names, `排除清单 ${banned} 不应入列`).not.toContain(banned);
         },
@@ -203,11 +205,15 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
     const checks: FidelityCheck[] = [
       {
         id: "FID-01/31",
-        title: "graph 态主区顶部：知识图谱 · 项目名 + 只读/迭代 chip（纯标识无返回）",
+        title: "graph 态主区顶部：知识图谱 · 项目名（纯标识无返回；9798562 头部删只读/迭代 chip，右侧归索引面板）",
         run: async () => {
           await expect(page.locator('[data-kg-head] .kgv-title')).toHaveText("知识图谱 · helix");
-          await expect(page.locator('[data-kg-head] .hud-chip').first()).toHaveText("只读");
-          await expect(page.locator('[data-kg-head] .hud-chip').nth(1)).toHaveText("iter-20260825-11fo");
+          // 9798562 B2：头部「只读」/迭代 chip 删除（图谱是全局概念不挂迭代号）——
+          // 右侧 = F5.5 索引面板紧凑形态 + C1 清空图谱入口
+          await expect(page.locator('[data-kg-head] [data-kg-index-panel]')).toBeVisible();
+          const headText = (await page.locator("[data-kg-head]").textContent()) ?? "";
+          expect(headText).not.toContain("只读");
+          expect(headText).not.toMatch(/iter-\d+-\w+/);
         },
       },
       {
@@ -266,14 +272,15 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
       },
       {
         id: "FID-07",
-        title: "详情六段：头卡（名+徽章+域 chip+digest）+描述/规则/锚点/关系/supersede 链/变更日志",
+        title: "详情五段：头卡（名+徽章+域 chip+digest）+正文（描述/规则合并，9798562 B2）/锚点/关系/supersede 链/变更日志",
         run: async () => {
           const pane = page.locator("[data-kg-detail]");
           await expect(pane.locator(".kgv-dh-name")).toHaveText("Steer 消息队列");
           await expect(pane.locator(".kgv-dh-top .kind-entity")).toBeVisible();
           await expect(pane.locator(".st-confirmed")).toBeVisible();
           await expect(pane.locator(".hud-chip").first()).toHaveText("业务");
-          for (const sec of ["描述", "规则", "锚点", "关系", "supersede 链", "变更日志"]) {
+          // 9798562 B2：描述/规则合并为单「正文」段（react-markdown 渲染）
+          for (const sec of ["正文", "锚点", "关系", "supersede 链", "变更日志"]) {
             await expect(pane.locator(".kgv-sec-h", { hasText: sec })).toBeVisible();
           }
         },
@@ -347,39 +354,32 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
       },
       {
         id: "FID-13",
-        title: "报告引用规范：符号=等宽+路径:行号；知识引用=粗体 name+徽章可跳转",
+        title: "报告引用规范：符号=等宽+路径:行号；知识引用=粗体 name+徽章（9798562：refs 纯信息展示不跳转）",
         run: async () => {
           await expect(page.locator(".kg-entry code", { hasText: "injectClosure" }).first()).toBeVisible();
           await expect(page.locator(".kg-rel-row", { hasText: "apps/daemon/src/services/ChatService.ts:309" })).toBeVisible();
           const nref = page.locator('.kg-entry .kg-nref[data-goto="E-9"]');
           await expect(nref).toContainText("Steer 消息队列");
-          // 报告引用跳详情
-          await nref.click();
-          await expect(page.locator('[data-kg-pane="detail"] .kgv-dh-name')).toHaveText("Steer 消息队列");
-          await page.locator('[data-tab="report"]').click();
+          // 报告面裁决（9798562 B2）：refs 纯信息展示不跳转——static 形态无点击 handler
+          await expect(nref).toHaveClass(/static/);
         },
       },
       {
         id: "FID-14",
-        title: "行动项：需要你决定 radio → 已处理（降透明+撤销）→ tab 计数联动 → 清零横幅",
+        title: "报告 = 纯通知面（9798562 B2）：计数 chip + 条目零交互装置（无 radio/已处理/撤销/清零横幅）",
         run: async () => {
-          await expect(page.locator('[data-kg-report-count]')).toHaveText("4 待决");
-          await expect(page.locator(".kg-entry-actions .lead").first()).toHaveText("需要你决定：");
-          // radio onChange 即转 done（行动项行被已处理行替换、元素卸载），
-          // check() 的 checked 终态校验等不到稳定元素——click() 等价触发 change
-          await page.locator(".kg-entry").first().locator('input[type="radio"]').first().click();
-          await expect(page.locator(".kg-entry").first()).toHaveClass(/done/);
-          await expect(page.locator("[data-kg-done]").first()).toContainText("已处理：");
-          await expect(page.locator('[data-kg-report-count]')).toHaveText("3 待决");
-          // 撤销 → 回待决
-          await page.locator("[data-kg-undo]").first().click();
-          await expect(page.locator('[data-kg-report-count]')).toHaveText("4 待决");
-          // 全部处理 → 清零横幅 + 计数翻已清零
-          for (const entry of await page.locator(".kg-entry").all()) {
-            await entry.locator('input[type="radio"]').first().click();
-          }
-          await expect(page.locator("[data-kg-report-clear]")).toContainText("4 条已全部处理");
-          await expect(page.locator('[data-kg-report-count]')).toHaveText("已清零");
+          // 行动项交互整套随报告纯通知化删除——计数形态翻「N 条」（非「N 待决」）
+          await expect(page.locator(".kgv-report-head .hud-chip").last()).toHaveText("4 条");
+          const report = page.locator("[data-kg-report]");
+          await expect(report).toBeVisible();
+          // 零交互装置：无 radio / 无按钮 / 无已处理·撤销·清零文案
+          expect(await report.locator('input[type="radio"]').count()).toBe(0);
+          expect(await report.locator("button").count()).toBe(0);
+          const text = (await report.textContent()) ?? "";
+          expect(text).not.toContain("需要你决定");
+          expect(text).not.toContain("已处理");
+          expect(text).not.toContain("撤销");
+          expect(text).not.toContain("已全部处理");
         },
       },
       {
@@ -426,25 +426,30 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
       },
       {
         id: "FID-19",
-        title: "索引面板三态互斥：synced（脉冲点+符号数+时间）；结构互斥断言（机械核对④）",
+        title: "索引面板三态互斥：synced（绿点+已同步，符号数/时间入 title——9798562 头部紧凑形态）；结构互斥断言（机械核对④）",
         run: async () => {
           const panel = page.locator("[data-kg-index-panel]");
           await expect(panel).toHaveAttribute("data-kg-index-panel", "synced");
           await expect(panel.locator(".kg-dot.ok")).toBeVisible();
-          await expect(panel.locator(".kgv-ip-sub")).toContainText("56 符号");
+          await expect(panel.locator(".kgv-ip-synced")).toContainText("已同步");
+          // 符号数/完成时间入 title 悬浮（紧凑形态：不再占正文行）
+          const title = await panel.locator(".kgv-ip-synced").getAttribute("title");
+          expect(title ?? "").toContain("56 符号");
         },
       },
       {
         id: "FID-20/21",
-        title: "degraded（feifei）：DEGRADED 徽章+影响说明+重新构建 → building → synced + toast；降级永不静默",
+        title: "degraded（feifei）：DEGRADED 徽章+影响说明入 title+重新构建 → building → synced + toast；降级永不静默",
         run: async () => {
           await page.locator(".pj-rail-name").click();
           await page.locator('.pj-row[data-name="feifei"]').click();
           const panel = page.locator("[data-kg-index-panel]");
           await expect(panel).toHaveAttribute("data-kg-index-panel", "degraded", { timeout: 10_000 });
           await expect(page.locator('[data-kg-head] .kgv-title')).toHaveText("知识图谱 · feifei");
-          await expect(panel.locator(".kg-sev-badge.warn")).toHaveText("DEGRADED"); // 徽章永不静默
-          await expect(panel.locator(".kgv-ip-sub")).toContainText("重新构建以恢复");
+          const badge = panel.locator(".kg-sev-badge.warn");
+          await expect(badge).toHaveText("DEGRADED"); // 徽章永不静默
+          // 影响说明入 title（9798562 紧凑形态）
+          expect((await badge.getAttribute("title")) ?? "").toContain("重新构建以恢复");
           await page.locator("[data-kg-rebuild]").click();
           await expect(panel).toHaveAttribute("data-kg-index-panel", "building");
           await expect(panel).toHaveAttribute("data-kg-index-panel", "synced", { timeout: 15_000 });
@@ -484,25 +489,28 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
           const bodyBg = await computed(page, "body", "background-image");
           expect(bodyBg).toContain("linear-gradient");
           await expect(page.locator(".scanline-overlay")).toBeVisible();
-          // 亮跟随：扫描线关闭
+          // 亮跟随：扫描线关闭（reload 后 W6o 门禁停留 boot 屏——重驱握手）
           await page.evaluate(() => localStorage.setItem("helix-theme", "light"));
           await page.reload();
+          await mock.connect();
           await expect(page.locator(".scanline-overlay")).toBeHidden();
           expect(await computed(page, ".scanline-overlay", "display")).toBe("none");
           await page.evaluate(() => localStorage.setItem("helix-theme", "dark"));
           await page.reload();
+          await mock.connect();
         },
       },
       {
         id: "FID-22",
-        title: "主题切换：页顶栏右上按钮；暗默认/亮 html.light；localStorage 键 = helix-theme（AF-5 裁决）",
+        title: "主题切换：暗默认/亮 html.light；localStorage 键 = helix-theme（AF-5 裁决；S1 单钮归 IconRail）",
         run: async () => {
-          await expect(page.locator(".app-header [data-theme-toggle]")).toHaveText("LIGHT");
-          await page.locator(".app-header [data-theme-toggle]").click();
+          // S1：主题单钮全局唯一归 IconRail（图标 = 切换目标：dark 态显 Sun）
+          await expect(page.locator("#btn-theme-toggle svg.lucide-sun")).toBeAttached();
+          await page.locator("#btn-theme-toggle").click();
           expect(await page.evaluate(() => localStorage.getItem("helix-theme"))).toBe("light");
-          await expect(page.locator("html")).toHaveClass(/light/);
-          await expect(page.locator(".app-header [data-theme-toggle]")).toHaveText("DARK");
-          await page.locator(".app-header [data-theme-toggle]").click();
+          await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
+          await expect(page.locator("#btn-theme-toggle svg.lucide-moon")).toBeAttached();
+          await page.locator("#btn-theme-toggle").click();
           expect(await page.evaluate(() => localStorage.getItem("helix-theme"))).toBe("dark");
         },
       },

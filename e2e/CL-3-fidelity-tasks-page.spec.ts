@@ -88,11 +88,12 @@ test.describe("TS1 TC1.1 布局与列表组织（R-1/R-2/R-9）", () => {
         run: async () => {
           await expect(page.locator(".app-header:visible")).toHaveCount(1);
           await expect(page.locator(".app-header:visible .tk-page-title")).toHaveText("任务");
-          await expect(page.locator(".app-header:visible [data-theme-toggle]")).toBeVisible();
+          // S1：主题单钮全局唯一归 IconRail（页顶栏不再各挂 [data-theme-toggle]）
+          await expect(page.locator("#btn-theme-toggle")).toBeVisible();
           await expect(page.locator(".app-header:visible")).toHaveCSS("height", "48px");
           expect(await computed(page, ".tk-side", "width")).toBe("380px");
           await expect(page.locator('[data-tk-tab="progress"]')).toHaveText("进度");
-          await expect(page.locator('[data-tk-tab="result"]')).toHaveText("结果查询");
+          await expect(page.locator('[data-tk-tab="result"]')).toHaveText("任务结果"); // 9798562 更名（原「结果查询」）
           // IconRail 全局导航三页面域（会话/项目/任务）在列
           for (const p of ["chat", "project", "tasks"]) {
             await expect(page.locator(`.rail-btn[data-page="${p}"]`)).toBeVisible();
@@ -195,8 +196,15 @@ test.describe("TS1 TC1.2 过滤器与空态（R-3 + CL-1-T7）", () => {
         id: "R-3-empty+CL-1-T7",
         title: "空列表态指路宿主（前往「项目」页 CTA → /project）；任务页零创建入口（任何状态）",
         run: async () => {
-          // dev 演示控件（data-demo）可用性：切空列表
-          await page.locator('[data-tk-demo] button[data-v="empty"]').click();
+          // 9798562：dev 演示控件（data-tk-demo）全链删除——空列表态改由
+          // task.list.result 空集帧直接驱动（页面 reducer 按最新回执应用）
+          await mock.emit({
+            v: PROTOCOL_VERSION,
+            type: "task.list.result",
+            sessionId: SYSTEM_SESSION_ID,
+            channel: "notification",
+            payload: { tasks: [] },
+          } as EventEnvelope);
           await expect(page.locator('[data-tk-empty="list"]')).toBeVisible();
           await expect(page.locator('[data-tk-empty="list"]')).toContainText("暂无任务");
           await expect(page.locator('[data-tk-empty="list"]')).toContainText("任务从宿主上下文发起");
@@ -205,10 +213,10 @@ test.describe("TS1 TC1.2 过滤器与空态（R-3 + CL-1-T7）", () => {
           await page.locator("[data-tk-goto-project]").click();
           await expect(page.locator('[data-p1-project="/project"]')).toBeVisible({ timeout: 10_000 });
           expect(new URL(page.url()).pathname).toBe("/project");
-          // 回任务页恢复（演示控件切回全状态）
+          // 回任务页恢复（task.changed(job) 驱动重拉 → mock 自动应答全量）
           await page.locator('.rail-btn[data-page="tasks"]').click();
           await expect(page.locator('[data-p2-task="/tasks"]')).toBeVisible();
-          await page.locator('[data-tk-demo] button[data-v="full"]').click();
+          await mock.emit(taskChanged("job-8f21", "job", "running"));
           await expect(page.locator(".tk-row")).toHaveCount(6);
           // 零创建：全页面按钮无「创建/新建」语义（空列表/过滤/详情各态均无）
           const labels = await page.locator(".tk-main button, .tk-side button").evaluateAll((bs) =>
@@ -219,10 +227,11 @@ test.describe("TS1 TC1.2 过滤器与空态（R-3 + CL-1-T7）", () => {
       },
       {
         id: "断言边界",
-        title: "原型标注 data-proto-annotation 不存在；dev 演示控件 data-demo 在场（只验可用性）",
+        title: "原型标注 data-proto-annotation 不存在；dev 演示控件已退役（9798562，零残留）",
         run: async () => {
           expect(await page.locator("[data-proto-annotation]").count()).toBe(0);
-          await expect(page.locator("[data-tk-demo]")).toBeVisible();
+          // 9798562：演示控件「全状态/空列表」全链删除——零残留断言
+          expect(await page.locator("[data-tk-demo]").count()).toBe(0);
         },
       },
     ];
@@ -254,7 +263,8 @@ test.describe("TS1 TC1.3 阶段条与批次 plan（R-4/R-5 + WS 推送驱动）"
           await expect(bar.locator('[data-tk-stage="running"] .tk-stage-ic')).toHaveText("●");
           await expect(bar.locator('[data-tk-stage="pending"] .tk-stage-ic')).toHaveText("3");
           await expect(bar.locator('[data-stage-seq="1"] .tk-stage-name')).toHaveText("L0 核心层");
-          await expect(bar.locator('[data-stage-seq="1"] .tk-stage-sub')).toHaveText("已完成 · 产出 3 节点");
+          // 9798562：done 子行产出计数后缀删除（doneNodes 退役）
+          await expect(bar.locator('[data-stage-seq="1"] .tk-stage-sub')).toHaveText("已完成");
           await expect(bar.locator('[data-stage-seq="2"] .tk-stage-sub')).toHaveText("进行中 · 批次 3/5");
           await expect(bar.locator('[data-stage-seq="3"] .tk-stage-sub')).toHaveText("待启动");
           // 连接线：仅 done 段着色（stage1 done → conn.done 恰 1 条）
@@ -304,7 +314,7 @@ test.describe("TS1 TC1.3 阶段条与批次 plan（R-4/R-5 + WS 推送驱动）"
           await expect(bar.locator('[data-stage-seq="1"] .tk-stage-name')).toHaveText("依赖盘点");
           await expect(bar.locator('[data-stage-seq="2"] .tk-stage-name')).toHaveText("许可证归类");
           await expect(bar.locator('[data-stage-seq="3"] .tk-stage-name')).toHaveText("风险汇总");
-          await expect(bar.locator('[data-stage-seq="1"] .tk-stage-sub')).toHaveText("已完成 · 产出 1 节点");
+          await expect(bar.locator('[data-stage-seq="1"] .tk-stage-sub')).toHaveText("已完成");
           // failed 任务（t5）：✕ 阶段 + failed 批次 + 重试 2 次 + abandoned 带理由
           await selectTask(page, "job-e55a");
           await expect(page.locator('[data-tk-stage="failed"] .tk-stage-ic')).toHaveText("✕");
@@ -355,7 +365,7 @@ test.describe("TS1 TC1.4 结果查询 tab（R-6 + CL-3-T6）", () => {
     const checks: FidelityCheck[] = [
       {
         id: "R-6-card",
-        title: "阶段产物卡：阶段名+状态徽章+产出计数 chip+阶段摘要+节点清单（t1 仅 L0 有产物）",
+        title: "阶段产物卡（9798562 纯文字报告卡）：阶段名+状态徽章+阶段摘要（t1 仅 L0 有产物）；产出计数 chip/节点清单已退役",
         run: async () => {
           await selectTask(page, "job-8f21");
           await page.locator('[data-tk-tab="result"]').click();
@@ -364,61 +374,37 @@ test.describe("TS1 TC1.4 结果查询 tab（R-6 + CL-3-T6）", () => {
           await expect(page.locator("[data-tk-art]")).toHaveCount(1); // 仅 L0 有产物
           await expect(art.locator(".tk-art-name")).toHaveText("L0 核心层");
           await expect(art.locator('[data-phase="stage"]')).toHaveText("已完成");
-          await expect(art.locator("[data-tk-art-count]")).toHaveText("产出 3 节点");
           await expect(art.locator(".tk-art-sum")).toContainText("核心层完成");
-          await expect(art.locator("[data-tk-node]")).toHaveCount(3);
+          // 9798562：产出计数 chip / 节点清单删除——零残留
+          await expect(page.locator("[data-tk-art-count]")).toHaveCount(0);
+          await expect(page.locator("[data-tk-node]")).toHaveCount(0);
         },
       },
       {
-        id: "R-6-node",
-        title: "节点条目：粗体 name+kind 徽章+digest 首行+「项目」页查看链接；裸 id 仅 data-id（AD-4）",
-        run: async () => {
-          const n1 = page.locator('[data-tk-node][data-id="kg-n-101"]');
-          await expect(n1.locator(".tk-n-name")).toHaveText("daemon 四层架构基线");
-          await expect(n1.locator(".tk-n-name")).toHaveCSS("font-weight", "600");
-          await expect(n1.locator('[data-node-kind="rule"]')).toBeVisible();
-          await expect(n1.locator(".tk-n-digest")).toContainText("daemon 按 adapters / application / domain / infrastructure 分层");
-          await expect(n1.locator("[data-tk-node-link]")).toHaveText("在「项目」页查看 →");
-          // 机械核对：可见文本零裸 id（kg-n-* / job-* / batch-*）
-          const text = await visibleText(page);
-          expect(text).not.toMatch(/kg-n-\d+/);
-          expect(text).not.toMatch(/\bjob-[0-9a-f]{4}\b/);
-          expect(text).not.toMatch(/\bbatch-[0-9a-z]+\b/);
-          // 链接出口 → /project（AD-10：查看与修正转项目页）
-          await n1.locator("[data-tk-node-link]").click();
-          await expect(page.locator('[data-p1-project="/project"]')).toBeVisible({ timeout: 10_000 });
-          await page.locator('.rail-btn[data-page="tasks"]').click();
-          await selectTask(page, "job-8f21");
-          await page.locator('[data-tk-tab="result"]').click();
-          await expect(page.locator('[data-tk-art][data-stage-seq="1"]')).toBeVisible({ timeout: 10_000 });
-        },
-      },
-      {
-        id: "R-6-footnote",
-        title: "尾注 confirmed 语义（V-1 无 draft）：落盘即正式知识、已参与附着/注入、修正转项目页；零 draft/审阅/转正措辞",
-        run: async () => {
-          const note = page.locator("[data-tk-art-footnote]");
-          await expect(note).toContainText("confirmed（正式知识）");
-          await expect(note).toContainText("附着 / 注入");
-          await expect(note).toContainText("「项目」页");
-          const text = await visibleText(page);
-          expect(text).not.toMatch(/草稿|draft|审阅|转正|否决/i);
-        },
-      },
-      {
-        id: "R-6-superseded+zero-write",
-        title: "superseded 节点降档呈现（t4）；tab 内零写动作",
+        id: "R-6-t4-three-stages",
+        title: "t4（done）三阶段三卡：各阶段名+摘要齐全（纯文字，无 kg 耦合）",
         run: async () => {
           await selectTask(page, "job-3ad6");
           await page.locator('[data-tk-tab="result"]').click();
-          const sup = page.locator('[data-tk-node][data-id="kg-n-205"]');
-          await expect(sup).toBeVisible({ timeout: 10_000 });
-          await expect(sup.locator(".tk-n-name")).toHaveClass(/dim/);
+          await expect(page.locator("[data-tk-art]")).toHaveCount(3, { timeout: 10_000 });
+          await expect(page.locator('[data-tk-art][data-stage-seq="3"] .tk-art-sum')).toContainText("实体层完成：15 个实体 / 契约节点");
+          // 与 kg 彻底零耦合：无节点条目 / 无「在『项目』页查看」链接 / 无 confirmed 尾注
+          await expect(page.locator("[data-tk-node]")).toHaveCount(0);
+          await expect(page.locator("[data-tk-node-link]")).toHaveCount(0);
+          await expect(page.locator("[data-tk-art-footnote]")).toHaveCount(0);
+        },
+      },
+      {
+        id: "R-6-zero-write",
+        title: "tab 内零写动作 + 零审阅措辞（superseded 呈现已随节点清单退役）",
+        run: async () => {
           // 结果 tab 内零写动作：无 删除/修改/supersede/暂停/取消 按钮
           const paneButtons = await page.locator('[data-tk-pane="result"] button').evaluateAll((bs) =>
             bs.map((b) => (b.textContent ?? "").trim()),
           );
           expect(paneButtons.filter((x) => /删除|修改|supersede|暂停|取消|转正/.test(x))).toHaveLength(0);
+          const text = (await page.locator('[data-tk-pane="result"]').textContent()) ?? "";
+          expect(text).not.toMatch(/草稿|draft|审阅|转正|否决/i);
         },
       },
       {
@@ -452,7 +438,10 @@ test.describe("TS1 TC1.5 生命周期门控与删除（R-7/R-19 + F3.5/F3.6）",
           expect(await headActions(page)).toEqual(["pause", "cancel"]);
           await selectTask(page, "job-71c4");
           expect(await headActions(page)).toEqual(["resume", "cancel"]);
-          for (const jobId of ["job-3ad6", "job-e55a", "job-04f7"]) {
+          // failed：人工重试（task.retry 复活，71982e3）+ 删除；done/cancelled：仅删除
+          await selectTask(page, "job-e55a");
+          expect(await headActions(page)).toEqual(["retry", "delete"]);
+          for (const jobId of ["job-3ad6", "job-04f7"]) {
             await selectTask(page, jobId);
             expect(await headActions(page)).toEqual(["delete"]);
           }
@@ -557,30 +546,25 @@ test.describe("TS1 TC1.6 事件导向进度与状态模型（R-8 + CL-3-T8/T10/T
     const checks: FidelityCheck[] = [
       {
         id: "R-8",
-        title: "「当前：…」叙述句贯穿六态（失败含原因+出口 / 取消含产出交代 / pending 装配说明）；终态行动出口 → /project",
+        title: "终态行动出口（9798562：叙述句块整删，「前往项目页」移 header 首行右端仅终态）→ /project；非终态零出口",
         run: async () => {
-          const narrative = page.locator("[data-tk-narrative]");
+          // 9798562：[data-tk-narrative] 叙述句块整删——零残留
           await selectTask(page, "job-8f21");
-          await expect(narrative).toContainText("当前：");
-          await expect(narrative).toContainText("批次「protocol 命令族扩展」进行中");
+          await expect(page.locator("[data-tk-narrative]")).toHaveCount(0);
+          // 非终态（running/pending）无行动出口按钮
+          expect(await page.locator("[data-tk-go-project]").count()).toBe(0);
           await selectTask(page, "job-b90d");
-          await expect(narrative).toContainText("装配");
-          await selectTask(page, "job-e55a");
-          await expect(narrative).toContainText("两次自动重试均失败");
-          await expect(narrative).toContainText("可在「项目」页确认索引状态后发起新任务");
-          await selectTask(page, "job-04f7");
-          await expect(narrative).toContainText("取消");
-          await expect(narrative).toContainText("阶段产物保留");
-          // 终态行动出口
-          await selectTask(page, "job-3ad6");
-          await expect(narrative).toContainText("落盘即 confirmed");
+          expect(await page.locator("[data-tk-go-project]").count()).toBe(0);
+          // 三终态（done/failed/cancelled）出口在场
+          for (const jobId of ["job-3ad6", "job-e55a", "job-04f7"]) {
+            await selectTask(page, jobId);
+            await expect(page.locator("[data-tk-go-project]")).toBeVisible();
+          }
+          // 出口 → /project
           await page.locator("[data-tk-go-project]").click();
           await expect(page.locator('[data-p1-project="/project"]')).toBeVisible({ timeout: 10_000 });
           await page.locator('.rail-btn[data-page="tasks"]').click();
           await expect(page.locator('[data-p2-task="/tasks"]')).toBeVisible();
-          // 非终态无行动出口按钮
-          await selectTask(page, "job-8f21");
-          expect(await page.locator("[data-tk-go-project]").count()).toBe(0);
         },
       },
       {
@@ -617,13 +601,11 @@ test.describe("TS1 TC1.6 事件导向进度与状态模型（R-8 + CL-3-T8/T10/T
           await page.locator('[data-tk-tab="result"]').click();
           await page.locator('.tk-row[data-id="job-3ad6"]').click(); // 竞态点：不回等直接切
           await page.locator('[data-tk-tab="result"]').click();
-          // 终态：t4 产物呈现，t1 节点零混入
+          // 终态：t4 三阶段产物卡呈现，t1 摘要零混入
           await expect(page.locator('[data-tk-art][data-stage-seq="3"]')).toBeVisible({ timeout: 10_000 });
           await expect(page.locator('[data-tk-pane="result"]')).toContainText("实体层完成：15 个实体 / 契约节点");
-          await expect(page.locator('[data-tk-node][data-id="kg-n-203"]')).toBeVisible();
-          expect(await page.locator('[data-tk-node][data-id="kg-n-101"]').count()).toBe(0);
           const text = await page.locator('[data-tk-pane="result"]').textContent();
-          expect(text).not.toContain("daemon 四层架构基线");
+          expect(text).not.toContain("建立架构基线与全局写作规范");
         },
       },
       {
@@ -634,11 +616,12 @@ test.describe("TS1 TC1.6 事件导向进度与状态模型（R-8 + CL-3-T8/T10/T
             page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
           expect(await page.evaluate(() => document.documentElement.classList.contains("light"))).toBe(false);
           expect((await accent()).toUpperCase()).toBe("#22D3EE");
-          await page.locator(".app-header [data-theme-toggle]").click();
-          await expect(page.locator("html")).toHaveClass(/light/);
+          // S1：主题单钮归 IconRail
+          await page.locator("#btn-theme-toggle").click();
+          await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
           expect((await accent()).toUpperCase()).toBe("#2563EB");
           expect(await page.evaluate(() => localStorage.getItem("helix-theme"))).toBe("light");
-          await page.locator(".app-header [data-theme-toggle]").click();
+          await page.locator("#btn-theme-toggle").click();
           expect(await page.evaluate(() => document.documentElement.classList.contains("light"))).toBe(false);
           expect((await accent()).toUpperCase()).toBe("#22D3EE");
         },

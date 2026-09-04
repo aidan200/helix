@@ -372,12 +372,18 @@ test.describe("G11 P-4 导航壳还原清单", () => {
     { id: "skills", path: "/skills" },
     { id: "trace", path: "/trace" },
     { id: "project", path: "/project" },
+    { id: "tasks", path: "/tasks" },
     { id: "settings", path: "/settings" },
   ] as const;
-  // 施工牌（S2 后仅 project——trace/skills/settings 均已换真页；真页还原
-  // 清单归 CL-5-fidelity-trace-page / CL-skills / CL-3 套件背书，
-  // 此处只断真页锚在场 + 施工牌遇位）
-  const PLACEHOLDERS = PAGES.filter((p) => p.id === "project");
+  // 施工牌：已全退役（T5.4 project 换真页后零占位；T3.1 任务位入列六钮）。
+  // 真页锚映射（R-P4-4 承接原施工牌同构核对的演进面）
+  const REAL_ANCHORS: Record<string, string> = {
+    "/skills": '[data-agents-page="/skills"]',
+    "/trace": '[data-trace-page="/trace"]',
+    "/project": '[data-p1-project="/project"]',
+    "/tasks": '[data-p2-task="/tasks"]',
+    "/settings": '[data-settings-page="/settings"]',
+  };
 
   test("R-P4-1/4 实跑", async ({ mock, page }) => {
     await mock.connect();
@@ -385,7 +391,7 @@ test.describe("G11 P-4 导航壳还原清单", () => {
     const checks: FidelityCheck[] = [
       {
         id: "R-P4-1",
-        title: "布局：IconRail 64px 常驻 + HelixLogo（S1）+ 五图标钮（序；S2 去 models 位）+ 主题单钮 + 底部头像块",
+        title: "布局：IconRail 64px 常驻 + HelixLogo（S1）+ 六图标钮（序；S2 去 models 位 + T3.1 任务位）+ 主题单钮 + 底部头像块",
         run: async () => {
           const rail = page.locator("nav.icon-rail");
           await expect(rail).toBeVisible();
@@ -400,38 +406,16 @@ test.describe("G11 P-4 导航壳还原清单", () => {
       },
       {
         id: "R-P4-4",
-        title: "施工牌 ×2 同构：虚线围挡 + 图标格 + 页名 + 路由行 + 预告 + 「规划中」徽标 + 无操作入口（trace/skills 已换真页）",
+        title: "施工牌全退役核销：五真页锚在场 + 零 [data-construction] 残留（原施工牌同构核对随 T5.4 真页化退役）",
         run: async () => {
-          const signatures: string[] = [];
-          for (const p of PLACEHOLDERS) {
-            await page.goto(`${p.path}?fakeTransport=1`);
-            const board = page.locator(`[data-construction="${p.path}"]`);
-            await expect(board).toBeVisible();
-            const frame = board.locator(".construction-frame");
-            expect(await frame.evaluate((el) => getComputedStyle(el).borderStyle)).toBe("dashed");
-            await expect(frame.locator(".cs-icon")).toHaveCSS("width", "64px");
-            await expect(frame.locator(".cs-name")).not.toBeEmpty();
-            await expect(frame.locator(".cs-route")).toHaveText(p.path);
-            const preview = (await frame.locator(".cs-preview").textContent()) ?? "";
-            expect(preview.length).toBeGreaterThan(0);
-            expect(preview.length).toBeLessThanOrEqual(32);
-            await expect(frame.locator(".hud-badge.hud-badge-cyan")).toBeVisible();
-            await expect(frame.locator("button")).toHaveCount(0);
-            signatures.push(
-              await frame.evaluate(
-                (el) => `${el.className}>${Array.from(el.children).map((c) => c.className).join(",")}`,
-              ),
-            );
+          // 深链重驱（W6o 门禁：goto 后停留 boot 屏，需重驱握手进门禁 main）
+          for (const [path, anchor] of Object.entries(REAL_ANCHORS)) {
+            await page.goto(`${path}?fakeTransport=1`);
+            await mock.connect();
+            await expect(page.locator(anchor)).toBeVisible();
+            await expect(page.locator(`[data-construction="${path}"]`)).toHaveCount(0);
           }
-          expect(new Set(signatures).size).toBe(1);
-          // trace = 真 TracePage（f413587）/ skills = 真智能体页（M6 T4）：
-          // 真页锚在场 + 施工牌遇位
-          await page.goto("/trace?fakeTransport=1");
-          await expect(page.locator('[data-trace-page="/trace"]')).toBeVisible();
-          await expect(page.locator('[data-construction="/trace"]')).toHaveCount(0);
-          await page.goto("/skills?fakeTransport=1");
-          await expect(page.locator('[data-agents-page="/skills"]')).toBeVisible();
-          await expect(page.locator('[data-construction="/skills"]')).toHaveCount(0);
+          expect(await page.locator("[data-construction]").count()).toBe(0);
         },
       },
     ];

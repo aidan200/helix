@@ -9,10 +9,13 @@ import { shotEvidence } from "./harness/evidence";
 
 test.describe("CL-7 smoke（mock mode on）", () => {
   test("P-1 页面打开，app 壳渲染（header/composer），mock 建连到 connected", async ({ mock, page }) => {
-    // 首连初始即 connecting（SM-2：open → connecting）
-    await expect(mock.app()).toHaveAttribute("data-conn", "connecting");
+    // W6o 首启 boot 门禁：建连前恒显 boot 屏（full 序列 + 活状态行），
+    // 应用壳（.app）在「连接就绪 + 序列播完」双条件齐备前不渲染
+    await expect(page.locator('[data-wsgate-boot="connecting"]')).toBeVisible();
+    await expect(page.locator('[data-wsgate-boot="connecting"]')).toContainText("connecting daemon…");
 
-    // 标准剧本：open → hello → welcome → snapshot
+    // 标准剧本：open → hello → welcome → snapshot（fake transport 自动应答
+    // workspace.get 预绑定 → 门禁 main → boot hold 收口 → 应用壳）
     await mock.connect();
 
     // app 壳：header + composer

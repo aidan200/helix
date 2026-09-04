@@ -2,9 +2,12 @@
  * TC2.4 —— R-07 steer 可输入与徽标两态 / R-08 steer 提示行（CL-7 F 层还原度）。
  *
  * 断言源：review.md steer UI 语义三规则（SM-3）+ 必须还原 R-07（streaming
- * 输入条不 disabled；steer 气泡带「STEER · 已入队」violet 脉冲徽标；drain
- * 后徽标转 success「已注入 · 本轮结束」；普通消息无徽标）与 R-08（streaming
- * 时 composer 内 violet 提示行 chat.steer.hint，非 streaming 隐藏）。
+ * 输入条不 disabled；drain 落盘后时间轴条目带 success 徽标「已注入 · 本轮
+ * 结束」；普通消息无徽标）与 R-08（streaming 时 composer 内 violet 提示行
+ * chat.steer.hint，非 streaming 隐藏）。
+ * 演进（TR-64 / bbae57e steer 队列坞）：queued 不再上时间轴（旧「steer 气泡
+ * + STEER · 已入队徽标」形态退役）——排队期 echo 收左下角浮动坞（待确认 →
+ * 已入队对账），turn 边界 drain 落盘后条目原位上轴。
  * 剧本 S3（流式中注入 → steer.queued 对账 → turn 边界 drain → 续轮）。
  */
 import { test, expect } from "./harness/fixtures";
@@ -42,7 +45,7 @@ test.describe("TC2.4 R-07/R-08/SM-3 steer UI 语义（S3）", () => {
     expect(violet).toBe("rgb(168, 85, 247)");
   });
 
-  test("R-07/SM-3 三规则：streaming 可输入 → 入队徽标 → drain 转换；普通消息无徽标", async ({ mock, page }) => {
+  test("R-07/SM-3 三规则：streaming 可输入 → 队列坞排队 → drain 原位落轴转换；普通消息无徽标", async ({ mock, page }) => {
     // 第一轮（普通消息路径）
     await mock.sendUserMessage("讲讲 steer 的语义");
     await mock.emit(messageCompleted(msgEntry("u-1", "user", "讲讲 steer 的语义")));
@@ -54,27 +57,36 @@ test.describe("TC2.4 R-07/R-08/SM-3 steer UI 语义（S3）", () => {
     // 等 streaming 表象提交（并发下 React 渲染可能晚于 emit，先等再发送）
     await expect(page.locator(".composer")).toHaveClass(/streaming/);
 
-    // 发送 → chat.steer 命令（发送语义自动分流）+ echo 气泡立即出现
+    // 发送 → chat.steer 命令（发送语义自动分流）
     const cmd = await mock.sendUserMessage(S3_USER_STEER, "chat.steer");
     expect(cmd.payload).toEqual({ text: S3_USER_STEER });
 
-    const steerMsg = page.locator(".msg.user", { hasText: S3_USER_STEER });
-    await expect(steerMsg).toBeVisible();
+    // 规则 2（TR-64 队列坞语义）：queued 不上时间轴——零 .msg.user echo 增长；
+    // 本地 echo 收左下角浮动坞（待确认），计数 chip + 脉冲点
+    await expect(page.locator(".msg.user", { hasText: S3_USER_STEER })).toHaveCount(0);
+    const dock = page.locator('[data-kind="steer-dock"]');
+    await expect(dock).toBeVisible();
+    await expect(dock.locator(".sdq-toggle")).toContainText("1 条注入排队中");
+    await expect(dock.locator(".sdq-toggle .q-dot")).toBeVisible();
+    expect(await computed(page, '[data-kind="steer-dock"] .sdq-toggle', "color")).toBe("rgb(168, 85, 247)");
+    await dock.locator(".sdq-toggle").click();
+    await expect(dock.locator(".sdq-item .sdq-text")).toHaveText(S3_USER_STEER);
+    await expect(dock.locator(".sdq-item .sdq-state")).toHaveText("待确认");
 
-    // 规则 2：STEER · 已入队 徽标（violet + 脉冲点）
-    const badge = steerMsg.locator(".steer-badge");
-    await expect(badge).toHaveText("STEER · 已入队");
-    await expect(badge.locator(".q-dot")).toBeVisible();
-    expect(await computed(page, ".steer-badge", "color")).toBe("rgb(168, 85, 247)");
-    expect(await computed(page, ".steer-badge", "border-color")).toBe("rgba(168, 85, 247, 0.4)");
-
-    // daemon 对账：steer.queued（echo id 换成 entryId，徽标仍 queued）
+    // daemon 对账：steer.queued（echo id 换预分配 entryId，坞内状态翻已入队）
     await mock.emit(steerQueued(S3_STEER_ENTRY_ID));
-    await expect(steerMsg.locator(".steer-badge")).toHaveText("STEER · 已入队");
+    await expect(dock.locator(".sdq-item .sdq-state")).toHaveText("STEER · 已入队");
 
-    // 规则 3：turn 边界 drain → 徽标转 success「已注入 · 本轮结束」
+    // 规则 3：turn 边界 drain → 坞内出账 + drain 落盘条目上时间轴原位
+    // （success 徽标「已注入 · 本轮结束」）
     await mock.emit(messageCompleted(msgEntry("m-1", "assistant", S3_TURN1_REPLY)));
     await mock.emit(steerDrained(S3_STEER_ENTRY_ID));
+    await mock.emit(
+      messageCompleted(msgEntry(S3_STEER_ENTRY_ID, "user", S3_USER_STEER, { steerState: "drained" })),
+    );
+    await expect(dock).toHaveCount(0);
+    const steerMsg = page.locator(".msg.user", { hasText: S3_USER_STEER });
+    await expect(steerMsg).toBeVisible();
     const drained = steerMsg.locator(".steer-badge.drained");
     await expect(drained).toHaveText("已注入 · 本轮结束");
     expect(await computed(page, ".steer-badge.drained", "color")).toBe("rgb(52, 211, 153)");

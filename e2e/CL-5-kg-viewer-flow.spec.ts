@@ -23,7 +23,7 @@ import { welcome } from "./harness/protocol";
 
 const SID = "sess-kg-flow";
 
-/** 标准进页面：建连 → welcome → IconRail 进 /project → 左栏 13 行收口。 */
+/** 标准进页面：建连 → welcome → IconRail 进 /project → 左栏 14 行收口（056c38b 增 legacy）。 */
 async function openProject(mock: MockController, page: Page): Promise<void> {
   await mock.open();
   await mock.waitForCommand("hello");
@@ -31,7 +31,7 @@ async function openProject(mock: MockController, page: Page): Promise<void> {
   await mock.waitForConn("connected");
   await page.locator('.rail-btn[data-page="project"]').click();
   await expect(page.locator('[data-p1-project="/project"]')).toBeVisible();
-  await expect(page.locator(".pj-row")).toHaveCount(13, { timeout: 10_000 });
+  await expect(page.locator(".pj-row")).toHaveCount(14, { timeout: 10_000 });
 }
 
 /** 末帧（type 过滤后）payload 读取——ws 命令 project 作用域抽查。 */
@@ -43,20 +43,32 @@ async function lastPayload(mock: MockController, type: string): Promise<Record<s
 
 test.describe("CL-5 B 层：P-1 主用户流全链路（TC2.1）", () => {
   test("选项目→折叠/展开→四态状态机→过滤→详情跳转→报告行动项→索引面板", async ({ mock, page }) => {
-    // ── 0. 未连接态先进 /project：项目列表首拉骨架（补 FID-23 缺口）──
-    await page.locator('.rail-btn[data-page="project"]').click();
-    await expect(page.locator('[data-p1-project="/project"]')).toBeVisible();
-    await expect(page.locator(".pj-plist .kg-skel-row").first()).toBeVisible();
-    await expect(page.locator('[data-pj-main="empty"]')).toBeVisible();
+    // ── 0. W6o 门禁：未建连恒 boot 屏（rail 未渲染；旧「未连态进 /project」
+    //    语义随门禁演进——骨架断言移建连后命令在途窗口，FID-23 意图保持）──
+    await expect(page.locator('[data-wsgate-boot="connecting"]')).toBeVisible();
+    await expect(page.locator("nav.icon-rail")).toHaveCount(0);
 
     await mock.open();
     await mock.waitForCommand("hello");
     await mock.emit(welcome({ sessionId: SID }));
     await mock.waitForConn("connected");
-    // kg.projects 自动首拉 → 骨架消退、13 行到位
-    await mock.waitForCommand("kg.projects");
-    await expect(page.locator(".pj-row")).toHaveCount(13, { timeout: 10_000 });
+    // kg.projects 在途 → 首拉骨架（FID-23；60ms 自动应答窗口竞态 ——
+    // MutationObserver 留存「骨架曾渲染」证据，不赌瞬时查询）
+    await page.evaluate(() => {
+      (window as unknown as { __skelSeen: boolean }).__skelSeen = false;
+      new MutationObserver(() => {
+        if (document.querySelector(".pj-plist .kg-skel-row")) {
+          (window as unknown as { __skelSeen: boolean }).__skelSeen = true;
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    await page.locator('.rail-btn[data-page="project"]').click();
+    await expect(page.locator('[data-p1-project="/project"]')).toBeVisible();
+    // 应答到达 → 骨架消退、14 行到位
+    await expect(page.locator(".pj-row")).toHaveCount(14, { timeout: 10_000 });
+    expect(await page.evaluate(() => (window as unknown as { __skelSeen?: boolean }).__skelSeen)).toBe(true);
     await expect(page.locator(".pj-plist .kg-skel-row")).toHaveCount(0);
+    await expect(page.locator('[data-pj-main="empty"]')).toBeVisible();
 
     // ── 1. 选 synced 项目（helix）→ 自动折叠 64px 窄轨 + 主区 graph ──
     await page.locator('.pj-row[data-name="helix"]').click();
@@ -112,7 +124,8 @@ test.describe("CL-5 B 层：P-1 主用户流全链路（TC2.1）", () => {
 
     // ── 5. 详情六段 + 关系/supersede 链跳转（FID-07/09/10 流口径）──
     const pane = page.locator("[data-kg-detail]");
-    for (const sec of ["描述", "规则", "锚点", "关系", "supersede 链", "变更日志"]) {
+    // 9798562 B2：描述/规则合并为单「正文」段（react-markdown 渲染）
+          for (const sec of ["正文", "锚点", "关系", "supersede 链", "变更日志"]) {
       await expect(pane.locator(".kgv-sec-h", { hasText: sec })).toBeVisible();
     }
     // 关系跳转：E-9 → E-10
@@ -126,20 +139,16 @@ test.describe("CL-5 B 层：P-1 主用户流全链路（TC2.1）", () => {
     await page.locator(".kg-chain-item.cur .kg-nref").click();
     await expect(pane.locator(".kgv-dh-name")).toHaveText("报告装配策略");
 
-    // ── 6. 报告行动项：待决→已处理→撤销→tab 计数联动→清零横幅（FID-14 流口径）──
+    // ── 6. 报告 = 纯通知面（9798562 B2：行动项交互整套删除——无 radio/已处理/
+    //    撤销/清零横幅；计数形态「N 条」；refs 纯信息展示）──
     await page.locator('[data-tab="report"]').click();
-    await expect(page.locator('[data-kg-report-count]')).toHaveText("4 待决");
-    await page.locator(".kg-entry").first().locator('input[type="radio"]').first().click();
-    await expect(page.locator(".kg-entry").first()).toHaveClass(/done/);
-    await expect(page.locator("[data-kg-done]").first()).toContainText("已处理：");
-    await expect(page.locator('[data-kg-report-count]')).toHaveText("3 待决");
-    await page.locator("[data-kg-undo]").first().click();
-    await expect(page.locator('[data-kg-report-count]')).toHaveText("4 待决");
-    for (const entry of await page.locator(".kg-entry").all()) {
-      await entry.locator('input[type="radio"]').first().click();
-    }
-    await expect(page.locator("[data-kg-report-clear]")).toContainText("4 条已全部处理");
-    await expect(page.locator('[data-kg-report-count]')).toHaveText("已清零");
+    await expect(page.locator(".kgv-report-head .hud-chip").last()).toHaveText("4 条");
+    await expect(page.locator(".kg-entry")).toHaveCount(4);
+    expect(await page.locator('[data-kg-report] input[type="radio"]').count()).toBe(0);
+    expect(await page.locator("[data-kg-report] button").count()).toBe(0);
+    const reportText = (await page.locator("[data-kg-report]").textContent()) ?? "";
+    expect(reportText).not.toContain("需要你决定");
+    expect(reportText).not.toContain("已处理");
     await shotEvidence(page, "kg-flow-report-cleared", "CL-5");
 
     // ── 7. 索引面板：helix synced → feifei degraded → 重建 building→synced ──
@@ -168,7 +177,7 @@ test.describe("CL-5 B 层：B1 冷启动构建 + draft 转正写动作（TC2.2�
     // ── 1. 选 absent 项目 → 主区空态「构建索引」CTA ──
     await page.locator('.pj-row[data-name="codegraph"]').click();
     await expect(page.locator('[data-pj-main="absent"]')).toBeVisible();
-    await expect(page.locator(".pj-center-panel .pb-absent")).toHaveText("未建索引");
+    await expect(page.locator(".pj-center-panel .pb-absent").first()).toHaveText("未建索引"); // 双徽标取首（引导态第二枚）
 
     // ── 2. CTA → kg.index.status {project, rebuild:true}（B1 写入口）──
     await page.locator("[data-build-cta]").click();

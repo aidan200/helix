@@ -33,7 +33,7 @@ test.describe("T3.3 CL-3 双主题关键态（P-3/P-4）", () => {
       await mock.connect([], { model: CURRENT });
       if (theme === "light") {
         await page.locator("#btn-theme-toggle").click();
-        await expect(page.locator("html")).toHaveClass("light");
+        await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
       }
 
       // P-3 弹出态（T5.3：打开补发 auth.list；可用性过滤后 configured

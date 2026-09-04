@@ -42,7 +42,8 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
         const app = document.querySelector(".app")!;
         return Array.from(app.children).map((c) => c.className.split(" ")[0]);
       });
-    expect(order).toEqual(["conn-banner", "msg-flow", "composer-wrap"]);
+    // TR-64：.msg-flow 外套 .msg-flow-wrap（steer 队列坞 absolute 钉位上下文）
+    expect(order).toEqual(["conn-banner", "msg-flow-wrap", "composer-wrap"]);
     const shell = await page.evaluate(() => {
         const root = document.querySelector(".app-layout")!;
         const body = document.querySelector(".layout-body")!;
@@ -75,10 +76,12 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
     // 暗色：accent rgb(34, 211, 238) → violet rgb(168, 85, 247)
     expect(await stopColors()).toEqual(["rgb(34, 211, 238)", "rgb(168, 85, 247)"]);
     await shotEvidence(page, "header-brand-dark");
+    // 环境 chip 三枚（W4：workspace 指示器入列——mode / home / ws 切换入口）
     const chips = page.locator(".app-header .hud-chip");
-    await expect(chips).toHaveCount(2);
-    await expect(chips.nth(0)).toHaveText("main-session");
+    await expect(chips).toHaveCount(3);
+    await expect(chips.nth(0)).toHaveText("默认模式"); // mode chip（草稿可切语义演进后的只读档文案）
     await expect(chips.nth(1)).toHaveText("~/.helix");
+    await expect(chips.nth(2)).toHaveText("workspace"); // W4 工作空间指示器（mock 预绑定 /workspace）
     // 模型徽标（welcome DTO 下发的 model 值）
     await expect(page.locator(".app-header .hud-badge")).toHaveText("claude-sonnet-4-5");
     // 连接状态 + 主题单钮（S1：IconRail，Sun = 当前 dark 的切换目标）
@@ -87,7 +90,7 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
     await expect(page.locator("#btn-theme-toggle .lucide-sun")).toBeVisible();
     // 亮主题：图标渐变随 token 亮列自动适配（accent/violet 亮值）
     await page.locator("#btn-theme-toggle").click();
-    await expect(page.locator("html")).toHaveClass("light");
+    await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
     expect(await stopColors()).toEqual(["rgb(37, 99, 235)", "rgb(147, 51, 234)"]);
     await shotEvidence(page, "header-brand-light");
     await page.locator("#btn-theme-toggle").click();
@@ -125,7 +128,7 @@ test.describe("TC2.1 R-02 双主题（token 注册表 / localStorage / 亮色降
   test("切换亮色：html.light 类 + localStorage(helix-theme) + 亮列变量", async ({ mock, page }) => {
     await mock.connect();
     await page.locator("#btn-theme-toggle").click();
-    await expect(page.locator("html")).toHaveClass("light");
+    await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
     expect(await page.evaluate(() => localStorage.getItem("helix-theme"))).toBe("light");
     expect(await cssVar(page, "--void")).toBe("#F8FAFC");
     expect(await cssVar(page, "--accent-rgb")).toBe("37 99 235");
@@ -138,15 +141,17 @@ test.describe("TC2.1 R-02 双主题（token 注册表 / localStorage / 亮色降
   test("主题持久化：亮色 reload 后首帧仍是亮色（无闪回）", async ({ mock, page }) => {
     await mock.connect();
     await page.locator("#btn-theme-toggle").click();
-    await expect(page.locator("html")).toHaveClass("light");
+    await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
     await page.reload();
     // 首帧前 applyThemeInitial：无需等待应用建连
-    await expect(page.locator("html")).toHaveClass("light");
+    await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
     expect(await page.evaluate(() => localStorage.getItem("helix-theme"))).toBe("light");
+    // W6o 门禁：reload 后停留 boot 屏直至重驱握手（boot-hold 语义）
+    await mock.connect();
     // 切回 DARK：localStorage 跟随
     await page.locator("#btn-theme-toggle").click();
     expect(await page.evaluate(() => localStorage.getItem("helix-theme"))).toBe("dark");
-    await expect(page.locator("html")).not.toHaveClass("light");
+    await expect(page.locator("html")).not.toHaveClass(/(^|\s)light(\s|$)/);
   });
 
   test("亮色氛围降档：网格淡 / blur 半径降档 / 辉光 alpha 降档；扫描线关闭", async ({ mock, page }) => {
@@ -169,14 +174,15 @@ test.describe("TC2.1 R-02 双主题（token 注册表 / localStorage / 亮色降
     };
 
     const dark = await collect();
-    // 暗色：网格 edge/0.14（8bit 序列化 ±0.002 容差）、header blur 6px、glow 0.25/0.18
-    expect(gridAlpha(dark.bodyBg)).toBeGreaterThan(0.13);
+    // 暗色：网格 edge/0.05（a3cdc6e：0.14→0.05 对齐亮色低调档位）、header blur 6px、glow 0.25/0.18
+    expect(gridAlpha(dark.bodyBg)).toBeGreaterThan(0.04);
+    expect(gridAlpha(dark.bodyBg)).toBeLessThan(0.06);
     expect(dark.headerBlur).toContain("6px");
     expect(dark.glowCyan).toContain("0.25)");
     expect(dark.glowCyan).toContain("0.18)");
 
     await page.locator("#btn-theme-toggle").click();
-    await expect(page.locator("html")).toHaveClass("light");
+    await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
     const light = await collect();
     // 亮色降档（tokens.md 07 节）：网格 0.045 / blur 4px / glow 0.2/0.1
     expect(gridAlpha(light.bodyBg)).toBeLessThan(0.06);

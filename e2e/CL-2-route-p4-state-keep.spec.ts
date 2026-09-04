@@ -70,6 +70,9 @@ test.describe("T3.2 CL-2 路由（工作台 ↔ 设置页）", () => {
     await page.reload();
     await mock.awaitReady();
     await expect(page).toHaveURL(/\/settings$/);
+    // W6o 门禁：reload 后停留 boot 屏直至重驱握手（fake transport env 形态兜底生效）
+    await expect(page.locator('[data-wsgate-boot="connecting"]')).toBeVisible();
+    await mock.connect();
     await expect(page.locator('[data-settings-page="/settings"]')).toBeVisible();
   });
 });

@@ -202,11 +202,11 @@ export function usageDto(
   };
 }
 
-/** ThinkingEntryDto（完成态全文；durationMs/reasoningTokens 驱动折叠条文案）。 */
+/** ThinkingEntryDto（完成态全文；durationMs 驱动折叠条文案——reasoningTokens 已随 CAND-35 退役）。 */
 export function thinkingEntry(
   id: string,
   text: string,
-  opts: { instanceId?: string; durationMs?: number; reasoningTokens?: number; createdAt?: string } = {},
+  opts: { instanceId?: string; durationMs?: number; createdAt?: string } = {},
 ): ThinkingEntryDto {
   return {
     kind: "thinking",
@@ -214,7 +214,6 @@ export function thinkingEntry(
     instanceId: opts.instanceId ?? "main",
     text,
     durationMs: opts.durationMs ?? 3_000,
-    reasoningTokens: opts.reasoningTokens ?? 1_200,
     createdAt: opts.createdAt ?? new Date().toISOString(),
   };
 }

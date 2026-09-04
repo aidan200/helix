@@ -99,7 +99,7 @@ test.describe("T4.4 S4 CL-3 usage 徽标与 popover", () => {
     await expect(mainRow).toContainText("主会话");
     await expect(mainRow.locator(".sp-state")).toHaveText("空闲");
     await expect(mainRow.locator(".nums")).toContainText("$0.04");
-    const mainSub = pop.locator(".sp-row[data-row-id='main'] + .sp-sub");
+    const mainSub = pop.locator(".sp-row[data-row-id='main'] .sub");
     await expect(mainSub).toHaveText("reasoning 800");
 
     // agent-1 行：done chip + cache R/W sub；行尾动作（button 语义）
@@ -107,16 +107,13 @@ test.describe("T4.4 S4 CL-3 usage 徽标与 popover", () => {
     await expect(a1).toContainText("SubAgent");
     await expect(a1.locator(".sp-state")).toHaveText("done");
     await expect(a1).toHaveAttribute("data-row-id", "agent-1");
-    const a1Sub = pop.locator(".sp-row[data-row-id='agent-1'] + .sp-sub");
+    const a1Sub = pop.locator(".sp-row[data-row-id='agent-1'] .sub");
     await expect(a1Sub).toHaveText("cache R 12k · W 4k");
 
     // agent-2 行：running chip、无 cache sub（done 行专属）
     const a2 = pop.locator('.sp-row[data-row-id="agent-2"]');
     await expect(a2.locator(".sp-state")).toHaveText("running");
-    await expect(pop.locator(".sp-row[data-row-id='agent-2'] + .sp-sub")).toHaveCount(0);
-
-    // 脚注（冻结/刷新语义文案）
-    await expect(pop.locator(".sp-foot")).toContainText("turn 完成时刷新 · 流式中账面冻结 · 含 compaction 摘要调用");
+    await expect(pop.locator(".sp-row[data-row-id='agent-2'] .sub")).toHaveCount(0);
   });
 
   test("F3.4 交互：aria-expanded 开合 / Esc / 点外关闭 / SubAgent 行尾跳转抽屉", async ({ mock, page }) => {

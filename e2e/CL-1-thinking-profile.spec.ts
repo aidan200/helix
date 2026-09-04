@@ -126,6 +126,10 @@ async function openAgents(
     ]),
   );
   await expect(page.locator('[data-agents-page="/skills"]')).toBeVisible();
+  // master-detail（a86af53 重构）：同刻仅一详情卡，默认选中 main-session——
+  // 切到 subagent-worker（测试面全在 sub 槽位）
+  await page.locator('[data-agent-row="subagent-worker"]').click();
+  await expect(page.locator('[data-agent-card="subagent-worker"]')).toBeVisible();
 }
 
 /** 写面收口链：applied 回执 → changed 广播 → 重拉 list 回放新块。 */

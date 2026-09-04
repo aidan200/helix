@@ -229,32 +229,34 @@ test.describe("T3.3 CL-3 模型与厂商配置（设置页分区）", () => {
     await expect(page.locator("[data-catalog-meta]")).toContainText("7 providers");
   });
 
-  test("F(3.4).6 全局默认：选择器 optgroup 分组 + model.set_default 命令 + 乐观更新与 DEFAULT chip 迁移", async ({ mock, page }) => {
+  test("F(3.4).6 全局默认：顶部只读展示 + 行内「设为默认」（model.set_default 乐观更新与 DEFAULT chip 迁移；2dad85e 选择器退役）", async ({ mock, page }) => {
     await openModelsSection(mock, page);
 
-    const sel = page.locator("#sel-default");
+    // 2dad85e 重设计：顶部只读展示当前默认（选择器 #sel-default 退役），
+    // 改默认 = 展开的模型表行内「设为默认」按钮
+    await expect(page.locator("#sel-default")).toHaveCount(0);
+    const display = page.locator("[data-default-model]");
     // 初始值 = get_default 回执
-    await expect(sel).toHaveValue(DEFAULT_MODEL);
-    // optgroup 按 provider 分组
-    await expect(sel.locator("optgroup")).toHaveCount(7);
-    await expect(sel.locator('optgroup[label="anthropic"] option')).toHaveCount(3);
+    await expect(display).toHaveText(DEFAULT_MODEL);
 
-    // 选择新默认 → model.set_default（全局命令无信封 sessionId）
-    await sel.selectOption("openai/gpt-5.2");
+    // 行内设默认：openai 组展开 → gpt-5.2 行内按钮 → model.set_default（全局命令无信封 sessionId）
+    await page.locator('[data-prov="openai"] [data-prov-toggle]').click();
+    await page.locator('[data-set-default="openai/gpt-5.2"]').click();
     const cmd = await mock.waitForCommand("model.set_default");
     expect(cmd.payload).toEqual({ model: "openai/gpt-5.2" });
     expect(cmd.sessionId).toBeUndefined();
 
-    // 乐观更新：选择器即时反映 + DEFAULT chip 迁移（anthropic 行退出，openai 行进入）
-    await expect(sel).toHaveValue("openai/gpt-5.2");
-    await page.locator('[data-prov="openai"] [data-prov-toggle]').click();
+    // 乐观更新：只读展示即时反映 + DEFAULT chip 迁移（openai 行进入）+
+    // 行内按钮消失（默认行不渲染「设为默认」）
+    await expect(display).toHaveText("openai/gpt-5.2");
     await expect(page.locator('[data-model-row="openai/gpt-5.2"]')).toHaveClass(/is-default/);
+    await expect(page.locator('[data-set-default="openai/gpt-5.2"]')).toHaveCount(0);
     await page.locator('[data-prov="anthropic"] [data-prov-toggle]').click();
     await expect(page.locator('[data-model-row="anthropic/claude-sonnet-4-5"]')).not.toHaveClass(/is-default/);
 
-    // 回执清 in-flight（previous 回携）
+    // 回执清 in-flight（previous 回携）——展示不回落
     await mock.emit(modelSetDefaultResult(DEFAULT_MODEL));
-    await expect(sel).toHaveValue("openai/gpt-5.2");
+    await expect(display).toHaveText("openai/gpt-5.2");
 
     await shotEvidence(page, "models-config", "CL-3");
     writeEvidence(
@@ -263,8 +265,8 @@ test.describe("T3.3 CL-3 模型与厂商配置（设置页分区）", () => {
       [
         "T3.3 CL-3 P-4 模型与厂商配置（F(3.4).1-F(3.4).6）",
         "断言: 字母分组/脱敏/未配弱化/模型表四费率 tabular-nums+默认行/key 弹层校验与",
-        "  保存回执/两段式删除/连通四态互斥+重测清旧态/刷新转动+时间戳/默认选择器",
-        "  optgroup+set_default 乐观更新+chip 迁移",
+        "  保存回执/两段式删除/连通四态互斥+重测清旧态/刷新转动+时间戳/全局默认只读",
+        "  展示+行内设默认 set_default 乐观更新+chip 迁移（2dad85e）",
         "结果: PASS",
       ].join("\n"),
       "CL-3",

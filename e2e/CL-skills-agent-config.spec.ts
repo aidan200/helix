@@ -117,6 +117,12 @@ const KGW_BLOCK: AgentConfigSystemBlock = {
   derivedFrom: "subagent-worker",
   pinnedTools: ["kg-update"],
 };
+/** D5 第五 kind（reviewer 独立槽位批）：worker 生效集 − write/edit 恒摘除（只读评审）。 */
+const REVIEWER_BLOCK: AgentConfigSystemBlock = {
+  profileKind: "subagent-code-reviewer",
+  tools: SUB_TOOLS.filter((n) => n !== "write" && n !== "edit").map((name) => ({ name, snippet: SNIPPETS[name]! })),
+  derivedFrom: "subagent-worker",
+};
 
 /** 进页 + 回放 list 双块（含 system 只读双块）+ 目录（P-3/P-4 同源 catalog
  * 数据面）+ auth.list（S3a 可用性过滤数据源；双 provider 均 configured →
@@ -141,10 +147,10 @@ async function openAgents(mock: import("./harness/mock-session").MockController,
     { providerId: "anthropic", configured: true, keyMasked: "····e2e1" },
     { providerId: "openai", configured: true, keyMasked: "····e2e2" },
   ]));
-  await mock.emit(agentConfigListResult([MAIN_BLOCK, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK]));
+  await mock.emit(agentConfigListResult([MAIN_BLOCK, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK, REVIEWER_BLOCK]));
   await expect(page.locator('[data-agents-page="/skills"]')).toBeVisible();
-  // master-detail：左栏四条目在场（agent-roster 批）
-  await expect(page.locator("[data-agent-row]")).toHaveCount(4);
+  // master-detail：左栏五条目在场（可配置 2 + 系统派生 3——D5 reviewer 入列）
+  await expect(page.locator("[data-agent-row]")).toHaveCount(5);
   await page.locator('[data-agent-row="main-session"]').click();
   await expect(page.locator('[data-agent-card="main-session"] [data-tool-row="bash"]')).toBeVisible();
 }
@@ -204,23 +210,24 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
   test("①b master-detail 系统派生组：两组分组标题 + 只读徽标 + 只读详情纯展示 + 选中切换回可编辑", async ({ mock, page }) => {
     await openAgents(mock, page);
 
-    // 两组分组标题 + 条目序（可配置 2 + 系统派生 2）
+    // 两组分组标题 + 条目序（可配置 2 + 系统派生 3——D5 reviewer 入列）
     await expect(page.locator('[data-agent-group="editable"]')).toHaveText("可配置");
     await expect(page.locator('[data-agent-group="system"]')).toHaveText("系统派生");
-    await expect(page.locator("[data-agent-row]")).toHaveCount(4);
-    // 只读组两行带只读徽标（可配置组无）
+    await expect(page.locator("[data-agent-row]")).toHaveCount(5);
+    // 只读组三行带只读徽标（可配置组无）
     const roBadges = page.locator('[data-ro="true"] [data-ro-badge]');
-    await expect(roBadges).toHaveCount(2);
+    await expect(roBadges).toHaveCount(3);
     await expect(roBadges.first()).toHaveText("只读");
 
-    // orchestrator 只读详情：纯展示（零开关零下拉零技能组）
+    // orchestrator 只读详情（R7 语义：工具集只读派生；模型/推理槽位可配）——
+    // 零工具开关；模型下拉在场（缺省项 = 跟随全局默认，不联动 worker）
     await page.locator('[data-agent-row="orchestrator"]').click();
     const orchCard = page.locator('[data-agent-card="orchestrator"]');
     await expect(orchCard).toBeVisible();
-    await expect(orchCard.locator("[data-ro-badge]")).toHaveText("只读");
-    await expect(orchCard.locator("[data-switch]")).toHaveCount(0);
-    await expect(orchCard.locator("select")).toHaveCount(0);
-    await expect(orchCard.locator("[data-ro-model]")).toHaveText("跟随全局默认");
+    await expect(orchCard.locator("[data-ro-badge]")).toHaveText("工具只读");
+    // 工具行零开关（R7：唯一开关 = 推理级别槽位的 thinking 开关）
+    await expect(orchCard.locator("[data-ro-tool-row] [data-switch]")).toHaveCount(0);
+    await expect(orchCard.locator(".ag-model select")).toHaveValue(""); // 跟随全局默认
     await expect(orchCard.locator('[data-ro-tool-row="agent_spawn"]')).toContainText("并行委派");
     await expect(orchCard.locator("[data-ro-tool-row]")).toHaveCount(2);
     await expect(orchCard.locator("[data-derived-note]")).toHaveCount(0);
@@ -232,7 +239,16 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
     await expect(kgwCard.locator("[data-derived-note]")).toHaveText("工具集跟随 subagent-worker，额外固定 kg-update");
     await expect(kgwCard.locator('[data-ro-tool-row="kg-update"] [data-pinned-chip]')).toHaveText("恒在");
     await expect(kgwCard.locator("[data-ro-tool-row]")).toHaveCount(6); // sub 5 + kg-update
-    await expect(kgwCard.locator("[data-switch]")).toHaveCount(0);
+    await expect(kgwCard.locator("[data-ro-tool-row] [data-switch]")).toHaveCount(0); // 工具行零开关（thinking 槽位开关除外）
+
+    // reviewer 只读详情（D5）：派生说明（write/edit 恒摘）+ 3 工具行（sub 5 − write/edit）
+    await page.locator('[data-agent-row="subagent-code-reviewer"]').click();
+    const revCard = page.locator('[data-agent-card="subagent-code-reviewer"]');
+    await expect(revCard).toBeVisible();
+    await expect(revCard.locator("[data-derived-note]")).toHaveText("工具集跟随 subagent-worker，write/edit 恒摘除（只读评审）");
+    await expect(revCard.locator("[data-ro-tool-row]")).toHaveCount(3);
+    await expect(revCard.locator('[data-ro-tool-row="write"]')).toHaveCount(0);
+    await expect(revCard.locator("[data-ro-tool-row] [data-switch]")).toHaveCount(0);
 
     // 切回可编辑：开关回场（两组形态互斥）
     await page.locator('[data-agent-row="main-session"]').click();
@@ -273,7 +289,7 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
       ...MAIN_BLOCK,
       tools: MAIN_BLOCK.tools.map((t) => (t.name === "bash" ? { ...t, enabled: false } : t)),
     };
-    await mock.emit(agentConfigListResult([refreshedMain, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK]));
+    await mock.emit(agentConfigListResult([refreshedMain, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK, REVIEWER_BLOCK]));
     await expect(bashSwitch).toHaveAttribute("aria-checked", "false");
     await expect(bashSwitch).toBeEnabled();
 
@@ -282,7 +298,7 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
     await page.locator('.rail-btn[data-page="skills"]').click();
     // 重挂载重拉：等 list 命令 → 回放刷新块 → 默认选中 main（重挂复位；点击幂等）→ 态保持
     await mock.waitForCommand("agent.config.list");
-    await mock.emit(agentConfigListResult([refreshedMain, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK]));
+    await mock.emit(agentConfigListResult([refreshedMain, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK, REVIEWER_BLOCK]));
     await page.locator('[data-agent-row="main-session"]').click();
     await expect(page.locator('[data-agent-card="main-session"] [data-switch="bash"]')).toHaveAttribute("aria-checked", "false");
   });
@@ -320,7 +336,7 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
     await mock.emit(agentConfigSetResult({ status: "applied" }));
     await mock.emit(agentConfigChanged({ profileKind: "main-session", resourceType: "model", name: "anthropic/claude-sonnet-4-5", enabled: true }));
     await mock.waitForCommand("agent.config.list");
-    await mock.emit(agentConfigListResult([{ ...MAIN_BLOCK, model: "anthropic/claude-sonnet-4-5" }, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK]));
+    await mock.emit(agentConfigListResult([{ ...MAIN_BLOCK, model: "anthropic/claude-sonnet-4-5" }, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK, REVIEWER_BLOCK]));
     await expect(sel).toHaveValue("anthropic/claude-sonnet-4-5");
 
     // 选回缺省 → clear（enabled=false；name = 忽略位占位 "-"，契约钉非空）
@@ -367,7 +383,7 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
       await page.locator('.rail-btn[data-page="skills"]').click();
       // 重挂载重拉：mock 不自动应答——回放双块后断言（默认选中 main，重挂复位；点击幂等）
       await mock.waitForCommand("agent.config.list");
-      await mock.emit(agentConfigListResult([MAIN_BLOCK, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK]));
+      await mock.emit(agentConfigListResult([MAIN_BLOCK, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK, REVIEWER_BLOCK]));
       await page.locator('[data-agent-row="main-session"]').click();
       const mainCard = page.locator('[data-agent-card="main-session"]');
       await expect(mainCard.locator('[data-tool-row="bash"]')).toBeVisible({ timeout: 10_000 });
@@ -412,7 +428,7 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
 
     // ② 当前槽位兑底：main 已配 openai 模型但 provider 未 configured → 仍可见
     //（防配置了不可用模型的 agent 在下拉里找不到当前项；与 P-3 当前项兑底同语义）
-    await mock.emit(agentConfigListResult([{ ...MAIN_BLOCK, model: "openai/gpt-5.2" }, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK]));
+    await mock.emit(agentConfigListResult([{ ...MAIN_BLOCK, model: "openai/gpt-5.2" }, SUB_BLOCK], [ORCH_BLOCK, KGW_BLOCK, REVIEWER_BLOCK]));
     await expect(sel).toHaveValue("openai/gpt-5.2");
     await expect(sel.locator("optgroup")).toHaveCount(2); // openai 组仅兑底项回场
     await expect(sel.locator("option")).toHaveCount(4);

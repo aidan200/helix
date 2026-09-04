@@ -135,9 +135,11 @@ test.describe("T2.3 CL-5 fidelity：结构还原（R-P1-1~4）", () => {
           await expect(chips).toHaveCount(8);
           await expect(chips.first()).toBeEnabled();
           // sidebar（S3b 上下分区）：264px（chat 侧栏同语言）；上 = 会话列表
-          // （清单注入 + 当前会话激活态），下 = 实例分区（全部实例/实例项可点）
+          // （清单注入 + 当前会话激活态；任务会话并入批：task:<jobId> 六条
+          //  tasks-mock 自动应答并入同栏——8 = 6 任务会话 + 2 chat 会话），
+          // 下 = 实例分区（全部实例/实例项可点）
           expect(await computed(page, ".tsb", "width")).toBe("264px");
-          await expect(page.locator(".tsb-list .tsb-ses")).toHaveCount(2);
+          await expect(page.locator(".tsb-list .tsb-ses")).toHaveCount(8);
           await expect(page.locator(".tsb-list .tsb-ses.on")).toHaveCount(1);
           await expect(page.locator(".ip-item.ip-all")).toBeEnabled();
           // 两分区各自独立内滚（flex + min-height:0）
@@ -462,7 +464,7 @@ test.describe("T2.3 CL-5 fidelity：主题与高亮（R-P1-8）", () => {
     await mock.emitAll([welcome({ sessionId: SID }), v02Snapshot(SID, { tail: [] })]);
     await mock.waitForConn("connected");
     await page.locator("#btn-theme-toggle").click();
-    await expect(page.locator("html")).toHaveClass("light");
+    await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
     await mock.waitForCommand("session.list");
     await mock.emit(sessionListResult([sessionMeta(SID, { title: "trace 还原会话" })]));
     await page.locator('.rail-btn[data-page="trace"]').click();

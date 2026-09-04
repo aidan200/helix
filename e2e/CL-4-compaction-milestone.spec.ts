@@ -76,7 +76,7 @@ test.describe("T4.4 S5 CL-4 compaction 里程碑与账目行", () => {
     await expect(compactRow.locator(".nums")).toContainText("2k");
     await expect(compactRow.locator(".nums")).toContainText("$0.02");
     await expect(compactRow.locator(".sp-state")).toHaveText("done");
-    const compactSub = pop.locator(".sp-row[data-row-id='compaction'] + .sp-sub");
+    const compactSub = pop.locator(".sp-row[data-row-id='compaction'] .sub");
     await expect(compactSub).toHaveText("main 340k→20k");
   });
 

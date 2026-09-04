@@ -56,7 +56,7 @@ test.describe("T4.4 S3 CL-2 thinking 三态", () => {
     await mock.emit(thinkingCompleted(THINK_ENTRY));
     const folded = page.locator('.fb-wrap[data-kind="thinking"]');
     await expect(folded).toHaveCount(1);
-    await expect(folded.locator(".fb-text")).toHaveText("已思考 3s · 1k tokens");
+    await expect(folded.locator(".fb-text")).toHaveText("已思考 3s"); // CAND-35：reasoningTokens 退役，折叠条不再带 token 档
     await expect(folded.locator(".who-chip")).toHaveText("main");
     await expect(page.locator(".think-live")).toHaveCount(0);
 

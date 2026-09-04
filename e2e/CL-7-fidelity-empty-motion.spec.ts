@@ -64,16 +64,29 @@ test.describe("TC2.6 R-17 动效（reduced-motion / log-rise / 属性白名单�
   test("prefers-reduced-motion: reduce 下动画全关（dot 脉冲/光标/spinner/呼吸）", async ({ mock, page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
 
-    // connecting 态：状态点脉冲关 + 覆盖层 spinner 关
-    await expect(page.locator(".conn-status .hud-dot-pulse")).toBeVisible();
-    expect(await computed(page, ".conn-status .hud-dot-pulse", "animation-name")).toBe("none");
-    expect(await computed(page, ".conn-spinner", "animation-name")).toBe("none");
-
+    // W6o 首启门禁：未建连恒 boot 屏（conn-status 未渲染）——connecting 态
+    // 动效断言移重连腿（首启后 phase 不回退，壳在 connecting 覆盖层照常）
+    await expect(page.locator('[data-wsgate-boot="connecting"]')).toBeVisible();
     // connected 空态：呼吸文案/光标闪烁关
     await mock.connect();
     await expect(page.locator(".session-empty")).toBeVisible();
     expect(await computed(page, ".empty-await", "animation-name")).toBe("none");
     expect(await computed(page, ".empty-cursor", "animation-name")).toBe("none");
+
+    // 重连 connecting 态：状态点脉冲关 + 覆盖层 spinner 关
+    await mock.netClose();
+    await mock.waitForConn("connecting", 8_000);
+    await expect(page.locator(".conn-status .hud-dot-pulse")).toBeVisible();
+    expect(await computed(page, ".conn-status .hud-dot-pulse", "animation-name")).toBe("none");
+    expect(await computed(page, ".conn-spinner", "animation-name")).toBe("none");
+    // 恢复连接（后续流式断言需要 connected 态输入可用）：新 socket 需
+    // 控制面 fireOpen 才进 OPEN 态（fake transport connect() 为剧本驱动空转，
+    // 未 fireOpen 时客户端帧按 WebSocket 语义丢弃）
+    await mock.open();
+    await mock.waitForCommand("hello");
+    const { snapshot, welcome } = await import("./harness/protocol");
+    await mock.emitAll([welcome(), snapshot([])]);
+    await mock.waitForConn("connected");
 
     // 流式光标 + 新消息进入动画关
     await mock.sendUserMessage("动效检查");

@@ -144,7 +144,6 @@ export const DRAWER_THINK_TEXT = "思考帧甲：先核事件序。思考帧乙�
 export const DRAWER_THINK_ENTRY = thinkingEntry("sa-think-1", DRAWER_THINK_TEXT, {
   instanceId: DRAWER_AGENT,
   durationMs: 4_200,
-  reasoningTokens: 2_600,
 });
 export const DRAWER_TOOL_READ = toolEntry(
   "sa-tool-read",
@@ -174,7 +173,6 @@ export const THINK_FRAMES = ["先看契约：", " §5.2 通道族四事件，", 
 export const THINK_FULL_TEXT = THINK_FRAMES.join("") + "结论：三态互斥成立。";
 export const THINK_ENTRY = thinkingEntry("think-main-1", THINK_FULL_TEXT, {
   durationMs: 3_200,
-  reasoningTokens: 1_200,
 });
 export const THINK_REPLY = "thinking 落折叠条：完成态不可逆回流式。";
 export const THINK_TURN2_REPLY = "第二轮无 thinking 事件：零 thinking 块渲染。";
@@ -234,7 +232,6 @@ export const REBUILD_AGENT2 = agentInstance("agent-2", {
 });
 export const REBUILD_THINK_ENTRY = thinkingEntry("rebuild-think-1", "重启前的思考全文：快照重建后仍可展开回看。", {
   durationMs: 4_200,
-  reasoningTokens: 2_600,
 });
 export const REBUILD_COMPACT_ENTRY = compactionEntry("rebuild-compact-1", {
   tokensBefore: 340_000,

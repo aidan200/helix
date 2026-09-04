@@ -41,7 +41,7 @@ const REBUILD_ENTRIES: EntryDto[] = [
   msgEntry("rb-a1", "assistant", "重启前的助手回复"),
   REBUILD_COMPACT_ENTRY,
   REBUILD_AGENT1_USER_MSG,
-  thinkingEntry("rb-a1-think", "实例思考：回放可用。", { instanceId: "agent-1", durationMs: 2_100, reasoningTokens: 900 }),
+  thinkingEntry("rb-a1-think", "实例思考：回放可用。", { instanceId: "agent-1", durationMs: 2_100 }),
   { ...msgEntry("rb-a1-sub", "assistant", "实例回复：channel 历史回放", { instanceId: "agent-1" }) },
   REBUILD_AGENT1_TOOL,
 ];
@@ -75,7 +75,7 @@ test.describe("T4.4 S6 快照投影重建（卡片/thinking/账目/抽屉回放�
   test("F2.4/F4.1 折叠条重建：thinking 与 compaction 里程碑可展开回看", async ({ page }) => {
     const think = page.locator('.fb-wrap[data-kind="thinking"]');
     await expect(think).toHaveCount(1);
-    await expect(think.locator(".fb-text")).toHaveText("已思考 4s · 3k tokens");
+    await expect(think.locator(".fb-text")).toHaveText("已思考 4s"); // CAND-35：reasoningTokens 退役，折叠条不再带 token 档
     await think.locator(".flow-bar").click();
     await expect(think.locator(".flow-body")).toBeVisible();
     await expect(think.locator(".flow-body")).toHaveText("重启前的思考全文：快照重建后仍可展开回看。");
@@ -110,14 +110,14 @@ test.describe("T4.4 S6 快照投影重建（卡片/thinking/账目/抽屉回放�
     // 行明细：main（reasoning sub）/ agent-1（done + cache sub）/ agent-2（failed）
     await expect(pop.locator(".sp-row")).toHaveCount(4);
     await expect(pop.locator(".sp-row[data-row-id='main'] .nums")).toContainText("$0.03");
-    await expect(pop.locator(".sp-row[data-row-id='main'] + .sp-sub")).toHaveText("reasoning 900");
+    await expect(pop.locator(".sp-row[data-row-id='main'] .sub")).toHaveText("reasoning 900");
     await expect(pop.locator(".sp-row[data-row-id='agent-1'] .sp-state")).toHaveText("done");
-    await expect(pop.locator(".sp-row[data-row-id='agent-1'] + .sp-sub")).toHaveText("cache R 12k · W 4k");
+    await expect(pop.locator(".sp-row[data-row-id='agent-1'] .sub")).toHaveText("cache R 12k · W 4k");
     await expect(pop.locator(".sp-row[data-row-id='agent-2'] .sp-state")).toHaveText("failed");
 
     // compaction 独立行（快照 entries 含里程碑 → 行出现；小计 = usage.compaction）
     await expect(pop.locator(".sp-row[data-row-id='compaction'] .nums")).toContainText("$0.02");
-    await expect(pop.locator(".sp-row[data-row-id='compaction'] + .sp-sub")).toHaveText("main 340k→20k");
+    await expect(pop.locator(".sp-row[data-row-id='compaction'] .sub")).toHaveText("main 340k→20k");
 
     // 实例行 chip = 快照终态（重建后状态机一致）
     await expect(pop.locator(".sp-row[data-row-id='agent-1']")).toContainText("SubAgent");

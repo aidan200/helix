@@ -226,10 +226,15 @@ test.describe("T3.3 CL-3 抽屉 steer 输入栏（三态显隐 + 定向发送 + 
     const cmd = await mock.sendUserMessage("主线生成中的普通注入", "chat.steer");
     expect(cmd.payload).toEqual({ text: "主线生成中的普通注入" }); // 恰为 {text}，无 instanceId key
     expect(cmd.sessionId).toBe("sess-e2e");
-    // 缺省路径语义不动：本地 echo = 既有 user 气泡 + STEER 徽标（非定向细条）
-    const echo = page.locator(".msg-flow .msg.user", { hasText: "主线生成中的普通注入" });
-    await expect(echo).toHaveCount(1);
-    await expect(echo.locator(".steer-badge")).toHaveText("STEER · 已入队");
+    // 缺省路径语义不动：载荷恰为 {text}（无 instanceId key）；
+    // TR-64 队列坞语义：queued 不上时间轴——零 .msg.user echo，本地 echo
+    // 收左下角浮动坞（待确认）；定向细条仍零渲染（缺省路径非定向）
+    await expect(page.locator(".msg-flow .msg.user", { hasText: "主线生成中的普通注入" })).toHaveCount(0);
+    const dock = page.locator('[data-kind="steer-dock"]');
+    await expect(dock).toBeVisible();
+    await dock.locator(".sdq-toggle").click();
+    await expect(dock.locator(".sdq-item .sdq-text")).toHaveText("主线生成中的普通注入");
+    await expect(dock.locator(".sdq-item .sdq-state")).toHaveText("待确认");
     await expect(page.locator(".msg-flow .steer-directed")).toHaveCount(0);
   });
 

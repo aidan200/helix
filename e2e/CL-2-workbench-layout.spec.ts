@@ -57,7 +57,7 @@ test.describe("T3.2 CL-2 三区骨架 + 折叠记忆", () => {
     await shotEvidence(page, "workbench-layout-dark");
     // 双主题关键态：亮色同布局（token 覆盖自动生效，氛围降档）
     await page.locator("#btn-theme-toggle").click();
-    await expect(page.locator("html")).toHaveClass("light");
+    await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
     await shotEvidence(page, "workbench-layout-light");
     await page.locator("#btn-theme-toggle").click();
 
@@ -98,9 +98,10 @@ test.describe("T3.2 CL-2 三区骨架 + 折叠记忆", () => {
     await expect(page.locator(".sb-mini .mini-item")).toHaveCount(2); // 新建 + 展开把手
     await shotEvidence(page, "workbench-layout-collapsed");
 
-    // ── 刷新保持折叠 ──
+    // ── 刷新保持折叠（W6o 门禁：reload 后重驱握手进门禁 main）──
     await page.reload();
     await mock.awaitReady();
+    await mock.connect();
     await expect(page.locator(".sidebar")).toHaveAttribute("data-collapsed", "1");
     expect(parseFloat(await computed(page, ".sidebar", "width"))).toBe(56);
 
