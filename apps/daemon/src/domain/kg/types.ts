@@ -1,7 +1,7 @@
 /**
  * kg 子系统共享数据类型（domain/kg，framework-free 纯类型 + 封闭词表常量）。
  *
- * 架构锚：iter-20260825-11fo architecture.md §3.1（统一 .kg 单库表模型）、
+ * 架构锚：iter-20260825-11fo architecture.md §3.1（统一 .helix-kg 单库表模型）、
  * §3.3（kg service API / Port 定义）；AD-8/AD-9（SoT 下沉 db）、AD-11
  * （status 预留）、AD-13（三级作用域锚）、AD-16（id 策略/词表继承）。
  *

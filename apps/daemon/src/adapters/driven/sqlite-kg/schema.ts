@@ -1,10 +1,10 @@
 /**
- * .kg 单库 schema（iter-20260825-11fo architecture.md §3.1；本文件只有
+ * .helix-kg 单库 schema（iter-20260825-11fo architecture.md §3.1；本文件只有
  * DDL 常量与表名，**不含任何 SQLite 调用**：建库（new Database）、建表
  * （exec）、全部写语句只在 sqlite-kg/KgDatabase.ts 与
  * SqliteKnowledgeStore.ts 内（AG-06 写点白名单）。幂等直建
- * （IF NOT EXISTS），无迁移框架（存量保号迁移走一次性脚本 scripts/oneoff，
- * T5.2）。
+ * （IF NOT EXISTS），无迁移框架（守护式列级演进见 KgDatabase.ensureSchemaEvolved；
+ * v1→v2 存量保号一次性迁移管道已随 v1 残留清除退役）。
  *
  * 表清单（8 张域表 + meta）：
  * - nodes：知识节点（id 主键 TR-n/E-n；name 非唯一——重名合法靠 digest 区分，

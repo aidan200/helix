@@ -20,7 +20,7 @@ import type {
 } from "../../../domain/kg/types";
 
 /**
- * SqliteKnowledgeStore —— KnowledgeStorePort 的 SQLite 实现（.kg 单库）。
+ * SqliteKnowledgeStore —— KnowledgeStorePort 的 SQLite 实现（.helix-kg 单库）。
  *
  * 写点纪律（AG-06 白名单写点之二，本文件与 WriteQueue 并列）：知识层
  * 写语句唯一收口于此；按表分域与符号层通道（applySync）互不竞争

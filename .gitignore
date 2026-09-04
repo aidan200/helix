@@ -5,6 +5,6 @@ dist/
 test-results/
 playwright-report/
 
-# v2 kg 库本地运行态（AF-21 二次裁决 2026-08-26：v2 落 .helix-kg/，v1 .kg/kg.db 恢复 git 跟踪）
+# v2 kg 库本地运行态（AF-21 二次裁决 2026-08-26：v2 落 .helix-kg/；v1 .kg/kg.db 已随 v1 残留清除退役）
 .helix-kg/
 helix.db

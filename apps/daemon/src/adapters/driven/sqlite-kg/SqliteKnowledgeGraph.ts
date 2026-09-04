@@ -37,7 +37,7 @@ import type {
 } from "../../../domain/kg/types";
 
 /**
- * SqliteKnowledgeGraph —— KnowledgeGraphPort 的 SQLite 实现（.kg 单库读面）。
+ * SqliteKnowledgeGraph —— KnowledgeGraphPort 的 SQLite 实现（.helix-kg 单库读面）。
  *
  * 只读 SELECT（AG-06 写点白名单不含本文件）；共用知识层通道连接（WAL 读
  * 不阻塞写）。supersede 链组装：change_log 的 supersede_of 边双向游走

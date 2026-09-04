@@ -10,8 +10,9 @@ import { KG_SCHEMA_SQL } from "./schema";
  * 写者，v2 改为 daemon 进程内持有——连接管理是新代码，不照抄 v1。
  *
  * - 库定位 `<projectRoot>/.helix-kg/kg.db`（AF-21 二次裁决 2026-08-26：v2 落独立
- *   目录，v1 `.kg/kg.db` 原位不动不碰；AD-9/AD-15：按项目根持有，多 worktree
- *   天然隔离；daemon 全局自有状态仍在 ~/.helix/helix.db，两库互不混淆）；
+ *   目录；AD-9/AD-15：按项目根持有，多 worktree 天然隔离；daemon 全局自有
+ *   状态仍在 ~/.helix/helix.db，两库互不混淆。v1 `.kg/kg.db` 与 docs/kg md
+ *   已随 v1 残留清除一并退役）；
  * - per-project 连接缓存（projectRoot→connection，懒开）；首次打开建库
  *   建表（IF NOT EXISTS 幂等）+ WAL（页面读不阻塞写）；
  * - 双写通道各自连接（AD-15「按表分域不竞争」）：知识层通道
