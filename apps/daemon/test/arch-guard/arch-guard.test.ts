@@ -477,7 +477,11 @@ describe("AG-10 + TP-CL4-3：runtime 无编排模式分支", () => {
       // 同域纯声明数据）——场景定名 kg-change-report / 段名「kg 约束切片」为
       // 架构定名，模式词合法出现在声明数据（同 profiles 豁免口径）；
       // validate.ts 为逻辑源码，不豁免、仍受扫描。
-      .filter((rel) => !(rel.startsWith(path.join("templates")) && !rel.endsWith("validate.ts")));
+      .filter((rel) => !(rel.startsWith(path.join("templates")) && !rel.endsWith("validate.ts")))
+      // prompts.ts：提示词资源装载器——模式词只以 profiles 声明的 md 资源路径
+      // 字面量出现在静态嵌入清单（EMBEDDED_PROMPTS，声明数据，profiles/templates
+      // 同口径）；loadPrompt 逻辑面是通用「路径→文本」查表，零模式分支，故豁免。
+      .filter((rel) => rel !== "prompts.ts");
     for (const rel of files) {
       const src = read(path.join("adapters", "driven", "pi-engine", "runtime", rel));
       expect(src.match(modeWords), `runtime/${rel} 出现编排模式词：${src.match(modeWords)?.[0]}`).toBeNull();
