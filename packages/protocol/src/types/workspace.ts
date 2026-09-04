@@ -1,9 +1,10 @@
 /**
  * workspace 族共享 DTO（W1 workspace 绑定闭环）。
  *
- * 契约权威源 = 设计稿 `helix/docs/temp/workspace-feature-design-candidate.md`
- * §3.1（workspace.get / workspace.open / workspace_changed 三面）。本文件是
- * 该契约的协议类型落位（AD-8/AG-13：两端同源，仓内不得平行手写）。
+ * 契约权威源 = 本包自身（AG-13：protocol 是 WS 两端类型契约唯一源，
+ * 命令/事件目录见 PROTOCOL.md §15.9 workspace 族）。本文件是该契约的
+ * 协议类型落位（AD-8：仓内不得平行手写）；原设计稿存工作区档案
+ * （workspace 根 docs/，不进项目仓）。
  *
  * 批次：v0.11 后 additive 微批（版本位不 bump，§19/§20 同构先例）。
  */
