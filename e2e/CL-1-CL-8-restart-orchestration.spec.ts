@@ -6,9 +6,11 @@
  * 恢复（task 一致）；报告文件可读；账目快照在场；主线注入消息可续（活会话）。
  *
  * R2（running → failed 收口）：spawn 挂起（running）→ SIGTERM → 重启：卡片
- * failed（收口态）；channel 历史可回放；closure failed 注入主线（SteerQueue
- * queued 徽标在场——**未消费**）；零新事件流（机械判据：恢复后 N 秒无新
- * assistant 消息/无新引擎事件——重启剧本设为陷阱条目，被自动消费即失败）。
+ * failed（收口态）；channel 历史可回放；closure failed 注入主线（TR-64
+ * 队列坞语义：queued 不上时间轴——快照 pendingSteer 权威重建进左下角
+ * 浮动坞，CLOSURE 来源 chip + 已入队——**未消费**）；零新事件流（机械
+ * 判据：恢复后 N 秒无新 assistant 消息/无新引擎事件——重启剧本设为陷阱
+ * 条目，被自动消费即失败）。
  *
  * R3（queued → cancelled）：3 running + 1 queued → SIGTERM → 重启：queued
  * 实例标 cancelled（渲染态区别于 failed）；不自动重派（零新事件流）；其余
@@ -159,16 +161,23 @@ test.describe("T2.4 CL-1×CL-8 SubAgent 编排重启恢复（R1~R3）", () => {
     // channel 历史可回放（重启前 turn 的 user/assistant 在场）
     await expect(page.locator(".msg.assistant", { hasText: "（完R2）" })).toBeVisible();
 
-    // closure failed 注入主线：isSteer user entry 在场且 **queued 未消费**
-    // （steer-badge 非 drained——不自动续跑的外显；若被消费则徽标 drained +
-    // 陷阱剧本产出新 assistant 消息）。T10：注入前缀 id 从 DOM 卡片捕获
+    // closure failed 注入主线：**queued 未消费**——TR-64 队列坞语义
+    //（queued 不上时间轴；快照重建归左下角浮动坞，CLOSURE 来源 chip +
+    // 已入队对账态；若被消费则坞内出账 + drained 条目上轴 + 陷阱剧本产出
+    // 新 assistant 消息）。T10：注入前缀 id 从 DOM 卡片捕获
     const failedCard = page.locator(".sa-card.failed");
     const failedId = (await failedCard.getAttribute("data-instance"))!;
     expect(failedId).toMatch(/^agent-[0-9a-f]+$/);
-    const injected = page.locator(".msg.user", { hasText: `${failedId} closure: failed — ${RESTART_SUMMARY}` });
-    await expect(injected).toBeVisible({ timeout: 10_000 });
-    await expect(injected.locator(".steer-badge")).toBeVisible();
-    await expect(injected.locator(".steer-badge.drained")).toHaveCount(0);
+    await expect(page.locator(".msg.user", { hasText: `${failedId} closure: failed` })).toHaveCount(0);
+    const dock = page.locator('[data-kind="steer-dock"]');
+    await expect(dock).toBeVisible({ timeout: 10_000 });
+    await expect(dock.locator(".sdq-toggle")).toContainText("1 条注入排队中");
+    await dock.locator(".sdq-toggle").click();
+    const item = dock.locator('.sdq-item[data-source="closure"]');
+    await expect(item).toHaveCount(1);
+    await expect(item.locator(".sdq-src.closure")).toHaveText("CLOSURE");
+    await expect(item.locator(".sdq-text")).toContainText(`${failedId} closure: failed — ${RESTART_SUMMARY}`);
+    await expect(item.locator(".sdq-state")).toHaveText("STEER · 已入队"); // 未消费（无 drained）
     await shotEvidence(page, "cl1-r2-after", "CL-1");
 
     // 零新事件流（机械判据）：观察窗口内无新 assistant 消息 / 无流式光标 /
@@ -185,7 +194,7 @@ test.describe("T2.4 CL-1×CL-8 SubAgent 编排重启恢复（R1~R3）", () => {
       "txt",
       [
         "R2 running→failed 收口：PASS",
-        "重启后: .sa-card.failed（task 恢复）+ 历史回放 + closure 注入（steer-badge queued 未消费）",
+        "重启后: .sa-card.failed（task 恢复）+ 历史回放 + closure 注入（TR-64 队列坞 queued 未消费）",
         "零新事件流: 2.5s 观察窗无新 assistant / 无 stream-cursor / 无 running 卡（陷阱剧本未被消费）",
       ].join("\n"),
       "CL-1",
@@ -238,10 +247,21 @@ test.describe("T2.4 CL-1×CL-8 SubAgent 编排重启恢复（R1~R3）", () => {
     await expect(page.locator(".sa-card.queued")).toHaveCount(0); // 队列清空
     await shotEvidence(page, "cl1-r3-after", "CL-1");
 
-    // 3 条 closure failed 注入主线（queued 实例无 closure 注入——只有 3 条）
-    const injected = page.locator(".msg.user", { hasText: `closure: failed — ${RESTART_SUMMARY}` });
-    await expect(injected).toHaveCount(3, { timeout: 10_000 });
-    await expect(injected.locator(".steer-badge.drained")).toHaveCount(0); // 全部未消费
+    // 3 条 closure failed 注入主线（queued 实例无 closure 注入——只有 3 条）：
+    // TR-64 队列坞语义——queued 不上时间轴，坞内 3 条 CLOSURE 来源条目全部
+    // 已入队未消费（无 drained）
+    await expect(page.locator(".msg.user", { hasText: `closure: failed — ${RESTART_SUMMARY}` })).toHaveCount(0);
+    const dock3 = page.locator('[data-kind="steer-dock"]');
+    await expect(dock3).toBeVisible({ timeout: 10_000 });
+    await expect(dock3.locator(".sdq-toggle")).toContainText("3 条注入排队中");
+    await dock3.locator(".sdq-toggle").click();
+    const items3 = dock3.locator('.sdq-item[data-source="closure"]');
+    await expect(items3).toHaveCount(3, { timeout: 10_000 });
+    await expect(items3.locator(".sdq-text").first()).toContainText(`closure: failed — ${RESTART_SUMMARY}`);
+    await expect(dock3.locator(".sdq-item .sdq-state")).toHaveCount(3);
+    for (const state of await dock3.locator(".sdq-item .sdq-state").allTextContents()) {
+      expect(state).toBe("STEER · 已入队"); // 全部未消费
+    }
 
     // 零新事件流（机械判据）
     const assistantCount = await page.locator(".msg.assistant").count();
@@ -256,7 +276,7 @@ test.describe("T2.4 CL-1×CL-8 SubAgent 编排重启恢复（R1~R3）", () => {
       [
         "R3 queued→cancelled：PASS",
         "重启后: .sa-card.failed ×3（running 收口）+ .sa-card.cancelled ×1（渲染区别）",
-        "不自动重派: 无 running/queued 卡复活；closure 注入 ×3（queued 实例无 closure）全部 queued 未消费",
+        "不自动重派: 无 running/queued 卡复活；closure 注入 ×3（queued 实例无 closure）坞内全部已入队未消费",
         "零新事件流: 2.5s 观察窗 DOM 稳定（陷阱剧本未被消费）",
       ].join("\n"),
       "CL-1",

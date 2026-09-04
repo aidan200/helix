@@ -15,8 +15,8 @@
  *    切到 anthropic/claude-haiku-4-5（catalog 校验 → ChatService → 引擎
  *    AgentState.model 直改全链真跑）→ 徽标即时更新（model.changed 广播）
  *    → turn2 以旧模型完成（记录面 fake/model）→ turn3 记录面新值；
- * ⑤ P-4 全局默认链：sel-default 切 openai/gpt-4.1（model.set_default）→
- *    结果帧驱动回显。
+ * ⑤ P-4 全局默认链：顶部只读展示 + 行内「设为默认」（2dad85e 选择器
+ *    #sel-default 退役）→ openai/gpt-4.1（model.set_default）→ 展示即时反映。
  *
  * 「新会话继承 SQLite 默认」（set_default → 新草稿会话引擎 currentModel）
  * 的引擎构造期链路在 E 层 FakeLLM 引擎注入形态下不可观测（注入引擎绕过
@@ -142,16 +142,20 @@ test.describe("T4.2 CL-3 模型真链路（真 daemon）", () => {
       "CL-3",
     );
 
-    // ── ⑤ P-4 全局默认链：set_default → 结果帧回显 ────────────
+    // ── ⑤ P-4 全局默认链：顶部只读展示 + 行内设默认（2dad85e 选择器退役）──
     // S1：菜单内 P-3 → P-4 流转入口（mm-more）随 onOpenSettings 链退役，改走 rail 导航
     await page.locator("#msg-input").click(); // 点输入条关菜单（点外关闭）
     await expect(menu).toBeHidden();
     await page.locator('.rail-btn[data-page="settings"]').click();
     await expect(page.locator("[data-models-section]")).toBeVisible();
-    const sel = page.locator("#sel-default");
-    await expect(sel).toHaveValue(DEFAULT_INIT, { timeout: 15_000 }); // get_default 读面
-    await sel.selectOption(NEW_DEFAULT);
-    await expect(sel).toHaveValue(NEW_DEFAULT, { timeout: 10_000 }); // set_default 结果帧回显
+    await expect(page.locator("#sel-default")).toHaveCount(0); // 选择器形态退役钉住
+    const display = page.locator("[data-default-model]");
+    await expect(display).toHaveText(DEFAULT_INIT, { timeout: 15_000 }); // get_default 读面
+    // 行内设默认：openai 组展开 → gpt-4.1 行内按钮 → set_default → 展示即时反映
+    await page.locator('[data-prov="openai"] [data-prov-toggle]').click();
+    await page.locator(`[data-set-default="${NEW_DEFAULT}"]`).click();
+    await expect(display).toHaveText(NEW_DEFAULT, { timeout: 10_000 });
+    await expect(page.locator(`[data-model-row="${NEW_DEFAULT}"]`)).toHaveClass(/is-default/);
     await shotEvidence(page, "cl3-model-set-default", "CL-3");
 
     // 返回工作台：徽标仍为会话模型（per-session 不随 set_default 变）
@@ -170,7 +174,7 @@ test.describe("T4.2 CL-3 模型真链路（真 daemon）", () => {
         "③ 首 turn 记录: fake/model",
         `④ set_model 下一 turn 生效: 流式中切 ${TARGET} → 徽标即时更新（model.changed）;`,
         "   turn2 记录面 fake/model（in-flight 不变）→ turn3 记录面新值",
-        `⑤ P-4 set_default: ${DEFAULT_INIT} → ${NEW_DEFAULT}（结果帧回显）`,
+        `⑤ P-4 set_default: ${DEFAULT_INIT} → ${NEW_DEFAULT}（2dad85e 只读展示 + 行内设默认）`,
         "补充: 「新会话继承 SQLite 默认」引擎构造期链路以集成级证据覆盖",
         "  （default-model.test.ts：set_default 后新建草稿会话 → 引擎 currentModel = 新默认）",
       ].join("\n"),

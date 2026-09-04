@@ -23,6 +23,8 @@ import { createTestDaemon } from "../helpers/createTestDaemon";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import { SubAgentKgWriterProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
+import { SubAgentCodeReviewerProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentCodeReviewerProfile";
 import { SubagentLauncher } from "../../src/adapters/driven/subagent/SubagentLauncher";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { CdpConnectionManager } from "../../src/adapters/driven/cdp/CdpConnectionManager";
@@ -355,10 +357,16 @@ async function main(): Promise<void> {
   // executor 缺 browser 注册面会在 daemon 启动 resolveTools 即 fatal
   // （与生产组合根同构：browserPort 懒连接，E 层剧本零 browser 调用即
   // 零真实连接；homeDir 用 --home tmp，TR-TEST-4 真实 ~/.helix 零触碰）。
+  // grep rg 单后端（214c8e9 唯一化后 E 层补齐）：生产容器 resolveRgPath
+  // 定格注入（bundle env → config）；E 层 launcher 取 bundle env 优先、
+  // PATH 宿主二进制兑底（CI ripgrep 前置装机；integration 测试同口径
+  // Bun.which("rg")）。缺席 → 工具响亮失败（生产同语义，不阻断装配）。
+  const rgPath = process.env.HELIX_RG_PATH ?? Bun.which("rg") ?? undefined;
   const executor = new CoreToolExecutor({
     cwd: toolCwd ?? process.cwd(),
     orchestration: lazyOrchestration,
     browser: new CdpConnectionManager({ homeDir: home! }),
+    ...(rgPath !== undefined ? { grep: { rgPath } } : {}),
   });
   // SubAgent runner（T5.2）：真子进程模式（--subagent-engine-script，K3 剧本
   // 引擎注入真 SubagentLauncher——agent_spawn 真实 spawn detached 子进程，
@@ -373,6 +381,21 @@ async function main(): Promise<void> {
         toolCwd: kgWorkspaceRoot ?? toolCwd ?? process.cwd(),
         fakeEngineScript: subagentEngineScriptPath,
         ledgerDbPath: path_posix.join(home!, "helix.db"),
+        // spawn 快照按 profileKind 派发（D8 W-R6 kg 写面收权后 E 层补齐）：
+        // 生产 buildSessionStack 经 subagentAssemblyFor 三叉派发（kg-writer 领
+        // worker+kg-update 豁免面 / reviewer 领 worker−write/edit / 缺省通用
+        // worker）；E 层不注入时子进程回退 SubAgentProfile 静态声明（无
+        // kg-update——kg-bootstrap 批次 kg-update 调用被拒、零节点落库）。
+        // 显式快照同时隔绝宿主 HELIX_TOOLS_JSON/HELIX_SYSTEM_PROMPT 环境泄漏。
+        spawnSnapshot: (profileKind: string) => {
+          if (profileKind === "subagent-kg-writer") {
+            return { tools: SubAgentKgWriterProfile.tools, systemPrompt: SubAgentKgWriterProfile.systemPrompt };
+          }
+          if (profileKind === "subagent-code-reviewer") {
+            return { tools: SubAgentCodeReviewerProfile.tools, systemPrompt: SubAgentCodeReviewerProfile.systemPrompt };
+          }
+          return { tools: SubAgentProfile.tools, systemPrompt: SubAgentProfile.systemPrompt };
+        },
       })
     : new ScriptedSubagentRunner(subagentScript);
   // T4.2（多会话 E 层）：engine 以工厂形态注入——每会话独立引擎实例
@@ -388,32 +411,34 @@ async function main(): Promise<void> {
   const fakeApiKeys: Record<string, string> = Object.fromEntries(
     ["fake", ...buildModels().getProviders().map((p) => p.id)].map((p) => [p, "explicit-key"]),
   );
+  // E 层 chat 引擎注册面一致性（T4.1 基线修复 + M6 T4 写面修复）：launcher 的
+  // CoreToolExecutor 不注册 kg/kg-update/task_create/task_report/codegraph/plan 三工具
+  //（生产组合根注入面）——声明面/运行期直改面同谓词剔除，与 buildSessionStack
+  // 生产引擎的 W1/taskCreate/plan 过滤同构（声明即注册硬校验不破；chat 剧本零
+  // kg 调用）。运行期直改面（agent.config set_enabled → refreshAssembly →
+  // chatService.setTools（全量目录））经 resolveTools 同谓词过滤——生产容器全注册
+  // 无此问题，E 层注入引擎形态必须与自身注册面一致。
+  const unregisteredOptional = (t: string): boolean =>
+    t !== "kg" &&
+    t !== "kg-update" &&
+    t !== "task_create" &&
+    t !== "task_report" &&
+    t !== "codegraph" &&
+    t !== "plan_create" &&
+    t !== "plan_update" &&
+    t !== "plan_read";
   const engineFor = (): PiAgentEngineAdapter =>
     new PiAgentEngineAdapter({
       profile: {
         ...MainSessionProfile,
-        // E 层 chat 引擎注册面一致性（T4.1 基线修复）：launcher 的
-        // CoreToolExecutor 不注册 kg/kg-update/task_create/codegraph（生产组合根注入
-        // 面），静态声明面同步剔除——与 buildSessionStack 生产引擎的
-        // W1/taskCreate 过滤同构（声明即注册硬校验不破；chat 剧本零 kg 调用）。
-        tools: MainSessionProfile.tools.filter(
-          (t) =>
-            t !== "kg" &&
-            t !== "kg-update" &&
-            t !== "task_create" &&
-            t !== "task_report" &&
-            t !== "codegraph" &&
-            t !== "plan_create" &&
-            t !== "plan_update" &&
-            t !== "plan_read",
-        ),
+        tools: MainSessionProfile.tools.filter(unregisteredOptional),
       },
       model: fakeModel,
       apiKeys: fakeApiKeys,
       models: fakeModels,
       streamFnOverride: makeScriptedStreamFn(script.entries, modelLogPath),
       resolveModelById: fakeModelFor,
-      resolveTools: (names) => executor.resolveTools(names),
+      resolveTools: (names) => executor.resolveTools(names.filter(unregisteredOptional)),
     });
 
   const daemon = await createTestDaemon({

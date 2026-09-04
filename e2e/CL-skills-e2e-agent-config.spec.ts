@@ -60,11 +60,11 @@ function prepHome(): string {
 /** 空剧本（本 spec 无 LLM 交互面；daemon 命令族全走 driving 层）。 */
 const SCRIPT: DaemonScript = { entries: [] };
 
-/** 进智能体页并等首帧 list 收口（左栏四条目 + 默认选中 main 后 bash 工具行在场）。 */
+/** 进智能体页并等首帧 list 收口（左栏五条目——可配置 2 + 系统派生 3（D5 reviewer 入列）+ 默认选中 main 后 bash 工具行在场）。 */
 async function openAgents(page: import("@playwright/test").Page): Promise<void> {
   await page.locator('.rail-btn[data-page="skills"]').click();
   await expect(page.locator('[data-agents-page="/skills"]')).toBeVisible();
-  await expect(page.locator("[data-agent-row]")).toHaveCount(4, { timeout: 15_000 });
+  await expect(page.locator("[data-agent-row]")).toHaveCount(5, { timeout: 15_000 });
   await page.locator('[data-agent-row="main-session"]').click();
   const mainCard = page.locator('[data-agent-card="main-session"]');
   await expect(mainCard.locator('[data-tool-row="bash"]')).toBeVisible({ timeout: 15_000 });
@@ -80,22 +80,29 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
 
     const mainCard = page.locator('[data-agent-card="main-session"]');
 
-    // main 16 工具 / sub 13（工具集随 profile 发版演进，计数与声明全集同步）；
-    // snippet 来自 daemon 注册表
-    await expect(mainCard.locator("[data-tool-row]")).toHaveCount(16);
-    await expect(mainCard.locator('[data-tool-row="grep"]')).toContainText("跨文件正则检索并列出匹配行");
+    // main 22 工具 / sub 13（工具集随 profile 发版演进，计数与声明全集同步——
+    // 编排四工具+park/resume+联网两工具+plan 三工具等历批扩容）；snippet 来自 daemon 注册表
+    await expect(mainCard.locator("[data-tool-row]")).toHaveCount(22);
+    await expect(mainCard.locator('[data-tool-row="grep"]')).toContainText("跨文件子串检索并列出匹配行"); // H11：snippet 随 rg 唯一化订正（子串语义非正则）
 
-    // master-detail 系统派生组（真 daemon 派生）：orchestrator 声明全集 +
-    // kg-writer = worker 生效集 + kg-update（恒在徽标 + 派生说明位）
+    // master-detail 系统派生组（真 daemon 派生）：orchestrator 声明全集（13——D6 +write）+
+    // kg-writer = worker 生效集 + kg-update（恒在徽标 + 派生说明位）+
+    // reviewer = worker − write/edit（D5 第五 kind，只读评审）
     await page.locator('[data-agent-row="orchestrator"]').click();
     const orchCard = page.locator('[data-agent-card="orchestrator"]');
-    await expect(orchCard.locator("[data-ro-tool-row]")).toHaveCount(12, { timeout: 10_000 });
-    await expect(orchCard.locator("[data-switch]")).toHaveCount(0);
+    await expect(orchCard.locator("[data-ro-tool-row]")).toHaveCount(13, { timeout: 10_000 });
+    await expect(orchCard.locator("[data-ro-tool-row] [data-switch]")).toHaveCount(0);
     await page.locator('[data-agent-row="subagent-kg-writer"]').click();
     const kgwCard = page.locator('[data-agent-card="subagent-kg-writer"]');
     await expect(kgwCard.locator("[data-ro-tool-row]")).toHaveCount(14, { timeout: 10_000 }); // sub 13 + kg-update
     await expect(kgwCard.locator('[data-ro-tool-row="kg-update"] [data-pinned-chip]')).toHaveText("恒在");
     await expect(kgwCard.locator("[data-derived-note]")).toContainText("跟随 subagent-worker");
+    await page.locator('[data-agent-row="subagent-code-reviewer"]').click();
+    const revCard = page.locator('[data-agent-card="subagent-code-reviewer"]');
+    await expect(revCard.locator("[data-ro-tool-row]")).toHaveCount(11, { timeout: 10_000 }); // sub 13 − write/edit
+    await expect(revCard.locator('[data-ro-tool-row="write"]')).toHaveCount(0);
+    await expect(revCard.locator('[data-ro-tool-row="edit"]')).toHaveCount(0);
+    await expect(revCard.locator("[data-derived-note]")).toContainText("write/edit 恒摘除");
     await page.locator('[data-agent-row="main-session"]').click();
 
     // 双层技能：user hello + project proj；坏文件 → invalid_metadata 诊断

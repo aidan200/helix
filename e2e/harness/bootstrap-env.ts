@@ -124,12 +124,14 @@ export function restartRecoveryScriptB(): OrchestratorScriptEntry[] {
   ];
 }
 
-/** 剧本三编排剧本：stage1 派发轮 →（暂停中 batch1 收口轮）待命 reply →（resume 唤醒轮）聚合 stage1 + stage2 派发轮。
- *  轮次：r1 kickoff=stage1 派发轮；r2 batch1 收口（paused）=reply；r3 resume 唤醒=artifact(1)+stage2 派发轮。 */
+/** 剧本三编排剧本：stage1 派发轮 →（resume kick 唤醒轮）待命 reply →（batch1 复活收口轮）聚合 stage1 + stage2 派发轮。
+ *  轮次：r1 kickoff=stage1 派发轮；r2 resume kick=reply；r3 batch1 收口=artifact(1)+stage2 派发轮。
+ *  链 A（⑤ park/resume 批）语义：pause 挂在跑批次实例（协作式 PARK），批次不再暂停期
+ *  自然收口——batch1 在 resume 复活后续跑收口，故 artifact 轮排在 resume kick 之后。 */
 export function lifecycleScript(): OrchestratorScriptEntry[] {
   return [
     ...stageRoundEntries(BOOTSTRAP_STAGES[0]!),
-    { kind: "reply", text: "批次 1 已收口；任务暂停中——等待恢复注入。" },
+    { kind: "reply", text: "恢复已知悉：批次 1 复活续跑中——等待其收口注入。" },
     stageArtifactEntry(BOOTSTRAP_STAGES[0]!),
     ...stageRoundEntries(BOOTSTRAP_STAGES[1]!),
   ];
@@ -175,17 +177,20 @@ function stageEntries(stage: StageSpec): OrchestratorScriptEntry[] {
  * 展开）；kind 固定 rule+entity 各一（保 E- 号断言：entity 自动发 E- 前缀）。
  */
 function layerNodes(): Record<string, unknown>[] {
+  // scene（R23 起 kg-update 契约必填——适用场景索引面；缺省 → Validation failed 拒写）
   return [
     {
       kind: "rule",
       name: "{layer} 层架构事实",
       digest: "demo-proj {layer} 层的结构事实：fixture 两模块并列。评估 {layer} 相关改动时先看这条。",
+      scene: "本规则适用于：改动 demo-proj {layer} 层结构/模块并列关系前",
       body: "demo-proj 的 {layer} 层结构事实（fixture：cart/session 两模块）。此节点由 bootstrap e2e 批次产出，正文为模板插值生成，用于验证任务→阶段→批次分组的元数据链路。",
     },
     {
       kind: "entity",
       name: "{layer} 层核心实体",
       digest: "demo-proj {layer} 层的核心实体：承载该层行为变更的入口。改 {layer} 相关行为时从这里入手。",
+      scene: "适用于：改动 demo-proj {layer} 层核心实体行为（cart/session 模块）前",
       body: "demo-proj {layer} 层核心实体（fixture）。与架构事实节点同批产出，锚定模块并列关系；kind=entity 保 E- 前缀自动发号，供事后修正（supersede）断言面。",
     },
   ];
@@ -232,6 +237,16 @@ export function batchChildEngineScript(): FakeEngineScript {
 /** 剧本三批次子进程剧本：工具轮同 batchChildEngineScript，尾部 closure 回复慢速流
  *  （4 字符/片 × 150ms ≈ 10s+ 在跑窗口）——pause/cancel 生命周期操作的可观测窗口。
  *  长文本只拉长流式尾（closure 完整到达才判 done；cancel SIGTERM 中断即 killed）。 */
+/**
+ * 慢速批次子进程剧本（剧本三 pause/cancel 在跑窗口制造机；park/resume 批后 park-aware）：
+ * 回复三轮——
+ *  t7 慢速收口首演（~19s 窗口：pause/cancel 打入点；pause 场景下 PARK steer 已在队，
+ *    本轮 closure 被后续轮覆盖不落账——正常模型同样不能在 park 轮前抢收口）；
+ *  t8 park 轮（任务 pause → parkAll → PARK 指令 drain 轮）：按挂起协议输出 PARK 块收尾
+ *    → 子进程挂起等待（E-66；无 PARK 块 = 未按协议挂起，走普通收口即 closure failed）；
+ *  t9 RESUME 续跑轮：closure 终演（末条 assistant 文本 = 收口判据）。
+ * cancel 场景：SIGTERM 落在 t7 窗口 → terminated 优雅收口（failed closure）。
+ */
 export function slowBatchChildEngineScript(): FakeEngineScript {
   const padding =
     "批次探索进行中：模块结构已扫描，符号面已梳理，知识节点正文按写作规范组装完毕，台账项逐项收口核对中。".repeat(
@@ -240,7 +255,11 @@ export function slowBatchChildEngineScript(): FakeEngineScript {
   return {
     chunkDelayMs: 150,
     toolCalls: BATCH_TOOL_CALLS,
-    replies: [`${padding}\n${BATCH_CLOSURE_REPLY}`],
+    replies: [
+      `${padding}\n${BATCH_CLOSURE_REPLY}`,
+      '收到挂起指令：停止新动作，进入挂起等待。\n<<<PARK\n{"progress":"批次探索与落账已完成，等待恢复","next":"输出 closure 收口"}\nPARK>>>',
+      BATCH_CLOSURE_REPLY,
+    ],
   };
 }
 

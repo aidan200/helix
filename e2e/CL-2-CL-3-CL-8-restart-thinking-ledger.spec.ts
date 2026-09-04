@@ -35,8 +35,9 @@ function prepHome(tag: string): string {
 }
 
 /** 账目投影快照（R5 逐字段对比源）：徽标文本 + popover 合计 + 每行
- *  {id, nums(tok+cost), 紧随 sub 文本}。state（idle/running→failed 收口语义）
- * 不是账目字段，不采集——R2/R3 已承载。 */
+ *  {id, nums(tok+cost), 行内 sub 文本}。state（idle/running→failed 收口语义）
+ * 不是账目字段，不采集——R2/R3 已承载。
+ * 演进（2788cc5）：sp-sub 并入行内（.sp-row .sub），不再是紧随兄弟节点。 */
 async function readLedgerProjection(page: Page): Promise<{
   badge: string;
   total: string;
@@ -50,10 +51,7 @@ async function readLedgerProjection(page: Page): Promise<{
     els.map((el) => ({
       id: el.getAttribute("data-row-id"),
       nums: (el.querySelector(".nums")?.textContent ?? "").trim().replace(/\s+/g, " "),
-      sub:
-        el.nextElementSibling && el.nextElementSibling.classList.contains("sp-sub")
-          ? (el.nextElementSibling.textContent ?? "").trim()
-          : null,
+      sub: (el.querySelector(".sub")?.textContent ?? null)?.trim() ?? null,
     })),
   );
   await page.keyboard.press("Escape");

@@ -52,11 +52,16 @@ test.describe("终验热修 engine.error 透传（真 daemon + FakeLLM）", () =
     // 无假完成：失败轮不产 assistant 气泡（error 消息空 content 不投影）
     await expect(page.locator(".msg.assistant:not(.streaming)")).toHaveCount(0);
 
-    // ── 第二轮：恢复（错误卡瞬态清除 + 正常流式链路回归）──────
+    // ── 第二轮：恢复（错误转正为原位红条常驻 + 正常流式链路回归）──────
+    // error entry 批（f9d9254）：瞬态卡在 error.entry 帧到达即清除，同一错误
+    // 转正为时间轴原位红条（落盘条目，刷新/后续轮次不消失——同一 DOM 类名
+    // .engine-error-card 复用红系视觉）；新轮 turn.started 只清瞬态兜底。
     await e2e.send(page, "第二轮：重试");
-    await expect(page.locator(".engine-error-card")).toHaveCount(0, { timeout: 10_000 });
     const reply = page.locator(".msg.assistant:not(.streaming)").last();
     await expect(reply).toContainText("已恢复，这是重试后的正常回复", { timeout: 20_000 });
+    // 原位红条常驻（历史面）：第一轮失败条目仍在时间轴原位（非瞬态未清）
+    await expect(page.locator(".engine-error-card")).toHaveCount(1);
+    await expect(page.locator(".engine-error-card .ee-body")).toContainText(ERROR_FRAGMENT);
     await expect(page.locator("#msg-input")).toBeEnabled({ timeout: 15_000 });
 
     await shotEvidence(page, "e2e-engine-error-recovered");
@@ -65,7 +70,7 @@ test.describe("终验热修 engine.error 透传（真 daemon + FakeLLM）", () =
       "txt",
       [
         "终验热修 engine.error 透传链路（真 daemon + FakeLLM error 剧本 + 真 WS）",
-        "断言: 流内 error 帧→错误卡（原文透传+重试 hint）/轮清除恢复闭环/",
+        "断言: 流内 error 帧→错误卡（原文透传+重试 hint）/error entry 批原位红条常驻/",
         "  retry 后正常回复",
         "结果: PASS",
       ].join("\n"),

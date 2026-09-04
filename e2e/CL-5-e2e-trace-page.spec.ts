@@ -273,7 +273,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     // T12：SubAgent 模型 = 槽位 ?? 全局默认（不再继承会话 fake/model）——本 spec 意图是上下文卡渲染非模型链，改钉「模型」字段在场 + 工具数（模型链归 CL-3）
     await expect(card.locator(".ctx-facts")).toContainText("模型");
     await expect(card.locator(".ctx-facts")).not.toContainText("compaction");
-    await expect(card.locator(".ctx-tools .hud-chip")).toHaveCount(8); // SubAgentProfile 工具集（T1 联网两工具后 5→7；H-3 +browser 7→8）
+    await expect(card.locator(".ctx-tools .hud-chip")).toHaveCount(13); // SubAgentProfile 工具集（联网两工具+H-3 browser+kg+codegraph+plan 三工具 8→13）
     // systemPrompt 折叠 3 行 + 字数 + 展开/收起（全文含 closure 协议常量段）
     const promptBody = card.locator(".cp-body");
     await expect(promptBody).toHaveClass(/folded/);
@@ -542,16 +542,11 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     await d1.stop(); // SIGTERM drain（写队列落盘完成）
     const dbPath = path.join(home, "helix.db");
     const preDump = dumpEvents(dbPath, sid);
-    // 停机 seal 里程碑（既设计口径）：优雅停机 sealAll 为热会话补落一行
-    // agent.state.changed stopped（ChatService.stop 幂等；恢复路径生命周期
-    // 重建为初始态 → 每次优雅停机恰 +1）。该行在末次 UI 查询之后落盘。
-    const sealOf = (rows: DbEventRow[]) =>
-      rows.filter((r) => r.type === "agent.state.changed" && r.payload.includes('"state":"stopped"'));
-    const seal1 = sealOf(preDump);
-    expect(seal1, "d1 停机应恰补落 1 行 seal 里程碑").toHaveLength(1);
-    // T10：seal 行归属 = 主实例（发布带 hex id 或缺省回填 legacy "main"——两形态皆主实例）
-    expect(seal1[0]!.agent_instance_id).toMatch(/^(main|agent-[0-9a-f]+)$/);
-    expect(preDump.length).toBe(preTotal + 1); // UI 计数 + seal = DB 行数（同源一致）
+    // 停机 seal 里程碑退役（TR-44 / 995c379）：agent.state.changed{stopped} 是
+    // per-process 停机事实——只广播不落 domain_events（sealAll 跨重启累积冗余
+    // stopped 行的修复）。停机后 DB 行数 = 末次 UI 查询计数（零新增）。
+    expect(preDump.filter((r) => r.type === "agent.state.changed" && r.payload.includes('"state":"stopped"'))).toHaveLength(0);
+    expect(preDump.length).toBe(preTotal); // UI 计数 = DB 行数（同源一致）
     insertLegacyInstance(dbPath, sid);
 
     const d2 = await e2e.startDaemon({
@@ -563,20 +558,19 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     await e2e.waitForConnected(page, 30_000);
     await expect(page.locator(".toast.ok", { hasText: "已重新连接 daemon" })).toBeVisible({ timeout: 15_000 });
 
-    // ── 回放一致性（UI 面）：重连重查后 = 直插 3 行（id 最大居首）+ seal 行 + 原序列 ──
+    // ── 回放一致性（UI 面）：重连重查后 = 直插 3 行（id 最大居首）+ 原序列 ──
     await expect(page.locator(".p1-tbody .p1-entry")).toHaveCount(preDump.length + 3, { timeout: 15_000 });
     expect(await waitHitCount(page)).toBe(preDump.length + 3);
     const postRows = await readMixedRows(page);
     expect(postRows.slice(0, 3).every((r) => r.inst === LEGACY_ID)).toBe(true);
-    expect(postRows[3]!.type).toBe("agent.state.changed"); // d1 seal 行（id 介于直插与原序列之间）
-    expect(postRows.slice(4)).toEqual(preRows); // 原事件序列不丢不错（UI 口径）
+    expect(postRows.slice(3)).toEqual(preRows); // 原事件序列不丢不错（UI 口径）
 
-    // ── 回放一致性（持久化面）：per-id 全等 + 计数精确（重启本身零新增；d2 停机 seal +1）──
+    // ── 回放一致性（持久化面）：per-id 全等 + 计数精确（重启/停机均零新增——
+    //    stopped 不落盘后 d2 停机也零新增）──
     await d2.stop();
     const postDump = dumpEvents(dbPath, sid);
     const postById = new Map(postDump.map((r) => [r.id, r]));
-    expect(postDump.length).toBe(preDump.length + 3 + 1); // 直插 3 行 + d2 停机 seal 1 行
-    expect(sealOf(postDump)).toHaveLength(2);
+    expect(postDump.length).toBe(preDump.length + 3); // 直插 3 行（d2 停机零新增）
     for (const pre of preDump) {
       const post = postById.get(pre.id);
       expect(post, `domain_events id=${pre.id}（${pre.type}）重启后缺失`).toBeDefined();
@@ -598,7 +592,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
       retries: 8,
     });
     await e2e.waitForConnected(page, 30_000);
-    await expect(page.locator(".p1-tbody .p1-entry")).toHaveCount(preDump.length + 4, { timeout: 15_000 });
+    await expect(page.locator(".p1-tbody .p1-entry")).toHaveCount(preDump.length + 3, { timeout: 15_000 });
     // 面板 3 实例（主 + Sub + 历史实例）
     await expect(page.locator(".ip-count")).toHaveText("3 实例");
     // 历史实例：快照缺失降级（卡保留 + 标注，无 prompt 段，不报错）
@@ -638,7 +632,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
       "e2e-trace-restart",
       [
         "T2.3 CL-5 E 层 T4（重启回放一致性 + 快照缺失降级）：PASS",
-        `事件不丢不错: UI 行序列（直插 3 行居首 + seal 行 + 原 ${preTotal} 行逐行相等）；DB per-id 全等 ${preDump.length} 行 + 计数精确（seal 为优雅停机既设计口径：d1/d2 各 +1）`,
+        `事件不丢不错: UI 行序列（直插 3 行居首 + 原 ${preTotal} 行逐行相等）；DB per-id 全等 ${preDump.length} 行 + 计数精确（停机/重启零新增——stopped 只广播不落盘，TR-44）`,
         "上下文卡可重建: 主（快照+compaction+时间线当前高亮）/ Sub（快照+task 引用块）重启后均可重建",
         `快照缺失降级: ${LEGACY_ID}（直插无 instantiated）→ 「快照缺失」标注 + 无 prompt 段，不报错`,
         `同源采样: trace message.completed 摘要与聊天抽屉重放 bubble 均含「${SA_MARKER}」（同一 domain_events 源）`,
