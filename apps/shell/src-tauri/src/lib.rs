@@ -25,7 +25,8 @@ pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 /// 重启节流：60s 窗口内最多重启 3 次。
 pub const RESTART_MAX: usize = 3;
 pub const RESTART_WINDOW: Duration = Duration::from_secs(60);
-/// 优雅关停：SIGTERM 后至多等 5s，SIGKILL 兑底。
+/// 优雅关停等待窗：unix = SIGTERM 后至多等 5s，SIGKILL 兑底；Windows 无
+/// SIGTERM 等价物（daemon 侧优雅关停通道属后续迭代），kill 后同窗等回收确认。
 pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
 /// 看护参数（Default = 契约值；测试注入小值驱动超时/节流分支）。
@@ -111,11 +112,22 @@ pub enum ExitCause {
 }
 
 impl From<ExitStatus> for ExitCause {
+    #[cfg(unix)]
     fn from(status: ExitStatus) -> Self {
         use std::os::unix::process::ExitStatusExt;
         match status.code() {
             Some(code) => ExitCause::Code(code),
             None => ExitCause::Signalled(status.signal().unwrap_or(-1)),
+        }
+    }
+
+    /// Windows 无信号语义：TerminateProcess 以退出码呈现（std kill 用码 1），
+    /// code() 恒 Some；兜底 None 投影为 Signalled(-1) 保持分类判据同构。
+    #[cfg(windows)]
+    fn from(status: ExitStatus) -> Self {
+        match status.code() {
+            Some(code) => ExitCause::Code(code),
+            None => ExitCause::Signalled(-1),
         }
     }
 }
@@ -219,7 +231,8 @@ pub trait SupervisorHooks {
 /// 看护终局。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SupervisorExit {
-    /// 壳发起关停，sidecar 已优雅回收（SIGTERM→5s→SIGKILL）。
+    /// 壳发起关停，sidecar 已优雅回收（unix: SIGTERM→5s→SIGKILL 整组；
+    /// windows: TerminateProcess + taskkill /T /F 整树，等待窗同构）。
     Shutdown,
     /// 放弃路径：节流超限 / 持续启动失败——窗口内明确错误提示 + 非零退出。
     Fatal(String),
@@ -295,7 +308,7 @@ pub fn run_supervisor(
         };
 
         // 到达此处 = 壳未发起关停而 sidecar 已退出 → 恒为异常（契约 §3）
-        kill_process_group(child.id() as i32); // 兜底清可能持管道的子孙（同 stop_child）
+        reap_process_tree(child.id()); // 兜底清可能持管道的子孙（同 stop_child）
         let cause = ExitCause::from(status);
         debug_assert_eq!(classify_exit(cause, false), ExitClass::Abnormal);
         if !throttle.allow(Instant::now()) {
@@ -397,6 +410,7 @@ fn handshake(
 
 /// 优雅关停（契约 §3）：SIGTERM（仅主进程——daemon 自行优雅回收其子进程）
 /// → 至多等 shutdown_grace → SIGKILL 兑底（整组，防子孙持管道悬挂）。
+#[cfg(unix)]
 fn stop_child(child: &mut Child, config: &SupervisorConfig) {
     let pid = child.id() as i32;
     // SAFETY: 向自身子进程发信号，pid 有效。
@@ -407,7 +421,7 @@ fn stop_child(child: &mut Child, config: &SupervisorConfig) {
     loop {
         match child.try_wait() {
             Ok(Some(_)) => {
-                kill_process_group(pid); // 主进程已退，兜底清可能持管道的子孙
+                reap_process_tree(child.id()); // 主进程已退，兜底清可能持管道的子孙
                 return;
             }
             Ok(None) => {
@@ -419,17 +433,57 @@ fn stop_child(child: &mut Child, config: &SupervisorConfig) {
             Err(_) => break,
         }
     }
-    kill_process_group(pid);
+    reap_process_tree(child.id());
     let _ = child.kill();
     let _ = child.wait();
 }
 
-/// SIGKILL 兑底杀整组（spawn 时已 setpgid，pgid=pid）；组不存在（ESRCH）忽略。
-fn kill_process_group(pid: i32) {
+/// 优雅关停（契约 §3 的 Windows 语义等价物）：Windows 无 SIGTERM 等价物——
+/// 进程外终止原语只有 TerminateProcess（child.kill()，语义 ≈ unix 的
+/// SIGKILL 直兑）。daemon 侧优雅关停信号通道属后续迭代（到位后此处前插
+/// 优雅请求 + shutdown_grace 等待窗，与 unix 分支同构）；等待窗/看护线程
+/// 契约（stop_child 返回即回收完成、Shutdown 终局）与 unix 分支保持一致。
+#[cfg(windows)]
+fn stop_child(child: &mut Child, config: &SupervisorConfig) {
+    let pid = child.id();
+    let _ = child.kill();
+    let deadline = Instant::now() + config.shutdown_grace;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    break;
+                }
+                thread::sleep(config.poll_interval.min(Duration::from_millis(50)));
+            }
+            Err(_) => break,
+        }
+    }
+    reap_process_tree(pid); // 主进程已退仍可能残留持管道子孙 → 整树兑底
+    let _ = child.wait();
+}
+
+/// 子孙兜底回收（双平台语义等价物）：sidecar 子孙（rg 等）继承 stdio 管道，
+/// 只收主进程会导致管道不 EOF、stderr 收尾线程悬挂——unix 杀整组（spawn 时
+/// 已 setpgid，pgid=pid；组不存在 ESRCH 忽略），Windows taskkill /T /F 整树
+/// （taskkill 为系统自带；进程已退返回非零，调用面忽略）。
+#[cfg(unix)]
+fn reap_process_tree(pid: u32) {
     // SAFETY: kill 系统调用本身安全；组不存在时返回错误，调用面忽略。
     unsafe {
-        libc::kill(-pid, libc::SIGKILL);
+        libc::kill(-(pid as i32), libc::SIGKILL);
     }
+}
+
+#[cfg(windows)]
+fn reap_process_tree(pid: u32) {
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 }
 
 /// daemon stderr 尾行环形缓冲（契约 §5：错误提示含 daemon stderr 尾行）。

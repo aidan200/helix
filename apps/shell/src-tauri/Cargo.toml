@@ -16,16 +16,25 @@ name = "helix-shell"
 path = "src/main.rs"
 
 [dependencies]
+# macos-private-api 对非 mac target 无妨害（tauri 内部 cfg(target_os =
+# "macos") 门控私有 API 调用面，Windows 编译为空转 feature）。
 tauri = { version = "2", features = ["macos-private-api"] }
 # W6a 原生目录选择：官方三平台对话框插件（macOS NSOpenPanel / Windows
 # IFileOpenDialog / Linux GTK），平台差异全由插件消化——壳唯一原生 UX 能力
 # （architecture F3 裁决：目录选择属窗口/原生 UX 能力族，壳只返回路径字符串）。
 tauri-plugin-dialog = "2"
 serde_json = "1"
+
+# Unix 进程看护原语（SIGTERM/SIGKILL/setpgid 进程组）；Windows 关停分支走
+# child.kill()（TerminateProcess）+ taskkill /T /F 进程树回收，无 libc 诉求。
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
 # W6f 窗口底色原生设置（v1 desk 同款）：wry/tauri 的 background_color 只写
 # WKWebView underPageBackgroundColor（越界回弹区），空窗期透出的 NSWindow
-# backgroundColor 必须经 objc2 原生 API 设置（v1 window_workspace.rs 实证）
+# backgroundColor 必须经 objc2 原生 API 设置（v1 window_workspace.rs 实证）——
+# macOS 专属，Windows 底色由 tauri set_background_color（WebView2 主机制）覆盖。
+[target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSColor", "NSAppearance"] }
 
