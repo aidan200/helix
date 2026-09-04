@@ -1,17 +1,22 @@
 #!/usr/bin/env bun
 /**
- * build-desktop —— CL-2/F2.1/F2.4 一条命令桌面端构建管线（architecture §4.3/§4.7）。
+ * build-desktop —— CL-2/F2.1/F2.4 一条命令桌面端构建管线（architecture §4.3/§4.7，
+ * 平台化 TR-95：{darwin-arm64, win32-x64} 双档）。
  *
  * 六步依序（任一步非零退出即中断：打印 ✗ 步骤N + 透传 stderr 末 50 行 +
  * 以该 code 退出，后续步骤不启动——机械判据见 brief「决策消解」）：
- *   ① fetch-rg（bun scripts/fetch-rg.ts，幂等：已存在且 arm64 校验通过则跳过）
- *   ② fetch-codegraph（bun scripts/fetch-codegraph.ts，幂等：树完整+vendored node arm64 校验通过则跳过）
- *   ③ compile（bun scripts/compile-daemon.ts，daemon → arm64 单文件 sidecar）
+ *   ① fetch-rg（bun scripts/fetch-rg.ts --platform <档>，幂等）
+ *   ② fetch-codegraph（bun scripts/fetch-codegraph.ts --platform <档>，幂等）
+ *   ③ compile（bun scripts/compile-daemon.ts --platform <档>，daemon → 单文件 sidecar）
  *   ④ F2.2 等价验证（bun smoke/verify-compiled-daemon.ts，双形态三探针对照，
- *      失败即断——管线内步骤，非手工检查项，架构 §4.3）
+ *      失败即断——管线内步骤，非手工检查项，架构 §4.3）——**仅 darwin-arm64 档
+ *      编排**：windows-x64 档交叉编译产物（.exe）在 mac 宿主不可执行，F2.2
+ *      双形态对照无从谈起；Windows 侧等价验证归 release workflow（Windows
+ *      runner 原生跑）负责，不在本管线内。
  *   ⑤ vite build（apps/shell → 静态产物，frontendDist 消费位）
- *   ⑥ tauri build（cargo tauri build，捆绑 sidecar + rg + codegraph + 静态产物 →
- *      src-tauri/target/release/bundle/{macos/*.app, dmg/*.dmg}，arm64 only AD-6）
+ *   ⑥ tauri build（cargo tauri build [--target <triple>]，捆绑 sidecar + rg +
+ *      codegraph + 静态产物 → bundle；darwin 档保持裸 build 零回归，windows
+ *      档显式 --target x86_64-pc-windows-msvc）
  *
  * 签名配置位（F2.4/AD-5）：resolveSigning 纯函数集中判定 tauri 官方环境
  * 变量键族，三分支——
@@ -22,9 +27,11 @@
  * process.env），脚本只读不写。
  *
  * 工程层脚本，不被 apps 任何层 import（架构 §5.2）。CLI 形态不做（AD-4）。
- * 用法：bun run build:desktop
+ * 用法：bun run build:desktop [-- --platform darwin-arm64|windows-x64]
  */
 import { join } from "node:path";
+
+import { platformSpec, resolvePlatformArg, type DesktopPlatform } from "./desktop-platform";
 
 // ── 签名配置位（F2.4，纯函数面，集中一处判定）────────────────
 
@@ -89,18 +96,34 @@ export interface StepResult {
 export type StepRunner = (step: StepSpec) => Promise<StepResult>;
 export type Logger = (line: string) => void;
 
-/** 五步契约（root 注入，命令组装可单测）。 */
-export function pipelineSteps(root: string): StepSpec[] {
+/** 管线步骤契约（root + 平台档注入，命令组装可单测；TR-95 双档分发）。
+ * darwin-arm64 档六步（含 F2.2）；windows-x64 档五步（省 F2.2——交叉编译
+ * 产物 mac 宿主不可执行，见头注④）。 */
+export function pipelineSteps(root: string, platform: DesktopPlatform = "darwin-arm64"): StepSpec[] {
   const bun = process.execPath;
+  const spec = platformSpec(platform);
   const shellDir = join(root, "apps/shell");
-  return [
-    { name: "fetch-rg（rg arm64 获取，幂等）", cmd: [bun, join(root, "scripts/fetch-rg.ts")], cwd: root },
-    { name: "fetch-codegraph（codegraph arm64 树获取，幂等）", cmd: [bun, join(root, "scripts/fetch-codegraph.ts")], cwd: root },
-    { name: "compile（daemon → arm64 sidecar）", cmd: [bun, join(root, "scripts/compile-daemon.ts")], cwd: root },
-    { name: "F2.2 等价验证（双形态探针对照）", cmd: [bun, join(root, "smoke/verify-compiled-daemon.ts")], cwd: root },
-    { name: "vite build（shell 静态产物）", cmd: [bun, "run", "build"], cwd: shellDir },
-    { name: "tauri build（bundle → .app/.dmg）", cmd: ["cargo", "tauri", "build"], cwd: shellDir },
+  const steps: StepSpec[] = [
+    { name: `fetch-rg（rg ${platform} 获取，幂等）`, cmd: [bun, join(root, "scripts/fetch-rg.ts"), "--platform", platform], cwd: root },
+    { name: `fetch-codegraph（codegraph ${platform} 树获取，幂等）`, cmd: [bun, join(root, "scripts/fetch-codegraph.ts"), "--platform", platform], cwd: root },
+    { name: `compile（daemon → ${platform} sidecar）`, cmd: [bun, join(root, "scripts/compile-daemon.ts"), "--platform", platform], cwd: root },
   ];
+  if (!spec.isWindows) {
+    steps.push({
+      name: "F2.2 等价验证（双形态探针对照）",
+      cmd: [bun, join(root, "smoke/verify-compiled-daemon.ts"), "--platform", platform],
+      cwd: root,
+    });
+  }
+  steps.push(
+    { name: "vite build（shell 静态产物）", cmd: [bun, "run", "build"], cwd: shellDir },
+    spec.isWindows
+      // windows 档显式 --target（bundle 落 target/<triple>/release/bundle；
+      // nsis targets 归 tauri.conf 分支）；darwin 档保持裸 build 零回归
+      ? { name: "tauri build（bundle → nsis）", cmd: ["cargo", "tauri", "build", "--target", spec.triple], cwd: shellDir }
+      : { name: "tauri build（bundle → .app/.dmg）", cmd: ["cargo", "tauri", "build"], cwd: shellDir },
+  );
+  return steps;
 }
 
 /** stderr 末 N 行截取（失败透传尾部，默认 50 行）。 */
@@ -170,11 +193,23 @@ const realRunner: StepRunner = async (step) => {
 // import.meta.main 守卫：纯函数面被测试 import，导入不得触发管线副作用。
 if (import.meta.main) {
   const root = join(import.meta.dir, "..");
-  const mode = resolveSigning(process.env);
-  console.log(signingLogLine(mode));
-  const code = await runPipeline(pipelineSteps(root), realRunner, (l) => console.log(l));
+  const platform = resolvePlatformArg(process.argv, process.env);
+  const spec = platformSpec(platform);
+  if (spec.isWindows) {
+    // TR-95：首发不签名——Windows 无 Authenticode（SmartScreen 拦截为已知限制）
+    console.log(`平台档：${platform}（TR-95 首发不签名：Windows 无 Authenticode）`);
+  } else {
+    const mode = resolveSigning(process.env);
+    console.log(`平台档：${platform}`);
+    console.log(signingLogLine(mode));
+  }
+  const code = await runPipeline(pipelineSteps(root, platform), realRunner, (l) => console.log(l));
   if (code === 0) {
-    console.log("✓ build-desktop 全管线完成：src-tauri/target/release/bundle/{macos/*.app, dmg/*.dmg}");
+    console.log(
+      spec.isWindows
+        ? `✓ build-desktop 全管线完成：src-tauri/target/${spec.triple}/release/bundle（nsis，未签名 TR-95）`
+        : "✓ build-desktop 全管线完成：src-tauri/target/release/bundle/{macos/*.app, dmg/*.dmg}",
+    );
   }
   process.exit(code);
 }

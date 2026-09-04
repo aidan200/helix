@@ -17,9 +17,22 @@ import { join } from "node:path";
 import {
   RG_TARBALL_SHA256,
   assertArm64Only,
+  assertPeX64,
+  installFromArchive,
   installFromLocal,
-  installFromTarball,
+  rgAsset,
+  rgDest,
 } from "./fetch-rg";
+
+/** 合成最小 PE 头（MZ + e_lfanew + PE\0\0 + Machine），assertPeX64 测试夹具。 */
+function fakePe(machine: number): Buffer {
+  const b = Buffer.alloc(0x100);
+  b.write("MZ", 0, "latin1");
+  b.writeUInt32LE(0x80, 0x3c); // e_lfanew
+  b.write("PE\0\0", 0x80, "latin1");
+  b.writeUInt16LE(machine, 0x84); // Machine 字段
+  return b;
+}
 
 const tmpDirs: string[] = [];
 
@@ -34,15 +47,26 @@ afterEach(() => {
 });
 
 describe("fetch-rg：sha256 校验", () => {
-  test("sha256 不符即失败删档，rg 不落位", async () => {
+  test("sha256 不符即失败删档，rg 不落位（mac 档）", async () => {
     const dir = tmp();
     const tarball = join(dir, "fake.tar.gz");
     writeFileSync(tarball, "not-the-real-ripgrep-tarball");
     const dest = join(dir, "bin/rg");
 
-    await expect(installFromTarball(tarball, dest)).rejects.toThrow(/sha256/);
+    await expect(installFromArchive(tarball, dest)).rejects.toThrow(/sha256/);
     expect(existsSync(tarball)).toBe(false); // 删档
     expect(existsSync(dest)).toBe(false); // 不落位
+  });
+
+  test("sha256 不符即失败删档（windows 档走 win pin）", async () => {
+    const dir = tmp();
+    const zip = join(dir, "fake.zip");
+    writeFileSync(zip, "not-the-real-ripgrep-zip");
+    const dest = join(dir, "bin/rg.exe");
+
+    await expect(installFromArchive(zip, dest, "windows-x64")).rejects.toThrow(/sha256/);
+    expect(existsSync(zip)).toBe(false);
+    expect(existsSync(dest)).toBe(false);
   });
 
   test("assertArm64Only 拒绝非 Mach-O 文件", async () => {
@@ -93,5 +117,89 @@ describe("fetch-rg：--from 本地拷贝", () => {
 describe("fetch-rg：版本 pin", () => {
   test("sha256 常量形如 64 位十六进制（pin 值已就位，非占位）", () => {
     expect(RG_TARBALL_SHA256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("双档资产：15.1.0 双档名/格式/URL/sha256 分档（TR-95）", () => {
+    const mac = rgAsset("darwin-arm64");
+    expect(mac.name).toBe("ripgrep-15.1.0-aarch64-apple-darwin.tar.gz");
+    expect(mac.format).toBe("tar.gz");
+    expect(mac.sha256).toMatch(/^[0-9a-f]{64}$/);
+    const win = rgAsset("windows-x64");
+    expect(win.name).toBe("ripgrep-15.1.0-x86_64-pc-windows-msvc.zip");
+    expect(win.format).toBe("zip");
+    expect(win.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(win.sha256).not.toBe(mac.sha256);
+    expect(win.url).toContain("x86_64-pc-windows-msvc.zip");
+  });
+
+  test("落位随平台分档：rg / rg.exe", () => {
+    expect(rgDest("darwin-arm64")).toMatch(/resources\/bin\/rg$/);
+    expect(rgDest("windows-x64")).toMatch(/resources\/bin\/rg\.exe$/);
+  });
+});
+
+describe("fetch-rg：windows 档 PE 断言（lipo 的 Windows 等价物）", () => {
+  test("x64 PE（Machine=0x8664）→ 通过", () => {
+    const dir = tmp();
+    const exe = join(dir, "rg.exe");
+    writeFileSync(exe, fakePe(0x8664));
+    expect(() => assertPeX64(exe)).not.toThrow();
+  });
+
+  test("非 PE（缺 MZ）→ 拒绝", () => {
+    const dir = tmp();
+    const fake = join(dir, "rg.exe");
+    writeFileSync(fake, "#!/bin/sh\necho not-a-pe\n");
+    expect(() => assertPeX64(fake)).toThrow(/MZ/);
+  });
+
+  test("arm64 PE（Machine=0xAA64）→ 拒绝（TR-95 win 不 arm64）", () => {
+    const dir = tmp();
+    const exe = join(dir, "rg.exe");
+    writeFileSync(exe, fakePe(0xaa64));
+    expect(() => assertPeX64(exe)).toThrow(/0x8664/);
+  });
+
+  test("x86 PE（Machine=0x014C）→ 拒绝", () => {
+    const dir = tmp();
+    const exe = join(dir, "rg.exe");
+    writeFileSync(exe, fakePe(0x014c));
+    expect(() => assertPeX64(exe)).toThrow(/0x8664/);
+  });
+
+  test("缺 PE 签名（MZ 在、PE\\0\\0 不在）→ 拒绝", () => {
+    const dir = tmp();
+    const exe = join(dir, "rg.exe");
+    const b = fakePe(0x8664);
+    b.write("PX\0\0", 0x80, "latin1"); // 破坏签名
+    writeFileSync(exe, b);
+    expect(() => assertPeX64(exe)).toThrow(/PE/);
+  });
+});
+
+describe("fetch-rg：windows 档 --from 本地拷贝", () => {
+  test("非 PE 源即拒绝，rg.exe 不落位", async () => {
+    const dir = tmp();
+    const fake = join(dir, "rg-src.exe");
+    writeFileSync(fake, "plain text, not a PE");
+    const dest = join(dir, "bin/rg.exe");
+
+    await expect(installFromLocal(fake, dest, "windows-x64")).rejects.toThrow(/PE|MZ/);
+    expect(existsSync(dest)).toBe(false);
+  });
+
+  test("x64 PE 源拷贝成功（无 lipo/chmod 要求）+ 幂等跳过", async () => {
+    const dir = tmp();
+    const src = join(dir, "rg-src.exe");
+    writeFileSync(src, fakePe(0x8664));
+    const dest = join(dir, "bin/rg.exe");
+
+    const result = await installFromLocal(src, dest, "windows-x64");
+    expect(result.skipped).toBe(false);
+    expect(existsSync(dest)).toBe(true);
+    assertPeX64(dest); // 落位后再独立确认
+
+    const again = await installFromLocal(src, dest, "windows-x64");
+    expect(again.skipped).toBe(true);
   });
 });

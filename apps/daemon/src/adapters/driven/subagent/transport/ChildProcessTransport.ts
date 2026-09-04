@@ -62,9 +62,30 @@ export class ChildProcessTransport {
    * O-6 kill 序列：SIGTERM 进程组 → 等待 graceMs → 仍存活则 SIGKILL 进程组。
    * 返回实际路径（graceful=优雅退出；escalated=强杀）；进程已退出/不存在
    * 幂等返回 graceful。exited promise resolve 即完成 reap（组内无孤儿）。
+   *
+   * 平台分岔（TR-95 windows-x64 兼容面）：负 pid 进程组语义是 POSIX 专属，
+   * win32 上 process.kill(-pid) 必抛——走直 pid 终止（Windows 上 SIGTERM/
+   * SIGKILL 同映射 TerminateProcess，无优雅级差），孙进程树回收由
+   * taskkill /T 兑底。
    */
   async kill(): Promise<"graceful" | "escalated"> {
     if (this.settled) return "graceful"; // 已退出：幂等快速路径
+    if (process.platform === "win32") {
+      try {
+        process.kill(this.pid, "SIGTERM"); // win32：直 pid（无进程组语义）
+      } catch {
+        return "graceful"; // 进程已不存在（已退出）
+      }
+      if (await this.waitForExit(this.graceMs)) return "graceful";
+      try {
+        // 树强杀（含工具孙进程——win32 无负 pgid 组回收，taskkill /T 等价物）
+        Bun.spawnSync({ cmd: ["taskkill", "/PID", String(this.pid), "/T", "/F"], stdout: "ignore", stderr: "ignore" });
+      } catch {
+        /* taskkill 不可用/进程已回收 */
+      }
+      await this.exited;
+      return "escalated";
+    }
     try {
       process.kill(-this.pid, "SIGTERM"); // 负 pid = 进程组
     } catch {

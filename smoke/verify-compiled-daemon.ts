@@ -4,8 +4,8 @@
  *
  * 同一脚本对两种形态跑同一组行为探针，结果逐项对照（test-design §1.3①）：
  * - dev 直跑：bun apps/daemon/src/main.ts（源码形态）；
- * - compile 产物：apps/shell/src-tauri/binaries/helix-daemon-aarch64-apple-darwin
- *   （bun build --compile 单文件，由 scripts/compile-daemon.ts 产出）。
+ * - compile 产物：apps/shell/src-tauri/binaries/helix-daemon-<triple>[.exe]
+ *   （bun build --compile 单文件，由 scripts/compile-daemon.ts 按平台档产出，TR-95）。
  *
  * 三探针：
  * (a) spawn 自身子进程链路（F-7①）：经 daemon 既有 SubAgent 编排面真实跑通
@@ -29,13 +29,14 @@
  * 失败语义（F2.1 管线内步骤）：任一探针失败 / 双形态结果不一致 → 非零退出。
  *
  * 用法：
- *   bun smoke/verify-compiled-daemon.ts [--only dev|compiled] [--report <path>] [--keep-tmp]
+ *   bun smoke/verify-compiled-daemon.ts [--only dev|compiled] [--platform darwin-arm64|windows-x64] [--report <path>] [--keep-tmp]
  */
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PROTOCOL_VERSION } from "@helix/protocol";
-import { COMPILED_DAEMON_PATH } from "../scripts/compile-daemon";
+import { compiledDaemonPath } from "../scripts/compile-daemon";
+import { platformSpec, resolvePlatformArg } from "../scripts/desktop-platform";
 
 const root = join(import.meta.dir, "..");
 const DEV_ENTRY = join(root, "apps/daemon/src/main.ts");
@@ -57,6 +58,10 @@ function argValue(flag: string): string | undefined {
 const ONLY = argValue("--only") as "dev" | "compiled" | undefined;
 const REPORT_PATH = argValue("--report");
 const KEEP_TMP = process.argv.includes("--keep-tmp");
+/** 平台档（TR-95）：compiled 形态产物路径随档分岔；缺省 = 宿主档（mac = darwin-arm64）。 */
+const PLATFORM = resolvePlatformArg(process.argv, process.env);
+const PLATFORM_SPEC = platformSpec(PLATFORM);
+const COMPILED_PATH = compiledDaemonPath(PLATFORM);
 if (ONLY !== undefined && ONLY !== "dev" && ONLY !== "compiled") {
   console.error(`✗ --only 只接受 dev|compiled，实际：${ONLY}`);
   process.exit(2);
@@ -357,7 +362,7 @@ async function runForm(form: "dev" | "compiled"): Promise<FormResult> {
   const cmd =
     form === "dev"
       ? [process.execPath, DEV_ENTRY, "--sidecar", "--home", home]
-      : [COMPILED_DAEMON_PATH, "--sidecar", "--home", home];
+      : [COMPILED_PATH, "--sidecar", "--home", home];
 
   let proc: ReturnType<typeof Bun.spawn> | undefined;
   let ws: WsProbe | undefined;
@@ -624,10 +629,10 @@ function renderReport(results: readonly FormResult[], equivalent: boolean): stri
     "## 运行环境",
     "",
     `- bun: ${Bun.version}`,
-    `- 平台: ${process.platform}/${process.arch}（compile target=bun-darwin-arm64，AD-6）`,
+    `- 平台: ${process.platform}/${process.arch}（compile target=${PLATFORM_SPEC.bunTarget}，平台档 ${PLATFORM}，TR-95）`,
   );
-  if (existsSync(COMPILED_DAEMON_PATH)) {
-    lines.push(`- 产物: ${COMPILED_DAEMON_PATH}（${(statSync(COMPILED_DAEMON_PATH).size / 1024 / 1024).toFixed(1)}MB）`);
+  if (existsSync(COMPILED_PATH)) {
+    lines.push(`- 产物: ${COMPILED_PATH}（${(statSync(COMPILED_PATH).size / 1024 / 1024).toFixed(1)}MB）`);
   }
   for (const r of results) {
     lines.push(`- ${r.form} 形态耗时: ${(r.durationMs / 1000).toFixed(1)}s`);
@@ -668,8 +673,8 @@ function renderReport(results: readonly FormResult[], equivalent: boolean): stri
 
 async function main(): Promise<void> {
   const forms: ("dev" | "compiled")[] = ONLY !== undefined ? [ONLY] : ["dev", "compiled"];
-  if (forms.includes("compiled") && !existsSync(COMPILED_DAEMON_PATH)) {
-    console.error(`✗ compile 产物不存在：${COMPILED_DAEMON_PATH}（先跑 bun scripts/compile-daemon.ts）`);
+  if (forms.includes("compiled") && !existsSync(COMPILED_PATH)) {
+    console.error(`✗ compile 产物不存在：${COMPILED_PATH}（先跑 bun scripts/compile-daemon.ts --platform ${PLATFORM}）`);
     process.exit(2);
   }
 

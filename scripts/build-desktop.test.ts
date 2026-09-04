@@ -130,6 +130,28 @@ describe("pipelineSteps（六步契约）", () => {
   });
 });
 
+describe("pipelineSteps（平台分档，TR-95）", () => {
+  test("缺省 = darwin-arm64 档（mac 零回归）：fetch/compile 步骤带 --platform darwin-arm64，tauri build 裸命令", () => {
+    const steps = pipelineSteps(root);
+    expect(steps[0]!.cmd).toContain("--platform");
+    expect(steps[0]!.cmd).toContain("darwin-arm64");
+    expect(steps[2]!.cmd).toContain("darwin-arm64");
+    expect(steps[5]!.cmd).toEqual(["cargo", "tauri", "build"]);
+  });
+
+  test("windows-x64 档五步（无 F2.2——交叉编译产物 mac 宿主不可执行），tauri build 带 --target", () => {
+    const steps = pipelineSteps(root, "windows-x64");
+    expect(steps.length).toBe(5);
+    expect(steps.map((s) => s.name).some((n) => n.includes("F2.2"))).toBe(false);
+    expect(steps[0]!.cmd).toContain("windows-x64");
+    expect(steps[1]!.cmd).toContain("windows-x64");
+    expect(steps[2]!.cmd).toContain("windows-x64");
+    const tauri = steps[4]!;
+    expect(tauri.cmd).toEqual(["cargo", "tauri", "build", "--target", "x86_64-pc-windows-msvc"]);
+    expect(tauri.cwd).toBe(join(root, "apps/shell"));
+  });
+});
+
 /** 假 runner：记录调用序列；failAt 指定失败步骤号（1-based）。 */
 function fakeRunner(
   failAt: number | null,
