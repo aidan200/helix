@@ -20,11 +20,15 @@ describe("tauri.conf 三通道接线（TR-AD-34）", () => {
     expect(conf.bundle.externalBin).toEqual(["binaries/helix-daemon"]);
   });
 
-  test("bundle.resources 含 resources/bin/rg，包内落位 Resources/bin/rg", () => {
+  test("bundle.resources 含 rg 与 codegraph，包内落位 Resources/ 下（map 形式显式固定目标位）", () => {
     const resources = conf.bundle.resources;
     // map 形式显式固定包内目标位（slice 形式会保留 resources/ 前缀落到
-    // Resources/resources/bin/rg，与壳 main.rs 的 Resources/bin/rg 定位错位）
-    expect(resources).toEqual({ "resources/bin/rg": "bin/rg" });
+    // Resources/resources/...，与壳 main.rs 的 Resources/bin/rg、
+    // Resources/codegraph/bin/codegraph 定位错位）
+    expect(resources).toEqual({
+      "resources/bin/rg": "bin/rg",
+      "resources/codegraph": "codegraph",
+    });
   });
 
   test("frontendDist = shell vite build 产物目录（apps/shell/dist）", () => {
@@ -38,14 +42,15 @@ describe("tauri.conf 三通道接线（TR-AD-34）", () => {
     expect(JSON.stringify(conf.bundle.resources)).not.toContain("dist");
   });
 
-  test("bundle targets 仅 macOS 格式（arm64 only 分发面，AD-6）", () => {
-    expect(conf.bundle.targets).toEqual(["app", "dmg"]);
+  test("bundle targets = 目标平台集格式（TR-95：darwin-arm64 app/dmg + win32-x64 nsis，共用数组跨平台跳过不适用项）", () => {
+    expect(conf.bundle.targets).toEqual(["app", "dmg", "nsis"]);
   });
 
-  test("externalBin 命名符合 target-triple 约定（T2.2 产物位，arm64 only）", () => {
+  test("externalBin 命名符合 target-triple 约定（T2.2 产物位；win 变体由管线在 windows runner 落位，不入仓）", () => {
     const binariesDir = join(srcTauri, "binaries");
     expect(existsSync(join(binariesDir, "helix-daemon-aarch64-apple-darwin"))).toBe(true);
-    // AD-6 反向断言：不产其他 target-triple 变体
+    // 开发机产物面反向断言：不产其他 target-triple 变体（win32-x64 变体由
+    // release workflow 在 windows runner 现产，TR-95）
     const variants = readdirSync(binariesDir).filter((f) => f.startsWith("helix-daemon"));
     expect(variants).toEqual(["helix-daemon-aarch64-apple-darwin"]);
   });

@@ -240,7 +240,8 @@ fn main() {
                 handle.exit(fatal_code);
                 return;
             }
-            // 用户关窗的正常关停：拦下默认退出，先回收 sidecar（SIGTERM→5s→SIGKILL）
+            // 用户关窗的正常关停：拦下默认退出，先回收 sidecar（优雅关停
+            // → 等待窗 → 强制兑底，平台等价物见 lib.rs stop_child）
             api.prevent_exit();
             shutdown.store(true, Ordering::SeqCst);
             let join = supervisor_handle.lock().unwrap().take();
