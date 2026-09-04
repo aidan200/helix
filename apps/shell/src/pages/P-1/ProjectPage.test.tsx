@@ -959,17 +959,17 @@ describe("候选台账面板（health tab 内：列表 + 四态徽章过滤联�
     expect(deferredRow!.textContent).toContain("第 2 次暂缓");
   });
 
-  it("项目概览卡按业务三行：统计行（符号/节点/问题）+ 台账行 + 任务行；同步态归头部不重复", () => {
+  it("项目概览卡按业务三行：统计行（符号/节点/最近同步/问题）+ 台账行 + 任务行；索引状态徽章归头部不重复", () => {
     inCandPanel();
     const card = qs("[data-kg-health-overview]");
     expect(card).not.toBeNull();
     // 统计行
     expect(card!.querySelector('[data-stat="symbols"]')!.textContent).toContain("56");
     expect(card!.querySelector('[data-stat="nodes"]')!.textContent).toContain("17"); // kg.projects 行 nodeCount
+    expect(card!.querySelector('[data-stat="syncedAt"]')).not.toBeNull(); // 最近同步随统计行直显
     expect(card!.querySelector('[data-stat="issues"]')!.textContent).toContain("0");
-    // 同步态/同步时间不重复（归 kgv-head 索引面板）
+    // 索引状态徽章不重复（归 kgv-head 索引面板）
     expect(card!.querySelector("[data-kg-health-index]")).toBeNull();
-    expect(card!.querySelector('[data-stat="syncedAt"]')).toBeNull();
     // 台账行（纯文字计数）
     const ledger = card!.querySelector("[data-kg-health-ledger]");
     expect(ledger).not.toBeNull();

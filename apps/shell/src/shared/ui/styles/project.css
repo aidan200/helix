@@ -469,4 +469,3 @@
 .kg-cand-target { font-size: var(--text-caption); margin-bottom: 6px; }
 .kg-cand-body-title { font-size: var(--text-caption); color: var(--text-caption-c, #999); margin-bottom: 4px; }
 .kg-cand-body { margin: 0; white-space: pre-wrap; font-size: var(--text-caption); line-height: 1.55; overflow-wrap: anywhere; font-family: inherit; }
-.kg-cand-note { margin-top: 8px; font-size: var(--text-caption); }

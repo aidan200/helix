@@ -1,8 +1,7 @@
 /**
  * P-1 体检面板（W2-E 轨一结构体检看板，设计 kg-driven-dev-loop-design D5 +
  * R15）：顶部 = 项目概览卡，按业务三行——
- * ① 统计行：符号数 / 知识节点 / 结构问题（索引状态与同步时间归 kgv-head
- *    KgIndexPanel，本卡不重复）；
+ * ① 统计行：符号数 / 知识节点 / 最近同步 / 结构问题；
  * ② 台账行：candidates 四态计数（纯文字——过滤入口唯一归 KgCandidatesPanel）；
  * ③ 任务行：语义体检（kg.review.create）+ 代码评审（code.review.create）
  *    发起按钮直接入行（运行态徽标/已发起条随行——按钮状态即任务状态）。
@@ -16,6 +15,13 @@
 import type { KgHealthDto } from "@helix/protocol";
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
+
+/** 同步时间戳（ISO/null）→ 本地人读；null/非法 → —。 */
+function formatDateTime(iso: string | null | undefined): string {
+  if (iso == null) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+}
 
 export default function KgHealthPane({
   health,
@@ -74,7 +80,7 @@ export default function KgHealthPane({
           <span className="kg-health-sec-title">{t("pj.health.overviewTitle")}</span>
         </div>
 
-        {/* 统计行（同步态/同步时间归头部索引面板，不重复） */}
+        {/* 统计行（最近同步随统计行直显） */}
         <div className="kg-health-stats">
           <div className="kg-health-stat" data-stat="symbols">
             <span className="kg-health-stat-k">{t("pj.health.statSymbols")}</span>
@@ -83,6 +89,10 @@ export default function KgHealthPane({
           <div className="kg-health-stat" data-stat="nodes">
             <span className="kg-health-stat-k">{t("pj.health.statNodes")}</span>
             <span className="kg-health-stat-v">{nodeCount ?? "—"}</span>
+          </div>
+          <div className="kg-health-stat" data-stat="syncedAt">
+            <span className="kg-health-stat-k">{t("pj.health.statLastSync")}</span>
+            <span className="kg-health-stat-v">{formatDateTime(health.index.syncedAt)}</span>
           </div>
           <div className="kg-health-stat" data-stat="issues">
             <span className="kg-health-stat-k">{t("pj.health.statIssues")}</span>

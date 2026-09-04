@@ -116,7 +116,6 @@ export default function KgCandidatesPanel({
           })}
         </ul>
       )}
-      <div className="kg-cand-note muted">{t("pj.cand.readonlyNote")}</div>
     </section>
   );
 }
