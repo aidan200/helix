@@ -1,0 +1,164 @@
+# Release Desktop —— 桌面端双平台打包发布流水线（TR-95）。
+#
+# P0 裁决（kg TR-95）：
+# - 目标平台集 = { darwin-arm64, win32-x64 }：macos-14 出 arm64，windows-latest 出 x64；
+# - 首发不签名：mac 走 tauri 默认 adhoc，Windows 裸奔（SmartScreen 拦截为已知限制）；
+# - tag 触发：push v* tag → 双平台构建 + GitHub Release 自动挂包；
+#   workflow_dispatch 手动触发 → 只构建上传 artifacts，不建 Release。
+#
+# 平台入参：scripts/desktop-platform.ts 支持 --platform / HELIX_DESKTOP_PLATFORM /
+# 宿主推断三口径；本 workflow 显式传 --platform（矩阵列单点，不依赖 runner 宿主推断）。
+#
+# F2.2 等价验证分派（build-desktop.ts 头注④）：管线内 F2.2 仅 darwin 档编排；
+# windows 档管线省 F2.2（mac 宿主交叉编译产物不可执行），Windows runner 原生构建后
+# 由本 workflow 独立步骤补跑 smoke/verify-compiled-daemon.ts --platform windows-x64。
+#
+# 版本注入：tauri.conf.json 静态 version（0.0.0）在构建前由本流水线改写——
+# tag 触发取 tag 去 v 前缀；dispatch 触发取 inputs.version（缺省 0.0.0-dev）。
+# 改写只发生在 runner 工作区，不回写仓库。
+#
+# 产物面：mac .dmg（target/release/bundle/dmg）；windows nsis 安装包
+# （target/x86_64-pc-windows-msvc/release/bundle/nsis，--target 构建落 triple 子目录）。
+
+name: Release Desktop
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "注入 tauri.conf 的版本号（缺省 0.0.0-dev；tag 触发忽略此入参）"
+        required: false
+        default: "0.0.0-dev"
+
+# 发布不 cancel-in-progress：同 tag 重跑（re-run failed jobs）不应杀进行中的构建
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin-arm64
+          - os: windows-latest
+            platform: windows-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup bun (版本锁定，同 ci.yml)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache bun dependencies (bun.lock)
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Setup Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      # cargo 双缓存：registry/git 索引 + shell target 目录（tauri 依赖树大，
+      # 冷编译 ~10min 量级；target 缓存按 Cargo.lock hash 失效）
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/shell/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('apps/shell/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # tauri-cli 预编译二进制安装（管线步骤⑥ `cargo tauri build` 依赖；
+      # 免 cargo install 全量源码编译 ~10min）
+      - name: Install tauri-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@2
+
+      # 版本解析：tag 触发 → GITHUB_REF_NAME 去 v 前缀；dispatch → inputs.version
+      - name: Resolve release version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            V="${GITHUB_REF_NAME#v}"
+          else
+            V="${{ inputs.version }}"
+          fi
+          echo "version=${V}" >> "$GITHUB_OUTPUT"
+          echo "release version: ${V}"
+
+      # 版本注入 tauri.conf.json（runner 工作区局部改写，不回写仓库）；
+      # 用 bun 跨平台改 JSON，避开 pwsh/bash sed 分歧
+      - name: Inject version into tauri.conf.json
+        shell: bash
+        run: |
+          bun -e 'const f="apps/shell/src-tauri/tauri.conf.json"; const c=JSON.parse(await Bun.file(f).text()); c.version=process.env.RELEASE_VERSION; await Bun.write(f, JSON.stringify(c,null,2)+"\n");'
+        env:
+          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+
+      # 六步（darwin）/五步（windows）管线：fetch-rg → fetch-codegraph →
+      # compile → [F2.2 darwin-only] → vite build → tauri build
+      - name: Build desktop bundle (${{ matrix.platform }})
+        run: bun run build:desktop -- --platform ${{ matrix.platform }}
+
+      # windows 档 F2.2 补跑：管线内省略（见头注），Windows runner 原生可执行
+      # .exe，构建后独立步骤做双形态三探针对照（编译产物于管线步骤③已就位，
+      # tauri build 不重编 daemon，对照语义不变）
+      - name: F2.2 等价验证（windows 档补跑）
+        if: ${{ matrix.platform == 'windows-x64' }}
+        run: bun smoke/verify-compiled-daemon.ts --platform windows-x64
+
+      - name: Upload macOS artifact (.dmg)
+        if: ${{ matrix.platform == 'darwin-arm64' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-desktop-darwin-arm64
+          path: apps/shell/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Windows artifact (nsis .exe)
+        if: ${{ matrix.platform == 'windows-x64' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-desktop-win32-x64
+          path: apps/shell/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: GitHub Release (tag only)
+    # 仅 tag 触发建 Release；dispatch 只出 artifacts 不发布
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
