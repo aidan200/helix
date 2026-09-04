@@ -535,12 +535,14 @@ export const LISTEN_SURFACE = {
     match: (type) => type === "trace.query.result" || type === "connection.error",
   },
   /** 订阅 agent.config 族点对点回执（list.result / set_enabled.result /
-   *  base_prompt.get.result；changed 广播走拓扑级消费，不在此转发）。 */
+   *  base_prompt.get.result / skill_content.get.result；changed 广播走拓扑级
+   *  消费，不在此转发）。 */
   subscribeAgentConfigFrames: {
     match: (type) =>
       type === "agent.config.list.result" ||
       type === "agent.config.set_enabled.result" ||
-      type === "agent.base_prompt.get.result",
+      type === "agent.base_prompt.get.result" ||
+      type === "agent.skill_content.get.result",
   },
   /** 订阅 kg 族点对点回执（kg.*.result；O-6 零推送事件，回执全走此处；
    *  connection.error 一并转发——bootstrap 入口/写面在途错误判定靠页面
