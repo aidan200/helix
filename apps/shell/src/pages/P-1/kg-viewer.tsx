@@ -35,6 +35,7 @@ import KgReportPane from "./ui/kg-report-pane";
 import KgIndexPanel from "./ui/kg-index-panel";
 import KgBootstrapEntry from "./ui/kg-bootstrap-entry";
 import KgHealthPane from "./ui/kg-health-pane";
+import KgTaskLaunch from "./ui/kg-task-launch";
 import KgCandidatesPanel, { type CandFilter } from "./ui/kg-candidates-panel";
 import KgProducePane from "./ui/kg-produce-pane";
 
@@ -724,22 +725,14 @@ const KgViewer = function KgViewer({
                 />
               ) : state.tab === "health" ? (
                 <>
+                  {/* 体检 tab 三段式：概览统计卡（含问题清单）→ 台账 → 任务发起（紧凑） */}
                   <KgHealthPane
                     health={healthView.data}
                     loading={healthView.loading}
-                    reviewBusy={flight.review}
-                    reviewLaunched={reviewLaunched}
-                    reviewRunning={project.reviewRunning === true}
-                    codeReviewBusy={flight.codeReview}
-                    codeReviewLaunched={codeReviewLaunched}
-                    codeReviewRunning={project.codeReviewRunning === true}
-                    projectName={project.name}
+                    nodeCount={project.nodeCount}
                     candFilter={candView.filter}
                     t={t}
                     onCandFilter={onCandFilter}
-                    onLaunchReview={onLaunchReview}
-                    onLaunchCodeReview={onLaunchCodeReview}
-                    onOpenTasks={onOpenTasks}
                   />
                   <KgCandidatesPanel
                     loading={candView.loading}
@@ -750,6 +743,19 @@ const KgViewer = function KgViewer({
                     t={t}
                     onFilter={onCandFilter}
                     onSelect={onCandSelect}
+                  />
+                  <KgTaskLaunch
+                    reviewBusy={flight.review}
+                    reviewLaunched={reviewLaunched}
+                    reviewRunning={project.reviewRunning === true}
+                    codeReviewBusy={flight.codeReview}
+                    codeReviewLaunched={codeReviewLaunched}
+                    codeReviewRunning={project.codeReviewRunning === true}
+                    projectName={project.name}
+                    t={t}
+                    onLaunchReview={onLaunchReview}
+                    onLaunchCodeReview={onLaunchCodeReview}
+                    onOpenTasks={onOpenTasks}
                   />
                 </>
               ) : (

@@ -1119,6 +1119,31 @@ describe("候选台账面板（health tab 内：列表 + 四态徽章过滤联�
     const deferredRow = qs('[data-cand-id="CAND-2"]');
     expect(deferredRow!.textContent).toContain("第 2 次暂缓");
   });
+
+  it("项目概览统计卡：索引状态 + 符号数 + 知识节点 + 最近同步 + 结构问题 单卡承载", () => {
+    inCandPanel();
+    const card = qs("[data-kg-health-overview]");
+    expect(card).not.toBeNull();
+    expect(qs("[data-kg-health-index]")!.textContent).toContain("已同步");
+    expect(card!.querySelector('[data-stat="symbols"]')!.textContent).toContain("56");
+    expect(card!.querySelector('[data-stat="nodes"]')!.textContent).toContain("17"); // kg.projects 行 nodeCount
+    expect(card!.querySelector('[data-stat="syncedAt"]')!.textContent).toContain("2026-08-25 14:32");
+    expect(card!.querySelector('[data-stat="issues"]')!.textContent).toContain("0");
+    // 台账四态计数为概览卡一部分（可点击过滤联动）
+    expect(card!.querySelector("[data-kg-health-candidates]")).not.toBeNull();
+  });
+
+  it("任务发起模块紧凑：无说明文案，仅类型徽章 + 名称 + 启动钮", () => {
+    inCandPanel();
+    const launch = qs("[data-kg-task-launch]");
+    expect(launch).not.toBeNull();
+    expect(launch!.querySelectorAll(".kg-task-row")).toHaveLength(2);
+    expect(launch!.querySelector("[data-review-launch-btn]")).not.toBeNull();
+    expect(launch!.querySelector("[data-code-review-launch-btn]")).not.toBeNull();
+    // 紧凑化：长说明文案（评审流程/后台执行说明）不再渲染
+    expect(launch!.textContent).not.toContain("L0 结构面预检");
+    expect(launch!.textContent).not.toContain("任务在后台执行");
+  });
 });
 
 describe("M40/M41 首挂三读面（kg.list/kg.change.report/kg.index.status）连接态", () => {

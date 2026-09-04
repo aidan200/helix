@@ -1,16 +1,16 @@
 /**
  * P-1 体检面板（W2-E 轨一结构体检看板，设计 kg-driven-dev-loop-design D5 +
- * R15）：kg.health 五项读面分组展示——逻辑冲突清单 / 孤儿·腐烂锚清单
- * （计数徽章）/ 索引状态 / candidates 台账四态计数 + 体检发起区双类型
- * 并排：知识图谱体检（kg.review.create，W2-F）+ 代码评审
- * （code.review.create，code-review v1.5）——运行态（项目行级标记
- * 置位时无启动钮只留任务页观察出口——与 KgBootstrapEntry running 态
- * 同构，服务端为准，组件重挂后仍持正确态，两类徽标各行其是）。
+ * R15）：顶部 = 项目概览统计卡（索引状态 + 符号数 + 知识节点数 + 最近同步
+ * + 结构问题计数 + candidates 台账四态计数徽章，单一卡片承载全部统计），
+ * 其下 = conflicts/orphans 问题清单（零问题 → 「结构健康」空态）。
  *
- * 展示纪律：只列不修零写路径（发起入口按钮除外——只调既有 ws 命令）；
- * conflicts/orphans 条目 summary = 服务层人读文案直渲（AD-16 同规，前端零
- * 二次叙述）；零问题 → 「结构健康」空态。纯展示组件：命令发送/回执消费/
- * 单飞锁归 KgViewer 常驻 listener（KgBootstrapEntry 同构），本组件只回调。
+ * 任务发起模块（kg.review.create / code.review.create）已拆出为 KgTaskLaunch
+ * 紧凑面板（kg-task-launch.tsx），由 KgViewer 排在台账面板之后——本组件
+ * 只承载统计与问题读面。
+ *
+ * 展示纪律：只列不修零写路径；conflicts/orphans 条目 summary = 服务层人读
+ * 文案直渲（AD-16 同规，前端零二次叙述）。纯展示组件：命令发送/回执消费/
+ * 单飞锁归 KgViewer 常驻 listener，本组件只回调。
  */
 import type { KgHealthDto } from "@helix/protocol";
 
@@ -32,50 +32,30 @@ const CAND_KEY = {
   discarded: "pj.health.candDiscarded",
 } as const;
 
+/** 同步时间紧凑形态（ISO → 「YYYY-MM-DD HH:mm」；缺省 = —）。 */
+function fmtSyncedAt(at: string | undefined): string {
+  if (at === undefined || at === "") return "—";
+  return at.slice(0, 16).replace("T", " ");
+}
+
 export default function KgHealthPane({
   health,
   loading,
-  reviewBusy,
-  reviewLaunched,
-  reviewRunning,
-  codeReviewBusy,
-  codeReviewLaunched,
-  codeReviewRunning,
-  projectName,
+  nodeCount,
   candFilter,
   t,
   onCandFilter,
-  onLaunchReview,
-  onLaunchCodeReview,
-  onOpenTasks,
 }: {
   /** kg.health 回执（null = 未拉取/读取中）。 */
   health: KgHealthDto | null;
   loading: boolean;
-  /** kg.review.create 在途（发起钮禁用；单飞锁在 KgViewer）。 */
-  reviewBusy: boolean;
-  /** 发起成功标记（ok-strip + 前往任务页出口）。 */
-  reviewLaunched: boolean;
-  /** 该项目存在非终态 kg-review job（kg.projects 行 reviewRunning，
-   *  bootstrapRunning 同规）：体检入口置运行态——无启动钮只留任务页
-   *  出口；终态后恢复可发起（仅禁并发不绑一次性）。 */
-  reviewRunning: boolean;
-  /** code.review.create 在途（发起钮禁用；单飞锁在 KgViewer）。 */
-  codeReviewBusy: boolean;
-  /** 发起成功标记（ok-strip + 前往任务页出口）。 */
-  codeReviewLaunched: boolean;
-  /** 该项目存在非终态 code-review job（kg.projects 行 codeReviewRunning，
-   *  reviewRunning 同规）。 */
-  codeReviewRunning: boolean;
-  projectName: string;
+  /** 知识节点计数（kg.projects 行 nodeCount；缺省 = 未知 → —）。 */
+  nodeCount: number | undefined;
   /** 台账过滤态（与 KgCandidatesPanel 共享；点击徽章设过滤——active 高亮）。 */
   candFilter: "all" | "pending" | "deferred" | "applied" | "discarded";
   t: T;
   /** 四态徽章点击 → 设台账过滤并拉取（KgViewer 持拉取面）。 */
   onCandFilter: (filter: "all" | "pending" | "deferred" | "applied" | "discarded") => void;
-  onLaunchReview: () => void;
-  onLaunchCodeReview: () => void;
-  onOpenTasks: () => void;
 }) {
   if (loading || health === null) {
     return (
@@ -85,9 +65,56 @@ export default function KgHealthPane({
     );
   }
   const healthy = health.conflicts.length === 0 && health.orphans.length === 0;
+  const issueCount = health.conflicts.length + health.orphanCount;
   return (
     <div className="kg-health" data-kg-health="ready">
-      {/* ① 问题列表：conflicts / orphans 逐条（服务层人读 summary 直渲）；
+      {/* ① 项目概览统计卡：索引状态/符号数/知识节点/最近同步/结构问题 +
+          candidates 四态计数（可交互——点击徽章设台账面板过滤并拉取） */}
+      <section className="kg-health-sec kg-health-overview" data-kg-health-overview>
+        <div className="kg-health-sec-head">
+          <span className="kg-health-sec-title">{t("pj.health.overviewTitle")}</span>
+          <span className="hud-badge" data-kg-health-index>{t(STATE_KEY[health.index.state])}</span>
+        </div>
+        <div className="kg-health-stats">
+          <div className="kg-health-stat" data-stat="symbols">
+            <span className="kg-health-stat-k">{t("pj.health.statSymbols")}</span>
+            <span className="kg-health-stat-v">{health.index.symbolCount ?? "—"}</span>
+          </div>
+          <div className="kg-health-stat" data-stat="nodes">
+            <span className="kg-health-stat-k">{t("pj.health.statNodes")}</span>
+            <span className="kg-health-stat-v">{nodeCount ?? "—"}</span>
+          </div>
+          <div className="kg-health-stat" data-stat="syncedAt">
+            <span className="kg-health-stat-k">{t("pj.health.statSynced")}</span>
+            <span className="kg-health-stat-v">{fmtSyncedAt(health.index.syncedAt)}</span>
+          </div>
+          <div className="kg-health-stat" data-stat="issues">
+            <span className="kg-health-stat-k">{t("pj.health.statIssues")}</span>
+            <span className="kg-health-stat-v">{issueCount}</span>
+          </div>
+        </div>
+        <div className="kg-health-cand-row" data-kg-health-candidates>
+          {([
+            ["pending", health.candidates.pending],
+            ["deferred", health.candidates.deferred],
+            ["applied", health.candidates.applied],
+            ["discarded", health.candidates.discarded],
+          ] as const).map(([status, count]) => (
+            <button
+              key={status}
+              type="button"
+              className={`kg-cand-count-badge hud-badge${candFilter === status ? " active" : ""}`}
+              data-cand-count={status}
+              aria-pressed={candFilter === status}
+              onClick={() => onCandFilter(status)}
+            >
+              {t(CAND_KEY[status])} {count}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* ② 问题列表：conflicts / orphans 逐条（服务层人读 summary 直渲）；
           零问题 → 「结构健康」空态 */}
       {healthy ? (
         <div className="kgv-empty" data-kg-health-healthy>
@@ -128,135 +155,6 @@ export default function KgHealthPane({
           )}
         </>
       )}
-
-      {/* ② 计数/状态行：index 状态 + candidates 四态计数（可交互——点击
-          徽章设台账面板过滤并拉取；active 态高亮当前过滤） */}
-      <section className="kg-health-sec" data-kg-health-index>
-        <div className="kg-health-sec-head">
-          <span className="kg-health-sec-title">{t("pj.health.indexTitle")}</span>
-          <span className="hud-badge">{t(STATE_KEY[health.index.state])}</span>
-        </div>
-      </section>
-      <section className="kg-health-sec" data-kg-health-candidates>
-        <div className="kg-health-sec-head">
-          <span className="kg-health-sec-title">{t("pj.health.candidatesTitle")}</span>
-        </div>
-        <div className="kg-health-cand-row">
-          {([
-            ["pending", health.candidates.pending],
-            ["deferred", health.candidates.deferred],
-            ["applied", health.candidates.applied],
-            ["discarded", health.candidates.discarded],
-          ] as const).map(([status, count]) => (
-            <button
-              key={status}
-              type="button"
-              className={`kg-cand-count-badge hud-badge${candFilter === status ? " active" : ""}`}
-              data-cand-count={status}
-              aria-pressed={candFilter === status}
-              onClick={() => onCandFilter(status)}
-            >
-              {t(CAND_KEY[status])} {count}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* ③ 轨二发起入口（W2-F kg.review.create——ws 命令已存在，直接接线；
-          启动钮即「开启前一次确认」位，bootstrap 入口同规）；
-          运行态（reviewRunning，bootstrap 入口卡 running 同构）：无启动钮
-          只留观察出口——服务端为准（组件重挂后仍持正确态） */}
-      <section className="kg-health-sec" data-kg-health-review>
-        <div className="kg-health-sec-head">
-          <span className="kg-health-sec-title">{t("pj.health.reviewTitle")}</span>
-          <span className="hud-badge kbe-type">kg-review</span>
-          {reviewRunning && <span className="hud-badge" data-review-running-badge>{t("pj.health.reviewRunningBadge")}</span>}
-        </div>
-        {reviewRunning ? (
-          <div className="kbe-body">
-            <div className="kg-ok-strip" data-review-running>
-              <span>{t("pj.health.reviewRunningStrip", { name: projectName })}</span>
-              <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
-                {t("pj.health.reviewGoTasks")}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="kbe-row">
-              <span className="kbe-k">{t("pj.boot.desc")}</span>
-              <span className="kbe-v muted">{t("pj.health.reviewDesc")}</span>
-            </div>
-            <div className="kbe-actions">
-              <button
-                type="button"
-                className="hud-btn kg-btn-primary"
-                data-review-launch-btn
-                disabled={reviewBusy}
-                onClick={onLaunchReview}
-              >
-                {t("pj.health.reviewLaunch")}
-              </button>
-              <span className="kbe-note muted">{t("pj.health.reviewLaunchNote")}</span>
-            </div>
-            {reviewLaunched && (
-              <div className="kg-ok-strip" data-review-launched>
-                <span>{t("pj.health.reviewLaunched", { name: projectName })}</span>
-                <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
-                  {t("pj.health.reviewGoTasks")}
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </section>
-      {/* 代码评审发起入口（code.review.create，code-review v1.5）：与知识
-          图谱体检并排，运行态徽标各行其是（kg.projects 行级标记，服务
-          端为准） */}
-      <section className="kg-health-sec" data-kg-health-code-review>
-        <div className="kg-health-sec-head">
-          <span className="kg-health-sec-title">{t("pj.health.codeReviewTitle")}</span>
-          <span className="hud-badge kbe-type">code-review</span>
-          {codeReviewRunning && <span className="hud-badge" data-code-review-running-badge>{t("pj.health.reviewRunningBadge")}</span>}
-        </div>
-        {codeReviewRunning ? (
-          <div className="kbe-body">
-            <div className="kg-ok-strip" data-code-review-running>
-              <span>{t("pj.health.codeReviewRunningStrip", { name: projectName })}</span>
-              <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
-                {t("pj.health.reviewGoTasks")}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="kbe-row">
-              <span className="kbe-k">{t("pj.boot.desc")}</span>
-              <span className="kbe-v muted">{t("pj.health.codeReviewDesc")}</span>
-            </div>
-            <div className="kbe-actions">
-              <button
-                type="button"
-                className="hud-btn kg-btn-primary"
-                data-code-review-launch-btn
-                disabled={codeReviewBusy}
-                onClick={onLaunchCodeReview}
-              >
-                {t("pj.health.codeReviewLaunch")}
-              </button>
-              <span className="kbe-note muted">{t("pj.health.codeReviewLaunchNote")}</span>
-            </div>
-            {codeReviewLaunched && (
-              <div className="kg-ok-strip" data-code-review-launched>
-                <span>{t("pj.health.codeReviewLaunched", { name: projectName })}</span>
-                <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
-                  {t("pj.health.reviewGoTasks")}
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </section>
     </div>
   );
 }

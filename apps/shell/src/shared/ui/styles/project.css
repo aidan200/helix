@@ -508,6 +508,16 @@
 .kg-health-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .kg-health-item { font-size: var(--text-caption); line-height: 1.55; color: var(--text-body-c); overflow-wrap: anywhere; }
 .kg-health-cand-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 项目概览统计卡（体检 tab 顶部单卡承载全部统计） */
+.kg-health-overview { gap: 10px; }
+.kg-health-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.kg-health-stat { display: flex; flex-direction: column; gap: 2px; }
+.kg-health-stat-k { font-size: var(--text-cap); color: var(--text-dim); letter-spacing: 0.08em; }
+.kg-health-stat-v { font-size: var(--text-body); font-weight: 600; overflow-wrap: anywhere; }
+/* 任务发起紧凑面板（零说明文案；行 = 类型徽章 + 名称 + 启动钮/运行徽标） */
+.kg-task-launch { margin-top: 12px; gap: 10px; }
+.kg-task-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kg-task-name { font-size: var(--text-caption); font-weight: 600; }
 /* 候选台账查看面板（台账读面三件套；只读零裁决） */
 .kg-cand-count-badge { border: 1px solid transparent; cursor: pointer; font: inherit; }
 .kg-cand-count-badge.active { border-color: var(--accent, #6ea8fe); }
