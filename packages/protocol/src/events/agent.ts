@@ -315,3 +315,19 @@ export interface AgentBasePromptGetResultEvent extends EventFrame<AgentBasePromp
   channel?: "agent";
   type: "agent.base_prompt.get.result";
 }
+
+/** agent.skill_content.get.result 载荷：skill 正文读面回执（点对点）。 */
+export interface AgentSkillContentGetResultPayload {
+  /** 技能名（请求回显——多行并发展开时定向归位缓存）。 */
+  name: string;
+  /** SKILL.md 绝对路径（展示用；三源目录位置 = 来源层佐证）。 */
+  filePath: string;
+  /** SKILL.md 全文（含 frontmatter——用户可见的事实源原文）。 */
+  content: string;
+}
+
+/** agent.skill_content.get.result：skill 正文读面回执（点对点；信封 sessionId = SYSTEM_SESSION_ID）。 */
+export interface AgentSkillContentGetResultEvent extends EventFrame<AgentSkillContentGetResultPayload> {
+  channel?: "agent";
+  type: "agent.skill_content.get.result";
+}

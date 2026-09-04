@@ -199,3 +199,32 @@ describe("base prompt 批：base 段系统提示词缓存与折叠态", () => {
     expect(s.basePrompts["main-session"]).toBe("BASE-MAIN");
   });
 });
+
+describe("skill-content 批：skill 正文缓存与折叠态", () => {
+  it("⑧ started → 在途 + 展开；result 定向归位缓存清在途；toggle 恰一展开/同行收起；重拉不清缓存", () => {
+    let s = createAgentPageState();
+    expect(s.skillContents).toEqual({});
+    expect(s.skillContentOpen).toBeNull();
+    s = agentPageReducer(s, { type: "skill-content-started", name: "web-access" });
+    expect(s.skillContentPending.has("web-access")).toBe(true);
+    expect(s.skillContentOpen).toBe("web-access");
+    s = agentPageReducer(s, { type: "skill-content-result", name: "web-access", content: "WEB-ACCESS-BODY" });
+    expect(s.skillContentPending.has("web-access")).toBe(false);
+    expect(s.skillContents["web-access"]).toBe("WEB-ACCESS-BODY");
+    expect(s.skillContentOpen).toBe("web-access");
+    // 他名 result 不串位（恰一展开：新展开顶替）
+    s = agentPageReducer(s, { type: "skill-content-started", name: "plan-workflow" });
+    expect(s.skillContentOpen).toBe("plan-workflow");
+    s = agentPageReducer(s, { type: "skill-content-result", name: "plan-workflow", content: "PLAN-BODY" });
+    expect(s.skillContents["web-access"]).toBe("WEB-ACCESS-BODY");
+    expect(s.skillContents["plan-workflow"]).toBe("PLAN-BODY");
+    // toggle：切到他名展开；同名再点 = 收起
+    s = agentPageReducer(s, { type: "skill-content-toggle", name: "web-access" });
+    expect(s.skillContentOpen).toBe("web-access");
+    s = agentPageReducer(s, { type: "skill-content-toggle", name: "web-access" });
+    expect(s.skillContentOpen).toBeNull();
+    // 重拉（changed 链）不清 skill 正文缓存
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_BLOCK, KGW_BLOCK] });
+    expect(s.skillContents["web-access"]).toBe("WEB-ACCESS-BODY");
+  });
+});

@@ -194,6 +194,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `code-review-create:${event.payload.jobId}`;
     case "agent.base_prompt.get.result":
       return `base-prompt:${event.payload.profileKind}:${event.payload.basePrompt.length}`;
+    case "agent.skill_content.get.result":
+      return `skill-content:${event.payload.name}:${event.payload.content.length}`;
     case "session.plan.changed":
       return `plan-changed:${event.payload.sessionId}:${event.payload.plan?.length ?? 0}:${event.payload.ledger?.total ?? 0}`;
     default: {
@@ -336,6 +338,8 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `kg-candidates-list:${cmd.payload.project}:${cmd.payload.status ?? "*"}`;
     case "agent.base_prompt.get":
       return `base-prompt-get:${cmd.payload.profileKind}`;
+    case "agent.skill_content.get":
+      return `skill-content-get:${cmd.payload.name}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

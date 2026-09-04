@@ -121,7 +121,7 @@ import {
   handleKgNodeSupersede,
   handleKgNodeUpdate,
 } from "./handlers/kg";
-import { handleAgentBasePromptGet, handleAgentConfigList, handleAgentConfigSetEnabled } from "./handlers/resource";
+import { handleAgentBasePromptGet, handleAgentConfigList, handleAgentConfigSetEnabled, handleAgentSkillContentGet } from "./handlers/resource";
 import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
 import {
   handleModelCatalog,
@@ -218,6 +218,13 @@ export interface WsServerAdapterDeps {
    * 命令回口。
    */
   readonly basePrompts: Readonly<Record<string, string>>;
+  /**
+   * skill 正文读面（skill-content 批）：技能名 → SKILL.md 全文 + 路径
+   *（组合根窄函数注入——scan 现拍 + 读文件，driving 不 import driven，
+   * basePrompts 同法）——agent.skill_content.get 命令回口。可选：未注入
+   *（stub rig）→ 回执「读面未装配」invalid_payload（basePrompts 防御位同构）。
+   */
+  readonly skillContentOf?: (name: string) => Promise<{ filePath: string; content: string } | undefined>;
   /** 事件流（组合根构造并装配进 fan-out 的 EventPublisherPort 实现）。 */
   readonly events: EventStream;
   /** 本次启动生成的 dev token（与 <home>/dev-token 文件内容一致）。 */
@@ -614,6 +621,9 @@ export class WsServerAdapter {
       // ── base prompt 批（agent 页 base 段系统提示词懒查询读面；agent.config 同族）──
       case "agent.base_prompt.get":
         return handleAgentBasePromptGet(this.resourceContext(ws, type, payload));
+      // ── skill-content 批（agent 页 skill 正文懒查询读面；base prompt 同族同判据）──
+      case "agent.skill_content.get":
+        return handleAgentSkillContentGet(this.resourceContext(ws, type, payload));
       // ── v0.7 web 族（联网状态图标；全局命令先例 = agent.config 族）──
       // v0.9 +web.start（CDP 显式启动通路）
       case "web.status":
@@ -863,6 +873,7 @@ export class WsServerAdapter {
       kgWriterPinnedTools: this.deps.kgWriterPinnedTools,
       reviewerRemovedTools: this.deps.reviewerRemovedTools,
       basePrompts: this.deps.basePrompts,
+      skillContentOf: this.deps.skillContentOf ?? (() => Promise.resolve(undefined)), // 未装配（stub rig）→ handler 回「未知技能名或正文不可读」防御
       events: this.deps.events,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),

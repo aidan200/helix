@@ -29,6 +29,8 @@ export const AGENT_CONFIG_EVENT_TYPES = [
   "agent.config.list.result",
   "agent.config.set_enabled.result",
   "agent.base_prompt.get.result",
+  // skill-content 批：skill 正文懒查询回执（拓扑级直通，真消费归页面查询链——base_prompt 同例）
+  "agent.skill_content.get.result",
 ] as const;
 
 /** 是否 agent.config 配置族事件（dispatcher 路由前置判定）。 */

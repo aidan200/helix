@@ -857,3 +857,22 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 > - 发起宿主：看板入口按钮（W2-E 看板面并行交付；命令名冻结 =
 >   `kg.review.create`）。daemon 行为由 W2-F 落地（handlers/kg.ts +
 >   KgReviewService；未装配面回 `command.unimplemented`——kg 族既有先例）。
+
+## 24. skill-content 批（skills audience 二分 + skill 正文懒查询读面：profiles[].skills[].audience 字段 + agent.skill_content.get 命令族；v0.11 后 additive 微批——版本位不 bump）
+
+> 本批为提示词树形分层重构（skills 目录 audience 二分：agent/ 行为技能
+> vs task/ 任务类型 SOP）与 agent 页「查看 skill 正文」入口的协议面登记：
+> **1 字段**（§16.4 `agent.config.list.result` 的 `profiles[].skills[].audience`
+> = "agent" | "task"——任务类型 SOP 不进任何 agent 技能清单，受众分类即
+> 目录）+ **1 命令**（§15.3 agent 族：`agent.skill_content.get{name}`——
+> SKILL.md 全文懒查询读面，静态大体量数据走独立命令，`agent.base_prompt.get`
+> 同款判据 TR-68）+ **1 事件**（§16.4 agent 族：
+> `agent.skill_content.get.result{name, filePath, content}` 点对点回执）。
+> **版本位不 bump**（`PROTOCOL_VERSION = "0.11"` 保持）：全部为新增面
+>（additive 纪律，TR-AD-23①；§23 同构先例）。
+>
+> - 计数演进：命令 61 → 62；事件 78 → 79（守护断言同步扩）。
+> - 未知名/正文不可读 → `connection.error{command.invalid_payload}`
+>  （连接保持——base_prompt.get 非法 kind 同款回执语义）。
+> - 读面活体语义：user/project 层技能可编辑，daemon 每次 scan 现拍 +
+>  读文件（不缓存）；shell 页面侧拉一次常驻（静态数据语义同 base prompt）。

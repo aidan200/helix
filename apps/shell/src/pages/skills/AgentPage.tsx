@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { ReactNode } from "react";
 import type {
   AgentBasePromptGetResultPayload,
+  AgentSkillContentGetResultPayload,
   AgentConfigListResultPayload,
   AgentConfigProfileBlock,
   AgentConfigSystemBlock,
@@ -209,6 +210,10 @@ function ProfileCard({
   onToggle,
   onModelChange,
   basePrompt,
+  skillContents,
+  skillContentPending,
+  skillContentOpen,
+  onSkillContentToggle,
 }: {
   kind: AgentKind;
   block: AgentConfigProfileBlock | null;
@@ -222,6 +227,14 @@ function ProfileCard({
   onModelChange: (kind: AgentKind, model: string) => void;
   /** base prompt 批：base 段系统提示词查看区槽位（工具组正上方渲染）。 */
   basePrompt: ReactNode;
+  /** skill-content 批：skill 正文缓存（名 → 全文；缺 key = 未拉取）。 */
+  skillContents: Readonly<Record<string, string>>;
+  /** skill-content 批：正文懒查询在途名集（按钮 loading/防重复发）。 */
+  skillContentPending: ReadonlySet<string>;
+  /** skill-content 批：展开的技能名（恰一展开）。 */
+  skillContentOpen: string | null;
+  /** skill-content 批：查看/收起回叫（未缓存先懒查询，已缓存本地开/关）。 */
+  onSkillContentToggle: (name: string) => void;
 }) {
   const { t } = useI18n();
   const isMain = kind === "main-session";
@@ -350,22 +363,46 @@ function ProfileCard({
               <div data-source-group={source} key={source}>
                 <div className="ag-src-label">{source === "builtin" ? t("agents.skillSourceBuiltin") : source}</div>
                 {rows.map((skill) => (
-                  <div className="ag-row" data-skill-row={skill.name} key={skill.filePath}>
-                    <div className="ag-row-main">
-                      <span className="ag-name">{skill.name}</span>
-                      <span className="ag-desc" title={skill.description}>
-                        {skill.description}
+                  <div data-skill-entry={skill.name} key={skill.filePath}>
+                    <div className="ag-row" data-skill-row={skill.name}>
+                      <div className="ag-row-main">
+                        <span className="ag-name">{skill.name}</span>
+                        <span className="ag-desc" title={skill.description}>
+                          {skill.description}
+                        </span>
+                      </div>
+                      <span className="hud-chip" data-source-chip>
+                        {skill.source}
                       </span>
+                      {/* skill-content 批：正文查看入口（ghost 弱化变体，
+                          base prompt 查看钮同构；builtin 不可禁用≠不可查看） */}
+                      <button
+                        type="button"
+                        className="hud-btn hud-btn-ghost sm"
+                        data-skill-content-toggle={skill.name}
+                        disabled={skillContentPending.has(skill.name)}
+                        onClick={() => onSkillContentToggle(skill.name)}
+                      >
+                        {skillContentOpen === skill.name ? t("agents.skillContentHide") : t("agents.skillContentView")}
+                      </button>
+                      <AgentSwitch
+                        name={skill.name}
+                        checked={skill.enabled}
+                        disabled={source === "builtin" || writePending}
+                        onToggle={() => onToggle(kind, "skill", skill.name, !skill.enabled)}
+                      />
                     </div>
-                    <span className="hud-chip" data-source-chip>
-                      {skill.source}
-                    </span>
-                    <AgentSwitch
-                      name={skill.name}
-                      checked={skill.enabled}
-                      disabled={source === "builtin" || writePending}
-                      onToggle={() => onToggle(kind, "skill", skill.name, !skill.enabled)}
-                    />
+                    {skillContentOpen === skill.name && (
+                      skillContents[skill.name] === undefined ? (
+                        <p className="ag-loading" role="status">
+                          {t("agents.skillContentLoading")}
+                        </p>
+                      ) : (
+                        <pre className="ag-base-prompt" data-skill-content-text={skill.name}>
+                          {skillContents[skill.name]}
+                        </pre>
+                      )
+                    )}
                   </div>
                 ))}
               </div>
@@ -592,6 +629,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     sendAgentConfigList,
     sendAgentConfigSetEnabled,
     sendAgentBasePromptGet,
+    sendAgentSkillContentGet,
     subscribeAgentConfigFrames,
   } = useSession();
   const conn = session.conn;
@@ -642,6 +680,10 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
           // base prompt 批：回执带 profileKind 回显——定向归位缓存
           const p = (e as { payload: AgentBasePromptGetResultPayload }).payload;
           dispatch({ type: "base-prompt-result", kind: p.profileKind, basePrompt: p.basePrompt });
+        } else if (e.type === "agent.skill_content.get.result") {
+          // skill-content 批：回执带 name 回显——定向归位缓存
+          const p = (e as { payload: AgentSkillContentGetResultPayload }).payload;
+          dispatch({ type: "skill-content-result", name: p.name, content: p.content });
         }
       }),
     [subscribeAgentConfigFrames, toast, t],
@@ -724,6 +766,23 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
       }
     },
     [sendAgentBasePromptGet],
+  );
+
+  /** skill-content 批：查看区开/关——未缓存先懒查询（在途防重复发；send
+   *  失败不开区），已缓存本地开/关（静态数据拉一次常驻）。 */
+  const onSkillContentToggle = useCallback(
+    (name: string) => {
+      const st = stateRef.current;
+      if (st.skillContents[name] !== undefined) {
+        dispatch({ type: "skill-content-toggle", name });
+        return;
+      }
+      if (st.skillContentPending.has(name)) return;
+      if (sendAgentSkillContentGet({ name })) {
+        dispatch({ type: "skill-content-started", name });
+      }
+    },
+    [sendAgentSkillContentGet],
   );
 
   const view = selectAgentPageView(state);
@@ -840,6 +899,10 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
                   onToggle={onToggle}
                   onModelChange={onModelChange}
                   basePrompt={basePromptSection}
+                  skillContents={state.skillContents}
+                  skillContentPending={state.skillContentPending}
+                  skillContentOpen={state.skillContentOpen}
+                  onSkillContentToggle={onSkillContentToggle}
                 />
               ) : (
                 <SystemProfileCard

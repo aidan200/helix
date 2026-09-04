@@ -293,9 +293,9 @@ Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重�
 > **§10–§14（v0.1–v0.4 演进登记与微批备案）已迁 PROTOCOL-CHANGELOG.md**
 >（原节号保留——下文节号自 §9 直接跳至 §15 即此迁移痕迹，非缺节）。
 
-## 15. 命令 payload 形状总登记（C→S，61 命令全集）
+## 15. 命令 payload 形状总登记（C→S，62 命令全集）
 
-> **计数声明：61 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 6 +
+> **计数声明：62 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 7〔含 skill-content 批 1〕 +
 > 15.4 model 7 + config 2 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
 > 15.9 kg 6+5+2+1+1+1+1 + 15.10 workspace 2 + 15.11 task 10）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
@@ -398,7 +398,7 @@ sessionId **必填**。回执：daemon 重推该会话全量 `session.snapshot`�
 |---|---|---|---|---|
 | （无字段） | `EmptyPayload` | — | v0.2 | 空载荷（目标会话在信封 sessionId） |
 
-### 15.3 agent 族（6）
+### 15.3 agent 族（7）
 
 #### `agent.kill`
 
@@ -471,6 +471,20 @@ kind 同可读（写面只读≠读面拒绝；kg-writer = SUBAGENT base + 图�
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `profileKind` | `"main-session" \| "subagent-worker" \| "orchestrator" \| "subagent-kg-writer"` | 必填 | v0.11 | 目标 kind（四值全可读） |
+
+#### `agent.skill_content.get`
+
+skill 正文（SKILL.md 全文）读面（skill-content 批 §24；agent 页技能行
+「查看」入口）。路由：全局命令（信封 sessionId 省略）。结果帧：
+`agent.skill_content.get.result`（点对点，§16.4）。正文为静态大体量数据
+（不随 toggle 变），走独立懒查询而非塞进 `agent.config.list.result`——
+`agent.base_prompt.get` 同款判据。按技能名取（三源全集唯一名；
+`agent.config.list.result` skills 行同源）；未知名/读取失败 →
+`connection.error{command.invalid_payload}`（连接保持）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `name` | `string` | 必填 | §24 | 技能名（SKILL.md frontmatter name） |
 
 ### 15.4 model + config 族（9）
 
@@ -1071,11 +1085,11 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 |---|---|---|---|---|
 | `jobId` | `string` | 必填 | task 批 | 目标任务（终态） |
 
-## 16. 事件 payload 形状总登记（S→C，78 事件全集）
+## 16. 事件 payload 形状总登记（S→C，79 事件全集）
 
-> **计数声明：78 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> **计数声明：79 事件全集**（16.1 notification 3〔含 task.changed〕 +
 > 16.2 session 5〔含 main-session plan 批 session.plan.changed〕 +
-> 16.3 chat 12〔含 engine.retrying 网络重试批 + error entry 批 error.entry〕 + 16.4 agent 15〔含 park/resume 批 2 + base prompt 批 1〕 + 16.5 thinking·compaction·usage 5 +
+> 16.3 chat 12〔含 engine.retrying 网络重试批 + error entry 批 error.entry〕 + 16.4 agent 16〔含 park/resume 批 2 + base prompt 批 1 + skill-content 批 1〕 + 16.5 thinking·compaction·usage 5 +
 > 16.6 model 13 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1+1 + 16.10 workspace 3
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
@@ -1293,7 +1307,7 @@ LLM 调用瞬时失败进入退避重试（P2 ⑦ 网络重试批）：等待期
 | `waitMs` | `number` | 必填 | 网络重试批 | 本次重试前等待毫秒数 |
 | `message` | `string` | 必填 | 网络重试批 | 触发重试的 provider 错误原文（领域数据不 i18n） |
 
-### 16.4 agent 族（15）
+### 16.4 agent 族（16）
 
 #### `agent.spawned`
 
@@ -1406,7 +1420,8 @@ parked 不占并发预算，恢复等价新派发排队）。
 | `profiles[].profileKind` | `"main-session" \| "subagent-worker"` | 必填 | v0.6 | 归属 kind |
 | `profiles[].tools` | `{ name, enabled, snippet }[]` | 必填 | v0.6 | tools 全集 + 启停态（缺省无记录 = 启用） |
 | `profiles[].tools[].snippet` | `string` | 必填 | v0.6 | 工具一句话说明（daemon ToolPromptSnippets 注册表同源；M6 T4 批内补登；注册表外名 = 空串） |
-| `profiles[].skills` | `{ name, description, filePath, source, enabled }[]` | 必填 | v0.6 | 扫描全集 + 启停态（source = user/project/builtin 三层目录标签；v0.8 扩 builtin——daemon 随仓内置技能，不可禁用读面恒 enabled=true） |
+| `profiles[].skills` | `{ name, description, filePath, source, audience, enabled }[]` | 必填 | v0.6 | 扫描全集 + 启停态（source = user/project/builtin 三层目录标签；v0.8 扩 builtin——daemon 随仓内置技能，不可禁用读面恒 enabled=true） |
+| `profiles[].skills[].audience` | `"agent" \| "task"` | 必填 | §24 | 技能受众分类（skill-content 批前置 additive）：agent = 行为技能（进技能清单）/ task = 任务类型 SOP（只进任务注册表与编排 kickoff，不进任何 agent 技能清单） |
 | `profiles[].diagnostics` | `{ code, message, path, source }[]` | 必填 | v0.6 | 扫描诊断（坏文件上抛不炸） |
 | `profiles[].model` | `string \| null` | 必填 | v0.6 | model 槽位现值（未设 = null） |
 | `profiles[].thinkingLevel` | `string \| null` | 必填 | v0.11 | thinking 槽位现值（未配置 = null；v0.11 批内补登 T1.3） |
@@ -1446,6 +1461,16 @@ base 段系统提示词读面回执（点对点；全局命令，base prompt 批
 |---|---|---|---|---|
 | `profileKind` | `"main-session" \| "subagent-worker" \| "orchestrator" \| "subagent-kg-writer"` | 必填 | v0.11 | 目标 kind |
 | `basePrompt` | `string` | 必填 | v0.11 | base 段系统提示词全文（profile 静态声明；工具/技能两段为运行期动态拼入不在本面——生效全量提示词走 trace 快照面观察） |
+
+#### `agent.skill_content.get.result`
+
+skill 正文读面回执（点对点；全局命令，skill-content 批 §24）。payload：
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `name` | `string` | 必填 | §24 | 技能名（请求回显——多行并发展开时定向归位缓存） |
+| `filePath` | `string` | 必填 | §24 | SKILL.md 绝对路径（三源目录位置 = 来源层佐证） |
+| `content` | `string` | 必填 | §24 | SKILL.md 全文（含 frontmatter——用户可见的事实源原文） |
 
 ### 16.5 thinking · compaction · usage 通道族（5）
 

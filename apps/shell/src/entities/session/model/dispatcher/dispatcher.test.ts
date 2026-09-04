@@ -117,6 +117,7 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     expect(route("agent.config.list.result")).toBeUndefined();
     expect(route("agent.config.set_enabled.result")).toBeUndefined();
     expect(route("agent.base_prompt.get.result")).toBeUndefined();
+    expect(route("agent.skill_content.get.result")).toBeUndefined(); // skill-content 批：拓扑级直通（真消费归页面查询链）
     // v0.7 web 族（T4 联网状态图标）：三 type 全走拓扑级前置路由——
     // result/changed 写真消费（topology.webStatus），stop.result 直通
     for (const type of WEB_EVENT_TYPES) {

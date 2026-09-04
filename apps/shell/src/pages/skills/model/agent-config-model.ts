@@ -59,6 +59,17 @@ export interface AgentPageState {
   basePromptPending: ReadonlySet<AgentId>;
   /** base prompt 查看区展开 kind（恰一展开；null = 全收——视图态）。 */
   basePromptOpen: AgentId | null;
+  /**
+   * skill 正文缓存（skill-content 批）：技能名 → SKILL.md 全文；缺 key =
+   * 未拉取。同名技能跨 kind 同文（同一 filePath），故缓存按名不按 kind。
+   * 静态数据——拉一次常驻，changed 重拉链不清（user/project 层可编辑，
+   * 重新展开已缓存名不自动刷新——与 base prompt 同语义）。
+   */
+  skillContents: Readonly<Record<string, string>>;
+  /** skill 正文懒查询在途技能名集（按钮 loading 态 + 防重复发）。 */
+  skillContentPending: ReadonlySet<string>;
+  /** skill 正文查看区展开技能名（恰一展开；null = 全收——视图态）。 */
+  skillContentOpen: string | null;
 }
 
 /** 写面资源维（协议收窄值：tool/skill 启停 + model/thinking 槽位）。 */
@@ -84,6 +95,9 @@ export function createAgentPageState(): AgentPageState {
     basePrompts: { "main-session": null, "subagent-worker": null, orchestrator: null, "subagent-kg-writer": null, "subagent-code-reviewer": null },
     basePromptPending: new Set<AgentId>(),
     basePromptOpen: null,
+    skillContents: {},
+    skillContentPending: new Set<string>(),
+    skillContentOpen: null,
   };
 }
 
@@ -96,7 +110,10 @@ export type AgentPageAction =
   | { type: "toggle-settled"; kind: WritableKind; resourceType: AgentWriteResource; name: string }
   | { type: "base-prompt-started"; kind: AgentId }
   | { type: "base-prompt-result"; kind: AgentId; basePrompt: string }
-  | { type: "base-prompt-toggle"; kind: AgentId };
+  | { type: "base-prompt-toggle"; kind: AgentId }
+  | { type: "skill-content-started"; name: string }
+  | { type: "skill-content-result"; name: string; content: string }
+  | { type: "skill-content-toggle"; name: string };
 
 function hasData(s: AgentPageState): boolean {
   return s.profiles["main-session"] !== null || s.profiles["subagent-worker"] !== null;
@@ -155,6 +172,19 @@ export function agentPageReducer(s: AgentPageState, action: AgentPageAction): Ag
     case "base-prompt-toggle":
       // 已缓存的折叠开/关（恰一展开；点同一卡 = 收起）
       return { ...s, basePromptOpen: s.basePromptOpen === action.kind ? null : action.kind };
+    case "skill-content-started": {
+      const skillContentPending = new Set(s.skillContentPending);
+      skillContentPending.add(action.name);
+      return { ...s, skillContentPending, skillContentOpen: action.name };
+    }
+    case "skill-content-result": {
+      const skillContentPending = new Set(s.skillContentPending);
+      skillContentPending.delete(action.name);
+      return { ...s, skillContentPending, skillContents: { ...s.skillContents, [action.name]: action.content } };
+    }
+    case "skill-content-toggle":
+      // 已缓存的折叠开/关（恰一展开；点同一行 = 收起）
+      return { ...s, skillContentOpen: s.skillContentOpen === action.name ? null : action.name };
   }
 }
 

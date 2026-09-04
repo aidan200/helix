@@ -15,6 +15,7 @@
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import type {
   AgentBasePromptGetPayload,
+  AgentSkillContentGetPayload,
   AgentConfigSetEnabledPayload,
   CodeReviewCreatePayload,
   CommandEnvelope,
@@ -37,6 +38,7 @@ import type {
 } from "@helix/protocol";
 import {
   agentBasePromptGetCommand,
+  agentSkillContentGetCommand,
   agentConfigListCommand,
   agentConfigSetEnabledCommand,
   authDeleteKeyCommand,
@@ -387,6 +389,11 @@ export const COMMAND_SURFACE = {
    *  同一转发链到页面 reducer）。 */
   sendAgentBasePromptGet: (deps) =>
     (payload: AgentBasePromptGetPayload) => deps.send(agentBasePromptGetCommand(payload)),
+  /** 发送 agent.skill_content.get（skill-content 批：skill 正文懒查询；
+   *  回执 agent.skill_content.get.result 点对点，经 subscribeAgentConfigFrames
+   *  同一转发链到页面 reducer）。 */
+  sendAgentSkillContentGet: (deps) =>
+    (payload: AgentSkillContentGetPayload) => deps.send(agentSkillContentGetCommand(payload)),
 
   // ── web 族联网状态面（T4，契约 v0.7；IconRail 联网钮）──
   /** 发送 web.stop（停止并清理；回执 applied + 状态回 idle 经

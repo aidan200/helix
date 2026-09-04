@@ -132,6 +132,7 @@ const mock = {
   sendOk: true,
   sentSetEnabled: [] as SetEnabledCall[],
   sentBasePromptGet: [] as string[],
+  sentSkillContentGet: [] as string[],
   listeners: [] as ((e: EventEnvelope) => void)[],
 };
 const requestModelConfig = vi.fn();
@@ -166,6 +167,10 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendAgentBasePromptGet: (call: { profileKind: string }) => {
         mock.sentBasePromptGet.push(call.profileKind);
+        return mock.sendOk;
+      },
+      sendAgentSkillContentGet: (call: { name: string }) => {
+        mock.sentSkillContentGet.push(call.name);
         return mock.sendOk;
       },
       subscribeAgentConfigFrames: (cb: (e: EventEnvelope) => void) => {
@@ -859,5 +864,62 @@ describe("M48/M50 写面发送失败收口 + base prompt 断连重发", () => {
       } as EventEnvelope),
     );
     expect(document.querySelector('[data-base-prompt="main-session"] [data-base-prompt-text]')!.textContent).toContain("BASE BODY");
+  });
+});
+
+describe("skill-content 批：skill 正文查看区（行内折叠懒查询）", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mock.revision = 0;
+    mock.catalog = null;
+    mock.auth = {};
+    mock.authLoaded = false;
+    mock.sentList = 0;
+    mock.sendOk = true;
+    mock.sentSetEnabled = [];
+    mock.sentBasePromptGet = [];
+    mock.sentSkillContentGet = [];
+    mock.conn = "connected";
+  });
+
+  it("查看 → 懒查询命令 → 回执渲染全文；再点收起（零新命令）；同名跨行恰一展开", async () => {
+    ui();
+    act(() => feedList());
+    // MAIN_BLOCK 含 hello-skill（user 层）：点行内「查看」→ 发 agent.skill_content.get
+    act(() => {
+      fireEvent.click(document.querySelector('[data-skill-content-toggle="hello-skill"]')!);
+    });
+    expect(mock.sentSkillContentGet).toEqual(["hello-skill"]);
+    // 回执（带 name 回显）→ pre 渲染全文（含 frontmatter 原文）
+    act(() =>
+      feed({
+        v: "0.11",
+        sessionId: "__system__",
+        channel: "agent",
+        type: "agent.skill_content.get.result",
+        payload: { name: "hello-skill", filePath: "/home/dev/.helix/skills/hello-skill/SKILL.md", content: "---\nname: hello-skill\n---\n\nSKILL-BODY-TEXT" },
+      } as EventEnvelope),
+    );
+    expect(document.querySelector('[data-skill-content-text="hello-skill"]')?.textContent).toContain("SKILL-BODY-TEXT");
+    // 已缓存再点 = 收起（本地开/关，零新命令）
+    act(() => {
+      fireEvent.click(document.querySelector('[data-skill-content-toggle="hello-skill"]')!);
+    });
+    expect(mock.sentSkillContentGet).toEqual(["hello-skill"]);
+    expect(document.querySelector('[data-skill-content-text="hello-skill"]')).toBeNull();
+  });
+
+  it("builtin 行同可查看（不可禁用≠不可查看）；开关行内其他控件不干扰", async () => {
+    ui();
+    act(() => feedList());
+    // builtin 源行（web-access）：开关禁用态但查看钮可用
+    const toggle = document.querySelector('[data-skill-content-toggle="web-access"]') as HTMLButtonElement;
+    expect(toggle).not.toBeNull();
+    expect(toggle.disabled).toBe(false);
+    act(() => {
+      fireEvent.click(toggle);
+    });
+    expect(mock.sentSkillContentGet).toEqual(["web-access"]);
   });
 });

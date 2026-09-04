@@ -16,6 +16,8 @@ import type {
   AgentConfigListCommand,
   AgentConfigSetEnabledCommand,
   AgentConfigSetEnabledPayload,
+  AgentSkillContentGetCommand,
+  AgentSkillContentGetPayload,
   AuthDeleteKeyCommand,
   AuthListCommand,
   AuthSetKeyCommand,
@@ -272,6 +274,12 @@ export function agentConfigSetEnabledCommand(payload: AgentConfigSetEnabledPaylo
  *  全局命令；回执 = agent.base_prompt.get.result 点对点）。 */
 export function agentBasePromptGetCommand(payload: AgentBasePromptGetPayload): AgentBasePromptGetCommand {
   return { v: PROTOCOL_VERSION, type: "agent.base_prompt.get", payload };
+}
+
+/** agent.skill_content.get：skill 正文（SKILL.md 全文）懒查询读面
+ *（skill-content 批；全局命令；回执 = agent.skill_content.get.result 点对点）。 */
+export function agentSkillContentGetCommand(payload: AgentSkillContentGetPayload): AgentSkillContentGetCommand {
+  return { v: PROTOCOL_VERSION, type: "agent.skill_content.get", payload };
 }
 
 /** web.status：CDP 连接状态读面（全局命令；回执 = web.status.result 点对点）。 */

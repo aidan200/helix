@@ -38,6 +38,7 @@ import type {
   AgentConfigProfileBlock,
   AgentConfigSetEnabledResultEvent,
   AgentConfigSystemBlock,
+  AgentSkillContentGetResultEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { ResourceConfigBlock } from "../../../../application/ports/inbound/ResourceConfigPort";
@@ -229,6 +230,37 @@ export function handleAgentBasePromptGet(ctx: ResourceCommandContext): void {
     payload: { profileKind: kind as (typeof BASE_PROMPT_KINDS)[number], basePrompt },
   };
   ctx.sendNow(sender, frame);
+}
+
+/**
+ * agent.skill_content.get（skill-content 批）：skill 正文（SKILL.md 全文）
+ * 懒查询读面——静态大体量数据走独立懒查询（base_prompt.get 同款判据，
+ * TR-68），不塞进 agent.config.list.result。按技能名取（三源全集唯一名；
+ * agent.config.list skills 行同源）。未知名/读取失败 →
+ * command.invalid_payload（连接保持）。点对点回执。
+ */
+export function handleAgentSkillContentGet(ctx: ResourceCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const name = ctx.payload.name;
+  if (typeof name !== "string" || name.length === 0) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.name 应为非空技能名字符串");
+  }
+  ctx
+    .skillContentOf(name)
+    .then((hit) => {
+      if (hit === undefined) {
+        return ctx.commandError(ctx.type, "command.invalid_payload", `未知技能名或正文不可读：${name}`);
+      }
+      const frame: AgentSkillContentGetResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID, // 全局命令：会话无关（agent.config.list.result 同构）
+        channel: "agent",
+        type: "agent.skill_content.get.result",
+        payload: { name, filePath: hit.filePath, content: hit.content },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `skill 正文读面失败：${(err as Error).message}`));
 }
 
 /** agent.config.set_enabled（全局写面）：四路径回执 + applied 广播。 */

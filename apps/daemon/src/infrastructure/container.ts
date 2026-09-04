@@ -32,7 +32,7 @@ import { scanWorkspaceProjects, existingKgProjects } from "../adapters/driven/wo
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
 import { accessSync, constants as fsConstants } from "node:fs";
-import { rm } from "node:fs/promises";
+import { rm, readFile } from "node:fs/promises";
 import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
 import { buildPersistence } from "./assembly/buildPersistence";
@@ -750,6 +750,18 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     taskStack,
     kgResolvers,
     resourceService,
+    // skill-content 批：skill 正文读面——任务栈扫描器同形同源复用（scan
+    // 现拍同名命中 + 读文件；未知名/读取失败 → undefined，handler 回
+    // invalid_payload）。user/project 层技能可编辑，故每次现拍现读
+    skillContentOf: async (name) => {
+      const hit = (await taskSkillSource.scan()).skills.find((s) => s.name === name);
+      if (hit === undefined) return undefined;
+      try {
+        return { filePath: hit.filePath, content: await readFile(hit.filePath, "utf8") };
+      } catch {
+        return undefined;
+      }
+    },
     subagentLauncher,
     eventStream,
     browserPort,

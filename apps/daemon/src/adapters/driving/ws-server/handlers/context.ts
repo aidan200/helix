@@ -240,6 +240,13 @@ export interface ResourceCommandContext {
    * （kgWriterPinnedTools/hasModel 同法）。agent.base_prompt.get 读面用。
    */
   readonly basePrompts: Readonly<Record<string, string>>;
+  /**
+   * skill 正文读面（skill-content 批）：技能名 → SKILL.md 全文 + 路径；
+   * 未知名/读取失败 → undefined（handler 回 command.invalid_payload）。
+   * 组合根窄函数注入（scan 现拍 + 读文件——driving 不 import driven，
+   * basePrompts 同法）；agent.skill_content.get 懒查询用。
+   */
+  readonly skillContentOf: (name: string) => Promise<{ filePath: string; content: string } | undefined>;
   /** 事件流（applied → agent.config.changed 广播）。 */
   readonly events: EventStream;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */

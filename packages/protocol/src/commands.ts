@@ -407,6 +407,22 @@ export interface AgentBasePromptGetCommand extends CommandFrame<AgentBasePromptG
   type: "agent.base_prompt.get";
 }
 
+/**
+ * agent.skill_content.get 载荷：skill 正文（SKILL.md 全文）懒查询读面
+ *（全局命令，信封 sessionId 省略）。正文为静态大体量数据（不随 toggle
+ * 变），走独立懒查询而非塞进 agent.config.list.result——base_prompt.get
+ * 同款判据（TR-68）。按技能名取（三源全集内唯一名）；结果帧 =
+ * agent.skill_content.get.result 点对点回执（TR-AD-21 模式）。
+ */
+export interface AgentSkillContentGetPayload {
+  /** 技能名（SKILL.md frontmatter name——agent.config.list skills 行同源）。 */
+  name: string;
+}
+
+export interface AgentSkillContentGetCommand extends CommandFrame<AgentSkillContentGetPayload> {
+  type: "agent.skill_content.get";
+}
+
 // ── v0.7 新增：web 族（T4 联网状态图标；daemon BrowserPort 单例 CDP 连接面） ──
 
 /**
@@ -818,6 +834,7 @@ export type CommandEnvelope =
   | AgentConfigListCommand
   | AgentConfigSetEnabledCommand
   | AgentBasePromptGetCommand
+  | AgentSkillContentGetCommand
   | WebStatusCommand
   | WebStopCommand
   | WebStartCommand
@@ -882,6 +899,7 @@ export const COMMAND_TYPES = [
   "agent.config.list",
   "agent.config.set_enabled",
   "agent.base_prompt.get",
+  "agent.skill_content.get",
   "web.status",
   "web.stop",
   "web.start",

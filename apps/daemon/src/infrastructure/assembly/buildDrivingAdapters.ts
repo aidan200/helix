@@ -112,6 +112,13 @@ export interface WsDrivingDeps {
   /** kg 族命令回口解析器群（M29/M30 切片同源注入）。 */
   readonly kgResolvers: KgResolverGroup;
   readonly resourceService: ResourceService;
+  /**
+   * skill 正文读面（skill-content 批）：技能名 → SKILL.md 全文 + 路径。
+   * 组合根构造（SkillScanner scan 现拍 + 读文件；未知名/读取失败 →
+   * undefined）——agent.skill_content.get 命令回口，经 WsServerAdapter
+   * 窄数据面透传（driving 不 import driven）。
+   */
+  readonly skillContentOf: (name: string) => Promise<{ filePath: string; content: string } | undefined>;
   readonly subagentLauncher: SubagentLauncher | undefined;
   readonly eventStream: EventStream;
   readonly browserPort: BrowserPort;
@@ -243,6 +250,10 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
       "subagent-kg-writer": SubAgentKgWriterProfile.systemPrompt,
       "subagent-code-reviewer": SubAgentCodeReviewerProfile.systemPrompt,
     },
+    // skill-content 批：skill 正文读面（技能名 → SKILL.md 全文 + 路径）——
+    // 任务栈扫描器同形同源复用（scan 现拍 + 读文件；未知名/读取失败 →
+    // undefined，handler 回 invalid_payload）
+    skillContentOf: deps.skillContentOf,
     traceQuery: persistence.traceQuery, // trace.query 命令回口（只读面）
     // kg 族命令回口（P-1 六命令，§9；project 参数 service 内单点解析）——
     // W1 重绑接缝：经 workspace 持有者读现值（deps.kg 直接注入形态保留给

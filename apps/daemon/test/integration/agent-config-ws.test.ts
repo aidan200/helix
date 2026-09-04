@@ -769,3 +769,48 @@ describe("agent.base_prompt.get（base prompt 批：base 段系统提示词懒�
     }
   });
 });
+
+describe("agent.skill_content.get（skill-content 批：skill 正文懒查询读面）", () => {
+  test("① 已装技能 → 点对点回执 name/filePath/content 全文（user 层 hello-skill）", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      await helloHandshake(client, rig.token);
+      await client.expect("session.snapshot");
+
+      client.send({ v: PROTOCOL_VERSION, type: "agent.skill_content.get", payload: { name: "hello-skill" } });
+      const result = await client.expect("agent.skill_content.get.result");
+      expect(result.channel).toBe("agent");
+      const p = result.payload as { name: string; filePath: string; content: string };
+      expect(p.name).toBe("hello-skill"); // 请求回显——多行并发展开定向归位
+      expect(p.filePath).toContain("hello-skill");
+      expect(p.content).toContain("name: hello-skill"); // 全文含 frontmatter（事实源原文）
+      expect(p.content).toContain("正文");
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+
+  test("② 未知技能名 / 缺 name → connection.error{command.invalid_payload}（连接保持——后续命令仍可通）", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      await helloHandshake(client, rig.token);
+
+      client.send({ v: PROTOCOL_VERSION, type: "agent.skill_content.get", payload: { name: "no-such-skill" } });
+      await client.waitForInvalidPayload("agent.skill_content.get");
+      client.send({ v: PROTOCOL_VERSION, type: "agent.skill_content.get", payload: {} });
+      await client.waitForInvalidPayload("agent.skill_content.get");
+      // 连接保持
+      client.send({ v: PROTOCOL_VERSION, type: "agent.skill_content.get", payload: { name: "hello-skill" } });
+      const ok = await client.expect("agent.skill_content.get.result");
+      expect(ok.payload.name).toBe("hello-skill");
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+});
