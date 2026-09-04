@@ -6,6 +6,24 @@ import { CODEGRAPH_SCHEMA_MAX_VERSION, codegraphDbPath, codegraphDirPath, projec
 export { CODEGRAPH_SCHEMA_MAX_VERSION };
 
 /**
+ * CLI spawn 命令组装（TR-95 windows-x64 兼容面）：win32 上 .cmd/.bat launcher
+ * （codegraph windows bundle 的 bin/codegraph.cmd）不是可执行映像，
+ * CreateProcess 直起必抛 ENOENT——经 cmd.exe /d /s /c 包装（含空格路径逐参
+ * 双引号包裹）。posix / 非脚本二进制原样直通（零行为变化）。
+ */
+export function cliSpawnCmd(
+  binaryPath: string,
+  args: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  if (platform !== "win32" || !/\.(cmd|bat)$/i.test(binaryPath)) {
+    return [binaryPath, ...args];
+  }
+  const quote = (s: string): string => (/[ \t"&|^<>%]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  return ["cmd.exe", "/d", "/s", "/c", [quote(binaryPath), ...args.map(quote)].join(" ")];
+}
+
+/**
  * CodegraphEngineAdapter —— codegraph 引擎被动封装（T2.1/AF-2 裁决，
  * AD-8 引擎降位 + AD-15 调度权反转）。
  *
@@ -107,7 +125,7 @@ export class CodegraphEngineAdapter implements CodegraphEnginePort {
     try {
       // stdin=ignore：CLI 尾部交互提示（init 的 watch 回退选择等）收到 EOF
       // 即取消跳过——被动调用永不因等待交互输入而挂起。
-      proc = Bun.spawn([binaryPath, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      proc = Bun.spawn(cliSpawnCmd(binaryPath, args), { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     } catch (e) {
       throw new EngineUnavailableError(`${failLabel}：子进程启动失败（${brief(e)}）`);
     }

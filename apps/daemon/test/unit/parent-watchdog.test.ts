@@ -57,4 +57,37 @@ describe("startParentWatchdog（H-4 父死看门狗）", () => {
     await Bun.sleep(25);
     expect(fired).toBe(1);
   });
+
+  // win32 兼容面（TR-95）：win32 无 ppid→1 reparent 语义，ppid 滞留死父 pid，
+  // 孤儿判据靠 aliveOf 存活探测；注入 aliveOf 即启用探测（posix 缺省不启用）。
+  test("win32 语义：ppid 滞留但 aliveOf 判父已死 → onOrphan 触发且仅一次", async () => {
+    const src = ppidSource(1234); // win32：父死后 ppid 滞留不变
+    let alive = true;
+    let fired = 0;
+    startParentWatchdog({
+      ppidOf: src.get,
+      aliveOf: () => alive,
+      intervalMs: 5,
+      onOrphan: () => fired++,
+    });
+    await Bun.sleep(15); // 父存活期若干 tick
+    expect(fired).toBe(0);
+    alive = false; // 壳死亡（win32：ppid 不重挂）
+    await Bun.sleep(40);
+    expect(fired).toBe(1);
+  });
+
+  test("win32 语义：aliveOf 恒存活 + ppid >1 → onOrphan 不触发", async () => {
+    const src = ppidSource(1234);
+    let fired = 0;
+    const stop = startParentWatchdog({
+      ppidOf: src.get,
+      aliveOf: () => true,
+      intervalMs: 5,
+      onOrphan: () => fired++,
+    });
+    await Bun.sleep(30);
+    expect(fired).toBe(0);
+    stop();
+  });
 });
