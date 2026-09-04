@@ -294,10 +294,10 @@ export interface KgCommandContext {
    *  现值解析器组装，直接注入形态保留给 stub 测试 rig）。 */
   readonly bootstrap: KgBootstrapService | undefined;
   /** kg 维护批两命令应用编排面（C1：kg.graph.purge / kg.index.delete，契约
-   *  PROTOCOL.md §22；未装配 → undefined，handler 回 command.unimplemented；
+   *  PROTOCOL-CHANGELOG.md §22；未装配 → undefined，handler 回 command.unimplemented；
    *  生产面经容器 workspace 现值解析器组装，kgBootstrap 同接缝）。 */
   readonly maintenance: KgMaintenanceService | undefined;
-  /** kg 评审批一命令应用编排面（W2-F：kg.review.create，契约 PROTOCOL.md §23；
+  /** kg 评审批一命令应用编排面（W2-F：kg.review.create，契约 PROTOCOL-CHANGELOG.md §23；
    *  未装配 → undefined，handler 回 command.unimplemented；生产面经容器
    *  workspace 现值解析器组装，kgBootstrap/kgMaintenance 同接缝）。 */
   readonly review: KgReviewService | undefined;

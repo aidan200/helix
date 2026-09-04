@@ -1,6 +1,6 @@
 /**
  * KgMaintenanceService —— kg 维护批两命令应用编排（C1：kg.graph.purge /
- * kg.index.delete；契约 = PROTOCOL.md §22）。
+ * kg.index.delete；契约 = PROTOCOL-CHANGELOG.md §22）。
  *
  * ws-server handlers/kg.ts 两命令的唯一 service 面（driving 只转发不决策，
  * kg 族既有口径）。与 KgViewerService（P-1 读面）/ KgBootstrapService

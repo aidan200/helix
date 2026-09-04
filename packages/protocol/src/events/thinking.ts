@@ -1,6 +1,6 @@
 import type { EventFrame } from "../envelope";
 
-// ── v0.11 新增：thinking 族（thinking 批 ①，iter-20260823-6ps5 T1.1；AD-2/AD-4，契约 = PROTOCOL.md §17.11） ──
+// ── v0.11 新增：thinking 族（thinking 批 ①，iter-20260823-6ps5 T1.1；AD-2/AD-4，契约 = PROTOCOL-CHANGELOG.md §17.11） ──
 
 /**
  * thinking.changed：会话 thinking 档覆盖生效广播（v0.11 新增，thinking 批 ①；

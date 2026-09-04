@@ -441,7 +441,7 @@ export const COMMAND_SURFACE = {
   /** 发送 kg.bootstrap.impact（CL-4 F4.3 连带只读推导；update/supersede 成功后刷新标记）。 */
   sendKgBootstrapImpact: (deps) =>
     (payload: KgBootstrapImpactPayload) => deps.send(kgBootstrapImpactCommand(payload)),
-  // ── kg 维护批两命令面（C1，契约 PROTOCOL.md §22）──
+  // ── kg 维护批两命令面（C1，契约 PROTOCOL-CHANGELOG.md §22）──
   /** 发送 kg.graph.purge（清空图谱；危险操作——UI 两步确认，daemon 门禁复核）。 */
   sendKgGraphPurge: (deps) =>
     (payload: KgGraphPurgePayload) => deps.send(kgGraphPurgeCommand(payload)),

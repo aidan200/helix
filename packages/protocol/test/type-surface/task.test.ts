@@ -62,7 +62,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
     expect(family).toEqual([...TASK_COMMANDS]);
     // 否定面：零干预词表不得出现在 task 族命令名中（steer/重试/编辑/创建旁路）——
     // task.retry 为白名单例外：job 级生命周期人工复活（failed→running），非批次
-    // 重试/内容干预，AD-2 语义保持（task.retry 批裁决，PROTOCOL.md §21 注记）。
+    // 重试/内容干预，AD-2 语义保持（task.retry 批裁决，PROTOCOL-CHANGELOG.md §21 注记）。
     const forbidden = family.filter(
       (t) => t !== "task.retry" && /steer|retry|edit|update|modify|create|write|prompt/i.test(t),
     );

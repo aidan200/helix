@@ -12,7 +12,7 @@ import type {
  * v0.3 样例帧（spawn 锚点三形态/tier 订阅两形态/steer 定向两形态）
  * （T3.4 自 test/type-surface.test.ts 按版本批次归档迁出，批次身份保留；const 导出，语义随导出保留。）
  */
-// ── v0.3 样例帧（契约 = PROTOCOL.md §12.1/§12.2/§12.3；构造即类型检查） ──
+// ── v0.3 样例帧（契约 = PROTOCOL-CHANGELOG.md §12.1/§12.2/§12.3；构造即类型检查） ──
 
 /** CL-1 spawn 锚点：agent.spawned 增量帧三形态（string 锚 / null 流首 / 缺省主实例） */
 export const spawnedAnchored: EventEnvelope = {

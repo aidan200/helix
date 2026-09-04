@@ -365,7 +365,7 @@ export function kgBootstrapImpactCommand(payload: KgBootstrapImpactPayload): KgB
   return { v: PROTOCOL_VERSION, type: "kg.bootstrap.impact", payload };
 }
 
-// ── kg 维护批两命令（C1；契约 PROTOCOL.md §22）────
+// ── kg 维护批两命令（C1；契约 PROTOCOL-CHANGELOG.md §22）────
 // 全局命令（信封 sessionId 省略）；回执 = kg.*.result 点对点帧（零推送同规）。
 // 职责分层：purge 清 kg 库全部内容（不动 .codegraph）；index.delete 删索引
 // 目录（不动知识层）。

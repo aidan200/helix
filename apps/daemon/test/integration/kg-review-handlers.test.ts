@@ -23,7 +23,7 @@ import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 
 /**
  * kg.review.create 发起链路 I 层（W2-F 轨二语义体检任务，R21/R23；契约
- * PROTOCOL.md §23）：真 KgReviewService × 真 kg 库（tmp per-project）×
+ * PROTOCOL-CHANGELOG.md §23）：真 KgReviewService × 真 kg 库（tmp per-project）×
  * 真任务栈（TaskEngineService/TaskStore @ tmp helix.db，fake skill 注册表
  * kg-review manifest）× loopback WS 路由。kg-bootstrap-handlers.test.ts 同构。
  *

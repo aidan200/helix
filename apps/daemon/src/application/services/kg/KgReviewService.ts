@@ -1,6 +1,6 @@
 /**
  * KgReviewService —— W2-F 轨二语义体检任务 kg.review.create 发起面
- *（设计 kg-driven-dev-loop-design D5 轨二 + R21/R23；契约 PROTOCOL.md §23）。
+ *（设计 kg-driven-dev-loop-design D5 轨二 + R21/R23；契约 PROTOCOL-CHANGELOG.md §23）。
  *
  * 对标 KgBootstrapService.create 的同构路径（准入机械复核 → createTask 同一
  * API，createdBy="page"），但**只有发起面**——体检执行归任务系统（kg-review

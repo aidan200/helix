@@ -137,7 +137,7 @@ export interface SessionSnapshotDto {
     effective: string | null;
   };
   /**
-   * 会话模式（P1 会话模式框架 T2，additive；PROTOCOL.md §18）：建会话时
+   * 会话模式（P1 会话模式框架 T2，additive；PROTOCOL-CHANGELOG.md §18）：建会话时
    * 定格（chat.send draft 链 mode 透传落库；此后无写路径——快照只读回带）。
    * 缺省 = 未携带（旧剧本/旧 daemon 兼容，读侧按 "default" 兜底）。
    */

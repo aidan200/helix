@@ -74,7 +74,7 @@ export function buildKgResolverGroup(deps: KgResolverGroupDeps): KgResolverGroup
         skills: deps.skills,
       }),
   );
-  // kg 维护批数据面解析器（C1，契约 PROTOCOL.md §22）：workspace 现值 stack
+  // kg 维护批数据面解析器（C1，契约 PROTOCOL-CHANGELOG.md §22）：workspace 现值 stack
   //（project/store/sync/fsWatch/codegraphEngine 面）+ 任务栈 store（purge
   // 门禁数据源）组装，WeakMap 按 stack 记忆化（kgBootstrap 同接缝）。
   const kgMaintenanceResolver = memoizedByStack(
@@ -89,7 +89,7 @@ export function buildKgResolverGroup(deps: KgResolverGroupDeps): KgResolverGroup
         taskStore: deps.taskStore,
       }),
   );
-  // kg 评审批数据面解析器（W2-F，契约 PROTOCOL.md §23）：workspace 现值
+  // kg 评审批数据面解析器（W2-F，契约 PROTOCOL-CHANGELOG.md §23）：workspace 现值
   // stack（project 面）+ 任务栈 engine 组装，WeakMap 按 stack 记忆化
   //（kgBootstrap/kgMaintenance 同接缝；只有发起面——无需 graph/write/sync）。
   const kgReviewResolver = memoizedByStack(

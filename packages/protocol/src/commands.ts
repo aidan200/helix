@@ -49,7 +49,7 @@ export interface ChatSendPayload {
    */
   model?: string;
   /**
-   * 建会话模式（P1 会话模式框架 T2，additive；PROTOCOL.md §18）：仅
+   * 建会话模式（P1 会话模式框架 T2，additive；PROTOCOL-CHANGELOG.md §18）：仅
    * draft:true 建会话链消费——草稿态选定的会话模式（唯一设置入口；建会话
    * 定格锁定，无 mode.set 命令——锁定 = 结构不可能，非校验拒绝）；缺省 =
    * "default"（旧客户端兼容）。字符串透传：未知 mode 由 daemon 模式注册表
@@ -129,7 +129,7 @@ export interface AgentUnsubscribePayload {
 export interface AgentKillCommand extends CommandFrame<AgentKillPayload> {
   type: "agent.kill";
 }
-/** 订阅实例事件流（v0.1 通路语义：订阅表 + 全广播，见 PROTOCOL.md §10.6） */
+/** 订阅实例事件流（v0.1 通路语义：订阅表 + 全广播，见 PROTOCOL-CHANGELOG.md §10.6） */
 export interface AgentSubscribeCommand extends CommandFrame<AgentSubscribePayload> {
   type: "agent.subscribe";
 }
@@ -441,7 +441,7 @@ export interface WebStartCommand extends CommandFrame<EmptyPayload> {
   type: "web.start";
 }
 
-// ── v0.11 新增：thinking 族（thinking 批 ①，iter-20260823-6ps5 T1.1；AD-2/AD-4，契约 = PROTOCOL.md §17.11） ──
+// ── v0.11 新增：thinking 族（thinking 批 ①，iter-20260823-6ps5 T1.1；AD-2/AD-4，契约 = PROTOCOL-CHANGELOG.md §17.11） ──
 
 /**
  * thinking.set 载荷：会话 thinking 档覆盖（P-1/F1.1）——信封 sessionId 必填

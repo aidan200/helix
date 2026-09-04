@@ -16,7 +16,7 @@ export interface ConnectionWelcomePayload {
    */
   draft?: boolean;
   /**
-   * 当前模式面（P1 会话模式框架 T2，additive；PROTOCOL.md §18）：daemon
+   * 当前模式面（P1 会话模式框架 T2，additive；PROTOCOL-CHANGELOG.md §18）：daemon
    * 当前会话的模式——草稿握手 = 草稿暂存模式（前端 header 模式选择器
    * 恢复基准）；已建会话握手 = session.mode 定格值。与 draft 字段同构
    * （同为「当前会话」投影）；缺省 = 未携带（旧 daemon 兼容，读侧按

@@ -1,6 +1,6 @@
 /**
  * modes：会话模式注册表 + mode 帧字段（P1 会话模式框架 T2，
- * mode-framework-p1；PROTOCOL.md §18 微批登记——版本位不 bump）。
+ * mode-framework-p1；PROTOCOL-CHANGELOG.md §18 微批登记——版本位不 bump）。
  *
  * 守护面：
  * ① MODES 完整性/唯一性（注册表单点：default 恰一条，id 无重复）；

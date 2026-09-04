@@ -90,7 +90,7 @@ export interface CommandFrame<T = unknown> {
    * （v0/v0.1 命令帧不带仍合法），必填纪律由 v0.2 客户端保证。
    */
   sessionId?: string;
-  /** 实例归属预留位：命令侧不消费（agentId 在 payload 内；PROTOCOL.md §10.1） */
+  /** 实例归属预留位：命令侧不消费（agentId 在 payload 内；PROTOCOL-CHANGELOG.md §10.1） */
   instanceId?: string;
   /** workspace 路由预留字段：可选；v0.2 仍不消费 */
   workspace?: WorkspaceRoute;
@@ -113,7 +113,7 @@ export interface EventFrame<T = unknown> {
   sessionId?: string;
   /**
    * 实例归属（v0.1 起）：可选。**T10 起写侧全实例显式携带**（main 同为
-   * `agent-<唯一串>`，PROTOCOL.md §10.1/§17.11）；**缺省 = legacy 主实例
+   * `agent-<唯一串>`，PROTOCOL-CHANGELOG.md §10.1/§17.11）；**缺省 = legacy 主实例
    * （读侧推断，兼容历史事件/历史快照；写侧不再产出）**。
    * payload 兼容红线优先（v0.1 通道族 payload 内嵌 instanceId 并存保留），
    * 信封位为路由权威（契约 A §1.2）。

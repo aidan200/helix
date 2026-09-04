@@ -10,7 +10,7 @@ import type {
 
 /**
  * v0.11 样例帧（thinking 批 additive 四块，iter-20260823-6ps5 T1.1；
- * 契约 = development/contracts/thinking-protocol.md，PROTOCOL.md §17.11）：
+ * 契约 = development/contracts/thinking-protocol.md，PROTOCOL-CHANGELOG.md §17.11）：
  * ① thinking.set 命令 + thinking.changed 广播（会话状态命令族，仿 model.set/
  *    model.changed 形态）；② CatalogModel 防腐 reasoning 能力位；
  * ④ agent.instantiated payload + thinkingLevel。

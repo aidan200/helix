@@ -362,7 +362,7 @@ export class KgMockStore {
         return this.replyNodeSupersede(p);
       case "kg.bootstrap.impact":
         return this.replyBootstrapImpact(p);
-      // ── kg 维护批两命令（C1；PROTOCOL.md §22 镜像）──
+      // ── kg 维护批两命令（C1；PROTOCOL-CHANGELOG.md §22 镜像）──
       case "kg.graph.purge":
         return this.replyGraphPurge(p);
       case "kg.index.delete":

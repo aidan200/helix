@@ -8,5 +8,5 @@
  * T10 实例 ID 统一（T10c 常量退役）：原 MAIN_INSTANCE_ID（"main"）已删除
  * ——现行契约下所有实例 instanceId = agent-<唯一串>，legacy "main" 判别
  * 由读侧 helper 承担（protocol projection/isMainInstance、shell
- * entities/session isMainChannel 各自单点，PROTOCOL.md §17.11）。
+ * entities/session isMainChannel 各自单点，PROTOCOL-CHANGELOG.md §17.11）。
  */

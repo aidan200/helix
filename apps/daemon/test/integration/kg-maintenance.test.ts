@@ -33,7 +33,7 @@ import { PROTOCOL_VERSION, type FrameVersion } from "@helix/protocol";
 
 /**
  * kg 维护批两命令 I 层（C1：kg.graph.purge / kg.index.delete；契约 =
- * PROTOCOL.md §22）：真 kg service 栈（KgProjectService/KgSyncService/
+ * PROTOCOL-CHANGELOG.md §22）：真 kg service 栈（KgProjectService/KgSyncService/
  * KgWriteService/KgBootstrapService/KgMaintenanceService/KgFsWatchService）
  * × 真 kg 库（tmp per-project）× 真任务栈（TaskEngineService/TaskStore @
  * tmp helix.db，fake skill 注册表）× fake 引擎/监控端口 × loopback WS 路由。

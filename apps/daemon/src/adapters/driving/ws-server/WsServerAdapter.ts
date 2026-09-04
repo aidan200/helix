@@ -249,14 +249,14 @@ export interface WsServerAdapterDeps {
    */
   readonly kgBootstrap?: KgBootstrapService | (() => KgBootstrapService | undefined);
   /**
-   * kg 维护批数据面（C1，契约 PROTOCOL.md §22 两命令）：直接注入形态
+   * kg 维护批数据面（C1，契约 PROTOCOL-CHANGELOG.md §22 两命令）：直接注入形态
    *（stub 测试 rig）；生产面经解析器注入（读 workspace 现值 stack 组装
    * KgMaintenanceService——组合根 WeakMap 记忆化，kgBootstrap 同接缝）。
    * 未装配 → command.unimplemented 回执不崩溃（kg.ts 先例）。
    */
   readonly kgMaintenance?: KgMaintenanceService | (() => KgMaintenanceService | undefined);
   /**
-   * kg 评审批数据面（W2-F，契约 PROTOCOL.md §23 一命令）：直接注入形态
+   * kg 评审批数据面（W2-F，契约 PROTOCOL-CHANGELOG.md §23 一命令）：直接注入形态
    *（stub 测试 rig）；生产面经解析器注入（读 workspace 现值 stack 组装
    * KgReviewService——组合根 WeakMap 记忆化，kgBootstrap 同接缝）。
    * 未装配 → command.unimplemented 回执不崩溃（kg.ts 先例）。
@@ -559,7 +559,7 @@ export class WsServerAdapter {
         return handleKgNodeSupersede(this.kgContext(ws, type, payload));
       case "kg.bootstrap.impact":
         return handleKgBootstrapImpact(this.kgContext(ws, type, payload));
-      // ── kg 维护批（C1，契约 PROTOCOL.md §22；handlers/kg.ts）──
+      // ── kg 维护批（C1，契约 PROTOCOL-CHANGELOG.md §22；handlers/kg.ts）──
       case "kg.graph.purge":
         return handleKgGraphPurge(this.kgContext(ws, type, payload));
       case "kg.index.delete":

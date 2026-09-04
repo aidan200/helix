@@ -1,5 +1,5 @@
 /**
- * 会话模式注册表（P1 会话模式框架 T2，mode-framework-p1；PROTOCOL.md §18
+ * 会话模式注册表（P1 会话模式框架 T2，mode-framework-p1；PROTOCOL-CHANGELOG.md §18
  * 微批登记——版本位不 bump，§14 同构先例）。
  *
  * session 一对一绑定模式：草稿态可切（chat.send{draft:true, mode} 唯一写

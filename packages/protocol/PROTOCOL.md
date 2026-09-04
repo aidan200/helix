@@ -1896,8 +1896,8 @@ kg.review.create.result 同形）。
 
 ### 17.1 SoT 声明
 
-**本文档是 Helix WS 契约的唯一事实源（SoT）**：27 命令 / 47 事件的 payload
-形状全部登记正文（§15 / §16），仓外契约文档（iter-20260816-6q6f /
+**本文档是 Helix WS 契约的唯一事实源（SoT）**：全部命令 / 事件的 payload
+形状登记正文（§15 / §16，计数以两节计数声明行为准），仓外契约文档（iter-20260816-6q6f /
 iter-20260819-erio 的 `development/contracts/`）降为**历史定形档案**，不再
 作为实现规范依据——§12 起「契约 SoT 归本文档」的口头声明自此由机械口径
 兜底（AD-4 选项 B 全量回迁收口）。类型权威源 = `packages/protocol` TS 定义
@@ -1910,6 +1910,9 @@ iter-20260819-erio 的 `development/contracts/`）降为**历史定形档案**�
   additive 可选字段，TR-AD-23① 口径）必须**同 commit** 在 §15/§16 落
   `#### \`<type>\`` 锚 + 字段行（含可选性、缺省语义与登记版本）；禁止委托
   仓外文档或「以代码为文档」。新增命令/事件不同步登记即守护红（断言②③）。
+  **批次备案同 commit 落 PROTOCOL-CHANGELOG.md**（protocol-split 批起）：
+  版本 bump = 新批次节（§17.N 续号）；additive 微批 = 批内补登节；备案
+  写回本文档即断言⑥红。
 - **② 版本位单点律**：`PROTOCOL_VERSION` 唯一定义于
   `packages/protocol/src/envelope.ts`；任何脚本 / 文档 / 测试引用版本一律
   从单点读或由断言守护，禁止手写字面量（perf-a11y `V = "0.3"` 漂移为
@@ -1918,7 +1921,7 @@ iter-20260819-erio 的 `development/contracts/`）降为**历史定形档案**�
   字段（welcome.draft / chat.send.model / chat.send.draft）随 v0.5 批次
   定形登记，本批零新增命令/事件（22/40 计数不变）。
 
-### 17.3 sot-consistency 断言口径（五条）
+### 17.3 sot-consistency 断言口径（六条）
 
 落位 `packages/protocol/test/type-surface/sot-consistency.test.ts`
 （T2.4；断言粒度 = presence 级，文档 ↔ 代码不一致即红）：
@@ -1927,13 +1930,16 @@ iter-20260819-erio 的 `development/contracts/`）降为**历史定形档案**�
    `PROTOCOL_VERSION` 导出值（防版本字面量漂移的文档面复发）。
 2. **类型 presence**：`COMMAND_TYPES` / `EVENT_TYPES` 每个字面量在 §15/§16
    有对应 `#### \`<type>\`` 登记锚（新增命令/事件不登记即红）。
-3. **计数一致**：§15/§16 计数声明行（22 命令全集 / 40 事件全集）== 常量
+3. **计数一致**：§15/§16 计数声明行数值 == 常量
    目录长度（后续演进随断言同步）。
 4. **additive 字段 presence**：v0.3/v0.4/§14 批次新增可选字段
    （anchorEntryId / tier / instanceId / draft / model）在登记表中有字段行
    （防 draft 零登记复发）。
 5. **通道归属一致**：§16 各族小节内的事件 type 集合 == `EVENT_CHANNELS`
    对应通道值域（防文档族结构与代码类型学漂移）。
+6. **文件职责守护**（protocol-split 批）：PROTOCOL-CHANGELOG.md 存在非空
+   且含批次节标题；本文档内不出现批次节标题（§10–§14 / §17.5+ / §18–§23
+   节号空间）——批次备案写回现行文件即红。
 
 ### 17.4 生成式基建边界（AD-4 选项 C 转池声明）
 

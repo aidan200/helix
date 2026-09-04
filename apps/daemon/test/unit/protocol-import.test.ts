@@ -15,7 +15,7 @@ import {
  */
 describe("@helix/protocol 工作区解析（TP-CL2-2 基线）", () => {
   test("daemon 侧 import 同一协议包并使用其类型", () => {
-    expect(PROTOCOL_VERSION).toBe("0.11"); // v0.11 升位（thinking 批 additive，iter-20260823-6ps5 T1.1；契约 = PROTOCOL.md §17.11）
+    expect(PROTOCOL_VERSION).toBe("0.11"); // v0.11 升位（thinking 批 additive，iter-20260823-6ps5 T1.1；契约 = PROTOCOL-CHANGELOG.md §17.11）
 
     const cmd: ChatSendCommand = { v: PROTOCOL_VERSION, type: "chat.send", payload: { text: "ping" } };
     expect(cmd.type).toBe("chat.send");

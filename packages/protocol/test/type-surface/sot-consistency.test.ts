@@ -6,9 +6,12 @@
  * 守护面（文档 ↔ 代码不一致即红）：
  * ① 版本位一致：标题行 + §3 代码块版本字面量 == PROTOCOL_VERSION（§17.2② 单点律的文档面）；
  * ② 类型 presence：COMMAND_TYPES / EVENT_TYPES 每字面量在 §15/§16 有 `#### \`<type>\`` 登记锚；
- * ③ 计数一致：§15/§16 计数声明行数值 == 常量目录长度（22 / 40）；
+ * ③ 计数一致：§15/§16 计数声明行数值 == 常量目录长度（61 / 78）；
  * ④ additive 字段 presence：anchorEntryId / tier / instanceId / draft / model 在对应登记表有字段行；
- * ⑤ 通道归属一致：§16 各族小节事件 type 集合 == EVENT_CHANNELS 对应通道值域。
+ * ⑤ 通道归属一致：§16 各族小节事件 type 集合 == EVENT_CHANNELS 对应通道值域；
+ * ⑥ 文件职责守护（protocol-split 批）：PROTOCOL-CHANGELOG.md 存在且非空；
+ *   PROTOCOL.md 内不出现批次节标题（^## 1[0-4]. / ^## 1[89]|2[0-3]. /
+ *   ^### 17.5–17.11）——批次备案写回现行文件即红（单一职责机械兑底）。
  *
  * 粒度边界（§17.4 已裁决）：presence 级——字段改类型不改名不守护（字段级逐形状
  * diff 属生成式文档工具，转池不做）。
@@ -24,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { COMMAND_TYPES, EVENT_CHANNELS, EVENT_TYPES, PROTOCOL_VERSION } from "../../src/index";
 
 const DOC = fileURLToPath(new URL("../../PROTOCOL.md", import.meta.url));
+const CHANGELOG = fileURLToPath(new URL("../../PROTOCOL-CHANGELOG.md", import.meta.url));
 
 /** 读入文档（文件缺失/不可读 → throw = 红）。 */
 function loadDoc(): string {
@@ -263,8 +267,7 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
 
   test("⑤ 通道归属一致：§16 各族小节事件 type 集合 == EVENT_CHANNELS 对应通道值域", () => {
     const doc = loadDoc();
-    const families = parseEventFamilies(doc);
-    const valueChannels = [...new Set(Object.values(EVENT_CHANNELS))];
+    const families = parseEventFamilies(doc);    const valueChannels = [...new Set(Object.values(EVENT_CHANNELS))];
     const channelDomain = new Map<string, string[]>(valueChannels.map((c) => [c, [] as string[]]));
     for (const [evt, ch] of Object.entries(EVENT_CHANNELS)) {
       channelDomain.get(ch)!.push(evt);
@@ -290,5 +293,21 @@ describe("sot-consistency：PROTOCOL.md ↔ protocol 类型 SoT 守护（T2.4，
       for (const e of actual) if (!expected.has(e)) violations.push(`§16 小节事件 \`${e}\` 不属于该小节声明的通道值域`);
     }
     expect(violations).toEqual([]);
+  });
+
+  test("⑥ 文件职责守护：CHANGELOG 存在非空；PROTOCOL.md 无批次节标题（protocol-split）", () => {
+    // (a) 批次备案文件存在且非空（缺失/空 → throw = 红）
+    const changelog = readFileSync(CHANGELOG, "utf8");
+    if (changelog.trim() === "") throw new Error("PROTOCOL-CHANGELOG.md 缺失或为空——批次备案文件丢失");
+    // (b) 现行文件内不得出现批次节标题（§10–§14 / §18–§23 节级 + §17.5–§17.11 小节级）
+    const doc = loadDoc();
+    const staleHeads = [
+      ...doc.matchAll(/^## (1[0-4]|1[89]|2[0-3])\. /gm),
+      ...doc.matchAll(/^### 17\.(?:5|6|7|8|9|10|11) /gm),
+    ].map((m) => m[0]!.trim());
+    expect(staleHeads).toEqual([]);
+    // (c) CHANGELOG 至少含一个批次节标题（守护「备案文件装的是备案」，非任意占位文本）
+    const batchHeads = [...changelog.matchAll(/^## (?:1[0-4]|1[89]|2[0-3])\. |^### 17\.(?:5|6|7|8|9|10|11) /gm)];
+    if (batchHeads.length === 0) throw new Error("PROTOCOL-CHANGELOG.md 无任何批次节标题——内容形态不符");
   });
 });

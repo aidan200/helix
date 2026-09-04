@@ -360,7 +360,7 @@ export function handleKgBootstrapImpact(ctx: KgCommandContext): void {
   ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
 }
 
-// ── kg 维护批两命令（C1，契约 PROTOCOL.md §22） ──
+// ── kg 维护批两命令（C1，契约 PROTOCOL-CHANGELOG.md §22） ──
 
 /** kg.graph.purge（清空图谱：门禁在 service 机械复核；UI 两步确认不信赖）。 */
 export function handleKgGraphPurge(ctx: KgCommandContext): void {
@@ -432,7 +432,7 @@ export function handleKgHealth(ctx: KgCommandContext): void {
   ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
 }
 
-// ── kg 评审批一命令（W2-F 轨二语义体检任务；契约 PROTOCOL.md §23） ──
+// ── kg 评审批一命令（W2-F 轨二语义体检任务；契约 PROTOCOL-CHANGELOG.md §23） ──
 
 /** kg.review.create（准入从简 = 索引存在即可、允许反复发起 → createTask 同源，createdBy="page"）。 */
 export function handleKgReviewCreate(ctx: KgCommandContext): void {
