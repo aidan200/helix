@@ -36,7 +36,7 @@ import { ClosureRecorder, type ClosureFindingsSink } from "./ClosureRecorder";
 
 /**
  * SchedulerService —— SubAgent 调度编排门面（architecture.md §4，AD-7）。
- * （拆分史见 docs/decisions/ADR-subagent-scheduler.md）
+ * （守护式三拆：门面 + SubagentEventTranslator + ClosureRecorder）
  *
  * 【业务流转总览】
  *

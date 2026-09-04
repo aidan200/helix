@@ -74,7 +74,7 @@ import { createWorkspaceFs } from "../adapters/driven/workspace-fs";
  * 装配序（architecture §4.2.2）：启动序前置（目录/锁/config）→ 四命名
  * 装配函数（buildPersistence → buildModelStack → buildSessionStack）→
  * wireEventFanout → 晚绑回填闭合 → registry.initialize → driving 接线
- * （ws-server / cli）→ 返回句柄。演进史见 docs/decisions/ADR-composition-root.md。
+ * （ws-server / cli）→ 返回句柄。
  * M29 切片：kg 解析器群（buildKgResolverGroup）/ 任务编排服务
  * （buildTaskOrchestrator）/ driving 接线两阶段（buildDrivingAdapters）
  * 均归 infrastructure/assembly（AG-02④ 豁免面），装配顺序语义不变。

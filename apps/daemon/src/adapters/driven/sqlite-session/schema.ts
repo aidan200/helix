@@ -37,7 +37,7 @@
  * 默认；旧行 NULL = default 语义，恢复侧 RestoreService 归一，与
  * main_instance_id 同构的守护式补列）。
  *
- * 列演进（演进史见 docs/decisions/ADR-persistence.md）：agent_instance_id / instance_id 列与复合 PK；
+ * 列演进（守护式列级演进，不进迁移框架）：agent_instance_id / instance_id 列与复合 PK；
  * DEFAULT 'main' = 主实例固定 id，与旧行回填常量同源。
  */
 export const SCHEMA_SQL = `
