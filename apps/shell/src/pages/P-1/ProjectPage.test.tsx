@@ -80,12 +80,8 @@ interface Sent {
   report: number;
   confirm: KgNodeConfirmPayload[];
   index: KgIndexStatusPayload[];
-  /** T3.2 kg-bootstrap 批五命令发送面（produce 分组/修正/连带）。 */
+  /** T3.2 kg-bootstrap 批命令发送面。 */
   bootstrapCreate: { project: string }[];
-  bootstrapProduce: { project: string }[];
-  nodeUpdate: { project: string; nodeId: string; digest?: string; body?: string }[];
-  nodeSupersede: { project: string; nodeId: string; reason: string }[];
-  bootstrapImpact: { project: string; nodeId: string }[];
   /** C1 kg 维护批两命令发送面（清空图谱 / 删除索引）。 */
   graphPurge: { project: string }[];
   indexDelete: { project: string }[];
@@ -98,7 +94,7 @@ interface Sent {
 
 const sent: Sent = {
   projects: 0, list: [], detail: [], report: 0, confirm: [], index: [],
-  bootstrapCreate: [], bootstrapProduce: [], nodeUpdate: [], nodeSupersede: [], bootstrapImpact: [],
+  bootstrapCreate: [],
   graphPurge: [], indexDelete: [], health: [], reviewCreate: [], candidatesList: [],
 };
 let listeners: ((e: EventEnvelope) => void)[] = [];
@@ -140,22 +136,6 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendKgBootstrapCreate: (payload: { project: string }) => {
         sent.bootstrapCreate.push(payload);
-        return true;
-      },
-      sendKgBootstrapProduce: (payload: { project: string }) => {
-        sent.bootstrapProduce.push(payload);
-        return true;
-      },
-      sendKgNodeUpdate: (payload: { project: string; nodeId: string; digest?: string; body?: string }) => {
-        sent.nodeUpdate.push(payload);
-        return true;
-      },
-      sendKgNodeSupersede: (payload: { project: string; nodeId: string; reason: string }) => {
-        sent.nodeSupersede.push(payload);
-        return true;
-      },
-      sendKgBootstrapImpact: (payload: { project: string; nodeId: string }) => {
-        sent.bootstrapImpact.push(payload);
         return true;
       },
       sendKgGraphPurge: (payload: { project: string }) => {
@@ -259,10 +239,6 @@ afterEach(() => {
   sent.confirm = [];
   sent.index = [];
   sent.bootstrapCreate = [];
-  sent.bootstrapProduce = [];
-  sent.nodeUpdate = [];
-  sent.nodeSupersede = [];
-  sent.bootstrapImpact = [];
   sent.graphPurge = [];
   sent.indexDelete = [];
   sent.health = [];
@@ -653,56 +629,6 @@ const BOOT_PROJECTS: KgProjectRow[] = [
   { name: "wiring", path: "/ws/wiring", status: "synced", symbolCount: 7, nodeCount: 0, bootstrapRunning: true }, // P0① 运行中位
 ];
 
-/** 产出分组夹具（任务 → L0/L1 两阶段 → 两批次 → 三节点）。 */
-const PRODUCE_GROUPS = [
-  {
-    jobId: "job-9",
-    title: "legacy 知识图谱创建",
-    stages: [
-      {
-        layer: "L0",
-        name: "L0 核心层",
-        batches: [
-          {
-            batchId: "b-1",
-            scope: "批次：架构基线与全局规范",
-            nodes: [
-              {
-                nodeId: "TR-B1", name: "连接私有读面规则", kind: "rule", status: "confirmed",
-                digest: "页面私有数据走听众转发，零 store 写入。\n第二行 digest。",
-                body: "正文段：页面私有数据走听众转发。",
-                anchors: [{ symbol: "kgListenersRef", path: "apps/shell/src/entities/session/SessionContext.tsx", line: 306 }],
-                rationale: "会话与页面读面解耦。",
-                origin: { taskTitle: "legacy 知识图谱创建", batchScope: "批次：架构基线与全局规范" },
-              },
-            ],
-          },
-        ],
-      },
-      {
-        layer: "L1",
-        name: "L1 领域层",
-        batches: [
-          {
-            batchId: "b-2",
-            scope: "批次：图谱域",
-            nodes: [
-              {
-                nodeId: "E-B2", name: "图谱查看器", kind: "entity", status: "confirmed",
-                digest: "graph 态单页 master-detail。",
-                body: "正文段：graph 态单页 master-detail 组件。",
-                anchors: [],
-                rationale: "V-3 单页裁决。",
-                origin: { taskTitle: "legacy 知识图谱创建", batchScope: "批次：图谱域" },
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-];
-
 function feedBootProjects() {
   feed("kg.projects.result", { projects: BOOT_PROJECTS } satisfies KgProjectsResultPayload);
 }
@@ -772,117 +698,24 @@ describe("T3.2 bootstrap 入口准入与任务内容卡（R-11/R-12）", () => {
     expect(entry.querySelector("[data-launch-btn]")).toBeNull(); // 无启动钮
     expect(entry.textContent).not.toContain("范围参数"); // 无范围输入行
   });
-});
 
-describe("T3.2 产出呈现 / 修正 / 连带（R-13~R-16/R-18）", () => {
-  /** 进入 legacy graph 态 + 切到产出 tab（拉取发出 + 分组回执）。 */
-  function inProducePane() {
+  it("切项目清旧态：bootstrap 启动标记复位（CL-4-T6 联动面）", () => {
     ui();
     feedBootProjects();
     fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("legacy").closest(".pj-row")!);
     feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
     feed("kg.change.report.result", REPORT);
     feed("kg.index.status.result", { state: "synced", symbolCount: 43, syncedAt: "2026-08-25T14:32:00+08:00" });
-    fireEvent.click(qs('[data-tab="produce"]')!);
-    expect(sent.bootstrapProduce).toEqual([{ project: "legacy" }]);
-    feed("kg.bootstrap.produce.result", { groups: PRODUCE_GROUPS });
-  }
-
-  it("三级分组渲染：任务标题+详情链接 → 阶段 → 批次（n 节点）；节点展开四段与来源", () => {
-    inProducePane();
-    const pane = qs("[data-produce-pane='success']");
-    expect(pane).not.toBeNull();
-    expect(pane.textContent).toContain("legacy 知识图谱创建");
-    expect(pane.textContent).toContain("任务详情 →");
-    expect(pane.textContent).toContain("L0 核心层");
-    expect(pane.textContent).toContain("批次：架构基线与全局规范");
-    // 节点展开：正文/锚点/为什么存在/来源（AD-16：nodeId 不作可见文本）
-    fireEvent.click(within(qs("[data-produce-node]") as HTMLElement).getByText("展开 ▾"));
-    const node = qs("[data-produce-node]");
-    expect(node.textContent).toContain("正文段：页面私有数据走听众转发。");
-    expect(node.textContent).toContain("kgListenersRef");
-    expect(node.textContent).toContain("为什么存在");
-    expect(node.textContent).toContain("来源：legacy 知识图谱创建 · 批次：架构基线与全局规范");
-    expect(node.textContent).not.toContain("TR-B1");
-  });
-
-  it("supersede：空理由拦截 → 填理由确认 → 条目翻已废弃 + 理由留史 + 动作钮消失 + impact 刷新标记 + toast 数量", () => {
-    inProducePane();
-    const node = qs("[data-produce-node]");
-    fireEvent.click(within(node).getByText("supersede"));
-    expect(qs("[data-sup-box]")).not.toBeNull();
-    // 空理由：确认后出拦截提示，不发送
-    fireEvent.click(qs("[data-act='supYes']")!);
-    expect(qs("[data-sup-empty]")!.textContent).toContain("supersede 需要填写理由");
-    expect(sent.nodeSupersede).toEqual([]);
-    fireEvent.change(qs("[data-sup-reason]")!, { target: { value: "与现状不符" } });
-    fireEvent.click(qs("[data-act='supYes']")!);
-    expect(sent.nodeSupersede).toEqual([{ project: "legacy", nodeId: "TR-B1", reason: "与现状不符" }]);
-    feed("kg.node.supersede.result", { ok: true });
-    feed("kg.bootstrap.impact.result", {
-      affected: [{ nodeId: "E-B2", name: "图谱查看器", kind: "entity", digestFirstLine: "graph 态单页。" }],
-      count: 1,
-    });
-    const after = qs("[data-produce-node]");
-    expect(after.getAttribute("data-node-status")).toBe("superseded");
-    expect(after.textContent).toContain("已 supersede（留史可查）：与现状不符");
-    expect(within(after).queryByText("supersede")).toBeNull(); // 动作钮消失
-    // 连带标记：E-B2 条目 warning 徽章 + toast 数量；被标记节点状态不变
-    const affectedNode = qs('[data-produce-node][data-affected="true"]');
-    expect(affectedNode.getAttribute("data-node-status")).toBe("confirmed");
-    expect(affectedNode.textContent).toContain("受影响待复核");
-    expect(qs(".toast-zone")!.textContent).toContain("1 个下游节点标记「受影响待复核」");
-  });
-
-  it("修改：编辑 digest+正文保存 → update 回执原位替换（保持 confirmed）", () => {
-    inProducePane();
-    const node = qs("[data-produce-node]");
-    fireEvent.click(within(node).getByText("修改"));
-    fireEvent.change(qs("[data-edit-digest]")!, { target: { value: "修订后的 digest 首行" } });
-    fireEvent.click(qs("[data-act='editYes']")!);
-    expect(sent.nodeUpdate).toEqual([
-      { project: "legacy", nodeId: "TR-B1", digest: "修订后的 digest 首行", body: "正文段：页面私有数据走听众转发。" },
-    ]);
-    feed("kg.node.update.result", {
-      ok: true,
-      node: {
-        ...PRODUCE_GROUPS[0]!.stages[0]!.batches[0]!.nodes[0]!,
-        digest: "修订后的 digest 首行",
-      },
-    });
-    const after = qs("[data-produce-node]");
-    expect(after.getAttribute("data-node-status")).toBe("confirmed");
-    expect(after.textContent).toContain("修订后的 digest 首行");
-  });
-
-  it("无产出空态：空 groups → 「无 bootstrap 产出」+ 说明（R-18）", () => {
-    ui();
-    feedBootProjects();
-    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("legacy").closest(".pj-row")!);
-    feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
-    feed("kg.change.report.result", REPORT);
-    feed("kg.index.status.result", { state: "synced", symbolCount: 43, syncedAt: "2026-08-25T14:32:00+08:00" });
-    fireEvent.click(qs('[data-tab="produce"]')!);
-    feed("kg.bootstrap.produce.result", { groups: [] });
-    const pane = qs("[data-produce-pane='empty']");
-    expect(pane).not.toBeNull();
-    expect(pane.textContent).toContain("无 bootstrap 产出");
-    expect(pane.textContent).toContain("按 任务 / 阶段 / 批次 分组");
-  });
-
-  it("切项目清旧态：produce 分组/内联态/启动标记全复位（CL-4-T6 联动面）", () => {
-    inProducePane();
+    fireEvent.click(qs("[data-launch-btn]")!);
     feed("kg.bootstrap.create.result", { ok: true, jobId: "job-9" });
-    fireEvent.click(qs("[data-produce-node]"));
-    expect(qs("[data-produce-pane='success']")).not.toBeNull();
+    expect(qs('[data-boot-entry="launched"]')).not.toBeNull();
+    // 切到 helix（非空 → 无入口卡）再切回 legacy：入口回到 ready（启动标记随切项目复位）
     fireEvent.click(screen.getByTitle("展开项目域"));
     fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
     feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
     feed("kg.change.report.result", REPORT);
     feed("kg.index.status.result", { state: "synced", symbolCount: 56, syncedAt: "2026-08-25T14:32:00+08:00" });
-    // helix 非空 → 无入口卡（静默）；tab 面回到 detail（kgToken 重挂）
     expect(qs("[data-boot-entry]")).toBeNull();
-    // 切回 legacy：入口回到 ready（启动标记随切项目复位——bootstrap.launched 清）
     fireEvent.click(screen.getByTitle("展开项目域"));
     fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("legacy").closest(".pj-row")!);
     feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
@@ -910,15 +743,14 @@ describe("C1 kg 维护批（清空图谱 + 删除索引 + 空态文案）", () =
     fireEvent.click(qs("[data-kg-purge]"));
     fireEvent.click(within(qs("[data-kg-purge-confirm]")).getByText("确认清空"));
     expect(sent.graphPurge).toEqual([{ project: "helix" }]);
-    const before = { list: sent.list.length, report: sent.report, index: sent.index.length, produce: sent.bootstrapProduce.length, projects: sent.projects };
+    const before = { list: sent.list.length, report: sent.report, index: sent.index.length, projects: sent.projects };
     feed("kg.graph.purge.result", { purged: true, nodesRemoved: 4, symbolsRemoved: 56, filesRemoved: 3 });
     expect(qs(".toast-zone")!.textContent).toContain("已清空图谱");
-    // 四面刷新：列表 / 报告 / 索引态 / 产出 + 左栏项目行（mock 回调每次渲染
+    // 三面刷新：列表 / 报告 / 索引态 + 左栏项目行（mock 回调每次渲染
     // 新身份——挂载 effect 会随重渲染补发，断言下界不钉死精确增量）
     expect(sent.list.length).toBeGreaterThan(before.list);
     expect(sent.report).toBeGreaterThan(before.report);
     expect(sent.index.length).toBeGreaterThan(before.index);
-    expect(sent.bootstrapProduce.length).toBe(before.produce + 1);
     expect(sent.projects).toBe(before.projects + 1);
     // 空态呈现：图谱区（全库无节点专属文案，无「清除过滤」钮）
     feed("kg.list.result", { total: 0, matched: 0, nodes: [] });
@@ -929,10 +761,6 @@ describe("C1 kg 维护批（清空图谱 + 删除索引 + 空态文案）", () =
     feed("kg.change.report.result", { iterationId: "iter-20260825-11fo", entries: [] });
     fireEvent.click(qs('[data-tab="report"]'));
     expect(qs("[data-kg-report-empty]").textContent).toContain("无变化报告内容");
-    // 产出呈现空态（产出已被清理口径）
-    fireEvent.click(qs('[data-tab="produce"]'));
-    feed("kg.bootstrap.produce.result", { groups: [] });
-    expect(qs("[data-produce-pane='empty']").textContent).toContain("尚未发起过知识创建任务，或产出已被清理");
   });
 
   it("purge 门禁回执（kg.graph.purge_blocked）→ err toast + 单飞解锁可重试", () => {
@@ -1026,12 +854,14 @@ describe("W2-F 体检面板运行态（reviewRunning 行标志）", () => {
     expect(qs("[data-review-running-badge]")).toBeNull();
   });
 
-  it("reviewRunning 行 → 概览卡「进行中任务」行直显（免滚到底部）+ 任务页出口", () => {
+  it("reviewRunning 行 → 概览卡任务行直显运行徽标 + 任务页出口（按钮状态即任务状态）", () => {
     inHealthPane("auditing");
-    const running = qs("[data-kg-health-running]");
-    expect(running).not.toBeNull();
-    expect(running!.textContent).toContain("语义体检");
-    expect(running!.querySelector("[data-goto-tasks]")).not.toBeNull();
+    const card = qs("[data-kg-health-overview]");
+    expect(card).not.toBeNull();
+    expect(card!.querySelector("[data-review-running-badge]")).not.toBeNull();
+    expect(card!.querySelector("[data-review-running]")).not.toBeNull();
+    expect(card!.querySelector("[data-review-running]")!.textContent).toContain("语义体检");
+    expect(card!.querySelector("[data-goto-tasks]")).not.toBeNull();
   });
 
   it("发起 → 回执 → ok-strip + kg.projects 重拉（行标志权威化）", () => {
@@ -1129,19 +959,24 @@ describe("候选台账面板（health tab 内：列表 + 四态徽章过滤联�
     expect(deferredRow!.textContent).toContain("第 2 次暂缓");
   });
 
-  it("项目概览统计卡：索引状态 + 符号数 + 知识节点 + 最近同步 + 结构问题 单卡承载", () => {
+  it("项目概览卡按业务三行：统计行（符号/节点/问题）+ 台账行 + 任务行；同步态归头部不重复", () => {
     inCandPanel();
     const card = qs("[data-kg-health-overview]");
     expect(card).not.toBeNull();
-    expect(qs("[data-kg-health-index]")!.textContent).toContain("已同步");
+    // 统计行
     expect(card!.querySelector('[data-stat="symbols"]')!.textContent).toContain("56");
     expect(card!.querySelector('[data-stat="nodes"]')!.textContent).toContain("17"); // kg.projects 行 nodeCount
-    expect(card!.querySelector('[data-stat="syncedAt"]')!.textContent).toContain("2026-08-25 14:32");
     expect(card!.querySelector('[data-stat="issues"]')!.textContent).toContain("0");
-    // 进行中任务行：无运行任务 → 「无」，无任务页出口
-    const running = qs("[data-kg-health-running]");
-    expect(running!.textContent).toContain("无");
-    expect(running!.querySelector("[data-goto-tasks]")).toBeNull();
+    // 同步态/同步时间不重复（归 kgv-head 索引面板）
+    expect(card!.querySelector("[data-kg-health-index]")).toBeNull();
+    expect(card!.querySelector('[data-stat="syncedAt"]')).toBeNull();
+    // 台账行（纯文字计数）
+    const ledger = card!.querySelector("[data-kg-health-ledger]");
+    expect(ledger).not.toBeNull();
+    expect(ledger!.textContent).toContain("待审 0");
+    // 任务行：发起按钮直接在概览卡内
+    expect(card!.querySelector("[data-review-launch-btn]")).not.toBeNull();
+    expect(card!.querySelector("[data-code-review-launch-btn]")).not.toBeNull();
   });
 
   it("任务发起模块紧凑：无说明文案，仅类型徽章 + 名称 + 启动钮", () => {

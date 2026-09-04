@@ -27,10 +27,6 @@ import type {
   ConfigSetCompactionCommand,
   KgBootstrapCreateCommand,
   KgBootstrapCreatePayload,
-  KgBootstrapImpactCommand,
-  KgBootstrapImpactPayload,
-  KgBootstrapProduceCommand,
-  KgBootstrapProducePayload,
   KgCandidatesListCommand,
   KgCandidatesListPayload,
   KgChangeReportCommand,
@@ -49,10 +45,6 @@ import type {
   KgNodeConfirmPayload,
   KgNodeDetailCommand,
   KgNodeDetailPayload,
-  KgNodeSupersedeCommand,
-  KgNodeSupersedePayload,
-  KgNodeUpdateCommand,
-  KgNodeUpdatePayload,
   KgProjectsCommand,
   KgReviewCreateCommand,
   KgReviewCreatePayload,
@@ -343,26 +335,6 @@ export function kgIndexStatusCommand(payload: KgIndexStatusPayload): KgIndexStat
 /** kg.bootstrap.create：发起 bootstrap 任务（CL-1；后端准入机械复核 + createTask 同源）。 */
 export function kgBootstrapCreateCommand(payload: KgBootstrapCreatePayload): KgBootstrapCreateCommand {
   return { v: PROTOCOL_VERSION, type: "kg.bootstrap.create", payload };
-}
-
-/** kg.bootstrap.produce：产出三级分组读面（CL-4 F4.1；absent → 空 groups）。 */
-export function kgBootstrapProduceCommand(payload: KgBootstrapProducePayload): KgBootstrapProduceCommand {
-  return { v: PROTOCOL_VERSION, type: "kg.bootstrap.produce", payload };
-}
-
-/** kg.node.update：修正写面一（内联编辑保存即 updateNode，保持 confirmed）。 */
-export function kgNodeUpdateCommand(payload: KgNodeUpdatePayload): KgNodeUpdateCommand {
-  return { v: PROTOCOL_VERSION, type: "kg.node.update", payload };
-}
-
-/** kg.node.supersede：修正写面二（理由必填双防线 + 留史）。 */
-export function kgNodeSupersedeCommand(payload: KgNodeSupersedePayload): KgNodeSupersedeCommand {
-  return { v: PROTOCOL_VERSION, type: "kg.node.supersede", payload };
-}
-
-/** kg.bootstrap.impact：受影响连带只读推导（CL-4 F4.3；update/supersede 成功后刷新标记）。 */
-export function kgBootstrapImpactCommand(payload: KgBootstrapImpactPayload): KgBootstrapImpactCommand {
-  return { v: PROTOCOL_VERSION, type: "kg.bootstrap.impact", payload };
 }
 
 // ── kg 维护批两命令（C1；契约 PROTOCOL-CHANGELOG.md §22）────

@@ -379,11 +379,10 @@ const ProjectPage = function ProjectPage({
         )}
         {state.mainMode === "graph" && selectedRow !== null && (
           /* 切项目先清旧态再进新态：key=kgToken 强制重挂（新数据面）。T3.2：
-             produce/bootstrap 扩面状态与 dispatch 注入（切项目复位在 reducer） */
+             bootstrap 扩面状态与 dispatch 注入（切项目复位在 reducer） */
           <KgViewer
             key={state.kgToken}
             project={selectedRow}
-            produce={state.produce}
             bootstrapLaunched={state.bootstrap.launched}
             projectDispatch={dispatch}
             onOpenTasks={onOpenTasks}

@@ -20,8 +20,6 @@ import type {
   CommandEnvelope,
   EventEnvelope,
   KgBootstrapCreatePayload,
-  KgBootstrapImpactPayload,
-  KgBootstrapProducePayload,
   KgCandidatesListPayload,
   KgChangeReportPayload,
   KgGraphPurgePayload,
@@ -31,8 +29,6 @@ import type {
   KgListPayload,
   KgNodeConfirmPayload,
   KgNodeDetailPayload,
-  KgNodeSupersedePayload,
-  KgNodeUpdatePayload,
   KgReviewCreatePayload,
   TaskArtifactsPayload,
   TaskDetailPayload,
@@ -55,8 +51,6 @@ import {
   configGetCompactionCommand,
   configSetCompactionCommand,
   kgBootstrapCreateCommand,
-  kgBootstrapImpactCommand,
-  kgBootstrapProduceCommand,
   kgCandidatesListCommand,
   kgChangeReportCommand,
   kgGraphPurgeCommand,
@@ -66,8 +60,6 @@ import {
   kgListCommand,
   kgNodeConfirmCommand,
   kgNodeDetailCommand,
-  kgNodeSupersedeCommand,
-  kgNodeUpdateCommand,
   kgProjectsCommand,
   kgReviewCreateCommand,
   modelCatalogCommand,
@@ -429,18 +421,6 @@ export const COMMAND_SURFACE = {
   /** 发送 kg.bootstrap.create（CL-1：后端准入复核 + createTask 同源 createdBy="page"）。 */
   sendKgBootstrapCreate: (deps) =>
     (payload: KgBootstrapCreatePayload) => deps.send(kgBootstrapCreateCommand(payload)),
-  /** 发送 kg.bootstrap.produce（CL-4 F4.1 产出三级分组读面）。 */
-  sendKgBootstrapProduce: (deps) =>
-    (payload: KgBootstrapProducePayload) => deps.send(kgBootstrapProduceCommand(payload)),
-  /** 发送 kg.node.update（CL-4 F4.2 修正写面一；保存即 updateNode 保持 confirmed）。 */
-  sendKgNodeUpdate: (deps) =>
-    (payload: KgNodeUpdatePayload) => deps.send(kgNodeUpdateCommand(payload)),
-  /** 发送 kg.node.supersede（CL-4 F4.2 修正写面二；理由必填双防线）。 */
-  sendKgNodeSupersede: (deps) =>
-    (payload: KgNodeSupersedePayload) => deps.send(kgNodeSupersedeCommand(payload)),
-  /** 发送 kg.bootstrap.impact（CL-4 F4.3 连带只读推导；update/supersede 成功后刷新标记）。 */
-  sendKgBootstrapImpact: (deps) =>
-    (payload: KgBootstrapImpactPayload) => deps.send(kgBootstrapImpactCommand(payload)),
   // ── kg 维护批两命令面（C1，契约 PROTOCOL-CHANGELOG.md §22）──
   /** 发送 kg.graph.purge（清空图谱；危险操作——UI 两步确认，daemon 门禁复核）。 */
   sendKgGraphPurge: (deps) =>
