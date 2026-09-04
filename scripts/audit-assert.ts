@@ -2,7 +2,10 @@
  * audit 断言脚本（TP-CL5-1 / F(5.5).1；T4.1 工程卫生批次 A）。
  *
  * 断言面（可重复执行，红=非零退出）：
- * ① `bun audit` 全链零漏洞（dev 链 5 漏洞清零的防复发守护）；
+ * ① `bun audit` 全链零漏洞（dev 链 5 漏洞清零的防复发守护）；bun audit
+ *   联网拉漏洞库，请求失败（"audit request failed"，CI 网络瞬断常见）
+ *   ≠ 漏洞检出——请求类失败指数退避重试 4 次，耗尽仍败以基础设施故障
+ *   红（不静默放行），真检出漏洞不重试直接红；
  * ② 版本地板：lock 实装 vite ≥8.2.0 + vitest ≥4.1.0（防 lock 回退到漏洞窗；
  *   T1.2 升级至 latest 线 vite 8.2.2 / vitest 4.1.11，地板随实装 major.minor 线上调）；
  * ③ 生产运行时不引入审计敏感包：root + apps/* 的 dependencies（非 dev）
@@ -37,11 +40,34 @@ function atLeast(version: string, floor: string): boolean {
 }
 
 // ── ① bun audit 全链零漏洞 ──
-const audit = Bun.spawnSync(["bun", "audit"], { cwd: root });
-const auditOut = audit.stdout.toString() + audit.stderr.toString();
-if (audit.exitCode !== 0 || !auditOut.includes("No vulnerabilities found")) {
-  console.error(auditOut);
-  fail("bun audit 检出漏洞（期望清零）");
+// bun audit 需联网拉漏洞库，CI 网络瞬断会报 "audit request failed"（非漏洞
+// 检出）——区分两类失败：请求失败走重试（指数退避 4 次），真检出漏洞即红。
+// 重试耗尽仍请求失败 = 基础设施故障红（明确文案，不静默放行安全闸门）。
+const AUDIT_ATTEMPTS = 4;
+let auditOk = false;
+let auditLastOut = "";
+for (let attempt = 1; attempt <= AUDIT_ATTEMPTS; attempt++) {
+  const audit = Bun.spawnSync(["bun", "audit"], { cwd: root });
+  const out = audit.stdout.toString() + audit.stderr.toString();
+  auditLastOut = out;
+  if (audit.exitCode === 0 && out.includes("No vulnerabilities found")) {
+    auditOk = true;
+    break;
+  }
+  if (!out.includes("audit request failed")) {
+    // 非请求类失败 = 真漏洞检出（或其它断言级失败），不重试直接红
+    console.error(out);
+    fail("bun audit 检出漏洞（期望清零）");
+  }
+  if (attempt < AUDIT_ATTEMPTS) {
+    const waitMs = 5000 * attempt;
+    console.warn(`⚠ ① bun audit 请求失败（第 ${attempt}/${AUDIT_ATTEMPTS} 次），${waitMs / 1000}s 后重试…`);
+    Bun.sleepSync(waitMs);
+  }
+}
+if (!auditOk) {
+  console.error(auditLastOut);
+  fail(`bun audit 连续 ${AUDIT_ATTEMPTS} 次请求失败（registry 不可达/网络故障，非漏洞检出）——人工重跑确认`);
 }
 console.log("✓ ① bun audit 全链零漏洞");
 
