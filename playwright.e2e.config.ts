@@ -44,4 +44,10 @@ export default defineConfig({
     stdout: "pipe",
     stderr: "pipe",
   },
+  // E 层 evidence 迭代标识兜底：本地跑（非 dev-<iter> 分支、未显式注入）
+  // 时以 "e2e" 为迭代目录名，CI 经 job 级 HELIX_EVIDENCE_ITER=ci 覆盖。
+  ...(() => {
+    if (!process.env.HELIX_EVIDENCE_ITER) process.env.HELIX_EVIDENCE_ITER = "e2e";
+    return {};
+  })(),
 });

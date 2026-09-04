@@ -397,7 +397,15 @@ async function main(): Promise<void> {
         // 面），静态声明面同步剔除——与 buildSessionStack 生产引擎的
         // W1/taskCreate 过滤同构（声明即注册硬校验不破；chat 剧本零 kg 调用）。
         tools: MainSessionProfile.tools.filter(
-          (t) => t !== "kg" && t !== "kg-update" && t !== "task_create" && t !== "task_report" && t !== "codegraph",
+          (t) =>
+            t !== "kg" &&
+            t !== "kg-update" &&
+            t !== "task_create" &&
+            t !== "task_report" &&
+            t !== "codegraph" &&
+            t !== "plan_create" &&
+            t !== "plan_update" &&
+            t !== "plan_read",
         ),
       },
       model: fakeModel,

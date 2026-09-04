@@ -99,7 +99,12 @@ jobs:
       # E 层 ×2（真 daemon + FakeLLM，串行 workers=1；第二轮 CL-4-teardown-residue
       # 断言第一轮全量残留——TR-TEST-6 连跑零残留守护）
       - name: E2E E 层 ×2 (real daemon, test:e2e:x2)
-        run: bun run test:e2e:x2
+        run: |
+          # 幂等兑底：上轮 teardown 若撞 EBUSY/竞态残留 helix-* home，本轮从零起步
+          # （不依赖上轮 teardown 完美；harness 的 kill/stop 已修为等 exit 事件，
+          #  此步仅作 CI 入口保险）。
+          rm -rf /tmp/helix-e2e-* /tmp/helix-ws-* /tmp/helix-park-sched-* 2>/dev/null || true
+          bun run test:e2e:x2
 
       # ---- 产物上传（失败也上传，便于排障）----
       - name: Upload playwright artifacts (trace/test-results)

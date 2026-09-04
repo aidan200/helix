@@ -138,14 +138,29 @@ export class DaemonProcess {
   async stop(): Promise<void> {
     if (this.exited) return;
     this.proc.kill("SIGTERM");
-    await waitFor(() => this.exited, 15_000, "daemon SIGTERM 后未退出");
+    // 等进程实体退出（exit 事件）——SIGTERM 后 daemon 要 drain + 释放锁，
+    // killed 标志不反映这一过程的完成。
+    await new Promise<void>((resolve, reject) => {
+      if (this.proc.exitCode !== null) return resolve();
+      const timer = setTimeout(() => reject(new Error("daemon SIGTERM 后 15s 未退出")), 15_000);
+      this.proc.once("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
   }
 
   /** 强杀（kill -9；不给 drain 机会——TS4 可选变体）。 */
   async kill(): Promise<void> {
     if (this.exited) return;
     this.proc.kill("SIGKILL");
-    await waitFor(() => this.exited, 5_000, "daemon SIGKILL 后未退出");
+    // 等进程实体真正退出（exit 事件），而非只看 killed 标志——killed 在信号
+    // 发出即置位，但内核回收/临终文件写完成前 rmSync(home) 会撞 EBUSY。
+    await new Promise<void>((resolve) => {
+      if (this.proc.exitCode !== null) return resolve();
+      this.proc.once("exit", () => resolve());
+      setTimeout(() => resolve(), 5000); // 兜底：exit 事件丢失时按原 5s 上限放行
+    });
   }
 }
 
@@ -424,12 +439,22 @@ export const test = base.extend<{ e2e: E2eContext }>({
       );
     }
     // ③ tmp home 全删（fixture 自建 + spec 自建一并收编——旁路清理归一）
+    //    rm 竞态守护：daemon exit 事件后 SQLite WAL/shm 句柄释放有毫秒级窗口，
+    //    macOS/Linux 上 rmSync 撞 EBUSY/ENOTEMPTY 会被 force:true 静默吞——
+    //    退避重试三轮（50/100/200ms）兑底，仍败才入 failures。
     for (const home of [...new Set(started.map((d) => d.home))]) {
-      try {
-        rmSync(home, { recursive: true, force: true });
-      } catch (err) {
-        failures.push(`tmp home 删除失败 ${home}：${err}`);
+      let rmErr: unknown;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          rmSync(home, { recursive: true, force: true });
+          rmErr = undefined;
+          break;
+        } catch (err) {
+          rmErr = err;
+          await new Promise((r) => setTimeout(r, 50 * 2 ** attempt));
+        }
       }
+      if (rmErr) failures.push(`tmp home 删除失败（重试 4 轮后） ${home}：${rmErr}`);
     }
     // ④ 端口释放验证（bind 探测成功才算释放）
     try {
