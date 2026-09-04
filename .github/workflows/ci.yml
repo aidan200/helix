@@ -52,6 +52,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # grep 工具 rg 单后端的环境前置：真 rg 契约/integration/工具闭环共 13 测试
+      # 经 Bun.which("rg") 取宿主二进制，缺 rg 即前置 throw（非 skip——rg 是
+      # 生产后端，CI 必须真实覆盖；apt 版本即可，测试钉行为不钉版本）
+      - name: Install ripgrep (grep 工具测试前置)
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       # ---- typecheck 三包（各自 tsc --noEmit，逐步骤失败归属清晰）。----
       # 注意：bun 的 --cwd 是 run 子命令 flag，必须写成 `bun run --cwd=<dir> <script>`；
       # `bun --cwd <dir> run <script>` 会静默打印 usage 且退出码 0（假绿陷阱，勿用）。

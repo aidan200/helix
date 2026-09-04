@@ -5,10 +5,13 @@ import type { EngineContainsEdge, EngineFileRecord, EngineSymbol, SymbolSet } fr
  * codegraph.db 只读投影（T2.1/AF-2 裁决）：exportSymbols 的 db 直读面。
  *
  * 只读边界（AF-2 机械细则，AG-06 只读读点登记）：
- * - 连接固定只读 URI（`file:<db>?mode=ro`）；WAL 库干净退出后 -wal/-shm
- *   缺失时 mode=ro 会 SQLITE_CANTOPEN（本机实测，SQLite 只读连接不能建
- *   wal-index）——回退 `mode=ro&immutable=1`（同为只读旗标组合，AF-2
- *   「或等价 readonly 连接选项」句；快照式短投影语义下安全）；
+ * - 连接固定只读打开；首选 plain path + `{ readonly: true, create: false }`
+ *   旗标组合（不走 `file:` URI——bun:sqlite 1.3.14 的 URI 打开在 linux
+ *   必败（"unable to open database file"，arm64/x64 同现），mac 正常，
+ *   plain path 双平台实测含 WAL 干净退出态与 live-WAL 均可读）；
+ *   回退 `file:<db>?mode=ro&immutable=1` URI（immutable 快照绕过
+ *   wal-index，mac 可用——防极端态：库目录只读、-shm 无法创建时 plain
+ *   ro 也 CANTOPEN）；
  * - 本文件零 DML/DDL/写类 PRAGMA——只 SELECT；绝不写/迁移他人库；
  * - schema 版本兼容门：`SELECT MAX(version) FROM schema_versions` 高于
  *   已测上限或缺表 → EngineUnavailable（degraded），绝不降级解读。
@@ -38,16 +41,17 @@ export function codegraphDbPath(projectRoot: string): string {
   return `${codegraphDirPath(projectRoot)}/codegraph.db`;
 }
 
-/** 只读打开：mode=ro 优先（可见未 checkpoint 的 WAL 内容）；打开惰性，用探活查询逼出真实打开失败后回退 immutable 只读快照。 */
+/** 只读打开：plain path readonly 优先（bun:sqlite URI 打开 linux 必败，见头注；双平台 WAL 两态实测可读）；打开惰性，用探活查询逼出真实打开失败后回退 immutable URI 只读快照。 */
 export function openCodegraphReadonly(dbPath: string): Database {
   try {
-    const db = new Database(`file:${dbPath}?mode=ro`, { readonly: true, create: false });
+    const db = new Database(dbPath, { readonly: true, create: false });
     db.query("SELECT count(*) FROM sqlite_schema LIMIT 1").get(); // 探活：CANTOPEN 在首个查询才抛（惰性打开）
     return db;
   } catch {
-    // WAL 干净退出态（CLI 退出 checkpoint 后无 -wal/-shm）：只读连接无法
-    // 恢复 wal-index → SQLITE_CANTOPEN；immutable 同为只读旗标组合，绕过
-    // wal-index 直读主库文件（AF-2「或等价 readonly 连接选项」句）。
+    // 极端态回退（库目录只读/-shm 不可建）：immutable URI 同为只读旗标组合，
+    // 绕过 wal-index 直读主库文件（AF-2「或等价 readonly 连接选项」句）。
+    // 注意 bun:sqlite URI 打开在 linux 必败——本回退仅在 mac 有实际意义，
+    // linux 下 plain 失败即整体 degraded（绝不写/迁移语义不变）。
     return new Database(`file:${dbPath}?mode=ro&immutable=1`, { readonly: true, create: false });
   }
 }
