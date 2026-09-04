@@ -730,9 +730,11 @@ const KgViewer = function KgViewer({
                     health={healthView.data}
                     loading={healthView.loading}
                     nodeCount={project.nodeCount}
-                    candFilter={candView.filter}
+                    bootstrapRunning={project.bootstrapRunning === true}
+                    reviewRunning={project.reviewRunning === true}
+                    codeReviewRunning={project.codeReviewRunning === true}
                     t={t}
-                    onCandFilter={onCandFilter}
+                    onOpenTasks={onOpenTasks}
                   />
                   <KgCandidatesPanel
                     loading={candView.loading}

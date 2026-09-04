@@ -514,13 +514,13 @@
 .kg-health-stat { display: flex; flex-direction: column; gap: 2px; }
 .kg-health-stat-k { font-size: var(--text-cap); color: var(--text-dim); letter-spacing: 0.08em; }
 .kg-health-stat-v { font-size: var(--text-body); font-weight: 600; overflow-wrap: anywhere; }
+.kg-health-stat-v.muted { color: var(--text-muted); font-weight: 400; }
+.kg-health-tasks-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid rgb(var(--edge-rgb) / 0.08); }
 /* 任务发起紧凑面板（零说明文案；行 = 类型徽章 + 名称 + 启动钮/运行徽标） */
 .kg-task-launch { margin-top: 12px; gap: 10px; }
 .kg-task-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .kg-task-name { font-size: var(--text-caption); font-weight: 600; }
 /* 候选台账查看面板（台账读面三件套；只读零裁决） */
-.kg-cand-count-badge { border: 1px solid transparent; cursor: pointer; font: inherit; }
-.kg-cand-count-badge.active { border-color: var(--accent, #6ea8fe); }
 .kg-cand-panel { margin-top: 12px; }
 .kg-cand-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
 .kg-cand-item { border: 1px solid var(--border, rgba(127, 127, 127, 0.3)); border-radius: 8px; padding: 8px 10px; cursor: pointer; }

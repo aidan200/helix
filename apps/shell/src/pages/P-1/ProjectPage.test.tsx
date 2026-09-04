@@ -1026,6 +1026,14 @@ describe("W2-F 体检面板运行态（reviewRunning 行标志）", () => {
     expect(qs("[data-review-running-badge]")).toBeNull();
   });
 
+  it("reviewRunning 行 → 概览卡「进行中任务」行直显（免滚到底部）+ 任务页出口", () => {
+    inHealthPane("auditing");
+    const running = qs("[data-kg-health-running]");
+    expect(running).not.toBeNull();
+    expect(running!.textContent).toContain("语义体检");
+    expect(running!.querySelector("[data-goto-tasks]")).not.toBeNull();
+  });
+
   it("发起 → 回执 → ok-strip + kg.projects 重拉（行标志权威化）", () => {
     inHealthPane("helix");
     const projectsBefore = sent.projects;
@@ -1096,11 +1104,12 @@ describe("候选台账面板（health tab 内：列表 + 四态徽章过滤联�
     expect(qs("[data-cand-detail]")).toBeNull(); // 再点收起
   });
 
-  it("四态徽章点击 → 设过滤重拉（体检面板与台账面板过滤态联动高亮）", () => {
+  it("台账过滤按钮 → 设过滤重拉（过滤入口唯一——概览卡计数为纯文字统计）", () => {
     inCandPanel();
-    fireEvent.click(qs("[data-cand-count='pending']")!);
+    // 概览卡计数是统计格非按钮（无 data-cand-count 徽章）
+    expect(qs("[data-cand-count='pending']")).toBeNull();
+    fireEvent.click(qs("[data-cand-filter='pending']")!);
     expect(sent.candidatesList).toEqual([{ project: "helix" }, { project: "helix", status: "pending" }]);
-    expect((qs("[data-cand-count='pending']") as HTMLElement).className).toContain("active");
     expect((qs("[data-cand-filter='pending']") as HTMLElement).className).toContain("active");
     // 回执零行 → 空态
     feed("kg.candidates.list.result", { total: 0, rows: [] });
@@ -1110,12 +1119,12 @@ describe("候选台账面板（health tab 内：列表 + 四态徽章过滤联�
     expect(sent.candidatesList[2]).toEqual({ project: "helix" });
   });
 
-  it("体检面板四态计数直渲（health 回执）+ deferred 行展示暂缓次数", () => {
+  it("体检面板四态计数直渲（health 回执，纯文字统计格）+ deferred 行展示暂缓次数", () => {
     inCandPanel();
     feed("kg.health.result", { ...HEALTH_EMPTY, candidates: { pending: 1, deferred: 2, applied: 0, discarded: 0 } });
-    const sec = qs("[data-kg-health-candidates]");
-    expect(sec!.textContent).toContain("待审 1");
-    expect(sec!.textContent).toContain("暂缓 2");
+    const card = qs("[data-kg-health-overview]");
+    expect(card!.querySelector('[data-stat="cand-pending"]')!.textContent).toContain("1");
+    expect(card!.querySelector('[data-stat="cand-deferred"]')!.textContent).toContain("2");
     const deferredRow = qs('[data-cand-id="CAND-2"]');
     expect(deferredRow!.textContent).toContain("第 2 次暂缓");
   });
@@ -1129,8 +1138,10 @@ describe("候选台账面板（health tab 内：列表 + 四态徽章过滤联�
     expect(card!.querySelector('[data-stat="nodes"]')!.textContent).toContain("17"); // kg.projects 行 nodeCount
     expect(card!.querySelector('[data-stat="syncedAt"]')!.textContent).toContain("2026-08-25 14:32");
     expect(card!.querySelector('[data-stat="issues"]')!.textContent).toContain("0");
-    // 台账四态计数为概览卡一部分（可点击过滤联动）
-    expect(card!.querySelector("[data-kg-health-candidates]")).not.toBeNull();
+    // 进行中任务行：无运行任务 → 「无」，无任务页出口
+    const running = qs("[data-kg-health-running]");
+    expect(running!.textContent).toContain("无");
+    expect(running!.querySelector("[data-goto-tasks]")).toBeNull();
   });
 
   it("任务发起模块紧凑：无说明文案，仅类型徽章 + 名称 + 启动钮", () => {
