@@ -1,14 +1,18 @@
 /**
- * 证据工具 —— 截图 / 断言输出落 evidence/e2e/（文件名含 CL-7，门控识别）。
+ * 证据工具 —— 截图 / 断言输出落 evidence/e2e/<iterId>/（文件名含 CL-7，门控识别）。
  * 证据归属：当前迭代目录（T4.2 / F(5).1 / AD-1——EVIDENCE_DIR 迭代感知
  * 动态化，消除跨仓库边界硬编码；迭代目录迁移时不再改任何字面量）。
  *
  * 迭代标识解析（三态契约，无静默兜底）：
- *   ① 环境变量 HELIX_EVIDENCE_ITER（值 = 迭代 id）优先；
+ *   ① 环境变量 HELIX_EVIDENCE_ITER（值 = 迭代 id）优先（CI 走此路：runner
+ *      分支为 main/tags，非 dev-<iterId> 形态，ci.yml job 级注入字面量 ci）；
  *   ② 缺省从 git 分支解析（dev-<iterId> → <iterId>）；
  *   ③ 其他分支 / 非 git 环境 → 报错，提示显式指定 HELIX_EVIDENCE_ITER。
- * 工作区根解析：从本目录向上查找含 docs/iterations 的祖先目录（main 仓
- * 就地命中；worktree 向上穿透 .worktrees 达主工作区）；找不到 → 报错退出。
+ * 工作区根解析：`git rev-parse --git-common-dir` 推主工作区根（main 仓就地
+ * 命中；worktree 穿透 .worktrees 达主工作区），非 git 环境回落向上查找
+ * bun.lock+package.json 对。原锚 docs/iterations 已随 docs 收敛（f73d744，
+ * 定稿-only）从仓库删除，不再可作为存在性锚点——CI 全新 clone 必炸。
+ * 落位目录 evidence/ 为测试运行时产物、不入库（.gitignore 登记）。
  */
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -37,15 +41,27 @@ function resolveIterId(): string {
   );
 }
 
-/** 工作区根（含 docs/iterations 的最近祖先；main 仓与 worktree 均可达主工作区）。 */
+/** 工作区根（git common-dir 推主工作区根，worktree 穿透；非 git 环境回落 bun.lock+package.json 对向上查找）。 */
 function resolveWorkspaceRoot(): string {
+  try {
+    const common = execSync("git rev-parse --git-common-dir", {
+      cwd: __dirname,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    // common-dir 可能是相对路径（如 .git）——相对 __dirname 解析后取父即主工作区根
+    const gitDir = path.isAbsolute(common) ? common : path.resolve(__dirname, common);
+    return path.dirname(gitDir);
+  } catch {
+    /* 非 git 环境走回落 */
+  }
   let dir = __dirname;
   for (;;) {
-    if (fs.existsSync(path.join(dir, "docs", "iterations"))) return dir;
+    if (fs.existsSync(path.join(dir, "bun.lock")) && fs.existsSync(path.join(dir, "package.json"))) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) {
       throw new Error(
-        `EVIDENCE_DIR 工作区根解析失败：从 ${__dirname} 向上未找到含 docs/iterations 的祖先目录。`,
+        `EVIDENCE_DIR 工作区根解析失败：从 ${__dirname} 向上未找到 bun.lock+package.json 对（非 git 环境回落）。`,
       );
     }
     dir = parent;
@@ -54,17 +70,10 @@ function resolveWorkspaceRoot(): string {
 
 let cachedEvidenceDir: string | undefined;
 
-/** 证据落位目录：<workspaceRoot>/docs/iterations/<iterId>/evidence/e2e/。 */
+/** 证据落位目录：<workspaceRoot>/evidence/e2e/<iterId>/（不入库，.gitignore 登记）。 */
 function evidenceDir(): string {
   if (!cachedEvidenceDir) {
-    cachedEvidenceDir = path.join(
-      resolveWorkspaceRoot(),
-      "docs",
-      "iterations",
-      resolveIterId(),
-      "evidence",
-      "e2e",
-    );
+    cachedEvidenceDir = path.join(resolveWorkspaceRoot(), "evidence", "e2e", resolveIterId());
   }
   return cachedEvidenceDir;
 }

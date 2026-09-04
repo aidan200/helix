@@ -11,10 +11,8 @@
 # - 产物：playwright trace（test-results/，retain-on-failure）+ spec 显式落盘的
 #   evidence/e2e/ 截图（evidence 目录不入库，由 e2e/harness/evidence.ts 运行时 mkdirSync 创建）。
 #
-# OI-CI-1（方案 B）：本仓库暂无 git 远端，GitHub Actions 无法触发——workflow 先行交付，
-# 本地等价证据（typecheck 三包 + 三套单测）已落
-# docs/iterations/iter-20260816-6q6f/evidence/green-t41-ci-pipeline-local.md；
-# 远端接入后首次全绿 run 链接回填任务报告。
+# OI-CI-1（方案 B）已闭环：远端（helix-github）已接入，本流水线真实触发中；
+# 历史本地等价证据档随 docs 收敛（f73d744）清出仓库，不再回指。
 
 name: CI
 
@@ -33,6 +31,10 @@ jobs:
     name: typecheck + unit + e2e (serial, single job)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # e2e 证据迭代标识：CI 分支为 main/tags 非 dev-<iterId> 形态，走三态契约
+      # ① env 优先通道（evidence.ts）；字面量 ci 即证据归组目录 evidence/e2e/ci/
+      HELIX_EVIDENCE_ITER: ci
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -111,13 +113,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Upload evidence (iteration artifacts)
+      - name: Upload evidence (e2e screenshots)
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          # T4.2 / F(5).1：每迭代跟随 evidence.ts 单点语义维护（CI 为本地执行
-          # OI-CI-1 备案，无法运行时解析 git 分支，字面量 + 注释是机械跟随面）
-          name: evidence-iter-20260820-qhv8
-          path: docs/iterations/iter-20260820-qhv8/evidence/
+          # 证据落位 evidence/e2e/<iter>/（evidence.ts 单点语义；CI iter=ci，
+          # 见 job 级 HELIX_EVIDENCE_ITER）；目录不入库，运行时 mkdirSync 创建
+          name: evidence-e2e
+          path: evidence/e2e/
           if-no-files-found: warn
           retention-days: 14

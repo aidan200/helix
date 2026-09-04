@@ -8,3 +8,6 @@ playwright-report/
 # v2 kg 库本地运行态（AF-21 二次裁决 2026-08-26：v2 落 .helix-kg/；v1 .kg/kg.db 已随 v1 残留清除退役）
 .helix-kg/
 helix.db
+
+# e2e 证据产物（e2e/harness/evidence.ts 运行时落位，不入库）
+evidence/
