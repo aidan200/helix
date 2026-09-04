@@ -201,7 +201,7 @@ test.describe("T5.4 P-1 fidelity：F5.1~F5.5 graph 态（FID-01~24）", () => {
     await enterGraph(page, "helix");
   });
 
-  test("F5.1 列表/过滤/空态 + F5.2 六段详情 + F5.3 报告 + F5.4 转正 + F5.5 面板（FID-03~21 机械五点）", async ({ page }) => {
+  test("F5.1 列表/过滤/空态 + F5.2 六段详情 + F5.3 报告 + F5.4 转正 + F5.5 面板（FID-03~21 机械五点）", async ({ mock, page }) => {
     const checks: FidelityCheck[] = [
       {
         id: "FID-01/31",
