@@ -21,6 +21,9 @@ interface HelixMockGlobal {
   clientFrames(): Promise<(ClientFrame | null)[]>;
   activeCount(): Promise<number>;
   taskSubs(): Promise<string[] | null>;
+  /** 挂起/放行 trace.query 自动应答（确定性 gate；慢机 skeleton 瞬态断言用）。 */
+  holdTraceReply(): Promise<void>;
+  releaseTraceReplies(): Promise<void>;
 }
 
 export class MockController {
@@ -87,6 +90,18 @@ export class MockController {
   async taskSubs(): Promise<string[] | null> {
     await this.awaitReady();
     return this.page.evaluate(() => window.__helixMock!.taskSubs());
+  }
+
+  /** 挂起 trace.query 自动应答（gate 钉住 loading/skeleton 瞬态；与 release 成对）。 */
+  async holdTraceReply(): Promise<void> {
+    await this.awaitReady();
+    return this.page.evaluate(() => window.__helixMock!.holdTraceReply());
+  }
+
+  /** 放行全部挂起的 trace.query 应答（fire 直发，无延迟）。 */
+  async releaseTraceReplies(): Promise<void> {
+    await this.awaitReady();
+    return this.page.evaluate(() => window.__helixMock!.releaseTraceReplies());
   }
 
   async clientFrames(): Promise<ClientFrame[]> {

@@ -107,6 +107,16 @@ export interface HelixMockApi {
    * 返回订阅 jobId 列表（"*" = 订阅全部）；null = 从未订阅。
    */
   taskSubs(): Promise<string[] | null>;
+  /**
+   * 挂起 trace.query 自动应答（F 层确定性 gate）：置位后应答帧入队不回，
+   * releaseTraceReplies() 放行。用于 spec 断言 skeleton 瞬态时钉住 loading
+   * 态——慢机上 120ms 延迟窗小于断言往返时长会导致互斥采样劈叉（CI 慢机
+   * 抖动，2026-09 e2e CI 收敛批次）。成对使用，勿跨连接悬挂。
+   */
+  holdTraceReply(): Promise<void>;
+  /** 放行全部挂起的 trace.query 应答（对当前活跃实例直发；不复位将后续
+   * 应答持续入队的 hold 位由本方法一并复位）。 */
+  releaseTraceReplies(): Promise<void>;
 }
 
 interface ClientWaiter {
@@ -417,9 +427,13 @@ class FakeSocket {
     // trace.query 自动应答（mock daemon 读面镜像；点对点回执，延迟 = loading 态触发面）
     if (frame?.type === "trace.query") {
       const reply = buildTraceReply(frame.payload);
-      setTimeout(() => {
-        if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
-      }, TRACE_MOCK_LATENCY_MS);
+      if (this.registry.traceHold) {
+        this.registry.heldTraceReplies.push(reply); // gate：spec 断言 skeleton 瞬态期挂起
+      } else {
+        setTimeout(() => {
+          if (this.readyState === FakeSocket.OPEN) this.fireMessage(reply);
+        }, TRACE_MOCK_LATENCY_MS);
+      }
     }
     // kg 族自动应答（T5.4；六命令 mock daemon 镜像，含 confirm 写与 rebuild 时基）
     if (frame !== null && isKgCommand(frame.type)) {
@@ -508,6 +522,10 @@ class Registry {
   lastFullSessionId: string | null = null;
   /** 剧本会话台账（emit 按信封 sessionId 路由累计；monitor 档被过滤帧不入账）。 */
   readonly scenarioSessions = new Map<string, ScenarioSessionState>();
+  /** trace.query 应答挂起位（F 层确定性 gate；见 HelixMockApi.holdTraceReply）。 */
+  traceHold = false;
+  /** 挂起的 trace.query 应答队列（releaseTraceReplies 放行）。 */
+  heldTraceReplies: EventEnvelope[] = [];
 
   /**
    * monitor 档白名单过滤（daemon EventStream.push 单点过滤的 mock 镜像，
@@ -621,6 +639,15 @@ const mockApi: HelixMockApi = {
   },
   async taskSubs() {
     return (await registry.nextActive()).taskSubsSnapshot();
+  },
+  async holdTraceReply() {
+    registry.traceHold = true;
+  },
+  async releaseTraceReplies() {
+    registry.traceHold = false;
+    const held = registry.heldTraceReplies.splice(0);
+    const inst = registry.activeInstance();
+    if (inst) for (const f of held) inst.fireMessage(f);
   },
 };
 

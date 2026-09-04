@@ -385,3 +385,45 @@ describe("fake-transport task 族订阅簿记（D-2；连接级订阅表 + chang
     second.transport.close();
   });
 });
+
+// ── trace.query 应答 gate（F 层确定性 hold/release；慢机 skeleton 瞬态断言）──
+
+describe("fake-transport trace.query 应答 gate（hold 挂起 / release 直发放行）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("hold 后应答入队不回（推钟不触发）；release 直发放行（无延迟）且后续应答恢复正常延迟路径", async () => {
+    const replies: EventEnvelope[] = [];
+    const transport: Transport = createFakeTransport("1")(WS_URL, {
+      onOpen: () => {},
+      onMessage: (data) => replies.push(JSON.parse(data) as EventEnvelope),
+      onClose: () => {},
+      onError: () => {},
+    });
+    await window.__helixMock!.open();
+    try {
+      await window.__helixMock!.holdTraceReply();
+      transport.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "trace.query", payload: { sessionId: "ses_a" } }));
+      vi.advanceTimersByTime(REPLY_LATENCY_MS * 4);
+      expect(replies, "hold 期间应答挂起不回（skeleton 瞬态钉住）").toHaveLength(0);
+
+      await window.__helixMock!.releaseTraceReplies();
+      expect(replies, "release 后挂起帧直发放行").toHaveLength(1);
+      expect(replies[0]!.type).toBe("trace.query.result");
+
+      // 复位验证：release 后新查询走正常延迟路径（gate 位不残留）
+      replies.length = 0;
+      transport.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "trace.query", payload: { sessionId: "ses_a" } }));
+      expect(replies, "正常路径不即时回帧").toHaveLength(0);
+      vi.advanceTimersByTime(REPLY_LATENCY_MS);
+      expect(replies, "延迟窗到后照常应答").toHaveLength(1);
+    } finally {
+      await window.__helixMock!.releaseTraceReplies(); // 复位防跨用例泄漏
+      transport.close();
+    }
+  });
+});

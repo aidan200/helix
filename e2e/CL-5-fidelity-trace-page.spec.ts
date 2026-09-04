@@ -409,10 +409,14 @@ test.describe("T2.3 CL-5 fidelity：状态面（R-P1-7）", () => {
           await assertMutualExclusion(page, "success");
 
           // loading：筛选变更 → 先清旧态 → 表格同形骨架（非通用 spinner）
+          // gate 钉住：hold 后应答挂起，skeleton 态停留到断言完（慢机 120ms 延迟窗 <
+          // 采样往返时长会勈互斥——CI 收敛批次）；release 后数据到、回 success。
+          await mock.holdTraceReply();
           await page.locator('.tchip[data-type="tool"]').click();
           await expect(page.locator(".p1-skel")).toBeVisible();
           await assertMutualExclusion(page, "skeleton");
           expect((await page.locator(".p1-skel-row").count()) >= 1).toBe(true);
+          await mock.releaseTraceReplies();
           await expect(page.locator(".p1-thead .hit")).toHaveText("命中 16 条"); // tool ×16
           await assertMutualExclusion(page, "success");
           // 回全量（再点单选类目 = 归一全量）

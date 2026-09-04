@@ -51,6 +51,7 @@ function pageAnchor(path: string): string {
 
 test.describe("T3.4 CL-4 IconRail 页签导航框架", () => {
   test("TP-CL4-1 六路由深链直达 + 未知/旧路径回落工作台（不出现模型独立页）", async ({ mock, page }) => {
+    test.slow(); // 10 次 goto+connect 矩阵：本地 ~15s，CI 慢机 ~35s+ 超默认 30s（CI 收敛批次实证）
     await mock.awaitReady();
 
     // 深链矩阵：六独立路径各自渲染对应页。W6o 门禁语义：路由层不再独立于
