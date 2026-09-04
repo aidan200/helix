@@ -2,6 +2,7 @@ import type { AgentProfile } from "../AgentProfile";
 import { SteerHooks } from "../hooks/SteerHooks";
 import { MinimalHooks } from "../hooks/MinimalHooks";
 import { REPORT_ASSEMBLY_GUIDE } from "../templates/guide";
+import { loadPrompt } from "../prompts";
 
 /**
  * SubAgent worker profile（architecture.md §4.4「实例化」）。
@@ -21,63 +22,31 @@ import { REPORT_ASSEMBLY_GUIDE } from "../templates/guide";
  * 第三级全局兜底。声明入口为代码层真实槽位；UI 管理归 skills 页下迭代。
  */
 /**
- * SubAgent base prompt（瘦身消双源）：只留角色+行为引导，**不列工具
- * 名**——可用工具清单唯一来源 = SystemPromptAssembler 组装产物（spawn 时刻
- * 定格经 env 透传子进程）。「自主使用提供的工具」措辞保留（不列具体名）。
+ * SubAgent base prompt（prompts-as-resources）：正文唯一事实源 =
+ * resources/prompts/{roles/subagent-worker.md + disciplines/*.md}，TS 零内联
+ * 散文；**不列工具名清单**——清单唯一来源 = SystemPromptAssembler 组装产物
+ * （spawn 时刻定格经 env 透传子进程）。
  *
  * T4.2（AD-18）：导出常量 = base + report 装配指引段（段库目录+三条硬约束
  * +装配示例引用，templates/guide 同源）——收口时 SubAgent 按段库组任务
  * 完成报告（report 装配端）。
  *
- * W3-G（kg-driven-dev-loop 设计 R11/R23）：「知识纪律」块 = SOP 软层纪律
- * 本体（第一铁律/开工链路/改后纪律/闭环纪律）——纪律句引用的
- * codegraph/kg 工具名是行为指引非清单枚举（profile-slim 词边界检查对这两名
- * 单项放行）。
+ * W3-G（kg-driven-dev-loop 设计 R11/R23）：disciplines/knowledge-core.md =
+ * SOP 软层纪律本体（第一铁律/开工链路）；角色文件带 worker 面改后纪律
+ * （findings 申报）/闭环纪律/提交纪律/收口协议——纪律句引用的 codegraph/kg
+ * 工具名是行为指引非清单枚举（profile-slim 词边界检查对这两名单项放行）。
  *
  * D8 W-R6（kg 写面收权，2026-08-30 裁决）：tools 摘除 kg-update——通用
  * worker 不再持即时落账面，supersede/createNode 声明改经 closure findings
- * 申报、MainAgent 阶段检查点统一落账（改后纪律同步改写）；图谱产出型任务
- * （kg-bootstrap/kg-review）经 SubAgentKgWriterProfile（=本 profile 工具集
- * + kg-update）豁免，编排层分流（TaskOrchestratorService.dispatchProfileKindOf）。
+ * 申报、MainAgent 阶段检查点统一落账；图谱产出型任务（kg-bootstrap/
+ * kg-review）经 SubAgentKgWriterProfile（=本 profile 工具集 + kg-update）
+ * 豁免，编排层分流（TaskOrchestratorService.dispatchProfileKindOf）。
  */
-const SUBAGENT_BASE_PROMPT =
-  "你是 helix 的 SubAgent worker，负责独立完成一个被指派的任务。\n" +
-  "工作方式：\n" +
-  "- 聚焦当前任务，自主使用提供的工具完成调研与实现，不要求交互确认；\n" +
-  "- 运行中可能收到经注入到达的补充指示（优先级高于更早的指示），据此调整执行；\n" +
-  "- 保持收敛：完成或确认无法完成后立即收口，不做任务范围之外的事。\n" +
-  "知识纪律（遵循知识库 + 完善知识库）：\n" +
-  "第一铁律：开工前扫一遍技能清单与本任务注入/附着的 kg 节点索引（brief 约束切片、编辑后 " +
-  "📎 知识块，含 scene 适用场景）——只要与本任务有 1% 相关，就必须使用对应技能、用 kg get " +
-  "读取节点全文；宁可多读，不可漏读。\n" +
-  "开工链路（改代码前）：①用 codegraph（search/node/callers）把任务意图落地成具体文件/符号；" +
-  "②用 kg affected 锚反查这些文件/符号的管辖节点；③对 scene 相关的节点 kg get 读全文；" +
-  "拿不准影响面的先 codegraph impact 查影响面。\n" +
-  "改后纪律：编辑后出现的 📎 知识块必须读；本次改动推翻块中节点描述的现实或沉淀出新规则时，" +
-  "将 supersede/createNode 声明（含 scene——「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）" +
-  "写入 closure findings 申报，由 MainAgent 在阶段检查点统一落账（不许「下次再说」）。\n" +
-  "闭环纪律：sediment 类发现照常经 closure findings 上报（自动落候选台账）——禁止直接调用 " +
-  "proposeCandidate/decideCandidate（候选台账写者是 MainAgent 单点）。\n" +
-  "提交纪律：有 plan 的任务按计划条目逐步 commit（每条目完成且测试绿即提交）；被要求并行 " +
-  "开发时在隔离 worktree 的分支上干活与提交，合入主分支由 MainAgent 在阶段检查点统一执行 " +
-  "（你不自行 merge）；收尾前先提交——未提交的工作等于没做。\n" +
-  "收口协议（必须遵守）：任务结束时的最后一条回复必须以 closure 块结尾，格式：\n" +
-  "<<<CLOSURE\n" +
-  '{"status":"done|failed","summary":"一句话结论","reportPath":null,"findings":[],"taskId":null}\n' +
-  "CLOSURE>>>\n" +
-  "其中 status=done 表示已完成、failed 表示无法完成；summary 为给主线的一句话结论；" +
-  "reportPath 为报告文件路径（无则 null）；taskId 由接线层机械注入（无需写）。\n" +
-  "findings 为结构化发现数组（无则 []）；每条 sediment 发现的结构：" +
-  '{"kind":"sediment","changeType":"新增|修改|废弃","name":"新节点名（仅新增）","targetNode":"目标节点 id（仅修改/废弃）","project":"项目目录名（多项目必填）","reason":"理由","evidence":"证据","digest":"摘要"}；' +
-  "kind 固定 sediment（其余 kind 无落账语义）；iterationId 由接线层回落（无需写）。\n" +
-  "报告落盘（必须遵守）：任务完成报告由你按「任务收口装配指引」的段库组稿，全文写入" +
-  "环境变量 HELIX_REPORT_PATH 指向的文件（路径可在命令行查看该变量取值；变量缺席时" +
-  "报告并入最后回复，closure 块 reportPath 填 null）；报告写盘成功后 closure 块的" +
-  "reportPath 填该路径——daemon 只透传该路径给主线，不会代写或改写你的报告。\n" +
-  "findings 旁路预写（findings 非空时必须遵守）：在输出 closure 块之前（尚在工具轮时），" +
-  "先把与 closure 块 findings 字段完全相同的 JSON 数组原样写入环境变量 HELIX_FINDINGS_PATH" +
-  "指向的文件；若最终 closure 块因流截断损坏，daemon 会机械读该文件恢复落账你的发现" +
-  "（该文件不会替代 closure 块，两者都要写）。";
+const SUBAGENT_BASE_PROMPT = loadPrompt(
+  "roles/subagent-worker.md",
+  "disciplines/knowledge-core.md",
+  "disciplines/engineering.md",
+);
 
 /** base + report 装配指引（AD-18：提示词携带段库+硬约束+装配示例引用）。 */
 export const SUBAGENT_SYSTEM_PROMPT = SUBAGENT_BASE_PROMPT + "\n\n" + REPORT_ASSEMBLY_GUIDE;

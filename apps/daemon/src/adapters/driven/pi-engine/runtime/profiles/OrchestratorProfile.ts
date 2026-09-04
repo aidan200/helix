@@ -2,6 +2,7 @@ import type { AgentProfile } from "../AgentProfile";
 import { SteerHooks } from "../hooks/SteerHooks";
 import { MinimalHooks } from "../hooks/MinimalHooks";
 import { BRIEF_ASSEMBLY_GUIDE } from "../templates/guide";
+import { loadPrompt } from "../prompts";
 
 /**
  * OrchestratorProfile —— 任务编排主 agent profile（architecture.md §5.1，
@@ -36,23 +37,18 @@ import { BRIEF_ASSEMBLY_GUIDE } from "../templates/guide";
  */
 
 /**
- * 编排 base prompt（瘦身契约：零工具名枚举——清单唯一来源 = 组装产物；
- * 只留角色 + 批次循环协议 + 判读分工 + 派发顺序 + 暂停语义）。
+ * 编排 base prompt（prompts-as-resources）：正文唯一事实源 =
+ * resources/prompts/{roles/orchestrator.md + disciplines/*.md}，TS 零内联散文。
+ * 角色文件只留角色 + 批次循环协议 + 判读分工 + 派发顺序 + 暂停语义
+ *（瘦身契约：零工具名枚举——清单唯一来源 = 组装产物）；流程骨架由任务
+ * skill 冻结，流程内的批次划分/brief 装配判断面保留（orchestrator 通读
+ * 项目结构后的安排是它的合法自主面）。
  */
-const ORCHESTRATOR_BASE_PROMPT =
-  "你是 helix 的任务编排主 agent：按任务 skill 的 SOP 驱动「划批次 → 派批次 SubAgent → 读收口判定 → 推进或重试 → 阶段产物聚合 → 任务收口」的多 agent 编排循环，全程无人工交互、无中途人审门。\n" +
-  "工作方式：\n" +
-  "- 起跑信息含任务参数、冻结的阶段行、恢复现场与任务 skill 全文——先按 skill 的 SOP 执行，阶段行已冻结，不重议、不增删；\n" +
-  "- 划批次与推进选择是你的判断（skill 批次划分原则 × 项目实况）；批次成败判定不由你做——系统按「收口结论 + 台账全 resolve」双硬约束机械判读，结果会以「批次收口」消息自动注入驱动你的下一轮；\n" +
-  "- 每派一个批次的固定顺序：先在本阶段插入批次行（落库成功拿到批次号）→ 再派 SubAgent（brief 按段库与 skill 的批次模板装配）→ 随后把批次号与实例 id 落派发章——顺序不可颠倒（行先于派发是审计链前提）；\n" +
-  "- 收到「批次收口」注入后：阶段批次全成功则聚合阶段产物并推进（摘要给人类读：本层建了什么、覆盖哪些域/模块、有什么已知缺口），有失败批次时系统已按重试上限自动重派（接力 brief 含前序台账摘要），等待即可；\n" +
-  "- 全部阶段完成后申报任务完成——系统会机械复核全部阶段行后收口，未完成会被拒绝并回执原因；\n" +
-  "- 任务暂停期间派发与推进会被拒绝——不要重试，等待恢复注入后从现场摘要续跑；\n" +
-  "- 你的会话可丢弃：权威状态只有 skill、任务四表行与实例台账，任何时刻可从行状态重建现场；不要在会话内自建平行账本。\n" +
-  "批次 brief 装配（必须遵守）：按段库与任务 skill 的批次 brief 模板段装配；强制台账的任务类型，台账硬约束段由系统在派发时机械追加——你不必重复、不可移除。\n" +
-  "派发提示（W3-G）：任务涉及知识管辖的代码面时，在 brief 中提示执行者走开工链路" +
-  "（codegraph 落地符号 → kg affected 锚反查 → kg get 读全文）。\n" +
-  "产物落盘纪律（D6）：write 仅用于任务报告目录内的任务产物落盘（任务级汇总报告等，目录路径见起跑信息）——项目代码零写，不持 edit 编辑面。";
+const ORCHESTRATOR_BASE_PROMPT = loadPrompt(
+  "roles/orchestrator.md",
+  "disciplines/knowledge-core.md",
+  "disciplines/engineering.md",
+);
 
 /** base + 段库装配指引（AD-18：提示词携带段库+硬约束+装配示例引用）。 */
 export const ORCHESTRATOR_SYSTEM_PROMPT = ORCHESTRATOR_BASE_PROMPT + "\n\n" + BRIEF_ASSEMBLY_GUIDE;

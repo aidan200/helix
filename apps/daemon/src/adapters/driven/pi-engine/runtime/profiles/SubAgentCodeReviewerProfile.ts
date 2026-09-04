@@ -1,5 +1,6 @@
 import type { AgentProfile } from "../AgentProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "./SubAgentProfile";
+import { loadPrompt } from "../prompts";
 
 /**
  * SubAgentCodeReviewerProfile —— 代码评审批次专用 profile（code-review
@@ -32,11 +33,8 @@ import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "./SubAgentProfile";
 /** reviewer 相对通用 worker 的摘除工具（代码写面机械关闭；组装快照派生单源）。 */
 export const SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS = ["write", "edit"] as const;
 
-/** reviewer base prompt 增量句（加在通用 worker 版之后——特定纪律后置覆盖通用纪律）。 */
-export const SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX =
-  "本任务为只读代码评审：禁止修改项目代码（发现不随手修——修复权在 chat 侧人审之后）；" +
-  "评审报告与 findings 旁路文件经 bash 写入 HELIX_REPORT_PATH / HELIX_FINDINGS_PATH 指向的文件；" +
-  '评审发现经 closure findings 以 kind="issue" 申报。';
+/** reviewer base prompt 增量句（加在通用 worker 版之后——特定纪律后置覆盖通用纪律；正文事实源 = resources/prompts/roles/subagent-code-reviewer.md）。 */
+export const SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX = loadPrompt("roles/subagent-code-reviewer.md");
 
 export const SubAgentCodeReviewerProfile: AgentProfile = {
   kind: "subagent-code-reviewer",

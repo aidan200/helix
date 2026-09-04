@@ -1,5 +1,6 @@
 import type { AgentProfile } from "../AgentProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "./SubAgentProfile";
+import { loadPrompt } from "../prompts";
 
 /**
  * SubAgentKgWriterProfile —— 图谱产出型批次 profile（D8 W-R6，kg-driven-dev-loop
@@ -24,9 +25,8 @@ import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "./SubAgentProfile";
 /** kg-writer 相对通用 worker 的增量工具（worker 摘 kg-update 后的豁免面；组装快照派生单源）。 */
 export const SUBAGENT_KG_WRITER_EXTRA_TOOLS = ["kg-update"] as const;
 
-/** kg-writer base prompt 增量句（加在通用 worker 版之后——特定纪律后置覆盖通用纪律）。 */
-export const SUBAGENT_KG_WRITER_PROMPT_SUFFIX =
-  "本任务为图谱产出型：kg 变更直接经 kg-update 落库。";
+/** kg-writer base prompt 增量句（加在通用 worker 版之后——特定纪律后置覆盖通用纪律；正文事实源 = resources/prompts/roles/subagent-kg-writer.md）。 */
+export const SUBAGENT_KG_WRITER_PROMPT_SUFFIX = loadPrompt("roles/subagent-kg-writer.md");
 
 export const SubAgentKgWriterProfile: AgentProfile = {
   kind: "subagent-kg-writer",
