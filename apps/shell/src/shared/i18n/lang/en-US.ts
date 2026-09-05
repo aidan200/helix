@@ -31,6 +31,17 @@ export const enUS = {
       open: "Collapse work ledger",
       closed: "Expand work ledger",
     },
+    // T3+T4 diff 批：中槽两 chip 与详情窗文案
+    diff: {
+      title: "Changes this turn",
+      add: "+{n} lines",
+      del: "−{n} lines",
+      close: "Close",
+      pending: "Loading…",
+      loadFail: "Failed to load changes",
+      empty: "No file changes recorded this turn",
+      agentsLabel: "By",
+    },
     overlay: {
       connecting: "Connecting to daemon",
       addr: "{addr}",

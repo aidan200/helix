@@ -343,9 +343,32 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
 }
 .chat-status-bar .csb-slot { display: flex; align-items: center; min-width: 0; }
 .chat-status-bar .csb-left { flex: 0 1 auto; }
-/* 中槽 diff 预留：吃掉剩余空间（后续任务接 diff 统计） */
+/* 中槽 diff 统计：吃掉剩余空间（chip 组居左；空态不渲染、槽位占位在） */
 .chat-status-bar .csb-mid { flex: 1 1 auto; }
 .chat-status-bar .csb-right { flex: 0 0 auto; justify-content: flex-end; }
+
+/* ═══ T3+T4 diff 批：中槽两 chip（+N --success / −N --error；口径已裁无第三统计）═══ */
+.diff-chip-group {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: none; padding: 2px 4px; margin: 0;
+  font: inherit; font-size: 12px; font-variant-numeric: tabular-nums;
+  cursor: pointer; border-radius: 6px;
+  color: var(--text-muted);
+}
+.diff-chip-group:hover { background: rgb(var(--accent-rgb) / 0.08); }
+.diff-chip { display: inline-flex; align-items: baseline; gap: 1px; white-space: nowrap; }
+.diff-chip.add { color: var(--success); }
+.diff-chip.del { color: var(--error); }
+/* 数值累计轻量动画：key={值} 重挂触发（无 JS 动画库） */
+.diff-num { display: inline-block; animation: diff-num-bump 280ms ease-out; }
+@keyframes diff-num-bump {
+  0% { transform: translateY(-3px) scale(1.25); opacity: 0.4; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+/* 冻结灰态：收轮后定格仍可点开详情（色相收敛为次级墨色） */
+.diff-chip-group[data-phase="frozen"] .diff-chip.add { color: var(--text-dim); }
+.diff-chip-group[data-phase="frozen"] .diff-chip.del { color: var(--text-dim); }
+.diff-chip-group[data-phase="frozen"] { opacity: 0.75; }
 
 /* 消息行 */
 .msg { display: flex; gap: 10px; animation: log-rise 0.24s ease-out; }
@@ -942,3 +965,83 @@ html.light .bubble code.inline { color: var(--accent); }
   .app-header .hud-chip { display: none; }
   .stats-pop { top: 52px; }
 }
+
+/* ═══ T3+T4 diff 批：DiffOverlay 详情覆盖窗（conn-overlay 同族——锚
+ * .msg-flow-wrap absolute inset-0 盖整个对话区，不随滚动）═══ */
+.diff-overlay {
+  position: absolute; inset: 0; z-index: 12;
+  display: flex; align-items: stretch; justify-content: center;
+  background: rgb(var(--void-rgb) / 0.66);
+  backdrop-filter: blur(2px);
+  padding: 26px 30px;
+}
+.diff-panel {
+  display: flex; flex-direction: column; min-width: 0; width: 100%;
+  background: var(--panel-solid); border: 1px solid rgb(var(--accent-rgb) / 0.14);
+  border-radius: 12px; overflow: hidden;
+  box-shadow: 0 14px 44px rgb(0 0 0 / 0.32);
+}
+.diff-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-bottom: 1px solid rgb(var(--accent-rgb) / 0.12);
+}
+.diff-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.diff-summary {
+  font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-muted);
+}
+.diff-summary::first-letter { color: var(--success); }
+.diff-close {
+  margin-left: auto; background: none; border: none; cursor: pointer;
+  color: var(--text-faint); font-size: 16px; line-height: 1; padding: 4px 8px; border-radius: 6px;
+}
+.diff-close:hover { background: rgb(var(--accent-rgb) / 0.1); color: var(--text); }
+.diff-body { flex: 1 1 auto; min-height: 0; display: flex; gap: 0; }
+.diff-pending, .diff-error, .diff-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint); font-size: 13px; padding: 30px;
+}
+.diff-error { color: var(--error); }
+/* 左：文件列表 */
+.diff-file-list {
+  flex: 0 0 42%; min-width: 220px; margin: 0; padding: 6px; list-style: none;
+  overflow-y: auto; border-right: 1px solid rgb(var(--accent-rgb) / 0.1);
+}
+.diff-file {
+  display: flex; align-items: center; gap: 7px; padding: 6px 8px;
+  border-radius: 8px; cursor: pointer; font-size: 12px;
+}
+.diff-file:hover { background: rgb(var(--accent-rgb) / 0.07); }
+.diff-file[data-selected="1"] { background: rgb(var(--accent-rgb) / 0.12); }
+.diff-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 999px; background: var(--text-faint); }
+.diff-file[data-status="added"] .diff-dot { background: var(--success); }
+.diff-file[data-status="deleted"] .diff-dot { background: var(--error); }
+.diff-file[data-status="modified"] .diff-dot { background: var(--warning); }
+.diff-file[data-status="external"] .diff-dot { background: var(--text-faint); }
+.diff-path {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-family: var(--font-mono);
+  font-size: 11.5px; color: var(--text);
+}
+.diff-counts { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.diff-agents-label { flex: 0 0 auto; font-size: 10.5px; color: var(--text-faint); }
+.diff-agents { flex: 0 0 auto; display: inline-flex; gap: 4px; }
+.diff-agent {
+  font-style: normal; font-size: 10px; padding: 1px 6px; border-radius: 999px;
+  font-family: var(--font-mono);
+}
+.diff-agent[data-agent="main"] { color: var(--accent); background: rgb(var(--accent-rgb) / 0.12); }
+.diff-agent[data-agent="sub"] { color: var(--text-muted); background: var(--card-fill); }
+.diff-note {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10.5px; color: var(--text-faint);
+}
+/* 右：unified diff 渲染（daemon 产文本，前端纯着色） */
+.diff-view {
+  flex: 1 1 auto; min-width: 0; margin: 0; padding: 10px 14px;
+  overflow: auto; font-family: var(--font-mono);
+  font-size: 11.5px; line-height: 1.55; color: var(--text-muted); white-space: pre;
+}
+.diff-view .dl-add { display: block; color: var(--success); }
+.diff-view .dl-del { display: block; color: var(--error); }
+.diff-view .dl-hunk { display: block; color: var(--accent); opacity: 0.8; }
+.diff-view .dl-ctx { display: block; color: var(--text-dim); }

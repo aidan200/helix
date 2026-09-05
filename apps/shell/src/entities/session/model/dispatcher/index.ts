@@ -30,6 +30,7 @@ import {
   THINKING_LEVEL_EVENT_TYPES,
 } from "../consumers/thinking-level";
 import { applyPlanEvent, PLAN_EVENT_TYPES } from "../consumers/plan";
+import { applyDiffEvent, DIFF_EVENT_TYPES } from "../consumers/diff";
 
 // ── v0.6 agent.config 族（M6 T4 真消费）：拓扑级前置路由（consumers/agent-config.ts）──
 // changed → agentConfig.revision 失效重拉信号；两结果帧拓扑级直通（真消费归
@@ -83,6 +84,10 @@ register({ types: THINKING_LEVEL_EVENT_TYPES, apply: applyThinkingLevelEvent });
 // session.plan.changed（main-session plan 批）：主会话工作台账增量面——全量帧
 // 整体替换 state.plan/ledger（恢复种子面 = 快照 plan 字段，consumers/snapshot）
 register({ types: PLAN_EVENT_TYPES, apply: applyPlanEvent });
+// diff.changed（T3+T4 diff 批）：轮次 diff 状态面——publishDelta 瞬态广播帧
+// （cleared → null / active・frozen → 载荷整体落 state.diff；daemon 内存态
+// 快照不携带，无恢复种子面）
+register({ types: DIFF_EVENT_TYPES, apply: applyDiffEvent });
 // session.loadHistory.result：历史前插 + 翻页位（仅活跃会话路由至此）
 register({ types: HISTORY_EVENT_TYPES, apply: applyHistoryEvent });
 // session.list.result / session.list_changed：拓扑级清单消费者
@@ -144,6 +149,10 @@ export const PASSTHROUGH_EVENT_TYPES = [
   // 台账读面三件套：kg.candidates.list 回执——同规：真消费归 /project 页
   // 候选台账面板（KgViewer 常驻 listener）
   "kg.candidates.list.result",
+  // diff.get.result（T3+T4 diff 批）：轮次 diff 详情点对点回执——真消费归
+  // ChatStatusBar/DiffOverlay 查询链（SessionContext 转发层 subscribeDiffFrames；
+  // diff.changed 广播走 consumers/diff 真消费，不入本清单）
+  "diff.get.result",
   // workspace 族（W3 门禁读/写面 + W4 changed 广播；连接私有回执/广播）：
   // workspace.get.result / workspace.open.result 点对点回执与 workspace_changed
   // 广播，真消费归 entities/workspace 门禁状态机（SessionContext 转发层

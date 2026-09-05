@@ -65,6 +65,8 @@ import type {
   SessionUnsubscribeCommand,
   TaskArtifactsCommand,
   TaskArtifactsPayload,
+  DiffGetCommand,
+  DiffGetPayload,
   TaskCancelCommand,
   TaskDeleteCommand,
   TaskDetailCommand,
@@ -454,4 +456,13 @@ export function taskRetryCommand(jobId: string): TaskRetryCommand {
 /** task.delete：仅终态可删；清任务域全部记录不触 kg 产出（F3.6）。 */
 export function taskDeleteCommand(jobId: string): TaskDeleteCommand {
   return { v: PROTOCOL_VERSION, type: "task.delete", payload: { jobId } };
+}
+
+// ── diff 族命令（T3+T4 diff 批；契约 PROTOCOL.md §15 diff 域）────────────
+
+/** diff.get：轮次 diff 详情查询（session 作用域——信封 sessionId 必填；
+ *  turnId 缺省 = 最近冻结轮 / live:true = 进行中轮实时视图；点对点回执
+ *  diff.get.result 经 subscribeDiffFrames 转发）。 */
+export function diffGetCommand(payload: DiffGetPayload, sessionId: string): DiffGetCommand {
+  return { v: PROTOCOL_VERSION, type: "diff.get", sessionId, payload };
 }

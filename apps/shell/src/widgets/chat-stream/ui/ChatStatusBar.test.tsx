@@ -5,8 +5,8 @@
  * 钉纪律：
  * - 常驻占位：无条件渲染（idle + 空队列 + 无会话的初始态也挂载）——高度恒定，
  *   内容有无不影响布局（对话气泡卡片与输入框间距恒定）；
- * - 三槽结构：左（SteerQueueDock 行内形态）/ 中（diff 预留空占位
- *   data-testid=chat-status-diff-slot）/ 右（WorkPhaseDot 行内形态）；
+ * - 三槽结构：左（SteerQueueDock 行内形态）/ 中（DiffStatChip 两 chip 统计，
+ *   T3+T4 diff 批）/ 右（WorkPhaseDot 行内形态）；
  * - 左槽：空队列时槽位空（行仍在）；非空 → 计数 chip，点击展开清单（向上弹出）；
  * - 右槽：idle 不渲染光点（WorkPhaseDot 现状逻辑保留）；thinking → 呼吸点+标签；
  * - E-89：状态行位于滚动容器之外（常驻条不驻滚动流）。
@@ -111,6 +111,34 @@ describe("ChatStatusBar 左槽 SteerQueueDock（行内形态迁移）", () => {
     expect(dock!.querySelector(".sdq-item")!.textContent).toContain("排队内容");
     fireEvent.click(toggle!);
     expect(dock!.querySelector(".sdq-list")).toBeNull();
+  });
+});
+
+describe("ChatStatusBar 中槽 DiffStatChip（T3+T4 diff 批）", () => {
+  it("diff 有数据 → chip 组落中槽（data-testid=diff-stat-chips）", () => {
+    stateRef.current = stateWith({
+      diff: { turnId: "t-1", phase: "active", adds: 12, dels: 4, fileCount: 3 },
+    });
+    ui();
+    const mid = document.querySelector('[data-testid="chat-status-diff-slot"]')!;
+    const chips = mid.querySelector('[data-testid="diff-stat-chips"]');
+    expect(chips).not.toBeNull();
+    expect(chips!.textContent).toContain("+12");
+    expect(chips!.textContent).toContain("−4");
+  });
+
+  it("点击中槽 chip → onOpenDiff 回调（详情窗由 pages 层承接）", () => {
+    const onOpenDiff = vi.fn();
+    stateRef.current = stateWith({
+      diff: { turnId: "t-1", phase: "active", adds: 3, dels: 1, fileCount: 1 },
+    });
+    render(
+      <I18nProvider>
+        <ChatStatusBar onOpenDiff={onOpenDiff} />
+      </I18nProvider>,
+    );
+    fireEvent.click(document.querySelector('[data-testid="diff-stat-chips"]')!);
+    expect(onOpenDiff).toHaveBeenCalledTimes(1);
   });
 });
 

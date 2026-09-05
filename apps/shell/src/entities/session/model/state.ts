@@ -11,6 +11,7 @@ import type {
   AgentStateDto,
   CatalogModel,
   ClosureDto,
+  DiffChangedPayload,
   EntryDto,
   EventEnvelope,
   InstanceState,
@@ -407,6 +408,14 @@ export interface SessionState {
    * 终制即清；重试本体在 daemon 引擎层（退避 10/30/60s×3）。
    */
   engineRetrying: { attempt: number; totalAttempts: number; waitMs: number; message: string } | null;
+  /**
+   * 轮次 diff 状态切片（T3+T4 diff 批；diff.changed 广播帧驱动——consumers/diff）：
+   * 载荷整体落切片（turnId/phase/adds/dels/fileCount）。瞬态不落盘——
+   * daemon 侧内存态随轮滚动（开轮 cleared 帧 → null 清零重计；收轮 frozen
+   * 定格灰态）；重启丢失/快照不携带 = 如实呈现无记录（初始 null）。
+   * 两 chip 口径（已裁）：只有 +N/−N 两维，无第三统计。
+   */
+  diff: DiffChangedPayload | null;
   /** 手动重试挂起（welcome 后 toast 走 retry 文案而非 restore） */
   pendingManualRetry: boolean;
   /** 是否曾连接成功过（区分首连与重连：仅重连触发恢复 toast） */
@@ -576,6 +585,7 @@ export function createInitialSessionState(): SessionState {
     connError: null,
     engineError: null,
     engineRetrying: null,
+    diff: null,
     pendingManualRetry: false,
     hasConnected: false,
     toastPending: null,

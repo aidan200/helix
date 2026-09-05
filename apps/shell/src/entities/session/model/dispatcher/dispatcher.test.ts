@@ -27,6 +27,7 @@ import { applySnapshotEvent } from "../consumers/snapshot";
 import { applyHistoryEvent } from "../consumers/history";
 import { applyModelChangedEvent } from "../consumers/model";
 import { applyThinkingLevelEvent } from "../consumers/thinking-level";
+import { applyDiffEvent } from "../consumers/diff";
 
 describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
   // M36：直通清单集合（连接私有回执/广播唯一登记点核查面）
@@ -99,6 +100,8 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     // thinking.changed（thinking 批①，T2.1）：会话 store 级消费者（thinking 切片）
     expect(route("thinking.changed")).toBe(applyThinkingLevelEvent);
     expect(route("session.loadHistory.result")).toBe(applyHistoryEvent);
+    // diff.changed（T3+T4 diff 批）：轮次 diff 状态面（consumers/diff）
+    expect(route("diff.changed")).toBe(applyDiffEvent);
     // 拓扑级清单族（directory）：不入本注册表，经 dispatcher/frame.ts 前置路由
     expect(route("session.list.result")).toBeUndefined();
     expect(route("session.list_changed")).toBeUndefined();

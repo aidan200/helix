@@ -35,6 +35,7 @@ import type {
   TaskDetailPayload,
   TaskListPayload,
   TraceQueryPayload,
+  DiffGetPayload,
 } from "@helix/protocol";
 import {
   agentBasePromptGetCommand,
@@ -52,6 +53,7 @@ import {
   codeReviewCreateCommand,
   configGetCompactionCommand,
   configSetCompactionCommand,
+  diffGetCommand,
   kgBootstrapCreateCommand,
   kgCandidatesListCommand,
   kgChangeReportCommand,
@@ -376,6 +378,16 @@ export const COMMAND_SURFACE = {
   sendTraceQuery: (deps) =>
     (payload: TraceQueryPayload) => deps.send(traceQueryCommand(payload)),
 
+  // ── diff 查询面（T3+T4 diff 批；轮次 diff 详情读面）──
+  /** 发送 diff.get（session 作用域——信封 sessionId 必填，草稿态无会话
+   *  返回 false；点对点回执 diff.get.result 经 subscribeDiffFrames 转发）。
+   *  单飞纪律在 DiffOverlay（开窗即查，窗口内不重复发）。 */
+  sendDiffGet: (deps) =>
+    (payload: DiffGetPayload) => {
+      const { sessionId } = deps.getTopology().active;
+      return sessionId === null ? false : deps.send(diffGetCommand(payload, sessionId));
+    },
+
   // ── agent.config 查询/写面（M6 T4 智能体页；连接私有读面同构）──
   /** 发送 agent.config.list（全 kind；点对点回执；send 失败返回 false）。 */
   sendAgentConfigList: (deps) =>
@@ -533,6 +545,12 @@ export const LISTEN_SURFACE = {
    *  供在途查询错误态判定——关联靠页面单飞：仅在 pending 非空时消费）。 */
   subscribeTraceFrames: {
     match: (type) => type === "trace.query.result" || type === "connection.error",
+  },
+  /** 订阅 diff 族点对点回执（diff.get.result；connection.error 一并转发
+   *  供 DiffOverlay 在途错误态判定——trace 族先例同构。diff.changed 广播
+   *  走 consumers/diff 真消费，不经此转发）。 */
+  subscribeDiffFrames: {
+    match: (type) => type === "diff.get.result" || type === "connection.error",
   },
   /** 订阅 agent.config 族点对点回执（list.result / set_enabled.result /
    *  base_prompt.get.result / skill_content.get.result；changed 广播走拓扑级
