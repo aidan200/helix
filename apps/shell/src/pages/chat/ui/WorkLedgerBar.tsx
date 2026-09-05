@@ -7,7 +7,9 @@
  *   「无台账如实呈现」同规的 chat 域形态：无条即无台账）；
  * - 收起态（缺省）→ 一行摘要：图标 + n/m 项完成（ledger 服务端计数，前端
  *   零拼装）+ 进行中项名 + 展开箭头；
- * - 展开态 → 条目清单：状态点配色与 tasks 页批次 plan 同构（done=success /
+ * - 展开态 → 条目清单浮窗（absolute 锚摘要条下沿、popover-fill 实底
+ *   覆盖消息流，不挤压主窗口——摘要条常驻位不动；CSS 域 wl-items 见
+ *   app.css）：状态点配色与 tasks 页批次 plan 同构（done=success /
  *   in_progress=accent 高亮 / pending=faint / abandoned=warning 灰显带理由
  *   note）、内容、note 摘要右对齐。
  *

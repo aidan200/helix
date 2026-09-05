@@ -250,10 +250,13 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
 .conn-banner .retry-n { color: var(--text-faint); }
 
 /* ── 工作台账条（main-session plan 批；conn-banner 之下、消息流之上常驻条）──
-   三态：无台账整条隐藏（组件渲染 null）；收起态一行摘要；展开态条目清单。
+   三态：无台账整条隐藏（组件渲染 null）；收起态一行摘要；展开态条目清单
+   浮窗（absolute 锚摘要条下沿、popover-fill 实底覆盖消息流——展开零挤压
+   主窗口，摘要条常驻位不动）。
    状态点配色与 tasks 页批次 plan 同构（done=success / in_progress=accent /
    pending=faint / abandoned=warning 灰显）。 */
 .wl-bar {
+  position: relative; /* wl-items 浮窗定位上下文 */
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
   background: rgb(var(--edge-rgb) / 0.04);
@@ -274,10 +277,18 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
 .wl-doing .ing { color: var(--accent); font-family: var(--font-mono); margin-right: 4px; }
 .wl-arrow { color: var(--text-faint); }
 .wl-items {
+  /* 浮窗：absolute 脱文档流（top:100% 贴摘要条下沿、left/right:0 全宽），
+     覆盖消息流而非推挤——主窗口布局零位移；z-index 45 与 stats-pop 同级
+     （主区浮层带，低于 conn overlay 60 / header popover 60 / toast 70）。 */
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 45;
+  background: var(--popover-fill);
+  border: 1px solid var(--border); border-radius: 0 0 8px 8px;
   border-top: 1px dashed rgb(var(--edge-rgb) / 0.12);
+  box-shadow: var(--shadow-pop);
   padding: 6px 16px 8px;
   display: flex; flex-direction: column; gap: 4px;
   max-height: 180px; overflow-y: auto;
+  animation: pop-in 0.18s ease-out;
 }
 .wl-pi { display: flex; gap: 8px; align-items: baseline; font-size: var(--text-body); line-height: 1.6; }
 .wl-pi-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; align-self: center; background: var(--text-faint); }
