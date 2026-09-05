@@ -9,6 +9,8 @@ import { runChildMainEntry } from "./adapters/driven/subagent/child/ChildMain";
  * argv（contracts/sidecar-lifecycle.md §1，TR-AD-35：argv 显式分发，两形态
  * 同一代码路径，禁 compile 产物自检分支）：
  * - `--home <dir>`：既有参数，原样透传；
+ * - `--port <n>`：WS 监听端口本次运行覆盖（argv > KV daemon_port > 缺省
+ *   7333；argv 不回写 KV——设置页改的是 KV，重启生效）；
  * - `--sidecar`：sidecar 形态——headless 运行（不起 CLI REPL），WS 就绪后
  *   stdout 输出单行 ready JSON（`{"type":"ready","port":N,"token":"..."}`），
  *   此后 stdout 不再承担协议；缺省 = CLI 形态（runCli 主循环）。
@@ -19,7 +21,7 @@ import { runChildMainEntry } from "./adapters/driven/subagent/child/ChildMain";
  *
  * 启动期 fail-fast（中文报错 + 退出码 1）：
  * - 同 --home 已有实例运行（单例锁，AG-17）；
- * - config.json 缺 model 等（首次运行会先生成 0600 模板再引导填写）。
+ * - --port 参数非法（0-65535 整数外）。
  */
 function parseHomeArg(argv: readonly string[]): string | undefined {
   const i = argv.indexOf("--home");
@@ -29,13 +31,26 @@ function parseHomeArg(argv: readonly string[]): string | undefined {
   return undefined;
 }
 
+/** --port <n>：0-65535 整数；非法值 fail-fast（中文报错 + 退出码 1）。 */
+function parsePortArg(argv: readonly string[]): number | undefined {
+  const i = argv.indexOf("--port");
+  if (i === -1) return undefined;
+  const raw = (i + 1 < argv.length ? argv[i + 1] : "") ?? "";
+  if (!/^\d+$/.test(raw) || !Number.isInteger(Number(raw)) || Number(raw) < 0 || Number(raw) > 65535) {
+    console.error(`[helix-daemon] --port 参数非法："${raw}"（应为 0-65535 整数；0 = 随机端口）`);
+    process.exit(1);
+  }
+  return Number(raw);
+}
+
 async function main(): Promise<void> {
   const explicitHome = parseHomeArg(process.argv);
+  const explicitPort = parsePortArg(process.argv);
   const sidecar = process.argv.includes("--sidecar");
 
   let daemon;
   try {
-    daemon = await createDaemon({ home: explicitHome });
+    daemon = await createDaemon({ home: explicitHome, port: explicitPort });
   } catch (err) {
     console.error(`[helix-daemon] 启动失败：${(err as Error).message}`);
     process.exit(1);

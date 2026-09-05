@@ -607,7 +607,8 @@ async function main(): Promise<number> {
   if (!rg.ok) console.error(rg.warning);
 
   // codegraph 同模式（bundle-only 定位）：缺失自动 fetch；失败警告不阻塞
-  // （工具 degraded EngineUnavailable，仅剩 config.json codegraphPath 逃生门）。
+  //（工具 degraded EngineUnavailable——可重跑 fetch 修复，或经
+  // HELIX_CODEGRAPH_PATH env 显式指定可用二进制）。
   const cg = await ensureRgAvailable(cgProbe, cgInstall);
   if (!cg.ok)
     console.error(

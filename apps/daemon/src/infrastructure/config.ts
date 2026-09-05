@@ -1,56 +1,51 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync } from "node:fs";
 import path from "node:path";
-import { DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
 import type { McpServerConfig } from "../adapters/driven/mcp/types";
 
 /**
- * 配置加载（AD-13 architecture.md §7.2 + AD-2 §6.4 瘦身）：
- * 读取 `<home>/config.json`——**纯 daemon 运行参数**（port / maxConcurrent /
- * maxQueued / staticDir / rgPath）。模型位与 key 位已迁出（取代边界，AD-2 §6.5）：
+ * 配置加载（AD-13 architecture.md §7.2 + AD-2 §6.4 瘦身 + config 瘦身批
+ * 2026-09-05）：读取 `<home>/config.json`——**纯进程引导参数**
+ * （staticDir / rgPath）。其余全部迁出：
  * - model → SQLite 默认模型表（DefaultModelStore）；
- * - apiKeys → ~/.helix/auth.json（AuthStore，0600+文件锁）。
+ * - apiKeys → ~/.helix/auth.json（AuthStore，0600+文件锁）；
+ * - port → runtime_config KV `daemon_port` 键（argv --port 本次运行优先；
+ *   设置页 config.set_port 写入，重启生效）；
+ * - maxConcurrent/maxQueued → KV `scheduling_config` 单键（运行期可调）；
+ * - mcpServers → helix.db `mcp_server` 表（McpConfigStore）。
  *
- * 旧格式兼容（启动迁移）：旧 config.json 含 model / apiKeys 字段时
- * loadConfig 将其读出放 legacy（不报错、不丢字段）——组合根负责迁移
- * （写新位 + config.json 重写瘦身形态），迁移后本字段不再出现。
+ * 旧格式兼容（启动迁移，AD-2 同款）：旧 config.json 含上述任一字段时
+ * loadConfig 读入 legacy（不报错不丢字段）——组合根迁移写新位 + config.json
+ * 重写瘦身形态，迁移后字段不再出现。
  *
- * 写入语义（AG-09）：首次创建（文件不存在）时由 ensureConfigTemplate
- * 生成模板并以 0600 权限落盘；任何写回都经 writeConfig（**全字段序列化**
- * ——修复只写三字段导致的截断），统一 chmod 0600。
+ * 写入语义（AG-09）：首次创建（文件不存在）由 ensureConfigTemplate 生成
+ * 空对象模板并以 0600 落盘；任何写回都经 writeConfig（全字段序列化），
+ * 统一 chmod 0600。
  *
- * 报错语义（daemon 启动期 fail-fast）：文件缺失 → 不抛错，返回默认值
- * （port 7333）；model 缺失不再 fail-fast（缺省走 SQLite 默认值 + builtin
- * 兜底，AD-2）。
+ * 报错语义（daemon 启动期 fail-fast）：文件缺失 → 不抛错，返回空配置；
+ * model 缺失不 fail-fast（缺省走 SQLite 默认值 + builtin 兜底，AD-2）。
  */
 
-/** daemon 配置（`<home>/config.json`，瘦身形态——纯运行参数）。 */
+/** daemon 配置（`<home>/config.json`，瘦身形态——纯进程引导参数）。 */
 export interface DaemonConfig {
-  /** WS 端口，默认 7333；0 = 随机（启动日志输出实际端口，test-design §5.4）。 */
-  port: number;
-  /** SubAgent 并发上限（daemon 全局，AD-7①；缺省 3，与 SchedulingPolicy 同源）。 */
-  maxConcurrent: number;
-  /** SubAgent FIFO 队列上限（AD-7②；缺省 8，队列满才报错回 LLM）。 */
-  maxQueued: number;
   /** 前端构建产物目录（static-serve；缺省不激活，daemon 照常启动）。 */
   staticDir?: string;
   /** rg 可执行文件显式路径（rg 三级解析第②级，AD-2/F3.1 §4.4；缺省跳过该级）。 */
   rgPath?: string;
-  /** codegraph 可执行文件显式路径（三级解析第②级，T2.1/AF-2；缺省跳过该级）。 */
-  codegraphPath?: string;
-  /**
-   * MCP server 声明面（mcp 批）：任意 stdio MCP server——daemon 启动
-   * 异步预热（到位即推，不阻塞启动）+ 设置页 CRUD 运行期增删。
-   * 缺省 = 无 server（零配置兼容）。行形状见 McpServerConfig（driven/mcp）。
-   */
-  mcpServers?: McpServerConfig[];
 }
 
-/** 旧格式遗留位（AD-2 迁移读面：组合根写新位后重写瘦身 config.json）。 */
+/** 旧格式遗留位（AD-2 + config 瘦身批迁移读面：组合根写新位后重写瘦身 config.json）。 */
 export interface LegacyModelConfig {
   /** 旧 model 字符串 → 迁 SQLite 默认模型表。 */
   model?: string;
   /** 旧 provider → apiKey 映射 → 迁 auth.json。 */
   apiKeys?: Record<string, string>;
+  /** 旧 port 数字 → 迁 KV daemon_port（config 瘦身批）。 */
+  port?: number;
+  /** 旧 maxConcurrent/maxQueued → 迁 KV scheduling_config 单键。 */
+  maxConcurrent?: number;
+  maxQueued?: number;
+  /** 旧 mcpServers 段 → 迁 mcp_server 表。 */
+  mcpServers?: McpServerConfig[];
 }
 
 /** loadConfig 结果：瘦身配置 + 旧格式遗留位（无遗留 = 空对象）。 */
@@ -59,7 +54,7 @@ export interface LoadedConfig {
   readonly legacy: LegacyModelConfig;
 }
 
-/** 默认端口（§7.2 示例值）。 */
+/** 默认端口（§7.2 示例值；config 瘦身批后单源常量——KV daemon_port 未设时的缺省回落）。 */
 export const DEFAULT_PORT = 7333;
 
 /**
@@ -68,15 +63,8 @@ export const DEFAULT_PORT = 7333;
  */
 export function loadConfig(configFilePath: string): LoadedConfig {
   if (!existsSync(configFilePath)) {
-    // 文件缺失 → 全默认值（首启场景；模型缺省走 SQLite 默认 + builtin 兜底）
-    return {
-      config: {
-        port: DEFAULT_PORT,
-        maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent,
-        maxQueued: DEFAULT_SCHEDULING.maxQueued,
-      },
-      legacy: {},
-    };
+    // 文件缺失 → 空配置（首启场景：port/scheduling 走 KV 缺省，模型走 SQLite + builtin 兜底）
+    return { config: {}, legacy: {} };
   }
 
   const raw = readFileSync(configFilePath, "utf8");
@@ -94,7 +82,7 @@ export function loadConfig(configFilePath: string): LoadedConfig {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error(
       `配置文件格式错误：${configFilePath}，应为 JSON 对象 ` +
-        `{ port?, maxConcurrent?, maxQueued?, staticDir?, rgPath? }，实际不是对象。`,
+        `{ staticDir?, rgPath? }，实际不是对象。`,
     );
   }
 
@@ -112,38 +100,18 @@ export function loadConfig(configFilePath: string): LoadedConfig {
       if (Object.keys(apiKeys).length > 0) legacy.apiKeys = apiKeys;
     }
   }
-
-  let port: number = DEFAULT_PORT;
-  if (obj.port !== undefined) {
-    if (typeof obj.port !== "number" || !Number.isInteger(obj.port) || obj.port < 0 || obj.port > 65535) {
-      throw new Error(
-        `配置文件字段 port 格式错误：${configFilePath}，应为 0–65535 整数（0 = 随机端口；默认 ${DEFAULT_PORT}）。`,
-      );
-    }
-    port = obj.port;
+  if (typeof obj.port === "number" && Number.isInteger(obj.port) && obj.port >= 0 && obj.port <= 65535) {
+    legacy.port = obj.port;
   }
-
-  // SubAgent 调度预算（AD-7①②；非法值 fail-fast，缺省与 domain 同源）
-  let maxConcurrent: number = DEFAULT_SCHEDULING.maxConcurrent;
-  if (obj.maxConcurrent !== undefined) {
-    if (typeof obj.maxConcurrent !== "number" || !Number.isInteger(obj.maxConcurrent) || obj.maxConcurrent < 1) {
-      throw new Error(
-        `配置文件字段 maxConcurrent 格式错误：${configFilePath}，应为 ≥ 1 的整数` +
-          `（SubAgent 并发上限，默认 ${DEFAULT_SCHEDULING.maxConcurrent}）。`,
-      );
-    }
-    maxConcurrent = obj.maxConcurrent;
+  if (typeof obj.maxConcurrent === "number" && Number.isInteger(obj.maxConcurrent) && obj.maxConcurrent >= 1) {
+    legacy.maxConcurrent = obj.maxConcurrent;
   }
-
-  let maxQueued: number = DEFAULT_SCHEDULING.maxQueued;
-  if (obj.maxQueued !== undefined) {
-    if (typeof obj.maxQueued !== "number" || !Number.isInteger(obj.maxQueued) || obj.maxQueued < 0) {
-      throw new Error(
-        `配置文件字段 maxQueued 格式错误：${configFilePath}，应为 ≥ 0 的整数` +
-          `（SubAgent FIFO 队列上限，默认 ${DEFAULT_SCHEDULING.maxQueued}）。`,
-      );
-    }
-    maxQueued = obj.maxQueued;
+  if (typeof obj.maxQueued === "number" && Number.isInteger(obj.maxQueued) && obj.maxQueued >= 0) {
+    legacy.maxQueued = obj.maxQueued;
+  }
+  if (obj.mcpServers !== undefined && Array.isArray(obj.mcpServers) && obj.mcpServers.length > 0) {
+    const servers = parseMcpServers(obj.mcpServers); // 行形状非法即抛（与旧语义一致——迁移前不吞错）
+    if (servers.length > 0) legacy.mcpServers = servers;
   }
 
   let staticDir: string | undefined;
@@ -166,28 +134,10 @@ export function loadConfig(configFilePath: string): LoadedConfig {
     rgPath = obj.rgPath;
   }
 
-  let codegraphPath: string | undefined;
-  if (obj.codegraphPath !== undefined) {
-    if (typeof obj.codegraphPath !== "string" || obj.codegraphPath.trim() === "") {
-      throw new Error(
-        `配置文件字段 codegraphPath 格式错误：${configFilePath}，应为非空字符串（codegraph 可执行文件显式路径，T2.1/AF-2）。`,
-      );
-    }
-    codegraphPath = obj.codegraphPath;
-  }
-
-  // mcp 批：mcpServers 段（行形状非法即抛——启动 fail-fast）
-  const mcpServers = obj.mcpServers === undefined ? undefined : parseMcpServers(obj.mcpServers);
-
   return {
     config: {
-      port,
-      maxConcurrent,
-      maxQueued,
       ...(staticDir !== undefined ? { staticDir } : {}),
       ...(rgPath !== undefined ? { rgPath } : {}),
-      ...(codegraphPath !== undefined ? { codegraphPath } : {}),
-      ...(mcpServers !== undefined && mcpServers.length > 0 ? { mcpServers } : {}),
     },
     legacy,
   };
@@ -243,8 +193,7 @@ function parseMcpServers(value: unknown): McpServerConfig[] {
 export const CONFIG_FILE_MODE = 0o600;
 
 /**
- * 写入配置文件（**全字段序列化**——修复截断：port/maxConcurrent/
- * maxQueued/staticDir/rgPath/codegraphPath 全量落盘，旧实现只写三字段会静默丢字段）。
+ * 写入配置文件（全字段序列化：staticDir/rgPath；旧字段已迁出不再出现）。
  * 父目录不存在则创建；写入后显式 chmod（覆盖既有宽权限文件时同样收严）。
  * 原子写（tmp+rename，code-review M28；对齐 auth-store persist 先例）——
  * 崩溃窗口不留半截 config.json（直写下启动 loadConfig 会抛错 fail-fast）。
@@ -254,15 +203,8 @@ export function writeConfig(configFilePath: string, config: DaemonConfig): void 
   const body =
     JSON.stringify(
       {
-        port: config.port,
-        maxConcurrent: config.maxConcurrent,
-        maxQueued: config.maxQueued,
         ...(config.staticDir !== undefined ? { staticDir: config.staticDir } : {}),
         ...(config.rgPath !== undefined ? { rgPath: config.rgPath } : {}),
-        ...(config.codegraphPath !== undefined ? { codegraphPath: config.codegraphPath } : {}),
-        ...(config.mcpServers !== undefined && config.mcpServers.length > 0
-          ? { mcpServers: config.mcpServers }
-          : {}),
       },
       null,
       2,
@@ -275,15 +217,11 @@ export function writeConfig(configFilePath: string, config: DaemonConfig): void 
 
 /**
  * 首次创建配置模板（0600）：文件已存在则不动（幂等）。
- * 瘦身形态：纯运行参数模板（模型/key 位不在 config.json——缺省走
- * SQLite 默认模型 + auth.json，无需用户先改文件才能启动）。
+ * 瘦身形态：空对象模板（全部运行参数已迁 KV/表——文件在 = 已初始化标记；
+ * staticDir/rgPath 按需手写）。
  */
 export function ensureConfigTemplate(configFilePath: string): { created: boolean } {
   if (existsSync(configFilePath)) return { created: false };
-  writeConfig(configFilePath, {
-    port: DEFAULT_PORT,
-    maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent,
-    maxQueued: DEFAULT_SCHEDULING.maxQueued,
-  });
+  writeConfig(configFilePath, {});
   return { created: true };
 }

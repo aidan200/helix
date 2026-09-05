@@ -66,7 +66,7 @@ function makeHarness(): Harness {
   const runner = new FailingKillRunner();
   const warns: string[] = [];
   const scheduler = new SchedulerService({
-    policy: new SchedulingPolicy(),
+    policy: () => new SchedulingPolicy(),
     runner,
     events: publisher,
     repository,

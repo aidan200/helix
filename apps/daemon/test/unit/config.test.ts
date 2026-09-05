@@ -30,27 +30,25 @@ afterAll(() => {
 });
 
 describe("config（TP-CL1-4 + T2.3 AD-2 瘦身）", () => {
-  test("① fixture config.json 四字段解析正确", () => {
-    const file = makeFixtureHome(
-      JSON.stringify({ port: 8000, maxConcurrent: 5, maxQueued: 10, staticDir: "/tmp/static" }),
-    );
+  test("① fixture config.json 引导参数解析正确（config 瘦身批：仅 staticDir/rgPath）", () => {
+    const file = makeFixtureHome(JSON.stringify({ staticDir: "/tmp/static", rgPath: "/opt/rg" }));
     const { config, legacy } = loadConfig(file);
-    expect(config).toEqual({ port: 8000, maxConcurrent: 5, maxQueued: 10, staticDir: "/tmp/static" });
+    expect(config).toEqual({ staticDir: "/tmp/static", rgPath: "/opt/rg" });
     expect(legacy).toEqual({}); // 瘦身形态无遗留位
   });
 
-  test("② 文件缺失 → 默认值（port 7333，不抛错）", () => {
+  test("② 文件缺失 → 空配置不抛错（port/调度走 KV 缺省）", () => {
     const file = makeFixtureHome(); // 目录存在但 config.json 缺失
     const { config } = loadConfig(file);
-    expect(config.port).toBe(7333);
-    expect(config.port).toBe(DEFAULT_PORT);
-    expect(config.staticDir).toBeUndefined();
+    expect(config).toEqual({});
   });
 
-  test("③ model 缺失不再 fail-fast（AD-2 取代：模型位迁 SQLite 默认表）", () => {
-    const file = makeFixtureHome(JSON.stringify({ port: 7333 }));
-    const { config } = loadConfig(file);
-    expect(config.port).toBe(7333); // 正常加载，无中文报错
+  test("③ 旧运行参数（port/调度）→ legacy 读面（config 瘦身批迁移入参）", () => {
+    const file = makeFixtureHome(JSON.stringify({ port: 7333, maxConcurrent: 4 }));
+    const { config, legacy } = loadConfig(file);
+    expect(config).toEqual({}); // 引导参数面为空——旧值全部进 legacy
+    expect(legacy.port).toBe(7333);
+    expect(legacy.maxConcurrent).toBe(4);
   });
 
   test("④ 旧格式 model/apiKeys → legacy 读面（迁移入参；非法值静默丢弃）", () => {
@@ -62,7 +60,7 @@ describe("config（TP-CL1-4 + T2.3 AD-2 瘦身）", () => {
       }),
     );
     const { config, legacy } = loadConfig(file);
-    expect(config.port).toBe(7333);
+    expect(config).toEqual({});
     expect(legacy.model).toBe("anthropic/claude-sonnet-4-5");
     expect(legacy.apiKeys).toEqual({ anthropic: "sk-test-key" }); // 非 string 值丢弃
   });

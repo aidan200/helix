@@ -94,6 +94,13 @@ type WriteJob =
       readonly value: string;
     }
   | {
+      /** MCP server 声明面整段替换（mcp_server 表，无会话维——全局链；
+       *  config 瘦身批：同 job 先清后插（对齐 modelSlot 先例，崩溃窗口
+       *  回落空表幂等可重建）；行 = name PK + config JSON + position。 */
+      readonly kind: "mcpServersReplace";
+      readonly rows: readonly { name: string; config: string; position: number }[];
+    }
+  | {
       /** 资源启停差异行 upsert（resource_state 全局表，无会话维——全局链）。 */
       readonly kind: "resourceState";
       readonly profileKind: string;
@@ -211,6 +218,8 @@ export class WriteQueue {
   private readonly deleteSessionToolCalls!: Statement;
   private readonly deleteSessionClosures!: Statement;
   private readonly upsertRuntimeConfig!: Statement;
+  private readonly clearMcpServers!: Statement;
+  private readonly insertMcpServer!: Statement;
   private readonly upsertResourceState!: Statement;
   private readonly clearResourceStateByType!: Statement;
   // 任务表域写语句（O-1；全部在本文件 prepare——AG-06 唯一写点集合）
@@ -283,6 +292,10 @@ export class WriteQueue {
     this.upsertRuntimeConfig = this.db.prepare(
       "INSERT INTO runtime_config (key, value) VALUES (?, ?) " +
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    );
+    this.clearMcpServers = this.db.prepare("DELETE FROM mcp_server");
+    this.insertMcpServer = this.db.prepare(
+      "INSERT INTO mcp_server (name, config, position, updated_at) VALUES (?, ?, ?, ?)",
     );
     this.upsertResourceState = this.db.prepare(
       "INSERT INTO resource_state (profile_kind, resource_type, name, enabled, updated_at) VALUES (?, ?, ?, ?, ?) " +
@@ -404,6 +417,14 @@ export class WriteQueue {
    */
   saveRuntimeConfig(key: string, value: string): Promise<void> {
     return this.enqueue({ kind: "runtimeConfig", key, value });
+  }
+
+  /**
+   * MCP server 声明面整段替换入队（config 瘦身批：mcp_server 表；全局链
+   * FIFO；序列化在 McpConfigStore——本层只收 primitive 行）。
+   */
+  saveMcpServers(rows: readonly { name: string; config: string; position: number }[]): Promise<void> {
+    return this.enqueue({ kind: "mcpServersReplace", rows });
   }
 
   /**
@@ -586,6 +607,14 @@ export class WriteQueue {
     }
     if (job.kind === "runtimeConfig") {
       this.upsertRuntimeConfig.run(job.key, job.value);
+      return;
+    }
+    if (job.kind === "mcpServersReplace") {
+      // 整段替换：同 job 先清后插（对齐 modelSlot 先例——中间态不可见，
+      // 崩溃窗口回落空表，幂等可重建）
+      this.clearMcpServers.run();
+      const now = new Date().toISOString();
+      for (const row of job.rows) this.insertMcpServer.run(row.name, row.config, row.position, now);
       return;
     }
     if (job.kind === "resourceState") {

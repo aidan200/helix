@@ -57,6 +57,8 @@ const mc: ModelConfigState = {
   setDefaultInflight: null,
   catalogRefreshing: false,
   compaction: null,
+    scheduling: null,
+    port: null,
 };
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {

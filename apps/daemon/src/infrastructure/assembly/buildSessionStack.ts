@@ -21,6 +21,7 @@ import { ResourceService } from "../../application/services/ResourceService";
 import { SystemPromptAssembler } from "../../application/services/SystemPromptAssembler";
 import type { TaskTypeInfo } from "../../application/ports/outbound/TaskSkillRegistryPort";
 import { SchedulingPolicy } from "../../domain/agent/SchedulingPolicy";
+import type { SchedulingConfigPort } from "../../application/ports/outbound/SchedulingConfigPort";
 import { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import { sessionPlanPayloadOf } from "../../adapters/driving/ws-server/SnapshotMapper";
 import { LazyWorkLedger } from "../../adapters/driven/sqlite-session/WorkLedger";
@@ -167,6 +168,8 @@ export interface BuildSessionStackDeps {
   readonly defaultThinking?: DefaultThinkingStore;
   /** 压缩参数配置（可选——测试缺省回落 DEFAULT_COMPACTION）。 */
   readonly compactionConfig?: CompactionConfigPort;
+  /** SubAgent 调度预算（可选——测试缺省回落 DEFAULT_SCHEDULING；生产恒注入，运行期可调）。 */
+  readonly schedulingConfig?: SchedulingConfigPort;
   readonly browserPort: BrowserPort;
   /** fan-out 发布面（组合根先建、wireEventFanout 后装目标——服务构造期依赖稳定引用）。 */
   readonly events: EventPublisherPort;
@@ -762,10 +765,13 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   //    实例归属经 spawn 入参/AgentInstanceData.sessionId；全局预算不分裂） ──
   const restoreService = new RestoreService({ repository, clock });
   const scheduler = new SchedulerService({
-    policy: new SchedulingPolicy({
-      maxConcurrent: config.maxConcurrent,
-      maxQueued: config.maxQueued,
-    }),
+    // 调度策略工厂：每次预算判定现拍 KV 现值（设置页 set 完成后下一次
+    // decideSpawn 即生效——运行期可调，无需重启）；stalled 阈值仍走 domain 缺省；
+    // 未注入 store（测试形态）→ SchedulingPolicy 构造缺省回落 DEFAULT_SCHEDULING
+    policy: () => {
+      const budget = deps.schedulingConfig?.current();
+      return new SchedulingPolicy(budget !== undefined ? { ...budget } : {});
+    },
     // 可观测 logger（kill 终止信号失败 warn；缺省静默）
     logger,
     runner: subagentRunner,

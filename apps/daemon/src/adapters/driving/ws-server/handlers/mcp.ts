@@ -151,8 +151,8 @@ export function handleMcpServersAdd(ctx: McpCommandContext): void {
   }
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const run = async (): Promise<void> => {
-    // 先落盘后连接：连接失败（connect_failed 判别）配置仍保留——可重试
-    ctx.saveMcpServers([...ctx.mcp.listConfigs(), input]);
+    // 先落盘后连接（await 落盘完成）：连接失败（connect_failed 判别）配置仍保留——可重试
+    await ctx.saveMcpServers([...ctx.mcp.listConfigs(), input]);
     const status = await ctx.mcp.addServer(input);
     const frame: McpServersAddResultEvent = {
       v: PROTOCOL_VERSION,
@@ -179,7 +179,7 @@ export function handleMcpServersUpdate(ctx: McpCommandContext): void {
   }
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const run = async (): Promise<void> => {
-    ctx.saveMcpServers(configs.map((c) => (c.name === input.name ? input : c)));
+    await ctx.saveMcpServers(configs.map((c) => (c.name === input.name ? input : c)));
     // addServer 同名幂等覆盖：断旧连 → 重连 → 重新发现（McpRegistry 并发语义）
     const status = await ctx.mcp.addServer(input);
     const frame: McpServersUpdateResultEvent = {
@@ -204,16 +204,20 @@ export function handleMcpServersRemove(ctx: McpCommandContext): void {
   if (!configs.some((c) => c.name === name)) {
     return ctx.commandError(ctx.type, "command.invalid_payload", `MCP server "${name}" 不存在`);
   }
-  ctx.saveMcpServers(configs.filter((c) => c.name !== name));
-  ctx.mcp.removeServer(name); // 断连 + 摘 entry + stopped 广播（刷新链在组合根接线自动触发）
-  const frame: McpServersRemoveResultEvent = {
-    v: PROTOCOL_VERSION,
-    sessionId: SYSTEM_SESSION_ID,
-    channel: "mcp",
-    type: "mcp.servers.remove.result",
-    payload: { status: "applied", server: { name, state: "stopped" } },
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const run = async (): Promise<void> => {
+    await ctx.saveMcpServers(configs.filter((c) => c.name !== name));
+    ctx.mcp.removeServer(name); // 断连 + 摘 entry + stopped 广播（刷新链在组合根接线自动触发）
+    const frame: McpServersRemoveResultEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "mcp",
+      type: "mcp.servers.remove.result",
+      payload: { status: "applied", server: { name, state: "stopped" } },
+    };
+    ctx.sendNow(sender, frame);
   };
-  ctx.sendNow(ctx.ws.data.sender ?? ctx.rawSender(), frame);
+  void run().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `mcp.servers.remove 执行失败：${(err as Error).message}`));
 }
 
 /** mcp.servers.test（全局写面）：试连（不落盘不注册）——配置页「测试连接」。 */

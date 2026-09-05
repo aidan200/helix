@@ -1,5 +1,5 @@
 /**
- * 设置页「通用」分区（语言切换 + 工作空间 + 压缩参数配置）。
+ * 设置页「通用」分区（语言切换 + 工作空间 + 压缩参数 + 调度预算 + 端口）。
  *
  * 语言切换：useI18n().setLang 直写（helix-lang localStorage 持久化 +
  * document.lang 同步），纯壳端偏好不走 daemon 配置命令。
@@ -9,6 +9,9 @@
  * 帧驱动，无乐观更新——写面靠 result 帧回填）；进入分区时
  * requestCompactionConfig 拉取现值。两个 token 绝对值输入框 + 保存按钮
  * （非负整数校验）。
+ * 调度预算/端口（config 瘦身批同构）：modelConfig.scheduling / port 帧驱动
+ * 同模式；调度写入下一次预算判定即生效（无重启提示），端口写入下次启动
+ * 生效（UI 标注 + argv 覆盖态展示）。
  */
 import { useEffect, useRef, useState } from "react";
 import { useI18n, type Lang } from "@/shared/i18n";
@@ -24,8 +27,10 @@ const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
 
 const GeneralSettingsSection = function GeneralSettingsSection() {
   const { t, lang, setLang } = useI18n();
-  const { topology, requestCompactionConfig, setCompactionConfig } = useSession();
+  const { topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig } = useSession();
   const compaction = topology.modelConfig.compaction;
+  const scheduling = topology.modelConfig.scheduling;
+  const portCfg = topology.modelConfig.port;
 
   const [reserve, setReserve] = useState("");
   const [keepRecent, setKeepRecent] = useState("");
@@ -35,10 +40,25 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
   /** 保存在途（M44：「已保存」由 set_compaction.result 结果帧驱动，非乐观置位）。 */
   const pendingSaveRef = useRef(false);
 
+  // 调度预算输入（config 瘦身批；与压缩参数同构的脏态/在途门控）
+  const [maxConcurrent, setMaxConcurrent] = useState("");
+  const [maxQueued, setMaxQueued] = useState("");
+  const [schedSaved, setSchedSaved] = useState(false);
+  const schedDirtyRef = useRef(false);
+  const schedPendingRef = useRef(false);
+
+  // 端口输入（同构；写入下次启动生效）
+  const [portInput, setPortInput] = useState("");
+  const [portSaved, setPortSaved] = useState(false);
+  const portDirtyRef = useRef(false);
+  const portPendingRef = useRef(false);
+
   // 进入分区拉取现值（未请求态才发）
   useEffect(() => {
     requestCompactionConfig();
-  }, [requestCompactionConfig]);
+    requestSchedulingConfig();
+    requestPortConfig();
+  }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig]);
 
   // 结果帧到达：保存在途对账 → 落「已保存」（M44 真实反馈）；
   // 非在途且用户有未保存编辑 → 不回填覆盖（M46 dirty 门控）
@@ -66,6 +86,55 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
     pendingSaveRef.current = true;
     setSaved(false);
     setCompactionConfig(r, k);
+  };
+
+  // 结果帧到达（调度）：在途对账/脏态门控（与压缩参数同构）
+  useEffect(() => {
+    if (scheduling === null) return;
+    if (schedPendingRef.current) {
+      schedPendingRef.current = false;
+      schedDirtyRef.current = false;
+      setMaxConcurrent(String(scheduling.maxConcurrent));
+      setMaxQueued(String(scheduling.maxQueued));
+      setSchedSaved(true);
+      return;
+    }
+    if (schedDirtyRef.current) return;
+    setMaxConcurrent(String(scheduling.maxConcurrent));
+    setMaxQueued(String(scheduling.maxQueued));
+  }, [scheduling]);
+
+  const saveScheduling = () => {
+    if (maxConcurrent.trim() === "" || maxQueued.trim() === "") return;
+    const c = Number(maxConcurrent);
+    const q = Number(maxQueued);
+    if (!Number.isInteger(c) || !Number.isInteger(q) || c < 1 || q < 0) return;
+    schedPendingRef.current = true;
+    setSchedSaved(false);
+    setSchedulingConfig(c, q);
+  };
+
+  // 结果帧到达（端口）：在途对账/脏态门控（同构）
+  useEffect(() => {
+    if (portCfg === null) return;
+    if (portPendingRef.current) {
+      portPendingRef.current = false;
+      portDirtyRef.current = false;
+      setPortInput(portCfg.storedPort !== null ? String(portCfg.storedPort) : "");
+      setPortSaved(true);
+      return;
+    }
+    if (portDirtyRef.current) return;
+    setPortInput(portCfg.storedPort !== null ? String(portCfg.storedPort) : "");
+  }, [portCfg]);
+
+  const savePort = () => {
+    if (portInput.trim() === "") return;
+    const p = Number(portInput);
+    if (!Number.isInteger(p) || p < 0 || p > 65535) return;
+    portPendingRef.current = true;
+    setPortSaved(false);
+    setPortConfig(p);
   };
 
   return (
@@ -142,6 +211,95 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
         {saved && (
           <span className="ag-note" data-compaction-saved>
             {t("chat.settings.general.saved")}
+          </span>
+        )}
+      </div>
+
+      {/* SubAgent 调度预算（config 瘦身批：运行期可调，下一次预算判定生效） */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupScheduling")}</h3>
+      <div className="hud-card">
+        <div className="fld">
+          <label className="hud-label" htmlFor="sched-max-concurrent">
+            {t("chat.settings.general.maxConcurrent")}
+          </label>
+          <input
+            id="sched-max-concurrent"
+            className="hud-input"
+            type="number"
+            min={1}
+            value={maxConcurrent}
+            data-sched-max-concurrent
+            onChange={(e) => {
+              setMaxConcurrent(e.target.value);
+              schedDirtyRef.current = true;
+              setSchedSaved(false);
+            }}
+          />
+        </div>
+        <div className="fld">
+          <label className="hud-label" htmlFor="sched-max-queued">
+            {t("chat.settings.general.maxQueued")}
+          </label>
+          <input
+            id="sched-max-queued"
+            className="hud-input"
+            type="number"
+            min={0}
+            value={maxQueued}
+            data-sched-max-queued
+            onChange={(e) => {
+              setMaxQueued(e.target.value);
+              schedDirtyRef.current = true;
+              setSchedSaved(false);
+            }}
+          />
+        </div>
+        <button type="button" className="hud-btn hud-btn-cyan" data-sched-save onClick={saveScheduling}>
+          {t("chat.settings.general.save")}
+        </button>
+        {schedSaved && (
+          <span className="ag-note" data-sched-saved>
+            {t("chat.settings.general.saved")}
+          </span>
+        )}
+        <span className="ag-note">{t("chat.settings.general.schedNote")}</span>
+      </div>
+
+      {/* WS 端口（config 瘦身批：下次启动生效；argv 覆盖态展示） */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupPort")}</h3>
+      <div className="hud-card">
+        <div className="fld">
+          <label className="hud-label" htmlFor="ws-port">
+            {t("chat.settings.general.wsPort")}
+          </label>
+          <input
+            id="ws-port"
+            className="hud-input"
+            type="number"
+            min={0}
+            max={65535}
+            value={portInput}
+            placeholder="7333"
+            data-ws-port
+            onChange={(e) => {
+              setPortInput(e.target.value);
+              portDirtyRef.current = true;
+              setPortSaved(false);
+            }}
+          />
+        </div>
+        <button type="button" className="hud-btn hud-btn-cyan" data-port-save onClick={savePort}>
+          {t("chat.settings.general.save")}
+        </button>
+        {portSaved && (
+          <span className="ag-note" data-port-saved>
+            {t("chat.settings.general.saved")}
+          </span>
+        )}
+        <span className="ag-note">{t("chat.settings.general.portNote")}</span>
+        {portCfg !== null && portCfg.overriddenByArgv && (
+          <span className="ag-note" data-port-argv-override>
+            {t("chat.settings.general.portArgvOverride", { port: portCfg.effectivePort })}
           </span>
         )}
       </div>

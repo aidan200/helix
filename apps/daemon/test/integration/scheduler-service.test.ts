@@ -108,7 +108,7 @@ class EngineInstanceRunner implements InstanceRunner {
 }
 
 function makeHarness(options: {
-  policy?: SchedulingPolicy;
+  policy?: () => SchedulingPolicy;
   hangMs?: number;
   clock?: ClockPort;
   /** W2-D：pending_sync job 归属解析（透传 ClosureRecorder；缺省不注入 = 恒 null）。 */
@@ -129,7 +129,7 @@ function makeHarness(options: {
   const clock: ClockPort = options.clock ?? { now: () => FIXED_NOW, nowMs: () => Date.now() };
   const runner = new EngineInstanceRunner(options.hangMs ?? HANG_MS);
   const scheduler = new SchedulerService({
-    policy: options.policy ?? new SchedulingPolicy(),
+    policy: options.policy ?? (() => new SchedulingPolicy()),
     runner,
     events: publisher,
     repository,
@@ -391,7 +391,7 @@ describe("W2-D 闭环 pending_sync 记录点（R13/R22：tool_calls 机械判定
 describe("⑤ stalled 警示（不自动杀，可重复推）", () => {
   test("阈值 100ms：idle 实例收到 stalled（≥2 次可重复）、状态仍 running、无终止动作", async () => {
     const h = (current = makeHarness({
-      policy: new SchedulingPolicy({ stalledThresholdMs: 100 }),
+      policy: () => new SchedulingPolicy({ stalledThresholdMs: 100 }),
       hangMs: 5_000,
     }));
     const a1 = spawnId(h, "长任务");
@@ -418,7 +418,7 @@ describe("⑤ stalled 警示（不自动杀，可重复推）", () => {
     // idleMs = 注入时钟差值，确定可断（真实墙钟则为 ~1.7e12 epoch，一眼可辨）
     let ms = 1_000_000;
     const h = (current = makeHarness({
-      policy: new SchedulingPolicy({ stalledThresholdMs: 100 }),
+      policy: () => new SchedulingPolicy({ stalledThresholdMs: 100 }),
       hangMs: 5_000,
       clock: { now: () => FIXED_NOW, nowMs: () => ms },
     }));
@@ -456,12 +456,12 @@ describe("K4：maxConcurrent/maxQueued 经 tmp home config.json 覆写生效", (
       );
       // 动态 import 避免与本文件顶部静态导入顺序耦合
       const { loadConfig } = require("../../src/infrastructure/config");
-      const cfg = loadConfig(path.join(home, "config.json")).config; // T2.3：{config, legacy} 形态
-      expect(cfg.maxConcurrent).toBe(2);
-      expect(cfg.maxQueued).toBe(4);
+      const round = loadConfig(path.join(home, "config.json")); // config 瘦身批：旧字段进 legacy（迁移面）
+      expect(round.legacy.maxConcurrent).toBe(2);
+      expect(round.legacy.maxQueued).toBe(4);
 
       const h = (current = makeHarness({
-        policy: new SchedulingPolicy({ maxConcurrent: cfg.maxConcurrent!, maxQueued: cfg.maxQueued! }),
+        policy: () => new SchedulingPolicy({ maxConcurrent: round.legacy.maxConcurrent!, maxQueued: round.legacy.maxQueued! }),
       }));
       expect(h.scheduler.spawn(SESSION_ID, "a").status).toBe("run");
       expect(h.scheduler.spawn(SESSION_ID, "b").status).toBe("run");

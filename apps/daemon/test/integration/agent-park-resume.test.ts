@@ -75,7 +75,7 @@ function makeHarness(): Harness {
   const clock: ClockPort = { now: () => FIXED_NOW, nowMs: () => Date.parse(FIXED_NOW) };
   const runner = new ParkToolRunner();
   const scheduler = new SchedulerService({
-    policy: new SchedulingPolicy(),
+    policy: () => new SchedulingPolicy(),
     runner,
     events: publisher,
     repository: new InMemorySessionRepository(),

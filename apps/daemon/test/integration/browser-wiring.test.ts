@@ -75,7 +75,7 @@ describe("T2 SchedulerService 终态钩子（owner 回收接缝）", () => {
     const { runner, fire } = makeRunner();
     const reclaimed: string[] = [];
     const scheduler = new SchedulerService({
-      policy: new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
+      policy: () => new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
       runner,
       events: noopEvents,
       repository: new InMemorySessionRepository(),
@@ -100,7 +100,7 @@ describe("T2 SchedulerService 终态钩子（owner 回收接缝）", () => {
   test("未注入 onInstanceTerminal：收口链不受影响（可选依赖）", async () => {
     const { runner, fire } = makeRunner();
     const scheduler = new SchedulerService({
-      policy: new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
+      policy: () => new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
       runner,
       events: noopEvents,
       repository: new InMemorySessionRepository(),

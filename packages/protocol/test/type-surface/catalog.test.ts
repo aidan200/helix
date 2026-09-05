@@ -159,7 +159,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 69 个 type（… + diff 批 1 + mcp 批 6）", () => {
+  test("命令目录恰为 73 个 type（… + config 瘦身批 4）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -178,7 +178,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "chat.steer",
         "code.review.create",
         "config.get_compaction",
+        "config.get_port",
+        "config.get_scheduling",
         "config.set_compaction",
+        "config.set_port",
+        "config.set_scheduling",
         "diff.get",
         "kg.bootstrap.create",
         "kg.bootstrap.impact",
@@ -235,7 +239,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 87 个 type（… + diff 批 1 + mcp 批 7）", () => {
+  test("事件目录恰为 91 个 type（… + config 瘦身批 4）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get.result",
@@ -266,7 +270,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "code.review.create.result",
         "compaction.completed",
         "config.get_compaction.result",
+        "config.get_port.result",
+        "config.get_scheduling.result",
         "config.set_compaction.result",
+        "config.set_port.result",
+        "config.set_scheduling.result",
         "connection.error",
         "connection.welcome",
         "diff.changed",
@@ -510,7 +518,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "auth.set_key.result",
       "auth.verify.result",
       "config.get_compaction.result",
+      "config.get_port.result",
+      "config.get_scheduling.result",
       "config.set_compaction.result",
+      "config.set_port.result",
+      "config.set_scheduling.result",
       "model.catalog.result",
       "model.catalog_refresh.result",
       "model.changed",
@@ -552,11 +564,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（diff 批 + mcp 批后）：EVENT_TYPES 87 / EVENT_CHANNELS 87 键 / COMMAND_TYPES 69", () => {
-    expect(EVENT_TYPES.length).toBe(87); // diff 批 +1（diff.changed）+ mcp 批 +7（六 result + status.changed）
-    expect(new Set(EVENT_TYPES).size).toBe(87); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(87); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(69); // diff 批 +1（diff.get）+ mcp 批 +6
+  test("目录计数（config 瘦身批后）：EVENT_TYPES 91 / EVENT_CHANNELS 91 键 / COMMAND_TYPES 73", () => {
+    expect(EVENT_TYPES.length).toBe(91); // config 瘦身批 +4（scheduling/port result）
+    expect(new Set(EVENT_TYPES).size).toBe(91); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(91); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(73); // config 瘦身批 +4（get/set_scheduling、get/set_port）
   });
 
 });

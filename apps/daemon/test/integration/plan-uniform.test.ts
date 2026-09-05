@@ -181,7 +181,7 @@ function makeHarness(): Harness {
     },
   });
   const scheduler = new SchedulerService({
-    policy: new SchedulingPolicy(),
+    policy: () => new SchedulingPolicy(),
     runner: launcher,
     events: publisher,
     repository,

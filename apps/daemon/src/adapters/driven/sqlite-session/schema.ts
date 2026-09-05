@@ -25,6 +25,11 @@
  *   SubAgent 闭环时机械查 tool_calls 有 write 类成功调用才 upsert；job 终态
  *   扫描 notified=0 行提示用户确认 kg sync。运行时状态非知识，落
  *   sqlite-session 侧）；
+ * - mcp_server：MCP server 声明面（config 瘦身批 2026-09-05：config.json
+ *   mcpServers 段迁入——name PK + config JSON 列（McpServerConfig 行整体
+ *   序列化，加字段零 DDL 演进）+ position 保序 + 全量读消费面（无单条
+ *   SQL 查询需求，故非关系表用法）；写面整段替换 job（WriteQueue
+ *   mcpServersReplace——同 job 先清后插，崩溃窗口回落空表幂等可重建）；
  * - job/stage/batch/work_item：任务四表新表域（O-1 用户裁决 2026-08-29，
  *   architecture.md §3.2 列为权威）：daemon 全局状态（任务可无项目关联
  *   AD-8），与任务四表分域同库承载。状态列无 CHECK（TR-AD-3：行模型哑、
@@ -134,6 +139,13 @@ CREATE TABLE IF NOT EXISTS pending_sync (
   changed_at TEXT NOT NULL,
   notified INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (session_id)
+);
+
+CREATE TABLE IF NOT EXISTS mcp_server (
+  name TEXT PRIMARY KEY,
+  config TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
 );
 `;
 

@@ -276,6 +276,33 @@ export interface ConfigGetCompactionCommand extends CommandFrame<EmptyPayload> {
   type: "config.get_compaction";
 }
 
+/** config.set_scheduling 载荷：SubAgent 调度预算（运行期可调——下一次预算判定生效）。 */
+export interface ConfigSetSchedulingPayload {
+  maxConcurrent: number;
+  maxQueued: number;
+}
+export interface ConfigSetSchedulingCommand extends CommandFrame<ConfigSetSchedulingPayload> {
+  type: "config.set_scheduling";
+}
+
+/** config.get_scheduling 载荷：全局命令。 */
+export interface ConfigGetSchedulingCommand extends CommandFrame<EmptyPayload> {
+  type: "config.get_scheduling";
+}
+
+/** config.set_port 载荷：WS 监听端口（重启生效；argv --port 本次运行优先）。 */
+export interface ConfigSetPortPayload {
+  port: number;
+}
+export interface ConfigSetPortCommand extends CommandFrame<ConfigSetPortPayload> {
+  type: "config.set_port";
+}
+
+/** config.get_port 载荷：全局命令。 */
+export interface ConfigGetPortCommand extends CommandFrame<EmptyPayload> {
+  type: "config.get_port";
+}
+
 // ── v0.2 新增：auth 管理族（契约 C §1.3；G-6 定名） ──
 
 /** auth.list 结果载荷 */
@@ -898,6 +925,10 @@ export type CommandEnvelope =
   | ModelGetDefaultCommand
   | ConfigSetCompactionCommand
   | ConfigGetCompactionCommand
+  | ConfigSetSchedulingCommand
+  | ConfigGetSchedulingCommand
+  | ConfigSetPortCommand
+  | ConfigGetPortCommand
   | AuthListCommand
   | AuthSetKeyCommand
   | AuthDeleteKeyCommand
@@ -970,6 +1001,10 @@ export const COMMAND_TYPES = [
   "model.get_default",
   "config.set_compaction",
   "config.get_compaction",
+  "config.set_scheduling",
+  "config.get_scheduling",
+  "config.set_port",
+  "config.get_port",
   "auth.list",
   "auth.set_key",
   "auth.delete_key",

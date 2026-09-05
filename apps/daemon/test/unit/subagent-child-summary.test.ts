@@ -61,7 +61,7 @@ describe("F1.2 锚 2 抽样：兜底 summary 单源直通消费面（reports md 
     const injected: string[] = [];
     const runner = new StubRunner();
     const scheduler = new SchedulerService({
-      policy: new SchedulingPolicy(),
+      policy: () => new SchedulingPolicy(),
       runner,
       events: publisher,
       repository,

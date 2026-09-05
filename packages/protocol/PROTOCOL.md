@@ -293,10 +293,10 @@ Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重�
 > **§10–§14（v0.1–v0.4 演进登记与微批备案）已迁 PROTOCOL-CHANGELOG.md**
 >（原节号保留——下文节号自 §9 直接跳至 §15 即此迁移痕迹，非缺节）。
 
-## 15. 命令 payload 形状总登记（C→S，69 命令全集）
+## 15. 命令 payload 形状总登记（C→S，73 命令全集）
 
-> **计数声明：69 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 7〔含 skill-content 批 1〕 +
-> 15.4 model 7 + config 2 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
+> **计数声明：73 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 7〔含 skill-content 批 1〕 +
+> 15.4 model 7 + config 6〔含 config 瘦身批 4：get/set_scheduling、get/set_port〕 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
 > 15.9 kg 6+5+2+1+1+1+1 + 15.10 workspace 2 + 15.11 task 10 + 15.12 diff 1 + 15.13 mcp 6）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
@@ -493,7 +493,7 @@ skill 正文（SKILL.md 全文）读面（skill-content 批 §24；agent 页技�
 |---|---|---|---|---|
 | `name` | `string` | 必填 | §24 | 技能名（SKILL.md frontmatter name） |
 
-### 15.4 model + config 族（9）
+### 15.4 model + config 族（13）
 
 #### `model.set`
 
@@ -579,6 +579,45 @@ sessionId）。结果帧：`config.set_compaction.result`（点对点，§16.6�
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | （无字段） | `EmptyPayload` | — | config | 空载荷 |
+
+#### `config.set_scheduling`
+
+设置 SubAgent 调度预算（SQLite KV 单键 JSON；运行期可调——下一次预算
+判定生效，无需重启）。路由：全局命令。结果帧：
+`config.set_scheduling.result`（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `maxConcurrent` | `number` | 必填 | config 瘦身批 | 运行中 SubAgent 上限（≥1 整数；缺省 3） |
+| `maxQueued` | `number` | 必填 | config 瘦身批 | FIFO 队列上限（≥0 整数；缺省 8） |
+
+#### `config.get_scheduling`
+
+查询调度预算。路由：全局命令。结果帧：`config.get_scheduling.result`
+（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | config 瘦身批 | 空载荷 |
+
+#### `config.set_port`
+
+设置 WS 监听端口（SQLite KV `daemon_port` 键；**下次启动生效**——port 是
+启动期定格参数。运行优先级：argv `--port` > KV > 缺省 7333）。路由：全局
+命令。结果帧：`config.set_port.result`（点对点，§16.6）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `port` | `number` | 必填 | config 瘦身批 | 端口号（0-65535；0 = 随机） |
+
+#### `config.get_port`
+
+查询端口配置。路由：全局命令。结果帧：`config.get_port.result`（点对点，
+§16.6；含 argv 覆盖信息）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | config 瘦身批 | 空载荷 |
 
 ### 15.5 auth 族（4）
 
@@ -1181,12 +1220,12 @@ deferred 缺省 true = 懒加载：工具经 `${server}__discover` meta 工具�
 |---|---|---|---|---|
 | `server` | `string` | 必填 | mcp 批 | 目标 server |
 
-## 16. 事件 payload 形状总登记（S→C，87 事件全集）
+## 16. 事件 payload 形状总登记（S→C，91 事件全集）
 
-> **计数声明：87 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> **计数声明：91 事件全集**（16.1 notification 3〔含 task.changed〕 +
 > 16.2 session 6〔含 main-session plan 批 session.plan.changed + diff 批 diff.changed〕 + 16.11 mcp 7〔mcp 批：六 result + status.changed〕 +
 > 16.3 chat 12〔含 engine.retrying 网络重试批 + error entry 批 error.entry〕 + 16.4 agent 16〔含 park/resume 批 2 + base prompt 批 1 + skill-content 批 1〕 + 16.5 thinking·compaction·usage 5 +
-> 16.6 model 13 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1+1 + 16.10 workspace 3 + 16.11 mcp 7
+> 16.6 model 17〔含 config 瘦身批 4：scheduling 两 result + port 两 result，挂 model 通道〕 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1+1 + 16.10 workspace 3 + 16.11 mcp 7
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
 >（三面同构，守护断言⑤口径）；auth 族 4 结果帧按 `EVENT_CHANNELS` 登记挂
@@ -1713,6 +1752,34 @@ daemon 处理 `thinking.set` 后经 domain_events 单写队列落盘（TR-AD-5�
 |---|---|---|---|---|
 | `reserveTokens` | `number` | 必填 | config | 写后的压缩预留余量 |
 | `keepRecentTokens` | `number` | 必填 | config | 写后的保留最近 token 数 |
+
+#### `config.get_scheduling.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `maxConcurrent` | `number` | 必填 | config 瘦身批 | 当前生效运行中 SubAgent 上限 |
+| `maxQueued` | `number` | 必填 | config 瘦身批 | 当前生效 FIFO 队列上限 |
+
+#### `config.set_scheduling.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `maxConcurrent` | `number` | 必填 | config 瘦身批 | 写后的运行中上限 |
+| `maxQueued` | `number` | 必填 | config 瘦身批 | 写后的队列上限 |
+
+#### `config.get_port.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `effectivePort` | `number` | 必填 | config 瘦身批 | 本次运行实际监听端口（argv 覆盖时 = argv 值） |
+| `storedPort` | `number \| null` | 必填 | config 瘦身批 | 存储端口（KV daemon_port；null = 未设置用缺省 7333） |
+| `overriddenByArgv` | `boolean` | 必填 | config 瘦身批 | 本次运行是否经 argv --port 显式覆盖 |
+
+#### `config.set_port.result`
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `port` | `number` | 必填 | config 瘦身批 | 写入的存储端口（下次启动生效） |
 
 #### `auth.list.result`
 

@@ -100,7 +100,7 @@ async function withChainAEnv(
   // → TaskOrchestratorService.handleInstanceClosure）
   let orchestratorRef: { handleInstanceClosure(agentId: string): void } | undefined;
   const scheduler = new SchedulerService({
-    policy: new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
+    policy: () => new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
     runner,
     events: publisher,
     repository: new SqliteSessionRepository(queue),

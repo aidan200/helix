@@ -88,7 +88,7 @@ function makeHarness(policy?: SchedulingPolicy, clock?: ClockPort): Harness {
   };
   const runner = new ParkRunner();
   const scheduler = new SchedulerService({
-    policy: policy ?? new SchedulingPolicy({ maxConcurrent: 3 }),
+    policy: () => policy ?? new SchedulingPolicy({ maxConcurrent: 3 }),
     runner,
     events: publisher,
     repository,

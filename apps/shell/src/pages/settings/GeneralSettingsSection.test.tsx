@@ -14,6 +14,10 @@ import { ToastProvider } from "@/shared/ui/Toast";
 
 const requestCompactionConfig = vi.fn();
 const setCompactionConfig = vi.fn();
+const requestSchedulingConfig = vi.fn();
+const setSchedulingConfig = vi.fn();
+const requestPortConfig = vi.fn();
+const setPortConfig = vi.fn();
 /** M44/M46：压缩参数结果帧可变位（结果帧驱动回填 / 「已保存」对账）。 */
 let mockCompaction: { reserveTokens: number; keepRecentTokens: number } | null = null;
 
@@ -23,9 +27,13 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     ...orig,
     useSession: () => ({
       state: { agentState: "idle", instances: [] },
-      topology: { modelConfig: { compaction: mockCompaction }, list: [] },
+      topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null }, list: [] },
       requestCompactionConfig,
       setCompactionConfig,
+      requestSchedulingConfig,
+      setSchedulingConfig,
+      requestPortConfig,
+      setPortConfig,
     }),
   };
 });

@@ -99,6 +99,14 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `config-get-compaction-result:${event.payload.reserveTokens}:${event.payload.keepRecentTokens}`;
     case "config.set_compaction.result":
       return `config-set-compaction-result:${event.payload.reserveTokens}:${event.payload.keepRecentTokens}`;
+    case "config.get_scheduling.result":
+      return `config-get-scheduling-result:${event.payload.maxConcurrent}:${event.payload.maxQueued}`;
+    case "config.set_scheduling.result":
+      return `config-set-scheduling-result:${event.payload.maxConcurrent}:${event.payload.maxQueued}`;
+    case "config.get_port.result":
+      return `config-get-port-result:${event.payload.effectivePort}:${event.payload.storedPort}:${event.payload.overriddenByArgv}`;
+    case "config.set_port.result":
+      return `config-set-port-result:${event.payload.port}`;
     case "auth.list.result":
       return `auth-list-result:${event.payload.providers.length}:${event.payload.providers[0]?.configured ?? "-"}`;
     case "auth.set_key.result":
@@ -258,11 +266,19 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `model-set-default:${cmd.payload.model}`;
     case "model.get_default":
       return "model-get-default";
-    // ── config 族（压缩参数配置；全局命令）──
+    // ── config 族（压缩参数/调度预算/端口配置；全局命令）──
     case "config.set_compaction":
       return `config-set-compaction:${cmd.payload.reserveTokens}:${cmd.payload.keepRecentTokens}`;
     case "config.get_compaction":
       return "config-get-compaction";
+    case "config.set_scheduling":
+      return `config-set-scheduling:${cmd.payload.maxConcurrent}:${cmd.payload.maxQueued}`;
+    case "config.get_scheduling":
+      return "config-get-scheduling";
+    case "config.set_port":
+      return `config-set-port:${cmd.payload.port}`;
+    case "config.get_port":
+      return "config-get-port";
     // ── v0.2 auth 族 ──
     case "auth.list":
       return "auth-list";

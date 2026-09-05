@@ -260,11 +260,11 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
     ]);
   });
 
-  test("② 常量语义值 + 目录计数（diff 批 + mcp 批：命令 69 / 事件 87；v0.11 版本位保持）", () => {
+  test("② 常量语义值 + 目录计数（config 瘦身批 + diff 批 + mcp 批：命令 73 / 事件 91；v0.11 版本位保持）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.11"); // v0.11 批次版本位（thinking 批四块 additive，AD-2/AD-4；契约 = PROTOCOL-CHANGELOG.md §17.11）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(69); // diff 批 +1（diff.get）+ mcp 批 +6
-    expect(protocol.EVENT_TYPES.length).toBe(87); // diff 批 +1（diff.changed）+ mcp 批 +7（六 result + status.changed）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(87); // 登记目录恰等（diff +1 + mcp +7，新 mcp 通道）
+    expect(protocol.COMMAND_TYPES.length).toBe(73); // config 瘦身批 +4（get/set_scheduling、get/set_port）
+    expect(protocol.EVENT_TYPES.length).toBe(91); // config 瘦身批 +4（scheduling 两 result + port 两 result）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(91); // 登记目录恰等（config 瘦身批 +4）
   });
 });

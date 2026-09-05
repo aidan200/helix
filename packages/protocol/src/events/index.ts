@@ -103,6 +103,10 @@ import type {
 import type {
   ConfigGetCompactionResultEvent,
   ConfigSetCompactionResultEvent,
+  ConfigGetSchedulingResultEvent,
+  ConfigSetSchedulingResultEvent,
+  ConfigGetPortResultEvent,
+  ConfigSetPortResultEvent,
 } from "./config";
 import type { TraceQueryResultEvent } from "./trace";
 import type { ThinkingChangedEvent } from "./thinking";
@@ -206,6 +210,10 @@ export type EventEnvelope =
   | ModelGetDefaultResultEvent
   | ConfigGetCompactionResultEvent
   | ConfigSetCompactionResultEvent
+  | ConfigGetSchedulingResultEvent
+  | ConfigSetSchedulingResultEvent
+  | ConfigGetPortResultEvent
+  | ConfigSetPortResultEvent
   | AuthListResultEvent
   | AuthSetKeyResultEvent
   | AuthDeleteKeyResultEvent
@@ -296,6 +304,10 @@ export const EVENT_TYPES = [
   "model.get_default.result",
   "config.get_compaction.result",
   "config.set_compaction.result",
+  "config.get_scheduling.result",
+  "config.set_scheduling.result",
+  "config.get_port.result",
+  "config.set_port.result",
   "auth.list.result",
   "auth.set_key.result",
   "auth.delete_key.result",
@@ -394,6 +406,10 @@ export const EVENT_CHANNELS = {
   "model.get_default.result": "model",
   "config.get_compaction.result": "model",
   "config.set_compaction.result": "model",
+  "config.get_scheduling.result": "model",
+  "config.set_scheduling.result": "model",
+  "config.get_port.result": "model",
+  "config.set_port.result": "model",
   "auth.list.result": "model",
   "auth.set_key.result": "model",
   "auth.delete_key.result": "model",

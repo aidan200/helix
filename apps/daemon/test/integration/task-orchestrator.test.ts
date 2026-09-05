@@ -214,7 +214,7 @@ describe("T2.2 并发预算：共享池 ≤3 + 编排不占 SubAgent 预算（CL
     const clock: ClockPort = { now: () => "2026-08-29T00:00:00.000Z", nowMs: () => Date.now() };
     const runner = new HangingRunner();
     const scheduler = new SchedulerService({
-      policy: new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
+      policy: () => new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
       runner,
       events: publisher,
       repository,
@@ -339,7 +339,7 @@ describe("D8 W-R6 编排分流：批次实例 profileKind 按任务类型路由"
     // taskClosureSink → TaskOrchestratorService.handleInstanceClosure）
     let orchestratorRef: { handleInstanceClosure(agentId: string): void } | undefined;
     const scheduler = new SchedulerService({
-      policy: new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
+      policy: () => new SchedulingPolicy({ maxConcurrent: 3, maxQueued: 8 }),
       runner,
       events: publisher,
       repository,

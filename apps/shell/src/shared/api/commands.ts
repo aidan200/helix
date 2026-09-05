@@ -27,6 +27,10 @@ import type {
   ChatSteerCommand,
   ConfigGetCompactionCommand,
   ConfigSetCompactionCommand,
+  ConfigGetSchedulingCommand,
+  ConfigSetSchedulingCommand,
+  ConfigGetPortCommand,
+  ConfigSetPortCommand,
   KgBootstrapCreateCommand,
   KgBootstrapCreatePayload,
   KgCandidatesListCommand,
@@ -235,6 +239,26 @@ export function configGetCompactionCommand(): ConfigGetCompactionCommand {
 /** config.set_compaction：压缩参数写面（全局命令；token 绝对值）。 */
 export function configSetCompactionCommand(reserveTokens: number, keepRecentTokens: number): ConfigSetCompactionCommand {
   return { v: PROTOCOL_VERSION, type: "config.set_compaction", payload: { reserveTokens, keepRecentTokens } };
+}
+
+/** config.get_scheduling：SubAgent 调度预算读面（全局命令；config 瘦身批）。 */
+export function configGetSchedulingCommand(): ConfigGetSchedulingCommand {
+  return { v: PROTOCOL_VERSION, type: "config.get_scheduling", payload: {} };
+}
+
+/** config.set_scheduling：调度预算写面（全局命令；运行期可调）。 */
+export function configSetSchedulingCommand(maxConcurrent: number, maxQueued: number): ConfigSetSchedulingCommand {
+  return { v: PROTOCOL_VERSION, type: "config.set_scheduling", payload: { maxConcurrent, maxQueued } };
+}
+
+/** config.get_port：WS 端口读面（全局命令；含 argv 覆盖信息）。 */
+export function configGetPortCommand(): ConfigGetPortCommand {
+  return { v: PROTOCOL_VERSION, type: "config.get_port", payload: {} };
+}
+
+/** config.set_port：WS 端口写面（全局命令；下次启动生效）。 */
+export function configSetPortCommand(port: number): ConfigSetPortCommand {
+  return { v: PROTOCOL_VERSION, type: "config.set_port", payload: { port } };
 }
 
 /** auth.list：provider 凭据清单（全局命令；P-4 列表数据）。 */

@@ -48,6 +48,8 @@ import type { AgentOrchestrationPort } from "../../../application/ports/inbound/
 import type { SessionDirectoryPort } from "../../../application/ports/inbound/SessionDirectoryPort";
 import type { ModelPort } from "../../../application/ports/inbound/ModelPort";
 import type { CompactionConfigPort } from "../../../application/ports/outbound/CompactionConfigPort";
+import type { SchedulingConfigPort } from "../../../application/ports/outbound/SchedulingConfigPort";
+import type { PortConfigPort } from "../../../application/ports/outbound/PortConfigPort";
 import type { ResourceConfigPort } from "../../../application/ports/inbound/ResourceConfigPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import type {
@@ -147,7 +149,7 @@ import {
   handleModelSetDefault,
   handleModelSetThinkingDefault,
 } from "./handlers/model";
-import { handleConfigGetCompaction, handleConfigSetCompaction } from "./handlers/config";
+import { handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort } from "./handlers/config";
 import { handleThinkingSet } from "./handlers/thinking";
 import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
 import { handleDiffGet } from "./handlers/diff";
@@ -191,7 +193,7 @@ const LOOPBACK_ORIGIN_RE =
 export interface McpCommandDeps {
   readonly registry: McpServerPort;
   /** mcpServers 段整段替换落盘（空数组 → 段省略）。 */
-  saveServers(servers: readonly McpServerConfigInput[]): void;
+  saveServers(servers: readonly McpServerConfigInput[]): Promise<void>;
 }
 
 export interface WsServerAdapterDeps {
@@ -210,6 +212,8 @@ export interface WsServerAdapterDeps {
   readonly model: ModelPort;
   /** 压缩参数配置读写面（config 族命令回口；可选——测试缺省回 unimplemented）。 */
   readonly compactionConfig?: CompactionConfigPort;
+  readonly schedulingConfig?: SchedulingConfigPort;
+  readonly portConfig?: PortConfigPort;
   /**
    * 资源配置面（契约 v0.6）：agent.config 命令族回口（profile kind 维
    * tool/skill 启停 + model 槽位；只转发不决策，AG-12）。
@@ -718,11 +722,19 @@ export class WsServerAdapter {
         return handleModelSetDefault(this.commandContext(ws, type, payload, envelope));
       case "model.get_default":
         return handleModelGetDefault(this.commandContext(ws, type, payload, envelope));
-      // ── config 族（压缩参数配置；全局命令）──
+      // ── config 族（压缩参数/调度预算/WS 端口配置；全局命令）──
       case "config.get_compaction":
         return handleConfigGetCompaction(this.commandContext(ws, type, payload, envelope));
       case "config.set_compaction":
         return handleConfigSetCompaction(this.commandContext(ws, type, payload, envelope));
+      case "config.get_scheduling":
+        return handleConfigGetScheduling(this.commandContext(ws, type, payload, envelope));
+      case "config.set_scheduling":
+        return handleConfigSetScheduling(this.commandContext(ws, type, payload, envelope));
+      case "config.get_port":
+        return handleConfigGetPort(this.commandContext(ws, type, payload, envelope));
+      case "config.set_port":
+        return handleConfigSetPort(this.commandContext(ws, type, payload, envelope));
       // ── v0.11 thinking 族（thinking 批①，契约 §17.11；handlers/thinking.ts，model.set 同构）──
       case "thinking.set":
         return handleThinkingSet(this.commandContext(ws, type, payload, envelope));
@@ -759,6 +771,8 @@ export class WsServerAdapter {
       envelope,
       model: this.deps.model,
       compactionConfig: this.deps.compactionConfig,
+      schedulingConfig: this.deps.schedulingConfig,
+      portConfig: this.deps.portConfig,
       system: this.deps.system,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       modelErrorCode: (err) => this.modelErrorCode(err),
@@ -1035,7 +1049,7 @@ export class WsServerAdapter {
       type,
       payload,
       mcp: mcp.registry,
-      saveMcpServers: (servers) => mcp.saveServers(servers),
+      saveMcpServers: (servers) => mcp.saveServers(servers), // async 链（TR-106 纪律 4：落盘先于连接）
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),
       sendNow: (sender, frame) => this.sendNow(sender, frame),

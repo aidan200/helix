@@ -46,17 +46,11 @@ describe("config rgPath 键（F3.1 三级解析第②级读面）", () => {
     const { dir, file } = makeTmp();
     try {
       writeConfig(file, {
-        port: 9001,
-        maxConcurrent: 6,
-        maxQueued: 12,
         staticDir: "/tmp/shell-dist",
         rgPath: "/opt/tools/rg",
       });
       expect(statSync(file).mode & 0o777).toBe(0o600);
       expect(loadConfig(file).config).toEqual({
-        port: 9001,
-        maxConcurrent: 6,
-        maxQueued: 12,
         staticDir: "/tmp/shell-dist",
         rgPath: "/opt/tools/rg",
       });
@@ -68,10 +62,10 @@ describe("config rgPath 键（F3.1 三级解析第②级读面）", () => {
   test("rgPath 缺省往返：不出现在落盘 JSON，其余字段不受影响", () => {
     const { dir, file } = makeTmp();
     try {
-      writeConfig(file, { port: 7333, maxConcurrent: 3, maxQueued: 8 });
+      writeConfig(file, { staticDir: "/tmp/s" });
       const parsed = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
       expect(parsed.rgPath).toBeUndefined();
-      expect(parsed.port).toBe(7333);
+      expect(parsed.staticDir).toBe("/tmp/s");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

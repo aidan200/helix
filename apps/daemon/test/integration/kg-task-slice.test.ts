@@ -168,7 +168,7 @@ describe("任务层切片注入（F1.3）", () => {
     const id = seedNode(f, "支付幂等规则", "支付回调必须幂等去重");
     const events: DomainEvent[] = [];
     const scheduler = new SchedulerService({
-      policy: new SchedulingPolicy(),
+      policy: () => new SchedulingPolicy(),
       runner: new NoopRunner(),
       events: { publish: (e) => void events.push(e), publishDelta: () => undefined },
       repository: new InMemorySessionRepository(),
@@ -186,7 +186,7 @@ describe("任务层切片注入（F1.3）", () => {
       expect(status?.task).toContain(`kg get ${id}`);
       // 注入失败不阻断 spawn：注入器抛错 → 原文透传
       const scheduler2 = new SchedulerService({
-        policy: new SchedulingPolicy(),
+        policy: () => new SchedulingPolicy(),
         runner: new NoopRunner(),
         events: { publish: () => undefined, publishDelta: () => undefined },
         repository: new InMemorySessionRepository(),

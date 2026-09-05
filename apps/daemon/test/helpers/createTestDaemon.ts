@@ -93,14 +93,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
   //（与 loadConfig 文件缺失分支同值——legacy 为空即不触发启动迁移）。
   ensureConfigTemplate(paths.configPath());
   const loaded: LoadedConfig = options.skipConfig
-    ? {
-        config: {
-          port: DEFAULT_PORT,
-          maxConcurrent: DEFAULT_SCHEDULING.maxConcurrent,
-          maxQueued: DEFAULT_SCHEDULING.maxQueued,
-        },
-        legacy: {},
-      }
+    ? { config: {}, legacy: {} } // 瘦身形态：port/调度走 KV 缺省（与 loadConfig 文件缺失分支同值）
     : loadConfig(paths.configPath());
   // 引擎装配形态归一（决断收口在本工厂单点）：实例注入 → 每会话共享工厂；
   // 工厂注入 → 直传；缺省 → 生产真引擎形态。

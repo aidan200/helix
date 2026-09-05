@@ -19,7 +19,8 @@ import { isMainInstanceId } from "../domain/agent/AgentInstance";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
 import { createPaths, osHomeDir, builtinSkillsDir, type HelixPaths } from "./paths";
-import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
+import { ensureConfigTemplate, loadConfig, writeConfig, DEFAULT_PORT, type DaemonConfig, type LegacyModelConfig } from "./config";
+import type { PortConfigPort } from "../application/ports/outbound/PortConfigPort";
 import { McpRegistry } from "../adapters/driven/mcp/McpRegistry";
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
@@ -91,7 +92,7 @@ export interface DaemonOptions {
   readonly cliInput?: NodeJS.ReadableStream;
   /** CLI 输出流覆盖（缺省 process.stdout；真实启动面）。 */
   readonly cliOutput?: NodeJS.WritableStream;
-  /** WS 监听端口覆盖（0 = 随机；缺省取 config.port——真实启动面）。 */
+  /** WS 监听端口覆盖（argv --port 解析结果：本次运行显式覆盖，不回写 KV；0 = 随机；缺省走 KV daemon_port ?? 7333——真实启动面）。 */
   readonly port?: number;
 }
 
@@ -240,6 +241,16 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 }
 
 /**
+ * 解析 KV daemon_port 值（0-65535 整数字符串；非法/未设 → undefined/null 语义由调用方区分）。*/
+function parseStoredPort(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0 || n > 65535) return null;
+  return n;
+}
+
+/**
  * rg 可执行探测（resolve-rg 的 probe 注入面，装配层唯一实现）：存在且可执行。
  * 抛错（ENOENT/EACCES 等）一律视为不可用——与 resolve-rg 的保守降级语义同调。
  */
@@ -299,24 +310,70 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger.warn(`grep 后端定格 unavailable（工具将响亮失败）：${grepFreeze.reasons.join("；")}`);
   }
 
-  // ── codegraph 引擎二级解析定格（T2.1/AF-2，TR-AD-32 同模式）──────
+  // ── codegraph 引擎单级解析定格（T2.1/AF-2 bundle-only，TR-AD-32 同模式）──
   //    HELIX_CODEGRAPH_PATH 的 process.env 读取收束于本组合根
   //    （AG-08 唯一例外面，壳注入的资源定位参数，非配置源）；
-  //    resolve-codegraph.ts 本体零 env/fs 依赖。二级全 miss ≠ 装配失败：
+  //    resolve-codegraph.ts 本体零 env/fs 依赖。miss ≠ 装配失败：
   //    引擎面定格不可用（binaryPath=null），构建面 degraded（AF-2）。──
   const codegraphResolution = resolveCodegraphPath({
     bundlePath: process.env.HELIX_CODEGRAPH_PATH,
-    configPath: config.codegraphPath,
     probe: isExecutableFile,
   });
   if (codegraphResolution.kind === "resolved") {
-    logger.info(`codegraph 引擎定格（source=${codegraphResolution.source}）：${codegraphResolution.path}`);
+    logger.info(`codegraph 引擎定格（bundle）：${codegraphResolution.path}`);
   } else {
     logger.info(`codegraph 引擎不可用（构建面 degraded，AF-2）：${codegraphResolution.reasons.join("；")}`);
   }
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   const persistence = buildPersistence({ paths, logger });
+
+  // ── config 瘦身批迁移（一次性，幂等；先于端口解析与 MCP 预热）：旧
+  //    config.json 含 port/maxConcurrent/maxQueued/mcpServers → 写新位
+  //    （KV daemon_port / KV scheduling_config / mcp_server 表）+ config.json
+  //    重写瘦身形态。model/apiKeys 迁移在模型栈就绪后（见下方既有段）。──
+  if (
+    legacy.port !== undefined ||
+    legacy.maxConcurrent !== undefined ||
+    legacy.maxQueued !== undefined ||
+    legacy.mcpServers !== undefined
+  ) {
+    const migrated: string[] = [];
+    if (legacy.port !== undefined) {
+      await persistence.runtimeConfig.set("daemon_port", String(legacy.port));
+      migrated.push(`port=${legacy.port} → KV daemon_port`);
+    }
+    if (legacy.maxConcurrent !== undefined || legacy.maxQueued !== undefined) {
+      const budget = persistence.schedulingConfig.current(); // 未迁字段回落现值/缺省
+      await persistence.schedulingConfig.set({
+        maxConcurrent: legacy.maxConcurrent ?? budget.maxConcurrent,
+        maxQueued: legacy.maxQueued ?? budget.maxQueued,
+      });
+      migrated.push("调度预算 → KV scheduling_config");
+    }
+    if (legacy.mcpServers !== undefined) {
+      await persistence.mcpConfig.replaceAll(legacy.mcpServers);
+      migrated.push(`mcpServers → mcp_server 表（${legacy.mcpServers.length} 项）`);
+    }
+    writeConfig(paths.configPath(), config); // 重写瘦身形态（旧字段不再出现）
+    logger.info(`已迁移旧配置（config 瘦身批）：${migrated.join("；")}；config.json 已重写瘦身形态`);
+  }
+
+  // ── WS 端口解析链（2026-09-05 config.json 瘦身：argv --port > KV
+  //    daemon_port > 缺省 7333；config.json port 字段退役——上方迁移段把旧值
+  //    写入 KV）。port 是启动期定格参数：set 后下次启动生效。──
+  const argvPort = deps.port; // argv --port 本次运行显式覆盖（不回写 KV）
+  const kvPort = parseStoredPort(persistence.runtimeConfig.get("daemon_port"));
+  const resolvedPort = argvPort ?? kvPort ?? DEFAULT_PORT;
+
+  /** WS 端口配置面（config.get/set_port 回口；晚绑实际监听端口）。 */
+  let effectivePortNow: number | undefined;
+  const portConfig: PortConfigPort = {
+    effectivePort: () => effectivePortNow ?? resolvedPort,
+    overriddenByArgv: () => argvPort !== undefined,
+    storedPort: () => parseStoredPort(persistence.runtimeConfig.get("daemon_port")),
+    setPort: (port) => persistence.runtimeConfig.set("daemon_port", String(port)),
+  };
 
   // ── workspace 绑定面（W1 绑定闭环）：绑定状态机唯一事实源 + 绑定 kg 栈
   //    持有者（重绑接缝）。物化时机迁移：unbound boot 零扫描零同步零开库
@@ -463,6 +520,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     defaultModel: persistence.defaultModel,
     defaultThinking: persistence.defaultThinking, // R7 全局兜底批
     compactionConfig: persistence.compactionConfig, // 压缩参数可配置
+    schedulingConfig: persistence.schedulingConfig, // SubAgent 调度预算（运行期可调，config.json 瘦身迁入）
     browserPort,
     events: fanoutPublisher,
     publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
@@ -657,7 +715,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         sessionStack.refreshAssembly("subagent-worker").catch(() => {});
       }
     });
-    for (const serverConfig of config.mcpServers ?? []) {
+    for (const serverConfig of persistence.mcpConfig.listConfigs()) {
       void mcpRegistry.addServer(serverConfig).catch(() => {
         // addServer 内部已降级（error 状态 + lastError）——此处兑底不可达路径
       });
@@ -781,6 +839,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    initialize 与任务恢复扫描之后（端口绑定时刻不变）；running/wsServer
   //    可变态与 shutdown 序列封装在切片内。──
   const { system, ws, devToken, orchestration: currentOrchestration, model: modelService } = buildWsDriving({
+    portConfig, // config.get/set_port 回口（effectivePort 晚绑 ws.port）
     registry,
     scheduler,
     resolveSubagentModelId,
@@ -813,8 +872,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // loadConfig 产物，旧迁移路径同一对象写回——同源无分叉）。
     mcp: {
       registry: mcpRegistry,
-      saveServers: (servers) => {
-        config.mcpServers =
+      saveServers: async (servers) => {
+        // config 瘦身批：整段替换落 mcp_server 表（WriteQueue 单写通道；
+        // 序列化/规范化在 McpConfigStore——config.json 不再承载 MCP 声明面）
+        await persistence.mcpConfig.replaceAll(
           servers.length > 0
             ? servers.map((s) => ({
                 name: s.name,
@@ -825,8 +886,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
                 ...(s.enabled !== undefined ? { enabled: s.enabled } : {}),
                 ...(s.timeoutMs !== undefined ? { timeoutMs: s.timeoutMs } : {}),
               }))
-            : undefined;
-        writeConfig(paths.configPath(), config);
+            : [],
+        );
       },
     },
     workspace,
@@ -836,10 +897,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     logger,
     unsubscribeBrowserStatus,
     ...(mcpShutdown !== undefined ? { stopMcp: mcpShutdown } : {}),
-    port: deps.port,
+    port: resolvedPort, // 完整解析链（argv > KV > 7333）已定格
     staticDir: deps.staticDir,
     tailSize: deps.tailSize,
   });
+
+  // config.get_port 回口晚绑回填：实际监听端口（0=随机时 ws.port 为分配值）
+  effectivePortNow = ws.port;
 
   logger.info(`daemon 启动：home=${paths.home} 默认模型=${persistence.defaultModel.current()}（模型位已迁 SQLite 默认表 + auth.json，config.json 瘦身）`);
 

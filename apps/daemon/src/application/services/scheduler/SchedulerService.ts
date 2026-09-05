@@ -91,8 +91,8 @@ export type { ParkOutcome, ResumeOutcome };
 const DEFAULT_PROFILE_KIND = "subagent-worker";
 
 export interface SchedulerServiceDeps {
-  /** 调度策略（纯判定；maxConcurrent/maxQueued/stalled 阈值由此携带）。 */
-  readonly policy: SchedulingPolicy;
+  /** 调度策略工厂（每次判定现拍：maxConcurrent/maxQueued 运行期可调——装配层闭 KV 读现值；stalled 阈值由此携带）。 */
+  readonly policy: () => SchedulingPolicy;
   /** 实例运行器（SubagentLauncher 真体；替身跑 integration）。 */
   readonly runner: InstanceRunner;
   /** 事件流发布（领域事件 → fan-out：stdout/WS 落盘目标）。 */
@@ -231,7 +231,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       onInstanceClosure: (instanceId, outcome) => this.onInstanceClosure(instanceId, outcome),
       onInstanceParked: (instanceId, summary) => this.onInstanceParked(instanceId, summary),
     });
-    const poll = deps.stalledPollMs ?? Math.max(1, Math.floor(deps.policy.stalledThresholdMs / 2));
+    const poll = deps.stalledPollMs ?? Math.max(1, Math.floor(deps.policy().stalledThresholdMs / 2));
     this.monitor = setInterval(() => this.checkStalled(), poll);
   }
 
@@ -396,13 +396,13 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
    * 门面/会话绑定工具注入，全局预算不随会话数分裂——TR-AD-11/16）。
    */
   spawn(sessionId: string, task: string, profileKind?: string, model?: string, reportIntervalMs?: number): SpawnOutcome {
-    const decision = this.deps.policy.decideSpawn(this.runningCount(), this.queue.length);
+    const decision = this.deps.policy().decideSpawn(this.runningCount(), this.queue.length);
     if (decision.action === "reject") {
       return {
         status: "rejected",
         error:
           `调度预算已耗尽：${this.runningCount()} 个实例运行中（maxConcurrent=` +
-          `${this.deps.policy.maxConcurrent}）且队列已满（maxQueued=${this.deps.policy.maxQueued}），` +
+          `${this.deps.policy().maxConcurrent}）且队列已满（maxQueued=${this.deps.policy().maxQueued}），` +
           `请稍后重试或先结束现有实例`,
       };
     }
@@ -463,7 +463,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       return { status: "run", agentId };
     }
 
-    const position = this.deps.policy.nextPosition(this.queue.length);
+    const position = this.deps.policy().nextPosition(this.queue.length);
     this.queue.push(agentId);
     this.persistLifecycle(instance); // queued 投影（重启 cancelled 收口语义的读面）
     this.publish(instance, "agent.queued", { agentId, position } satisfies AgentQueuedPayload);
@@ -599,7 +599,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     if (this.resumePending.has(agentId)) {
       return { resumed: true, queued: true, position: this.queue.indexOf(agentId) + 1 }; // 已在恢复队列幂等
     }
-    const decision = this.deps.policy.decideSpawn(this.runningCount(), this.queue.length);
+    const decision = this.deps.policy().decideSpawn(this.runningCount(), this.queue.length);
     if (decision.action === "reject") {
       return { resumed: false, error: `恢复预算已耗尽（运行位满且队列满），无法排队恢复实例 ${agentId}` };
     }
@@ -803,7 +803,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   /** 出队：预算允许则队首启动（循环直至预算耗尽或队列空）。 */
   private maybeDequeue(): void {
     while (this.queue.length > 0) {
-      const decision = this.deps.policy.decideSpawn(this.runningCount(), this.queue.length);
+      const decision = this.deps.policy().decideSpawn(this.runningCount(), this.queue.length);
       if (decision.action !== "run") break;
       const agentId = this.queue.shift()!;
       this.republishPositions(); // 剩余位次整体递减重发（仅出队触发）
@@ -836,7 +836,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       if (instance.current !== "running") continue; // 终态不推（前端徽标仅 running）
       const last = this.translator.lastEventAtOf(instance.instanceId);
       if (last === undefined) continue;
-      if (this.deps.policy.isStalled(last, now)) {
+      if (this.deps.policy().isStalled(last, now)) {
         this.publish(instance, "agent.stalled", {
           agentId: instance.instanceId,
           idleMs: now - last,

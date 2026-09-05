@@ -182,7 +182,7 @@ describe("SchedulerService.spawn：agent.instantiated payload 携带 thinkingLev
       publishDelta: () => undefined,
     };
     const scheduler = new SchedulerService({
-      policy: new SchedulingPolicy(),
+      policy: () => new SchedulingPolicy(),
       runner: new StubRunner(),
       events: publisher,
       repository,

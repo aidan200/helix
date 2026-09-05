@@ -71,7 +71,7 @@ describe("T3.2 SubAgent turn usage 入账（T2.2 上行链路）", () => {
       publishDelta: () => undefined,
     };
     const scheduler = new SchedulerService({
-      policy: new SchedulingPolicy({ maxConcurrent: 2, maxQueued: 4 }),
+      policy: () => new SchedulingPolicy({ maxConcurrent: 2, maxQueued: 4 }),
       runner,
       events: publisher,
       repository,

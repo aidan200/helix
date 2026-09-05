@@ -126,6 +126,17 @@ function fakeServerInput(name: string, extra?: Record<string, unknown>): FakeSer
   return { input: { name, command: process.execPath, args: [scriptPath], ...extra }, scriptPath };
 }
 
+/** mcp_server 表读面（config 瘦身批：声明面落 helix.db；只读连接零 DML）。 */
+function readMcpTable(home: string): { name: string; config: string }[] {
+  const { Database } = require("bun:sqlite");
+  const db = new Database(path.join(home, "helix.db"), { readonly: true });
+  try {
+    return db.prepare("SELECT name, config FROM mcp_server ORDER BY position").all() as { name: string; config: string }[];
+  } finally {
+    db.close();
+  }
+}
+
 describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
   test("①-⑧ CRUD 全链：空起步 → add → list/tools/test/update/remove + 失败语义", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-mcp-ws-home-"));
@@ -153,10 +164,10 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
       const statusFrame = await client.expectAfter("mcp.status.changed", connectStart, 8000);
       expect(statusFrame.sessionId).toBe(SYSTEM_SESSION_ID);
       expect(statusFrame.payload.server).toMatchObject({ name: "fake" });
-      // config.json 落盘断言（真文件读面）
-      const saved = JSON.parse(readFileSync(path.join(home, "config.json"), "utf8")) as { mcpServers?: { name: string; command: string }[] };
-      expect(saved.mcpServers?.map((s) => s.name)).toEqual(["fake"]);
-      expect(saved.mcpServers?.[0]?.command).toBe(process.execPath);
+      // mcp_server 表落盘断言（config 瘦身批：声明面迁表；真库读面）
+      const savedRows = readMcpTable(home);
+      expect(savedRows.map((r) => r.name)).toEqual(["fake"]);
+      expect(JSON.parse(savedRows[0]!.config).command).toBe(process.execPath);
 
       // ⑨ 工具面生效真链路：agent.config.list tools 含命名空间工具名
       client.send({ v: 0, type: "agent.config.list", payload: {} });
@@ -193,8 +204,7 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
       const updateResult = await client.expect("mcp.servers.update.result");
       expect(updateResult.payload.status).toBe("applied");
       expect(updateResult.payload.server).toMatchObject({ name: "fake", state: "running" });
-      const savedAfterUpdate = JSON.parse(readFileSync(path.join(home, "config.json"), "utf8")) as { mcpServers?: { timeoutMs?: number }[] };
-      expect(savedAfterUpdate.mcpServers?.[0]?.timeoutMs).toBe(45000);
+      expect(JSON.parse(readMcpTable(home)[0]!.config).timeoutMs).toBe(45000);
 
       // ⑧ remove：applied + 滤行 + stopped 广播
       const removeStart = client.frames.length;

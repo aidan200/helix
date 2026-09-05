@@ -301,12 +301,29 @@ export interface ModelConfigState {
   catalogRefreshing: boolean;
   /** 压缩参数配置（null = 未请求；config.get/set_compaction 帧驱动） */
   compaction: CompactionConfigState | null;
+  /** SubAgent 调度预算（null = 未请求；config.get/set_scheduling 帧驱动，config 瘦身批） */
+  scheduling: SchedulingConfigState | null;
+  /** WS 端口配置（null = 未请求；config.get/set_port 帧驱动，config 瘦身批） */
+  port: PortConfigState | null;
 }
 
 /** 压缩参数配置（token 绝对值；与协议 config.*.result payload 同构）。 */
 export interface CompactionConfigState {
   reserveTokens: number;
   keepRecentTokens: number;
+}
+
+/** SubAgent 调度预算（与协议 payload 同构）。 */
+export interface SchedulingConfigState {
+  maxConcurrent: number;
+  maxQueued: number;
+}
+
+/** WS 端口配置（get_port.result 三态：实际/存储/argv 覆盖）。 */
+export interface PortConfigState {
+  effectivePort: number;
+  storedPort: number | null;
+  overriddenByArgv: boolean;
 }
 
 /** 初始配置面（未请求态；数据由命令结果帧驱动填充）。 */
@@ -323,6 +340,8 @@ export function createInitialModelConfigState(): ModelConfigState {
     setDefaultInflight: null,
     catalogRefreshing: false,
     compaction: null,
+    scheduling: null,
+    port: null,
   };
 }
 

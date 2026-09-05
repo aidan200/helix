@@ -54,6 +54,10 @@ import {
   codeReviewCreateCommand,
   configGetCompactionCommand,
   configSetCompactionCommand,
+  configGetSchedulingCommand,
+  configSetSchedulingCommand,
+  configGetPortCommand,
+  configSetPortCommand,
   diffGetCommand,
   kgBootstrapCreateCommand,
   kgCandidatesListCommand,
@@ -360,6 +364,30 @@ export const COMMAND_SURFACE = {
   setCompactionConfig: (deps) =>
     (reserveTokens: number, keepRecentTokens: number) => {
       deps.send(configSetCompactionCommand(reserveTokens, keepRecentTokens));
+    },
+  /** 调度预算拉取（通用配置分区进入；未请求态才发；config 瘦身批）。 */
+  requestSchedulingConfig: (deps) =>
+    () => {
+      if (deps.getTopology().modelConfig.scheduling === null) {
+        deps.send(configGetSchedulingCommand());
+      }
+    },
+  /** 调度预算写入（下一次预算判定即生效，无需重启）。 */
+  setSchedulingConfig: (deps) =>
+    (maxConcurrent: number, maxQueued: number) => {
+      deps.send(configSetSchedulingCommand(maxConcurrent, maxQueued));
+    },
+  /** 端口配置拉取（通用配置分区进入；未请求态才发；config 瘦身批）。 */
+  requestPortConfig: (deps) =>
+    () => {
+      if (deps.getTopology().modelConfig.port === null) {
+        deps.send(configGetPortCommand());
+      }
+    },
+  /** 端口写入（下次启动生效；argv --port 本次运行优先）。 */
+  setPortConfig: (deps) =>
+    (port: number) => {
+      deps.send(configSetPortCommand(port));
     },
   /** 连通验证（P-4 测试连通；started 先清旧态）。 */
   verifyProvider: (deps) =>

@@ -96,7 +96,7 @@ describe("F1.3/T12 spawn 透传模型不作用子进程（真子进程 + 剧本�
       onLine: (instanceId, line) => lines.push({ instanceId, line }),
     });
     const scheduler = new SchedulerService({
-      policy: new SchedulingPolicy({ maxConcurrent: 1, maxQueued: 8 }),
+      policy: () => new SchedulingPolicy({ maxConcurrent: 1, maxQueued: 8 }),
       runner: launcher,
       events: publisher,
       repository,

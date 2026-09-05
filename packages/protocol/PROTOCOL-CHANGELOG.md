@@ -991,3 +991,12 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 - **广播（additive）**：`agent.config.changed` resourceType 联合同步扩 `"mcp-server"`（name = server 名）。
 - **配套（daemon/shell 同批）**：MCP 工具行 snippet 从 registry 发现的 description 透传（注册表外名不再恒空串）；agent 页「MCP 服务」分组区（组级开关 + 组内工具行去前缀渲染 + 状态徽标）；agent 页订阅 `mcp.status.changed` 自动重拉配置读面（消页面挂载数据定格窗口）。
 - 计数不变（无新命令/事件/通道——payload 字段 additive）。
+
+## 30. config 瘦身批（config.json 退役迁移：scheduling/port 配置命令族；v0.11 后 additive 微批——版本位不 bump）
+
+- **背景**：config.json 从「用户可调配置面」退役为「纯进程引导参数」（staticDir/rgPath 留守，2026-09-05 用户裁决）。port/maxConcurrent/maxQueued/mcpServers 迁 helix.db：port → runtime_config KV `daemon_port` 键 + argv `--port` 本次运行覆盖；maxConcurrent/maxQueued → KV `scheduling_config` 单键 JSON（CompactionConfigStore 同构）；mcpServers → `mcp_server` 表（name PK，整段替换写，TR-106 纪律 4 顺序不变）。
+- **命令（+4）**：`config.set_scheduling {maxConcurrent≥1 整数, maxQueued≥0 整数}`（运行期可调——SchedulerService 预算判定现拍 KV 现值，下一次 decideSpawn 生效）；`config.get_scheduling`；`config.set_port {port 0-65535}`（**下次启动生效**——port 是启动期定格参数；解析链 argv `--port` > KV > 缺省 7333，argv 不回写）；`config.get_port`。路由均为全局命令。
+- **事件（+4，挂 model 通道）**：`config.get_scheduling.result / config.set_scheduling.result`（两数回显）；`config.get_port.result {effectivePort, storedPort: number|null, overriddenByArgv}`（本次运行实际值/存储值/argv 覆盖三态——UI 据此展示「重启生效」与覆盖提示）；`config.set_port.result {port}`。
+- **shell 消费面（同批）**：设置页通用分区（GeneralSettingsSection）新增调度预算两输入行 + 端口输入行（重启生效标注；不建二级页面）。
+- **迁移语义（daemon 同批）**：旧 config.json 含 port/maxConcurrent/maxQueued/mcpServers 字段时启动一次性迁移（AD-2 legacy 同款：写 KV/表 → config.json 重写瘦身）；`config.get_compaction` 不变。
+- 计数：命令 69→73、事件 87→91（§15/§16 声明行同 commit 双写）。

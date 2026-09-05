@@ -445,7 +445,7 @@ describe("⑦ 与 T2.1 SchedulerService 组装（InstanceRunner 真体）", () =
     });
     current.launcher = launcher;
     const scheduler = new SchedulerService({
-      policy: new SchedulingPolicy(),
+      policy: () => new SchedulingPolicy(),
       runner: launcher,
       events: publisher,
       repository,

@@ -86,7 +86,7 @@ function makeToolHarness(policy?: SchedulingPolicy): ToolHarness {
   const clock: ClockPort = { now: () => FIXED_NOW, nowMs: () => Date.parse(FIXED_NOW) };
   const runner = new HangRunner();
   const scheduler = new SchedulerService({
-    policy: policy ?? new SchedulingPolicy(),
+    policy: () => policy ?? new SchedulingPolicy(),
     runner,
     events: publisher,
     repository: new InMemorySessionRepository(),
@@ -233,7 +233,7 @@ describe("② agent_send 经 SchedulerService.send → 子进程 stdin → Agent
       onLine: (instanceId, line) => lines.push({ instanceId, line }),
     });
     const scheduler = new SchedulerService({
-      policy: new SchedulingPolicy(),
+      policy: () => new SchedulingPolicy(),
       runner: launcher,
       events: publisher,
       repository: new SqliteSessionRepository(writeQueue),

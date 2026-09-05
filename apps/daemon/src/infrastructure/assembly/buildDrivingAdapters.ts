@@ -37,8 +37,10 @@ import { ensureDevToken } from "../dev-token";
 import type { SingletonLock } from "../lifecycle";
 import type { HelixPaths } from "../paths";
 import type { DaemonConfig } from "../config";
+import { DEFAULT_PORT } from "../config";
 import type { Logger } from "../logging";
 import type { PersistenceStack } from "./buildPersistence";
+import type { PortConfigPort } from "../../application/ports/outbound/PortConfigPort";
 import type { ModelStack } from "./buildModelStack";
 import type { TaskStack } from "./buildTaskStack";
 import type { SessionStack } from "./buildSessionStack";
@@ -107,6 +109,8 @@ export interface WsDrivingDeps {
   readonly resolveSubagentModelId: SessionStack["resolveSubagentModelId"];
   readonly chat: SessionChatPort;
   readonly persistence: PersistenceStack;
+  /** WS 端口配置面（config.get/set_port 回口；组合根装配 argv/KV/实际端口信息）。 */
+  readonly portConfig?: PortConfigPort;
   readonly modelStack: ModelStack;
   readonly taskStack: TaskStack;
   /**
@@ -142,7 +146,7 @@ export interface WsDrivingDeps {
   readonly unsubscribeBrowserStatus: () => void;
   /** mcp 批：MCP 注册表收尾（退订状态广播 + stopAll kill 全部 server 子进程）。 */
   readonly stopMcp?: () => void;
-  /** WS 监听端口覆盖（0 = 随机；缺省取 config.port）。 */
+  /** WS 监听端口（组合根解析链 argv --port > KV daemon_port > 7333 的定格产物；0 = 随机）。 */
   readonly port?: number;
   /** 前端静态产物目录覆盖（缺省取 config.staticDir）。 */
   readonly staticDir?: string;
@@ -245,6 +249,8 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     orchestration: currentOrchestration, // agent.kill 命令链回调度
     model: modelService, // model.*/auth.* 命令族回口（AD-2）
     compactionConfig: persistence.compactionConfig, // config 族命令回口（压缩参数）
+    schedulingConfig: persistence.schedulingConfig, // config 族命令回口（SubAgent 调度预算）
+    ...(deps.portConfig !== undefined ? { portConfig: deps.portConfig } : {}), // config 族命令回口（WS 端口；组合根注入）
     resource: deps.resourceService, // agent.config 命令族回口（契约 v0.6）
     browser: browserPort, // web 族命令族回口（契约 v0.7）
     // mcp 批：mcp 族六命令回口（未注入 → 回 unimplemented；组合根恒注入）
@@ -291,7 +297,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     codeReview: deps.kgResolvers.codeReviewResolver,
     events: eventStream,
     token,
-    port: deps.port ?? config.port,
+    port: deps.port ?? DEFAULT_PORT, // deps.port = 组合根已解析端口（argv > KV > 7333 链定格产物）
     staticHandler: (req) => staticServe.handle(req),
     tailSize: deps.tailSize,
   });

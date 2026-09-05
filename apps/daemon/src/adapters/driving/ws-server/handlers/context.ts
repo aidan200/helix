@@ -29,6 +29,8 @@ import type {
 } from "@helix/protocol";
 import type { ModelPort } from "../../../../application/ports/inbound/ModelPort";
 import type { CompactionConfigPort } from "../../../../application/ports/outbound/CompactionConfigPort";
+import type { SchedulingConfigPort } from "../../../../application/ports/outbound/SchedulingConfigPort";
+import type { PortConfigPort } from "../../../../application/ports/outbound/PortConfigPort";
 import type { SystemPort } from "../../../../application/ports/inbound/SystemPort";
 import type { SessionDirectoryPort } from "../../../../application/ports/inbound/SessionDirectoryPort";
 import type { SessionChatPort } from "../../../../application/ports/inbound/ChatPort";
@@ -86,6 +88,10 @@ export interface WsCommandContext {
   readonly model: ModelPort;
   /** 压缩参数配置读写面（config 族命令回口；未装配 → undefined，handler 回 unimplemented）。 */
   readonly compactionConfig?: CompactionConfigPort;
+  /** SubAgent 调度预算读写面（config 族命令回口；未装配 → undefined）。 */
+  readonly schedulingConfig?: SchedulingConfigPort;
+  /** WS 端口配置读写面（config 族命令回口；未装配 → undefined）。 */
+  readonly portConfig?: PortConfigPort;
   /** 缺省会话回退源（system.getStatus().sessionId，v0 兼容读）。 */
   readonly system: SystemPort;
   /** 命令错误回执（connection.error 帧；语义 = WsServerAdapter.commandError）。 */
@@ -429,8 +435,8 @@ export interface McpCommandContext {
   readonly payload: Record<string, unknown>;
   /** MCP server 管理面（add/remove/test/listConfigs/getStatuses/toolsOf）。 */
   readonly mcp: McpServerPort;
-  /** mcpServers 段整段替换落盘（空数组 → 段省略；readonly 入参规范化在闭包内）。 */
-  saveMcpServers(servers: readonly McpServerConfigInput[]): void;
+  /** mcpServers 段整段替换落盘（mcp_server 表；async——落盘完成才返回，await 后才可连接；readonly 入参规范化在闭包内）。 */
+  saveMcpServers(servers: readonly McpServerConfigInput[]): Promise<void>;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */

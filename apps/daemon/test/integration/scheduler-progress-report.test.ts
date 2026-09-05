@@ -73,7 +73,7 @@ function makeHarness(options?: { injectThrows?: boolean }): Harness {
   const sources: ("closure" | "progress" | undefined)[] = [];
   let thrown = false;
   const scheduler = new SchedulerService({
-    policy: new SchedulingPolicy(),
+    policy: () => new SchedulingPolicy(),
     runner,
     events: publisher,
     repository: new InMemorySessionRepository(),

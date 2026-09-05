@@ -63,7 +63,7 @@ function makeHarness(): Harness {
   const clock: ClockPort = { now: () => FIXED_NOW, nowMs: () => nowMs };
   const runner = new DrivenRunner();
   const scheduler = new SchedulerService({
-    policy: new SchedulingPolicy(),
+    policy: () => new SchedulingPolicy(),
     runner,
     events: publisher,
     repository: new InMemorySessionRepository(),

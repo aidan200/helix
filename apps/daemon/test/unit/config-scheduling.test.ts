@@ -3,20 +3,18 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadConfig } from "../../src/infrastructure/config";
-import { DEFAULT_SCHEDULING } from "../../src/domain/agent/SchedulingPolicy";
 
 /**
- * T2.1 config 新字段解析单测（K4：maxConcurrent/maxQueued 经
- * `<home>/config.json` 可配）。独立文件避让并行任务的 config.test.ts 改动。
- *
- * ① 字段缺省（文件存在但未写）→ 3/8；② 覆写生效（如 2/4）；
- * ③ 非法值（非正整数/非整数）→ 中文 fail-fast；④ 文件缺失 → 缺省 3/8。
+ * config 瘦身批（2026-09-05）：maxConcurrent/maxQueued 不再是 config.json
+ * 字段——现值在 runtime_config KV scheduling_config 键（语义校验/回落已由
+ * test/unit/scheduling-config-store.test.ts 覆盖）。本文件只验证迁移读面：
+ * 旧文件含该字段时读入 legacy（不报错、不丢值），组合根迁移写 KV。
  */
 
 const tmpRoots: string[] = [];
 
 function configPath(content?: string): string {
-  const dir = mkdtempSync(path.join(tmpdir(), "helix-t21-cfg-"));
+  const dir = mkdtempSync(path.join(tmpdir(), "helix-cfg-sched-"));
   tmpRoots.push(dir);
   const file = path.join(dir, "config.json");
   if (content !== undefined) writeFileSync(file, content, "utf8");
@@ -24,43 +22,25 @@ function configPath(content?: string): string {
 }
 
 afterAll(() => {
-  for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
+  for (const dir of tmpRoots) rmSync(dir, { recursive: true, force: true });
 });
 
-describe("config maxConcurrent/maxQueued（T2.1，K4）", () => {
-  test("① 字段缺省 → 3/8（与 domain 缺省同源）", () => {
-    const cfg = loadConfig(configPath(JSON.stringify({}))).config;
-    expect(cfg.maxConcurrent).toBe(3);
-    expect(cfg.maxQueued).toBe(8);
-    expect(cfg.maxConcurrent).toBe(DEFAULT_SCHEDULING.maxConcurrent);
-    expect(cfg.maxQueued).toBe(DEFAULT_SCHEDULING.maxQueued);
+describe("config 瘦身批迁移读面（scheduling 字段）", () => {
+  test("旧文件含 maxConcurrent/maxQueued → legacy 携带（config 面为空）", () => {
+    const file = configPath(JSON.stringify({ maxConcurrent: 2, maxQueued: 4 }));
+    const round = loadConfig(file);
+    expect(round.config).toEqual({});
+    expect(round.legacy.maxConcurrent).toBe(2);
+    expect(round.legacy.maxQueued).toBe(4);
   });
 
-  test("② 覆写生效（2/4）", () => {
-    const cfg = loadConfig(configPath(JSON.stringify({ maxConcurrent: 2, maxQueued: 4 }))).config;
-    expect(cfg.maxConcurrent).toBe(2);
-    expect(cfg.maxQueued).toBe(4);
+  test("字段未写/文件缺失 → legacy 空（KV 缺省 3/8 生效域，不在本面）", () => {
+    expect(loadConfig(configPath(JSON.stringify({}))).legacy).toEqual({});
+    expect(loadConfig(configPath()).legacy).toEqual({});
   });
 
-  test("③ 非法值 → 中文 fail-fast", () => {
-    const file1 = configPath(JSON.stringify({ maxConcurrent: 0 }));
-    expect(() => loadConfig(file1)).toThrow(/maxConcurrent/);
-    const file2 = configPath(JSON.stringify({ maxQueued: -1 }));
-    expect(() => loadConfig(file2)).toThrow(/maxQueued/);
-    const file3 = configPath(JSON.stringify({ maxConcurrent: 1.5 }));
-    expect(() => loadConfig(file3)).toThrow(/maxConcurrent/);
-    try {
-      loadConfig(file1);
-      expect.unreachable();
-    } catch (err) {
-      expect((err as Error).message).toMatch(/[\u4e00-\u9fa5]/);
-      expect((err as Error).message).toContain(file1);
-    }
-  });
-
-  test("④ 文件缺失 → 缺省 3/8（不抛错）", () => {
-    const cfg = loadConfig(configPath()).config;
-    expect(cfg.maxConcurrent).toBe(3);
-    expect(cfg.maxQueued).toBe(8);
+  test("非法值不再 fail-fast：迁移读面宽松（不校验强语义，非法值原样携带由组合根侧 store 落位回落）", () => {
+    const file = configPath(JSON.stringify({ maxConcurrent: 0 }));
+    expect(() => loadConfig(file)).not.toThrow();
   });
 });

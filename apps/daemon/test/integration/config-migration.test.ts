@@ -62,13 +62,25 @@ describe("旧 config.json 启动迁移（AD-2 取代边界）", () => {
       // ② model → SQLite 默认表（get_default 读面 + engine 子进程源同表）
       expect(daemon.model.getDefault().model).toBe("anthropic/claude-haiku-4-5");
 
-      // ③ config.json 重写瘦身形态（无 model/apiKeys；运行参数保留）
+      // ③ config.json 重写瘦身形态（无 model/apiKeys/port/调度——config 瘦身批：
+      //    运行参数也迁出，新位 = KV daemon_port / scheduling_config）
       const slim = JSON.parse(readFileSync(path.join(home, "config.json"), "utf8")) as Record<string, unknown>;
       expect(slim.model).toBeUndefined();
       expect(slim.apiKeys).toBeUndefined();
-      expect(slim.port).toBe(7500);
-      expect(slim.maxConcurrent).toBe(5);
-      expect(slim.maxQueued).toBe(9);
+      expect(slim.port).toBeUndefined();
+      expect(slim.maxConcurrent).toBeUndefined();
+      expect(slim.maxQueued).toBeUndefined();
+      // ③' 迁移新位可验证：KV daemon_port/scheduling_config 读回（bun:sqlite 只读）
+      const { Database } = require("bun:sqlite");
+      const db = new Database(path.join(home, "helix.db"), { readonly: true });
+      try {
+        const kv = db.prepare("SELECT key, value FROM runtime_config").all() as { key: string; value: string }[];
+        const kvOf = (k: string) => kv.find((r) => r.key === k)?.value;
+        expect(kvOf("daemon_port")).toBe("7500");
+        expect(JSON.parse(kvOf("scheduling_config")!)).toEqual({ maxConcurrent: 5, maxQueued: 9 });
+      } finally {
+        db.close();
+      }
 
       // ④ 行为等价：getStatus().model 数据源改会话级（fake 引擎未上报 →
       //    默认表值）——旧 config.model 语义经新源可达
