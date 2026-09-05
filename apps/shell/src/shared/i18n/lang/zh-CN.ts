@@ -556,7 +556,7 @@ export const zhCN = {
     mcpEmpty: "未接入 MCP server（在设置页添加后自动出现）",
     mcpToolCount: "{count} 个工具",
     mcpOffChip: "整组关闭",
-    mcpNoteOrch: "任务编排器为系统机制：MCP 默认不启用且只读（加载链与常规 agent 同构，经缺省禁用变相关闭）。",
+    mcpNoteOrch: "系统 agent（任务链）：MCP 与常规 agent 同轨，默认不启用且写面只读（恒关展示；未来启用仅需放开写面）。",
     mcpState: {
       idle: "空闲",
       connecting: "连接中",
@@ -590,7 +590,8 @@ export const zhCN = {
     // 系统派生块技能读面批：系统块技能组（orchestrator = 任务 SOP 注册表；
     // 派生两块 = worker 生效技能集）
     systemSkillsLabelOrch: "任务 SOP（kickoff 全文注入）",
-    systemSkillsLabelDerived: "技能（跟随 subagent-worker 生效集）",
+    systemSkillsLabelDerived: "技能（只读启停面，默认全关）",
+    skillOffChip: "已关闭",
     systemSkillsNoteOrch: "编排 agent 不持技能清单；实际执行的 SOP = 所选任务类型的 SKILL.md 全文，在任务 kickoff 时注入（系统提示技能段恒空）。",
     // P-2 推理级别字段（T3：on/off 开关形态——off = 槽位空默认关，开 on 立即写中位档）
     thinking: {

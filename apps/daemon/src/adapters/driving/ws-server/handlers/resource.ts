@@ -107,58 +107,47 @@ function toProfileBlockDto(block: ResourceConfigBlock): AgentConfigProfileBlock 
 }
 
 /**
- * 只读系统三块派生（编排归位批：orchestrator 自 profiles 归位系统区——
- * 系统机制 kind 不进可配置卡；序固定 orchestrator 在前、reviewer 在后）：
+ * 只读系统三块派生（同轨批：六 kind 读面同构——唯一差异 = 写面只读性）：
  * - orchestrator = 声明全集（纯展示行不携带 enabled 位）+ 只读 mcpServers
- *   行（kind 缺省禁用 = 变相禁用展示；携带 enabled 位供只读呈现）+
- *   技能区 = 任务 SOP 注册表（audience=task ∧ builtin，与 TaskSkillRegistry
- *   注册谓词同源——即 kickoff 全文注入的实际消费面；其系统提示技能段
- *   经 kind 缺省全禁自然为空，此清单展示的是任务类型注册表非提示词段）；
- * - kg-writer = worker 当前生效集（enabled 过滤）+ 恒在工具（ctx.kgWriter
- *   PinnedTools 单源）；恒在行 snippet 从 main 目录面同名行取回（注册表
- *   单源，越权复制零容忍；worker 目录无此名）。
- * - reviewer = worker 当前生效集 − 恒摘除工具（ctx.reviewerRemovedTools
- *   单源——write/edit 代码写面机械关闭，随 worker toggle 动态跟随）。
- *
- * 派生两块技能行 = worker 生效技能集（effectiveSkillsOf 单点读面——与
- * buildSessionStack 装配快照技能段同源派生；audience 目录二分与成套装配
- * 不在 driving 层重复，E-140 单点纪律）。
+ *   行 + 技能区 = 任务 SOP 注册表（audience=task ∧ builtin，与
+ *   TaskSkillRegistry 注册谓词同源——kickoff 全文注入的实际消费面；其
+ *   系统提示无技能段——技能消费单轨在 kickoff）；
+ * - kg-writer = worker 当前生效集（enabled 过滤）+ 恒在工具（pinnedTools
+ *   单源）+ 自身 kind 只读技能启停面 + 自身 mcpServers 行；
+ * - reviewer = worker 当前生效集 − 恒摘除工具（removedTools 单源）+ 自身
+ *   只读技能启停面 + 自身 mcpServers 行。
+ * 派生两块技能行 = 自身 kind 清单（ResourceService.list 同源——含 enabled
+ * 只读启停位，全源显式启用制默认 false；系统 kind 写面只读恒不可改）。
+ * mcpServers 三块同构携带（默认 false + 写面只读——未来启用仅需放开写面）。
  */
-async function toSystemBlocksDto(
+function toSystemBlocksDto(
   main: ResourceConfigBlock,
   worker: ResourceConfigBlock,
   orch: ResourceConfigBlock,
+  kgw: ResourceConfigBlock,
+  reviewer: ResourceConfigBlock,
   pinnedTools: readonly string[],
-  kgwModel: string | undefined,
-  kgwThinking: string | undefined,
   removedTools: readonly string[],
-  reviewerModel: string | undefined,
-  reviewerThinking: string | undefined,
-  effectiveSkillsOf: () => Promise<readonly SkillDescriptor[]>,
-): Promise<readonly AgentConfigSystemBlock[]> {
+): readonly AgentConfigSystemBlock[] {
   const workerEffective = worker.tools.filter((t) => t.enabled).map((t) => ({ name: t.name, snippet: t.snippet }));
   // orchestrator 技能行：任务 SOP 注册表（TaskSkillRegistry 注册谓词同源）
   const taskSopRows = orch.skills
     .filter((s) => s.source === "builtin" && s.audience === "task")
     .map((s) => ({ name: s.name, description: s.description, filePath: s.filePath, source: s.source, audience: s.audience }));
-  // 派生两块技能行：worker 生效技能集（spawn 快照技能段同源——单点读面）
-  const workerSkillRows = (await effectiveSkillsOf()).map((s) => ({
-    name: s.name,
-    description: s.description,
-    filePath: s.filePath,
-    source: s.source,
-    audience: s.audience,
-  }));
+  // 派生两块技能行：自身 kind 只读启停面（同 ResourceService.list 单源）
+  const roSkillRows = (block: ResourceConfigBlock) =>
+    block.skills.map((s) => ({ name: s.name, description: s.description, filePath: s.filePath, source: s.source, audience: s.audience, enabled: s.enabled }));
+  const mcpRows = (block: ResourceConfigBlock) =>
+    block.mcpServers !== undefined && block.mcpServers.length > 0
+      ? { mcpServers: block.mcpServers.map((s) => ({ ...s, state: s.state as McpServerRuntimeState })) }
+      : {};
   return [
     {
       profileKind: "orchestrator",
       tools: orch.tools.map((t) => ({ name: t.name, snippet: t.snippet })),
       skills: taskSopRows,
-      // 编排归位批：只读 MCP 面（kind 缺省禁用——「默认不启用、只读」的
-      // 变相禁用展示；行形状与 profile 块 mcpServers 同构）
-      ...(orch.mcpServers !== undefined && orch.mcpServers.length > 0
-        ? { mcpServers: orch.mcpServers.map((s) => ({ ...s, state: s.state as McpServerRuntimeState })) }
-        : {}),
+      // 只读 MCP 面（默认 false + 写面只读——同轨展示）
+      ...mcpRows(orch),
       // R7 系统槽位：独立配置，未配跟随全局（不联动 worker）
       model: orch.model ?? null,
       thinkingLevel: orch.thinkingLevel ?? null,
@@ -172,23 +161,25 @@ async function toSystemBlocksDto(
           snippet: main.tools.find((t) => t.name === name)?.snippet ?? "",
         })),
       ],
-      skills: workerSkillRows,
+      skills: roSkillRows(kgw),
+      ...mcpRows(kgw),
       derivedFrom: "subagent-worker",
       pinnedTools: [...pinnedTools],
       // R7：kg-writer 独立槽位（工具集仍派生 worker——职责语义；
       // 模型/推理不联动）
-      model: kgwModel ?? null,
-      thinkingLevel: kgwThinking ?? null,
+      model: kgw.model ?? null,
+      thinkingLevel: kgw.thinkingLevel ?? null,
     },
     {
       profileKind: "subagent-code-reviewer",
       tools: workerEffective.filter((t) => !removedTools.includes(t.name)),
-      skills: workerSkillRows,
+      skills: roSkillRows(reviewer),
+      ...mcpRows(reviewer),
       derivedFrom: "subagent-worker",
       // D5：reviewer 独立槽位（工具集派生 worker − 摘除面——职责语义；
       // 模型/推理不联动，TR-42 两级链）
-      model: reviewerModel ?? null,
-      thinkingLevel: reviewerThinking ?? null,
+      model: reviewer.model ?? null,
+      thinkingLevel: reviewer.thinkingLevel ?? null,
     },
   ];
 }
@@ -220,12 +211,11 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
   //（编排归位批：orchestrator 归位系统区；任务独立配置批：task-worker 第三
   // 可编辑块——任务派生 worker 独立配置面，与 chat 子代理解耦）
   void (async () => {
-    const kinds: readonly ProfileKind[] = ["main-session", "subagent-worker", "task-worker", "orchestrator"];
+    const kinds: readonly ProfileKind[] = ["main-session", "subagent-worker", "task-worker", "orchestrator", "subagent-kg-writer", "subagent-code-reviewer"];
     const blocks = await Promise.all(kinds.map((k) => ctx.resource.list(k)));
-    const [main, sub, task, orch] = [blocks[0]!, blocks[1]!, blocks[2]!, blocks[3]!];
-    // 派生块技能读面批：worker 生效技能集（kg-writer/reviewer 派生面）
-    // ——getEffectiveSkills 是成套装配与启停的单点读面
-    const workerSkills = await ctx.resource.getEffectiveSkills("subagent-worker");
+    const [main, sub, task, orch, kgw, reviewer] = [blocks[0]!, blocks[1]!, blocks[2]!, blocks[3]!, blocks[4]!, blocks[5]!];
+    // 同轨批：系统块读面同构——kg-writer/reviewer 自身 kind 清单（技能只读
+    // 启停面 + mcpServers 行），不再从 worker 生效集派生
     const frame: AgentConfigListResultEvent = {
       v: PROTOCOL_VERSION,
       sessionId: SYSTEM_SESSION_ID, // 全局命令：会话无关（model.catalog.result 同构）
@@ -233,18 +223,7 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
       type: "agent.config.list.result",
       payload: {
         profiles: [main, sub, task].map(toProfileBlockDto),
-        system: await toSystemBlocksDto(
-          main,
-          sub,
-          orch,
-          ctx.kgWriterPinnedTools,
-          ctx.resource.modelSlot("subagent-kg-writer"),
-          ctx.resource.thinkingSlot("subagent-kg-writer"),
-          ctx.reviewerRemovedTools,
-          ctx.resource.modelSlot("subagent-code-reviewer"),
-          ctx.resource.thinkingSlot("subagent-code-reviewer"),
-          async () => workerSkills,
-        ),
+        system: await toSystemBlocksDto(main, sub, orch, kgw, reviewer, ctx.kgWriterPinnedTools, ctx.reviewerRemovedTools),
       },
     };
     ctx.sendNow(sender, frame);

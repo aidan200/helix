@@ -36,4 +36,7 @@ export const SubAgentKgWriterProfile: AgentProfile = {
   hooks: SubAgentProfile.hooks,
   // AD-3 派生面零分叉：与 worker 同走 subagent-worker kind 槽位链（不另设槽位）
   model: SubAgentProfile.model,
+  // 同轨批：MCP 准入与全 kind 同构声明（"*"——读面同构展示 server 行，
+  // 生效面 = 差异行显式启用制默认禁 + 写面只读恒关，未来启用零结构改动）
+  mcpServers: "*",
 };

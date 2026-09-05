@@ -145,10 +145,10 @@ const STATIC_TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
 };
 
 /**
- * kind → MCP server 准入白名单（mcp 批，profile 声明单源）：main/worker/
- * orchestrator 声明 "*"（编排 MCP 接入批——编排形态与正常 agent 同构；
- * 准入实际由 server enabled + 工具级 toggle 管控）；kg-writer/reviewer
- * 未声明（评审/写库静态 kind 不接 MCP）。
+ * kind → MCP server 准入白名单（mcp 批，profile 声明单源）：六 kind 全
+ * 声明 "*"（同轨批——读面/装配链同构，准入实际由 server enabled 显式
+ * 启用制 + 工具级 toggle 管控；系统三 kind 写面只读恒关，未来启用零
+ * 结构改动）。
  */
 const MCP_ALLOWED_OF: Readonly<Record<ProfileKind, readonly string[] | "*" | undefined>> = {
   "main-session": MainSessionProfile.mcpServers,
@@ -554,9 +554,13 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         : ORCHESTRATOR_SYSTEM_PROMPT; // orchestrator（T2.2）：与 MainAgent 消费 skill 同构的三段组装；task-worker 声明面同 worker（独立配置批）
   const computeAssembly = async (
     kind: ProfileKind,
+    opts: { readonly omitSkills?: boolean } = {},
   ): Promise<{ readonly tools: readonly string[]; readonly systemPrompt: string }> => {
     const tools = resourceService.getEffectiveTools(kind);
-    const skills = await resourceService.getEffectiveSkills(kind);
+    // 同轨批：系统三 kind（orchestrator/kg-writer/reviewer）技能消费 = 任务
+    // 系统 kickoff 全文注入（SOP 定义读什么），提示词不注入技能段——消费
+    // 通道单轨化（旧「orchestrator 技能段注入」双轨残留撤除）。
+    const skills = opts.omitSkills ? [] : await resourceService.getEffectiveSkills(kind);
     return {
       tools,
       systemPrompt: promptAssembler.assemble({
@@ -571,6 +575,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       }),
     };
   };
+  /** 同轨批：系统三 kind 谓词（唯一 kind 差异 = 写面只读；技能消费 = kickoff 通道，提示词不注入技能段）。 */
+  const isSystemKind = (kind: ProfileKind): boolean =>
+    kind === "orchestrator" || kind === "subagent-kg-writer" || kind === "subagent-code-reviewer";
   let mainAssembly = await computeAssembly("main-session");
   let subagentAssembly = await computeAssembly("subagent-worker");
   // 任务 subAgent 独立配置批：task-worker 独立快照缓存（声明面同 worker 单源，
@@ -583,7 +590,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     readonly tools: readonly string[];
     readonly systemPrompt: string;
   }> => {
-    const worker = await computeAssembly("subagent-worker");
+    // 同轨批：omitSkills——系统 kind 技能消费在 kickoff（工具集继承 worker
+    // 生效集不变，提示词不继承 worker 技能段）
+    const worker = await computeAssembly("subagent-worker", { omitSkills: true });
     const tools = [...worker.tools];
     for (const t of SUBAGENT_KG_WRITER_EXTRA_TOOLS) {
       if (!tools.includes(t)) tools.push(t);
@@ -598,7 +607,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     readonly tools: readonly string[];
     readonly systemPrompt: string;
   }> => {
-    const worker = await computeAssembly("subagent-worker");
+    // 同轨批：omitSkills——同 kg-writer（技能消费在 kickoff，提示词无技能段）
+    const worker = await computeAssembly("subagent-worker", { omitSkills: true });
     return {
       tools: worker.tools.filter((t) => !(SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS as readonly string[]).includes(t)),
       systemPrompt: `${worker.systemPrompt}\n\n${SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX}`,
@@ -614,14 +624,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         : profileKind === "task-worker"
           ? taskWorkerAssembly
           : subagentAssembly;
-  let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算）
-  // mcp 批：活跃主会话 executor 登记（engineFor 构造点 set；refreshAssembly
+  // 同轨批：orchestrator 无技能段（技能消费 = kickoff；T2.2 快照缓存链不变）
+  let orchestratorAssemblyValue = await computeAssembly("orchestrator", { omitSkills: true }); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算）  // mcp 批：活跃主会话 executor 登记（engineFor 构造点 set；refreshAssembly
   // 对活跃会话 appendTools 后再 setTools——MCP 新工具实例进 registry 才能被
   // 按名 resolve）。生命周期见 set 点注释。
   const sessionExecutors = new Map<string, InstanceType<typeof CoreToolExecutor>>();
   /** toggle applied 后的重算入口（WS 命令复用面：命令只调 toggle，刷新单点在此）。 */
   const refreshAssembly = async (kind: ProfileKind): Promise<void> => {
-    const next = await computeAssembly(kind);
+    const next = await computeAssembly(kind, isSystemKind(kind) ? { omitSkills: true } : {});
     if (kind === "main-session") {
       mainAssembly = next;
       // 活跃 runtime 直改（setModel 同构）：systemPrompt 重算 + tools 重 resolve，

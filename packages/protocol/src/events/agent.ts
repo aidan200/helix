@@ -193,8 +193,8 @@ export interface AgentConfigSystemToolRow {
   snippet: string;
 }
 
-/** 只读系统派生块技能行（纯展示：name/description/filePath/source/audience 五字段，
- *  无启停位——清单即生效集/消费集）。 */
+/** 只读系统派生块技能行（纯展示：name/description/filePath/source/audience 五字段
+ *  + 可选 enabled 只读启停位）。 */
 export interface AgentConfigSystemSkillRow {
   name: string;
   description: string;
@@ -202,8 +202,12 @@ export interface AgentConfigSystemSkillRow {
   /** 来源层：user / builtin（AgentConfigProfileBlock.skills 行同源；project 层已删）。 */
   source: "user" | "builtin";
   /** 受众分类：orchestrator 块 = task（kickoff 全文注入的任务 SOP 注册表）；
-   *  派生两块（kg-writer/reviewer）= agent（worker 生效技能集）。 */
+   *  派生两块（kg-writer/reviewer）= agent（只读启停面展示）。 */
   audience: "agent" | "task";
+  /** 只读启停位（同轨批；仅派生两块携带）：自身 kind 差异行合取（全源
+   *  显式启用制默认 false；系统 kind 写面只读恒不可改——展示面）。
+   *  orchestrator 任务 SOP 注册表行不携带（无启停语义）。 */
+  enabled?: boolean;
 }
 
 /**
@@ -220,18 +224,17 @@ export interface AgentConfigSystemBlock {
   /** 工具清单（纯展示；orchestrator = 声明全集，kg-writer = worker 生效集 + pinned）。 */
   tools: ReadonlyArray<AgentConfigSystemToolRow>;
   /**
-   * 技能清单（纯展示，系统派生块技能读面批 additive）：orchestrator = 任务
-   * SOP 注册表（audience=task 的 builtin 技能——kickoff 全文注入的实际消费面，
-   * 系统提示技能段经 kind 缺省全禁自然为空）；kg-writer/reviewer = subagent-worker
-   * 生效技能集（spawn 快照技能段同源派生，随 worker toggle 跟随）。行形状 = 五字段
-   * 纯展示（无启停位）；缺省不携带（旧 daemon 容忍，agent-config-model
-   * system 块 null 语义同构）。
+   * 技能清单（纯展示）：orchestrator = 任务 SOP 注册表（audience=task 的
+   * builtin 技能——kickoff 全文注入的实际消费面，无启停位）；kg-writer/
+   * reviewer = 自身 kind 只读启停面（enabled 位默认 false——全源显式启用
+   * 制；系统 kind 提示词不注入技能段，技能消费在 kickoff）。缺省不携带
+   * （旧 daemon 容忍，agent-config-model system 块 null 语义同构）。
    */
   skills?: ReadonlyArray<AgentConfigSystemSkillRow>;
   /**
-   * MCP server 清单（编排归位批 additive；仅 orchestrator 块携带）：只读
-   * 运行态行（enabled 位恒 false——kind 缺省禁用 = 变相禁用展示，写面
-   * 对系统 kind 恒拒）；其余系统块不携带。
+   * MCP server 清单（同轨批：三系统块同构携带）：只读运行态行（enabled
+   * 全源显式启用制默认 false + 写面只读恒不可开——未来启用仅需放开写面）。
+   * 缺省不携带（零 server / 旧 daemon 容忍）。
    */
   mcpServers?: ReadonlyArray<AgentConfigMcpServerRow>;
   /** 派生说明位：kg-writer = 派生自 subagent-worker（工具集跟随 worker）；orchestrator 不携带。 */

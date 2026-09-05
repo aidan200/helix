@@ -199,9 +199,10 @@ export const agentConfigSetResultUnknownModel: AgentConfigSetEnabledResultEvent 
   payload: { status: "skipped", reason: "unknown-model" },
 };
 
-/** agent.config.list.result：只读系统派生双块（additive 微批：system 可选块——
- *  orchestrator 声明全集 / kg-writer = worker 生效集 + kg-update 恒在）。
- *  注：不入 v06Events 目录数组——既有事件 type 的新形态（type 计数不变）。 */
+/** agent.config.list.result：系统三块（同轨批：六 kind 读面同构——派生两块
+ *  技能行带 enabled 只读启停位 + mcpServers 三块同构携带；唯一 kind 差异 =
+ *  写面只读性）。注：不入 v06Events 目录数组——既有事件 type 的新形态
+ *  （type 计数不变）。 */
 export const agentConfigListResultSystem: AgentConfigListResultEvent = {
   v: PROTOCOL_VERSION,
   sessionId: "__system__",
@@ -258,12 +259,18 @@ export const agentConfigListResultSystem: AgentConfigListResultEvent = {
         ],
         skills: [
           {
+            // 同轨批：派生块技能行 = 自身 kind 只读启停面（enabled 默认 false）
             name: "plan-workflow",
             description: "工作台账（plan 三工具）的使用规范",
             filePath: "/daemon/resources/skills/agent/plan-workflow/SKILL.md",
             source: "builtin",
             audience: "agent",
+            enabled: false,
           },
+        ],
+        mcpServers: [
+          // 同轨批：三系统块同构携带（默认 false + 写面只读恒不可开）
+          { name: "shadcn", enabled: false, state: "running", toolCount: 3 },
         ],
         derivedFrom: "subagent-worker",
         pinnedTools: ["kg-update"],

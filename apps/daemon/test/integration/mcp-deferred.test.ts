@@ -168,6 +168,12 @@ describe("MCP deferred 懒加载全链（真组合根 + 剧本 LLM + 假 server�
         if (servers.length > 0 && (servers[0]?.status.state ?? "") === "running") break;
         if (i === 99) throw new Error("server 预热超时");
       }
+      // 同轨批前置：server 显式启用（缺省无差异行 = 禁，生效集不含 meta）
+      ws.send(JSON.stringify({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "main-session", resourceType: "mcp-server", name: "fake", enabled: true }, sessionId: welcomeSessionId }));
+      for (let i = 0; i < 100; i++) {
+        await new Promise<void>((r) => setTimeout(r, 50));
+        if (frames.some((f) => f.type === "agent.config.set_enabled.result")) break;
+      }
       // 主会话驱动：chat.send 触发剧本（三段：discover → echo → 终文本）
       const sendIndex = frames.length;
       ws.send(JSON.stringify({ v: 0, type: "chat.send", payload: { text: "帮我用 fake 的工具" }, sessionId: welcomeSessionId }));

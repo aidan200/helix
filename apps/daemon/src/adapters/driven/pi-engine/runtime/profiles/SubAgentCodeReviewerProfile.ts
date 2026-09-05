@@ -59,4 +59,7 @@ export const SubAgentCodeReviewerProfile: AgentProfile = {
   hooks: SubAgentProfile.hooks,
   // TR-42：不声明静态槽位——本 kind 槽位 ?? 全局默认两级链（组合根 per-kind 解析）
   model: SubAgentProfile.model,
+  // 同轨批：MCP 准入与全 kind 同构声明（"*"——读面同构展示 server 行，
+  // 生效面 = 差异行显式启用制默认禁 + 写面只读恒关，未来启用零结构改动）
+  mcpServers: "*",
 };

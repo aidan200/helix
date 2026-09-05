@@ -273,30 +273,30 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
       const addResult = await client.expect("mcp.servers.add.result", 10000);
       expect(addResult.payload.status).toBe("applied");
 
-      // ① list 块携带 server 行（运行态透传 + 缺省启用）
+      // ① list 块携带 server 行（运行态透传；同轨批：缺省禁）
       client.send({ v: 0, type: "agent.config.list", payload: {} });
       const before = await client.expect("agent.config.list.result");
       const mainBefore = (before.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean; state: string; toolCount?: number }[] }[]).find((b) => b.profileKind === "main-session");
-      expect(mainBefore?.mcpServers).toEqual([{ name: "fake", enabled: true, state: "running", toolCount: 2 }] as { name: string; enabled: boolean; state: string; toolCount?: number }[]);
+      expect(mainBefore?.mcpServers).toEqual([{ name: "fake", enabled: false, state: "running", toolCount: 2 }] as { name: string; enabled: boolean; state: string; toolCount?: number }[]);
 
-      // ② 写面：mcp-server 关 → applied + changed 广播（resourceType=mcp-server）
+      // ② 写面：mcp-server 启 → applied + changed 广播（resourceType=mcp-server）
       const toggleStart = client.frames.length;
-      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "main-session", resourceType: "mcp-server", name: "fake", enabled: false } });
+      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "main-session", resourceType: "mcp-server", name: "fake", enabled: true } });
       const setResult = await client.expectAfter("agent.config.set_enabled.result", toggleStart);
       expect(setResult.payload.status).toBe("applied");
       const changed = await client.expectAfter("agent.config.changed", toggleStart);
-      expect(changed.payload).toMatchObject({ profileKind: "main-session", resourceType: "mcp-server", name: "fake", enabled: false });
+      expect(changed.payload).toMatchObject({ profileKind: "main-session", resourceType: "mcp-server", name: "fake", enabled: true });
 
-      // ③ 重拉：server 行 enabled=false，工具行仍在 catalog（toggle 域不缩）
+      // ③ 重拉：server 行 enabled=true，工具行仍在 catalog（toggle 域不缩）
       client.send({ v: 0, type: "agent.config.list", payload: {} });
       const after = await client.expectAfter("agent.config.list.result", client.frames.length - 1);
       const mainAfter = (after.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean }[]; tools: { name: string }[] }[]).find((b) => b.profileKind === "main-session");
-      expect(mainAfter?.mcpServers).toEqual([{ name: "fake", enabled: false, state: "running", toolCount: 2 }] as { name: string; enabled: boolean; state: string; toolCount?: number }[]);
+      expect(mainAfter?.mcpServers).toEqual([{ name: "fake", enabled: true, state: "running", toolCount: 2 }] as { name: string; enabled: boolean; state: string; toolCount?: number }[]);
       expect(mainAfter?.tools.some((t) => t.name === "fake__echo")).toBe(true);
 
-      // ④ kind 隔离：subagent-worker 块 server 行仍启用
+      // ④ kind 隔离：subagent-worker 无差异行 → 默认禁（main 启用不联动）
       const subAfter = (after.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean }[] }[]).find((b) => b.profileKind === "subagent-worker");
-      expect(subAfter?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: true });
+      expect(subAfter?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: false });
 
       // ⑤ 未配置 server 名 → skipped（不落库不广播）
       const ghostStart = client.frames.length;
@@ -332,9 +332,9 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
       const orch = (before.payload.system as { profileKind: string; mcpServers?: { name: string; enabled: boolean; state: string; toolCount?: number }[]; tools: { name: string }[] }[]).find((b) => b.profileKind === "orchestrator");
       expect(orch?.mcpServers).toEqual([{ name: "fake", enabled: false, state: "running", toolCount: 2 }] as { name: string; enabled: boolean; state: string; toolCount?: number }[]);
       expect(orch?.tools.some((t) => t.name === "fake__echo")).toBe(true);
-      // main/sub profiles 块 server 行缺省启用（不受 orchestrator 缺省禁影响）
+      // 同轨批：main/sub profiles 块 server 行同缺省禁（全 kind 显式启用制）
       const profiles = before.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean }[] }[];
-      expect(profiles.find((b) => b.profileKind === "main-session")?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: true });
+      expect(profiles.find((b) => b.profileKind === "main-session")?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: false });
 
       // ② 写面：orchestrator mcp-server/tool/skill 启停 → read_only 拒绝（系统 kind 仅槽位型可写）
       client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "orchestrator", resourceType: "mcp-server", name: "fake", enabled: true } });
@@ -355,4 +355,58 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
       rmSync(home, { recursive: true, force: true });
     }
   }, 30000);
+  test("⑫ task-worker 独立配置批：config.list task-worker 块携带 MCP（server 行 + 命名空间工具）+ 与 chat 子代理启停双向隔离", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "helix-mcp-ws-home-"));
+    let daemon: Daemon | undefined;
+    let client: TestClient | undefined;
+    try {
+      daemon = await createTestDaemon({ home, engine: new FakeAgentEngine(), skipLock: true, port: 0 });
+      client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);
+      await client.open();
+      await helloHandshake(client, daemon.devToken);
+
+      // 假 server 起步（running + 2 工具）
+      const fake = fakeServerInput("fake");
+      client.send({ v: 0, type: "mcp.servers.add", payload: fake.input });
+      const addResult = await client.expect("mcp.servers.add.result", 15000);
+      expect(addResult.payload.status).toBe("applied");
+
+      // ① 读面：task-worker 块与 main/sub 同构——server 行同轨缺省禁 + 命名空间工具进 tools（工具行缺省启用）
+      client.send({ v: 0, type: "agent.config.list", payload: {} });
+      const roster = await client.expect("agent.config.list.result");
+      const blocks = roster.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean; state: string; toolCount?: number }[]; tools: { name: string; enabled: boolean }[] }[];
+      expect(blocks.map((b) => b.profileKind)).toEqual(["main-session", "subagent-worker", "task-worker"]);
+      const tw = blocks.find((b) => b.profileKind === "task-worker");
+      expect(tw?.mcpServers).toEqual([{ name: "fake", enabled: false, state: "running", toolCount: 2 }] as { name: string; enabled: boolean; state: string; toolCount?: number }[]);
+      expect(tw?.tools.some((t) => t.name === "fake__echo" && t.enabled)).toBe(true);
+
+      // ② 隔离 A：chat 子代理启 server → task-worker 行不受影响（同轨缺省禁基准）
+      const onSubStart = client.frames.length;
+      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "subagent-worker", resourceType: "mcp-server", name: "fake", enabled: true } });
+      const onSub = await client.expectAfter("agent.config.set_enabled.result", onSubStart);
+      expect(onSub.payload.status).toBe("applied");
+      client.send({ v: 0, type: "agent.config.list", payload: {} });
+      const afterSub = await client.expectAfter("agent.config.list.result", client.frames.length - 1);
+      const blocksAfterSub = afterSub.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean }[] }[];
+      expect(blocksAfterSub.find((b) => b.profileKind === "subagent-worker")?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: true });
+      expect(blocksAfterSub.find((b) => b.profileKind === "task-worker")?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: false });
+
+      // ③ 隔离 B：task-worker 关工具 → main/sub 工具行不受影响
+      const offToolStart = client.frames.length;
+      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "task-worker", resourceType: "tool", name: "fake__echo", enabled: false } });
+      const offTool = await client.expectAfter("agent.config.set_enabled.result", offToolStart);
+      expect(offTool.payload.status).toBe("applied");
+      client.send({ v: 0, type: "agent.config.list", payload: {} });
+      const afterTool = await client.expectAfter("agent.config.list.result", client.frames.length - 1);
+      const toolBlocks = afterTool.payload.profiles as { profileKind: string; tools: { name: string; enabled: boolean }[] }[];
+      expect(toolBlocks.find((b) => b.profileKind === "task-worker")?.tools.find((t) => t.name === "fake__echo")?.enabled).toBe(false);
+      expect(toolBlocks.find((b) => b.profileKind === "main-session")?.tools.find((t) => t.name === "fake__echo")?.enabled).toBe(true);
+      expect(toolBlocks.find((b) => b.profileKind === "subagent-worker")?.tools.find((t) => t.name === "fake__echo")?.enabled).toBe(true);
+    } finally {
+      await client?.close();
+      await daemon?.shutdown();
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 30000);
+
 });

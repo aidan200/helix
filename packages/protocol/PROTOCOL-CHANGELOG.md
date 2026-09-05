@@ -1092,3 +1092,26 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
   面）。装配链同构（声明面复用 SubAgentProfile 同源，配置面独立：
   per-kind 启停行/槽位/快照缓存各自维护）。
 - 计数不变（无新命令/事件——kind 枚举扩值 + profiles 块构成变化）。
+
+## 35. 同轨批（六 kind 单轨化：全局显式启用制 + 系统三 kind 技能段撤除 + 系统块读面同构；v0.11 后 additive 微批——版本位不 bump）
+
+> 设计裁决（用户 in-session）：六 kind 走同一条「资源启停」轨道，**唯一差异 =
+> 写面只读性**——残留双轨全部拆除。
+
+- **缺省统一（全局显式启用制）**：`skill` 与 `mcp-server` 差异行无记录 = 禁用，
+  不分 source、不分 kind——builtin 行为技能与 user 技能同轨（默认关、用户自开；
+  旧 builtin-immutable 写面防护撤除）；mcp-server 撤 orchestrator kind 维特判。
+  静态声明工具无行 = 启用不变（声明即核心能力）。
+- **orchestrator 技能段撤除**：系统三 kind（orchestrator/kg-writer/reviewer）
+  系统提示不注入技能段——技能消费单轨在任务 kickoff 全文注入（SOP 定义读什么）。
+- **MCP 声明面全放开**：六 kind 白名单 `"*"`（KgWriter/CodeReviewer profile
+  补声明）；kg-writer/reviewer 子进程注入链同构（默认空清单零注入）。
+- **system 块读面同构**：kg-writer/reviewer 技能行 = 自身 kind 只读启停面
+  （`AgentConfigSystemSkillRow.enabled?` 新增，默认 false——不再从 worker
+  生效集派生）；`mcpServers` 三系统块同构携带（旧「仅 orchestrator」限定撤除）。
+- **消费端**：daemon `ResourceService`（skillDefaultEnabled 恒 false /
+  mcpServerEnabledOf 撤特判）、`buildSessionStack.computeAssembly`（omitSkills）、
+  handlers/resource.ts system 块构建；shell SystemProfileCard 三卡 MCP 区 +
+  技能行只读启停徽标。
+- **兼容性**：无破坏性变更（字段 additive / 缺省语义变化在 daemon 侧）；v06
+  样例同步（PROTOCOL.md §16 agent.config.list 字段行更新）。

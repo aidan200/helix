@@ -645,9 +645,9 @@ function SystemProfileCard({
           })
         )}
       </div>
-      {/* 只读 MCP 面（编排归位批；仅 orchestrator 块携带）：运行态行 +
-          缺省禁徽标——「默认不启用、只读」的变相禁用展示（无开关） */}
-      {kind === "orchestrator" && block !== null && (block.mcpServers ?? []).length > 0 && (
+      {/* 只读 MCP 面（同轨批：三系统卡同构）：运行态行 + 缺省禁
+          徽标——全 kind 显式启用制默认禁，系统 kind 写面只读恒关（无开关） */}
+      {block !== null && (block.mcpServers ?? []).length > 0 && (
         <div className="ag-group" data-ro-mcp-group>
           <h3 className="ag-group-label">{t("agents.mcpLabel")}</h3>
           <p className="ag-note" data-ro-mcp-note>{t("agents.mcpNoteOrch")}</p>
@@ -669,10 +669,10 @@ function SystemProfileCard({
           ))}
         </div>
       )}
-      {/* 技能清单（编排归位批恢复）：纯展示行 + 正文查看——
-          orchestrator = 任务 SOP 注册表（kickoff 全文注入的消费面，
-          系统提示技能段经 kind 缺省全禁自然为空）；kg-writer/reviewer =
-          worker 生效技能集（spawn 快照技能段同源派生）。旧 daemon
+      {/* 技能清单（同轨批）：纯展示行 + 正文查看——
+          orchestrator = 任务 SOP 注册表（kickoff 全文注入的消费面）；
+          kg-writer/reviewer = 只读启停面（显式启用制默认全关；系统 kind
+          提示词不注入技能段——技能消费在 kickoff）。旧 daemon
           未携带 = 空（additive 容忍）。 */}
       <div className="ag-group">
         <h3 className="ag-group-label">{kind === "orchestrator" ? t("agents.systemSkillsLabelOrch") : t("agents.systemSkillsLabelDerived")}</h3>
@@ -701,6 +701,13 @@ function SystemProfileCard({
                 <span className="hud-chip" data-source-chip>
                   {skill.source === "builtin" ? t("agents.skillSourceBuiltin") : skill.source}
                 </span>
+                {/* 同轨批：派生两块只读启停面——enabled 位恒关展示（系统 kind
+                    写面只读；orchestrator 任务 SOP 注册表行无此位） */}
+                {skill.enabled === false && (
+                  <span className="hud-chip" data-skill-off>
+                    {t("agents.skillOffChip")}
+                  </span>
+                )}
                 {skill.audience === "task" && (
                   <span className="hud-chip" data-audience-chip="task" title={t("agents.skillAudienceTaskHint")}>
                     {t("agents.skillAudienceTask")}

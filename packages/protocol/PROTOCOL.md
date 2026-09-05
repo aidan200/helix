@@ -1601,8 +1601,8 @@ parked 不占并发预算，恢复等价新派发排队）。
 | `profiles[].thinkingLevel` | `string \| null` | 必填 | v0.11 | thinking 槽位现值（未配置 = null；v0.11 批内补登 T1.3） |
 | `system` | `AgentConfigSystemBlock[]` | 可选 | agent-roster 批 | 只读系统块（编排归位批：orchestrator 归位系统区——三块序固定 orchestrator/kg-writer/reviewer）：缺省全量请求时携带；单 kind 过滤请求不携带；旧客户端可选字段不感知 |
 | `system[].profileKind` | `"orchestrator" \| `"subagent-kg-writer"` \| `"subagent-code-reviewer"` | 必填 | agent-roster 批 | 系统 kind（不在写面枚举——写面携带 → `agent.config.read_only` 拒绝） |
-| `system[].skills` | `{ name, description, filePath, source, audience }[]` | 可选 | 系统派生块技能读面批 | 纯展示行（无启停位）：orchestrator = 任务 SOP 注册表（audience=task ∧ builtin——kickoff 全文注入的实际消费面，非「禁用」语义）；kg-writer/reviewer = worker 生效技能集 |
-| `system[].mcpServers` | `AgentConfigMcpServerRow[]` | 可选 | 编排归位批 | 只读 MCP 面（仅 orchestrator 块携带）：运行态行，enabled 位恒 false（kind 缺省禁用 = 变相禁用展示，写面恒拒） |
+| `system[].skills` | `{ name, description, filePath, source, audience, enabled? }[]` | 可选 | 同轨批 | orchestrator = 任务 SOP 注册表（audience=task ∧ builtin，无 enabled 位——kickoff 全文注入的消费面）；kg-writer/reviewer = 自身 kind 只读启停面（enabled 默认 false——全源显式启用制，写面只读恒不可改） |
+| `system[].mcpServers` | `AgentConfigMcpServerRow[]` | 可选 | 同轨批 | 只读 MCP 面（三系统块同构携带）：运行态行，enabled 默认 false（显式启用制 + 写面只读恒不可开——未来启用仅需放开写面） |
 | `system[].tools` | `{ name, snippet }[]` | 必填 | agent-roster 批 | 工具清单纯展示（orchestrator = 声明全集；kg-writer = subagent-worker 当前生效集 + pinnedTools，随 worker toggle 动态跟随；无启停位——清单即生效集） |
 | `system[].derivedFrom` | `"subagent-worker"` | 可选 | agent-roster 批 | 派生说明位：kg-writer = 派生自 subagent-worker；orchestrator 不携带 |
 | `system[].pinnedTools` | `string[]` | 可选 | agent-roster 批 | 派生面恒在工具（kg-writer = ["kg-update"]；orchestrator 不携带） |

@@ -19,16 +19,14 @@ import type {
  * ResourceService —— profile kind 维资源启停的合取计算层（数据域
  * 终点：本服务只到「数据与合取计算」，刷新链经事件发布）。
  *
- * 【语义核心】缺省无记录 = 启用（零配置兼容现状，存量零迁移）：
- * 生效集 = 全集（profile tools 声明 / SkillScanner 扫描产物）∩ kind 启用集
- * ——同 kind 隔离（main 禁不影响 subagent），全集侧变更（profile 发版/
+ * 【语义核心】（同轨批：全局显式启用制）：静态工具无差异行 = 启用
+ * （声明即核心能力，零配置兼容现状）；技能与 mcp-server 无差异行 =
+ * 禁用（六 kind 统一——用户自选开启，builtin 与 user 同轨）。生效集 =
+ * 全集（profile tools 声明 / SkillScanner 扫描产物）∩ kind 启用集——
+ * 同 kind 隔离（main 禁不影响 subagent），全集侧变更（profile 发版/
  * 技能安装）自然生效，遗留差异行（名不在全集）在合取中被忽略。
- * **技能缺省例外**：user 技能 = 显式启用制（无行 = 禁用，
- * 装上不自动生效）；task 类 SOP 同禁用且写面只读（audience-guard）——
- * builtin 行为技能保持无行 = 启用（产品能力，immutable 恒开）。
- * **kind 维缺省（编排归位批）**：orchestrator = 系统机制 kind——技能
- * 全源 + mcp-server 缺省禁用（变相禁用：加载链同构、默认不启用、写面
- * 仅槽位型放行）。
+ * 【kind 唯一差异】写面只读性：main/sub/task-worker 全型可写；
+ * orchestrator/kg-writer/reviewer 仅槽位型（读面同构下发）。
  *
  * 【tools 全集注入】profiles 在 driven 层（AG-02：application 不得反向
  * import adapters）——组合根从 MainSessionProfile/SubAgentProfile.tools
@@ -36,9 +34,9 @@ import type {
  *
  * 【toggle 未知名】显式跳过不落库（{ status: "skipped" }）：全集之外的名
  * （如 subagent 禁 agent_spawn）无生效面，落库只会制造永不生效的差异行。
- * 【builtin 防护】（内置第三源）：builtin 技能不进 resource_state——
- * setEnabled 返回 { status: "skipped", reason: "builtin-immutable" }，
- * 读面恒启用（缺省无记录 = 启用语义天然覆盖）。
+ * 【task SOP 防护】：audience=task 技能写面 audience-guard 拒绝——
+ * 消费通道在任务系统 kickoff，不经技能段（同轨批 builtin-immutable
+ * 已撤——builtin 技能与 user 同轨显式启用）。
  *
  * 结构满足 ResourceConfigPort（agent.config 命令族回口，AG-12
  * driving 只 import ports）；list 增透传扫描诊断（契约读面），toggle 以
@@ -93,22 +91,20 @@ export class ResourceService implements ResourceConfigPort {
     },
   ) {}
 
-  /** 单行启停状态（无行 = 启用；技能缺省例外见 skillDefaultEnabled）。 */
+  /** 单行启停状态（静态工具缺省启用；技能/mcp-server 缺省禁用见各自读面）。 */
   private enabledOf(kind: ProfileKind, resourceType: ResourceType, name: string): boolean {
     return this.deps.store.get(kind, resourceType, name)?.enabled ?? true;
   }
 
   /**
-   * 技能缺省启停（编排归位批：kind 维 + 来源化）：orchestrator = 系统机制
-   * kind，技能面缺省全禁（变相禁用——加载链同构但默认不启用且写面只读，
-   * 任务 SOP 消费通道在 kickoff 不经技能段）；其余 kind 按来源——builtin
-   * 行为技能 = 产品能力缺省启用（builtin-immutable 恒开语义不变）；user
-   * 技能 = **显式启用制**（装上不自动生效——用户在列表自选开启）；task
-   * 类 SOP = agent 面缺省禁用（audience-guard 写面只读纵深防御）。
+   * 技能缺省（同轨批：全局显式启用制）：无差异行 = 禁用，不分 source、
+   * 不分 kind——builtin 行为技能与 user 技能同轨（默认关、用户自开；
+   * builtin-immutable 写面防护随同轨撤除）；task 类 SOP 消费通道在
+   * kickoff 不经技能段（audience-guard 写面只读纵深保留）。六 kind 唯一
+   * 差异 = 写面只读性（系统三 kind 恒关——写面开不了）。
    */
-  private skillDefaultEnabled(kind: ProfileKind, s: Pick<SkillDescriptor, "source" | "audience">): boolean {
-    if (kind === "orchestrator") return false;
-    return s.source === "builtin" && s.audience === "agent";
+  private skillDefaultEnabled(_kind: ProfileKind, _s: Pick<SkillDescriptor, "source" | "audience">): boolean {
+    return false;
   }
 
   /** 技能行启停（store 差异行优先；无行按 kind+来源缺省）。 */
@@ -117,12 +113,12 @@ export class ResourceService implements ResourceConfigPort {
   }
 
   /**
-   * mcp-server 行启停（编排归位批：kind 维缺省）：orchestrator 缺省禁用
-   *（变相禁用——与技能面同义：加载链同构、默认不启用、写面只读）；其余
-   * kind 无行 = 启用（准入实际由工具级 toggle 细分）。
+   * mcp-server 行启停（同轨批：全局显式启用制）：无差异行 = 禁用，六 kind
+   * 统一（含可写三 kind——哪个 server 进哪个 agent 由用户自开）；系统三
+   * kind 写面只读恒关（读面同构展示运行态行）。
    */
   private mcpServerEnabledOf(kind: ProfileKind, name: string): boolean {
-    return this.deps.store.get(kind, "mcp-server", name)?.enabled ?? kind !== "orchestrator";
+    return this.deps.store.get(kind, "mcp-server", name)?.enabled ?? false;
   }
 
   /**
@@ -172,10 +168,8 @@ export class ResourceService implements ResourceConfigPort {
       if (!skill) return { status: "skipped", reason: "unknown-name" };
       // task 类 SOP 只读防护（统一启停批）：消费通道 = 任务系统 kickoff 注入，
       // agent 面恒禁用不可开（缺省即禁）——取代旧 audience 隐藏双轨。
+      // （同轨批：builtin-immutable 撤除——builtin 与 user 同轨显式启用制。）
       if (skill.audience === "task") return { status: "skipped", reason: "audience-guard" };
-      // builtin 防护：内置技能不进 resource_state（不可禁用）——显式
-      // skipped 不落禁用记录；读面恒启用（builtin∧agent 缺省启用天然覆盖）
-      if (skill.source === "builtin") return { status: "skipped", reason: "builtin-immutable" };
     } else if (resourceType === "mcp-server") {
       // server 级配置面批：全集 = mcpServersOf 现拍（注入面已做白名单门控）。
       // 全集外名（如对静态 kind 或未配置 server 写）显式跳过不落库——与

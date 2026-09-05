@@ -283,38 +283,36 @@ describe("ResourceService：model 槽位", () => {
   });
 });
 
-describe("ResourceService：builtin 技能不可禁用防护（T5 内置第三源）", () => {
+describe("ResourceService：builtin 技能同轨（同轨批：撤 builtin-immutable）", () => {
   const BUILTIN: readonly SkillDescriptor[] = [
     ...SKILLS,
     { name: "web-access", description: "联网操作指引", filePath: "/daemon/resources/skills/agent/web-access/SKILL.md", source: "builtin", audience: "agent" },
   ];
 
-  test("⑪ setEnabled 对 builtin 技能 → skipped(builtin-immutable)、零落库、读面恒启用", async () => {
+  test("⑪ builtin 与 user 同轨显式启用制：默认禁 + 可写（applied 落库，无 builtin-immutable 防护）", async () => {
     const skills = new FakeSkillSource({ skills: BUILTIN, diagnostics: [] });
     const { service, store } = makeService(new InMemoryResourceState(), skills);
 
-    const outcome = await service.setEnabled("main-session", "skill", "web-access", false);
-    expect(outcome).toEqual({ status: "skipped", reason: "builtin-immutable" });
-    expect(store.rows.size).toBe(0); // builtin 技能不进 resource_state（不可落禁用记录）
+    // 默认禁（无差异行 = 禁用，不分 source）
+    const view0 = await service.list("main-session");
+    expect(view0.skills.find((s) => s.name === "web-access")?.enabled).toBe(false);
+    expect((await service.getEffectiveSkills("main-session")).map((s) => s.name)).not.toContain("web-access");
 
-    // list 读面透传 source=builtin 且恒启用（缺省无记录 = 启用，天然覆盖）
+    // 可写：禁用行 applied 落库（旧 builtin-immutable skipped 防护已撤）
+    const outcome = await service.setEnabled("main-session", "skill", "web-access", true);
+    expect(outcome).toEqual({ status: "applied" });
+    expect(store.rows.size).toBe(1);
+
+    // 启用后读面/生效集跟随
     const view = await service.list("main-session");
     const row = view.skills.find((s) => s.name === "web-access");
     expect(row).toBeDefined();
     expect(row!.source).toBe("builtin");
     expect(row!.enabled).toBe(true);
-
-    // 生效集恒含 builtin 技能（toggle 防护后重试也不受影响）
     expect((await service.getEffectiveSkills("main-session")).map((s) => s.name)).toContain("web-access");
 
-    // 再试启用（enabled=true）同样 skipped——builtin 面不产生任何状态行
-    expect(await service.toggle("main-session", "skill", "web-access", true)).toEqual({
-      status: "skipped",
-      reason: "builtin-immutable",
-    });
-    expect(store.rows.size).toBe(0);
-    // user/project 技能不受防护影响（applied 先例保持）
-    expect((await service.toggle("main-session", "skill", "code-review", false)).status).toBe("applied");
+    // user 技能同轨（applied 先例保持）
+    expect((await service.toggle("main-session", "skill", "code-review", true)).status).toBe("applied");
   });
 });
 
@@ -325,31 +323,28 @@ describe("ResourceService：统一启停模型（拆 audience×kind 双轨批）
     { name: "user-skill", description: "用户技能", filePath: "/u/user-skill/SKILL.md", source: "user", audience: "agent" },
   ];
 
-  test("⑫ kind 维缺省（编排归位批）：main/sub builtin 行为技能缺省启用 + user 显式启用制；orchestrator 技能面缺省全禁（变相禁用，写面只读在 handler 层）；task 类不进任何 kind 生效集", async () => {
+  test("⑫ 全局显式启用制（同轨批）：builtin/user 全源默认禁；显式启用行后生效（kind 隔离保留）；task 类 audience-guard 不变", async () => {
     const { service } = makeService(new InMemoryResourceState(), new FakeSkillSource({ skills: AUDIENCED, diagnostics: [] }));
     for (const kind of ["main-session", "subagent-worker"] as const) {
-      const effective = await service.getEffectiveSkills(kind);
-      // builtin∧agent 缺省启用；task（目录二分）/user（显式启用制）不生效
-      expect(effective.map((s) => s.name)).toEqual(["web-access"]);
+      // 同轨：无差异行 = 禁用（builtin 与 user 同轨）；task（目录二分）不进生效集
+      expect(await service.getEffectiveSkills(kind)).toEqual([]);
     }
-    // orchestrator：kind 缺省全禁 → 技能段恒空（builtin/user 均不生效；
-    // task 类目录二分本就不进生效集）
-    expect(await service.getEffectiveSkills("orchestrator")).toEqual([]);
     // task 类 SOP 写面只读：audience-guard skipped（任何 kind、任何 enabled 值）
     expect(await service.setEnabled("main-session", "skill", "kg-bootstrap", true)).toEqual({ status: "skipped", reason: "audience-guard" });
-    // user 技能显式启用 → main 生效；orchestrator 经显式启用行也可生效
-    //（store 差异行优先于 kind 缺省——加载链同构，只读由写面拒绝承担）
+    // builtin 技能显式启用 → 生效（与 user 同轨）；kind 隔离（subagent 不联动）
+    expect(await service.setEnabled("main-session", "skill", "web-access", true)).toEqual({ status: "applied" });
     expect(await service.setEnabled("main-session", "skill", "user-skill", true)).toEqual({ status: "applied" });
     expect((await service.getEffectiveSkills("main-session")).map((s) => s.name).sort()).toEqual(["user-skill", "web-access"]);
+    expect(await service.getEffectiveSkills("subagent-worker")).toEqual([]);
   });
 
-  test("⑬ 读面：任务 SOP 不进 agent kind 技能清单（目录二分）；orchestrator 清单全量携带（其系统块技能区 = 任务 SOP 注册表）", async () => {
+  test("⑬ 读面：任务 SOP 不进 agent kind 技能清单（目录二分）；orchestrator 清单全量携带（其系统块技能区 = 任务 SOP 注册表）；全源默认禁", async () => {
     const { service } = makeService(new InMemoryResourceState(), new FakeSkillSource({ skills: AUDIENCED, diagnostics: [] }));
     const view = await service.list("main-session");
     expect(view.skills.find((s) => s.name === "kg-bootstrap")).toBeUndefined(); // task 类不进 agent 卡
-    expect(view.skills.find((s) => s.name === "web-access")?.enabled).toBe(true);
+    expect(view.skills.find((s) => s.name === "web-access")?.enabled).toBe(false); // 同轨：builtin 默认禁
     expect(view.skills.find((s) => s.name === "user-skill")?.enabled).toBe(false);
-    // orchestrator：全量携带（含 task 类——注册表展示数据源），kind 缺省全禁
+    // orchestrator：全量携带（含 task 类——注册表展示数据源），默认全禁
     const orchView = await service.list("orchestrator");
     expect(orchView.skills.find((s) => s.name === "kg-bootstrap")?.audience).toBe("task");
     expect(orchView.skills.every((s) => !s.enabled)).toBe(true);
@@ -369,18 +364,23 @@ describe("ResourceService：skills+tools 成套装配（批三裁决）", () => 
     },
   ];
 
-  test("⑭ 持全部成套工具的 kind → 技能列出；缺任一成套工具的 kind → 技能随之下线（SOP 与工具不拆开出现）", async () => {
+  test("⑭ 持全部成套工具的 kind → 技能列出（显式启用后）；缺任一成套工具的 kind → 技能随之下线（SOP 与工具不拆开出现）", async () => {
     const skills = new FakeSkillSource({ skills: BUNDLED, diagnostics: [] });
     const store = new InMemoryResourceState();
     const { service } = makeService(store, skills);
-    // makeService 的 toolsCatalog 两 kind 仅含 bash——plan 三工具缺席 → plan-workflow 下线，web-access（未声明成套）恒在
+    // 同轨：两技能默认禁 → 先显式启用（成套判定在启用行之后）
+    await service.setEnabled("main-session", "skill", "web-access", true);
+    await service.setEnabled("main-session", "skill", "plan-workflow", true);
+    await service.setEnabled("subagent-worker", "skill", "web-access", true);
+    await service.setEnabled("subagent-worker", "skill", "plan-workflow", true);
+    // makeService 的 toolsCatalog 两 kind 仅含 bash——plan 三工具缺席 → plan-workflow 下线（成套不足），web-access（未声明成套）生效
     for (const kind of ["main-session", "subagent-worker"] as const) {
       const effective = await service.getEffectiveSkills(kind);
       expect(effective.map((s) => s.name)).toEqual(["web-access"]);
     }
   });
 
-  test("⑮ 生效工具集含 plan 三工具 → plan-workflow 列出；禁用其中一件 → 技能联动下线", async () => {
+  test("⑮ 生效工具集含 plan 三工具 → 技能（显式启用后）列出；禁用其中一件 → 技能联动下线", async () => {
     const skills = new FakeSkillSource({ skills: BUNDLED, diagnostics: [] });
     const store = new InMemoryResourceState();
     const service = new ResourceService({
@@ -394,11 +394,14 @@ describe("ResourceService：skills+tools 成套装配（批三裁决）", () => 
             "task-worker": ["bash", "plan_create", "plan_update", "plan_read"],
             "subagent-kg-writer": ["bash"],
             "subagent-code-reviewer": ["bash"],
-            orchestrator: ["bash", "plan_read"], // 仅 plan_read 非全套 → 不成套（且 orchestrator 技能面恒空）
+            orchestrator: ["bash", "plan_read"], // 仅 plan_read 非全套 → 不成套（且 orchestrator 技能消费在 kickoff，不注入段）
           } as Record<ProfileKind, readonly string[]>
         )[kind] ?? [],
       toolSnippets: {},
     });
+    // 同轨：默认禁 → 显式启用后成套判定生效
+    await service.setEnabled("main-session", "skill", "web-access", true);
+    await service.setEnabled("main-session", "skill", "plan-workflow", true);
     expect((await service.getEffectiveSkills("main-session")).map((s) => s.name).sort()).toEqual(["plan-workflow", "web-access"]);
     await service.setEnabled("main-session", "tool", "plan_read", false);
     expect((await service.getEffectiveSkills("main-session")).map((s) => s.name)).toEqual(["web-access"]);
@@ -428,12 +431,12 @@ function makeMcpService(store = new InMemoryResourceState()) {
 }
 
 describe("ResourceService：mcp-server 差异行（server 级配置面）", () => {
-  test("① list 携带 server 行 + enabled 差异行合取（缺省无记录 = 启用）", async () => {
+  test("① list 携带 server 行 + enabled 差异行合取（同轨批：缺省无记录 = 禁用）", async () => {
     const { service, store } = makeMcpService();
     const block = await service.list("main-session");
-    expect(block.mcpServers).toEqual([{ name: "shadcn", state: "running", toolCount: 2, enabled: true }]);
-    await store.upsert("main-session", "mcp-server", "shadcn", false);
-    expect((await service.list("main-session")).mcpServers).toEqual([{ name: "shadcn", state: "running", toolCount: 2, enabled: false }]);
+    expect(block.mcpServers).toEqual([{ name: "shadcn", state: "running", toolCount: 2, enabled: false }]);
+    await store.upsert("main-session", "mcp-server", "shadcn", true);
+    expect((await service.list("main-session")).mcpServers).toEqual([{ name: "shadcn", state: "running", toolCount: 2, enabled: true }]);
   });
 
   test("② list：toolSnippetOf 优先于静态注册表（MCP 行 description 透传）", async () => {
@@ -456,21 +459,29 @@ describe("ResourceService：mcp-server 差异行（server 级配置面）", () =
     expect(await service.setEnabled("main-session", "mcp-server", "shadcn", false)).toEqual({ status: "skipped", reason: "unknown-mcp-server" });
   });
 
-  test("⑤ getEffectiveTools：server 关 ⇒ 该前缀整组出局（含 meta），静态工具与其它 server 不受影响", async () => {
+  test("⑤ getEffectiveTools：server 默认禁 ⇒ 该前缀整组出局（含 meta）；显式启用后生效；静态工具不受影响", async () => {
     const { service, store } = makeMcpService();
-    // deferred 语义：生效集 = 静态 + shadcn__discover（meta）
+    // 同轨批：缺省无记录 = 禁 → meta/具体工具均不进生效集
+    expect(service.getEffectiveTools("main-session")).not.toContain("shadcn__discover");
+    expect(service.getEffectiveTools("main-session")).not.toContain("shadcn__echo");
+    // 显式启用 server → deferred 语义生效（生效集 = 静态 + shadcn__discover meta）
+    await store.upsert("main-session", "mcp-server", "shadcn", true);
     expect(service.getEffectiveTools("main-session")).toContain("shadcn__discover");
     expect(service.getEffectiveTools("main-session")).not.toContain("shadcn__echo");
+    // 再关 → 整组出局
     await store.upsert("main-session", "mcp-server", "shadcn", false);
     const effective = service.getEffectiveTools("main-session");
-    expect(effective).not.toContain("shadcn__discover"); // meta 同出局
+    expect(effective).not.toContain("shadcn__discover");
     expect(effective).not.toContain("shadcn__echo");
     expect(effective).toContain("bash"); // 静态工具不受影响
   });
 
-  test("⑥ kind 隔离：main 关不影响 subagent-worker", async () => {
+  test("⑥ kind 隔离：main 启用不影响 subagent-worker（同轨批：缺省禁基准——隔离断言改为启用侧）", async () => {
     const { service, store } = makeMcpService();
-    await store.upsert("main-session", "mcp-server", "shadcn", false);
+    await store.upsert("main-session", "mcp-server", "shadcn", true);
+    // subagent 无差异行 → 默认禁（隔离：main 的启用行不联动）
+    expect(service.getEffectiveTools("subagent-worker")).not.toContain("shadcn__discover");
+    await store.upsert("subagent-worker", "mcp-server", "shadcn", true);
     expect(service.getEffectiveTools("subagent-worker")).toContain("shadcn__discover");
   });
 });

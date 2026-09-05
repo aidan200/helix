@@ -295,8 +295,9 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
   interface SystemBlock {
     profileKind: string;
     tools: { name: string; snippet: string }[];
-    // 系统派生块技能读面批：五字段纯展示行（无启停位）
-    skills?: { name: string; description: string; filePath: string; source: string; audience: string }[];
+    // 同轨批：派生两块行带 enabled 只读启停位（orchestrator 注册表行无）
+    skills?: { name: string; description: string; filePath: string; source: string; audience: string; enabled?: boolean }[];
+    mcpServers?: { name: string; enabled: boolean; state: string; toolCount?: number }[];
     derivedFrom?: string;
     pinnedTools?: string[];
   }
@@ -336,10 +337,12 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       expect(reviewer!.tools.map((t) => t.name)).not.toContain("write");
       expect(reviewer!.tools.map((t) => t.name)).not.toContain("edit");
       expect(reviewer!.tools.map((t) => t.name)).not.toContain("kg-update");
-      // 派生块技能读面（空 builtin 目录隔离 + user 显式启用制）：worker 生效
-      // 技能集 = 空（hello-skill 无行不生效）——纯展示行无启停位
-      expect(kgw!.skills).toEqual([]);
-      expect(reviewer!.skills).toEqual([]);
+      // 同轨批：派生块技能行 = 自身 kind 只读启停面（清单行含 enabled 位，
+      // 全源显式启用制默认 false——非生效集派生）
+      const kgwSkills = kgw!.skills ?? [];
+      expect(kgwSkills.map((s) => s.name)).toContain("hello-skill");
+      expect(kgwSkills.every((s) => s.enabled === false)).toBe(true);
+      expect(reviewer!.skills ?? []).toEqual(kgwSkills);
     } finally {
       await client.close();
       await rig.dispose();
@@ -391,7 +394,7 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
     };
   }
 
-  test("②c 技能读面（编排归位批）：任务 SOP 只进 orchestrator 系统块注册表（纯展示）；agent 卡仅 agent 受众；kg-writer/reviewer = worker 生效集（成套装配跟随）；user 显式启用制", async () => {
+  test("②c 技能读面（同轨批）：任务 SOP 只进 orchestrator 系统块注册表（纯展示无启停位）；agent 卡仅 agent 受众；kg-writer/reviewer = 自身 kind 只读启停面（默认全关）；全源显式启用制", async () => {
     const rig = await makeSeededRig();
     const client = new TestClient(rig.url);
     try {
@@ -407,8 +410,8 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
         expect(p.skills.find((s) => s.name === "demo-review")).toBeUndefined();
         expect(p.skills.every((s) => s.audience === "agent")).toBe(true);
       }
-      // builtin∧agent 缺省启用（user 显式启用制由 makeRig ① 覆盖）
-      expect(profiles[0]!.skills.find((s) => s.name === "plain-skill")?.enabled).toBe(true);
+      // 同轨批：builtin∧agent 同显式启用制（默认禁——builtin 与 user 同轨）
+      expect(profiles[0]!.skills.find((s) => s.name === "plain-skill")?.enabled).toBe(false);
       const system = result.payload.system as SystemBlock[];
       // orchestrator 系统块：任务 SOP 注册表纯展示行（无启停位——非「禁用」语义）
       const orch = system.find((b) => b.profileKind === "orchestrator")!;
@@ -418,10 +421,11 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       // orchestrator 块技能区只放任务 SOP（agent 技能不进注册表展示）
       expect(orch.skills!.every((s) => s.audience === "task")).toBe(true);
       const kgw = system.find((b) => b.profileKind === "subagent-kg-writer")!;
-      // kg-writer/reviewer：worker 生效技能集（builtin∧agent 缺省启用；成套声明
-      // paired-skill 的 plan_create 在 worker 生效集 → 列出；task 类不生效）
+      // 同轨批：kg-writer/reviewer = 自身 kind 只读启停面（agent 受众全清单 +
+      // enabled 位默认全关——非生效集派生，worker toggle 不再联动本面）
       expect(kgw.skills?.map((s) => s.name).sort()).toEqual(["paired-skill", "plain-skill"]);
       expect(kgw.skills!.every((s) => s.audience === "agent")).toBe(true);
+      expect(kgw.skills!.every((s) => s.enabled === false)).toBe(true);
 
       // 禁用 worker 的 plan_create（成套工具）→ paired-skill 联动下线，重 list 生效
       client.send({
@@ -435,8 +439,9 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       const after = await client.expectAfter("agent.config.list.result", at);
       const systemAfter = after.payload.system as SystemBlock[];
       const kgwAfter = systemAfter.find((b) => b.profileKind === "subagent-kg-writer")!;
-      // 成套装配单点（ResourceService.getEffectiveSkills）：SOP 与工具不拆开出现
-      expect(kgwAfter.skills?.map((s) => s.name)).toEqual(["plain-skill"]);
+      // 同轨批：系统块技能面 = 只读启停面（不随 worker toggle 联动——成套
+      // 装配语义只在可写 kind 的生效集；清单行恒全量）
+      expect(kgwAfter.skills?.map((s) => s.name).sort()).toEqual(["paired-skill", "plain-skill"]);
       // kind 隔离：orchestrator 系统块声明全集不受 worker toggle 影响（纯展示面）
       const orchAfter = systemAfter.find((b) => b.profileKind === "orchestrator")!;
       expect(orchAfter.tools.length).toBe(orch.tools.length);

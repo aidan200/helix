@@ -191,15 +191,15 @@ describe("agent.config 事件族 payload（v0.6）", () => {
   const _systemBadKind: AgentConfigSystemBlock = { profileKind: "main-session", tools: [] };
   // @ts-expect-error derivedFrom 只接受 subagent-worker（派生说明位单一事实源）
   const _systemBadDerived: AgentConfigSystemBlock = { profileKind: "subagent-kg-writer", tools: [], derivedFrom: "orchestrator" };
-  // 派生块技能读面批：skills 可选携带（五字段纯展示行）；缺省不携带合法
+  // 同轨批：派生块技能行带 enabled 只读启停位（默认 false）；orchestrator 任务 SOP 注册表行仍无启停位
   const _systemSkillRow: AgentConfigSystemBlock = {
     profileKind: "subagent-kg-writer",
     tools: [],
-    skills: [{ name: "plan-workflow", description: "台账", filePath: "/agent/plan-workflow/SKILL.md", source: "builtin", audience: "agent" }],
+    skills: [{ name: "plan-workflow", description: "台账", filePath: "/agent/plan-workflow/SKILL.md", source: "builtin", audience: "agent", enabled: false }],
   };
   const _systemNoSkills: AgentConfigSystemBlock = { profileKind: "subagent-kg-writer", tools: [] };
-  // @ts-expect-error 系统块技能行无启停位（enabled 是可编辑块的字段——纯展示行编译期拒绝；单行字面量让指令锚在报错行）
-  const _systemSkillBadRow: AgentConfigSystemBlock = { profileKind: "subagent-kg-writer", tools: [], skills: [{ name: "x", description: "x", filePath: "/x", source: "builtin", audience: "agent", enabled: true }] };
+  // @ts-expect-error enabled 只接受 boolean（非法值编译期拒绝）
+  const _systemSkillBadRow: AgentConfigSystemBlock = { profileKind: "subagent-kg-writer", tools: [], skills: [{ name: "x", description: "x", filePath: "/x", source: "builtin", audience: "agent", enabled: "on" }] };
   // 错误码登记：只读 kind 写面拒绝码
   const _readOnlyCode: ErrorCode = "agent.config.read_only";
 
@@ -224,9 +224,9 @@ describe("agent.config 事件族 payload（v0.6）", () => {
     expect(orchSopRow.audience).toBe("task");
     expect(Object.keys(orchSopRow)).not.toContain("enabled"); // 纯展示行无启停位
     expect(system[0]!.mcpServers?.[0]).toMatchObject({ name: "shadcn", enabled: false });
-    // 派生块技能行 = worker 生效技能集（audience=agent）——五字段纯展示行
+    // 派生块技能行 = 自身 kind 只读启停面（audience=agent + enabled 默认 false）
     expect(system[1]!.skills?.[0]!.audience).toBe("agent");
-    expect(Object.keys(system[1]!.skills![0]!)).not.toContain("enabled"); // 纯展示行无启停位
+    expect(system[1]!.skills![0]!.enabled).toBe(false); // 同轨批：只读启停位携带
     void _systemKgWriter;
     void _systemOrchestrator;
     void _systemReviewer;
