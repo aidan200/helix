@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { SessionRegistry, type SessionRuntime } from "../../src/application/services/SessionRegistry";
+import { createTurnDiffState } from "../../src/application/services/TurnDiffService";
 import type { SessionRepositoryPort } from "../../src/application/ports/outbound/SessionRepositoryPort";
 import type { SchedulerService } from "../../src/application/services/scheduler/SchedulerService";
 import type { ChatService } from "../../src/application/services/ChatService";
@@ -127,7 +128,7 @@ function makeRig(): Rig {
         subAgentToolCallData: () => [],
         instanceUsage: () => ZERO_USAGE,
         usageSummary: () => ({ total: ZERO_USAGE, compaction: ZERO_USAGE }),
-      } as unknown as SessionProjection };
+      } as unknown as SessionProjection, diff: createTurnDiffState() };
     },
     onListChanged: (change) => changes.push(change),
     idleUnloadMs: 3_600_000,

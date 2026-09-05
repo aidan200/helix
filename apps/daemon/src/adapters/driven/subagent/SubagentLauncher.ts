@@ -18,6 +18,14 @@ import type { ChildOutboundLine, ToolResponseLine } from "./transport/wire";
 import { scopedBrowserCall } from "./ScopedBrowserProxy";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 
+/** T2 turn diff：子进程 file-write 行的父侧回调载荷（→ TurnDiffService.recordExternal）。 */
+export interface SubagentFileWriteMeta {
+  readonly path: string;
+  readonly prevHash: string;
+  readonly prevSize: number;
+  readonly nextSize: number;
+}
+
 /**
  * SubagentLauncher —— InstanceRunner 真体（O-7 候选 A 形态）。
  *
@@ -146,6 +154,12 @@ export interface SubagentLauncherDeps {
   readonly toolResultMaxBytes?: number;
   /** 线协议观测面（测试断言/诊断；WS 事件映射接线点）。 */
   readonly onLine?: (instanceId: string, line: ChildOutboundLine) => void;
+  /**
+   * T2 turn diff：file-write 行分派回调（组合根接 TurnDiffService
+   * .recordExternal——按 instanceId 归属会话的热 runtime diff 记账）；
+   * 缺省 no-op（观测面 onLine 仍达——兜底诊断通道不变）。
+   */
+  readonly onFileWrite?: (instanceId: string, meta: SubagentFileWriteMeta) => void;
   /** 日志（容器接 file logger——dispose kill 失败 / brief·report 结构违例可观测；缺省静默）。 */
   readonly logger?: { warn: (message: string) => void };
 }
@@ -373,6 +387,16 @@ export class SubagentLauncher implements InstanceRunner {
     }
     if (line.type === "tool-req") {
       void this.onToolRequest(id, line.reqId, line.method, line.args);
+      return;
+    }
+    if (line.type === "file-write") {
+      // T2 turn diff：写前元数据上行 → 注入回调（→ 会话 runtime diff 记账）
+      this.deps.onFileWrite?.(id, {
+        path: line.path,
+        prevHash: line.prevHash,
+        prevSize: line.prevSize,
+        nextSize: line.nextSize,
+      });
       return;
     }
     // started/log：观测面已转发，无需编排动作
