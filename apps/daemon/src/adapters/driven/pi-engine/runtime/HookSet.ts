@@ -4,6 +4,7 @@ import type {
   AgentMessage,
   BeforeToolCallContext,
   BeforeToolCallResult,
+  PrepareNextTurnContext,
 } from "@earendil-works/pi-agent-core";
 
 /**
@@ -35,8 +36,16 @@ export interface HookSet {
   /**
    * turn 边界钩子（turn_end 之后、下一 provider 请求之前）：
    * 返回替换状态影响下一轮，返回 undefined 保持现状。
+   *
+   * 【接线位（deferred 批修正）】pi 0.84.4 官方通道 = Agent options 的
+   * prepareNextTurnWithContext(context, signal)（agent.js 分派优先）；旧
+   * prepareNextTurn 位在 loop 实现下实际收到的是 turn 对象（pi 类型
+   * 声明错位）——helix 早期用旧位且各钩子忽略参数故无症状，现在统一
+   * 走 WithContext 位，钩子可读 turn.context 构造精准替换（如
+   * McpDeferredHooks 只换 tools 保留 messages）。
    */
   prepareNextTurn?(
+    turn: PrepareNextTurnContext,
     signal?: AbortSignal,
   ): Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
   /**

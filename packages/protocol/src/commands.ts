@@ -832,6 +832,13 @@ export interface McpServerInput {
   cwd?: string;
   enabled?: boolean;
   timeoutMs?: number;
+  /**
+   * 懒加载开关（deferred 批）：true = 工具不进初始生效集，经
+   * `<server>__discover` meta 工具按需装载（addedToolNames + 工具池
+   * 物化——pi deferred tools 通道）；false = 全量急发（现状语义）。
+   * 缺省 true。additive 可选位（CHANGELOG §28）。
+   */
+  deferred?: boolean;
 }
 
 /**

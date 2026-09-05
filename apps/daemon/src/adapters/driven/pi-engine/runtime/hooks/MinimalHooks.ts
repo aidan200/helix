@@ -21,7 +21,7 @@ export class MinimalHooks implements HookSet {
     return undefined; // 放行：工具正常执行
   }
 
-  async prepareNextTurn(): Promise<undefined> {
+  async prepareNextTurn(_turn: Parameters<NonNullable<HookSet["prepareNextTurn"]>>[0]): Promise<undefined> {
     return undefined; // 保持现状：不改下一轮 context/model/thinking
   }
 

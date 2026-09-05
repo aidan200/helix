@@ -1112,7 +1112,9 @@ MCP server 管理面（PROTOCOL-CHANGELOG.md §27）。全部全局命令（信�
 sessionId 省略，同 web 族）；CRUD 写面回执点对点，工具面生效经既有
 resources.changed 刷新链（不在 mcp 族重复广播），运行态变化经
 `mcp.status.changed` 广播。`McpServerInput` = `{name, command, args?,
-env?, cwd?, enabled?, timeoutMs?}`（add/update/test 共用）。
+env?, cwd?, enabled?, timeoutMs?, deferred?}`（add/update/test 共用；
+deferred 缺省 true = 懒加载：工具经 `${server}__discover` meta 工具按需
+装载，见 PROTOCOL-CHANGELOG.md §28）。
 
 #### `mcp.servers.list`
 

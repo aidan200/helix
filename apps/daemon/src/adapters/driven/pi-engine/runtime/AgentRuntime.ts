@@ -92,7 +92,9 @@ export class AgentRuntime {
       ...(compaction.length > 0 ? { convertToLlm } : {}),
       transformContext: combineTransformContext(hooks),
       beforeToolCall: combineBeforeToolCall(hooks),
-      prepareNextTurn: combinePrepareNextTurn(hooks),
+      // deferred 批：turn 边界钩子改接 pi 官方 WithContext 通道（旧位
+      // 类型声明错位——loop 实现传 turn 对象当 signal；见 HookSet 注释）。
+      prepareNextTurnWithContext: combinePrepareNextTurn(hooks),
     });
     for (const hook of hooks) hook.bind?.(this.agent);
     this.steerHook = hooks.find(hasSteer);
@@ -225,13 +227,16 @@ function combineTransformContext(hooks: readonly HookSet[]) {
   };
 }
 
-/** prepareNextTurn 链：首个非空替换状态生效。 */
+/** prepareNextTurn 链：首个非空替换状态生效（接 pi prepareNextTurnWithContext 官方通道——turn 上下文 + signal 双参透传）。 */
 function combinePrepareNextTurn(hooks: readonly HookSet[]) {
   if (!hooks.some((h) => h.prepareNextTurn)) return undefined;
-  return async (signal?: AbortSignal): Promise<AgentLoopTurnUpdate | undefined> => {
+  return async (
+    turn: Parameters<NonNullable<HookSet["prepareNextTurn"]>>[0],
+    signal?: AbortSignal,
+  ): Promise<AgentLoopTurnUpdate | undefined> => {
     for (const hook of hooks) {
       if (!hook.prepareNextTurn) continue;
-      const update = await hook.prepareNextTurn(signal);
+      const update = await hook.prepareNextTurn(turn, signal);
       if (update) return update;
     }
     return undefined;

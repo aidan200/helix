@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { McpClient, parseMcpLines } from "./McpClient";
 import { McpRegistry } from "./McpRegistry";
-import { createMcpTools } from "./mcp-tool";
+import { createMcpDiscoverTools, createMcpTools, mcpDiscoverToolName } from "./mcp-tool";
 import type { McpServerConfig } from "./types";
 
 /**
@@ -198,5 +198,80 @@ describe("mcp-tool 适配器（schema 透传 + 执行转投）", () => {
     );
     expect(tool?.parameters).toEqual({ type: "object", properties: {} });
     registry.stopAll();
+  });
+});
+
+// ── deferred 批：meta 发现工具 ──────────────────────────────────────────
+
+describe("mcpDiscoverToolName（撞名防御）", () => {
+  test("无占用 → `${server}__discover`", () => {
+    expect(mcpDiscoverToolName("shadcn", ["echo", "ping"])).toBe("shadcn__discover");
+  });
+  test("原生占用 discover → 退位 mcp_discover", () => {
+    expect(mcpDiscoverToolName("x", ["discover", "echo"])).toBe("x__mcp_discover");
+  });
+  test("双占用 → undefined（调用方跳过退化急发）", () => {
+    expect(mcpDiscoverToolName("x", ["discover", "mcp_discover"])).toBeUndefined();
+  });
+});
+
+describe("createMcpDiscoverTool / createMcpDiscoverTools（真 registry）", () => {
+  test("execute 返回清单 + addedToolNames + onDiscover 回调", async () => {
+    const registry = new McpRegistry();
+    await registry.addServer(fakeServerConfig("fake"));
+    const discovered: Array<[string, string[]]> = [];
+    const { tools } = createMcpDiscoverTools(registry, {
+      onDiscover: (server, names) => discovered.push([server, [...names]]),
+    });
+    expect(tools.map((t) => t.name)).toEqual(["fake__discover"]);
+    const discover = tools[0]!;
+    const result = await discover.execute("c1", {}, undefined, undefined, {} as never);
+    expect(result.addedToolNames).toEqual(["fake__echo", "fake__ping"]);
+    expect(result.content[0]).toMatchObject({ type: "text" });
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain("fake__echo: Echo back");
+    expect(discovered).toEqual([["fake", ["fake__echo", "fake__ping"]]]);
+  });
+
+  test("isToolEnabled 过滤：停用工具不物化不标记", async () => {
+    const registry = new McpRegistry();
+    await registry.addServer(fakeServerConfig("fake"));
+    const { tools } = createMcpDiscoverTools(registry, {
+      isToolEnabled: (name) => name !== "fake__ping",
+      onDiscover: () => {},
+    });
+    const discover = tools[0]!;
+    const result = await discover.execute("c1", {}, undefined, undefined, {} as never);
+    expect(result.addedToolNames).toEqual(["fake__echo"]);
+    expect((result.content[0] as { text: string }).text).not.toContain("fake__ping");
+  });
+
+  test("deferred=false / enabled=false / 零工具 server 不生成 meta", async () => {
+    const registry = new McpRegistry();
+    await registry.addServer(fakeServerConfig("eager", { deferred: false }));
+    await registry.addServer(fakeServerConfig("off", { enabled: false }));
+    const { tools, skipped } = createMcpDiscoverTools(registry, {});
+    expect(tools).toHaveLength(0);
+    expect(skipped).toHaveLength(0);
+  });
+
+  test("双占用 server 进 skipped（退化急发路径）", async () => {
+    const registry = new McpRegistry();
+    // fakeServerConfig 的 fake server 固定 echo/ping——用脚本内联覆盖：直接
+    // 构造带 discover/mcp_discover 的 server（复用 FAKE_SERVER 目录机制不便，
+    // 这里以 registry 行为面测：toolsOf 返回固定名——用子类注入）。
+    const entries = registry as unknown as { servers: Map<string, { config: McpServerConfig; client: object; status: object; tools: object[] }> };
+    entries.servers.set("clash", {
+      config: { name: "clash", command: "x" },
+      client: {} as never,
+      status: { name: "clash", state: "running", toolCount: 2 },
+      tools: [
+        { name: "discover", description: "原生" },
+        { name: "mcp_discover", description: "原生" },
+      ],
+    });
+    const { tools, skipped } = createMcpDiscoverTools(registry, {});
+    expect(tools).toHaveLength(0);
+    expect(skipped).toEqual(["clash"]);
   });
 });

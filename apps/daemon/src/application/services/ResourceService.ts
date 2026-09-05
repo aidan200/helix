@@ -44,6 +44,14 @@ export class ResourceService implements ResourceConfigPort {
       /** kind → tools 全集（组合根从两 profile 声明面构建；函数形态——
        * mcp 批：动态拼接 MCP 命名空间工具名，每次调用现拍 McpRegistry 值）。 */
       readonly toolsCatalog: (kind: ProfileKind) => readonly string[];
+      /**
+       * kind → 生效集计算专用目录（deferred 批，可选；缺省回落
+       * toolsCatalog）：MCP 懒加载拆分面——deferred server 具体工具不进
+       * 初始生效集，代之 meta 工具名（`${server}__discover`）+ 已物化集
+       * union。catalog 全集（页面展示 + toggle 域）仍走 toolsCatalog——
+       * 两面分离保证「页面可 toggle 全部工具」与「初始集 meta-only」并存。
+       */
+      readonly effectiveToolsCatalog?: (kind: ProfileKind) => readonly string[];
       /** 工具名 → 中文一句话 snippet（组合根注入 ToolPromptSnippets 注册表；
        * list 读面向契约 DTO 透传——注册表外名 = 空串）。 */
       readonly toolSnippets: Readonly<Record<string, string>>;
@@ -115,7 +123,13 @@ export class ResourceService implements ResourceConfigPort {
    *（store 读面同步 + write-through，await 的 toggle 落盘后必见新行）。
    */
   getEffectiveTools(kind: ProfileKind): readonly string[] {
-    return this.deps.toolsCatalog(kind).filter((name) => this.enabledOf(kind, "tool", name));
+    const catalog = this.deps.effectiveToolsCatalog?.(kind) ?? this.deps.toolsCatalog(kind);
+    return catalog.filter((name) => this.enabledOf(kind, "tool", name));
+  }
+
+  /** 单工具启停读面（deferred 批：MCP discover 物化前的 toggle 过滤；同 getEffectiveTools 的 enabledOf 单点）。 */
+  isToolEnabled(kind: ProfileKind, name: string): boolean {
+    return this.enabledOf(kind, "tool", name);
   }
 
   /** 生效技能集（消费面：提示注入三字段 + source 的完整描述符）。 */

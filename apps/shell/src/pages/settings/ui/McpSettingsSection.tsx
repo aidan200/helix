@@ -59,6 +59,7 @@ const McpSettingsSection = function McpSettingsSection() {
   /** args 单行空格分隔（协议 string[]；表单内字符串化）。 */
   const [args, setArgs] = useState("");
   const [enabled, setEnabled] = useState(true);
+  const [deferred, setDeferred] = useState(true);
   const [formError, setFormError] = useState("");
   const [addPending, setAddPending] = useState(false);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
@@ -132,7 +133,7 @@ const McpSettingsSection = function McpSettingsSection() {
     [subscribeMcpFrames, sendMcpServersList, t, addPending],
   );
 
-  /** 表单现值 → McpServerInput（args 空格分隔转数组；空串 → 缺省）。 */
+  /** 表单现值 → McpServerInput（args 空格分隔转数组；空串 → 缺省；deferred 缺省 true = 懒加载）。 */
   const formInput = () => {
     const trimmedArgs = args.trim();
     return {
@@ -140,6 +141,7 @@ const McpSettingsSection = function McpSettingsSection() {
       command: command.trim(),
       ...(trimmedArgs !== "" ? { args: trimmedArgs.split(/\s+/) } : {}),
       enabled,
+      deferred,
     };
   };
 
@@ -243,6 +245,14 @@ const McpSettingsSection = function McpSettingsSection() {
               />
               {t("chat.settings.mcp.fieldEnabled")}
             </label>
+            <label className="mcp-enabled" data-mcp-deferred title={t("chat.settings.mcp.fieldDeferredHint")}>
+              <input
+                type="checkbox"
+                checked={deferred}
+                onChange={(e) => setDeferred(e.target.checked)}
+              />
+              {t("chat.settings.mcp.fieldDeferred")}
+            </label>
             <div className="mcp-form-actions">
               <button
                 type="button"
@@ -305,6 +315,11 @@ const McpSettingsSection = function McpSettingsSection() {
                 )}
                 {row.config.enabled === false && (
                   <span className="ag-note">{t("chat.settings.mcp.disabledNote")}</span>
+                )}
+                {row.config.deferred !== false && (
+                  <span className="ag-note" data-mcp-deferred-badge title={t("chat.settings.mcp.fieldDeferredHint")}>
+                    {t("chat.settings.mcp.deferredBadge")}
+                  </span>
                 )}
               </div>
               <div className="mcp-row-side">

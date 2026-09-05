@@ -52,7 +52,8 @@ import {
 } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
 import { isTaskSessionId, TASK_SESSION_PREFIX } from "../../application/services/task/TaskOrchestratorService";
 import type { McpRegistry } from "../../adapters/driven/mcp/McpRegistry";
-import { createMcpTools } from "../../adapters/driven/mcp/mcp-tool";
+import { createMcpDiscoverTools, createMcpTools, mcpDiscoverToolName } from "../../adapters/driven/mcp/mcp-tool";
+import { McpDeferredHooks } from "../../adapters/driven/pi-engine/runtime/hooks/McpDeferredHooks";
 import { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
 import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinking-resolve";
 import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
@@ -400,6 +401,31 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     builtinSkillsDir: deps.builtinSkillsDir ?? builtinSkillsDir(),
     cwd: bootToolCwd,
   });
+  // deferred 批：MCP 物化集（per kind 内存态——discover 已装载名单；
+  // effectiveToolsCatalog 消费 + onDiscover 写入；重启自然清零回 meta-only）。
+  const materializedMcp = new Map<ProfileKind, Set<string>>();
+  /**
+   * discover 物化回调（executor 构造点闭包——kind 绑定）：
+   * ① 物化集登记（同步——effectiveToolsCatalog 立即可见）；
+   * ② 活跃 runtime 同步直改 setTools（同步读 effective 现值——必须赶在
+   *    turn 边界 prepareNextTurn 之前，McpDeferredHooks 才能检测到漂移；
+   *    经 publishResourceChanged 的异步刷新链会输给 turn 边界竞态）；
+   * ③ resources.changed 发布（异步刷新链：快照/系统提示重算对齐）。
+   */
+  const onMcpDiscover = (kind: ProfileKind, _server: string, namespacedNames: readonly string[]): void => {
+    const set = materializedMcp.get(kind) ?? new Set<string>();
+    for (const name of namespacedNames) set.add(name);
+    materializedMcp.set(kind, set);
+    if (kind === "main-session") {
+      // 同步最小路径：物化名已注册 executor（构造时全量 append）——按名
+      // resolve + state.tools 直改；系统提示/快照对齐交给 ③ 异步链。
+      const effective = resourceService.getEffectiveTools(kind);
+      for (const runtime of registry.hotRuntimes()) {
+        runtime.chatService.setTools(effective);
+      }
+    }
+    void deps.publishResourceChanged(kind);
+  };
   const resourceService = new ResourceService({
     store: resourceState,
     skills: skillScanner,
@@ -418,6 +444,42 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         .filter((t) => allowed === "*" || allowed.includes(t.server))
         .map((t) => `${t.server}__${t.definition.name}`);
       return [...staticNames, ...mcpNames];
+    },
+    // deferred 批：生效集计算专用目录（catalog 全集 = 页面展示 + toggle 域
+    // 保持全量；本面只供 getEffectiveTools 初始集）——deferred server
+    // （缺省）具体工具剔除，代之 meta 工具名 + 物化集 union；非 deferred
+    // server 照旧全量。物化集 = discover 已装载名单（per kind 内存态——
+    // 重启自然清零回 meta-only，与探查报告边界 1 一致）。
+    effectiveToolsCatalog: (kind: ProfileKind): readonly string[] => {
+      const staticNames = STATIC_TOOLS_CATALOG[kind];
+      const registry = deps.mcpRegistry;
+      const allowed = registry !== undefined ? MCP_ALLOWED_OF[kind] : undefined;
+      if (registry === undefined || allowed === undefined) return staticNames;
+      const names = [...staticNames];
+      // 按 server 分组（running 才进 discoveredTools）
+      const byServer = new Map<string, string[]>();
+      for (const { server, definition } of registry.discoveredTools()) {
+        if (allowed !== "*" && !allowed.includes(server)) continue;
+        const list = byServer.get(server) ?? [];
+        list.push(definition.name);
+        byServer.set(server, list);
+      }
+      const configMap = new Map(registry.listConfigs().map((c) => [c.name, c] as const));
+      const materialized = materializedMcp.get(kind);
+      for (const [server, rawNames] of byServer) {
+        const deferred = configMap.get(server)?.deferred !== false;
+        if (!deferred) {
+          names.push(...rawNames.map((raw) => `${server}__${raw}`));
+          continue;
+        }
+        const meta = mcpDiscoverToolName(server, rawNames);
+        if (meta !== undefined) names.push(meta);
+        for (const raw of rawNames) {
+          const ns = `${server}__${raw}`;
+          if (materialized?.has(ns)) names.push(ns);
+        }
+      }
+      return names;
     },
     // list 读面 snippet 透传（SystemPromptAssembler 同源注册表单点）
     toolSnippets: TOOL_PROMPT_SNIPPETS,
@@ -515,7 +577,15 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       // mcp 批：MCP 工具实例先 append 进活跃会话 executor registry（同名覆盖
       // = server 工具更新后新 schema 生效），再按名 setTools。
       if (deps.mcpRegistry !== undefined) {
-        const mcpTools = createMcpTools(deps.mcpRegistry.discoveredTools(), deps.mcpRegistry);
+        // mcp 批：具体工具 + deferred 批 meta 工具同批 append（meta 每次
+        // 现拍——server 增删/撞名变化跟随；物化链闭包同 executor 构造点）。
+        const mcpTools = [
+          ...createMcpTools(deps.mcpRegistry.discoveredTools(), deps.mcpRegistry),
+          ...createMcpDiscoverTools(deps.mcpRegistry, {
+            isToolEnabled: (name) => resourceService.isToolEnabled("main-session", name),
+            onDiscover: (server, names) => onMcpDiscover("main-session", server, names),
+          }).tools,
+        ];
         const live = new Set(registry.hotRuntimes().map((r) => r.sessionId));
         for (const [id, executor] of sessionExecutors) {
           if (!live.has(id)) {
@@ -876,9 +946,21 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               // tab 归属）；ChildMain 子进程经 RemoteBrowserPort 转发接入（H-3）
               browser: browserPort,
               // mcp 批：MCP 命名空间工具现值注入（构造时刻已发现的 server；
-              // 后续到位经 refreshAssembly → appendTools 增量推活活跃会话）
+              // 后续到位经 refreshAssembly → appendTools 增量推活活跃会话）。
+              // deferred 批：同批注入 meta 发现工具（懒加载入口——execute 触发
+              // 物化链 onMcpDiscover；主会话 kind 固定 main-session）。
               ...(deps.mcpRegistry !== undefined
-                ? { mcp: { tools: createMcpTools(deps.mcpRegistry.discoveredTools(), deps.mcpRegistry) } }
+                ? {
+                    mcp: {
+                      tools: [
+                        ...createMcpTools(deps.mcpRegistry.discoveredTools(), deps.mcpRegistry),
+                        ...createMcpDiscoverTools(deps.mcpRegistry, {
+                          isToolEnabled: (name) => resourceService.isToolEnabled("main-session", name),
+                          onDiscover: (server, names) => onMcpDiscover("main-session", server, names),
+                        }).tools,
+                      ],
+                    },
+                  }
                 : {}),
             });
             // mcp 批：活跃会话 executor 登记（refreshAssembly appendTools 目标）。
@@ -929,6 +1011,12 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
                   model,
                 ),
               resolveTools: (names) => toolExecutor.resolveTools(names),
+              // deferred 批：Mcp 懒加载同 turn 生效钩子（state.tools 漂移检测 →
+              // turn 边界替换 context.tools——discover 物化后模型下一请求即可
+              // 调用；无 MCP 时零漂移零干扰）。链位序：extraHooks 在 compaction
+              // 之后（AgentRuntime 装配序）——压缩触发时其替换 context 已含
+              // state.tools 现值，短路无害。
+              ...(deps.mcpRegistry !== undefined ? { extraHooks: [new McpDeferredHooks()] } : {}),
               // 测试接缝：mainSessionLlmOverride 恒最高（缺省生产形态）
               ...(deps.mainSessionLlmOverride !== undefined ? { streamFnOverride: deps.mainSessionLlmOverride.streamFn } : {}),
               // 恢复回填：mainAgent 实例窗口销毁重建后回填它自己的历史（seed

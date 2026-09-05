@@ -137,13 +137,30 @@ describe("MCP 设置分区", () => {
       command: "npx",
       args: ["-y", "@magicuidesign/mcp@latest"],
       enabled: true,
+      deferred: true,
     });
-    // applied 回执 → 表单收起 + 重拉对账
+    // deferred 批：applied 回执后重开表单（表单重置 deferred=true）→
+    // 取消懒加载 → payload.deferred=false
     feed("mcp.servers.add.result", { status: "applied", server: { name: "magicui", state: "running" } });
     await waitFor(() => {
       expect(document.querySelector("[data-mcp-form]")).toBeNull();
       expect(sendMcpServersList).toHaveBeenCalledTimes(2);
     });
+    fireEvent.click(document.querySelector("[data-mcp-add-toggle]")!);
+    fireEvent.click(document.querySelector("[data-mcp-deferred] input")!);
+    fireEvent.change(document.querySelector("[data-mcp-name]")!, { target: { value: "eager" } });
+    fireEvent.change(document.querySelector("[data-mcp-command]")!, { target: { value: "npx" } });
+    fireEvent.change(document.querySelector("[data-mcp-args]")!, { target: { value: "-y @magicuidesign/mcp@latest" } });
+    fireEvent.click(document.querySelector("[data-mcp-submit]")!);
+    expect(sendMcpServersAdd).toHaveBeenLastCalledWith({
+      name: "eager",
+      command: "npx",
+      args: ["-y", "@magicuidesign/mcp@latest"],
+      enabled: true,
+      deferred: false,
+    });
+    feed("mcp.servers.add.result", { status: "applied", server: { name: "eager", state: "running" } });
+    await waitFor(() => expect(document.querySelector("[data-mcp-form]")).toBeNull());
     // 再开表单：connect_failed → 行内错误保留表单
     fireEvent.click(document.querySelector("[data-mcp-add-toggle]")!);
     fireEvent.change(document.querySelector("[data-mcp-name]")!, { target: { value: "bad" } });
@@ -162,7 +179,7 @@ describe("MCP 设置分区", () => {
     fireEvent.change(document.querySelector("[data-mcp-name]")!, { target: { value: "probe" } });
     fireEvent.change(document.querySelector("[data-mcp-command]")!, { target: { value: "npx" } });
     fireEvent.click(document.querySelector("[data-mcp-test]")!);
-    expect(sendMcpServersTest).toHaveBeenCalledWith({ name: "probe", command: "npx", enabled: true });
+    expect(sendMcpServersTest).toHaveBeenCalledWith({ name: "probe", command: "npx", enabled: true, deferred: true });
     feed("mcp.servers.test.result", { status: "applied", toolCount: 5 });
     await waitFor(() => expect(document.querySelector("[data-mcp-test-ok]")!.textContent).toContain("5"));
     fireEvent.click(document.querySelector("[data-mcp-test]")!);

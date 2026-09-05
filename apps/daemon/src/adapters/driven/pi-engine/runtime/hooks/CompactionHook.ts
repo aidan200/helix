@@ -58,7 +58,10 @@ export class CompactionHook implements HookSet {
     this.agent = agent;
   }
 
-  async prepareNextTurn(signal?: AbortSignal): Promise<AgentLoopTurnUpdate | undefined> {
+  async prepareNextTurn(
+    _turn: Parameters<NonNullable<HookSet["prepareNextTurn"]>>[0],
+    signal?: AbortSignal,
+  ): Promise<AgentLoopTurnUpdate | undefined> {
     const agent = this.agent;
     if (!agent) return undefined;
     const { settings, models } = this.deps;
@@ -80,6 +83,7 @@ export class CompactionHook implements HookSet {
       }
       if (!prep.value) return undefined; // 无可压缩内容（如刚压缩完）：保持现状
 
+      // signal 恢复（deferred 批签名修正后从 WithContext 通道第二参透传）。
       const result = await compact(prep.value, models, model, undefined, signal);
       if (!result.ok) {
         this.deps.onFailed?.(`compaction 摘要失败：${JSON.stringify(result.error).slice(0, 200)}`);
@@ -106,7 +110,6 @@ export class CompactionHook implements HookSet {
       ];
       const rebuilt = buildSessionContext(postEntries);
       const tokensAfter = estimateContextTokens(rebuilt.messages).tokens;
-
       // 双写：agent.state（跨 run 持久）+ 返回替换 context（本 run 下一请求生效）
       agent.state.messages = rebuilt.messages;
       this.deps.onCompleted?.({

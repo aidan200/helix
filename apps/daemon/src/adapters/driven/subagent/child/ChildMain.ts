@@ -28,7 +28,8 @@ import { supportsThinkingLevel } from "../../pi-engine/model-provider";
 import { SubAgentProfile } from "../../pi-engine/runtime/profiles/SubAgentProfile";
 import { CoreToolExecutor, type KgToolOptions } from "../../tools/CoreToolExecutor";
 import { McpRegistry } from "../../mcp/McpRegistry";
-import { createMcpTools } from "../../mcp/mcp-tool";
+import { createMcpDiscoverTools, createMcpTools } from "../../mcp/mcp-tool";
+import { McpDeferredHooks } from "../../pi-engine/runtime/hooks/McpDeferredHooks";
 import type { McpServerConfig } from "../../mcp/types";
 import { encodeLine, parseParentLine } from "../transport/wire";
 import type { ChildOutboundLine, SendLine, ToolResponseLine } from "../transport/wire";
@@ -426,6 +427,10 @@ async function main(): Promise<void> {
       profile = { ...profile, tools: filteredTools }; // tools readonly：重建对象
     }
   }
+  // deferred 批：物化集（本地内存态）+ engine 晚绑定槽（onDiscover 闭包
+  // 构造早于 engine 赋值——setTools 需 engine 就绪后直达）。
+  const childMaterialized = new Set<string>();
+  let childEngine: PiAgentEngineAdapter | undefined;
   const executor = new CoreToolExecutor({
     cwd: toolCwd,
     browser: remoteBrowser,
@@ -433,9 +438,26 @@ async function main(): Promise<void> {
     kg: kg.tools,
     codegraph,
     plan: workLedger.tools,
-    // mcp 批：预热完成的命名空间工具注入（零 running server → 空数组不注键）
+    // mcp 批：预热完成的命名空间工具注入（零 running server → 空数组不注键）。
+    // deferred 批：meta 发现工具同批注入（懒加载入口）；物化集 = 子进程本地
+    // 内存态（worker 短生命周期——discover 后经 engine.setTools + hooks 同
+    // turn 生效；toggle 语义 = 父进程 spawn 快照集，物化全量）。  
     ...(runningServers.size > 0
-      ? { mcp: { tools: createMcpTools(mcpRegistry.discoveredTools(), mcpRegistry) } }
+      ? {
+          mcp: {
+            tools: [
+              ...createMcpTools(mcpRegistry.discoveredTools(), mcpRegistry),
+              ...createMcpDiscoverTools(mcpRegistry, {
+                onDiscover: (server, names) => {
+                  for (const name of names) childMaterialized.add(name);
+                  // engine 构造晚于 executor（下方）——晚绑定：engine 赋值后
+                  // setTools 直改（resolveTools 走本 executor，物化名已注册）。
+                  childEngine?.setTools([...profile.tools, ...childMaterialized]);
+                },
+              }).tools,
+            ],
+          },
+        }
       : {}),
     // T2 turn diff：写前元数据上报线（stdout file-write 行——父侧分派到
     // 归属会话 runtime diff 的 recordExternal）
@@ -461,9 +483,12 @@ async function main(): Promise<void> {
       ? { resolveThinking: (m: Model<any>) => (supportsThinkingLevel(m, thinkingLevel) ? thinkingLevel : undefined) }
       : {}),
     resolveTools: (names) => executor.resolveTools(names),
-    // ⑤ park/resume 批：挂起硬拦截入链（R12 预留位首个实例）
-    extraHooks: [new ParkGuardHooks(parkState)],
+    // ⑤ park/resume 批：挂起硬拦截入链（R12 预留位首个实例）。
+    // deferred 批：McpDeferredHooks 追加（discover 物化后同 turn 生效——
+    // 子进程与主进程同构；位序在 ParkGuard 之后无干扰）。
+    extraHooks: [new ParkGuardHooks(parkState), new McpDeferredHooks()],
   });
+  childEngine = engine;
 
   // O-6 优雅路径：SIGTERM → abort 当前 run / 唤醒挂起等待 → drive 收敛 →
   // failed closure → exit(0)

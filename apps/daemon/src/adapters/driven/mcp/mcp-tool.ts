@@ -77,3 +77,117 @@ export function createMcpTools(
 ): AgentHarnessTool<ExecutionToolContext>[] {
   return discovered.map(({ server, definition }) => createMcpTool(server, definition, registry));
 }
+
+// ── deferred 批：meta 发现工具（懒加载装载面）──
+
+/** meta 工具发现回调注入面（组合根接线：物化集登记 + 刷新链触发）。 */
+export interface McpDiscoverToolDeps {
+  /** 工具名启停读面（toggle 关闭的具名工具不物化不标记；缺省全开）。 */
+  isToolEnabled?: (namespacedName: string) => boolean;
+  /** 发现物化回调（物化集登记 + resources.changed 发布——刷新链推活跃会话 setTools）。 */
+  onDiscover?: (server: string, namespacedNames: string[]) => void;
+}
+
+/**
+ * meta 工具名（撞名防御）：server 原生工具占用 "discover" 时退
+ * `${server}__mcp_discover`；两者均撞（几乎不可达）→ undefined（该
+ * server 退化为急发路径——调用方跳过 meta 构造并可告警）。
+ */
+export function mcpDiscoverToolName(
+  server: string,
+  rawToolNames: readonly string[],
+): string | undefined {
+  if (!rawToolNames.includes("discover")) return `${server}__discover`;
+  if (!rawToolNames.includes("mcp_discover")) return `${server}__mcp_discover`;
+  return undefined;
+}
+
+/**
+ * 单 server meta 发现工具（deferred 批懒加载入口）：
+ * - 模型调用 → content 返回工具清单（name + description 行）；
+ * - addedToolNames 标记物化工具（pi deferred 通道：Anthropic
+ *   defer_loading / OpenAI additional-tools|tool-search；其余 provider
+ *   忽略标记 = 物化后急发，降级不坏）；
+ * - onDiscover 同步触发物化链（组合根：物化集 + refreshAssembly）。
+ *
+ * 参数 schema：无参（空对象——清单即全部信息；避免伪造参数误导模型）。
+ */
+export function createMcpDiscoverTool(
+  server: string,
+  rawToolNames: readonly string[],
+  descriptions: ReadonlyMap<string, string>,
+  deps: McpDiscoverToolDeps,
+): AgentHarnessTool<ExecutionToolContext> {
+  const name = mcpDiscoverToolName(server, rawToolNames);
+  if (name === undefined) {
+    throw new Error(`MCP server "${server}" 的 discover/mcp_discover 均被原生工具占用——无法生成 meta 工具`);
+  }
+  return {
+    name,
+    label: `${server}: discover`,
+    description: `[mcp:${server}] 列出并装载 MCP server "${server}" 的全部可用工具（懒加载入口——装载后本会话可直接调用）`,
+    parameters: { type: "object", properties: {} } as never,
+    async execute(): Promise<AgentToolResult<unknown>> {
+      const enabled = rawToolNames.filter((raw) => {
+        const namespaced = `${server}__${raw}`;
+        return deps.isToolEnabled?.(namespaced) ?? true;
+      });
+      const namespacedNames = enabled.map((raw) => `${server}__${raw}`);
+      const lines = enabled.map(
+        (raw) => `- ${server}__${raw}: ${descriptions.get(raw) ?? raw}`,
+      );
+      if (enabled.length === 0) {
+        return {
+          content: [{ type: "text", text: `MCP server "${server}" 当前无可装载工具（全部已停用或未发现）。` }],
+          details: { server, count: 0 },
+        };
+      }
+      // 物化链先行（工具池追加 + 刷新链）——标记随结果落地（transcript
+      // 重放语义：未调用的物化工具 deferred，调用过转 immediate）。
+      deps.onDiscover?.(server, namespacedNames);
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `MCP server "${server}" 已装载 ${enabled.length} 个工具（本 turn 起可直接调用）：\n` +
+              lines.join("\n"),
+          },
+        ],
+        addedToolNames: namespacedNames,
+        details: { server, count: enabled.length },
+      };
+    },
+  };
+}
+
+/**
+ * 批量 meta 构造（registry 现值）：deferred 位真（缺省）且 running 的
+ * server 各一个；撞名不可解的 server 跳过（返回 skipped 供调用方告警）。
+ */
+export function createMcpDiscoverTools(
+  registry: McpRegistry,
+  deps: McpDiscoverToolDeps,
+): { tools: AgentHarnessTool<ExecutionToolContext>[]; skipped: string[] } {
+  const tools: AgentHarnessTool<ExecutionToolContext>[] = [];
+  const skipped: string[] = [];
+  for (const config of registry.listConfigs()) {
+    if (config.enabled === false || config.deferred === false) continue;
+    const tools_ = registry.toolsOf(config.name);
+    if (tools_.length === 0) continue;
+    if (mcpDiscoverToolName(config.name, tools_.map((t) => t.name)) === undefined) {
+      skipped.push(config.name);
+      continue;
+    }
+    const descriptions = new Map(tools_.map((t) => [t.name, t.description]));
+    tools.push(
+      createMcpDiscoverTool(
+        config.name,
+        tools_.map((t) => t.name),
+        descriptions,
+        deps,
+      ),
+    );
+  }
+  return { tools, skipped };
+}
