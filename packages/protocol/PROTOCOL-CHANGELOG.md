@@ -896,3 +896,33 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 > - 正文查看复用 `agent.skill_content.get`（按名懒查询，零新命令）。
 > - 计数演进：命令/事件零增（纯字段 additive）。
 > - 缺省不携带（旧 daemon 容忍；shell 侧 `block.skills ?? []` 空态）。
+
+## 26. diff 批（T3+T4 轮次 diff 协议与 UI 闭环：diff.changed 瞬态推送 + diff.get 查询；v0.11 后 additive 微批——版本位不 bump）
+
+> 本批为轮次级内存态 diff 的协议与 UI 闭环（数据链 T2 已落地
+> TurnDiffService——轮为单位累积、冻结环形 3 轮、全内存零持久化）：
+> **1 命令**（§15.12 diff 族：`diff.get` 轮次 diff 详情查询，session
+> 作用域——**信封 sessionId 必填**（AD-4 路由位）；turnId 缺省 = 最近
+> 冻结轮、live = true = 进行中轮实时视图）+ **1 事件**（§16.2 session
+> 族：`diff.changed` 状态瞬态推送——cleared/active/frozen 三态 + 累计
+> adds/dels/fileCount）+ **1 点对点回执**（`diff.get.result`，files
+> [{path, status, adds, dels, diff?, note?, agents}] + summary——窄化
+> 接口不入 EVENT_TYPES 目录，task 族先例口径，`src/types/diff.ts`）。
+> **版本位不 bump**（`PROTOCOL_VERSION = "0.11"` 保持）：全部为新增面
+> （additive 纪律，TR-AD-23①；§24/§25 同构先例；旧客户端对新命令表现
+> 为 `command.unknown`、未知帧丢弃）。
+>
+> - 计数演进：命令 62 → 63；事件 79 → 80（守护断言③同步扩）。
+> - **通道纪律（本批核心不变式）**：diff.changed 走 publishDelta 瞬态
+>   通道（EventPublisherPort 与 publish 并列的双通道——流式中间态语义：
+>   不落盘、不投影、EventStream 直推；SessionProjection.publishDelta 空
+>   实现即为此）；**严禁走 publish/domain 事件通道**——那会触发
+>   write-through 状态落盘 + domain_events 行直写 + RestoreService 恢复
+>   重放，破坏内存态需求。挂既有 session 通道不新增 Channel 值（推送按
+>   per-session 订阅路由）。
+> - 统计口径（T2 已裁）：只有 +N（新增行）/ −N（删除行）两维，无第三
+>   统计；文件级 status 四值 added/deleted/modified/external；external
+>   条目无精确原文（note 粗估说明，±行按 size 差启发）。
+> - 内存态边界（T2 既定决策）：diff 全内存零落盘——daemon 重启/会话
+>   卸载即丢，快照不重建 diff；新一轮开轮即清零（前端 chat.turn.started
+>   清零重计，diff.changed{cleared} 同源双保险）。

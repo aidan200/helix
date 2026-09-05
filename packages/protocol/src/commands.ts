@@ -17,6 +17,8 @@
  * 内容编辑命令，九命令清单即全集）。
  * kg-bootstrap 批新增 5（kg 族 additive，iter-20260829-ys7q T3.2：/project 页
  * bootstrap 入口与产出呈现五命令；契约 contracts/kg-bootstrap-api.md）。
+ * diff 批新增 1（diff.get，T3+T4 轮次 diff 协议与 UI闭环：会话作用域命令——
+ * 轮次 diff 详情查询，turnId 缺省最近冻结轮 / live 进行中轮实时视图）。
  * `CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
  * 分发。会话作用域命令的信封 sessionId 必填（AD-4 路由位，类型层可选、
  * 客户端纪律保证）；全局命令（session.list / model.set_default /
@@ -32,6 +34,7 @@ import type { CatalogModel } from "./types/model";
 import type { EntryDto } from "./types/session";
 import type { ProfileKind } from "./types/agent";
 import type { TaskStatus } from "./types/task";
+import type { DiffGetPayload } from "./types/diff";
 import type { TraceQueryPageInput, TraceTimeRange } from "./types/trace";
 
 /** chat.send 载荷：发送用户消息（新输入，ChatPort.sendMessage） */
@@ -804,7 +807,19 @@ export interface TaskDeleteCommand extends CommandFrame<TaskDeletePayload> {
   type: "task.delete";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52；kg.health 批 + kg 评审批：52 → 54；kg.candidates.list 批：54 → 55；base prompt 批：55 → 56） */
+// ── diff 批新增（T3+T4 轮次 diff 协议与 UI 闭环；PROTOCOL-CHANGELOG.md §26）──
+
+/**
+ * 轮次 diff 详情查询（session 作用域——**信封 sessionId 必填**，AD-4 路由位）：
+ * turnId 缺省 = 最近冻结轮；live=true = 进行中轮实时视图（active 条目即时终读
+ * 统计）。回执 diff.get.result 点对点（仅发发起连接；结果帧不入 EVENT_TYPES
+ * 目录——task 族先例，types/diff.ts 窄化接口供出）。
+ */
+export interface DiffGetCommand extends CommandFrame<DiffGetPayload> {
+  type: "diff.get";
+}
+
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52；kg.health 批 + kg 评审批：52 → 54；kg.candidates.list 批：54 → 55；base prompt 批：55 → 56；skill-content 批：56 → 57；diff 批：57 → 63） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -867,7 +882,8 @@ export type CommandEnvelope =
   | TaskResumeCommand
   | TaskCancelCommand
   | TaskRetryCommand
-  | TaskDeleteCommand;
+  | TaskDeleteCommand
+  | DiffGetCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
@@ -933,6 +949,7 @@ export const COMMAND_TYPES = [
   "task.cancel",
   "task.retry",
   "task.delete",
+  "diff.get",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];

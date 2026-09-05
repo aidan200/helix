@@ -547,8 +547,13 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
           // 族命令回口同口径（WorkspaceService，仅限 type-only）。task 批
           //（iter-20260829-ys7q T1.5，§8.1）：task 族读面回口同口径
           //（TaskQueryService，仅限 type-only；TaskError 错误映射走
-          // duck-typing err.code，不引运行时类）。
-          const serviceTypeOnly = /\/services\/(kg|workspace|task)\//.test(spec) && typeOnly(spec, src);
+          // duck-typing err.code，不引运行时类）。diff 批（T3+T4 轮次
+          // diff 协议与 UI 闭环）：diff.get 查询面回口同口径
+          //（application/services/TurnDiffService，仅限 type-only——服务在
+          // services 根非子目录，按文件名单列）。
+          const serviceTypeOnly =
+            (/\/services\/(kg|workspace|task)\//.test(spec) || /\/services\/TurnDiffService$/.test(spec)) &&
+            typeOnly(spec, src);
           if (!serviceTypeOnly) {
             expect(runtimeAllowed(rel, spec), `ws-server/${rel} 运行时 import 越界：${spec}`).toBe(true);
           }
@@ -559,7 +564,11 @@ describe("AG-12 / TP-CL6-3（A 半）：ws-server 编排在 service（import 白
       // application/services/workspace/ 同口径——§15.10/§16.10 命令回口；
       // task 批：application/services/task/ 同口径——§15.11/§16.1 命令回口）
       for (const spec of importSpecifiers(src)) {
-        if (/\/services\/(kg|workspace|task)\//.test(spec) && typeOnly(spec, src)) continue;
+        if (
+          (/\/services\/(kg|workspace|task)\//.test(spec) || /\/services\/TurnDiffService$/.test(spec)) &&
+          typeOnly(spec, src)
+        )
+          continue;
         expect(spec, `ws-server/${rel} 不得依赖 service/infra/driven：${spec}`).not.toMatch(/services\/|infrastructure\/|\/driven\//);
       }
     }

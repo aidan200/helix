@@ -198,6 +198,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `skill-content:${event.payload.name}:${event.payload.content.length}`;
     case "session.plan.changed":
       return `plan-changed:${event.payload.sessionId}:${event.payload.plan?.length ?? 0}:${event.payload.ledger?.total ?? 0}`;
+    case "diff.changed":
+      return `diff-changed:${event.payload.turnId}:${event.payload.phase}:${event.payload.adds}/${event.payload.dels}:${event.payload.fileCount}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -340,6 +342,8 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `base-prompt-get:${cmd.payload.profileKind}`;
     case "agent.skill_content.get":
       return `skill-content-get:${cmd.payload.name}`;
+    case "diff.get":
+      return `diff-get:${cmd.sessionId ?? "-"}:${cmd.payload.turnId ?? "latest"}:${cmd.payload.live ? "live" : "frozen"}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;

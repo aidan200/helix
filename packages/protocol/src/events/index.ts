@@ -27,7 +27,9 @@
  * 批新增 1（error.entry：引擎/模型失败的错误条目落时间轴原位红条——挂既
  * 有 chat 通道不新增 Channel 值；EntryDto 同批 additive 第五变体 error）+ base
  * prompt 批新增 1（agent.base_prompt.get.result：agent 页 base 段系统提示词
- * 懒查询点对点回执，挂 agent 族）。`EventEnvelope` 为
+ * 懒查询点对点回执，挂 agent 族）+ diff 批新增 1（diff.changed：轮次 diff
+ * 状态瞬态推送，挂既有 session 通道不新增 Channel 值；走 publishDelta
+ * 瞬态通道不落盘不投影，iter T3+T4）。`EventEnvelope` 为
  * 判别式联合，前端 switch(event.type) 窄化各分支 payload（投影 reducer）。
  *
  * v0.2 事件类型学（AD-3，契约 A §2）：每事件以 `channel` 字面量登记所属通道
@@ -135,6 +137,7 @@ import type {
   WorkspaceOpenResultEvent,
 } from "./workspace";
 import type { TaskChangedEvent } from "../types/task";
+import type { DiffChangedEvent } from "./diff";
 
 export * from "./notification";
 export * from "./session";
@@ -148,6 +151,7 @@ export * from "./thinking";
 export * from "./web";
 export * from "./kg";
 export * from "./workspace";
+export * from "./diff";
 
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
 export type EventEnvelope =
@@ -229,7 +233,8 @@ export type EventEnvelope =
   | WorkspaceGetResultEvent
   | WorkspaceOpenResultEvent
   | WorkspaceChangedEvent
-  | TaskChangedEvent;
+  | TaskChangedEvent
+  | DiffChangedEvent;
 
 /** 事件目录常量（运行时可用；与 EventEnvelope 联合由测试双向一致性守护） */
 export const EVENT_TYPES = [
@@ -312,6 +317,7 @@ export const EVENT_TYPES = [
   "workspace.open.result",
   "workspace_changed",
   "task.changed",
+  "diff.changed",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -402,4 +408,5 @@ export const EVENT_CHANNELS = {
   "workspace.open.result": "workspace",
   "workspace_changed": "workspace",
   "task.changed": "notification",
+  "diff.changed": "session",
 } as const satisfies Record<EventType, Channel>;

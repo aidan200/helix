@@ -109,6 +109,12 @@ export interface WsDrivingDeps {
   readonly persistence: PersistenceStack;
   readonly modelStack: ModelStack;
   readonly taskStack: TaskStack;
+  /**
+   * T3 diff.get 查询面（sessionStack.diff 透传）：热会话 diff 状态读面 +
+   * TurnDiffService 查询操作面——WS diff.get 命令回口（未装配 →
+   * command.unimplemented，task/kg 族先例）。
+   */
+  readonly diff?: SessionStack["diff"];
   /** kg 族命令回口解析器群（M29/M30 切片同源注入）。 */
   readonly kgResolvers: KgResolverGroup;
   readonly resourceService: ResourceService;
@@ -263,6 +269,8 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     // 写面（task.changed 广播在 handlers/task.ts + EventStream 层接线，O-7）
     taskQuery: deps.taskStack.query,
     taskEngine: deps.taskStack.taskEngine,
+    // T3 diff.get 命令回口（轮次 diff 查询面；stub rig 缺省 → unimplemented）
+    ...(deps.diff !== undefined ? { diff: deps.diff } : {}),
     // kg-bootstrap 五命令回口（T3.2）：解析器形态（workspace 现值跟随；直连注入保留给 stub rig）
     kgBootstrap: deps.kgResolvers.kgBootstrapResolver,
     // kg 维护批两命令回口（C1）：解析器形态（同接缝）

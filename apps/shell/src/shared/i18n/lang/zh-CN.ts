@@ -38,6 +38,17 @@ export const zhCN = {
       open: "收起工作台账",
       closed: "展开工作台账",
     },
+    // T3+T4 diff 批：中槽两 chip 与详情窗文案
+    diff: {
+      title: "本轮文件改动",
+      add: "新增 {n} 行",
+      del: "删除 {n} 行",
+      close: "关闭",
+      pending: "载入中…",
+      loadFail: "改动详情载入失败",
+      empty: "本轮没有文件改动记录",
+      agentsLabel: "来源",
+    },
     overlay: {
       connecting: "正在连接 daemon",
       addr: "{addr}",

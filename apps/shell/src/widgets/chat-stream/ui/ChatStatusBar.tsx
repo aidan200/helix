@@ -14,15 +14,22 @@
  *
  * 数据源：左槽 state.steerQueue（SteerQueueDock 自取）；右槽
  * selectWorkPhase 槽位活跃推导（idle 时槽位空——WorkPhaseDot 现状
- * 「idle 不渲染」逻辑保留）；中槽纯结构占位（后续任务接 diff 统计）。
+ * 「idle 不渲染」逻辑保留）；中槽 state.diff（T3+T4 diff 批：DiffStatChip 两 chip 统计
+ * +N/−N——点击开 DiffOverlay 详情窗，onOpenDiff 由 pages 层承接开合态）。
  */
 import { memo } from "react";
 import { useSession } from "@/entities/session/SessionContext";
 import { selectWorkPhase } from "@/entities/session/model/session-reducer";
 import SteerQueueDock from "./SteerQueueDock";
+import DiffStatChip from "./DiffStatChip";
 import { WorkPhaseDot } from "./WorkPhaseDot";
 
-const ChatStatusBar = memo(function ChatStatusBar() {
+interface ChatStatusBarProps {
+  /** 中槽 diff 统计 chip 点击 → 展开详情覆盖窗。 */
+  onOpenDiff?: () => void;
+}
+
+const ChatStatusBar = memo(function ChatStatusBar({ onOpenDiff }: ChatStatusBarProps) {
   const { state } = useSession();
   // 工作段位（右槽；idle → 槽位空，组件不渲染——现状逻辑保留）
   const workPhase = selectWorkPhase(state);
@@ -32,8 +39,10 @@ const ChatStatusBar = memo(function ChatStatusBar() {
       <div className="csb-slot csb-left" data-testid="chat-status-left">
         <SteerQueueDock />
       </div>
-      {/* 中槽：diff 统计预留占位（本任务只做结构占位，不接数据） */}
-      <div className="csb-slot csb-mid" data-testid="chat-status-diff-slot" />
+      {/* 中槽：diff 统计两 chip（T3+T4：+N/−N 点击开详情窗；空态不渲染、槽位占位在） */}
+      <div className="csb-slot csb-mid" data-testid="chat-status-diff-slot">
+        <DiffStatChip onOpen={onOpenDiff ?? (() => {})} />
+      </div>
       {/* 右槽：工作段位呼吸光点（行内形态） */}
       <div className="csb-slot csb-right" data-testid="chat-status-right">
         {workPhase !== "idle" && <WorkPhaseDot phase={workPhase} />}

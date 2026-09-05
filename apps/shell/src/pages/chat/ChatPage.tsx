@@ -13,6 +13,7 @@ import { useToast } from "@/shared/ui/Toast";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
 import MessageFlow from "@/widgets/chat-stream/ui/MessageFlow";
 import ChatStatusBar from "@/widgets/chat-stream/ui/ChatStatusBar";
+import DiffOverlay from "@/widgets/chat-stream/ui/DiffOverlay";
 import RestoreSkeleton from "@/widgets/chat-stream/ui/P-1s-restore-skeleton";
 import SubagentDrawer from "@/widgets/subagent-drawer/ui/SubagentDrawer";
 import Composer, { type ComposerHandle } from "@/features/send-message/ui/Composer";
@@ -72,6 +73,8 @@ const ChatPage = function ChatPage() {
   const composerRef = useRef<ComposerHandle>(null);
   const focusComposer = useCallback(() => composerRef.current?.focus(), []);
 
+  // T3+T4 diff 批：diff 详情覆盖窗开合态（chip 点击开 / Esc・遮罩关）
+  const [diffOverlayOpen, setDiffOverlayOpen] = useState(false);
   return (
     <>
       <Workbench onOpenInstance={openInstance} onFocusInput={focusComposer}>
@@ -91,11 +94,14 @@ const ChatPage = function ChatPage() {
             {/* P-1s 切换两阶段：loading 骨架（CSS 门控 data-view，与
                 success 内容互斥） */}
             <RestoreSkeleton />
+            {/* T3+T4 diff 批：轮次 diff 详情窗（conn-overlay 同族——锚
+                .msg-flow-wrap 盖整个对话区，不随滚动） */}
+            {diffOverlayOpen && <DiffOverlay onClose={() => setDiffOverlayOpen(false)} />}
           </MessageFlow>
           {/* T1 chat 状态行：消息流与 composer 之间的常驻条（高度恒定、无条件
               渲染）；三槽收拢原浮动钉位件——左 SteerQueueDock / 中 diff 预留 /
               右 WorkPhaseDot（E-89：位于滚动容器之外） */}
-          <ChatStatusBar />
+          <ChatStatusBar onOpenDiff={() => setDiffOverlayOpen(true)} />
           {/* P-1 composer + foot 右侧推理强度 picker（thinking 批 T2.1；
               pages 层装配注入——AG-15 FSD 同层禁互引） */}
           <Composer ref={composerRef} footEnd={<ComposerThinkingPicker />} />
