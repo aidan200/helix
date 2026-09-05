@@ -59,18 +59,15 @@ interface SetEnabledInput {
 /** set_enabled payload 形状校验（失败 → command.invalid_payload，连接保持）。 */
 function normalizeSetEnabled(ctx: ResourceCommandContext, payload: Record<string, unknown>): SetEnabledInput | undefined {
   const { profileKind, resourceType, name, enabled } = payload;
-  if (profileKind === "subagent-kg-writer" || profileKind === "subagent-code-reviewer") {
+  if (profileKind === "orchestrator" || profileKind === "subagent-kg-writer" || profileKind === "subagent-code-reviewer") {
     if (resourceType !== "model" && resourceType !== "thinking") {
-      // R7 系统槽位批 + D5 第五 kind：派生两 kind 仅 model/thinking 槽位型可写（独立配置，
-      // 未配跟随全局）；tool/skill 启停写面仍拒（工具集/技能面派生 worker，硬层拒绝）。
-      ctx.commandError(ctx.type, "agent.config.read_only", `payload.profileKind ${profileKind} 为系统派生 kind：仅 model/thinking 槽位可配，tool/skill 启停只读（写面拒绝）`);
+      // 编排归位批：orchestrator 回归系统只读 kind（与派生两 kind 同待——
+      // 仅 model/thinking 槽位型可写，独立配置未配跟随全局）；tool/skill/
+      // mcp-server 启停写面拒绝（变相禁用 = kind 缺省全禁 + 只读，非可配卡）。
+      ctx.commandError(ctx.type, "agent.config.read_only", `payload.profileKind ${profileKind} 为系统 kind：仅 model/thinking 槽位可配，tool/skill/mcp-server 启停只读（写面拒绝）`);
       return undefined;
     }
     // 槽位型放行（校验后续通用段：resourceType/name/enabled 形状）
-  } else if (profileKind === "orchestrator") {
-    // 统一启停批：orchestrator 升格可配置 kind（与 main/sub 同构——tool/skill/
-    // mcp-server 启停 + model/thinking 槽位全型可写；真实 kind 有自有
-    // profile/runtime/装配快照，非派生面）
   } else if (profileKind !== "main-session" && profileKind !== "subagent-worker") {
     ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\" | \"orchestrator\" | \"subagent-kg-writer\" | \"subagent-code-reviewer\"");
     return undefined;
@@ -110,27 +107,27 @@ function toProfileBlockDto(block: ResourceConfigBlock): AgentConfigProfileBlock 
 }
 
 /**
- * 只读系统派生三块派生（agent-roster 批 + D5 第五 kind；序固定 orchestrator
- * 在前、reviewer 在后）：
- * - orchestrator = 声明全集（resource.list 同源读面——写面拒绝放无差异
- *   行，enabled 位恒 true，纯展示面不携带）；
+ * 只读系统三块派生（编排归位批：orchestrator 自 profiles 归位系统区——
+ * 系统机制 kind 不进可配置卡；序固定 orchestrator 在前、reviewer 在后）：
+ * - orchestrator = 声明全集（纯展示行不携带 enabled 位）+ 只读 mcpServers
+ *   行（kind 缺省禁用 = 变相禁用展示；携带 enabled 位供只读呈现）+
+ *   技能区 = 任务 SOP 注册表（audience=task ∧ builtin，与 TaskSkillRegistry
+ *   注册谓词同源——即 kickoff 全文注入的实际消费面；其系统提示技能段
+ *   经 kind 缺省全禁自然为空，此清单展示的是任务类型注册表非提示词段）；
  * - kg-writer = worker 当前生效集（enabled 过滤）+ 恒在工具（ctx.kgWriter
  *   PinnedTools 单源）；恒在行 snippet 从 main 目录面同名行取回（注册表
  *   单源，越权复制零容忍；worker 目录无此名）。
  * - reviewer = worker 当前生效集 − 恒摘除工具（ctx.reviewerRemovedTools
  *   单源——write/edit 代码写面机械关闭，随 worker toggle 动态跟随）。
  *
- * 系统派生块技能读面批：三块各携带 skills 纯展示行——
- * - orchestrator = 任务 SOP 注册表（audience=task ∧ builtin，与
- *   TaskSkillRegistry 注册谓词同源——即 kickoff 全文注入的实际消费面；
- *   其系统提示技能段恒空，此清单展示的是 SOP 消费集非提示词段）；
- * - kg-writer/reviewer = worker 生效技能集（effectiveSkillsOf 单点读面
- *   ——与 buildSessionStack 装配快照技能段同源派生；audience×kind 可见性
- *   与成套装配不在 driving 层重复，E-116 单点纪律）。
+ * 派生两块技能行 = worker 生效技能集（effectiveSkillsOf 单点读面——与
+ * buildSessionStack 装配快照技能段同源派生；audience 目录二分与成套装配
+ * 不在 driving 层重复，E-140 单点纪律）。
  */
 async function toSystemBlocksDto(
   main: ResourceConfigBlock,
   worker: ResourceConfigBlock,
+  orch: ResourceConfigBlock,
   pinnedTools: readonly string[],
   kgwModel: string | undefined,
   kgwThinking: string | undefined,
@@ -140,6 +137,10 @@ async function toSystemBlocksDto(
   effectiveSkillsOf: () => Promise<readonly SkillDescriptor[]>,
 ): Promise<readonly AgentConfigSystemBlock[]> {
   const workerEffective = worker.tools.filter((t) => t.enabled).map((t) => ({ name: t.name, snippet: t.snippet }));
+  // orchestrator 技能行：任务 SOP 注册表（TaskSkillRegistry 注册谓词同源）
+  const taskSopRows = orch.skills
+    .filter((s) => s.source === "builtin" && s.audience === "task")
+    .map((s) => ({ name: s.name, description: s.description, filePath: s.filePath, source: s.source, audience: s.audience }));
   // 派生两块技能行：worker 生效技能集（spawn 快照技能段同源——单点读面）
   const workerSkillRows = (await effectiveSkillsOf()).map((s) => ({
     name: s.name,
@@ -149,6 +150,19 @@ async function toSystemBlocksDto(
     audience: s.audience,
   }));
   return [
+    {
+      profileKind: "orchestrator",
+      tools: orch.tools.map((t) => ({ name: t.name, snippet: t.snippet })),
+      skills: taskSopRows,
+      // 编排归位批：只读 MCP 面（kind 缺省禁用——「默认不启用、只读」的
+      // 变相禁用展示；行形状与 profile 块 mcpServers 同构）
+      ...(orch.mcpServers !== undefined && orch.mcpServers.length > 0
+        ? { mcpServers: orch.mcpServers.map((s) => ({ ...s, state: s.state as McpServerRuntimeState })) }
+        : {}),
+      // R7 系统槽位：独立配置，未配跟随全局（不联动 worker）
+      model: orch.model ?? null,
+      thinkingLevel: orch.thinkingLevel ?? null,
+    },
     {
       profileKind: "subagent-kg-writer",
       tools: [
@@ -183,8 +197,8 @@ async function toSystemBlocksDto(
 export function handleAgentConfigList(ctx: ResourceCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const kind = ctx.payload.profileKind;
-  if (kind !== undefined && kind !== "main-session" && kind !== "subagent-worker" && kind !== "orchestrator") {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\" | \"orchestrator\"（只读系统派生 kind 随缺省全量下发）");
+  if (kind !== undefined && kind !== "main-session" && kind !== "subagent-worker") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\"（只读系统 kind 随缺省全量下发）");
   }
   // 单 kind：单块回执（过滤请求面向可编辑 kind——system 只读块不携带）
   if (kind !== undefined) {
@@ -202,13 +216,14 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
       .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `配置读面组装失败：${(err as Error).message}`));
     return;
   }
-  // 缺省 = 全部可编辑 kind（main-session 在前，序固定；orchestrator 升格可配置批：
-  // 第三块进 profiles——真实 kind 有自有配置面）+ 只读系统派生双块（kg-writer/
-  // reviewer——工具集/技能面派生 worker，与 buildSessionStack 装配快照同法）
+  // 缺省 = 全部可编辑 kind（main-session 在前，序固定）+ 只读系统三块
+  //（编排归位批：orchestrator 归位系统区——声明全集 + 任务 SOP 注册表 +
+  // 只读 MCP 行；kg-writer/reviewer 工具集/技能面派生 worker，与
+  // buildSessionStack 装配快照同法）
   void (async () => {
     const kinds: readonly ProfileKind[] = ["main-session", "subagent-worker", "orchestrator"];
     const blocks = await Promise.all(kinds.map((k) => ctx.resource.list(k)));
-    const [main, sub] = [blocks[0]!, blocks[1]!];
+    const [main, sub, orch] = [blocks[0]!, blocks[1]!, blocks[2]!];
     // 派生块技能读面批：worker 生效技能集（kg-writer/reviewer 派生面）
     // ——getEffectiveSkills 是成套装配与启停的单点读面
     const workerSkills = await ctx.resource.getEffectiveSkills("subagent-worker");
@@ -218,10 +233,11 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
       channel: "agent",
       type: "agent.config.list.result",
       payload: {
-        profiles: [main, sub, blocks[2]!].map(toProfileBlockDto),
+        profiles: [main, sub].map(toProfileBlockDto),
         system: await toSystemBlocksDto(
           main,
           sub,
+          orch,
           ctx.kgWriterPinnedTools,
           ctx.resource.modelSlot("subagent-kg-writer"),
           ctx.resource.thinkingSlot("subagent-kg-writer"),

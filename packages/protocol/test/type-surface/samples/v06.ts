@@ -216,29 +216,31 @@ export const agentConfigListResultSystem: AgentConfigListResultEvent = {
         model: null,
         thinkingLevel: null,
       },
+    ],
+    system: [
       {
-        // 统一启停批：orchestrator 升格可配置块（第三块——真实 kind 自有启停面）
+        // 编排归位批：orchestrator 归位系统只读块（声明全集 + 任务 SOP 注册表 + 只读 MCP 行）
         profileKind: "orchestrator",
         tools: [
-          { name: "agent_spawn", enabled: true, snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" },
+          { name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" },
         ],
         skills: [
           {
-            // task 类技能行可见恒禁（audience-guard——消费通道 kickoff 不变）
+            // 任务 SOP 注册表纯展示行（kickoff 全文注入的消费面——非启停语义）
             name: "code-review",
             description: "对项目代码做质量评审",
             filePath: "/daemon/resources/skills/task/code-review/SKILL.md",
             source: "builtin",
             audience: "task",
-            enabled: false,
           },
         ],
-        diagnostics: [],
+        mcpServers: [
+          // 只读 MCP 行：kind 缺省禁用（变相禁用展示）
+          { name: "shadcn", enabled: false, state: "running", toolCount: 3 },
+        ],
         model: null,
         thinkingLevel: null,
       },
-    ],
-    system: [
       {
         profileKind: "subagent-kg-writer",
         tools: [

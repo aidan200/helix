@@ -215,19 +215,25 @@ export interface AgentConfigSystemSkillRow {
  * 随 worker toggle 动态跟随——派生面无自有状态）。
  */
 export interface AgentConfigSystemBlock {
-  /** 系统派生 kind（不在写面枚举：orchestrator 系统形态；kg-writer 装配端派生）。 */
+  /** 系统 kind（不在写面枚举：orchestrator 系统机制形态；kg-writer/reviewer 装配端派生）。 */
   profileKind: SystemProfileKind;
   /** 工具清单（纯展示；orchestrator = 声明全集，kg-writer = worker 生效集 + pinned）。 */
   tools: ReadonlyArray<AgentConfigSystemToolRow>;
   /**
    * 技能清单（纯展示，系统派生块技能读面批 additive）：orchestrator = 任务
    * SOP 注册表（audience=task 的 builtin 技能——kickoff 全文注入的实际消费面，
-   * 系统提示技能段恒空）；kg-writer/reviewer = subagent-worker 生效技能集
-   * （spawn 快照技能段同源派生，随 worker toggle 跟随）。行形状 = 五字段
+   * 系统提示技能段经 kind 缺省全禁自然为空）；kg-writer/reviewer = subagent-worker
+   * 生效技能集（spawn 快照技能段同源派生，随 worker toggle 跟随）。行形状 = 五字段
    * 纯展示（无启停位）；缺省不携带（旧 daemon 容忍，agent-config-model
    * system 块 null 语义同构）。
    */
   skills?: ReadonlyArray<AgentConfigSystemSkillRow>;
+  /**
+   * MCP server 清单（编排归位批 additive；仅 orchestrator 块携带）：只读
+   * 运行态行（enabled 位恒 false——kind 缺省禁用 = 变相禁用展示，写面
+   * 对系统 kind 恒拒）；其余系统块不携带。
+   */
+  mcpServers?: ReadonlyArray<AgentConfigMcpServerRow>;
   /** 派生说明位：kg-writer = 派生自 subagent-worker（工具集跟随 worker）；orchestrator 不携带。 */
   derivedFrom?: "subagent-worker";
   /** 派生面恒在工具（kg-writer = ["kg-update"]；orchestrator 不携带）。 */

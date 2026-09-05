@@ -226,8 +226,8 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       expect(result.channel).toBe("agent");
       expect(result.sessionId).toBe(SYSTEM_SESSION_ID); // 全局命令：会话无关
       const profiles = result.payload.profiles as ProfileBlock[];
-      expect(profiles).toHaveLength(3); // 统一启停批：orchestrator 升格可配置块（第三块）
-      const [main, sub, orch] = profiles;
+      expect(profiles).toHaveLength(2); // 编排归位批：orchestrator 归位系统只读块（profiles 回双块）
+      const [main, sub] = profiles;
       expect(main!.profileKind).toBe("main-session");
       expect(main!.tools.map((t) => t.name)).toEqual(MAIN_TOOLS);
       expect(main!.tools.every((t) => t.enabled)).toBe(true); // 工具缺省无记录 = 全启用
@@ -257,10 +257,9 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       expect(sub!.profileKind).toBe("subagent-worker");
       expect(sub!.tools.map((t) => t.name)).toEqual(SUB_TOOLS);
       expect(sub!.model).toBeNull();
-      // orchestrator 升格块：真实 kind 读面（工具全集 + 技能行含 user 缺省禁用）
-      expect(orch!.profileKind).toBe("orchestrator");
-      expect(orch!.tools.length).toBeGreaterThan(0);
-      expect(orch!.skills.find((s) => s.name === "hello-skill")?.enabled).toBe(false);
+      // 任务 SOP 不进 agent 卡技能列表（audience 目录二分——编排归位批）
+      expect(main!.skills.every((s) => s.audience === "agent")).toBe(true);
+      expect(sub!.skills.every((s) => s.audience === "agent")).toBe(true);
     } finally {
       await client.close();
       await rig.dispose();
@@ -302,7 +301,7 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
     pinnedTools?: string[];
   }
 
-  test("②a 全量 list 携带 system 双块（派生两 kind）：kg-writer = worker 生效集 + kg-update；reviewer = 生效集 − write/edit（统一启停批：orchestrator 升格进 profiles 第三块）", async () => {
+  test("②a 全量 list 携带 system 三块：orchestrator 归位只读块（声明全集+任务 SOP 注册表）；kg-writer = worker 生效集 + kg-update；reviewer = 生效集 − write/edit", async () => {
     const rig = await makeRig();
     const client = new TestClient(rig.url);
     try {
@@ -312,9 +311,16 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: {} });
       const result = await client.expect("agent.config.list.result");
       const system = result.payload.system as SystemBlock[];
-      expect(system).toHaveLength(2); // 派生两块（orchestrator 已升格 profiles）
-      // 序固定：kg-writer 在前、reviewer 在后
-      const [kgw, reviewer] = system;
+      expect(system).toHaveLength(3); // orchestrator 归位 + 派生两块
+      // 序固定：orchestrator 在前、kg-writer 次之、reviewer 在后
+      const [orch, kgw, reviewer] = system;
+      // orchestrator 归位块：声明全集纯展示行（无 enabled 位）+ 任务 SOP 注册表
+      //（空 builtin 目录隔离 → 空集）+ 槽位 null
+      expect(orch!.profileKind).toBe("orchestrator");
+      expect(orch!.tools.length).toBeGreaterThan(0);
+      expect(orch!.tools.every((t) => !("enabled" in t))).toBe(true); // 纯展示行无启停位
+      expect(orch!.skills).toEqual([]);
+      expect(orch!.derivedFrom).toBeUndefined(); // 非派生面
       // kg-writer：worker 生效集（缺省全启用）+ kg-update 恒在 + 派生说明位
       expect(kgw!.profileKind).toBe("subagent-kg-writer");
       expect(kgw!.derivedFrom).toBe("subagent-worker");
@@ -385,7 +391,7 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
     };
   }
 
-  test("②c profiles 块技能清单（统一启停模型）：task 类可见恒禁；kg-writer/reviewer = worker 生效集（成套装配跟随）；user 显式启用制", async () => {
+  test("②c 技能读面（编排归位批）：任务 SOP 只进 orchestrator 系统块注册表（纯展示）；agent 卡仅 agent 受众；kg-writer/reviewer = worker 生效集（成套装配跟随）；user 显式启用制", async () => {
     const rig = await makeSeededRig();
     const client = new TestClient(rig.url);
     try {
@@ -394,13 +400,23 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
 
       client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: {} });
       const result = await client.expect("agent.config.list.result");
-      const orchProfile = (result.payload.profiles as ProfileBlock[]).find((p) => p.profileKind === "orchestrator")!;
-      // orchestrator 可配置块：task 类技能行可见且恒禁（audience-guard）；agent 层 builtin 缺省启用；user 显式启用制
-      const orchTaskRow = orchProfile.skills.find((s) => s.name === "demo-review")!;
-      expect(orchTaskRow.audience).toBe("task");
-      expect(orchTaskRow.enabled).toBe(false);
-      expect(orchProfile.skills.find((s) => s.name === "plain-skill")?.enabled).toBe(true); // builtin∧agent 缺省启用（user 显式启用制由 makeRig ① 覆盖）
+      // profiles 双块：技能行仅 agent 受众（任务 SOP 不进 agent 卡——目录二分）
+      const profiles = result.payload.profiles as ProfileBlock[];
+      expect(profiles).toHaveLength(2);
+      for (const p of profiles) {
+        expect(p.skills.find((s) => s.name === "demo-review")).toBeUndefined();
+        expect(p.skills.every((s) => s.audience === "agent")).toBe(true);
+      }
+      // builtin∧agent 缺省启用（user 显式启用制由 makeRig ① 覆盖）
+      expect(profiles[0]!.skills.find((s) => s.name === "plain-skill")?.enabled).toBe(true);
       const system = result.payload.system as SystemBlock[];
+      // orchestrator 系统块：任务 SOP 注册表纯展示行（无启停位——非「禁用」语义）
+      const orch = system.find((b) => b.profileKind === "orchestrator")!;
+      const sopRow = orch.skills!.find((s) => s.name === "demo-review")!;
+      expect(sopRow.audience).toBe("task");
+      expect("enabled" in sopRow).toBe(false);
+      // orchestrator 块技能区只放任务 SOP（agent 技能不进注册表展示）
+      expect(orch.skills!.every((s) => s.audience === "task")).toBe(true);
       const kgw = system.find((b) => b.profileKind === "subagent-kg-writer")!;
       // kg-writer/reviewer：worker 生效技能集（builtin∧agent 缺省启用；成套声明
       // paired-skill 的 plan_create 在 worker 生效集 → 列出；task 类不生效）
@@ -421,9 +437,9 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       const kgwAfter = systemAfter.find((b) => b.profileKind === "subagent-kg-writer")!;
       // 成套装配单点（ResourceService.getEffectiveSkills）：SOP 与工具不拆开出现
       expect(kgwAfter.skills?.map((s) => s.name)).toEqual(["plain-skill"]);
-      // kind 隔离：orchestrator 块工具行不受 worker toggle 影响（自有启停行）
-      const orchAfter = (after.payload.profiles as ProfileBlock[]).find((p) => p.profileKind === "orchestrator")!;
-      expect(orchAfter.skills.find((s) => s.name === "paired-skill")?.enabled ?? true).toBe(true);
+      // kind 隔离：orchestrator 系统块声明全集不受 worker toggle 影响（纯展示面）
+      const orchAfter = systemAfter.find((b) => b.profileKind === "orchestrator")!;
+      expect(orchAfter.tools.length).toBe(orch.tools.length);
     } finally {
       await client.close();
       await rig.dispose();
@@ -450,9 +466,9 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       const kgw = system.find((b) => b.profileKind === "subagent-kg-writer")!;
       // 生效集收窄：grep 退出，kg-update 仍恒在
       expect(kgw.tools.map((t) => t.name)).toEqual([...SUB_TOOLS.filter((n) => n !== "grep"), "kg-update"]);
-      // kind 隔离：orchestrator 块工具行不受 worker toggle 影响（自有启停行，grep 仍在）
-      const orch = (result.payload.profiles as ProfileBlock[]).find((p) => p.profileKind === "orchestrator")!;
-      expect(orch.tools.find((t) => t.name === "grep")?.enabled).toBe(true);
+      // kind 隔离：orchestrator 系统块声明全集不受 worker toggle 影响（纯展示面，grep 仍在）
+      const orch = system.find((b) => b.profileKind === "orchestrator")!;
+      expect(orch.tools.some((t) => t.name === "grep")).toBe(true);
       // D5 reviewer：随 worker toggle 动态跟随（grep 退出），write/edit 恒不在面
       const reviewer = system.find((b) => b.profileKind === "subagent-code-reviewer")!;
       expect(reviewer.tools.map((t) => t.name)).toEqual(
@@ -732,12 +748,22 @@ describe("agent.config 前置校验（payload 形状）", () => {
       client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: { profileKind: "bogus" } });
       await client.waitForInvalidPayload("agent.config.list");
 
-      // 统一启停批：orchestrator 升格可配置——tool 写面放行（applied 回执）；
-      // 派生两 kind（kg-writer/reviewer）tool 启停仍拒（read_only）
+      // 编排归位批：orchestrator 归位系统只读 kind——tool/skill/mcp-server
+      // 启停写面拒绝（read_only）；model/thinking 槽位型放行（独立配置）
       client.send({
         v: PROTOCOL_VERSION,
         type: "agent.config.set_enabled",
         payload: { profileKind: "orchestrator", resourceType: "tool", name: "grep", enabled: false },
+      });
+      await until(
+        () => client.frames.some((f) => f.type === "connection.error" && f.payload.code === "agent.config.read_only"),
+        3000,
+        "等待 read_only 拒绝（orchestrator tool）",
+      );
+      client.send({
+        v: PROTOCOL_VERSION,
+        type: "agent.config.set_enabled",
+        payload: { profileKind: "orchestrator", resourceType: "model", name: "-", enabled: false },
       });
       {
         const applied = await client.expect("agent.config.set_enabled.result");

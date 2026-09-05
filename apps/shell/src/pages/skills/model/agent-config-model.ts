@@ -6,8 +6,8 @@
  * - 读面四态互斥：idle（未拉）→ loading → ready / error；有数据时的静默
  *   重拉不降级回 loading（防闪烁，保 ready）；
  * - profiles：双 kind 块按 profileKind 归位（单 kind 响应只覆写该块）；
- * - system（agent-roster 批）：只读系统派生块按 kind 归位（orchestrator /
- *   subagent-kg-writer；未携带不覆盖——旧 daemon 容忍）；
+ * - system（agent-roster 批）：只读系统块按 kind 归位（orchestrator /
+ *   subagent-kg-writer / subagent-code-reviewer；未携带不覆盖——旧 daemon 容忍）；
  * - selected（agent-roster 批）：master-detail 选中维（默认 main-session；
  *   重拉不清——选中是视图态非数据态，P-1/tasks 先例）；
  * - pending：写面在途行（key = kind:resourceType:name；model/thinking 槽位
@@ -18,23 +18,23 @@
  */
 import type { AgentConfigProfileBlock, AgentConfigSystemBlock } from "@helix/protocol";
 
-/** profile kind 维（与协议 profileKind 字面量同源；统一启停批：orchestrator 升格可配置）。 */
-export type AgentKind = "main-session" | "subagent-worker" | "orchestrator";
+/** profile kind 维（与协议 profileKind 字面量同源；编排归位批：可配置回双 kind）。 */
+export type AgentKind = "main-session" | "subagent-worker";
 
-/** 只读派生 kind（统一启停批：orchestrator 撤出，仅剩 worker 派生两 kind）。 */
-export type SystemAgentKind = "subagent-kg-writer" | "subagent-code-reviewer";
+/** 只读系统 kind（编排归位批：orchestrator 归位系统区 + worker 派生两 kind）。 */
+export type SystemAgentKind = "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
 
-/** 写面 kind（R7：可编辑两 kind + 系统派生两 kind 的槽位型写）。 */
+/** 写面 kind（可编辑两 kind + 系统三 kind 的槽位型写——R7/orchestrator 槽位先例）。 */
 export type WritableKind = AgentKind | SystemAgentKind;
 
 /** 列表/详情统一 id（master-detail 选中维）。 */
 export type AgentId = AgentKind | SystemAgentKind;
 
-/** 可配置三 kind 固定卡序（协议 list.result 缺省块序同构；orchestrator 升格第三卡）。 */
-export const AGENT_KINDS: readonly AgentKind[] = ["main-session", "subagent-worker", "orchestrator"];
+/** 可配置双 kind 固定卡序（协议 list.result 缺省块序同构）。 */
+export const AGENT_KINDS: readonly AgentKind[] = ["main-session", "subagent-worker"];
 
-/** 只读派生双 kind 固定序（协议 system 块序同构；orchestrator 已撤出）。 */
-export const SYSTEM_AGENT_KINDS: readonly SystemAgentKind[] = ["subagent-kg-writer", "subagent-code-reviewer"];
+/** 只读系统三 kind 固定序（协议 system 块序同构；orchestrator 在前）。 */
+export const SYSTEM_AGENT_KINDS: readonly SystemAgentKind[] = ["orchestrator", "subagent-kg-writer", "subagent-code-reviewer"];
 
 export interface AgentPageState {
   /** 读面状态（idle → loading → ready / error 互斥；静默重拉保 ready） */
@@ -87,8 +87,8 @@ export function createAgentPageState(): AgentPageState {
   return {
     status: "idle",
     error: null,
-    profiles: { "main-session": null, "subagent-worker": null, orchestrator: null },
-    system: { "subagent-kg-writer": null, "subagent-code-reviewer": null },
+    profiles: { "main-session": null, "subagent-worker": null },
+    system: { orchestrator: null, "subagent-kg-writer": null, "subagent-code-reviewer": null },
     selected: "main-session", // 默认选中 main-session（brief ④）
     pending: new Set<string>(),
     basePrompts: { "main-session": null, "subagent-worker": null, orchestrator: null, "subagent-kg-writer": null, "subagent-code-reviewer": null },
@@ -126,7 +126,7 @@ export function agentPageReducer(s: AgentPageState, action: AgentPageAction): Ag
     case "list-result": {
       const profiles: Record<AgentKind, AgentConfigProfileBlock | null> = { ...s.profiles };
       for (const block of action.profiles) {
-        if (block.profileKind === "main-session" || block.profileKind === "subagent-worker" || block.profileKind === "orchestrator") {
+        if (block.profileKind === "main-session" || block.profileKind === "subagent-worker") {
           profiles[block.profileKind] = block;
         }
       }
@@ -136,7 +136,7 @@ export function agentPageReducer(s: AgentPageState, action: AgentPageAction): Ag
       if (action.system !== undefined) {
         const next: Record<SystemAgentKind, AgentConfigSystemBlock | null> = { ...s.system };
         for (const block of action.system) {
-          if (block.profileKind === "subagent-kg-writer" || block.profileKind === "subagent-code-reviewer") {
+          if (block.profileKind === "orchestrator" || block.profileKind === "subagent-kg-writer" || block.profileKind === "subagent-code-reviewer") {
             next[block.profileKind] = block;
           }
         }

@@ -122,16 +122,16 @@ describe("智能体页页面模型（M6 T4）", () => {
   });
 });
 
-// ── agent-roster 批：只读系统派生块 + 选中态（master-detail） ──
+// ── agent-roster 批：只读系统块 + 选中态（master-detail） ──
 
-// 统一启停批：orchestrator 升格 profiles 块（撤出 system）；system 仅派生两 kind
-const ORCH_PROFILE_BLOCK: AgentConfigProfileBlock = {
+// 编排归位批：orchestrator 归位 system 只读块（声明全集 + 任务 SOP 注册表 + 只读 MCP 行）
+const ORCH_SYSTEM_BLOCK: AgentConfigSystemBlock = {
   profileKind: "orchestrator",
-  tools: [{ name: "agent_spawn", enabled: true, snippet: "指派 SubAgent 实例独立执行任务" }],
-  skills: [],
-  diagnostics: [],
-  model: null,
-  thinkingLevel: null,
+  tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务" }],
+  skills: [
+    { name: "code-review", description: "对项目代码做质量评审", filePath: "/task/code-review/SKILL.md", source: "builtin", audience: "task" },
+  ],
+  mcpServers: [{ name: "shadcn", enabled: false, state: "running", toolCount: 3 }],
 };
 const KGW_BLOCK: AgentConfigSystemBlock = {
   profileKind: "subagent-kg-writer",
@@ -144,18 +144,19 @@ const KGW_BLOCK: AgentConfigSystemBlock = {
 };
 
 describe("智能体页页面模型（agent-roster：system 块 + 选中态）", () => {
-  it("⑤ orchestrator 升格 profiles 第三块 + system 双块按 kind 归位；未携带不覆盖既有值；常量序固定", () => {
-    expect(AGENT_KINDS).toEqual(["main-session", "subagent-worker", "orchestrator"]);
-    expect(SYSTEM_AGENT_KINDS).toEqual(["subagent-kg-writer", "subagent-code-reviewer"]);
+  it("⑤ profiles 双块 + system 三块按 kind 归位（orchestrator 归位）；未携带不覆盖既有值；常量序固定", () => {
+    expect(AGENT_KINDS).toEqual(["main-session", "subagent-worker"]);
+    expect(SYSTEM_AGENT_KINDS).toEqual(["orchestrator", "subagent-kg-writer", "subagent-code-reviewer"]);
     let s = createAgentPageState();
-    expect(s.profiles.orchestrator).toBeNull();
+    expect(s.system.orchestrator).toBeNull();
     expect(s.system["subagent-kg-writer"]).toBeNull();
     expect(s.selected).toBe("main-session"); // 默认选中 main-session（brief ④；重挂复位同源）
-    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK, ORCH_PROFILE_BLOCK], system: [KGW_BLOCK] });
-    expect(s.profiles.orchestrator).toBe(ORCH_PROFILE_BLOCK);
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_SYSTEM_BLOCK, KGW_BLOCK] });
+    expect(s.system.orchestrator).toBe(ORCH_SYSTEM_BLOCK);
     expect(s.system["subagent-kg-writer"]).toBe(KGW_BLOCK);
     // system 未携带：既有块保持（additive 容忍——不闪空）
-    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK, ORCH_PROFILE_BLOCK] });
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK] });
+    expect(s.system.orchestrator).toBe(ORCH_SYSTEM_BLOCK);
     expect(s.system["subagent-kg-writer"]).toBe(KGW_BLOCK);
   });
 

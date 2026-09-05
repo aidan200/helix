@@ -1046,3 +1046,29 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
   智能体页 orchestrator 卡升格可配置（左栏「可配置」三卡）；task 技能行
   灰只读徽标渲染。
 - 计数不变（无新命令/事件——profileKind 写面语义扩展 + system 块构成变化）。
+
+## 33. 编排归位批（orchestrator 回归系统只读块 + 任务 SOP 注册表复位；v0.11 后 additive 微批——版本位不 bump）
+
+- **背景**：§32 把 orchestrator 升格为可配置卡、task 类技能以「恒禁开关」
+  形态进所有 kind 技能列表——用户裁决推翻：编排器是系统机制不该进可配置
+  区；kg-bootstrap/kg-review/code-review 显示为「已禁用」误导（它们是任务
+  类型注册表，kickoff 通道消费，无启停语义）。本批归位：加载链仍同构
+  （kind 维缺省 + 写面只读 = 变相禁用），展示面回目录二分。
+- **orchestrator 归位 system 块**：`agent.config.list` 缺省全量 profiles 回
+  双块（main/sub）；system 块三块（序固定 orchestrator/kg-writer/reviewer，
+  `SystemProfileKind` 回三值）。orchestrator 块 = 声明全集纯展示行 + 任务
+  SOP 注册表技能行（audience=task ∧ builtin 五字段纯展示，无启停位）+
+  **新增 `system[].mcpServers` 只读行**（additive 可选字段；enabled 位恒
+  false——kind 缺省禁用 = 变相禁用展示）+ model/thinking 槽位。
+- **写面回收**：`agent.config.set_enabled` 对 orchestrator 的 tool/skill/
+  mcp-server 启停回 `agent.config.read_only` 拒绝（系统三 kind 同口径，
+  仅 model/thinking 槽位型放行）。
+- **技能读面复位（目录二分）**：task 类技能不再进 agent kind 技能清单
+  （profiles[].skills 仅 agent 受众）；agent 面生效技能集恢复 audience
+  过滤（task 类不进任何 kind 提示词技能段——防混入语义由目录承载）。
+  user 技能显式启用制保留（§32 裁决不受影响）。
+- **kind 维缺省（daemon 侧）**：orchestrator 技能全源 + mcp-server 无行 =
+  禁用（变相禁用单轨：加载链同构、默认不启用、写面只读）；其余 kind
+  缺省不变。
+- 计数不变（无新命令/事件——system 块构成变化 + `system[].mcpServers`
+  additive 字段 + 写面语义回收）。

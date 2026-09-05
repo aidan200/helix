@@ -7,8 +7,9 @@ import type { UsageDto } from "./usage";
  * - ProfileKind：写面五值（set_enabled/base_prompt.get 等写面命令枚举）；
  * - ReadableProfileKind：agent.config.list 可配置 profile 块三值（统一启停批：
  *   orchestrator 升格可配置 kind，缺省全量下发第三块）；
- * - SystemProfileKind：只读派生块两值（kg-writer/reviewer——工具集/技能面
- *   派生 worker；orchestrator 已升格撤出）。
+ * - SystemProfileKind：只读系统块三值（orchestrator 编排归位批归位系统区
+ *   ——声明全集 + 任务 SOP 注册表 + 只读 MCP 行；kg-writer/reviewer 工具集/
+ *   技能面派生 worker）。
  */
 export type ProfileKind =
   | "main-session"
@@ -21,7 +22,7 @@ export type ProfileKind =
 export type ReadableProfileKind = "main-session" | "subagent-worker" | "orchestrator";
 
 /** 只读派生块 kind 两值（统一启停批：orchestrator 撤出，仅剩 worker 派生两 kind）。 */
-export type SystemProfileKind = "subagent-kg-writer" | "subagent-code-reviewer";
+export type SystemProfileKind = "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
 
 /**
  * Agent 生命周期状态（契约 §6；AD-17.5：前端显示贫血 DTO）。

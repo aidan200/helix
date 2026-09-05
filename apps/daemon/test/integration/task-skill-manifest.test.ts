@@ -358,8 +358,10 @@ describe("builtin 防护回归（CL-2-T10）", () => {
     });
     const outcome = await service.setEnabled("main-session", "skill", "kg-bootstrap", false);
     expect(outcome).toEqual({ status: "skipped", reason: "audience-guard" });
-    // 统一启停批：task 类技能行可见但恒禁（audience-guard——读面 enabled=false，落库零差异行）
-    expect((await service.list("main-session")).skills.find((s) => s.name === "kg-bootstrap")?.enabled).toBe(false);
+    // 编排归位批：task 类不进 agent kind 技能清单（目录二分）；orchestrator
+    // 清单全量携带（注册表展示数据源）且 kind 缺省全禁——零差异行落库
+    expect((await service.list("main-session")).skills.find((s) => s.name === "kg-bootstrap")).toBeUndefined();
+    expect((await service.list("orchestrator")).skills.find((s) => s.name === "kg-bootstrap")?.enabled).toBe(false);
   });
 });
 

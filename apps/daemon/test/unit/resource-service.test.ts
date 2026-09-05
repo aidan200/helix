@@ -324,28 +324,34 @@ describe("ResourceService：统一启停模型（拆 audience×kind 双轨批）
     { name: "user-skill", description: "用户技能", filePath: "/u/user-skill/SKILL.md", source: "user", audience: "agent" },
   ];
 
-  test("⑫ 五 kind 同链：builtin 行为技能缺省启用；task 类恒禁（缺省禁 + 只读，消费通道 kickoff 不变）；user 显式启用后全 kind 可生效", async () => {
+  test("⑫ kind 维缺省（编排归位批）：main/sub builtin 行为技能缺省启用 + user 显式启用制；orchestrator 技能面缺省全禁（变相禁用，写面只读在 handler 层）；task 类不进任何 kind 生效集", async () => {
     const { service } = makeService(new InMemoryResourceState(), new FakeSkillSource({ skills: AUDIENCED, diagnostics: [] }));
-    for (const kind of ["main-session", "subagent-worker", "orchestrator"] as const) {
+    for (const kind of ["main-session", "subagent-worker"] as const) {
       const effective = await service.getEffectiveSkills(kind);
-      // builtin∧agent 缺省启用；task/user 无行 = 禁用
+      // builtin∧agent 缺省启用；task（目录二分）/user（显式启用制）不生效
       expect(effective.map((s) => s.name)).toEqual(["web-access"]);
     }
+    // orchestrator：kind 缺省全禁 → 技能段恒空（builtin/user 均不生效；
+    // task 类目录二分本就不进生效集）
+    expect(await service.getEffectiveSkills("orchestrator")).toEqual([]);
     // task 类 SOP 写面只读：audience-guard skipped（任何 kind、任何 enabled 值）
     expect(await service.setEnabled("main-session", "skill", "kg-bootstrap", true)).toEqual({ status: "skipped", reason: "audience-guard" });
-    // user 技能显式启用 → orchestrator 也可生效（不再恒空）
-    expect(await service.setEnabled("orchestrator", "skill", "user-skill", true)).toEqual({ status: "applied" });
-    expect((await service.getEffectiveSkills("orchestrator")).map((s) => s.name).sort()).toEqual(["user-skill", "web-access"]);
+    // user 技能显式启用 → main 生效；orchestrator 经显式启用行也可生效
+    //（store 差异行优先于 kind 缺省——加载链同构，只读由写面拒绝承担）
+    expect(await service.setEnabled("main-session", "skill", "user-skill", true)).toEqual({ status: "applied" });
+    expect((await service.getEffectiveSkills("main-session")).map((s) => s.name).sort()).toEqual(["user-skill", "web-access"]);
   });
 
-  test("⑬ 读面：task 技能行可见（enabled=false）——列表可见性取代隐藏双轨（用户可见 SOP 但不可开）", async () => {
+  test("⑬ 读面：任务 SOP 不进 agent kind 技能清单（目录二分）；orchestrator 清单全量携带（其系统块技能区 = 任务 SOP 注册表）", async () => {
     const { service } = makeService(new InMemoryResourceState(), new FakeSkillSource({ skills: AUDIENCED, diagnostics: [] }));
     const view = await service.list("main-session");
-    const taskRow = view.skills.find((s) => s.name === "kg-bootstrap");
-    expect(taskRow?.audience).toBe("task");
-    expect(taskRow?.enabled).toBe(false);
+    expect(view.skills.find((s) => s.name === "kg-bootstrap")).toBeUndefined(); // task 类不进 agent 卡
     expect(view.skills.find((s) => s.name === "web-access")?.enabled).toBe(true);
     expect(view.skills.find((s) => s.name === "user-skill")?.enabled).toBe(false);
+    // orchestrator：全量携带（含 task 类——注册表展示数据源），kind 缺省全禁
+    const orchView = await service.list("orchestrator");
+    expect(orchView.skills.find((s) => s.name === "kg-bootstrap")?.audience).toBe("task");
+    expect(orchView.skills.every((s) => !s.enabled)).toBe(true);
   });
 });
 

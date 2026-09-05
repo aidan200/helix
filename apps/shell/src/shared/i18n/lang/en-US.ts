@@ -547,6 +547,7 @@ export const enUS = {
     mcpEmpty: "No MCP server connected (add one in Settings)",
     mcpToolCount: "{count} tools",
     mcpOffChip: "Group off",
+    mcpNoteOrch: "The task orchestrator is system machinery: MCP is off by default and read-only (same loading path as regular agents, effectively disabled via defaults).",
     mcpState: {
       idle: "Idle",
       connecting: "Connecting",

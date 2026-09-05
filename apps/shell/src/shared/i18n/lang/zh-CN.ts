@@ -554,6 +554,7 @@ export const zhCN = {
     mcpEmpty: "未接入 MCP server（在设置页添加后自动出现）",
     mcpToolCount: "{count} 个工具",
     mcpOffChip: "整组关闭",
+    mcpNoteOrch: "任务编排器为系统机制：MCP 默认不启用且只读（加载链与常规 agent 同构，经缺省禁用变相关闭）。",
     mcpState: {
       idle: "空闲",
       connecting: "连接中",
