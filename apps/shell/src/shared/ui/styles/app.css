@@ -31,34 +31,32 @@ button { font-family: inherit; }
 *::-webkit-scrollbar-thumb { background: rgb(var(--accent-rgb) / 0.28); border-radius: 9999px; }
 *::-webkit-scrollbar-thumb:hover { background: rgb(var(--accent-rgb) / 0.55); }
 
-/* ── 工作段位呼吸光点（WorkPhaseDot；消息流区域右下角浮层，不占流布局）──
+/* ── 工作段位呼吸光点（WorkPhaseDot；chat 状态行右槽行内形态，T1 收拢）──
    主副配色语义：主色 accent = 对外产出（tool/reply），副色 violet = 对内
    思考（thinking 惯例同源 think-live 光标/steer 族）；working 中性，
    aborting 警示。全部 tokens.css 变量，暗/亮主题自动跟随。
-   T-webkit-repaint：absolute 钉 .msg-flow-wrap 右下（不驻滚动容器）——
-   WKWebView 对 sticky 元素内文本更新存在不重绘缺陷（颜色对/文字陈旧，
-   resize/DevTools 开关强制重绘才恢复）；同时修复内容不满一屏时 sticky 不钉底。 */
-.wp-float {
-  position: absolute; bottom: 10px; right: 18px;
-  pointer-events: none; z-index: 15;
+   E-89：槽位驻 ChatStatusBar（滚动容器之外）——旧浮动形态（absolute 钉
+   .msg-flow-wrap 右下）随 T1 状态行收拢退役；sticky 驻滚动容器内自始
+   禁用（WKWebView 对 sticky 元素内文本更新不重绘 + 不满一屏不钉底）。 */
+.wp-inline {
   align-items: center; gap: 7px;
-  display: flex;
+  display: inline-flex;
 }
-.wp-float .wp-dot {
+.wp-inline .wp-dot {
   width: 10px; height: 10px;
   box-shadow: 0 0 8px currentColor, 0 0 2px currentColor;
 }
-.wp-float .wp-label {
+.wp-inline .wp-label {
   font-size: var(--text-cap); letter-spacing: .08em;
   color: var(--text-dim);
 }
-.wp-float[data-phase="thinking"] .wp-dot { background: var(--violet); color: var(--violet); }
-.wp-float[data-phase="tool"] .wp-dot,
-.wp-float[data-phase="reply"] .wp-dot { background: var(--accent); color: var(--accent); }
-.wp-float[data-phase="working"] .wp-dot { background: var(--text-dim); color: var(--text-dim); }
-.wp-float[data-phase="aborting"] .wp-dot { background: var(--warning); color: var(--warning); }
+.wp-inline[data-phase="thinking"] .wp-dot { background: var(--violet); color: var(--violet); }
+.wp-inline[data-phase="tool"] .wp-dot,
+.wp-inline[data-phase="reply"] .wp-dot { background: var(--accent); color: var(--accent); }
+.wp-inline[data-phase="working"] .wp-dot { background: var(--text-dim); color: var(--text-dim); }
+.wp-inline[data-phase="aborting"] .wp-dot { background: var(--warning); color: var(--warning); }
 @media (prefers-reduced-motion: reduce) {
-  .wp-float .wp-dot { animation: none !important; }
+  .wp-inline .wp-dot { animation: none !important; }
 }
 
 /* ── 全局氛围：扫描线（暗色常驻，亮色关闭见 tokens.css）── */
@@ -310,8 +308,9 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
 }
 
 /* ═══ 消息流 ═══ */
-/* T-webkit-repaint：wrap = 滚动容器外壳（flex:1 收缩 + 光点 absolute 锚）——
-   .msg-flow 保持滚动职责不变；光点在 wrap 层钉区域右下，不参与滚动 */
+/* wrap = 滚动容器外壳（flex:1 收缩；.snap-dwell 呼吸底线锚）——
+   .msg-flow 保持滚动职责不变；T1 前 WorkPhaseDot/SteerQueueDock 浮动钉
+   位在此，现已收拢 ChatStatusBar 状态行（滚动容器之外） */
 .msg-flow-wrap {
   flex: 1; min-height: 0;
   position: relative;
@@ -332,6 +331,21 @@ button.sp-row:hover { background: var(--bg-hover); border-color: var(--border); 
   max-width: 860px; margin: 0 auto; padding: 20px 20px 28px;
   display: flex; flex-direction: column; gap: 14px;
 }
+
+/* ═══ chat 状态行（T1：消息流与 composer 之间的常驻条）═══
+   常驻占位：height 恒定 + flex-shrink:0，无条件渲染——内容有无不影响
+   布局（对话气泡卡片与输入框间距恒定）。三槽 flex：左 SteerQueueDock /
+   中 diff 预留占位 / 右 WorkPhaseDot（E-89：行在滚动容器之外）。 */
+.chat-status-bar {
+  flex-shrink: 0; height: 28px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 18px;
+}
+.chat-status-bar .csb-slot { display: flex; align-items: center; min-width: 0; }
+.chat-status-bar .csb-left { flex: 0 1 auto; }
+/* 中槽 diff 预留：吃掉剩余空间（后续任务接 diff 统计） */
+.chat-status-bar .csb-mid { flex: 1 1 auto; }
+.chat-status-bar .csb-right { flex: 0 0 auto; justify-content: flex-end; }
 
 /* 消息行 */
 .msg { display: flex; gap: 10px; animation: log-rise 0.24s ease-out; }
@@ -529,12 +543,12 @@ html.light .bubble code.inline { color: var(--accent); }
 .system-inject .si-text { color: var(--text); min-width: 0; word-break: break-word; }
 .system-inject .si-state { flex-shrink: 0; font-size: var(--text-micro); color: var(--text-dim); white-space: nowrap; }
 
-/* ═══ steer 队列坞（drain 落盘语义的 queued 观察面；左下角 absolute 钉
-   .msg-flow-wrap——E-89 教训勿 sticky 驻滚动容器；与 WorkPhaseDot 右下对称）═══ */
+/* ═══ steer 队列坞（drain 落盘语义的 queued 观察面；chat 状态行左槽行内
+   形态——T1 收拢，浮动旧形态 absolute 钉 .msg-flow-wrap 退役；E-89：
+   状态行在滚动容器之外；展开清单向上弹出覆盖消息流而非推挤）═══ */
 .steer-dock {
-  position: absolute; left: 12px; bottom: 12px; z-index: 5;
-  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
-  max-width: min(420px, 60%);
+  position: relative; /* 展开清单弹出锚 */
+  display: inline-flex; flex-direction: column; align-items: flex-start;
 }
 .steer-dock .sdq-toggle {
   display: inline-flex; align-items: center; gap: 6px;
@@ -544,8 +558,13 @@ html.light .bubble code.inline { color: var(--accent); }
 }
 .steer-dock .sdq-toggle:hover { border-color: rgb(var(--violet-rgb) / 0.65); background: rgb(var(--violet-rgb) / 0.16); }
 .steer-dock .sdq-toggle .q-dot { width: 5px; height: 5px; border-radius: 999px; background: currentColor; animation: hud-pulse 2s ease-in-out infinite; }
+/* 展开清单：向上弹出（bottom:100% 锚 dock 上沿，覆盖消息流不推挤状态行
+   常驻位——WorkLedgerBar wl-items 浮窗同纪律：实底遮字 + 描边 + 内部滚动） */
 .steer-dock .sdq-list {
-  display: flex; flex-direction: column; gap: 4px; width: 100%;
+  position: absolute; bottom: 100%; left: 0; z-index: 10; margin-bottom: 6px;
+  width: max-content; max-width: min(420px, 56vw);
+  max-height: 40vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px;
   padding: 6px; border-radius: 8px;
   border: 1px solid var(--edge); background: var(--panel);
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);

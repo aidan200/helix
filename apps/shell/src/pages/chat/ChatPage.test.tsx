@@ -200,13 +200,21 @@ describe("S1 应用壳统一（AppLayout 迁移）", () => {
     expect(body.querySelector(".sidebar")).not.toBeNull();
     // .app 落位 main.layout-main；直系子序保持既有断言面（T-webkit-repaint：
     //   msg-flow-wrap 取代 msg-flow 为 .app 直系子——光点脱离滚动容器的结构错位；
-    //   main.msg-flow 驻 wrap 内保持滚动职责，结构唯一性由链路断言示证）
+    //   main.msg-flow 驻 wrap 内保持滚动职责，结构唯一性由链路断言示证；
+    //   T1：chat-status-bar 常驻状态行插 wrap 与 composer 之间——三槽收拢
+    //   浮动件，位于滚动容器之外）
     const main = body.querySelector("main.layout-main")!;
     expect(main.querySelector(".app")).not.toBeNull();
-    expect(appChildClasses()).toEqual(["conn-banner", "msg-flow-wrap", "composer-wrap"]);
+    expect(appChildClasses()).toEqual(["conn-banner", "msg-flow-wrap", "chat-status-bar", "composer-wrap"]);
     const flow = document.querySelector(".msg-flow");
     expect(flow?.tagName).toBe("MAIN");
     expect(flow?.parentElement?.className).toBe("msg-flow-wrap");
+    // T1 + E-89：状态行在滚动容器 .msg-flow 之外（不驻滚动流），位于 wrap 与 composer 之间
+    const statusBar = document.querySelector('[data-testid="chat-status-bar"]')!;
+    expect(statusBar.parentElement?.classList.contains("app")).toBe(true);
+    expect(flow?.contains(statusBar)).toBe(false);
+    expect(statusBar.previousElementSibling!.classList.contains("msg-flow-wrap")).toBe(true);
+    expect(statusBar.nextElementSibling!.classList.contains("composer-wrap")).toBe(true);
   });
 
   it("header 槽清理：无 brand / 无主题分段钮 / 无齿轮；scanline 副本删除（归 App.tsx 单份）", () => {

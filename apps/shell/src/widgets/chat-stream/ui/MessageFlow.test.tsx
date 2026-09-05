@@ -257,10 +257,9 @@ describe("MessageFlow 挂载（三态分流；消费 T4.1 槽位）", () => {
     expect(document.querySelector('[data-source="closure"]')!.closest(".msg")).toBeNull();
     expect(screen.getByText("用户原话").closest(".msg")).not.toBeNull();
     expect(screen.getByText("手动 steer").closest(".msg")).not.toBeNull();
-    // queued steer 不上时间轴——归左下角队列坞（data-kind=steer-dock）
+    // queued steer 不上时间轴（时间轴面断言）；坞已随 T1 迁 ChatStatusBar 状态行左槽
     expect(screen.queryByText("排队中的 steer")?.closest(".msg") ?? null).toBeNull();
-    const dock = document.querySelector('[data-kind="steer-dock"]');
-    expect(dock).not.toBeNull();
+    expect(document.querySelector('[data-kind="steer-dock"]')).toBeNull();
   });
 });
 
@@ -651,9 +650,9 @@ describe("MessageFlow 错误条目原位红条（error entry 批）", () => {
   });
 });
 
-// ── 工作段位呼吸光点（WorkPhaseDot 挂载；数据源 selectWorkPhase 见 reducer 用例）──
+// ── 浮动件退役（T1：SteerQueueDock/WorkPhaseDot 迁 ChatStatusBar 状态行；挂载面守护）──
 
-describe("MessageFlow 工作段位呼吸光点", () => {
+describe("MessageFlow 浮动件退役（T1 状态行收拢）", () => {
   const welcome: EventEnvelope = {
     v: 0,
     type: "connection.welcome",
@@ -666,37 +665,19 @@ describe("MessageFlow 工作段位呼吸光点", () => {
     payload: { instanceId: "main", delta: "推理…" },
   };
 
-  it("idle 不渲染光点；thinking 段渲染 violet 思考中光点", () => {
-    stateRef.current = sessionReducer(
-      createInitialSessionState(),
-      { type: "event", event: welcome } as never,
-    );
-    const { unmount } = ui(<MessageFlow />);
-    expect(document.querySelector(".wp-float")).toBeNull();
-    unmount();
-
-    stateRef.current = [running, thinkDelta].reduce(
-      (s, e) => sessionReducer(s, { type: "event", event: e } as never),
-      stateRef.current,
-    );
-    ui(<MessageFlow />);
-    const dot = document.querySelector(".wp-float");
-    expect(dot).not.toBeNull();
-    expect(dot?.getAttribute("data-phase")).toBe("thinking");
-    expect(dot?.textContent).toContain("思考中");
-  });
-
-  it("T-webkit-repaint：光点驻 .msg-flow-wrap 内、滚动容器 .msg-flow 外（脱离 sticky 重绘缺陷路径）", () => {
+  it("thinking 活跃态 + queued steer → 光点/坞均不在 MessageFlow 内（归 ChatStatusBar 三槽）", () => {
     stateRef.current = [running, thinkDelta].reduce(
       (s, e) => sessionReducer(s, { type: "event", event: e } as never),
       sessionReducer(createInitialSessionState(), { type: "event", event: welcome } as never),
     );
+    stateRef.current = {
+      ...stateRef.current,
+      steerQueue: [{ id: "q-1", text: "排队", confirmed: true, ts: 1 }],
+    };
     ui(<MessageFlow />);
-    const dot = document.querySelector(".wp-float");
-    const wrap = document.querySelector(".msg-flow-wrap");
-    const flow = document.querySelector(".msg-flow");
-    expect(wrap).not.toBeNull();
-    expect(dot?.parentElement).toBe(wrap); // 钉 wrap 右下（absolute 锚）
-    expect(flow?.contains(dot!)).toBe(false); // 不在滚动容器内（sticky 旧路径退役）
+    expect(document.querySelector(".wp-inline, .wp-float")).toBeNull();
+    expect(document.querySelector('[data-kind="steer-dock"]')).toBeNull();
+    // snap-dwell 呼吸线原位保留（滚动语义，非浮动件）
+    expect(document.querySelector(".msg-flow-wrap")).not.toBeNull();
   });
 });
