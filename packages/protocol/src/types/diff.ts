@@ -69,6 +69,10 @@ export interface DiffGetResultPayload {
   files: readonly DiffFileDto[];
   /** 轮级统计汇总。 */
   summary: { adds: number; dels: number };
+  /** 回执归属轮次 id（v0.3.1 §27：rehydrate 面消费——轮次守卫防降级覆盖）。 */
+  turnId: string;
+  /** 回执轮相位（v0.3.1 §27：active=进行中轮实时 / frozen=冻结轮；chip 灰态判定）。 */
+  phase: "active" | "frozen";
 }
 
 // ── 信封（点对点回执窄化接口——不入 EVENT_TYPES 目录，task 族先例） ──

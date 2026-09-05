@@ -59,6 +59,9 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       attachImages: vi.fn(),
       removeAttachment: vi.fn(),
       subscribeWorkspaceFrames: () => () => {}, // W4 刷新链订阅面（无操作 stub）
+      // diff 面（§29 rehydrate/详情窗）：chip 补拉与 overlay 查询 stub
+      sendDiffGet: vi.fn().mockReturnValue(true),
+      subscribeDiffFrames: () => () => {},
       requestModelConfig: () => {},
       killInstance,
       subscribeInstance,
@@ -85,12 +88,12 @@ function play(events: SessionAction[]): SessionState {
 
 const ev = (event: EventEnvelope): SessionAction => ({ type: "event", event });
 
-function ui() {
+function ui(element: React.ReactElement = <ChatPage />) {
   return render(
     <ThemeProvider>
       <I18nProvider>
         <ToastProvider>
-          <ChatPage />
+          {element}
         </ToastProvider>
       </I18nProvider>
     </ThemeProvider>,
@@ -255,5 +258,33 @@ describe("M52 聚焦接线（props 回调由 pages 层接线，非魔法 id DOM 
     expect(newDraft).toHaveBeenCalledTimes(1);
     const ta = document.querySelector("#msg-input") as HTMLTextAreaElement;
     expect(document.activeElement).toBe(ta);
+  });
+});
+
+describe("diff 详情窗残影修复（v0.3.1 §29）", () => {
+  it("overlay 开着切会话（sessionId 变化）→ 强制收起（旧会话内容不残影）", () => {
+    stateRef.current = {
+      ...createInitialSessionState(),
+      sessionId: "s1",
+      conn: "connected",
+      view: "ready",
+      diff: { turnId: "t-1", phase: "frozen", adds: 10, dels: 2, fileCount: 3 },
+    };
+    const { rerender } = ui();
+    // chip 点击开窗
+    fireEvent.click(document.querySelector('[data-testid="diff-stat-chips"]')!);
+    expect(document.querySelector('[data-testid="diff-overlay"]')).not.toBeNull();
+    // 切会话：sessionId 变化 → overlay 收起
+    stateRef.current = { ...stateRef.current, sessionId: "s2" };
+    rerender(
+      <ThemeProvider>
+        <I18nProvider>
+          <ToastProvider>
+            <ChatPage />
+          </ToastProvider>
+        </I18nProvider>
+      </ThemeProvider>,
+    );
+    expect(document.querySelector('[data-testid="diff-overlay"]')).toBeNull();
   });
 });

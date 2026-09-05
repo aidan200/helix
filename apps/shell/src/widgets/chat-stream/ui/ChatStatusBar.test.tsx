@@ -19,7 +19,7 @@ import { createInitialSessionState, sessionReducer, type SessionState } from "@/
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
-  return { ...orig, useSession: () => ({ state: stateRef.current }) };
+  return { ...orig, useSession: () => ({ state: stateRef.current, sendDiffGet: () => false }) };
 });
 
 import ChatStatusBar from "./ChatStatusBar";

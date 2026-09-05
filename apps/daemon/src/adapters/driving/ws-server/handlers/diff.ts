@@ -103,6 +103,9 @@ export function handleDiffGet(ctx: DiffCommandContext): void {
         payload: {
           files: view.files.map(fileToDto),
           summary: { adds: view.stats.added, dels: view.stats.removed },
+          // v0.3.1 §27：回执携带轮相位（rehydrate 面：shell chip 灰态判定）
+          turnId: view.turnId,
+          phase: view.phase,
         },
       };
       reply(ctx, frame);

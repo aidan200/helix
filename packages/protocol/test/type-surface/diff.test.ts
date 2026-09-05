@@ -83,12 +83,17 @@ describe("diff 批：diff.get.result 点对点回执（窄化接口，不入 EVE
     expect(EVENT_TYPES).not.toContain("diff.get.result");
   });
 
-  test("DiffGetResultEvent 形状：files + summary", () => {
+  test("DiffGetResultEvent 形状：files + summary + turnId/phase（v0.3.1 §29 轮相位）", () => {
     const files: readonly DiffFileDto[] = [
       { path: "a.ts", status: "added", adds: 5, dels: 0, agents: ["main"] },
       { path: "b.ts", status: "external", adds: 2, dels: 0, note: "外部变更（粗估）", agents: [] },
     ];
-    const payload: DiffGetResultPayload = { files, summary: { adds: 7, dels: 0 } };
+    const payload: DiffGetResultPayload = {
+      files,
+      summary: { adds: 7, dels: 0 },
+      turnId: "turn-9",
+      phase: "frozen",
+    };
     const frame: DiffGetResultEvent = {
       v: PROTOCOL_VERSION,
       sessionId: "sess-1",

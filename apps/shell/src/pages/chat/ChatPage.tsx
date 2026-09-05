@@ -75,6 +75,11 @@ const ChatPage = function ChatPage() {
 
   // T3+T4 diff 批：diff 详情覆盖窗开合态（chip 点击开 / Esc・遮罩关）
   const [diffOverlayOpen, setDiffOverlayOpen] = useState(false);
+  // v0.3.1 §29：会话切换强制收起详情窗——防止旧会话查询内容残影
+  //（DiffOverlay 单飞查询不随切会话重发，开着切走即陈旧展示）
+  useEffect(() => {
+    setDiffOverlayOpen(false);
+  }, [state.sessionId]);
   return (
     <>
       <Workbench onOpenInstance={openInstance} onFocusInput={focusComposer}>

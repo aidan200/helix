@@ -949,3 +949,35 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 > - 计数演进：命令 63 → 69；事件 80 → 87（守护断言同步扩；diff 批 §26 之后）。
 > - 非法 payload（name/command 缺失、remove 目标不存在等）→
 >   `connection.error{command.invalid_payload}`（连接保持）。
+
+## 28. mcp deferred 微批（MCP 懒加载：McpServerInput.deferred 位 + `<server>__discover` meta 工具；v0.11 后 additive 微批——版本位不 bump）
+
+> - **字段**：`McpServerInput` 增可选 `deferred?: boolean`（add/update/test
+>   入参与 `McpServerConfigDto` list 回显同形继承）——缺省 `true`：
+>   server 工具不进 agent 初始生效集，经 `${server}__discover` meta 工具
+>   按需装载（工具结果 `addedToolNames` 标记 + 引擎工具池物化——
+>   pi deferred tools 通道：Anthropic `defer_loading` / OpenAI
+>   additional-tools|tool-search 原生分流，其余 provider 忽略标记 =
+>   物化后急发，行为降级不坏）；`false` = 全量急发（mcp 批现状语义）。
+> - **工具清单读面不变**：`agent.config.list` 的 `mcp.discovered` 组仍列
+>   全部已发现工具（toggle 语义 = discover 后是否物化）；meta 工具行
+>   `${server}__discover` 同组可 toggle（关 = 该 server 不可发现）。
+> - 计数不变（无新命令/事件/通道——纯字段 additive）。
+
+## 29. diff rehydrate 微批（会话切回补拉：回执轮相位 + live 回落；v0.11 后 additive 微批——版本位不 bump）
+
+- **背景**：diff.changed 是 publishDelta 瞬态帧，会话切走期间错过即不重放、
+  活跃 store 重建 diff 切片归零——切回后 chip 消失无补拉。修复 = 查询面
+  rehydrate：切回单查询 `diff.get {live:true}` 即得「进行中或最近轮」。
+- **回执字段（additive）**：`DiffGetResultPayload` 增必填 `turnId: string`、
+  `phase: "active" | "frozen"`（回执归属轮相位——shell chip 灰态判定与
+  轮次守卫防降级覆盖依据）。
+- **live 语义演进**：`live=true` 无进行中轮时由「报错 null」改为**回落最近
+  冻结轮**（auto 语义：rehydrate 单查询自适配；DiffOverlay 开窗遇到
+  轮结束竞态也自然显示冻结轮而非报错）。冷会话（无 active 且无冻结轮）
+  仍 null → `command.invalid_payload`（如实无记录）。
+- **shell 消费面（同批）**：`diff.get.result` 从 PASSTHROUGH 移入 diff 真
+  消费（摘要落 state.diff；文件明细仍经 LISTEN_SURFACE 转发归
+  DiffOverlay 私有 reducer）；`diff.changed` cleared 相位改忽略（开轮不抹
+  上一轮灰态，首个 active 帧整体替换——流式期 chip 不消失）。
+- 计数不变（无新命令/事件/通道——回执字段 additive + 语义澄清）。

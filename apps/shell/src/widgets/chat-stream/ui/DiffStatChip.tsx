@@ -9,8 +9,13 @@
  * 保底（E-125），chip 零占位不破高度恒定。数值累计动画：.diff-num 按
  * key={值} 重挂触发 CSS bump（无 JS 动画库）。点击 → onOpen（DiffOverlay
  * 详情窗由 pages 层 ChatPage 持开合态——conn-overlay 同族覆盖对话区）。
+ *
+ * rehydrate（v0.3.1 §29）：diff.changed 是瞬态帧——会话切走期间错过不
+ * 重放、活跃 store 重建 diff 归零。本组件挂载/会话/连接态变化时若
+ * diff=null 发单次 diff.get{live:true}（daemon 回落语义：进行中或最近
+ * 轮），回执经 consumers/diff 真消费落切片——chip 自恢复。
  */
-import { memo } from "react";
+import { memo, useEffect } from "react";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 
@@ -20,9 +25,18 @@ interface DiffStatChipProps {
 }
 
 const DiffStatChip = memo(function DiffStatChip({ onOpen }: DiffStatChipProps) {
-  const { state } = useSession();
+  const { state, sendDiffGet } = useSession();
   const { t } = useI18n();
   const diff = state.diff;
+  const sid = state.sessionId;
+  const conn = state.conn;
+  // rehydrate：空态补拉（会话确立 + 连接就绪；回执真消费落切片后本
+  // effect 因 diff 非空自然停拉；切会话重建 store → diff 重归 null → 重拉）
+  const empty = diff === null;
+  useEffect(() => {
+    if (!empty || sid === null || conn !== "connected") return;
+    sendDiffGet({ live: true });
+  }, [empty, sid, conn, sendDiffGet]);
   // 空态：无记录（daemon 内存态重启丢/开轮未记账）→ 不渲染
   if (diff === null || (diff.adds === 0 && diff.dels === 0 && diff.fileCount === 0)) {
     return null;

@@ -102,6 +102,9 @@ describe("dispatcher 事件消费者注册表（AD-3；C2 拆分）", () => {
     expect(route("session.loadHistory.result")).toBe(applyHistoryEvent);
     // diff.changed（T3+T4 diff 批）：轮次 diff 状态面（consumers/diff）
     expect(route("diff.changed")).toBe(applyDiffEvent);
+    // diff.get.result（v0.3.1 §29）：回执真消费（rehydrate 摘要落切片；
+    // 文件明细仍经 SessionContext 转发层归 DiffOverlay——两链平行）
+    expect(route("diff.get.result")).toBe(applyDiffEvent);
     // 拓扑级清单族（directory）：不入本注册表，经 dispatcher/frame.ts 前置路由
     expect(route("session.list.result")).toBeUndefined();
     expect(route("session.list_changed")).toBeUndefined();

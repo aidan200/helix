@@ -188,31 +188,35 @@ describe("TP-DIFF-c：diff.get 往返与防御回执", () => {
       const result = await client.waitFor((f) => f.type === "diff.get.result", "diff.get.result");
       expect(result.sessionId).toBe(sessionId);
       expect(result.channel).toBe("session");
-      expect(result.payload).toEqual({ files: [], summary: { adds: 0, dels: 0 } });
+      // 回执携带轮相位（rehydrate 面：chip 灰态判定依据——v0.3.1 §27）
+      expect(result.payload).toMatchObject({ files: [], summary: { adds: 0, dels: 0 }, phase: "frozen" });
+      expect(typeof (result.payload as { turnId: string }).turnId).toBe("string");
     } finally {
       await client.close();
       await rig.dispose();
     }
   }, 15000);
 
-  test("live=true 无进行中轮 → command.invalid_payload（连接保持）", async () => {
+  test("live=true 无进行中轮 → 回落最近冻结轮（rehydrate auto 语义；连接保持）", async () => {
     const rig = await makeRig([{ text: "好。" }]);
     const client = new TestClient(rig.url);
     try {
       await client.open();
       const sessionId = await helloHandshake(client, rig.token);
       client.send({ v: 0, type: "chat.send", sessionId, payload: { text: "跑一轮" } });
-      await client.waitFor((f) => f.type === "diff.changed" && (f.payload as { phase: string }).phase === "frozen", "frozen");
-
-      client.send({ v: 0, type: "diff.get", sessionId, payload: { live: true } });
-      const err = await client.waitFor(
-        (f) => f.type === "connection.error" && (f.payload as { code?: string }).code === "command.invalid_payload",
-        "invalid_payload",
+      const frozen = await client.waitFor(
+        (f) => f.type === "diff.changed" && (f.payload as { phase: string }).phase === "frozen",
+        "frozen",
       );
-      expect((err.payload as { message: string }).message).toContain("无轮次 diff 数据");
-      // 连接保持：后续 diff.get 正常回执
-      client.send({ v: 0, type: "diff.get", sessionId, payload: {} });
-      await client.waitFor((f) => f.type === "diff.get.result", "diff.get.result");
+
+      // 轮已结束（active=null）：live=true 不再报错，回落最近冻结轮——
+      // 会话切回 rehydrate 单查询即得「进行中或最近轮」
+      client.send({ v: 0, type: "diff.get", sessionId, payload: { live: true } });
+      const result = await client.waitFor((f) => f.type === "diff.get.result", "diff.get.result");
+      expect((result.payload as { phase: string }).phase).toBe("frozen");
+      expect((result.payload as { turnId: string }).turnId).toBe(
+        (frozen.payload as { turnId: string }).turnId,
+      );
     } finally {
       await client.close();
       await rig.dispose();

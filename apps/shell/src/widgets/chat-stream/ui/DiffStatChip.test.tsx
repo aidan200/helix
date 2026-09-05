@@ -16,14 +16,18 @@ import { I18nProvider } from "@/shared/i18n";
 import { createInitialSessionState, type SessionState } from "@/entities/session/model/session-reducer";
 
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
+const sendDiffGet = vi.fn().mockReturnValue(true);
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
-  return { ...orig, useSession: () => ({ state: stateRef.current }) };
+  return { ...orig, useSession: () => ({ state: stateRef.current, sendDiffGet }) };
 });
 
 import DiffStatChip from "./DiffStatChip";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  sendDiffGet.mockClear();
+});
 
 const active = (adds: number, dels: number): SessionState => ({
   ...createInitialSessionState(),
@@ -119,5 +123,48 @@ describe("DiffStatChip 交互", () => {
     );
     fireEvent.click(container.querySelector('[data-testid="diff-stat-chips"]')!);
     expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DiffStatChip rehydrate（v0.3.1 §29：会话切回补拉）", () => {
+  it("空态 + 会话确立 + 已连接 → 发 diff.get{live:true}（切回单查询即得进行中或最近轮）", () => {
+    stateRef.current = { ...createInitialSessionState(), sessionId: "s1", conn: "connected" };
+    render(
+      <I18nProvider>
+        <DiffStatChip onOpen={() => {}} />
+      </I18nProvider>,
+    );
+    expect(sendDiffGet).toHaveBeenCalledWith({ live: true });
+    expect(sendDiffGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("连接未就绪 → 不拉（ready 后 effect 重触发补拉）", () => {
+    stateRef.current = { ...createInitialSessionState(), sessionId: "s1", conn: "connecting" };
+    render(
+      <I18nProvider>
+        <DiffStatChip onOpen={() => {}} />
+      </I18nProvider>,
+    );
+    expect(sendDiffGet).not.toHaveBeenCalled();
+  });
+
+  it("草稿态（sessionId=null）→ 不拉", () => {
+    stateRef.current = { ...createInitialSessionState(), conn: "connected" };
+    render(
+      <I18nProvider>
+        <DiffStatChip onOpen={() => {}} />
+      </I18nProvider>,
+    );
+    expect(sendDiffGet).not.toHaveBeenCalled();
+  });
+
+  it("已有数据（diff 非空）→ 不拉（活跃期间广播帧驱动，无需补拉）", () => {
+    stateRef.current = active(12, 4);
+    render(
+      <I18nProvider>
+        <DiffStatChip onOpen={() => {}} />
+      </I18nProvider>,
+    );
+    expect(sendDiffGet).not.toHaveBeenCalled();
   });
 });

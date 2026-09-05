@@ -339,3 +339,44 @@ describe("⑧ captureWrite（env 写钩子入口：读旧内容 + record）", ()
     expect(state.active?.files.get("/w/a.txt")?.status).toBe("added");
   });
 });
+
+describe("⑨ getTurnView live 回落（rehydrate auto 语义）", () => {
+  test("live=true 无进行中轮 → 回落最近冻结轮（不再 null）", async () => {
+    const disk = new Map<string, string>();
+    const svc = makeService({
+      readTextFile: async (p) => disk.get(p) ?? null,
+      computePatch: (path, prev, next) => generateUnifiedPatch(path, prev, next),
+    });
+    const state = createTurnDiffState();
+    svc.beginTurn(state, "turn-1", "t0");
+    disk.set("/w/a.txt", ""); // 写前旧内容（空文件）
+    await svc.captureWrite(state, "/w/a.txt", "agent-main", lines(10));
+    disk.set("/w/a.txt", lines(10)); // 写钩子后落盘（模拟 env.writeFile）
+    await svc.endTurn(state, "completed", "t1");
+
+    // 轮已结束（active=null）：live=true 回落最近冻结轮
+    const view = await svc.getTurnView(state, { live: true });
+    expect(view?.turnId).toBe("turn-1");
+    expect(view?.phase).toBe("frozen");
+    expect(view?.stats).toEqual({ added: 10, removed: 0 });
+  });
+
+  test("live=true 有进行中轮 → active 即时视图（不回落）", async () => {
+    const svc = makeService({ computePatch: (path, prev, next) => generateUnifiedPatch(path, prev, next) });
+    const state = createTurnDiffState();
+    svc.beginTurn(state, "turn-1", "t-earlier");
+    await svc.endTurn(state, "completed", "t-early"); // 先冻结一轮（回落候选）
+    svc.beginTurn(state, "turn-2", "t0");
+    await svc.captureWrite(state, "/w/a.txt", "agent-main", lines(5));
+    const view = await svc.getTurnView(state, { live: true });
+    expect(view?.turnId).toBe("turn-2");
+    expect(view?.phase).toBe("active");
+  });
+
+  test("live=true 无 active 且无冻结轮（冷会话）→ 仍 null（如实无记录）", async () => {
+    const svc = makeService();
+    const state = createTurnDiffState();
+    const view = await svc.getTurnView(state, { live: true });
+    expect(view).toBeNull();
+  });
+});

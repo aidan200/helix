@@ -518,15 +518,16 @@ export class TurnDiffService {
   /**
    * diff.get 读面（T3）：live=true → 进行中轮即时视图（逐条目即时终读统计，
    * 不入冻结环形）；否则 → 冻结轮视图（turnId 缺省 = 最近冻结轮）。
-   * 无 diff（冷态/turnId 未命中）→ null。
+   * v0.3.1 §27：live=true 无进行中轮 → 回落最近冻结轮（rehydrate auto
+   * 语义：会话切回单查询即得「进行中或最近轮」）；无 diff（冷态/turnId
+   * 未命中）→ null。
    */
   async getTurnView(
     state: TurnDiffState,
     opts: { turnId?: string; live?: boolean } = {},
   ): Promise<TurnDiffView | null> {
-    if (opts.live === true) {
-      const active = state.active;
-      if (active === null) return null;
+    const active = opts.live === true ? state.active : null;
+    if (active !== null) {
       const files: FrozenDiffFile[] = [];
       let added = 0;
       let removed = 0;
