@@ -46,6 +46,7 @@ import type { CodeReviewService } from "../../../../application/services/kg/Code
 import type { WorkspaceService } from "../../../../application/services/workspace/WorkspaceService";
 import type { TaskQueryService } from "../../../../application/services/task/TaskQueryService";
 import type { TaskEnginePort } from "../../../../application/ports/inbound/TaskEnginePort";
+import type { TurnDiffService, TurnDiffState } from "../../../../application/services/TurnDiffService";
 
 /** 每连接状态（Bun.serve 泛型，经 server.upgrade 的 data 携带；handlers/ 共用型）。 */
 export interface ConnState {
@@ -366,6 +367,38 @@ export interface TaskCommandContext {
   readonly taskEngine: TaskEnginePort | undefined;
   /** 事件流（task.changed 广播 + 连接级任务订阅表）。 */
   readonly events: EventStream;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/**
+ * diff 族命令处理上下文（T3+T4 轮次 diff 协议与 UI 闭环，第十一族）：
+ * diff.get 会话作用域查询面（信封 sessionId 必填——路由位在信封不在
+ * payload）+ 点对点回执（diff.get.result，仅发发起连接）+ 共享辅助。
+ * 查询面未装配（stub 测试形态）→ undefined，handler 回
+ * command.unimplemented（task/kg 族先例）。TurnDiffService 为 application
+ * service type-only 依赖（task 族 TaskQueryService 同口径）。
+ */
+export interface DiffCommandContext {
+  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record；turnId?/live? 可选）。 */
+  readonly payload: Record<string, unknown>;
+  /** 命令信封（会话作用域命令的 sessionId 路由位，必填纪律在 handler 校验）。 */
+  readonly envelope: { sessionId?: unknown };
+  /** 轮次 diff 查询面：热会话 diff 状态读面（registry.peek().diff）+ 服务查询操作面。 */
+  readonly diff:
+    | {
+        readonly stateOf: (sessionId: string) => TurnDiffState | undefined;
+        readonly service: TurnDiffService;
+      }
+    | undefined;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */

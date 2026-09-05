@@ -92,6 +92,10 @@ export interface ActiveTurnDiff {
   startIndex: WorkspaceStatIndexLite | null;
   /** 轮首 walk promise（收轮冻结前 await——保证兜底对比确定性；null = 未装配）。 */
   readonly startWalk: Promise<void> | null;
+  /** T3 推送：轮内逐写精确增量累计（主进程写路径——captureWrite 携带写后内容即时算；开轮清零）。 */
+  liveAdds: number;
+  /** T3 推送：同上（删除行维）。 */
+  liveDels: number;
 }
 
 /** 会话级轮次 diff 状态（挂 SessionRuntime——全内存零持久化）。 */
@@ -115,6 +119,36 @@ export interface TurnDiffIoDeps {
   /** 相对路径 → 绝对（写钩子入口归一——与 walk 索引键对齐；缺省恒等）。 */
   readonly absoluteOf?: (path: string) => string;
 }
+
+/**
+ * 推送回调注入面（T3：照 IO 注入同式的可选注入——服务保持纯操作面零
+ * driving import（AG-02②），组合根绑 fan-out publishDelta 瞬态通道）。
+ * 回调签名带 state：服务方法零 sessionId 参数（T2 已定），归属会话由
+ * 组合根按 state 反查（WeakMap<TurnDiffState, string>）。
+ */
+export type DiffPushCallback = (state: TurnDiffState, change: DiffChangedPayload) => void;
+
+export interface TurnDiffPushDeps {
+  /** 状态变化通知：beginTurn → cleared；recordWrite/recordExternal → active（异步即时重算）；endTurn 冻结 → frozen。 */
+  readonly onDiffChanged?: DiffPushCallback;
+}
+
+/** 测试探针（onDiffChanged 注入 + 调用记录面）。 */
+export interface DiffPushProbe extends TurnDiffPushDeps {
+  readonly calls: { state: TurnDiffState; change: DiffChangedPayload }[];
+}
+
+/** 轮次 diff 查询视图（diff.get 读面：live 即时 / frozen 冻结）。 */
+export interface TurnDiffView {
+  readonly turnId: string;
+  readonly phase: "active" | "frozen";
+  /** frozen 携带（completed/interrupted）；active 缺省。 */
+  readonly outcome?: "completed" | "interrupted";
+  readonly files: readonly FrozenDiffFile[];
+  readonly stats: TurnDiffStats;
+}
+
+import type { DiffChangedPayload } from "@helix/protocol";
 
 /** 单文件基线文本上限（超限 hash-only 降级）。 */
 export const TURN_DIFF_BASELINE_MAX_BYTES = 512 * 1024;
@@ -187,7 +221,10 @@ export interface ExternalWriteMeta {
 }
 
 export class TurnDiffService {
-  constructor(private readonly io: TurnDiffIoDeps = {}) {}
+  constructor(
+    private readonly io: TurnDiffIoDeps = {},
+    private readonly push: TurnDiffPushDeps = {},
+  ) {}
 
   /**
    * 开轮：清零重来（新 active——旧轮文件不带入）+ 后台 stat 索引 walk
@@ -214,15 +251,27 @@ export class TurnDiffService {
       baselineBytes: 0,
       startIndex: null,
       startWalk,
+      liveAdds: 0,
+      liveDels: 0,
     };
     state.active = active;
+    // T3 推送：开轮清零信号（同步——前端 chip 清零重计双保险之一）
+    this.push.onDiffChanged?.(state, { turnId, phase: "cleared", adds: 0, dels: 0, fileCount: 0 });
   }
 
   /**
    * env 写钩子入口（组合根绑 mainInstanceId）：读旧内容 + recordWrite。
    * 读失败（IO 异常）→ 按无基线兜底（added 语义），不抛（写链不受影响）。
+   * T3：nextContent = 写后内容（wrapEnvForDiff 的 hook 签名自带——T2 绑定
+   * 未消费）；携带时同步算逐写精确增量累计并推 active 帧（零读盘零时序
+   * 依赖——写前快照与写后统计同点可得）。缺省不推送（T2 形态兼容）。
    */
-  async captureWrite(state: TurnDiffState, path: string, agentId: string): Promise<void> {
+  async captureWrite(
+    state: TurnDiffState,
+    path: string,
+    agentId: string,
+    nextContent?: string | Uint8Array,
+  ): Promise<void> {
     const abs = this.io.absoluteOf?.(path) ?? path;
     let prev: string | null = null;
     if (this.io.readTextFile !== undefined) {
@@ -233,6 +282,19 @@ export class TurnDiffService {
       }
     }
     this.recordWrite(state, abs, prev, agentId);
+    if (nextContent === undefined) return;
+    // T3 推送：逐写精确增量（baseline → 写后内容 patch；与 freezeEntry 同口径）
+    const active = state.active;
+    if (active === null || this.push.onDiffChanged === undefined) return;
+    const delta =
+      typeof nextContent === "string"
+        ? this.io.computePatch !== undefined
+          ? statsFromPatch(this.io.computePatch(abs, prev ?? "", nextContent))
+          : estimateLineDelta(byteLength(prev ?? ""), byteLength(nextContent))
+        : estimateLineDelta(prev === null ? 0 : byteLength(prev), nextContent.byteLength); // 二进制：size 差粗估
+    active.liveAdds += delta.added;
+    active.liveDels += delta.removed;
+    this.pushActive(state);
   }
 
   /**
@@ -292,6 +354,7 @@ export class TurnDiffService {
       writeCount: 0,
       agents: new Set(meta.agentId !== undefined ? [meta.agentId] : []),
     });
+    this.pushActive(state); // T3 推送：external 记账重推累计视图（粗估口径公式自动纳入）
   }
 
   /**
@@ -327,6 +390,14 @@ export class TurnDiffService {
     files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     state.frozen.push({ turnId: active.turnId, outcome, startedAt: active.startedAt, endedAt, files, stats: { added, removed } });
     while (state.frozen.length > TURN_DIFF_FROZEN_RING) state.frozen.shift();
+    // T3 推送：冻结终值（精确统计；turnId 归属轮）
+    this.push.onDiffChanged?.(state, {
+      turnId: active.turnId,
+      phase: "frozen",
+      adds: added,
+      dels: removed,
+      fileCount: files.length,
+    });
   }
 
   /** external 兜底：轮末 walk 与轮首索引对比——变化且无基线的记 external、消失且无条目记 deleted。 */
@@ -417,5 +488,65 @@ export class TurnDiffService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * T3 推送：轮内累计即时视图（同步零 IO）：liveAdds/liveDels（主进程逐写
+   * 精确增量）+ external/降级条目 size 差粗估——收轮 frozen 帧给精确终值。
+   */
+  private pushActive(state: TurnDiffState): void {
+    const cb = this.push.onDiffChanged;
+    const active = state.active;
+    if (cb === undefined || active === null) return;
+    let adds = active.liveAdds;
+    let dels = active.liveDels;
+    for (const entry of active.files.values()) {
+      if (entry.status !== "external") continue;
+      const est = estimateLineDelta(entry.baselineSize, entry.lastSize);
+      adds += est.added;
+      dels += est.removed;
+    }
+    cb(state, {
+      turnId: active.turnId,
+      phase: "active",
+      adds,
+      dels,
+      fileCount: active.files.size,
+    });
+  }
+
+  /**
+   * diff.get 读面（T3）：live=true → 进行中轮即时视图（逐条目即时终读统计，
+   * 不入冻结环形）；否则 → 冻结轮视图（turnId 缺省 = 最近冻结轮）。
+   * 无 diff（冷态/turnId 未命中）→ null。
+   */
+  async getTurnView(
+    state: TurnDiffState,
+    opts: { turnId?: string; live?: boolean } = {},
+  ): Promise<TurnDiffView | null> {
+    if (opts.live === true) {
+      const active = state.active;
+      if (active === null) return null;
+      const files: FrozenDiffFile[] = [];
+      let added = 0;
+      let removed = 0;
+      for (const entry of active.files.values()) {
+        const frozen = await this.freezeEntry(entry);
+        files.push(frozen);
+        added += frozen.added;
+        removed += frozen.removed;
+      }
+      files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+      return { turnId: active.turnId, phase: "active", files, stats: { added, removed } };
+    }
+    const frozenList = state.frozen;
+    const hit =
+      opts.turnId !== undefined
+        ? frozenList.find((f) => f.turnId === opts.turnId)
+        : frozenList.length > 0
+          ? frozenList[frozenList.length - 1]
+          : undefined;
+    if (hit === undefined) return null;
+    return { turnId: hit.turnId, phase: "frozen", outcome: hit.outcome, files: hit.files, stats: hit.stats };
   }
 }

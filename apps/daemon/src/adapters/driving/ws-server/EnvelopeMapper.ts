@@ -29,6 +29,7 @@ import type {
   EngineRetryingEvent,
   EventType,
 } from "@helix/protocol";
+import type { DiffChangedEvent, DiffChangedPayload } from "@helix/protocol";
 import { PROTOCOL_VERSION, EVENT_CHANNELS } from "@helix/protocol";
 
 import type {
@@ -437,4 +438,21 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       // 协议目录外领域事件（当前无——目录由 type-surface 双向一致性守护）
       return null;
   }
+}
+
+/**
+ * diff delta → diff.changed 协议帧（T3 轮次 diff 协议与 UI 闭环）。
+ * 纯翻译：信封 sessionId = 归属会话、channel = session、payload 原样。
+ * 通道纪律（本帧核心不变式）：走 publishDelta 瞬态通道（不落盘、不投影、
+ * EventStream 直推）；严禁走 publish/domain 事件通道（domainEventToEnvelope
+ * 无 diff case——结构上不可能误入）。
+ */
+export function diffChangedFrame(sessionId: string, payload: DiffChangedPayload): DiffChangedEvent {
+  return {
+    v: PROTOCOL_VERSION,
+    sessionId,
+    channel: "session",
+    type: "diff.changed",
+    payload,
+  };
 }

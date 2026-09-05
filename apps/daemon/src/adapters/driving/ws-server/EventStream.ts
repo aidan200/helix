@@ -39,7 +39,7 @@ import type {
   WorkspaceChangedEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
-import { domainEventToEnvelope, sessionMetaDto } from "./DtoMapper";
+import { domainEventToEnvelope, diffChangedFrame, sessionMetaDto } from "./DtoMapper";
 import { isWireMainAttribution, WIRE_LEGACY_MAIN_ID } from "./EntryDtoMapper";
 import type { SessionListChange } from "../../../application/ports/inbound/SessionDirectoryPort";
 
@@ -367,6 +367,14 @@ export class EventStream implements EventPublisherPort {
     // M13：sessionId 与 defaultSessionId 均缺省 → 丢弃该 delta 不发帧
     //（无 sessionId 帧在 push 面放行全部连接——广播串话事故面）
     if (sessionId === undefined) return;
+    if (delta.channel === "diff") {
+      // T3 轮次 diff 状态瞬态推送：结构化载荷经 diff 字段（不落盘不投影——
+      // publishDelta 双通道语义；帧翻译单点 = EnvelopeMapper.diffChangedFrame，
+      // 按 per-session 订阅路由，monitor 档白名单外事件同样过滤）
+      if (delta.diff === undefined) return; // 防御：缺载荷丢弃
+      this.push(diffChangedFrame(sessionId, delta.diff));
+      return;
+    }
     if (delta.channel === "thinking") {
       // T10a/T10d wire 归属编码一致性：thinking delta 载荷/信封 instanceId 与
       // thinking.completed 的 entry.instanceId 同一编码——判别走 TR-39 单点

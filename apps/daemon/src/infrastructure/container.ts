@@ -748,6 +748,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     persistence,
     modelStack,
     taskStack,
+    // T3 diff.get 命令回口（轮次 diff 查询面——sessionStack 透传）
+    diff: sessionStack.diff,
     kgResolvers,
     resourceService,
     // skill-content 批：skill 正文读面——任务栈扫描器同形同源复用（scan

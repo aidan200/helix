@@ -14,6 +14,8 @@ export class StdoutEventPublisher implements EventPublisherPort {
   constructor(private readonly output: NodeJS.WritableStream) {}
 
   publishDelta(delta: StreamDelta): void {
+    // diff 通道：结构化统计推送不进终端打字机流（WS 专用瞬态帧）
+    if (delta.channel === "diff") return;
     this.write(delta.delta);
   }
 

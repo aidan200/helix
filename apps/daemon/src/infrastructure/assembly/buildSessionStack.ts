@@ -267,6 +267,15 @@ export interface SessionStack {
    */
   readonly resolveSubagentModelId: (profileKind?: string) => string;
   /**
+   * T3 diff.get 查询面：热会话 diff 状态读面（registry peek）+ TurnDiffService
+   * 查询操作面（live 即时终读 / frozen 环形视图）。WS diff.get 命令回口
+   * （buildDrivingAdapters 透传；未装配 → command.unimplemented）。
+   */
+  readonly diff: {
+    readonly stateOf: (sessionId: string) => TurnDiffState | undefined;
+    readonly service: TurnDiffService;
+  };
+  /**
    * 会话工具沙箱 cwd 求值单点现值读面（W1F-F1）：engineFor 每会话装配
    * （CoreToolExecutor.cwd）与 SubAgent spawn（HELIX_TOOL_CWD）共用
    * toolCwdOf 同一求值——绑定后 = 绑定 root 规范形，未绑定回落启动
@@ -330,14 +339,27 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   //    IO 绑定：读文本 = node:fs/promises（缺文件→null）、walk =
   //    walkWorkspaceStats（忽略重目录段）、patch = VENDORED
   //    generateUnifiedPatch（AG-02②：application 不 import driven，绑定在此）。──
-  const turnDiff = new TurnDiffService({
-    readTextFile: (p) =>
-      readFile(p, "utf8").catch(() => null),
-    walkStats: (root) => walkWorkspaceStats(root),
-    workspaceRoot: () => toolCwdOf(),
-    computePatch: (p, oldContent, newContent) => generateUnifiedPatch(p, oldContent, newContent),
-    absoluteOf: (p) => (path.isAbsolute(p) ? p : path.join(toolCwdOf(), p)),
-  });
+  // T3 推送回调：state → 归属会话反查（WeakMap——服务方法零 sessionId 参数，
+  // T2 形态保持）→ fan-out publishDelta 瞬态通道（channel="diff"：不落盘、
+  // 不投影、EventStream 直推——chat/thinking stream delta 同通道纪律）。
+  const diffSessionIds = new WeakMap<TurnDiffState, string>();
+  const turnDiff = new TurnDiffService(
+    {
+      readTextFile: (p) =>
+        readFile(p, "utf8").catch(() => null),
+      walkStats: (root) => walkWorkspaceStats(root),
+      workspaceRoot: () => toolCwdOf(),
+      computePatch: (p, oldContent, newContent) => generateUnifiedPatch(p, oldContent, newContent),
+      absoluteOf: (p) => (path.isAbsolute(p) ? p : path.join(toolCwdOf(), p)),
+    },
+    {
+      onDiffChanged: (state, change) => {
+        const sessionId = diffSessionIds.get(state);
+        if (sessionId === undefined) return;
+        events.publishDelta({ messageId: "", delta: "", channel: "diff", sessionId, diff: change });
+      },
+    },
+  );
   const skillScanner = new SkillScanner({
     userSkillsDir: paths.skillsHome(),
     projectSkillsDir: path.join(bootToolCwd, ".helix", "skills"),
@@ -764,7 +786,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               // T2 turn diff：env.writeFile 写前快照钩子（闭包绑 mainInstanceId
               // ——该 executor 每会话一个；hook 内部读旧内容落基线，异常吞咽）
               ...(bind !== undefined
-                ? { writeHook: (p: string) => turnDiff.captureWrite(bind.diff, p, bind.mainInstanceId) }
+                ? {
+                    writeHook: (p: string, content: string | Uint8Array) =>
+                      turnDiff.captureWrite(bind.diff, p, bind.mainInstanceId, content),
+                  }
                 : {}),
               ...(editDeps !== undefined ? { edit: editDeps } : {}),
               ...(kgTools !== undefined ? { kg: kgTools } : {}),
@@ -857,6 +882,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       // T2 turn diff：会话级 diff 状态（挂 runtime——全内存零持久化；
       // engineFor 写钩子与 ChatService 轮次挂点同一状态闭包绑定）
       const diffState = createTurnDiffState();
+      diffSessionIds.set(diffState, material.session.id); // T3 推送归属反查注册
       const engine = engineFor(material.session.id, material.session.mode, seed, {
         mainInstanceId: material.session.mainInstanceId,
         diff: diffState,
@@ -957,5 +983,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     resolveSubagentModelId,
     toolCwdNow: toolCwdOf,
     orchestratorAssembly: () => orchestratorAssemblyValue,
+    // T3 diff.get 查询面（热会话读面 + 服务查询操作面）
+    diff: {
+      stateOf: (sessionId: string) => registry.peek(sessionId)?.diff,
+      service: turnDiff,
+    },
   };
 }

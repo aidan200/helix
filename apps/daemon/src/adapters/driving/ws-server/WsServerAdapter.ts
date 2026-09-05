@@ -69,6 +69,7 @@ import type { KgViewerService } from "../../../application/services/kg/KgViewerS
 import type { WorkspaceService } from "../../../application/services/workspace/WorkspaceService";
 import type { TaskQueryService } from "../../../application/services/task/TaskQueryService";
 import type { TaskEnginePort } from "../../../application/ports/inbound/TaskEnginePort";
+import type { TurnDiffService, TurnDiffState } from "../../../application/services/TurnDiffService";
 // AG-12：ws-server 对 domain 仅 type-only——normalize 校验收口在 driven
 // adapter 入口（architecture.md §3.5b「调仓储前」）
 import type { ServerWebSocket } from "bun";
@@ -78,6 +79,7 @@ import type { SessionStateView } from "../../../application/ports/inbound/Sessio
 import type {
   AgentCommandContext,
   ChatCommandContext,
+  DiffCommandContext,
   ConnState,
   KgCommandContext,
   ResourceCommandContext,
@@ -135,6 +137,7 @@ import {
 import { handleConfigGetCompaction, handleConfigSetCompaction } from "./handlers/config";
 import { handleThinkingSet } from "./handlers/thinking";
 import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
+import { handleDiffGet } from "./handlers/diff";
 import {
   handleTaskArtifacts,
   handleTaskCancel,
@@ -291,6 +294,15 @@ export interface WsServerAdapterDeps {
    * EventStream 层接线，O-7）；未装配 → command.unimplemented。
    */
   readonly taskEngine?: TaskEnginePort;
+  /**
+   * T3 diff 查询面（diff.get 命令回口）：热会话 diff 状态读面
+   * （registry.peek().diff）+ TurnDiffService 查询操作面；未装配 →
+   * command.unimplemented（task/kg 族先例）。
+   */
+  readonly diff?: {
+    readonly stateOf: (sessionId: string) => TurnDiffState | undefined;
+    readonly service: TurnDiffService;
+  };
 }
 
 export class WsServerAdapter {
@@ -613,6 +625,9 @@ export class WsServerAdapter {
         return handleTaskRetry(this.taskContext(ws, type, payload));
       case "task.delete":
         return handleTaskDelete(this.taskContext(ws, type, payload));
+      // ── diff 族（T3+T4 轮次 diff 协议与 UI 闭环；handlers/diff.ts）──
+      case "diff.get":
+        return handleDiffGet(this.diffContext(ws, type, payload, envelope));
       // ── v0.6 agent.config 族（智能体配置页；全局命令先例 = model.catalog）──
       case "agent.config.list":
         return handleAgentConfigList(this.resourceContext(ws, type, payload));
@@ -900,6 +915,29 @@ export class WsServerAdapter {
       taskQuery: this.deps.taskQuery,
       taskEngine: this.deps.taskEngine,
       events: this.deps.events,
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+      rawSender: () => this.rawSender(ws),
+      sendNow: (sender, frame) => this.sendNow(sender, frame),
+    };
+  }
+
+  /**
+   * diff 族命令处理上下文（T3+T4 轮次 diff 协议与 UI 闭环，第十一族）：
+   * 查询面（registry peek + TurnDiffService）+ 共享辅助（会话作用域——
+   * sessionId 路由位在信封，handler 内校验必填）。
+   */
+  private diffContext(
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+    envelope: { sessionId?: unknown },
+  ): DiffCommandContext {
+    return {
+      ws,
+      type,
+      payload,
+      envelope,
+      diff: this.deps.diff,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),
       sendNow: (sender, frame) => this.sendNow(sender, frame),
