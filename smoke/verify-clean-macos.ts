@@ -55,7 +55,7 @@ import { join } from "node:path";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 
 const root = join(import.meta.dir, "..");
-const DEFAULT_APP = join(root, "apps/shell/src-tauri/target/release/bundle/macos/helix.app");
+const DEFAULT_APP = join(root, "apps/shell/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/helix.app");
 const DEFAULT_REPORT = join(root, "docs/iterations/iter-20260822-m1uc/evidence/CL-1-smoke.md");
 /** 净化 PATH 缺省值：系统最小集（无 Bun/rg/node——干净机等效判据）。 */
 const DEFAULT_SANITIZED_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";

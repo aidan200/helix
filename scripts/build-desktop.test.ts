@@ -131,12 +131,12 @@ describe("pipelineSteps（六步契约）", () => {
 });
 
 describe("pipelineSteps（平台分档，TR-95）", () => {
-  test("缺省 = darwin-arm64 档（mac 零回归）：fetch/compile 步骤带 --platform darwin-arm64，tauri build 裸命令", () => {
+  test("缺省 = darwin-arm64 档（mac 零回归）：fetch/compile 步骤带 --platform darwin-arm64，tauri build 显式 --target aarch64-apple-darwin", () => {
     const steps = pipelineSteps(root);
     expect(steps[0]!.cmd).toContain("--platform");
     expect(steps[0]!.cmd).toContain("darwin-arm64");
     expect(steps[2]!.cmd).toContain("darwin-arm64");
-    expect(steps[5]!.cmd).toEqual(["cargo", "tauri", "build"]);
+    expect(steps[5]!.cmd).toEqual(["cargo", "tauri", "build", "--target", "aarch64-apple-darwin"]);
   });
 
   test("windows-x64 档五步（无 F2.2——交叉编译产物 mac 宿主不可执行），tauri build 带 --target", () => {

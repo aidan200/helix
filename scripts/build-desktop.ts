@@ -117,11 +117,16 @@ export function pipelineSteps(root: string, platform: DesktopPlatform = "darwin-
   }
   steps.push(
     { name: "vite build（shell 静态产物）", cmd: [bun, "run", "build"], cwd: shellDir },
-    spec.isWindows
-      // windows 档显式 --target（bundle 落 target/<triple>/release/bundle；
-      // nsis targets 归 tauri.conf 分支）；darwin 档保持裸 build 零回归
-      ? { name: "tauri build（bundle → nsis）", cmd: ["cargo", "tauri", "build", "--target", spec.triple], cwd: shellDir }
-      : { name: "tauri build（bundle → .app/.dmg）", cmd: ["cargo", "tauri", "build"], cwd: shellDir },
+    // 双档统一显式 --target：tauri 裸 build 按运行环境猜主机 triple（CI macos-14
+    // 上曾解析成 x86_64-apple-darwin——tauri-cli 装了 x86 版跑在 Rosetta 下或
+    // rust 主机误判——externalBin 期望 x86_64 daemon 而 compile-daemon 按
+    // --platform 产 aarch64，错位构建失败）。显式 triple 消除猜测；
+    // 代价 = 产物统一落 target/<triple>/release/bundle（双档一致）
+    {
+      name: `tauri build（bundle → ${spec.isWindows ? "nsis" : ".app/.dmg"}，--target ${spec.triple}）`,
+      cmd: ["cargo", "tauri", "build", "--target", spec.triple],
+      cwd: shellDir,
+    },
   );
   return steps;
 }
@@ -206,9 +211,7 @@ if (import.meta.main) {
   const code = await runPipeline(pipelineSteps(root, platform), realRunner, (l) => console.log(l));
   if (code === 0) {
     console.log(
-      spec.isWindows
-        ? `✓ build-desktop 全管线完成：src-tauri/target/${spec.triple}/release/bundle（nsis，未签名 TR-95）`
-        : "✓ build-desktop 全管线完成：src-tauri/target/release/bundle/{macos/*.app, dmg/*.dmg}",
+      `✓ build-desktop 全管线完成：src-tauri/target/${spec.triple}/release/bundle（${spec.isWindows ? "nsis，未签名 TR-95" : "macos/*.app + dmg/*.dmg"}）`,
     );
   }
   process.exit(code);

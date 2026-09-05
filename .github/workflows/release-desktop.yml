@@ -17,8 +17,9 @@
 # tag 触发取 tag 去 v 前缀；dispatch 触发取 inputs.version（缺省 0.0.0-dev）。
 # 改写只发生在 runner 工作区，不回写仓库。
 #
-# 产物面：mac .dmg（target/release/bundle/dmg）；windows nsis 安装包
-# （target/x86_64-pc-windows-msvc/release/bundle/nsis，--target 构建落 triple 子目录）。
+# 产物面：mac .dmg（target/aarch64-apple-darwin/release/bundle/dmg）；windows nsis
+# 安装包（target/x86_64-pc-windows-msvc/release/bundle/nsis）——双档统一显式
+# --target 构建（tauri 裸 build 按运行环境猜主机 triple，CI 上曾猜错档）。
 
 name: Release Desktop
 
@@ -46,8 +47,10 @@ jobs:
         include:
           - os: macos-14
             platform: darwin-arm64
+            rust-target: aarch64-apple-darwin
           - os: windows-latest
             platform: windows-x64
+            rust-target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -71,6 +74,10 @@ jobs:
 
       - name: Setup Rust toolchain (stable)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # 显式加装目标档 std：防 runner 主机 triple 解析异带（Rosetta/x86
+          # 误判）时构建报缺目标——双档 --target 构建的地基
+          targets: ${{ matrix.rust-target }}
 
       # cargo 双缓存：registry/git 索引 + shell target 目录（tauri 依赖树大，
       # 冷编译 ~10min 量级；target 缓存按 Cargo.lock hash 失效）
@@ -142,7 +149,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: helix-desktop-darwin-arm64
-          path: apps/shell/src-tauri/target/release/bundle/dmg/*.dmg
+          path: apps/shell/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
           retention-days: 14
 
