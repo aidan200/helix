@@ -2,7 +2,9 @@
  * tauri.conf 三通道结构断言 + AF-3 连接面判据（T3.1 脚本级测试）。
  *
  * - 三通道（TR-AD-34 禁错位）：externalBin = daemon 单文件（target-triple 自动解析）；
- *   bundle.resources = rg；frontendDist = shell vite dist 产物目录。
+ *   bundle.resources = rg + codegraph，TR-95 双档后分档声明在
+ *   tauri.{macos,windows}.conf.json 平台档（tauri CLI 按宿主平台自动 merge）；
+ *   frontendDist = shell vite dist 产物目录。
  * - AF-3 判据：daemon 默认端口 7333（禁 port 0 随机）；前端走 env.ts 既有通路
  *   （VITE_HELIX_PORT 缺省 7333 + /helix-dev-token）；壳零连接参数注入，env 注入面
  *   仅 HELIX_RG_PATH。
@@ -14,19 +16,28 @@ import { join } from "node:path";
 const root = join(import.meta.dir, "..");
 const srcTauri = join(root, "apps/shell/src-tauri");
 const conf = JSON.parse(readFileSync(join(srcTauri, "tauri.conf.json"), "utf8"));
+const macConf = JSON.parse(readFileSync(join(srcTauri, "tauri.macos.conf.json"), "utf8"));
+const winConf = JSON.parse(readFileSync(join(srcTauri, "tauri.windows.conf.json"), "utf8"));
 
 describe("tauri.conf 三通道接线（TR-AD-34）", () => {
   test("externalBin = binaries/helix-daemon（target-triple 自动解析）", () => {
     expect(conf.bundle.externalBin).toEqual(["binaries/helix-daemon"]);
   });
 
-  test("bundle.resources 含 rg 与 codegraph 树，包内落位 Resources/ 下（map 形式显式固定目标位）", () => {
-    const resources = conf.bundle.resources;
+  test("bundle.resources 平台档分档（TR-95：base 不声明，mac rg 无后缀 / win rg.exe；map 形式显式固定目标位）", () => {
+    // base 面不得声明 resources——平台分档后 base 声明会与平台档 merge 叠加，
+    // 是回流反模式（win 档会因 resources/bin/rg 不存在构建失败，CI 已实证）
+    expect(conf.bundle.resources).toBeUndefined();
     // map 形式显式固定包内目标位（slice 形式会保留 resources/ 前缀落到
     // Resources/resources/...，与壳 main.rs 的 Resources/bin/rg、
     // Resources/codegraph/bin/codegraph 定位错位）
-    expect(resources).toEqual({
+    expect(macConf.bundle.resources).toEqual({
       "resources/bin/rg": "bin/rg",
+      "resources/codegraph": "codegraph",
+    });
+    // win 档：rg 是 rg.exe（fetch-rg windows 落位名）；codegraph 树同名
+    expect(winConf.bundle.resources).toEqual({
+      "resources/bin/rg.exe": "bin/rg.exe",
       "resources/codegraph": "codegraph",
     });
   });
@@ -37,9 +48,10 @@ describe("tauri.conf 三通道接线（TR-AD-34）", () => {
 
   test("三类资源不错位：rg 不进 externalBin；daemon 不进 resources；前端产物不手工拷贝", () => {
     expect(JSON.stringify(conf.bundle.externalBin)).not.toContain("rg");
-    expect(JSON.stringify(conf.bundle.resources)).not.toContain("daemon");
+    const resourcesJson = JSON.stringify([macConf.bundle.resources, winConf.bundle.resources]);
+    expect(resourcesJson).not.toContain("daemon");
     // 前端产物只能经 frontendDist 通道，不得出现在 resources
-    expect(JSON.stringify(conf.bundle.resources)).not.toContain("dist");
+    expect(resourcesJson).not.toContain("dist");
   });
 
   test("bundle targets = 目标平台集格式（TR-95：darwin-arm64 app/dmg + win32-x64 nsis，共用数组跨平台跳过不适用项）", () => {

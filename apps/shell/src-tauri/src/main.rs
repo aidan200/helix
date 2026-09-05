@@ -299,16 +299,30 @@ impl SupervisorHooks for ShellHooks {
 ///    bun 直跑源码，scripts/dev-desktop 负责生成该指向，见 architecture §4.6）；
 /// 2. 打包形态：当前 exe 同目录的 externalBin（`helix-daemon-<target-triple>`）。
 ///
-/// rg 注入接线位（契约 §1）：包内 `Resources/bin/rg` 存在 → 经 env
-/// `HELIX_RG_PATH` 注入；dev 形态无该资源 → 自然不注入（rg 二进制 T3.1 落位）。
-/// codegraph 同理：包内 `Resources/codegraph/bin/codegraph` 存在 → 经 env
+/// rg 注入接线位（契约 §1）：包内资源存在 → 经 env `HELIX_RG_PATH` 注入；
+/// dev 形态无该资源 → 自然不注入（rg 二进制 T3.1 落位）。
+/// codegraph 同理：包内 codegraph launcher 存在 → 经 env
 /// `HELIX_CODEGRAPH_PATH` 注入（bundle 目录树，tauri resources 整目录映射）。
+///
+/// 包内资源布局按平台分档（TR-95 双档，resources 声明在
+/// tauri.macos/windows.conf.json 平台档 map 形式，目标位显式固定）：
+/// - macOS bundle：<app>/Contents/MacOS/exe → <app>/Contents/Resources/
+///   {bin/rg, codegraph/bin/codegraph}；
+/// - Windows NSIS：资源落 exe 同目录（resource dir = exe dir）→
+///   {bin/rg.exe, codegraph/bin/codegraph.cmd}。launcher 在 win 档是
+///   .cmd 脚本（非可执行映像），spawn 包装由 daemon 侧 cliSpawnCmd 负责
+///   （CodegraphEngineAdapter，TR-95 兼容面）——壳只定位不解析。
+/// exe 父目录（WIP 补位：TR-95 重构抽出位，语义同原内联 current_exe + parent）。
+fn exe_parent_dir() -> Option<PathBuf> {
+    std::env::current_exe().ok()?.parent().map(|p| p.to_path_buf())
+}
+
 fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
     let mut rg_path = None;
     let mut codegraph_path = None;
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            // macOS bundle 布局：<app>/Contents/MacOS/exe → <app>/Contents/Resources/...
+    if let Some(exe_dir) = exe_parent_dir() {
+        #[cfg(target_os = "macos")]
+        {
             let rg_candidate = exe_dir.join("../Resources/bin/rg");
             if rg_candidate.is_file() {
                 rg_path = rg_candidate.canonicalize().ok();
@@ -317,6 +331,23 @@ fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
             if cg_candidate.is_file() {
                 codegraph_path = cg_candidate.canonicalize().ok();
             }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let rg_candidate = exe_dir.join("bin/rg.exe");
+            if rg_candidate.is_file() {
+                rg_path = rg_candidate.canonicalize().ok();
+            }
+            let cg_candidate = exe_dir.join("codegraph/bin/codegraph.cmd");
+            if cg_candidate.is_file() {
+                codegraph_path = cg_candidate.canonicalize().ok();
+            }
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            // 非 packaging 目标平台（linux dev 等）：无包内资源面，env 注入位
+            // 留空走 dev 形态（HELIX_RG_PATH/HELIX_SIDECAR_PATH 外部注入）。
+            let _ = exe_dir;
         }
     }
 

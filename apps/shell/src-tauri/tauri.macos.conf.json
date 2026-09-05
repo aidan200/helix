@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "resources": {
+      "resources/bin/rg": "bin/rg",
+      "resources/codegraph": "codegraph"
+    }
+  }
+}
