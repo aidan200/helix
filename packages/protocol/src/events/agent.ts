@@ -1,5 +1,6 @@
 import type { EventFrame } from "../envelope";
 import type { ClosureDto, ProfileKind, ReadableProfileKind, SystemProfileKind } from "../types/agent";
+import type { McpServerRuntimeState } from "./mcp";
 import type { TraceProfileSnapshot } from "../types/trace";
 
 // ── v0.1 新增 payload：编排生命周期族（契约 protocol-v0.1.md §5.1；AD-7） ──
@@ -113,17 +114,41 @@ export interface AgentModelChangedPayload {
 // ── v0.6 新增 payload：agent.config 族（M6 T3 智能体配置页；契约 v0.6 §2） ──
 
 /**
+ * agent.config.list.result 块内 MCP server 行（server 级配置面批 additive）：
+ * per-kind 的 server 级启停读面（差异行 key = server 名，resourceType=
+ * "mcp-server"）——控制整组工具（含 deferred meta 工具）是否进入该 kind
+ * 生效集；status 三字段 = 运行态透传（McpServerStatusDto 同源字段）。
+ */
+export interface AgentConfigMcpServerRow {
+  /** server 名（mcp-server 差异行 key；工具命名空间前缀同名）。 */
+  name: string;
+  /** per-kind 启停（缺省无记录 = 启用；关闭 ⇒ 该 server 全部 `${name}__*` 工具含 meta 不进生效集）。 */
+  enabled: boolean;
+  /** 运行态（registry 现拍透传；connecting/running/error/stopped）。 */
+  state: McpServerRuntimeState;
+  /** 已发现工具数（running 时 ≥ 0；其它态缺席）。 */
+  toolCount?: number;
+  /** state="error" 时的最近错误说明。 */
+  lastError?: string;
+}
+
+/**
  * agent.config.list.result 块：单 kind 三类资源配置现值。
  * tools/skills 含全集 + 启停态（缺省无记录 = 启用）；diagnostics = 扫描诊断
  * （坏文件上抛不炸）；model 槽位未设 = null（JSON 序列化面钉死 null 非
  * undefined——字段不丢）。tools 行 snippet = 一句话说明（daemon
- * ToolPromptSnippets 注册表同源，M6 T4 批内补登；注册表外名 = 空串）。
+ * ToolPromptSnippets 注册表同源，M6 T4 批内补登；注册表外名 = 空串；MCP
+ * 工具行 = registry 发现的 description 透传）。mcpServers（server 级配置面
+ * 批 additive）= 该 kind 准入面内的 MCP server 行——缺省不携带（旧 daemon
+ * 兼容；零 server/未接 MCP 的 kind 恒缺省）。
  */
 export interface AgentConfigProfileBlock {
   /** 配置单元 kind（T2.2 additive 扩第三值：任务编排主 agent——读面透传；
    *  写面（set_enabled）仍两值——编排工具配置 UI 归后续迭代）。 */
   profileKind: ReadableProfileKind;
   tools: ReadonlyArray<{ name: string; enabled: boolean; snippet: string }>;
+  /** MCP server 行（server 级配置面批 additive；缺省不携带——零 server kind）。 */
+  mcpServers?: ReadonlyArray<AgentConfigMcpServerRow>;
   skills: ReadonlyArray<{
     name: string;
     description: string;
@@ -228,11 +253,11 @@ export interface AgentConfigSystemBlock {
 export interface AgentConfigChangedPayload {
   /** 配置单元 kind（写面五值 ProfileKind：system kind 仅 model/thinking 槽位变更广播）。 */
   profileKind: ProfileKind;
-  /** thinking = v0.11 批内补登（thinking 槽位，AD-6；与 model 同为槽位语义非启停）。 */
-  resourceType: "tool" | "skill" | "model" | "thinking";
-  /** tools/skills = 资源名；model = 模型 id 或 null（clear）；thinking = 档位字符串或 null（clear）。 */
+  /** thinking = v0.11 批内补登（thinking 槽位，AD-6；与 model 同为槽位语义非启停）；mcp-server = server 级配置面批（per-kind server 启停差异行）。 */
+  resourceType: "tool" | "skill" | "model" | "thinking" | "mcp-server";
+  /** tools/skills/mcp-servers = 资源名（server 名）；model = 模型 id 或 null（clear）；thinking = 档位字符串或 null（clear）。 */
   name: string | null;
-  /** tool/skill = 新启停态；model/thinking = true（槽位已设）/ false（槽位已清）。 */
+  /** tool/skill/mcp-server = 新启停态；model/thinking = true（槽位已设）/ false（槽位已清）。 */
   enabled: boolean;
 }
 

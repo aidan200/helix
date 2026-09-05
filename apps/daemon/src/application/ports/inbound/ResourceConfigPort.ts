@@ -17,6 +17,15 @@ import type { SkillScanDiagnostic, SkillDescriptor, SkillSource } from "../outbo
 export interface ResourceConfigBlock {
   readonly profileKind: ProfileKind;
   readonly tools: ReadonlyArray<{ readonly name: string; readonly enabled: boolean; readonly snippet: string }>;
+  /** MCP server 行（server 级配置面批；缺省不携带 = 零准入 server 的 kind）。
+ *  行 = 注入面 mcpServersOf 现拍的运行态 + store 差异行 enabled 合取。 */
+  readonly mcpServers?: ReadonlyArray<{
+    readonly name: string;
+    readonly enabled: boolean;
+    readonly state: string;
+    readonly toolCount?: number;
+    readonly lastError?: string;
+  }>;
   readonly skills: ReadonlyArray<SkillDescriptor & { readonly enabled: boolean }>;
   readonly diagnostics: readonly SkillScanDiagnostic[];
   /** model 槽位现值（未设 = undefined；协议 DTO 映射层转 null）。 */
@@ -44,7 +53,7 @@ export interface ResourceConfigPort {
   modelSlot(profileKind: ProfileKind): string | undefined;
   /** thinking 槽位现值同步读（R7 同上）。 */
   thinkingSlot(profileKind: ProfileKind): string | undefined;
-  /** tool/skill 启停写面（model 型走槽位 API，调用方分流）。 */
+  /** tool/skill/mcp-server 启停写面（model 型走槽位 API，调用方分流）。 */
   setEnabled(
     profileKind: ProfileKind,
     resourceType: ResourceType,

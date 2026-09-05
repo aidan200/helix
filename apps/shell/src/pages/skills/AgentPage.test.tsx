@@ -21,7 +21,7 @@
  * ⑥ a11y：开关 role=switch + aria-checked；下拉 label 关联。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { CatalogModel, EventEnvelope } from "@helix/protocol";
 import { I18nProvider } from "@/shared/i18n";
 import { ToastProvider } from "@/shared/ui/Toast";
@@ -32,7 +32,11 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
   tools: [
     { name: "bash", enabled: true, snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
     { name: "grep", enabled: true, snippet: "跨文件正则检索并列出匹配行" },
+    // server 级配置面批：MCP 命名空间工具行（渲染归 MCP 分组区，不进平铺工具组）
+    { name: "fake__echo", enabled: true, snippet: "回声工具（MCP description 透传）" },
+    { name: "fake__ping", enabled: true, snippet: "Pong" },
   ],
+  mcpServers: [{ name: "fake", enabled: true, state: "running", toolCount: 2 }],
   skills: [
     {
       name: "hello-skill",
@@ -137,7 +141,7 @@ const CATALOG: CatalogModel[] = [
 
 interface SetEnabledCall {
   profileKind: "main-session" | "subagent-worker";
-  resourceType: "tool" | "skill" | "model" | "thinking"; // thinking = v0.11 槽位（T2.2）
+  resourceType: "tool" | "skill" | "model" | "thinking" | "mcp-server"; // mcp-server = server 级配置面批
   name: string;
   enabled: boolean;
 }
@@ -154,6 +158,7 @@ const mock = {
   sentBasePromptGet: [] as string[],
   sentSkillContentGet: [] as string[],
   listeners: [] as ((e: EventEnvelope) => void)[],
+  mcpListeners: [] as ((e: EventEnvelope) => void)[],
 };
 const requestModelConfig = vi.fn();
 const requestAuthList = vi.fn();
@@ -197,6 +202,12 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
         mock.listeners.push(cb);
         return () => {
           mock.listeners = mock.listeners.filter((l) => l !== cb);
+        };
+      },
+      subscribeMcpFrames: (cb: (e: EventEnvelope) => void) => {
+        mock.mcpListeners.push(cb);
+        return () => {
+          mock.mcpListeners = mock.mcpListeners.filter((l) => l !== cb);
         };
       },
     }),
@@ -969,5 +980,82 @@ describe("skill-content 批：skill 正文查看区（行内折叠懒查询）",
     // kg-writer 卡：派生技能行（audience=agent）同可查看（按名缓存跨卡共享——已拉名不重发）
     act(() => selectAgent("subagent-kg-writer"));
     expect(document.querySelector('[data-skill-row="plan-workflow"]')).not.toBeNull();
+  });
+});
+
+// ── server 级配置面批：MCP 服务分组区（组级开关 + 工具行归属 + 状态跟随） ──
+
+describe("智能体页 MCP 服务分组区（server 级配置面）", () => {
+  // 独立 describe 在外层 afterEach 作用域外——补同款清理（DOM cleanup + mock 复位）
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mock.revision = 0;
+    mock.catalog = null;
+    mock.auth = {};
+    mock.authLoaded = false;
+    mock.sentList = 0;
+    mock.sendOk = true;
+    mock.sentSetEnabled = [];
+    mock.sentBasePromptGet = [];
+    mock.conn = "connected";
+    mock.listeners = [];
+    mock.mcpListeners = [];
+  });
+
+  it("① server 行 + 组内工具行（去前缀）渲染；平铺工具组不再含 __ 名", async () => {
+    ui();
+    act(() => feedList());
+    expect(document.querySelector('[data-tool-row="bash"]')).not.toBeNull();
+    // server 行（徽标 + 工具数）
+    expect(document.querySelector('[data-mcp-server-row="fake"]')).not.toBeNull();
+    expect(document.querySelector('[data-mcp-server-row="fake"] [data-mcp-state]')?.textContent).toBe("运行中");
+    // 组内工具行：data 属性用全名，显示名去前缀
+    const echoRow = document.querySelector('[data-tool-row="fake__echo"]');
+    expect(echoRow?.textContent).toContain("echo");
+    expect(echoRow?.textContent).toContain("回声工具（MCP description 透传）");
+    expect(echoRow?.textContent).not.toContain("fake__echo");
+    expect(document.querySelector('[data-tool-row="fake__ping"]')).not.toBeNull();
+    // 平铺工具组不含 MCP 名（bash/grep 之外无 __ 行——数据里 grep 在 fake__echo 前，检查 DOM 序：工具组内不出现 fake）
+    const toolGroup = document.querySelectorAll('[data-tool-row]');
+    expect([...toolGroup].filter((el) => el.getAttribute("data-tool-row")?.startsWith("fake__"))).toHaveLength(2); // 恰两行、均在 MCP 区
+  });
+
+  it("② 组级开关 → set_enabled resourceType=mcp-server + name=server 名；组内工具行开关照旧 tool 型", async () => {
+    ui();
+    act(() => feedList());
+    expect(document.querySelector('[data-mcp-server-row="fake"]')).not.toBeNull();
+    fireEvent.click(document.querySelector('[data-mcp-server-row="fake"] [data-switch="fake"]')!);
+    expect(mock.sentSetEnabled.at(-1)).toMatchObject({ profileKind: "main-session", resourceType: "mcp-server", name: "fake", enabled: false });
+    // 单飞纪律：pending 非空全页开关禁用——skipped 回执定向清后再点工具行开关
+    act(() => feedSetResult({ status: "skipped", reason: "test-clear" }));
+    fireEvent.click(document.querySelector('[data-tool-row="fake__ping"] [data-switch="fake__ping"]')!);
+    expect(mock.sentSetEnabled.at(-1)).toMatchObject({ profileKind: "main-session", resourceType: "tool", name: "fake__ping", enabled: false });
+  });
+
+  it("③ server 关闭态：off 徽标；mcp.status.changed → 静默重拉（list 命令再发）", async () => {
+    ui();
+    act(() => feedList());
+    expect(document.querySelector('[data-mcp-server-row="fake"]')).not.toBeNull();
+    const before = mock.sentList;
+    act(() => feedList({ mcpServers: [{ name: "fake", enabled: false, state: "running", toolCount: 2 }] }));
+    expect(document.querySelector('[data-mcp-server-off]')?.textContent).toBe("整组关闭");
+    // mcp.status.changed（设置页增删 server / 状态翻转）→ 自动重拉配置读面
+    act(() => {
+      for (const l of mock.mcpListeners) {
+        l({ v: "0.11", sessionId: "__system__", channel: "mcp", type: "mcp.status.changed", payload: { server: { name: "fake", state: "running" } } } as EventEnvelope);
+      }
+    });
+    expect(mock.sentList).toBeGreaterThan(before);
+  });
+
+  it("④ 无 server kind：空态提示（不渲染分组行）", async () => {
+    ui();
+    act(() => feedList());
+    expect(document.querySelector('[data-tool-row="bash"]')).not.toBeNull();
+    act(() => selectAgent("subagent-worker"));
+    // SUB_BLOCK 无 mcpServers → 空态提示 + 无 server 行
+    expect(document.querySelector("[data-mcp-empty]")?.textContent).toContain("未接入 MCP server");
+    expect(document.querySelector('[data-mcp-server-row="fake"]')).toBeNull();
   });
 });

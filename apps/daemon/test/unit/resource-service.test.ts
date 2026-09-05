@@ -372,3 +372,73 @@ describe("ResourceService：skills+tools 成套装配（批三裁决）", () => 
     expect((await service.getEffectiveSkills("main-session")).map((s) => s.name)).toEqual(["web-access"]);
   });
 });
+
+// ── server 级配置面批：mcp-server 差异行（per-kind server 启停门控） ──
+
+const MCP_SERVERS: Partial<Record<ProfileKind, readonly { name: string; state: string; toolCount?: number }[]>> = {
+  "main-session": [{ name: "shadcn", state: "running", toolCount: 2 }],
+  "subagent-worker": [{ name: "shadcn", state: "running", toolCount: 2 }],
+};
+
+function makeMcpService(store = new InMemoryResourceState()) {
+  return {
+    service: new ResourceService({
+      store,
+      skills: new FakeSkillSource(),
+      toolsCatalog: (kind) => [...TOOLS_CATALOG[kind], "shadcn__echo", "shadcn__discover"],
+      effectiveToolsCatalog: (kind) => [...TOOLS_CATALOG[kind], "shadcn__discover"],
+      mcpServersOf: (kind) => MCP_SERVERS[kind] ?? [],
+      toolSnippetOf: (name) => (name === "shadcn__echo" ? "回声工具（MCP description 透传）" : undefined),
+      toolSnippets: {},
+    }),
+    store,
+  };
+}
+
+describe("ResourceService：mcp-server 差异行（server 级配置面）", () => {
+  test("① list 携带 server 行 + enabled 差异行合取（缺省无记录 = 启用）", async () => {
+    const { service, store } = makeMcpService();
+    const block = await service.list("main-session");
+    expect(block.mcpServers).toEqual([{ name: "shadcn", state: "running", toolCount: 2, enabled: true }]);
+    await store.upsert("main-session", "mcp-server", "shadcn", false);
+    expect((await service.list("main-session")).mcpServers).toEqual([{ name: "shadcn", state: "running", toolCount: 2, enabled: false }]);
+  });
+
+  test("② list：toolSnippetOf 优先于静态注册表（MCP 行 description 透传）", async () => {
+    const { service } = makeMcpService();
+    const block = await service.list("main-session");
+    expect(block.tools.find((t) => t.name === "shadcn__echo")?.snippet).toBe("回声工具（MCP description 透传）");
+    expect(block.tools.find((t) => t.name === "shadcn__discover")?.snippet).toBe(""); // 动态面无值回落注册表空串
+  });
+
+  test("③ setEnabled mcp-server：全集内 applied 落库；全集外 unknown-mcp-server skipped", async () => {
+    const { service, store } = makeMcpService();
+    expect(await service.setEnabled("main-session", "mcp-server", "shadcn", false)).toEqual({ status: "applied" });
+    expect(store.get("main-session", "mcp-server", "shadcn")?.enabled).toBe(false);
+    expect(await service.setEnabled("main-session", "mcp-server", "ghost", false)).toEqual({ status: "skipped", reason: "unknown-mcp-server" });
+    expect(store.get("main-session", "mcp-server", "ghost")).toBeUndefined();
+  });
+
+  test("④ setEnabled：mcpServersOf 未注入（零 MCP daemon）恒 skipped", async () => {
+    const { service } = makeService();
+    expect(await service.setEnabled("main-session", "mcp-server", "shadcn", false)).toEqual({ status: "skipped", reason: "unknown-mcp-server" });
+  });
+
+  test("⑤ getEffectiveTools：server 关 ⇒ 该前缀整组出局（含 meta），静态工具与其它 server 不受影响", async () => {
+    const { service, store } = makeMcpService();
+    // deferred 语义：生效集 = 静态 + shadcn__discover（meta）
+    expect(service.getEffectiveTools("main-session")).toContain("shadcn__discover");
+    expect(service.getEffectiveTools("main-session")).not.toContain("shadcn__echo");
+    await store.upsert("main-session", "mcp-server", "shadcn", false);
+    const effective = service.getEffectiveTools("main-session");
+    expect(effective).not.toContain("shadcn__discover"); // meta 同出局
+    expect(effective).not.toContain("shadcn__echo");
+    expect(effective).toContain("bash"); // 静态工具不受影响
+  });
+
+  test("⑥ kind 隔离：main 关不影响 subagent-worker", async () => {
+    const { service, store } = makeMcpService();
+    await store.upsert("main-session", "mcp-server", "shadcn", false);
+    expect(service.getEffectiveTools("subagent-worker")).toContain("shadcn__discover");
+  });
+});

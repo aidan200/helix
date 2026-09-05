@@ -100,6 +100,9 @@
   padding: 7px 2px; border-bottom: 1px solid rgb(var(--edge-rgb) / 0.06);
 }
 [data-source-group] .ag-row:first-of-type { border-top: none; }
+/* MCP 服务组内工具行（server 级配置面批）：前缀缩进 + 弱化分隔线 */
+.ag-row-sub { padding-left: 18px; }
+.ag-row-sub .ag-name { color: var(--text-muted); font-size: var(--text-cap); }
 .ag-row-main { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1; }
 .ag-name {
   font-family: var(--font-mono); font-size: var(--text-main);

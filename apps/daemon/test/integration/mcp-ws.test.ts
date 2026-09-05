@@ -246,4 +246,57 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
       rmSync(home, { recursive: true, force: true });
     }
   }, 30000);
+
+  test("⑩ server 级配置面：per-kind server 开关全链（list 行/写面/广播/门控语义）", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "helix-mcp-ws-home-"));
+    let daemon: Daemon | undefined;
+    let client: TestClient | undefined;
+    try {
+      daemon = await createTestDaemon({ home, engine: new FakeAgentEngine(), skipLock: true, port: 0 });
+      client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);
+      await client.open();
+      await helloHandshake(client, daemon.devToken);
+
+      // 前置：add fake → running
+      const fake = fakeServerInput("fake");
+      client.send({ v: 0, type: "mcp.servers.add", payload: fake.input });
+      const addResult = await client.expect("mcp.servers.add.result", 10000);
+      expect(addResult.payload.status).toBe("applied");
+
+      // ① list 块携带 server 行（运行态透传 + 缺省启用）
+      client.send({ v: 0, type: "agent.config.list", payload: {} });
+      const before = await client.expect("agent.config.list.result");
+      const mainBefore = (before.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean; state: string; toolCount?: number }[] }[]).find((b) => b.profileKind === "main-session");
+      expect(mainBefore?.mcpServers).toEqual([{ name: "fake", enabled: true, state: "running", toolCount: 2 }] as { name: string; enabled: boolean; state: string; toolCount?: number }[]);
+
+      // ② 写面：mcp-server 关 → applied + changed 广播（resourceType=mcp-server）
+      const toggleStart = client.frames.length;
+      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "main-session", resourceType: "mcp-server", name: "fake", enabled: false } });
+      const setResult = await client.expectAfter("agent.config.set_enabled.result", toggleStart);
+      expect(setResult.payload.status).toBe("applied");
+      const changed = await client.expectAfter("agent.config.changed", toggleStart);
+      expect(changed.payload).toMatchObject({ profileKind: "main-session", resourceType: "mcp-server", name: "fake", enabled: false });
+
+      // ③ 重拉：server 行 enabled=false，工具行仍在 catalog（toggle 域不缩）
+      client.send({ v: 0, type: "agent.config.list", payload: {} });
+      const after = await client.expectAfter("agent.config.list.result", client.frames.length - 1);
+      const mainAfter = (after.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean }[]; tools: { name: string }[] }[]).find((b) => b.profileKind === "main-session");
+      expect(mainAfter?.mcpServers).toEqual([{ name: "fake", enabled: false, state: "running", toolCount: 2 }] as { name: string; enabled: boolean; state: string; toolCount?: number }[]);
+      expect(mainAfter?.tools.some((t) => t.name === "fake__echo")).toBe(true);
+
+      // ④ kind 隔离：subagent-worker 块 server 行仍启用
+      const subAfter = (after.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean }[] }[]).find((b) => b.profileKind === "subagent-worker");
+      expect(subAfter?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: true });
+
+      // ⑤ 未配置 server 名 → skipped（不落库不广播）
+      const ghostStart = client.frames.length;
+      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "main-session", resourceType: "mcp-server", name: "ghost", enabled: false } });
+      const ghostResult = await client.expectAfter("agent.config.set_enabled.result", ghostStart);
+      expect(ghostResult.payload).toMatchObject({ status: "skipped", reason: "unknown-mcp-server" });
+    } finally {
+      await client?.close();
+      await daemon?.shutdown();
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 30000);
 });

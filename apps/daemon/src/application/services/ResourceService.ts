@@ -52,6 +52,25 @@ export class ResourceService implements ResourceConfigPort {
        * 两面分离保证「页面可 toggle 全部工具」与「初始集 meta-only」并存。
        */
       readonly effectiveToolsCatalog?: (kind: ProfileKind) => readonly string[];
+      /**
+       * kind → MCP server 运行态行（server 级配置面批，可选；组合根注入
+       * 窄闭包：McpRegistry 现拍 + profile mcpServers 白名单门控）。行 =
+       * 运行态透传（state/toolCount/lastError），enabled 由本服务 store 差异行
+       * 合取——注入面不解释启停。缺省不注入（零 MCP daemon）→ list 块不携带
+       * mcpServers、写面 unknown-mcp-server 恒 skipped。
+       */
+      readonly mcpServersOf?: (kind: ProfileKind) => readonly {
+        readonly name: string;
+        readonly state: string;
+        readonly toolCount?: number;
+        readonly lastError?: string;
+      }[];
+      /**
+       * 工具名 → snippet 动态读面（server 级配置面批，可选；优先于静态
+       * toolSnippets 注册表）：MCP 工具行 snippet = registry 发现的 description
+       * 透传（注册表外名不再恒空串）；静态工具走注册表不变。
+       */
+      readonly toolSnippetOf?: (name: string) => string | undefined;
       /** 工具名 → 中文一句话 snippet（组合根注入 ToolPromptSnippets 注册表；
        * list 读面向契约 DTO 透传——注册表外名 = 空串）。 */
       readonly toolSnippets: Readonly<Record<string, string>>;
@@ -80,11 +99,16 @@ export class ResourceService implements ResourceConfigPort {
     const tools = this.deps.toolsCatalog(kind).map((name) => ({
       name,
       enabled: this.enabledOf(kind, "tool", name),
-      snippet: this.deps.toolSnippets[name] ?? "", // 注册表外名 = 空串（契约面钉非 undefined）
+      // 动态读面优先（MCP description 透传）；静态注册表次之；注册表外名 = 空串（契约面钉非 undefined）
+      snippet: this.deps.toolSnippetOf?.(name) ?? this.deps.toolSnippets[name] ?? "",
     }));
     const scanned = await this.deps.skills.scan();
     const skills = scanned.skills.map((s) => ({ ...s, enabled: this.enabledOf(kind, "skill", s.name) }));
-    return { profileKind: kind, tools, skills, diagnostics: scanned.diagnostics, model: this.deps.store.modelSlot(kind), thinkingLevel: this.deps.store.thinkingSlot(kind) };
+    const mcpServers = this.deps.mcpServersOf?.(kind)?.map((row) => ({
+      ...row,
+      enabled: this.enabledOf(kind, "mcp-server", row.name),
+    }));
+    return { profileKind: kind, tools, skills, ...(mcpServers !== undefined && mcpServers.length > 0 ? { mcpServers } : {}), diagnostics: scanned.diagnostics, model: this.deps.store.modelSlot(kind), thinkingLevel: this.deps.store.thinkingSlot(kind) };
   }
 
   /**
@@ -110,6 +134,13 @@ export class ResourceService implements ResourceConfigPort {
       // builtin 防护：内置技能不进 resource_state（不可禁用）——显式
       // skipped 不落禁用记录；读面恒启用（缺省无记录 = 启用天然覆盖）
       if (skill.source === "builtin") return { status: "skipped", reason: "builtin-immutable" };
+    } else if (resourceType === "mcp-server") {
+      // server 级配置面批：全集 = mcpServersOf 现拍（注入面已做白名单门控）。
+      // 全集外名（如对静态 kind 或未配置 server 写）显式跳过不落库——与
+      // tool/skill 同构：无生效面的差异行只制造永不生效的脏行。
+      if (!(this.deps.mcpServersOf?.(kind) ?? []).some((row) => row.name === name)) {
+        return { status: "skipped", reason: "unknown-mcp-server" };
+      }
     } else if (!this.deps.toolsCatalog(kind).includes(name)) {
       return { status: "skipped", reason: "unknown-name" };
     }
@@ -124,7 +155,16 @@ export class ResourceService implements ResourceConfigPort {
    */
   getEffectiveTools(kind: ProfileKind): readonly string[] {
     const catalog = this.deps.effectiveToolsCatalog?.(kind) ?? this.deps.toolsCatalog(kind);
-    return catalog.filter((name) => this.enabledOf(kind, "tool", name));
+    return catalog.filter((name) => {
+      if (!this.enabledOf(kind, "tool", name)) return false;
+      // server 级门控（server 级配置面批）：MCP 命名空间名（`${server}__${tool}`，
+      // 含 deferred meta `${server}__discover`）按 server 前缀合取——server 关
+      // ⇒ 整组出局，未来动态发现的新工具名天然被覆盖；静态工具名不含
+      // 双下划线不受影响（TR-106 命名空间纪律）。
+      const sep = name.indexOf("__");
+      if (sep > 0 && !this.enabledOf(kind, "mcp-server", name.slice(0, sep))) return false;
+      return true;
+    });
   }
 
   /** 单工具启停读面（deferred 批：MCP discover 物化前的 toggle 过滤；同 getEffectiveTools 的 enabledOf 单点）。 */

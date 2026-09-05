@@ -483,6 +483,34 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     },
     // list 读面 snippet 透传（SystemPromptAssembler 同源注册表单点）
     toolSnippets: TOOL_PROMPT_SNIPPETS,
+    // server 级配置面批：MCP 工具行 snippet = registry 发现的 description
+    // 透传（注册表外名不再恒空串）；静态工具名不含双下划线恒走注册表。
+    toolSnippetOf: (name: string): string | undefined => {
+      const sep = name.indexOf("__");
+      if (sep <= 0) return undefined;
+      const server = name.slice(0, sep);
+      return deps.mcpRegistry?.toolsOf(server).find((t) => t.name === name.slice(sep + 2))?.description;
+    },
+    // server 级配置面批：kind 准入面内的 MCP server 运行态行（registry 现拍
+    // + MCP_ALLOWED_OF 白名单门控——静态 kind 不接 MCP 恒空数组→块不携带）；
+    // enabled 由 ResourceService store 差异行合取（注入面不解释启停）。
+    mcpServersOf: (kind: ProfileKind) => {
+      const registry = deps.mcpRegistry;
+      const allowed = registry !== undefined ? MCP_ALLOWED_OF[kind] : undefined;
+      if (registry === undefined || allowed === undefined) return [];
+      return registry
+        .listConfigs()
+        .filter((c) => allowed === "*" || allowed.includes(c.name))
+        .map((c) => {
+          const status = registry.getStatuses().find((s) => s.name === c.name);
+          return {
+            name: c.name,
+            state: status?.state ?? "idle",
+            ...(status?.toolCount !== undefined ? { toolCount: status.toolCount } : {}),
+            ...(status?.lastError !== undefined ? { lastError: status.lastError } : {}),
+          };
+        });
+    },
     // 生效链（事件化，架构 §4.2.3）：toggle applied → 发布
     // resources.changed（装配级总线）→ 容器订阅侧 refreshAssembly 重算该
     // kind 组装快照 + 刷新活跃 runtime（main 直改 systemPrompt/tools；
@@ -680,10 +708,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
             if (registry === undefined) return undefined;
             const allowed = MCP_ALLOWED_OF[profileKind as ProfileKind];
             if (allowed === undefined) return undefined;
+            // server 级配置面批：per-kind server 差异行门控——关闭的 server
+            // 不进 env 透传（子进程零感知零连接；与主进程 getEffectiveTools
+            // 的前缀合取同源同效）
             return registry
               .listConfigs()
               .filter((c) => c.enabled !== false)
-              .filter((c) => allowed === "*" || allowed.includes(c.name));
+              .filter((c) => allowed === "*" || allowed.includes(c.name))
+              .filter((c) => resourceState.get(profileKind as ProfileKind, "mcp-server", c.name)?.enabled !== false);
           },
           // 注入源切换：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),

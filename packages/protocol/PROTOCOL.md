@@ -430,7 +430,11 @@ sessionId **必填**。回执：daemon 重推该会话全量 `session.snapshot`�
 资源配置读面（v0.6，M6 智能体配置页：profile kind 维三类资源——tool/skill
 启停差异行 + model 槽位）。路由：全局命令（信封 sessionId 省略）。结果帧：
 `agent.config.list.result`（点对点，§16.4）。缺省无记录 = 启用（零配置兼容
-现状，存量零迁移）。
+现状，存量零迁移）。profiles 块 `mcpServers` 可选行（server 级配置面批）：
+per-kind 的 MCP server 启停读面（差异行 key = server 名，resourceType=
+`"mcp-server"`；关闭 ⇒ 该 server 全部 `${name}__*` 工具含 deferred meta
+不进该 kind 生效集）——行携带运行态透传（state/toolCount/lastError，
+registry 现拍）；零准入 server 的 kind 不携带（旧客户端零感知）。
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
@@ -448,14 +452,17 @@ skipped reason=unknown-model）；enabled=false 清槽（name 忽略）。tool/s
 只读 kind 写面拒绝（agent-roster 批）：profileKind 携带只读系统派生 kind
 （`"orchestrator"` / `"subagent-kg-writer"`）→ `connection.error { code:
 "agent.config.read_only" }`（连接保持）——系统派生形态无用户可写面，硬层
-拒绝不依赖前端表现；其余未知 kind 仍 `command.invalid_payload`。
+拒绝不依赖前端表现；其余未知 kind 仍 `command.invalid_payload`。mcp-server
+型（server 级配置面批）：name = server 名，须在该 kind 准入面内（profile
+mcpServers 白名单 ∩ 配置面）——全集外 → skipped reason=`unknown-mcp-server`
+（不落库不广播）。
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `profileKind` | `"main-session" \| "subagent-worker"` | 必填 | v0.6 | 目标 kind |
-| `resourceType` | `"tool" \| "skill" \| "model" \| "thinking"` | 必填 | v0.6 | 资源类型（model/thinking = 槽位语义非启停；thinking = v0.11 批内补登 T1.3：槽位语义同 model，set/clear，零档位校验） |
-| `name` | `string` | 必填 | v0.6 | 资源名（model/thinking 型 = "provider/model-id" / 档位字符串；clear 时忽略） |
-| `enabled` | `boolean` | 必填 | v0.6 | tool/skill = 启停；model = set（true）/ clear（false）槽位 |
+| `resourceType` | `"tool" \| "skill" \| "model" \| "thinking" \| "mcp-server"` | 必填 | v0.6 | 资源类型（model/thinking = 槽位语义非启停；thinking = v0.11 批内补登 T1.3：槽位语义同 model，set/clear，零档位校验；mcp-server = server 级配置面批：per-kind server 启停差异行） |
+| `name` | `string` | 必填 | v0.6 | 资源名（model/thinking 型 = "provider/model-id" / 档位字符串；mcp-server 型 = server 名；clear 时忽略） |
+| `enabled` | `boolean` | 必填 | v0.6 | tool/skill/mcp-server = 启停；model = set（true）/ clear（false）槽位 |
 
 #### `agent.base_prompt.get`
 
@@ -1538,6 +1545,7 @@ parked 不占并发预算，恢复等价新派发排队）。
 | `system[].tools` | `{ name, snippet }[]` | 必填 | agent-roster 批 | 工具清单纯展示（orchestrator = 声明全集；kg-writer = subagent-worker 当前生效集 + pinnedTools，随 worker toggle 动态跟随；无启停位——清单即生效集） |
 | `system[].derivedFrom` | `"subagent-worker"` | 可选 | agent-roster 批 | 派生说明位：kg-writer = 派生自 subagent-worker；orchestrator 不携带 |
 | `system[].pinnedTools` | `string[]` | 可选 | agent-roster 批 | 派生面恒在工具（kg-writer = ["kg-update"]；orchestrator 不携带） |
+| `profiles[].mcpServers` | `AgentConfigMcpServerRow[]` | 可选 | server 级配置面批 | per-kind 的 MCP server 启停读面：行 = { name（差异行 key）, enabled, state（运行态透传）, toolCount?, lastError? }；零准入 server 的 kind 不携带（旧客户端零感知） |
 
 #### `agent.config.changed`
 
@@ -1548,9 +1556,9 @@ skills/tools 同构；model 型 name = 模型 id 或 null（clear）。
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `profileKind` | `"main-session" \| "subagent-worker"` | 必填 | v0.6 | 变更归属 kind |
-| `resourceType` | `"tool" \| "skill" \| "model" \| "thinking"` | 必填 | v0.6 | 资源类型（thinking = v0.11 批内补登 T1.3） |
-| `name` | `string \| null` | 必填 | v0.6 | tools/skills = 资源名；model = 模型 id 或 null（clear） |
-| `enabled` | `boolean` | 必填 | v0.6 | tool/skill = 新启停态；model = true（槽位已设）/ false（槽位已清） |
+| `resourceType` | `"tool" \| "skill" \| "model" \| "thinking" \| "mcp-server"` | 必填 | v0.6 | 资源类型（thinking = v0.11 批内补登 T1.3；mcp-server = server 级配置面批：per-kind server 启停差异行） |
+| `name` | `string \| null` | 必填 | v0.6 | tools/skills/mcp-servers = 资源名（server 名）；model = 模型 id 或 null（clear） |
+| `enabled` | `boolean` | 必填 | v0.6 | tool/skill/mcp-server = 新启停态；model = true（槽位已设）/ false（槽位已清） |
 
 #### `agent.config.set_enabled.result`
 
@@ -1559,7 +1567,7 @@ skills/tools 同构；model 型 name = 模型 id 或 null（clear）。
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `status` | `"applied" \| "skipped"` | 必填 | v0.6 | 结果判别位 |
-| `reason` | `string` | skipped 分支必填 | v0.6 | 跳过原因：unknown-name（tool/skill 名不在全集，不落库）/ unknown-model（目录外模型，ModelService.setModel 先例）等 |
+| `reason` | `string` | skipped 分支必填 | v0.6 | 跳过原因：unknown-name（tool/skill 名不在全集，不落库）/ unknown-model（目录外模型，ModelService.setModel 先例）/ unknown-mcp-server（server 名不在该 kind 准入面，server 级配置面批）等 |
 
 #### `agent.base_prompt.get.result`
 

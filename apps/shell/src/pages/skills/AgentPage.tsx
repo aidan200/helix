@@ -323,7 +323,7 @@ function ProfileCard({
             ))}
           </div>
         ) : (
-          (block?.tools ?? []).map((tool) => (
+          (block?.tools ?? []).filter((tool) => !tool.name.includes("__")).map((tool) => (
             <div className="ag-row" data-tool-row={tool.name} key={tool.name}>
               <div className="ag-row-main">
                 <span className="ag-name">{tool.name}</span>
@@ -337,6 +337,69 @@ function ProfileCard({
               />
             </div>
           ))
+        )}
+      </div>
+
+      {/* MCP 服务分组区（server 级配置面批）：组级开关 = per-kind server 启停
+          （resourceType=mcp-server，关闭 ⇒ 整组工具含 discover 不进该 kind
+          生效集）；组内工具行 = 平铺 catalog 的 `${server}__` 前缀归属行
+          （snippet = registry 发现的 description 透传），逐工具微调 */}
+      <div className="ag-group">
+        <h3 className="ag-group-label">{t("agents.mcpLabel")}</h3>
+        {skeleton ? (
+          <div className="ag-skel" aria-hidden="true">
+            <div className="ag-skel-row">
+              <span className="ag-skel-bar" style={{ width: 110 }} />
+              <span className="ag-skel-bar" style={{ width: "42%" }} />
+            </div>
+          </div>
+        ) : (block?.mcpServers ?? []).length === 0 ? (
+          <p className="ag-empty-hint" data-mcp-empty>{t("agents.mcpEmpty")}</p>
+        ) : (
+          (block?.mcpServers ?? []).map((server) => {
+            const prefix = `${server.name}__`;
+            const serverTools = (block?.tools ?? []).filter((tool) => tool.name.startsWith(prefix));
+            return (
+              <div data-mcp-server={server.name} key={server.name}>
+                <div className="ag-row" data-mcp-server-row={server.name}>
+                  <div className="ag-row-main">
+                    <span className="ag-name">{server.name}</span>
+                    <span className="ag-desc">{t("agents.mcpToolCount", { count: server.toolCount ?? serverTools.length })}</span>
+                  </div>
+                  <span className={cn("mcp-state", server.state === "running" && "mcp-state-ok", server.state === "error" && "mcp-state-err")} data-mcp-state={server.state}>
+                    {t(`agents.mcpState.${server.state}`)}
+                  </span>
+                  {!server.enabled && (
+                    <span className="hud-chip" data-mcp-server-off>
+                      {t("agents.mcpOffChip")}
+                    </span>
+                  )}
+                  <AgentSwitch
+                    name={server.name}
+                    checked={server.enabled}
+                    disabled={writePending}
+                    onToggle={() => onToggle(kind, "mcp-server", server.name, !server.enabled)}
+                  />
+                </div>
+                {serverTools.map((tool) => (
+                  <div className="ag-row ag-row-sub" data-tool-row={tool.name} key={tool.name}>
+                    <div className="ag-row-main">
+                      <span className="ag-name">{tool.name.slice(prefix.length)}</span>
+                      <span className="ag-desc" title={tool.snippet}>
+                        {tool.snippet}
+                      </span>
+                    </div>
+                    <AgentSwitch
+                      name={tool.name}
+                      checked={tool.enabled}
+                      disabled={writePending}
+                      onToggle={() => onToggle(kind, "tool", tool.name, !tool.enabled)}
+                    />
+                  </div>
+                ))}
+              </div>
+            );
+          })
         )}
       </div>
 
@@ -697,6 +760,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
     sendAgentBasePromptGet,
     sendAgentSkillContentGet,
     subscribeAgentConfigFrames,
+    subscribeMcpFrames,
   } = useSession();
   const conn = session.conn;
 
@@ -753,6 +817,17 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
         }
       }),
     [subscribeAgentConfigFrames, toast, t],
+  );
+
+  // MCP server 运行态迁移 → 配置读面重拉（server 级配置面批：设置页增删
+  // server / 状态翻转时 agent 页 server 行与工具行自动跟随——消掉「页面
+  // 挂载数据定格」的陈旧窗口；静默重拉不降级回 loading）
+  useEffect(
+    () =>
+      subscribeMcpFrames((e: EventEnvelope) => {
+        if (e.type === "mcp.status.changed") runList();
+      }),
+    [subscribeMcpFrames, runList],
   );
 
   // changed 广播 → 拓扑 revision 递增 → 失效重拉（多页一致性；跳过首帧）

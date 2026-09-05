@@ -25,8 +25,11 @@ export type ProfileKind = "main-session" | "subagent-worker" | "orchestrator" | 
 
 /** 资源类型（tool/skill = 启停差异行；model/thinking = 槽位单行——
  *  thinking 为 thinking 批扩值（AD-6，iter-20260823-6ps5 T1.3）：档位字符串
- *  槽位，缺省无记录 = 未配置 → 解析链后续档，全链未配置 = 默认关）。 */
-export type ResourceType = "tool" | "skill" | "model" | "thinking";
+ *  槽位，缺省无记录 = 未配置 → 解析链后续档，全链未配置 = 默认关；
+ *  mcp-server = server 级配置面批：per-kind 的 MCP server 启停差异行
+ *  （key = server 名；关闭 ⇒ 该 server 全部 `${name}__*` 工具含 deferred
+ *  meta 不进该 kind 生效集——未来动态发现的新工具名天然被覆盖）。 */
+export type ResourceType = "tool" | "skill" | "model" | "thinking" | "mcp-server";
 
 /** 差异行值形状（读面）。 */
 export interface ResourceStateData {

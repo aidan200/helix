@@ -243,7 +243,7 @@ export class EventStream implements EventPublisherPort {
    */
   broadcastAgentConfigChanged(payload: {
     profileKind: "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer"; // R7 系统槽位批扩四值；D5 扩第五值（system kind 仅槽位型广播）
-    resourceType: "tool" | "skill" | "model" | "thinking";
+    resourceType: "tool" | "skill" | "model" | "thinking" | "mcp-server"; // mcp-server = server 级配置面批（per-kind server 启停差异行）
     name: string | null;
     enabled: boolean;
   }): void {

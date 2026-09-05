@@ -41,6 +41,7 @@ import type {
   AgentSkillContentGetResultEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
+import type { McpServerRuntimeState } from "@helix/protocol";
 import type { ResourceConfigBlock } from "../../../../application/ports/inbound/ResourceConfigPort";
 import type { ProfileKind, ResourceType } from "../../../../application/ports/outbound/ResourceStatePort";
 import type { SkillDescriptor } from "../../../../application/ports/outbound/SkillSourcePort";
@@ -69,12 +70,12 @@ function normalizeSetEnabled(ctx: ResourceCommandContext, payload: Record<string
     ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\"");
     return undefined;
   }
-  if (resourceType !== "tool" && resourceType !== "skill" && resourceType !== "model" && resourceType !== "thinking") {
-    ctx.commandError(ctx.type, "command.invalid_payload", "payload.resourceType 应为 \"tool\" | \"skill\" | \"model\" | \"thinking\"");
+  if (resourceType !== "tool" && resourceType !== "skill" && resourceType !== "model" && resourceType !== "thinking" && resourceType !== "mcp-server") {
+    ctx.commandError(ctx.type, "command.invalid_payload", "payload.resourceType 应为 \"tool\" | \"skill\" | \"model\" | \"thinking\" | \"mcp-server\"");
     return undefined;
   }
   if (typeof name !== "string" || name.trim() === "") {
-    ctx.commandError(ctx.type, "command.invalid_payload", "payload.name 应为非空 string（model 型 = \"provider/model-id\"；thinking 型 = 档位字符串）");
+    ctx.commandError(ctx.type, "command.invalid_payload", "payload.name 应为非空 string（model 型 = \"provider/model-id\"；thinking 型 = 档位字符串；mcp-server 型 = server 名）");
     return undefined;
   }
   if (typeof enabled !== "boolean") {
@@ -91,6 +92,11 @@ function toProfileBlockDto(block: ResourceConfigBlock): AgentConfigProfileBlock 
     // 调用面恒 [main, sub]——收窄断言安全
     profileKind: block.profileKind as AgentConfigProfileBlock["profileKind"],
     tools: block.tools.map((t) => ({ ...t })),
+    // server 级配置面批：server 行透传（state 宽 string → 协议联合，
+    // statusDtoOf 同构桥接；缺省不携带保持旧客户端零感知）
+    ...(block.mcpServers !== undefined && block.mcpServers.length > 0
+      ? { mcpServers: block.mcpServers.map((s) => ({ ...s, state: s.state as McpServerRuntimeState })) }
+      : {}),
     skills: block.skills.map((s) => ({ ...s })),
     diagnostics: block.diagnostics.map((d) => ({ ...d })),
     model: block.model ?? null,

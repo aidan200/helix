@@ -72,8 +72,8 @@ export interface AgentPageState {
   skillContentOpen: string | null;
 }
 
-/** 写面资源维（协议收窄值：tool/skill 启停 + model/thinking 槽位）。 */
-export type AgentWriteResource = "tool" | "skill" | "model" | "thinking";
+/** 写面资源维（协议收窄值：tool/skill/mcp-server 启停 + model/thinking 槽位；mcp-server = server 级配置面批，name = server 名）。 */
+export type AgentWriteResource = "tool" | "skill" | "model" | "thinking" | "mcp-server";
 
 /** 写面在途 key（model/thinking 槽位统一空名——set/clear 同键单飞）。 */
 export function pendingKeyOf(

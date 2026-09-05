@@ -981,3 +981,13 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
   DiffOverlay 私有 reducer）；`diff.changed` cleared 相位改忽略（开轮不抹
   上一轮灰态，首个 active 帧整体替换——流式期 chip 不消失）。
 - 计数不变（无新命令/事件/通道——回执字段 additive + 语义澄清）。
+
+## §29 server 级配置面（mcp-server per-kind 启停差异行）
+
+- **动机**：MCP 接入后 per-kind 的 server 级运行期开关缺失——profile `mcpServers` 白名单是代码冻结面（改需重启），全局 `enabled` 影响全部 kind；逐工具 toggle 盖不住 deferred meta 工具（`${server}__discover` 不在页面 catalog toggle 域）与未来动态发现的新工具名。本批补第四层：resource_state `mcp-server` 类型差异行（key = server 名，按 kind 存）。
+- **四层控制模型成型**：全局 enabled（设置页，管进程）→ kind 白名单（profile 声明，代码默认准入）→ per-kind server 开关（agent 页，本批）→ 工具级 toggle（微调）。server 关 ⇒ 该 server 全部 `${name}__*` 工具含 meta 不进该 kind 生效集（前缀合取单点在 ResourceService.getEffectiveTools；子进程 env 透传同步过滤——TR-106 纪律 3 扩展）。
+- **命令面（additive）**：`agent.config.set_enabled` resourceType 联合扩 `"mcp-server"`（name = server 名；全集外 → skipped reason=`unknown-mcp-server`，不落库不广播）。
+- **读面（additive）**：`agent.config.list.result` profiles 块增可选 `mcpServers: AgentConfigMcpServerRow[]`——行 = { name（差异行 key）, enabled（store 合取）, state/toolCount?/lastError?（registry 运行态透传）}；零准入 server 的 kind 不携带（旧客户端零感知）。
+- **广播（additive）**：`agent.config.changed` resourceType 联合同步扩 `"mcp-server"`（name = server 名）。
+- **配套（daemon/shell 同批）**：MCP 工具行 snippet 从 registry 发现的 description 透传（注册表外名不再恒空串）；agent 页「MCP 服务」分组区（组级开关 + 组内工具行去前缀渲染 + 状态徽标）；agent 页订阅 `mcp.status.changed` 自动重拉配置读面（消页面挂载数据定格窗口）。
+- 计数不变（无新命令/事件/通道——payload 字段 additive）。

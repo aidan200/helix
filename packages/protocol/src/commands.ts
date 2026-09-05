@@ -382,10 +382,11 @@ export interface AgentConfigSetEnabledPayload {
    * 全局——不联动 worker 槽位），tool/skill 启停写面仍拒（agent.config.read_only）。
    */
   profileKind: ProfileKind;
-  resourceType: "tool" | "skill" | "model" | "thinking";
+  /** mcp-server = server 级配置面批：per-kind server 启停差异行（name = server 名，全集外 → skipped reason=unknown-mcp-server）。 */
+  resourceType: "tool" | "skill" | "model" | "thinking" | "mcp-server";
   /** 资源名（model 型 = "provider/model-id"；thinking 型 = 档位字符串；clear 时忽略）。 */
   name: string;
-  /** tool/skill = 启停；model/thinking = set（true）/ clear（false）槽位。 */
+  /** tool/skill/mcp-server = 启停；model/thinking = set（true）/ clear（false）槽位。 */
   enabled: boolean;
 }
 
