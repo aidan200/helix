@@ -153,14 +153,14 @@ export interface AgentConfigProfileBlock {
     name: string;
     description: string;
     filePath: string;
-    /** 来源层：user（~/.helix/skills）/ project（工作区 .helix/skills）/ builtin（daemon 随仓 resources/skills，v0.8）。 */
-    source: "user" | "project" | "builtin";
+    /** 来源层：user（~/.helix/skills）/ builtin（daemon 随仓 resources/skills，v0.8；project 层已删——单源管理裁决）。 */
+    source: "user" | "builtin";
     /** 受众分类（提示词树形分层重构 additive）：agent = 行为技能（进技能清单）/ task = 任务类型 SOP（只进任务注册表与编排 kickoff）。 */
     audience: "agent" | "task";
     enabled: boolean;
   }>;
   /** 扫描诊断（code/message/path/source；SkillScanner 域形状同构）。 */
-  diagnostics: ReadonlyArray<{ code: string; message: string; path: string; source: "user" | "project" | "builtin" }>;
+  diagnostics: ReadonlyArray<{ code: string; message: string; path: string; source: "user" | "builtin" }>;
   /** model 槽位现值（未设 = null）。 */
   model: string | null;
   /**
@@ -199,8 +199,8 @@ export interface AgentConfigSystemSkillRow {
   name: string;
   description: string;
   filePath: string;
-  /** 来源层：user / project / builtin（AgentConfigProfileBlock.skills 行同源）。 */
-  source: "user" | "project" | "builtin";
+  /** 来源层：user / builtin（AgentConfigProfileBlock.skills 行同源；project 层已删）。 */
+  source: "user" | "builtin";
   /** 受众分类：orchestrator 块 = task（kickoff 全文注入的任务 SOP 注册表）；
    *  派生两块（kg-writer/reviewer）= agent（worker 生效技能集）。 */
   audience: "agent" | "task";

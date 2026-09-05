@@ -445,7 +445,6 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const bootCwd = deps.toolCwd ?? process.cwd();
   const taskSkillSource = new SkillScanner({
     userSkillsDir: paths.skillsHome(),
-    projectSkillsDir: path.join(bootCwd, ".helix", "skills"),
     builtinSkillsDir: deps.builtinSkillsDir ?? builtinSkillsDir(),
     cwd: bootCwd,
   });

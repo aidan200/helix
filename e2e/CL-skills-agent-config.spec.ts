@@ -68,8 +68,8 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
     {
       name: "ws-review",
       description: "工作区评审技能：按迭代清单核对交付物",
-      filePath: "/ws/.helix/skills/ws-review/SKILL.md",
-      source: "project",
+      filePath: "/home/dev/.helix/skills/ws-review/SKILL.md",
+      source: "user",
       enabled: true,
     },
   ],
@@ -77,8 +77,8 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
     {
       code: "invalid_metadata",
       message: "SKILL.md 缺少 description",
-      path: "/ws/.helix/skills/broken/SKILL.md",
-      source: "project",
+      path: "/home/dev/.helix/skills/broken/SKILL.md",
+      source: "user",
     },
   ],
   model: null,
@@ -176,9 +176,9 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
     await expect(subCard.locator('[data-tool-row="agent_spawn"]')).toHaveCount(0);
     await page.locator('[data-agent-row="main-session"]').click();
 
-    // 技能组：来源分组（user 在前 project 在后）+ 诊断警示（main 详情）
+    // 技能组：双源分组（user）+ 诊断警示（main 详情；project 层已删——单源管理裁决）
     await expect(mainCard.locator('[data-skill-row="hello-skill"] [data-source-chip]')).toHaveText("user");
-    await expect(mainCard.locator('[data-skill-row="ws-review"] [data-source-chip]')).toHaveText("project");
+    await expect(mainCard.locator('[data-skill-row="ws-review"] [data-source-chip]')).toHaveText("user");
     const diag = mainCard.locator("[data-diag-row]");
     await expect(diag).toHaveCount(1);
     await expect(diag).toContainText("invalid_metadata");

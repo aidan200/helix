@@ -14,6 +14,7 @@ import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import ModelsSettingsSection from "./ui/ModelsSettingsSection";
 import GeneralSettingsSection from "./ui/GeneralSettingsSection";
 import McpSettingsSection from "./ui/McpSettingsSection";
+import SkillsSettingsSection from "./ui/SkillsSettingsSection";
 import SettingsNav, {
   SETTINGS_SECTIONS,
   type SettingsSectionId,
@@ -34,6 +35,7 @@ const SettingsPage = function SettingsPage({ path }: { path: string }) {
         {section === "models" && <ModelsSettingsSection />}
         {section === "general" && <GeneralSettingsSection />}
         {section === "mcp" && <McpSettingsSection />}
+        {section === "skills" && <SkillsSettingsSection />}
       </AppLayout>
     </div>
   );

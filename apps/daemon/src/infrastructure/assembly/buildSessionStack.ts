@@ -400,7 +400,6 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   );
   const skillScanner = new SkillScanner({
     userSkillsDir: paths.skillsHome(),
-    projectSkillsDir: path.join(bootToolCwd, ".helix", "skills"),
     builtinSkillsDir: deps.builtinSkillsDir ?? builtinSkillsDir(),
     cwd: bootToolCwd,
   });

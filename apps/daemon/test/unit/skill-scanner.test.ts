@@ -7,8 +7,10 @@ import { builtinSkillsDir } from "../../src/infrastructure/paths";
 
 /**
  * M6 T1 SkillScanner（pi-engine 防腐墙内）：
- * - 包装 pi-agent-core loadSourcedSkills：双层输入（user = ~/.helix/skills、
- *   project = <工作区>/.helix/skills）→ source 标签逐技能携带；
+ * - 包装 pi-agent-core loadSourcedSkills：三输入（user = ~/.helix/skills、
+ *   builtin-agent/builtin-task = daemon 随仓 resources/skills 二分）→
+ *   source 标签逐技能携带；project 层（<工作区>/.helix/skills）发现路径
+ *   已删（单源管理裁决）——SkillScannerOptions 无该参数，类型面钉死；
  * - 目录缺失静默跳过（loadSourcedSkills 自带：file_info not_found 不出诊断）；
  * - 坏文件（如缺 description）→ diagnostics 上抛、零异常、不产技能；
  * - 产出 helix 域形状（SkillDescriptor：name/description/filePath/source），
@@ -36,36 +38,30 @@ afterAll(() => {
   for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
 });
 
-describe("SkillScanner（三层目录 → source 标签技能清单）", () => {
-  test("① tmp 目录造 SKILL.md 三源扫出 + source 标签正确 + 域形状字段齐", async () => {
+describe("SkillScanner（双源目录 → source 标签技能清单）", () => {
+  test("① tmp 目录造 SKILL.md 双源扫出 + source 标签正确 + 域形状字段齐", async () => {
     const userDir = tmpDir("helix-skills-user-");
-    const projectDir = tmpDir("helix-skills-project-");
     const builtinDir = tmpDir("helix-skills-builtin-");
     const userFile = makeSkill(userDir, "code-review", "name: code-review\ndescription: 审查代码变更质量");
-    makeSkill(projectDir, "deploy-helper", "name: deploy-helper\ndescription: 部署流程向导");
     // builtin 层目录二分（audience 分类即目录）：agent/ = 行为技能，task/ = 任务类型 SOP
     const builtinFile = makeSkill(path.join(builtinDir, "agent"), "web-access", "name: web-access\ndescription: 联网操作指引");
     const builtinTaskFile = makeSkill(path.join(builtinDir, "task"), "kg-bootstrap", "name: kg-bootstrap\ndescription: 知识图谱批量创建");
 
-    const scanner = new SkillScanner({ userSkillsDir: userDir, projectSkillsDir: projectDir, builtinSkillsDir: builtinDir });
+    const scanner = new SkillScanner({ userSkillsDir: userDir, builtinSkillsDir: builtinDir });
     const result = await scanner.scan();
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.skills.length).toBe(4);
+    expect(result.skills.length).toBe(3);
 
     const byName = new Map(result.skills.map((s) => [s.name, s]));
     const review = byName.get("code-review");
     expect(review).toBeDefined();
     expect(review!.source).toBe("user");
-    expect(review!.audience).toBe("agent"); // user/project 层恒为 agent 类
+    expect(review!.audience).toBe("agent"); // user 层恒为 agent 类
     expect(review!.description).toBe("审查代码变更质量");
     expect(review!.filePath).toBe(userFile); // 绝对路径指向 SKILL.md 本体
 
-    const deploy = byName.get("deploy-helper");
-    expect(deploy).toBeDefined();
-    expect(deploy!.source).toBe("project");
-
-    // T5 内置第三源：daemon 随仓目录（产品不可删改）→ source = "builtin"；
+    // 内置源：daemon 随仓目录（产品不可删改）→ source = "builtin"；
     // audience 由子目录决定（agent/ → agent，task/ → task）
     const builtin = byName.get("web-access");
     expect(builtin).toBeDefined();
@@ -82,7 +78,6 @@ describe("SkillScanner（三层目录 → source 标签技能清单）", () => {
   test("② 目录缺失 → 零异常、零技能、零诊断（静默跳过，首启常态）", async () => {
     const scanner = new SkillScanner({
       userSkillsDir: path.join(tmpDir("helix-skills-none-"), "skills"), // 父在、子不存在
-      projectSkillsDir: path.join(tmpDir("helix-skills-none2-"), "workspace", ".helix", "skills"), // 深层缺失
       builtinSkillsDir: path.join(tmpDir("helix-skills-none3-"), "resources", "skills"), // builtin 层同款静默
     });
     const result = await scanner.scan();
@@ -92,13 +87,11 @@ describe("SkillScanner（三层目录 → source 标签技能清单）", () => {
 
   test("③ 坏文件（缺 description）→ diagnostics 上抛不炸、该技能不产出、同目录好技能不受影响", async () => {
     const userDir = tmpDir("helix-skills-bad-");
-    const projectDir = tmpDir("helix-skills-bad-proj-");
     const badFile = makeSkill(userDir, "broken-skill", "name: broken-skill\ndescription:");
     makeSkill(userDir, "good-skill", "name: good-skill\ndescription: 正常技能");
 
     const scanner = new SkillScanner({
       userSkillsDir: userDir,
-      projectSkillsDir: projectDir,
       builtinSkillsDir: path.join(tmpDir("helix-skills-bad-none-"), "skills"), // 缺失静默
     });
     const result = await scanner.scan();
@@ -116,7 +109,6 @@ describe("SkillScanner（三层目录 → source 标签技能清单）", () => {
     const missing = path.join(tmpDir("helix-skills-real-none-"), "none");
     const scanner = new SkillScanner({
       userSkillsDir: missing,
-      projectSkillsDir: missing,
       builtinSkillsDir: builtinSkillsDir(), // 真随仓目录（paths 单点派生）
     });
     const result = await scanner.scan();

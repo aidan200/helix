@@ -49,8 +49,8 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
     {
       name: "ws-skill",
       description: "工作区技能",
-      filePath: "/ws/.helix/skills/ws-skill/SKILL.md",
-      source: "project",
+      filePath: "/home/dev/.helix/skills/ws-skill/SKILL.md",
+      source: "user",
       audience: "agent",
       enabled: false,
     },
@@ -65,7 +65,7 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
     },
   ],
   diagnostics: [
-    { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/ws/.helix/skills/broken/SKILL.md", source: "project" },
+    { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/home/dev/.helix/skills/broken/SKILL.md", source: "user" },
   ],
   model: null,
   thinkingLevel: null, // v0.11 批内补登编译跟随（T1.3；UI 消费面归 T2.2）
@@ -324,9 +324,9 @@ describe("智能体页组件（M6 T4）", () => {
     expect(document.querySelector('[data-tool-row="bash"]')!.textContent).toContain(
       "在沙箱工作目录执行 shell 命令并返回输出",
     );
-    // 技能行：来源 chip + 禁用态 aria-checked=false
+    // 技能行：来源 chip + 禁用态 aria-checked=false（ws-skill = 第二个 user 技能，project 层已删）
     expect(document.querySelector('[data-skill-row="hello-skill"] [data-source-chip]')!.textContent).toBe("user");
-    expect(document.querySelector('[data-skill-row="ws-skill"]')!.textContent).toContain("project");
+    expect(document.querySelector('[data-skill-row="ws-skill"] [data-source-chip]')!.textContent).toBe("user");
     expect(
       (document.querySelector('[data-switch="ws-skill"]') as HTMLButtonElement).getAttribute("aria-checked"),
     ).toBe("false");

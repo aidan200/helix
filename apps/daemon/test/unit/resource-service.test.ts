@@ -47,7 +47,7 @@ const TOOL_SNIPPETS: Readonly<Record<string, string>> = {
 
 const SKILLS: readonly SkillDescriptor[] = [
   { name: "code-review", description: "审查代码变更质量", filePath: "/tmp/x/code-review/SKILL.md", source: "user", audience: "agent" },
-  { name: "deploy-helper", description: "部署流程向导", filePath: "/tmp/y/deploy-helper/SKILL.md", source: "project", audience: "agent" },
+  { name: "deploy-helper", description: "部署流程向导", filePath: "/tmp/y/deploy-helper/SKILL.md", source: "user", audience: "agent" },
 ];
 
 /** 内存假实现：镜像 ResourceStatePort 语义（含 model 槽位单行不变式）。 */
@@ -135,13 +135,13 @@ describe("ResourceService：list 合并视图", () => {
     const skills = new FakeSkillSource({
       skills: [],
       diagnostics: [
-        { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/tmp/bad/SKILL.md", source: "project" },
+        { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/tmp/bad/SKILL.md", source: "user" },
       ],
     });
     const { service } = makeService(new InMemoryResourceState(), skills);
     const view = await service.list("main-session");
     expect(view.diagnostics).toEqual([
-      { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/tmp/bad/SKILL.md", source: "project" },
+      { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/tmp/bad/SKILL.md", source: "user" },
     ]);
   });
 

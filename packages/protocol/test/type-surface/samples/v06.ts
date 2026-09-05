@@ -101,8 +101,8 @@ export const agentConfigListResult: AgentConfigListResultEvent = {
           {
             code: "invalid_metadata",
             message: "SKILL.md 缺少 description",
-            path: "/ws/.helix/skills/broken/SKILL.md",
-            source: "project",
+            path: "/home/dev/.helix/skills/broken/SKILL.md",
+            source: "user",
           },
         ],
         model: "anthropic/claude-sonnet-4-5",

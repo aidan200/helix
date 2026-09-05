@@ -403,7 +403,7 @@ function ProfileCard({
         )}
       </div>
 
-      {/* 技能组：user/project 来源分组 + 开关 + 诊断警示 */}
+      {/* 技能组：user/builtin 来源分组 + 开关 + 诊断警示 */}
       <div className="ag-group">
         <h3 className="ag-group-label">{t("agents.skillsLabel")}</h3>
         {skeleton ? (
@@ -418,8 +418,8 @@ function ProfileCard({
         ) : (block?.skills ?? []).length === 0 ? (
           <p className="ag-empty-hint">{t("agents.skillsEmpty")}</p>
         ) : (
-          // T5 三源分组：builtin（内置——不可禁用，开关恒禁用态）/ user / project
-          (["user", "project", "builtin"] as const).map((source) => {
+          // 双源分组：builtin（内置——不可禁用，开关恒禁用态）/ user；project 层已删（单源管理裁决）
+          (["user", "builtin"] as const).map((source) => {
             const rows = (block?.skills ?? []).filter((s) => s.source === source);
             if (rows.length === 0) return null;
             return (

@@ -49,11 +49,10 @@ afterAll(() => {
   for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
 });
 
-/** 真实 builtin 层扫描器（user/project = 不存在子路径，隔离）。 */
+/** 真实 builtin 层扫描器（user = 不存在子路径，隔离）。 */
 function builtinScanner(builtin = builtinSkillsDir()): SkillScanner {
   return new SkillScanner({
     userSkillsDir: path.join(tmpDir("helix-t23-user-"), "skills"),
-    projectSkillsDir: path.join(tmpDir("helix-t23-project-"), ".helix", "skills"),
     builtinSkillsDir: builtin,
   });
 }

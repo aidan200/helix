@@ -40,7 +40,7 @@ const MAIN_BLOCK: AgentConfigProfileBlock = {
     },
   ],
   diagnostics: [
-    { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/ws/broken/SKILL.md", source: "project" },
+    { code: "invalid_metadata", message: "SKILL.md 缺少 description", path: "/home/dev/.helix/skills/broken/SKILL.md", source: "user" },
   ],
   model: null,
   thinkingLevel: null, // v0.11 批内补登编译跟随（T1.3；UI 消费面归 T2.2）
