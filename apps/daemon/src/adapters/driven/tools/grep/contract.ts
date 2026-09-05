@@ -19,11 +19,13 @@ export interface GrepMatch {
   readonly line: string;
 }
 
-/** 匹配查询：子串 pattern + 可选 glob 路径过滤 + 大小写开关。 */
+/** 匹配查询：pattern（缺省字面子串）+ 可选 glob 路径过滤 + 大小写开关 + regex 开关。 */
 export interface GrepQuery {
   readonly pattern: string;
   readonly glob?: string;
   readonly ignoreCase?: boolean;
+  /** regex=true：pattern 按 ripgrep 正则（Rust regex 语法）解释；缺省字面子串。 */
+  readonly regex?: boolean;
 }
 
 /**

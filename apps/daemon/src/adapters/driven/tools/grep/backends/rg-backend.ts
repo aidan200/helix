@@ -8,7 +8,9 @@ import type { GrepBackend, GrepMatch, GrepQuery } from "../contract";
  * 经 resolve-rg 解析出的**注入路径** spawn 真 rg（本模块只接受注入
  * 路径，禁止 spawn("rg") 裸名直撞 PATH——R1 解析单点守护），把 rg 原生
  * 语义逐项对齐到 grep 契约语义（contract.ts 为语义基准，宁失速不失真）：
- * - 子串匹配 → `--fixed-strings` 恒在（includes 语义，非正则）；
+ * - 子串匹配 → `--fixed-strings` 缺省恒在（includes 语义；regex=true 时
+ *   摘除，pattern 按 ripgrep 正则——Rust regex 语法解释，非法正则 rg
+ *   exit 2 → RgExecError 响亮失败）；
  * - gitignore → `--no-ignore` 恒在（契约遍历零 gitignore 概念，显式抵消 rg 默认）；
  * - 隐藏文件 → `--hidden` 恒在（契约遍历不跳隐藏文件）；
  * - 跳过目录 → `-g '!node_modules' -g '!.git'`（basename 匹配，契约既定排除集）；
@@ -53,13 +55,14 @@ export class RgTimeoutError extends Error {
 
 /**
  * rg argv 构造（纯函数，归一判据的机械投影）：恒带 `--json` 结构化输出 +
- * 三个归一 flag + SKIP_DIRS 排除；ignoreCase → -i；pattern 经 `-e` 传入
+ * 三个归一 flag + SKIP_DIRS 排除；ignoreCase → -i；regex=true 时摘除
+ * `--fixed-strings`（pattern 按正则解释）；pattern 经 `-e` 传入
  * （pattern 以 `-` 开头不被吞成 flag）；rootPath 经 `--` 隔离。glob **不进**
  * argv。
  */
 export function buildRgArgv(query: GrepQuery, rootPath: string): string[] {
   const argv = [
-    "--fixed-strings",
+    ...(query.regex === true ? [] : ["--fixed-strings"]),
     "--no-ignore",
     "--hidden",
     "--json",

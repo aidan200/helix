@@ -36,7 +36,7 @@ const MAX_GREP_CHARS = 50 * 1024;
 const grepParameters = {
   type: "object",
   properties: {
-    pattern: { type: "string", description: "搜索的子串（字面匹配——正则元字符不解释；区分大小写，除非 ignoreCase）" },
+    pattern: { type: "string", description: "搜索的子串（缺省字面匹配——正则元字符不解释；regex=true 时按 ripgrep 正则解释；区分大小写，除非 ignoreCase）" },
     path: {
       type: "string",
       description:
@@ -44,6 +44,7 @@ const grepParameters = {
     },
     glob: { type: "string", description: "文件路径过滤 glob（* 可跨目录，如 *.ts）" },
     ignoreCase: { type: "boolean", description: "忽略大小写（默认 false）" },
+    regex: { type: "boolean", description: "pattern 按正则解释（ripgrep/Rust regex 语法；非法正则会报错）；缺省 false 字面子串" },
   },
   required: ["pattern", "path"],
   additionalProperties: false,
@@ -79,7 +80,7 @@ export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<Execut
     label: "grep",
     description:
       "在指定文件或目录内递归搜索文本（底层 ripgrep），返回命中行（格式 path:行号: 行内容）。" +
-      "pattern 为字面子串匹配——正则元字符（. * [ ] ( ) | 等）不解释、不报错但匹配不到；" +
+      "pattern 缺省为字面子串匹配——正则元字符（. * [ ] ( ) | 等）不解释、不报错但匹配不到；regex=true 时 pattern 按 ripgrep 正则（Rust regex 语法）解释；" +
       "可用 glob 过滤文件（* 可跨目录）、ignoreCase 忽略大小写。" +
       "path 相对会话工作目录（多项目 workspace 即其根）解析，跨项目带项目目录前缀或绝对路径，无需先 cd。" +
       "跨文件检索勿在 bash 中改用系统 grep（BSD/GNU 正则语义、无截断无超时保护），仅管道/计数等组合场景除外。" +
@@ -87,13 +88,14 @@ export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<Execut
     parameters: grepParameters as any,
     async execute(toolCallId, params, signal, _onUpdate, context): Promise<AgentToolResult<undefined>> {
       void toolCallId;
-      const { pattern, path, glob, ignoreCase } = params as {
+      const { pattern, path, glob, ignoreCase, regex } = params as {
         pattern: string;
         path: string;
         glob?: string;
         ignoreCase?: boolean;
+        regex?: boolean;
       };
-      const matches = await search({ pattern, glob, ignoreCase }, path, context, signal);
+      const matches = await search({ pattern, glob, ignoreCase, regex }, path, context, signal);
       // 输出截断（code-review M24）：与 read/bash 同口径（2000 行 / 50KB 先到
       // 先截 + 截断注明 + 收窄提示）——高频 pattern 全量 join 可向模型上下文
       // 注入数十万行。

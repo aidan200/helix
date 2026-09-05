@@ -24,8 +24,8 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   write: "新建文件或整体覆写——创建文件用它；局部修改优先 edit",
   edit: "修改已有文件的首选——按精确文本匹配做字符串替换编辑",
   grep:
-    "搜索文件内容的首选——跨文件子串检索（底层 ripgrep；非正则，元字符按字面解释）；" +
-    "path 相对会话目录（多项目 workspace 即其根，跨项目带项目目录前缀，无需先 cd）", // H11：实现是 --fixed-strings 子串语义，原文案误导为正则
+    "搜索文件内容的首选——跨文件子串检索并列出匹配行（底层 ripgrep；缺省字面子串，regex=true 按正则解释）；" +
+    "path 相对会话目录（多项目 workspace 即其根，跨项目带项目目录前缀，无需先 cd）", // H11：原文案误导为正则；现有 regex 开关，两面对齐（缺省子串）
   web_search: "联网搜索（DuckDuckGo 主/Bing 兜底），返回标题/链接/摘要列表",
   web_fetch: "抓取网页并转为 Markdown 返回（直连主通道，Jina 备选）",
   agent_spawn: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）",

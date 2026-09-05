@@ -42,6 +42,12 @@ describe("buildRgArgv：归一判据的 argv 投影", () => {
     expect(argv.join(" ")).not.toContain("*.ts");
   });
 
+  test("regex=true 不带 --fixed-strings（pattern 按正则解释）；缺省/false 仍带（字面子串）", () => {
+    expect(buildRgArgv({ pattern: "a.b", regex: true }, "src")).not.toContain("--fixed-strings");
+    expect(buildRgArgv({ pattern: "a.b", regex: false }, "src")).toContain("--fixed-strings");
+    expect(buildRgArgv({ pattern: "a.b" }, "src")).toContain("--fixed-strings");
+  });
+
   test("pattern 经 -e 传入（pattern 以 - 开头不被吞成 flag）；rootPath 经 -- 隔离", () => {
     const argv = buildRgArgv({ pattern: "-weird" }, "docs");
     expect(argv.at(-4)).toBe("-e");

@@ -15,6 +15,8 @@ import { RgExecError } from "../../src/adapters/driven/tools/grep/backends/rg-ba
  *
  * 六维：①子串（fixed-strings，非正则）②gitignore 抵消 ③hidden 命中
  * ④node_modules/.git 跳过 ⑤glob 单源（* 跨目录）⑥零命中/空 pattern。
+ * ⑦regex 开关：regex=true 时 pattern 按 ripgrep 正则（Rust regex 语法）
+ * 解释，缺省仍字面子串（向后兼容）；非法正则 rg exit 2 → RgExecError。
  * 输出契约：`path:行号: 行内容` 逐行 / `(no matches for "...")`。
  *
  * TR-TEST-4：fixture 落 tmp；TR-TEST-6：afterEach 清理。
@@ -58,7 +60,7 @@ describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）"
   async function runGrep(
     tool: ReturnType<typeof createGrepTool>,
     context: ExecutionToolContext,
-    params: { pattern: string; path?: string; glob?: string; ignoreCase?: boolean },
+    params: { pattern: string; path?: string; glob?: string; ignoreCase?: boolean; regex?: boolean },
   ): Promise<FacadeRun> {
     try {
       const result = await tool.execute(
@@ -117,6 +119,19 @@ describe("grep 工具 golden 契约（门面全链路，真 rg + tmp fixture）"
     const empty = await runGrep(tool, context, { pattern: "" });
     expect(empty.isError).toBe(true);
     expect(empty.text).toContain("pattern 不能为空");
+  });
+
+  test("⑦ regex=true：pattern 按 ripgrep 正则解释；非法正则响亮失败（RgExecError）", async () => {
+    const { context } = setup();
+    writeFileSync(path.join(dir as string, "src", "re.ts"), "a.b 字面\naxb 正则才命中\n");
+    const tool = createGrepTool({ rgPath: hostRgPath() });
+    // 同一 pattern 两语义对照：缺省字面（仅命中字面行），regex=true 正则（两行全中）
+    const literal = await runGrep(tool, context, { pattern: "a.b" });
+    expect(literal.text).toBe("src/re.ts:1: a.b 字面");
+    const re = await runGrep(tool, context, { pattern: "a.b", regex: true });
+    expect(re.text).toBe("src/re.ts:1: a.b 字面\nsrc/re.ts:2: axb 正则才命中");
+    const bad = await runGrep(tool, context, { pattern: "a[b", regex: true });
+    expect(bad.isError).toBe(true); // rg 正则解析错误 exit 2 → 响亮失败
   });
 
   test("运行期失败透传：rg 非零退出 → 错误原样上抛（无 TS 兜底可降级）", async () => {
