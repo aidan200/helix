@@ -966,11 +966,14 @@ html.light .bubble code.inline { color: var(--accent); }
   .stats-pop { top: 52px; }
 }
 
-/* ═══ 轮次 diff 详情覆盖窗（浮窗批 v2）：fixed 视口层（lightbox 同族
- * z-90）——不锚 msg-flow-wrap，流式期布局推挤不影响浮窗位置；
+/* ═══ 轮次 diff 详情覆盖窗（浮窗批 v3）：absolute 锚 .app 盒——
+ * .app 尺寸由 app-layout flex 决定（恒定，流式期 banner/composer 只重分
+ * .app 内部空间不改外盒），流式推挤不影响浮窗位置；几何上天然不含左侧
+ * nav-rail/session 侧栏（不覆盖、不参与其 z 序）；z-90 在 .app 上下文内
+ * 压过 chat 域全部浮层（conn-overlay z-10 / stats-pop z-45 / 60）；
  * 面板走全站浮层玻璃语言（stats-pop 同款：popover-fill + blur14 sat120）═══ */
 .diff-overlay {
-  position: fixed; inset: 0; z-index: 90;
+  position: absolute; inset: 0; z-index: 90;
   display: flex; align-items: stretch; justify-content: center;
   background: rgb(var(--void-rgb) / 0.72);
   backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);

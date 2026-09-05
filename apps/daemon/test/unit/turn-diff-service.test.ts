@@ -216,6 +216,11 @@ describe("⑥ external 条目（stat 变化无基线）", () => {
     // 有基线条目不被 external 覆盖（仍是 modified 语义——status 保留内容面）
     const typed = frozen.files.find((f) => f.path === "/w/typed.txt")!;
     expect([...typed.agents]).toEqual(["agent-main"]);
+    // 红测 v3：summary 口径回归精确层——external 粗估不进轮 stats（chip 不被
+    // daemon 自产面（helix.db/.kg 等高频外部变化）的 size 粗估污染）。
+    // typed.txt 终读缺席（本用例未装配 readTextFile）→ 降级 {0,1} 为既有行为，
+    // 关键断言：external 条目 a.txt 的粗估（数十行）未混入。
+    expect(frozen.stats).toEqual({ added: 0, removed: 1 });
   });
 
   test("轮首有、轮末无且无基线 → deleted 条目（size 差负向）", async () => {

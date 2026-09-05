@@ -13,7 +13,9 @@ import type { WorkspaceStatIndexLite } from "../../application/services/TurnDiff
  * 全文件 stat 索引，不做一级目录资格甄别。
  */
 
-/** walk 忽略段（重目录——索引成本与噪声面控制）。 */
+/** walk 忽略段（重目录——索引成本与噪声面控制；浮窗批 v3：补 daemon 自产面
+ * .helix/.kg/.codegraph（运行时目录——轮内高频变化，纯噪声）与
+ * test-results/evidence（测试产物段，名字特异误伤面可忽略）。）。 */
 export const STAT_WALK_IGNORED_SEGMENTS: ReadonlySet<string> = new Set([
   "node_modules",
   ".git",
@@ -32,7 +34,21 @@ export const STAT_WALK_IGNORED_SEGMENTS: ReadonlySet<string> = new Set([
   "vendor",
   ".venv",
   "__pycache__",
+  ".helix",
+  ".kg",
+  ".codegraph",
+  "test-results",
+  "evidence",
 ]);
+
+/** 数据库文件后缀（helix.db* 等本地库——轮内持续写库，size 噪声源）。 */
+const STAT_WALK_IGNORED_SUFFIXES: readonly string[] = [
+  ".db",
+  ".db-wal",
+  ".db-shm",
+  ".sqlite",
+  ".sqlite3",
+];
 
 /** 深度上限（防病态深路径）。 */
 const STAT_WALK_MAX_DEPTH = 16;
@@ -58,6 +74,7 @@ async function walkDir(dir: string, index: WorkspaceStatIndexLite, depth: number
     if (entry.isDirectory()) {
       await walkDir(p, index, depth + 1);
     } else if (entry.isFile()) {
+      if (STAT_WALK_IGNORED_SUFFIXES.some((sfx) => entry.name.endsWith(sfx))) continue;
       try {
         const s = await stat(p);
         index.set(p, { mtimeMs: s.mtimeMs, size: s.size });

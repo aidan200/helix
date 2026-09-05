@@ -384,8 +384,12 @@ export class TurnDiffService {
     for (const entry of active.files.values()) {
       const frozen = await this.freezeEntry(entry);
       files.push(frozen);
-      added += frozen.added;
-      removed += frozen.removed;
+      // 浮窗批 v3：summary 口径 = 精确层（工具写路径 patch 统计）——external
+      // 粗估只进文件列表不进轮 stats（chip 不被 daemon 自产面 size 噪声污染）
+      if (frozen.status !== "external") {
+        added += frozen.added;
+        removed += frozen.removed;
+      }
     }
     files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     state.frozen.push({ turnId: active.turnId, outcome, startedAt: active.startedAt, endedAt, files, stats: { added, removed } });
@@ -534,8 +538,10 @@ export class TurnDiffService {
       for (const entry of active.files.values()) {
         const frozen = await this.freezeEntry(entry);
         files.push(frozen);
-        added += frozen.added;
-        removed += frozen.removed;
+        if (frozen.status !== "external") {
+          added += frozen.added;
+          removed += frozen.removed;
+        }
       }
       files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
       return { turnId: active.turnId, phase: "active", files, stats: { added, removed } };

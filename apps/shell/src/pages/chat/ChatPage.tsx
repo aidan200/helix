@@ -107,9 +107,8 @@ const ChatPage = function ChatPage() {
           {/* P-1 composer + foot 右侧推理强度 picker（thinking 批 T2.1；
               pages 层装配注入——AG-15 FSD 同层禁互引） */}
           <Composer ref={composerRef} footEnd={<ComposerThinkingPicker />} />
-          {/* 轮次 diff 详情窗（浮窗批 v2）：fixed 视口层（lightbox 同族）——
-              挂 .app 直系而非 msg-flow-wrap 内，流式期 banner/composer 推挤
-              布局时浮窗位置稳定不随 wrap 动 */}
+          {/* 轮次 diff 详情窗（浮窗批 v3）：absolute 锚 .app 直系（.app 外盒
+              恒定不受流式推挤；几何不含 nav-rail/session 侧栏——不覆盖不比 z） */}
           {diffOverlayOpen && <DiffOverlay onClose={() => setDiffOverlayOpen(false)} />}
         </div>
       </Workbench>
