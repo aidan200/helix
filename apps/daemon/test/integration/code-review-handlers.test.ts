@@ -155,6 +155,7 @@ function stubAdapterDeps(events: EventStream) {
     },
     resource: {
       list: async () => { throw new Error("stub"); },
+      getEffectiveSkills: async () => [],
       setEnabled: async () => { throw new Error("stub"); },
       setModelSlot: async () => { throw new Error("stub"); },
       clearModelSlot: async () => { throw new Error("stub"); },

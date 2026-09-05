@@ -33,6 +33,13 @@ export type ResourceToggleOutcome =
 export interface ResourceConfigPort {
   /** 单 kind 配置读面（driving 层按请求 kind 集拼块）。 */
   list(profileKind: ProfileKind): Promise<ResourceConfigBlock>;
+  /**
+   * 生效技能集读面（系统派生块技能读面批）：audience×kind 可见性 +
+   * skills+tools 成套装配 + 启停合取的单一事实源（ResourceService 单点，
+   * E-116——driving 不得自带过滤逻辑）。系统块组装用（modelSlot 同款 R7
+   * 先例：kg-writer/reviewer 派生块不整 list，只取生效面）。
+   */
+  getEffectiveSkills(profileKind: ProfileKind): Promise<readonly SkillDescriptor[]>;
   /** model 槽位现值同步读（R7：system 块组装用——kg-writer 等派生块不整 list）。 */
   modelSlot(profileKind: ProfileKind): string | undefined;
   /** thinking 槽位现值同步读（R7 同上）。 */

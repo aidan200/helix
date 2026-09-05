@@ -92,11 +92,18 @@ test.describe("M6 T4 CL-skills E 层：agent.config 真链路", () => {
     const orchCard = page.locator('[data-agent-card="orchestrator"]');
     await expect(orchCard.locator("[data-ro-tool-row]")).toHaveCount(13, { timeout: 10_000 });
     await expect(orchCard.locator("[data-ro-tool-row] [data-switch]")).toHaveCount(0);
+    // 系统派生块技能读面批：orchestrator = 任务 SOP 注册表（builtin∧task）+
+    // kickoff 注入说明；行纯展示（查看钮、零开关）
+    await expect(orchCard.locator('[data-skill-row="code-review"]')).toHaveCount(1);
+    await expect(orchCard.locator("[data-sop-note]")).toContainText("kickoff");
+    await expect(orchCard.locator("[data-skill-row] [data-switch]")).toHaveCount(0);
     await page.locator('[data-agent-row="subagent-kg-writer"]').click();
     const kgwCard = page.locator('[data-agent-card="subagent-kg-writer"]');
     await expect(kgwCard.locator("[data-ro-tool-row]")).toHaveCount(14, { timeout: 10_000 }); // sub 13 + kg-update
     await expect(kgwCard.locator('[data-ro-tool-row="kg-update"] [data-pinned-chip]')).toHaveText("恒在");
     await expect(kgwCard.locator("[data-derived-note]")).toContainText("跟随 subagent-worker");
+    // 派生两块 = worker 生效技能集（builtin agent 层 plan-workflow 在场——成套 plan 三工具齐备）
+    await expect(kgwCard.locator('[data-skill-row="plan-workflow"]')).toHaveCount(1);
     await page.locator('[data-agent-row="subagent-code-reviewer"]').click();
     const revCard = page.locator('[data-agent-card="subagent-code-reviewer"]');
     await expect(revCard.locator("[data-ro-tool-row]")).toHaveCount(11, { timeout: 10_000 }); // sub 13 − write/edit

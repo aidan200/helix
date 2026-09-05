@@ -221,12 +221,31 @@ export const agentConfigListResultSystem: AgentConfigListResultEvent = {
       {
         profileKind: "orchestrator",
         tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" }],
+        // 系统派生块技能读面批：orchestrator = 任务 SOP 注册表（audience=task）
+        skills: [
+          {
+            name: "code-review",
+            description: "对项目代码做质量评审",
+            filePath: "/daemon/resources/skills/task/code-review/SKILL.md",
+            source: "builtin",
+            audience: "task",
+          },
+        ],
       },
       {
         profileKind: "subagent-kg-writer",
         tools: [
           { name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
           { name: "kg-update", snippet: "知识图谱即时落账（supersede 推翻节点 / createNode 沉淀新知识）" },
+        ],
+        skills: [
+          {
+            name: "plan-workflow",
+            description: "工作台账（plan 三工具）的使用规范",
+            filePath: "/daemon/resources/skills/agent/plan-workflow/SKILL.md",
+            source: "builtin",
+            audience: "agent",
+          },
         ],
         derivedFrom: "subagent-worker",
         pinnedTools: ["kg-update"],

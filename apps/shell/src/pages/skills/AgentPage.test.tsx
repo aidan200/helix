@@ -83,12 +83,32 @@ const ORCH_BLOCK: AgentConfigSystemBlock = {
     { name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" },
     { name: "kg", snippet: "查询项目知识图谱（只读）" },
   ],
+  // 系统派生块技能读面批：orchestrator = 任务 SOP 注册表（audience=task）
+  skills: [
+    {
+      name: "code-review",
+      description: "对项目代码做质量评审",
+      filePath: "/daemon/resources/skills/task/code-review/SKILL.md",
+      source: "builtin",
+      audience: "task",
+    },
+  ],
 };
 const KGW_BLOCK: AgentConfigSystemBlock = {
   profileKind: "subagent-kg-writer",
   tools: [
     { name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
     { name: "kg-update", snippet: "知识图谱即时落账" },
+  ],
+  // 系统派生块技能读面批：派生两块 = worker 生效技能集（audience=agent）
+  skills: [
+    {
+      name: "plan-workflow",
+      description: "工作台账（plan 三工具）的使用规范",
+      filePath: "/daemon/resources/skills/agent/plan-workflow/SKILL.md",
+      source: "builtin",
+      audience: "agent",
+    },
   ],
   derivedFrom: "subagent-worker",
   pinnedTools: ["kg-update"],
@@ -341,11 +361,14 @@ describe("智能体页组件（M6 T4）", () => {
     const orchCard = document.querySelector('[data-agent-card="orchestrator"]')!;
     expect(orchCard).toBeTruthy();
     expect(orchCard.querySelector("[data-ro-badge]")!.textContent).toBe("工具只读");
-    // R7：模型下拉 + 推理级别字段在场（独立槽位）；工具行零开关（唯一 switch = thinking 开关）/零技能组
+    // R7：模型下拉 + 推理级别字段在场（独立槽位）；工具行零开关（唯一 switch = thinking 开关）；
+    // 系统派生块技能读面批：技能组在场（任务 SOP 注册表 + kickoff 说明 + 正文查看钮）
     expect(orchCard.querySelectorAll("select")).toHaveLength(1);
     expect(orchCard.querySelector(".tl-field")).not.toBeNull();
     expect(orchCard.querySelectorAll("[data-switch]")).toHaveLength(1); // thinking 字段 on/off 开关
-    expect(orchCard.textContent).not.toContain("技能");
+    expect(orchCard.querySelector("[data-sop-note]")!.textContent).toContain("kickoff");
+    expect(orchCard.querySelector('[data-skill-row="code-review"]')).not.toBeNull();
+    expect(orchCard.querySelector('[data-skill-row="code-review"] [data-skill-content-toggle="code-review"]')).not.toBeNull();
     // 模型下拉缺省项 = 跟随全局默认（两级链文案）
     const sel = orchCard.querySelector("select")! as HTMLSelectElement;
     expect(sel.options[0]!.textContent).toBe("跟随全局默认");
@@ -921,5 +944,30 @@ describe("skill-content 批：skill 正文查看区（行内折叠懒查询）",
       fireEvent.click(toggle);
     });
     expect(mock.sentSkillContentGet).toEqual(["web-access"]);
+  });
+
+  it("系统派生块技能行同可查看（系统派生块技能读面批）：orchestrator SOP 行懒查询 + 回执渲染全文", async () => {
+    ui();
+    act(() => feedList());
+    // orchestrator 卡：任务 SOP 注册表行（audience=task）——点「查看」→ 按名发 agent.skill_content.get
+    act(() => selectAgent("orchestrator"));
+    act(() => {
+      fireEvent.click(document.querySelector('[data-skill-content-toggle="code-review"]')!);
+    });
+    expect(mock.sentSkillContentGet).toEqual(["code-review"]);
+    // 回执（按名回显，跨卡归位）→ pre 渲染 SOP 全文
+    act(() =>
+      feed({
+        v: "0.11",
+        sessionId: "__system__",
+        channel: "agent",
+        type: "agent.skill_content.get.result",
+        payload: { name: "code-review", filePath: "/daemon/resources/skills/task/code-review/SKILL.md", content: "---\nname: code-review\n---\n\nSOP-BODY-TEXT" },
+      } as EventEnvelope),
+    );
+    expect(document.querySelector('[data-skill-content-text="code-review"]')?.textContent).toContain("SOP-BODY-TEXT");
+    // kg-writer 卡：派生技能行（audience=agent）同可查看（按名缓存跨卡共享——已拉名不重发）
+    act(() => selectAgent("subagent-kg-writer"));
+    expect(document.querySelector('[data-skill-row="plan-workflow"]')).not.toBeNull();
   });
 });

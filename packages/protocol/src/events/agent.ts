@@ -168,6 +168,19 @@ export interface AgentConfigSystemToolRow {
   snippet: string;
 }
 
+/** 只读系统派生块技能行（纯展示：name/description/filePath/source/audience 五字段，
+ *  无启停位——清单即生效集/消费集）。 */
+export interface AgentConfigSystemSkillRow {
+  name: string;
+  description: string;
+  filePath: string;
+  /** 来源层：user / project / builtin（AgentConfigProfileBlock.skills 行同源）。 */
+  source: "user" | "project" | "builtin";
+  /** 受众分类：orchestrator 块 = task（kickoff 全文注入的任务 SOP 注册表）；
+   *  派生两块（kg-writer/reviewer）= agent（worker 生效技能集）。 */
+  audience: "agent" | "task";
+}
+
 /**
  * agent.config.list.result 只读系统派生块：orchestrator / subagent-kg-writer
  * 元信息（agent-roster 批 additive）。可见不可编辑——写面对只读 kind 恒拒
@@ -181,6 +194,15 @@ export interface AgentConfigSystemBlock {
   profileKind: SystemProfileKind;
   /** 工具清单（纯展示；orchestrator = 声明全集，kg-writer = worker 生效集 + pinned）。 */
   tools: ReadonlyArray<AgentConfigSystemToolRow>;
+  /**
+   * 技能清单（纯展示，系统派生块技能读面批 additive）：orchestrator = 任务
+   * SOP 注册表（audience=task 的 builtin 技能——kickoff 全文注入的实际消费面，
+   * 系统提示技能段恒空）；kg-writer/reviewer = subagent-worker 生效技能集
+   * （spawn 快照技能段同源派生，随 worker toggle 跟随）。行形状 = 五字段
+   * 纯展示（无启停位）；缺省不携带（旧 daemon 容忍，agent-config-model
+   * system 块 null 语义同构）。
+   */
+  skills?: ReadonlyArray<AgentConfigSystemSkillRow>;
   /** 派生说明位：kg-writer = 派生自 subagent-worker（工具集跟随 worker）；orchestrator 不携带。 */
   derivedFrom?: "subagent-worker";
   /** 派生面恒在工具（kg-writer = ["kg-update"]；orchestrator 不携带）。 */

@@ -184,6 +184,15 @@ describe("agent.config 事件族 payload（v0.6）", () => {
   const _systemBadKind: AgentConfigSystemBlock = { profileKind: "main-session", tools: [] };
   // @ts-expect-error derivedFrom 只接受 subagent-worker（派生说明位单一事实源）
   const _systemBadDerived: AgentConfigSystemBlock = { profileKind: "orchestrator", tools: [], derivedFrom: "orchestrator" };
+  // 系统派生块技能读面批：skills 可选携带（五字段纯展示行）；缺省不携带合法
+  const _systemSkillRow: AgentConfigSystemBlock = {
+    profileKind: "orchestrator",
+    tools: [],
+    skills: [{ name: "code-review", description: "评审", filePath: "/task/code-review/SKILL.md", source: "builtin", audience: "task" }],
+  };
+  const _systemNoSkills: AgentConfigSystemBlock = { profileKind: "orchestrator", tools: [] };
+  // @ts-expect-error 系统块技能行无启停位（enabled 是可编辑块的字段——纯展示行编译期拒绝；单行字面量让指令锚在报错行）
+  const _systemSkillBadRow: AgentConfigSystemBlock = { profileKind: "orchestrator", tools: [], skills: [{ name: "x", description: "x", filePath: "/x", source: "builtin", audience: "task", enabled: true }] };
   // 错误码登记：只读 kind 写面拒绝码
   const _readOnlyCode: ErrorCode = "agent.config.read_only";
 
@@ -203,8 +212,24 @@ describe("agent.config 事件族 payload（v0.6）", () => {
     // kg-writer 工具清单 = worker 生效集 + kg-update（行形状 name+snippet，无启停位）
     expect(system[1]!.tools.map((t) => t.name)).toEqual(["bash", "kg-update"]);
     expect(system[1]!.tools[1]!.snippet.length).toBeGreaterThan(0);
+    // 系统派生块技能读面批：orchestrator = 任务 SOP 注册表（audience=task）；
+    // kg-writer = worker 生效技能集（audience=agent）——五字段纯展示行
+    expect(system[0]!.skills).toEqual([
+      {
+        name: "code-review",
+        description: "对项目代码做质量评审",
+        filePath: "/daemon/resources/skills/task/code-review/SKILL.md",
+        source: "builtin",
+        audience: "task",
+      },
+    ]);
+    expect(system[1]!.skills?.[0]!.audience).toBe("agent");
+    expect(Object.keys(system[1]!.skills![0]!)).not.toContain("enabled"); // 纯展示行无启停位
     void _systemKgWriter;
     void _systemOrchestrator;
+    void _systemSkillRow;
+    void _systemNoSkills;
+    void _systemSkillBadRow;
     void _readOnlyCode;
   });
 });

@@ -114,6 +114,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       resource: {
         // M6 T3（契约 v0.6）：agent.config 族 spy 回口——不触发真实配置链
         list: async () => { throw new Error("spy 不装配资源配置链"); },
+        getEffectiveSkills: async () => [],
         setEnabled: async () => { throw new Error("spy 不装配资源配置链"); },
         setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
         clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
@@ -274,6 +275,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       resource: {
         // M6 T3（契约 v0.6）：agent.config 族 spy 回口——不触发真实配置链
         list: async () => { throw new Error("spy 不装配资源配置链"); },
+        getEffectiveSkills: async () => [],
         setEnabled: async () => { throw new Error("spy 不装配资源配置链"); },
         setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
         clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
@@ -397,6 +399,7 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
     resource: {
       // M6 T3（契约 v0.6）：agent.config 族 spy 回口——不触发真实配置链
       list: async () => { throw new Error("spy 不装配资源配置链"); },
+      getEffectiveSkills: async () => [],
       setEnabled: async () => { throw new Error("spy 不装配资源配置链"); },
       setModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },
       clearModelSlot: async () => { throw new Error("spy 不装配资源配置链"); },

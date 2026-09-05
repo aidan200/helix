@@ -292,6 +292,8 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
   interface SystemBlock {
     profileKind: string;
     tools: { name: string; snippet: string }[];
+    // 系统派生块技能读面批：五字段纯展示行（无启停位）
+    skills?: { name: string; description: string; filePath: string; source: string; audience: string }[];
     derivedFrom?: string;
     pinnedTools?: string[];
   }
@@ -332,6 +334,111 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       expect(reviewer!.tools.map((t) => t.name)).not.toContain("write");
       expect(reviewer!.tools.map((t) => t.name)).not.toContain("edit");
       expect(reviewer!.tools.map((t) => t.name)).not.toContain("kg-update");
+      // 系统派生块技能读面批（空 builtin 目录隔离形态）：orchestrator = 任务
+      // SOP 注册表 = 空；kg-writer/reviewer = worker 生效技能集 = user 层
+      // hello-skill（audience=agent、无成套声明、启用）
+      expect(orch!.skills).toEqual([]);
+      const expectedWorkerSkills = [
+        {
+          name: "hello-skill",
+          description: "问候技能",
+          filePath: expect.stringContaining("hello-skill"),
+          source: "user",
+          audience: "agent",
+        },
+      ];
+      expect(kgw!.skills).toEqual(expectedWorkerSkills);
+      expect(reviewer!.skills).toEqual(expectedWorkerSkills);
+      // 纯展示行无启停位（enabled 不携带）
+      expect(Object.keys(kgw!.skills![0]!)).not.toContain("enabled");
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+
+  // ── 系统派生块技能读面批：三块技能清单派生语义 ──
+
+  /** builtin 目录播种 rig：task 层 SOP + agent 层两技能（成套声明分叉）。 */
+  async function makeSeededRig(): Promise<Rig> {
+    const home = tmpHome();
+    const workspace = tmpHome();
+    const builtinDir = tmpHome();
+    const mk = (rel: string, frontmatter: string) => {
+      const dir = path.join(builtinDir, rel);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, "SKILL.md"), `${frontmatter}\n\n正文`, "utf8");
+    };
+    // task 层：audience=task（kickoff 消费面）
+    mk(
+      "task/demo-review",
+      "---\nname: demo-review\ndescription: 演示任务 SOP\ntask:\n  paramsSchema:\n    projectRoot: { type: string, required: true }\n---",
+    );
+    // agent 层：无成套声明（恒列）+ 成套声明 plan_create（worker 持有 → 列出）
+    mk("agent/plain-skill", "---\nname: plain-skill\ndescription: 无成套声明技能\n---");
+    mk("agent/paired-skill", "---\nname: paired-skill\ndescription: 成套声明技能\ntools: [plan_create]\n---");
+    const engine = new FakeAgentEngine({});
+    const daemon = await createTestDaemon({
+      home,
+      engine,
+      skipConfig: true,
+      port: 0,
+      cliInput: new PassThrough(),
+      cliOutput: new PassThrough(),
+      toolCwd: workspace,
+      builtinSkillsDir: builtinDir,
+    });
+    const token = readFileSync(path.join(home, "dev-token"), "utf8");
+    return {
+      home,
+      daemon,
+      token,
+      url: `ws://127.0.0.1:${daemon.ws.port}`,
+      dispose: async () => {
+        await daemon.shutdown();
+        rmSync(home, { recursive: true, force: true });
+        rmSync(workspace, { recursive: true, force: true });
+      },
+    };
+  }
+
+  test("②c 系统块技能清单：orchestrator = builtin∧task SOP 注册表；kg-writer/reviewer = worker 生效技能集（成套装配跟随）", async () => {
+    const rig = await makeSeededRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      await helloHandshake(client, rig.token);
+
+      client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: {} });
+      const result = await client.expect("agent.config.list.result");
+      const system = result.payload.system as SystemBlock[];
+      const orch = system.find((b) => b.profileKind === "orchestrator")!;
+      const kgw = system.find((b) => b.profileKind === "subagent-kg-writer")!;
+      // orchestrator：任务 SOP 注册表（audience=task∧builtin）——agent 层技能不入此面
+      expect(orch.skills?.map((s) => s.name)).toEqual(["demo-review"]);
+      expect(orch.skills![0]!.audience).toBe("task");
+      // kg-writer/reviewer：worker 生效技能集（audience=agent；成套声明
+      // paired-skill 的 plan_create 在 worker 生效集 → 列出）
+      expect(kgw.skills?.map((s) => s.name).sort()).toEqual(["paired-skill", "plain-skill"]);
+      expect(kgw.skills!.every((s) => s.audience === "agent")).toBe(true);
+
+      // 禁用 worker 的 plan_create（成套工具）→ paired-skill 联动下线，重 list 生效
+      client.send({
+        v: PROTOCOL_VERSION,
+        type: "agent.config.set_enabled",
+        payload: { profileKind: "subagent-worker", resourceType: "tool", name: "plan_create", enabled: false },
+      });
+      await client.expect("agent.config.set_enabled.result");
+      const at = client.frames.length; // 区分新旧同型帧：重拉后的新 list 帧
+      client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: {} });
+      const after = await client.expectAfter("agent.config.list.result", at);
+      const systemAfter = after.payload.system as SystemBlock[];
+      const kgwAfter = systemAfter.find((b) => b.profileKind === "subagent-kg-writer")!;
+      // 成套装配单点（ResourceService.getEffectiveSkills）：SOP 与工具不拆开出现
+      expect(kgwAfter.skills?.map((s) => s.name)).toEqual(["plain-skill"]);
+      // orchestrator SOP 注册表不受 worker toggle 影响
+      const orchAfter = systemAfter.find((b) => b.profileKind === "orchestrator")!;
+      expect(orchAfter.skills?.map((s) => s.name)).toEqual(["demo-review"]);
     } finally {
       await client.close();
       await rig.dispose();

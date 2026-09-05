@@ -178,6 +178,7 @@ function stubAdapterDeps(events: EventStream) {
       list: async () => {
         throw new Error("stub");
       },
+      getEffectiveSkills: async () => [],
       setEnabled: async () => {
         throw new Error("stub");
       },

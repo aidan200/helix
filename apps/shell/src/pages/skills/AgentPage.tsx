@@ -442,6 +442,10 @@ function SystemProfileCard({
   onToggle,
   onModelChange,
   basePrompt,
+  skillContents,
+  skillContentPending,
+  skillContentOpen,
+  onSkillContentToggle,
 }: {
   kind: SystemAgentKind;
   block: AgentConfigSystemBlock | null;
@@ -454,6 +458,12 @@ function SystemProfileCard({
   onModelChange: (kind: AgentKind | SystemAgentKind, model: string) => void;
   /** base prompt 批：base 段系统提示词查看区槽位（工具清单正上方渲染）。 */
   basePrompt: ReactNode;
+  /** skill-content 批（系统派生块技能读面批接通）：正文缓存/在途/展开与回拨
+   *  ——与 ProfileCard 同源（按名缓存跨卡共享）。 */
+  skillContents: Readonly<Record<string, string>>;
+  skillContentPending: ReadonlySet<string>;
+  skillContentOpen: string | null;
+  onSkillContentToggle: (name: string) => void;
 }) {
   const { t } = useI18n();
   const isKgWriter = kind === "subagent-kg-writer";
@@ -568,6 +578,62 @@ function SystemProfileCard({
               </div>
             );
           })
+        )}
+      </div>
+      {/* 技能清单（系统派生块技能读面批）：纯展示行 + 正文查看——
+          orchestrator = 任务 SOP 注册表（kickoff 全文注入的消费面，
+          系统提示技能段恒空）；kg-writer/reviewer = worker 生效技能集
+          （spawn 快照技能段同源派生）。旧 daemon 未携带 = 空（additive 容忍）。 */}
+      <div className="ag-group">
+        <h3 className="ag-group-label">{kind === "orchestrator" ? t("agents.systemSkillsLabelOrch") : t("agents.systemSkillsLabelDerived")}</h3>
+        {kind === "orchestrator" && <p className="ag-note" data-sop-note>{t("agents.systemSkillsNoteOrch")}</p>}
+        {block === null ? (
+          <div className="ag-skel" aria-hidden="true">
+            {[0, 1].map((i) => (
+              <div className="ag-skel-row" key={i}>
+                <span className="ag-skel-bar" style={{ width: 120 }} />
+                <span className="ag-skel-bar" style={{ width: `${48 - i * 8}%` }} />
+              </div>
+            ))}
+          </div>
+        ) : (block.skills ?? []).length === 0 ? (
+          <p className="ag-empty-hint">{t("agents.skillsEmpty")}</p>
+        ) : (
+          (block.skills ?? []).map((skill) => (
+            <div data-skill-entry={skill.name} key={skill.filePath}>
+              <div className="ag-row ag-ro-row" data-skill-row={skill.name}>
+                <div className="ag-row-main">
+                  <span className="ag-name">{skill.name}</span>
+                  <span className="ag-desc" title={skill.description}>
+                    {skill.description}
+                  </span>
+                </div>
+                <span className="hud-chip" data-source-chip>
+                  {skill.source === "builtin" ? t("agents.skillSourceBuiltin") : skill.source}
+                </span>
+                <button
+                  type="button"
+                  className="hud-btn hud-btn-ghost sm"
+                  data-skill-content-toggle={skill.name}
+                  disabled={skillContentPending.has(skill.name)}
+                  onClick={() => onSkillContentToggle(skill.name)}
+                >
+                  {skillContentOpen === skill.name ? t("agents.skillContentHide") : t("agents.skillContentView")}
+                </button>
+              </div>
+              {skillContentOpen === skill.name && (
+                skillContents[skill.name] === undefined ? (
+                  <p className="ag-loading" role="status">
+                    {t("agents.skillContentLoading")}
+                  </p>
+                ) : (
+                  <pre className="ag-base-prompt" data-skill-content-text={skill.name}>
+                    {skillContents[skill.name]}
+                  </pre>
+                )
+              )}
+            </div>
+          ))
         )}
       </div>
     </section>
@@ -916,6 +982,10 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
                   onToggle={onToggle}
                   onModelChange={onModelChange}
                   basePrompt={basePromptSection}
+                  skillContents={state.skillContents}
+                  skillContentPending={state.skillContentPending}
+                  skillContentOpen={state.skillContentOpen}
+                  onSkillContentToggle={onSkillContentToggle}
                 />
               )}
             </div>

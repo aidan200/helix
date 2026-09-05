@@ -43,6 +43,7 @@ import type {
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { ResourceConfigBlock } from "../../../../application/ports/inbound/ResourceConfigPort";
 import type { ProfileKind, ResourceType } from "../../../../application/ports/outbound/ResourceStatePort";
+import type { SkillDescriptor } from "../../../../application/ports/outbound/SkillSourcePort";
 import type { ResourceCommandContext } from "./context";
 
 /** 命令 payload 校验通过的归一形态。 */
@@ -107,8 +108,16 @@ function toProfileBlockDto(block: ResourceConfigBlock): AgentConfigProfileBlock 
  *   单源，越权复制零容忍；worker 目录无此名）。
  * - reviewer = worker 当前生效集 − 恒摘除工具（ctx.reviewerRemovedTools
  *   单源——write/edit 代码写面机械关闭，随 worker toggle 动态跟随）。
+ *
+ * 系统派生块技能读面批：三块各携带 skills 纯展示行——
+ * - orchestrator = 任务 SOP 注册表（audience=task ∧ builtin，与
+ *   TaskSkillRegistry 注册谓词同源——即 kickoff 全文注入的实际消费面；
+ *   其系统提示技能段恒空，此清单展示的是 SOP 消费集非提示词段）；
+ * - kg-writer/reviewer = worker 生效技能集（effectiveSkillsOf 单点读面
+ *   ——与 buildSessionStack 装配快照技能段同源派生；audience×kind 可见性
+ *   与成套装配不在 driving 层重复，E-116 单点纪律）。
  */
-function toSystemBlocksDto(
+async function toSystemBlocksDto(
   main: ResourceConfigBlock,
   worker: ResourceConfigBlock,
   orch: ResourceConfigBlock,
@@ -118,12 +127,26 @@ function toSystemBlocksDto(
   removedTools: readonly string[],
   reviewerModel: string | undefined,
   reviewerThinking: string | undefined,
-): readonly AgentConfigSystemBlock[] {
+  effectiveSkillsOf: () => Promise<readonly SkillDescriptor[]>,
+): Promise<readonly AgentConfigSystemBlock[]> {
   const workerEffective = worker.tools.filter((t) => t.enabled).map((t) => ({ name: t.name, snippet: t.snippet }));
+  // orchestrator 技能行：任务 SOP 注册表（TaskSkillRegistry 注册谓词同源）
+  const taskSopRows = orch.skills
+    .filter((s) => s.source === "builtin" && s.audience === "task")
+    .map((s) => ({ name: s.name, description: s.description, filePath: s.filePath, source: s.source, audience: s.audience }));
+  // 派生两块技能行：worker 生效技能集（spawn 快照技能段同源——单点读面）
+  const workerSkillRows = (await effectiveSkillsOf()).map((s) => ({
+    name: s.name,
+    description: s.description,
+    filePath: s.filePath,
+    source: s.source,
+    audience: s.audience,
+  }));
   return [
     {
       profileKind: "orchestrator",
       tools: orch.tools.map((t) => ({ name: t.name, snippet: t.snippet })),
+      skills: taskSopRows,
       // R7 系统槽位：独立配置，未配跟随全局（不联动 worker）
       model: orch.model ?? null,
       thinkingLevel: orch.thinkingLevel ?? null,
@@ -137,6 +160,7 @@ function toSystemBlocksDto(
           snippet: main.tools.find((t) => t.name === name)?.snippet ?? "",
         })),
       ],
+      skills: workerSkillRows,
       derivedFrom: "subagent-worker",
       pinnedTools: [...pinnedTools],
       // R7：kg-writer 独立槽位（工具集仍派生 worker——职责语义；
@@ -147,6 +171,7 @@ function toSystemBlocksDto(
     {
       profileKind: "subagent-code-reviewer",
       tools: workerEffective.filter((t) => !removedTools.includes(t.name)),
+      skills: workerSkillRows,
       derivedFrom: "subagent-worker",
       // D5：reviewer 独立槽位（工具集派生 worker − 摘除面——职责语义；
       // 模型/推理不联动，TR-42 两级链）
@@ -182,23 +207,36 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
   // 缺省 = 全部可编辑 kind（main-session 在前，序固定）+ 只读系统派生双块
   // （agent-roster 批 additive：orchestrator 块复用同源读面；kg-writer 块
   // 由 worker 生效集 + 恒在工具派生——与 buildSessionStack 装配快照同法）
-  const kinds: readonly ProfileKind[] = ["main-session", "subagent-worker", "orchestrator"];
-  void Promise.all(kinds.map((k) => ctx.resource.list(k)))
-    .then((blocks) => {
-      const [main, sub, orch] = [blocks[0]!, blocks[1]!, blocks[2]!];
-      const frame: AgentConfigListResultEvent = {
-        v: PROTOCOL_VERSION,
-        sessionId: SYSTEM_SESSION_ID, // 全局命令：会话无关（model.catalog.result 同构）
-        channel: "agent",
-        type: "agent.config.list.result",
-        payload: {
-          profiles: [main, sub].map(toProfileBlockDto),
-          system: toSystemBlocksDto(main, sub, orch, ctx.kgWriterPinnedTools, ctx.resource.modelSlot("subagent-kg-writer"), ctx.resource.thinkingSlot("subagent-kg-writer"), ctx.reviewerRemovedTools, ctx.resource.modelSlot("subagent-code-reviewer"), ctx.resource.thinkingSlot("subagent-code-reviewer")),
-        },
-      };
-      ctx.sendNow(sender, frame);
-    })
-    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `配置读面组装失败：${(err as Error).message}`));
+  void (async () => {
+    const kinds: readonly ProfileKind[] = ["main-session", "subagent-worker", "orchestrator"];
+    const blocks = await Promise.all(kinds.map((k) => ctx.resource.list(k)));
+    const [main, sub, orch] = [blocks[0]!, blocks[1]!, blocks[2]!];
+    // 系统派生块技能读面批：worker 生效技能集（kg-writer/reviewer 派生面）
+    // ——getEffectiveSkills 是 audience×kind 可见性与成套装配的单点读面
+    const workerSkills = await ctx.resource.getEffectiveSkills("subagent-worker");
+    const frame: AgentConfigListResultEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID, // 全局命令：会话无关（model.catalog.result 同构）
+      channel: "agent",
+      type: "agent.config.list.result",
+      payload: {
+        profiles: [main, sub].map(toProfileBlockDto),
+        system: await toSystemBlocksDto(
+          main,
+          sub,
+          orch,
+          ctx.kgWriterPinnedTools,
+          ctx.resource.modelSlot("subagent-kg-writer"),
+          ctx.resource.thinkingSlot("subagent-kg-writer"),
+          ctx.reviewerRemovedTools,
+          ctx.resource.modelSlot("subagent-code-reviewer"),
+          ctx.resource.thinkingSlot("subagent-code-reviewer"),
+          async () => workerSkills,
+        ),
+      },
+    };
+    ctx.sendNow(sender, frame);
+  })().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `配置读面组装失败：${(err as Error).message}`));
 }
 
 /** agent.base_prompt.get 合法 kind（五值全可读——含系统派生三 kind；写面只读≠读面拒绝）。 */

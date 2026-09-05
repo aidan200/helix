@@ -480,6 +480,11 @@ export const zhCN = {
     skillContentView: "查看",
     skillContentHide: "收起",
     skillContentLoading: "正在读取 skill 正文",
+    // 系统派生块技能读面批：系统块技能组（orchestrator = 任务 SOP 注册表；
+    // 派生两块 = worker 生效技能集）
+    systemSkillsLabelOrch: "任务 SOP（kickoff 全文注入）",
+    systemSkillsLabelDerived: "技能（跟随 subagent-worker 生效集）",
+    systemSkillsNoteOrch: "编排 agent 不持技能清单；实际执行的 SOP = 所选任务类型的 SKILL.md 全文，在任务 kickoff 时注入（系统提示技能段恒空）。",
     // P-2 推理级别字段（T3：on/off 开关形态——off = 槽位空默认关，开 on 立即写中位档）
     thinking: {
       label: "推理级别 · THINKING LEVEL",

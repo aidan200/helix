@@ -473,6 +473,11 @@ export const enUS = {
     skillContentView: "View",
     skillContentHide: "Collapse",
     skillContentLoading: "Loading skill content",
+    // 系统派生块技能读面批：系统块技能组（orchestrator = 任务 SOP 注册表；
+    // 派生两块 = worker 生效技能集）
+    systemSkillsLabelOrch: "Task SOPs (injected in full at kickoff)",
+    systemSkillsLabelDerived: "Skills (derived from subagent-worker effective set)",
+    systemSkillsNoteOrch: "The orchestrator holds no skill list; the SOP it actually runs is the full SKILL.md of the chosen task type, injected at task kickoff (its system-prompt skill section is always empty).",
     // P-2 thinking level field (T3: on/off switch — off = empty slot by default, on writes the median level)
     thinking: {
       label: "Thinking Level · THINKING LEVEL",

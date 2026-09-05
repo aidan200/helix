@@ -876,3 +876,23 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 >  （连接保持——base_prompt.get 非法 kind 同款回执语义）。
 > - 读面活体语义：user/project 层技能可编辑，daemon 每次 scan 现拍 +
 >  读文件（不缓存）；shell 页面侧拉一次常驻（静态数据语义同 base prompt）。
+
+## 25. system-block-skills 批（系统派生块技能读面：system[].skills 字段；v0.11 后 additive 微批——版本位不 bump）
+
+> 本批为 agent 页系统派生卡片的技能清单补缺（此前 `AgentConfigSystemBlock`
+> 只携带 tools + 槽位，orchestrator/kg-writer/reviewer 三卡无技能组）：
+> **1 字段**（§16.4 `agent.config.list.result` 的 `system[].skills?` =
+> 五字段纯展示行 `{name, description, filePath, source, audience}`，无启停位）
+> + **1 行类型**（`AgentConfigSystemSkillRow`）。**版本位不 bump**
+>（`PROTOCOL_VERSION = "0.11"` 保持）：全部为新增面（additive 纪律，
+> TR-AD-23①；§24 同构先例）。
+>
+> - 派生语义（daemon `toSystemBlocksDto` 单点）：orchestrator = 任务 SOP
+>   注册表（`audience=task ∧ source=builtin`，与 TaskSkillRegistry 注册谓词
+>   同源——kickoff 全文注入的实际消费面；其系统提示技能段恒空）；
+>   kg-writer/reviewer = subagent-worker 生效技能集（`getEffectiveSkills`
+>   单点读面，与 spawn 快照技能段同源派生——audience×kind 可见性与
+>   skills+tools 成套装配不在 driving 层重复）。
+> - 正文查看复用 `agent.skill_content.get`（按名懒查询，零新命令）。
+> - 计数演进：命令/事件零增（纯字段 additive）。
+> - 缺省不携带（旧 daemon 容忍；shell 侧 `block.skills ?? []` 空态）。
