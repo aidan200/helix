@@ -60,7 +60,7 @@ import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinki
 import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
 import { SkillScanner } from "../../adapters/driven/pi-engine/SkillScanner";
 import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnippets";
-import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
+import { CoreToolExecutor, type CoreToolExecutorOptions, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
 import type { PlanToolDeps } from "../../adapters/driven/tools/plan/PlanTools";
 import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
 import type { TaskReportToolDeps } from "../../adapters/driven/tools/task-report/TaskReportTool";
@@ -142,9 +142,10 @@ const STATIC_TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
 };
 
 /**
- * kind → MCP server 准入白名单（mcp 批，profile 声明单源）：main/worker
- * 声明 "*"（准入实际由 server enabled + 工具级 toggle 管控）；其余 kind
- * 未声明（不接入——评审/写库/编排形态无组件安装场景）。
+ * kind → MCP server 准入白名单（mcp 批，profile 声明单源）：main/worker/
+ * orchestrator 声明 "*"（编排 MCP 接入批——编排形态与正常 agent 同构；
+ * 准入实际由 server enabled + 工具级 toggle 管控）；kg-writer/reviewer
+ * 未声明（评审/写库静态 kind 不接 MCP）。
  */
 const MCP_ALLOWED_OF: Readonly<Record<ProfileKind, readonly string[] | "*" | undefined>> = {
   "main-session": MainSessionProfile.mcpServers,
@@ -327,6 +328,15 @@ export interface SessionStack {
    * 语义）。
    */
   readonly orchestratorAssembly: () => { readonly tools: readonly string[]; readonly systemPrompt: string };
+  /**
+   * 编排会话 MCP 工具工厂（编排 MCP 接入批）：每编排会话构造时现拍——
+   * 与主会话 executor 构造点同法（具体工具 + deferred meta 工具，kind
+   * 绑定 "orchestrator"：isToolEnabled 读编排 kind 启停 + onDiscover
+   * 物化集按编排 kind 登记）。mcpRegistry 缺席 → undefined（编排 executor
+   * 不注入 mcp 面；catalog 门控同源——装配清单此时也不含 MCP 名）。
+   * 类型经 CoreToolExecutorOptions 推导（AG-04：pi 类型不进 infrastructure）。
+   */
+  readonly orchestratorMcpTools: () => NonNullable<CoreToolExecutorOptions["mcp"]>["tools"] | undefined;
 }
 
 /**
@@ -434,8 +444,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // mcp 批：catalog 函数化——静态 profile 声明面 + MCP 命名空间工具名
     // 动态拼接（每次读现拍 McpRegistry 值；server 到位即进 catalog）。
     // 准入门控：profile mcpServers 白名单（"*" = 全部；未声明 = 不接入）
-    // ——main/worker 声明全开（准入实际由 server enabled + 工具级 toggle
-    // 管控），kg-writer/reviewer/orchestrator 未声明（静态 kind 不接 MCP）。
+    // ——main/worker/orchestrator 声明全开（编排 MCP 接入批；准入实际由
+    // server enabled + 工具级 toggle 管控），kg-writer/reviewer 未声明
+    //（静态 kind 不接 MCP）。
     toolsCatalog: (kind: ProfileKind): readonly string[] => {
       const staticNames = STATIC_TOOLS_CATALOG[kind];
       const registry = deps.mcpRegistry; // 窄化（闭包重读不安全）
@@ -702,7 +713,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // 领 worker 生效集 + kg-write 面；其余（缺省）领通用 worker 快照。
           spawnSnapshot: (profileKind: string) => subagentAssemblyFor(profileKind),
           // mcp 批：MCP server 配置透传（launch 时刻现拍；kind 白名单门控同
-          // catalog——静态 kind（orchestrator/reviewer）不接 MCP；零 enabled
+          // catalog——kg-writer/reviewer 静态 kind 不接 MCP；零 enabled
           // server → 不传键零开销。子进程自建 registry await 预热后构造
           // executor，保证 spawn 快照工具名与子进程注册表一致）
           mcpServersFor: (profileKind: string) => {
@@ -1187,6 +1198,19 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     resolveSubagentModelId,
     toolCwdNow: toolCwdOf,
     orchestratorAssembly: () => orchestratorAssemblyValue,
+    // 编排 MCP 接入批：编排会话工厂 executor 注入面（每会话构造现拍——
+    // 与主会话 executor 构造点同法；registry 缺席 → undefined 不注入）
+    orchestratorMcpTools: () => {
+      const mcpReg = deps.mcpRegistry;
+      if (mcpReg === undefined) return undefined;
+      return [
+        ...createMcpTools(mcpReg.discoveredTools(), mcpReg),
+        ...createMcpDiscoverTools(mcpReg, {
+          isToolEnabled: (name) => resourceService.isToolEnabled("orchestrator", name),
+          onDiscover: (server, names) => onMcpDiscover("orchestrator", server, names),
+        }).tools,
+      ];
+    },
     // T3 diff.get 查询面（热会话读面 + 服务查询操作面）
     diff: {
       stateOf: (sessionId: string) => registry.peek(sessionId)?.diff,

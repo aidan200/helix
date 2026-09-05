@@ -309,4 +309,54 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
       rmSync(home, { recursive: true, force: true });
     }
   }, 30000);
+
+  test("⑪ 编排 MCP 接入：orchestrator 块携带 server 行 + 工具行 + per-kind 写面隔离", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "helix-mcp-ws-home-"));
+    let daemon: Daemon | undefined;
+    let client: TestClient | undefined;
+    try {
+      daemon = await createTestDaemon({ home, engine: new FakeAgentEngine(), skipLock: true, port: 0 });
+      client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);
+      await client.open();
+      await helloHandshake(client, daemon.devToken);
+
+      // 前置：add fake → running
+      client.send({ v: 0, type: "mcp.servers.add", payload: fakeServerInput("fake").input });
+      const addResult = await client.expect("mcp.servers.add.result", 10000);
+      expect(addResult.payload.status).toBe("applied");
+
+      // ① orchestrator 块携带 server 行（运行态透传 + 缺省启用）+ MCP 工具行进 catalog
+      client.send({ v: 0, type: "agent.config.list", payload: {} });
+      const before = await client.expect("agent.config.list.result");
+      const orchBefore = (before.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean; state: string; toolCount?: number }[]; tools: { name: string }[] }[]).find((b) => b.profileKind === "orchestrator");
+      expect(orchBefore?.mcpServers).toEqual([{ name: "fake", enabled: true, state: "running", toolCount: 2 }] as { name: string; enabled: boolean; state: string; toolCount?: number }[]);
+      expect(orchBefore?.tools.some((t) => t.name === "fake__echo")).toBe(true);
+
+      // ② 写面：orchestrator mcp-server 关 → applied + changed 广播
+      const toggleStart = client.frames.length;
+      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "orchestrator", resourceType: "mcp-server", name: "fake", enabled: false } });
+      const setResult = await client.expectAfter("agent.config.set_enabled.result", toggleStart);
+      expect(setResult.payload.status).toBe("applied");
+      const changed = await client.expectAfter("agent.config.changed", toggleStart);
+      expect(changed.payload).toMatchObject({ profileKind: "orchestrator", resourceType: "mcp-server", name: "fake", enabled: false });
+
+      // ③ 重拉：orchestrator server 行 enabled=false；main/sub kind 隔离仍启用
+      client.send({ v: 0, type: "agent.config.list", payload: {} });
+      const after = await client.expectAfter("agent.config.list.result", client.frames.length - 1);
+      const profiles = after.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean }[] }[];
+      expect(profiles.find((b) => b.profileKind === "orchestrator")?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: false });
+      expect(profiles.find((b) => b.profileKind === "main-session")?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: true });
+      expect(profiles.find((b) => b.profileKind === "subagent-worker")?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: true });
+
+      // ④ 工具级：orchestrator 具名 MCP 工具 toggle → applied
+      const toolStart = client.frames.length;
+      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "orchestrator", resourceType: "tool", name: "fake__ping", enabled: false } });
+      const toolResult = await client.expectAfter("agent.config.set_enabled.result", toolStart);
+      expect(toolResult.payload.status).toBe("applied");
+    } finally {
+      await client?.close();
+      await daemon?.shutdown();
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 30000);
 });

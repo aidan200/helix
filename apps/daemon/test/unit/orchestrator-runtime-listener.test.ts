@@ -79,8 +79,7 @@ describe("orchestrator-runtime drive listener：engine_error 经 logger 落日�
   });
 });
 
-describe("orchestrator-runtime 事件镜像（eventSink）：引擎事件翻译落盘供 trace 查询", () => {
-  const fakeClock = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
+describe("orchestrator-runtime 事件镜像（eventSink）：引擎事件翻译落盘供 trace 查询", () => {  const fakeClock = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
 
   test("注入 eventSink → engine_error 翻译为 engine.error 领域事件（sessionId=task:<jobId>，instanceId=orchestrator，原文入载荷）", async () => {
     const events: { type: string; sessionId: string; instanceId?: string; payload: unknown }[] = [];
@@ -120,5 +119,45 @@ describe("orchestrator-runtime 事件镜像（eventSink）：引擎事件翻译�
     });
     const session = factory("job-sink-2", orchestrationStub);
     await expect(session.drive("kickoff")).resolves.toBeUndefined();
+  });
+});
+
+describe("orchestrator-runtime MCP 注入（编排 MCP 接入批）：mcpTools 工厂 → executor 注册面", () => {
+  /** 最小 fake MCP harness 工具（仅需 name 让 executor 注册表可 resolve）。 */
+  const fakeMcpTool = (name: string) =>
+    ({ name, description: "fake mcp", parameters: {}, execute: async () => ({ content: [{ type: "text", text: "ok" }] }) }) as never;
+
+  function makeMcpFactory(opts: { withMcp: boolean }) {
+    return createOrchestratorSessionFactory({
+      // 装配快照含 MCP 命名空间名（生产形态：catalog 拼入生效集）
+      assembly: () => ({ tools: ["fake__echo"], systemPrompt: "" }),
+      model: () => fakeModel,
+      apiKeys: () => ({ fake: "key" }),
+      toolCwd: () => "/tmp",
+      taskEngine: {} as unknown as TaskEnginePort,
+      ledger: {} as unknown as WorkLedgerService,
+      models: fakeModels,
+      ...(opts.withMcp ? { mcpTools: () => [fakeMcpTool("fake__echo")] } : {}),
+      llmOverride: { model: () => fakeModel, streamFn: errorStreamFn("x") },
+    });
+  }
+
+  test("注入 mcpTools → 装配清单 MCP 名可 resolve（会话创建 + drive 不抛）", async () => {
+    const session = makeMcpFactory({ withMcp: true })("job-mcp-1", orchestrationStub);
+    await expect(session.drive("kickoff")).resolves.toBeUndefined();
+  });
+
+  test("缺 mcpTools（registry 未接线回归防护）→ resolveTools fail-fast（声明即注册硬校验）", () => {
+    // 工厂构造或首 drive 任一抛即锁定 fail-fast 语义（AgentRuntime 装配时机不依赖）
+    let thrown: unknown;
+    try {
+      const session = makeMcpFactory({ withMcp: false })("job-mcp-2", orchestrationStub);
+      void session.drive("kickoff").catch((err) => { thrown = err; });
+    } catch (err) {
+      thrown = err;
+    }
+    // 同步抛已捕获；异步抛经 catch 记录——本轮只锁同步面（适配器构造即装配）
+    expect(thrown).toBeDefined();
+    expect(String((thrown as Error).message)).toContain("fake__echo");
   });
 });

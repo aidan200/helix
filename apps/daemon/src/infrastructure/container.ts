@@ -642,7 +642,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     //（晚绑闭包：编排服务在本块之后构造回填）
     taskClosureSink: (agentId) => orchestratorService?.handleInstanceClosure(agentId),
   });
-  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow, orchestratorAssembly } = sessionStack;
+  const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow, orchestratorAssembly, orchestratorMcpTools } = sessionStack;
   schedulerLate = scheduler; // 链 A 晚绑闭合：instanceStateOf 读面接调度器现值
 
   // ── T2.2 晚绑闭合：task.changed 广播单点 + 编排服务真体回填──
@@ -656,6 +656,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     scheduler,
     resolveSubagentModelId,
     orchestratorAssembly,
+    orchestratorMcpTools,
     resourceService: sessionStack.resourceService,
     persistence,
     modelStack,

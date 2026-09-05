@@ -11,7 +11,7 @@ import { PiAgentEngineAdapter, type PiEngineOptions } from "../../adapters/drive
 import type { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
 import { OrchestratorProfile } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
 import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinking-resolve";
-import { CoreToolExecutor, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
+import { CoreToolExecutor, type CoreToolExecutorOptions, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
 import type { GrepToolDeps } from "../../adapters/driven/tools/grep/GrepTool";
 import type { TaskOpsToolDeps } from "../../adapters/driven/tools/task-ops/TaskOpsTools";
 import type { Logger } from "../logging";
@@ -61,6 +61,14 @@ export interface OrchestratorSessionFactoryDeps {
   readonly kgRead?: () => Pick<KgToolOptions, "query" | "workspaceRoot" | "scanProjects"> | undefined;
   /** grep 后端定格产物（AF-1：组合根启动定格透传）。 */
   readonly grep?: GrepToolDeps;
+  /**
+   * 编排 MCP 工具工厂（编排 MCP 接入批）：会话构造时现拍注入 executor
+   * （具体工具 + deferred meta 工具——装配清单含 MCP 命名空间名时
+   * resolveTools fail-fast 不破；与主会话 executor 构造点同法）。
+   * 缺席 = 无 MCP registry（catalog 门控同源——装配清单此时不含 MCP 名）。
+   * 类型经 CoreToolExecutorOptions 推导（AG-04：pi 类型不进 infrastructure）。
+   */
+  readonly mcpTools?: () => NonNullable<CoreToolExecutorOptions["mcp"]>["tools"] | undefined;
   /** 任务引擎回口（taskOps 工具族绑定面；TP-2.3a④ 命名避让：非裸 engine）。 */
   readonly taskEngine: TaskEnginePort;
   /** 台账读面（编排者 plan_read 变体绑定）。 */
@@ -105,11 +113,15 @@ export function createOrchestratorSessionFactory(
       taskEngine: deps.taskEngine,
       ledger: deps.ledger,
     };
+    const mcpToolsNow = deps.mcpTools?.();
     const executor = new CoreToolExecutor({
       cwd: deps.toolCwd(),
       orchestration,
       ...(kgNow !== undefined ? { kg: { ...kgNow } } : {}), // write 不注入：只读形态（kg-update 不注册，AD-10）
       ...(deps.grep !== undefined ? { grep: deps.grep } : {}),
+      // 编排 MCP 接入批：MCP 命名空间工具现值注入（装配清单含 MCP 名时
+      // resolveTools 可解析；与主会话 executor 构造点同法）
+      ...(mcpToolsNow !== undefined && mcpToolsNow.length > 0 ? { mcp: { tools: mcpToolsNow } } : {}),
       taskOps,
     });
     const assembly = deps.assembly();

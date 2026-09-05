@@ -39,6 +39,8 @@ export interface BuildTaskOrchestratorDeps {
   readonly resolveSubagentModelId: SessionStack["resolveSubagentModelId"];
   /** 编排主 agent 组装快照现值读面（启动/toggle 后重算缓存）。 */
   readonly orchestratorAssembly: SessionStack["orchestratorAssembly"];
+  /** 编排会话 MCP 工具工厂（编排 MCP 接入批：executor 注入面，buildSessionStack 出口透传）。 */
+  readonly orchestratorMcpTools: SessionStack["orchestratorMcpTools"];
   /** 编排槽位读面（R7 系统槽位批：orchestrator 槽位优先，未配走全局）。 */
   readonly resourceService: ResourceService;
   /** 持久化族（默认模型/thinking 读面 + 写队列事件镜像 + pending_sync 读面）。 */
@@ -81,6 +83,7 @@ export function buildTaskOrchestrator(deps: BuildTaskOrchestratorDeps): TaskOrch
     resumeInstance: (agentId) => scheduler.resume(agentId),
     createSession: createOrchestratorSessionFactory({
       assembly: deps.orchestratorAssembly,
+      mcpTools: deps.orchestratorMcpTools,
       model: () => resolveConfigModel(persistence.defaultModel.current(), modelStack.catalog.modelsView()),
       // R7 系统槽位批：orchestrator 槽位优先（未配走全局）；thinking 两级链
       modelSlot: () => deps.resourceService.modelSlot("orchestrator"),

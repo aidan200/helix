@@ -80,5 +80,10 @@ export const OrchestratorProfile: AgentProfile = {
   ],
   lifecycle: { mode: "persistent" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：装配点每 runtime 实例化）
+  // 编排 MCP 接入批：与 main/worker 同构全开声明（"*"）——准入实际由
+  // server enabled + 工具级 resource_state toggle 管控；声明面单源缺失
+  // 曾致 MCP_ALLOWED_OF 门控全链空（config.list 不携带 mcpServers →
+  // 智能体页编排卡 MCP 区空态——「任务 agent 无 MCP」双轨残留）
+  mcpServers: "*",
   // model：不声明槽位——组合根解析（编排任务模型面归资源管理后续迭代）
 };
