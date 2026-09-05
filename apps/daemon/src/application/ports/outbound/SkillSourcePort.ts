@@ -59,7 +59,19 @@ export interface SkillScanResult {
   readonly diagnostics: readonly SkillScanDiagnostic[];
 }
 
+/** 技能创建写面回执：applied（name 回显）/ skipped（原因码，daemon 权威校验）。 */
+export type SkillCreateOutcome =
+  | { readonly status: "applied"; readonly name: string }
+  | { readonly status: "skipped"; readonly reason: "invalid-name" | "missing-description" | "already-exists" | "bad-frontmatter" };
+
 export interface SkillSourcePort {
-  /** 扫描双层目录（每次调用现扫——不缓存，与文件系统现状一致）。 */
+  /** 扫描双源目录（每次调用现扫——不缓存，与文件系统现状一致）。 */
   scan(): Promise<SkillScanResult>;
+  /**
+   * 创建用户级技能（settings skills 分区添加写面）：入参 = SKILL.md 全文
+   * （frontmatter 含 name/description，daemon 权威解析——前端零解析）；
+   * 校验 name 安全（目录名合法无路径穿越）+ description 非空 + 同名不存在
+   * → 落盘 <userSkillsDir>/<name>/SKILL.md。skipped 不落盘。
+   */
+  createSkill(content: string): Promise<SkillCreateOutcome>;
 }

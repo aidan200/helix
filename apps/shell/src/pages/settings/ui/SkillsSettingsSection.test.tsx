@@ -34,6 +34,10 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
         mock.sentContentGet.push(call.name);
         return true;
       },
+      sendAgentSkillCreate: (call: { content: string }) => {
+        mock.sentCreate.push(call.content);
+        return true;
+      },
       subscribeAgentConfigFrames: (listener: (frame: EventEnvelope) => void) => {
         mock.listener = listener;
         return () => {};
@@ -45,6 +49,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
 const mock = vi.hoisted(() => ({
   sentList: 0,
   sentContentGet: [] as string[],
+  sentCreate: [] as string[],
   listener: ((_frame: EventEnvelope) => {}) as (frame: EventEnvelope) => void,
 }));
 
@@ -57,6 +62,7 @@ afterEach(() => {
   cleanup();
   mock.sentList = 0;
   mock.sentContentGet = [];
+  mock.sentCreate = [];
 });
 
 const listPayload: AgentConfigListResultPayload = {
@@ -188,5 +194,61 @@ describe("stripFrontmatter / mergeUserSkillRows（纯函数）", () => {
       ],
     });
     expect(subOnly.find((r) => r.name === "hello-skill")!.enabledMain).toBe(true);
+  });
+});
+
+describe("SkillsSettingsSection 添加表单（skills 添加批：两渠道创建流）", () => {
+  it("⑤ 表单渠道：三字段 → 拼装 frontmatter 全文发送 → applied 回执 → 表单收起 + 重拉 list", async () => {
+    mount();
+    mock.listener(frameOf("agent.config.list.result", listPayload));
+    await waitFor(() => {
+      expect(document.querySelector('[data-skill-row="hello-skill"]')).not.toBeNull();
+    });
+
+    fireEvent.click(document.querySelector("[data-skills-add-toggle]")!);
+    const form = document.querySelector("[data-skills-form]")!;
+    expect(form).not.toBeNull();
+
+    fireEvent.change(document.querySelector("[data-skills-name]")!, { target: { value: "my-skill" } });
+    fireEvent.change(document.querySelector("[data-skills-desc]")!, { target: { value: "测试技能" } });
+    fireEvent.change(document.querySelector("[data-skills-body]")!, { target: { value: "## 正文\n\n内容。" } });
+    fireEvent.click(document.querySelector("[data-skills-submit]")!);
+
+    // 拼装全文：frontmatter（description 双引号安全）+ 正文
+    expect(mock.sentCreate).toEqual(['---\nname: my-skill\ndescription: "测试技能"\n---\n\n## 正文\n\n内容。\n']);
+    const listCalls = mock.sentList;
+    mock.listener(frameOf("agent.skill.create.result", { status: "applied", name: "my-skill" }));
+    await waitFor(() => {
+      expect(mock.sentList).toBe(listCalls + 1); // applied → 重拉清单收口
+    });
+    await waitFor(() => {
+      expect(document.querySelector("[data-skills-form]")).toBeNull(); // 表单收起
+    });
+  });
+
+  it("⑥ 文件渠道：导入 SKILL.md 原文填充 → 原样发送；skipped(already-exists) → 行内错误不收表单", async () => {
+    mount();
+    mock.listener(frameOf("agent.config.list.result", listPayload));
+    await waitFor(() => {
+      expect(document.querySelector('[data-skill-row="hello-skill"]')).not.toBeNull();
+    });
+
+    fireEvent.click(document.querySelector("[data-skills-add-toggle]")!);
+    fireEvent.click(document.querySelector('[data-skills-mode-tab="file"]')!);
+    const raw = "---\nname: imported\ndescription: 导入技能\n---\n\n正文";
+    const file = new File([raw], "imported.md", { type: "text/markdown" });
+    fireEvent.change(document.querySelector("[data-skills-file]")!, { target: { files: [file] } });
+    await waitFor(() => {
+      expect((document.querySelector("[data-skills-file-name]") as HTMLElement | null)?.textContent).toContain("imported.md");
+    });
+
+    fireEvent.click(document.querySelector("[data-skills-submit]")!);
+    expect(mock.sentCreate).toEqual([raw]); // 原文直发（前端零解析）
+
+    mock.listener(frameOf("agent.skill.create.result", { status: "skipped", reason: "already-exists" }));
+    await waitFor(() => {
+      expect((document.querySelector("[data-skills-form-error]") as HTMLElement | null)?.textContent).toContain("已存在");
+    });
+    expect(document.querySelector("[data-skills-form]")).not.toBeNull(); // skipped 不收表单（可修正重试）
   });
 });

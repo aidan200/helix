@@ -293,9 +293,9 @@ Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重�
 > **§10–§14（v0.1–v0.4 演进登记与微批备案）已迁 PROTOCOL-CHANGELOG.md**
 >（原节号保留——下文节号自 §9 直接跳至 §15 即此迁移痕迹，非缺节）。
 
-## 15. 命令 payload 形状总登记（C→S，73 命令全集）
+## 15. 命令 payload 形状总登记（C→S，74 命令全集）
 
-> **计数声明：73 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 7〔含 skill-content 批 1〕 +
+> **计数声明：74 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 8〔含 skill-content 批 1 + skills 添加批 1〕 +
 > 15.4 model 7 + config 6〔含 config 瘦身批 4：get/set_scheduling、get/set_port〕 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
 > 15.9 kg 6+5+2+1+1+1+1 + 15.10 workspace 2 + 15.11 task 10 + 15.12 diff 1 + 15.13 mcp 6）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
@@ -492,6 +492,20 @@ skill 正文（SKILL.md 全文）读面（skill-content 批 §24；agent 页技�
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `name` | `string` | 必填 | §24 | 技能名（SKILL.md frontmatter name） |
+
+#### `agent.skill.create`
+
+用户级技能创建写面（skills 添加批；settings skills 分区两渠道：页面表单
+/导入 SKILL.md 文件）。路由：全局命令（信封 sessionId 省略）。入参 =
+SKILL.md **全文**统一形态（frontmatter 含 name/description）——daemon
+权威解析校验（name 目录名安全防路径穿越 / description 非空 / 同名不
+存在），前端零解析。结果帧：`agent.skill.create.result`（点对点，
+§16.4）；applied 后新技能下次 `agent.config.list` 即见（扫描现拍，
+不做广播）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `content` | `string` | 必填 | §31 | SKILL.md 全文（含 frontmatter；两渠道统一——表单拼装/文件导入原文） |
 
 ### 15.4 model + config 族（13）
 
@@ -1220,11 +1234,11 @@ deferred 缺省 true = 懒加载：工具经 `${server}__discover` meta 工具�
 |---|---|---|---|---|
 | `server` | `string` | 必填 | mcp 批 | 目标 server |
 
-## 16. 事件 payload 形状总登记（S→C，91 事件全集）
+## 16. 事件 payload 形状总登记（S→C，92 事件全集）
 
-> **计数声明：91 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> **计数声明：92 事件全集**（16.1 notification 3〔含 task.changed〕 +
 > 16.2 session 6〔含 main-session plan 批 session.plan.changed + diff 批 diff.changed〕 + 16.11 mcp 7〔mcp 批：六 result + status.changed〕 +
-> 16.3 chat 12〔含 engine.retrying 网络重试批 + error entry 批 error.entry〕 + 16.4 agent 16〔含 park/resume 批 2 + base prompt 批 1 + skill-content 批 1〕 + 16.5 thinking·compaction·usage 5 +
+> 16.3 chat 12〔含 engine.retrying 网络重试批 + error entry 批 error.entry〕 + 16.4 agent 17〔含 park/resume 批 2 + base prompt 批 1 + skill-content 批 1 + skills 添加批 1〕 + 16.5 thinking·compaction·usage 5 +
 > 16.6 model 17〔含 config 瘦身批 4：scheduling 两 result + port 两 result，挂 model 通道〕 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1+1 + 16.10 workspace 3 + 16.11 mcp 7
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
@@ -1626,6 +1640,16 @@ skill 正文读面回执（点对点；全局命令，skill-content 批 §24）�
 | `name` | `string` | 必填 | §24 | 技能名（请求回显——多行并发展开时定向归位缓存） |
 | `filePath` | `string` | 必填 | §24 | SKILL.md 绝对路径（三源目录位置 = 来源层佐证） |
 | `content` | `string` | 必填 | §24 | SKILL.md 全文（含 frontmatter——用户可见的事实源原文） |
+
+#### `agent.skill.create.result`
+
+用户级技能创建写面回执（点对点；全局命令，skills 添加批 §31）。payload：
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `status` | `"applied" \| "skipped"` | 必填 | §31 | applied = 落盘成功；skipped = 不落盘 |
+| `name` | `string` | applied 必填 | §31 | 技能名回显（落盘目录名） |
+| `reason` | `string` | skipped 必填 | §31 | 原因码：`invalid-name`（含路径穿越）/ `missing-description` / `already-exists` / `bad-frontmatter` |
 
 ### 16.5 thinking · compaction · usage 通道族（5）
 

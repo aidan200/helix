@@ -70,6 +70,7 @@ import type {
   AgentConfigSetEnabledResultEvent,
   AgentBasePromptGetResultEvent,
   AgentSkillContentGetResultEvent,
+  AgentSkillCreateResultEvent,
   AgentFailedEvent,
   AgentInstantiatedEvent,
   AgentKilledEvent,
@@ -226,6 +227,7 @@ export type EventEnvelope =
   | AgentConfigSetEnabledResultEvent
   | AgentBasePromptGetResultEvent
   | AgentSkillContentGetResultEvent
+  | AgentSkillCreateResultEvent
   | WebStatusResultEvent
   | WebStopResultEvent
   | WebStatusChangedEvent
@@ -320,6 +322,7 @@ export const EVENT_TYPES = [
   "agent.config.set_enabled.result",
   "agent.base_prompt.get.result",
   "agent.skill_content.get.result",
+  "agent.skill.create.result",
   "web.status.result",
   "web.stop.result",
   "web.status.changed",
@@ -422,6 +425,7 @@ export const EVENT_CHANNELS = {
   "agent.config.set_enabled.result": "agent",
   "agent.base_prompt.get.result": "agent",
   "agent.skill_content.get.result": "agent",
+  "agent.skill.create.result": "agent",
   "web.status.result": "web",
   "web.stop.result": "web",
   "web.status.changed": "web",

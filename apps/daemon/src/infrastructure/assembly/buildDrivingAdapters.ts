@@ -129,6 +129,8 @@ export interface WsDrivingDeps {
    * 窄数据面透传（driving 不 import driven）。
    */
   readonly skillContentOf: (name: string) => Promise<{ filePath: string; content: string } | undefined>;
+  /** skills 添加批：用户级技能创建写面（可选——stub rig 防御）。 */
+  readonly skillCreateOf?: (content: string) => Promise<import("../../application/ports/outbound/SkillSourcePort").SkillCreateOutcome>;
   readonly subagentLauncher: SubagentLauncher | undefined;
   readonly eventStream: EventStream;
   readonly browserPort: BrowserPort;
@@ -276,6 +278,9 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     // 任务栈扫描器同形同源复用（scan 现拍 + 读文件；未知名/读取失败 →
     // undefined，handler 回 invalid_payload）
     skillContentOf: deps.skillContentOf,
+    // skills 添加批：用户级技能创建写面（SKILL.md 全文 → SkillCreateOutcome；
+    // 可选——stub rig 未注入 → handler 回 skipped 防御）
+    skillCreateOf: deps.skillCreateOf,
     traceQuery: persistence.traceQuery, // trace.query 命令回口（只读面）
     // kg 族命令回口（P-1 六命令，§9；project 参数 service 内单点解析）——
     // W1 重绑接缝：经 workspace 持有者读现值（deps.kg 直接注入形态保留给

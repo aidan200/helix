@@ -130,7 +130,7 @@ import {
   handleKgNodeSupersede,
   handleKgNodeUpdate,
 } from "./handlers/kg";
-import { handleAgentBasePromptGet, handleAgentConfigList, handleAgentConfigSetEnabled, handleAgentSkillContentGet } from "./handlers/resource";
+import { handleAgentBasePromptGet, handleAgentConfigList, handleAgentConfigSetEnabled, handleAgentSkillContentGet, handleAgentSkillCreate } from "./handlers/resource";
 import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
 import {
   handleMcpServersAdd,
@@ -262,6 +262,11 @@ export interface WsServerAdapterDeps {
    *（stub rig）→ 回执「读面未装配」invalid_payload（basePrompts 防御位同构）。
    */
   readonly skillContentOf?: (name: string) => Promise<{ filePath: string; content: string } | undefined>;
+  /**
+   * 用户级技能创建写面（skills 添加批）：SKILL.md 全文 → SkillCreateOutcome
+   *（可选——stub rig 未注入 → handler 回 skipped 防御；skillContentOf 同构）。
+   */
+  readonly skillCreateOf?: (content: string) => Promise<import("../../../application/ports/outbound/SkillSourcePort").SkillCreateOutcome>;
   /** 事件流（组合根构造并装配进 fan-out 的 EventPublisherPort 实现）。 */
   readonly events: EventStream;
   /** 本次启动生成的 dev token（与 <home>/dev-token 文件内容一致）。 */
@@ -673,6 +678,9 @@ export class WsServerAdapter {
       // ── skill-content 批（agent 页 skill 正文懒查询读面；base prompt 同族同判据）──
       case "agent.skill_content.get":
         return handleAgentSkillContentGet(this.resourceContext(ws, type, payload));
+      // ── skills 添加批（settings skills 分区创建写面；两渠道统一全文入参）──
+      case "agent.skill.create":
+        return handleAgentSkillCreate(this.resourceContext(ws, type, payload));
       // ── v0.7 web 族（联网状态图标；全局命令先例 = agent.config 族）──
       // v0.9 +web.start（CDP 显式启动通路）
       case "web.status":
@@ -958,6 +966,7 @@ export class WsServerAdapter {
       reviewerRemovedTools: this.deps.reviewerRemovedTools,
       basePrompts: this.deps.basePrompts,
       skillContentOf: this.deps.skillContentOf ?? (() => Promise.resolve(undefined)), // 未装配（stub rig）→ handler 回「未知技能名或正文不可读」防御
+      skillCreateOf: this.deps.skillCreateOf,
       events: this.deps.events,
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),

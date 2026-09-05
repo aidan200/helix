@@ -1000,3 +1000,24 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 - **shell 消费面（同批）**：设置页通用分区（GeneralSettingsSection）新增调度预算两输入行 + 端口输入行（重启生效标注；不建二级页面）。
 - **迁移语义（daemon 同批）**：旧 config.json 含 port/maxConcurrent/maxQueued/mcpServers 字段时启动一次性迁移（AD-2 legacy 同款：写 KV/表 → config.json 重写瘦身）；`config.get_compaction` 不变。
 - 计数：命令 69→73、事件 87→91（§15/§16 声明行同 commit 双写）。
+
+## 31. skills 添加批（用户级技能创建写面 agent.skill.create；v0.11 后 additive 微批——版本位不 bump）
+
+- **背景**：settings skills 分区（单源管理批）上线时是纯读面（零写命令）——
+  用户级技能只能手工放文件。本批补创建写面：两渠道（页面表单拼 frontmatter /
+  导入现成 SKILL.md 文件原文）统一为一命令。
+- **命令（+1）**：`agent.skill.create {content: string}`——入参 = SKILL.md
+  **全文**统一形态（frontmatter 含 name/description），daemon 权威解析校验
+  （SkillSourcePort.createSkill：name 目录名安全 `^[A-Za-z0-9][A-Za-z0-9._-]*$`
+  防路径穿越 / description 非空 / 同名不存在）→ 落盘
+  `<userSkillsDir>/<name>/SKILL.md`；前端零解析（表单渠道拼装、文件渠道原文）。
+- **事件（+1）**：`agent.skill.create.result`（点对点）——applied 回显 name；
+  skipped 原因码四值：`invalid-name` / `missing-description` /
+  `already-exists` / `bad-frontmatter`（不落盘）。
+- **消费面（shell 同批）**：SkillsSettingsSection 添加表单（表单三字段拼装 +
+  file input 导入原文预览）；applied 回执后重拉 `agent.config.list`（扫描
+  现拍即见，无广播）。
+- **定位边界演进**：settings/skills 分区从「零写命令」演进为「创建写面
+  （agent.skill.create 单命令）」——启停写面仍在智能体页（kind 维），
+  删除/编辑写面仍无（文件系统管理面）。
+- 计数：命令 73→74、事件 91→92（§15/§16 声明行同 commit 双写）。

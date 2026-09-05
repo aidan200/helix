@@ -105,11 +105,14 @@ class InMemoryResourceState implements ResourceStatePort {
   }
 }
 
-/** 可编程技能源假实现。 */
+/** 可编程技能源假实现（createSkill 写面 stub——ResourceService 只消费 scan，创建链路归 skill-scanner.test）。 */
 class FakeSkillSource implements SkillSourcePort {
   constructor(private current: SkillScanResult = { skills: SKILLS, diagnostics: [] }) {}
   async scan(): Promise<SkillScanResult> {
     return this.current;
+  }
+  async createSkill(): Promise<never> {
+    throw new Error("FakeSkillSource.createSkill: not expected in ResourceService tests");
   }
 }
 

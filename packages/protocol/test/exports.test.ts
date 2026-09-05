@@ -263,8 +263,8 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
   test("② 常量语义值 + 目录计数（config 瘦身批 + diff 批 + mcp 批：命令 73 / 事件 91；v0.11 版本位保持）", () => {
     expect(protocol.PROTOCOL_VERSION).toBe("0.11"); // v0.11 批次版本位（thinking 批四块 additive，AD-2/AD-4；契约 = PROTOCOL-CHANGELOG.md §17.11）
     expect(protocol.SYSTEM_SESSION_ID).toBe("__system__");
-    expect(protocol.COMMAND_TYPES.length).toBe(73); // config 瘦身批 +4（get/set_scheduling、get/set_port）
-    expect(protocol.EVENT_TYPES.length).toBe(91); // config 瘦身批 +4（scheduling 两 result + port 两 result）
-    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(91); // 登记目录恰等（config 瘦身批 +4）
+    expect(protocol.COMMAND_TYPES.length).toBe(74); // skills 添加批 +1（agent.skill.create）
+    expect(protocol.EVENT_TYPES.length).toBe(92); // skills 添加批 +1（agent.skill.create.result）
+    expect(Object.keys(protocol.EVENT_CHANNELS).length).toBe(92); // 登记目录恰等（skills 添加批 +1）
   });
 });

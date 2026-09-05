@@ -39,6 +39,7 @@ import type {
   AgentConfigSetEnabledResultEvent,
   AgentConfigSystemBlock,
   AgentSkillContentGetResultEvent,
+  AgentSkillCreateResultEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { McpServerRuntimeState } from "@helix/protocol";
@@ -305,6 +306,49 @@ export function handleAgentSkillContentGet(ctx: ResourceCommandContext): void {
       ctx.sendNow(sender, frame);
     })
     .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `skill 正文读面失败：${(err as Error).message}`));
+}
+
+/**
+ * agent.skill.create（skills 添加批）：用户级技能创建写面——入参 = SKILL.md
+ * 全文（两渠道统一：页面表单拼装 / 文件导入原文），daemon 权威解析校验
+ *（name 安全 / description 非空 / 同名不存在）→ 落盘 ~/.helix/skills/<name>/。
+ * skipped 不落盘（invalid-name / missing-description / already-exists /
+ * bad-frontmatter 四因码回执）。applied 无广播——扫描现拍，前端重拉
+ * agent.config.list 即见。未装配（stub rig）→ skipped 防御。点对点回执。
+ */
+export function handleAgentSkillCreate(ctx: ResourceCommandContext): void {
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const content = ctx.payload.content;
+  if (typeof content !== "string" || content.length === 0) {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.content 应为非空 SKILL.md 全文字符串（含 frontmatter）");
+  }
+  const create = ctx.skillCreateOf;
+  if (create === undefined) {
+    const frame: AgentSkillCreateResultEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "agent",
+      type: "agent.skill.create.result",
+      payload: { status: "skipped", reason: "bad-frontmatter" },
+    };
+    ctx.sendNow(sender, frame);
+    return;
+  }
+  create(content)
+    .then((outcome) => {
+      const frame: AgentSkillCreateResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID, // 全局命令：会话无关（agent.config.list.result 同构）
+        channel: "agent",
+        type: "agent.skill.create.result",
+        payload:
+          outcome.status === "applied"
+            ? { status: "applied", name: outcome.name }
+            : { status: "skipped", reason: outcome.reason },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `skill 创建写面失败：${(err as Error).message}`));
 }
 
 /** agent.config.set_enabled（全局写面）：四路径回执 + applied 广播。 */

@@ -159,13 +159,14 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 73 个 type（… + config 瘦身批 4）", () => {
+  test("命令目录恰为 74 个 type（… + skills 添加批 1）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
         "agent.config.list",
         "agent.config.set_enabled",
         "agent.kill",
+        "agent.skill.create",
         "agent.skill_content.get",
         "agent.subscribe",
         "agent.unsubscribe",
@@ -239,7 +240,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     );
   });
 
-  test("事件目录恰为 91 个 type（… + config 瘦身批 4）", () => {
+  test("事件目录恰为 92 个 type（… + skills 添加批 1）", () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get.result",
@@ -254,6 +255,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "agent.parked",
         "agent.queued",
         "agent.resumed",
+        "agent.skill.create.result",
         "agent.skill_content.get.result",
         "agent.spawned",
         "agent.stalled",
@@ -496,6 +498,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "agent.parked",
       "agent.queued",
       "agent.resumed",
+      "agent.skill.create.result",
       "agent.skill_content.get.result",
       "agent.spawned",
       "agent.stalled",
@@ -565,10 +568,10 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
   });
 
   test("目录计数（config 瘦身批后）：EVENT_TYPES 91 / EVENT_CHANNELS 91 键 / COMMAND_TYPES 73", () => {
-    expect(EVENT_TYPES.length).toBe(91); // config 瘦身批 +4（scheduling/port result）
-    expect(new Set(EVENT_TYPES).size).toBe(91); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(91); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(73); // config 瘦身批 +4（get/set_scheduling、get/set_port）
+    expect(EVENT_TYPES.length).toBe(92); // skills 添加批 +1（agent.skill.create.result）
+    expect(new Set(EVENT_TYPES).size).toBe(92); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(92); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(74); // skills 添加批 +1（agent.skill.create）
   });
 
 });

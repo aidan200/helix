@@ -204,6 +204,8 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `base-prompt:${event.payload.profileKind}:${event.payload.basePrompt.length}`;
     case "agent.skill_content.get.result":
       return `skill-content:${event.payload.name}:${event.payload.content.length}`;
+    case "agent.skill.create.result":
+      return `skill-create:${event.payload.status}:${event.payload.name ?? event.payload.reason ?? "-"}`;
     case "session.plan.changed":
       return `plan-changed:${event.payload.sessionId}:${event.payload.plan?.length ?? 0}:${event.payload.ledger?.total ?? 0}`;
     case "diff.changed":
@@ -370,6 +372,8 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `base-prompt-get:${cmd.payload.profileKind}`;
     case "agent.skill_content.get":
       return `skill-content-get:${cmd.payload.name}`;
+    case "agent.skill.create":
+      return `skill-create:${cmd.payload.content.length}`;
     case "diff.get":
       return `diff-get:${cmd.sessionId ?? "-"}:${cmd.payload.turnId ?? "latest"}:${cmd.payload.live ? "live" : "frozen"}`;
     case "mcp.servers.list":

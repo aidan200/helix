@@ -16,6 +16,7 @@ import { PROTOCOL_VERSION } from "@helix/protocol";
 import type {
   AgentBasePromptGetPayload,
   AgentSkillContentGetPayload,
+  AgentSkillCreatePayload,
   AgentConfigSetEnabledPayload,
   CodeReviewCreatePayload,
   CommandEnvelope,
@@ -41,6 +42,7 @@ import type {
 import {
   agentBasePromptGetCommand,
   agentSkillContentGetCommand,
+  agentSkillCreateCommand,
   agentConfigListCommand,
   agentConfigSetEnabledCommand,
   authDeleteKeyCommand,
@@ -441,6 +443,11 @@ export const COMMAND_SURFACE = {
    *  同一转发链到页面 reducer）。 */
   sendAgentSkillContentGet: (deps) =>
     (payload: AgentSkillContentGetPayload) => deps.send(agentSkillContentGetCommand(payload)),
+  /** 发送 agent.skill.create（skills 添加批：用户级技能创建写面；
+ *  回执 agent.skill.create.result 点对点，经 subscribeAgentConfigFrames
+ *  同一转发链；applied 后页面重拉 agent.config.list 收口）。 */
+  sendAgentSkillCreate: (deps) =>
+    (payload: AgentSkillCreatePayload) => deps.send(agentSkillCreateCommand(payload)),
 
   // ── web 族联网状态面（T4，契约 v0.7；IconRail 联网钮）──
   /** 发送 web.stop（停止并清理；回执 applied + 状态回 idle 经
@@ -615,7 +622,8 @@ export const LISTEN_SURFACE = {
       type === "agent.config.list.result" ||
       type === "agent.config.set_enabled.result" ||
       type === "agent.base_prompt.get.result" ||
-      type === "agent.skill_content.get.result",
+      type === "agent.skill_content.get.result" ||
+      type === "agent.skill.create.result",
   },
   /** 订阅 kg 族点对点回执（kg.*.result；O-6 零推送事件，回执全走此处；
    *  connection.error 一并转发——bootstrap 入口/写面在途错误判定靠页面

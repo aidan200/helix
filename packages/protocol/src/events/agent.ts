@@ -378,3 +378,19 @@ export interface AgentSkillContentGetResultEvent extends EventFrame<AgentSkillCo
   channel?: "agent";
   type: "agent.skill_content.get.result";
 }
+
+/** agent.skill.create.result 载荷：用户级技能创建写面回执（点对点）。 */
+export interface AgentSkillCreateResultPayload {
+  /** applied：name 回显（落盘目录名）；skipped：不落盘。 */
+  status: "applied" | "skipped";
+  /** applied 回显技能名（目录名）。 */
+  name?: string;
+  /** skipped 原因码：invalid-name（含路径穿越）/ missing-description / already-exists / bad-frontmatter。 */
+  reason?: string;
+}
+
+/** agent.skill.create.result：用户级技能创建写面回执（点对点；信封 sessionId = SYSTEM_SESSION_ID）。 */
+export interface AgentSkillCreateResultEvent extends EventFrame<AgentSkillCreateResultPayload> {
+  channel?: "agent";
+  type: "agent.skill.create.result";
+}

@@ -76,9 +76,9 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     expect(EVENT_TYPES).toContain("thinking.changed");
     expect(EVENT_CHANNELS["thinking.changed"]).toBe("thinking");
     // 计数：27 → 28 命令 / 47 → 48 事件（thinking 批历史口径；当前常量含后续 kg 批 +6/+6、workspace 批 +2/+3、task 批 +9/+1、kg-bootstrap 批 +5/+5、kg 维护批 +2/+2 → 52/65）
-    expect(COMMAND_TYPES.length).toBe(73); // config 瘦身批 +4 后当前值
-    expect(EVENT_TYPES.length).toBe(91); // config 瘦身批 +4 后当前值
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(91); // config 瘦身批 +4 后当前值（mcp 族挂新 mcp 通道）
+    expect(COMMAND_TYPES.length).toBe(74); // skills 添加批 +1 后当前值
+    expect(EVENT_TYPES.length).toBe(92); // skills 添加批 +1 后当前值
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(92); // skills 添加批 +1 后当前值（mcp 族挂新 mcp 通道）
   });
 
   test("thinking.set：信封 sessionId 必填（per-session），payload level 字符串透传", () => {
@@ -146,8 +146,8 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     // 当前常量含后续 kg 批 +6/+6、workspace 批 +2/+3、task 批 +9/+1 → 45/58）
     expect(section).toContain("27 → 28");
     expect(section).toContain("47 → 48");
-    expect(COMMAND_TYPES.length).toBe(73); // config 瘦身批 +4 后当前值
-    expect(EVENT_TYPES.length).toBe(91); // config 瘦身批 +4 后当前值
+    expect(COMMAND_TYPES.length).toBe(74); // skills 添加批 +1 后当前值
+    expect(EVENT_TYPES.length).toBe(92); // skills 添加批 +1 后当前值
     // ④ chat.send 零字段负断言在批次节有登记（NFR-2① 红线文档面）
     expect(section).toContain("chat.send` **零字段**");
   });

@@ -139,3 +139,43 @@ describe("SkillScanner（双源目录 → source 标签技能清单）", () => {
     }
   });
 });
+
+describe("SkillScanner.createSkill（用户级技能创建写面）", () => {
+  test("⑤ 合法全文 → 落盘 <user>/<name>/SKILL.md + applied 回执 + 下次 scan 可见", async () => {
+    const userDir = tmpDir("helix-skills-create-");
+    const scanner = new SkillScanner({ userSkillsDir: userDir, builtinSkillsDir: path.join(tmpDir("helix-skills-create-b-"), "s") });
+    const outcome = await scanner.createSkill(
+      "---\nname: my-skill\ndescription: 测试技能\n---\n\n## 正文\n\n内容。\n",
+    );
+    expect(outcome).toEqual({ status: "applied", name: "my-skill" });
+    // 落盘原文（含 frontmatter）
+    expect(readFileSync(path.join(userDir, "my-skill", "SKILL.md"), "utf8")).toContain("name: my-skill");
+    // 下次扫描即见（文件系统是事实源）
+    const scanned = await scanner.scan();
+    const hit = scanned.skills.find((s) => s.name === "my-skill");
+    expect(hit).toBeDefined();
+    expect(hit!.source).toBe("user");
+    expect(hit!.audience).toBe("agent");
+  });
+
+  test("⑥ 四类 skipped：坏 frontmatter / 非法 name（路径穿越与空）/ 缺 description / 同名已存在", async () => {
+    const userDir = tmpDir("helix-skills-create2-");
+    const scanner = new SkillScanner({ userSkillsDir: userDir, builtinSkillsDir: path.join(tmpDir("helix-skills-create2-b-"), "s") });
+    // 无 frontmatter / 无闭合块
+    expect(await scanner.createSkill("## 直接正文")).toEqual({ status: "skipped", reason: "bad-frontmatter" });
+    expect(await scanner.createSkill("---\nname: x\n\n正文")).toEqual({ status: "skipped", reason: "bad-frontmatter" });
+    // 非法 name：路径穿越 / 相对段 / 隐藏目录 / 空串
+    expect(await scanner.createSkill("---\nname: ../escape\ndescription: x\n---\n\nb")).toEqual({ status: "skipped", reason: "invalid-name" });
+    expect(await scanner.createSkill("---\nname: a/b\ndescription: x\n---\n\nb")).toEqual({ status: "skipped", reason: "invalid-name" });
+    expect(await scanner.createSkill("---\nname: .hidden\ndescription: x\n---\n\nb")).toEqual({ status: "skipped", reason: "invalid-name" });
+    expect(await scanner.createSkill("---\nname: \"\"\ndescription: x\n---\n\nb")).toEqual({ status: "skipped", reason: "invalid-name" });
+    // 缺 description / 非字符串
+    expect(await scanner.createSkill("---\nname: ok-skill\n---\n\nb")).toEqual({ status: "skipped", reason: "missing-description" });
+    expect(await scanner.createSkill("---\nname: ok-skill\ndescription:\n---\n\nb")).toEqual({ status: "skipped", reason: "missing-description" });
+    // 同名已存在（先建一个）
+    expect(await scanner.createSkill("---\nname: dup\ndescription: x\n---\n\nb")).toEqual({ status: "applied", name: "dup" });
+    expect(await scanner.createSkill("---\nname: dup\ndescription: y\n---\n\nb2")).toEqual({ status: "skipped", reason: "already-exists" });
+    // skipped 不落盘：dup 正文未被覆盖
+    expect(readFileSync(path.join(userDir, "dup", "SKILL.md"), "utf8")).toContain("description: x");
+  });
+});

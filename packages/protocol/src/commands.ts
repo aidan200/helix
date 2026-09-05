@@ -454,6 +454,22 @@ export interface AgentSkillContentGetCommand extends CommandFrame<AgentSkillCont
   type: "agent.skill_content.get";
 }
 
+/**
+ * agent.skill.create 载荷：用户级技能创建写面（settings skills 分区添加批）。
+ * 入参 = SKILL.md **全文**（frontmatter 含 name/description）——两渠道统一形态：
+ * 页面表单拼装 / 文件导入原文；daemon 权威解析校验（name 安全 / description
+ * 非空 / 同名不存在），前端零解析。结果帧 = agent.skill.create.result 点对点
+ * 回执（TR-AD-21 模式）；applied 后新技能下次 agent.config.list 即见（扫描现拍）。
+ */
+export interface AgentSkillCreatePayload {
+  /** SKILL.md 全文（含 frontmatter）。 */
+  content: string;
+}
+
+export interface AgentSkillCreateCommand extends CommandFrame<AgentSkillCreatePayload> {
+  type: "agent.skill.create";
+}
+
 // ── v0.7 新增：web 族（T4 联网状态图标；daemon BrowserPort 单例 CDP 连接面） ──
 
 /**
@@ -938,6 +954,7 @@ export type CommandEnvelope =
   | AgentConfigSetEnabledCommand
   | AgentBasePromptGetCommand
   | AgentSkillContentGetCommand
+  | AgentSkillCreateCommand
   | WebStatusCommand
   | WebStopCommand
   | WebStartCommand
@@ -1014,6 +1031,7 @@ export const COMMAND_TYPES = [
   "agent.config.set_enabled",
   "agent.base_prompt.get",
   "agent.skill_content.get",
+  "agent.skill.create",
   "web.status",
   "web.stop",
   "web.start",

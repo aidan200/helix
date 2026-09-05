@@ -21,13 +21,14 @@
  * 不应转 <br>）；标题/列表/表格/代码块齐备——代码块复用全局 .md-code
  * 卡（组件映射内聚，聊天流 CodeBlock 分叉：消费语义不同，不共享组件）。
  */
-import { useEffect, useState, isValidElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, isValidElement, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AgentConfigListResultPayload, EventEnvelope } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
+import { FilePlus, Plus } from "lucide-react";
 
 /** 用户级技能合并行（双 kind 启停位）。 */
 interface UserSkillRow {
@@ -123,7 +124,7 @@ function SkillDoc({ text }: { text: string }) {
 
 const SkillsSettingsSection = function SkillsSettingsSection() {
   const { t } = useI18n();
-  const { sendAgentConfigList, sendAgentSkillContentGet, subscribeAgentConfigFrames } = useSession();
+  const { sendAgentConfigList, sendAgentSkillContentGet, sendAgentSkillCreate, subscribeAgentConfigFrames } = useSession();
 
   const [skills, setSkills] = useState<readonly UserSkillRow[] | null>(null);
   /** skill 正文缓存（技能名 → 剥离 frontmatter 后的 md 正文；同名跨 kind 同文）。 */
@@ -132,13 +133,25 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   /** 恰一展开技能名；null = 全收（视图态）。 */
   const [open, setOpen] = useState<string | null>(null);
+  // ── 添加表单（skills 添加批）：两渠道——form = 页面三字段拼 frontmatter / file = 导入 SKILL.md 原文（可编辑）──
+  const [formOpen, setFormOpen] = useState(false);
+  const [mode, setMode] = useState<"form" | "file">("form");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  /** 内容区：form 模式 = 纯正文；file 模式 = SKILL.md 全文（含 frontmatter，可编辑）。 */
+  const [body, setBody] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [addPending, setAddPending] = useState(false);
+  const [formError, setFormError] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
 
   // 进入分区拉取（条件渲染重挂即重拉；启停变更经智能体页操作后切回自然刷新）
   useEffect(() => {
     sendAgentConfigList();
   }, [sendAgentConfigList]);
 
-  // 点对点回执消费：list.result（清单）/ skill_content.get.result（正文缓存）
+  // 点对点回执消费：list.result（清单）/ skill_content.get.result（正文缓存）/
+  // skill.create.result（创建回执：applied 重拉收口 / skipped 行内错误）
   useEffect(
     () =>
       subscribeAgentConfigFrames((frame: EventEnvelope) => {
@@ -147,16 +160,34 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
           return;
         }
         if (frame.type === "agent.skill_content.get.result") {
-          const { name, content } = frame.payload as { name: string; content: string };
+          const { name: skillName, content } = frame.payload as { name: string; content: string };
           setPending((prev) => {
             const next = new Set(prev);
-            next.delete(name);
+            next.delete(skillName);
             return next;
           });
-          setContents((prev) => ({ ...prev, [name]: stripFrontmatter(content) }));
+          setContents((prev) => ({ ...prev, [skillName]: stripFrontmatter(content) }));
+          return;
+        }
+        if (frame.type === "agent.skill.create.result") {
+          const payload = frame.payload as { status: string; name?: string; reason?: string };
+          setAddPending(false);
+          if (payload.status === "applied") {
+            // 创建成功：收表单 + 清空 + 重拉清单（扫描现拍即见，无广播）
+            setFormOpen(false);
+            setName("");
+            setDescription("");
+            setBody("");
+            setFileName("");
+            setFormError("");
+            setMode("form");
+            sendAgentConfigList();
+          } else {
+            setFormError(t(`chat.settings.skills.createFail.${payload.reason ?? "bad-frontmatter"}`));
+          }
         }
       }),
-    [subscribeAgentConfigFrames],
+    [subscribeAgentConfigFrames, sendAgentConfigList, t],
   );
 
   /** 查看正文：未缓存 → 懒查询；已缓存 → 直接展开/收起。 */
@@ -172,14 +203,171 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
     }
   };
 
+  /** 导入 SKILL.md 文件：读全文填充内容区（原文可编辑，提交时原样发送）。 */
+  const onImportFile = (file: File): void => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      setMode("file");
+      setFileName(file.name);
+      setBody(String(reader.result ?? ""));
+      setFormError("");
+    };
+    reader.readAsText(file);
+  };
+
+  /** 提交创建：form 模式拼 frontmatter；file 模式原文直发（daemon 权威校验）。 */
+  const submitCreate = (): void => {
+    setFormError("");
+    let content: string;
+    if (mode === "file") {
+      content = body;
+    } else {
+      const trimmedName = name.trim();
+      const trimmedDesc = description.trim();
+      if (trimmedName === "" || trimmedDesc === "" || body.trim() === "") {
+        setFormError(t("chat.settings.skills.formInvalid"));
+        return;
+      }
+      // yaml 双引号字符串转义（description 单行值安全入 frontmatter）
+      const desc = trimmedDesc.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      content = `---\nname: ${trimmedName}\ndescription: "${desc}"\n---\n\n${body}\n`;
+    }
+    if (content.trim() === "") {
+      setFormError(t("chat.settings.skills.formInvalid"));
+      return;
+    }
+    setAddPending(true);
+    sendAgentSkillCreate({ content });
+  };
+
   return (
     <div className="pg" data-skills-settings-section>
       <div className="hud-card">
         <div className="set-card-head">
           <h2 className="section-label">{t("chat.settings.skills.title")}</h2>
+          <button
+            type="button"
+            className={cn("hud-btn sm", formOpen ? "hud-btn-ghost" : "hud-btn-cyan")}
+            data-skills-add-toggle
+            onClick={() => setFormOpen((v) => !v)}
+          >
+            <Plus size={14} />
+            {t("chat.settings.skills.addSkill")}
+          </button>
         </div>
         <p className="ag-note">{t("chat.settings.skills.subtitle")}</p>
 
+        {formOpen && (
+          <div className="mcp-form" data-skills-form>
+            <div className="set-mode-tabs" data-skills-mode>
+              {(["form", "file"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={cn("set-mode-tab", mode === m && "on")}
+                  data-skills-mode-tab={m}
+                  onClick={() => {
+                    setMode(m);
+                    setFormError("");
+                  }}
+                >
+                  {m === "form" ? t("chat.settings.skills.addModeForm") : t("chat.settings.skills.addModeFile")}
+                </button>
+              ))}
+            </div>
+
+            {mode === "form" ? (
+              <>
+                <div className="fld">
+                  <label className="hud-label" htmlFor="skill-name">
+                    {t("chat.settings.skills.fieldName")}
+                  </label>
+                  <input
+                    id="skill-name"
+                    className="hud-input"
+                    value={name}
+                    data-skills-name
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="my-skill"
+                  />
+                </div>
+                <div className="fld">
+                  <label className="hud-label" htmlFor="skill-desc">
+                    {t("chat.settings.skills.fieldDescription")}
+                  </label>
+                  <input
+                    id="skill-desc"
+                    className="hud-input"
+                    value={description}
+                    data-skills-desc
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="fld">
+                <label className="hud-label">{t("chat.settings.skills.importLabel")}</label>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept=".md,.markdown,text/markdown"
+                  className="skill-file-input"
+                  data-skills-file
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f !== undefined) onImportFile(f);
+                  }}
+                />
+                {fileName !== "" && (
+                  <p className="ag-note" data-skills-file-name>
+                    {t("chat.settings.skills.importedFile", { name: fileName })}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="fld">
+              <label className="hud-label" htmlFor="skill-body">
+                {mode === "form" ? t("chat.settings.skills.fieldBody") : t("chat.settings.skills.fieldBodyFull")}
+              </label>
+              <textarea
+                id="skill-body"
+                className="hud-input skill-body-input"
+                value={body}
+                data-skills-body
+                rows={10}
+                spellCheck={false}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder={
+                  mode === "form"
+                    ? t("chat.settings.skills.bodyPlaceholder")
+                    : t("chat.settings.skills.bodyFullPlaceholder")
+                }
+              />
+            </div>
+
+            <div className="mcp-form-actions">
+              <button
+                type="button"
+                className="hud-btn hud-btn-cyan"
+                data-skills-submit
+                disabled={addPending}
+                onClick={submitCreate}
+              >
+                <FilePlus size={14} />
+                {addPending ? t("chat.settings.skills.adding") : t("chat.settings.skills.addConfirm")}
+              </button>
+            </div>
+            {formError !== "" && (
+              <p className="mcp-err" data-skills-form-error>
+                {formError}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="hud-card" data-skills-list>
         {skills === null ? (
           <p className="ag-note" data-skills-loading>
             {t("chat.settings.skills.loading")}

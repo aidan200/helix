@@ -258,6 +258,13 @@ export interface ResourceCommandContext {
    * basePrompts 同法）；agent.skill_content.get 懒查询用。
    */
   readonly skillContentOf: (name: string) => Promise<{ filePath: string; content: string } | undefined>;
+  /**
+   * 用户级技能创建写面（skills 添加批）：SKILL.md 全文 → SkillCreateOutcome
+   *（applied { name } / skipped { reason }；SkillScanner 权威校验与落盘）。
+   * 组合根窄函数注入（driving 不 import driven，skillContentOf 同法）；
+   * agent.skill.create 写面用。可选：未注入（stub rig）→ skipped 防御。
+   */
+  readonly skillCreateOf?: (content: string) => Promise<import("../../../../application/ports/outbound/SkillSourcePort").SkillCreateOutcome>;
   /** 事件流（applied → agent.config.changed 广播）。 */
   readonly events: EventStream;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */

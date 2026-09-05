@@ -862,6 +862,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         return undefined;
       }
     },
+    // skills 添加批：用户级技能创建写面——同一扫描器实例承担（权威校验
+    // + 落盘 <skillsHome>/<name>/SKILL.md；applied 后下次 scan 即见）
+    skillCreateOf: (content: string) => taskSkillSource.createSkill(content),
     subagentLauncher,
     eventStream,
     browserPort,

@@ -17,6 +17,7 @@ describe("LISTEN_SURFACE.subscribeAgentConfigFrames", () => {
     expect(match("agent.config.set_enabled.result")).toBe(true);
     expect(match("agent.base_prompt.get.result")).toBe(true);
     expect(match("agent.skill_content.get.result")).toBe(true);
+    expect(match("agent.skill.create.result")).toBe(true); // skills 添加批
   });
 
   it("不转发 changed 广播与其他域帧", () => {

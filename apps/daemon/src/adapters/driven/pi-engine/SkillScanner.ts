@@ -1,8 +1,10 @@
 import { loadSourcedSkills, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type {
   SkillAudience,
+  SkillCreateOutcome,
   SkillDescriptor,
   SkillScanDiagnostic,
   SkillScanResult,
@@ -51,9 +53,11 @@ export interface SkillScannerOptions {
 export class SkillScanner implements SkillSourcePort {
   private readonly env: NodeExecutionEnv;
   private readonly inputs: ReadonlyArray<{ path: string; source: ScanTag }>;
+  private readonly userSkillsDir: string;
 
   constructor(options: SkillScannerOptions) {
     this.env = new NodeExecutionEnv({ cwd: options.cwd ?? process.cwd() });
+    this.userSkillsDir = options.userSkillsDir;
     this.inputs = [
       { path: options.userSkillsDir, source: "user" },
       // builtin 层目录二分（audience 分类即目录）：agent/ = 行为技能，task/ = 任务类型 SOP
@@ -113,5 +117,39 @@ export class SkillScanner implements SkillSourcePort {
     } catch {
       return {};
     }
+  }
+
+  /**
+   * 创建用户级技能（settings skills 分区添加写面）：入参 = SKILL.md 全文，
+   * daemon 权威解析 frontmatter（name 安全校验防路径穿越 / description
+   * 非空 / 同名不存在）→ 落盘 <userSkillsDir>/<name>/SKILL.md。skipped
+   * 不落盘。与 scan 同哲学：文件系统是事实源，写后下次 scan 即见。
+   */
+  async createSkill(content: string): Promise<SkillCreateOutcome> {
+    const normalized = content.replace(/\r\n/g, "\n");
+    if (!normalized.startsWith("---\n")) return { status: "skipped", reason: "bad-frontmatter" };
+    const endIndex = normalized.indexOf("\n---", 3);
+    if (endIndex === -1) return { status: "skipped", reason: "bad-frontmatter" };
+    let front: { name?: unknown; description?: unknown };
+    try {
+      front = (parseYaml(normalized.slice(4, endIndex)) as Record<string, unknown> | null) ?? {};
+    } catch {
+      return { status: "skipped", reason: "bad-frontmatter" };
+    }
+    const name = typeof front.name === "string" ? front.name.trim() : "";
+    const description = typeof front.description === "string" ? front.description.trim() : "";
+    // name = 目录名：字母数字开头，仅限安全字符（防路径穿越/隐藏目录）
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) return { status: "skipped", reason: "invalid-name" };
+    if (description === "") return { status: "skipped", reason: "missing-description" };
+    const filePath = `${this.userSkillsDir}/${name}/SKILL.md`;
+    try {
+      await readFile(filePath, "utf8");
+      return { status: "skipped", reason: "already-exists" };
+    } catch {
+      /* 不存在 = 可创建（继续） */
+    }
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, content, "utf8");
+    return { status: "applied", name };
   }
 }

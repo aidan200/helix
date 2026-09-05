@@ -30,6 +30,7 @@ type _AgentFamily = Expect<
     | "agent.base_prompt.get.result"
     // skill-content 批（agent 页 skill 正文懒查询回执）
     | "agent.skill_content.get.result"
+    | "agent.skill.create.result"
   >
 >;
 

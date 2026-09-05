@@ -265,3 +265,20 @@ html.light .ag-skill-doc code { color: var(--accent); }
   background: rgb(var(--void-rgb) / 0.4); text-decoration: line-through;
   text-decoration-color: rgb(var(--error-rgb) / 0.55);
 }
+
+/* skills 添加批：添加表单两渠道模式切换 + 文件/正文输入面 */
+.set-mode-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+.set-mode-tab {
+  padding: 3px 12px; border-radius: 999px; font-size: var(--text-cap);
+  border: 1px solid rgb(var(--edge-rgb) / 0.2); color: var(--text-muted);
+  background: transparent; cursor: pointer;
+}
+.set-mode-tab.on {
+  color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.4);
+  background: rgb(var(--accent-rgb) / 0.08);
+}
+.skill-file-input { font-size: var(--text-cap); color: var(--text-muted); }
+.skill-body-input {
+  min-height: 160px; resize: vertical; font-family: var(--font-mono);
+  font-size: var(--text-cap); line-height: 1.6; white-space: pre-wrap;
+}
