@@ -21,11 +21,12 @@ import type {
  *
  * 【语义核心】（同轨批：全局显式启用制）：静态工具无差异行 = 启用
  * （声明即核心能力，零配置兼容现状）；技能与 mcp-server 无差异行 =
- * 禁用（六 kind 统一——用户自选开启，builtin 与 user 同轨）。生效集 =
+ * 禁用（五 kind 统一——用户自选开启，builtin 与 user 同轨；builtin 开箱
+ * 即用由初始化播种差异行承担，见 seedBuiltinSkillDefaults）。生效集 =
  * 全集（profile tools 声明 / SkillScanner 扫描产物）∩ kind 启用集——
  * 同 kind 隔离（main 禁不影响 subagent），全集侧变更（profile 发版/
  * 技能安装）自然生效，遗留差异行（名不在全集）在合取中被忽略。
- * 【kind 唯一差异】写面只读性：main/sub/task-worker 全型可写；
+ * 【kind 唯一差异】写面只读性：main/sub 全型可写；
  * orchestrator/kg-writer/reviewer 仅槽位型（读面同构下发）。
  *
  * 【tools 全集注入】profiles 在 driven 层（AG-02：application 不得反向
@@ -270,6 +271,29 @@ export class ResourceService implements ResourceConfigPort {
   /** model 槽位清除（旧调用面保留名）：clearModelSlot 同义。 */
   clearModel(kind: ProfileKind): Promise<void> {
     return this.clearModelSlot(kind);
+  }
+
+  /**
+   * builtin 技能差异行播种（缺省启停批裁决 C）：初始化时给 agent 层 builtin
+   * 技能写显式 enabled=true 差异行——运行时缺省逻辑零特判（无差异行 = 禁用
+   * 不变，builtin 与 user 同轨），builtin 开箱即用 + 可关可再开。
+   * 缺行才播：用户已配置（含手动关闭）不覆盖；版本升级新增 builtin 技能重启
+   * 自动补播。调用面传入可写 kind（组合根 isSystemKind 反向——系统 kind 技能
+   * 段 omitSkills 无消费面且写面只读，不播）。返回播种条数（幂等二跑 = 0）。
+   */
+  async seedBuiltinSkillDefaults(kinds: readonly ProfileKind[]): Promise<number> {
+    const builtinAgentSkills = (await this.deps.skills.scan()).skills.filter(
+      (s) => s.source === "builtin" && s.audience === "agent",
+    );
+    let seeded = 0;
+    for (const kind of kinds) {
+      for (const skill of builtinAgentSkills) {
+        if (this.deps.store.get(kind, "skill", skill.name) !== undefined) continue;
+        const outcome = await this.setEnabled(kind, "skill", skill.name, true);
+        if (outcome.status === "applied") seeded += 1;
+      }
+    }
+    return seeded;
   }
 }
 

@@ -22,11 +22,10 @@
  * 启停写面对系统 kind 仍拒（agent.config.read_only）。
  */
 /**
- * 资源配置 kind（任务 subAgent 独立配置批：task-worker = 任务派生 worker
- * 独立配置面——启停行/槽位与 subagent-worker 各自命名空间互不联动；
- * dispatchProfileKindOf 缺省分流点）。
+ * 资源配置 kind（五值；task-worker 已撤——任务派生 worker 回归
+ * subagent-worker 同 kind 同配置面，dispatchProfileKindOf 缺省分流点）。
  */
-export type ProfileKind = "main-session" | "subagent-worker" | "task-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
+export type ProfileKind = "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
 
 /** 资源类型（tool/skill = 启停差异行；model/thinking = 槽位单行——
  *  thinking 为 thinking 批扩值（AD-6，iter-20260823-6ps5 T1.3）：档位字符串

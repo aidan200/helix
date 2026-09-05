@@ -68,8 +68,8 @@ function normalizeSetEnabled(ctx: ResourceCommandContext, payload: Record<string
       return undefined;
     }
     // 槽位型放行（校验后续通用段：resourceType/name/enabled 形状）
-  } else if (profileKind !== "main-session" && profileKind !== "subagent-worker" && profileKind !== "task-worker") {
-    ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\" | \"task-worker\" | \"orchestrator\" | \"subagent-kg-writer\" | \"subagent-code-reviewer\"");
+  } else if (profileKind !== "main-session" && profileKind !== "subagent-worker") {
+    ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\" | \"orchestrator\" | \"subagent-kg-writer\" | \"subagent-code-reviewer\"");
     return undefined;
   }
   if (resourceType !== "tool" && resourceType !== "skill" && resourceType !== "model" && resourceType !== "thinking" && resourceType !== "mcp-server") {
@@ -188,8 +188,8 @@ function toSystemBlocksDto(
 export function handleAgentConfigList(ctx: ResourceCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const kind = ctx.payload.profileKind;
-  if (kind !== undefined && kind !== "main-session" && kind !== "subagent-worker" && kind !== "task-worker") {
-    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\" | \"task-worker\"（只读系统 kind 随缺省全量下发）");
+  if (kind !== undefined && kind !== "main-session" && kind !== "subagent-worker") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.profileKind 应为 \"main-session\" | \"subagent-worker\"（只读系统 kind 随缺省全量下发）");
   }
   // 单 kind：单块回执（过滤请求面向可编辑 kind——system 只读块不携带）
   if (kind !== undefined) {
@@ -207,13 +207,13 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
       .catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `配置读面组装失败：${(err as Error).message}`));
     return;
   }
-  // 缺省 = 全部可编辑 kind（序固定 main/sub/task-worker）+ 只读系统三块
-  //（编排归位批：orchestrator 归位系统区；任务独立配置批：task-worker 第三
-  // 可编辑块——任务派生 worker 独立配置面，与 chat 子代理解耦）
+  // 缺省 = 全部可编辑 kind（序固定 main/sub）+ 只读系统三块（编排归位批：
+  // orchestrator 归位系统区；任务派生 worker 回归 subagent-worker 同 kind
+  // 同配置面——task-worker 已撤）
   void (async () => {
-    const kinds: readonly ProfileKind[] = ["main-session", "subagent-worker", "task-worker", "orchestrator", "subagent-kg-writer", "subagent-code-reviewer"];
+    const kinds: readonly ProfileKind[] = ["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer", "subagent-code-reviewer"];
     const blocks = await Promise.all(kinds.map((k) => ctx.resource.list(k)));
-    const [main, sub, task, orch, kgw, reviewer] = [blocks[0]!, blocks[1]!, blocks[2]!, blocks[3]!, blocks[4]!, blocks[5]!];
+    const [main, sub, orch, kgw, reviewer] = [blocks[0]!, blocks[1]!, blocks[2]!, blocks[3]!, blocks[4]!];
     // 同轨批：系统块读面同构——kg-writer/reviewer 自身 kind 清单（技能只读
     // 启停面 + mcpServers 行），不再从 worker 生效集派生
     const frame: AgentConfigListResultEvent = {
@@ -222,7 +222,7 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
       channel: "agent",
       type: "agent.config.list.result",
       payload: {
-        profiles: [main, sub, task].map(toProfileBlockDto),
+        profiles: [main, sub].map(toProfileBlockDto),
         system: await toSystemBlocksDto(main, sub, orch, kgw, reviewer, ctx.kgWriterPinnedTools, ctx.reviewerRemovedTools),
       },
     };
@@ -230,8 +230,8 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
   })().catch((err) => ctx.commandError(ctx.type, "command.invalid_payload", `配置读面组装失败：${(err as Error).message}`));
 }
 
-/** agent.base_prompt.get 合法 kind（六值全可读——含系统派生三 kind；写面只读≠读面拒绝；task-worker base 同 chat worker 单源）。 */
-const BASE_PROMPT_KINDS = ["main-session", "subagent-worker", "task-worker", "orchestrator", "subagent-kg-writer", "subagent-code-reviewer"] as const;
+/** agent.base_prompt.get 合法 kind（五值全可读——含系统派生三 kind；写面只读≠读面拒绝）。 */
+const BASE_PROMPT_KINDS = ["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer", "subagent-code-reviewer"] as const;
 
 /**
  * agent.base_prompt.get（base prompt 批）：base 段系统提示词懒查询读面。
@@ -244,7 +244,7 @@ export function handleAgentBasePromptGet(ctx: ResourceCommandContext): void {
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const kind = ctx.payload.profileKind;
   if (typeof kind !== "string" || !(BASE_PROMPT_KINDS as readonly string[]).includes(kind)) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", `payload.profileKind 应为 "main-session" | "subagent-worker" | "task-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer"`);
+    return ctx.commandError(ctx.type, "command.invalid_payload", `payload.profileKind 应为 "main-session" | "subagent-worker" | "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer"`);
   }
   const basePrompt = ctx.basePrompts[kind];
   if (basePrompt === undefined) {

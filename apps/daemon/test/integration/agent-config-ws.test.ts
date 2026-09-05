@@ -226,7 +226,7 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       expect(result.channel).toBe("agent");
       expect(result.sessionId).toBe(SYSTEM_SESSION_ID); // 全局命令：会话无关
       const profiles = result.payload.profiles as ProfileBlock[];
-      expect(profiles).toHaveLength(3); // 任务独立配置批：profiles 三块（main/sub/task-worker）
+      expect(profiles).toHaveLength(2); // profiles 双块（main/sub——task-worker 已撤，任务派生 worker 回归 chat 同 kind）
       const [main, sub] = profiles;
       expect(main!.profileKind).toBe("main-session");
       expect(main!.tools.map((t) => t.name)).toEqual(MAIN_TOOLS);
@@ -403,15 +403,17 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
 
       client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: {} });
       const result = await client.expect("agent.config.list.result");
-      // profiles 三块（任务独立配置批）：技能行仅 agent 受众（任务 SOP 不进 agent 卡——目录二分）
+      // profiles 双块（task-worker 已撤）：技能行仅 agent 受众（任务 SOP 不进 agent 卡——目录二分）
       const profiles = result.payload.profiles as ProfileBlock[];
-      expect(profiles).toHaveLength(3);
+      expect(profiles).toHaveLength(2);
       for (const p of profiles) {
         expect(p.skills.find((s) => s.name === "demo-review")).toBeUndefined();
         expect(p.skills.every((s) => s.audience === "agent")).toBe(true);
       }
-      // 同轨批：builtin∧agent 同显式启用制（默认禁——builtin 与 user 同轨）
-      expect(profiles[0]!.skills.find((s) => s.name === "plain-skill")?.enabled).toBe(false);
+      // 缺省启停批裁决 C：agent 层 builtin 播种开箱 enabled=true（差异行）；
+      // task 层（demo-review）与 user 层不播（零行）；系统 kind 面（下行 428）
+      // 不播恒 false——播种只针对可写 kind
+      expect(profiles[0]!.skills.find((s) => s.name === "plain-skill")?.enabled).toBe(true);
       const system = result.payload.system as SystemBlock[];
       // orchestrator 系统块：任务 SOP 注册表纯展示行（无启停位——非「禁用」语义）
       const orch = system.find((b) => b.profileKind === "orchestrator")!;

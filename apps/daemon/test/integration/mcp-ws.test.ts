@@ -355,58 +355,46 @@ describe("mcp 族命令全链（真组合根 + 假 server 子进程）", () => {
       rmSync(home, { recursive: true, force: true });
     }
   }, 30000);
-  test("⑫ task-worker 独立配置批：config.list task-worker 块携带 MCP（server 行 + 命名空间工具）+ 与 chat 子代理启停双向隔离", async () => {
+  test("⑫ builtin 技能差异行播种（缺省启停批）：真 builtin 源开箱 enabled=true + 重启持久化幂等 + 用户显式关闭不被覆盖", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-mcp-ws-home-"));
-    let daemon: Daemon | undefined;
-    let client: TestClient | undefined;
+    const listBuiltinRows = async (client: TestClient, kind: string) => {
+      client.send({ v: 0, type: "agent.config.list", payload: { profileKind: kind } });
+      const res = await client.expect("agent.config.list.result");
+      const block = (res.payload.profiles as { profileKind: string; skills?: { name: string; source: string; enabled: boolean }[] }[])[0];
+      return block?.skills?.filter((s) => s.source === "builtin") ?? [];
+    };
     try {
+      // ① 真组合根（未传 builtinSkillsDir——随仓 resources/skills 真源）：
+      // agent 层 builtin（plan-workflow/web-access）开箱 enabled=true（播种行）
+      let daemon = await createTestDaemon({ home, engine: new FakeAgentEngine(), skipLock: true, port: 0 });
+      let client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);
+      await client.open();
+      await helloHandshake(client, daemon.devToken);
+      const mainRows = await listBuiltinRows(client, "main-session");
+      expect(mainRows.length).toBeGreaterThanOrEqual(2); // plan-workflow + web-access
+      expect(mainRows.every((r) => r.enabled)).toBe(true); // 播种：缺行才播 true
+      expect(mainRows.map((r) => r.name)).toContain("plan-workflow");
+      // sub 块同构（可写 kind 全播）；user 层零行不碰
+      const subRows = await listBuiltinRows(client, "subagent-worker");
+      expect(subRows.every((r) => r.enabled)).toBe(true);
+      // 用户显式关闭 plan-workflow（main）
+      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "main-session", resourceType: "skill", name: "plan-workflow", enabled: false } });
+      await client.expect("agent.config.set_enabled.result");
+      await client.close();
+      await daemon.shutdown();
+
+      // ② 重启同 home（真持久化）：用户关过的行不被播种覆盖；其余 builtin 行仍在
       daemon = await createTestDaemon({ home, engine: new FakeAgentEngine(), skipLock: true, port: 0 });
       client = new TestClient(`ws://127.0.0.1:${daemon.ws.port}`);
       await client.open();
       await helloHandshake(client, daemon.devToken);
-
-      // 假 server 起步（running + 2 工具）
-      const fake = fakeServerInput("fake");
-      client.send({ v: 0, type: "mcp.servers.add", payload: fake.input });
-      const addResult = await client.expect("mcp.servers.add.result", 15000);
-      expect(addResult.payload.status).toBe("applied");
-
-      // ① 读面：task-worker 块与 main/sub 同构——server 行同轨缺省禁 + 命名空间工具进 tools（工具行缺省启用）
-      client.send({ v: 0, type: "agent.config.list", payload: {} });
-      const roster = await client.expect("agent.config.list.result");
-      const blocks = roster.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean; state: string; toolCount?: number }[]; tools: { name: string; enabled: boolean }[] }[];
-      expect(blocks.map((b) => b.profileKind)).toEqual(["main-session", "subagent-worker", "task-worker"]);
-      const tw = blocks.find((b) => b.profileKind === "task-worker");
-      expect(tw?.mcpServers).toEqual([{ name: "fake", enabled: false, state: "running", toolCount: 2 }] as { name: string; enabled: boolean; state: string; toolCount?: number }[]);
-      expect(tw?.tools.some((t) => t.name === "fake__echo" && t.enabled)).toBe(true);
-
-      // ② 隔离 A：chat 子代理启 server → task-worker 行不受影响（同轨缺省禁基准）
-      const onSubStart = client.frames.length;
-      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "subagent-worker", resourceType: "mcp-server", name: "fake", enabled: true } });
-      const onSub = await client.expectAfter("agent.config.set_enabled.result", onSubStart);
-      expect(onSub.payload.status).toBe("applied");
-      client.send({ v: 0, type: "agent.config.list", payload: {} });
-      const afterSub = await client.expectAfter("agent.config.list.result", client.frames.length - 1);
-      const blocksAfterSub = afterSub.payload.profiles as { profileKind: string; mcpServers?: { name: string; enabled: boolean }[] }[];
-      expect(blocksAfterSub.find((b) => b.profileKind === "subagent-worker")?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: true });
-      expect(blocksAfterSub.find((b) => b.profileKind === "task-worker")?.mcpServers?.[0]).toMatchObject({ name: "fake", enabled: false });
-
-      // ③ 隔离 B：task-worker 关工具 → main/sub 工具行不受影响
-      const offToolStart = client.frames.length;
-      client.send({ v: 0, type: "agent.config.set_enabled", payload: { profileKind: "task-worker", resourceType: "tool", name: "fake__echo", enabled: false } });
-      const offTool = await client.expectAfter("agent.config.set_enabled.result", offToolStart);
-      expect(offTool.payload.status).toBe("applied");
-      client.send({ v: 0, type: "agent.config.list", payload: {} });
-      const afterTool = await client.expectAfter("agent.config.list.result", client.frames.length - 1);
-      const toolBlocks = afterTool.payload.profiles as { profileKind: string; tools: { name: string; enabled: boolean }[] }[];
-      expect(toolBlocks.find((b) => b.profileKind === "task-worker")?.tools.find((t) => t.name === "fake__echo")?.enabled).toBe(false);
-      expect(toolBlocks.find((b) => b.profileKind === "main-session")?.tools.find((t) => t.name === "fake__echo")?.enabled).toBe(true);
-      expect(toolBlocks.find((b) => b.profileKind === "subagent-worker")?.tools.find((t) => t.name === "fake__echo")?.enabled).toBe(true);
+      const afterRestart = await listBuiltinRows(client, "main-session");
+      expect(afterRestart.find((r) => r.name === "plan-workflow")?.enabled).toBe(false); // 用户行优先
+      expect(afterRestart.find((r) => r.name === "web-access")?.enabled).toBe(true); // 播种行持久
+      await client.close();
+      await daemon.shutdown();
     } finally {
-      await client?.close();
-      await daemon?.shutdown();
       rmSync(home, { recursive: true, force: true });
     }
   }, 30000);
-
 });

@@ -312,12 +312,12 @@ describe("智能体页组件（M6 T4）", () => {
     // master-detail 默认选中 main-session（brief ④）：空态不渲染，main 详情卡直接在场
     expect(document.querySelector("[data-agents-empty]")).toBeNull();
     expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy();
-    // 左栏两组分组（可配置 / 系统派生）+ 六条目（任务独立配置批：+ task-worker）+ 只读组徽标
+    // 左栏两组分组（可配置 / 系统派生）+ 五条目（task-worker 已撤）+ 只读组徽标
     expect(document.querySelector('[data-agent-group="editable"]')!.textContent).toBe("可配置");
     expect(document.querySelector('[data-agent-group="system"]')!.textContent).toBe("系统派生");
     expect(
       [...document.querySelectorAll("[data-agent-row]")].map((r) => r.getAttribute("data-agent-row")),
-    ).toEqual(["main-session", "subagent-worker", "task-worker", "orchestrator", "subagent-kg-writer", "subagent-code-reviewer"]);
+    ).toEqual(["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer", "subagent-code-reviewer"]);
     const roRows = document.querySelectorAll('[data-ro="true"]');
     expect(roRows).toHaveLength(3); // 编排归位批：系统三块（orchestrator 归位 + 派生两块）
     expect(roRows[0]!.querySelector("[data-ro-badge]")!.textContent).toBe("只读");

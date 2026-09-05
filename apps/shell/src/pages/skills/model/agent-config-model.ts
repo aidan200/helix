@@ -18,8 +18,8 @@
  */
 import type { AgentConfigProfileBlock, AgentConfigSystemBlock } from "@helix/protocol";
 
-/** profile kind 维（与协议 profileKind 字面量同源；任务独立配置批：可配置三 kind——task-worker = 任务派生 worker 独立配置面）。 */
-export type AgentKind = "main-session" | "subagent-worker" | "task-worker";
+/** profile kind 维（与协议 profileKind 字面量同源；task-worker 已撤——可配置双 kind）。 */
+export type AgentKind = "main-session" | "subagent-worker";
 
 /** 只读系统 kind（编排归位批：orchestrator 归位系统区 + worker 派生两 kind）。 */
 export type SystemAgentKind = "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
@@ -30,8 +30,8 @@ export type WritableKind = AgentKind | SystemAgentKind;
 /** 列表/详情统一 id（master-detail 选中维）。 */
 export type AgentId = AgentKind | SystemAgentKind;
 
-/** 可配置三 kind 固定卡序（协议 list.result 缺省块序同构）。 */
-export const AGENT_KINDS: readonly AgentKind[] = ["main-session", "subagent-worker", "task-worker"];
+/** 可配置双 kind 固定卡序（协议 list.result 缺省块序同构）。 */
+export const AGENT_KINDS: readonly AgentKind[] = ["main-session", "subagent-worker"];
 
 /** 只读系统三 kind 固定序（协议 system 块序同构；orchestrator 在前）。 */
 export const SYSTEM_AGENT_KINDS: readonly SystemAgentKind[] = ["orchestrator", "subagent-kg-writer", "subagent-code-reviewer"];
@@ -87,11 +87,11 @@ export function createAgentPageState(): AgentPageState {
   return {
     status: "idle",
     error: null,
-    profiles: { "main-session": null, "subagent-worker": null, "task-worker": null },
+    profiles: { "main-session": null, "subagent-worker": null },
     system: { orchestrator: null, "subagent-kg-writer": null, "subagent-code-reviewer": null },
     selected: "main-session", // 默认选中 main-session（brief ④）
     pending: new Set<string>(),
-    basePrompts: { "main-session": null, "subagent-worker": null, "task-worker": null, orchestrator: null, "subagent-kg-writer": null, "subagent-code-reviewer": null },
+    basePrompts: { "main-session": null, "subagent-worker": null, orchestrator: null, "subagent-kg-writer": null, "subagent-code-reviewer": null },
     basePromptPending: new Set<AgentId>(),
     basePromptOpen: null,
     skillContents: {},
@@ -115,7 +115,7 @@ export type AgentPageAction =
   | { type: "skill-content-toggle"; name: string };
 
 function hasData(s: AgentPageState): boolean {
-  return s.profiles["main-session"] !== null || s.profiles["subagent-worker"] !== null || s.profiles["task-worker"] !== null;
+  return s.profiles["main-session"] !== null || s.profiles["subagent-worker"] !== null;
 }
 
 export function agentPageReducer(s: AgentPageState, action: AgentPageAction): AgentPageState {
@@ -126,7 +126,7 @@ export function agentPageReducer(s: AgentPageState, action: AgentPageAction): Ag
     case "list-result": {
       const profiles: Record<AgentKind, AgentConfigProfileBlock | null> = { ...s.profiles };
       for (const block of action.profiles) {
-        if (block.profileKind === "main-session" || block.profileKind === "subagent-worker" || block.profileKind === "task-worker") {
+        if (block.profileKind === "main-session" || block.profileKind === "subagent-worker") {
           profiles[block.profileKind] = block;
         }
       }

@@ -34,7 +34,6 @@ const TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
     "browser",
   ],
   "subagent-worker": ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"],
-  "task-worker": ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"], // 任务 subAgent 独立配置批第六 kind（声明面同 worker）
   "subagent-kg-writer": ["kg-update"],
     "subagent-code-reviewer": ["bash", "read", "grep"], // D5 第五 kind（worker − write/edit 声明面；本文件只作合取计算输入）
     "orchestrator": ["bash", "read", "grep"], // T2.2 第三 kind（additive 扩值同步）
@@ -391,7 +390,6 @@ describe("ResourceService：skills+tools 成套装配（批三裁决）", () => 
           {
             "main-session": ["bash", "plan_create", "plan_update", "plan_read"],
             "subagent-worker": ["bash", "plan_create", "plan_update", "plan_read"],
-            "task-worker": ["bash", "plan_create", "plan_update", "plan_read"],
             "subagent-kg-writer": ["bash"],
             "subagent-code-reviewer": ["bash"],
             orchestrator: ["bash", "plan_read"], // 仅 plan_read 非全套 → 不成套（且 orchestrator 技能消费在 kickoff，不注入段）
@@ -483,5 +481,52 @@ describe("ResourceService：mcp-server 差异行（server 级配置面）", () =
     expect(service.getEffectiveTools("subagent-worker")).not.toContain("shadcn__discover");
     await store.upsert("subagent-worker", "mcp-server", "shadcn", true);
     expect(service.getEffectiveTools("subagent-worker")).toContain("shadcn__discover");
+  });
+});
+
+describe("builtin 技能差异行播种（缺省启停批裁决 C）", () => {
+  const SEED_SKILLS: readonly SkillDescriptor[] = [
+    ...SKILLS, // user 层两个
+    { name: "plan-workflow", description: "开工纪律", filePath: "/daemon/resources/skills/agent/plan-workflow/SKILL.md", source: "builtin", audience: "agent" },
+    { name: "kg-bootstrap", description: "图谱建库", filePath: "/daemon/resources/skills/task/kg-bootstrap/SKILL.md", source: "builtin", audience: "task" },
+  ];
+  const makeSeedService = () => {
+    const store = new InMemoryResourceState();
+    const service = new ResourceService({
+      store,
+      skills: new FakeSkillSource({ skills: SEED_SKILLS, diagnostics: [] }),
+      toolsCatalog: (kind: ProfileKind): readonly string[] => TOOLS_CATALOG[kind],
+      toolSnippets: TOOL_SNIPPETS,
+    });
+    return { service, store };
+  };
+
+  test("⑯ 播种：agent 层 builtin 缺行才播 enabled=true；task 层/user 层不播；幂等二跑 0", async () => {
+    const { service, store } = makeSeedService();
+    const seeded = await service.seedBuiltinSkillDefaults(["main-session", "subagent-worker"]);
+    // 1 个 agent 层 builtin × 2 kind = 2
+    expect(seeded).toBe(2);
+    expect(store.get("main-session", "skill", "plan-workflow")?.enabled).toBe(true);
+    expect(store.get("subagent-worker", "skill", "plan-workflow")?.enabled).toBe(true);
+    // task 层（audience=task）与 user 层不播——零差异行
+    expect(store.get("main-session", "skill", "kg-bootstrap")).toBeUndefined();
+    expect(store.get("main-session", "skill", "code-review")).toBeUndefined();
+    // 系统三 kind 不传则不播（调用面契约：组合根只传可写 kind）
+    expect(store.get("orchestrator", "skill", "plan-workflow")).toBeUndefined();
+    // 幂等：二跑零行（已有 enabled 行不覆盖）
+    expect(await service.seedBuiltinSkillDefaults(["main-session", "subagent-worker"])).toBe(0);
+    // 播种后读面：builtin enabled=true，getEffectiveSkills 含 plan-workflow
+    const listed = await service.list("main-session");
+    expect(listed.skills.find((s) => s.name === "plan-workflow")?.enabled).toBe(true);
+    expect((await service.getEffectiveSkills("main-session")).map((s) => s.name)).toContain("plan-workflow");
+  });
+
+  test("⑰ 用户行不覆盖：显式关闭的 builtin 技能播种后仍 false（可关可再开语义）", async () => {
+    const { service, store } = makeSeedService();
+    await service.setEnabled("main-session", "skill", "plan-workflow", false); // 用户手动关
+    const seeded = await service.seedBuiltinSkillDefaults(["main-session", "subagent-worker"]);
+    expect(seeded).toBe(1); // 只播了 subagent-worker
+    expect(store.get("main-session", "skill", "plan-workflow")?.enabled).toBe(false); // 不覆盖
+    expect(store.get("subagent-worker", "skill", "plan-workflow")?.enabled).toBe(true);
   });
 });

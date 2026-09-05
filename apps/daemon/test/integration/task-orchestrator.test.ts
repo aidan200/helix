@@ -411,8 +411,8 @@ describe("D8 W-R6 编排分流：批次实例 profileKind 按任务类型路由"
     await dispatchCase("code-review", ["code-review"], "subagent-code-reviewer");
   });
 
-  test("普通任务批次 → task-worker（任务独立配置批：缺省分流与 chat worker 解耦）", async () => {
-    await dispatchCase("fake-task", [], "task-worker");
+  test("普通任务批次 → subagent-worker（task-worker 已撤：缺省分流与手动 agent_spawn 同轨）", async () => {
+    await dispatchCase("fake-task", [], "subagent-worker");
   });
 });
 

@@ -383,8 +383,8 @@ export interface TraceQueryCommand extends CommandFrame<TraceQueryPayload> {
  * 结果帧 = agent.config.list.result 点对点回执（TR-AD-21 模式）。
  */
 export interface AgentConfigListPayload {
-  /** 目标 kind：缺省 = 全部可配置 kind（main-session + subagent-worker + task-worker 三块，序固定；任务 subAgent 独立配置批）；携带 = 单块。 */
-  profileKind?: "main-session" | "subagent-worker" | "task-worker";
+  /** 目标 kind：缺省 = 全部可配置 kind（main-session + subagent-worker 双块，序固定；task-worker 已撤）；携带 = 单块。 */
+  profileKind?: "main-session" | "subagent-worker";
 }
 
 export interface AgentConfigListCommand extends CommandFrame<AgentConfigListPayload> {

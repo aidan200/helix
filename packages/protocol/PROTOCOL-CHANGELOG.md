@@ -1115,3 +1115,17 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
   技能行只读启停徽标。
 - **兼容性**：无破坏性变更（字段 additive / 缺省语义变化在 daemon 侧）；v06
   样例同步（PROTOCOL.md §16 agent.config.list 字段行更新）。
+
+## 36. task-worker 撤除批（任务派生 worker 回归 subagent-worker 同 kind 同配置面 + builtin 技能差异行播种；v0.11 后 additive 微批——版本位不 bump）
+
+- **ProfileKind 五值**：`"task-worker"` 撤除（§34 引入的第六 kind 退役）——
+  任务派生 worker 与 chat 子代理/手动 agent_spawn 回归同一 `subagent-worker`
+  kind、同一配置卡、同一启停命名空间（`dispatchProfileKindOf` 缺省回落
+  subagent-worker）；`agent.config.list` 缺省 profiles 双块（main/sub）、
+  `set_enabled`/单 kind 过滤参数同步双值。
+- **builtin 技能开箱即用（播种制）**：daemon 初始化给 agent 层 builtin 技能
+  写显式 `enabled=true` 差异行（缺行才播——用户已配置不覆盖；task 层 SOP
+  不播；系统三 kind 不播）。运行时缺省逻辑零特判（无差异行 = 禁用不变），
+  builtin 与 user 同轨显式启用制保持——开箱默认开 + 可关可再开。
+- **兼容性**：subtle——升级后旧 task-worker 差异行成遗留行（合取中被忽略，
+  无生效面）；builtin 技能由播种自动回开（用户显式关过的行播种不覆盖）。

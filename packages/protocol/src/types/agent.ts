@@ -4,12 +4,11 @@ import type { UsageDto } from "./usage";
 /**
  * Profile kind 单点定义（code-review M54 收敛：原五值字面量联合在
  * commands.ts/events/agent.ts 四处内联重复，新增 kind 需同步 5+ 处）。
- * - ProfileKind：写面六值（set_enabled/base_prompt.get 等写面命令枚举；
- *   任务 subAgent 独立配置批扩 task-worker——任务派生 worker 与 chat
- *   subAgent 配置解耦，各自独立启停命名空间/槽位）；
- * - ReadableProfileKind：agent.config.list 可配置 profile 块三值（任务
- *   subAgent 独立配置批：task-worker 第三卡；orchestrator 编排归位批
- *   已归 system 块，此处不再列出）；
+ * - ProfileKind：写面五值（set_enabled/base_prompt.get 等写面命令枚举；
+ *   task-worker 已撤——任务派生 worker 回归 subagent-worker 同 kind
+ *   同配置面，与手动 agent_spawn 零双轨）；
+ * - ReadableProfileKind：agent.config.list 可配置 profile 块双值（main/sub；
+ *   orchestrator 编排归位批已归 system 块，此处不再列出）；
  * - SystemProfileKind：只读系统块三值（orchestrator 编排归位批归位系统区
  *   ——声明全集 + 任务 SOP 注册表 + 只读 MCP 行；kg-writer/reviewer 工具集/
  *   技能面派生 worker）。
@@ -17,13 +16,12 @@ import type { UsageDto } from "./usage";
 export type ProfileKind =
   | "main-session"
   | "subagent-worker"
-  | "task-worker"
   | "orchestrator"
   | "subagent-kg-writer"
   | "subagent-code-reviewer";
 
-/** 可配置 profile 块 kind 三值（ProfileKind 子集；task-worker = 任务派生 worker 独立配置面）。 */
-export type ReadableProfileKind = "main-session" | "subagent-worker" | "task-worker";
+/** 可配置 profile 块 kind 双值（ProfileKind 子集）。 */
+export type ReadableProfileKind = "main-session" | "subagent-worker";
 
 /** 只读派生块 kind 两值（统一启停批：orchestrator 撤出，仅剩 worker 派生两 kind；orchestrator 编排归位批回归系统区首值）。 */
 export type SystemProfileKind = "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";

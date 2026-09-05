@@ -64,7 +64,7 @@ export const agentConfigModelClear: AgentConfigSetEnabledCommand = {
 
 // ── 事件样例 ──
 
-/** agent.config.list.result：点对点结果帧（全 kind 三块——任务 subAgent 独立配置批扩 task-worker） */
+/** agent.config.list.result：点对点结果帧（可配置双块——task-worker 已撤，任务派生 worker 回归 subagent-worker） */
 export const agentConfigListResult: AgentConfigListResultEvent = {
   v: PROTOCOL_VERSION,
   sessionId: "__system__",
@@ -88,7 +88,7 @@ export const agentConfigListResult: AgentConfigListResultEvent = {
             enabled: true,
           },
           {
-            // v0.8：builtin 第三源（daemon 随仓内置技能；不可禁用——读面恒 enabled=true）
+            // v0.8：builtin 第三源（daemon 随仓内置技能；缺省播种 enabled=true——差异行可关，见 seedBuiltinSkillDefaults）
             name: "web-access",
             description: "联网操作指引",
             filePath: "/daemon/resources/skills/agent/web-access/SKILL.md",
@@ -115,15 +115,6 @@ export const agentConfigListResult: AgentConfigListResultEvent = {
         diagnostics: [],
         model: null, // 槽位未设 = null（非 undefined——JSON 序列化面）
         thinkingLevel: "xhigh", // v0.11 批内补登：已配置 = 档位字符串透传（AD-2）
-      },
-      {
-        // 任务 subAgent 独立配置批：任务派生 worker 独立配置面（与 chat 子代理解耦）
-        profileKind: "task-worker",
-        tools: [{ name: "bash", enabled: true, snippet: "在沙箱工作目录执行 shell 命令并返回输出" }],
-        skills: [],
-        diagnostics: [],
-        model: null,
-        thinkingLevel: null,
       },
     ],
   },

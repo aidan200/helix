@@ -528,8 +528,6 @@ export const zhCN = {
     title: "智能体",
     mainTitle: "主会话助手",
     subTitle: "SubAgent worker",
-    // 任务 subAgent 独立配置批：任务派生 worker 独立配置面（与 chat 子代理解耦）
-    taskWorkerTitle: "任务 SubAgent",
     // agent-roster 批：master-detail 左栏两组 + 只读系统派生形态
     groupEditable: "可配置",
     groupSystem: "系统派生",
