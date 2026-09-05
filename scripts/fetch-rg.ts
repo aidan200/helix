@@ -96,6 +96,105 @@ export function sha256OfFile(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+/** downloadToFile 可调参数（测试注小值用）。 */
+export interface DownloadOptions {
+  /** 连接/响应头总限（AbortSignal.timeout），缺省 60s。 */
+  connectTimeoutMs?: number;
+  /** 单次读流无数据停滞限，缺省 30s（TCP 半死检测——连着但不传数据）。 */
+  stallTimeoutMs?: number;
+  /** 重试次数上限（含首次），缺省 4。 */
+  retries?: number;
+  /** 重试退避基数（第 n 次失败等 n×backoff），缺省 5s。 */
+  backoffMs?: number;
+  /** 日志前缀（"fetch-rg" / "fetch-codegraph"）。 */
+  label?: string;
+}
+
+/**
+ * 下载面单点（裸 fetch 曾在 CI 挂死半小时：零超时遇 TCP 半死即永久挂起）：
+ * 连接超时 + 读流停滞检测 + 指数退避重试 + 进度日志（每 8MB 一行），
+ * 半成品失败即删。redirect 默认跟随（GitHub release 资产 302 到 CDN）。
+ */
+export async function downloadToFile(
+  url: string,
+  dest: string,
+  opts: DownloadOptions = {},
+): Promise<void> {
+  const {
+    connectTimeoutMs = 60_000,
+    stallTimeoutMs = 30_000,
+    retries = 4,
+    backoffMs = 5_000,
+    label = "download",
+  } = opts;
+  let lastErr: unknown = "unknown";
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await downloadOnce(url, dest, { connectTimeoutMs, stallTimeoutMs, label, attempt });
+      return;
+    } catch (e) {
+      lastErr = e;
+      rmSync(dest, { force: true }); // 半成品不残留（sha256 兜底之外的第二道卫生）
+      if (attempt === retries) break;
+      const wait = attempt * backoffMs;
+      console.warn(
+        `${label}: 下载失败（第 ${attempt}/${retries} 次）：${e instanceof Error ? e.message : String(e)}；${wait / 1000}s 后重试`,
+      );
+      await Bun.sleep(wait);
+    }
+  }
+  throw new Error(
+    `${label}: 下载重试耗尽（${retries} 次）：${url}：${e2msg(lastErr)}`,
+  );
+}
+
+function e2msg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+async function downloadOnce(
+  url: string,
+  dest: string,
+  o: { connectTimeoutMs: number; stallTimeoutMs: number; label: string; attempt: number },
+): Promise<void> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(o.connectTimeoutMs) });
+  if (!res.ok || !res.body) {
+    throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  }
+  const total = Number(res.headers.get("content-length") ?? 0);
+  console.log(
+    `${o.label}: 下载开始（第 ${o.attempt} 次）${total ? `，共 ${(total / 1024 / 1024).toFixed(1)}MB` : ""}：${url}`,
+  );
+  const reader = res.body.getReader();
+  const writer = Bun.file(dest).writer();
+  let received = 0;
+  let nextLog = 8 * 1024 * 1024;
+  try {
+    for (;;) {
+      // 停滞检测：读流与 stall 定时器赛跑；输掉的定时器 promise 显式吞掉防 unhandled rejection
+      const stall = Bun.sleep(o.stallTimeoutMs).then(() => {
+        throw new Error(`数据流停滞超过 ${o.stallTimeoutMs / 1000}s（连接半死）`);
+      });
+      stall.catch(() => {});
+      const chunk = await Promise.race([reader.read(), stall]);
+      if (chunk.done) break;
+      await writer.write(chunk.value);
+      received += chunk.value.byteLength;
+      if (received >= nextLog) {
+        console.log(
+          `${o.label}: 进度 ${(received / 1024 / 1024).toFixed(1)}MB${total ? ` / ${(total / 1024 / 1024).toFixed(1)}MB` : ""}`,
+        );
+        nextLog += 8 * 1024 * 1024;
+      }
+    }
+    await writer.end();
+    console.log(`${o.label}: 下载完成 ${(received / 1024 / 1024).toFixed(1)}MB → ${dest}`);
+  } catch (e) {
+    await writer.end().catch(() => {});
+    throw e;
+  }
+}
+
 /**
  * lipo -info 断言 arm64 单架构（darwin 档反向断言）。
  * 非 Mach-O（lipo 非零退出）/ 含 x86_64 切片 / 缺 arm64 → 抛错。
@@ -261,7 +360,7 @@ export async function installFromArchive(
   }
 }
 
-/** 默认形态：固定版本下载 → sha256 校验 → 解压落位。 */
+/** 默认形态：固定版本下载 → sha256 校验 → 解压落位（downloadToFile 带超时/停滞/重试）。 */
 export async function installFromRelease(
   dest: string = RG_DEST,
   platform: DesktopPlatform = "darwin-arm64",
@@ -271,14 +370,9 @@ export async function installFromRelease(
     return { skipped: true, path: dest };
   }
   const asset = rgAsset(platform);
-  console.log(`fetch-rg: 下载 ${asset.url}`);
-  const res = await fetch(asset.url);
-  if (!res.ok) {
-    throw new Error(`下载失败：HTTP ${res.status} ${res.statusText}（${asset.url}）`);
-  }
   const archive = join(mkdtempSync(join(tmpdir(), "helix-rg-dl-")), asset.name);
   try {
-    await Bun.write(archive, res);
+    await downloadToFile(asset.url, archive, { label: "fetch-rg" });
     return await installFromArchive(archive, dest, platform);
   } finally {
     rmSync(dirname(archive), { recursive: true, force: true });

@@ -50,7 +50,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { platformSpec, resolvePlatformArg, type DesktopPlatform } from "./desktop-platform";
-import { assertBinaryForPlatform, sha256OfFile } from "./fetch-rg";
+import { assertBinaryForPlatform, downloadToFile, sha256OfFile } from "./fetch-rg";
 
 const root = join(import.meta.dir, "..");
 
@@ -228,7 +228,7 @@ export async function installFromArchive(
   }
 }
 
-/** 默认形态：固定版本下载 → sha256 校验 → 解压落位。 */
+/** 默认形态：固定版本下载（downloadToFile 带超时/停滞/重试）→ sha256 校验 → 解压落位。 */
 export async function installFromRelease(
   destDir: string = CODEGRAPH_DEST_DIR,
   platform: DesktopPlatform = "darwin-arm64",
@@ -238,14 +238,9 @@ export async function installFromRelease(
     return { skipped: true, path: destDir };
   }
   const asset = codegraphAsset(platform);
-  console.log(`fetch-codegraph: 下载 ${asset.url}`);
-  const res = await fetch(asset.url);
-  if (!res.ok) {
-    throw new Error(`下载失败：HTTP ${res.status} ${res.statusText}（${asset.url}）`);
-  }
   const archive = join(mkdtempSync(join(tmpdir(), "helix-codegraph-dl-")), asset.name);
   try {
-    await Bun.write(archive, res);
+    await downloadToFile(asset.url, archive, { label: "fetch-codegraph" });
     return await installFromArchive(archive, destDir, platform);
   } finally {
     rmSync(dirname(archive), { recursive: true, force: true });

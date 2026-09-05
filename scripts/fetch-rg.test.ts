@@ -10,7 +10,7 @@
  * arm64 正例源 = process.execPath（bun 自身，本任务目标平台 arm64 only，AD-6）。
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,6 +18,7 @@ import {
   RG_TARBALL_SHA256,
   assertArm64Only,
   assertPeX64,
+  downloadToFile,
   installFromArchive,
   installFromLocal,
   rgAsset,
@@ -201,5 +202,93 @@ describe("fetch-rg：windows 档 --from 本地拷贝", () => {
 
     const again = await installFromLocal(src, dest, "windows-x64");
     expect(again.skipped).toBe(true);
+  });
+});
+
+describe("fetch-rg：downloadToFile 下载面（超时/停滞/重试/进度）", () => {
+  const payload = Buffer.alloc(9 * 1024 * 1024, 7); // 9MB：跨过 8MB 进度日志线
+
+  /** 起临时 HTTP server，返回 [port, close]。 */
+  async function serve(handler: () => Response): Promise<[number, () => Promise<void>]> {
+    const server = Bun.serve({ port: 0, fetch: handler });
+    return [server.port, () => server.stop(true)];
+  }
+
+  test("happy path：字节流完整落盘（含 8MB 进度日志线）", async () => {
+    const [port, close] = await serve(() => new Response(payload));
+    try {
+      const dest = join(tmp(), "dl.bin");
+      await downloadToFile(`http://127.0.0.1:${port}/a`, dest, {
+        label: "t-happy",
+        backoffMs: 1,
+        stallTimeoutMs: 5_000,
+      });
+      expect(statSync(dest).size).toBe(payload.length);
+      expect(Buffer.compare(readFileSync(dest), payload)).toBe(0);
+    } finally {
+      await close();
+    }
+  });
+
+  test("停滞检测：流发一块后静默不 close → 判停滞失败，半成品删除", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        // 故意不 close：模拟 TCP 半死（连接在、数据停）
+      },
+    });
+    const [port, close] = await serve(() => new Response(stream));
+    try {
+      const dest = join(tmp(), "dl-stall.bin");
+      await expect(
+        downloadToFile(`http://127.0.0.1:${port}/b`, dest, {
+          label: "t-stall",
+          stallTimeoutMs: 150,
+          retries: 1,
+          backoffMs: 1,
+        }),
+      ).rejects.toThrow(/停滞|重试耗尽/);
+      expect(existsSync(dest)).toBe(false); // 半成品不残留
+    } finally {
+      await close();
+    }
+  });
+
+  test("重试：首次 500 次次 200 → 第二次成功", async () => {
+    let n = 0;
+    const [port, close] = await serve(() => {
+      n++;
+      return n === 1 ? new Response("boom", { status: 500 }) : new Response("yes");
+    });
+    try {
+      const dest = join(tmp(), "dl-retry.bin");
+      await downloadToFile(`http://127.0.0.1:${port}/c`, dest, {
+        label: "t-retry",
+        retries: 3,
+        backoffMs: 1,
+        stallTimeoutMs: 5_000,
+      });
+      expect(readFileSync(dest, "utf8")).toBe("yes");
+      expect(n).toBe(2);
+    } finally {
+      await close();
+    }
+  });
+
+  test("重试耗尽：恒 500 → 报重试耗尽，不落盘", async () => {
+    const [port, close] = await serve(() => new Response("no", { status: 503 }));
+    try {
+      const dest = join(tmp(), "dl-exhaust.bin");
+      await expect(
+        downloadToFile(`http://127.0.0.1:${port}/d`, dest, {
+          label: "t-exhaust",
+          retries: 2,
+          backoffMs: 1,
+        }),
+      ).rejects.toThrow(/重试耗尽/);
+      expect(existsSync(dest)).toBe(false);
+    } finally {
+      await close();
+    }
   });
 });
