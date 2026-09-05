@@ -34,6 +34,8 @@ import type {
   TaskChangedEvent,
   ThinkingChangedEvent,
   ThinkingStreamDeltaEvent,
+  McpStatusChangedEvent,
+  McpStatusChangedPayload,
   WebStatusChangedEvent,
   WebStatusPayload,
   WorkspaceChangedEvent,
@@ -268,6 +270,22 @@ export class EventStream implements EventPublisherPort {
       sessionId: SYSTEM_SESSION_ID,
       channel: "web",
       type: "web.status.changed",
+      payload,
+    };
+    this.push(frame);
+  }
+
+  /**
+   * mcp.status.changed 广播（mcp 批）：MCP server 状态迁移通知——
+   * daemon 级全局（与 broadcastWebStatusChanged 同构；订阅无关）。
+   * 单 server 粒度（组合根 McpRegistry.onStatusChange 接线喂入）。
+   */
+  broadcastMcpStatusChanged(payload: McpStatusChangedPayload): void {
+    const frame: McpStatusChangedEvent = {
+      v: PROTOCOL_VERSION,
+      sessionId: SYSTEM_SESSION_ID,
+      channel: "mcp",
+      type: "mcp.status.changed",
       payload,
     };
     this.push(frame);

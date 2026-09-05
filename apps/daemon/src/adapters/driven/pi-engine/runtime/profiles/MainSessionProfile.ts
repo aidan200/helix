@@ -56,6 +56,8 @@ const MAIN_SESSION_BASE_PROMPT = loadPrompt(
 export const MAIN_SESSION_SYSTEM_PROMPT = MAIN_SESSION_BASE_PROMPT + "\n\n" + BRIEF_ASSEMBLY_GUIDE;
 
 export const MainSessionProfile: AgentProfile = {
+  // mcp 批：全部已发现 MCP server 接入（准入由 server enabled + 工具级 toggle 管控）
+  mcpServers: "*",
   kind: "main-session",
   systemPrompt: MAIN_SESSION_SYSTEM_PROMPT,
   tools: [

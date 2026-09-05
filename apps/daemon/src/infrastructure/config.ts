@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync } from "node:fs";
 import path from "node:path";
 import { DEFAULT_SCHEDULING } from "../domain/agent/SchedulingPolicy";
+import type { McpServerConfig } from "../adapters/driven/mcp/types";
 
 /**
  * 配置加载（AD-13 architecture.md §7.2 + AD-2 §6.4 瘦身）：
@@ -36,6 +37,12 @@ export interface DaemonConfig {
   rgPath?: string;
   /** codegraph 可执行文件显式路径（三级解析第②级，T2.1/AF-2；缺省跳过该级）。 */
   codegraphPath?: string;
+  /**
+   * MCP server 声明面（mcp 批）：任意 stdio MCP server——daemon 启动
+   * 异步预热（到位即推，不阻塞启动）+ 设置页 CRUD 运行期增删。
+   * 缺省 = 无 server（零配置兼容）。行形状见 McpServerConfig（driven/mcp）。
+   */
+  mcpServers?: McpServerConfig[];
 }
 
 /** 旧格式遗留位（AD-2 迁移读面：组合根写新位后重写瘦身 config.json）。 */
@@ -169,6 +176,9 @@ export function loadConfig(configFilePath: string): LoadedConfig {
     codegraphPath = obj.codegraphPath;
   }
 
+  // mcp 批：mcpServers 段（行形状非法即抛——启动 fail-fast）
+  const mcpServers = obj.mcpServers === undefined ? undefined : parseMcpServers(obj.mcpServers);
+
   return {
     config: {
       port,
@@ -177,9 +187,56 @@ export function loadConfig(configFilePath: string): LoadedConfig {
       ...(staticDir !== undefined ? { staticDir } : {}),
       ...(rgPath !== undefined ? { rgPath } : {}),
       ...(codegraphPath !== undefined ? { codegraphPath } : {}),
+      ...(mcpServers !== undefined && mcpServers.length > 0 ? { mcpServers } : {}),
     },
     legacy,
   };
+}
+
+/**
+ * mcpServers 段解析（mcp 批）：行形状校验——name/command 必填非空、
+ * args/env/timeoutMs 类型正确；非法行抛错（启动 fail-fast——配置面错误
+ * 应在启动时暴露而非静默缺席）。工具命名空间约束：name 不得含 "__"
+ * （与分隔符撞）；未含 command 的行同样抛错。
+ */
+function parseMcpServers(value: unknown): McpServerConfig[] {
+  if (!Array.isArray(value)) {
+    throw new Error("config.json mcpServers 应为数组");
+  }
+  const out: McpServerConfig[] = [];
+  for (const [index, row] of value.entries()) {
+    if (typeof row !== "object" || row === null || Array.isArray(row)) {
+      throw new Error(`config.json mcpServers[${index}] 应为对象`);
+    }
+    const r = row as Record<string, unknown>;
+    const name = typeof r.name === "string" ? r.name.trim() : "";
+    const command = typeof r.command === "string" ? r.command.trim() : "";
+    if (name === "" || command === "") {
+      throw new Error(`config.json mcpServers[${index}] 缺 name/command（均必填非空）`);
+    }
+    if (name.includes("__")) {
+      throw new Error(`config.json mcpServers[${index}].name 不得含 "__"（工具命名空间分隔符）`);
+    }
+    if (r.args !== undefined && (!Array.isArray(r.args) || r.args.some((a) => typeof a !== "string"))) {
+      throw new Error(`config.json mcpServers[${index}].args 应为 string[]`);
+    }
+    if (r.env !== undefined && (typeof r.env !== "object" || r.env === null || Array.isArray(r.env))) {
+      throw new Error(`config.json mcpServers[${index}].env 应为 Record<string, string>`);
+    }
+    if (r.timeoutMs !== undefined && (typeof r.timeoutMs !== "number" || r.timeoutMs <= 0)) {
+      throw new Error(`config.json mcpServers[${index}].timeoutMs 应为正数`);
+    }
+    out.push({
+      name,
+      command,
+      ...(Array.isArray(r.args) ? { args: r.args as string[] } : {}),
+      ...(r.env !== undefined ? { env: r.env as Record<string, string> } : {}),
+      ...(typeof r.cwd === "string" && r.cwd !== "" ? { cwd: r.cwd } : {}),
+      ...(typeof r.enabled === "boolean" ? { enabled: r.enabled } : {}),
+      ...(typeof r.timeoutMs === "number" ? { timeoutMs: r.timeoutMs } : {}),
+    });
+  }
+  return out;
 }
 
 /** config.json 文件权限（统一 0600：历史形态曾含 apiKeys 敏感信息，AG-09）。 */
@@ -203,6 +260,9 @@ export function writeConfig(configFilePath: string, config: DaemonConfig): void 
         ...(config.staticDir !== undefined ? { staticDir: config.staticDir } : {}),
         ...(config.rgPath !== undefined ? { rgPath: config.rgPath } : {}),
         ...(config.codegraphPath !== undefined ? { codegraphPath: config.codegraphPath } : {}),
+        ...(config.mcpServers !== undefined && config.mcpServers.length > 0
+          ? { mcpServers: config.mcpServers }
+          : {}),
       },
       null,
       2,

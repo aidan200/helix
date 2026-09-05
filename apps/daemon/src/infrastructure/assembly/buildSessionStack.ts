@@ -51,6 +51,8 @@ import {
   ORCHESTRATOR_SYSTEM_PROMPT,
 } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
 import { isTaskSessionId, TASK_SESSION_PREFIX } from "../../application/services/task/TaskOrchestratorService";
+import type { McpRegistry } from "../../adapters/driven/mcp/McpRegistry";
+import { createMcpTools } from "../../adapters/driven/mcp/mcp-tool";
 import { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
 import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinking-resolve";
 import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
@@ -124,6 +126,32 @@ export interface MainSessionLlmOverride {
   readonly apiKeys?: () => Record<string, string>;
 }
 
+/** 静态工具目录（profile 声明面单源；mcp 批抽出一一函数化 catalog 消费）。 */
+const STATIC_TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
+  "main-session": MainSessionProfile.tools,
+  "subagent-worker": SubAgentProfile.tools,
+  "orchestrator": OrchestratorProfile.tools, // T2.2 第三 kind（additive 扩值；编排工具面可配置化）
+  // R7 系统槽位批第四 kind：kg-writer 目录全集（声明面 = 快照派生同源；
+  // tool/skill 启停写面仍拒——目录仅供槽位族读面形状完整）
+  "subagent-kg-writer": SubAgentKgWriterProfile.tools,
+  // D5 第五 kind：reviewer 目录全集 = worker 声明面 − write/edit（声明面
+  // = 快照派生同源；tool/skill 启停写面仍拒——目录仅供槽位族读面形状完整）
+  "subagent-code-reviewer": SubAgentCodeReviewerProfile.tools,
+};
+
+/**
+ * kind → MCP server 准入白名单（mcp 批，profile 声明单源）：main/worker
+ * 声明 "*"（准入实际由 server enabled + 工具级 toggle 管控）；其余 kind
+ * 未声明（不接入——评审/写库/编排形态无组件安装场景）。
+ */
+const MCP_ALLOWED_OF: Readonly<Record<ProfileKind, readonly string[] | "*" | undefined>> = {
+  "main-session": MainSessionProfile.mcpServers,
+  "subagent-worker": SubAgentProfile.mcpServers,
+  orchestrator: OrchestratorProfile.mcpServers,
+  "subagent-kg-writer": SubAgentKgWriterProfile.mcpServers,
+  "subagent-code-reviewer": SubAgentCodeReviewerProfile.mcpServers,
+};
+
 export interface BuildSessionStackDeps {
   readonly paths: HelixPaths;
   readonly config: DaemonConfig;
@@ -155,6 +183,12 @@ export interface BuildSessionStackDeps {
   readonly toolCwd?: string;
   /** builtin 层技能目录覆盖（测试注入空 tmp 隔离；缺省 = paths.builtinSkillsDir() 随仓真目录）。 */
   readonly builtinSkillsDir?: string;
+  /**
+   * MCP 注册表（mcp 批）：提供则① catalog 动态拼 MCP 工具名（main/worker
+   * 准入）② executor 构造注入现值工具③ refreshAssembly 对活跃会话
+   * appendTools（server 到位即推）。缺省 = 无 MCP（零配置兼容形态）。
+   */
+  readonly mcpRegistry?: McpRegistry;
   /** 空闲卸载窗口 ms 覆盖（测试注入缩短到秒级；缺省 30min）。 */
   readonly sessionIdleUnloadMs?: number;
   /** 空闲卸载轮询间隔 ms 覆盖（测试注入面；缺省 min(60s, 窗口/10)）。 */
@@ -369,17 +403,22 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   const resourceService = new ResourceService({
     store: resourceState,
     skills: skillScanner,
-    toolsCatalog: {
-      "main-session": MainSessionProfile.tools,
-      "subagent-worker": SubAgentProfile.tools,
-      "orchestrator": OrchestratorProfile.tools, // T2.2 第三 kind（additive 扩值；编排工具面可配置化）
-      // R7 系统槽位批第四 kind：kg-writer 目录全集（声明面 = 快照派生同源；
-      // tool/skill 启停写面仍拒——目录仅供槽位族读面形状完整）
-      "subagent-kg-writer": SubAgentKgWriterProfile.tools,
-      // D5 第五 kind：reviewer 目录全集 = worker 声明面 − write/edit（声明面
-      // = 快照派生同源；tool/skill 启停写面仍拒——目录仅供槽位族读面形状完整）
-      "subagent-code-reviewer": SubAgentCodeReviewerProfile.tools,
-    } satisfies Record<ProfileKind, readonly string[]>,
+    // mcp 批：catalog 函数化——静态 profile 声明面 + MCP 命名空间工具名
+    // 动态拼接（每次读现拍 McpRegistry 值；server 到位即进 catalog）。
+    // 准入门控：profile mcpServers 白名单（"*" = 全部；未声明 = 不接入）
+    // ——main/worker 声明全开（准入实际由 server enabled + 工具级 toggle
+    // 管控），kg-writer/reviewer/orchestrator 未声明（静态 kind 不接 MCP）。
+    toolsCatalog: (kind: ProfileKind): readonly string[] => {
+      const staticNames = STATIC_TOOLS_CATALOG[kind];
+      const registry = deps.mcpRegistry; // 窄化（闭包重读不安全）
+      const allowed = registry !== undefined ? MCP_ALLOWED_OF[kind] : undefined;
+      if (registry === undefined || allowed === undefined) return staticNames;
+      const mcpNames = registry
+        .discoveredTools()
+        .filter((t) => allowed === "*" || allowed.includes(t.server))
+        .map((t) => `${t.server}__${t.definition.name}`);
+      return [...staticNames, ...mcpNames];
+    },
     // list 读面 snippet 透传（SystemPromptAssembler 同源注册表单点）
     toolSnippets: TOOL_PROMPT_SNIPPETS,
     // 生效链（事件化，架构 §4.2.3）：toggle applied → 发布
@@ -462,6 +501,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         ? reviewerAssembly
         : subagentAssembly;
   let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算）
+  // mcp 批：活跃主会话 executor 登记（engineFor 构造点 set；refreshAssembly
+  // 对活跃会话 appendTools 后再 setTools——MCP 新工具实例进 registry 才能被
+  // 按名 resolve）。生命周期见 set 点注释。
+  const sessionExecutors = new Map<string, InstanceType<typeof CoreToolExecutor>>();
   /** toggle applied 后的重算入口（WS 命令复用面：命令只调 toggle，刷新单点在此）。 */
   const refreshAssembly = async (kind: ProfileKind): Promise<void> => {
     const next = await computeAssembly(kind);
@@ -469,6 +512,19 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       mainAssembly = next;
       // 活跃 runtime 直改（setModel 同构）：systemPrompt 重算 + tools 重 resolve，
       // 下一 turn 生效（in-flight 不变）。model 槽位不在此链（读面生效，见 engineFor）。
+      // mcp 批：MCP 工具实例先 append 进活跃会话 executor registry（同名覆盖
+      // = server 工具更新后新 schema 生效），再按名 setTools。
+      if (deps.mcpRegistry !== undefined) {
+        const mcpTools = createMcpTools(deps.mcpRegistry.discoveredTools(), deps.mcpRegistry);
+        const live = new Set(registry.hotRuntimes().map((r) => r.sessionId));
+        for (const [id, executor] of sessionExecutors) {
+          if (!live.has(id)) {
+            sessionExecutors.delete(id); // 顺带清死项（卸载/删除会话残留）
+            continue;
+          }
+          executor.appendTools(mcpTools);
+        }
+      }
       for (const runtime of registry.hotRuntimes()) {
         runtime.chatService.setSystemPrompt(next.systemPrompt);
         runtime.chatService.setTools(next.tools);
@@ -545,6 +601,20 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // W-R6：按实例 profileKind 派发——subagent-kg-writer（图谱产出型批次）
           // 领 worker 生效集 + kg-write 面；其余（缺省）领通用 worker 快照。
           spawnSnapshot: (profileKind: string) => subagentAssemblyFor(profileKind),
+          // mcp 批：MCP server 配置透传（launch 时刻现拍；kind 白名单门控同
+          // catalog——静态 kind（orchestrator/reviewer）不接 MCP；零 enabled
+          // server → 不传键零开销。子进程自建 registry await 预热后构造
+          // executor，保证 spawn 快照工具名与子进程注册表一致）
+          mcpServersFor: (profileKind: string) => {
+            const registry = deps.mcpRegistry;
+            if (registry === undefined) return undefined;
+            const allowed = MCP_ALLOWED_OF[profileKind as ProfileKind];
+            if (allowed === undefined) return undefined;
+            return registry
+              .listConfigs()
+              .filter((c) => c.enabled !== false)
+              .filter((c) => allowed === "*" || allowed.includes(c.name));
+          },
           // 注入源切换：auth.json 现值快照（换 key 后新子进程跟随）
           apiKeys: () => authStore.apiKeysSnapshot(),
           // W1F-F2：子进程 env cwd = spawn 时刻现值（toolCwdOf 同源求值——
@@ -805,7 +875,16 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
               // tab 归属）；ChildMain 子进程经 RemoteBrowserPort 转发接入（H-3）
               browser: browserPort,
+              // mcp 批：MCP 命名空间工具现值注入（构造时刻已发现的 server；
+              // 后续到位经 refreshAssembly → appendTools 增量推活活跃会话）
+              ...(deps.mcpRegistry !== undefined
+                ? { mcp: { tools: createMcpTools(deps.mcpRegistry.discoveredTools(), deps.mcpRegistry) } }
+                : {}),
             });
+            // mcp 批：活跃会话 executor 登记（refreshAssembly appendTools 目标）。
+            // 生命周期 = 会话 id 不复用 + 每 daemon 进程一个 Map；卸载残留为
+            // 小对象引用无句柄调用（可接受——避免 SessionRegistry 加卸载回调面）。
+            sessionExecutors.set(sessionId, toolExecutor);
             // 新会话装配读组装快照现值（瘦身后 base + 生效工具清单 +
             // 生效技能段；toggle 后新会话/重建会话跟随）；model 四级链读面——
             // kind 槽位 > default_model（per-session 覆盖 = 既有 setModel 直改链）。

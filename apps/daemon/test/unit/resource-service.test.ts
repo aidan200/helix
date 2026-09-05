@@ -117,7 +117,7 @@ function makeService(store = new InMemoryResourceState(), skills: SkillSourcePor
   service: ResourceService;
   store: InMemoryResourceState;
 } {
-  return { service: new ResourceService({ store, skills, toolsCatalog: TOOLS_CATALOG, toolSnippets: TOOL_SNIPPETS }), store };
+  return { service: new ResourceService({ store, skills, toolsCatalog: (kind) => TOOLS_CATALOG[kind], toolSnippets: TOOL_SNIPPETS }), store };
 }
 
 describe("ResourceService：list 合并视图", () => {
@@ -355,13 +355,16 @@ describe("ResourceService：skills+tools 成套装配（批三裁决）", () => 
     const service = new ResourceService({
       store,
       skills,
-      toolsCatalog: {
-        "main-session": ["bash", "plan_create", "plan_update", "plan_read"],
-        "subagent-worker": ["bash", "plan_create", "plan_update", "plan_read"],
-        "subagent-kg-writer": ["bash"],
-        "subagent-code-reviewer": ["bash"],
-        orchestrator: ["bash", "plan_read"], // 仅 plan_read 非全套 → 不成套（且 orchestrator 技能面恒空）
-      },
+      toolsCatalog: (kind: ProfileKind): readonly string[] =>
+        (
+          {
+            "main-session": ["bash", "plan_create", "plan_update", "plan_read"],
+            "subagent-worker": ["bash", "plan_create", "plan_update", "plan_read"],
+            "subagent-kg-writer": ["bash"],
+            "subagent-code-reviewer": ["bash"],
+            orchestrator: ["bash", "plan_read"], // 仅 plan_read 非全套 → 不成套（且 orchestrator 技能面恒空）
+          } as Record<ProfileKind, readonly string[]>
+        )[kind] ?? [],
       toolSnippets: {},
     });
     expect((await service.getEffectiveSkills("main-session")).map((s) => s.name).sort()).toEqual(["plan-workflow", "web-access"]);

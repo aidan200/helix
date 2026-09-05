@@ -47,6 +47,10 @@ import type { WorkspaceService } from "../../../../application/services/workspac
 import type { TaskQueryService } from "../../../../application/services/task/TaskQueryService";
 import type { TaskEnginePort } from "../../../../application/ports/inbound/TaskEnginePort";
 import type { TurnDiffService, TurnDiffState } from "../../../../application/services/TurnDiffService";
+import type {
+  McpServerConfigInput,
+  McpServerPort,
+} from "../../../../application/ports/outbound/McpServerPort";
 
 /** 每连接状态（Bun.serve 泛型，经 server.upgrade 的 data 携带；handlers/ 共用型）。 */
 export interface ConnState {
@@ -399,6 +403,34 @@ export interface DiffCommandContext {
         readonly service: TurnDiffService;
       }
     | undefined;
+  /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
+  commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
+  /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */
+  rawSender(): FrameSender;
+  /** 立即发帧（语义 = WsServerAdapter.sendNow）。 */
+  sendNow(sender: FrameSender, frame: EventEnvelope): void;
+}
+
+/**
+ * mcp 族命令处理上下文（mcp 批：MCP server 标准接入六命令）：
+ * McpServerPort（连接生命周期 + 发现读面；McpServerPort.ts——MCP 协议
+ * 细节全部收敛在 driven McpRegistry）+ 配置窄写面 saveMcpServers（组合根
+ * 闭包包 writeConfig，与 registry 生命周期解耦——落盘与连接是两个关注点）
+ * + 共享辅助。全局命令（信封 sessionId 不消费）。状态变更广播不走本
+ * 上下文——组合根 onStatusChange 接线直发（CRUD 后的 running/stopped
+ * 同路径自动触发刷新链，handler 不重复广播）。
+ */
+export interface McpCommandContext {
+  /** 命令来源连接（回执端解析：ws.data.sender ?? rawSender()）。 */
+  readonly ws: ServerWebSocket<ConnState>;
+  /** 命令类型字面（commandError 回执文案用）。 */
+  readonly type: string;
+  /** 命令 payload（routeCommand 已解构为 Record）。 */
+  readonly payload: Record<string, unknown>;
+  /** MCP server 管理面（add/remove/test/listConfigs/getStatuses/toolsOf）。 */
+  readonly mcp: McpServerPort;
+  /** mcpServers 段整段替换落盘（空数组 → 段省略；readonly 入参规范化在闭包内）。 */
+  saveMcpServers(servers: readonly McpServerConfigInput[]): void;
   /** 命令错误回执（语义 = WsServerAdapter.commandError）。 */
   commandError(type: string, code: ConnectionErrorEvent["payload"]["code"], message: string): void;
   /** 构造本连接协议帧发送端（语义 = WsServerAdapter.rawSender）。 */

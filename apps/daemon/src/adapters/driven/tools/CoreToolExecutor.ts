@@ -184,6 +184,14 @@ export interface CoreToolExecutorOptions {
    */
   readonly taskOps?: TaskOpsToolDeps;
   /**
+   * MCP 命名空间工具注入面（mcp 批）：提供则注册全部动态发现工具
+   * （`${server}__${tool}`，适配器产物 McpRegistry.currentTools 现值）。
+   * 注册面不认识 MCP——只收 AgentHarnessTool[]（发现/适配在组合根）；
+   * 运行期增量经 appendTools（McpRegistry 到位即推）。缺省不注册
+   * （无 MCP server / 未就绪形态）。
+   */
+  readonly mcp?: { readonly tools: readonly AgentHarnessTool<ExecutionToolContext, any, any>[] };
+  /**
    * env.writeFile 写前快照钩子（T2 turn diff 数据链）：提供则包装本
    * executor 的共享 env（writeFile 前触发——此时磁盘仍是旧内容，读旧
    * 内容快照/上报元数据）；hook 异常吞咽不影响写入；缺省不包装（行为
@@ -195,7 +203,7 @@ export interface CoreToolExecutorOptions {
 
 export class CoreToolExecutor implements ToolExecutorPort {
   private readonly context: ExecutionToolContext;
-  private readonly registry: ReadonlyMap<string, AgentHarnessTool<ExecutionToolContext, any, any>>;
+  private readonly registry: Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>;
 
   constructor(options: CoreToolExecutorOptions) {
     const baseEnv = new NodeExecutionEnv({
@@ -277,9 +285,24 @@ export class CoreToolExecutor implements ToolExecutorPort {
       // 任务引擎回口工具族（T2.2，AD-3③）：仅编排主 agent 会话生效集
       tools.push(...createTaskOpsTools(options.taskOps));
     }
+    if (options.mcp !== undefined && options.mcp.tools.length > 0) {
+      // 第九族（mcp 批）：MCP 动态发现工具——组合根先行发现适配后注入
+      //（注册面零 MCP 知识；后注册者胜同内置语义——MCP 名与内置名撞时
+      // 内置优先由装配顺序保证：MCP 追加在末尾）。
+      tools.push(...options.mcp.tools);
+    }
     const registry = new Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>();
     for (const tool of tools) registry.set(tool.name, tool);
     this.registry = registry;
+  }
+
+  /**
+   * 运行期追加工具（mcp 批）：MCP server 到位即推——组合根对活跃会话
+   * executor 调用（配合 resources.changed 刷新链的 setTools 直改面）。
+   * 同名覆盖（Map.set 幂等语义）；新会话不受影响（构造时现值注入）。
+   */
+  appendTools(tools: readonly AgentHarnessTool<ExecutionToolContext, any, any>[]): void {
+    for (const tool of tools) this.registry.set(tool.name, tool);
   }
 
   /** profile 声明的工具集 → AgentRuntime 装配用 AgentTool 清单（组合根接线）。 */

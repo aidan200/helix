@@ -138,6 +138,15 @@ import type {
 } from "./workspace";
 import type { TaskChangedEvent } from "../types/task";
 import type { DiffChangedEvent } from "./diff";
+import type {
+  McpServersListResultEvent,
+  McpServersAddResultEvent,
+  McpServersUpdateResultEvent,
+  McpServersRemoveResultEvent,
+  McpServersTestResultEvent,
+  McpToolsListResultEvent,
+  McpStatusChangedEvent,
+} from "./mcp";
 
 export * from "./notification";
 export * from "./session";
@@ -152,6 +161,7 @@ export * from "./web";
 export * from "./kg";
 export * from "./workspace";
 export * from "./diff";
+export * from "./mcp";
 
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
 export type EventEnvelope =
@@ -234,7 +244,14 @@ export type EventEnvelope =
   | WorkspaceOpenResultEvent
   | WorkspaceChangedEvent
   | TaskChangedEvent
-  | DiffChangedEvent;
+  | DiffChangedEvent
+  | McpServersListResultEvent
+  | McpServersAddResultEvent
+  | McpServersUpdateResultEvent
+  | McpServersRemoveResultEvent
+  | McpServersTestResultEvent
+  | McpToolsListResultEvent
+  | McpStatusChangedEvent;
 
 /** 事件目录常量（运行时可用；与 EventEnvelope 联合由测试双向一致性守护） */
 export const EVENT_TYPES = [
@@ -318,6 +335,13 @@ export const EVENT_TYPES = [
   "workspace_changed",
   "task.changed",
   "diff.changed",
+  "mcp.servers.list.result",
+  "mcp.servers.add.result",
+  "mcp.servers.update.result",
+  "mcp.servers.remove.result",
+  "mcp.servers.test.result",
+  "mcp.tools.list.result",
+  "mcp.status.changed",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -409,4 +433,11 @@ export const EVENT_CHANNELS = {
   "workspace_changed": "workspace",
   "task.changed": "notification",
   "diff.changed": "session",
+  "mcp.servers.list.result": "mcp",
+  "mcp.servers.add.result": "mcp",
+  "mcp.servers.update.result": "mcp",
+  "mcp.servers.remove.result": "mcp",
+  "mcp.servers.test.result": "mcp",
+  "mcp.tools.list.result": "mcp",
+  "mcp.status.changed": "mcp",
 } as const satisfies Record<EventType, Channel>;

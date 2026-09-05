@@ -12,6 +12,7 @@ import type {
 } from "../../../application/services/InstanceRunner";
 import type { AgentEngineEvent } from "../../../application/ports/outbound/AgentEnginePort";
 import type { AgentProfile } from "../pi-engine/runtime/AgentProfile";
+import type { McpServerConfig } from "../mcp/types";
 import { ChildProcessTransport } from "./transport/ChildProcessTransport";
 import { truncateToolResult } from "./transport/wire";
 import type { ChildOutboundLine, ToolResponseLine } from "./transport/wire";
@@ -132,6 +133,15 @@ export interface SubagentLauncherDeps {
     readonly systemPrompt: string;
   };
   /**
+   * MCP server 配置透传面（mcp 批）：launch 时刻现拍组合根闭包（kind
+   * 白名单门控 + registry 现值；返回空数组/undefined = 不透传键）。子进程
+   * 自建 McpRegistry await 预热（MCP 工具无会话态——各自连各自，不做跨
+   * 进程转发；spawn 快照工具名与子进程注册表一致的时序保证 = 预热完成
+   * 后才构造 executor）。spawnSnapshot 同哲学（代际生效：已 spawn 实例
+   * env 定格，CRUD 后新 spawn 跟随）。
+   */
+  readonly mcpServersFor?: (profileKind: string) => readonly McpServerConfig[] | undefined;
+  /**
    * 模型槽位（profile 槽位 UI 化）：resource_state kind 槽位读面（R7
    * per-kind：入参 = 实例 profileKind——kg-writer 读自身槽位，不联动
    * worker；组合根注入——槽位 id → 完整 Model 对象解析后返回；未设 =
@@ -250,6 +260,8 @@ export class SubagentLauncher implements InstanceRunner {
     // spawn 实例 env 已定格不受影响——代际生效）。W-R6：按实例 profileKind
     // 派发（kg-writer 批次领豁免面快照）
     const snapshot = this.deps.spawnSnapshot?.(instance.profileKind);
+    // mcp 批：MCP server 配置 launch 时刻现拍（kind 门控后的 enabled 行）
+    const mcpServers = this.deps.mcpServersFor?.(instance.profileKind);
     // W1F-F2：toolCwd spawn 时刻读现值（getter 形态 = 经持有者读绑定 root；
     // 静态字符串 = 既有测试形态）——与 apiKeys 同款 getter 注入源模式
     const toolCwd = typeof this.deps.toolCwd === "function" ? this.deps.toolCwd() : this.deps.toolCwd;
@@ -282,6 +294,11 @@ export class SubagentLauncher implements InstanceRunner {
               HELIX_SYSTEM_PROMPT: snapshot.systemPrompt,
               HELIX_TOOLS_JSON: JSON.stringify(snapshot.tools),
             }
+          : {}),
+        // mcp 批：MCP server 配置透传（子进程自建 registry 预热；无配置
+        //（未装配/kind 不接入/零 server）不传键——零开销路径）
+        ...(mcpServers !== undefined && mcpServers.length > 0
+          ? { HELIX_MCP_SERVERS_JSON: JSON.stringify(mcpServers) }
           : {}),
         ...(this.deps.fakeEngineScript !== undefined
           ? { HELIX_FAKE_ENGINE_SCRIPT: this.deps.fakeEngineScript }

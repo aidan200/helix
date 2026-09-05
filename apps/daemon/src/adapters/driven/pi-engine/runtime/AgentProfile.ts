@@ -43,6 +43,14 @@ export interface AgentProfile {
   readonly systemPrompt: string;
   /** 工具集（按名声明；经 ToolResolver 在装配期解析）。 */
   readonly tools: readonly string[];
+  /**
+   * MCP server 准入白名单（mcp 批）：undefined = 不接入 MCP 工具；
+   * ["*"] = 全部已发现 server（准入实际由 server enabled + 工具级
+   * resource_state toggle 管控）；具体名单 = 仅这些 server 的命名空间工具
+   * （`${server}__${tool}`）进生效集。静态声明——运行期 server 增删由
+   * catalog 函数现拍 McpRegistry 值（buildSessionStack）。
+   */
+  readonly mcpServers?: readonly string[] | "*";
   /** 生命周期策略。 */
   readonly lifecycle: { readonly mode: LifecycleMode };
   /** 钩子装配（构造器引用声明，装配即启用且每 runtime 实例化，§4.2）。 */

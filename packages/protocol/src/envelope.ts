@@ -58,7 +58,8 @@ export type Channel =
   | "kg"
   | "workspace"
   | "interaction"
-  | "notification";
+  | "notification"
+  | "mcp";
 
 /**
  * workspace 路由（AD-7 预留）。

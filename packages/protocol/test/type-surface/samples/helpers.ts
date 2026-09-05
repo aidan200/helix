@@ -200,6 +200,18 @@ export function summarizeEvent(event: EventEnvelope): string {
       return `plan-changed:${event.payload.sessionId}:${event.payload.plan?.length ?? 0}:${event.payload.ledger?.total ?? 0}`;
     case "diff.changed":
       return `diff-changed:${event.payload.turnId}:${event.payload.phase}:${event.payload.adds}/${event.payload.dels}:${event.payload.fileCount}`;
+    case "mcp.servers.list.result":
+      return `mcp-servers:${event.payload.servers.length}`;
+    case "mcp.servers.add.result":
+    case "mcp.servers.update.result":
+    case "mcp.servers.remove.result":
+      return `mcp-mutation:${event.payload.status}:${event.payload.server?.state ?? "-"}`;
+    case "mcp.servers.test.result":
+      return `mcp-test:${event.payload.status}:${event.payload.toolCount ?? 0}`;
+    case "mcp.tools.list.result":
+      return `mcp-tools:${event.payload.server}:${event.payload.tools.length}`;
+    case "mcp.status.changed":
+      return `mcp-status:${event.payload.server.name}:${event.payload.server.state}`;
     default: {
       const _exhaustive: never = event; // 目录外事件 → 编译失败（穷尽性守护）
       return `unhandled:${String(_exhaustive)}`;
@@ -344,6 +356,16 @@ export function dispatchCommand(cmd: CommandEnvelope): string {
       return `skill-content-get:${cmd.payload.name}`;
     case "diff.get":
       return `diff-get:${cmd.sessionId ?? "-"}:${cmd.payload.turnId ?? "latest"}:${cmd.payload.live ? "live" : "frozen"}`;
+    case "mcp.servers.list":
+      return `mcp-servers-list`;
+    case "mcp.servers.add":
+    case "mcp.servers.update":
+    case "mcp.servers.test":
+      return `mcp-server-input:${cmd.payload.name}:${cmd.payload.command}`;
+    case "mcp.servers.remove":
+      return `mcp-servers-remove:${cmd.payload.name}`;
+    case "mcp.tools.list":
+      return `mcp-tools-list:${cmd.payload.server}`;
     default: {
       const _exhaustive: never = cmd;
       return `unhandled:${String(_exhaustive)}`;
@@ -398,6 +420,10 @@ export function familyOf(event: EventEnvelope): string {
     case "notification": {
       const t: TypeOfChannel<"notification"> = event.type;
       return `notification/${t}`;
+    }
+    case "mcp": {
+      const t: TypeOfChannel<"mcp"> = event.type;
+      return `mcp/${t}`;
     }
     default:
       // channel 缺省 = v0/v0.1 历史帧（信封兼容读；按 type 走既有消费路径）

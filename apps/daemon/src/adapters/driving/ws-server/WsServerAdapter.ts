@@ -51,6 +51,10 @@ import type { CompactionConfigPort } from "../../../application/ports/outbound/C
 import type { ResourceConfigPort } from "../../../application/ports/inbound/ResourceConfigPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import type {
+  McpServerConfigInput,
+  McpServerPort,
+} from "../../../application/ports/outbound/McpServerPort";
+import type {
   AgentStateDto,
   ConnectionErrorEvent,
   ConnectionWelcomeEvent,
@@ -82,6 +86,7 @@ import type {
   DiffCommandContext,
   ConnState,
   KgCommandContext,
+  McpCommandContext,
   ResourceCommandContext,
   SessionCommandContext,
   TaskCommandContext,
@@ -125,6 +130,14 @@ import {
 } from "./handlers/kg";
 import { handleAgentBasePromptGet, handleAgentConfigList, handleAgentConfigSetEnabled, handleAgentSkillContentGet } from "./handlers/resource";
 import { handleWebStart, handleWebStatus, handleWebStop } from "./handlers/web";
+import {
+  handleMcpServersAdd,
+  handleMcpServersList,
+  handleMcpServersRemove,
+  handleMcpServersTest,
+  handleMcpServersUpdate,
+  handleMcpToolsList,
+} from "./handlers/mcp";
 import {
   handleModelCatalog,
   handleModelCatalogRefresh,
@@ -170,6 +183,17 @@ export const DEV_TOKEN_PATH = "/helix-dev-token";
 const LOOPBACK_ORIGIN_RE =
   /^(?:https?:\/\/(?:localhost|127\.0\.0\.1|\[::1])(?::\d+)?|https?:\/\/tauri\.localhost|tauri:\/\/localhost)$/i;
 
+/**
+ * mcp 族命令依赖面（mcp 批）：McpServerPort（连接/发现，组合根注入
+ * McpRegistry 单例——结构满足，BrowserPort 同构）+ 配置窄写面（组合根
+ * 闭包包 writeConfig；readonly → 可变规范化在闭包内，handler 面干净）。
+ */
+export interface McpCommandDeps {
+  readonly registry: McpServerPort;
+  /** mcpServers 段整段替换落盘（空数组 → 段省略）。 */
+  saveServers(servers: readonly McpServerConfigInput[]): void;
+}
+
 export interface WsServerAdapterDeps {
   /** 会话路由对话入口（组合根 ChatRouter——按信封 sessionId 分发）。 */
   readonly chat: SessionChatPort;
@@ -197,6 +221,12 @@ export interface WsServerAdapterDeps {
    * 组合根 onStatusChange 接线直发 EventStream。
    */
   readonly browser: BrowserPort;
+  /**
+   * MCP server 管理面（mcp 批）：mcp 族六命令回口（McpServerPort 连接/
+   * 发现面 + saveMcpServers 配置窄写面；只转发不决策）。可选：未注入 →
+   * 六命令回 command.unimplemented（workspace 先例；stub rig 兼容）。
+   */
+  readonly mcp?: McpCommandDeps;
   /**
    * 合并目录校验面：agent.config model 型 set 前置校验（窄函数
    * 注入 = catalog.hasModel，ModelService.setModel 先例）。
@@ -647,6 +677,31 @@ export class WsServerAdapter {
         return handleWebStop(this.webContext(ws, type));
       case "web.start":
         return handleWebStart(this.webContext(ws, type));
+      // ── mcp 批（MCP server 标准接入六命令；全局命令先例 = web 族）──
+      case "mcp.servers.list":
+        return this.deps.mcp === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleMcpServersList(this.mcpContext(ws, type, payload));
+      case "mcp.servers.add":
+        return this.deps.mcp === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleMcpServersAdd(this.mcpContext(ws, type, payload));
+      case "mcp.servers.update":
+        return this.deps.mcp === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleMcpServersUpdate(this.mcpContext(ws, type, payload));
+      case "mcp.servers.remove":
+        return this.deps.mcp === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleMcpServersRemove(this.mcpContext(ws, type, payload));
+      case "mcp.servers.test":
+        return this.deps.mcp === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleMcpServersTest(this.mcpContext(ws, type, payload));
+      case "mcp.tools.list":
+        return this.deps.mcp === undefined
+          ? this.commandError(ws, type, "command.unimplemented", `命令未装配：${type}`)
+          : handleMcpToolsList(this.mcpContext(ws, type, payload));
       // ── v0.2 model 族（AD-2，契约 C §1；真行为回口。微批：结果帧点对点回执）──
       // case 体机械迁出 handlers/model.ts（语义逐字节等价），此处一行转发（AD-3）
       case "model.set":
@@ -957,6 +1012,30 @@ export class WsServerAdapter {
       ws,
       type,
       browser: this.deps.browser,
+      commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
+      rawSender: () => this.rawSender(ws),
+      sendNow: (sender, frame) => this.sendNow(sender, frame),
+    };
+  }
+
+  /**
+   * mcp 族命令处理上下文（mcp 批）：McpServerPort + 配置窄写面 + 共享
+   * 辅助（本连接绑定，语义 = 本类同名私有方法，机械转发零行为差；
+   * webContext 同构 + payload 携带）。未装配（deps.mcp undefined）在
+   * routeCommand 已拒，此处非空断言安全。
+   */
+  private mcpContext(
+    ws: ServerWebSocket<ConnState>,
+    type: string,
+    payload: Record<string, unknown>,
+  ): McpCommandContext {
+    const mcp = this.deps.mcp!; // routeCommand 已拒绝未装配（同 workspace 先例的前置判空）
+    return {
+      ws,
+      type,
+      payload,
+      mcp: mcp.registry,
+      saveMcpServers: (servers) => mcp.saveServers(servers),
       commandError: (cmdType, code, message) => this.commandError(ws, cmdType, code, message),
       rawSender: () => this.rawSender(ws),
       sendNow: (sender, frame) => this.sendNow(sender, frame),

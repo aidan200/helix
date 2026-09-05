@@ -20,6 +20,7 @@ import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
 import { createPaths, osHomeDir, builtinSkillsDir, type HelixPaths } from "./paths";
 import { ensureConfigTemplate, loadConfig, writeConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
+import { McpRegistry } from "../adapters/driven/mcp/McpRegistry";
 import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
 import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
 import { buildEditToolDeps, buildKnowledgeStack } from "./assembly/buildKnowledgeStack";
@@ -443,6 +444,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   // lazy 连接——装配不触网；homeDir 经 paths.ts 单点取（AG-07：adapter 不直接展开主目录）。
   const browserPort: BrowserPort = deps.browserPort;
 
+  // ── mcp 批：MCP 注册表单例（buildSessionStack 前建——catalog/executor 消费；
+  //    预热与状态广播接线在 sessionStack/eventStream 就绪后（见下方））。
+  //    无条件构造：config 零 server 时空表运行（discoveredTools() → [] 零工具
+  //    零副作用），配置页运行期 add 首个 server 依赖空表可增长——条件构造会
+  //    让「无配置 daemon」的 mcp 命令族整族失效。──
+  const mcpRegistry = new McpRegistry({ logger });
+
   const sessionStack = await buildSessionStack({
     paths,
     config,
@@ -458,6 +466,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     browserPort,
     events: fanoutPublisher,
     publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
+    mcpRegistry,
     backfill,
     engineMode: deps.engineMode,
     mainSessionLlmOverride: deps.mainSessionLlmOverride,
@@ -628,6 +637,37 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     void webStatusPayloadOf(browserPort).then((payload) => eventStream.broadcastWebStatusChanged(payload)),
   );
 
+  // ── mcp 批：MCP 注册表单例 + 启动异步预热（到位即推，不阻塞启动）──
+  //    ① config.mcpServers → 逐 server addServer（独立 try——单 server 失败
+  //       降级 error 状态不阻塞其它）；
+  //    ② 状态订阅双消费：running/error/stopped → mcp.status.changed 全连接
+  //       广播（设置页徽标数据源）；**running 时同步发布 resources.changed
+  //       两 kind**（main-session + subagent-worker）→ refreshAssembly 重算
+  //       catalog（新工具名进生效集）+ 活跃会话 appendTools + setTools 直改
+  //       （下一 turn 生效）；stopped（remove）同样发布（工具面收缩）。
+  //    预热 fire-and-forget：daemon 服务先起，MCP 工具陆续到位。──
+  let mcpShutdown: (() => void) | undefined; // shutdown 钩子（buildDrivingAdapters deps 消费）
+  if (mcpRegistry !== undefined) {
+    const unsubscribeMcpStatus = mcpRegistry.onStatusChange((status) => {
+      eventStream.broadcastMcpStatusChanged({ server: status });
+      if (status.state === "running" || status.state === "stopped") {
+        // catch 兑底：shutdown 窗口的迟到刷新（关库后 status 事件才回流）
+        // 静默降级——unhandled rejection 会击穿测试进程（mcp-ws ③ 实证）
+        sessionStack.refreshAssembly("main-session").catch(() => {});
+        sessionStack.refreshAssembly("subagent-worker").catch(() => {});
+      }
+    });
+    for (const serverConfig of config.mcpServers ?? []) {
+      void mcpRegistry.addServer(serverConfig).catch(() => {
+        // addServer 内部已降级（error 状态 + lastError）——此处兑底不可达路径
+      });
+    }
+    mcpShutdown = () => {
+      unsubscribeMcpStatus();
+      mcpRegistry.stopAll();
+    };
+  }
+
   // ── 旧格式迁移（一次性，幂等）：config.json 含 model/apiKeys →
   //    写新位（auth.json / SQLite 默认表）+ config.json 重写瘦身形态 ──
   if (legacy.model !== undefined || legacy.apiKeys !== undefined) {
@@ -767,12 +807,35 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     subagentLauncher,
     eventStream,
     browserPort,
+    // mcp 批：mcp 族六命令依赖面——registry 单例 + 配置窄写面闭包
+    //（整段替换 config.mcpServers → writeConfig 全字段序列化；readonly →
+    //  可变规范化在此单点，handler 面零类型噪音。config 对象是启动
+    // loadConfig 产物，旧迁移路径同一对象写回——同源无分叉）。
+    mcp: {
+      registry: mcpRegistry,
+      saveServers: (servers) => {
+        config.mcpServers =
+          servers.length > 0
+            ? servers.map((s) => ({
+                name: s.name,
+                command: s.command,
+                ...(s.args !== undefined ? { args: [...s.args] } : {}),
+                ...(s.env !== undefined ? { env: { ...s.env } } : {}),
+                ...(s.cwd !== undefined ? { cwd: s.cwd } : {}),
+                ...(s.enabled !== undefined ? { enabled: s.enabled } : {}),
+                ...(s.timeoutMs !== undefined ? { timeoutMs: s.timeoutMs } : {}),
+              }))
+            : undefined;
+        writeConfig(paths.configPath(), config);
+      },
+    },
     workspace,
     config,
     paths,
     lock,
     logger,
     unsubscribeBrowserStatus,
+    ...(mcpShutdown !== undefined ? { stopMcp: mcpShutdown } : {}),
     port: deps.port,
     staticDir: deps.staticDir,
     tailSize: deps.tailSize,

@@ -52,6 +52,8 @@ const SUBAGENT_BASE_PROMPT = loadPrompt(
 export const SUBAGENT_SYSTEM_PROMPT = SUBAGENT_BASE_PROMPT + "\n\n" + REPORT_ASSEMBLY_GUIDE;
 
 export const SubAgentProfile: AgentProfile = {
+  // mcp 批：全部已发现 MCP server 接入（准入由 server enabled + 工具级 toggle 管控）
+  mcpServers: "*",
   kind: "subagent-worker",
   systemPrompt: SUBAGENT_SYSTEM_PROMPT,
   tools: [

@@ -41,8 +41,9 @@ export class ResourceService implements ResourceConfigPort {
     private readonly deps: {
       readonly store: ResourceStatePort;
       readonly skills: SkillSourcePort;
-      /** kind → tools 全集（组合根从两 profile 声明面构建）。 */
-      readonly toolsCatalog: Readonly<Record<ProfileKind, readonly string[]>>;
+      /** kind → tools 全集（组合根从两 profile 声明面构建；函数形态——
+       * mcp 批：动态拼接 MCP 命名空间工具名，每次调用现拍 McpRegistry 值）。 */
+      readonly toolsCatalog: (kind: ProfileKind) => readonly string[];
       /** 工具名 → 中文一句话 snippet（组合根注入 ToolPromptSnippets 注册表；
        * list 读面向契约 DTO 透传——注册表外名 = 空串）。 */
       readonly toolSnippets: Readonly<Record<string, string>>;
@@ -68,7 +69,7 @@ export class ResourceService implements ResourceConfigPort {
    * （未设 → undefined）。
    */
   async list(kind: ProfileKind): Promise<ResourceConfigBlock> {
-    const tools = this.deps.toolsCatalog[kind].map((name) => ({
+    const tools = this.deps.toolsCatalog(kind).map((name) => ({
       name,
       enabled: this.enabledOf(kind, "tool", name),
       snippet: this.deps.toolSnippets[name] ?? "", // 注册表外名 = 空串（契约面钉非 undefined）
@@ -101,7 +102,7 @@ export class ResourceService implements ResourceConfigPort {
       // builtin 防护：内置技能不进 resource_state（不可禁用）——显式
       // skipped 不落禁用记录；读面恒启用（缺省无记录 = 启用天然覆盖）
       if (skill.source === "builtin") return { status: "skipped", reason: "builtin-immutable" };
-    } else if (!this.deps.toolsCatalog[kind].includes(name)) {
+    } else if (!this.deps.toolsCatalog(kind).includes(name)) {
       return { status: "skipped", reason: "unknown-name" };
     }
     await this.deps.store.upsert(kind, resourceType, name, enabled);
@@ -114,7 +115,7 @@ export class ResourceService implements ResourceConfigPort {
    *（store 读面同步 + write-through，await 的 toggle 落盘后必见新行）。
    */
   getEffectiveTools(kind: ProfileKind): readonly string[] {
-    return this.deps.toolsCatalog[kind].filter((name) => this.enabledOf(kind, "tool", name));
+    return this.deps.toolsCatalog(kind).filter((name) => this.enabledOf(kind, "tool", name));
   }
 
   /** 生效技能集（消费面：提示注入三字段 + source 的完整描述符）。 */

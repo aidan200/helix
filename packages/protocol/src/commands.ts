@@ -819,7 +819,56 @@ export interface DiffGetCommand extends CommandFrame<DiffGetPayload> {
   type: "diff.get";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52；kg.health 批 + kg 评审批：52 → 54；kg.candidates.list 批：54 → 55；base prompt 批：55 → 56；skill-content 批：56 → 57；diff 批：57 → 63） */
+
+// ── mcp 批：MCP server 标准接入（六命令；全局命令信封 sessionId 省略，同 web 族；
+//    契约 = PROTOCOL-CHANGELOG.md §26）──
+
+/** MCP server 配置输入（add/update/test 共用；name 为标识键）。 */
+export interface McpServerInput {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  enabled?: boolean;
+  timeoutMs?: number;
+}
+
+/**
+ * mcp.servers.list 载荷：全部 server 状态读面（全局命令；无参）。
+ * 回执 = mcp.servers.list.result 点对点（TR-AD-21 模式）：配置详情 +
+ * 运行态（status/toolCount/lastError）；状态实时变化经 mcp.status.changed 广播。
+ */
+export interface McpServersListCommand extends CommandFrame<EmptyPayload> {
+  type: "mcp.servers.list";
+}
+
+/** mcp.servers.add 载荷：新增 server（落盘 + 连接 + 发现 + 刷新链）。 */
+export interface McpServersAddCommand extends CommandFrame<McpServerInput> {
+  type: "mcp.servers.add";
+}
+
+/** mcp.servers.update 载荷：按 name 覆盖配置（重连刷新）。 */
+export interface McpServersUpdateCommand extends CommandFrame<McpServerInput> {
+  type: "mcp.servers.update";
+}
+
+/** mcp.servers.remove 载荷：断连 + 摘工具 + 落盘 + 刷新链。 */
+export interface McpServersRemoveCommand extends CommandFrame<{ name: string }> {
+  type: "mcp.servers.remove";
+}
+
+/** mcp.servers.test 载荷：试连（不落盘不接入——配置页「测试连接」）。 */
+export interface McpServersTestCommand extends CommandFrame<McpServerInput> {
+  type: "mcp.servers.test";
+}
+
+/** mcp.tools.list 载荷：指定 server 的工具清单（name/description）。 */
+export interface McpToolsListCommand extends CommandFrame<{ server: string }> {
+  type: "mcp.tools.list";
+}
+
+/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52；kg.health 批 + kg 评审批：52 → 54；kg.candidates.list 批：54 → 55；base prompt 批：55 → 56；skill-content 批：56 → 57；diff 批：57 → 63；mcp 批：63 → 69） */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand
@@ -883,7 +932,13 @@ export type CommandEnvelope =
   | TaskCancelCommand
   | TaskRetryCommand
   | TaskDeleteCommand
-  | DiffGetCommand;
+  | DiffGetCommand
+  | McpServersListCommand
+  | McpServersAddCommand
+  | McpServersUpdateCommand
+  | McpServersRemoveCommand
+  | McpServersTestCommand
+  | McpToolsListCommand;
 
 /** 命令目录常量（运行时可用；与 CommandEnvelope 联合由测试双向一致性守护） */
 export const COMMAND_TYPES = [
@@ -950,6 +1005,12 @@ export const COMMAND_TYPES = [
   "task.retry",
   "task.delete",
   "diff.get",
+  "mcp.servers.list",
+  "mcp.servers.add",
+  "mcp.servers.update",
+  "mcp.servers.remove",
+  "mcp.servers.test",
+  "mcp.tools.list",
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];

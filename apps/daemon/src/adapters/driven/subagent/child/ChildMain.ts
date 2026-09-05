@@ -27,6 +27,9 @@ import { PiAgentEngineAdapter } from "../../pi-engine/PiAgentEngineAdapter";
 import { supportsThinkingLevel } from "../../pi-engine/model-provider";
 import { SubAgentProfile } from "../../pi-engine/runtime/profiles/SubAgentProfile";
 import { CoreToolExecutor, type KgToolOptions } from "../../tools/CoreToolExecutor";
+import { McpRegistry } from "../../mcp/McpRegistry";
+import { createMcpTools } from "../../mcp/mcp-tool";
+import type { McpServerConfig } from "../../mcp/types";
 import { encodeLine, parseParentLine } from "../transport/wire";
 import type { ChildOutboundLine, SendLine, ToolResponseLine } from "../transport/wire";
 import { RemoteBrowserPort } from "./RemoteBrowserPort";
@@ -373,7 +376,7 @@ async function main(): Promise<void> {
   // spawn 快照 env 覆盖（systemPrompt 三段组装产物 + 生效工具集，
   // launch 时刻定格）；缺席回退 SubAgentProfile 静态声明面
   const spawnOverrides = spawnOverridesFromEnv(process.env as Record<string, string | undefined>);
-  const profile: typeof SubAgentProfile = {
+  let profile: typeof SubAgentProfile = {
     ...SubAgentProfile,
     ...(spawnOverrides.systemPrompt !== undefined ? { systemPrompt: spawnOverrides.systemPrompt } : {}),
     ...(spawnOverrides.tools !== undefined ? { tools: spawnOverrides.tools } : {}),
@@ -394,6 +397,35 @@ async function main(): Promise<void> {
   // T1.4：plan 三工具本地栈（AD-6① 全量配给——SubAgentProfile 声明三名；
   // HELIX_DB_PATH 缺席时注册常驻、首调报未装配）
   const workLedger = buildLocalWorkLedgerStack(process.env.HELIX_DB_PATH, instanceId);
+  // mcp 批：子进程自建 McpRegistry（env 透传 server 配置——MCP 工具无
+  // 会话态，各自连各自不做跨进程转发）。await 预热完成才构造 executor：
+  // spawn 快照工具名已含 mcp 命名空间名（父进程 catalog 现拍），
+  // resolveTools 硬校验要求注册表先行就位——时序保证点。
+  // 单 server 失败降级：非 running server 的工具名从 profile.tools 剔除
+  //（工具缺席优于整个 spawn 失败）。
+  const mcpJson = process.env.HELIX_MCP_SERVERS_JSON;
+  const mcpRegistry = new McpRegistry();
+  if (mcpJson !== undefined && mcpJson !== "") {
+    for (const serverConfig of JSON.parse(mcpJson) as McpServerConfig[]) {
+      await mcpRegistry.addServer(serverConfig).catch(() => {
+        // addServer 内部已降级（error 状态）；工具名过滤在下方统一做
+      });
+    }
+  }
+  const runningServers = new Set(
+    mcpRegistry.getStatuses().filter((s) => s.state === "running").map((s) => s.name),
+  );
+  if (runningServers.size > 0) {
+    // 非 running server 的命名空间工具名剔除（`${server}__` 前缀；双下划线
+    // 命名空间为 MCP 专属约定，静态工具名无碰撞）
+    const filteredTools = profile.tools.filter((name) => {
+      const sep = name.indexOf("__");
+      return sep <= 0 || runningServers.has(name.slice(0, sep));
+    });
+    if (filteredTools.length !== profile.tools.length) {
+      profile = { ...profile, tools: filteredTools }; // tools readonly：重建对象
+    }
+  }
   const executor = new CoreToolExecutor({
     cwd: toolCwd,
     browser: remoteBrowser,
@@ -401,6 +433,10 @@ async function main(): Promise<void> {
     kg: kg.tools,
     codegraph,
     plan: workLedger.tools,
+    // mcp 批：预热完成的命名空间工具注入（零 running server → 空数组不注键）
+    ...(runningServers.size > 0
+      ? { mcp: { tools: createMcpTools(mcpRegistry.discoveredTools(), mcpRegistry) } }
+      : {}),
     // T2 turn diff：写前元数据上报线（stdout file-write 行——父侧分派到
     // 归属会话 runtime diff 的 recordExternal）
     writeHook: makeFileWriteReporter(instanceId, toolCwd),
@@ -547,6 +583,7 @@ async function main(): Promise<void> {
   kg.database.closeAll(); // 正常收尾关连接（崩溃路径走 WAL 恢复，无需显式关）
   workLedger.ledger.close(); // T1.4：台账直连连接同单点收尾（惰性未开过 = no-op）
   taskContext?.close(); // T4.2：任务归属解析器直连连接同收尾（惰性未开过 = no-op）
+  mcpRegistry.stopAll(); // mcp 批：MCP server 子进程收尾（零 server = no-op；防孤儿 npx 进程）
   process.exit(0);
 }
 

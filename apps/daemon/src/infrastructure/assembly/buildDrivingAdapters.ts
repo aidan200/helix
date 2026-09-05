@@ -24,7 +24,7 @@ import type { ResourceService } from "../../application/services/ResourceService
 import type { WorkspaceService } from "../../application/services/workspace/WorkspaceService";
 import { ModelService } from "../../application/services/ModelService";
 import { CliAdapter, StdoutEventPublisher } from "../../adapters/driving/cli/CliAdapter";
-import { WsServerAdapter } from "../../adapters/driving/ws-server/WsServerAdapter";
+import { WsServerAdapter, type McpCommandDeps } from "../../adapters/driving/ws-server/WsServerAdapter";
 import type { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import { StaticServe } from "../../adapters/driven/static-serve/StaticServe";
 import type { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
@@ -128,6 +128,11 @@ export interface WsDrivingDeps {
   readonly subagentLauncher: SubagentLauncher | undefined;
   readonly eventStream: EventStream;
   readonly browserPort: BrowserPort;
+  /**
+   * mcp 族命令依赖面（mcp 批）：McpServerPort + 配置窄写面（组合根闭包）。
+   * 可选：未注入 → mcp 六命令回 command.unimplemented（stub rig 兼容）。
+   */
+  readonly mcp?: McpCommandDeps;
   readonly workspace: WorkspaceService;
   readonly config: DaemonConfig;
   readonly paths: HelixPaths;
@@ -135,6 +140,8 @@ export interface WsDrivingDeps {
   readonly logger: Logger;
   /** web.status.changed 广播订阅退订面（shutdown 先退订再 stop）。 */
   readonly unsubscribeBrowserStatus: () => void;
+  /** mcp 批：MCP 注册表收尾（退订状态广播 + stopAll kill 全部 server 子进程）。 */
+  readonly stopMcp?: () => void;
   /** WS 监听端口覆盖（0 = 随机；缺省取 config.port）。 */
   readonly port?: number;
   /** 前端静态产物目录覆盖（缺省取 config.staticDir）。 */
@@ -187,6 +194,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
       registry.sealAll(); // 全部热会话封口（stopped 里程碑 write-through 落盘）
       await deps.subagentLauncher?.dispose(); // O-6 序列回收全部存活子进程（零孤儿）
       deps.unsubscribeBrowserStatus(); // web.status.changed 广播订阅退订（先退订再 stop）
+      deps.stopMcp?.(); // mcp 批：MCP 状态广播退订 + 全部 server 子进程收尾
       await browserPort.stop(); // 关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
       await persistence.writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
       workspace.dispose(); // 停 kg background + .kg per-project 连接全关（库文件保留，T2.1；W1 经持有者）
@@ -239,6 +247,8 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     compactionConfig: persistence.compactionConfig, // config 族命令回口（压缩参数）
     resource: deps.resourceService, // agent.config 命令族回口（契约 v0.6）
     browser: browserPort, // web 族命令族回口（契约 v0.7）
+    // mcp 批：mcp 族六命令回口（未注入 → 回 unimplemented；组合根恒注入）
+    ...(deps.mcp !== undefined ? { mcp: deps.mcp } : {}),
     hasModel: (id) => modelStack.catalog.hasModel(id), // model 型 set 前置校验
     // agent-roster 批：kg-writer 派生面恒在工具（增量常量单源——driving
     // 不得 import driven，经窄数据面注入；list 缺省全量的 system 只读块派生用）

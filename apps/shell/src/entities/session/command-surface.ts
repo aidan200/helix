@@ -20,6 +20,7 @@ import type {
   CodeReviewCreatePayload,
   CommandEnvelope,
   EventEnvelope,
+  McpServerInput,
   KgBootstrapCreatePayload,
   KgCandidatesListPayload,
   KgChangeReportPayload,
@@ -89,6 +90,12 @@ import {
   traceQueryCommand,
   webStartCommand,
   webStopCommand,
+  mcpServersAddCommand,
+  mcpServersListCommand,
+  mcpServersRemoveCommand,
+  mcpServersTestCommand,
+  mcpServersUpdateCommand,
+  mcpToolsListCommand,
   workspaceGetCommand,
   workspaceOpenCommand,
 } from "@/shared/api/commands";
@@ -417,6 +424,26 @@ export const COMMAND_SURFACE = {
   sendWebStart: (deps) =>
     () => deps.send(webStartCommand()),
 
+  // ── mcp 族六命令面（mcp 批：MCP server 标准接入；设置页 MCP 分区）──
+  /** 发送 mcp.servers.list（配置+运行态读面；点对点回执）。 */
+  sendMcpServersList: (deps) =>
+    () => deps.send(mcpServersListCommand()),
+  /** 发送 mcp.servers.add（新增 server；applied/connect_failed 两判别回执）。 */
+  sendMcpServersAdd: (deps) =>
+    (payload: McpServerInput) => deps.send(mcpServersAddCommand(payload)),
+  /** 发送 mcp.servers.update（按 name 覆盖重连）。 */
+  sendMcpServersUpdate: (deps) =>
+    (payload: McpServerInput) => deps.send(mcpServersUpdateCommand(payload)),
+  /** 发送 mcp.servers.remove（断连+落盘；stopped 广播经 mcp.status.changed）。 */
+  sendMcpServersRemove: (deps) =>
+    (payload: { name: string }) => deps.send(mcpServersRemoveCommand(payload)),
+  /** 发送 mcp.servers.test（试连不落盘；applied/failed 两判别）。 */
+  sendMcpServersTest: (deps) =>
+    (payload: McpServerInput) => deps.send(mcpServersTestCommand(payload)),
+  /** 发送 mcp.tools.list（指定 server 工具清单）。 */
+  sendMcpToolsList: (deps) =>
+    (payload: { server: string }) => deps.send(mcpToolsListCommand(payload)),
+
   // ── kg 族六命令面（iter-20260825-11fo T5.4，P-1 图谱页；连接私有读面）──
   /** 发送 kg.projects（左栏项目列表；点对点回执；send 失败返回 false）。 */
   sendKgProjects: (deps) =>
@@ -586,6 +613,14 @@ export const LISTEN_SURFACE = {
       type === "workspace.open.result" ||
       type === "workspace_changed" ||
       type === "connection.error",
+  },
+  /** 订阅 mcp 族帧（mcp.*.result 点对点回执 + mcp.status.changed 全局
+   *  广播 + connection.error——写面在途错误判定，页面单飞门控消费）。 */
+  subscribeMcpFrames: {
+    match: (type) =>
+      type === "mcp.status.changed" ||
+      type === "connection.error" ||
+      (type.startsWith("mcp.") && type.endsWith(".result")),
   },
 } satisfies Record<string, ListenDomainSpec>;
 

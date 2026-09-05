@@ -293,11 +293,11 @@ Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重�
 > **§10–§14（v0.1–v0.4 演进登记与微批备案）已迁 PROTOCOL-CHANGELOG.md**
 >（原节号保留——下文节号自 §9 直接跳至 §15 即此迁移痕迹，非缺节）。
 
-## 15. 命令 payload 形状总登记（C→S，63 命令全集）
+## 15. 命令 payload 形状总登记（C→S，69 命令全集）
 
-> **计数声明：63 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 7〔含 skill-content 批 1〕 +
+> **计数声明：69 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 7〔含 skill-content 批 1〕 +
 > 15.4 model 7 + config 2 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
-> 15.9 kg 6+5+2+1+1+1+1 + 15.10 workspace 2 + 15.11 task 10 + 15.12 diff 1）——与 `COMMAND_TYPES` 常量恰等
+> 15.9 kg 6+5+2+1+1+1+1 + 15.10 workspace 2 + 15.11 task 10 + 15.12 diff 1 + 15.13 mcp 6）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
 > 文档与其逐项对齐（AD-1）；仓外契约文档降为历史定形档案（§17.1）。
@@ -1106,12 +1106,83 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 | `turnId` | `string` | 可选 | diff 批 | 目标冻结轮 id（缺省 = 最近冻结轮；live=true 时忽略） |
 | `live` | `boolean` | 可选 | diff 批 | true = 进行中轮实时视图；缺省 = 冻结视图 |
 
-## 16. 事件 payload 形状总登记（S→C，80 事件全集）
+### 15.13 mcp 族（6；mcp 批：MCP server 标准接入）
 
-> **计数声明：80 事件全集**（16.1 notification 3〔含 task.changed〕 +
-> 16.2 session 6〔含 main-session plan 批 session.plan.changed + diff 批 diff.changed〕 +
+MCP server 管理面（PROTOCOL-CHANGELOG.md §27）。全部全局命令（信封
+sessionId 省略，同 web 族）；CRUD 写面回执点对点，工具面生效经既有
+resources.changed 刷新链（不在 mcp 族重复广播），运行态变化经
+`mcp.status.changed` 广播。`McpServerInput` = `{name, command, args?,
+env?, cwd?, enabled?, timeoutMs?}`（add/update/test 共用）。
+
+#### `mcp.servers.list`
+
+全部 server 状态读面（配置详情 + 运行态合并行）。回执 =
+`mcp.servers.list.result` 点对点（§16.11）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| （无字段） | `EmptyPayload` | — | mcp 批 | 空载荷 |
+
+#### `mcp.servers.add`
+
+新增 server：落盘（config mcpServers 段）→ 连接 → tools/list 发现 →
+命名空间工具接入（`${server}__${tool}`）→ 刷新链。连接失败不回滚配置
+（回执 connect_failed，server 状态 error 可重试）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `name` | `string` | 必填 | mcp 批 | server 标识键（工具命名空间前缀） |
+| `command` | `string` | 必填 | mcp 批 | 启动命令（stdio） |
+| `args` | `string[]` | 可选 | mcp 批 | 启动参数 |
+| `env` | `Record<string, string>` | 可选 | mcp 批 | 子进程环境变量 |
+| `cwd` | `string` | 可选 | mcp 批 | 工作目录 |
+| `enabled` | `boolean` | 可选 | mcp 批 | 缺省 true |
+| `timeoutMs` | `number` | 可选 | mcp 批 | 请求超时（缺省 30000） |
+
+#### `mcp.servers.update`
+
+按 name 覆盖配置（重连刷新；工具集重新发现）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| 同 `mcp.servers.add`（`McpServerInput`） | | | mcp 批 | name 为定位键 |
+
+#### `mcp.servers.remove`
+
+断连 + 摘除该 server 全部命名空间工具 + 落盘 + 刷新链。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `name` | `string` | 必填 | mcp 批 | 目标 server |
+
+#### `mcp.servers.test`
+
+试连（不落盘不接入——配置页「测试连接」按钮）：连接 → tools/list →
+断开，回执工具数。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| 同 `mcp.servers.add`（`McpServerInput`） | | | mcp 批 | name 仅用于回执 |
+
+#### `mcp.tools.list`
+
+指定 server 的已发现工具清单（name 为命名空间后全名）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `server` | `string` | 必填 | mcp 批 | 目标 server |
+
+## 16. 事件 payload 形状总登记（S→C，86 事件全集）
+
+> **计数声明：86 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> 16.2 session 5〔含 main-session plan 批 session.plan.changed〕 +
+
+## 16. 事件 payload 形状总登记（S→C，87 事件全集）
+
+> **计数声明：87 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> 16.2 session 6〔含 main-session plan 批 session.plan.changed + diff 批 diff.changed〕 + 16.11 mcp 7〔mcp 批：六 result + status.changed〕 +
 > 16.3 chat 12〔含 engine.retrying 网络重试批 + error entry 批 error.entry〕 + 16.4 agent 16〔含 park/resume 批 2 + base prompt 批 1 + skill-content 批 1〕 + 16.5 thinking·compaction·usage 5 +
-> 16.6 model 13 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1+1 + 16.10 workspace 3
+> 16.6 model 13 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1+1 + 16.10 workspace 3 + 16.11 mcp 7
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
 > 子节划分 == `src/events/` 族文件划分 == `EVENT_CHANNELS` 通道值域
 >（三面同构，守护断言⑤口径）；auth 族 4 结果帧按 `EVENT_CHANNELS` 登记挂
@@ -1956,6 +2027,68 @@ kg.review.create.result 同形）。
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `root` | `string` | 必填 | workspace 批 | 变更后绑定根（规范形） |
+
+### 16.11 mcp 族（7；mcp 批：MCP server 标准接入）
+
+MCP server 管理/运行态帧（PROTOCOL-CHANGELOG.md §26）。全部信封
+sessionId = SYSTEM_SESSION_ID（全局命令点对点回执 + 全连接广播，
+与 web 族同构）；Channel = `mcp`。六 result 帧 + 一广播帧。
+
+#### `mcp.servers.list.result`
+
+server 清单读面回执（点对点；配置详情 + 运行态合并行）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `servers` | `{ config: McpServerConfigDto, status: McpServerStatusDto }[]` | 必填 | mcp 批 | 全部 server（含 enabled=false） |
+
+#### `mcp.servers.add.result`
+
+CRUD 写面回执（点对点；两判别：applied = 落盘+接入完成；connect_failed =
+配置已落盘但连接失败，state=error 可重试）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `status` | `"applied" \| "connect_failed"` | 必填 | mcp 批 | 写面判别 |
+| `server` | `McpServerStatusDto`（`{name, state, toolCount?, lastError?}`） | 可选 | mcp 批 | 变更后运行态 |
+| `error` | `string` | 可选 | mcp 批 | connect_failed 原因 |
+
+#### `mcp.servers.update.result`
+
+同 `mcp.servers.add.result` 形状（按 name 覆盖重连刷新）。
+
+#### `mcp.servers.remove.result`
+
+同 `mcp.servers.add.result` 形状（断连摘工具；恒 applied）。
+
+#### `mcp.servers.test.result`
+
+试连回执（点对点；不落盘不接入）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `status` | `"applied" \| "failed"` | 必填 | mcp 批 | 试连判别 |
+| `toolCount` | `number` | 可选 | mcp 批 | 试连发现工具数 |
+| `error` | `string` | 可选 | mcp 批 | 失败原因 |
+
+#### `mcp.tools.list.result`
+
+指定 server 工具清单回执（点对点）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `server` | `string` | 必填 | mcp 批 | 目标 server |
+| `tools` | `McpToolInfoDto[]`（`{name, description}`；name = `${server}__${tool}` 命名空间全名） | 必填 | mcp 批 | 已发现工具 |
+
+#### `mcp.status.changed`
+
+server 状态迁移广播（connecting → running/error/stopped 单 server 粒度；
+SYSTEM_SESSION_ID 全连接下发——设置页徽标实时数据源，
+web.status.changed 同构）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `server` | `McpServerStatusDto` | 必填 | mcp 批 | 迁移后运行态 |
 
 ## 17. SoT 声明与守护口径（v0.5 收口）
 

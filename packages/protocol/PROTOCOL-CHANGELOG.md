@@ -926,3 +926,26 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 > - 内存态边界（T2 既定决策）：diff 全内存零落盘——daemon 重启/会话
 >   卸载即丢，快照不重建 diff；新一轮开轮即清零（前端 chat.turn.started
 >   清零重计，diff.changed{cleared} 同源双保险）。
+
+## 27. mcp 批（MCP server 标准接入：mcp 命令族 + 状态广播；v0.11 后 additive 微批——版本位不 bump）
+
+> 本批为 daemon 侧 MCP（Model Context Protocol）标准接入能力的协议面：
+> config 声明任意 MCP server（stdio）→ daemon 异步连接 → `tools/list` 动态
+> 发现 → 命名空间工具（`${server}__${tool}`）接入 agent 工具面（CoreToolExecutor
+> 第九族注入 + resources.changed 既有刷新链）。**版本位不 bump**
+>（`PROTOCOL_VERSION = "0.11"` 保持）：全部为新增命令/事件（additive 纪律，
+> §24/§25 同构先例）。
+>
+> - **6 命令**（§15.13，全部全局命令）：`mcp.servers.list`（状态读面）/
+>   `mcp.servers.add` / `mcp.servers.update` / `mcp.servers.remove`（CRUD 写面，
+>   落盘 + 连接/断连 + 刷新链）/ `mcp.servers.test`（试连不落盘）/
+>   `mcp.tools.list`（工具清单）；payload 共用 `McpServerInput`
+>   （name/command/args?/env?/cwd?/enabled?/timeoutMs?）。
+> - **7 事件**（§16.11，Channel = `mcp` 新通道值）：六个 `.result` 点对点
+>   回执（TR-AD-21 模式）+ `mcp.status.changed` 状态迁移广播
+>   （connecting→running/error/stopped，web.status.changed 同构）。
+> - 工具面生效（agent 工具清单变化）**不在本族重复广播**——经既有
+>   `resources.changed` → `agent.config.changed` 刷新链（单一事件源纪律）。
+> - 计数演进：命令 63 → 69；事件 80 → 87（守护断言同步扩；diff 批 §26 之后）。
+> - 非法 payload（name/command 缺失、remove 目标不存在等）→
+>   `connection.error{command.invalid_payload}`（连接保持）。
