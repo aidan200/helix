@@ -17,11 +17,15 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   // 通用工具优先级（裁决：专用工具优先，bash 兑底——修改首选 edit、新建
   // 用 write、搜索首选 grep、查看首选 read；bash 在专用工具覆盖不到或
   // 综合性能/边界考量后更适合时才用）
-  bash: "兑底执行面——专用工具（read/write/edit/grep 等）覆盖不到、或综合性能/边界考量后 shell 更适合时才用",
+  bash:
+    "兑底执行面——专用工具（read/write/edit/grep 等）覆盖不到、或综合性能/边界考量后 shell 更适合时才用；" +
+    "跨文件检索勿用 shell 内 grep/rg（系统二进制：正则语义、无截断无超时保护），一律走专用 grep 工具，仅管道/计数等组合场景例外",
   read: "读取文件内容（文本或图片）——查看文件的首选",
   write: "新建文件或整体覆写——创建文件用它；局部修改优先 edit",
   edit: "修改已有文件的首选——按精确文本匹配做字符串替换编辑",
-  grep: "搜索文件内容的首选——跨文件子串检索并列出匹配行（非正则）", // H11：实现是 --fixed-strings 子串语义，原文案误导为正则
+  grep:
+    "搜索文件内容的首选——跨文件子串检索（底层 ripgrep；非正则，元字符按字面解释）；" +
+    "path 相对会话目录（多项目 workspace 即其根，跨项目带项目目录前缀，无需先 cd）", // H11：实现是 --fixed-strings 子串语义，原文案误导为正则
   web_search: "联网搜索（DuckDuckGo 主/Bing 兜底），返回标题/链接/摘要列表",
   web_fetch: "抓取网页并转为 Markdown 返回（直连主通道，Jina 备选）",
   agent_spawn: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）",

@@ -36,8 +36,12 @@ const MAX_GREP_CHARS = 50 * 1024;
 const grepParameters = {
   type: "object",
   properties: {
-    pattern: { type: "string", description: "搜索的子串（区分大小写，除非 ignoreCase）" },
-    path: { type: "string", description: "搜索起点：文件或目录（相对当前工作目录）" },
+    pattern: { type: "string", description: "搜索的子串（字面匹配——正则元字符不解释；区分大小写，除非 ignoreCase）" },
+    path: {
+      type: "string",
+      description:
+        "搜索起点：文件或目录（相对会话工作目录——多项目 workspace 即其根；跨项目检索带项目目录前缀或用绝对路径，无需先 cd）",
+    },
     glob: { type: "string", description: "文件路径过滤 glob（* 可跨目录，如 *.ts）" },
     ignoreCase: { type: "boolean", description: "忽略大小写（默认 false）" },
   },
@@ -74,9 +78,12 @@ export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<Execut
     name: "grep",
     label: "grep",
     description:
-      "在指定文件或目录内递归搜索文本（子串匹配），返回命中行（格式 path:行号: 行内容）。" +
-      "可用 glob 过滤文件（* 可跨目录）、ignoreCase 忽略大小写。跳过 node_modules 与 .git。" +
-      "单次检索有超时上限；超大目录建议收窄 path 或加 glob 过滤。",
+      "在指定文件或目录内递归搜索文本（底层 ripgrep），返回命中行（格式 path:行号: 行内容）。" +
+      "pattern 为字面子串匹配——正则元字符（. * [ ] ( ) | 等）不解释、不报错但匹配不到；" +
+      "可用 glob 过滤文件（* 可跨目录）、ignoreCase 忽略大小写。" +
+      "path 相对会话工作目录（多项目 workspace 即其根）解析，跨项目带项目目录前缀或绝对路径，无需先 cd。" +
+      "跨文件检索勿在 bash 中改用系统 grep（BSD/GNU 正则语义、无截断无超时保护），仅管道/计数等组合场景除外。" +
+      "跳过 node_modules 与 .git。单次检索有超时上限；超大目录建议收窄 path 或加 glob 过滤。",
     parameters: grepParameters as any,
     async execute(toolCallId, params, signal, _onUpdate, context): Promise<AgentToolResult<undefined>> {
       void toolCallId;
