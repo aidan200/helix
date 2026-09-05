@@ -99,9 +99,6 @@ const ChatPage = function ChatPage() {
             {/* P-1s 切换两阶段：loading 骨架（CSS 门控 data-view，与
                 success 内容互斥） */}
             <RestoreSkeleton />
-            {/* T3+T4 diff 批：轮次 diff 详情窗（conn-overlay 同族——锚
-                .msg-flow-wrap 盖整个对话区，不随滚动） */}
-            {diffOverlayOpen && <DiffOverlay onClose={() => setDiffOverlayOpen(false)} />}
           </MessageFlow>
           {/* T1 chat 状态行：消息流与 composer 之间的常驻条（高度恒定、无条件
               渲染）；三槽收拢原浮动钉位件——左 SteerQueueDock / 中 diff 预留 /
@@ -110,6 +107,10 @@ const ChatPage = function ChatPage() {
           {/* P-1 composer + foot 右侧推理强度 picker（thinking 批 T2.1；
               pages 层装配注入——AG-15 FSD 同层禁互引） */}
           <Composer ref={composerRef} footEnd={<ComposerThinkingPicker />} />
+          {/* 轮次 diff 详情窗（浮窗批 v2）：fixed 视口层（lightbox 同族）——
+              挂 .app 直系而非 msg-flow-wrap 内，流式期 banner/composer 推挤
+              布局时浮窗位置稳定不随 wrap 动 */}
+          {diffOverlayOpen && <DiffOverlay onClose={() => setDiffOverlayOpen(false)} />}
         </div>
       </Workbench>
       {/* P-2 抽屉：页内 overlay（非路由）；衬底 = 真实 P-1 弱化（data-drawer 门控） */}

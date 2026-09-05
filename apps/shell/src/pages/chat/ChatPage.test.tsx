@@ -287,4 +287,21 @@ describe("diff 详情窗残影修复（v0.3.1 §29）", () => {
     );
     expect(document.querySelector('[data-testid="diff-overlay"]')).toBeNull();
   });
+
+  it("overlay 挂载于 .app 根级（fixed 视口层——lightbox 同族），不受对流式布局推挤影响", () => {
+    stateRef.current = {
+      ...createInitialSessionState(),
+      sessionId: "s1",
+      conn: "connected",
+      view: "ready",
+      diff: { turnId: "t-1", phase: "frozen", adds: 1, dels: 0, fileCount: 1 },
+    };
+    ui();
+    fireEvent.click(document.querySelector('[data-testid="diff-stat-chips"]')!);
+    const overlay = document.querySelector('[data-testid="diff-overlay"]')!;
+    expect(overlay).not.toBeNull();
+    // 挂载于 .app 根级而非 .msg-flow-wrap 内（流式期 wrap 高度被 banner/composer 推挤时浮窗不动）
+    expect(overlay.closest(".msg-flow-wrap")).toBeNull();
+    expect(overlay.closest(".app")).not.toBeNull();
+  });
 });

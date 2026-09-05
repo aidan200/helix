@@ -952,7 +952,7 @@ html.light .bubble code.inline { color: var(--accent); }
   .hud-dot-pulse, .stream-cursor, .empty-cursor, .empty-await,
   .t-spinner, .conn-spinner, .scanline-overlay, .steer-badge .q-dot, .steer-hint .q-dot,
   .stats-btn .sb-flash { animation: none !important; }
-  .msg, .tool-card, .conn-banner, .toast, .t-body, .sa-card, .stats-pop, .flow-body { animation: none !important; }
+  .msg, .tool-card, .conn-banner, .toast, .t-body, .sa-card, .stats-pop, .flow-body, .diff-panel { animation: none !important; }
 }
 
 /* 窄屏折叠：气泡放宽、模型徽标隐藏 */
@@ -966,20 +966,28 @@ html.light .bubble code.inline { color: var(--accent); }
   .stats-pop { top: 52px; }
 }
 
-/* ═══ T3+T4 diff 批：DiffOverlay 详情覆盖窗（conn-overlay 同族——锚
- * .msg-flow-wrap absolute inset-0 盖整个对话区，不随滚动）═══ */
+/* ═══ 轮次 diff 详情覆盖窗（浮窗批 v2）：fixed 视口层（lightbox 同族
+ * z-90）——不锚 msg-flow-wrap，流式期布局推挤不影响浮窗位置；
+ * 面板走全站浮层玻璃语言（stats-pop 同款：popover-fill + blur14 sat120）═══ */
 .diff-overlay {
-  position: absolute; inset: 0; z-index: 12;
+  position: fixed; inset: 0; z-index: 90;
   display: flex; align-items: stretch; justify-content: center;
-  background: rgb(var(--void-rgb) / 0.66);
-  backdrop-filter: blur(2px);
-  padding: 26px 30px;
+  background: rgb(var(--void-rgb) / 0.72);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  padding: 40px 48px;
 }
 .diff-panel {
   display: flex; flex-direction: column; min-width: 0; width: 100%;
-  background: var(--panel-solid); border: 1px solid rgb(var(--accent-rgb) / 0.14);
-  border-radius: 12px; overflow: hidden;
-  box-shadow: 0 14px 44px rgb(0 0 0 / 0.32);
+  background: var(--popover-fill);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  box-shadow: var(--shadow-pop);
+  animation: diff-panel-in 0.18s ease-out;
+}
+@keyframes diff-panel-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.99); }
+  to { opacity: 1; transform: none; }
 }
 .diff-head {
   flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
@@ -1035,13 +1043,14 @@ html.light .bubble code.inline { color: var(--accent); }
   flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 10.5px; color: var(--text-faint);
 }
-/* 右：unified diff 渲染（daemon 产文本，前端纯着色） */
+/* 右：unified diff 渲染（daemon 产文本，前端纯着色）——
+   add/del 行底色块 + 左缘 2px 标记条（HUD 语言下的行可读性） */
 .diff-view {
-  flex: 1 1 auto; min-width: 0; margin: 0; padding: 10px 14px;
+  flex: 1 1 auto; min-width: 0; margin: 0; padding: 10px 0;
   overflow: auto; font-family: var(--font-mono);
   font-size: 11.5px; line-height: 1.55; color: var(--text-muted); white-space: pre;
 }
-.diff-view .dl-add { display: block; color: var(--success); }
-.diff-view .dl-del { display: block; color: var(--error); }
-.diff-view .dl-hunk { display: block; color: var(--accent); opacity: 0.8; }
-.diff-view .dl-ctx { display: block; color: var(--text-dim); }
+.diff-view .dl-add { display: block; color: var(--success); background: rgb(var(--success-rgb) / 0.09); box-shadow: inset 2px 0 0 var(--success); padding-left: 14px; }
+.diff-view .dl-del { display: block; color: var(--error); background: rgb(var(--error-rgb) / 0.09); box-shadow: inset 2px 0 0 var(--error); padding-left: 14px; }
+.diff-view .dl-hunk { display: block; color: var(--accent); opacity: 0.8; padding-left: 14px; }
+.diff-view .dl-ctx { display: block; color: var(--text-dim); padding-left: 14px; }

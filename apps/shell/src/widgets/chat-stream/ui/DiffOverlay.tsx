@@ -1,8 +1,9 @@
 /**
  * DiffOverlay（T3+T4 diff 批）——轮次 diff 详情覆盖窗（盖 chat 对话区）。
  *
- * 挂载位：ChatPage 经 MessageFlow children 注入（conn-overlay 同族——
- * .msg-flow-wrap 定位上下文，absolute inset-0 不随滚动，E-89 纪律之外层）。
+ * 挂载位（浮窗批 v2）：ChatPage .app 直系末尾（lightbox 同族 fixed 视口层）
+ * ——fixed inset-0 不锚 msg-flow-wrap，流式期布局推挤（banner/composer
+ * 撑高）不影响浮窗位置。
  *
  * 查询链（trace 族点对点回执同构）：挂载即发 diff.get（live 旗标随开窗时
  * state.diff.phase：active → 进行中轮实时视图；frozen/null → 冻结视图）；
