@@ -614,7 +614,9 @@ function SystemProfileCard({
       {/* base prompt 批：base 段系统提示词查看区（工具清单正上方） */}
       {basePrompt}
 
-      {/* 工具清单：纯展示（无开关；行 = 名称 + snippet；恒在行带徽标） */}
+      {/* 工具清单：纯展示（无开关；行 = 名称 + snippet；恒在行带徽标）。
+          MCP 命名空间工具（`${server}__*`）不进本清单——归下方 MCP 分组区
+          （渲染同构修复批：与可配置卡的 __ 过滤同构，不再平铺混杂） */}
       <div className="ag-group">
         <h3 className="ag-group-label">{t("agents.toolsLabel")}</h3>
         {block === null ? (
@@ -627,7 +629,7 @@ function SystemProfileCard({
             ))}
           </div>
         ) : (
-          block.tools.map((tool) => {
+          block.tools.filter((tool) => !tool.name.includes("__")).map((tool) => {
             const pinned = block.pinnedTools?.includes(tool.name) ?? false;
             return (
               <div className="ag-row ag-ro-row" data-ro-tool-row={tool.name} key={tool.name}>
@@ -645,30 +647,55 @@ function SystemProfileCard({
           })
         )}
       </div>
-      {/* 只读 MCP 面（同轨批：三系统卡同构）：运行态行 + 缺省禁
-          徽标——全 kind 显式启用制默认禁，系统 kind 写面只读恒关（无开关） */}
-      {block !== null && (block.mcpServers ?? []).length > 0 && (
-        <div className="ag-group" data-ro-mcp-group>
-          <h3 className="ag-group-label">{t("agents.mcpLabel")}</h3>
-          <p className="ag-note" data-ro-mcp-note>{t("agents.mcpNoteOrch")}</p>
-          {(block.mcpServers ?? []).map((server) => (
-            <div className="ag-row ag-ro-row" data-ro-mcp-row={server.name} key={server.name}>
-              <div className="ag-row-main">
-                <span className="ag-name">{server.name}</span>
-                <span className="ag-desc">{t("agents.mcpToolCount", { count: server.toolCount ?? 0 })}</span>
-              </div>
-              <span className={cn("mcp-state", server.state === "running" && "mcp-state-ok", server.state === "error" && "mcp-state-err")} data-mcp-state={server.state}>
-                {t(`agents.mcpState.${server.state}`)}
-              </span>
-              {!server.enabled && (
-                <span className="hud-chip" data-ro-mcp-off>
-                  {t("agents.mcpOffChip")}
-                </span>
-              )}
+      {/* 只读 MCP 面（渲染同构修复批）：与可配置卡同构的分组形态——
+          server 组行（运行态 + 缺省禁徽标，无开关）+ 组内工具行（纯展示、
+          名称去命名空间前缀）；空态同构（无 server → 空态提示非隐藏）。
+          全 kind 显式启用制默认禁，系统 kind 写面只读恒关（无开关） */}
+      <div className="ag-group" data-ro-mcp-group>
+        <h3 className="ag-group-label">{t("agents.mcpLabel")}</h3>
+        <p className="ag-note" data-ro-mcp-note>{t("agents.mcpNoteOrch")}</p>
+        {block === null ? (
+          <div className="ag-skel" aria-hidden="true">
+            <div className="ag-skel-row">
+              <span className="ag-skel-bar" style={{ width: 110 }} />
+              <span className="ag-skel-bar" style={{ width: "42%" }} />
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        ) : (block.mcpServers ?? []).length === 0 ? (
+          <p className="ag-empty-hint" data-mcp-empty>{t("agents.mcpEmpty")}</p>
+        ) : (
+          (block.mcpServers ?? []).map((server) => {
+            const prefix = `${server.name}__`;
+            const serverTools = (block.tools ?? []).filter((tool) => tool.name.startsWith(prefix));
+            return (
+              <div data-ro-mcp-server={server.name} key={server.name}>
+                <div className="ag-row ag-ro-row" data-ro-mcp-row={server.name}>
+                  <div className="ag-row-main">
+                    <span className="ag-name">{server.name}</span>
+                    <span className="ag-desc">{t("agents.mcpToolCount", { count: server.toolCount ?? serverTools.length })}</span>
+                  </div>
+                  <span className={cn("mcp-state", server.state === "running" && "mcp-state-ok", server.state === "error" && "mcp-state-err")} data-mcp-state={server.state}>
+                    {t(`agents.mcpState.${server.state}`)}
+                  </span>
+                  {!server.enabled && (
+                    <span className="hud-chip" data-ro-mcp-off>
+                      {t("agents.mcpOffChip")}
+                    </span>
+                  )}
+                </div>
+                {serverTools.map((tool) => (
+                  <div className="ag-row ag-row-sub ag-ro-row" data-ro-mcp-tool-row={tool.name} key={tool.name}>
+                    <div className="ag-row-main">
+                      <span className="ag-name">{tool.name.slice(prefix.length)}</span>
+                      <span className="ag-desc" title={tool.snippet}>{tool.snippet}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })
+        )}
+      </div>
       {/* 技能清单（同轨批）：纯展示行 + 正文查看——
           orchestrator = 任务 SOP 注册表（kickoff 全文注入的消费面）；
           kg-writer/reviewer = 只读启停面（显式启用制默认全关；系统 kind

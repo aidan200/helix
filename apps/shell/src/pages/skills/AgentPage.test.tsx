@@ -86,6 +86,10 @@ const ORCH_SYSTEM_BLOCK: AgentConfigSystemBlock = {
   tools: [
     { name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" },
     { name: "kg", snippet: "查询项目知识图谱（只读）" },
+    // MCP 命名空间工具行（渲染同构修复批 fixture：daemon 侧 MCP 声明面全开
+    // 后系统块 tools 会携带——验证不进工具清单、进 MCP 分组区）
+    { name: "shadcn__button", snippet: "shadcn button 组件装载" },
+    { name: "shadcn__dialog", snippet: "shadcn dialog 组件装载" },
   ],
   // 任务 SOP 注册表纯展示行（无启停位——非「禁用」语义）
   skills: [
@@ -389,6 +393,13 @@ describe("智能体页组件（M6 T4）", () => {
     // 只读 MCP 面：运行态行 + 缺省禁徽标（变相禁用展示，无开关）
     expect(orchCard.querySelector('[data-ro-mcp-row="shadcn"]')!.textContent).toContain("shadcn");
     expect(orchCard.querySelector('[data-ro-mcp-row="shadcn"] [data-ro-mcp-off]')!.textContent).toContain("整组关闭");
+    // 渲染同构修复：MCP 命名空间工具不进工具清单（__ 过滤）——归 MCP 分组区
+    expect(orchCard.querySelector('[data-ro-tool-row="shadcn__button"]')).toBeNull();
+    // 组内工具行：去命名空间前缀展示 + 纯展示无开关
+    const mcpToolRow = orchCard.querySelector('[data-ro-mcp-tool-row="shadcn__button"]')!;
+    expect(mcpToolRow).not.toBeNull();
+    expect(mcpToolRow.textContent).toContain("button");
+    expect(mcpToolRow.querySelector("[data-switch]")).toBeNull();
     // kg-writer：派生说明位 + kg-update 恒在徽标
     act(() => selectAgent("subagent-kg-writer"));
     const kgwCard = document.querySelector('[data-agent-card="subagent-kg-writer"]')!;
