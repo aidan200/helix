@@ -176,57 +176,53 @@ describe("agent.config 事件族 payload（v0.6）", () => {
     derivedFrom: "subagent-worker",
     pinnedTools: ["kg-update"],
   };
-  const _systemOrchestrator: AgentConfigSystemBlock = {
-    profileKind: "orchestrator",
-    tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务" }],
+  // 统一启停批：orchestrator 升格可配置 kind（撤出 system 块——进 profiles 第三块）
+  const _systemReviewer: AgentConfigSystemBlock = {
+    profileKind: "subagent-code-reviewer",
+    tools: [{ name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" }],
+    derivedFrom: "subagent-worker",
   };
-  // @ts-expect-error 只读块 profileKind 只接受 orchestrator/subagent-kg-writer（可编辑 kind 编译期拒绝）
-  const _systemBadKind: AgentConfigSystemBlock = { profileKind: "main-session", tools: [] };
+  // @ts-expect-error 只读块 profileKind 只接受派生两 kind（orchestrator/可编辑 kind 编译期拒绝）
+  const _systemBadKind: AgentConfigSystemBlock = { profileKind: "orchestrator", tools: [] };
   // @ts-expect-error derivedFrom 只接受 subagent-worker（派生说明位单一事实源）
-  const _systemBadDerived: AgentConfigSystemBlock = { profileKind: "orchestrator", tools: [], derivedFrom: "orchestrator" };
-  // 系统派生块技能读面批：skills 可选携带（五字段纯展示行）；缺省不携带合法
+  const _systemBadDerived: AgentConfigSystemBlock = { profileKind: "subagent-kg-writer", tools: [], derivedFrom: "orchestrator" };
+  // 派生块技能读面批：skills 可选携带（五字段纯展示行）；缺省不携带合法
   const _systemSkillRow: AgentConfigSystemBlock = {
-    profileKind: "orchestrator",
+    profileKind: "subagent-kg-writer",
     tools: [],
-    skills: [{ name: "code-review", description: "评审", filePath: "/task/code-review/SKILL.md", source: "builtin", audience: "task" }],
+    skills: [{ name: "plan-workflow", description: "台账", filePath: "/agent/plan-workflow/SKILL.md", source: "builtin", audience: "agent" }],
   };
-  const _systemNoSkills: AgentConfigSystemBlock = { profileKind: "orchestrator", tools: [] };
+  const _systemNoSkills: AgentConfigSystemBlock = { profileKind: "subagent-kg-writer", tools: [] };
   // @ts-expect-error 系统块技能行无启停位（enabled 是可编辑块的字段——纯展示行编译期拒绝；单行字面量让指令锚在报错行）
-  const _systemSkillBadRow: AgentConfigSystemBlock = { profileKind: "orchestrator", tools: [], skills: [{ name: "x", description: "x", filePath: "/x", source: "builtin", audience: "task", enabled: true }] };
+  const _systemSkillBadRow: AgentConfigSystemBlock = { profileKind: "subagent-kg-writer", tools: [], skills: [{ name: "x", description: "x", filePath: "/x", source: "builtin", audience: "agent", enabled: true }] };
   // 错误码登记：只读 kind 写面拒绝码
   const _readOnlyCode: ErrorCode = "agent.config.read_only";
 
-  test("system 只读块（additive）：list.result.system 双块形态 + profiles 两形态不变（缺省不携带 system）", () => {
+  test("system 只读派生块（统一启停批）：system 双块（kg-writer/reviewer）+ profiles 三块（orchestrator 升格）", () => {
     // 旧形态零变化：system 未携带（additive——旧客户端不感知）
     expect(agentConfigListResult.payload.system).toBeUndefined();
     expect(agentConfigListResult.payload.profiles).toHaveLength(2);
-    // 新形态：双可编辑块 + 双只读块（orchestrator 在前）；kg-writer 携带派生说明位与恒在工具
-    const system = agentConfigListResultSystem.payload.system!;
+    // 新形态：三可编辑块（orchestrator 升格第三块）+ 派生双只读块
+    const payload = agentConfigListResultSystem.payload;
+    expect(payload.profiles).toHaveLength(3);
+    expect(payload.profiles[2]!.profileKind).toBe("orchestrator");
+    const system = payload.system!;
     expect(system).toHaveLength(2);
-    expect(system[0]!.profileKind).toBe("orchestrator");
-    expect(system[0]!.derivedFrom).toBeUndefined();
-    expect(system[0]!.pinnedTools).toBeUndefined();
-    expect(system[1]!.profileKind).toBe("subagent-kg-writer");
-    expect(system[1]!.derivedFrom).toBe("subagent-worker");
-    expect(system[1]!.pinnedTools).toEqual(["kg-update"]);
+    expect(system[0]!.profileKind).toBe("subagent-kg-writer");
+    expect(system[0]!.derivedFrom).toBe("subagent-worker");
+    expect(system[0]!.pinnedTools).toEqual(["kg-update"]);
     // kg-writer 工具清单 = worker 生效集 + kg-update（行形状 name+snippet，无启停位）
-    expect(system[1]!.tools.map((t) => t.name)).toEqual(["bash", "kg-update"]);
-    expect(system[1]!.tools[1]!.snippet.length).toBeGreaterThan(0);
-    // 系统派生块技能读面批：orchestrator = 任务 SOP 注册表（audience=task）；
-    // kg-writer = worker 生效技能集（audience=agent）——五字段纯展示行
-    expect(system[0]!.skills).toEqual([
-      {
-        name: "code-review",
-        description: "对项目代码做质量评审",
-        filePath: "/daemon/resources/skills/task/code-review/SKILL.md",
-        source: "builtin",
-        audience: "task",
-      },
-    ]);
-    expect(system[1]!.skills?.[0]!.audience).toBe("agent");
-    expect(Object.keys(system[1]!.skills![0]!)).not.toContain("enabled"); // 纯展示行无启停位
+    expect(system[0]!.tools.map((t) => t.name)).toEqual(["bash", "kg-update"]);
+    expect(system[0]!.tools[1]!.snippet.length).toBeGreaterThan(0);
+    // 升格块技能行：task 类可见恒禁（audience-guard；enabled 位携带——可配置块）
+    const orchTaskRow = payload.profiles[2]!.skills.find((s) => s.name === "code-review")!;
+    expect(orchTaskRow.audience).toBe("task");
+    expect(orchTaskRow.enabled).toBe(false);
+    // 派生块技能行 = worker 生效技能集（audience=agent）——五字段纯展示行
+    expect(system[0]!.skills?.[0]!.audience).toBe("agent");
+    expect(Object.keys(system[0]!.skills![0]!)).not.toContain("enabled"); // 纯展示行无启停位
     void _systemKgWriter;
-    void _systemOrchestrator;
+    void _systemReviewer;
     void _systemSkillRow;
     void _systemNoSkills;
     void _systemSkillBadRow;

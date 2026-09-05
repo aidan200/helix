@@ -89,7 +89,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "plan_read",
       ]);
 
-      // skills：user 层扫出（source 标签 = user）
+      // skills：user 层扫出（source 标签 = user；统一启停批：缺省禁用显式启用制）
       const view = await daemon.resource.list("main-session");
       expect(view.skills).toEqual([
         {
@@ -98,17 +98,19 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
           filePath: path.join(skillDir, "SKILL.md"),
           source: "user",
           audience: "agent",
-          enabled: true,
+          enabled: false,
         },
       ]);
       expect(view.model).toBeUndefined();
 
       // 启停 + model 槽位经真 SQLite
       await daemon.resource.toggle("main-session", "tool", "grep", false);
-      await daemon.resource.toggle("main-session", "skill", "hello-skill", false);
+      await daemon.resource.toggle("main-session", "skill", "hello-skill", true); // 显式启用（后续禁用往返）
       await daemon.resource.setModel("subagent-worker", "anthropic/claude-haiku-4-5");
       expect(daemon.resource.getEffectiveTools("main-session").includes("grep")).toBe(false);
-      expect((await daemon.resource.list("main-session")).skills[0]!.enabled).toBe(false);
+      expect((await daemon.resource.list("main-session")).skills[0]!.enabled).toBe(true); // 显式启用行
+      await daemon.resource.toggle("main-session", "skill", "hello-skill", false);
+      expect((await daemon.resource.list("main-session")).skills[0]!.enabled).toBe(false); // 禁用往返经真 SQLite
       expect(daemon.resource.modelSlot("subagent-worker")).toBe("anthropic/claude-haiku-4-5");
     } finally {
       await daemon.shutdown();

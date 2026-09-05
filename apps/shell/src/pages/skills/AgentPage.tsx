@@ -437,6 +437,13 @@ function ProfileCard({
                       <span className="hud-chip" data-source-chip>
                         {skill.source}
                       </span>
+                      {/* 统一启停批：task 类技能行可见但只读（audience-guard——消费通道
+                           kickoff 全文注入，agent 面恒禁不可开；变相禁用取代隐藏双轨） */}
+                      {skill.audience === "task" && (
+                        <span className="hud-chip hud-chip-off" data-audience-chip="task" title={t("agents.skillAudienceTaskHint")}>
+                          {t("agents.skillAudienceTask")}
+                        </span>
+                      )}
                       {/* skill-content 批：正文查看入口（ghost 弱化变体，
                           base prompt 查看钮同构；builtin 不可禁用≠不可查看） */}
                       <button
@@ -643,13 +650,11 @@ function SystemProfileCard({
           })
         )}
       </div>
-      {/* 技能清单（系统派生块技能读面批）：纯展示行 + 正文查看——
-          orchestrator = 任务 SOP 注册表（kickoff 全文注入的消费面，
-          系统提示技能段恒空）；kg-writer/reviewer = worker 生效技能集
-          （spawn 快照技能段同源派生）。旧 daemon 未携带 = 空（additive 容忍）。 */}
+      {/* 技能清单（派生块技能读面批）：纯展示行 + 正文查看——kg-writer/
+          reviewer = worker 生效技能集（spawn 快照技能段同源派生）。旧 daemon
+          未携带 = 空（additive 容忍）；orchestrator 已升格进可配置卡。 */}
       <div className="ag-group">
-        <h3 className="ag-group-label">{kind === "orchestrator" ? t("agents.systemSkillsLabelOrch") : t("agents.systemSkillsLabelDerived")}</h3>
-        {kind === "orchestrator" && <p className="ag-note" data-sop-note>{t("agents.systemSkillsNoteOrch")}</p>}
+        <h3 className="ag-group-label">{t("agents.systemSkillsLabelDerived")}</h3>
         {block === null ? (
           <div className="ag-skel" aria-hidden="true">
             {[0, 1].map((i) => (
@@ -1027,7 +1032,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
         ) : (
           <div className="ag-pane-scroll">
             <div className="ag-pane-inner">
-              {state.selected === "main-session" || state.selected === "subagent-worker" ? (
+              {state.selected === "main-session" || state.selected === "subagent-worker" || state.selected === "orchestrator" ? (
                 <ProfileCard
                   kind={state.selected}
                   block={state.profiles[state.selected]}

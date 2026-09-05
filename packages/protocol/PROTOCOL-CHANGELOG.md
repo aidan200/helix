@@ -1021,3 +1021,28 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
   （agent.skill.create 单命令）」——启停写面仍在智能体页（kind 维），
   删除/编辑写面仍无（文件系统管理面）。
 - 计数：命令 73→74、事件 91→92（§15/§16 声明行同 commit 双写）。
+
+## 32. 统一启停批（orchestrator 升格可配置 + 技能缺省翻转 + audience-guard；v0.11 后 additive 微批——版本位不 bump）
+
+- **背景**：旧「audience×kind 可见性」双轨——orchestrator 技能面恒空、
+  task 类技能全隐藏，与「kind 列表 + 用户自选启停」的统一交互模型不一致
+  （任务类型 agent 有 MCP 工具面却无技能面）。本批拆双轨：五 kind 同链。
+- **orchestrator 升格**：`agent.config.list` 缺省全量 profiles 三块
+  （main/sub/orchestrator）；system 块撤 orchestrator（仅剩 kg-writer/
+  reviewer 派生双块，`SystemProfileKind` 收窄两值）。写面
+  `agent.config.set_enabled` 对 orchestrator 全型放行（tool/skill/
+  mcp-server 启停 + model/thinking 槽位）；派生两 kind tool/skill 启停
+  仍拒（`agent.config.read_only` 口径更新）。
+- **技能缺省翻转（显式启用制）**：user 技能无行 = **禁用**（装上不自动
+  生效——用户在列表自选开启）；builtin∧agent 行为技能保持无行 = 启用
+  （产品能力，builtin-immutable 恒开）。
+- **audience-guard（task 类只读）**：task 类技能行在所有 kind 技能列表
+  **可见**（enabled=false），写面任何 kind/任何 enabled 值 → skipped
+  reason=`audience-guard`（只读恒禁）——「默认不启用 + 只读 = 变相禁用」
+  取代旧隐藏双轨；任务系统消费通道（TaskSkillRegistry → kickoff 全文
+  注入）零变化。
+- **配套（daemon/shell 同批）**：`ResourceService.skillVisibleToKind` 删除
+  （五 kind 同链：成套装配 ∧ 启停，orchestrator 技能段自然生效）；
+  智能体页 orchestrator 卡升格可配置（左栏「可配置」三卡）；task 技能行
+  灰只读徽标渲染。
+- 计数不变（无新命令/事件——profileKind 写面语义扩展 + system 块构成变化）。

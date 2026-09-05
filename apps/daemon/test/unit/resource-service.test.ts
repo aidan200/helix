@@ -124,13 +124,14 @@ function makeService(store = new InMemoryResourceState(), skills: SkillSourcePor
 }
 
 describe("ResourceService：list 合并视图", () => {
-  test("① 无记录 = 三类全启用（零配置兼容现状）+ model 槽位未设", async () => {
+  test("① 无记录 = 工具全启用；技能按来源缺省（统一启停批：builtin 行为技能启用、user 显式启用制禁用）+ model 槽位未设", async () => {
     const { service } = makeService();
     const view = await service.list("main-session");
     expect(view.tools).toEqual(
       TOOLS_CATALOG["main-session"].map((name) => ({ name, enabled: true, snippet: TOOL_SNIPPETS[name] ?? "" })),
     );
-    expect(view.skills).toEqual(SKILLS.map((s) => ({ ...s, enabled: true })));
+    // SKILLS 全为 user 源：显式启用制（无行 = 禁用，装上不自动生效）
+    expect(view.skills).toEqual(SKILLS.map((s) => ({ ...s, enabled: false })));
     expect(view.model).toBeUndefined();
   });
 
@@ -148,9 +149,10 @@ describe("ResourceService：list 合并视图", () => {
     ]);
   });
 
-  test("② 禁用后 list 视图按行反映（tools/skills 双面）", async () => {
+  test("② 禁用后 list 视图按行反映（tools/skills 双面；user 技能显式启用行兜底对照）", async () => {
     const { service } = makeService();
     await service.toggle("main-session", "tool", "grep", false);
+    await service.toggle("main-session", "skill", "code-review", true); // user 技能显式启用
     await service.toggle("main-session", "skill", "deploy-helper", false);
     const view = await service.list("main-session");
     expect(view.tools.find((t) => t.name === "grep")?.enabled).toBe(false);
@@ -178,8 +180,13 @@ describe("ResourceService：合取语义（全集 ∩ kind 启用集）", () => 
     expect(service.getEffectiveTools("subagent-worker").includes("grep")).toBe(false);
   });
 
-  test("④ skills 合取：禁 main 的 code-review → main 生效技能空、subagent 不受影响", async () => {
+  test("④ skills 合取：显式启用后禁 main 的 code-review → main 生效集收缩、subagent 不受影响", async () => {
     const { service } = makeService();
+    // user 技能缺省禁用：两 kind 先显式启用，再验证合取与隔离
+    for (const kind of ["main-session", "subagent-worker"] as const) {
+      await service.toggle(kind, "skill", "code-review", true);
+      await service.toggle(kind, "skill", "deploy-helper", true);
+    }
     await service.toggle("main-session", "skill", "code-review", false);
     expect((await service.getEffectiveSkills("main-session")).map((s) => s.name)).toEqual(["deploy-helper"]);
     expect((await service.getEffectiveSkills("subagent-worker")).map((s) => s.name)).toEqual([
@@ -188,8 +195,11 @@ describe("ResourceService：合取语义（全集 ∩ kind 启用集）", () => 
     ]);
   });
 
-  test("⑤ 生效技能返回完整描述符（T2 提示注入消费面：name/description/filePath/source）", async () => {
+  test("⑤ 生效技能返回完整描述符（T2 提示注入消费面：name/description/filePath/source）+ user 技能显式启用后进入", async () => {
     const { service } = makeService();
+    expect(await service.getEffectiveSkills("main-session")).toEqual([]); // 显式启用制：无行 = 不生效
+    await service.toggle("main-session", "skill", "code-review", true);
+    await service.toggle("main-session", "skill", "deploy-helper", true);
     const skills = await service.getEffectiveSkills("main-session");
     expect(skills).toEqual(SKILLS);
   });
@@ -307,24 +317,35 @@ describe("ResourceService：builtin 技能不可禁用防护（T5 内置第三�
   });
 });
 
-describe("ResourceService：技能受众 × kind 可见性（audience 分类注入，批二）", () => {
+describe("ResourceService：统一启停模型（拆 audience×kind 双轨批）", () => {
   const AUDIENCED: readonly SkillDescriptor[] = [
     { name: "web-access", description: "联网操作指引", filePath: "/b/agent/web-access/SKILL.md", source: "builtin", audience: "agent" },
     { name: "kg-bootstrap", description: "知识图谱批量创建", filePath: "/b/task/kg-bootstrap/SKILL.md", source: "builtin", audience: "task" },
     { name: "user-skill", description: "用户技能", filePath: "/u/user-skill/SKILL.md", source: "user", audience: "agent" },
   ];
 
-  test("⑫ main-session/subagent-worker：只见 agent 类（任务类型 SOP 不进技能清单）", async () => {
+  test("⑫ 五 kind 同链：builtin 行为技能缺省启用；task 类恒禁（缺省禁 + 只读，消费通道 kickoff 不变）；user 显式启用后全 kind 可生效", async () => {
     const { service } = makeService(new InMemoryResourceState(), new FakeSkillSource({ skills: AUDIENCED, diagnostics: [] }));
-    for (const kind of ["main-session", "subagent-worker"] as const) {
+    for (const kind of ["main-session", "subagent-worker", "orchestrator"] as const) {
       const effective = await service.getEffectiveSkills(kind);
-      expect(effective.map((s) => s.name).sort()).toEqual(["user-skill", "web-access"]);
+      // builtin∧agent 缺省启用；task/user 无行 = 禁用
+      expect(effective.map((s) => s.name)).toEqual(["web-access"]);
     }
+    // task 类 SOP 写面只读：audience-guard skipped（任何 kind、任何 enabled 值）
+    expect(await service.setEnabled("main-session", "skill", "kg-bootstrap", true)).toEqual({ status: "skipped", reason: "audience-guard" });
+    // user 技能显式启用 → orchestrator 也可生效（不再恒空）
+    expect(await service.setEnabled("orchestrator", "skill", "user-skill", true)).toEqual({ status: "applied" });
+    expect((await service.getEffectiveSkills("orchestrator")).map((s) => s.name).sort()).toEqual(["user-skill", "web-access"]);
   });
 
-  test("⑬ orchestrator：技能清单为空（它的 SOP = 任务 skill 全文 kickoff 注入）", async () => {
+  test("⑬ 读面：task 技能行可见（enabled=false）——列表可见性取代隐藏双轨（用户可见 SOP 但不可开）", async () => {
     const { service } = makeService(new InMemoryResourceState(), new FakeSkillSource({ skills: AUDIENCED, diagnostics: [] }));
-    expect(await service.getEffectiveSkills("orchestrator")).toEqual([]);
+    const view = await service.list("main-session");
+    const taskRow = view.skills.find((s) => s.name === "kg-bootstrap");
+    expect(taskRow?.audience).toBe("task");
+    expect(taskRow?.enabled).toBe(false);
+    expect(view.skills.find((s) => s.name === "web-access")?.enabled).toBe(true);
+    expect(view.skills.find((s) => s.name === "user-skill")?.enabled).toBe(false);
   });
 });
 

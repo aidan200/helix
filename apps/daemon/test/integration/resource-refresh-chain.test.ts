@@ -325,6 +325,8 @@ describe("SubAgent spawn 快照容器级（生产 launcher，M6 T2 acceptance �
       } as unknown as ReturnType<typeof Bun.spawn>;
     };
     try {
+      // 统一启停批：user 技能显式启用制——先启用 hello-skill（组装快照缓存重算后进技能段）
+      await daemon.resource.toggle("subagent-worker", "skill", "hello-skill", true);
       // spawn #1：subagent 生效集默认全集 + 技能段
       daemon.orchestration.spawn("任务一");
       expect(calls).toHaveLength(1);

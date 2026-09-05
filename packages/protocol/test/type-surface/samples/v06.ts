@@ -216,22 +216,29 @@ export const agentConfigListResultSystem: AgentConfigListResultEvent = {
         model: null,
         thinkingLevel: null,
       },
-    ],
-    system: [
       {
+        // 统一启停批：orchestrator 升格可配置块（第三块——真实 kind 自有启停面）
         profileKind: "orchestrator",
-        tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" }],
-        // 系统派生块技能读面批：orchestrator = 任务 SOP 注册表（audience=task）
+        tools: [
+          { name: "agent_spawn", enabled: true, snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" },
+        ],
         skills: [
           {
+            // task 类技能行可见恒禁（audience-guard——消费通道 kickoff 不变）
             name: "code-review",
             description: "对项目代码做质量评审",
             filePath: "/daemon/resources/skills/task/code-review/SKILL.md",
             source: "builtin",
             audience: "task",
+            enabled: false,
           },
         ],
+        diagnostics: [],
+        model: null,
+        thinkingLevel: null,
       },
+    ],
+    system: [
       {
         profileKind: "subagent-kg-writer",
         tools: [
@@ -249,6 +256,20 @@ export const agentConfigListResultSystem: AgentConfigListResultEvent = {
         ],
         derivedFrom: "subagent-worker",
         pinnedTools: ["kg-update"],
+      },
+      {
+        profileKind: "subagent-code-reviewer",
+        tools: [{ name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" }],
+        skills: [
+          {
+            name: "plan-workflow",
+            description: "工作台账（plan 三工具）的使用规范",
+            filePath: "/daemon/resources/skills/agent/plan-workflow/SKILL.md",
+            source: "builtin",
+            audience: "agent",
+          },
+        ],
+        derivedFrom: "subagent-worker",
       },
     ],
   },

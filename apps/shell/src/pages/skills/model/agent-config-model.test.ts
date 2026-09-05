@@ -124,9 +124,14 @@ describe("智能体页页面模型（M6 T4）", () => {
 
 // ── agent-roster 批：只读系统派生块 + 选中态（master-detail） ──
 
-const ORCH_BLOCK: AgentConfigSystemBlock = {
+// 统一启停批：orchestrator 升格 profiles 块（撤出 system）；system 仅派生两 kind
+const ORCH_PROFILE_BLOCK: AgentConfigProfileBlock = {
   profileKind: "orchestrator",
-  tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务" }],
+  tools: [{ name: "agent_spawn", enabled: true, snippet: "指派 SubAgent 实例独立执行任务" }],
+  skills: [],
+  diagnostics: [],
+  model: null,
+  thinkingLevel: null,
 };
 const KGW_BLOCK: AgentConfigSystemBlock = {
   profileKind: "subagent-kg-writer",
@@ -139,28 +144,28 @@ const KGW_BLOCK: AgentConfigSystemBlock = {
 };
 
 describe("智能体页页面模型（agent-roster：system 块 + 选中态）", () => {
-  it("⑤ system 块按 kind 归位；未携带（旧 daemon / 单 kind 响应）不覆盖既有值；常量序固定", () => {
-    expect(AGENT_KINDS).toEqual(["main-session", "subagent-worker"]);
-    expect(SYSTEM_AGENT_KINDS).toEqual(["orchestrator", "subagent-kg-writer", "subagent-code-reviewer"]);
+  it("⑤ orchestrator 升格 profiles 第三块 + system 双块按 kind 归位；未携带不覆盖既有值；常量序固定", () => {
+    expect(AGENT_KINDS).toEqual(["main-session", "subagent-worker", "orchestrator"]);
+    expect(SYSTEM_AGENT_KINDS).toEqual(["subagent-kg-writer", "subagent-code-reviewer"]);
     let s = createAgentPageState();
-    expect(s.system["orchestrator"]).toBeNull();
+    expect(s.profiles.orchestrator).toBeNull();
     expect(s.system["subagent-kg-writer"]).toBeNull();
     expect(s.selected).toBe("main-session"); // 默认选中 main-session（brief ④；重挂复位同源）
-    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_BLOCK, KGW_BLOCK] });
-    expect(s.system["orchestrator"]).toBe(ORCH_BLOCK);
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK, ORCH_PROFILE_BLOCK], system: [KGW_BLOCK] });
+    expect(s.profiles.orchestrator).toBe(ORCH_PROFILE_BLOCK);
     expect(s.system["subagent-kg-writer"]).toBe(KGW_BLOCK);
     // system 未携带：既有块保持（additive 容忍——不闪空）
-    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK] });
-    expect(s.system["orchestrator"]).toBe(ORCH_BLOCK);
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK, ORCH_PROFILE_BLOCK] });
+    expect(s.system["subagent-kg-writer"]).toBe(KGW_BLOCK);
   });
 
   it("⑥ select-agent：选中可切换（可编辑/只读两类 id 均可）；重拉不清选中", () => {
     let s = createAgentPageState();
-    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_BLOCK, KGW_BLOCK] });
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [KGW_BLOCK] });
     s = agentPageReducer(s, { type: "select-agent", id: "subagent-kg-writer" });
     expect(s.selected).toBe("subagent-kg-writer");
     // 重拉（worker toggle → changed → 重拉）选中保持
-    const next = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_BLOCK, KGW_BLOCK] });
+    const next = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [KGW_BLOCK] });
     expect(next.selected).toBe("subagent-kg-writer");
     s = agentPageReducer(s, { type: "select-agent", id: "main-session" });
     expect(s.selected).toBe("main-session");
@@ -195,7 +200,7 @@ describe("base prompt 批：base 段系统提示词缓存与折叠态", () => {
     s = agentPageReducer(s, { type: "base-prompt-toggle", kind: "main-session" });
     expect(s.basePromptOpen).toBeNull();
     // 重拉（changed 链）不清 base prompt 缓存（静态数据拉一次常驻）
-    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_BLOCK, KGW_BLOCK] });
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [KGW_BLOCK] });
     expect(s.basePrompts["main-session"]).toBe("BASE-MAIN");
   });
 });
@@ -224,7 +229,7 @@ describe("skill-content 批：skill 正文缓存与折叠态", () => {
     s = agentPageReducer(s, { type: "skill-content-toggle", name: "web-access" });
     expect(s.skillContentOpen).toBeNull();
     // 重拉（changed 链）不清 skill 正文缓存
-    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [ORCH_BLOCK, KGW_BLOCK] });
+    s = agentPageReducer(s, { type: "list-result", profiles: [MAIN_BLOCK, SUB_BLOCK], system: [KGW_BLOCK] });
     expect(s.skillContents["web-access"]).toBe("WEB-ACCESS-BODY");
   });
 });

@@ -4,7 +4,9 @@ import type {
   ResourceType,
 } from "../ports/outbound/ResourceStatePort";
 import type {
+  SkillAudience,
   SkillDescriptor,
+  SkillSource,
   SkillSourcePort,
 } from "../ports/outbound/SkillSourcePort";
 import type {
@@ -21,6 +23,9 @@ import type {
  * 生效集 = 全集（profile tools 声明 / SkillScanner 扫描产物）∩ kind 启用集
  * ——同 kind 隔离（main 禁不影响 subagent），全集侧变更（profile 发版/
  * 技能安装）自然生效，遗留差异行（名不在全集）在合取中被忽略。
+ * **技能缺省例外（统一启停批）**：user 技能 = 显式启用制（无行 = 禁用，
+ * 装上不自动生效）；task 类 SOP 同禁用且写面只读（audience-guard）——
+ * builtin 行为技能保持无行 = 启用（产品能力，immutable 恒开）。
  *
  * 【tools 全集注入】profiles 在 driven 层（AG-02：application 不得反向
  * import adapters）——组合根从 MainSessionProfile/SubAgentProfile.tools
@@ -85,9 +90,25 @@ export class ResourceService implements ResourceConfigPort {
     },
   ) {}
 
-  /** 单行启停状态（无行 = 启用）。 */
+  /** 单行启停状态（无行 = 启用；技能缺省例外见 skillDefaultEnabled）。 */
   private enabledOf(kind: ProfileKind, resourceType: ResourceType, name: string): boolean {
     return this.deps.store.get(kind, resourceType, name)?.enabled ?? true;
+  }
+
+  /**
+   * 技能缺省启停（统一启停批：拆 audience×kind 双轨）：builtin 行为技能 =
+   * 产品能力缺省启用（builtin-immutable 恒开语义不变）；user 技能 =
+   * **显式启用制**（装上不自动生效——用户在列表自选开启）；task 类 SOP =
+   * 消费通道在任务系统（kickoff 全文注入），agent 面缺省禁用 + 只读
+   * （audience-guard）——「默认不启用且只读 = 变相禁用」取代隐藏双轨。
+   */
+  private skillDefaultEnabled(s: Pick<SkillDescriptor, "source" | "audience">): boolean {
+    return s.source === "builtin" && s.audience === "agent";
+  }
+
+  /** 技能行启停（store 差异行优先；无行按来源缺省）。 */
+  private skillEnabledOf(kind: ProfileKind, s: Pick<SkillDescriptor, "name" | "source" | "audience">): boolean {
+    return this.deps.store.get(kind, "skill", s.name)?.enabled ?? this.skillDefaultEnabled(s);
   }
 
   /**
@@ -103,7 +124,7 @@ export class ResourceService implements ResourceConfigPort {
       snippet: this.deps.toolSnippetOf?.(name) ?? this.deps.toolSnippets[name] ?? "",
     }));
     const scanned = await this.deps.skills.scan();
-    const skills = scanned.skills.map((s) => ({ ...s, enabled: this.enabledOf(kind, "skill", s.name) }));
+    const skills = scanned.skills.map((s) => ({ ...s, enabled: this.skillEnabledOf(kind, s) }));
     const mcpServers = this.deps.mcpServersOf?.(kind)?.map((row) => ({
       ...row,
       enabled: this.enabledOf(kind, "mcp-server", row.name),
@@ -131,8 +152,11 @@ export class ResourceService implements ResourceConfigPort {
     if (resourceType === "skill") {
       const skill = (await this.deps.skills.scan()).skills.find((s) => s.name === name);
       if (!skill) return { status: "skipped", reason: "unknown-name" };
+      // task 类 SOP 只读防护（统一启停批）：消费通道 = 任务系统 kickoff 注入，
+      // agent 面恒禁用不可开（缺省即禁）——取代旧 audience 隐藏双轨。
+      if (skill.audience === "task") return { status: "skipped", reason: "audience-guard" };
       // builtin 防护：内置技能不进 resource_state（不可禁用）——显式
-      // skipped 不落禁用记录；读面恒启用（缺省无记录 = 启用天然覆盖）
+      // skipped 不落禁用记录；读面恒启用（builtin∧agent 缺省启用天然覆盖）
       if (skill.source === "builtin") return { status: "skipped", reason: "builtin-immutable" };
     } else if (resourceType === "mcp-server") {
       // server 级配置面批：全集 = mcpServersOf 现拍（注入面已做白名单门控）。
@@ -172,18 +196,19 @@ export class ResourceService implements ResourceConfigPort {
     return this.enabledOf(kind, "tool", name);
   }
 
-  /** 生效技能集（消费面：提示注入三字段 + source 的完整描述符）。 */
+  /** 生效技能集（消费面：提示注入三字段 + source 的完整描述符）。
+   * 统一启停批：五 kind 同链（orchestrator 不再恒空）——成套装配 ∧ 启停，
+   * 无 audience×kind 可见性过滤（task 类靠缺省禁用 + 只读变相禁用）。 */
   async getEffectiveSkills(kind: ProfileKind): Promise<readonly SkillDescriptor[]> {
     const scanned = await this.deps.skills.scan();
     const effectiveTools = new Set(this.getEffectiveTools(kind));
     return scanned.skills
-      .filter((s) => skillVisibleToKind(kind, s))
       // skills+tools 成套装配（批三裁决）：声明了成套工具的技能，仅当本
       // kind 生效工具集含全部声明工具时才列出——SOP 与工具不拆开出现
       //（如 plan-workflow 只在持 plan 三工具的 kind 出现；禁用任一 plan
       // 工具 → 技能随之下线）
       .filter((s) => s.tools === undefined || s.tools.every((t) => effectiveTools.has(t)))
-      .filter((s) => this.enabledOf(kind, "skill", s.name));
+      .filter((s) => this.skillEnabledOf(kind, s));
   }
 
   /** model 槽位现值（未设 → undefined = 走四级/三级链后续级）。 */
@@ -233,13 +258,8 @@ export class ResourceService implements ResourceConfigPort {
 }
 
 /**
- * 技能受众 × profile kind 可见性（audience 分类注入，批二裁决）：
- * - agent 类行为技能 → 执行面 agent（main-session + subagent 各族）可见；
- * - task 类任务类型 SOP → 不进任何 agent 的技能清单（消费通道 =
- *   TaskSkillRegistry 注册 → task_create → 编排 kickoff 全文注入）；
- * - orchestrator 不持技能清单——它的 SOP 就是任务 skill 全文（kickoff）。
+ * （统一启停批已删）旧 audience×kind 可见性双轨（skillVisibleToKind）：
+ * agent 类仅执行面可见 / orchestrator 恒空 / task 类全隐藏。现统一为
+ * 五 kind 同链：技能行全部可见可配，task 类靠「缺省禁用 + audience-guard
+ * 只读」变相禁用（消费通道 kickoff 不变）——单一启停逻辑，无代码路径分叉。
  */
-function skillVisibleToKind(kind: ProfileKind, skill: SkillDescriptor): boolean {
-  if (kind === "orchestrator") return false;
-  return skill.audience === "agent";
-}

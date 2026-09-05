@@ -199,3 +199,46 @@ describe("MCP 设置分区", () => {
     expect(sendMcpServersRemove).toHaveBeenCalledWith({ name: "shadcn" });
   });
 });
+
+describe("MCP 设置分区：导入配置 JSON（统一启停批配套）", () => {
+  it("⑥ 导入 Claude Desktop mcpServers 格式 → 预填 name/command/args + 表单展开 + 多 server 提示", async () => {
+    ui();
+    const json = JSON.stringify({
+      mcpServers: {
+        shadcn: { command: "npx", args: ["shadcn@latest", "mcp"] },
+        other: { command: "node", args: ["server.js"] },
+      },
+    });
+    const file = new File([json], "config.json", { type: "application/json" });
+    fireEvent.change(document.querySelector("[data-mcp-import-file]")!, { target: { files: [file] } });
+    await waitFor(() => {
+      expect((document.querySelector("[data-mcp-name]") as HTMLInputElement).value).toBe("shadcn");
+    });
+    expect((document.querySelector("[data-mcp-command]") as HTMLInputElement).value).toBe("npx");
+    expect((document.querySelector("[data-mcp-args]") as HTMLInputElement).value).toBe("shadcn@latest mcp");
+    expect(document.querySelector("[data-mcp-form]")!).toBeTruthy(); // 表单展开
+    expect(document.querySelector("[data-mcp-import-note]")!.textContent).toContain("2");
+  });
+
+  it("⑦ 非法 JSON → 行内错误（表单不动）；单 server 对象（无 mcpServers 包裹）name 取文件名", async () => {
+    ui();
+    const bad = new File(["not json"], "bad.json", { type: "application/json" });
+    fireEvent.change(document.querySelector("[data-mcp-import-file]")!, { target: { files: [bad] } });
+    await waitFor(() => {
+      expect(document.querySelector("[data-mcp-form-error]")!.textContent).toContain("导入失败");
+    });
+  });
+
+  it("⑧ 单 server 对象（无 mcpServers 包裹）→ name 取文件名预填", async () => {
+    ui();
+    const single = new File([JSON.stringify({ command: "uvx", args: ["mcp-server"] })], "my-server.json", {
+      type: "application/json",
+    });
+    fireEvent.change(document.querySelector("[data-mcp-import-file]")!, { target: { files: [single] } });
+    await waitFor(() => {
+      expect((document.querySelector("[data-mcp-name]") as HTMLInputElement).value).toBe("my-server");
+    });
+    expect((document.querySelector("[data-mcp-command]") as HTMLInputElement).value).toBe("uvx");
+    expect((document.querySelector("[data-mcp-args]") as HTMLInputElement).value).toBe("mcp-server");
+  });
+});

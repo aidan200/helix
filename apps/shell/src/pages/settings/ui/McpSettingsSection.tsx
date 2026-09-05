@@ -19,7 +19,7 @@
  * ok|fail 四态互斥（重测先清旧态）。
  */
 import { useEffect, useRef, useState } from "react";
-import { Plug, PlugZap, Trash2 } from "lucide-react";
+import { Plug, PlugZap, Trash2, FileDown } from "lucide-react";
 import type {
   McpServerConfigDto,
   McpServerRuntimeState,
@@ -61,6 +61,9 @@ const McpSettingsSection = function McpSettingsSection() {
   const [enabled, setEnabled] = useState(true);
   const [deferred, setDeferred] = useState(true);
   const [formError, setFormError] = useState("");
+  /** 导入提示（多 server 发现计数；导入结果行内反馈，不弹 toast）。 */
+  const [importNote, setImportNote] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
   const [addPending, setAddPending] = useState(false);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   /** 删除两段式：normal|armed（armed 2.5s 超时复原）。 */
@@ -133,6 +136,50 @@ const McpSettingsSection = function McpSettingsSection() {
     [subscribeMcpFrames, sendMcpServersList, t, addPending],
   );
 
+  /** 导入 MCP 配置 JSON（Claude Desktop/Cursor mcpServers 格式或单 server 对象）：取首个 server 预填表单。 */
+  const onImportFile = (file: File): void => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result ?? "")) as Record<string, unknown>;
+        // 形态一：{ mcpServers: { <name>: {...} } }（Claude Desktop/Cursor）；形态二：单 server 对象（name 取文件名）
+        const servers =
+          parsed.mcpServers !== undefined && typeof parsed.mcpServers === "object" && parsed.mcpServers !== null
+            ? (parsed.mcpServers as Record<string, unknown>)
+            : { [file.name.replace(/\.json$/i, "")]: parsed };
+        const entries = Object.entries(servers).filter(([, v]) => typeof v === "object" && v !== null);
+        if (entries.length === 0) {
+          setFormOpen(true); // 展开表单让错误可见（错误提示在表单内）
+          setFormError(t("chat.settings.mcp.importFail"));
+          return;
+        }
+        const [name, cfgRaw] = entries[0]!;
+        const cfg = cfgRaw as { command?: unknown; args?: unknown };
+        if (typeof cfg.command !== "string" || cfg.command === "") {
+          setFormOpen(true);
+          setFormError(t("chat.settings.mcp.importFail"));
+          return;
+        }
+        setName(name);
+        setCommand(cfg.command);
+        setArgs(Array.isArray(cfg.args) && cfg.args.every((a) => typeof a === "string") ? (cfg.args as string[]).join(" ") : "");
+        setFormOpen(true);
+        setFormError("");
+        if (entries.length > 1) {
+          setTest({ kind: "idle" });
+          // 多 server 提示：只填入首个（零协议扩展——批量导入后续可扩展）
+          setImportNote(t("chat.settings.mcp.importMulti", { count: entries.length }));
+        } else {
+          setImportNote("");
+        }
+      } catch {
+        setFormOpen(true);
+        setFormError(t("chat.settings.mcp.importFail"));
+      }
+    };
+    reader.readAsText(file);
+  };
+
   /** 表单现值 → McpServerInput（args 空格分隔转数组；空串 → 缺省；deferred 缺省 true = 懒加载）。 */
   const formInput = () => {
     const trimmedArgs = args.trim();
@@ -193,6 +240,28 @@ const McpSettingsSection = function McpSettingsSection() {
             <PlugZap size={14} />
             {t("chat.settings.mcp.addServer")}
           </button>
+          <button
+            type="button"
+            className="hud-btn sm hud-btn-ghost"
+            data-mcp-import
+            onClick={() => fileInput.current?.click()}
+          >
+            <FileDown size={14} />
+            {t("chat.settings.mcp.importLabel")}
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".json,application/json"
+            className="skill-file-input"
+            data-mcp-import-file
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f !== undefined) onImportFile(f);
+              e.target.value = ""; // 同文件可重复导入
+            }}
+          />
         </div>
         <p className="ag-note">{t("chat.settings.mcp.subtitle")}</p>
 
@@ -289,6 +358,11 @@ const McpSettingsSection = function McpSettingsSection() {
             {formError !== "" && (
               <p className="mcp-err" data-mcp-form-error>
                 {formError}
+              </p>
+            )}
+            {importNote !== "" && (
+              <p className="ag-note" data-mcp-import-note>
+                {importNote}
               </p>
             )}
           </div>

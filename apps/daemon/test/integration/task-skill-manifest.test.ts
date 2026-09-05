@@ -347,7 +347,7 @@ describe("code-review skill 装载（代码质量评审任务，D1）", () => {
 });
 
 describe("builtin 防护回归（CL-2-T10）", () => {
-  test("⑩ setEnabled(kg-bootstrap) → skipped(builtin-immutable) 零落库", async () => {
+  test("⑩ setEnabled(kg-bootstrap) → skipped(audience-guard) 零落库（统一启停批：task 类只读先于 builtin 防护命中）", async () => {
     const service = new ResourceService({
       store: new InMemoryResourceState(),
       skills: builtinScanner(),
@@ -357,8 +357,9 @@ describe("builtin 防护回归（CL-2-T10）", () => {
       toolSnippets: {},
     });
     const outcome = await service.setEnabled("main-session", "skill", "kg-bootstrap", false);
-    expect(outcome).toEqual({ status: "skipped", reason: "builtin-immutable" });
-    expect((await service.list("main-session")).skills.find((s) => s.name === "kg-bootstrap")?.enabled).toBe(true);
+    expect(outcome).toEqual({ status: "skipped", reason: "audience-guard" });
+    // 统一启停批：task 类技能行可见但恒禁（audience-guard——读面 enabled=false，落库零差异行）
+    expect((await service.list("main-session")).skills.find((s) => s.name === "kg-bootstrap")?.enabled).toBe(false);
   });
 });
 
