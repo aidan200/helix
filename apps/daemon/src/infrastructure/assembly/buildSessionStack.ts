@@ -133,19 +133,18 @@ const STATIC_TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
   "main-session": MainSessionProfile.tools,
   "subagent-worker": SubAgentProfile.tools,
   "orchestrator": OrchestratorProfile.tools, // T2.2 第三 kind（additive 扩值；编排工具面可配置化）
-  // R7 系统槽位批第四 kind：kg-writer 目录全集（声明面 = 快照派生同源；
-  // tool/skill 启停写面仍拒——目录仅供槽位族读面形状完整）
+  // R7 系统槽位批第四 kind：kg-writer 目录全集（声明面单源；生效集受
+  // 自身差异行管控——独立配置，不再从 worker 派生）
   "subagent-kg-writer": SubAgentKgWriterProfile.tools,
   // D5 第五 kind：reviewer 目录全集 = worker 声明面 − write/edit（声明面
-  // = 快照派生同源；tool/skill 启停写面仍拒——目录仅供槽位族读面形状完整）
+  // 单源；生效集受自身差异行管控——独立配置）
   "subagent-code-reviewer": SubAgentCodeReviewerProfile.tools,
 };
 
 /**
- * kind → MCP server 准入白名单（mcp 批，profile 声明单源）：六 kind 全
- * 声明 "*"（同轨批——读面/装配链同构，准入实际由 server enabled 显式
- * 启用制 + 工具级 toggle 管控；系统三 kind 写面只读恒关，未来启用零
- * 结构改动）。
+ * kind → MCP server 准入白名单（mcp 批，profile 声明单源）：五 kind 全
+ * 声明 "*"（同轨——装配/读面同构；准入实际由 server enabled 显式启用制
+ * + 工具级 toggle 管控；系统派生三 kind 写面只读——展示同构、开关置灰）。
  */
 const MCP_ALLOWED_OF: Readonly<Record<ProfileKind, readonly string[] | "*" | undefined>> = {
   "main-session": MainSessionProfile.mcpServers,
@@ -531,19 +530,17 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     publishResourceChanged: (kind) => deps.publishResourceChanged(kind),
   });
 
-  // ── builtin 技能差异行播种（缺省启停批裁决 C）──
-  // 初始化时给 agent 层 builtin 技能写显式 enabled=true 差异行：运行时缺省
-  // 逻辑零特判（无差异行 = 禁用不变），builtin 开箱即用 + 可关可再开；缺行
-  // 才播（用户已配置不覆盖；版本升级新增 builtin 重启自动补播）。只播可写
-  // kind——系统三 kind 技能段 omitSkills 无消费面且写面只读，播了只制造
-  // 「显示开但关不掉且无生效面」的脏行。
-  const isSystemKind = (kind: ProfileKind): boolean =>
-    kind === "orchestrator" || kind === "subagent-kg-writer" || kind === "subagent-code-reviewer";
-  await resourceService.seedBuiltinSkillDefaults(
-    (["main-session", "subagent-worker", "orchestrator", "subagent-kg-writer", "subagent-code-reviewer"] as const).filter(
-      (kind) => !isSystemKind(kind),
-    ),
-  );
+  // ── builtin 技能差异行播种（TR-124：五 kind 全播）──
+  // builtin 默认开是全局缺省（与 user 源显式启用制分野）；运行时零特判
+  // 不变：缺行才播 enabled=true、用户关过的行不覆盖、版本升级新增 builtin
+  // 重启自动补播——开箱即用与显式启用制两全。
+  await resourceService.seedBuiltinSkillDefaults([
+    "main-session",
+    "subagent-worker",
+    "orchestrator",
+    "subagent-kg-writer",
+    "subagent-code-reviewer",
+  ]);
 
   // ── 提示组装：三段组装器 + 两 kind 组装快照（启动时定格，toggle 刷新） ──
   // base = 瘦身后 profile 常量（无工具清单，消双源）；工具段从生效集（resolveTools
@@ -559,15 +556,13 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       : kind === "subagent-worker"
         ? SUBAGENT_SYSTEM_PROMPT
         : ORCHESTRATOR_SYSTEM_PROMPT; // orchestrator（T2.2）：与 MainAgent 消费 skill 同构的三段组装
+  // 技能段五 kind 同构注入（终态：orchestrator 亦无豁免——SOP 只是使用层
+  // 要求它读技能清单，装配层照常注入自身生效集；omitSkills 机制已退役）。
   const computeAssembly = async (
     kind: ProfileKind,
-    opts: { readonly omitSkills?: boolean } = {},
   ): Promise<{ readonly tools: readonly string[]; readonly systemPrompt: string }> => {
     const tools = resourceService.getEffectiveTools(kind);
-    // 同轨批：系统三 kind（orchestrator/kg-writer/reviewer）技能消费 = 任务
-    // 系统 kickoff 全文注入（SOP 定义读什么），提示词不注入技能段——消费
-    // 通道单轨化（旧「orchestrator 技能段注入」双轨残留撤除）。
-    const skills = opts.omitSkills ? [] : await resourceService.getEffectiveSkills(kind);
+    const skills = await resourceService.getEffectiveSkills(kind);
     return {
       tools,
       systemPrompt: promptAssembler.assemble({
@@ -582,39 +577,28 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       }),
     };
   };
-  // （isSystemKind 谓词已上移至 builtin 播种段——快照装配与播种共用单源）
   let mainAssembly = await computeAssembly("main-session");
   let subagentAssembly = await computeAssembly("subagent-worker");
-  // D8 W-R6：kg-writer 组装快照 = 通用 worker 生效集 + kg-update + 图谱产出型
-  // 一句（增量常量单源 SubAgentKgWriterProfile；kg-update 不进 resource_state
-  // 目录——不可 toggle，豁免面恒在）。toggle 刷新 worker 时同步重算（派生面）。
+  // D8 W-R6：kg-writer 组装快照 = 自身 kind 独立装配（声明面单源
+  // SubAgentKgWriterProfile——全集已含 kg 工具；生效集受自身差异行管控）
+  // + 评审纪律后缀。toggle 刷新自身重算（独立配置，不随 worker 联动）。
   const computeKgWriterAssembly = async (): Promise<{
     readonly tools: readonly string[];
     readonly systemPrompt: string;
   }> => {
-    // 同轨批：omitSkills——系统 kind 技能消费在 kickoff（工具集继承 worker
-    // 生效集不变，提示词不继承 worker 技能段）
-    const worker = await computeAssembly("subagent-worker", { omitSkills: true });
-    const tools = [...worker.tools];
-    for (const t of SUBAGENT_KG_WRITER_EXTRA_TOOLS) {
-      if (!tools.includes(t)) tools.push(t);
-    }
-    return { tools, systemPrompt: `${worker.systemPrompt}\n\n${SUBAGENT_KG_WRITER_PROMPT_SUFFIX}` };
+    const own = await computeAssembly("subagent-kg-writer");
+    return { tools: own.tools, systemPrompt: `${own.systemPrompt}\n\n${SUBAGENT_KG_WRITER_PROMPT_SUFFIX}` };
   };
   let kgWriterAssembly = await computeKgWriterAssembly();
-  // D5：reviewer 组装快照 = 通用 worker 生效集 − write/edit（代码写面机械
-  // 关闭，摘除常量单源 SubAgentCodeReviewerProfile）+ 评审纪律后缀；toggle
-  // 刷新 worker 时同步重算（派生面，computeKgWriterAssembly 同构）。
+  // D5：reviewer 组装快照 = 自身 kind 独立装配（声明面单源
+  // SubAgentCodeReviewerProfile——全集已减 write/edit）+ 评审纪律后缀；
+  // toggle 刷新自身重算（独立配置，不随 worker 联动）。
   const computeReviewerAssembly = async (): Promise<{
     readonly tools: readonly string[];
     readonly systemPrompt: string;
   }> => {
-    // 同轨批：omitSkills——同 kg-writer（技能消费在 kickoff，提示词无技能段）
-    const worker = await computeAssembly("subagent-worker", { omitSkills: true });
-    return {
-      tools: worker.tools.filter((t) => !(SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS as readonly string[]).includes(t)),
-      systemPrompt: `${worker.systemPrompt}\n\n${SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX}`,
-    };
+    const own = await computeAssembly("subagent-code-reviewer");
+    return { tools: own.tools, systemPrompt: `${own.systemPrompt}\n\n${SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX}` };
   };
   let reviewerAssembly = await computeReviewerAssembly();
   /** 批次实例组装快照按 profileKind 派发（W-R6 编排分流的装配端消费点；D5 扩第三支——其余缺省归 chat worker 快照）。 */
@@ -624,14 +608,15 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       : profileKind === "subagent-code-reviewer"
         ? reviewerAssembly
         : subagentAssembly;
-  // 同轨批：orchestrator 无技能段（技能消费 = kickoff；T2.2 快照缓存链不变）
-  let orchestratorAssemblyValue = await computeAssembly("orchestrator", { omitSkills: true }); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算）  // mcp 批：活跃主会话 executor 登记（engineFor 构造点 set；refreshAssembly
+  let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算；技能段照常注入自身生效集）  // mcp 批：活跃主会话 executor 登记（engineFor 构造点 set；refreshAssembly
   // 对活跃会话 appendTools 后再 setTools——MCP 新工具实例进 registry 才能被
   // 按名 resolve）。生命周期见 set 点注释。
   const sessionExecutors = new Map<string, InstanceType<typeof CoreToolExecutor>>();
   /** toggle applied 后的重算入口（WS 命令复用面：命令只调 toggle，刷新单点在此）。 */
   const refreshAssembly = async (kind: ProfileKind): Promise<void> => {
-    const next = await computeAssembly(kind, isSystemKind(kind) ? { omitSkills: true } : {});
+    // 五 kind 同构刷新（独立配置终态：各自 toggle 各自重算，派生联动撤除——
+    // kg-writer/reviewer 工具/技能面不再随 worker 联动）。
+    const next = await computeAssembly(kind);
     if (kind === "main-session") {
       mainAssembly = next;
       // 活跃 runtime 直改（setModel 同构）：systemPrompt 重算 + tools 重 resolve，
@@ -663,8 +648,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       }
     } else if (kind === "subagent-worker") {
       subagentAssembly = next; // 已 spawn 实例 env 已定格（代际生效，零刷新）
-      kgWriterAssembly = await computeKgWriterAssembly(); // W-R6 派生面同刷（kg-writer 生效集随 worker toggle 联动）
-      reviewerAssembly = await computeReviewerAssembly(); // D5 派生面同刷（reviewer 生效集随 worker toggle 联动）
+    } else if (kind === "subagent-kg-writer") {
+      kgWriterAssembly = await computeKgWriterAssembly(); // 独立快照重算（已 spawn env 定格，代际生效）
+    } else if (kind === "subagent-code-reviewer") {
+      reviewerAssembly = await computeReviewerAssembly(); // 独立快照重算（同上）
     } else {
       orchestratorAssemblyValue = next; // 编排会话短生命周期：下一会话生效（零活跃刷新）
     }

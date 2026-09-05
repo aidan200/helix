@@ -223,16 +223,17 @@ export const agentConfigListResultSystem: AgentConfigListResultEvent = {
         // 编排归位批：orchestrator 归位系统只读块（声明全集 + 任务 SOP 注册表 + 只读 MCP 行）
         profileKind: "orchestrator",
         tools: [
-          { name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" },
+          { name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）", enabled: true },
         ],
         skills: [
           {
-            // 任务 SOP 注册表纯展示行（kickoff 全文注入的消费面——非启停语义）
+            // 终态：透传自身清单带 enabled 位（task SOP 行 enabled=false——kickoff 通道消费）
             name: "code-review",
             description: "对项目代码做质量评审",
             filePath: "/daemon/resources/skills/task/code-review/SKILL.md",
             source: "builtin",
             audience: "task",
+            enabled: false,
           },
         ],
         mcpServers: [
@@ -245,30 +246,29 @@ export const agentConfigListResultSystem: AgentConfigListResultEvent = {
       {
         profileKind: "subagent-kg-writer",
         tools: [
-          { name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
-          { name: "kg-update", snippet: "知识图谱即时落账（supersede 推翻节点 / createNode 沉淀新知识）" },
+          { name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出", enabled: true },
+          { name: "kg-update", snippet: "知识图谱即时落账（supersede 推翻节点 / createNode 沉淀新知识）", enabled: true },
         ],
         skills: [
           {
-            // 同轨批：派生块技能行 = 自身 kind 只读启停面（enabled 默认 false）
+            // 终态：透传自身清单带 enabled 位（builtin 播种开——五 kind 全播）
             name: "plan-workflow",
             description: "工作台账（plan 三工具）的使用规范",
             filePath: "/daemon/resources/skills/agent/plan-workflow/SKILL.md",
             source: "builtin",
             audience: "agent",
-            enabled: false,
+            enabled: true,
           },
         ],
         mcpServers: [
-          // 同轨批：三系统块同构携带（默认 false + 写面只读恒不可开）
+          // 终态：三系统块同构携带（user MCP 显式启用制默认 false；写面只读）
           { name: "shadcn", enabled: false, state: "running", toolCount: 3 },
         ],
-        derivedFrom: "subagent-worker",
         pinnedTools: ["kg-update"],
       },
       {
         profileKind: "subagent-code-reviewer",
-        tools: [{ name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" }],
+        tools: [{ name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出", enabled: true }],
         skills: [
           {
             name: "plan-workflow",
@@ -276,9 +276,9 @@ export const agentConfigListResultSystem: AgentConfigListResultEvent = {
             filePath: "/daemon/resources/skills/agent/plan-workflow/SKILL.md",
             source: "builtin",
             audience: "agent",
+            enabled: true,
           },
         ],
-        derivedFrom: "subagent-worker",
       },
     ],
   },

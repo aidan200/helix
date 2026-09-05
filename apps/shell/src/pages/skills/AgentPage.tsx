@@ -214,17 +214,19 @@ function ProfileCard({
   skillContentPending,
   skillContentOpen,
   onSkillContentToggle,
+  readOnly = false,
+  pinnedTools,
 }: {
-  kind: AgentKind;
-  block: AgentConfigProfileBlock | null;
+  kind: AgentKind | SystemAgentKind;
+  block: AgentConfigProfileBlock | AgentConfigSystemBlock | null;
   skeleton: boolean;
   catalog: CatalogModel[] | null;
   defaultModel: string | undefined;
   auth: Record<string, AuthProviderEntry>;
   authLoaded: boolean;
   writePending: boolean;
-  onToggle: (kind: AgentKind, resourceType: WriteResource, name: string, enabled: boolean) => void;
-  onModelChange: (kind: AgentKind, model: string) => void;
+  onToggle: (kind: AgentKind | SystemAgentKind, resourceType: WriteResource, name: string, enabled: boolean) => void;
+  onModelChange: (kind: AgentKind | SystemAgentKind, model: string) => void;
   /** base prompt 批：base 段系统提示词查看区槽位（工具组正上方渲染）。 */
   basePrompt: ReactNode;
   /** skill-content 批：skill 正文缓存（名 → 全文；缺 key = 未拉取）。 */
@@ -235,9 +237,14 @@ function ProfileCard({
   skillContentOpen: string | null;
   /** skill-content 批：查看/收起回叫（未缓存先懒查询，已缓存本地开/关）。 */
   onSkillContentToggle: (name: string) => void;
+  /** 显示同构终态：系统派生 kind 传入——开关全渲染但置灰（写面只读），槽位仍可配。 */
+  readOnly?: boolean;
+  /** 恒在工具徽标面（kg-writer：声明面单源 kg-update；行存在即亮，非 toggle 域）。 */
+  pinnedTools?: readonly string[];
 }) {
   const { t } = useI18n();
   const isMain = kind === "main-session";
+  const isSystem = kind === "orchestrator" || kind === "subagent-kg-writer" || kind === "subagent-code-reviewer";
   const selId = `sel-model-${kind}`;
   /** S3a 可用性口径（与 chat P-3 同一过滤函数、同一数据源）：configured
    * provider join + 当前槽位模型兜底（provider 未配置仍保留，防下拉里
@@ -257,10 +264,16 @@ function ProfileCard({
   return (
     <section className="hud-card ag-card" data-agent-card={kind}>
       <header className="ag-card-head">
-        <h2 className="ag-card-title">{kind === "main-session" ? t("agents.mainTitle") : t("agents.subTitle")}</h2>
+        <h2 className="ag-card-title">{agentTitleOf(t, kind)}</h2>
         <span className="hud-chip" data-kind-chip>
           {kind}
         </span>
+        {/* 显示同构终态：系统派生 kind 只读徽标（开关全可见，置灰不可点） */}
+        {readOnly && (
+          <span className="hud-badge hud-badge-off" data-ro-badge>
+            {t("agents.roToolsBadge")}
+          </span>
+        )}
       </header>
 
       {/* 模型槽位：缺省项 = 跟随全局默认（main/sub 同——T12 后 sub 不再跟随会话） */}
@@ -291,8 +304,8 @@ function ProfileCard({
             <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
           </span>
         </div>
-        <p className="ag-note" data-note={isMain ? "main" : "sub"}>
-          {isMain ? t("agents.modelNoteMain") : t("agents.modelNoteSub")}
+        <p className="ag-note" data-note={isMain ? "main" : isSystem ? "system" : "sub"}>
+          {isMain ? t("agents.modelNoteMain") : isSystem ? t("agents.modelNoteSystem") : t("agents.modelNoteSub")}
         </p>
       </div>
 
@@ -323,20 +336,28 @@ function ProfileCard({
             ))}
           </div>
         ) : (
-          (block?.tools ?? []).filter((tool) => !tool.name.includes("__")).map((tool) => (
+          (block?.tools ?? []).filter((tool) => !tool.name.includes("__")).map((tool) => {
+            const pinned = pinnedTools?.includes(tool.name) ?? false;
+            return (
             <div className="ag-row" data-tool-row={tool.name} key={tool.name}>
               <div className="ag-row-main">
                 <span className="ag-name">{tool.name}</span>
                 <span className="ag-desc">{tool.snippet}</span>
               </div>
+              {pinned && (
+                <span className="hud-chip" data-pinned-chip>
+                  {t("agents.pinnedTag")}
+                </span>
+              )}
               <AgentSwitch
                 name={tool.name}
                 checked={tool.enabled}
-                disabled={writePending}
+                disabled={writePending || readOnly}
                 onToggle={() => onToggle(kind, "tool", tool.name, !tool.enabled)}
               />
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -377,7 +398,7 @@ function ProfileCard({
                   <AgentSwitch
                     name={server.name}
                     checked={server.enabled}
-                    disabled={writePending}
+                    disabled={writePending || readOnly}
                     onToggle={() => onToggle(kind, "mcp-server", server.name, !server.enabled)}
                   />
                 </div>
@@ -392,7 +413,7 @@ function ProfileCard({
                     <AgentSwitch
                       name={tool.name}
                       checked={tool.enabled}
-                      disabled={writePending}
+                      disabled={writePending || readOnly}
                       onToggle={() => onToggle(kind, "tool", tool.name, !tool.enabled)}
                     />
                   </div>
@@ -437,8 +458,12 @@ function ProfileCard({
                       <span className="hud-chip" data-source-chip>
                         {skill.source}
                       </span>
-                      {/* skill-content 批：正文查看入口（ghost 弱化变体，
-                          base prompt 查看钮同构；builtin 不可禁用≠不可查看） */}
+                      {skill.audience === "task" && (
+                        <span className="hud-chip" data-audience-chip="task" title={t("agents.skillAudienceTaskHint")}>
+                          {t("agents.skillAudienceTask")}
+                        </span>
+                      )}
+                      {/* skill-content 批：正文查看入口（ghost 弱化变体，base prompt 查看钮同构） */}
                       <button
                         type="button"
                         className="hud-btn hud-btn-ghost sm"
@@ -451,7 +476,7 @@ function ProfileCard({
                       <AgentSwitch
                         name={skill.name}
                         checked={skill.enabled}
-                        disabled={source === "builtin" || writePending}
+                        disabled={writePending || readOnly}
                         onToggle={() => onToggle(kind, "skill", skill.name, !skill.enabled)}
                       />
                     </div>
@@ -472,10 +497,10 @@ function ProfileCard({
             );
           })
         )}
-        {(block?.diagnostics ?? []).length > 0 && (
+        {(block && "diagnostics" in block ? (block.diagnostics ?? []) : []).length > 0 && (
           <div className="ag-diag">
             <h4 className="ag-diag-label">{t("agents.diagLabel")}</h4>
-            {(block?.diagnostics ?? []).map((d, i) => (
+            {(block && "diagnostics" in block ? (block.diagnostics ?? []) : []).map((d, i) => (
               <div className="ag-diag-row" data-diag-row key={`${d.path}:${i}`}>
                 <span className="ag-diag-badge">{d.code}</span>
                 <span className="ag-diag-msg">{d.message}</span>
@@ -485,282 +510,6 @@ function ProfileCard({
               </div>
             ))}
           </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-/** 系统派生详情卡（agent-roster 批 + R7 系统槽位批）：model/thinking 槽位
- *  可编辑（独立配置，未配跟随全局——不联动 worker）；工具集只读派生；
- *  kg-writer 附派生说明位；恒在工具行带恒在徽标。 */
-function SystemProfileCard({
-  kind,
-  block,
-  catalog,
-  defaultModel,
-  auth,
-  authLoaded,
-  writePending,
-  onToggle,
-  onModelChange,
-  basePrompt,
-  skillContents,
-  skillContentPending,
-  skillContentOpen,
-  onSkillContentToggle,
-}: {
-  kind: SystemAgentKind;
-  block: AgentConfigSystemBlock | null;
-  catalog: CatalogModel[] | null;
-  defaultModel: string | undefined;
-  auth: Record<string, AuthProviderEntry>;
-  authLoaded: boolean;
-  writePending: boolean;
-  onToggle: (kind: AgentKind | SystemAgentKind, resourceType: AgentWriteResource, name: string, enabled: boolean) => void;
-  onModelChange: (kind: AgentKind | SystemAgentKind, model: string) => void;
-  /** base prompt 批：base 段系统提示词查看区槽位（工具清单正上方渲染）。 */
-  basePrompt: ReactNode;
-  /** skill-content 批（系统派生块技能读面批接通）：正文缓存/在途/展开与回拨
-   *  ——与 ProfileCard 同源（按名缓存跨卡共享）。 */
-  skillContents: Readonly<Record<string, string>>;
-  skillContentPending: ReadonlySet<string>;
-  skillContentOpen: string | null;
-  onSkillContentToggle: (name: string) => void;
-}) {
-  const { t } = useI18n();
-  const isKgWriter = kind === "subagent-kg-writer";
-  const isReviewer = kind === "subagent-code-reviewer"; // D5 第五 kind：派生自 worker − write/edit
-  const selId = `sel-model-${kind}`;
-  /** S3a 可用性口径（ProfileCard 同一过滤函数/数据源/兜底链；M49 共用 hook） */
-  const effective = block?.model ?? defaultModel ?? "";
-  const { modelsByProvider, thinkingCapability } = useAgentModelSelectors({
-    catalog,
-    auth,
-    authLoaded,
-    currentModel: effective || undefined,
-    capabilityModel: effective,
-  });
-  return (
-    <section className="hud-card ag-card" data-agent-card={kind}>
-      <header className="ag-card-head">
-        <h2 className="ag-card-title">{agentTitleOf(t, kind)}</h2>
-        <span className="hud-chip" data-kind-chip>
-          {kind}
-        </span>
-        {/* R7：工具集只读派生；模型/推理槽位可配 */}
-        <span className="hud-badge hud-badge-off" data-ro-badge>
-          {t("agents.roToolsBadge")}
-        </span>
-      </header>
-
-      {/* 模型槽位（R7）：独立配置，缺省项 = 跟随全局默认（不联动 worker） */}
-      <div className="ag-model">
-        <label className="hud-label" htmlFor={selId}>
-          {t("agents.modelLabel")}
-        </label>
-        <div className="sel-wrap">
-          <select
-            id={selId}
-            className="hud-input"
-            value={block?.model ?? ""}
-            disabled={catalog === null || writePending}
-            onChange={(e) => onModelChange(kind, e.target.value)}
-          >
-            <option value="">{t("agents.modelFollowGlobal")}</option>
-            {[...modelsByProvider.entries()].map(([providerId, models]) => (
-              <optgroup label={providerId} key={providerId}>
-                {models.map((m) => (
-                  <option value={m.id} key={m.id}>
-                    {m.id}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-          <span className="sel-chev">
-            <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
-          </span>
-        </div>
-        <p className="ag-note" data-ro-note>
-          {t("agents.modelNoteSystem")}
-        </p>
-      </div>
-
-      {/* 推理强度槽位（R7）：与可编辑卡同构（档位透传；clear = "-" 占位） */}
-      <P2ThinkingField
-        kind={kind}
-        thinkingLevel={block?.thinkingLevel ?? null}
-        capability={thinkingCapability}
-        disabled={writePending}
-        onSelect={(level) => onToggle(kind, "thinking", level, true)}
-        onClear={() => onToggle(kind, "thinking", "-", false)}
-      />
-
-      {/* 派生说明位（kg-writer / reviewer 各有其辞）：工具集跟随 + 恒在/恒摘面 */}
-      {isKgWriter && (
-        <p className="ag-note" data-derived-note>
-          {t("agents.derivedNote")}
-        </p>
-      )}
-      {isReviewer && (
-        <p className="ag-note" data-derived-note>
-          {t("agents.reviewerDerivedNote")}
-        </p>
-      )}
-
-      {/* base prompt 批：base 段系统提示词查看区（工具清单正上方） */}
-      {basePrompt}
-
-      {/* 工具清单：纯展示（无开关；行 = 名称 + snippet；恒在行带徽标）。
-          MCP 命名空间工具（`${server}__*`）不进本清单——归下方 MCP 分组区
-          （渲染同构修复批：与可配置卡的 __ 过滤同构，不再平铺混杂） */}
-      <div className="ag-group">
-        <h3 className="ag-group-label">{t("agents.toolsLabel")}</h3>
-        {block === null ? (
-          <div className="ag-skel" aria-hidden="true">
-            {[0, 1, 2].map((i) => (
-              <div className="ag-skel-row" key={i}>
-                <span className="ag-skel-bar" style={{ width: 96 }} />
-                <span className="ag-skel-bar" style={{ width: `${58 - i * 8}%` }} />
-              </div>
-            ))}
-          </div>
-        ) : (
-          block.tools.filter((tool) => !tool.name.includes("__")).map((tool) => {
-            const pinned = block.pinnedTools?.includes(tool.name) ?? false;
-            return (
-              <div className="ag-row ag-ro-row" data-ro-tool-row={tool.name} key={tool.name}>
-                <div className="ag-row-main">
-                  <span className="ag-name">{tool.name}</span>
-                  <span className="ag-desc">{tool.snippet}</span>
-                </div>
-                {pinned && (
-                  <span className="hud-chip" data-pinned-chip>
-                    {t("agents.pinnedTag")}
-                  </span>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
-      {/* 只读 MCP 面（渲染同构修复批）：与可配置卡同构的分组形态——
-          server 组行（运行态 + 缺省禁徽标，无开关）+ 组内工具行（纯展示、
-          名称去命名空间前缀）；空态同构（无 server → 空态提示非隐藏）。
-          全 kind 显式启用制默认禁，系统 kind 写面只读恒关（无开关） */}
-      <div className="ag-group" data-ro-mcp-group>
-        <h3 className="ag-group-label">{t("agents.mcpLabel")}</h3>
-        <p className="ag-note" data-ro-mcp-note>{t("agents.mcpNoteOrch")}</p>
-        {block === null ? (
-          <div className="ag-skel" aria-hidden="true">
-            <div className="ag-skel-row">
-              <span className="ag-skel-bar" style={{ width: 110 }} />
-              <span className="ag-skel-bar" style={{ width: "42%" }} />
-            </div>
-          </div>
-        ) : (block.mcpServers ?? []).length === 0 ? (
-          <p className="ag-empty-hint" data-mcp-empty>{t("agents.mcpEmpty")}</p>
-        ) : (
-          (block.mcpServers ?? []).map((server) => {
-            const prefix = `${server.name}__`;
-            const serverTools = (block.tools ?? []).filter((tool) => tool.name.startsWith(prefix));
-            return (
-              <div data-ro-mcp-server={server.name} key={server.name}>
-                <div className="ag-row ag-ro-row" data-ro-mcp-row={server.name}>
-                  <div className="ag-row-main">
-                    <span className="ag-name">{server.name}</span>
-                    <span className="ag-desc">{t("agents.mcpToolCount", { count: server.toolCount ?? serverTools.length })}</span>
-                  </div>
-                  <span className={cn("mcp-state", server.state === "running" && "mcp-state-ok", server.state === "error" && "mcp-state-err")} data-mcp-state={server.state}>
-                    {t(`agents.mcpState.${server.state}`)}
-                  </span>
-                  {!server.enabled && (
-                    <span className="hud-chip" data-ro-mcp-off>
-                      {t("agents.mcpOffChip")}
-                    </span>
-                  )}
-                </div>
-                {serverTools.map((tool) => (
-                  <div className="ag-row ag-row-sub ag-ro-row" data-ro-mcp-tool-row={tool.name} key={tool.name}>
-                    <div className="ag-row-main">
-                      <span className="ag-name">{tool.name.slice(prefix.length)}</span>
-                      <span className="ag-desc" title={tool.snippet}>{tool.snippet}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            );
-          })
-        )}
-      </div>
-      {/* 技能清单（同轨批）：纯展示行 + 正文查看——
-          orchestrator = 任务 SOP 注册表（kickoff 全文注入的消费面）；
-          kg-writer/reviewer = 只读启停面（显式启用制默认全关；系统 kind
-          提示词不注入技能段——技能消费在 kickoff）。旧 daemon
-          未携带 = 空（additive 容忍）。 */}
-      <div className="ag-group">
-        <h3 className="ag-group-label">{kind === "orchestrator" ? t("agents.systemSkillsLabelOrch") : t("agents.systemSkillsLabelDerived")}</h3>
-        {kind === "orchestrator" && <p className="ag-note" data-sop-note>{t("agents.systemSkillsNoteOrch")}</p>}
-        {block === null ? (
-          <div className="ag-skel" aria-hidden="true">
-            {[0, 1].map((i) => (
-              <div className="ag-skel-row" key={i}>
-                <span className="ag-skel-bar" style={{ width: 120 }} />
-                <span className="ag-skel-bar" style={{ width: `${48 - i * 8}%` }} />
-              </div>
-            ))}
-          </div>
-        ) : (block.skills ?? []).length === 0 ? (
-          <p className="ag-empty-hint">{t("agents.skillsEmpty")}</p>
-        ) : (
-          (block.skills ?? []).map((skill) => (
-            <div data-skill-entry={skill.name} key={skill.filePath}>
-              <div className="ag-row ag-ro-row" data-skill-row={skill.name}>
-                <div className="ag-row-main">
-                  <span className="ag-name">{skill.name}</span>
-                  <span className="ag-desc" title={skill.description}>
-                    {skill.description}
-                  </span>
-                </div>
-                <span className="hud-chip" data-source-chip>
-                  {skill.source === "builtin" ? t("agents.skillSourceBuiltin") : skill.source}
-                </span>
-                {/* 同轨批：派生两块只读启停面——enabled 位恒关展示（系统 kind
-                    写面只读；orchestrator 任务 SOP 注册表行无此位） */}
-                {skill.enabled === false && (
-                  <span className="hud-chip" data-skill-off>
-                    {t("agents.skillOffChip")}
-                  </span>
-                )}
-                {skill.audience === "task" && (
-                  <span className="hud-chip" data-audience-chip="task" title={t("agents.skillAudienceTaskHint")}>
-                    {t("agents.skillAudienceTask")}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className="hud-btn hud-btn-ghost sm"
-                  data-skill-content-toggle={skill.name}
-                  disabled={skillContentPending.has(skill.name)}
-                  onClick={() => onSkillContentToggle(skill.name)}
-                >
-                  {skillContentOpen === skill.name ? t("agents.skillContentHide") : t("agents.skillContentView")}
-                </button>
-              </div>
-              {skillContentOpen === skill.name && (
-                skillContents[skill.name] === undefined ? (
-                  <p className="ag-loading" role="status">
-                    {t("agents.skillContentLoading")}
-                  </p>
-                ) : (
-                  <pre className="ag-base-prompt" data-skill-content-text={skill.name}>
-                    {skillContents[skill.name]}
-                  </pre>
-                )
-              )}
-            </div>
-          ))
         )}
       </div>
     </section>
@@ -1091,42 +840,39 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
         ) : (
           <div className="ag-pane-scroll">
             <div className="ag-pane-inner">
-              {state.selected === "main-session" || state.selected === "subagent-worker" ? (
-                <ProfileCard
-                  kind={state.selected}
-                  block={state.profiles[state.selected]}
-                  skeleton={state.profiles[state.selected] === null}
-                  catalog={catalog}
-                  defaultModel={topology.modelConfig.defaultModel}
-                  auth={auth}
-                  authLoaded={authLoaded}
-                  writePending={writePending}
-                  onToggle={onToggle}
-                  onModelChange={onModelChange}
-                  basePrompt={basePromptSection}
-                  skillContents={state.skillContents}
-                  skillContentPending={state.skillContentPending}
-                  skillContentOpen={state.skillContentOpen}
-                  onSkillContentToggle={onSkillContentToggle}
-                />
-              ) : (
-                <SystemProfileCard
-                  kind={state.selected}
-                  block={state.system[state.selected]}
-                  catalog={catalog}
-                  defaultModel={topology.modelConfig.defaultModel}
-                  auth={auth}
-                  authLoaded={authLoaded}
-                  writePending={writePending}
-                  onToggle={onToggle}
-                  onModelChange={onModelChange}
-                  basePrompt={basePromptSection}
-                  skillContents={state.skillContents}
-                  skillContentPending={state.skillContentPending}
-                  skillContentOpen={state.skillContentOpen}
-                  onSkillContentToggle={onSkillContentToggle}
-                />
-              )}
+              <ProfileCard
+                kind={state.selected}
+                block={
+                  state.selected === "main-session" || state.selected === "subagent-worker"
+                    ? state.profiles[state.selected]
+                    : state.system[state.selected]
+                }
+                skeleton={(state.selected === "main-session" || state.selected === "subagent-worker"
+                  ? state.profiles[state.selected]
+                  : state.system[state.selected]) === null}
+                catalog={catalog}
+                defaultModel={topology.modelConfig.defaultModel}
+                auth={auth}
+                authLoaded={authLoaded}
+                writePending={writePending}
+                onToggle={onToggle}
+                onModelChange={onModelChange}
+                basePrompt={basePromptSection}
+                skillContents={state.skillContents}
+                skillContentPending={state.skillContentPending}
+                skillContentOpen={state.skillContentOpen}
+                onSkillContentToggle={onSkillContentToggle}
+                readOnly={
+                  state.selected === "orchestrator" ||
+                  state.selected === "subagent-kg-writer" ||
+                  state.selected === "subagent-code-reviewer"
+                }
+                pinnedTools={
+                  state.selected === "subagent-kg-writer"
+                    ? state.system["subagent-kg-writer"]?.pinnedTools
+                    : undefined
+                }
+              />
             </div>
           </div>
         )}

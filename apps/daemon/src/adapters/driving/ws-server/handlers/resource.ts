@@ -61,10 +61,9 @@ function normalizeSetEnabled(ctx: ResourceCommandContext, payload: Record<string
   const { profileKind, resourceType, name, enabled } = payload;
   if (profileKind === "orchestrator" || profileKind === "subagent-kg-writer" || profileKind === "subagent-code-reviewer") {
     if (resourceType !== "model" && resourceType !== "thinking") {
-      // 编排归位批：orchestrator 回归系统只读 kind（与派生两 kind 同待——
-      // 仅 model/thinking 槽位型可写，独立配置未配跟随全局）；tool/skill/
-      // mcp-server 启停写面拒绝（变相禁用 = kind 缺省全禁 + 只读，非可配卡）。
-      ctx.commandError(ctx.type, "agent.config.read_only", `payload.profileKind ${profileKind} 为系统 kind：仅 model/thinking 槽位可配，tool/skill/mcp-server 启停只读（写面拒绝）`);
+      // 终态：系统派生三 kind 的 skills/tools/mcp 只读（不可选择开关——唯一
+      // 与 chat agent 的差异）；行为逻辑同轨（装配/读面同构，差异行独立生效）。
+      ctx.commandError(ctx.type, "agent.config.read_only", `payload.profileKind ${profileKind} 为系统派生 kind：仅 model/thinking 槽位可配，tool/skill/mcp-server 只读（写面拒绝）`);
       return undefined;
     }
     // 槽位型放行（校验后续通用段：resourceType/name/enabled 形状）
@@ -107,18 +106,11 @@ function toProfileBlockDto(block: ResourceConfigBlock): AgentConfigProfileBlock 
 }
 
 /**
- * 只读系统三块派生（同轨批：六 kind 读面同构——唯一差异 = 写面只读性）：
- * - orchestrator = 声明全集（纯展示行不携带 enabled 位）+ 只读 mcpServers
- *   行 + 技能区 = 任务 SOP 注册表（audience=task ∧ builtin，与
- *   TaskSkillRegistry 注册谓词同源——kickoff 全文注入的实际消费面；其
- *   系统提示无技能段——技能消费单轨在 kickoff）；
- * - kg-writer = worker 当前生效集（enabled 过滤）+ 恒在工具（pinnedTools
- *   单源）+ 自身 kind 只读技能启停面 + 自身 mcpServers 行；
- * - reviewer = worker 当前生效集 − 恒摘除工具（removedTools 单源）+ 自身
- *   只读技能启停面 + 自身 mcpServers 行。
- * 派生两块技能行 = 自身 kind 清单（ResourceService.list 同源——含 enabled
- * 只读启停位，全源显式启用制默认 false；系统 kind 写面只读恒不可改）。
- * mcpServers 三块同构携带（默认 false + 写面只读——未来启用仅需放开写面）。
+ * 系统三块读面（与可配块同构——行带 enabled 位，写面只读）：
+ * - 行透传自身 kind 清单（tools/skills/mcpServers 全带 enabled 位——生效集
+ *   与 chat agent 同一装配逻辑，差异行独立生效；用户不可开关，仅展示状态）；
+ * - kg-writer 附 pinnedTools 徽标面、reviewer 声明面已减 write/edit（声明
+ *   单源；derivedFrom 派生展示已撤——独立装配）。
  */
 function toSystemBlocksDto(
   main: ResourceConfigBlock,
@@ -129,13 +121,10 @@ function toSystemBlocksDto(
   pinnedTools: readonly string[],
   removedTools: readonly string[],
 ): readonly AgentConfigSystemBlock[] {
-  const workerEffective = worker.tools.filter((t) => t.enabled).map((t) => ({ name: t.name, snippet: t.snippet }));
-  // orchestrator 技能行：任务 SOP 注册表（TaskSkillRegistry 注册谓词同源）
-  const taskSopRows = orch.skills
-    .filter((s) => s.source === "builtin" && s.audience === "task")
-    .map((s) => ({ name: s.name, description: s.description, filePath: s.filePath, source: s.source, audience: s.audience }));
-  // 派生两块技能行：自身 kind 只读启停面（同 ResourceService.list 单源）
-  const roSkillRows = (block: ResourceConfigBlock) =>
+  // tools 行透传：带 enabled 位（与可配块 toProfileBlockDto 同构；独立装配
+  // 终态——不再从 worker 生效集派生，各块读自身 catalog + 差异行）
+  const toolRows = (block: ResourceConfigBlock) => block.tools.map((t) => ({ name: t.name, snippet: t.snippet, enabled: t.enabled }));
+  const skillRows = (block: ResourceConfigBlock) =>
     block.skills.map((s) => ({ name: s.name, description: s.description, filePath: s.filePath, source: s.source, audience: s.audience, enabled: s.enabled }));
   const mcpRows = (block: ResourceConfigBlock) =>
     block.mcpServers !== undefined && block.mcpServers.length > 0
@@ -144,9 +133,8 @@ function toSystemBlocksDto(
   return [
     {
       profileKind: "orchestrator",
-      tools: orch.tools.map((t) => ({ name: t.name, snippet: t.snippet })),
-      skills: taskSopRows,
-      // 只读 MCP 面（默认 false + 写面只读——同轨展示）
+      tools: toolRows(orch),
+      skills: skillRows(orch),
       ...mcpRows(orch),
       // R7 系统槽位：独立配置，未配跟随全局（不联动 worker）
       model: orch.model ?? null,
@@ -154,30 +142,21 @@ function toSystemBlocksDto(
     },
     {
       profileKind: "subagent-kg-writer",
-      tools: [
-        ...workerEffective,
-        ...pinnedTools.map((name) => ({
-          name,
-          snippet: main.tools.find((t) => t.name === name)?.snippet ?? "",
-        })),
-      ],
-      skills: roSkillRows(kgw),
+      tools: toolRows(kgw),
+      skills: skillRows(kgw),
       ...mcpRows(kgw),
-      derivedFrom: "subagent-worker",
       pinnedTools: [...pinnedTools],
-      // R7：kg-writer 独立槽位（工具集仍派生 worker——职责语义；
-      // 模型/推理不联动）
+      // R7：kg-writer 独立槽位（工具集声明面单源；模型/推理不联动）
       model: kgw.model ?? null,
       thinkingLevel: kgw.thinkingLevel ?? null,
     },
     {
       profileKind: "subagent-code-reviewer",
-      tools: workerEffective.filter((t) => !removedTools.includes(t.name)),
-      skills: roSkillRows(reviewer),
+      tools: toolRows(reviewer),
+      skills: skillRows(reviewer),
       ...mcpRows(reviewer),
-      derivedFrom: "subagent-worker",
-      // D5：reviewer 独立槽位（工具集派生 worker − 摘除面——职责语义；
-      // 模型/推理不联动，TR-42 两级链）
+      // D5：reviewer 独立槽位（声明面已减 write/edit——职责语义；
+      // 模型/推理不联动）
       model: reviewer.model ?? null,
       thinkingLevel: reviewer.thinkingLevel ?? null,
     },

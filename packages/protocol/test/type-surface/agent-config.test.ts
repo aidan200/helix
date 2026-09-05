@@ -172,25 +172,21 @@ describe("agent.config 事件族 payload（v0.6）", () => {
   // 编译期：system 块三形态可构造；越界字面量拒绝。
   const _systemKgWriter: AgentConfigSystemBlock = {
     profileKind: "subagent-kg-writer",
-    tools: [{ name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" }],
-    derivedFrom: "subagent-worker",
+    tools: [{ name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出", enabled: true }],
     pinnedTools: ["kg-update"],
   };
   // 编排归位批：orchestrator 归位系统只读块（声明全集 + 任务 SOP 注册表 + 只读 MCP 行）
   const _systemOrchestrator: AgentConfigSystemBlock = {
     profileKind: "orchestrator",
-    tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务" }],
+    tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务", enabled: true }],
     mcpServers: [{ name: "shadcn", enabled: false, state: "running", toolCount: 3 }],
   };
   const _systemReviewer: AgentConfigSystemBlock = {
     profileKind: "subagent-code-reviewer",
-    tools: [{ name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" }],
-    derivedFrom: "subagent-worker",
+    tools: [{ name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出", enabled: true }],
   };
   // @ts-expect-error 只读块 profileKind 只接受系统三 kind（可编辑 kind 编译期拒绝）
   const _systemBadKind: AgentConfigSystemBlock = { profileKind: "main-session", tools: [] };
-  // @ts-expect-error derivedFrom 只接受 subagent-worker（派生说明位单一事实源）
-  const _systemBadDerived: AgentConfigSystemBlock = { profileKind: "subagent-kg-writer", tools: [], derivedFrom: "orchestrator" };
   // 同轨批：派生块技能行带 enabled 只读启停位（默认 false）；orchestrator 任务 SOP 注册表行仍无启停位
   const _systemSkillRow: AgentConfigSystemBlock = {
     profileKind: "subagent-kg-writer",
@@ -214,19 +210,18 @@ describe("agent.config 事件族 payload（v0.6）", () => {
     expect(system).toHaveLength(3);
     expect(system[0]!.profileKind).toBe("orchestrator");
     expect(system[1]!.profileKind).toBe("subagent-kg-writer");
-    expect(system[1]!.derivedFrom).toBe("subagent-worker");
     expect(system[1]!.pinnedTools).toEqual(["kg-update"]);
-    // kg-writer 工具清单 = worker 生效集 + kg-update（行形状 name+snippet，无启停位）
+    // 终态：kg-writer 工具清单 = 自身 catalog 透传（行带 enabled 位）
     expect(system[1]!.tools.map((t) => t.name)).toEqual(["bash", "kg-update"]);
     expect(system[1]!.tools[1]!.snippet.length).toBeGreaterThan(0);
-    // orchestrator 块：任务 SOP 注册表纯展示行（无启停位）+ 只读 MCP 行（缺省禁）
+    // orchestrator 块：task SOP 行带 enabled 位（透传同构——恒 false，消费在 kickoff）
     const orchSopRow = system[0]!.skills!.find((s) => s.name === "code-review")!;
     expect(orchSopRow.audience).toBe("task");
-    expect(Object.keys(orchSopRow)).not.toContain("enabled"); // 纯展示行无启停位
+    expect(orchSopRow.enabled).toBe(false); // task 层不播种不可开
     expect(system[0]!.mcpServers?.[0]).toMatchObject({ name: "shadcn", enabled: false });
-    // 派生块技能行 = 自身 kind 只读启停面（audience=agent + enabled 默认 false）
+    // 派生块技能行 = 自身清单透传（builtin 播种五 kind 全开）
     expect(system[1]!.skills?.[0]!.audience).toBe("agent");
-    expect(system[1]!.skills![0]!.enabled).toBe(false); // 同轨批：只读启停位携带
+    expect(system[1]!.skills![0]!.enabled).toBe(true); // 终态：播种位
     void _systemKgWriter;
     void _systemOrchestrator;
     void _systemReviewer;

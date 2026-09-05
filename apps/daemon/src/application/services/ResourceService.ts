@@ -274,12 +274,12 @@ export class ResourceService implements ResourceConfigPort {
   }
 
   /**
-   * builtin 技能差异行播种（缺省启停批裁决 C）：初始化时给 agent 层 builtin
-   * 技能写显式 enabled=true 差异行——运行时缺省逻辑零特判（无差异行 = 禁用
-   * 不变，builtin 与 user 同轨），builtin 开箱即用 + 可关可再开。
+   * builtin 技能差异行播种（终态裁决：五 kind 全播）：初始化时给 agent 层
+   * builtin 技能写显式 enabled=true 差异行——运行时缺省逻辑零特判（无差异行
+   * = 禁用不变，builtin 与 user 同轨），builtin 开箱即用（系统派生 kind 同
+   * 播——读面展示同构，写面只读恒为播入值）。
    * 缺行才播：用户已配置（含手动关闭）不覆盖；版本升级新增 builtin 技能重启
-   * 自动补播。调用面传入可写 kind（组合根 isSystemKind 反向——系统 kind 技能
-   * 段 omitSkills 无消费面且写面只读，不播）。返回播种条数（幂等二跑 = 0）。
+   * 自动补播。返回播种条数（幂等二跑 = 0）。
    */
   async seedBuiltinSkillDefaults(kinds: readonly ProfileKind[]): Promise<number> {
     const builtinAgentSkills = (await this.deps.skills.scan()).skills.filter(

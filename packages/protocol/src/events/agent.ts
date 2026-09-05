@@ -185,50 +185,48 @@ export interface AgentConfigListResultPayload {
   system?: readonly AgentConfigSystemBlock[];
 }
 
-/** 只读系统派生块工具行（纯展示：name + 一句话 snippet；无启停位——
- *  清单即生效集/声明全集）。 */
+/** 系统派生块工具行（终态：与可配块同构——透传自身 kind 清单带 enabled
+ *  位；静态工具缺省开，独立差异行管控，不随 worker 联动）。 */
 export interface AgentConfigSystemToolRow {
   name: string;
   /** 工具一句话说明（daemon ToolPromptSnippets 注册表同源；注册表外名 = 空串）。 */
   snippet: string;
+  /** 启停位（透传同构：自身 kind 差异行缺省开；写面只读恒不可改——展示态）。 */
+  enabled: boolean;
 }
 
-/** 只读系统派生块技能行（纯展示：name/description/filePath/source/audience 五字段
- *  + 可选 enabled 只读启停位）。 */
+/** 系统派生块技能行（终态：与可配块同构——透传自身 kind 清单带 enabled
+ *  位）。builtin 播种开、user 显式启用制关、task 层不播种且不可开。 */
 export interface AgentConfigSystemSkillRow {
   name: string;
   description: string;
   filePath: string;
   /** 来源层：user / builtin（AgentConfigProfileBlock.skills 行同源；project 层已删）。 */
   source: "user" | "builtin";
-  /** 受众分类：orchestrator 块 = task（kickoff 全文注入的任务 SOP 注册表）；
-   *  派生两块（kg-writer/reviewer）= agent（只读启停面展示）。 */
+  /** 受众分类：agent（领域能力）/ task（任务 SOP——kickoff 通道消费，
+   *  仅 orchestrator 可见面携带）。 */
   audience: "agent" | "task";
-  /** 只读启停位（同轨批；仅派生两块携带）：自身 kind 差异行合取（全源
-   *  显式启用制默认 false；系统 kind 写面只读恒不可改——展示面）。
-   *  orchestrator 任务 SOP 注册表行不携带（无启停语义）。 */
-  enabled?: boolean;
+  /** 启停位（透传同构；系统 kind 写面只读恒不可改——展示态）。 */
+  enabled: boolean;
 }
 
 /**
- * agent.config.list.result 只读系统派生块：orchestrator / subagent-kg-writer
- * 元信息（agent-roster 批 additive）。可见不可编辑——写面对只读 kind 恒拒
- * （connection.error code=agent.config.read_only，连接保持）。工具清单从
- * 真实 profile 派生：orchestrator = 声明全集（toolsCatalog 同源）；
- * kg-writer = subagent-worker 当前生效集 + pinnedTools（kg-update 恒在，
- * 随 worker toggle 动态跟随——派生面无自有状态）。
+ * agent.config.list.result 系统派生块（终态）：orchestrator / subagent-kg-writer
+ * / subagent-code-reviewer 三块——与可配块同构透传（tools/skills/mcpServers
+ * 行带 enabled 位，自身 kind 清单单源，独立配置不随 worker 联动）。唯一
+ * 差异 = 写面只读：skills/tools/mcp 启停恒拒（connection.error
+ * code=agent.config.read_only，连接保持），model/thinking 槽位可配。
  */
 export interface AgentConfigSystemBlock {
-  /** 系统 kind（不在写面枚举：orchestrator 系统机制形态；kg-writer/reviewer 装配端派生）。 */
+  /** 系统 kind（写面仅槽位型放行；装配/读面与可配 kind 同构）。 */
   profileKind: SystemProfileKind;
-  /** 工具清单（纯展示；orchestrator = 声明全集，kg-writer = worker 生效集 + pinned）。 */
+  /** 工具清单（透传自身 kind catalog + 差异行；含 MCP 命名空间行——前端分组渲染）。 */
   tools: ReadonlyArray<AgentConfigSystemToolRow>;
   /**
-   * 技能清单（纯展示）：orchestrator = 任务 SOP 注册表（audience=task 的
-   * builtin 技能——kickoff 全文注入的实际消费面，无启停位）；kg-writer/
-   * reviewer = 自身 kind 只读启停面（enabled 位默认 false——全源显式启用
-   * 制；系统 kind 提示词不注入技能段，技能消费在 kickoff）。缺省不携带
-   * （旧 daemon 容忍，agent-config-model system 块 null 语义同构）。
+   * 技能清单（透传自身 kind 可见面）：agent 受众全清单（builtin 播种开、
+   * user 显式启用制关）；orchestrator 可见面另含 task 受众行（任务 SOP，
+   * enabled 恒 false——消费通道在 kickoff，非启停面）。缺省不携带（旧
+   * daemon 容忍，agent-config-model system 块 null 语义同构）。
    */
   skills?: ReadonlyArray<AgentConfigSystemSkillRow>;
   /**
@@ -238,7 +236,6 @@ export interface AgentConfigSystemBlock {
    */
   mcpServers?: ReadonlyArray<AgentConfigMcpServerRow>;
   /** 派生说明位：kg-writer = 派生自 subagent-worker（工具集跟随 worker）；orchestrator 不携带。 */
-  derivedFrom?: "subagent-worker";
   /** 派生面恒在工具（kg-writer = ["kg-update"]；orchestrator 不携带）。 */
   pinnedTools?: readonly string[];
   /**

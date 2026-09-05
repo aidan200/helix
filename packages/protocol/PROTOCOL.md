@@ -1599,13 +1599,12 @@ parked 不占并发预算，恢复等价新派发排队）。
 | `profiles[].diagnostics` | `{ code, message, path, source }[]` | 必填 | v0.6 | 扫描诊断（坏文件上抛不炸） |
 | `profiles[].model` | `string \| null` | 必填 | v0.6 | model 槽位现值（未设 = null） |
 | `profiles[].thinkingLevel` | `string \| null` | 必填 | v0.11 | thinking 槽位现值（未配置 = null；v0.11 批内补登 T1.3） |
-| `system` | `AgentConfigSystemBlock[]` | 可选 | agent-roster 批 | 只读系统块（编排归位批：orchestrator 归位系统区——三块序固定 orchestrator/kg-writer/reviewer）：缺省全量请求时携带；单 kind 过滤请求不携带；旧客户端可选字段不感知 |
-| `system[].profileKind` | `"orchestrator" \| `"subagent-kg-writer"` \| `"subagent-code-reviewer"` | 必填 | agent-roster 批 | 系统 kind（不在写面枚举——写面携带 → `agent.config.read_only` 拒绝） |
-| `system[].skills` | `{ name, description, filePath, source, audience, enabled? }[]` | 可选 | 同轨批 | orchestrator = 任务 SOP 注册表（audience=task ∧ builtin，无 enabled 位——kickoff 全文注入的消费面）；kg-writer/reviewer = 自身 kind 只读启停面（enabled 默认 false——全源显式启用制，写面只读恒不可改） |
-| `system[].mcpServers` | `AgentConfigMcpServerRow[]` | 可选 | 同轨批 | 只读 MCP 面（三系统块同构携带）：运行态行，enabled 默认 false（显式启用制 + 写面只读恒不可开——未来启用仅需放开写面） |
-| `system[].tools` | `{ name, snippet }[]` | 必填 | agent-roster 批 | 工具清单纯展示（orchestrator = 声明全集；kg-writer = subagent-worker 当前生效集 + pinnedTools，随 worker toggle 动态跟随；无启停位——清单即生效集） |
-| `system[].derivedFrom` | `"subagent-worker"` | 可选 | agent-roster 批 | 派生说明位：kg-writer = 派生自 subagent-worker；orchestrator 不携带 |
-| `system[].pinnedTools` | `string[]` | 可选 | agent-roster 批 | 派生面恒在工具（kg-writer = ["kg-update"]；orchestrator 不携带） |
+| `system` | `AgentConfigSystemBlock[]` | 可选 | agent-roster 批 | 系统派生块（显示同构终态：三块序固定 orchestrator/kg-writer/reviewer，与可配块同构透传——行带 enabled 位、自身 kind 清单单源、独立配置不随 worker 联动）：缺省全量请求时携带；单 kind 过滤请求不携带；旧客户端可选字段不感知 |
+| `system[].profileKind` | `"orchestrator" \| `"subagent-kg-writer"` \| `"subagent-code-reviewer"` | 必填 | agent-roster 批 | 系统 kind（tool/skill/mcp-server 写面 → `agent.config.read_only` 拒绝——唯一与可配 kind 差异；model/thinking 槽位可配） |
+| `system[].skills` | `{ name, description, filePath, source, audience, enabled }[]` | 可选 | 同轨批 | 透传自身 kind 可见面：agent 受众全清单（builtin 播种五 kind 全开 + user 显式启用制关）；orchestrator 另含 task 受众行（任务 SOP，enabled 恒 false——消费通道在 kickoff） |
+| `system[].mcpServers` | `AgentConfigMcpServerRow[]` | 可选 | 同轨批 | MCP 面（三系统块同构携带）：运行态行 + enabled 位（user MCP 显式启用制默认 false；写面只读——展示同构开关置灰） |
+| `system[].tools` | `{ name, snippet, enabled }[]` | 必填 | agent-roster 批 | 工具清单透传（自身 kind catalog + 差异行，静态缺省开；含 MCP 命名空间行——前端分组渲染；独立配置不随 worker toggle 联动） |
+| `system[].pinnedTools` | `string[]` | 可选 | agent-roster 批 | 恒在工具徽标面（kg-writer = ["kg-update"]；声明面单源，行存在即亮） |
 | `profiles[].mcpServers` | `AgentConfigMcpServerRow[]` | 可选 | server 级配置面批 | per-kind 的 MCP server 启停读面：行 = { name（差异行 key）, enabled, state（运行态透传）, toolCount?, lastError? }；零准入 server 的 kind 不携带（旧客户端零感知） |
 
 #### `agent.config.changed`

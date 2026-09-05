@@ -1129,3 +1129,13 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
   builtin 与 user 同轨显式启用制保持——开箱默认开 + 可关可再开。
 - **兼容性**：subtle——升级后旧 task-worker 差异行成遗留行（合取中被忽略，
   无生效面）；builtin 技能由播种自动回开（用户显式关过的行播种不覆盖）。
+
+## 37. 显示同构终态批（五 kind 行为逻辑同轨：builtin 播种五 kind 全开 + 系统三 kind 技能段照常注入 + system 块行透传带 enabled 位；v0.11 后 additive 微批——版本位不 bump）
+
+**变更**（`agent.config.list.result` system 块）：
+- `system[].tools` 行扩 `enabled`（必有）：纯展示行 → 透传行（自身 kind catalog + 差异行；静态工具缺省开，独立配置不随 worker toggle 联动）
+- `system[].skills` 行 `enabled` 可选 → 必有：builtin 播种五 kind 全开（开箱即用——此前只播可写两 kind）、user 显式启用制关；orchestrator 可见面另含 task 受众行（enabled 恒 false，消费在 kickoff）
+- `system[].derivedFrom` 字段退役（派生展示撤除——kg-writer/reviewer 独立装配，不再从 worker 派生）
+- 写面边界不变：系统三 kind tool/skill/mcp-server 恒拒 `agent.config.read_only`（唯一与可配 kind 差异）；模型/推理槽位可配
+
+**装配语义**（daemon 内部，非协议面）：`computeAssembly` 五 kind 同构——技能段照常注入各自生效集（omitSkills 机制退役；SOP 仍走 kickoff 全文注入通道）；kg-writer/reviewer 独立装配（提示词 = 自身装配 + 后缀，工具/技能面不再继承 worker）。

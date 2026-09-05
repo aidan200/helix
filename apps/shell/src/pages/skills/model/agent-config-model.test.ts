@@ -127,19 +127,18 @@ describe("智能体页页面模型（M6 T4）", () => {
 // 编排归位批：orchestrator 归位 system 只读块（声明全集 + 任务 SOP 注册表 + 只读 MCP 行）
 const ORCH_SYSTEM_BLOCK: AgentConfigSystemBlock = {
   profileKind: "orchestrator",
-  tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务" }],
+  tools: [{ name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务", enabled: true }],
   skills: [
-    { name: "code-review", description: "对项目代码做质量评审", filePath: "/task/code-review/SKILL.md", source: "builtin", audience: "task" },
+    { name: "code-review", description: "对项目代码做质量评审", filePath: "/task/code-review/SKILL.md", source: "builtin", audience: "task", enabled: false },
   ],
   mcpServers: [{ name: "shadcn", enabled: false, state: "running", toolCount: 3 }],
 };
 const KGW_BLOCK: AgentConfigSystemBlock = {
   profileKind: "subagent-kg-writer",
   tools: [
-    { name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
-    { name: "kg-update", snippet: "知识图谱即时落账" },
+    { name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出", enabled: true },
+    { name: "kg-update", snippet: "知识图谱即时落账", enabled: true },
   ],
-  derivedFrom: "subagent-worker",
   pinnedTools: ["kg-update"],
 };
 

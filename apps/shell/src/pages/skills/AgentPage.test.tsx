@@ -84,12 +84,12 @@ const SUB_BLOCK: AgentConfigProfileBlock = {
 const ORCH_SYSTEM_BLOCK: AgentConfigSystemBlock = {
   profileKind: "orchestrator",
   tools: [
-    { name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" },
-    { name: "kg", snippet: "查询项目知识图谱（只读）" },
+    { name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）", enabled: true },
+    { name: "kg", snippet: "查询项目知识图谱（只读）", enabled: true },
     // MCP 命名空间工具行（渲染同构修复批 fixture：daemon 侧 MCP 声明面全开
     // 后系统块 tools 会携带——验证不进工具清单、进 MCP 分组区）
-    { name: "shadcn__button", snippet: "shadcn button 组件装载" },
-    { name: "shadcn__dialog", snippet: "shadcn dialog 组件装载" },
+    { name: "shadcn__button", snippet: "shadcn button 组件装载", enabled: false },
+    { name: "shadcn__dialog", snippet: "shadcn dialog 组件装载", enabled: false },
   ],
   // 任务 SOP 注册表纯展示行（无启停位——非「禁用」语义）
   skills: [
@@ -99,6 +99,7 @@ const ORCH_SYSTEM_BLOCK: AgentConfigSystemBlock = {
       filePath: "/daemon/resources/skills/task/code-review/SKILL.md",
       source: "builtin",
       audience: "task",
+      enabled: false,
     },
   ],
   mcpServers: [{ name: "shadcn", enabled: false, state: "running", toolCount: 3 }],
@@ -108,8 +109,8 @@ const ORCH_SYSTEM_BLOCK: AgentConfigSystemBlock = {
 const KGW_BLOCK: AgentConfigSystemBlock = {
   profileKind: "subagent-kg-writer",
   tools: [
-    { name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出" },
-    { name: "kg-update", snippet: "知识图谱即时落账" },
+    { name: "bash", snippet: "在沙箱工作目录执行 shell 命令并返回输出", enabled: true },
+    { name: "kg-update", snippet: "知识图谱即时落账", enabled: true },
   ],
   // 系统派生块技能读面批：派生两块 = worker 生效技能集（audience=agent）
   skills: [
@@ -119,9 +120,9 @@ const KGW_BLOCK: AgentConfigSystemBlock = {
       filePath: "/daemon/resources/skills/agent/plan-workflow/SKILL.md",
       source: "builtin",
       audience: "agent",
-    },
+      enabled: true,
+    }    ,
   ],
-  derivedFrom: "subagent-worker",
   pinnedTools: ["kg-update"],
 };
 
@@ -337,13 +338,13 @@ describe("智能体页组件（M6 T4）", () => {
     expect(
       (document.querySelector('[data-switch="ws-skill"]') as HTMLButtonElement).getAttribute("aria-checked"),
     ).toBe("false");
-    // builtin 组（T5）：「内置」组标签 + 来源 chip + 开关恒禁用（不可禁用语义）
+    // builtin 组（T5）：「内置」组标签 + 来源 chip + 开关可点（播种制——可关可开）
     const builtinGroup = document.querySelector('[data-source-group="builtin"]')!;
     expect(builtinGroup).toBeTruthy();
     expect(builtinGroup.querySelector(".ag-src-label")!.textContent).toBe("内置");
     expect(document.querySelector('[data-skill-row="web-access"] [data-source-chip]')!.textContent).toBe("builtin");
     const builtinSwitch = document.querySelector('[data-switch="web-access"]') as HTMLButtonElement;
-    expect(builtinSwitch.disabled).toBe(true);
+    expect(builtinSwitch.disabled).toBe(false); // 播种制：builtin 可关可开
     expect(builtinSwitch.getAttribute("aria-checked")).toBe("true");
     // 诊断警示（invalid_metadata + 文案 + 路径）
     const diag = document.querySelector("[data-diag-row]")!;
@@ -374,44 +375,55 @@ describe("智能体页组件（M6 T4）", () => {
     act(() => feedList());
     // 默认选中 main（brief ④）：ready 后 main 详情卡在场
     expect(document.querySelector('[data-agent-card="main-session"]')).toBeTruthy();
-    // 编排归位批：orchestrator 归位系统只读卡（SystemProfileCard 形态——工具/SOP/MCP 只读行 + 槽位可配）
+    // 显示同构终态：orchestrator 卡 = ProfileCard readOnly 形态（开关全渲染、置灰不可点；槽位可配）
     act(() => selectAgent("orchestrator"));
     const orchCard = document.querySelector('[data-agent-card="orchestrator"]')!;
     expect(orchCard).toBeTruthy();
-    expect(orchCard.querySelector("[data-ro-badge]")!.textContent).toBe("工具只读"); // 系统只读徽标归位
+    expect(orchCard.querySelector("[data-ro-badge]")!.textContent).toBe("工具只读"); // 只读徽标（提示性）
     expect(orchCard.querySelector("[data-derived-note]")).toBeNull();
     // 模型下拉缺省项 = 跟随全局默认（两级链文案；槽位型仍可写）
     const sel = orchCard.querySelector("select")! as HTMLSelectElement;
     expect(sel.options[0]!.textContent).toBe("跟随全局默认");
-    // 工具行：纯展示（无开关）
-    expect(orchCard.querySelector('[data-ro-tool-row="agent_spawn"]')!.textContent).toContain("并行委派");
-    // 任务 SOP 注册表：纯展示行 + 任务 SOP 徽标 + 正文查看钮（无开关、无「禁用」态）
+    expect(sel.disabled).toBe(false); // 槽位可配（唯一可写面）
+    // 工具行：统一锚 + 开关在场但置灰（显示同构——不隐藏）
+    expect(orchCard.querySelector('[data-tool-row="agent_spawn"]')!.textContent).toContain("并行委派");
+    const orchToolSwitch = orchCard.querySelector('[data-switch="agent_spawn"]') as HTMLButtonElement;
+    expect(orchToolSwitch.disabled).toBe(true); // readOnly 置灰
+    expect(orchToolSwitch.getAttribute("aria-checked")).toBe("true");
+    // 技能行：任务 SOP 行 + 任务 SOP 徽标 + 正文查看钮 + 开关置灰（enabled=false——kickoff 通道消费）
     expect(orchCard.querySelector('[data-skill-row="code-review"]')).not.toBeNull();
     expect(orchCard.querySelector('[data-skill-row="code-review"] [data-audience-chip="task"]')!.textContent).toContain("任务 SOP");
     expect(orchCard.querySelector('[data-skill-row="code-review"] [data-skill-content-toggle="code-review"]')).not.toBeNull();
-    expect(orchCard.querySelector('[data-skill-row="code-review"] [data-switch]')).toBeNull();
-    // 只读 MCP 面：运行态行 + 缺省禁徽标（变相禁用展示，无开关）
-    expect(orchCard.querySelector('[data-ro-mcp-row="shadcn"]')!.textContent).toContain("shadcn");
-    expect(orchCard.querySelector('[data-ro-mcp-row="shadcn"] [data-ro-mcp-off]')!.textContent).toContain("整组关闭");
-    // 渲染同构修复：MCP 命名空间工具不进工具清单（__ 过滤）——归 MCP 分组区
-    expect(orchCard.querySelector('[data-ro-tool-row="shadcn__button"]')).toBeNull();
-    // 组内工具行：去命名空间前缀展示 + 纯展示无开关
-    const mcpToolRow = orchCard.querySelector('[data-ro-mcp-tool-row="shadcn__button"]')!;
-    expect(mcpToolRow).not.toBeNull();
-    expect(mcpToolRow.textContent).toContain("button");
-    expect(mcpToolRow.querySelector("[data-switch]")).toBeNull();
-    // kg-writer：派生说明位 + kg-update 恒在徽标
+    const sopSwitch = orchCard.querySelector('[data-switch="code-review"]') as HTMLButtonElement;
+    expect(sopSwitch.disabled).toBe(true);
+    expect(sopSwitch.getAttribute("aria-checked")).toBe("false");
+    // MCP 面：server 组行 + 开关置灰（显示同构——不再只读专属行形态）
+    expect(orchCard.querySelector('[data-mcp-server-row="shadcn"]')!.textContent).toContain("shadcn");
+    const mcpSwitch = orchCard.querySelector('[data-switch="shadcn"]') as HTMLButtonElement;
+    expect(mcpSwitch.disabled).toBe(true);
+    expect(mcpSwitch.getAttribute("aria-checked")).toBe("false");
+    // MCP 命名空间工具不进静态工具清单（__ 过滤）——全部归 MCP 分组区容器内
+    const allToolRows = [...orchCard.querySelectorAll("[data-tool-row]")];
+    const outsideMcp = allToolRows.filter((r) => r.closest("[data-mcp-server]") === null);
+    expect(outsideMcp.every((r) => !r.getAttribute("data-tool-row")!.includes("__"))).toBe(true);
+    const mcpToolSwitch = orchCard.querySelector('[data-switch="shadcn__button"]') as HTMLButtonElement;
+    expect(mcpToolSwitch).not.toBeNull();
+    expect(mcpToolSwitch.disabled).toBe(true);
+    // kg-writer：kg-update 恒在徽标（声明面单源）+ 工具开关同样置灰
     act(() => selectAgent("subagent-kg-writer"));
     const kgwCard = document.querySelector('[data-agent-card="subagent-kg-writer"]')!;
-    expect(kgwCard.querySelector("[data-derived-note]")!.textContent).toBe(
-      "工具集跟随 subagent-worker，额外固定 kg-update",
-    );
-    expect(kgwCard.querySelector('[data-ro-tool-row="kg-update"] [data-pinned-chip]')!.textContent).toBe("恒在");
-    expect(kgwCard.querySelector('[data-ro-tool-row="bash"] [data-pinned-chip]')).toBeNull();
-    expect(kgwCard.querySelectorAll("[data-switch]")).toHaveLength(1); // R7：thinking 字段开关（工具零开关）
-    // 切回可编辑：开关回场（两组形态互斥）
+    expect(kgwCard.querySelector('[data-tool-row="kg-update"] [data-pinned-chip]')!.textContent).toBe("恒在");
+    expect(kgwCard.querySelector('[data-tool-row="bash"] [data-pinned-chip]')).toBeNull();
+    const kgwToolSwitch = kgwCard.querySelector('[data-switch="bash"]') as HTMLButtonElement;
+    expect(kgwToolSwitch.disabled).toBe(true); // readOnly 置灰（统一开关在场）
+    // kg-writer 技能开关：builtin 播种开 + 置灰
+    const kgwSkillSwitch = kgwCard.querySelector('[data-switch="plan-workflow"]') as HTMLButtonElement;
+    expect(kgwSkillSwitch.getAttribute("aria-checked")).toBe("true"); // 播种五 kind 全开
+    expect(kgwSkillSwitch.disabled).toBe(true);
+    // 切回可编辑：开关恢复可点（同卡形态，仅 readOnly 差异）
     act(() => selectAgent("main-session"));
-    expect(document.querySelectorAll('[data-agent-card="main-session"] [data-switch]').length).toBeGreaterThan(0);
+    const mainSwitch = document.querySelector('[data-agent-card="main-session"] [data-switch="grep"]') as HTMLButtonElement;
+    expect(mainSwitch.disabled).toBe(false);
   });
 
   it("② 开关流：点击 → set_enabled 命令 → pending 禁用 → applied + changed → 重拉 → 态翻转", async () => {
