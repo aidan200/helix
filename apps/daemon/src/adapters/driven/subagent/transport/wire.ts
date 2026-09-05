@@ -11,7 +11,10 @@ import type { InstanceClosurePayload } from "../../../../domain/events/DomainEve
  *   / tool-req（H-3：RemoteBrowserPort 转发请求——方法名 + 位置参数数组，
  *   全 JSON 可序列化；白名单 12 个 browser 工具可达方法，管理面 4 方法不上线）
  *   / parked（park/resume 批：子进程检测 PARK 标记进入挂起等待的确认行，
- *   携 progress/next 摘要——非收口，进程驻留不退出）。
+ *   携 progress/next 摘要——非收口，进程驻留不退出）
+ *   / file-write（T2 turn diff：子进程 env.writeFile 写前元数据上报——
+ *   instanceId/path/prevHash/prevSize/nextSize，只报元数据不报内容，
+ *   stdout 管道安全；父侧分派 → TurnDiffService.recordExternal）。
  * - 父 → 子（stdin）：send（steer 注入消息，AD-7⑤；park/resume 指令同为
  *   本通道——子进程按协议标记分派，见 parkProtocol.ts）
  *   / tool-res（H-3：tool-req 回执，reqId 关联；ok 判别字段 value/error 互斥）。
@@ -40,6 +43,19 @@ export type ChildOutboundLine =
       readonly reqId: number;
       readonly method: string;
       readonly args: readonly unknown[];
+    }
+  | {
+      /** T2 turn diff：写前元数据上报（additive 增型）。 */
+      readonly type: "file-write";
+      readonly instanceId: string;
+      /** 写入目标绝对路径（子进程 toolCwd 归一后）。 */
+      readonly path: string;
+      /** 写前内容指纹（sha256 hex；新文件 = 空内容指纹）。 */
+      readonly prevHash: string;
+      /** 写前字节数（新文件 0）。 */
+      readonly prevSize: number;
+      /** 写入后字节数。 */
+      readonly nextSize: number;
     };
 
 /** 父进程 → 子进程的 stdin 行（send = steer 注入）。 */

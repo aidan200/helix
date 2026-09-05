@@ -27,6 +27,10 @@ import { LazyWorkLedger } from "../../adapters/driven/sqlite-session/WorkLedger"
 import { WorkLedgerService } from "../../application/services/task/WorkLedgerService";
 import { lastMainAnchorId } from "@helix/protocol"; // 锚扫描基元单源 projection
 import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
+import { TurnDiffService, createTurnDiffState, type TurnDiffState } from "../../application/services/TurnDiffService";
+import { walkWorkspaceStats } from "../../adapters/driven/workspace-stat-walk";
+import { generateUnifiedPatch } from "../../adapters/driven/tools/edit/kernel/edit-diff";
+import { readFile } from "node:fs/promises";
 import { PiAgentEngineAdapter, type PiEngineOptions } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { seedMessagesOf, type AgentMessage } from "../../adapters/driven/pi-engine/mappers/SessionMapper";
 import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
@@ -321,6 +325,19 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // 读绑定 root 现值——deps.toolCwd 显式注入恒优先，未绑定回落定格值）。
   const bootToolCwd = deps.toolCwd ?? process.cwd();
   const toolCwdOf = (): string => deps.toolCwd ?? deps.resolveToolCwd?.() ?? bootToolCwd;
+  // ── T2 turn diff：轮次级内存态 diff 操作面（多会话共用单例——状态在
+  //    各 SessionRuntime.diff，服务只持注入件；全内存零持久化）。
+  //    IO 绑定：读文本 = node:fs/promises（缺文件→null）、walk =
+  //    walkWorkspaceStats（忽略重目录段）、patch = VENDORED
+  //    generateUnifiedPatch（AG-02②：application 不 import driven，绑定在此）。──
+  const turnDiff = new TurnDiffService({
+    readTextFile: (p) =>
+      readFile(p, "utf8").catch(() => null),
+    walkStats: (root) => walkWorkspaceStats(root),
+    workspaceRoot: () => toolCwdOf(),
+    computePatch: (p, oldContent, newContent) => generateUnifiedPatch(p, oldContent, newContent),
+    absoluteOf: (p) => (path.isAbsolute(p) ? p : path.join(toolCwdOf(), p)),
+  });
   const skillScanner = new SkillScanner({
     userSkillsDir: paths.skillsHome(),
     projectSkillsDir: path.join(bootToolCwd, ".helix", "skills"),
@@ -527,6 +544,16 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // H-3：tool-req 转发目标 = 全局唯一 CDP 单例（ScopedBrowserProxy
           // 归属校验：ownerId 强制 = 通道 instanceId）
           browser: browserPort,
+          // T2 turn diff：子进程 file-write 元数据行 → 归属会话热 runtime 的
+          // diff 记账（recordExternal——agents 集合累积 SubAgent 实例）。
+          // 会话反向查找同 injectClosure 先例（scheduler.instance →
+          // registry.peek；冷会话/无归属丢弃——轮外写不归属）。
+          onFileWrite: (agentId, meta) => {
+            const sessionId = scheduler.instance(agentId)?.sessionId;
+            if (sessionId === undefined) return;
+            const hot = registry.peek(sessionId);
+            if (hot !== undefined) turnDiff.recordExternal(hot.diff, { ...meta, agentId });
+          },
         })
       : undefined;
   const subagentRunner: InstanceRunner = deps.subagentRunnerOverride ?? subagentLauncher ?? {
@@ -691,10 +718,20 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // mode 解析（profileKindOf；default → main-session，行为零变化；P2 多模式
   // 自动跟随注册表）。override 工厂（测试注入）不接 mode——结构兼容（参数
   // 少的函数可赋参数多的类型），Fake 引擎无槽位语义不受影响。
-  const engineFor: (sessionId: string, mode?: string, seed?: readonly AgentMessage[]) => AgentEnginePort =
+  const engineFor: (
+    sessionId: string,
+    mode?: string,
+    seed?: readonly AgentMessage[],
+    bind?: { readonly mainInstanceId: string; readonly diff: TurnDiffState },
+  ) => AgentEnginePort =
     engineMode.kind === "override"
       ? (sessionId: string) => engineMode.factory(sessionId)
-      : (sessionId: string, mode?: string, seed?: readonly AgentMessage[]): AgentEnginePort => {
+      : (
+          sessionId: string,
+          mode?: string,
+          seed?: readonly AgentMessage[],
+          bind?: { readonly mainInstanceId: string; readonly diff: TurnDiffState },
+        ): AgentEnginePort => {
             const sessionOrchestration: AgentOrchestrationPort = {
               spawn: (task, profileKind, reportIntervalMs) =>
                 scheduler.spawn(sessionId, task, profileKind, resolveSubagentModelId(), reportIntervalMs),
@@ -724,6 +761,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               cwd: toolCwdOf(),
               orchestration: sessionOrchestration,
               grep: deps.grep,
+              // T2 turn diff：env.writeFile 写前快照钩子（闭包绑 mainInstanceId
+              // ——该 executor 每会话一个；hook 内部读旧内容落基线，异常吞咽）
+              ...(bind !== undefined
+                ? { writeHook: (p: string) => turnDiff.captureWrite(bind.diff, p, bind.mainInstanceId) }
+                : {}),
               ...(editDeps !== undefined ? { edit: editDeps } : {}),
               ...(kgTools !== undefined ? { kg: kgTools } : {}),
               ...(codegraphTool !== undefined ? { codegraph: codegraphTool } : {}),
@@ -812,7 +854,13 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         provider: seedModel.provider,
         model: seedModel.id,
       });
-      const engine = engineFor(material.session.id, material.session.mode, seed);
+      // T2 turn diff：会话级 diff 状态（挂 runtime——全内存零持久化；
+      // engineFor 写钩子与 ChatService 轮次挂点同一状态闭包绑定）
+      const diffState = createTurnDiffState();
+      const engine = engineFor(material.session.id, material.session.mode, seed, {
+        mainInstanceId: material.session.mainInstanceId,
+        diff: diffState,
+      });
       // thinking 批③跨冷恢复（AD-4③）：回放末值覆盖直写引擎内存态——
       // 不走 ChatService.setThinking 发布面（零新事件流零落盘铁律，恢复不重放）；
       // 区别于 model.set 不跨冷恢复现状（TR-AD-41 反例钉死，差异不动）。
@@ -861,6 +909,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         ...(deps.taskInjector !== undefined
           ? { taskSliceInjector: (sid: string, text: string) => deps.taskInjector!(sid, text, "main") || text }
           : {}),
+        // T2 turn diff：轮次挂点（开轮重置/收轮冻结——挂点在编排层，不改
+        // Session 聚合；endTurn fire-and-forget，冻结流水线后台完成）
+        turnDiff: {
+          onTurnBegin: (turnId, startedAt) => turnDiff.beginTurn(diffState, turnId, startedAt),
+          onTurnEnd: (turnId, outcome, endedAt) => {
+            void turnDiff.endTurn(diffState, outcome, endedAt);
+          },
+        },
       });
       // 会话投影消费者（AD-3 §3.2②；多会话 = 按 sessionId 分实例化，
       // architecture-feedback #20 建议采纳）：SubAgent Entry 落聚合 + 账本入账
@@ -871,7 +927,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         getMainState: () => ({ agentState: chatService.agentState, toolCalls: chatService.toolCallData }),
         initialUsage: material.usage,
       });
-      return { sessionId: material.session.id, chatService, projection };
+      return { sessionId: material.session.id, chatService, projection, diff: diffState };
     },
     onListChanged: (change) => eventStream.broadcastListChanged(change),
     // 主会话工作台账读面（main-session plan 批）：快照组装附 plan 全行

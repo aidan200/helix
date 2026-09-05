@@ -62,6 +62,17 @@ interface ChatServiceDepsBase {
    *（sessionId 维）保证（orchestrator 派发路径同键）。缺省不注入。
    */
   readonly taskSliceInjector?: (sessionId: string, text: string) => string;
+  /**
+   * 轮次 diff 挂点（T2 turn diff 数据链，照 editDeps 先例可选注入容缺空
+   * 操作）：开轮（sendMessage 空闲路径/steer drain dequeueSteer 后的
+   * beginTurn）→ onTurnBegin（重置清零）；收轮（settleRunEnd/
+   * finishOpenTurn 的 completeTurn/interruptTurn）→ onTurnEnd（冻结）。
+   * 组合根接 TurnDiffService（挂 SessionRuntime.diff）；不改 Session 聚合。
+   */
+  readonly turnDiff?: {
+    readonly onTurnBegin: (turnId: string, startedAt: string) => void;
+    readonly onTurnEnd: (turnId: string, outcome: "completed" | "interrupted", endedAt: string) => void;
+  };
 }
 
 /** 完整形态（生产装配面，架构 §4.2.6）：四钩子必填——组合根装配缺钩子 = 编译红，消灭「未装配静默降级」。 */
@@ -233,6 +244,8 @@ export class ChatService implements ChatPort {
         // ② 开新轮次（Turn=generating）并广播开始
         const turn = this.session.beginTurn(entry.id, this.now());
         this.publish("turn.started", { turnId: turn.id });
+        // T2 turn diff：开轮挂点（重置清零——diff 以轮为单位累积）
+        this.deps.turnDiff?.onTurnBegin(turn.id, this.now());
         // ③ idle→running，驱动引擎（await 整个 run：含工具轮与 steer drain 轮）
         this.setLifecycle("running");
         // W2-D R9/R10：真实用户消息（source 缺省）首轮开工前过一次切片注入——
@@ -480,6 +493,7 @@ export class ChatService implements ChatPort {
         this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
         const turn = this.session.beginTurn(item.entryId, this.now());
         this.publish("turn.started", { turnId: turn.id });
+        this.deps.turnDiff?.onTurnBegin(turn.id, this.now()); // T2 turn diff：drain 轮开轮挂点
       }
       this.publish<SteerPayload>("steer.drained", {
         entryId: item.entryId,
@@ -508,6 +522,7 @@ export class ChatService implements ChatPort {
   private settleRunEnd(reason: TurnCompletedPayload["reason"]): void {
     if (this.session.openTurn) {
       // 直接语句调用不接返回值（与 finishOpenTurn 同构；Turn 返回面归口在 publish 落盘链，此处丢弃即原 void t 语义）
+      const diffTurnId = this.session.openTurn.id; // T2 turn diff：收口前取轮 id（收口后 openTurn=null）
       if (reason === "aborted") {
         this.session.interruptTurn(this.now());
         this.publish<TurnCompletedPayload>("turn.interrupted", { reason: "aborted", replyEntryId: undefined });
@@ -515,6 +530,7 @@ export class ChatService implements ChatPort {
         this.session.completeTurn(this.now());
         this.publish<TurnCompletedPayload>("turn.completed", { reason: "done", replyEntryId: undefined });
       }
+      this.deps.turnDiff?.onTurnEnd(diffTurnId, reason === "aborted" ? "interrupted" : "completed", this.now()); // T2 turn diff：收轮冻结挂点
     }
     if (this.lifecycle.current !== "idle" && this.lifecycle.canTransition("idle")) {
       this.setLifecycle("idle");
@@ -548,6 +564,7 @@ export class ChatService implements ChatPort {
       this.session.completeTurn(this.now());
       this.publish<TurnCompletedPayload>("turn.completed", { reason });
     }
+    this.deps.turnDiff?.onTurnEnd(open.id, reason === "aborted" ? "interrupted" : "completed", this.now()); // T2 turn diff：收轮冻结挂点（steerDrained → completed）
   }
 
   private setLifecycle(to: AgentLifecycleState): void {
@@ -577,6 +594,7 @@ export class ChatService implements ChatPort {
       this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
       const turn = this.session.beginTurn(item.entryId, this.now());
       this.publish("turn.started", { turnId: turn.id });
+      this.deps.turnDiff?.onTurnBegin(turn.id, this.now()); // T2 turn diff：drain 轮开轮挂点（pi 事件序延迟分支）
     }
   }
 

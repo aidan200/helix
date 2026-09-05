@@ -42,6 +42,7 @@ import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool, creat
 import { imagesOfContent } from "../../../application/services/images";
 import type { KgQueryService } from "../../../application/services/kg/KgQueryService";
 import type { KnowledgeWriteOp, WriteResult } from "../../../domain/kg/types";
+import { wrapEnvForDiff, type EnvWriteHook } from "./TurnDiffEnvWrap";
 /**
  * CoreToolExecutor —— ToolExecutorPort 的真实现（architecture.md §3.4，
  * 落位 adapters/driven/tools，AD-17/AD-10）。
@@ -182,6 +183,14 @@ export interface CoreToolExecutorOptions {
    * 代码机械执行）。jobId 由装配面绑定。缺省不注册。
    */
   readonly taskOps?: TaskOpsToolDeps;
+  /**
+   * env.writeFile 写前快照钩子（T2 turn diff 数据链）：提供则包装本
+   * executor 的共享 env（writeFile 前触发——此时磁盘仍是旧内容，读旧
+   * 内容快照/上报元数据）；hook 异常吞咽不影响写入；缺省不包装（行为
+   * 零差）。主会话绑 mainInstanceId（buildSessionStack 闭包），SubAgent
+   * 子进程绑 stdout file-write 行（ChildMain）。
+   */
+  readonly writeHook?: EnvWriteHook;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -189,11 +198,13 @@ export class CoreToolExecutor implements ToolExecutorPort {
   private readonly registry: ReadonlyMap<string, AgentHarnessTool<ExecutionToolContext, any, any>>;
 
   constructor(options: CoreToolExecutorOptions) {
-    const env = new NodeExecutionEnv({
+    const baseEnv = new NodeExecutionEnv({
       cwd: options.cwd,
       shellPath: options.shellPath,
       shellEnv: options.shellEnv,
     });
+    // T2 turn diff：写前快照钩子包装（缺省零包装零差；hook 异常吞咽）
+    const env = wrapEnvForDiff(baseEnv, options.writeHook);
     this.context = { env };
     const tools: AgentHarnessTool<ExecutionToolContext, any, any>[] = [
       // pi 内置四工具基线注册（F-20：registry 按 name 平铺，内置无特权）

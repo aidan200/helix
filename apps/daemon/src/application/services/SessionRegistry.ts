@@ -21,6 +21,7 @@ import type { ChatService } from "./ChatService";
 import type { SessionProjection } from "./SessionProjection";
 import type { SchedulerService } from "./scheduler/SchedulerService";
 import type { RestoredDomainState } from "./RestoreService";
+import type { TurnDiffState } from "./TurnDiffService";
 
 /**
  * SessionRegistry —— 多会话容器（AD-4，architecture.md §4）。
@@ -59,6 +60,13 @@ export interface SessionRuntime {
   readonly sessionId: string;
   readonly chatService: ChatService;
   readonly projection: SessionProjection;
+  /**
+   * 轮次级内存态 diff（T2 turn diff 数据链）：全内存零持久化——daemon
+   * 重启/会话卸载即丢（冷态 runtime=undefined 天然无 diff）。会话级状态
+   * 进 runtime 字段（TR-92 纪律：不开服务级 Map）；ChatService 轮次挂点
+   * 与 executor env 写钩子均指向此状态（组合根 buildRuntime 闭包绑定）。
+   */
+  readonly diff: TurnDiffState;
 }
 
 /**

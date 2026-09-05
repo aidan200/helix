@@ -52,6 +52,9 @@ import type { PlanToolDeps } from "../../tools/plan/PlanTools";
 import { openTaskLedgerDatabase } from "../../sqlite-session/WriteQueue";
 import { readTaskContextByInstance } from "../../sqlite-session/TaskStore";
 import { accessSync, constants as fsConstants } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import path from "node:path";
 import { CodegraphEngineAdapter } from "../../codegraph-engine/CodegraphEngineAdapter";
 import { resolveCodegraphPath } from "../../codegraph-engine/resolve-codegraph";
 
@@ -324,6 +327,33 @@ function isExecutableFile(p: string): boolean {
 
 // ── 主流程 ─────────────────────────────────────────────────
 
+/**
+ * T2 turn diff：写前元数据上报（子进程 env.writeFile 写前钩子）。
+ * 只报元数据不报内容（stdout 管道安全）：prevHash（sha256 hex——空内容
+ * 即空串指纹）/prevSize（写前字节，新文件 0）/nextSize（写入字节）。路径
+ * 归一到绝对（toolCwd 基准——与父侧会话 diff 记账键对齐）。读失败按无
+ * 基线兑底（prevSize=0），不抛（写链不受影响——包装层另有一道吞咽）。
+ */
+function makeFileWriteReporter(instanceId: string, toolCwd: string) {
+  return async (filePath: string, content: string | Uint8Array): Promise<void> => {
+    const abs = path.isAbsolute(filePath) ? filePath : path.resolve(toolCwd, filePath);
+    let prev: Uint8Array | null = null;
+    try {
+      prev = await readFile(abs);
+    } catch {
+      prev = null; // 不存在/不可读 → 无基线（新增语义）
+    }
+    writeLine({
+      type: "file-write",
+      instanceId,
+      path: abs,
+      prevHash: createHash("sha256").update(prev ?? new Uint8Array(0)).digest("hex"),
+      prevSize: prev?.length ?? 0,
+      nextSize: typeof content === "string" ? Buffer.byteLength(content, "utf8") : content.byteLength,
+    });
+  };
+}
+
 async function main(): Promise<void> {
   const task = argValue("--task") ?? "";
   const instanceId = process.env.HELIX_INSTANCE_ID ?? "agent-?";
@@ -371,6 +401,9 @@ async function main(): Promise<void> {
     kg: kg.tools,
     codegraph,
     plan: workLedger.tools,
+    // T2 turn diff：写前元数据上报线（stdout file-write 行——父侧分派到
+    // 归属会话 runtime diff 的 recordExternal）
+    writeHook: makeFileWriteReporter(instanceId, toolCwd),
     // grep rg 单后端：父进程定格路径经 HELIX_RG_PATH env 透传（SubagentLauncher
     // 显式注入或形态 env 继承——bundle 级）；缺席 → 门面响亮失败（无 TS 兜底）
     grep: { rgPath: process.env.HELIX_RG_PATH },

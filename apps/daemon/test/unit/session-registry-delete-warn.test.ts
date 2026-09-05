@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { SessionRegistry, type SessionRuntime } from "../../src/application/services/SessionRegistry";
+import { createTurnDiffState } from "../../src/application/services/TurnDiffService";
 import type { SessionRepositoryPort } from "../../src/application/ports/outbound/SessionRepositoryPort";
 import type { SchedulerService } from "../../src/application/services/scheduler/SchedulerService";
 import type { ChatService } from "../../src/application/services/ChatService";
@@ -63,7 +64,7 @@ function makeRig(settleTimeoutMs: number): Rig {
         stop: () => {},
         whenSettled: () => whenSettledBehavior(),
       } as unknown as ChatService;
-      return { sessionId: material.session.id, chatService, projection: {} as SessionProjection };
+      return { sessionId: material.session.id, chatService, projection: {} as SessionProjection, diff: createTurnDiffState() };
     },
     onListChanged: () => {},
     idleUnloadMs: 3_600_000,
