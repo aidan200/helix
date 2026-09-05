@@ -264,12 +264,14 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     // D5 第五 kind：reviewer 派生面恒摘除工具（摘除常量单源——窄数据面注入，
     // kgWriterPinnedTools 同法；list 缺省全量的 system 只读块派生用）
     reviewerRemovedTools: SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS,
-    // base prompt 批：base 段系统提示词读面（五 profile 声明单源——
+    // base prompt 批：base 段系统提示词读面（六 profile 声明单源——
     // kg-writer = SUBAGENT base + 图谱产出型后缀 / reviewer = SUBAGENT base
-    // + 评审纪律后缀，均已在 profile 声明拼好；窄数据面注入，driving 不 import driven）
+    // + 评审纪律后缀，均已在 profile 声明拼好；task-worker base 同 chat worker
+    // 单源（声明面共享，配置面独立）；窄数据面注入，driving 不 import driven）
     basePrompts: {
       "main-session": MainSessionProfile.systemPrompt,
       "subagent-worker": SubAgentProfile.systemPrompt,
+      "task-worker": SubAgentProfile.systemPrompt,
       "orchestrator": OrchestratorProfile.systemPrompt,
       "subagent-kg-writer": SubAgentKgWriterProfile.systemPrompt,
       "subagent-code-reviewer": SubAgentCodeReviewerProfile.systemPrompt,

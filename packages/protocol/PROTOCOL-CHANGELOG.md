@@ -1072,3 +1072,23 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
   缺省不变。
 - 计数不变（无新命令/事件——system 块构成变化 + `system[].mcpServers`
   additive 字段 + 写面语义回收）。
+
+## 34. 任务 subAgent 独立配置批（task-worker 第六 kind：任务派生 worker 与 chat 子代理配置解耦；v0.11 后 additive 微批——版本位不 bump）
+
+- **背景**：任务派生 worker 缺省分流复用 `subagent-worker` kind——chat 子
+  代理与任务 worker 共享同一启停命名空间（关 chat 子代理的 MCP 同时改变
+  任务 worker 面），用户裁决推翻：任务 SubAgent 独立配置，不与 chat 的
+  SubAgent 有继承关系。
+- **ProfileKind 六值**：新增 `"task-worker"`（写面枚举 + changed 广播 kind）。
+  `agent.config.set_enabled` 对 task-worker 全型放行（tool/skill/mcp-server
+  启停 + model/thinking 槽位——独立命名空间独立槽位，不联动 subagent-worker）。
+- **ReadableProfileKind 三值**：`"main-session" | "subagent-worker" |
+  "task-worker"`（orchestrator 编排归位批已归 system 块，本批顺带收敛残留
+  枚举）。`agent.config.list` 缺省全量 = **profiles 三块**（序固定
+  main/sub/task-worker）；单 kind 过滤参数同步三值。
+- **daemon 侧**：`dispatchProfileKindOf` 缺省分流 `subagent-worker` →
+  `task-worker`（kg-bootstrap/kg-review → kg-writer、code-review →
+  code-reviewer 不变）；手动 `agent_spawn` 缺省仍 `subagent-worker`（chat
+  面）。装配链同构（声明面复用 SubAgentProfile 同源，配置面独立：
+  per-kind 启停行/槽位/快照缓存各自维护）。
+- 计数不变（无新命令/事件——kind 枚举扩值 + profiles 块构成变化）。

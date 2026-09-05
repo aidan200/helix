@@ -144,8 +144,8 @@ const KGW_BLOCK: AgentConfigSystemBlock = {
 };
 
 describe("智能体页页面模型（agent-roster：system 块 + 选中态）", () => {
-  it("⑤ profiles 双块 + system 三块按 kind 归位（orchestrator 归位）；未携带不覆盖既有值；常量序固定", () => {
-    expect(AGENT_KINDS).toEqual(["main-session", "subagent-worker"]);
+  it("⑤ profiles 三块 + system 三块按 kind 归位（orchestrator 归位；任务独立配置批 task-worker）；未携带不覆盖既有值；常量序固定", () => {
+    expect(AGENT_KINDS).toEqual(["main-session", "subagent-worker", "task-worker"]);
     expect(SYSTEM_AGENT_KINDS).toEqual(["orchestrator", "subagent-kg-writer", "subagent-code-reviewer"]);
     let s = createAgentPageState();
     expect(s.system.orchestrator).toBeNull();

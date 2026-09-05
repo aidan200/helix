@@ -438,7 +438,7 @@ registry 现拍）；零准入 server 的 kind 不携带（旧客户端零感知
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
-| `profileKind` | `"main-session" \| "subagent-worker"` | 可选 | v0.6 | 目标 kind：缺省 = 全部 kind（双块，main-session 在前序固定）；携带 = 单块 |
+| `profileKind` | `"main-session" \| "subagent-worker" \| "task-worker"` | 可选 | v0.6 | 目标 kind：缺省 = 全部可配置 kind（三块，main-session/subagent-worker/task-worker 序固定；task-worker = 任务派生 worker 独立配置面，与 chat 子代理解耦）；携带 = 单块 |
 
 #### `agent.config.set_enabled`
 
@@ -465,7 +465,7 @@ kind 写面 → skipped reason=`audience-guard`（只读恒禁）；user 技能�
 
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
-| `profileKind` | `"main-session" \| "subagent-worker" \| "orchestrator" \| "subagent-kg-writer" \| "subagent-code-reviewer"` | 必填 | v0.6 | 目标 kind（编排归位批：可编辑两 kind 全型可写；系统三 kind 仅槽位型） |
+| `profileKind` | `"main-session" \| "subagent-worker" \| "task-worker" \| "orchestrator" \| "subagent-kg-writer" \| "subagent-code-reviewer"` | 必填 | v0.6 | 目标 kind（任务 subAgent 独立配置批：可编辑三 kind 全型可写——task-worker = 任务派生 worker 独立启停命名空间/槽位；系统三 kind 仅槽位型） |
 | `resourceType` | `"tool" \| "skill" \| "model" \| "thinking" \| "mcp-server"` | 必填 | v0.6 | 资源类型（model/thinking = 槽位语义非启停；thinking = v0.11 批内补登 T1.3：槽位语义同 model，set/clear，零档位校验；mcp-server = server 级配置面批：per-kind server 启停差异行） |
 | `name` | `string` | 必填 | v0.6 | 资源名（model/thinking 型 = "provider/model-id" / 档位字符串；mcp-server 型 = server 名；clear 时忽略） |
 | `enabled` | `boolean` | 必填 | v0.6 | tool/skill/mcp-server = 启停；model = set（true）/ clear（false）槽位 |

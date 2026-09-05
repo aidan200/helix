@@ -15,7 +15,7 @@ import type {
  */
 // ── 命令样例 ──
 
-/** agent.config.list：全 kind（payload.profileKind 缺省 = 全部 kind 双块下发） */
+/** agent.config.list：全 kind（payload.profileKind 缺省 = 全部可配置 kind 三块下发） */
 export const agentConfigListAll: AgentConfigListCommand = {
   v: PROTOCOL_VERSION,
   type: "agent.config.list",
@@ -64,7 +64,7 @@ export const agentConfigModelClear: AgentConfigSetEnabledCommand = {
 
 // ── 事件样例 ──
 
-/** agent.config.list.result：点对点结果帧（全 kind 双块） */
+/** agent.config.list.result：点对点结果帧（全 kind 三块——任务 subAgent 独立配置批扩 task-worker） */
 export const agentConfigListResult: AgentConfigListResultEvent = {
   v: PROTOCOL_VERSION,
   sessionId: "__system__",
@@ -115,6 +115,15 @@ export const agentConfigListResult: AgentConfigListResultEvent = {
         diagnostics: [],
         model: null, // 槽位未设 = null（非 undefined——JSON 序列化面）
         thinkingLevel: "xhigh", // v0.11 批内补登：已配置 = 档位字符串透传（AD-2）
+      },
+      {
+        // 任务 subAgent 独立配置批：任务派生 worker 独立配置面（与 chat 子代理解耦）
+        profileKind: "task-worker",
+        tools: [{ name: "bash", enabled: true, snippet: "在沙箱工作目录执行 shell 命令并返回输出" }],
+        skills: [],
+        diagnostics: [],
+        model: null,
+        thinkingLevel: null,
       },
     ],
   },

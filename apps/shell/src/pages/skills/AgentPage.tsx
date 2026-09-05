@@ -5,7 +5,8 @@
  * 单份在 App.tsx；滚动只发生在 .layout-main）。
  *
  * agent-roster 批：master-detail 重构（P-1/tasks 同构）——左栏 agent 列表
- * 两组分组（「可配置」= main-session/subagent-worker；「系统派生」=
+ * 两组分组（「可配置」= main-session/subagent-worker/task-worker——任务
+ * 独立配置批：任务派生 worker 独立配置卡；「系统派生」=
  * orchestrator/subagent-kg-writer，条目带只读徽标），右栏选中详情。
  * - 可编辑详情：既有能力全保留（模型槽位下拉 + P-2 推理级别 + 工具组 +
  *   技能组 + 扫描诊断）；
@@ -107,6 +108,7 @@ function useAgentModelSelectors({
 function agentTitleOf(t: (key: string) => string, kind: AgentId): string {
   if (kind === "main-session") return t("agents.mainTitle");
   if (kind === "subagent-worker") return t("agents.subTitle");
+  if (kind === "task-worker") return t("agents.taskWorkerTitle");
   if (kind === "orchestrator") return t("agents.orchestratorTitle");
   if (kind === "subagent-code-reviewer") return t("agents.reviewerTitle");
   return t("agents.kgWriterTitle");
@@ -257,7 +259,7 @@ function ProfileCard({
   return (
     <section className="hud-card ag-card" data-agent-card={kind}>
       <header className="ag-card-head">
-        <h2 className="ag-card-title">{isMain ? t("agents.mainTitle") : t("agents.subTitle")}</h2>
+        <h2 className="ag-card-title">{kind === "main-session" ? t("agents.mainTitle") : kind === "subagent-worker" ? t("agents.subTitle") : t("agents.taskWorkerTitle")}</h2>
         <span className="hud-chip" data-kind-chip>
           {kind}
         </span>
@@ -1057,7 +1059,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
         ) : (
           <div className="ag-pane-scroll">
             <div className="ag-pane-inner">
-              {state.selected === "main-session" || state.selected === "subagent-worker" ? (
+              {state.selected === "main-session" || state.selected === "subagent-worker" || state.selected === "task-worker" ? (
                 <ProfileCard
                   kind={state.selected}
                   block={state.profiles[state.selected]}

@@ -132,6 +132,9 @@ export interface MainSessionLlmOverride {
 const STATIC_TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
   "main-session": MainSessionProfile.tools,
   "subagent-worker": SubAgentProfile.tools,
+  // 任务 subAgent 独立配置批第六 kind：task-worker 声明面与 chat worker 同源
+  //（SubAgentProfile 单源——工具集定义共享，启停行/槽位各自独立）
+  "task-worker": SubAgentProfile.tools,
   "orchestrator": OrchestratorProfile.tools, // T2.2 第三 kind（additive 扩值；编排工具面可配置化）
   // R7 系统槽位批第四 kind：kg-writer 目录全集（声明面 = 快照派生同源；
   // tool/skill 启停写面仍拒——目录仅供槽位族读面形状完整）
@@ -150,6 +153,9 @@ const STATIC_TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
 const MCP_ALLOWED_OF: Readonly<Record<ProfileKind, readonly string[] | "*" | undefined>> = {
   "main-session": MainSessionProfile.mcpServers,
   "subagent-worker": SubAgentProfile.mcpServers,
+  // 任务 subAgent 独立配置批：task-worker MCP 准入与 chat worker 同源声明
+  //（"*"——server 准入同构，启停差异行按 kind 独立）
+  "task-worker": SubAgentProfile.mcpServers,
   orchestrator: OrchestratorProfile.mcpServers,
   "subagent-kg-writer": SubAgentKgWriterProfile.mcpServers,
   "subagent-code-reviewer": SubAgentCodeReviewerProfile.mcpServers,
@@ -543,9 +549,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   const assemblyBase = (kind: ProfileKind): string =>
     kind === "main-session"
       ? MAIN_SESSION_SYSTEM_PROMPT
-      : kind === "subagent-worker"
+      : kind === "subagent-worker" || kind === "task-worker"
         ? SUBAGENT_SYSTEM_PROMPT
-        : ORCHESTRATOR_SYSTEM_PROMPT; // orchestrator（T2.2）：与 MainAgent 消费 skill 同构的三段组装
+        : ORCHESTRATOR_SYSTEM_PROMPT; // orchestrator（T2.2）：与 MainAgent 消费 skill 同构的三段组装；task-worker 声明面同 worker（独立配置批）
   const computeAssembly = async (
     kind: ProfileKind,
   ): Promise<{ readonly tools: readonly string[]; readonly systemPrompt: string }> => {
@@ -567,6 +573,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   };
   let mainAssembly = await computeAssembly("main-session");
   let subagentAssembly = await computeAssembly("subagent-worker");
+  // 任务 subAgent 独立配置批：task-worker 独立快照缓存（声明面同 worker 单源，
+  // 启停行/技能/槽位各自独立——任务派生 worker 与 chat 子代理配置解耦）。
+  let taskWorkerAssembly = await computeAssembly("task-worker");
   // D8 W-R6：kg-writer 组装快照 = 通用 worker 生效集 + kg-update + 图谱产出型
   // 一句（增量常量单源 SubAgentKgWriterProfile；kg-update 不进 resource_state
   // 目录——不可 toggle，豁免面恒在）。toggle 刷新 worker 时同步重算（派生面）。
@@ -596,13 +605,15 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     };
   };
   let reviewerAssembly = await computeReviewerAssembly();
-  /** 批次实例组装快照按 profileKind 派发（W-R6 编排分流的装配端消费点；D5 扩第三支）。 */
+  /** 批次实例组装快照按 profileKind 派发（W-R6 编排分流的装配端消费点；D5 扩第三支；任务独立配置批扩 task-worker 第四支）。 */
   const subagentAssemblyFor = (profileKind: string | undefined): typeof subagentAssembly =>
     profileKind === "subagent-kg-writer"
       ? kgWriterAssembly
       : profileKind === "subagent-code-reviewer"
         ? reviewerAssembly
-        : subagentAssembly;
+        : profileKind === "task-worker"
+          ? taskWorkerAssembly
+          : subagentAssembly;
   let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算）
   // mcp 批：活跃主会话 executor 登记（engineFor 构造点 set；refreshAssembly
   // 对活跃会话 appendTools 后再 setTools——MCP 新工具实例进 registry 才能被
@@ -644,6 +655,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       subagentAssembly = next; // 已 spawn 实例 env 已定格（代际生效，零刷新）
       kgWriterAssembly = await computeKgWriterAssembly(); // W-R6 派生面同刷（kg-writer 生效集随 worker toggle 联动）
       reviewerAssembly = await computeReviewerAssembly(); // D5 派生面同刷（reviewer 生效集随 worker toggle 联动）
+    } else if (kind === "task-worker") {
+      // 任务 subAgent 独立配置批：task-worker 独立重算（不联动 chat worker——
+      // kg-writer/reviewer 派生面仍随 chat worker 联动不变）
+      taskWorkerAssembly = next;
     } else {
       orchestratorAssemblyValue = next; // 编排会话短生命周期：下一会话生效（零活跃刷新）
     }
@@ -661,8 +676,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         ? SubAgentCodeReviewerProfile
         : SubAgentProfile;
   /** 槽位 kind 归一（R7 per-kind + D5 第三支：kg-writer/reviewer 读自身槽位；其余/缺省 → subagent-worker）。 */
+  /** 槽位 kind 归一：kg-writer/reviewer 读自身槽位；task-worker 独立槽位（不联动 chat worker）；其余归 chat worker。 */
   const slotKindOf = (profileKind: string | undefined): ProfileKind =>
-    profileKind === "subagent-kg-writer" || profileKind === "subagent-code-reviewer" ? profileKind : "subagent-worker";
+    profileKind === "subagent-kg-writer" || profileKind === "subagent-code-reviewer" || profileKind === "task-worker"
+      ? (profileKind as ProfileKind)
+      : "subagent-worker";
   /** thinking 两级链单点（TR-42：profile 静态声明 ?? 本 kind 槽位 ?? 全局兜底——per-kind 零联动）。 */
   const thinkingChainOf = (profileKind: string | undefined): string | undefined =>
     subagentProfileFor(profileKind).thinkingLevel ?? resourceService.thinkingSlot(slotKindOf(profileKind)) ?? globalThinking();

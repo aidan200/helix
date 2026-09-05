@@ -34,6 +34,7 @@ const TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
     "browser",
   ],
   "subagent-worker": ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"],
+  "task-worker": ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch"], // 任务 subAgent 独立配置批第六 kind（声明面同 worker）
   "subagent-kg-writer": ["kg-update"],
     "subagent-code-reviewer": ["bash", "read", "grep"], // D5 第五 kind（worker − write/edit 声明面；本文件只作合取计算输入）
     "orchestrator": ["bash", "read", "grep"], // T2.2 第三 kind（additive 扩值同步）
@@ -390,6 +391,7 @@ describe("ResourceService：skills+tools 成套装配（批三裁决）", () => 
           {
             "main-session": ["bash", "plan_create", "plan_update", "plan_read"],
             "subagent-worker": ["bash", "plan_create", "plan_update", "plan_read"],
+            "task-worker": ["bash", "plan_create", "plan_update", "plan_read"],
             "subagent-kg-writer": ["bash"],
             "subagent-code-reviewer": ["bash"],
             orchestrator: ["bash", "plan_read"], // 仅 plan_read 非全套 → 不成套（且 orchestrator 技能面恒空）

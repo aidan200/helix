@@ -226,7 +226,7 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       expect(result.channel).toBe("agent");
       expect(result.sessionId).toBe(SYSTEM_SESSION_ID); // 全局命令：会话无关
       const profiles = result.payload.profiles as ProfileBlock[];
-      expect(profiles).toHaveLength(2); // 编排归位批：orchestrator 归位系统只读块（profiles 回双块）
+      expect(profiles).toHaveLength(3); // 任务独立配置批：profiles 三块（main/sub/task-worker）
       const [main, sub] = profiles;
       expect(main!.profileKind).toBe("main-session");
       expect(main!.tools.map((t) => t.name)).toEqual(MAIN_TOOLS);
@@ -400,9 +400,9 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
 
       client.send({ v: PROTOCOL_VERSION, type: "agent.config.list", payload: {} });
       const result = await client.expect("agent.config.list.result");
-      // profiles 双块：技能行仅 agent 受众（任务 SOP 不进 agent 卡——目录二分）
+      // profiles 三块（任务独立配置批）：技能行仅 agent 受众（任务 SOP 不进 agent 卡——目录二分）
       const profiles = result.payload.profiles as ProfileBlock[];
-      expect(profiles).toHaveLength(2);
+      expect(profiles).toHaveLength(3);
       for (const p of profiles) {
         expect(p.skills.find((s) => s.name === "demo-review")).toBeUndefined();
         expect(p.skills.every((s) => s.audience === "agent")).toBe(true);

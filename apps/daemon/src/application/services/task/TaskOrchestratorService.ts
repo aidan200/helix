@@ -50,10 +50,12 @@ export function isTaskSessionId(sessionId: string): boolean {
 }
 
 /**
- * 任务类型 → 批次实例 profileKind 映射（D8 W-R6 起；D5 扩第三支）：
+ * 任务类型 → 批次实例 profileKind 映射（D8 W-R6 起；D5 扩第三支；任务
+ * subAgent 独立配置批缺省改分流 task-worker）：
  * - kg-bootstrap / kg-review → "subagent-kg-writer"（图谱产出型：通用 worker 工具集 + kg-update 豁免）；
  * - code-review → "subagent-code-reviewer"（D5 只读评审：worker 生效集 − write/edit + 评审纪律后缀）；
- * - 其余 → "subagent-worker"（缺省不变）。
+ * - 其余 → "task-worker"（任务派生 worker 独立配置面——与 chat 子代理
+ *   subagent-worker 解耦：启停行/槽位/快照各自命名空间，互不联动）。
  */
 const DISPATCH_PROFILE_KINDS: Readonly<Record<string, DispatchProfileKind>> = {
   "kg-bootstrap": "subagent-kg-writer",
@@ -61,15 +63,17 @@ const DISPATCH_PROFILE_KINDS: Readonly<Record<string, DispatchProfileKind>> = {
   "code-review": "subagent-code-reviewer",
 };
 
-type DispatchProfileKind = "subagent-worker" | "subagent-kg-writer" | "subagent-code-reviewer";
+type DispatchProfileKind = "task-worker" | "subagent-kg-writer" | "subagent-code-reviewer";
 
 /**
- * 批次实例 profileKind 分流（编排层单点）：类型→kind 映射（缺省 subagent-worker）。
+ * 批次实例 profileKind 分流（编排层单点）：类型→kind 映射（缺省 task-worker
+ * ——任务独立配置批；手动 agent_spawn 缺省仍 subagent-worker，SchedulerService
+ * DEFAULT_PROFILE_KIND 不变）。
  * spawn 链：spawnBatch → rawSpawn → scheduler.spawn 登记 AgentInstance.profileKind
  * → 组合根组装快照按 kind 派发生效集（buildSessionStack 单点）。
  */
 export function dispatchProfileKindOf(jobType: string): DispatchProfileKind {
-  return DISPATCH_PROFILE_KINDS[jobType] ?? "subagent-worker";
+  return DISPATCH_PROFILE_KINDS[jobType] ?? "task-worker";
 }
 
 /** 编排会话驱动面（编排服务消费的最小接缝；生产实现 = pi 引擎装配，组合根注入）。 */
@@ -547,8 +551,9 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
   /** 任务绑定编排口（编排会话 executor 的 spawn 工具面；send/status/inspect 不进编排生效集）。 */
   private taskOrchestrationPort(jobId: string): AgentOrchestrationPort {
     const job = this.deps.store.getJob(jobId);
-    // D8 W-R6：观测面同源分流结果（批次实例 profileKind 按任务类型路由）
-    const profileKind = job !== undefined ? dispatchProfileKindOf(job.type) : "subagent-worker";
+    // D8 W-R6：观测面同源分流结果（批次实例 profileKind 按任务类型路由；任务
+    // 独立配置批：job 未知时回落 task-worker 与 dispatch 缺省一致）
+    const profileKind = job !== undefined ? dispatchProfileKindOf(job.type) : "task-worker";
     return {
       spawn: (task: string) => this.spawnBatch(jobId, task),
       send: () => ({ delivered: false, detail: "任务批次实例不支持编排会话消息注入" }),

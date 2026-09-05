@@ -203,11 +203,11 @@ describe("agent.config 事件族 payload（v0.6）", () => {
   // 错误码登记：只读 kind 写面拒绝码
   const _readOnlyCode: ErrorCode = "agent.config.read_only";
 
-  test("system 只读块（编排归位批）：system 三块（orchestrator 归位 + 派生双块）+ profiles 双块", () => {
+  test("system 只读块（编排归位批）：system 三块（orchestrator 归位 + 派生双块）+ profiles 三块（任务 subAgent 独立配置批）", () => {
     // 旧形态零变化：system 未携带（additive——旧客户端不感知）
     expect(agentConfigListResult.payload.system).toBeUndefined();
-    expect(agentConfigListResult.payload.profiles).toHaveLength(2);
-    // 新形态：双可编辑块 + 系统三只读块（orchestrator 在前）
+    expect(agentConfigListResult.payload.profiles).toHaveLength(3);
+    // 新形态：三可编辑块（main/sub/task-worker）+ 系统三只读块（orchestrator 在前）
     const payload = agentConfigListResultSystem.payload;
     expect(payload.profiles).toHaveLength(2);
     const system = payload.system!;

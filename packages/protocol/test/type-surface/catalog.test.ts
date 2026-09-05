@@ -434,7 +434,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "auth-delete-key-result",
       "auth-verify-result:fail:provider \"moonshot\" 未录入 API key",
       // v0.6 样例（agent.config 族：结果帧两判别 + 广播 model clear null 形态）
-      "agent-config-list-result:2:main-session:anthropic/claude-sonnet-4-5",
+      "agent-config-list-result:3:main-session:anthropic/claude-sonnet-4-5",
       "agent-config-changed:main-session:tool:grep:false",
       "agent-config-changed:subagent-worker:model:null:false",
       "agent-config-set-result:applied:-",

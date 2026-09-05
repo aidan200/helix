@@ -521,6 +521,8 @@ export const enUS = {
     title: "Agents",
     mainTitle: "Main session assistant",
     subTitle: "SubAgent worker",
+    // task subAgent independent-config batch: task worker has its own config surface
+    taskWorkerTitle: "Task SubAgent",
     // agent-roster batch: master-detail two groups + read-only system profiles
     groupEditable: "Configurable",
     groupSystem: "System derived",

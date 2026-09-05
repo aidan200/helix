@@ -352,7 +352,7 @@ describe("builtin 防护回归（CL-2-T10）", () => {
       store: new InMemoryResourceState(),
       skills: builtinScanner(),
       toolsCatalog: (kind: ProfileKind): readonly string[] =>
-        ({ "main-session": ["bash"], "subagent-worker": ["bash"], "subagent-kg-writer": ["kg-update"],
+        ({ "main-session": ["bash"], "subagent-worker": ["bash"], "task-worker": ["bash"], "subagent-kg-writer": ["kg-update"],
     "subagent-code-reviewer": ["bash"], "orchestrator": ["bash"] } as Record<ProfileKind, readonly string[]>)[kind] ?? [],
       toolSnippets: {},
     });

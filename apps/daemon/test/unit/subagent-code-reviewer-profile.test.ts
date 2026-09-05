@@ -82,9 +82,9 @@ describe("D5 编排分流：任务类型 → 批次实例 profileKind（类型�
     expect(dispatchProfileKindOf("kg-review")).toBe("subagent-kg-writer");
   });
 
-  test("其余任务类型 → subagent-worker（缺省形态不变）", () => {
-    expect(dispatchProfileKindOf("fake-task")).toBe("subagent-worker");
-    expect(dispatchProfileKindOf("feature-dev")).toBe("subagent-worker");
-    expect(dispatchProfileKindOf("")).toBe("subagent-worker");
+  test("其余任务类型 → task-worker（任务独立配置批：缺省分流 chat worker 解耦）", () => {
+    expect(dispatchProfileKindOf("fake-task")).toBe("task-worker");
+    expect(dispatchProfileKindOf("feature-dev")).toBe("task-worker");
+    expect(dispatchProfileKindOf("")).toBe("task-worker");
   });
 });
