@@ -293,11 +293,11 @@ Origin 规则。v0 不做 token 过期/轮换通知（daemon 重启 = token 重�
 > **§10–§14（v0.1–v0.4 演进登记与微批备案）已迁 PROTOCOL-CHANGELOG.md**
 >（原节号保留——下文节号自 §9 直接跳至 §15 即此迁移痕迹，非缺节）。
 
-## 15. 命令 payload 形状总登记（C→S，62 命令全集）
+## 15. 命令 payload 形状总登记（C→S，63 命令全集）
 
-> **计数声明：62 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 7〔含 skill-content 批 1〕 +
+> **计数声明：63 命令全集**（15.1 chat 3 + 15.2 session 5 + 15.3 agent 7〔含 skill-content 批 1〕 +
 > 15.4 model 7 + config 2 + 15.5 auth 4 + 15.6 trace 1 + 15.7 web 3 + 15.8 thinking 1 +
-> 15.9 kg 6+5+2+1+1+1+1 + 15.10 workspace 2 + 15.11 task 10）——与 `COMMAND_TYPES` 常量恰等
+> 15.9 kg 6+5+2+1+1+1+1 + 15.10 workspace 2 + 15.11 task 10 + 15.12 diff 1）——与 `COMMAND_TYPES` 常量恰等
 >（守护断言③口径）。本节为命令 payload 形状的**唯一正文登记面**（TR-AD-26①；
 > AD-4 选项 B 全量回迁收口），类型权威源 = `packages/protocol/src/commands.ts`，
 > 文档与其逐项对齐（AD-1）；仓外契约文档降为历史定形档案（§17.1）。
@@ -1085,10 +1085,31 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 |---|---|---|---|---|
 | `jobId` | `string` | 必填 | task 批 | 目标任务（终态） |
 
-## 16. 事件 payload 形状总登记（S→C，79 事件全集）
+### 15.12 diff 族（1；diff 批，T3+T4 轮次 diff 协议与 UI 闭环）
 
-> **计数声明：79 事件全集**（16.1 notification 3〔含 task.changed〕 +
-> 16.2 session 5〔含 main-session plan 批 session.plan.changed〕 +
+> 本族为 diff 批（v0.11 后 additive 微批，版本位不 bump，§21 同构先例；
+> 批次注记见 PROTOCOL-CHANGELOG.md §26）登记的轮次 diff 详情查询命令。
+> **会话作用域（信封 sessionId 必填，AD-4 路由位）**——diff 状态挂会话
+> 运行时（全内存零持久化：daemon 重启/会话卸载即丢）。结果回执 =
+> `diff.get.result` 点对点帧（仅发发起连接；不入 EVENT_TYPES 目录——task
+> 族先例口径，`src/types/diff.ts` 窄化接口供出）。
+
+#### `diff.get`
+
+轮次 diff 详情查询（chat 状态行 chip 点开 DiffOverlay 的数据源）：turnId
+缺省 = 最近冻结轮（环形保留最近 3 轮）；live = true → 进行中轮实时视图
+（active 条目即时终读统计）。冷会话/无 diff（未开轮且无冻结轮）→
+`connection.error{command.invalid_payload}`（连接保持）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `turnId` | `string` | 可选 | diff 批 | 目标冻结轮 id（缺省 = 最近冻结轮；live=true 时忽略） |
+| `live` | `boolean` | 可选 | diff 批 | true = 进行中轮实时视图；缺省 = 冻结视图 |
+
+## 16. 事件 payload 形状总登记（S→C，80 事件全集）
+
+> **计数声明：80 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> 16.2 session 6〔含 main-session plan 批 session.plan.changed + diff 批 diff.changed〕 +
 > 16.3 chat 12〔含 engine.retrying 网络重试批 + error entry 批 error.entry〕 + 16.4 agent 16〔含 park/resume 批 2 + base prompt 批 1 + skill-content 批 1〕 + 16.5 thinking·compaction·usage 5 +
 > 16.6 model 13 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1+1 + 16.10 workspace 3
 > ）——与 `EVENT_TYPES` 常量恰等（守护断言③口径）。
@@ -1102,8 +1123,8 @@ batch + 各批次实例 work_item，不触 kg 产出）。结果 = `{ok: true}`�
 > `*.result` 9 +
 > `trace.query.result` + agent.config 族两结果帧（v0.6）+ web 族两结果帧
 > （v0.7）+ kg 族六结果帧（kg 批）+ workspace 族两结果帧（workspace 批）
-> + task 族十结果帧（task 批 9 + task.retry 批 1，不入本目录——契约 §0 计数，types/task.ts
-> 窄化接口供出））
+> + task 族十结果帧 + diff 族 diff.get.result（task 批 9 + task.retry 批 1 + diff 批 1，不入本目录——契约 §0 计数，
+> types/task.ts 与 types/diff.ts 窄化接口供出））
 > 仅发发起命令的连接，不经 EventStream 广播（TR-AD-21 先例）。
 
 ### 16.1 notification 族（3；信封 sessionId = SYSTEM_SESSION_ID）
@@ -1145,7 +1166,7 @@ kg 族零推送口径，亦不经会话订阅路由。
 | `status` | `string` | 可选 | task 批 | job 级变更携带新状态（六态 wire 值） |
 | `syncHint` | `string` | 可选 | W2-D | kg sync 提示（R13：job 终态且 pending_sync 台账有未提示行时随行一帧——机器只记录只提醒，sync 永远人确认；服务层人读文案前端直渲 toast） |
 
-### 16.2 session 族（5；main-session plan 批 +1）
+### 16.2 session 族（6；main-session plan 批 +1 + diff 批 +1）
 
 #### `session.snapshot`
 
@@ -1202,6 +1223,25 @@ null（null 语义与 task 批次行同构，非空数组）。台账行清理�
 | `entries` | `EntryDto[]` | 必填 | v0.2 | beforeEntryId 之前的更早历史（时间升序） |
 | `hasMore` | `boolean` | 必填 | v0.2 | 是否还有更早页 |
 | `nextCursor` | `string \| null` | 必填 | v0.2 | 下一页游标（无更早页 = null） |
+
+#### `diff.changed`
+
+轮次 diff 状态瞬态推送（diff 批，T3+T4）：信封 sessionId = 归属会话
+（per-session 订阅路由，与 `session.plan.changed` 同构）。**通道纪律**：本帧
+走 publishDelta 瞬态通道（EventPublisherPort 与 publish 并列的双通道——
+流式中间态语义，不落盘、不投影、EventStream 直推；chat.stream.delta /
+thinking.stream.delta 先例）；严禁走 publish/domain 事件通道（那会触发
+write-through 状态落盘 + domain_events 行直写 + RestoreService 恢复重放，
+破坏内存态需求）。数据源 = TurnDiffService（轮次级内存态：轮为单位累积、
+冻结环形 3 轮；daemon 重启/会话卸载即丢——快照不重建，新轮开即清零）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `turnId` | `string` | 必填 | diff 批 | 归属轮次 id（与 chat.turn.started 的 turnId 同源） |
+| `phase` | `"active" \| "frozen" \| "cleared"` | 必填 | diff 批 | cleared = 开轮清零；active = 轮内累计（写记账后即时视图）；frozen = 收轮冻结终值（精确） |
+| `adds` | `number` | 必填 | diff 批 | 累计新增行数（+N 维；active = 即时终读精确 / 粗估，frozen = 精确） |
+| `dels` | `number` | 必填 | diff 批 | 累计删除行数（−N 维） |
+| `fileCount` | `number` | 必填 | diff 批 | 本轮已记账文件数 |
 
 ### 16.3 chat 族（12；error entry 批 +1）
 
