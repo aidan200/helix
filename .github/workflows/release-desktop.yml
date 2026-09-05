@@ -91,6 +91,18 @@ jobs:
         with:
           tool: tauri-cli@2
 
+      # 桌面端二进制资源缓存（codegraph ~60MB 树 + rg）：build:desktop 的 fetch
+      # 步骤每次从上游 release 下载（GitHub 对 runner 限速，冷启动显著变慢）。
+      # fetch 脚本幂等（落位守护断言全过则跳过下载），缓存命中即零下载。
+      # key 与 scripts/fetch-{rg,codegraph}.ts 的 pin 常量手动同步：脚本升级
+      # 改 pin 而 key 未跟时，sha256 校验兜底（缓存旧版校验失败 → 回源重下）。
+      # 候选：10GB/仓库总量，7 天未访问驱逐（低频发布会回源一次，无害）。
+      - name: Cache desktop resources (codegraph + rg)
+        uses: actions/cache@v4
+        with:
+          path: apps/shell/src-tauri/resources
+          key: desktop-resources-${{ matrix.platform }}-codegraph-1.6.0-rg-15.1.0
+
       # 版本解析：tag 触发 → GITHUB_REF_NAME 去 v 前缀；dispatch → inputs.version
       - name: Resolve release version
         id: ver
