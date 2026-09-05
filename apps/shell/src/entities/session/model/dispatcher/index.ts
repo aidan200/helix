@@ -166,6 +166,17 @@ export const PASSTHROUGH_EVENT_TYPES = [
   // tasks-model 听众——connection 面听众转发模式，kg 族先例）；任务非会话维
   // ——帧经 notification 通道 daemon 级下发，会话 store 零写入。
   "task.changed",
+  // mcp 族（mcp 批：MCP server 标准接入；六 result + status.changed 广播）：
+  // 设置页 MCP 分区连接私有读面/广播，真消费归 McpSettingsSection 域订阅
+  //（SessionContext 转发层 subscribeMcpFrames——workspace/kg 族先例）；
+  // 工具面生效经既有 agent.config.changed 刷新链，不在 mcp 族重复广播。
+  "mcp.servers.list.result",
+  "mcp.servers.add.result",
+  "mcp.servers.update.result",
+  "mcp.servers.remove.result",
+  "mcp.servers.test.result",
+  "mcp.tools.list.result",
+  "mcp.status.changed",
 ] as const;
 
 /** 直通处理函数（no-op）：真消费在 dispatcher 外，主 reducer 原状态返回。 */

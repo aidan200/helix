@@ -26,3 +26,24 @@ describe("LISTEN_SURFACE.subscribeAgentConfigFrames", () => {
     expect(match("trace.query.result")).toBe(false);
   });
 });
+
+describe("LISTEN_SURFACE.subscribeMcpFrames", () => {
+  const { match } = LISTEN_SURFACE.subscribeMcpFrames;
+
+  it("转发 mcp 族全部点对点回执 + 状态广播 + connection.error", () => {
+    expect(match("mcp.servers.list.result")).toBe(true);
+    expect(match("mcp.servers.add.result")).toBe(true);
+    expect(match("mcp.servers.update.result")).toBe(true);
+    expect(match("mcp.servers.remove.result")).toBe(true);
+    expect(match("mcp.servers.test.result")).toBe(true);
+    expect(match("mcp.tools.list.result")).toBe(true);
+    expect(match("mcp.status.changed")).toBe(true);
+    expect(match("connection.error")).toBe(true);
+  });
+
+  it("不转发其他域帧", () => {
+    expect(match("web.status.changed")).toBe(false);
+    expect(match("agent.config.list.result")).toBe(false);
+    expect(match("task.list.result")).toBe(false);
+  });
+});

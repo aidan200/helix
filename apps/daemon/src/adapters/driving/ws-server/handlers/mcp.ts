@@ -74,7 +74,7 @@ function parseServerInput(
   payload: Record<string, unknown>,
 ): { ok: true; input: McpServerConfigInput } | { ok: false; error: string } {
   const { name, command } = payload;
-  if (typeof name !== "string" || name === "") return { ok: false, error: "payload.name 应为非空 string" };
+  if (typeof name !== "string" || name.length === 0) return { ok: false, error: "payload.name 应为非空 string" };
   if (typeof command !== "string" || command === "") return { ok: false, error: "payload.command 应为非空 string" };
   const args = payload.args;
   if (args !== undefined && (!Array.isArray(args) || args.some((a) => typeof a !== "string"))) {
@@ -197,7 +197,7 @@ export function handleMcpServersUpdate(ctx: McpCommandContext): void {
 /** mcp.servers.remove（全局写面）：断连 + 摘工具 + 落盘（stopped 广播经组合根链）。 */
 export function handleMcpServersRemove(ctx: McpCommandContext): void {
   const name = ctx.payload.name;
-  if (typeof name !== "string" || name === "") {
+  if (typeof name !== "string" || name.length === 0) {
     return ctx.commandError(ctx.type, "command.invalid_payload", "payload.name 应为非空 string");
   }
   const configs = ctx.mcp.listConfigs();

@@ -142,6 +142,9 @@ describe("AG-04：pi import 只允许出现在 driven 域（pi-engine/tools/suba
       path.join("adapters", "driven", "pi-engine"),
       path.join("adapters", "driven", "tools"),
       path.join("adapters", "driven", "subagent"),
+      // mcp 批：mcp/ 是 driven 域工具族（mcp-tool 适配器消费 pi-agent-core
+      // 工具工厂形状——与 tools 同构，TR-AD-7 语义不变，白名单第四个 driven 根）
+      path.join("adapters", "driven", "mcp"),
     ];
     for (const rel of all) {
       const isAllowed = allowedRoots.some((root) => rel.startsWith(root));
@@ -423,10 +426,16 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // T2.1（AF-2）：同模式扩 HELIX_CODEGRAPH_PATH（codegraph 二级解析第①级
     // bundle 注入键，resolve-codegraph.ts 本体零 env 依赖）；codegraph
     // bundle-only 化后 PATH 级同砍，container.ts env 读取面收至两键。
-    const whitelistRoot = path.join("adapters", "driven", "subagent");
+    // mcp 批：mcp/ 同白名单（McpClient spawn MCP server 子进程需环境继承
+    //（{...process.env, ...config.env}——PATH 等运行时必需），与 subagent
+    // 的 env IPC 同理：子进程环境透传，非配置源）。
+    const whitelistRoots = [
+      path.join("adapters", "driven", "subagent"),
+      path.join("adapters", "driven", "mcp"),
+    ];
     const containerRel = path.join("infrastructure", "container.ts");
     for (const rel of listFiles(srcRoot)) {
-      if (rel.startsWith(whitelistRoot)) continue;
+      if (whitelistRoots.some((root) => rel.startsWith(root))) continue;
       const src = read(rel);
       if (rel === containerRel) {
         const envKeys = [...new Set([...src.matchAll(/process\.env\.([A-Z_]+)/g)].map((m) => m[1]!))].sort();
@@ -452,6 +461,9 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       "HELIX_FINDINGS_PATH", // task-778eb18a 截断兑底：findings 旁路文件落点（SubagentLauncher 注入 / 提示词引导预写 / ClosureRecorder 机械读）
       "HELIX_INSTANCE_ID",
       "HELIX_MODEL_JSON",
+      // mcp 批：MCP server 配置透传（SubagentLauncher 注入 launch 时刻现拍 /
+      // ChildMain 自建 McpRegistry await 预热——spawn 快照工具名时序保证）
+      "HELIX_MCP_SERVERS_JSON",
       "HELIX_REPORT_PATH", // F3.0（T4.1）：报告落点传参（SubagentLauncher 注入 / 提示词引导消费）
       "HELIX_RG_PATH", // rg 二进制定格路径透传（SubagentLauncher 注入 / ChildMain grep 门面消费；rg 单后端）
       "HELIX_SYSTEM_PROMPT",

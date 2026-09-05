@@ -305,6 +305,25 @@
 .gen-group-label { margin-top: 36px; margin-bottom: 16px; }
 .gen-group-label.first { margin-top: 8px; }
 
+/* ── MCP 分区（mcp 批：server 配置面——列表行/表单/五态徽标）── */
+.mcp-form { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); margin-top: 12px; }
+.mcp-form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mcp-enabled { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-body); color: var(--text); cursor: pointer; }
+.mcp-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.mcp-row:last-child { border-bottom: none; }
+.mcp-row-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mcp-row-side { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mcp-name { font-size: var(--text-body); font-weight: 600; color: var(--text); }
+.mcp-cmd { font-size: var(--text-cap); color: var(--text-dim); word-break: break-all; }
+.mcp-state {
+  font-size: var(--text-cap); letter-spacing: 0.06em; padding: 1px 8px;
+  border-radius: 3px; border: 1px solid var(--border); color: var(--text-dim);
+}
+.mcp-state-ok { border-color: rgb(var(--success-rgb) / 0.4); color: var(--success); background: rgb(var(--success-rgb) / 0.08); }
+.mcp-state-err { border-color: rgb(var(--error-rgb) / 0.4); color: var(--error); background: rgb(var(--error-rgb) / 0.08); }
+.mcp-err { font-size: var(--text-cap); color: var(--error); word-break: break-all; margin: 0; }
+.set-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
 /* ── 工作空间分区（W4 设置页：当前绑定 + 切换；F2 活跃 agent 禁用态）── */
 .ws-set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .ws-set-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }

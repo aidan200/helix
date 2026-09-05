@@ -1172,11 +1172,6 @@ env?, cwd?, enabled?, timeoutMs?}`（add/update/test 共用）。
 |---|---|---|---|---|
 | `server` | `string` | 必填 | mcp 批 | 目标 server |
 
-## 16. 事件 payload 形状总登记（S→C，86 事件全集）
-
-> **计数声明：86 事件全集**（16.1 notification 3〔含 task.changed〕 +
-> 16.2 session 5〔含 main-session plan 批 session.plan.changed〕 +
-
 ## 16. 事件 payload 形状总登记（S→C，87 事件全集）
 
 > **计数声明：87 事件全集**（16.1 notification 3〔含 task.changed〕 +
