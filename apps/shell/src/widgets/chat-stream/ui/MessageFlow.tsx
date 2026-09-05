@@ -298,15 +298,8 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop, onFo
       {/* 回底驻留视觉提示：用户滚回底部后 1s 驻留期的呼吸底线（正式吸附即消）；
           钉 wrap 底部不驻滚动容器（E-89 同构——勿 sticky/absolute 进滚动流） */}
       {stickPending && <div className="snap-dwell" data-testid="snap-dwell" aria-hidden="true" />}
-      {/* steer 队列坞（左下角；queued 注入的观察面，与 WorkPhaseDot 对称钉位） */}
-      <SteerQueueDock />
-      {/* 工作段位呼吸光点（右下角；idle 炄灭不渲染）。T-webkit-repaint：
-          光点在滚动容器外、absolute 钉 wrap 右下——旧形态（sticky 驻滚动容器内）
-          在 WKWebView（Tauri 桌面端）命中 WebKit 对 sticky 元素内文本更新
-          不重绘的缺陷（颜色随 data-phase 样式失效正常、文字纹理陈旧；
-          resize/DevTools 开关强制重绘才恢复）；脱离滚动流同时修复内容不满
-          一屏时 sticky 不钉底的视觉偏差 */}
-      {workPhase !== "idle" && <WorkPhaseDot phase={workPhase} />}
+      {/* T1：SteerQueueDock/WorkPhaseDot 浮动钉位已收拢 ChatStatusBar
+          状态行（pages 层 ChatPage 装配，位于本组件与 composer 之间） */}
     </div>
   );
 };
