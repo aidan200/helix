@@ -84,8 +84,10 @@ test.describe("TC3.2 CL-7 E 层五工具卡端到端（真 daemon + FakeLLM 工�
     await expect(readSections.nth(0).locator(".t-pre")).toContainText("note.txt");
     await expect(readSections.nth(1).locator(".t-sec-label")).toHaveText("结果");
     await expect(readSections.nth(1).locator(".t-pre")).toContainText(READ_MARKER); // 真实执行结果
-    // 续写依赖真实结果（工具结果回注 loop）
-    await e2e.waitForAssistantText(page, READ_MARKER);
+    // 续写依赖真实结果（工具结果回注 loop）——等 turn 收口再发下一条
+    // （慢机加固：文本命中 ≠ turn 收口，send 间必须持守 turn 边界，剧本消费序
+    //  才与 send 序严格对齐；CI 偶发 edit 卡 10s 断链即此窗口）
+    await e2e.waitForTurnDone(page, READ_MARKER);
     await shotEvidence(page, "e2e-tools-read-done");
 
     // ── bash：echo 输出回注 ────────────────────────────────────
@@ -93,21 +95,21 @@ test.describe("TC3.2 CL-7 E 层五工具卡端到端（真 daemon + FakeLLM 工�
     const bashCard = await expandCard(page, BASH_MARKER);
     await expect(bashCard.locator(".t-name")).toHaveText("bash");
     await expect(bashCard.locator(".t-section").nth(1).locator(".t-pre")).toContainText(BASH_MARKER);
-    await e2e.waitForAssistantText(page, BASH_MARKER);
+    await e2e.waitForTurnDone(page, BASH_MARKER);
 
     // ── write：磁盘副作用（Node 侧核验） ───────────────────────
     await e2e.send(page, `把 ${WRITE_MARKER} 写入 written-e2e.txt`);
-    await expect(page.locator(".tool-card.done", { hasText: "write" })).toBeVisible();
+    await expect(page.locator(".tool-card.done", { hasText: "write" })).toBeVisible({ timeout: 15_000 });
     expect(readFileSync(path.join(sandbox, "written-e2e.txt"), "utf8")).toBe(WRITE_MARKER); // 真实落盘
-    await e2e.waitForAssistantText(page, "written-e2e.txt");
+    await e2e.waitForTurnDone(page, "written-e2e.txt");
 
     // ── edit：磁盘替换生效（旧串消失/新串出现） ────────────────
     await e2e.send(page, "把 edit-target.txt 里的旧串替换成新串");
-    await expect(page.locator(".tool-card.done", { hasText: "edit" })).toBeVisible();
+    await expect(page.locator(".tool-card.done", { hasText: "edit" })).toBeVisible({ timeout: 15_000 });
     const edited = readFileSync(path.join(sandbox, "edit-target.txt"), "utf8");
     expect(edited).toContain(EDIT_NEW);
     expect(edited).not.toContain(EDIT_OLD);
-    await e2e.waitForAssistantText(page, "edit 完成");
+    await e2e.waitForTurnDone(page, "edit 完成");
 
     // ── grep：真实命中行（path:行号: 内容，相对沙箱 cwd） ───────
     await e2e.send(page, "搜一下 GREP 标记在哪");
@@ -116,7 +118,7 @@ test.describe("TC3.2 CL-7 E 层五工具卡端到端（真 daemon + FakeLLM 工�
     await expect(grepCard.locator(".t-section").nth(1).locator(".t-pre")).toContainText(
       `grep-source.ts:1: export const a = "${GREP_MARKER}";`,
     );
-    await e2e.waitForAssistantText(page, GREP_MARKER);
+    await e2e.waitForTurnDone(page, GREP_MARKER);
 
     // ── bash 慢命令：running 态可观测（accent 边框语义已在 F 层验证，
     //    此处断言 running 结构契约：执行中徽标 + spinner + 不可展开）───
