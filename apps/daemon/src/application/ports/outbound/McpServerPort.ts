@@ -6,9 +6,11 @@
  * McpRegistry）。driving 层（handlers/mcp.ts）经本 port 消费，组合根
  * 注入 McpRegistry 单例（结构满足，BrowserPort 同构先例）。
  *
- * 配置持久化（config.json mcpServers 段）不在本 port——handler 经
- * McpCommandContext 的窄读写面（组合根闭包包 writeConfig）操作，与
- * registry 生命周期解耦（落盘与连接是两个关注点）。
+ * 配置持久化不在本 port——声明面 = helix.db mcp_server 表（整段替换
+ * 写经 WriteQueue 单写通道，序列化/规范化在 McpConfigStore；config.json
+ * 不再承载 MCP 声明面）。handler 经 McpCommandContext 的窄写面（组合根
+ * 闭包包 saveServers）操作，与 registry 生命周期解耦（落盘与连接是
+ * 两个关注点）。
  */
 
 /** server 配置行（config 声明面；add/update/test 共用输入形状）。 */

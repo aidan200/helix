@@ -1,8 +1,11 @@
 /**
  * 工具执行出口端口（outbound，architecture.md §3.4）。
  *
- * service 层工具编排的抽象边界；真实实现（pi 内置四工具 + 自写 grep，
- * 走 ExecutionEnv）落位 adapters/driven/tools。本任务用 FakeToolExecutor。
+ * 【契约预留】当前生产链路零 execute 调用——真实工具装配走
+ * CoreToolExecutor 内部 resolveTools（工具表 → pi AgentTool 形态）不经
+ * 本端口；本接口固定「一次工具调用的请求/结果形状」供 CoreToolExecutor
+ * 真体与测试替身同形互换（FakeToolExecutor 已随零引用下线）。真实实现
+ * （pi 内置四工具 + 自写 grep，走 ExecutionEnv）落位 adapters/driven/tools。
  * 本文件只有接口定义（AG-01）。
  */
 

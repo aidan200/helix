@@ -124,6 +124,17 @@ describe("params 校验（CL-1-T5 ⑤）", () => {
     ).toThrow(/a.*b|b.*a/);
   });
 
+  test("原型链成员名（toString/__proto__）不逃未知键判定（Object.hasOwn 只认自有键）", () => {
+    const manifest = parseValid();
+    // toString 是 Object.prototype 成员——`k in schema` 走原型链会误判为已声明键
+    expect(() =>
+      validateTaskParams(manifest, { projectRoot: "/repo", toString: "x" }, ["/repo"]),
+    ).toThrow(/toString/);
+    // __proto__ 自有键（JSON 解析形态——对象字面量 __proto__ 是原型设值语法不产生自有键）
+    const withProto = JSON.parse('{"projectRoot":"/repo","__proto__":1}') as Record<string, unknown>;
+    expect(() => validateTaskParams(manifest, withProto, ["/repo"])).toThrow(/__proto__/);
+  });
+
   test("缺 required → DomainError 且 message 含违例字段名", () => {
     const manifest = parseValid();
     expect(() => validateTaskParams(manifest, {}, ["/repo"])).toThrow(DomainError);

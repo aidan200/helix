@@ -49,9 +49,11 @@ export interface DomainEvent<P = unknown> {
   readonly type: DomainEventType;
   readonly sessionId: string;
   /** 关联轮次（轮次级事件必填；会话级可空）。 */
-  readonly turnId?: string;  /**
-   * 实例归属（AD-3）：缺省 = 主实例（协议同语义，
-   * 契约 §1）。SubAgent 实例事件携带 agent-N；发布侧挂 id 由 / .x 接。
+  readonly turnId?: string;
+  /**
+   * 实例归属（AD-3）：产生本事件的实例 id（T10a 方案 A 统一标识空间
+   * `agent-<唯一串>`，主实例与 SubAgent 同空间）；缺省 = 主实例（协议
+   * 同语义，契约 §1）；legacy 字面 "main" 只读兼容。
    */
   readonly instanceId?: string;
   readonly payload: P;

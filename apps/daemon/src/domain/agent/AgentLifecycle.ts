@@ -15,7 +15,9 @@ import type { AgentInstance } from "./AgentInstance";
  * 状态机的权威性与可观测性都由本聚合保证（runtime 不自持副本）。
  *
  * 【实例注册表语义（AD-3， 演进）】本类同时是会话内
- * 实例注册表：主实例（固定 id main）与 SubAgent（agent-N）在此注册/出册。
+ * 实例注册表：主实例与 SubAgent 在此注册/出册。实例 id 统一为
+ * `agent-<唯一串>`（T10a 方案 A，生成单点 AgentInstance.newInstanceId；
+ * legacy 字面 "main" 仅只读兼容，见 LEGACY_MAIN_INSTANCE_ID）。
  * 注册/出册不依赖会话按序推进（非线性红线）；注册表与主实例会话运行态
  * （上述五态矩阵）彼此独立——实例窗口生命周期由 AgentInstance 状态机承载。
  * 投影面：agent_lifecycle 表 PK (session_id, instance_id)。
@@ -64,7 +66,7 @@ export class AgentLifecycle {
 
   // ── 实例注册表（AD-3：会话内实例一等注册； 不假设按序推进） ──
 
-  /** 注册实例（主实例 main 固定 id；重复 id 抛错且不产生半态）。 */
+  /** 注册实例（主实例与 SubAgent 同空间 `agent-<唯一串>` id；重复 id 抛错且不产生半态）。 */
   registerInstance(instance: AgentInstance): void {
     if (this.instances.has(instance.instanceId)) {
       throw new DomainError(`实例 ${instance.instanceId} 已在会话内注册，不可重复注册`);
