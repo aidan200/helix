@@ -238,7 +238,12 @@ export class TurnDiffService {
       const walkStats = this.io.walkStats;
       startWalk = walkStats(root)
         .then((index) => {
-          if (state.active === active) active.startIndex = index;
+          // 无条件回填（M6 #2.5）：闭包捕获的 active 对象身份天然安全（只写
+          // 本轮对象）；原守卫 state.active===active 反而有害——短轮/快速
+          // 中断在 walk 完成前 endTurn（state.active 已置 null 或被下一轮
+          // 替换）时 startIndex 永不回填，finalize 的 detectExternal 以
+          // startIndex===null 直退，external 兜底静默失效
+          active.startIndex = index;
         })
         .catch(() => {
           /* walk 失败：external 兜底缺席（降级不报错） */

@@ -506,7 +506,15 @@ export class SessionRegistry implements SessionDirectoryPort {
   private touch(sessionId: string): void {
     const record = this.sessions.get(sessionId);
     if (record !== undefined) record.lastActivityMs = this.deps.clock.nowMs();
-    this.current = sessionId; // 当前会话 = 最近活跃
+    // current 不随 touch 轮换（code-review M6 #2.4 守卫）：本面经
+    // onDomainEvent/touchActivity 由**任意会话**的领域事件/流式 delta 触发
+    // ——后台会话（SubAgent 归属会话、在飞后台 turn）活动会把 current 从
+    // 用户正在操作的会话抢走（实证：draft 链快照盖章竞态/「current 恒被后台
+    // 流式会话锚定」两处热修注释）；record 不存在时更会让 current 指向
+    // 注册表外 id。「最近活跃」与「当前选中」分离：lastActivityMs 承载最近
+    // 活跃（清单排序/空闲卸载基线），current 轮换只发生在用户交互面——
+    // register（建会话 createFresh / 显式触达冷会话懒加载 doLoad）与
+    // 删除后 rotateCurrent。
   }
 
   /** 冷会话恢复重建（快照 + 事件流重放；不存在抛 SessionNotFoundError）。 */
@@ -589,7 +597,7 @@ export class SessionRegistry implements SessionDirectoryPort {
       return hot.chatService.sessionView.isEmpty();
     }
     if (!(await this.sessionExists(id))) {
-      // current 残骸清理：换新草稿（createFresh 内 touch 轮换 current）
+      // current 残骸清理：换新草稿（createFresh 内 register 轮换 current）
       this.deps.logger?.warn(`当前会话 ${id} 为不可恢复草稿残骸（热缺失且库无行），已丢弃并新建草稿`);
       this.createFresh();
       return true;
@@ -607,7 +615,9 @@ export class SessionRegistry implements SessionDirectoryPort {
       unpromotedDraft,
       createdAnnounced: false,
     });
-    this.current = runtime.sessionId; // touch 语义（活动基线 + current 轮换）
+    // current 轮换的用户交互面（M6 #2.4：touch 不再轮换——建会话/显式触达
+    // 冷会话懒加载在此定格；后台会话事件活动不抢 current）
+    this.current = runtime.sessionId;
   }
 
   /** 当前会话被删后的轮换：最近活动会话（懒加载）或新建空会话。 */

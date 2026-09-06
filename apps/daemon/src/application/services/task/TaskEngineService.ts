@@ -1,5 +1,5 @@
 import { DomainError } from "../../../domain/DomainError";
-import { isTerminalJob } from "../../../domain/task/job";
+import { isTerminalJob, isTerminalStage, assertBatchTransition } from "../../../domain/task/job";
 import { resolveStagePlan, validateTaskParams } from "../../../domain/task/manifest";
 import { MAX_BATCH_RETRY, nextRetryCount, shouldRetryBatch } from "../../../domain/task/retry";
 import type { StageKind, StagePlan } from "../../../domain/task/types";
@@ -184,16 +184,30 @@ export class TaskEngineService implements TaskEnginePort {
     }
     // 停编排 loop + 在跑批次 SIGTERM（kill 通路收口在 starter 实现侧）
     await this.deps.starter.stopOrchestrator(jobId);
-    // 批次行收口：非终态批次标 failed（retry_note=cancelled，不触发自动重试）
+    // 批次行收口：非终态批次标 failed（retry_note=cancelled，不触发自动重试）——
+    // pending→failed 是 cancel 语义显性出边（domain BATCH_TRANSITIONS 已补，
+    // M6 #2.5：原经无守卫 updateBatch 知情绕过；迁移前显式断言与 store 守卫同口径）
     const now = this.deps.clock.now();
     for (const batch of this.allBatches(jobId)) {
       if (batch.status === "done" || batch.status === "failed") continue;
+      assertBatchTransition(batch.status, "failed");
       await this.deps.store.updateBatch({
         ...batch,
         status: "failed",
         retryNote: "cancelled：任务已取消（不触发自动重试）",
         updatedAt: now,
       });
+    }
+    // stage 行收口（M6 #2.5）：非终态 stage 一并标 failed——否则 cancelled
+    // 任务下 running/pending stage 永久滞留（引擎推进门全部被批次终态拦截，
+    // stage 状态机再无可走出边），任务页阶段条与库内事实背离。done stage
+    // 保留（已完成工作不丢）。pending→failed 同为 cancel 语义显性出边。
+    // （cancel 属生命周期三命令——不经 onTaskChanged 钩子，handler 层统一广播）
+    for (const stage of this.deps.store.getStages(jobId)) {
+      if (isTerminalStage(stage.status)) continue;
+      await this.deps.store
+        .updateStageStatus(jobId, stage.seq, "failed")
+        .catch((error) => this.mapDomainError(error));
     }
     await this.transitionJob(jobId, "cancelled");
   }

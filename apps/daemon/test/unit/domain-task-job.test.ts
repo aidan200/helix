@@ -34,9 +34,10 @@ const LEGAL_JOB: ReadonlySet<string> = new Set([
   "failed->running",
 ]);
 
-/** stage 状态机全部合法迁移（pending→running；running→done/failed；failed→running 人工重试重开阶段口）。 */
+/** stage 状态机全部合法迁移（pending→running；running→done/failed；pending→failed 仅 cancel 收口（M6 #2.5）；failed→running 人工重试重开阶段口）。 */
 const LEGAL_STAGE: ReadonlySet<string> = new Set([
   "pending->running",
+  "pending->failed",
   "running->done",
   "running->failed",
   "failed->running",
@@ -44,10 +45,12 @@ const LEGAL_STAGE: ReadonlySet<string> = new Set([
 
 /**
  * batch 状态机全部合法迁移（AF-1.3 增补 2026-08-29：failed→running 自动重派路径，
- * architecture §3.3「failed 由自动重试接管」/§4.5 设计内语义；job/stage 不动）。
+ * architecture §3.3「failed 由自动重试接管」/§4.5 设计内语义；M6 #2.5 增补：
+ * pending→failed 仅 cancel 收口显性出边）。
  */
 const LEGAL_BATCH: ReadonlySet<string> = new Set([
   "pending->running",
+  "pending->failed",
   "running->done",
   "running->failed",
   "failed->running",

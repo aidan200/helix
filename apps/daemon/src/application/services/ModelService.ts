@@ -32,7 +32,9 @@ import type { ErrorCode } from "@helix/protocol";
  *   provider 校验（合并目录全集）+ 连通最小请求（不缓存）。
  *
  * 【错误】ModelNotFoundError / ProviderNotFoundError（校验失败——契约 C §4
- * 语义；driving 层映射回执）；SessionNotFoundError（registry 既有）。
+ * 语义；driving 层映射回执）；InvalidThinkingLevelError（thinking 档位形状错，
+ * code=command.invalid_payload，M6 #2.5——不冒用 model_not_found）；
+ * SessionNotFoundError（registry 既有）。
  */
 
 /** model id 不在合并目录（契约 C §4 model_not_found 语义）。 */
@@ -52,6 +54,21 @@ export class ProviderNotFoundError extends Error {
   constructor(providerId: string) {
     super(`provider ${providerId} 不存在（以合并目录 provider 全集为准）`);
     this.name = "ProviderNotFoundError";
+  }
+}
+
+/**
+ * thinking 档位形状校验错误（M6 #2.5）：空串/非字符串档位——形状错不是
+ * 模型名录错，不冒用 model_not_found（driving 层按码回执会误导客户端）；
+ * code=command.invalid_payload（同 ImageValidationError/SteerTargetNotRunningError
+ * 先例，driving 层码匹配直通）。
+ */
+export class InvalidThinkingLevelError extends Error {
+  /** 错误码（additive）：值 = 既有回码，判别契约从 name 字符串改码匹配。 */
+  readonly code: ErrorCode = "command.invalid_payload";
+  constructor(level: unknown) {
+    super(`thinking 档位应为非空字符串或 null（收到 ${JSON.stringify(level)}）`);
+    this.name = "InvalidThinkingLevelError";
   }
 }
 
@@ -138,7 +155,7 @@ export class ModelService implements ModelPort {
   /** R7 全局兜底批：全局默认推理强度写（null = 清除回未配置态）。 */
   async setThinkingDefault(level: string | null): Promise<{ previous: string | null }> {
     if (level !== null && (typeof level !== "string" || level.trim() === "")) {
-      throw new ModelNotFoundError(String(level)); // 形状防线（透传档位本不校验，空串归形状错）
+      throw new InvalidThinkingLevelError(level); // 形状防线（透传档位本不校验，空串归形状错——不冒用 model_not_found，M6 #2.5）
     }
     const previous = this.deps.defaultThinking?.stored() ?? null;
     await this.deps.defaultThinking?.set(level);

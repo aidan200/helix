@@ -475,6 +475,58 @@ describe("T2.2 closure 失败自动重试 + 接力 brief（CL-2-T5/T13）", () =
       expect(env.store.getBatches(jobId, 1)[0]!.status).toBe("done");
     });
   });
+
+  test("兑底重派（M6 #2.5）：引擎调用异常兑底 failBatch 成功后按 retryScheduled 补派——批次不滞留 failed", async () => {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
+      spawnEntry(BRIEF_1),
+      dispatchEntry(0, 2),
+      { kind: "reply", text: "已派发。" },
+    ];
+    await withOrchestratorEnv({ script }, async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "fake-task",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      await env.until(
+        () => env.store.getBatches(jobId, 1).length === 1 && env.store.getBatches(jobId, 1)[0]?.status === "running",
+      );
+      const first = env.recorder.call(1).agentId;
+
+      // 注入：首次 failBatch 抛引擎异常（触发 settleInstance 兑底路径——退避 5s
+      // 重试一次兑底 failBatch）；后续调用恢复真身（兑底成功，retryScheduled=true）
+      const engine = env.engine as TaskEngineService;
+      const original = engine.failBatch.bind(engine);
+      let failOnce = true;
+      engine.failBatch = async (batchId: string, note: string) => {
+        if (failOnce) {
+          failOnce = false;
+          throw new Error("注入：收口引擎调用异常");
+        }
+        return original(batchId, note);
+      };
+
+      await settleInstance(env, first, { closure: "failed", summary: "子进程异常退出" });
+      // 原行为：兑底 failBatch 成功后忽略 retryScheduled——批次有余量却不重派，
+      // sweepRetries 仅在 startOrchestrator 触发，存活 loop 内滞留 failed 至重启。
+      // 修复后：兑底成功按 retryScheduled 走 reDispatch（第 2 次 spawn + 落章换 instanceId）
+      await env.until(
+        () =>
+          env.recorder.calls.length >= 2 &&
+          env.store.getBatches(jobId, 1)[0]?.status === "running" &&
+          env.store.getBatches(jobId, 1)[0]?.instanceId !== first,
+        15000, // 兑底退避 5s + 重派链
+      );
+      const batch = env.store.getBatches(jobId, 1)[0]!;
+      expect(batch.retryCount).toBe(1);
+      expect(batch.retryNote).toContain("收口引擎异常兜底");
+      expect(env.orchestratorLog.some((m) => m.includes("兜底重试一次 failBatch"))).toBe(true);
+      expect(env.recorder.call(2).brief).toContain("supersede"); // 接力 brief
+    });
+  }, 30000);
 });
 
 // ── RED 组 4：plan 未 resolve 硬约束（CL-2-T8） ──

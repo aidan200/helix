@@ -8,6 +8,7 @@ import type { SessionProjection } from "../../src/application/services/SessionPr
 import type { SendOutcome } from "../../src/application/ports/inbound/ChatPort";
 import type { SessionListChange } from "../../src/application/ports/inbound/SessionDirectoryPort";
 import type { Session } from "../../src/domain/session/Session";
+import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { MODES } from "@helix/protocol";
 import { profileKindOf } from "../../src/application/services/modes";
 
@@ -403,5 +404,40 @@ describe("P1 T3 ③ startDraftSession mode：建会话定格 + 热草稿复用 p
     } finally {
       writable.pop();
     }
+  });
+});
+
+describe("M6 #2.4 current 轮换守卫：后台会话活动不抢 current（touch 只刷活跃基线）", () => {
+  test("后台会话领域事件/流式 delta 触发 touch → current 停留用户会话；注册表外 id 不污染 current", async () => {
+    const rig = await freshRig();
+    const aId = rig.registry.currentSessionId(); // 草稿 A（current=A）
+    const a = await rig.registry.startDraftSession("A 的首条消息"); // A 转正复用同 id
+    expect(a.sessionId).toBe(aId);
+    const b = await rig.registry.startDraftSession("B 的首条消息"); // A 已有内容 → createFresh B（用户交互面轮换 current=B）
+    expect(b.sessionId).not.toBe(aId);
+    expect(rig.registry.currentSessionId()).toBe(b.sessionId);
+
+    // 后台会话 A 的领域事件回灌（SubAgent 归属会话活动/在飞后台 turn 完成）——
+    // 原行为：touch 无条件 this.current=sessionId，current 被拉回 A（draft 链快照
+    // 盖章竞态/「current 恒被后台流式会话锚定」两处热修的根因）
+    rig.registry.onDomainEvent({
+      type: "usage.recorded",
+      sessionId: aId,
+      payload: {},
+      occurredAt: NOW,
+    } as unknown as DomainEvent);
+    expect(rig.registry.currentSessionId()).toBe(b.sessionId); // 不抢 current
+
+    // 后台流式 delta 活动标记同口径
+    rig.registry.touchActivity(aId);
+    expect(rig.registry.currentSessionId()).toBe(b.sessionId);
+
+    // 注册表外 id（record 不存在）：原行为让 current 指向表外 id——守卫后不污染
+    rig.registry.touchActivity("ghost-session");
+    expect(rig.registry.currentSessionId()).toBe(b.sessionId);
+
+    // lastActivityMs 活跃基线仍刷新（清单排序/空闲卸载数据源不损）
+    const metas = await rig.registry.listSessions();
+    expect(metas.map((m) => m.sessionId).sort()).toEqual([aId, b.sessionId].sort());
   });
 });
