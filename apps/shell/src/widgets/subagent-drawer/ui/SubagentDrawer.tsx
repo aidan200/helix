@@ -75,7 +75,7 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
     }
     setArmed(false);
   }, []);
-  useEffect(() => resetArmed, [resetArmed]); // 卸载清计时器（关抽屉/切实例）
+  useEffect(() => resetArmed, [agentId, resetArmed]); // 卸载（关抽屉）与切实例均清计时器并复位 armed——ChatPage 渲染不带 key，切实例复用组件实例，不加 agentId 依赖则 A 的 armed 窗口内切 B 可一击即杀（绕过两步确认）
   useEffect(() => {
     if (!running) resetArmed(); // 终态禁用优先于确认态
   }, [running, resetArmed]);

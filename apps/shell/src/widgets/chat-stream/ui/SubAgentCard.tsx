@@ -32,18 +32,22 @@ interface SubAgentCardProps {
 /** 视图本地态（非投影）：终态收口时间捕获——协议
  * DTO 不携带 startedAt/closure 时间戳，此处为展示层 best-effort（快照重建
  * 后无值，脚注退化为无时间变体）。
- * 耗时计时 hook 已提取 shared/lib/useRunningElapsed（卡片与抽屉共用，T4.3）。 */
+ * 耗时计时 hook 已提取 shared/lib/useRunningElapsed（卡片与抽屉共用，T4.3）。
+ * 终态捕获在 useEffect 写 ref/state（render 期零写入——render 纯净性）。 */
 function useTerminalAt(terminal: boolean): number | null {
-  const atRef = useRef<number | null>(null);
-  /** 首帧判定：终态挂载（快照恢复）→ false（永不捕）；非终态挂载 → true（可捕） */
-  const capturableRef = useRef<boolean | null>(null);
-  if (capturableRef.current === null) capturableRef.current = !terminal;
-  if (terminal && capturableRef.current && atRef.current === null) atRef.current = Date.now();
-  if (!terminal) {
-    capturableRef.current = true;
-    atRef.current = null;
-  }
-  return terminal ? atRef.current : null;
+  const [at, setAt] = useState<number | null>(null);
+  /** 首帧判定：终态挂载（快照恢复）→ 不可捕（永不捕）；非终态挂载 → 可捕。
+   *  useRef 初始值仅首渲染生效，本身不构成 render 期写入。 */
+  const capturableRef = useRef(!terminal);
+  useEffect(() => {
+    if (terminal) {
+      if (capturableRef.current) setAt((prev) => prev ?? Date.now());
+    } else {
+      capturableRef.current = true;
+      setAt(null);
+    }
+  }, [terminal]);
+  return terminal ? at : null;
 }
 
 const SubAgentCard = memo(function SubAgentCard({ card, onOpenDrawer }: SubAgentCardProps) {

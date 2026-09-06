@@ -324,6 +324,27 @@ describe("MessageFlow 滚动语义（H-2 热修）", () => {
     rerender(<I18nProvider><MessageFlow /></I18nProvider>);
     expect(flowEl().scrollTop).toBe(300); // 1300-1000+0：原首条保持在视口原位
   });
+
+  it("同会话快照整体替换（旧首条已出窗）→ 不误判前插，吸附态贴底（不吃陈旧 prevHeight 补偿）", () => {
+    // 重连恢复尾窗漂移场景（consumers/snapshot.ts entries 整体替换）：
+    // 首条 id 必变但旧首条已不在新 entries——非真前插。
+    stateRef.current = stateWith("sA", ["m1", "m2", "m3"]);
+    const { rerender } = renderFlow();
+    // 追加一条采样锚定基线（非前插 → 贴底；prevHeight=1000，prevFirstId=m1）
+    setScrollHeight(1000);
+    stateRef.current = stateWith("sA", ["m1", "m2", "m3", "m4"]);
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    expect(flowEl().scrollTop).toBe(1000);
+    // 用户微上滚 30px（仍在 AT_BOTTOM_PX 阈值内，吸附态保持）
+    flowEl().scrollTop = 970;
+    fireEvent.scroll(flowEl(), { target: { scrollTop: 970 } });
+    // 快照整体替换：尾窗漂移 → m1/m2 出窗（新首条 m3，长度 4→5 触发 effect）
+    setScrollHeight(800);
+    stateRef.current = stateWith("sA", ["m3", "m4", "m5", "m6", "m7"]);
+    rerender(<I18nProvider><MessageFlow /></I18nProvider>);
+    // 误判前插时补偿 = 800-1000+970 = 770；正确行为 = 吸附贴底 800
+    expect(flowEl().scrollTop).toBe(800);
+  });
 });
 
 // ── 回底驻留吸附（1s dwell）：上滚脱附 / 回底驻留视觉 / 期满吸附 / 驻留取消 ──

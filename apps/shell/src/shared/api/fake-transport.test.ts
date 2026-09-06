@@ -367,6 +367,32 @@ describe("fake-transport task 族订阅簿记（D-2；连接级订阅表 + chang
     transport.close();
   });
 
+  it("unsubscribe{jobId} 仅删该 specific：通配 \"*\" 订阅保留（对齐 daemon EventStream.unsubscribeTask）", async () => {
+    const { transport, replies } = await setupSocket();
+    sendTask(transport, "task.subscribe"); // 通配全部
+    sendTask(transport, "task.subscribe", { jobId: "job-8f21" }); // 叠加 specific
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(await window.__helixMock!.taskSubs()).toEqual(["*", "job-8f21"]);
+
+    sendTask(transport, "task.unsubscribe", { jobId: "job-8f21" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(await window.__helixMock!.taskSubs()).toEqual(["*"]); // specific 已删，通配保留
+
+    // 通配仍在：未单独订阅的 job 的 changed 照常下发（resume 后 pause 复原）
+    replies.length = 0;
+    sendTask(transport, "task.resume", { jobId: "job-71c4" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    sendTask(transport, "task.pause", { jobId: "job-71c4" });
+    vi.advanceTimersByTime(TASKS_LATENCY_MS);
+    expect(types(replies)).toEqual([
+      "task.resume.result",
+      "task.changed",
+      "task.pause.result",
+      "task.changed",
+    ]);
+    transport.close();
+  });
+
   it("断连即清订阅表（TR-AD-23③ 镜像）：netClose 后新连接未订阅，changed 不下发", async () => {
     const first = await setupSocket();
     sendTask(first.transport, "task.subscribe");

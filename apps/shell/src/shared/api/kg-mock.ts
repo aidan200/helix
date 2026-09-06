@@ -559,7 +559,9 @@ export class KgMockStore {
     const row = resolveProjectName(p.project, this.projects);
     if (row === undefined) return this.paramError();
     if (p.rebuild === true) {
-      if (row.status === "absent" || row.status === "degraded") {
+      // 对齐真实 daemon KgViewerService.indexStatus：rebuild 任意状态无条件
+      // 触发（synced 也重建）；building 态幂等忽略（advanceBuilds 已在推进）。
+      if (row.status !== "building") {
         row.status = "building";
         this.buildingSince.set(row.name, Date.now());
       }

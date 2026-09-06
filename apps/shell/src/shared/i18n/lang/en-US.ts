@@ -349,14 +349,13 @@ export const enUS = {
     },
     nav: {
       railLabel: "Primary navigation",
-      plannedBadge: "Planned",
       themeToggle: "Toggle theme",
       pages: {
         chat: { label: "Chat" },
-        skills: { label: "Agents", preview: "Configure models, tools and skills for the session assistant and SubAgent workers." },
+        skills: { label: "Agents" },
         trace: { label: "Trace" },
-        project: { label: "Project", preview: "Workspace docs, knowledge graph, iteration state." },
-        tasks: { label: "Tasks", preview: "Watch task stage progress, batch mid-states and results." },
+        project: { label: "Project" },
+        tasks: { label: "Tasks" },
         settings: { label: "Settings" },
       },
     },

@@ -404,7 +404,8 @@ class FakeSocket {
     }
     // task 族订阅簿记（D-2；task-api.md §3 连接级订阅表 + §2 payload 语义镜像）：
     // subscribe{jobId} 按 jobId 登记；subscribe{} 订阅全部（"*" 通配）；
-    // unsubscribe{jobId} 移除该 jobId 并解除通配（退订意图优先，保守镜像）；
+    // unsubscribe{jobId} 仅移除该 jobId（通配 "*" 保留——对齐 daemon
+    // EventStream.unsubscribeTask：携带 jobId 时只删该 jobId）；
     // unsubscribe{} 清空订阅集（commands.ts「对称语义」）。
     if (frame?.type === "task.subscribe" || frame?.type === "task.unsubscribe") {
       const jobId = (frame.payload as { jobId?: unknown } | undefined)?.jobId;
@@ -414,7 +415,6 @@ class FakeSocket {
         this.taskSubs.add(specific ?? "*");
       } else if (specific !== null) {
         this.taskSubs?.delete(specific);
-        this.taskSubs?.delete("*");
       } else {
         this.taskSubs = new Set();
       }
