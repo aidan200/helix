@@ -42,6 +42,8 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   task_create: "创建任务并启动执行（与用户确认干什么之后再调用——对话即确认，调用即创建；返回任务回执）",
   task_report: "查询任务结果与报告（只读：list 最近任务清单 / get 指定任务阶段产物、批次收口摘要与报告路径——全文用 read 按路径读）",
   task_insert_batch: "在指定阶段插入批次行（划批次落库，返回批次号；暂停/终态会被拒）",
+  task_assembly_done:
+    "申报阶段装配完成（execute 阶段批次划完后申报：机械校验批次非零/前序阶段全 done，通过后机械驱动派发轮——不要在本轮自行派发）",
   task_dispatch_batch: "批次派发落章（批次号 + 实例 id；仅 pending/failed 可派发）",
   task_advance_stage: "推进阶段行到 running（上一阶段产物落库后推进下一阶段）",
   task_stage_artifact: "聚合阶段产物并收口阶段（你给人类可读摘要，产出节点 id 集由系统按批次反查）",

@@ -55,6 +55,7 @@ describe("ToolPromptSnippets 注册表（M6 T2）", () => {
         "plan_update",
         "read",
         "task_advance_stage",
+        "task_assembly_done",
         "task_complete_job",
         "task_create",
         "task_report",

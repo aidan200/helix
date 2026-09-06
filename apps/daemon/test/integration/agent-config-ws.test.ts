@@ -202,6 +202,7 @@ const ORCH_TOOLS = [
   "plan_read",
   "kg",
   "task_insert_batch",
+  "task_assembly_done",
   "task_dispatch_batch",
   "task_advance_stage",
   "task_stage_artifact",

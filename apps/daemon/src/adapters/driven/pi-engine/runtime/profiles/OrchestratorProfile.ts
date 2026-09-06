@@ -72,6 +72,7 @@ export const OrchestratorProfile: AgentProfile = {
     // 任务引擎回口（TaskEnginePort inbound，内部 port 非 WS；批次成败收口
     // 的两个引擎方法不在 LLM 面——硬约束判定归编排服务代码机械执行）
     "task_insert_batch",
+    "task_assembly_done",
     "task_dispatch_batch",
     "task_advance_stage",
     "task_stage_artifact",
