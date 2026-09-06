@@ -392,6 +392,22 @@ describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）",
     expect(screen.getAllByRole("button", { name: "重新连接" }).length).toBeGreaterThan(0);
   });
 
+  it("M10 批⑦：快速连续查询——旧查询错误回执只清旧代（新查询 loading 不动、结果帧正常收口）；跨命令错误帧不误伤", () => {
+    ui();
+    // gen1 = 进页自动查询在途；发起 gen2（类型 chip = 新查询）
+    fireEvent.click(screen.getByRole("button", { name: "engine.error" }));
+    expect(mock.sentQueries.length).toBe(2);
+    // 跨命令错误帧（同页 task.list 失败）：尾缀可辨识非 trace.query——不进 FIFO 不消费
+    act(() => feedConnError("job 不存在（命令 task.list）"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    // 旧查询（gen1）的错误回执：FIFO 归因旧代——gen2 保持 loading 不落 error
+    act(() => feedConnError("domain_events 索引不可用 (SQLITE_BUSY)（命令 trace.query）"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    // gen2 结果帧正常收口（pending 未被误清——结果帧不再被丢弃）
+    act(() => feedResult());
+    expect(document.querySelector(".p1-thead")!.textContent).toContain("命中 3 条");
+  });
+
   it("分页：加载更多步进 beforeId 游标 → 追加；加载完收口「已加载全部」禁用", () => {
     ui();
     const rows1 = [mkRow(100), mkRow(99), mkRow(98)];

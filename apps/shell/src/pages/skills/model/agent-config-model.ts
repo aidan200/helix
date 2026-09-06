@@ -21,7 +21,9 @@ import type { AgentConfigProfileBlock, AgentConfigSystemBlock } from "@helix/pro
 /** profile kind 维（与协议 profileKind 字面量同源；task-worker 已撤——可配置双 kind）。 */
 export type AgentKind = "main-session" | "subagent-worker";
 
-/** 只读系统 kind（编排归位批：orchestrator 归位系统区 + worker 派生两 kind）。 */
+/** 只读系统三 kind（TR-125 独立装配：orchestrator/subagent-kg-writer/
+ *  subagent-code-reviewer 各自 kind 装配——工具/技能面不继承 worker；唯一
+ *  kind 差异 = 写面只读性，槽位可配、开关全渲染置灰）。 */
 export type SystemAgentKind = "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
 
 /** 写面 kind（可编辑三 kind + 系统三 kind 的槽位型写——R7/orchestrator 槽位先例）。 */

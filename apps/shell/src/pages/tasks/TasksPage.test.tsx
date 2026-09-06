@@ -738,7 +738,7 @@ describe("P-2 TasksPage：批次实例徽标 parked 形态（⑤ 链 A）", () =
 });
 
 describe("M43：artifacts 在途 connection.error 同查（清骨架 + 清 FIFO + 防重发风暴）", () => {
-  it("结果 tab 在途收到 connection.error → 骨架解除转空态 + err toast + 不自动重发", () => {
+  it("结果 tab 在途收到 connection.error → 错误面（带重试，不谎报空态）+ err toast + 不自动重发", () => {
     ui();
     feedList();
     feed("task.detail.result", { task: detailOf(SIX[0]!) } satisfies TaskDetailResultPayload);
@@ -747,13 +747,23 @@ describe("M43：artifacts 在途 connection.error 同查（清骨架 + 清 FIFO 
     expect(qs('[data-tk-pane="result"]')).toBeTruthy();
     // 在途失败回执（错误帧无关联位——页面以在途 ref 同查消费）
     feed("connection.error", { code: "task.not_found", message: "job 不存在" });
-    // 骨架解除 → 空态面板（不再永久骨架）+ err toast 交代
-    expect(qs('[data-tk-empty="artifacts"]')).toBeTruthy();
+    // 骨架解除 → M10 批⑥：错误面（带重试入口）而非空态面板（状态面不说谎）+ err toast 交代
+    expect(qs("[data-tk-artifacts-error]")).toBeTruthy();
+    expect(qs("[data-tk-artifacts-error]").getAttribute("role")).toBe("alert");
+    expect(qs('[data-tk-empty="artifacts"]')).toBeNull();
     expect(screen.getAllByText(/操作失败：job 不存在/).length).toBeGreaterThan(0);
     // 归属标记命中 watcher 条件 → 不自动重发（防错误风暴）；FIFO 已清
     expect(sent.artifacts).toHaveLength(1);
     // 迟到回执不再错位对号（在途已清，直接丢弃）
     feed("task.artifacts.result", { artifacts: { stages: [{ seq: 1, name: "L0", status: "done", artifact: { summary: "迟到产物" } }] } });
     expect(screen.queryByText("迟到产物")).toBeNull();
+    expect(qs("[data-tk-artifacts-error]")).toBeTruthy(); // 迟到回执不收口错误面
+    // 重试入口：点击重发 → 骨架；结果帧到达 → 产物渲染（错误面解除）
+    fireEvent.click(qs("[data-tk-artifacts-retry]"));
+    expect(sent.artifacts).toHaveLength(2);
+    expect(sent.artifacts[1]!.jobId).toBe("job-run");
+    expect(qs("[data-tk-artifacts-error]")).toBeNull();
+    feed("task.artifacts.result", { artifacts: { stages: [{ seq: 1, name: "L0", status: "done", artifact: { summary: "重试产物" } }] } });
+    expect(screen.queryByText("重试产物")).not.toBeNull();
   });
 });

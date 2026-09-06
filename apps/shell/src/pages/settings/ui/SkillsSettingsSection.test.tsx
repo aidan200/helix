@@ -15,7 +15,7 @@
  *    mergeUserSkillRows（双块按名合并、sub 独有行兜底）。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { AgentConfigListResultPayload, EventEnvelope } from "@helix/protocol";
 import { PROTOCOL_VERSION } from "@helix/protocol";
 import { I18nProvider } from "@/shared/i18n";
@@ -250,5 +250,77 @@ describe("SkillsSettingsSection 添加表单（skills 添加批：两渠道创�
       expect((document.querySelector("[data-skills-form-error]") as HTMLElement | null)?.textContent).toContain("已存在");
     });
     expect(document.querySelector("[data-skills-form]")).not.toBeNull(); // skipped 不收表单（可修正重试）
+  });
+});
+
+describe("M10 批①：协议层失败回执（connection.error）清在途 + 行内错误交代", () => {
+  it("创建在途收 connection.error → addPending 清（提交钮复用）+ 表单错误交代", async () => {
+    mount();
+    mock.listener(frameOf("agent.config.list.result", listPayload));
+    await waitFor(() => {
+      expect(document.querySelector('[data-skill-row="hello-skill"]')).not.toBeNull();
+    });
+
+    fireEvent.click(document.querySelector("[data-skills-add-toggle]")!);
+    fireEvent.change(document.querySelector("[data-skills-name]")!, { target: { value: "my-skill" } });
+    fireEvent.change(document.querySelector("[data-skills-desc]")!, { target: { value: "测试技能" } });
+    fireEvent.change(document.querySelector("[data-skills-body]")!, { target: { value: "## 正文" } });
+    fireEvent.click(document.querySelector("[data-skills-submit]")!);
+    expect(mock.sentCreate.length).toBe(1);
+    // 在途：提交钮 disabled（addPending）
+    expect((document.querySelector("[data-skills-submit]") as HTMLButtonElement).disabled).toBe(true);
+
+    // daemon commandError 走 connection.error（无 skill.create.result 帧）
+    act(() => {
+      mock.listener(frameOf("connection.error", { code: "skill.invalid", message: "frontmatter 解析失败" }));
+    });
+    // 在途清：提交钮不再永久 disabled + 行内错误交代（表单不收，可修正重试）
+    expect((document.querySelector("[data-skills-submit]") as HTMLButtonElement).disabled).toBe(false);
+    expect((document.querySelector("[data-skills-form-error]") as HTMLElement | null)?.textContent).toContain("frontmatter 解析失败");
+    expect(document.querySelector("[data-skills-form]")).not.toBeNull();
+  });
+
+  it("正文懒查询在途收 connection.error → pending 清（查看钮复用）+ 错误面交代；重试重发", async () => {
+    mount();
+    mock.listener(frameOf("agent.config.list.result", listPayload));
+    await waitFor(() => {
+      expect(document.querySelector('[data-skill-row="hello-skill"]')).not.toBeNull();
+    });
+
+    fireEvent.click(document.querySelector('[data-skill-content-toggle="hello-skill"]')!);
+    expect(mock.sentContentGet).toEqual(["hello-skill"]);
+    // 在途：查看钮 disabled
+    expect((document.querySelector('[data-skill-content-toggle="hello-skill"]') as HTMLButtonElement).disabled).toBe(true);
+
+    act(() => {
+      mock.listener(frameOf("connection.error", { code: "skill.not_found", message: "技能不存在" }));
+    });
+    // pending 清：钮复用 + 错误面（非永久 loading）
+    const toggle = document.querySelector('[data-skill-content-toggle="hello-skill"]') as HTMLButtonElement;
+    expect(toggle.disabled).toBe(false);
+    expect(document.querySelector("[data-skill-content-error]")?.textContent).toContain("技能不存在");
+    expect(document.querySelector('[role="status"]')).toBeNull();
+
+    // 重试：收起 → 再查看 = 重发（错误面随重开清）
+    fireEvent.click(toggle);
+    expect(document.querySelector("[data-skill-content-error]")).toBeNull(); // 面板收起
+    fireEvent.click(document.querySelector('[data-skill-content-toggle="hello-skill"]')!);
+    expect(mock.sentContentGet).toEqual(["hello-skill", "hello-skill"]);
+    expect(document.querySelector("[data-skill-content-error]")).toBeNull();
+  });
+
+  it("单飞门控：无在途时 connection.error 不消费（无错误面、无状态扰动）", async () => {
+    mount();
+    mock.listener(frameOf("agent.config.list.result", listPayload));
+    await waitFor(() => {
+      expect(document.querySelector('[data-skill-row="hello-skill"]')).not.toBeNull();
+    });
+    act(() => {
+      mock.listener(frameOf("connection.error", { code: "task.not_found", message: "job 不存在" }));
+    });
+    expect(document.querySelector("[data-skill-content-error]")).toBeNull();
+    expect(document.querySelector("[data-skills-form-error]")).toBeNull();
+    // 查看钮仍可用（未被误清/误锁）
+    expect((document.querySelector('[data-skill-content-toggle="hello-skill"]') as HTMLButtonElement).disabled).toBe(false);
   });
 });

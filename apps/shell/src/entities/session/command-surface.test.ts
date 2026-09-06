@@ -59,6 +59,20 @@ describe("LISTEN_SURFACE.subscribeKgFrames", () => {
   });
 });
 
+describe("LISTEN_SURFACE.subscribeConfigFrames", () => {
+  const { match } = LISTEN_SURFACE.subscribeConfigFrames;
+
+  it("转发 connection.error（M10 批：config.set_* daemon 失败回执清页面在途）", () => {
+    expect(match("connection.error")).toBe(true);
+  });
+
+  it("不转发结果帧（config 族结果帧走 topology 消费者）与其他域帧", () => {
+    expect(match("config.set_compaction.result")).toBe(false);
+    expect(match("config.get_port.result")).toBe(false);
+    expect(match("task.list.result")).toBe(false);
+  });
+});
+
 describe("LISTEN_SURFACE.subscribeMcpFrames", () => {
   const { match } = LISTEN_SURFACE.subscribeMcpFrames;
 

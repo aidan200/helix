@@ -143,7 +143,15 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
   const [fileName, setFileName] = useState("");
   const [addPending, setAddPending] = useState(false);
   const [formError, setFormError] = useState("");
+  /** 正文懒查询失败交代（connection.error 在途收口后行内展示；重开/重试清）。 */
+  const [contentError, setContentError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  /** connection.error 单飞门控判据（本组件在途才消费——其他域错误不误清，
+   *  trace/workspace 先例；state 镜像 ref 免重订阅）。 */
+  const addPendingRef = useRef(false);
+  addPendingRef.current = addPending;
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
 
   // 进入分区拉取（条件渲染重挂即重拉；启停变更经智能体页操作后切回自然刷新）
   useEffect(() => {
@@ -151,7 +159,9 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
   }, [sendAgentConfigList]);
 
   // 点对点回执消费：list.result（清单）/ skill_content.get.result（正文缓存）/
-  // skill.create.result（创建回执：applied 重拉收口 / skipped 行内错误）
+  // skill.create.result（创建回执：applied 重拉收口 / skipped 行内错误）/
+  // connection.error（协议层失败回执——create/content.get 无结果帧路径，
+  // M10 批①：单飞门控清在途 + 行内错误交代）
   useEffect(
     () =>
       subscribeAgentConfigFrames((frame: EventEnvelope) => {
@@ -185,6 +195,21 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
           } else {
             setFormError(t(`chat.settings.skills.createFail.${payload.reason ?? "bad-frontmatter"}`));
           }
+          return;
+        }
+        if (frame.type === "connection.error") {
+          // M10 批①：skill.create / skill_content.get 的协议层失败回执（daemon
+          // commandError 走 connection.error，无结果帧）——清在途（提交钮/查看钮
+          // 不再永久 disabled）+ 行内错误交代；单飞门控：本组件无在途不消费
+          const msg = (frame.payload as { message?: string } | undefined)?.message ?? "connection.error";
+          if (addPendingRef.current) {
+            setAddPending(false);
+            setFormError(t("chat.settings.skills.requestFailed", { message: msg }));
+          }
+          if (pendingRef.current.size > 0) {
+            setPending(new Set());
+            setContentError(t("chat.settings.skills.requestFailed", { message: msg }));
+          }
         }
       }),
     [subscribeAgentConfigFrames, sendAgentConfigList, t],
@@ -192,6 +217,7 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
 
   /** 查看正文：未缓存 → 懒查询；已缓存 → 直接展开/收起。 */
   const onToggleContent = (name: string): void => {
+    setContentError("");
     if (open === name) {
       setOpen(null);
       return;
@@ -415,9 +441,15 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
               </div>
               {open === skill.name &&
                 (contents[skill.name] === undefined ? (
-                  <p className="ag-loading" role="status">
-                    {t("chat.settings.skills.contentLoading")}
-                  </p>
+                  contentError !== "" ? (
+                    <p className="mcp-err" role="alert" data-skill-content-error>
+                      {contentError}
+                    </p>
+                  ) : (
+                    <p className="ag-loading" role="status">
+                      {t("chat.settings.skills.contentLoading")}
+                    </p>
+                  )
                 ) : (
                   <SkillDoc text={contents[skill.name]!} />
                 ))}

@@ -44,6 +44,7 @@ import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
 import { relativeTimeSpan } from "@/shared/lib/format";
+import { useArmedConfirm } from "./settings-hooks";
 
 /** ctx 档位（200k / 400k / 1M…；与 P-3 同源格式）。 */
 function fmtContext(tokens: number): string {
@@ -132,9 +133,8 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
   const [keyValue, setKeyValue] = useState("");
   const [keyErr, setKeyErr] = useState(false);
   const keyInputRef = useRef<HTMLInputElement | null>(null);
-  // 两段式删除 armed（providerId 单值；2.5s 超时复原）
-  const [armedDelete, setArmedDelete] = useState<string | null>(null);
-  const deleteTimer = useRef<number | null>(null);
+  // 两段式删除 armed（providerId 单值；2.5s 超时复原）——M10 批⑤ hook 单点承载
+  const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
   // 展开的 provider（单值；null = 全收起）
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -162,13 +162,6 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
     refreshPendingRef.current = false;
     toast.push("ok", t("chat.modelsConfig.refreshedToast"));
   }, [catalogRefreshing, toast, t]);
-
-  // armed 超时复原（2.5s；unmount 清理）
-  useEffect(() => {
-    return () => {
-      if (deleteTimer.current !== null) window.clearTimeout(deleteTimer.current);
-    };
-  }, []);
 
   /** provider 行（auth.list 全集；catalog 仅贡献模型表数据）。 */
   const providers = useMemo(() => {
@@ -220,20 +213,14 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
 
   /** 两段式删除（F(3.4).2：首击 armed → 按钮变「确认删除？」2.5s 复原；二击发命令）。 */
   const onDeleteKey = (providerId: string) => {
-    if (armedDelete !== providerId) {
-      setArmedDelete(providerId);
-      if (deleteTimer.current !== null) window.clearTimeout(deleteTimer.current);
-      deleteTimer.current = window.setTimeout(() => setArmedDelete(null), 2_500);
-      return;
-    }
-    if (deleteTimer.current !== null) window.clearTimeout(deleteTimer.current);
-    setArmedDelete(null);
-    if (!deleteProviderKey(providerId)) {
-      // F5 批 #1：send 失败（未连接）——in-flight 已回滚，err toast 交代
-      toast.push("err", t("chat.modelsConfig.sendFailToast"));
-      return;
-    }
-    toast.push("ok", t("chat.modelsConfig.keyDeletedToast", { provider: providerId }));
+    confirmDelete(providerId, () => {
+      if (!deleteProviderKey(providerId)) {
+        // F5 批 #1：send 失败（未连接）——in-flight 已回滚，err toast 交代
+        toast.push("err", t("chat.modelsConfig.sendFailToast"));
+        return;
+      }
+      toast.push("ok", t("chat.modelsConfig.keyDeletedToast", { provider: providerId }));
+    });
   };
 
   return (

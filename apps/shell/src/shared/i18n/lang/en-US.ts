@@ -281,6 +281,7 @@ export const enUS = {
         addConfirm: "Create",
         adding: "Creating…",
         formInvalid: "Name, description and body are required",
+        requestFailed: "Request failed: {message}",
         createFail: {
           "invalid-name": "Invalid skill name (must start alphanumeric; only . _ - allowed)",
           "missing-description": "frontmatter missing description (or empty)",
@@ -888,6 +889,9 @@ export const enUS = {
       tabResult: "Task Results",
       emptyTitle: "No stage output yet",
       emptySub: "When a stage completes, the orchestrator aggregates its output node set and summary here.",
+      errorTitle: "Failed to load artifacts",
+      errorSub: "Something went wrong while fetching stage output. You can retry.",
+      retry: "Retry",
     },
   },
 

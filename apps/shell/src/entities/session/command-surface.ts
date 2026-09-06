@@ -673,6 +673,12 @@ export const LISTEN_SURFACE = {
       type === "workspace_changed" ||
       type === "connection.error",
   },
+  /** 订阅 config 族在途错误回执（仅 connection.error——config.set_* daemon
+   *  失败无结果帧，设置页三卡单飞门控消费清 pending；结果帧走 topology
+   *  消费者（model-config.ts），不在此转发）。 */
+  subscribeConfigFrames: {
+    match: (type) => type === "connection.error",
+  },
   /** 订阅 mcp 族帧（mcp.*.result 点对点回执 + mcp.status.changed 全局
    *  广播 + connection.error——写面在途错误判定，页面单飞门控消费）。 */
   subscribeMcpFrames: {
