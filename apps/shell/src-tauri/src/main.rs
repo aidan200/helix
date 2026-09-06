@@ -57,18 +57,26 @@ fn theme_hint_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join("theme-hint"))
 }
 
-/// 窗口底色：light → #F4F2EC（boot-light 同值），否则 #060910（--void）。 */
+/// 窗口底色常量（单点维护：改色只动这里）。light → #F4F2EC（boot-light
+/// 同值），dark → #060910（--void，应用主题缺省即暗）。
+const LIGHT_BG: tauri::utils::config::Color = tauri::utils::config::Color(244, 242, 236, 255);
+const DARK_BG: tauri::utils::config::Color = tauri::utils::config::Color(6, 9, 16, 255);
+
+/// 暗色底色判定（标题栏外观 DarkAqua/Aqua 跟随的单点判据）——避免
+/// matches! 字面量散落多处，改色漏改导致标题栏外观与底色错配。
+fn is_dark_background(color: tauri::utils::config::Color) -> bool {
+    let tauri::utils::config::Color(r, g, b, _a) = color;
+    (r, g, b) == (6, 9, 16)
+}
+
+/// 窗口底色：light → LIGHT_BG，否则 DARK_BG（缺失/读失败 → 暗色缺省）。 */
 fn theme_window_background(app: &tauri::AppHandle) -> tauri::utils::config::Color {
     let light = theme_hint_path(app)
         .and_then(|p| std::fs::read_to_string(p).ok())
         .map(|s| s.trim() == "light")
         .unwrap_or(false);
     eprintln!("[helix-shell] 窗口底色主题感知：{}", if light { "light #F4F2EC" } else { "dark #060910" });
-    if light {
-        tauri::utils::config::Color(244, 242, 236, 255)
-    } else {
-        tauri::utils::config::Color(6, 9, 16, 255)
-    }
+    if light { LIGHT_BG } else { DARK_BG }
 }
 
 /// 前端回写主题提示（挂载时 + 主题变更时调用；写失败静默——缓存仅影响
@@ -80,18 +88,14 @@ fn theme_hint(app: tauri::AppHandle, theme: String) {
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(dir.join("theme-hint"), &theme);
     let light = theme.trim() == "light";
-    let color = if light {
-        tauri::utils::config::Color(244, 242, 236, 255)
-    } else {
-        tauri::utils::config::Color(6, 9, 16, 255)
-    };
+    let color = if light { LIGHT_BG } else { DARK_BG };
     // webview 层（underPageBackgroundColor/越界回弹；Windows 的主机制）
     if let Some(wv) = app.get_webview_window("main") {
         let _ = wv.set_background_color(Some(color));
     }
     // NSWindow 层（macOS 空窗期透出色）+ 标题栏外观
     set_native_window_background(&app, "main", color);
-    set_native_window_appearance(&app, "main", !light);
+    set_native_window_appearance(&app, "main", is_dark_background(color));
 }
 
 // ── 原生窗口底色/外观（W6f：v1 desk window_workspace.rs 同款投携）──
@@ -157,6 +161,32 @@ fn set_native_window_appearance(app: &tauri::AppHandle, label: &str, dark: bool)
 #[cfg(not(target_os = "macos"))]
 fn set_native_window_appearance(_app: &tauri::AppHandle, _label: &str, _dark: bool) {}
 
+/// 主窗口创建单点（setup 首建 + on_ready 幂等兜底共用）：builder 五链 +
+/// 原生底色/标题栏外观。窗口已存在 → 直接返回（幂等，覆盖 sidecar 重启而
+/// 窗口已在的场景）。
+///
+/// W6e：先导页方案退役（时间窗口不可靠，用户实证）——首导航直接指向应用，
+/// 底色主题感知（theme-hint 回写缓存）。W6f：builder background_color 只到
+/// webview 层，空窗期透出的 NSWindow 底色/标题栏外观须原生 API 同步设置。
+fn build_main_window(app: &AppHandle) {
+    if app.get_webview_window("main").is_some() {
+        return;
+    }
+    let bg = theme_window_background(app);
+    let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        .title("helix")
+        .inner_size(1280.0, 800.0)
+        // webview 层（underPageBackgroundColor/越界回弹）主题感知
+        .background_color(bg)
+        // W6a：页面脚本加载前注入 helixPickDirectory；W6e 追加 helixThemeHint
+        // （前端挂载时+主题变更时回写提示；纯浏览器 dev 无挂载点 → 浏览钮
+        // 不渲染，输入框仍可用）
+        .initialization_script(PICK_DIRECTORY_INIT_SCRIPT)
+        .build();
+    set_native_window_background(app, "main", bg);
+    set_native_window_appearance(app, "main", is_dark_background(bg));
+}
+
 fn main() {
     let shutdown = Arc::new(AtomicBool::new(false));
     // 放弃路径退出码（0 = 运行中/正常关停；1 = Fatal 后用户关窗）
@@ -181,25 +211,7 @@ fn main() {
                 // ready 行无关）。AF-3：壳侧源码禁出现前端连接参数键名
                 // （tauri-conf.test.ts 全文扫描守护），故注释不引键名。原"ready 后建窗"会留下启动等待期无窗/黑屏
                 // （用户实证）；on_ready 保留幂等兜底（重启场景窗口已在）。
-                // W6e：先导页方案退役（时间窗口不可靠，用户实证）——首导航
-                // 直接指向应用；底色主题感知（theme-hint 回写缓存）。
-                if handle.get_webview_window("main").is_none() {
-                    let _ = WebviewWindowBuilder::new(&handle, "main", WebviewUrl::App("index.html".into()))
-                        .title("helix")
-                        .inner_size(1280.0, 800.0)
-                        // webview 层（underPageBackgroundColor/越界回弹）主题感知
-                        .background_color(theme_window_background(&handle))
-                        // W6a：页面脚本加载前注入 helixPickDirectory；W6e 追加
-                        // helixThemeHint（前端挂载时+主题变更时回写提示）
-                        .initialization_script(PICK_DIRECTORY_INIT_SCRIPT)
-                        .build();
-                    // W6f：NSWindow 底色 + 标题栏外观原生设置（空窗期真正透出
-                    // 的颜色——v1 desk 实证 builder background_color 到不了这里）
-                    let bg = theme_window_background(&handle);
-                    let dark = matches!(bg, tauri::utils::config::Color(6, 9, 16, 255));
-                    set_native_window_background(&handle, "main", bg);
-                    set_native_window_appearance(&handle, "main", dark);
-                }
+                build_main_window(&handle);
 
                 let spec = resolve_sidecar_spec();
                 let join = std::thread::spawn(move || {
@@ -267,23 +279,7 @@ impl SupervisorHooks for ShellHooks {
         // TR-AD-12，壳不干预连接）。
         let handle = self.handle.clone();
         let handle2 = handle.clone();
-        let _ = handle.run_on_main_thread(move || {
-            if handle2.get_webview_window("main").is_none() {
-                let _ = WebviewWindowBuilder::new(&handle2, "main", WebviewUrl::App("index.html".into()))
-                    .title("helix")
-                    .inner_size(1280.0, 800.0)
-                    .background_color(theme_window_background(&handle2))
-                    // W6a：页面脚本加载前注入 helixPickDirectory（前端经 seam 探测，
-                    // 纯浏览器 dev 无此挂载点 → 浏览钮不渲染，输入框仍可用）
-                    .initialization_script(PICK_DIRECTORY_INIT_SCRIPT)
-                    .build();
-                // W6f：原生底色/外观同步（同 setup 路径）
-                let bg = theme_window_background(&handle2);
-                let dark = matches!(bg, tauri::utils::config::Color(6, 9, 16, 255));
-                set_native_window_background(&handle2, "main", bg);
-                set_native_window_appearance(&handle2, "main", dark);
-            }
-        });
+        let _ = handle.run_on_main_thread(move || build_main_window(&handle2));
     }
 
     fn on_log(&mut self, line: String) {
@@ -414,4 +410,25 @@ fn percent_encode(input: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn 暗色判定_只认暗色底色() {
+        assert!(is_dark_background(DARK_BG));
+        assert!(!is_dark_background(LIGHT_BG));
+        // 任一亮色不误判
+        assert!(!is_dark_background(tauri::utils::config::Color(255, 255, 255, 255)));
+    }
+
+    #[test]
+    fn percent_encode_保留字原样_其余全编码() {
+        assert_eq!(percent_encode("abc-XYZ_09.~"), "abc-XYZ_09.~");
+        assert_eq!(percent_encode("a b&c"), "a%20b%26c");
+        // 非 ASCII 按 UTF-8 字节逐字节编码
+        assert_eq!(percent_encode("错"), "%E9%94%99");
+    }
 }

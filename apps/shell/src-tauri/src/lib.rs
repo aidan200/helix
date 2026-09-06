@@ -55,10 +55,21 @@ impl Default for SupervisorConfig {
 // ── ready 行解析（契约 §2）───────────────────────────────────────────────
 
 /// ready 行载荷：`{"type":"ready","port":N,"token":"..."}`。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReadyInfo {
     pub port: u16,
     pub token: String,
+}
+
+/// 自定义 Debug：token 是 WS 连接凭证，任何日志面（含 `{:?}` 调试输出）
+/// 一律遮蔽——同 main.rs on_ready「token 不落壳日志」口径。
+impl std::fmt::Debug for ReadyInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReadyInfo")
+            .field("port", &self.port)
+            .field("token", &"<redacted>")
+            .finish()
+    }
 }
 
 /// stdout 行分类：ready 行 = 生命周期信号；其余行 = 日志（壳只转发不解析）。
@@ -192,6 +203,9 @@ pub enum HandshakeError {
     InvalidReady(String),
     /// sidecar 提前关闭 stdout（进程已退出或管道断裂）。
     Eof,
+    /// 握手等待期观测到壳关停标志（短步长轮询检出）——非正常失败，
+    /// 调用面按关停终局处理，不计入重启节流。
+    Shutdown,
     Io(String),
 }
 
@@ -201,6 +215,7 @@ impl std::fmt::Display for HandshakeError {
             HandshakeError::Timeout => write!(f, "ready 行等待超时"),
             HandshakeError::InvalidReady(why) => write!(f, "ready 行非法：{why}"),
             HandshakeError::Eof => write!(f, "sidecar stdout 提前关闭（未上报 ready）"),
+            HandshakeError::Shutdown => write!(f, "握手等待期观测到壳关停"),
             HandshakeError::Io(e) => write!(f, "读取 sidecar stdout 失败：{e}"),
         }
     }
@@ -271,8 +286,14 @@ pub fn run_supervisor(
         let stdout = child.stdout.take();
         let mut lines = stdout.map(|s| spawn_line_reader(s));
 
-        match handshake(lines.as_mut(), config, hooks) {
+        match handshake(lines.as_mut(), config, shutdown, hooks) {
             Ok(ready) => hooks.on_ready(&ready),
+            Err(HandshakeError::Shutdown) => {
+                // 握手等待期观测到关停：回收子进程后直接走关停终局，
+                // 不计入重启节流（非正常失败）。
+                stop_child(&mut child, config);
+                return SupervisorExit::Shutdown;
+            }
             Err(e) => {
                 stop_child(&mut child, config);
                 if !throttle.allow(Instant::now()) {
@@ -302,6 +323,9 @@ pub fn run_supervisor(
                 Ok(Some(status)) => break status,
                 Ok(None) => thread::sleep(config.poll_interval),
                 Err(e) => {
+                    // 与其他退出路径一致：返回前先回收子进程——try_wait 失败
+                    // 不代表子进程已退，直接 return 会残留孤儿占 WS 端口/锁。
+                    stop_child(&mut child, config);
                     return SupervisorExit::Fatal(format!("看护轮询失败：{e}"));
                 }
             }
@@ -334,6 +358,12 @@ fn forward_line(line: String, hooks: &mut dyn SupervisorHooks) {
     match classify_stdout_line(&line) {
         // ready 之后的协议行/日志一律按日志转发（契约 §2：不做协议解析）
         ReadyLine::Log(l) => hooks.on_log(l),
+        // 握手成功后再出现的 ready 行只记 port——token 凭证永不落壳日志
+        // （daemon bug/版本错配时的泄漏面，同 on_ready 口径）。
+        ReadyLine::Ready(info) => hooks.on_log(format!(
+            "sidecar 重复上报 ready 行：port={}（token 不落壳日志）",
+            info.port
+        )),
         other => hooks.on_log(format!("{other:?}")),
     }
 }
@@ -384,19 +414,33 @@ fn spawn_line_reader(stdout: impl std::io::Read + Send + 'static) -> Receiver<st
 }
 
 /// 握手：spawn 后等待合法 ready 行（超时/非法/Eof 按契约 §5 视同启动失败）。
+///
+/// 短步长轮询：recv_timeout 按 poll_interval 切片，每步观测 shutdown 标志——
+/// 启动期关窗不必等满握手超时（叠加 main.rs join 看护线程，长阻塞会把主
+/// 事件循环冻结 ~handshake_timeout+shutdown_grace）。
 fn handshake(
     lines: Option<&mut Receiver<std::io::Result<String>>>,
     config: &SupervisorConfig,
+    shutdown: &Arc<AtomicBool>,
     hooks: &mut dyn SupervisorHooks,
 ) -> Result<ReadyInfo, HandshakeError> {
     let rx = lines.ok_or(HandshakeError::Eof)?;
     let deadline = Instant::now() + config.handshake_timeout;
     loop {
+        if shutdown.load(Ordering::SeqCst) {
+            return Err(HandshakeError::Shutdown);
+        }
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .ok_or(HandshakeError::Timeout)?;
-        match rx.recv_timeout(remaining) {
-            Err(RecvTimeoutError::Timeout) => return Err(HandshakeError::Timeout),
+        let step = remaining.min(config.poll_interval);
+        match rx.recv_timeout(step) {
+            // 步长到期 ≠ 握手超时：回环顶复查 shutdown 标志后继续等
+            Err(RecvTimeoutError::Timeout) => {
+                if Instant::now() >= deadline {
+                    return Err(HandshakeError::Timeout);
+                }
+            }
             Err(RecvTimeoutError::Disconnected) => return Err(HandshakeError::Eof),
             Ok(Err(e)) => return Err(HandshakeError::Io(e.to_string())),
             Ok(Ok(line)) => match classify_stdout_line(&line) {
@@ -588,6 +632,17 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn readyinfo_debug_遮蔽_token() {
+        let info = ReadyInfo {
+            port: 7333,
+            token: "secret-token".into(),
+        };
+        let dbg = format!("{info:?}");
+        assert!(dbg.contains("7333"), "Debug 应含 port：{dbg}");
+        assert!(!dbg.contains("secret-token"), "Debug 不得含 token：{dbg}");
+    }
+
     // ── 退出分类（契约 §3）───────────────────────────────────────────────
 
     #[test]
@@ -738,6 +793,47 @@ mod tests {
         shutdown.store(true, Ordering::SeqCst);
         let exit = handle.join().expect("看护线程不 panic");
         assert_eq!(exit, SupervisorExit::Shutdown);
+    }
+
+    #[test]
+    fn forward_line_重复ready行只记port不落token() {
+        let mut hooks = RecordingHooks::new();
+        forward_line(
+            r#"{"type":"ready","port":7333,"token":"secret-token"}"#.into(),
+            &mut hooks,
+        );
+        assert_eq!(hooks.logs.len(), 1);
+        assert!(hooks.logs[0].contains("7333"), "应含 port：{}", hooks.logs[0]);
+        assert!(
+            !hooks.logs[0].contains("secret-token"),
+            "日志不得含 token：{}",
+            hooks.logs[0]
+        );
+    }
+
+    #[test]
+    fn 握手期shutdown置位_不等超时即关停() {
+        let dir = std::env::temp_dir().join(format!("helix-shell-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // 永不输出 ready：握手等待中置 shutdown → 短步长轮询检出，
+        // 立即走关停终局（不等满 5s 握手超时），且不计入重启节流。
+        let program = fake_sidecar(&dir, "silent-shutdown.sh", "sleep 60\n");
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let shutdown2 = Arc::clone(&shutdown);
+        let handle = thread::spawn(move || {
+            let mut hooks = RecordingHooks::new();
+            run_supervisor(&spec_for(program), &test_config(), &shutdown2, &mut hooks)
+        });
+        thread::sleep(Duration::from_millis(300)); // 保证已进入握手等待
+        let start = Instant::now();
+        shutdown.store(true, Ordering::SeqCst);
+        let exit = handle.join().expect("看护线程不 panic");
+        assert_eq!(exit, SupervisorExit::Shutdown);
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "应在短步长内检出关停（远小于握手超时 5s），实际 {:?}",
+            start.elapsed()
+        );
     }
 
     #[test]
