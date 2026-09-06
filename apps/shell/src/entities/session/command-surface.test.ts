@@ -167,3 +167,104 @@ describe("COMMAND_SURFACE model/auth 写面 send 失败回滚（F5 批 #1 / TR-8
     expect(topo().modelConfig.setKeyInflight).toBe("anthropic");
   });
 });
+
+// ── M9 #2.18：submit 消费 send 返回值（TR-84——conn=connected 但 socket 断线
+// 窗口内 send=false 不得静默丢消息：草稿未清 = 恢复 + 返回 false 供 toast）──
+
+/** submit 专用假 deps：活跃 store connected+ready；send 可控并捕获出站帧。 */
+function submitDeps(sendOk: boolean, opts: { sessionId: string | null; generating: boolean }) {
+  let topo = createInitialTopologyState();
+  topo = {
+    ...topo,
+    active: {
+      ...topo.active,
+      conn: "connected",
+      view: "ready",
+      sessionId: opts.sessionId,
+      draft: "草稿内容",
+      attachments: ["data:image/png;base64,AAAA"],
+    },
+  };
+  const frames: unknown[] = [];
+  const deps: CommandSurfaceDeps = {
+    send: (cmd) => {
+      frames.push(cmd);
+      return sendOk;
+    },
+    dispatch: (a: SessionAction) => {
+      topo = topologyReducer(topo, a);
+    },
+    getTopology: () => topo,
+    getLedger: () => {
+      throw new Error("submit 不触订阅簿记");
+    },
+    isGenerating: () => opts.generating,
+    retryConnection: () => {},
+  };
+  return { deps, topo: () => topo, frames };
+}
+
+describe("COMMAND_SURFACE submit send 返回值消费（M9 #2.18 / TR-84）", () => {
+  it("turn 模式 send false → 返回 false + 草稿/附件原样保留（未清 = 恢复）+ 零 ui/send echo", () => {
+    const { deps, topo, frames } = submitDeps(false, { sessionId: "s1", generating: false });
+    expect(COMMAND_SURFACE.submit(deps)("你好")).toBe(false);
+    expect(frames).toHaveLength(1); // 帧已尝试发出（daemon 未达）
+    expect(topo().active.draft).toBe("草稿内容"); // 草稿保留待重发
+    expect(topo().active.attachments).toHaveLength(1);
+    expect(topo().active.steerQueue).toHaveLength(0);
+  });
+
+  it("steer 模式 send false → 返回 false + echo 不入队列坞 + 草稿保留", () => {
+    const { deps, topo } = submitDeps(false, { sessionId: "s1", generating: true });
+    expect(COMMAND_SURFACE.submit(deps)("补一句")).toBe(false);
+    expect(topo().active.steerQueue).toHaveLength(0); // echo 未入坞（零假排队）
+    expect(topo().active.draft).toBe("草稿内容");
+  });
+
+  it("turn 模式 send true → 返回 true + 草稿/附件清空（既有行为零变更）", () => {
+    const { deps, topo, frames } = submitDeps(true, { sessionId: "s1", generating: false });
+    expect(COMMAND_SURFACE.submit(deps)("你好")).toBe(true);
+    expect(frames[0]).toMatchObject({ type: "chat.send", sessionId: "s1", payload: { text: "你好" } });
+    expect(topo().active.draft).toBe("");
+    expect(topo().active.attachments).toHaveLength(0);
+  });
+
+  it("steer 模式 send true → 返回 true + echo 入队列坞（TR-105 queued 观察面）", () => {
+    const { deps, topo, frames } = submitDeps(true, { sessionId: "s1", generating: true });
+    expect(COMMAND_SURFACE.submit(deps)("补一句")).toBe(true);
+    expect(frames[0]).toMatchObject({ type: "chat.steer", sessionId: "s1", payload: { text: "补一句" } });
+    expect(topo().active.steerQueue).toHaveLength(1);
+    expect(topo().active.steerQueue[0]!.text).toBe("补一句");
+    expect(topo().active.draft).toBe("");
+  });
+
+  it("steer 模式草稿防御分支（无活跃会话）→ chat.steer 信封省略 sessionId（构造器收编，零裸帧）", () => {
+    const { deps, frames } = submitDeps(true, { sessionId: null, generating: true });
+    COMMAND_SURFACE.submit(deps)("防御注入");
+    const frame = frames[0] as { type: string; sessionId?: string; payload: unknown };
+    expect(frame.type).toBe("chat.steer");
+    expect("sessionId" in frame).toBe(false);
+    expect(frame.payload).toEqual({ text: "防御注入" });
+  });
+
+  it("空文本 → 返回 false 且零帧零动作", () => {
+    const { deps, topo, frames } = submitDeps(true, { sessionId: "s1", generating: false });
+    expect(COMMAND_SURFACE.submit(deps)("   ")).toBe(false);
+    expect(frames).toHaveLength(0);
+    expect(topo().active.draft).toBe("草稿内容");
+  });
+});
+
+describe("COMMAND_SURFACE agent 实例三命令（M9 #2.18：构造器收编零裸帧字面）", () => {
+  it("killInstance / subscribeInstance / unsubscribeInstance 出站帧形状 = commands 构造器", () => {
+    const { deps, frames } = submitDeps(true, { sessionId: "s1", generating: false });
+    COMMAND_SURFACE.killInstance(deps)("a1");
+    COMMAND_SURFACE.subscribeInstance(deps)("a2");
+    COMMAND_SURFACE.unsubscribeInstance(deps)("a3");
+    expect(frames).toEqual([
+      { v: expect.any(String), type: "agent.kill", payload: { agentId: "a1" } },
+      { v: expect.any(String), type: "agent.subscribe", payload: { agentId: "a2" } },
+      { v: expect.any(String), type: "agent.unsubscribe", payload: { agentId: "a3" } },
+    ]);
+  });
+});

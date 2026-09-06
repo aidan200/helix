@@ -5,7 +5,7 @@
  * draft:true 建会话链消费；缺省 = 全局默认（payload 不携带 model 键）。
  */
 import { describe, expect, it } from "vitest";
-import { chatSendCommand, chatSendDraftCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand } from "./commands";
+import { chatSendCommand, chatSendDraftCommand, chatSteerCommand, agentKillCommand, agentSubscribeCommand, agentUnsubscribeCommand, thinkingSetCommand, workspaceGetCommand, workspaceOpenCommand } from "./commands";
 
 describe("chatSendDraftCommand（T3：草稿所选模型随首条 chat.send 上送）", () => {
   it("model 缺省 → payload 仅 text + draft:true（不携带 model 键；回归）", () => {
@@ -96,5 +96,35 @@ describe("thinkingSetCommand（thinking 批①；仿 modelSetCommand 形态）",
     expect(cmd.sessionId).toBe("s1");
     expect(cmd.payload).toEqual({ level: "xhigh" });
     expect(typeof cmd.v).toBe("string"); // PROTOCOL_VERSION 信封章印（字面量版本串）
+  });
+});
+
+// ── M9 #2.18：agent 三命令构造器 + chatSteerCommand 可选 sessionId 形态 ──
+
+describe("agent 实例三命令构造器（M9 #2.18：command-surface 内联裸帧收编）", () => {
+  it("agentKillCommand / agentSubscribeCommand / agentUnsubscribeCommand：payload { agentId } + 无信封 sessionId", () => {
+    const kill = agentKillCommand("a1");
+    expect(kill.type).toBe("agent.kill");
+    expect(kill.payload).toEqual({ agentId: "a1" });
+    expect(kill.sessionId).toBeUndefined();
+    expect(agentSubscribeCommand("a2").type).toBe("agent.subscribe");
+    expect(agentSubscribeCommand("a2").payload).toEqual({ agentId: "a2" });
+    expect(agentUnsubscribeCommand("a3").type).toBe("agent.unsubscribe");
+    expect(agentUnsubscribeCommand("a3").payload).toEqual({ agentId: "a3" });
+  });
+});
+
+describe("chatSteerCommand 可选 sessionId 形态（M9 #2.18：草稿防御分支收编）", () => {
+  it("sessionId 省略 → 信封不携带 sessionId（daemon 解析当前会话）", () => {
+    const cmd = chatSteerCommand("加一条约束");
+    expect(cmd.type).toBe("chat.steer");
+    expect(cmd.sessionId).toBeUndefined();
+    expect("sessionId" in cmd).toBe(false);
+    expect(cmd.payload).toEqual({ text: "加一条约束" });
+  });
+
+  it("sessionId 携带 → 既有形态零变更（含 instanceId 定向）", () => {
+    expect(chatSteerCommand("hi", "s1")).toMatchObject({ sessionId: "s1", payload: { text: "hi" } });
+    expect(chatSteerCommand("hi", "s1", "inst-1").payload).toEqual({ text: "hi", instanceId: "inst-1" });
   });
 });

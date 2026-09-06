@@ -47,6 +47,7 @@ const REQUIRED_KEYS = [
   "chat.composer.send",
   "chat.composer.stop",
   "chat.composer.enterHint",
+  "chat.composer.sendFail",
   "chat.attach.button",
   "chat.attach.remove",
   "chat.attach.enlarge",

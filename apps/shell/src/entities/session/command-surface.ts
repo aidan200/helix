@@ -12,7 +12,6 @@
  * 一律走 shared/api/commands 构造器（E-84 契约不改形状）；FSD 归属
  * entities/session（TR-23）。
  */
-import { PROTOCOL_VERSION } from "@helix/protocol";
 import type {
   AgentBasePromptGetPayload,
   AgentSkillContentGetPayload,
@@ -41,10 +40,13 @@ import type {
 } from "@helix/protocol";
 import {
   agentBasePromptGetCommand,
+  agentKillCommand,
   agentSkillContentGetCommand,
   agentSkillCreateCommand,
   agentConfigListCommand,
   agentConfigSetEnabledCommand,
+  agentSubscribeCommand,
+  agentUnsubscribeCommand,
   authDeleteKeyCommand,
   authListCommand,
   authSetKeyCommand,
@@ -141,21 +143,21 @@ export const COMMAND_SURFACE = {
     (text: string) => dispatch({ type: "ui/set-draft", text }),
   /** 提交输入：生成中自动转 steer（F(7).3），否则 chat.send（草稿 = draft:true 建会话）。
    *  T9（v0.10）：images 可选（base64 data URL，≤4 张）——仅 turn 模式透传
-   *  chat.send；steer 带图非目标（生成中附件钮禁用，防御性忽略）。 */
+   *  chat.send；steer 带图非目标（生成中附件钮禁用，防御性忽略）。
+   *  M9（#2.18，TR-84）：send 返回值必消费——先发出站帧，成功才 dispatch
+   *  ui/send（清草稿 / steer echo）；conn=connected 但 socket 断线窗口内
+   *  send=false → 草稿原样保留（恢复 = 未清）+ 返回 false（调用侧 err toast
+   *  交代，deleteSession 先例）。 */
   submit: (deps) =>
-    (raw: string, images?: string[]) => {
+    (raw: string, images?: string[]): boolean => {
       const text = raw.trim();
-      if (!text) return;
+      if (!text) return false;
       const mode = deps.isGenerating() ? "steer" : "turn";
-      deps.dispatch({ type: "ui/send", text, mode, ts: Date.now() });
       const { sessionId } = deps.getTopology().active;
+      let ok: boolean;
       if (mode === "steer") {
         // 生成中注入：活跃会话信封（理论上必有会话；防御性缺省 = daemon 当前会话）
-        deps.send(
-          sessionId !== null
-            ? chatSteerCommand(text, sessionId)
-            : { v: PROTOCOL_VERSION, type: "chat.steer", payload: { text } },
-        );
+        ok = deps.send(chatSteerCommand(text, sessionId ?? undefined));
       } else if (sessionId === null) {
         // 草稿首条消息（契约 B §1.5）：无信封 sessionId + draft:true →
         // daemon 建聚合 + list_changed{created} + 订阅切换 + 新会话快照回推。
@@ -165,7 +167,7 @@ export const COMMAND_SURFACE = {
         // 构造器 chatSendDraftCommand 统一裁决
         const active = deps.getTopology().active;
         const draftModel = active.model;
-        deps.send(
+        ok = deps.send(
           chatSendDraftCommand(
             text,
             draftModel === "" ? undefined : draftModel,
@@ -174,8 +176,11 @@ export const COMMAND_SURFACE = {
           ),
         );
       } else {
-        deps.send(chatSendCommand(text, sessionId, images));
+        ok = deps.send(chatSendCommand(text, sessionId, images));
       }
+      if (!ok) return false; // 未连接：草稿/附件未清，echo 未入坞——零静默丢消息
+      deps.dispatch({ type: "ui/send", text, mode, ts: Date.now() });
+      return true;
     },
   /** 图片附件入草稿（T9）：chips 预览数据源；≤4 上限预检在组件侧 */
   attachImages: ({ dispatch }) =>
@@ -585,13 +590,21 @@ export const COMMAND_SURFACE = {
     (root: string) => deps.send(workspaceOpenCommand(root)),
 } satisfies Record<string, CommandFactory>;
 
-/** agent 实例三命令共享出站实现（模块内助手，不占注册表键位）。 */
+/** agent 实例三命令共享出站实现（模块内助手，不占注册表键位）。
+ *  M9（#2.18）：帧形状走 shared/api/commands 构造器（协议单源 TR-15，
+ *  不再内联裸帧字面）。 */
 function sendAgentCommand(
   deps: CommandSurfaceDeps,
   type: "agent.kill" | "agent.subscribe" | "agent.unsubscribe",
   agentId: string,
 ): void {
-  deps.send({ v: PROTOCOL_VERSION, type, payload: { agentId } });
+  deps.send(
+    type === "agent.kill"
+      ? agentKillCommand(agentId)
+      : type === "agent.subscribe"
+        ? agentSubscribeCommand(agentId)
+        : agentUnsubscribeCommand(agentId),
+  );
 }
 
 /** 命令面类型（SessionContextValue 方法面由注册表键派生——注册表项即唯一登记点）。 */

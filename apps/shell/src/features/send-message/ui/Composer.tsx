@@ -13,6 +13,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ImagePlus, Square, X } from "lucide-react";
 import { useI18n } from "@/shared/i18n";
+import { useToast } from "@/shared/ui/Toast";
 import { selectCanSend, selectIsGenerating, useSession } from "@/entities/session/SessionContext";
 import { selectActiveRunState } from "@/entities/session/model/topology";
 import { cn } from "@/shared/lib/cn";
@@ -65,6 +66,7 @@ export interface ComposerHandle {
 
 const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ footEnd }, ref) {
   const { t } = useI18n();
+  const toast = useToast();
   const { state, setDraft, submit, abort, attachImages, removeAttachment } = useSession();
   const canSend = selectCanSend(state);
   const generating = selectIsGenerating(state);
@@ -101,15 +103,21 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
   // - 携带附件 → submit(text, images)；
   // - 无附件 → 点击钮路径 submit(text, undefined)（显式第二参）；
   //   Alt+Enter 路径 submit(text)（单参旧形态，T8 语义零变更）。
+  // M9（#2.18，TR-84）：submit 返回 false（未连接发送失败）→ err toast 交代
+  //（草稿由 command-surface 保留未清，重试即可）。
   const trySend = useCallback(
     (explicitImagesArg: boolean) => {
       // 纯空白草稿（含换行/空格）不发送（canSend 语义之外的前置 trim 门控）
       if (!canSend || state.draft.trim() === "") return;
-      if (state.attachments.length > 0) submit(state.draft, state.attachments);
-      else if (explicitImagesArg) submit(state.draft, undefined);
-      else submit(state.draft);
+      const ok =
+        state.attachments.length > 0
+          ? submit(state.draft, state.attachments)
+          : explicitImagesArg
+            ? submit(state.draft, undefined)
+            : submit(state.draft);
+      if (!ok) toast.push("err", t("chat.composer.sendFail"));
     },
-    [canSend, state.attachments, state.draft, submit],
+    [canSend, state.attachments, state.draft, submit, toast, t],
   );
 
   const onSend = useCallback(() => trySend(true), [trySend]);

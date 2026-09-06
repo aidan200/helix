@@ -14,6 +14,9 @@ import type {
   AgentBasePromptGetCommand,
   AgentBasePromptGetPayload,
   AgentConfigListCommand,
+  AgentKillCommand,
+  AgentSubscribeCommand,
+  AgentUnsubscribeCommand,
   AgentConfigSetEnabledCommand,
   AgentConfigSetEnabledPayload,
   AgentSkillContentGetCommand,
@@ -27,6 +30,7 @@ import type {
   ChatAbortCommand,
   ChatSendCommand,
   ChatSteerCommand,
+  ChatSteerPayload,
   ConfigGetCompactionCommand,
   ConfigSetCompactionCommand,
   ConfigGetSchedulingCommand,
@@ -136,14 +140,32 @@ export function chatSendDraftCommand(
 
 /** chat.steer：生成中注入（信封 sessionId = 活跃会话）。v0.3（契约 §3.1，
  *  CL-3）：instanceId 可选——携带 = 定向寻址目标 SubAgent 实例（抽屉 steer
- *  输入栏）；缺省 = 主实例（主 Composer 既有语义零变更，payload 不携带 key）。 */
-export function chatSteerCommand(text: string, sessionId: string, instanceId?: string): ChatSteerCommand {
-  return {
-    v: PROTOCOL_VERSION,
-    type: "chat.steer",
-    sessionId,
-    payload: instanceId === undefined ? { text } : { text, instanceId },
-  };
+ *  输入栏）；缺省 = 主实例（主 Composer 既有语义零变更，payload 不携带 key）。
+ *  sessionId 可选（M9 收编草稿防御分支）：省略 = 信封不携带 sessionId
+ * （daemon 解析当前会话——理论上生成中必有活跃会话，此为防御形态）。 */
+export function chatSteerCommand(text: string, sessionId?: string, instanceId?: string): ChatSteerCommand {
+  const payload: ChatSteerPayload = instanceId === undefined ? { text } : { text, instanceId };
+  return sessionId === undefined
+    ? { v: PROTOCOL_VERSION, type: "chat.steer", payload }
+    : { v: PROTOCOL_VERSION, type: "chat.steer", sessionId, payload };
+}
+
+// ── agent 实例三命令（契约 v0.1 §4；抽屉 kill 两步确认 / 订阅全流）────
+// 全部全局命令（信封 sessionId 省略，payload.agentId 寻址）。
+
+/** agent.kill：用户终止实例（抽屉两步确认后发送；回执 agent.killed 事件）。 */
+export function agentKillCommand(agentId: string): AgentKillCommand {
+  return { v: PROTOCOL_VERSION, type: "agent.kill", payload: { agentId } };
+}
+
+/** agent.subscribe：订阅实例事件流（抽屉打开；v0.1 通路语义，契约 §8-1）。 */
+export function agentSubscribeCommand(agentId: string): AgentSubscribeCommand {
+  return { v: PROTOCOL_VERSION, type: "agent.subscribe", payload: { agentId } };
+}
+
+/** agent.unsubscribe：退订实例事件流（抽屉关闭/换订）。 */
+export function agentUnsubscribeCommand(agentId: string): AgentUnsubscribeCommand {
+  return { v: PROTOCOL_VERSION, type: "agent.unsubscribe", payload: { agentId } };
 }
 
 /** chat.abort：中断当前生成（信封 sessionId = 活跃会话）。 */
