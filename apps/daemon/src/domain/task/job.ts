@@ -19,9 +19,9 @@ const JOB_TRANSITIONS: Readonly<Record<JobStatus, readonly JobStatus[]>> = {
   cancelled: [],
 };
 
-/** stage 合法迁移集（§3.3）：pending→running→done/failed；failed→running 仅人工重试重开阶段口（task.retry 引擎面，编排 LLM 无此通道）。 */
+/** stage 合法迁移集（§3.3）：pending→running→done/failed；**pending→failed 仅 cancel 收口**（任务取消时未启动阶段一并收口——code-review M6 #2.5：否则 cancelled 任务下 pending stage 永久滞留，阶段条与库内事实背离）；failed→running 仅人工重试重开阶段口（task.retry 引擎面，编排 LLM 无此通道）。 */
 const STAGE_TRANSITIONS: Readonly<Record<StageStatus, readonly StageStatus[]>> = {
-  pending: ["running"],
+  pending: ["running", "failed"],
   running: ["done", "failed"],
   done: [],
   failed: ["running"],
@@ -29,12 +29,14 @@ const STAGE_TRANSITIONS: Readonly<Record<StageStatus, readonly StageStatus[]>> =
 
 /**
  * batch 合法迁移集（§3.3 + AF-1.3 增补）：pending→running；running→done/failed；
+ * **pending→failed 仅 cancel 收口**（任务取消时未派发批次直标 failed——
+ * code-review M6 #2.5：原经无守卫 updateBatch 知情绕过，显性化为 domain 出边）；
  * **failed→running 仅自动重派路径**（§4.5「failed 由自动重试接管」——重试复跑由引擎
  * 携带 retryCount 递增的新行值把 failed 批次带回 running；MainAgent 裁决 2026-08-29，
  * job/stage 状态机不动）。
  */
 const BATCH_TRANSITIONS: Readonly<Record<BatchStatus, readonly BatchStatus[]>> = {
-  pending: ["running"],
+  pending: ["running", "failed"],
   running: ["done", "failed"],
   done: [],
   failed: ["running"],

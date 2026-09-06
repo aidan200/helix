@@ -34,8 +34,10 @@ import type { AgentEngineEvent } from "../../ports/outbound/AgentEnginePort";
  *
  * 【onInstanceClosure 清理序列单点持有】onClosureCleanup()：四个流式/落树
  * 状态 Map 的 delete 序列（streamEntryIds → entrySeqs → thinkingStartsMs →
- * pendingThinking），由门面 onInstanceClosure 回调转发链的**原序位**调用
- * （清理 → 翻译迁移 → 收口链），顺序不得重排（唯一行为风险点）。
+ * subToolArgs，F3 增补），由门面 onInstanceClosure 回调转发链的**原序位**调用
+ * （清理 → 翻译迁移 → 收口链），顺序不得重排（唯一行为风险点）；尾部追加
+ * T3-A 计数器/T3-B 轨迹/lastEventAtMs 的终态清键（不参与原序位——
+ * lastEventAtMs 终态不清则每终态实例泄漏一条，M6 #2.4）。
  */
 export interface SubagentEventTranslatorDeps {
   /** 事件流发布（领域事件 → fan-out；流式 delta → 前端实例 channel）。 */
@@ -235,10 +237,16 @@ export class SubagentEventTranslator {
 
   /**
    * onInstanceClosure 清理序列（拆分单点持有，原序保持）：
-   * 终态后迟到引擎事件不再产条目事件——三 delete 顺序与拆分前逐行对照
+   * 终态后迟到引擎事件不再产条目事件——原四 delete 顺序与拆分前逐行对照
    * （原 SchedulerService L565-568）：streamEntryIds → entrySeqs →
-   * thinkingStartsMs。调用点次序不得重排（清理 →
+   * thinkingStartsMs（+ F3 增补 subToolArgs）。调用点次序不得重排（清理 →
    * 状态机迁移 → 收口链，见门面 onInstanceClosure）。
+   *
+   * 尾部追加面（不参与原序位）：T3-A 计数器/T3-B 轨迹随终态清理；
+   * lastEventAtMs 随终态清键（code-review M6 #2.4：原仅 queued 取消走
+   * forgetLastEventAt 定点清，每终态实例泄漏一条——终态实例 stalled
+   * 判定/inspect/进展报告三面均以 isTerminal/非 running 守卫先行，
+   * 清键无读者）。
    */
   onClosureCleanup(instanceId: string): void {
     this.streamEntryIds.delete(instanceId);
@@ -251,6 +259,7 @@ export class SubagentEventTranslator {
     this.turnsCompleted.delete(instanceId);
     this.streamCharsInFlight.delete(instanceId);
     this.traceItems.delete(instanceId); // T3-B 轨迹随终态清空
+    this.lastEventAtMs.delete(instanceId); // M6 #2.4：终态清键——stalled 观测基线不留存（每终态实例一条泄漏）
   }
 
   // ── 门面读写面（stalled 判定 / 启动戳 / queued 取消清理） ──

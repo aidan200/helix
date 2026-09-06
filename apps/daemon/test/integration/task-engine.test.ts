@@ -399,6 +399,64 @@ describe("cancel 语义（CL-3-T7）", () => {
       await expect(env.engine.cancel(jobId)).rejects.toBeInstanceOf(TaskError);
     });
   });
+
+  test("cancel 收口 stage（M6 #2.5）：running/pending stage 一并标 failed——不再永久滞留", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await launchRunningJob(env); // stage1 running（批次 running）+ stage2/3 pending
+      await env.engine.cancel(jobId);
+      expect(env.store.getJob(jobId)!.status).toBe("cancelled");
+      // 原行为：cancel 只收口 batch/job 不回填 stage——running/pending stage 永久滞留
+      //（引擎推进门全部被批次终态拦截，阶段条与库内事实背离）；修复后全部非终态 stage failed
+      const stages = env.store.getStages(jobId);
+      expect(stages.map((s) => [s.seq, s.status])).toEqual([
+        [1, "failed"],
+        [2, "failed"],
+        [3, "failed"],
+      ]);
+    });
+  });
+
+  test("cancel 收口 stage：done stage 保留（已完成工作不丢），仅非终态 stage 标 failed", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["demo"],
+        params: { projectRoot: "/d" },
+        createdBy: "page",
+      });
+      // stage 1 全流程收口 done
+      const s1 = await env.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次 1" });
+      await env.engine.advanceStage(jobId, 1);
+      await env.engine.dispatchBatch(s1.batchId, "inst-1");
+      await env.engine.completeBatch(s1.batchId);
+      await env.engine.writeStageArtifact(jobId, 1, { summary: "L0 完成" });
+      // stage 2 running（批次 in-flight），stage 3 pending
+      const s2 = await env.engine.insertBatch({ jobId, stageSeq: 2, scope: "批次 2" });
+      await env.engine.advanceStage(jobId, 2);
+      await env.engine.dispatchBatch(s2.batchId, "inst-2");
+
+      await env.engine.cancel(jobId);
+      const stages = env.store.getStages(jobId);
+      expect(stages.find((s) => s.seq === 1)!.status).toBe("done"); // done 保留
+      expect(stages.find((s) => s.seq === 1)!.artifact).toEqual({ summary: "L0 完成" });
+      expect(stages.find((s) => s.seq === 2)!.status).toBe("failed");
+      expect(stages.find((s) => s.seq === 3)!.status).toBe("failed");
+      expect(env.store.getBatch(s2.batchId)!.status).toBe("failed");
+    });
+  });
+
+  test("cancel 的 pending 批次直标 failed 走 domain 显性出边（pending→failed 已入迁移集，M6 #2.5）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await launchRunningJob(env); // stage1 running
+      // stage1 追加一个 pending 批次（未派发）——cancel 时 pending→failed 显性迁移
+      const extra = await env.engine.insertBatch({ jobId, stageSeq: 1, scope: "未派发批次" });
+      expect(env.store.getBatch(extra.batchId)!.status).toBe("pending");
+      await env.engine.cancel(jobId);
+      const batch = env.store.getBatch(extra.batchId)!;
+      expect(batch.status).toBe("failed");
+      expect(batch.retryNote).toContain("cancelled");
+    });
+  });
 });
 
 describe("deleteTask（CL-3-T12 引擎面，F3.6）", () => {

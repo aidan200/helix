@@ -236,6 +236,38 @@ describe("⑥ external 条目（stat 变化无基线）", () => {
     expect(gone?.removed).toBeGreaterThan(0);
     expect(gone?.added).toBe(0);
   });
+
+  test("短轮：轮首 walk 晚于 endTurn 落定仍回填 startIndex（M6 #2.5）——external 兑底不静默失效", async () => {
+    // 原守卫 state.active===active：短轮/快速中断在 walk 完成前 endTurn
+    //（state.active 已置 null）→ startIndex 永不回填 → detectExternal 以
+    // startIndex===null 直退，external 兑底静默失效。闭包捕获的 active 对象
+    // 身份天然安全，修复后无条件回填。
+    const walkResolvers: Array<(index: WorkspaceStatIndexLite) => void> = [];
+    const svc = new TurnDiffService({
+      walkStats: () => new Promise<WorkspaceStatIndexLite>((resolve) => walkResolvers.push(resolve)),
+      workspaceRoot: () => "/w",
+    });
+    const state = createTurnDiffState();
+    svc.beginTurn(state, "turn-1", "t0");
+    // 短轮：walk 未落定即收轮（state.active 同步置 null——原守卫判定位失陷）
+    const finalized = svc.endTurn(state, "completed", "t1");
+    expect(state.active).toBeNull();
+    // 轮首 walk 晚于 endTurn 落定——无条件回填后 startIndex 仍到位
+    walkResolvers[0]!(new Map([["/w/ext.txt", { mtimeMs: 1, size: 10 }]]));
+    // 等 finalize 推进到 detectExternal 发起轮末 walk
+    const start = Date.now();
+    while (walkResolvers.length < 2) {
+      if (Date.now() - start > 3000) throw new Error("轮末 walk 未发起");
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    walkResolvers[1]!(new Map([["/w/ext.txt", { mtimeMs: 2, size: 30 }]])); // 变化 → external
+    await finalized;
+
+    const frozen = state.frozen[0]!;
+    const ext = frozen.files.find((f) => f.path === "/w/ext.txt");
+    expect(ext?.status).toBe("external"); // 兑底生效（原行为：条目缺席）
+    expect(ext?.added).toBeGreaterThan(0);
+  });
 });
 
 describe("⑦ computeStats 口径（+行/-行）", () => {

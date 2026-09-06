@@ -85,4 +85,19 @@ describe("SubagentEventTranslator subToolArgs 并发实例键隔离（F3）", ()
     expect(ra.payload.args).toBeUndefined(); // 本实例驻留已清
     expect(rb.payload.args).toEqual({ pattern: "B" }); // 他实例不受影响
   });
+
+  test("onClosureCleanup 清 lastEventAtMs：终态后 stalled 观测基线无驻留（M6 #2.4）", () => {
+    const publisher = new RecordingPublisher();
+    const translator = new SubagentEventTranslator({ events: publisher, clock: new FixedClock() });
+    const a = makeInstance("agent-1");
+
+    translator.touchLastEventAt("agent-1"); // 门面 startInstance 启动戳
+    translator.onInstanceEvent(a, { type: "turn_end", toolResultCount: 0 }); // 事件刷新观测基线
+    expect(translator.lastEventAtOf("agent-1")).toBe(0); // FixedClock.nowMs = 0（驻留在场）
+
+    translator.onClosureCleanup("agent-1");
+    // 原行为：仅 queued 取消走 forgetLastEventAt 定点清——每终态实例泄漏一条；
+    // 修复后终态清理序列一并清键（stalled/inspect/进展报告三面均以终态守卫先行，清键无读者）
+    expect(translator.lastEventAtOf("agent-1")).toBeUndefined();
+  });
 });

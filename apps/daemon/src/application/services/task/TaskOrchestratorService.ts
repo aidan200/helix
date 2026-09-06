@@ -430,8 +430,15 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       );
       await new Promise((resolve) => setTimeout(resolve, 5_000));
       try {
-        await this.deps.taskEngine.failBatch(batch.id, `收口引擎异常兜底：${(err as Error).message}`);
+        // M6 #2.5：兜底 failBatch 成功后仍须按 retryScheduled 补派——批次有
+        // 余量却不重派则滞留 failed（sweepRetries 仅在 startOrchestrator
+        // 触发，存活 loop 内再无补派机会，直至重启/人工介入）
+        const { retryScheduled } = await this.deps.taskEngine.failBatch(
+          batch.id,
+          `收口引擎异常兜底：${(err as Error).message}`,
+        );
         verdict = `失败（收口引擎异常，兜底 failBatch 成功：${(err as Error).message}）`;
+        if (retryScheduled) redispatched = await this.reDispatch(loop, batch);
       } catch (retryErr) {
         verdict = `收口处理异常且兜底 failBatch 仍失败（批次滞留 running，需人工介入：${(retryErr as Error).message}）`;
         this.warn(
