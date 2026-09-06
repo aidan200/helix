@@ -26,12 +26,18 @@ import {
   type TaskSliceRow,
 } from "../../../domain/kg/attachment/task-slice";
 
+/** 注入登记条目（F3 修复：复合键语义——project + nodeId；多项目同 id 节点互不误排）。 */
+export interface InjectedNodeRef {
+  readonly project: string;
+  readonly nodeId: string;
+}
+
 /** 会话级跨通道去重注册表消费面（KgAttachmentService 实现；缺省无去重）。 */
 export interface SessionSeenRegistry {
-  /** 会话已到达（注入过/附着过）的节点 id 读面。 */
+  /** 会话已到达（注入过/附着过）节点读面（`project\0nodeId` 复合键集合，seenKeyOf 口径）。 */
   seenInSession(sessionId: string): ReadonlySet<string>;
-  /** 注入登记（本通道到达计入——同会话其他通道不再重复到达）。 */
-  markInjected(sessionId: string, nodeIds: readonly string[]): void;
+  /** 注入登记（本通道到达计入——同会话其他通道不再重复到达；project+nodeId 成对登记）。 */
+  markInjected(sessionId: string, nodes: readonly InjectedNodeRef[]): void;
 }
 
 export interface KgQueryServiceDeps {
@@ -163,7 +169,7 @@ export class KgQueryService {
       const block = renderTaskSlice(picked, renderOptions);
       this.deps.attachment?.markInjected(
         sessionId,
-        picked.map((c) => c.row.id),
+        picked.map((c) => ({ project: c.project, nodeId: c.row.id })),
       );
       return `${taskText}\n\n${block}`;
     } catch {

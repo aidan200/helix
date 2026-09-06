@@ -47,8 +47,10 @@ export interface SubagentEventTranslatorDeps {
 export class SubagentEventTranslator {
   /** 实例 → 最近引擎事件时间戳（epoch ms；stalled 判定输入）。 */
   private readonly lastEventAtMs = new Map<string, number>();
-  /** SubAgent 工具调用 → args（result 事件载荷回填；start→end 间短暂驻留）。 */
-  private readonly subToolArgs = new Map<string, unknown>();
+  /** 实例 →（工具调用 id → args）（result 事件载荷回填；start→end 间短暂驻留）。
+   * per-instance 嵌套键（F3 修复）：并发 SubAgent 各自子进程 toolCallId 可重号，
+   * 裸 toolCallId 键会串号/丢失回填；嵌套 Map 同时让 onClosureCleanup 单键清理。 */
+  private readonly subToolArgs = new Map<string, Map<string, unknown>>();
   // ── SubAgent 流式/落树事件生产状态（AD-3：只产事件，聚合写归会话投影） ──
   /** 实例 → 预分配 assistant 消息 entry id（流式 messageId 与最终 entry 同源，D-2 同构）。 */
   private readonly streamEntryIds = new Map<string, string>();
@@ -88,7 +90,9 @@ export class SubagentEventTranslator {
     if (event === undefined) return;
 
     if (event.type === "tool_execution_start") {
-      this.subToolArgs.set(event.toolCallId, event.args);
+      const perInstance = this.subToolArgs.get(instanceId) ?? new Map<string, unknown>();
+      perInstance.set(event.toolCallId, event.args);
+      this.subToolArgs.set(instanceId, perInstance);
       this.publish(instance, "tool.call.started", {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
@@ -97,8 +101,9 @@ export class SubagentEventTranslator {
       return;
     }
     if (event.type === "tool_execution_end") {
-      const args = this.subToolArgs.get(event.toolCallId);
-      this.subToolArgs.delete(event.toolCallId);
+      const perInstance = this.subToolArgs.get(instanceId);
+      const args = perInstance?.get(event.toolCallId); // 本实例键空间取值——并发实例同 toolCallId 不串号
+      perInstance?.delete(event.toolCallId);
       this.toolCallsCompleted.set(instanceId, (this.toolCallsCompleted.get(instanceId) ?? 0) + 1); // T3-A 计数
       this.pushTrace(instanceId, { t: this.deps.clock.now(), kind: "tool", name: event.toolName }); // T3-B 轨迹
       this.publish(instance, "tool.call.result", {
@@ -239,6 +244,7 @@ export class SubagentEventTranslator {
     this.streamEntryIds.delete(instanceId);
     this.entrySeqs.delete(instanceId);
     this.thinkingStartsMs.delete(instanceId);
+    this.subToolArgs.delete(instanceId); // per-instance 键（F3）：未 end 的驻留 args 随终态清理
     // T3-A 机械计数器随终态清理（同一清理序列；门面在调用点同步清报告定时器）
     this.toolCallsCompleted.delete(instanceId);
     this.assistantChars.delete(instanceId);

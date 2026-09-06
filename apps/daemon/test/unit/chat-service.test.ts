@@ -352,6 +352,15 @@ describe("W2-D 主会话切片注入（R9/R10：首轮开工前一次性，空�
     await counting.chat.sendMessage("用户问");
     expect(calls).toBe(1); // 仅真实用户消息首轮过一次
   });
+
+  test("F3：注入器抛错 → 兑底回退原文，会话不卡 running（轮次正常收口 idle）", async () => {
+    const { chat, engine } = makeInjectedChat(() => {
+      throw new Error("kg read fault");
+    });
+    await chat.sendMessage("注入器故障问");
+    expect(engine.inputs).toEqual(["注入器故障问"]); // 注入是增强：失败回退原文，引擎照常驱动
+    expect(chat.agentState).toBe("idle"); // 修复前：异常逃逸无 settleRunEnd，会话永久卡 running
+  });
 });
 
 describe("⑤ FakeAgentEngine 时序契约自检（spike §5 等价）", () => {

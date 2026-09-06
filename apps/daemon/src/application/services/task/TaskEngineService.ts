@@ -163,17 +163,11 @@ export class TaskEngineService implements TaskEnginePort {
         (b) => b.id === batch.id || b.status === "done" || b.status === "failed",
       );
       if (!othersTerminal) continue; // 同阶段仍有在跑批次（parked 待复活）→ 正常续跑
-      await this.deps.store
-        .updateStageStatus(jobId, batch.stageSeq, "failed")
-        .catch((error) => this.mapDomainError(error));
-      this.notify({ jobId, changed: "stage", status: "failed" });
-      await this.transitionJob(
-        jobId,
-        "failed",
-        `重试耗尽：批次「${batch.scope}」失败 ${batch.retryCount} 次（上限 ${MAX_BATCH_RETRY}）——暂停期收口，恢复时上浮${batch.retryNote !== null ? `——${batch.retryNote}` : ""}`,
+      // （兄弟批次此后全部终态时的延迟上浮由 completeBatch 补判收口，F3）
+      await this.escalateRetryExhausted(
+        batch,
+        `暂停期收口，恢复时上浮${batch.retryNote !== null ? `——${batch.retryNote}` : ""}`,
       );
-      this.notify({ jobId, changed: "job", status: "failed" });
-      this.deps.starter.haltJob(jobId);
       return;
     }
     // 链 A（⑤）：先复活 parked 批次实例 + 解冻编排 loop（暂存唤醒回放），
@@ -363,6 +357,26 @@ export class TaskEngineService implements TaskEnginePort {
     }
     await this.deps.store.updateBatch({ ...batch, status: "done", updatedAt: this.deps.clock.now() });
     this.notify({ jobId: batch.jobId, changed: "batch", status: "done" });
+    // H1 延迟判定补面（F3 修复）：暂停期耗尽的 failed 批次在 resume 时因兄弟
+    // 批次仍在跑被 othersTerminal 守卫跳过（正确——不杀在跑工作）；但兄弟此后
+    // 陆续收口 done 时若无人补判，耗尽批次滞留 failed——stage 永远收不了口
+    //（done 闸要求全批次 done），job 永久卡 running。故在批次收口 done 后补检：
+    // 同阶段存在耗尽 failed 批次且其余批次全终态（done/failed）→ 同 failBatch
+    // 超限分支上浮清场。迟到成功保留不破：done 行已先落库。paused 下不判
+    //（O-2 不推进），resume 路径的既有补判会收同类场景。
+    const job = this.mustJob(batch.jobId);
+    if (job.status !== "running") return;
+    const stageBatches = this.deps.store.getBatches(batch.jobId, batch.stageSeq);
+    const exhausted = stageBatches.find((b) => b.status === "failed" && b.retryCount >= MAX_BATCH_RETRY);
+    if (exhausted === undefined) return;
+    const othersTerminal = stageBatches.every(
+      (b) => b.id === exhausted.id || b.status === "done" || b.status === "failed",
+    );
+    if (!othersTerminal) return; // 仍有在跑/待派兄弟批次 → 正常续跑，耗尽批次等下次补判
+    await this.escalateRetryExhausted(
+      exhausted,
+      `同阶段其余批次已全部终态，耗尽批次延迟上浮${exhausted.retryNote !== null ? `——${exhausted.retryNote}` : ""}`,
+    );
   }
 
   async failBatch(batchId: string, note: string): Promise<{ retryScheduled: boolean }> {
@@ -392,21 +406,31 @@ export class TaskEngineService implements TaskEnginePort {
     const retryScheduled = job.status === "running" && shouldRetryBatch(retryCount);
     if (!retryScheduled && job.status === "running" && retryCount >= MAX_BATCH_RETRY) {
       // 超限上浮：batch failed → stage failed → job failed（error 含 scope 与 retryCount）
-      await this.deps.store
-        .updateStageStatus(batch.jobId, batch.stageSeq, "failed")
-        .catch((error) => this.mapDomainError(error));
-      this.notify({ jobId: batch.jobId, changed: "stage", status: "failed" });
-      await this.transitionJob(
-        batch.jobId,
-        "failed",
-        `重试耗尽：批次「${batch.scope}」失败 ${retryCount} 次（上限 ${MAX_BATCH_RETRY}）——${note}`,
-      );
-      this.notify({ jobId: batch.jobId, changed: "job", status: "failed" });
-      // B2 fail-stop：停编排驱动 + 摘队排队实例（在跑自然收口落库）——历史
-      // 事故：上浮后无停摆，编排 LLM 回合内继续 spawn + 队列实例逐个放行
-      this.deps.starter.haltJob(batch.jobId);
+      await this.escalateRetryExhausted({ ...batch, retryCount }, note);
     }
     return { retryScheduled };
+  }
+
+  /**
+   * 重试耗尽超限上浮单点（batch failed → stage failed → job failed → haltJob
+   * 清场）：failBatch 超限分支 / resume 暂停期耗尽补上浮（H1）/ completeBatch
+   * 延迟判定（F3）三触发面共用。error 含批次 scope 与 retryCount；haltJob 与
+   * 上浮同一同步链（B2 fail-stop：停编排驱动 + 摘队排队实例，在跑自然收口）。
+   */
+  private async escalateRetryExhausted(batch: BatchData, detail: string): Promise<void> {
+    await this.deps.store
+      .updateStageStatus(batch.jobId, batch.stageSeq, "failed")
+      .catch((error) => this.mapDomainError(error));
+    this.notify({ jobId: batch.jobId, changed: "stage", status: "failed" });
+    await this.transitionJob(
+      batch.jobId,
+      "failed",
+      `重试耗尽：批次「${batch.scope}」失败 ${batch.retryCount} 次（上限 ${MAX_BATCH_RETRY}）——${detail}`,
+    );
+    this.notify({ jobId: batch.jobId, changed: "job", status: "failed" });
+    // B2 fail-stop：停编排驱动 + 摘队排队实例（在跑自然收口落库）——历史
+    // 事故：上浮后无停摆，编排 LLM 回合内继续 spawn + 队列实例逐个放行
+    this.deps.starter.haltJob(batch.jobId);
   }
 
   async advanceStage(jobId: string, stageSeq: number): Promise<void> {

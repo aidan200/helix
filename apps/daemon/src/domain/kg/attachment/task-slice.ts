@@ -2,7 +2,7 @@
  * 任务层切片注入的选择与渲染（T3.3，CL-1 F1.3，F-14）。
  *
  * spawn 派发时任务文本命中的知识节点 → digest+指针切片：候选（标识符
- * 检索命中行，project 伴随）→ 排除（会话已到达 id / superseded）→
+ * 检索命中行，project 伴随）→ 排除（会话已到达复合键 / superseded）→
  * token 硬顶贪心（与附着同预算纪律：估算 = 渲染字符数 / 4）→ 渲染
  * （digest+指针形态，AD-3/AD-16；协议行复用附着同源常量，AD-14）。
  *
@@ -12,6 +12,7 @@
 import type { NodeDigestRow } from "../types";
 import { ATTACHMENT_PROTOCOL_LINE } from "./render";
 import { extractIdentifiers } from "./identifier-extract";
+import { seenKeyOf } from "./budget";
 
 /** 切片总 token 硬顶（同预算纪律：与 ATTACHMENT_TOKEN_BUDGET 同值起步）。 */
 export const TASK_SLICE_TOKEN_BUDGET = 800;
@@ -94,7 +95,8 @@ export function taskSliceChars(rows: readonly TaskSliceRow[], options: TaskSlice
 }
 
 /**
- * 切片选择：排除（会话已到达裸 id / superseded）→ 去重（project+id 首见
+ * 切片选择：排除（会话已到达——`project\0nodeId` 复合键，seenKeyOf 口径，
+ * 多项目同 id 节点互不静默排除 / superseded）→ 去重（同复合键首见
  * 保留）→ token 硬顶贪心装入（候选序保持调用方确定性顺序——任务文本
  * 标识符出现序 + 项目序 + id 序）。超限项让位，不回填。
  */
@@ -106,9 +108,9 @@ export function selectTaskSlice(
   const seenKeys = new Set<string>();
   const unique: TaskSliceRow[] = [];
   for (const c of candidates) {
-    if (excludeIds.has(c.row.id)) continue; // 会话已到达（跨通道注册表，F1.2）
+    const key = seenKeyOf(c.project, c.row.id);
+    if (excludeIds.has(key)) continue; // 会话已到达（跨通道注册表，F1.2；复合键口径）
     if (c.row.status === "superseded") continue; // 被推翻知识不作约束注入
-    const key = `${c.project}\u0000${c.row.id}`;
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
     unique.push(c);
