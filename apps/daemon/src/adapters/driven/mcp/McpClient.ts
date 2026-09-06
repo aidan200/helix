@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import type { McpCallResult, McpServerConfig, McpToolDefinition } from "./types";
 
 /**
@@ -70,6 +71,7 @@ export function parseMcpLines(
 export class McpClient {
   private proc?: ChildProcess;
   private buffer = "";
+  private readonly decoder = new StringDecoder("utf8");
   private nextId = 1;
   private pending = new Map<number, PendingRequest>();
   private ready = false;
@@ -128,6 +130,8 @@ export class McpClient {
     this.proc.kill();
     this.proc = undefined;
     this.ready = false;
+    // 重置解码器：防旧进程的半字符残余字节渗入重连后的新进程流
+    this.decoder.end();
   }
 
   isReady(): boolean {
@@ -172,7 +176,9 @@ export class McpClient {
   }
 
   private onData(chunk: Buffer): void {
-    this.buffer = parseMcpLines(chunk.toString("utf-8"), (line) => this.handleLine(line), this.buffer);
+    // StringDecoder 拼接：多字节字符跨 chunk 边界不产 U+FFFD（逐 chunk
+    // toString 会损坏 JSON——响应整行丢弃致请求挂到超时）
+    this.buffer = parseMcpLines(this.decoder.write(chunk), (line) => this.handleLine(line), this.buffer);
   }
 
   private handleLine(line: string): void {
@@ -207,6 +213,7 @@ export class McpClient {
     this.logger.info(`mcp[${this.name}] 退出（code=${code ?? "null"}）`);
     this.ready = false;
     this.proc = undefined;
+    this.decoder.end(); // 同 stop()：重置解码器防残余字节渗入重连流
     this.rejectAll(new Error(`MCP server ${this.name} exited${code !== null ? ` with code ${code}` : ""}`));
     this.onExit?.(code);
   }

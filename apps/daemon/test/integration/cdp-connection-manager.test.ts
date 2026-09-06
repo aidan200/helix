@@ -648,3 +648,97 @@ describe("M20：{id,error} CDP 响应统一 reject（不查 error 的调用方�
     await h.manager.stop();
   });
 });
+
+describe("M3 修复（task-8213de82 review #2.13）：close 身份守卫 / detach 出册 / listener 隔离", () => {
+  test("握手失败重试：旧 socket 迟到 close 不清新连接（身份守卫）", async () => {
+    const h = createHarness({ autoOpen: false });
+    // 第一次握手失败：error 事件 → connect 拒绝
+    const p1 = h.manager.connect().catch((e: Error) => e);
+    await sleep(0);
+    expect(h.sockets).toHaveLength(1);
+    h.sockets[0]!.fail("握手被拒");
+    expect(await p1).toBeInstanceOf(Error);
+    // 重试成功：新 socket 成为当前连接
+    const p2 = h.manager.connect();
+    await sleep(0);
+    expect(h.sockets).toHaveLength(2);
+    h.sockets[1]!.open();
+    await p2;
+    expect((await h.manager.getStatus()).state).toBe("connected");
+
+    // 旧 socket 迟到 close（从未 open，close() 直接发 close 事件）
+    h.sockets[0]!.close();
+    await sleep(0);
+
+    // 新连接不被误清：状态仍 connected，tab 操作照常
+    expect((await h.manager.getStatus()).state).toBe("connected");
+    const { tabId } = await h.manager.openTab("https://example.com", "agent-1");
+    expect((await h.manager.listTabs()).map((t: TabInfo) => t.tabId)).toEqual([tabId]);
+    await h.manager.stop();
+  });
+
+  test("当前 socket 的 close 仍触发断线收尾（守卫不误伤正常路径）", async () => {
+    const h = createHarness({});
+    const { tabId } = await h.manager.openTab("https://example.com", "agent-1");
+    h.sockets[0]!.close();
+    await sleep(0);
+    expect((await h.manager.getStatus()).state).toBe("idle");
+    expect((await h.manager.listTabs())).toEqual([]);
+    expect(h.statuses.map((s) => s.state)).toContain("idle");
+    await h.manager.stop();
+  });
+
+  test("Target.detachedFromTarget（无 targetId，按 sessionId 反查）出册清 session；后续命令重 attach 而非报错", async () => {
+    const h = createHarness({});
+    const { tabId } = await h.manager.openTab("https://example.com", "agent-1");
+    expect((await h.manager.getStatus()).tabCount).toBe(1);
+
+    h.sockets[0]!.receive({ method: "Target.detachedFromTarget", params: { sessionId: `sess-${tabId}` } });
+    await sleep(0);
+
+    // 出册：tab 列表清空 + 状态广播 tab 减
+    expect((await h.manager.listTabs())).toEqual([]);
+    expect((await h.manager.getStatus()).tabCount).toBe(0);
+
+    // 死 session 不再复用：后续 eval 重新走 Target.attachToTarget（重 attach 而非持续报错）
+    await h.manager.evalInTab(tabId, "1+1");
+    const attaches = h.sockets[0]!.sent.filter(
+      (m) => m.method === "Target.attachToTarget" && m.params.targetId === tabId,
+    );
+    expect(attaches).toHaveLength(2); // openTab 一次 + detach 出册后重 attach 一次
+    await h.manager.stop();
+  });
+
+  test("Target.targetDestroyed 出册清 session", async () => {
+    const h = createHarness({});
+    const t1 = await h.manager.openTab("https://a.example.com", "agent-1");
+    const t2 = await h.manager.openTab("https://b.example.com", "agent-1");
+
+    h.sockets[0]!.receive({ method: "Target.targetDestroyed", params: { targetId: t1.tabId } });
+    await sleep(0);
+
+    expect((await h.manager.listTabs()).map((t: TabInfo) => t.tabId)).toEqual([t2.tabId]);
+    expect((await h.manager.getStatus()).tabCount).toBe(1);
+    await h.manager.stop();
+  });
+
+  test("notifyStatus 监听器异常隔离：单个抛错不中断其余 listener（对齐 McpRegistry）", async () => {
+    const h = createHarness({});
+    const good: string[] = [];
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (msg?: unknown) => warnings.push(String(msg));
+    try {
+      h.manager.onStatusChange(() => {
+        throw new Error("listener 崩溃（注入）");
+      });
+      h.manager.onStatusChange((s) => good.push(s.state));
+      await h.manager.connect(); // connecting + connected 两帧
+    } finally {
+      console.warn = origWarn;
+    }
+    expect(good).toEqual(["connecting", "connected"]);
+    expect(warnings.filter((w) => w.includes("cdp 状态监听器异常"))).toHaveLength(2);
+    await h.manager.stop();
+  });
+});

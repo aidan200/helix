@@ -439,7 +439,12 @@ export class CdpConnectionManager implements BrowserPort {
       };
       ws.addEventListener("open", onOpen);
       ws.addEventListener("error", onHandshakeError);
-      ws.addEventListener("close", () => this.handleClose());
+      // 身份守卫：握手失败重试场景下旧 socket 的迟到 close 不得清新连接
+      // 的 sessions/pending/registry（活连接成孤儿）——只响应当前 ws 的 close
+      ws.addEventListener("close", () => {
+        if (this.ws !== ws) return;
+        this.handleClose();
+      });
       ws.addEventListener("message", (evt: any) => this.handleMessage(evt));
     });
   }
@@ -476,6 +481,17 @@ export class CdpConnectionManager implements BrowserPort {
       const { sessionId, targetInfo } = msg.params;
       this.sessions.set(targetInfo.targetId, sessionId);
       this.registry.update(targetInfo.targetId, { url: targetInfo.url, title: targetInfo.title });
+    }
+    // 目标生命周期对称：detach/destroy 同步出册清 session——外部关 tab
+    // 不留幽灵 tab（否则 15min sweep 才回收）与死 sessionId（后续命令
+    // 持续报错而非重 attach）
+    if (msg.method === "Target.detachedFromTarget") {
+      const targetId = this.targetIdOfDetach(msg.params);
+      if (targetId !== undefined) this.dropTarget(targetId);
+    }
+    if (msg.method === "Target.targetDestroyed") {
+      const targetId = msg.params?.targetId;
+      if (typeof targetId === "string") this.dropTarget(targetId);
     }
     // 反风控：页面对调试端口的探测请求一律 ConnectionRefused
     if (msg.method === "Fetch.requestPaused") {
@@ -599,7 +615,32 @@ export class CdpConnectionManager implements BrowserPort {
 
   private notifyStatus(): void {
     const status = this.statusSnapshot();
-    for (const listener of this.listeners) listener(status);
+    // 监听器异常隔离（对齐 McpRegistry.publishStatus 口径）：单个 listener
+    // 抛错不中断其余 listener，也不在 WS close/message 事件链上上抛为 uncaught
+    for (const listener of this.listeners) {
+      try {
+        listener(status);
+      } catch (err) {
+        console.warn(`cdp 状态监听器异常：${(err as Error).message}`);
+      }
+    }
+  }
+
+  /** detachedFromTarget 的 targetId 解析：flatten 模式 params.targetId 可选，缺席时按 sessionId 反查。 */
+  private targetIdOfDetach(params: any): string | undefined {
+    if (typeof params?.targetId === "string") return params.targetId;
+    const sessionId = params?.sessionId;
+    if (typeof sessionId !== "string") return undefined;
+    for (const [targetId, sid] of this.sessions) {
+      if (sid === sessionId) return targetId;
+    }
+    return undefined;
+  }
+
+  /** 目标出册：清 session 映射 + tab 注册（命中时广播状态——tab 减）。 */
+  private dropTarget(targetId: string): void {
+    this.sessions.delete(targetId);
+    if (this.registry.remove(targetId)) this.notifyStatus();
   }
 
   private sleep(ms: number): Promise<void> {

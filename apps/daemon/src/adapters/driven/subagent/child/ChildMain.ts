@@ -73,6 +73,20 @@ function writeLine(line: ChildOutboundLine): void {
   process.stdout.write(encodeLine(line));
 }
 
+/**
+ * 写行并等待 flush 回调再返回（closure 大载荷 exit 前防截断——write 返回
+ * 不代表管道已排空，立即 process.exit 在管道繁忙时截断/丢失，本仓已有
+ * closure 截断事故史 task-778eb18a）。stream 可注入（单测面）。
+ */
+export function writeLineAndFlush(
+  line: ChildOutboundLine,
+  stream: { write(data: string, cb: () => void): unknown } = process.stdout,
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    stream.write(encodeLine(line), () => resolve());
+  });
+}
+
 // ── closure 块解析（收口协议） ─────────────────────────────
 
 /** closure 块解析结果（五字段，可选字段归一 null——全字段必发纪律）。 */
@@ -277,7 +291,9 @@ function readStdin(instanceId: string, dispatch: StdinDispatch, onToolRes: (line
     let buf = "";
     try {
       for await (const chunk of Bun.stdin.stream()) {
-        buf += decoder.decode(chunk as Uint8Array);
+        // {stream:true}：多字节字符跨 chunk 边界不产 U+FFFD（否则坏行被
+        // 静默丢弃——丢 tool-res 会让 RemoteBrowserPort 挂至超时）
+        buf += decoder.decode(chunk as Uint8Array, { stream: true });
         let nl: number;
         while ((nl = buf.indexOf("\n")) >= 0) {
           const raw = buf.slice(0, nl).trim();
@@ -735,7 +751,9 @@ async function main(): Promise<void> {
       writeLine({ type: "log", instanceId, text: `closure 兑底失败（照常上送 closure，父侧判据裁决）：${(err as Error).message}` });
     }
   }
-  writeLine({ type: "closure", instanceId, closure });
+  // closure 行是大载荷（summary/report 全文）——await flush 回调再往下
+  // 走 exit，防管道繁忙截断（见 writeLineAndFlush 注释）。
+  await writeLineAndFlush({ type: "closure", instanceId, closure });
   kg.database.closeAll(); // 正常收尾关连接（崩溃路径走 WAL 恢复，无需显式关）
   workLedger.ledger.close(); // T1.4：台账直连连接同单点收尾（惰性未开过 = no-op）
   taskContext?.close(); // T4.2：任务归属解析器直连连接同收尾（惰性未开过 = no-op）
