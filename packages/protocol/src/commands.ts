@@ -1,24 +1,11 @@
 /**
  * 命令目录（C→S，契约 §4 + 契约 B §1 / 契约 C §1；目录文档见同包 PROTOCOL.md）。
  *
- * 共 45 个命令：v0 5 + v0.1 3 + v0.2 新增 13（session 族 3 / model 族 6 /
- * auth 族 4）；v0.3 零新增——三处扩展全部为可选参数/字段（tier /
- * instanceId / anchorEntryId，TR-AD-23① 可选参数优先于新命令对）；
- * v0.4 新增 1（trace 族 trace.query，契约 v0.4 §1，iter-20260819-erio T2.1）；
- * v0.6 新增 2（agent.config 族，M6 T3 智能体配置页）；
- * v0.7 新增 2（web 族，T4 联网状态图标）；
- * v0.9 新增 1（web.start，T7 CDP 显式启动通路）。
- * v0.11 新增 1（thinking.set，thinking 批，iter-20260823-6ps5 T1.1，AD-2/AD-4）。
- * kg 批新增 6（kg 族，iter-20260825-11fo T5.3：P-1 图谱查看页六命令，
- * v0.11 后 additive 微批；五图谱命令携带必填 project 按项目作用域）。
- * workspace 批新增 2（workspace.get/open，W1 绑定闭环）。
- * task 批新增 9（task 族，iter-20260829-ys7q T1.5：P-2 任务页九命令，
- * workspace 批后 additive 微批；零内容干预——AD-2：无 steer/批次重试/
- * 内容编辑命令，九命令清单即全集）。
- * kg-bootstrap 批新增 5（kg 族 additive，iter-20260829-ys7q T3.2：/project 页
- * bootstrap 入口与产出呈现五命令；契约 contracts/kg-bootstrap-api.md）。
- * diff 批新增 1（diff.get，T3+T4 轮次 diff 协议与 UI闭环：会话作用域命令——
- * 轮次 diff 详情查询，turnId 缺省最近冻结轮 / live 进行中轮实时视图）。
+ * 命令全集以 COMMAND_TYPES 常量为准——头注释不记硬计数（易腐，曾与实际
+ * 严重漂移），计数由机械断言守护（PROTOCOL.md §17.3 断言③：文档计数声明 ==
+ * 常量目录长度；catalog.test.ts：COMMAND_TYPES ↔ CommandEnvelope 双向一致）。
+ * 批次演进史见 PROTOCOL-CHANGELOG.md。
+ *
  * `CommandEnvelope` 为判别式联合，daemon 侧 switch(cmd.type)
  * 分发。会话作用域命令的信封 sessionId 必填（AD-4 路由位，类型层可选、
  * 客户端纪律保证）；全局命令（session.list / model.set_default /
@@ -28,9 +15,16 @@
  */
 import type { CommandFrame } from "./envelope";
 import type { SessionListResultPayload } from "./events";
+import type {
+  AuthListResultPayload,
+  AuthSetKeyResultPayload,
+  AuthVerifyResultPayload,
+  ModelCatalogResultPayload,
+  ModelGetDefaultResultPayload,
+  ModelGetResultPayload,
+  ModelSetDefaultResultPayload,
+} from "./events/model";
 import type { SessionLoadHistoryResultEventPayload } from "./events/session";
-import type { AuthProviderInfo } from "./types/auth";
-import type { CatalogModel } from "./types/model";
 import type { EntryDto } from "./types/session";
 import type { ProfileKind } from "./types/agent";
 import type { TaskStatus } from "./types/task";
@@ -195,24 +189,20 @@ export interface ModelSetCommand extends CommandFrame<ModelSetPayload> {
   type: "model.set";
 }
 
-/** model.get 结果载荷 */
-export interface ModelGetResult {
-  model: string;
-  isDefault: boolean;
-  defaultModel: string;
-}
+/**
+ * model.get 结果载荷（与 events/model.ts ModelGetResultPayload 同形双定义
+ * 收敛为别名——SessionListResult 同规先例：权威位 = 事件线载荷，本名为
+ * 兼容别名，协议面 additive 纪律 TR-AD-18 不删导出名）。
+ */
+export type ModelGetResult = ModelGetResultPayload;
 
 /** model.get 载荷：信封 sessionId 必填（per-session） */
 export interface ModelGetCommand extends CommandFrame<EmptyPayload> {
   type: "model.get";
 }
 
-/** 目录结果载荷（model.catalog / model.catalog_refresh 共用） */
-export interface ModelCatalogResult {
-  models: CatalogModel[];
-  refreshedAt: number;
-  source: "cache" | "builtin" | "remote";
-}
+/** 目录结果载荷（model.catalog / model.catalog_refresh 共用；事件线载荷别名，同 ModelGetResult 收敛先例） */
+export type ModelCatalogResult = ModelCatalogResultPayload;
 
 /** model.catalog 载荷：全局命令（4h 缓存口径，T2.3 落地） */
 export interface ModelCatalogCommand extends CommandFrame<EmptyPayload> {
@@ -224,10 +214,8 @@ export interface ModelCatalogRefreshCommand extends CommandFrame<EmptyPayload> {
   type: "model.catalog_refresh";
 }
 
-/** model.set_default 结果载荷 */
-export interface ModelSetDefaultResult {
-  previous: string;
-}
+/** model.set_default 结果载荷（事件线载荷别名，同 ModelGetResult 收敛先例） */
+export type ModelSetDefaultResult = ModelSetDefaultResultPayload;
 
 /** model.set_default 载荷：全局默认值（无信封 sessionId；SQLite 读面，T2.3 落地） */
 export interface ModelSetDefaultPayload {
@@ -250,10 +238,12 @@ export interface ModelSetThinkingDefaultCommand extends CommandFrame<ModelSetThi
   type: "model.set_thinking_default";
 }
 
-/** model.get_default 结果载荷 */
-export interface ModelGetDefaultResult {
-  model: string;
-}
+/**
+ * model.get_default 结果载荷（事件线载荷别名，同 ModelGetResult 收敛先例——
+ * 别名化同时修复双定义漂移：本地旧定义缺 thinkingDefault，权威形以
+ * ModelGetDefaultResultPayload 为准）。
+ */
+export type ModelGetDefaultResult = ModelGetDefaultResultPayload;
 
 /** model.get_default 载荷：全局命令 */
 export interface ModelGetDefaultCommand extends CommandFrame<EmptyPayload> {
@@ -305,20 +295,16 @@ export interface ConfigGetPortCommand extends CommandFrame<EmptyPayload> {
 
 // ── v0.2 新增：auth 管理族（契约 C §1.3；G-6 定名） ──
 
-/** auth.list 结果载荷 */
-export interface AuthListResult {
-  providers: AuthProviderInfo[];
-}
+/** auth.list 结果载荷（事件线载荷别名，同 ModelGetResult 收敛先例） */
+export type AuthListResult = AuthListResultPayload;
 
 /** auth.list 载荷：全局命令 */
 export interface AuthListCommand extends CommandFrame<EmptyPayload> {
   type: "auth.list";
 }
 
-/** auth.set_key 结果载荷 */
-export interface AuthSetKeyResult {
-  keyMasked: string;
-}
+/** auth.set_key 结果载荷（事件线载荷别名，同 ModelGetResult 收敛先例） */
+export type AuthSetKeyResult = AuthSetKeyResultPayload;
 
 /** auth.set_key 载荷：daemon 写 ~/.helix/auth.json（0600 + 文件锁）；空 apiKey = 协议层 error */
 export interface AuthSetKeyPayload {
@@ -337,10 +323,8 @@ export interface AuthDeleteKeyCommand extends CommandFrame<AuthDeleteKeyPayload>
   type: "auth.delete_key";
 }
 
-/** auth.verify 结果载荷：不缓存，每次真实请求（provider 最小请求探活） */
-export type AuthVerifyResult =
-  | { status: "ok"; latencyMs: number }
-  | { status: "fail"; reason: string };
+/** auth.verify 结果载荷：不缓存，每次真实请求（provider 最小请求探活）；事件线载荷别名，同 ModelGetResult 收敛先例 */
+export type AuthVerifyResult = AuthVerifyResultPayload;
 
 /** auth.verify 载荷 */
 export interface AuthVerifyPayload {
@@ -919,7 +903,11 @@ export interface McpToolsListCommand extends CommandFrame<{ server: string }> {
   type: "mcp.tools.list";
 }
 
-/** 命令信封联合（判别式：type 字段窄化；v0.2：8 → 21；v0.4：21 → 22；v0.6：22 → 24；v0.7：24 → 26；v0.9：26 → 27；v0.11：27 → 28；kg 批：28 → 34；workspace 批：34 → 36；task 批：36 → 45；kg-bootstrap 批：45 → 50；kg 维护批：50 → 52；kg.health 批 + kg 评审批：52 → 54；kg.candidates.list 批：54 → 55；base prompt 批：55 → 56；skill-content 批：56 → 57；diff 批：57 → 63；mcp 批：63 → 69） */
+/**
+ * 命令信封联合（判别式：type 字段窄化）。成员与 COMMAND_TYPES 常量一一
+ * 对应，由 catalog.test.ts 双向一致性断言机械守护——不记手维护批次计数链
+ * （曾漂移失真）；批次史见 PROTOCOL-CHANGELOG.md。
+ */
 export type CommandEnvelope =
   | ChatSendCommand
   | ChatSteerCommand

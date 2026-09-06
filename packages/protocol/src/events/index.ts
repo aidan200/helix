@@ -1,38 +1,18 @@
 /**
  * 事件目录（S→C，契约 A §2；目录文档见同包 PROTOCOL.md）。
  *
- * 共 59 个事件：v0 12 + v0.1 编排族 7 + v0.1 通道族 4 + 热修 engine.error 1
- * + v0.2 新增 2（session.list_changed / model.changed）+ T2.2 命令结果 2
- * （session.list.result / session.loadHistory.result）+ T2.3-result-frames
- * 微批 9（model/auth 命令结果帧，契约 C §2.2）+ v0.4 新增 3
- * （trace.query.result / agent.instantiated / agent.model.changed，契约 v0.4，
- * iter-20260819-erio T2.1）+ v0.6 新增 3（agent.config.changed /
- * agent.config.list.result / agent.config.set_enabled.result，M6 T3）+
- * v0.7 新增 3（web.status.result / web.stop.result / web.status.changed，
- * T4 联网状态图标，web 新族）+ v0.9 新增 1（web.start.result，T7 CDP 显式
- * 启动通路）+ v0.11 新增 1（thinking.changed，thinking 批①，
- * iter-20260823-6ps5 T1.1）+ kg 批新增 6（kg.*.result 点对点回执，
- * iter-20260825-11fo T5.3：P-1 六命令族；O-6 轮询裁决零推送事件）+
- * kg-bootstrap 批新增 5（iter-20260829-ys7q T3.2：/project 页 bootstrap 入口
- * 与产出呈现五命令点对点回执，零广播同规）+ workspace
- * 批新增 3（两结果帧 + workspace_changed 广播，W1）+ task 批新增 1
- *（task.changed 逐迁移轻负载广播，iter-20260829-ys7q T1.5：P-2 任务页九
- * 命令族——挂既有 notification 通道不新增 Channel 值，契约 task-api §0/§3；
- * 九命令结果帧为点对点回执不入目录，types/task.ts）+ 网络重试批新增 1
- *（engine.retrying，P2 ⑦：LLM 瞬时失败退避等待可见反馈，瞬态帧归 chat
- * 通道）+ park/resume 批新增 2（agent.parked/agent.resumed，⑤ 挂起恢复
- * 原语广播帧，挂 agent 族——InstanceState 同批 additive 扩 parked）+ main-session
- * plan 批新增 1（session.plan.changed，主会话工作台账广播——挂既有 session
- * 通道不新增 Channel 值；快照 plan/ledger 同批 additive 字段）+ error entry
- * 批新增 1（error.entry：引擎/模型失败的错误条目落时间轴原位红条——挂既
- * 有 chat 通道不新增 Channel 值；EntryDto 同批 additive 第五变体 error）+ base
- * prompt 批新增 1（agent.base_prompt.get.result：agent 页 base 段系统提示词
- * 懒查询点对点回执，挂 agent 族）+ diff 批新增 1（diff.changed：轮次 diff
- * 状态瞬态推送，挂既有 session 通道不新增 Channel 值；走 publishDelta
- * 瞬态通道不落盘不投影，iter T3+T4）。`EventEnvelope` 为
- * 判别式联合，前端 switch(event.type) 窄化各分支 payload（投影 reducer）。
+ * 事件全集以 EVENT_TYPES 常量为准——头注释不记硬计数（易腐，曾与实际
+ * 严重漂移），计数由机械断言守护（PROTOCOL.md §17.3 断言③：文档计数声明 ==
+ * 常量目录长度；catalog.test.ts：EVENT_TYPES ↔ EventEnvelope 双向一致）。
+ * 批次演进史见 PROTOCOL-CHANGELOG.md。
  *
- * v0.2 事件类型学（AD-3，契约 A §2）：每事件以 `channel` 字面量登记所属通道
+ * 口径要点（非计数）：点对点命令结果帧仅发发起命令的连接（TR-AD-21）；
+ * 其中 task 族十结果帧与 diff.get.result 不入本目录（types/task.ts /
+ * types/diff.ts 窄化接口供出），登记判据见 PROTOCOL.md §16 头注。
+ * `EventEnvelope` 为判别式联合，前端 switch(event.type) 窄化各分支
+ * payload（投影 reducer）。
+ *
+ * 事件类型学（AD-3，契约 A §2）：每事件以 `channel` 字面量登记所属通道
  * （八族数据/会话通道 + notification 系统通道；见 envelope.ts Channel），
  * EVENT_CHANNELS 为运行时登记目录（daemon 下发侧单点消费，T2.x）。
  * channel 类型层可选（信封兼容红线：v0/v0.1 帧不带仍合法）。
