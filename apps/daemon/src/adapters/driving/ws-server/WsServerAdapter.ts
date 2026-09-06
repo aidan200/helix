@@ -175,6 +175,9 @@ import {
 /** 浏览器侧 token 获取端点路径（vite dev 与 static-serve 生产共用同一机制）。 */
 export const DEV_TOKEN_PATH = "/helix-dev-token";
 
+/** JSON 形状守卫后的命令信封（onMessage 保证为对象；字段仍 unknown 逐案校验）。 */
+type CommandEnvelope = { v: FrameVersion | number | string; type: unknown; payload: unknown; sessionId?: unknown };
+
 /** 信任源族：①loopback 开发 Origin（vite dev 等）：localhost / 127.0.0.1 /
  *  [::1] 任意端口；②打包形态应用自有资产协议源：tauri://localhost
  *  （macOS/Linux）与 http(s)://tauri.localhost（Windows）——该协议/主机仅
@@ -347,6 +350,14 @@ export interface WsServerAdapterDeps {
 export class WsServerAdapter {
   private readonly deps: WsServerAdapterDeps;
   private readonly server: Bun.Server<ConnState>;
+  /**
+   * 握手进行中的命令帧排队表（F2 握手竞态修复）：hello 通过校验后
+   * handleHandshake 有 await 窗口（probeCurrentDraft/getSessionView），窗口内
+   * 到达的命令帧不能直接路由——EventStream.attach 尚未执行，subscribeSession
+   * 会 connections.get(sender)===undefined 静默落空（订阅永久丢失），且
+   * *.result 回执会先于 connection.welcome 到达。排队至握手完成后按序回放。
+   */
+  private readonly handshakeQueues = new Map<ServerWebSocket<ConnState>, CommandEnvelope[]>();
 
   constructor(deps: WsServerAdapterDeps) {
     this.deps = deps;
@@ -428,29 +439,54 @@ export class WsServerAdapter {
   }
 
   private onClose(ws: ServerWebSocket<ConnState>): void {
+    this.handshakeQueues.delete(ws); // 窗口内断连：丢弃排队帧（回放面另有 readyState 守卫）
     if (ws.data.sender) this.deps.events.detach(ws.data.sender);
   }
 
   private onMessage(ws: ServerWebSocket<ConnState>, data: string | Buffer): void {
-    let envelope: { v: FrameVersion | number | string; type: unknown; payload: unknown; sessionId?: unknown };
+    let envelope: unknown;
     try {
       envelope = JSON.parse(String(data));
     } catch {
       ws.close(); // 非 JSON 帧 = 连接层垃圾数据（契约 §7：不发帧直接 close）
       return;
     }
-    if (!ws.data.authed) {
-      void this.handleHandshake(ws, envelope);
+    // JSON 形状守卫（F2）：null/原始值是合法 JSON 但不是命令信封——未认证路径
+    // null.type 会在 async handleHandshake 内抛 TypeError 成 unhandled rejection
+    // 且连接悬挂；与非 JSON 帧同口径 ws.close()。
+    if (typeof envelope !== "object" || envelope === null) {
+      ws.close();
       return;
     }
-    this.routeCommand(ws, envelope);
+    const frame = envelope as CommandEnvelope;
+    const pending = this.handshakeQueues.get(ws);
+    if (pending !== undefined) {
+      // 握手进行中（await probeCurrentDraft/getSessionView 窗口）：命令帧排队，
+      // 握手完成后按序回放。判别位 = 排队表存在性而非 authed——authed/sender
+      // 在 await 之前同步置位，窗口内直路由会致 subscribeSession 落空
+      //（attach 尚未执行）且 *.result 回执先于 connection.welcome。
+      pending.push(frame);
+      return;
+    }
+    if (!ws.data.authed) {
+      this.handshakeQueues.set(ws, []);
+      void this.handleHandshake(ws, frame).finally(() => {
+        const queued = this.handshakeQueues.get(ws) ?? [];
+        this.handshakeQueues.delete(ws);
+        // 握手拒绝（连接已 close）或窗口内断连：丢弃排队帧不回放
+        if (!ws.data.authed || ws.readyState !== WebSocket.OPEN) return;
+        for (const queuedFrame of queued) this.routeCommand(ws, queuedFrame);
+      });
+      return;
+    }
+    this.routeCommand(ws, frame);
   }
 
   // ── 握手（三分支） ──────────────────────────────────
 
   private async handleHandshake(
     ws: ServerWebSocket<ConnState>,
-    envelope: { v: FrameVersion | number | string; type: unknown; payload: unknown },
+    envelope: CommandEnvelope,
   ): Promise<void> {
     const reject = (code: ConnectionErrorEvent["payload"]["code"], message: string): void => {
       this.sendNow(this.rawSender(ws), {
@@ -559,7 +595,7 @@ export class WsServerAdapter {
 
   private routeCommand(
     ws: ServerWebSocket<ConnState>,
-    envelope: { v: FrameVersion | number | string; type: unknown; payload: unknown; sessionId?: unknown },
+    envelope: CommandEnvelope,
   ): void {
     const type = typeof envelope.type === "string" ? envelope.type : "";
     const payload = (envelope.payload ?? {}) as Record<string, unknown>;

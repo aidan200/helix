@@ -350,7 +350,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
 // ── TP-CL2-2/3/4/5：monitor 档订阅（T2.2，契约 v0.3 §2；AD-2/Q-2a/Q-2b） ──
 
 /** spy 装配：WsServerAdapter + 真 EventStream（事件面走真分发，命令面 spy no-op）。 */
-function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
+function makeTierRig(overrides: { directory?: SessionDirectoryPort } = {}): { adapter: WsServerAdapter; events: EventStream } {
   const chat: SessionChatPort = {
     sendMessage: async (): Promise<SendOutcome> => ({ mode: "turn", turnId: "t1", entryId: "e1" }),
     steer: async () => ({ entryId: "e2" }),
@@ -372,7 +372,7 @@ function makeTierRig(): { adapter: WsServerAdapter; events: EventStream } {
   const events = new EventStream();
   const adapter = new WsServerAdapter({
     chat,
-    directory,
+    directory: overrides.directory ?? directory,
     system,
     orchestration: {
       spawn: () => ({ status: "rejected", error: "spy 不装配调度" }),
@@ -607,6 +607,93 @@ describe("TP-CL2-2/3/4/5：monitor 档订阅（连接级 tier 表 + 白名单过
       adapter.stop();
     }
   }, 10000);
+});
+
+// ── F2 修复：握手竞态（命令帧排队）与 JSON 形状守卫 ─────────────
+
+describe("F2：握手 await 窗口命令帧排队 + JSON 形状守卫", () => {
+  test("握手窗口内 subscribe 不丢失、回执不先于 connection.welcome", async () => {
+    // probeCurrentDraft 挂 deferred 门闩：确定性撑开 handleHandshake 的 await
+    // 窗口（attach 未执行、welcome 未发），窗口内投递命令帧复现竞态
+    let probeCalled = false;
+    let releaseProbe!: () => void;
+    const probeGate = new Promise<void>((r) => (releaseProbe = r));
+    const directory: SessionDirectoryPort = {
+      listSessions: async () => [],
+      sessionExists: async (id: string) => id === "spy-s1" || id === "spy-s2",
+      resolveTarget: async (id?: string) => id ?? "spy-s1",
+      getSessionView: async () => fakeView(),
+      startDraftSession: async () => { throw new Error("spy 不装配草稿链"); },
+      deleteSession: async () => { throw new Error("spy 不装配删除链"); },
+      currentSessionId: () => "spy-s1",
+      probeCurrentDraft: async () => {
+        probeCalled = true;
+        await probeGate;
+        return false;
+      },
+    };
+    const { adapter, events } = makeTierRig({ directory });
+    try {
+      const frames: EventEnvelope[] = [];
+      const ws = new WebSocket(`ws://127.0.0.1:${adapter.port}`);
+      ws.onmessage = (ev: MessageEvent) => frames.push(JSON.parse(String(ev.data)));
+      await new Promise<void>((r) => (ws.onopen = () => r()));
+      ws.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "hello", payload: { token: "spy-token", protocolVersion: PROTOCOL_VERSION } }));
+      await until(() => probeCalled); // 握手已停在 await 窗口内
+
+      // 窗口内到达：① 对非默认会话的 subscribe（修复前 attach 未执行 →
+      // subscribeSession 静默落空，订阅永久丢失）；② 结果帧命令（修复前
+      // auth.list.result 先于 welcome 到达）
+      ws.send(JSON.stringify({ v: 0, sessionId: "spy-s2", type: "session.subscribe", payload: {} }));
+      ws.send(JSON.stringify({ v: 0, type: "auth.list", payload: {} }));
+      await new Promise((r) => setTimeout(r, 100));
+      expect(frames).toHaveLength(0); // 窗口内零帧下发：welcome/回执/快照均未抢跑
+
+      releaseProbe();
+      await until(() => frames.some((f) => f.type === "auth.list.result"));
+
+      // 认证后首帧时序：connection.welcome 先于一切回执与快照
+      expect(frames[0]!.type).toBe("connection.welcome");
+      expect(frames.findIndex((f) => f.type === "auth.list.result")).toBeGreaterThan(0);
+
+      // subscribe 未丢失：握手完成后 spy-s2 事件帧能到达本连接
+      const base = frames.length;
+      events.publish({ type: "agent.state.changed", sessionId: "spy-s2", payload: { state: "running" }, occurredAt: "2026-08-15T00:00:30.000Z" });
+      await until(() => frames.slice(base).some((f) => f.type === "agent.state.changed"));
+
+      ws.close();
+    } finally {
+      adapter.stop();
+    }
+  }, 8000);
+
+  test("null/原始值 JSON 帧：未认证与已认证路径均直接 close（零帧下发）", async () => {
+    const { adapter } = makeTierRig();
+    try {
+      // ① 未认证路径：首帧 "null"（修复前 null.type 在 async 握手内抛
+      // TypeError 成 unhandled rejection 且连接悬挂）→ 直接 close
+      const frames1: EventEnvelope[] = [];
+      const ws1 = new WebSocket(`ws://127.0.0.1:${adapter.port}`);
+      ws1.onmessage = (ev: MessageEvent) => frames1.push(JSON.parse(String(ev.data)));
+      await new Promise<void>((r) => (ws1.onopen = () => r()));
+      ws1.send("null");
+      await new Promise<void>((r) => (ws1.onclose = () => r()));
+      expect(frames1).toHaveLength(0);
+
+      // ② 已认证路径：握手成功后 "null"（修复前 routeCommand 同步抛出台
+      // onMessage）→ 同口径 close
+      const frames2: EventEnvelope[] = [];
+      const ws2 = new WebSocket(`ws://127.0.0.1:${adapter.port}`);
+      ws2.onmessage = (ev: MessageEvent) => frames2.push(JSON.parse(String(ev.data)));
+      await new Promise<void>((r) => (ws2.onopen = () => r()));
+      ws2.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "hello", payload: { token: "spy-token", protocolVersion: PROTOCOL_VERSION } }));
+      await until(() => frames2.some((f) => f.type === "connection.welcome"));
+      ws2.send("null");
+      await new Promise<void>((r) => (ws2.onclose = () => r()));
+    } finally {
+      adapter.stop();
+    }
+  }, 8000);
 });
 
 async function until(cond: () => boolean, timeoutMs = 3000): Promise<void> {
