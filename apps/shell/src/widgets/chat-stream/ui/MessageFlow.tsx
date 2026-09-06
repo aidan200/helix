@@ -43,9 +43,6 @@ import EngineErrorCard, { ErrorEntryBar } from "./EngineErrorCard";
 import NetworkRetryCard from "./NetworkRetryCard";
 import { ThinkingEntryView, ThinkingLiveView } from "@/shared/ui/ThinkingBlock";
 import GeneratingPlaceholder from "./GeneratingPlaceholder";
-import SteerQueueDock from "./SteerQueueDock";
-import { WorkPhaseDot } from "./WorkPhaseDot";
-import { selectWorkPhase } from "@/entities/session/model/session-reducer";
 
 function EntryView({
   entry,
@@ -218,8 +215,15 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
       return;
     }
     const firstId = state.entries[0]?.id ?? null;
+    // 真前插（分页加载更早）与快照整体替换（consumers/snapshot.ts 尾窗漂移）
+    // 区分：前插旧窗口完整保留——旧首条 id 仍在新 entries 中；快照替换首条
+    // id 也变但旧首条已出窗，误判前插会用陈旧 prevHeight 补偿把吸附态用户
+    // 摆到错误位置，应走吸附分支贴底。
     const isPrepend =
-      prevFirstIdRef.current !== null && firstId !== null && firstId !== prevFirstIdRef.current;
+      prevFirstIdRef.current !== null &&
+      firstId !== null &&
+      firstId !== prevFirstIdRef.current &&
+      state.entries.some((e) => e.id === prevFirstIdRef.current);
     if (isPrepend && prevHeightRef.current > 0) {
       // AD-1 前插：保持原首条在视口内的位置（高度差补偿，不跳底）
       el.scrollTop = el.scrollHeight - prevHeightRef.current + el.scrollTop;
@@ -247,8 +251,6 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
   // hasMore/loading 门控归 provider selectCanLoadEarlier）
 
   const empty = selectIsEmpty(state);
-  // 工作段位呼吸光点（右下角；idle 熄灭不渲染）
-  const workPhase = selectWorkPhase(state);
 
   // ── CL-1 v0.3 时间轴内联：按 DTO spawn 锚点把卡片交织进 entries 序列 ──
   // head = 流首锚点（null）；byAnchor = entry id → 该 entry 之后渲染的卡；

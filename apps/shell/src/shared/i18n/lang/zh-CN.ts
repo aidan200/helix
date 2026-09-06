@@ -356,14 +356,13 @@ export const zhCN = {
     },
     nav: {
       railLabel: "主导航",
-      plannedBadge: "规划中",
       themeToggle: "切换明暗主题",
       pages: {
         chat: { label: "聊天" },
-        skills: { label: "智能体", preview: "配置会话助手与 SubAgent worker 的模型、工具与技能。" },
+        skills: { label: "智能体" },
         trace: { label: "追踪" },
-        project: { label: "项目", preview: "工作区文档、知识图谱与迭代状态的总览入口。" },
-        tasks: { label: "任务", preview: "观察任务阶段进度、批次中间状态与产出结果。" },
+        project: { label: "项目" },
+        tasks: { label: "任务" },
         settings: { label: "设置" },
       },
     },

@@ -27,6 +27,9 @@ const SteerComposer = memo(function SteerComposer({ instanceId }: SteerComposerP
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter") return;
+    // IME 选词确认的 Enter 不发送（isComposing=true 时文本尚未上屏——
+    // zh-CN 一等语言，半截文本直接发给 SubAgent 是事故面）
+    if (e.nativeEvent.isComposing) return;
     const text = value.trim();
     if (text === "") return; // 空输入零动作（Q-3b：不触发任何转换）
     steerInstance(text, instanceId);

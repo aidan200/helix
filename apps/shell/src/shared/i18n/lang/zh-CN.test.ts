@@ -161,16 +161,13 @@ const REQUIRED_KEYS = [
   "chat.settings.title",
   "chat.settings.nav.label",
   "chat.settings.nav.models",
-  // T3.4（CL-4 IconRail 导航壳 + 页签词条；彼时四页皆施工牌，现仅 project 占位；review.md §6 R-P4-1/4）
+  // T3.4（CL-4 IconRail 导航壳 + 页签词条；施工牌随 T5.4 真页化全退役——plannedBadge/pages.*.preview 死 key 已删）
   "chat.nav.railLabel",
-  "chat.nav.plannedBadge",
   "chat.nav.themeToggle",
   "chat.nav.pages.chat.label",
   "chat.nav.pages.skills.label",
-  "chat.nav.pages.skills.preview",
   "chat.nav.pages.trace.label",
   "chat.nav.pages.project.label",
-  "chat.nav.pages.project.preview",
   "chat.nav.pages.settings.label",
   // T4（契约 v0.7 web 族：IconRail 联网状态钮 + popover 文案）
   "chat.web.button",

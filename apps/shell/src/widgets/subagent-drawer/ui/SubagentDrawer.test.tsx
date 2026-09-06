@@ -329,6 +329,32 @@ describe("kill 两步（F1.2）", () => {
     const btn = screen.getByRole("button", { name: "终止实例" }) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });
+
+  it("切实例重置 kill 状态机：A arm 后窗口内切 B → B 首击仅 arm 不直杀（armed 态与 3s 计时器随 agentId 重置）", () => {
+    fakeTimers();
+    // 两实例同 running（spawn 后零事件即 running 投影）
+    stateRef.current = play([...runningScenario(), spawn("agent-b")]);
+    const { rerender } = ui("agent-run");
+    fireEvent.click(screen.getByRole("button", { name: "终止实例" }));
+    expect(screen.getByRole("button", { name: "确认终止？" })).toBeTruthy(); // A 已 arm
+
+    // 切实例（ChatPage 渲染不带 key——组件实例复用，armed/计时器必须随 agentId 重置）
+    rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <SubagentDrawer agentId="agent-b" onClose={vi.fn()} />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    // B 视图中确认态已复位（不再呈现 A 的 armed）
+    expect(screen.queryByText("确认终止？")).toBeNull();
+    const btnB = screen.getByRole("button", { name: "终止实例" }) as HTMLButtonElement;
+    expect(btnB.disabled).toBe(false);
+    // B 首击仅 arm，不发 agent.kill（修复前：A 的 armed 残留 → 一击即杀）
+    fireEvent.click(btnB);
+    expect(killInstance).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "确认终止？" })).toBeTruthy();
+  });
 });
 
 // ── stalled 徽标（F1.8） ───────────────────────────────────

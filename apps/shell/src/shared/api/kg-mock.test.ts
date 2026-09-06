@@ -2,8 +2,10 @@
  * kg-mock 维护批四命令（M39：kg.health / kg.candidates.list / kg.review.create /
  * code.review.create）mock 镜像面测试——fake 实例对四命令自动回放确定性应答，
  * 与真实 daemon 恒应答同规（health/candidates 空态 DTO；review.create 回 ok）。
+ * M11 批增面：replyIndex rebuild 门控对齐 daemon indexStatus（任意状态无条件
+ * 触发，building 幂等忽略）。
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isKgCommand, KgMockStore } from "./kg-mock";
 
 describe("isKgCommand 白名单（M39）", () => {
@@ -72,5 +74,53 @@ describe("KgMockStore 维护批应答（M39）", () => {
       expect(frame.type).toBe("connection.error");
       expect((frame.payload as { code: string }).code).toBe("KG_E_PARAM");
     }
+  });
+});
+
+// ── M11 批：replyIndex rebuild 门控对齐 daemon（任意状态无条件触发；building 幂等）──
+
+describe("KgMockStore.replyIndex rebuild 门控（对齐 daemon KgViewerService.indexStatus）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("synced 态 rebuild:true 也触发重建（building → 3200ms 后 synced）", () => {
+    // 独立 new KgMockStore()（非 singleton kgMockStore）：rebuild 推进行状态，
+    // 避免污染 fake-transport/e2e 共享场景数据（helix「56 符号」）
+    const store = new KgMockStore();
+    const before = store.reply("kg.index.status", { project: "helix" });
+    expect(before.payload).toMatchObject({ state: "synced" });
+
+    const trigger = store.reply("kg.index.status", { project: "helix", rebuild: true });
+    expect(trigger.payload).toMatchObject({ state: "building" });
+
+    vi.advanceTimersByTime(3200);
+    const done = store.reply("kg.index.status", { project: "helix" });
+    expect(done.payload).toMatchObject({ state: "synced" });
+  });
+
+  it("building 中重复 rebuild 幂等忽略：时基不重置（剩 1200ms 即完成）", () => {
+    const store = new KgMockStore();
+    store.reply("kg.index.status", { project: "helix", rebuild: true });
+
+    vi.advanceTimersByTime(2000);
+    const re = store.reply("kg.index.status", { project: "helix", rebuild: true });
+    expect(re.payload).toMatchObject({ state: "building" });
+
+    // 若时基被重置，此处 1300ms 不足 3200ms 仍是 building；幂等语义下应已 synced
+    vi.advanceTimersByTime(1300);
+    const done = store.reply("kg.index.status", { project: "helix" });
+    expect(done.payload).toMatchObject({ state: "synced" });
+  });
+
+  it("absent / degraded 态 rebuild:true 触发行为保持（去门控回归面）", () => {
+    const store = new KgMockStore();
+    const degraded = store.reply("kg.index.status", { project: "feifei", rebuild: true });
+    expect(degraded.payload).toMatchObject({ state: "building" });
+    const absent = store.reply("kg.index.status", { project: "serena", rebuild: true });
+    expect(absent.payload).toMatchObject({ state: "building" });
   });
 });

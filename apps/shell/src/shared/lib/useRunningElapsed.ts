@@ -7,7 +7,7 @@
  * 结算的累计基线——总时长 = 基线 + (now - 段起点)。
  * 旧剧本兼容：锚点缺省（undefined）时回落挂载起算 best-effort（修复前行为）。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { formatDuration } from "./format";
 
 export function useRunningElapsed(
@@ -16,16 +16,21 @@ export function useRunningElapsed(
   baseMs: number = 0,
 ): string {
   const [now, setNow] = useState(() => Date.now());
-  const mountRef = useRef<number | null>(null);
-  if (active && mountRef.current === null) mountRef.current = Date.now();
-  if (!active) mountRef.current = null;
+  // 挂载钟（旧剧本兼容锚点）：state 而非 render 期写 ref（render 纯净性——
+  // 并发渲染下 render 期捕获时刻依赖渲染时序）。惰性初始值捕获「挂载即活跃」
+  // 的首渲染时刻；后续 active 段切换由 effect 收锚/重置。
+  const [mountAnchor, setMountAnchor] = useState<number | null>(() => (active ? Date.now() : null));
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      setMountAnchor(null);
+      return;
+    }
+    setMountAnchor((prev) => prev ?? Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [active]);
   // 锚点优先级：daemon 真实段起点 > 挂载钟（旧剧本兼容）；基线仅在有真实锚点时参与
-  const anchor = startedAtMs ?? mountRef.current;
+  const anchor = startedAtMs ?? mountAnchor;
   if (anchor === null || anchor === undefined) return "0.0s";
   return formatDuration(baseMs + (now - anchor));
 }
