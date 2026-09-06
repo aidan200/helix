@@ -16,6 +16,7 @@ import type { ClockPort } from "../../src/application/ports/outbound/ClockPort";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { InMemorySessionRepository } from "../mocks/InMemorySessionRepository";
 import { ATTACHMENT_PROTOCOL_LINE, ATTACHMENT_PROTOCOL_LINE_WORKER } from "../../src/domain/kg/attachment/render";
+import { seenKeyOf } from "../../src/domain/kg/attachment/budget";
 
 /**
  * I 层：任务层切片注入（T3.3，CL-1 F1.3，F-14 病根修复）。
@@ -99,17 +100,17 @@ describe("任务层切片注入（F1.3）", () => {
     const id = seedNode(f, "队列规则", "队列写入必须串行");
     const task = "改造队列写入路径";
 
-    // 先注入 → 注册表可见（T3.2 attachAfterEdit 侧据此去重）
+    // 先注入 → 注册表可见（T3.2 attachAfterEdit 侧据此去重；复合键口径，F3）
     f.query.injectTaskSlice("sess-B", task);
-    expect(f.attachment.seenInSession("sess-B").has(id)).toBe(true);
+    expect(f.attachment.seenInSession("sess-B").has(seenKeyOf(f.proj, id))).toBe(true);
 
-    // 同会话二次派发同任务 → 已注入 id 不再重复注入（原文原样返回）
+    // 同会话二次派发同任务 → 已注入节点不再重复注入（原文原样返回）
     const again = f.query.injectTaskSlice("sess-B", task);
     expect(again.indexOf(SLICE_HEADER)).toBe(-1);
 
-    // 反向：动作层先行（T3.2 markInjected）→ 任务层注入排除该 id
+    // 反向：动作层先行（T3.2 markInjected）→ 任务层注入排除该节点
     const id2 = seedNode(f, "队列读取规则", "队列读取走 WAL 快照");
-    f.attachment.markInjected("sess-C", [id2]);
+    f.attachment.markInjected("sess-C", [{ project: f.proj, nodeId: id2 }]);
     const out = f.query.injectTaskSlice("sess-C", "改造队列写入与读取路径");
     expect(out).toContain(`kg get ${id}`); // 未登记 id 正常注入
     expect(out).not.toContain(`kg get ${id2}`); // 已登记 id 排除
@@ -161,6 +162,45 @@ describe("任务层切片注入（F1.3）", () => {
     const workerOut = f.query.injectTaskSlice("sess-N", "改造网关限流的租户隔离与熔断逻辑", "worker");
     expect(workerOut).toContain(ATTACHMENT_PROTOCOL_LINE_WORKER);
     expect(workerOut).not.toContain(ATTACHMENT_PROTOCOL_LINE);
+  });
+
+  test("⑧ F3 键空间归一：多项目同 id 节点互不静默排除（项目 A 已注入 TR-n 不排项目 B 同 id 节点）", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "kg-slice-mp-it-"));
+    const projA = path.join(root, "projA");
+    const projB = path.join(root, "projB");
+    mkdirSync(projA, { recursive: true });
+    mkdirSync(projB, { recursive: true });
+    const database = new KgDatabase();
+    const graph = new SqliteKnowledgeGraph({ database });
+    const store = new SqliteKnowledgeStore({ database });
+    const write = new KgWriteService({ store });
+    const attachment = new KgAttachmentService({ graph, hasIndex: () => true });
+    const query = new KgQueryService({ graph, projects: () => [projA, projB], attachment });
+    fixtures.push({ root, proj: projA, database, graph, write, attachment, query });
+    // 两项目各种入首个 rule 节点——各项目 id 空间独立发号，结构性同 id（TR-1）
+    const seedIn = (proj: string): string => {
+      const r = write.write(proj, {
+        kind: "createNode",
+        iterationId: "iter-t33",
+        draft: { kind: "rule", name: "队列规则", digest: "队列写入必须串行", scene: "测试场景" },
+      });
+      if (!r.ok) throw new Error(`种子建节点失败：${r.error.message}`);
+      return r.nodeId;
+    };
+    const idA = seedIn(projA);
+    const idB = seedIn(projB);
+    expect(idA).toBe(idB); // 结构性前提钉死：跨项目 id 碰撞必然（受害链起点）
+
+    // 项目 A 节点已到达（复合键登记）→ 项目 B 同 id 节点必须照常注入（裸 id 键空间下会被静默误排）
+    attachment.markInjected("sess-MP", [{ project: projA, nodeId: idA }]);
+    const out = query.injectTaskSlice("sess-MP", "改造队列写入路径");
+    expect(out).toContain(SLICE_HEADER);
+    expect(out).toContain(`kg get ${idB}（project: projB）`); // 多项目指针尾注（renderEntry multiProject 形态）
+    expect(out).not.toContain(`kg get ${idA}（project: projA）`);
+    // 反向同型：项目 B 已到达不排项目 A（对称键空间）
+    attachment.markInjected("sess-MP2", [{ project: projB, nodeId: idB }]);
+    const out2 = query.injectTaskSlice("sess-MP2", "改造队列写入路径");
+    expect(out2).toContain(`kg get ${idA}（project: projA）`);
   });
 
   test("⑥ spawn 派发挂点（探查 A 六跳链挂点）：SchedulerService.taskInjector → task 文本携带切片", () => {

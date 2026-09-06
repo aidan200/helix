@@ -296,6 +296,60 @@ describe("resume 暂停期重试耗尽上浮（H1）", () => {
       expect(env.starter.calls).toEqual([`resume:${jobId}`, `start:${jobId}`]);
     });
   });
+
+  test("F3：耗尽批次 resume 时因兄弟在跑被跳过 → 兄弟收口 done 时 completeBatch 延迟上浮清场（不再永久卡死）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId, batchId, scope } = await launchRunningJob(env);
+      const { batchId: batchId2 } = await env.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次 2" });
+      await env.engine.dispatchBatch(batchId2, "inst-d");
+      // 批次 1 三次失败耗尽预算（第三次在暂停期 → failBatch 不上浮）
+      await env.engine.failBatch(batchId, "f1");
+      await env.engine.dispatchBatch(batchId, "inst-b");
+      await env.engine.failBatch(batchId, "f2");
+      await env.engine.dispatchBatch(batchId, "inst-c");
+      await env.engine.pause(jobId);
+      await env.engine.failBatch(batchId, "f3");
+      // resume：兄弟批次 2 仍 running（parked 待复活）→ othersTerminal 守卫跳过，正常续跑
+      await env.engine.resume(jobId);
+      expect(env.store.getJob(jobId)!.status).toBe("running");
+      env.starter.calls.length = 0;
+      // 兄弟批次收口 done → 同阶段其余批次全终态 → 耗尽批次延迟上浮（修复前：无任何机械收口路径，job 永久卡 running）
+      await env.engine.completeBatch(batchId2);
+      expect(env.store.getBatch(batchId2)!.status).toBe("done"); // 迟到成功保留：done 照落不反转
+      expect(env.store.getStages(jobId).find((s) => s.seq === 1)!.status).toBe("failed");
+      const job = env.store.getJob(jobId)!;
+      expect(job.status).toBe("failed");
+      expect(job.error).toContain(scope);
+      expect(job.error).toContain("延迟上浮");
+      expect(env.starter.halts).toEqual([jobId]);
+      expect(env.starter.calls).toEqual([`halt:${jobId}`]);
+    });
+  });
+
+  test("F3：兄弟批次暂停期已收口 done（paused 下不判）→ resume 时 othersTerminal 成立直接上浮", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId, batchId, scope } = await launchRunningJob(env);
+      const { batchId: batchId2 } = await env.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次 2" });
+      await env.engine.dispatchBatch(batchId2, "inst-d");
+      await env.engine.failBatch(batchId, "f1");
+      await env.engine.dispatchBatch(batchId, "inst-b");
+      await env.engine.failBatch(batchId, "f2");
+      await env.engine.dispatchBatch(batchId, "inst-c");
+      await env.engine.pause(jobId);
+      // 暂停期：批次 1 耗尽 + 兄弟批次 2 自然收口 done（O-2 照常落库不推进——completeBatch 不触发上浮）
+      await env.engine.failBatch(batchId, "f3");
+      await env.engine.completeBatch(batchId2);
+      expect(env.store.getJob(jobId)!.status).toBe("paused");
+      env.starter.calls.length = 0;
+      // resume：同阶段其余批次全终态（done）→ 既有补判面上浮清场
+      await env.engine.resume(jobId);
+      expect(env.store.getStages(jobId).find((s) => s.seq === 1)!.status).toBe("failed");
+      const job = env.store.getJob(jobId)!;
+      expect(job.status).toBe("failed");
+      expect(job.error).toContain(scope);
+      expect(env.starter.calls).toEqual([`halt:${jobId}`]);
+    });
+  });
 });
 
 describe("cancel 语义（CL-3-T7）", () => {

@@ -40,9 +40,9 @@ describe("M6：sessionSeen LRU 容量上限", () => {
     expect(map.has("s-new")).toBe(true);
   });
 
-  test("同会话去重集合跨淘汰语义外保持一致（回归：seen 内容随条目保留）", () => {
+  test("同会话去重集合跨淘汰语义外保持一致（回归：seen 内容随条目保留；复合键口径，F3）", () => {
     const svc = makeService();
-    (svc.seenInSession("s-x") as Set<string>).add("TR-1");
-    expect([...svc.seenInSession("s-x")]).toEqual(["TR-1"]);
+    svc.markInjected("s-x", [{ project: "/ws/proj", nodeId: "TR-1" }]);
+    expect([...svc.seenInSession("s-x")]).toEqual(["/ws/proj\u0000TR-1"]);
   });
 });

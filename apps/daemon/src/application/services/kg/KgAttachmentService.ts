@@ -14,16 +14,19 @@
  * 依赖新鲜度，快照滞后合法，AD-15）。
  *
  * 会话级跨通道去重注册表（F1.2）本服务唯一持有：attachAfterEdit 附着过
- * 的 nodeId 与 markInjected（T3.3 任务层切片注入后登记）注入过的 nodeId
- * 共享同一 Set——同会话内两通道互斥不再重复到达。
+ * 的节点与 markInjected（T3.3 任务层切片注入后登记）注入过的节点
+ * 共享同一 Set——同会话内两通道互斥不再重复到达。键型 = `project\0nodeId`
+ * 复合键（seenKeyOf 单点，F3 修复：多项目 workspace 同 id 节点互不静默
+ * 排除——裸 id 键空间下项目 A 已到达的 TR-n 会误排项目 B 的同 id 节点）。
  */
 
 import { relative } from "node:path";
 import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort";
 import type { AttachmentSnapshot } from "../../../domain/kg/types";
 import { matchAnchors } from "../../../domain/kg/attachment/scope-matcher";
-import { applyBudget, ATTACHMENT_TOKEN_BUDGET } from "../../../domain/kg/attachment/budget";
+import { applyBudget, ATTACHMENT_TOKEN_BUDGET, seenKeyOf } from "../../../domain/kg/attachment/budget";
 import { renderAttachment } from "../../../domain/kg/attachment/render";
+import type { InjectedNodeRef } from "./KgQueryService";
 
 export interface KgAttachmentServiceDeps {
   readonly graph: KnowledgeGraphPort;
@@ -84,9 +87,9 @@ export class KgAttachmentService {
         },
         snapshot,
       );
-      const selection = applyBudget(matched, seen, { maxTokens: ATTACHMENT_TOKEN_BUDGET });
+      const selection = applyBudget(matched, seen, { maxTokens: ATTACHMENT_TOKEN_BUDGET }, input.projectRoot);
       for (const anchor of selection.anchors) {
-        seen.add(anchor.nodeId); // 本通道附着计入跨通道注册表（同会话不再附）
+        seen.add(seenKeyOf(input.projectRoot, anchor.nodeId)); // 本通道附着计入跨通道注册表（同会话不再附）
       }
       return renderAttachment(selection);
     } catch {
@@ -95,17 +98,19 @@ export class KgAttachmentService {
   }
 
   /**
-   * 任务层注入登记（T3.3 消费面）：sessionId 内已注入过的节点 id 不再被
-   * 动作层附着——跨通道共享同一注册表的机械落点。
+   * 任务层注入登记（T3.3 消费面）：sessionId 内已注入过的节点不再被
+   * 动作层附着——跨通道共享同一注册表的机械落点。project+nodeId 成对
+   * 入复合键（seenKeyOf 口径；多项目同 id 节点互不误排）。
    */
-  markInjected(sessionId: string, nodeIds: string[]): void {
+  markInjected(sessionId: string, nodes: readonly InjectedNodeRef[]): void {
     const seen = this.seenOf(sessionId);
-    for (const nodeId of nodeIds) seen.add(nodeId);
+    for (const n of nodes) seen.add(seenKeyOf(n.project, n.nodeId));
   }
 
   /**
-   * 会话已到达节点 id 读面（T3.3 切片注入排除输入；与 markInjected 同一
-   * 注册表——注入前排除已达 id，注入后登记新达 id，两通道互斥闭环）。
+   * 会话已到达节点读面（T3.3 切片注入排除输入；与 markInjected 同一
+   * 注册表——注入前排除已达节点，注入后登记新达节点，两通道互斥闭环）。
+   * 返回 `project\0nodeId` 复合键集合（selectTaskSlice 同口径消费）。
    */
   seenInSession(sessionId: string): ReadonlySet<string> {
     return this.seenOf(sessionId);

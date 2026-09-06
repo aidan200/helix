@@ -467,6 +467,49 @@ describe("T2.1 ⑤ 投影幂等：同事件重放不重复落树", () => {
   });
 });
 
+// ── F3 并发实例 toolCallId 重号：复合键隔离 ─────────────────────────
+
+describe("F3 并发实例 toolCallId 重号：投影复合键隔离不串号", () => {
+  test("两实例同 toolCallId：start 互不误判幂等，result 各自回填本实例记录", async () => {
+    const repository = new InMemorySessionRepository();
+    const session = Session.create("s-f3-tools", new Date(0).toISOString());
+    const projection = new SessionProjection({
+      repository,
+      getSession: () => session,
+      getMainState: () => ({ agentState: "idle", toolCalls: [] }),
+    });
+    const occurredAt = new Date(1000).toISOString();
+    const start = (instanceId: string, args: unknown) =>
+      ({
+        type: "tool.call.started",
+        sessionId: "s-f3-tools",
+        instanceId,
+        payload: { toolCallId: "tc-1", toolName: "grep", args },
+        occurredAt,
+      }) satisfies DomainEvent;
+    const result = (instanceId: string, resultText: string) =>
+      ({
+        type: "tool.call.result",
+        sessionId: "s-f3-tools",
+        instanceId,
+        payload: { toolCallId: "tc-1", toolName: "grep", args: undefined, isError: false, result: resultText },
+        occurredAt,
+      }) satisfies DomainEvent;
+    projection.publish(start("agent-1", { pattern: "A" }));
+    projection.publish(start("agent-2", { pattern: "B" })); // 裸键下被误判幂等丢弃
+    projection.publish(result("agent-2", "命中B")); // 裸键下错完成 agent-1 的记录
+    projection.publish(result("agent-1", "命中A"));
+    const data = projection.subAgentToolCallData();
+    expect(data).toHaveLength(2);
+    const a = data.find((t) => t.instanceId === "agent-1")!;
+    const b = data.find((t) => t.instanceId === "agent-2")!;
+    expect(a.status).toBe("completed");
+    expect(a.result).toBe("命中A");
+    expect(b.status).toBe("completed");
+    expect(b.result).toBe("命中B");
+  });
+});
+
 // 挂起句柄防泄漏（makeRig 的 afterEach 之外自管 home 的用例已内联清理）
 function client_framesAfter(client: WsClient, afterIndex: number) {
   return client.frames.slice(afterIndex);

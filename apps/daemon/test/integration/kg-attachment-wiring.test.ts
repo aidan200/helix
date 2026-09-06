@@ -313,8 +313,8 @@ describe("edit 附着接线（真 .helix-kg 锚表）", () => {
     const b = await run(ws.toolFor("sess-fresh"), { path: "proj/src/feat.ts", edits: [{ oldText: "  return cache;", newText: "  return cache ?? 0;" }] }, ws.env);
     expect(b.ok && b.text).toBe("Successfully replaced 1 block(s) in proj/src/feat.ts.");
 
-    // C. 他会话先经任务层 markInjected（T3.3 同一注册表）→ 动作层不再附
-    ws.attachment.markInjected("sess-dedup", [tr1]);
+    // C. 他会话先经任务层 markInjected（T3.3 同一注册表；复合键 project+nodeId，F3）→ 动作层不再附
+    ws.attachment.markInjected("sess-dedup", [{ project: ws.proj, nodeId: tr1 }]);
     const c = await run(ws.toolFor("sess-dedup"), { path: "proj/src/feat.ts", edits: [{ oldText: "const cache = handlerCache() ?? null;", newText: "const cache = handlerCache() ?? undefined;" }] }, ws.env);
     expect(c.ok && c.text).toBe("Successfully replaced 1 block(s) in proj/src/feat.ts.");
 

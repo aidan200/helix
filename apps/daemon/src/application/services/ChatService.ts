@@ -60,6 +60,9 @@ interface ChatServiceDepsBase {
    * 收到的文本；空命中/失败须原文透传（宁可沉默）。steer/closure 注入
    *（source 携带）不经过——不每轮注入。跨通道去重由注入器内 markInjected
    *（sessionId 维）保证（orchestrator 派发路径同键）。缺省不注入。
+   * 契约：实现必须不抛——注入是增强不是阻断（F3 修复：调用点在 lifecycle
+   * 已置 running 后同步调用，异常逃逸无 settleRunEnd 会卡死会话；调用点
+   * 另有 try/catch 兜底回退原文，双保险）。
    */
   readonly taskSliceInjector?: (sessionId: string, text: string) => string;
   /**
@@ -249,9 +252,10 @@ export class ChatService implements ChatPort {
         // ③ idle→running，驱动引擎（await 整个 run：含工具轮与 steer drain 轮）
         this.setLifecycle("running");
         // W2-D R9/R10：真实用户消息（source 缺省）首轮开工前过一次切片注入——
-        // 仅引擎收到的文本注入，聚合 Entry 恒为用户原文（注入是瞬时提示上下文）
-        const engineText =
-          source === undefined ? (this.deps.taskSliceInjector?.(this.session.id, text) ?? text) : text;
+        // 仅引擎收到的文本注入，聚合 Entry 恒为用户原文（注入是瞬时提示上下文）。
+        // F3 修复：注入器异常兜底回退原文——此处 lifecycle 已置 running，异常
+        // 逃逸将无 settleRunEnd（会话卡死 running）；注入是增强，绝不阻断轮次。
+        const engineText = source === undefined ? this.injectTaskSlice(text) : text;
         const run = (async () => {
           try {
             await this.deps.engine.start(engineText, (e) => this.onEngineEvent(e), images);
@@ -300,6 +304,16 @@ export class ChatService implements ChatPort {
     this.publish<SteerPayload>("steer.queued", { entryId, text, source: "user" });
     this.deps.engine.steer(text);
     return { entryId };
+  }
+
+  /** 切片注入防御面（F3）：契约要求注入器不抛（增强不是阻断），此处仍兜底——
+   * 调用点 lifecycle 已置 running，异常逃逸无 settleRunEnd 会卡死会话；抛错回退原文。 */
+  private injectTaskSlice(text: string): string {
+    try {
+      return this.deps.taskSliceInjector?.(this.session.id, text) ?? text;
+    } catch {
+      return text;
+    }
   }
 
   /** 定向 steer 分支（契约 v0.3 §3.2，Q-3a）：① 转投 AgentOrchestrationPort.send（agent_send 同链路）；② delivered=false → SteerTargetNotRunningError，不落 Entry 不入队（TR-AD-21）；③ 已投递 → applyDirectedSteer 落主时间轴（不入主 SteerQueue、不双写实例 channel）+ steer.queued 信封挂 instanceId=目标。 */

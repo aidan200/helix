@@ -39,8 +39,8 @@ import type { SessionUsageSummary, UsageSummary } from "../../domain/session/Ses
  * - 流式 delta 不是领域事件、不落盘（publishDelta 空实现，AD-16 §5.3）；
  * - 只投影本会话事件（sessionId 归属判定——SessionRegistry 多会话分仓
  *   的前置语义；异会话事件忽略）；
- * - 幂等：同事件重放不重复落树（entryId/toolCallId 去重——恢复重放与运行期
- *   重复投递双防护）；
+ * - 幂等：同事件重放不重复落树（entryId / `instanceId:toolCallId` 复合键去重
+ *   ——恢复重放与运行期重复投递双防护）；
  * - 投影经既有 SessionRepositoryPort 面（TR-AD-2 port 归属），不新增越层直引。
  */
 export interface SessionProjectionDeps {
@@ -63,7 +63,8 @@ export interface SessionProjectionDeps {
 
 export class SessionProjection implements EventPublisherPort {
   private usageLedger: UsageLedgerData;
-  /** SubAgent 工具调用记录（id → 聚合；投影消费 tool.call.* 事件维护）。 */
+  /** SubAgent 工具调用记录（`${instanceId}:${toolCallId}` 复合键 → 聚合；F3 修复：
+   * 并发实例各自子进程 toolCallId 可重号，裸 id 键会误判幂等丢弃/结果错回填）。 */
   private readonly subToolCalls = new Map<string, ToolCallRecord>();
   /** 已落树条目 id（幂等判据：重放零追加；构造时以恢复态种子）。 */
   private readonly projectedEntryIds: Set<string>;
@@ -175,16 +176,17 @@ export class SessionProjection implements EventPublisherPort {
       case "tool.call.started": {
         if (!this.isSubAgent(event)) return;
         const p = event.payload as ToolCallPayload;
-        if (this.subToolCalls.has(p.toolCallId)) return; // 幂等
+        const key = `${event.instanceId}:${p.toolCallId}`; // 实例维复合键（并发实例 toolCallId 可重号）
+        if (this.subToolCalls.has(key)) return; // 幂等
         const record = ToolCallRecord.create(p.toolCallId, p.toolName, p.args, event.instanceId!);
         record.markRunning(event.occurredAt);
-        this.subToolCalls.set(p.toolCallId, record);
+        this.subToolCalls.set(key, record);
         return;
       }
       case "tool.call.result": {
         if (!this.isSubAgent(event)) return;
         const p = event.payload as ToolResultPayload;
-        const record = this.subToolCalls.get(p.toolCallId);
+        const record = this.subToolCalls.get(`${event.instanceId}:${p.toolCallId}`); // 同复合键取本实例记录
         if (record === undefined || record.status !== "running") return; // 幂等/迟到收口
         if (p.isError) record.fail(p.result, event.occurredAt);
         else record.complete(p.result, event.occurredAt);
