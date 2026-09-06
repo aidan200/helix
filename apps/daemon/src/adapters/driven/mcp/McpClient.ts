@@ -143,6 +143,12 @@ export class McpClient {
 
     this.proc = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env, cwd });
 
+    // stdin error 兜底监听：子进程死亡到 close 投递的竞态窗口内 write 会
+    // 触发 EPIPE/ERR_STREAM_DESTROYED，stream error 无监听 = uncaught 击穿
+    // daemon——挂监听吞掉（在飞请求由 close/超时就位拒绝，不丢语义）。
+    this.proc.stdin?.on("error", (err) => {
+      this.logger.warn(`mcp[${this.name}] stdin 写入错误（进程将退出）：${err.message}`);
+    });
     this.proc.stdout?.on("data", (chunk: Buffer) => this.onData(chunk));
     this.proc.stderr?.on("data", (chunk: Buffer) => {
       this.logger.info(`mcp[${this.name}] stderr: ${chunk.toString("utf-8").trimEnd()}`);

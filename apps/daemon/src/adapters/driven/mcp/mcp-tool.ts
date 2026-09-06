@@ -22,14 +22,30 @@ import type { McpToolDefinition } from "./types";
  * 同既有工具语义）。
  */
 
-/** content 块拼接：text 块取 text，其余 JSON 序列化占位。 */
+/**
+ * content 块拼接：text 块取 text；image/audio/resource 块占位（二进制
+ * base64 原文不进模型上下文——单调用可撑爆上下文）；其余 JSON 序列化。
+ */
 function textOfContent(content: unknown[]): string {
   const text = content
-    .map((item) =>
-      typeof item === "object" && item !== null && "text" in item
-        ? String((item as { text: unknown }).text)
-        : JSON.stringify(item),
-    )
+    .map((item) => {
+      if (typeof item !== "object" || item === null) return JSON.stringify(item);
+      const block = item as Record<string, unknown>;
+      if ("text" in block) return String(block.text);
+      const mimeType = typeof block.mimeType === "string" ? block.mimeType : "unknown";
+      if (block.type === "image" || block.type === "audio") {
+        return `[${block.type} mimeType=${mimeType}]`;
+      }
+      if (block.type === "resource") {
+        const resource = (typeof block.resource === "object" && block.resource !== null
+          ? block.resource
+          : {}) as Record<string, unknown>;
+        const uri = typeof resource.uri === "string" ? resource.uri : "unknown";
+        const resMime = typeof resource.mimeType === "string" ? resource.mimeType : mimeType;
+        return `[resource uri=${uri} mimeType=${resMime}]`;
+      }
+      return JSON.stringify(item);
+    })
     .join("\n");
   return text || "(no content)";
 }
