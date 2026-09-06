@@ -419,13 +419,16 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     // 父子 IPC 传输通道，不是配置来源。T2.3（AD-2 auth 分层）起 apiKeys
     // 源头仍且仅是 auth.json（AuthStore，0600+文件锁；旧 config.json 含
     // apiKeys 字段时启动迁移，见 infrastructure/config.ts）。
-    // T1.1（AD-2/F3.1）新增组合根唯一例外：container.ts 可读且仅可读
+    // T1.1（AD-2/F3.1）新增组合根唯一例外：装配层可读且仅可读
     // HELIX_RG_PATH（壳注入的 rg bundle 资源定位参数，非配置源）——读取
     // 收束于装配层单点作为 resolve-rg 入参（resolve-rg.ts 本体零 env
     // 依赖）。rg 唯一化后其 PATH 级已砍。
     // T2.1（AF-2）：同模式扩 HELIX_CODEGRAPH_PATH（codegraph 二级解析第①级
     // bundle 注入键，resolve-codegraph.ts 本体零 env 依赖）；codegraph
-    // bundle-only 化后 PATH 级同砍，container.ts env 读取面收至两键。
+    // bundle-only 化后 PATH 级同砍，装配层 env 读取面收至两键。
+    // M5 切片：两键读取面随 grep/codegraph 定格自 container.ts 迁
+    // assembly/bootPrelude.ts（AG-02④ 豁免面内移动，AG-08 语义不变——
+    // container.ts 本体清零）。
     // mcp 批：mcp/ 同白名单（McpClient spawn MCP server 子进程需环境继承
     //（{...process.env, ...config.env}——PATH 等运行时必需），与 subagent
     // 的 env IPC 同理：子进程环境透传，非配置源）。
@@ -433,16 +436,19 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       path.join("adapters", "driven", "subagent"),
       path.join("adapters", "driven", "mcp"),
     ];
-    const containerRel = path.join("infrastructure", "container.ts");
+    // env 读取例外面（组合根豁免面内）：文件 → 允许键集合（升序；空数组 = 零键——
+    // M5 后 container.ts 不读 env，两键收束 bootPrelude）。
+    const envReaderRules: readonly (readonly [string, readonly string[]])[] = [
+      [path.join("infrastructure", "container.ts"), []],
+      [path.join("infrastructure", "assembly", "bootPrelude.ts"), ["HELIX_CODEGRAPH_PATH", "HELIX_RG_PATH"]],
+    ];
     for (const rel of listFiles(srcRoot)) {
       if (whitelistRoots.some((root) => rel.startsWith(root))) continue;
       const src = read(rel);
-      if (rel === containerRel) {
+      const rule = envReaderRules.find(([file]) => file === rel);
+      if (rule !== undefined) {
         const envKeys = [...new Set([...src.matchAll(/process\.env\.([A-Z_]+)/g)].map((m) => m[1]!))].sort();
-        expect(envKeys, `container.ts 可读 env 键仅限 HELIX_CODEGRAPH_PATH/HELIX_RG_PATH，实际：${envKeys.join(",")}`).toEqual([
-          "HELIX_CODEGRAPH_PATH",
-          "HELIX_RG_PATH",
-        ]);
+        expect(envKeys, `${rel} 可读 env 键仅限 ${rule[1].join("/") || "（零键）"}，实际：${envKeys.join(",")}`).toEqual([...rule[1]]);
         continue;
       }
       expect(src.includes("process.env"), `${rel} 读取了环境变量（AG-08）`).toBe(false);

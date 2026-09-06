@@ -42,12 +42,20 @@ describe("P1 T3 ⑤ 结构守护：建会话链字面量参数化（default 下�
   const srcRoot = path.join(import.meta.dir, "..", "..", "src");
 
   test("engineFor 槽位 kind 从 mode 解析（modelSlot/thinkingSlot 不再硬编码 main-session）", () => {
+    // M5 切片：engineFor 迁 assembly/sessionEngineFactory——结构钉子跟随锚面。
+    const factory = readFileSync(
+      path.join(srcRoot, "infrastructure", "assembly", "sessionEngineFactory.ts"),
+      "utf8",
+    );
+    expect(factory).toContain("profileKindOf(mode)"); // 参数化取值点
+    expect(factory).not.toContain('modelSlot("main-session")'); // 字面量退役
+    expect(factory).not.toContain('thinkingSlot("main-session")');
+    // 装配主文件同样不得回退字面量（两锚面负命题）。
     const stack = readFileSync(
       path.join(srcRoot, "infrastructure", "assembly", "buildSessionStack.ts"),
       "utf8",
     );
-    expect(stack).toContain("profileKindOf(mode)"); // 参数化取值点
-    expect(stack).not.toContain('modelSlot("main-session")'); // 字面量退役
+    expect(stack).not.toContain('modelSlot("main-session")');
     expect(stack).not.toContain('thinkingSlot("main-session")');
   });
 

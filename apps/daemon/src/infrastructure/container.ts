@@ -19,11 +19,9 @@ import { isMainInstanceId } from "../domain/agent/AgentInstance";
 import { SubagentLauncher } from "../adapters/driven/subagent/SubagentLauncher";
 import { CdpConnectionManager } from "../adapters/driven/cdp/CdpConnectionManager";
 import { createPaths, osHomeDir, builtinSkillsDir, type HelixPaths } from "./paths";
-import { ensureConfigTemplate, loadConfig, writeConfig, DEFAULT_PORT, type DaemonConfig, type LegacyModelConfig } from "./config";
+import { ensureConfigTemplate, loadConfig, type DaemonConfig, type LegacyModelConfig } from "./config";
 import type { PortConfigPort } from "../application/ports/outbound/PortConfigPort";
 import { McpRegistry } from "../adapters/driven/mcp/McpRegistry";
-import { resolveRgPath } from "../adapters/driven/tools/grep/resolve-rg";
-import { resolveCodegraphPath } from "../adapters/driven/codegraph-engine/resolve-codegraph";
 import { buildEditToolDeps, buildKnowledgeStack } from "./assembly/buildKnowledgeStack";
 import { createOrchestratorSessionFactory } from "./assembly/orchestrator-runtime";
 import { TaskOrchestratorService } from "../application/services/task/TaskOrchestratorService";
@@ -32,8 +30,6 @@ import type { TaskOrchestratorStarterPort } from "../application/ports/outbound/
 /** W2-D R13 job 终态同步提示文案随编排服务切片迁 assembly/buildTaskOrchestrator（M29）。 */
 import { scanWorkspaceProjects, existingKgProjects } from "../adapters/driven/workspace-scan";
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
-import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS } from "../adapters/driven/tools/grep/freeze-backend";
-import { accessSync, constants as fsConstants } from "node:fs";
 import { rm, readFile } from "node:fs/promises";
 import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
@@ -43,6 +39,7 @@ import { buildTaskStack } from "./assembly/buildTaskStack";
 import { buildKgResolverGroup } from "./assembly/buildKgResolverGroup";
 import { buildTaskOrchestrator } from "./assembly/buildTaskOrchestrator";
 import { buildCliDriving, buildWsDriving } from "./assembly/buildDrivingAdapters";
+import { freezeSearchBackends, migrateLegacyModelConfig, migrateLegacyRuntimeConfig, resolveWsPort } from "./assembly/bootPrelude";
 import { hasActiveJob } from "../application/services/kg/job-activity";
 import type { TaskStorePort } from "../application/ports/outbound/TaskStorePort";
 import { buildSessionStack, type AssemblyBackfill, type EngineAssemblyMode, type MainSessionLlmOverride } from "./assembly/buildSessionStack";
@@ -80,6 +77,8 @@ import { createWorkspaceFs } from "../adapters/driven/workspace-fs";
  * M29 切片：kg 解析器群（buildKgResolverGroup）/ 任务编排服务
  * （buildTaskOrchestrator）/ driving 接线两阶段（buildDrivingAdapters）
  * 均归 infrastructure/assembly（AG-02④ 豁免面），装配顺序语义不变。
+ * M5 切片：启动序前置域（bootPrelude——grep/codegraph 定格 + legacy
+ * 迁移两批 + WS 端口解析链）同归豁免面，原位调用零行为改动。
  *
  * 持久化：SQLite WAL `<home>/helix.db`；WriteQueue 是 daemon 内唯一
  * SQLite 写通道（AG-06），每会话独立仓位按 session_id 路由（分仓写队列）；
@@ -241,29 +240,6 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
 }
 
 /**
- * 解析 KV daemon_port 值（0-65535 整数字符串；非法/未设 → undefined/null 语义由调用方区分）。*/
-function parseStoredPort(raw: string | undefined): number | null {
-  if (raw === undefined) return null;
-  if (!/^\d+$/.test(raw)) return null;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 0 || n > 65535) return null;
-  return n;
-}
-
-/**
- * rg 可执行探测（resolve-rg 的 probe 注入面，装配层唯一实现）：存在且可执行。
- * 抛错（ENOENT/EACCES 等）一律视为不可用——与 resolve-rg 的保守降级语义同调。
- */
-function isExecutableFile(p: string): boolean {
-  try {
-    accessSync(p, fsConstants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * 共享装配核心（组合根接缝， §4.3）：生产 createDaemon 与测试工厂
  * createTestDaemon 的公共装配序——启动序前置产物由入口传入（deps），
  * 本函数只做装配不做形态决断（async：重启恢复需读盘）。
@@ -286,94 +262,28 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const config = deps.config;
   const legacy = deps.legacy;
 
-  // ── grep 后端启动定格（AD-2/F3.1/F3.2，AF-1 权威语义：装配层一次性──
-  //    resolve-rg 二级解析（bundle → config；无 PATH 级——版本不可控与──
-  //    pin 确定性相悖）+ rg --version 探针（2s 超时/退出码 0），结果内存──
-  //    定格——进程生命周期内不重新解析、不升级）──
-  // HELIX_RG_PATH 的 process.env 读取收束于本组合根（AG-08 唯一例外面，
-  // 壳注入的资源定位参数，非配置源）；resolve-rg.ts 本体零 env/fs 依赖。
-  // 定格产物经 buildSessionStack → CoreToolExecutor 注入 grep 门面（rg 单
-  // 后端：unavailable 定格时工具响亮失败，无 TS 兜底）。
-  const rgResolution = resolveRgPath({
-    bundlePath: process.env.HELIX_RG_PATH,
-    configPath: config.rgPath,
-    probe: isExecutableFile,
-  });
-  const rgProbe =
-    rgResolution.kind === "resolved"
-      ? await probeRgVersion(rgResolution.path, RG_PROBE_TIMEOUT_MS)
-      : undefined;
-  const grepFreeze = freezeGrepBackend(rgResolution, rgProbe);
-  if (grepFreeze.kind === "rg") {
-    logger.info(`grep 后端定格 rg（source=${grepFreeze.source}）：${grepFreeze.rgPath}`);
-  } else {
-    logger.warn(`grep 后端定格 unavailable（工具将响亮失败）：${grepFreeze.reasons.join("；")}`);
-  }
-
-  // ── codegraph 引擎单级解析定格（T2.1/AF-2 bundle-only，TR-AD-32 同模式）──
-  //    HELIX_CODEGRAPH_PATH 的 process.env 读取收束于本组合根
-  //    （AG-08 唯一例外面，壳注入的资源定位参数，非配置源）；
-  //    resolve-codegraph.ts 本体零 env/fs 依赖。miss ≠ 装配失败：
-  //    引擎面定格不可用（binaryPath=null），构建面 degraded（AF-2）。──
-  const codegraphResolution = resolveCodegraphPath({
-    bundlePath: process.env.HELIX_CODEGRAPH_PATH,
-    probe: isExecutableFile,
-  });
-  if (codegraphResolution.kind === "resolved") {
-    logger.info(`codegraph 引擎定格（bundle）：${codegraphResolution.path}`);
-  } else {
-    logger.info(`codegraph 引擎不可用（构建面 degraded，AF-2）：${codegraphResolution.reasons.join("；")}`);
-  }
+  // ── grep/codegraph 后端启动定格（M5 切片迁 assembly/bootPrelude——AF-1
+  //    二级解析 + rg 探针 / AF-2 bundle-only 语义注释随切片迁移；AG-08 env
+  //    读取例外面同迁）。定格产物原位消费：grep → buildSessionStack 注入；
+  //    codegraphResolution → buildKnowledgeStack/子进程 env 透传。──
+  const { grepFreeze, codegraphResolution } = await freezeSearchBackends({ config, logger });
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
   const persistence = buildPersistence({ paths, logger });
 
-  // ── config 瘦身批迁移（一次性，幂等；先于端口解析与 MCP 预热）：旧
-  //    config.json 含 port/maxConcurrent/maxQueued/mcpServers → 写新位
-  //    （KV daemon_port / KV scheduling_config / mcp_server 表）+ config.json
-  //    重写瘦身形态。model/apiKeys 迁移在模型栈就绪后（见下方既有段）。──
-  if (
-    legacy.port !== undefined ||
-    legacy.maxConcurrent !== undefined ||
-    legacy.maxQueued !== undefined ||
-    legacy.mcpServers !== undefined
-  ) {
-    const migrated: string[] = [];
-    if (legacy.port !== undefined) {
-      await persistence.runtimeConfig.set("daemon_port", String(legacy.port));
-      migrated.push(`port=${legacy.port} → KV daemon_port`);
-    }
-    if (legacy.maxConcurrent !== undefined || legacy.maxQueued !== undefined) {
-      const budget = persistence.schedulingConfig.current(); // 未迁字段回落现值/缺省
-      await persistence.schedulingConfig.set({
-        maxConcurrent: legacy.maxConcurrent ?? budget.maxConcurrent,
-        maxQueued: legacy.maxQueued ?? budget.maxQueued,
-      });
-      migrated.push("调度预算 → KV scheduling_config");
-    }
-    if (legacy.mcpServers !== undefined) {
-      await persistence.mcpConfig.replaceAll(legacy.mcpServers);
-      migrated.push(`mcpServers → mcp_server 表（${legacy.mcpServers.length} 项）`);
-    }
-    writeConfig(paths.configPath(), config); // 重写瘦身形态（旧字段不再出现）
-    logger.info(`已迁移旧配置（config 瘦身批）：${migrated.join("；")}；config.json 已重写瘦身形态`);
-  }
+  // ── config 瘦身批迁移第一批（M5 切片迁 assembly/bootPrelude；一次性幂等，
+  //    先于端口解析与 MCP 预热——port/调度预算/mcpServers → 新位 + config.json
+  //    重写瘦身形态）。model/apiKeys 迁移在模型栈就绪后（见下方第二批）。──
+  await migrateLegacyRuntimeConfig({ legacy, persistence, paths, config, logger });
 
-  // ── WS 端口解析链（2026-09-05 config.json 瘦身：argv --port > KV
-  //    daemon_port > 缺省 7333；config.json port 字段退役——上方迁移段把旧值
-  //    写入 KV）。port 是启动期定格参数：set 后下次启动生效。──
-  const argvPort = deps.port; // argv --port 本次运行显式覆盖（不回写 KV）
-  const kvPort = parseStoredPort(persistence.runtimeConfig.get("daemon_port"));
-  const resolvedPort = argvPort ?? kvPort ?? DEFAULT_PORT;
-
-  /** WS 端口配置面（config.get/set_port 回口；晚绑实际监听端口）。 */
-  let effectivePortNow: number | undefined;
-  const portConfig: PortConfigPort = {
-    effectivePort: () => effectivePortNow ?? resolvedPort,
-    overriddenByArgv: () => argvPort !== undefined,
-    storedPort: () => parseStoredPort(persistence.runtimeConfig.get("daemon_port")),
-    setPort: (port) => persistence.runtimeConfig.set("daemon_port", String(port)),
-  };
+  // ── WS 端口解析链 + PortConfigPort（M5 切片迁 assembly/bootPrelude——
+  //    argv --port > KV daemon_port > 缺省 7333；config.json port 字段退役——
+  //    上方迁移第一批把旧值写入 KV，故本链在迁移后求值；port 启动期定格，
+  //    set 后下次启动生效）。──
+  const { resolvedPort, portConfig, bindEffectivePort } = resolveWsPort({
+    argvPort: deps.port, // argv --port 本次运行显式覆盖（不回写 KV）
+    runtimeConfig: persistence.runtimeConfig,
+  });
 
   // ── workspace 绑定面（W1 绑定闭环）：绑定状态机唯一事实源 + 绑定 kg 栈
   //    持有者（重绑接缝）。物化时机迁移：unbound boot 零扫描零同步零开库
@@ -733,19 +643,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     };
   }
 
-  // ── 旧格式迁移（一次性，幂等）：config.json 含 model/apiKeys →
-  //    写新位（auth.json / SQLite 默认表）+ config.json 重写瘦身形态 ──
-  if (legacy.model !== undefined || legacy.apiKeys !== undefined) {
-    for (const [providerId, apiKey] of Object.entries(legacy.apiKeys ?? {})) {
-      await modelStack.authStore.setKey(providerId, apiKey);
-    }
-    if (legacy.model !== undefined) await persistence.defaultModel.set(legacy.model);
-    writeConfig(paths.configPath(), config);
-    logger.info(
-      `已迁移旧配置：model → SQLite 默认模型表（${legacy.model ?? "无"}）；` +
-        `apiKeys → ${paths.authPath()}（${Object.keys(legacy.apiKeys ?? {}).length} 项）；config.json 已重写瘦身形态`,
-    );
-  }
+  // ── 旧格式迁移第二批（M5 切片迁 assembly/bootPrelude；一次性幂等，模型栈
+  //    就绪后）：config.json 含 model/apiKeys → auth.json / SQLite 默认表 +
+  //    config.json 重写瘦身形态。──
+  await migrateLegacyModelConfig({ legacy, persistence, paths, config, logger, modelStack });
 
   // ── driving 接线阶段一（M29 切片，assembly/buildDrivingAdapters）：
   //    chatRouter + stdout 发布器 + CLI——须在 wireEventFanout 之前
@@ -913,7 +814,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   });
 
   // config.get_port 回口晚绑回填：实际监听端口（0=随机时 ws.port 为分配值）
-  effectivePortNow = ws.port;
+  bindEffectivePort(ws.port);
 
   logger.info(`daemon 启动：home=${paths.home} 默认模型=${persistence.defaultModel.current()}（模型位已迁 SQLite 默认表 + auth.json，config.json 瘦身）`);
 
