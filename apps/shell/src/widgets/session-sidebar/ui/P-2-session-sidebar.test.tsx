@@ -247,3 +247,40 @@ describe("M51 删除 toast 结果驱动（deleteSession 结果 + daemon 确认�
     expect(zone.querySelector(".toast.err")).toBeNull();
   });
 });
+
+describe("F5 批 #6：timeLabel 非挂载定格", () => {
+  it("Date.now() 每次调用取——重渲染后相对时间标签随时间推进刷新", () => {
+    vi.useFakeTimers();
+    try {
+      const t0 = Date.parse("2026-01-01T12:00:00+08:00"); // TR-98：+08:00 字面量
+      vi.setSystemTime(t0);
+      stateRef.current = makeState("s1");
+      topologyRef.current = {
+        active: stateRef.current,
+        background: {},
+        list: [{ sessionId: "s1", title: "计时卡", lastActivityAt: t0 - 10_000, runState: "idle", loaded: true }],
+        modelConfig: createInitialModelConfigState(),
+        agentConfig: { revision: 0, slots: null },
+        webStatus: null,
+      };
+      const element = () => (
+        <ThemeProvider>
+          <I18nProvider>
+            <ToastProvider>
+              <SessionSidebar />
+            </ToastProvider>
+          </I18nProvider>
+        </ThemeProvider>
+      );
+      const view = render(element());
+      const card = () => screen.getByText("计时卡").closest("[data-session-card]")!;
+      expect(card().textContent).toContain("刚刚");
+      // 旧缺陷：useMemo([t]) 挂载定格 now → 35 分钟后仍「刚刚」（双向错误）
+      vi.setSystemTime(t0 + 35 * 60_000);
+      view.rerender(element());
+      expect(card().textContent).toContain("35 分钟前");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -35,6 +35,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
           deleteKeyInflight: null,
           setDefaultInflight: null,
           catalogRefreshing: false,
+          writeError: null,
           compaction: null,
     scheduling: null,
     port: null,

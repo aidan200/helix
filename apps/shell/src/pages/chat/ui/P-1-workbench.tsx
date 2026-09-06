@@ -29,9 +29,12 @@ export interface WorkbenchProps {
   onOpenInstance: (instanceId: string) => void;
   /** M52：侧栏「新建会话」后聚焦输入框回调（pages 层接线 Composer ref）。 */
   onFocusInput?: () => void;
+  /** F5 批 #7（TR-85）：统计 popover compaction 行锚点滚动回调（pages 层
+   *  接线 MessageFlow ref 窄接口）。 */
+  onScrollToCompaction?: () => void;
 }
 
-const Workbench = function Workbench({ children, onOpenInstance, onFocusInput }: WorkbenchProps) {
+const Workbench = function Workbench({ children, onOpenInstance, onFocusInput, onScrollToCompaction }: WorkbenchProps) {
   // header 槽开合状态（受控注入 TopBarActions；popover 渲染在本层）
   const [statsOpen, setStatsOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -57,7 +60,7 @@ const Workbench = function Workbench({ children, onOpenInstance, onFocusInput }:
       </AppLayout>
       {/* popover 载体：AppLayout 平级浮层（S1 布局契约，见文件头注释） */}
       {statsOpen && (
-        <UsagePopover onClose={() => setStatsOpen(false)} onOpenInstance={onOpenInstance} />
+        <UsagePopover onClose={() => setStatsOpen(false)} onOpenInstance={onOpenInstance} onScrollToCompaction={onScrollToCompaction} />
       )}
       {modelMenuOpen && <ModelSwitchMenu onClose={() => setModelMenuOpen(false)} />}
     </>

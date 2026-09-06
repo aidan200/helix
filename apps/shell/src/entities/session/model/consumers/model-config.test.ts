@@ -12,6 +12,8 @@ import {
   applyModelConfigAction,
   applyModelConfigEvent,
 } from "./model-config";
+import { dispatchFrame } from "../dispatcher/frame";
+import { topologyReducer } from "../topology";
 import { createInitialTopologyState } from "../state";
 import type { ModelConfigState, TopologyState } from "../state";
 import type { CatalogModel } from "@helix/protocol";
@@ -181,5 +183,121 @@ describe("model-config action 串行化约束（结果帧无 providerId 回携�
     expect(applyModelConfigAction(mc, { type: "model/set-key-started", providerId: "b" })).toBe(mc);
     mc = applyModelConfigAction(mc, { type: "model/delete-key-started", providerId: "a" });
     expect(applyModelConfigAction(mc, { type: "model/delete-key-started", providerId: "b" })).toBe(mc);
+  });
+});
+
+// ── F5 批 #1/#3：send 失败回滚族 + conn/disconnected 统一清位 + connection.error
+// 在途失败消费（TR-84——在途态必收口，不假反馈）──────────────────────────
+
+/** 全 in-flight 置位的模型配置面（清位测试基座）。 */
+function inflightMc(): ModelConfigState {
+  let mc = createInitialTopologyState().modelConfig;
+  mc = {
+    ...mc,
+    auth: {
+      anthropic: { providerId: "anthropic", configured: true, keyMasked: "····7f3a", verifyStatus: "ok", latencyMs: 120 },
+    },
+    defaultModel: "anthropic/old-default",
+  };
+  mc = applyModelConfigAction(mc, { type: "model/catalog-refresh-started" });
+  mc = applyModelConfigAction(mc, { type: "model/verify-started", providerId: "anthropic" });
+  mc = applyModelConfigAction(mc, { type: "model/set-key-started", providerId: "anthropic" });
+  mc = applyModelConfigAction(mc, { type: "model/delete-key-started", providerId: "anthropic" });
+  mc = applyModelConfigAction(mc, { type: "model/set-default-started", model: "openai/gpt-x" });
+  return mc;
+}
+
+describe("model-config send 失败回滚族（F5 批 #1）", () => {
+  it("catalog-refresh-aborted → catalogRefreshing 回滚", () => {
+    let mc = applyModelConfigAction(createInitialTopologyState().modelConfig, { type: "model/catalog-refresh-started" });
+    mc = applyModelConfigAction(mc, { type: "model/catalog-refresh-aborted" });
+    expect(mc.catalogRefreshing).toBe(false);
+  });
+
+  it("set-default-aborted → 乐观值回滚（action.model = 旧默认）+ 锁定清", () => {
+    let mc = createInitialTopologyState().modelConfig;
+    mc = { ...mc, defaultModel: "anthropic/old-default" };
+    mc = applyModelConfigAction(mc, { type: "model/set-default-started", model: "openai/gpt-x" });
+    expect(mc.defaultModel).toBe("openai/gpt-x");
+    mc = applyModelConfigAction(mc, { type: "model/set-default-aborted", model: "anthropic/old-default" });
+    expect(mc.defaultModel).toBe("anthropic/old-default");
+    expect(mc.setDefaultInflight).toBeNull();
+  });
+
+  it("verify-aborted → in-flight 清 + 凭据条目恢复 prev 快照（含 ok/latency）", () => {
+    let mc = createInitialTopologyState().modelConfig;
+    const prev = { providerId: "anthropic", configured: true, keyMasked: "····7f3a", verifyStatus: "ok" as const, latencyMs: 120 };
+    mc = { ...mc, auth: { anthropic: prev } };
+    mc = applyModelConfigAction(mc, { type: "model/verify-started", providerId: "anthropic" });
+    expect(mc.auth["anthropic"]!.verifyStatus).toBe("verifying");
+    mc = applyModelConfigAction(mc, { type: "model/verify-aborted", providerId: "anthropic", prev });
+    expect(mc.verifyInflight).toBeNull();
+    expect(mc.auth["anthropic"]).toEqual(prev);
+  });
+
+  it("verify-aborted（prev undefined）→ 发送前无条目则删除（started 占位不残留）", () => {
+    let mc = applyModelConfigAction(createInitialTopologyState().modelConfig, { type: "model/verify-started", providerId: "ghost" });
+    mc = applyModelConfigAction(mc, { type: "model/verify-aborted", providerId: "ghost", prev: undefined });
+    expect(mc.verifyInflight).toBeNull();
+    expect(mc.auth["ghost"]).toBeUndefined();
+  });
+
+  it("set-key-aborted / delete-key-aborted → in-flight 清位", () => {
+    let mc = applyModelConfigAction(createInitialTopologyState().modelConfig, { type: "model/set-key-started", providerId: "a" });
+    mc = applyModelConfigAction(mc, { type: "model/set-key-aborted" });
+    expect(mc.setKeyInflight).toBeNull();
+    mc = applyModelConfigAction(mc, { type: "model/delete-key-started", providerId: "a" });
+    mc = applyModelConfigAction(mc, { type: "model/delete-key-aborted" });
+    expect(mc.deleteKeyInflight).toBeNull();
+  });
+
+  it("consume-error → writeError 置空（无 writeError 时保持原引用）", () => {
+    const base = createInitialTopologyState().modelConfig;
+    expect(applyModelConfigAction(base, { type: "model/consume-error" })).toBe(base);
+    const withErr = { ...base, writeError: { message: "boom", ts: 1 } };
+    expect(applyModelConfigAction(withErr, { type: "model/consume-error" }).writeError).toBeNull();
+  });
+});
+
+describe("model-config conn/disconnected 统一清位（F5 批 #1：断连永锁防护）", () => {
+  it("conn/disconnected → 全部 in-flight 清位 + verifying 条目回 unverified", () => {
+    const topo = { ...createInitialTopologyState(), modelConfig: inflightMc() };
+    const next = topologyReducer(topo, { type: "conn/disconnected" });
+    const mc = next.modelConfig;
+    expect(mc.catalogRefreshing).toBe(false);
+    expect(mc.verifyInflight).toBeNull();
+    expect(mc.setKeyInflight).toBeNull();
+    expect(mc.deleteKeyInflight).toBeNull();
+    expect(mc.setDefaultInflight).toBeNull();
+    expect(mc.auth["anthropic"]!.verifyStatus).toBe("unverified");
+    // 活跃 store 连接态照常切换（透传语义不丢）
+    expect(next.active.conn).toBe("disconnected");
+  });
+
+  it("conn/disconnected 且无 in-flight → 零误伤（modelConfig 引用保持）", () => {
+    const topo = createInitialTopologyState();
+    const next = topologyReducer(topo, { type: "conn/disconnected" });
+    expect(next.modelConfig).toBe(topo.modelConfig);
+  });
+});
+
+describe("model-config connection.error 在途失败消费（F5 批 #3）", () => {
+  it("有 in-flight：connection.error → 全部清位 + writeError 交代（ts 随行）", () => {
+    const topo = { ...createInitialTopologyState(), modelConfig: inflightMc() };
+    const next = dispatchFrame(topo, frame("connection.error", { code: "auth.verify_failed", message: "key 无效" }), 777);
+    const mc = next.modelConfig;
+    expect(mc.catalogRefreshing).toBe(false);
+    expect(mc.verifyInflight).toBeNull();
+    expect(mc.setKeyInflight).toBeNull();
+    expect(mc.deleteKeyInflight).toBeNull();
+    expect(mc.setDefaultInflight).toBeNull();
+    expect(mc.writeError).toEqual({ message: "key 无效", ts: 777 });
+  });
+
+  it("无 in-flight：connection.error 不消费（单飞门控——其他域错误不污染本面）", () => {
+    const topo = createInitialTopologyState();
+    const next = dispatchFrame(topo, frame("connection.error", { code: "task.not_found", message: "x" }), 1);
+    expect(next.modelConfig).toBe(topo.modelConfig);
+    expect(next.modelConfig.writeError).toBeNull();
   });
 });

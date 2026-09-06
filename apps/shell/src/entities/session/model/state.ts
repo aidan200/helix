@@ -299,6 +299,9 @@ export interface ModelConfigState {
   setDefaultInflight: string | null;
   /** 目录强制刷新 in-flight（按钮转动反馈；catalog_refresh.result 到达即清） */
   catalogRefreshing: boolean;
+  /** 写面失败交代（F5 批：connection.error 清在途后置位，页面 err toast 一次性
+   *  消费——spawnToast/killToast 先例；ts = 帧到达时刻，供效应去重） */
+  writeError: { message: string; ts: number } | null;
   /** 压缩参数配置（null = 未请求；config.get/set_compaction 帧驱动） */
   compaction: CompactionConfigState | null;
   /** SubAgent 调度预算（null = 未请求；config.get/set_scheduling 帧驱动，config 瘦身批） */
@@ -339,6 +342,7 @@ export function createInitialModelConfigState(): ModelConfigState {
     deleteKeyInflight: null,
     setDefaultInflight: null,
     catalogRefreshing: false,
+    writeError: null,
     compaction: null,
     scheduling: null,
     port: null,
@@ -592,7 +596,20 @@ export type SessionAction =
   | { type: "model/set-default-started"; model: string }
   | { type: "model/set-thinking-default-started"; level: string | null }
   /** 刷新目录：置 catalogRefreshing（catalog_refresh.result 到达即清） */
-  | { type: "model/catalog-refresh-started" };
+  | { type: "model/catalog-refresh-started" }
+  // ── F5 批：send 失败回滚族（TR-84——send 返回 false 即收口在途态，不假反馈）──
+  /** catalog_refresh 未发出：回滚 catalogRefreshing */
+  | { type: "model/catalog-refresh-aborted" }
+  /** set_default 未发出：回滚乐观值（model = 发送前捕获的旧默认）+ 清锁定 */
+  | { type: "model/set-default-aborted"; model: string }
+  /** verify 未发出：清 in-flight + 恢复发送前捕获的凭据条目（prev undefined = 发送前无条目，删除） */
+  | { type: "model/verify-aborted"; providerId: string; prev: AuthProviderEntry | undefined }
+  /** set_key 未发出：清 in-flight */
+  | { type: "model/set-key-aborted" }
+  /** delete_key 未发出：清 in-flight */
+  | { type: "model/delete-key-aborted" }
+  /** 写面失败 toast 消费（ModelsSettingsSection 渲染后置空 writeError） */
+  | { type: "model/consume-error" };
 
 /** 零账面（UsageDto 七字段全零）由 @helix/protocol projection 单源供出（上方
  *  re-export）；本文件不再持有平行定义。 */

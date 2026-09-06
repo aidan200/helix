@@ -15,11 +15,17 @@ import { ToastProvider } from "@/shared/ui/Toast";
 import type { ModelConfigState } from "@/entities/session/model/state";
 import type { CatalogModel } from "@helix/protocol";
 
-const setDefaultModel = vi.fn();
+const setDefaultModel = vi.fn(() => true);
 const setThinkingDefault = vi.fn();
-const refreshModelCatalog = vi.fn();
+const refreshModelCatalog = vi.fn(() => true);
+const verifyProvider = vi.fn(() => true);
+const setProviderKey = vi.fn(() => true);
+const deleteProviderKey = vi.fn(() => true);
+const consumeModelConfigError = vi.fn();
 /** M47：目录刷新在途可变位（结果帧驱动 toast 测试）。 */
 let mockRefreshing = false;
+/** F5 批 #3：写面失败交代可变位（connection.error 清在途 → err toast 测试）。 */
+let mockWriteError: { message: string; ts: number } | null = null;
 
 function model(id: string, providerId: string): CatalogModel {
   return {
@@ -56,6 +62,7 @@ const mc: ModelConfigState = {
   deleteKeyInflight: null,
   setDefaultInflight: null,
   catalogRefreshing: false,
+  writeError: null,
   compaction: null,
     scheduling: null,
     port: null,
@@ -66,15 +73,16 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   return {
     ...orig,
     useSession: () => ({
-      topology: { modelConfig: { ...mc, catalogRefreshing: mockRefreshing } },
+      topology: { modelConfig: { ...mc, catalogRefreshing: mockRefreshing, writeError: mockWriteError } },
       requestModelConfig: vi.fn(),
       requestAuthList: vi.fn(),
       refreshModelCatalog,
       setDefaultModel,
       setThinkingDefault,
-      verifyProvider: vi.fn(),
-      setProviderKey: vi.fn(),
-      deleteProviderKey: vi.fn(),
+      verifyProvider,
+      setProviderKey,
+      deleteProviderKey,
+      consumeModelConfigError,
     }),
   };
 });
@@ -84,6 +92,7 @@ import ModelsSettingsSection from "./ui/ModelsSettingsSection";
 afterEach(() => {
   cleanup();
   mockRefreshing = false;
+  mockWriteError = null;
   vi.clearAllMocks();
 });
 
@@ -166,5 +175,56 @@ describe("M47：目录刷新 toast 结果帧驱动", () => {
     mockRefreshing = false;
     view.rerender(element());
     expect(document.querySelector(".toast-zone")!.textContent).toContain("模型目录已刷新");
+  });
+});
+
+describe("F5 批 #1/#3：send 失败 err 交代 + connection.error 失败交代", () => {
+  it("刷新 send 失败（返回 false）→ err toast + M47 锚灭（后续 true→false 不误弹 ok）", () => {
+    refreshModelCatalog.mockReturnValueOnce(false);
+    const view = ui();
+    fireEvent.click(document.querySelector("#btn-refresh-catalog")!);
+    expect(document.querySelector(".toast-zone")!.textContent).toContain("未连接 daemon，操作未发出");
+    // in-flight 已回滚：后续 catalogRefreshing true→false 转换不得弹 ok 假反馈
+    mockRefreshing = true;
+    view.rerender(element());
+    mockRefreshing = false;
+    view.rerender(element());
+    expect(document.querySelector(".toast-zone")!.textContent).not.toContain("模型目录已刷新");
+  });
+
+  it("设为默认 send 失败 → err toast 且不弹「已更新」假反馈", () => {
+    setDefaultModel.mockReturnValueOnce(false);
+    ui();
+    fireEvent.click(document.querySelector('[data-prov="anthropic"] [data-prov-toggle]')!);
+    fireEvent.click(document.querySelector<HTMLButtonElement>('[data-set-default="anthropic/claude-b"]')!);
+    expect(document.querySelector(".toast-zone")!.textContent).toContain("未连接 daemon，操作未发出");
+    expect(document.querySelector(".toast-zone")!.textContent).not.toContain("已更新");
+  });
+
+  it("测试连通 send 失败 → err toast", () => {
+    verifyProvider.mockReturnValueOnce(false);
+    ui();
+    fireEvent.click(document.querySelector('[data-prov="anthropic"] [data-prov-toggle]')!);
+    fireEvent.click(document.querySelector('[data-prov="anthropic"] [data-prov-test]')!);
+    expect(document.querySelector(".toast-zone")!.textContent).toContain("未连接 daemon，操作未发出");
+  });
+
+  it("writeError 置位（connection.error 清在途后）→ err toast 带 daemon 信息 + 一次性消费", () => {
+    mockWriteError = { message: "key 无效", ts: 1 };
+    ui();
+    expect(document.querySelector(".toast-zone")!.textContent).toContain("操作失败 · key 无效");
+    expect(consumeModelConfigError).toHaveBeenCalledTimes(1);
+  });
+
+  it("writeError 与刷新在途同帧清位 → 失败交代优先，ok 假反馈被抑制", () => {
+    const view = ui();
+    fireEvent.click(document.querySelector("#btn-refresh-catalog")!);
+    // connection.error 到达：catalogRefreshing 清位 + writeError 置位（同帧）
+    mockRefreshing = false;
+    mockWriteError = { message: "refresh failed", ts: 2 };
+    view.rerender(element());
+    const zone = document.querySelector(".toast-zone")!.textContent!;
+    expect(zone).toContain("操作失败 · refresh failed");
+    expect(zone).not.toContain("模型目录已刷新");
   });
 });

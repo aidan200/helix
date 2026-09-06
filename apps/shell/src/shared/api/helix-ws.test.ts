@@ -172,4 +172,25 @@ describe("HelixWsClient", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(transports).toHaveLength(1);
   });
+
+  it("F5 批 #4：stop() 期间在途 token fetch 失败不挂重连 timer（generation 守卫）", async () => {
+    const transports: FakeTransport[] = [];
+    const conn: { kind: string }[] = [];
+    let rejectToken!: (e: Error) => void;
+    const client = new HelixWsClient({
+      port: 7333,
+      getToken: () => new Promise<string>((_res, rej) => { rejectToken = rej; }),
+      transportFactory: fakeTransportFactory(transports),
+      backoff: { baseMs: 100, maxMs: 1_000, maxAttempts: 3 },
+    });
+    client.onConn((c) => conn.push(c));
+    client.start(); // attempt 1 进入在途 token fetch
+    client.stop(); // generation 递增——在途 fetch 天折
+    rejectToken(new Error("boom")); // 失败在 stop 之后到达
+    await vi.advanceTimersByTimeAsync(10_000); // 退避窗口全部流逝
+    // 旧缺陷：catch 内无 generation 守卫 → handleFailure 挂重连 timer → 无视显式
+    // 停止再次 connecting；修复后零重连零 gave-up（仅首次 connecting）
+    expect(transports).toHaveLength(0);
+    expect(conn.map((c) => c.kind)).toEqual(["connecting"]);
+  });
 });

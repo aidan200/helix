@@ -6,6 +6,7 @@
  * MessageFlow 集成断言按 FSD 分层归位 widgets/chat-stream）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import type { EntryDto, ErrorEntryDto, EventEnvelope, ThinkingEntryDto } from "@helix/protocol";
@@ -23,7 +24,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   };
 });
 
-import MessageFlow from "./MessageFlow";
+import MessageFlow, { type MessageFlowHandle } from "./MessageFlow";
 
 function ui(node: React.ReactElement) {
   return render(<I18nProvider>{node}</I18nProvider>);
@@ -679,5 +680,50 @@ describe("MessageFlow 浮动件退役（T1 状态行收拢）", () => {
     expect(document.querySelector('[data-kind="steer-dock"]')).toBeNull();
     // snap-dwell 呼吸线原位保留（滚动语义，非浮动件）
     expect(document.querySelector(".msg-flow-wrap")).not.toBeNull();
+  });
+});
+
+// ── F5 批 #7（TR-85）：scrollToLastCompaction 窄接口（ref 句柄替代跨层 DOM 直达）──
+describe("MessageFlowHandle.scrollToLastCompaction（F5 批 #7 / TR-85）", () => {
+  function compactionState(): SessionState {
+    const s = createInitialSessionState();
+    return {
+      ...s,
+      sessionId: "s1",
+      view: "ready",
+      entries: [
+        {
+          kind: "compaction",
+          id: "compact-1",
+          instanceId: "main",
+          tokensBefore: 340_000,
+          tokensAfter: 20_000,
+          summary: "摘要",
+          usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 2, cost: 0.01 },
+          createdAt: new Date(2026, 7, 16, 14, 5).toISOString(),
+        },
+      ],
+    };
+  }
+
+  it("ref 句柄触发本组件子树内最后一条 compaction 条 scrollIntoView", () => {
+    stateRef.current = compactionState();
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const ref = React.createRef<MessageFlowHandle>();
+    ui(<MessageFlow ref={ref} />);
+    expect(document.querySelector('.fb-wrap[data-kind="compaction"]')).not.toBeNull();
+    act(() => ref.current!.scrollToLastCompaction());
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it("无 compaction 条目时零动作（不抛错不滚动）", () => {
+    stateRef.current = { ...createInitialSessionState(), sessionId: "s1", view: "ready" };
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const ref = React.createRef<MessageFlowHandle>();
+    ui(<MessageFlow ref={ref} />);
+    act(() => ref.current!.scrollToLastCompaction());
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

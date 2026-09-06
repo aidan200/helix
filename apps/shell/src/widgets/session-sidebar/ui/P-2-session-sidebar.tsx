@@ -17,7 +17,7 @@
  *   会话按钮 + 展开把手），不渲染每会话入口——折叠态不可切会话，展开
  *   即可（用户裁决：折叠后不该像导航）。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
@@ -116,24 +116,23 @@ const SessionSidebar = function SessionSidebar({ onFocusInput }: { onFocusInput?
   const isDraft = state.sessionId === null;
   const draftVisible = state.conn === "connected" && isDraft;
 
-  const timeLabel = useMemo(() => {
-    const now = Date.now();
-    return (at: number): string => {
-      const span = relativeTimeSpan(at, now);
-      switch (span.key) {
-        case "justNow":
-          return t("chat.sidebar.timeJustNow");
-        case "minutes":
-          return t("chat.sidebar.timeMinutes", { n: span.n });
-        case "hours":
-          return t("chat.sidebar.timeHours", { n: span.n });
-        case "yesterday":
-          return t("chat.sidebar.timeYesterday");
-        default:
-          return t("chat.sidebar.timeDays", { n: span.n });
-      }
-    };
-  }, [t]);
+  // F5 批 #6：去 useMemo——Date.now() 移进闭包内每次调用取（旧实现挂载时
+  // 定格，相对时间标签双向错误：新会话偏旧、长驻页面不随时间推进）
+  const timeLabel = (at: number): string => {
+    const span = relativeTimeSpan(at, Date.now());
+    switch (span.key) {
+      case "justNow":
+        return t("chat.sidebar.timeJustNow");
+      case "minutes":
+        return t("chat.sidebar.timeMinutes", { n: span.n });
+      case "hours":
+        return t("chat.sidebar.timeHours", { n: span.n });
+      case "yesterday":
+        return t("chat.sidebar.timeYesterday");
+      default:
+        return t("chat.sidebar.timeDays", { n: span.n });
+    }
+  };
 
   const cards = topology.list.map((meta) => {
     const isActive = meta.sessionId === state.sessionId;

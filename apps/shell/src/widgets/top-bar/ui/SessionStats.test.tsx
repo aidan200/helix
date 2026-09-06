@@ -368,20 +368,13 @@ describe("UsagePopover（F3.4 popover）", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("compaction 行尾锚点滚动：scrollIntoView 到最后一条 compaction 里程碑条", () => {
+  it("compaction 行尾锚点滚动：经 onScrollToCompaction props 回调触发（F5 批 #7 / TR-85 替代跨层 DOM 直达）", () => {
     stateRef.current = play(SCENARIO);
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
-    const anchor = document.createElement("div");
-    anchor.className = "fb-wrap";
-    anchor.dataset.kind = "compaction";
-    document.body.appendChild(anchor);
-    try {
-      ui(<UsagePopover onClose={() => {}} />);
-      fireEvent.click(screen.getByRole("button", { name: /compaction/ }));
-      expect(scrollIntoView).toHaveBeenCalledTimes(1);
-    } finally {
-      anchor.remove();
-    }
+    const onScrollToCompaction = vi.fn();
+    const onClose = vi.fn();
+    ui(<UsagePopover onClose={onClose} onScrollToCompaction={onScrollToCompaction} />);
+    fireEvent.click(screen.getByRole("button", { name: /compaction/ }));
+    expect(onScrollToCompaction).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
