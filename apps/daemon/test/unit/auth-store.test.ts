@@ -89,6 +89,28 @@ describe("auth.json 端口（AD-2，契约 C §3）", () => {
     expect(parsed.anthropic).toEqual({ type: "api_key", key: "sk-new" });
   });
 
+  test("创建即收权（code-review M5）：最宽松 umask(0000) 下落盘仍 0600——tmp 创建即带 mode，零宽权限窗口", async () => {
+    const home = tmpHome();
+    const file = path.join(home, "auth.json");
+    const store = new AuthStore(file);
+    // umask 0000 放大竞争窗口风险面：无 mode 的 writeFileSync 会以 0666 创建 tmp；
+    // 创建即收权后 tmp 自诞生即 0600（chmod 仅作覆盖旧宽权限文件的兑底）。
+    const previousUmask = process.umask(0o000);
+    try {
+      await store.setKey("anthropic", "sk-ant-umask0");
+    } finally {
+      process.umask(previousUmask);
+    }
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  test("创建即收权源码契约：persist 的 tmp 写携带 mode: AUTH_FILE_MODE（非先写后 chmod 两句形态）", () => {
+    // 窗口消除是创建时刻语义，运行态仅能断言终态——本断言钉死源码形态防回退
+    // （arch-guard 结构断言同法；writeFileSync options 形态是修复判据本身）。
+    const src = readFileSync(path.join(import.meta.dir, "..", "..", "src", "infrastructure", "auth-store.ts"), "utf8");
+    expect(src).toContain("writeFileSync(tmp, `${JSON.stringify(table, null, 2)}\\n`, { encoding: \"utf8\", mode: AUTH_FILE_MODE })");
+  });
+
   test("文件缺失 → 空表；损坏 JSON → 抛中文错误（fail-fast 不吞）", async () => {
     const home = tmpHome();
     const store = new AuthStore(createPaths(home).authPath());

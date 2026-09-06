@@ -172,6 +172,14 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
   const { registry, scheduler, persistence, modelStack, eventStream, browserPort, workspace, config, paths, lock, logger } = deps;
   let running = true;
   let wsServer: WsServerAdapter | undefined;
+  /**
+   * shutdown memo 化（code-review M5 可重入防护）：main.ts SIGTERM handler
+   * 与 parent-watchdog onOrphan 共用同一 gracefulExit——SIGTERM 重复送达或
+   * watchdog+SIGTERM 竞态会使 shutdown 并发重入，sealAll/dispose/stopMcp/
+   * browserPort.stop 序列交错执行。二次调用直接返回首次结果（序列恰好执行
+   * 一次；首次失败时同一 rejected promise 透传，调用方各自观测）。
+   */
+  let shutdownPromise: Promise<void> | undefined;
   // model 位数据源改会话级（AD-3 model 族 + AD-2）：当前会话
   // 引擎观测值；冷会话/引擎未暴露 → 全局默认（SQLite 读面 + builtin 兑底）
   const system: SystemPort = {
@@ -193,19 +201,22 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
       };
     },
     async shutdown(): Promise<void> {
-      running = false;
-      wsServer?.stop(); // 先停 WS（不再接受新连接/命令），再收尾业务
-      registry.stop(); // 停空闲卸载监视定时器
-      scheduler.stop(); // 停 stalled 监视定时器
-      registry.sealAll(); // 全部热会话封口（stopped 里程碑 write-through 落盘）
-      await deps.subagentLauncher?.dispose(); // O-6 序列回收全部存活子进程（零孤儿）
-      deps.unsubscribeBrowserStatus(); // web.status.changed 广播订阅退订（先退订再 stop）
-      deps.stopMcp?.(); // mcp 批：MCP 状态广播退订 + 全部 server 子进程收尾
-      await browserPort.stop(); // 关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
-      await persistence.writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
-      workspace.dispose(); // 停 kg background + .kg per-project 连接全关（库文件保留，T2.1；W1 经持有者）
-      lock?.release();
-      logger.info("daemon 已关闭");
+      shutdownPromise ??= (async () => {
+        running = false;
+        wsServer?.stop(); // 先停 WS（不再接受新连接/命令），再收尾业务
+        registry.stop(); // 停空闲卸载监视定时器
+        scheduler.stop(); // 停 stalled 监视定时器
+        registry.sealAll(); // 全部热会话封口（stopped 里程碑 write-through 落盘）
+        await deps.subagentLauncher?.dispose(); // O-6 序列回收全部存活子进程（零孤儿）
+        deps.unsubscribeBrowserStatus(); // web.status.changed 广播订阅退订（先退订再 stop）
+        deps.stopMcp?.(); // mcp 批：MCP 状态广播退订 + 全部 server 子进程收尾
+        await browserPort.stop(); // 关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
+        await persistence.writeQueue.close(); // 优雅退出：drain 全部仓位后关连接（lifecycle 挂点）
+        workspace.dispose(); // 停 kg background + .kg per-project 连接全关（库文件保留，T2.1；W1 经持有者）
+        lock?.release();
+        logger.info("daemon 已关闭");
+      })();
+      return shutdownPromise;
     },
   };
 

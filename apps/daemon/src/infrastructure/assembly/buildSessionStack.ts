@@ -1,12 +1,9 @@
-import type { AgentOrchestrationPort } from "../../application/ports/inbound/AgentOrchestrationPort";
-import type { AgentEnginePort } from "../../application/ports/outbound/AgentEnginePort";
 import type { SessionRepositoryPort } from "../../application/ports/outbound/SessionRepositoryPort";
 import type { EventPublisherPort } from "../../application/ports/outbound/EventPublisherPort";
 import type { ClockPort } from "../../application/ports/outbound/ClockPort";
 import type { BrowserPort } from "../../application/ports/outbound/BrowserPort";
 import type { ProfileKind } from "../../application/ports/outbound/ResourceStatePort";
 import type { InstanceRunner } from "../../application/services/InstanceRunner";
-import type { ProfileSnapshotData } from "../../domain/events/DomainEvent";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { ChatService } from "../../application/services/ChatService";
@@ -14,9 +11,7 @@ import { SessionService } from "../../application/services/SessionService";
 import { RestoreService } from "../../application/services/RestoreService";
 import { SchedulerService } from "../../application/services/scheduler/SchedulerService";
 import type { ClosureFindingsSink } from "../../application/services/scheduler/ClosureRecorder";
-import { SessionProjection } from "../../application/services/SessionProjection";
 import { SessionRegistry, type SessionRuntime } from "../../application/services/SessionRegistry";
-import { profileKindOf } from "../../application/services/modes";
 import { ResourceService } from "../../application/services/ResourceService";
 import { SystemPromptAssembler } from "../../application/services/SystemPromptAssembler";
 import type { TaskTypeInfo } from "../../application/ports/outbound/TaskSkillRegistryPort";
@@ -26,15 +21,12 @@ import { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import { sessionPlanPayloadOf } from "../../adapters/driving/ws-server/SnapshotMapper";
 import { LazyWorkLedger } from "../../adapters/driven/sqlite-session/WorkLedger";
 import { WorkLedgerService } from "../../application/services/task/WorkLedgerService";
-import { lastMainAnchorId } from "@helix/protocol"; // 锚扫描基元单源 projection
 import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
-import { TurnDiffService, createTurnDiffState, type TurnDiffState } from "../../application/services/TurnDiffService";
+import { TurnDiffService, type TurnDiffState } from "../../application/services/TurnDiffService";
 import { walkWorkspaceStats } from "../../adapters/driven/workspace-stat-walk";
 import { generateUnifiedPatch } from "../../adapters/driven/tools/edit/kernel/edit-diff";
 import { readFile } from "node:fs/promises";
-import { PiAgentEngineAdapter, type PiEngineOptions } from "../../adapters/driven/pi-engine/PiAgentEngineAdapter";
-import { seedMessagesOf, type AgentMessage } from "../../adapters/driven/pi-engine/mappers/SessionMapper";
-import { MainSessionProfile, MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
+import { MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { DEFAULT_COMPACTION, type CompactionSettings } from "../../adapters/driven/pi-engine/runtime/AgentProfile";
 import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import {
@@ -53,10 +45,8 @@ import {
 } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
 import { isTaskSessionId, TASK_SESSION_PREFIX } from "../../application/services/task/TaskOrchestratorService";
 import type { McpRegistry } from "../../adapters/driven/mcp/McpRegistry";
-import { createMcpDiscoverTools, createMcpTools, mcpDiscoverToolName } from "../../adapters/driven/mcp/mcp-tool";
-import { McpDeferredHooks } from "../../adapters/driven/pi-engine/runtime/hooks/McpDeferredHooks";
+import { createMcpDiscoverTools, createMcpTools } from "../../adapters/driven/mcp/mcp-tool";
 import { resolveConfigModel } from "../../adapters/driven/pi-engine/model-provider";
-import { resolveEffectiveThinking } from "../../adapters/driven/pi-engine/thinking-resolve";
 import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
 import { SkillScanner } from "../../adapters/driven/pi-engine/SkillScanner";
 import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnippets";
@@ -107,52 +97,17 @@ export interface AssemblyBackfill {
 }
 
 /**
- * 引擎装配形态（architecture §4.3 显式模式）：判别字段取代「注入
- * 缺省即生产」的隐式分支——生产入口（createDaemon）恒为 production；
- * 测试工厂（test/helpers/createTestDaemon.ts）注入 Fake 引擎时为 override
- * （工厂已归一：实例注入 → 每会话共享的 () => 实例）。
+ * 引擎装配形态与主会话 LLM 覆盖类型（M5 切片迁 sessionEngineFactory——
+ * 本文件 re-export 保持既有导出面：container/createTestDaemon import 路径不变）；
+ * 静态工具目录与 MCP 准入白名单（M5 切片迁 mcpCatalogSurface——MCP_ALLOWED_OF
+ * import 复用，SubagentLauncher mcpServersFor 门控同源）。
  */
-export type EngineAssemblyMode =
-  | { readonly kind: "production" }
-  | { readonly kind: "override"; readonly factory: (sessionId: string) => AgentEnginePort };
-
-/**
- * 主会话 LLM 覆盖（测试接缝：fake 剧本 streamFn + 可解析 model + apiKeys）。
- * 缺省 = 生产形态（resolveConfigModel + 真 streamFn）；携带时仅替换 LLM 面
- *（工具族/引擎状态机/事件翻译全真）——与 orchestratorLlmOverride 同哲学。
- */
-export interface MainSessionLlmOverride {
-  readonly model: () => ReturnType<typeof resolveConfigModel>;
-  readonly streamFn: NonNullable<PiEngineOptions["streamFnOverride"]>;
-  /** provider → apiKey 测试覆盖（浅合并覆盖生产 authStore 快照）。 */
-  readonly apiKeys?: () => Record<string, string>;
-}
-
-/** 静态工具目录（profile 声明面单源；mcp 批抽出一一函数化 catalog 消费）。 */
-const STATIC_TOOLS_CATALOG: Readonly<Record<ProfileKind, readonly string[]>> = {
-  "main-session": MainSessionProfile.tools,
-  "subagent-worker": SubAgentProfile.tools,
-  "orchestrator": OrchestratorProfile.tools, // T2.2 第三 kind（additive 扩值；编排工具面可配置化）
-  // R7 系统槽位批第四 kind：kg-writer 目录全集（声明面单源；生效集受
-  // 自身差异行管控——独立配置，不再从 worker 派生）
-  "subagent-kg-writer": SubAgentKgWriterProfile.tools,
-  // D5 第五 kind：reviewer 目录全集 = worker 声明面 − write/edit（声明面
-  // 单源；生效集受自身差异行管控——独立配置）
-  "subagent-code-reviewer": SubAgentCodeReviewerProfile.tools,
-};
-
-/**
- * kind → MCP server 准入白名单（mcp 批，profile 声明单源）：五 kind 全
- * 声明 "*"（同轨——装配/读面同构；准入实际由 server enabled 显式启用制
- * + 工具级 toggle 管控；系统派生三 kind 写面只读——展示同构、开关置灰）。
- */
-const MCP_ALLOWED_OF: Readonly<Record<ProfileKind, readonly string[] | "*" | undefined>> = {
-  "main-session": MainSessionProfile.mcpServers,
-  "subagent-worker": SubAgentProfile.mcpServers,
-  orchestrator: OrchestratorProfile.mcpServers,
-  "subagent-kg-writer": SubAgentKgWriterProfile.mcpServers,
-  "subagent-code-reviewer": SubAgentCodeReviewerProfile.mcpServers,
-};
+export type { EngineAssemblyMode, MainSessionLlmOverride } from "./sessionEngineFactory";
+import type { EngineAssemblyMode, MainSessionLlmOverride } from "./sessionEngineFactory";
+import { buildMainEngineFactory, buildSessionRuntimeFactory } from "./sessionEngineFactory";
+import { buildMcpCatalogSurface, MCP_ALLOWED_OF } from "./mcpCatalogSurface";
+/** effectiveMainToolNames（M5 切片迁 sessionEngineFactory；re-export 保 main-session-plan 测试 import 路径）。 */
+export { effectiveMainToolNames } from "./sessionEngineFactory";
 
 export interface BuildSessionStackDeps {
   readonly paths: HelixPaths;
@@ -339,25 +294,10 @@ export interface SessionStack {
 }
 
 /**
- * main 工具集装配过滤（W1/taskCreate/plan 同构：声明面 = 注册面一致）：
- * 未注入依赖的名从清单剔除（resolveTools 声明即注册硬校验不破）。
- * 纯函数（main-session plan 批抽出一一供未注入剔除面单测）。
+ * main 工具集装配过滤已随 M5 切片迁 sessionEngineFactory（上方 re-export
+ * 保持导出面）；engineFor/buildRuntime/MCP catalog 闭包群同批抽出——本函数
+ * 保留装配序编排与五 kind 快照缓存（装配序语义不变，零行为改动）。
  */
-export function effectiveMainToolNames(
-  declared: readonly string[],
-  injected: { readonly kg: boolean; readonly codegraph: boolean; readonly taskCreate: boolean; readonly taskReport: boolean; readonly plan: boolean },
-): string[] {
-  return declared
-    .filter((t) => injected.kg || (t !== "kg" && t !== "kg-update"))
-    .filter((t) => injected.codegraph || t !== "codegraph")
-    .filter((t) => injected.taskCreate || t !== "task_create")
-    .filter((t) => injected.taskReport || t !== "task_report")
-    .filter(
-      (t) =>
-        injected.plan || (t !== "plan_create" && t !== "plan_update" && t !== "plan_read"),
-    );
-}
-
 export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<SessionStack> {
   const { paths, config, logger, repository, resourceState, clock, authStore, catalog, defaultModel, browserPort, events, backfill } =
     deps;
@@ -412,116 +352,31 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     builtinSkillsDir: deps.builtinSkillsDir ?? builtinSkillsDir(),
     cwd: bootToolCwd,
   });
-  // deferred 批：MCP 物化集（per kind 内存态——discover 已装载名单；
-  // effectiveToolsCatalog 消费 + onDiscover 写入；重启自然清零回 meta-only）。
-  const materializedMcp = new Map<ProfileKind, Set<string>>();
-  /**
-   * discover 物化回调（executor 构造点闭包——kind 绑定）：
-   * ① 物化集登记（同步——effectiveToolsCatalog 立即可见）；
-   * ② 活跃 runtime 同步直改 setTools（同步读 effective 现值——必须赶在
-   *    turn 边界 prepareNextTurn 之前，McpDeferredHooks 才能检测到漂移；
-   *    经 publishResourceChanged 的异步刷新链会输给 turn 边界竞态）；
-   * ③ resources.changed 发布（异步刷新链：快照/系统提示重算对齐）。
-   */
-  const onMcpDiscover = (kind: ProfileKind, _server: string, namespacedNames: readonly string[]): void => {
-    const set = materializedMcp.get(kind) ?? new Set<string>();
-    for (const name of namespacedNames) set.add(name);
-    materializedMcp.set(kind, set);
-    if (kind === "main-session") {
-      // 同步最小路径：物化名已注册 executor（构造时全量 append）——按名
-      // resolve + state.tools 直改；系统提示/快照对齐交给 ③ 异步链。
-      const effective = resourceService.getEffectiveTools(kind);
-      for (const runtime of registry.hotRuntimes()) {
-        runtime.chatService.setTools(effective);
-      }
-    }
-    void deps.publishResourceChanged(kind);
-  };
+  // ── MCP catalog 闭包群（M5 切片，assembly/mcpCatalogSurface）：静态目录 +
+  //    准入白名单 + 四 catalog 闭包 + deferred 物化集/discover 回调（含 publish
+  //    catch 兑底——M5 修复）。ResourceService/registry 为构造环对端（catalog
+  //    闭包进 ResourceService deps，onMcpDiscover 运行期才回读两者）——晚绑
+  //    getter 闭包保原装配序语义。──
+  const mcpSurface = buildMcpCatalogSurface({
+    mcpRegistry: deps.mcpRegistry,
+    effectiveToolsOf: (kind) => resourceService.getEffectiveTools(kind),
+    hotRuntimes: () => registry.hotRuntimes(),
+    publishResourceChanged: (kind) => deps.publishResourceChanged(kind),
+  });
   const resourceService = new ResourceService({
     store: resourceState,
     skills: skillScanner,
-    // mcp 批：catalog 函数化——静态 profile 声明面 + MCP 命名空间工具名
-    // 动态拼接（每次读现拍 McpRegistry 值；server 到位即进 catalog）。
-    // 准入门控：profile mcpServers 白名单（"*" = 全部；未声明 = 不接入）
-    // ——五 kind 声明全开（同轨批；准入实际由 server enabled 显式启用制 +
-    // 工具级 toggle 管控；系统三 kind 写面只读恒关，未来启用零结构改动）。
-    toolsCatalog: (kind: ProfileKind): readonly string[] => {
-      const staticNames = STATIC_TOOLS_CATALOG[kind];
-      const registry = deps.mcpRegistry; // 窄化（闭包重读不安全）
-      const allowed = registry !== undefined ? MCP_ALLOWED_OF[kind] : undefined;
-      if (registry === undefined || allowed === undefined) return staticNames;
-      const mcpNames = registry
-        .discoveredTools()
-        .filter((t) => allowed === "*" || allowed.includes(t.server))
-        .map((t) => `${t.server}__${t.definition.name}`);
-      return [...staticNames, ...mcpNames];
-    },
-    // deferred 批：生效集计算专用目录（catalog 全集 = 页面展示 + toggle 域
-    // 保持全量；本面只供 getEffectiveTools 初始集）——deferred server
-    // （缺省）具体工具剔除，代之 meta 工具名 + 物化集 union；非 deferred
-    // server 照旧全量。物化集 = discover 已装载名单（per kind 内存态——
-    // 重启自然清零回 meta-only，与探查报告边界 1 一致）。
-    effectiveToolsCatalog: (kind: ProfileKind): readonly string[] => {
-      const staticNames = STATIC_TOOLS_CATALOG[kind];
-      const registry = deps.mcpRegistry;
-      const allowed = registry !== undefined ? MCP_ALLOWED_OF[kind] : undefined;
-      if (registry === undefined || allowed === undefined) return staticNames;
-      const names = [...staticNames];
-      // 按 server 分组（running 才进 discoveredTools）
-      const byServer = new Map<string, string[]>();
-      for (const { server, definition } of registry.discoveredTools()) {
-        if (allowed !== "*" && !allowed.includes(server)) continue;
-        const list = byServer.get(server) ?? [];
-        list.push(definition.name);
-        byServer.set(server, list);
-      }
-      const configMap = new Map(registry.listConfigs().map((c) => [c.name, c] as const));
-      const materialized = materializedMcp.get(kind);
-      for (const [server, rawNames] of byServer) {
-        const deferred = configMap.get(server)?.deferred !== false;
-        if (!deferred) {
-          names.push(...rawNames.map((raw) => `${server}__${raw}`));
-          continue;
-        }
-        const meta = mcpDiscoverToolName(server, rawNames);
-        if (meta !== undefined) names.push(meta);
-        for (const raw of rawNames) {
-          const ns = `${server}__${raw}`;
-          if (materialized?.has(ns)) names.push(ns);
-        }
-      }
-      return names;
-    },
+    // mcp 批：catalog 函数化（M5 切片迁 mcpCatalogSurface）——静态 profile
+    // 声明面 + MCP 命名空间工具名动态拼接 + 准入门控/物化集语义全部不变。
+    toolsCatalog: mcpSurface.toolsCatalog,
+    effectiveToolsCatalog: mcpSurface.effectiveToolsCatalog,
     // list 读面 snippet 透传（SystemPromptAssembler 同源注册表单点）
     toolSnippets: TOOL_PROMPT_SNIPPETS,
-    // server 级配置面批：MCP 工具行 snippet = registry 发现的 description
-    // 透传（注册表外名不再恒空串）；静态工具名不含双下划线恒走注册表。
-    toolSnippetOf: (name: string): string | undefined => {
-      const sep = name.indexOf("__");
-      if (sep <= 0) return undefined;
-      const server = name.slice(0, sep);
-      return deps.mcpRegistry?.toolsOf(server).find((t) => t.name === name.slice(sep + 2))?.description;
-    },
-    // server 级配置面批：kind 准入面内的 MCP server 运行态行（registry 现拍
-    // + MCP_ALLOWED_OF 白名单门控——静态 kind 不接 MCP 恒空数组→块不携带）；
-    // enabled 由 ResourceService store 差异行合取（注入面不解释启停）。
-    mcpServersOf: (kind: ProfileKind) => {
-      const registry = deps.mcpRegistry;
-      const allowed = registry !== undefined ? MCP_ALLOWED_OF[kind] : undefined;
-      if (registry === undefined || allowed === undefined) return [];
-      return registry
-        .listConfigs()
-        .filter((c) => allowed === "*" || allowed.includes(c.name))
-        .map((c) => {
-          const status = registry.getStatuses().find((s) => s.name === c.name);
-          return {
-            name: c.name,
-            state: status?.state ?? "idle",
-            ...(status?.toolCount !== undefined ? { toolCount: status.toolCount } : {}),
-            ...(status?.lastError !== undefined ? { lastError: status.lastError } : {}),
-          };
-        });
-    },
+    // server 级配置面批两闭包（M5 切片迁 mcpCatalogSurface，语义不变）：
+    // MCP 工具行 snippet = registry description 透传；server 运行态行 =
+    // registry 现拍 + MCP_ALLOWED_OF 白名单门控。
+    toolSnippetOf: mcpSurface.toolSnippetOf,
+    mcpServersOf: mcpSurface.mcpServersOf,
     // 生效链（事件化，架构 §4.2.3）：toggle applied → 发布
     // resources.changed（装配级总线）→ 容器订阅侧 refreshAssembly 重算该
     // kind 组装快照 + 刷新活跃 runtime（main 直改 systemPrompt/tools；
@@ -630,7 +485,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           ...createMcpTools(deps.mcpRegistry.discoveredTools(), deps.mcpRegistry),
           ...createMcpDiscoverTools(deps.mcpRegistry, {
             isToolEnabled: (name) => resourceService.isToolEnabled("main-session", name),
-            onDiscover: (server, names) => onMcpDiscover("main-session", server, names),
+            onDiscover: (server, names) => mcpSurface.onMcpDiscover("main-session", server, names),
           }).tools,
         ];
         const live = new Set(registry.hotRuntimes().map((r) => r.sessionId));
@@ -925,261 +780,66 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         })();
 
   // ── service：多会话容器（AD-4 主承载） ─────────────────────
-  // 会话绑定引擎工厂：测试注入实例 = 全部会话共享（单会话测试形态）；
-  // 工厂 = 每会话独立；生产路径 = 真引擎 + 会话绑定工具执行器（编排三工具
-  // 回口携带会话归属——agent_spawn 经此路由到目标会话的调度入参）。
-  // （AD-2）+ ：新会话模型 = 构建期解析 kind 槽位 ?? 当前默认
-  //（set_default/槽位 set 后新建会话跟随新值；既有会话不跟随——per-session
-  // 覆盖链不变）；apiKey 经 getter 读 auth.json 现值（换 key 下一请求生效）；
-  // resolveModelById = 目录活解析面（运行期换模 overlay 模型可达）。
-  // spawn 透传模型 = 组合根两级链解析产物（resolveSubagentModelId，T12 起不再
-  // 取会话当前模型——SubAgent 只认自身 profile 链）。
-  // P1 T3：槽位 kind 字面量参数化——modelSlot/thinkingSlot 的 kind 从会话定格
-  // mode 解析（profileKindOf；default → main-session，行为零变化；P2 多模式
-  // 自动跟随注册表）。override 工厂（测试注入）不接 mode——结构兼容（参数
-  // 少的函数可赋参数多的类型），Fake 引擎无槽位语义不受影响。
-  const engineFor: (
-    sessionId: string,
-    mode?: string,
-    seed?: readonly AgentMessage[],
-    bind?: { readonly mainInstanceId: string; readonly diff: TurnDiffState },
-  ) => AgentEnginePort =
-    engineMode.kind === "override"
-      ? (sessionId: string) => engineMode.factory(sessionId)
-      : (
-          sessionId: string,
-          mode?: string,
-          seed?: readonly AgentMessage[],
-          bind?: { readonly mainInstanceId: string; readonly diff: TurnDiffState },
-        ): AgentEnginePort => {
-            const sessionOrchestration: AgentOrchestrationPort = {
-              spawn: (task, profileKind, reportIntervalMs) =>
-                scheduler.spawn(sessionId, task, profileKind, resolveSubagentModelId(), reportIntervalMs),
-              send: (agentId, message) => scheduler.send(agentId, message),
-              status: (agentId) => scheduler.status(agentId),
-              kill: (agentId) => scheduler.kill(agentId),
-              inspect: (agentId) => scheduler.inspect(agentId), // T3-B
-              park: (agentId) => scheduler.park(agentId), // ⑤ 链 C：reason 缺省 user（chat 域入口）
-              resume: (agentId) => scheduler.resume(agentId), // ⑤ 链 C
-            };
-            // W1：kg 挂点/双工具经 workspace 持有者读现值（未绑定 → 不注册/
-            // 无挂点——edit 行为不变；kg/kg-update 同步从 profile 工具清单
-            // 剔除，resolveTools 硬校验（声明即注册）不破，绑定后新会话获得）
-            const editDeps = deps.editDeps?.(sessionId);
-            const kgTools = typeof deps.kgTools === "function" ? deps.kgTools() : deps.kgTools;
-            // W1-B：codegraph 工具同 kgTools W1 模式（工厂读现值；未绑定 → 不注册 + 清单剔除）
-            const codegraphTool =
-              typeof deps.codegraphTool === "function" ? deps.codegraphTool() : deps.codegraphTool;
-            // main-session plan 批：instanceId = sessionId 作用域注入（工具参数
-            // 零 instanceId 防伪造——PlanTools 语义不变）；未注入（隔离测试形态）
-            // → 不注册 + 清单剔除（声明面 = 注册面一致）
-            const planDeps =
-              mainPlanStack === undefined
-                ? undefined
-                : { service: mainPlanStack.planToolService, instanceId: sessionId };
-            const toolExecutor = new CoreToolExecutor({
-              cwd: toolCwdOf(),
-              orchestration: sessionOrchestration,
-              grep: deps.grep,
-              // T2 turn diff：env.writeFile 写前快照钩子（闭包绑 mainInstanceId
-              // ——该 executor 每会话一个；hook 内部读旧内容落基线，异常吞咽）
-              ...(bind !== undefined
-                ? {
-                    writeHook: (p: string, content: string | Uint8Array) =>
-                      turnDiff.captureWrite(bind.diff, p, bind.mainInstanceId, content),
-                  }
-                : {}),
-              ...(editDeps !== undefined ? { edit: editDeps } : {}),
-              ...(kgTools !== undefined ? { kg: kgTools } : {}),
-              ...(codegraphTool !== undefined ? { codegraph: codegraphTool } : {}),
-              // task_create（T2.4，AD-7）：仅主会话 executor（SubAgent 子进程
-              // 本地栈不注入——生效集隔离，AD-2 创建按宿主）
-              ...(deps.taskCreate !== undefined ? { taskCreate: deps.taskCreate } : {}),
-              // task_report（D3）：仅主会话 executor（SubAgent 子进程本地栈与
-              // 编排主 agent 不注入——生效集隔离，taskCreate 同构）
-              ...(deps.taskReport !== undefined ? { taskReport: deps.taskReport } : {}),
-              // 主会话 plan 三工具（main-session plan 批）：台账写面 + 广播包装
-              ...(planDeps !== undefined ? { plan: planDeps } : {}),
-              // 动态族：单 browser 工具注册（ownerId 缺省 "main"——主会话
-              // tab 归属）；ChildMain 子进程经 RemoteBrowserPort 转发接入（H-3）
-              browser: browserPort,
-              // mcp 批：MCP 命名空间工具现值注入（构造时刻已发现的 server；
-              // 后续到位经 refreshAssembly → appendTools 增量推活活跃会话）。
-              // deferred 批：同批注入 meta 发现工具（懒加载入口——execute 触发
-              // 物化链 onMcpDiscover；主会话 kind 固定 main-session）。
-              ...(deps.mcpRegistry !== undefined
-                ? {
-                    mcp: {
-                      tools: [
-                        ...createMcpTools(deps.mcpRegistry.discoveredTools(), deps.mcpRegistry),
-                        ...createMcpDiscoverTools(deps.mcpRegistry, {
-                          isToolEnabled: (name) => resourceService.isToolEnabled("main-session", name),
-                          onDiscover: (server, names) => onMcpDiscover("main-session", server, names),
-                        }).tools,
-                      ],
-                    },
-                  }
-                : {}),
-            });
-            // mcp 批：活跃会话 executor 登记（refreshAssembly appendTools 目标）。
-            // 生命周期 = 会话 id 不复用 + 每 daemon 进程一个 Map；卸载残留为
-            // 小对象引用无句柄调用（可接受——避免 SessionRegistry 加卸载回调面）。
-            sessionExecutors.set(sessionId, toolExecutor);
-            // 新会话装配读组装快照现值（瘦身后 base + 生效工具清单 +
-            // 生效技能段；toggle 后新会话/重建会话跟随）；model 四级链读面——
-            // kind 槽位 > default_model（per-session 覆盖 = 既有 setModel 直改链）。
-            // 活跃 runtime 不随槽位变更强推模型（下一装配生效——实现取舍见任务 report）。
-            // thinking 解析链（§3.1 落点一/§3.3，thinking 批 T1.2）：链 =
-            // [会话覆盖（引擎读面回读）, 会话模式 profileKind 槽位]逐值能力适配
-            // 取首个生效值；全链未配置 / reasoning=false / 链值 "off"（显式关
-            // 短路）→ undefined → 注入器不动 options（pi-ai 不传 reasoning =
-            // 显式关思考，默认关 D 方案）。自引用闭包仅在 turn 开始
-            //（streamFn 调用）/currentThinking 观测时触发——构造完成之后
-            //（闭包内 adapter 已赋值，测试同形态先例见 thinking-set-chain）。
-            let adapter!: PiAgentEngineAdapter;
-            adapter = new PiAgentEngineAdapter({
-              profile: {
-                ...MainSessionProfile,
-                systemPrompt: mainAssembly.systemPrompt,
-                // W1 绑定闭环：未绑定（kg 双工具未注册）时剔除 kg/kg-update——
-                // profile 声明与 executor 注册面一致（resolveTools 硬校验不破）；
-                // 绑定后新建会话自动恢复注册面。
-                // task_create/plan 三名同款：未注入（测试形态）时剔除，声明与注册一致。
-                tools: effectiveMainToolNames(mainAssembly.tools, {
-                  kg: kgTools !== undefined,
-                  codegraph: codegraphTool !== undefined,
-                  taskCreate: deps.taskCreate !== undefined,
-                  taskReport: deps.taskReport !== undefined,
-                  plan: planDeps !== undefined,
-                }),
-                // 压缩参数可配置（KV 存储值 ?? DEFAULT_COMPACTION）；每会话装配读现值。
-                compaction: compactionSettings(),
-              },
-              model: deps.mainSessionLlmOverride?.model() ?? resolveConfigModel(
-                resourceService.modelSlot(profileKindOf(mode)) ?? defaultModel.current(),
-                catalog.modelsView(),
-              ),
-              apiKeys: () => ({ ...authStore.apiKeysSnapshot(), ...(deps.mainSessionLlmOverride?.apiKeys?.() ?? {}) }),
-              models: catalog.modelsView(),
-              resolveModelById: (modelId) => resolveConfigModel(modelId, catalog.modelsView()),
-              resolveThinking: (model) =>
-                // R7 全局兜底：链尾追加全局默认（未配槽位且未配全局 → 默认关不变）
-                resolveEffectiveThinking(
-                  [adapter?.thinkingOverride(), resourceService.thinkingSlot(profileKindOf(mode)), globalThinking()],
-                  model,
-                ),
-              resolveTools: (names) => toolExecutor.resolveTools(names),
-              // deferred 批：Mcp 懒加载同 turn 生效钩子（state.tools 漂移检测 →
-              // turn 边界替换 context.tools——discover 物化后模型下一请求即可
-              // 调用；无 MCP 时零漂移零干扰）。链位序：extraHooks 在 compaction
-              // 之后（AgentRuntime 装配序）——压缩触发时其替换 context 已含
-              // state.tools 现值，短路无害。
-              ...(deps.mcpRegistry !== undefined ? { extraHooks: [new McpDeferredHooks()] } : {}),
-              // 测试接缝：mainSessionLlmOverride 恒最高（缺省生产形态）
-              ...(deps.mainSessionLlmOverride !== undefined ? { streamFnOverride: deps.mainSessionLlmOverride.streamFn } : {}),
-              // 恢复回填：mainAgent 实例窗口销毁重建后回填它自己的历史（seed
-              // 由 buildRuntime 经 seedMessagesOf 派生；新建会话 = undefined）。
-              ...(seed !== undefined ? { initialMessages: seed } : {}),
-            });
-            return adapter;
-          };
+  // 会话绑定引擎工厂（M5 切片，assembly/sessionEngineFactory——语义注释随
+  // 切片迁移）：测试 override / 生产真引擎两形态不变；mainAssembly 经 getter
+  // 读现值（refreshAssembly 重算 let 缓存——与原闭包直读变量同语义）。
+  const engineFor = buildMainEngineFactory({
+    engineMode,
+    scheduler,
+    resolveSubagentModelId: () => resolveSubagentModelId(),
+    resourceService,
+    mainAssemblyOf: () => mainAssembly,
+    compactionSettings,
+    globalThinking,
+    toolCwdOf,
+    turnDiff,
+    browserPort,
+    sessionExecutors,
+    planToolService: mainPlanStack?.planToolService,
+    catalog,
+    authStore,
+    defaultModel,
+    onMcpDiscover: mcpSurface.onMcpDiscover,
+    ...(deps.editDeps !== undefined ? { editDeps: deps.editDeps } : {}),
+    ...(deps.kgTools !== undefined ? { kgTools: deps.kgTools } : {}),
+    ...(deps.codegraphTool !== undefined ? { codegraphTool: deps.codegraphTool } : {}),
+    ...(deps.taskCreate !== undefined ? { taskCreate: deps.taskCreate } : {}),
+    ...(deps.taskReport !== undefined ? { taskReport: deps.taskReport } : {}),
+    ...(deps.grep !== undefined ? { grep: deps.grep } : {}),
+    ...(deps.mcpRegistry !== undefined ? { mcpRegistry: deps.mcpRegistry } : {}),
+    ...(deps.mainSessionLlmOverride !== undefined ? { mainSessionLlmOverride: deps.mainSessionLlmOverride } : {}),
+  });
 
   const registry = new SessionRegistry({
     repository,
     clock,
     scheduler,
     restore: (sessionId) => restoreService.restore(sessionId),
-    // 会话运行时工厂（组合根唯一 new 面）：Session + ChatService 族 + 投影绑定
-    buildRuntime: (material): SessionRuntime => {
-      // 恢复回填（三层模型）：实例窗口（LLM 上下文）销毁重建后，从 Entry 树按
-      // mainInstanceId 过滤回填该 mainAgent 自己的 user/assistant 历史——空闲卸载/
-      // 重启后的「同一实例复活」延续上下文；新建会话/阶段切换新实例无历史 = 空 seed。
-      // model 元数据取当前解析模型（与 engineFor 生产分支同序同值；assistant 回填元数据源）。
-      const seedModel = deps.mainSessionLlmOverride?.model() ?? resolveConfigModel(
-        resourceService.modelSlot(profileKindOf(material.session.mode)) ?? defaultModel.current(),
-        catalog.modelsView(),
-      );
-      const seed = seedMessagesOf(material.session.entryList(), material.session.mainInstanceId, {
-        api: seedModel.api,
-        provider: seedModel.provider,
-        model: seedModel.id,
-      });
-      // T2 turn diff：会话级 diff 状态（挂 runtime——全内存零持久化；
-      // engineFor 写钩子与 ChatService 轮次挂点同一状态闭包绑定）
-      const diffState = createTurnDiffState();
-      diffSessionIds.set(diffState, material.session.id); // T3 推送归属反查注册
-      const engine = engineFor(material.session.id, material.session.mode, seed, {
-        mainInstanceId: material.session.mainInstanceId,
-        diff: diffState,
-      });
-      // thinking 批③跨冷恢复（AD-4③）：回放末值覆盖直写引擎内存态——
-      // 不走 ChatService.setThinking 发布面（零新事件流零落盘铁律，恢复不重放）；
-      // 区别于 model.set 不跨冷恢复现状（TR-AD-41 反例钉死，差异不动）。
-      if (material.thinkingOverride !== undefined) engine.setThinking?.(material.thinkingOverride);
-      const chatService = new ChatService({
-        engine,
-        events,
-        clock,
-        session: material.session,
-        restoredToolCalls: material.toolCalls,
-        // 定向 steer 转投面——AgentOrchestrationPort.send（契约 v0.3 §3.2）
-        // 同链路（目标状态前置判定归调度侧既有 send 链，编排泄零入 driving）
-        sendToInstance: (agentId, message) => scheduler.send(agentId, message),
-        // model.changed 的 from 兜底（AD-6：引擎未暴露观测值时
-        // 回退全局默认，与 ModelService previous 口径一致）
-        modelFallback: () => defaultModel.current(),
-        // 主实例 instantiated 快照供给（AD-5）：读组装缓存
-        // 缓存（与 engineFor 实际装配同源，消观测漂移；模型仍取创建时引擎
-        // 观测值 ?? 全局默认）；起发布触发在注册表 promoteDraft（转正：
-        // 首个用户条目；恢复路径不重发）。
-        instantiatedSnapshot: (): ProfileSnapshotData => ({
-          systemPrompt: mainAssembly.systemPrompt,
-          // 声明面=注册面铁律（code-review M33）：快照 tools 与引擎装配面同过
-          // effectiveMainToolNames——未绑定/测试形态时不得快照广告未注册工具。
-          tools: effectiveMainToolNames(mainAssembly.tools, {
-            kg: (typeof deps.kgTools === "function" ? deps.kgTools() : deps.kgTools) !== undefined,
-            codegraph: (typeof deps.codegraphTool === "function" ? deps.codegraphTool() : deps.codegraphTool) !== undefined,
-            taskCreate: deps.taskCreate !== undefined,
-            taskReport: deps.taskReport !== undefined,
-            plan: mainPlanStack !== undefined,
-          }),
-          model: engine.currentModel?.() ?? defaultModel.current(),
-          ...(MainSessionProfile.compaction !== undefined
-            ? { compaction: compactionSettings() }
-            : {}),
-          hooks: MainSessionProfile.hooks.map((H) => H.hookName),
-        }),
-        // 转正单点触发面：零条目草稿首个用户条目落聚合 → 注册表
-        // promoteDraft（恰好一次 instantiated + 补 created；闭包仅在运行期
-        // 触发——createFresh 发生在 initialize/运行期，注册表已就位）
-        onFirstUserEntry: () => registry.promoteDraft(material.session.id),
-        // W2-D R9/R10 主会话切片注入：复用 spawn 派发同一注入器（KgQueryService
-        // .injectTaskSlice——sessionId 跨通道去重同键）；空串回退（未绑定工作
-        // 空间时容器注入面回 ""）视为空命中原文透传。D8 W-R6：主会话链恒
-        // main 受众（协议行 kg-update 直落措辞——与 spawn 链 worker 版分叉）。
-        ...(deps.taskInjector !== undefined
-          ? { taskSliceInjector: (sid: string, text: string) => deps.taskInjector!(sid, text, "main") || text }
-          : {}),
-        // T2 turn diff：轮次挂点（开轮重置/收轮冻结——挂点在编排层，不改
-        // Session 聚合；endTurn fire-and-forget，冻结流水线后台完成）
-        turnDiff: {
-          onTurnBegin: (turnId, startedAt) => turnDiff.beginTurn(diffState, turnId, startedAt),
-          onTurnEnd: (turnId, outcome, endedAt) => {
-            void turnDiff.endTurn(diffState, outcome, endedAt);
-          },
-        },
-      });
-      // 会话投影消费者（AD-3 §3.2②；多会话 = 按 sessionId 分实例化，
-      // architecture-feedback #20 建议采纳）：SubAgent Entry 落聚合 + 账本入账
-      // + write-through（fan-out 投影路由按事件 sessionId 分发到本投影）。
-      const projection = new SessionProjection({
-        repository,
-        getSession: () => chatService.sessionView,
-        getMainState: () => ({ agentState: chatService.agentState, toolCalls: chatService.toolCallData }),
-        initialUsage: material.usage,
-      });
-      return { sessionId: material.session.id, chatService, projection, diff: diffState };
-    },
+    // 会话运行时工厂（组合根唯一 new 面；M5 切片迁 assembly/sessionEngineFactory
+    // ——Session + ChatService 族 + 投影绑定语义注释随切片迁移，行为不变）：
+    // promoteDraft 晚绑闭包（registry 自引用，运行期才触发）与原 inline 同语义。
+    buildRuntime: buildSessionRuntimeFactory({
+      repository,
+      clock,
+      events,
+      scheduler,
+      resourceService,
+      defaultModel,
+      catalog,
+      engineFor,
+      diffSessionIds,
+      turnDiff,
+      mainAssemblyOf: () => mainAssembly,
+      compactionSettings,
+      hasMainPlan: mainPlanStack !== undefined,
+      promoteDraft: (sessionId) => registry.promoteDraft(sessionId),
+      ...(deps.kgTools !== undefined ? { kgTools: deps.kgTools } : {}),
+      ...(deps.codegraphTool !== undefined ? { codegraphTool: deps.codegraphTool } : {}),
+      ...(deps.taskCreate !== undefined ? { taskCreate: deps.taskCreate } : {}),
+      ...(deps.taskReport !== undefined ? { taskReport: deps.taskReport } : {}),
+      ...(deps.taskInjector !== undefined ? { taskInjector: deps.taskInjector } : {}),
+      ...(deps.mainSessionLlmOverride !== undefined ? { mainSessionLlmOverride: deps.mainSessionLlmOverride } : {}),
+    }),
     onListChanged: (change) => eventStream.broadcastListChanged(change),
     // 主会话工作台账读面（main-session plan 批）：快照组装附 plan 全行
     //（未接 plan 栈 = 缺省不携带——旧装配兼容）
@@ -1217,7 +877,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         ...createMcpTools(mcpReg.discoveredTools(), mcpReg),
         ...createMcpDiscoverTools(mcpReg, {
           isToolEnabled: (name) => resourceService.isToolEnabled("orchestrator", name),
-          onDiscover: (server, names) => onMcpDiscover("orchestrator", server, names),
+          onDiscover: (server, names) => mcpSurface.onMcpDiscover("orchestrator", server, names),
         }).tools,
       ];
     },

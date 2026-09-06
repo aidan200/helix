@@ -230,11 +230,17 @@ export class AuthStore implements AuthStorePort {
     return out;
   }
 
-  /** 原子落盘（tmp + rename + 0600 收严；覆盖宽权限旧文件同样收权）。 */
+  /**
+   * 原子落盘（tmp 创建即收权 0600 + rename；chmod 保留作覆盖旧宽权限
+   * 文件的兑底——writeFileSync 的 mode 仅创建时生效，tmp 残留复用场景
+   * 仍靠 chmod 收严）。创建即收权消竞争窗口：先写后 chmod 的旧形态里，
+   * 两句之间明文 tmp 按 0666&~umask（典型 0644）对同机其他用户可读
+   * （AG-09 敏感面，code-review M5）。
+   */
   private persist(table: AuthFile): void {
     mkdirSync(path.dirname(this.filePath), { recursive: true });
     const tmp = `${this.filePath}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(table, null, 2)}\n`, "utf8");
+    writeFileSync(tmp, `${JSON.stringify(table, null, 2)}\n`, { encoding: "utf8", mode: AUTH_FILE_MODE });
     chmodSync(tmp, AUTH_FILE_MODE);
     renameSync(tmp, this.filePath);
   }
