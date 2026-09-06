@@ -627,6 +627,17 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
           // skill-content 批：回执带 name 回显——定向归位缓存
           const p = (e as { payload: AgentSkillContentGetResultPayload }).payload;
           dispatch({ type: "skill-content-result", name: p.name, content: p.content });
+        } else if (e.type === "connection.error") {
+          // F5 批 #2：set_enabled 写面 daemon 失败回执（走 connection.error 而非
+          // *.result）——定向清 lastWriteRef 在途 + err toast（单飞门控：非本页
+          // 写面在途的 connection.error 不消费，trace/workspace 先例）
+          const w = lastWriteRef.current;
+          if (w !== null) {
+            lastWriteRef.current = null;
+            dispatch({ type: "toggle-settled", ...w });
+            const msg = (e as { payload?: { message?: string } }).payload?.message ?? "connection.error";
+            toast.push("err", t("agents.writeFailToast", { message: msg }));
+          }
         }
       }),
     [subscribeAgentConfigFrames, toast, t],

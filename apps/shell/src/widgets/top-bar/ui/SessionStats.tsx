@@ -11,7 +11,8 @@
  *
  * 交互面：徽标点击 toggle（aria-expanded）；popover 点外部 / Esc 关闭；
  * SubAgent 行尾 → onOpenInstance 抽屉回调（T4.3 接线，当前占位）；compaction
- * 行 → 锚点滚动到最后一条 compaction 里程碑条。
+ * 行 → onScrollToCompaction props 回调（F5 批 #7 / TR-85：锚点滚动能力归
+ *  chat-stream MessageFlow ref 窄接口持有，pages 装配层接线——禁跨层 DOM 直达）。
  */
 import { Fragment, memo, useEffect, useRef, useState } from "react";
 import type { CatalogModel, CompactionEntryDto } from "@helix/protocol";
@@ -232,23 +233,17 @@ const CHIP_DOT: Record<UsageChipState, string> = {
   idle: "hud-dot-idle",
 };
 
-/** 锚点滚动：compaction 行 → 消息流内最后一条 compaction 里程碑条
- *  （reduced-motion 下直跳不平滑）。 */
-function scrollToLastCompaction(): void {
-  const bars = document.querySelectorAll('.fb-wrap[data-kind="compaction"]');
-  const el = bars[bars.length - 1];
-  if (!(el instanceof HTMLElement)) return;
-  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-  el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
-}
-
 export const UsagePopover = memo(function UsagePopover({
   onClose,
   onOpenInstance,
+  onScrollToCompaction,
 }: {
   onClose: () => void;
   /** SubAgent 行尾跳抽屉（T4.3 接线；当前占位）——payload = instanceId */
   onOpenInstance?: (instanceId: string) => void;
+  /** compaction 行尾锚点滚动（F5 批 #7 / TR-85：props 回调，pages 层接线
+   *  MessageFlow ref；未接线时行点击仅关闭 popover） */
+  onScrollToCompaction?: () => void;
 }) {
   const { t } = useI18n();
   const { state, topology } = useSession();
@@ -329,7 +324,7 @@ export const UsagePopover = memo(function UsagePopover({
                   data-row-id={row.id}
                   onClick={() => {
                     if (row.action!.type === "drawer") onOpenInstance?.(row.action!.instanceId);
-                    else scrollToLastCompaction();
+                    else onScrollToCompaction?.();
                     onClose();
                   }}
                 >

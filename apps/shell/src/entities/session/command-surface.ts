@@ -335,18 +335,25 @@ export const COMMAND_SURFACE = {
     () => {
       deps.send(authListCommand());
     },
-  /** 目录强制刷新（P-4 刷新按钮；绕过 4h 缓存）。 */
+  /** 目录强制刷新（P-4 刷新按钮；绕过 4h 缓存）。send 失败（未连接）即回滚
+   *  in-flight + 返回 false（TR-84：调用侧 err toast 交代）。 */
   refreshModelCatalog: (deps) =>
-    () => {
-      if (deps.getTopology().modelConfig.catalogRefreshing) return; // 在途去重
+    (): boolean => {
+      if (deps.getTopology().modelConfig.catalogRefreshing) return true; // 在途去重
       deps.dispatch({ type: "model/catalog-refresh-started" });
-      deps.send(modelCatalogRefreshCommand());
+      const ok = deps.send(modelCatalogRefreshCommand());
+      if (!ok) deps.dispatch({ type: "model/catalog-refresh-aborted" });
+      return ok;
     },
-  /** 全局默认写入（P-4 选择器；乐观更新 + 回执锁定）。 */
+  /** 全局默认写入（P-4 选择器；乐观更新 + 回执锁定）。send 失败回滚乐观值
+   *  （恢复发送前旧默认）+ 清锁定 + 返回 false。 */
   setDefaultModel: (deps) =>
-    (model: string) => {
+    (model: string): boolean => {
+      const prev = deps.getTopology().modelConfig.defaultModel;
       deps.dispatch({ type: "model/set-default-started", model }); // 乐观更新（选择器即时反映）
-      deps.send(modelSetDefaultCommand(model));
+      const ok = deps.send(modelSetDefaultCommand(model));
+      if (!ok) deps.dispatch({ type: "model/set-default-aborted", model: prev });
+      return ok;
     },
   /** R7：全局默认推理强度（null = 清除）。 */
   setThinkingDefault: (deps) =>
@@ -391,24 +398,36 @@ export const COMMAND_SURFACE = {
     (port: number) => {
       deps.send(configSetPortCommand(port));
     },
-  /** 连通验证（P-4 测试连通；started 先清旧态）。 */
+  /** 连通验证（P-4 测试连通；started 先清旧态）。send 失败清 in-flight +
+   *  恢复发送前凭据条目 + 返回 false。 */
   verifyProvider: (deps) =>
-    (providerId: string) => {
+    (providerId: string): boolean => {
+      const prev = deps.getTopology().modelConfig.auth[providerId];
       deps.dispatch({ type: "model/verify-started", providerId }); // 先清旧态置 verifying
-      deps.send(authVerifyCommand(providerId));
+      const ok = deps.send(authVerifyCommand(providerId));
+      if (!ok) deps.dispatch({ type: "model/verify-aborted", providerId, prev });
+      return ok;
     },
-  /** key 保存（P-4 弹层；写 ~/.helix/auth.json）。 */
+  /** key 保存（P-4 弹层；写 ~/.helix/auth.json）。send 失败清 in-flight + 返回 false。 */
   setProviderKey: (deps) =>
-    (providerId: string, apiKey: string) => {
+    (providerId: string, apiKey: string): boolean => {
       deps.dispatch({ type: "model/set-key-started", providerId });
-      deps.send(authSetKeyCommand(providerId, apiKey));
+      const ok = deps.send(authSetKeyCommand(providerId, apiKey));
+      if (!ok) deps.dispatch({ type: "model/set-key-aborted" });
+      return ok;
     },
-  /** key 删除（P-4 两段式二击；回执后转未配置）。 */
+  /** key 删除（P-4 两段式二击；回执后转未配置）。send 失败清 in-flight + 返回 false。 */
   deleteProviderKey: (deps) =>
-    (providerId: string) => {
+    (providerId: string): boolean => {
       deps.dispatch({ type: "model/delete-key-started", providerId });
-      deps.send(authDeleteKeyCommand(providerId));
+      const ok = deps.send(authDeleteKeyCommand(providerId));
+      if (!ok) deps.dispatch({ type: "model/delete-key-aborted" });
+      return ok;
     },
+  /** 写面失败 toast 消费（F5 批：connection.error 清在途 → writeError →
+   *  ModelsSettingsSection err toast 渲染后置空；spawnToast 先例）。 */
+  consumeModelConfigError: ({ dispatch }) =>
+    () => dispatch({ type: "model/consume-error" }),
 
   // ── trace 查询面（CL-5，T2.2；连接私有读面）──
   /** 发送 trace.query（点对点回执；send 失败返回 false）。单飞纪律在页面侧。 */
@@ -616,21 +635,25 @@ export const LISTEN_SURFACE = {
   },
   /** 订阅 agent.config 族点对点回执（list.result / set_enabled.result /
    *  base_prompt.get.result / skill_content.get.result；changed 广播走拓扑级
-   *  消费，不在此转发）。 */
+   *  消费，不在此转发）。connection.error 一并转发——set_enabled 写面 daemon
+   *  失败回执清在途（F5 批 #2；单飞门控消费，trace 族先例）。 */
   subscribeAgentConfigFrames: {
     match: (type) =>
       type === "agent.config.list.result" ||
       type === "agent.config.set_enabled.result" ||
       type === "agent.base_prompt.get.result" ||
       type === "agent.skill_content.get.result" ||
-      type === "agent.skill.create.result",
+      type === "agent.skill.create.result" ||
+      type === "connection.error",
   },
-  /** 订阅 kg 族点对点回执（kg.*.result；O-6 零推送事件，回执全走此处；
-   *  connection.error 一并转发——bootstrap 入口/写面在途错误判定靠页面
-   *  单飞门控，task 族先例）。 */
+  /** 订阅 kg 族点对点回执（kg.*.result + code.review.create.result——评审回执
+   *  挂既有 kg 通道，E-99；F5 批 #5 补登，TR-89 双登记纪律；O-6 零推送事件，
+   *  回执全走此处；connection.error 一并转发——bootstrap 入口/写面在途错误
+   *  判定靠页面单飞门控，task 族先例）。 */
   subscribeKgFrames: {
     match: (type) =>
       type === "connection.error" ||
+      type === "code.review.create.result" ||
       (type.startsWith("kg.") && type.endsWith(".result")),
   },
   /** 订阅 task 族帧（task.*.result 点对点回执 + task.changed 广播 +

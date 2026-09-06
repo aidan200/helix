@@ -26,7 +26,7 @@ import {
   type TopologyState,
 } from "./state";
 import { dispatchFrame } from "./dispatcher/frame";
-import { applyModelConfigAction } from "./consumers/model-config";
+import { applyModelConfigAction, clearModelConfigInflight } from "./consumers/model-config";
 
 export { createInitialTopologyState };
 export type {
@@ -145,6 +145,14 @@ export function topologyReducer(topo: TopologyState, action: SessionAction): Top
     case "ui/load-earlier": {
       const active = beginLoadEarlier(topo.active);
       return active === topo.active ? topo : { ...topo, active };
+    }
+    case "conn/disconnected": {
+      // F5 批：断连夭折全部 modelConfig 写面 in-flight（结果帧随断连永不到达，
+      // 永锁防护——catalogRefreshing/verify/setKey/deleteKey/setDefault 统一清位）
+      const modelConfig = clearModelConfigInflight(topo.modelConfig);
+      const active = sessionReducer(topo.active, action);
+      if (active === topo.active && modelConfig === topo.modelConfig) return topo;
+      return { ...topo, active, modelConfig };
     }
     default: {
       // conn/* 与 ui/* 透传活跃完整 store；无变化时保持拓扑引用（浅比较友好）

@@ -123,6 +123,7 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
     verifyProvider,
     setProviderKey,
     deleteProviderKey,
+    consumeModelConfigError,
   } = useSession();
   const mc: ModelConfigState = topology.modelConfig;
 
@@ -146,6 +147,15 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
   // M47：目录刷新 toast 等结果帧——catalogRefreshing true→false 转换（catalog_refresh
   // 结果帧到达）才弹，点击不即弹（不假反馈）
   const refreshPendingRef = useRef(false);
+  // F5 批 #3：connection.error 清在途后的失败交代（err toast，一次性消费）。
+  // 声明序先于 M47 刷新效应——同帧清位时先灭 refreshPending 锚，抑制 ok 假反馈
+  const writeError = mc.writeError;
+  useEffect(() => {
+    if (writeError == null) return;
+    refreshPendingRef.current = false;
+    toast.push("err", t("chat.modelsConfig.writeFailToast", { message: writeError.message }));
+    consumeModelConfigError();
+  }, [writeError, toast, t, consumeModelConfigError]);
   const catalogRefreshing = mc.catalogRefreshing;
   useEffect(() => {
     if (!refreshPendingRef.current || catalogRefreshing) return;
@@ -199,7 +209,10 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
       keyInputRef.current?.focus();
       return;
     }
-    setProviderKey(modal.provider, v);
+    if (!setProviderKey(modal.provider, v)) {
+      // F5 批 #1：send 失败（未连接）——in-flight 已回滚，err toast 交代
+      toast.push("err", t("chat.modelsConfig.sendFailToast"));
+    }
     setModal(null);
     setKeyValue("");
     setKeyErr(false);
@@ -215,7 +228,11 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
     }
     if (deleteTimer.current !== null) window.clearTimeout(deleteTimer.current);
     setArmedDelete(null);
-    deleteProviderKey(providerId);
+    if (!deleteProviderKey(providerId)) {
+      // F5 批 #1：send 失败（未连接）——in-flight 已回滚，err toast 交代
+      toast.push("err", t("chat.modelsConfig.sendFailToast"));
+      return;
+    }
     toast.push("ok", t("chat.modelsConfig.keyDeletedToast", { provider: providerId }));
   };
 
@@ -278,7 +295,11 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
               disabled={mc.catalogRefreshing}
               onClick={() => {
                 refreshPendingRef.current = true; // M47：toast 归结果帧转换效应
-                refreshModelCatalog();
+                if (!refreshModelCatalog()) {
+                  // F5 批 #1：send 失败（未连接）——in-flight 已回滚，灭 M47 锚 + err 交代
+                  refreshPendingRef.current = false;
+                  toast.push("err", t("chat.modelsConfig.sendFailToast"));
+                }
               }}
             >
               <RefreshCw
@@ -357,7 +378,12 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
                           type="button"
                           data-prov-test
                           disabled={row.verifyStatus === "verifying"}
-                          onClick={() => verifyProvider(row.providerId)}
+                          onClick={() => {
+                            if (!verifyProvider(row.providerId)) {
+                              // F5 批 #1：send 失败（未连接）——in-flight 已回滚
+                              toast.push("err", t("chat.modelsConfig.sendFailToast"));
+                            }
+                          }}
                         >
                           {t("chat.modelsConfig.test")}
                         </button>
@@ -442,7 +468,11 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
                                     type="button"
                                     data-set-default={m.id}
                                     onClick={() => {
-                                      setDefaultModel(m.id);
+                                      if (!setDefaultModel(m.id)) {
+                                        // F5 批 #1：send 失败（未连接）——乐观值已回滚
+                                        toast.push("err", t("chat.modelsConfig.sendFailToast"));
+                                        return;
+                                      }
                                       toast.push(
                                         "ok",
                                         t("chat.modelsConfig.defaultUpdatedToast", { model: m.id }),

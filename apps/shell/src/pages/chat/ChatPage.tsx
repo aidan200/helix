@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
-import MessageFlow from "@/widgets/chat-stream/ui/MessageFlow";
+import MessageFlow, { type MessageFlowHandle } from "@/widgets/chat-stream/ui/MessageFlow";
 import ChatStatusBar from "@/widgets/chat-stream/ui/ChatStatusBar";
 import DiffOverlay from "@/widgets/chat-stream/ui/DiffOverlay";
 import RestoreSkeleton from "@/widgets/chat-stream/ui/P-1s-restore-skeleton";
@@ -73,6 +73,15 @@ const ChatPage = function ChatPage() {
   const composerRef = useRef<ComposerHandle>(null);
   const focusComposer = useCallback(() => composerRef.current?.focus(), []);
 
+  // F5 批 #7（TR-85）：compaction 锚点滚动出口（MessageFlow ref）——top-bar
+  // 统计 popover 的 compaction 行点击经 Workbench props 回调到本层触发
+  // （替代 SessionStats 跨层 document.querySelectorAll DOM 直达）
+  const messageFlowRef = useRef<MessageFlowHandle>(null);
+  const scrollToLastCompaction = useCallback(
+    () => messageFlowRef.current?.scrollToLastCompaction(),
+    [],
+  );
+
   // T3+T4 diff 批：diff 详情覆盖窗开合态（chip 点击开 / Esc・遮罩关）
   const [diffOverlayOpen, setDiffOverlayOpen] = useState(false);
   // v0.3.1 §29：会话切换强制收起详情窗——防止旧会话查询内容残影
@@ -82,7 +91,7 @@ const ChatPage = function ChatPage() {
   }, [state.sessionId]);
   return (
     <>
-      <Workbench onOpenInstance={openInstance} onFocusInput={focusComposer}>
+      <Workbench onOpenInstance={openInstance} onFocusInput={focusComposer} onScrollToCompaction={scrollToLastCompaction}>
         <div
           className="app"
           data-conn={state.conn}
@@ -93,7 +102,7 @@ const ChatPage = function ChatPage() {
           <ConnBanner />
           {/* 工作台账条（main-session plan 批）：无台账整条隐藏（渲染 null） */}
           <WorkLedgerBar />
-          <MessageFlow onOpenInstance={openInstance} onFocusInput={focusComposer}>
+          <MessageFlow ref={messageFlowRef} onOpenInstance={openInstance} onFocusInput={focusComposer}>
             <ConnOverlay />
             <ErrorCard />
             {/* P-1s 切换两阶段：loading 骨架（CSS 门控 data-view，与

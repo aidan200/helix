@@ -470,6 +470,52 @@ describe("智能体页组件（M6 T4）", () => {
     void view;
   });
 
+  it("③b set_enabled 在途收 connection.error → 定向清在途 + err toast（F5 批 #2）", async () => {
+    const view = ui();
+    act(() => feedList());
+    act(() => selectAgent("main-session"));
+    const bashSwitch = document.querySelector('[data-switch="bash"]') as HTMLButtonElement;
+    fireEvent.click(bashSwitch);
+    expect(bashSwitch.disabled).toBe(true); // 写面在途（单飞锁）
+    // daemon 失败回执走 connection.error（旧缺陷：匹配面不含 → pending 永不清）
+    act(() =>
+      feed({
+        v: "0.11",
+        sessionId: "__system__",
+        channel: "notification",
+        type: "connection.error",
+        payload: { code: "command.invalid_payload", message: "disk readonly" },
+      } as EventEnvelope),
+    );
+    const toast = await screen.findByText(/写入失败/);
+    expect(toast.textContent).toContain("disk readonly");
+    // 在途清：开关回可用，态保持旧值（失败不落库）
+    const fresh = document.querySelector('[data-switch="bash"]') as HTMLButtonElement;
+    expect(fresh.disabled).toBe(false);
+    expect(fresh.getAttribute("aria-checked")).toBe("true");
+    void view;
+  });
+
+  it("③c 非写面在途的 connection.error 不消费（单飞门控——其他域错误不误清）", async () => {
+    const view = ui();
+    act(() => feedList());
+    act(() => selectAgent("main-session"));
+    act(() =>
+      feed({
+        v: "0.11",
+        sessionId: "__system__",
+        channel: "notification",
+        type: "connection.error",
+        payload: { code: "task.not_found", message: "unrelated" },
+      } as EventEnvelope),
+    );
+    // 无 toast、开关零影响
+    expect(screen.queryByText(/写入失败/)).toBeNull();
+    const bashSwitch = document.querySelector('[data-switch="bash"]') as HTMLButtonElement;
+    expect(bashSwitch.disabled).toBe(false);
+    void view;
+  });
+
   it("④ 模型槽位：选模型 → set(model,true)；选缺省 → clear(model,false)；changed 重拉后下拉刷新", async () => {
     mock.catalog = CATALOG;
     const view = ui();

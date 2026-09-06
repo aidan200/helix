@@ -31,6 +31,7 @@ import type { BackgroundSessionState, TopologyState } from "../state";
 import { applyDirectoryEvent, isDirectoryEventType } from "../consumers/directory";
 import {
   applyModelConfigEvent,
+  applyModelConfigConnError,
   isModelConfigEventType,
 } from "../consumers/model-config";
 import {
@@ -42,6 +43,12 @@ import { route } from "./index";
 
 /** v0.2 统一信封帧入口：拓扑状态 + 事件帧 → 新拓扑状态。 */
 export function dispatchFrame(topo: TopologyState, frame: EventEnvelope, ts?: number): TopologyState {
+  // ⓪- connection.error 伴转（F5 批 #3）：model/auth 写面的 daemon 失败回执
+  //    走 connection.error 而非 *.result——拓扑级清在途 + writeError 交代
+  //    （单飞门控：无在途不消费，原引用直返）；清位后帧继续正常路由
+  if (frame.type === "connection.error") {
+    topo = applyModelConfigConnError(topo, frame, ts);
+  }
   const sid = frame.sessionId;
   const activeId = topo.active.sessionId;
   // ⓪ 拓扑级模型/厂商配置族（model/auth 9 类 *.result；T3.3 前置——含

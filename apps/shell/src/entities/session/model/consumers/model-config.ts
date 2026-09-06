@@ -201,7 +201,88 @@ export function applyModelConfigAction(mc: ModelConfigState, action: SessionActi
       return { ...mc, defaultThinking: action.level };
     case "model/catalog-refresh-started":
       return { ...mc, catalogRefreshing: true };
+    // ── F5 批：send 失败回滚族（TR-84——未发出即复原在途态/乐观值）──
+    case "model/catalog-refresh-aborted":
+      return mc.catalogRefreshing ? { ...mc, catalogRefreshing: false } : mc;
+    case "model/set-default-aborted":
+      // 回滚乐观值（action.model = 发送前捕获的旧默认）+ 清回执锁定
+      return { ...mc, defaultModel: action.model, setDefaultInflight: null };
+    case "model/verify-aborted": {
+      if (mc.verifyInflight === null) return mc;
+      const auth = { ...mc.auth };
+      if (action.prev === undefined) delete auth[action.providerId];
+      else auth[action.providerId] = action.prev;
+      return { ...mc, auth, verifyInflight: null };
+    }
+    case "model/set-key-aborted":
+      return mc.setKeyInflight === null ? mc : { ...mc, setKeyInflight: null };
+    case "model/delete-key-aborted":
+      return mc.deleteKeyInflight === null ? mc : { ...mc, deleteKeyInflight: null };
+    case "model/consume-error":
+      return mc.writeError === null ? mc : { ...mc, writeError: null };
     default:
       return mc;
   }
+}
+
+/**
+ * 清 modelConfig 全部写面 in-flight 位（F5 批统一收口面）：
+ * - conn/disconnected（断连夭折——在途命令的结果帧永不到达，永锁防护）；
+ * - connection.error 在途失败（applyModelConfigConnError 内部复用）。
+ * 断连/失败夭折的 verifying 条目回 unverified（daemon 侧调用已作废，防四态
+ * 卡死）；set_default 乐观值不回滚（旧值状态面无留存，重连后 get_default
+ * 重拉权威化）。无 in-flight 时保持原引用（浅比较友好）。
+ */
+export function clearModelConfigInflight(mc: ModelConfigState): ModelConfigState {
+  if (
+    !mc.catalogRefreshing &&
+    mc.verifyInflight === null &&
+    mc.setKeyInflight === null &&
+    mc.deleteKeyInflight === null &&
+    mc.setDefaultInflight === null
+  ) {
+    return mc;
+  }
+  let auth = mc.auth;
+  if (mc.verifyInflight !== null) {
+    const entry = mc.auth[mc.verifyInflight];
+    if (entry !== undefined && entry.verifyStatus === "verifying") {
+      auth = {
+        ...auth,
+        [mc.verifyInflight]: { ...entry, verifyStatus: "unverified" as const },
+      };
+    }
+  }
+  return {
+    ...mc,
+    auth,
+    catalogRefreshing: false,
+    verifyInflight: null,
+    setKeyInflight: null,
+    deleteKeyInflight: null,
+    setDefaultInflight: null,
+  };
+}
+
+/**
+ * connection.error 伴转消费（F5 批 #3；dispatcher/frame.ts 前置路由调用）：
+ * model/auth 写面命令的 daemon 失败回执走 connection.error 而非 *.result——
+ * 有任一 in-flight 时清全部在途位 + 置 writeError（页面 err toast 交代）；
+ * 无 in-flight 原样返回（单飞门控：非本族在途的 connection.error 不消费，
+ * trace/workspace 先例）。
+ */
+export function applyModelConfigConnError(
+  topo: TopologyState,
+  frame: EventEnvelope,
+  ts?: number,
+): TopologyState {
+  const mc = topo.modelConfig;
+  const cleared = clearModelConfigInflight(mc);
+  if (cleared === mc) return topo; // 无在途——不消费
+  const message =
+    (frame.payload as { message?: string } | undefined)?.message ?? "connection.error";
+  return {
+    ...topo,
+    modelConfig: { ...cleared, writeError: { message, ts: ts ?? 0 } },
+  };
 }

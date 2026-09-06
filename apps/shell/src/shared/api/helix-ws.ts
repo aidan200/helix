@@ -206,6 +206,7 @@ export class HelixWsClient {
     try {
       token = await this.opts.getToken(this.opts.port);
     } catch (err) {
+      if (gen !== this.generation) return; // stop() 已天折本次尝试（F5 批 #4：过期失败不得挂重连 timer）
       this.lastErrorMessage = `dev-token fetch failed (${(err as Error).message})`;
       this.handleFailure();
       return;

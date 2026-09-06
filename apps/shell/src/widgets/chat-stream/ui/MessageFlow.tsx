@@ -25,7 +25,7 @@
  * 主线 thinking 流式块（F2.3 streaming 态）插在 entries 之后、streaming 气泡
  * 之前；SubAgent 实例 thinking 流式槽位归抽屉消费（F1.6 实例分流）。
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, Fragment, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, Fragment, type ReactNode } from "react";
 import type { EntryDto, UsageDto } from "@helix/protocol";
 import { isMainChannel } from "@/entities/session/model/session-reducer";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
@@ -114,9 +114,31 @@ interface MessageFlowProps {
   onFocusInput?: () => void;
 }
 
-const MessageFlow = function MessageFlow({ children, onOpenInstance = noop, onFocusInput }: MessageFlowProps) {
+/** 消息流窄接口（F5 批 #7 / TR-85：能力持有方暴露 imperative 句柄，替代
+ *  top-bar 跨层 document.querySelectorAll DOM 直达；pages 装配层持 ref 接线）。 */
+export interface MessageFlowHandle {
+  /** 锚点滚动到本消息流内最后一条 compaction 里程碑条
+   *  （reduced-motion 下直跳不平滑；无 compaction 条目时零动作）。 */
+  scrollToLastCompaction(): void;
+}
+
+const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function MessageFlow({ children, onOpenInstance = noop, onFocusInput }, ref) {
   const { state, loadEarlierHistory } = useSession();
   const flowRef = useRef<HTMLElement>(null);
+
+  // F5 批 #7：compaction 锚点滚动窄接口——DOM 查询限定本组件子树（自家渲染
+  // 标记合法）；调用方（top-bar popover）经 pages 装配层 props 回调触发
+  useImperativeHandle(ref, () => ({
+    scrollToLastCompaction: () => {
+      const root = flowRef.current;
+      if (!root) return;
+      const bars = root.querySelectorAll('.fb-wrap[data-kind="compaction"]');
+      const el = bars[bars.length - 1];
+      if (!(el instanceof HTMLElement)) return;
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+    },
+  }), []);
   // 历史前插视口锚定：上一次布局后高度 + 首条 id（区分贴底与前插补偿）；
   // 会话基线（H-2：切换判定源——ref 不随会话切换重置会把旧会话高度/首条
   // id 喂给补偿公式，落点错乱）
@@ -303,6 +325,6 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop, onFo
           状态行（pages 层 ChatPage 装配，位于本组件与 composer 之间） */}
     </div>
   );
-};
+});
 
 export default MessageFlow;
