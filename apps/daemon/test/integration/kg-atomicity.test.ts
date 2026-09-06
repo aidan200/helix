@@ -123,6 +123,36 @@ describe("writeKnowledge 多表 op 原子性", () => {
     expect(count(s.root, "change_log")).toBe(1); // 仅最初 create 行
   });
 
+  test("④ 写锁被外部连接持有（busy_timeout 耗尽）→ BEGIN IMMEDIATE 失败归一 KG_E_INTERNAL 不裸抛；锁释放后通道仍可用", () => {
+    const s = freshStack();
+    // 先开知识层连接（建 schema）并缩短 busy 等待——不等默认 10s
+    const knowledge = s.database.knowledgeConnection(s.root);
+    knowledge.exec("PRAGMA busy_timeout = 100;");
+    const blocker = new Database(kgDbPath(s.root));
+    try {
+      blocker.exec("BEGIN IMMEDIATE"); // 外部连接持有写锁（双通道并发/busy 耗尽场景）
+      const result = s.store.writeKnowledge(s.root, {
+        kind: "createNode",
+        iterationId: "iter-busy",
+        draft: { kind: "rule", name: "n", digest: "d", scene: "测试场景" },
+      });
+      // E-41 契约归一：BEGIN 取锁失败也永远返回结构化 WriteResult，不裸抛 SQLiteError
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe("KG_E_INTERNAL");
+    } finally {
+      blocker.exec("ROLLBACK");
+      blocker.close();
+    }
+    // 锁释放后同一连接通道仍可用（BEGIN 失败未留半态/坏连接）
+    const after = s.store.writeKnowledge(s.root, {
+      kind: "createNode",
+      iterationId: "iter-busy",
+      draft: { kind: "rule", name: "n2", digest: "d", scene: "测试场景" },
+    });
+    expect(after.ok).toBe(true);
+    expect(count(s.root, "nodes")).toBe(1);
+  });
+
   test("③ applySync 中途故障（materialized_anchors 非法 anchor_kind 触发表级 CHECK）→ throw + 符号三表/物化/meta 全空", async () => {
     const s = freshStack();
     const faulty: SymbolBatch = {
