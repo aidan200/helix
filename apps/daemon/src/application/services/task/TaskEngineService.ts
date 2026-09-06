@@ -6,7 +6,7 @@ import type { StagePlan } from "../../../domain/task/types";
 import type { TaskEnginePort, CreateTaskInput } from "../../ports/inbound/TaskEnginePort";
 import { TaskError } from "./TaskError";
 import { taskSessionIdOf } from "./TaskOrchestratorService";
-import type { TaskStorePort, BatchData, JobData, StageArtifact, TaskDeleteCounts } from "../../ports/outbound/TaskStorePort";
+import type { TaskStorePort, BatchData, JobData, StageData, StageArtifact, TaskDeleteCounts } from "../../ports/outbound/TaskStorePort";
 import type { WorkLedgerPort } from "../../ports/outbound/WorkLedgerPort";
 import type { TaskSkillRegistryPort } from "../../ports/outbound/TaskSkillRegistryPort";
 import type { TaskOrchestratorStarterPort } from "../../ports/outbound/TaskOrchestratorStarterPort";
@@ -282,6 +282,9 @@ export class TaskEngineService implements TaskEnginePort {
     if (stage === undefined) {
       throw new TaskError("task.invalid_state", `stage 不存在：${input.jobId}#${input.stageSeq}（阶段行已冻结，AD-9③）`);
     }
+    // 阶段顺序守卫（B 批）：前序阶段全部 done 才可插批——阶段序由 skill 冻结，
+    // 机械防跳段（此前 LLM 可先插 stage3 批次而 stage1 仍 pending，序正确性全押 SOP 纪律）
+    this.assertPriorStagesDone(input.jobId, input.stageSeq);
     // pending → running：编排接管时刻（§3.3「pending→running: 编排 agent 接管」=
     // 第一个批次行落库；此后派发闸只认 running）
     if (job.status === "pending") {
@@ -392,20 +395,37 @@ export class TaskEngineService implements TaskEnginePort {
   }
 
   async advanceStage(jobId: string, stageSeq: number): Promise<void> {
-    this.assertDispatchable(jobId);
-    const stage = this.deps.store.getStages(jobId).find((s) => s.seq === stageSeq);
+    // B 批激活对称：pending 是编排接管前态——推进动作即接管（与 insertBatch 首批次
+    // 激活同构；2026-09-06 8213de82 实证：advance 首调被拒→编排脑补「人审门」停摆）
+    await this.ensureActiveForAdvance(jobId);
+    const stages = this.deps.store.getStages(jobId);
+    const stage = stages.find((s) => s.seq === stageSeq);
     if (stage === undefined) {
       throw new TaskError("task.invalid_state", `stage 不存在：${jobId}#${stageSeq}（阶段行已冻结，AD-9③）`);
     }
+    this.assertPriorStagesDone(jobId, stageSeq, stages);
     // T4.2 幂等兼容：insertBatch 已机械推进 running 后，编排 LLM 的冗余
-    // 调用为 no-op 成功（不删工具，双通道收口同一状态）
-    if (stage.status === "running") return;
+    // 调用为 no-op 成功（不删工具，双通道收口同一状态）；done 同理幂等不炸
+    if (stage.status === "running" || stage.status === "done") return;
     await this.deps.store.updateStageStatus(jobId, stageSeq, "running").catch((error) => this.mapDomainError(error));
     this.notify({ jobId, changed: "stage", status: "running" });
   }
 
   async writeStageArtifact(jobId: string, stageSeq: number, artifact: StageArtifact): Promise<void> {
-    this.assertDispatchable(jobId);
+    // B 批激活对称：直执阶段（无批次）首个动作常是产物聚合——同样接管激活
+    await this.ensureActiveForAdvance(jobId);
+    const stages = this.deps.store.getStages(jobId);
+    const stage = stages.find((s) => s.seq === stageSeq);
+    if (stage === undefined) {
+      throw new TaskError("task.invalid_state", `stage 不存在：${jobId}#${stageSeq}（阶段行已冻结，AD-9③）`);
+    }
+    this.assertPriorStagesDone(jobId, stageSeq, stages);
+    // 直执阶段免两步（B 批）：pending 阶段引擎自动走 running 再落 done——domain
+    // 迁移集不动（pending→done 仍非法），LLM 无需「先 advance 再 artifact」两步走
+    if (stage.status === "pending") {
+      await this.deps.store.updateStageStatus(jobId, stageSeq, "running").catch((error) => this.mapDomainError(error));
+      this.notify({ jobId, changed: "stage", status: "running" });
+    }
     // 阶段产物聚合 + stage 收口 done（§4.6：artifact 随 done 一次落库）
     await this.deps.store
       .updateStageStatus(jobId, stageSeq, "done", artifact)
@@ -492,13 +512,33 @@ export class TaskEngineService implements TaskEnginePort {
     return this.deps.store.getStages(jobId).flatMap((stage) => this.deps.store.getBatches(jobId, stage.seq));
   }
 
-  /** 推进门（「下一阶段/新批次」推进动作前查 job.status==running，O-2）。 */
-  private assertDispatchable(jobId: string): void {
+  /** 推进门（B 批激活对称）：pending 是编排接管前态——任一推进动作即接管激活
+   * （与 insertBatch 首批次落行激活同构）；已暂停/终态拒绝并给出准确指引（O-2 文案
+   * 修正：不再把 pending 误标为「暂停/终态」——误导性文案曾致编排 LLM 编造门语义）。 */
+  private async ensureActiveForAdvance(jobId: string): Promise<void> {
     const job = this.mustJob(jobId);
+    if (job.status === "pending") {
+      await this.transitionJob(jobId, "running");
+      this.notify({ jobId, changed: "job", status: "running" });
+      return;
+    }
     if (job.status !== "running") {
       throw new TaskError(
         "task.invalid_state",
-        `任务 ${jobId} 当前状态 ${job.status}（暂停/终态不执行推进动作，O-2）`,
+        `任务 ${jobId} 当前状态 ${job.status}（已暂停或终态：不执行推进动作——paused 经 resume 恢后续跑，终态任务不可推进，O-2）`,
+      );
+    }
+  }
+
+  /** 阶段顺序守卫（B 批）：目标阶段之前的全部 stage 须 done——机械防跳段。 */
+  private assertPriorStagesDone(jobId: string, stageSeq: number, stages?: readonly StageData[]): void {
+    const all = stages ?? this.deps.store.getStages(jobId);
+    const undone = all.filter((s) => s.seq < stageSeq && s.status !== "done");
+    if (undone.length > 0) {
+      const list = undone.map((s) => `#${s.seq}「${s.name}」（${s.status}）`).join("、");
+      throw new TaskError(
+        "task.invalid_state",
+        `阶段顺序违例：#${stageSeq} 之前存在未完成阶段 ${list}——前序阶段全部 done 后才可插批/推进/聚合（机械守卫）`,
       );
     }
   }

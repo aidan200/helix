@@ -488,6 +488,10 @@ describe("kg.bootstrap.produce 三级分组", () => {
     seedSynced(rig, rig.alpha, "a0");
     const { jobId } = await rig.engine.createTask({ type: "kg-bootstrap", projects: ["alpha"], params: { projectRoot: rig.alpha }, createdBy: "chat" });
     const { batchId: b1 } = await rig.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次：全局规范与架构基线" });
+    // 阶段顺序守卫（B 批）：stage2 插批前 stage1 须 done——批次收口 + 产物落定
+    await rig.engine.dispatchBatch(b1, "inst-b1");
+    await rig.engine.completeBatch(b1);
+    await rig.engine.writeStageArtifact(jobId, 1, { summary: "L0 完成" });
     const { batchId: b2 } = await rig.engine.insertBatch({ jobId, stageSeq: 2, scope: "批次：任务引擎域" });
     // 产出节点：b1 × 2（L0）+ b2 × 1（L1）+ 日常落账 1（无元数据，不进）
     expectOk(

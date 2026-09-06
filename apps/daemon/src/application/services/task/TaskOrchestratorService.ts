@@ -615,6 +615,8 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       ...batchLines,
       ...(doneBatches.length > 0 ? ["已完成批次：" + doneBatches.join("、")] : []),
       "",
+      "【接管与推进说明】本任务当前 pending=待接管：task_insert_batch / task_advance_stage / task_stage_artifact 任一动作即接管激活（pending→running）——不存在人审门；skill 的 confirm 字段是「开启前对话确认」语义（发起侧已完成），不是执行中的门。阶段按冻结序推进：前序阶段全部 done 后才可对后续阶段插批/推进/聚合（机械守卫，越序会被拒）。",
+      "",
       "【派发纪律】running/failed 批次已由引擎派发或自动重派（上表实例号即证据）——不要对它们自行另派实例；新批次须 insertBatch 落行、spawn 后立即 task_dispatch_batch 接线，未接线实例的产物会被丢弃。",
       "",
       "【任务 skill 全文】",

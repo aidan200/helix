@@ -652,3 +652,77 @@ describe("job 收口回口（completeJob 机械复核）", () => {
     });
   });
 });
+
+describe("接管激活对称与阶段顺序守卫（B 批：激活放宽 + O-2 文案 + 防跳段）", () => {
+  test("pending job 上 advanceStage → 接管激活（job→running）+ stage pending→running（8213de82 死锁修复：推进动作不再被误拒）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      await env.engine.advanceStage(jobId, 1);
+      expect(env.store.getJob(jobId)!.status).toBe("running");
+      expect(env.store.getStages(jobId).find((s) => s.seq === 1)!.status).toBe("running");
+    });
+  });
+
+  test("pending job 上 writeStageArtifact → 接管激活 + pending 阶段自动两步落 done（直执阶段免显式 advance，消灭两步顺序敏感）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      await env.engine.writeStageArtifact(jobId, 1, { summary: "阶段一产物" });
+      expect(env.store.getJob(jobId)!.status).toBe("running");
+      const stage = env.store.getStages(jobId).find((s) => s.seq === 1)!;
+      expect(stage.status).toBe("done");
+      expect(stage.artifact).toMatchObject({ summary: "阶段一产物" });
+    });
+  });
+
+  test("O-2 文案修正：paused 拒绝推进且文案准确（不再把状态笼统误标，指引 resume）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await launchRunningJob(env);
+      await env.engine.pause(jobId);
+      const err: TaskError = await env.engine.advanceStage(jobId, 2).catch((e) => e);
+      expect(err.code).toBe("task.invalid_state");
+      expect(err.message).toContain("已暂停");
+      expect(err.message).not.toContain("（暂停/终态不执行推进动作，O-2）");
+    });
+  });
+
+  test("阶段顺序守卫：前序阶段未 done 时 insertBatch/advanceStage/writeStageArtifact 全拒（机械防跳段）", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      await expect(env.engine.insertBatch({ jobId, stageSeq: 2, scope: "跳段批次" })).rejects.toMatchObject({ code: "task.invalid_state" });
+      await expect(env.engine.advanceStage(jobId, 2)).rejects.toMatchObject({ code: "task.invalid_state" });
+      await expect(env.engine.writeStageArtifact(jobId, 2, { summary: "x" })).rejects.toMatchObject({ code: "task.invalid_state" });
+      expect(env.store.getBatches(jobId, 2)).toHaveLength(0);
+    });
+  });
+
+  test("前序全 done 后放行：stage1 产物落 done → stage2 插批/推进不再被守卫拦截", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "kg-bootstrap",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      await env.engine.writeStageArtifact(jobId, 1, { summary: "一阶段完成" });
+      await env.engine.insertBatch({ jobId, stageSeq: 2, scope: "二阶段批次" });
+      expect(env.store.getBatches(jobId, 2)).toHaveLength(1);
+      await env.engine.advanceStage(jobId, 2); // 幂等 no-op（已随首批次机械推 running）
+      expect(env.store.getStages(jobId).find((s) => s.seq === 2)!.status).toBe("running");
+    });
+  });
+});
