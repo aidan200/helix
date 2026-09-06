@@ -119,7 +119,9 @@ export class ChildProcessTransport {
     try {
       const stdout = this.proc.stdout as unknown as AsyncIterable<Uint8Array>;
       for await (const chunk of stdout) {
-        buf += decoder.decode(chunk);
+        // {stream:true}：多字节字符跨 chunk 边界不产 U+FFFD（否则坏行被
+        // 静默丢弃——丢 closure 行父侧崩溃检测会误判 failed）
+        buf += decoder.decode(chunk, { stream: true });
         let nl: number;
         while ((nl = buf.indexOf("\n")) >= 0) {
           const raw = buf.slice(0, nl).trim();

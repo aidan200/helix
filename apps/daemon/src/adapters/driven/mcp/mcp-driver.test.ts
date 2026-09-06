@@ -40,6 +40,16 @@ function handle(msg) {
     const name = msg.params.name;
     if (name === "fail") { send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: "boom" }], isError: true } }); return; }
     if (name === "rpc-error") { send({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "tool crashed" } }); return; }
+    if (name === "split-utf8") {
+      // M3 回归剧本：响应字节流在多字节字符中间切成两个 chunk（间隔 50ms
+      // 保证不合并）——逐 chunk toString 的旧实现会产 U+FFFD 损坏 JSON
+      const payload = JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: "你好世界🌍" }] } }) + "\\n";
+      const buf = Buffer.from(payload, "utf-8");
+      const cut = buf.indexOf(Buffer.from("你", "utf-8")) + 1; // 切在「你」三字节中间
+      process.stdout.write(buf.subarray(0, cut));
+      setTimeout(() => process.stdout.write(buf.subarray(cut)), 50);
+      return;
+    }
     if (name === "multimodal") { send({ jsonrpc: "2.0", id: msg.id, result: { content: [
       { type: "image", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", mimeType: "image/png" },
       { type: "audio", data: "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=", mimeType: "audio/wav" },
@@ -107,6 +117,13 @@ describe("McpClient（真子进程往返）", () => {
     // 兑底监听就位（无监听时 EventEmitter emit('error') 同步 throw 击穿进程）
     expect(proc.stdin.listenerCount("error")).toBeGreaterThan(0);
     expect(() => proc.stdin.emit("error", new Error("write EPIPE"))).not.toThrow();
+    client.stop();
+  });
+
+  test("多字节字符跨 chunk 边界不损坏（StringDecoder 拼接，M3 修复）", async () => {
+    const client = new McpClient(fakeServerConfig("t-split"), { timeoutMs: 10000 } as never);
+    const result = await client.callTool("split-utf8", {});
+    expect(result.content[0]).toEqual({ type: "text", text: "你好世界🌍" }); // 无 U+FFFD、响应行未被丢弃
     client.stop();
   });
 });
