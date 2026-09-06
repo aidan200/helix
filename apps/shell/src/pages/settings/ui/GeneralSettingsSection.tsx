@@ -12,12 +12,18 @@
  * 调度预算/端口（config 瘦身批同构）：modelConfig.scheduling / port 帧驱动
  * 同模式；调度写入下一次预算判定即生效（无重启提示），端口写入下次启动
  * 生效（UI 标注 + argv 覆盖态展示）。
+ *
+ * 三卡状态机单点（M10 批⑤）：dirty/pending/saved 三件套 + 结果帧对账 +
+ * 在途失败收口归 useConfigField（settings-hooks.ts）——config.set_* daemon
+ * 失败走 connection.error（无结果帧），hook 内清 pending + 行内错误交代
+ * （M10 批②：不假「已保存」、在途不永锁致后续读帧被误当保存回执）。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { useI18n, type Lang } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
 import WorkspaceSettingsSection from "./WorkspaceSettingsSection";
+import { useConfigField } from "./settings-hooks";
 
 /** 语言选项（按钮文案自命名词条：chat.settings.general.langZh/langEn）。 */
 const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
@@ -32,26 +38,22 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
   const scheduling = topology.modelConfig.scheduling;
   const portCfg = topology.modelConfig.port;
 
-  const [reserve, setReserve] = useState("");
-  const [keepRecent, setKeepRecent] = useState("");
-  const [saved, setSaved] = useState(false);
-  /** 用户未保存编辑（M46：脏态下结果帧不回填覆盖输入框）。 */
-  const dirtyRef = useRef(false);
-  /** 保存在途（M44：「已保存」由 set_compaction.result 结果帧驱动，非乐观置位）。 */
-  const pendingSaveRef = useRef(false);
-
-  // 调度预算输入（config 瘦身批；与压缩参数同构的脏态/在途门控）
-  const [maxConcurrent, setMaxConcurrent] = useState("");
-  const [maxQueued, setMaxQueued] = useState("");
-  const [schedSaved, setSchedSaved] = useState(false);
-  const schedDirtyRef = useRef(false);
-  const schedPendingRef = useRef(false);
-
-  // 端口输入（同构；写入下次启动生效）
-  const [portInput, setPortInput] = useState("");
-  const [portSaved, setPortSaved] = useState(false);
-  const portDirtyRef = useRef(false);
-  const portPendingRef = useRef(false);
+  // 三卡同构状态机（M10 批⑤：useConfigField 单点承载——脏态门控 M46 /
+  // 在途对账 M44 / connection.error 在途失败收口 M10-②）
+  const compactionField = useConfigField(compaction, (c) => [
+    String(c.reserveTokens),
+    String(c.keepRecentTokens),
+  ]);
+  const schedulingField = useConfigField(scheduling, (s) => [
+    String(s.maxConcurrent),
+    String(s.maxQueued),
+  ]);
+  const portField = useConfigField(portCfg, (p) => [
+    p.storedPort !== null ? String(p.storedPort) : "",
+  ]);
+  const [reserve = "", keepRecent = ""] = compactionField.inputs;
+  const [maxConcurrent = "", maxQueued = ""] = schedulingField.inputs;
+  const portInput = portField.inputs[0] ?? "";
 
   // 进入分区拉取现值（未请求态才发）
   useEffect(() => {
@@ -60,81 +62,28 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
     requestPortConfig();
   }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig]);
 
-  // 结果帧到达：保存在途对账 → 落「已保存」（M44 真实反馈）；
-  // 非在途且用户有未保存编辑 → 不回填覆盖（M46 dirty 门控）
-  useEffect(() => {
-    if (compaction === null) return;
-    if (pendingSaveRef.current) {
-      pendingSaveRef.current = false;
-      dirtyRef.current = false;
-      setReserve(String(compaction.reserveTokens));
-      setKeepRecent(String(compaction.keepRecentTokens));
-      setSaved(true);
-      return;
-    }
-    if (dirtyRef.current) return;
-    setReserve(String(compaction.reserveTokens));
-    setKeepRecent(String(compaction.keepRecentTokens));
-  }, [compaction]);
-
   const save = () => {
     // M45：显式拒空串（Number("")===0 过整数校验会静默写 0）
     if (reserve.trim() === "" || keepRecent.trim() === "") return;
     const r = Number(reserve);
     const k = Number(keepRecent);
     if (!Number.isInteger(r) || !Number.isInteger(k) || r < 0 || k < 0) return;
-    pendingSaveRef.current = true;
-    setSaved(false);
-    setCompactionConfig(r, k);
+    compactionField.submit(() => setCompactionConfig(r, k));
   };
-
-  // 结果帧到达（调度）：在途对账/脏态门控（与压缩参数同构）
-  useEffect(() => {
-    if (scheduling === null) return;
-    if (schedPendingRef.current) {
-      schedPendingRef.current = false;
-      schedDirtyRef.current = false;
-      setMaxConcurrent(String(scheduling.maxConcurrent));
-      setMaxQueued(String(scheduling.maxQueued));
-      setSchedSaved(true);
-      return;
-    }
-    if (schedDirtyRef.current) return;
-    setMaxConcurrent(String(scheduling.maxConcurrent));
-    setMaxQueued(String(scheduling.maxQueued));
-  }, [scheduling]);
 
   const saveScheduling = () => {
     if (maxConcurrent.trim() === "" || maxQueued.trim() === "") return;
     const c = Number(maxConcurrent);
     const q = Number(maxQueued);
     if (!Number.isInteger(c) || !Number.isInteger(q) || c < 1 || q < 0) return;
-    schedPendingRef.current = true;
-    setSchedSaved(false);
-    setSchedulingConfig(c, q);
+    schedulingField.submit(() => setSchedulingConfig(c, q));
   };
-
-  // 结果帧到达（端口）：在途对账/脏态门控（同构）
-  useEffect(() => {
-    if (portCfg === null) return;
-    if (portPendingRef.current) {
-      portPendingRef.current = false;
-      portDirtyRef.current = false;
-      setPortInput(portCfg.storedPort !== null ? String(portCfg.storedPort) : "");
-      setPortSaved(true);
-      return;
-    }
-    if (portDirtyRef.current) return;
-    setPortInput(portCfg.storedPort !== null ? String(portCfg.storedPort) : "");
-  }, [portCfg]);
 
   const savePort = () => {
     if (portInput.trim() === "") return;
     const p = Number(portInput);
     if (!Number.isInteger(p) || p < 0 || p > 65535) return;
-    portPendingRef.current = true;
-    setPortSaved(false);
-    setPortConfig(p);
+    portField.submit(() => setPortConfig(p));
   };
 
   return (
@@ -180,11 +129,7 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             min={0}
             value={reserve}
             data-compaction-reserve
-            onChange={(e) => {
-              setReserve(e.target.value);
-              dirtyRef.current = true;
-              setSaved(false);
-            }}
+            onChange={(e) => compactionField.setInput(0, e.target.value)}
           />
         </div>
         <div className="fld">
@@ -198,19 +143,20 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             min={0}
             value={keepRecent}
             data-compaction-keep-recent
-            onChange={(e) => {
-              setKeepRecent(e.target.value);
-              dirtyRef.current = true;
-              setSaved(false);
-            }}
+            onChange={(e) => compactionField.setInput(1, e.target.value)}
           />
         </div>
         <button type="button" className="hud-btn hud-btn-cyan" data-compaction-save onClick={save}>
           {t("chat.settings.general.save")}
         </button>
-        {saved && (
+        {compactionField.saved && (
           <span className="ag-note" data-compaction-saved>
             {t("chat.settings.general.saved")}
+          </span>
+        )}
+        {compactionField.saveError !== null && (
+          <span className="mcp-err" data-compaction-save-error role="alert">
+            {compactionField.saveError}
           </span>
         )}
       </div>
@@ -229,11 +175,7 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             min={1}
             value={maxConcurrent}
             data-sched-max-concurrent
-            onChange={(e) => {
-              setMaxConcurrent(e.target.value);
-              schedDirtyRef.current = true;
-              setSchedSaved(false);
-            }}
+            onChange={(e) => schedulingField.setInput(0, e.target.value)}
           />
         </div>
         <div className="fld">
@@ -247,19 +189,20 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             min={0}
             value={maxQueued}
             data-sched-max-queued
-            onChange={(e) => {
-              setMaxQueued(e.target.value);
-              schedDirtyRef.current = true;
-              setSchedSaved(false);
-            }}
+            onChange={(e) => schedulingField.setInput(1, e.target.value)}
           />
         </div>
         <button type="button" className="hud-btn hud-btn-cyan" data-sched-save onClick={saveScheduling}>
           {t("chat.settings.general.save")}
         </button>
-        {schedSaved && (
+        {schedulingField.saved && (
           <span className="ag-note" data-sched-saved>
             {t("chat.settings.general.saved")}
+          </span>
+        )}
+        {schedulingField.saveError !== null && (
+          <span className="mcp-err" data-sched-save-error role="alert">
+            {schedulingField.saveError}
           </span>
         )}
         <span className="ag-note">{t("chat.settings.general.schedNote")}</span>
@@ -281,19 +224,20 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             value={portInput}
             placeholder="7333"
             data-ws-port
-            onChange={(e) => {
-              setPortInput(e.target.value);
-              portDirtyRef.current = true;
-              setPortSaved(false);
-            }}
+            onChange={(e) => portField.setInput(0, e.target.value)}
           />
         </div>
         <button type="button" className="hud-btn hud-btn-cyan" data-port-save onClick={savePort}>
           {t("chat.settings.general.save")}
         </button>
-        {portSaved && (
+        {portField.saved && (
           <span className="ag-note" data-port-saved>
             {t("chat.settings.general.saved")}
+          </span>
+        )}
+        {portField.saveError !== null && (
+          <span className="mcp-err" data-port-save-error role="alert">
+            {portField.saveError}
           </span>
         )}
         <span className="ag-note">{t("chat.settings.general.portNote")}</span>

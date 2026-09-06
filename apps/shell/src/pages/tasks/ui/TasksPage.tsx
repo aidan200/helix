@@ -273,6 +273,17 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
     dispatch({ type: "tab", value });
   }, []);
 
+  /** artifacts 失败面重试（M10 批⑥：错误面带显式重试入口——复用 watcher
+   *  同构的发送链，artifacts-loading 清错误位转骨架；send 失败回落错误面）。 */
+  const onRetryArtifacts = useCallback(() => {
+    const jobId = stateRef.current.selected;
+    if (jobId === null) return;
+    dispatch({ type: "artifacts-loading", jobId });
+    const ok = sendTaskArtifacts({ jobId });
+    if (ok) artifactsReqRef.current.push(jobId); // 发送成功才入队在途关联
+    else dispatch({ type: "artifacts-failed", jobId }); // 未发出：回落错误面
+  }, [sendTaskArtifacts]);
+
   const onConfirmOpen = useCallback((box: "cancel" | "delete") => {
     dispatch({ type: "confirm-open", box });
   }, []);
@@ -393,6 +404,20 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
                   )
                 ) : state.artifactsLoading || state.artifactsJob !== selected ? (
                   <TaskSkeleton lines={4} />
+                ) : state.artifactsError ? (
+                  /* M10 批⑥：拉取失败 = 错误面（带重试入口），不谎报空态 */
+                  <div className="tk-empty" data-tk-artifacts-error role="alert">
+                    <div className="tk-empty-t">{t("tk.result.errorTitle")}</div>
+                    <div className="tk-empty-s">{t("tk.result.errorSub")}</div>
+                    <button
+                      type="button"
+                      className="hud-btn hud-btn-danger sm"
+                      data-tk-artifacts-retry
+                      onClick={onRetryArtifacts}
+                    >
+                      {t("tk.result.retry")}
+                    </button>
+                  </div>
                 ) : state.artifacts !== null ? (
                   <TaskResultPane artifacts={state.artifacts} t={t} />
                 ) : (

@@ -28,6 +28,7 @@ import type {
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
+import { useArmedConfirm } from "./settings-hooks";
 
 /** list.result 合并行形态（协议 McpServersListResultPayload.servers 项）。 */
 interface McpServerRow {
@@ -66,9 +67,8 @@ const McpSettingsSection = function McpSettingsSection() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [addPending, setAddPending] = useState(false);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
-  /** 删除两段式：normal|armed（armed 2.5s 超时复原）。 */
-  const [armedDelete, setArmedDelete] = useState<string | null>(null);
-  const disarmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** 删除两段式：normal|armed（armed 2.5s 超时复原）——M10 批⑤ hook 单点承载。 */
+  const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
 
   // 进入分区拉取
   useEffect(() => {
@@ -209,18 +209,8 @@ const McpSettingsSection = function McpSettingsSection() {
 
   /** 两段式删除：首击 armed（2.5s 复原），二击执行。 */
   const onDelete = (serverName: string): void => {
-    if (armedDelete !== serverName) {
-      setArmedDelete(serverName);
-      clearTimeout(disarmTimer.current);
-      disarmTimer.current = setTimeout(() => setArmedDelete(null), 2500);
-      return;
-    }
-    clearTimeout(disarmTimer.current);
-    setArmedDelete(null);
-    sendMcpServersRemove({ name: serverName });
+    confirmDelete(serverName, () => sendMcpServersRemove({ name: serverName }));
   };
-
-  useEffect(() => () => clearTimeout(disarmTimer.current), []);
 
   /** 五态徽标类名（running 绿 / error 红 / 其余弱化）。 */
   const badgeClass = (state: McpServerRuntimeState): string =>

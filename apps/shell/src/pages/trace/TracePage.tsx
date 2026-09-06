@@ -9,7 +9,11 @@
  * 数据通道（连接私有读面，AG-15：页面私有 reducer，不进 session store）：
  * - 发送：sendTraceQuery（trace.query，单飞 + filterEcho 迟到结果丢弃）；
  * - 消费：subscribeTraceFrames 注册 trace.query.result / connection.error
- *   （SessionContext 转发层；dispatcher 侧保持 no-op 注册守护绿）；
+ *   （SessionContext 转发层；dispatcher 侧保持 no-op 注册守护绿）。
+ *   connection.error 归因（M10 批⑦）：错误帧无 echo 关联——daemon
+ *   trace.query handler 同步处理 + 单连接有序（回执按请求序到达，tasks
+ *   artifacts T4.3 先例），页面持在途查询代 FIFO：错误帧出队最老在途代
+ *   归因，reducer query-failed 只清当前代（旧查询错误回执不误伤新查询）；
  * - 会话清单：topology.list（复用；清单空且 connected 时才 requestSessionList，
  *   「未请求态才发」门控）。
  *
@@ -65,19 +69,29 @@ const TracePage = function TracePage({ path }: { path: string }) {
    *  任务批次/编排事件落 domain_events 同表，trace.query 直查无需 daemon 改动）。 */
   const [tasks, setTasks] = useState<readonly TaskSummaryDto[]>([]);
 
+  /** 在途查询代 FIFO（M10 批⑦ connection.error 归因）：请求成功发出才入队；
+   *  回执（结果帧/错误帧）按请求序到达——出队最老在途代对号（T4.3 先例）。 */
+  const queryGensRef = useRef<number[]>([]);
+  /** 查询代计数器（页面侧单调递增；随 query-started/page-started 注入 reducer）。 */
+  const nextGenRef = useRef(1);
+
   /** 查询主链：构造 payload+echo（同产防漂移）→ 先置 loading 清旧态 → 发送；
    *  发送失败（未连接）即落 error 态。beforeId 非空 = 分页追加（不收口视图）。 */
   const runQuery = useCallback(
     (filter: TraceFilter, beforeId: number | null, scope: "session" | "filter") => {
       const built = buildTraceQuery(filter, stateRef.current.latestEventTs, beforeId);
+      const gen = nextGenRef.current++;
       dispatch(
         beforeId === null
-          ? { type: "query-started", filter, echo: built.echo, scope }
-          : { type: "page-started", echo: built.echo },
+          ? { type: "query-started", filter, echo: built.echo, generation: gen, scope }
+          : { type: "page-started", echo: built.echo, generation: gen },
       );
       if (!sendTraceQuery(built.payload)) {
-        dispatch({ type: "query-failed", reason: t("trace.state.notConnected") });
+        // 未发出：不入 FIFO——以本查询代直接收口（reducer 当前代 = 本查询）
+        dispatch({ type: "query-failed", generation: gen, reason: t("trace.state.notConnected") });
+        return;
       }
+      queryGensRef.current.push(gen); // 发送成功才入队在途关联
     },
     [sendTraceQuery, t],
   );
@@ -87,6 +101,7 @@ const TracePage = function TracePage({ path }: { path: string }) {
     () =>
       subscribeTraceFrames((e: EventEnvelope) => {
         if (e.type === "trace.query.result") {
+          queryGensRef.current.shift(); // 最老在途已应答（FIFO 对号）
           const p = (e as { payload: TraceQueryResultPayload }).payload;
           dispatch({
             type: "query-result",
@@ -96,9 +111,21 @@ const TracePage = function TracePage({ path }: { path: string }) {
             page: p.page,
           });
         } else if (e.type === "connection.error") {
-          // 在途查询失败（单飞：reducer 内 pending 为空则忽略；追加失败保内容）
+          // M10 批⑦：跨命令归因——daemon commandError 消息尾缀「（命令 <type>）」
+          // 固定格式（WsServerAdapter.commandError 单一构造点）：可辨识且非
+          // trace.query 的错误帧不进 FIFO（留给其本族消费面，不同页/同页其他
+          // 命令错误不误伤在途查询）；无尾缀（旧 daemon 容忍）按可能本族处理
           const p = (e as { payload: { message?: string } }).payload;
-          dispatch({ type: "query-failed", reason: p?.message ?? "connection.error" });
+          const message = p?.message ?? "connection.error";
+          // 尾缀 = fullwidth parens + 「命令」二字 + type（字面 CJK 经 unicode
+          // 转义书写——AG-16 组件源码零硬编码 CJK 纪律覆盖正则字面）
+          const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+          if (cmd !== undefined && cmd !== "trace.query") return;
+          // 在途查询失败：FIFO 出队最老在途代归因（回执按请求序到达），
+          // reducer 只清当前代——旧查询的错误回执不清新查询 pending 不落 error
+          const gen = queryGensRef.current.shift();
+          if (gen === undefined) return; // 无在途：非本页/迟到错误帧不消费
+          dispatch({ type: "query-failed", generation: gen, reason: message });
         }
       }),
     [subscribeTraceFrames],
@@ -154,6 +181,7 @@ const TracePage = function TracePage({ path }: { path: string }) {
       // M42：断连清「已请求」位——旧连接的回执不可能再到达，不清位则首次
       // 请求失败后清单永不重拉；重连转换后按未请求态重发
       requestedListRef.current = false;
+      queryGensRef.current = []; // 断连死在途清空（旧连接回执不可能再到达）
       return;
     }
     if (topology.list.length > 0) requestedListRef.current = false; // M42：拉取成功复位（后续清空可重拉）

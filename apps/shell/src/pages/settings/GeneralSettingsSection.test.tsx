@@ -3,14 +3,18 @@
  * 通用配置分区测试：
  * - 语言切换入口：中文/English 两选项，当前语言 aria-pressed 激活；
  *   点击切换 → localStorage helix-lang 持久化 + 词条即时切换（标题双语验证）；
- * - 压缩参数卡保留（进入拉 requestCompactionConfig）。
+ * - 压缩参数卡保留（进入拉 requestCompactionConfig）；
+ * - M10 批②：config 族在途错误经 connection.error 收口——清 pending +
+ *   行内错误交代，不假「已保存」、后续读帧不被误当保存回执（单飞门控）。
  *
  * vi.mock SessionContext 先例（SettingsPage.test.tsx）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import { ToastProvider } from "@/shared/ui/Toast";
+import type { EventEnvelope } from "@helix/protocol";
+import { PROTOCOL_VERSION } from "@helix/protocol";
 
 const requestCompactionConfig = vi.fn();
 const setCompactionConfig = vi.fn();
@@ -20,6 +24,9 @@ const requestPortConfig = vi.fn();
 const setPortConfig = vi.fn();
 /** M44/M46：压缩参数结果帧可变位（结果帧驱动回填 / 「已保存」对账）。 */
 let mockCompaction: { reserveTokens: number; keepRecentTokens: number } | null = null;
+/** M10 批②：config 族 connection.error 订阅听众（三卡 useConfigField 各挂一
+ *  个；feed 全量回放——单飞门控由各卡 pending 自行判）。 */
+let configListeners: ((e: EventEnvelope) => void)[] = [];
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
@@ -34,6 +41,12 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       setSchedulingConfig,
       requestPortConfig,
       setPortConfig,
+      subscribeConfigFrames: (listener: (e: EventEnvelope) => void) => {
+        configListeners.push(listener);
+        return () => {
+          configListeners = configListeners.filter((l) => l !== listener);
+        };
+      },
     }),
   };
 });
@@ -62,8 +75,24 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   mockCompaction = null;
+  configListeners = [];
   vi.clearAllMocks();
 });
+
+/** config 族错误回执注入（connection.error——daemon commandError 无结果帧路径）。 */
+function feedConnError(message: string) {
+  const frame = {
+    v: PROTOCOL_VERSION,
+    sessionId: "__system__",
+    channel: "notification",
+    type: "connection.error",
+    ts: 1,
+    payload: { code: "command.invalid_payload", message },
+  } as unknown as EventEnvelope;
+  act(() => {
+    for (const l of configListeners) l(frame);
+  });
+}
 
 function ui() {
   return render(
@@ -169,5 +198,68 @@ describe("M44/M45/M46 压缩参数保存链路", () => {
     );
     expect((document.querySelector<HTMLInputElement>("[data-compaction-reserve]")!).value).toBe("50000");
     expect((document.querySelector<HTMLInputElement>("[data-compaction-keep-recent]")!).value).toBe("32000");
+  });
+});
+
+describe("M10 批②：config 族在途错误经 connection.error 收口（不假「已保存」）", () => {
+  it("保存在途收 connection.error → 清 pending + 行内错误交代；后续读帧不被误当保存回执", () => {
+    mockCompaction = { reserveTokens: 96000, keepRecentTokens: 32000 };
+    const view = ui();
+    const reserve = document.querySelector<HTMLInputElement>("[data-compaction-reserve]")!;
+    fireEvent.change(reserve, { target: { value: "120000" } });
+    fireEvent.click(document.querySelector("[data-compaction-save]")!);
+    expect(setCompactionConfig).toHaveBeenCalledWith(120000, 32000);
+    // daemon 失败回执（config.set_compaction 无结果帧路径）→ 行内错误 + 无「已保存」
+    feedConnError("config.set_compaction: 参数越界（命令 config.set_compaction）");
+    expect(document.querySelector("[data-compaction-save-error]")).not.toBeNull();
+    expect(document.querySelector("[data-compaction-save-error]")!.textContent).toContain("参数越界");
+    expect(document.querySelector("[data-compaction-saved]")).toBeNull();
+    // pending 已清：后续 config.get 结果帧（拉取回值）不被误当保存回执——
+    // 无「已保存」假反馈；用户未保存编辑不被读帧覆盖（M46 门控仍在）
+    mockCompaction = { reserveTokens: 96000, keepRecentTokens: 32000 };
+    view.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <GeneralSettingsSection />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(document.querySelector("[data-compaction-saved]")).toBeNull();
+    // 用户未保存编辑不被读帧覆盖（M46 门控仍在）
+    expect(document.querySelector<HTMLInputElement>("[data-compaction-reserve]")!.value).toBe("120000");
+  });
+
+  it("单飞门控：无在途时 connection.error 不消费（无错误面、无状态扰动）", () => {
+    mockCompaction = { reserveTokens: 96000, keepRecentTokens: 32000 };
+    ui();
+    feedConnError("task.list: job 不存在（命令 task.list）");
+    expect(document.querySelector("[data-compaction-save-error]")).toBeNull();
+    expect(document.querySelector("[data-sched-save-error]")).toBeNull();
+    expect(document.querySelector("[data-port-save-error]")).toBeNull();
+  });
+
+  it("错误交代后再输入即清（可修正重试）；再保存成功结果帧正常落「已保存」", () => {
+    mockCompaction = { reserveTokens: 96000, keepRecentTokens: 32000 };
+    const view = ui();
+    const reserve = document.querySelector<HTMLInputElement>("[data-compaction-reserve]")!;
+    fireEvent.change(reserve, { target: { value: "120000" } });
+    fireEvent.click(document.querySelector("[data-compaction-save]")!);
+    feedConnError("config.set_compaction: 参数越界（命令 config.set_compaction）");
+    expect(document.querySelector("[data-compaction-save-error]")).not.toBeNull();
+    // 再输入 → 错误交代清
+    fireEvent.change(reserve, { target: { value: "110000" } });
+    expect(document.querySelector("[data-compaction-save-error]")).toBeNull();
+    // 再保存 → 结果帧到达 → 「已保存」
+    fireEvent.click(document.querySelector("[data-compaction-save]")!);
+    expect(setCompactionConfig).toHaveBeenLastCalledWith(110000, 32000);
+    mockCompaction = { reserveTokens: 110000, keepRecentTokens: 32000 };
+    view.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <GeneralSettingsSection />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(document.querySelector("[data-compaction-saved]")!.textContent).toContain("已保存");
   });
 });

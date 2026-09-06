@@ -5,7 +5,8 @@
  * - 五态互斥状态机（idle/loading/error/empty/success；断连 overlay 正交——
  *   conn 由组件从会话门面派生，不进本模型；review.md 状态模型）；
  * - 单飞 + filterEcho 并发一致性（AF-5：pending 记录期望回显，不匹配即丢弃，
- *   不加 requestId）；
+ *   不加 requestId）+ 查询代（M10 批⑦：query-failed 只清当前代——旧查询的
+ *   connection.error 回执不清新查询 pending、不落 error）；
  * - 组合过滤三维（实例/类型类目/时间范围）→ trace.query payload 构造
  *   （类型 chip 原型 8 类目映射真实 DomainEventType 全集；时间窗参考零点 =
  *   会话最新事件 ts，换算绝对窗口下推 daemon，前端不本地过滤）；
@@ -390,8 +391,8 @@ export interface TracePageState {
   /** 手风琴单开（事件 id）。 */
   openId: number | null;
   promptOpen: boolean;
-  /** 在途查询的期望回显（单飞；null = 无在途）。 */
-  pending: TraceQueryFilterEcho | null;
+  /** 在途查询（单飞；null = 无在途）：期望回显 + 查询代。 */
+  pending: TracePending | null;
   /** 时间窗参考零点（最近一次无筛选 fresh 结果的 rows[0].ts）。 */
   latestEventTs: string | null;
 }
@@ -414,15 +415,25 @@ export function createTracePageState(): TracePageState {
   };
 }
 
+/** 在途查询（单飞）：期望回显 + 查询代（页面侧单调计数随 action 注入）。 */
+export interface TracePending {
+  echo: TraceQueryFilterEcho;
+  /** 查询代（M10 批⑦：connection.error 无 echo 关联——页面经 FIFO 归因
+   *  携带查询代，reducer 只清当前代；旧代错误回执不误伤新查询）。 */
+  generation: number;
+}
+
 export type TraceAction =
   | {
       type: "query-started";
       filter: TraceFilter;
       echo: TraceQueryFilterEcho;
+      /** 查询代（页面计数器注入；query-failed 归因比对）。 */
+      generation: number;
       /** session = 切会话（连 instances/参考零点清）；filter = 同会话筛选变更（面板保留防闪烁）。 */
       scope: "session" | "filter";
     }
-  | { type: "page-started"; echo: TraceQueryFilterEcho }
+  | { type: "page-started"; echo: TraceQueryFilterEcho; generation: number }
   | {
       type: "query-result";
       echo: TraceQueryFilterEcho;
@@ -430,7 +441,7 @@ export type TraceAction =
       rows: TraceEventRow[];
       page: { loaded: number; total: number; hasMore: boolean };
     }
-  | { type: "query-failed"; reason: string }
+  | { type: "query-failed"; generation: number; reason: string }
   | { type: "toggle-row"; id: number }
   | { type: "toggle-prompt" };
 
@@ -458,15 +469,19 @@ export function traceReducer(s: TracePageState, a: TraceAction): TracePageState 
         loadingMore: false,
         openId: null,
         promptOpen: false,
-        pending: a.echo,
+        pending: { echo: a.echo, generation: a.generation },
         instances: a.scope === "session" ? [] : s.instances,
         latestEventTs: a.scope === "session" ? null : s.latestEventTs,
       };
     case "page-started":
-      return { ...s, loadingMore: true, pending: a.echo };
+      return {
+        ...s,
+        loadingMore: true,
+        pending: { echo: a.echo, generation: a.generation },
+      };
     case "query-result": {
       // 单飞：无在途 / echo 不匹配的迟到结果一律丢弃
-      if (s.pending === null || !echoMatches(s.pending, a.echo)) return s;
+      if (s.pending === null || !echoMatches(s.pending.echo, a.echo)) return s;
       const append = a.echo.page.beforeId !== null;
       const events = append ? appendRows(s.events, a.rows) : a.rows;
       const next: TracePageState = {
@@ -492,7 +507,9 @@ export function traceReducer(s: TracePageState, a: TraceAction): TracePageState 
       return next;
     }
     case "query-failed": {
-      if (s.pending === null) return s;
+      // M10 批⑦：只清当前代——旧代/无关错误回执（页面 FIFO 归因后携带
+      // 查询代）不清新查询 pending、不落 error（新查询结果帧不再被丢弃）
+      if (s.pending === null || s.pending.generation !== a.generation) return s;
       if (s.loadingMore) {
         // 追加失败：保持已加载内容，仅清在途（视图不中断）
         return { ...s, pending: null, loadingMore: false };

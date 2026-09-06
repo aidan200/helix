@@ -289,6 +289,8 @@ export const zhCN = {
         addConfirm: "创建",
         adding: "创建中…",
         formInvalid: "请填写技能名、描述与正文",
+        /** M10 批①：connection.error 在途失败交代（create/content.get 协议层失败，daemon message 透传）。 */
+        requestFailed: "操作失败：{message}",
         createFail: {
           "invalid-name": "技能名不合法（需字母数字开头，仅可含 . _ -）",
           "missing-description": "frontmatter 缺 description（或为空）",
@@ -897,6 +899,10 @@ export const zhCN = {
       tabResult: "任务结果",
       emptyTitle: "尚无阶段产物",
       emptySub: "阶段完成后，编排器会把产出节点集与阶段摘要聚合到这里。",
+      /** M10 批⑥：artifacts 拉取失败错误面（带重试入口，不谎报空态）。 */
+      errorTitle: "产物加载失败",
+      errorSub: "拉取阶段产物时出错，可重试。",
+      retry: "重试",
     },
   },
 

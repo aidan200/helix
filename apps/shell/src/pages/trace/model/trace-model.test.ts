@@ -77,16 +77,16 @@ const BASE_FILTER: TraceFilter = {
   rangeSec: null,
 };
 
-function startQuery(s: TracePageState, filter: TraceFilter = BASE_FILTER, scope: "session" | "filter" = "filter") {
+function startQuery(s: TracePageState, filter: TraceFilter = BASE_FILTER, scope: "session" | "filter" = "filter", generation = 1) {
   const { echo } = buildTraceQuery(filter, s.latestEventTs, null);
-  return traceReducer(s, { type: "query-started", filter, echo, scope });
+  return traceReducer(s, { type: "query-started", filter, echo, generation, scope });
 }
 
 function feedResult(
   s: TracePageState,
   over: { rows?: TraceEventRow[]; total?: number; hasMore?: boolean; echo?: TraceQueryFilterEcho; instances?: TraceInstanceRecord[] } = {},
 ) {
-  const echo = over.echo ?? s.pending!;
+  const echo = over.echo ?? s.pending!.echo;
   return traceReducer(s, {
     type: "query-result",
     echo,
@@ -115,6 +115,7 @@ describe("1. 五态互斥转换与新查询清旧态", () => {
       type: "query-started",
       filter: BASE_FILTER,
       echo: buildTraceQuery(BASE_FILTER, null, null).echo,
+      generation: 1,
       scope: "filter",
     });
     expect(s1.view).toBe("loading");
@@ -147,8 +148,10 @@ describe("1. 五态互斥转换与新查询清旧态", () => {
   });
 
   it("loading + query-failed → error（reason 记录）；再次 query-started 清 error 回 loading", () => {
-    const s1 = traceReducer(startQuery(createTracePageState()), {
+    const started = startQuery(createTracePageState());
+    const s1 = traceReducer(started, {
       type: "query-failed",
+      generation: started.pending!.generation,
       reason: "trace.query: SQLITE_BUSY",
     });
     expect(s1.view).toBe("error");
@@ -157,6 +160,19 @@ describe("1. 五态互斥转换与新查询清旧态", () => {
     const s2 = startQuery(s1);
     expect(s2.view).toBe("loading");
     expect(s2.errorReason).toBeNull();
+  });
+
+  it("M10 批⑦：旧代 query-failed 只清旧代——当前代 pending 不动、不落 error（错误回执不误伤新查询）", () => {
+    const s1 = startQuery(createTracePageState(), BASE_FILTER, "filter", 1); // gen1 在途
+    const s2 = startQuery(s1, { ...BASE_FILTER, instanceId: "main" }, "filter", 2); // gen2 取代
+    const s3 = traceReducer(s2, { type: "query-failed", generation: 1, reason: "旧查询失败" });
+    expect(s3.view).toBe("loading"); // 保持新查询 loading（不落 error）
+    expect(s3.errorReason).toBeNull();
+    expect(s3.pending).toBe(s2.pending); // 当前代 pending 未清（后续结果帧不被丢弃）
+    // 当前代错误回执正常收口
+    const s4 = traceReducer(s2, { type: "query-failed", generation: 2, reason: "当前代失败" });
+    expect(s4.view).toBe("error");
+    expect(s4.errorReason).toBe("当前代失败");
   });
 });
 
@@ -177,7 +193,7 @@ describe("2. 单飞 filterEcho 迟到结果丢弃 + 类型类目交集", () => {
 
   it("单飞：A 在途时发起 B → A 的迟到结果被丢弃（状态保持 B 的 loading）", () => {
     const s1 = startQuery(createTracePageState());
-    const pendingA = s1.pending!;
+    const pendingA = s1.pending!.echo;
     const fB: TraceFilter = { ...BASE_FILTER, instanceId: "main" };
     const s2 = startQuery(s1, fB);
     const s3 = feedResult(s2, { echo: pendingA }); // A 迟到
@@ -238,7 +254,7 @@ describe("3. 分页（beforeId 游标步进 / hasMore 收口 / 筛选变更重�
     expect(s.hasMore).toBe(true);
     const cursor = s.events[s.events.length - 1]!.id; // 98
     const { echo } = buildTraceQuery(BASE_FILTER, s.latestEventTs, cursor);
-    s = traceReducer(s, { type: "page-started", echo });
+    s = traceReducer(s, { type: "page-started", echo, generation: 2 });
     expect(s.loadingMore).toBe(true);
     expect(s.view).toBe("success"); // 追加不中断 success 态
     s = traceReducer(s, {
@@ -256,7 +272,7 @@ describe("3. 分页（beforeId 游标步进 / hasMore 收口 / 筛选变更重�
   it("追加页 echo 不匹配（维度已变）→ 丢弃不追加", () => {
     let s = feedResult(startQuery(createTracePageState()), { hasMore: true, total: 9 });
     const { echo } = buildTraceQuery(BASE_FILTER, s.latestEventTs, 1);
-    s = traceReducer(s, { type: "page-started", echo });
+    s = traceReducer(s, { type: "page-started", echo, generation: 2 });
     const stale = { ...echo, types: ["engine.error"] };
     const after = traceReducer(s, {
       type: "query-result",
@@ -272,8 +288,8 @@ describe("3. 分页（beforeId 游标步进 / hasMore 收口 / 筛选变更重�
   it("追加失败（query-failed while loadingMore）→ 保持 success 与已加载事件，仅清在途", () => {
     let s = feedResult(startQuery(createTracePageState()), { hasMore: true, total: 9 });
     const { echo } = buildTraceQuery(BASE_FILTER, s.latestEventTs, 1);
-    s = traceReducer(s, { type: "page-started", echo });
-    s = traceReducer(s, { type: "query-failed", reason: "net" });
+    s = traceReducer(s, { type: "page-started", echo, generation: 2 });
+    s = traceReducer(s, { type: "query-failed", generation: 2, reason: "net" });
     expect(s.view).toBe("success");
     expect(s.events.length).toBe(3);
     expect(s.loadingMore).toBe(false);
