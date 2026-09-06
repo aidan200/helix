@@ -1260,6 +1260,19 @@ deferred 缺省 true = 懒加载：工具经 `${server}__discover` meta 工具�
 > + task 族十结果帧 + diff 族 diff.get.result（task 批 9 + task.retry 批 1 + diff 批 1，不入本目录——契约 §0 计数，
 > types/task.ts 与 types/diff.ts 窄化接口供出））
 > 仅发发起命令的连接，不经 EventStream 广播（TR-AD-21 先例）。
+>
+> **点对点结果帧登记判据（code-review M13 批补登——入/不入 `EVENT_TYPES`
+> 判据此前未成文）**：命令结果帧一律为点对点回执（仅发发起连接），其
+> 登记分双轨——
+> ① **主轨**：入 `EVENT_TYPES` / `EventEnvelope`（`src/events/` 族文件定义
+> 信封，本节落 `####` 锚并计入计数声明）——model/auth/config/agent/web/
+> kg/workspace/trace/mcp 各族结果帧全走本轨；
+> ② **窄化接口轨（已登记历史例外）**：task 族十结果帧 + `diff.get.result`
+> 不入 `EVENT_TYPES` / `EventEnvelope`，仅以 `src/types/task.ts` /
+> `src/types/diff.ts` 窄化接口供出，daemon 侧 sendNow 直发，消费端按 type
+> 字符串旁路窄化（shell consumers `as string` 先例）。
+> 双轨并存为 task 批 / diff 批遗留的知情形态（§15.11/§15.12 注记），**新增
+> 命令结果帧一律走主轨①**，第二轨不得新增成员；收敛单轨另案裁决。
 
 ### 16.1 notification 族（3；信封 sessionId = SYSTEM_SESSION_ID）
 
@@ -2218,6 +2231,9 @@ iter-20260819-erio 的 `development/contracts/`）降为**历史定形档案**�
   `packages/protocol/src/envelope.ts`；任何脚本 / 文档 / 测试引用版本一律
   从单点读或由断言守护，禁止手写字面量（perf-a11y `V = "0.3"` 漂移为
   登记在案反例，F(2).1 已修为单点读取）。
+- **③ 结果帧登记单轨律**（code-review M13 批）：新增命令结果帧一律入
+  `EVENT_TYPES` / `EventEnvelope`（§16 头注「主轨」）；task 族十结果帧与
+  `diff.get.result` 的窄化接口轨为已登记历史例外，不得效仿扩展。
 - 版本批次语义（一次定形、批次集合标记非协商位）归 TR-AD-23②：§14 微批
   字段（welcome.draft / chat.send.model / chat.send.draft）随 v0.5 批次
   定形登记，本批零新增命令/事件（22/40 计数不变）。

@@ -36,7 +36,7 @@ import { ensureRgAvailable, tauriDevArgs, TAURI_DEV_CONFIG_OVERRIDE } from "./de
 import { prebindWorkspace } from "./dev-desktop";
 
 // TDD-RED：wrapper cwd 止血 + W5 两形态——buildWrapperScript 尚未实现（先红后绿）
-import { buildWrapperScript, parseDevDesktopArgs, resolveDevWorkspaceRoot } from "./dev-desktop";
+import { buildWrapperScript, parseDevDesktopArgs, resolveDevWorkspaceRoot, shQuote } from "./dev-desktop";
 
 const root = join(import.meta.dir, "..");
 const SCRIPT = join(root, "scripts/dev-desktop.ts");
@@ -437,6 +437,48 @@ describe("buildWrapperScript（wrapper 内容纯函数：cd 在 exec 前；W5 �
     expect(buildWrapperScript({ bunPath, mainTsPath, workspaceRoot })).toBe(
       `#!/bin/sh\ncd '${workspaceRoot}'\nexec '${bunPath}' '${mainTsPath}' "$@"\n`,
     );
+  });
+
+  test("路径含 '（--workspace-root 为用户 argv 输入）→ sh 单引号转义，生成脚本语法合法（code-review M13 批 #2.40）", () => {
+    // shQuote 单元：' → '\''（闭合-转义-重开三件套）
+    expect(shQuote("a'b")).toBe("a'\\''b");
+    expect(shQuote("plain")).toBe("plain");
+
+    const quoted = "/tmp/hx it's a root";
+    const script = buildWrapperScript({
+      bunPath,
+      mainTsPath,
+      workspaceRoot: quoted,
+      home: "/tmp/hx home's",
+    });
+    expect(script).toContain(`cd '/tmp/hx it'\\''s a root'`);
+    expect(script).toContain(`--home '/tmp/hx home'\\''s'`);
+    // 实测：sh -n 语法校验不炸（裸插值此处必语法错误）
+    const tmp = mkdtempSync(join(tmpdir(), "hx-wrapper-quote-"));
+    try {
+      const file = join(tmp, "wrapper.sh");
+      writeFileSync(file, script);
+      const check = Bun.spawnSync(["sh", "-n", file]);
+      expect(check.exitCode).toBe(0);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test("实测：含 ' 与空格的真实目录作为 workspaceRoot——脚本可跑通 cd + exec（引号路径不炸）", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "hx-wrapper-e2e-"));
+    const quotedDir = join(tmp, "it's here");
+    mkdirSync(quotedDir);
+    try {
+      const file = join(tmp, "wrapper.sh");
+      // bunPath 用 /bin/echo 顶位：exec 替换后打印 mainTsPath 即证明 cd 与引号解析全通
+      writeFileSync(file, buildWrapperScript({ bunPath: "/bin/echo", mainTsPath: "ok", workspaceRoot: quotedDir }));
+      const run = Bun.spawnSync(["sh", file]);
+      expect(run.exitCode).toBe(0);
+      expect(run.stdout.toString().trim()).toBe("ok");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

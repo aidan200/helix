@@ -164,17 +164,26 @@ export async function runPipeline(
   return 0;
 }
 
-/** 生产 runner：stdout 直通；stderr tee 直通 + 尾部累积（失败透传用）。 */
-const realRunner: StepRunner = async (step) => {
-  const proc = Bun.spawn({
-    cmd: step.cmd,
-    cwd: step.cwd,
-    // 签名凭据等环境变量原样透传（F2.4 零硬编码证书）
-    env: process.env as Record<string, string | undefined>,
-    stdin: "ignore",
-    stdout: "inherit",
-    stderr: "pipe",
-  });
+/** 生产 runner：stdout 直通；stderr tee 直通 + 尾部累积（失败透传用）。
+ * spawn 异常（缺失 executable——如步骤⑥ cargo 不在 PATH，Bun.spawn 同步
+ * throw「Executable not found in $PATH」）转为 StepResult{code:127} 入失败
+ * 契约（✗ 步骤N + stderr 末 50 行 + 透传 code），不以未处理 rejection 崩
+ * 管线（code-review M13 批 #2.40；127 = shell command-not-found 惯例码）。 */
+export const realRunner: StepRunner = async (step) => {
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn({
+      cmd: step.cmd,
+      cwd: step.cwd,
+      // 签名凭据等环境变量原样透传（F2.4 零硬编码证书）
+      env: process.env as Record<string, string | undefined>,
+      stdin: "ignore",
+      stdout: "inherit",
+      stderr: "pipe",
+    });
+  } catch (err) {
+    return { code: 127, stderr: err instanceof Error ? err.message : String(err) };
+  }
   let tail = "";
   const dec = new TextDecoder();
   const reader = proc.stderr.getReader();

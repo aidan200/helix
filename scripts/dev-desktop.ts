@@ -195,15 +195,25 @@ export interface WrapperScriptOptions {
  * 触发“杀壳重建”无限重启（本函数即该循环的止血位）。workspaceRoot
  * 省略时（W5：未传 --workspace-root）无 cd 行——daemon 未绑定态，workspace 绑定
  * 恒经 WS（workspace.open），无 cwd 兼容缺省（W1/TR-AD-6 补款）。
+ *
+ * 引号转义（code-review M13 批 #2.40）：四路径插值一律经 shQuote——任一路径
+ * 含 ' （--workspace-root 为用户 argv 输入）裸插值即生成语法错误/错路径脚本，
+ * sidecar 启动失败且报错指向模糊；路径含空格已由单引号包裹正确处理，引号
+ * 本身是盲区，故统一转义（' → '\''）。
  */
 export function buildWrapperScript(options: WrapperScriptOptions): string {
-  const homeArg = options.home ? ` --home '${options.home}'` : "";
-  const cdLine = options.workspaceRoot ? `cd '${options.workspaceRoot}'\n` : "";
+  const homeArg = options.home ? ` --home '${shQuote(options.home)}'` : "";
+  const cdLine = options.workspaceRoot ? `cd '${shQuote(options.workspaceRoot)}'\n` : "";
   return (
     `#!/bin/sh\n` +
     cdLine +
-    `exec '${options.bunPath}' '${options.mainTsPath}'${homeArg} "$@"\n`
+    `exec '${shQuote(options.bunPath)}' '${shQuote(options.mainTsPath)}'${homeArg} "$@"\n`
   );
+}
+
+/** sh 单引号字面量转义：' → '\''（闭合-转义-重开三件套，POSIX sh 标准手法）。 */
+export function shQuote(p: string): string {
+  return p.replaceAll("'", "'\\''");
 }
 
 // ── dev workspace 预绑定根解析（W5 旋钮降级：可选预绑定，UI 门禁取代 TTY prompt）──

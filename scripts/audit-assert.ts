@@ -5,7 +5,9 @@
  * ① `bun audit` 全链零漏洞（dev 链 5 漏洞清零的防复发守护）；bun audit
  *   联网拉漏洞库，请求失败（"audit request failed"，CI 网络瞬断常见）
  *   ≠ 漏洞检出——请求类失败指数退避重试 4 次，耗尽仍败以基础设施故障
- *   红（不静默放行），真检出漏洞不重试直接红；
+ *   红（不静默放行），真检出漏洞不重试直接红；单次尝试带 timeout 兜底
+ *   （code-review M13 批 #2.40：子进程自身联网遇 TCP 半死零超时即永久
+ *   挂起，4 次退避重试救不了单次挂死——TR-104 同类半死面）；
  * ② 版本地板：lock 实装 vite ≥8.2.0 + vitest ≥4.1.0（防 lock 回退到漏洞窗；
  *   T1.2 升级至 latest 线 vite 8.2.2 / vitest 4.1.11，地板随实装 major.minor 线上调）；
  * ③ 生产运行时不引入审计敏感包：root + apps/* 的 dependencies（非 dev）
@@ -39,135 +41,188 @@ function atLeast(version: string, floor: string): boolean {
   return true;
 }
 
-// ── ① bun audit 全链零漏洞 ──
-// bun audit 需联网拉漏洞库，CI 网络瞬断会报 "audit request failed"（非漏洞
-// 检出）——区分两类失败：请求失败走重试（指数退避 4 次），真检出漏洞即红。
-// 重试耗尽仍请求失败 = 基础设施故障红（明确文案，不静默放行安全闸门）。
-const AUDIT_ATTEMPTS = 4;
-let auditOk = false;
-let auditLastOut = "";
-for (let attempt = 1; attempt <= AUDIT_ATTEMPTS; attempt++) {
-  const audit = Bun.spawnSync(["bun", "audit"], { cwd: root });
+// ── ① bun audit 单次尝试（M13 批 #2.40 可测化抽取，spawn 注入全分支可单测） ──
+
+/** 单次 bun audit 尝试的超时兜底（120s）：超时 SIGTERM 后按请求失败入重试。 */
+export const AUDIT_TIMEOUT_MS = 120_000;
+
+/** 单次尝试结论：ok=零漏洞通过；requestFailed=请求类失败（含超时杀）可重试。 */
+export interface AuditAttemptResult {
+  readonly ok: boolean;
+  readonly requestFailed: boolean;
+  readonly out: string;
+}
+
+/** spawnSync 窄注入面（测试以假结果注入，不真起子进程）。 */
+export interface AuditSpawnSyncResult {
+  readonly exitCode: number | null;
+  readonly stdout: { toString(): string };
+  readonly stderr: { toString(): string };
+}
+export type AuditSpawnSync = (
+  cmd: string[],
+  opts: { cwd: string; timeout: number },
+) => AuditSpawnSyncResult;
+
+/**
+ * 单次 bun audit 尝试：
+ * - executable 用 process.execPath（当前 bun 二进制绝对路径），不写死
+ *   "bun" 走 PATH（M13 批 #2.40）；
+ * - timeout 兜底——bun audit 子进程自身联网遇 TCP 半死时零超时即永久挂起
+ *   （TR-104 同类半死面），超时 SIGTERM 后 exitCode=null，按「请求失败」
+ *   口径入重试（基础设施故障，非漏洞检出）；
+ * - 请求类失败（"audit request failed" / 超时杀）≠ 漏洞检出；其余非零
+ *   退出 = 真漏洞检出（或其它断言级失败），不可重试。
+ */
+export function runAuditAttempt(
+  cwd: string,
+  spawnSync: AuditSpawnSync = (cmd, opts) => Bun.spawnSync(cmd, opts),
+): AuditAttemptResult {
+  const audit = spawnSync([process.execPath, "audit"], { cwd, timeout: AUDIT_TIMEOUT_MS });
   const out = audit.stdout.toString() + audit.stderr.toString();
-  auditLastOut = out;
   if (audit.exitCode === 0 && out.includes("No vulnerabilities found")) {
-    auditOk = true;
-    break;
+    return { ok: true, requestFailed: false, out };
   }
-  if (!out.includes("audit request failed")) {
-    // 非请求类失败 = 真漏洞检出（或其它断言级失败），不重试直接红
-    console.error(out);
-    fail("bun audit 检出漏洞（期望清零）");
-  }
-  if (attempt < AUDIT_ATTEMPTS) {
-    const waitMs = 5000 * attempt;
-    console.warn(`⚠ ① bun audit 请求失败（第 ${attempt}/${AUDIT_ATTEMPTS} 次），${waitMs / 1000}s 后重试…`);
-    Bun.sleepSync(waitMs);
-  }
+  const requestFailed = audit.exitCode === null || out.includes("audit request failed");
+  return { ok: false, requestFailed, out };
 }
-if (!auditOk) {
-  console.error(auditLastOut);
-  fail(`bun audit 连续 ${AUDIT_ATTEMPTS} 次请求失败（registry 不可达/网络故障，非漏洞检出）——人工重跑确认`);
-}
-console.log("✓ ① bun audit 全链零漏洞");
 
-// ── ② 版本地板（实装面：workspace node_modules 包清单） ──
-const moduleRoots = [join(root, "node_modules"), join(root, "apps", "shell", "node_modules")];
-for (const [pkg, floor] of [
-  ["vite", "8.2.0"],
-  ["vitest", "4.1.0"],
-] as const) {
-  let v: string | null = null;
-  for (const mr of moduleRoots) {
-    try {
-      v = (JSON.parse(readFileSync(join(mr, pkg, "package.json"), "utf8")) as { version: string }).version;
+async function main(): Promise<void> {
+  // ── ① bun audit 全链零漏洞 ──
+  // bun audit 需联网拉漏洞库，CI 网络瞬断会报 "audit request failed"（非漏洞
+  // 检出）——区分两类失败：请求失败走重试（指数退避 4 次），真检出漏洞即红。
+  // 重试耗尽仍请求失败 = 基础设施故障红（明确文案，不静默放行安全闸门）。
+  const AUDIT_ATTEMPTS = 4;
+  let auditOk = false;
+  let auditLastOut = "";
+  for (let attempt = 1; attempt <= AUDIT_ATTEMPTS; attempt++) {
+    const result = runAuditAttempt(root);
+    auditLastOut = result.out;
+    if (result.ok) {
+      auditOk = true;
       break;
-    } catch {
-      /* 下一个 node_modules 根 */
+    }
+    if (!result.requestFailed) {
+      // 非请求类失败 = 真漏洞检出（或其它断言级失败），不重试直接红
+      console.error(result.out);
+      fail("bun audit 检出漏洞（期望清零）");
+    }
+    if (attempt < AUDIT_ATTEMPTS) {
+      const waitMs = 5000 * attempt;
+      console.warn(`⚠ ① bun audit 请求失败（第 ${attempt}/${AUDIT_ATTEMPTS} 次），${waitMs / 1000}s 后重试…`);
+      Bun.sleepSync(waitMs);
     }
   }
-  if (!v) fail(`node_modules 中未找到 ${pkg}`);
-  if (!atLeast(v, floor)) fail(`${pkg}@${v} 低于地板 ${floor}（漏洞窗内）`);
-  console.log(`✓ ② ${pkg}@${v} ≥ ${floor}`);
-}
+  if (!auditOk) {
+    console.error(auditLastOut);
+    fail(`bun audit 连续 ${AUDIT_ATTEMPTS} 次请求失败（registry 不可达/网络故障，非漏洞检出）——人工重跑确认`);
+  }
+  console.log("✓ ① bun audit 全链零漏洞");
 
-// ── ③ 生产依赖面零审计敏感包（vite/vitest/esbuild 只允许 devDependencies） ──
-const AUDIT_SENSITIVE = ["vite", "vitest", "esbuild"];
-const manifests = ["package.json", "apps/daemon/package.json", "apps/shell/package.json"];
-for (const rel of manifests) {
-  const pkg = JSON.parse(readFileSync(join(root, rel), "utf8")) as {
-    dependencies?: Record<string, string>;
-  };
-  for (const name of Object.keys(pkg.dependencies ?? {})) {
-    if (AUDIT_SENSITIVE.includes(name)) {
-      fail(`${rel} 的生产 dependencies 挂载 ${name}（只允许 devDependencies）`);
+  // ── ② 版本地板（实装面：workspace node_modules 包清单） ──
+  const moduleRoots = [join(root, "node_modules"), join(root, "apps", "shell", "node_modules")];
+  for (const [pkg, floor] of [
+    ["vite", "8.2.0"],
+    ["vitest", "4.1.0"],
+  ] as const) {
+    let v: string | null = null;
+    for (const mr of moduleRoots) {
+      try {
+        v = (JSON.parse(readFileSync(join(mr, pkg, "package.json"), "utf8")) as { version: string }).version;
+        break;
+      } catch {
+        /* 下一个 node_modules 根 */
+      }
+    }
+    if (!v) fail(`node_modules 中未找到 ${pkg}`);
+    if (!atLeast(v, floor)) fail(`${pkg}@${v} 低于地板 ${floor}（漏洞窗内）`);
+    console.log(`✓ ② ${pkg}@${v} ≥ ${floor}`);
+  }
+
+  // ── ③ 生产依赖面零审计敏感包（vite/vitest/esbuild 只允许 devDependencies） ──
+  const AUDIT_SENSITIVE = ["vite", "vitest", "esbuild"];
+  const manifests = ["package.json", "apps/daemon/package.json", "apps/shell/package.json"];
+  for (const rel of manifests) {
+    const pkg = JSON.parse(readFileSync(join(root, rel), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+    for (const name of Object.keys(pkg.dependencies ?? {})) {
+      if (AUDIT_SENSITIVE.includes(name)) {
+        fail(`${rel} 的生产 dependencies 挂载 ${name}（只允许 devDependencies）`);
+      }
     }
   }
-}
-console.log("✓ ③ 生产依赖面零 vite/vitest/esbuild（漏洞包只在 dev 链）");
+  console.log("✓ ③ 生产依赖面零 vite/vitest/esbuild（漏洞包只在 dev 链）");
 
-// ── ④ 体量双线（TR-AD-25 ④ / AD-3 / CL-3 / F(3.6)）──
-// fail 档 >1000 / warn 档 ≥700（wc -l 语义）；阈值 700/1000 为裁决定值，禁止上调。
-// 扫描面 = apps/**/src|test + packages/*/src|test 的 .ts（.tsx 不在断言面）；
-// node_modules 排除（三方依赖不受本仓治理面约束）。
-const SIZE_EXEMPT: Array<{ file: string; reason: string }> = [
-  // 豁免唯一通道：仓库根相对 posix 路径精确匹配 + 一行理由；本期预期空，演示登记后须还原。
-];
+  // ── ④ 体量双线（TR-AD-25 ④ / AD-3 / CL-3 / F(3.6)）──
+  // fail 档 >1000 / warn 档 ≥700（wc -l 语义）；阈值 700/1000 为裁决定值，禁止上调。
+  // 扫描面 = apps/**/src|test + packages/*/src|test 的 .ts（.tsx 不在断言面）；
+  // node_modules 排除（三方依赖不受本仓治理面约束）。
+  const SIZE_EXEMPT: Array<{ file: string; reason: string }> = [
+    // 豁免唯一通道：仓库根相对 posix 路径精确匹配 + 一行理由；本期预期空，演示登记后须还原。
+  ];
 
-for (const { file, reason } of SIZE_EXEMPT) {
-  if (!reason.trim()) fail(`SIZE_EXEMPT[${file}] 缺 reason（豁免须附理由留痕）`);
-}
-
-const SIZE_WARN_LINES = 700;
-const SIZE_FAIL_LINES = 1000;
-const sizeSurface = [
-  "apps/**/src/**/*.ts",
-  "apps/**/test/**/*.ts",
-  "packages/*/src/**/*.ts",
-  "packages/*/test/**/*.ts",
-] as const;
-
-const sizes = new Map<string, number>();
-for (const pattern of sizeSurface) {
-  for await (const rel of new Bun.Glob(pattern).scan({ cwd: root })) {
-    if (rel.split("/").includes("node_modules")) continue; // 三方依赖不入治理面
-    sizes.set(rel, readFileSync(join(root, rel), "utf8").split("\n").length - 1);
+  for (const { file, reason } of SIZE_EXEMPT) {
+    if (!reason.trim()) fail(`SIZE_EXEMPT[${file}] 缺 reason（豁免须附理由留痕）`);
   }
-}
 
-const exempted = new Set(SIZE_EXEMPT.map((e) => e.file));
-const warnPool: Array<{ file: string; lines: number }> = [];
-const failPool: Array<{ file: string; lines: number }> = [];
-for (const [file, lines] of sizes) {
-  if (lines >= SIZE_WARN_LINES) warnPool.push({ file, lines });
-  if (lines > SIZE_FAIL_LINES && !exempted.has(file)) failPool.push({ file, lines });
-}
+  const SIZE_WARN_LINES = 700;
+  const SIZE_FAIL_LINES = 1000;
+  const sizeSurface = [
+    "apps/**/src/**/*.ts",
+    "apps/**/test/**/*.ts",
+    "packages/*/src/**/*.ts",
+    "packages/*/test/**/*.ts",
+  ] as const;
 
-// 豁免核销：登记必须命中扫描面且真实越线（过期豁免 = 配置漂移，红）。
-for (const { file, reason } of SIZE_EXEMPT) {
-  const lines = sizes.get(file);
-  if (lines === undefined || lines <= SIZE_FAIL_LINES) {
-    fail(`SIZE_EXEMPT[${file}] 过期（不在扫描面或未越 ${SIZE_FAIL_LINES} 线），请移除登记`);
+  const sizes = new Map<string, number>();
+  for (const pattern of sizeSurface) {
+    for await (const rel of new Bun.Glob(pattern).scan({ cwd: root })) {
+      if (rel.split("/").includes("node_modules")) continue; // 三方依赖不入治理面
+      sizes.set(rel, readFileSync(join(root, rel), "utf8").split("\n").length - 1);
+    }
   }
-  console.log(`⚠ ④ 豁免生效：${lines} 行 ${file}（理由：${reason}）`);
-}
 
-if (warnPool.length > 0) {
-  console.log(`⚠ ④ 体量 warn 档（≥${SIZE_WARN_LINES}，汇总不阻断，${warnPool.length} 个）：`);
-  for (const { file, lines } of warnPool.sort((a, b) => b.lines - a.lines)) {
-    console.log(`      ${String(lines).padStart(5)}  ${file}`);
+  const exempted = new Set(SIZE_EXEMPT.map((e) => e.file));
+  const warnPool: Array<{ file: string; lines: number }> = [];
+  const failPool: Array<{ file: string; lines: number }> = [];
+  for (const [file, lines] of sizes) {
+    if (lines >= SIZE_WARN_LINES) warnPool.push({ file, lines });
+    if (lines > SIZE_FAIL_LINES && !exempted.has(file)) failPool.push({ file, lines });
   }
-} else {
-  console.log(`✓ ④ 体量 warn 档空（扫描面无 .ts ≥${SIZE_WARN_LINES}）`);
-}
 
-if (failPool.length > 0) {
-  console.error(`④ fail 档：${failPool.length} 个 .ts 超过 ${SIZE_FAIL_LINES} 行（未豁免）：`);
-  for (const { file, lines } of failPool.sort((a, b) => b.lines - a.lines)) {
-    console.error(`      ${String(lines).padStart(5)}  ${file}`);
+  // 豁免核销：登记必须命中扫描面且真实越线（过期豁免 = 配置漂移，红）。
+  for (const { file, reason } of SIZE_EXEMPT) {
+    const lines = sizes.get(file);
+    if (lines === undefined || lines <= SIZE_FAIL_LINES) {
+      fail(`SIZE_EXEMPT[${file}] 过期（不在扫描面或未越 ${SIZE_FAIL_LINES} 线），请移除登记`);
+    }
+    console.log(`⚠ ④ 豁免生效：${lines} 行 ${file}（理由：${reason}）`);
   }
-  fail("④ 体量 fail 档检出越线文件（TR-AD-25 ④：拆分，或登记 SIZE_EXEMPT 附理由）");
-}
-console.log(`✓ ④ 体量 fail 档空（扫描面 ${sizes.size} 个 .ts；.tsx 不在断言面）`);
 
-console.log("audit-assert: 全部断言通过");
+  if (warnPool.length > 0) {
+    console.log(`⚠ ④ 体量 warn 档（≥${SIZE_WARN_LINES}，汇总不阻断，${warnPool.length} 个）：`);
+    for (const { file, lines } of warnPool.sort((a, b) => b.lines - a.lines)) {
+      console.log(`      ${String(lines).padStart(5)}  ${file}`);
+    }
+  } else {
+    console.log(`✓ ④ 体量 warn 档空（扫描面无 .ts ≥${SIZE_WARN_LINES}）`);
+  }
+
+  if (failPool.length > 0) {
+    console.error(`④ fail 档：${failPool.length} 个 .ts 超过 ${SIZE_FAIL_LINES} 行（未豁免）：`);
+    for (const { file, lines } of failPool.sort((a, b) => b.lines - a.lines)) {
+      console.error(`      ${String(lines).padStart(5)}  ${file}`);
+    }
+    fail("④ 体量 fail 档检出越线文件（TR-AD-25 ④：拆分，或登记 SIZE_EXEMPT 附理由）");
+  }
+  console.log(`✓ ④ 体量 fail 档空（扫描面 ${sizes.size} 个 .ts；.tsx 不在断言面）`);
+
+  console.log("audit-assert: 全部断言通过");
+}
+
+// import.meta.main 守卫：runAuditAttempt 等纯函数面被测试 import，导入不得
+// 触发断言副作用（M13 批 #2.40 可测化改造）。
+if (import.meta.main) {
+  await main();
+}

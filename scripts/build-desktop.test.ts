@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   pipelineSteps,
+  realRunner,
   resolveSigning,
   runPipeline,
   stderrTail,
@@ -214,6 +215,36 @@ describe("runPipeline（F2.1 失败即中断）", () => {
     const code = await runPipeline(steps, runner, () => {});
     expect(code).toBe(1);
     expect(calls).toEqual(steps.map((s) => s.name));
+  });
+});
+
+describe("realRunner（spawn 异常入失败契约，code-review M13 批 #2.40）", () => {
+  test("缺失 executable（Bun.spawn 同步 throw）→ 转 StepResult{code:127, stderr=message}，不抛未处理 rejection", async () => {
+    const result = await realRunner({
+      name: "探针",
+      cmd: ["definitely-missing-bin-xyz-m13"],
+      cwd: root,
+    });
+    expect(result.code).toBe(127);
+    expect(result.stderr).toContain("definitely-missing-bin-xyz-m13");
+  });
+
+  test("spawn 异常经 runPipeline 走既有失败契约（✗ 步骤N + 透传 code，后续步骤不启动）", async () => {
+    const steps = pipelineSteps(root);
+    const logs: string[] = [];
+    const calls: string[] = [];
+    const runner = async (step: (typeof steps)[number]): Promise<StepResult> => {
+      calls.push(step.name);
+      if (step.name.includes("tauri")) {
+        return realRunner({ ...step, cmd: ["definitely-missing-bin-xyz-m13"] });
+      }
+      return { code: 0, stderr: "" };
+    };
+    const code = await runPipeline(steps, runner, (l) => logs.push(l));
+    expect(code).toBe(127);
+    expect(calls.length).toBe(steps.length); // 前步全成功，末步 spawn 异常收尾
+    expect(logs.some((l) => l.includes("✗") && l.includes("exit 127"))).toBe(true);
+    expect(logs.some((l) => l.includes("Executable not found"))).toBe(true);
   });
 });
 
