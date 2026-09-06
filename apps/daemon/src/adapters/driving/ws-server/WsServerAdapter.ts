@@ -246,12 +246,6 @@ export interface WsServerAdapterDeps {
    */
   readonly kgWriterPinnedTools: readonly string[];
   /**
-   * reviewer 派生面恒摘除工具名（D5 第五 kind）：注入 = 组合根
-   * SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS 摘除常量单源（driving 不得
-   * import driven，窄数据面传递）——list 缺省全量的 system 只读块派生用。
-   */
-  readonly reviewerRemovedTools: readonly string[];
-  /**
    * base 段系统提示词读面（base prompt 批）：kind → profile 静态声明
    * prompt 全文（五 kind；组合根从五 profile systemPrompt 字段单源注入，
    * driving 不得 import driven，窄数据面传递）——agent.base_prompt.get
@@ -561,7 +555,14 @@ export class WsServerAdapter {
     };
     this.sendNow(sender, welcome);
     if (isDraft) return; // 草稿握手不推快照（前端按草稿态显示；建会话链另推）
-    if (view !== undefined) this.sendNow(sender, this.snapshotFrame(view, model, agentState));
+    if (view !== undefined) {
+      // M4：快照盖章 = 视图同源组装（sessionStamp——model 缺省回退全局
+      // 默认，禁 getStatus 全局投影（缺省回退空串与 sessionStamp 口径不一），
+      // E-54 纪律唯一例外点收口；与 handlers/chat.ts/session.ts 同构）。
+      // welcome 仍取 getStatus（连接级帧回带全局现值，非 per-session 盖章面）。
+      const stamp = this.sessionStamp(view);
+      this.sendNow(sender, this.snapshotFrame(view, stamp.model, stamp.agentState));
+    }
   }
 
   /** session.snapshot 帧（v0.2 章印：sessionId = 会话归属 + channel=session；AD-1 尾窗口径）。 */
@@ -999,7 +1000,6 @@ export class WsServerAdapter {
       resource: this.deps.resource,
       hasModel: this.deps.hasModel,
       kgWriterPinnedTools: this.deps.kgWriterPinnedTools,
-      reviewerRemovedTools: this.deps.reviewerRemovedTools,
       basePrompts: this.deps.basePrompts,
       skillContentOf: this.deps.skillContentOf ?? (() => Promise.resolve(undefined)), // 未装配（stub rig）→ handler 回「未知技能名或正文不可读」防御
       skillCreateOf: this.deps.skillCreateOf,

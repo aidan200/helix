@@ -283,14 +283,15 @@ function unimplemented(ctx: TaskCommandContext): void {
 /**
  * 订阅命令门控：任务读面未装配 → command.unimplemented（订阅无意义——
  * 数据面已关闭）；装配则供出 attach 注册的连接发送端（订阅表键 = 注册键，
- * rawSender 每次新建闭包不可作键）。
+ * rawSender 每次新建闭包不可作键——sender 未置位（防御位：正常握手后
+ * 恒非空）直接早退，不以新闭包为键静默 no-op，session.ts/agent.ts 同构）。
  */
 function subscribeGate(ctx: TaskCommandContext): FrameSender | undefined {
   if (ctx.taskQuery === undefined) {
     unimplemented(ctx);
     return undefined;
   }
-  return ctx.ws.data.sender ?? ctx.rawSender();
+  return ctx.ws.data.sender ?? undefined;
 }
 
 /**

@@ -123,7 +123,6 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       },
       hasModel: () => false,
     kgWriterPinnedTools: ["kg-update"],
-      reviewerRemovedTools: ["write", "edit"], // D5 第五 kind 派生面（WsServerAdapter 必填注入）
       basePrompts: {},
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
       events: eventStream,
@@ -284,7 +283,6 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
       },
       hasModel: () => false,
       kgWriterPinnedTools: ["kg-update"],
-      reviewerRemovedTools: ["write", "edit"], // D5 第五 kind 派生面（WsServerAdapter 必填注入）
       basePrompts: {},
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
       events: new EventStream(),
@@ -350,7 +348,7 @@ describe("TP-CL6-3：ws-server 只转发不决策（spy）", () => {
 // ── TP-CL2-2/3/4/5：monitor 档订阅（T2.2，契约 v0.3 §2；AD-2/Q-2a/Q-2b） ──
 
 /** spy 装配：WsServerAdapter + 真 EventStream（事件面走真分发，命令面 spy no-op）。 */
-function makeTierRig(overrides: { directory?: SessionDirectoryPort } = {}): { adapter: WsServerAdapter; events: EventStream } {
+function makeTierRig(overrides: { directory?: SessionDirectoryPort; model?: ModelPort } = {}): { adapter: WsServerAdapter; events: EventStream } {
   const chat: SessionChatPort = {
     sendMessage: async (): Promise<SendOutcome> => ({ mode: "turn", turnId: "t1", entryId: "e1" }),
     steer: async () => ({ entryId: "e2" }),
@@ -383,7 +381,7 @@ function makeTierRig(overrides: { directory?: SessionDirectoryPort } = {}): { ad
       park: () => ({ parked: false as const, error: "测试桩不挂起" }),
       resume: () => ({ resumed: false as const, error: "测试桩不恢复" }),
     },
-    model: {
+    model: overrides.model ?? {
       setModel: async () => { throw new Error("spy 不装配模型链"); },
       setThinking: async () => { throw new Error("spy 不装配模型链"); },
       getModel: async () => { throw new Error("spy 不装配模型链"); },
@@ -408,7 +406,6 @@ function makeTierRig(overrides: { directory?: SessionDirectoryPort } = {}): { ad
     },
     hasModel: () => false,
     kgWriterPinnedTools: ["kg-update"],
-      reviewerRemovedTools: ["write", "edit"], // D5 第五 kind 派生面（WsServerAdapter 必填注入）
       basePrompts: {},
       browser: new StubBrowserPort(), // T4（契约 v0.7）：web 族 spy 回口——不触发真实浏览器链
     events,
@@ -694,6 +691,132 @@ describe("F2：握手 await 窗口命令帧排队 + JSON 形状守卫", () => {
       adapter.stop();
     }
   }, 8000);
+});
+
+// ── M4：握手快照 sessionStamp 同源盖章 + session 族失败回执 ──────────
+
+/** 指定默认模型的 spy ModelPort（M4① 回退口径判别：与 status.model 区分）。 */
+function spyModelPort(defaultModel: string): ModelPort {
+  return {
+    setModel: async () => { throw new Error("spy 不装配模型链"); },
+    setThinking: async () => { throw new Error("spy 不装配模型链"); },
+    getModel: async () => { throw new Error("spy 不装配模型链"); },
+    catalog: async () => { throw new Error("spy 不装配模型链"); },
+    catalogRefresh: async () => { throw new Error("spy 不装配模型链"); },
+    setThinkingDefault: async () => ({ previous: null }), setDefault: async () => { throw new Error("spy 不装配模型链"); },
+    getDefault: () => ({ model: defaultModel, thinkingDefault: null }),
+    authList: async () => [],
+    authSetKey: async () => { throw new Error("spy 不装配模型链"); },
+    authDeleteKey: async () => {},
+    authVerify: async () => ({ status: "fail", reason: "spy" }),
+  };
+}
+
+/** 指定 getSessionView/listSessions 行为的 spy directory（M4 三场景）。 */
+function spyDirectory(overrides: Partial<SessionDirectoryPort>): SessionDirectoryPort {
+  return {
+    listSessions: async () => [],
+    sessionExists: async (id: string) => id === "spy-s1",
+    resolveTarget: async (id?: string) => id ?? "spy-s1",
+    getSessionView: async () => fakeView(),
+    startDraftSession: async () => { throw new Error("spy 不装配草稿链"); },
+    deleteSession: async () => { throw new Error("spy 不装配删除链"); },
+    currentSessionId: () => "spy-s1",
+    ...overrides,
+  };
+}
+
+describe("M4：握手快照盖章同源 + session 族失败回执", () => {
+  test("M4①：握手快照盖章取视图同源（sessionStamp），不取 getStatus 全局投影", async () => {
+    const view: SessionStateView = { ...fakeView(), model: "view/model", agentState: "running" };
+    const { adapter } = makeTierRig({
+      directory: spyDirectory({ getSessionView: async () => view }),
+      model: spyModelPort("default/model"),
+    });
+    try {
+      const frames: EventEnvelope[] = [];
+      const ws = new WebSocket(`ws://127.0.0.1:${adapter.port}`);
+      ws.onmessage = (ev: MessageEvent) => frames.push(JSON.parse(String(ev.data)));
+      await new Promise<void>((r) => (ws.onopen = () => r()));
+      ws.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "hello", payload: { token: "spy-token", protocolVersion: PROTOCOL_VERSION } }));
+      await until(() => frames.some((f) => f.type === "session.snapshot"));
+      // 快照章 = 视图同源（view/model + running），非 getStatus（spy/model + idle）
+      const snap = frames.find((f) => f.type === "session.snapshot")!;
+      const snapshot = (snap.payload as { snapshot: { model: string; agentState: string } }).snapshot;
+      expect(snapshot.model).toBe("view/model");
+      expect(snapshot.agentState).toBe("running");
+      // welcome 仍取 getStatus 全局现值（连接级帧，非 per-session 盖章面）
+      const welcome = frames.find((f) => f.type === "connection.welcome")!;
+      expect((welcome.payload as { model: string }).model).toBe("spy/model");
+      ws.close();
+    } finally {
+      adapter.stop();
+    }
+  });
+
+  test("M4①：视图未携带 model → 快照回退全局默认（getDefault），不回退空串", async () => {
+    const { adapter } = makeTierRig({ model: spyModelPort("default/model") }); // fakeView() 不携带 model/agentState
+    try {
+      const frames: EventEnvelope[] = [];
+      const ws = new WebSocket(`ws://127.0.0.1:${adapter.port}`);
+      ws.onmessage = (ev: MessageEvent) => frames.push(JSON.parse(String(ev.data)));
+      await new Promise<void>((r) => (ws.onopen = () => r()));
+      ws.send(JSON.stringify({ v: PROTOCOL_VERSION, type: "hello", payload: { token: "spy-token", protocolVersion: PROTOCOL_VERSION } }));
+      await until(() => frames.some((f) => f.type === "session.snapshot"));
+      const snap = frames.find((f) => f.type === "session.snapshot")!;
+      const snapshot = (snap.payload as { snapshot: { model: string; agentState: string } }).snapshot;
+      expect(snapshot.model).toBe("default/model"); // sessionStamp 回退口径（旧码 getStatus 缺省回退 ""）
+      expect(snapshot.agentState).toBe("idle");
+      ws.close();
+    } finally {
+      adapter.stop();
+    }
+  });
+
+  test("M4③：session.list 失败 → commandError(daemon.internal) 回执（客户端不再永久等待）", async () => {
+    const { adapter } = makeTierRig({
+      directory: spyDirectory({
+        listSessions: async () => { throw new Error("清单库读取崩"); },
+      }),
+    });
+    try {
+      const { frames, send, close } = await connectTierClient(adapter.port);
+      const at = frames.length;
+      send({ v: PROTOCOL_VERSION, type: "session.list", payload: {} });
+      await until(() => frames.slice(at).some((f) => f.type === "connection.error"));
+      const err = frames.slice(at).find((f) => f.type === "connection.error")!;
+      expect((err.payload as { code: string }).code).toBe("daemon.internal");
+      expect(String((err.payload as { message: string }).message)).toContain("清单库读取崩");
+      close();
+    } finally {
+      adapter.stop();
+    }
+  });
+
+  test("M4④：session.subscribe 快照重组装失败 → commandError(daemon.internal) 回执", async () => {
+    let viewCalls = 0;
+    const { adapter } = makeTierRig({
+      directory: spyDirectory({
+        getSessionView: async () => {
+          viewCalls++;
+          if (viewCalls >= 2) throw new Error("快照装配崩"); // 首次 = 握手快照成功；第二次 = 订阅重组装失败
+          return fakeView();
+        },
+      }),
+    });
+    try {
+      const { frames, send, close } = await connectTierClient(adapter.port);
+      const at = frames.length;
+      send({ v: PROTOCOL_VERSION, type: "session.subscribe", payload: {} });
+      await until(() => frames.slice(at).some((f) => f.type === "connection.error"));
+      const err = frames.slice(at).find((f) => f.type === "connection.error")!;
+      expect((err.payload as { code: string }).code).toBe("daemon.internal");
+      expect(String((err.payload as { message: string }).message)).toContain("快照装配崩");
+      close();
+    } finally {
+      adapter.stop();
+    }
+  });
 });
 
 async function until(cond: () => boolean, timeoutMs = 3000): Promise<void> {

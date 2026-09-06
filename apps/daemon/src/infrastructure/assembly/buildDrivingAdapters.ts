@@ -29,7 +29,7 @@ import type { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import { StaticServe } from "../../adapters/driven/static-serve/StaticServe";
 import type { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
 import { SUBAGENT_KG_WRITER_EXTRA_TOOLS, SubAgentKgWriterProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
-import { SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS, SubAgentCodeReviewerProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentCodeReviewerProfile";
+import { SubAgentCodeReviewerProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentCodeReviewerProfile";
 import { MainSessionProfile } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import { OrchestratorProfile } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
@@ -261,9 +261,6 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     // agent-roster 批：kg-writer 派生面恒在工具（增量常量单源——driving
     // 不得 import driven，经窄数据面注入；list 缺省全量的 system 只读块派生用）
     kgWriterPinnedTools: SUBAGENT_KG_WRITER_EXTRA_TOOLS,
-    // D5 第五 kind：reviewer 派生面恒摘除工具（摘除常量单源——窄数据面注入，
-    // kgWriterPinnedTools 同法；list 缺省全量的 system 只读块派生用）
-    reviewerRemovedTools: SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS,
     // base prompt 批：base 段系统提示词读面（五 profile 声明单源——
     // kg-writer = SUBAGENT base + 图谱产出型后缀 / reviewer = SUBAGENT base
     // + 评审纪律后缀，均已在 profile 声明拼好；窄数据面注入，driving 不 import driven）
