@@ -867,6 +867,8 @@ export const zhCN = {
       runningBatches: " · 批次 {done}/{total}",
       failed: "失败",
       pending: "待启动",
+      prep: "备料中（编排直执）",
+      toAggregate: "待汇总（编排直执）",
     },
     batches: "批次",
     noBatches: {

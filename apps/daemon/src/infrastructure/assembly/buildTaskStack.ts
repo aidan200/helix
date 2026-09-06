@@ -71,6 +71,12 @@ export interface BuildTaskStackDeps {
    */
   readonly onTaskChanged?: (frame: { jobId: string; changed: "job" | "stage" | "batch"; status?: string }) => void;
   /**
+   * 装配完成唤醒钩子（A 批第四 wake 点）：透传 TaskEngineService——组合根
+   * 晚绑闭包接编排服务 notifyAssemblyDone（引擎先于编排服务构造）。缺省
+   * 不唤醒（隔离测试形态）。
+   */
+  readonly onAssemblyDone?: (jobId: string, stageSeq: number, batchCount: number) => void;
+  /**
    * 批次实例调度态读面（⑤ 链 A：组合根接 scheduler.status——晚绑闭包，
    * 调度器在 sessionStack 之后建；未注入 → DTO instanceState 省略）。
    */
@@ -100,6 +106,7 @@ export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStac
     workLedger,
     clock: deps.clock,
     ...(deps.onTaskChanged !== undefined ? { onTaskChanged: deps.onTaskChanged } : {}),
+    ...(deps.onAssemblyDone !== undefined ? { onAssemblyDone: deps.onAssemblyDone } : {}),
     ...(deps.removeTaskReportDir !== undefined ? { removeTaskReportDir: deps.removeTaskReportDir } : {}),
     warn: (m) => deps.logger.warn(m),
   });

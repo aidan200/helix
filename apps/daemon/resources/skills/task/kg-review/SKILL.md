@@ -6,7 +6,10 @@ task:
     projectRoot: { type: string, required: true }
   stages:
     strategy: fixed
-    list: [L0 结构面预检, L1 规则册逐节点评审, L2 实体册逐节点评审]
+    list:
+      - { name: L0 结构面预检, kind: plan }
+      - { name: L1 规则册逐节点评审, kind: execute }
+      - { name: L2 实体册逐节点评审, kind: execute }
   confirm: required
   plan: enforced
   projects: { min: 1, max: 1 }
@@ -44,19 +47,21 @@ task:
 
 ## ① 各阶段目标与验收
 
-### L0 结构面预检（先跑，零 LLM 评审）
+### L0 结构面预检（plan 阶段——先跑，零 LLM 评审；编排直执产物即判据）
 
 - **做什么**：先跑机械检查把结构问题列出来——findConflicts（逻辑冲突三类）+ findOrphans（腐烂锚 + 无锚无边孤儿）。这些是轨一看板的同源数据，体检任务把它们作为语义评审的起点上下文（腐烂锚节点是 L1/L2 评审的优先对象），不重复机械工具的劳动。
 - **产出**：阶段 artifact 写机械问题清单（人类可读：多少冲突、多少孤儿、节点 id + name 叙述）——结构性发现本身也提 candidate（人审处置），不自作主张修。
 - **验收**：机械检查全跑完，清单落阶段 artifact；结构问题逐条有 candidate 或明确记入遗留清单。
 
-### L1 规则册逐节点评审（以 L0 清单为上下文）
+### L1 规则册逐节点评审（execute 阶段——以 L0 清单为上下文）
 
+- **装配与派发分段**：装配轮按节点域分组逐批 `task_insert_batch`（每划一组立即落行）→ `task_assembly_done` 申报后本轮收尾；派发轮经【装配完成】通知逐批 spawn + `task_dispatch_batch` 接线。
 - **做什么**：逐条评审全部规则节点（TR- 族）——四问逐条过：代码现实成立吗（规则约束的代码/架构还是这个形态吗）？scene 缺失或不准吗？与其他规则矛盾吗？body 结构合规吗（自然语言/markdown 结构/为什么存在段）？
 - **验收**：规则节点零遗漏（评审数 = active 规则节点数）；每个发现按③纪律落账；scene 缺失的规则已直补。
 
-### L2 实体册逐节点评审（以 L0 清单为上下文）
+### L2 实体册逐节点评审（execute 阶段——以 L0 清单为上下文）
 
+- **装配与派发分段**：同 L1——装配轮逐批插行 + `task_assembly_done` 申报；派发轮按通知接线。
 - **做什么**：逐条评审全部实体/契约节点（E- 族）——四问逐条过，重点验证符号域锚：经 codegraph `node`/`search` 核对 `path#symbol` 锚的符号还在不在、字段/行为描述与源码一致吗；关联描述（边）与调用现实一致吗（codegraph `callers`/`callees` 交叉）；body 结构合规吗（自然语言/markdown 结构/为什么存在段）。
 - **验收**：实体节点零遗漏；符号级验证证据（哪个符号、哪个文件）写进发现 body——无证据的「感觉过期」不提 candidate（台账不堆猜测）。
 

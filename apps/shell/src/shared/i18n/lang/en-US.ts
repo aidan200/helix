@@ -859,6 +859,8 @@ export const enUS = {
       runningBatches: " · batch {done}/{total}",
       failed: "Failed",
       pending: "Queued",
+      prep: "Preparing (orchestrator-run)",
+      toAggregate: "Awaiting aggregation (orchestrator-run)",
     },
     batches: "Batches",
     noBatches: {

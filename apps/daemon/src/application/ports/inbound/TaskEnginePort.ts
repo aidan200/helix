@@ -94,14 +94,25 @@ export interface TaskEnginePort {
    * retryCount，O-3）；job cancelled → 不重试不上浮。
    */
   failBatch(batchId: string, note: string): Promise<{ retryScheduled: boolean }>;
-  /** 阶段推进（stage pending→running；推进门 job.status==running）。 */
+  /** 阶段推进（stage pending→running；pending job 上调用即接管激活，与 insertBatch 对称）。 */
   advanceStage(jobId: string, stageSeq: number): Promise<void>;
-  /** 阶段产物聚合落库（stage running→done + artifact，§4.6；推进门同上）。 */
+  /**
+   * 阶段产物聚合落库（stage → done + artifact，§4.6；pending job 上调用即接管
+   * 激活；stage pending 时引擎自动两步 running→done）。阶段角色门（A 批）：
+   * execute 阶段须本阶段批次全部收口 done 且 ≥1 批；plan/aggregate 直执角色
+   * 产物即判据无批次要求。
+   */
   writeStageArtifact(
     jobId: string,
     stageSeq: number,
     artifact: StageArtifact,
   ): Promise<void>;
+  /**
+   * 装配完成申报（A 批第四 wake 点）：机械校验 execute 角色 + 前序阶段全 done +
+   * ≥1 批次行；通过即触发 onAssemblyDone 钩子（组合根接编排服务驱动派发轮）。
+   * 不迁移行状态——轮次边界机械驱动，不是人审门（AD-5）。
+   */
+  assemblyDone(jobId: string, stageSeq: number): Promise<{ batchCount: number }>;
   /** job 收口成功（引擎机械复核全部 stage 行 done 后 running→done）。 */
   completeJob(jobId: string): Promise<void>;
   /** job 收口失败（running→failed + error）。 */

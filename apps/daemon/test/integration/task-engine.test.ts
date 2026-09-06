@@ -637,10 +637,12 @@ describe("job 收口回口（completeJob 机械复核）", () => {
         createdBy: "page",
       });
       await expect(env.engine.completeJob(jobId)).rejects.toMatchObject({ code: "task.invalid_state" });
-      // 编排接管（首批次落行翻 running）后逐阶段收口
-      await env.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次 1" });
+      // 编排接管后逐阶段收口（A-2 角色门：execute 阶段产物须批次全收口）
       for (const seq of [1, 2, 3]) {
+        const { batchId } = await env.engine.insertBatch({ jobId, stageSeq: seq, scope: `批次 ${seq}` });
         await env.engine.advanceStage(jobId, seq);
+        await env.engine.dispatchBatch(batchId, `inst-${seq}`);
+        await env.engine.completeBatch(batchId);
         await env.engine.writeStageArtifact(jobId, seq, { summary: `阶段 ${seq} 完成` });
       }
       await env.engine.completeJob(jobId);
@@ -668,12 +670,12 @@ describe("接管激活对称与阶段顺序守卫（B 批：激活放宽 + O-2 �
     });
   });
 
-  test("pending job 上 writeStageArtifact → 接管激活 + pending 阶段自动两步落 done（直执阶段免显式 advance，消灭两步顺序敏感）", async () => {
+  test("pending job 上 writeStageArtifact（plan 角色）→ 接管激活 + pending 阶段自动两步落 done（直执阶段免显式 advance）", async () => {
     await withTaskEnv(async (env) => {
       const { jobId } = await env.engine.createTask({
-        type: "kg-bootstrap",
-        projects: ["demo"],
-        params: { projectRoot: "/tmp/demo" },
+        type: "plan-execute-demo",
+        projects: [],
+        params: {},
         createdBy: "page",
       });
       await env.engine.writeStageArtifact(jobId, 1, { summary: "阶段一产物" });
@@ -710,18 +712,63 @@ describe("接管激活对称与阶段顺序守卫（B 批：激活放宽 + O-2 �
     });
   });
 
-  test("前序全 done 后放行：stage1 产物落 done → stage2 插批/推进不再被守卫拦截", async () => {
+  test("前序全 done 后放行：plan 阶段产物落 done → execute 阶段插批/推进不再被守卫拦截", async () => {
     await withTaskEnv(async (env) => {
       const { jobId } = await env.engine.createTask({
-        type: "kg-bootstrap",
-        projects: ["demo"],
-        params: { projectRoot: "/tmp/demo" },
+        type: "plan-execute-demo",
+        projects: [],
+        params: {},
         createdBy: "page",
       });
       await env.engine.writeStageArtifact(jobId, 1, { summary: "一阶段完成" });
       await env.engine.insertBatch({ jobId, stageSeq: 2, scope: "二阶段批次" });
       expect(env.store.getBatches(jobId, 2)).toHaveLength(1);
       await env.engine.advanceStage(jobId, 2); // 幂等 no-op（已随首批次机械推 running）
+      expect(env.store.getStages(jobId).find((s) => s.seq === 2)!.status).toBe("running");
+    });
+  });
+});
+
+describe("阶段角色门与装配完成申报（A 批：kind 机械约束 + 第四 wake 点）", () => {
+  test("plan/aggregate 阶段拒插批（机械禁止探针批次混入直执阶段，7466ce9e 实证）；plan 产物即判据零批次可聚合", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({ type: "plan-execute-demo", projects: [], params: {}, createdBy: "page" });
+      await expect(env.engine.insertBatch({ jobId, stageSeq: 1, scope: "盘点阶段插批" })).rejects.toMatchObject({ code: "task.invalid_state" });
+      await env.engine.writeStageArtifact(jobId, 1, { summary: "底账完成" });
+      expect(env.store.getStages(jobId).find((s) => s.seq === 1)!.status).toBe("done");
+      await env.engine.insertBatch({ jobId, stageSeq: 2, scope: "执行批次" });
+      expect(env.store.getBatches(jobId, 2)).toHaveLength(1);
+      await expect(env.engine.insertBatch({ jobId, stageSeq: 3, scope: "汇总插批" })).rejects.toMatchObject({ code: "task.invalid_state" });
+    });
+  });
+
+  test("execute 阶段产物聚合须批次全收口：零批次拒、在跑拒、全 done 放行", async () => {
+    await withTaskEnv(async (env) => {
+      const { jobId } = await env.engine.createTask({ type: "plan-execute-demo", projects: [], params: {}, createdBy: "page" });
+      await env.engine.writeStageArtifact(jobId, 1, { summary: "底账完成" });
+      await expect(env.engine.writeStageArtifact(jobId, 2, { summary: "x" })).rejects.toMatchObject({ code: "task.invalid_state" }); // 零批次
+      const { batchId } = await env.engine.insertBatch({ jobId, stageSeq: 2, scope: "执行批次" });
+      await env.engine.dispatchBatch(batchId, "inst-x");
+      await expect(env.engine.writeStageArtifact(jobId, 2, { summary: "x" })).rejects.toMatchObject({ code: "task.invalid_state" }); // 在跑未收口
+      await env.engine.completeBatch(batchId);
+      await env.engine.writeStageArtifact(jobId, 2, { summary: "二阶段完成" });
+      expect(env.store.getStages(jobId).find((s) => s.seq === 2)!.status).toBe("done");
+    });
+  });
+
+  test("assemblyDone：机械校验通过触发 onAssemblyDone 钩子（batchCount 如实）；plan 角色/零批次拒绝（前序守卫与 insert 共用，B 批已测）", async () => {
+    const wakes: Array<{ jobId: string; stageSeq: number; batchCount: number }> = [];
+    await withTaskEnv({ onAssemblyDone: (jobId, stageSeq, batchCount) => wakes.push({ jobId, stageSeq, batchCount }) }, async (env) => {
+      const { jobId } = await env.engine.createTask({ type: "plan-execute-demo", projects: [], params: {}, createdBy: "page" });
+      await expect(env.engine.assemblyDone(jobId, 1)).rejects.toMatchObject({ code: "task.invalid_state" }); // plan 角色无装配物
+      await expect(env.engine.assemblyDone(jobId, 2)).rejects.toMatchObject({ code: "task.invalid_state" }); // 零批次
+      await env.engine.writeStageArtifact(jobId, 1, { summary: "底账完成" });
+      await env.engine.insertBatch({ jobId, stageSeq: 2, scope: "批一" });
+      await env.engine.insertBatch({ jobId, stageSeq: 2, scope: "批二" });
+      const result = await env.engine.assemblyDone(jobId, 2);
+      expect(result).toEqual({ batchCount: 2 });
+      expect(wakes).toEqual([{ jobId, stageSeq: 2, batchCount: 2 }]);
+      // 行状态零迁移：阶段已随首批次 running，申报本身不落状态
       expect(env.store.getStages(jobId).find((s) => s.seq === 2)!.status).toBe("running");
     });
   });

@@ -48,6 +48,24 @@ export function kgReviewManifest(): TaskManifest {
   };
 }
 
+/** plan/execute/aggregate 三角色同形 manifest（A 批角色门/装配申报测试面）。 */
+export function planExecuteManifest(): TaskManifest {
+  return {
+    paramsSchema: {},
+    stages: {
+      strategy: "fixed",
+      list: [
+        { name: "盘点备料", kind: "plan" },
+        { name: "分批执行", kind: "execute" },
+        { name: "汇总收口", kind: "aggregate" },
+      ],
+    },
+    confirm: "required",
+    plan: "enforced",
+    projects: { min: 0, max: Infinity },
+  };
+}
+
 /** 0..n 项目类型 manifest（AD-8：projects 空数组合法）。 */
 export function zeroProjectManifest(): TaskManifest {
   return {
@@ -141,6 +159,8 @@ export interface TaskEngineEnv {
 export interface TaskEnvOverrides {
   /** 批次实例调度态读面（⑤ 链 A：parked 徽标数据源；缺省不装配 → DTO instanceState 省略）。 */
   readonly instanceStateOf?: (agentId: string) => string | undefined;
+  /** 装配完成唤醒记录面（A 批：assemblyDone 钩子断言）。 */
+  readonly onAssemblyDone?: (jobId: string, stageSeq: number, batchCount: number) => void;
 }
 
 /** 真库 + fake 依赖的引擎/查询环境（每 test 独立 tmp home）。 */
@@ -158,6 +178,7 @@ export function buildTaskEngineEnv(over: TaskEnvOverrides = {}): TaskEngineEnv {
     "为项目批量创建知识图谱内容（L0 核心层 → L1 领域层 → L2 实体层）；选中项目发起无交互多 agent 知识创建任务时",
   );
   skills.register("zero-project-scan", zeroProjectManifest(), "全库零项目扫描任务");
+  skills.register("plan-execute-demo", planExecuteManifest(), "三角色（plan/execute/aggregate）演示任务");
   const clock = counterClock();
   const reportDirRemoved: string[] = [];
   const engine = new TaskEngineService({
@@ -169,6 +190,7 @@ export function buildTaskEngineEnv(over: TaskEnvOverrides = {}): TaskEngineEnv {
     removeTaskReportDir: (jobId) => {
       reportDirRemoved.push(jobId);
     },
+    ...(over.onAssemblyDone !== undefined ? { onAssemblyDone: over.onAssemblyDone } : {}),
   });
   const query = new TaskQueryService({
     store,

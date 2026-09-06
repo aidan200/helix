@@ -175,12 +175,12 @@ describe("params 校验（CL-1-T5 ⑤）", () => {
 });
 
 describe("stages 策略求值（CL-2-T9 ⑥）", () => {
-  test("fixed → 按 manifest.list 生成 seq 1..3 的 StagePlan", () => {
+  test("fixed → 按 manifest.list 生成 seq 1..3 的 StagePlan（裸字符串缺省 execute）", () => {
     const manifest = parseValid();
     expect(resolveStagePlan(manifest)).toEqual([
-      { seq: 1, name: "L0 核心层" },
-      { seq: 2, name: "L1 领域层" },
-      { seq: 3, name: "L2 实体层" },
+      { seq: 1, name: "L0 核心层", kind: "execute" },
+      { seq: 2, name: "L1 领域层", kind: "execute" },
+      { seq: 3, name: "L2 实体层", kind: "execute" },
     ]);
   });
 
@@ -192,13 +192,45 @@ describe("stages 策略求值（CL-2-T9 ⑥）", () => {
     expect(() => resolveStagePlan(manifest, [])).toThrow(DomainError);
   });
 
-  test("free + 确认列表 → 按列表生成序号行", () => {
+  test("free + 确认列表 → 按列表生成序号行（缺省 execute）", () => {
     const manifest = parseTaskManifest({
       task: { ...validTaskBlock(), stages: { strategy: "free" } },
     }) as TaskManifest;
     expect(resolveStagePlan(manifest, ["探索", "建模"])).toEqual([
-      { seq: 1, name: "探索" },
-      { seq: 2, name: "建模" },
+      { seq: 1, name: "探索", kind: "execute" },
+      { seq: 2, name: "建模", kind: "execute" },
     ]);
+  });
+});
+
+describe("阶段角色声明（A 批：string | { name, kind } 混排解析与求值）", () => {
+  test("对象项与裸字符串混排合法：kind 归一（未声明缺省 execute）", () => {
+    const manifest = parseTaskManifest({
+      task: {
+        ...validTaskBlock(),
+        stages: {
+          strategy: "fixed",
+          list: [{ name: "盘点", kind: "plan" }, "执行", { name: "汇总", kind: "aggregate" }],
+        },
+      },
+    }) as TaskManifest;
+    expect(resolveStagePlan(manifest)).toEqual([
+      { seq: 1, name: "盘点", kind: "plan" },
+      { seq: 2, name: "执行", kind: "execute" },
+      { seq: 3, name: "汇总", kind: "aggregate" },
+    ]);
+  });
+
+  test("非法项逐一拒绝：未知 kind / 空 name / 未知键 / 非字符串非对象项", () => {
+    expect(() =>
+      parseTaskManifest({ task: { ...validTaskBlock(), stages: { strategy: "fixed", list: [{ name: "x", kind: "review" }] } } }),
+    ).toThrow(DomainError);
+    expect(() =>
+      parseTaskManifest({ task: { ...validTaskBlock(), stages: { strategy: "fixed", list: [{ name: "", kind: "plan" }] } } }),
+    ).toThrow(DomainError);
+    expect(() =>
+      parseTaskManifest({ task: { ...validTaskBlock(), stages: { strategy: "fixed", list: [{ name: "x", role: "plan" }] } } }),
+    ).toThrow(DomainError);
+    expect(() => parseTaskManifest({ task: { ...validTaskBlock(), stages: { strategy: "fixed", list: [42] } } })).toThrow(DomainError);
   });
 });

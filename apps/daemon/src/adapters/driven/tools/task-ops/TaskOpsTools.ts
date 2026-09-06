@@ -30,7 +30,7 @@ export interface TaskOpsToolDeps {
   /** 引擎回口面（批次成败两方法不在内——机械判读归编排服务；命名避让裸 engine）。 */
   readonly taskEngine: Pick<
     TaskEnginePort,
-    "insertBatch" | "dispatchBatch" | "advanceStage" | "writeStageArtifact" | "completeJob" | "failJob"
+    "insertBatch" | "dispatchBatch" | "advanceStage" | "writeStageArtifact" | "assemblyDone" | "completeJob" | "failJob"
   >;
   /** 批次实例台账读面（编排者 plan_read 变体：按实例 id 参数读）。 */
   readonly ledger?: Pick<WorkLedgerService, "getPlan">;
@@ -59,6 +59,15 @@ const insertBatchParameters = {
     scope: { type: "string", description: "批次范围描述（人类可读：对象清单 + 目标层，如「L1 领域层：会话管理域」）" },
   },
   required: ["stageSeq", "scope"],
+  additionalProperties: false,
+} as const;
+
+const assemblyDoneParameters = {
+  type: "object",
+  properties: {
+    stageSeq: { type: "number", description: "装配完成的 execute 阶段序号（申报通过后系统驱动派发轮——本轮到此收尾，不要自行派发）" },
+  },
+  required: ["stageSeq"],
   additionalProperties: false,
 } as const;
 
@@ -148,6 +157,20 @@ export function createTaskOpsTools(deps: TaskOpsToolDeps): AgentHarnessTool<Exec
         // jobId 回显（T4.1）：批次 brief 需把任务元数据（taskId/originBatchId）交给
         // 批次 SubAgent 落账——编排者从回执取 jobId 组入 brief（SKILL ③产出要求段）。
         return text(JSON.stringify({ batchId, jobId: deps.jobId }));
+      },
+    },
+    {
+      name: "task_assembly_done",
+      label: "task_assembly_done",
+      description:
+        "申报 execute 阶段装配完成（机械校验：前序阶段全 done + 本阶段 ≥1 批次行）。申报通过后系统驱动派发轮" +
+        "——本轮输出简短收尾说明即停，不要自行派发；plan/aggregate 阶段无装配物，直接 task_stage_artifact 聚合。",
+      parameters: assemblyDoneParameters as any,
+      async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
+        void toolCallId;
+        const { stageSeq } = params as { stageSeq: number };
+        const { batchCount } = await engineCall(() => deps.taskEngine.assemblyDone(deps.jobId, stageSeq));
+        return text(JSON.stringify({ ok: true, stageSeq, batchCount }));
       },
     },
     {

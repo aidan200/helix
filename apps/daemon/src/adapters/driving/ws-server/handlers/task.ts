@@ -379,6 +379,7 @@ function stageToDto(s: AppTaskStageDto): TaskStageDto {
     seq: s.seq,
     name: s.name,
     status: s.status,
+    ...(s.kind !== undefined ? { kind: s.kind } : {}),
     artifact:
       s.artifact === null
         ? null

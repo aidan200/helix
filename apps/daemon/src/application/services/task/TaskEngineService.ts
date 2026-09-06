@@ -2,7 +2,7 @@ import { DomainError } from "../../../domain/DomainError";
 import { isTerminalJob } from "../../../domain/task/job";
 import { resolveStagePlan, validateTaskParams } from "../../../domain/task/manifest";
 import { MAX_BATCH_RETRY, nextRetryCount, shouldRetryBatch } from "../../../domain/task/retry";
-import type { StagePlan } from "../../../domain/task/types";
+import type { StageKind, StagePlan } from "../../../domain/task/types";
 import type { TaskEnginePort, CreateTaskInput } from "../../ports/inbound/TaskEnginePort";
 import { TaskError } from "./TaskError";
 import { taskSessionIdOf } from "./TaskOrchestratorService";
@@ -59,6 +59,12 @@ export interface TaskEngineServiceDeps {
   readonly removeTaskReportDir?: (jobId: string) => Promise<void> | void;
   /** 可观测 warn（报告目录删除失败上报；缺省静默）。 */
   readonly warn?: (message: string) => void;
+  /**
+   * 装配完成唤醒钩子（A 批第四 wake 点）：assemblyDone 机械校验通过后回调
+   * （组合根接编排服务驱动派发轮）；缺省不唤醒（隔离测试形态）。并回行状态
+   * 零迁移——阶段已随首批次机械推 running，本钩子只驱动轮次边界。
+   */
+  readonly onAssemblyDone?: (jobId: string, stageSeq: number, batchCount: number) => void;
 }
 
 export class TaskEngineService implements TaskEnginePort {
@@ -285,6 +291,15 @@ export class TaskEngineService implements TaskEnginePort {
     // 阶段顺序守卫（B 批）：前序阶段全部 done 才可插批——阶段序由 skill 冻结，
     // 机械防跳段（此前 LLM 可先插 stage3 批次而 stage1 仍 pending，序正确性全押 SOP 纪律）
     this.assertPriorStagesDone(input.jobId, input.stageSeq);
+    // 阶段角色门（A 批）：批次只能进 execute 阶段——plan/aggregate 是编排直执
+    // 角色，不接收批次（机械禁止探针批次混入盘点/汇总阶段，7466ce9e 实证）
+    const insertKind = this.stageKindOf(job.type, input.stageSeq);
+    if (insertKind !== "execute") {
+      throw new TaskError(
+        "task.invalid_state",
+        `阶段角色违例：#${input.stageSeq} 是 ${insertKind} 角色（编排直执，不接收批次）——批次只能插入 execute 阶段（机械门）`,
+      );
+    }
     // pending → running：编排接管时刻（§3.3「pending→running: 编排 agent 接管」=
     // 第一个批次行落库；此后派发闸只认 running）
     if (job.status === "pending") {
@@ -413,13 +428,32 @@ export class TaskEngineService implements TaskEnginePort {
 
   async writeStageArtifact(jobId: string, stageSeq: number, artifact: StageArtifact): Promise<void> {
     // B 批激活对称：直执阶段（无批次）首个动作常是产物聚合——同样接管激活
-    await this.ensureActiveForAdvance(jobId);
+    const job = await this.ensureActiveForAdvance(jobId);
     const stages = this.deps.store.getStages(jobId);
     const stage = stages.find((s) => s.seq === stageSeq);
     if (stage === undefined) {
       throw new TaskError("task.invalid_state", `stage 不存在：${jobId}#${stageSeq}（阶段行已冻结，AD-9③）`);
     }
     this.assertPriorStagesDone(jobId, stageSeq, stages);
+    // 阶段角色门（A 批）：execute 阶段产物聚合须本阶段批次全收口 done——
+    // plan/aggregate 是编排直执角色，产物即判据无批次要求
+    const kind = this.stageKindOf(job.type, stageSeq);
+    if (kind === "execute") {
+      const batches = this.deps.store.getBatches(jobId, stageSeq);
+      if (batches.length === 0) {
+        throw new TaskError(
+          "task.invalid_state",
+          `阶段产物违例：#${stageSeq} 是 execute 角色但本阶段零批次——先装配（insertBatch）并收口全部批次再聚合（机械门）`,
+        );
+      }
+      const open = batches.filter((b) => b.status !== "done");
+      if (open.length > 0) {
+        throw new TaskError(
+          "task.invalid_state",
+          `阶段产物违例：#${stageSeq} 是 execute 角色，尚有 ${open.length} 个批次未收口 done（${open.map((b) => `#${b.seq}(${b.status})`).join("、")}）——全部收口后再聚合（机械门）`,
+        );
+      }
+    }
     // 直执阶段免两步（B 批）：pending 阶段引擎自动走 running 再落 done——domain
     // 迁移集不动（pending→done 仍非法），LLM 无需「先 advance 再 artifact」两步走
     if (stage.status === "pending") {
@@ -431,6 +465,42 @@ export class TaskEngineService implements TaskEnginePort {
       .updateStageStatus(jobId, stageSeq, "done", artifact)
       .catch((error) => this.mapDomainError(error));
     this.notify({ jobId, changed: "stage", status: "done" });
+  }
+
+  /**
+   * 装配完成申报（A 批第四 wake 点）：LLM 声明 + 机械结构校验——execute 角色 +
+   * 前序阶段全 done + 本阶段 ≥1 批次行。通过即触发 onAssemblyDone 钩子（组合根
+   * 接编排服务驱动派发轮）；不迁移任何行状态（阶段已随首批次机械推 running）。
+   * 红线：这是机械驱动的轮次边界，不是人审门（AD-5 无中途审阅态）。
+   */
+  async assemblyDone(jobId: string, stageSeq: number): Promise<{ batchCount: number }> {
+    const job = await this.ensureActiveForAdvance(jobId);
+    const stages = this.deps.store.getStages(jobId);
+    const stage = stages.find((s) => s.seq === stageSeq);
+    if (stage === undefined) {
+      throw new TaskError("task.invalid_state", `stage 不存在：${jobId}#${stageSeq}（阶段行已冻结，AD-9③）`);
+    }
+    this.assertPriorStagesDone(jobId, stageSeq, stages);
+    const kind = this.stageKindOf(job.type, stageSeq);
+    if (kind !== "execute") {
+      throw new TaskError(
+        "task.invalid_state",
+        `装配完成申报仅适用 execute 阶段：#${stageSeq} 是 ${kind} 角色（无装配物，直接聚合产物即可）`,
+      );
+    }
+    const batches = this.deps.store.getBatches(jobId, stageSeq);
+    if (batches.length === 0) {
+      throw new TaskError(
+        "task.invalid_state",
+        `装配完成申报须至少一个批次行（零批次=未装配）——先 insertBatch 再申报`,
+      );
+    }
+    try {
+      this.deps.onAssemblyDone?.(jobId, stageSeq, batches.length);
+    } catch {
+      // 唤醒面异常静默（申报本身成功；行状态是事实源，派发轮可由收口通知补偿驱动）
+    }
+    return { batchCount: batches.length };
   }
 
   async completeJob(jobId: string): Promise<void> {
@@ -514,13 +584,14 @@ export class TaskEngineService implements TaskEnginePort {
 
   /** 推进门（B 批激活对称）：pending 是编排接管前态——任一推进动作即接管激活
    * （与 insertBatch 首批次落行激活同构）；已暂停/终态拒绝并给出准确指引（O-2 文案
-   * 修正：不再把 pending 误标为「暂停/终态」——误导性文案曾致编排 LLM 编造门语义）。 */
-  private async ensureActiveForAdvance(jobId: string): Promise<void> {
+   * 修正：不再把 pending 误标为「暂停/终态」——误导性文案曾致编排 LLM 编造门语义）。
+   * 返回 job（调用方只消费 type 等静态字段；激活后状态以行现值为准）。 */
+  private async ensureActiveForAdvance(jobId: string): Promise<JobData> {
     const job = this.mustJob(jobId);
     if (job.status === "pending") {
       await this.transitionJob(jobId, "running");
       this.notify({ jobId, changed: "job", status: "running" });
-      return;
+      return job;
     }
     if (job.status !== "running") {
       throw new TaskError(
@@ -528,6 +599,17 @@ export class TaskEngineService implements TaskEnginePort {
         `任务 ${jobId} 当前状态 ${job.status}（已暂停或终态：不执行推进动作——paused 经 resume 恢后续跑，终态任务不可推进，O-2）`,
       );
     }
+    return job;
+  }
+
+  /** 阶段角色派生（A 批机械约束）：kind 仅存 manifest（行结构零迁移）——按任务
+   * 类型 + 阶段序派生；free 策略/无声明/序越界缺省 execute。 */
+  private stageKindOf(jobType: string, stageSeq: number): StageKind {
+    const manifest = this.deps.skills.getTaskType(jobType);
+    if (manifest === null || manifest.stages.strategy !== "fixed") return "execute";
+    const entry = manifest.stages.list[stageSeq - 1];
+    if (entry === undefined || typeof entry === "string") return "execute";
+    return entry.kind ?? "execute";
   }
 
   /** 阶段顺序守卫（B 批）：目标阶段之前的全部 stage 须 done——机械防跳段。 */

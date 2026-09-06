@@ -13,6 +13,14 @@ export type JobStatus = (typeof JOB_STATUSES)[number];
 export const STAGE_STATUSES = ["pending", "running", "done", "failed"] as const;
 export type StageStatus = (typeof STAGE_STATUSES)[number];
 
+/**
+ * 阶段角色（A 批机械约束）：plan=编排直执备料（不收批次，产物即判据）；
+ * execute=批次执行（装配→申报→派发→收口，产物须批次全收口）；
+ * aggregate=编排直执聚合（不收批次，产物即判据）。缺省 execute（裸字符串声明向后兼容）。
+ */
+export const STAGE_KINDS = ["plan", "execute", "aggregate"] as const;
+export type StageKind = (typeof STAGE_KINDS)[number];
+
 /** batch 状态（§3.3）：pending → running → done/failed（failed 由自动重试接管，§4.5）。 */
 export const BATCH_STATUSES = ["pending", "running", "done", "failed"] as const;
 export type BatchStatus = (typeof BATCH_STATUSES)[number];
@@ -43,7 +51,8 @@ export interface ProjectsCardinality {
 /** 任务类型 skill 的 frontmatter `task` 块形状（§7.1）。 */
 export interface TaskManifest {
   paramsSchema: ParamsSchema;
-  stages: { strategy: "fixed"; list: string[] } | { strategy: "free" };
+  /** fixed 阶段清单：裸字符串（缺省 execute）或 { name, kind? } 对象（A 批角色声明）。 */
+  stages: { strategy: "fixed"; list: (string | { name: string; kind?: StageKind })[] } | { strategy: "free" };
   /** AD-5：开启前一次确认（任务内容卡）；声明 skip 则免确认。 */
   confirm: "required" | "skip";
   /** AD-6：批次实例 plan 是否强制。 */
@@ -51,8 +60,10 @@ export interface TaskManifest {
   projects: ProjectsCardinality;
 }
 
-/** 阶段计划行（createTask 时落 stage 数据行，AD-9①：阶段落数据不落代码）。 */
+/** 阶段计划行（createTask 时落 stage 数据行，AD-9①：阶段落数据不落代码；
+ * kind 仅存 manifest 派生，不落行——行结构零迁移）。 */
 export interface StagePlan {
   seq: number;
   name: string;
+  kind: StageKind;
 }

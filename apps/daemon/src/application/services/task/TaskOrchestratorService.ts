@@ -312,6 +312,23 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     void this.settleInstance(agentId);
   }
 
+  /**
+   * 装配完成唤醒（A 批第四 wake 点，引擎 onAssemblyDone 钩子接线）：机械校验
+   * 已在引擎面通过（execute 角色 + 前序 done + 非零批次），此处只驱动派发轮——
+   * LLM 判断面收窄为「逐批 spawn + 接线」。无循环/已停（恢复前申报等）静默：
+   * 批次行已在，kickoff/恢复现场可见，不丢状态。
+   */
+  notifyAssemblyDone(jobId: string, stageSeq: number, batchCount: number): void {
+    const loop = this.loops.get(jobId);
+    if (loop === undefined || loop.stopped) return;
+    const stages = this.deps.store.getStages(jobId);
+    const name = stages.find((s) => s.seq === stageSeq)?.name ?? `#${stageSeq}`;
+    this.wake(
+      loop,
+      `【装配完成】阶段 #${stageSeq}「${name}」装配 ${batchCount} 批已就绪（机械校验通过：前序阶段 done + 非零批次）。进入派发轮：逐批 agent_spawn + task_dispatch_batch 接线；不要新增或改动批次行，失败重派由引擎自动负责。`,
+    );
+  }
+
   // ── 内部：会话驱动（唤醒/注入路由） ──────────────────────
 
   /** 唤醒编排会话：运行中 → 注入（turn 边界 drain）；闲时 → 新驱动轮；挂起中 → 暂存（链 A）。

@@ -333,18 +333,22 @@ describe("task 族 I 层：九命令路由（T1.5，contracts/task-api.md §2）
   test("task.artifacts：阶段产物只读投影（CL-3-T6；AD-4② 人类可读；D2 body additive 透传）", async () => {
     const { rig, client } = await rigWithClient();
     try {
-      const { jobId } = await launchRunningJob(rig.env, { projects: ["demo"] });
+      const { jobId, batchId: b1 } = await launchRunningJob(rig.env, { projects: ["demo"] });
       const res = await client.task("task.artifacts", { jobId });
       expect(res.ok).toBe(true);
       const artifacts = res.result["artifacts"] as Record<string, any>;
       expect(artifacts.stages.length).toBe(3);
       expect(artifacts.stages[0].artifact).toBeNull(); // 未完成阶段无产物
       // D2：引擎聚合含 body 的产物 → wire DTO 原样带出；无 body 阶段不携带键
+      //（A-2 角色门：execute 阶段产物聚合须批次先收口）
       const body = "## 发现\n\n- [高] a.ts:1 竞态";
+      await rig.env.engine.completeBatch(b1);
       await rig.env.engine.writeStageArtifact(jobId, 1, { summary: "L0 摘要：审 2 模块", body });
       await rig.env.engine.advanceStage(jobId, 2);
       const { batchId: b2 } = await rig.env.engine.insertBatch({ jobId, stageSeq: 2, scope: "批次 1：L1" });
       await rig.env.engine.dispatchBatch(b2, "inst-b");
+      // A-2 角色门：execute 阶段产物聚合须本阶段批次全收口
+      await rig.env.engine.completeBatch(b2);
       await rig.env.engine.writeStageArtifact(jobId, 2, { summary: "L1 仅摘要" });
       const res2 = await client.task("task.artifacts", { jobId });
       const artifacts2 = res2.result["artifacts"] as Record<string, any>;

@@ -27,6 +27,7 @@ function rig(): { deps: TaskOpsToolDeps; artifacts: RecordedArtifact[] } {
       writeStageArtifact: async (jobId: string, stageSeq: number, artifact: StageArtifact) => {
         artifacts.push({ jobId, stageSeq, artifact });
       },
+      assemblyDone: async () => ({ batchCount: 0 }),
       completeJob: async () => {},
       failJob: async () => {},
     },
@@ -78,5 +79,37 @@ describe("task_stage_artifact 工具（D2：body additive）", () => {
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]!.artifact).toEqual({ summary: "仅摘要" });
     expect(artifacts[0]!.artifact).not.toHaveProperty("body");
+  });
+});
+
+describe("task_assembly_done 工具（A 批：装配完成申报薄壳）", () => {
+  test("stageSeq 透传引擎 + 回执携带 batchCount（jobId 绑定装配面）", async () => {
+    const calls: Array<{ jobId: string; stageSeq: number }> = [];
+    const deps: TaskOpsToolDeps = {
+      jobId: "job-9",
+      taskEngine: {
+        insertBatch: async () => ({ batchId: "batch-1" }),
+        dispatchBatch: async () => {},
+        advanceStage: async () => {},
+        writeStageArtifact: async () => {},
+        assemblyDone: async (jobId: string, stageSeq: number) => {
+          calls.push({ jobId, stageSeq });
+          return { batchCount: 7 };
+        },
+        completeJob: async () => {},
+        failJob: async () => {},
+      },
+    };
+    const tool = createTaskOpsTools(deps).find((t) => t.name === "task_assembly_done");
+    if (tool === undefined) throw new Error("task_assembly_done 未注册");
+    const result = await tool.execute("call-1", { stageSeq: 2 }, undefined, undefined, {
+      env: new NodeExecutionEnv({ cwd: tmpdir() }) },
+    );
+    expect(calls).toEqual([{ jobId: "job-9", stageSeq: 2 }]);
+    expect(JSON.parse(result.content[0]!.type === "text" ? result.content[0]!.text : "{}")).toEqual({
+      ok: true,
+      stageSeq: 2,
+      batchCount: 7,
+    });
   });
 });

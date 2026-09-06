@@ -17,7 +17,7 @@ import { EmptyPanel, PhaseBadge, ProgressTrack, fmtInstance } from "./P-2-task-a
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
 
-/** 阶段子行（四态：已完成 / 进行中·批次 x/y / 失败 / 待启动）。 */
+/** 阶段子行（四态：已完成 / 进行中·批次 x/y / 失败 / 待启动——按角色区分装配语义：plan 备料 / aggregate 待汇总）。 */
 function stageSub(stage: TaskStageDto, detail: TaskDetailDto, t: T): string {
   if (stage.status === "done") return t("tk.stageSub.done");
   if (stage.status === "running") {
@@ -29,6 +29,8 @@ function stageSub(stage: TaskStageDto, detail: TaskDetailDto, t: T): string {
     return `${t("tk.stageSub.running")}${batches}`;
   }
   if (stage.status === "failed") return t("tk.stageSub.failed");
+  if (stage.kind === "plan") return t("tk.stageSub.prep");
+  if (stage.kind === "aggregate") return t("tk.stageSub.toAggregate");
   return t("tk.stageSub.pending");
 }
 

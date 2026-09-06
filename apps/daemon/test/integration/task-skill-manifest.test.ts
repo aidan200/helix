@@ -229,7 +229,14 @@ describe("kg-review skill 装载（W2-F 轨二语义体检任务，R21/R23）", 
       paramsSchema: {
         projectRoot: { type: "string", required: true },
       },
-      stages: { strategy: "fixed", list: ["L0 结构面预检", "L1 规则册逐节点评审", "L2 实体册逐节点评审"] },
+      stages: {
+        strategy: "fixed",
+        list: [
+          { name: "L0 结构面预检", kind: "plan" },
+          { name: "L1 规则册逐节点评审", kind: "execute" },
+          { name: "L2 实体册逐节点评审", kind: "execute" },
+        ],
+      },
       confirm: "required",
       plan: "enforced",
       projects: { min: 1, max: 1 },
@@ -297,7 +304,14 @@ describe("code-review skill 装载（代码质量评审任务，D1）", () => {
         projectRoot: { type: "string", required: true },
         scope: { type: "string" },
       },
-      stages: { strategy: "fixed", list: ["评审范围盘点与分批", "分批评审", "汇总报告"] },
+      stages: {
+        strategy: "fixed",
+        list: [
+          { name: "评审范围盘点与分批", kind: "plan" },
+          { name: "分批评审", kind: "execute" },
+          { name: "汇总报告", kind: "aggregate" },
+        ],
+      },
       confirm: "required",
       plan: "enforced",
       projects: { min: 1, max: 1 },

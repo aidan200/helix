@@ -115,6 +115,11 @@ export interface TaskStageDto {
   /** 阶段名（如 "L0 核心层"）。 */
   name: string;
   status: "pending" | "running" | "done" | "failed";
+  /**
+   * 阶段角色（A 批机械约束：plan=编排直执备料 / execute=批次执行 / aggregate=编排直执
+   * 聚合）。additive——未声明/free 策略/旧客户端不携带键（缺省 execute 语义）。
+   */
+  kind?: "plan" | "execute" | "aggregate";
   /** 阶段产物摘要（done 后非 null；文字报告，与 kg 零耦合；D2 additive：可选 body 为 markdown 产物全文）。 */
   artifact: { summary: string; body?: string } | null;
 }

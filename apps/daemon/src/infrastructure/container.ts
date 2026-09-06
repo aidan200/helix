@@ -483,6 +483,9 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     starterOverride: lateStarter,
     skillSource: taskSkillSource,
     onTaskChanged: (frame) => broadcastTaskChanged(frame),
+    // A 批第四 wake 点：装配完成申报经晚绑闭包接编排服务驱动派发轮
+    //（orchestratorService 在本块之后构造回填，构造窗口零调用）
+    onAssemblyDone: (jobId, stageSeq, batchCount) => orchestratorService?.notifyAssemblyDone(jobId, stageSeq, batchCount),
     // 链 A（⑤）：批次实例调度态读面（任务页 parked 徽标数据源）——晚绑闭包
     // 读 scheduler 现值（sessionStack 在本块之后建，构造窗口零调用）
     instanceStateOf: (agentId) => schedulerLate?.status(agentId)[0]?.state,

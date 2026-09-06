@@ -4,9 +4,11 @@ import type {
   ParamFieldType,
   ParamsSchema,
   ProjectsCardinality,
+  StageKind,
   StagePlan,
   TaskManifest,
 } from "./types";
+import { STAGE_KINDS } from "./types";
 
 /**
  * skill manifest 解析与校验纯函数（architecture.md §4.3，AD-9②）。
@@ -22,6 +24,7 @@ const PARAM_FIELD_TYPES: readonly ParamFieldType[] = ["string", "number", "boole
 const FIELD_SCHEMA_KEYS: readonly string[] = ["type", "required"];
 const STAGES_FIXED_KEYS: readonly string[] = ["strategy", "list"];
 const STAGES_FREE_KEYS: readonly string[] = ["strategy"];
+const STAGE_ENTRY_KEYS: readonly string[] = ["name", "kind"];
 const TASK_BLOCK_KEYS: readonly string[] = ["paramsSchema", "stages", "confirm", "plan", "projects"];
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -89,16 +92,32 @@ function parseStages(raw: unknown): TaskManifest["stages"] {
     rejectUnknownKeys(raw, STAGES_FIXED_KEYS, "stages");
     const { list } = raw;
     if (!Array.isArray(list) || list.length === 0) {
-      throw new DomainError(`非法 task manifest：stages.list 必须为非空字符串数组`);
+      throw new DomainError(`非法 task manifest：stages.list 必须为非空数组（字符串或 { name, kind } 项）`);
     }
-    for (const name of list) {
-      if (typeof name !== "string" || name.length === 0) {
+    for (const entry of list) {
+      if (typeof entry === "string") {
+        if (entry.length === 0) {
+          throw new DomainError(`非法 task manifest：stages.list 必须为非空字符串数组，含 ${describeValue(entry)}`);
+        }
+        continue;
+      }
+      if (!isPlainObject(entry)) {
         throw new DomainError(
-          `非法 task manifest：stages.list 必须为非空字符串数组，含 ${describeValue(name)}`,
+          `非法 task manifest：stages.list 项必须为非空字符串或 { name, kind } 对象，得到 ${describeValue(entry)}`,
+        );
+      }
+      rejectUnknownKeys(entry, STAGE_ENTRY_KEYS, "stages.list 项");
+      const { name, kind } = entry as { name?: unknown; kind?: unknown };
+      if (typeof name !== "string" || name.length === 0) {
+        throw new DomainError(`非法 task manifest：stages.list[].name 必须为非空字符串，得到 ${describeValue(name)}`);
+      }
+      if (kind !== undefined && !STAGE_KINDS.includes(kind as StageKind)) {
+        throw new DomainError(
+          `非法 task manifest：stages.list[].kind 必须为 ${STAGE_KINDS.join("/")}，得到 ${JSON.stringify(kind)}`,
         );
       }
     }
-    return { strategy: "fixed", list: list as string[] };
+    return { strategy: "fixed", list: list as (string | { name: string; kind?: StageKind })[] };
   }
   rejectUnknownKeys(raw, STAGES_FREE_KEYS, "stages");
   return { strategy: "free" };
@@ -215,10 +234,15 @@ export function validateTaskParams(
  */
 export function resolveStagePlan(manifest: TaskManifest, confirmedStages?: string[]): StagePlan[] {
   if (manifest.stages.strategy === "fixed") {
-    return manifest.stages.list.map((name, i) => ({ seq: i + 1, name }));
+    return manifest.stages.list.map((entry, i) => ({
+      seq: i + 1,
+      name: typeof entry === "string" ? entry : entry.name,
+      // 裸字符串/未声明 kind 缺省 execute（向后兼容；free 策略同缺省）
+      kind: typeof entry === "string" || entry.kind === undefined ? ("execute" as const) : entry.kind,
+    }));
   }
   if (confirmedStages === undefined || confirmedStages.length === 0) {
     throw new DomainError("stages 违例：free 策略需要发起者确认的阶段列表（confirmedStages），缺失或为空");
   }
-  return confirmedStages.map((name, i) => ({ seq: i + 1, name }));
+  return confirmedStages.map((name, i) => ({ seq: i + 1, name, kind: "execute" as const }));
 }

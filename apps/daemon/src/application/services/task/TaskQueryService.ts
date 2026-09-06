@@ -71,6 +71,8 @@ export interface TaskStageDto {
   readonly seq: number;
   readonly name: string;
   readonly status: StageData["status"];
+  /** 阶段角色（A 批 additive：未声明/free 策略不携带键，缺省 execute 语义）。 */
+  readonly kind?: "plan" | "execute" | "aggregate";
   readonly artifact: { readonly summary: string; readonly body?: string } | null;
 }
 
@@ -135,7 +137,7 @@ export class TaskQueryService {
     const batches = stages.flatMap((s) => this.deps.store.getBatches(jobId, s.seq));
     return {
       ...this.summaryOf(job),
-      stages: stages.map((s) => stageDtoOf(s)),
+      stages: stages.map((s) => stageDtoOf(s, this.stageKindOf(job.type, s.seq))),
       batches: batches.map((b) => this.batchDtoOf(b)),
       params: job.params,
     };
@@ -155,6 +157,20 @@ export class TaskQueryService {
   }
 
   // ── 组装 ──────────────────────────────────────────────────
+
+  /**
+   * 阶段角色派生（A 批 additive DTO）：kind 仅存 manifest（行结构零迁移）——
+   * 按任务类型 + 阶段序派生；free 策略/无声明/序越界不携带键（缺省 execute
+   * 语义由消费方兜底）。与 TaskEngineService.stageKindOf 同源逻辑（查询面零
+   * 状态副作用版）。
+   */
+  private stageKindOf(jobType: string, stageSeq: number): "plan" | "execute" | "aggregate" | undefined {
+    const manifest = this.deps.skills.getTaskType(jobType);
+    if (manifest === null || manifest.stages.strategy !== "fixed") return undefined;
+    const entry = manifest.stages.list[stageSeq - 1];
+    if (entry === undefined || typeof entry === "string") return undefined;
+    return entry.kind;
+  }
 
   private mustJob(jobId: string): JobData {
     const job = this.deps.store.getJob(jobId);
@@ -222,11 +238,12 @@ function currentStageOf(stages: readonly StageData[]): StageData | null {
   return stages.find((s) => s.status !== "done") ?? stages[stages.length - 1] ?? null;
 }
 
-function stageDtoOf(stage: StageData): TaskStageDto {
+function stageDtoOf(stage: StageData, kind?: "plan" | "execute" | "aggregate"): TaskStageDto {
   return {
     seq: stage.seq,
     name: stage.name,
     status: stage.status,
+    ...(kind !== undefined ? { kind } : {}),
     artifact: artifactDtoOf(stage.artifact),
   };
 }
