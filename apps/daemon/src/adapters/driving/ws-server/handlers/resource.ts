@@ -26,11 +26,12 @@
  * 生效集 + kg-update 恒在 / subagent-code-reviewer = worker 当前生效集
  * − write/edit 恒摘除（D5 第五 kind），后两者随 worker toggle 动态
  * 跟随）；写面对只读 kind 恒拒（agent.config.read_only，连接保持——
- * 前端只读只是表现，后端拒绝才是事实）。恒在/恒摘工具名经
- * ctx.kgWriterPinnedTools / ctx.reviewerRemovedTools 注入
- * （SUBAGENT_KG_WRITER_EXTRA_TOOLS / SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS
- * 增量常量单源——driving 不得 import driven，组合根经窄函数面传递，
- * hasModel 先例）。
+ * 前端只读只是表现，后端拒绝才是事实）。kg-writer 恒在工具名经
+ * ctx.kgWriterPinnedTools 注入（SUBAGENT_KG_WRITER_EXTRA_TOOLS 增量
+ * 常量单源——driving 不得 import driven，组合根经窄函数面传递，
+ * hasModel 先例）；reviewer 摘除面已落独立装配声明（SUBAGENT_CODE_
+ * REVIEWER_REMOVED_TOOLS 由 profile 声明直接消费，driving 读面不再
+ * 需要——M4⑤ 死注入面已清）。
  */
 import type {
   AgentBasePromptGetResultEvent,
@@ -111,15 +112,14 @@ function toProfileBlockDto(block: ResourceConfigBlock): AgentConfigProfileBlock 
  *   与 chat agent 同一装配逻辑，差异行独立生效；用户不可开关，仅展示状态）；
  * - kg-writer 附 pinnedTools 徽标面、reviewer 声明面已减 write/edit（声明
  *   单源；derivedFrom 派生展示已撤——独立装配）。
+ * M4⑤：独立装配终态后 main/worker/removedTools 三参零引用（死参）已删——
+ * 各系统块只读自身 kind 块 + pinnedTools 徽标面。
  */
 function toSystemBlocksDto(
-  main: ResourceConfigBlock,
-  worker: ResourceConfigBlock,
   orch: ResourceConfigBlock,
   kgw: ResourceConfigBlock,
   reviewer: ResourceConfigBlock,
   pinnedTools: readonly string[],
-  removedTools: readonly string[],
 ): readonly AgentConfigSystemBlock[] {
   // tools 行透传：带 enabled 位（与可配块 toProfileBlockDto 同构；独立装配
   // 终态——不再从 worker 生效集派生，各块读自身 catalog + 差异行）
@@ -202,7 +202,7 @@ export function handleAgentConfigList(ctx: ResourceCommandContext): void {
       type: "agent.config.list.result",
       payload: {
         profiles: [main, sub].map(toProfileBlockDto),
-        system: await toSystemBlocksDto(main, sub, orch, kgw, reviewer, ctx.kgWriterPinnedTools, ctx.reviewerRemovedTools),
+        system: toSystemBlocksDto(orch, kgw, reviewer, ctx.kgWriterPinnedTools),
       },
     };
     ctx.sendNow(sender, frame);

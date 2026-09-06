@@ -164,7 +164,6 @@ function stubAdapterDeps(events: EventStream) {
     },
     hasModel: () => false,
     kgWriterPinnedTools: ["kg-update"],
-    reviewerRemovedTools: ["write", "edit"],
     basePrompts: {},
     browser: new StubBrowserPort(),
     events,

@@ -64,7 +64,12 @@ export function handleSessionSubscribe(ctx: SessionCommandContext): void {
         const stamp = ctx.sessionStamp(view);
         ctx.sendNow(sender, ctx.snapshotFrame(view, stamp.model, stamp.agentState));
       })
-      .catch((err) => console.warn(`[ws] 订阅快照组装失败：${(err as Error).message}`));
+      .catch((err) => {
+        // M4③：失败补 commandError 回执（H5 同口径——客户端可感知不静默；
+        // console.warn 保留服务端可观测）
+        console.warn(`[ws] 订阅快照组装失败：${(err as Error).message}`);
+        ctx.commandError(ctx.type, "daemon.internal", (err as Error).message);
+      });
   });
 }
 
@@ -92,7 +97,12 @@ export function handleSessionList(ctx: SessionCommandContext): void {
       };
       ctx.sendNow(sender, frame);
     })
-    .catch((err) => console.warn(`[ws] session.list 处理失败：${(err as Error).message}`));
+    .catch((err) => {
+      // M4④：失败补 commandError 回执（chat.ts H5 先例同口径——既无 result
+      // 帧也无 error 帧会让客户端永久等待；console.warn 保留服务端可观测）
+      console.warn(`[ws] session.list 处理失败：${(err as Error).message}`);
+      ctx.commandError(ctx.type, "daemon.internal", (err as Error).message);
+    });
 }
 
 /** session.loadHistory（游标分页读历史）：session.loadHistory.result 点对点回执。 */
