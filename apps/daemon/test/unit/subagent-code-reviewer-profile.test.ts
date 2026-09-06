@@ -9,7 +9,7 @@ import { dispatchProfileKindOf } from "../../src/application/services/task/TaskO
 
 /**
  * code-review 任务设计 D5：专用 SubAgent profile「subagent-code-reviewer」
- * （机械解耦，非 SOP 软约束）——评审批次的代码写面（write/edit）机械摘除，
+ * （机械解耦，非 SOP 软约束）——评审批次的代码写面（write/edit/edit-lines）机械摘除，
  * 保留 bash（报告/findings 旁路文件 + linter）与只读面（kg/codegraph/plan
  * 三件套）；prompt = 通用 worker 版 + 评审纪律后缀（只读评审/证据纪律/
  * findings kind=issue/报告经 bash 写 HELIX_REPORT_PATH）。
@@ -18,12 +18,13 @@ import { dispatchProfileKindOf } from "../../src/application/services/task/TaskO
  */
 
 describe("D5 专用 profile：subagent-code-reviewer 工具面", () => {
-  test("kind 声明 + 工具集 = 通用 worker − write/edit（代码写面机械关闭）", () => {
+  test("kind 声明 + 工具集 = 通用 worker − write/edit/edit-lines（代码写面机械关闭；F4 接通批 edit-lines 同摘）", () => {
     expect(SubAgentCodeReviewerProfile.kind).toBe("subagent-code-reviewer");
     expect(SubAgentCodeReviewerProfile.tools).not.toContain("write");
     expect(SubAgentCodeReviewerProfile.tools).not.toContain("edit");
+    expect(SubAgentCodeReviewerProfile.tools).not.toContain("edit-lines");
     expect(SubAgentCodeReviewerProfile.tools).toEqual(
-      SubAgentProfile.tools.filter((t) => t !== "write" && t !== "edit"),
+      SubAgentProfile.tools.filter((t) => t !== "write" && t !== "edit" && t !== "edit-lines"),
     );
   });
 
@@ -68,7 +69,7 @@ describe("D5 评审纪律后缀（增量常量单源）", () => {
   });
 
   test("摘除常量导出（组装快照派生面单源——buildSessionStack 按此拼 reviewer 生效集）", () => {
-    expect(SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS).toEqual(["write", "edit"]);
+    expect(SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS).toEqual(["write", "edit", "edit-lines"]);
   });
 });
 

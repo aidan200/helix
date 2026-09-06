@@ -109,21 +109,22 @@ afterEach(async () => {
 });
 
 describe("D5 快照装配派发：subagentAssemblyFor 按 profileKind 派发生效集", () => {
-  test("subagent-code-reviewer 快照 = worker 生效集 − write/edit + 评审纪律后缀", async () => {
+  test("subagent-code-reviewer 快照 = worker 生效集 − write/edit/edit-lines + 评审纪律后缀", async () => {
     const rig = (current = await makeRig());
     const outcome = rig.daemon.orchestration.spawn("评审 demo 项目", "subagent-code-reviewer");
     if (outcome.status !== "run") throw new Error(`spawn 被拒：${JSON.stringify(outcome)}`);
     const snap = await snapshotOf(rig, outcome.agentId);
-    // 代码写面机械关闭：write/edit 恒不在生效集
+    // 代码写面机械关闭：write/edit/edit-lines 恒不在生效集（F4 接通批 edit-lines 同摘）
     expect(snap.tools).not.toContain("write");
     expect(snap.tools).not.toContain("edit");
+    expect(snap.tools).not.toContain("edit-lines");
     // 保留面：bash（报告/findings 旁路 + linter）与只读查询面
     for (const name of ["bash", "read", "grep", "kg", "codegraph", "plan_create", "plan_update", "plan_read"]) {
       expect(snap.tools).toContain(name);
     }
     expect(snap.tools).not.toContain("kg-update");
-    // 生效集恰为 worker 声明面 − write/edit（缺省全启用）
-    expect(snap.tools).toEqual(SubAgentProfile.tools.filter((t) => t !== "write" && t !== "edit"));
+    // 生效集恰为 worker 声明面 − write/edit/edit-lines（缺省全启用）
+    expect(snap.tools).toEqual(SubAgentProfile.tools.filter((t) => t !== "write" && t !== "edit" && t !== "edit-lines"));
     // 评审纪律后缀在快照 prompt（派生不复制）
     expect(snap.systemPrompt).toContain(SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX);
     expect(snap.systemPrompt).not.toContain(SUBAGENT_KG_WRITER_PROMPT_SUFFIX);
@@ -138,7 +139,7 @@ describe("D5 快照装配派发：subagentAssemblyFor 按 profileKind 派发生�
     const kgwSnap = await snapshotOf(rig, kgw.agentId);
     expect(workerSnap.tools).toContain("write");
     expect(workerSnap.tools).toContain("edit");
-    expect(kgwSnap.tools).toEqual([...SubAgentProfile.tools, "kg-update"]);
+    expect(kgwSnap.tools).toEqual([...SubAgentProfile.tools.filter((t) => t !== "edit-lines"), "kg-update"]);
     expect(kgwSnap.systemPrompt).toContain(SUBAGENT_KG_WRITER_PROMPT_SUFFIX);
   });
 });

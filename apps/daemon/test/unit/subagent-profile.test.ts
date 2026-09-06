@@ -80,6 +80,7 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
       "read",
       "write",
       "edit",
+      "edit-lines", // F4 接通批：行锚编辑随 Main 清单直传（两域同扩）
       "grep",
       "web_search",
       "web_fetch",

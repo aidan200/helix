@@ -207,4 +207,51 @@ describe("mcp 批子进程接入（mcpServersFor env 透传）", () => {
     const logged = readFileSync(callsLog, "utf8");
     expect(logged).toContain('echo:{"text":"hi-mcp"}');
   }, 30000);
+
+  test("③ 配置 server 全部启动失败：死命名空间工具名降级剔除，子进程不崩（F4 修复——过滤条件锚配置集非 running 集）", async () => {
+    const home = tmpDir("helix-mcp-child-dead-");
+    const scriptPath = path.join(home, "script.json");
+    // 剧本：无工具调用直接 closure（降级后纯静态工具面跑通即证不崩）
+    writeFileSync(scriptPath, JSON.stringify({ replies: [closureBlock("degraded-done")] }));
+
+    // 坏命令：spawn 即失败 → server error 状态（零 running）
+    const servers: McpServerConfig[] = [{ name: "dead", command: "definitely-not-a-command-xyz" }];
+    const closures: { instanceId: string; outcome: InstanceClosureOutcome }[] = [];
+    const launcher = new SubagentLauncher({
+      profile: SubAgentProfile,
+      model: fakeModel,
+      apiKeys: { fake: "explicit-key" },
+      toolCwd: home,
+      fakeEngineScript: scriptPath,
+      // spawn 快照含死命名空间工具名（父进程 catalog 现拍于 server 健康时）
+      spawnSnapshot: () => ({
+        tools: [...SubAgentProfile.tools, "dead__echo", "dead__ping"],
+        systemPrompt: "SUB base + 工具清单",
+      }),
+      mcpServersFor: () => servers,
+      onLine: () => {},
+    });
+    launcher.setCallbacks({
+      onInstanceEvent: () => {},
+      onInstanceClosure: (instanceId, outcome) => closures.push({ instanceId, outcome }),
+    });
+
+    launcher.launch(makeInstance(), "降级验证任务");
+    await new Promise<void>((resolve, reject) => {
+      const t0 = Date.now();
+      const timer = setInterval(() => {
+        if (closures.length > 0) {
+          clearInterval(timer);
+          resolve();
+        } else if (Date.now() - t0 > 20000) {
+          clearInterval(timer);
+          reject(new Error("等待 closure 超时"));
+        }
+      }, 20);
+    });
+
+    // 降级承诺兑现：dead__ 工具名从 profile.tools 剔除（executor 无 mcp 注入
+    // 也不碰 resolveTools 硬校验），子进程跑完 closure done 而非整崩
+    expect(closures[0]!.outcome.result).toBe("done");
+  }, 30000);
 });

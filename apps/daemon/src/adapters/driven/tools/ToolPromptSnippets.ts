@@ -3,7 +3,7 @@
  *
  * 落位 adapters/driven/tools/（与工具实现同目录，pi 工具符号封装边界不扩）：
  * SystemPromptAssembler 的工具段（- name: snippet 扁平清单）数据源。
- * main 19 工具 + subagent 13 工具共享单一注册表（subagent 全集 = main 去编排
+ * main/subagent 工具面共享单一注册表（subagent 全集 = main 去编排
  * 六件套（agent_spawn/send/status/inspect/park/resume）与 kg 双工具、
  * codegraph、task_create、task_report、动态族单 browser 工具之外叠加 plan 三工具，是否
  * 进清单由 ResourceService.getEffectiveTools(kind)
@@ -23,6 +23,7 @@ export const TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   read: "读取文件内容（文本或图片）——查看文件的首选",
   write: "新建文件或整体覆写——创建文件用它；局部修改优先 edit",
   edit: "修改已有文件的首选——按精确文本匹配做字符串替换编辑",
+  "edit-lines": "按行号区间锚定替换——expectedText 与现场行段全等校验（行号取自 read 输出/grep 命中/edit 失败现场），锚漂移即拒并附现场",
   grep:
     "搜索文件内容的首选——跨文件子串检索并列出匹配行（底层 ripgrep；缺省字面子串，regex=true 按正则解释）；" +
     "path 相对会话目录（多项目 workspace 即其根，跨项目带项目目录前缀，无需先 cd）", // H11：原文案误导为正则；现有 regex 开关，两面对齐（缺省子串）

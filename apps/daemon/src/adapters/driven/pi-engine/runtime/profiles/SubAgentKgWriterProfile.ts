@@ -6,9 +6,10 @@ import { loadPrompt } from "../prompts";
  * SubAgentKgWriterProfile —— 图谱产出型批次 profile（D8 W-R6，kg-driven-dev-loop
  * 设计 2026-08-30 裁决：kg 写面收权 + 图谱任务豁免）。
  *
- * 由 SubAgentProfile 派生（零复制）：工具集 = 通用 worker + kg-update
- * （worker 面已摘 kg-update——W-R6 硬层；本 profile 是唯一豁免出口），
- * base prompt = 通用版 + 一句图谱产出型纪律（后缀覆盖 worker 版
+ * 由 SubAgentProfile 派生（同模板零复制）：工具集 = 通用 worker + kg-update
+ * （worker 面已摘 kg-update——W-R6 硬层；本 profile 是唯一豁免出口）；
+ * F4 接通批起 tools 字面量落地（profiles/ 纯声明纪律——worker 新增
+ * edit-lines 不随派生渗入，见 tools 注释），base prompt = 通用版 + 一句图谱产出型纪律（后缀覆盖 worker 版
  * 「supersede/createNode 走 findings 文件申报」的改后纪律——图谱
  * 产出型任务的 kg 变更直接落库，不走 findings 中转）。
  *
@@ -31,7 +32,27 @@ export const SUBAGENT_KG_WRITER_PROMPT_SUFFIX = loadPrompt("roles/subagent-kg-wr
 export const SubAgentKgWriterProfile: AgentProfile = {
   kind: "subagent-kg-writer",
   systemPrompt: SUBAGENT_SYSTEM_PROMPT + "\n\n" + SUBAGENT_KG_WRITER_PROMPT_SUFFIX,
-  tools: [...SubAgentProfile.tools, ...SUBAGENT_KG_WRITER_EXTRA_TOOLS],
+  // 声明 = 通用 worker + kg-update（恰增量一项）；F4 接通批起字面量落地
+  //（profiles/ 纯声明纪律与 code-reviewer 同法）——worker 新增 edit-lines
+  // 不随派生渗入本 profile（图谱产出型批次主写面是 kg-update，行锚编辑的
+  // 引导链只在 edit 高频的执行型 worker 上有意义，不扩面）；与 worker
+  // 声明面的同步奇偶由 profile 契约测试机械断言，漂移即红
+  tools: [
+    "bash",
+    "read",
+    "write",
+    "edit",
+    "grep",
+    "web_search",
+    "web_fetch",
+    "browser",
+    "kg",
+    "codegraph",
+    "plan_create",
+    "plan_update",
+    "plan_read",
+    "kg-update",
+  ],
   lifecycle: SubAgentProfile.lifecycle,
   hooks: SubAgentProfile.hooks,
   // AD-3 派生面零分叉：与 worker 同走 subagent-worker kind 槽位链（不另设槽位）

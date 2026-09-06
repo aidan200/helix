@@ -18,7 +18,7 @@ import { loadPrompt } from "../prompts";
  * 实例化在 AgentRuntime 装配点（每 runtime 新建）。快照读面用类的
  * hookName（与实例 .name 等值）。
  *
- * 工具集：十八工具按名声明（编排六工具 + 静态联网两工具 +
+ * 工具集：按名声明（编排六工具 + 静态联网两工具 +
  * 动态族单 browser 工具），装配在组合根
  * （CoreToolExecutor → resolveTools；bash/read/write/edit 为 pi 内置、grep 自写、
  * agent_spawn/agent_send/agent_status/agent_inspect/agent_park/agent_resume
@@ -65,6 +65,9 @@ export const MainSessionProfile: AgentProfile = {
     "read",
     "write",
     "edit",
+    // edit-lines 行锚编辑（F4 接通批：executor 恒注册但五 profile 白名单曾均无此名——
+    // recovery.ts/ReadTool 引导链实际可达；reviewer/kg-writer/orchestrator 不扩面）
+    "edit-lines",
     "grep",
     "web_search",
     "web_fetch",
