@@ -67,7 +67,7 @@ export interface KgCandidateHit {
 /**
  * 切片受众（D8 W-R6 协议行分叉）：main = 主会话（持 kg-update，supersede
  * 直落措辞）；worker = SubAgent spawn 注入（无 kg-update，supersede 改经
- * closure findings 申报措辞）。缺省 main（主会话 ChatService 注入链）。
+ * findings 文件申报措辞）。缺省 main（主会话 ChatService 注入链）。
  */
 export type TaskSliceAudience = "main" | "worker";
 

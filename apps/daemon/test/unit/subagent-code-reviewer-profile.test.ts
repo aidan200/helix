@@ -59,7 +59,7 @@ describe("D5 评审纪律后缀（增量常量单源）", () => {
     expect(SubAgentCodeReviewerProfile.systemPrompt).toContain(SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX);
   });
 
-  test("后缀四要素：只读评审 / 报告经 bash 写 HELIX_REPORT_PATH / findings 经 bash 写 HELIX_FINDINGS_PATH / closure findings kind=issue", () => {
+  test("后缀四要素：只读评审 / 报告经 bash 写 HELIX_REPORT_PATH / findings 经 bash 写 HELIX_FINDINGS_PATH / findings 文件 kind=issue", () => {
     expect(SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX).toContain("只读");
     expect(SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX).toContain("禁止修改项目代码");
     expect(SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX).toContain("HELIX_REPORT_PATH");

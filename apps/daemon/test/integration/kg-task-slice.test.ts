@@ -157,7 +157,7 @@ describe("任务层切片注入（F1.3）", () => {
     const mainOut = f.query.injectTaskSlice("sess-M", task);
     expect(mainOut).toContain(ATTACHMENT_PROTOCOL_LINE);
     expect(mainOut).not.toContain(ATTACHMENT_PROTOCOL_LINE_WORKER);
-    // worker（SubAgent spawn 注入链）：无 kg-update，改 closure findings 申报
+    // worker（SubAgent spawn 注入链）：无 kg-update，改 findings 文件申报
     const workerOut = f.query.injectTaskSlice("sess-N", "改造网关限流的租户隔离与熔断逻辑", "worker");
     expect(workerOut).toContain(ATTACHMENT_PROTOCOL_LINE_WORKER);
     expect(workerOut).not.toContain(ATTACHMENT_PROTOCOL_LINE);

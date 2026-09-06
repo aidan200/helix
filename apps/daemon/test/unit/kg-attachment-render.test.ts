@@ -79,10 +79,10 @@ describe("renderAttachment：块结构", () => {
   });
 });
 
-describe("W-R6 协议行角色分叉：main 版 kg-update 直落 / worker 版 closure findings 申报", () => {
-  test("worker 版常量文案（SubAgent 无 kg-update——supersede 声明改走 closure findings）", () => {
+describe("W-R6 协议行角色分叉：main 版 kg-update 直落 / worker 版 findings 文件申报", () => {
+  test("worker 版常量文案（SubAgent 无 kg-update——supersede 声明改走 findings 文件）", () => {
     expect(ATTACHMENT_PROTOCOL_LINE_WORKER).toBe(
-      "若本次改动推翻此节点，将 supersede 声明写入 closure findings",
+      "若本次改动推翻此节点，将 supersede 声明写入 findings 文件",
     );
     // 两版互斥：worker 版不含 kg-update 引导（收权后 worker 面注册不到该工具）
     expect(ATTACHMENT_PROTOCOL_LINE_WORKER).not.toContain("kg-update");

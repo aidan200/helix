@@ -17,12 +17,12 @@ export const ATTACHMENT_PROTOCOL_LINE =
 
 /**
  * 协议行 worker 版（D8 W-R6 写面收权）：SubAgent 无 kg-update（工具面注册
- * 不到）——supersede 声明改经 closure findings 申报，MainAgent 阶段检查点
+ * 不到）——supersede 声明改经 findings 文件申报，MainAgent 阶段检查点
  * 统一落账。消费点分叉：任务切片注入链（KgQueryService.injectTaskSlice
  * audience=worker）按此渲染；edit 附着链（主会话专属）恒 main 版。
  */
 export const ATTACHMENT_PROTOCOL_LINE_WORKER =
-  "若本次改动推翻此节点，将 supersede 声明写入 closure findings";
+  "若本次改动推翻此节点，将 supersede 声明写入 findings 文件";
 
 const HEADER = "📎 本次编辑命中以下知识节点（digest+指针，详情经 kg get 获取）：";
 

@@ -60,7 +60,7 @@ export interface ClosureRecorderDeps {
    */
   readonly injectClosure?: (agentId: string, message: string, source?: "closure" | "progress") => void;
   /**
-   * findings 落账管道（F3.0③，AD-17/AD-14）：closure findings 非空时映射
+   * findings 落账管道（F3.0③，AD-17/AD-14）：findings 文件 canonical 读取（旧格式信封兼容回退）映射
    * kg 写 op 落账。组合根接 kg 栈（write = KgWriteService 唯一写入口同形
    * 接口，绝不旁路；scanProjects = workspace 项目扫描，目标项目解析用）。
    * 缺省不落账（纯调度测试形态）。与 T3.3 kg-update 即时通道非竞争

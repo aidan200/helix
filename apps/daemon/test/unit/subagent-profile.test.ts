@@ -59,7 +59,7 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     // 决策不变——RemoteBrowserPort 进程外实现，ownerId = instanceId）。
     // T3.3：两 profile 均增 kg/kg-update 双工具（查询面+落账面）；
     // D8 W-R6（2026-08-30 裁决）：SubAgent 摘 kg-update（写面收权——
-    // supersede/createNode 改经 closure findings 申报）；豁免面
+    // supersede/createNode 改经 findings 文件申报）；豁免面
     // SubAgentKgWriterProfile（=本工具集 + kg-update）归其专测。
     // T1.4（AD-6①）：SubAgent 增 plan 三工具（实例工作台账全量配给）；
     // main-session plan 批起 Main 同含三名（两域同构——子进程 instanceId =
@@ -99,11 +99,11 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     expect(new MinimalHooks().name).toBe(MinimalHooks.hookName);
   });
 
-  test("系统提示：单任务收敛 SOP + closure 协议（五字段结构）", () => {
+  test("系统提示：单任务收敛 SOP + closure 协议（四字段结构——findings 已退役走文件）", () => {
     const p = SubAgentProfile.systemPrompt;
     expect(p).toContain("SubAgent");
-    // closure 协议：五字段名 + 块标记 + done|failed
-    for (const field of ["status", "summary", "reportPath", "findings", "taskId"]) {
+    // closure 协议：四字段名（信封 findings 退役）+ 块标记 + done|failed
+    for (const field of ["status", "summary", "reportPath", "taskId"]) {
       expect(p).toContain(field);
     }
     expect(p).toContain("CLOSURE");

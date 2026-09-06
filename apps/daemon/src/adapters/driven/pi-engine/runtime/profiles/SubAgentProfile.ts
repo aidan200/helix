@@ -37,7 +37,7 @@ import { loadPrompt } from "../prompts";
  * 工具名是行为指引非清单枚举（profile-slim 词边界检查对这两名单项放行）。
  *
  * D8 W-R6（kg 写面收权，2026-08-30 裁决）：tools 摘除 kg-update——通用
- * worker 不再持即时落账面，supersede/createNode 声明改经 closure findings
+ * worker 不再持即时落账面，supersede/createNode 声明改经 findings 文件
  * 申报、MainAgent 阶段检查点统一落账；图谱产出型任务（kg-bootstrap/
  * kg-review）经 SubAgentKgWriterProfile（=本 profile 工具集 + kg-update）
  * 豁免，编排层分流（TaskOrchestratorService.dispatchProfileKindOf）。

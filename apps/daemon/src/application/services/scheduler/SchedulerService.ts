@@ -158,7 +158,7 @@ export interface SchedulerServiceDeps {
   /** 日志（容器接 file logger——kill 终止信号失败/findings 落账跳过可观测；缺省静默）。 */
   readonly logger?: { warn: (message: string) => void };
   /**
-   * findings 落账管道（F3.0③，透传 ClosureRecorder）：closure findings
+   * findings 落账管道（F3.0③，透传 ClosureRecorder）：findings 文件 canonical（旧格式信封兼容回退）
    * 非空时映射 kg 写 op 落账（组合根接 kg 栈 KgWriteService 唯一写入口）。
    * 缺省不落账（纯调度测试形态）。
    */

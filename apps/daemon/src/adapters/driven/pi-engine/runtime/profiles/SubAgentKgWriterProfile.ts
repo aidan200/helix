@@ -9,7 +9,7 @@ import { loadPrompt } from "../prompts";
  * 由 SubAgentProfile 派生（零复制）：工具集 = 通用 worker + kg-update
  * （worker 面已摘 kg-update——W-R6 硬层；本 profile 是唯一豁免出口），
  * base prompt = 通用版 + 一句图谱产出型纪律（后缀覆盖 worker 版
- * 「supersede/createNode 走 closure findings 申报」的改后纪律——图谱
+ * 「supersede/createNode 走 findings 文件申报」的改后纪律——图谱
  * 产出型任务的 kg 变更直接落库，不走 findings 中转）。
  *
  * 消费链：TaskOrchestratorService 按任务类型分流 profileKind

@@ -51,7 +51,7 @@ export interface TaskSliceRenderOptions {
   /**
    * 块尾协议行（D8 W-R6 受众分叉）：缺省 = main 版（kg-update 直落）；
    * worker 受众（SubAgent spawn 注入链）传 ATTACHMENT_PROTOCOL_LINE_WORKER
-   * （closure findings 申报）。估算与渲染同源（budget/taskSliceChars 同 options）。
+   * （findings 文件申报）。估算与渲染同源（budget/taskSliceChars 同 options）。
    */
   readonly protocolLine?: string;
 }

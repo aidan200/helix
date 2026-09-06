@@ -617,7 +617,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // ChatService 链传/缺省 "main"（kg-update 直落措辞）——buildSessionStack 按消费链分叉。
     taskInjector: (sessionId, task, audience) =>
       workspace.stack()?.queryService.injectTaskSlice(sessionId, task, audience) ?? "",
-    // findings 落账管道（F3.0，T4.1）：closure findings → KgWriteService 唯一
+    // findings 落账管道（F3.0，T4.1）：findings 文件 canonical → KgWriteService 唯一
     // 写入口落账（绝不旁路）；目标项目解析 = workspace 全扫描（与 kg-update
     // 工具同口径：显式名命中 / 唯一项目自动 / 多项目不猜）。测试可注入替身。
     // W1：未绑定 → 落账拒绝（KG_E_STATE，不吞声）+ 空扫描。

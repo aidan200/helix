@@ -77,7 +77,7 @@ describe("profile 瘦身：手写工具枚举句删除（M6 T2）", () => {
       // codegraph→kg affected→kg get——R11 软层 SOP 本体），与 T3-C 委派契约
       // 句引用编排工具名同性质（行为指引非清单枚举）。
       // D8 W-R6："kg-update" 不再放行——收权后 worker 提示词零出现（写通道
-      // 改走 closure findings，工具面也注册不到），词边界检查升格为硬断言。
+      // 改走 findings 文件，工具面也注册不到），词边界检查升格为硬断言。
       if (name === "kg" || name === "codegraph") continue;
       expect(
         SUBAGENT_SYSTEM_PROMPT.match(new RegExp(`\\b${name}\\b`)),

@@ -16,7 +16,7 @@ import {
  * - Main/SubAgent：第一铁律（1% 相关必读全文，与技能铁律同构同级）+ 开工链路
  *   （codegraph 落地符号 → kg affected 锚反查 → kg get 读全文）+ 改后纪律
  *   （📎 必读 / kg-update supersede 随改动 / createNode scene 必填）。
- * - SubAgent 专属：闭环纪律——sediment 经 closure findings 上报，禁止直接调
+ * - SubAgent 专属：闭环纪律——sediment 经 findings 文件上报，禁止直接调
  *   proposeCandidate/decideCandidate（MainAgent 单点）。
  * - Main 专属：候选台账唯一写者（decideCandidate）+ 清台前必看 kg.health
  *   看板五项（R16）+ sync 提示向用户确认后触发（R13 动手权在用户）。
@@ -65,11 +65,11 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
       expect(p).toContain("scene 必填");
     });
 
-    test("SubAgent：supersede/createNode 声明（含 scene）写入 closure findings 申报，由 MainAgent 在阶段检查点统一落账", () => {
+    test("SubAgent：supersede/createNode 声明（含 scene）写入 findings 文件申报，由 MainAgent 在阶段检查点统一落账", () => {
       const p = SUBAGENT_SYSTEM_PROMPT;
       expect(p).toContain("📎 知识块必须读");
       expect(p).toContain("supersede/createNode 声明（含 scene");
-      expect(p).toContain("写入 closure findings 申报");
+      expect(p).toContain("写入 findings 文件申报");
       expect(p).toContain("由 MainAgent 在阶段检查点统一落账");
       expect(p).toContain("不许「下次再说」");
       // W-R6 收权：worker 提示词不再引导直接调 kg-update（工具面也注册不到）
@@ -78,10 +78,10 @@ describe("W3-G 知识纪律 SOP（R11 软层 + R23 scene）", () => {
   });
 
   describe("SubAgent 专属：闭环纪律（R2 候选单点重申）", () => {
-    test("sediment 经 closure findings 上报 + 禁止直接调候选 op", () => {
+    test("sediment 经 findings 文件上报 + 禁止直接调候选 op", () => {
       expect(SUBAGENT_SYSTEM_PROMPT).toContain("闭环纪律");
       expect(SUBAGENT_SYSTEM_PROMPT).toContain("sediment");
-      expect(SUBAGENT_SYSTEM_PROMPT).toContain("closure findings 上报");
+      expect(SUBAGENT_SYSTEM_PROMPT).toContain("经 findings 文件上报");
       expect(SUBAGENT_SYSTEM_PROMPT).toContain("禁止直接调用 proposeCandidate/decideCandidate");
       expect(SUBAGENT_SYSTEM_PROMPT).toContain("MainAgent 单点");
     });

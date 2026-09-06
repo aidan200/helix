@@ -21,7 +21,7 @@ import { parseCandidateId, parseMigrationId } from "../../../domain/kg/node-id";
  * KnowledgeStorePort 落库（事务内编号/引用完整性由 port 承担）。
  *
  * 消费场景（architecture.md §3.3）：F1.2 协议行兑现（edit 附着后 agent
- * supersede）、CL-3 落账（closure findings）、T5.2 存量迁移（显式保号 id）。
+ * supersede）、CL-3 落账（findings 文件 canonical）、T5.2 存量迁移（显式保号 id）。
  *
  * 校验器为轻量手写守卫（daemon 无 zod 类依赖先例；错误码封闭于
  * KG_E_SCHEMA / KG_E_VERB，落库层补 KG_E_ID / KG_E_STATE / KG_E_INTERNAL）。
