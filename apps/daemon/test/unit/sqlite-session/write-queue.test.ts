@@ -227,6 +227,47 @@ describe("TP-CL8-2：WAL 模式与 db 路径", () => {
   });
 });
 
+describe("M2：多语句写 job 事务包裹（崩溃窗口不留部分投影）", () => {
+  test("state job 中途故障（insertToolCall 注入抛错）→ 全回滚：既有 tool_calls 行不被清掉、session 投影不留半态", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const errors: string[] = [];
+      const queue = new WriteQueue(dbPath, { onError: (err) => errors.push((err as Error).message) });
+      // 先落一份完整投影（含 1 条 tool_call 行）
+      const session = Session.create("s-tx", "2024-01-01T00:00:00.000Z");
+      session.appendUserEntry("问", "2024-01-01T00:00:01.000Z");
+      const tool = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" });
+      tool.markRunning("2024-01-01T00:00:02.000Z");
+      tool.complete("hi", "2024-01-01T00:00:03.000Z");
+      await queue.saveState({ session: session.toSnapshot(), agentState: "running", toolCalls: [tool.toData()] });
+
+      // 注入 fault：第二个 state job 的 insertToolCall 抛错（在 clearToolCalls
+      // 之后）——无事务时清行已 auto-commit，留「tool_calls 清空」半投影
+      const internals = queue as unknown as { insertToolCall: { run: (...args: unknown[]) => unknown } };
+      internals.insertToolCall = {
+        run: () => {
+          throw new Error("注入故障：tool_calls 写入失败");
+        },
+      };
+      await queue.saveState({ session: session.toSnapshot(), agentState: "running", toolCalls: [tool.toData()] });
+      await queue.flush();
+      expect(errors.length).toBe(1);
+      expect(errors[0]).toContain("注入故障");
+
+      const db = new Database(dbPath, { readonly: true });
+      const toolCount = (db.prepare("SELECT COUNT(*) AS c FROM tool_calls WHERE session_id = 's-tx'").get() as { c: number }).c;
+      const sessionRow = db.prepare("SELECT session_id FROM session_state WHERE session_id = 's-tx'").get();
+      db.close();
+      // 事务回滚：清行随事务撤销——既有 tool_call 行原样保留，不落半投影
+      expect(toolCount).toBe(1);
+      expect(sessionRow).not.toBeNull();
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});
+
 describe("WriteQueue 状态保存（saveState 投影行）", () => {
   test("saveState 后投影表四类行可查（read side 由 repository 覆盖，这里验写入面）", async () => {
     const dbPath = tmpDbPath();
