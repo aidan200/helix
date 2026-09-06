@@ -203,6 +203,12 @@ export class WriteQueue {
   private readonly sessionTails = new Map<string, Promise<unknown>>();
   private globalTail: Promise<unknown> = Promise.resolve();
   private closed = false;
+  /**
+   * 单调入队计数器（drainAll 稳定判据）：只增不减，enqueue 每接纳一个 job
+   * +1——drain 期间任何新入队（含同 key 覆盖、size 不变的情形）都使计数
+   * 位移，杜绝「tail 引用 + size 快照」判据对同仓覆盖新 job 的盲区。
+   */
+  private enqueueCount = 0;
 
   // 全部写语句在此 prepare（AG-06：src 内唯一 SQLite 写点集合；构造体内赋值）
   private readonly insertEvent!: Statement;
@@ -554,6 +560,7 @@ export class WriteQueue {
       return Promise.resolve() as unknown as Promise<T>;
     }
     const key = this.chainKeyOf(job);
+    this.enqueueCount += 1;
     const prev = key === undefined ? this.globalTail : (this.sessionTails.get(key) ?? Promise.resolve());
     const done = prev.then((): T => this.apply(job) as T).catch((error: unknown): T => {
       this.onError?.(error, job); // 上报但不断链：单 job 失败不阻断后续落盘
@@ -571,13 +578,12 @@ export class WriteQueue {
     return done;
   }
 
-  /** 全部仓位 drain；循环至稳定（drain 期间新入队的 job 一并等待）。 */
+  /** 全部仓位 drain；循环至稳定（drain 期间新入队的 job 一并等待——单调入队计数器判据，同 key 覆盖不逃逸）。 */
   private async drainAll(): Promise<void> {
     for (;;) {
-      const globalBefore = this.globalTail;
-      const sizeBefore = this.sessionTails.size;
+      const countBefore = this.enqueueCount;
       await Promise.all([this.globalTail, ...this.sessionTails.values()]);
-      if (this.globalTail === globalBefore && this.sessionTails.size === sizeBefore) return;
+      if (this.enqueueCount === countBefore) return;
     }
   }
 
@@ -589,15 +595,18 @@ export class WriteQueue {
     if (job.kind === "deleteSession") {
       // 八表清行（同仓 FIFO：此前同会话全部写先落盘，删除不会被复活）；
       // 末位 = 主会话台账行（main-session plan 批：instanceId = sessionId，
-      // F3.6 清理面既有形态扩展——防孤儿）
-      this.deleteSessionState.run(job.sessionId);
-      this.deleteSessionEvents.run(job.sessionId);
-      this.deleteSessionLifecycle.run(job.sessionId);
-      this.deleteSessionSteer.run(job.sessionId);
-      this.deleteSessionToolCalls.run(job.sessionId);
-      this.deleteSessionClosures.run(job.sessionId);
-      this.deleteSessionPendingSync.run(job.sessionId);
-      this.deleteSessionWorkItems.run(job.sessionId);
+      // F3.6 清理面既有形态扩展——防孤儿）。多语句包事务：崩溃窗口不留
+      // 半删除投影（清到一半的会话行），WorkLedger.insertItems 同先例。
+      this.db.transaction(() => {
+        this.deleteSessionState.run(job.sessionId);
+        this.deleteSessionEvents.run(job.sessionId);
+        this.deleteSessionLifecycle.run(job.sessionId);
+        this.deleteSessionSteer.run(job.sessionId);
+        this.deleteSessionToolCalls.run(job.sessionId);
+        this.deleteSessionClosures.run(job.sessionId);
+        this.deleteSessionPendingSync.run(job.sessionId);
+        this.deleteSessionWorkItems.run(job.sessionId);
+      })();
       return;
     }
     if (job.kind === "pendingSync") {
@@ -605,7 +614,10 @@ export class WriteQueue {
       return;
     }
     if (job.kind === "pendingSyncNotified") {
-      for (const sessionId of job.sessionIds) this.markPendingSyncNotifiedStmt.run(sessionId);
+      // 多语句包事务：批量置位要么全落要么全不落（崩溃不留部分提示态）
+      this.db.transaction(() => {
+        for (const sessionId of job.sessionIds) this.markPendingSyncNotifiedStmt.run(sessionId);
+      })();
       return;
     }
     if (job.kind === "runtimeConfig") {
@@ -614,10 +626,13 @@ export class WriteQueue {
     }
     if (job.kind === "mcpServersReplace") {
       // 整段替换：同 job 先清后插（对齐 modelSlot 先例——中间态不可见，
-      // 崩溃窗口回落空表，幂等可重建）
-      this.clearMcpServers.run();
-      const now = new Date().toISOString();
-      for (const row of job.rows) this.insertMcpServer.run(row.name, row.config, row.position, now);
+      // 崩溃窗口回落空表，幂等可重建）。多语句包事务：清+插原子，崩溃
+      // 不再回落空表而是回滚保留旧声明面。
+      this.db.transaction(() => {
+        this.clearMcpServers.run();
+        const now = new Date().toISOString();
+        for (const row of job.rows) this.insertMcpServer.run(row.name, row.config, row.position, now);
+      })();
       return;
     }
     if (job.kind === "resourceState") {
@@ -635,15 +650,20 @@ export class WriteQueue {
       return;
     }
     if (job.kind === "modelSlot") {
-      // 原子替换：同 job 先清旧行再插新行（单行不变式不依赖调用方时序）
-      this.clearResourceStateByType.run(job.profileKind, "model");
-      this.upsertResourceState.run(job.profileKind, "model", job.model, 1, new Date().toISOString());
+      // 原子替换：同 job 先清旧行再插新行（单行不变式不依赖调用方时序）；
+      // 多语句包事务——清+插原子，崩溃窗口不留「清空未插」半态
+      this.db.transaction(() => {
+        this.clearResourceStateByType.run(job.profileKind, "model");
+        this.upsertResourceState.run(job.profileKind, "model", job.model, 1, new Date().toISOString());
+      })();
       return;
     }
     if (job.kind === "slotValue") {
-      // 通用槽位原子替换（同 modelSlot 不变式，resourceType 参数化）
-      this.clearResourceStateByType.run(job.profileKind, job.resourceType);
-      this.upsertResourceState.run(job.profileKind, job.resourceType, job.name, 1, new Date().toISOString());
+      // 通用槽位原子替换（同 modelSlot 不变式，resourceType 参数化）；事务同
+      this.db.transaction(() => {
+        this.clearResourceStateByType.run(job.profileKind, job.resourceType);
+        this.upsertResourceState.run(job.profileKind, job.resourceType, job.name, 1, new Date().toISOString());
+      })();
       return;
     }
     if (job.kind === "closureRecord") {
@@ -749,17 +769,20 @@ export class WriteQueue {
       // 返回各表删除计数（write-through：await 返回即可查）。
       // 会话维六表与 deleteSession 同构（任务会话 = task:<jobId>，批次 trace
       // 事件/收口档案/生命周期投影随任务同灭；steer/tool_calls/pending_sync
-      // 常态零行，防御性清零防未来孤儿）。
-      const events = this.deleteSessionEvents.run(job.sessionId).changes;
-      const lifecycleRows = this.deleteSessionLifecycle.run(job.sessionId).changes;
-      const closures = this.deleteSessionClosures.run(job.sessionId).changes;
-      const steerRows = this.deleteSessionSteer.run(job.sessionId).changes;
-      const toolCallRows = this.deleteSessionToolCalls.run(job.sessionId).changes;
-      const pendingSyncs = this.deleteSessionPendingSync.run(job.sessionId).changes;
-      const stages = this.deleteTaskStagesByJob.run(job.jobId).changes;
-      const batches = this.deleteTaskBatchesByJob.run(job.jobId).changes;
-      const jobs = this.deleteTaskJob.run(job.jobId).changes;
-      return { jobs, stages, batches, events, lifecycleRows, closures, steerRows, toolCallRows, pendingSyncs } satisfies TaskDeleteCounts;
+      // 常态零行，防御性清零防未来孤儿）。多语句包事务：九表清行原子，
+      // 崩溃窗口不留「子表清了一半、job 行还在」的半级联投影。
+      return this.db.transaction(() => {
+        const events = this.deleteSessionEvents.run(job.sessionId).changes;
+        const lifecycleRows = this.deleteSessionLifecycle.run(job.sessionId).changes;
+        const closures = this.deleteSessionClosures.run(job.sessionId).changes;
+        const steerRows = this.deleteSessionSteer.run(job.sessionId).changes;
+        const toolCallRows = this.deleteSessionToolCalls.run(job.sessionId).changes;
+        const pendingSyncs = this.deleteSessionPendingSync.run(job.sessionId).changes;
+        const stages = this.deleteTaskStagesByJob.run(job.jobId).changes;
+        const batches = this.deleteTaskBatchesByJob.run(job.jobId).changes;
+        const jobs = this.deleteTaskJob.run(job.jobId).changes;
+        return { jobs, stages, batches, events, lifecycleRows, closures, steerRows, toolCallRows, pendingSyncs } satisfies TaskDeleteCounts;
+      })();
     }
     if (job.kind === "event") {
       const row = domainEventToRow(job.event, job.agentKind);
@@ -775,40 +798,45 @@ export class WriteQueue {
     }
     const rows = persistedStateToRows(job.state);
     const sessionId = rows.session.session_id;
-    this.upsertSession.run(
-      rows.session.session_id,
-      rows.session.created_at,
-      rows.session.entries,
-      rows.session.turns,
-      rows.session.updated_at,
-      rows.session.main_instance_id,
-      rows.session.mode,
-    );
-    this.upsertLifecycle.run(
-      rows.lifecycle.session_id,
-      rows.lifecycle.instance_id,
-      rows.lifecycle.state,
-      rows.lifecycle.updated_at,
-    );
-    // 队列/记录行整体替换（投影语义：与内存当前态一致，顺序保持入队序）
-    this.clearSteer.run(sessionId);
-    for (const s of rows.steer) this.insertSteer.run(s.session_id, s.entry_id, s.text, s.source);
-    this.clearToolCalls.run(sessionId);
-    for (const t of rows.toolCalls) {
-      this.insertToolCall.run(
-        t.id,
-        t.session_id,
-        t.instance_id,
-        t.tool_name,
-        t.args,
-        t.status,
-        t.result,
-        t.error,
-        t.images,
-        t.started_at,
-        t.ended_at,
+    // state 投影多语句包事务：upsert 会话/生命周期 + 队列与 tool_calls 整体
+    // 替换原子落盘——崩溃窗口不留「tool_calls 清到一半」的部分投影
+    //（TR-26 口径 gap 收口；逐语句 fsync 写放大同消）。
+    this.db.transaction(() => {
+      this.upsertSession.run(
+        rows.session.session_id,
+        rows.session.created_at,
+        rows.session.entries,
+        rows.session.turns,
+        rows.session.updated_at,
+        rows.session.main_instance_id,
+        rows.session.mode,
       );
-    }
+      this.upsertLifecycle.run(
+        rows.lifecycle.session_id,
+        rows.lifecycle.instance_id,
+        rows.lifecycle.state,
+        rows.lifecycle.updated_at,
+      );
+      // 队列/记录行整体替换（投影语义：与内存当前态一致，顺序保持入队序）
+      this.clearSteer.run(sessionId);
+      for (const s of rows.steer) this.insertSteer.run(s.session_id, s.entry_id, s.text, s.source);
+      this.clearToolCalls.run(sessionId);
+      for (const t of rows.toolCalls) {
+        this.insertToolCall.run(
+          t.id,
+          t.session_id,
+          t.instance_id,
+          t.tool_name,
+          t.args,
+          t.status,
+          t.result,
+          t.error,
+          t.images,
+          t.started_at,
+          t.ended_at,
+        );
+      }
+    })();
   }
 }
 

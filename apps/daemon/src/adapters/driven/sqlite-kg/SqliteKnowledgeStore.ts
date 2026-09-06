@@ -50,8 +50,11 @@ export class SqliteKnowledgeStore {
 
   writeKnowledge(projectRoot: string, op: KnowledgeWriteOp): WriteResult {
     const db = this.deps.database.knowledgeConnection(projectRoot);
-    db.exec("BEGIN IMMEDIATE");
     try {
+      // BEGIN 在 try 内：busy_timeout 耗尽（双通道并发取锁失败）时 BEGIN 裸抛
+      // 也归一 KG_E_INTERNAL（rollbackQuietly 兼容事务未开情形），同一故障类
+      // 错误形态不二分（E-41：意外故障永远返回结构化 WriteResult）
+      db.exec("BEGIN IMMEDIATE");
       const result = this.applyOp(db, op);
       if (!result.ok) {
         // 结构化拒绝的回滚路径：单 op 语义下拒绝点先于任何写语句（空事务，
