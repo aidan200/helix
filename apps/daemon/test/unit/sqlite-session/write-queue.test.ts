@@ -79,6 +79,36 @@ describe("M15：deleteSession 落定后 sessionTails 仓位条目清理（杜绝
   });
 });
 
+describe("M2：drainAll 稳定判据——drain 期间新入队 job 一并等待", () => {
+  test("drain 窗口内向既有仓入队新 job（同 key 覆盖、sessionTails.size 不变）→ flush 返回时其 persist promise 已 settle", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      const queue = new WriteQueue(dbPath);
+      const b1 = queue.appendEvent(ev(1, "s-b"));
+      await b1; // 仓位 tail 已落定——旧判据（tail 引用 + size）盲区的构造前提
+      let b3Settled = false;
+      // drain 窗口内两级链式入队：b2/b3 均落既有仓 s-b（同 key 覆盖、size 恒 1、
+      // globalTail 不动）——旧判据下 drain 提前判稳定返回，b3 落盘承诺未被等待
+      const b3 = b1
+        .then(() => queue.appendEvent(ev(2, "s-b")))
+        .then(() => queue.appendEvent(ev(3, "s-b")));
+      void b3.then(() => {
+        b3Settled = true;
+      });
+      await queue.flush();
+      // 契约「drain 期间新入队的 job 一并等待」：flush 返回时 b3 必须已 settle
+      expect(b3Settled).toBe(true);
+      const db = new Database(dbPath, { readonly: true });
+      const count = (db.prepare("SELECT COUNT(*) AS c FROM domain_events").get() as { c: number }).c;
+      db.close();
+      expect(count).toBe(3); // ev(1)/ev(2)/ev(3) 全部落盘
+      await queue.close();
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+});
+
 describe("TP-CL8-2：WriteQueue FIFO 保序 + drain", () => {
   test("① 并发 N 事件入队 → 落盘顺序与入队序一致", async () => {
     const dbPath = tmpDbPath();

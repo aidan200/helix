@@ -203,6 +203,12 @@ export class WriteQueue {
   private readonly sessionTails = new Map<string, Promise<unknown>>();
   private globalTail: Promise<unknown> = Promise.resolve();
   private closed = false;
+  /**
+   * 单调入队计数器（drainAll 稳定判据）：只增不减，enqueue 每接纳一个 job
+   * +1——drain 期间任何新入队（含同 key 覆盖、size 不变的情形）都使计数
+   * 位移，杜绝「tail 引用 + size 快照」判据对同仓覆盖新 job 的盲区。
+   */
+  private enqueueCount = 0;
 
   // 全部写语句在此 prepare（AG-06：src 内唯一 SQLite 写点集合；构造体内赋值）
   private readonly insertEvent!: Statement;
@@ -554,6 +560,7 @@ export class WriteQueue {
       return Promise.resolve() as unknown as Promise<T>;
     }
     const key = this.chainKeyOf(job);
+    this.enqueueCount += 1;
     const prev = key === undefined ? this.globalTail : (this.sessionTails.get(key) ?? Promise.resolve());
     const done = prev.then((): T => this.apply(job) as T).catch((error: unknown): T => {
       this.onError?.(error, job); // 上报但不断链：单 job 失败不阻断后续落盘
@@ -571,13 +578,12 @@ export class WriteQueue {
     return done;
   }
 
-  /** 全部仓位 drain；循环至稳定（drain 期间新入队的 job 一并等待）。 */
+  /** 全部仓位 drain；循环至稳定（drain 期间新入队的 job 一并等待——单调入队计数器判据，同 key 覆盖不逃逸）。 */
   private async drainAll(): Promise<void> {
     for (;;) {
-      const globalBefore = this.globalTail;
-      const sizeBefore = this.sessionTails.size;
+      const countBefore = this.enqueueCount;
       await Promise.all([this.globalTail, ...this.sessionTails.values()]);
-      if (this.globalTail === globalBefore && this.sessionTails.size === sizeBefore) return;
+      if (this.enqueueCount === countBefore) return;
     }
   }
 
