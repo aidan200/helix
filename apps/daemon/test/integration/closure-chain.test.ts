@@ -595,9 +595,11 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
     );
   }, 12000);
 
-  // findings 双通道（task-778eb18a 截断三连败修复）：闭包 findings 空（块被
-  // 截断/损坏的形态）+ 旁路文件在 → 机械读文件落账；闭包非空优先不双落
-  test("截断兜底：closure findings=null + 旁路文件 findings.json 在 → 机械落账；闭包非空时不读文件（无双落）", async () => {
+  // findings 文件 canonical（信封 findings 退役）：findings.json 在 → 机械读
+  // 文件落账 + closure_records 行记 findings_file 指针（信封 findings 被忽略
+  // 不双落——文件是唯一事实源）；文件缺 + 信封非空（旧格式实例兼容）→ 回退
+  // 落信封、不记指针；两者皆缺 → 显式「无」零落账。
+  test("文件 canonical：findings.json 在 → 机械落账 + findings_file 指针落行；文件缺时信封 findings 兼容回退", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-t41-bypass-"));
     const projectRoot = mkdtempSync(path.join(tmpdir(), "helix-t41-bypass-proj-"));
     const writes: { projectRoot: string; op: KnowledgeWriteOp }[] = [];
@@ -611,39 +613,70 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       },
       home,
     ));
+    const closureRowOf = (agent: string): { findings: string | null; findings_file: string | null } => {
+      const db = readonlyDb(rig);
+      try {
+        return db
+          .prepare("SELECT findings, findings_file FROM closure_records WHERE agent_id = ? ORDER BY id")
+          .all(agent)
+          .at(-1) as { findings: string | null; findings_file: string | null };
+      } finally {
+        db.close();
+      }
+    };
     try {
-      // ① 截断形态：闭包 findings=null（块损坏解析不出）+ 旁路文件在
-      const spawnA = rig.daemon.orchestration.spawn("截断兜底任务");
+      // ① 新协议形态：信封 findings=null（协议已退役该字段）+ findings 文件在
+      //    → 文件落账 + closure_records 行记 findings_file 指针
+      const spawnA = rig.daemon.orchestration.spawn("文件 canonical 任务");
       if (spawnA.status !== "run") throw new Error("unreachable");
       const reportsDir = path.join(home, "reports", rig.sessionId);
       mkdirSync(reportsDir, { recursive: true });
+      const findingsPathA = path.join(reportsDir, `${spawnA.agentId}.findings.json`);
       writeFileSync(
-        path.join(reportsDir, `${spawnA.agentId}.findings.json`),
-        JSON.stringify([{ kind: "sediment", changeType: "新增", name: "旁路恢复规则", reason: "闭包截断经文件恢复", iterationId: "iter-t41" }]),
+        findingsPathA,
+        JSON.stringify([{ kind: "sediment", changeType: "新增", name: "文件里的规则", reason: "canonical 文件读取", iterationId: "iter-t41" }]),
       );
       rig.runner.forceClosure(spawnA.agentId, {
         result: "failed",
         closure: { status: "failed", summary: "未按 closure 协议收口（截断）", reportPath: null, findings: null, taskId: "T-bypass" },
       });
       await until(() => eventRows(rig, "agent.failed").length > 0, 5000, "agent.failed 落盘");
-      expect(writes).toHaveLength(1); // 旁路文件恢复落账
-      expect(writes[0]!.op).toMatchObject({ kind: "proposeCandidate", title: "旁路恢复规则", sourceTaskId: "T-bypass" });
+      expect(writes).toHaveLength(1); // 文件 canonical 落账
+      expect(writes[0]!.op).toMatchObject({ kind: "proposeCandidate", title: "文件里的规则", sourceTaskId: "T-bypass" });
+      await until(() => closureRowOf(spawnA.agentId) !== undefined && closureRowOf(spawnA.agentId).findings_file !== null, 5000, "findings_file 指针落行");
+      expect(closureRowOf(spawnA.agentId)).toMatchObject({ findings_file: findingsPathA });
 
-      // ② 闭包非空优先：同一旁路文件仍在 → 只落闭包一份，不双落
+      // ② 文件优先：同一实例形态下信封也带 findings（旧格式实例）→ 只落文件
+      //    一份（文件是唯一事实源，信封携带被忽略，不双落）
       writes.length = 0;
-      const spawnB = rig.daemon.orchestration.spawn("非空优先任务");
+      const spawnB = rig.daemon.orchestration.spawn("文件优先任务");
       if (spawnB.status !== "run") throw new Error("unreachable");
+      const findingsPathB = path.join(reportsDir, `${spawnB.agentId}.findings.json`);
       writeFileSync(
-        path.join(reportsDir, `${spawnB.agentId}.findings.json`),
+        findingsPathB,
         JSON.stringify([{ kind: "sediment", changeType: "新增", name: "文件里的发现", iterationId: "iter-t41" }]),
       );
       rig.runner.forceClosure(spawnB.agentId, {
         result: "done",
-        closure: { status: "done", summary: "闭包携带 findings", reportPath: null, findings: [{ kind: "sediment", changeType: "新增", name: "闭包里的发现", iterationId: "iter-t41" }], taskId: null },
+        closure: { status: "done", summary: "旧格式信封也带 findings", reportPath: null, findings: [{ kind: "sediment", changeType: "新增", name: "信封里的发现", iterationId: "iter-t41" }], taskId: null },
       });
       await until(() => eventRows(rig, "agent.completed").length > 0, 5000, "agent.completed 落盘");
-      expect(writes).toHaveLength(1); // 恰一份（闭包优先，旁路不重复落）
-      expect(writes[0]!.op).toMatchObject({ kind: "proposeCandidate", title: "闭包里的发现" });
+      expect(writes).toHaveLength(1); // 恰一份（文件优先，信封不重复落）
+      expect(writes[0]!.op).toMatchObject({ kind: "proposeCandidate", title: "文件里的发现" });
+      expect(closureRowOf(spawnB.agentId)).toMatchObject({ findings_file: findingsPathB });
+
+      // ③ 旧格式兼容回退：文件缺 + 信封 findings 非空 → 落信封、不记指针
+      writes.length = 0;
+      const spawnC = rig.daemon.orchestration.spawn("兼容回退任务");
+      if (spawnC.status !== "run") throw new Error("unreachable");
+      rig.runner.forceClosure(spawnC.agentId, {
+        result: "done",
+        closure: { status: "done", summary: "旧格式信封携带 findings", reportPath: null, findings: [{ kind: "sediment", changeType: "新增", name: "兼容回退的发现", iterationId: "iter-t41" }], taskId: null },
+      });
+      await until(() => closureRowOf(spawnC.agentId) !== undefined, 5000, "closure_records 落盘");
+      expect(writes).toHaveLength(1); // 信封兼容回退落账
+      expect(writes[0]!.op).toMatchObject({ kind: "proposeCandidate", title: "兼容回退的发现" });
+      expect(closureRowOf(spawnC.agentId)).toMatchObject({ findings_file: null });
     } finally {
       await rig.dispose();
       rmSync(projectRoot, { recursive: true, force: true });

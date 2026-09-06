@@ -25,6 +25,7 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
     agentId: string;
     result: "done" | "failed" | "killed";
     closure: InstanceClosurePayload;
+    findingsFile: string | null;
   }[] = [];
 
   /** 事件流内存副本（T2.4 读面兼容：生产链事件经 WriteQueue 落盘不经本 mock，
@@ -47,8 +48,9 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
     agentId: string,
     result: "done" | "failed" | "killed",
     closure: InstanceClosurePayload,
+    findingsFile: string | null = null,
   ): Promise<void> {
-    this.closureRecords.push({ sessionId, agentId, result, closure: { ...closure } });
+    this.closureRecords.push({ sessionId, agentId, result, closure: { ...closure }, findingsFile });
   }
 
   async saveReportFile(reportPath: string, content: string): Promise<void> {
@@ -148,6 +150,7 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
         summary: r.closure.summary,
         reportPath: r.closure.reportPath ?? null,
         findings: r.closure.findings ?? null,
+        findingsFile: r.findingsFile,
         taskId: r.closure.taskId ?? null,
         createdAt: new Date(i).toISOString(),
       }));

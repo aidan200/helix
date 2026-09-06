@@ -70,6 +70,8 @@ export interface ClosureRecorderDeps {
   /**
    * findings 旁路文件读（task-778eb18a 截断兜底）：组合根接 fs 只读实现
    *（application 零 IO，AG 守卫）；缺省不兜底（测试形态）。
+   * 文件 canonical 后升格为唯一事实源探测（recordFindings 落账输入 +
+   * resolveFindingsFile 指针落行）。
    */
   readonly readFindingsFile?: (path: string) => string | null;
   /** 可观测 warn（findings 落账跳过/被拒/异常——不阻塞主流程；缺省静默）。 */
@@ -127,7 +129,10 @@ export class ClosureRecorder {
    */
   finalizeClosure(instance: AgentInstance, outcome: InstanceClosureOutcome, closure: InstanceClosurePayload): void {
     const instanceId = instance.instanceId;
-    void this.deps.repository.saveClosureRecord(instance.sessionId, instanceId, outcome.result, closure);
+    // findings 文件 canonical：机械探测旁路文件 → 指针落 closure_records 行
+    //（文件在 = 指针在；文件缺 = null——旧格式信封 findings 走内嵌兼容）
+    const findingsFile = this.resolveFindingsFile(instance, closure);
+    void this.deps.repository.saveClosureRecord(instance.sessionId, instanceId, outcome.result, closure, findingsFile);
 
     // agent_lifecycle 投影行落盘（单写通道；失败不崩——WriteQueue onError 上报）
     void this.deps.repository.saveAgentLifecycle(instance.sessionId, instanceId, instance.current);
@@ -179,20 +184,19 @@ export class ClosureRecorder {
   /**
    * findings 落账管道：sediment 条目映射写 op → sink（跳过/被拒/异常均 warn 不抛）。
    *
-   * 双通道（task-778eb18a 截断三连败修复）：闭包 findings 非空优先；空/null
-   * （块被截断/损坏的形态）时 best-effort 读旁路文件
-   * `<reportsDir>/<instanceId>.findings.json`（实例按提示在收口前工具轮
-   * 预写，早于截断点落盘）→ 合法 JSON 数组则机械落账（同一 mapFindingsToOps
-   * 管道，不旁路单写入口）；读不到/非法静默（退回现状丢失，不劣化）。
+   * 文件 canonical（信封 findings 退役）：findings.json 在 → 机械读文件落账
+   *（唯一事实源，信封携带被忽略不双落）；文件缺 + 信封非空（旧格式实例）
+   * → 兼容回退落信封；两者皆缺 = 显式「无」，零落账零报错。
    */
   private recordFindings(instance: AgentInstance, closure: InstanceClosurePayload): void {
     const sink = this.deps.findingsSink;
     if (sink === undefined) return; // 未装配（纯调度测试形态）：断头面保持静默
-    let findings: readonly unknown[] = closure.findings ?? [];
-    if (findings.length === 0) {
-      findings = this.readBypassFindings(instance, closure);
+    const fromFile = this.readFindingsFile(instance, closure);
+    const findings: readonly unknown[] = fromFile !== null ? fromFile.items : (closure.findings ?? []);
+    if (fromFile === null && (closure.findings ?? []).length > 0) {
+      this.warnFindings(instance.instanceId, `findings 文件缺——旧格式信封 findings 兼容回退 ${closure.findings!.length} 条（SOP 已退役信封字段）`);
     }
-    if (findings.length === 0) return; // 显式「无」且无旁路：不落账不报错
+    if (findings.length === 0) return; // 显式「无」且无文件：不落账不报错
     for (const item of mapFindingsToOps(findings, closure.taskId ?? undefined)) {
       if (!item.ok) {
         this.warnFindings(instance.instanceId, `跳过（${item.reason}）`);
@@ -224,23 +228,30 @@ export class ClosureRecorder {
     }
   }
 
-  /** 旁路文件读：自报 reportPath 同目录优先，否则 reportsDir；<instanceId>.findings.json（缺失/非法 → 空数组，恢复成功才 warn）。 */
-  private readBypassFindings(instance: AgentInstance, closure: InstanceClosurePayload): readonly unknown[] {
+  /**
+   * findings 文件指针解析（canonical 探测，finalizeClosure 指针落行用）：
+   * 自报 reportPath 同目录优先，否则 reportsDir；`<instanceId>.findings.json`
+   * 存在且合法 JSON 数组 → {path, items}；否则 null（文件缺 = 无指针）。
+   */
+  private resolveFindingsFile(instance: AgentInstance, closure: InstanceClosurePayload): string | null {
+    return this.readFindingsFile(instance, closure)?.path ?? null;
+  }
+
+  /** findings 文件读（canonical）：探测路径 + 解析；缺失/非法 → null（不 warn——探测是常态非异常）。 */
+  private readFindingsFile(instance: AgentInstance, closure: InstanceClosurePayload): { path: string; items: readonly unknown[] } | null {
     const read = this.deps.readFindingsFile;
-    if (read === undefined) return [];
+    if (read === undefined) return null;
     const dir = closure.reportPath != null ? dirname(closure.reportPath) : this.deps.reportsDirFor?.(instance.sessionId);
-    if (dir === undefined) return [];
-    const raw = read(join(dir, `${instance.instanceId}.findings.json`));
-    if (raw === null) return [];
+    if (dir === undefined) return null;
+    const filePath = join(dir, `${instance.instanceId}.findings.json`);
+    const raw = read(filePath);
+    if (raw === null) return null;
     try {
       const parsed = JSON.parse(raw) as unknown;
-      if (!Array.isArray(parsed)) return [];
-      if (parsed.length > 0) {
-        this.warnFindings(instance.instanceId, `闭包 findings 空——经旁路文件恢复 ${parsed.length} 条（闭包被截断/损坏时的机械兜底）`);
-      }
-      return parsed;
+      if (!Array.isArray(parsed)) return null;
+      return { path: filePath, items: parsed };
     } catch {
-      return [];
+      return null;
     }
   }
 

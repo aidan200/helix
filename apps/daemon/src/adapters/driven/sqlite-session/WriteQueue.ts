@@ -74,6 +74,8 @@ type WriteJob =
       readonly agentId: string;
       readonly result: "done" | "failed" | "killed";
       readonly closure: InstanceClosurePayload;
+      /** findings 文件指针（canonical：daemon 机械探测注入；文件缺 = null）。 */
+      readonly findingsFile: string | null;
       readonly occurredAt: string;
     }
   | {
@@ -280,8 +282,8 @@ export class WriteQueue {
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     this.insertClosureRecord = this.db.prepare(
-      "INSERT INTO closure_records (session_id, agent_id, result, status, summary, report_path, findings, task_id, created_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO closure_records (session_id, agent_id, result, status, summary, report_path, findings, findings_file, task_id, created_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     this.deleteSessionState = this.db.prepare("DELETE FROM session_state WHERE session_id = ?");
     this.deleteSessionEvents = this.db.prepare("DELETE FROM domain_events WHERE session_id = ?");
@@ -378,9 +380,10 @@ export class WriteQueue {
     agentId: string,
     result: "done" | "failed" | "killed",
     closure: InstanceClosurePayload,
+    findingsFile: string | null = null,
     occurredAt: string = new Date().toISOString(),
   ): Promise<void> {
-    return this.enqueue({ kind: "closureRecord", sessionId, agentId, result, closure, occurredAt });
+    return this.enqueue({ kind: "closureRecord", sessionId, agentId, result, closure, findingsFile, occurredAt });
   }
 
   /**
@@ -652,6 +655,7 @@ export class WriteQueue {
         job.closure.summary,
         job.closure.reportPath ?? null,
         job.closure.findings === null || job.closure.findings === undefined ? null : JSON.stringify(job.closure.findings),
+        job.findingsFile,
         job.closure.taskId ?? null,
         job.occurredAt,
       );
@@ -844,6 +848,12 @@ function ensureSchemaEvolved(db: Database): void {
   // 可空无默认——旧行 NULL = legacy "main"，读取侧兜底前向兼容）
   if (!hasColumn(db, "session_state", "main_instance_id")) {
     db.exec("ALTER TABLE session_state ADD COLUMN main_instance_id TEXT");
+  }
+  // findings 文件 canonical（信封 findings 退役）：closure_records.findings_file
+  // 指针列（daemon 机械探测注入；可空无默认——旧行 NULL = 内嵌 findings 兼容
+  // 读面双源，读取侧 findingsFile 优先/内嵌兜底）
+  if (!hasColumn(db, "closure_records", "findings_file")) {
+    db.exec("ALTER TABLE closure_records ADD COLUMN findings_file TEXT");
   }
   // P1 T3：session_state.mode（会话模式，建会话定格；可空无默认——旧行
   // NULL = default 语义，读取侧恢复链归一，与 main_instance_id 同构）

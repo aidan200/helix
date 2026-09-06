@@ -51,13 +51,16 @@ export interface SessionRepositoryPort {
   saveAgentLifecycle(sessionId: string, instanceId: string, state: InstanceState): Promise<void>;
   /**
    * closure 记录行落盘（closure_records 追加行，O-5：任务报告本体 =
-   * SQLite 行 + findings JSON；经单写通道串行保序，抗重启）。
+   * SQLite 行 + findings 指针/JSON；经单写通道串行保序，抗重启）。
+   * findingsFile：findings 文件指针（canonical，daemon 机械探测注入；
+   * 文件缺 = null——旧格式行内嵌 findings 兼容读面双源）。
    */
   saveClosureRecord(
     sessionId: string,
     agentId: string,
     result: "done" | "failed" | "killed",
     closure: InstanceClosurePayload,
+    findingsFile?: string | null,
   ): Promise<void>;
   /**
    * 任务报告文件产物落盘（O-5：<home>/reports/<session>/<agentId>.md；
@@ -144,7 +147,10 @@ export interface ClosureRecordData {
   readonly status: "done" | "failed";
   readonly summary: string;
   readonly reportPath: string | null;
+  /** 旧格式：信封上行的 findings 内嵌（文件 canonical 后新行恒 null——兼容读）。 */
   readonly findings: unknown[] | null;
+  /** findings 文件指针（canonical；daemon 机械探测注入，文件缺 = null）。 */
+  readonly findingsFile: string | null;
   readonly taskId: string | null;
   readonly createdAt: string;
 }

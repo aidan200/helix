@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type {
   AgentHarnessTool,
@@ -142,7 +142,7 @@ function getTaskReport(deps: TaskReportToolDeps, args: Record<string, unknown>):
   stages: TaskDetailDto["stages"];
   closures: { agentId: string; result: ClosureRecordData["result"]; summary: string; reportPath: string | null }[];
   findings: { total: number; byKind: Record<string, number> };
-  reports: { summaryPath: string; summaryExists: boolean; batchReports: string[] };
+  reports: { summaryPath: string; summaryExists: boolean; batchReports: string[]; findingsFiles: string[] };
 } {
   const jobId = typeof args["jobId"] === "string" ? args["jobId"].trim() : "";
   if (jobId === "") {
@@ -169,6 +169,7 @@ function getTaskReport(deps: TaskReportToolDeps, args: Record<string, unknown>):
       summaryPath,
       summaryExists: existsSync(summaryPath),
       batchReports: [...new Set(records.map((r) => r.reportPath).filter((p): p is string => p !== null))],
+      findingsFiles: [...new Set(records.map((r) => r.findingsFile).filter((p): p is string => p !== null))],
     },
   };
 }
@@ -185,12 +186,12 @@ function detailOrThrow(deps: TaskReportToolDeps, jobId: string): TaskDetailDto {
   }
 }
 
-/** findings 按 kind 计数（closure findings 全文不回执，只回统计——token 经济）。 */
+/** findings 按 kind 计数（findings 全文不回执，只回统计——token 经济）。双源：新行 findingsFile 指针优先（读文件聚合；悬空/非法回退内嵌），旧行内嵌 findings 兼容。 */
 function findingsStatsOf(records: readonly ClosureRecordData[]): { total: number; byKind: Record<string, number> } {
   const byKind: Record<string, number> = {};
   let total = 0;
   for (const record of records) {
-    for (const finding of record.findings ?? []) {
+    for (const finding of findingsOf(record)) {
       const kind =
         typeof finding === "object" && finding !== null && typeof (finding as { kind?: unknown }).kind === "string"
           ? ((finding as { kind: string }).kind || "unknown")
@@ -200,6 +201,20 @@ function findingsStatsOf(records: readonly ClosureRecordData[]): { total: number
     }
   }
   return { total, byKind };
+}
+
+/** 单行 findings 解析：指针文件优先（合法 JSON 数组）；否则旧格式内嵌。 */
+function findingsOf(record: ClosureRecordData): readonly unknown[] {
+  if (record.findingsFile !== null) {
+    try {
+      const raw = readFileSync(record.findingsFile, "utf8");
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      /* 悬空指针/非法 JSON：回退内嵌 */
+    }
+  }
+  return record.findings ?? [];
 }
 
 // ── 参数整形 ─────────────────────────────────────────────────

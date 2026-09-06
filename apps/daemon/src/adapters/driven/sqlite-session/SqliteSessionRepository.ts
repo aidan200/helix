@@ -31,6 +31,7 @@ export interface ClosureRecordRow {
   readonly summary: string;
   readonly report_path: string | null;
   readonly findings: string | null;
+  readonly findings_file: string | null;
   readonly task_id: string | null;
   readonly created_at: string;
 }
@@ -131,8 +132,9 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
     agentId: string,
     result: "done" | "failed" | "killed",
     closure: InstanceClosurePayload,
+    findingsFile: string | null = null,
   ): Promise<void> {
-    await this.queue.saveClosureRecord(sessionId, agentId, result, closure);
+    await this.queue.saveClosureRecord(sessionId, agentId, result, closure, findingsFile);
   }
 
   /** 报告文件产物（O-5：markdown 摘要+findings；同队列原子写）。 */
@@ -143,7 +145,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
   /** closure 记录行读面（按会话/实例过滤，落盘序；findings 解析为值）。 */
   queryClosureRecords(sessionId: string, agentId?: string): ClosureRecordData[] {
     const sql =
-      "SELECT id, session_id, agent_id, result, status, summary, report_path, findings, task_id, created_at " +
+      "SELECT id, session_id, agent_id, result, status, summary, report_path, findings, findings_file, task_id, created_at " +
       "FROM closure_records WHERE session_id = ?" + (agentId !== undefined ? " AND agent_id = ?" : "") +
       " ORDER BY id";
     const stmt = this.queue.database.prepare(sql);
@@ -158,6 +160,7 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       summary: r.summary,
       reportPath: r.report_path,
       findings: r.findings === null ? null : (JSON.parse(r.findings) as unknown[]),
+      findingsFile: r.findings_file,
       taskId: r.task_id,
       createdAt: r.created_at,
     }));

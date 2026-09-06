@@ -96,6 +96,7 @@ function closureRow(overrides: Partial<ClosureRecordData> & { agentId: string })
     summary: `批次 ${overrides.agentId} 收口`,
     reportPath: null,
     findings: null,
+    findingsFile: null,
     taskId: null,
     createdAt: "2026-01-01T02:00:00.000Z",
     ...overrides,
@@ -271,8 +272,49 @@ describe("② get { jobId }：artifacts（含 body）+ closure 摘要行 + findi
           summaryPath: path.join(summaryDir, "summary.md"),
           summaryExists: true,
           batchReports: [path.join(summaryDir, "agent-1.md"), path.join(summaryDir, "agent-2.md")],
+          findingsFiles: [],
         },
       });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // findings 双源（文件 canonical 迁移）：新行 findingsFile 指针 → 读文件聚合
+  // kind 计数 + findingsFiles 清单去重；旧行内嵌 findings 兼容；指针悬空（文件
+  // 不存在/非法）→ 回退内嵌、计数不炸。
+  test("findings 双源：指针文件优先聚合 + findingsFiles 清单；旧行内嵌兼容；悬空指针回退内嵌", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "helix-task-report-fsources-"));
+    try {
+      const f1 = path.join(dir, "agent-f1.findings.json");
+      const f2 = path.join(dir, "agent-f2.findings.json");
+      const dangling = path.join(dir, "agent-f3.findings.json"); // 悬空：不写文件
+      writeFileSync(f1, JSON.stringify([{ kind: "issue" }, { kind: "issue" }, { kind: "sediment" }]));
+      writeFileSync(f2, JSON.stringify("not-an-array")); // 非法 JSON 形态（非数组）
+      const tool = makeTool(
+        fakeQuery({ details: { "job-f": detailOf("job-f", { status: "running" }) } }),
+        {
+          reportDir: dir,
+          closures: {
+            "task:job-f": [
+              closureRow({ agentId: "agent-f1", findingsFile: f1 }),
+              closureRow({ agentId: "agent-f2", findingsFile: f2, findings: [{ kind: "issue" }] }),
+              closureRow({ agentId: "agent-f3", findingsFile: dangling, findings: [{ kind: "sediment" }] }),
+              closureRow({ agentId: "agent-f4", findings: [{ kind: "issue" }] }), // 旧行内嵌
+            ],
+          },
+        },
+      );
+      const r = await run(tool, { op: "get", jobId: "job-f" });
+      if (!r.ok) throw new Error(`task_report get 失败：${r.error}`);
+      const receipt = JSON.parse(r.text) as {
+        findings: { total: number; byKind: Record<string, number> };
+        reports: { findingsFiles: string[] };
+      };
+      // f1：文件优先（issue×2 + sediment×1）；f2 非数组回退内嵌（issue×1）；
+      // f3 悬空回退内嵌（sediment×1）；f4 旧行内嵌（issue×1）
+      expect(receipt.findings).toEqual({ total: 6, byKind: { issue: 4, sediment: 2 } });
+      expect(receipt.reports.findingsFiles).toEqual([f1, f2, dangling]); // 指针清单去重透传（悬空也列——read 时自见）
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

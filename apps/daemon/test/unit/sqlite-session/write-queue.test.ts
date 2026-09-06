@@ -384,7 +384,7 @@ describe("updated_at 语义修复回填（历史脏行 → 真实活动时间）
 });
 
 describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产物（O-5）", () => {
-  test("saveClosureRecord 落盘后重开（进程内级重启）可读回；findings 保 JSON", async () => {
+  test("saveClosureRecord 落盘后重开（进程内级重启）可读回；findings 保 JSON + findings_file 指针", async () => {
     const dbPath = tmpDbPath();
     try {
       const queue = new WriteQueue(dbPath);
@@ -402,13 +402,20 @@ describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产
         findings: null,
         taskId: null,
       });
+      await queue.saveClosureRecord("s-1", "agent-5", "done", {
+        status: "done",
+        summary: "文件 canonical 收口",
+        reportPath: "/tmp/reports/s-1/agent-5.md",
+        findings: null,
+        taskId: null,
+      }, "/tmp/reports/s-1/agent-5.findings.json");
       await queue.close(); // 优雅退出（drain 后关连接）
 
       // 重启（进程内级）：新 WriteQueue 实例同一路径读回
       const reopened = new WriteQueue(dbPath);
       const rows = reopened.database
         .prepare(
-          "SELECT agent_id, result, status, summary, report_path, findings, task_id FROM closure_records WHERE session_id = ? ORDER BY id",
+          "SELECT agent_id, result, status, summary, report_path, findings, findings_file, task_id FROM closure_records WHERE session_id = ? ORDER BY id",
         )
         .all("s-1") as {
         agent_id: string;
@@ -417,10 +424,11 @@ describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产
         summary: string;
         report_path: string | null;
         findings: string | null;
+        findings_file: string | null;
         task_id: string | null;
       }[];
       await reopened.close();
-      expect(rows).toHaveLength(2);
+      expect(rows).toHaveLength(3);
       expect(rows[0]).toMatchObject({
         agent_id: "agent-3",
         result: "done",
@@ -428,9 +436,11 @@ describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产
         summary: "任务完成",
         report_path: "/tmp/reports/s-1/agent-3.md",
         task_id: "T2.3",
+        findings_file: null,
       });
       expect(JSON.parse(rows[0]!.findings!)).toEqual([{ kind: "sediment", desc: "x" }]);
-      expect(rows[1]).toMatchObject({ agent_id: "agent-4", result: "killed", status: "failed", report_path: null, findings: null, task_id: null });
+      expect(rows[1]).toMatchObject({ agent_id: "agent-4", result: "killed", status: "failed", report_path: null, findings: null, findings_file: null, task_id: null });
+      expect(rows[2]).toMatchObject({ agent_id: "agent-5", findings: null, findings_file: "/tmp/reports/s-1/agent-5.findings.json" });
     } finally {
       rmSync(path.dirname(dbPath), { recursive: true, force: true });
     }
@@ -453,6 +463,62 @@ describe("T2.3 closure 写面：closure_records 记录行 + reportPath 文件产
       expect(content).toContain("agent-3");
       expect(content).toContain("done");
       expect(existsSync(reportPath + ".tmp")).toBe(false); // 临时文件不残留
+    } finally {
+      rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
+
+  // findings_file 列 additive 迁移：老库（无该列）→ WriteQueue 构造自动补列，
+  // 老行完好、新行可写指针（schema 演进不要求重建库，二次构造幂等）。
+  test("老库无 findings_file 列 → WriteQueue 构造补列；老行读回完好 + 新行可写指针（幂等）", async () => {
+    const dbPath = tmpDbPath();
+    try {
+      // 手工建旧结构库（无 findings_file 列）并插入一行老数据
+      const legacy = new Database(dbPath);
+      legacy.exec(`
+        CREATE TABLE closure_records (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          agent_id TEXT NOT NULL,
+          result TEXT NOT NULL,
+          status TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          report_path TEXT,
+          findings TEXT,
+          task_id TEXT,
+          created_at TEXT NOT NULL
+        );
+      `);
+      legacy
+        .prepare("INSERT INTO closure_records (session_id, agent_id, result, status, summary, report_path, findings, task_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run("s-old", "agent-old", "done", "done", "老行", null, '[{"kind":"sediment"}]', null, "2026-01-01T00:00:00.000Z");
+      legacy.close();
+
+      // 升级：新 WriteQueue 打开老库 → 自动补列 + 新行可写指针
+      const queue = new WriteQueue(dbPath);
+      await queue.saveClosureRecord("s-old", "agent-new", "done", {
+        status: "done",
+        summary: "新行带指针",
+        reportPath: null,
+        findings: null,
+        taskId: null,
+      }, "/tmp/reports/s-old/agent-new.findings.json");
+      const cols = queue.database.prepare("PRAGMA table_info(closure_records)").all() as { name: string }[];
+      const rows = queue.database
+        .prepare("SELECT agent_id, findings, findings_file FROM closure_records WHERE session_id = ? ORDER BY id")
+        .all("s-old") as { agent_id: string; findings: string | null; findings_file: string | null }[];
+      await queue.close();
+      expect(cols.map((c) => c.name)).toContain("findings_file");
+      expect(rows).toEqual([
+        { agent_id: "agent-old", findings: '[{"kind":"sediment"}]', findings_file: null },
+        { agent_id: "agent-new", findings: null, findings_file: "/tmp/reports/s-old/agent-new.findings.json" },
+      ]);
+
+      // 幂等：二次构造 no-op（列已在不重复补）
+      const again = new WriteQueue(dbPath);
+      const cols2 = again.database.prepare("PRAGMA table_info(closure_records)").all() as { name: string }[];
+      await again.close();
+      expect(cols2.filter((c) => c.name === "findings_file")).toHaveLength(1);
     } finally {
       rmSync(path.dirname(dbPath), { recursive: true, force: true });
     }

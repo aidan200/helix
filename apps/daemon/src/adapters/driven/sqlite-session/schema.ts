@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS closure_records (
   summary TEXT NOT NULL,
   report_path TEXT,
   findings TEXT,
+  findings_file TEXT,
   task_id TEXT,
   created_at TEXT NOT NULL
 );
