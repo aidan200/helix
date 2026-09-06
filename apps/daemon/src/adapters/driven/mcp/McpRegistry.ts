@@ -196,7 +196,14 @@ export class McpRegistry implements McpServerPort {
     if (entry.config.enabled === false) {
       throw new Error(`MCP server "${serverName}" 已停用（enabled=false）`);
     }
-    return entry.client.callTool(toolName, args);
+    const result = await entry.client.callTool(toolName, args);
+    // 懒重连成功（此前进程意外退出降级 error）：状态滞留 error 会让
+    // discoveredTools() 过滤该 server（工具面永久丢失）——调用成功即触发
+    // 重新发现，复位 running + 刷新 entry.tools（discover 内部全 catch 不抛）。
+    if (entry.status.state === "error") {
+      await this.discover(entry);
+    }
+    return result;
   }
 
   /** 全停（daemon shutdown 收尾）。 */

@@ -40,6 +40,11 @@ function handle(msg) {
     const name = msg.params.name;
     if (name === "fail") { send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: "boom" }], isError: true } }); return; }
     if (name === "rpc-error") { send({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "tool crashed" } }); return; }
+    if (name === "multimodal") { send({ jsonrpc: "2.0", id: msg.id, result: { content: [
+      { type: "image", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", mimeType: "image/png" },
+      { type: "audio", data: "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=", mimeType: "audio/wav" },
+      { type: "resource", resource: { uri: "file:///tmp/big.bin", mimeType: "application/octet-stream", blob: "AAECAwQFBgcICQoLDA0ODw==" } },
+    ] } }); return; }
     send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: "called:" + name + ":" + JSON.stringify(msg.params.arguments ?? {}) }] } });
   } else {
     send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found: " + msg.method } });
@@ -92,6 +97,16 @@ describe("McpClient（真子进程往返）", () => {
     const client = new McpClient(fakeServerConfig("t3"), { timeoutMs: 10000 } as never);
     await client.connect();
     await expect(client.callTool("rpc-error", {})).rejects.toThrow("tool crashed");
+    client.stop();
+  });
+
+  test("stdin error 兑底监听：进程死亡竞态窗口写入错误不 uncaught（F1 修复）", async () => {
+    const client = new McpClient(fakeServerConfig("t-epipe"), { timeoutMs: 10000 } as never);
+    await client.connect();
+    const proc = (client as unknown as { proc: { stdin: { listenerCount: (e: string) => number; emit: (e: string, err: Error) => boolean } } }).proc;
+    // 兑底监听就位（无监听时 EventEmitter emit('error') 同步 throw 击穿进程）
+    expect(proc.stdin.listenerCount("error")).toBeGreaterThan(0);
+    expect(() => proc.stdin.emit("error", new Error("write EPIPE"))).not.toThrow();
     client.stop();
   });
 });
@@ -157,6 +172,29 @@ describe("McpRegistry（多 server 生命周期）", () => {
     expect(tools.length).toBe(2);
     expect(registry.getStatuses()).toEqual([]); // 未注册
   });
+
+  test("懒重连成功后重新发现：error 滞留不丢工具面（F1 修复）", async () => {
+    const registry = new McpRegistry();
+    await registry.addServer(fakeServerConfig("reconn"));
+    expect(registry.getStatuses()[0]?.state).toBe("running");
+    // 模拟常驻进程意外退出：SIGKILL 子进程 → onExit 降级 error
+    const sawError = new Promise<void>((resolve) => {
+      registry.onStatusChange((s) => {
+        if (s.name === "reconn" && s.state === "error") resolve();
+      });
+    });
+    const entry = (registry as unknown as { servers: Map<string, { client: { proc: { kill: (sig: string) => void } } }> }).servers.get("reconn")!;
+    entry.client.proc.kill("SIGKILL");
+    await sawError;
+    expect(registry.getStatuses()[0]?.state).toBe("error");
+    expect(registry.discoveredTools()).toEqual([]); // 非 running 被过滤
+    // 懒重连调用成功 → 触发重新发现，状态复位 running + 工具面恢复
+    const result = await registry.callNamespacedTool("reconn__echo", { text: "back" });
+    expect(result.content[0]).toEqual({ type: "text", text: 'called:echo:{"text":"back"}' });
+    expect(registry.getStatuses()[0]?.state).toBe("running");
+    expect(registry.discoveredTools().map((t) => t.definition.name)).toEqual(["echo", "ping"]);
+    registry.stopAll();
+  });
 });
 
 describe("mcp-tool 适配器（schema 透传 + 执行转投）", () => {
@@ -197,6 +235,25 @@ describe("mcp-tool 适配器（schema 透传 + 执行转投）", () => {
       registry,
     );
     expect(tool?.parameters).toEqual({ type: "object", properties: {} });
+    registry.stopAll();
+  });
+
+  test("image/audio/resource 块占位：二进制原文不进模型上下文（F1 修复）", async () => {
+    const registry = new McpRegistry();
+    await registry.addServer(fakeServerConfig("mm"));
+    const [tool] = createMcpTools(
+      [{ server: "mm", definition: { name: "multimodal", description: "returns media" } }],
+      registry,
+    );
+    const result = await tool?.execute("call-mm", {}, undefined, undefined, {} as never);
+    const text = (result?.content[0] as { text: string }).text;
+    expect(text).toContain("[image mimeType=image/png]");
+    expect(text).toContain("[audio mimeType=audio/wav]");
+    expect(text).toContain("[resource uri=file:///tmp/big.bin mimeType=application/octet-stream]");
+    // base64 原文不透出
+    expect(text).not.toContain("iVBORw0KGgo");
+    expect(text).not.toContain("UklGRiQ");
+    expect(text).not.toContain("AAECAwQFBgc");
     registry.stopAll();
   });
 });
