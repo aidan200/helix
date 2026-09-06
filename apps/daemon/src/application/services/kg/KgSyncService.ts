@@ -4,8 +4,12 @@
  * 双源汇队列（自写工具写后通知 + fs-watch 兜底）→ (path,hash) 去重 →
  * 去抖窗口批量 → 单飞（running 标志+合并等待）→ 四步单事务：
  * ① ensure-symbols（CodegraphEnginePort 被动构建；不可用 → degraded 标记
- *   + docs-only 锚：path 声明 × 上一基准文件面物化、symbol 声明跳过）
- * ② 符号+span+contains 导入（增量：mtime/hash 未变跳过；引擎面消失=删除）
+ *   + docs-only 锚：path 声明 × 上一基准文件面物化、symbol 声明跳过；
+ *   degraded 不丢窗口事件——refillWindow 回填重放 + 恢复后首次 sync 强制
+ *   全量域，code-review M7①）
+ * ② 符号+span+contains 导入（增量：mtime/hash 未变跳过；引擎面消失=删除；
+ *   无基准（首建/purge 清库后）的窗口 sync 强制全量域——只导入窗口文件
+ *   即推进基准戳会产出残缺 synced 索引，code-review M7②）
  * ③ 锚物化（anchor-materialize 确定性 join，全量重算）
  * ④ 锚失效检测（上一基准活跃锚 − 本次 join → orphan 标记保留行，供 T5.1）
  *   + meta 基准戳推进——全部经 KnowledgeStorePort.applySync 单事务落库。
@@ -98,6 +102,8 @@ interface ProjectRunState {
   pendingRerun: boolean;
   failCount: number;
   currentRun: Promise<SyncResult> | null;
+  /** M7①：degraded 发生后置位——恢复（非 degraded）后首次 sync 强制全量域收敛。 */
+  forceFullOnce: boolean;
   baselineCounter: number;
   baselineLoaded: boolean;
   lastSyncedAt: string | null;
@@ -276,6 +282,9 @@ export class KgSyncService {
     // 外、仅 applySync 失败回填，其余异常路径窗口永丢）。
     try {
       const baselineView: SyncBaselineView = this.deps.graph.getSyncBaseline(projectRoot);
+      // M7②：无基准（首建/purge 清库后复位 absent）的窗口 sync 强制全量域——
+      // 否则只导入窗口内被触文件即推进基准戳，phase=synced 但符号面残缺。
+      const effectiveFull = full || state.forceFullOnce || this.deps.graph.getIndexStatus(projectRoot).baseline === null;
 
       let degraded = false;
       let symbolSet: SymbolSet = { symbols: [], containsEdges: [], files: [] };
@@ -296,9 +305,16 @@ export class KgSyncService {
       const importFiles: SymbolFileRecord[] = [];
       const deletedFiles: string[] = [];
       const seen = new Set<string>();
-      if (!degraded) {
-        // 域：full=引擎面全量∪窗口（手动/启动/首建）；窗口路径=只处理窗口内变更文件
-        const domainPaths: readonly string[] = full ? [...filePaths, ...windowKinds.keys()] : [...windowKinds.keys()];
+      if (degraded) {
+        // M7①：degraded 不丢窗口事件——已 drain 的窗口 refill 重放（下次 sync
+        // 域保真）+ 置恢复后强制全量域标记（被改/删文件无新事件也能收敛）。
+        // 不自动重排程：引擎持续不可用时会成无限重试环，收敛点 = 下次任意触发。
+        this.refillWindow(state, windowKinds);
+        state.forceFullOnce = true;
+      } else {
+        state.forceFullOnce = false;
+        // 域：full=引擎面全量∪窗口（手动/启动/首建/无基准/恢复后首次）；窗口路径=只处理窗口内变更文件
+        const domainPaths: readonly string[] = effectiveFull ? [...filePaths, ...windowKinds.keys()] : [...windowKinds.keys()];
         for (const p of domainPaths) {
           if (seen.has(p)) continue;
           seen.add(p);
@@ -413,6 +429,7 @@ export class KgSyncService {
       pendingRerun: false,
       failCount: 0,
       currentRun: null,
+      forceFullOnce: false,
       baselineCounter: 0,
       baselineLoaded: false,
       lastSyncedAt: null,

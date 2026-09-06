@@ -161,6 +161,9 @@ export function logEventText(op: string, reason: string | null): string {
 export class KgViewerService {
   private readonly deps: KgViewerServiceDeps;
 
+  /** 详情三项全图扫描缓存（per-project，M7③；版本戳见 detailScans）。 */
+  private readonly detailScanCache = new Map<string, DetailScanCacheEntry>();
+
   constructor(deps: KgViewerServiceDeps) {
     this.deps = deps;
   }
@@ -253,6 +256,7 @@ export class KgViewerService {
       return { ok: false, error: { code: "KG_E_NOT_FOUND", message: `节点 ${id} 转正后回读失败`, path: "payload.id" } };
     }
     const { node } = after;
+    this.detailScanCache.delete(resolved.value); // 本服务写路径即时失效（status 翻转进 peer 徽章）
     return {
       ok: true,
       value: {
@@ -421,24 +425,47 @@ export class KgViewerService {
     }
   }
 
+  /**
+   * 详情三项全图扫描缓存（code-review M7③，KgAttachmentService.snapshotOf
+   * 同款机制）：findActivityMismatch（全 verify 视图+启发排序）/
+   * getAttachmentSnapshot 全量 / search("") 全表 LIKE 从「每点击 O(全图)×3」
+   * 改为按版本戳复用。版本 = sync 基准戳 × 节点数 × 最近迭代：符号/锚层
+   * 变更推进基准戳；知识层新建节点推进计数、跨迭代写推进迭代戳。同迭代内
+   * updateNode/supersede 的 peer digest/status 微差滞后合法（AD-15 附着面
+   * 同纪律），下次 sync/新迭代收敛；本服务自身写路径（confirm）即时失效。
+   */
+  private detailScans(projectRoot: string): DetailScanCacheEntry {
+    const { baseline } = this.deps.graph.getIndexStatus(projectRoot);
+    const version = `${baseline ?? ""}\u001f${this.deps.graph.countNodes(projectRoot)}\u001f${this.deps.graph.latestIteration(projectRoot) ?? ""}`;
+    const cached = this.detailScanCache.get(projectRoot);
+    if (cached !== undefined && cached.version === version) return cached;
+    const entry: DetailScanCacheEntry = {
+      version,
+      suspects: new Set(
+        this.deps.verify
+          .findActivityMismatch(projectRoot)
+          .map((s) => anchorKey(s.anchor.nodeId, s.anchor.anchorPath, s.anchor.anchorSymbol)),
+      ),
+      spanByKey: new Map(
+        this.deps.graph
+          .getAttachmentSnapshot(projectRoot)
+          .symbolAnchors.map((a) => [anchorKey(a.nodeId, a.path, a.symbol), a.span?.startLine] as const),
+      ),
+      digestById: new Map(this.deps.graph.search(projectRoot, "").map((row) => [row.id, row] as const)),
+    };
+    this.detailScanCache.set(projectRoot, entry);
+    return entry;
+  }
+
   /** 详情聚合：body 原文单段直返 + 锚态标注（dead=orphan / stale=活跃度启发命中）+ 行号 + 关系 peer + 链 + 日志。 */
   private assembleDetail(projectRoot: string, detail: NodeDetail): KgNodeDetailView {
     const { node } = detail;
-    const suspects = new Set(
-      this.deps.verify
-        .findActivityMismatch(projectRoot)
-        .map((s) => anchorKey(s.anchor.nodeId, s.anchor.anchorPath, s.anchor.anchorSymbol)),
-    );
-    const spanByKey = new Map(
-      this.deps.graph
-        .getAttachmentSnapshot(projectRoot)
-        .symbolAnchors.map((a) => [anchorKey(a.nodeId, a.path, a.symbol), a.span?.startLine] as const),
-    );
+    const scans = this.detailScans(projectRoot); // M7③：三项全图扫描按版本戳缓存复用
     const anchors: KgAnchorView[] = detail.materializedAnchors.map((anchor) => {
       const key = anchorKey(node.id, anchor.anchorPath, anchor.anchorSymbol);
       const state: KgAnchorView["state"] =
-        anchor.orphan === true ? "dead" : suspects.has(key) ? "stale" : "ok";
-      const line = spanByKey.get(key);
+        anchor.orphan === true ? "dead" : scans.suspects.has(key) ? "stale" : "ok";
+      const line = scans.spanByKey.get(key);
       return {
         ...(anchor.anchorSymbol !== null ? { symbol: anchor.anchorSymbol } : {}),
         path: anchor.anchorPath,
@@ -447,10 +474,9 @@ export class KgViewerService {
       };
     });
 
-    const digestById = new Map(this.deps.graph.search(projectRoot, "").map((row) => [row.id, row] as const));
     const peerOf = (id: string): NodeDigestRow =>
       // 防御分支（addEdge 事务内已校引用存在）：不可达时不用裸 id 充 name（AD-16）
-      digestById.get(id) ?? { id, kind: node.kind, name: "已删除节点", digest: "", scene: "", status: "superseded", domain: null };
+      scans.digestById.get(id) ?? { id, kind: node.kind, name: "已删除节点", digest: "", scene: "", status: "superseded", domain: null };
     const relations: KgRelationView[] = detail.edges.map((edge) => ({
       verb: edge.verb,
       peer: peerOf(edge.otherId),
@@ -477,6 +503,14 @@ export class KgViewerService {
 }
 
 // ── 纯 helper ────────────────────────────────────────────
+
+/** 详情页三项全图扫描的缓存条目（code-review M7③）。 */
+interface DetailScanCacheEntry {
+  readonly version: string;
+  readonly suspects: ReadonlySet<string>;
+  readonly spanByKey: ReadonlyMap<string, number | undefined>;
+  readonly digestById: ReadonlyMap<string, NodeDigestRow>;
+}
 
 /** anchor 去重键（锚态/行号两数据源 join 键）。 */
 function anchorKey(nodeId: string, path: string, symbol: string | null): string {

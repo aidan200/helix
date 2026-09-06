@@ -43,3 +43,52 @@ export function claimCreateSlot(type: string, projectName: string): boolean {
 export function releaseCreateSlot(type: string, projectName: string): void {
   createSlots.delete(`${type}::${projectName}`);
 }
+
+// ── create 共享骨架（code-review M7④） ─────────────────────
+
+/** createTask 错误归一形态（三服务错误码联合的超集——string 承载，各服务回段自窄化）。 */
+export interface NormalizedCreateError {
+  readonly code: string;
+  readonly message: string;
+}
+
+/**
+ * createTask 抛错 → 结构化错误归一（M7④ 三服务同构收口；含 code-review M7
+ * 「未分类错误不再伪装 validation_failed」裁决）：task.validation_failed /
+ * task.type_unknown 原码透传；其余 string code 透传原码；无 code → task.internal。
+ */
+export function normalizeCreateTaskError(err: unknown): NormalizedCreateError {
+  const code = (err as { code?: unknown }).code;
+  const message = err instanceof Error ? err.message : String(err);
+  if (code === "task.validation_failed" || code === "task.type_unknown") return { code, message };
+  return { code: typeof code === "string" && code !== "" ? code : "task.internal", message };
+}
+
+/**
+ * page 入口 create 共享骨架（code-review M7④：KgBootstrapService /
+ * KgReviewService / CodeReviewService 三份「互斥槽 claim → createTask →
+ * 错误归一 → finally release」近逐字重复的收口点——既往修复（M7 错误透传/
+ * M10 互斥槽）曾需逐份传播并出现码域微差）。准入判定（eligibility）语义
+ * 各服务不同，留在各服务；槽占用错误的码域/文案亦各服务自持（注入）。
+ */
+export async function createTaskWithSlot(args: {
+  readonly taskType: string;
+  readonly projectName: string;
+  /** 互斥槽占用（check-then-act 窗口撞车）时返回的错误（各服务码域/文案自持）。 */
+  readonly slotBusyError: () => NormalizedCreateError;
+  readonly createTask: () => Promise<{ jobId: string }>;
+}): Promise<{ readonly ok: true; readonly jobId: string } | { readonly ok: false; readonly error: NormalizedCreateError }> {
+  if (!claimCreateSlot(args.taskType, args.projectName)) {
+    return { ok: false, error: args.slotBusyError() };
+  }
+  try {
+    try {
+      const { jobId } = await args.createTask();
+      return { ok: true, jobId };
+    } catch (err) {
+      return { ok: false, error: normalizeCreateTaskError(err) };
+    }
+  } finally {
+    releaseCreateSlot(args.taskType, args.projectName);
+  }
+}

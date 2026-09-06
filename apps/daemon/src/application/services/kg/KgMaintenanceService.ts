@@ -13,8 +13,13 @@
  * mtime/hash 未变跳过全部文件，符号面永不再导入（破窗）；全量清后
  * 下一次 triggerManual 走全量域重建符号面，bootstrap 准入经「索引
  * synced ∧ 知识层空」机械恢复 eligible。purge 不动 .codegraph（那是
- * index-delete 的职责）；purge 不停 watcher——watcher 是兜底信号面，
- * 事件驱动的增量 sync 在清后库上行为自洽（等价手动重建）。
+ * index-delete 的职责）；purge 联动停 watcher（code-review M7②，与
+ * index-delete 同规——旧口径「不停 watcher 行为自洽」被推翻：清库后
+ * 首个 fs/写后事件触发的窗口增量 sync 只导入被触文件即推进基准戳，
+ * phase=synced 但符号面残缺，bootstrap 准入可放行到残缺索引）。双保险：
+ * KgSyncService 侧「无基准的窗口 sync 强制全量域」机械兜底——即使
+ * notifyWrite（edit 工具写后通知，不经 watcher）注入事件，清库后首次
+ * sync 也走全量域重建；重建成功后经 onSynced 钩子自动重挂 watcher。
  *
  * 【purge 安全门禁】存在非终态（!isTerminalJob：running/pending/paused）
  * 的 kg-bootstrap 任务时拒绝（kg.graph.purge_blocked）——防 done 任务悬挂
@@ -121,6 +126,8 @@ export class KgMaintenanceService {
     if (!this.deps.project.hasIndex(projectRoot)) {
       return { ok: true, value: { purged: true, nodesRemoved: 0, symbolsRemoved: 0, filesRemoved: 0 } };
     }
+    // 联动顺序同 deleteIndex：先截事件源（watcher + sync 定时器）再清库（M7②）
+    this.deps.fsWatch.stopWatching(projectRoot);
     this.deps.sync.dispose(projectRoot); // 清去抖/退避定时器与内存基准态（不清库）
     const summary = this.deps.store.purgeAll(projectRoot);
     return { ok: true, value: { purged: true, ...summary } };

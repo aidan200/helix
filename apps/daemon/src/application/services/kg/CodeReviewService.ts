@@ -15,7 +15,7 @@
 import type { TaskEnginePort } from "../../ports/inbound/TaskEnginePort";
 import type { TaskStorePort } from "../../ports/outbound/TaskStorePort";
 import type { KgProjectService } from "./KgProjectService";
-import { claimCreateSlot, hasActiveJob, projectNameOf, releaseCreateSlot } from "./job-activity";
+import { createTaskWithSlot, hasActiveJob, projectNameOf } from "./job-activity";
 
 /** code.review.create 结果。 */
 export interface CodeReviewCreateView {
@@ -32,6 +32,10 @@ export interface CodeReviewError {
 }
 
 export type CodeReviewResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: CodeReviewError };
+
+/** task_running 拒绝文案（并发禁入与互斥槽两处共用，M7④ 收口）。 */
+const TASK_RUNNING_MESSAGE =
+  "task_running：该项目已有进行中的代码评审任务（code-review）；可在「任务」页观察进度，任务终态后可再次发起（仅禁并发）";
 
 export interface CodeReviewServiceDeps {
   readonly project: KgProjectService;
@@ -56,39 +60,18 @@ export class CodeReviewService {
     if (hasActiveJob(this.deps.store.listJobs(), "code-review", projectName)) {
       return {
         ok: false,
-        error: {
-          code: "task.task_running",
-          message: "task_running：该项目已有进行中的代码评审任务（code-review）；可在「任务」页观察进度，任务终态后可再次发起（仅禁并发）",
-        },
+        error: { code: "task.task_running", message: TASK_RUNNING_MESSAGE },
       };
     }
-    if (!claimCreateSlot("code-review", projectName)) {
-      return {
-        ok: false,
-        error: { code: "task.task_running", message: "task_running：该项目已有进行中的代码评审任务（code-review）；可在「任务」页观察进度，任务终态后可再次发起（仅禁并发）" },
-      };
-    }
-    try {
-      try {
-        // createTask 同一 API（type/params/projects/createdBy 与 kg.review.create 同源）；
-        // stages 策略 fixed 由 manifest 生成三行（盘点分批 / 分批评审 / 汇总报告）
-        const { jobId } = await this.deps.taskEngine.createTask({
-          type: "code-review",
-          projects: [projectName],
-          params: { projectRoot },
-          createdBy: "page",
-        });
-        return { ok: true, value: { jobId } };
-      } catch (err) {
-        const code = (err as { code?: unknown }).code;
-        const message = err instanceof Error ? err.message : String(err);
-        if (code === "task.validation_failed" || code === "task.type_unknown") {
-          return { ok: false, error: { code, message } };
-        }
-        return { ok: false, error: { code: typeof code === "string" && code !== "" ? (code as CodeReviewErrorCode) : "task.internal", message } };
-      }
-    } finally {
-      releaseCreateSlot("code-review", projectName);
-    }
+    // 槽+调用+错误归一走共享骨架（M7④）；createTask 同一 API（与 kg.review.create 同源）；
+    // stages 策略 fixed 由 manifest 生成三行（盘点分批 / 分批评审 / 汇总报告）
+    const created = await createTaskWithSlot({
+      taskType: "code-review",
+      projectName,
+      slotBusyError: () => ({ code: "task.task_running", message: TASK_RUNNING_MESSAGE }),
+      createTask: () => this.deps.taskEngine.createTask({ type: "code-review", projects: [projectName], params: { projectRoot }, createdBy: "page" }),
+    });
+    if (!created.ok) return { ok: false, error: { code: created.error.code as CodeReviewErrorCode, message: created.error.message } };
+    return { ok: true, value: { jobId: created.jobId } };
   }
 }
