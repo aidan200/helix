@@ -287,8 +287,9 @@ export class CoreToolExecutor implements ToolExecutorPort {
     }
     if (options.mcp !== undefined && options.mcp.tools.length > 0) {
       // 第九族（mcp 批）：MCP 动态发现工具——组合根先行发现适配后注入
-      //（注册面零 MCP 知识；后注册者胜同内置语义——MCP 名与内置名撞时
-      // 内置优先由装配顺序保证：MCP 追加在末尾）。
+      //（注册面零 MCP 知识；后注册者胜同内置语义——MCP 追加在末尾，撞名时
+      // MCP 覆盖内置；防撞靠 MCP 名带 `${server}__${tool}` 命名空间前缀的
+      // 发现面纪律，内置名无前缀不会与之相撞）。
       tools.push(...options.mcp.tools);
     }
     const registry = new Map<string, AgentHarnessTool<ExecutionToolContext, any, any>>();

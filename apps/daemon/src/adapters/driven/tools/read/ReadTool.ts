@@ -3,13 +3,16 @@ import type {
   AgentToolResult,
   ExecutionToolContext,
 } from "@earendil-works/pi-agent-core/node";
+import { MAX_IMAGE_BYTES } from "../../../../application/services/images";
 
 /**
  * ReadTool —— 自写 read（AD-12，同名覆盖 pi 内置）。
  *
- * 与 pi read 的契约差异仅一处：文本输出带 cat -n 风格行号（`%6d\t%s`）——
+ * 与 pi read 的契约差异：文本输出带 cat -n 风格行号（`%6d\t%s`）——
  * 主动链行号供给（grep/read 供养 edit-lines 行锚），并与自写 edit 的 ③级
- * 「行号前缀剥离」互为防御（read 输出直接作 oldText 时 edit 可剥前缀重匹配）。
+ * 「行号前缀剥离」互为防御（read 输出直接作 oldText 时 edit 可剥前缀重匹配）；
+ * 图片超 MAX_IMAGE_BYTES（2MB，与 BrowserTools.readShot oversize 守卫同上限）
+ * 回纯文本提示而非 image 块（防大图片一次性注入模型上下文）。
  * 其余契约同构：offset（1 起行号）/limit、截断上限与续读指针、图片文件
  * （jpg/png/gif/webp/bmp → image 内容块）、offset 越界报错文案。
  */
@@ -52,6 +55,22 @@ export function createReadTool(): AgentHarnessTool<ExecutionToolContext, any, an
       const bytes = bytesResult.value;
       const mimeType = detectImageMimeType(bytes);
       if (mimeType !== undefined) {
+        // 大小上限（与 BrowserTools.readShot oversize 守卫同源）：超限回纯文本
+        // 提示而非 image 块——大图片 base64 全量进工具结果会一次性注入数十 MB。
+        if (bytes.byteLength > MAX_IMAGE_BYTES) {
+          const mb = (MAX_IMAGE_BYTES / 1024 / 1024).toFixed(0);
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  `Read image file [${mimeType}] — 图片超过 ${mb}MB 上限（实际 ${bytes.byteLength} 字节），` +
+                  "未作为附件发送。请压缩/裁剪到限内后重读，或用 bash 调图像工具查看。",
+              },
+            ],
+            details: undefined,
+          };
+        }
         return {
           content: [
             { type: "text", text: `Read image file [${mimeType}]` },
