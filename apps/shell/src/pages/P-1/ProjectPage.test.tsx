@@ -88,6 +88,8 @@ interface Sent {
   /** W2-E/W2-F 体检面两命令发送面（健康拉取 / 发起语义体检）。 */
   health: { project: string }[];
   reviewCreate: { project: string }[];
+  /** code-review v1.5 发起面发送捕获。 */
+  codeReviewCreate: { project: string }[];
   /** 台账读面三件套：kg.candidates.list 发送面（status 过滤形态透传）。 */
   candidatesList: { project: string; status?: string }[];
 }
@@ -95,7 +97,7 @@ interface Sent {
 const sent: Sent = {
   projects: 0, list: [], detail: [], report: 0, confirm: [], index: [],
   bootstrapCreate: [],
-  graphPurge: [], indexDelete: [], health: [], reviewCreate: [], candidatesList: [],
+  graphPurge: [], indexDelete: [], health: [], reviewCreate: [], codeReviewCreate: [], candidatesList: [],
 };
 let listeners: ((e: EventEnvelope) => void)[] = [];
 /** W4 刷新链：workspace 帧订阅注入位。 */
@@ -103,6 +105,8 @@ let wsListeners: ((e: EventEnvelope) => void)[] = [];
 /** M40/M41：连接态与读面 send 结果可变位（断线重连重发 / 发送失败 toast 测试驱动）。 */
 let mockConn: "connected" | "connecting" | "disconnected" = "connected";
 let kgReadSendOk = true;
+/** M9 #2.31：体检/台账读面 send 结果可变位（false → 清 loading + err toast）。 */
+let kgHealthSendOk = true;
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
@@ -148,15 +152,19 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendKgHealth: (payload: { project: string }) => {
         sent.health.push(payload);
-        return true;
+        return kgHealthSendOk;
       },
       sendKgReviewCreate: (payload: { project: string }) => {
         sent.reviewCreate.push(payload);
         return true;
       },
+      sendCodeReviewCreate: (payload: { project: string }) => {
+        sent.codeReviewCreate.push(payload);
+        return true;
+      },
       sendKgCandidatesList: (payload: { project: string; status?: string }) => {
         sent.candidatesList.push(payload);
-        return true;
+        return kgHealthSendOk;
       },
       subscribeKgFrames: (cb: (e: EventEnvelope) => void) => {
         listeners.push(cb);
@@ -243,9 +251,11 @@ afterEach(() => {
   sent.indexDelete = [];
   sent.health = [];
   sent.reviewCreate = [];
+  sent.codeReviewCreate = [];
   sent.candidatesList = [];
   mockConn = "connected";
   kgReadSendOk = true;
+  kgHealthSendOk = true;
   resetRememberedProjectForTest();
 });
 
@@ -1021,5 +1031,105 @@ describe("M40/M41 首挂三读面（kg.list/kg.change.report/kg.index.status）�
     feedProjects();
     fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("helix").closest(".pj-row")!);
     expect(qs(".toast-zone")!.textContent).toContain("发送失败");
+  });
+});
+
+// ═══ M9 #2.31：体检/台账读面 send false 检查 + connection.error 清 loading
+//      + 写面单飞收敛（一次一个在途，错误归因零张冠李戴）═══
+
+describe("M9 #2.31 体检 tab 读面失败收口（send false 检查 + connErr 清 loading）", () => {
+  /** 进 helix graph 态并切 health tab（读面已发出，回执未达 = loading 中）。 */
+  function enterHealthLoading() {
+    ui();
+    feedProjects();
+    enterGraph("helix");
+    fireEvent.click(qs('[data-tab="health"]')!);
+    expect(sent.health).toEqual([{ project: "helix" }]);
+    expect(sent.candidatesList).toEqual([{ project: "helix" }]);
+  }
+
+  it("health/candidates send 返回 false → err toast + 台账 loading 收口（不恒 loading 无报错）", () => {
+    kgHealthSendOk = false;
+    enterHealthLoading();
+    expect(qs(".toast-zone")!.textContent).toContain("发送失败");
+    // 台账面板 loading 已清（不再呈现「正在读取」占位）
+    expect(qs('[data-kg-cand="loading"]') ?? null).toBeNull();
+  });
+
+  it("health/candidates loading 中 connection.error → 两个 loading 位收口", () => {
+    enterHealthLoading();
+    expect(qs('[data-kg-cand="loading"]')).not.toBeNull(); // 回执前 loading 中
+    feed("connection.error", { code: "daemon.internal", message: "参数错误" });
+    expect(qs('[data-kg-cand="loading"]') ?? null).toBeNull(); // loading 收口
+  });
+
+  it("读面回执正常到达 → loading 收口 + 数据呈现（回归：不误清）", () => {
+    enterHealthLoading();
+    feed("kg.health.result", {
+      conflicts: [], orphans: [], orphanCount: 0,
+      index: { state: "synced", symbolCount: 56 },
+      candidates: { pending: 0, deferred: 0, applied: 0, discarded: 0 },
+    });
+    feed("kg.candidates.list.result", { rows: [], total: 0 });
+    expect(qs("[data-kg-health-overview]")).not.toBeNull();
+    expect(qs('[data-kg-cand="loading"]') ?? null).toBeNull();
+  });
+});
+
+describe("M9 #2.31 写面单飞收敛（一次一个在途 + kind 归因）", () => {
+  it("review 在途 → codeReview 发起钮禁用（单飞互斥）；回执后解锁", () => {
+    ui();
+    feedProjects();
+    enterGraph("helix");
+    fireEvent.click(qs('[data-tab="health"]')!);
+    feed("kg.health.result", {
+      conflicts: [], orphans: [], orphanCount: 0,
+      index: { state: "synced", symbolCount: 56 },
+      candidates: { pending: 0, deferred: 0, applied: 0, discarded: 0 },
+    });
+    const reviewBtn = qs("[data-review-launch-btn]") as HTMLButtonElement;
+    const codeReviewBtn = qs("[data-code-review-launch-btn]") as HTMLButtonElement;
+    expect(reviewBtn.disabled).toBe(false);
+    fireEvent.click(reviewBtn);
+    expect(sent.reviewCreate).toEqual([{ project: "helix" }]);
+    expect((qs("[data-code-review-launch-btn]") as HTMLButtonElement).disabled).toBe(true); // 单飞互斥
+    feed("kg.review.create.result", { ok: true, jobId: "job-r1" });
+    expect((qs("[data-code-review-launch-btn]") as HTMLButtonElement).disabled).toBe(false); // 回执解锁
+  });
+
+  it("review 在途 connection.error → 归因 review（体检失败文案，非 purge/create 张冠李戴）+ 解锁可重试", () => {
+    ui();
+    feedProjects();
+    enterGraph("helix");
+    fireEvent.click(qs('[data-tab="health"]')!);
+    feed("kg.health.result", {
+      conflicts: [], orphans: [], orphanCount: 0,
+      index: { state: "synced", symbolCount: 56 },
+      candidates: { pending: 0, deferred: 0, applied: 0, discarded: 0 },
+    });
+    fireEvent.click(qs("[data-review-launch-btn]")!);
+    feed("connection.error", { code: "task.task_running", message: "已有运行中任务" });
+    expect(qs(".toast-zone")!.textContent).toContain("体检任务发起失败");
+    expect(qs(".toast-zone")!.textContent).not.toContain("清空图谱未通过");
+    // 解锁可重试
+    fireEvent.click(qs("[data-review-launch-btn]")!);
+    expect(sent.reviewCreate.length).toBe(2);
+  });
+
+  it("codeReview 在途 connection.error → 归因 codeReview（代码评审失败文案）", () => {
+    ui();
+    feedProjects();
+    enterGraph("helix");
+    fireEvent.click(qs('[data-tab="health"]')!);
+    feed("kg.health.result", {
+      conflicts: [], orphans: [], orphanCount: 0,
+      index: { state: "synced", symbolCount: 56 },
+      candidates: { pending: 0, deferred: 0, applied: 0, discarded: 0 },
+    });
+    fireEvent.click(qs("[data-code-review-launch-btn]")!);
+    expect(sent.codeReviewCreate).toEqual([{ project: "helix" }]);
+    feed("connection.error", { code: "daemon.internal", message: "内部错误" });
+    expect(qs(".toast-zone")!.textContent).toContain("代码评审任务发起失败");
+    expect(qs(".toast-zone")!.textContent).not.toContain("体检任务发起失败");
   });
 });

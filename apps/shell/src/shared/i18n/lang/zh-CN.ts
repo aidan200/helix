@@ -82,6 +82,7 @@ export const zhCN = {
       send: "发送",
       stop: "停止",
       enterHint: "[[Alt+Enter]] 发送 · [[Enter]] 换行",
+      sendFail: "发送失败：与 daemon 的连接不可用，消息未发出，请稍后重试",
     },
     thinking: {
       label: "THINKING",
@@ -712,6 +713,7 @@ export const zhCN = {
       purgeNo: "取消",
       purgedToast: "已清空图谱：{name}（节点 {nodes} · 符号 {symbols}）",
       purgeFailToast: "清空图谱未通过：{message}",
+      flightTimeout: "操作超时：未收到 daemon 回执，请重试",
       emptyAllTitle: "无知识节点",
       emptyAllSub: "尚未发起过知识创建任务，或图谱已被清空",
       reportEmptyTitle: "无变化报告内容",

@@ -12,9 +12,10 @@
  *   abort 后 agent.state.changed idle 归位 → 钮回禁用；
  * - 脚注：projectionNote 整行移除；enterHint 新文案 kbd 双键帽。
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
+import { ToastProvider } from "@/shared/ui/Toast";
 import type { EventEnvelope } from "@helix/protocol";
 import {
   createInitialSessionState,
@@ -82,7 +83,9 @@ const draft = (text: string): SessionAction => ({ type: "ui/set-draft", text });
 function ui() {
   return render(
     <I18nProvider>
-      <Composer footEnd={<span className="thinking-picker" data-testid="foot-end" />} />
+      <ToastProvider>
+        <Composer footEnd={<span className="thinking-picker" data-testid="foot-end" />} />
+      </ToastProvider>
     </I18nProvider>,
   );
 }
@@ -90,6 +93,12 @@ function ui() {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  // M9 #2.18：submit 返回值被消费（false → err toast）——缺省钉 true 防旧用例误弹
+  submit.mockReturnValue(true);
+});
+
+beforeEach(() => {
+  submit.mockReturnValue(true);
 });
 
 // jsdom navigator.language 默认 en-US：钉 zh-CN（产品断言语言，AG-14 白名单键）
@@ -190,7 +199,9 @@ describe("T8 · 停止钮（#btn-abort，main session 生成中断）", () => {
     expect(selectActiveRunState(stateRef.current)).toBe("idle");
     rerender(
       <I18nProvider>
-        <Composer />
+        <ToastProvider>
+          <Composer />
+        </ToastProvider>
       </I18nProvider>,
     );
     expect((document.querySelector("#btn-abort") as HTMLButtonElement).disabled).toBe(true);
@@ -350,5 +361,26 @@ describe("M53 · 附件读取失败交代（Promise.all catch）", () => {
     } finally {
       vi.stubGlobal("FileReader", OrigFR);
     }
+  });
+});
+
+describe("M9 #2.18 · submit 发送失败 err toast（TR-84：send 返回值必消费）", () => {
+  it("submit 返回 false（未连接发送失败）→ err toast 交代；true → 零 toast", () => {
+    stateRef.current = connectedReady([draft("你好")]);
+    submit.mockReturnValue(false);
+    ui();
+    fireEvent.keyDown(document.querySelector("#msg-input")!, { key: "Enter", altKey: true });
+    expect(submit).toHaveBeenCalledTimes(1);
+    const toast = document.querySelector(".toast-zone .toast.err");
+    expect(toast).not.toBeNull();
+    expect(toast!.textContent).toContain("发送失败");
+  });
+
+  it("submit 返回 true → 无 err toast", () => {
+    stateRef.current = connectedReady([draft("你好")]);
+    submit.mockReturnValue(true);
+    ui();
+    fireEvent.keyDown(document.querySelector("#msg-input")!, { key: "Enter", altKey: true });
+    expect(document.querySelector(".toast-zone .toast.err")).toBeNull();
   });
 });

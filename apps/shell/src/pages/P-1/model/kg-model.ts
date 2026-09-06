@@ -100,12 +100,6 @@ export function filterRows(all: readonly KgNodeListRow[], filter: KgFilter): KgN
   });
 }
 
-/** 主状态派生：全量空 or 过滤无匹配 → empty。 */
-export function viewOf(all: readonly KgNodeListRow[], matched: number): KgPaneView {
-  if (all.length === 0) return "loading"; // 数据未到（kg.list 在途）
-  return matched === 0 ? "empty" : "success";
-}
-
 /** P2③ 默认选中：避开 superseded（列表默认折叠，首屏详情与列表同观感；
  * 优先序 = 现行实体 → 现行任意 → 实体（全废回落旧序，审计仍可查）。 */
 export function pickInitial(nodes: readonly KgNodeListRow[]): KgNodeListRow | undefined {

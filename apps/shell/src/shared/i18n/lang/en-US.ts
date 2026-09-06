@@ -75,6 +75,7 @@ export const enUS = {
       send: "Send",
       stop: "Stop",
       enterHint: "[[Alt+Enter]] send · [[Enter]] newline",
+      sendFail: "Send failed: daemon connection unavailable, message not sent, please retry later",
     },
     thinking: {
       label: "THINKING",
@@ -705,6 +706,7 @@ export const enUS = {
       purgeNo: "Cancel",
       purgedToast: "Graph purged: {name} (nodes {nodes} · symbols {symbols})",
       purgeFailToast: "Purge rejected: {message}",
+      flightTimeout: "Operation timed out: no daemon reply received, please retry",
       emptyAllTitle: "No knowledge nodes",
       emptyAllSub: "No knowledge creation task has run yet, or the graph has been purged",
       reportEmptyTitle: "No change report content",
