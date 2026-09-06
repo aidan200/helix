@@ -7,7 +7,7 @@
  * 只剩用户 steer 两态（queued/drained）。本文件钉用户 steer 回归与
  * 「无 steerState 无徽标」边界。
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { I18nProvider } from "@/shared/i18n";
 import type { MessageEntryDto } from "@helix/protocol";
@@ -100,5 +100,58 @@ describe("MessageBubble 轮末 token 用量（assistant meta 行 · who·ts 同�
     cleanup();
     const userBubble = ui(<MessageBubble entry={entry({ role: "user" })} turnUsage={turnUsage} />);
     expect(userBubble.container.querySelector(".turn-usage")).toBeNull();
+  });
+});
+
+// ═══ 流式气泡高度单调锁（F-jitter：流式 markdown 语法闭合抖动修复）═══
+// 场景：流式 markdown 逐 token 流入，语法结构切换（**粗体**/`code`/围栏
+// 闭合瞬间字符宽度消失→折行减少）导致渲染高度非单调回落；贴底逻辑把
+// 收缩传导为内容下弹+下个 delta 又上移 = 流式输出上下抖动（实测 -18px
+// V 型轨迹；与用户输入无关——不打字对照同位置回落）。修复 = streaming
+// 态气泡 min-height 锁定历史最大高度，流式中只增不减。
+describe("MessageBubble 流式气泡高度单调锁", () => {
+  it("核心：流式中内容变矮（语法闭合回落）→ bubble min-height 锁历史最大值不回落", async () => {
+    const { rerender, container } = ui(
+      <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="行一" />,
+    );
+    // 阶段①：高度 100（布局 mock）
+    let mockH = 100;
+    const hSpy = vi
+      .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(() => mockH);
+    rerender(
+      <I18nProvider>
+        <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="行一**加粗" />
+      </I18nProvider>,
+    );
+    const bubble = container.querySelector(".bubble") as HTMLElement;
+    expect(bubble.style.minHeight).toBe("100px");
+    // 阶段②：语法闭合 → 折行减少 → 高度回落 80：锁不回退
+    mockH = 80;
+    rerender(
+      <I18nProvider>
+        <MessageBubble entry={entry({ role: "assistant" })} streaming streamingText="行一**加粗**" />
+      </I18nProvider>,
+    );
+    expect(bubble.style.minHeight).toBe("100px");
+    // 阶段③：内容继续增长 120：锁跟随增长
+    mockH = 120;
+    rerender(
+      <I18nProvider>
+        <MessageBubble
+          entry={entry({ role: "assistant" })}
+          streaming
+          streamingText="行一**加粗**更多内容继续流入"
+        />
+      </I18nProvider>,
+    );
+    expect(bubble.style.minHeight).toBe("120px");
+    hSpy.mockRestore();
+  });
+
+  it("边界：非流式气泡不设 min-height（转正后按真实高度渲染）", () => {
+    const { container } = ui(<MessageBubble entry={entry({ role: "assistant" })} />);
+    const bubble = container.querySelector(".bubble") as HTMLElement;
+    expect(bubble.style.minHeight).toBe("");
   });
 });

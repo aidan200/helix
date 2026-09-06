@@ -273,6 +273,7 @@ const MessageFlow = function MessageFlow({ children, onOpenInstance = noop, onFo
           )}
           {state.streaming && (
             <MessageBubble
+              key={state.streaming.messageId}
               entry={{
                 kind: "message",
                 id: `streaming-${state.streaming.messageId}`,

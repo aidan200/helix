@@ -6,7 +6,7 @@
  * （MessageFlow EntryView 分发为 SystemInjectBar 细条），气泡徽标只剩
  * 用户 steer 两态。
  */
-import { memo } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
 import type { MessageEntryDto, UsageDto } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { formatTs, fmtTokens } from "@/shared/lib/format";
@@ -55,6 +55,26 @@ const MessageBubble = memo(function MessageBubble({
 }: MessageBubbleProps) {
   const { t } = useI18n();
   const isUser = entry.role === "user";
+  // F-jitter：流式高度单调锁——流式 markdown 逐 token 流入时语法结构切换
+  // （**粗体**/`code`/围栏闭合瞬间字符宽度消失→折行减少）会让渲染高度
+  // 非单调回落；贴底逻辑（MessageFlow scrollTop=scrollHeight）把收缩传导
+  // 为内容下弹、下个 delta 又上移 = 流式输出上下抖动（实测 -18px V 型
+  // 轨迹，与用户输入无关）。锁 = streaming 态 bubble min-height 跟踪
+  // 历史最大高度，流式中只增不减；转正（streaming=false / 组件卸载换
+  // entry 气泡实例）自然解除，按真实高度渲染。
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const streamMaxHRef = useRef(0);
+  useLayoutEffect(() => {
+    if (!streaming) return;
+    const el = bubbleRef.current;
+    if (!el) return;
+    // jsdom 无布局（offsetHeight=0）：不落锁，交还真实高度（测试需 mock）
+    const h = el.offsetHeight;
+    if (h > streamMaxHRef.current) {
+      streamMaxHRef.current = h;
+      el.style.minHeight = `${h}px`;
+    }
+  }, [streaming, streamingText]);
   return (
     <div className={cn("msg", isUser ? "user" : "assistant", streaming && "streaming")}>
       <div className="avatar">{isUser ? "U" : "HX"}</div>
@@ -70,7 +90,7 @@ const MessageBubble = memo(function MessageBubble({
           )}
         </div>
         {entry.steerState && <SteerBadge state={entry.steerState} />}
-        <div className="bubble">
+        <div className="bubble" ref={bubbleRef}>
           {streaming ? (
             <>
               <MarkdownMessage text={streamingText ?? ""} />
