@@ -13,8 +13,15 @@ import type { HookSet } from "../HookSet";
  * setTools → state.tools 直改）只改 state，本 run 的 turn context 不变，
  * 模型下一请求仍看不到新工具。本钩子在 turn 边界检测 state.tools 与
  * turn.context.tools 的名字集漂移，漂移即整体替换 context（只换 tools，
- * systemPrompt/messages 保留 turn 现值——messages 可能领先 state，不可
- * 用 state 重建）。
+ * systemPrompt/messages 保留 turn 现值）。
+ *
+ * 【pi 0.84.4 同步契约（code-review M7⑤ 源码核实留档）】prepareNextTurn
+ * 时点 state.messages ≡ turn.context.messages（message_end 同步镜像，
+ * CompactionHook 头注释同口径）——旧注释「messages 可能领先 state，不可
+ * 用 state 重建」与 CompactionHook 读 state 作压缩源相互矛盾，已统一：
+ * 保留 turn 现值不是因为 state 不可信，而是 context 为本 turn 权威现场、
+ * 语义直接，且 pi 升级若变镜像语义时 context 读面天然免疫。推荐读面 =
+ * turn.context.messages。
  *
  * 【链位序契约】排在 CompactionHook 之后（AgentRuntime 装配序）：
  * - Compaction 未触发（返回 undefined）→ 本钩子正常检测；

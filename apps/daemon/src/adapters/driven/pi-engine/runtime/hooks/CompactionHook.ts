@@ -25,6 +25,17 @@ import type { HookSet } from "../HookSet";
  * 契约：失败不抛出（prepareNextTurn 钩子禁抛）——上抛 onFailed（上层转
  * engine_error 可观测），返回 undefined 保持现状继续 turn，会话无损。
  * 阈值可配：settings 全部来自 profile 声明（reserveTokens/keepRecentTokens）。
+ *
+ * 【pi 0.84.4 同步契约（code-review M7⑤ 源码核实留档，pi-agent-core
+ * dist/agent.js processEvents + dist/agent-loop.js）】prepareNextTurn 时点
+ * agent.state.messages ≡ turn.context.messages：loop 内所有入列消息
+ * （prompts/steering/toolResults/assistant final）都经 message_end 事件
+ * 镜像进 state.messages，turn_end 后两者同步——压缩源读 state.messages
+ * 与读 turn.context.messages 等价。推荐读面 = turn.context.messages
+ * （turn 现场权威，McpDeferredHooks 同口径）；本钩子保留 state 读面的
+ * 理由 = 压缩后须双写 agent.state（跨 run 持久），读写同面更直接。pi
+ * 升级若变 message_end 镜像语义，压缩源须改读 turn.context.messages，
+ * 否则以陈旧历史为源。
  */
 export interface CompactionHookDeps {
   /** 压缩参数声明（profile.compaction 透传）。 */
@@ -70,6 +81,7 @@ export class CompactionHook implements HookSet {
     // 可能永不触发（上下文溢出）且摘要调用走旧 provider。
     const model = (agent.state.model ?? this.deps.model) as Model<any>;
     try {
+      // 压缩源 = state.messages（≡ turn.context.messages，同步契约见头注释 M7⑤）
       const messages = agent.state.messages;
       const est = estimateContextTokens(messages);
       if (!shouldCompact(est.tokens, model.contextWindow, settings)) return undefined;

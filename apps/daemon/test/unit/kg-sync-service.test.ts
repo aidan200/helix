@@ -193,6 +193,8 @@ describe("KgSyncService：双源汇队列去重（CL-2.A5）", () => {
   test("③ watch remove 事件入删除集：sync 后 batch.deletedFiles 含该文件", async () => {
     const { service, store, graph } = makeService();
     active.push(service);
+    // 已建索引基线（M7② 起 baseline=null 会强制全量域——本测窗口增量语义须先立基线）
+    graph.status = { baseline: "1", symbolCount: 1, degraded: false };
     graph.view = {
       files: [{ path: "src/gone.ts", mtime: 1, sha256: "x" }],
       symbols: [],
@@ -289,6 +291,7 @@ describe("KgSyncService：单飞互斥（AD-15）", () => {
 
   test("⑧b drain 后 getSyncBaseline 抛错 → 窗口事件回填不丢（H3：退避重试仍处理该文件）", async () => {
     const graph = new StubGraph();
+    graph.status = { baseline: "1", symbolCount: 1, degraded: false }; // 已建索引（M7② 后窗口域前提）
     const base = graph.getSyncBaseline.bind(graph);
     let failures = 1;
     graph.getSyncBaseline = () => {
@@ -356,5 +359,82 @@ describe("KgSyncService：四步编排与状态面", () => {
     const result = await service.triggerManual(ROOT);
     expect(result.importedFiles).toBe(0); // 全量域内 mtime/hash 未变 → 跳过
     expect(store.batches[0]!.files).toEqual([]);
+  });
+});
+
+describe("KgSyncService：degraded 收敛与无基准全量域（code-review M7①②）", () => {
+  test("⑫ degraded 不丢窗口事件：refill 重放 + 恢复后首次 sync 强制全量域收敛（M7①）", async () => {
+    const engine = new CodegraphEngineFake({
+      unavailable: true,
+      files: [],
+      symbols: [],
+    });
+    const { service, store, graph } = makeService({ engine });
+    active.push(service);
+    // 已建索引基线：a/b/c/d 四文件在册
+    graph.status = { baseline: "7", symbolCount: 4, degraded: false };
+    graph.view = {
+      files: [
+        { path: "src/a.ts", mtime: 100, sha256: "h1" },
+        { path: "src/b.ts", mtime: 50, sha256: "hb" },
+        { path: "src/c.ts", mtime: 10, sha256: "h1c" },
+        { path: "src/d.ts", mtime: 5, sha256: "hd" },
+      ],
+      symbols: [],
+      activeAnchors: [],
+      anchorDeclarations: [],
+    };
+    // 引擎不可用期间窗口事件：改 a.ts + 删 b.ts → degraded sync 不导入不删除
+    service.notifyWrite(ROOT, `${ROOT}/src/a.ts`, "h2");
+    service.onFsEvent(ROOT, `${ROOT}/src/b.ts`, "remove");
+    await waitFor(() => store.batches.length === 1);
+    expect(store.batches[0]!.degraded).toBe(true);
+    expect(store.batches[0]!.files).toEqual([]);
+    expect(store.batches[0]!.deletedFiles).toEqual([]);
+
+    // 引擎恢复：a.ts 变更（有事件）+ c.ts 静默变更（watch 漏事件——forceFullOnce 全量域才能收敛的场景）
+    engine.setUnavailable(false);
+    engine.setSymbols({
+      files: [
+        { path: "src/a.ts", contentHash: "h2", modifiedAt: 200, indexedAt: 200 },
+        { path: "src/c.ts", contentHash: "h2c", modifiedAt: 20, indexedAt: 20 },
+        { path: "src/d.ts", contentHash: "hd", modifiedAt: 5, indexedAt: 5 },
+      ],
+      symbols: [],
+      containsEdges: [],
+    });
+    // 恢复后首个 sync 由新事件触发（full=false 窗口 sync）——forceFullOnce 应强制全量域
+    service.onFsEvent(ROOT, `${ROOT}/src/d.ts`, "write");
+    await waitFor(() => store.batches.length === 2);
+    const batch = store.batches[1]!;
+    expect(batch.degraded).toBe(false);
+    // refill 重放：a.ts 重导入 + b.ts 删除收敛；forceFullOnce 全量域：无事件的 c.ts 静默变更也收敛
+    expect(batch.files.map((f) => f.path).sort()).toEqual(["src/a.ts", "src/c.ts"]);
+    expect(batch.deletedFiles).toEqual(["src/b.ts"]);
+
+    // forceFullOnce 已复位：再次窗口 sync 回增量域（d.ts 未变 → 零导入零删除）
+    service.onFsEvent(ROOT, `${ROOT}/src/d.ts`, "write");
+    await waitFor(() => store.batches.length === 3);
+    expect(store.batches[2]!.files).toEqual([]);
+    expect(store.batches[2]!.deletedFiles).toEqual([]);
+  });
+
+  test("⑬ 无基准（purge 清库后）的窗口 sync 强制全量域（M7②：不产残缺 synced 索引）", async () => {
+    const { service, store, graph, engine } = makeService();
+    active.push(service);
+    engine.setSymbols({
+      files: [
+        { path: "src/a.ts", contentHash: "ha", modifiedAt: 1, indexedAt: 1 },
+        { path: "src/b.ts", contentHash: "hb", modifiedAt: 1, indexedAt: 1 },
+      ],
+      symbols: [],
+      containsEdges: [],
+    });
+    // baseline=null（purge 复位 absent / 冷启动首建）+ 基准读面空：只触一个文件的窗口事件
+    expect(graph.status.baseline).toBeNull();
+    service.onFsEvent(ROOT, `${ROOT}/src/a.ts`, "write");
+    await waitFor(() => store.batches.length === 1);
+    // 全量域：未被触的 b.ts 同样导入——不会只导入 a.ts 就推进基准戳
+    expect(store.batches[0]!.files.map((f) => f.path).sort()).toEqual(["src/a.ts", "src/b.ts"]);
   });
 });

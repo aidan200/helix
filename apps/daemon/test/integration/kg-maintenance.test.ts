@@ -410,7 +410,11 @@ describe("kg 维护批（C1）：kg.graph.purge / kg.index.delete I 层", () => 
   });
 
   test("③ index.delete：.codegraph 删除 + 状态 absent + watcher 停 + 重建自动重挂（AC5）", async () => {
-    // alpha 当前 synced + watched（①② 后重建过）；先补一个知识节点验证知识层保留
+    // alpha 在 ② 被 purge（M7② 起联动停 watcher + 索引态 absent）——先重建恢复
+    // synced + watched 前提
+    const pre = await rig.client.kg("kg.index.status", { project: "alpha", rebuild: true });
+    expect(pre.result.state).toBe("synced");
+    // 补一个知识节点验证知识层保留
     rig.write.write(rig.alpha, {
       kind: "createNode",
       iterationId: "iter-c1",
@@ -457,5 +461,25 @@ describe("kg 维护批（C1）：kg.graph.purge / kg.index.delete I 层", () => 
     expect(un.error?.code).toBe("command.unimplemented");
     await client.close();
     bare.stop();
+  });
+
+  test("⑤ purge 联动停 watcher + 清库后窗口事件 sync 强制全量域（M7②：不产残缺索引）", async () => {
+    // alpha 当前 synced + watched（③ 末重建重挂）
+    expect(rig.fsWatch.isWatching(rig.alpha)).toBe(true);
+    const purged = await rig.client.kg("kg.graph.purge", { project: "alpha" });
+    expect(purged.ok).toBe(true);
+    // M7②：purge 联动停 watcher（与 index.delete 同规——旧口径「不停 watcher 行为自洽」已推翻）
+    expect(rig.fsWatch.isWatching(rig.alpha)).toBe(false);
+    expect(rig.sync.getStatus(rig.alpha).phase).toBe("absent");
+
+    // 双保险验证：即使事件仍注入（notifyWrite 写后通知本就不经 watcher），清库后
+    // 首次 sync 走全量域而非「只导入被触文件即推进基准戳」
+    rig.sync.onFsEvent(rig.alpha, `${rig.alpha}/src/arch.ts`, "write");
+    await until(() => rig.sync.getStatus(rig.alpha).phase === "synced", 8000, "清库后窗口事件 sync 收敛");
+    // 全量域重建：符号面完整（残缺索引会 phase=synced 但 symbols/files 缺）
+    expect(rig.graph.getIndexStatus(rig.alpha).symbolCount).toBeGreaterThanOrEqual(1);
+    expect(rig.graph.getSyncBaseline(rig.alpha).files.length).toBeGreaterThanOrEqual(1);
+    // sync 成功经 onSynced 钩子自动重挂 watcher
+    expect(rig.fsWatch.isWatching(rig.alpha)).toBe(true);
   });
 });
