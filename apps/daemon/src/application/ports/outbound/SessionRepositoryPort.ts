@@ -13,6 +13,12 @@ export type { InstanceState };
  * 领域状态整体；恢复时 restore。真实实现在 adapters/driven/sqlite-session
  * （SQLite WAL + 单写队列）；单测用 InMemory 假实现（test/mocks）。
  * 本文件只有接口/类型定义（AG-01）。
+ *
+ * 关注点按族拆分为五个接口（聚合持久化 / 生命周期投影 / closure 产物 /
+ * 事件查询 / pending_sync 追踪），SessionRepositoryPort 为五族组合——
+ * 实现同体多接口（SqliteSessionRepository / InMemorySessionRepository
+ * implements 组合端口，装配面零变化）；新增读面归入对应族接口，不再
+ * 涌入组合面。读面 async/sync 混排为现状保留（统一 async 留待独立批次）。
  */
 
 /**
@@ -27,7 +33,11 @@ export interface PersistedDomainState {
   readonly toolCalls: readonly ToolCallRecordData[];
 }
 
-export interface SessionRepositoryPort {
+/**
+ * 会话聚合持久化族：领域状态整体 write-through（save/restore）+
+ * 会话清单与元数据读面 + 删除收口链的删库步。
+ */
+export interface SessionRepository {
   /** 保存领域状态整体（幂等覆盖，同 sessionId）。 */
   save(state: PersistedDomainState): Promise<void>;
   /** 按 id 读取；不存在返回 undefined。 */
@@ -44,11 +54,24 @@ export interface SessionRepositoryPort {
    * 经单写通道串行（同会话仓内 FIFO——先于本调用的写全部先落盘）。
    */
   deleteSession(sessionId: string): Promise<void>;
+}
+
+/** 实例生命周期投影族：agent_lifecycle 投影行的写读面。 */
+export interface AgentProjectionStore {
   /**
    * 实例生命周期投影行落盘（agent_lifecycle upsert：
    * 调度器对实例状态迁移的 write-through；经单写通道串行保序）。
    */
   saveAgentLifecycle(sessionId: string, instanceId: string, state: InstanceState): Promise<void>;
+  /**
+   * 实例生命周期行读面（agent_lifecycle 每实例行，含 main）：重启时
+   * RestoreService 重建实例注册表 / 判定 running/queued 收口的数据源。
+   */
+  queryAgentLifecycles(sessionId: string): Promise<readonly AgentLifecycleRowData[]>;
+}
+
+/** closure 产物族：closure 记录行 + 任务报告文件产物的写读面。 */
+export interface ClosureStore {
   /**
    * closure 记录行落盘（closure_records 追加行，O-5：任务报告本体 =
    * SQLite 行 + findings 指针/JSON；经单写通道串行保序，抗重启）。
@@ -67,22 +90,23 @@ export interface SessionRepositoryPort {
    * TR-AD-13 同一 WriteQueue 队列原子写——报告文件与 SQLite 写同链串行）。
    */
   saveReportFile(reportPath: string, content: string): Promise<void>;
-  // ── 读面扩展（重启恢复消费；AD-10 恢复语义树） ──────────────
-  /**
-   * 实例生命周期行读面（agent_lifecycle 每实例行，含 main）：重启时
-   * RestoreService 重建实例注册表 / 判定 running/queued 收口的数据源。
-   */
-  queryAgentLifecycles(sessionId: string): Promise<readonly AgentLifecycleRowData[]>;
   /**
    * closure 记录行读面（按会话/实例过滤，落盘序；终态实例 closure 恢复源）。
    */
   queryClosureRecords(sessionId: string, agentId?: string): readonly ClosureRecordData[];
+}
+
+/** 事件查询族：domain_events 事件流过滤读面（内部恢复/trace 用）。 */
+export interface EventQueryPort {
   /**
    * 事件流四维过滤读面（重启恢复消费事件流——如实例 task 从
    * agent.spawned 载荷重建；仍不对协议/前端暴露，仅内部恢复/trace 用）。
    */
   queryEvents(query?: DomainEventQuery): readonly DomainEvent[];
-  // ── W2-D pending_sync 变更追踪（R13/R22） ─────────────────
+}
+
+/** pending_sync 变更追踪族（W2-D，R13/R22）：写闭环记录点与未提示行扫描。 */
+export interface PendingSyncPort {
   /**
    * 写类工具成功调用判定（闭环记录点机械判据；v1 口径：仅 edit/write
    * 工具名 + status=completed——bash 写操作难判定不算，口径注释见实现）。
@@ -101,6 +125,17 @@ export interface SessionRepositoryPort {
   /** pending_sync 置已提示（提示发出后置位；重复置位幂等）。 */
   markPendingSyncNotified(sessionIds: readonly string[]): Promise<void>;
 }
+
+/**
+ * 会话仓组合端口 = 五族接口组合（实现同体多接口，零运行时形态——
+ * 装配面/实现面签名不变；消费方可按需收窄到单族接口）。
+ */
+export interface SessionRepositoryPort
+  extends SessionRepository,
+    AgentProjectionStore,
+    ClosureStore,
+    EventQueryPort,
+    PendingSyncPort {}
 
 /** pending_sync 行读面形状（notified=0 过滤后故不含标记列）。 */
 export interface PendingSyncRowData {

@@ -62,13 +62,17 @@ export function resolveProjectArg(entries: readonly ProjectDirEntry[], project: 
  * - 不含该段 / 目录名不合 {project}-{slug} 契约（无 `-`、`-` 打头、空名）/
  *   `.worktrees` 直结尾 → 原样返回（逐字节不变——非 worktree 场景零影响）。
  * - 多段嵌套取首个 `/.worktrees/`（外层 worktree 管辖）。
+ * - win32 原生路径（TR-95 目标平台集含 win32-x64）：调用方传 path.join
+ *   反斜杠路径时先归一 POSIX 分隔符再判定——命中 worktree 段的归一输出
+ *   统一 POSIX 形态；不命中（非 worktree）原样返回逐字节不变（含分隔符）。
  */
 export function resolveMainRepoPath(input: string): string {
+  const normalized = input.replaceAll("\\", "/");
   const marker = "/.worktrees/";
-  const idx = input.indexOf(marker);
+  const idx = normalized.indexOf(marker);
   if (idx < 0) return input;
-  const before = input.slice(0, idx); // idx=0（/.worktrees 紧贴根）→ ""，模板拼出 /{project}
-  const tail = input.slice(idx + marker.length);
+  const before = normalized.slice(0, idx); // idx=0（/.worktrees 紧贴根）→ ""，模板拼出 /{project}
+  const tail = normalized.slice(idx + marker.length);
   const stripped = tail.endsWith("/") && tail.length > 1 ? tail.slice(0, -1) : tail;
   const segments = stripped.split("/");
   const dir = segments[0] ?? "";

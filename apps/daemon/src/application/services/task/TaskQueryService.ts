@@ -3,7 +3,7 @@ import { TaskError } from "./TaskError";
 import type { TaskStorePort, BatchData, JobData, StageData, StageArtifact } from "../../ports/outbound/TaskStorePort";
 import type { WorkLedgerPort } from "../../ports/outbound/WorkLedgerPort";
 import type { TaskSkillRegistryPort } from "../../ports/outbound/TaskSkillRegistryPort";
-import type { JobStatus } from "../../../domain/task/types";
+import type { JobStatus, WorkItemStatus } from "../../../domain/task/types";
 
 /**
  * TaskQueryService —— P-2 任务页读面（AD-4② 人类可读投影服务端收口）：
@@ -40,7 +40,8 @@ export interface TaskSummaryDto {
 export interface WorkItemDto {
   readonly seq: number;
   readonly content: string;
-  readonly status: "pending" | "in_progress" | "done" | "abandoned";
+  /** 与 domain WORK_ITEM_STATUSES 同源（不再独立维护字面量联合——漂移编译期断裂）。 */
+  readonly status: WorkItemStatus;
   readonly note: string | null;
 }
 

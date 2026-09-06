@@ -59,6 +59,18 @@ describe("resolveMainRepoPath：worktree 路径 → 主仓归一（纯函数）"
   test("workspace 根为 /（.worktrees 紧贴根）→ /{project} 形态", () => {
     expect(resolveMainRepoPath("/.worktrees/helix-foo")).toBe("/helix");
   });
+
+  test("win32 原生反斜杠路径（TR-95 目标平台集含 win32）：marker 命中归一，输出 POSIX 分隔符", () => {
+    // 调用方传 path.join 原生反斜杠路径时不得静默失效（读穿透/附着穿透）
+    expect(resolveMainRepoPath("C:\\ws\\.worktrees\\helix-foo")).toBe("C:/ws/helix");
+    expect(resolveMainRepoPath("C:\\ws\\.worktrees\\helix-foo\\apps\\daemon\\x.ts")).toBe(
+      "C:/ws/helix/apps/daemon/x.ts",
+    );
+    // 非 worktree win32 路径原样返回（逐字节不变，含分隔符）
+    expect(resolveMainRepoPath("C:\\ws\\helix")).toBe("C:\\ws\\helix");
+    // 命名不合契约的 win32 worktree 段同样原样返回
+    expect(resolveMainRepoPath("C:\\ws\\.worktrees\\backup")).toBe("C:\\ws\\.worktrees\\backup");
+  });
 });
 
 describe("kgReadProjects：kg 读面项目域（W-R3 读穿透 + 既有口径不变）", () => {

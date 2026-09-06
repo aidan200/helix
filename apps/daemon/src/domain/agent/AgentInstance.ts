@@ -119,10 +119,19 @@ export class AgentInstance {
     return new AgentInstance({ ...data, state: data.state ?? "queued" });
   }
 
-  /** 从值形状重建（快照/持久化恢复用；保留任意合法态）。 */
+  /**
+   * 从值形状重建（快照/持久化恢复用；保留任意合法态）。
+   * 非 running 态携带 startedAtMs 拒绝（值对象契约「非 running 不携带」——
+   * 残留起点会让 elapsedMs 把已结算段之后的时钟继续计入当前段，虚增时长）。
+   */
   static restore(data: AgentInstanceData): AgentInstance {
     if (!INSTANCE_STATES.includes(data.state)) {
       throw new DomainError(`AgentInstance ${data.instanceId} 状态非法：${String(data.state)}`);
+    }
+    if (data.state !== "running" && data.startedAtMs !== undefined) {
+      throw new DomainError(
+        `AgentInstance ${data.instanceId} 非 running 态（${data.state}）不得携带 startedAtMs（当前段起点仅 running 态合法）`,
+      );
     }
     return new AgentInstance({ ...data });
   }
@@ -163,11 +172,15 @@ export class AgentInstance {
   }
 
   toData(): AgentInstanceData {
+    // 显式剔出 restore 载荷残留的 startedAtMs 键——settle 只清运行字段
+    //（_startedAtMs），...this.data 扩散会把旧键带回非 running 态载荷。
+    const { startedAtMs: _residual, ...base } = this.data;
+    void _residual;
     return {
-      ...this.data,
+      ...base,
       state: this._state,
       elapsedMs: this._elapsedMs,
-      ...(this._startedAtMs !== undefined ? { startedAtMs: this._startedAtMs } : {}),
+      ...(this._state === "running" && this._startedAtMs !== undefined ? { startedAtMs: this._startedAtMs } : {}),
     };
   }
 

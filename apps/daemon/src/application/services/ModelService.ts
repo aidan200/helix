@@ -12,6 +12,7 @@ import type {
 } from "../ports/outbound/ModelCatalogPort";
 import type { AuthStorePort } from "../ports/outbound/AuthStorePort";
 import type { DefaultModelPort } from "../ports/outbound/DefaultModelPort";
+import type { DefaultThinkingPort } from "../ports/outbound/DefaultThinkingPort";
 import type { SessionRegistry } from "./SessionRegistry";
 import type { ErrorCode } from "@helix/protocol";
 
@@ -64,8 +65,8 @@ export interface ModelServiceDeps {
   readonly auth: AuthStorePort;
   /** 全局默认模型存储（SQLite 单写通道）。 */
   readonly defaultModel: DefaultModelPort;
-  /** R7 全局兜底批：全局默认推理强度 KV（可选——测试缺省直返 null）。 */
-  readonly defaultThinking?: { stored(): string | null; set(level: string | null): Promise<void> };
+  /** R7 全局兜底批：全局默认推理强度 KV（可选——测试缺省直返 null；端口类型收编，不再内联形状旁路）。 */
+  readonly defaultThinking?: DefaultThinkingPort;
   /** model.changed 广播出海（容器接 EventStream；channel=model）。 */
   readonly onModelChanged: (payload: { sessionId: string; model: string; previous: string; effective: "next-turn" }) => void;
   /** thinking.changed 广播出海（thinking 批①；容器接 EventStream；channel=thinking）。 */

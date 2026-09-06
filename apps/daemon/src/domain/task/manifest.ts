@@ -196,8 +196,9 @@ export function validateTaskParams(
     throw new DomainError(`params 违例：params 必须为对象，得到 ${describeValue(params)}`);
   }
   // M2：paramsSchema 外未知键一律拒绝（对齐本文件「子集外声明一律拒绝」哲学——
-  // 静默吞掉未知键会让拼错字段名的调用方误以为生效）
-  const unknownKeys = Object.keys(params).filter((k) => !(k in manifest.paramsSchema));
+  // 静默吞掉未知键会让拼错字段名的调用方误以为生效）。Object.hasOwn 只认
+  // 自有键——`k in schema` 走原型链会让 toString/__proto__ 等成员名逃过校验。
+  const unknownKeys = Object.keys(params).filter((k) => !Object.hasOwn(manifest.paramsSchema, k));
   if (unknownKeys.length > 0) {
     throw new DomainError(
       `params 违例：存在 paramsSchema 外未知参数 ${unknownKeys.map((k) => `"${k}"`).join("、")}（未声明键一律拒绝）`,

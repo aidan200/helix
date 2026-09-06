@@ -337,6 +337,31 @@ describe("⑧ 执行时长记账（markRunning 段起点 / park 结算 / resume 
     expect(back.elapsedMs(T0 + 2_500)).toBe(1_500); // 1s 基线 + 0.5s 新段
   });
 
+  test("toData：非 running 态不携带 startedAtMs 键（settle 后剔出 restore 载荷残留）", () => {
+    const a = subagent(1);
+    a.markRunning(T0);
+    // restore 后 this.data 载荷内含 startedAtMs——complete settle 只清运行字段，
+    // toData 不得经 ...this.data 把残留键带回（值对象契约：非 running 不携带）。
+    const restored = AgentInstance.restore(a.toData());
+    restored.complete(T0 + 4_000);
+    const doneData = restored.toData();
+    expect(doneData.state).toBe("done");
+    expect("startedAtMs" in doneData).toBe(false);
+    expect(doneData.elapsedMs).toBe(4_000);
+  });
+
+  test("restore：非 running 态携带 startedAtMs 拒绝（防恢复载荷虚增 elapsedMs）", () => {
+    const a = subagent(1);
+    a.markRunning(T0);
+    const runningData = a.toData();
+    // running + startedAtMs 合法（running 段起点保留，往返一致）
+    expect(AgentInstance.restore(runningData).startedAtMs).toBe(T0);
+    // 非 running 态携带 startedAtMs → DomainError（不静默吞键）
+    expect(() => AgentInstance.restore({ ...runningData, state: "done" })).toThrow(DomainError);
+    expect(() => AgentInstance.restore({ ...runningData, state: "parked" })).toThrow(DomainError);
+    expect(() => AgentInstance.restore({ ...runningData, state: "queued" })).toThrow(DomainError);
+  });
+
   test("markRunning 缺省钟（无参 Date.now()；真实时间粗校验）", () => {
     const before = Date.now();
     const a = subagent(1);

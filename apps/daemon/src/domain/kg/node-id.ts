@@ -64,12 +64,15 @@ export function parseMigrationId(id: string): { kind: NodeKind; seq: number | nu
 }
 
 /**
- * 存量 id 形态校验（T3.3 kg 工具 get 消费）：TR-n / E-n 新号空间 + 保号
- * 复合形态（TR-AD-47 / E-客户 等）均合法；其余（SPEC-2 / TR-abc / 裸串）
- * false——非法形态在工具层结构化报错而非空结果（参数供给闭环，CL-4.A3）。
+ * 存量 id 形态校验（T3.3 kg 工具 get 消费）：与写入面 parseMigrationId
+ * 同一口径——TR/E 前缀 + 非空尾段均合法（新号空间 TR-47 / 复合前缀
+ * TR-AD-47 / 中文尾缀 E-客户 / 保号无数字形态 TR-abc）：写入面建成的
+ * 节点读入口不得拒绝（读写口径同源）。非 TR/E 前缀（SPEC-2 等）/裸串/
+ * 空尾段（"TR-"）false——非法形态在工具层结构化报错而非空结果
+ * （参数供给闭环，CL-4.A3）。
  */
 export function isValidNodeRef(id: string): boolean {
-  return EXISTING_ID_RE.test(id);
+  return parseMigrationId(id) !== null;
 }
 
 // ── 候选 id（CAND-<seq>；D0：复用 meta 发号计数器模式，与节点号空间独立） ──
