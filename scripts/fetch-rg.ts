@@ -169,13 +169,25 @@ async function downloadOnce(
   const writer = Bun.file(dest).writer();
   let received = 0;
   let nextLog = 8 * 1024 * 1024;
+  // 停滞检测：单一定时器循环重置（每块数据到达后 clearTimeout 重排），
+  // 循环结束/出错 finally 清理——不可每轮新建 Bun.sleep 竞速后不取消：
+  // 赢竞速的悬挂定时器持有事件循环，下载成功后进程仍挂起 stallTimeoutMs 才退出。
+  let stallTimer: ReturnType<typeof setTimeout> | undefined;
+  let stallReject: ((e: Error) => void) | undefined;
+  const stall = new Promise<never>((_, reject) => {
+    stallReject = reject;
+  });
+  stall.catch(() => {}); // 竞速输家 promise 显式吞掉防 unhandled rejection
+  const armStall = () => {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(
+      () => stallReject?.(new Error(`数据流停滞超过 ${o.stallTimeoutMs / 1000}s（连接半死）`)),
+      o.stallTimeoutMs,
+    );
+  };
+  armStall();
   try {
     for (;;) {
-      // 停滞检测：读流与 stall 定时器赛跑；输掉的定时器 promise 显式吞掉防 unhandled rejection
-      const stall = Bun.sleep(o.stallTimeoutMs).then(() => {
-        throw new Error(`数据流停滞超过 ${o.stallTimeoutMs / 1000}s（连接半死）`);
-      });
-      stall.catch(() => {});
       const chunk = await Promise.race([reader.read(), stall]);
       if (chunk.done) break;
       await writer.write(chunk.value);
@@ -186,12 +198,15 @@ async function downloadOnce(
         );
         nextLog += 8 * 1024 * 1024;
       }
+      armStall();
     }
     await writer.end();
     console.log(`${o.label}: 下载完成 ${(received / 1024 / 1024).toFixed(1)}MB → ${dest}`);
   } catch (e) {
     await writer.end().catch(() => {});
     throw e;
+  } finally {
+    clearTimeout(stallTimer);
   }
 }
 
