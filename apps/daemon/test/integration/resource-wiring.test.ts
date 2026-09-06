@@ -48,12 +48,13 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
       builtinSkillsDir: tmpHome(), // T5：空目录隔离随仓内置技能（恰等断言不感知 builtin 面）
     });
     try {
-      // tools 全集注入：两 profile 声明面（main 22 含编排四件与动态族单 browser 与 kg 双工具与 codegraph（W1-B）与 task_create（T2.4，AD-7 仅 main）与 task_report（D3 仅 main）与 plan 三工具（main-session plan 批两域同构）；subagent 13 同含 plan 三工具）
+      // tools 全集注入：两 profile 声明面（main 23 含编排四件与动态族单 browser 与 kg 双工具与 codegraph（W1-B）与 task_create（T2.4，AD-7 仅 main）与 task_report（D3 仅 main）与 plan 三工具（main-session plan 批两域同构）与 edit-lines（F4 接通批）；subagent 14 同含 plan 三工具与 edit-lines）
       expect(daemon.resource.getEffectiveTools("main-session")).toEqual([
         "bash",
         "read",
         "write",
         "edit",
+        "edit-lines", // F4 接通批
         "grep",
         "web_search",
         "web_fetch",
@@ -78,6 +79,7 @@ describe("组合根：ResourceService 装配 + 持久化跨重启", () => {
         "read",
         "write",
         "edit",
+        "edit-lines", // F4 接通批
         "grep",
         "web_search",
         "web_fetch",

@@ -35,9 +35,10 @@ describe("W-R6 kg 写面收权：subagent-worker 工具面", () => {
 });
 
 describe("W-R6 豁免面：subagent-kg-writer profile", () => {
-  test("kind 声明 + 工具集 = 通用 worker + kg-update（恰好多一项）", () => {
+  test("kind 声明 + 工具集 = 通用 worker + kg-update（恰增量一项）；F4 接通批：edit-lines 不随 worker 渗入（字面量落地）", () => {
     expect(SubAgentKgWriterProfile.kind).toBe("subagent-kg-writer");
-    expect(SubAgentKgWriterProfile.tools).toEqual([...SubAgentProfile.tools, "kg-update"]);
+    expect(SubAgentKgWriterProfile.tools).toEqual([...SubAgentProfile.tools.filter((t) => t !== "edit-lines"), "kg-update"]);
+    expect(SubAgentKgWriterProfile.tools).not.toContain("edit-lines");
   });
 
   test("base prompt = 通用版完整前缀 + 图谱产出型一句（增量派生不复制）", () => {

@@ -172,6 +172,7 @@ const MAIN_TOOLS = [
   "read",
   "write",
   "edit",
+  "edit-lines", // F4 接通批：行锚编辑进 main 白名单
   "grep",
   "web_search",
   "web_fetch",
@@ -191,7 +192,7 @@ const MAIN_TOOLS = [
   "plan_update",
   "plan_read",
 ];
-const SUB_TOOLS = ["bash", "read", "write", "edit", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "plan_create", "plan_update", "plan_read"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）；T3.3：+kg；T1.4：+plan 三工具（AD-6①；main-session plan 批起 Main 同含——两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）
+const SUB_TOOLS = ["bash", "read", "write", "edit", "edit-lines", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "plan_create", "plan_update", "plan_read"]; // H-3：+browser（wire 转发通道接 daemon CDP 单例）；T3.3：+kg；T1.4：+plan 三工具（AD-6①；main-session plan 批起 Main 同含——两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）；F4 接通批：+edit-lines
 /** agent-roster 批：只读系统派生块三序（orchestrator 在前，reviewer 在后）。OrchestratorProfile.tools 声明全集同源（D6：+write 任务产物落盘）。 */
 const ORCH_TOOLS = [
   "bash",
@@ -326,14 +327,14 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       // kg-writer：自身 catalog 透传（声明全集含 kg-update）+ pinned 徽标面
       expect(kgw!.profileKind).toBe("subagent-kg-writer");
       expect(kgw!.pinnedTools).toEqual(["kg-update"]);
-      expect(kgw!.tools.map((t) => t.name)).toEqual([...SUB_TOOLS, "kg-update"]);
+      expect(kgw!.tools.map((t) => t.name)).toEqual([...SUB_TOOLS.filter((n) => n !== "edit-lines"), "kg-update"]); // F4 接通批：edit-lines 不渗入 kg-writer
       expect(kgw!.tools.every((t) => t.enabled === true)).toBe(true); // 自身差异行缺省开
       // kg-update snippet 注册表同源（main 目录面同名行单源取回）
       const kgUpdate = kgw!.tools.find((t) => t.name === "kg-update")!;
       expect(kgUpdate.snippet).toContain("知识图谱即时落账");
       // D5 reviewer：自身 catalog 透传（声明面已减 write/edit）
       expect(reviewer!.profileKind).toBe("subagent-code-reviewer");
-      expect(reviewer!.tools.map((t) => t.name)).toEqual(SUB_TOOLS.filter((n) => n !== "write" && n !== "edit"));
+      expect(reviewer!.tools.map((t) => t.name)).toEqual(SUB_TOOLS.filter((n) => n !== "write" && n !== "edit" && n !== "edit-lines"));
       expect(reviewer!.tools.map((t) => t.name)).not.toContain("kg-update");
       expect(reviewer!.tools.every((t) => t.enabled === true)).toBe(true);
       // 派生块技能行 = 自身 kind 清单（含 enabled 位，透传同构；makeRig 空
@@ -469,14 +470,14 @@ describe("agent.config.list（v0.6 全局命令；点对点结果帧）", () => 
       // 终态：kg-writer 读自身差异行（无禁用记录 → 全量 enabled=true），
       // 不随 worker toggle 收窄
       const kgw = system.find((b) => b.profileKind === "subagent-kg-writer")!;
-      expect(kgw.tools.map((t) => t.name)).toEqual([...SUB_TOOLS, "kg-update"]);
+      expect(kgw.tools.map((t) => t.name)).toEqual([...SUB_TOOLS.filter((n) => n !== "edit-lines"), "kg-update"]); // F4 接通批：edit-lines 不渗入 kg-writer
       expect(kgw.tools.every((t) => t.enabled === true)).toBe(true);
       // kind 隔离：orchestrator 同样不受 worker toggle 影响
       const orch = system.find((b) => b.profileKind === "orchestrator")!;
       expect(orch.tools.some((t) => t.name === "grep")).toBe(true);
       // D5 reviewer：独立全量（write/edit 声明面已减）
       const reviewer = system.find((b) => b.profileKind === "subagent-code-reviewer")!;
-      expect(reviewer.tools.map((t) => t.name)).toEqual(SUB_TOOLS.filter((n) => n !== "write" && n !== "edit"));
+      expect(reviewer.tools.map((t) => t.name)).toEqual(SUB_TOOLS.filter((n) => n !== "write" && n !== "edit" && n !== "edit-lines"));
       expect(reviewer.tools.some((t) => t.name === "grep")).toBe(true);
     } finally {
       await client.close();

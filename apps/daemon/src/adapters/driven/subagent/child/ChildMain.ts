@@ -529,8 +529,13 @@ async function main(): Promise<void> {
   //（工具缺席优于整个 spawn 失败）。
   const mcpJson = process.env.HELIX_MCP_SERVERS_JSON;
   const mcpRegistry = new McpRegistry();
+  // 配置 server 集（F4 修复：过滤条件锚配置集而非 running 集——全部启动
+  // 失败（running=0）时过滤也必须执行，否则 spawn 快照里死命名空间工具名
+  // 残留而 executor 无 mcp 注入，resolveTools 硬校验抛错致子进程整崩）
+  const configuredServers = new Set<string>();
   if (mcpJson !== undefined && mcpJson !== "") {
     for (const serverConfig of JSON.parse(mcpJson) as McpServerConfig[]) {
+      configuredServers.add(serverConfig.name);
       await mcpRegistry.addServer(serverConfig).catch(() => {
         // addServer 内部已降级（error 状态）；工具名过滤在下方统一做
       });
@@ -539,9 +544,11 @@ async function main(): Promise<void> {
   const runningServers = new Set(
     mcpRegistry.getStatuses().filter((s) => s.state === "running").map((s) => s.name),
   );
-  if (runningServers.size > 0) {
+  if (configuredServers.size > 0) {
     // 非 running server 的命名空间工具名剔除（`${server}__` 前缀；双下划线
-    // 命名空间为 MCP 专属约定，静态工具名无碰撞）
+    // 命名空间为 MCP 专属约定，静态工具名无碰撞）——配置集与 running 集
+    // 做差：配置了但未 running 的 server 工具名全部出局（工具缺席优于
+    // 整个 spawn 失败）
     const filteredTools = profile.tools.filter((name) => {
       const sep = name.indexOf("__");
       return sep <= 0 || runningServers.has(name.slice(0, sep));

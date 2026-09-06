@@ -7,7 +7,7 @@ import { loadPrompt } from "../prompts";
  * 任务设计 D5，2026-08 评审定稿：机械解耦，非 SOP 软约束）。
  *
  * 由 SubAgentProfile 派生（零复制，SubAgentKgWriterProfile 同模板）：
- * 工具集 = 通用 worker **摘 write/edit**（评审批次的代码写面机械关闭），
+ * 工具集 = 通用 worker **摘 write/edit/edit-lines**（评审批次的代码写面机械关闭），
  * 保留 bash（报告/findings 旁路文件 + linter 等评审辅助）与只读面
  * （kg/codegraph/plan 三件套）；base prompt = 通用版 + 评审纪律后缀
  * （只读评审/证据纪律/findings kind=issue/报告经 bash 写
@@ -30,8 +30,10 @@ import { loadPrompt } from "../prompts";
  * 文件无处写、linter 跑不了，crippling 评审能力，不取。
  */
 
-/** reviewer 相对通用 worker 的摘除工具（代码写面机械关闭；组装快照派生单源）。 */
-export const SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS = ["write", "edit"] as const;
+/** reviewer 相对通用 worker 的摘除工具（代码写面机械关闭；组装快照派生单源）。
+ * F4 接通批：edit-lines 同摘——行锚编辑与 edit 同属写工具，reviewer 是 worker
+ * 摘 write/edit 的只读面，不随 worker 白名单接通而渗入。 */
+export const SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS = ["write", "edit", "edit-lines"] as const;
 
 /** reviewer base prompt 增量句（加在通用 worker 版之后——特定纪律后置覆盖通用纪律；正文事实源 = resources/prompts/roles/subagent-code-reviewer.md）。 */
 export const SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX = loadPrompt("roles/subagent-code-reviewer.md");

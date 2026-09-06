@@ -61,6 +61,8 @@ export const SubAgentProfile: AgentProfile = {
     "read",
     "write",
     "edit",
+    // edit-lines 行锚编辑（F4 接通批：与主会话同扩——edit 失败引导链在 worker 面同样可达）
+    "edit-lines",
     "grep",
     "web_search",
     "web_fetch",

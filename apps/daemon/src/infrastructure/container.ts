@@ -702,10 +702,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    ① config.mcpServers → 逐 server addServer（独立 try——单 server 失败
   //       降级 error 状态不阻塞其它）；
   //    ② 状态订阅双消费：running/error/stopped → mcp.status.changed 全连接
-  //       广播（设置页徽标数据源）；**running 时同步发布 resources.changed
-  //       两 kind**（main-session + subagent-worker）→ refreshAssembly 重算
+  //       广播（设置页徽标数据源）；**running 时同步刷新装配三 kind**
+  //       （main-session + subagent-worker + orchestrator）→ refreshAssembly 重算
   //       catalog（新工具名进生效集）+ 活跃会话 appendTools + setTools 直改
-  //       （下一 turn 生效）；stopped（remove）同样发布（工具面收缩）。
+  //       （下一 turn 生效）；stopped（remove）同样刷新（工具面收缩）。
+  //       orchestrator 虽零活跃直改（会话短生命周期），快照重算让下一编排
+  //       会话拿到 MCP 工具名——F4 修复前漏接此 kind，orchestrator 的 MCP
+  //       工具经 orchestratorMcpTools 注册而快照永不到达（注册而不可达）。
   //    预热 fire-and-forget：daemon 服务先起，MCP 工具陆续到位。──
   let mcpShutdown: (() => void) | undefined; // shutdown 钩子（buildDrivingAdapters deps 消费）
   if (mcpRegistry !== undefined) {
@@ -716,6 +719,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
         // 静默降级——unhandled rejection 会击穿测试进程（mcp-ws ③ 实证）
         sessionStack.refreshAssembly("main-session").catch(() => {});
         sessionStack.refreshAssembly("subagent-worker").catch(() => {});
+        sessionStack.refreshAssembly("orchestrator").catch(() => {});
       }
     });
     for (const serverConfig of persistence.mcpConfig.listConfigs()) {
