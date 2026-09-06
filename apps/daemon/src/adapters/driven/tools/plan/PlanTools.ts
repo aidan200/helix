@@ -10,8 +10,9 @@ import type { WorkItemStatus } from "../../../../domain/task/types";
 /**
  * plan 工具族（T1.4，CL-2 F2.5，AD-6①）——实例工作台账三薄壳：
  *
- * - plan_create({ items })：一次建全部条目（seq 1..n，待开始）；同实例
- *   仅一次（重建被拒绝）；
+ * - plan_create({ items })：一次建全部条目（seq 1..n，待开始）；全办结
+ *   （done / abandoned 带 note）后可重建重开——旧行清、seq 重开；存在
+ *   未决项时拒绝（不覆盖推进中台账）；
  * - plan_update({ seq, status, note? })：逐项推进（in_progress/done/
  *   abandoned——abandoned 必须带非空 note 说明理由）+ 记 note（关键事实、
  *   产物指针、卡点）；
@@ -31,7 +32,7 @@ const planCreateParameters = {
     items: {
       type: "array",
       items: { type: "string" },
-      description: "计划条目清单（按执行顺序，每条一项工作；一次给出全部，创建后不可重建）",
+      description: "计划条目清单（按执行顺序，每条一项工作；一次给出全部，全部办结后可重建重开）",
     },
   },
   required: ["items"],
@@ -77,7 +78,7 @@ export function createPlanCreateTool(
     name: "plan_create",
     label: "plan_create",
     description:
-      "创建本实例的工作台账：开工前一次给出全部计划条目（按执行顺序），创建后不可重建。" +
+      "创建本实例的工作台账：开工前一次给出全部计划条目（按执行顺序），全部办结后可重建重开。" +
       "逐项推进用 plan_update，查看用 plan_read。条目应覆盖从开工到收口的全部关键步骤。",
     parameters: planCreateParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {

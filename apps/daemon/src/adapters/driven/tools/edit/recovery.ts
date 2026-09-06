@@ -131,13 +131,14 @@ function runLevel2(contentLines: readonly string[], oldLines: readonly string[])
   }
   if (anchorIndex === -1) return { hit: false };
   const anchor = oldLines[anchorIndex]!;
+  // 锚行可多次出现：某个出现位置不可行（窗口起点为负 / 分数不足）继续扫描
+  // 后续出现——首个出现即 break 会丢掉后续可能命中的合法窗口（召回下降）。
   for (let i = 0; i + anchorIndex < contentLines.length; i++) {
     if (contentLines[i]!.includes(anchor)) {
       const start = i - anchorIndex;
-      if (start < 0) break;
+      if (start < 0) continue;
       const score = windowScore(contentLines, start, oldLines);
       if (score >= WINDOW_HIT_THRESHOLD) return { hit: true, anchorLine: start + 1 };
-      break;
     }
   }
   return { hit: false };
