@@ -175,8 +175,8 @@ import {
 /** 浏览器侧 token 获取端点路径（vite dev 与 static-serve 生产共用同一机制）。 */
 export const DEV_TOKEN_PATH = "/helix-dev-token";
 
-/** JSON 形状守卫后的命令信封（onMessage 保证为对象；字段仍 unknown 逐案校验）。 */
-type CommandEnvelope = { v: FrameVersion | number | string; type: unknown; payload: unknown; sessionId?: unknown };
+/** JSON 形状守卫后的原始命令帧（onMessage 保证为对象；字段仍 unknown 逐案校验——非协议 CommandEnvelope，校验前的宽松形状）。 */
+type RawCommandFrame = { v: FrameVersion | number | string; type: unknown; payload: unknown; sessionId?: unknown };
 
 /** 信任源族：①loopback 开发 Origin（vite dev 等）：localhost / 127.0.0.1 /
  *  [::1] 任意端口；②打包形态应用自有资产协议源：tauri://localhost
@@ -357,7 +357,7 @@ export class WsServerAdapter {
    * 会 connections.get(sender)===undefined 静默落空（订阅永久丢失），且
    * *.result 回执会先于 connection.welcome 到达。排队至握手完成后按序回放。
    */
-  private readonly handshakeQueues = new Map<ServerWebSocket<ConnState>, CommandEnvelope[]>();
+  private readonly handshakeQueues = new Map<ServerWebSocket<ConnState>, RawCommandFrame[]>();
 
   constructor(deps: WsServerAdapterDeps) {
     this.deps = deps;
@@ -458,7 +458,7 @@ export class WsServerAdapter {
       ws.close();
       return;
     }
-    const frame = envelope as CommandEnvelope;
+    const frame = envelope as RawCommandFrame;
     const pending = this.handshakeQueues.get(ws);
     if (pending !== undefined) {
       // 握手进行中（await probeCurrentDraft/getSessionView 窗口）：命令帧排队，
@@ -486,7 +486,7 @@ export class WsServerAdapter {
 
   private async handleHandshake(
     ws: ServerWebSocket<ConnState>,
-    envelope: CommandEnvelope,
+    envelope: RawCommandFrame,
   ): Promise<void> {
     const reject = (code: ConnectionErrorEvent["payload"]["code"], message: string): void => {
       this.sendNow(this.rawSender(ws), {
@@ -595,7 +595,7 @@ export class WsServerAdapter {
 
   private routeCommand(
     ws: ServerWebSocket<ConnState>,
-    envelope: CommandEnvelope,
+    envelope: RawCommandFrame,
   ): void {
     const type = typeof envelope.type === "string" ? envelope.type : "";
     const payload = (envelope.payload ?? {}) as Record<string, unknown>;

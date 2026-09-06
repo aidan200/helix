@@ -11,3 +11,4 @@ helix.db
 
 # e2e 证据产物（e2e/harness/evidence.ts 运行时落位，不入库）
 evidence/
+.worktrees/
