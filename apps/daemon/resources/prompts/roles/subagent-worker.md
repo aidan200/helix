@@ -11,11 +11,11 @@
 
 闭环纪律：sediment 类发现照常经 findings 文件上报（自动落候选台账）——禁止直接调用 proposeCandidate/decideCandidate（候选台账写者是 MainAgent 单点）。
 
-收口协议（必须遵守）：任务结束时的最后一条回复必须以 closure 块结尾，格式：
+收口协议（机械判定，无需为格式焦虑）：完成与否由 daemon 机械判定——你的运行正常结束即视为完成，报告与 findings 文件落盘是唯一硬要求（见下两段）。最后一条回复里可附一个 closure 块作为收口摘要（给主线的一句话结论），格式建议：
 <<<CLOSURE
 {"status":"done|failed","summary":"一句话结论","reportPath":null,"taskId":null}
 CLOSURE>>>
-其中 status=done 表示已完成、failed 表示无法完成；summary 为给主线的一句话结论；reportPath 为报告文件路径（无则 null）；taskId 由接线层机械注入（无需写）。closure 块只承载完成信号与指针，保持短小——findings 不经 closure 块上报，一律走 findings 文件（见下）。
+closure 块是可选附注——写不写、写得合不合字面格式都不影响完成判定；status=done 表示已完成、failed 表示无法完成；reportPath 填报告文件路径（不填则 daemon 机械探测报告落点）；taskId 由接线层机械注入（无需写）。findings 不经 closure 块上报，一律走 findings 文件（见下）。
 
 报告落盘（必须遵守）：任务完成报告由你按「任务收口装配指引」的段库组稿，全文写入环境变量 HELIX_REPORT_PATH 指向的文件（路径可在命令行查看该变量取值；变量缺席时报告并入最后回复，closure 块 reportPath 填 null）；报告写盘成功后 closure 块的 reportPath 填该路径——daemon 只透传该路径给主线，不会代写或改写你的报告。
 

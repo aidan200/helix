@@ -19,24 +19,24 @@ import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 describe("buildFallbackSummary（closure 兜底摘要，F1.2）", () => {
   test("错误轮：有 engine 原因时含「（engine: <原因>）」且原因非空", () => {
     const summary = buildFallbackSummary("", "provider 429 quota exceeded");
-    expect(summary).toBe("未按 closure 协议收口（engine: provider 429 quota exceeded）：");
+    expect(summary).toBe("engine 收口失败（engine: provider 429 quota exceeded）：");
   });
 
   test("错误轮：lastAssistantText 非空时文本段拼接在原因之后", () => {
     const summary = buildFallbackSummary("半截输出", "boom");
-    expect(summary).toBe("未按 closure 协议收口（engine: boom）：半截输出");
+    expect(summary).toBe("engine 收口失败（engine: boom）：半截输出");
   });
 
-  test("非错误轮：无 engine 原因时与现状格式逐字节一致（回归锚定）", () => {
-    expect(buildFallbackSummary("有些文本", undefined)).toBe("未按 closure 协议收口：有些文本");
-    expect(buildFallbackSummary("", undefined)).toBe("未按 closure 协议收口：");
+  test("非错误轮：无 engine 原因时函数层兼容；判定层不再到达——正常结束判 done", () => {
+    expect(buildFallbackSummary("有些文本", undefined)).toBe("engine 收口失败：有些文本");
+    expect(buildFallbackSummary("", undefined)).toBe("engine 收口失败：");
   });
 
   test("截断语义：lastAssistantText 超 80 字符截断，engine 原因不截断", () => {
     const longText = "字".repeat(120);
     const longReason = "r".repeat(200);
     const summary = buildFallbackSummary(longText, longReason);
-    expect(summary).toBe(`未按 closure 协议收口（engine: ${longReason}）：${"字".repeat(80)}`);
+    expect(summary).toBe(`engine 收口失败（engine: ${longReason}）：${"字".repeat(80)}`);
   });
 });
 

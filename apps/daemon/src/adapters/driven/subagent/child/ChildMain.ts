@@ -85,9 +85,9 @@ export interface ParsedClosure {
 }
 
 /**
- * 从 assistant 文本解析 `<<<CLOSURE {...} CLOSURE>>>` 块。
- * 无块 / 非法 JSON / status 非法 / summary 缺失 → undefined（调用方按
- * 「未按 closure 协议收口」failed 处理）。
+ * 从 assistant 文本解析 `<<<CLOSURE {...} CLOSURE>>>` 块（字面协议）。
+ * 无块 / 非法 JSON / status 非法 / summary 缺失 → undefined（判定链降级到
+ * 围栏容错提取，再降级到 done 兑底——格式不判生死，task-8213de82）。
  *
  * 闭标记容错（task-778eb18a 三连败修复）：provider SSE 丢尾 delta 会
  * 精确截掉最后一个字符（6 样本 5 截，`CLOSURE>>>` → `CLOSURE>>`）——
@@ -124,14 +124,138 @@ export function parseClosureBlock(text: string): ParsedClosure | undefined {
 // ── closure 兜底摘要（并入 engine 错误原因） ─────────
 
 /**
- * 兜底 closure 摘要组装：有 engine_error 原因时并入
- * 「（engine: <原因>）」段（原因不截断，透传 provider 原文）；无原因时
- * 保持现状格式逐字节不变（非错误轮回归锚定）。80 截断仅施于
- * lastAssistantText。
+ * 兜底 closure 摘要组装（engine 错误路径）：有 engine_error 原因时并入
+ * 「（engine: <原因>）」段（原因不截断，透传 provider 原文）。80 截断仅
+ * 施于 lastAssistantText。
+ *
+ * 前缀语义（task-8213de82 二轮事故修订）：走到这里的唯一形态是
+ * lastEngineError 有值——run 以错误收场，与「closure 协议」无关；
+ * 无 engine 错误的正常结束不再进本路径（buildClosureOutcome 按
+ * engine 状态判 done，信封只是附注）。
  */
 export function buildFallbackSummary(lastAssistantText: string, lastEngineError: string | undefined): string {
   const reason = lastEngineError !== undefined ? `（engine: ${lastEngineError}）` : "";
-  return `未按 closure 协议收口${reason}：${lastAssistantText.slice(0, 80)}`;
+  return `engine 收口失败${reason}：${lastAssistantText.slice(0, 80)}`;
+}
+
+/**
+ * 围栏容错提取（task-8213de82 二轮事故：9 实例 8 次信封失败，其中 6 次
+ * 为代码围栏包裹——内容字段全对、外壳不合字面记号）。LLM 末轮输出用
+ * markdown 围栏包裹结构化数据是训练分布先验，SOP 文本对抗无效——
+ * 机械层吃容错，格式不再判生死。
+ *
+ * 认 ``\u0060\u0060\u0060closure / \u0060\u0060\u0060json / \u0060\u0060\u0060yaml 围栏：JSON 直取（嵌套 closure
+ * 对象下钻一层），YAML 走逐行 `key: value` 简易提取（折叠标量不解析，
+ * 字段缺省）；status 词表归一（success → done）。围栏内 status 缺省
+ * done——走到提取层即外层已保证 run 正常且无 engine 错误。
+ * 自由格式（无围栏）不硬凑 → undefined（交给 done 兜底）。
+ */
+export function extractFencedClosure(text: string): ParsedClosure | undefined {
+  const fence = text.match(/```(?:closure|json|yaml)\s*\n([\s\S]*?)```/);
+  if (!fence) return undefined;
+  const body = fence[1]!;
+  // JSON 路径（含嵌套 closure 对象下钻）
+  try {
+    let raw = JSON.parse(body) as Record<string, unknown>;
+    if (raw.closure !== undefined && typeof raw.closure === "object" && raw.closure !== null) {
+      raw = raw.closure as Record<string, unknown>;
+    }
+    const status = normalizeStatus(raw.status);
+    if (status !== undefined || raw.summary !== undefined || raw.reportPath !== undefined) {
+      return {
+        status: status ?? "done",
+        summary: typeof raw.summary === "string" ? raw.summary : "",
+        reportPath: typeof raw.reportPath === "string" ? raw.reportPath : null,
+        findings: Array.isArray(raw.findings) ? raw.findings : null,
+        taskId: typeof raw.taskId === "string" ? raw.taskId : null,
+      };
+    }
+  } catch {
+    /* 非 JSON → YAML 简易路径 */
+  }
+  // YAML 简易路径：逐行 `key: value`（双重 CLOSURE 形态天然兼容——只认键）
+  const fields = new Map<string, string>();
+  for (const line of body.split("\n")) {
+    const m = line.match(/^\s*(status|summary|reportPath|taskId)\s*:\s*(.+)$/);
+    if (m) fields.set(m[1]!, m[2]!.trim());
+  }
+  if (fields.size === 0) return undefined;
+  const status = normalizeStatus(fields.get("status"));
+  return {
+    status: status ?? "done",
+    summary: fields.get("summary") ?? "",
+    reportPath: fields.get("reportPath") ?? null,
+    findings: null,
+    taskId: fields.get("taskId") ?? null,
+  };
+}
+
+/** 围栏内 status 词表归一：done/failed 直取，success → done；其余 undefined。 */
+function normalizeStatus(value: unknown): "done" | "failed" | undefined {
+  if (value === "done" || value === "failed") return value;
+  if (value === "success") return "done";
+  return undefined;
+}
+
+// ── 收口判定链（engine 状态主信号 + 信封附注） ─────────────
+
+/**
+ * 收口判定（task-8213de82 二轮事故重构——「CLOSURE 只报告完成」的机械版）：
+ *
+ *   1. terminated（SIGTERM）→ failed
+ *   2. 字面信封/围栏提取命中 → 采纳（含显式 failed 自报；engine_error
+ *      为中间轮残留而末轮已成功收口的形态下，收口意图优先）
+ *   3. lastEngineError 有值（run 以错误收场、无信封）→ failed
+ *   4. 都不命中 → **done**（run 正常结束 = 完成信号；summary 取末轮
+ *      文本截断）——此前这里判「未按 closure 协议收口」failed，9 实例
+ *      8 次格式失败的直接来源
+ *
+ * reportPath 机械兜底：解析不到时探测 HELIX_REPORT_PATH 文件存在即用
+ * （报告是 LLM 工具轮写的——文件在即事实，不依赖末轮申报）。
+ * taskId 缺省回落 resolvedTaskId（批次归属机械注入，原逻辑保持）。
+ */
+export function buildClosureOutcome(input: {
+  terminated: boolean;
+  lastAssistantText: string;
+  lastEngineError: string | undefined;
+  resolvedTaskId: string | null;
+  reportEnvPath: string | undefined;
+}): InstanceClosurePayload {
+  const { terminated, lastAssistantText, lastEngineError, resolvedTaskId, reportEnvPath } = input;
+  if (terminated) {
+    return { status: "failed", summary: "terminated by user（SIGTERM）", reportPath: null, findings: null, taskId: resolvedTaskId };
+  }
+  const parsed = parseClosureBlock(lastAssistantText) ?? extractFencedClosure(lastAssistantText);
+  if (parsed !== undefined) {
+    return {
+      status: parsed.status,
+      summary: parsed.summary !== "" ? parsed.summary : lastAssistantText.slice(0, 80),
+      reportPath: parsed.reportPath ?? probeReportFile(reportEnvPath),
+      findings: parsed.findings ?? null,
+      taskId: parsed.taskId ?? resolvedTaskId,
+    };
+  }
+  if (lastEngineError !== undefined) {
+    return { status: "failed", summary: buildFallbackSummary(lastAssistantText, lastEngineError), reportPath: null, findings: null, taskId: resolvedTaskId };
+  }
+  return {
+    status: "done",
+    summary: lastAssistantText.slice(0, 80),
+    reportPath: probeReportFile(reportEnvPath),
+    findings: null,
+    taskId: resolvedTaskId,
+  };
+}
+
+/** reportPath 机械探测：env 落点文件存在才用（不悬空）。 */
+function probeReportFile(reportEnvPath: string | undefined): string | null {
+  if (reportEnvPath === undefined) return null;
+  try {
+    accessSync(reportEnvPath, fsConstants.F_OK);
+    return reportEnvPath;
+  } catch {
+    return null;
+  }
 }
 
 // ── stdin 父侧行读取（AD-7⑤ send → Agent.steer()；H-3 tool-res → RemoteBrowserPort；
@@ -566,14 +690,32 @@ async function main(): Promise<void> {
   // 与 kg-update 工具 taskContext 同源；LLM 显式写优先，缺省机械注入（kg-review
   // SOP「接线层机械注入，LLM 无需透传」的兑现）；非任务上下文零注入。
   const resolvedTask = taskContext?.();
-  // closure 块预解析（兜底在组装前 await——process.exit 不等未决 Promise）
-  const parsedClosure = terminated ? undefined : parseClosureBlock(lastAssistantText);
+  // 收口判定链（task-8213de82 二轮重构）：engine 状态主信号（terminated/
+  // lastEngineError）+ 信封附注（字面 → 围栏容错 → 无则 done 兑底）。
+  // reportPath 机械探测 HELIX_REPORT_PATH 落点（工具轮写盘事实优先于末轮申报）。
+  // 信封未识别的 done 兑底打 log 可观测（围栏命中率可统计）。
+  if (!terminated && lastEngineError === undefined) {
+    const hasEnvelope =
+      parseClosureBlock(lastAssistantText) !== undefined ||
+      extractFencedClosure(lastAssistantText) !== undefined;
+    if (!hasEnvelope) {
+      writeLine({ type: "log", instanceId, text: "信封未识别（无字面/围栏形态）——按 engine 正常结束收口为 done" });
+    }
+  }
+  const closure: InstanceClosurePayload = buildClosureOutcome({
+    terminated,
+    lastAssistantText,
+    lastEngineError,
+    resolvedTaskId: resolvedTask?.taskId ?? null,
+    reportEnvPath: process.env.HELIX_REPORT_PATH,
+  });
   // closure done 收口前机械兑底（task-8659b320 三连败修复）：实例忘
   // plan_update 标记收口项（in_progress 悬置）时，父进程判据②会
-  // failBatch → 重试耗尽全损。closure done = 实例已自证完成，此处只兑
-  // 「忘标记」的 in_progress（带机械 note 可追溯）；pending（声明未开工）
-  // 不兑——真漏做照旧未决。同步写，writeLine 前完成可见。
-  if (parsedClosure?.status === "done") {
+  // failBatch → 重试耗尽全损。closure done = 实例已自证完成（新判定链
+  // 下含围栏/无信封兑底——所有完成形态都触发），此处只兑「忘标记」的
+  // in_progress（带机械 note 可追溯）；pending（声明未开工）不兑——
+  // 真漏做照旧未决。同步写，writeLine 前完成可见。
+  if (closure.status === "done") {
     try {
       const out = await workLedger.tools.service.forceResolveInProgress(
         instanceId,
@@ -586,23 +728,6 @@ async function main(): Promise<void> {
       writeLine({ type: "log", instanceId, text: `closure 兑底失败（照常上送 closure，父侧判据裁决）：${(err as Error).message}` });
     }
   }
-  const closure: InstanceClosurePayload = terminated
-    ? {
-        status: "failed",
-        summary: "terminated by user（SIGTERM）",
-        reportPath: null,
-        findings: null,
-        taskId: resolvedTask?.taskId ?? null,
-      }
-    : parsedClosure === undefined
-      ? {
-          status: "failed",
-          summary: buildFallbackSummary(lastAssistantText, lastEngineError),
-          reportPath: null,
-          findings: null,
-          taskId: resolvedTask?.taskId ?? null,
-        }
-      : { ...parsedClosure, taskId: parsedClosure.taskId ?? resolvedTask?.taskId ?? null };
   writeLine({ type: "closure", instanceId, closure });
   kg.database.closeAll(); // 正常收尾关连接（崩溃路径走 WAL 恢复，无需显式关）
   workLedger.ledger.close(); // T1.4：台账直连连接同单点收尾（惰性未开过 = no-op）

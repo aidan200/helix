@@ -185,6 +185,32 @@ describe("closure 块解析（子进程收口协议）", () => {
   });
 });
 
+describe("围栏收口容错（task-8213de82：真子进程端到端）", () => {
+  test("```closure 围栏收口 → closure done + 附注提取（不再判「未按协议」failed）", async () => {
+    const h = (current = makeHarness({
+      replies: [
+        `台账 6/6 全 resolve。批次收口：\n\n\`\`\`closure\n{\n  "status": "done",\n  "summary": "daemon domain 批次评审完成"\n}\n\`\`\``,
+      ],
+    }));
+    launch(h, "围栏收口验证");
+    await until(() => h.closures.length > 0, 10000, "等待 closure 上报");
+    expect(h.closures[0]!.outcome.result).toBe("done");
+    expect(h.closures[0]!.outcome.closure.status).toBe("done");
+    expect(h.closures[0]!.outcome.closure.summary).toBe("daemon domain 批次评审完成");
+  }, 20000);
+
+  test("无信封纯散文收口 → run 正常结束即 done（engine 状态主信号）", async () => {
+    const h = (current = makeHarness({
+      replies: ["台账 3/3 全 resolve。批次 2.1 收口：前两轮结论经核验稳定。"],
+    }));
+    launch(h, "无信封收口验证");
+    await until(() => h.closures.length > 0, 10000, "等待 closure 上报");
+    expect(h.closures[0]!.outcome.result).toBe("done");
+    expect(h.closures[0]!.outcome.closure.status).toBe("done");
+    expect(h.closures[0]!.outcome.closure.summary).toContain("台账 3/3 全 resolve"); // 末轮文本截断兑底
+  }, 20000);
+});
+
 describe("C：closure 块缺 taskId → 回落 jobId（taskContext 机械注入）", () => {
   test("batch 行命中 → closure.taskId 回落 jobId（LLM 未写 taskId）", async () => {
     const dbDir = mkdtempSync(path.join(tmpdir(), "helix-t22-taskctx-"));
