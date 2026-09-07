@@ -253,14 +253,14 @@ export class SqliteKnowledgeGraph {
 
     const edges: NodeEdgeView[] = [];
     for (const row of db
-      .prepare("SELECT verb, dst_id FROM edges WHERE src_id = ? ORDER BY verb, dst_id")
+      .prepare("SELECT e.verb, e.dst_id, n.name AS dst_name FROM edges e LEFT JOIN nodes n ON n.id = e.dst_id WHERE e.src_id = ? ORDER BY e.verb, e.dst_id")
       .all(id) as OutEdgeRow[]) {
-      edges.push({ verb: row.verb as EdgeVerb, otherId: row.dst_id, direction: "out" });
+      edges.push({ verb: row.verb as EdgeVerb, otherId: row.dst_id, otherName: row.dst_name, direction: "out" });
     }
     for (const row of db
-      .prepare("SELECT verb, src_id FROM edges WHERE dst_id = ? ORDER BY verb, src_id")
+      .prepare("SELECT e.verb, e.src_id, n.name AS src_name FROM edges e LEFT JOIN nodes n ON n.id = e.src_id WHERE e.dst_id = ? ORDER BY e.verb, e.src_id")
       .all(id) as InEdgeRow[]) {
-      edges.push({ verb: row.verb as EdgeVerb, otherId: row.src_id, direction: "in" });
+      edges.push({ verb: row.verb as EdgeVerb, otherId: row.src_id, otherName: row.src_name, direction: "in" });
     }
 
     const changeLog = (
@@ -739,11 +739,13 @@ interface ContainsRow {
 interface OutEdgeRow {
   verb: string;
   dst_id: string;
+  dst_name: string | null;
 }
 
 interface InEdgeRow {
   verb: string;
   src_id: string;
+  src_name: string | null;
 }
 
 interface LogRow {

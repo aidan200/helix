@@ -1,13 +1,18 @@
 /**
  * 孤儿/腐烂锚判定纯逻辑（T5.1，F3.2，AD-6「只列不修」的判定面）。
  *
- * 两口径（brief 决策消解）：
+ * 三口径（brief 决策消解）：
  * ① dead_anchor：物化锚 orphan=1（T2.2 符号消亡/声明撤销的失效标记，
  *    行保留可查）——superseded 节点的死锚不列（历史节点无需活锚）；
  * ② orphan_node：无锚（任何物化锚行都算有锚——死锚失效由 ① 口径负责）
  *    且无边（入/出任一即算有边）且非「draft 新建 7 天内」（宽限防误报：
  *    closure 落账的新草稿尚未挂锚是常态）——有 anchor_decl 作用域声明的
  *    节点豁免（global 等声明是刻意的锚定决策，永不物化不是孤儿）。
+ * ③ unanchored_node：无锚且无锚声明但**有边**（入/出任一）——② 的边豁免
+ *    掩盖形态：节点互相连边逃过孤儿判定，但无锚知识永远无法被锚反查/
+ *    附着命中（改动现场永不注入），bootstrap 规范 4 要求每节点带锚，
+ *    与边无关。与 ② 互补不重叠：全无进 ②，有边无锚进 ③。豁免口径同 ②
+ *    （draft 宽限 / superseded 对称豁免 / NaN 防御）。
  *
  * 叙述面（summary）遵守 AD-16：节点 name 叙述，无裸 id。零写路径。
  */
@@ -39,7 +44,14 @@ export interface OrphanNodeItem {
   readonly summary: string;
 }
 
-export type OrphanItem = DeadAnchorItem | OrphanNodeItem;
+/** 无锚节点项：无锚无锚声明但有边（② 边豁免的掩盖形态）的节点引用 + 叙述句。 */
+export interface UnanchoredNodeItem {
+  readonly kind: "unanchored_node";
+  readonly node: NodeRef;
+  readonly summary: string;
+}
+
+export type OrphanItem = DeadAnchorItem | OrphanNodeItem | UnanchoredNodeItem;
 
 /** 扫描输入：全节点/全边/全物化锚（含 orphan 标记）/锚声明全集/当前时刻。 */
 export interface OrphanScanInput {
@@ -72,7 +84,8 @@ function deadAnchorSummary(anchor: MaterializedAnchor, ref: NodeRef): string {
 
 /**
  * 全库状态 → 孤儿清单（只列不修）。输出顺序确定：dead_anchor 按
- * （nodeId, anchorPath, anchorSymbol）序在前，orphan_node 按 id 序在后。
+ * （nodeId, anchorPath, anchorSymbol）序在前，orphan_node / unanchored_node
+ * 各按 id 序在后。
  */
 export function findOrphanItems(input: OrphanScanInput): OrphanItem[] {
   const { nodes, edges, anchors, anchorDeclarations, now } = input;
@@ -122,6 +135,31 @@ export function findOrphanItems(input: OrphanScanInput): OrphanItem[] {
       kind: "orphan_node",
       node: ref,
       summary: `${kindLabelOf(ref.kind)}「${ref.name}」既无任何锚点也无关系边，且已脱离新近草稿宽限期——游离知识，需人工挂锚或建立关联。`,
+    });
+  }
+
+  // ③ 无锚节点：无任何物化锚行 + 无锚声明 + 有边（入/出任一）——② 的边豁免
+  // 掩盖形态。关系边不能让知识在改动现场被锚反查命中：无锚 = 开工链路永不
+  // 注入的死知识（bootstrap 规范 4：每节点必带锚，与边无关）。宽限/豁免口径
+  // 与 ② 完全对齐。
+  const unanchoredCandidates = [...nodes]
+    .filter((n) => !anchoredNodeIds.has(n.id))
+    .filter((n) => !declaredNodeIds.has(n.id))
+    .filter((n) => edgedNodeIds.has(n.id))
+    .filter((n) => {
+      if (n.status !== "draft") return true;
+      const createdMs = Date.parse(n.createdAt);
+      if (Number.isNaN(createdMs)) return false;
+      return now - createdMs >= ORPHAN_DRAFT_GRACE_MS;
+    })
+    .filter((n) => n.status !== "superseded")
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  for (const node of unanchoredCandidates) {
+    const ref = toNodeRef(node);
+    items.push({
+      kind: "unanchored_node",
+      node: ref,
+      summary: `${kindLabelOf(ref.kind)}「${ref.name}」没有任何锚点与锚声明（仅有关系边与主图相连），且已脱离新近草稿宽限期——无锚知识无法被锚反查/附着命中，改动现场永不注入，需人工挂锚（实体/契约符号域锚，规则按三级作用域声明）。`,
     });
   }
 

@@ -135,6 +135,9 @@ describe("KgVerifyService：三检查编排（I 层，真 .helix-kg 库）", () 
     // 孤儿节点：E-1（confirmed 无锚无边）；TR-3 有锚、TR-4 draft 宽限 → 不列
     expect(orphanNodes.map((i) => i.node.id)).toEqual(["E-1"]);
     expect(orphanNodes[0]!.node.name).toBe("主代理");
+    // 无锚节点：TR-2 有边（双向 governs）无锚无声明 → unanchored_node；TR-1/TR-3 有锚不列
+    const unanchored = items.filter((i) => i.kind === "unanchored_node");
+    expect(unanchored.map((i) => i.node.id)).toEqual(["TR-2"]);
   });
 
   test("③ findActivityMismatch：高 churn 文件 × 久未动锚 → 疑似条目（含全部限定词）", () => {

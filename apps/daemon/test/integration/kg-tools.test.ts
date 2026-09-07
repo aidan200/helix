@@ -164,6 +164,8 @@ describe("kg / kg-update 工具（真 .helix-kg tmp 库）", () => {
     // 关系：governs → t2
     expect(r.text).toContain("governs");
     expect(r.text).toContain(t2);
+    // 对端 name 随行（一级跳转内语义闭环——viewer peer 解析同规）
+    expect(r.text).toContain(`${t2}（写队列）`);
     // 变更日志：createNode + declareAnchors + addEdge 三行
     expect(r.text).toContain("createNode");
     expect(r.text).toContain("declareAnchors");

@@ -4,7 +4,7 @@
  * 按迭代聚合四类条目（CL-3.A10；与 contracts/kg-viewer-api.md 的
  * ChangeReport 契约对齐，T5.3 kg.change.report 的直接数据源）：
  * - rule_conflict（warn）：KgVerifyService.findConflicts；
- * - dead_anchor（warn）：findOrphans 的腐烂锚口径（orphan_node 归验证
+ * - dead_anchor（warn）：findOrphans 的腐烂锚口径（orphan_node/unanchored_node 归验证
  *   清单，不进报告四类模板）；
  * - suspect_stale（info）：findActivityMismatch（疑似限定词强制）；
  * - knowledge_change（ok）：change_log 按迭代过滤（T4.1 落账含迭代 id）。
@@ -94,7 +94,7 @@ export class KgReportService {
       });
     }
     for (const orphan of orphans) {
-      if (orphan.kind !== "dead_anchor") continue; // orphan_node 归验证清单
+      if (orphan.kind !== "dead_anchor") continue; // orphan_node/unanchored_node 归验证清单
       entries.push({
         kind: "dead_anchor",
         sev: "warn",

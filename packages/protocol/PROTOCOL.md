@@ -2074,7 +2074,7 @@ conflicts / orphans / orphanCount / index / candidates 五项聚合）。
 | 字段 | 类型 | 可选性 | 登记版本 | 语义 |
 |---|---|---|---|---|
 | `conflicts` | `KgHealthConflictDto[]`（`{ kind, summary }`） | 必填 | kg.health 批 | 逻辑冲突条目（mutual_governs / self_loop / unknown_verb；summary 人读） |
-| `orphans` | `KgHealthOrphanDto[]`（`{ kind, summary }`） | 必填 | kg.health 批 | 孤儿条目（dead_anchor / orphan_node；summary 人读） |
+| `orphans` | `KgHealthOrphanDto[]`（`{ kind, summary }`） | 必填 | kg.health 批 | 孤儿条目（dead_anchor / orphan_node / unanchored_node；summary 人读） |
 | `orphanCount` | `number` | 必填 | kg.health 批 | 孤儿+腐烂锚合计计数（徽章数据源） |
 | `index` | `KgIndexStatusDto` | 必填 | kg.health 批 | 索引状态（kg.index.status 数据复用） |
 | `candidates` | `KgHealthCandidatesDto`（`{ pending, deferred, applied, discarded }`） | 必填 | kg.health 批 | candidates 台账四态计数 |

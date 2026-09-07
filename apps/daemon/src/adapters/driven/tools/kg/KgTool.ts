@@ -205,7 +205,7 @@ interface DetailShape {
   };
   readonly anchorDeclarations: readonly { readonly scopeKind: string; readonly pattern?: string }[];
   readonly materializedAnchors: readonly { readonly anchorKind: string; readonly anchorPath: string; readonly anchorSymbol: string | null }[];
-  readonly edges: readonly { readonly verb: string; readonly otherId: string; readonly direction: string }[];
+  readonly edges: readonly { readonly verb: string; readonly otherId: string; readonly otherName: string | null; readonly direction: string }[];
   readonly supersedeChain: readonly { readonly nodeId: string; readonly name: string; readonly status: string; readonly relation: string }[];
   readonly changeLog: readonly { readonly iterationId: string | null; readonly taskId?: string | null; readonly op: string; readonly supersedeOf: string | null; readonly reason: string | null }[];
 }
@@ -235,7 +235,10 @@ function renderDetail(detail: DetailShape, project: string): string {
   lines.push("关系:");
   if (detail.edges.length === 0) lines.push("  （无）");
   for (const e of detail.edges) {
-    lines.push(`- ${e.verb} ${e.direction === "out" ? "→" : "←"} ${e.otherId}`);
+    // 对端 name 随行（一级跳转内语义闭环，与 viewer peer 解析同规）；
+    // null = 悬挂边防御（正常不可达）——不拿裸 id 充 name（AD-16），id 本就要展示
+    const peer = e.otherName !== null ? `${e.otherId}（${e.otherName}）` : e.otherId;
+    lines.push(`- ${e.verb} ${e.direction === "out" ? "→" : "←"} ${peer}`);
   }
   lines.push("supersede 链:");
   if (detail.supersedeChain.length === 0) lines.push("  （无）");

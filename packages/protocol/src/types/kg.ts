@@ -172,9 +172,9 @@ export interface KgHealthConflictDto {
   summary: string;
 }
 
-/** 体检孤儿条目（findOrphans 两口径的协议投影；summary 同上）。 */
+/** 体检孤儿条目（findOrphans 三口径的协议投影；summary 同上）。 */
 export interface KgHealthOrphanDto {
-  kind: "dead_anchor" | "orphan_node";
+  kind: "dead_anchor" | "orphan_node" | "unanchored_node";
   /** 人读叙述句（AD-16 同规）。 */
   summary: string;
 }

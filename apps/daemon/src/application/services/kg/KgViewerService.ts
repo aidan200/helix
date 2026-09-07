@@ -303,7 +303,7 @@ export class KgViewerService {
         if (orphanCount > 0) {
           return {
             ok: true,
-            value: { ...rebuilt, orphanNote: `体检提示：检测到 ${orphanCount} 处孤儿节点/腐烂锚——到体检面板查看（只提示不处置）` },
+            value: { ...rebuilt, orphanNote: `体检提示：检测到 ${orphanCount} 处孤儿节点/腐烂锚/无锚节点——到体检面板查看（只提示不处置）` },
           };
         }
       }

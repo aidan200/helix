@@ -7,8 +7,9 @@ import {
 } from "../../src/domain/kg/verify/orphans";
 
 /**
- * U 层（CL-3.A6 判定面）：orphans 两口径——①物化锚 orphan=1（T2.2 符号
- * 消亡标记）②无锚无边孤儿节点（draft 新建 7 天宽限防误报）。
+ * U 层（CL-3.A6 判定面）：orphans 三口径——①物化锚 orphan=1（T2.2 符号
+ * 消亡标记）②无锚无边孤儿节点（draft 新建 7 天宽限防误报）③有边无锚
+ * 无声明节点（unanchored_node——② 边豁免的掩盖形态）。
  */
 
 const DAY = 86_400_000;
@@ -128,5 +129,47 @@ describe("domain/kg/verify/orphans：腐烂锚与孤儿节点判定（纯函数�
     const orphans = first.filter((i) => i.kind === "orphan_node");
     expect(orphans.map((i) => i.node.id)).toEqual(["TR-2", "TR-3"]); // id 序
     expect(findOrphanItems(input)).toEqual(first);
+  });
+
+  test("⑦ 有边但无锚无声明 → unanchored_node 检出（边两端均列）；无锚无边 → orphan_node 且不进 unanchored（两口径互补不重叠）", () => {
+    const islandA = node("TR-1");
+    const islandB = node("TR-2");
+    const fullyOrphan = node("TR-3");
+    const items = findOrphanItems(
+      scan({
+        nodes: [islandA, islandB, fullyOrphan],
+        edges: [{ srcId: "TR-1", verb: "references", dstId: "TR-2" }], // 孤立簇：互相连边但无锚
+      }),
+    );
+    const unanchored = items.filter((i) => i.kind === "unanchored_node");
+    expect(unanchored.map((i) => i.node.id)).toEqual(["TR-1", "TR-2"]);
+    expect(unanchored[0]!.summary).toContain("无法被锚反查");
+    const orphans = items.filter((i) => i.kind === "orphan_node");
+    expect(orphans.map((i) => i.node.id)).toEqual(["TR-3"]); // 无锚无边只进 orphan_node
+  });
+
+  test("⑧ unanchored_node 豁免与 orphan_node 对齐：有锚（含死锚）/有声明/draft 宽限内/superseded 均不列", () => {
+    const anchored = node("TR-1");
+    const declared = node("TR-2");
+    const freshDraft = node("TR-3", { status: "draft", createdAt: new Date(NOW - 3 * DAY).toISOString() });
+    const retired = node("TR-4", { status: "superseded" });
+    const staleDraft = node("TR-5", { status: "draft", createdAt: new Date(NOW - 30 * DAY).toISOString() });
+    const items = findOrphanItems(
+      scan({
+        nodes: [anchored, declared, freshDraft, retired, staleDraft],
+        edges: [
+          { srcId: "TR-9", verb: "governs", dstId: "TR-1" },
+          { srcId: "TR-9", verb: "governs", dstId: "TR-2" },
+          { srcId: "TR-9", verb: "governs", dstId: "TR-3" },
+          { srcId: "TR-9", verb: "governs", dstId: "TR-4" },
+          { srcId: "TR-9", verb: "governs", dstId: "TR-5" },
+        ],
+        anchors: [anchor("TR-1", { orphan: true })], // 死锚也是「有锚」（失效由 dead_anchor 口径负责）
+        anchorDeclarations: [{ nodeId: "TR-2", scopeKind: "global", pattern: "" } as AnchorDeclRow],
+      }),
+    );
+    const unanchored = items.filter((i) => i.kind === "unanchored_node");
+    expect(unanchored.map((i) => i.node.id)).toEqual(["TR-5"]); // 仅超宽限 draft 列
+    expect(items.filter((i) => i.kind === "dead_anchor")).toHaveLength(1); // TR-1 死锚由 ① 口径列
   });
 });

@@ -5,8 +5,10 @@ import type {
 } from "@earendil-works/pi-agent-core/node";
 import type { KgQueryService } from "../../../../application/services/kg/KgQueryService";
 import type { KgWriteService } from "../../../../application/services/kg/KgWriteService";
+import { EDGE_VERBS } from "../../../../domain/kg/types";
 import type {
   AnchorDeclaration,
+  EdgeVerb,
   KnowledgeWriteOp,
   NodeDraft,
   NodeDomain,
@@ -49,10 +51,11 @@ const kgUpdateParameters = {
   properties: {
     op: {
       type: "string",
-      enum: ["createNode", "supersede", "updateNode", "batchCreateNodes", "declareAnchors", "proposeCandidate", "decideCandidate", "prune"],
+      enum: ["createNode", "supersede", "updateNode", "batchCreateNodes", "declareAnchors", "addEdge", "proposeCandidate", "decideCandidate", "prune"],
       description:
         "操作：createNode 新知识落账 / supersede 推翻既有节点 / updateNode 补全既有节点元数据（仅限 scene 等元数据补全）/ " +
         "batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）/ declareAnchors 存量节点补锚声明（幂等）/ " +
+        "addEdge 建知识边（srcId + verb + dstId——两端 id 取自 kg search/kg get 返回行，verb 封闭词表）/ " +
         "proposeCandidate 提候选 / decideCandidate 裁决候选 / prune 物理清理腐烂物化锚（orphan=1 tombstone；nodeId 可选，缺省清全项目）",
     },
     // ── createNode ──
@@ -163,6 +166,14 @@ const kgUpdateParameters = {
       required: ["kind", "name", "digest"],
       additionalProperties: false,
     },
+    // ── addEdge（知识边——两端定位同 supersede：locate 唯一命中不猜） ──
+    srcId: { type: "string", description: "addEdge 边起点节点 id（TR-n/E-n，取自 kg search/kg get 返回行）" },
+    dstId: { type: "string", description: "addEdge 边终点节点 id（TR-n/E-n，取自 kg search/kg get 返回行）" },
+    verb: {
+      type: "string",
+      enum: [...EDGE_VERBS],
+      description: `addEdge 边动词（封闭词表：${EDGE_VERBS.join(" / ")}）`,
+    },
     // ── proposeCandidate / decideCandidate（候选台账操作——R2）──
     candidateKind: {
       type: "string",
@@ -241,6 +252,8 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       "updateNode：补全既有节点元数据（scene 缺失直补——kg-review 体检通道）；仅限 scene 等元数据补全，" +
       "内容改动走候选人审。declareAnchors：存量节点补锚声明（nodeId + anchors 数组，幂等去重——" +
       "人审重写/体检补锚的现场通道）。" +
+      "addEdge：建知识边（srcId + verb + dstId——两端各经 locate 唯一命中定位，须同项目；" +
+      "复合主键幂等去重，同边重声明无副作用；verb 封闭词表越界 KG_E_VERB）。" +
       "proposeCandidate/decideCandidate：候选台账操作（SubAgent 闭环发现经 findings 上报自动落候选，" +
       "不得直接调用候选 op——工具注册面管控谁可见本工具，描述不做角色枚举，W-R6）。" +
       "prune：物理清理腐烂物化锚（orphan=1 tombstone——符号消亡/声明撤销的保留行；nodeId 定向或缺省全项目，幂等）。" +
@@ -266,6 +279,9 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       if (op === "declareAnchors") {
         return text(execDeclareAnchors(deps, args));
       }
+      if (op === "addEdge") {
+        return text(execAddEdge(deps, args));
+      }
       if (op === "proposeCandidate") {
         return text(execProposeCandidate(deps, args));
       }
@@ -276,7 +292,7 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
         return text(execPrune(deps, args));
       }
       throw new Error(
-        `未知 op "${String(op)}"（合法：createNode / supersede / updateNode / batchCreateNodes / declareAnchors / proposeCandidate / decideCandidate / prune）`,
+        `未知 op "${String(op)}"（合法：createNode / supersede / updateNode / batchCreateNodes / declareAnchors / addEdge / proposeCandidate / decideCandidate / prune）`,
       );
     },
   };
@@ -448,6 +464,46 @@ function execPrune(deps: KgUpdateToolDeps, args: Record<string, unknown>): strin
   );
   const scope = nodeId !== undefined ? `节点 ${nodeId}` : `项目 ${projectName(project)}`;
   return `已清理 ${scope} 的腐烂物化锚 ${result.prunedCount ?? 0} 行（orphan=1 tombstone 物理删除，change_log 审计同行；零删除 = 本就干净）`;
+}
+
+/**
+ * addEdge 执行（知识边工具面接通——store/service 写面早已就绪，工具面
+ * 补位）：两端 id 各自经 locate 唯一命中定位（同 supersede 纪律，不猜
+ * 跨项目），且必须落在同一项目（edges 是 per-project kg.db 内行——跨
+ * 项目建边无存储形态，结构化报错）。verb 薄壳透传，封闭词表校验归
+ * KgWriteService 唯一写入口（越界 KG_E_VERB + op.verb 透传）。复合主键
+ * （src+verb+dst）幂等去重——同边重声明无副作用。
+ */
+function execAddEdge(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
+  const srcId = requireString(args, "srcId", "（边起点节点 id——取自 kg search/kg get 返回行）") as NodeId;
+  const dstId = requireString(args, "dstId", "（边终点节点 id——取自 kg search/kg get 返回行）") as NodeId;
+  const verb = requireString(args, "verb", `（边动词——封闭词表：${EDGE_VERBS.join(" / ")}）`) as EdgeVerb;
+  const srcProject = locateUnique(deps, srcId, "边起点");
+  const dstProject = locateUnique(deps, dstId, "边终点");
+  if (srcProject !== dstProject) {
+    throw new Error(
+      `边起点 ${srcId}（${projectName(srcProject)}）与边终点 ${dstId}（${projectName(dstProject)}）不在同一项目——` +
+        "edges 是 per-project 库内行，不支持跨项目建边",
+    );
+  }
+  const project = srcProject;
+  const iterationId = resolveIterationId(deps, args, project);
+  writeOrThrow(deps, project, createOp(deps, args, { kind: "addEdge", iterationId, srcId, verb, dstId }));
+  return `已建边 ${srcId} —${verb}→ ${dstId}（project: ${projectName(project)}，幂等去重；审计行已入 change_log）`;
+}
+
+/** addEdge 端点定位：locate 全命中唯一项目（零命中/多命中均结构化报错，不猜）。 */
+function locateUnique(deps: KgUpdateToolDeps, nodeId: NodeId, label: string): string {
+  const hits = deps.query.locate(nodeId);
+  if (hits.length === 0) {
+    throw new Error(`${label} ${nodeId} 不存在（先 kg search 确认；id 取自返回行指针）`);
+  }
+  if (hits.length > 1) {
+    throw new Error(
+      `${label} ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，请人工确认目标项目`,
+    );
+  }
+  return hits[0]!.project;
 }
 
 /**

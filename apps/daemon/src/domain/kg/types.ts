@@ -625,6 +625,8 @@ export interface NodeDigestRow {
 export interface NodeEdgeView {
   readonly verb: EdgeVerb;
   readonly otherId: NodeId;
+  /** 对端节点 name（LEFT JOIN 解析；null = 悬挂边防御——addEdge 事务内已校引用存在，正常不可达）。 */
+  readonly otherName: string | null;
   readonly direction: "out" | "in";
 }
 

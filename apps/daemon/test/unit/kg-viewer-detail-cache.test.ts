@@ -51,7 +51,7 @@ function detailOf(node: KnowledgeNode): NodeDetail {
     node,
     anchorDeclarations: [],
     materializedAnchors: [],
-    edges: node.id === "TR-1" ? [{ verb: "governs", otherId: "TR-2", direction: "out" }] : [],
+    edges: node.id === "TR-1" ? [{ verb: "governs", otherId: "TR-2", otherName: "对端规则", direction: "out" }] : [],
     supersedeChain: [{ nodeId: node.id, name: node.name, status: node.status, relation: "self" }],
     changeLog: [],
   };

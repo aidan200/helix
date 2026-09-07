@@ -48,14 +48,17 @@ describe("kg.health I 层（真 service 栈 + tmp 库 + ws 路由）", () => {
     expect(conflicts[0]!.kind).toBe("mutual_governs");
     expect(conflicts[0]!.summary).toContain("会话实体");
     expect(conflicts[0]!.summary).toContain("写路径守护乙");
-    // ② orphans：TR-2 死锚（write-path.ts 消亡）；TR-3 superseded 留史节点
-    // 不再列（orphan_node 口径 superseded 对称豁免——CAND-3，与 dead_anchor 同规）；
-    // orphanCount = 清单长度
+    // ② orphans：TR-2 死锚（write-path.ts 消亡）+ E-2 有边无锚无声明
+    // （unanchored_node——冲突对乙实体恰好是孤立无锚形态）；TR-3 superseded
+    // 留史节点不再列（orphan_node 口径 superseded 对称豁免——CAND-3，与
+    // dead_anchor 同规）；orphanCount = 清单长度
     const orphans = res.result.orphans as { kind: string; summary: string }[];
-    expect(orphans).toHaveLength(1);
+    expect(orphans).toHaveLength(2);
     expect(orphans[0]!.kind).toBe("dead_anchor");
     expect(orphans[0]!.summary).toContain("写路径白名单");
-    expect(res.result.orphanCount).toBe(1);
+    expect(orphans[1]!.kind).toBe("unanchored_node");
+    expect(orphans[1]!.summary).toContain("写路径守护乙");
+    expect(res.result.orphanCount).toBe(2);
     // AD-16：summary 人读叙述无裸 id
     for (const c of conflicts) expect(c.summary).not.toMatch(/TR-\d+|E-\d+/);
     for (const o of orphans) expect(o.summary).not.toMatch(/TR-\d+|E-\d+/);
@@ -69,13 +72,16 @@ describe("kg.health I 层（真 service 栈 + tmp 库 + ws 路由）", () => {
 
   test("无问题径：结构健康空态 + absent 短路空态不建库 + project 无法解析 KG_E_PARAM", async () => {
     const rig = await openRig();
-    // epsilon：两节点 + 一条边（双方有边非孤儿、无冲突、无候选——健康空态载体）
+    // epsilon：两节点 + 一条边 + 双方锚声明（有边有锚非孤儿非无锚、无冲突、
+    // 无候选——健康空态载体；锚声明缺位会被 unanchored_node 口径检出）
     const epsilon = path.join(rig.workspace, "epsilon");
     mkdirSync(epsilon, { recursive: true });
     expectOk(
       rig.write.write(epsilon, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "甲规则", digest: "d1", scene: "测试场景", status: "confirmed" } }),
       rig.write.write(epsilon, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "乙实体", digest: "d2", scene: "测试场景", status: "confirmed" } }),
       rig.write.write(epsilon, { kind: "addEdge", iterationId: ITER, srcId: "TR-1", verb: "governs", dstId: "E-1" }),
+      rig.write.write(epsilon, { kind: "declareAnchors", iterationId: ITER, nodeId: "TR-1", anchors: [{ scopeKind: "global" }] }),
+      rig.write.write(epsilon, { kind: "declareAnchors", iterationId: ITER, nodeId: "E-1", anchors: [{ scopeKind: "global" }] }),
     );
     const healthy = await rig.client.kg("kg.health", { project: "epsilon" });
     expect(healthy.ok).toBe(true);
@@ -135,22 +141,25 @@ describe("kg.index.status rebuild 随行 orphanNote（W2-D R14）", () => {
     expect(res.result.state).toBe("synced");
     expect(typeof res.result.orphanNote).toBe("string");
     expect(res.result.orphanNote as string).toContain("体检提示");
-    // rebuild 后机械口径 2 处：TR-2 死锚 + E-1 锚随全量重建转 dead（TR-3
-    // superseded 留史节点不再列——orphan_node 口径对称豁免 CAND-3）
-    expect(res.result.orphanNote as string).toContain("2 处");
+    // rebuild 后机械口径 3 处：TR-2 死锚 + E-1 锚随全量重建转 dead + E-2 有边
+    // 无锚无声明（unanchored_node）（TR-3 superseded 留史节点不再列——
+    // orphan_node 口径对称豁免 CAND-3）
+    expect(res.result.orphanNote as string).toContain("3 处");
 
     // 非 rebuild 读面不带 orphanNote（R14 只挂手动 sync 面）
     const plain = await rig.client.kg("kg.index.status", { project: "alpha" });
     expect(plain.result.state).toBe("synced");
     expect(plain.result.orphanNote).toBeUndefined();
 
-    // 健康项目（epsilon：两节点 + 一条边——双方有边非孤儿）→ rebuild 不带 orphanNote
+    // 健康项目（epsilon：两节点 + 一条边 + 双方锚声明——有边有锚非孤儿非无锚）→ rebuild 不带 orphanNote
     const epsilon = path.join(rig.workspace, "epsilon");
     mkdirSync(epsilon, { recursive: true });
     expectOk(
       rig.write.write(epsilon, { kind: "createNode", iterationId: ITER, draft: { kind: "rule", name: "甲规则", digest: "d1", scene: "测试场景", status: "confirmed" } }),
       rig.write.write(epsilon, { kind: "createNode", iterationId: ITER, draft: { kind: "entity", name: "乙实体", digest: "d2", scene: "测试场景", status: "confirmed" } }),
       rig.write.write(epsilon, { kind: "addEdge", iterationId: ITER, srcId: "TR-1", verb: "governs", dstId: "E-1" }),
+      rig.write.write(epsilon, { kind: "declareAnchors", iterationId: ITER, nodeId: "TR-1", anchors: [{ scopeKind: "global" }] }),
+      rig.write.write(epsilon, { kind: "declareAnchors", iterationId: ITER, nodeId: "E-1", anchors: [{ scopeKind: "global" }] }),
     );
     const healthy = await rig.client.kg("kg.index.status", { project: "epsilon", rebuild: true }, 15000);
     expect(healthy.result.state).toBe("synced");
