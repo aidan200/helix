@@ -1,0 +1,18 @@
+[
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-32",
+    "project": "helix",
+    "reason": "事实：E-32（Entry 会话条目）「与其他节点的关联」段首条仍写「被 会话聚合（Session） 追加与持有：appendUserEntry / appendAssistantEntry / applySteer / applyDirectedSteer / appendInstanceMessage / restoreSteer 均产出 Entry（或委托 pushEntry）」——drain 落盘语义落地（CAND-44+CAND-113 applied，iter-20260903 变更日志在案）后，applySteer（Session.ts:99-105）与 restoreSteer（Session.ts:113-120）只经 enqueueSteer 入 SteerQueue 并返回预分配 entryId（string），不产出 Entry；真正落 isSteer entry 的是 appendSteerEntryAtDrain（Session.ts:127-129）。同节点第二段（与 SteerQueue 的关联）已按 drain 落盘语义改写，关联段首条未同步——节点内部两段自相矛盾，且与代码现实矛盾。决策的点：关联段首条的聚合方法枚举改为「appendUserEntry / appendAssistantEntry / appendSteerEntryAtDrain / applyDirectedSteer / appendInstanceMessage 产出 Entry（或委托 pushEntry）；applySteer/restoreSteer 只入队不落条目（见下条 SteerQueue 关联）」。决策后的效果：节点内两段口径归一，按 E-32 scene（改动条目追加路径/序列化前）核对聚合方法产出面的读者不再读到与 Session.ts 现实矛盾的枚举；与 E-95（drain 落盘语义权威记录）、E-36（写面契约 applySteer 条目「不落条目——queued 期间不进时间轴」）三方口径一致。附查重说明：65 条 pending 候选全量核对，无 E-32 目标在案候选，本条非重复。",
+    "evidence": "apps/daemon/src/domain/session/Session.ts:99-105（applySteer 只 enqueueSteer 返回 string）/ :113-120（restoreSteer 同构）/ :127-129（appendSteerEntryAtDrain 落 Entry）；E-32 自身第二段「applySteer/restoreSteer 只入队不落条目……drain 生效时机才经 appendSteerEntryAtDrain 落 isSteer entry」与关联段首条对照（kg get E-32）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-4",
+    "project": "helix",
+    "reason": "事实：E-4（会话快照）「账目形状」段记 SessionUsageSummary 为「七字段全显式（input/output/cacheRead/cacheWrite/reasoning/totalTokens/cost）……total = 各实例行合计、compaction = 摘要调用小计」，而现行 SessionUsageSummary 除 total/compaction 外还有两个 additive 键位：ctx?（上下文水位，TR-59 观察面，重启恢复种子）与 byTurn?（per-turn 轮末账目，turnId → 该轮入账累计，轮末 token 用量显示面）——全链在位：domain 形状定义（SessionSnapshot.ts:77-84）、活路径挂载只认载荷 turnId（SessionProjection.ts:128-130）、恢复同口径（RestoreService.ts:168）、wire 面 additive 透传非空携带空缺席不下发（SnapshotMapper.ts:290-291）、测试钉死（ws-dto-mapper-channel.test.ts:287-299、usage-ledger-chain.test.ts:148-205）。E-4 对快照 usage 载荷形状的描述停留在两键时代，scene 所辖「改快照结构、持久化载荷前」的读者从节点读不到完整键位集。决策的点：账目形状段补一句 additive 键位口径（ctx=上下文水位重启恢复种子、byTurn=per-turn 轮末账目，均键缺席=未携带的前向兼容形态）。决策后的效果：按 E-4 scene 工作的读者能从节点读到快照 usage 载荷的现行完整形状，不再需要跨四个文件拼装；「快照结构即 daemon 与前端、daemon 与重启后自身之间的状态契约」叙述覆盖现行形状。附查重说明：65 条 pending 候选全量核对，无 E-4 目标在案候选，本条非重复。",
+    "evidence": "apps/daemon/src/domain/session/SessionSnapshot.ts:77-84（SessionUsageSummary 五键位：total/compaction/ctx?/byTurn? + UsageSummary 七字段）；apps/daemon/src/application/services/SessionProjection.ts:128-130（byTurn 挂载只认载荷 turnId）；apps/daemon/src/application/services/RestoreService.ts:168（恢复同口径）；apps/daemon/src/adapters/driving/ws-server/SnapshotMapper.ts:290-291（additive 透传）；apps/daemon/test/unit/ws-dto-mapper-channel.test.ts:287-299；apps/daemon/test/integration/usage-ledger-chain.test.ts:148-205"
+  }
+]
