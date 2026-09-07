@@ -1,0 +1,58 @@
+[
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-120",
+    "project": "helix",
+    "reason": "事实：E-120（WriteQueue 分仓 FIFO，仓内/仓间顺序语义权威记录）body 记「仓位 promise 完成后自清（map 不留空仓）」，代码现实是仓位条目清理只发生在 deleteSession 落定后——M15 修复（commit 364d4a9）在 enqueue 里仅为 deleteSession job 挂 done.then 守卫清理（仅当尾部仍是本 job 的 done 才 sessionTails.delete，防同会话新写误清），该提交信息自述动机「杜绝无界增长」恰证明此前并不自清；活跃会话的仓 tail（已 resolve 的 promise）常驻至该会话删除，并非每次写完即清。分仓 FIFO 的其余语义（仓内严格 FIFO、删除行入仓尾不被早到写复活、仓间互不阻塞、无会话维 job 走全局链、drain=全部仓位+全局链）本次全部现行实证成立。决策的点：把「仓位 promise 完成后自清（map 不留空仓）」改写为「仓位条目仅 deleteSession 落定后清（M15 守卫：尾部仍是本 job 才删）；活跃会话 tail 常驻至会话删除」。决策后的效果：applied 后按 E-120 scene（改写路径/新增写 job 仓位归属/删除会话落盘顺序语义前）排查仓位生命周期或内存占用的人不再按「每写自清」误判 map 行为；与 drainAll（等待全部仓位 values 含已 resolve tail）的语义口径一致。附查重说明：65 条 pending 候选全量核对，无 E-120 目标在案候选，本条非重复。执笔者建议：采纳。",
+    "evidence": "apps/daemon/src/adapters/driven/sqlite-session/WriteQueue.ts:571-577（唯一 sessionTails.delete 点——M15 守卫清理，仅 deleteSession job 触发）/:203（map 声明）/:564-570（常规写仅覆盖尾位不清理）；git 364d4a9（M15 提交信息「deleteSession 落定后清 sessionTails 仓位条目（杜绝无界增长）」）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-126",
+    "project": "helix",
+    "reason": "事实：E-126（TurnDiffService 轮次级 diff 纯操作面权威记录）四处滞后于代码现实：①body 尾「测试：test/unit/turn-diff-service.test.ts 15 用例」——T3 批后推送/查询用例已扩容至 23 用例（bun test 23 pass 实测）；②「为什么存在」段「后续 T3 的 diff.changed 推送（publishDelta 瞬态通道）与 diff.get 命令」——T3 已合入（f92067d）：推送回调已被服务消费（beginTurn 开轮推 cleared 帧 :263-264、captureWrite 携 nextContent 推 active 帧 :270-273）、diff.get 读面已接 WsServerAdapter/handlers，「后续」是时态残留；③锚声明 scopeKind=symbol 但 pattern 为裸文件路径（无 #symbol 段），不合锚 schema 故永不物化——物化锚空，kg affected 命中仅靠声明反查兜底（反查行自述「锚未物化」）；④body 以字面 \\n 转义序列存储（sqlite instr 实测 8 处命中，同库 E-132/E-133 对照为真换行）——「## 这是什么」等 markdown 结构不渲染。另有小项：IO 注入枚举漏 workspaceRoot（TurnDiffIoDeps 实为 readTextFile/walkStats/workspaceRoot/computePatch/absoluteOf 五注入位）。512KB/8MB/环形 3 轮/首基线永不覆盖/两路冻结/external 兜底等核心语义全部现行成立。决策的点：测试计数改现行实数或按 TR-57 概览化（计数单源归测试文件）；「后续 T3」改现行时态；锚 pattern 修正为 path#symbol 形态（apps/daemon/src/application/services/TurnDiffService.ts#TurnDiffService）使物化生效；body 按原内容重存为真换行（纯格式零内容变更）；IO 枚举补 workspaceRoot。决策后的效果：applied 后按 E-126 scene（接 diff.changed 推送与 diff.get 命令前）工作的读者读到现行形态而非「规划中」表述；锚物化后 affected 反查不再依赖声明兜底；body markdown 结构恢复可读。附查重说明：65 条 pending 候选全量核对，无 E-126 目标在案候选，本条非重复。执笔者建议：采纳（④为纯格式修复）。",
+    "evidence": "apps/daemon/test/unit/turn-diff-service.test.ts（grep -c 'test(' = 23，bun test 23 pass）；apps/daemon/src/application/services/TurnDiffService.ts:263-264（cleared 帧已消费）/:270-273（captureWrite nextContent）/:194-246（TurnDiffIoDeps 五注入位含 workspaceRoot）；kg get E-126（物化锚空 + 锚声明 pattern 裸路径）；sqlite 只读查询 nodes 表 instr(E-126 body, 反斜杠n) = 8"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-127",
+    "project": "helix",
+    "reason": "事实：E-127（env.writeFile 写前快照包装 wrapEnvForDiff）两处勘正：①body 尾「测试：test/unit/env-diff-wrap.test.ts 6 用例（含原型存活断言）」计数错误——该文件自创建 commit 6afe89d 起即 5 用例（git show 实测创建态 5 例、此后零修改，现行 bun test 5 pass，原型存活断言在第 5 例「class env 包装后原型方法仍可用」），属落账即错非后续漂移；②body 以字面 \\n 转义序列存储（sqlite instr 实测命中）——markdown 结构不渲染。包装形态（Object.assign+create(proto)+writeFile 自有遮蔽）、hook 异常吞咽、writeHook 注入链（CoreToolExecutorOptions→组合根 sessionEngineFactory）、与 E-48 写后挂点分层全部现行成立。决策的点：计数改「5 用例」或按 TR-57 概览化去计数（计数单源归测试文件）；body 按原内容重存为真换行。决策后的效果：按 E-127 scene（新增/改动 env 层钩子前）核对测试面的人拿到的计数与代码一致；结构可读，与同批 E-126 修复同形态。附查重说明：65 条 pending 候选全量核对，无 E-127 目标在案候选，本条非重复。执笔者建议：采纳。",
+    "evidence": "git show 6afe89d:apps/daemon/test/unit/env-diff-wrap.test.ts（创建即 5 用例：34/53/66/87/94 行）；bun test test/unit/env-diff-wrap.test.ts（5 pass）；sqlite 只读查询 nodes 表 instr(E-127 body, 反斜杠n) = 8；apps/daemon/src/adapters/driven/tools/TurnDiffEnvWrap.ts:35-47（包装本体现行）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-128",
+    "project": "helix",
+    "reason": "事实：E-128（SubAgent file-write 元数据上报线）内容四问全部现行成立——wire.ts additive 增型六字段（type/instanceId/path/prevHash/prevSize/nextSize）逐字一致、子进程 makeFileWriteReporter（写前 sha256 hex、toolCwd 绝对化、读失败按无基线兜底、只报元数据不报内容）、父侧 SubagentLauncher onChildLine 分派→deps.onFileWrite→组合根热会话反查→TurnDiffService.recordExternal（agents 集合累积）、6 用例 6 pass 均实证；唯一发现是 body 以字面 \\n 转义序列存储（sqlite instr 实测命中，同库 E-132/E-133 对照为真换行）——「## 这是什么」等 markdown 结构不渲染，属 body 结构合规问题非内容过期。决策的点：body 按原内容重存为真换行（零内容变更）。决策后的效果：节点恢复 markdown 可读性，与同批 E-126/E-127 修复同形态；「为什么存在」段的降级取舍叙述（external 条目粗估不撒谎）保持原样。附查重说明：65 条 pending 候选全量核对，无 E-128 目标在案候选，本条非重复。执笔者建议：采纳（低风险纯格式修复）。",
+    "evidence": "sqlite 只读查询 nodes 表 instr(E-128 body, 反斜杠n) > 0 实测；apps/daemon/src/adapters/driven/subagent/transport/wire.ts:48-58（六字段增型现行）；apps/daemon/src/adapters/driven/subagent/child/ChildMain.ts:475-493/:610；apps/daemon/src/adapters/driven/subagent/SubagentLauncher.ts:409-411/:172；apps/daemon/src/infrastructure/assembly/buildSessionStack.ts:620-627；bun test subagent-file-write.test.ts 6 pass"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-132",
+    "project": "helix",
+    "reason": "事实：E-132（diff 域 daemon 协议闭环，§29 修订口径的权威记录）是 L0 检出的孤儿节点——锚声明/物化锚/关系边三空，改推送/查询语义的人经 kg affected 反查不到本节点；本次四问主体全部成立：三相位推送（cleared/active/frozen，TurnDiffService :263-264/:506-525/:405-412）、查询链 live=true 无进行中轮回落最近冻结轮（getTurnView，v0.3.1 §27 注释在位）、回执必填 turnId+phase、冷会话 invalid_payload、瞬态通道纪律（diff-ws.test.ts 断言 diff.changed 推送后 domain_events 行数零增且落盘事件零 diff.changed 型）、f92067d（T3 批）与 9ffcdc6（§29 微批）双 commit 实证。决策的点：是否挂锚、挂什么锚——建议三锚与三条语义支柱一一对应：symbol 锚 apps/daemon/src/application/services/TurnDiffService.ts#getTurnView（②查询链 live 回落语义单点）+ path 锚 apps/daemon/src/adapters/driving/ws-server/handlers/diff.ts（③回执 turnId/phase 必填与冷会话 invalid_payload 落点）+ path 锚 apps/daemon/test/integration/diff-ws.test.ts（①瞬态通道零增断言与④帧登记/订阅路由的端到端守护面，与 TR-112 挂守护测试文件同先例）；可顺带勘正 body ①段「经 SessionProjection publishDelta 瞬态通道直推」的机制归属措辞——实际通道是 fan-out publishDelta（channel=\"diff\"→EventStream 广播；SessionProjection 侧 publishDelta 为空实现，恰是「不投影不落盘」的保证机制），diff-ws.test.ts 头注同口径。决策后的效果：applied 后经 declareAnchors 落锚物化，affected(getTurnView/handlers/diff.ts/diff-ws.test.ts) 命中 E-132，改 diff.changed 推送相位/路由或 diff.get 查询语义前知识到位、孤儿态消除；不裁决则 §29 修订后的权威口径在反查面隐身，只能全文检索碰运气。附查重说明：65 条 pending 候选全量核对，无 E-132 目标在案候选，本条非重复。执笔者建议：采纳三锚；机制措辞勘正随人审裁量。",
+    "evidence": "kg get E-132（锚声明/物化锚/关系三空）；apps/daemon/src/application/services/TurnDiffService.ts:530-561（getTurnView live 回落）/ :263-264 / :506-525 / :405-412（三相位）；apps/daemon/src/adapters/driving/ws-server/handlers/diff.ts:95-96（invalid_payload）/:106-108（turnId+phase）；apps/daemon/test/integration/diff-ws.test.ts:15-18（fan-out publishDelta→EventStream 头注 + TP-DIFF-b 零增纪律）/:153-164（断言）；apps/daemon/src/application/services/SessionProjection.ts:111（publishDelta 空实现）；git f92067d / 9ffcdc6"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-133",
+    "project": "helix",
+    "reason": "事实：E-133（diff 域 shell 消费闭环，§29 修订口径的权威记录）是 L0 检出的孤儿节点——锚声明/物化锚/关系边三空；本次四问主体全部成立：①cleared 忽略不抹显示（consumers/diff.ts:29 return s，active/frozen 整体落切片 :30）；②diff.get.result 真消费+轮次守卫（仅空态或同 turnId 落 :37，摘要落 state.diff 五字段 :38-47；文件明细经 LISTEN_SURFACE subscribeDiffFrames 转发归 DiffOverlay 私有 reducer，AG-15 两链平行）；③rehydrate 触发（DiffStatChip 空态+会话确立+connected 单次 sendDiffGet({live:true})）；④残影修复（ChatPage 以 [state.sessionId] dep 强制收起详情窗）；⑤两 chip+data-phase UI 不变——与 E-132 的 §29 口径三点互洽（daemon 发 cleared↔shell 忽略不矛盾、daemon live 回落↔shell live:true 单查询补拉、回执 turnId↔轮次守卫依据）。决策的点：是否挂锚、挂什么锚——建议三锚对应语义支柱：path 锚 apps/shell/src/entities/session/model/consumers/diff.ts（①②cleared 忽略+轮次守卫+回执真消费的单点文件）+ path 锚 apps/shell/src/widgets/chat-stream/ui/DiffStatChip.tsx（③rehydrate 触发面）+ path 锚 apps/shell/src/pages/chat/ChatPage.tsx（④残影修复/详情窗开合生命周期）。决策后的效果：applied 后 affected(三文件) 命中 E-133，改 shell diff 消费/排查「切回无统计/流式期 chip 消失/切会话残影」前知识到位、孤儿态消除；不裁决则消费侧权威口径在反查面隐身。附查重说明：65 条 pending 候选全量核对，无 E-133 目标在案候选，本条非重复。执笔者建议：采纳。另附观察（不属本候选、供后续代码维护参考）：DiffStatChip.tsx:6 头注仍残留 §29 前旧口径「cleared → null 隐藏」，与 consumers/diff.ts:29 实现相反，属代码注释陈旧非节点问题。",
+    "evidence": "kg get E-133（三空）；apps/shell/src/entities/session/model/consumers/diff.ts:26-48（cleared 忽略 :29 / 轮次守卫 :37 / 真消费 :38-47 / AG-15 转发注 :13）；apps/shell/src/widgets/chat-stream/ui/DiffStatChip.tsx:33-39（rehydrate effect）；apps/shell/src/pages/chat/ChatPage.tsx:86-91（sessionId dep 收起）；apps/shell/src/entities/session/command-surface.ts:646（subscribeDiffFrames）；apps/shell/src/widgets/chat-stream/ui/DiffOverlay.tsx:68-77（私有 reducer）；git f92067d / 9ffcdc6"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-62",
+    "project": "helix",
+    "reason": "事实：本批评审 E-128 时经锚反查交叉验证发现姊妹节点 E-62（SubAgent stdio 线协议，改子进程通信帧/新增父子通信行前的 scene 入口节点）帧型枚举滞后——E-62 digest 与 body 记「子→父七型 ChildOutboundLine（started/event/closure/parked/crash/log/tool-req）」，而 T2 批（6afe89d，E-128 同批）additive 增员 file-write 型后，现行 wire.ts 为八型：file-write（写前元数据上报 instanceId/path/prevHash/prevSize/nextSize——只报元数据不报内容，E-128 为该型的权威记录）；父→子两型（send/tool-res）与 kill 走 OS 信号、tool-res 截断护栏均不变。决策的点：digest/body 的「七型」改「八型」并在子→父枚举补 file-write 一员（与 E-128 互指：元数据上报线的完整语义归 E-62→E-128 链读）。决策后的效果：applied 后协议帧型全集两节点归一，按 E-62 scene 扩协议的人核对既有行型时不再漏 file-write 先例（新增行型的 additive 先例恰是本节点 scene 的核心用例）。附查重说明：65 条 pending 候选全量核对，无 E-62 目标在案候选，本条非重复；本条为本批 9 节点范围外的交叉验证顺带发现，目标明确证据充分随批上报。执笔者建议：采纳。",
+    "evidence": "apps/daemon/src/adapters/driven/subagent/transport/wire.ts:2-23（ChildOutboundLine 八型成员——started/event/closure/parked/crash/log/tool-req/file-write，:48-58 六字段）；git 6afe89d（T2 批同 commit 落 wire 增型与 E-128）；kg get E-62（digest/body 七型枚举）；kg affected(wire.ts) 命中 E-62+E-128 实证同锚共存"
+  }
+]
