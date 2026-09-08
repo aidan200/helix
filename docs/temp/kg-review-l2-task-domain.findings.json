@@ -1,0 +1,42 @@
+[
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-6",
+    "project": "helix",
+    "reason": "事实：E-6（任务类型 skill manifest）stages 段记「fixed（按 list 生成序号行）或 free（发起者确认阶段列表 confirmedStages）」，未覆盖 fixed list 项的 { name, kind? } 对象形态——A 批阶段角色声明（StageKind plan/execute/aggregate，缺省 execute）已入 manifest 形状：types.ts list 项类型 (string | { name, kind? })[]、parseStages 对对象项做 name/kind 校验（STAGE_ENTRY_KEYS）、resolveStagePlan 对象项取 entry.kind，builtin 任务类型两例已用对象形态（code-review：盘点分批=plan/分批评审=execute/汇总报告=aggregate；kg-review：L0 预检=plan + L1/L2 评审=execute）——写新任务类型 skill 的人按 E-6 五段形状写不出角色声明。另 validateTaskParams 已含 M2 未知键拒绝（paramsSchema 外未知参数一律拒绝，「静默吞掉未知键会让拼错字段名的调用方误以为生效」），E-6 记「createTask 参数逐字段校验 + projects 数量」未含该面。决策的点：stages 段补 list 项双形态（裸字符串缺省 execute / { name, kind? } 声明三角色）；validateTaskParams 半句补「未知参数键一律拒绝（M2）」。决策后的效果：按 E-6 scene（新增任务类型写 skill task 块、改 manifest 校验语义）工作的读者从节点读到完整 stages 声明面与参数拒绝面，阶段角色声明不再只能从 SKILL.md 实例反推。查重说明：pending 台账 79 条全量核对，无 E-6 目标在案候选。执笔者建议：采纳。",
+    "evidence": "apps/daemon/src/domain/task/types.ts:16-22（STAGE_KINDS 三角色）/ :54-55（list 项双形态类型）；apps/daemon/src/domain/task/manifest.ts:97-119（对象项 STAGE_ENTRY_KEYS/name/kind 校验）/ :198-206（M2 未知键拒绝）/ :236-243（resolveStagePlan 缺省 execute）；apps/daemon/resources/skills/task/code-review/SKILL.md:11-13 与 kg-review/SKILL.md:11-15（对象形态实例）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-94",
+    "project": "helix",
+    "reason": "事实：E-94 自述「此处是行字段与状态机守卫细节」且 scene 管辖「改动台账状态机守卫」，但守卫叙述停留在 M16 前口径（服务层 WORK_ITEM_TRANSITIONS 读-判-写三步），未记 code-review M16 TOCTOU 收口——现行 updateItem 携带 expectedStatus 前态谓词并入 UPDATE（AND status = ? 原子执行），并发变更未命中 changes=0 抛「状态已并发变更」（WorkLedger 实现层），WorkLedgerService.updateItem 恒传前态——读-判-写非原子时父子进程双写面并发可绕过状态机守卫的窗口已闭合；且「关联」段只指 E-93（概览），漏指同域读写契约节点 E-111（M16 批新建，TOCTOU 前态谓词与双面装配的管辖节点，本批四问已核其现行）——按 E-94 找并发守卫的读者断链。决策的点：状态机守卫段补 M16 前态谓词一句（或指针式「并发原子守卫见 WorkLedger 台账契约（E-111）」）；关联段补 E-111 指针。决策后的效果：E-93（plan 工具族概览）/E-94（行级守卫细节）/E-111（读写契约）三面口径闭环，改台账状态机守卫的读者直达并发原子化事实，不再按可绕过的旧守卫口径改并发面。查重说明：pending 台账无 E-94 目标在案候选；CAND-189 目标 TR-20（WorkLedger 角色三面，非 E-94）目标不同非重复。执笔者建议：采纳。",
+    "evidence": "apps/daemon/src/adapters/driven/sqlite-session/WorkLedger.ts:100-103（M16 TOCTOU 注释「前态谓词并入 UPDATE（原子），并发变更即 changes=0 抛错」）/ :104-127（expectedStatus 分支实现）；apps/daemon/src/application/services/task/WorkLedgerService.ts:121（updateItem 恒传 current.status 前态）；kg get E-111（M16 TOCTOU 已入契约节点——E-94 为同域滞后侧）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-99",
+    "project": "helix",
+    "reason": "事实：E-99（CodeReviewService 发起面）记并发禁入为「hasActiveJob(\"code-review\") 并发禁入 → TaskEnginePort.createTask 同一 API」单道预检口径；现行 create() 走 M7④ createTaskWithSlot 共享骨架——预检（hasActiveJob）与 createTask 落库之间的 await 窗口由 M10 create 互斥槽闭合（claimCreateSlot：同 type+project 在途 create 占住即拒后来者、finally 释放——「并发 create 可双双通过检查」的 check-then-act 竞态已消除），createTask 错误归一同走 normalizeCreateTaskError（M7「未分类错误不再伪装 validation_failed」裁决：task.validation_failed/task.type_unknown 原码透传、无 code → task.internal）。决策的点：并发禁入描述补「预检 + create 互斥槽双防线（M10）+ createTaskWithSlot 错误归一骨架（M7④ 三服务共享）」一句。决策后的效果：按 E-99 scene（改准入口径/命令族）工作的读者对并发防护读全（改槽键型/骨架前知道守护机制面），不再以单道预检口径判断竞态面。查重说明：pending 台账无 E-99 目标在案候选；CAND-162 目标 TR-89（shell 消费面前缀谓词陷阱，非 E-99 的 daemon 发起面）目标不同非重复。执笔者建议：采纳。",
+    "evidence": "apps/daemon/src/application/services/kg/CodeReviewService.ts:60-75（预检 hasActiveJob + createTaskWithSlot 调用）；apps/daemon/src/application/services/kg/job-activity.ts:26-28（hasActiveJob）/ :33-44（M10 createSlots 互斥槽 claim/release + 注释「await 窗口内并发 create 可双双通过检查」）/ :48+（M7④ 共享骨架与错误归一）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-108",
+    "project": "helix",
+    "reason": "事实：E-108（编排契约）两处滞后。①B2 停摆段记「failBatch 超限上浮 job failed 后引擎调 starter.haltJob」单触发面——现行 TaskEngineService.escalateRetryExhausted 单点收尾（注释明言 failBatch 超限/resume 暂停期耗尽补上浮（H1）/completeBatch 延迟判定（F3）三触发面共用）末尾调 haltJob，三调用点在 failBatch 超限/resume/completeBatch——completeBatch 延迟上浮（兄弟批次全终态时补判耗尽批次）同样触发停摆，E-108 单面口径漏判该路径；②「机械收口判定」段未记 settleInstance 的引擎异常兜底链（M5：引擎调用异常（实例已终态、无事件驱动，批次滞留 running 即永久卡死）→ 5s 退避重试一次兜底 failBatch；M6 #2.5：兜底成功仍按 retryScheduled 补派——存活 loop 内再无补派机会；仍失败 WARN + 滞留标记，人工 task.retry/cancel 介入面）。决策的点：B2 触发链补「三触发面同口 escalateRetryExhausted 单点」；机械收口段补兜底链半句。决策后的效果：按 E-108 scene（改收口判定/失败停摆语义）工作的读者对停摆触发面全覆盖、对引擎异常路径行为有预期，不再按单触发面口径排查或漏实现延迟上浮停摆。查重说明：pending 台账无 E-108 目标在案候选；CAND-195（TR-74 停摆段三触发面）/CAND-154（TR-76 闸 1 触发面）/CAND-173（TR-76 闸 4 兜底补派）为同源代码事实的不同节点落点，本条为 E-108 实体侧同步，非重复、可同人审合并裁决。执笔者建议：采纳。",
+    "evidence": "apps/daemon/src/application/services/task/TaskEngineService.ts:167（resume H1 调用）/ :390（completeBatch F3 调用）/ :423（failBatch 超限调用）/ :429-447（escalateRetryExhausted 单点，注释「三触发面共用」，末尾 this.deps.starter.haltJob）；apps/daemon/src/application/services/task/TaskOrchestratorService.ts:428-449（M5 兜底 + M6 #2.5 按 retryScheduled 补派 + 滞留标记 WARN）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-114",
+    "project": "helix",
+    "reason": "事实：E-114（task_report 工具）三处同源增量（findingsFile 指针列批）未同步：①op=get 回执 reports 段实为四字段（summaryPath/summaryExists/batchReports/findingsFiles）——E-114 路径清单只记「summary.md 固定落点 + 批次 reportPath」，漏 findingsFiles（findings 文件路径清单——「报告全文不进回执走 read 按需读」的实际目标路径之一）；②findings 计数为双源聚合（新行 findingsFile 指针优先读文件聚合、悬空/非法 JSON 回退内嵌 findings、旧行内嵌兼容）——E-114 只记「findings 按 kind 计数」；③「测试 15 用例」实测 16——「findings 双源：指针文件优先聚合 + findingsFiles 清单；旧行内嵌兼容；悬空指针回退内嵌」用例为该批新增。决策的点：路径清单补 findingsFiles；计数半句补双源口径；用例计数 15→16（或按 TR-57 概览化删计数让测试文件做单源）。决策后的效果：按 E-114 scene（改任务报告查询面/报告落盘约定）工作的读者对回执形态与 findings 机制面读全（findings 文件回执→read 链路是 findings 文件 canonical 机制的 chat 消费面）。查重说明：pending 台账无 E-114 目标在案候选。执笔者建议：采纳。",
+    "evidence": "apps/daemon/src/adapters/driven/tools/task-report/TaskReportTool.ts:166-173（reports 四字段含 findingsFiles :172）/ :189（findings 双源注释）/ :206-218（findingsOf 指针优先/回退内嵌）；apps/daemon/test/integration/task-report-tool.test.ts:286（findings 双源用例；grep -c \"test(\" 实测 16）"
+  }
+]

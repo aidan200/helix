@@ -1,0 +1,50 @@
+[
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-46",
+    "project": "helix",
+    "reason": "事实：E-46（工具注册表与执行面）三处增量滞后（CAND-179 之外）：①body 注册表段首句「注册表（构造函数一次性建）」已被 mcp 批的 appendTools 运行期追加通道推翻——CoreToolExecutor.appendTools 对活跃会话 executor 增量推送（Map.set 同名覆盖幂等、新会话不受影响，docstring 自述「运行期追加工具（mcp 批）：MCP server 到位即推——配合 resources.changed 刷新链的 setTools 直改面」），注册表不再是「构造一次性建」的封闭面，而 CAND-179 的 reason 只覆盖构造时第九族注册与撞名语义、未覆盖运行期通道；②writeHook env 包装注入面未入账（CoreToolExecutorOptions.writeHook + wrapEnvForDiff——T2 turn diff 写前快照钩子：包装共享 env、写前触发、hook 异常吞咽行为零差），执行面段「绑定 context（{env}）」未提示 env 可被包装；③关联段「grep 工具门面与 rg 单后端（E-110）」指向已 superseded 节点——E-110 已被 E-136（regex 开关批）取代，本节点 CAND-116 落地时 E-110 尚为现行，其后 E-136 发号未回改，指针悬空。决策的点：注册表面叙述补 appendTools 运行期增量通道半句；注入面枚举补 writeHook（env 包装）；关联段 grep 引用 E-110 改指 E-136。决策后的效果：按 E-46 scene（改工具注册面/新增工具前）工作的读者读到可变注册表全貌（MCP 动态工具的运行期接入路径与「新会话不受影响」边界），grep 管辖直达现行节点不经 supersede 链二次跳转。查重说明：pending 台账 79 条全量核对，E-46 目标仅 CAND-179，未覆盖本条三处，非重复、可合并裁决。执笔者建议：采纳。",
+    "evidence": "apps/daemon/src/adapters/driven/tools/CoreToolExecutor.ts:305-307（appendTools 本体 + mcp 批 docstring「运行期追加工具…新会话不受影响」）/:201（CoreToolExecutorOptions.writeHook 注入面）/:215（wrapEnvForDiff 包装 env）；kg get E-136 supersede 链「被取代 E-110（grep 工具门面与 rg 单后端，superseded）」对照 kg get E-46 关联段现行文本（仍写 E-110）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-47",
+    "project": "helix",
+    "reason": "事实：E-47（ToolExecutorPort 工具执行出口契约）body 首段括注「（daemon 端口双向接口与架构守护（AG）的 outbound 22 端口之一，architecture.md §3.4）」两处引用过期：①outbound 端口实测 25 个 Port 文件（application/ports/outbound/ 目录 26 项 = 25 Port + README，McpServerPort/PortConfigPort/SchedulingConfigPort 等后批增量未跟上），「22 端口」是 TR-16 旧口径的镜像引用；②architecture.md 全仓不存在（helix 仓库 docs/ 仅 design-system/temp，全项目 find 零命中）——daemon src 内 96 处注释仍引该文件属代码侧历史惯例，但节点正文把它当定位指针（§3.4）会引导读者找不存在的文档。决策的点：括注改引用式表述——「（outbound 端口之一，端口面清单见 daemon 端口双向接口与架构守护（AG））」，删过期计数与 architecture.md 段号（或按 TR-57 概览化让目录做计数单源）。决策后的效果：按 E-47 scene（改工具执行出口契约前）工作的读者不被过期计数与悬空文档指针误导，端口面归属经 TR-16 单源可达；与 CAND-188（TR-16 计数修正）同族口径归一。查重说明：pending 台账 E-47 目标仅 CAND-166（契约预留化/FakeToolExecutor 删除），CAND-188 目标 TR-16（另一节点）——本条为 E-47 正文自身引用面，非重复、可与 CAND-166 合并裁决。执笔者建议：采纳（一行改写）。",
+    "evidence": "ls apps/daemon/src/application/ports/outbound/（26 项 = 25 个 Port 文件 + README.md 实测）；find /Users/siyong/AI_Project/helix -name architecture.md 零命中（docs/ 仅 design-system/temp）；E-47 body 首段括注原文（kg get E-47）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-48",
+    "project": "helix",
+    "reason": "事实：E-48（自写文件工具族）body 关联段尾句「平权对照/失败管线/行号互防/全等校验/挂点用例真实存在于 tools-edit-parity.test.ts（①-⑨ 九组 describe，681 行）」行计数滞后——现行 723 行（九组 describe 计数不变），M23 批（497d703，EditTool 写后 abort 检查移除）等后续修改使文件增长而节点计数未同步。决策的点：行计数改现行实数，或按 TR-57 粒度规删行计数（describe 分组语义保留——它承载「五类守护面」的索引价值，行级计数单源归测试文件）。决策后的效果：按 E-48 scene（改失败推荐管线/写后挂点前）核对测试面的读者拿到的计数与文件一致；消除行级 what-抄录的下一轮同步债。查重说明：pending 台账 E-48 目标仅 CAND-178（read 图片 2MB 上限），本条为关联段计数同步、非重复、可合并裁决。执笔者建议：采纳概览化（删行计数）。",
+    "evidence": "wc -l apps/daemon/test/integration/tools-edit-parity.test.ts = 723（实测）；grep -c \"describe(\" = 9（九组不变）；git log 该文件最近提交 497d703（M23 EditTool 移除写后 abort 检查）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-75",
+    "project": "helix",
+    "reason": "事实：E-75（browser 动态浏览器工具）body「图片下行（T9）」段记「screenshot 落盘成功后读盘转 base64（MAX_IMAGE_BYTES 2MB 上限；oversize/missing 结构化返回）」与代码现实不符——现行行为是三级降级链：首读落盘文件（png）限内 → image 块直下；首读超 2MB → 以 jpeg format 重截降质（browser.screenshotTab(tabId, file, \"jpeg\") 同路径覆写）重读；重截仍超限或读失败 → 不附 image 块（返回纯文本 {saved}，不炸）。「oversize/missing 结构化返回」既不存在于工具返回面（返回值只有 saved 文本 + 可选 image 块，无状态字段），也漏掉 jpeg 重截这一实际防护手段（T9 3f7e684 引入，早于节点落库即在——落库即漏记非后续漂移）。决策的点：图片下行段改写为三级链口径（限内 png 直读 → 超限 jpeg 重截降质同路径覆写 → 仍超限/读失败 images 缺省纯文本不炸），删「结构化返回」含混表述。决策后的效果：按 E-75 scene（改图片下行/截图策略前）工作的读者对截图降级行为有正确预期（改 screenshot 语义时知道超限会二次调用 port 重截），不再按「结构化返回」找不存在的状态字段。查重说明：pending 台账 79 条全量核对，无 E-75 目标在案候选，非重复。执笔者建议：采纳。",
+    "evidence": "apps/daemon/src/adapters/driven/tools/web/BrowserTools.ts:117-133（readShot ok/oversize/missing 内部形态）/:140-151（screenshotImageBlock 三级降级链：首读超限 → screenshotTab(tabId, file, \"jpeg\") 重截 → 仍超限/missing → undefined 纯文本）/:219-231（execute screenshot 分支 image 缺省仅 {saved} 文本）；git 3f7e684（T9 提交信息「BrowserTools screenshot 读文件转 data URL 超 2MB jpeg 重截降质失败缺省不炸」）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-76",
+    "project": "helix",
+    "reason": "事实：E-76（BrowserPort 浏览器连接出口契约）body 首段括注「（daemon 端口双向接口与架构守护（AG）的 outbound 22 端口之一，TR-AD-1/2）」计数过期——outbound 端口实测 25 个 Port 文件（application/ports/outbound/ 目录 26 项 = 25 Port + README，McpServerPort/PortConfigPort/SchedulingConfigPort 等后批增量未跟上），「22 端口」是 TR-16 旧口径的镜像引用；方法面/生命周期/结果形状等其余主张本次全部现行实证成立（BrowserPort.ts:18-121 逐项核对）。决策的点：括注改引用式表述（「outbound 端口之一，端口面清单见 daemon 端口双向接口与架构守护（AG）」），删过期计数。决策后的效果：按 E-76 scene（改浏览器连接契约前）工作的读者不被过期计数误导，端口面归属经 TR-16 单源可达；与 CAND-188（TR-16 计数修正）及 E-47 同款镜像（本批评审另案上报）口径归一。查重说明：pending 台账无 E-76 目标在案候选；CAND-188 目标 TR-16 非重复。执笔者建议：采纳（一行改写）。",
+    "evidence": "ls apps/daemon/src/application/ports/outbound/（26 项 = 25 个 Port 文件 + README.md 实测）；E-76 body 首段括注原文（kg get E-76）；BrowserPort.ts:82-121（方法面全吻合佐证其余主张无漂移）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-77",
+    "project": "helix",
+    "reason": "事实：E-77（CDP 浏览器驱动栈）body「browser-discovery.ts（发现层，9 符号）」段记「knownBrowsers 按平台产候选（darwin homeDir / win32 localAppData 的 User Data 目录形态，Chrome/Edge 等）」漏第三平台——现行 knownBrowsers 为三平台 switch 矩阵：darwin（homeDir Library/Application Support 四候选含 chrome-canary）/ linux（homeDir .config/google-chrome、.config/chromium、.config/microsoft-edge 三候选）/ win32（localAppData User Data 三候选）；linux 分支自 T2 CDP 地基批（ed2b7b6）即在，节点落库即漏记（非后续漂移）；CAND-165 只覆盖连接/目标生命周期三条语义，未覆盖发现层平台矩阵。决策的点：平台矩阵描述补 linux（.config 形态）或概览化为「三平台路径矩阵（darwin/win32/linux，详见 knownBrowsers）」让源码做单源。决策后的效果：按 E-77 scene（改浏览器发现候选/探活前）工作的读者在 Linux 环境排查浏览器发现问题时知道候选路径已覆盖（不至于把「Linux 零候选」误判为缺陷或待开发面）。查重说明：pending 台账 E-77 目标仅 CAND-165（三条生命周期语义），未覆盖发现层平台矩阵，非重复、可合并裁决。执笔者建议：采纳。",
+    "evidence": "apps/daemon/src/adapters/driven/cdp/browser-discovery.ts:43-69（knownBrowsers 三平台 switch：darwin :47-53（四候选含 chrome-canary）/ linux :54-59（.config/google-chrome、.config/chromium、.config/microsoft-edge）/ win32 :60-65）；git log -S 'case \"linux\"' 首笔 ed2b7b6（T2 CDP 浏览器连接地基批）"
+  }
+]
