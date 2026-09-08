@@ -1,0 +1,66 @@
+[
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-84",
+    "project": "helix",
+    "reason": "事实：E-84（命令帧构造器契约）自定位「C→S 命令帧构造器全族」并对全族做族级枚举，但枚举面落后 commands.ts 现实六处：①整族缺登——agent 实例三命令（agentKillCommand/agentSubscribeCommand/agentUnsubscribeCommand，全局命令族）与 agent 懒查询三命令（agent.base_prompt.get/agent.skill_content.get/agent.skill.create）、mcp 族六命令（servers.list/add/update/remove/test + tools.list）、diff.get（T3+T4 diff 批，且是会话作用域命令——信封 sessionId 必填）；②config 族记「get_compaction/set_compaction」两命令，现行六命令（+get_scheduling/set_scheduling 调度预算批 + get_port/set_port 端口批）；③task 族记「九命令」，现行十命令（task.retry 人工复活批已加入，源码注释「九命令即全集」自身同漂移）；④信封纪律的会话作用域命令清单（chat.send/steer/abort、session.*、model.set、thinking.set）缺 diff.get，且「chat.steer 信封 sessionId 必填」不再绝对——chatSteerCommand 的 sessionId 现为可选（M9 收编草稿防御分支：省略时 daemon 解析当前会话）；⑤kg.health 批面现含 kg.candidates.list/kg.review.create/code.review.create 三构造器，节点只写「kg.health/review」模糊带过；⑥「kg-bootstrap 五命令」是协议面口径——shell 构造器面只有 kg.bootstrap.create 一个（produce/node.update/node.supersede/impact 无前端构造器，仅 kg-mock 有应答 case），构造器契约节点按五命令找构造器会扑空。决策的点：族级枚举按现行构造器面补全（agent 三+懒查询三/mcp 六/diff.get/config 四新/task.retry），信封纪律补 diff.get 并改 chat.steer 为「sessionId 可选（防御形态）」，kg-bootstrap 改「协议五命令、shell 构造器面仅 create」——或按 TR-57 概览化让 commands.ts 做族清单单源。决策后的效果：按 E-84 scene（新增/修改前端命令帧构造前）工作的读者取到完整构造器面，不会为 produce/update/supersede 找不存在的构造器、不会按「九命令」漏 task.retry、不会把 diff.get 当全局命令漏带路由位。查重说明：pending 台账无 E-84 目标候选（CAND-23 为 2026-09-02 applied 旧轮，覆盖面远小于本条）。执笔者建议：采纳。",
+    "evidence": "apps/shell/src/shared/api/commands.ts:157/:162/:167（agent 实例三命令）、:332/:338/:344（agent 懒查询三命令）、:370-397（mcp 族六命令）、:269-286（config 族 scheduling/port 四命令）、:548（taskRetryCommand）、:557-563（diffGetCommand 会话作用域）、:146-150（chatSteerCommand sessionId?: string M9 注释）、:470/:475/:480（kg.candidates.list/kg.review.create/code.review.create）、:442（kgBootstrapCreateCommand 唯一 bootstrap 构造器）；grep kg.bootstrap.produce 等 shell src 仅 kg-mock.ts:357-363 命中（mock 应答面非构造器）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-85",
+    "project": "helix",
+    "reason": "事实：E-85（帧分发路由）两处滞后：①路由四分支的⓪之前缺 connection.error 前置伴转——F5 批 #3 给 dispatchFrame 加了首段前置（frame.type === \"connection.error\" 时先 applyModelConfigConnError 拓扑级清在途 + writeError 交代，单飞门控无在途不消费，清位后帧继续正常路由），这是「拓扑级配置族前置」的第一步，节点对 ⓪ 分支的三族枚举（model/auth/config、agent.config、web）未含此伴转通道；②活跃完整 store 消费者注册表记「五族 + model/thinking-level/plan/history」，T3+T4 diff 批（2026-09-05）已新增 diff 消费者注册（DIFF_EVENT_TYPES：diff.changed/diff.get.result → state.diff），现行注册面为「五族 + model/thinking-level/plan/diff/history」——与 E-86/E-88 的同源缺口（本批评审另案上报）。另可选裁量：注册表还承载 M36 直通清单（PASSTHROUGH_EVENT_TYPES 连接私有回执 no-op 登记，含 kg/mcp/workspace/task 族），节点正文未提——是否概览化入账由人审定。决策的点：⓪ 分支前补 connection.error 伴转半句；注册表枚举补 diff（或概览化为「注册面清单见 dispatcher/index.ts」）。决策后的效果：按 E-85 scene（改帧路由/新增帧消费者注册前）工作的读者对 connection.error 的前置清位路径与完整注册面有正确预期——排查「model 写面失败在途不释放」类问题时循节点可定位伴转通道，新增消费者时 diff 族在册不扑空。查重说明：pending 台账无 E-85 目标候选；CAND-163/CAND-185 目标 TR-84（先例节点，引用 frame.ts:47 作证据但未修 E-85 自身），CAND-24/28/133 均 applied——目标不同非重复。执笔者建议：采纳。",
+    "evidence": "apps/shell/src/entities/session/model/dispatcher/frame.ts:46-51（connection.error 前置伴转 + 注释「F5 批 #3」）；dispatcher/index.ts:33（import applyDiffEvent）/:87-90（register DIFF_EVENT_TYPES 注释「diff.changed（T3+T4 diff 批）：轮次 diff 状态面」）；E-85 body ⓪/② 分支现行文本（kg get E-85）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-86",
+    "project": "helix",
+    "reason": "事实：E-86（会话 store 消费者族）「其余消费者」族清单缺 diff 一族——consumers/diff.ts（T3+T4 diff 批，2026-09-05）已作为独立会话 store 消费者注册进 dispatcher：diff.changed（publishDelta 瞬态广播帧）active/frozen 载荷整体落 state.diff、cleared 忽略（§29：开轮不抹上一轮灰态显示）；diff.get.result 真消费（§29）带轮次守卫（仅空态或同 turnId 才落，在途回执不降级覆盖新轮数据），服务 DiffStatChip 会话切回 rehydrate 单查询补拉。族清单（conn/directory/history/model/thinking-level/thinking-usage/web-status/agent-config/agent/plan）不含它，E-86 的 scene「新增帧事件消费 case 前」的读者按清单核对消费者族会漏掉 diff 既有消费路径。chat 族 12 事件（含 error.entry/currentTurnId 记清）与 snapshot 族描述经逐项核对全部现行成立（chat.ts 模块头「承接 10 case」注释自身滞后，属代码注释债非节点错）。决策的点：其余消费者补 diff 一行（diff.changed/diff.get.result → state.diff，cleared 忽略 + 轮次守卫语义）。决策后的效果：消费者族全景完整，与 E-85（注册表枚举）、E-88（diff 字段）三节点对 diff 链路口径归一——改 diff 投影/新增消费 case 的人以正确全景为底账。查重说明：pending 台账无 E-86 目标候选（CAND-25/39/134 均 applied 且不涉 diff）。执笔者建议：采纳（与 E-85/E-88 两条同批裁决）。",
+    "evidence": "apps/shell/src/entities/session/model/consumers/diff.ts:23（DIFF_EVENT_TYPES = [\"diff.changed\",\"diff.get.result\"]）/:26-48（cleared 忽略 + 轮次守卫实现与注释）；dispatcher/index.ts:90（register({ types: DIFF_EVENT_TYPES, apply: applyDiffEvent })）；E-86 body「其余消费者」清单原文（kg get E-86，无 diff）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-88",
+    "project": "helix",
+    "reason": "事实：E-88（前端会话状态面）两处滞后：①SessionState 字段语义清单缺 diff 字段——state.ts 现有 diff: DiffChangedPayload | null（T3+T4 diff 批：diff.changed 广播帧驱动，载荷整体落切片 turnId/phase/adds/dels/fileCount；瞬态不落盘，daemon 内存态随轮滚动，重启丢失/快照不携带；初始 null），是 ChatStatusBar 中槽 DiffStatChip 的数据源与 consumers/diff 的写面落点，digest 的字段列举同缺——「改前端状态结构、新增状态字段前看这里」的领地字段不全；②steerQueue 字段行「渲染归 SteerQueueDock 左下角浮动坞」停在 T1 前形态——T1（CAND-147 applied TR-64）后 SteerQueueDock 已收拢为 ChatStatusBar 状态行左槽行内形态（展开清单 absolute bottom:100% 向上弹出），「左下角浮动坞」描述已退役。附带（代码侧卫生非节点义务）：state.ts:489 与 ChatStatusBar.tsx:3 注释仍残留旧形态/旧占位描述。决策的点：字段清单补 diff 一行（含瞬态不落盘/无恢复种子语义）；steerQueue 渲染句改「渲染归 SteerQueueDock（ChatStatusBar 左槽行内形态）」。决策后的效果：按 E-88 scene 改状态结构的人对 diff 切片的存在与生命周期（无恢复种子、rehydrate 靠 chip 补拉）有正确预期；steer 队列坞的渲染定位与 E-129/TR-64 现行口径归一。查重说明：pending 台账无 E-88 目标候选（CAND-27/34/38/42/56/135 均 applied 且均不涉 diff 与渲染句）。执笔者建议：采纳。",
+    "evidence": "apps/shell/src/entities/session/model/state.ts:435-441（diff 字段声明与注释）/:489-491（steerQueue 注释「渲染归 SteerQueueDock 左下角浮动坞」残留）/:624（diff: null 初始态）；apps/shell/src/widgets/chat-stream/ui/ChatStatusBar.tsx:39-41（SteerQueueDock 左槽行内装配）；E-88 body 字段清单原文（kg get E-88，无 diff）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-115",
+    "project": "helix",
+    "reason": "事实：E-115（SessionContext 命令/订阅面注册表）digest 与 body 均记「LISTEN_SURFACE（五域帧匹配谓词）」，现行 LISTEN_SURFACE 为八域——五域（trace/agent.config/kg/task/workspace）之后新增三域：subscribeDiffFrames（T3+T4 diff 批：diff.get.result + connection.error）、subscribeConfigFrames（M10 设置页三卡在途错误门控：仅 connection.error——config.set_* daemon 失败无结果帧）、subscribeMcpFrames（mcp 批：mcp.*.result + mcp.status.changed + connection.error）；且八域谓词现都并入 connection.error 转发（F5 批写面在途错误归因链，trace 族先例扩散为通例）。COMMAND_SURFACE 侧同样已扩（scheduling/port 两对 config 命令、mcp 族、sendDiffGet 等），「60+ 命令方法」下限仍真但订阅面计数已错——「新增域订阅面 = 本表追加一条」正是本节点钉的纪律，域数是该注册表的 digest 级核心语义。决策的点：五域改八域（补 diff/config/mcp 三域一行语义），或按 TR-57 概览化「订阅面域清单见 LISTEN_SURFACE」让注册表做单源；connection.error 通例转发可顺带半句。决策后的效果：按 E-115 scene（新增域命令/订阅面前）工作的读者按节点核对域面不扑空——漏看 mcp/config/diff 三域会以为新增域要走别的登记路径，或不知道 connection.error 伴转是八域通例。查重说明：pending 台账无 E-115 目标候选；CAND-162（目标 TR-89）讲 subscribeKgFrames 谓词陷阱、CAND-185/CAND-163（目标 TR-84）引用 subscribeConfigFrames 作先例证据——均目标不同非重复，本条是 E-115 自身域计数同步。执笔者建议：采纳（八域枚举或概览化均可）。",
+    "evidence": "apps/shell/src/entities/session/command-surface.ts:637-710（LISTEN_SURFACE 八键全列：subscribeTraceFrames:639/subscribeDiffFrames:647/subscribeAgentConfigFrames:655/subscribeKgFrames:669/subscribeTaskFrames:679/subscribeWorkspaceFrames:687/subscribeConfigFrames:695/subscribeMcpFrames:700，各谓词含 connection.error）；E-115 digest/body「五域帧匹配谓词」原文（kg get E-115）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-124",
+    "project": "helix",
+    "reason": "事实：E-124（WorkPhaseDot 阶段光点双缺陷定式）为 L0 检出孤儿节点——零锚声明/零物化锚/零关系边（kg get 实证），且是 E-89 的 supersede 承接节点（2026-09-05 建）：E-89 的 symbol 锚（apps/shell/src/widgets/chat-stream/ui/WorkPhaseDot.tsx#WorkPhaseDot）至今仍以 orphan=0 活态挂在已废弃节点上，supersede 未携带锚——现行节点反查不可达、废弃节点占着反查位，改 WorkPhaseDot/selectWorkPhase 的人经 affected 命中的是已取代节点。正文与代码现实四问全部成立：.wp-inline 行内形态（WorkPhaseDot.tsx:33-35）、selectWorkPhase 判段定式（thinkingStreams 非空且 lastStreamKind===\"thinking\" 配对，session-reducer.ts:81-87）、WKWebView sticky 教训与绿字探针方法论在位。决策的点：是否挂锚、挂什么锚——建议双 symbol 锚：主锚 apps/shell/src/widgets/chat-stream/ui/WorkPhaseDot.tsx#WorkPhaseDot（组件单点，继承 E-89 锚位语义）；辅锚 apps/shell/src/entities/session/model/session-reducer.ts#selectWorkPhase（判段定式落点——缺陷②的改动现场）。人审可顺带裁量 E-89 旧锚处置（prune 或保留供 supersede 链溯源，参照 CAND-140 顺带裁量先例）。决策后的效果：applied 后经 declareAnchors 落锚物化，affected(WorkPhaseDot/selectWorkPhase) 命中现行节点，改布局/判段逻辑前双缺陷定式知识到位、孤儿态消除（与 CAND-146 落 E-89 同款断链不再复发）。执笔者建议：采纳双锚。证据：kg get E-124（锚声明/物化锚/关系三空）；sqlite materialized_anchors E-89 行（WorkPhaseDot.tsx|WorkPhaseDot|orphan=0 活态挂在 superseded 节点）；WorkPhaseDot.tsx:33（.wp-inline）；session-reducer.ts:81（selectWorkPhase 符号在）",
+    "evidence": "kg get E-124（三空）+ sqlite materialized_anchors WHERE node_id='E-89'（apps/shell/src/widgets/chat-stream/ui/WorkPhaseDot.tsx|WorkPhaseDot|orphan=0）；apps/shell/src/widgets/chat-stream/ui/WorkPhaseDot.tsx:33（.wp-inline 渲染）；apps/shell/src/entities/session/model/session-reducer.ts:81-87（selectWorkPhase 判段：thinkingStreams[lastStreamKind 配对）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-129",
+    "project": "helix",
+    "reason": "事实：E-129（ChatStatusBar 常驻状态行）为 L0 检出孤儿节点——零锚声明/零物化锚/零关系边（kg get 实证），且是 E-125 的 supersede 承接节点（E-125 本就无锚，断链无承接）。正文与代码现实四问全部成立：三槽装配（左 SteerQueueDock/中 DiffStatChip 两 chip +N/−N/右 WorkPhaseDot idle 槽位空，ChatStatusBar.tsx:32-51）、常驻占位纪律（28px + flex-shrink:0 + 无条件渲染，app.css:339-348）、中槽 diff 统计已实装（DiffStatChip.tsx：口径已裁两 chip、key 重挂 bump 动画、frozen 灰态、点击 onOpenDiff → ChatPage diffOverlayOpen 开合态 → DiffOverlay，ChatPage.tsx:86-121）、CSS 与守护测试（ChatStatusBar.test.tsx/css.test.ts）在位。决策的点：是否挂锚、挂什么锚——建议主锚 symbol apps/shell/src/widgets/chat-stream/ui/ChatStatusBar.tsx#ChatStatusBar（三槽结构与常驻纪律单点）；可选辅锚 path apps/shell/src/widgets/chat-stream/ui/DiffStatChip.tsx（中槽统计口径与 rehydrate 语义落点）。顺带提示（代码侧卫生非节点义务）：ChatStatusBar.tsx:3 头注仍写「中 diff 预留空占位」与 :17 实况自相矛盾，可一并修。决策后的效果：applied 后 affected(ChatStatusBar) 命中 E-129，改三槽/加常驻槽位/排查底部布局跳动前常驻纪律知识到位、孤儿态消除——不再只靠 search 碰运气发现。执笔者建议：采纳主锚，辅锚随人审裁量。证据：kg get E-129（三空）；ChatStatusBar.tsx:32-51（三槽装配）+ app.css:339-371（.chat-status-bar/.diff-chip-group 段）；DiffStatChip.tsx 头注（口径已裁/rehydrate）",
+    "evidence": "kg get E-129（锚声明/物化锚/关系三空）；apps/shell/src/widgets/chat-stream/ui/ChatStatusBar.tsx:32-51（三槽 + DiffStatChip onOpenDiff）/:3（头注「中 diff 预留空占位」残留对照 :17 实况）；apps/shell/src/shared/ui/styles/app.css:339-348（.chat-status-bar 高度恒定）/:351-371（.diff-chip-group/bump/frozen）；apps/shell/src/pages/chat/ChatPage.tsx:86/:115/:121（diffOverlayOpen 开合态装配）"
+  },
+  {
+    "kind": "sediment",
+    "changeType": "修改",
+    "targetNode": "E-135",
+    "project": "helix",
+    "reason": "事实：E-135（chat 域浮层定位与风格基准）为 L0 检出孤儿节点——零锚声明/零物化锚/零关系边（kg get 实证），且是 E-134 的 supersede 承接节点（E-134 无锚，断链无承接）。正文与代码现实四问全部成立：三分法逐条对上——真全屏 .img-lightbox position:fixed inset:0 z-index:90（app.css:920-924）；chat 主区覆盖窗 .diff-overlay position:absolute inset:0 z-index:90 锚 .app 直系末尾（app.css:975-981 + DiffOverlay.tsx 头注「ChatPage .app 直系末尾，absolute 锚 .app 盒」+ ChatPage.tsx:121 装配位）；面板视觉 stats-pop 玻璃族细节（--popover-fill + blur(14px) saturate(120%) + var(--border) + var(--shadow-pop) + 10px 圆角 + 0.18s pop-in，app.css:168-180；.diff-panel 同族复用）全部在位。决策的点：是否挂锚、挂什么锚——建议主锚 path apps/shell/src/widgets/chat-stream/ui/DiffOverlay.tsx（三分法第 2 条的现行实例、「绝不锚内部可变盒」的正反载体与 v3 教训注释所在）；可选辅锚 path apps/shell/src/pages/chat/ChatPage.tsx（chat 域浮层挂载装配现场——scene「新增任何覆盖窗/弹层」的改动落点，lightbox 与 DiffOverlay 的共同挂载决策位）。决策后的效果：applied 后 affected(DiffOverlay/ChatPage) 命中 E-135，新增浮层或调整挂载位/ z 层前三分法基准到位、孤儿态消除。执笔者建议：采纳主锚，辅锚随人审裁量。证据：kg get E-135（三空）；DiffOverlay.tsx:1-8（挂载位 v3 注释）；app.css:920（.img-lightbox fixed inset:0 z-90）/:975（.diff-overlay absolute inset:0 z-90）/:168-180（stats-pop 玻璃族）",
+    "evidence": "kg get E-135（锚声明/物化锚/关系三空）；apps/shell/src/widgets/chat-stream/ui/DiffOverlay.tsx:4-5（「ChatPage .app 直系末尾，absolute 锚 .app 盒」）；apps/shell/src/shared/ui/styles/app.css:920-924（.img-lightbox position:fixed; inset:0; z-index:90）/:975-981（.diff-overlay position:absolute; inset:0; z-index:90）/:168-180（.stats-pop 玻璃族六要素）；apps/shell/src/pages/chat/ChatPage.tsx:121（DiffOverlay 装配位）"
+  }
+]
