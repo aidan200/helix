@@ -3,7 +3,7 @@
  * 多选 chips（作用于混排/详情两种视图，交集下推 daemon）。
  *
  * 会话选择已迁 TraceSidebar 上分区（S3b 用户裁决：trace sidebar 分区
- * = 任务/会话双分组 + 实例列表）；视觉与行为基准 = prototype/P-1-trace.html
+ * = 会话/任务横排 tab + 实例列表）；视觉与行为基准 = prototype/P-1-trace.html
  * `.p1-controls`。
  */
 import { ChevronDown } from "lucide-react";

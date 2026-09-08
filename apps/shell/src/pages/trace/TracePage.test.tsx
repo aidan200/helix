@@ -264,7 +264,7 @@ describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）",
     expect(items[1]!.getAttribute("aria-pressed")).toBe("true"); // 激活态随查询即时切换
   });
 
-  it("任务会话独立分组（B）：task.list.result → 任务组条目 + 类型徽章 + 点击发起 task 会话查询；chat 会话在会话组不受混排", () => {
+  it("任务会话切 tab（B）：默认会话 tab 不混任务；切任务 tab 见任务条目 + 类型徽章 + 点击发起 task 会话查询", () => {
     ui();
     act(() => feedResult());
     // 推任务清单（task.list.result 点对点回执，宽松形状同 TasksPage 先例）
@@ -291,33 +291,36 @@ describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）",
         } as unknown as EventEnvelope);
       }
     });
-    // 侧栏拆组：任务组独立分区（组标题 + 仅任务条目），chat 会话归会话组
-    // （实例区 InstancePanel 为 ip-title/tsb 外结构，不在 tsb-title 断言面）
+    // 上分区横排 tab：会话（默认激活）| 任务；默认会话 tab 只见 chat 会话，任务不混排
     const sb = document.querySelector("[data-trace-sidebar]") as HTMLElement;
-    const titles = [...sb.querySelectorAll(".tsb-title")].map((n) => n.textContent);
-    expect(titles).toEqual(["任务", "会话"]);
-    const taskSec = sb.querySelector(".tsb-sec-tasks") as HTMLElement;
-    expect(taskSec).toBeTruthy();
-    const taskItems = within(taskSec).getAllByRole("button");
-    expect(taskItems.map((b) => (b as HTMLElement).dataset.sessionId)).toEqual(["task:job-x1"]);
-    const badge = taskItems[0]!.querySelector(".tsb-task-badge");
-    expect(badge?.textContent).toBe("code-review");
-    expect(taskItems[0]!.textContent).toContain("代码评审：daemon 任务域");
-    // chat 会话仍在会话组（不与任务混排）
-    const sesItems = within(sb.querySelector(".tsb-sec-sessions")!).getAllByRole("button");
-    expect(sesItems.map((b) => (b as HTMLElement).dataset.sessionId)).toEqual(["ses_a", "ses_b"]);
+    const tabs = within(sb).getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["会话", "任务"]);
+    expect(tabs[0]!.getAttribute("aria-selected")).toBe("true");
+    expect(tabs[1]!.getAttribute("aria-selected")).toBe("false");
+    expect(sb.querySelector('[data-session-id="task:job-x1"]')).toBeNull(); // 默认 tab 不渲染任务条目
+    // 切任务 tab：任务条目（类型徽章 + 标题）可见，chat 会话条目隐藏
+    fireEvent.click(tabs[1]!);
+    const taskItem = sb.querySelector('[data-session-id="task:job-x1"]') as HTMLElement;
+    expect(taskItem).toBeTruthy();
+    expect(taskItem.querySelector(".tsb-task-badge")?.textContent).toBe("code-review");
+    expect(taskItem.textContent).toContain("代码评审：daemon 任务域");
+    expect(sb.querySelector('[data-session-id="ses_a"]')).toBeNull();
     // 点击任务会话 → session 域查询（task:<jobId> 直查 domain_events）
-    fireEvent.click(taskItems[0]!);
+    fireEvent.click(taskItem);
     expect(mock.sentQueries.some((q) => q.sessionId === "task:job-x1")).toBe(true);
+    // 切回会话 tab：chat 会话清单恢复可见
+    fireEvent.click(within(sb).getAllByRole("tab")[0]!);
+    expect(sb.querySelector('[data-session-id="ses_a"]')).toBeTruthy();
+    expect(sb.querySelector('[data-session-id="task:job-x1"]')).toBeNull();
   });
 
-  it("任务组零任务隐藏（B）：无任务时侧栏不渲染任务分区（仅会话一组 tsb-title）", () => {
+  it("零任务隐藏任务 tab（B）：无任务时上分区仅「会话」单 tab（不渲染空任务面）", () => {
     ui();
     act(() => feedResult());
     const sb = document.querySelector("[data-trace-sidebar]") as HTMLElement;
-    const titles = [...sb.querySelectorAll(".tsb-title")].map((n) => n.textContent);
-    expect(titles).toEqual(["会话"]); // 无「任务」组
-    expect(sb.querySelector(".tsb-sec-tasks")).toBeNull();
+    const tabs = within(sb).getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["会话"]); // 无「任务」tab
+    expect(sb.querySelector('[data-session-id^="task:"]')).toBeNull();
   });
 
   it("success：混排表头四列（时间/实例/类型/摘要）+ 命中计数 + 行展开 payload（手风琴 + aria-expanded）", () => {

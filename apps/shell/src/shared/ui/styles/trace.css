@@ -45,14 +45,24 @@
 .tchip.on { border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.08); color: var(--accent); }
 .tchip.on[data-type="engine.error"] { border-color: rgb(var(--error-rgb) / 0.45); background: rgb(var(--error-rgb) / 0.08); color: var(--error); }
 
-/* ── F5.1 sidebar 上下分区（S3b）：上 = 任务/会话双分组（tsb-*，点击换
-   会话，选中 cyan 激活态，参考 .ses 模式）；下 = 实例列表（inst-panel 迁入）。
-   壳 .sidebar（workbench.css）提供 264px 宽度/右缘分隔/背景；会话组与
-   实例区 flex:1 + min-height:0 各自独立内滚，任务组按内容收缩（上限 40%
-   超限自滚，不挤占会话组）── */
+/* ── F5.1 sidebar 上下分区（S3b）：上 = 会话/任务横排 tab + 单列表
+   （tsb-*，点击换会话，选中 cyan 激活态，参考 .ses 模式）；下 = 实例列表
+   （inst-panel 迁入）。壳 .sidebar（workbench.css）提供 264px 宽度/右缘
+   分隔/背景；上列表区与实例区 flex:1 + min-height:0 各自独立内滚 ── */
 .tsb-sec { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
-/* 任务组：零任务整组不渲染；有条目时按内容收缩，超 40% 自滚 */
-.tsb-sec-tasks { flex: 0 1 auto; max-height: 40%; }
+/* 横排 tab 条（会话默认激活 / 任务零任务不渲染；形态语言对齐 .tchip：
+   edge 基线描边 + accent 冷调激活，水平撑满不折叠换行） */
+.tsb-tabs { flex: none; display: flex; gap: 6px; padding: 10px 10px 8px; }
+.tsb-tab {
+  flex: 1 1 0; padding: 5px 10px; border-radius: 6px; text-align: center;
+  border: 1px solid rgb(var(--edge-rgb) / 0.12);
+  background: transparent; color: var(--text-dim); cursor: pointer;
+  font-family: var(--font-mono); font-size: var(--text-micro); font-weight: 500;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.tsb-tab:hover { border-color: rgb(var(--accent-rgb) / 0.3); color: var(--text-muted); }
+.tsb-tab.on { border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.08); color: var(--accent); }
 .tsb-head {
   flex: none; display: flex; align-items: baseline; gap: 8px; padding: 12px 14px 6px;
   font-family: var(--font-mono); font-size: var(--text-micro); font-weight: 500;
