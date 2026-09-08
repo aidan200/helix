@@ -273,7 +273,7 @@ test.describe("T2.3 CL-5 TracePage E 层行为（真 daemon）", () => {
     // T12：SubAgent 模型 = 槽位 ?? 全局默认（不再继承会话 fake/model）——本 spec 意图是上下文卡渲染非模型链，改钉「模型」字段在场 + 工具数（模型链归 CL-3）
     await expect(card.locator(".ctx-facts")).toContainText("模型");
     await expect(card.locator(".ctx-facts")).not.toContainText("compaction");
-    await expect(card.locator(".ctx-tools .hud-chip")).toHaveCount(13); // SubAgentProfile 工具集（联网两工具+H-3 browser+kg+codegraph+plan 三工具 8→13）
+    await expect(card.locator(".ctx-tools .hud-chip")).toHaveCount(14); // SubAgentProfile 工具集（联网两工具+H-3 browser+kg+codegraph+plan 三工具+F4 edit-lines 8→14）
     // systemPrompt 折叠 3 行 + 字数 + 展开/收起（全文含 closure 协议常量段）
     const promptBody = card.locator(".cp-body");
     await expect(promptBody).toHaveClass(/folded/);
