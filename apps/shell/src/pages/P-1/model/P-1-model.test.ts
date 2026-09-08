@@ -139,6 +139,10 @@ describe("kg-model graph 态", () => {
     expect(filterRows(NODES, { q: "", kind: "all", status: "draft" })).toHaveLength(1);
     expect(filterRows(NODES, { q: "aaa", kind: "entity", status: "confirmed" })).toHaveLength(1);
     expect(filterRows(NODES, { q: "zzz", kind: "all", status: "all" })).toHaveLength(0);
+    // id 纳入 q 匹配（编号直查——TR-42/E-9 形态，大小写不敏感）
+    expect(filterRows(NODES, { q: "tr-44", kind: "all", status: "all" })).toHaveLength(1);
+    expect(filterRows(NODES, { q: "E-9", kind: "all", status: "all" })).toHaveLength(1);
+    expect(filterRows(NODES, { q: "tr-4", kind: "all", status: "all" })).toHaveLength(2);
   });
 
   it("P2③ superseded 折叠位：默认折叠；toggle 翻转；过滤/清除不动折叠位", () => {

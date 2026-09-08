@@ -166,6 +166,31 @@ describe("② 校验拒绝（服务层错误码透传，零落库）", () => {
   });
 });
 
+describe("④ 终态守卫（E-10 不变式落地：superseded 不可原地改）", () => {
+  test("superseded 节点 updateNode → KG_E_STATE 拒绝 + 零落库（再推翻走 replacement 新号）", async () => {
+    const stack = freshStack();
+    seedScenelessConfirmedNode(stack);
+    const s = stack.write.write(stack.proj, {
+      kind: "supersede",
+      iterationId: ITER,
+      nodeId: "TR-101",
+      reason: "测试翻终态",
+    } as KnowledgeWriteOp);
+    if (!s.ok) throw new Error(`supersede 种子失败：${s.error.code}`);
+
+    const tool = makeTool(stack);
+    await expect(
+      call(tool, { op: "updateNode", iterationId: ITER, nodeId: "TR-101", patch: { scene: SCENE } }),
+    ).rejects.toThrow("KG_E_STATE");
+
+    // 零落库：scene 保持 ''，change_log 无 updateNode 行
+    expect(probe<{ scene: string; status: string }>(stack.proj, "SELECT scene, status FROM nodes WHERE id = 'TR-101'")).toEqual([
+      { scene: "", status: "superseded" },
+    ]);
+    expect(probe<{ op: string }>(stack.proj, "SELECT op FROM change_log WHERE op = 'updateNode'")).toEqual([]);
+  });
+});
+
 describe("③ 工具词表与 description 同步（D8 遗留①）", () => {
   test("op enum 含 updateNode；description 含 op 清单与「仅限 scene 等元数据补全」纪律句", () => {
     const stack = freshStack();

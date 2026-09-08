@@ -196,6 +196,11 @@ export class SqliteKnowledgeStore {
     if (current === null) {
       return err("KG_E_ID", `节点 ${op.nodeId} 不存在`, "op.nodeId");
     }
+    // 终态守卫（E-10 不变式落地）：superseded 节点不可原地改——再推翻走
+    // supersede replacement 新号挂链；与 applySupersede 的 KG_E_STATE 同码。
+    if (current.status === "superseded") {
+      return err("KG_E_STATE", `节点 ${op.nodeId} 已是 superseded 终态（终态不可原地改，再推翻走 replacement 新号）`, "op.nodeId");
+    }
     const patch = op.patch;
     db.prepare(
       "UPDATE nodes SET name = ?, digest = ?, body = ?, scene = ?, domain = ?, layer = ?, status = ?, updated_at = ? WHERE id = ?",

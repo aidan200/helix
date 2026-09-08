@@ -94,7 +94,8 @@ export function filterRows(all: readonly KgNodeListRow[], filter: KgFilter): KgN
     if (filter.status !== "all" && n.status !== filter.status) return false;
     if (filter.q !== "") {
       const q = filter.q.toLowerCase();
-      if (!n.name.toLowerCase().includes(q) && !n.digest.toLowerCase().includes(q)) return false;
+      // id 纳入匹配（TR-42 / E-9 直查——只配 name/digest 时编号无处可查）
+      if (!n.id.toLowerCase().includes(q) && !n.name.toLowerCase().includes(q) && !n.digest.toLowerCase().includes(q)) return false;
     }
     return true;
   });
