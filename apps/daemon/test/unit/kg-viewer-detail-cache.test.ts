@@ -9,6 +9,7 @@ import type {
   AnchorReverseHit,
   AttachmentSnapshot,
   CandidateRow,
+  GlobalResidentRuleRow,
   CandidateStatusCounts,
   ChangeLogEntry,
   IndexStatus,
@@ -138,6 +139,10 @@ class CountingGraph implements KnowledgeGraphPort {
   }
 
   listCandidates(): readonly CandidateRow[] {
+    return [];
+  }
+
+  listGlobalResidentRules(): readonly GlobalResidentRuleRow[] {
     return [];
   }
 }

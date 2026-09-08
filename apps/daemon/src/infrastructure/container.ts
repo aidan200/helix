@@ -508,6 +508,11 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 可用任务类型段数据源（audience 分类注入，批二）：MainAgent 提示的
     // 任务类型清单 = 任务注册表读面（与 task_create 的类型校验同一事实源）
     taskTypesOf: () => taskStack.orchestratorCore.skills.listTaskTypes(),
+    // 项目常驻规则段数据源（global 声明节点触发面索引）：kg 栈查询服务
+    // 跨项目聚合 + domain 渲染；无图谱/空集 → null → 段省略（零注入痕迹）。
+    // W1：未绑定 → null（组装无 kg 面，行为不变）；组装快照启动/toggle 重算
+    // 时求值，kg 落新 global 节点后随下次重算生效。
+    residentRulesOf: () => workspace.stack()?.queryService.residentRulesSection() ?? null,
     // task_report 工具装配面（D3）：主会话 executor 注册 chat 回流通用报告
     // 查询面——任务读面（TaskQueryService list/detail）+ closure_records 读面
     //（SessionRepositoryPort.queryClosureRecords）+ 报告目录约定（与

@@ -402,6 +402,18 @@ export interface AnchorDeclRow {
 }
 
 /**
+ * 常驻规则索引行（KnowledgeGraphPort.listGlobalResidentRules 返回，系统提示
+ * 触发面段数据源）：global 声明节点的最小触发面集——id/kind/name/scene
+ * （scene 是触达核心：命中场景 → LLM 主动 kg get 全文，正文不进段）。
+ */
+export interface GlobalResidentRuleRow {
+  readonly id: NodeId;
+  readonly kind: NodeKind;
+  readonly name: string;
+  readonly scene: string;
+}
+
+/**
  * sync 管道基准读面（KnowledgeGraphPort.getSyncBaseline 返回，T2.2 消费）：
  * 上一基准符号面+ 活跃物化锚 + 锚声明全集——
  * 增量跳过判定 / 符号消亡 diff / 物化全量重算的三项输入。

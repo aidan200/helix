@@ -17,6 +17,7 @@ import type {
   AnchorReverseHit,
   AttachmentSnapshot,
   CandidateRow,
+  GlobalResidentRuleRow,
   CandidateStatusCounts,
   ChangeLogEntry,
   IndexStatus,
@@ -130,6 +131,10 @@ class StubGraph implements KnowledgeGraphPort {
 
   listCandidates(): readonly CandidateRow[] {
     return []; // 台账读面三件套：本测试不消费
+  }
+
+  listGlobalResidentRules(): readonly GlobalResidentRuleRow[] {
+    return []; // 常驻规则索引读面：本测试不消费
   }
 
   getSyncBaseline(): SyncBaselineView {

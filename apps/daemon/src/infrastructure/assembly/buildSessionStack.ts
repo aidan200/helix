@@ -208,6 +208,13 @@ export interface BuildSessionStackDeps {
    */
   readonly taskTypesOf?: () => readonly TaskTypeInfo[];
   /**
+   * 项目常驻规则段数据源（global 声明节点触发面索引，组合根接
+   * KgQueryService.residentRulesSection）：已渲染成品段或 null（无图谱/
+   * 空集 → 段整体省略）。组装快照启动/toggle 重算时求值——kg 落新
+   * global 节点后随下次重算生效。缺省不注入（测试形态）。
+   */
+  readonly residentRulesOf?: () => string | null;
+  /**
    * 会话工具沙箱 cwd 动态解析面（W1 绑定闭环）：基准改绑定的 root——
    * 每会话装配（engineFor）时求值，重绑后新会话跟随。缺省回落启动定格
    * 值；deps.toolCwd 显式注入时恒优先（测试面）。
@@ -424,6 +431,12 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         basePrompt: assemblyBase(kind),
         toolNames: tools,
         skills,
+        // 项目常驻规则段（kg global 声明节点触发面）：五 kind 同构注入
+        // （治理规则对所有 agent 生效；SubAgent 子进程经 parent 组装快照
+        // env 传入自动携带）；未注入/空集段省略（无图谱项目零注入痕迹）
+        ...(deps.residentRulesOf !== undefined
+          ? { residentSection: deps.residentRulesOf() }
+          : {}),
         // 任务类型段仅 MainAgent（发起面 = task_create；SubAgent 不能建任务
         // AD-2，orchestrator 的 SOP 走 kickoff 全文注入）
         ...(kind === "main-session" && deps.taskTypesOf !== undefined

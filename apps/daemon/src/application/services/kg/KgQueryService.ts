@@ -25,6 +25,7 @@ import {
   type TaskSliceRenderOptions,
   type TaskSliceRow,
 } from "../../../domain/kg/attachment/task-slice";
+import { renderResidentRules, type ResidentRuleRow } from "../../../domain/kg/attachment/resident-rules";
 
 /** 注入登记条目（F3 修复：复合键语义——project + nodeId；多项目同 id 节点互不误排）。 */
 export interface InjectedNodeRef {
@@ -144,6 +145,25 @@ export class KgQueryService {
       if (detail !== null) out.push({ project, detail });
     }
     return out;
+  }
+
+  /**
+   * 常驻规则索引段（global 声明节点 → 系统提示触发面，组装链消费）：
+   * 跨项目聚合 listGlobalResidentRules → domain 渲染（name+scene+kg get
+   * 指针，不含全文——命中场景后主动读全文）。空集/异常 → null（段整体
+   * 省略；增强面绝不阻断系统提示组装，无图谱项目零注入痕迹）。
+   */
+  residentRulesSection(): string | null {
+    try {
+      const projects = this.deps.projects();
+      if (projects.length === 0) return null;
+      const rows: readonly ResidentRuleRow[] = projects.flatMap((project) =>
+        this.deps.graph.listGlobalResidentRules(project).map((row) => ({ project, row })),
+      );
+      return renderResidentRules(rows, { multiProject: projects.length > 1 });
+    } catch {
+      return null; // 静默（增强面，绝不阻断启动）
+    }
   }
 
   /**

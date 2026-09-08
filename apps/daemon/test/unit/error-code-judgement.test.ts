@@ -15,6 +15,7 @@ import {
   handleSessionDelete,
 } from "../../src/adapters/driving/ws-server/handlers/session";
 import { WsServerAdapter } from "../../src/adapters/driving/ws-server/WsServerAdapter";
+import { modelErrorCode } from "../../src/adapters/driving/ws-server/command-contexts";
 import type {
   ChatCommandContext,
   SessionCommandContext,
@@ -251,12 +252,10 @@ describe("TP-1.5b/TP-1.5a：判别点等价 + 无 code 旧对象兜底（handler
   });
 
   test("判别点⑥：modelErrorCode 集中映射——三专用码 + 无 code 旧对象兑底 invalid_payload", () => {
-    // 纯映射函数（无实例态）：prototype 直呼，免整适配器装配（ws-server 真链
+    // 纯映射函数（无实例态）：直呼模块导出，免整适配器装配（ws-server 真链
     // 等价由既有 integration 测试钉死——ws-server.test.ts model_not_found /
-    // provider_not_found 注入）
-    const modelErrorCode = (
-      WsServerAdapter.prototype as unknown as { modelErrorCode: (err: Error) => ErrorCode }
-    ).modelErrorCode;
+    // provider_not_found 注入）。体量拆分批（2026-09-10）：函数随 context
+    // 构造器迁 command-contexts.ts，导出面直呼
     expect(modelErrorCode(new SessionNotFoundError("s1"))).toBe("session.not_found");
     expect(modelErrorCode(new ModelNotFoundError("prov/x"))).toBe("model_not_found");
     expect(modelErrorCode(new ProviderNotFoundError("prov"))).toBe("provider_not_found");

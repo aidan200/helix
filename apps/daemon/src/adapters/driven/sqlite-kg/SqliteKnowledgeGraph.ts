@@ -17,6 +17,7 @@ import type {
   ContainsEdge,
   EdgeVerb,
   FileAnchor,
+  GlobalResidentRuleRow,
   IndexStatus,
   KnowledgeNode,
   MaterializedAnchor,
@@ -532,6 +533,28 @@ export class SqliteKnowledgeGraph {
       decidedAt: row.decided_at,
       decisionReason: row.decision_reason,
       appliedNodeId: row.applied_node_id,
+    }));
+  }
+
+  /**
+   * 常驻规则索引读面（global 声明节点 → 系统提示触发面段数据源）：
+   * anchor_decl scope_kind='global' join 非 superseded 节点（与切片通道
+   * 同纪律：draft 也到达）；同节点多枚 global 声明 DISTINCT 去重，id
+   * 升序确定性。只读 SELECT（AG-06 写点白名单不含本文件）。
+   */
+  listGlobalResidentRules(projectRoot: string): readonly GlobalResidentRuleRow[] {
+    const db = this.deps.database.knowledgeConnection(projectRoot);
+    const rows = db
+      .prepare(
+        "SELECT DISTINCT n.id, n.kind, n.name, n.scene FROM anchor_decl d JOIN nodes n ON n.id = d.node_id " +
+          "WHERE d.scope_kind = 'global' AND n.status != 'superseded' ORDER BY n.id",
+      )
+      .all() as { id: string; kind: string; name: string; scene: string }[];
+    return rows.map((row) => ({
+      id: row.id,
+      kind: row.kind as NodeKind,
+      name: row.name,
+      scene: row.scene,
     }));
   }
   // ── supersede 链组装（双向游走） ──────────────────────────

@@ -31,6 +31,12 @@ export interface PromptAssemblyInput {
   readonly toolNames: readonly string[];
   readonly skills: readonly SkillDescriptor[];
   /**
+   * 项目常驻规则段（kg global 声明节点触发面索引，已渲染成品段——渲染
+   * 逻辑归 domain/kg，组装器只拼段）：undefined/null/空 = 无图谱项目，
+   * 段整体省略（零注入痕迹）。
+   */
+  readonly residentSection?: string | null;
+  /**
    * 可用任务类型清单（TaskSkillRegistry.listTaskTypes 读面）——仅
    * main-session 传入：任务类型 SOP 不进技能清单（audience=task 不过
    * 技能面），MainAgent 的发起面是 task_create（对话即确认）。
@@ -52,6 +58,9 @@ export class SystemPromptAssembler {
     });
     if (toolLines.length > 0) segments.push(["可用工具：", ...toolLines].join("\n"));
     if (input.skills.length > 0) segments.push(this.skillSection(input.skills));
+    if (input.residentSection !== undefined && input.residentSection !== null && input.residentSection !== "") {
+      segments.push(input.residentSection);
+    }
     if (input.taskTypes !== undefined && input.taskTypes.length > 0) {
       segments.push(this.taskTypeSection(input.taskTypes));
     }

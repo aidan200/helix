@@ -6,6 +6,7 @@ import type {
   CandidateRow,
   CandidateStatusCounts,
   ChangeLogEntry,
+  GlobalResidentRuleRow,
   IndexStatus,
   NodeDetail,
   NodeDigestRow,
@@ -19,7 +20,7 @@ export type {
   AttachmentSnapshot,
   CandidateListQuery,
   CandidateRow,
-  ChangeLogEntry,
+  GlobalResidentRuleRow,
   IndexStatus,
   NodeDetail,
   NodeDigestRow,
@@ -126,4 +127,13 @@ export interface KnowledgeGraphPort {
    * （调用方先行 hasIndex 判定，读面绝不新建库文件）。
    */
   listCandidates(projectRoot: string, query: CandidateListQuery): readonly CandidateRow[];
+
+  /**
+   * 常驻规则索引读面（global 声明节点 → 系统提示触发面段的数据源）：
+   * anchor_decl scope_kind='global' 的非 superseded 节点（id/kind/name/
+   * scene 最小集——scene 是触达核心）；id 升序确定性，同一节点多枚
+   * global 声明去重。与切片通道同纪律（draft 也到达，只排 superseded）。
+   * 只在 .kg 已存在的项目上调用（读面绝不新建库文件）。
+   */
+  listGlobalResidentRules(projectRoot: string): readonly GlobalResidentRuleRow[];
 }

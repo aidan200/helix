@@ -141,5 +141,8 @@ describe("D5 快照装配派发：subagentAssemblyFor 按 profileKind 派发生�
     expect(workerSnap.tools).toContain("edit");
     expect(kgwSnap.tools).toEqual([...SubAgentProfile.tools.filter((t) => t !== "edit-lines"), "kg-update"]);
     expect(kgwSnap.systemPrompt).toContain(SUBAGENT_KG_WRITER_PROMPT_SUFFIX);
+    // 无图谱 workspace（kgWorkspaceRoot=home 且无项目目录）：常驻规则段
+    // 整体省略（零注入痕迹，用户裁决 2026-09-10）
+    expect(workerSnap.systemPrompt).not.toContain("项目常驻规则");
   });
 });
