@@ -95,6 +95,11 @@ async function startRig(opts: { kgWorkspaceRoot?: string | null; engine?: FakeAg
   const home = opts.home ?? mkdtempSync(path.join(tmpdir(), "helix-ws-home-"));
   const ws1 = mkdtempSync(path.join(tmpdir(), "helix-ws-one-"));
   const ws2 = mkdtempSync(path.join(tmpdir(), "helix-ws-two-"));
+  // 目录登记回收（rmSync force 幂等——213 行 rig2 复用 rig.home 会重复登记，安全）:
+  // 不回收会在 CI 单 job 串行布局里泄漏到 e2e globalSetup 的 TMPDIR 卫生审计面。
+  cleaners.push(() => {
+    for (const dir of [home, ws1, ws2]) rmSync(dir, { recursive: true, force: true });
+  });
   mkdirSync(path.join(ws1, "alpha"), { recursive: true });
   mkdirSync(path.join(ws1, "beta"), { recursive: true });
   mkdirSync(path.join(ws2, "gamma"), { recursive: true });
@@ -310,6 +315,9 @@ describe("workspace 绑定闭环（W1）I 层", () => {
     // 不起真子进程）；WS 面不需要——open 走 daemon.workspace 直调。
     const home = mkdtempSync(path.join(tmpdir(), "helix-ws-f2-home-"));
     const ws1 = mkdtempSync(path.join(tmpdir(), "helix-ws-f2-root-"));
+    cleaners.push(() => {
+      for (const dir of [home, ws1]) rmSync(dir, { recursive: true, force: true });
+    });
     const calls: { env: Record<string, string | undefined> }[] = [];
     // 按实例 id 取捕获 env：不能按位置索引取（防御共享打桩串扰）。
     const envOf = (instanceId: string): Record<string, string | undefined> | undefined =>

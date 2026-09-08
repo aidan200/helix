@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -70,8 +70,12 @@ interface Harness {
   dispose(): Promise<void>;
 }
 
+/** 全部 harness home 登记（afterAll 兜底回收——用例内多 harness 替换 current 时逐一全清，幂等）。 */
+const harnessHomes: string[] = [];
+
 function makeHarness(policy?: SchedulingPolicy, clock?: ClockPort): Harness {
   const home = mkdtempSync(path.join(tmpdir(), "helix-park-sched-"));
+  harnessHomes.push(home);
   const writeQueue = new WriteQueue(path.join(home, "helix.db"));
   const repository = new SqliteSessionRepository(writeQueue);
   const events: DomainEvent[] = [];
@@ -148,6 +152,11 @@ afterEach(async () => {
     await current.dispose();
     current = undefined;
   }
+});
+afterAll(() => {
+  // 兜底回收：dispose 只随 current 逐用例清理，用例内多 harness 替换
+  // （h→h2→h3）会漏中间目录——登记面统一 force 幂等清。
+  for (const home of harnessHomes) rmSync(home, { recursive: true, force: true });
 });
 
 describe("① park → parked（非终态：不写 closure、不收口、不注入主线）", () => {

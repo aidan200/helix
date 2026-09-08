@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -119,12 +119,23 @@ interface FakeServerRef {
   readonly scriptPath: string;
 }
 
+/** 假 server 脚本目录登记表（afterAll 统一回收——零残留卫生约定，见 e2e tmp-hygiene） */
+const fakeServerDirs: string[] = [];
+
 function fakeServerInput(name: string, extra?: Record<string, unknown>): FakeServerRef {
   const dir = mkdtempSync(path.join(tmpdir(), "helix-mcp-ws-it-"));
+  fakeServerDirs.push(dir);
   const scriptPath = path.join(dir, "fake-server.mjs");
   writeFileSync(scriptPath, FAKE_SERVER);
   return { input: { name, command: process.execPath, args: [scriptPath], ...extra }, scriptPath };
 }
+
+afterAll(() => {
+  // 确定性泄漏回收：每用例一个 helix-mcp-ws-it-* 脚本目录（home 由各用例 finally
+  // 回收），不回收会在 CI 单 job 串行布局里污染后续 e2e globalSetup 的 TMPDIR
+  // 卫生审计面（fail-fast 拦截）。
+  for (const dir of fakeServerDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 /** mcp_server 表读面（config 瘦身批：声明面落 helix.db；只读连接零 DML）。 */
 function readMcpTable(home: string): { name: string; config: string }[] {

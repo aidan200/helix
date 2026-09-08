@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { McpClient, parseMcpLines } from "./McpClient";
@@ -62,13 +62,23 @@ function handle(msg) {
 }
 `;
 
+/** 假 server 脚本目录登记表（afterAll 统一回收——零残留卫生约定，见 e2e tmp-hygiene） */
+const fakeServerDirs: string[] = [];
+
 function fakeServerConfig(name: string, extra?: Partial<McpServerConfig>): McpServerConfig {
   const dir = `${tmpdir()}/helix-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   mkdirSync(dir, { recursive: true });
+  fakeServerDirs.push(dir);
   const script = path.join(dir, "fake-server.mjs");
   writeFileSync(script, FAKE_SERVER);
   return { name, command: process.execPath, args: [script], ...extra };
 }
+
+afterAll(() => {
+  // 确定性泄漏回收：每用例一个 helix-mcp-test-* 脚本目录，不回收会在 CI 单 job
+  // 串行布局里污染后续 e2e globalSetup 的 TMPDIR 卫生审计面（fail-fast 拦截）。
+  for (const dir of fakeServerDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 describe("parseMcpLines（纯函数）", () => {
   test("跨 chunk 行缓冲：半行残余 + 空行跳过", () => {
