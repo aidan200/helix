@@ -119,13 +119,20 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
   publisher.add({ name: "cli-stdout", target: stdoutPublisher });
   publisher.add({
     name: "cli-current-session-feedback",
-    // CLI 单会话 UX：只回灌当前会话事件（多会话事件经 WS 按订阅分发）
+    // CLI 单会话 UX：只回灌当前会话事件（多会话事件经 WS 按订阅分发）。
+    // 判等用无副作用读面 peekCurrentSessionId——事件面禁止 createFresh 副作用
+    //（TR-141：current 轮换只在用户交互面）：重绑卸载窗口（unloadAll 置空
+    // current）恰逢轮次收尾事件迟到 fan-out 时，带副作用的 currentSessionId()
+    // 会凭空建新草稿并轮换 current，注册表非空且回灌错位——观测性判等
+    // current 缺席即无回灌目标，跳过。
     target: {
       publish: (event) => {
-        if (event.sessionId === registry.currentSessionId()) sessionService.notify(event);
+        const current = registry.peekCurrentSessionId();
+        if (current !== undefined && event.sessionId === current) sessionService.notify(event);
       },
       publishDelta: (delta) => {
-        if ((delta.sessionId ?? registry.currentSessionId()) === registry.currentSessionId()) {
+        const current = registry.peekCurrentSessionId();
+        if (current !== undefined && (delta.sessionId ?? current) === current) {
           sessionService.notify(delta);
         }
       },

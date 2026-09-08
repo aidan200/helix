@@ -377,6 +377,17 @@ export class SessionRegistry implements SessionDirectoryPort {
     }
   }
 
+  /**
+   * 当前会话 id 观测（无副作用）：current 现值直读，缺席（initialize 前 /
+   * 重绑卸载窗口）返回 undefined——**不**懒建草稿。事件 fan-out 等观测性
+   * 判等面必须用本读面（TR-141 口径：current 轮换只在用户交互面——后台
+   * 事件不得隐式建会话抢 current）；需要「恒有当前会话」不变式的会话面
+   * 路径（resolveTarget/握手 getStatus 等）仍用 currentSessionId()。
+   */
+  peekCurrentSessionId(): string | undefined {
+    return this.current;
+  }
+
   currentSessionId(): string {
     if (this.current === undefined) {
       // initialize 前的防御：daemon 存续期恒有当前会话
