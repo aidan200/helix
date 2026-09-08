@@ -457,6 +457,7 @@ export const zhCN = {
     },
     sidebar: {
       ariaLabel: "追溯侧栏",
+      tasks: "任务",
       sessions: "会话",
       sessionsEmpty: "暂无会话",
       pickSession: "选择会话后列出实例",

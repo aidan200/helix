@@ -449,6 +449,7 @@ export const enUS = {
     },
     sidebar: {
       ariaLabel: "Trace sidebar",
+      tasks: "Tasks",
       sessions: "Sessions",
       sessionsEmpty: "No sessions yet",
       pickSession: "Select a session to list instances",

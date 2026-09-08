@@ -2,8 +2,8 @@
  * P-1 控制条（F5.4 组合过滤入口；S3b 瘦身）：时间范围四档 + 事件类型
  * 多选 chips（作用于混排/详情两种视图，交集下推 daemon）。
  *
- * 会话选择已迁 TraceSidebar 上分区（S3b 用户裁决：trace sidebar 上下
- * 分区 = 会话列表 / 实例列表）；视觉与行为基准 = prototype/P-1-trace.html
+ * 会话选择已迁 TraceSidebar 上分区（S3b 用户裁决：trace sidebar 分区
+ * = 任务/会话双分组 + 实例列表）；视觉与行为基准 = prototype/P-1-trace.html
  * `.p1-controls`。
  */
 import { ChevronDown } from "lucide-react";

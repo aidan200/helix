@@ -264,7 +264,7 @@ describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）",
     expect(items[1]!.getAttribute("aria-pressed")).toBe("true"); // 激活态随查询即时切换
   });
 
-  it("任务会话入侧栏（B）：task.list.result → task:<jobId> 条目排前 + 类型徽章 + 点击发起 task 会话查询", () => {
+  it("任务会话独立分组（B）：task.list.result → 任务组条目 + 类型徽章 + 点击发起 task 会话查询；chat 会话在会话组不受混排", () => {
     ui();
     act(() => feedResult());
     // 推任务清单（task.list.result 点对点回执，宽松形状同 TasksPage 先例）
@@ -291,15 +291,33 @@ describe("P-1 TracePage 组件（控制条 / 表头 / 行展开 / 状态面）",
         } as unknown as EventEnvelope);
       }
     });
-    // 侧栏：任务会话排前 + 徽章渲染
-    const items = document.querySelectorAll(".tsb-ses");
-    expect(items[0]!.getAttribute("data-session-id")).toBe("task:job-x1");
-    const badge = items[0]!.querySelector(".tsb-task-badge");
+    // 侧栏拆组：任务组独立分区（组标题 + 仅任务条目），chat 会话归会话组
+    // （实例区 InstancePanel 为 ip-title/tsb 外结构，不在 tsb-title 断言面）
+    const sb = document.querySelector("[data-trace-sidebar]") as HTMLElement;
+    const titles = [...sb.querySelectorAll(".tsb-title")].map((n) => n.textContent);
+    expect(titles).toEqual(["任务", "会话"]);
+    const taskSec = sb.querySelector(".tsb-sec-tasks") as HTMLElement;
+    expect(taskSec).toBeTruthy();
+    const taskItems = within(taskSec).getAllByRole("button");
+    expect(taskItems.map((b) => (b as HTMLElement).dataset.sessionId)).toEqual(["task:job-x1"]);
+    const badge = taskItems[0]!.querySelector(".tsb-task-badge");
     expect(badge?.textContent).toBe("code-review");
-    expect(items[0]!.textContent).toContain("代码评审：daemon 任务域");
+    expect(taskItems[0]!.textContent).toContain("代码评审：daemon 任务域");
+    // chat 会话仍在会话组（不与任务混排）
+    const sesItems = within(sb.querySelector(".tsb-sec-sessions")!).getAllByRole("button");
+    expect(sesItems.map((b) => (b as HTMLElement).dataset.sessionId)).toEqual(["ses_a", "ses_b"]);
     // 点击任务会话 → session 域查询（task:<jobId> 直查 domain_events）
-    fireEvent.click(items[0]!);
+    fireEvent.click(taskItems[0]!);
     expect(mock.sentQueries.some((q) => q.sessionId === "task:job-x1")).toBe(true);
+  });
+
+  it("任务组零任务隐藏（B）：无任务时侧栏不渲染任务分区（仅会话一组 tsb-title）", () => {
+    ui();
+    act(() => feedResult());
+    const sb = document.querySelector("[data-trace-sidebar]") as HTMLElement;
+    const titles = [...sb.querySelectorAll(".tsb-title")].map((n) => n.textContent);
+    expect(titles).toEqual(["会话"]); // 无「任务」组
+    expect(sb.querySelector(".tsb-sec-tasks")).toBeNull();
   });
 
   it("success：混排表头四列（时间/实例/类型/摘要）+ 命中计数 + 行展开 payload（手风琴 + aria-expanded）", () => {

@@ -3,8 +3,8 @@
    视觉基准 = prototype/P-1-trace.html（p1-* 类名逐条对齐，原型标注
    data-proto-annotation 元素对应样式已剥离）；S3b 迁 AppLayout：
    壳骨架归 app-layout.css（header 页名 / sidebar 槽 / layout-main）；
-   本文件 = sidebar 上下分区（tsb-* 上=会话 / inst-panel 下=实例，各自
-   独立内滚）+ 主列（.p1-col：控制条 + 主区 + 断连 overlay）。
+   本文件 = sidebar 分区（tsb-* 上=任务/会话双分组 / inst-panel 下=实例，
+   各自独立内滚）+ 主列（.p1-col：控制条 + 主区 + 断连 overlay）。
    Token 纪律：零硬编码 hex——色值一律 rgb(var(--*-rgb) / α) 通道变量
    或语义变量（tokens.css 唯一真源，tokens.md 零 delta）。
    动效仅 transform/opacity；全部 honor prefers-reduced-motion。
@@ -45,11 +45,14 @@
 .tchip.on { border-color: rgb(var(--accent-rgb) / 0.4); background: rgb(var(--accent-rgb) / 0.08); color: var(--accent); }
 .tchip.on[data-type="engine.error"] { border-color: rgb(var(--error-rgb) / 0.45); background: rgb(var(--error-rgb) / 0.08); color: var(--error); }
 
-/* ── F5.1 sidebar 上下分区（S3b）：上 = 会话列表（tsb-*，点击换会话，
-   选中 cyan 激活态，参考 .ses 模式）；下 = 实例列表（inst-panel 迁入）。
-   壳 .sidebar（workbench.css）提供 264px 宽度/右缘分隔/背景；两分区
-   flex:1 + min-height:0 各自独立内滚 ── */
+/* ── F5.1 sidebar 上下分区（S3b）：上 = 任务/会话双分组（tsb-*，点击换
+   会话，选中 cyan 激活态，参考 .ses 模式）；下 = 实例列表（inst-panel 迁入）。
+   壳 .sidebar（workbench.css）提供 264px 宽度/右缘分隔/背景；会话组与
+   实例区 flex:1 + min-height:0 各自独立内滚，任务组按内容收缩（上限 40%
+   超限自滚，不挤占会话组）── */
 .tsb-sec { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+/* 任务组：零任务整组不渲染；有条目时按内容收缩，超 40% 自滚 */
+.tsb-sec-tasks { flex: 0 1 auto; max-height: 40%; }
 .tsb-head {
   flex: none; display: flex; align-items: baseline; gap: 8px; padding: 12px 14px 6px;
   font-family: var(--font-mono); font-size: var(--text-micro); font-weight: 500;

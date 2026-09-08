@@ -144,19 +144,24 @@ const TracePage = function TracePage({ path }: { path: string }) {
     [subscribeTaskFrames],
   );
 
-  /** 会话解析：已选合法 → 保持；否则活跃会话优先，回落清单首条（最新）。 */
-  const mergedSessions = useMemo<readonly SessionMeta[]>(() => {
-    // 任务会话映射为 SessionMeta 形态排前（runState 按 job.status 映射；
+  /** 会话解析：已选合法 → 保持；否则活跃会话优先，回落清单首条（最新）。
+   *  mergedSessions（任务排前 + chat 会话）仅供解析/回落，默认加载逻辑不动；
+   *  侧栏呈现拆组（任务/会话两组）见 taskMetas 传递。 */
+  const taskMetas = useMemo<readonly SessionMeta[]>(() => {
+    // 任务会话映射为 SessionMeta 形态（runState 按 job.status 映射；
     // loaded=false——任务会话不在会话注册表，恒冷会话）
-    const taskMetas: SessionMeta[] = tasks.map((tk) => ({
+    return tasks.map((tk) => ({
       sessionId: `task:${tk.jobId}`,
       title: tk.title,
       lastActivityAt: Date.parse(tk.updatedAt),
       runState: tk.status === "running" || tk.status === "paused" ? "subagent_running" : "idle",
       loaded: false,
     }));
-    return [...taskMetas, ...topology.list];
-  }, [tasks, topology.list]);
+  }, [tasks]);
+  const mergedSessions = useMemo<readonly SessionMeta[]>(
+    () => [...taskMetas, ...topology.list],
+    [taskMetas, topology.list],
+  );
   /** 任务会话类型徽章查表（sessionId → 任务类型；TraceSidebar 徽章数据源）。 */
   const taskKinds = useMemo<ReadonlyMap<string, string>>(
     () => new Map(tasks.map((tk) => [`task:${tk.jobId}`, tk.type])),
@@ -288,8 +293,9 @@ const TracePage = function TracePage({ path }: { path: string }) {
       headerLeft={<h1 className="p1-title">{t("trace.title")}</h1>}
       sidebar={
         <TraceSidebar
-          sessions={mergedSessions}
+          taskSessions={taskMetas}
           taskKinds={taskKinds}
+          sessions={topology.list}
           sessionId={state.filter.sessionId !== "" ? state.filter.sessionId : (resolvedSessionId ?? "")}
           instances={state.instances}
           selectedInstance={state.filter.instanceId}

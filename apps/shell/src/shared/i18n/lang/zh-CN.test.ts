@@ -198,8 +198,9 @@ const REQUIRED_KEYS = [
   "trace.controls.range1h",
   "trace.controls.range15m",
   "trace.controls.range5m",
-  // S3b（trace 页迁 AppLayout：sidebar 上下分区；控制条 session 下拉退役）
+  // S3b（trace 页迁 AppLayout：sidebar 分区；控制条 session 下拉退役）
   "trace.sidebar.ariaLabel",
+  "trace.sidebar.tasks",
   "trace.sidebar.sessions",
   "trace.sidebar.sessionsEmpty",
   "trace.sidebar.pickSession",
