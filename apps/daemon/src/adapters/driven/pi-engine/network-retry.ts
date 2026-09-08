@@ -1,5 +1,5 @@
 /**
- * 引擎级 LLM 网络重试（P2 ⑦，裁决 2026-08-31）。
+ * 引擎级 LLM 网络重试（P2 ⑦ 初版；裁决修订 2026-09-08：仅传输层错误重试）。
  *
  * 挂点纪律：包装 StreamFn——pi agentLoop 的唯一 LLM 调用出口
  * （StreamFn 契约：失败不抛错，经流内 `{type:"error"}` 终帧编码，
@@ -7,22 +7,26 @@
  * 由此主会话（engineFor）与 SubAgent 子进程（ChildMain）同源生效
  * ——包装在 PiAgentEngineAdapter 装配面，全局非 SubAgent 独有。
  *
- * 重试语义（零语义改动红线）：
+ * 重试语义（裁决 2026-09-08，取代 P2 ⑦ 状态码裁决与 P8 配额特判）：
+ * - 只重试「传输层错误」= 没拿到 LLM 接口响应的请求期失败（连接拒绝/
+ *   重置/超时/socket 断开——undici/Node fetch/node:http 库常量文案与
+ *   errno 族，有限可枚举，非 provider 散文）；
+ * - LLM 接口返回了响应（errorMessage 含 HTTP 状态码 4xx/5xx）一律快速
+ *   失败：provider 活着且明确拒绝——429（限流与配额同码）/5xx/鉴权/
+ *   参数均不再自动重试。证据：GLM 429+code 1308（5 小时限额）事故，
+ *   4 个 agent 各白等 100s 退避；而错判 fail-fast 的代价只是用户发
+ *   一次「继续」（会话可续），成本严重不对称 → 偏向 fail-fast；
  * - 退避序列固定 10s→30s→60s 三次（LLM_RETRY_BACKOFF_MS 常量注入，
  *   测试可换假时钟）；退避耗尽 → 原样转发最后一次 error 终帧，
  *   closure/错误语义与无重试时逐事件一致；
- * - P8 配额语义：配额类快速失败服务人工切账号——配额耗尽（token
- *   用尽/欠费，429+insufficient_quota/quota_exceeded/billing/balance
- *   类文案或 402 余额类）重试无意义，判永久类立即走既有失败路径，
- *   不吃 10/30/60 退避；其余 429（真限流）仍属瞬时类照常重试；
  * - 仅重试「零事件前导的请求期失败」（pi-ai 的 start 帧在 HTTP 响应
- *   到达后才发——连接失败/超时/429/5xx 均为纯 error 单帧）。已转发
- *   任何事件（中途断流）后不再重试：agentLoop 在 start 帧会把 partial
- *   push 进 context.messages，重试会造成重复消息（见 agent-loop
+ *   到达后才发——连接失败/超时均为纯 error 单帧）。已转发任何事件
+ *   （中途断流）后不再重试：agentLoop 在 start 帧会把 partial push 进
+ *   context.messages，重试会造成重复消息（见 agent-loop
  *   streamAssistantResponse）——中途失败保持既有直通路径；
  * - abort（kill/SIGTERM）经 options.signal 感知：等待期 abort 立即
- *   以 aborted 终帧收口，不再重试；
- * - abort 终帧（reason "aborted"）与用户可见错误均不重试。
+ *   以 aborted 终帧收口，不再重试；abort 终帧永不重试；
+ * - 未知形态 → permanent（fail-fast 安全缺省）。
  *
  * pi-ai 自带 SDK 级短退避（retryProviderRequest，0.5–8s×2）——本层
  * 覆盖更长抖动，且携带 onRetry 可观测回调（chat 状态可见性的数据源）。
@@ -37,56 +41,46 @@ export const LLM_RETRY_BACKOFF_MS: readonly number[] = [10_000, 30_000, 60_000];
 /** 错误分类：瞬时（可重试）/ 永久（直接走既有失败路径）。 */
 export type LlmErrorClass = "transient" | "permanent";
 
-/** 请求期网络错/超时关键词（无 HTTP 状态码时的判据）。 */
-const TRANSIENT_MESSAGE_PATTERNS: readonly RegExp[] = [
-  /fetch failed|failed to fetch/i,
-  /ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ENOTFOUND/i,
-  /socket hang up|socket error|connection reset|connection refused|connection closed|connection terminated/i,
-  /network (?:error|timeout)|request timed? ?out|timed out|timeout/i,
-  /rate limit|too many requests|overloaded|service unavailable|internal server error|bad gateway|gateway timeout/i,
-];
-
 /**
- * P8 配额耗尽文案特征（429+配额标记/402 余额类判据）：命中即永久类——
- * 配额类快速失败服务人工切账号。导出供单测直接覆盖特征面。
- * 词边界防护：'balance' 不误伤 "unbalanced"；连写形态
- * （insufficient_quota/quota_exceeded，下划线为 \w 需独立条目）单独列。
+ * 传输层错误文案（重试的唯一依据；裁决 2026-09-08）：undici/Node fetch/
+ * node:http 的库常量文案与 errno 族——有限可枚举的库实现细节，非
+ * provider 散文，无文案打地鼠面。LLM 接口返回的响应（消息含 HTTP
+ * 状态码）先于本表判永久，不与本表竞争。
  */
-export const QUOTA_MESSAGE_PATTERNS: readonly RegExp[] = [
-  /insufficient[ _-]?quota/i, // OpenAI insufficient_quota 连写形态
-  /quota[ _-]?(?:exceeded|exhausted)/i, // quota_exceeded / quota exhausted
-  /\bquota\b/i, // 宽松兑底：独立 quota 词（429 配额语境）
-  /\bbilling\b/i, // 计费（402 Payment Required 语境）
-  /\bbalance\b/i, // 余额（词边界防 "unbalanced" 误伤）
+const TRANSPORT_MESSAGE_PATTERNS: readonly RegExp[] = [
+  /fetch failed|failed to fetch/i, // Node fetch TypeError
+  /ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|EPIPE|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ENOTFOUND/i, // errno 族
+  /socket hang up|socket error|socket connection was closed/i, // node:http / undici UND_ERR_SOCKET
+  /connection reset|connection refused|connection closed|connection terminated|other side closed/i,
+  /Headers Timeout Error|Body Timeout Error|Connect Timeout Error/i, // undici UND_ERR_*_TIMEOUT
+  /\bterminated\b/i, // undici UND_ERR_TERMINATED
+  /network (?:error|timeout)|request timed? ?out|timed out|timeout/i,
 ];
 
-/** 独立三位数 HTTP 状态码提取（"429: …"/"(503) …"/"HTTP 500 …" 等嵌入形态）。 */
-const HTTP_STATUS_RE = /\b([45]\d{2})\b/;
+/**
+ * 独立三位数 HTTP 状态码提取（"429: …"/"(503) …"/"HTTP 500 …" 等嵌入形态）。
+ * 否定后顾排除 host:port（"connect ECONNREFUSED 127.0.0.1:443" 的 443）
+ * 与 IP 段误伤——端口数字不是状态码，传输层错误消息常携带。
+ */
+const HTTP_STATUS_RE = /(?<![:.\d])([45]\d{2})\b/;
 
 /**
- * LLM 调用错误分类（纯函数，单测面）。
+ * LLM 调用错误分类（纯函数，单测面；裁决 2026-09-08：仅传输层错误瞬时）。
  *
  * - stopReason 非 "error"（含 "aborted"/"stop" 等）→ 永久：重试只针对
  *   请求失败的 error 终帧，用户 abort 永不重试；
- * - 配额耗尽文案（QUOTA_MESSAGE_PATTERNS 命中）→ 永久（P8）：优先于
- *   状态码裁决——429+quota 标记与 402 余额类一律零重试立即失败；
- * - 消息中嵌入 HTTP 状态码 → 状态码裁决：408/409/429/5xx 瞬时，
- *   其余 4xx（401/403/400/402 等鉴权/参数/余额）永久；
- * - 无状态码 → 网络错/超时关键词命中 → 瞬时；
- * - 未知形态 → 永久（安全缺省：不重试未知错误，立即走既有失败路径）。
+ * - 消息含 HTTP 状态码（4xx/5xx）→ 永久：LLM 接口返回了响应，provider
+ *   活着且明确拒绝（429 限流/配额、5xx、401/403/400/402 等一律快速失败）；
+ * - 无状态码 + 传输层库常量命中（TRANSPORT_MESSAGE_PATTERNS）→ 瞬时；
+ * - 未知形态 → 永久（fail-fast 安全缺省：错判代价 = 用户发一次「继续」）。
  */
 export function classifyLlmError(stopReason: string, errorMessage: string | undefined): LlmErrorClass {
   if (stopReason !== "error") return "permanent";
   const message = errorMessage ?? "";
   if (message.trim() === "") return "permanent";
-  // P8：配额耗尽优先于状态码裁决——账号资源问题任何状态下重试都无意义
-  if (QUOTA_MESSAGE_PATTERNS.some((re) => re.test(message))) return "permanent";
-  const status = HTTP_STATUS_RE.exec(message)?.[1];
-  if (status !== undefined) {
-    const code = Number(status);
-    return code === 408 || code === 409 || code === 429 || code >= 500 ? "transient" : "permanent";
-  }
-  return TRANSIENT_MESSAGE_PATTERNS.some((re) => re.test(message)) ? "transient" : "permanent";
+  // LLM 接口返回了响应 → 快速失败（状态码是「拿到响应」的机械判据）
+  if (HTTP_STATUS_RE.test(message)) return "permanent";
+  return TRANSPORT_MESSAGE_PATTERNS.some((re) => re.test(message)) ? "transient" : "permanent";
 }
 
 /** 单次重试的可观测载荷（chat 状态行/日志的数据源）。 */

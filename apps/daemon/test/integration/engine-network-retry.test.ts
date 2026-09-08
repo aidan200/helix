@@ -17,8 +17,9 @@ import type { AgentEngineEvent } from "../../src/application/ports/outbound/Agen
  * - 瞬时失败 2 次后成功：监听器收 engine_retrying×2（attempt/total/waitMs/
  *   message 逐字段）+ 最终 message_end 成功，无 engine_error；
  * - 永久类（401）：零 engine_retrying，直接既有 engine_error 路径；
- * - P8 配额耗尽（429 insufficient_quota）：恰 1 次调用零重试零退避，
- *   直接既有 engine_error 路径（provider 原文直达用户，服务人工切账号）。
+ * - LLM 接口返回（429 配额 insufficient_quota）：恰 1 次调用零重试零退避，
+ *   直接既有 engine_error 路径（provider 原文直达用户，服务人工切账号；
+ *   裁决 2026-09-08：含 HTTP 状态码的接口响应一律快速失败）。
  */
 
 const fakeModel = {
@@ -160,7 +161,7 @@ describe("PiAgentEngineAdapter 网络重试装配（engine_retrying 可观测）
 
   test("持续瞬时失败：1+3 次尝试后退避耗尽，走既有失败路径", async () => {
     const slept: number[] = [];
-    const { streamFn, calls } = scriptedStreamFn([{ err: "503 Service Unavailable" }]);
+    const { streamFn, calls } = scriptedStreamFn([{ err: "The socket connection was closed unexpectedly" }]);
     const engine = new PiAgentEngineAdapter({
       profile: retryProfile,
       model: fakeModel,
@@ -172,16 +173,16 @@ describe("PiAgentEngineAdapter 网络重试装配（engine_retrying 可观测）
     const events: AgentEngineEvent[] = [];
     await engine.start("你好", (e) => events.push(e));
 
-    expect(calls).toHaveLength(4); // 首调 + 3 重试（剧本耗尽重复末项 = 持续 503）
+    expect(calls).toHaveLength(4); // 首调 + 3 重试（剧本耗尽重复末项 = 持续 socket 断开）
     expect(slept).toEqual([10, 30, 60]);
     expect(events.filter((e) => e.type === "engine_retrying")).toHaveLength(3);
     expect(events.find((e) => e.type === "engine_error")).toMatchObject({
-      message: "503 Service Unavailable",
+      message: "The socket connection was closed unexpectedly",
     });
     expect(events.some((e) => e.type === "message_end" && e.role === "assistant" && e.stopReason === "error")).toBe(true);
   });
 
-  test("P8 配额耗尽（429 insufficient_quota）：恰 1 次调用零重试零退避，直接既有 engine_error 路径", async () => {
+  test("LLM 接口返回（429 配额）：恰 1 次调用零重试零退避，直接既有 engine_error 路径", async () => {
     const quotaMessage = "429 insufficient_quota: You exceeded your current quota, please check your plan and billing details";
     const slept: number[] = [];
     const { streamFn, calls } = scriptedStreamFn([{ err: quotaMessage }]);
