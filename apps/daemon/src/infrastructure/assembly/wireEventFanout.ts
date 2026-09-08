@@ -5,7 +5,7 @@ import type { SessionService } from "../../application/services/SessionService";
 import type { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import type { StdoutEventPublisher } from "../../adapters/driving/cli/CliAdapter";
 import type { WriteQueue } from "../../adapters/driven/sqlite-session/WriteQueue";
-import { MAIN_AGENT_KIND } from "../../adapters/driven/sqlite-session/WriteQueue";
+import { MAIN_AGENT_KIND } from "../../adapters/driven/sqlite-session/write-jobs";
 import { TASK_SESSION_PREFIX } from "../../application/services/task/TaskOrchestratorService";
 
 /**

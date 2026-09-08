@@ -277,6 +277,10 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
   // 「唯一写点+串行化」：每表域一个写者、BEGIN IMMEDIATE 事务、崩溃一致）。
   const sqliteWriteWhitelist = new Set([
     path.join("adapters", "driven", "sqlite-session", "WriteQueue.ts"),
+    // 体量治理批：守护式 schema 演进（会话域列级演进 DDL + legacy 迁移）
+    // 从 WriteQueue.ts 拆出为独立宿主——单写队列/任务四表 DML 不变，
+    // 白名单同步扩登记（方案 B 经用户对话确认，TR-20 正文同步更新）。
+    path.join("adapters", "driven", "sqlite-session", "schema-evolution.ts"),
     path.join("adapters", "driven", "sqlite-kg", "KgDatabase.ts"),
     path.join("adapters", "driven", "sqlite-kg", "SqliteKnowledgeStore.ts"),
     // T2.1（iter-20260829-ys7q O-1/O-4）：helix.db 任务四表三条写路径登记——
