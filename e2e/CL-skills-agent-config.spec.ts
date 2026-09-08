@@ -100,28 +100,27 @@ const SUB_BLOCK: AgentConfigProfileBlock = {
   model: null,
 };
 
-/** agent-roster 批：只读系统派生双块（系统组列表 + 只读详情数据面）。 */
+/** agent-roster 批：只读系统派生双块（系统组列表 + 只读详情数据面；TR-125 终态：
+ *  tools 行带 enabled 位透传，derivedFrom 派生展示退役）。 */
 const ORCH_BLOCK: AgentConfigSystemBlock = {
   profileKind: "orchestrator",
   tools: [
-    { name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）" },
-    { name: "kg", snippet: "查询项目知识图谱（只读）" },
+    { name: "agent_spawn", snippet: "指派 SubAgent 实例独立执行任务（并行委派，立即返回不等完成）", enabled: true },
+    { name: "kg", snippet: "查询项目知识图谱（只读）", enabled: true },
   ],
 };
 const KGW_BLOCK: AgentConfigSystemBlock = {
   profileKind: "subagent-kg-writer",
   tools: [
-    ...SUB_TOOLS.map((name) => ({ name, snippet: SNIPPETS[name]! })),
-    { name: "kg-update", snippet: "知识图谱即时落账（supersede 推翻节点 / createNode 沉淀新知识）" },
+    ...SUB_TOOLS.map((name) => ({ name, snippet: SNIPPETS[name]!, enabled: true })),
+    { name: "kg-update", snippet: "知识图谱即时落账（supersede 推翻节点 / createNode 沉淀新知识）", enabled: true },
   ],
-  derivedFrom: "subagent-worker",
   pinnedTools: ["kg-update"],
 };
 /** D5 第五 kind（reviewer 独立槽位批）：worker 生效集 − write/edit 恒摘除（只读评审）。 */
 const REVIEWER_BLOCK: AgentConfigSystemBlock = {
   profileKind: "subagent-code-reviewer",
-  tools: SUB_TOOLS.filter((n) => n !== "write" && n !== "edit").map((name) => ({ name, snippet: SNIPPETS[name]! })),
-  derivedFrom: "subagent-worker",
+  tools: SUB_TOOLS.filter((n) => n !== "write" && n !== "edit").map((name) => ({ name, snippet: SNIPPETS[name]!, enabled: true })),
 };
 
 /** 进页 + 回放 list 双块（含 system 只读双块）+ 目录（P-3/P-4 同源 catalog
@@ -219,36 +218,42 @@ test.describe("M6 T4 CL-skills 智能体页（F 层 mock）", () => {
     await expect(roBadges).toHaveCount(3);
     await expect(roBadges.first()).toHaveText("只读");
 
-    // orchestrator 只读详情（R7 语义：工具集只读派生；模型/推理槽位可配）——
-    // 零工具开关；模型下拉在场（缺省项 = 跟随全局默认，不联动 worker）
+    // orchestrator 只读详情（TR-125 显示同构终态：ProfileCard readOnly 位——
+    // 开关全渲染置灰（写面只读），模型/推理槽位仍可配）
     await page.locator('[data-agent-row="orchestrator"]').click();
     const orchCard = page.locator('[data-agent-card="orchestrator"]');
     await expect(orchCard).toBeVisible();
     await expect(orchCard.locator("[data-ro-badge]")).toHaveText("工具只读");
-    // 工具行零开关（R7：唯一开关 = 推理级别槽位的 thinking 开关）
-    await expect(orchCard.locator("[data-ro-tool-row] [data-switch]")).toHaveCount(0);
+    // 工具行统一锚（data-ro-tool-row 退役）+ 开关在场但置灰（显示同构——
+    // 不隐藏；aria-checked = mock enabled 位透传）
+    const orchSwitch = orchCard.locator('[data-tool-row="agent_spawn"] [data-switch="agent_spawn"]');
+    await expect(orchSwitch).toBeDisabled();
+    await expect(orchSwitch).toHaveAttribute("aria-checked", "true");
     await expect(orchCard.locator(".ag-model select")).toHaveValue(""); // 跟随全局默认
-    await expect(orchCard.locator('[data-ro-tool-row="agent_spawn"]')).toContainText("并行委派");
-    await expect(orchCard.locator("[data-ro-tool-row]")).toHaveCount(2);
+    await expect(orchCard.locator('[data-tool-row="agent_spawn"]')).toContainText("并行委派");
+    await expect(orchCard.locator("[data-tool-row]")).toHaveCount(2);
+    // 派生说明位退役（TR-125：系统块读面透传自身清单，无 derivedFrom 展示）
     await expect(orchCard.locator("[data-derived-note]")).toHaveCount(0);
 
-    // kg-writer 只读详情：派生说明位 + kg-update 恒在徽标
+    // kg-writer 只读详情：kg-update 恒在徽标（声明面单源）+ 工具开关置灰
     await page.locator('[data-agent-row="subagent-kg-writer"]').click();
     const kgwCard = page.locator('[data-agent-card="subagent-kg-writer"]');
     await expect(kgwCard).toBeVisible();
-    await expect(kgwCard.locator("[data-derived-note]")).toHaveText("工具集跟随 subagent-worker，额外固定 kg-update");
-    await expect(kgwCard.locator('[data-ro-tool-row="kg-update"] [data-pinned-chip]')).toHaveText("恒在");
-    await expect(kgwCard.locator("[data-ro-tool-row]")).toHaveCount(6); // sub 5 + kg-update
-    await expect(kgwCard.locator("[data-ro-tool-row] [data-switch]")).toHaveCount(0); // 工具行零开关（thinking 槽位开关除外）
+    await expect(kgwCard.locator("[data-derived-note]")).toHaveCount(0); // 派生说明位退役（TR-125）
+    await expect(kgwCard.locator('[data-tool-row="kg-update"] [data-pinned-chip]')).toHaveText("恒在");
+    await expect(kgwCard.locator("[data-tool-row]")).toHaveCount(6); // sub 5 + kg-update
+    const kgwSwitch = kgwCard.locator('[data-tool-row="bash"] [data-switch="bash"]');
+    await expect(kgwSwitch).toBeDisabled(); // readOnly 置灰（统一开关在场）
+    await expect(kgwSwitch).toHaveAttribute("aria-checked", "true");
 
-    // reviewer 只读详情（D5）：派生说明（write/edit 恒摘）+ 3 工具行（sub 5 − write/edit）
+    // reviewer 只读详情（D5）：独立清单（write/edit 恒摘）+ 3 工具行开关置灰
     await page.locator('[data-agent-row="subagent-code-reviewer"]').click();
     const revCard = page.locator('[data-agent-card="subagent-code-reviewer"]');
     await expect(revCard).toBeVisible();
-    await expect(revCard.locator("[data-derived-note]")).toHaveText("工具集跟随 subagent-worker，write/edit 恒摘除（只读评审）");
-    await expect(revCard.locator("[data-ro-tool-row]")).toHaveCount(3);
-    await expect(revCard.locator('[data-ro-tool-row="write"]')).toHaveCount(0);
-    await expect(revCard.locator("[data-ro-tool-row] [data-switch]")).toHaveCount(0);
+    await expect(revCard.locator("[data-derived-note]")).toHaveCount(0); // 派生说明位退役（TR-125）
+    await expect(revCard.locator("[data-tool-row]")).toHaveCount(3);
+    await expect(revCard.locator('[data-tool-row="write"]')).toHaveCount(0);
+    await expect(revCard.locator('[data-tool-row="grep"] [data-switch="grep"]')).toBeDisabled();
 
     // 切回可编辑：开关回场（两组形态互斥）
     await page.locator('[data-agent-row="main-session"]').click();

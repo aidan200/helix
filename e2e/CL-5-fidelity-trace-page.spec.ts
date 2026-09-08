@@ -7,7 +7,8 @@
  * R-P1~R-P4 编号不同源——那是前迭代 mq5a 的工作台四页清单；本文件
  * R-P1-1~R-P1-8 专指本迭代 review.md §四 必须还原 8 条目的序）：
  *   R-P1-1 布局：IconRail 壳 + AppLayout（header 页名 + sidebar 上下
- *        分区：上=会话列表 / 下=实例列表，各自内滚）+ 控制条两件
+ *        分区：上=会话/任务横排 tab 切换单列表 / 下=实例列表，各自内滚）
+ *        + 控制条两件
  *        + 应用式固定壳（页面不出窗口，仅结果框内滚——用户裁决取代原型
  *        sticky/页级滚动：客户端形态 header/菜单栏不可滑出窗口；S3b 迁
  *        AppLayout，session 下拉退役，实例面板迁 sidebar 下分区）
@@ -134,13 +135,28 @@ test.describe("T2.3 CL-5 fidelity：结构还原（R-P1-1~4）", () => {
           const chips = page.locator(".type-chips .tchip");
           await expect(chips).toHaveCount(8);
           await expect(chips.first()).toBeEnabled();
-          // sidebar（S3b 上下分区）：264px（chat 侧栏同语言）；上 = 会话列表
-          // （清单注入 + 当前会话激活态；任务会话并入批：task:<jobId> 六条
-          //  tasks-mock 自动应答并入同栏——8 = 6 任务会话 + 2 chat 会话），
-          // 下 = 实例分区（全部实例/实例项可点）
+          // sidebar（S3b 上下分区）：264px（chat 侧栏同语言）；上 = 会话/任务
+          // 横排 tab 切换单列表（任务会话与 chat 会话不混排，用户裁决横排
+          // 切换）：「会话」tab 默认激活 = chat 会话 2 条（清单注入 + 当前
+          // 会话激活态）；「任务」tab = task:<jobId> 六条（tasks-mock 自动
+          // 应答，带类型徽章；激活态跨 tab 互斥），下 = 实例分区
+          // （全部实例/实例项可点）
           expect(await computed(page, ".tsb", "width")).toBe("264px");
-          await expect(page.locator(".tsb-list .tsb-ses")).toHaveCount(8);
+          const tabs = page.locator(".tsb-tabs");
+          await expect(tabs).toHaveAttribute("role", "tablist");
+          await expect(tabs.locator(".tsb-tab")).toHaveCount(2); // 会话 + 任务（六条任务在场 → 任务 tab 渲染）
+          await expect(tabs.locator(".tsb-tab").first()).toHaveAttribute("aria-selected", "true"); // 会话默认激活
+          await expect(page.locator(".tsb-list .tsb-ses")).toHaveCount(2); // chat 会话（不与任务混排）
           await expect(page.locator(".tsb-list .tsb-ses.on")).toHaveCount(1);
+          // 切「任务」tab：task:<jobId> 六条（带类型徽章），当前会话为 chat
+          // 会话 → 激活态跨 tab 互斥（任务 tab 零 on）
+          await page.locator(".tsb-tab").nth(1).click();
+          const taskSes = page.locator(".tsb-list .tsb-ses");
+          await expect(taskSes).toHaveCount(6);
+          await expect(taskSes.locator(".tsb-task-badge")).toHaveCount(6);
+          await expect(taskSes.locator(".tsb-ses.on")).toHaveCount(0);
+          await page.locator(".tsb-tab").first().click(); // 切回会话 tab（后续 R-P1-5 点「第二会话」）
+          await expect(page.locator(".tsb-list .tsb-ses")).toHaveCount(2);
           await expect(page.locator(".ip-item.ip-all")).toBeEnabled();
           // 两分区各自独立内滚（flex + min-height:0）
           expect(await computed(page, ".tsb-list", "overflow-y")).toBe("auto");

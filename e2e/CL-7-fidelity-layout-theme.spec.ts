@@ -42,8 +42,10 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
         const app = document.querySelector(".app")!;
         return Array.from(app.children).map((c) => c.className.split(" ")[0]);
       });
-    // TR-64：.msg-flow 外套 .msg-flow-wrap（steer 队列坞 absolute 钉位上下文）
-    expect(order).toEqual(["conn-banner", "msg-flow-wrap", "composer-wrap"]);
+    // TR-64：.msg-flow 外套 .msg-flow-wrap（steer 队列坞 absolute 钉位上下文）；
+    // T1（E-129）：chat-status-bar 常驻状态行插 wrap 与 composer 之间
+    //（左 steer 队列坞 / 中 diff 两 chip / 右工作相位点——三槽收拢）
+    expect(order).toEqual(["conn-banner", "msg-flow-wrap", "chat-status-bar", "composer-wrap"]);
     const shell = await page.evaluate(() => {
         const root = document.querySelector(".app-layout")!;
         const body = document.querySelector(".layout-body")!;
