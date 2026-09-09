@@ -9,7 +9,7 @@
  * 草稿首条消息（契约 B §1.5）：chat.send 信封省略 sessionId + payload
  * draft:true（daemon 建聚合 + 回推 list_changed{created} + 订阅切换 + 快照）。
  */
-import { PROTOCOL_VERSION } from "@helix/protocol";
+import { DEFAULT_MODE_ID, PROTOCOL_VERSION } from "@helix/protocol";
 import type {
   AgentBasePromptGetCommand,
   AgentBasePromptGetPayload,
@@ -108,8 +108,8 @@ import type {
 } from "@helix/protocol";
 
 /** chat.send：既有会话发送（信封 sessionId = 活跃会话）。
- *  T9（v0.10）：images 可选——仅非空时携带（缺省 = 纯文本旧形态，
- *  payload 不携带 images key，additive 纪律）。 */
+ *  T9（v0.10）：images 可选——未传时省略（传空数组 [] 仍按携带出帧，
+ *  additive 纪律：只判 undefined 不加空数组特判）。 */
 export function chatSendCommand(text: string, sessionId: string, images?: readonly string[]): ChatSendCommand {
   return {
     v: PROTOCOL_VERSION,
@@ -134,7 +134,7 @@ export function chatSendDraftCommand(
   const payload: ChatSendCommand["payload"] = { text, draft: true };
   if (model !== undefined) payload.model = model;
   if (images !== undefined) payload.images = images;
-  if (mode !== undefined && mode !== "default") payload.mode = mode;
+  if (mode !== undefined && mode !== DEFAULT_MODE_ID) payload.mode = mode;
   return { v: PROTOCOL_VERSION, type: "chat.send", payload };
 }
 
@@ -246,7 +246,8 @@ export function modelGetDefaultCommand(): ModelGetDefaultCommand {
   return { v: PROTOCOL_VERSION, type: "model.get_default", payload: {} };
 }
 
-/** model.set_default：写全局默认（全局命令；P-4 选择器）。 */
+/** model.set_thinking_default：写全局默认 thinking 档位（全局命令；level null =
+ *  恢复跟随模型缺省）。 */
 export function modelSetThinkingDefaultCommand(level: string | null): ModelSetThinkingDefaultCommand {
   return { v: PROTOCOL_VERSION, type: "model.set_thinking_default", payload: { level } };
 }

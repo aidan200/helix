@@ -101,7 +101,7 @@ export class HelixWsClient {
     HelixWsClientOptions & { backoff: BackoffOptions };
   private phase: Phase = "stopped";
   private attempts = 0;
-  private generation = 0; // stop() 递增：天折在逯的异步尝试（token fetch 竞态）
+  private generation = 0; // stop() 递增：夭折在途的异步尝试（token fetch 竞态）
   private transport: Transport | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private lastErrorMessage: string | null = null;
@@ -148,7 +148,7 @@ export class HelixWsClient {
     void this.attemptConnect();
   }
 
-  /** 用户主动关闭：不再重连（在逯 token fetch 一并天折）。 */
+  /** 用户主动关闭：不再重连（在途 token fetch 一并夭折）。 */
   stop(): void {
     this.clearTimer();
     this.generation += 1;
@@ -206,12 +206,12 @@ export class HelixWsClient {
     try {
       token = await this.opts.getToken(this.opts.port);
     } catch (err) {
-      if (gen !== this.generation) return; // stop() 已天折本次尝试（F5 批 #4：过期失败不得挂重连 timer）
+      if (gen !== this.generation) return; // stop() 已夭折本次尝试（F5 批 #4：过期失败不得挂重连 timer）
       this.lastErrorMessage = `dev-token fetch failed (${(err as Error).message})`;
       this.handleFailure();
       return;
     }
-    if (gen !== this.generation) return; // stop() 已天折本次尝试
+    if (gen !== this.generation) return; // stop() 已夭折本次尝试
 
     const url = `ws://127.0.0.1:${this.opts.port}`;
     const transport = this.opts.transportFactory(url, {

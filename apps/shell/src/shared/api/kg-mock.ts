@@ -3,7 +3,8 @@
  *
  * 先例 = fake-transport trace.query 自动剧本（T2.2 例外条款）：真实 daemon
  * 恒应答 kg.* 命令（点对点结果帧 / 校验失败 connection.error），故 fake
- * 实例对六命令自动回放确定性场景。数据面 = 原型 P-1-kg-viewer.html MOCK
+ * 实例对 kg 族全命令（isKgCommand 清单，随命令族增长）自动回放确定性
+ * 场景。数据面 = 原型 P-1-kg-viewer.html MOCK
  * 区逐字段转契约形状（ProjectRow / NodeListRow / detail 聚合 / 四条目
  * report / IndexStatus 四态），AD-16 人类面规范在 mock 数据层同样强制
  * （正文以名字引用；id 仅 refs 结构与 data 属性）。
@@ -346,7 +347,9 @@ export class KgMockStore {
         if (n === undefined) return this.errorFrame("KG_E_NOT_FOUND", `节点 ${String(p.id)} 不存在`);
         if (n.status !== "draft") return this.errorFrame("KG_E_STATE", "仅草稿节点可转正");
         n.status = "confirmed";
-        n.log = [{ date: new Date().toISOString(), iterationId: ITER, eventText: "草稿转正（页面人工确认）" }, ...n.log];
+        // 固定时间基 NOW（文件头「确定性场景（重放可比）」自洽：spec 断言该
+        // 字段不抖动；与 rebuild 进度的真实时基推进无关——confirm 不涉时序）
+        n.log = [{ date: NOW, iterationId: ITER, eventText: "草稿转正（页面人工确认）" }, ...n.log];
         return this.frame("kg.node.confirm.result", { applied: true, node: this.listRow(n) });
       }
       case "kg.index.status":
