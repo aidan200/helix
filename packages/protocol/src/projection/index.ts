@@ -9,3 +9,9 @@
 export * from "./usage";
 export * from "./instance";
 export * from "./trace";
+
+// ── 快照尾窗口径（契约 B §4，G-1 钦死：默认 30 条）────────
+// W3 #2.36 单源化：daemon 快照组装与 shell 恢复骨架文案三方共引（此前
+// daemon/shell 各自硬编码 30，daemon 改缺省时前端文案静默漂移）。
+/** 主时间轴尾窗大小（AD-1/G-1；daemon 组合根可注入覆盖，本值为展示口径单源）。 */
+export const TAIL_WINDOW_SIZE = 30;

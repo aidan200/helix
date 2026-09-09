@@ -24,6 +24,9 @@ import SteerQueueDock from "./SteerQueueDock";
 import DiffStatChip from "./DiffStatChip";
 import { WorkPhaseDot } from "./WorkPhaseDot";
 
+/** 空回调模块级 noop（MessageFlow 同式先例）。 */
+const noop = () => {};
+
 interface ChatStatusBarProps {
   /** 中槽 diff 统计 chip 点击 → 展开详情覆盖窗。 */
   onOpenDiff?: () => void;
@@ -33,6 +36,9 @@ const ChatStatusBar = memo(function ChatStatusBar({ onOpenDiff }: ChatStatusBarP
   const { state } = useSession();
   // 工作段位（右槽；idle → 槽位空，组件不渲染——现状逻辑保留）
   const workPhase = selectWorkPhase(state);
+  // 空回调模块级 noop（W3 #2.36）：字面量箭头每渲染新引用击穿 DiffStatChip memo
+  // （MessageFlow L99 同式先例；pages 侧内联箭头上提 useCallback 出本批范围）
+  const openDiff = onOpenDiff ?? noop;
   return (
     <div className="chat-status-bar" data-testid="chat-status-bar">
       {/* 左槽：steer 队列坞（行内形态；空队列时槽位空、行仍在） */}
@@ -41,7 +47,7 @@ const ChatStatusBar = memo(function ChatStatusBar({ onOpenDiff }: ChatStatusBarP
       </div>
       {/* 中槽：diff 统计两 chip（T3+T4：+N/−N 点击开详情窗；空态不渲染、槽位占位在） */}
       <div className="csb-slot csb-mid" data-testid="chat-status-diff-slot">
-        <DiffStatChip onOpen={onOpenDiff ?? (() => {})} />
+        <DiffStatChip onOpen={openDiff} />
       </div>
       {/* 右槽：工作段位呼吸光点（行内形态） */}
       <div className="csb-slot csb-right" data-testid="chat-status-right">

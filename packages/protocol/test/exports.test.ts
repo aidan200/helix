@@ -234,6 +234,7 @@ describe("TP-CL2-② 导出面（index.ts 汇总）", () => {
       "MODES", // P1 会话模式批 T2（模式注册表常量；§18 微批）
       "PROTOCOL_VERSION",
       "SYSTEM_SESSION_ID",
+      "TAIL_WINDOW_SIZE", // W3 #2.36：快照尾窗口径单源（daemon 组装 + shell 恢复骨架文案共引）
       "TRACE_PAGE_DEFAULT",
       "TRACE_PAGE_MAX",
       // 投影·trace 域（迁自 daemon TraceQuery normalize 段 + fake 过滤分页段）

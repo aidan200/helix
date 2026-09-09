@@ -22,12 +22,12 @@ import type { WorkItemData } from "../../../application/ports/outbound/WorkLedge
 import { isMainAxisEntry, sessionEntryDto, toolCallEntryDto, WIRE_LEGACY_MAIN_ID } from "./EntryDtoMapper";
 // 投影收敛：entry 排序基元 + spawn 锚权威计算单源 @helix/protocol
 // projection（原 EntryDtoMapper.entrySortKey / SpawnAnchor.ts 两纯函数迁出）
-import { computeAnchorEntryId, entrySortKey } from "@helix/protocol";
+import { computeAnchorEntryId, entrySortKey, TAIL_WINDOW_SIZE } from "@helix/protocol";
 
 // ── 尾窗/分页参数（G-1 钦死：契约 B §4；daemon 侧可注入） ───────────
-
-/** 主时间轴尾窗大小（AD-1：默认 30 条，G-1）。 */
-export const TAIL_WINDOW_SIZE = 30;
+// W3 #2.36：TAIL_WINDOW_SIZE 单源在 @helix/protocol/projection——此处 re-export
+// 兼容既有 import 面（WsServerAdapter）；不再本地定义镜像。
+export { TAIL_WINDOW_SIZE };
 /** loadHistory 分页大小缺省（G-1）。 */
 export const HISTORY_PAGE_DEFAULT = 50;
 /** loadHistory 分页大小上限（防滥用）。 */

@@ -141,6 +141,7 @@ export const zhCN = {
         failedBadge: "failed",
         cancelledBadge: "cancelled",
         cancelledSub: "daemon 重启 · 排队任务收口",
+        cancelledFoot: "daemon 重启 · 已收口",
         failedFoot: "closure failed 已注入主线下轮",
         injectedMain: "closure 已注入主线下轮 · {time}",
         injectedMainNoTime: "closure 已注入主线下轮",

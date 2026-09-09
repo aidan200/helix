@@ -8,9 +8,11 @@
  * connecting 期归 ConnOverlay，互斥不叠加）。
  */
 import { useI18n } from "@/shared/i18n";
+import { TAIL_WINDOW_SIZE } from "@helix/protocol";
 
-/** 尾窗口径展示值（G-1 对齐 daemon 默认 30；状态行文案参数）。 */
-const TAIL_WINDOW = 30;
+/** 尾窗口径展示值（G-1 对齐 daemon 默认；W3 #2.36 单源共引 @helix/protocol，
+ * daemon 改缺省时文案不再静默漂移）。 */
+const TAIL_WINDOW = TAIL_WINDOW_SIZE;
 
 const RestoreSkeleton = function RestoreSkeleton() {
   const { t } = useI18n();

@@ -104,7 +104,7 @@ const SubAgentCard = memo(function SubAgentCard({ card, onOpenDrawer }: SubAgent
           : t("chat.sa.card.injectedMainNoTime")
         : isFailed
           ? t("chat.sa.card.failedFoot")
-          : t("chat.sa.card.queueFoot");
+          : t("chat.sa.card.cancelledFoot"); // cancelled 中性收口脚注（不复用 queueFoot 队列语义，W3 #2.36）
 
   return (
     <a

@@ -134,6 +134,7 @@ export const enUS = {
         failedBadge: "failed",
         cancelledBadge: "cancelled",
         cancelledSub: "daemon restart · queued task closed",
+        cancelledFoot: "daemon restart · closed",
         failedFoot: "closure failed injected into next mainline turn",
         injectedMain: "closure injected into next mainline turn · {time}",
         injectedMainNoTime: "closure injected into next mainline turn",
