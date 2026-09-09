@@ -9,6 +9,9 @@ import type { ThinkingEntryData } from "../session/ThinkingEntry";
 import type { CompactionEntryData } from "../session/CompactionEntry";
 import type { ErrorEntryData } from "../session/ErrorEntry";
 import type { UsageSummary } from "../session/SessionSnapshot";
+import type { EntryRole } from "../session/Entry";
+import type { SteerSource } from "../agent/SteerQueue";
+import type { AgentLifecycleState } from "../agent/AgentLifecycle";
 
 export type DomainEventType =
   | "turn.started"
@@ -65,14 +68,14 @@ export interface DomainEvent<P = unknown> {
 
 export interface MessageCompletedPayload {
   readonly entryId: string;
-  readonly role: "user" | "assistant" | "tool";
+  readonly role: EntryRole;
   readonly text: string;
   readonly isSteer: boolean;
   /** steer 条目落盘时点的两态（additive）：drain 落盘 = "drained"（生效时序
    *  落盘后队列已出账）；缺省 = 旧路径回退（事件时点刚入队 = "queued"）。 */
   readonly steerState?: "queued" | "drained";
   /** 注入来源（T11b：user/closure/progress；idle closure 注入实时帧区分依据；缺省 = 用户输入）。 */
-  readonly source?: "user" | "closure" | "progress";
+  readonly source?: SteerSource;
   /** 图片附件（上行）：base64 data URL 数组；仅 user 消息携带，缺省 = 纯文本。 */
   readonly images?: readonly string[];
   /** 条目所属轮次（additive）：assistant 条目落盘时的 open turn id（发布点单源，
@@ -85,7 +88,7 @@ export interface SteerPayload {
   readonly entryId: string;
   readonly text: string;
   /** 注入来源（T11a：user/closure/progress；缺省 = 老事件按 user）。 */
-  readonly source?: "user" | "closure" | "progress";
+  readonly source?: SteerSource;
 }
 
 export interface TurnCompletedPayload {
@@ -107,7 +110,7 @@ export interface ToolResultPayload extends ToolCallPayload {
 }
 
 export interface AgentStateChangedPayload {
-  readonly state: "idle" | "running" | "steering" | "aborting" | "stopped";
+  readonly state: AgentLifecycleState;
 }
 
 /** LLM 瞬时失败进入退避重试（P2 ⑦ 网络重试批）：等待期可观测——chat 状态行「网络重试中第 N/3 次」数据源；瞬态非里程碑（流恢复/轮终即过，不入账）。 */

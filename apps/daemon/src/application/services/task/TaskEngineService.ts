@@ -1,6 +1,6 @@
 import { DomainError } from "../../../domain/DomainError";
 import { isTerminalJob, isTerminalStage, assertBatchTransition } from "../../../domain/task/job";
-import { resolveStagePlan, validateTaskParams } from "../../../domain/task/manifest";
+import { resolveStagePlan, stageKindOfManifest, validateTaskParams } from "../../../domain/task/manifest";
 import { MAX_BATCH_RETRY, nextRetryCount, shouldRetryBatch } from "../../../domain/task/retry";
 import type { StageKind, StagePlan } from "../../../domain/task/types";
 import type { TaskEnginePort, CreateTaskInput } from "../../ports/inbound/TaskEnginePort";
@@ -126,7 +126,23 @@ export class TaskEngineService implements TaskEnginePort {
       });
       this.notify({ jobId, changed: "stage", status: "pending" });
     }
-    await this.deps.starter.startOrchestrator(jobId);
+    try {
+      await this.deps.starter.startOrchestrator(jobId);
+    } catch (err) {
+      // starter 失败回补（清单 #2.5）：job/stage 行已产而编排未起——不回补会
+      // 滞留 pending 仅重启恢复扫描可捞。就地按 cancel 语义收口（无批次可收：
+      // pending stage 标 failed——cancel 显性出边先例；job pending→cancelled
+      // 合法迁移），再上抛原错给发起方。
+      for (const stage of this.deps.store.getStages(jobId)) {
+        if (isTerminalStage(stage.status)) continue;
+        await this.deps.store.updateStageStatus(jobId, stage.seq, "failed").catch(() => undefined);
+      }
+      await this.deps.store
+        .updateJobStatus(jobId, "cancelled", `编排启动失败：${(err as Error).message}`)
+        .catch(() => undefined);
+      this.notify({ jobId, changed: "job", status: "cancelled" });
+      throw err;
+    }
     return { jobId };
   }
 
@@ -397,7 +413,8 @@ export class TaskEngineService implements TaskEnginePort {
     const batch = this.mustBatch(batchId);
     const job = this.mustJob(batch.jobId);
     // 已收口批次（cancel 已标 failed）+ job 终态：迟到失败幂等收口，不重试不上浮
-    if (job.status === "cancelled" || isTerminalJob(job.status)) {
+    //（isTerminalJob 已含 cancelled——domain/task/job.ts 终态三值显式集）
+    if (isTerminalJob(job.status)) {
       if (batch.status === "failed") return { retryScheduled: false };
       if (batch.status === "done") {
         throw new TaskError("task.invalid_state", `批次 ${batchId} 已 done，不可改判 failed`);
@@ -643,11 +660,8 @@ export class TaskEngineService implements TaskEnginePort {
   /** 阶段角色派生（A 批机械约束）：kind 仅存 manifest（行结构零迁移）——按任务
    * 类型 + 阶段序派生；free 策略/无声明/序越界缺省 execute。 */
   private stageKindOf(jobType: string, stageSeq: number): StageKind {
-    const manifest = this.deps.skills.getTaskType(jobType);
-    if (manifest === null || manifest.stages.strategy !== "fixed") return "execute";
-    const entry = manifest.stages.list[stageSeq - 1];
-    if (entry === undefined || typeof entry === "string") return "execute";
-    return entry.kind ?? "execute";
+    // 单源 domain/task/manifest.ts#stageKindOfManifest（清单 #2.5 上收；引擎面 fallback "execute"）
+    return stageKindOfManifest(this.deps.skills.getTaskType(jobType), stageSeq, "execute");
   }
 
   /** 阶段顺序守卫（B 批）：目标阶段之前的全部 stage 须 done——机械防跳段。 */

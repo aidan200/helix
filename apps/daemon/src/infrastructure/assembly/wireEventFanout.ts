@@ -109,9 +109,10 @@ export interface WireEventFanoutDeps {
 }
 
 /**
- * fan-out 六目标装配（序：CLI stdout → CLI 事件回灌（当前会话过滤）→ WS 事件流
- * → 写队列持久化（事件行，行级 session_id 分仓路由）→ 会话投影路由（**先事件行
- * 后状态行**，同会话仓内 FIFO 保序）→ 清单运行态桥（活动标记 + state_changed）。
+ * fan-out 七目标装配（序：CLI stdout → CLI 事件回灌（当前会话过滤）→ WS 事件流
+ * → 任务停桥（task-park-bridge，第 4 目标）→ 写队列持久化（事件行，行级
+ * session_id 分仓路由）→ 会话投影路由（**先事件行后状态行**，同会话仓内 FIFO 保序）
+ * → 清单运行态桥（活动标记 + state_changed）。
  * SubAgent 实例事件（instanceId ≠ main）落行 agent_kind=subagent（四维可查口径）。
  */
 export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanoutDeps): void {

@@ -170,7 +170,13 @@ export class KgReportService {
       case "addEdge":
         // change_log 行不携带 verb/对手方（仅记 srcId）——叙述不含臆造细节，对手方见节点详情
         return `本迭代为${label}「${node.name}」添加了一条知识边（约束/依赖关系）——关系结构更新，对手方见节点详情。`;
+      case "prune":
+        // 清单 #2.6：prune 按受影响节点落审计行（TR-34）——原先 default→null
+        // 静默丢弃使变化报告对 prune 完全不可见
+        return `本迭代物理清理了${label}「${node.name}」的失效锚点——孤儿锚随代码演进移除，节点状态保持。`;
       default:
+        // proposeCandidate/decideCandidate：候选台账面（kg.candidates.list）是
+        // 权威消费面，变化报告有意不重复叙述（非静默丢失——台账可查）
         return null;
     }
   }

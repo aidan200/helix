@@ -154,6 +154,13 @@ interface LoopState {
   running: boolean;
   stopped: boolean;
   /**
+   * 退避窗位（清单 #2.5：drive 异常 5s 重试等待期）：窗内会话实际空闲，
+   * wake 走 inject 会注入非运行会话丢失（OrchestratorSessionFace 契约
+   * ：81-83 声明闲时注入由调用方改为 drive）——置位期间 wake 暂存
+   * stashedWakes，重试轮收口后回放（resume 回放同构）。
+   */
+  backingOff: boolean;
+  /**
    * 链 A 挂起位（任务 pause 置位 / resume 清位）：置位期间 wake 只入
    * stashedWakes 暂存队列，不驱动编排器回合。编排器自身是 daemon 内会话
    * ——不需要子进程 PARK 协议（pause 时它通常在等批次 closure，无「回合中」
@@ -204,6 +211,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       briefs: new Map(),
       running: false,
       stopped: false,
+      backingOff: false,
       parked: false,
       drain: false,
       stashedWakes: [],
@@ -341,6 +349,12 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       return;
     }
     if (loop.running) {
+      if (loop.backingOff) {
+        // 退避窗（drive 异常 5s 重试等待）：会话实际空闲，inject 会静默丢失——
+        // 暂存，重试轮收口后回放（清单 #2.5；resume 回放同构）
+        loop.stashedWakes.push(prompt);
+        return;
+      }
       loop.session.inject(prompt);
       return;
     }
@@ -354,6 +368,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       } catch (err) {
         const message = (err as Error).message;
         this.warn(`编排会话驱动异常（任务 ${loop.jobId}）：${message}——5s 后单次重试`);
+        loop.backingOff = true; // 窗内 wake 只暂存（见 LoopState.backingOff 注释）
         await new Promise((r) => setTimeout(r, 5000));
         if (!loop.stopped) {
           try {
@@ -367,7 +382,16 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
         }
       } finally {
         loop.running = false;
+        loop.backingOff = false;
         this.reapIfTerminal(loop.jobId); // run 收口后顺带清扫终态任务
+        // 退避窗/挂起期暂存唤醒回放：未挂起未停摆则驱动（resume 回放同构）；
+        // 仍挂起 → 留给 resume；stopped/drain → 丢弃（cancel/halt 语义）
+        const stashed = loop.stashedWakes.splice(0);
+        if (!loop.stopped && !loop.parked && !loop.drain) {
+          for (const p of stashed) this.wake(loop, p);
+        } else if (loop.parked) {
+          loop.stashedWakes.push(...stashed);
+        }
       }
     })();
   }
@@ -586,7 +610,10 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
         if (outcome === undefined) return [];
         const state = ["queued", "running", "done", "failed", "cancelled"].includes(outcome.state)
           ? (outcome.state as "queued" | "running" | "done" | "failed" | "cancelled")
-          : "running";
+          : "running"; // 未知态兑底 running（清单 #2.5：不再静默——warn 可观测，防异常态被观测面掩盖）
+        if (state === "running" && !["queued", "running"].includes(outcome.state)) {
+          this.warn?.(`任务 ${jobId} 实例 ${agentId} 状态未知（${String(outcome.state)}）——观测面兑底 running`);
+        }
         return [
           {
             agentId,

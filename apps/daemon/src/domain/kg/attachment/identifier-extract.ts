@@ -49,7 +49,9 @@ function splitWords(token: string): string[] {
   const words: string[] = [];
   for (const seg of token.split("_")) {
     if (seg === "") continue;
-    words.push(...(seg.match(CAMEL_SPLIT_RE) ?? [seg]));
+    // TOKEN_RE 保证 token 字符集 ⊆ [A-Za-z0-9_$] 且 seg 非空——CAMEL_SPLIT_RE
+    // 三分支（大写串/大写开头/小写数字串）对首字符恒命中，match 不可能 null
+    words.push(...(seg.match(CAMEL_SPLIT_RE) as RegExpMatchArray));
   }
   return words;
 }

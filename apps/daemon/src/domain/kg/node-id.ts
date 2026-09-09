@@ -18,13 +18,6 @@ export function formatNodeId(kind: NodeKind, seq: number): NodeId {
   return `${nodeIdPrefix(kind)}-${seq}`;
 }
 
-/** 新号空间严格形态解析（`TR-AD-47` 复合前缀 / 大小写变体 / 非数字尾缀一律 null）。 */
-export function parseNodeId(id: string): { kind: NodeKind; seq: number } | null {
-  const match = /^(TR|E)-(\d+)$/.exec(id);
-  if (match === null) return null;
-  return { kind: match[1] === "TR" ? "rule" : "entity", seq: Number(match[2]) };
-}
-
 /**
  * 存量 id 集合的按 kind 数字最大值提取（T5.2 保号迁移 max+1 发号起点）：
  * 兼容 v1 复合前缀（`TR-AD-47`→47、`TR-TEST-2`→2）与非数字尾缀（`E-客户`→忽略）；

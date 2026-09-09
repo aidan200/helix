@@ -146,6 +146,10 @@ export function createOrchestratorSessionFactory(
             createdAt: sink.clock.now(),
           })
         : undefined;
+    // R7 两级链的槽位单次求值：modelSlot() 仅在可解析（resolveModelById 同席）时
+    // 调一次——避免密集三元内双调用 + 非空断言（两次求值间 slot 理论上可变）
+    const slotId =
+      deps.modelSlot !== undefined && deps.resolveModelById !== undefined ? deps.modelSlot() : undefined;
     const adapter = new PiAgentEngineAdapter({
       profile: {
         ...OrchestratorProfile,
@@ -154,7 +158,9 @@ export function createOrchestratorSessionFactory(
         tools: assembly.tools.filter((t) => kgNow !== undefined || t !== "kg"),
       },
       // R7 两级链：orchestrator 槽位 ?? 全局兜底（llmOverride 测试面恒最高）
-      model: deps.llmOverride?.model() ?? (deps.modelSlot !== undefined && deps.resolveModelById !== undefined && deps.modelSlot() !== undefined ? deps.resolveModelById(deps.modelSlot()!) : deps.model()),
+      model:
+        deps.llmOverride?.model() ??
+        (slotId !== undefined && deps.resolveModelById !== undefined ? deps.resolveModelById(slotId) : deps.model()),
       // R7：thinking 链注入（wrapStreamFnThinking 消费——每 turn 读现值）
       ...(deps.thinkingChain !== undefined
         ? { resolveThinking: (model: Parameters<NonNullable<PiEngineOptions["resolveThinking"]>>[0]) => resolveEffectiveThinking(deps.thinkingChain!(), model) }

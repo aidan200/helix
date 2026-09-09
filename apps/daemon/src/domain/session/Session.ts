@@ -18,7 +18,7 @@ import {
  * 职责：Entry 序列 + Turn 序列 + SteerQueue 的整体一致性——
  * 所有变更都经聚合方法（充血模型），非法操作抛 DomainError：
  * - appendUserEntry 只在无 open turn 时合法（运行中的输入必须走 applySteer）；
- * - beginTurn 在 open turn 未收尾前抛错（同 lane 防重入， ④ 护栏的 domain 落地）；
+ * - beginTurn 在 open turn 未收尾前抛错（同 lane 防重入护栏的 domain 落地）；
  * - applySteer 只在可注入（generating/toolRunning）的轮次合法。
  *
  * 快照往返：toSnapshot() ↔ restoreFrom() 是持久化（write-through）与
@@ -51,7 +51,8 @@ export class Session {
   ) {}
 
   static create(id?: string, at?: string, mode?: string): Session {
-    return new Session(id ?? crypto.randomUUID(), at ?? new Date(0).toISOString(), newInstanceId(), mode);
+    // 缺省 now（非 epoch 0）：生产恒传 at/session，兑底误用时避免 createdAt=1970 落盘
+    return new Session(id ?? crypto.randomUUID(), at ?? new Date().toISOString(), newInstanceId(), mode);
   }
 
   // ── Entry 追加 ──────────────────────────────────────────────
@@ -95,6 +96,10 @@ export class Session {
    * source：注入来源标记（user=用户输入；closure=SubAgent 收口注入，AD-8；
    * progress=周期进展报告，T11a 起贯通）。返回预分配的 entryId（D-2 同源：
    * steer.queued 事件载荷/回执/abort 丢弃成空洞无害）。
+   *
+   * at 参数当前不参与落盘（steer 不落条目）——条目时间戳语义在 drain 时刻
+   * （appendSteerEntryAtDrain 的 at 才是落盘 createdAt）；保留参数位以稳定
+   * 调用方签名（ChatService 传 this.now()），调用方不应期待入队时刻生效。
    */
   applySteer(text: string, at?: string, source?: SteerSource): string {
     const turn = this.requireOpenTurn("applySteer");
@@ -109,6 +114,8 @@ export class Session {
    * SteerQueue——与运行中注入同队列同语义（下轮 turn 边界消费，FIFO），但不
    * 驱动引擎（「不自动续跑」：零新事件流，恢复代码零 spawn）。与 applySteer
    * 同不落条目（drain 时经 appendSteerEntryAtDrain 作为新 turn 输入落盘）。
+   *
+   * at 参数语义同 applySteer：当前不参与落盘，条目时间戳在 drain 时刻生效。
    */
   restoreSteer(text: string, at?: string, source?: SteerSource): string {
     if (this.currentTurn !== null) {
@@ -157,7 +164,7 @@ export class Session {
   }
 
   private pushEntry(
-    role: "user" | "assistant" | "tool",
+    role: "user" | "assistant",
     text: string,
     turnId: string | null,
     isSteer: boolean,
@@ -371,8 +378,8 @@ export class Session {
   }
 
   private steerQueueFrom(items: readonly SteerItem[]): void {
-    const restored = SteerQueue.fromData([...items]);
-    for (const item of restored.drain()) this.steerQueue.enqueue(item);
+    // 单次防御拷贝逐项 enqueue（fromData→drain→再 enqueue 的双重复写已收平）
+    for (const item of items) this.steerQueue.enqueue({ ...item });
   }
 
   private requireOpenTurn(op: string): Turn {

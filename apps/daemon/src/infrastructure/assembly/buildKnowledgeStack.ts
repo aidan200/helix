@@ -173,12 +173,6 @@ export function buildKnowledgeStack(deps: {
 }
 
 /**
- * workspace 一层扫描（§3.5 宽松口径 V-3：一级目录全部入列，排除清单为
- * 唯一过滤——目录项、非隐藏、非排除段）。过滤/解析纯逻辑已收口
- * domain/kg/project-discovery.ts（T5.3 单点；本文件重导出保 import 面）。
- */
-
-/**
  * edit 工具挂点接线工厂（T3.2，CL-1 F1.1）：组合根把 kg 栈接进 EditTool
  * 成功路径——逐编辑附着（attachAfterEdit 返回 📎 块拼接到工具结果尾部）。
  * sessionId 在调用侧闭合（会话级跨通道去重键；与 T3.3 任务层注入共用

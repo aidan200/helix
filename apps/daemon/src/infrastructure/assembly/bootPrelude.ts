@@ -156,7 +156,7 @@ export async function migrateLegacyModelConfig(ctx: LegacyMigrationCtx & { reado
 // ── WS 端口解析链 + PortConfigPort ───────────────────────────────
 
 /**
- * 解析 KV daemon_port 值（0-65535 整数字符串；非法/未设 → undefined/null 语义由调用方区分）。
+ * 解析 KV daemon_port 值（0-65535 整数字符串；非法/未设 → null——两态同值，调用方无须区分）。
  */
 function parseStoredPort(raw: string | undefined): number | null {
   if (raw === undefined) return null;

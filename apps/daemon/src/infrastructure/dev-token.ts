@@ -17,7 +17,8 @@ export const DEV_TOKEN_FILE_MODE = 0o600;
 export function ensureDevToken(devTokenPath: string): string {
   const token = randomBytes(24).toString("hex");
   mkdirSync(path.dirname(devTokenPath), { recursive: true });
-  writeFileSync(devTokenPath, token, "utf8");
-  chmodSync(devTokenPath, DEV_TOKEN_FILE_MODE);
+  // 创建即收权（mode 仅作用于新建时刻）：免「先写后 chmod」窗口期按 umask 宽权限可见
+  writeFileSync(devTokenPath, token, { encoding: "utf8", mode: DEV_TOKEN_FILE_MODE });
+  chmodSync(devTokenPath, DEV_TOKEN_FILE_MODE); // 既有文件重写时收权（mode 不改已存文件）
   return token;
 }

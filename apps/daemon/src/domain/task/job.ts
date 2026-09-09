@@ -103,5 +103,6 @@ export function assertBatchTransition(from: BatchStatus, to: BatchStatus): void 
  * 自动重派路径 failed→running，§4.5）；与 stage（done/failed 皆终态）不同形。
  */
 export function isTerminalBatch(status: BatchStatus): boolean {
-  return BATCH_TRANSITIONS[status].length === 0;
+  // 显式集合同 isTerminalJob/isTerminalStage 口径（TR-72：不从出边推导——防未来出边演进悄悄改终态面）
+  return status === "done";
 }

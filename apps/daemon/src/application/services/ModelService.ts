@@ -73,6 +73,20 @@ export class InvalidThinkingLevelError extends Error {
   }
 }
 
+/**
+ * apiKey 形状校验错误（清单 #2.5）：空串/非字符串——裸 Error 无 code 会落
+ * driving 层通用内部错误回码；code=command.invalid_payload 同
+ * InvalidThinkingLevelError 先例（形状错不是 provider 名录错）。
+ */
+export class InvalidApiKeyError extends Error {
+  /** 错误码（additive）：driving 层码匹配直通。 */
+  readonly code: ErrorCode = "command.invalid_payload";
+  constructor(providerId: string, apiKey: unknown) {
+    super(`apiKey 应为非空字符串（provider ${providerId}，收到 ${JSON.stringify(apiKey)}；空值请用 auth.delete_key 移除）`);
+    this.name = "InvalidApiKeyError";
+  }
+}
+
 export interface ModelServiceDeps {
   /** 多会话容器（per-session 引擎寻址；冷会话懒加载）。 */
   readonly registry: SessionRegistry;
@@ -179,7 +193,7 @@ export class ModelService implements ModelPort {
   async authSetKey(providerId: string, apiKey: string): Promise<{ keyMasked: string }> {
     this.assertProvider(providerId);
     if (typeof apiKey !== "string" || apiKey.trim() === "") {
-      throw new Error(`apiKey 不能为空（provider ${providerId}；空值请用 auth.delete_key 移除）`);
+      throw new InvalidApiKeyError(providerId, apiKey);
     }
     return this.deps.auth.setKey(providerId, apiKey);
   }

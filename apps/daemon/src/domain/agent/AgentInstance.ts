@@ -209,7 +209,7 @@ export class AgentInstance {
     }
   }
 
-  // ── 命名迁移（语义编码：fail 自 queued|running；cancel 仅自 queued） ──
+  // ── 命名迁移（语义编码：fail 自 queued|running|parked；cancel 仅自 queued） ──
   // 时刻注入约定（仿 ToolCallRecord）：迁移方法接受可选 now（epoch ms，缺省
   // Date.now()），同时维护执行时长记账（startedAtMs/elapsedMs）。
 
@@ -221,7 +221,7 @@ export class AgentInstance {
     }
   }
 
-  /** 出队/预算内直跑：queued→running（首次起点定格，重复调用幂等）。 */
+  /** 出队/预算内直跑：queued→running（首次起点定格；非幂等——running→running 抛非法迁移，调用方仅自 queued 调用）。 */
   markRunning(now: number = Date.now()): void {
     this.transition("running");
     if (this._startedAtMs === undefined) this._startedAtMs = now;

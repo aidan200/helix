@@ -13,7 +13,9 @@ import type { SteerSource } from "../agent/SteerQueue";
  * 主实例与 SubAgent 统一 `agent-<唯一串>`（T10a 方案 A；旧行 legacy "main"
  * 字面值只读兼容）。
  */
-export type EntryRole = "user" | "assistant" | "tool";
+/** 会话条目角色：user/assistant 双值——工具记录走 ToolCallRecord 域，
+ *  不产 role="tool" 条目（历史行若携带，读侧 agentMessageOfEntry 兑底 null 不回填）。 */
+export type EntryRole = "user" | "assistant";
 
 export interface EntryData {
   readonly id: string;
@@ -52,10 +54,10 @@ export class Entry {
 
   static create(data: EntryData): Entry {
     if (data.text.trim() === "") {
-      throw new DomainError(`会话条目 ${data.id ?? "(新)"} 内容不能为空（role=${data.role}）`);
+      throw new DomainError(`会话条目 ${data.id} 内容不能为空（role=${data.role}）`);
     }
     if (typeof data.instanceId !== "string" || data.instanceId.trim() === "") {
-      throw new DomainError(`会话条目 ${data.id ?? "(新)"} 缺少实例归属 instanceId`);
+      throw new DomainError(`会话条目 ${data.id} 缺少实例归属 instanceId`);
     }
     return new Entry(
       data.id,

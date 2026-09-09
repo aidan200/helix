@@ -41,8 +41,8 @@ export function buildPersistence(deps: { readonly paths: HelixPaths; readonly lo
     onError: (error, job) => deps.logger.error(`落盘失败（${job.kind}）：${(error as Error).message}`),
   });
   const repository: SessionRepositoryPort = new SqliteSessionRepository(writeQueue);
-  // trace 读面 port 手工装配（architecture.md §3.5b）
-  // 仓内无 container.bind，同式命名常量）；同库同表只读面，不经单写队列。
+  // trace 读面 port 手工装配（architecture.md §3.5b）：同库同表只读面，
+  // 不经单写队列（AG-06 唯一写通道只约写面；读面直连 SQLite）。
   const traceQuery: TraceQueryPort = new SqliteTraceQueryAdapter(writeQueue);
   // 运行时配置 KV（P1 T1：通用键值底座）+ 默认模型语义包装（KV 上第一个键
   // + builtin 兑底——消费面 DefaultModelPort 签名不变，只换存储底座）

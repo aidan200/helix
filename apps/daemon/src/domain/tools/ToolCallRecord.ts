@@ -11,6 +11,8 @@ import { LEGACY_MAIN_INSTANCE_ID } from "../agent/AgentInstance";
  */
 export type ToolCallStatus = "pending" | "running" | "completed" | "failed";
 
+const TOOL_CALL_STATUSES: readonly ToolCallStatus[] = ["pending", "running", "completed", "failed"];
+
 /** 工具调用记录的可序列化只读视图（快照/持久化载荷，贫血形状）。 */
 export interface ToolCallRecordData {
   readonly id: string;
@@ -47,6 +49,11 @@ export class ToolCallRecord {
 
   /** 从持久化数据重建（恢复路径：不算状态迁移，直接置位；行为与终态一致）。 */
   static restore(data: ToolCallRecordData): ToolCallRecord {
+    // 态集校验对齐 AgentInstance.restore：脏行（status 词表外）在重建点拒绝，
+    // 不让后续一切状态迁移恒抛（早暴露早定位）
+    if (!(TOOL_CALL_STATUSES as readonly string[]).includes(data.status)) {
+      throw new DomainError(`工具调用 ${data.id}（${data.toolName}）状态非法：${String(data.status)}`);
+    }
     return new ToolCallRecord(
       data.id,
       data.toolName,

@@ -34,7 +34,8 @@ import type { KgProjectRowView, KgProjectService } from "../kg/KgProjectService"
 import type { KgAttachmentService } from "../kg/KgAttachmentService";
 import type { KgQueryService } from "../kg/KgQueryService";
 import type { KgSyncService } from "../kg/KgSyncService";
-import type { KgFsWatchService } from "../kg/KgFsWatchService";import type { KgViewerService } from "../kg/KgViewerService";
+import type { KgFsWatchService } from "../kg/KgFsWatchService";
+import type { KgViewerService } from "../kg/KgViewerService";
 import type { KgWriteService } from "../kg/KgWriteService";
 
 /** KV 键（helix.db runtime_config 表；不进 config.json——TR-AD-6）。 */
@@ -331,8 +332,22 @@ export class WorkspaceService {
       if (hadStack) this.pendingUnload = true;
       throw err;
     }
+    // startSync 纳入同一半途态防御（清单 #2.5）：启后台同步抛错时新栈就地
+    // dispose、持有者与 current 同步置空——不让 bound 置新而 current 未置
+    //（stack() 非 null 与 isBound()=false 背离，同 buildStack 失败口径）。
+    let background: ReturnType<WorkspaceServiceDeps["startSync"]>;
+    try {
+      background = this.deps.startSync(next, root);
+    } catch (err) {
+      next.dispose();
+      this.bound = null;
+      this.current = null;
+      this.notice = `workspace 绑定失败（后台同步启动异常，已回退未绑定态）：${(err as Error).message}`;
+      if (hadStack) this.pendingUnload = true;
+      throw err;
+    }
     this.bound = next;
-    this.background = this.deps.startSync(this.bound, root);
+    this.background = background;
     this.current = root;
     // 重绑成功收口：持旧（已 dispose）栈会话全卸（含半途态挂起）；首绑且
     // 无挂起 → no-op。

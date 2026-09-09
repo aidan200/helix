@@ -33,6 +33,13 @@ export interface CreateTaskInput {
   readonly createdBy: "page" | "chat";
 }
 
+/**
+ * 任务引擎端口。接口规模观察项（清单 #2.3）：本端口现承 WS 命令族
+ * （createTask/pause/resume/cancel/retry/deleteTask）+ 编排回口族
+ * （insertBatch 等 9 方法）+ 启动恢复（recoverOnStartup）双消费面——当前
+ * 规模尚可控；若方法继续增长，按消费面拆 TaskCommandPort（WS 面）/
+ * TaskOrchestrationCallbacksPort（回口面），拆分前不动签名。
+ */
 export interface TaskEnginePort {
   /**
    * 创建任务（§4.1 四步 + 编排启动）：

@@ -57,19 +57,21 @@ export interface TaskSliceRenderOptions {
   readonly protocolLine?: string;
 }
 
-/** 单节点条目：粗体 name + kind 徽章 + digest + scene 段（空 scene 兑底省略）+ kg get 指针（与附着条目同构）。 */
+import { renderKnowledgeEntry, greedyFit } from "./entry-format";
+
+/** 单节点条目（共享渲染单源 entry-format.ts；multiProject 时指针携 project 名）。 */
 function renderEntry(candidate: TaskSliceRow, multiProject: boolean): string {
   const { row } = candidate;
   const pointer = multiProject
     ? `kg get ${row.id}（project: ${projectNameOf(candidate.project)}）`
     : `kg get ${row.id}`;
-  const sceneLine = row.scene !== "" ? `\n  适用：${row.scene}` : "";
-  return `- **${row.name}** [${row.kind}] — ${row.digest}${sceneLine}\n  ↳ ${pointer}`;
+  return renderKnowledgeEntry({ name: row.name, kind: row.kind, digest: row.digest, scene: row.scene }, pointer);
 }
 
 /** projectRoot 尾段即项目名（workspace 一级目录名；AD-16 项目名可见文本不受限）。 */
 function projectNameOf(projectRoot: string): string {
-  const parts = projectRoot.split("/");
+  // 先归一分隔符再取尾段（win32 反斜杠路径下也能取到目录名，不回退整串）
+  const parts = projectRoot.replaceAll("\\", "/").split("/");
   return parts[parts.length - 1] || projectRoot;
 }
 
@@ -115,11 +117,6 @@ export function selectTaskSlice(
     seenKeys.add(key);
     unique.push(c);
   }
-  const picked: TaskSliceRow[] = [];
-  for (const c of unique) {
-    if (taskSliceChars([...picked, c], options) / 4 <= TASK_SLICE_TOKEN_BUDGET) {
-      picked.push(c);
-    }
-  }
+  const picked = greedyFit(unique, (p, c) => taskSliceChars([...p, c], options) / 4 <= TASK_SLICE_TOKEN_BUDGET);
   return picked;
 }

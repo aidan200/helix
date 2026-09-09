@@ -66,6 +66,9 @@ export interface AgentProjectionStore {
   /**
    * 实例生命周期行读面（agent_lifecycle 每实例行，含 main）：重启时
    * RestoreService 重建实例注册表 / 判定 running/queued 收口的数据源。
+   * 已知口径不一致：本读面 async，同族读面（queryClosureRecords/
+   * queryEvents/hasSuccessfulWriteToolCall）同步——统一口径（倾向全 async
+   * 留实现自由度）待 M4 拆分一并处理，本批不动签名。
    */
   queryAgentLifecycles(sessionId: string): Promise<readonly AgentLifecycleRowData[]>;
 }

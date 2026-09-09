@@ -9,6 +9,7 @@ import type {
   BatchData,
   JobData,
   JobListFilter,
+  JobProgressRows,
   StageArtifact,
   StageData,
   TaskDeleteCounts,
@@ -120,6 +121,41 @@ export class TaskStore implements TaskStorePort {
       )
       .all(jobId, stageSeq) as BatchRow[];
     return rows.map(rowToBatch);
+  }
+
+  /** 列表页批量读口（清单 #2.5 N+1 收口）：job 行集两次批量查（stage/batch
+   *  按 job_id IN (...)，块 500 防 SQLite 变量数上限）分组——N 任务从
+   *  N×(1+S) 次读收为常数 3 次。 */
+  listJobsWithProgress(filter?: JobListFilter): readonly JobProgressRows[] {
+    const jobs = this.listJobs(filter);
+    if (jobs.length === 0) return [];
+    const stagesByJob = new Map<string, StageData[]>();
+    const batchesByJob = new Map<string, BatchData[]>();
+    for (let chunkStart = 0; chunkStart < jobs.length; chunkStart += 500) {
+      const ids = jobs.slice(chunkStart, chunkStart + 500).map((j) => j.id);
+      const placeholders = ids.map(() => "?").join(",");
+      const stageRows = this.writeQueue.database
+        .prepare(`SELECT ${STAGE_COLUMNS} FROM stage WHERE job_id IN (${placeholders}) ORDER BY job_id, seq`)
+        .all(...ids) as StageRow[];
+      for (const row of stageRows) {
+        const list = stagesByJob.get(row.job_id) ?? [];
+        list.push(rowToStage(row));
+        stagesByJob.set(row.job_id, list);
+      }
+      const batchRows = this.writeQueue.database
+        .prepare(`SELECT ${BATCH_COLUMNS} FROM batch WHERE job_id IN (${placeholders}) ORDER BY job_id, stage_seq, seq`)
+        .all(...ids) as BatchRow[];
+      for (const row of batchRows) {
+        const list = batchesByJob.get(row.job_id) ?? [];
+        list.push(rowToBatch(row));
+        batchesByJob.set(row.job_id, list);
+      }
+    }
+    return jobs.map((job) => ({
+      job,
+      stages: stagesByJob.get(job.id) ?? [],
+      batches: batchesByJob.get(job.id) ?? [],
+    }));
   }
 
   deleteJobCascade(jobId: string, sessionId: string): Promise<TaskDeleteCounts> {

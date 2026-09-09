@@ -18,9 +18,10 @@ import type { AgentEngineEvent } from "../../ports/outbound/AgentEnginePort";
  *
  * 【职责】runner 上行的引擎事件 → 领域事件/流式 delta 翻译（thinking 累积 /
  * message 落树含 message_update 流式 / tool 记录 / usage 入账 / engine.error
- * 镜像），持有 **5 个 per-instance Map 写侧**（streamEntryIds / entrySeqs /
- * thinkingStartsMs / subToolArgs / lastEventAtMs）与
- * entry id 分配（nextEntryId——entrySeqs 状态在此）。
+ * 镜像），持有 **10 个 per-instance Map 写侧**——流式/落树 4（streamEntryIds /
+ * entrySeqs / thinkingStartsMs / subToolArgs）+ T3-A 计数器 4（toolCallsCompleted /
+ * assistantChars / turnsCompleted / streamCharsInFlight）+ T3-B 轨迹（traceItems）
+ * + lastEventAtMs；entry id 分配（nextEntryId——entrySeqs 状态在此）。
  *
  * 【只产事件，不写聚合】（AD-3 职责回归）：thinking 累积 / message
  * 落树（含 message_update 流式 delta 转发）/ tool 记录全部经事件总线发布；
@@ -147,8 +148,12 @@ export class SubagentEventTranslator {
       return;
     }
     if (event.type === "thinking_delta") {
+      const messageId = this.streamEntryIds.get(instanceId);
+      // 未预留（乱序/非 assistant 流）：丢弃——与 message_update 同口径
+      //（不用 instanceId 兑底：前端会把 thinking delta 路由到不存在的消息）
+      if (messageId === undefined) return;
       this.deps.events.publishDelta({
-        messageId: this.streamEntryIds.get(instanceId) ?? instanceId,
+        messageId,
         delta: event.delta,
         channel: "thinking",
         sessionId: instance.sessionId, // 实例归属会话（多会话）

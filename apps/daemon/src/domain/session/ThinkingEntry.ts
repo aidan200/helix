@@ -8,7 +8,8 @@ import { DomainError } from "../DomainError";
  * thinking_end 到达即落账即广播（T35：不暂存等 message_end——块结束是
  * 实时事实，不等账目收口；CAND-35 方向②）。
  * durationMs = thinking_start→end 墙钟差（ClockPort 侧计时，编排层挂）。
- * instanceId 归属同 Entry（AD-3；主实例固定 "main"）。
+ * instanceId 归属同 Entry（AD-3；主实例 id = 会话创建时 newInstanceId()
+ * 分配的 agent-<唯一串>，T10a；legacy 字面 "main" 只读兼容）。
  *
  * reasoningTokens 已退役（CAND-35）：原设计把 message 级 usage.reasoning
  * 冗余挂到块上（同消息多块共享同值、abort 轮零占位混同——语义歧义），

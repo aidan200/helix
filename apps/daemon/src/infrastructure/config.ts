@@ -210,8 +210,9 @@ export function writeConfig(configFilePath: string, config: DaemonConfig): void 
       2,
     ) + "\n";
   const tmp = `${configFilePath}.tmp`;
-  writeFileSync(tmp, body, { encoding: "utf8" });
-  chmodSync(tmp, CONFIG_FILE_MODE);
+  // 创建即收权（tmp 每次新建）：免「先写后 chmod」窗口期按 umask 宽权限可见
+  writeFileSync(tmp, body, { encoding: "utf8", mode: CONFIG_FILE_MODE });
+  chmodSync(tmp, CONFIG_FILE_MODE); // 兑底：既有 tmp 残留时收权（mode 不改已存文件）
   renameSync(tmp, configFilePath);
 }
 
