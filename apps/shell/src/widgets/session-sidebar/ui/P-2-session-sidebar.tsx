@@ -90,6 +90,16 @@ const SessionSidebar = function SessionSidebar({ onFocusInput }: { onFocusInput?
   const onDeleteCancel = useCallback(() => setConfirmingId(null), []);
   /** M51：删除在途锚（成功 toast 由 list_changed{deleted} 卡片移除驱动）。 */
   const pendingDeleteRef = useRef<string | null>(null);
+  // 超时兜底 timer（W3 #2.37）：daemon 异步拒绝（connection.error 回执，卡片
+  // 不移除也无确认事件）时 pending 锚悬挂至下次 confirm 覆盖——超时清锚 +
+  // err 交代，期间无失败感知的窗口收口
+  const pendingTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (pendingTimerRef.current !== null) window.clearTimeout(pendingTimerRef.current);
+    },
+    [],
+  );
 
   const onDeleteConfirm = useCallback(
     (sessionId: string) => {
@@ -100,6 +110,13 @@ const SessionSidebar = function SessionSidebar({ onFocusInput }: { onFocusInput?
         return;
       }
       pendingDeleteRef.current = sessionId;
+      if (pendingTimerRef.current !== null) window.clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = window.setTimeout(() => {
+        if (pendingDeleteRef.current !== null) {
+          pendingDeleteRef.current = null;
+          toast.push("err", t("chat.sidebar.deleteFailToast"));
+        }
+      }, 5_000);
     },
     [deleteSession, t, toast],
   );
@@ -110,6 +127,10 @@ const SessionSidebar = function SessionSidebar({ onFocusInput }: { onFocusInput?
     if (pending === null) return;
     if (topology.list.some((m) => m.sessionId === pending)) return;
     pendingDeleteRef.current = null;
+    if (pendingTimerRef.current !== null) {
+      window.clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = null;
+    }
     toast.push("ok", t("chat.sidebar.deleteToast"), t("chat.sidebar.deleteToastSub"));
   }, [topology.list, toast, t]);
 

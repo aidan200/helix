@@ -10,7 +10,8 @@
  *   compaction 独立行）；合计行与徽标同一状态源派生，数字天然自洽。
  *
  * 交互面：徽标点击 toggle（aria-expanded）；popover 点外部 / Esc 关闭；
- * SubAgent 行尾 → onOpenInstance 抽屉回调（T4.3 接线，当前占位）；compaction
+ * SubAgent 行尾 → onOpenInstance 抽屉回调（T4.3 已接线全链：ChatPage
+ * openInstance → Workbench → 本 popover，选中 instance 打开抽屉）；compaction
  * 行 → onScrollToCompaction props 回调（F5 批 #7 / TR-85：锚点滚动能力归
  *  chat-stream MessageFlow ref 窄接口持有，pages 装配层接线——禁跨层 DOM 直达）。
  */
@@ -126,8 +127,16 @@ export function deriveUsageRows(s: SessionState, catalog: CatalogModel[] = []): 
   }
 
   // compaction 独立行：账目 compaction 小计 + 最近里程碑 before→after 说明
-  // （归属 main 的摘要调用；行出现 = 会话发生过 compaction）
-  const lastCompact = [...s.entries].reverse().find((e): e is CompactionEntryDto => e.kind === "compaction");
+  // （归属 main 的摘要调用；行出现 = 会话发生过 compaction）。倒序零复制
+  // 查找末条 compaction（W3 #2.37：[...entries].reverse().find 每渲染全量复制）
+  let lastCompact: CompactionEntryDto | undefined;
+  for (let i = s.entries.length - 1; i >= 0; i--) {
+    const e = s.entries[i]!;
+    if (e.kind === "compaction") {
+      lastCompact = e;
+      break;
+    }
+  }
   if (lastCompact) {
     const cu = s.usage.compaction;
     rows.push({
@@ -239,7 +248,8 @@ export const UsagePopover = memo(function UsagePopover({
   onScrollToCompaction,
 }: {
   onClose: () => void;
-  /** SubAgent 行尾跳抽屉（T4.3 接线；当前占位）——payload = instanceId */
+  /** SubAgent 行尾跳抽屉（T4.3 已接线：ChatPage openInstance → Workbench →
+   *  本 popover；payload = instanceId） */
   onOpenInstance?: (instanceId: string) => void;
   /** compaction 行尾锚点滚动（F5 批 #7 / TR-85：props 回调，pages 层接线
    *  MessageFlow ref；未接线时行点击仅关闭 popover） */
