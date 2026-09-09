@@ -1,16 +1,27 @@
 /**
- * B 方案修复回归：turn 收口时 domain SteerQueue 残留清账（收口清账）。
+ * B 收口清账回归：turn 收口时 domain SteerQueue 残留清账——按 source 分流。
  *
- * 缺陷现场（task-20260824 steer_queue 孤儿记录，session 00386a2c）：closure
- * 经 running 分支入 domain 队列 + engine.steer() 双通道，但 run 已无后续
+ * 缺陷现场一（task-20260824 steer_queue 孤儿，session 00386a2c）：注入经
+ * running 分支入 domain 队列 + engine.steer() 双通道，但 run 已无后续
  * 消费轮（模型正在写最后回复，pi run 收尾不消费残留 pending）——双通道
- * 的引擎侧消费不到；turn 正常收口回 idle 后无人检查 domain 队列，注入条目
- * 成为永久孤儿（steer_queue 表脏行，下次发消息还可能被补注入过时 closure）。
+ * 的引擎侧消费不到；turn 正常收口回 idle 后无人检查 domain 队列，注入
+ * 成为永久孤儿（steer_queue 表脏行，下次发消息还可能被补注入过时内容）。
  *
- * FakeAgentEngine 是「turn 边界必 drain」策略（§5.3-2），模型不了这个窗口
+ * 缺陷现场二（task-20260909 closure 丢失，实例 agent-8c1c1106…）：B 清账
+ * 不分 source 一律丢弃——closure（SubAgent 收口结论）在 running 窗口入队、
+ * 所在轮因 429 秒挂后被当 orphan 丢弃，终态事实从未落时间轴（applySteer
+ * 只入队，条目在 drain 才落盘），用户与主线永久看不到该 closure。
+ *
+ * 现行语义：
+ * - closure/progress → 转 closureBuffer 走 T2 续送链（idle 后 sendMessage
+ *   落时间轴条目）——必达的终态事实不丢弃；被清项从未 drain 落盘，续送
+ *   无重复注入风险。
+ * - user/缺省 → 维持 B 原语义：可观测丢弃（engine.error），防过时 steer
+ *   被补注入导致重复回复。
+ *
+ * FakeAgentEngine 是「turn 边界必 drain」策略（§5.3-2），模拟不了这个窗口
  * ——本文件用 NoDrainEngine（steer 只入 pi 等价队列、run 收尾不消费）精确
- * 复现生产时序，钉 B 方案：settleRunEnd 收口段 drain 残留 + engine.error
- * 可观测丢弃（与 injectClosure stopped 分支同族文案）。
+ * 复现生产时序。
  */
 import { describe, expect, test } from "bun:test";
 import { ChatService } from "../../src/application/services/ChatService";
@@ -115,8 +126,8 @@ async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
   }
 }
 
-describe("B 收口清账：turn 收口时 domain SteerQueue 残留 drain + 可观测丢弃", () => {
-  test("closure 入队但 run 收尾不消费（生产缺陷时序）→ 收口后队列清空 + engine.error 交代", async () => {
+describe("B 收口清账：turn 收口时 domain SteerQueue 残留按 source 分流", () => {
+  test("closure 入队但 run 收尾不消费（8c1c 现场）→ 不丢弃，T2 续送链落时间轴", async () => {
     const engine = new NoDrainEngine();
     const { chat, publisher, domainEvents } = makeChat(engine);
 
@@ -125,22 +136,54 @@ describe("B 收口清账：turn 收口时 domain SteerQueue 残留 drain + 可�
     // 流式窗口内注入（lifecycle=running）：双通道入队，引擎侧永不消费
     chat.injectClosure("agent-11 closure: done — 已获取结果");
     await run;
+
+    // 清账后队列清空（不留孤儿）
+    expect(chat.sessionSnapshot.pendingSteer).toHaveLength(0);
+    // closure 不丢弃：无清账 engine.error
+    expect(
+      domainEvents.some(
+        (e) => e.type === "engine.error" && String((e.payload as { message?: string }).message).includes("注入被丢弃"),
+      ),
+    ).toBe(false);
+
+    // T2 续送链：idle 后以 closure 文本开新轮 → 落时间轴 user 条目（message.completed）
+    await until(() =>
+      domainEvents.some(
+        (e) =>
+          e.type === "message.completed" &&
+          String((e.payload as { text?: string }).text).includes("agent-11 closure: done — 已获取结果"),
+      ),
+    );
     await until(() => chat.agentState === "idle");
 
-    // 修复前：pendingSteer 残留 1（孤儿）；修复后：收口清账 → 0
-    expect(chat.sessionSnapshot.pendingSteer).toHaveLength(0);
+    // 首轮 turn 正常收口（completed），不因清账中断
+    expect(domainEvents.some((e) => e.type === "turn.completed")).toBe(true);
+    // 引擎侧 steer 已投递（双通道投递面正常，缺陷仅在收尾不消费）
+    expect(engine.steered).toEqual(["agent-11 closure: done — 已获取结果"]);
+  });
 
-    // 可观测丢弃：engine.error 交代（与 stopped 分支同族文案）
+  test("user steer 入队但 run 收尾不消费 → 维持 B 原语义：可观测丢弃，不补注入", async () => {
+    const engine = new NoDrainEngine();
+    const { chat, publisher, domainEvents } = makeChat(engine);
+
+    const run = chat.sendMessage("主线任务");
+    await until(() => publisher.deltas.length >= 1);
+    await chat.steer("用户运行中注入");
+    await run;
+    await until(() => chat.agentState === "idle");
+
+    expect(chat.sessionSnapshot.pendingSteer).toHaveLength(0);
     const discarded = domainEvents.filter(
       (e) => e.type === "engine.error" && String((e.payload as { message?: string }).message).includes("注入被丢弃"),
     );
     expect(discarded.length).toBe(1);
-    expect(String((discarded[0]!.payload as { message?: string }).message)).toContain("agent-11 closure: done");
-
-    // turn 正常收口（completed），不因清账中断
-    expect(domainEvents.some((e) => e.type === "turn.completed")).toBe(true);
-    // 引擎侧 steer 已投递（双通道投递面正常，缺陷仅在收尾不消费）
-    expect(engine.steered).toEqual(["agent-11 closure: done — 已获取结果"]);
+    expect(String((discarded[0]!.payload as { message?: string }).message)).toContain("用户运行中注入");
+    // 不补注入：user steer 文本不落时间轴
+    expect(
+      domainEvents.some(
+        (e) => e.type === "message.completed" && String((e.payload as { text?: string }).text).includes("用户运行中注入"),
+      ),
+    ).toBe(false);
   });
 
   test("正常 drain 路径不受影响（FakeAgentEngine 必 drain 策略，有续轮时 closure 照常注入）", async () => {

@@ -552,15 +552,26 @@ export class ChatService implements ChatPort {
     // B 收口清账（task-20260824 steer_queue 孤儿）：run 收尾后双通道的引擎侧
     // 消费机会已永久消失（pi run 收尾不消费残留 pending，现场 00386a2c）——
     // domain 队列残留若不清即孤儿（永久滞留 steer_queue 表，下次发消息还可能
-    // 被补注入过时 closure）。与 stopped 分支同族文案可观测丢弃：注入对象已
-    // 不在即放弃，不强行补注入（避免重复回复）；丢弃项未落时间轴条目（drain
-    // 落盘语义）——文本随本条 engine.error 可观测留存。只清 domain 队列；
+    // 被补注入过时内容）。清账按 source 分流（task-20260909 8c1c closure 丢失
+    // 修复）：
+    // - closure/progress（SubAgent 收口/进展报告）＝必须落时间轴的终态事实，
+    //   不是待回复的对话 steer——转 closureBuffer 走 T2 续送链（idle 后
+    //   fire-and-forget sendMessage 落条目）。被清项从未 drain（drain 才落盘，
+    //   appendSteerEntryAtDrain），续送无重复注入风险。
+    // - user/缺省＝对话 steer，丢弃防过时注入（原 B 语义不变）：与 stopped
+    //   分支同族文案可观测丢弃——注入对象已不在即放弃，不强行补注入（避免
+    //   重复回复）；丢弃项未落时间轴条目（drain 落盘语义）——文本随本条
+    //   engine.error 可观测留存。
     // closureBuffer 走下方既有 T2 续送链。
     const orphaned = this.session.drainAllSteer();
     for (const item of orphaned) {
-      this.publish("engine.error", {
-        message: `注入被丢弃（轮次已收口，引擎侧无后续消费轮）：${item.text.slice(0, 80)}`,
-      });
+      if (item.source === "closure" || item.source === "progress") {
+        this.closureBuffer.push({ text: item.text, source: item.source });
+      } else {
+        this.publish("engine.error", {
+          message: `注入被丢弃（轮次已收口，引擎侧无后续消费轮）：${item.text.slice(0, 80)}`,
+        });
+      }
     }
     // T2 送达补齐：run 收口回 idle 后续送缓冲 closure（经 scheduleClosureDrain 挂本 run
     // promise settle 后再发——本同步段内引擎仍在飞，直接 sendMessage 会撞在飞守卫）。
