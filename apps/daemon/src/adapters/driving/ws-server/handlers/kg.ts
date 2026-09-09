@@ -18,6 +18,7 @@
  * channel = "kg"（events/kg.ts 通则；model.catalog.result 同构先例）。
  */
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
+import type { ErrorCode } from "@helix/protocol";
 import type {
   KgBootstrapCreateResultEvent,
   KgBootstrapImpactResultEvent,
@@ -50,21 +51,17 @@ import type {
   KgProjectRowView,
 } from "../../../../application/services/kg/KgProjectService";
 import type {
-  KgBootstrapError,
   KgBootstrapService,
   ProduceGroupView,
   ProduceNodeView,
 } from "../../../../application/services/kg/KgBootstrapService";
 import type {
-  KgReviewError,
   KgReviewService,
 } from "../../../../application/services/kg/KgReviewService";
 import type {
-  CodeReviewError,
   CodeReviewService,
 } from "../../../../application/services/kg/CodeReviewService";
 import type {
-  KgMaintenanceError,
   KgMaintenanceService,
 } from "../../../../application/services/kg/KgMaintenanceService";
 import type {
@@ -74,11 +71,11 @@ import type {
   KgIndexStatusView,
   KgListView,
   KgNodeDetailView,
-  KgViewerError,
   KgViewerService,
 } from "../../../../application/services/kg/KgViewerService";
 import type { NodeDigestRow } from "../../../../domain/kg/types";
 import type { KgCommandContext } from "./context";
+import { optionalPayloadString, requirePayloadString } from "./payload-guards";
 
 /** kg.projects（F5.0：宽松口径一层扫描；只读零写）。W1：unbound 防御契约——空集结果非报错。 */
 export function handleKgProjects(ctx: KgCommandContext): void {
@@ -138,7 +135,7 @@ export function handleKgList(ctx: KgCommandContext): void {
   const status = optionalString(ctx, "status");
   if (status === null) return;
   const result = ctx.kg.list(project, { q, kind, status });
-  if (!result.ok) return viewerError(ctx, result.error);
+  if (!result.ok) return serviceError(ctx, result.error);
   const frame: KgListResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
@@ -157,7 +154,7 @@ export function handleKgNodeDetail(ctx: KgCommandContext): void {
   const id = requireString(ctx, "id");
   if (id === undefined) return;
   const result = ctx.kg.nodeDetail(project, id);
-  if (!result.ok) return viewerError(ctx, result.error);
+  if (!result.ok) return serviceError(ctx, result.error);
   const frame: KgNodeDetailResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
@@ -176,7 +173,7 @@ export function handleKgChangeReport(ctx: KgCommandContext): void {
   const iterationId = optionalString(ctx, "iterationId");
   if (iterationId === null) return;
   const result = ctx.kg.changeReport(project, iterationId);
-  if (!result.ok) return viewerError(ctx, result.error);
+  if (!result.ok) return serviceError(ctx, result.error);
   const frame: KgChangeReportResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
@@ -195,7 +192,7 @@ export function handleKgNodeConfirm(ctx: KgCommandContext): void {
   const id = requireString(ctx, "id");
   if (id === undefined) return;
   const result = ctx.kg.confirm(project, id);
-  if (!result.ok) return viewerError(ctx, result.error);
+  if (!result.ok) return serviceError(ctx, result.error);
   const frame: KgNodeConfirmResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
@@ -219,7 +216,7 @@ export function handleKgIndexStatus(ctx: KgCommandContext): void {
   void ctx.kg
     .indexStatus(project, rebuild)
     .then((result) => {
-      if (!result.ok) return viewerError(ctx, result.error);
+      if (!result.ok) return serviceError(ctx, result.error);
       const frame: KgIndexStatusResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
@@ -248,7 +245,7 @@ export function handleKgBootstrapCreate(ctx: KgCommandContext): void {
   void ctx.bootstrap
     .create(project, scope)
     .then((result) => {
-      if (!result.ok) return bootstrapError(ctx, result.error);
+      if (!result.ok) return serviceError(ctx, result.error);
       const frame: KgBootstrapCreateResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
@@ -269,7 +266,7 @@ export function handleKgBootstrapProduce(ctx: KgCommandContext): void {
   const project = requireString(ctx, "project");
   if (project === undefined) return;
   const result = ctx.bootstrap.produce(project);
-  if (!result.ok) return bootstrapError(ctx, result.error);
+  if (!result.ok) return serviceError(ctx, result.error);
   const frame: KgBootstrapProduceResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
@@ -295,7 +292,7 @@ export function handleKgNodeUpdate(ctx: KgCommandContext): void {
   void ctx.bootstrap
     .update(project, nodeId, { ...(digest !== undefined ? { digest } : {}), ...(body !== undefined ? { body } : {}) })
     .then((result) => {
-      if (!result.ok) return bootstrapError(ctx, result.error);
+      if (!result.ok) return serviceError(ctx, result.error);
       const frame: KgNodeUpdateResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
@@ -323,7 +320,7 @@ export function handleKgNodeSupersede(ctx: KgCommandContext): void {
   void ctx.bootstrap
     .supersede(project, nodeId, reason)
     .then((result) => {
-      if (!result.ok) return bootstrapError(ctx, result.error);
+      if (!result.ok) return serviceError(ctx, result.error);
       const frame: KgNodeSupersedeResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
@@ -346,7 +343,7 @@ export function handleKgBootstrapImpact(ctx: KgCommandContext): void {
   const nodeId = requireString(ctx, "nodeId");
   if (nodeId === undefined) return;
   const result = ctx.bootstrap.impact(project, nodeId);
-  if (!result.ok) return bootstrapError(ctx, result.error);
+  if (!result.ok) return serviceError(ctx, result.error);
   const frame: KgBootstrapImpactResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
@@ -368,7 +365,7 @@ export function handleKgGraphPurge(ctx: KgCommandContext): void {
   const project = requireString(ctx, "project");
   if (project === undefined) return;
   const result = ctx.maintenance.purge(project);
-  if (!result.ok) return maintenanceError(ctx, result.error);
+  if (!result.ok) return serviceError(ctx, result.error);
   const frame: KgGraphPurgeResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
@@ -393,7 +390,7 @@ export function handleKgIndexDelete(ctx: KgCommandContext): void {
   void ctx.maintenance
     .deleteIndex(project)
     .then((result) => {
-      if (!result.ok) return maintenanceError(ctx, result.error);
+      if (!result.ok) return serviceError(ctx, result.error);
       const frame: KgIndexDeleteResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
@@ -421,7 +418,7 @@ export function handleKgHealth(ctx: KgCommandContext): void {
   const project = requireString(ctx, "project");
   if (project === undefined) return;
   const result = ctx.kg.health(project);
-  if (!result.ok) return viewerError(ctx, result.error);
+  if (!result.ok) return serviceError(ctx, result.error);
   const frame: KgHealthResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
@@ -443,7 +440,7 @@ export function handleKgReviewCreate(ctx: KgCommandContext): void {
   void ctx.review
     .create(project)
     .then((result) => {
-      if (!result.ok) return reviewError(ctx, result.error);
+      if (!result.ok) return serviceError(ctx, result.error);
       const frame: KgReviewCreateResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
@@ -500,7 +497,7 @@ export function handleKgCandidatesList(ctx: KgCommandContext): void {
     ...(typeof ctx.payload.limit === "number" ? { limit: ctx.payload.limit } : {}),
     ...(typeof ctx.payload.offset === "number" ? { offset: ctx.payload.offset } : {}),
   });
-  if (!result.ok) return viewerError(ctx, result.error);
+  if (!result.ok) return serviceError(ctx, result.error);
   const frame: KgCandidatesListResultEvent = {
     v: PROTOCOL_VERSION,
     sessionId: SYSTEM_SESSION_ID,
@@ -513,25 +510,15 @@ export function handleKgCandidatesList(ctx: KgCommandContext): void {
 
 // ── payload 字段形状校验（枚举/解析语义归 service） ──────────
 
-/** 必填 string 字段：缺失/非 string → KG_E_PARAM（契约：project 缺失/无法解析）。 */
+/** 必填 string 字段：缺失/非 string → KG_E_PARAM（契约：project 缺失/无法解析）。
+ * 体已上收 payload-guards（三族共享），本包装只钉 kg 族错误码。 */
 function requireString(ctx: KgCommandContext, key: string): string | undefined {
-  const value = ctx.payload[key];
-  if (typeof value !== "string") {
-    ctx.commandError(ctx.type, "KG_E_PARAM", `payload.${key} 应为 string（必填）`);
-    return undefined;
-  }
-  return value;
+  return requirePayloadString(ctx, key, "KG_E_PARAM");
 }
 
 /** 可选 string 字段：null=形状非法（已回执）；undefined=缺省透传。 */
 function optionalString(ctx: KgCommandContext, key: string): string | undefined | null {
-  const value = ctx.payload[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") {
-    ctx.commandError(ctx.type, "KG_E_PARAM", `payload.${key} 应为 string`);
-    return null;
-  }
-  return value;
+  return optionalPayloadString(ctx, key, "KG_E_PARAM");
 }
 
 // ── 回执辅助 ────────────────────────────────────────────
@@ -555,17 +542,13 @@ function unboundOrUnimplemented(ctx: KgCommandContext): void {
   unimplemented(ctx);
 }
 
-/** service 结构化错误 → connection.error 回执（错误码直传；字段路径折叠进文案）。 */
-function viewerError(ctx: KgCommandContext, err: KgViewerError): void {
+/** service 结构化错误 → connection.error 回执（五族错误型 viewer/bootstrap/
+ * codeReview/review/maintenance 同构 {code,message,path?}——码域各自词表、
+ * 形状同，合一辅助：错误码直传，字段路径折叠进文案）。 */
+function serviceError(ctx: KgCommandContext, err: { readonly code: ErrorCode; readonly message: string; readonly path?: string }): void {
   ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
 }
 
-/** bootstrap service 结构化错误 → connection.error 回执（契约词表：not_eligible/not_found/validation_failed/KG_E_PARAM）。 */
-function bootstrapError(ctx: KgCommandContext, err: KgBootstrapError): void {
-  ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
-}
-
-/** kg 评审批错误回执（bootstrapError 同构——码域不同形状同）。 */
 /** code.review.create（code-review v1.5；无准入门槛——评审对象是代码不是图谱，createTask 同源，createdBy="page"）。 */
 export function handleCodeReviewCreate(ctx: KgCommandContext): void {
   if (ctx.codeReview === undefined) return unboundOrUnimplemented(ctx);
@@ -575,7 +558,7 @@ export function handleCodeReviewCreate(ctx: KgCommandContext): void {
   void ctx.codeReview
     .create(project)
     .then((result) => {
-      if (!result.ok) return codeReviewError(ctx, result.error);
+      if (!result.ok) return serviceError(ctx, result.error);
       const frame: CodeReviewCreateResultEvent = {
         v: PROTOCOL_VERSION,
         sessionId: SYSTEM_SESSION_ID,
@@ -588,18 +571,6 @@ export function handleCodeReviewCreate(ctx: KgCommandContext): void {
     .catch((err: unknown) => {
       ctx.commandError(ctx.type, "command.invalid_payload", (err as Error).message);
     });
-}
-
-function codeReviewError(ctx: KgCommandContext, err: CodeReviewError): void {
-  ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
-}
-
-function reviewError(ctx: KgCommandContext, err: KgReviewError): void {
-  ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
-}
-/** 维护面结构化错误 → connection.error 回执（词表：KG_E_PARAM / kg.graph.purge_blocked）。 */
-function maintenanceError(ctx: KgCommandContext, err: KgMaintenanceError): void {
-  ctx.commandError(ctx.type, err.code, err.path === undefined ? err.message : `${err.message}（字段 ${err.path}）`);
 }
 
 // ── 应用层视图 → 协议 DTO（逐字段直拷；readonly → 可变帧形态） ──

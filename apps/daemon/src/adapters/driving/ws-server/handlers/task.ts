@@ -53,6 +53,7 @@ import type {
 } from "../../../../application/services/task/TaskQueryService";
 import type { FrameSender } from "../EventStream";
 import type { TaskCommandContext } from "./context";
+import { optionalPayloadString, requirePayloadString } from "./payload-guards";
 
 /** 任务域错误码词表（契约 task-api §4；duck-typing 判别，免 TaskError 运行时 import）。 */
 const TASK_ERROR_CODES: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
@@ -241,25 +242,15 @@ function lifecycle(
 
 // ── payload 字段形状校验（枚举按契约词表判；语义判断归引擎/服务） ──
 
-/** 必填 string 字段：缺失/非 string → command.invalid_payload（kg.ts requireString 同构）。 */
+/** 必填 string 字段：缺失/非 string → command.invalid_payload。
+ * 体已上收 payload-guards（三族共享），本包装只钉 task 族错误码。 */
 function requireString(ctx: TaskCommandContext, key: string): string | undefined {
-  const value = ctx.payload[key];
-  if (typeof value !== "string") {
-    ctx.commandError(ctx.type, "command.invalid_payload", `payload.${key} 应为 string（必填）`);
-    return undefined;
-  }
-  return value;
+  return requirePayloadString(ctx, key, "command.invalid_payload");
 }
 
 /** 可选 string 字段：null=形状非法（已回执）；undefined=缺省透传。 */
 function optionalString(ctx: TaskCommandContext, key: string): string | undefined | null {
-  const value = ctx.payload[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") {
-    ctx.commandError(ctx.type, "command.invalid_payload", `payload.${key} 应为 string`);
-    return null;
-  }
-  return value;
+  return optionalPayloadString(ctx, key, "command.invalid_payload");
 }
 
 /** 可选六态枚举：越界 → command.invalid_payload（wire 值 = 状态机原值）。 */

@@ -16,6 +16,7 @@ import type { DiffFileDto, DiffGetResultEvent, ErrorCode, EventEnvelope } from "
 import type { FrozenDiffFile } from "../../../../application/services/TurnDiffService";
 import type { FrameSender } from "../EventStream";
 import type { DiffCommandContext } from "./context";
+import { optionalPayloadString } from "./payload-guards";
 
 /** external 条目备注（±粗估行说明——外部进程变更无精确原文）。 */
 const EXTERNAL_NOTE = "外部进程变更（无精确原文，±行为粗估）";
@@ -47,15 +48,11 @@ function unimplemented(ctx: DiffCommandContext): void {
   fail(ctx, "command.unimplemented", `命令未装配：${ctx.type}`);
 }
 
-/** 可选字符串载荷字段（类型不符 → null = 报错已回执）。 */
+/** 可选字符串载荷字段（类型不符 → null = 报错已回执）。
+ * 体已上收 payload-guards（三族共享）；文案随上收统一为
+ * payload.${key} 形态（原「载荷字段 ${key} 应为字符串」，错误码不变）。 */
 function optionalString(ctx: DiffCommandContext, key: string): string | undefined | null {
-  const raw = ctx.payload[key];
-  if (raw === undefined) return undefined;
-  if (typeof raw !== "string") {
-    fail(ctx, "command.invalid_payload", `载荷字段 ${key} 应为字符串`);
-    return null;
-  }
-  return raw;
+  return optionalPayloadString(ctx, key, "command.invalid_payload");
 }
 
 /** 可选布尔载荷字段（类型不符 → null = 报错已回执）。 */

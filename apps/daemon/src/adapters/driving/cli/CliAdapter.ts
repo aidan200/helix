@@ -127,8 +127,10 @@ export class CliAdapter {
   }
 
   /**
-   * Ctrl-C 分流：生成中 → abort（abort 非销毁，会话可继续）；
-   * 空闲/已中断 → 退出主循环（第二次 Ctrl-C 语义）。
+   * Ctrl-C 分流：running/steering → abort（abort 非销毁，会话可继续）；
+   * aborting 态 no-op（abort 已在途，不重发；abort 收尾回 idle 后再次
+   * Ctrl-C 才退出——abort 卡住时仅剩 EOF// 命令可退）；空闲/已中断 →
+   * 退出主循环（第二次 Ctrl-C 语义）。
    */
   interrupt(): void {
     if (this.agentState === "running" || this.agentState === "steering" || this.agentState === "aborting") {

@@ -148,11 +148,15 @@ export function handleMcpServersAdd(ctx: McpCommandContext): void {
     return ctx.commandError(ctx.type, "command.invalid_payload", parsed.error);
   }
   const { input } = parsed;
-  if (ctx.mcp.listConfigs().some((c) => c.name === input.name)) {
-    return ctx.commandError(ctx.type, "command.invalid_payload", `MCP server "${input.name}" 已存在（更新请用 mcp.servers.update）`);
-  }
   const sender = ctx.ws.data.sender ?? ctx.rawSender();
   const run = async (): Promise<void> => {
+    // 存在性检查在 save 闭包内重查（TOCTOU 缩窗）：同步段外先查后存的两连接
+    // 并发同名 add 可双写配置；重查点与数组组装同同步段，窗口收窄到两闭包
+    // 同步段微任务级交叠（全局写面单用户场景可忽略；registry 侧 addServer
+    // 是 remove+add 的 replace 语义不拒重，拒重责任在本 handler）。
+    if (ctx.mcp.listConfigs().some((c) => c.name === input.name)) {
+      return ctx.commandError(ctx.type, "command.invalid_payload", `MCP server "${input.name}" 已存在（更新请用 mcp.servers.update）`);
+    }
     // 先落盘后连接（await 落盘完成）：连接失败（connect_failed 判别）配置仍保留——可重试
     await ctx.saveMcpServers([...ctx.mcp.listConfigs(), input]);
     const status = await ctx.mcp.addServer(input);
