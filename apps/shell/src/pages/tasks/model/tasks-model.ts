@@ -189,6 +189,10 @@ export type TasksAction =
    *  （防 watcher 条件命中自动重发成错误风暴）+ artifactsError 置位（M10 批⑥：
    *  结果 tab 渲染带重试的错误面而非空态面板；重试/切任务/重进复位）。 */
   | { type: "artifacts-failed"; jobId: string }
+  /** 重连重拉（W3 #2.33）：清归属标记与结果面板——结果 tab 已加载时断连
+   *  期间 daemon 侧产物推进经 watcher 条件重新命中补拉（不重拉则产物不
+   *  显现，需切任务再切回）。 */
+  | { type: "artifacts-reset" }
   | { type: "tab"; value: "progress" | "result" }
   | { type: "confirm-open"; box: "cancel" | "delete" }
   | { type: "confirm-close" }
@@ -259,6 +263,8 @@ export function tasksReducer(state: TasksPageState, action: TasksAction): TasksP
       if (!state.artifactsLoading) return state; // 非在途：非本页错误帧不误清
       return { ...state, artifactsLoading: false, artifacts: null, artifactsJob: action.jobId, artifactsError: true };
     }
+    case "artifacts-reset":
+      return { ...state, artifactsLoading: false, artifacts: null, artifactsJob: null, artifactsError: false };
     case "tab":
       return state.tab === action.value ? state : { ...state, tab: action.value };
     case "confirm-open":
