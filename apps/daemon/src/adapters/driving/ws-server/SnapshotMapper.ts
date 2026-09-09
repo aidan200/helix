@@ -108,16 +108,7 @@ export function toSnapshotDto(
   opts: SnapshotTailOptions = {},
 ): SessionSnapshotDto {
   const snapshot = view.session;
-  // T10a：会话主实例 id（快照 mainInstanceId；旧快照缺省 = legacy "main"）——
-  // wire 边界实例归属编码的判别基准
-  const mainId = snapshot.mainInstanceId ?? WIRE_LEGACY_MAIN_ID;
-  const queuedSteer = new Set(snapshot.pendingSteer.map((item) => item.entryId));
-  // 升序稳定排序：时间并列保持组内原序（entries 原序 / toolCalls 迭代序）
-  // entries 为 message/thinking/compaction 混排联合，各变体同表合并
-  const merged: EntryDto[] = [
-    ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer, mainId)),
-    ...view.toolCalls.map((record) => toolCallEntryDto(record, mainId)),
-  ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
+  const merged = assembleMerged(view);
   // 主时间轴 = 主实例条目 + 定向 steer 干预条目（契约 v0.3 §3.2）；尾窗只作用于主轴（AD-1）
   const mainAxis = merged.filter(isMainAxisEntry);
   const tailSize = opts.tailSize ?? TAIL_WINDOW_SIZE;
@@ -179,12 +170,7 @@ export function historyPage(
   limit: number = HISTORY_PAGE_DEFAULT,
 ): HistoryPage {
   const snapshot = view.session;
-  const mainId = snapshot.mainInstanceId ?? WIRE_LEGACY_MAIN_ID;
-  const queuedSteer = new Set(snapshot.pendingSteer.map((item) => item.entryId));
-  const merged: EntryDto[] = [
-    ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer, mainId)),
-    ...view.toolCalls.map((record) => toolCallEntryDto(record, mainId)),
-  ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
+  const merged = assembleMerged(view);
   const mainAxis = merged.filter(isMainAxisEntry);
   const cursorIndex = mainAxis.findIndex((entry) => entry.id === beforeEntryId);
   if (cursorIndex < 0) {
@@ -202,6 +188,23 @@ export function historyPage(
 }
 
 /**
+ * merged 组装（toSnapshotDto/historyPage 两投影面共有）：entries
+ * （message/thinking/compaction 混排联合）+ toolCalls 合并、升序稳定排序
+ *（时间并列保持组内原序）；mainId = 快照 mainInstanceId 缺省 legacy "main"
+ *（T10a wire 边界归属判别基准）。主轴过滤（isMainAxisEntry）由调用面
+ * 一行接续——toSnapshotDto 尚需 merged 全量（instanceChannels/computeAnchor）。
+ */
+function assembleMerged(view: SessionStateView): EntryDto[] {
+  const snapshot = view.session;
+  const mainId = snapshot.mainInstanceId ?? WIRE_LEGACY_MAIN_ID;
+  const queuedSteer = new Set(snapshot.pendingSteer.map((item) => item.entryId));
+  return [
+    ...snapshot.entries.flatMap((entry) => sessionEntryDto(entry, queuedSteer, mainId)),
+    ...view.toolCalls.map((record) => toolCallEntryDto(record, mainId)),
+  ].sort((a, b) => entrySortKey(a) - entrySortKey(b));
+}
+
+/**
  * 实例通道历史分组（AD-3：SubAgent Entry 按实例归组——thinking/messages/
  * tools 三槽，契约 §6.2 InstanceChannelHistory）。主实例不分组（主时间轴
  * entries 全量即主实例历史；尾窗只作用于主时间轴）。
@@ -212,9 +215,10 @@ function instanceChannels(entries: readonly EntryDto[], instance: InstanceSnapsh
   for (const entry of entries) {
     if (entry.instanceId !== instance.instanceId) continue; // 主实例条目 wire 边界省略（undefined）天然跳过
     channels ??= {};
-    if (entry.kind === "message") channels.messages = [...(channels.messages ?? []), entry];
-    else if (entry.kind === "thinking") channels.thinking = [...(channels.thinking ?? []), entry];
-    else if (entry.kind === "tool-call") channels.tools = [...(channels.tools ?? []), entry];
+    // push 累积（单通道 O(n)——原 [...展开重建] 形态是 O(n²)，纯卫生改写）
+    if (entry.kind === "message") (channels.messages ??= []).push(entry);
+    else if (entry.kind === "thinking") (channels.thinking ??= []).push(entry);
+    else if (entry.kind === "tool-call") (channels.tools ??= []).push(entry);
     // compaction：会话级里程碑（仅主实例产生），不进实例通道
   }
   return channels;

@@ -399,12 +399,12 @@ export class EventStream implements EventPublisherPort {
       // isWireMainAttribution（code-review M12：原内联重写双源，漂移会复发
       // R4 槽位键错位）；mainId 缺席时以 legacy "main" 代入（与内联版全等价）。
       const raw = delta.instanceId;
-      const mainId = sessionId !== undefined ? this.deps.mainInstanceIdFor?.(sessionId) : undefined;
+      const mainId = this.deps.mainInstanceIdFor?.(sessionId);
       const isMain = isWireMainAttribution(raw, mainId ?? WIRE_LEGACY_MAIN_ID);
       const instanceId = isMain ? "main" : raw!;
       const frame: ThinkingStreamDeltaEvent = {
         v: PROTOCOL_VERSION,
-        ...(sessionId !== undefined ? { sessionId } : {}),
+        sessionId,
         channel: "thinking",
         type: "thinking.stream.delta",
         instanceId,
@@ -415,7 +415,7 @@ export class EventStream implements EventPublisherPort {
     }
     const frame: ChatStreamDeltaEvent = {
       v: PROTOCOL_VERSION,
-      ...(sessionId !== undefined ? { sessionId } : {}),
+      sessionId,
       channel: "chat",
       type: "chat.stream.delta",
       // SubAgent 流式：帧携带实例维（前端路由至实例 channel；主实例缺省语义）
@@ -439,12 +439,24 @@ export class EventStream implements EventPublisherPort {
           Date.parse(event.occurredAt),
         );
         break;
+      case "turn.completed":
+      case "turn.interrupted":
+        // turn 收口兜底清理：run 结束后在飞工具不会再有 tool.call.result
+        //（abort 路径不补 result 时起止条目常驻泄漏）——按会话前缀清
+        // toolStartedAt；正常收口路径已由 takeDuration 读后即删，此处幂等
+        // 兜底。lastTurnIds 单键/会话由 turn.started 覆写，不累积不清。
+        for (const key of [...this.toolStartedAt.keys()]) {
+          if (key.startsWith(`${event.sessionId}:`)) this.toolStartedAt.delete(key);
+        }
+        break;
       default:
         break;
     }
   }
 
-  /** 取出 tool.call.result 的 durationMs（读后即删，防泄漏；非 result 事件无值）。 */
+  /** 取出 tool.call.result 的 durationMs（读后即删，防泄漏；非 result 事件无值。
+   * 前提：result 必达路径由 takeDuration 收口；abort 不补 result 的残余条目
+   * 由 trackProjectionContext 的 turn.completed/interrupted 兜底清理）。 */
   private takeDuration(event: DomainEvent): { durationMs?: number } {
     if (event.type !== "tool.call.result") return {};
     const id = (event.payload as { toolCallId: string }).toolCallId;
@@ -458,8 +470,8 @@ export class EventStream implements EventPublisherPort {
   /**
    * 按 sessionId 路由分发（v0.2 AD-4）：会话帧只发订阅了该会话的连接；
    * 系统级帧（SYSTEM_SESSION_ID——connection.族 / session.list_changed）发全部
-   * 连接（会话无关，不受 tier 影响）；无 sessionId 帧（防御）发全部已订阅连接
-   * （兼容读）。
+   * 连接（会话无关，不受 tier 影响）；无 sessionId 帧发全部连接——含未订阅
+   * 任何会话的连接（防御位：正常帧经 publishDelta/publish 盖印恒携带 sessionId）。
    * v0.3 档位过滤（契约 §2.2，唯一判定单点）：session 订阅面事件按连接
    * 查 tier——full 全量；monitor 只放行 MONITOR_TIER_EVENT_TYPES 白名单 3 类型。
    * 单连接异常不扩散到其他连接（事件流健壮性）。
