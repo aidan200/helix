@@ -84,6 +84,7 @@ async function run(tool: AgentHarnessTool<ExecutionToolContext, any, any>, args:
 function makeNode(ws: Workspace, name: string, digest: string): string {
   const r = ws.write.write(ws.proj, { kind: "createNode", iterationId: "iter-t32", draft: { kind: "rule", name, digest, scene: "测试场景" } });
   if (!r.ok) throw new Error(`建节点失败：${r.error.code} ${r.error.message}`);
+  if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
   return r.nodeId;
 }
 

@@ -72,6 +72,7 @@ function seedNode(
     draft: { kind: "rule", name, digest: `${name}摘要`, scene },
   });
   if (!r.ok) throw new Error(`seed failed: ${r.error.message}`);
+  if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
   return r.nodeId;
 }
 
@@ -251,6 +252,7 @@ describe("④ E2E：daemon 组装链（container 常驻段接线）", () => {
       draft: { kind: "rule", name: "常驻治理规则", digest: "常驻治理规则摘要", scene: "适用于：改 daemon 代码前" },
     });
     if (!seed.ok) throw new Error(seed.error.message);
+    if (seed.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
     const nodeId = seed.nodeId;
     let r = seedWrite.write(projA, { kind: "declareAnchors", iterationId: "iter-resident-e2e", nodeId, anchors: [{ scopeKind: "global" }] });
     if (!r.ok) throw new Error(r.error.message);

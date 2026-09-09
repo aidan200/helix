@@ -56,12 +56,6 @@ const DAEMON_ENTRY_PATH = join(import.meta.dir, "..", "..", "..", "main.ts");
 
 export interface SubagentLauncherDeps {
   /**
-   * SubAgent profile 声明（装配进子进程；kind 不分支——声明同构，TR-AD-4）。
-   * 接受 getter（launch 时刻读现值——组合根经此把 resource_state kind 槽位
-   * （thinking/model 配置面）合并进解析输入；model/apiKeys 注入源模式同构先例）
-   * 或静态对象。
-   */
-  /**
    * 实例 profile 读面（R7 per-kind 化）：入参 = 实例 profileKind——
    * worker → SubAgentProfile 合并面；kg-writer → SubAgentKgWriterProfile
    * 合并面（组合根各自合并 kind 槽位 + 全局兜底，launch 时刻读现值定格）。
@@ -271,7 +265,9 @@ export class SubagentLauncher implements InstanceRunner {
     // 工具注册常驻、首调报未装配；browser 未装配先例）
     const ledgerDbPath =
       typeof this.deps.ledgerDbPath === "function" ? this.deps.ledgerDbPath() : this.deps.ledgerDbPath;
-    const proc = Bun.spawn({
+    let transport: ChildProcessTransport;
+    try {
+      const proc = Bun.spawn({
       cmd: [process.execPath, DAEMON_ENTRY_PATH, "--child-main", "--task", task],
       env: {
         ...process.env,
@@ -304,12 +300,26 @@ export class SubagentLauncher implements InstanceRunner {
           ? { HELIX_FAKE_ENGINE_SCRIPT: this.deps.fakeEngineScript }
           : {}), // 剧本 env 注入
       } as Record<string, string | undefined>,
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "inherit",
-      detached: true, // 独立进程组（O-6 负 pgid 组回收前提）
-    });
-    const transport = new ChildProcessTransport(proc, this.deps.graceMs ?? 3000);
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "inherit",
+        detached: true, // 独立进程组（O-6 负 pgid 组回收前提）
+      });
+      transport = new ChildProcessTransport(proc, this.deps.graceMs ?? 3000);
+    } catch (error) {
+      // spawn 启动失败（缺入口/权限等）：同步异常不上抛——与崩溃检测同语义
+      // 走 failedClosure 收口，调度侧 retry 通道可及。不经 reportClosure
+      // （其幂等守卫依赖 children entry，而 spawn 失败无 transport 可登记）
+      // ——直接上报 callbacks，与 reportClosure 尾段同构。
+      const detail = error instanceof Error ? error.message : String(error);
+      this.deps.logger?.warn(`[subagent] 子进程 spawn 失败（实例 ${id}）：${detail}`);
+      this.callbacks?.onInstanceClosure(id, {
+        result: "failed",
+        closure: failedClosure(`子进程 spawn 失败：${detail}`),
+        error: `spawn failed: ${detail}`,
+      });
+      return;
+    }
     this.children.set(id, { transport, closed: false, exited: false });
     transport.onLine((line) => this.onChildLine(id, line));
     // 崩溃检测：exit 后先等 stdout 排空（closure 行可能尚在管道缓冲），
@@ -333,7 +343,12 @@ export class SubagentLauncher implements InstanceRunner {
   send(instanceId: string, text: string): void {
     const entry = this.children.get(instanceId);
     if (!entry || entry.closed) return; // 已收口：子进程退出中，静默丢弃
-    entry.transport.send(text);
+    try {
+      entry.transport.send(text);
+    } catch {
+      // EPIPE/ERR_STREAM_DESTROYED：closed 检查与 stdin 写入间存在子进程死亡
+      // 竞态窗口（同 writeToolRes 先例）——静默吞，不殃及 SchedulerService 调用方
+    }
   }
 
   /**

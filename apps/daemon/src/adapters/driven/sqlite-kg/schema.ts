@@ -6,7 +6,7 @@
  * （IF NOT EXISTS），无迁移框架（守护式列级演进见 KgDatabase.ensureSchemaEvolved；
  * v1→v2 存量保号一次性迁移管道已随 v1 残留清除退役）。
  *
- * 表清单（8 张域表 + meta）：
+ * 表清单（9 张域表 + meta）：
  * - nodes：知识节点（id 主键 TR-n/E-n；name 非唯一——重名合法靠 digest 区分，
  *   AD-16；domain tech/business 降为属性；scene 为适用场景独立列（R23：
  *   「本规则适用于改动 X 类文件 / 做 Y 类决策前」——沉淀必填由 KgWriteService

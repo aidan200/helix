@@ -38,17 +38,6 @@ export function isWireMainAttribution(instanceId: string | undefined, mainInstan
 }
 
 /**
- * wire 边界实例归属编码（T10a 方案 A 最小面）：主实例归属（该会话主实例 id
- * / legacy "main" / 缺省）按旧线格式编码——message/tool 省略（读侧缺省=main
- * 推断保留），thinking/compaction 因协议类型必填位编码 legacy "main" 字面。
- * SubAgent 归属原样透传。全量显式携带的协议文档化决策归 T10b；本任务只保证
- * daemon 行为正确 + 读侧旧形状兼容（projection 锚扫描/主轴判别零漂移）。
- */
-function wireMainAware(instanceId: string | undefined, mainInstanceId: string): boolean {
-  return isWireMainAttribution(instanceId, mainInstanceId);
-}
-
-/**
  * 主轴归属判定（契约 v0.3 §3.2，Q-3a 双处可见的时间轴侧）：主实例条目
  * （instanceId 缺省/main）+ 定向 steer 干预条目（user + isSteer 且 instanceId=
  * 目标 SubAgent——干预消息一律落主时间轴，尾窗/翻页内自然渲染为定向细条；
@@ -83,7 +72,7 @@ export function thinkingEntryDto(
   return {
     kind: "thinking",
     id: entry.id,
-    instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
+    instanceId: isWireMainAttribution(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
     text: entry.text,
     durationMs: entry.durationMs,
     createdAt: entry.createdAt,
@@ -99,7 +88,7 @@ export function errorEntryDto(
   return {
     kind: "error",
     id: entry.id,
-    instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
+    instanceId: isWireMainAttribution(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
     message: entry.message,
     turnId: entry.turnId,
     createdAt: entry.createdAt,
@@ -115,7 +104,7 @@ export function compactionEntryDto(
   return {
     kind: "compaction",
     id: entry.id,
-    instanceId: wireMainAware(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
+    instanceId: isWireMainAttribution(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
     tokensBefore: entry.tokensBefore,
     tokensAfter: entry.tokensAfter,
     summary: entry.summary,
@@ -143,7 +132,7 @@ function messageEntryDto(
   if (entry.role === "user" && entry.isSteer) {
     dto.steerState = queuedSteer.has(entry.id) ? "queued" : "drained";
   }
-  if (!wireMainAware(entry.instanceId, mainInstanceId)) dto.instanceId = entry.instanceId;
+  if (!isWireMainAttribution(entry.instanceId, mainInstanceId)) dto.instanceId = entry.instanceId;
   // 注入来源下行（T11a：closure/progress/user；缺省不携带——老快照前向兼容）
   if (entry.source !== undefined) dto.source = entry.source;
   // 所属轮次下行（轮末 token 用量显示面 additive）：turnId=null（SubAgent
@@ -175,7 +164,7 @@ export function toolCallEntryDto(
         : 0,
   };
   // 行级归属透传（SubAgent 工具卡归实例 channel；主实例经 wire 边界编码省略；AD-3）
-  if (record.instanceId !== undefined && !wireMainAware(record.instanceId, mainInstanceId)) {
+  if (record.instanceId !== undefined && !isWireMainAttribution(record.instanceId, mainInstanceId)) {
     dto.instanceId = record.instanceId;
   }
   // 图片下行：工具结果附带图片（快照/翻页工具卡缩略图数据源；缺省不带）

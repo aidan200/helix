@@ -39,6 +39,12 @@ export interface SqliteKnowledgeStoreDeps {
   readonly database: KgDatabase;
 }
 
+/** applyCreateNode 返回型：ok 分支恒携带 nodeId（WriteResult 的 prune 全项目
+ * 形态才缺省 nodeId，建点路径不存在）——供 batchCreateNodes 循环内无断言消费。 */
+type NodeWriteResult =
+  | { readonly ok: true; readonly nodeId: NodeId; readonly warning?: string; readonly prunedCount?: number }
+  | { readonly ok: false; readonly error: KgWriteError };
+
 export class SqliteKnowledgeStore {
   private readonly deps: SqliteKnowledgeStoreDeps;
 
@@ -110,6 +116,11 @@ export class SqliteKnowledgeStore {
     db: Database,
     op: KnowledgeWriteOp & { kind: "batchCreateNodes" },
   ): WriteResult {
+    if (op.nodes.length === 0) {
+      // 空批结构化拒绝（服务层 KgWriteService 已拦非空——port 直调防御，
+      // 避兔 lastId 空断言让 null 穿透 nodeId 类型）
+      return err("KG_E_SCHEMA", "batchCreateNodes nodes 不能为空数组", "op.nodes");
+    }
     let lastId: string | null = null;
     for (let i = 0; i < op.nodes.length; i += 1) {
       const payload = op.nodes[i]!;
@@ -147,7 +158,7 @@ export class SqliteKnowledgeStore {
       }
       lastId = result.nodeId;
     }
-    return { ok: true, nodeId: lastId! };
+    return { ok: true, nodeId: lastId! }; // 空批已前置拒绝，此处恒非空
   }
 
   private applyCreateNode(
@@ -157,7 +168,7 @@ export class SqliteKnowledgeStore {
     explicitId: string | undefined,
     taskId: string | undefined,
     originBatchId: string | undefined,
-  ): WriteResult {
+  ): NodeWriteResult {
     let id: string;
     if (explicitId !== undefined) {
       // 保号迁移入口（T5.2）：显式 id 接受全存量形态（TR-AD-N / TR-TEST-N /
@@ -325,7 +336,10 @@ export class SqliteKnowledgeStore {
   ): WriteResult {
     let id: string;
     if (op.id !== undefined) {
-      const seq = parseCandidateId(op.id)!; // 形态已在上层校验（CAND-n）
+      const seq = parseCandidateId(op.id); // 形态已在上层校验（CAND-n）——port 直调防御
+      if (seq === null) {
+        return err("KG_E_SCHEMA", `显式候选 id ${op.id} 不在 CAND-n 形态内`, "op.id");
+      }
       if (this.candidateExists(db, op.id)) {
         return err("KG_E_ID", `候选 ${op.id} 已存在（id 永不回收、永不改写）`, "op.id");
       }
@@ -422,7 +436,7 @@ export class SqliteKnowledgeStore {
     for (const victim of victims) {
       this.appendChangeLog(db, op.iterationId, "prune", victim.node_id, null, null, op.taskId);
     }
-    return { ok: true, nodeId: op.nodeId ?? ("*" as NodeId), prunedCount: deleted };
+    return { ok: true, ...(op.nodeId !== undefined ? { nodeId: op.nodeId } : {}), prunedCount: deleted };
   }
 
   // ── 符号层通道（sync 单事务，T2.2 消费） ──────────────────
@@ -664,7 +678,11 @@ interface CandidateDbRow {
   applied_node_id: string | null;
 }
 
-function err(code: KgWriteError["code"], message: string, path?: string): WriteResult {
+function err(
+  code: KgWriteError["code"],
+  message: string,
+  path?: string,
+): { readonly ok: false; readonly error: KgWriteError } {
   return { ok: false, error: { code, message, ...(path !== undefined ? { path } : {}) } };
 }
 

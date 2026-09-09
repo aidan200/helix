@@ -190,8 +190,8 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
         state: "running",
         ts,
       };
-      // SubAgent 工具卡归实例 channel（载荷内嵌 instanceId 与（AD-3）
-      // v0.1 通道族并存口径一致；信封位为路由权威）
+      // SubAgent 工具卡归实例 channel：载荷内嵌 instanceId（与 AD-3 v0.1
+      // 通道族口径一致——载荷位与信封位并存，信封位为路由权威）
       if (event.instanceId !== undefined && !isWireMainAttribution(event.instanceId, mainId)) {
         entry.instanceId = event.instanceId;
       }

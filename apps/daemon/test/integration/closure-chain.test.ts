@@ -478,7 +478,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       draft: { kind: "rule", name: "旧规则", digest: "将被本次推翻的旧规则", scene: "测试场景" },
     });
     expect(pre.ok).toBe(true);
-    const targetNode = pre.ok ? pre.nodeId : "TR-?";
+    const targetNode = pre.ok && pre.nodeId !== undefined ? pre.nodeId : "TR-?";
 
     const home = mkdtempSync(path.join(tmpdir(), "helix-t41-sink-"));
     const rig = (current = await makeSinkRig(

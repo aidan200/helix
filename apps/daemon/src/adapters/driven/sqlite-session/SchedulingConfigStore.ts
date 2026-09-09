@@ -1,5 +1,6 @@
 import type { RuntimeConfigPort } from "../../../application/ports/outbound/RuntimeConfigPort";
 import type { SchedulingBudget, SchedulingConfigPort } from "../../../application/ports/outbound/SchedulingConfigPort";
+import { isDbClosedError } from "./RuntimeConfigStore";
 
 /**
  * SchedulingConfigStore —— SubAgent 调度预算配置的语义包装
@@ -33,8 +34,11 @@ export class SchedulingConfigStore implements SchedulingConfigPort {
     try {
       const raw = this.runtimeConfig.get(SchedulingConfigStore.KEY);
       this.cached = parseSchedulingBudget(raw) ?? { ...this.fallback };
-    } catch {
-      // db 已关闭（daemon 收尾后观测面）——最近已知值
+    } catch (error) {
+      // db 已关闭（daemon 收尾后观测面）——最近已知值；非关闭类不静默
+      if (!isDbClosedError(error)) {
+        console.warn(`SchedulingConfigStore 读面异常（非 db 关闭类）：${(error as Error).message}`);
+      }
     }
     return this.cached;
   }

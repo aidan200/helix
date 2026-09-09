@@ -66,6 +66,10 @@ export class WorkLedger implements WorkLedgerPort {
    * 原子重建（main-session plan 批）：同事务清旧行 + 插新行——调用方
    * （WorkLedgerService.createPlan）已判全 resolved；本面只保原子性
    * （清+插同事务，零残留零部分落库）。
+   *
+   * 空 items 由上游判非法（createPlan 显式拒绝，空 plan 不是合法重建
+   * 目标）——本面早退不执行删除分支，docstring 的「零残留」以非空
+   * items 为前提。
    */
   async replaceItems(instanceId: string, items: readonly WorkItemInput[]): Promise<void> {
     if (items.length === 0) return;

@@ -1,5 +1,6 @@
 import type { RuntimeConfigPort } from "../../../application/ports/outbound/RuntimeConfigPort";
 import type { DefaultThinkingPort } from "../../../application/ports/outbound/DefaultThinkingPort";
+import { isDbClosedError } from "./RuntimeConfigStore";
 
 /**
  * DefaultThinkingStore —— 全局默认推理强度的语义包装（R7 全局兜底批；
@@ -23,8 +24,11 @@ export class DefaultThinkingStore implements DefaultThinkingPort {
     try {
       const raw = this.runtimeConfig.get(DefaultThinkingStore.KEY);
       this.cached = raw === undefined || raw === "" ? null : raw;
-    } catch {
-      // db 已关闭（daemon 收尾后观测面）——最近已知值
+    } catch (error) {
+      // db 已关闭（daemon 收尾后观测面）——最近已知值；非关闭类不静默
+      if (!isDbClosedError(error)) {
+        console.warn(`DefaultThinkingStore 读面异常（非 db 关闭类）：${(error as Error).message}`);
+      }
     }
     return this.cached;
   }

@@ -3,11 +3,12 @@
  *
  * 落位 adapters/driven/tools/（与工具实现同目录，pi 工具符号封装边界不扩）：
  * SystemPromptAssembler 的工具段（- name: snippet 扁平清单）数据源。
- * main/subagent 工具面共享单一注册表（subagent 全集 = main 去编排
- * 六件套（agent_spawn/send/status/inspect/park/resume）与 kg 双工具、
- * codegraph、task_create、task_report、动态族单 browser 工具之外叠加 plan 三工具，是否
- * 进清单由 ResourceService.getEffectiveTools(kind)
- * 生效集决定，本表只管「名 → 中文一句话」映射）。
+ * 单一注册表服务三类消费 profile（main / subagent-worker / subagent-kg-writer，
+ * 编排面 task_* 七工具与 plan 三工具同在表内——具体某 kind 进哪些 snippet
+ * 由 ResourceService.getEffectiveTools(kind) 生效集决定，本表只管
+ * 「名 → 中文一句话」映射）；全集形状（profile 工具计数与 snippet 总条数）
+ * 以契约测试锚定（tool-prompt-snippets.test.ts①：main 23 / subagent 14 /
+ * kg-writer 14，snippet 表 29 条）——不在此处另记一套计数，防双源漂移。
  *
  * snippet 约束：中文一句话、单行（进 system prompt 的清单行——多行破坏
  * 扁平清单格式）；组装器不做任何状态联动（读 关不删技能引导句，裁决见

@@ -72,6 +72,7 @@ function seedNode(f: Fixture, name: string, digest: string): string {
     draft: { kind: "rule", name, digest, scene: "测试场景" },
   });
   if (!r.ok) throw new Error(`种子建节点失败：${r.error.message}`);
+  if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
   return r.nodeId;
 }
 
@@ -185,6 +186,7 @@ describe("任务层切片注入（F1.3）", () => {
         draft: { kind: "rule", name: "队列规则", digest: "队列写入必须串行", scene: "测试场景" },
       });
       if (!r.ok) throw new Error(`种子建节点失败：${r.error.message}`);
+      if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
       return r.nodeId;
     };
     const idA = seedIn(projA);

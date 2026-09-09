@@ -116,7 +116,8 @@ CREATE TABLE IF NOT EXISTS closure_records (
   task_id TEXT,
   created_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_closure_records_session ON closure_records(session_id);
+-- idx_closure_records_session（单列 session_id）已删：被 idx_closure_records_agent
+-- 左前缀（session_id, agent_id）完全覆盖，属冗余索引
 CREATE INDEX IF NOT EXISTS idx_closure_records_agent ON closure_records(session_id, agent_id);
 
 CREATE TABLE IF NOT EXISTS runtime_config (

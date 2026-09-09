@@ -75,6 +75,27 @@ function unavailableMessage(reasons: readonly string[]): string {
 
 /** 自写 grep 工具：实现 core 的 Tool 接口（AgentHarnessTool 形态）。 */
 export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<ExecutionToolContext, any, undefined> {
+  /** 后端执行（声明先于 return——不依赖函数提升）：rg 唯一直通；unavailable 定格 → 响亮失败。 */
+  async function search(
+    query: GrepQuery,
+    rootPath: string,
+    context: ExecutionToolContext,
+    signal: AbortSignal | undefined,
+  ): Promise<GrepMatch[]> {
+    if (deps.rgPath === undefined) {
+      throw new Error(
+        unavailableMessage(deps.unavailableReasons ?? ["rg 路径未注入（启动定格为 unavailable）"]),
+      );
+    }
+    return createRgBackend(
+      deps.rgPath,
+      context.env,
+      rootPath,
+      { timeoutMs: deps.rgTimeoutMs ?? RG_TIMEOUT_MS },
+      signal,
+    ).search(query);
+  }
+
   return {
     name: "grep",
     label: "grep",
@@ -120,25 +141,4 @@ export function createGrepTool(deps: GrepToolDeps = {}): AgentHarnessTool<Execut
       return { content: [{ type: "text", text }], details: undefined };
     },
   };
-
-  /** 后端执行：rg 唯一直通；unavailable 定格 → 响亮失败。 */
-  async function search(
-    query: GrepQuery,
-    rootPath: string,
-    context: ExecutionToolContext,
-    signal: AbortSignal | undefined,
-  ): Promise<GrepMatch[]> {
-    if (deps.rgPath === undefined) {
-      throw new Error(
-        unavailableMessage(deps.unavailableReasons ?? ["rg 路径未注入（启动定格为 unavailable）"]),
-      );
-    }
-    return createRgBackend(
-      deps.rgPath,
-      context.env,
-      rootPath,
-      { timeoutMs: deps.rgTimeoutMs ?? RG_TIMEOUT_MS },
-      signal,
-    ).search(query);
-  }
 }

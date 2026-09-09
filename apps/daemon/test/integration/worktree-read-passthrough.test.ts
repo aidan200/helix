@@ -66,6 +66,7 @@ const UNAVAILABLE: CodegraphResolution = { kind: "unavailable", reasons: ["测�
 
 function mustId(r: ReturnType<KgWriteService["write"]>): string {
   if (!r.ok) throw new Error(`种子写失败：${r.error.code} ${r.error.message}`);
+  if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
   return r.nodeId;
 }
 

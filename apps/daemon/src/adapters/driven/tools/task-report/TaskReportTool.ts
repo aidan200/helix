@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import type {
   AgentHarnessTool,
@@ -96,7 +97,7 @@ export function createTaskReportTool(
       const args = (typeof params === "object" && params !== null ? params : {}) as Record<string, unknown>;
       const op = typeof args["op"] === "string" ? args["op"] : "";
       if (op === "list") return text(JSON.stringify(listTasks(deps, args)));
-      if (op === "get") return text(JSON.stringify(getTaskReport(deps, args)));
+      if (op === "get") return text(JSON.stringify(await getTaskReport(deps, args)));
       throw new Error('缺少必填参数 op（"list" 最近任务清单 / "get" 指定任务结果与报告路径）');
     },
   };
@@ -136,14 +137,14 @@ function hasReportOf(deps: TaskReportToolDeps, jobId: string): boolean {
 
 // ── op=get ───────────────────────────────────────────────────
 
-function getTaskReport(deps: TaskReportToolDeps, args: Record<string, unknown>): {
+async function getTaskReport(deps: TaskReportToolDeps, args: Record<string, unknown>): Promise<{
   ok: true;
   job: { jobId: string; type: string; title: string; status: JobStatus; updatedAt: string };
   stages: TaskDetailDto["stages"];
   closures: { agentId: string; result: ClosureRecordData["result"]; summary: string; reportPath: string | null }[];
   findings: { total: number; byKind: Record<string, number> };
   reports: { summaryPath: string; summaryExists: boolean; batchReports: string[]; findingsFiles: string[] };
-} {
+}> {
   const jobId = typeof args["jobId"] === "string" ? args["jobId"].trim() : "";
   if (jobId === "") {
     throw new Error("task.not_found：缺少必填参数 jobId（先用 op=list 发现任务，再按 jobId 查询）");
@@ -164,7 +165,7 @@ function getTaskReport(deps: TaskReportToolDeps, args: Record<string, unknown>):
     // stage artifacts 含 D2 body（detail.stages 单点组装透传，薄壳不重组）
     stages: detail.stages,
     closures: records.map((r) => ({ agentId: r.agentId, result: r.result, summary: r.summary, reportPath: r.reportPath })),
-    findings: findingsStatsOf(records),
+    findings: await findingsStatsOf(records),
     reports: {
       summaryPath,
       summaryExists: existsSync(summaryPath),
@@ -187,11 +188,11 @@ function detailOrThrow(deps: TaskReportToolDeps, jobId: string): TaskDetailDto {
 }
 
 /** findings 按 kind 计数（findings 全文不回执，只回统计——token 经济）。双源：新行 findingsFile 指针优先（读文件聚合；悬空/非法回退内嵌），旧行内嵌 findings 兼容。 */
-function findingsStatsOf(records: readonly ClosureRecordData[]): { total: number; byKind: Record<string, number> } {
+async function findingsStatsOf(records: readonly ClosureRecordData[]): Promise<{ total: number; byKind: Record<string, number> }> {
   const byKind: Record<string, number> = {};
   let total = 0;
   for (const record of records) {
-    for (const finding of findingsOf(record)) {
+    for (const finding of await findingsOf(record)) {
       const kind =
         typeof finding === "object" && finding !== null && typeof (finding as { kind?: unknown }).kind === "string"
           ? ((finding as { kind: string }).kind || "unknown")
@@ -203,11 +204,13 @@ function findingsStatsOf(records: readonly ClosureRecordData[]): { total: number
   return { total, byKind };
 }
 
-/** 单行 findings 解析：指针文件优先（合法 JSON 数组）；否则旧格式内嵌。 */
-function findingsOf(record: ClosureRecordData): readonly unknown[] {
+/** 单行 findings 解析：指针文件优先（合法 JSON 数组）；否则旧格式内嵌。
+ * 异步 readFile（原同步 readFileSync 逐记录读盘是事件循环阻塞点——closure
+ * 记录多且 findings 文件大时有感；op=get 本就 async 链路，全链异步化）。 */
+async function findingsOf(record: ClosureRecordData): Promise<readonly unknown[]> {
   if (record.findingsFile !== null) {
     try {
-      const raw = readFileSync(record.findingsFile, "utf8");
+      const raw = await readFile(record.findingsFile, "utf8");
       const parsed = JSON.parse(raw) as unknown;
       if (Array.isArray(parsed)) return parsed;
     } catch {

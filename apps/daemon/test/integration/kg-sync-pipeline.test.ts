@@ -77,6 +77,7 @@ afterAll(() => {
 
 function expectOk(r: WriteResult): string {
   if (!r.ok) throw new Error(`知识层写失败：${r.error.code} ${r.error.message}`);
+  if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
   return r.nodeId;
 }
 

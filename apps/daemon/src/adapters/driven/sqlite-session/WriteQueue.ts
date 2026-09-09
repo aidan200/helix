@@ -214,9 +214,11 @@ export class WriteQueue {
     );
     this.markPendingSyncNotifiedStmt = this.db.prepare("UPDATE pending_sync SET notified = 1 WHERE session_id = ?");
     this.deleteSessionPendingSync = this.db.prepare("DELETE FROM pending_sync WHERE session_id = ?");
-    // 主会话台账行清理（main-session plan 批）：语句复用 prepareWorkLedgerStatements
-    // 工厂（零新 SQL 文本；AG-06 写语句宿主仍仅本文件）
-    this.deleteSessionWorkItems = prepareWorkLedgerStatements(this.db).deleteWorkItemsByInstance;
+    // 主会话台账行清理（main-session plan 批）：直接 prepare 本条删除语句
+    // （SQL 文本仍在本文件不违 AG-06；不经 prepareWorkLedgerStatements 工厂
+    // ——那会 prepare 全部 6 条 work_item 语句而此处只取 1 条，其余 5 条
+    // 废弃预编译对象常驻至连接关闭）
+    this.deleteSessionWorkItems = this.db.prepare("DELETE FROM work_item WHERE instance_id = ?");
   }
   /** 读侧共用连接（SqliteSessionRepository 只读 SELECT；写仍唯一走本队列）。 */
   get database(): Database {
@@ -419,7 +421,13 @@ export class WriteQueue {
 
   private enqueue<T = void>(job: WriteJob): Promise<T> {
     if (this.closed) {
-      // 关闭后到达的 job 视为进程退出竞态：上报不崩
+      // 关闭后到达的 job = daemon 收尾窗口的迟到写（closure 链收尾等异步尾段），
+      // 属可预期竞态形态：onError 上报可判别事实，返回零值（undefined）不 reject
+      // ——reject 会打破两类合法消费面（await 消费面 SqliteSessionRepository.save/
+      // ChatService.sendMessage 同步上抛；fire-and-forget 面 wireEventFanout 变
+      // unhandled rejection，closure-chain 实测回归）。消费返回字段的调用方
+      // （deleteTaskJobCascade → TaskDeleteCounts）在此窗口读字段得 TypeError，
+      // 属零值路线的已接受代价（竞态窗口根子上是进程退出，非写路径可兕底）。
       this.onError?.(new Error("WriteQueue 已关闭，job 被丢弃"), job);
       return Promise.resolve() as unknown as Promise<T>;
     }

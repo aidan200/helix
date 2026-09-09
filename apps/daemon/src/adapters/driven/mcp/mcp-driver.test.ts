@@ -93,7 +93,7 @@ describe("parseMcpLines（纯函数）", () => {
 
 describe("McpClient（真子进程往返）", () => {
   test("initialize + listTools + callTool 全链路", async () => {
-    const client = new McpClient(fakeServerConfig("t1"), { timeoutMs: 10000 } as never);
+    const client = new McpClient(fakeServerConfig("t1"), { logger: undefined });
     const tools = await client.listTools();
     expect(tools.map((t) => t.name)).toEqual(["echo", "ping"]);
     const result = await client.callTool("echo", { text: "hi" });
@@ -103,7 +103,7 @@ describe("McpClient（真子进程往返）", () => {
   });
 
   test("断线后在飞请求被拒 + 懒重连（再 call 重建）", async () => {
-    const client = new McpClient(fakeServerConfig("t2"), { timeoutMs: 10000 } as never);
+    const client = new McpClient(fakeServerConfig("t2"), { logger: undefined });
     await client.listTools();
     client.stop();
     await expect(client.callTool("echo", {})).rejects.toThrow();
@@ -114,14 +114,14 @@ describe("McpClient（真子进程往返）", () => {
   });
 
   test("工具级 JSON-RPC error：错误响应上抛", async () => {
-    const client = new McpClient(fakeServerConfig("t3"), { timeoutMs: 10000 } as never);
+    const client = new McpClient(fakeServerConfig("t3"), { logger: undefined });
     await client.connect();
     await expect(client.callTool("rpc-error", {})).rejects.toThrow("tool crashed");
     client.stop();
   });
 
   test("stdin error 兑底监听：进程死亡竞态窗口写入错误不 uncaught（F1 修复）", async () => {
-    const client = new McpClient(fakeServerConfig("t-epipe"), { timeoutMs: 10000 } as never);
+    const client = new McpClient(fakeServerConfig("t-epipe"), { logger: undefined });
     await client.connect();
     const proc = (client as unknown as { proc: { stdin: { listenerCount: (e: string) => number; emit: (e: string, err: Error) => boolean } } }).proc;
     // 兑底监听就位（无监听时 EventEmitter emit('error') 同步 throw 击穿进程）
@@ -131,7 +131,7 @@ describe("McpClient（真子进程往返）", () => {
   });
 
   test("多字节字符跨 chunk 边界不损坏（StringDecoder 拼接，M3 修复）", async () => {
-    const client = new McpClient(fakeServerConfig("t-split"), { timeoutMs: 10000 } as never);
+    const client = new McpClient(fakeServerConfig("t-split"), { logger: undefined });
     const result = await client.callTool("split-utf8", {});
     expect(result.content[0]).toEqual({ type: "text", text: "你好世界🌍" }); // 无 U+FFFD、响应行未被丢弃
     client.stop();

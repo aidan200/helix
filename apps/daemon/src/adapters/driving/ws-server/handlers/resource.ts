@@ -25,8 +25,9 @@
  * （system[]：orchestrator 声明全集 / subagent-kg-writer = worker 当前
  * 生效集 + kg-update 恒在 / subagent-code-reviewer = worker 当前生效集
  * − write/edit 恒摘除（D5 第五 kind），后两者随 worker toggle 动态
- * 跟随）；写面对只读 kind 恒拒（agent.config.read_only，连接保持——
- * 前端只读只是表现，后端拒绝才是事实）。kg-writer 恒在工具名经
+ * 跟随）；写面对系统派生 kind 非全拒——tool/skill/mcp-server 槽位只读
+ * 恒拒（agent.config.read_only，连接保持——前端只读只是表现，后端拒绝
+ * 才是事实），model/thinking 槽位可配（normalizeSetEnabled 放行面）。kg-writer 恒在工具名经
  * ctx.kgWriterPinnedTools 注入（SUBAGENT_KG_WRITER_EXTRA_TOOLS 增量
  * 常量单源——driving 不得 import driven，组合根经窄函数面传递，
  * hasModel 先例）；reviewer 摘除面已落独立装配声明（SUBAGENT_CODE_

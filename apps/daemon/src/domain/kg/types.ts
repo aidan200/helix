@@ -357,11 +357,12 @@ export interface KgWriteError {
   readonly path?: string;
 }
 
-/** 写结果：nodeId = 受影响节点（create/supersede+replacement = 新发号；候选 op = CAND id）。 */
+/** 写结果：nodeId = 受影响节点（create/supersede+replacement = 新发号；候选 op = CAND id；
+ * 全项目 prune 无受影响单节点→不携带，范围由 prunedCount/文案面表达）。 */
 export type WriteResult =
   | {
       readonly ok: true;
-      readonly nodeId: NodeId;
+      readonly nodeId?: NodeId;
       /** 软告警（defer 上限等「只警告不拒绝」面——机械只列不修；缺省无告警）。 */
       readonly warning?: string;
       /** prune op 物理删除的 tombstone 行数（其余 op 缺省）。 */

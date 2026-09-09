@@ -29,3 +29,11 @@ export class RuntimeConfigStore implements RuntimeConfigPort {
     await this.writeQueue.saveRuntimeConfig(key, value);
   }
 }
+
+/** db 已关闭错误识别（daemon 收尾后 db.close() 竞态窗口内读 KV 的预期形态：
+ * bun:sqlite 关闭后查询抛「closed / not open」类消息）——上层包装 store
+ * （DefaultModelStore 等四处）据此区分：关闭类静默兑底最近已知值，
+ * 非关闭类（磁盘 IO 等真实故障）warn 后仍兑底（观测面可用性优先）。 */
+export function isDbClosedError(error: unknown): boolean {
+  return error instanceof Error && /closed|not open/i.test(error.message);
+}

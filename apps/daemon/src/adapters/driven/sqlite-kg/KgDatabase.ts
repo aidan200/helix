@@ -40,12 +40,30 @@ export class KgDatabase {
     return this.connectionOf(this.syncChannels, projectRoot);
   }
 
-  /** 关闭全部通道连接（测试清理/daemon 退出；库文件保留）。 */
+  /** 关闭全部通道连接（测试清理/daemon 退出；库文件保留）。任一连接关闭
+   * 异常不阻断其余连接关闭（逐项聚合，末尾统一抛）；两 Map 无条件 clear
+   * ——不留半关状态。 */
   closeAll(): void {
-    for (const db of this.knowledgeChannels.values()) db.close();
-    for (const db of this.syncChannels.values()) db.close();
+    const failures: unknown[] = [];
+    for (const db of this.knowledgeChannels.values()) {
+      try {
+        db.close();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    for (const db of this.syncChannels.values()) {
+      try {
+        db.close();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
     this.knowledgeChannels.clear();
     this.syncChannels.clear();
+    if (failures.length > 0) {
+      throw failures[0] instanceof Error ? failures[0] : new Error(String(failures[0]));
+    }
   }
 
   private connectionOf(channels: Map<string, Database>, projectRoot: string): Database {
@@ -149,7 +167,8 @@ function relaxChangeLogIterationNotNull(db: Database): void {
   }
 }
 
-/** 列存在性（表不存在视为"无需演进"——随后的 CREATE TABLE 直建新形状）。 */
+/** 列存在性（调用时序上 KG_SCHEMA_SQL 直建在前、表恒存在；cols 为空的
+ * 「表不存在」分支实为防御性兑底（意外形态下不阻塞演进），不可达非设计面）。 */
 function hasColumn(db: Database, table: string, column: string): boolean {
   const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((row) => row.name);
   return cols.length === 0 || cols.includes(column);

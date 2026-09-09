@@ -167,7 +167,9 @@ export function createRgBackend(
           new Response(stderrStream).text(),
           proc.exited,
         ]);
-        if (timedOut) {
+        // 超时竞态守卫：exitCode===0 = rg 已成功退出（timer 的 kill 打在已退出的
+        // 进程上无效，timedOut 误置）——优先按成功处理，不误报 RgTimeoutError
+        if (timedOut && exitCode !== 0) {
           throw new RgTimeoutError(
             `rg 检索超时（>${opts.timeoutMs}ms），已终止子进程——请收窄 path 或加 glob 过滤后重试`,
           );
@@ -176,7 +178,14 @@ export function createRgBackend(
         if (exitCode !== 0) throw new RgExecError(exitCode, stderr.trim());
         return parseRgJson(stdoutText, query.glob);
       } catch (e) {
-        // spawn 异步失败（如部分运行时的 ENOENT 走 exited reject）同样归为 RgExecError
+        // spawn 异步失败（如部分运行时的 ENOENT 走 exited reject）同样归为 RgExecError；
+        // abort 中断优先判（signal 杀进程致非零退出会被误包装成执行失败文案，
+        // 中断语义丢失——AbortError 形态对齐 network-retry，引擎侧归因 abort）
+        if (signal?.aborted) {
+          const abortError = new Error("rg 检索被中断（abort）");
+          abortError.name = "AbortError";
+          throw abortError;
+        }
         if (e instanceof RgExecError || e instanceof RgTimeoutError) throw e;
         throw new RgExecError(-1, String(e), `rg 执行失败（进程面）：${rgPath}`);
       } finally {

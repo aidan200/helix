@@ -80,6 +80,11 @@ export function createReadTool(): AgentHarnessTool<ExecutionToolContext, any, an
         };
       }
       const text = new TextDecoder().decode(bytes);
+      // 空文件（0 字节）特判：split("\n") 得 [""] 的伪 1 行不渲染——cat -n
+      // 对空文件零输出；返回明确提示而非空串（LLM 可区分空文件与读失败）
+      if (bytes.byteLength === 0) {
+        return { content: [{ type: "text", text: "(empty file — 0 bytes)" }], details: undefined };
+      }
       const allLines = text.split("\n");
       // 末尾换行不产生额外空行（cat -n 语义；与 edit/edit-lines 行号口径一致）
       if (allLines.length > 1 && allLines[allLines.length - 1] === "") allLines.pop();

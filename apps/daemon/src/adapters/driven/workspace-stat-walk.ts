@@ -15,7 +15,7 @@ import type { WorkspaceStatIndexLite } from "../../application/services/TurnDiff
 
 /** walk 忽略段（重目录——索引成本与噪声面控制；浮窗批 v3：补 daemon 自产面
  * .helix/.kg/.codegraph（运行时目录——轮内高频变化，纯噪声）与
- * test-results/evidence（测试产物段，名字特异误伤面可忽略）。）。 */
+ * test-results/evidence（测试产物段，名字特异误伤面可忽略）。 */
 export const STAT_WALK_IGNORED_SEGMENTS: ReadonlySet<string> = new Set([
   "node_modules",
   ".git",
@@ -64,7 +64,8 @@ async function walkDir(dir: string, index: WorkspaceStatIndexLite, depth: number
   if (depth > STAT_WALK_MAX_DEPTH) return;
   let entries: Dirent[];
   try {
-    entries = (await readdir(dir, { withFileTypes: true })) as unknown as Dirent[];
+    // withFileTypes:true 返回值本身就是 Dirent[]（isFile/isDirectory/isSymbolicLink）
+    entries = await readdir(dir, { withFileTypes: true });
   } catch {
     return; // 目录不可读（权限/并发删除）——跳过
   }

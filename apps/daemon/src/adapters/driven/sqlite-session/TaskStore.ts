@@ -49,6 +49,10 @@ export class TaskStore implements TaskStorePort {
     return this.writeQueue.saveTaskStage(stage);
   }
 
+  /** 状态迁移写面（读-判-写三步）：存在性/迁移合法性判定直读 DB，与入队
+   * 写非原子——调用方必须 await 前序写（引擎链恒 await；未 await 即后续
+   * 迁移时守卫读到滞后行）。并发前态变化的机械防线不在本面（WorkLedger
+   * M16 guarded 变体先例），任务表写链恒单写队列串行——队内不乱序。 */
   async updateJobStatus(id: string, status: JobStatus, error: string | null = null): Promise<void> {
     const current = this.getJob(id);
     if (current === undefined) {
@@ -64,6 +68,7 @@ export class TaskStore implements TaskStorePort {
     status: StageStatus,
     artifact?: StageArtifact,
   ): Promise<void> {
+    // 同 updateJobStatus：读-判-写三步，调用方必须 await 前序写
     const current = this.getStages(jobId).find((s) => s.seq === seq);
     if (current === undefined) {
       throw new DomainError(`stage 不存在：${jobId}#${seq}（状态迁移无从判定）`);
