@@ -186,50 +186,61 @@ export function withNetworkRetry(streamFn: StreamFn, opts: NetworkRetryOptions =
         }
         let forwarded = false; // 本轮已转发事件（中途断流 → 不可重试）
         let retry = false; // 本轮 error 终帧已进入退避重试（区别于流耗尽的防御收口）
-        for await (const event of stream) {
-          if (event.type === "error") {
-            const errorEvent: Extract<AssistantMessageEvent, { type: "error" }> = event;
-            const cls = classifyLlmError(errorEvent.error.stopReason, errorEvent.error.errorMessage);
-            const canRetry = !forwarded && cls === "transient" && attemptIndex < backoffMs.length;
-            if (!canRetry) {
-              out.push(errorEvent); // 原样转发：既有失败路径零改动
-              out.end();
-              return;
-            }
-            const info: LlmRetryInfo = {
-              attempt: attemptIndex + 1,
-              totalAttempts: backoffMs.length,
-              waitMs: backoffMs[attemptIndex]!,
-              message: errorEvent.error.errorMessage ?? "",
-            };
-            opts.onRetry?.(info);
-            try {
-              await sleep(info.waitMs, options?.signal);
-            } catch (err) {
-              if (options?.signal?.aborted) {
-                // kill/abort 打断等待：立即 aborted 收口，不再重试
-                out.push({
-                  type: "error",
-                  reason: "aborted",
-                  error: syntheticMessage(model, "aborted", "retry wait aborted"),
-                });
+        try {
+          for await (const event of stream) {
+            if (event.type === "error") {
+              const errorEvent: Extract<AssistantMessageEvent, { type: "error" }> = event;
+              const cls = classifyLlmError(errorEvent.error.stopReason, errorEvent.error.errorMessage);
+              const canRetry = !forwarded && cls === "transient" && attemptIndex < backoffMs.length;
+              if (!canRetry) {
+                out.push(errorEvent); // 原样转发：既有失败路径零改动
                 out.end();
                 return;
               }
-              const message = err instanceof Error ? err.message : String(err);
-              out.push({ type: "error", reason: "error", error: syntheticMessage(model, "error", message) });
+              const info: LlmRetryInfo = {
+                attempt: attemptIndex + 1,
+                totalAttempts: backoffMs.length,
+                waitMs: backoffMs[attemptIndex]!,
+                message: errorEvent.error.errorMessage ?? "",
+              };
+              opts.onRetry?.(info);
+              try {
+                await sleep(info.waitMs, options?.signal);
+              } catch (err) {
+                if (options?.signal?.aborted) {
+                  // kill/abort 打断等待：立即 aborted 收口，不再重试
+                  out.push({
+                    type: "error",
+                    reason: "aborted",
+                    error: syntheticMessage(model, "aborted", "retry wait aborted"),
+                  });
+                  out.end();
+                  return;
+                }
+                const message = err instanceof Error ? err.message : String(err);
+                out.push({ type: "error", reason: "error", error: syntheticMessage(model, "error", message) });
+                out.end();
+                return;
+              }
+              retry = true;
+              break; // 进入下一轮重试
+            }
+            out.push(event);
+            forwarded = true;
+            if (event.type === "done") {
               out.end();
               return;
             }
-            retry = true;
-            break; // 进入下一轮重试
           }
-          out.push(event);
-          forwarded = true;
-          if (event.type === "done") {
-            out.end();
-            return;
-          }
+        } catch (err) {
+          // 非契约流迭代抛错（StreamFn 契约：失败经流内 error 终帧编码、迭代器
+          // 不 reject）——与上方 streamFn 调用点同构防御：syntheticMessage 收口
+          // error 终帧，防 void 吞 unhandled rejection 且 out 永不 end、
+          // result() 永久悬空（生产路径 pi-ai EventStream 无 reject 路径不可触发）
+          const message = err instanceof Error ? err.message : String(err);
+          out.push({ type: "error", reason: "error", error: syntheticMessage(model, "error", message) });
+          out.end();
+          return;
         }
         if (retry) continue; // 退避完成 → 重调底层（下一 attemptIndex）
         // 流耗尽但无 done/error 终帧（底层非契约形态）：防御性收口防 result() 悬空

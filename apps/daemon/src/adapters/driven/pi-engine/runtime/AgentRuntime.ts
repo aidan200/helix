@@ -66,6 +66,13 @@ export interface AgentRuntimeDeps {
 export class AgentRuntime {
   private readonly agent: Agent;
   private readonly steerHook?: HookSet & SteerCapable;
+  /** 运行期 thinking 覆盖（thinking 批①，AD-4①；setModel 同构直改链，下一
+   *  turn 生效）。helix 自持覆盖字段——**不走** pi AgentState.thinkingLevel：
+   *  其缺省 off 且 pi loop config 会把它直注 options.reasoning（无 §3.3 能力
+   *  解析，reasoning=false 模型会被带参）；§6 纪律 = options.reasoning 唯一
+   *  写入点是 streamFn 注入器（§3.5），覆盖态只是解析链的覆盖位输入。
+   *  （字段前置声明位——清单 #2.7；setThinking/stateThinking 读写在下方。） */
+  private thinkingLevel: string | undefined;
 
   constructor(profile: AgentProfile, deps: AgentRuntimeDeps) {
     const compaction = compactionHooks(profile, deps);
@@ -166,15 +173,6 @@ export class AgentRuntime {
   setSystemPrompt(systemPrompt: string): void {
     this.agent.state.systemPrompt = systemPrompt;
   }
-
-  /**
-   * 运行期 thinking 覆盖（thinking 批①，AD-4①；setModel 同构直改链，下一
-   * turn 生效）。helix 自持覆盖字段——**不走** pi AgentState.thinkingLevel：
-   * 其缺省 off 且 pi loop config 会把它直注 options.reasoning（无 §3.3 能力
-   * 解析，reasoning=false 模型会被带参）；§6 纪律 = options.reasoning 唯一
-   * 写入点是 streamFn 注入器（§3.5），覆盖态只是解析链的覆盖位输入。
-   */
-  private thinkingLevel: string | undefined;
 
   setThinking(level: string): void {
     this.thinkingLevel = level;
