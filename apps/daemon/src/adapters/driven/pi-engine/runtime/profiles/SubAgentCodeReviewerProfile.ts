@@ -41,9 +41,11 @@ export const SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX = loadPrompt("roles/subagent-c
 export const SubAgentCodeReviewerProfile: AgentProfile = {
   kind: "subagent-code-reviewer",
   systemPrompt: SUBAGENT_SYSTEM_PROMPT + "\n\n" + SUBAGENT_CODE_REVIEWER_PROMPT_SUFFIX,
-  // 声明 = 通用 worker − SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS（纯声明纪律：
-  // profiles/ 禁函数式派生——arch-guard AG-10 硬层；与 worker 声明面的
-  // 同步奇偶由 profile 契约测试机械断言，漂移即红）
+  // 声明 = 通用 worker − SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS（纯字面量声明：
+  // arch-guard AG-10 判据 = profiles/ 文件内无函数定义/箭头函数体/分支
+  // 语法（文本级机械匹配，不区分注释与代码）——非「禁派生」，spread 派生
+  // 语法上合法；与 worker 声明面的同步奇偶兑底 = profile 契约测试机械
+  // 断言，漂移即红）
   tools: [
     "bash",
     "read",
