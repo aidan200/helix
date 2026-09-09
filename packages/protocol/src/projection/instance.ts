@@ -45,14 +45,22 @@ export interface AnchorScanEntry {
   readonly id: string;
   readonly instanceId?: string;
   readonly kind?: string;
+  /** 时间键源（message/tool = ts epoch ms；thinking/compaction = createdAt ISO，
+   *  entrySortKey 同口径）——仅恢复边界 createdAt 截断推导使用；双缺 = 不可比
+   *  （不作锚候选）。 */
+  readonly ts?: number;
+  readonly createdAt?: string;
 }
 
 /** 锚计算所需的实例引用面（结构最小型；daemon InstanceSnapshotEntry 结构兼容）。 */
 export interface AnchorInstanceRef {
   readonly kind: "main" | "subagent";
   readonly instanceId: string;
-  /** spawn 时值（视图携带；缺省 = 恢复边界退化尾部推导）。 */
+  /** spawn 时值（视图携带；缺省 = 恢复边界按 createdAt 截断推导）。 */
   readonly spawnAnchorEntryId?: string | null;
+  /** 实例创建时刻（ISO；恢复链自 agent.spawned 事件 occurredAt 原值重建）——
+   *  恢复边界截断推导的时间基准；缺省/不可解析 = 退防御尾部推导。 */
+  readonly createdAt?: string;
 }
 
 /**
@@ -71,6 +79,22 @@ export function lastMainAnchorId(entries: readonly AnchorScanEntry[], end: numbe
   return anchor;
 }
 
+/** 恢复边界锚推导（spawn 时刻截断；模块内私有——唯一消费 =
+ *  computeAnchorEntryId 恢复边界分支，导出面登记不动）：聚合数组序内时间键
+ *  ≤ spawnKey 的最后一条 main/compaction entry id（无 → null 流首）。时间键
+ *  = ts ?? Date.parse(createdAt)（entrySortKey 同口径）；双缺/不可解析条目
+ *  不可比，跳过不作锚。输入已按 entrySortKey 排序时 = 截断点最大值（并列保
+ *  数组序）。 */
+function anchorIdBeforeSpawn(entries: readonly AnchorScanEntry[], spawnKey: number): string | null {
+  let anchor: string | null = null;
+  for (const e of entries) {
+    const key = e.ts ?? (e.createdAt !== undefined ? Date.parse(e.createdAt) : NaN);
+    if (!Number.isFinite(key) || key > spawnKey) continue;
+    if (isMainInstance(e.instanceId) || e.kind === "compaction") anchor = e.id;
+  }
+  return anchor;
+}
+
 /**
  * spawn 锚权威计算（契约 v0.3 §1 三分支机械判定；纯函数——同输入同输出）：
  * ① 实例已有 Entry → 首条非 compaction 归属 Entry 前最后一条 main/compaction
@@ -78,8 +102,10 @@ export function lastMainAnchorId(entries: readonly AnchorScanEntry[], end: numbe
  *   （append-only，[0, firstIdx) 稳定域）；
  * ② 实例尚无 Entry → spawn 时值（视图携带，不按当前尾部重算）；
  * ③ 主实例 → 不携带（undefined）。
- * 恢复边界（契约记录在案）：重启后仍无 Entry 的实例 spawn 时值不可重建
- * （视图缺省），退化为规则①的尾部推导值（best-effort）。
+ * 恢复边界：重启后仍无 Entry 的实例 spawn 时值不可重建（视图缺省）→ 按实例
+ * createdAt（恢复链自 agent.spawned 事件 occurredAt 原值重建）截断推导 spawn
+ * 时刻锚——与规则②同语义近似（best-effort，不另建持久化事实源）；createdAt
+ * 缺位/不可解析才退防御性尾部推导（旧边界行为，仅存于缺 createdAt 的调用方）。
  */
 export function computeAnchorEntryId(
   entries: readonly AnchorScanEntry[],
@@ -91,5 +117,10 @@ export function computeAnchorEntryId(
   );
   if (firstIdx >= 0) return lastMainAnchorId(entries, firstIdx); // 规则①
   if (instance.spawnAnchorEntryId !== undefined) return instance.spawnAnchorEntryId; // 规则②
-  return lastMainAnchorId(entries); // 恢复边界：spawn 时值缺位 → 尾部推导
+  // 恢复边界：spawn 时值缺位 → createdAt 截断推导（同规则②语义近似）
+  if (instance.createdAt !== undefined) {
+    const spawnKey = Date.parse(instance.createdAt);
+    if (Number.isFinite(spawnKey)) return anchorIdBeforeSpawn(entries, spawnKey);
+  }
+  return lastMainAnchorId(entries); // 防御尾巴：createdAt 缺位/不可解析 → 旧尾部推导
 }

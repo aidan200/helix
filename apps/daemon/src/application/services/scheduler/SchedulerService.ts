@@ -302,7 +302,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
           ...(closure !== undefined ? { closure } : {}),
           ...(model !== undefined ? { model } : {}),
           // 契约 v0.3 §1 规则②：spawn 时值随实例视图携带（含 null 流首；
-          // 恢复实例无此值 → 组装面退化尾部推导，契约记录在案边界）
+          // 恢复实例无此值 → 组装面按实例 createdAt 截断推导，契约记录在案边界）
           ...(this.spawnAnchors.has(instance.instanceId)
             ? { spawnAnchorEntryId: this.spawnAnchors.get(instance.instanceId)! }
             : {}),
@@ -434,7 +434,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     }
     // 契约 v0.3 §1 规则②：spawn 时刻锚计算一次（聚合内最后一条
     // main/compaction entry；无 → null 流首），内存携带——后续快照组装不按
-    // 当前尾部重算；不落盘（派生值，重启后按规则①重建/尾部推导边界）
+    // 当前尾部重算；不落盘（派生值，重启后按规则①重建/createdAt 截断推导边界）
     if (this.deps.spawnAnchorFor !== undefined) {
       this.spawnAnchors.set(agentId, this.deps.spawnAnchorFor(sessionId));
     }

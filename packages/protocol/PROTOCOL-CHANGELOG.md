@@ -253,8 +253,13 @@ anchorEntryId?: string | null;
      不按当前尾部重算。
   3. **主实例**（kind=main）→ 不携带（undefined）。
 - 恢复重放边界（记录在案）：重启恢复后仍无 Entry 的实例，spawn 时值不可
-  重建，退化为规则 1 的尾部推导值（best-effort；实例首 Entry 到达后锚即
-  稳定，不另建持久化事实源）。
+  重建。**现行契约（锚修复批改写）**：按实例 `createdAt`（恢复链自
+  `agent.spawned` 事件 occurredAt 原值重建）截断推导 spawn 时刻锚——取聚合
+  内时间键 ≤ createdAt 的最后一条 main/compaction entry（无 → null 流首），
+  与规则 2 同语义近似（best-effort，不另建持久化事实源）；`createdAt` 缺位
+  /不可解析才退防御性尾部推导。~~原边界：退化为规则 1 的尾部推导值~~——已
+  退役：尾部推导随每次快照重算把零条目历史实例卡片钉在会话窗口底部（实时
+  新条目顶不走），与「锚出窗不渲染」的分页语义相悖。
 
 ### 12.2 monitor 档订阅 tier（SessionSubscribePayload 扩展）
 

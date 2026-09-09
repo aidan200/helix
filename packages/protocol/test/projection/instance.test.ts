@@ -124,7 +124,8 @@ describe("instance 域：spawn 锚权威计算（契约 v0.3 §1 三分支；迁
     // 首 Entry 前无 main/compaction → null（流首）
     const firstAtHead: AnchorScanEntry[] = [anchorEntry("s1", "agent-9"), anchorEntry("m1")];
     expect(computeAnchorEntryId(firstAtHead, { kind: "subagent", instanceId: "agent-9" })).toBeNull();
-    // 首 Entry 是 compaction → 不算归属 Entry（无 Entry → 恢复边界尾部推导）
+    // 首 Entry 是 compaction → 不算归属 Entry（无 Entry 走恢复边界；本例无
+    // createdAt → 防御尾部推导）
     const compactionFirst: AnchorScanEntry[] = [anchorEntry("c0", "agent-9", "compaction"), anchorEntry("m1")];
     expect(computeAnchorEntryId(compactionFirst, { kind: "subagent", instanceId: "agent-9" })).toBe("m1");
   });
@@ -138,11 +139,36 @@ describe("instance 域：spawn 锚权威计算（契约 v0.3 §1 三分支；迁
     expect(computeAnchorEntryId(entries, { kind: "main", instanceId: "main" })).toBeUndefined();
   });
 
-  test("恢复边界：无 Entry 且 spawn 时值缺位 → 尾部推导 best-effort；null = 流首有效锚不回落", () => {
-    // spawnAnchorEntryId: null 是有效值（流首锚，显式保留不回落）——仅 undefined（缺位）才退化尾部推导
+  test("恢复边界：无 Entry 且 spawn 时值缺位 → 按实例 createdAt 截断推导 spawn 时刻锚（同规则②语义近似）", () => {
+    // spawnAnchorEntryId: null 是有效值（流首锚，显式保留不回落）——仅 undefined（缺位）才进恢复边界
     const streamStart = { kind: "subagent" as const, instanceId: "agent-x", spawnAnchorEntryId: null };
     expect(computeAnchorEntryId(entries, streamStart)).toBeNull();
-    const noSpawnValue = { kind: "subagent" as const, instanceId: "agent-y" };
-    expect(computeAnchorEntryId(entries, noSpawnValue)).toBe("e4"); // = lastMainAnchorId(entries)
+    // createdAt 截断：key ≤ spawnKey 的最后一条 main/compaction（含 agent_spawn 工具call——其 startedAt < 实例 createdAt）
+    const timed: AnchorScanEntry[] = [
+      { id: "m1", ts: 1000 },
+      { id: "s1", instanceId: "agent-z", ts: 1500, kind: "thinking" }, // 他实例条目不作锚
+      { id: "t1", kind: "tool-call", ts: 3000 },
+      { id: "m3", ts: 4000 },
+    ];
+    const spawned = (isoMs: number) => ({ kind: "subagent" as const, instanceId: "agent-y", createdAt: new Date(isoMs).toISOString() });
+    expect(computeAnchorEntryId(timed, spawned(3500))).toBe("t1"); // 截断含等于/之前，排除其后 m3
+    expect(computeAnchorEntryId(timed, spawned(3000))).toBe("t1"); // 同刻入锚（≤）
+    expect(computeAnchorEntryId(timed, spawned(500))).toBeNull(); // 早于全部 → 流首
+    expect(computeAnchorEntryId(timed, spawned(9999))).toBe("m3"); // 晚于全部 → 截断内最后 main
+    // thinking/compaction 条目经 createdAt 解析入同一时间轴
+    const withThinking: AnchorScanEntry[] = [
+      { id: "th1", kind: "thinking", createdAt: "2026-09-09T05:00:00.000Z" },
+      { id: "m1", ts: Date.parse("2026-09-09T06:00:00.000Z") },
+    ];
+    expect(
+      computeAnchorEntryId(withThinking, {
+        kind: "subagent",
+        instanceId: "agent-y",
+        createdAt: "2026-09-09T05:30:00.000Z",
+      }),
+    ).toBe("th1");
+    // createdAt 缺位/不可解析 → 防御性旧尾部推导
+    expect(computeAnchorEntryId(timed, { kind: "subagent", instanceId: "agent-y" })).toBe("m3");
+    expect(computeAnchorEntryId(timed, { kind: "subagent", instanceId: "agent-y", createdAt: "not-a-date" })).toBe("m3");
   });
 });

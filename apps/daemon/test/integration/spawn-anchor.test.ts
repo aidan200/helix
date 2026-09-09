@@ -35,7 +35,8 @@ import { FakeAgentEngine, type ScriptedTurn } from "../mocks/FakeAgentEngine";
  * - 稳定域：spawn 后/实例首 Entry 后主线继续追加消息 → 锚不变；
  * - 增量帧：agent.spawned 帧携带 spawn 时刻锚（与快照同源同值）；
  * - 恢复重放：spawn + 产 Entry 后重启 → 快照锚与实时一致；主实例/无 Entry
- *   实例边界（重启后仍无 Entry → 退化尾部推导，契约记录在案 best-effort）。
+ *   实例边界（重启后仍无 Entry → 按实例 createdAt 截断推导 spawn 时刻锚，
+ *   与实时 spawn 时值一致；createdAt 缺位才退防御尾部推导）。
  */
 
 /** 手动驱动 runner：launch 记录；引擎事件/收口由测试显式注入（时序权威）。 */
@@ -370,7 +371,7 @@ describe("T2.1 恢复重放锚点（真 SQLite tmp 重启）", () => {
     }
   }, 20000);
 
-  test("边界：重启后仍无 Entry 的实例 spawn 时值不可重建 → 退化尾部推导值（契约记录在案）", async () => {
+  test("边界：重启后仍无 Entry 的实例 → 按 createdAt 截断推导重建 spawn 时值（不再退化尾部钉窗底）", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "helix-t21-anchor-boundary-"));
     const rig1 = await makeRig([{ text: "回复一" }], home);
     await rig1.daemon.chat.sendMessage("消息一"); // e1 + e2
@@ -379,7 +380,7 @@ describe("T2.1 恢复重放锚点（真 SQLite tmp 重启）", () => {
     expect(instanceDtoOf(rig1.daemon, agentId)?.anchorEntryId).toBe("e2");
     await rig1.daemon.shutdown();
 
-    const rig2 = await makeRig([], home);
+    const rig2 = await makeRig([{ text: "恢复后回复" }], home);
     rig2.dispose = async () => {
       await rig2.daemon.shutdown();
       rmSync(home, { recursive: true, force: true });
@@ -387,11 +388,17 @@ describe("T2.1 恢复重放锚点（真 SQLite tmp 重启）", () => {
     const restored = instanceDtoOf(rig2.daemon, agentId);
     expect(restored).toBeDefined();
     expect(restored?.state).toBe("failed"); // running → 重启收口（AD-10）
-    // 退化规则①尾部推导：= 恢复后聚合内最后一条 main entry（重启 closure 注入
-    // 的 steer 条目）——与 spawn 时值不同属契约已记录的 best-effort 边界
+    // 恢复后主线继续产出（closure 注入 + 新一轮 user/assistant），时间轴尾部
+    // 远离 spawn 点——新旧行为可区分（旧 = 尾部推导钉窗底，随快照重算；
+    // 新 = createdAt 截断推导重建 spawn 时值，稳定）
+    await rig2.daemon.chat.sendMessage("消息二");
     const entries = snapshotDto(rig2.daemon).entries;
     const tailMainId = entries[entries.length - 1]?.id;
     expect(tailMainId).toBeDefined();
-    expect(restored?.anchorEntryId).toBe(tailMainId);
+    expect(tailMainId).not.toBe("e2"); // 场景前提：尾部 ≠ spawn 时值（判据有效）
+    // createdAt 截断：重启后条目（closure 注入/新轮）均在实例 createdAt 之后被
+    // 排除，锚重建为 spawn 时值 e2——与实时一致；锚出尾窗后卡片不渲染（分页
+    // 语义），而非钉窗底
+    expect(instanceDtoOf(rig2.daemon, agentId)?.anchorEntryId).toBe("e2");
   }, 20000);
 });
