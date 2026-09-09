@@ -293,7 +293,8 @@ export class ModelCatalog implements ModelCatalogPort {
    * - force=false 且 checkedAt 未过 4h 窗口 → 跳过（缓存口径）；
    * - 有缓存 body 才发 If-None-Match（304 不可能清空 overlay）；
    * - 304 → 只挪 checkedAt；404/501 → 清 etag + lastModified=0；
-   *   其余非 2xx → 保缓存记 checkedAt（瞬时失败，etag 仍有效下次再验）。
+   *   其余非 2xx / 网络异常 → 保 models/etag 记 checkedAt（瞬时失败，
+   *   etag 仍有效下次再验；记 checkedAt 防离线期 stale() 恒真重试扇出）。
    */
   private async refreshProvider(providerId: string, force: boolean): Promise<void> {
     const entry = this.store.get(providerId);
