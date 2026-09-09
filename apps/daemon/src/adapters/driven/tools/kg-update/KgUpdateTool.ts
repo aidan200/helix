@@ -20,30 +20,14 @@ import type {
 
 /**
  * kg-update 工具（T3.3，CL-3 F3.1 即时通道，AD-14）——即时落账薄壳。
- *
- * 两操作，全部经 KgWriteService（.kg 唯一写入口——schema 校验前置，
- * **绝不旁路直写**）：
- *
- * - supersede(nodeId, reason, iterationId, replacement?)：推翻知识——
- *   status 翻转 + 理由 + 迭代 id 入 change_log（无人审即时兑现，AD-14
- *   协议行「随改动提交 supersede」的现场通道）；replacement 可选携带
- *   新节点草稿（新号自动发放，链上双侧可见）。
- * - createNode(kind, name, digest, ...)：新知识即时落账——自动发号
- *   （AD-16）；anchors 可选组合锚声明（第二笔 declareAnchors op）。
- * - batchCreateNodes(nodes[])（T2.1，O-5 裁决）：批量建点——LLM 按写入量
- *   自选单条/批量，两 op 并存且结果等价（CL-2-T14）；逐项自动发号，
- *   任一项失败整批拒绝（先全量校验后单事务）。
- * - declareAnchors(nodeId, anchors[])：存量节点补锚声明——写面早已支持
- *   （createNode 组合锚第二笔内部在用），工具面补齐；目标定位同
- *   supersede（locate 唯一命中不猜）；anchor_decl 复合主键幂等去重，
- *   同锚重声明无副作用。
+ * 八 op：createNode / supersede / updateNode / batchCreateNodes /
+ * declareAnchors / addEdge / proposeCandidate / decideCandidate / prune
+ * ——op 清单与逐项参数以 kgUpdateParameters schema 为真相源（TR-57：
+ * 不逐项抄录进注释，防双源漂移），全部经 KgWriteService（唯一写入口，
+ * schema 校验前置，绝不旁路直写）。
  *
  * 与 ClosureDto.findings 收口通道（T4.1）非竞争关系：共用同一 API 入口，
  * 本工具承载 edit 现场的即时兑现（O-2 决策消解）。
- *
- * - updateNode(nodeId, patch)（D8 遗留①）：既有节点元数据补全——服务层写面
- *   早有（ws kg.node.update /project 页在用），工具面补齐；仅限 scene 等
- *   元数据补全，内容改动走候选人审（对齐 kg-review SKILL 产出纪律）。
  */
 
 const kgUpdateParameters = {
@@ -337,8 +321,14 @@ function execSupersede(deps: KgUpdateToolDeps, args: Record<string, unknown>): s
 }
 
 function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
+  // kind 枚举外值报错（schema 已拦截——此处是 LLM 违规 enum 时的防御层，
+  // 不静默归一 rule：笔误静默落账比报错更糟）
+  const kind = requireString(args, "kind", "（rule / entity）");
+  if (kind !== "rule" && kind !== "entity") {
+    throw new Error(`kind 应为 rule / entity（收到 "${kind}"——笔误防御，不静默按 rule 落账）`);
+  }
   const draft: NodeDraft = {
-    kind: requireString(args, "kind", "（rule / entity）") === "entity" ? "entity" : "rule",
+    kind,
     name: requireString(args, "name", "（节点名）"),
     digest: requireString(args, "digest", "（≤2 行摘要）"),
     scene: requireString(args, "scene", "（R23 沉淀必填——「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）"),
@@ -386,7 +376,7 @@ function execUpdateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): 
   }
   if (hits.length > 1) {
     throw new Error(
-      `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}——不支持跨项目猜测，请人工确认目标项目`,
+      `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，请人工确认目标项目`,
     );
   }
   const { project } = hits[0]!;
@@ -410,7 +400,7 @@ function execDeclareAnchors(deps: KgUpdateToolDeps, args: Record<string, unknown
   }
   if (hits.length > 1) {
     throw new Error(
-      `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}——不支持跨项目猜测，请人工确认目标项目`,
+      `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，请人工确认目标项目`,
     );
   }
   const { project } = hits[0]!;
@@ -652,7 +642,7 @@ function resolveTargetProject(deps: KgUpdateToolDeps, args: Record<string, unkno
   }
   if (scanned.length === 1) return scanned[0]!;
   throw new Error(
-    `workspace 有 ${scanned.length} 个项目，createNode 需 project 参数指明目标` +
+    `workspace 有 ${scanned.length} 个项目，本 op 需 project 参数指明目标项目` +
       `（可用：${scanned.map(projectName).join("、") || "（无）"}）`,
   );
 }
@@ -688,8 +678,13 @@ function draftOf(value: unknown, label = "replacement", options: { requireScene?
     throw new Error(`${label} 必须为节点草稿对象（kind/name/digest${options.requireScene === true ? "/scene" : ""}）`);
   }
   const record = value as Record<string, unknown>;
+  // kind 枚举外值报错（同 execCreateNode 防御层——不静默归一 rule）
+  const kind = record["kind"];
+  if (kind !== "rule" && kind !== "entity") {
+    throw new Error(`${label}.kind 应为 rule / entity（收到 ${JSON.stringify(kind)}——笔误防御，不静默按 rule 落账）`);
+  }
   return {
-    kind: record["kind"] === "entity" ? "entity" : "rule",
+    kind,
     name: requireString(record, "name", `（${label} 草稿）`),
     digest: requireString(record, "digest", `（${label} 草稿）`),
     ...(options.requireScene === true
@@ -720,6 +715,7 @@ function anchorsOf(value: unknown, label = "anchors"): AnchorDeclaration[] | nul
   });
 }
 
+// projectName/text 与 KgTool.ts 尾部同款帮手逐字重复——有意容忍不下沉（理由互指）。
 function projectName(projectRoot: string): string {
   const parts = projectRoot.split("/");
   return parts[parts.length - 1] || projectRoot;

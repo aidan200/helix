@@ -136,8 +136,23 @@ interface EditItem {
 }
 
 function validateEditInput(input: any): { path: string; edits: EditItem[] } {
+  // 参数形态前置校验（LLM 可纠错文案）：path 非空 string + edits 项双字段存在
+  // ——否则 path 缺失在 env.absolutePath 深层抛错、edits 项缺字段在 kernel
+  // 抛非结构化 TypeError，均无可纠错信息（低于本文件其余错误水准）。
+  if (typeof input.path !== "string" || input.path.length === 0) {
+    throw new Error("Edit tool input is invalid. path must be a non-empty string (relative or absolute file path).");
+  }
   if (!Array.isArray(input.edits) || input.edits.length === 0) {
     throw new Error("Edit tool input is invalid. edits must contain at least one replacement.");
+  }
+  for (let i = 0; i < input.edits.length; i += 1) {
+    const item = input.edits[i];
+    if (typeof item?.oldText !== "string" || typeof item?.newText !== "string") {
+      throw new Error(
+        `Edit tool input is invalid. edits[${i}] must be an object with string fields oldText and newText ` +
+          `(exact text to replace and its replacement).`,
+      );
+    }
   }
   return { path: input.path, edits: input.edits };
 }

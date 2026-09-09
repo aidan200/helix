@@ -16,6 +16,8 @@ import { isValidNodeRef } from "../../../../domain/kg/node-id";
  * - candidates(status?)：candidates 台账列表读面（读面三件套之一——agent
  *   清台判读通道；行含 id/title/status/kind/target_node/defer_age/
  *   created_at + body 全文；status 可选四态过滤）。
+ * - affected(target)：锚反查（file/symbol → 管辖节点列表）——开工链路
+ *   核心步（改代码前反查管辖该文件/符号的知识节点，R20）。
  *
  * **ID 永远取自上一步返回**（参数供给闭环，CL-4.A3）：search 返回行必含
  * 指针 id；get 校验 id 形态（TR-n/E-n 或保号复合形态）——非法结构化报错
@@ -259,6 +261,8 @@ function renderDetail(detail: DetailShape, project: string): string {
   return lines.join("\n");
 }
 
+// projectName/text 与 KgUpdateTool.ts 尾部同款帮手逐字重复——有意容忍不
+// 下沉（8 行帮手新建共享模块的文件面成本高于重复成本，两文件同族独立装配）。
 function projectName(projectRoot: string): string {
   const parts = projectRoot.split("/");
   return parts[parts.length - 1] || projectRoot;
