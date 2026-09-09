@@ -1,8 +1,8 @@
 /**
  * 轻量 i18n（desk shared/i18n 方案裁剪搬运：React context + localStorage +
- * navigator.language；词条裁剪为 P-1 所需 40+ key，AD-18）。
+ * navigator.language；词条随页面族增长，规模以 single-source 死 key 扫描守护）。
  */
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { Translations } from "./lang/zh-CN";
 import { zhCN } from "./lang/zh-CN";
@@ -25,7 +25,9 @@ const STORAGE_KEY = "helix-lang";
 function detectLang(): Lang {
   try {
     const saved = localStorage.getItem(STORAGE_KEY) as Lang | null;
-    if (saved && saved in TRANSLATIONS) return saved;
+    // Object.hasOwn：不走原型链（localStorage 被写入 constructor/toString 等
+    // 原型属性名时 saved in TRANSLATIONS 误判通过 → 取词 undefined 全 UI 裸 key）
+    if (saved && Object.hasOwn(TRANSLATIONS, saved)) return saved;
   } catch {
     /* localStorage 不可用时退回探测 */
   }
@@ -92,9 +94,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [lang],
   );
 
-  return (
-    <I18nContext.Provider value={{ lang, setLang, t: tx }}>{children}</I18nContext.Provider>
-  );
+  // context value useMemo：字面量每次渲染新引用会击穿全部 useI18n 消费者
+  // memo（消费面全轻展示件，仍是白白重渲染面）
+  const value = useMemo(() => ({ lang, setLang, t: tx }), [lang, setLang, tx]);
+
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 
 export function useI18n(): I18nContextValue {

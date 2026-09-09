@@ -67,9 +67,11 @@ export function prettyJsonArgs(args: string): string {
   }
 }
 
-/** 从工具结果文本提取 exit code（无结构化字段的启发式；失败回退 1）。
+/** 从工具结果文本提取 exit code（无结构化字段的启发式；无匹配返回
+ * undefined——非进程类错误不把猜测呈现为「exit 1」事实，消费方分支无 code
+ * 变体词条）。
  * 兼容两种文案：pi bash 真实错误「Command exited with code N」与
  * mock/通用「... exit N」（含「process exited with exit 1」）。 */
-export function extractExitCode(result: string): string {
-  return /exited with code (\d+)/.exec(result)?.[1] ?? /exit (\d+)/.exec(result)?.[1] ?? "1";
+export function extractExitCode(result: string): string | undefined {
+  return /exited with code (\d+)/.exec(result)?.[1] ?? /exit (\d+)/.exec(result)?.[1];
 }

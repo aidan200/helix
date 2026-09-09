@@ -128,6 +128,7 @@ export const zhCN = {
       args: "参数",
       result: "结果",
       resultFailed: "结果 · exit {code}",
+      resultFailedNoCode: "结果 · 失败",
     },
     sa: {
       card: {
@@ -539,16 +540,12 @@ export const zhCN = {
     groupSystem: "系统派生",
     roBadge: "只读",
     roToolsBadge: "工具只读",
-    modelFollowGlobal: "跟随全局默认",
     modelNoteSystem: "未单独配置时跟随全局默认模型（不联动 subagent-worker）",
     orchestratorTitle: "任务编排器",
     kgWriterTitle: "图谱产出 SubAgent",
     reviewerTitle: "代码评审 SubAgent",
     noSelectTitle: "从左侧选择智能体",
     noSelectSub: "选中后这里呈现它的配置详情；系统派生形态为只读展示",
-    roModelValue: "跟随全局默认",
-    derivedNote: "工具集跟随 subagent-worker，额外固定 kg-update",
-    reviewerDerivedNote: "工具集跟随 subagent-worker，write/edit 恒摘除（只读评审）",
     pinnedTag: "恒在",
     modelLabel: "模型",
     modelFollowMain: "跟随全局默认",
@@ -560,7 +557,6 @@ export const zhCN = {
     mcpEmpty: "未接入 MCP server（在设置页添加后自动出现）",
     mcpToolCount: "{count} 个工具",
     mcpOffChip: "整组关闭",
-    mcpNoteOrch: "系统 agent（任务链）：MCP 与常规 agent 同轨，默认不启用且写面只读（恒关展示；未来启用仅需放开写面）。",
     mcpState: {
       idle: "空闲",
       connecting: "连接中",
@@ -595,10 +591,6 @@ export const zhCN = {
     skillContentLoading: "正在读取 skill 正文",
     // 系统派生块技能读面批：系统块技能组（orchestrator = 任务 SOP 注册表；
     // 派生两块 = worker 生效技能集）
-    systemSkillsLabelOrch: "任务 SOP（kickoff 全文注入）",
-    systemSkillsLabelDerived: "技能（只读启停面，默认全关）",
-    skillOffChip: "已关闭",
-    systemSkillsNoteOrch: "编排 agent 不持技能清单；实际执行的 SOP = 所选任务类型的 SKILL.md 全文，在任务 kickoff 时注入（系统提示技能段恒空）。",
     // P-2 推理级别字段（T3：on/off 开关形态——off = 槽位空默认关，开 on 立即写中位档）
     thinking: {
       label: "推理级别 · THINKING LEVEL",
@@ -821,7 +813,6 @@ export const zhCN = {
     filter: { all: "全部", allProjects: "全部项目" },
     countLine: "共 {n} 个任务 · 运行中置顶",
     list: {
-      loading: "读取任务列表…",
       progPending: "装配中",
       progDone: "全部完成",
       progFailed: "失败",

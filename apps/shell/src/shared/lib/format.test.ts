@@ -48,8 +48,8 @@ describe("extractExitCode", () => {
     expect(extractExitCode("process exited with exit 1")).toBe("1");
   });
 
-  it("无码错误文案（bash: some error）→ 回退 1", () => {
-    expect(extractExitCode("bash: some error")).toBe("1");
+  it("无码错误文案（bash: some error）→ undefined（不把猜测呈现为 exit 1 事实，W3 #2.35）", () => {
+    expect(extractExitCode("bash: some error")).toBeUndefined();
   });
 
   it("多行文本含真实文案（pre 全文场景）→ 命中行内数字", () => {
