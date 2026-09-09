@@ -294,10 +294,10 @@ export interface KgProduceGroupDto {
   stages: KgProduceStageDto[];
 }
 
-/** 受影响连带标记条目（kg.bootstrap.impact 响应；AD-16 同规）。 */
-export interface KgNodeRefLiteDto {
-  nodeId: string;
-  name: string;
-  kind: string;
-  digestFirstLine: string;
-}
+/**
+ * 受影响连带标记条目（kg.bootstrap.impact 响应；AD-16 同规）。
+ * 形状 = KgNodeRefDto 同构派生（归一单一事实源）：仅 id 键名不同（wire
+ * 历史形态 nodeId）——kind 随派生收紧为 KgNodeKindDto（daemon 侧
+ * NodeDigestRow.kind 同域，无宽值而失），改字段只需改 KgNodeRefDto 一处。
+ */
+export type KgNodeRefLiteDto = Omit<KgNodeRefDto, "id"> & { nodeId: string };

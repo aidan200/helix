@@ -30,7 +30,7 @@ import {
 } from "./dev-desktop";
 
 // H-1 TDD-RED：以下 import 的符号尚未实现（先红后绿）
-import { ensureRgAvailable, tauriDevArgs, TAURI_DEV_CONFIG_OVERRIDE } from "./dev-desktop";
+import { ensureBinaryAvailable, tauriDevArgs, TAURI_DEV_CONFIG_OVERRIDE } from "./dev-desktop";
 
 // TDD-RED：W5 预绑定——prebindWorkspace 尚未实现（先红后绿）
 import { prebindWorkspace } from "./dev-desktop";
@@ -342,10 +342,10 @@ describe("tauriDevArgs（H-1 方案 C：dev 剥离 bundle 资源生产校验）"
 
 // ── H-1 动作③：rg 自动补判定（探测/安装注入，全分支）─────────────
 
-describe("ensureRgAvailable（H-1 rg 环境无关：存在性检查 + 缺失自动 fetch）", () => {
+describe("ensureBinaryAvailable（H-1 环境无关：存在性检查 + 缺失自动 fetch；rg/codegraph 同骨架文案分档）", () => {
   test("已装且校验通过 → 幂等跳过，不触发安装", async () => {
     let installs = 0;
-    const r = await ensureRgAvailable(
+    const r = await ensureBinaryAvailable(
       async () => true,
       async () => {
         installs++;
@@ -357,7 +357,7 @@ describe("ensureRgAvailable（H-1 rg 环境无关：存在性检查 + 缺失自�
 
   test("缺失 → 自动触发安装，成功则 ok", async () => {
     let installs = 0;
-    const r = await ensureRgAvailable(
+    const r = await ensureBinaryAvailable(
       async () => false,
       async () => {
         installs++;
@@ -370,7 +370,7 @@ describe("ensureRgAvailable（H-1 rg 环境无关：存在性检查 + 缺失自�
   });
 
   test("缺失 + 安装失败 → 一行警告不抛出（dev 继续，PATH/config 三级解析兜底）", async () => {
-    const r = await ensureRgAvailable(
+    const r = await ensureBinaryAvailable(
       async () => false,
       async () => {
         throw new Error("下载失败：HTTP 404");
@@ -384,7 +384,7 @@ describe("ensureRgAvailable（H-1 rg 环境无关：存在性检查 + 缺失自�
 
   test("探测函数抛错视为未装（健壮性）→ 走安装分支", async () => {
     let installs = 0;
-    const r = await ensureRgAvailable(
+    const r = await ensureBinaryAvailable(
       async () => {
         throw new Error("lipo 异常");
       },

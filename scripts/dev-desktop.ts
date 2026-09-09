@@ -449,25 +449,38 @@ function prebindProductionDeps(root: string): PrebindDeps {
 
 // ── H-1 动作③：rg 环境无关自动补（幂等，失败不阻塞 dev）─────────
 
-export interface RgEnsureResult {
+export interface BinaryEnsureResult {
   /** 是否触发了安装（false = 已装幂等跳过）。 */
   readonly attempted: boolean;
-  /** 最终 rg 可用（已装跳过或安装成功）。 */
+  /** 最终可用（已装跳过或安装成功）。 */
   readonly ok: boolean;
   /** ok=false 时的一行警告；否则空串。 */
   readonly warning: string;
 }
 
+/** ensureBinaryAvailable 可调文案面（缺省 = rg 既有文案，兼容原调用）。 */
+export interface EnsureBinaryOptions {
+  /** 工具显示名（缺省 "rg"）。 */
+  readonly tool?: string;
+  /** 获取失败后的一行后果说明（缺省 = rg 文案：grep 响亮失败 + rgPath 逃生门）。 */
+  readonly impact?: string;
+  /** 手动修复命令（缺省 bun scripts/fetch-rg.ts）。 */
+  readonly fixCommand?: string;
+}
+
 /**
- * rg 存在性检查 + 缺失自动 fetch（H-1：环境无关 + 为 build 暖场）。
+ * 二进制/bundle 存在性检查 + 缺失自动 fetch（H-1：环境无关 + 为 build 暖场；
+ * rg 与 codegraph 同骨架，文案差异经 opts 参数化——防 rg 专用文案嵌进
+ * codegraph 外层警告的排障误导）。
  * 探测/安装函数注入（全分支可单测）；探测抛错视为未装；安装失败
- * 不抛出——返回一行警告由调用面输出，dev 继续（grep 将响亮失败，
- * 仅剩 config.json rgPath 逃生门）。
+ * 不抛出——返回一行警告由调用面输出，dev 继续。
  */
-export async function ensureRgAvailable(
+export async function ensureBinaryAvailable(
   probe: () => Promise<boolean>,
   install: () => Promise<unknown>,
-): Promise<RgEnsureResult> {
+  opts: EnsureBinaryOptions = {},
+): Promise<BinaryEnsureResult> {
+  const { tool = "rg", impact = "grep 工具将响亮失败（rg 二级解析仅剩 config.json rgPath 逃生门）", fixCommand = "bun scripts/fetch-rg.ts" } = opts;
   let installed = false;
   try {
     installed = await probe();
@@ -483,9 +496,9 @@ export async function ensureRgAvailable(
       attempted: true,
       ok: false,
       warning:
-        `⚠ dev:desktop 自动获取 rg 失败（${e instanceof Error ? e.message : e}）——` +
-        `dev 继续，但 grep 工具将响亮失败（rg 二级解析仅剩 config.json rgPath 逃生门）；` +
-        `可手动 bun scripts/fetch-rg.ts 修复`,
+        `⚠ dev:desktop 自动获取 ${tool} 失败（${e instanceof Error ? e.message : e}）——` +
+        `dev 继续，但 ${impact}；` +
+        `可手动 ${fixCommand} 修复`,
     };
   }
 }
@@ -613,111 +626,128 @@ async function main(): Promise<number> {
   );
 
   // H-1 动作③：rg 存在性检查 + 缺失自动 fetch（幂等）；失败一行警告不阻塞
-  const rg = await ensureRgAvailable(rgProbe, rgInstall);
+  const rg = await ensureBinaryAvailable(rgProbe, rgInstall);
   if (!rg.ok) console.error(rg.warning);
 
-  // codegraph 同模式（bundle-only 定位）：缺失自动 fetch；失败警告不阻塞
-  //（工具 degraded EngineUnavailable——可重跑 fetch 修复，或经
-  // HELIX_CODEGRAPH_PATH env 显式指定可用二进制）。
-  const cg = await ensureRgAvailable(cgProbe, cgInstall);
-  if (!cg.ok)
-    console.error(
-      `⚠ dev:desktop codegraph 不可用（${cg.warning || "未知原因"}）——` +
-        `codegraph 工具将 degraded；可手动 bun scripts/fetch-codegraph.ts 修复`,
-    );
+  // codegraph 同骨架（bundle-only 定位，文案经 opts 分档）：缺失自动 fetch；
+  // 失败警告不阻塞（工具 degraded EngineUnavailable——可重跑 fetch 修复，
+  // 或经 HELIX_CODEGRAPH_PATH env 显式指定可用二进制）。
+  const cg = await ensureBinaryAvailable(cgProbe, cgInstall, {
+    tool: "codegraph",
+    impact: "codegraph 工具将 degraded（可重跑 fetch 修复，或经 HELIX_CODEGRAPH_PATH env 显式指定可用二进制）",
+    fixCommand: "bun scripts/fetch-codegraph.ts",
+  });
+  if (!cg.ok) console.error(cg.warning);
 
   const root = join(import.meta.dir, "..");
   const shellDir = join(root, "apps/shell");
   const workDir = mkdtempSync(join(tmpdir(), "helix-dev-desktop-"));
-  // dev sidecar wrapper（AF-3 注入位）：壳恒 spawn sidecar（双形态同构），
-  // wrapper 先 cd workspace 预绑定根再 exec bun 直跑 daemon 源码（禁
-  // compile 产物，TR-AD-35；daemon cwd 继承 wrapper——TR-AD-6 拉起方设
-  // cwd 的止血位）；未传 --workspace-root 时无 cd 行（daemon 未绑定态，绑定恒经 WS）。
-  const wrapper = join(workDir, "helix-daemon-dev.sh");
-  writeFileSync(
-    wrapper,
-    buildWrapperScript({
-      bunPath: process.execPath,
-      mainTsPath: join(root, "apps/daemon/src/main.ts"),
-      workspaceRoot, // undefined → 无 cd 行
-      home: process.env.HELIX_DESKTOP_HOME,
-    }),
-  );
-  chmodSync(wrapper, 0o755);
-
-  // ② 三进程编排：vite dev + cargo tauri dev（daemon 经壳 sidecar wrapper 起跑）。
-  //    vite --strictPort：5173 被占时 fail-fast（tauri.conf devUrl 钉死 5173，
-  //    静默漂移会让窗口加载落空），退出码经「任一退出 → 整体 teardown」传导。
-  const vitePortArgs = flags.vitePort ? ["--port", flags.vitePort] : [];
-  const children = [
-    {
-      name: "vite dev",
-      proc: Bun.spawn({
-        cmd: [process.execPath, "run", "dev", "--strictPort", ...vitePortArgs],
-        cwd: shellDir,
-        stdin: "ignore",
-        stdout: "inherit",
-        stderr: "inherit",
+  let children: Array<{ name: string; proc: Bun.Subprocess }> = [];
+  try {
+    // dev sidecar wrapper（AF-3 注入位）：壳恒 spawn sidecar（双形态同构），
+    // wrapper 先 cd workspace 预绑定根再 exec bun 直跑 daemon 源码（禁
+    // compile 产物，TR-AD-35；daemon cwd 继承 wrapper——TR-AD-6 拉起方设
+    // cwd 的止血位）；未传 --workspace-root 时无 cd 行（daemon 未绑定态，绑定恒经 WS）。
+    const wrapper = join(workDir, "helix-daemon-dev.sh");
+    writeFileSync(
+      wrapper,
+      buildWrapperScript({
+        bunPath: process.execPath,
+        mainTsPath: join(root, "apps/daemon/src/main.ts"),
+        workspaceRoot, // undefined → 无 cd 行
+        home: process.env.HELIX_DESKTOP_HOME,
       }),
-    },
-    {
-      name: "tauri dev",
-      proc: Bun.spawn({
-        // H-1 方案 C：--config override 剥离 bundle 资源生产校验（常量单源）；
-        // vite 端口覆盖位透传 → devUrl 随动（tauri dev 前端等待钉对端口）
-        cmd: ["cargo", ...tauriDevArgs(flags.vitePort)],
-        cwd: shellDir,
-        env: {
-          ...process.env,
-          HELIX_SIDECAR_PATH: wrapper,
-          HELIX_RG_PATH: RG_DEST,
-          HELIX_CODEGRAPH_PATH: CODEGRAPH_LAUNCHER,
-        },
-        stdin: "ignore",
-        stdout: "inherit",
-        stderr: "inherit",
-      }),
-    },
-  ];
+    );
+    chmodSync(wrapper, 0o755);
 
-  // ②‘ WS 预绑定任务（W5）：已传 --workspace-root 时等 daemon ready（WS 端口可达）后读
-  //    dev-token + 发 workspace.open；成功一行日志，失败（超时/校验错）→
-  //    非零退出（预绑定意图明确，不静默放行）。
-  const prebindTask: Promise<string | null> =
-    workspaceRoot === undefined
-      ? Promise.resolve(null)
-      : prebindWorkspace(prebindProductionDeps(workspaceRoot)).then(
-          () => {
-            console.error(`[dev-desktop] workspace 预绑定成功：${workspaceRoot}`);
-            return null;
+    // ② 三进程编排：vite dev + cargo tauri dev（daemon 经壳 sidecar wrapper 起跑）。
+    //    vite --strictPort：5173 被占时 fail-fast（tauri.conf devUrl 钉死 5173，
+    //    静默漂移会让窗口加载落空），退出码经「任一退出 → 整体 teardown」传导。
+    const vitePortArgs = flags.vitePort ? ["--port", flags.vitePort] : [];
+    children = [
+      {
+        name: "vite dev",
+        proc: Bun.spawn({
+          cmd: [process.execPath, "run", "dev", "--strictPort", ...vitePortArgs],
+          cwd: shellDir,
+          stdin: "ignore",
+          stdout: "inherit",
+          stderr: "inherit",
+        }),
+      },
+      {
+        name: "tauri dev",
+        proc: Bun.spawn({
+          // H-1 方案 C：--config override 剥离 bundle 资源生产校验（常量单源）；
+          // vite 端口覆盖位透传 → devUrl 随动（tauri dev 前端等待钉对端口）
+          cmd: ["cargo", ...tauriDevArgs(flags.vitePort)],
+          cwd: shellDir,
+          env: {
+            ...process.env,
+            HELIX_SIDECAR_PATH: wrapper,
+            HELIX_RG_PATH: RG_DEST,
+            HELIX_CODEGRAPH_PATH: CODEGRAPH_LAUNCHER,
           },
-          (err: unknown) => (err instanceof Error ? err.message : String(err)),
-        );
+          stdin: "ignore",
+          stdout: "inherit",
+          stderr: "inherit",
+        }),
+      },
+    ];
 
-  // ③ 任一子进程退出 / SIGINT / SIGTERM / 预绑定失败 → 整体 teardown + tmp 清理
-  return await new Promise<number>((resolve) => {
-    let settled = false;
-    const finish = (code: number, reason: string): void => {
-      if (settled) return;
-      settled = true;
-      console.error(`[dev-desktop] ${reason}——整体 teardown（进程树 SIGTERM→SIGKILL 兑底 + tmp 清理）`);
-      void killTree(children.map((c) => c.proc.pid)).then(() => {
-        rmSync(workDir, { recursive: true, force: true });
-        resolve(code);
+    // ②‘ WS 预绑定任务（W5）：已传 --workspace-root 时等 daemon ready（WS 端口可达）后读
+    //    dev-token + 发 workspace.open；成功一行日志，失败（超时/校验错）→
+    //    非零退出（预绑定意图明确，不静默放行）。
+    const prebindTask: Promise<string | null> =
+      workspaceRoot === undefined
+        ? Promise.resolve(null)
+        : prebindWorkspace(prebindProductionDeps(workspaceRoot)).then(
+            () => {
+              console.error(`[dev-desktop] workspace 预绑定成功：${workspaceRoot}`);
+              return null;
+            },
+            (err: unknown) => (err instanceof Error ? err.message : String(err)),
+          );
+
+    // ③ 任一子进程退出 / SIGINT / SIGTERM / 预绑定失败 → 整体 teardown + tmp 清理
+    return await new Promise<number>((resolve) => {
+      let settled = false;
+      const finish = (code: number, reason: string): void => {
+        if (settled) return;
+        settled = true;
+        console.error(`[dev-desktop] ${reason}——整体 teardown（进程树 SIGTERM→SIGKILL 兑底 + tmp 清理）`);
+        void killTree(children.map((c) => c.proc.pid)).then(() => {
+          rmSync(workDir, { recursive: true, force: true });
+          resolve(code);
+        });
+      };
+      for (const c of children) {
+        void c.proc.exited.then((code) => finish(code, `${c.name} 已退出（exit ${code}）`));
+      }
+      void prebindTask.then((err) => {
+        if (err !== null) finish(1, `workspace 预绑定失败（${err}）`);
       });
-    };
-    for (const c of children) {
-      void c.proc.exited.then((code) => finish(code, `${c.name} 已退出（exit ${code}）`));
-    }
-    void prebindTask.then((err) => {
-      if (err !== null) finish(1, `workspace 预绑定失败（${err}）`);
+      process.on("SIGINT", () => finish(0, "收到 SIGINT"));
+      process.on("SIGTERM", () => finish(0, "收到 SIGTERM"));
     });
-    process.on("SIGINT", () => finish(0, "收到 SIGINT"));
-    process.on("SIGTERM", () => finish(0, "收到 SIGTERM"));
-  });
+  } catch (e) {
+    // 编排面意外抛错（mkdtemp 后写 wrapper/spawn 抛出等）：尽力 teardown
+    //（已起子进程杀树 + tmp 清理）再上抛，入口兑底一行 ✗ 文案——不残留
+    // 未处理 rejection 堆栈与 workDir tmp 目录（fetch-rg 同款收口纪律）。
+    if (children.length > 0) {
+      await killTree(children.map((c) => c.proc.pid)).catch(() => undefined);
+    }
+    rmSync(workDir, { recursive: true, force: true });
+    throw e;
+  }
 }
 
 // import.meta.main 守卫：纯函数面被测试 import，导入不得触发编排副作用。
 if (import.meta.main) {
-  process.exit(await main());
+  try {
+    process.exit(await main());
+  } catch (e) {
+    console.error(`✗ dev:desktop：${e instanceof Error ? e.message : e}`);
+    process.exit(1);
+  }
 }

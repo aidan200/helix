@@ -235,7 +235,6 @@ export interface AgentConfigSystemBlock {
    * 缺省不携带（零 server / 旧 daemon 容忍）。
    */
   mcpServers?: ReadonlyArray<AgentConfigMcpServerRow>;
-  /** 派生说明位：kg-writer = 派生自 subagent-worker（工具集跟随 worker）；orchestrator 不携带。 */
   /** 派生面恒在工具（kg-writer = ["kg-update"]；orchestrator 不携带）。 */
   pinnedTools?: readonly string[];
   /**
