@@ -1718,7 +1718,7 @@ daemon 处理 `thinking.set` 后经 domain_events 单写队列落盘（TR-AD-5�
 | `override` | `string \| null` | 必填 | v0.11 | 会话覆盖意图（用户拖到的档）；null = 无覆盖 |
 | `effective` | `string \| null` | 必填 | v0.11 | 引擎按当前模型能力解析的生效档；null = 全链不支持（不传参，provider 默认） |
 
-### 16.6 model 族（13；含 model/auth 9 结果帧 + config 2 结果帧——auth/config 结果帧按 EVENT_CHANNELS 挂 model 通道）
+### 16.6 model 族（17；model 7 含 changed 广播 + auth 4 结果帧 + config 6 结果帧——auth/config 结果帧按 EVENT_CHANNELS 挂 model 通道）
 
 #### `model.changed`
 

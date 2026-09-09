@@ -5,6 +5,12 @@
  * 见 PROTOCOL.md §7：auth.* / protocol.* 握手期拒绝（发 error 帧后 close），
  * command.* 命令错误回执（发 error 帧，连接保持）。连接层异常（非 WS 帧垃圾
  * 数据等）不发帧直接 close，前端走重连状态机（集成契约 §8）。
+ *
+ * 命名体系历史注记：三代命名并存——早期 dot 小写（auth.missing_token）/
+ * snake_case（model_not_found）/ SCREAMING_E（KG_E_NOT_FOUND、WORKSPACE_E_*）；
+ * 新码统一 dot 小写（kg.bootstrap.not_eligible 起），旧码留史不删（前端
+ * 已消费，改码 = 线格式破坏）；KG_E_NOT_FOUND 与 kg.node.not_found 为同义
+ * 双码并存（修正面用后者，见 kg.node.not_found 行注）。
  */
 export type ErrorCode =
   | "auth.missing_token"

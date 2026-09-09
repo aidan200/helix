@@ -291,4 +291,47 @@ describe("fetch-rg：downloadToFile 下载面（超时/停滞/重试/进度）",
       await close();
     }
   });
+
+  test("HTTP 404 → 确定性错误不重试（免指数退避白等；版本 pin 错配/资产改名场景）", async () => {
+    let n = 0;
+    const [port, close] = await serve(() => {
+      n++;
+      return new Response("gone", { status: 404 });
+    });
+    try {
+      const dest = join(tmp(), "dl-404.bin");
+      await expect(
+        downloadToFile(`http://127.0.0.1:${port}/e`, dest, {
+          label: "t-404",
+          retries: 4,
+          backoffMs: 1,
+        }),
+      ).rejects.toThrow(/404/);
+      expect(n).toBe(1); // 未重试
+      expect(existsSync(dest)).toBe(false); // 半成品不残留
+    } finally {
+      await close();
+    }
+  });
+
+  test("HTTP 429 → 瞬态错误仍重试（限流非确定性，与 404 分道）", async () => {
+    let n = 0;
+    const [port, close] = await serve(() => {
+      n++;
+      return n === 1 ? new Response("slow down", { status: 429 }) : new Response("yes");
+    });
+    try {
+      const dest = join(tmp(), "dl-429.bin");
+      await downloadToFile(`http://127.0.0.1:${port}/f`, dest, {
+        label: "t-429",
+        retries: 3,
+        backoffMs: 1,
+        stallTimeoutMs: 5_000,
+      });
+      expect(readFileSync(dest, "utf8")).toBe("yes");
+      expect(n).toBe(2);
+    } finally {
+      await close();
+    }
+  });
 });

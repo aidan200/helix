@@ -172,7 +172,7 @@ export interface AuthVerifyCommand extends CommandFrame<AuthVerifyPayload> {
 
 /**
  * thinking.set 载荷：会话 thinking 档覆盖（P-1/F1.1）——信封 sessionId 必填
- *（per-session，仿 model.set L170-177 形态），下一 turn 生效。level 为 pi-ai
+ *（per-session，仿 model.set（ModelSetPayload）形态），下一 turn 生效。level 为 pi-ai
  * ThinkingLevel 字符串透传（AD-2：helix 不维护第二份档位枚举，SoT 在 pi-ai，
  * 协议层不校验未知档位）；无关闭态（未覆盖 = 不发命令）。chat.send 零字段
  *（AD-4①：thinking 是会话状态非逐消息参数，引擎 turn 开始读解析结果）。

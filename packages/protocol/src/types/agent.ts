@@ -23,7 +23,7 @@ export type ProfileKind =
 /** 可配置 profile 块 kind 双值（ProfileKind 子集）。 */
 export type ReadableProfileKind = "main-session" | "subagent-worker";
 
-/** 只读派生块 kind 两值（统一启停批：orchestrator 撤出，仅剩 worker 派生两 kind；orchestrator 编排归位批回归系统区首值）。 */
+/** 只读系统块 kind 三值（orchestrator 归位系统区首值 + kg-writer/code-reviewer 两派生 worker；详见文件头 ProfileKind 单点注释）。 */
 export type SystemProfileKind = "orchestrator" | "subagent-kg-writer" | "subagent-code-reviewer";
 
 /**

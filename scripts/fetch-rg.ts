@@ -8,7 +8,8 @@
  * bundle.resources 进包（T3.1 接线）；壳 spawn sidecar 时经 env
  * HELIX_RG_PATH 注入，daemon resolve-rg ①bundle 级消费（T1.1）。
  *
- * 两种获取形态：
+ * 两种获取形态（安装骨架单点 install-skeleton.ts，差异经 spec 注入——
+ * 本文件承载 rg 特有面：资产 pin/平台断言/落位形态）：
  * - 默认：GitHub releases 固定版本下载（pin 版本号 + 分平台 sha256 校验，
  *   校验失败即删档报错）→ 解压（tar.gz / zip 统一走 bsdtar `tar -xf`，
  *   mac 与 Windows 10+ 系统 tar 均支持 zip）→ chmod +x（仅 darwin 档）；
@@ -28,24 +29,21 @@
  *   bun scripts/fetch-rg.ts [--platform darwin-arm64|windows-x64]  # 固定版本下载
  *   bun scripts/fetch-rg.ts --from <path> [--platform <档>]        # 本地拷贝
  */
-import {
-  chmodSync,
-  closeSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  openSync,
-  readSync,
-  renameSync,
-  rmSync,
-} from "node:fs";
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { chmodSync, copyFileSync, existsSync, openSync, readSync, closeSync, rmSync, statSync } from "node:fs";
+import { join } from "node:path";
 
-import { platformSpec, resolvePlatformArg, type DesktopPlatform } from "./desktop-platform";
+import { platformSpec, type DesktopPlatform } from "./desktop-platform";
+import {
+  makeInstallers,
+  runInstallMain,
+  type InstallerSet,
+  type InstallSkeletonSpec,
+} from "./install-skeleton";
+
+// 下载面/校验工具单点已迁 install-skeleton.ts（W4 归一）——此处 re-export
+// 保既有消费面（fetch-codegraph import、fetch-rg.test.ts、TR-104 文档锚）。
+export { downloadToFile, sha256OfFile, type DownloadOptions } from "./install-skeleton";
+export type { InstallResult } from "./install-skeleton";
 
 const root = join(import.meta.dir, "..");
 
@@ -91,124 +89,6 @@ export function rgDest(platform: DesktopPlatform): string {
 
 /** mac 档落位常量（darwin-arm64 缺省档兼容面；dev-desktop 消费）。 */
 export const RG_DEST = rgDest("darwin-arm64");
-
-export function sha256OfFile(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
-
-/** downloadToFile 可调参数（测试注小值用）。 */
-export interface DownloadOptions {
-  /** 连接/响应头总限（AbortSignal.timeout），缺省 60s。 */
-  connectTimeoutMs?: number;
-  /** 单次读流无数据停滞限，缺省 30s（TCP 半死检测——连着但不传数据）。 */
-  stallTimeoutMs?: number;
-  /** 重试次数上限（含首次），缺省 4。 */
-  retries?: number;
-  /** 重试退避基数（第 n 次失败等 n×backoff），缺省 5s。 */
-  backoffMs?: number;
-  /** 日志前缀（"fetch-rg" / "fetch-codegraph"）。 */
-  label?: string;
-}
-
-/**
- * 下载面单点（裸 fetch 曾在 CI 挂死半小时：零超时遇 TCP 半死即永久挂起）：
- * 连接超时 + 读流停滞检测 + 指数退避重试 + 进度日志（每 8MB 一行），
- * 半成品失败即删。redirect 默认跟随（GitHub release 资产 302 到 CDN）。
- */
-export async function downloadToFile(
-  url: string,
-  dest: string,
-  opts: DownloadOptions = {},
-): Promise<void> {
-  const {
-    connectTimeoutMs = 60_000,
-    stallTimeoutMs = 30_000,
-    retries = 4,
-    backoffMs = 5_000,
-    label = "download",
-  } = opts;
-  let lastErr: unknown = "unknown";
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      await downloadOnce(url, dest, { connectTimeoutMs, stallTimeoutMs, label, attempt });
-      return;
-    } catch (e) {
-      lastErr = e;
-      rmSync(dest, { force: true }); // 半成品不残留（sha256 兜底之外的第二道卫生）
-      if (attempt === retries) break;
-      const wait = attempt * backoffMs;
-      console.warn(
-        `${label}: 下载失败（第 ${attempt}/${retries} 次）：${e instanceof Error ? e.message : String(e)}；${wait / 1000}s 后重试`,
-      );
-      await Bun.sleep(wait);
-    }
-  }
-  throw new Error(
-    `${label}: 下载重试耗尽（${retries} 次）：${url}：${e2msg(lastErr)}`,
-  );
-}
-
-function e2msg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
-async function downloadOnce(
-  url: string,
-  dest: string,
-  o: { connectTimeoutMs: number; stallTimeoutMs: number; label: string; attempt: number },
-): Promise<void> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(o.connectTimeoutMs) });
-  if (!res.ok || !res.body) {
-    throw new Error(`HTTP ${res.status} ${res.statusText}`);
-  }
-  const total = Number(res.headers.get("content-length") ?? 0);
-  console.log(
-    `${o.label}: 下载开始（第 ${o.attempt} 次）${total ? `，共 ${(total / 1024 / 1024).toFixed(1)}MB` : ""}：${url}`,
-  );
-  const reader = res.body.getReader();
-  const writer = Bun.file(dest).writer();
-  let received = 0;
-  let nextLog = 8 * 1024 * 1024;
-  // 停滞检测：单一定时器循环重置（每块数据到达后 clearTimeout 重排），
-  // 循环结束/出错 finally 清理——不可每轮新建 Bun.sleep 竞速后不取消：
-  // 赢竞速的悬挂定时器持有事件循环，下载成功后进程仍挂起 stallTimeoutMs 才退出。
-  let stallTimer: ReturnType<typeof setTimeout> | undefined;
-  let stallReject: ((e: Error) => void) | undefined;
-  const stall = new Promise<never>((_, reject) => {
-    stallReject = reject;
-  });
-  stall.catch(() => {}); // 竞速输家 promise 显式吞掉防 unhandled rejection
-  const armStall = () => {
-    clearTimeout(stallTimer);
-    stallTimer = setTimeout(
-      () => stallReject?.(new Error(`数据流停滞超过 ${o.stallTimeoutMs / 1000}s（连接半死）`)),
-      o.stallTimeoutMs,
-    );
-  };
-  armStall();
-  try {
-    for (;;) {
-      const chunk = await Promise.race([reader.read(), stall]);
-      if (chunk.done) break;
-      await writer.write(chunk.value);
-      received += chunk.value.byteLength;
-      if (received >= nextLog) {
-        console.log(
-          `${o.label}: 进度 ${(received / 1024 / 1024).toFixed(1)}MB${total ? ` / ${(total / 1024 / 1024).toFixed(1)}MB` : ""}`,
-        );
-        nextLog += 8 * 1024 * 1024;
-      }
-      armStall();
-    }
-    await writer.end();
-    console.log(`${o.label}: 下载完成 ${(received / 1024 / 1024).toFixed(1)}MB → ${dest}`);
-  } catch (e) {
-    await writer.end().catch(() => {});
-    throw e;
-  } finally {
-    clearTimeout(stallTimer);
-  }
-}
 
 /**
  * lipo -info 断言 arm64 单架构（darwin 档反向断言）。
@@ -291,132 +171,68 @@ export async function isInstalled(
   }
 }
 
-export interface InstallResult {
-  /** true = 幂等跳过（已存在且校验通过）。 */
-  skipped: boolean;
-  path: string;
-}
+/**
+ * rg 安装骨架差异面（install-skeleton.ts 五段骨架的消费声明）：
+ * 单文件落位（rename 原子替换）、lipo/PE 平台断言、pin 资产解析、
+ * 解压后固定包内路径定位。
+ */
+const rgSpec: InstallSkeletonSpec = {
+  label: "fetch-rg",
+  tmpPrefix: "helix-rg-",
+  destIsTree: false,
+  assetFor: rgAsset,
+  destFor: rgDest,
+  isInstalledAt: isInstalled,
+  assertSource: (src) => {
+    if (!existsSync(src)) {
+      throw new Error(`--from 源不存在：${src}`);
+    }
+  },
+  place: async (src, tmp, platform) => {
+    try {
+      // copy 同入守护 try：copyFileSync 自身抛错（盘满/权限）时半成品 tmp 一并清理
+      copyFileSync(src, tmp);
+      if (!platformSpec(platform).isWindows) chmodSync(tmp, 0o755);
+      await assertBinaryForPlatform(tmp, platform);
+    } catch (e) {
+      rmSync(tmp, { force: true });
+      throw e;
+    }
+  },
+  locateInArchive: (extractDir, platform) => {
+    const spec = platformSpec(platform);
+    const extracted = join(
+      extractDir,
+      `ripgrep-${RG_VERSION}-${spec.rgTriple}`,
+      spec.rgBinaryName,
+    );
+    if (!existsSync(extracted)) {
+      throw new Error(`包内未找到预期 ${spec.rgBinaryName}：${extracted}`);
+    }
+    return extracted;
+  },
+  fromArgHint: "本地 rg 路径",
+};
+
+const installers = makeInstallers(rgSpec);
 
 /**
  * `--from <path>` 形态：本地拷贝 → chmod +x（仅 darwin 档）→ 平台断言。
  * 断言失败删档报错（不落位半成品）。
  */
-export async function installFromLocal(
-  src: string,
-  dest: string = RG_DEST,
-  platform: DesktopPlatform = "darwin-arm64",
-): Promise<InstallResult> {
-  if (!existsSync(src)) {
-    throw new Error(`--from 源不存在：${src}`);
-  }
-  if (await isInstalled(dest, platform)) {
-    console.log(`✓ fetch-rg: 已存在且 ${platform} 校验通过，幂等跳过：${dest}`);
-    return { skipped: true, path: dest };
-  }
-  mkdirSync(dirname(dest), { recursive: true });
-  const tmp = `${dest}.tmp-${process.pid}`;
-  copyFileSync(src, tmp);
-  try {
-    if (!platformSpec(platform).isWindows) chmodSync(tmp, 0o755);
-    await assertBinaryForPlatform(tmp, platform);
-  } catch (e) {
-    rmSync(tmp, { force: true });
-    throw e;
-  }
-  renameSync(tmp, dest);
-  console.log(`✓ fetch-rg: --from 拷贝完成：${src} → ${dest}`);
-  return { skipped: false, path: dest };
-}
-
-/** 解压单点：tar.gz / zip 统一走 bsdtar `tar -xf`（mac 与 Windows 10+ 系统 tar 均支持 zip 自嗅探）。 */
-async function extractArchive(archive: string, destDir: string): Promise<void> {
-  const proc = Bun.spawn({
-    cmd: ["tar", "-xf", archive, "-C", destDir],
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const err = await new Response(proc.stderr).text();
-  if ((await proc.exited) !== 0) {
-    throw new Error(`解压失败：${archive}：${err.trim()}`);
-  }
-}
-
+export const installFromLocal: InstallerSet["installFromLocal"] = installers.installFromLocal;
 /**
  * 校验 + 解压安装（tar.gz / zip 双格式）：sha256 不符即删档抛错；通过则
  * 解出 rg 走 installFromLocal 同一落位面（chmod + 平台断言 + 幂等）。
  */
-export async function installFromArchive(
-  archive: string,
-  dest: string = RG_DEST,
-  platform: DesktopPlatform = "darwin-arm64",
-): Promise<InstallResult> {
-  const asset = rgAsset(platform);
-  const actual = sha256OfFile(archive);
-  if (actual !== asset.sha256) {
-    rmSync(archive, { force: true });
-    throw new Error(
-      `sha256 校验失败（已删除 ${archive}）：期望 ${asset.sha256}，实际 ${actual}`,
-    );
-  }
-  const extractDir = mkdtempSync(join(tmpdir(), "helix-rg-extract-"));
-  try {
-    await extractArchive(archive, extractDir);
-    const extracted = join(
-      extractDir,
-      `ripgrep-${RG_VERSION}-${platformSpec(platform).rgTriple}`,
-      platformSpec(platform).rgBinaryName,
-    );
-    if (!existsSync(extracted)) {
-      throw new Error(`包内未找到预期 ${platformSpec(platform).rgBinaryName}：${extracted}`);
-    }
-    return await installFromLocal(extracted, dest, platform);
-  } finally {
-    rmSync(extractDir, { recursive: true, force: true });
-  }
-}
-
+export const installFromArchive: InstallerSet["installFromArchive"] = installers.installFromArchive;
 /** 默认形态：固定版本下载 → sha256 校验 → 解压落位（downloadToFile 带超时/停滞/重试）。 */
-export async function installFromRelease(
-  dest: string = RG_DEST,
-  platform: DesktopPlatform = "darwin-arm64",
-): Promise<InstallResult> {
-  if (await isInstalled(dest, platform)) {
-    console.log(`✓ fetch-rg: 已存在且 ${platform} 校验通过，幂等跳过：${dest}`);
-    return { skipped: true, path: dest };
-  }
-  const asset = rgAsset(platform);
-  const archive = join(mkdtempSync(join(tmpdir(), "helix-rg-dl-")), asset.name);
-  try {
-    await downloadToFile(asset.url, archive, { label: "fetch-rg" });
-    return await installFromArchive(archive, dest, platform);
-  } finally {
-    rmSync(dirname(archive), { recursive: true, force: true });
-  }
-}
-
-async function main(): Promise<void> {
-  const platform = resolvePlatformArg(process.argv, process.env);
-  const dest = rgDest(platform);
-  const fromIdx = process.argv.indexOf("--from");
-  if (fromIdx !== -1) {
-    const src = process.argv[fromIdx + 1];
-    if (!src || src.startsWith("-")) {
-      console.error("✗ fetch-rg: --from 需要本地 rg 路径参数");
-      process.exit(1);
-    }
-    await installFromLocal(src, dest, platform);
-    return;
-  }
-  await installFromRelease(dest, platform);
-}
+export const installFromRelease: InstallerSet["installFromRelease"] = installers.installFromRelease;
 
 // import.meta.main 守卫：常量/函数被测试 import，导入不得触发下载副作用。
 if (import.meta.main) {
   try {
-    await main();
-    const platform = resolvePlatformArg(process.argv, process.env);
-    const dest = rgDest(platform);
-    const { statSync } = await import("node:fs");
+    const { dest, platform } = await runInstallMain(rgSpec, installers);
     const mb = (statSync(dest).size / 1024 / 1024).toFixed(1);
     console.log(`✓ fetch-rg: ${dest}（${mb}MB, ripgrep ${RG_VERSION}, ${platform}）`);
   } catch (e) {

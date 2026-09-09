@@ -2,7 +2,7 @@
  * 握手消息（契约 §2；F(6).2）。
  *
  * hello 为握手期专用 C→S 消息（不在命令目录内）；S→C 应答复用事件目录的
- * connection.welcome / connection.error（canonical 定义在 events.ts，
+ * connection.welcome / connection.error（canonical 定义在 events/notification.ts，
  * 此处组合为 HandshakeResponse，避免平行定义，AG-13）。
  */
 import type { CommandFrame, PROTOCOL_VERSION } from "./envelope";

@@ -31,18 +31,24 @@ export type FrameVersion = 0 | typeof PROTOCOL_VERSION;
 export const SYSTEM_SESSION_ID = "__system__" as const;
 
 /**
- * 事件类型学通道（契约 A §2；八族数据/会话通道 + notification 系统通道）。
+ * 事件类型学通道（契约 A §2；数据/会话族 + notification 系统通道）。
  *
  * chat / agent / thinking / usage / compaction 为 v0/v0.1 既有五族归位；
  * session / model 为 v0.2 新增两族；trace 为 v0.4 新增族（trace.query.result
  * 点对点结果帧，iter-20260819-erio T2.1）；web 为 v0.7 新增族（T4 联网
  * 状态图标：web.status/web.stop 点对点结果帧 + web.status.changed 广播）；
  * kg 为 kg 批新增族（iter-20260825-11fo T5.3：P-1 六命令的点对点结果帧
- * 回执；O-6 轮询裁决零推送事件，本族无广播事件）；
- * interaction 为占位族（仅类型定义，
+ * 回执；O-6 轮询裁决零推送事件，本族无广播事件）；workspace 为 workspace
+ * 批新增族（W1 绑定闭环：workspace.get/open 点对点回执 +
+ * workspace_changed 全连接广播）；mcp 为 mcp 批新增族（MCP server
+ * 标准接入：mcp.servers.* 与 mcp.tools.* 回执 + mcp.status.changed 状态
+ * 广播）；interaction 为占位族（仅类型定义，
  * 无事件挂靠）；notification 承载会话无关系统事件（connection.*，
- * sessionId = SYSTEM_SESSION_ID）。每事件所属 channel 在 events.ts 以
- * 判别字面量登记（EVENT_CHANNELS 为运行时目录，daemon 下发侧消费）。
+ * sessionId = SYSTEM_SESSION_ID）。每事件所属 channel 在 events/ 目录
+ * 以判别字面量登记（EVENT_CHANNELS 为运行时目录，daemon 下发侧消费）；
+ * 通道归属例外（type 前缀 ≠ channel）：auth.* 与 config.* 结果帧挂 model
+ * 通道、task.changed 挂 notification 通道——均以 EVENT_CHANNELS 与 PROTOCOL.md
+ * §16.6/§16.1 登记为准，非默认推断面。
  * 扩展纪律：新增族 = additive，不动分发器（TR-AD-18 同构口径）。
  */
 export type Channel =
@@ -84,9 +90,11 @@ export interface CommandFrame<T = unknown> {
   /** 消息载荷，形状由 type 决定 */
   payload: T;
   /**
-   * 会话路由位（v0.2 新增，AD-4）：**会话作用域命令必填**（chat.* /
-   * session.loadHistory / session.delete / session.subscribe / model.set /
-   * model.get——daemon 按此路由到目标会话）；全局命令（session.list /
+   * 会话路由位（v0.2 新增，AD-4）：**会话作用域命令必填**（如 chat.* /
+   * session.loadHistory / session.subscribe / session.unsubscribe /
+   * session.delete / model.set / model.get / thinking.set / diff.get
+   * ——daemon 按此路由到目标会话；全集以各命令注释「信封 sessionId
+   * 必填」为准，此处非穷举）；全局命令（如 session.list /
    * model.set_default / model.get_default / auth.*）省略。类型层可选
    * （v0/v0.1 命令帧不带仍合法），必填纪律由 v0.2 客户端保证。
    */

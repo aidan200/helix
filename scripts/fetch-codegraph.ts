@@ -15,7 +15,8 @@
  * HELIX_CODEGRAPH_PATH 注入包内 launcher 路径（Resources/codegraph/bin/
  * codegraph[.cmd]），daemon resolve-codegraph ①bundle 级消费。
  *
- * 两种获取形态：
+ * 两种获取形态（安装骨架单点 install-skeleton.ts，差异经 spec 注入——
+ * 本文件承载 codegraph 特有面：资产 pin/三锚守护/目录树落位）：
  * - 默认：GitHub releases 固定版本下载（pin 版本号 + 分平台 sha256 校验，
  *   校验失败即删档报错）→ 解压整树（tar.gz / zip 统一走 bsdtar `tar -xf`）；
  * - `--from <dir>`：本地 bundle 目录直接拷贝（离线/加速场景），同样过守护。
@@ -35,22 +36,19 @@
  *   bun scripts/fetch-codegraph.ts [--platform darwin-arm64|windows-x64]  # 固定版本下载
  *   bun scripts/fetch-codegraph.ts --from <dir> [--platform <档>]         # 本地 bundle 目录拷贝
  */
-import {
-  chmodSync,
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-  statSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { chmodSync, cpSync, existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { join } from "node:path";
 
-import { platformSpec, resolvePlatformArg, type DesktopPlatform } from "./desktop-platform";
-import { assertBinaryForPlatform, downloadToFile, sha256OfFile } from "./fetch-rg";
+import { platformSpec, type DesktopPlatform } from "./desktop-platform";
+import { assertBinaryForPlatform } from "./fetch-rg";
+import {
+  makeInstallers,
+  runInstallMain,
+  type InstallerSet,
+  type InstallSkeletonSpec,
+} from "./install-skeleton";
+
+export type { InstallResult } from "./install-skeleton";
 
 const root = join(import.meta.dir, "..");
 
@@ -144,76 +142,34 @@ export async function isInstalled(
   }
 }
 
-export interface InstallResult {
-  /** true = 幂等跳过（已存在且校验通过）。 */
-  skipped: boolean;
-  path: string;
-}
-
 /**
- * `--from <dir>` 形态：本地 bundle 目录整树拷贝 → 三锚守护。
- * 守护失败删档报错（不落位半成品）。
+ * codegraph 安装骨架差异面（install-skeleton.ts 五段骨架的消费声明）：
+ * 目录树落位（rm 旧树再 rename）、三锚守护、pin 资产解析、顶层目录
+ * 动态探测（不硬编码 target 段名，双档通用）。
  */
-export async function installFromLocal(
-  srcDir: string,
-  destDir: string = CODEGRAPH_DEST_DIR,
-  platform: DesktopPlatform = "darwin-arm64",
-): Promise<InstallResult> {
-  if (!existsSync(srcDir) || !statSync(srcDir).isDirectory()) {
-    throw new Error(`--from 源不是已存在的 bundle 目录：${srcDir}`);
-  }
-  if (await isInstalled(destDir, platform)) {
-    console.log(`✓ fetch-codegraph: 已存在且守护通过，幂等跳过：${destDir}`);
-    return { skipped: true, path: destDir };
-  }
-  mkdirSync(dirname(destDir), { recursive: true });
-  const tmp = `${destDir}.tmp-${process.pid}`;
-  rmSync(tmp, { recursive: true, force: true });
-  cpSync(srcDir, tmp, { recursive: true });
-  try {
-    await assertBundleTree(tmp, platform);
-  } catch (e) {
-    rmSync(tmp, { recursive: true, force: true });
-    throw e;
-  }
-  rmSync(destDir, { recursive: true, force: true });
-  renameSync(tmp, destDir);
-  console.log(`✓ fetch-codegraph: --from 拷贝完成：${srcDir} → ${destDir}`);
-  return { skipped: false, path: destDir };
-}
-
-/**
- * 校验 + 解压安装（tar.gz / zip 双格式）：sha256 不符即删档抛错；通过则
- * 解出 bundle 树走 installFromLocal 同一落位面（三锚守护 + 幂等）。
- */
-export async function installFromArchive(
-  archive: string,
-  destDir: string = CODEGRAPH_DEST_DIR,
-  platform: DesktopPlatform = "darwin-arm64",
-): Promise<InstallResult> {
-  const asset = codegraphAsset(platform);
-  const actual = sha256OfFile(archive);
-  if (actual !== asset.sha256) {
-    rmSync(archive, { force: true });
-    throw new Error(
-      `sha256 校验失败（已删除 ${archive}）：期望 ${asset.sha256}，实际 ${actual}`,
-    );
-  }
-  const extractDir = mkdtempSync(join(tmpdir(), "helix-codegraph-extract-"));
-  try {
-    // tar.gz / zip 统一走 bsdtar `tar -xf`（mac 与 Windows 10+ 系统 tar
-    // 均支持 zip 自嗅探）
-    const proc = Bun.spawn({
-      cmd: ["tar", "-xf", archive, "-C", extractDir],
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const err = await new Response(proc.stderr).text();
-    if ((await proc.exited) !== 0) {
-      throw new Error(`解压失败：${archive}：${err.trim()}`);
+const codegraphSpec: InstallSkeletonSpec = {
+  label: "fetch-codegraph",
+  tmpPrefix: "helix-codegraph-",
+  destIsTree: true,
+  assetFor: codegraphAsset,
+  destFor: () => CODEGRAPH_DEST_DIR,
+  isInstalledAt: isInstalled,
+  assertSource: (srcDir) => {
+    if (!existsSync(srcDir) || !statSync(srcDir).isDirectory()) {
+      throw new Error(`--from 源不是已存在的 bundle 目录：${srcDir}`);
     }
-    // 官方包结构：单一顶层目录 codegraph-<target>/（BUNDLING.md）——
-    // 动态识别顶层目录，不硬编码 target 段名（双档通用）
+  },
+  place: async (srcDir, tmp, platform) => {
+    try {
+      cpSync(srcDir, tmp, { recursive: true });
+      await assertBundleTree(tmp, platform);
+    } catch (e) {
+      rmSync(tmp, { recursive: true, force: true });
+      throw e;
+    }
+  },
+  locateInArchive: (extractDir) => {
+    // 官方包结构：单一顶层目录 codegraph-<target>/（BUNDLING.md）
     const topLevels = readdirSync(extractDir).filter((n) => !n.startsWith("."));
     if (topLevels.length !== 1) {
       throw new Error(`包顶层结构异常（期望单一目录）：${topLevels.join(", ")}`);
@@ -222,51 +178,30 @@ export async function installFromArchive(
     if (!statSync(extracted).isDirectory()) {
       throw new Error(`包顶层不是目录：${extracted}`);
     }
-    return await installFromLocal(extracted, destDir, platform);
-  } finally {
-    rmSync(extractDir, { recursive: true, force: true });
-  }
-}
+    return extracted;
+  },
+  fromArgHint: "本地 bundle 目录",
+};
 
+const installers = makeInstallers(codegraphSpec);
+
+/**
+ * `--from <dir>` 形态：本地 bundle 目录整树拷贝 → 三锚守护。
+ * 守护失败删档报错（不落位半成品）。
+ */
+export const installFromLocal: InstallerSet["installFromLocal"] = installers.installFromLocal;
+/**
+ * 校验 + 解压安装（tar.gz / zip 双格式）：sha256 不符即删档抛错；通过则
+ * 解出 bundle 树走 installFromLocal 同一落位面（三锚守护 + 幂等）。
+ */
+export const installFromArchive: InstallerSet["installFromArchive"] = installers.installFromArchive;
 /** 默认形态：固定版本下载（downloadToFile 带超时/停滞/重试）→ sha256 校验 → 解压落位。 */
-export async function installFromRelease(
-  destDir: string = CODEGRAPH_DEST_DIR,
-  platform: DesktopPlatform = "darwin-arm64",
-): Promise<InstallResult> {
-  if (await isInstalled(destDir, platform)) {
-    console.log(`✓ fetch-codegraph: 已存在且守护通过，幂等跳过：${destDir}`);
-    return { skipped: true, path: destDir };
-  }
-  const asset = codegraphAsset(platform);
-  const archive = join(mkdtempSync(join(tmpdir(), "helix-codegraph-dl-")), asset.name);
-  try {
-    await downloadToFile(asset.url, archive, { label: "fetch-codegraph" });
-    return await installFromArchive(archive, destDir, platform);
-  } finally {
-    rmSync(dirname(archive), { recursive: true, force: true });
-  }
-}
-
-async function main(): Promise<void> {
-  const platform = resolvePlatformArg(process.argv, process.env);
-  const fromIdx = process.argv.indexOf("--from");
-  if (fromIdx !== -1) {
-    const src = process.argv[fromIdx + 1];
-    if (!src || src.startsWith("-")) {
-      console.error("✗ fetch-codegraph: --from 需要本地 bundle 目录参数");
-      process.exit(1);
-    }
-    await installFromLocal(src, CODEGRAPH_DEST_DIR, platform);
-    return;
-  }
-  await installFromRelease(CODEGRAPH_DEST_DIR, platform);
-}
+export const installFromRelease: InstallerSet["installFromRelease"] = installers.installFromRelease;
 
 // import.meta.main 守卫：常量/函数被测试 import，导入不得触发下载副作用。
 if (import.meta.main) {
   try {
-    await main();
-    const platform = resolvePlatformArg(process.argv, process.env);
+    const { platform } = await runInstallMain(codegraphSpec, installers);
     console.log(
       `✓ fetch-codegraph: ${CODEGRAPH_DEST_DIR}（codegraph ${CODEGRAPH_VERSION}, ${platform} bundle）`,
     );
