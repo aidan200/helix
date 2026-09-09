@@ -105,6 +105,16 @@ export function taskElapsedMs(t: Pick<TaskSummaryDto, "status" | "createdAt" | "
   return Math.max(0, to - from);
 }
 
+/** 时长前缀文案 key（列表行/详情头共用单点）：运行/暂停中=正在运行、
+ * pending=创建于、终态=总时长——原两处各自维护的重复推导下沉（W3 #2.33）。 */
+export function taskDurKey(status: TaskStatus): "tk.dur.running" | "tk.dur.createdAgo" | "tk.dur.final" {
+  return status === "running" || status === "paused"
+    ? "tk.dur.running"
+    : status === "pending"
+      ? "tk.dur.createdAgo"
+      : "tk.dur.final";
+}
+
 /** 时长分档（i18n 前结构化；页面经 t() 组装「已运行 N 分钟」等）。 */
 export type ElapsedSpan =
   | { key: "sec"; n: number }
@@ -275,9 +285,11 @@ export function tasksReducer(state: TasksPageState, action: TasksAction): TasksP
       return { ...state, pendingLifecycle: action.kind, confirmBox: "none" };
     case "lifecycle-result": {
       // pause/resume/cancel 回执（ok+status）：行 + 选中详情同步翻；changed 帧随后重拉收口
+      // （W3 #2.33：回执不带 updatedAt，保留原值不覆盖——客户端时钟伪造会与服务端
+      // createdAt 混算致时钟偏斜下瞬态失真）
       const tasks = state.tasks.map((t) =>
         t.jobId === action.jobId && action.status !== undefined
-          ? { ...t, status: action.status, updatedAt: new Date().toISOString() }
+          ? { ...t, status: action.status }
           : t,
       );
       const detail =

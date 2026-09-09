@@ -13,6 +13,7 @@ import type { TaskDetailDto } from "@helix/protocol";
 import { cn } from "@/shared/lib/cn";
 import {
   lifecycleActions,
+  taskDurKey,
   taskElapsedMs,
   type TaskLifecycleAction,
 } from "../model/tasks-model";
@@ -63,13 +64,7 @@ export default function TaskDetailHead({
   onOpenProject: () => void;
 }) {
   const actions = lifecycleActions(detail.status);
-  const durKey =
-    detail.status === "running" || detail.status === "paused"
-      ? "tk.dur.running"
-      : detail.status === "pending"
-        ? "tk.dur.createdAgo"
-        : "tk.dur.final";
-  const dur = t(durKey, { dur: fmtElapsed(taskElapsedMs(detail, now), t) });
+  const dur = t(taskDurKey(detail.status), { dur: fmtElapsed(taskElapsedMs(detail, now), t) });
   const src = detail.createdBy === "chat" ? t("tk.head.srcChat") : t("tk.head.srcPage");
   return (
     <div className="tk-head" data-tk-detail data-id={detail.jobId}>

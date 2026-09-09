@@ -11,6 +11,7 @@ import type { TaskStatus, TaskSummaryDto } from "@helix/protocol";
 import { cn } from "@/shared/lib/cn";
 import {
   projectOptions,
+  taskDurKey,
   taskElapsedMs,
   type TasksListView,
   type TasksPageState,
@@ -64,13 +65,7 @@ function TaskRow({
         : "";
     ratio = (p?.percent ?? 0) / 100;
   }
-  const durKey =
-    task.status === "running" || task.status === "paused"
-      ? "tk.dur.running"
-      : task.status === "pending"
-        ? "tk.dur.createdAgo"
-        : "tk.dur.final";
-  const dur = t(durKey, { dur: fmtElapsed(taskElapsedMs(task, now), t) });
+  const dur = t(taskDurKey(task.status), { dur: fmtElapsed(taskElapsedMs(task, now), t) });
   return (
     <div
       className={cn(

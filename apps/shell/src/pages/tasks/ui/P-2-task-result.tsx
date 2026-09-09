@@ -16,7 +16,11 @@ export default function TaskResultPane({
   artifacts: TaskArtifactsDto;
   t: T;
 }) {
-  const withArtifact = artifacts.stages.filter((s) => s.artifact !== null);
+  // filter 谓词收窄 artifact 非 null（W3 #2.33）：map 内不再需要非空断言
+  const withArtifact = artifacts.stages.filter(
+    (s): s is TaskArtifactsDto["stages"][number] & { artifact: { summary: string; body?: string } } =>
+      s.artifact !== null,
+  );
   if (withArtifact.length === 0) {
     return <EmptyPanel marker="artifacts" title={t("tk.result.emptyTitle")} sub={t("tk.result.emptySub")} />;
   }
@@ -28,10 +32,10 @@ export default function TaskResultPane({
             <span className="tk-art-name">{stage.name}</span>
             <PhaseBadge kind="stage" status={stage.status} label={t(`tk.stage.${stage.status}`)} />
           </div>
-          <div className="tk-art-sum">{stage.artifact!.summary}</div>
-          {stage.artifact!.body !== undefined && (
+          <div className="tk-art-sum">{stage.artifact.summary}</div>
+          {stage.artifact.body !== undefined && (
             <div className="tk-art-body" data-tk-art-body>
-              {stage.artifact!.body}
+              {stage.artifact.body}
             </div>
           )}
         </div>

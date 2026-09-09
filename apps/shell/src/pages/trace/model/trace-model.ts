@@ -494,8 +494,8 @@ export function traceReducer(s: TracePageState, a: TraceAction): TracePageState 
         total: a.page.total,
         hasMore: a.page.hasMore,
       };
-      if (append) return next; // 追加不收口视图态（保持 success）
-      if (!append && isUnfilteredEcho(a.echo) && a.rows.length > 0) {
+      if (append) return next; // 追加不收口视图态（保持 success）；非追加才走视图收口
+      if (isUnfilteredEcho(a.echo) && a.rows.length > 0) {
         next.latestEventTs = a.rows[0]!.ts; // 参考零点 = 会话最新事件 ts
       }
       if (a.page.total === 0) {
