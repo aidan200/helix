@@ -276,6 +276,7 @@ export const zhCN = {
         hide: "收起",
         contentLoading: "正文加载中…",
         addSkill: "添加技能",
+        importFail: "导入失败：文件读取错误",
         addModeForm: "页面编写",
         addModeFile: "导入文件",
         fieldName: "技能名（目录名：字母数字开头，可含 . _ -）",
@@ -579,6 +580,7 @@ export const zhCN = {
     skippedToast: "未生效：{reason}",
     writeFailToast: "写入失败 · {message}",
     notConnected: "未连接 daemon",
+    writePendingToast: "上一项保存中，请稍候再操作",
     switchOn: "启用",
     switchOff: "停用",
     // base prompt 批：base 段系统提示词查看区（折叠懒查询）

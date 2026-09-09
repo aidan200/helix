@@ -186,14 +186,15 @@ describe("stripFrontmatter / mergeUserSkillRows（纯函数）", () => {
     const deploy = rows.find((r) => r.name === "deploy-helper")!;
     expect(deploy.enabledMain).toBe(false);
     expect(deploy.enabledSub).toBe(true);
-    // sub 独有行兜底（main 缺行 = 默认启用 + 描述取自 sub）
+    // sub 独有行兜底（main 缺行 → 保守报禁（TR-125 user 技能显式启用制，
+    // W3 #2.32：缺省回落 true 会误报「启用」）+ 描述取自 sub）
     const subOnly = mergeUserSkillRows({
       profiles: [
         { ...listPayload.profiles[0]!, skills: [] },
         listPayload.profiles[1]!,
       ],
     });
-    expect(subOnly.find((r) => r.name === "hello-skill")!.enabledMain).toBe(true);
+    expect(subOnly.find((r) => r.name === "hello-skill")!.enabledMain).toBe(false);
   });
 });
 

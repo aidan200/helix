@@ -269,6 +269,7 @@ export const enUS = {
         hide: "Hide",
         contentLoading: "Loading content…",
         addSkill: "Add skill",
+        importFail: "Import failed: file read error",
         addModeForm: "Write here",
         addModeFile: "Import file",
         fieldName: "Skill name (directory: alphanumeric start, . _ - allowed)",
@@ -571,6 +572,7 @@ export const enUS = {
     skippedToast: "Not applied: {reason}",
     writeFailToast: "Write failed · {message}",
     notConnected: "Not connected to daemon",
+    writePendingToast: "Previous change is still saving — try again shortly",
     switchOn: "On",
     switchOff: "Off",
     // base prompt batch: base-segment system prompt viewer (lazy query on expand)

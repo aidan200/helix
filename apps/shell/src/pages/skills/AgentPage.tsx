@@ -289,7 +289,11 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
   /** 写面单飞：pending 非空不再发（结果帧无回显，同刻至多一条在途）。 */
   const onToggle = useCallback(
     (kind: AgentKind | SystemAgentKind, resourceType: WriteResource, name: string, enabled: boolean) => {
-      if (stateRef.current.pending.size > 0) return;
+      if (stateRef.current.pending.size > 0) {
+        // 在途期点击不再静默吞（用户感知像失灵）——toast 交代单飞纪律
+        toast.push("warn", t("agents.writePendingToast"));
+        return;
+      }
       dispatch({ type: "toggle-started", kind, resourceType, name });
       lastWriteRef.current = { kind, resourceType, name };
       if (!sendAgentConfigSetEnabled({ profileKind: kind, resourceType, name, enabled })) {
