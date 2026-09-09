@@ -214,9 +214,11 @@ export class WriteQueue {
     );
     this.markPendingSyncNotifiedStmt = this.db.prepare("UPDATE pending_sync SET notified = 1 WHERE session_id = ?");
     this.deleteSessionPendingSync = this.db.prepare("DELETE FROM pending_sync WHERE session_id = ?");
-    // 主会话台账行清理（main-session plan 批）：语句复用 prepareWorkLedgerStatements
-    // 工厂（零新 SQL 文本；AG-06 写语句宿主仍仅本文件）
-    this.deleteSessionWorkItems = prepareWorkLedgerStatements(this.db).deleteWorkItemsByInstance;
+    // 主会话台账行清理（main-session plan 批）：直接 prepare 本条删除语句
+    // （SQL 文本仍在本文件不违 AG-06；不经 prepareWorkLedgerStatements 工厂
+    // ——那会 prepare 全部 6 条 work_item 语句而此处只取 1 条，其余 5 条
+    // 废弃预编译对象常驻至连接关闭）
+    this.deleteSessionWorkItems = this.db.prepare("DELETE FROM work_item WHERE instance_id = ?");
   }
   /** 读侧共用连接（SqliteSessionRepository 只读 SELECT；写仍唯一走本队列）。 */
   get database(): Database {
@@ -419,9 +421,12 @@ export class WriteQueue {
 
   private enqueue<T = void>(job: WriteJob): Promise<T> {
     if (this.closed) {
-      // 关闭后到达的 job 视为进程退出竞态：上报不崩
-      this.onError?.(new Error("WriteQueue 已关闭，job 被丢弃"), job);
-      return Promise.resolve() as unknown as Promise<T>;
+      // 关闭后到达的 job = 进程退出竞态：上报不崩，但对泛型返回值 reject
+      // 明确错误——静默 resolve undefined 会让调用方读字段时 TypeError，
+      // 错误形态从可判别的写失败退化为运行时崩（shutdown 窗口内可预期）
+      const error = new Error("WriteQueue 已关闭，job 被丢弃（进程退出竞态）");
+      this.onError?.(error, job);
+      return Promise.reject(error);
     }
     const key = this.chainKeyOf(job);
     this.enqueueCount += 1;

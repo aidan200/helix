@@ -104,8 +104,11 @@ export class SqliteKnowledgeGraph {
     const fileAnchors: FileAnchor[] = anchors
       .filter((a) => a.anchorKind === "path")
       .map((a) => ({ nodeId: a.nodeId, path: a.anchorPath }));
-    // 符号域锚投影（LEFT JOIN symbols 取 span；符号消亡/stale → span 缺省，
-    // 匹配层降级不猜——T1.2 契约「缺省表示无法参与 L3 兕底」）
+    // 符号域锚投影（symbols 全表 SELECT 入内存 Map 后按 file\u0000name 键取 span——
+    // 与 SQL LEFT JOIN 语义等价的内存实现；符号消亡/stale → span 缺省，
+    // 匹配层降级不猜——T1.2 契约「缺省表示无法参与 L3 兜底」；每次快照
+    // O(全项目符号数 + contains 边数)，规模增长后可改 SQL JOIN 或按
+    // symbolAnchors 键集过滤）
     const spanBySymbol = new Map<string, { startLine: number; endLine: number }>();
     for (const row of db.prepare("SELECT file, name, span_start, span_end FROM symbols").all() as SymbolSpanRow[]) {
       spanBySymbol.set(`${row.file}\u0000${row.name}`, { startLine: row.span_start, endLine: row.span_end });

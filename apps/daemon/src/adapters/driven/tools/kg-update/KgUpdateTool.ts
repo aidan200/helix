@@ -419,12 +419,17 @@ function execDeclareAnchors(deps: KgUpdateToolDeps, args: Record<string, unknown
   return `已声明锚 ${nodeId}（${anchors.length} 条，幂等去重；审计行已入 change_log）`;
 }
 
-/** 写结果归一：失败抛结构化错误（code+message+path 全量透传给 agent）。 */
+/** 写结果归一：失败抛结构化错误（code+message+path 全量透传给 agent）；
+ * ok 恒携带 nodeId——prune 全项目形态（无受影响单节点）不经本辅助
+ * （execPrune 直调 deps.write 并只消费 prunedCount）。 */
 function writeOrThrow(deps: KgUpdateToolDeps, project: string, op: KnowledgeWriteOp): { nodeId: NodeId; warning?: string; prunedCount?: number } {
   const result = deps.write.write(project, op);
   if (!result.ok) {
     const path = result.error.path !== undefined ? `（${result.error.path}）` : "";
     throw new Error(`${result.error.code}：${result.error.message}${path}`);
+  }
+  if (result.nodeId === undefined) {
+    throw new Error("KG_E_INTERNAL：写面 ok 结果缺 nodeId（意外形态）");
   }
   return {
     nodeId: result.nodeId,
@@ -457,13 +462,18 @@ function execPrune(deps: KgUpdateToolDeps, args: Record<string, unknown>): strin
     project = resolveTargetProject(deps, args);
   }
   const iterationId = resolveIterationId(deps, args, project);
-  const result = writeOrThrow(
-    deps,
+  // prune 全项目形态 ok 无 nodeId（无受影响单节点）——不走 writeOrThrow，
+  // 直调写面并只消费 prunedCount（错误归一与 writeOrThrow 同文案）
+  const writeResult = deps.write.write(
     project,
     createOp(deps, args, { kind: "prune", iterationId, ...(nodeId !== undefined ? { nodeId } : {}) }),
   );
+  if (!writeResult.ok) {
+    const path = writeResult.error.path !== undefined ? `（${writeResult.error.path}）` : "";
+    throw new Error(`${writeResult.error.code}：${writeResult.error.message}${path}`);
+  }
   const scope = nodeId !== undefined ? `节点 ${nodeId}` : `项目 ${projectName(project)}`;
-  return `已清理 ${scope} 的腐烂物化锚 ${result.prunedCount ?? 0} 行（orphan=1 tombstone 物理删除，change_log 审计同行；零删除 = 本就干净）`;
+  return `已清理 ${scope} 的腐烂物化锚 ${writeResult.prunedCount ?? 0} 行（orphan=1 tombstone 物理删除，change_log 审计同行；零删除 = 本就干净）`;
 }
 
 /**

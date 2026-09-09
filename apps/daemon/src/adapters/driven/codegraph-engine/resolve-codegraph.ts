@@ -38,7 +38,9 @@ export type CodegraphResolution =
   | { readonly kind: "resolved"; readonly path: string }
   | { readonly kind: "unavailable"; readonly reasons: readonly string[] };
 
-/** 单级判定：值缺失 / probe 失败各自的 reason 文案；命中返回路径。 */
+/** 单级判定：值缺失 / probe 失败各自的 reason 文案；命中返回路径。
+ * 三级解析砍为 bundle 单级后保留参数化形态（level/reason 文案入参），
+ * 与 resolve-rg.ts 同模板有意保持一致（测试可注入文案断言 reason 面）。 */
 function tryLevel(
   value: string | undefined,
   level: string,

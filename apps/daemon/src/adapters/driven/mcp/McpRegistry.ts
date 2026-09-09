@@ -68,6 +68,11 @@ export class McpRegistry implements McpServerPort {
    * server 可重试（下次 addServer/update 或预热扫描）。
    */
   async addServer(config: McpServerConfig): Promise<McpServerStatus> {
+    // server 名禁含 __（callNamespacedTool 按首个 __ 拆命名空间——名字带 __
+    // 会让 server__tool 拆分歧义且无法命中）
+    if (config.name.includes("__")) {
+      throw new Error(`MCP server 名 "${config.name}" 不能包含 "__"（命名空间分隔符）`);
+    }
     this.removeServer(config.name, { silent: true });
     if (config.enabled === false) {
       const entry: ServerEntry = {
@@ -85,7 +90,10 @@ export class McpRegistry implements McpServerPort {
       client: new McpClient(config, {
         logger: this.logger,
         onExit: (code) => {
-          // 常驻进程意外退出（非 stop 主动路径）：降级 error——下次调用懒重连
+          // 常驻进程意外退出（非 stop 主动路径）：降级 error——下次调用懒重连。
+          // 注：isReady() 此处恔 false（onClose 先复位 ready 再回调 onExit，
+          // McpClient.ts onClose 时序），条件保留以钉住该前提——若时序变化
+          // （onExit 先于 ready 复位）此处会静默不改状态，测试可据此报警。
           const current = this.servers.get(config.name);
           if (current && current.client.isReady() === false && current.status.state === "running") {
             this.setStatus(current, {

@@ -49,7 +49,11 @@ function parseMcpServerConfig(name: string, raw: string): McpServerConfig | unde
       (out as { args?: string[] }).args = p["args"] as string[];
     }
     if (typeof p["env"] === "object" && p["env"] !== null && !Array.isArray(p["env"])) {
-      (out as { env?: Record<string, string> }).env = p["env"] as Record<string, string>;
+      // env 值须全为 string（spawn env 契约）——{FOO: 1} 类脏行整段跳过
+      const env = p["env"] as Record<string, unknown>;
+      if (Object.values(env).every((v) => typeof v === "string")) {
+        (out as { env?: Record<string, string> }).env = env as Record<string, string>;
+      }
     }
     if (typeof p["cwd"] === "string" && p["cwd"] !== "") {
       (out as { cwd?: string }).cwd = p["cwd"];

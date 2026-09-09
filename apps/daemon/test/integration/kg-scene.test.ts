@@ -124,7 +124,7 @@ describe("② scene 落库与读面三面同值", () => {
     const f = makeFixture();
     const created = f.write.write(f.root, createOp({ kind: "rule", name: "场景规则", digest: "d", scene: SCENE }));
     expect(created.ok).toBe(true);
-    if (!created.ok) return;
+    if (!created.ok || created.nodeId === undefined) return;
 
     const detail = f.graph.getNode(f.root, created.nodeId);
     expect(detail?.node.scene).toBe(SCENE);
@@ -152,7 +152,7 @@ describe("② scene 落库与读面三面同值", () => {
   test("supersede replacement 草稿可携带 scene（新号节点落列）", () => {
     const f = makeFixture();
     const created = f.write.write(f.root, createOp({ kind: "rule", name: "旧规", digest: "d", scene: SCENE }));
-    if (!created.ok) throw new Error("seed failed");
+    if (!created.ok || created.nodeId === undefined) throw new Error("seed failed");
     const result = f.write.write(f.root, {
       kind: "supersede",
       iterationId: "iter-scene",
@@ -161,7 +161,7 @@ describe("② scene 落库与读面三面同值", () => {
       replacementNodeDraft: { kind: "rule", name: "新规", digest: "d2", scene: "本规则适用于：改动读面前" },
     });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok || result.nodeId === undefined) return;
     expect(f.graph.getNode(f.root, result.nodeId)?.node.scene).toBe("本规则适用于：改动读面前");
   });
 });

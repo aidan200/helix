@@ -75,6 +75,8 @@ function parseServerInput(
 ): { ok: true; input: McpServerConfigInput } | { ok: false; error: string } {
   const { name, command } = payload;
   if (typeof name !== "string" || name.length === 0) return { ok: false, error: "payload.name 应为非空 string" };
+  // name 禁含 __（命名空间分隔符——server__tool 拆分歧义）
+  if (name.includes("__")) return { ok: false, error: "payload.name 不能包含 \"__\"（命名空间分隔符）" };
   if (typeof command !== "string" || command === "") return { ok: false, error: "payload.command 应为非空 string" };
   const args = payload.args;
   if (args !== undefined && (!Array.isArray(args) || args.some((a) => typeof a !== "string"))) {

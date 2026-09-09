@@ -1,5 +1,6 @@
 import type { RuntimeConfigPort } from "../../../application/ports/outbound/RuntimeConfigPort";
 import type { DefaultModelPort } from "../../../application/ports/outbound/DefaultModelPort";
+import { isDbClosedError } from "./RuntimeConfigStore";
 
 /**
  * DefaultModelStore —— 全局默认模型的语义包装（P1 T1：存储底座迁
@@ -29,8 +30,12 @@ export class DefaultModelStore implements DefaultModelPort {
   stored(): string | undefined {
     try {
       this.cached = this.runtimeConfig.get(DefaultModelStore.KEY);
-    } catch {
-      // db 已关闭（daemon 收尾后观测面）——最近已知值
+    } catch (error) {
+      // db 已关闭（daemon 收尾后观测面）——最近已知值；其他真实故障
+      // 不静默：warn 后仍兑底（观测面可用性优先）
+      if (!isDbClosedError(error)) {
+        console.warn(`DefaultModelStore 读面异常（非 db 关闭类）：${(error as Error).message}`);
+      }
     }
     return this.cached;
   }

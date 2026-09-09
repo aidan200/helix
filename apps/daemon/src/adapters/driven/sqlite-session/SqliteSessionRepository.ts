@@ -159,7 +159,9 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       status: r.status,
       summary: r.summary,
       reportPath: r.report_path,
-      findings: r.findings === null ? null : (JSON.parse(r.findings) as unknown[]),
+      // 损坏行兑底：findings JSON 解析失败 → null（对齐 SqliteTraceQueryAdapter
+      // rowToTraceEventRow 的原文/降级口径，一行脏 findings 不崩整次 closure 查询）
+      findings: parseFindingsSafe(r.findings),
       findingsFile: r.findings_file,
       taskId: r.task_id,
       createdAt: r.created_at,
@@ -247,5 +249,15 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       " ORDER BY id";
     const rows = this.queue.database.prepare(sql).all(...params) as DomainEventRow[];
     return rows.map(rowToDomainEvent);
+  }
+}
+
+/** closure findings 列安全解析：null 或损坏 JSON → null（查询面不因脏行崩）。 */
+function parseFindingsSafe(raw: string | null): unknown[] | null {
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw) as unknown[];
+  } catch {
+    return null; // 损坏行防御：降级为无 findings，不崩查询面
   }
 }

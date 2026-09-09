@@ -153,6 +153,7 @@ describe("写入口 6 种 op kind 透传 taskId（逐 op 断言，store 面机�
     const w = (op: KnowledgeWriteOp): string => {
       const r = stack.write.write(stack.proj, op);
       if (!r.ok) throw new Error(`写失败：${r.error.code} ${r.error.message}`);
+      if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
       return r.nodeId;
     };
     const taskId = "task-six-ops";

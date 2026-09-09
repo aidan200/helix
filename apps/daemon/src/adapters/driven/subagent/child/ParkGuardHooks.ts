@@ -7,8 +7,8 @@ import type { HookSet } from "../../pi-engine/runtime/HookSet";
  *
  * 协作式第一层（PARK 标记协议）失败时的机械强制：park 请求经 stdin 协议
  * 指令到达即置挂起标志，此后本实例的工具调用一律拒绝（reason 成为错误
- * 工具结果）——LLM 不听话也拦得住，只能输出 PARK 标记或收口。terminate
- * 提示本批后停止（加速收敛：被拦的工具结果让模型立即转向文本输出）。
+ * 工具结果）——LLM 不听话也拦得住，只能输出 PARK 标记或收口（被拦的
+ * 错误工具结果引导模型转向文本输出）。
  *
  * 标志经共享状态对象驱动（ChildMain stdin 读取器置位 / RESUME 复位）；
  * PARK 标记输出后子进程进入挂起等待（无 run 无工具调用），拦截自然静默。

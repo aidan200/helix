@@ -100,6 +100,7 @@ function seedAnchorlessNode(stack: Stack): string {
     },
   } as KnowledgeWriteOp);
   if (!r.ok) throw new Error(`种子写失败：${r.error.code} ${r.error.message}`);
+  if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
   return r.nodeId;
 }
 

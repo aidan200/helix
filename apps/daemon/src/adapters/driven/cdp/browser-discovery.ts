@@ -1,8 +1,9 @@
 /**
  * 浏览器 CDP 端口发现（移植自 web-access/scripts/browser-discovery.mjs）。
  *
- * 职责：平台路径矩阵（mac/linux/win × chrome/canary/chromium/edge）→
- * 读 DevToolsActivePort（首行=端口，次行=wsPath）→ **TCP connect 探活**
+ * 职责：平台路径矩阵（实际候选：darwin = chrome/canary/chromium/edge 四行；
+ * linux = chrome/chromium/edge 三行；win32 = chrome/chromium/edge 三行——
+ * canary 仅 darwin 有候选行）→ 读 DevToolsActivePort（首行=端口，次行=wsPath）→ **TCP connect 探活**
  * （不用 WebSocket 探活——避免触发浏览器的远程调试授权弹窗）。
  *
  * 从简差异：无 config.env 偏好 / --browser override / 固定端口兜底

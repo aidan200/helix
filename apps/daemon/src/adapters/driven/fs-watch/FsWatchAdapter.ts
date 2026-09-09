@@ -15,7 +15,7 @@
  * → existsSync 判别——存在 = write，消失 = remove。filename 为 null 的
  * 弃事件防御性丢弃（无法定位路径）。
  */
-import { existsSync, readdirSync, statSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import type { FsWatchEvent, FsWatchEventKind, FsWatchHandle, FsWatchPort } from "../../../application/ports/outbound/FsWatchPort";
 
@@ -74,8 +74,17 @@ export class FsWatchAdapter implements FsWatchPort {
     onError?: (error: unknown) => void,
   ): FsWatchHandle {
     const watchers = new Map<string, FSWatcher>(); // relDir（"" = root）→ watcher
+    const seenTrees = new Set<string>(); // realpath 去重：watched 树内 symlink 成环防线（addTree 无限递归）
 
     const addTree = (absDir: string, relDir: string): void => {
+      let real: string;
+      try {
+        real = realpathSync(absDir);
+      } catch {
+        return; // 目录扫描窗口内消失
+      }
+      if (seenTrees.has(real)) return; // symlink 指回已 watch 目录——防环
+      seenTrees.add(real);
       if (!addDir(absDir, relDir)) return;
       let names: string[];
       try {
@@ -103,12 +112,30 @@ export class FsWatchAdapter implements FsWatchPort {
           const name = filename.toString();
           const rel = relDir === "" ? name : `${relDir}/${name}`;
           const abs = path.join(root, rel);
-          // 新目录出现（mkdir -p/git checkout 成片子树）→ 增量补挂整棵非忽略子树
+          // 新目录出现（mkdir -p/git checkout 成片子树）→ 增量补挂整棵非忽略子树；
+          // 目录消失（移出/删除）→ 主动摘除以该 rel 为前缀的滞留 watcher
+          //（部分平台对已删目录静默不发 error，rename 风暴会累积句柄泄漏）
           if (eventType === "rename" && !this.deps.isIgnoredSegment(name)) {
+            let isDir = false;
             try {
-              if (statSync(abs).isDirectory()) addTree(abs, rel);
+              isDir = statSync(abs).isDirectory();
             } catch {
               // 已消失（建后即删）——不补挂
+            }
+            if (isDir) {
+              addTree(abs, rel);
+            } else {
+              for (const key of [...watchers.keys()]) {
+                if (key === rel || key.startsWith(`${rel}/`)) {
+                  const stale = watchers.get(key);
+                  watchers.delete(key);
+                  try {
+                    stale?.close();
+                  } catch {
+                    // close 幂等防御
+                  }
+                }
+              }
             }
           }
           onEvent({ path: abs, kind: kindOf(eventType, abs) });

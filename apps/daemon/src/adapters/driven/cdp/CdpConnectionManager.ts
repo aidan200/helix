@@ -186,15 +186,7 @@ export class CdpConnectionManager implements BrowserPort {
     }
     this.registry.stopSweep();
     if (this.ws !== undefined) {
-      for (const id of this.registry.list().map((t) => t.tabId)) {
-        try {
-          await this.sendCDP("Target.closeTarget", { targetId: id });
-        } catch {
-          /* tab 可能已关 */
-        }
-        this.sessions.delete(id);
-        this.registry.remove(id);
-      }
+      await this.closeTabBatch(this.registry.list().map((t) => t.tabId));
       this.ws.close(); // handleClose 统一收尾：清缓存/拒绝 pending/状态回 idle
     } else {
       this.registry.clear();
@@ -253,7 +245,9 @@ export class CdpConnectionManager implements BrowserPort {
     );
     this.registry.touch(tabId);
     if (resp.result?.exceptionDetails) {
-      throw new Error(resp.result.exceptionDetails.text ?? "页面内执行异常");
+      // description 常含完整堆栈/错误详情（text 常为裸 "Uncaught"）——优先取
+      const d = resp.result.exceptionDetails;
+      throw new Error(d.exception?.description ?? d.text ?? "页面内执行异常");
     }
     return resp.result?.result?.value;
   }
@@ -430,11 +424,26 @@ export class CdpConnectionManager implements BrowserPort {
     return new Promise((resolve, reject) => {
       const ws = this.wsFactory(url);
       this.ws = ws;
+      // 握手超时兑底：WS 僵死（连接不 open 不 error）时 connect 悬挂无限期
+      // ——复用 commandTimeoutMs 窗口，超时按连接失败拒（与命令超时同窗口）
+      const handshakeTimer = setTimeout(() => {
+        cleanup();
+        try {
+          ws.close();
+        } catch {
+          // close 幂等防御
+        }
+        if (this.ws === ws) this.ws = undefined;
+        reject(new Error(`WebSocket 握手超时（${this.commandTimeoutMs}ms）`));
+      }, this.commandTimeoutMs);
+      const cleanup = (): void => clearTimeout(handshakeTimer);
       const onOpen = (): void => {
+        cleanup();
         ws.removeEventListener?.("error", onHandshakeError);
         resolve();
       };
       const onHandshakeError = (e: any): void => {
+        cleanup();
         reject(new Error(e?.message ?? e?.error?.message ?? "WebSocket 连接失败"));
       };
       ws.addEventListener("open", onOpen);
@@ -571,6 +580,13 @@ export class CdpConnectionManager implements BrowserPort {
 
   /** idle sweep 执行面：到期 tab closeTarget + 出册 + tab 减帧。 */
   private async closeIdleTargets(tabIds: string[]): Promise<void> {
+    const closed = await this.closeTabBatch(tabIds);
+    if (closed > 0) this.notifyStatus();
+  }
+
+  /** 批量关 tab（stop 全量关/idle sweep 到期关共有：closeTarget 容错 +
+   * session 出册 + registry 出册；返回实际出册数供 sweep 减帧判定）。 */
+  private async closeTabBatch(tabIds: readonly string[]): Promise<number> {
     let closed = 0;
     for (const tabId of tabIds) {
       try {
@@ -581,7 +597,7 @@ export class CdpConnectionManager implements BrowserPort {
       this.sessions.delete(tabId);
       if (this.registry.remove(tabId)) closed++;
     }
-    if (closed > 0) this.notifyStatus();
+    return closed;
   }
 
   /** 等待页面加载（readyState 轮询；超时静默返回——与移植源同语义）。 */

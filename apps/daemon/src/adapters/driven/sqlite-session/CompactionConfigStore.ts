@@ -1,5 +1,6 @@
 import type { RuntimeConfigPort } from "../../../application/ports/outbound/RuntimeConfigPort";
 import type { CompactionConfig, CompactionConfigPort } from "../../../application/ports/outbound/CompactionConfigPort";
+import { isDbClosedError } from "./RuntimeConfigStore";
 
 /**
  * CompactionConfigStore —— 压缩参数配置的语义包装（DefaultModelStore 同构：
@@ -29,8 +30,11 @@ export class CompactionConfigStore implements CompactionConfigPort {
     try {
       const raw = this.runtimeConfig.get(CompactionConfigStore.KEY);
       this.cached = parseCompactionConfig(raw) ?? { ...this.fallback };
-    } catch {
-      // db 已关闭（daemon 收尾后观测面）——最近已知值
+    } catch (error) {
+      // db 已关闭（daemon 收尾后观测面）——最近已知值；非关闭类不静默
+      if (!isDbClosedError(error)) {
+        console.warn(`CompactionConfigStore 读面异常（非 db 关闭类）：${(error as Error).message}`);
+      }
     }
     return this.cached;
   }

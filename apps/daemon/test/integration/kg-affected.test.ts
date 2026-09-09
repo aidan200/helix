@@ -61,6 +61,7 @@ function seedNode(f: Fixture, proj: string, name: string, scene: string): string
     draft: { kind: "rule", name, digest: `${name}摘要`, scene },
   });
   if (!r.ok) throw new Error(`seed failed: ${r.error.message}`);
+  if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
   return r.nodeId;
 }
 
@@ -194,7 +195,7 @@ describe("⑤⑥ 工具面渲染 + absent 短路", () => {
       id: "TR-OLD-1",
       draft: { kind: "rule", name: "无场景存量", digest: "存量摘要" },
     });
-    if (!noScene.ok) throw new Error("seed failed");
+    if (!noScene.ok || noScene.nodeId === undefined) throw new Error("seed failed");
     await seedAnchors(f, f.projA, [
       { nodeId: withScene, anchorKind: "path", anchorPath: "src/foo.ts", anchorSymbol: null },
       { nodeId: noScene.nodeId, anchorKind: "symbol", anchorPath: "src/foo.ts", anchorSymbol: "legacy" },

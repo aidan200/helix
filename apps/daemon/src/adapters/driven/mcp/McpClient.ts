@@ -206,6 +206,9 @@ export class McpClient {
   private onError(err: Error): void {
     this.logger.error(`mcp[${this.name}] 进程错误：${err.message}`);
     this.ready = false;
+    // kill 失败类 error 无 close 跟随时 proc 残留：doConnect 的
+    // if (this.proc) return 会短路后续重连——同步清引用，重连可及
+    this.proc = undefined;
     this.rejectAll(err);
   }
 

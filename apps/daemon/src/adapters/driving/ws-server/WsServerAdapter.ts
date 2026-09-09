@@ -6,9 +6,10 @@
  *   反射，见 PROTOCOL.md §9）+ 前端静态产物（组合根注入 driven StaticServe
  *   的 handler，driving 不 import driven——AG-02③）；
  * - WS 面：hello 握手 token 校验（三分支拒绝：发 error 帧后 close）→
- *   welcome + 立即推 session.snapshot（重连恢复 = 快照+增量，AD-16；
- * 当前会话命中零条目内存草稿 → welcome.draft + 不 attach 不推快照）→
- * 命令帧路由到 inbound port（只转发不决策，AG-12）→
+ *   welcome + 立即推 session.snapshot（重连恢复 = 快照+增量，AD-16；当前
+ *   会话命中零条目内存草稿 → welcome.draft + attach() 无参注册连接、不
+ *   订阅草稿会话不推快照——草稿链 subscribeSession 仍可用）→
+ *   命令帧路由到 inbound port（只转发不决策，AG-12）→
  *   事件经 EventStream（EventPublisherPort 实现）下发。
  *
  * 会话作用域命令按信封 sessionId 路由（AD-4 多会话：缺省 = 当前
@@ -17,28 +18,13 @@
  * 省略 sessionId + payload.draft=true，契约 B §1.5）在此落地；握手 welcome
  * 快照升级为「当前订阅会话」（当前会话 = 注册表最近活跃会话）。
  *
- * 结果帧微批：model/auth 9 命令结果改点对点 *.result 结果帧
- * sendNow 直发（契约 C §2.2，与 session 族结果帧同构；model.set 的 ack
- * 仍为 model.changed 广播不动）；错误分支启用专用错误码（契约 C §4）。
- *
- * model 族 6 case + auth 族 4 case 的 case 体机械迁出 handlers/{model,auth}.ts（AD-3 handler 模块化）
- * 机械迁出 handlers/{model,auth}.ts（语义逐字节等价）；routeCommand 对应
- * case 一行转发（commandContext 供出依赖面：ModelPort + system.getStatus()
- * 缺省回退 + 4 个共享辅助）。
- *
- * 其余 12 case（chat/session/agent/trace 族）case 体机械迁出（handler 化收口 + 解环）
- * agent/trace 族）case 体机械迁出 handlers/{chat,session,agent,trace}.ts
- * （语义逐字节等价；traceInstanceRecordToDto / resolveTargetSession 随族
- * 迁出）；routeCommand 全 22 case 一行转发；族上下文类型承 handlers/
- * context.ts（kg 族六命令同构接入：handlers/kg.ts + kgContext，P-1 §9；
- * routeCommand 全 28 case 一行转发）；
- * context.ts（ConnState/WsCommandContext 上收，三模块环解）；
- * sessionStamp/snapshotFrame 盖章链留本类，session/chat handler 经上下文
- * 回调机械引用零行为差（不为省行数造成第二份）。
- * task 族九命令同构接入（iter-20260829-ys7q T1.5，P-2 任务页数据面，
- * §8.1；handlers/task.ts + taskContext：TaskQueryService 读面 +
- * TaskEnginePort 生命周期回口，task.changed 广播在 EventStream/handler 层
- * 接线，O-7）；routeCommand 全 45 case 一行转发。
+ * 命令路由：routeCommand 全文件唯一 switch（现行 case 计数以代码为准）
+ * 逐 case 一行转发到 handlers/{chat,session,agent,trace,model,auth,kg,task,
+ * mcp,resource,thinking,workspace,web,diff,config}.ts——命令结果帧/错误码
+ * 契约见 PROTOCOL.md（契约 C §2.2/§4）；依赖接口与族 context 构造器在
+ * command-contexts.ts（体量治理拆分，机械迁出零行为差）；
+ * sessionStamp/snapshotFrame 盖章链留本类，handler 经上下文回调机械引用
+ * 零行为差（不为省行数造成第二份）。
  *
  * 绑定纪律：仅 127.0.0.1，禁止 0.0.0.0/::——构造期即钉死。
  */

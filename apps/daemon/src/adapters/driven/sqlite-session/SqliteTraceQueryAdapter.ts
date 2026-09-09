@@ -125,7 +125,7 @@ export class SqliteTraceQueryAdapter implements TraceQueryPort {
   private queryInstancePanel(sessionId: string): readonly TraceInstanceRecord[] {
     const aggregates = this.queue.database
       .prepare(
-        "SELECT agent_instance_id, agent_kind, MIN(ts) AS first_ts, MAX(ts) AS last_ts, COUNT(*) AS c " +
+        "SELECT agent_instance_id, MIN(agent_kind) AS agent_kind, MIN(ts) AS first_ts, MAX(ts) AS last_ts, COUNT(*) AS c " +
           "FROM domain_events WHERE session_id = ? GROUP BY agent_instance_id",
       )
       .all(sessionId) as {

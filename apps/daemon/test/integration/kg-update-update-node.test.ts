@@ -99,6 +99,7 @@ function seedScenelessConfirmedNode(stack: Stack): string {
     draft: { kind: "rule", name: "存量无场景规则", digest: "既有摘要（scene 未回填）", status: "confirmed" },
   } as KnowledgeWriteOp);
   if (!r.ok) throw new Error(`种子写失败：${r.error.code} ${r.error.message}`);
+  if (r.nodeId === undefined) throw new Error("ok 结果缺 nodeId（意外形态）");
   return r.nodeId;
 }
 
