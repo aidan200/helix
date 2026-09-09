@@ -421,12 +421,15 @@ export class WriteQueue {
 
   private enqueue<T = void>(job: WriteJob): Promise<T> {
     if (this.closed) {
-      // 关闭后到达的 job = 进程退出竞态：上报不崩，但对泛型返回值 reject
-      // 明确错误——静默 resolve undefined 会让调用方读字段时 TypeError，
-      // 错误形态从可判别的写失败退化为运行时崩（shutdown 窗口内可预期）
-      const error = new Error("WriteQueue 已关闭，job 被丢弃（进程退出竞态）");
-      this.onError?.(error, job);
-      return Promise.reject(error);
+      // 关闭后到达的 job = daemon 收尾窗口的迟到写（closure 链收尾等异步尾段），
+      // 属可预期竞态形态：onError 上报可判别事实，返回零值（undefined）不 reject
+      // ——reject 会打破两类合法消费面（await 消费面 SqliteSessionRepository.save/
+      // ChatService.sendMessage 同步上抛；fire-and-forget 面 wireEventFanout 变
+      // unhandled rejection，closure-chain 实测回归）。消费返回字段的调用方
+      // （deleteTaskJobCascade → TaskDeleteCounts）在此窗口读字段得 TypeError，
+      // 属零值路线的已接受代价（竞态窗口根子上是进程退出，非写路径可兕底）。
+      this.onError?.(new Error("WriteQueue 已关闭，job 被丢弃"), job);
+      return Promise.resolve() as unknown as Promise<T>;
     }
     const key = this.chainKeyOf(job);
     this.enqueueCount += 1;

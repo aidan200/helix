@@ -91,7 +91,7 @@ export class McpRegistry implements McpServerPort {
         logger: this.logger,
         onExit: (code) => {
           // 常驻进程意外退出（非 stop 主动路径）：降级 error——下次调用懒重连。
-          // 注：isReady() 此处恔 false（onClose 先复位 ready 再回调 onExit，
+          // 注：isReady() 此处恒 false（onClose 先复位 ready 再回调 onExit，
           // McpClient.ts onClose 时序），条件保留以钉住该前提——若时序变化
           // （onExit 先于 ready 复位）此处会静默不改状态，测试可据此报警。
           const current = this.servers.get(config.name);

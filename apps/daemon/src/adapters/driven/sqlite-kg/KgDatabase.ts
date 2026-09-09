@@ -42,7 +42,7 @@ export class KgDatabase {
 
   /** 关闭全部通道连接（测试清理/daemon 退出；库文件保留）。任一连接关闭
    * 异常不阻断其余连接关闭（逐项聚合，末尾统一抛）；两 Map 无条件 clear
-   * ——不留半关状态）。 */
+   * ——不留半关状态。 */
   closeAll(): void {
     const failures: unknown[] = [];
     for (const db of this.knowledgeChannels.values()) {
