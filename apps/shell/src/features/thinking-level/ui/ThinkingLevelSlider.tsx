@@ -104,7 +104,12 @@ const ThinkingLevelSlider = function ThinkingLevelSlider({
     const level = nearestLevel(e.clientX);
     if (level !== null) fireSelect(level);
   };
-  const endDrag = () => setDragging(false);
+  const endDrag = () => {
+    setDragging(false);
+    // up 收束即重置去重簿记：拖动末档不再占住键盘通道的去重位——外部改写
+    // value 后，方向键单步选档恰等于上次拖动末档时不被误吞（窄边界）
+    lastFiredRef.current = null;
+  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (disabled || n === 0) return;

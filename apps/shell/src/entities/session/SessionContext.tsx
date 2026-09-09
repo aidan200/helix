@@ -75,18 +75,26 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 function fakeTransportEntry(script: string): TransportFactory {
   return (url, handlers) => {
     let impl: Transport | null = null;
+    let closed = false;
+    // 模块就绪前的 send 排队缓冲（占位期不静默丢帧），impl 接管后 flush
+    const queued: string[] = [];
     void import("@/shared/api/fake-transport").then((m) => {
+      if (closed) return; // close 先于就绪：不接管（避免幽灵连接）
       impl = m.createFakeTransport(script)(url, handlers);
       impl.connect();
+      for (const data of queued) impl.send(data);
+      queued.length = 0;
     });
     return {
       connect() {
         /* 就绪由模块接管（见上） */
       },
       send(data) {
-        impl?.send(data);
+        if (impl !== null) impl.send(data);
+        else queued.push(data);
       },
       close() {
+        closed = true;
         impl?.close();
       },
     };
@@ -98,14 +106,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   //（活跃完整 store / 后台轻量 store / 系统帧）；conn/ui action 透传活跃 store
   const [topology, dispatch] = useReducer(topologyReducer, undefined, createInitialTopologyState);
   const clientRef = useRef<HelixWsClient | null>(null);
-  // 命令构造读点（发送面需要当前活跃会话 id / 分页游标；避免 effect 链）
+  // 命令构造读点（发送面需要当前活跃会话 id / 分页游标；避免 effect 链）——
+  // 渲染体不写 ref（React 推荐模式，并发渲染废弃腿不再可能写入陈旧值）：
+  // 提交后 effect 同步；读点（命令构造/事件处理器）均在 effect 之后执行，
+  // 滞后一个提交可接受
   const topologyRef = useRef(topology);
-  topologyRef.current = topology;
   // v0.3 订阅图簿记（T3.2）：全图订阅生命周期唯一权威（见 model/subscription-ledger）
   const ledgerRef = useRef<SubscriptionLedger | null>(null);
   if (ledgerRef.current === null) ledgerRef.current = new SubscriptionLedger();
   const generatingRef = useRef(false);
-  generatingRef.current = selectIsGenerating(topology.active);
+  useEffect(() => {
+    topologyRef.current = topology;
+    generatingRef.current = selectIsGenerating(topology.active);
+  }, [topology]);
   // M38：连接私有回执/广播域听众集——按 LISTEN_SURFACE 注册表键一次建齐
   //（trace / agent.config / kg / task / workspace；页面私有消费，不进会话 store）
   const listenerSetsRef = useRef<Record<ListenDomain, Set<FrameListener>> | null>(null);

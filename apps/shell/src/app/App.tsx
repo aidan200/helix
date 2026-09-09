@@ -123,9 +123,9 @@ function WorkspaceGate() {
 }
 
 /**
- * 首启 boot 序列 hold 时长（W6o）：16 行序列末行 --d 1.30s + wipe 0.14s
- * ≈ 1.44s——序列播完的兜底下限（连接就绪早于此则等待，晚于此由连接
- * 就绪条件收口）。导出供门禁 hold 测试消费（fake timers 步进基准）。
+ * 首启 boot 序列 hold 时长（W6o；W6p 调参至 0.9s 档）：序列末行 --d
+ * 0.81s + 入场余量 ≈ 0.9s——序列播完的兜底下限（连接就绪早于此则等待，
+ * 晚于此由连接就绪条件收口）。导出供门禁 hold 测试消费（fake timers 步进基准）。
  */
 export const BOOT_HOLD_MS = 900;
 
@@ -156,14 +156,15 @@ export function WorkspaceGateBranch() {
     return () => clearTimeout(timer);
   }, []);
 
-  // 双条件齐备 → firstBootDone 恒置（不回退）
-  const connected = state.phase !== "connecting";
+  // 双条件齐备 → firstBootDone 恒置（不回退）。「门禁已判定」≠连接态：
+  // phase 离开 connecting 即视为已判定（真连接态在 state.conn，一词两义防混）
+  const phaseSettled = state.phase !== "connecting";
   useEffect(() => {
-    if (!firstBootRef.current && seqDone && connected) {
+    if (!firstBootRef.current && seqDone && phaseSettled) {
       firstBootRef.current = true;
       setFirstBootDone(true);
     }
-  }, [seqDone, connected]);
+  }, [seqDone, phaseSettled]);
 
   if (!firstBootDone) return <WorkspaceBootScreen variant="full" />;
   if (state.phase === "connecting") return <WorkspaceBootScreen variant="status" />;

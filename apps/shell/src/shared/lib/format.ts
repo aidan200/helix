@@ -2,6 +2,16 @@
  * 展示格式化（desk shared/lib/format.ts 的 P-1 子集）。
  */
 
+/** ISO 字符串 → 「MM-DD HH:mm」短格式（两处先例上收：gate 最近使用/项目
+ *  同步时间）；undefined → 空串；非法输入原样返回（可诊断不吞错）。 */
+export function fmtShortDateTime(iso: string | undefined): string {
+  if (iso === undefined) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
 /** epoch 毫秒 → 时间戳（格式串仅支持 "HH:mm"，i18n chat.tsFormat）。 */
 export function formatTs(ts: number, pattern = "HH:mm"): string {
   const d = new Date(ts);

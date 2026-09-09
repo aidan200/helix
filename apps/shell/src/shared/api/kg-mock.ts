@@ -549,7 +549,10 @@ export class KgMockStore {
     const matched = all.filter((n) => {
       if (kind !== "" && n.kind !== kind) return false;
       if (status !== "" && n.status !== status) return false;
-      if (q !== "" && !n.name.toLowerCase().includes(q) && !n.digest.toLowerCase().includes(q)) return false;
+      // id 纳入匹配：对齐 shell 真实消费面 filterRows（kg-model.ts 三路
+      // id/name/digest——TR-42 / E-9 id 直查；daemon SQL 面 name/digest 仅
+      // 在 shell 直传 q 时对称参与，shell 实际拉全量本地过滤不受影响）
+      if (q !== "" && !n.id.toLowerCase().includes(q) && !n.name.toLowerCase().includes(q) && !n.digest.toLowerCase().includes(q)) return false;
       return true;
     });
     return this.frame("kg.list.result", { total: all.length, matched: matched.length, nodes: matched });

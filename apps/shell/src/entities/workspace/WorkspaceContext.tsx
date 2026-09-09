@@ -88,14 +88,21 @@ export function WorkspaceProvider({ deps, children }: { deps: WorkspaceDeps; chi
           case "workspace_changed":
             dispatch({ type: "changed", payload: e.payload });
             return;
-          case "connection.error":
-            if (stateRef.current.opening) {
+          case "connection.error": {
+            // 开门在途错误归因（TR-145 尾缀契约，TracePage 先例）：daemon
+            // commandError 消息尾缀「（命令 <type>）」固定格式——仅 workspace.open
+            // 本身（或旧 daemon 无尾缀容忍）才收口 opening；opening 窗口内其它
+            // 命令（含后台自动命令）的错误不误判为 open 失败
+            const message = e.payload.message ?? "connection.error";
+            const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+            if (stateRef.current.opening && (cmd === undefined || cmd === "workspace.open")) {
               dispatch({
                 type: "open-failed",
-                error: { code: e.payload.code, message: e.payload.message },
+                error: { code: e.payload.code, message },
               });
             }
             return;
+          }
         }
       }),
     [subscribe],

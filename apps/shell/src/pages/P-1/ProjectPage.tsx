@@ -29,6 +29,7 @@ import type { KgIndexStatusDto, KgProjectRow } from "@helix/protocol";
 import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
+import { fmtShortDateTime } from "@/shared/lib/format";
 import { useToast } from "@/shared/ui/Toast";
 import { createProjectPageState, projectReducer } from "./model/project-model";
 import KgViewer from "./kg-viewer";
@@ -49,13 +50,9 @@ export function resetRememberedProjectForTest(): void {
   rememberedProject = null;
 }
 
-/** ISO → 「MM-DD HH:mm」短格式（次行完成时间；非法输入原样返回）。 */
+/** ISO → 「MM-DD HH:mm」短格式（次行完成时间；shared/lib/format 上收单一实现）。 */
 function fmtSyncedAt(iso: string | undefined): string {
-  if (iso === undefined) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const p2 = (n: number) => String(n).padStart(2, "0");
-  return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  return fmtShortDateTime(iso);
 }
 
 /** workspace 名派生（首行绝对路径的父目录名；失败回落裸 workspace）。 */

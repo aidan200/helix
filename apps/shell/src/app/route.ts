@@ -1,5 +1,5 @@
 /**
- * app 路由层（F(4.4).2；CL-4，Q-4b；S2）：五页签独立 URL。
+ * app 路由层（F(4.4).2；CL-4，Q-4b；S2）：六路由位独立 URL。
  *
  * 机制：History API（pushState + popstate）；工作台常驻 DOM（display 切换
  * 保状态——活跃会话/输入/滚动位/WS 连接均不重建；SessionProvider 在路由层
@@ -14,7 +14,7 @@ export const ROUTE_WORKBENCH = "/";
 export const ROUTE_SKILLS = "/skills";
 /** 追踪（实页）。 */
 export const ROUTE_TRACE = "/trace";
-/** 项目（占位页：施工牌）。 */
+/** 项目（P-1 实页：master-detail，kg 查看器/项目健康）。 */
 export const ROUTE_PROJECT = "/project";
 /** 任务（P-2 任务页；T3.1，iter-20260829-ys7q）。 */
 export const ROUTE_TASKS = "/tasks";

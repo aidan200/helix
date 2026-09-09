@@ -112,9 +112,9 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose }: ModelSwitchMenuPro
   const showReset = mc.defaultModel !== "" && !sameModel(currentModel, mc.defaultModel);
 
   /** F(3.3).2 选中即切：发 model.set + toast 交代；选中即关（T9，B 方案）。 */
-  const pick = (model: string, label: string) => {
+  const pick = (model: string) => {
     setSessionModel(model);
-    toast.push("ok", t("chat.modelSwitch.switchedToast", { model: label }));
+    toast.push("ok", t("chat.modelSwitch.switchedToast", { model }));
     onClose();
   };
 
@@ -147,7 +147,7 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose }: ModelSwitchMenuPro
                     aria-checked={sel}
                     data-model-item={m.id}
                     key={m.id}
-                    onClick={() => pick(m.id, m.id)}
+                    onClick={() => pick(m.id)}
                   >
                     <span className="mm-name">{m.id}</span>
                     {isDefault && (
@@ -182,7 +182,7 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose }: ModelSwitchMenuPro
             className="hud-btn hud-btn-ghost sm"
             id="btn-model-reset"
             type="button"
-            onClick={() => pick(mc.defaultModel, mc.defaultModel)}
+            onClick={() => pick(mc.defaultModel)}
           >
             <RotateCcw size={14} strokeWidth={1.75} aria-hidden="true" />
             {t("chat.modelSwitch.resetToDefault")}
