@@ -156,9 +156,10 @@ const RUST_HTTP_RE = /\breqwest::|\bureq::|\bhyper::|\bisahc::|\bsurf::/;
 
 /** token 端点唯一例外（TR-AD-12 白名单句：GET /helix-dev-token 是握手前提，非业务数据通道）。 */
 const TOKEN_FETCH_FILE = path.join("shared", "api", "helix-ws.ts");
-/** 三方二进制下载例外集（scripts 面）：downloadToFile 单点收敛在 fetch-rg.ts
- * （TR-104：超时/停滞检测/重试防护），fetch-codegraph 复用之不开自己的 fetch 面。 */
-const BINARY_FETCH_FILES: readonly string[] = ["fetch-rg.ts"];
+/** 三方二进制下载例外集（scripts 面）：downloadToFile 单点收敛在 install-skeleton.ts
+ * （TR-104：超时/停滞检测/重试防护；W4 归一从 fetch-rg.ts 迁入，fetch-rg 仅 re-export、
+ * fetch-codegraph 直接消费骨架，均不开自己的 fetch 面）。 */
+const BINARY_FETCH_FILES: readonly string[] = ["install-skeleton.ts"];
 /**
  * W5 预绑定通道唯一例外（scripts 面）：dev-desktop 经 daemon 公开 WS 协议
  *（hello 握手 + workspace.open，与前端同一通道——非绕过 TR-AD-12）做
@@ -202,7 +203,7 @@ describe("AG-17（CL-4/F4.3，TR-AD-12 禁区②③）：壳/脚本层无 HTTP �
     }
   });
 
-  test("scripts（工程层，非测试面）：二进制下载（rg + codegraph）唯一 fetch 落点 = fetch-rg.ts downloadToFile，且其不触 daemon 回环", () => {
+  test("scripts（工程层，非测试面）：二进制下载（rg + codegraph）唯一 fetch 落点 = install-skeleton.ts downloadToFile，且其不触 daemon 回环", () => {
     // 测试文件（*.test.ts）豁免：dev-desktop.test 等的 raw socket/WebSocket 探测
     // 是编排面自动化断言 harness，非分发/连接通道。
     const files = listFiles(scriptsDir, [".ts"]).filter((rel) => !rel.endsWith(".test.ts"));
@@ -219,9 +220,9 @@ describe("AG-17（CL-4/F4.3，TR-AD-12 禁区②③）：壳/脚本层无 HTTP �
         continue;
       }
       if (rel === "fetch-codegraph.ts") {
-        // 复用面（TR-104）：不开自己的 fetch，下载走 fetch-rg.ts downloadToFile
+        // 复用面（TR-104）：不开自己的 fetch，下载走 install-skeleton.ts downloadToFile
         expect(httpHits, `${rel} 不得自行开 fetch 面（downloadToFile 单点）：${JSON.stringify(httpHits)}`).toEqual([]);
-        expect(src, `${rel} 应 import downloadToFile（守护面非空转）`).toContain("downloadToFile");
+        expect(src, `${rel} 应 import install-skeleton 骨架（守护面非空转）`).toContain("install-skeleton");
         continue;
       }
       if (rel === PREBIND_FILE) {
