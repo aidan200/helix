@@ -6,7 +6,7 @@
  * 新数据面：过滤/选中/报告决定/索引面板态全清空（防跨项目骨架竞态）。
  * 内部结构 = 主区顶部项目上下文（「知识图谱 · 项目名」+ 右侧索引状态
  * 紧凑形态，纯标识无返回无导航）+ 左列 380px（搜索/三路过滤/节点列表）
- * + 右区「节点详情 | 变化报告 | 产出呈现」三 tab。
+ * + 右区「节点详情 | 变化报告 | 体检」三 tab。
  *
  * 数据面（五图谱命令，全部带 project = 当前选中项目）：
  * - kg.list 一次性拉全量 → 客户端三路过滤（原型同型即时交互；命令契约
@@ -27,7 +27,7 @@ import {
   filterRows,
   kgReducer,
 } from "./model/kg-model";
-import { bootstrapEntryMode, type ProjectAction } from "./model/project-model";
+import { bootstrapEntryMode, KG_INDEX_POLL_MS, type ProjectAction } from "./model/project-model";
 import { createKgFramesListener } from "./model/kg-frames-listener";
 import { useKgWriteFlight, type KgWriteKind } from "./model/use-kg-write-flight";
 import { highlight, KindBadge, StatusBadge } from "./ui/kg-refs";
@@ -38,8 +38,8 @@ import KgBootstrapEntry from "./ui/kg-bootstrap-entry";
 import KgHealthPane from "./ui/kg-health-pane";
 import KgCandidatesPanel, { type CandFilter } from "./ui/kg-candidates-panel";
 
-/** 面板重建轮询间隔（O-6 同主区 building 轮询）。 */
-const REBUILD_POLL_MS = 750;
+/** 面板重建轮询间隔（O-6：上收 project-model KG_INDEX_POLL_MS 单一常量）。 */
+const REBUILD_POLL_MS = KG_INDEX_POLL_MS;
 
 /** 写面失败 toast 文案键（单飞 kind → 既有 fail 文案；超时兜底复用同键 +
  *  flightTimeout 作 message——M9 #2.31 统一 hook 一处收口）。 */
@@ -195,9 +195,14 @@ const KgViewer = function KgViewer({
   const onClearFilter = useCallback(() => dispatch({ type: "clear-filter" }), []);
   const onTab = useCallback((tab: "detail" | "report" | "health") => dispatch({ type: "tab", tab }), []);
   const onRebuild = useCallback(() => {
+    // send 先行（TR-84：返回值必消费）——失败不进乐观「重建中」态（面板
+    // 不卡死，toast 交代）；与同文件其他发送点口径一致
+    if (!sendKgIndexStatus({ project: project.name, rebuild: true })) {
+      toast.push("err", t("pj.boot.sendFail"));
+      return;
+    }
     dispatch({ type: "idx-rebuild-started" });
-    sendKgIndexStatus({ project: project.name, rebuild: true });
-  }, [project.name, sendKgIndexStatus]);
+  }, [project.name, sendKgIndexStatus, toast, t]);
 
   // ── kg 维护批写面回调（C1；单飞锁在统一 hook，Panel 纯展示）──
   const onLaunchPurge = useCallback(() => {
@@ -228,7 +233,7 @@ const KgViewer = function KgViewer({
     if (!(okHealth && okCand)) toast.push("err", t("pj.boot.sendFail"));
   }, [tab, project.name, sendKgHealth, sendKgCandidatesList, toast, t]);
 
-  /** 台账过滤（面板按钮 + 体检四态徽章联动同一入口）：设过滤 + 重拉。 */
+  /** 台账过滤（过滤入口唯一归台账面板按钮）：设过滤 + 重拉。 */
   const onCandFilter = useCallback(
     (filter: CandFilter) => {
       setCandView((v) => ({ ...v, filter, loading: true }));

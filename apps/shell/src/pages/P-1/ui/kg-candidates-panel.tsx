@@ -4,8 +4,8 @@
  *
  * **只读零裁决**（用户裁决：本轮只做「查看」——无裁决按钮、无台账→知识
  * 落地联动，台账自闭环）；命令发送/回执消费归 KgViewer 常驻 listener
- * （KgHealthPane 同构），本组件纯展示 + 回调。kg-health-pane 四态计数徽章
- * 可点击设过滤（面板与徽章过滤态联动——同一 filter 状态源在 KgViewer）。
+ * （KgHealthPane 同构），本组件纯展示 + 回调。体检面板台账行为纯文字
+ * 计数，过滤入口唯一归本面板（kg-health-pane 头注同口径）。
  *
  * AD-16：候选 id（CAND-n）与 targetNode（TR-n/E-n）仅在 data-* 属性与
  * 详情段承载定位语义；列表行主展示 = title + 状态徽章 + 提出时间。
@@ -14,7 +14,7 @@ import type { KgCandidateRowDto } from "@helix/protocol";
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
 
-/** 台账过滤态（四态 + all；与 kg-health-pane 徽章点击联动共享）。 */
+/** 台账过滤态（四态 + all；过滤入口唯一归本面板）。 */
 export type CandFilter = "all" | "pending" | "deferred" | "applied" | "discarded";
 
 /** 状态 → 徽章文案键（与体检面板四态计数共用词条）。 */

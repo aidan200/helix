@@ -18,7 +18,6 @@ import type {
   KgIndexStatusDto,
   KgNodeDetailDto,
   KgNodeListRow,
-  KgProjectState,
 } from "@helix/protocol";
 
 /** F5.1 三路过滤（关键词 × 类型 × 状态；'all' = 不过滤）。 */
@@ -29,7 +28,7 @@ export interface KgFilter {
 }
 
 export type KgPaneView = "loading" | "empty" | "success";
-/** 右区 tab：节点详情 / 变化报告 / 产出呈现（T3.2 kg-bootstrap 批新增第三 tab）/ 体检（W2-E kg.health 批第四 tab）。 */
+/** 右区 tab：节点详情 / 变化报告 / 体检（W2-E kg.health 批第三 tab——原「产出呈现」tab 已随目录重排退役，三 tab 现状）。 */
 export type KgTab = "detail" | "report" | "health";
 
 export interface KgViewState {
@@ -112,10 +111,7 @@ export function pickInitial(nodes: readonly KgNodeListRow[]): KgNodeListRow | un
   );
 }
 
-/** 索引起步态（graph 态仅呈现后三态；absent 归主区）。 */
-export function panelStateOf(state: KgProjectState): "building" | "synced" | "degraded" {
-  return state === "building" ? "building" : state === "degraded" ? "degraded" : "synced";
-}
+/** 索引起步态映射已删（W3 #2.31：生产零调用——kg-index-panel 直接从 idx.state 派生且 absent 有 C1 中性徽章专语义，旧映射 absent→synced 与之矛盾，仅测试在测死代码）。 */
 
 export function kgReducer(state: KgViewState, action: KgAction): KgViewState {
   switch (action.type) {

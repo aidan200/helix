@@ -10,7 +10,7 @@
  * **『name』** 粗体引用形——模式同 chat MarkdownMessage，安全口径一致：
  * react-markdown 默认不渲染原始 HTML）。
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { KgNodeDetailDto, KgNodeListRow } from "@helix/protocol";
@@ -124,6 +124,13 @@ const KgDetailPane = function KgDetailPane({
 }) {
   const { t } = useI18n();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 确认条开态随 detail 切换复位：draft A 开确认条后切 draft B 不意外
+  // 转移开态；draft→confirmed→draft 路径同样不残留意外开态
+  const confirmForRef = useRef<string | null>(null);
+  if (confirmForRef.current !== detail?.id) {
+    confirmForRef.current = detail?.id ?? null;
+    if (confirmOpen) setConfirmOpen(false);
+  }
 
   if (loading || detail === null)
     return (

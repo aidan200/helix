@@ -14,6 +14,10 @@
  */
 import type { KgIndexStatusDto, KgProjectRow, KgProjectState } from "@helix/protocol";
 
+/** 索引态轮询间隔（O-6：主区 building 轮询与 KgViewer 面板重建轮询共用
+ * 同值同语义——上收单一常量防两处漂移）。 */
+export const KG_INDEX_POLL_MS = 750;
+
 /** 主区四态（互斥；absent=未建索引+构建 CTA，B1 冷启动入口在主区）。 */
 export type MainMode = "empty" | "absent" | "building" | "graph";
 
@@ -173,7 +177,7 @@ export function projectReducer(state: ProjectPageState, action: ProjectAction): 
     }
     case "index-status": {
       const projects = state.projects.map((p) => (p.name === action.name ? patchProject(p, action.status) : p));
-      if (state.selected !== action.name) return projects === state.projects ? state : { ...state, projects };
+      if (state.selected !== action.name) return { ...state, projects };
       const mode = modeOfStatus(action.status.state);
       if (state.mainMode === "building" && action.status.state === "building") {
         // 构建进度推进（O-6 轮询）
@@ -190,7 +194,7 @@ export function projectReducer(state: ProjectPageState, action: ProjectAction): 
       }
       if (state.mainMode === "graph" && mode === "graph") {
         // graph 态内的索引面板重建回执由 kg-viewer 自持（不经此 reducer）
-        return projects === state.projects ? state : { ...state, projects };
+        return { ...state, projects };
       }
       return { ...state, projects };
     }

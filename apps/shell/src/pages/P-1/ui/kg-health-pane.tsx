@@ -23,6 +23,77 @@ function formatDateTime(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
 }
 
+/** 任务块（kg-review / code-review 近同构——参数化单组件；d = data 前缀
+ *  与 e2e 断言锚（review / code-review），文案键/三态由调用方注入）。 */
+function TaskBlock({
+  d,
+  badge,
+  titleKey,
+  launchKey,
+  runningStripKey,
+  launchedKey,
+  running,
+  busy,
+  launched,
+  onLaunch,
+  t,
+  projectName,
+  onOpenTasks,
+}: {
+  d: string;
+  badge: string;
+  titleKey: string;
+  launchKey: string;
+  runningStripKey: string;
+  launchedKey: string;
+  running: boolean;
+  busy: boolean;
+  launched: boolean;
+  onLaunch: () => void;
+  t: T;
+  projectName: string;
+  onOpenTasks: () => void;
+}) {
+  const attrs = (suffix: string) => ({ [`data-${d}-${suffix}`]: true });
+  return (
+    <div className="kg-task-block" {...{ [`data-kg-health-${d}`]: true }}>
+      <div className="kg-task-row">
+        <span className="hud-badge kbe-type">{badge}</span>
+        <span className="kg-task-name">{t(titleKey)}</span>
+        {running ? (
+          <span className="hud-badge" {...attrs("running-badge")}>{t("pj.health.reviewRunningBadge")}</span>
+        ) : (
+          <button
+            type="button"
+            className="hud-btn kg-btn-primary kg-btn-sm"
+            {...attrs("launch-btn")}
+            disabled={busy}
+            onClick={onLaunch}
+          >
+            {t(launchKey)}
+          </button>
+        )}
+      </div>
+      {running && (
+        <div className="kg-ok-strip" {...attrs("running")}>
+          <span>{t(runningStripKey, { name: projectName })}</span>
+          <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
+            {t("pj.health.reviewGoTasks")}
+          </button>
+        </div>
+      )}
+      {!running && launched && (
+        <div className="kg-ok-strip" {...attrs("launched")}>
+          <span>{t(launchedKey, { name: projectName })}</span>
+          <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
+            {t("pj.health.reviewGoTasks")}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function KgHealthPane({
   health,
   loading,
@@ -117,78 +188,39 @@ export default function KgHealthPane({
           </span>
         </div>
 
-        {/* 任务行：发起按钮直接入行（按钮状态即任务状态） */}
+        {/* 任务行：发起按钮直接入行（按钮状态即任务状态；两任务块参数化
+            共用 TaskBlock 单组件） */}
         <div className="kg-health-row kg-health-tasks" data-kg-task-launch>
-          <div className="kg-task-block" data-kg-health-review>
-            <div className="kg-task-row">
-              <span className="hud-badge kbe-type">kg-review</span>
-              <span className="kg-task-name">{t("pj.health.reviewTitle")}</span>
-              {reviewRunning ? (
-                <span className="hud-badge" data-review-running-badge>{t("pj.health.reviewRunningBadge")}</span>
-              ) : (
-                <button
-                  type="button"
-                  className="hud-btn kg-btn-primary kg-btn-sm"
-                  data-review-launch-btn
-                  disabled={reviewBusy}
-                  onClick={onLaunchReview}
-                >
-                  {t("pj.health.reviewLaunch")}
-                </button>
-              )}
-            </div>
-            {reviewRunning && (
-              <div className="kg-ok-strip" data-review-running>
-                <span>{t("pj.health.reviewRunningStrip", { name: projectName })}</span>
-                <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
-                  {t("pj.health.reviewGoTasks")}
-                </button>
-              </div>
-            )}
-            {!reviewRunning && reviewLaunched && (
-              <div className="kg-ok-strip" data-review-launched>
-                <span>{t("pj.health.reviewLaunched", { name: projectName })}</span>
-                <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
-                  {t("pj.health.reviewGoTasks")}
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="kg-task-block" data-kg-health-code-review>
-            <div className="kg-task-row">
-              <span className="hud-badge kbe-type">code-review</span>
-              <span className="kg-task-name">{t("pj.health.codeReviewTitle")}</span>
-              {codeReviewRunning ? (
-                <span className="hud-badge" data-code-review-running-badge>{t("pj.health.reviewRunningBadge")}</span>
-              ) : (
-                <button
-                  type="button"
-                  className="hud-btn kg-btn-primary kg-btn-sm"
-                  data-code-review-launch-btn
-                  disabled={codeReviewBusy}
-                  onClick={onLaunchCodeReview}
-                >
-                  {t("pj.health.codeReviewLaunch")}
-                </button>
-              )}
-            </div>
-            {codeReviewRunning && (
-              <div className="kg-ok-strip" data-code-review-running>
-                <span>{t("pj.health.codeReviewRunningStrip", { name: projectName })}</span>
-                <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
-                  {t("pj.health.reviewGoTasks")}
-                </button>
-              </div>
-            )}
-            {!codeReviewRunning && codeReviewLaunched && (
-              <div className="kg-ok-strip" data-code-review-launched>
-                <span>{t("pj.health.codeReviewLaunched", { name: projectName })}</span>
-                <button type="button" className="hud-btn kg-btn-primary kg-btn-sm" data-goto-tasks onClick={onOpenTasks}>
-                  {t("pj.health.reviewGoTasks")}
-                </button>
-              </div>
-            )}
-          </div>
+          <TaskBlock
+            d="review"
+            badge="kg-review"
+            titleKey="pj.health.reviewTitle"
+            launchKey="pj.health.reviewLaunch"
+            runningStripKey="pj.health.reviewRunningStrip"
+            launchedKey="pj.health.reviewLaunched"
+            running={reviewRunning}
+            busy={reviewBusy}
+            launched={reviewLaunched}
+            onLaunch={onLaunchReview}
+            t={t}
+            projectName={projectName}
+            onOpenTasks={onOpenTasks}
+          />
+          <TaskBlock
+            d="code-review"
+            badge="code-review"
+            titleKey="pj.health.codeReviewTitle"
+            launchKey="pj.health.codeReviewLaunch"
+            runningStripKey="pj.health.codeReviewRunningStrip"
+            launchedKey="pj.health.codeReviewLaunched"
+            running={codeReviewRunning}
+            busy={codeReviewBusy}
+            launched={codeReviewLaunched}
+            onLaunch={onLaunchCodeReview}
+            t={t}
+            projectName={projectName}
+            onOpenTasks={onOpenTasks}
+          />
         </div>
       </section>
 
