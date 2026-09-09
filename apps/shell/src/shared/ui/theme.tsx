@@ -2,7 +2,7 @@
  * 主题状态（tokens.md 13 节：暗 = :root 默认，亮 = html.light；
  * localStorage helix-theme 持久化，AG-14 白名单键）。
  */
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 export type Theme = "dark" | "light";
@@ -56,7 +56,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>;
+  // context value useMemo（W3 #2.35）：字面量每次渲染新引用会击穿 useTheme
+  // 消费者 memo
+  const value = useMemo(() => ({ theme, setTheme }), [theme, setTheme]);
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme(): ThemeContextValue {

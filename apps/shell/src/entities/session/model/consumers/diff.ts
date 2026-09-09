@@ -29,8 +29,9 @@ export function applyDiffEvent(s: SessionState, event: EventEnvelope, _ts?: numb
     if (p.phase === "cleared") return s;
     return { ...s, diff: p };
   }
-  // diff.get.result 为窄化点对点回执（不入 EVENT_TYPES 目录——task 族先例）：
-  // 联合外宽松判别（DiffOverlay/TasksPage 先例同构）
+  // diff.get.result 已登记 DIFF_EVENT_TYPES（真消费在本文件，≠ 早期 task 族
+  // 回执不入目录的先例）：文件明细才经 LISTEN_SURFACE 转发归 DiffOverlay
+  // 私有 reducer（AG-15 两链平行）；联合外宽松判别（DiffOverlay/TasksPage 先例同构）
   if ((event.type as string) === "diff.get.result") {
     const p = event.payload as DiffGetResultPayload;
     // 轮次守卫：空态或同 turnId 才落（在途回执不降级覆盖新轮数据）

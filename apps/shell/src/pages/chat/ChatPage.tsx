@@ -29,7 +29,8 @@ const ChatPage = function ChatPage() {
   const toast = useToast();
   const { state, consumeRestoreToast, consumeSpawnToast, consumeKillToast } = useSession();
   // 抽屉寻址：组件状态 selectedAgentId（非 URL；review.md Mock 载体口径）。
-  // 入口：P-1 卡片 onOpenDrawer 与 header popover 行尾 onOpenInstance（T4.2 占位接管）。
+  // 入口：P-1 卡片 onOpenDrawer 与 header popover 行尾 onOpenInstance（T4.2
+  // 接线已全通：Workbench → UsagePopover 与 MessageFlow 两链同汇 setSelectedAgentId）。
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const openInstance = useCallback((instanceId: string) => setSelectedAgentId(instanceId), []);
   const closeDrawer = useCallback(() => setSelectedAgentId(null), []);

@@ -117,7 +117,9 @@ const WorkspaceBootScreen = function WorkspaceBootScreen({ variant }: WorkspaceB
     <div className="app-boot-loader" data-wsgate-boot="connecting">
       <div className="boot-term">
         {lines.map((line, i) => (
-          <span className="bl" key={line} style={{ "--d": `${0.05 + i * 0.08}s` } as CSSProperties}>
+          // 固定 key（行索引）：connectingLine 含 (attempt N)，重连尝试递增时
+          // 文本变但不重挂——入场动画不随尝试重播（闪烁修复）
+          <span className="bl" key={i} style={{ "--d": `${0.05 + i * 0.08}s` } as CSSProperties}>
             &gt; {line}
             {i === lines.length - 1 && (
               <span className="boot-cursor" style={{ animationDelay: "0.5s" }} />

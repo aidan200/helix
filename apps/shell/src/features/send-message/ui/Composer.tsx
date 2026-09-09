@@ -81,6 +81,15 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
   const [limitTip, setLimitTip] = useState(false);
   // M53：附件读取失败临时提示（FileReader 错误；3s 自动消隐）
   const [pickError, setPickError] = useState(false);
+  // 消隐 timer 登记：卸载时清理（setState 卸载后触发属泄漏形态，React 18
+  // 无害但清理纪律补齐）
+  const pickErrTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (pickErrTimerRef.current !== null) window.clearTimeout(pickErrTimerRef.current);
+    },
+    [],
+  );
 
   // 自动增高：内容高度增长至上限后内滚。jsdom 无布局（scrollHeight=0）时
   // 不落内联高度，交还 CSS 默认单行。
@@ -148,7 +157,7 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
         // M53：读取失败交代——临时错误提示（3s 消隐）+ 收口 limitTip（不残留）
         setLimitTip(false);
         setPickError(true);
-        window.setTimeout(() => setPickError(false), 3000);
+        pickErrTimerRef.current = window.setTimeout(() => setPickError(false), 3000);
       });
   };
 

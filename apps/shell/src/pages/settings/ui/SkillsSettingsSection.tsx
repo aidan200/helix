@@ -67,8 +67,10 @@ export function mergeUserSkillRows(payload: AgentConfigListResultPayload): reado
     name,
     description: main.get(name)?.description ?? sub.get(name)?.description ?? "",
     filePath: main.get(name)?.filePath ?? sub.get(name)?.filePath ?? "",
-    enabledMain: main.get(name)?.enabled ?? true,
-    enabledSub: sub.get(name)?.enabled ?? true,
+    // 缺省回落 false（保守报禁）：TR-125 user 技能缺省关（显式启用制）——
+    // 双 kind 清单不一致边缘态下未启用技能徽标不误报「启用」
+    enabledMain: main.get(name)?.enabled ?? false,
+    enabledSub: sub.get(name)?.enabled ?? false,
   }));
 }
 
@@ -237,6 +239,10 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
       setFileName(file.name);
       setBody(String(reader.result ?? ""));
       setFormError("");
+    };
+    // 读取失败行内交代（不静默）
+    reader.onerror = () => {
+      setFormError(t("chat.settings.skills.importFail"));
     };
     reader.readAsText(file);
   };

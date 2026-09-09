@@ -15,7 +15,7 @@
   <pre id="msg"></pre>
   <p class="hint">关闭本窗口退出。可查看 ~/.helix/logs/daemon.log 获取详情后重试。</p>
   <script>
-    // 错误消息经 query param 传入（壳放弃路径，contracts/sidecar-lifecycle.md §3）
+    // 错误消息经 query param 传入（壳放弃路径，kg TR-96 契约面）
     const params = new URLSearchParams(location.search);
     document.getElementById("msg").textContent = params.get("message") || "未知错误";
   </script>

@@ -25,7 +25,11 @@ const ToolCard = memo(function ToolCard({ entry }: { entry: ToolCallEntryDto }) 
       : t("chat.tool.done");
 
   const resultLabel = isError
-    ? t("chat.tool.resultFailed", { code: extractExitCode(entry.result ?? "") })
+    ? (() => {
+        // 无 exit code 文本（非进程类错误）不把启发式猜测呈现为事实（W3 #2.35）
+        const code = extractExitCode(entry.result ?? "");
+        return code === undefined ? t("chat.tool.resultFailedNoCode") : t("chat.tool.resultFailed", { code });
+      })()
     : t("chat.tool.result");
 
   const onToggle = () => {

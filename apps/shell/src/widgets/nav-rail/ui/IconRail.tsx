@@ -133,7 +133,7 @@ function idleText(t: (key: string, params?: Record<string, string | number>) => 
  * 联网状态钮（T4，契约 v0.7 web 族）：三态（idle/connecting 灰 →
  * connected 绿点呼吸 → error 红）+ 点击 popover（连接详情 + tab 清单 +
  * 启动/停止双钮）。T7 显式启动通路（v0.9 web.start）：双钮按态切换
- * disabled（idle=启/停禁；connecting=双禁；connected=停启；error=双可用），
+ * disabled（idle=启可用/停禁；connecting=双禁；connected=停启；error=双可用），
  * 恒渲染不卸载（焦点守恒）。props 注入纯展示（popover 开合为本地 UI 态）。
  */
 function WebStatusButton({

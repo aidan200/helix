@@ -166,7 +166,7 @@ export type SessionViewPhase = "loading" | "ready";
  * 向上分页状态（AD-1）：hasMore=false 禁用加载更早（不再发命令）。
  * v0.2（T3.2）：total = 快照 totalEntries（「已载 N / M」胶囊的分母；
  * null = 旧快照未携带 → 不渲染胶囊）；paged = 曾有更早历史可载（胶囊
- * 可见性判据：加载尽后保留禁用态胶囊，从未有则不性渲染）。
+ * 可见性判据：加载尽后保留禁用态胶囊，从未有则不渲染）。
  */
 export interface HistoryPaging {
   hasMore: boolean;

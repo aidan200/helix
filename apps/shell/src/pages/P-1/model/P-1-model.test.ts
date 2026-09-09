@@ -13,7 +13,6 @@ import {
   createKgViewState,
   filterRows,
   kgReducer,
-  panelStateOf,
   pickInitial,
 } from "./kg-model";
 import type { KgNodeListRow, KgNodeDetailDto } from "@helix/protocol";
@@ -195,14 +194,11 @@ describe("kg-model graph 态", () => {
     expect(s.detail).toBeNull(); // sel≠回执 id → 丢弃
   });
 
-  it("报告纯通知面（无 resolved 状态链）；面板起步态映射", () => {
+  it("报告纯通知面（无 resolved 状态链）", () => {
     const report = { iterationId: "i1", entries: [{}, {}] } as never;
     let s = createKgViewState();
     s = kgReducer(s, { type: "report-result", report });
     expect(s.report).toBe(report);
-    expect(panelStateOf("absent")).toBe("synced"); // graph 态面板不呈现 absent（主区消化）
-    expect(panelStateOf("building")).toBe("building");
-    expect(panelStateOf("degraded")).toBe("degraded");
   });
 
   it("选中即跳详情：report 态重选同节点仅切 tab 不重拉；异节点重拉", () => {

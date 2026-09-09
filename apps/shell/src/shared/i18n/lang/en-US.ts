@@ -121,6 +121,7 @@ export const enUS = {
       args: "Args",
       result: "Result",
       resultFailed: "Result · exit {code}",
+      resultFailedNoCode: "Result · failed",
     },
     sa: {
       card: {
@@ -133,6 +134,7 @@ export const enUS = {
         failedBadge: "failed",
         cancelledBadge: "cancelled",
         cancelledSub: "daemon restart · queued task closed",
+        cancelledFoot: "daemon restart · closed",
         failedFoot: "closure failed injected into next mainline turn",
         injectedMain: "closure injected into next mainline turn · {time}",
         injectedMainNoTime: "closure injected into next mainline turn",
@@ -269,6 +271,7 @@ export const enUS = {
         hide: "Hide",
         contentLoading: "Loading content…",
         addSkill: "Add skill",
+        importFail: "Import failed: file read error",
         addModeForm: "Write here",
         addModeFile: "Import file",
         fieldName: "Skill name (directory: alphanumeric start, . _ - allowed)",
@@ -530,16 +533,12 @@ export const enUS = {
     groupSystem: "System derived",
     roBadge: "Read-only",
     roToolsBadge: "Tools read-only",
-    modelFollowGlobal: "Follow global default",
     modelNoteSystem: "Falls back to the global default model when unset (no subagent-worker coupling)",
     orchestratorTitle: "Task orchestrator",
     kgWriterTitle: "KG writer SubAgent",
     reviewerTitle: "Code reviewer SubAgent",
     noSelectTitle: "Select an agent",
     noSelectSub: "Configuration details appear here; system derived profiles are read-only",
-    roModelValue: "Follows global default",
-    derivedNote: "Tool set follows subagent-worker, with kg-update always pinned",
-    reviewerDerivedNote: "Tool set follows subagent-worker, with write/edit always removed (read-only review)",
     pinnedTag: "Pinned",
     modelLabel: "Model",
     modelFollowMain: "Follow global default",
@@ -551,7 +550,6 @@ export const enUS = {
     mcpEmpty: "No MCP server connected (add one in Settings)",
     mcpToolCount: "{count} tools",
     mcpOffChip: "Group off",
-    mcpNoteOrch: "System agents (task chain): MCP follows the same track as regular agents — off by default, read-only (shown locked; enabling later only requires opening the write face).",
     mcpState: {
       idle: "Idle",
       connecting: "Connecting",
@@ -571,6 +569,7 @@ export const enUS = {
     skippedToast: "Not applied: {reason}",
     writeFailToast: "Write failed · {message}",
     notConnected: "Not connected to daemon",
+    writePendingToast: "Previous change is still saving — try again shortly",
     switchOn: "On",
     switchOff: "Off",
     // base prompt batch: base-segment system prompt viewer (lazy query on expand)
@@ -585,10 +584,6 @@ export const enUS = {
     skillContentLoading: "Loading skill content",
     // 系统派生块技能读面批：系统块技能组（orchestrator = 任务 SOP 注册表；
     // 派生两块 = worker 生效技能集）
-    systemSkillsLabelOrch: "Task SOPs (injected in full at kickoff)",
-    systemSkillsLabelDerived: "Skills (read-only toggles, all off by default)",
-    skillOffChip: "Off",
-    systemSkillsNoteOrch: "The orchestrator holds no skill list; the SOP it actually runs is the full SKILL.md of the chosen task type, injected at task kickoff (its system-prompt skill section is always empty).",
     // P-2 thinking level field (T3: on/off switch — off = empty slot by default, on writes the median level)
     thinking: {
       label: "Thinking Level · THINKING LEVEL",
@@ -810,7 +805,6 @@ export const enUS = {
     filter: { all: "All", allProjects: "All projects" },
     countLine: "{n} tasks · running first",
     list: {
-      loading: "Loading tasks…",
       progPending: "Assembling",
       progDone: "All done",
       progFailed: "Failed",

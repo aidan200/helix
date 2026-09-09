@@ -29,13 +29,15 @@ import type { KgIndexStatusDto, KgProjectRow } from "@helix/protocol";
 import AppLayout from "@/widgets/app-layout/ui/AppLayout";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
+import { fmtShortDateTime } from "@/shared/lib/format";
 import { useToast } from "@/shared/ui/Toast";
 import { createProjectPageState, projectReducer } from "./model/project-model";
 import KgViewer from "./kg-viewer";
 import { ProgressFill } from "./ui/kg-progress";
+import { KG_INDEX_POLL_MS } from "./model/project-model";
 
-/** building 轮询间隔（O-6：500ms-1s 由前端定）。 */
-const INDEX_POLL_MS = 750;
+/** building 轮询间隔（O-6：500ms-1s 由前端定；上收 project-model 单一常量）。 */
+const INDEX_POLL_MS = KG_INDEX_POLL_MS;
 
 /**
  * P-1 当前项目会话内记忆（模块级内存态）：最近一次选中项目名。路由切换
@@ -49,13 +51,9 @@ export function resetRememberedProjectForTest(): void {
   rememberedProject = null;
 }
 
-/** ISO → 「MM-DD HH:mm」短格式（次行完成时间；非法输入原样返回）。 */
+/** ISO → 「MM-DD HH:mm」短格式（次行完成时间；shared/lib/format 上收单一实现）。 */
 function fmtSyncedAt(iso: string | undefined): string {
-  if (iso === undefined) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const p2 = (n: number) => String(n).padStart(2, "0");
-  return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  return fmtShortDateTime(iso);
 }
 
 /** workspace 名派生（首行绝对路径的父目录名；失败回落裸 workspace）。 */
@@ -181,6 +179,10 @@ const ProjectPage = function ProjectPage({
           const name = idxReqRef.current;
           if (name === null) return; // 非页面发起（KgViewer 面板轮询）——页面层不消费
           const status: KgIndexStatusDto = e.payload;
+          // 页面发起的查询以回执收口：building 之外的终态回执后清锚——此后
+          // KgViewer 面板轮询的回执不再被页面层误消费（本行守护真生效，
+          // 而非仅 benign 徽章顺带刷新）
+          if (status.state !== "building") idxReqRef.current = null;
           dispatch({ type: "index-status", name, status });
           const cur = stateRef.current;
           if (
@@ -214,13 +216,19 @@ const ProjectPage = function ProjectPage({
   const onBuild = useCallback(() => {
     const cur = stateRef.current;
     if (cur.selected === null || cur.mainMode !== "absent") return;
+    // send 先行（TR-84：返回值必消费）——失败不进乐观 building 态（断连
+    // 静默失败不靠轮询自愈，toast 交代）
+    if (!sendKgIndexStatus({ project: cur.selected, rebuild: true })) {
+      toast.push("err", t("pj.boot.sendFail"));
+      return;
+    }
     idxReqRef.current = cur.selected;
-    sendKgIndexStatus({ project: cur.selected, rebuild: true });
     dispatch({ type: "build-started", name: cur.selected });
-  }, [sendKgIndexStatus]);
+  }, [sendKgIndexStatus, toast, t]);
 
   const onSelectProject = useCallback((name: string) => {
     rememberedProject = name; // 记入会话内记忆（离开 /project 再进自动恢复）
+    idxReqRef.current = null; // 切项目：旧项目的在途查询锚作废
     dispatch({ type: "select-project", name });
   }, []);
 

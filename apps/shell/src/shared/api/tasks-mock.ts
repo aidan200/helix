@@ -469,7 +469,8 @@ export class TasksMockStore {
     return sorted.map((t) => ({ ...t }));
   }
 
-  /** detail 输出（progress 与 status 同步镜像——paused/pending 叙述一致）。 */
+  /** detail 输出隔离：浅拷贝 + projects 克隆——spec 持回执引用改写不落
+   *  mock 台账（progress/status 一致性由各回执构造时自行保证，此处不派生）。 */
   private syncedDetail(d: TaskDetailDto): TaskDetailDto {
     return { ...d, projects: [...d.projects] };
   }

@@ -503,6 +503,9 @@ class FakeSocket {
   }
 
   fireMessage(frame: EventEnvelope): void {
+    // readyState 门控（W3 #2.34）：真实 WS 仅 OPEN 态下发帧——CONNECTING/
+    // CLOSED 态的 emit 丢弃（与 send 方向 TR-99 暗规则对称的收向镜像）
+    if (this.readyState !== FakeSocket.OPEN) return;
     this.handlers.onMessage(JSON.stringify(frame));
   }
 
@@ -540,14 +543,17 @@ class Registry {
   /**
    * monitor 档白名单过滤（daemon EventStream.push 单点过滤的 mock 镜像，
    * TR-TEST-3 契约等价）：帧信封 sessionId 命中 monitor 档且类型不在白名单
-   * → 整帧丢弃（不下发不入台账）。未订阅/full 档/系统帧照常放行；点对点
-   * 回执（session.snapshot / *.result——daemon 走 sendNow 直发不过滤）豁免。
+   * → 整帧丢弃（不下发不入台账）；未订阅会话同样整帧丢弃（daemon push 对
+   * 未订阅 tier=undefined 连接 continue 丢帧，镜像对齐）；系统帧照常放行；
+   * 点对点回执（session.snapshot / *.result——daemon 走 sendNow 直发不过滤）豁免。
    */
   passTierFilter(frame: EventEnvelope): boolean {
     if (frame.type === "session.snapshot" || frame.type.endsWith(".result")) return true; // sendNow 点对点回执
     const sid = frame.sessionId;
     if (typeof sid !== "string" || sid === "" || sid === SYSTEM_SESSION_ID) return true;
-    if (this.sessionTiers.get(sid) !== "monitor") return true;
+    const tier = this.sessionTiers.get(sid);
+    if (tier === undefined) return false; // 未订阅整帧丢弃（daemon push 镜像）
+    if (tier !== "monitor") return true;
     return MONITOR_TIER_EVENT_TYPES.has(frame.type);
   }
 
@@ -616,6 +622,9 @@ const mockApi: HelixMockApi = {
     (await registry.nextActive()).fireClose(code == null ? 1006 : code);
   },
   async failHandshake() {
+    // 模拟网络层失败（error+close，无 connection.error 帧）：客户端走到的是
+    // 断连重连路径而非握手拒绝处理；握手拒绝契约（E-54）剧本请用
+    // emit(connection.error) + netClose 组合（spec 已无消费者，仅 API 保留）
     const inst = await registry.nextActive();
     inst.fireError();
     inst.fireClose(1006);

@@ -132,16 +132,22 @@ const TracePage = function TracePage({ path }: { path: string }) {
   );
 
   // task 族帧消费：task.list.result → 任务会话清单（点对点回执，协议窄化
-  // 接口——EventEnvelope 联合外宽松判别，TasksPage 先例同构）
+  // 接口——EventEnvelope 联合外宽松判别，TasksPage 先例同构）；task.changed
+  // （job 级）→ 重拉清单——停留 trace 页期间新建/状态翻转的任务会话
+  // 侧栏分组与 runState 不陈旧（O-7 轻负载：只重拉 list）
   useEffect(
     () =>
       subscribeTaskFrames((envelope: EventEnvelope) => {
         const e = envelope as { type: string; payload: unknown };
         if (e.type === "task.list.result") {
           setTasks([...(e.payload as { tasks: readonly TaskSummaryDto[] }).tasks]);
+          return;
+        }
+        if (e.type === "task.changed" && (e.payload as { changed?: string }).changed === "job") {
+          sendTaskList();
         }
       }),
-    [subscribeTaskFrames],
+    [subscribeTaskFrames, sendTaskList],
   );
 
   /** 会话解析：已选合法 → 保持；否则活跃会话优先，回落清单首条（最新）。
@@ -191,8 +197,12 @@ const TracePage = function TracePage({ path }: { path: string }) {
     }
     if (topology.list.length > 0) requestedListRef.current = false; // M42：拉取成功复位（后续清空可重拉）
     sendTaskList(); // 任务会话清单（首挂/重连重拉）
-    if (topology.list.length === 0) {
-      if (!requestedListRef.current) {
+    if (resolvedSessionId === null) {
+      // 解析后仍无会话（chat+任务均空）才 early return——旧实现只看
+      // topology.list：工作空间零 chat 会话但有任务会话时（mergedSessions
+      // 已含 task:*，任务排前）resolvedSessionId 非空却永不自动查询，页面
+      // 卡 idle 骨架（W3 #2.33 修复）；chat 清单未拉过则顺手发首拉
+      if (topology.list.length === 0 && !requestedListRef.current) {
         requestedListRef.current = true;
         requestSessionList();
       }

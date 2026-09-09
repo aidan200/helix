@@ -138,7 +138,17 @@ const DiffOverlay = function DiffOverlay({ onClose }: DiffOverlayProps) {
                     className="diff-file"
                     data-status={f.status}
                     data-selected={i === view.selected ? "1" : undefined}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={i === view.selected}
                     onClick={() => dispatch({ type: "select", index: i })}
+                    onKeyDown={(e) => {
+                      // 键盘可达（W3 #2.36）：Enter/空格切换 diff 文件——与点击同路径
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        dispatch({ type: "select", index: i });
+                      }
+                    }}
                   >
                     <i className="diff-dot" />
                     <span className="diff-path" title={f.path}>

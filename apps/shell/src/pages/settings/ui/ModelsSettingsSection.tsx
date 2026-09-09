@@ -77,6 +77,9 @@ function refreshedLabel(refreshedAt: number, t: (k: string, v?: Record<string, s
   }
 }
 
+/** key 弹层打开后聚焦延迟（等 backdrop 缩放淡入首帧；两处开启点共用单一常量）。 */
+const MODAL_FOCUS_DELAY_MS = 60;
+
 /** 连通徽标四态（F(3.4).3：互斥单值；verifying 为前端 in-flight 态）。 */
 function ConnBadge({ entry }: { entry: AuthProviderEntry }) {
   const { t } = useI18n();
@@ -137,6 +140,16 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
   const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
   // 展开的 provider（单值；null = 全收起）
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // key 弹层 Escape 关闭（开态窗口级监听；与 backdrop 点击关闭同语义）
+  useEffect(() => {
+    if (modal === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setModal(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modal]);
 
   // 进入分区拉数据（目录/默认未请求态才发；auth.list 每次进入刷新）
   useEffect(() => {
@@ -212,14 +225,33 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
   };
 
   /** 两段式删除（F(3.4).2：首击 armed → 按钮变「确认删除？」2.5s 复原；二击发命令）。 */
+  // M47 对齐：删除成功 toast 等结果帧——auth.delete_key.result 消费清
+  // deleteKeyInflight（非空→null 转换）才弹；发送即弹属乐观假反馈。两失败路
+  // 各有 err toast 在先：send 失败经 ref 标记跳过，connection.error 置
+  // writeError 时跳过（writeError effect 交代）
+  const deleteAbortedRef = useRef(false);
+  const prevDeleteInflightRef = useRef<string | null>(mc.deleteKeyInflight);
+  useEffect(() => {
+    const prev = prevDeleteInflightRef.current;
+    prevDeleteInflightRef.current = mc.deleteKeyInflight;
+    if (prev === null || mc.deleteKeyInflight !== null) return;
+    if (deleteAbortedRef.current) {
+      deleteAbortedRef.current = false; // send 失败路：err toast 已交代
+      return;
+    }
+    if (mc.writeError !== null) return; // connection.error 路：err toast 由 writeError effect 交代
+    toast.push("ok", t("chat.modelsConfig.keyDeletedToast", { provider: prev }));
+  }, [mc.deleteKeyInflight, mc.writeError, toast, t]);
+
   const onDeleteKey = (providerId: string) => {
     confirmDelete(providerId, () => {
       if (!deleteProviderKey(providerId)) {
         // F5 批 #1：send 失败（未连接）——in-flight 已回滚，err toast 交代
+        deleteAbortedRef.current = true; // 回滚转换不弹成功 toast
         toast.push("err", t("chat.modelsConfig.sendFailToast"));
         return;
       }
-      toast.push("ok", t("chat.modelsConfig.keyDeletedToast", { provider: providerId }));
+      // 成功 toast 归 auth.delete_key.result 结果帧驱动（见上 effect）
     });
   };
 
@@ -382,7 +414,7 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
                             setModal({ provider: row.providerId });
                             setKeyValue("");
                             setKeyErr(false);
-                            window.setTimeout(() => keyInputRef.current?.focus(), 60);
+                            window.setTimeout(() => keyInputRef.current?.focus(), MODAL_FOCUS_DELAY_MS);
                           }}
                         >
                           {t("chat.modelsConfig.changeKey")}
@@ -408,7 +440,7 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
                           setModal({ provider: row.providerId });
                           setKeyValue("");
                           setKeyErr(false);
-                          window.setTimeout(() => keyInputRef.current?.focus(), 60);
+                          window.setTimeout(() => keyInputRef.current?.focus(), MODAL_FOCUS_DELAY_MS);
                         }}
                       >
                         {t("chat.modelsConfig.configureKey")}
@@ -484,10 +516,11 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
         </div>
       ))}
 
-      {/* F(3.4).2 key 弹层（hud-modal：backdrop + 缩放淡入；非空校验内联） */}
+      {/* F(3.4).2 key 弹层（hud-modal：backdrop + 缩放淡入；非空校验内联；
+          Escape 关闭——开态窗口级监听与 backdrop 点击同语义） */}
       {modal !== null && (
         <div
-          className={cn("modal-backdrop", "open")}
+          className="modal-backdrop open"
           role="presentation"
           onClick={(e) => {
             if (e.target === e.currentTarget) setModal(null);
@@ -540,6 +573,8 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
                 className="hud-btn hud-btn-cyan"
                 id="btn-modal-save"
                 type="button"
+                // 在途守卫（可达于重开窗口：本弹层自身发送即关，但另一 set_key
+                // 在途未收口时重开弹层——禁保存防止单飞在途被二次发送跨提供者串位）
                 disabled={mc.setKeyInflight !== null}
                 onClick={saveKey}
               >

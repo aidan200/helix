@@ -26,6 +26,7 @@
 import { useState } from "react";
 import { FolderOpen } from "lucide-react";
 import { useI18n } from "@/shared/i18n";
+import { fmtShortDateTime } from "@/shared/lib/format";
 import { hasNativePicker, nativePickDirectory } from "@/shared/api/native-capability";
 import { useWorkspace } from "@/entities/workspace/WorkspaceContext";
 
@@ -34,12 +35,9 @@ function pickErrorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** ISO → 「MM-DD HH:mm」短格式（fmtSyncedAt 先例；非法输入原样返回）。 */
+/** ISO → 「MM-DD HH:mm」短格式（shared/lib/format 上收单一实现）。 */
 function fmtLastUsedAt(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const p2 = (n: number) => String(n).padStart(2, "0");
-  return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  return fmtShortDateTime(iso);
 }
 
 /** 错误码 → 行内文案（错误码区分：无效根/活跃智能体/发送失败/兜底）。 */

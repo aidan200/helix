@@ -66,6 +66,13 @@ const McpSettingsSection = function McpSettingsSection() {
   const [importNote, setImportNote] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const [addPending, setAddPending] = useState(false);
+  // 在途位同步 ref：订阅 effect 真挂载一次（listener 读 ref 不进 deps——
+  // addPending 翻转不再退订重订，add.result 回执无窗口丢失面）
+  const addPendingRef = useRef(false);
+  const markAddPending = (v: boolean) => {
+    addPendingRef.current = v;
+    setAddPending(v);
+  };
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   /** 删除两段式：normal|armed（armed 2.5s 超时复原）——M10 批⑤ hook 单点承载。 */
   const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
@@ -103,7 +110,7 @@ const McpSettingsSection = function McpSettingsSection() {
           sendMcpServersList();
           if (type === "mcp.servers.add.result") {
             const payload = frame.payload as { status: string; error?: string };
-            setAddPending(false);
+            markAddPending(false);
             if (payload.status === "connect_failed") {
               setFormError(payload.error ?? t("chat.settings.mcp.connectFailed"));
             } else {
@@ -128,15 +135,33 @@ const McpSettingsSection = function McpSettingsSection() {
           );
           return;
         }
-        if (type === "connection.error" && addPending) {
-          setAddPending(false);
+        if (type === "connection.error" && addPendingRef.current) {
+          markAddPending(false);
           setFormError(t("chat.settings.mcp.addFailed"));
         }
       }),
-    [subscribeMcpFrames, sendMcpServersList, t, addPending],
+    [subscribeMcpFrames, sendMcpServersList, t],
   );
 
-  /** 导入 MCP 配置 JSON（Claude Desktop/Cursor mcpServers 格式或单 server 对象）：取首个 server 预填表单。 */
+  /**
+ * args 序列化/反序列化对（导入预填与表单提交共用同一契约）：含空白 arg
+ * 以双引号包裹（内部引号转义），纯空格分隔保持原样——Claude Desktop
+ * 配置含路径空格的 arg 往返不拆碎。
+ */
+function serializeArgs(args: readonly string[]): string {
+  return args.map((a) => (/\s/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)).join(" ");
+}
+function parseArgs(input: string): string[] {
+  // 双引号段（转义引号支持）或裸 token；未配对引号按字面回退
+  const out: string[] = [];
+  for (const m of input.trim().matchAll(/"((?:[^"\\]|\\.)*)"|(\S+)/g)) {
+    if (m[1] !== undefined) out.push(m[1].replace(/\\"/g, '"'));
+    else if (m[2] !== undefined) out.push(m[2]);
+  }
+  return out;
+}
+
+/** 导入 MCP 配置 JSON（Claude Desktop/Cursor mcpServers 格式或单 server 对象）：取首个 server 预填表单。 */
   const onImportFile = (file: File): void => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -162,7 +187,7 @@ const McpSettingsSection = function McpSettingsSection() {
         }
         setName(name);
         setCommand(cfg.command);
-        setArgs(Array.isArray(cfg.args) && cfg.args.every((a) => typeof a === "string") ? (cfg.args as string[]).join(" ") : "");
+        setArgs(Array.isArray(cfg.args) && cfg.args.every((a) => typeof a === "string") ? serializeArgs(cfg.args as string[]) : "");
         setFormOpen(true);
         setFormError("");
         if (entries.length > 1) {
@@ -177,16 +202,21 @@ const McpSettingsSection = function McpSettingsSection() {
         setFormError(t("chat.settings.mcp.importFail"));
       }
     };
+    // 读取失败行内交代（不静默）
+    reader.onerror = () => {
+      setFormOpen(true);
+      setFormError(t("chat.settings.mcp.importFail"));
+    };
     reader.readAsText(file);
   };
 
-  /** 表单现值 → McpServerInput（args 空格分隔转数组；空串 → 缺省；deferred 缺省 true = 懒加载）。 */
+  /** 表单现值 → McpServerInput（args 空格分隔转数组（引号段含空白不拆）；空串 → 缺省；deferred 缺省 true = 懒加载）。 */
   const formInput = () => {
     const trimmedArgs = args.trim();
     return {
       name: name.trim(),
       command: command.trim(),
-      ...(trimmedArgs !== "" ? { args: trimmedArgs.split(/\s+/) } : {}),
+      ...(trimmedArgs !== "" ? { args: parseArgs(trimmedArgs) } : {}),
       enabled,
       deferred,
     };
@@ -198,7 +228,7 @@ const McpSettingsSection = function McpSettingsSection() {
       setFormError(t("chat.settings.mcp.formInvalid"));
       return;
     }
-    setAddPending(true);
+    markAddPending(true);
     sendMcpServersAdd(formInput());
   };
 

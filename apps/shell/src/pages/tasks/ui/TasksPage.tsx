@@ -111,6 +111,9 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
         dispatch({ type: "detail-loading", jobId });
         sendTaskDetail({ jobId });
       }
+      // 结果 tab 已加载（artifactsJob===选中）时清归属触发重拉：断连期间
+      // 完成的阶段产物不显现（watcher 条件不满足不重发），需切任务再切回
+      if (stateRef.current.tab === "result") dispatch({ type: "artifacts-reset" });
     }
   }, [conn, sendTaskSubscribe, sendTaskList, sendTaskDetail]);
 
@@ -210,9 +213,7 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
             artifactsReqRef.current = [];
             dispatch({ type: "artifacts-failed", jobId: artifactsJob });
             if (!consumed) toast.push("err", t("tk.toast.failed", { msg }));
-            consumed = true;
           }
-          if (!consumed) return;
           return;
         }
         if (e.type === "task.changed") {

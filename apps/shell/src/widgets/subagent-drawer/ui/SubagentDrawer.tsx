@@ -91,15 +91,15 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
   };
 
   // ── steer 到达 toast（打开期间新增注入标记 → violet 交代；回放不 toast）──
+  // 单 effect prev-ref 比较（W3 #2.37）：挂载/实例切换重基线不 toast，此后
+  // 计数增量即 toast——消双 effect + eslint-disable 的执行序依赖
   const steerCount = items.reduce((n, i) => (i.kind === "steer" ? n + 1 : n), 0);
-  const steerBaselineRef = useRef<number>(-1);
+  const prevSteerRef = useRef<{ agentId: string; count: number } | null>(null);
   useEffect(() => {
-    steerBaselineRef.current = steerCount; // 挂载/实例切换重基线
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentId]);
-  useEffect(() => {
-    if (steerBaselineRef.current >= 0 && steerCount > steerBaselineRef.current) {
-      steerBaselineRef.current = steerCount;
+    const prev = prevSteerRef.current;
+    prevSteerRef.current = { agentId, count: steerCount };
+    if (prev === null || prev.agentId !== agentId) return; // 挂载/实例切换：重基线
+    if (steerCount > prev.count) {
       toast.push("violet", t("chat.drawer.steerToast"), t("chat.drawer.steerToastSub", { id: agentId }));
     }
   }, [steerCount, agentId, toast, t]);
@@ -128,7 +128,9 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
     }
     if (!atBottomRef.current) return; // 用户上滚浏览中：不打扰
     el.scrollTop = el.scrollHeight;
-  }, [agentId, items.length, stream?.text, thinkingLive]);
+    // deps 含 items 引用（W3 #2.37）：工具/思考定稿原位替换（length 不变）
+    // 时新帧也触发贴底跟随
+  }, [agentId, items, stream?.text, thinkingLive]);
 
   if (!card) return null; // 防御：实例不在状态源（正常流经卡片/行尾寻址，不达此分支）
 
