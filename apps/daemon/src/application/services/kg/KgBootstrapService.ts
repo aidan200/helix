@@ -28,7 +28,7 @@ import type { KgProjectService } from "./KgProjectService";
 import type { KgSyncService } from "./KgSyncService";
 import type { KgWriteService } from "./KgWriteService";
 import type { KnowledgeNode, NodeDetail, NodeDigestRow } from "../../../domain/kg/types";
-import { createTaskWithSlot, hasActiveJob, projectNameOf } from "./job-activity";
+import { createTaskWithSlot, hasActiveJob, narrowCreateErrorCode, projectNameOf } from "./job-activity";
 
 // ── 结果形状（应用层视图；协议 DTO 由 driving 层逐字段映射） ──
 
@@ -86,6 +86,16 @@ export interface KgNodeUpdateView {
 
 /** 结构化错误（契约词表；与 KgViewerError 同构但码域不同——本面归 task.* 词表）。 */
 export type KgBootstrapErrorCode = "kg.bootstrap.not_eligible" | "kg.node.not_found" | "task.validation_failed" | "task.type_unknown" | "task.internal" | "KG_E_PARAM";
+
+/** 词表运行时形态（清单 #2.6：回段窄化用——词表外 code 回落 task.internal，不做 as 盲转）。 */
+const KG_BOOTSTRAP_ERROR_CODES: readonly KgBootstrapErrorCode[] = [
+  "kg.bootstrap.not_eligible",
+  "kg.node.not_found",
+  "task.validation_failed",
+  "task.type_unknown",
+  "task.internal",
+  "KG_E_PARAM",
+];
 
 export interface KgBootstrapError {
   readonly code: KgBootstrapErrorCode;
@@ -167,7 +177,11 @@ export class KgBootstrapService {
       slotBusyError: () => ({ code: "kg.bootstrap.not_eligible", message: TASK_RUNNING_MESSAGE }),
       createTask: () => this.deps.taskEngine.createTask({ type: "kg-bootstrap", projects: [projectName], params, createdBy: "page" }),
     });
-    if (!created.ok) return { ok: false, error: { code: created.error.code as KgBootstrapErrorCode, message: created.error.message } };
+    if (!created.ok)
+      return {
+        ok: false,
+        error: { code: narrowCreateErrorCode(created.error.code, KG_BOOTSTRAP_ERROR_CODES, "task.internal"), message: created.error.message },
+      };
     return { ok: true, value: { jobId: created.jobId } };
   }
 
@@ -295,7 +309,19 @@ export class KgBootstrapService {
     // 去重、排除 superseded（契约 §5 机械定义）；只读推导不落库
     const view = this.deps.graph.getVerifyView(projectRoot);
     const statusById = new Map(view.nodes.map((n) => [n.id, n.status] as const));
-    const digestById = new Map(this.deps.graph.search(projectRoot, "").map((row) => [row.id, row] as const));
+    // digestById 从 view.nodes 直接投影（清单 #2.6：KnowledgeNode 字段 ⊇
+    // NodeDigestRow——types.ts 字段包含关系；省 search("") 二次全表 LIKE 扫。
+    // 集合等价：search("", 即空 q = 全表枚举（见 port 契约）与 getVerifyView
+    // 全量视图同集，投影全集行为不变）
+    const digestById = new Map(
+      view.nodes.map(
+        (n) =>
+          [
+            n.id,
+            { id: n.id, kind: n.kind, name: n.name, digest: n.digest, scene: n.scene, status: n.status, domain: n.domain },
+          ] as const,
+      ),
+    );
     const sources = new Set<string>();
     for (const edge of view.edges) {
       if (edge.dstId === nodeId) sources.add(edge.srcId);

@@ -65,6 +65,20 @@ export function normalizeCreateTaskError(err: unknown): NormalizedCreateError {
 }
 
 /**
+ * 错误码词表窄化（清单 #2.6 盲转收口）：NormalizedCreateError.code 是三服务
+ * 码域联合的超集（string）——回段不作 as 盲转（词表外 code 会静默通过
+ * 编译，类型说谎）。成员资格判定后才窄化；词表外回落 fallback（三服务
+ * 码域均含 task.internal 兑底码，未知码以内部错误面示出）。
+ */
+export function narrowCreateErrorCode<T extends string>(
+  code: string,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  return (allowed as readonly string[]).includes(code) ? (code as T) : fallback;
+}
+
+/**
  * page 入口 create 共享骨架（code-review M7④：KgBootstrapService /
  * KgReviewService / CodeReviewService 三份「互斥槽 claim → createTask →
  * 错误归一 → finally release」近逐字重复的收口点——既往修复（M7 错误透传/

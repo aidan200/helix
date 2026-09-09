@@ -45,7 +45,7 @@ export interface KgProjectServiceDeps {
   readonly hasIndex: (projectRoot: string) => boolean;
   /** 索引四态读面（KgSyncService.getStatus 注入）。 */
   readonly indexStatus: (projectRoot: string) => KgIndexStatus;
-  /** 非 superserved 节点计数（KnowledgeGraphPort.countActiveNodes 注入；T3.2
+  /** 非 superseded 节点计数（KnowledgeGraphPort.countActiveNodes 注入；T3.2
    *  准入口径——contracts/kg-bootstrap-api.md §1，留史行不计入）。 */
   readonly countActiveNodes: (projectRoot: string) => number;
   /** 该项目存在非终态 kg-bootstrap job 判定（P0① TaskStorePort 查询注入；

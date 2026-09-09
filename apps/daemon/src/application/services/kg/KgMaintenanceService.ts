@@ -44,6 +44,7 @@ import type { TaskStorePort } from "../../ports/outbound/TaskStorePort";
 import type { KgFsWatchService } from "./KgFsWatchService";
 import type { KgProjectService } from "./KgProjectService";
 import type { KgSyncService } from "./KgSyncService";
+import { isTerminalJob } from "../../../domain/task/job";
 import { projectNameOf } from "./job-activity";
 
 // ── 结果形状（应用层视图；协议 DTO 由 driving 层逐字段映射） ──
@@ -75,7 +76,6 @@ export interface KgMaintenanceError {
 export type KgMaintenanceResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: KgMaintenanceError };
 
 /** purge 门禁覆盖的任务状态（code-review H4 起与 hasActiveJob 同口径：非终态即拒绝，含 paused）。 */
-import { isTerminalJob } from "../../../domain/task/job";
 
 export interface KgMaintenanceServiceDeps {
   /** 项目解析/存在性（§3.5 单点；hasIndex = .helix-kg/kg.db 存在性探测）。 */

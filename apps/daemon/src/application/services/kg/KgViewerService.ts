@@ -248,14 +248,14 @@ export class KgViewerService {
       patch: { status: "confirmed", reason: CONFIRM_LOG_TEXT },
     });
     if (!write.ok) {
-      // 写失败映射白名单化（清单 #2.6）：KG_E_ID → NOT_FOUND、KG_E_STATE →
-      // STATE；其余（KG_E_SCHEMA/KG_E_VERB/KG_E_INTERNAL——非预期落库故障）
-      // 不再误标状态机错——回码兑底 STATE（viewer 词表无 internal 类，新增
+      // 写失败映射白名单化（清单 #2.6）：KG_E_ID → NOT_FOUND；其余
+      //（KG_E_STATE/KG_E_SCHEMA/KG_E_VERB/KG_E_INTERNAL——非预期落库故障）
+      // 不再逐码映射——回码兑底 STATE（viewer 词表无 internal 类，新增
       // 需动 protocol 错误词表，超出本批范围），原码透传进 message 保可观测
       return {
         ok: false,
         error: {
-          code: write.error.code === "KG_E_ID" ? "KG_E_NOT_FOUND" : write.error.code === "KG_E_STATE" ? "KG_E_STATE" : "KG_E_STATE",
+          code: write.error.code === "KG_E_ID" ? "KG_E_NOT_FOUND" : "KG_E_STATE",
           message: `转正写失败（${write.error.code}）：${write.error.message}`,
           path: "payload.id",
         },

@@ -40,7 +40,9 @@ export interface KnowledgeGraphPort {
   /** 附着快照：物化锚 join 节点摘要（superseded 不进快照）；附着与注入共用。 */
   getAttachmentSnapshot(projectRoot: string): AttachmentSnapshot;
 
-  /** search：name/digest LIKE 子串命中，按 id 确定性排序（重名多行靠 digest 区分）。 */
+  /** search：name/digest LIKE 子串命中，按 id 确定性排序（重名多行靠 digest 区分）。
+   *  q="" = 空 LIKE 命中全表（全量枚举语义）——消费面不应依赖此隐式形态
+   *  取全量，需要全量视图优先 getVerifyView（清单 #2.6 显式化此契约）。 */
   search(projectRoot: string, q: string): readonly NodeDigestRow[];
 
   /**
