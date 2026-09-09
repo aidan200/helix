@@ -162,10 +162,14 @@ interface BrowserParams {
   readonly file?: string;
 }
 
-/** 按 action 校验必填参数（缺失抛中文错误——经 CoreToolExecutor 转 isError）。 */
+/** 按 action 校验必填参数（缺失/空串抛中文错误——经 CoreToolExecutor 转
+ * isError；空串同样拒：tabId/url/selector 传空串会直达 BrowserPort，错误面
+ * 下沉到 CDP 层且文案不可控）。 */
 function requireParam<K extends keyof BrowserParams>(params: BrowserParams, key: K): NonNullable<BrowserParams[K]> {
   const value = params[key];
-  if (value === undefined) throw new Error(`action=${params.action} 需要 ${String(key)} 参数`);
+  if (value === undefined || (typeof value === "string" && value.trim() === "")) {
+    throw new Error(`action=${params.action} 需要 ${String(key)} 参数（非空${typeof value === "string" ? "字符串" : "值"}）`);
+  }
   return value as NonNullable<BrowserParams[K]>;
 }
 

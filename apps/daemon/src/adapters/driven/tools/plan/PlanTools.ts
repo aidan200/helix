@@ -64,7 +64,10 @@ const planReadParameters = {
 } as const;
 
 export interface PlanToolDeps {
-  /** WorkLedgerService 面（结构化注入——测试记录器同形；经 port 落表）。 */
+  /** WorkLedgerService 面（结构化注入——测试记录器同形；经 port 落表）。
+   * forceResolveInProgress 非 plan 三工具消费（工具面无强制收口 op），
+   * 但 ChildMain closure done 兜底经本对象复用消费（tools.service 同一
+   * 引用——task-8659b320 三连败修复的机械补标面），保留在 Pick。 */
   readonly service: Pick<WorkLedgerService, "createPlan" | "updateItem" | "getPlan" | "forceResolveInProgress">;
   /** 本实例 id（子进程上下文注入——工具参数零 instanceId，防伪造）。 */
   readonly instanceId: string;

@@ -160,7 +160,13 @@ export function createWebSearchTool(): AgentHarnessTool<ExecutionToolContext, an
     parameters: searchParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
-      const { query, limit = 10 } = params as { query: string; limit?: number };
+      const { query, limit: rawLimit = 10 } = params as { query: string; limit?: number };
+      // limit 整形：非法值（非正整数/NaN）零结果会触发双引擎兜底报错——
+      // 误导为搜索引擎故障；入口校验直接报参数错（LLM 可纠错）
+      if (!Number.isInteger(rawLimit) || rawLimit <= 0) {
+        throw new Error(`limit 应为正整数（收到 ${JSON.stringify(rawLimit)}——缺省 10）`);
+      }
+      const limit = rawLimit;
       const { results, engine } = await searchWithEngines(query, limit);
       const lines = results.map(
         (r, i) => `${i + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ""}`,
