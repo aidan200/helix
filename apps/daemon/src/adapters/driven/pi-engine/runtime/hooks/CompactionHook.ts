@@ -7,8 +7,9 @@ import {
   prepareCompaction,
   shouldCompact,
 } from "@earendil-works/pi-agent-core";
-import type { Model, Models, Usage } from "@earendil-works/pi-ai";
+import type { Model, Models } from "@earendil-works/pi-ai";
 import type { AgentEngineUsage } from "../../../../../application/ports/outbound/AgentEnginePort";
+import { usageOfPi } from "../../mappers/SessionMapper";
 import type { CompactionSettings } from "../AgentProfile";
 import type { HookSet } from "../HookSet";
 
@@ -128,7 +129,7 @@ export class CompactionHook implements HookSet {
         tokensBefore: cr.tokensBefore,
         tokensAfter,
         summary: cr.summary,
-        ...(cr.usage !== undefined ? { usage: usageOf(cr.usage) } : {}),
+        ...(cr.usage !== undefined ? { usage: usageOfPi(cr.usage) } : {}),
       });
       return {
         context: {
@@ -143,19 +144,6 @@ export class CompactionHook implements HookSet {
       return undefined;
     }
   }
-}
-
-/** pi Usage → 七字段防腐（cost 拍平取 total；reasoning 缺省 0）。 */
-function usageOf(usage: Usage): AgentEngineUsage {
-  return {
-    input: usage.input,
-    output: usage.output,
-    cacheRead: usage.cacheRead,
-    cacheWrite: usage.cacheWrite,
-    reasoning: usage.reasoning ?? 0,
-    totalTokens: usage.totalTokens,
-    cost: usage.cost.total,
-  };
 }
 
 /** transcript → message Entry 链（id/seq 按位次合成；timestamp 取消息自带）。 */

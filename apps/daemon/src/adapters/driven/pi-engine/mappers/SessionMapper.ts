@@ -71,11 +71,10 @@ export function errorMessageOf(message: AgentMessage): string {
     : "模型调用失败（provider 未返回错误详情）";
 }
 
-/** pi Usage → 七字段防腐（提取本体轻量，账目本体归 UsageLedger）。
- *  cost 拍平取 total；reasoning 未报时 0。消息不携带 usage → undefined。 */
-export function usageOf(message: AgentMessage): AgentEngineUsage | undefined {
-  const usage = (message as { usage?: Usage }).usage;
-  if (usage === undefined) return undefined;
+/** pi Usage → 七字段防腐映射单源（清单 #2.7：消息面（本文件 usageOf）与
+ *  CompactionHook 摘要面共用——入参 Usage 本体，口径调整单点）。
+ *  cost 拍平取 total；reasoning 未报时 0。 */
+export function usageOfPi(usage: Usage): AgentEngineUsage {
   return {
     input: usage.input,
     output: usage.output,
@@ -85,6 +84,14 @@ export function usageOf(message: AgentMessage): AgentEngineUsage | undefined {
     totalTokens: usage.totalTokens,
     cost: usage.cost.total,
   };
+}
+
+/** pi Usage → 七字段防腐（提取本体轻量，账目本体归 UsageLedger）。
+ *  cost 拍平取 total；reasoning 未报时 0。消息不携带 usage → undefined。 */
+export function usageOf(message: AgentMessage): AgentEngineUsage | undefined {
+  const usage = (message as { usage?: Usage }).usage;
+  if (usage === undefined) return undefined;
+  return usageOfPi(usage);
 }
 
 /** pi 消息 → domain Entry 数据形状（工具结果归 tool；custom 消息忽略）。
