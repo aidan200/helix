@@ -13,6 +13,7 @@
 
 import type { MatchedAnchor } from "./scope-matcher";
 import { attachmentBlockChars } from "./render";
+import { greedyFit } from "./entry-format";
 
 /** 单块 token 硬顶（实现期可调常量；token 估算 = 渲染字符数 / 4）。 */
 export const ATTACHMENT_TOKEN_BUDGET = 800;
@@ -69,12 +70,8 @@ export function applyBudget(
   // ② 特异性排序：符号域 > 路径域；Array#sort 稳定 → 同域保持输入序
   const ranked = [...unique].sort((a, b) => domainRank(a) - domainRank(b));
 
-  // ③ token 硬顶贪心装入（估算与渲染共用 attachmentBlockChars，口径一致）
-  const picked: MatchedAnchor[] = [];
-  for (const c of ranked) {
-    if (attachmentBlockChars([...picked, c]) / 4 <= budget.maxTokens) {
-      picked.push(c);
-    }
-  }
+  // ③ token 硬顶贪心装入（估算与渲染共用 attachmentBlockChars，口径一致；
+  //    贪心助手单源 entry-format.ts——与 task-slice 同构）
+  const picked = greedyFit(ranked, (p, c) => attachmentBlockChars([...p, c]) / 4 <= budget.maxTokens);
   return { anchors: picked };
 }

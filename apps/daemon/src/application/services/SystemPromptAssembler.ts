@@ -2,9 +2,9 @@ import type { SkillDescriptor } from "../ports/outbound/SkillSourcePort";
 import type { TaskTypeInfo } from "../ports/outbound/TaskSkillRegistryPort";
 
 /**
- * SystemPromptAssembler —— 系统提示三段组装器（设计定稿 §三）。
+ * SystemPromptAssembler —— 系统提示分段组装器（设计定稿 §三，后逐批增段）。
  *
- * 三段结构：
+ * 段结构（最多五段，空段整体省略、base 恒在，段间空行分隔）：
  *   [base：profile 静态瘦身 prompt（角色+行为引导，无工具清单——消双源）]
  *   [可用工具：- name: snippet 扁平清单（ToolPromptSnippets 注册表；清单从
  *    resolveTools 产物同源派生——入参即 getEffectiveTools(kind) 生效集）]
@@ -12,6 +12,10 @@ import type { TaskTypeInfo } from "../ports/outbound/TaskSkillRegistryPort";
  *    目录为基准解析）+ 每技能 name/description/location 三行 YAML 子块；
  *    内容对齐 agentskills.io 标准，格式非 XML——自写格式化，不用 pi 的
  *    formatSkillsForSystemPrompt]
+ *   [项目常驻规则段：kg global 声明节点触发面索引（已渲染成品段，渲染
+ *    逻辑归 domain/kg；无图谱/空集省略——零注入痕迹）]
+ *   [任务类型段：仅 main-session 注入（发起面 = task_create；SOP 走
+ *    kickoff 全文不进技能清单，audience=task 不过技能面）]
  *
  * 【无条件化联动】（用户裁决）：组装器不做任何状态联动判断——read 关不删
  * 技能引导句、编排关不删委派段；错配 = 使用不当，不加代码级硬约束。
@@ -47,7 +51,7 @@ export interface PromptAssemblyInput {
 export class SystemPromptAssembler {
   constructor(private readonly deps: SystemPromptAssemblerDeps) {}
 
-  /** 三段组装：段间空行分隔；工具/技能段为空集时整体省略（base 恒在）。 */
+  /** 分段组装（最多五段，见类头）：空段整体省略（base 恒在），段间空行分隔。 */
   assemble(input: PromptAssemblyInput): string {
     const segments: string[] = [input.basePrompt];
     const toolLines = input.toolNames.map((name) => {

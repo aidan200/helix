@@ -41,7 +41,7 @@ export interface SessionSnapshot {
   readonly entries: readonly SessionEntryData[];
   /** 全量轮次。 */
   readonly turns: readonly TurnData[];
-  /** 未消费的 steer 队列（重启后仍可注入， ④）。 */
+  /** 未消费的 steer 队列（重启后仍可注入）。 */
   readonly pendingSteer: readonly SteerItem[];
 
   // ── 占位字段（结构对齐契约 protocol-v0.1.md §6.2）──
@@ -54,7 +54,7 @@ export interface SessionSnapshot {
   readonly instances?: readonly AgentInstanceData[];
 
   /**
-   * 会话账目聚合（徽标/popover 数据源）。：UsageLedger 投影真值装配
+   * 会话账目聚合（徽标/popover 数据源）：UsageLedger 投影真值装配
    *（组合根 getUsage 单点）；形状与契约 SessionUsageDto 对齐。
    */
   readonly usage?: SessionUsageSummary;

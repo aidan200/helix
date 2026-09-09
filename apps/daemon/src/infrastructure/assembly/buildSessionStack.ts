@@ -476,16 +476,19 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       : profileKind === "subagent-code-reviewer"
         ? reviewerAssembly
         : subagentAssembly;
-  let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算；技能段照常注入自身生效集）  // mcp 批：活跃主会话 executor 登记（engineFor 构造点 set；refreshAssembly
+  let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算；技能段照常注入自身生效集）
+  // mcp 批：活跃主会话 executor 登记（engineFor 构造点 set；refreshAssembly
   // 对活跃会话 appendTools 后再 setTools——MCP 新工具实例进 registry 才能被
   // 按名 resolve）。生命周期见 set 点注释。
   const sessionExecutors = new Map<string, InstanceType<typeof CoreToolExecutor>>();
   /** toggle applied 后的重算入口（WS 命令复用面：命令只调 toggle，刷新单点在此）。 */
   const refreshAssembly = async (kind: ProfileKind): Promise<void> => {
     // 五 kind 同构刷新（独立配置终态：各自 toggle 各自重算，派生联动撤除——
-    // kg-writer/reviewer 工具/技能面不再随 worker 联动）。
-    const next = await computeAssembly(kind);
+    // kg-writer/reviewer 工具/技能面不再随 worker 联动）。前三分支消费
+    // computeAssembly 产物；kg-writer/reviewer 走各自带后缀的独立快照函数
+    //（内部重跑 computeAssembly——不预拍 next 白跑一遍）。
     if (kind === "main-session") {
+      const next = await computeAssembly(kind);
       mainAssembly = next;
       // 活跃 runtime 直改（setModel 同构）：systemPrompt 重算 + tools 重 resolve，
       // 下一 turn 生效（in-flight 不变）。model 槽位不在此链（读面生效，见 engineFor）。
@@ -515,13 +518,13 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         runtime.chatService.setTools(next.tools);
       }
     } else if (kind === "subagent-worker") {
-      subagentAssembly = next; // 已 spawn 实例 env 已定格（代际生效，零刷新）
+      subagentAssembly = await computeAssembly(kind); // 已 spawn 实例 env 已定格（代际生效，零刷新）
     } else if (kind === "subagent-kg-writer") {
       kgWriterAssembly = await computeKgWriterAssembly(); // 独立快照重算（已 spawn env 定格，代际生效）
     } else if (kind === "subagent-code-reviewer") {
       reviewerAssembly = await computeReviewerAssembly(); // 独立快照重算（同上）
     } else {
-      orchestratorAssemblyValue = next; // 编排会话短生命周期：下一会话生效（零活跃刷新）
+      orchestratorAssemblyValue = await computeAssembly(kind); // 编排会话短生命周期：下一会话生效（零活跃刷新）
     }
   };
 

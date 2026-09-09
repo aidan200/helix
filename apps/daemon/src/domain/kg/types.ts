@@ -599,7 +599,7 @@ export interface ContainsEdge {
 }
 
 /**
- * 附着快照（附着与任务层注入共用；superseded 由上游过滘、global 上游
+ * 附着快照（附着与任务层注入共用；superseded 由上游过滤、global 上游
  * 不产锚且本层防御性再滤；附着不依赖新鲜度，AD-15）。
  */
 export interface AttachmentSnapshot {
@@ -689,7 +689,8 @@ export interface SymbolRef {
 
 /** 节点 → 人类面引用投影（digest 首行截断；verify/报告面共用）。 */
 export function toNodeRef(node: KnowledgeNode): NodeRef {
-  const firstLine = node.digest.split("\n")[0] ?? node.digest;
+  // split 恒返 ≥1 元素（无死防御 ?? 兑底）；trim 收首行前后空白
+  const firstLine = node.digest.split("\n")[0]!;
   return { id: node.id, name: node.name, kind: node.kind, digestFirstLine: firstLine.trim() };
 }
 

@@ -117,7 +117,13 @@ function parseStages(raw: unknown): TaskManifest["stages"] {
         );
       }
     }
-    return { strategy: "fixed", list: list as (string | { name: string; kind?: StageKind })[] };
+    return {
+      strategy: "fixed",
+      // 浅拷贝 list 项（解析纯函数不回传原始引用——防 raw 联动污染）
+      list: (list as (string | { name: string; kind?: StageKind })[]).map((entry) =>
+        typeof entry === "string" ? entry : { ...entry },
+      ),
+    };
   }
   rejectUnknownKeys(raw, STAGES_FREE_KEYS, "stages");
   return { strategy: "free" };
@@ -134,6 +140,9 @@ function parseProjects(raw: unknown): ProjectsCardinality {
     throw new DomainError(
       `非法 task manifest：projects.min/max 必须为非负整数（max 可为 Infinity），得到 min=${describeValue(min)}, max=${describeValue(max)}`,
     );
+  }
+  if (min === Infinity) {
+    throw new DomainError("非法 task manifest：projects.min 不可为 Infinity（仅 max 允许——min=∞ 基数恒不可满足）");
   }
   if (min > max) {
     throw new DomainError(`非法 task manifest：projects 基数 min(${min}) > max(${max})`);
@@ -230,6 +239,29 @@ export function validateTaskParams(
 }
 
 /**
+ * 阶段角色派生单源（清单 #2.5 上收：TaskEngineService/TaskQueryService 双份同构收口）：
+ * 按任务类型 manifest + 阶段序派生 kind；free 策略/无声明/序越界/裸字符串
+ * → fallback（引擎面传 "execute" 缺省、查询面传 undefined 不携带键——两消费面
+ * 差异经 fallback 参数收口，manifest 结构演变只改此处）。
+ */
+export function stageKindOfManifest(
+  manifest: TaskManifest | null,
+  stageSeq: number,
+  fallback: undefined,
+): StageKind | undefined;
+export function stageKindOfManifest(manifest: TaskManifest | null, stageSeq: number, fallback: StageKind): StageKind;
+export function stageKindOfManifest(
+  manifest: TaskManifest | null,
+  stageSeq: number,
+  fallback: StageKind | undefined,
+): StageKind | undefined {
+  if (manifest === null || manifest.stages.strategy !== "fixed") return fallback;
+  const entry = manifest.stages.list[stageSeq - 1];
+  if (entry === undefined || typeof entry === "string") return fallback;
+  return entry.kind ?? fallback;
+}
+
+/**
  * 阶段计划求值（AD-9①：阶段落数据行不落代码，createTask 时插入 stage 行并冻结）。
  * fixed → 按 manifest.list 生成序号行；free → confirmedStages 必填（发起者确认列表），缺则抛 DomainError。
  */
@@ -244,6 +276,12 @@ export function resolveStagePlan(manifest: TaskManifest, confirmedStages?: strin
   }
   if (confirmedStages === undefined || confirmedStages.length === 0) {
     throw new DomainError("stages 违例：free 策略需要发起者确认的阶段列表（confirmedStages），缺失或为空");
+  }
+  // 逐项非空校验（与 fixed 侧 parseStages 的 name 非空口径对称）
+  for (const [i, name] of confirmedStages.entries()) {
+    if (typeof name !== "string" || name.length === 0) {
+      throw new DomainError(`stages 违例：confirmedStages[${i}] 必须为非空字符串，得到 ${JSON.stringify(name)}`);
+    }
   }
   return confirmedStages.map((name, i) => ({ seq: i + 1, name, kind: "execute" as const }));
 }

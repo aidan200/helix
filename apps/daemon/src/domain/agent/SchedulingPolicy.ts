@@ -48,9 +48,9 @@ export class SchedulingPolicy {
     this.maxQueued = options.maxQueued ?? DEFAULT_SCHEDULING.maxQueued;
     this.stalledThresholdMs = options.stalledThresholdMs ?? DEFAULT_SCHEDULING.stalledThresholdMs;
 
-    assertPositiveInt(this.maxConcurrent, "maxConcurrent", 1);
-    assertPositiveInt(this.maxQueued, "maxQueued", 0);
-    assertPositiveInt(this.stalledThresholdMs, "stalledThresholdMs", 1);
+    assertIntAtLeast(this.maxConcurrent, "maxConcurrent", 1);
+    assertIntAtLeast(this.maxQueued, "maxQueued", 0);
+    assertIntAtLeast(this.stalledThresholdMs, "stalledThresholdMs", 1);
   }
 
   /**
@@ -83,7 +83,8 @@ export class SchedulingPolicy {
   }
 }
 
-function assertPositiveInt(value: number, name: string, min: number): void {
+/** 整数下界断言（min 可为 0——maxQueued 允许 0，非「正整数」语义）。 */
+function assertIntAtLeast(value: number, name: string, min: number): void {
   if (!Number.isInteger(value) || value < min) {
     throw new DomainError(`调度策略参数 ${name} 非法：${String(value)}（要求 ≥ ${min} 的整数）`);
   }

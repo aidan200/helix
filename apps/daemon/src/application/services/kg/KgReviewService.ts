@@ -20,7 +20,7 @@
 import type { TaskEnginePort } from "../../ports/inbound/TaskEnginePort";
 import type { TaskStorePort } from "../../ports/outbound/TaskStorePort";
 import type { KgProjectService } from "./KgProjectService";
-import { createTaskWithSlot, hasActiveJob, projectNameOf } from "./job-activity";
+import { createTaskWithSlot, hasActiveJob, narrowCreateErrorCode, projectNameOf } from "./job-activity";
 
 /** 准入复核结论（create 前置；reason = 契约词表 index_absent / task_running
  *（P0① 并发禁入；终态后放行，保留反复发起语义））。 */
@@ -33,6 +33,15 @@ export interface KgReviewCreateView {
 
 /** 结构化错误（契约词表；与 KgBootstrapError 同构但码域不同）。 */
 export type KgReviewErrorCode = "kg.review.not_eligible" | "task.validation_failed" | "task.type_unknown" | "task.internal" | "KG_E_PARAM";
+
+/** 词表运行时形态（清单 #2.6：回段窄化用——词表外 code 回落 task.internal，不做 as 盲转）。 */
+const KG_REVIEW_ERROR_CODES: readonly KgReviewErrorCode[] = [
+  "kg.review.not_eligible",
+  "task.validation_failed",
+  "task.type_unknown",
+  "task.internal",
+  "KG_E_PARAM",
+];
 
 export interface KgReviewError {
   readonly code: KgReviewErrorCode;
@@ -97,7 +106,11 @@ export class KgReviewService {
       slotBusyError: () => ({ code: "kg.review.not_eligible", message: TASK_RUNNING_MESSAGE }),
       createTask: () => this.deps.taskEngine.createTask({ type: "kg-review", projects: [projectName], params: { projectRoot }, createdBy: "page" }),
     });
-    if (!created.ok) return { ok: false, error: { code: created.error.code as KgReviewErrorCode, message: created.error.message } };
+    if (!created.ok)
+      return {
+        ok: false,
+        error: { code: narrowCreateErrorCode(created.error.code, KG_REVIEW_ERROR_CODES, "task.internal"), message: created.error.message },
+      };
     return { ok: true, value: { jobId: created.jobId } };
   }
 }

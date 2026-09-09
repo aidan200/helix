@@ -67,7 +67,8 @@ export interface KgSyncServiceDeps {
   readonly onSynced?: (projectRoot: string) => void;
 }
 
-/** fs-watch 事件归一形态（兑底信号面；生产挂接已退役，方法保留）。 */
+/** fs-watch 事件归一形态（B3 现行挂接：KgFsWatchService per-project watcher →
+ *  onFsEvent 归一入口；write=存在类变更，remove=消失）。 */
 export type FsEventKind = "write" | "remove";
 
 /** 一次 sync 的结果（triggerManual/onStartup 返回；orphanedAnchors=失效信号供 T5.1 入队）。 */
@@ -389,9 +390,10 @@ export class KgSyncService {
 
   private drainWindow(state: ProjectRunState): Map<string, FsEventKind> {
     const window = new Map<string, FsEventKind>();
-    for (const [path, hash] of state.queue) {
+    for (const [path] of state.queue) {
       window.set(path, "write");
-      if (hash === null) state.deleted.delete(path); // 防御：write 后到覆盖 remove
+      // 无 deleted 清理防御（清单 #2.6 删）：两条入队路径（notifyWrite/onFsEvent
+      // write 分支）均在入队时已清 deleted——drain 时不存在同键双集合残留
     }
     for (const path of state.deleted) window.set(path, "remove");
     state.queue.clear();

@@ -98,19 +98,14 @@ export class ResourceService implements ResourceConfigPort {
   }
 
   /**
-   * 技能缺省（同轨批：全局显式启用制）：无差异行 = 禁用，不分 source、
-   * 不分 kind——builtin 行为技能与 user 技能同轨（默认关、用户自开；
-   * builtin-immutable 写面防护随同轨撤除）；task 类 SOP 消费通道在
-   * kickoff 不经技能段（audience-guard 写面只读纵深保留）。六 kind 唯一
+   * 技能行启停（store 差异行优先；无行 = 禁用——同轨批：全局显式启用制，
+   * 不分 source、不分 kind：builtin 行为技能与 user 技能同轨（默认关、
+   * 用户自开；builtin-immutable 写面防护随同轨撤除）；task 类 SOP 消费通道
+   * 在 kickoff 不经技能段（audience-guard 写面只读纵深保留）。六 kind 唯一
    * 差异 = 写面只读性（系统三 kind 恒关——写面开不了）。
    */
-  private skillDefaultEnabled(_kind: ProfileKind, _s: Pick<SkillDescriptor, "source" | "audience">): boolean {
-    return false;
-  }
-
-  /** 技能行启停（store 差异行优先；无行按 kind+来源缺省）。 */
   private skillEnabledOf(kind: ProfileKind, s: Pick<SkillDescriptor, "name" | "source" | "audience">): boolean {
-    return this.deps.store.get(kind, "skill", s.name)?.enabled ?? this.skillDefaultEnabled(kind, s);
+    return this.deps.store.get(kind, "skill", s.name)?.enabled ?? false;
   }
 
   /**
@@ -287,11 +282,19 @@ export class ResourceService implements ResourceConfigPort {
     );
     let seeded = 0;
     for (const kind of kinds) {
+      let kindSeeded = false;
       for (const skill of builtinAgentSkills) {
         if (this.deps.store.get(kind, "skill", skill.name) !== undefined) continue;
-        const outcome = await this.setEnabled(kind, "skill", skill.name, true);
-        if (outcome.status === "applied") seeded += 1;
+        // 播种直写差异行（清单 #2.5：不走逐条 setEnabled——后者每条一次
+        // skills.scan() + publishResourceChanged 全量刷新链，初始化期
+        // kinds×skills 次扇出）；audience-guard 天然过（上方过滤即
+        // audience==="agent"），全集内 builtin 名，upsert 语义与 setEnabled 同
+        await this.deps.store.upsert(kind, "skill", skill.name, true);
+        seeded += 1;
+        kindSeeded = true;
       }
+      // 批量发布：每 kind 播完发一次（刷新链从每条一次收为每 kind 一次）
+      if (kindSeeded) await this.deps.publishResourceChanged?.(kind);
     }
     return seeded;
   }

@@ -130,8 +130,10 @@ export class ClosureRecorder {
   finalizeClosure(instance: AgentInstance, outcome: InstanceClosureOutcome, closure: InstanceClosurePayload): void {
     const instanceId = instance.instanceId;
     // findings 文件 canonical：机械探测旁路文件 → 指针落 closure_records 行
-    //（文件在 = 指针在；文件缺 = null——旧格式信封 findings 走内嵌兼容）
-    const findingsFile = this.resolveFindingsFile(instance, closure);
+    //（文件在 = 指针在；文件缺 = null——旧格式信封 findings 走内嵌兼容）。
+    // 单次读入（resolve 指针与 recordFindings 落账共用——免双 IO + 双 JSON.parse）
+    const findingsRead = this.readFindingsFile(instance, closure);
+    const findingsFile = findingsRead?.path ?? null;
     void this.deps.repository.saveClosureRecord(instance.sessionId, instanceId, outcome.result, closure, findingsFile);
 
     // agent_lifecycle 投影行落盘（单写通道；失败不崩——WriteQueue onError 上报）
@@ -161,8 +163,8 @@ export class ClosureRecorder {
       "closure",
     );
 
-    // F3.0③ findings→kg 落账（断头处接通管道；失败不阻塞收口）
-    this.recordFindings(instance, closure);
+    // F3.0③ findings→kg 落账（断头处接通管道；失败不阻塞收口；复用上方单次读）
+    this.recordFindings(instance, closure, findingsRead);
 
     // W2-D R13 闭环记录点：机械查 tool_calls 有 write 类成功调用才 upsert
     // pending_sync（不无脑记录）；job 终态扫描提示归编排侧（不进引擎，AD-10）
@@ -188,13 +190,23 @@ export class ClosureRecorder {
    *（唯一事实源，信封携带被忽略不双落）；文件缺 + 信封非空（旧格式实例）
    * → 兼容回退落信封；两者皆缺 = 显式「无」，零落账零报错。
    */
-  private recordFindings(instance: AgentInstance, closure: InstanceClosurePayload): void {
+  private recordFindings(
+    instance: AgentInstance,
+    closure: InstanceClosurePayload,
+    fromFile: { readonly path: string; readonly items: readonly unknown[] } | null,
+  ): void {
     const sink = this.deps.findingsSink;
     if (sink === undefined) return; // 未装配（纯调度测试形态）：断头面保持静默
-    const fromFile = this.readFindingsFile(instance, closure);
     const findings: readonly unknown[] = fromFile !== null ? fromFile.items : (closure.findings ?? []);
     if (fromFile === null && (closure.findings ?? []).length > 0) {
-      this.warnFindings(instance.instanceId, `findings 文件缺——旧格式信封 findings 兼容回退 ${closure.findings!.length} 条（SOP 已退役信封字段）`);
+      // 文案分叉：dep 未装配（纯调度测试形态）≠ 文件缺失——两种情形不同因，
+      // 混用同一文案会误导排查
+      this.warnFindings(
+        instance.instanceId,
+        this.deps.readFindingsFile === undefined
+          ? `readFindingsFile dep 未装配（纯调度测试形态）——文件探测旁路，信封 findings ${closure.findings!.length} 条直落`
+          : `findings 文件缺——旧格式信封 findings 兼容回退 ${closure.findings!.length} 条（SOP 已退役信封字段）`,
+      );
     }
     if (findings.length === 0) return; // 显式「无」且无文件：不落账不报错
     for (const item of mapFindingsToOps(findings, closure.taskId ?? undefined)) {
@@ -226,15 +238,6 @@ export class ClosureRecorder {
         this.warnFindings(instance.instanceId, `落账异常（${(err as Error).message}）`);
       }
     }
-  }
-
-  /**
-   * findings 文件指针解析（canonical 探测，finalizeClosure 指针落行用）：
-   * 自报 reportPath 同目录优先，否则 reportsDir；`<instanceId>.findings.json`
-   * 存在且合法 JSON 数组 → {path, items}；否则 null（文件缺 = 无指针）。
-   */
-  private resolveFindingsFile(instance: AgentInstance, closure: InstanceClosurePayload): string | null {
-    return this.readFindingsFile(instance, closure)?.path ?? null;
   }
 
   /** findings 文件读（canonical）：探测路径 + 解析；缺失/非法 → null（不 warn——探测是常态非异常）。 */

@@ -15,7 +15,7 @@
 import type { TaskEnginePort } from "../../ports/inbound/TaskEnginePort";
 import type { TaskStorePort } from "../../ports/outbound/TaskStorePort";
 import type { KgProjectService } from "./KgProjectService";
-import { createTaskWithSlot, hasActiveJob, projectNameOf } from "./job-activity";
+import { createTaskWithSlot, hasActiveJob, narrowCreateErrorCode, projectNameOf } from "./job-activity";
 
 /** code.review.create 结果。 */
 export interface CodeReviewCreateView {
@@ -24,6 +24,15 @@ export interface CodeReviewCreateView {
 
 /** 结构化错误（与 KgReviewError 同构但无 not_eligible——无准入门槛）。 */
 export type CodeReviewErrorCode = "task.validation_failed" | "task.type_unknown" | "task.internal" | "task.task_running" | "KG_E_PARAM";
+
+/** 词表运行时形态（清单 #2.6：回段窄化用——词表外 code 回落 task.internal，不做 as 盲转）。 */
+const CODE_REVIEW_ERROR_CODES: readonly CodeReviewErrorCode[] = [
+  "task.validation_failed",
+  "task.type_unknown",
+  "task.internal",
+  "task.task_running",
+  "KG_E_PARAM",
+];
 
 export interface CodeReviewError {
   readonly code: CodeReviewErrorCode;
@@ -71,7 +80,11 @@ export class CodeReviewService {
       slotBusyError: () => ({ code: "task.task_running", message: TASK_RUNNING_MESSAGE }),
       createTask: () => this.deps.taskEngine.createTask({ type: "code-review", projects: [projectName], params: { projectRoot }, createdBy: "page" }),
     });
-    if (!created.ok) return { ok: false, error: { code: created.error.code as CodeReviewErrorCode, message: created.error.message } };
+    if (!created.ok)
+      return {
+        ok: false,
+        error: { code: narrowCreateErrorCode(created.error.code, CODE_REVIEW_ERROR_CODES, "task.internal"), message: created.error.message },
+      };
     return { ok: true, value: { jobId: created.jobId } };
   }
 }

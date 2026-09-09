@@ -126,8 +126,10 @@ function matchBySpan(
 
   const anchor = containing[0]!;
   const span = anchor.span!;
-  // 明显失配（span 越出当前文件）→ 回扫唯一声明行校验包围关系
-  if (span.endLine > lineCount || span.startLine > lineCount) {
+  // 明显失配（span 越出当前文件）→ 回扫唯一声明行校验包围关系。
+  // 仅判 endLine：spanWellFormed 保证 startLine ≤ endLine，startLine 越界
+  // 必然蕴含于 endLine 越界（另一析取支冗余已收）
+  if (span.endLine > lineCount) {
     const declLine = findUniqueDeclLine(input.fileLines, span.startLine, anchor.symbol);
     if (declLine === undefined || declLine > editLineStart) return undefined;
   }

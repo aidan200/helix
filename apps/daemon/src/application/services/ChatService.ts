@@ -503,11 +503,7 @@ export class ChatService implements ChatPort {
         this.pendingDrainSteerItem = item;
       } else {
         // FakeAgentEngine 事件序：旧轮已结束，steer 立即落盘 + 开新 turn
-        const entry = this.session.appendSteerEntryAtDrain(item, this.now());
-        this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
-        const turn = this.session.beginTurn(item.entryId, this.now());
-        this.publish("turn.started", { turnId: turn.id });
-        this.deps.turnDiff?.onTurnBegin(turn.id, this.now()); // T2 turn diff：drain 轮开轮挂点
+        this.landDrainedSteer(item);
       }
       this.publish<SteerPayload>("steer.drained", {
         entryId: item.entryId,
@@ -518,6 +514,17 @@ export class ChatService implements ChatPort {
     if (this.lifecycle.current === "steering") {
       this.setLifecycle("running");
     }
+  }
+
+  /** drain steer 落盘共用段（drainSteerTurn 即时分支与 recordAssistantMessage
+   *  延迟分支两处同构收口）：steer 条目时间轴原位落盘 + message.completed
+   * （drained 两态）+ 以注入消息开新 Turn + turn.started + turn diff 开轮挂点。 */
+  private landDrainedSteer(item: SteerItem): void {
+    const entry = this.session.appendSteerEntryAtDrain(item, this.now());
+    this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
+    const turn = this.session.beginTurn(item.entryId, this.now());
+    this.publish("turn.started", { turnId: turn.id });
+    this.deps.turnDiff?.onTurnBegin(turn.id, this.now()); // T2 turn diff：drain 轮开轮挂点
   }
 
   /** turn_end：带工具结果 = assistant 将带结果续生成（新 pi turn）——Turn 保持 open、toolRunning 回 generating；无工具结果的 turn_end 不动（run 收尾归 agent_end 兜底收口）。 */
@@ -612,14 +619,11 @@ export class ChatService implements ChatPort {
     }
     this.streamEntryId = null; // 预留消耗完毕（空文本/abort 轮同样清空）
     // drain 暂存 steer 落盘：回复已落盘（或空回复轮），steer 此刻进时间轴原位
+    //（pi 事件序延迟分支——两分支事件序差异见 drainSteerTurn 头注释）
     if (this.pendingDrainSteerItem) {
       const item = this.pendingDrainSteerItem;
       this.pendingDrainSteerItem = null;
-      const entry = this.session.appendSteerEntryAtDrain(item, this.now());
-      this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
-      const turn = this.session.beginTurn(item.entryId, this.now());
-      this.publish("turn.started", { turnId: turn.id });
-      this.deps.turnDiff?.onTurnBegin(turn.id, this.now()); // T2 turn diff：drain 轮开轮挂点（pi 事件序延迟分支）
+      this.landDrainedSteer(item);
     }
   }
 

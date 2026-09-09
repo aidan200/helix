@@ -175,12 +175,12 @@ export class AuthStore implements AuthStorePort {
       withFileLock(`${this.filePath}.lock`, async () => {
         const table = parseAuthFile(this.filePath);
         const next = await fn(table[providerId]);
-        if (next !== undefined) {
-          assertCredential(next);
-          table[providerId] = next;
-        }
+        // 无变更（undefined = 保持不变）：跳过 persist——免多余全表重写落盘翻 mtime
+        if (next === undefined) return table[providerId];
+        assertCredential(next);
+        table[providerId] = next;
         this.persist(table);
-        return next === undefined ? table[providerId] : next;
+        return next;
       }),
     );
   }

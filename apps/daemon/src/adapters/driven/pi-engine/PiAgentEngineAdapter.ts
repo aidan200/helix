@@ -169,8 +169,11 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
   }
 
   steer(text: string): void {
-    this.steeredTexts.push(text);
+    // 先驱动后登记（清单 #2.7）：runtime.steer 在 profile 无 SteerCapable 钩子时
+    // 抛错（AgentRuntime.steer 守卫）——先 push 会残留文本，使下一 run 同文
+    // user 消息被误判 source=steer-drain（drain 判别见 onPiEvent message_start）
     this.runtime.steer(text);
+    this.steeredTexts.push(text);
   }
 
   abort(): void {

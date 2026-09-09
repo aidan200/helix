@@ -18,8 +18,9 @@ import { loadPrompt } from "../prompts";
  * 实例化在 AgentRuntime 装配点（每 runtime 新建）。快照读面用类的
  * hookName（与实例 .name 等值）。
  *
- * 工具集：按名声明（编排六工具 + 静态联网两工具 +
- * 动态族单 browser 工具），装配在组合根
+ * 工具集：按名声明（全集 = 下方 tools 字面量——注释不计数不分组枚举，
+ * 与生效集的同步由 profile 契约测试机械断言，防计数漂移；行内分组注释
+ * 见数组内），装配在组合根
  * （CoreToolExecutor → resolveTools；bash/read/write/edit 为 pi 内置、grep 自写、
  * agent_spawn/agent_send/agent_status/agent_inspect/agent_park/agent_resume
  * 经 AgentOrchestrationPort 回调度器，

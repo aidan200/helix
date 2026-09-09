@@ -419,7 +419,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     const rt = this.sessions.get(this.currentSessionId())?.runtime;
     if (rt === undefined) {
       throw new Error(
-        `当前会话 ${this.currentSessionId} 未在注册表（懒加载走 getSessionView/resolveTarget 异步面）`,
+        `当前会话 ${this.currentSessionId()} 未在注册表（懒加载走 getSessionView/resolveTarget 异步面）`,
       );
     }
     return rt;
@@ -621,7 +621,7 @@ export class SessionRegistry implements SessionDirectoryPort {
     this.sessions.set(runtime.sessionId, {
       runtime,
       lastActivityMs: this.deps.clock.nowMs(),
-      lastBroadcastRunState: this.runStateOf(runtime.sessionId),
+      lastBroadcastRunState: this.runStateOf(runtime.sessionId), // 基线语义：register 时点现算——新建 runtime 恒 idle（现状无「带运行态注册」路径；若未来出现，需改显式传基线参防首次 state_changed 被吞）
       deleting: prev?.deleting ?? false, // 冷删除占位标记保持（原 Set 独立不随 register 重置）
       unpromotedDraft,
       createdAnnounced: false,

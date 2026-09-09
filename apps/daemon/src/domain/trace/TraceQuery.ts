@@ -170,7 +170,8 @@ export function assembleInstancePanel(
     const events = (byInstance.get(agg.instanceId) ?? []).sort((a, b) =>
       a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : a.id - b.id,
     );
-    const spawned = events.find((e) => e.type === "agent.spawned")?.payload as
+    const spawnedEvent = events.find((e) => e.type === "agent.spawned");
+    const spawned = spawnedEvent?.payload as
       | { task?: string; profileKind?: string; model?: string }
       | undefined;
     const instantiated = events.find((e) => e.type === "agent.instantiated");
@@ -191,7 +192,7 @@ export function assembleInstancePanel(
         (agg.agentKind === "main" ? "main-session" : "subagent-worker"),
       ...(model !== undefined ? { model } : {}),
       status: terminal !== undefined ? TERMINAL_STATUS[terminal.type]! : ("running" as const),
-      startedAt: instantiated?.ts ?? (events.find((e) => e.type === "agent.spawned")?.ts ?? agg.firstTs),
+      startedAt: instantiated?.ts ?? (spawnedEvent?.ts ?? agg.firstTs),
       ...(terminal !== undefined ? { endedAt: terminal.ts } : {}),
       ...(typeof spawned?.task === "string" ? { task: spawned.task } : {}),
       eventCount: agg.eventCount,

@@ -1,9 +1,10 @@
 import type { ClockPort } from "../../ports/outbound/ClockPort";
 import { TaskError } from "./TaskError";
-import type { TaskStorePort, BatchData, JobData, StageData, StageArtifact } from "../../ports/outbound/TaskStorePort";
+import type { TaskStorePort, BatchData, JobData, JobProgressRows, StageData, StageArtifact } from "../../ports/outbound/TaskStorePort";
 import type { WorkLedgerPort } from "../../ports/outbound/WorkLedgerPort";
 import type { TaskSkillRegistryPort } from "../../ports/outbound/TaskSkillRegistryPort";
 import type { JobStatus, WorkItemStatus } from "../../../domain/task/types";
+import { stageKindOfManifest } from "../../../domain/task/manifest";
 
 /**
  * TaskQueryService —— P-2 任务页读面（AD-4② 人类可读投影服务端收口）：
@@ -112,21 +113,24 @@ export interface TaskQueryServiceDeps {
 export class TaskQueryService {
   constructor(private readonly deps: TaskQueryServiceDeps) {}
 
-  /** 任务列表（全局平铺；服务端排序 = 运行中置顶 + 创建时间倒序；过滤服务端生效）。 */
+  /** 任务列表（全局平铺；服务端排序 = 运行中置顶 + 创建时间倒序；过滤服务端生效）。
+   * 批量读口 listJobsWithProgress（清单 #2.5）：一次读齐 progress 所需
+   * stage/batch 行，免 N×(1+S) 次循环读。 */
   listTasks(filter: TaskListFilter): readonly TaskSummaryDto[] {
-    const jobs =
+    const rows =
       filter.status === undefined
-        ? this.deps.store.listJobs()
-        : this.deps.store.listJobs({ status: filter.status });
-    const visible = filter.project === undefined ? jobs : jobs.filter((j) => j.projects.includes(filter.project!));
+        ? this.deps.store.listJobsWithProgress()
+        : this.deps.store.listJobsWithProgress({ status: filter.status });
+    const visible =
+      filter.project === undefined ? rows : rows.filter((r) => r.job.projects.includes(filter.project!));
     return visible
       .slice()
       .sort((a, b) => {
-        const rank = (j: JobData): number => (j.status === "running" ? 0 : 1);
+        const rank = (r: JobProgressRows): number => (r.job.status === "running" ? 0 : 1);
         if (rank(a) !== rank(b)) return rank(a) - rank(b);
-        return b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
+        return b.job.createdAt.localeCompare(a.job.createdAt) || b.job.id.localeCompare(a.job.id);
       })
-      .map((job) => this.summaryOf(job));
+      .map((row) => this.summaryOfRows(row));
   }
 
   /** 任务详情（阶段条 + 全量批次（跨阶段收集，stageSeq 分组键）+ 实例 plan）。 */
@@ -162,15 +166,11 @@ export class TaskQueryService {
   /**
    * 阶段角色派生（A 批 additive DTO）：kind 仅存 manifest（行结构零迁移）——
    * 按任务类型 + 阶段序派生；free 策略/无声明/序越界不携带键（缺省 execute
-   * 语义由消费方兜底）。与 TaskEngineService.stageKindOf 同源逻辑（查询面零
-   * 状态副作用版）。
+   * 语义由消费方兜底）。单源 domain/task/manifest.ts#stageKindOfManifest
+   *（与 TaskEngineService 同源；查询面零状态副作用版 = fallback undefined）。
    */
   private stageKindOf(jobType: string, stageSeq: number): "plan" | "execute" | "aggregate" | undefined {
-    const manifest = this.deps.skills.getTaskType(jobType);
-    if (manifest === null || manifest.stages.strategy !== "fixed") return undefined;
-    const entry = manifest.stages.list[stageSeq - 1];
-    if (entry === undefined || typeof entry === "string") return undefined;
-    return entry.kind;
+    return stageKindOfManifest(this.deps.skills.getTaskType(jobType), stageSeq, undefined);
   }
 
   private mustJob(jobId: string): JobData {
@@ -181,6 +181,22 @@ export class TaskQueryService {
 
   private summaryOf(job: JobData): TaskSummaryDto {
     const stages = this.deps.store.getStages(job.id);
+    return this.summaryOfRows({
+      job,
+      stages,
+      batches: stages.flatMap((s) => this.deps.store.getBatches(job.id, s.seq)),
+    });
+  }
+
+  /** 列表页摘要（批量行直投——零额外读）。 */
+  private summaryOfRows(rows: JobProgressRows): TaskSummaryDto {
+    const { job, stages, batches } = rows;
+    const byStage = new Map<number, BatchData[]>();
+    for (const b of batches) {
+      const list = byStage.get(b.stageSeq) ?? [];
+      list.push(b);
+      byStage.set(b.stageSeq, list);
+    }
     return {
       jobId: job.id,
       type: job.type,
@@ -190,7 +206,7 @@ export class TaskQueryService {
       createdBy: job.createdBy,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
-      progress: progressOf(job, stages, (seq) => this.deps.store.getBatches(job.id, seq)),
+      progress: progressOf(job, stages, (seq) => byStage.get(seq) ?? []),
       error: job.error,
     };
   }

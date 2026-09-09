@@ -124,7 +124,7 @@ export class WorkLedgerService {
   /**
    * closure done 收口前机械兑底（task-8659b320 三连败修复）：把全部
    * in_progress 项置 done（带机械 note 可追溯）——实例忘 plan_update 标记
-   * 收口项时父进程判据②（TR-31）会 failBatch → 重试耗尽全损，实质工作
+   * 收口项时父进程判据②（TR-74，原 TR-31 已被其 supersede）会 failBatch → 重试耗尽全损，实质工作
    * （检查/报告/findings）却已完成。closure 解析成功且 status=done 时
    * （实例已自证完成）只兑「忘标记」的 in_progress；pending（声明未开工）
    * 不兑——真漏做照旧未决，防漏做判据保留。幂等（无 in_progress → 0）。

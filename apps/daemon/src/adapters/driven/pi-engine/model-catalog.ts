@@ -293,7 +293,8 @@ export class ModelCatalog implements ModelCatalogPort {
    * - force=false 且 checkedAt 未过 4h 窗口 → 跳过（缓存口径）；
    * - 有缓存 body 才发 If-None-Match（304 不可能清空 overlay）；
    * - 304 → 只挪 checkedAt；404/501 → 清 etag + lastModified=0；
-   *   其余非 2xx → 保缓存记 checkedAt（瞬时失败，etag 仍有效下次再验）。
+   *   其余非 2xx / 网络异常 → 保 models/etag 记 checkedAt（瞬时失败，
+   *   etag 仍有效下次再验；记 checkedAt 防离线期 stale() 恒真重试扇出）。
    */
   private async refreshProvider(providerId: string, force: boolean): Promise<void> {
     const entry = this.store.get(providerId);
@@ -308,7 +309,17 @@ export class ModelCatalog implements ModelCatalogPort {
     try {
       response = await this.fetchImpl(url.href, { headers });
     } catch (err) {
-      throw new Error(`拉取失败：${(err as Error).message}`); // 网络不可达：entry 原样保留
+      // 网络不可达：也记 checkedAt（models/etag 原样——与 404/非 2xx 口径对齐，
+      // 清单 #2.7）：不记则 stale() 恒真，离线期间每次 catalog() 全 provider
+      // 重试扇出；记后同一 4h 窗口内不再重试。仍抛错（refreshAll 收进 failures）。
+      const failed = this.store.get(providerId);
+      this.store.set(providerId, {
+        models: failed?.models ?? [],
+        checkedAt: this.now(),
+        lastModified: failed?.lastModified ?? 0,
+        ...(failed?.etag !== undefined ? { etag: failed.etag } : {}),
+      });
+      throw new Error(`拉取失败：${(err as Error).message}`);
     }
     const checkedAt = this.now();
     if (response.status === 304) {

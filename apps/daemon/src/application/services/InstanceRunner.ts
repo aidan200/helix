@@ -31,7 +31,7 @@ export interface InstanceRunnerCallbacks {
    * 实例引擎事件增量到达（任意事件类型）：刷新该实例 lastEventAt——
    * stalled 判定的唯一输入。未知/已终态实例的迟到事件被调度侧忽略。
    *
-   * 携帯引擎事件本体（可选——SubAgent 内部工具调用据此转 per-instance
+   * 携带引擎事件本体（可选——SubAgent 内部工具调用据此转 per-instance
    * 领域事件，挂 instanceId 落盘+广播；不进主线聚合，AD-8 铁律）。
    * 缺省 undefined = 仅增量记号（替身/测试驱动面兼容）。
    */

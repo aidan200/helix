@@ -5,7 +5,7 @@
  * 两阶段保序（装配序契约 §4.2.2 不动）：
  * - buildCliDriving：会话路由对话入口（chatRouter，CLI/WS 共用）+ stdout
  *   事件发布器 + CLI 主循环——须在 wireEventFanout（装配序步 5）之前
- *  （stdoutPublisher 是 fan-out 六目标之一），全部惰性闭包（initialize
+ *  （stdoutPublisher 是 fan-out 七目标之一），全部惰性闭包（initialize
  *   前零触发）。
  * - buildWsDriving：system 门面 + dev token/静态产物 + 当前会话编排门面 +
  *   模型/认证管理门面 + WS 服务——须在 registry.initialize 与任务恢复

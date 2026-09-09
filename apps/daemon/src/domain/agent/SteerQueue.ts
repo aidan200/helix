@@ -61,7 +61,7 @@ export class SteerQueue {
     return this.items.map((i) => ({ ...i }));
   }
 
-  /** 恢复用：从快照重建（重启后未消费的 steer 仍可注入， ④）。 */
+  /** 恢复用：从快照重建（重启后未消费的 steer 仍可注入）。 */
   static fromData(items: SteerItem[]): SteerQueue {
     const q = new SteerQueue();
     for (const i of items) q.enqueue({ ...i }); // 全字段保留（含 source——closure 注入重建后仍可区分）

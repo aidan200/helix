@@ -625,8 +625,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //       会话拿到 MCP 工具名——F4 修复前漏接此 kind，orchestrator 的 MCP
   //       工具经 orchestratorMcpTools 注册而快照永不到达（注册而不可达）。
   //    预热 fire-and-forget：daemon 服务先起，MCP 工具陆续到位。──
-  let mcpShutdown: (() => void) | undefined; // shutdown 钩子（buildDrivingAdapters deps 消费）
-  if (mcpRegistry !== undefined) {
+  let mcpShutdown: (() => void) | undefined; // shutdown 钩子（buildDrivingAdapters deps 消费）；mcpRegistry 无条件构造（上方），此块非条件形态
+  {
     const unsubscribeMcpStatus = mcpRegistry.onStatusChange((status) => {
       eventStream.broadcastMcpStatusChanged({ server: status });
       if (status.state === "running" || status.state === "stopped") {

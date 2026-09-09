@@ -147,8 +147,8 @@ describe("反向映射：Entry → pi AgentMessage（恢复回填）", () => {
     expect(msg.usage.totalTokens).toBe(0);
   });
 
-  test("tool entry → null（工具中间态不回填）", () => {
-    const entry: EntryData = {
+  test("历史脏行 role=tool → null（工具中间态不回填；运行时兑底防线——类型层已收缩 EntryRole，见 Entry.ts）", () => {
+    const entry = {
       id: "e3",
       role: "tool",
       text: "结果",
@@ -156,7 +156,7 @@ describe("反向映射：Entry → pi AgentMessage（恢复回填）", () => {
       isSteer: false,
       instanceId: "agent-main",
       createdAt: "2024-01-01T00:00:03.000Z",
-    };
+    } as unknown as EntryData;
     expect(agentMessageOfEntry(entry, meta)).toBeNull();
   });
 

@@ -10,6 +10,7 @@
 
 import type { MatchedAnchor } from "./scope-matcher";
 import type { AttachmentSelection } from "./budget";
+import { renderKnowledgeEntry } from "./entry-format";
 
 /** 协议行 main 版（brief 契约逐字符；AD-14）：主会话持 kg-update，supersede 随改动直落。 */
 export const ATTACHMENT_PROTOCOL_LINE =
@@ -26,10 +27,9 @@ export const ATTACHMENT_PROTOCOL_LINE_WORKER =
 
 const HEADER = "📎 本次编辑命中以下知识节点（digest+指针，详情经 kg get 获取）：";
 
-/** 单节点条目：粗体 name + kind 徽章 + digest + scene 段（空 scene 兑底省略）+ kg get 指针。 */
+/** 单节点条目（共享渲染单源 entry-format.ts；指针形态本受众恒裸 kg get）。 */
 function renderEntry(a: MatchedAnchor): string {
-  const sceneLine = a.scene !== "" ? `\n  适用：${a.scene}` : "";
-  return `- **${a.name}** [${a.kind}] — ${a.digest}${sceneLine}\n  ↳ kg get ${a.nodeId}`;
+  return renderKnowledgeEntry({ name: a.name, kind: a.kind, digest: a.digest, scene: a.scene }, `kg get ${a.nodeId}`);
 }
 
 /** 渲染附着块；空选择返回 ''（沉默零成本）。 */

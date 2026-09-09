@@ -69,6 +69,13 @@ export interface JobListFilter {
   readonly status?: JobStatus;
 }
 
+/** 列表页批量读行（清单 #2.5 N+1 收口）：job + 其全部 stage/batch 行。 */
+export interface JobProgressRows {
+  readonly job: JobData;
+  readonly stages: readonly StageData[];
+  readonly batches: readonly BatchData[];
+}
+
 /** deleteJobCascade 各表删除行数（F3.6 清理面查证）。 */
 export interface TaskDeleteCounts {
   readonly jobs: number;
@@ -128,6 +135,12 @@ export interface TaskStorePort {
   getStages(jobId: string): readonly StageData[];
   /** 某 stage 的 batch 行（seq 升序；stage 物理键 = (job_id, stage_seq)）。 */
   getBatches(jobId: string, stageSeq: number): readonly BatchData[];
+  /**
+   * 列表页批量读口（清单 #2.5：listTasks 的 N×(1+S) 次 N+1 收口）：
+   * 与 listJobs 同序同过滤的 job 行 + 每 job 全部 stage/batch 行一次读齐
+   *（进度投影消费；单 job 详情面仍走 getStages/getBatches）。
+   */
+  listJobsWithProgress(filter?: JobListFilter): readonly JobProgressRows[];
   /**
    * 级联删除 job/stage/batch 三表该 job 全部行（F3.6 任务删除；返回各表
    * 删除计数）。work_item 清理不在本端口——引擎收集 batch.instanceId 后经
