@@ -1,6 +1,7 @@
-//! helix-shell 监督者运行时（薄监督者核心，contracts/sidecar-lifecycle.md 的壳侧实现）。
+//! helix-shell 监督者运行时（薄监督者核心；架构决策与契约已退役入 kg：
+//! TR-96「三进程形态与 tauri 壳薄监督者」/ AD-4）。
 //!
-//! 职责边界（architecture.md §4.2 / AD-4）：本模块只做 sidecar 进程看护——
+//! 职责边界（TR-96 / AD-4）：本模块只做 sidecar 进程看护——
 //! spawn、stdout ready 行解析、崩溃重启节流、优雅关停；零业务逻辑（无
 //! SQL/RPC 桥/watcher/kg，不读 `~/.helix/` 任何文件——token 只认 ready 行）。
 //! 与 daemon 的全部交互 = spawn 参数（argv/env）+ stdout ready 行 + 信号。
@@ -332,6 +333,14 @@ pub fn run_supervisor(
         };
 
         // 到达此处 = 壳未发起关停而 sidecar 已退出 → 恒为异常（契约 §3）
+        // 先 drain channel 残余行（W3 #2.38）：子进程退出到轮询发现之间已缓冲
+        // 的 stdout 行会随下轮 lines 重建被丢弃——崩溃前最后几行日志（排障最
+        // 需要）在重启判定前转发完
+        if let Some(rx) = lines.as_ref() {
+            while let Ok(Ok(line)) = rx.try_recv() {
+                forward_line(line, hooks);
+            }
+        }
         reap_process_tree(child.id()); // 兜底清可能持管道的子孙（同 stop_child）
         let cause = ExitCause::from(status);
         debug_assert_eq!(classify_exit(cause, false), ExitClass::Abnormal);
@@ -512,6 +521,8 @@ fn stop_child(child: &mut Child, config: &SupervisorConfig) {
 /// 只收主进程会导致管道不 EOF、stderr 收尾线程悬挂——unix 杀整组（spawn 时
 /// 已 setpgid，pgid=pid；组不存在 ESRCH 忽略），Windows taskkill /T /F 整树
 /// （taskkill 为系统自带；进程已退返回非零，调用面忽略）。
+/// 残留风险（W3 #2.38 明示）：主进程已退后按 pgid 杀组，pid/pgid 复用窗口内
+/// 理论上可能误杀无关进程组——通行模式固有，窗口极小，接受现状不校验。
 #[cfg(unix)]
 fn reap_process_tree(pid: u32) {
     // SAFETY: kill 系统调用本身安全；组不存在时返回错误，调用面忽略。

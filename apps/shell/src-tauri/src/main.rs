@@ -1,8 +1,9 @@
-//! helix 桌面壳入口（薄监督者，architecture.md §4.2 / AD-4）。
+//! helix 桌面壳入口（薄监督者；架构决策与契约已退役入 kg：TR-96「三进程形态
+//! 与 tauri 壳薄监督者」/ AD-4）。
 //!
 //! 职责仅限：窗口 + sidecar 进程看护（lib.rs）+ bundle 资源定位。
 //! 零业务逻辑；与 daemon 的全部交互 = spawn 参数 + stdout ready 行 + 信号
-//! （contracts/sidecar-lifecycle.md）。前端一律 WS 连 daemon（TR-AD-12），
+//! （kg TR-96 契约面）。前端一律 WS 连 daemon（TR-AD-12），
 //! 壳不传任何业务数据。
 
 use std::path::PathBuf;
@@ -17,6 +18,12 @@ use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 /// sidecar 二进制名（externalBin 落位带 target-triple 后缀，前缀匹配）。
 const SIDECAR_BIN_PREFIX: &str = "helix-daemon";
+
+/// 调试诊断门控（W3 #2.38）：窗口底色/读回验证类 eprintln 仅在设
+/// HELIX_SHELL_DEBUG 时输出——release 构建默认不刷 stderr（W6k 诊断沉淀降级）。
+fn debug_enabled() -> bool {
+    std::env::var_os("HELIX_SHELL_DEBUG").is_some()
+}
 
 /// W6a 原生目录选择注入脚本（F3 裁决：壳唯一原生 UX 能力面）。
 ///
@@ -52,7 +59,7 @@ window.helixThemeHint = (theme) =>
 // <app_config_dir>/theme-hint（窗口域能力，非业务解析）；缺失/读失败
 // → 暗色缺省（应用主题缺省即暗）。
 
-/// 主题提示缓存文件路径（app_config_dir 随 tauri 标识位派生）。 */
+/// 主题提示缓存文件路径（app_config_dir 随 tauri 标识位派生）。
 fn theme_hint_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join("theme-hint"))
 }
@@ -69,19 +76,21 @@ fn is_dark_background(color: tauri::utils::config::Color) -> bool {
     (r, g, b) == (6, 9, 16)
 }
 
-/// 窗口底色：light → LIGHT_BG，否则 DARK_BG（缺失/读失败 → 暗色缺省）。 */
+/// 窗口底色：light → LIGHT_BG，否则 DARK_BG（缺失/读失败 → 暗色缺省）。
 fn theme_window_background(app: &tauri::AppHandle) -> tauri::utils::config::Color {
     let light = theme_hint_path(app)
         .and_then(|p| std::fs::read_to_string(p).ok())
         .map(|s| s.trim() == "light")
         .unwrap_or(false);
-    eprintln!("[helix-shell] 窗口底色主题感知：{}", if light { "light #F4F2EC" } else { "dark #060910" });
+    if debug_enabled() {
+        eprintln!("[helix-shell] 窗口底色主题感知：{}", if light { "light #F4F2EC" } else { "dark #060910" });
+    }
     if light { LIGHT_BG } else { DARK_BG }
 }
 
 /// 前端回写主题提示（挂载时 + 主题变更时调用；写失败静默——缓存仅影响
 /// 下次启动的窗口底色，不影响本次应用主题）。W6f：同时**运行时立即**刷新
-/// NSWindow 底色与标题栏外观（本窗口即刻跟随，不必等下次启动）。 */
+/// NSWindow 底色与标题栏外观（本窗口即刻跟随，不必等下次启动）。
 #[tauri::command]
 fn theme_hint(app: tauri::AppHandle, theme: String) {
     let Some(dir) = app.path().app_config_dir().ok() else { return };
@@ -123,14 +132,17 @@ fn set_native_window_background(app: &tauri::AppHandle, label: &str, color: taur
             1.0,
         );
         ns_window.setBackgroundColor(Some(&ns_color));
-        // 常驻读回验证（W6k 诊断沉淀：set 后确认生效，空窗期色源可观测）
-        let rb = ns_window.backgroundColor();
-        eprintln!(
-            "[helix-shell] NSWindow bg set=RGB({r},{g},{b}) read-back=RGB({:.0},{:.0},{:.0})",
-            rb.redComponent() * 255.0,
-            rb.greenComponent() * 255.0,
-            rb.blueComponent() * 255.0
-        );
+        if debug_enabled() {
+            // 常驻读回验证（W6k 诊断沉淀：set 后确认生效，空窗期色源可观测）
+            // ——仅 HELIX_SHELL_DEBUG 门控（W3 #2.38），release 默认不刷 stderr
+            let rb = ns_window.backgroundColor();
+            eprintln!(
+                "[helix-shell] NSWindow bg set=RGB({r},{g},{b}) read-back=RGB({:.0},{:.0},{:.0})",
+                rb.redComponent() * 255.0,
+                rb.greenComponent() * 255.0,
+                rb.blueComponent() * 255.0
+            );
+        }
     });
 }
 
@@ -237,7 +249,13 @@ fn main() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("helix 壳初始化失败");
+        .unwrap_or_else(|e| {
+            // W3 #2.38：release profile panic="abort" 下 expect 会直接 abort 且
+            // 无用户可见错误面（shell-error.html 放弃路径覆盖不到该层）——
+            // 行为等价（非零退出）但先打 stderr 诊断（启动脚本/排障可观测）
+            eprintln!("[helix-shell] 壳初始化失败：{e}");
+            std::process::exit(1);
+        });
 
     app.run(move |handle, event| {
         if let RunEvent::ExitRequested { code, api, .. } = event {
@@ -287,7 +305,7 @@ impl SupervisorHooks for ShellHooks {
     }
 }
 
-/// bundle 资源定位（architecture.md §4.2 职责 4）：只定位壳自身包内资源，
+/// bundle 资源定位（壳职责面第 4 条，TR-96）：只定位壳自身包内资源，
 /// 不解析任何业务路径。
 ///
 /// sidecar 解析序：
@@ -308,9 +326,21 @@ impl SupervisorHooks for ShellHooks {
 ///   {bin/rg.exe, codegraph/bin/codegraph.cmd}。launcher 在 win 档是
 ///   .cmd 脚本（非可执行映像），spawn 包装由 daemon 侧 cliSpawnCmd 负责
 ///   （CodegraphEngineAdapter，TR-95 兼容面）——壳只定位不解析。
-/// exe 父目录（WIP 补位：TR-95 重构抽出位，语义同原内联 current_exe + parent）。
+/// exe 父目录（TR-95 重构抽出位，语义同原内联 current_exe + parent）。
 fn exe_parent_dir() -> Option<PathBuf> {
     std::env::current_exe().ok()?.parent().map(|p| p.to_path_buf())
+}
+
+/// sidecar 二进制名精确判定（W3 #2.38）：裸名（dev 形态 bun 产物）或
+/// triple 后缀变体（bundle 形态，如 helix-daemon-aarch64-apple-darwin）——
+/// 排除 helix-daemon.bak / 双 triple 残留等带点后缀备份，防 read_dir 无序
+/// 首中即返选中错误二进制。
+fn is_sidecar_binary_name(name: &str) -> bool {
+    match name.strip_prefix(SIDECAR_BIN_PREFIX) {
+        Some("") | Some(".exe") => true,
+        Some(rest) => rest.starts_with('-') && !rest.contains('.'),
+        None => false,
+    }
 }
 
 fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
@@ -364,7 +394,7 @@ fn resolve_sidecar_spec() -> Result<SidecarSpec, String> {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with(SIDECAR_BIN_PREFIX) && entry.path().is_file() {
+        if is_sidecar_binary_name(&name) && entry.path().is_file() {
             return Ok(SidecarSpec {
                 program: entry.path(),
                 args: vec!["--sidecar".into()],
@@ -398,15 +428,19 @@ fn show_error_window(handle: &AppHandle, message: &str) {
     });
 }
 
-/// 最小 percent-encode（错误消息进 query param；非 ASCII 与控制字符全编码）。
+/// 最小 percent-encode（错误消息进 query param；非 ASCII 与控制字符全编码；
+/// write! 复用单一缓冲——W3 #2.38 消循环内 format! 逐字节堆分配）。
 fn percent_encode(input: &str) -> String {
+    use std::fmt::Write as _;
     let mut out = String::with_capacity(input.len());
     for byte in input.bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                 out.push(byte as char)
             }
-            _ => out.push_str(&format!("%{byte:02X}")),
+            _ => {
+                let _ = write!(out, "%{byte:02X}");
+            }
         }
     }
     out
