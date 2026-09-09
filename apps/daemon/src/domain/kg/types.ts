@@ -175,6 +175,7 @@ export type KnowledgeWriteOpKind =
   | "supersede"
   | "declareAnchors"
   | "addEdge"
+  | "removeEdge"
   | "batchCreateNodes"
   | "proposeCandidate"
   | "decideCandidate"
@@ -293,6 +294,12 @@ export type KnowledgeWriteOp =
     })
   | (KnowledgeWriteOpBase & {
       readonly kind: "addEdge";
+      readonly srcId: NodeId;
+      readonly verb: EdgeVerb;
+      readonly dstId: NodeId;
+    })
+  | (KnowledgeWriteOpBase & {
+      readonly kind: "removeEdge";
       readonly srcId: NodeId;
       readonly verb: EdgeVerb;
       readonly dstId: NodeId;

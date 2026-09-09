@@ -95,6 +95,8 @@ export class SqliteKnowledgeStore {
         return this.applyDeclareAnchors(db, op);
       case "addEdge":
         return this.applyAddEdge(db, op);
+      case "removeEdge":
+        return this.applyRemoveEdge(db, op);
       case "batchCreateNodes":
         return this.applyBatchCreateNodes(db, op);
       case "proposeCandidate":
@@ -321,6 +323,27 @@ export class SqliteKnowledgeStore {
       op.dstId,
     );
     this.appendChangeLog(db, op.iterationId, "addEdge", op.srcId, null, null, op.taskId);
+    return { ok: true, nodeId: op.srcId };
+  }
+
+  /**
+   * removeEdge 落库（删边 op——悬挂边/误连边清理通道）：严格三元组删除，
+   * 零行命中 = 边不存在 KG_E_ID（非幂等——与 addEdge OR IGNORE 幂等刻意
+   * 不对称：零行删除说明调用方图模型有误（verb/端点记错），报错暴露而非
+   * 静默成功）。不前置 nodeExists：删除场景端点可能已 superseded（悬挂边
+   * 清理的动机即在此），边存在即合法删除目标。 */
+  private applyRemoveEdge(db: Database, op: KnowledgeWriteOp & { kind: "removeEdge" }): WriteResult {
+    const info = db
+      .prepare("DELETE FROM edges WHERE src_id = ? AND verb = ? AND dst_id = ?")
+      .run(op.srcId, op.verb, op.dstId);
+    if (info.changes === 0) {
+      return err(
+        "KG_E_ID",
+        `边 ${op.srcId} —${op.verb}→ ${op.dstId} 不存在（先 kg get 核对三元组；verb 记错会零行命中）`,
+        "op.srcId",
+      );
+    }
+    this.appendChangeLog(db, op.iterationId, "removeEdge", op.srcId, null, null, op.taskId);
     return { ok: true, nodeId: op.srcId };
   }
 

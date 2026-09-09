@@ -53,6 +53,7 @@ const OP_KINDS = new Set<KnowledgeWriteOp["kind"]>([
   "supersede",
   "declareAnchors",
   "addEdge",
+  "removeEdge",
   "batchCreateNodes",
   "proposeCandidate",
   "decideCandidate",
@@ -113,6 +114,8 @@ export function validateKnowledgeWriteOp(op: unknown): KgWriteError | null {
       return validateDeclareAnchors(candidate);
     case "addEdge":
       return validateAddEdge(candidate);
+    case "removeEdge":
+      return validateRemoveEdge(candidate);
     case "batchCreateNodes":
       return validateBatchCreateNodes(candidate);
     case "proposeCandidate":
@@ -297,7 +300,20 @@ function validateAddEdge(op: Record<string, unknown>): KgWriteError | null {
   if (srcError !== null) return withPath(srcError, "op.srcId");
   const dstError = requireNodeId(op.dstId);
   if (dstError !== null) return withPath(dstError, "op.dstId");
-  if (typeof op.verb !== "string" || !(EDGE_VERBS as readonly string[]).includes(op.verb)) {
+  return validateEdgeVerb(op.verb);
+}
+
+/** removeEdge 校验与 addEdge 同构（三元组形状同源）；存在性归 store 事务内（零行删除 = KG_E_ID）。 */
+function validateRemoveEdge(op: Record<string, unknown>): KgWriteError | null {
+  const srcError = requireNodeId(op.srcId);
+  if (srcError !== null) return withPath(srcError, "op.srcId");
+  const dstError = requireNodeId(op.dstId);
+  if (dstError !== null) return withPath(dstError, "op.dstId");
+  return validateEdgeVerb(op.verb);
+}
+
+function validateEdgeVerb(verb: unknown): KgWriteError | null {
+  if (typeof verb !== "string" || !(EDGE_VERBS as readonly string[]).includes(verb)) {
     return {
       code: "KG_E_VERB",
       message: `verb 不在封闭词表（合法集合：${EDGE_VERBS.join(" / ")}；v1 词表继承）`,

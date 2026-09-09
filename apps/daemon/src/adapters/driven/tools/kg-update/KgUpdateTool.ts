@@ -20,8 +20,8 @@ import type {
 
 /**
  * kg-update 工具（T3.3，CL-3 F3.1 即时通道，AD-14）——即时落账薄壳。
- * 八 op：createNode / supersede / updateNode / batchCreateNodes /
- * declareAnchors / addEdge / proposeCandidate / decideCandidate / prune
+ * 十 op：createNode / supersede / updateNode / batchCreateNodes /
+ * declareAnchors / addEdge / removeEdge / proposeCandidate / decideCandidate / prune
  * ——op 清单与逐项参数以 kgUpdateParameters schema 为真相源（TR-57：
  * 不逐项抄录进注释，防双源漂移），全部经 KgWriteService（唯一写入口，
  * schema 校验前置，绝不旁路直写）。
@@ -35,11 +35,12 @@ const kgUpdateParameters = {
   properties: {
     op: {
       type: "string",
-      enum: ["createNode", "supersede", "updateNode", "batchCreateNodes", "declareAnchors", "addEdge", "proposeCandidate", "decideCandidate", "prune"],
+      enum: ["createNode", "supersede", "updateNode", "batchCreateNodes", "declareAnchors", "addEdge", "removeEdge", "proposeCandidate", "decideCandidate", "prune"],
       description:
         "操作：createNode 新知识落账 / supersede 推翻既有节点 / updateNode 补全既有节点元数据（仅限 scene 等元数据补全）/ " +
         "batchCreateNodes 批量建点（O-5：按写入量自选单条/批量）/ declareAnchors 存量节点补锚声明（幂等）/ " +
         "addEdge 建知识边（srcId + verb + dstId——两端 id 取自 kg search/kg get 返回行，verb 封闭词表）/ " +
+        "removeEdge 删知识边（严格三元组，边不存在报错 KG_E_ID——悬挂边/误连边清理通道）/ " +
         "proposeCandidate 提候选 / decideCandidate 裁决候选 / prune 物理清理腐烂物化锚（orphan=1 tombstone；nodeId 可选，缺省清全项目）",
     },
     // ── createNode ──
@@ -150,9 +151,9 @@ const kgUpdateParameters = {
       required: ["kind", "name", "digest"],
       additionalProperties: false,
     },
-    // ── addEdge（知识边——两端定位同 supersede：locate 唯一命中不猜） ──
-    srcId: { type: "string", description: "addEdge 边起点节点 id（TR-n/E-n，取自 kg search/kg get 返回行）" },
-    dstId: { type: "string", description: "addEdge 边终点节点 id（TR-n/E-n，取自 kg search/kg get 返回行）" },
+    // ── addEdge / removeEdge（知识边——两端定位同 supersede：locate 唯一命中不猜） ──
+    srcId: { type: "string", description: "addEdge/removeEdge 边起点节点 id（TR-n/E-n，取自 kg search/kg get 返回行）" },
+    dstId: { type: "string", description: "addEdge/removeEdge 边终点节点 id（TR-n/E-n，取自 kg search/kg get 返回行）" },
     verb: {
       type: "string",
       enum: [...EDGE_VERBS],
@@ -238,6 +239,8 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       "人审重写/体检补锚的现场通道）。" +
       "addEdge：建知识边（srcId + verb + dstId——两端各经 locate 唯一命中定位，须同项目；" +
       "复合主键幂等去重，同边重声明无副作用；verb 封闭词表越界 KG_E_VERB）。" +
+      "removeEdge：删知识边（严格三元组 srcId + verb + dstId；边不存在报错 KG_E_ID——悬挂边" +
+      "（端点已 superseded/承载已迁移）与误连边的清理通道；误删可 addEdge 重建，审计行入 change_log）。" +
       "proposeCandidate/decideCandidate：候选台账操作（SubAgent 闭环发现经 findings 上报自动落候选，" +
       "不得直接调用候选 op——工具注册面管控谁可见本工具，描述不做角色枚举，W-R6）。" +
       "prune：物理清理腐烂物化锚（orphan=1 tombstone——符号消亡/声明撤销的保留行；nodeId 定向或缺省全项目，幂等）。" +
@@ -266,6 +269,9 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
       if (op === "addEdge") {
         return text(execAddEdge(deps, args));
       }
+      if (op === "removeEdge") {
+        return text(execRemoveEdge(deps, args));
+      }
       if (op === "proposeCandidate") {
         return text(execProposeCandidate(deps, args));
       }
@@ -276,7 +282,7 @@ export function createKgUpdateTool(deps: KgUpdateToolDeps): AgentHarnessTool<Exe
         return text(execPrune(deps, args));
       }
       throw new Error(
-        `未知 op "${String(op)}"（合法：createNode / supersede / updateNode / batchCreateNodes / declareAnchors / addEdge / proposeCandidate / decideCandidate / prune）`,
+        `未知 op "${String(op)}"（合法：createNode / supersede / updateNode / batchCreateNodes / declareAnchors / addEdge / removeEdge / proposeCandidate / decideCandidate / prune）`,
       );
     },
   };
@@ -504,6 +510,31 @@ function locateUnique(deps: KgUpdateToolDeps, nodeId: NodeId, label: string): st
     );
   }
   return hits[0]!.project;
+}
+
+/**
+ * removeEdge 执行（删边——悬挂边/误连边清理通道，与 execAddEdge 同构定位）：
+ * 两端各经 locate 唯一命中（端点可能已 superseded——悬挂边清理的动机即在
+ * 此，locate 按 id 定位不筛 status）；须同项目（边在 src 项目库内）。严格
+ * 三元组匹配：零行删除 = 边不存在（KG_E_ID，store 事务内判）——与 addEdge
+ * 的 OR IGNORE 幂等刻意不对称，调用方记错 verb/端点立即暴露而非静默成功。
+ */
+function execRemoveEdge(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
+  const srcId = requireString(args, "srcId", "（边起点节点 id——取自 kg search/kg get 返回行）") as NodeId;
+  const dstId = requireString(args, "dstId", "（边终点节点 id——取自 kg search/kg get 返回行）") as NodeId;
+  const verb = requireString(args, "verb", `（边动词——封闭词表：${EDGE_VERBS.join(" / ")}）`) as EdgeVerb;
+  const srcProject = locateUnique(deps, srcId, "边起点");
+  const dstProject = locateUnique(deps, dstId, "边终点");
+  if (srcProject !== dstProject) {
+    throw new Error(
+      `边起点 ${srcId}（${projectName(srcProject)}）与边终点 ${dstId}（${projectName(dstProject)}）不在同一项目——` +
+        "edges 是 per-project 库内行，不存在跨项目的边可删",
+    );
+  }
+  const project = srcProject;
+  const iterationId = resolveIterationId(deps, args, project);
+  writeOrThrow(deps, project, createOp(deps, args, { kind: "removeEdge", iterationId, srcId, verb, dstId }));
+  return `已删边 ${srcId} —${verb}→ ${dstId}（project: ${projectName(project)}；审计行已入 change_log；误删可 addEdge 重建）`;
 }
 
 /**

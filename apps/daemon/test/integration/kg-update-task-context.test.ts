@@ -144,11 +144,10 @@ describe("批次上下文机械注入：组合 declareAnchors op 同盖（A4 丢
   });
 });
 
-describe("写入口 6 种 op kind 透传 taskId（逐 op 断言，store 面机械保证）", () => {
-  // 工具面只暴露 createNode/supersede/batchCreateNodes（+组合 declareAnchors）；
-  // updateNode/addEdge 无工具路径——store 面逐 op 断言保证任何写路径（含未来
-  // 新增工具/页面修正面）携带 taskId 即落章。
-  test("createNode/updateNode/supersede/declareAnchors/addEdge/batchCreateNodes 携带 taskId → change_log 全行落章", () => {
+describe("写入口 7 种 op kind 透传 taskId（逐 op 断言，store 面机械保证）", () => {
+  // 工具面暴露 createNode/supersede/batchCreateNodes/declareAnchors/addEdge/removeEdge 等；
+  // store 面逐 op 断言保证任何写路径（含未来新增工具/页面修正面）携带 taskId 即落章。
+  test("createNode/updateNode/supersede/declareAnchors/addEdge/removeEdge/batchCreateNodes 携带 taskId → change_log 全行落章", () => {
     const stack = freshKgStack();
     const w = (op: KnowledgeWriteOp): string => {
       const r = stack.write.write(stack.proj, op);
@@ -163,9 +162,10 @@ describe("写入口 6 种 op kind 透传 taskId（逐 op 断言，store 面机�
     const replacement = w({ kind: "supersede", iterationId: ITER, taskId, nodeId: a, reason: "修正", replacementNodeDraft: { kind: "rule", name: "规则C", digest: "d" } });
     w({ kind: "declareAnchors", iterationId: ITER, taskId, nodeId: b, anchors: [{ scopeKind: "global", pattern: "" }] });
     w({ kind: "addEdge", iterationId: ITER, taskId, srcId: b, dstId: replacement, verb: EDGE_VERBS[2] });
+    w({ kind: "removeEdge", iterationId: ITER, taskId, srcId: b, dstId: replacement, verb: EDGE_VERBS[2] });
     const rows = changeLogRows(stack.proj);
-    // createNode(1) + batchCreateNodes(1) + updateNode(1) + supersede(2：翻态+replacement) + declareAnchors(1) + addEdge(1)
-    expect(rows).toHaveLength(7);
+    // createNode(1) + batchCreateNodes(1) + updateNode(1) + supersede(2：翻态+replacement) + declareAnchors(1) + addEdge(1) + removeEdge(1)
+    expect(rows).toHaveLength(8);
     expect(rows.every((r) => r["task_id"] === taskId)).toBe(true);
   });
 });
