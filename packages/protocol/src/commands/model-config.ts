@@ -126,6 +126,19 @@ export interface ConfigGetPortCommand extends CommandFrame<EmptyPayload> {
   type: "config.get_port";
 }
 
+/** config.set_sandbox 载荷：沙箱开关（新会话/新任务生效——装配期定格读取）。 */
+export interface ConfigSetSandboxPayload {
+  enabled: boolean;
+}
+export interface ConfigSetSandboxCommand extends CommandFrame<ConfigSetSandboxPayload> {
+  type: "config.set_sandbox";
+}
+
+/** config.get_sandbox 载荷：全局命令。 */
+export interface ConfigGetSandboxCommand extends CommandFrame<EmptyPayload> {
+  type: "config.get_sandbox";
+}
+
 // ── v0.2 新增：auth 管理族（契约 C §1.3；G-6 定名） ──
 
 /** auth.list 结果载荷（事件线载荷别名，同 ModelGetResult 收敛先例） */

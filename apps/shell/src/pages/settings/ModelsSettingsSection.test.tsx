@@ -66,6 +66,7 @@ const mc: ModelConfigState = {
   compaction: null,
     scheduling: null,
     port: null,
+    sandbox: null,
 };
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {

@@ -308,6 +308,8 @@ export interface ModelConfigState {
   scheduling: SchedulingConfigState | null;
   /** WS 端口配置（null = 未请求；config.get/set_port 帧驱动，config 瘦身批） */
   port: PortConfigState | null;
+  /** 沙箱开关（null = 未请求；config.get/set_sandbox 帧驱动，沙箱开关批） */
+  sandbox: SandboxConfigState | null;
 }
 
 /** 压缩参数配置（token 绝对值；与协议 config.*.result payload 同构）。 */
@@ -329,6 +331,11 @@ export interface PortConfigState {
   overriddenByArgv: boolean;
 }
 
+/** 沙箱开关（与协议 payload 同构；新会话/新任务生效）。 */
+export interface SandboxConfigState {
+  enabled: boolean;
+}
+
 /** 初始配置面（未请求态；数据由命令结果帧驱动填充）。 */
 export function createInitialModelConfigState(): ModelConfigState {
   return {
@@ -346,6 +353,7 @@ export function createInitialModelConfigState(): ModelConfigState {
     compaction: null,
     scheduling: null,
     port: null,
+    sandbox: null,
   };
 }
 

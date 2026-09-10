@@ -31,6 +31,7 @@ import type { ModelPort } from "../../../../application/ports/inbound/ModelPort"
 import type { CompactionConfigPort } from "../../../../application/ports/outbound/CompactionConfigPort";
 import type { SchedulingConfigPort } from "../../../../application/ports/outbound/SchedulingConfigPort";
 import type { PortConfigPort } from "../../../../application/ports/outbound/PortConfigPort";
+import type { SandboxConfigPort } from "../../../../application/ports/outbound/SandboxConfigPort";
 import type { SystemPort } from "../../../../application/ports/inbound/SystemPort";
 import type { SessionDirectoryPort } from "../../../../application/ports/inbound/SessionDirectoryPort";
 import type { SessionChatPort } from "../../../../application/ports/inbound/ChatPort";
@@ -92,6 +93,8 @@ export interface WsCommandContext {
   readonly schedulingConfig?: SchedulingConfigPort;
   /** WS 端口配置读写面（config 族命令回口；未装配 → undefined）。 */
   readonly portConfig?: PortConfigPort;
+  /** 沙箱开关（config.get/set_sandbox 命令族；沙箱开关批）。 */
+  readonly sandboxConfig?: SandboxConfigPort;
   /** 缺省会话回退源（system.getStatus().sessionId，v0 兼容读）。 */
   readonly system: SystemPort;
   /** 命令错误回执（connection.error 帧；语义 = WsServerAdapter.commandError）。 */

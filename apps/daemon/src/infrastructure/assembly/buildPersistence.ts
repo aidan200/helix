@@ -9,6 +9,7 @@ import { DefaultModelStore } from "../../adapters/driven/sqlite-session/DefaultM
 import { DefaultThinkingStore } from "../../adapters/driven/sqlite-session/DefaultThinkingStore";
 import { CompactionConfigStore } from "../../adapters/driven/sqlite-session/CompactionConfigStore";
 import { SchedulingConfigStore } from "../../adapters/driven/sqlite-session/SchedulingConfigStore";
+import { SandboxConfigStore } from "../../adapters/driven/sqlite-session/SandboxConfigStore";
 import { McpConfigStore } from "../../adapters/driven/sqlite-session/McpConfigStore";
 import { RuntimeConfigStore } from "../../adapters/driven/sqlite-session/RuntimeConfigStore";
 import { ResourceStateStore } from "../../adapters/driven/sqlite-session/ResourceStateStore";
@@ -31,6 +32,7 @@ export interface PersistenceStack {
   readonly defaultThinking: DefaultThinkingStore;
   readonly compactionConfig: CompactionConfigStore;
   readonly schedulingConfig: SchedulingConfigStore;
+  readonly sandboxConfig: SandboxConfigStore;
   readonly mcpConfig: McpConfigStore;
   readonly resourceState: ResourceStateStore;
 }
@@ -55,8 +57,10 @@ export function buildPersistence(deps: { readonly paths: HelixPaths; readonly lo
   // SubAgent 调度预算（KV 第四键；config.json 瘦身迁入——运行期可调，
   // 缺省回落 domain DEFAULT_SCHEDULING）
   const schedulingConfig = new SchedulingConfigStore(runtimeConfig, DEFAULT_SCHEDULING);
+  // 沙箱开关（KV 第五键；沙箱开关批——装配期定格读取，缺省回落关）
+  const sandboxConfig = new SandboxConfigStore(runtimeConfig);
   // MCP server 声明面（config 瘦身批：mcp_server 表——config.json 段退役）
   const mcpConfig = new McpConfigStore(writeQueue);
   const resourceState = new ResourceStateStore(writeQueue);
-  return { writeQueue, repository, traceQuery, runtimeConfig, defaultModel, defaultThinking, compactionConfig, schedulingConfig, mcpConfig, resourceState };
+  return { writeQueue, repository, traceQuery, runtimeConfig, defaultModel, defaultThinking, compactionConfig, schedulingConfig, sandboxConfig, mcpConfig, resourceState };
 }

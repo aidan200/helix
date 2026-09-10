@@ -17,6 +17,7 @@ import type { ModelPort } from "../../../application/ports/inbound/ModelPort";
 import type { CompactionConfigPort } from "../../../application/ports/outbound/CompactionConfigPort";
 import type { SchedulingConfigPort } from "../../../application/ports/outbound/SchedulingConfigPort";
 import type { PortConfigPort } from "../../../application/ports/outbound/PortConfigPort";
+import type { SandboxConfigPort } from "../../../application/ports/outbound/SandboxConfigPort";
 import type { ResourceConfigPort } from "../../../application/ports/inbound/ResourceConfigPort";
 import type { BrowserPort } from "../../../application/ports/outbound/BrowserPort";
 import type {
@@ -88,6 +89,8 @@ export interface WsServerAdapterDeps {
   readonly compactionConfig?: CompactionConfigPort;
   readonly schedulingConfig?: SchedulingConfigPort;
   readonly portConfig?: PortConfigPort;
+  /** 沙箱开关（config.get/set_sandbox 命令族；沙箱开关批）。 */
+  readonly sandboxConfig?: SandboxConfigPort;
   /**
    * 资源配置面（契约 v0.6）：agent.config 命令族回口（profile kind 维
    * tool/skill 启停 + model 槽位；只转发不决策，AG-12）。
@@ -263,6 +266,7 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       compactionConfig: deps.compactionConfig,
       schedulingConfig: deps.schedulingConfig,
       portConfig: deps.portConfig,
+      sandboxConfig: deps.sandboxConfig,
       system: deps.system,
       commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
       modelErrorCode: (err) => modelErrorCode(err),

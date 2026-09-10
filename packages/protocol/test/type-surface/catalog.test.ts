@@ -159,7 +159,7 @@ type _TaskEventMembers = Expect<
 >;
 
 describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③ / TP-v0.2-② / TP-v0.3-②）", () => {
-  test("命令目录恰为 74 个 type（… + skills 添加批 1）", () => {
+  test("命令目录恰为 76 个 type（… + 沙箱开关批 2）", () => {
     expect([...COMMAND_TYPES].sort()).toEqual(
       [
         "agent.base_prompt.get",
@@ -180,9 +180,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "code.review.create",
         "config.get_compaction",
         "config.get_port",
+        "config.get_sandbox",
         "config.get_scheduling",
         "config.set_compaction",
         "config.set_port",
+        "config.set_sandbox",
         "config.set_scheduling",
         "diff.get",
         "kg.bootstrap.create",
@@ -273,9 +275,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "compaction.completed",
         "config.get_compaction.result",
         "config.get_port.result",
+        "config.get_sandbox.result",
         "config.get_scheduling.result",
         "config.set_compaction.result",
         "config.set_port.result",
+        "config.set_sandbox.result",
         "config.set_scheduling.result",
         "connection.error",
         "connection.welcome",
@@ -522,9 +526,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
       "auth.verify.result",
       "config.get_compaction.result",
       "config.get_port.result",
+      "config.get_sandbox.result",
       "config.get_scheduling.result",
       "config.set_compaction.result",
       "config.set_port.result",
+      "config.set_sandbox.result",
       "config.set_scheduling.result",
       "model.catalog.result",
       "model.catalog_refresh.result",
@@ -567,11 +573,11 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（config 瘦身批后）：EVENT_TYPES 91 / EVENT_CHANNELS 91 键 / COMMAND_TYPES 73", () => {
-    expect(EVENT_TYPES.length).toBe(92); // skills 添加批 +1（agent.skill.create.result）
-    expect(new Set(EVENT_TYPES).size).toBe(92); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(92); // 登记目录恰等
-    expect(COMMAND_TYPES.length).toBe(74); // skills 添加批 +1（agent.skill.create）
+  test("目录计数（沙箱开关批后）：EVENT_TYPES 94 / EVENT_CHANNELS 94 键 / COMMAND_TYPES 76", () => {
+    expect(EVENT_TYPES.length).toBe(94); // 沙箱开关批 +2（config.get/set_sandbox.result）
+    expect(new Set(EVENT_TYPES).size).toBe(94); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(94); // 登记目录恰等
+    expect(COMMAND_TYPES.length).toBe(76); // 沙箱开关批 +2（config.get/set_sandbox）
   });
 
 });

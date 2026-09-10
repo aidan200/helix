@@ -81,6 +81,6 @@ export function writeDeniedMessage(absPath: string, policy: SandboxPolicy): stri
   return (
     `沙箱拒绝写入：${absPath} 不在可写根（${roots}）内。` +
     `若确需该文件：① 改写 workspace 内路径；② 对项目文件优先使用 write/edit 工具（同一策略面）；` +
-    `③ 该操作确属必要时可在 <workspace>/.helix/sandbox.json 关闭沙箱（enabled: false）。`
+    `③ 该操作确属必要时可在设置页「通用 → 命令沙箱」关闭沙箱后重试。`
   );
 }

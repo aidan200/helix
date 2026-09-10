@@ -13,11 +13,32 @@ import { buildSeatbeltProfile } from "../../src/domain/sandbox/seatbeltProfile";
  *
  * fixture：tmpdir 里建 workspace + 假 helix home 两个可写根；行为断言：
  * 写根内 ✓ / 写真 $HOME（根外）✗ 含 Operation not permitted / 读全盘 ✓。
+ *
+ * 嵌套沙箱防御（codex nested-skip 同构）：测试进程自身已在 Seatbelt 沙箱内
+ * 时（如 daemon 开沙箱后从 bash 工具跑测试），内层 sandbox-exec 的
+ * sandbox_apply 被 macOS 拒（exit 71 Operation not permitted）——整体 skip
+ * 打印原因，不假红。
  */
 
 const isDarwin = process.platform === "darwin";
 
-describe.skipIf(!isDarwin)("Seatbelt 真机行为", () => {
+/** 内层可用性探测：最小 profile 真跑一次（sandbox_apply 被拒 → 嵌套环境）。 */
+function seatbeltApplicable(): boolean {
+  if (!isDarwin) return false;
+  try {
+    const res = spawnSync("/usr/bin/sandbox-exec", ["-p", "(version 1)(allow default)", "--", "/usr/bin/true"], {
+      encoding: "utf-8",
+      timeout: 5_000,
+    });
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+const applicable = seatbeltApplicable();
+
+describe.skipIf(!isDarwin || !applicable)("Seatbelt 真机行为", () => {
   let workspace: string;
   let helixHome: string;
   let profile: string;

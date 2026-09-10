@@ -1144,3 +1144,25 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 - 写面边界不变：系统三 kind tool/skill/mcp-server 恒拒 `agent.config.read_only`（唯一与可配 kind 差异）；模型/推理槽位可配
 
 **装配语义**（daemon 内部，非协议面）：`computeAssembly` 五 kind 同构——技能段照常注入各自生效集（omitSkills 机制退役；SOP 仍走 kickoff 全文注入通道）；kg-writer/reviewer 独立装配（提示词 = 自身装配 + 后缀，工具/技能面不再继承 worker）。
+
+## 38. 沙箱开关批（macOS Seatbelt 沙箱配置面：config.get/set_sandbox 命令族；v0.11 后 additive 微批——版本位不 bump）
+
+> 本批为沙箱开关的配置协议面（沙箱执行器本体见 daemon 侧 E-150 第一版
+> 落地）：`~/.helix/sandbox.json` 文件开关退役，改走 **KV `sandbox_config`
+> 单键 JSON**（E-139 配置分布全景同构——运行期可调面全部进 SQLite KV，
+> 设置页通用分区可见可改）。**版本位不 bump**（`PROTOCOL_VERSION =
+> "0.11"` 保持）：全部为新增命令/事件（additive 纪律，§30 config 瘦身批
+> 同构先例）。
+>
+> - **2 命令**（§15.4 config 族，全部全局命令）：`config.get_sandbox`
+> （开关读面）/ `config.set_sandbox {enabled: boolean}`（写面）。
+> - **2 事件**（§16.6 挂 model 通道）：`config.get_sandbox.result` /
+> `config.set_sandbox.result`（`{enabled}` 回显，点对点）。
+> - **生效语义（与 scheduling 运行期即热、port 重启生效都不同）**：
+> 沙箱槽在装配期定格读取（main 会话创建时 + SubAgent spawn 时父进程读
+> KV 经 env 透传）——**新会话与新任务生效，运行中会话不热切换**（UI
+> 分区标注）。
+> - 计数演进：命令 74 → 76；事件 92 → 94（§15/§16 声明行同 commit 双写）。
+> - 旧文件 `sandbox.json` 一次性迁移（bootPrelude，幂等）：存在且 enabled 为布尔 →
+>   写 KV（仅当 KV 无既有值——不覆盖新面已设值）→ 改名 `sandbox.json.migrated`
+>   保留退路；损坏/非布尔形态仅改名。

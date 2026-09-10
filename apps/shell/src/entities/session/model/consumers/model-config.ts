@@ -35,6 +35,8 @@ export const MODEL_CONFIG_EVENT_TYPES = [
   "config.set_scheduling.result",
   "config.get_port.result",
   "config.set_port.result",
+  "config.get_sandbox.result",
+  "config.set_sandbox.result",
   "auth.list.result",
   "auth.set_key.result",
   "auth.delete_key.result",
@@ -145,6 +147,11 @@ export function applyModelConfigEvent(topo: TopologyState, frame: EventEnvelope)
     case "config.set_port.result":
       // 写回执只带 port 数——保持 argv 三态不变（写后不覆盖本次运行实际值）
       next = { ...mc, port: { effectivePort: mc.port?.effectivePort ?? frame.payload.port, storedPort: frame.payload.port, overriddenByArgv: mc.port?.overriddenByArgv ?? false } };
+      break;
+    case "config.get_sandbox.result":
+    case "config.set_sandbox.result":
+      // 沙箱开关读/写回执（沙箱开关批；result 帧驱动同构——无乐观更新）
+      next = { ...mc, sandbox: { enabled: frame.payload.enabled } };
       break;
     case "auth.list.result":
       next = replaceAuth(mc, frame.payload.providers);

@@ -40,6 +40,7 @@ import type { DaemonConfig } from "../config";
 import { DEFAULT_PORT } from "../config";
 import type { Logger } from "../logging";
 import type { PersistenceStack } from "./buildPersistence";
+import type { SandboxConfigPort } from "../../application/ports/outbound/SandboxConfigPort";
 import type { PortConfigPort } from "../../application/ports/outbound/PortConfigPort";
 import type { ModelStack } from "./buildModelStack";
 import type { TaskStack } from "./buildTaskStack";
@@ -111,6 +112,8 @@ export interface WsDrivingDeps {
   readonly persistence: PersistenceStack;
   /** WS 端口配置面（config.get/set_port 回口；组合根装配 argv/KV/实际端口信息）。 */
   readonly portConfig?: PortConfigPort;
+  /** 沙箱开关（config.get/set_sandbox 回口；沙箱开关批）。 */
+  readonly sandboxConfig?: SandboxConfigPort;
   readonly modelStack: ModelStack;
   readonly taskStack: TaskStack;
   /**
@@ -264,6 +267,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
     compactionConfig: persistence.compactionConfig, // config 族命令回口（压缩参数）
     schedulingConfig: persistence.schedulingConfig, // config 族命令回口（SubAgent 调度预算）
     ...(deps.portConfig !== undefined ? { portConfig: deps.portConfig } : {}), // config 族命令回口（WS 端口；组合根注入）
+    ...(deps.sandboxConfig !== undefined ? { sandboxConfig: deps.sandboxConfig } : {}), // config 族命令回口（沙箱开关；沙箱开关批）
     resource: deps.resourceService, // agent.config 命令族回口（契约 v0.6）
     browser: browserPort, // web 族命令族回口（契约 v0.7）
     // mcp 批：mcp 族六命令回口（未注入 → 回 unimplemented；组合根恒注入）

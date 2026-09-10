@@ -11,7 +11,8 @@
  * 注释留痕不变（TR-78 M29 判据：同生命周期阶段 + 同依赖群切命名装配函数）。
  */
 
-import { accessSync, constants as fsConstants } from "node:fs";
+import { accessSync, constants as fsConstants, readFileSync, renameSync } from "node:fs";
+import path from "node:path";
 import { resolveRgPath } from "../../adapters/driven/tools/grep/resolve-rg";
 import { freezeGrepBackend, probeRgVersion, RG_PROBE_TIMEOUT_MS, type GrepBackendFreeze } from "../../adapters/driven/tools/grep/freeze-backend";
 import { resolveCodegraphPath, type CodegraphResolution } from "../../adapters/driven/codegraph-engine/resolve-codegraph";
@@ -131,6 +132,38 @@ export async function migrateLegacyRuntimeConfig(ctx: LegacyMigrationCtx): Promi
     }
     writeConfig(paths.configPath(), config); // 重写瘦身形态（旧字段不再出现）
     logger.info(`已迁移旧配置（config 瘦身批）：${migrated.join("；")}；config.json 已重写瘦身形态`);
+  }
+  await migrateLegacySandboxConfig(paths, persistence, logger);
+}
+
+/**
+ * 沙箱开关批一次性迁移（幂等）：旧 `<home>/sandbox.json`（第一版文件开关）
+ * 存在 → 读 enabled 写 KV sandbox_config → 改名 sandbox.json.migrated（保留
+ * 原文退路，不删除）。文件不存在/已迁移 → 无操作。仅当 KV 无既有值时写入
+ *（避免覆盖用户已在新面设置过的值）。
+ */
+async function migrateLegacySandboxConfig(paths: HelixPaths, persistence: PersistenceStack, logger: Logger): Promise<void> {
+  const legacyPath = path.join(paths.home, "sandbox.json");
+  let raw: { enabled?: unknown };
+  try {
+    raw = JSON.parse(readFileSync(legacyPath, "utf-8")) as { enabled?: unknown };
+  } catch {
+    return; // 不存在/已迁移/损坏 → 无操作（损坏视为未设置，不迁移）
+  }
+  const migratedPath = `${legacyPath}.migrated`;
+  try {
+    if (typeof raw.enabled === "boolean") {
+      const current = persistence.runtimeConfig.get("sandbox_config");
+      if (current === undefined) {
+        await persistence.sandboxConfig.set({ enabled: raw.enabled });
+      }
+      renameSync(legacyPath, migratedPath);
+      logger.info(`已迁移沙箱开关（沙箱开关批）：sandbox.json{enabled:${raw.enabled}} → KV sandbox_config；原文改名 sandbox.json.migrated`);
+    } else {
+      renameSync(legacyPath, migratedPath); // 非布尔形态视为废弃文件——改名免得每次启动重读
+    }
+  } catch (error) {
+    logger.warn(`沙箱开关迁移失败（不阻断启动，失败安全=维持 KV 现值）：${(error as Error).message}`);
   }
 }
 

@@ -27,6 +27,8 @@ import type {
   ConfigGetSchedulingCommand,
   ConfigSetPortCommand,
   ConfigGetPortCommand,
+  ConfigSetSandboxCommand,
+  ConfigGetSandboxCommand,
   AuthListCommand,
   AuthSetKeyCommand,
   AuthDeleteKeyCommand,
@@ -112,6 +114,8 @@ export type CommandEnvelope =
   | ConfigGetSchedulingCommand
   | ConfigSetPortCommand
   | ConfigGetPortCommand
+  | ConfigSetSandboxCommand
+  | ConfigGetSandboxCommand
   | AuthListCommand
   | AuthSetKeyCommand
   | AuthDeleteKeyCommand
@@ -189,6 +193,8 @@ export const COMMAND_TYPES = [
   "config.get_scheduling",
   "config.set_port",
   "config.get_port",
+  "config.set_sandbox",
+  "config.get_sandbox",
   "auth.list",
   "auth.set_key",
   "auth.delete_key",

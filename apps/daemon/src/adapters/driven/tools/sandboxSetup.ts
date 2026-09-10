@@ -1,17 +1,18 @@
 /**
- * 沙箱装配面：配置读取 + 自检降级 → SandboxRuntime | undefined。
+ * 沙箱装配面：开关（布尔）+ 自检降级 → SandboxRuntime | undefined。
  *
- * 配置落点：`<helixHome>/sandbox.json`（`{ "enabled": true }`；缺文件/解析
- * 失败/非 true → off——失败安全方向是「不沙箱」而非「锁死」）。home 即
- * daemon 全局单点（TR-96 daemon 绑定单一 workspace 运行——home 级开关
- * 与 workspace 级等价），子进程经 HELIX_DB_PATH dirname 推得同一 home。
+ * 配置落点（沙箱开关批，2026-09-12）：KV `sandbox_config` 单键（SandboxConfigStore；
+ * 设置页通用分区 config.get/set_sandbox 命令族）——本函数只吃布尔开关，
+ * 读取时机在调用方：main 会话创建时（sessionEngineFactory）与 SubAgent
+ * spawn 时（父进程读 KV → HELIX_SANDBOX env 透传）。off（false）→
+ * undefined（失败安全：不沙箱不锁死）。
  *
- * 自检（mode=on 时，模块级缓存——daemon 进程内一次）：
- * ① /usr/bin/sandbox-exec 存在且可执行；② 试跑 profile 包裹 /bin/sh -c true
+ * 自检（enabled=true 时，模块级缓存——daemon 进程内一次）：
+ * ① /usr/bin/sandbox-exec 存在且可执行；② 试跑 profile 包裹 bash -c true
  * 成功。任一失败 → console.warn + 返回 undefined（自动降级透传，不锁死）。
  */
 
-import { accessSync, constants, readFileSync, realpathSync } from "node:fs";
+import { accessSync, constants, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -62,18 +63,12 @@ function selfCheck(profileText: string, cacheKey: string): boolean {
 }
 
 /**
- * 读取沙箱配置并装配 SandboxRuntime。off / 配置缺失 / 自检失败 → undefined
+ * 装配 SandboxRuntime。enabled=false / 自检失败 → undefined
  * （CoreToolExecutor 未注入 = 纯透传，行为零差）。
  */
-export function readSandboxRuntime(helixHome: string, workspaceRoot: string): SandboxRuntime | undefined {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(path.join(helixHome, "sandbox.json"), "utf-8"));
-  } catch {
-    return undefined; // 缺文件/解析失败 → off（失败安全：不沙箱不锁死）
-  }
-  let policy = parseSandboxConfig(raw, workspaceRoot, helixHome);
-  if (policy.mode !== "on") return undefined;
+export function readSandboxRuntime(enabled: boolean, helixHome: string, workspaceRoot: string): SandboxRuntime | undefined {
+  if (!enabled) return undefined;
+  let policy = parseSandboxConfig({ enabled }, workspaceRoot, helixHome);
   // roots realpath 归一 + per-user tmpdir 追加：macOS 符号链接（/var → /private/var）
   // ——subpath 匹配真实 vnode 路径，未归一的 root 形同未放行；TMPDIR 的
   // DARWIN_USER_TEMP_DIR 因人而异，静态 SCRATCH 段覆盖不了，运行时入 roots

@@ -88,6 +88,8 @@ import type {
   ConfigSetSchedulingResultEvent,
   ConfigGetPortResultEvent,
   ConfigSetPortResultEvent,
+  ConfigGetSandboxResultEvent,
+  ConfigSetSandboxResultEvent,
 } from "./config";
 import type { TraceQueryResultEvent } from "./trace";
 import type { ThinkingChangedEvent } from "./thinking";
@@ -195,6 +197,8 @@ export type EventEnvelope =
   | ConfigSetSchedulingResultEvent
   | ConfigGetPortResultEvent
   | ConfigSetPortResultEvent
+  | ConfigGetSandboxResultEvent
+  | ConfigSetSandboxResultEvent
   | AuthListResultEvent
   | AuthSetKeyResultEvent
   | AuthDeleteKeyResultEvent
@@ -290,6 +294,8 @@ export const EVENT_TYPES = [
   "config.set_scheduling.result",
   "config.get_port.result",
   "config.set_port.result",
+  "config.get_sandbox.result",
+  "config.set_sandbox.result",
   "auth.list.result",
   "auth.set_key.result",
   "auth.delete_key.result",
@@ -393,6 +399,8 @@ export const EVENT_CHANNELS = {
   "config.set_scheduling.result": "model",
   "config.get_port.result": "model",
   "config.set_port.result": "model",
+  "config.get_sandbox.result": "model",
+  "config.set_sandbox.result": "model",
   "auth.list.result": "model",
   "auth.set_key.result": "model",
   "auth.delete_key.result": "model",

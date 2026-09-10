@@ -5,6 +5,8 @@ import type {
   ConfigSetSchedulingResultEvent,
   ConfigGetPortResultEvent,
   ConfigSetPortResultEvent,
+  ConfigGetSandboxResultEvent,
+  ConfigSetSandboxResultEvent,
 } from "@helix/protocol";
 import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 import type { WsCommandContext } from "./context";
@@ -167,6 +169,47 @@ export function handleConfigSetPort(ctx: WsCommandContext): void {
         channel: "model",
         type: "config.set_port.result",
         payload: { port },
+      };
+      ctx.sendNow(sender, frame);
+    })
+    .catch((err: Error) => ctx.commandError(ctx.type, "command.invalid_payload", err.message));
+}
+
+/** config.get_sandbox：沙箱开关读面（点对点回执）。 */
+export function handleConfigGetSandbox(ctx: WsCommandContext): void {
+  if (ctx.sandboxConfig === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（sandboxConfig）");
+  }
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const frame: ConfigGetSandboxResultEvent = {
+    v: PROTOCOL_VERSION,
+    sessionId: SYSTEM_SESSION_ID,
+    channel: "model",
+    type: "config.get_sandbox.result",
+    payload: { enabled: ctx.sandboxConfig.current().enabled },
+  };
+  ctx.sendNow(sender, frame);
+}
+
+/** config.set_sandbox：沙箱开关写面（点对点回执；新会话/新任务生效）。 */
+export function handleConfigSetSandbox(ctx: WsCommandContext): void {
+  if (ctx.sandboxConfig === undefined) {
+    return ctx.commandError(ctx.type, "command.unimplemented", "config 族命令未装配（sandboxConfig）");
+  }
+  const sender = ctx.ws.data.sender ?? ctx.rawSender();
+  const enabled = ctx.payload.enabled;
+  if (typeof enabled !== "boolean") {
+    return ctx.commandError(ctx.type, "command.invalid_payload", "payload.enabled 应为 boolean");
+  }
+  void ctx.sandboxConfig
+    .set({ enabled })
+    .then(() => {
+      const frame: ConfigSetSandboxResultEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID,
+        channel: "model",
+        type: "config.set_sandbox.result",
+        payload: { enabled },
       };
       ctx.sendNow(sender, frame);
     })

@@ -99,7 +99,7 @@ import {
   handleModelSetDefault,
   handleModelSetThinkingDefault,
 } from "./handlers/model";
-import { handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort } from "./handlers/config";
+import { handleConfigGetCompaction, handleConfigSetCompaction, handleConfigGetScheduling, handleConfigSetScheduling, handleConfigGetPort, handleConfigSetPort, handleConfigGetSandbox, handleConfigSetSandbox } from "./handlers/config";
 import { handleThinkingSet } from "./handlers/thinking";
 import { handleWorkspaceGet, handleWorkspaceOpen } from "./handlers/workspace";
 import { handleDiffGet } from "./handlers/diff";
@@ -587,6 +587,10 @@ export class WsServerAdapter {
         return handleConfigGetPort(this.contexts.commandContext(ws, type, payload, envelope));
       case "config.set_port":
         return handleConfigSetPort(this.contexts.commandContext(ws, type, payload, envelope));
+      case "config.get_sandbox":
+        return handleConfigGetSandbox(this.contexts.commandContext(ws, type, payload, envelope));
+      case "config.set_sandbox":
+        return handleConfigSetSandbox(this.contexts.commandContext(ws, type, payload, envelope));
       // ── v0.11 thinking 族（thinking 批①，契约 §17.11；handlers/thinking.ts，model.set 同构）──
       case "thinking.set":
         return handleThinkingSet(this.contexts.commandContext(ws, type, payload, envelope));

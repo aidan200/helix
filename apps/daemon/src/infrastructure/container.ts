@@ -433,6 +433,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     defaultThinking: persistence.defaultThinking, // R7 全局兜底批
     compactionConfig: persistence.compactionConfig, // 压缩参数可配置
     schedulingConfig: persistence.schedulingConfig, // SubAgent 调度预算（运行期可调，config.json 瘦身迁入）
+    sandboxConfig: persistence.sandboxConfig, // 沙箱开关（装配期定格读取，沙箱开关批）
     browserPort,
     events: fanoutPublisher,
     publishResourceChanged: (kind) => resourceEvents.publish({ kind }),
@@ -753,6 +754,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   //    可变态与 shutdown 序列封装在切片内。──
   const { system, ws, devToken, orchestration: currentOrchestration, model: modelService } = buildWsDriving({
     portConfig, // config.get/set_port 回口（effectivePort 晚绑 ws.port）
+    sandboxConfig: persistence.sandboxConfig, // config.get/set_sandbox 回口（沙箱开关批）
     registry,
     scheduler,
     resolveSubagentModelId,

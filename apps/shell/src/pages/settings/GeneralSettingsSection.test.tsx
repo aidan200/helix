@@ -21,6 +21,10 @@ const setCompactionConfig = vi.fn();
 const requestSchedulingConfig = vi.fn();
 const setSchedulingConfig = vi.fn();
 const requestPortConfig = vi.fn();
+const requestSandboxConfig = vi.fn();
+const setSandboxConfig = vi.fn();
+/** 沙箱开关状态（结果帧驱动回填用可变位）。 */
+let mockSandbox: { enabled: boolean } | null = null;
 const setPortConfig = vi.fn();
 /** M44/M46：压缩参数结果帧可变位（结果帧驱动回填 / 「已保存」对账）。 */
 let mockCompaction: { reserveTokens: number; keepRecentTokens: number } | null = null;
@@ -34,12 +38,14 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
     ...orig,
     useSession: () => ({
       state: { agentState: "idle", instances: [] },
-      topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null }, list: [] },
+      topology: { modelConfig: { compaction: mockCompaction, scheduling: null, port: null, sandbox: mockSandbox }, list: [] },
       requestCompactionConfig,
       setCompactionConfig,
       requestSchedulingConfig,
       setSchedulingConfig,
       requestPortConfig,
+      requestSandboxConfig,
+      setSandboxConfig,
       setPortConfig,
       subscribeConfigFrames: (listener: (e: EventEnvelope) => void) => {
         configListeners.push(listener);
@@ -75,6 +81,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   mockCompaction = null;
+  mockSandbox = null;
   configListeners = [];
   vi.clearAllMocks();
 });
@@ -261,5 +268,42 @@ describe("M10 批②：config 族在途错误经 connection.error 收口（不�
       </I18nProvider>,
     );
     expect(document.querySelector("[data-compaction-saved]")!.textContent).toContain("已保存");
+  });
+});
+
+
+describe("沙箱开关卡（沙箱开关批）", () => {
+  it("进入分区拉取现值：requestSandboxConfig 在场调用", () => {
+    ui();
+    expect(requestSandboxConfig).toHaveBeenCalled();
+  });
+
+  it("开关双按钮组在场：开启/关闭两态（未请求态均不激活）", () => {
+    const { container } = ui();
+    const group = container.querySelector<HTMLElement>("[data-sandbox-switch]");
+    expect(group).not.toBeNull();
+    const on = container.querySelector<HTMLElement>('[data-sandbox-option="on"]');
+    const off = container.querySelector<HTMLElement>('[data-sandbox-option="off"]');
+    expect(on?.getAttribute("aria-pressed")).toBe("false");
+    expect(off?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("点击开启 → setSandboxConfig(true)；回执驱动状态回填（aria-pressed 翻转）", () => {
+    const view = ui();
+    const container = view.container;
+    const on = container.querySelector<HTMLElement>('[data-sandbox-option="on"]')!;
+    fireEvent.click(on);
+    expect(setSandboxConfig).toHaveBeenCalledWith(true);
+    // 结果帧驱动回填（无乐观更新——mock 态变更 + rerender 模拟回执落态）
+    mockSandbox = { enabled: true };
+    view.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <GeneralSettingsSection />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(on.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector<HTMLElement>('[data-sandbox-option="off"]')?.getAttribute("aria-pressed")).toBe("false");
   });
 });

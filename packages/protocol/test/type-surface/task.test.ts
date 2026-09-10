@@ -54,7 +54,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
     for (const t of TASK_COMMANDS) expect(COMMAND_TYPES).toContain(t);
     const first = COMMAND_TYPES.indexOf(TASK_COMMANDS[0]!);
     expect(COMMAND_TYPES.slice(first, first + TASK_COMMANDS.length)).toEqual([...TASK_COMMANDS]); // 连续登记（diff/mcp 批后不再尾段）
-    expect(COMMAND_TYPES.length).toBe(74); // skills 添加批 +1 后当前值
+    expect(COMMAND_TYPES.length).toBe(76); // 沙箱开关批 +2 后当前值
   });
 
   test("零干预断言（AD-2）：task.* 命令清单恰为十命令，无 steer/内容编辑/批次重试语义命令", () => {
@@ -73,7 +73,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
   test("事件目录：task.changed 唯一新事件登记（+1；结果帧不入目录）", () => {
     expect(EVENT_TYPES).toContain("task.changed");
     expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("mcp.status.changed"); // mcp 批为目录尾段（diff.changed 其后）
-    expect(EVENT_TYPES.length).toBe(92); // skills 添加批 +1 后当前值
+    expect(EVENT_TYPES.length).toBe(94); // 沙箱开关批 +2 后当前值
     // 九命令结果帧为点对点回执（契约 §0 计数 57→58：仅 task.changed 入目录）
     for (const t of TASK_COMMANDS) {
       expect(EVENT_TYPES).not.toContain(`${t}.result`);
@@ -82,7 +82,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
 
   test("通道归属：task.changed 挂既有 notification 通道（不新增 Channel 值，契约 §0）", () => {
     expect(EVENT_CHANNELS["task.changed"]).toBe("notification");
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(92); // skills 添加批 +1 后当前值（agent 族 result 挂 agent 通道）
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(94); // 沙箱开关批 +2 后当前值（agent 族 result 挂 agent 通道）
   });
 
   test("错误码词表（契约 §4）：四任务码登记 ErrorCode", () => {

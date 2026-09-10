@@ -37,6 +37,8 @@ import type {
   ConfigSetSchedulingCommand,
   ConfigGetPortCommand,
   ConfigSetPortCommand,
+  ConfigGetSandboxCommand,
+  ConfigSetSandboxCommand,
   KgBootstrapCreateCommand,
   KgBootstrapCreatePayload,
   KgCandidatesListCommand,
@@ -284,6 +286,16 @@ export function configGetPortCommand(): ConfigGetPortCommand {
 /** config.set_port：WS 端口写面（全局命令；下次启动生效）。 */
 export function configSetPortCommand(port: number): ConfigSetPortCommand {
   return { v: PROTOCOL_VERSION, type: "config.set_port", payload: { port } };
+}
+
+/** config.get_sandbox：沙箱开关读面（全局命令；沙箱开关批）。 */
+export function configGetSandboxCommand(): ConfigGetSandboxCommand {
+  return { v: PROTOCOL_VERSION, type: "config.get_sandbox", payload: {} };
+}
+
+/** config.set_sandbox：沙箱开关写面（全局命令；新会话/新任务生效）。 */
+export function configSetSandboxCommand(enabled: boolean): ConfigSetSandboxCommand {
+  return { v: PROTOCOL_VERSION, type: "config.set_sandbox", payload: { enabled } };
 }
 
 /** auth.list：provider 凭据清单（全局命令；P-4 列表数据）。 */

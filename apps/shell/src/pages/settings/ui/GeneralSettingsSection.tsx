@@ -1,5 +1,5 @@
 /**
- * 设置页「通用」分区（语言切换 + 工作空间 + 压缩参数 + 调度预算 + 端口）。
+ * 设置页「通用」分区（语言切换 + 工作空间 + 压缩参数 + 调度预算 + 端口 + 沙箱开关）。
  *
  * 语言切换：useI18n().setLang 直写（helix-lang localStorage 持久化 +
  * document.lang 同步），纯壳端偏好不走 daemon 配置命令。
@@ -12,6 +12,9 @@
  * 调度预算/端口（config 瘦身批同构）：modelConfig.scheduling / port 帧驱动
  * 同模式；调度写入下一次预算判定即生效（无重启提示），端口写入下次启动
  * 生效（UI 标注 + argv 覆盖态展示）。
+ * 沙箱开关（沙箱开关批）：modelConfig.sandbox 帧驱动同模式；布尔双按钮组
+ * （lang-switch 同构）点击即发 set、回执驱动回填（无乐观更新）；生效时机 =
+ * 新会话/新任务（装配期定格）——UI note 标注。
  *
  * 三卡状态机单点（M10 批⑤）：dirty/pending/saved 三件套 + 结果帧对账 +
  * 在途失败收口归 useConfigField（settings-hooks.ts）——config.set_* daemon
@@ -33,10 +36,11 @@ const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
 
 const GeneralSettingsSection = function GeneralSettingsSection() {
   const { t, lang, setLang } = useI18n();
-  const { topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig } = useSession();
+  const { topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig } = useSession();
   const compaction = topology.modelConfig.compaction;
   const scheduling = topology.modelConfig.scheduling;
   const portCfg = topology.modelConfig.port;
+  const sandboxCfg = topology.modelConfig.sandbox;
 
   // 三卡同构状态机（M10 批⑤：useConfigField 单点承载——脏态门控 M46 /
   // 在途对账 M44 / connection.error 在途失败收口 M10-②）
@@ -60,7 +64,8 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
     requestCompactionConfig();
     requestSchedulingConfig();
     requestPortConfig();
-  }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig]);
+    requestSandboxConfig();
+  }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig, requestSandboxConfig]);
 
   const save = () => {
     // M45：显式拒空串（Number("")===0 过整数校验会静默写 0）
@@ -246,6 +251,35 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             {t("chat.settings.general.portArgvOverride", { port: portCfg.effectivePort })}
           </span>
         )}
+      </div>
+
+      {/* 沙箱开关（沙箱开关批：新会话/新任务生效；lang-switch 双按钮同构） */}
+      <h3 className="section-label gen-group-label">{t("chat.settings.general.groupSandbox")}</h3>
+      <div className="hud-card">
+        <div className="fld">
+          <span className="hud-label">{t("chat.settings.general.sandbox")}</span>
+          <div className="lang-switch" data-sandbox-switch role="group" aria-label={t("chat.settings.general.sandbox")}>
+            <button
+              type="button"
+              className={cn("hud-btn sm", sandboxCfg?.enabled === true ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-sandbox-option="on"
+              aria-pressed={sandboxCfg?.enabled === true}
+              onClick={() => setSandboxConfig(true)}
+            >
+              {t("chat.settings.general.sandboxOn")}
+            </button>
+            <button
+              type="button"
+              className={cn("hud-btn sm", sandboxCfg?.enabled === false ? "hud-btn-cyan" : "hud-btn-ghost")}
+              data-sandbox-option="off"
+              aria-pressed={sandboxCfg?.enabled === false}
+              onClick={() => setSandboxConfig(false)}
+            >
+              {t("chat.settings.general.sandboxOff")}
+            </button>
+          </div>
+        </div>
+        <span className="ag-note">{t("chat.settings.general.sandboxNote")}</span>
       </div>
     </div>
   );

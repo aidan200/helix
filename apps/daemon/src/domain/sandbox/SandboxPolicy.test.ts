@@ -57,7 +57,7 @@ describe("writeDeniedMessage", () => {
   test("文案含路径 + 根清单 + 处置指引", () => {
     const m = writeDeniedMessage("/etc/hosts", parseSandboxConfig({ enabled: true }, WS, HOME));
     expect(m).toContain("/etc/hosts");
-    expect(m).toContain("sandbox.json");
+    expect(m).toContain("命令沙箱");
     expect(m).toContain("write/edit");
   });
 });

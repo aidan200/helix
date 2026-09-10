@@ -64,3 +64,21 @@ export interface ConfigSetPortResultEvent extends EventFrame<ConfigSetPortResult
   channel?: "model";
   type: "config.set_port.result";
 }
+
+/** config.get_sandbox.result：沙箱开关读面回执（点对点；全局命令）。 */
+export interface ConfigGetSandboxResultPayload {
+  enabled: boolean;
+}
+export interface ConfigGetSandboxResultEvent extends EventFrame<ConfigGetSandboxResultPayload> {
+  channel?: "model";
+  type: "config.get_sandbox.result";
+}
+
+/** config.set_sandbox.result：沙箱开关写回执（点对点；生效时机提示在 UI 层）。 */
+export interface ConfigSetSandboxResultPayload {
+  enabled: boolean;
+}
+export interface ConfigSetSandboxResultEvent extends EventFrame<ConfigSetSandboxResultPayload> {
+  channel?: "model";
+  type: "config.set_sandbox.result";
+}

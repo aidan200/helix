@@ -115,6 +115,12 @@ export interface SubagentLauncherDeps {
    */
   readonly rgPath?: string;
   /**
+   * 沙箱开关读面（沙箱开关批）：spawn 时读 KV sandbox_config 现值——
+   * HELIX_SANDBOX=1 透传（E-61 env 定格透传同构；开关在 spawn 时刻定格，
+   * 运行中任务不受后续开关变化影响）。缺省不注入（子进程视为关）。
+   */
+  readonly sandboxConfig?: { current(): { enabled: boolean } };
+  /**
    * spawn 快照（代际生效，TR-AD-24 同构）：launch 时刻读一次的组装
    * 产物缓存（组合根在启动与 toggle applied 后刷新；systemPrompt = base +
    * 生效工具清单 + 生效技能段，tools = getEffectiveTools 生效集）。透传
@@ -285,6 +291,8 @@ export class SubagentLauncher implements InstanceRunner {
         ...(this.deps.codegraphPath !== undefined ? { HELIX_CODEGRAPH_PATH: this.deps.codegraphPath } : {}),
         // rg 定格路径透传（子进程 grep 工具唯一后端；config 级 rg 靠此显式透传）
         ...(this.deps.rgPath !== undefined ? { HELIX_RG_PATH: this.deps.rgPath } : {}),
+        // 沙箱开关批：spawn 时刻 KV 现值定格透传（子进程据此装配/不装配沙箱）
+        ...(this.deps.sandboxConfig?.current().enabled ? { HELIX_SANDBOX: "1" } : {}),
         ...(snapshot !== undefined
           ? {
               HELIX_SYSTEM_PROMPT: snapshot.systemPrompt,

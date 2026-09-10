@@ -578,12 +578,13 @@ async function main(): Promise<void> {
   // 构造早于 engine 赋值——setTools 需 engine 就绪后直达）。
   const childMaterialized = new Set<string>();
   let childEngine: PiAgentEngineAdapter | undefined;
-  // 沙箱（可选开启，两端同构）：home 从 HELIX_DB_PATH dirname 推（父进程
-  // 透传的 home/helix.db）；workspaceRoot = toolCwd。off/自检失败 → undefined。
+  // 沙箱（可选开启，两端同构）：开关经父进程 env 透传（HELIX_SANDBOX=1；
+  // spawn 时父进程读 KV sandbox_config——沙箱开关批）；workspaceRoot = toolCwd。
+  // off/自检失败 → undefined。
   const childDbPath = process.env.HELIX_DB_PATH;
   const childSandbox =
-    childDbPath !== undefined
-      ? readSandboxRuntime(path.dirname(childDbPath), toolCwd)
+    process.env.HELIX_SANDBOX === "1" && childDbPath !== undefined
+      ? readSandboxRuntime(true, path.dirname(childDbPath), toolCwd)
       : undefined;
   const executor = new CoreToolExecutor({
     cwd: toolCwd,

@@ -189,7 +189,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       cwd: ctx.toolCwdOf(),
       orchestration: sessionOrchestration,
       grep: ctx.grep,
-      // 沙箱（可选开启，~/.helix/sandbox.json）：off/自检失败 → undefined 纯透传。
+      // 沙箱（可选开启，KV sandbox_config；沙箱开关批）：off/自检失败 → undefined 纯透传。
       // workspaceRoot 取 toolCwdOf（buildSessionStack L345 同源口径）
       ...(ctx.sandboxOf !== undefined ? { sandbox: ctx.sandboxOf() } : {}),
       // T2 turn diff：env.writeFile 写前快照钩子（闭包绑 mainInstanceId

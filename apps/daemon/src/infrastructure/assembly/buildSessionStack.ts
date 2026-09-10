@@ -17,6 +17,7 @@ import { SystemPromptAssembler } from "../../application/services/SystemPromptAs
 import type { TaskTypeInfo } from "../../application/ports/outbound/TaskSkillRegistryPort";
 import { SchedulingPolicy } from "../../domain/agent/SchedulingPolicy";
 import type { SchedulingConfigPort } from "../../application/ports/outbound/SchedulingConfigPort";
+import type { SandboxConfigPort } from "../../application/ports/outbound/SandboxConfigPort";
 import { EventStream } from "../../adapters/driving/ws-server/EventStream";
 import { sessionPlanPayloadOf } from "../../adapters/driving/ws-server/SnapshotMapper";
 import { LazyWorkLedger } from "../../adapters/driven/sqlite-session/WorkLedger";
@@ -126,6 +127,8 @@ export interface BuildSessionStackDeps {
   readonly compactionConfig?: CompactionConfigPort;
   /** SubAgent 调度预算（可选——测试缺省回落 DEFAULT_SCHEDULING；生产恒注入，运行期可调）。 */
   readonly schedulingConfig?: SchedulingConfigPort;
+  /** 沙箱开关（可选——缺省关；会话创建时读 KV，新会话生效）。 */
+  readonly sandboxConfig?: SandboxConfigPort;
   readonly browserPort: BrowserPort;
   /** fan-out 发布面（组合根先建、wireEventFanout 后装目标——服务构造期依赖稳定引用）。 */
   readonly events: EventPublisherPort;
@@ -627,6 +630,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // 子进程三级解析缺 config 级，定格值透传保持父子一致；未定格不传键，
           // 子进程靠继承 env 自解析，失败则 codegraph 工具 degraded）
           codegraphPath: deps.codegraphPath,
+          // 沙箱开关批：spawn 时读 KV 现值（persistence 注入）→ HELIX_SANDBOX
+          // env 透传子进程；未装配（测试栈）不传键 = 子进程沙箱关
+          ...(deps.sandboxConfig !== undefined ? { sandboxConfig: deps.sandboxConfig } : {}),
           // F3.0（T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH）——
           // 与 ClosureRecorder 兜底 reportsDirFor 同源同式（<home>/reports/<session>）
           reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
@@ -817,8 +823,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     authStore,
     defaultModel,
     onMcpDiscover: mcpSurface.onMcpDiscover,
-    // 沙箱（可选开启，~/.helix/sandbox.json + 自检降级；off/失败 → undefined 纯透传）
-    sandboxOf: () => readSandboxRuntime(paths.home, toolCwdOf()),
+    // 沙箱（可选开启，KV sandbox_config + 自检降级；off/失败 → undefined 纯透传。
+    // 开关在会话创建时定格读取——设置页改开关对新会话生效，运行中不热切换）
+    sandboxOf: () => readSandboxRuntime(deps.sandboxConfig?.current().enabled ?? false, paths.home, toolCwdOf()),
     ...(deps.editDeps !== undefined ? { editDeps: deps.editDeps } : {}),
     ...(deps.kgTools !== undefined ? { kgTools: deps.kgTools } : {}),
     ...(deps.codegraphTool !== undefined ? { codegraphTool: deps.codegraphTool } : {}),

@@ -61,6 +61,8 @@ import {
   configGetSchedulingCommand,
   configSetSchedulingCommand,
   configGetPortCommand,
+  configGetSandboxCommand,
+  configSetSandboxCommand,
   configSetPortCommand,
   diffGetCommand,
   kgBootstrapCreateCommand,
@@ -402,6 +404,18 @@ export const COMMAND_SURFACE = {
   setPortConfig: (deps) =>
     (port: number) => {
       deps.send(configSetPortCommand(port));
+    },
+  /** 沙箱开关拉取（通用配置分区进入；未请求态才发；沙箱开关批）。 */
+  requestSandboxConfig: (deps) =>
+    () => {
+      if (deps.getTopology().modelConfig.sandbox === null) {
+        deps.send(configGetSandboxCommand());
+      }
+    },
+  /** 沙箱开关写入（新会话/新任务生效——装配期定格，无热切换）。 */
+  setSandboxConfig: (deps) =>
+    (enabled: boolean) => {
+      deps.send(configSetSandboxCommand(enabled));
     },
   /** 连通验证（P-4 测试连通；started 先清旧态）。send 失败清 in-flight +
    *  恢复发送前凭据条目 + 返回 false。 */

@@ -61,6 +61,6 @@ function violationMessage(stderr: string): string {
   return (
     `命令被 macOS 沙箱（Seatbelt）拒绝：写入目标不在可写根（workspace 与 ~/.helix）内。\n` +
     `处置：① 确认目标路径是否应为 workspace 内路径；② 项目文件写入优先使用 write/edit 工具；` +
-    `③ 确需越界操作时，请用户在 <workspace>/.helix/sandbox.json 中调整沙箱配置。\n原始输出：${tail}`
+    `③ 确需越界操作时，请用户在设置页「通用 → 命令沙箱」调整沙箱开关。\n原始输出：${tail}`
   );
 }
