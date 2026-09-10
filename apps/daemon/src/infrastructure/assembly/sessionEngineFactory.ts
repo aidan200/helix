@@ -115,6 +115,8 @@ export interface MainEngineFactoryCtx {
   readonly compactionSettings: () => CompactionSettings;
   readonly globalThinking: () => string | undefined;
   readonly toolCwdOf: () => string;
+  /** 沙箱运行时现值读面（可选槽——装配层注入则包装 bash/写面；缺省不注入）。 */
+  readonly sandboxOf?: () => import("../../adapters/driven/tools/SandboxEnvWrap").SandboxRuntime | undefined;
   readonly turnDiff: TurnDiffService;
   readonly browserPort: BrowserPort;
   /** 活跃主会话 executor 登记（refreshAssembly appendTools 目标；生命周期见 engineFor set 点注释）。 */
@@ -187,6 +189,9 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       cwd: ctx.toolCwdOf(),
       orchestration: sessionOrchestration,
       grep: ctx.grep,
+      // 沙箱（可选开启，~/.helix/sandbox.json）：off/自检失败 → undefined 纯透传。
+      // workspaceRoot 取 toolCwdOf（buildSessionStack L345 同源口径）
+      ...(ctx.sandboxOf !== undefined ? { sandbox: ctx.sandboxOf() } : {}),
       // T2 turn diff：env.writeFile 写前快照钩子（闭包绑 mainInstanceId
       // ——该 executor 每会话一个；hook 内部读旧内容落基线，异常吞咽）
       ...(bind !== undefined

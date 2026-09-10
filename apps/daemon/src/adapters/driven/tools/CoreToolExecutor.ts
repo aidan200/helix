@@ -43,6 +43,7 @@ import { imagesOfContent } from "../../../application/services/images";
 import type { KgQueryService } from "../../../application/services/kg/KgQueryService";
 import type { KnowledgeWriteOp, WriteResult } from "../../../domain/kg/types";
 import { wrapEnvForDiff, type EnvWriteHook } from "./TurnDiffEnvWrap";
+import { wrapEnvForSandbox, type SandboxRuntime } from "./SandboxEnvWrap";
 /**
  * CoreToolExecutor —— ToolExecutorPort 的真实现（architecture.md §3.4，
  * 落位 adapters/driven/tools，AD-17/AD-10）。
@@ -199,6 +200,15 @@ export interface CoreToolExecutorOptions {
    * 子进程绑 stdout file-write 行（ChildMain）。
    */
   readonly writeHook?: EnvWriteHook;
+  /**
+   * 沙箱运行时（可选槽——off/未注入 = 零包装零差）：注入则包装 env 的
+   * exec（bash → /usr/bin/sandbox-exec）与写方法族（writeFile/appendFile/
+   * renameFile/remove/createDir 路径判定）。包装在 writeHook（diff 快照）
+   * 之外层：被拒的写不产生 diff 事实。装配面见 sandboxSetup.readSandboxRuntime
+   * （配置读取 + 自检降级）；main（sessionEngineFactory）与 SubAgent 子进程
+   * （ChildMain）两端同构注入。
+   */
+  readonly sandbox?: SandboxRuntime;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -211,8 +221,12 @@ export class CoreToolExecutor implements ToolExecutorPort {
       shellPath: options.shellPath,
       shellEnv: options.shellEnv,
     });
-    // T2 turn diff：写前快照钩子包装（缺省零包装零差；hook 异常吞咽）
-    const env = wrapEnvForDiff(baseEnv, options.writeHook);
+    // T2 turn diff：写前快照钩子包装（缺省零包装零差；hook 异常吞咽）。
+    // 沙箱包装在外层（先判定拒绝、后快照——被拒写不进 diff 事实）
+    const env = wrapEnvForSandbox(
+      wrapEnvForDiff(baseEnv, options.writeHook),
+      options.sandbox,
+    );
     this.context = { env };
     const tools: AgentHarnessTool<ExecutionToolContext, any, any>[] = [
       // pi 内置四工具基线注册（F-20：registry 按 name 平铺，内置无特权）

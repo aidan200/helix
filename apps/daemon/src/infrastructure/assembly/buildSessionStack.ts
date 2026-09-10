@@ -51,6 +51,7 @@ import { ModelCatalog } from "../../adapters/driven/pi-engine/model-catalog";
 import { SkillScanner } from "../../adapters/driven/pi-engine/SkillScanner";
 import { TOOL_PROMPT_SNIPPETS } from "../../adapters/driven/tools/ToolPromptSnippets";
 import { CoreToolExecutor, type CoreToolExecutorOptions, type KgToolOptions } from "../../adapters/driven/tools/CoreToolExecutor";
+import { readSandboxRuntime } from "../../adapters/driven/tools/sandboxSetup";
 import type { PlanToolDeps } from "../../adapters/driven/tools/plan/PlanTools";
 import type { TaskCreateToolDeps } from "../../adapters/driven/tools/task-create/TaskCreateTool";
 import type { TaskReportToolDeps } from "../../adapters/driven/tools/task-report/TaskReportTool";
@@ -816,6 +817,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     authStore,
     defaultModel,
     onMcpDiscover: mcpSurface.onMcpDiscover,
+    // 沙箱（可选开启，~/.helix/sandbox.json + 自检降级；off/失败 → undefined 纯透传）
+    sandboxOf: () => readSandboxRuntime(paths.home, toolCwdOf()),
     ...(deps.editDeps !== undefined ? { editDeps: deps.editDeps } : {}),
     ...(deps.kgTools !== undefined ? { kgTools: deps.kgTools } : {}),
     ...(deps.codegraphTool !== undefined ? { codegraphTool: deps.codegraphTool } : {}),
