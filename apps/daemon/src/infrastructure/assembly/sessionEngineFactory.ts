@@ -25,6 +25,7 @@ import type { ResourceService } from "../../application/services/ResourceService
 import type { SchedulerService } from "../../application/services/scheduler/SchedulerService";
 import type { RuntimeMaterial, SessionRuntime } from "../../application/services/SessionRegistry";
 import { createTurnDiffState, TurnDiffService, type TurnDiffState } from "../../application/services/TurnDiffService";
+import type { WriteFactRegistry } from "../../application/services/WriteFactRegistry";
 import type { McpRegistry } from "../../adapters/driven/mcp/McpRegistry";
 import { createMcpDiscoverTools, createMcpTools } from "../../adapters/driven/mcp/mcp-tool";
 import { McpDeferredHooks } from "../../adapters/driven/pi-engine/runtime/hooks/McpDeferredHooks";
@@ -118,6 +119,8 @@ export interface MainEngineFactoryCtx {
   /** 沙箱运行时现值读面（可选槽——装配层注入则包装 bash/写面；缺省不注入）。 */
   readonly sandboxOf?: () => import("../../adapters/driven/tools/SandboxEnvWrap").SandboxRuntime | undefined;
   readonly turnDiff: TurnDiffService;
+  /** U0a 写事实登记表（跨轮跨会话底座——buildSessionStack 单例透传；未注入不记录）。 */
+  readonly writeFacts?: WriteFactRegistry;
   readonly browserPort: BrowserPort;
   /** 活跃主会话 executor 登记（refreshAssembly appendTools 目标；生命周期见 engineFor set 点注释）。 */
   readonly sessionExecutors: Map<string, CoreToolExecutor>;
@@ -189,15 +192,46 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       cwd: ctx.toolCwdOf(),
       orchestration: sessionOrchestration,
       grep: ctx.grep,
+      // U0b：bash 写感知（main 实例归属闭包——裸事实补 instanceId/sessionId
+      // 后进 registry；preciseSince 剧本他人工具写做归属剔除）
+      ...(bind !== undefined && ctx.writeFacts !== undefined
+        ? {
+            bashSense: {
+              onObserved: (facts: readonly { path: string; confidence: "precise" | "inferred" | "uncertain" | "unknown"; at: number }[]) => {
+                ctx.writeFacts?.recordMany(
+                  facts.map((f) => ({
+                    instanceId: bind.mainInstanceId,
+                    sessionId,
+                    path: f.path,
+                    at: f.at,
+                    confidence: f.confidence,
+                  })),
+                );
+              },
+              preciseSince: (cutoffMs: number) =>
+                ctx.writeFacts?.preciseWritesSince(cutoffMs, bind.mainInstanceId).map((f) => f.path) ?? [],
+            },
+          }
+        : {}),
       // 沙箱（可选开启，KV sandbox_config；沙箱开关批）：off/自检失败 → undefined 纯透传。
       // workspaceRoot 取 toolCwdOf（buildSessionStack L345 同源口径）
       ...(ctx.sandboxOf !== undefined ? { sandbox: ctx.sandboxOf() } : {}),
       // T2 turn diff：env.writeFile 写前快照钩子（闭包绑 mainInstanceId
       // ——该 executor 每会话一个；hook 内部读旧内容落基线，异常吞咽）
+      // T2 turn diff：env.writeFile 写前快照钩子（闭包绑 mainInstanceId
+      // ——该 executor 每会话一个；hook 内部读旧内容落基线，异常吞咽）。
+      // U0a 并联：同一钩子先记写事实（跨轮持久——diff 是轮窗口语义，
+      // registry 是 daemon 生命周期累积面；相对路径按 executor cwd 归一）
       ...(bind !== undefined
         ? {
-            writeHook: (p: string, content: string | Uint8Array) =>
-              ctx.turnDiff.captureWrite(bind.diff, p, bind.mainInstanceId, content),
+            writeHook: (p: string, content: string | Uint8Array) => {
+              const wf = ctx.writeFacts;
+              if (wf !== undefined) {
+                const abs = p.startsWith("/") ? p : `${ctx.toolCwdOf().replace(/\/+$/, "")}/${p}`;
+                wf.record({ instanceId: bind.mainInstanceId, sessionId, path: abs, at: Date.now(), confidence: "precise" });
+              }
+              return ctx.turnDiff.captureWrite(bind.diff, p, bind.mainInstanceId, content);
+            },
           }
         : {}),
       ...(editDeps !== undefined ? { edit: editDeps } : {}),

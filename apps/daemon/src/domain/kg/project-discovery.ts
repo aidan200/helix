@@ -49,6 +49,24 @@ export function resolveProjectArg(entries: readonly ProjectDirEntry[], project: 
 }
 
 /**
+ * 绝对路径 → workspace 一级项目目录名（U0a projectFootprint 消费口——
+ * 纯字符串，零 node:path：分隔符归一 + 前缀判定 + 排除集过滤）。
+ * 返回 undefined = 根外/隐藏段/排除段（不属任何项目域）。
+ * 与 workspace-scan.projectRootOfPath 同口径——后者是本函数的 IO 薄壳
+ * （path.join 形态保持），新增消费面一律用本函数（application 层可 import）。
+ */
+export function projectRootOfAbs(workspaceRoot: string, absPath: string): string | undefined {
+  const norm = (p: string) => p.replaceAll("\\", "/").replace(/\/+$/, "");
+  const root = norm(workspaceRoot);
+  const p = norm(absPath);
+  if (root === "" || !p.startsWith(`${root}/`)) return undefined;
+  const rel = p.slice(root.length + 1);
+  const first = rel.split("/")[0] ?? "";
+  if (first === "" || first.startsWith(".") || WORKSPACE_EXCLUDED.has(first)) return undefined;
+  return first;
+}
+
+/**
  * worktree 路径 → 主仓归一（D8 W-R2/W-R3 读穿透，零 IO 纯函数）。
  *
  * W-R1 落点口径：worktree 统一住 `<workspaceRoot>/.worktrees/{project}-{slug}`

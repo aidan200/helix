@@ -44,6 +44,7 @@ import type { KgQueryService } from "../../../application/services/kg/KgQuerySer
 import type { KnowledgeWriteOp, WriteResult } from "../../../domain/kg/types";
 import { wrapEnvForDiff, type EnvWriteHook } from "./TurnDiffEnvWrap";
 import { wrapEnvForSandbox, type SandboxRuntime } from "./SandboxEnvWrap";
+import { wrapEnvForBashSense, type BashSenseRuntime } from "./BashSenseEnvWrap";
 /**
  * CoreToolExecutor —— ToolExecutorPort 的真实现（architecture.md §3.4，
  * 落位 adapters/driven/tools，AD-17/AD-10）。
@@ -209,6 +210,14 @@ export interface CoreToolExecutorOptions {
    * （ChildMain）两端同构注入。
    */
   readonly sandbox?: SandboxRuntime;
+  /**
+   * bash 写感知运行时（可选槽——U0b；未注入 = 零包装零差）：注入则包装
+   * env 的 exec（前快照 → 原执行 → 后快照差集 → onObserved 出口）。
+   * 包装在沙箱之外最外层（看到原始 command，快照口径覆盖沙箱执行）。
+   * main（sessionEngineFactory → registry.recordMany）与 SubAgent 子进程
+   * （ChildMain → wire bash-fact 行上报）两端同构注入。
+   */
+  readonly bashSense?: BashSenseRuntime;
 }
 
 export class CoreToolExecutor implements ToolExecutorPort {
@@ -222,10 +231,14 @@ export class CoreToolExecutor implements ToolExecutorPort {
       shellEnv: options.shellEnv,
     });
     // T2 turn diff：写前快照钩子包装（缺省零包装零差；hook 异常吞咽）。
-    // 沙箱包装在外层（先判定拒绝、后快照——被拒写不进 diff 事实）
-    const env = wrapEnvForSandbox(
-      wrapEnvForDiff(baseEnv, options.writeHook),
-      options.sandbox,
+    // 沙箱包装在外层（先判定拒绝、后快照——被拒写不进 diff 事实）；
+    // bash 感知最外层（原始 command 定快照计划，覆盖沙箱执行效果）
+    const env = wrapEnvForBashSense(
+      wrapEnvForSandbox(
+        wrapEnvForDiff(baseEnv, options.writeHook),
+        options.sandbox,
+      ),
+      options.bashSense,
     );
     this.context = { env };
     const tools: AgentHarnessTool<ExecutionToolContext, any, any>[] = [

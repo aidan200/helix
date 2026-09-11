@@ -24,6 +24,7 @@ import { LazyWorkLedger } from "../../adapters/driven/sqlite-session/WorkLedger"
 import { WorkLedgerService } from "../../application/services/task/WorkLedgerService";
 import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
 import { TurnDiffService, type TurnDiffState } from "../../application/services/TurnDiffService";
+import { WriteFactRegistry } from "../../application/services/WriteFactRegistry";
 import { walkWorkspaceStats } from "../../adapters/driven/workspace-stat-walk";
 import { generateUnifiedPatch } from "../../adapters/driven/tools/edit/kernel/edit-diff";
 import { readFile } from "node:fs/promises";
@@ -341,6 +342,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // T2 形态保持）→ fan-out publishDelta 瞬态通道（channel="diff"：不落盘、
   // 不投影、EventStream 直推——chat/thinking stream delta 同通道纪律）。
   const diffSessionIds = new WeakMap<TurnDiffState, string>();
+  // ── U0a 写事实登记表（跨轮跨会话底座——daemon 内存单例，liveness 语义：
+  //    重启清零零落盘；workspaceRoot 同 toolCwdOf 口径供 projectFootprint）──
+  const writeFacts = new WriteFactRegistry({ workspaceRoot: () => toolCwdOf() });
   const turnDiff = new TurnDiffService(
     {
       readTextFile: (p) =>
@@ -646,8 +650,19 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           onFileWrite: (agentId, meta) => {
             const sessionId = scheduler.instance(agentId)?.sessionId;
             if (sessionId === undefined) return;
+            // U0a 并联：工具写事实登记（跨轮持久——diff 记账之外的第二消费者）
+            writeFacts.record({ instanceId: agentId, sessionId, path: meta.path, at: Date.now(), confidence: "precise" });
             const hot = registry.peek(sessionId);
             if (hot !== undefined) turnDiff.recordExternal(hot.diff, { ...meta, agentId });
+          },
+          // U0b：bash-fact 行分派（子进程内算毕的快照差集）→ registry 记账。
+          // 会话反查同 onFileWrite；差 diff 出口留位（见 SubagentLauncher 注释）。
+          onBashFact: (agentId, facts) => {
+            const sessionId = scheduler.instance(agentId)?.sessionId;
+            if (sessionId === undefined) return;
+            writeFacts.recordMany(
+              facts.map((f) => ({ instanceId: agentId, sessionId, path: f.path, at: f.at, confidence: f.confidence })),
+            );
           },
         })
       : undefined;
@@ -816,6 +831,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     globalThinking,
     toolCwdOf,
     turnDiff,
+    writeFacts,
     browserPort,
     sessionExecutors,
     planToolService: mainPlanStack?.planToolService,

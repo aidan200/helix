@@ -618,6 +618,17 @@ async function main(): Promise<void> {
     // T2 turn diff：写前元数据上报线（stdout file-write 行——父侧分派到
     // 归属会话 runtime diff 的 recordExternal）
     writeHook: makeFileWriteReporter(instanceId, toolCwd),
+    // U0b bash 写感知：子进程内 exec 前后快照差集（子进程能跑 git
+    // status/walk）→ 算毕经 wire bash-fact 行上行（父侧分派 → registry）。
+    // preciseSince 恒缺省（子进程内无跨实例并发面——跨进程真并发归父侧
+    // 并集语义，设计文档 U0b 口径）。
+    bashSense: {
+      onObserved: (facts) => {
+        if (facts.length > 0) {
+          writeLine({ type: "bash-fact", instanceId, facts: facts.map((f) => ({ path: f.path, confidence: f.confidence, at: f.at })) });
+        }
+      },
+    },
     // grep rg 单后端：父进程定格路径经 HELIX_RG_PATH env 透传（SubagentLauncher
     // 显式注入或形态 env 继承——bundle 级）；缺席 → 门面响亮失败（无 TS 兜底）
     grep: { rgPath: process.env.HELIX_RG_PATH },

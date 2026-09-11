@@ -1,5 +1,13 @@
 import type { AgentEngineEvent } from "../../../../application/ports/outbound/AgentEnginePort";
 import type { InstanceClosurePayload } from "../../../../domain/events/DomainEvent";
+import type { WriteConfidence } from "../../../../domain/writefact/types";
+
+/** bash-fact 行的单条裸事实（与 BashObservedWrite 同形——wire 面内联，置信取 domain 单点）。 */
+export interface BashFactLineItem {
+  readonly path: string;
+  readonly confidence: WriteConfidence;
+  readonly at: number;
+}
 
 /**
  * SubAgent 子进程 stdio JSON 线协议（O-7 候选 A 形态，v1 StdioJsonRpcTransport
@@ -56,6 +64,13 @@ export type ChildOutboundLine =
       readonly prevSize: number;
       /** 写入后字节数。 */
       readonly nextSize: number;
+    }
+  | {
+      /** U0b bash 写感知上报（additive 增型——子进程内 exec 前后快照差集算毕上行）。 */
+      readonly type: "bash-fact";
+      readonly instanceId: string;
+      /** 观察到的写（裸事实——归属/会话由父侧分派时装配方补全）。 */
+      readonly facts: readonly BashFactLineItem[];
     };
 
 /** 父进程 → 子进程的 stdin 行（send = steer 注入）。 */
