@@ -16,6 +16,7 @@ import { ResourceStateStore } from "../../adapters/driven/sqlite-session/Resourc
 import { DEFAULT_MODEL_ID } from "../../adapters/driven/pi-engine/model-provider";
 import { DEFAULT_COMPACTION } from "../../adapters/driven/pi-engine/runtime/AgentProfile";
 import { DEFAULT_SCHEDULING } from "../../domain/agent/SchedulingPolicy";
+import type { SessionRunStateLike } from "../../domain/agent/ObservabilityState";
 
 /**
  * 装配函数 ① 持久化族（architecture §4.2.1）：组合根的一部分
@@ -37,7 +38,13 @@ export interface PersistenceStack {
   readonly resourceState: ResourceStateStore;
 }
 
-export function buildPersistence(deps: { readonly paths: HelixPaths; readonly logger: Logger }): PersistenceStack {
+export function buildPersistence(deps: {
+  readonly paths: HelixPaths;
+  readonly logger: Logger;
+  /** trace 面板 main displayState 会话运行态晚绑容器（U2：组合根建
+   * registry 后回填 of；缺省冷会话 idle）。 */
+  readonly traceSessionRunOf?: { of?: (sessionId: string) => SessionRunStateLike };
+}): PersistenceStack {
   // ── 持久化：SQLite WAL + 单写队列（AG-06 唯一写通道； 分仓） ──
   const writeQueue = new WriteQueue(deps.paths.dbPath(), {
     onError: (error, job) => deps.logger.error(`落盘失败（${job.kind}）：${(error as Error).message}`),
@@ -45,7 +52,7 @@ export function buildPersistence(deps: { readonly paths: HelixPaths; readonly lo
   const repository: SessionRepositoryPort = new SqliteSessionRepository(writeQueue);
   // trace 读面 port 手工装配（architecture.md §3.5b）：同库同表只读面，
   // 不经单写队列（AG-06 唯一写通道只约写面；读面直连 SQLite）。
-  const traceQuery: TraceQueryPort = new SqliteTraceQueryAdapter(writeQueue);
+  const traceQuery: TraceQueryPort = new SqliteTraceQueryAdapter(writeQueue, deps.traceSessionRunOf);
   // 运行时配置 KV（P1 T1：通用键值底座）+ 默认模型语义包装（KV 上第一个键
   // + builtin 兑底——消费面 DefaultModelPort 签名不变，只换存储底座）
   const runtimeConfig = new RuntimeConfigStore(writeQueue);

@@ -1,5 +1,6 @@
 import { AgentInstance, newInstanceId, type AgentInstanceData } from "../../../domain/agent/AgentInstance";
 import { AgentLifecycle } from "../../../domain/agent/AgentLifecycle";
+import { displayStateOf, type SessionRunStateLike } from "../../../domain/agent/ObservabilityState";
 import type { SchedulingPolicy } from "../../../domain/agent/SchedulingPolicy";
 import type {
   AgentInstantiatedPayload,
@@ -127,6 +128,13 @@ export interface SchedulerServiceDeps {
    * 事实源——E-AgentInstance 禁忌）；缺省 = 纯调度测试形态（锚点面缺席）。
    */
   readonly spawnAnchorFor?: (sessionId: string) => string | null;
+  /**
+   * 会话运行态读口（U2 观测态）：main 实例 displayState 编译输入——
+   * SessionRegistry.runStateOf 消化后的三值词汇。晚绑闭包（组合根
+   * registry 建成后回填；scheduler 先于 registry 构造）；缺省 = 冷会话
+   * idle 语义（displayStateOf 对 undefined 同 idle）。
+   */
+  readonly sessionRunStateOf?: (sessionId: string) => SessionRunStateLike;
   /**
    * Sub 实例化快照供给（AD-5，契约 v0.4 §2）：spawn 时与
    * agent.spawned 同批发布 agent.instantiated 的快照数据源——profile 常量
@@ -857,9 +865,14 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     const position = this.queue.indexOf(agentId);
     const closure = this.closures.get(agentId);
     const parked = this.parkedInfos.get(agentId);
+    // U2 观测态：main 编译会话运行态（晚绑读口——组合根 registry 建成后
+    // 回填；缺省 idle = 冷会话语义），subagent 编译窗口态（词表单源
+    // ObservabilityState——agent_status 回执「恒 running」修正）
+    const sessionRun = instance.kind === "main" ? this.deps.sessionRunStateOf?.(instance.sessionId) : undefined;
     return {
       agentId,
       state: instance.current,
+      displayState: displayStateOf({ kind: instance.kind, window: instance.current, ...(sessionRun !== undefined ? { sessionRun } : {}) }),
       profileKind: instance.profileKind,
       ...(task !== undefined ? { task } : {}),
       ...(position >= 0 ? { position: position + 1 } : {}),

@@ -34,6 +34,7 @@ import { rm, readFile } from "node:fs/promises";
 import { createFileLogger, type Logger } from "./logging";
 import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
 import { buildPersistence } from "./assembly/buildPersistence";
+import type { SessionRunStateLike } from "../domain/agent/ObservabilityState";
 import { buildModelStack } from "./assembly/buildModelStack";
 import { buildTaskStack } from "./assembly/buildTaskStack";
 import { buildKgResolverGroup } from "./assembly/buildKgResolverGroup";
@@ -269,7 +270,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   const { grepFreeze, codegraphResolution } = await freezeSearchBackends({ config, logger });
 
   // ── 装配序步 2-4：持久化族 → 模型域 → 会话/运行面（architecture §4.2.2） ──
-  const persistence = buildPersistence({ paths, logger });
+  // U2 观测态晚绑容器：trace 面板 main displayState 的会话运行态读口
+  //（registry 在 buildSessionStack 后才存在——与 wsServer 同款回填模式）
+  const traceSessionRunOf: { of?: (sessionId: string) => SessionRunStateLike } = {};
+  const persistence = buildPersistence({ paths, logger, traceSessionRunOf });
 
   // ── config 瘦身批迁移第一批（M5 切片迁 assembly/bootPrelude；一次性幂等，
   //    先于端口解析与 MCP 预热——port/调度预算/mcpServers → 新位 + config.json
@@ -562,6 +566,10 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     taskClosureSink: (agentId) => orchestratorService?.handleInstanceClosure(agentId),
   });
   const { resourceService, subagentLauncher, scheduler, eventStream, registry, sessionService, resolveSubagentModelId, toolCwdNow, orchestratorAssembly, orchestratorMcpTools } = sessionStack;
+
+  // U2 观测态晚绑闭合：trace 面板 main displayState 的会话运行态读口
+  // 接 registry（此前冷会话 idle 兑底）
+  traceSessionRunOf.of = (sessionId) => registry.sessionRunStateOf(sessionId);
   schedulerLate = scheduler; // 链 A 晚绑闭合：instanceStateOf 读面接调度器现值
 
   // ── T2.2 晚绑闭合：task.changed 广播单点 + 编排服务真体回填──

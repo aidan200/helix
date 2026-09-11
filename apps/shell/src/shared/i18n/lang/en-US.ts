@@ -475,6 +475,13 @@ export const enUS = {
       statusCompleted: "Completed",
       statusFailed: "Failed",
       statusKilled: "Killed",
+      displayActive: "Active",
+      displayIdle: "Idle",
+      displayQueued: "Queued",
+      displayParked: "Parked",
+      displayDone: "Done",
+      displayFailed: "Failed",
+      displayCancelled: "Cancelled",
       timeRunning: "{start} · running {dur}",
     },
     ctx: {

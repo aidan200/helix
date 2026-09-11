@@ -47,6 +47,21 @@ const STATUS_KEY = {
   killed: "trace.panel.statusKilled",
 } as const;
 
+/** U2 观测态（displayState 优先——main 空闲不再显示「运行中」；旧数据
+ * 无 displayState 降级窗口 status 词汇）。 */
+const DISPLAY_KEY = {
+  active: "trace.panel.displayActive",
+  idle: "trace.panel.displayIdle",
+  queued: "trace.panel.displayQueued",
+  parked: "trace.panel.displayParked",
+  done: "trace.panel.displayDone",
+  failed: "trace.panel.displayFailed",
+  cancelled: "trace.panel.displayCancelled",
+} as const;
+
+const displayKeyOf = (rec: TraceInstanceRecord): string =>
+  rec.displayState !== undefined ? DISPLAY_KEY[rec.displayState] : STATUS_KEY[rec.status];
+
 const InstancePanel = function InstancePanel({
   instances,
   selected,
@@ -102,7 +117,7 @@ const InstancePanel = function InstancePanel({
                   <span className="ii-name">
                     {instanceDisplayName(rec, t("trace.panel.mainName"))}
                   </span>
-                  <span className="ii-status">{t(STATUS_KEY[rec.status])}</span>
+                  <span className="ii-status">{t(displayKeyOf(rec))}</span>
                 </span>
                 <span className="ii-meta">
                   <span className={cn("ii-pk", rec.agentKind === "main" && "main-pk")}>

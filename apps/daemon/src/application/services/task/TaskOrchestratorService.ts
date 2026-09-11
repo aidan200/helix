@@ -1,4 +1,5 @@
 import type { TaskStorePort, BatchData, JobData } from "../../ports/outbound/TaskStorePort";
+import { displayStateOf } from "../../../domain/agent/ObservabilityState";
 import type { TaskEnginePort } from "../../ports/inbound/TaskEnginePort";
 import type { TaskOrchestratorStarterPort } from "../../ports/outbound/TaskOrchestratorStarterPort";
 import type { TaskSkillRegistryPort } from "../../ports/outbound/TaskSkillRegistryPort";
@@ -618,6 +619,9 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
           {
             agentId,
             state,
+            // U2 观测态：批次实例均 subagent（窗口态直译；parked 不在批次
+            // 词汇——兑底窗口原值）
+            displayState: displayStateOf({ kind: "subagent", window: state === "queued" ? "queued" : state === "running" ? "running" : state }),
             profileKind,
             ...(outcome.summary !== undefined ? { summary: outcome.summary } : {}),
           },

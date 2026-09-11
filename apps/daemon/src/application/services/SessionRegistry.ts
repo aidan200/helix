@@ -672,6 +672,15 @@ export class SessionRegistry implements SessionDirectoryPort {
     return runtime.chatService.agentState === "idle" ? "idle" : "streaming";
   }
 
+  /**
+   * 会话运行态公开读口（U2 观测态）：main 实例 displayState 编译输入。
+   * 组合根晚绑注入 SchedulerService.sessionRunStateOf（scheduler 先于
+   * registry 构造——闭包回填）；冷会话/已卸载 = idle 同私有面语义。
+   */
+  sessionRunStateOf(sessionId: string): SessionRunState {
+    return this.runStateOf(sessionId);
+  }
+
   /** state_changed 广播（去重：与上次广播态比较；冷会话无运行时可观测面——跳过）。 */
   private broadcastRunStateIfChanged(sessionId: string): void {
     const record = this.sessions.get(sessionId);

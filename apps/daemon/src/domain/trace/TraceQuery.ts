@@ -1,4 +1,5 @@
 import type { ProfileSnapshotData } from "../events/DomainEvent";
+import { traceDisplayOf, type SessionRunStateLike } from "../agent/ObservabilityState";
 
 /**
  * TraceQuery —— trace 查询面纯语义（契约 v0.4 §1/§4；
@@ -130,6 +131,9 @@ export interface TraceInstanceRecord {
   readonly profileKind: string;
   readonly model?: string;
   readonly status: "running" | "completed" | "failed" | "killed";
+  /** 观测态（U2：main 编译会话运行态、subagent 编译事件态——与协议
+   * TraceInstanceRecord.displayState 同构同步）。 */
+  readonly displayState?: "active" | "idle" | "queued" | "parked" | "done" | "failed" | "cancelled";
   readonly startedAt?: string;
   readonly endedAt?: string;
   readonly task?: string;
@@ -158,6 +162,11 @@ const TERMINAL_STATUS: Readonly<Record<string, TraceInstanceRecord["status"]>> =
 export function assembleInstancePanel(
   aggregates: readonly InstanceAggregateRow[],
   lifecycleEvents: readonly TraceEventRowData[],
+  options?: {
+    /** 本会话 main 实例的实时运行态（U2：会话五态不在事件行——driven 装配层
+     * 从 SessionRegistry 读口注入；缺省 = 冷会话 idle 语义）。 */
+    readonly mainSessionRun?: SessionRunStateLike;
+  },
 ): TraceInstanceRecord[] {
   const byInstance = new Map<string, TraceEventRowData[]>();
   for (const event of lifecycleEvents) {
@@ -183,6 +192,7 @@ export function assembleInstancePanel(
 
     const snapshot = ctx.snapshot;
     const model = snapshot?.model ?? spawned?.model;
+    const status = terminal !== undefined ? TERMINAL_STATUS[terminal.type]! : ("running" as const);
     return {
       instanceId: agg.instanceId,
       agentKind: agg.agentKind,
@@ -191,7 +201,14 @@ export function assembleInstancePanel(
         spawned?.profileKind ??
         (agg.agentKind === "main" ? "main-session" : "subagent-worker"),
       ...(model !== undefined ? { model } : {}),
-      status: terminal !== undefined ? TERMINAL_STATUS[terminal.type]! : ("running" as const),
+      status,
+      // U2 观测态：main 编译注入的实时会话运行态（subagent 编译事件态）——
+      // 「恒 running」零信息量修正（ObservabilityState 词表单源）
+      displayState: traceDisplayOf({
+        kind: agg.agentKind,
+        status,
+        ...(agg.agentKind === "main" ? { sessionRun: options?.mainSessionRun } : {}),
+      }),
       startedAt: instantiated?.ts ?? (spawnedEvent?.ts ?? agg.firstTs),
       ...(terminal !== undefined ? { endedAt: terminal.ts } : {}),
       ...(typeof spawned?.task === "string" ? { task: spawned.task } : {}),

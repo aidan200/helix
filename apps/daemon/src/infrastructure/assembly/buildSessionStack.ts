@@ -4,6 +4,7 @@ import type { ClockPort } from "../../application/ports/outbound/ClockPort";
 import type { BrowserPort } from "../../application/ports/outbound/BrowserPort";
 import type { ProfileKind } from "../../application/ports/outbound/ResourceStatePort";
 import type { InstanceRunner } from "../../application/services/InstanceRunner";
+import type { SessionRunStateLike } from "../../domain/agent/ObservabilityState";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
@@ -708,7 +709,12 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // ── service：SubAgent 调度编排（多会话共用：构造期绑死 sessionId 废弃；
   //    实例归属经 spawn 入参/AgentInstanceData.sessionId；全局预算不分裂） ──
   const restoreService = new RestoreService({ repository, clock });
+  // U2 观测态晚绑：scheduler 先于 SessionRegistry 构造——先落冷会话 idle
+  // 兑底，registry 建成后回填真读口（main 实例 displayState 编译输入）
+  let sessionRunStateOfImpl: (sessionId: string) => SessionRunStateLike = () => "idle";
   const scheduler = new SchedulerService({
+    // U2：main 实例 agent_status displayState 编译读口（晚绑闭包）
+    sessionRunStateOf: (sessionId) => sessionRunStateOfImpl(sessionId),
     // 调度策略工厂：每次预算判定现拍 KV 现值（设置页 set 完成后下一次
     // decideSpawn 即生效——运行期可调，无需重启）；stalled 阈值仍走 domain 缺省；
     // 未注入 store（测试形态）→ SchedulingPolicy 构造缺省回落 DEFAULT_SCHEDULING
@@ -884,6 +890,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     ...(deps.mainSessionLlmOverride !== undefined ? { mainSessionLlmOverride: deps.mainSessionLlmOverride } : {}),
   });
 
+  // U2 观测态晚绑回填：registry 建成——scheduler 的 sessionRunStateOf
   const registry = new SessionRegistry({
     repository,
     clock,
@@ -929,6 +936,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     idlePollMs: deps.sessionIdlePollMs,
     logger,
   });
+
+  // U2 观测态晚绑回填：registry 建成——scheduler 的 sessionRunStateOf
+  // 闭包从冷会话兑底切真读口（main 实例 displayState 实时化）
+  sessionRunStateOfImpl = (sessionId) => registry.sessionRunStateOf(sessionId);
 
   // ── services：会话状态入口（当前会话读面，经注册表组装） ──────────
   const sessionService = new SessionService({

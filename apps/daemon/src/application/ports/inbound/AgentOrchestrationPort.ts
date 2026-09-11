@@ -45,6 +45,8 @@ export type ResumeOutcome =
 export interface AgentInstanceStatus {
   readonly agentId: string;
   readonly state: InstanceState;
+  /** 观测态（U2：main 编译会话运行态、subagent 编译窗口态——「恒 running」修正；displayStateOf 词表单源）。 */
+  readonly displayState: "active" | "idle" | "queued" | "parked" | "done" | "failed" | "cancelled";
   readonly profileKind: string;
   /** 被指派任务（spawn 入参留档）。 */
   readonly task?: string;

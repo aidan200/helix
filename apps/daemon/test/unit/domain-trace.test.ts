@@ -239,3 +239,40 @@ describe("④ hasMoreBefore 判据", () => {
     expect(hasMoreBefore(0, 50)).toBe(false);
   });
 });
+
+// ── U2 观测态：displayState 编译（「恒 running」修正断言翻转） ──
+
+describe("③ assembleInstancePanel displayState（U2）", () => {
+  const aggregates: InstanceAggregateRow[] = [
+    { instanceId: "main", agentKind: "main", firstTs: "2026-08-19T00:00:01.000Z", lastTs: "2026-08-19T00:00:30.000Z", eventCount: 12 },
+    { instanceId: "agent-1", agentKind: "subagent", firstTs: "2026-08-19T00:00:05.000Z", lastTs: "2026-08-19T00:00:20.000Z", eventCount: 7 },
+  ];
+  const lifecycle: TraceEventRowData[] = [
+    row({ id: 1, type: "agent.instantiated", payload: { instanceId: "main", profileKind: "main-session", profileSnapshot: MAIN_SNAPSHOT } }),
+    row({ id: 20, type: "agent.completed", instanceId: "agent-1", agentKind: "subagent", payload: { agentId: "agent-1", closure: { status: "done" } } }),
+  ];
+
+  test("main 空闲：status=running 但 displayState=idle（核心翻转——不再恒显示运行中）", () => {
+    const panel = assembleInstancePanel(aggregates, lifecycle, { mainSessionRun: "idle" });
+    const main = panel.find((r) => r.instanceId === "main")!;
+    expect(main.status).toBe("running"); // 窗口事件态不变
+    expect(main.displayState).toBe("idle"); // 观测态修正
+  });
+
+  test("main 流式中 / 有 subagent 在跑：displayState=active", () => {
+    for (const run of ["streaming", "subagent_running"] as const) {
+      const panel = assembleInstancePanel(aggregates, lifecycle, { mainSessionRun: run });
+      expect(panel.find((r) => r.instanceId === "main")!.displayState).toBe("active");
+    }
+  });
+
+  test("main 无注入（冷会话/旧装配）：displayState=idle 兜底", () => {
+    const panel = assembleInstancePanel(aggregates, lifecycle);
+    expect(panel.find((r) => r.instanceId === "main")!.displayState).toBe("idle");
+  });
+
+  test("subagent：displayState 随事件态直译（completed→done）", () => {
+    const panel = assembleInstancePanel(aggregates, lifecycle, { mainSessionRun: "idle" });
+    expect(panel.find((r) => r.instanceId === "agent-1")!.displayState).toBe("done");
+  });
+});

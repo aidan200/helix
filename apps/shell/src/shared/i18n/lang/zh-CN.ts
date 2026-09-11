@@ -483,6 +483,13 @@ export const zhCN = {
       statusCompleted: "已完成",
       statusFailed: "失败",
       statusKilled: "已终止",
+      displayActive: "活跃",
+      displayIdle: "空闲",
+      displayQueued: "排队中",
+      displayParked: "已挂起",
+      displayDone: "已完成",
+      displayFailed: "失败",
+      displayCancelled: "已取消",
       timeRunning: "{start} 起 · {dur}",
     },
     ctx: {

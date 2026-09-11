@@ -13,6 +13,7 @@ import {
   type NormalizedTraceQuery,
 } from "@helix/protocol";
 import { assembleInstancePanel } from "../../../domain/trace/TraceQuery";
+import type { SessionRunStateLike } from "../../../domain/agent/ObservabilityState";
 import type { DomainEventRow } from "./rows/Rows";
 
 /**
@@ -43,7 +44,15 @@ const PANEL_LIFECYCLE_TYPES = [
 ] as const;
 
 export class SqliteTraceQueryAdapter implements TraceQueryPort {
-  constructor(private readonly queue: WriteQueue) {}
+  /**
+   * main 实例会话运行态读口（U2 观测态——晚绑容器：装配期 registry 尚
+   * 未建成，组合根回填容器字段；缺省冷会话 idle 语义）。会话五态不在
+   * 事件行——trace 面板 main displayState 的实时性经此注入。
+   */
+  constructor(
+    private readonly queue: WriteQueue,
+    private readonly sessionRunOf?: { of?: (sessionId: string) => SessionRunStateLike },
+  ) {}
 
   queryTrace(input: unknown): TraceQueryResultSet {
     // normalize 收口在本入口（§3.5b「调仓储前」；AG-12：driving 对 domain 仅
@@ -151,7 +160,9 @@ export class SqliteTraceQueryAdapter implements TraceQueryPort {
       lastTs: r.last_ts,
       eventCount: r.c,
     }));
-    return assembleInstancePanel(rows, lifecycleRows.map(rowToTraceEventRow));
+    return assembleInstancePanel(rows, lifecycleRows.map(rowToTraceEventRow), {
+      mainSessionRun: this.sessionRunOf?.of?.(sessionId),
+    });
   }
 }
 

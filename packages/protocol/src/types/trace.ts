@@ -75,6 +75,8 @@ export interface TraceInstanceRecord {
   model?: string;
   /** 生命周期：终态事件决定 completed/failed/killed；无终态 = running。 */
   status: "running" | "completed" | "failed" | "killed";
+  /** 观测态（U2：main 编译会话运行态、subagent 编译窗口/事件态——「恒 running」零信息量修正；displayStateOf/traceDisplayOf 词表单源）。 */
+  displayState?: "active" | "idle" | "queued" | "parked" | "done" | "failed" | "cancelled";
   /** instantiated / spawned / 首事件 ts（依次退化）。 */
   startedAt?: string;
   /** 终态事件 ts（running 缺省不携带）。 */
