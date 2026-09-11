@@ -507,6 +507,10 @@ describe("④ 实例面板 fold：主 + 多 Sub 混合会话 → InstanceRecord 
         ["anthropic/claude-sonnet-4-5", "anthropic/claude-haiku-4-5"],
       ]);
       expect(main.currentModel).toBe("anthropic/claude-haiku-4-5");
+      // U2 观测态帧级透传（DTO 逐字段拷贝曾漏 displayState → 面板降级旧词汇「运行中」）
+      // main 编译会话运行态：agent1 无终态仍 running → 会话 subagent_running → active
+      // （非缺省 idle——同时证明晚绑 sessionRun 读口端到端在工作）
+      expect(main.displayState).toBe("active");
 
       // 主实例优先已钉 index 0；sub1/sub2 按捕获 id 寻址（同毫秒兜底序不定）
       expect(sub1.agentKind).toBe("subagent");
@@ -516,9 +520,11 @@ describe("④ 实例面板 fold：主 + 多 Sub 混合会话 → InstanceRecord 
       expect((sub1.snapshot as { model: string }).model).toBe("anthropic/claude-sonnet-4-5");
       expect(sub1.currentModel).toBe("anthropic/claude-sonnet-4-5");
       expect(sub1.modelTimeline).toBeUndefined(); // 单发 Sub 无变更
+      expect(sub1.displayState).toBe("active"); // subagent 窗口/事件态直译（running→active）
 
 
       expect(sub2.status).toBe("killed");
+      expect(sub2.displayState).toBe("cancelled"); // killed→cancelled
       expect(typeof sub2.endedAt).toBe("string");
       expect(sub2.task).toBe("任务二");
 
@@ -573,6 +579,9 @@ describe("⑤ 重启回填（F5.8 / F5.7 锚 3）：恢复实例 model 非缺失
         ]);
         const sub1 = inst.instances.find((i) => i.instanceId === agent1)!;
         expect((sub1.snapshot as { model: string }).model).toBe("anthropic/claude-sonnet-4-5");
+        // U2：重启后冷会话（无活跃轮/无 Sub 在跑）→ main 编译 idle
+        // （与用例④的 active 互补——帧级覆盖编译两分支）
+        expect(main.displayState).toBe("idle");
       } finally {
         await rig2.client.close();
         await rig2.daemon.shutdown();

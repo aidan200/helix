@@ -69,6 +69,8 @@ function traceInstanceRecordToDto(record: DomainInstanceRecord): TraceInstanceRe
     profileKind: record.profileKind,
     ...(record.model !== undefined ? { model: record.model } : {}),
     status: record.status,
+    // U2 观测态透传（缺省省略——旧数据降级窗口 status 词汇）
+    ...(record.displayState !== undefined ? { displayState: record.displayState } : {}),
     ...(record.startedAt !== undefined ? { startedAt: record.startedAt } : {}),
     ...(record.endedAt !== undefined ? { endedAt: record.endedAt } : {}),
     ...(record.task !== undefined ? { task: record.task } : {}),
