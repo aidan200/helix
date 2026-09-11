@@ -24,6 +24,12 @@ import {
 } from "../../domain/writefact/types";
 import { projectRootOfAbs, resolveMainRepoPath } from "../../domain/kg/project-discovery";
 
+/** 会话级写集合订阅口（U1 manifest 落盘用；装配层注入）。 */
+export interface SessionWriteObserver {
+  onSessionPaths(sessionId: string, paths: readonly string[]): void;
+  onSessionDrop(sessionId: string): void;
+}
+
 interface InstanceState {
   readonly sessionId: string;
   /** path → 当前置信（高覆盖低）+ 计数 + 最后时刻。 */
@@ -37,16 +43,20 @@ export interface WriteFactRegistryDeps {
   readonly workspaceRoot?: () => string | undefined;
   /** 时钟注入（测试确定性；缺省 Date.now）。 */
   readonly now?: () => number;
+  /** 会话写集合观察者（U1 manifest 落盘；缺省不通知）。 */
+  readonly observer?: SessionWriteObserver;
 }
 
 export class WriteFactRegistry {
   private readonly byInstance = new Map<string, InstanceState>();
   private readonly now: () => number;
   private readonly workspaceRoot: () => string | undefined;
+  private readonly observer?: SessionWriteObserver;
 
   constructor(deps: WriteFactRegistryDeps = {}) {
     this.now = deps.now ?? (() => Date.now());
     this.workspaceRoot = deps.workspaceRoot ?? (() => undefined);
+    this.observer = deps.observer;
   }
 
   /** 记账（幂等累积：同路径计数增长、置信高覆盖低）。 */
@@ -55,6 +65,7 @@ export class WriteFactRegistry {
   }
 
   recordMany(facts: readonly WriteFact[]): void {
+    const topSessionId = facts.length > 0 ? facts[0]!.sessionId : undefined;
     for (const f of facts) {
       let st = this.byInstance.get(f.instanceId);
       if (st === undefined) {
@@ -75,6 +86,15 @@ export class WriteFactRegistry {
       st.writeCount += 1;
       st.lastWriteAt = Math.max(st.lastWriteAt, f.at);
     }
+    if (topSessionId !== undefined) this.notifyObserver(topSessionId);
+  }
+
+  /** 通知观察者（去抖由观察者自担——manifest store 250ms 合并）。 */
+  private notifyObserver(sessionId: string): void {
+    if (this.observer === undefined) return;
+    const paths = this.sessionPaths(sessionId);
+    if (paths.size === 0) return;
+    this.observer.onSessionPaths(sessionId, [...paths]);
   }
 
   /** 时间窗内其他实例的 precise 写路径（U0b L2 归属剔除查询）。 */
@@ -141,11 +161,16 @@ export class WriteFactRegistry {
     for (const [instanceId, st] of this.byInstance) {
       if (st.sessionId === sessionId) this.byInstance.delete(instanceId);
     }
+    this.observer?.onSessionDrop(sessionId);
   }
 
   /** 实例终态清理（subagent 收口；main 保留到会话销毁）。 */
   dropInstance(instanceId: string): void {
+    const st = this.byInstance.get(instanceId);
+    if (st === undefined) return;
     this.byInstance.delete(instanceId);
+    if (this.sessionPaths(st.sessionId).size === 0) this.observer?.onSessionDrop(st.sessionId);
+    else this.notifyObserver(st.sessionId);
   }
 
   /** 测试/观测用全量快照。 */

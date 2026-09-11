@@ -121,6 +121,8 @@ export interface MainEngineFactoryCtx {
   readonly turnDiff: TurnDiffService;
   /** U0a 写事实登记表（跨轮跨会话底座——buildSessionStack 单例透传；未注入不记录）。 */
   readonly writeFacts?: WriteFactRegistry;
+  /** U1 manifest 根（bash 子进程 env 注入定位 hook 读面；未注入不设 env）。 */
+  readonly writeFactsManifestDir?: () => string;
   readonly browserPort: BrowserPort;
   /** 活跃主会话 executor 登记（refreshAssembly appendTools 目标；生命周期见 engineFor set 点注释）。 */
   readonly sessionExecutors: Map<string, CoreToolExecutor>;
@@ -190,6 +192,13 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
         : { service: ctx.planToolService, instanceId: sessionId };
     const toolExecutor = new CoreToolExecutor({
       cwd: ctx.toolCwdOf(),
+      // U1 护栏：bash 子进程携带会话标识 + manifest 根（pre-commit hook
+      // 读写集合判定的定位输入；manifest 放 ~/.helix 单点——daemon 无
+      // workspace 根一等概念，paths.home 是唯一全局目录真源）
+      shellEnv: {
+        HELIX_SESSION_ID: sessionId,
+        ...(ctx.writeFactsManifestDir !== undefined ? { HELIX_WRITE_FACTS_DIR: ctx.writeFactsManifestDir() } : {}),
+      },
       orchestration: sessionOrchestration,
       grep: ctx.grep,
       // U0b：bash 写感知（main 实例归属闭包——裸事实补 instanceId/sessionId

@@ -6,6 +6,7 @@ import type { ProfileKind } from "../../application/ports/outbound/ResourceState
 import type { InstanceRunner } from "../../application/services/InstanceRunner";
 import path from "node:path";
 import { readFileSync } from "node:fs";
+import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { ChatService } from "../../application/services/ChatService";
 import { SessionService } from "../../application/services/SessionService";
 import { RestoreService } from "../../application/services/RestoreService";
@@ -25,6 +26,7 @@ import { WorkLedgerService } from "../../application/services/task/WorkLedgerSer
 import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
 import { TurnDiffService, type TurnDiffState } from "../../application/services/TurnDiffService";
 import { WriteFactRegistry } from "../../application/services/WriteFactRegistry";
+import { WriteManifestStore, manifestDir } from "../../application/services/WriteManifestStore";
 import { walkWorkspaceStats } from "../../adapters/driven/workspace-stat-walk";
 import { generateUnifiedPatch } from "../../adapters/driven/tools/edit/kernel/edit-diff";
 import { readFile } from "node:fs/promises";
@@ -343,8 +345,35 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // 不投影、EventStream 直推——chat/thinking stream delta 同通道纪律）。
   const diffSessionIds = new WeakMap<TurnDiffState, string>();
   // ── U0a 写事实登记表（跨轮跨会话底座——daemon 内存单例，liveness 语义：
-  //    重启清零零落盘；workspaceRoot 同 toolCwdOf 口径供 projectFootprint）──
-  const writeFacts = new WriteFactRegistry({ workspaceRoot: () => toolCwdOf() });
+  //    重启清零零落盘；workspaceRoot 同 toolCwdOf 口径供 projectFootprint）。
+  //    U1 护栏：observer 并联 manifest 落盘（去抖 250ms 原子写
+  //    <home>/write-facts/<sid>.json——pre-commit hook 跨进程读面）──
+  const manifestStore = new WriteManifestStore({
+    manifestRoot: () => manifestDir(paths.home),
+    fs: {
+      mkdir: async (dir) => {
+        await mkdir(dir, { recursive: true });
+      },
+      writeFile: async (p, body) => {
+        await writeFile(p, body, "utf8");
+      },
+      rename: async (from, to) => {
+        await rename(from, to);
+      },
+      readFile: (p) => readFile(p, "utf8"),
+      readdir: (dir) => readdir(dir),
+      remove: (p) => rm(p, { force: true }),
+    },
+  });
+  const writeFacts = new WriteFactRegistry({
+    workspaceRoot: () => toolCwdOf(),
+    observer: {
+      onSessionPaths: (sid, paths_) => manifestStore.notify(sid, paths_),
+      onSessionDrop: (sid) => {
+        void manifestStore.drop(sid);
+      },
+    },
+  });
   const turnDiff = new TurnDiffService(
     {
       readTextFile: (p) =>
@@ -637,6 +666,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // 沙箱开关批：spawn 时读 KV 现值（persistence 注入）→ HELIX_SANDBOX
           // env 透传子进程；未装配（测试栈）不传键 = 子进程沙箱关
           ...(deps.sandboxConfig !== undefined ? { sandboxConfig: deps.sandboxConfig } : {}),
+          // U1 护栏：manifest 根透传（会话标识取 launch 时刻 instance.sessionId）
+          writeFactsManifestDir: manifestDir(paths.home),
           // F3.0（T4.1）：报告落点经 env IPC 面传参（HELIX_REPORT_PATH）——
           // 与 ClosureRecorder 兜底 reportsDirFor 同源同式（<home>/reports/<session>）
           reportDirFor: (sessionId) => path.join(paths.home, "reports", sessionId),
@@ -832,6 +863,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     toolCwdOf,
     turnDiff,
     writeFacts,
+    writeFactsManifestDir: () => manifestDir(paths.home),
     browserPort,
     sessionExecutors,
     planToolService: mainPlanStack?.planToolService,
@@ -856,6 +888,11 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     repository,
     clock,
     scheduler,
+    // U1 护栏：会话卸载统一回调——写事实与 manifest 同步清理（三点：
+    // unloadIdle/unloadAll/deleteSession）
+    onSessionUnload: (sid) => {
+      writeFacts.dropSession(sid);
+    },
     restore: (sessionId) => restoreService.restore(sessionId),
     // 会话运行时工厂（组合根唯一 new 面；M5 切片迁 assembly/sessionEngineFactory
     // ——Session + ChatService 族 + 投影绑定语义注释随切片迁移，行为不变）：

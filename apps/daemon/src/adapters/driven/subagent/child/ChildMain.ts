@@ -588,6 +588,14 @@ async function main(): Promise<void> {
       : undefined;
   const executor = new CoreToolExecutor({
     cwd: toolCwd,
+    // U1 护栏：子进程 bash 同样携带会话标识（subagent 的写归属其父会话——
+    // 与父进程 manifest 同域；写集合经 bash-fact/file-write 上报在父侧汇合）
+    shellEnv: {
+      HELIX_SESSION_ID: process.env.HELIX_SESSION_ID ?? instanceId,
+      ...(process.env.HELIX_WRITE_FACTS_DIR !== undefined
+        ? { HELIX_WRITE_FACTS_DIR: process.env.HELIX_WRITE_FACTS_DIR }
+        : {}),
+    },
     ...(childSandbox !== undefined ? { sandbox: childSandbox } : {}),
     browser: remoteBrowser,
     ownerId: instanceId,

@@ -15,7 +15,10 @@ const srcRoot = path.join(import.meta.dir, "..", "..", "src");
 function listFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir, { recursive: true }) as string[]) {
-    if (entry.endsWith(".ts")) out.push(entry);
+    // .test.ts 豁免：守护对象是生产代码依赖方向/env 纪律——测试文件的
+    // bun:test import 与 env 注入不构成运行时依赖面（domain/sandbox 与
+    // application 层测试同批暴露：不豁免则域内测试结构性必红）
+    if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) out.push(entry);
   }
   return out;
 }
@@ -379,12 +382,15 @@ describe("AG-06：SQLite 写点唯一（AD-16，TP-CL8-2 负命题佐证）", ()
         // catalog.ts 落盘兑底）；SQLite reportFile 原子写仍只允许 WriteQueue。
         // code-review M28 新增第三合法面：config.json（infrastructure/
         // config.ts tmp+rename 原子写——崩溃窗口不留半截配置）。
+        // sandbox 开关批：bootPrelude 迁移面（sandbox.json → .migrated 改名
+        // 保留退路——一次性迁移语义，非状态写面）。
         const isAuthStore = rel === path.join("infrastructure", "auth-store.ts");
         const isModelCatalog = rel === path.join("adapters", "driven", "pi-engine", "model-catalog.ts");
         const isConfig = rel === path.join("infrastructure", "config.ts");
+        const isBootPrelude = rel === path.join("infrastructure", "assembly", "bootPrelude.ts");
         expect(
-          isWriteQueue || isAuthStore || isModelCatalog || isConfig,
-          `${rel} 出现原子替换写（只允许 WriteQueue reportFile / auth-store / model-catalog / config）`,
+          isWriteQueue || isAuthStore || isModelCatalog || isConfig || isBootPrelude,
+          `${rel} 出现原子替换写（只允许 WriteQueue reportFile / auth-store / model-catalog / config / bootPrelude 迁移）`,
         ).toBe(true);
       }
     }
@@ -445,6 +451,9 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
     const envReaderRules: readonly (readonly [string, readonly string[]])[] = [
       [path.join("infrastructure", "container.ts"), []],
       [path.join("infrastructure", "assembly", "bootPrelude.ts"), ["HELIX_CODEGRAPH_PATH", "HELIX_RG_PATH"]],
+      // 沙箱批：内层 shell 探测（macOS 26 /bin/sh 沙箱内自崩，$SHELL 兜底
+      // /bin/bash）——环境探测非配置源，键级登记可评审
+      [path.join("adapters", "driven", "tools", "SandboxEnvWrap.ts"), ["SHELL"]],
     ];
     for (const rel of listFiles(srcRoot)) {
       if (whitelistRoots.some((root) => rel.startsWith(root))) continue;
@@ -476,10 +485,13 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       "HELIX_MCP_SERVERS_JSON",
       "HELIX_REPORT_PATH", // F3.0（T4.1）：报告落点传参（SubagentLauncher 注入 / 提示词引导消费）
       "HELIX_RG_PATH", // rg 二进制定格路径透传（SubagentLauncher 注入 / ChildMain grep 门面消费；rg 单后端）
+      "HELIX_SANDBOX", // 沙箱开关批：spawn 时刻 KV 现值定格透传（子进程据此装配/不装配沙箱）
+      "HELIX_SESSION_ID", // U1 护栏：会话标识透传（子进程 bash commit 归属判定与父会话同域）
       "HELIX_SYSTEM_PROMPT",
       "HELIX_THINKING_LEVEL",
       "HELIX_TOOLS_JSON",
       "HELIX_TOOL_CWD",
+      "HELIX_WRITE_FACTS_DIR", // U1 护栏：manifest 根透传（子进程 pre-commit hook 定位写集合）
     ].sort();
     const found = new Set<string>();
     const subagentRel = path.join("adapters", "driven", "subagent");

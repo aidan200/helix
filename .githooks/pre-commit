@@ -1,7 +1,97 @@
 #!/usr/bin/env bash
-# pre-commit 静态闸：四包 typecheck（约 6s）。
-# 安装：根 package.json prepare 脚本在 bun install 时自动
-# `git config core.hooksPath .githooks`；手动等价命令同左。
-# 紧急绕过：git commit --no-verify（验证声明纪律见 docs/kg/testing-rules.md TR-TEST-8）。
-set -euo pipefail
+# pre-commit 护栏（U1）：暂存面 ⊆ 本会话写集合（TR-63 事故防线）。
+#
+# 为什么存在：共享工作树上多会话并行，git add . / commit -a 会把别的
+# 会话的在制文件卷进本会话提交（TR-63 两起实证）。护栏读 daemon 落盘的
+# 写集合 manifest（.helix/write-facts/<sessionId>.json），暂存了从未被
+# 本会话写过的文件即拒——读文件而非问 daemon（git 进程上下文里最不
+# 脆弱的跨进程通道）。
+#
+# 放行口（失败安全方向=不拦）：
+#   1. 无 HELIX_SESSION_ID → 人类终端提交，放行；
+#   2. manifest 缺失/不可读 → daemon 未跑或旧版，放行 + stderr 警示；
+#   3. staged 为空 → 放行；
+#   4. allowlist 路径（过程产物共享面）→ 放行。
+# 紧急绕过：git commit --no-verify。
+set -uo pipefail
+
+# ---- 护栏主体（独立于上方 typecheck 闸——两段互不阻断对方语义，
+# ---- 但本段判拒时整钩子必须 exit 1）----
+
+guard_write_facts() {
+  local sid="${HELIX_SESSION_ID:-}"
+  if [[ -z "$sid" ]]; then
+    return 0 # 人类提交（无会话标识）
+  fi
+
+  # manifest 根：daemon 注入 env（<daemon home>/write-facts）；未注入时
+  # 回落 ~/.helix/write-facts（默认 home 形态；--home 覆盖形态极罕见且
+  # daemon 必然已注入 env——双路径互相兜底）
+  local manifest_dir="${HELIX_WRITE_FACTS_DIR:-$HOME/.helix/write-facts}"
+  local manifest="$manifest_dir/$sid.json"
+
+  # staged 清单（ACMR：新增/拷贝/修改/重命名；删除不拦——删文件不产生卷入）
+  local staged
+  staged="$(git diff --cached --name-only --diff-filter=ACMR -z | tr '\0' '\n' | sed '/^$/d')"
+  if [[ -z "$staged" ]]; then
+    return 0 # 暂存为空
+  fi
+
+  if [[ ! -f "$manifest" ]]; then
+    echo "[write-facts] ⚠ manifest 缺失（daemon 未运行或版本过旧）——护栏放行但不设防：$manifest" >&2
+    return 0
+  fi
+
+  # 本会话写过的路径（manifest JSON 的 paths 数组 → 每行一条）
+  local wrote
+  wrote="$(/usr/bin/python3 -c '
+import json, sys
+with open(sys.argv[1], "r") as f:
+    data = json.load(f)
+for p in data.get("paths", []):
+    print(p)
+' "$manifest" 2>/dev/null | sed '/^$/d')"
+
+  # allowlist：过程产物共享面（多会话天然共写）
+  local allowlist='^\.helix/|^docs/temp/|/\.helix/'
+
+  # 仓相对路径 → 绝对路径前缀匹配（manifest 存绝对路径）。
+  # 符号链接归一：macOS tmpdir（/var/folders ↔ /private/var/folders）与
+  # git toplevel（realpath 形态）可能不一致——比对两侧都剥 private 前缀差。
+  norm() { printf '%s' "$1" | sed 's|^/private/var/|/var/|'; }
+  local toplevel
+  toplevel="$(norm "$(git rev-parse --show-toplevel 2>/dev/null)")"
+  local violations=()
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    if [[ "$f" =~ $allowlist ]]; then
+      continue
+    fi
+    local abs="$toplevel/$f"
+    if ! printf '%s\n' "$wrote" | grep -qxF "$(norm "$abs")"; then
+      violations+=("$f")
+    fi
+  done <<<"$staged"
+
+  if [[ ${#violations[@]} -gt 0 ]]; then
+    echo "" >&2
+    echo "✗ [write-facts] 暂存了本会话从未写过的文件（可能是其他会话的在制工作）：" >&2
+    printf '    %s\n' "${violations[@]}" >&2
+    echo "" >&2
+    echo "  处置：" >&2
+    echo "  · 若非本会话工作：git restore --staged <file> 后重新提交" >&2
+    echo "  · 若确为本会话工作但未被感知：对该文件执行一次写操作后再提交" >&2
+    echo "  · 确认无误强行提交：git commit --no-verify" >&2
+    return 1
+  fi
+  return 0
+}
+
+guard_write_facts
+guard_rc=$?
+
+# ---- 既有 typecheck 闸（TR-24 原语义保持；护栏拒时不再跑 typecheck）----
+if [[ $guard_rc -ne 0 ]]; then
+  exit 1
+fi
 exec bash "$(git rev-parse --show-toplevel)/scripts/typecheck-all.sh"

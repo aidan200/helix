@@ -115,6 +115,8 @@ export interface SessionRegistryDeps {
   readonly buildRuntime: (material: RuntimeMaterial) => SessionRuntime;
   /** list_changed 广播出海（容器接 EventStream）。 */
   readonly onListChanged: (change: SessionListChange) => void;
+  /** U1 护栏：会话卸载回调（写集合 manifest 清理——unloadIdle/unloadAll/delete 三点统一触发）。 */
+  readonly onSessionUnload?: (sessionId: string) => void;
   /** 空闲卸载窗口 ms（G-5：默认 30min；测试经 ClockPort+短窗口验证）。 */
   readonly idleUnloadMs?: number;
   /** 卸载轮询间隔 ms（缺省 min(60s, idleUnloadMs/10)；测试注入小值）。 */
@@ -364,6 +366,7 @@ export class SessionRegistry implements SessionDirectoryPort {
       await this.deps.repository.deleteSession(sessionId);
       // ③ 注册表移除：record 整体销毁（六类状态无残留——清理点 N→1 的单点）
       this.sessions.delete(sessionId);
+      this.deps.onSessionUnload?.(sessionId);
       if (this.current === sessionId) {
         await this.rotateCurrent();
       }
@@ -493,6 +496,7 @@ export class SessionRegistry implements SessionDirectoryPort {
       if (runtime.chatService.agentState !== "idle") continue; // 执行中防御（F2 门禁前提破坏容错）
       if (this.deps.scheduler.hasActiveInstances(sessionId)) continue; // SubAgent 活跃防御
       this.sessions.delete(sessionId);
+      this.deps.onSessionUnload?.(sessionId);
     }
     this.current = undefined;
     this.deps.logger?.info("workspace 重绑：现有会话已全部卸载（回访懒加载按新栈重建）");
@@ -655,6 +659,7 @@ export class SessionRegistry implements SessionDirectoryPort {
       // createdAnnounced 残留随整体销毁自然消解——前者重载经 register 重设基线
       // 自愈、后者按 id 唯一性有界且补广播链路结构性不触发）
       this.sessions.delete(sessionId);
+      this.deps.onSessionUnload?.(sessionId);
       this.deps.logger?.info(`会话 ${sessionId} 空闲超过 ${Math.round(this.idleUnloadMs / 1000)}s，已卸载（快照已落盘，再进懒加载恢复）`);
     }
   }

@@ -120,6 +120,8 @@ export interface SubagentLauncherDeps {
    * 运行中任务不受后续开关变化影响）。缺省不注入（子进程视为关）。
    */
   readonly sandboxConfig?: { current(): { enabled: boolean } };
+  /** U1：manifest 根（子进程 env 透传定位 hook 读面）。 */
+  readonly writeFactsManifestDir?: string;
   /**
    * spawn 快照（代际生效，TR-AD-24 同构）：launch 时刻读一次的组装
    * 产物缓存（组合根在启动与 toggle applied 后刷新；systemPrompt = base +
@@ -301,6 +303,12 @@ export class SubagentLauncher implements InstanceRunner {
         ...(this.deps.rgPath !== undefined ? { HELIX_RG_PATH: this.deps.rgPath } : {}),
         // 沙箱开关批：spawn 时刻 KV 现值定格透传（子进程据此装配/不装配沙箱）
         ...(this.deps.sandboxConfig?.current().enabled ? { HELIX_SANDBOX: "1" } : {}),
+        // U1 护栏：会话标识 + manifest 根透传（子进程 bash 的 commit 归属
+        // 判定与父会话同域；实例级回退 instanceId——独立实例也有独立 manifest）
+        HELIX_SESSION_ID: instance.sessionId || id,
+        ...(this.deps.writeFactsManifestDir !== undefined
+          ? { HELIX_WRITE_FACTS_DIR: this.deps.writeFactsManifestDir }
+          : {}),
         ...(snapshot !== undefined
           ? {
               HELIX_SYSTEM_PROMPT: snapshot.systemPrompt,

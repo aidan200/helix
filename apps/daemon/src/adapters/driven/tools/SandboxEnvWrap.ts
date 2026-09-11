@@ -92,7 +92,8 @@ export function wrapEnvForSandbox<T extends SandboxEnvTarget>(base: T, runtime: 
 
   w.exec = async (command: string, options?: Record<string, unknown>) => {
     const profileFile = await ensureProfileFile(runtime);
-    const shell = process.env["SHELL"] && process.env["SHELL"].startsWith("/") ? process.env["SHELL"] : "/bin/bash"; // macOS 26 实测：/bin/sh 在沙箱内 abort，bash/zsh 正常
+    const shell =
+      process.env.SHELL !== undefined && process.env.SHELL.startsWith("/") ? process.env.SHELL : "/bin/bash"; // macOS 26 实测：/bin/sh 在沙箱内 abort，bash/zsh 正常
     const sandboxed =
       `/usr/bin/sandbox-exec -f ${shellQuote(profileFile)} -- ${shellQuote(shell)} -c ${shellQuote(command)}`;
     const result = await base.exec(sandboxed, options);
