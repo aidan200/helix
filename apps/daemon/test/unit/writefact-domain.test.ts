@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { extractWriteCandidates } from "../../src/domain/writefact/bashExtract";
+import { extractWriteCandidates, planBashSegments } from "../../src/domain/writefact/bashExtract";
 import { parsePorcelainZ, diffPathIndices } from "../../src/domain/writefact/snapshotDiff";
 
 /**
@@ -89,5 +89,37 @@ describe("diffPathIndices", () => {
   test("全等零变更", () => {
     const idx = new Map([["a", e(1, 1)]]);
     expect(diffPathIndices(idx, new Map(idx))).toEqual([]);
+  });
+});
+
+// ── cd-aware 段规划（真机缺陷回归：cwd 非 git + cd project && cmd）──
+
+describe("planBashSegments（cd 追踪）", () => {
+  test("绝对 cd 重置 + 相对候选按段 cwd 解析", () => {
+    const segs = planBashSegments("cd /tmp/x && echo a > f.ts", "/ws");
+    expect(segs.length).toBe(1);
+    expect(segs[0]?.cwd).toBe("/tmp/x");
+    expect(segs[0]?.writes).toEqual(["f.ts"]);
+  });
+
+  test("相对 cd 叠加 + .. 折叠", () => {
+    const segs = planBashSegments("cd sub && cd ../other && touch g.ts", "/ws");
+    expect(segs.length).toBe(1); // touch 段
+    expect(segs[0]?.cwd).toBe("/ws/other");
+    expect(segs[0]?.writes).toEqual(["g.ts"]);
+  });
+
+  test("失锁（cd $VAR）后相对候选丢弃、绝对候选保留、绝对 cd 恢复", () => {
+    const segs = planBashSegments("cd $D && echo a > rel.ts && echo b > /abs/b.ts && cd /fix && echo c > ok.ts", "/ws");
+    expect(segs[0]?.cwd).toBe(null);
+    expect(segs[0]?.writes).toEqual([]); // rel.ts 被丢
+    expect(segs[1]?.cwd).toBe(null);
+    expect(segs[1]?.writes).toEqual(["/abs/b.ts"]); // 绝对候选保留
+    expect(segs[2]?.cwd).toBe("/fix"); // 绝对 cd 恢复追踪
+    expect(segs[2]?.writes).toEqual(["ok.ts"]);
+  });
+
+  test("cd 段自身不产写候选", () => {
+    expect(planBashSegments("cd a/b", "/ws")).toEqual([]);
   });
 });

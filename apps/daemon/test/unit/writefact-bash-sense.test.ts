@@ -35,11 +35,28 @@ describe("bashSnapshot（真 git fixture）", () => {
     const dir = await makeRepo();
     try {
       const plan = planBashSnapshot("sed -i 's/x/y/' a.ts", dir);
-      expect(plan.repoRoot).toBe(dir);
+      expect(plan.repoRoots).toEqual([dir]);
       expect(plan.l1Paths).toEqual([path.join(dir, "a.ts")]);
       expect(plan.extraPaths).toEqual([]); // 仓内 → 不进 extra
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("plan：cd 进子仓——多仓面 + cd 后相对候选根解析（真机缺陷回归）", async () => {
+    // 回归场景：cwd 非 git（workspace 根）+ `cd tmp-gf && echo > f`——
+    // 修复前 repoRoot=undefined 走 walk 面（大 workspace 超预算静默零记录）
+    const ws = await mkdtemp(path.join(tmpdir(), "wf-ws-"));
+    try {
+      const sub = path.join(ws, "tmp-gf");
+      await mkdir(sub);
+      execSync("git init -q", { cwd: sub });
+      const plan = planBashSnapshot("cd tmp-gf && echo x > mine.ts && git add .", ws);
+      expect(plan.repoRoots).toEqual([sub]); // cd 目标仓独立成面
+      expect(plan.l1Paths).toEqual([path.join(sub, "mine.ts")]); // 根=段 cwd 非 ws
+      expect(plan.extraPaths).toEqual([]); // 仓内
+    } finally {
+      await rm(ws, { recursive: true, force: true });
     }
   });
 
@@ -116,6 +133,26 @@ describe("wrapEnvForBashSense（集成）", () => {
       expect(observed.map((f) => f.path)).toContain(path.join(dir, "out.txt"));
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("cd 进子 git 仓写文件（repo 多仓面）——真机缺陷端到端回归", async () => {
+    // 场景：cwd=workspace 根（非 git，且真实 workspace walk 必超预算）+
+    // `cd tmp-gf && echo > f`——修复前 repoRoot=undefined → walk 面超预算
+    // 静默零记录；修复后 cd 目标仓独立成 git 面捕获。
+    // 注：fixture 树小，walk 面不会超时——断言点在 repo 面捕获（多仓生效），
+    // walk 超预算场景由 plan 单测的 repoRoots 断言覆盖。
+    const ws = await mkdtemp(path.join(tmpdir(), "wf-ws2-"));
+    try {
+      const sub = path.join(ws, "tmp-gf");
+      await mkdir(sub);
+      execSync("git init -q", { cwd: sub });
+      const observed: BashObservedWrite[] = [];
+      const env = wrapEnvForBashSense(fakeEnv(ws), { onObserved: (facts) => observed.push(...facts) });
+      await env.exec("cd tmp-gf && echo mine > mine.ts");
+      expect(observed.map((f) => f.path)).toContain(path.join(sub, "mine.ts"));
+    } finally {
+      await rm(ws, { recursive: true, force: true });
     }
   });
 

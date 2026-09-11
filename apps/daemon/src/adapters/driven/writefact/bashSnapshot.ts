@@ -20,7 +20,7 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { extractWriteCandidates } from "../../../domain/writefact/bashExtract";
+import { planBashSegments } from "../../../domain/writefact/bashExtract";
 import { parsePorcelainZ } from "../../../domain/writefact/snapshotDiff";
 
 const execFileAsync = promisify(execFile);
@@ -53,23 +53,41 @@ export function gitRepoRootOf(cwd: string): string | undefined {
 
 /** 快照计划（前快照时定格——后快照复用同一计划保证同口径对比）。 */
 export interface BashSnapshotPlan {
-  /** cwd 所在 git 仓根（非 git → undefined → walk 面）。 */
-  readonly repoRoot: string | undefined;
-  /** L1 提取候选中仓外绝对路径（定向 stat 兜 cwd 仓覆盖面）。 */
+  /** 段工作目录（含初始 cwd）所在 git 仓根集合（cd-aware 多仓——`cd project && cmd` 场景 project 仓独立成面）。 */
+  readonly repoRoots: readonly string[];
+  /** L1 提取候选中仓名外的绝对路径（定向 stat 兜 git 面覆盖不到的写）。 */
   readonly extraPaths: readonly string[];
-  /** L1 全量候选绝对化（快照失败时的 uncertain 降级面）。 */
+  /** L1 全量候选绝对化（快照失败时的 uncertain 降级面；失锁段相对候选已丢）。 */
   readonly l1Paths: readonly string[];
 }
 
-/** L1 候选 + cwd → 快照计划（仓根探测 + 仓内外分流）。 */
+/** 段目录集合 → git 仓根集合（向上找 .git；仓数截断 4 防病态段风暴）。 */
+function repoRootsOf(dirs: readonly string[]): string[] {
+  const out = new Set<string>();
+  for (const d of dirs) {
+    const root = gitRepoRootOf(d);
+    if (root !== undefined) out.add(root);
+    if (out.size >= 4) break;
+  }
+  return [...out];
+}
+
+/** cd-aware 命令 + cwd → 快照计划（段级仓探测 + 候选根解析 + 仓名内外分流）。 */
 export function planBashSnapshot(command: string, cwd: string): BashSnapshotPlan {
-  const repoRoot = gitRepoRootOf(cwd);
-  const l1Paths = extractWriteCandidates(command).map((p) => (path.isAbsolute(p) ? p : path.resolve(cwd, p)));
-  const extraPaths =
-    repoRoot === undefined
-      ? [] // 非 git cwd：walk 面覆盖整树，extra 无意义
-      : l1Paths.filter((p) => !p.startsWith(`${repoRoot}${path.sep}`));
-  return { repoRoot, extraPaths, l1Paths };
+  const segments = planBashSegments(command, cwd);
+  const segmentDirs = new Set<string>([path.resolve(cwd)]);
+  const resolvedKnown = new Set<string>();
+  for (const seg of segments) {
+    if (seg.cwd !== null) segmentDirs.add(seg.cwd);
+    for (const w of seg.writes) {
+      const abs = w.startsWith("/") ? path.resolve(w) : seg.cwd !== null ? path.resolve(seg.cwd, w) : null;
+      if (abs !== null) resolvedKnown.add(abs);
+    }
+  }
+  const repoRoots = repoRootsOf([...segmentDirs]);
+  const inAnyRepo = (p: string): boolean => repoRoots.some((r) => p.startsWith(`${r}${path.sep}`));
+  const extraPaths = [...resolvedKnown].filter((p) => !inAnyRepo(p));
+  return { repoRoots, extraPaths, l1Paths: [...resolvedKnown] };
 }
 
 /** 统一快照指纹索引（git: xy 状态 / walk+stat: size:mtime / 缺失: "∅"）。 */
@@ -161,8 +179,18 @@ export interface BashSnapshot {
 }
 
 export async function takeBashSnapshot(plan: BashSnapshotPlan, cwd: string): Promise<BashSnapshot> {
-  const repo = plan.repoRoot !== undefined ? await gitStatusIndex(plan.repoRoot) : null;
-  const tree = plan.repoRoot === undefined ? await budgetWalk(path.resolve(cwd), WALK_BUDGET_MS) : null;
+  // 多仓面：逐仓 git status 合并（键为绝对路径无冲突；单仓超时不拖垮他仓）
+  let repo: BashSnapshotIndex | null = null;
+  for (const root of plan.repoRoots) {
+    const idx = await gitStatusIndex(root);
+    if (idx === null) {
+      repo = null; // 任一仓面缺失 → repo 面整体放弃（diffFace null 语义）
+      break;
+    }
+    if (repo === null) repo = new Map<string, string>();
+    for (const [p, v] of idx) (repo as Map<string, string>).set(p, v);
+  }
+  const tree = plan.repoRoots.length === 0 ? await budgetWalk(path.resolve(cwd), WALK_BUDGET_MS) : null;
   const extra = plan.extraPaths.length > 0 ? await statPaths(plan.extraPaths) : null;
   return { plan, repo, tree, extra };
 }
