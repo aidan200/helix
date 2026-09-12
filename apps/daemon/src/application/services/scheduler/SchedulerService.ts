@@ -1,4 +1,4 @@
-import { AgentInstance, newInstanceId, type AgentInstanceData } from "../../../domain/agent/AgentInstance";
+import { AgentInstance, newInstanceId, type AgentInstanceData, type WriteMode } from "../../../domain/agent/AgentInstance";
 import { AgentLifecycle } from "../../../domain/agent/AgentLifecycle";
 import { displayStateOf, type SessionRunStateLike } from "../../../domain/agent/ObservabilityState";
 import type { SchedulingPolicy } from "../../../domain/agent/SchedulingPolicy";
@@ -198,6 +198,12 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
   private readonly closures = new Map<string, InstanceClosurePayload>();
   /** 实例 → spawn 时刻锚（规则②内存携带；含 null 流首——has 判定区分未装配）。 */
   private readonly spawnAnchors = new Map<string, string | null>();
+  /**
+   * 实例 → isolated worktree 信息（U3：SubagentLauncher provision 成功后经
+   * 回调登记；closure 文案携 worktree 路径用。终态不清理——worktree 物理树
+   * 留待 MainAgent 检查点 merge 后人工/后续 GC 清（merge 归检查点，非本批）。
+   */
+  private readonly worktreeInfos = new Map<string, { path: string; branch: string }>();
   private monitor: ReturnType<typeof setInterval> | undefined;
   // ── T3-A 周期进展报告（per-instance 定时器；系统只送达信息，永不自动终止） ──
   /** 实例 → 报告间隔 ms（spawn 入参校验后 >0 才登记；缺省/0/负数/NaN 不报告）。 */
@@ -230,6 +236,8 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       readFindingsFile: deps.readFindingsFile,
       injectClosure: deps.injectClosure,
       logger: deps.logger,
+      // U3：isolated worktree 信息查（closure 文案携路径行；本服务 Map 单源）
+      worktreeInfoFor: (instanceId) => this.worktreeInfos.get(instanceId),
       ...(deps.findingsSink !== undefined ? { findingsSink: deps.findingsSink } : {}),
       ...(deps.pendingSyncJobIdOf !== undefined ? { pendingSyncJobIdOf: deps.pendingSyncJobIdOf } : {}),
     });
@@ -403,7 +411,14 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
    * sessionId 显式入参（AD-4 多会话：实例归属会话；组合根经当前会话
    * 门面/会话绑定工具注入，全局预算不随会话数分裂——TR-AD-11/16）。
    */
-  spawn(sessionId: string, task: string, profileKind?: string, model?: string, reportIntervalMs?: number): SpawnOutcome {
+  spawn(
+    sessionId: string,
+    task: string,
+    profileKind?: string,
+    model?: string,
+    reportIntervalMs?: number,
+    options?: { writes?: WriteMode },
+  ): SpawnOutcome {
     const decision = this.deps.policy().decideSpawn(this.runningCount(), this.queue.length);
     if (decision.action === "reject") {
       return {
@@ -422,6 +437,8 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
       profileKind: profileKind ?? DEFAULT_PROFILE_KIND,
       sessionId,
       createdAt: this.deps.clock.now(),
+      // U3：写面声明 spawn 时刻定格（undefined ≡ shared）——launch 链消费
+      ...(options?.writes !== undefined ? { writeMode: options.writes } : {}),
     });
     this.registry.registerInstance(instance);
     // 任务文本切片注入（F1.3）：task 文本成形后、传给 launcher 前单点挂接
@@ -476,6 +493,20 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     this.persistLifecycle(instance); // queued 投影（重启 cancelled 收口语义的读面）
     this.publish(instance, "agent.queued", { agentId, position } satisfies AgentQueuedPayload);
     return { status: "queued", agentId, position };
+  }
+
+  /**
+   * U3 isolated 档：SubagentLauncher worktree provision 成功后登记（组合根
+   * 闭包接线）——closure 文案携路径的查询源。幂等：重复登记覆盖（launch
+   * 重试同实例同树）。
+   */
+  registerWorktree(instanceId: string, info: { path: string; branch: string }): void {
+    this.worktreeInfos.set(instanceId, info);
+  }
+
+  /** U3 读面：实例 worktree 信息（closure 文案构造消费；无 → undefined）。 */
+  worktreeInfoFor(instanceId: string): { path: string; branch: string } | undefined {
+    return this.worktreeInfos.get(instanceId);
   }
 
   /**
@@ -689,6 +720,9 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     const closure = this.recorder.saveClosureArtifacts(instance, outcome, this.tasks.get(instanceId) ?? "");
     this.closures.set(instanceId, closure);
     this.recorder.finalizeClosure(instance, outcome, closure);
+    // U3：worktree 信息随收口链消费完毕即清（closure 文案已携路径；物理树
+    // 不删——merge 归检查点，路径经注入文案已到达主线）
+    this.worktreeInfos.delete(instanceId);
 
     // CDP 地基：实例终态钩子（组合根接 browserPort.reclaimOwner 回收
     // 该 owner 全部 managed tabs；位于收口链尾段之后、空位释放之前）

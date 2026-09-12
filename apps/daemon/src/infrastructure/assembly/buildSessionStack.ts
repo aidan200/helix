@@ -25,6 +25,7 @@ import { sessionPlanPayloadOf } from "../../adapters/driving/ws-server/SnapshotM
 import { LazyWorkLedger } from "../../adapters/driven/sqlite-session/WorkLedger";
 import { WorkLedgerService } from "../../application/services/task/WorkLedgerService";
 import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLauncher";
+import { GitWorktreeProvisioner } from "../../adapters/driven/worktree/GitWorktreeProvisioner";
 import { TurnDiffService, type TurnDiffState } from "../../application/services/TurnDiffService";
 import { WriteFactRegistry } from "../../application/services/WriteFactRegistry";
 import { WriteManifestStore, manifestDir } from "../../application/services/WriteManifestStore";
@@ -112,6 +113,29 @@ export type { EngineAssemblyMode, MainSessionLlmOverride } from "./sessionEngine
 import type { EngineAssemblyMode, MainSessionLlmOverride } from "./sessionEngineFactory";
 import { buildMainEngineFactory, buildSessionRuntimeFactory } from "./sessionEngineFactory";
 import { buildMcpCatalogSurface, MCP_ALLOWED_OF } from "./mcpCatalogSurface";
+
+// ── U3 readonly 档派生面（任一 kind 生效集减三写工具 + 只读纪律后缀；
+//    模块级导出供 parity 测试 import——E-98 reviewer 减法同构）──────────
+/** 与 reviewer 摘除面同值（write/edit/edit-lines）；语义独立常量，不跨档耦合。 */
+export const SUBAGENT_READONLY_REMOVED_TOOLS = ["write", "edit", "edit-lines"] as const;
+/** 只读纪律行：诚实声明 bash 软约束（非形式化只读，事实流对账兜底）。 */
+export const SUBAGENT_READONLY_PROMPT_SUFFIX =
+  "【写面声明：readonly】本任务为只读任务：write/edit/edit-lines 已不可用。" +
+  "不要修改任何项目文件（包括经 bash 间接写——sed -i/重定向/mv 等）；" +
+  "过程产物写入 workspace 根 docs/temp/（非项目仓）。若任务确需写项目文件，" +
+  "在报告中说明并结束任务，由派发方以 shared/isolated 档重派。";
+/** U3 派生单点：readonly 减三写工具+后缀；其余档原样返回。 */
+export function applyWriteModeToAssembly<T extends { tools: readonly string[]; systemPrompt: string }>(
+  base: T,
+  writeMode: string | undefined,
+): T {
+  if (writeMode !== "readonly") return base;
+  return {
+    ...base,
+    tools: base.tools.filter((t) => !(SUBAGENT_READONLY_REMOVED_TOOLS as readonly string[]).includes(t)),
+    systemPrompt: `${base.systemPrompt}\n\n${SUBAGENT_READONLY_PROMPT_SUFFIX}`,
+  };
+}
 /** effectiveMainToolNames（M5 切片迁 sessionEngineFactory；re-export 保 main-session-plan 测试 import 路径）。 */
 export { effectiveMainToolNames } from "./sessionEngineFactory";
 
@@ -508,12 +532,20 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   };
   let reviewerAssembly = await computeReviewerAssembly();
   /** 批次实例组装快照按 profileKind 派发（W-R6 编排分流的装配端消费点；D5 扩第三支——其余缺省归 chat worker 快照）。 */
-  const subagentAssemblyFor = (profileKind: string | undefined): typeof subagentAssembly =>
-    profileKind === "subagent-kg-writer"
-      ? kgWriterAssembly
-      : profileKind === "subagent-code-reviewer"
-        ? reviewerAssembly
-        : subagentAssembly;
+  const subagentAssemblyFor = (
+    profileKind: string | undefined,
+    writeMode?: string,
+  ): typeof subagentAssembly => {
+    const base =
+      profileKind === "subagent-kg-writer"
+        ? kgWriterAssembly
+        : profileKind === "subagent-code-reviewer"
+          ? reviewerAssembly
+          : subagentAssembly;
+    // U3：readonly 档任一 kind 生效集减三写工具+只读纪律后缀（派生单点在
+    // 模块级 applyWriteModeToAssembly——减法幂等，reviewer 已无写工具再减无害）
+    return applyWriteModeToAssembly(base, writeMode);
+  };
   let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算；技能段照常注入自身生效集）
   // mcp 批：活跃主会话 executor 登记（engineFor 构造点 set；refreshAssembly
   // 对活跃会话 appendTools 后再 setTools——MCP 新工具实例进 registry 才能被
@@ -596,6 +628,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     subagentProfileFor(profileKind).model ?? resourceService.modelSlot(slotKindOf(profileKind)) ?? defaultModel.current();
 
   // ── driven：SubAgent 子进程运行器（SubagentLauncher 真体，O-7 候选 A）──
+  // U3 晚绑前置：worktree 供给真体（无状态可直接构造）+ scheduler 回填
+  // ref（scheduler 晚于 launcher 构造——onWorktreeProvisioned 闭包读现值）
+  const worktreeProvisionerSingleton = new GitWorktreeProvisioner();
+  let schedulerWorktreeRef: SchedulerService | undefined;
   // 装配形态由 engineMode 判别字段显式声明（AD-2 + §4.3 显式模式）
   // production = 真子进程 runner + SQLite 默认模型源 + auth.json key 源；
   // override（测试工厂注入 Fake 引擎）→ 不装真体，退回占位告警替身。
@@ -630,7 +666,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // spawn 快照：组装产物缓存（启动/toggle 后重算，launch 读现值定格）。
           // W-R6：按实例 profileKind 派发——subagent-kg-writer（图谱产出型批次）
           // 领 worker 生效集 + kg-write 面；其余（缺省）领通用 worker 快照。
-          spawnSnapshot: (profileKind: string) => subagentAssemblyFor(profileKind),
+          // U3：writeMode=readonly 时快照减三写工具+纪律后缀（任一 kind 均可）。
+          spawnSnapshot: (profileKind: string, writeMode?: string) => subagentAssemblyFor(profileKind, writeMode),
+          // U3 isolated 档：worktree 供给真体（git 适配——TR-143 软链四处/
+          // TR-82 锁残留坑机械内化）。provision 成功回登记调度器（晚绑
+          // ref——scheduler 晚于 launcher 构造，U2 同款回填形态）
+          worktreeProvisioner: worktreeProvisionerSingleton,
+          onWorktreeProvisioned: (instanceId: string, info: { path: string; branch: string }) =>
+            schedulerWorktreeRef?.registerWorktree(instanceId, info),
           // mcp 批：MCP server 配置透传（launch 时刻现拍；kind 白名单门控同
           // catalog——kg-writer/reviewer 静态 kind 不接 MCP；零 enabled
           // server → 不传键零开销。子进程自建 registry await 预热后构造
@@ -804,6 +847,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         });
     },
   });
+  // U3 回填：isolated worktree 登记真体（launcher 闭包晚绑——scheduler 已建成）
+  schedulerWorktreeRef = scheduler;
 
   // ── driving：WS 事件流（EventPublisherPort 实现，fan-out 目标之一——
   // WS 推送显式消费者：统一信封章印 + 按 sessionId 路由， AD-3） ──

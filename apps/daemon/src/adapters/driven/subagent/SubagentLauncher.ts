@@ -4,6 +4,7 @@ import type { Model, Models } from "@earendil-works/pi-ai";
 import { resolveModel } from "../pi-engine/model-provider";
 import { validateBrief, validateReport } from "../pi-engine/runtime/templates/validate";
 import type { AgentInstance } from "../../../domain/agent/AgentInstance";
+import type { WorktreeProvisionResult, WorktreeProvisionerPort } from "../../../application/ports/outbound/WorktreeProvisionerPort";
 import type { InstanceClosurePayload } from "../../../domain/events/DomainEvent";
 import type {
   InstanceClosureOutcome,
@@ -130,10 +131,17 @@ export interface SubagentLauncherDeps {
    * 不注入（既有测试形态回退 profile 声明面）。W-R6：入参 = 实例
    * profileKind（subagent-kg-writer 领豁免面快照，其余通用 worker）。
    */
-  readonly spawnSnapshot?: (profileKind: string) => {
+  readonly spawnSnapshot?: (profileKind: string, writeMode?: string) => {
     readonly tools: readonly string[];
     readonly systemPrompt: string;
   };
+  /**
+   * U3 isolated 档：worktree 供给出口（launch 时刻 provision；未装配时
+   * isolated spawn 收口 failed 带原因——诚实报因不裸奔）。
+   */
+  readonly worktreeProvisioner?: WorktreeProvisionerPort;
+  /** U3：provision 成功回调（组合根接 SchedulerService.registerWorktree——closure 文案携路径的登记面）。 */
+  readonly onWorktreeProvisioned?: (instanceId: string, info: Exclude<WorktreeProvisionResult, { error: string }>) => void;
   /**
    * MCP server 配置透传面（mcp 批）：launch 时刻现拍组合根闭包（kind
    * 白名单门控 + registry 现值；返回空数组/undefined = 不透传键）。子进程
@@ -256,6 +264,59 @@ export class SubagentLauncher implements InstanceRunner {
   launch(instance: AgentInstance, task: string): void {
     const id = instance.instanceId;
     if (this.children.has(id)) return;
+    // U3 isolated 档：async 前置（git worktree provision，毫秒级）后再真
+    // spawn——launch 秒回语义保持（provision 失败经 closure 收口链可见，
+    // AD-8 异步交付）。非 isolated 同步直达（零额外延迟）。
+    if (instance.writeMode === "isolated") {
+      void this.launchIsolated(instance, task);
+      return;
+    }
+    this.doLaunch(instance, task);
+  }
+
+  /** 当前 toolCwd 现值（deps getter/静态归一——W1F-F2 同源）。 */
+  private currentToolCwd(): string {
+    return typeof this.deps.toolCwd === "function" ? this.deps.toolCwd() : this.deps.toolCwd;
+  }
+
+  /** U3 isolated 档 async 前置：provision → 登记 → doLaunch（toolCwd 钉 worktree）。 */
+  private async launchIsolated(instance: AgentInstance, task: string): Promise<void> {
+    const id = instance.instanceId;
+    if (this.deps.worktreeProvisioner === undefined) {
+      // 未装配 provisioner（组合根缺接线）：诚实报因收口（配置缺失非任务失败）
+      this.callbacks?.onInstanceClosure(id, {
+        result: "failed",
+        closure: failedClosure("isolated 档未装配 WorktreeProvisioner（daemon 组合根缺接线）"),
+        error: "worktree provisioner missing",
+      });
+      return;
+    }
+    let provisioned: WorktreeProvisionResult;
+    try {
+      provisioned = await this.deps.worktreeProvisioner.provision(id, this.currentToolCwd());
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.callbacks?.onInstanceClosure(id, {
+        result: "failed",
+        closure: failedClosure(`isolated worktree 创建异常：${detail}`),
+        error: `worktree provision error: ${detail}`,
+      });
+      return;
+    }
+    if ("error" in provisioned) {
+      this.callbacks?.onInstanceClosure(id, {
+        result: "failed",
+        closure: failedClosure(`isolated worktree 创建失败：${provisioned.error}`),
+        error: provisioned.error,
+      });
+      return;
+    }
+    this.deps.onWorktreeProvisioned?.(id, provisioned);
+    this.doLaunch(instance, task, provisioned.path);
+  }
+
+  private doLaunch(instance: AgentInstance, task: string, toolCwdOverride?: string): void {
+    const id = instance.instanceId;
     // O-10：派发前 brief 机械校验（validateBrief，TR-AD-58 消费方补接）——
     // violation 只记日志不拒绝（已裁决：机械兜底恢复设计承诺，不阻塞流程）
     for (const v of validateBrief(task)) {
@@ -268,13 +329,15 @@ export class SubagentLauncher implements InstanceRunner {
     const apiKeys = typeof this.deps.apiKeys === "function" ? this.deps.apiKeys() : this.deps.apiKeys;
     // spawn 快照：launch 时刻读一次（toggle 后新 spawn 跟随新值，已
     // spawn 实例 env 已定格不受影响——代际生效）。W-R6：按实例 profileKind
-    // 派发（kg-writer 批次领豁免面快照）
-    const snapshot = this.deps.spawnSnapshot?.(instance.profileKind);
+    // 派发（kg-writer 批次领豁免面快照）；U3：writeMode=readonly 时减三写
+    // 工具+纪律后缀（组装面单点派生，子进程零改动消费定格清单）
+    const snapshot = this.deps.spawnSnapshot?.(instance.profileKind, instance.writeMode);
     // mcp 批：MCP server 配置 launch 时刻现拍（kind 门控后的 enabled 行）
     const mcpServers = this.deps.mcpServersFor?.(instance.profileKind);
     // W1F-F2：toolCwd spawn 时刻读现值（getter 形态 = 经持有者读绑定 root；
-    // 静态字符串 = 既有测试形态）——与 apiKeys 同款 getter 注入源模式
-    const toolCwd = typeof this.deps.toolCwd === "function" ? this.deps.toolCwd() : this.deps.toolCwd;
+    // 静态字符串 = 既有测试形态）——与 apiKeys 同款 getter 注入源模式；
+    // U3 isolated：override（worktree 路径）优先——写面物理钉隔离树
+    const toolCwd = toolCwdOverride ?? this.currentToolCwd();
     // F3.0（T4.1）：报告落点 env 传参（未注入 reportDirFor 不传键——既有测试形态不变）
     const reportDir = this.deps.reportDirFor?.(instance.sessionId);
     // T1.4：台账库路径 env 传参（未注入 ledgerDbPath 不传键——子进程 plan

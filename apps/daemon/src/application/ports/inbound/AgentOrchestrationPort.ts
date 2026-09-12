@@ -1,4 +1,4 @@
-import type { InstanceState } from "../../../domain/agent/AgentInstance";
+import type { InstanceState, WriteMode } from "../../../domain/agent/AgentInstance";
 
 /**
  * 编排入口端口（inbound，architecture.md §3.4）。
@@ -102,8 +102,17 @@ export interface AgentOrchestrationPort {
    * per-instance 定时器，按间隔经 injectClosure 通道向归属会话注入一行
    * 机械 Δ 信封（工具调用/输出字符/轮次增量 + idleMs 静默）；缺省/0/
    * 负数/NaN = 不报告。系统只送达信息，永不自动终止（裁决归 MainAgent）。
+   *
+   * options.writes（U3 写面声明三档，判断在 LLM 执行在 daemon）：缺省
+   * shared（现状行为）；readonly 摘三写工具+纪律后缀；isolated 机械
+   * git worktree（非 git 仓工作目录 → 异步收口 failed 带原因）。
    */
-  spawn(task: string, profileKind?: string, reportIntervalMs?: number): SpawnOutcome;
+  spawn(
+    task: string,
+    profileKind?: string,
+    reportIntervalMs?: number,
+    options?: { writes?: WriteMode },
+  ): SpawnOutcome;
   /**
    * 向运行中实例注入消息（AD-7⑤：SchedulerService.send → runner.send →
    * transport → 子进程 stdin → Agent.steer()，turn 边界 drain 生效）。

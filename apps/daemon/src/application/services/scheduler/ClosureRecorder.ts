@@ -60,6 +60,11 @@ export interface ClosureRecorderDeps {
    */
   readonly injectClosure?: (agentId: string, message: string, source?: "closure" | "progress") => void;
   /**
+   * U3：实例 worktree 信息查询（isolated 档；SchedulerService 登记面）。
+   * closure 文案携路径与清理指引——merge 归主会话检查点，物理树不自动删。
+   */
+  readonly worktreeInfoFor?: (instanceId: string) => { path: string; branch: string } | undefined;
+  /**
    * findings 落账管道（F3.0③，AD-17/AD-14）：findings 文件 canonical 读取（旧格式信封兼容回退）映射
    * kg 写 op 落账。组合根接 kg 栈（write = KgWriteService 唯一写入口同形
    * 接口，绝不旁路；scanProjects = workspace 项目扫描，目标项目解析用）。
@@ -157,9 +162,17 @@ export class ClosureRecorder {
     // idle 立即新 turn / running 下轮 turn 边界 drain（与用户 steer 同队列
     // FIFO）。reportPath 缺失（无自报且无兜底目录）时保持单行。
     const notifyLine = `${instanceId} closure: ${closure.status} — ${closure.summary}`;
+    // U3：isolated 档附 worktree 路径行——主线据此知道去哪 merge/查看
+    const wt = this.deps.worktreeInfoFor?.(instanceId);
+    const worktreeLine =
+      wt !== undefined
+        ? `\nworktree: ${wt.path}（分支 ${wt.branch}——产物在隔离树，未入主树；检查点时 review 后 merge，清理用 git worktree remove）`
+        : "";
     this.deps.injectClosure?.(
       instanceId,
-      closure.reportPath !== null ? `${notifyLine}\n详情: ${closure.reportPath} — 需要细节时 read` : notifyLine,
+      closure.reportPath !== null
+        ? `${notifyLine}${worktreeLine}\n详情: ${closure.reportPath} — 需要细节时 read`
+        : `${notifyLine}${worktreeLine}`,
       "closure",
     );
 

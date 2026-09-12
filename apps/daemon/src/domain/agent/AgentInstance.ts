@@ -70,6 +70,17 @@ export type InstanceState = "queued" | "running" | "parked" | "done" | "failed" 
 
 export type TerminalInstanceState = Extract<InstanceState, "done" | "failed" | "cancelled">;
 
+/**
+ * 写面声明（U3 spawn writes 三档）：spawn 时刻由派活 LLM 声明、daemon 机械执行。
+ * - readonly：父进程快照摘 write/edit/edit-lines + 只读纪律后缀（bash 软约束——
+ *   事实流对账兜底，诚实记录非形式化只读，与 E-98 reviewer 同边界）
+ * - shared（缺省/undefined 等价）：现状行为——共享主工作树
+ * - isolated：launch 时刻机械 git worktree（toolCwd 钉隔离树，物理防互踩；
+ *   merge 归 MainAgent 检查点——worktree 收口不自动删）
+ * 判断在 LLM，执行在 daemon（daemon 不从自然语言 task 推断写面）。
+ */
+export type WriteMode = "readonly" | "shared" | "isolated";
+
 /** 实例值形状（快照 instances 清单条目 / 注册表往返载荷）。 */
 export interface AgentInstanceData {
   readonly instanceId: string;
@@ -83,6 +94,8 @@ export interface AgentInstanceData {
   readonly elapsedMs?: number;
   /** 当前 running 段起点（epoch ms；queued/parked/终态不携带）。 */
   readonly startedAtMs?: number;
+  /** 写面声明（U3；缺省 undefined ≡ shared）。spawn 时刻定格，launch 链消费。 */
+  readonly writeMode?: WriteMode;
 }
 
 /** 合法迁移矩阵（from → 允许的 to 集合）。 */
@@ -149,6 +162,10 @@ export class AgentInstance {
   }
   get sessionId(): string {
     return this.data.sessionId;
+  }
+  /** 写面声明（U3；undefined ≡ shared）。 */
+  get writeMode(): WriteMode | undefined {
+    return this.data.writeMode;
   }
   get createdAt(): string {
     return this.data.createdAt;

@@ -105,8 +105,15 @@ describe("pre-commit hook 护栏（TR-63 场景）", () => {
   }
 
   async function commit(repo: string, env: Record<string, string>): Promise<{ ok: boolean; stderr: string }> {
+    // TR-62 姊妹坑洗涮：测试进程自身携带 daemon 注入的 HELIX_* env（bash
+    // 工具调用注入），...process.env 会泄漏给 hook——放行口①的「无 env（人类）」
+    // 前提被真实 manifest 破坏。先全量剥除 HELIX_*（git 子进程零消费），
+    // 再合入用例显式定义的键（测试自足：场景由显式传参定义）。
+    const scrubbed = Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => !k.startsWith("HELIX_")),
+    );
     const proc = Bun.spawn(["git", "-C", repo, "commit", "-m", "t"], {
-      env: { ...process.env, ...env },
+      env: { ...scrubbed, ...env },
       stdout: "pipe",
       stderr: "pipe",
     });

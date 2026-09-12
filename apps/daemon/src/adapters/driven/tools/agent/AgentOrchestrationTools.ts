@@ -35,6 +35,15 @@ const spawnParameters = {
         "建议 600000 起步；由你按任务规模自估。设置后系统按间隔把一行机械进展" +
         "（Δ工具调用/Δ输出字符/Δ轮次/静默时长）注入主线。",
     },
+    writes: {
+      type: "string",
+      enum: ["readonly", "shared", "isolated"],
+      description:
+        "写面声明（可选，缺省 shared）：readonly = 任务不写项目（研究/评审/只读分析）——" +
+        "写工具机械摘除；shared = 共享主工作树（现状）；isolated = 开发写任务——" +
+        "daemon 机械建隔离 worktree 执行（closure 携 worktree 路径，物理防互踩，" +
+        "merge 归主会话检查点）。纯研究型任务显式声明 readonly 可避免意外写入。",
+    },
   },
   required: ["task"],
   additionalProperties: false,
@@ -97,12 +106,13 @@ export function createAgentSpawnTool(
     parameters: spawnParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
-      const { task, profileKind, reportIntervalMs } = params as {
+      const { task, profileKind, reportIntervalMs, writes } = params as {
         task: string;
         profileKind?: string;
         reportIntervalMs?: number;
+        writes?: "readonly" | "shared" | "isolated";
       };
-      const outcome = orchestration.spawn(task, profileKind, reportIntervalMs);
+      const outcome = orchestration.spawn(task, profileKind, reportIntervalMs, { writes });
       if (outcome.status === "rejected") {
         // 队列满报错回 LLM（reject 通路汇流）：以异常表达失败（pi 工具
         // 惯例），CoreToolExecutor 转结构化 error 结果，文案即调度器中文说明
