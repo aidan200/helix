@@ -131,7 +131,7 @@ export interface SubagentLauncherDeps {
    * 不注入（既有测试形态回退 profile 声明面）。W-R6：入参 = 实例
    * profileKind（subagent-kg-writer 领豁免面快照，其余通用 worker）。
    */
-  readonly spawnSnapshot?: (profileKind: string, writeMode?: string) => {
+  readonly spawnSnapshot?: (profileKind: string, writeMode?: string, sessionId?: string) => {
     readonly tools: readonly string[];
     readonly systemPrompt: string;
   };
@@ -330,8 +330,14 @@ export class SubagentLauncher implements InstanceRunner {
     // spawn 快照：launch 时刻读一次（toggle 后新 spawn 跟随新值，已
     // spawn 实例 env 已定格不受影响——代际生效）。W-R6：按实例 profileKind
     // 派发（kg-writer 批次领豁免面快照）；U3：writeMode=readonly 时减三写
-    // 工具+纪律后缀（组装面单点派生，子进程零改动消费定格清单）
-    const snapshot = this.deps.spawnSnapshot?.(instance.profileKind, instance.writeMode);
+    // 工具+纪律后缀（组装面单点派生，子进程零改动消费定格清单）；U7：
+    // sessionId 尾参——快照尾拼派发会话足迹常驻段（与 HELIX_SESSION_ID
+    // 同口径，sessionId 空则不拼——测试形态）
+    const snapshot = this.deps.spawnSnapshot?.(
+      instance.profileKind,
+      instance.writeMode,
+      instance.sessionId || id,
+    );
     // mcp 批：MCP server 配置 launch 时刻现拍（kind 门控后的 enabled 行）
     const mcpServers = this.deps.mcpServersFor?.(instance.profileKind);
     // W1F-F2：toolCwd spawn 时刻读现值（getter 形态 = 经持有者读绑定 root；

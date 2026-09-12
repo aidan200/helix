@@ -126,7 +126,9 @@ describe("① adapter listGlobalResidentRules", () => {
     expect(rows[0]!.scene).toBe("");
     // 渲染层跳过空 scene 条目 → 段省略（无触达价值不产出段）
     const query = new KgQueryService({ graph: f.graph, projects: () => [f.projA] });
-    expect(query.residentRulesSection()).toBeNull();
+    // U7：空 scene 过滤后段省略；足迹=空 → null（去全扫化）
+    expect(query.residentRulesSection([f.projA])).toBeNull();
+    expect(query.residentRulesSection([])).toBeNull();
   });
 });
 
@@ -142,20 +144,25 @@ describe("② KgQueryService.residentRulesSection", () => {
     if (!rB.ok) throw new Error(rB.error.message);
 
     const single = new KgQueryService({ graph: f.graph, projects: () => [f.projA] });
-    const singleOut = single.residentRulesSection()!;
+    const singleOut = single.residentRulesSection([f.projA])!;
     expect(singleOut).toContain("kg get " + a);
     expect(singleOut).not.toContain("project:");
+    // 足迹不含 projA → 不注入（未踩足迹项目缺席）
+    expect(single.residentRulesSection([path.join(f.root, "projC")])).toBeNull();
 
     const multi = new KgQueryService({ graph: f.graph, projects: () => [f.projA, projB] });
-    const multiOut = multi.residentRulesSection()!;
+    const multiOut = multi.residentRulesSection([f.projA, projB])!;
     expect(multiOut).toContain(`kg get ${a}（project: projA）`);
     expect(multiOut).toContain(`kg get ${b}（project: projB）`);
+    // U7：worktree 足迹路径归主仓后匹配（normalizeRoot 内 resolveMainRepoPath
+    //——worktree 是 workspace 级契约：<root>/.worktrees/{project}-{slug}）
+    expect(single.residentRulesSection([path.join(f.root, ".worktrees", "projA-x1")])).toContain("kg get " + a);
   });
 
   test("空项目集（无图谱 workspace）→ null；未建库项目不进查询面", () => {
     const f = makeFixture();
     const empty = new KgQueryService({ graph: f.graph, projects: () => [] });
-    expect(empty.residentRulesSection()).toBeNull();
+    expect(empty.residentRulesSection([f.projA])).toBeNull();
     // graph 查询抛错 → 静默 null（增强面不阻断组装）
     const failing = new KgQueryService({
       graph: {
@@ -166,7 +173,7 @@ describe("② KgQueryService.residentRulesSection", () => {
       } as never,
       projects: () => [f.projA],
     });
-    expect(failing.residentRulesSection()).toBeNull();
+    expect(failing.residentRulesSection([f.projA])).toBeNull();
   });
 });
 
@@ -240,7 +247,7 @@ describe("④ E2E：daemon 组装链（container 常驻段接线）", () => {
   });
   let e2eHome: string | undefined;
 
-  test("已建库项目 global 节点 → spawn 快照 systemPrompt 含触发面段（scene+指针，无正文）", async () => {
+  test("U7：零足迹 spawn → 快照无段；注入足迹 → 段出现且只含足迹项目", async () => {
     const home = (e2eHome = mkdtempSync(path.join(tmpdir(), "helix-resident-e2e-")));
     // ① workspace 预建项目库：projA 带 global 声明节点；projB 目录存在但无库
     const projA = path.join(home, "projA");
@@ -268,16 +275,46 @@ describe("④ E2E：daemon 组装链（container 常驻段接线）", () => {
       cliInput: new PassThrough(),
       cliOutput: new PassThrough(),
       kgWorkspaceRoot: home,
+      // U7：writeFacts.workspaceRoot 走 toolCwdOf 口径——足迹归约根与
+      // kg 栈同 workspace（不注入则缺省进程 cwd，足迹归约失败段不出现）
+      toolCwd: home,
     });
     try {
-      const outcome = daemon.orchestration.spawn("常驻段验证任务", "subagent-worker");
-      if (outcome.status !== "run") throw new Error(`spawn 被拒：${JSON.stringify(outcome)}`);
-      const prompt = await snapshotSystemPrompt(home, daemon.system.getStatus().sessionId, outcome.agentId);
+      // ③ U7 断言翻转：新会话零足迹 → spawn 快照无常驻段（去全扫化）
+      const sid = daemon.system.getStatus().sessionId;
+      const cold = daemon.orchestration.spawn("零足迹验证", "subagent-worker");
+      if (cold.status !== "run") throw new Error(`spawn 被拒：${JSON.stringify(cold)}`);
+      const coldPrompt = await snapshotSystemPrompt(home, sid, cold.agentId);
+      expect(coldPrompt).not.toContain("项目常驻规则");
+
+      // ④ 注入足迹（模拟会话写过 projA 文件——writeFacts 精确记账通道）
+      // 后新 spawn：段出现（scene+指针，无正文）
+      daemon.writeFacts.record({
+        instanceId: sid,
+        sessionId: sid,
+        path: path.join(projA, "src", "a.ts"),
+        at: Date.now(),
+        confidence: "precise",
+      });
+      const warm = daemon.orchestration.spawn("足迹验证任务", "subagent-worker");
+      if (warm.status !== "run") throw new Error(`spawn 被拒：${JSON.stringify(warm)}`);
+      const prompt = await snapshotSystemPrompt(home, sid, warm.agentId);
       expect(prompt).toContain("项目常驻规则（kg 触发面索引）：");
       expect(prompt).toContain("常驻治理规则");
       expect(prompt).toContain("适用：适用于：改 daemon 代码前");
       expect(prompt).toContain(`kg get ${nodeId}`);
       // 触发面段不含正文/digest（用户裁决：只渲染场景，主动查询全文）
+      expect(prompt).not.toContain("常驻治理规则摘要");
+      // ⑤ main 链接触点（instantiatedSnapshot 即时求值——同 helper 单点
+      // withResidentRules）：零足迹主会话快照亦无段（多会话另建时足迹现值生效）
+      const repo2 = new SqliteSessionRepository(new WriteQueue(path.join(home, "helix.db")));
+      const mainInst = repo2
+        .queryEvents({ sessionId: sid })
+        .find((e) => e.type === "agent.instantiated" && e.payload != null && (e.payload as { profileKind?: string }).profileKind === "main-session");
+      expect(
+        mainInst === undefined ||
+          !((mainInst.payload as { n?: { systemPrompt?: string } }).n?.systemPrompt ?? "").includes("项目常驻规则"),
+      ).toBe(true);
       expect(prompt).not.toContain("适用于：改 daemon 代码前摘要");
     } finally {
       await daemon.shutdown();

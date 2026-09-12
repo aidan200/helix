@@ -240,12 +240,15 @@ export interface BuildSessionStackDeps {
    */
   readonly taskTypesOf?: () => readonly TaskTypeInfo[];
   /**
-   * 项目常驻规则段数据源（global 声明节点触发面索引，组合根接
-   * KgQueryService.residentRulesSection）：已渲染成品段或 null（无图谱/
-   * 空集 → 段整体省略）。组装快照启动/toggle 重算时求值——kg 落新
-   * global 节点后随下次重算生效。缺省不注入（测试形态）。
+   * 项目常驻规则段数据源（global 声明节点触发面，组合根接
+   * KgQueryService.residentRulesSection）：U7 去全扫化——纯查询面
+   *（足迹项目集 → 段或 null）；足迹求值在栈内（writeFacts 可达——
+   * deps 是栈入参拿不到栈内产物，故签名不带 sessionId）。空足迹 →
+   * null（不注入：感知不到项目时不注错误项目规则）；段在会话级应用
+   * 点尾拼（main 三接触点/subagentAssemblyFor 尾参）。缺省不注入
+   *（测试形态）。
    */
-  readonly residentRulesOf?: () => string | null;
+  readonly residentRulesOf?: (projectRoots: readonly string[]) => string | null;
   /**
    * 会话工具沙箱 cwd 动态解析面（W1 绑定闭环）：基准改绑定的 root——
    * 每会话装配（engineFor）时求值，重绑后新会话跟随。缺省回落启动定格
@@ -285,6 +288,8 @@ export interface BuildSessionStackDeps {
 
 export interface SessionStack {
   readonly resourceService: ResourceService;
+  /** U7：写事实登记表读面（会话足迹求值源；U4 占用协调同源消费）。 */
+  readonly writeFacts: WriteFactRegistry;
   readonly subagentLauncher: SubagentLauncher | undefined;
   readonly scheduler: SchedulerService;
   readonly eventStream: EventStream;
@@ -493,19 +498,26 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         basePrompt: assemblyBase(kind),
         toolNames: tools,
         skills,
-        // 项目常驻规则段（kg global 声明节点触发面）：五 kind 同构注入
-        // （治理规则对所有 agent 生效；SubAgent 子进程经 parent 组装快照
-        // env 传入自动携带）；未注入/空集段省略（无图谱项目零注入痕迹）
-        ...(deps.residentRulesOf !== undefined
-          ? { residentSection: deps.residentRulesOf() }
-          : {}),
-        // 任务类型段仅 MainAgent（发起面 = task_create；SubAgent 不能建任务
-        // AD-2，orchestrator 的 SOP 走 kickoff 全文注入）
+        // U7：常驻规则段退场栈级快照——会话级应用点拼接（main 三接触点
+        // /subagentAssemblyFor 尾参），按 sessionId 足迹注入；后台型 kind
+        //（kg-writer/reviewer/orchestrator）栈级无会话上下文不注入（触发面
+        // 意义弱，观察项）。任务类型段仍栈级（main-session 全局事实）。
         ...(kind === "main-session" && deps.taskTypesOf !== undefined
           ? { taskTypes: deps.taskTypesOf() }
           : {}),
       }),
     };
+  };
+  // U7 会话级常驻规则段拼接（应用时刻取足迹现值——栈内 writeFacts
+  // 可达）：main 三接触点（engineFor 装配经 ctx.residentRulesFor、
+  // instantiatedSnapshot 同、toggle 推送）与 subagentAssemblyFor 尾参共用。
+  const residentSectionFor = (sessionId: string): string | null =>
+    deps.residentRulesOf === undefined
+      ? null
+      : deps.residentRulesOf(writeFacts.projectFootprint(sessionId));
+  const withResidentRules = (prompt: string, sessionId: string): string => {
+    const section = residentSectionFor(sessionId);
+    return section === null ? prompt : `${prompt}\n\n${section}`;
   };
   let mainAssembly = await computeAssembly("main-session");
   let subagentAssembly = await computeAssembly("subagent-worker");
@@ -535,6 +547,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   const subagentAssemblyFor = (
     profileKind: string | undefined,
     writeMode?: string,
+    sessionId?: string,
   ): typeof subagentAssembly => {
     const base =
       profileKind === "subagent-kg-writer"
@@ -544,7 +557,13 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           : subagentAssembly;
     // U3：readonly 档任一 kind 生效集减三写工具+只读纪律后缀（派生单点在
     // 模块级 applyWriteModeToAssembly——减法幂等，reviewer 已无写工具再减无害）
-    return applyWriteModeToAssembly(base, writeMode);
+    const applied = applyWriteModeToAssembly(base, writeMode);
+    // U7：spawn 快照尾拼会话足迹常驻段（sessionId = 派发会话——与
+    // HELIX_SESSION_ID 同口径；兜底快照无实例上下文不拼）。子进程经 env
+    // 定格自动继承。
+    return sessionId === undefined
+      ? applied
+      : { ...applied, systemPrompt: withResidentRules(applied.systemPrompt, sessionId) };
   };
   let orchestratorAssemblyValue = await computeAssembly("orchestrator"); // T2.2：编排会话工厂消费（快照缓存，启动/toggle 重算；技能段照常注入自身生效集）
   // mcp 批：活跃主会话 executor 登记（engineFor 构造点 set；refreshAssembly
@@ -584,7 +603,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         }
       }
       for (const runtime of registry.hotRuntimes()) {
-        runtime.chatService.setSystemPrompt(next.systemPrompt);
+        // U7：toggle 重算推送也过会话级拼接（足迹段不被栈级重算冲掉）
+        runtime.chatService.setSystemPrompt(withResidentRules(next.systemPrompt, runtime.sessionId));
         runtime.chatService.setTools(next.tools);
       }
     } else if (kind === "subagent-worker") {
@@ -667,7 +687,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
           // W-R6：按实例 profileKind 派发——subagent-kg-writer（图谱产出型批次）
           // 领 worker 生效集 + kg-write 面；其余（缺省）领通用 worker 快照。
           // U3：writeMode=readonly 时快照减三写工具+纪律后缀（任一 kind 均可）。
-          spawnSnapshot: (profileKind: string, writeMode?: string) => subagentAssemblyFor(profileKind, writeMode),
+          // U7：sessionId 第三参（spawn 快照尾拼派发会话足迹常驻段——与
+          // HELIX_SESSION_ID 同口径）
+          spawnSnapshot: (profileKind: string, writeMode?: string, sessionId?: string) =>
+            subagentAssemblyFor(profileKind, writeMode, sessionId),
           // U3 isolated 档：worktree 供给真体（git 适配——TR-143 软链四处/
           // TR-82 锁残留坑机械内化）。provision 成功回登记调度器（晚绑
           // ref——scheduler 晚于 launcher 构造，U2 同款回填形态）
@@ -800,15 +823,17 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // 常量全文 + model 两级链解析 id 形态（profile 槽位 ?? 全局兜底，T12 砍
     // spawn 会话快照级；与该实例 launch 实际用模同源同时点——launch 侧
     // resolveModelFor 同序同值，仅 id → Model 对象的解析在 launcher，AD-3 联动）。
-    subagentSnapshotFor: (profileKind?: string) => ({
+    subagentSnapshotFor: (profileKind?: string, sessionId?: string) => ({
       // 快照供给改读组装缓存（消观测漂移——与 launch 实际注入同源
       // 同时点；W-R6：按实例 profileKind 派发 kg-writer/worker 快照）；model
       // 链与 launcher resolveModelFor 同序：profile 槽位 ?? kind 槽位（uiModelSlot）?? 全局兑底
       // R7 per-kind + 全局兜底：与 launcher resolveThinkingFor/resolveModelFor 同源同时点（AD-4④）
       // M31：thinking 链收敛 thinkingChainOf 单点（语义不变）
+      // U7：sessionId 尾参——instantiated 快照与会话足迹常驻段同源（spawn
+      // 时刻求值，与 HELIX_SYSTEM_PROMPT 同段）
       thinkingLevel: thinkingChainOf(profileKind),
       profileSnapshot: {
-        systemPrompt: subagentAssemblyFor(profileKind).systemPrompt,
+        systemPrompt: subagentAssemblyFor(profileKind, undefined, sessionId).systemPrompt,
         tools: [...subagentAssemblyFor(profileKind).tools],
         model: resolveSubagentModelId(profileKind),
         hooks: SubAgentProfile.hooks.map((H) => H.hookName),
@@ -909,6 +934,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     resolveSubagentModelId: () => resolveSubagentModelId(),
     resourceService,
     mainAssemblyOf: () => mainAssembly,
+    // U7 委派（engineFor/buildRuntime 两接触点尾拼会话足迹常驻段）
+    residentRulesFor: residentSectionFor,
     compactionSettings,
     globalThinking,
     toolCwdOf,
@@ -961,6 +988,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       diffSessionIds,
       turnDiff,
       mainAssemblyOf: () => mainAssembly,
+      // U7 委派（instantiatedSnapshot 接触点）
+      residentRulesFor: residentSectionFor,
       compactionSettings,
       hasMainPlan: mainPlanStack !== undefined,
       promoteDraft: (sessionId) => registry.promoteDraft(sessionId),
@@ -994,6 +1023,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
 
   return {
     resourceService,
+    writeFacts,
     subagentLauncher,
     scheduler,
     eventStream,

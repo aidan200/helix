@@ -11,6 +11,7 @@ import type { BrowserPort } from "../application/ports/outbound/BrowserPort";
 import type { ModelPort } from "../application/ports/inbound/ModelPort";
 import type { InstanceRunner } from "../application/services/InstanceRunner";
 import { SessionRegistry } from "../application/services/SessionRegistry";
+import type { WriteFactRegistry } from "../application/services/WriteFactRegistry";
 import { ResourceService } from "../application/services/ResourceService";
 import { WsServerAdapter } from "../adapters/driving/ws-server/WsServerAdapter";
 import { webStatusPayloadOf } from "../adapters/driving/ws-server/handlers/web";
@@ -129,6 +130,8 @@ export interface Daemon {
   readonly browser: BrowserPort;
   /** 多会话容器（生命周期编排观测面——测试断言懒加载/卸载用）。 */
   readonly registry: SessionRegistry;
+  /** U7：写事实登记表（会话足迹源；测试注入足迹/未来占用协调同源消费）。 */
+  readonly writeFacts: WriteFactRegistry;
   /**
    * workspace 绑定面（W1 绑定闭环）：绑定状态机唯一事实源（restore/open/
    * bindCwd）+ 绑定 kg 栈持有者（重绑接缝——RPC 与测试消费）。shutdown
@@ -513,11 +516,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 可用任务类型段数据源（audience 分类注入，批二）：MainAgent 提示的
     // 任务类型清单 = 任务注册表读面（与 task_create 的类型校验同一事实源）
     taskTypesOf: () => taskStack.orchestratorCore.skills.listTaskTypes(),
-    // 项目常驻规则段数据源（global 声明节点触发面索引）：kg 栈查询服务
-    // 跨项目聚合 + domain 渲染；无图谱/空集 → null → 段省略（零注入痕迹）。
-    // W1：未绑定 → null（组装无 kg 面，行为不变）；组装快照启动/toggle 重算
-    // 时求值，kg 落新 global 节点后随下次重算生效。
-    residentRulesOf: () => workspace.stack()?.queryService.residentRulesSection() ?? null,
+    // 项目常驻规则段数据源（global 声明节点触发面索引，U7 去全扫化）：
+    // 纯查询面（会话足迹项目集 → 段或 null，足迹求值在 session 栈内）。
+    // kg 栈按足迹项目集聚合渲染；空足迹/未绑定/无图谱 → null → 段省略。
+    // 栈级快照不含此段，会话级应用点（engineFor/instantiatedSnapshot/
+    // toggle 推送/subagentAssemblyFor）应用时刻取现值。
+    residentRulesOf: (projectRoots: readonly string[]) =>
+      workspace.stack()?.queryService.residentRulesSection(projectRoots) ?? null,
     // task_report 工具装配面（D3）：主会话 executor 注册 chat 回流通用报告
     // 查询面——任务读面（TaskQueryService list/detail）+ closure_records 读面
     //（SessionRepositoryPort.queryClosureRecords）+ 报告目录约定（与
@@ -851,6 +856,7 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     taskQuery: taskStack.query,
     browser: browserPort,
     registry,
+    writeFacts: sessionStack.writeFacts,
     workspace,
     toolCwdNow,
     fanoutTargets: fanoutPublisher.targets,

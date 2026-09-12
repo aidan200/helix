@@ -144,7 +144,7 @@ export interface SchedulerServiceDeps {
    * 入参 profileKind（D8 W-R6）：实例 kind 派发（subagent-kg-writer 领
    * 豁免面快照——组合根组装缓存按 kind 拼生效集）。
    */
-  readonly subagentSnapshotFor?: (profileKind?: string) => {
+  readonly subagentSnapshotFor?: (profileKind?: string, sessionId?: string) => {
     readonly profileSnapshot: AgentInstantiatedPayload["profileSnapshot"];
     /** spawn 解析的 thinkingLevel 快照（AD-4④；与 launcher resolveThinkingFor 同源同时点；无配置 → undefined = 默认关）。 */
     readonly thinkingLevel: string | undefined;
@@ -474,7 +474,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     // 快照 model = 两级链解析结果（spawn 时刻求值，与该实例 launch 实际使用
     // 模型同源）；只落盘不广播（DtoMapper 无 case）。
     if (this.deps.subagentSnapshotFor !== undefined) {
-      const snapshot = this.deps.subagentSnapshotFor(instance.profileKind);
+      const snapshot = this.deps.subagentSnapshotFor(instance.profileKind, instance.sessionId);
       this.publish(instance, "agent.instantiated", {
         instanceId: agentId,
         profileKind: instance.profileKind,

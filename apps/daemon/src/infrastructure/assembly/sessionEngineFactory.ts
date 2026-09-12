@@ -113,6 +113,12 @@ export interface MainEngineFactoryCtx {
   readonly resourceService: ResourceService;
   /** main 组装快照现值读面（let 缓存被 refreshAssembly 重算——getter 保现值读取语义）。 */
   readonly mainAssemblyOf: () => AssemblySnapshot;
+  /**
+   * U7 会话足迹常驻规则段数据源（可选注入——buildSessionStack 委派
+   * deps.residentRulesOf）：engineFor 装配与 instantiatedSnapshot 两接触点
+   * 尾拼；缺省不拼（测试形态，栈级快照原样）。
+   */
+  readonly residentRulesFor?: (sessionId: string) => string | null;
   readonly compactionSettings: () => CompactionSettings;
   readonly globalThinking: () => string | undefined;
   readonly toolCwdOf: () => string;
@@ -279,6 +285,14 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
     // 生命周期 = 会话 id 不复用 + 每 daemon 进程一个 Map；卸载残留为
     // 小对象引用无句柄调用（可接受——避免 SessionRegistry 加卸载回调面）。
     ctx.sessionExecutors.set(sessionId, toolExecutor);
+    // U7：会话级常驻规则段拼接（应用时刻足迹现值——栈级快照 + 段尾拼；
+    // instantiatedSnapshot 同函数复用，两接触点同源）
+    const mainSystemPrompt = (): string => {
+      const base = ctx.mainAssemblyOf().systemPrompt;
+      if (ctx.residentRulesFor === undefined) return base;
+      const section = ctx.residentRulesFor(sessionId);
+      return section === null ? base : `${base}\n\n${section}`;
+    };
     // 新会话装配读组装快照现值（瘦身后 base + 生效工具清单 +
     // 生效技能段；toggle 后新会话/重建会话跟随）；model 四级链读面——
     // kind 槽位 > default_model（per-session 覆盖 = 既有 setModel 直改链）。
@@ -294,7 +308,7 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
     adapter = new PiAgentEngineAdapter({
       profile: {
         ...MainSessionProfile,
-        systemPrompt: ctx.mainAssemblyOf().systemPrompt,
+        systemPrompt: mainSystemPrompt(),
         // W1 绑定闭环：未绑定（kg 双工具未注册）时剔除 kg/kg-update——
         // profile 声明与 executor 注册面一致（resolveTools 硬校验不破）；
         // 绑定后新建会话自动恢复注册面。
@@ -352,6 +366,8 @@ export interface SessionRuntimeFactoryCtx {
   readonly diffSessionIds: WeakMap<TurnDiffState, string>;
   readonly turnDiff: TurnDiffService;
   readonly mainAssemblyOf: () => AssemblySnapshot;
+  /** U7 会话足迹常驻段（engineFor 同款字段——instantiatedSnapshot 接触点尾拼；缺省不拼）。 */
+  readonly residentRulesFor?: (sessionId: string) => string | null;
   readonly compactionSettings: () => CompactionSettings;
   /** mainPlanStack 已装配（instantiatedSnapshot 的 plan 注入旗标同源）。 */
   readonly hasMainPlan: boolean;
@@ -393,6 +409,14 @@ export function buildSessionRuntimeFactory(ctx: SessionRuntimeFactoryCtx): (mate
       mainInstanceId: material.session.mainInstanceId,
       diff: diffState,
     });
+    // U7：会话级常驻段拼接（buildRuntime 侧接触点——engineFor 同款局部
+    // helper，两函数各自作用域定义；sessionId = material.session.id）
+    const mainSystemPrompt = (): string => {
+      const base = ctx.mainAssemblyOf().systemPrompt;
+      if (ctx.residentRulesFor === undefined) return base;
+      const section = ctx.residentRulesFor(material.session.id);
+      return section === null ? base : `${base}\n\n${section}`;
+    };
     // thinking 批③跨冷恢复（AD-4③）：回放末值覆盖直写引擎内存态——
     // 不走 ChatService.setThinking 发布面（零新事件流零落盘铁律，恢复不重放）；
     // 区别于 model.set 不跨冷恢复现状（TR-AD-41 反例钉死，差异不动）。
@@ -414,7 +438,7 @@ export function buildSessionRuntimeFactory(ctx: SessionRuntimeFactoryCtx): (mate
       // 观测值 ?? 全局默认）；起发布触发在注册表 promoteDraft（转正：
       // 首个用户条目；恢复路径不重发）。
       instantiatedSnapshot: (): ProfileSnapshotData => ({
-        systemPrompt: ctx.mainAssemblyOf().systemPrompt,
+        systemPrompt: mainSystemPrompt(),
         // 声明面=注册面铁律（code-review M33）：快照 tools 与引擎装配面同过
         // effectiveMainToolNames——未绑定/测试形态时不得快照广告未注册工具。
         tools: effectiveMainToolNames(ctx.mainAssemblyOf().tools, {

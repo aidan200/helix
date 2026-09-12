@@ -26,6 +26,16 @@ import {
   type TaskSliceRow,
 } from "../../../domain/kg/attachment/task-slice";
 import { renderResidentRules, type ResidentRuleRow } from "../../../domain/kg/attachment/resident-rules";
+import { resolveMainRepoPath } from "../../../domain/kg/project-discovery";
+
+/** 足迹/项目根归一（形态差异消除：尾斜杠剥离 + worktree 归主仓——比对两侧同形）。 */
+const normalizeRoot = (input: string): string | null => {
+  try {
+    return resolveMainRepoPath(input).replaceAll("\\", "/").replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+};
 
 /** 注入登记条目（F3 修复：复合键语义——project + nodeId；多项目同 id 节点互不误排）。 */
 export interface InjectedNodeRef {
@@ -152,10 +162,21 @@ export class KgQueryService {
    * 跨项目聚合 listGlobalResidentRules → domain 渲染（name+scene+kg get
    * 指针，不含全文——命中场景后主动读全文）。空集/异常 → null（段整体
    * 省略；增强面绝不阻断系统提示组装，无图谱项目零注入痕迹）。
+   *
+   * U7 去全扫化：projectRoots = 会话项目足迹（WriteFactRegistry.
+   * projectFootprint——只认写事实不认声明）。空足迹 → null（不注入：
+   * 「感知不到项目时的默认行为，不该比注入错误项目规则更差」）；足迹
+   * 内未建图谱的项目自然缺席（listGlobalResidentRules 空集）。
    */
-  residentRulesSection(): string | null {
+  residentRulesSection(projectRoots: readonly string[]): string | null {
     try {
-      const projects = this.deps.projects();
+      const wanted = projectRoots
+        .map((root) => normalizeRoot(root))
+        .filter((r): r is string => r !== null);
+      if (wanted.length === 0) return null;
+      const projects = this.deps.projects().filter((project) =>
+        wanted.includes(normalizeRoot(project) ?? ""),
+      );
       if (projects.length === 0) return null;
       const rows: readonly ResidentRuleRow[] = projects.flatMap((project) =>
         this.deps.graph.listGlobalResidentRules(project).map((row) => ({ project, row })),
