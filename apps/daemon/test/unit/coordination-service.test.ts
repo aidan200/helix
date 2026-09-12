@@ -96,6 +96,22 @@ describe("CoordinationService：claim/release/conflicts", () => {
     expect(released).toBe(1);
     expect(h.events.some((e) => e.type === "coord.released")).toBe(true);
   });
+
+  test("undeclared 租约被 owner 显式 claim → source 升级 claimed + 审计事件（声明补全闭环）", () => {
+    const h = harness();
+    h.service.onWriteFact(fact(`${PROJ_A}/src/a.ts`, 1100));
+    const before = h.service.leases()[0]!;
+    expect(before.source).toBe("undeclared");
+    expect(h.events.filter((e) => e.type === "coord.claimed")).toHaveLength(0);
+    const r = h.service.claim({ ownerSessionId: before.ownerSessionId, ownerAgentId: "x", scope: before.scope, intent: "我来认领" });
+    expect(r.deduplicated).toBe(true);
+    expect(r.lease.leaseId).toBe(before.leaseId);
+    expect(r.lease.source).toBe("claimed"); // 升级而非停留 undeclared
+    expect(h.events.filter((e) => e.type === "coord.claimed")).toHaveLength(1); // 升级发审计事件
+    // 纯幂等重入（已 claimed）不再发事件
+    h.service.claim({ ownerSessionId: before.ownerSessionId, ownerAgentId: "x", scope: before.scope, intent: "再声明" });
+    expect(h.events.filter((e) => e.type === "coord.claimed")).toHaveLength(1);
+  });
 });
 
 describe("CoordinationService：undeclared 自动补登", () => {

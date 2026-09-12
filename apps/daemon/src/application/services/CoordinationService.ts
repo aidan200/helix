@@ -112,7 +112,18 @@ export class CoordinationService {
         isBlocking(st.data.status) &&
         describeScope(st.data.scope) === desc
       ) {
-        st.data = { ...st.data, lastActivityAt: Math.max(st.data.lastActivityAt, now), intent: input.intent };
+        // 显式认领升级：undeclared/isolated 租约被 owner claim → source 转 claimed（声明补全，审计闭环）
+        const upgraded = st.data.source !== "claimed";
+        st.data = {
+          ...st.data,
+          lastActivityAt: Math.max(st.data.lastActivityAt, now),
+          intent: input.intent,
+          ...(upgraded ? { source: "claimed" as const } : {}),
+        };
+        if (upgraded) {
+          const conflicts = this.conflictsFor(input.scope, input.ownerSessionId);
+          this.emit("coord.claimed", st.data, conflicts.length > 0 ? conflicts.map((c) => c.leaseId) : undefined);
+        }
         return { lease: st.data, conflicts: this.conflictsFor(input.scope, input.ownerSessionId), deduplicated: true };
       }
     }
