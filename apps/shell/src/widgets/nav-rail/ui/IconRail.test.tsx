@@ -61,7 +61,7 @@ afterEach(() => {
 });
 
 describe("S1 IconRail 契约", () => {
-  it("rail-logo = HelixLogo 渐变图标（HX 文字退役，40px 发光外框保留）", () => {
+  it("rail-logo = HelixLogo 图标（logo.png 像素稿试装，HX 文字退役，40px 发光外框保留）", () => {
     ui();
     const logo = document.querySelector(".rail-logo")!;
     expect(logo.querySelector("[data-brand-logo]")).not.toBeNull();
