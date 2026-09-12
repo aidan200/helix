@@ -43,18 +43,18 @@ describe("workspace 批（W1）：命令/事件/通道登记", () => {
 
   test("信封判别：workspace 命令/事件帧可窄化（编译期）+ 判别字段运行时校验", () => {
     const cmd: CommandEnvelope = {
-      v: "0.11",
+      v: "0.12",
       type: "workspace.open",
       payload: { root: "/tmp/somewhere" },
     };
     expect(cmd.type).toBe("workspace.open");
     if (cmd.type === "workspace.open") expect(cmd.payload.root).toBe("/tmp/somewhere");
 
-    const getCmd: WorkspaceGetCommand = { v: "0.11", type: "workspace.get", payload: {} };
+    const getCmd: WorkspaceGetCommand = { v: "0.12", type: "workspace.get", payload: {} };
     expect(getCmd.type).toBe("workspace.get");
 
     const changed: EventEnvelope = {
-      v: "0.11",
+      v: "0.12",
       sessionId: "system",
       channel: "workspace",
       type: "workspace_changed",
@@ -65,7 +65,7 @@ describe("workspace 批（W1）：命令/事件/通道登记", () => {
 
     // 点对点结果帧 channel 字面量窄化（编译期守护）
     const getResult: WorkspaceGetResultEvent = {
-      v: "0.11",
+      v: "0.12",
       sessionId: "system",
       channel: "workspace",
       type: "workspace.get.result",
@@ -74,7 +74,7 @@ describe("workspace 批（W1）：命令/事件/通道登记", () => {
     expect(getResult.type).toBe("workspace.get.result");
 
     const openResult: WorkspaceOpenResultEvent = {
-      v: "0.11",
+      v: "0.12",
       sessionId: "system",
       channel: "workspace",
       type: "workspace.open.result",

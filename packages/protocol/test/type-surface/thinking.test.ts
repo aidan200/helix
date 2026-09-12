@@ -68,7 +68,7 @@ type _ChatSendNoThinking = Expect<
 >;
 
 // 版本位单值（批次集合标记）
-type _ProtocolVersionV011 = Expect<Equal<typeof PROTOCOL_VERSION, "0.11">>;
+type _ProtocolVersionV011 = Expect<Equal<typeof PROTOCOL_VERSION, "0.12">>;
 
 describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
   test("目录登记：thinking.set ∈ COMMAND_TYPES；thinking.changed ∈ EVENT_TYPES/EVENT_CHANNELS（thinking 族）", () => {
@@ -77,8 +77,8 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     expect(EVENT_CHANNELS["thinking.changed"]).toBe("thinking");
     // 计数：27 → 28 命令 / 47 → 48 事件（thinking 批历史口径；当前常量含后续 kg 批 +6/+6、workspace 批 +2/+3、task 批 +9/+1、kg-bootstrap 批 +5/+5、kg 维护批 +2/+2 → 52/65）
     expect(COMMAND_TYPES.length).toBe(76); // 沙箱开关批 +2 后当前值
-    expect(EVENT_TYPES.length).toBe(94); // 沙箱开关批 +2 后当前值
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(94); // 沙箱开关批 +2 后当前值（mcp 族挂新 mcp 通道）
+    expect(EVENT_TYPES.length).toBe(95); // coord 批 +1 后当前值
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(95); // coord 批 +1 后当前值（mcp 族挂新 mcp 通道）
   });
 
   test("thinking.set：信封 sessionId 必填（per-session），payload level 字符串透传", () => {
@@ -117,21 +117,21 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
   });
 
   test("版本位 0.10 → 0.11（envelope 单点；批次集合标记非协商位）", () => {
-    expect(PROTOCOL_VERSION).toBe("0.11");
-    expect(thinkingSet.v).toBe("0.11");
-    expect(thinkingChanged.v).toBe("0.11");
+    expect(PROTOCOL_VERSION).toBe("0.12");
+    expect(thinkingSet.v).toBe("0.12");
+    expect(thinkingChanged.v).toBe("0.12");
   });
 
   // ── v0.11 sot 断言（T3.1 补）：envelope 单点 ↔ PROTOCOL-CHANGELOG.md §17.11 批次登记一致性（protocol-split 批：批次备案迁 CHANGELOG，断言随迁）──
   // sot-consistency ①~⑤ 守护面（§17.3 口径）之外的批次专断：§17.N 登记节与当前
   // 版本位/批次内容的一致。解析失败必须红（缺节/缺登记点 → throw），永真断言 = 未生效。
-  test("v0.11 sot：§17.11 批次登记节与 envelope 版本位 + 四块登记一致", () => {
+  test("v0.11 sot：§17.11 批次登记节四块登记锚完整（coord 批 v0.12 起节号锄定历史节，不随版本位走）", () => {
     const doc = readFileSync(fileURLToPath(new URL("../../PROTOCOL-CHANGELOG.md", import.meta.url)), "utf8");
-    // ① 批次登记节存在且批次号 == PROTOCOL_VERSION（envelope 单点 ↔ 文档登记锚一致）
-    const batchAnchor = new RegExp(`^### 17\\.11 v${PROTOCOL_VERSION.replace(/\./g, "\\.")} 批次登记$`, "m");
+    // ① thinking 批历史登记节存在（标题静态锄定 v0.11）
+    const batchAnchor = /^### 17\.11 v0\.11 批次登记$/m;
     const head = doc.match(batchAnchor);
     if (!head || head.index === undefined) {
-      throw new Error(`PROTOCOL-CHANGELOG.md 解析失败：未找到批次登记节「### 17.11 v${PROTOCOL_VERSION} 批次登记」`);
+      throw new Error("PROTOCOL-CHANGELOG.md 解析失败：未找到批次登记节「### 17.11 v0.11 批次登记」");
     }
     const after = doc.slice(head.index + head[0].length);
     const stop = after.match(/^### |^## /m);
@@ -147,7 +147,7 @@ describe("v0.11：thinking 批 additive（T1.1，AD-2/AD-4）", () => {
     expect(section).toContain("27 → 28");
     expect(section).toContain("47 → 48");
     expect(COMMAND_TYPES.length).toBe(76); // 沙箱开关批 +2 后当前值
-    expect(EVENT_TYPES.length).toBe(94); // 沙箱开关批 +2 后当前值
+    expect(EVENT_TYPES.length).toBe(95); // coord 批 +1 后当前值
     // ④ chat.send 零字段负断言在批次节有登记（NFR-2① 红线文档面）
     expect(section).toContain("chat.send` **零字段**");
   });

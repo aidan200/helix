@@ -243,7 +243,7 @@ function feed(frame: EventEnvelope): void {
 
 function feedList(mainOver: Partial<AgentConfigProfileBlock> = {}, subOver: Partial<AgentConfigProfileBlock> = {}): void {
   feed({
-    v: "0.11",
+    v: "0.12",
     sessionId: "__system__",
     channel: "agent",
     type: "agent.config.list.result",
@@ -261,7 +261,7 @@ function selectAgent(kind: string): void {
 
 function feedSetResult(payload: { status: "applied" } | { status: "skipped"; reason: string }): void {
   feed({
-    v: "0.11",
+    v: "0.12",
     sessionId: "__system__",
     channel: "agent",
     type: "agent.config.set_enabled.result",
@@ -480,7 +480,7 @@ describe("智能体页组件（M6 T4）", () => {
     // daemon 失败回执走 connection.error（旧缺陷：匹配面不含 → pending 永不清）
     act(() =>
       feed({
-        v: "0.11",
+        v: "0.12",
         sessionId: "__system__",
         channel: "notification",
         type: "connection.error",
@@ -502,7 +502,7 @@ describe("智能体页组件（M6 T4）", () => {
     act(() => selectAgent("main-session"));
     act(() =>
       feed({
-        v: "0.11",
+        v: "0.12",
         sessionId: "__system__",
         channel: "notification",
         type: "connection.error",
@@ -866,7 +866,7 @@ describe("base prompt 批：base 段系统提示词查看区", () => {
     // 回执（带 profileKind 回显）→ pre 渲染全文
     act(() =>
       feed({
-        v: "0.11",
+        v: "0.12",
         sessionId: "__system__",
         channel: "agent",
         type: "agent.base_prompt.get.result",
@@ -961,7 +961,7 @@ describe("M48/M50 写面发送失败收口 + base prompt 断连重发", () => {
     // 回执到达归位
     act(() =>
       feed({
-        v: "0.11",
+        v: "0.12",
         sessionId: "__system__",
         channel: "agent",
         type: "agent.base_prompt.get.result",
@@ -999,7 +999,7 @@ describe("skill-content 批：skill 正文查看区（行内折叠懒查询）",
     // 回执（带 name 回显）→ pre 渲染全文（含 frontmatter 原文）
     act(() =>
       feed({
-        v: "0.11",
+        v: "0.12",
         sessionId: "__system__",
         channel: "agent",
         type: "agent.skill_content.get.result",
@@ -1040,7 +1040,7 @@ describe("skill-content 批：skill 正文查看区（行内折叠懒查询）",
     // 回执（按名回显，跨卡归位）→ pre 渲染 SOP 全文
     act(() =>
       feed({
-        v: "0.11",
+        v: "0.12",
         sessionId: "__system__",
         channel: "agent",
         type: "agent.skill_content.get.result",
@@ -1114,7 +1114,7 @@ describe("智能体页 MCP 服务分组区（server 级配置面）", () => {
     // mcp.status.changed（设置页增删 server / 状态翻转）→ 自动重拉配置读面
     act(() => {
       for (const l of mock.mcpListeners) {
-        l({ v: "0.11", sessionId: "__system__", channel: "mcp", type: "mcp.status.changed", payload: { server: { name: "fake", state: "running" } } } as EventEnvelope);
+        l({ v: "0.12", sessionId: "__system__", channel: "mcp", type: "mcp.status.changed", payload: { server: { name: "fake", state: "running" } } } as EventEnvelope);
       }
     });
     expect(mock.sentList).toBeGreaterThan(before);

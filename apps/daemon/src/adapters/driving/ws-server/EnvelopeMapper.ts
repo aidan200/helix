@@ -30,10 +30,12 @@ import type {
   EventType,
 } from "@helix/protocol";
 import type { DiffChangedEvent, DiffChangedPayload } from "@helix/protocol";
-import { PROTOCOL_VERSION, EVENT_CHANNELS } from "@helix/protocol";
+import { PROTOCOL_VERSION, EVENT_CHANNELS, SYSTEM_SESSION_ID } from "@helix/protocol";
+import type { CoordChangedEvent } from "@helix/protocol";
 
 import type {
   AgentStateChangedPayload,
+  CoordLeasePayload,
   DomainEvent,
   EngineRetryingPayload,
   MessageCompletedPayload,
@@ -101,6 +103,9 @@ export function domainEventToEnvelope(event: DomainEvent, ctx?: EventMapContext)
   // （payload 语义零变更——新增字段仅信封层，契约 A §1.2/§2）
   frame.sessionId = event.sessionId;
   frame.channel = EVENT_CHANNELS[frame.type as EventType];
+  // coord.*：帧层锚定全局广播（SYSTEM_SESSION_ID——冲突双方用户都要知晓，
+  // §16.1「不按订阅过滤」）；领域事件 sessionId 保留占用者归属供审计行分仓
+  if (event.type.startsWith("coord.")) frame.sessionId = SYSTEM_SESSION_ID;
   if (event.instanceId !== undefined) frame.instanceId = event.instanceId;
   return frame;
 }
@@ -434,6 +439,33 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
       return frame;
     }
 
+    // ── coord.* 占用协调族（U5；五领域事件统一映射 coord.changed，kind 区分）──
+    case "coord.claimed":
+    case "coord.released":
+    case "coord.settled":
+    case "coord.undeclared":
+    case "coord.conflict": {
+      const p = event.payload as CoordLeasePayload;
+      const kind = event.type.slice("coord.".length) as "claimed" | "released" | "settled" | "undeclared" | "conflict";
+      const frame: CoordChangedEvent = {
+        v: PROTOCOL_VERSION,
+        sessionId: SYSTEM_SESSION_ID, // daemon 级全局帧：冲突双方用户都要知晓，不按订阅过滤
+        channel: "notification",
+        type: "coord.changed",
+        payload: {
+          kind,
+          leaseId: p.leaseId,
+          ownerAgentId: p.ownerAgentId,
+          scopeDesc: p.scopeDesc,
+          intent: p.intent,
+          text: coordNoticeText(kind, p),
+          ...(p.escalated === true ? { escalated: true } : {}),
+          ts,
+        },
+      };
+      return frame;
+    }
+
     default:
       // 协议目录外领域事件（当前无——目录由 type-surface 双向一致性守护）
       return null;
@@ -455,4 +487,24 @@ export function diffChangedFrame(sessionId: string, payload: DiffChangedPayload)
     type: "diff.changed",
     payload,
   };
+}
+
+/** coord.changed 通知文案（服务层人读单源，前端零二次叙述；syncHint 同规）。 */
+function coordNoticeText(kind: string, p: CoordLeasePayload): string {
+  const scope = p.scopeDesc;
+  const who = p.ownerAgentId;
+  switch (kind) {
+    case "claimed":
+      return `${who} 声明占用 ${scope}：${p.intent}`;
+    case "released":
+      return `${who} 释放了占用 ${scope}`;
+    case "settled":
+      return `${scope} 的占用已收口（不再阻塞他人）`;
+    case "undeclared":
+      return `${who} 在 ${scope} 有未声明的写行为（已自动登记占用）`;
+    case "conflict":
+      return `占用冲突：${who} claim 的 ${scope} 与既有占用重叠（${p.intent}）`;
+    default:
+      return `${scope} 占用状态变化（${kind}）`;
+  }
 }

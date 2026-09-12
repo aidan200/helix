@@ -209,7 +209,7 @@ function qs(selector: string): HTMLElement {
 }
 
 function feed(type: string, payload: unknown) {
-  const frame = { v: "0.11", type, sessionId: "__system__", channel: "kg", payload } as EventEnvelope;
+  const frame = { v: "0.12", type, sessionId: "__system__", channel: "kg", payload } as EventEnvelope;
   act(() => {
     for (const l of [...listeners]) l(frame);
   });
@@ -217,7 +217,7 @@ function feed(type: string, payload: unknown) {
 
 /** workspace 帧注入（W4 刷新链）。 */
 function feedWorkspace(type: string, payload: unknown) {
-  const frame = { v: "0.11", type, sessionId: "__system__", channel: "workspace", payload } as EventEnvelope;
+  const frame = { v: "0.12", type, sessionId: "__system__", channel: "workspace", payload } as EventEnvelope;
   act(() => {
     for (const l of [...wsListeners]) l(frame);
   });

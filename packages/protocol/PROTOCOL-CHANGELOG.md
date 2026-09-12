@@ -1166,3 +1166,24 @@ export const DEFAULT_MODE_ID: ModeId = "default";     // 缺省/fallback 语义�
 > - 旧文件 `sandbox.json` 一次性迁移（bootPrelude，幂等）：存在且 enabled 为布尔 →
 >   写 KV（仅当 KV 无既有值——不覆盖新面已设值）→ 改名 `sandbox.json.migrated`
 >   保留退路；损坏/非布尔形态仅改名。
+
+### 17.12 v0.12 批次登记
+
+> v0.12 = 占用协调批 U5/U6（设计：workspace docs/temp/agent-coordination-impl-design.md；
+> daemon 侧 E-158 U4 租约本体先行落地）。**版本位 bump `"0.11" → "0.12"`**
+> （envelope.ts 单点；批次集合标记非协商位，Q-1c 单仓同发一步替换；运行时
+> 代码与测试零 `"0.11"` 残留——豁免：§1–§13/§17.5–§17.11 演进备案节的
+> 历史版本登记字面量合法保留）；`FrameVersion = 0 | "0.12"`。
+>
+> - **1 事件**（§16.1 挂既有 notification 通道，不新增 Channel 值）：
+>   `coord.changed`——领域五 coord.* 事件统一映射帧（kind 区分；
+>   payload 含 text 服务层人读文案，toast 直渲 syncHint 同规）。
+>   daemon 级全局帧不按订阅过滤（协调冲突双方用户都要知晓——与
+>   task.changed 连接级订阅过滤语义不同）。
+> - **计数演进**：命令 76 保持；事件 94 → 95（§16 计数声明行同 commit 双写）。
+> - **SteerSource 扩值**（`"user" | "closure" | "progress"` += `"coord"`，
+>   chat.ts §4 steer 面与 daemon domain SteerQueue 同值域双登记）：
+>   U6 冲突注入通道占用者会话（injectClosure source="coord"），steer
+>   entry source 字段透传——占用者被 claim 重叠时开 turn 响应。
+> - 协调状态不进 entries 不进上下文（会话 store 零写入）；前端活动窗口
+>   轻通知 = shell CoordNoticeToast（TaskSyncHintToast 先例）。

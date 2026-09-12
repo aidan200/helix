@@ -73,7 +73,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
   test("事件目录：task.changed 唯一新事件登记（+1；结果帧不入目录）", () => {
     expect(EVENT_TYPES).toContain("task.changed");
     expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("mcp.status.changed"); // mcp 批为目录尾段（diff.changed 其后）
-    expect(EVENT_TYPES.length).toBe(94); // 沙箱开关批 +2 后当前值
+    expect(EVENT_TYPES.length).toBe(95); // 沙箱开关批 +2 后当前值
     // 九命令结果帧为点对点回执（契约 §0 计数 57→58：仅 task.changed 入目录）
     for (const t of TASK_COMMANDS) {
       expect(EVENT_TYPES).not.toContain(`${t}.result`);
@@ -82,7 +82,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
 
   test("通道归属：task.changed 挂既有 notification 通道（不新增 Channel 值，契约 §0）", () => {
     expect(EVENT_CHANNELS["task.changed"]).toBe("notification");
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(94); // 沙箱开关批 +2 后当前值（agent 族 result 挂 agent 通道）
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(95); // 沙箱开关批 +2 后当前值（agent 族 result 挂 agent 通道）
   });
 
   test("错误码词表（契约 §4）：四任务码登记 ErrorCode", () => {
@@ -96,15 +96,15 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
   });
 
   test("信封判别：task 命令/事件帧可窄化（编译期）+ 判别字段运行时校验", () => {
-    const list: CommandEnvelope = { v: "0.11", type: "task.list", payload: { status: "running" } };
+    const list: CommandEnvelope = { v: "0.12", type: "task.list", payload: { status: "running" } };
     expect(list.type).toBe("task.list");
     if (list.type === "task.list") expect(list.payload.status).toBe("running");
 
-    const pause: CommandEnvelope = { v: "0.11", type: "task.pause", payload: { jobId: "j-1" } };
+    const pause: CommandEnvelope = { v: "0.12", type: "task.pause", payload: { jobId: "j-1" } };
     if (pause.type === "task.pause") expect(pause.payload.jobId).toBe("j-1");
 
     const changed: EventEnvelope = {
-      v: "0.11",
+      v: "0.12",
       sessionId: "__system__",
       channel: "notification",
       type: "task.changed",
@@ -118,7 +118,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
 
     // 点对点结果帧窄化（编译期守护；不入 EVENT_TYPES 目录——契约 §0 计数纪律）
     const listResult: TaskListResultEvent = {
-      v: "0.11",
+      v: "0.12",
       sessionId: "__system__",
       channel: "notification",
       type: "task.list.result",
@@ -126,7 +126,7 @@ describe("task 批（T1.5）：命令/事件/通道登记", () => {
     };
     expect(listResult.type).toBe("task.list.result");
     const pauseResult: TaskPauseResultEvent = {
-      v: "0.11",
+      v: "0.12",
       sessionId: "__system__",
       channel: "notification",
       type: "task.pause.result",

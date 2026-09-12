@@ -45,7 +45,7 @@ function setup(opts: { sel?: string | null; settleResult?: boolean } = {}) {
 }
 
 const frame = (type: string, payload: unknown): EventEnvelope =>
-  ({ v: "0.11", type, sessionId: "__system__", channel: "kg", payload }) as EventEnvelope;
+  ({ v: "0.12", type, sessionId: "__system__", channel: "kg", payload }) as EventEnvelope;
 
 describe("createKgFramesListener（M9 #2.31）", () => {
   it("connection.error：读面 loading 收口 + 写面错误经 notifyError 归因", () => {

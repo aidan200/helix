@@ -283,6 +283,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
         "config.set_scheduling.result",
         "connection.error",
         "connection.welcome",
+        "coord.changed",
         "diff.changed",
         "engine.error",
         "engine.retrying",
@@ -542,7 +543,7 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
     expect(roster("interaction")).toEqual([]); // 占位族：无事件挂靠
     expect(roster("trace")).toEqual(["trace.query.result"]); // v0.4 新族（点对点结果帧）
-    expect(roster("notification")).toEqual(["connection.error", "connection.welcome", "task.changed"]); // task 批：+task.changed（挂既有 notification 通道，不新增 Channel 值）
+    expect(roster("notification")).toEqual(["connection.error", "connection.welcome", "coord.changed", "task.changed"]); // task 批：+task.changed（挂既有 notification 通道，不新增 Channel 值）
     expect(roster("web")).toEqual(["web.start.result", "web.status.changed", "web.status.result", "web.stop.result"]); // v0.7 新族 + v0.9 扩展
     expect(roster("kg")).toEqual([
       // kg 批新族（iter-20260825-11fo T5.3）：六命令点对点回执，O-6 零推送事件
@@ -573,10 +574,10 @@ describe("catalog：命令/事件目录完备性与八族登记（源 TP-CL2-③
     ]);
   });
 
-  test("目录计数（沙箱开关批后）：EVENT_TYPES 94 / EVENT_CHANNELS 94 键 / COMMAND_TYPES 76", () => {
-    expect(EVENT_TYPES.length).toBe(94); // 沙箱开关批 +2（config.get/set_sandbox.result）
-    expect(new Set(EVENT_TYPES).size).toBe(94); // 无重复
-    expect(Object.keys(EVENT_CHANNELS).length).toBe(94); // 登记目录恰等
+  test("目录计数（coord 批后）：EVENT_TYPES 95 / EVENT_CHANNELS 95 键 / COMMAND_TYPES 76", () => {
+    expect(EVENT_TYPES.length).toBe(95); // coord 批 +1（coord.changed）
+    expect(new Set(EVENT_TYPES).size).toBe(95); // 无重复
+    expect(Object.keys(EVENT_CHANNELS).length).toBe(95); // 登记目录恰等
     expect(COMMAND_TYPES.length).toBe(76); // 沙箱开关批 +2（config.get/set_sandbox）
   });
 

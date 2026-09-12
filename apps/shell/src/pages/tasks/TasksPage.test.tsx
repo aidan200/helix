@@ -115,7 +115,7 @@ function qs(selector: string): HTMLElement {
 }
 
 function feed(type: string, payload: unknown) {
-  const frame = { v: "0.11", type, sessionId: "__system__", channel: "notification", payload } as EventEnvelope;
+  const frame = { v: "0.12", type, sessionId: "__system__", channel: "notification", payload } as EventEnvelope;
   act(() => {
     for (const l of [...listeners]) l(frame);
   });

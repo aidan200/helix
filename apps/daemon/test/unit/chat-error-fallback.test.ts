@@ -40,7 +40,7 @@ function makeCtx(over: {
     },
     events: { subscribeSession: () => undefined },
     sessionStamp: () => ({ model: "test/model", agentState: "idle" }),
-    snapshotFrame: () => ({ v: "0.11", type: "session.snapshot", payload: {} }),
+    snapshotFrame: () => ({ v: "0.12", type: "session.snapshot", payload: {} }),
     commandError: (type: string, code: string, message: string) => {
       over.errors.push({ type, code, message });
     },

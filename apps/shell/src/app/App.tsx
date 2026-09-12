@@ -47,6 +47,7 @@ import {
 } from "./route";
 import { useAppRoute } from "./useAppRoute";
 import TaskSyncHintToast from "./TaskSyncHintToast";
+import CoordNoticeToast from "./CoordNoticeToast";
 
 /** IconRail 六导航位（序沿 review.md §6 R-P4-1 去 models 位；S2：模型配置归设置页；T3.1：任务位入列）。 */
 const RAIL_ITEMS: readonly IconRailItem<AppRoute>[] = [
@@ -99,6 +100,8 @@ function AppRoutes() {
       <div className="scanline-overlay" aria-hidden="true" />
       {/* W2-D kg sync 提示全局 toast（task.changed 随行 syncHint 直渲；页面无关常驻） */}
       <TaskSyncHintToast />
+      {/* U5 占用协调轻通知（coord.changed 全局广播直渲；escalated 用 warn 提级） */}
+      <CoordNoticeToast />
     </>
   );
 }

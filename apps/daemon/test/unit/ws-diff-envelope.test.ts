@@ -21,7 +21,7 @@ describe("diffChangedFrame（EnvelopeMapper diff 翻译）", () => {
     expect(frame.type).toBe("diff.changed");
     expect(frame.channel).toBe("session");
     expect(frame.sessionId).toBe("sess-9");
-    expect(frame.v).toBe("0.11");
+    expect(frame.v).toBe("0.12");
     expect(frame.payload).toEqual(PAYLOAD);
   });
 

@@ -1,4 +1,4 @@
-# Helix WS 协议 v0.11
+# Helix WS 协议 v0.12
 
 > 当前版本位 `PROTOCOL_VERSION = "0.11"`（envelope.ts）。本文档 = **现行
 > 契约**：§1–§9 基线 + §15/§16 命令事件全集（61 命令 / 78 事件 payload
@@ -55,8 +55,8 @@
 ```ts
 // 本代码块为 packages/protocol/src/envelope.ts 现行定义的忠实呈现（F(2).2 对齐，逐项抄源）。
 
-/** 协议版本位。v0.11 帧 `v` 恒为 "0.11"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
-export const PROTOCOL_VERSION = "0.11" as const;
+/** 协议版本位。v0.12 帧 `v` 恒为 "0.12"；handshake 以此协商（旧客户端 fail-fast 拒绝）。 */
+export const PROTOCOL_VERSION = "0.12" as const;
 
 /**
  * 帧版本位取值域："0.11" = 当前批（v0.11）帧；`0` = v0/v0.1 历史帧（信封兼容读
@@ -71,7 +71,7 @@ export interface WorkspaceRoute {
 
 /** C→S 命令信封基型（契约 A §1.1）。具体命令信封以 `type` 字面量收窄并实例化 `payload`。 */
 export interface CommandFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.11"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：当前批帧 "0.12"；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /** 消息目录名（如 "chat.send" / "session.loadHistory"） */
   type: string;
@@ -87,7 +87,7 @@ export interface CommandFrame<T = unknown> {
 
 /** S→C 事件信封基型（v0.2 统一事件信封，契约 A §1.2；AD-3/AD-4）。 */
 export interface EventFrame<T = unknown> {
-  /** 协议版本位（FrameVersion：当前批帧 "0.11"；0 = v0/v0.1 历史帧兼容读） */
+  /** 协议版本位（FrameVersion：当前批帧 "0.12"；0 = v0/v0.1 历史帧兼容读） */
   v: FrameVersion;
   /** 事件归属会话（v0.2 新增，AD-4）：S→C 运行时必发；系统事件以 SYSTEM_SESSION_ID 占位 */
   sessionId?: string;
@@ -1259,9 +1259,9 @@ deferred 缺省 true = 懒加载：工具经 `${server}__discover` meta 工具�
 |---|---|---|---|---|
 | `server` | `string` | 必填 | mcp 批 | 目标 server |
 
-## 16. 事件 payload 形状总登记（S→C，92 事件全集）
+## 16. 事件 payload 形状总登记（S→C，95 事件全集）
 
-> **计数声明：94 事件全集**（16.1 notification 3〔含 task.changed〕 +
+> **计数声明：95 事件全集**（16.1 notification 4〔含 task.changed + coord 批 coord.changed〕 +
 > 16.2 session 6〔含 main-session plan 批 session.plan.changed + diff 批 diff.changed〕 + 16.11 mcp 7〔mcp 批：六 result + status.changed〕 +
 > 16.3 chat 12〔含 engine.retrying 网络重试批 + error entry 批 error.entry〕 + 16.4 agent 17〔含 park/resume 批 2 + base prompt 批 1 + skill-content 批 1 + skills 添加批 1〕 + 16.5 thinking·compaction·usage 5 +
 > 16.6 model 19〔含 config 瘦身批 4：scheduling 两 result + port 两 result + 沙箱开关批 2，挂 model 通道〕 + 16.7 trace 1 + 16.8 web 4 + 16.9 kg 6+5+2+1+1+1+1 + 16.10 workspace 3 + 16.11 mcp 7
@@ -1293,7 +1293,7 @@ deferred 缺省 true = 懒加载：工具经 `${server}__discover` meta 工具�
 > 双轨并存为 task 批 / diff 批遗留的知情形态（§15.11/§15.12 注记），**新增
 > 命令结果帧一律走主轨①**，第二轨不得新增成员；收敛单轨另案裁决。
 
-### 16.1 notification 族（3；信封 sessionId = SYSTEM_SESSION_ID）
+### 16.1 notification 族（4；信封 sessionId = SYSTEM_SESSION_ID）
 
 #### `connection.welcome`
 
@@ -1331,6 +1331,26 @@ kg 族零推送口径，亦不经会话订阅路由。
 | `changed` | `"job" \| "stage" \| "batch" \| "work_item"` | 必填 | task 批 | 变更面（stage/batch/work_item 级变更前端按需重拉 detail） |
 | `status` | `string` | 可选 | task 批 | job 级变更携带新状态（六态 wire 值） |
 | `syncHint` | `string` | 可选 | W2-D | kg sync 提示（R13：job 终态且 pending_sync 台账有未提示行时随行一帧——机器只记录只提醒，sync 永远人确认；服务层人读文案前端直渲 toast） |
+
+#### `coord.changed`
+
+占用协调事件广播（coord 批 U5；daemon 级全局帧，信封 sessionId =
+SYSTEM_SESSION_ID，不按订阅过滤——全部连接可见：协调冲突需要双方用户都知晓）。领域五个 coord.* 事件
+（claimed/released/settled/undeclared/conflict）统一映射本帧类型，
+kind 区分；**不进 entries 不进上下文**（协调状态是 daemon 级事实，会话
+store 零写入；前端活动窗口轻通知直渲 text，TaskChangedPayload.syncHint
+同规——服务层人读文案单源）。
+
+| 字段 | 类型 | 可选性 | 登记版本 | 语义 |
+|---|---|---|---|---|
+| `kind` | `"claimed" \| "released" \| "settled" \| "undeclared" \| "conflict"` | 必填 | v0.12 | 领域事件类别（coord.* 尾段） |
+| `leaseId` | `string` | 必填 | v0.12 | 租约 id（追溯键，审计行 join） |
+| `ownerAgentId` | `string` | 必填 | v0.12 | 占用者 agent 标识（人读） |
+| `scopeDesc` | `string` | 必填 | v0.12 | 归一范围描述（项目根或 paths 逗号拼接） |
+| `intent` | `string` | 必填 | v0.12 | 声明意图（undeclared 自动补登时为机械文案） |
+| `text` | `string` | 必填 | v0.12 | daemon 生成的人读通知文案（toast 直渲） |
+| `escalated` | `boolean` | 可选 | v0.12 | 冲突升级（同一冲突对反复 claim 无动作 ≥2 次——留给人裁决的信号；仅 conflict kind 携带） |
+| `ts` | `number` | 必填 | v0.12 | 事件时刻（ms） |
 
 ### 16.2 session 族（6；main-session plan 批 +1 + diff 批 +1）
 

@@ -122,7 +122,7 @@ export class ChatService implements ChatPort {
   /** 在飞 run 的 promise（AD-4 删除收口链）：开 run 登记、收口清空——currentRun()/whenSettled() 等待面。 */
   private activeRun: Promise<void> | null = null;
   /** closure 暂存缓冲（T2 送达补齐）：aborting 窗口 FIFO 暂存，abort 收尾回 idle 后逐条 flush（fire-and-forget sendMessage，失败 engine.error 可观测不崩链）。aborting 是瞬时窗口，内存缓冲即可（不做持久化）。 */
-  private readonly closureBuffer: { text: string; source: "closure" | "progress" }[] = [];
+  private readonly closureBuffer: { text: string; source: "closure" | "progress" | "coord" }[] = [];
 
   constructor(private readonly deps: ChatServiceDeps | ChatServiceTestDeps) {
     this.session = deps.session ?? Session.create();
@@ -339,7 +339,7 @@ export class ChatService implements ChatPort {
   }
 
   /** closure 注入主线（AD-8 双通道之一；组合根接 SchedulerService 收口回调，非 ChatPort 成员）：idle 立即新 turn / running·steering 同队列同语义入队（FIFO 保序）/ aborting FIFO 暂存（T2 送达补齐：abort 收尾回 idle 后逐条 flush）/ stopped 可观测丢弃。source（T11a）：注入来源贯通 Entry/steer 事件载荷/SQLite——closure=SubAgent 收口（缺省）；progress=周期进展报告（SchedulerService 同通道）。同步方法（调度链不 await）；新 turn fire-and-forget，异常经 engine.error 可观测不崩会话。 */
-  injectClosure(text: string, source: "closure" | "progress" = "closure"): void {
+  injectClosure(text: string, source: "closure" | "progress" | "coord" = "closure"): void {
     switch (this.lifecycle.current) {
       case "idle":
         void this.sendMessage(text, undefined, source).catch((err) => {

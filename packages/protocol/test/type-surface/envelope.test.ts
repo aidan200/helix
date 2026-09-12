@@ -20,13 +20,13 @@ import { listChangedV02, modelChangedV02, v02Commands, v02Events, v02ResultEvent
 import { v03Commands, v03Events } from "./samples/v03";
 
 // ── 类型级断言（编译期；任一不满足 → tsc --noEmit 失败） ──
-// 帧版本位取值域（v0.9：0 = v0/v0.1 历史帧兼容读，"0.11" = 当前批帧）
+// 帧版本位取值域（v0.9：0 = v0/v0.1 历史帧兼容读，"0.12" = 当前批帧）
 type _VIsVersion = Expect<Equal<HelloCommand["v"], FrameVersion>>;
 
-type _FrameVersionDomain = Expect<Equal<FrameVersion, 0 | "0.11">>;
+type _FrameVersionDomain = Expect<Equal<FrameVersion, 0 | "0.12">>;
 
-// hello 协商位严格 "0.11" 单值（不取 FrameVersion 联合；fail-fast）
-type _HelloVersion = Expect<Equal<HelloPayload["protocolVersion"], "0.11">>;
+// hello 协商位严格 "0.12" 单值（不取 FrameVersion 联合；fail-fast）
+type _HelloVersion = Expect<Equal<HelloPayload["protocolVersion"], "0.12">>;
 
 type _EnvelopeInstanceIdOptional = Expect<
   Equal<EventEnvelope["instanceId"], string | undefined>
@@ -39,18 +39,18 @@ type _EventFrameSessionIdOptional = Expect<Equal<EventFrame["sessionId"], string
 
 type _EventFrameChannelOptional = Expect<Equal<EventFrame["channel"], Channel | undefined>>;
 type _NotificationFamily = Expect<
-  Equal<TypeOfChannel<"notification">, "connection.welcome" | "connection.error" | "task.changed">
->; // task 批（T1.5）：task.changed 挂既有 notification 通道（不新增 Channel 值）
+  Equal<TypeOfChannel<"notification">, "connection.welcome" | "connection.error" | "task.changed" | "coord.changed">
+>; // task 批（T1.5）+coord 批（U5）：挂既有 notification 通道（不新增 Channel 值）
 
-// ④ 版本位批次标记："0.11"（typeof PROTOCOL_VERSION 单值；FrameVersion / hello 联动见上）
-type _ProtocolVersionV03 = Expect<Equal<typeof PROTOCOL_VERSION, "0.11">>;
+// ④ 版本位批次标记："0.12"（typeof PROTOCOL_VERSION 单值；FrameVersion / hello 联动见上）
+type _ProtocolVersionV03 = Expect<Equal<typeof PROTOCOL_VERSION, "0.12">>;
 
 describe("envelope：信封分型/版本位/兼容红线/预留与路由位（源 TP-CL2-①② / TP-v0.1-①③ / TP-v0.2-① / TP-v0.3-②）", () => {
   test("hello/welcome/snapshot/delta/工具卡/steer 徽标样例帧结构正确", () => {
-    expect(helloFrame.v).toBe("0.11");
+    expect(helloFrame.v).toBe("0.12");
     expect(helloFrame.type).toBe("hello");
     expect(helloFrame.payload.token).toBe("dev-token-xyz");
-    expect(helloFrame.payload.protocolVersion).toBe("0.11");
+    expect(helloFrame.payload.protocolVersion).toBe("0.12");
 
     const byType = new Map(legacyEvents.map((e) => [e.type, e] as const));
     const welcome = byType.get("connection.welcome");
@@ -84,9 +84,9 @@ describe("envelope：信封分型/版本位/兼容红线/预留与路由位（�
   });
 
   test("PROTOCOL_VERSION = \"0.9\"；当前批帧 v 位全为 \"0.9\"，历史帧 v=0 合法（兼容读）", () => {
-    expect(PROTOCOL_VERSION).toBe("0.11");
+    expect(PROTOCOL_VERSION).toBe("0.12");
     for (const frame of [...v02Events, ...v02ResultEvents, ...v02Commands, ...v03Commands, ...v03Events, helloFrame]) {
-      expect(frame.v).toBe("0.11");
+      expect(frame.v).toBe("0.12");
     }
     for (const frame of [...legacyEvents, ...legacyCommands, ...v01Commands, ...v01Events]) {
       expect(frame.v).toBe(0); // v0/v0.1 历史帧：FrameVersion 取值域内合法
@@ -110,7 +110,7 @@ describe("envelope：信封分型/版本位/兼容红线/预留与路由位（�
   });
 
   test("PROTOCOL_VERSION / SYSTEM_SESSION_ID 导出就位（MAIN_INSTANCE_ID 已随 T10c 退役）", () => {
-    expect(PROTOCOL_VERSION).toBe("0.11");
+    expect(PROTOCOL_VERSION).toBe("0.12");
     // 常量断言经模块命名空间在 exports.test.ts 全量守护，此处锚定语义值
     expect(typeof PROTOCOL_VERSION).toBe("string");
   });
@@ -124,10 +124,10 @@ describe("envelope：信封分型/版本位/兼容红线/预留与路由位（�
   });
 
   test("PROTOCOL_VERSION = \"0.9\"；hello 协商位单值联动；当前批帧 v 位全 \"0.9\"", () => {
-    expect(PROTOCOL_VERSION).toBe("0.11");
-    expect(helloFrame.payload.protocolVersion).toBe("0.11");
+    expect(PROTOCOL_VERSION).toBe("0.12");
+    expect(helloFrame.payload.protocolVersion).toBe("0.12");
     for (const frame of [...v03Commands, ...v03Events]) {
-      expect(frame.v).toBe("0.11");
+      expect(frame.v).toBe("0.12");
     }
     for (const frame of v03Events) {
       expect(frame.channel).toBe("agent"); // 增量帧仍走 agent 族（零新增事件类型）

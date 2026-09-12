@@ -418,8 +418,14 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     planReaderFor: () => planReaderRef,
     workspaceRoot: () => toolCwdOf(),
     now: () => Date.parse(clock.now()),
+    // U6：冲突占用者 steer 注入（晚绑 ref——SessionRegistry 在本块之后构造，
+    // L989；注入失败静默（stopped 会话可观测丢弃已是 injectClosure 语义））
+    notifyOwner: (sid, text) => {
+      registryRef?.peek(sid)?.chatService.injectClosure(text, "coord");
+    },
   });
   const coordinationRef = coordination;
+  let registryRef: SessionRegistry | undefined;
   let planReaderRef: import("../../application/services/task/WorkLedgerService").WorkLedgerService | undefined;
   const turnDiff = new TurnDiffService(
     {
@@ -1040,6 +1046,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // U2 观测态晚绑回填：registry 建成——scheduler 的 sessionRunStateOf
   // 闭包从冷会话兑底切真读口（main 实例 displayState 实时化）
   sessionRunStateOfImpl = (sessionId) => registry.sessionRunStateOf(sessionId);
+  // U6 占用协调晚绑回填：registry 建成——冲突占用者 steer 注入读口
+  registryRef = registry;
 
   // ── services：会话状态入口（当前会话读面，经注册表组装） ──────────
   const sessionService = new SessionService({

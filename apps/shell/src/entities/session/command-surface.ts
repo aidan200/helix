@@ -683,6 +683,11 @@ export const LISTEN_SURFACE = {
       type === "code.review.create.result" ||
       (type.startsWith("kg.") && type.endsWith(".result")),
   },
+  /** 订阅 coord 族帧（coord.changed 占用协调轻通知，U5——daemon 级全局
+   *  广播不按会话订阅路由；活动窗口轻条目消费 + connection.error）。 */
+  subscribeCoordFrames: {
+    match: (type) => type === "coord.changed" || type === "connection.error",
+  },
   /** 订阅 task 族帧（task.*.result 点对点回执 + task.changed 广播 +
    *  connection.error——生命周期在途错误判定，页面单飞门控消费）。 */
   subscribeTaskFrames: {

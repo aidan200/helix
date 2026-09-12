@@ -13,8 +13,8 @@
  * 冷恢复不丢；列前时代旧行 NULL → 缺省（= user 语义）。
  */
 
-/** 注入来源三值枚举（helix 自有；与协议面 SteerSource 同值域，adapter 层映射）。 */
-export type SteerSource = "user" | "closure" | "progress";
+/** 注入来源四值枚举（helix 自有；与协议面 SteerSource 同值域，adapter 层映射）。coord = 占用冲突通知（U6）。 */
+export type SteerSource = "user" | "closure" | "progress" | "coord";
 
 export interface SteerItem {
   readonly entryId: string;

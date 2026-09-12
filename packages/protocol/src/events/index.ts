@@ -125,6 +125,7 @@ import type {
 } from "./workspace";
 import type { TaskChangedEvent } from "../types/task";
 import type { DiffChangedEvent } from "./diff";
+import type { CoordChangedEvent, CoordChangedPayload } from "./coord";
 import type {
   McpServersListResultEvent,
   McpServersAddResultEvent,
@@ -148,6 +149,7 @@ export * from "./web";
 export * from "./kg";
 export * from "./workspace";
 export * from "./diff";
+export * from "./coord";
 export * from "./mcp";
 
 /** 事件信封联合（判别式：type 字段窄化；channel 分族窄化见守护测试） */
@@ -239,6 +241,7 @@ export type EventEnvelope =
   | WorkspaceChangedEvent
   | TaskChangedEvent
   | DiffChangedEvent
+  | CoordChangedEvent
   | McpServersListResultEvent
   | McpServersAddResultEvent
   | McpServersUpdateResultEvent
@@ -336,6 +339,7 @@ export const EVENT_TYPES = [
   "workspace_changed",
   "task.changed",
   "diff.changed",
+  "coord.changed",
   "mcp.servers.list.result",
   "mcp.servers.add.result",
   "mcp.servers.update.result",
@@ -440,6 +444,7 @@ export const EVENT_CHANNELS = {
   "workspace.open.result": "workspace",
   "workspace_changed": "workspace",
   "task.changed": "notification",
+  "coord.changed": "notification",
   "diff.changed": "session",
   "mcp.servers.list.result": "mcp",
   "mcp.servers.add.result": "mcp",

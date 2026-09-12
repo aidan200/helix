@@ -46,7 +46,7 @@ function makeCtx(payload: Record<string, unknown>, envelope: { sessionId?: unkno
     events: { subscribeSession: () => undefined },
     sessionStamp: () => ({ model: "test/model", agentState: "idle" }),
     snapshotFrame: (view: unknown, model: string, agentState: unknown) => ({
-      v: "0.11",
+      v: "0.12",
       sessionId: (view as { session: { sessionId: string } }).session.sessionId,
       channel: "session",
       type: "session.snapshot",

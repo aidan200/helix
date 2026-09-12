@@ -56,6 +56,8 @@ export interface CoordinationDeps {
   readonly settleTtlMs?: number;
   /** ghost 降级阈值（缺省 6h——超长闲置不算阻塞面）。 */
   readonly ghostAfterMs?: number;
+  /** 冲突占用者通知口（U6：经 SessionRegistry 解析会话 injectClosure steer 注入；缺省 = 无注入只审计）。 */
+  readonly notifyOwner?: (sessionId: string, text: string) => void;
 }
 
 export interface ClaimInput {
@@ -91,6 +93,8 @@ function newLeaseId(): string {
 export class CoordinationService {
   private readonly byId = new Map<string, LeaseState>();
   private readonly turnStartAt = new Map<string, number>();
+  /** 占用者的冲突会话集合（U6 多后来者升级判据：占用租约 id → 不同冲突会话集）。 */
+  private readonly conflictCounts = new Map<string, Set<string>>();
   private readonly settleTtlMs: number;
   private readonly ghostAfterMs: number;
 
@@ -142,7 +146,32 @@ export class CoordinationService {
     this.byId.set(lease.leaseId, { data: lease });
     const conflicts = this.conflictsFor(input.scope, input.ownerSessionId);
     this.emit("coord.claimed", lease, conflicts.length > 0 ? conflicts.map((c) => c.leaseId) : undefined);
+    if (conflicts.length > 0) this.notifyConflict(lease, conflicts);
     return { lease, conflicts, deduplicated: false };
+  }
+
+  /**
+   * 冲突处置（U6）：独立 coord.conflict 审计 + 占用者 steer 注入 + 多后来者升级。
+   * 同一占用者在存活期内被 ≥2 个**不同会话**冲突 claim → escalated: true
+   * （多方僵持信号——留给人裁决，系统永不机械裁决，AD 原则）。
+   * 注：同对「反复 claim」不可达（幂等重入不触发 + release 清计数）——
+   * 多后来者判据是可达且更强的僵持信号。
+   */
+  private notifyConflict(newcomer: OccupancyLeaseData, conflicts: readonly OccupancyLeaseData[]): void {
+    for (const existing of conflicts) {
+      // 占用者的后来者集合（不同会话计数）
+      const challengers = this.conflictCounts.get(existing.leaseId) ?? new Set<string>();
+      challengers.add(newcomer.ownerSessionId);
+      this.conflictCounts.set(existing.leaseId, challengers);
+      const escalated = challengers.size >= 2;
+      // 审计：后来者视角的 conflict 事件（escalated 随多方僵持携带）
+      this.emit("coord.conflict", newcomer, [existing.leaseId], escalated);
+      // steer 注入占用者会话（AD-8 closure 注入同构：idle 被唤醒开 turn 响应）
+      const text = escalated
+        ? `⚠ 占用冲突升级：${newcomer.ownerAgentId} 再次 claim 你占用的 ${describeScope(existing.scope)}（intent=${newcomer.intent}）——已有 ≥2 个会话在争用此范围，僵持需人工裁决：请 release 让渡 / agent_send 协商 / 或向用户说明。`
+        : `占用冲突通知：${newcomer.ownerAgentId} 正在 claim 你占用的 ${describeScope(existing.scope)}（intent=${newcomer.intent}）。可 release 让渡 / agent_send 协商 / 保持不动（后来者已被建议转 isolated spawn）。`;
+      this.deps.notifyOwner?.(existing.ownerSessionId, text);
+    }
   }
 
   /** 释放本会话租约（scope 缺省 = 全部；返回释放数）。 */
@@ -152,10 +181,16 @@ export class CoordinationService {
       if (st.data.ownerSessionId !== input.ownerSessionId) continue;
       if (input.scope !== undefined && !scopesOverlap(input.scope, st.data.scope)) continue;
       this.byId.delete(id);
+      this.clearConflictCounts(id);
       released += 1;
       this.emit("coord.released", st.data);
     }
     return { released };
+  }
+
+  /** 租约消失（释放/收口/删除）→ 其冲突会话集失效清理。 */
+  private clearConflictCounts(leaseId: string): void {
+    this.conflictCounts.delete(leaseId);
   }
 
   // ── 读面（coord_query / 观测） ──
@@ -259,6 +294,7 @@ export class CoordinationService {
       const executors = st.data.executors.filter((e) => e !== executorId);
       if (executors.length === 0 && st.data.source === "isolated") {
         this.byId.delete(id);
+        this.clearConflictCounts(id);
         this.emit("coord.released", st.data);
       } else {
         st.data = { ...st.data, executors };
@@ -337,6 +373,7 @@ export class CoordinationService {
     for (const [id, st] of [...this.byId]) {
       if (st.data.status === "settled" && now - st.data.lastActivityAt > this.settleTtlMs) {
         this.byId.delete(id);
+        this.clearConflictCounts(id);
       } else if (
         (st.data.status === "active" || st.data.status === "stale") &&
         now - st.data.lastActivityAt > this.ghostAfterMs
@@ -370,9 +407,10 @@ export class CoordinationService {
 
   /** 审计事件（sessionId = 租约归属会话；occurredAt 由 publish 面不重造——此处now）。 */
   private emit(
-    type: "coord.claimed" | "coord.released" | "coord.settled" | "coord.undeclared",
+    type: "coord.claimed" | "coord.released" | "coord.settled" | "coord.undeclared" | "coord.conflict",
     lease: OccupancyLeaseData,
     conflictWith?: readonly string[],
+    escalated?: boolean,
   ): void {
     const payload: CoordLeasePayload = {
       leaseId: lease.leaseId,
@@ -384,6 +422,7 @@ export class CoordinationService {
       source: lease.source,
       status: lease.status,
       ...(conflictWith !== undefined ? { conflictWith } : {}),
+      ...(escalated === true ? { escalated: true } : {}),
     };
     this.deps.publish({
       type,

@@ -17,12 +17,13 @@ export type TurnCompletionReason = "completed" | "aborted";
 
 /**
  * 注入来源（v0.11 批内补登，T11a closure/steer source 贯通）：helix 自有
- * 三值枚举（AD-2 字符串透传原则不适用——协议面定死）。
+ * 四值枚举（AD-2 字符串透传原则不适用——协议面定死）。
  * user=用户 steer；closure=SubAgent 收口注入（AD-8）；progress=周期进展
- * 报告（SchedulerService injectClosure 同通道）。可选 additive：老事件/
- * 老快照缺省 = undefined，消费侧按 user 渲染。
+ * 报告（SchedulerService injectClosure 同通道）；coord=占用冲突通知
+ *（U6 CoordinationService 同通道，escalated 随文案）。可选 additive：
+ * 老事件/老快照缺省 = undefined，消费侧按 user 渲染。
  */
-export type SteerSource = "user" | "closure" | "progress";
+export type SteerSource = "user" | "closure" | "progress" | "coord";
 
 /**
  * 消息条目（EntryDto 的 message 变体）。

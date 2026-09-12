@@ -28,6 +28,7 @@ function harness(opts?: {
   ghostAfterMs?: number;
 }) {
   const events: DomainEvent[] = [];
+  const notifications: { sessionId: string; text: string }[] = [];
   const writeFacts = new WriteFactRegistry({ workspaceRoot: () => WS, now: () => 1000 });
   let now = 1000;
   const service = new CoordinationService({
@@ -38,11 +39,14 @@ function harness(opts?: {
     }),
     workspaceRoot: () => WS,
     now: () => now,
+    // U6：占用者注入收集器（组合根 = registry.peek → injectClosure）
+    notifyOwner: (sessionId, text) => notifications.push({ sessionId, text }),
     ...(opts?.settleTtlMs !== undefined ? { settleTtlMs: opts.settleTtlMs } : {}),
     ...(opts?.ghostAfterMs !== undefined ? { ghostAfterMs: opts.ghostAfterMs } : {}),
   });
   return {
     events,
+    notifications,
     writeFacts,
     service,
     advance: (ms: number) => {
@@ -78,6 +82,34 @@ describe("CoordinationService：claim/release/conflicts", () => {
     expect(rb.conflicts[0]!.ownerSessionId).toBe("a");
     expect(rb.lease.status).toBe("active"); // 永不拒绝
     expect(h.service.leases().length).toBe(2);
+  });
+
+  test("U6 冲突注入：coord.conflict 审计 + 占用者注入；≥2 不同会话冲突同占用者 → escalated", () => {
+    const h = harness();
+    h.service.claim({ ownerSessionId: "a", ownerAgentId: "a-main", scope: { kind: "project", projectRoot: PROJ_A }, intent: "A 占用" });
+    // B 首次冲突：coord.conflict 审计（无 escalated）+ 注入 A 一次
+    const rb = h.service.claim({ ownerSessionId: "b", ownerAgentId: "b-main", scope: { kind: "project", projectRoot: PROJ_A }, intent: "B 要用" });
+    expect(rb.conflicts).toHaveLength(1);
+    const conflictEvents = h.events.filter((e) => e.type === "coord.conflict");
+    expect(conflictEvents).toHaveLength(1);
+    expect((conflictEvents[0]!.payload as { escalated?: boolean }).escalated).toBeUndefined();
+    expect(h.notifications).toHaveLength(1);
+    expect(h.notifications[0]!.sessionId).toBe("a");
+    expect(h.notifications[0]!.text).toContain("占用冲突通知");
+    expect(h.notifications[0]!.text).toContain("b-main");
+    // C 第二个会话冲突同占用者 → escalated（多方僵持信号；C 冲突面 = [A,B] 两事件，A 侧升级）
+    h.service.claim({ ownerSessionId: "c", ownerAgentId: "c-main", scope: { kind: "project", projectRoot: PROJ_A }, intent: "C 也要" });
+    const round2 = h.events.filter((e) => e.type === "coord.conflict").slice(-2);
+    const escalatedOnes = round2.filter((e) => (e.payload as { escalated?: boolean }).escalated === true);
+    expect(escalatedOnes).toHaveLength(1); // 仅 A 侧升级（B 侧首冲突）
+    expect(h.notifications).toHaveLength(3); // C 对 [A,B] 各注入一条：对 A 升级文案 + 对 B 首冲突文案
+    // A 释放 → 其冲突集清零 → 新占用者 D 起，E 冲突回非升级基线
+    h.service.release({ ownerSessionId: "a" });
+    h.service.release({ ownerSessionId: "b" });
+    h.service.release({ ownerSessionId: "c" });
+    h.service.claim({ ownerSessionId: "d", ownerAgentId: "d-main", scope: { kind: "project", projectRoot: PROJ_A }, intent: "D 占用" });
+    h.service.claim({ ownerSessionId: "e", ownerAgentId: "e-main", scope: { kind: "project", projectRoot: PROJ_A }, intent: "E 冲突" });
+    expect((h.events.filter((e) => e.type === "coord.conflict").at(-1)!.payload as { escalated?: boolean }).escalated).toBeUndefined();
   });
 
   test("不同项目不冲突；project/paths 前缀相交冲突；release 按范围", () => {

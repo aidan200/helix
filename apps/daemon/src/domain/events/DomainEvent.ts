@@ -320,4 +320,6 @@ export interface CoordLeasePayload {
   readonly status: "active" | "settled" | "stale" | "ghost";
   /** 与既有占用重叠的租约 id 清单（仅 coord.conflict 携带；缺省无冲突）。 */
   readonly conflictWith?: readonly string[];
+  /** 冲突升级（U6：同一冲突对反复 claim 无动作 ≥2 次——留给人裁决的信号）。 */
+  readonly escalated?: boolean;
 }

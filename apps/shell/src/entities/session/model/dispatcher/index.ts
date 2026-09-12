@@ -166,6 +166,10 @@ export const PASSTHROUGH_EVENT_TYPES = [
   // tasks-model 听众——connection 面听众转发模式，kg 族先例）；任务非会话维
   // ——帧经 notification 通道 daemon 级下发，会话 store 零写入。
   "task.changed",
+  // coord 批（U5）：coord.changed 占用协调轻通知——daemon 级广播，真消费归
+  // CoordNoticeToast（SessionContext 转发层 subscribeCoordFrames，task 族
+  // 先例）；会话 store 零写入（协调状态非会话维）。
+  "coord.changed",
   // mcp 族（mcp 批：MCP server 标准接入；六 result + status.changed 广播）：
   // 设置页 MCP 分区连接私有读面/广播，真消费归 McpSettingsSection 域订阅
   //（SessionContext 转发层 subscribeMcpFrames——workspace/kg 族先例）；
