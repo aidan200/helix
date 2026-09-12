@@ -71,6 +71,7 @@ describe("SubAgentProfile 结构（T2.2，AD-2/AD-3）", () => {
     expect(SubAgentProfile.tools).toEqual(
       MainSessionProfile.tools
         .filter((t) => !t.startsWith("agent_"))
+        .filter((t) => !t.startsWith("coord_")) // U4：决策工具不进执行者生效集
         .filter((t) => t !== "task_create")
         .filter((t) => t !== "task_report")
         .filter((t) => t !== "kg-update"),

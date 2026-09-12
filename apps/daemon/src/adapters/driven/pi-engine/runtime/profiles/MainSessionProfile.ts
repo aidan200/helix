@@ -103,6 +103,12 @@ export const MainSessionProfile: AgentProfile = {
     "plan_create",
     "plan_update",
     "plan_read",
+    // coord 三工具（U4 占用协调）：声明/释放/查询占用租约——跨会话共享
+    // 工作树的写冲突感知面；仅 MainSessionProfile 声明（决策主体——
+    // SubAgent 执行者不拿决策工具；orchestrator 子进程 wire 访问留后批）
+    "coord_claim",
+    "coord_release",
+    "coord_query",
   ], // 装配经 CoreToolExecutor.resolveTools（组合根）
   lifecycle: { mode: "persistent" },
   hooks: [SteerHooks, MinimalHooks], // 构造器引用（T1：实例化在 AgentRuntime 装配点，每 runtime 独立）

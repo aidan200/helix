@@ -45,8 +45,15 @@ export type DomainEventType =
   // ── v0.4 执行上下文面（AD-5/AD-6；只落盘不广播）──
   | "agent.instantiated"
   | "agent.model.changed"
-  // ── thinking 批（v0.11，AD-4①③；只落盘不广播，广播走 thinking.changed 链）──
-  | "agent.thinking.changed";
+  // ── thinking 批（v0.11，AD-4①③；只落盘不广播，广播走 thinking.changed 链，EnvelopeMapper default → null）──
+  | "agent.thinking.changed"
+  // ── coord.* 占用协调族（U4；只落盘审计——经 event-row-persistence 落
+  // domain_events，广播/协议帧归 U5 批）──
+  | "coord.claimed"
+  | "coord.released"
+  | "coord.settled"
+  | "coord.undeclared"
+  | "coord.conflict";
 
 export interface DomainEvent<P = unknown> {
   readonly type: DomainEventType;
@@ -296,4 +303,21 @@ export interface AgentThinkingChangedPayload {
   readonly instanceId: string;
   /** 会话覆盖档（pi-ai ThinkingLevel 字符串透传；无关闭态——无覆盖即无事件）。 */
   readonly level: string;
+}
+
+// ── coord.* 占用协调族载荷（U4；只落盘审计，广播归 U5）─────────
+
+/** 占用租约快照（coord.* 事件载荷；describe 字段为人读审计面）。 */
+export interface CoordLeasePayload {
+  readonly leaseId: string;
+  readonly ownerSessionId: string;
+  readonly ownerAgentId: string;
+  readonly scopeKind: "project" | "paths";
+  /** 归一后的范围描述（project 根或 paths 逗号拼接）。 */
+  readonly scopeDesc: string;
+  readonly intent: string;
+  readonly source: "claimed" | "isolated" | "undeclared";
+  readonly status: "active" | "settled" | "stale" | "ghost";
+  /** 与既有占用重叠的租约 id 清单（仅 coord.conflict 携带；缺省无冲突）。 */
+  readonly conflictWith?: readonly string[];
 }

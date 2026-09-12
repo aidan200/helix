@@ -426,7 +426,10 @@ async function main(): Promise<void> {
     t !== "codegraph" &&
     t !== "plan_create" &&
     t !== "plan_update" &&
-    t !== "plan_read";
+    t !== "plan_read" &&
+    t !== "coord_claim" &&
+    t !== "coord_release" &&
+    t !== "coord_query";
   const engineFor = (): PiAgentEngineAdapter =>
     new PiAgentEngineAdapter({
       profile: {

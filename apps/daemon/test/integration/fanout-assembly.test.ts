@@ -23,7 +23,7 @@ import { isStoppedStateChange, taskParkBridgeTarget } from "../../src/infrastruc
  *   domain_events、不进 fan-out 注册表（架构 §4.2.3）。
  */
 
-/** 七名语义序（架构 §4.2.4；fan-out 派发序 = 注册表数组序；⑤ 链 A 新增 task-park-bridge）。 */
+/** 八名语义序（架构 §4.2.4；fan-out 派发序 = 注册表数组序；⑤ 链 A 新增 task-park-bridge；U4 新增 coord-bridge 末位）。 */
 const FANOUT_NAMES = [
   "cli-stdout",
   "cli-current-session-feedback",
@@ -32,6 +32,7 @@ const FANOUT_NAMES = [
   "event-row-persistence",
   "session-projection",
   "directory-runstate-bridge",
+  "coord-bridge",
 ] as const;
 
 interface Frame {
@@ -113,7 +114,7 @@ async function makeRig(): Promise<Rig> {
 }
 
 describe("TP-2.2a：fan-out 带名注册表（架构 §4.2.4）", () => {
-  test("注册表名字序列恰等七名语义序（cli-stdout 最前；事件行先于状态行；task-park-bridge 紧随 WS 事件流）", async () => {
+  test("注册表名字序列恰等八名语义序（cli-stdout 最前；事件行先于状态行；task-park-bridge 紧随 WS 事件流；coord-bridge 末位）", async () => {
     const rig = await makeRig();
     try {
       const names = rig.daemon.fanoutTargets.map((t) => t.name);

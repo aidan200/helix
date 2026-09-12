@@ -26,6 +26,7 @@ import type { SchedulerService } from "../../application/services/scheduler/Sche
 import type { RuntimeMaterial, SessionRuntime } from "../../application/services/SessionRegistry";
 import { createTurnDiffState, TurnDiffService, type TurnDiffState } from "../../application/services/TurnDiffService";
 import type { WriteFactRegistry } from "../../application/services/WriteFactRegistry";
+import type { CoordinationService } from "../../application/services/CoordinationService";
 import type { McpRegistry } from "../../adapters/driven/mcp/McpRegistry";
 import { createMcpDiscoverTools, createMcpTools } from "../../adapters/driven/mcp/mcp-tool";
 import { McpDeferredHooks } from "../../adapters/driven/pi-engine/runtime/hooks/McpDeferredHooks";
@@ -92,7 +93,7 @@ export type SessionEngineFactory = (
  */
 export function effectiveMainToolNames(
   declared: readonly string[],
-  injected: { readonly kg: boolean; readonly codegraph: boolean; readonly taskCreate: boolean; readonly taskReport: boolean; readonly plan: boolean },
+  injected: { readonly kg: boolean; readonly codegraph: boolean; readonly taskCreate: boolean; readonly taskReport: boolean; readonly plan: boolean; readonly coord: boolean },
 ): string[] {
   return declared
     .filter((t) => injected.kg || (t !== "kg" && t !== "kg-update"))
@@ -102,6 +103,10 @@ export function effectiveMainToolNames(
     .filter(
       (t) =>
         injected.plan || (t !== "plan_create" && t !== "plan_update" && t !== "plan_read"),
+    )
+    .filter(
+      (t) =>
+        injected.coord || (t !== "coord_claim" && t !== "coord_release" && t !== "coord_query"),
     );
 }
 
@@ -134,6 +139,8 @@ export interface MainEngineFactoryCtx {
   readonly sessionExecutors: Map<string, CoreToolExecutor>;
   /** 主会话 plan 三工具服务面（mainPlanStack 切片；undefined = 不注册 + 清单剔除）。 */
   readonly planToolService: PlanToolDeps["service"] | undefined;
+  /** U4 占用协调服务（daemon 全局单例——coord 三工具注入面；缺省不注册）。 */
+  readonly coordination?: CoordinationService;
   readonly catalog: ModelCatalog;
   readonly authStore: AuthStore;
   readonly defaultModel: DefaultModelStore;
@@ -196,6 +203,12 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       ctx.planToolService === undefined
         ? undefined
         : { service: ctx.planToolService, instanceId: sessionId };
+    // U4 占用协调：coord 三工具身份绑定（sessionId + main 实例——装配面
+    // 注入防伪造；未注入（测试形态）→ 不注册 + 清单剔除）
+    const coordDeps =
+      ctx.coordination === undefined
+        ? undefined
+        : { service: ctx.coordination, sessionId, instanceId: bind?.mainInstanceId ?? "main" };
     const toolExecutor = new CoreToolExecutor({
       cwd: ctx.toolCwdOf(),
       // U1 护栏：bash 子进程携带会话标识 + manifest 根（pre-commit hook
@@ -207,6 +220,8 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       },
       orchestration: sessionOrchestration,
       grep: ctx.grep,
+      // U4：coord 三工具（占用协调声明/查询面；身份绑定装配面注入）
+      ...(coordDeps !== undefined ? { coord: coordDeps } : {}),
       // U0b：bash 写感知（main 实例归属闭包——裸事实补 instanceId/sessionId
       // 后进 registry；preciseSince 剧本他人工具写做归属剔除）
       ...(bind !== undefined && ctx.writeFacts !== undefined
@@ -313,12 +328,14 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
         // profile 声明与 executor 注册面一致（resolveTools 硬校验不破）；
         // 绑定后新建会话自动恢复注册面。
         // task_create/plan 三名同款：未注入（测试形态）时剔除，声明与注册一致。
+        // coord 三名（U4）：未注入（测试形态）剔除——声明面 = 注册面。
         tools: effectiveMainToolNames(ctx.mainAssemblyOf().tools, {
           kg: kgTools !== undefined,
           codegraph: codegraphTool !== undefined,
           taskCreate: ctx.taskCreate !== undefined,
           taskReport: ctx.taskReport !== undefined,
           plan: planDeps !== undefined,
+          coord: ctx.coordination !== undefined,
         }),
         // 压缩参数可配置（KV 存储值 ?? DEFAULT_COMPACTION）；每会话装配读现值。
         compaction: ctx.compactionSettings(),
@@ -368,6 +385,8 @@ export interface SessionRuntimeFactoryCtx {
   readonly mainAssemblyOf: () => AssemblySnapshot;
   /** U7 会话足迹常驻段（engineFor 同款字段——instantiatedSnapshot 接触点尾拼；缺省不拼）。 */
   readonly residentRulesFor?: (sessionId: string) => string | null;
+  /** U4 占用协调服务（instantiatedSnapshot 声明面=注册面铁律的 coord 旗标源；缺省 = false 剔除）。 */
+  readonly coordination?: CoordinationService;
   readonly compactionSettings: () => CompactionSettings;
   /** mainPlanStack 已装配（instantiatedSnapshot 的 plan 注入旗标同源）。 */
   readonly hasMainPlan: boolean;
@@ -447,6 +466,7 @@ export function buildSessionRuntimeFactory(ctx: SessionRuntimeFactoryCtx): (mate
           taskCreate: ctx.taskCreate !== undefined,
           taskReport: ctx.taskReport !== undefined,
           plan: ctx.hasMainPlan,
+          coord: ctx.coordination !== undefined,
         }),
         model: engine.currentModel?.() ?? ctx.defaultModel.current(),
         ...(MainSessionProfile.compaction !== undefined

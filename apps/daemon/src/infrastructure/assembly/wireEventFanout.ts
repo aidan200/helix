@@ -106,13 +106,16 @@ export interface WireEventFanoutDeps {
   readonly eventStream: EventStream;
   readonly writeQueue: WriteQueue;
   readonly stdoutPublisher: StdoutEventPublisher;
+  /** U4 占用协调（可选——纯调度测试形态不注入）：轮末对账 + 实例终态摘除的 fanout 入口。 */
+  readonly coordination?: { onDomainEvent(event: DomainEvent): void };
 }
 
 /**
- * fan-out 七目标装配（序：CLI stdout → CLI 事件回灌（当前会话过滤）→ WS 事件流
+ * fan-out 八目标装配（序：CLI stdout → CLI 事件回灌（当前会话过滤）→ WS 事件流
  * → 任务停桥（task-park-bridge，第 4 目标）→ 写队列持久化（事件行，行级
  * session_id 分仓路由）→ 会话投影路由（**先事件行后状态行**，同会话仓内 FIFO 保序）
- * → 清单运行态桥（活动标记 + state_changed）。
+ * → 清单运行态桥（活动标记 + state_changed）→ 占用协调桥（coord-bridge，U4
+ * 增强面末位——序位不阻断既有目标语义）。
  * SubAgent 实例事件（instanceId ≠ main）落行 agent_kind=subagent（四维可查口径）。
  */
 export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanoutDeps): void {
@@ -179,4 +182,17 @@ export function wireEventFanout(publisher: FanoutPublisher, deps: WireEventFanou
       publishDelta: (delta) => registry.touchActivity(delta.sessionId),
     },
   });
+  // 第八目标（U4）：占用协调桥——turn.* 轮末对账 + agent.* 实例终态/闲置
+  // 事件流入协调面（coord.* 自身事件在 service 内部被忽略，防回环）。
+  // 序位末尾：协调是增强面，不阻断既有目标语义。
+  if (deps.coordination !== undefined) {
+    const coordination = deps.coordination;
+    publisher.add({
+      name: "coord-bridge",
+      target: {
+        publish: (event) => coordination.onDomainEvent(event),
+        publishDelta: () => undefined,
+      },
+    });
+  }
 }

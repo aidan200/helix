@@ -39,6 +39,7 @@ import { createWebSearchTool } from "./web/WebSearchTool";
 import { createWebFetchTool } from "./web/WebFetchTool";
 import { createBrowserTool } from "./web/BrowserTools";
 import { createAgentSpawnTool, createAgentSendTool, createAgentStatusTool, createAgentInspectTool, createAgentParkTool, createAgentResumeTool } from "./agent/AgentOrchestrationTools";
+import { type CoordToolDeps, createCoordClaimTool, createCoordQueryTool, createCoordReleaseTool } from "./coord/CoordTools";
 import { imagesOfContent } from "../../../application/services/images";
 import type { KgQueryService } from "../../../application/services/kg/KgQueryService";
 import type { KnowledgeWriteOp, WriteResult } from "../../../domain/kg/types";
@@ -114,6 +115,12 @@ export interface CoreToolExecutorOptions {
    * 装配/无编排场景的 profile 不声明这些名）。
    */
   readonly orchestration?: AgentOrchestrationPort;
+  /**
+   * 占用协调注入面（U4）：提供则注册 coord_claim/coord_release/coord_query
+   * 三工具（仅 MainSessionProfile 声明——决策主体；SubAgent 执行者不拿
+   * 决策工具）。缺省不注册。
+   */
+  readonly coord?: CoordToolDeps;
   /**
    * 浏览器连接端口（动态族）：提供则注册单 browser 工具（action 参数
    * 分发，纯薄转投，CDP 知识全在 port 实现）；缺省不注册——ChildMain
@@ -264,6 +271,14 @@ export class CoreToolExecutor implements ToolExecutorPort {
         createAgentInspectTool(options.orchestration), // T3-B
         createAgentParkTool(options.orchestration), // ⑤ 链 C：挂起（仅 Main 声明）
         createAgentResumeTool(options.orchestration), // ⑤ 链 C：恢复（仅 Main 声明）
+      );
+    }
+    if (options.coord !== undefined) {
+      // U4：coord 三工具（占用协调声明/查询面——身份绑定装配面注入）
+      tools.push(
+        createCoordClaimTool(options.coord),
+        createCoordReleaseTool(options.coord),
+        createCoordQueryTool(options.coord),
       );
     }
     if (options.browser !== undefined) {

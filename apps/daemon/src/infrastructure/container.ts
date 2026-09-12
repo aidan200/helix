@@ -684,6 +684,8 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     eventStream,
     writeQueue: persistence.writeQueue,
     stdoutPublisher,
+    // U4：占用协调桥（turn 轮末对账 + 实例终态摘除）
+    coordination: sessionStack.coordination,
   });
 
   // ── 装配序步 6：typed 回填面闭合（§4.2.5——scheduler↔registry 构造环

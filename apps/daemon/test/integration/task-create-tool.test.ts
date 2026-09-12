@@ -8,6 +8,7 @@ import {
   createTaskCreateTool,
   type TaskCreateToolDeps,
 } from "../../src/adapters/driven/tools/task-create/TaskCreateTool";
+import { stubCoordDeps } from "../helpers/coord-stub";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 import { MainSessionProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
@@ -228,6 +229,8 @@ describe("④ 生效集：task_create 只进 MainAgent（AD-2 创建按宿主）
       taskReport: taskReportStub(),
       // main-session plan 批：main 全集声明 plan 三名——替身保持可装配
       plan: planToolStub(),
+      // U4：coord 三名 stub 注入保持 resolveTools 可装配
+      coord: stubCoordDeps(),
     });
     // main 全集（减动态族 browser——条件注册面，与本任务无关）
     const names = MainSessionProfile.tools.filter((t) => t !== "browser");

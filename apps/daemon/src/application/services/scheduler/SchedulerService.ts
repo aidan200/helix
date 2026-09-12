@@ -129,6 +129,13 @@ export interface SchedulerServiceDeps {
    */
   readonly spawnAnchorFor?: (sessionId: string) => string | null;
   /**
+   * 占用协调回调（U4，一行转发）：subagent 终态 → 租约摘执行者（isolated
+   * 租约执行者清空即释放）；worktree 登记 → isolated 租约登记。组合根接
+   * CoordinationService；缺省不通知（纯调度测试形态）。
+   */
+  readonly onSubagentSettled?: (executorId: string) => void;
+  readonly onWorktreeClaim?: (input: { sessionId: string; executorId: string; worktreeRoot: string }) => void;
+  /**
    * 会话运行态读口（U2 观测态）：main 实例 displayState 编译输入——
    * SessionRegistry.runStateOf 消化后的三值词汇。晚绑闭包（组合根
    * registry 建成后回填；scheduler 先于 registry 构造）；缺省 = 冷会话
@@ -502,6 +509,11 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
    */
   registerWorktree(instanceId: string, info: { path: string; branch: string }): void {
     this.worktreeInfos.set(instanceId, info);
+    // U4：isolated 租约登记（范围 = worktree 根——不构成主树冲突面）
+    const instance = this.registry.findInstance(instanceId);
+    if (instance !== undefined) {
+      this.deps.onWorktreeClaim?.({ sessionId: instance.sessionId, executorId: instanceId, worktreeRoot: info.path });
+    }
   }
 
   /** U3 读面：实例 worktree 信息（closure 文案构造消费；无 → undefined）。 */
@@ -723,6 +735,8 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     // U3：worktree 信息随收口链消费完毕即清（closure 文案已携路径；物理树
     // 不删——merge 归检查点，路径经注入文案已到达主线）
     this.worktreeInfos.delete(instanceId);
+    // U4：占用协调——subagent 终态摘执行者（isolated 租约执行者清空即释放）
+    this.deps.onSubagentSettled?.(instanceId);
 
     // CDP 地基：实例终态钩子（组合根接 browserPort.reclaimOwner 回收
     // 该 owner 全部 managed tabs；位于收口链尾段之后、空位释放之前）

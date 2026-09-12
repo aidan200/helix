@@ -19,6 +19,7 @@ import { taskCreateStub } from "../helpers/taskCreateStub";
 import { taskReportStub } from "../helpers/taskReportStub";
 import { planToolStub } from "../helpers/planToolStub";
 import { createPaths } from "../../src/infrastructure/paths";
+import { stubCoordDeps } from "../helpers/coord-stub";
 
 /**
  * M6 T2 生效链（组合根接线）：
@@ -103,6 +104,8 @@ function makeCapturingEngine(seen: Array<{ systemPrompt?: string; tools: string[
     taskReport: taskReportStub(),
     // main-session plan 批：main 全集声明 plan 三名——替身保持可装配
     plan: planToolStub(),
+    // U4：coord 三名 stub 注入保持 resolveTools 可装配
+    coord: stubCoordDeps(),
   });
   return new PiAgentEngineAdapter({
     profile: MainSessionProfile,
@@ -138,6 +141,9 @@ const MAIN_TOOLS = [
   "plan_create", // main-session plan 批：主会话同含 plan 三名（两域同构）
   "plan_update",
   "plan_read",
+  "coord_claim", // U4 占用协调三工具（仅 main——决策主体）
+  "coord_release",
+  "coord_query",
 ];
 const SUB_TOOLS = ["bash", "read", "write", "edit", "edit-lines", "grep", "web_search", "web_fetch", "browser", "kg", "codegraph", "plan_create", "plan_update", "plan_read"]; // H-3：+browser；T3.3：+kg；T1.4：+plan 三工具（AD-6①；main-session plan 批起 Main 同含——两域同构）；W1-B：+codegraph；D8 W-R6：-kg-update（写面收权）；F4 接通批：+edit-lines
 

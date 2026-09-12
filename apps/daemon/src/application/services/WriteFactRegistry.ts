@@ -29,7 +29,6 @@ export interface SessionWriteObserver {
   onSessionPaths(sessionId: string, paths: readonly string[]): void;
   onSessionDrop(sessionId: string): void;
 }
-
 interface InstanceState {
   readonly sessionId: string;
   /** path → 当前置信（高覆盖低）+ 计数 + 最后时刻。 */
@@ -45,6 +44,8 @@ export interface WriteFactRegistryDeps {
   readonly now?: () => number;
   /** 会话写集合观察者（U1 manifest 落盘；缺省不通知）。 */
   readonly observer?: SessionWriteObserver;
+  /** 逐事实观察者（U4 占用协调 undeclared 检出；在状态更新后逐条回调）。 */
+  readonly factObserver?: (fact: WriteFact) => void;
 }
 
 export class WriteFactRegistry {
@@ -52,11 +53,13 @@ export class WriteFactRegistry {
   private readonly now: () => number;
   private readonly workspaceRoot: () => string | undefined;
   private readonly observer?: SessionWriteObserver;
+  private readonly factObserver?: (fact: WriteFact) => void;
 
   constructor(deps: WriteFactRegistryDeps = {}) {
     this.now = deps.now ?? (() => Date.now());
     this.workspaceRoot = deps.workspaceRoot ?? (() => undefined);
     this.observer = deps.observer;
+    this.factObserver = deps.factObserver;
   }
 
   /** 记账（幂等累积：同路径计数增长、置信高覆盖低）。 */
@@ -87,6 +90,18 @@ export class WriteFactRegistry {
       st.lastWriteAt = Math.max(st.lastWriteAt, f.at);
     }
     if (topSessionId !== undefined) this.notifyObserver(topSessionId);
+    if (this.factObserver !== undefined) {
+      for (const f of facts) this.fObserverSafe(f);
+    }
+  }
+
+  /** 逐事实观察者安全回调（协调面异常不阻断记账主线——增强面静默降级）。 */
+  private fObserverSafe(fact: WriteFact): void {
+    try {
+      this.factObserver?.(fact);
+    } catch {
+      // 协调观察者异常不阻断写事实主线（感知优先于协调）
+    }
   }
 
   /** 通知观察者（去抖由观察者自担——manifest store 250ms 合并）。 */
@@ -154,6 +169,15 @@ export class WriteFactRegistry {
       }
     }
     return [...projects].sort();
+  }
+
+  /** 会话最后写时刻（U4 轮末对账「本轮无新写」判据；无写史 = 0）。 */
+  sessionLastWriteAt(sessionId: string): number {
+    let last = 0;
+    for (const st of this.byInstance.values()) {
+      if (st.sessionId === sessionId) last = Math.max(last, st.lastWriteAt);
+    }
+    return last;
   }
 
   /** 会话销毁清理（挂 SessionRegistry 回调——装配层接线）。 */

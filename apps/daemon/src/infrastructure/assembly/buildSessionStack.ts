@@ -28,6 +28,7 @@ import { SubagentLauncher } from "../../adapters/driven/subagent/SubagentLaunche
 import { GitWorktreeProvisioner } from "../../adapters/driven/worktree/GitWorktreeProvisioner";
 import { TurnDiffService, type TurnDiffState } from "../../application/services/TurnDiffService";
 import { WriteFactRegistry } from "../../application/services/WriteFactRegistry";
+import { CoordinationService } from "../../application/services/CoordinationService";
 import { WriteManifestStore, manifestDir } from "../../application/services/WriteManifestStore";
 import { walkWorkspaceStats } from "../../adapters/driven/workspace-stat-walk";
 import { generateUnifiedPatch } from "../../adapters/driven/tools/edit/kernel/edit-diff";
@@ -290,6 +291,8 @@ export interface SessionStack {
   readonly resourceService: ResourceService;
   /** U7：写事实登记表读面（会话足迹求值源；U4 占用协调同源消费）。 */
   readonly writeFacts: WriteFactRegistry;
+  /** U4：占用协调服务（租约表 + undeclared 检出 + 轮末机械对账；wireEventFanout coord-bridge 消费）。 */
+  readonly coordination: CoordinationService;
   readonly subagentLauncher: SubagentLauncher | undefined;
   readonly scheduler: SchedulerService;
   readonly eventStream: EventStream;
@@ -403,7 +406,21 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
         void manifestStore.drop(sid);
       },
     },
+    // U4：逐事实观察者（undeclared 检出 + 活跃刷新；晚绑 ref——coordination
+    // 在 writeFacts 之后构造，构造窗口零回调）
+    factObserver: (fact) => coordinationRef?.onWriteFact(fact),
   });
+  // ── U4 占用协调服务（daemon 全局单例：租约表 + undeclared 检出 + 轮末
+  //    机械对账；plan 读面晚绑——mainPlan 服务在本块之后构造回填） ──
+  const coordination = new CoordinationService({
+    publish: (e) => events.publish(e),
+    writeFacts,
+    planReaderFor: () => planReaderRef,
+    workspaceRoot: () => toolCwdOf(),
+    now: () => Date.parse(clock.now()),
+  });
+  const coordinationRef = coordination;
+  let planReaderRef: import("../../application/services/task/WorkLedgerService").WorkLedgerService | undefined;
   const turnDiff = new TurnDiffService(
     {
       readTextFile: (p) =>
@@ -781,6 +798,9 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   const scheduler = new SchedulerService({
     // U2：main 实例 agent_status displayState 编译读口（晚绑闭包）
     sessionRunStateOf: (sessionId) => sessionRunStateOfImpl(sessionId),
+    // U4 占用协调：subagent 终态摘执行者 + worktree 登记 isolated 租约
+    onSubagentSettled: (executorId) => coordination.onSubagentSettled(executorId),
+    onWorktreeClaim: (input) => coordination.onWorktree(input),
     // 调度策略工厂：每次预算判定现拍 KV 现值（设置页 set 完成后下一次
     // decideSpawn 即生效——运行期可调，无需重启）；stalled 阈值仍走 domain 缺省；
     // 未注入 store（测试形态）→ SchedulingPolicy 构造缺省回落 DEFAULT_SCHEDULING
@@ -921,8 +941,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
               return r;
             },
           };
-          return { ledger, planToolService };
+          return { ledger, planToolService, service };
         })();
+        // U4：轮末对账 plan 读面晚绑回填（main plan 键 = sessionId）
+        planReaderRef = mainPlanStack?.service;
 
   // ── service：多会话容器（AD-4 主承载） ─────────────────────
   // 会话绑定引擎工厂（M5 切片，assembly/sessionEngineFactory——语义注释随
@@ -945,6 +967,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     browserPort,
     sessionExecutors,
     planToolService: mainPlanStack?.planToolService,
+    coordination,
     catalog,
     authStore,
     defaultModel,
@@ -971,6 +994,8 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
     // unloadIdle/unloadAll/deleteSession）
     onSessionUnload: (sid) => {
       writeFacts.dropSession(sid);
+      // U4：会话卸载 → 租约全释放（占用与写事实同生命周期清理）
+      coordination.onSessionGone(sid);
     },
     restore: (sessionId) => restoreService.restore(sessionId),
     // 会话运行时工厂（组合根唯一 new 面；M5 切片迁 assembly/sessionEngineFactory
@@ -988,6 +1013,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
       diffSessionIds,
       turnDiff,
       mainAssemblyOf: () => mainAssembly,
+      coordination,
       // U7 委派（instantiatedSnapshot 接触点）
       residentRulesFor: residentSectionFor,
       compactionSettings,
@@ -1024,6 +1050,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   return {
     resourceService,
     writeFacts,
+    coordination,
     subagentLauncher,
     scheduler,
     eventStream,
