@@ -8,6 +8,7 @@ import {
   effectiveOverlay,
   mergeModels,
   parseCatalog,
+  type CatalogFetch,
   type OverlayEntry,
 } from "../../src/adapters/driven/pi-engine/model-catalog";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
@@ -20,6 +21,9 @@ import type { Model } from "@earendil-works/pi-ai";
  * - 瞬时失败保缓存；404/501 清 etag；落盘兜底（离线 builtin fallback）；
  * - localGeneratedAt 防降级（stored.lastModified <= local 丢弃远端）；
  * - verify stub server（成功含延迟 / 401 含原因——真 anthropic-messages SSE）。
+ * - 读面不阻塞 + 拉取显式超时（2026-09-13 事故修复：慢 provider 挂起 ~5min
+ *   拖死 Promise.all → 读面结果帧不达 → 前端菜单空白；修复 = catalog() 过期
+ *   改后台 fire-and-forget + refreshProvider AbortSignal.timeout）。
  */
 
 const tmpRoots: string[] = [];
@@ -275,6 +279,62 @@ describe("落盘兜底 + 离线 builtin fallback（TDD 组3）", () => {
     expect(snapshot.source).toBe("builtin");
     expect(snapshot.models.length).toBe(3);
     expect(catalog.hasModel("anthropic/claude-a")).toBe(true);
+  });
+});
+
+describe("读面不阻塞 + 拉取显式超时（2026-09-13 事故修复）", () => {
+  test("读面不阻塞：过期刷新 fire-and-forget——挂起的 provider 不拖住读面（立即返回旧快照；放行后下次读拿到新 overlay）", async () => {
+    const server = new MockCatalogServer();
+    server.setBody("anthropic", { models: [{ id: "claude-a", contextWindow: 777 }] }, '"e1"', T0 + 1000);
+    server.setBody("openai", [], '"o1"', T0 + 1000);
+    // anthropic 请求经闸门：首轮放行（建立旧缓存），过期后轮次挂起直到测试放行
+    let gate: Promise<void> = Promise.resolve();
+    let release: () => void = () => {};
+    const gatedFetch: CatalogFetch = async (url, init) => {
+      const providerId = decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "");
+      if (providerId === "anthropic") await gate;
+      return server.handler(url, init);
+    };
+    const catalog = makeCatalog({ fetchImpl: gatedFetch });
+    await catalog.refresh(); // 旧缓存：777
+
+    tick(4 * 60 * 60 * 1000 + 1); // 过期
+    gate = new Promise<void>((r) => { release = r; }); // anthropic 挂起
+    server.setBody("anthropic", { models: [{ id: "claude-a", contextWindow: 888 }] }, '"e2"', T0 + 2000);
+
+    // 修复前：catalog() await refreshAll → 此处恒挂起（测试超时即红）；
+    // 修复后：立即返回旧快照（777 证明刷新未完成）
+    const snapshot = await catalog.catalog();
+    expect(snapshot.models.find((m) => m.id === "anthropic/claude-a")!.contextWindow).toBe(777);
+
+    // 放行 → 后台刷新收尾 → 下次读拿到新 overlay
+    release();
+    await catalog.whenIdle();
+    const after = await catalog.catalog();
+    expect(after.models.find((m) => m.id === "anthropic/claude-a")!.contextWindow).toBe(888);
+  });
+
+  test("拉取显式超时：挂起 provider 超时走网络异常分支——degraded 列明细 + 缓存保留", async () => {
+    const server = new MockCatalogServer();
+    server.setBody("anthropic", { models: [{ id: "claude-a", contextWindow: 555 }] }, '"e1"', T0 + 1000);
+    server.setBody("openai", [], '"o1"', T0 + 1000);
+    const storePath = path.join(tmpDir(), "models-store.json");
+    await makeCatalog({ fetchImpl: server.handler, storePath }).refresh(); // 缓存落盘 555
+
+    // 新实例：anthropic 挂起直至 signal abort（模拟慢响应——真实 fetch 对
+    // AbortSignal.timeout 的响应形态），30ms 超时（真实时钟）
+    const hangingUntilAbort: CatalogFetch = (url, init) => {
+      const providerId = decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "");
+      if (providerId !== "anthropic") return server.handler(url, init);
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("The operation timed out")));
+      });
+    };
+    const catalog = makeCatalog({ fetchImpl: hangingUntilAbort, storePath, fetchTimeoutMs: 30 });
+    const result = await catalog.refresh(); // force：anthropic 30ms 超时
+    expect(result.degraded.some((d) => d.startsWith("anthropic:"))).toBe(true);
+    // 超时保缓存：overlay 仍生效（withRemoteCatalog 瞬时失败语义）
+    expect(result.models.find((m) => m.id === "anthropic/claude-a")!.contextWindow).toBe(555);
   });
 });
 

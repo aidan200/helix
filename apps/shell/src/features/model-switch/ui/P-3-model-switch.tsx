@@ -20,7 +20,9 @@
  *   隐藏；零可用（无 configured 且当前模型不在目录）给配置引导空态。
  * 状态模型：菜单 open|closed（点外/Esc 关闭；开合归 TopBar 徽标）；
  * 搜索 results|empty 互斥（切空态先清列表渲染）；零可用空态与搜索空态
- * 互斥（搜索词为空才可能出现零可用）。
+ * 互斥（搜索词为空才可能出现零可用）；目录未到达（catalog===null，重启后
+ * 首次拉取/重连窗口）给加载空态——读面已改后台刷新不阻塞（2026-09-13
+ * 事故修复），但首帧到达前仍需交代（静默空白是本次事故的观感激源）。
  */
 import { useEffect, useMemo, useState } from "react";
 import { Check, RotateCcw, Search } from "lucide-react";
@@ -103,7 +105,10 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose }: ModelSwitchMenuPro
   }, [mc.catalog, mc.auth, mc.authLoaded, mc.defaultModel, currentModel, query]);
 
   const hasResults = groups.length > 0;
-  const empty = query.trim() !== "" && !hasResults; // 搜索零命中空态（与列表互斥）
+  // 目录未到达（catalog===null）：加载空态——与列表/搜索空态/零可用空态互斥
+  // （catalog===null 时后三者皆不可能成立：groups 恒空、noAvailable 需非 null）
+  const catalogLoading = mc.catalog === null;
+  const empty = query.trim() !== "" && !hasResults && !catalogLoading; // 搜索零命中空态（与列表互斥）
   // 零可用空态（T5.3：目录与 auth 均已到达、无 configured provider 且当前
   // 模型不在目录；与搜索空态互斥——搜索词为空才判定）
   const noAvailable =
@@ -162,6 +167,12 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose }: ModelSwitchMenuPro
               })}
             </div>
           ))}
+        </div>
+      )}
+      {catalogLoading && (
+        <div className="mm-empty show" data-mm-loading>
+          <span>{t("chat.modelSwitch.loadingTitle")}</span>
+          <span className="me-sub">{t("chat.modelSwitch.loadingSub")}</span>
         </div>
       )}
       {empty && (

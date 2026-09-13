@@ -390,6 +390,8 @@ export const enUS = {
     },
     modelSwitch: {
       searchPlaceholder: "Search models or providers",
+      loadingTitle: "Loading catalog…",
+      loadingSub: "Fetching the model catalog",
       emptyTitle: "No matching models",
       emptySub: "Try another keyword, or open the config page for the provider catalog",
       resetToDefault: "Reset to global fallback",

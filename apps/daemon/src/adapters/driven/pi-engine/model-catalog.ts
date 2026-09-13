@@ -22,8 +22,12 @@ import type {
  * 【pi-ai import 域】本文件在 driven/pi-engine（TR-AD-7 三域内合法；
  * AG-04 守护）；对 application 只暴露 ModelCatalogPort（类型镜像）。
  *
- * 【缓存口径】catalog() = 读面 + 过期刷新（>4h 对 pi.dev 条件请求）；
- * refresh() = 强制全量拉取（绕过 4h）。per-provider ETag/checkedAt。
+ * 【缓存口径】catalog() = 读面 + 过期**后台**刷新（>4h 对 pi.dev 条件请求，
+ * fire-and-forget 不阻塞读面——2026-09-13 事故：两个慢 provider 响应挂起
+ * ~5min（fetch 无超时，undici 默认 300s 兜底）拖死 Promise.all，读面结果帧
+ * 全程不达 → 前端模型菜单纯空白）；refresh() = 强制全量拉取（绕过 4h，
+ * await 语义不变）。per-provider ETag/checkedAt；单次拉取显式超时
+ * （PROVIDER_FETCH_TIMEOUT_MS），超时走网络异常分支（保缓存记 checkedAt）。
  */
 
 /** pi.dev 远端目录默认端点。 */
@@ -32,11 +36,18 @@ export const DEFAULT_CATALOG_BASE_URL = "https://pi.dev";
 /** 目录拉取 fetch 最小面（globalThis.fetch 天然满足；测试 mock 低门槛）。 */
 export type CatalogFetch = (
   url: string,
-  init?: { headers?: Record<string, string> },
+  init?: { headers?: Record<string, string>; signal?: AbortSignal },
 ) => Promise<Response> | Response;
 
 /** 刷新窗口（4h，withRemoteCatalog 同源口径）。 */
 export const REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * 单 provider 拉取显式超时（2026-09-13 事故修复：无超时时单点慢响应可拖死
+ * 整轮刷新至 undici 默认 300s headersTimeout——读面已不阻塞（后台刷新），
+ * 但 refresh() 强制拉取仍 await，超时兜底防止刷新按钮转圈 5 分钟）。
+ */
+export const PROVIDER_FETCH_TIMEOUT_MS = 15_000;
 
 /** 落盘 store 的 per-provider 条目（pi-ai ModelsStoreEntry 同构）。 */
 export interface OverlayEntry {
@@ -75,6 +86,8 @@ export interface ModelCatalogOptions {
   readonly providers?: readonly string[];
   /** 连通验证模型变换面（测试注入：baseUrl 指向 stub server）。 */
   readonly verifyModelTransform?: (model: Model<Api>) => Model<Api>;
+  /** 单 provider 拉取超时（缺省 PROVIDER_FETCH_TIMEOUT_MS；测试注入小值）。 */
+  readonly fetchTimeoutMs?: number;
 }
 
 /** mergeModels（withRemoteCatalog 同构）：builtin 为 baseline、同 id 替换、新 id 追加。 */
@@ -124,6 +137,7 @@ export class ModelCatalog implements ModelCatalogPort {
   private readonly now: () => number;
   private readonly providerIdList: readonly string[];
   private readonly verifyModelTransform: ((model: Model<Api>) => Model<Api>) | undefined;
+  private readonly fetchTimeoutMs: number;
   private readonly store = new Map<string, OverlayEntry>();
   /** catalog() 过期刷新的在飞去重登记（M18；finally 摘除）。 */
   private inFlightRefresh: Promise<{ failures: string[] }> | undefined;
@@ -137,22 +151,36 @@ export class ModelCatalog implements ModelCatalogPort {
     this.now = options.now ?? (() => Date.now());
     this.providerIdList = options.providers ?? this.base.getProviders().map((p) => p.id);
     this.verifyModelTransform = options.verifyModelTransform;
+    this.fetchTimeoutMs = options.fetchTimeoutMs ?? PROVIDER_FETCH_TIMEOUT_MS;
     this.loadStore();
   }
 
   // ── ModelCatalogPort 读面 ─────────────────────────────────
 
-  /** 目录读面（4h 缓存口径）：任一 provider 过期 → 条件刷新；失败保缓存。 */
+  /**
+   * 目录读面（4h 缓存口径）：任一 provider 过期 → **后台**条件刷新
+   * （fire-and-forget；读面不阻塞——慢/挂起的单 provider 不得拖住结果帧，
+   * 2026-09-13 事故）；失败保缓存。刷新完成后下次读自然拿到新 overlay
+   * （loadStore 落盘兜底 + builtin 基线保证快照永可用）。
+   */
   async catalog(): Promise<CatalogSnapshot> {
     if (this.stale()) {
-      // in-flight 去重（code-review M18）：并发 catalog() 共享同一次刷新——
-      // 否则各自触发 refreshAll，per-provider 重复条件请求（304 拦不住首次并发）。
+      // in-flight 去重（code-review M18）保留：并发 catalog() 共享同一次刷新。
+      // refreshAll 内部全 catch（per-provider 失败收 failures，persistStore
+      // best-effort）——承诺不拒绝，fire-and-forget 无 unhandled rejection。
       this.inFlightRefresh ??= this.refreshAll(false).finally(() => {
         this.inFlightRefresh = undefined;
       });
-      await this.inFlightRefresh;
     }
     return this.snapshot(undefined);
+  }
+
+  /**
+   * 测试观察面：等待在途后台刷新收尾（无在途立即 resolved）。
+   * 生产读面不 await 刷新（本方法仅供单测断言后台刷新产物的时序锚点）。
+   */
+  async whenIdle(): Promise<void> {
+    await this.inFlightRefresh;
   }
 
   /** 强制刷新（绕过 4h；per-provider 并发；单点失败保缓存）。 */
@@ -307,7 +335,12 @@ export class ModelCatalog implements ModelCatalogPort {
     const url = new URL(`/api/models/providers/${encodeURIComponent(providerId)}`, this.baseUrl);
     let response: Response;
     try {
-      response = await this.fetchImpl(url.href, { headers });
+      // 显式超时（PROVIDER_FETCH_TIMEOUT_MS）：无超时单点慢响应可拖至 undici
+      // 默认 300s headersTimeout（2026-09-13 实证）；超时即网络异常分支（保缓存）。
+      response = await this.fetchImpl(url.href, {
+        headers,
+        signal: AbortSignal.timeout(this.fetchTimeoutMs),
+      });
     } catch (err) {
       // 网络不可达：也记 checkedAt（models/etag 原样——与 404/非 2xx 口径对齐，
       // 清单 #2.7）：不记则 stale() 恒真，离线期间每次 catalog() 全 provider

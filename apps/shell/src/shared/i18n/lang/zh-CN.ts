@@ -398,6 +398,8 @@ export const zhCN = {
     },
     modelSwitch: {
       searchPlaceholder: "搜索模型或 provider",
+      loadingTitle: "目录加载中…",
+      loadingSub: "正在获取模型目录，请稍候",
       emptyTitle: "未找到匹配的模型",
       emptySub: "换个关键词，或到配置页查看 provider 目录",
       resetToDefault: "重置为全局兜底",
