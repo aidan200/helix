@@ -601,23 +601,29 @@ function loadDriverScript(script: string): void {
 }
 
 /** 控制面实例（挂 window + 供剧本模块消费）。 */
+
+/**
+ * 握手默认订阅镜像（daemon EventStream.attach：welcome 绑定的当前单会话
+ * 默认 full——真实 shell 从不显式 session.subscribe，依赖此语义；W3 批
+ * passTierFilter 收紧「未订阅丢帧」时漏了这半边镜像，F 层 emit 回流全灭）。
+ * emit/emitAll 共用；netClose 清表后重连剧本的第二个 welcome 在此重新
+ * 登记——与 daemon 每次握手重新绑定一致。
+ */
+function applyHandshakeBinding(frame: EventEnvelope): void {
+  if (frame.type !== "connection.welcome") return;
+  const sid = (frame.payload as { sessionId?: unknown } | undefined)?.sessionId;
+  if (typeof sid === "string" && sid !== "" && sid !== SYSTEM_SESSION_ID) {
+    registry.sessionTiers.set(sid, "full");
+    registry.lastFullSessionId = sid;
+  }
+}
+
 const mockApi: HelixMockApi = {
   async open() {
     (await registry.nextActive()).fireOpen();
   },
   async emit(frame) {
-    // 握手默认订阅镜像（daemon EventStream.attach L112-114：welcome 绑定的
-    // 当前单会话默认 full——真实 shell 从不显式 session.subscribe，依赖此语义。
-    // W3 批 passTierFilter 收紧时漏了这半边镜像 → emit 回流全灭（F 层六红，
-    // W3 合入后 CI 未跑到 F 层未暴露）。netClose 清表后重连剧本的第二个
-    // welcome 在此重新登记——语义与 daemon 每次握手重新绑定一致）
-    if (frame.type === "connection.welcome") {
-      const sid = (frame.payload as { sessionId?: unknown } | undefined)?.sessionId;
-      if (typeof sid === "string" && sid !== "" && sid !== SYSTEM_SESSION_ID) {
-        registry.sessionTiers.set(sid, "full");
-        registry.lastFullSessionId = sid;
-      }
-    }
+    applyHandshakeBinding(frame);
     if (!registry.passTierFilter(frame)) return; // monitor 档白名单过滤（契约 §2.2）
     registry.trackScenarioSession(frame);
     (await registry.nextActive()).fireMessage(frame);
@@ -625,6 +631,7 @@ const mockApi: HelixMockApi = {
   async emitAll(frames) {
     const inst = await registry.nextActive();
     for (const f of frames) {
+      applyHandshakeBinding(f);
       if (!registry.passTierFilter(f)) continue; // monitor 档白名单过滤
       registry.trackScenarioSession(f);
       inst.fireMessage(f);
