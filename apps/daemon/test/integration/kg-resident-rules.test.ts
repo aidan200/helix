@@ -307,7 +307,8 @@ describe("④ E2E：daemon 组装链（container 常驻段接线）", () => {
       expect(prompt).not.toContain("常驻治理规则摘要");
       // ⑤ main 链接触点（instantiatedSnapshot 即时求值——同 helper 单点
       // withResidentRules）：零足迹主会话快照亦无段（多会话另建时足迹现值生效）
-      const repo2 = new SqliteSessionRepository(new WriteQueue(path.join(home, "helix.db")));
+      const repo2Queue = new WriteQueue(path.join(home, "helix.db"));
+      const repo2 = new SqliteSessionRepository(repo2Queue);
       const mainInst = repo2
         .queryEvents({ sessionId: sid })
         .find((e) => e.type === "agent.instantiated" && e.payload != null && (e.payload as { profileKind?: string }).profileKind === "main-session");
@@ -316,6 +317,7 @@ describe("④ E2E：daemon 组装链（container 常驻段接线）", () => {
           !((mainInst.payload as { n?: { systemPrompt?: string } }).n?.systemPrompt ?? "").includes("项目常驻规则"),
       ).toBe(true);
       expect(prompt).not.toContain("适用于：改 daemon 代码前摘要");
+      await repo2Queue.close(); // tmpdir 回收前置：句柄释放（TR-152——CI E 层审计拦过本用例残留）
     } finally {
       await daemon.shutdown();
     }
