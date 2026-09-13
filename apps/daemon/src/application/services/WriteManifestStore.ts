@@ -115,6 +115,13 @@ export class WriteManifestStore {
     for (const sid of [...this.pending.keys()]) await this.flush(sid);
   }
 
+  /** 优雅收尾：flush 全部 pending（去抖定时器随 flush 清除——之后零异步写）。
+   * daemon shutdown 挂点：manifest 落盘不丢尾；测试 tmpdir 回收前置
+   * （否则 250ms 去抖窗内的 rmSync 会被 mkdir 复活——TR-152 竞态残留变体）。 */
+  async dispose(): Promise<void> {
+    await this.flushAll();
+  }
+
   /** 测试/观测用：在途未落盘会话集合。 */
   pendingSessions(): readonly string[] {
     return [...this.pending.keys()];

@@ -291,6 +291,8 @@ export interface SessionStack {
   readonly resourceService: ResourceService;
   /** U7：写事实登记表读面（会话足迹求值源；U4 占用协调同源消费）。 */
   readonly writeFacts: WriteFactRegistry;
+  /** manifest 落盘面（shutdown 收尾挂点——dispose 后零去抖异步写）。 */
+  readonly manifestStore: WriteManifestStore;
   /** U4：占用协调服务（租约表 + undeclared 检出 + 轮末机械对账；wireEventFanout coord-bridge 消费）。 */
   readonly coordination: CoordinationService;
   readonly subagentLauncher: SubagentLauncher | undefined;
@@ -1058,6 +1060,7 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   return {
     resourceService,
     writeFacts,
+    manifestStore,
     coordination,
     subagentLauncher,
     scheduler,

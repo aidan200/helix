@@ -135,6 +135,8 @@ export interface WsDrivingDeps {
   /** skills 添加批：用户级技能创建写面（可选——stub rig 防御）。 */
   readonly skillCreateOf?: (content: string) => Promise<import("../../application/ports/outbound/SkillSourcePort").SkillCreateOutcome>;
   readonly subagentLauncher: SubagentLauncher | undefined;
+  /** U1 manifest 落盘面（shutdown flush 挂点——去抖收尾，测试 tmpdir 复活竞态免疫）。 */
+  readonly manifestStore: { dispose(): Promise<void> } | undefined;
   readonly eventStream: EventStream;
   readonly browserPort: BrowserPort;
   /**
@@ -211,6 +213,7 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
         scheduler.stop(); // 停 stalled 监视定时器
         registry.sealAll(); // 全部热会话封口（stopped 里程碑 write-through 落盘）
         await deps.subagentLauncher?.dispose(); // O-6 序列回收全部存活子进程（零孤儿）
+        await deps.manifestStore?.dispose(); // U1 manifest 去抖收尾（flush 后零异步写——tmpdir 复活竞态免疫）
         deps.unsubscribeBrowserStatus(); // web.status.changed 广播订阅退订（先退订再 stop）
         deps.stopMcp?.(); // mcp 批：MCP 状态广播退订 + 全部 server 子进程收尾
         await browserPort.stop(); // 关全部 managed tabs → 断 CDP WS（浏览器侧零残留）
