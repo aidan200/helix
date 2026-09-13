@@ -179,13 +179,26 @@ describe("② 候选 op（R2：proposeCandidate / decideCandidate）", () => {
   test("非任务上下文 proposeCandidate：source_task_id NULL（零注入语义保持）；decision 非法 → 报错", async () => {
     const stack = freshStack();
     const tool = makeTool(stack);
-    await call(tool, { op: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "t" });
+    await call(tool, { op: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "t", body: "正文" });
     expect(probe(stack.proj, "SELECT source_task_id FROM candidates WHERE id = 'CAND-1'")[0]).toEqual({
       source_task_id: null,
     });
     await expect(
       call(tool, { op: "decideCandidate", iterationId: ITER, candidateId: "CAND-1", decision: "maybe" }),
     ).rejects.toThrow("decision");
+  });
+
+  test("proposeCandidate 缺 body / 空白 body → 写面拒绝（TR-147 机械强制）；零落库", async () => {
+    const stack = freshStack();
+    const tool = makeTool(stack);
+    await call(tool, { op: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "合规", body: "正文" });
+    await expect(
+      call(tool, { op: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "t" }),
+    ).rejects.toThrow("body");
+    await expect(
+      call(tool, { op: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "t", body: " " }),
+    ).rejects.toThrow("body");
+    expect(probe(stack.proj, "SELECT COUNT(*) AS n FROM candidates")[0]).toEqual({ n: 1 });
   });
 
   test("工具 description 不写「仅 MainAgent 可用」（W-R6：收权后注册面管控，描述不做角色枚举）", () => {
@@ -203,7 +216,7 @@ describe("③ defer 软上限警告透传（只警告不拒绝）", () => {
   test("第二次 defer → 回执含 defer_age 警告；仍落库", async () => {
     const stack = freshStack();
     const tool = makeTool(stack);
-    await call(tool, { op: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "t" });
+    await call(tool, { op: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "t", body: "正文" });
     const first = await call(tool, { op: "decideCandidate", iterationId: ITER, candidateId: "CAND-1", decision: "deferred" });
     expect(first).not.toContain("警告");
     const second = await call(tool, { op: "decideCandidate", iterationId: ITER, candidateId: "CAND-1", decision: "deferred" });

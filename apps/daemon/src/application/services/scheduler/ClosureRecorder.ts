@@ -307,10 +307,24 @@ export type FindingOp =
  *   必填；reason 进 body——裁决与落地归人审，不在闭环现场直改节点）；
  * - sourceIterationId=条目 iterationId（必填，缺了跳过）；sourceTaskId=
  *   closure.taskId 机械注入（AD-10 三路径同源；非任务上下文 = 不携带）；
- * - 缺必填/形态非法 → 跳过（原因入 warn，不阻塞其余条目）。
+ * - 缺必填/形态非法 → 跳过（原因入 warn，不阻塞其余条目）；
+ * - 缺可裁决内容字段（digest/reason/evidence/scope 等）→ 跳过不落空壳候选
+ *   （CAND-251：空壳 body 只余 changeType/targetNode 定位行，人审不可裁决）。
  */
 export function mapFindingsToOps(findings: readonly unknown[], sourceTaskId?: string): readonly FindingOp[] {
   return findings.map((entry) => findingOpOf(entry, sourceTaskId));
+}
+
+/** 可裁决内容字段（candidateBody 平铺清单中除 changeType/targetNode 定位键外的内容键）：
+ *  全缺 = 空壳条目——落库只会得到仅剩定位行的不可裁决 body，skip 不落账
+ *  （CAND-251：findings 管道与写面校验的对称防御）。 */
+const SEDIMENT_CONTENT_KEYS = ["digest", "reason", "scope", "evidence", "implementedCode", "implementationStatus", "sourceDecision", "body"] as const;
+
+function hasSedimentContent(record: Record<string, unknown>): boolean {
+  return SEDIMENT_CONTENT_KEYS.some((key) => {
+    const value = record[key];
+    return typeof value === "string" && value.trim() !== "";
+  });
 }
 
 function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingOp {
@@ -336,6 +350,9 @@ function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingO
   if (changeType === "新增") {
     const name = str(record["name"]);
     if (name === undefined) return skip("新增缺 name（候选标题）");
+    if (!hasSedimentContent(record)) {
+      return skip("新增条目缺可裁决内容字段（digest/reason/evidence 等）——不落空壳候选（TR-147）");
+    }
     return {
       ok: true,
       op: {
@@ -353,6 +370,9 @@ function findingOpOf(entry: unknown, sourceTaskId: string | undefined): FindingO
   if (changeType === "修改" || changeType === "废弃") {
     const targetNode = str(record["targetNode"]);
     if (targetNode === undefined) return skip(`${changeType}缺 targetNode（候选标题定位目标节点）`);
+    if (!hasSedimentContent(record)) {
+      return skip(`${changeType}条目缺可裁决内容字段（reason/evidence/digest 等）——不落空壳候选（TR-147）`);
+    }
     return {
       ok: true,
       op: {

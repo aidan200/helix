@@ -90,6 +90,7 @@ function propose(title: string, extra: Record<string, unknown> = {}): KnowledgeW
     iterationId: "iter-cand",
     candidateKind: "sediment",
     title,
+    body: "正文", // CAND-251 后写面必填——fixture 缺省携带，负向用例显式覆盖
     ...extra,
   } as unknown as KnowledgeWriteOp;
 }
@@ -128,7 +129,7 @@ describe("① 表与发号（CAND-<seq> 复用 meta 计数器）", () => {
 
   test("proposeCandidate 自动发号 CAND-1/CAND-2 递增；缺省 status=pending、defer_age=0", () => {
     const f = makeFixture();
-    const r1 = f.write.write(f.root, propose("规则沉淀一"));
+    const r1 = f.write.write(f.root, propose("规则沉淀一", { body: "正文一" }));
     const r2 = f.write.write(f.root, propose("规则沉淀二", { body: "正文" }));
     expect(r1.ok && r1.nodeId === "CAND-1").toBe(true);
     expect(r2.ok && r2.nodeId === "CAND-2").toBe(true);
@@ -138,7 +139,7 @@ describe("① 表与发号（CAND-<seq> 复用 meta 计数器）", () => {
       id: "CAND-1",
       kind: "sediment",
       title: "规则沉淀一",
-      body: "",
+      body: "正文一",
       status: "pending",
       defer_age: 0,
       formal_id: null,
@@ -147,6 +148,22 @@ describe("① 表与发号（CAND-<seq> 复用 meta 计数器）", () => {
       applied_node_id: null,
     });
     expect(all[1]!.body).toBe("正文");
+  });
+
+  test("proposeCandidate body 必填非空白（CAND-251/TR-147 写面强制——空 body 候选人审不可裁决）", () => {
+    const f = makeFixture();
+    const good = f.write.write(f.root, propose("合规候选", { body: "正文" }));
+    if (!good.ok) throw new Error("带 body 的合法候选应落库");
+    const miss = f.write.write(f.root, propose("缺 body", { body: undefined }));
+    if (miss.ok) throw new Error("缺 body 应被写面拒绝");
+    expect(miss.error.code).toBe("KG_E_SCHEMA");
+    expect(miss.error.path).toBe("op.body");
+    const blank = f.write.write(f.root, propose("空白 body", { body: "   " }));
+    if (blank.ok) throw new Error("空白 body 应被写面拒绝");
+    expect(blank.error.code).toBe("KG_E_SCHEMA");
+    const all = rows(f.root);
+    expect(all).toHaveLength(1); // 仅合规候选落库，拒绝项零落库
+    expect(all[0]!.title).toBe("合规候选");
   });
 
   test("sourceTaskId / sourceIterationId 溯源列落库（findings 闭环机械注入面）", () => {

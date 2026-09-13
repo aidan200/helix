@@ -31,9 +31,9 @@ describe("kg.health I 层（真 service 栈 + tmp 库 + ws 路由）", () => {
     await seedAlpha(rig);
     // candidates 台账种子：3 提案 → 1 deferred + 1 applied（计数来自 candidates 表）
     expectOk(
-      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选甲" }),
-      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选乙" }),
-      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选丙" }),
+      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选甲", body: "正文甲" }),
+      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选乙", body: "正文乙" }),
+      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选丙", body: "正文丙" }),
     );
     expectOk(
       rig.write.write(rig.alpha, { kind: "decideCandidate", iterationId: ITER, candidateId: "CAND-2", decision: "deferred" }),
@@ -175,8 +175,8 @@ describe("kg.candidates.list I 层（真 service 栈 + tmp 库 + ws 路由）", 
     await seedAlpha(rig);
     expectOk(
       rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选甲", body: "正文甲", targetNode: "TR-1" }),
-      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选乙" }),
-      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选丙" }),
+      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选乙", body: "正文乙" }),
+      rig.write.write(rig.alpha, { kind: "proposeCandidate", iterationId: ITER, candidateKind: "sediment", title: "候选丙", body: "正文丙" }),
     );
     expectOk(
       rig.write.write(rig.alpha, { kind: "decideCandidate", iterationId: ITER, candidateId: "CAND-2", decision: "deferred" }),

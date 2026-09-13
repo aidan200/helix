@@ -16,6 +16,7 @@ import { SubAgentProfile } from "../../src/adapters/driven/pi-engine/runtime/pro
 import { KgDatabase, kgDbPath } from "../../src/adapters/driven/sqlite-kg/KgDatabase";
 import { SqliteKnowledgeStore } from "../../src/adapters/driven/sqlite-kg/SqliteKnowledgeStore";
 import { KgWriteService } from "../../src/application/services/kg/KgWriteService";
+import { mapFindingsToOps } from "../../src/application/services/scheduler/ClosureRecorder";
 import type { KnowledgeWriteOp } from "../../src/domain/kg/types";
 
 /**
@@ -654,11 +655,11 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       const findingsPathB = path.join(reportsDir, `${spawnB.agentId}.findings.json`);
       writeFileSync(
         findingsPathB,
-        JSON.stringify([{ kind: "sediment", changeType: "新增", name: "文件里的发现", iterationId: "iter-t41" }]),
+        JSON.stringify([{ kind: "sediment", changeType: "新增", name: "文件里的发现", reason: "文件优先对照", iterationId: "iter-t41" }]),
       );
       rig.runner.forceClosure(spawnB.agentId, {
         result: "done",
-        closure: { status: "done", summary: "旧格式信封也带 findings", reportPath: null, findings: [{ kind: "sediment", changeType: "新增", name: "信封里的发现", iterationId: "iter-t41" }], taskId: null },
+        closure: { status: "done", summary: "旧格式信封也带 findings", reportPath: null, findings: [{ kind: "sediment", changeType: "新增", name: "信封里的发现", reason: "信封对照", iterationId: "iter-t41" }], taskId: null },
       });
       await until(() => eventRows(rig, "agent.completed").length > 0, 5000, "agent.completed 落盘");
       expect(writes).toHaveLength(1); // 恰一份（文件优先，信封不重复落）
@@ -671,7 +672,7 @@ describe("⑦ F3.0 findings→kg 落账管道（CL-3.A3）", () => {
       if (spawnC.status !== "run") throw new Error("unreachable");
       rig.runner.forceClosure(spawnC.agentId, {
         result: "done",
-        closure: { status: "done", summary: "旧格式信封携带 findings", reportPath: null, findings: [{ kind: "sediment", changeType: "新增", name: "兼容回退的发现", iterationId: "iter-t41" }], taskId: null },
+        closure: { status: "done", summary: "旧格式信封携带 findings", reportPath: null, findings: [{ kind: "sediment", changeType: "新增", name: "兼容回退的发现", reason: "兼容回退对照", iterationId: "iter-t41" }], taskId: null },
       });
       await until(() => closureRowOf(spawnC.agentId) !== undefined, 5000, "closure_records 落盘");
       expect(writes).toHaveLength(1); // 信封兼容回退落账
@@ -784,4 +785,26 @@ describe("⑧ F3.0 e2e：真子进程闭环 → 注入行含指针（真 Bun.spa
       rmSync(home, { recursive: true, force: true });
     }
   }, 30000);
+});
+
+// ── findings 空壳防御（CAND-251-C：sediment 缺可裁决内容字段 → skip 不落空壳候选）──
+describe("mapFindingsToOps 空壳防御（CAND-251）", () => {
+  test("新增 name-only / 修改 targetNode-only（无 digest/reason/evidence 等）→ skip；携带内容字段 → 照常落 op", () => {
+    const [bare] = mapFindingsToOps([{ kind: "sediment", changeType: "新增", name: "只有名字" }]);
+    if (bare === undefined || bare.ok) throw new Error("name-only 新增应被 skip");
+    expect(bare.reason).toContain("内容字段");
+    const [rich] = mapFindingsToOps([
+      { kind: "sediment", changeType: "新增", name: "有名有据", digest: "一行摘要", reason: "任务沉淀", iterationId: "iter-t41" },
+    ]);
+    if (rich === undefined || !rich.ok) throw new Error("携带 digest/reason 的新增应落账");
+    expect(rich.op.kind).toBe("proposeCandidate");
+    const [bareMod] = mapFindingsToOps([{ kind: "sediment", changeType: "修改", targetNode: "E-46" }]);
+    if (bareMod === undefined || bareMod.ok) throw new Error("targetNode-only 修改应被 skip");
+    expect(bareMod.reason).toContain("内容字段");
+    const [richMod] = mapFindingsToOps([
+      { kind: "sediment", changeType: "修改", targetNode: "E-46", reason: "描述漂移", evidence: "src/x.ts:1" },
+    ]);
+    if (richMod === undefined || !richMod.ok) throw new Error("携带 reason/evidence 的修改应落账");
+    expect(richMod.op.kind).toBe("proposeCandidate");
+  });
 });

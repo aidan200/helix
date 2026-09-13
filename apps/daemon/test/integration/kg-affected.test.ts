@@ -230,7 +230,7 @@ describe("⑦ candidates op：台账列表读面（status 过滤 + body 全文 +
   test("无过滤 → 各已建 .kg 项目 candidates 聚合（id/title/status/target_node/body 全文/project）；未建库项目不出现", async () => {
     const f = makeFixture();
     f.write.write(f.projA, { kind: "proposeCandidate", iterationId: "iter-aff", candidateKind: "sediment", title: "候选甲", body: "正文甲\n第二行", targetNode: "TR-9" });
-    f.write.write(f.projA, { kind: "proposeCandidate", iterationId: "iter-aff", candidateKind: "sediment", title: "候选乙" });
+    f.write.write(f.projA, { kind: "proposeCandidate", iterationId: "iter-aff", candidateKind: "sediment", title: "候选乙", body: "正文乙" });
     f.write.write(f.projA, { kind: "decideCandidate", iterationId: "iter-aff", candidateId: "CAND-2", decision: "deferred" });
 
     const out = await execText(f, { op: "candidates" });
@@ -246,13 +246,13 @@ describe("⑦ candidates op：台账列表读面（status 过滤 + body 全文 +
 
   test("status=pending → 只列 pending 行；status 越界 → 结构化报错；空台账给提示", async () => {
     const f = makeFixture();
-    f.write.write(f.projA, { kind: "proposeCandidate", iterationId: "iter-aff", candidateKind: "sediment", title: "唯一待审" });
+    f.write.write(f.projA, { kind: "proposeCandidate", iterationId: "iter-aff", candidateKind: "sediment", title: "唯一待审", body: "正文" });
     f.write.write(f.projA, { kind: "decideCandidate", iterationId: "iter-aff", candidateId: "CAND-1", decision: "applied", reason: "ok" });
 
     const out = await execText(f, { op: "candidates", status: "pending" });
     expect(out).toContain("台账为空"); // applied-only → pending 过滤零行提示
 
-    f.write.write(f.projA, { kind: "proposeCandidate", iterationId: "iter-aff", candidateKind: "sediment", title: "新的待审" });
+    f.write.write(f.projA, { kind: "proposeCandidate", iterationId: "iter-aff", candidateKind: "sediment", title: "新的待审", body: "正文" });
     const again = await execText(f, { op: "candidates", status: "pending" });
     expect(again).toContain("CAND-2");
     expect(again).toContain("新的待审");

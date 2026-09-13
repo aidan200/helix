@@ -55,7 +55,7 @@ const kgUpdateParameters = {
     body: {
       type: "string",
       description:
-        "createNode 正文（可选，全文详情）。写作规范（全产线统一，bootstrap SOP 提升）：完整自然语言禁电报体；markdown 结构自由组织（推荐「## 这是什么 / ## 为什么存在」段式）；必含「为什么存在」——来源与存在理由（解决什么问题/约束什么），缺 why 的知识无法支撑「改动前该看什么」判断",
+        "createNode 正文（可选，全文详情）。写作规范（全产线统一，bootstrap SOP 提升）：完整自然语言禁电报体；markdown 结构自由组织（推荐「## 这是什么 / ## 为什么存在」段式）；必含「为什么存在」——来源与存在理由（解决什么问题/约束什么），缺 why 的知识无法支撑「改动前该看什么」判断。proposeCandidate 复用本参数且必填非空——reason/evidence 内嵌换行分段（顶层 reason 对该 op 无效；空 body 候选被写面拒绝，TR-147）",
     },
     domain: { type: "string", enum: ["tech", "business"], description: "createNode 作用域（可选）" },
     layer: { type: "string", enum: ["L0", "L1", "L2"], description: "createNode 分层（可选，AD-11）" },

@@ -334,8 +334,14 @@ function validateProposeCandidate(op: Record<string, unknown>): KgWriteError | n
   }
   const titleError = requireNonEmptyString(op.title, "title");
   if (titleError !== null) return withPath(titleError, "op.title");
-  if (op.body !== undefined && typeof op.body !== "string") {
-    return schemaError("body 必须为字符串", "op.body");
+  // CAND-251/TR-147 写面强制：body 必填非空白——reason/evidence 内嵌（顶层
+  // reason 参数对本 op 静默无效），空 body 候选人审不可裁决（2026-09-13 实证
+  // 12 条 body_len=0：裁决退化为裁决者全量重验）。
+  if (typeof op.body !== "string" || op.body.trim() === "") {
+    return schemaError(
+      "body 必填且非空白——reason/evidence 内嵌换行分段（TR-147 落账姿势；顶层 reason 参数对本 op 无效），空 body 候选人审不可裁决（CAND-251）",
+      "op.body",
+    );
   }
   for (const key of ["sourceTaskId", "sourceIterationId"] as const) {
     if (op[key] !== undefined && (typeof op[key] !== "string" || (op[key] as string).trim() === "")) {
