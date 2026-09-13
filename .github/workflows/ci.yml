@@ -128,3 +128,18 @@ jobs:
           path: evidence/e2e/
           if-no-files-found: warn
           retention-days: 14
+
+  # ---- Windows 沙箱 helper（U0c 二期②：mac 开发 + CI 行为验证——无本地 Windows 环境的
+  # CI 驱动路线）。独立 job 与主 job 零耦合（bun 那套端口串行设计不涉及 Rust）；
+  # 行为矩阵：writableRoots 内写/外拒/子目录继承/退出码与 stdio 透传（tests/behavior.rs）。
+  win-sandbox-helper:
+    name: sandbox helper (windows, cargo test)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Unit + behavior tests（真 spawn helper 断言 ACL 行为）
+        run: cargo test --manifest-path apps/daemon/resources/win-sandbox-helper/Cargo.toml

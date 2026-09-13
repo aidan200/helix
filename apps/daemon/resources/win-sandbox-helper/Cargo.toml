@@ -1,0 +1,28 @@
+[package]
+name = "helix-sandbox-helper"
+version = "0.1.0"
+edition = "2021"
+description = "helix Windows 沙箱 helper（daemon spawn 的受限 token 命令执行器——U0c 二期②）"
+
+# 独立 crate（不进 tauri 壳 workspace）：daemon 消费的资源面产物，
+# mac 交叉 check / CI windows 行为测试都用 --manifest-path 直取。
+# 机制参照 codex windows-sandbox-rs（Apache-2.0）裁剪重写：
+# 保留 RestrictedToken(WRITE_RESTRICTED) + 随机 capability SID + allow roots
+# 预写 grant ACE 核心链；砍 conpty/wfp 网络/elevated service/私有桌面/dpapi。
+
+[[bin]]
+name = "helix-sandbox-helper"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_IO",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+] } 
