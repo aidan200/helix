@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
+
+// sed -i 平台化（macOS BSD 需空后缀，Linux GNU 直用）——CI ubuntu 与 mac 同绿
+const sedInPlace = (expr: string, file: string) =>
+  process.platform === "darwin" ? `sed -i '' '${expr}' ${file}` : `sed -i '${expr}' ${file}`;
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -65,7 +69,7 @@ describe("bashSnapshot（真 git fixture）", () => {
     try {
       const plan = planBashSnapshot("true", dir);
       const before = await takeBashSnapshot(plan, dir);
-      execSync("sed -i '' 's/x/y/' a.ts && rm -f nothing 2>/dev/null; true", { cwd: dir });
+      execSync(`${sedInPlace("s/x/y/", "a.ts")} && rm -f nothing 2>/dev/null; true`, { cwd: dir });
       await writeFile(path.join(dir, "new.ts"), "n", "utf-8");
       const after = await takeBashSnapshot(plan, dir);
       const changed = new Set(diffBashSnapshots(before, after));
@@ -86,7 +90,7 @@ describe("wrapEnvForBashSense（集成）", () => {
         onObserved: (facts) => observed.push(...facts),
         now: () => 1_000,
       });
-      await env.exec("sed -i '' 's/x/y/' a.ts");
+      await env.exec(sedInPlace("s/x/y/", "a.ts"));
       expect(observed).toEqual([{ path: path.join(dir, "a.ts"), confidence: "inferred", at: 1_000 }]);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -115,7 +119,7 @@ describe("wrapEnvForBashSense（集成）", () => {
         preciseSince: () => [path.join(dir, "a.ts")], // 他人写
         now: () => 1_000,
       });
-      await env.exec("sed -i '' 's/x/y/' a.ts");
+      await env.exec(sedInPlace("s/x/y/", "a.ts"));
       expect(observed).toEqual([]); // 唯一变更被剔除 → 零事实
     } finally {
       await rm(dir, { recursive: true, force: true });

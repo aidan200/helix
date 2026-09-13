@@ -227,7 +227,14 @@ unsafe fn enable_single_privilege(h_token: HANDLE, name: &str) -> Result<()> {
 }
 use windows_sys::Win32::Security::AdjustTokenPrivileges;
 
-/// 构造受限 token：restricting SIDs = [cap, user, logon, everyone]（codex 同序）。
+/// 构造受限 token：restricting SIDs = [cap]（仅 capability——CI run32 实证修正）。
+///
+/// 为什么只放 cap：WriteRestricted 的 additional check 语义在 ALL 与
+/// at-least-one 两种解释下，混入 user/logon/everyone 都会因「用户目录
+/// ACL 显式 grant runneradmin FC」而放行（CI run32 icacls 取证）。
+/// 单 cap 对两种语义均正确：无 cap grant 即拒、allow 目录 grant cap 即过
+/// ——capability 模型的语义歧义免疫形态（codex 的 user/everyone 变体是
+/// readonly 档专用，workspace-write 不适用）。
 ///
 /// # Safety
 /// 调用方负责关闭返回句柄；base_token 须为有效 primary token。
@@ -236,12 +243,14 @@ pub unsafe fn create_sandbox_token(base_token: HANDLE, cap_sid: &[u8]) -> Result
     let logon = logon_sid_bytes(base_token)?;
     let everyone = world_sid()?;
 
-    // 顺序照 codex：cap → user → logon → everyone（顺序影响 DACL/继承语义）
-    let sids: [Vec<u8>; 4] = [cap_sid.to_vec(), user, logon, everyone];
-    let mut entries: Vec<SID_AND_ATTRIBUTES> = sids
+    // restricting 面：仅 cap（写检查的 additional 面窄化为 capability grant）
+    let restrict_sids: [Vec<u8>; 1] = [cap_sid.to_vec()];
+    let mut entries: Vec<SID_AND_ATTRIBUTES> = restrict_sids
         .iter()
         .map(|s| SID_AND_ATTRIBUTES { Sid: s.as_ptr() as *mut c_void, Attributes: 0 })
         .collect();
+    // default DACL 与 user/logon/everyone 仍需其 SID 本体（新建对象权限面）
+    let _ = (&user, &logon, &everyone);
 
     let mut new_token: HANDLE = std::ptr::null_mut();
     let flags = DISABLE_MAX_PRIVILEGE | LUA_TOKEN | WRITE_RESTRICTED;
@@ -262,9 +271,9 @@ pub unsafe fn create_sandbox_token(base_token: HANDLE, cap_sid: &[u8]) -> Result
 
     // default DACL：logon + everyone + cap（新建管道/IPC 对象放行）
     let dacl_sids: Vec<*mut c_void> = vec![
-        sids[2].as_ptr() as *mut c_void,
-        sids[3].as_ptr() as *mut c_void,
-        sids[0].as_ptr() as *mut c_void,
+        logon.as_ptr() as *mut c_void,
+        everyone.as_ptr() as *mut c_void,
+        cap_sid.as_ptr() as *mut c_void,
     ];
     if let Err(e) = set_default_dacl(new_token, &dacl_sids) {
         CloseHandle(new_token);
