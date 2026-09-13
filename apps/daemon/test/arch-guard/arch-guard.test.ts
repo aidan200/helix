@@ -454,6 +454,9 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       // 沙箱批：内层 shell 探测（macOS 26 /bin/sh 沙箱内自崩，$SHELL 兜底
       // /bin/bash）——环境探测非配置源，键级登记可评审
       [path.join("adapters", "driven", "tools", "SandboxEnvWrap.ts"), ["SHELL"]],
+      // 沙箱 helper 批：helper.exe 路径显式覆盖口（打包资源位接入前的
+      // 测试/开发通道——探测非配置源，键级登记）
+      [path.join("adapters", "driven", "tools", "sandboxSetup.ts"), ["HELIX_SANDBOX_HELPER"]],
     ];
     for (const rel of listFiles(srcRoot)) {
       if (whitelistRoots.some((root) => rel.startsWith(root))) continue;
