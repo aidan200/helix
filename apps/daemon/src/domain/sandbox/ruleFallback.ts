@@ -80,9 +80,15 @@ export function fallbackDeniedMessage(violations: readonly string[]): string {
 
 /**
  * 执行器形态决策（纯函数——供 readSandboxRuntime 与测试直用）。
- * darwin + seatbelt 自检通过 → seatbelt；否则 → fallback。
+ * darwin + seatbelt 自检过 → seatbelt；win32 + helper 可用且自检过 → helper；
+ * 其余（linux / 自检败 / helper 缺失）→ fallback。
  */
-export function resolveEnforcer(platform: NodeJS.Platform, seatbeltSelfCheckOk: boolean): "seatbelt" | "fallback" {
-  if (platform !== "darwin") return "fallback";
-  return seatbeltSelfCheckOk ? "seatbelt" : "fallback";
+export function resolveEnforcer(
+  platform: NodeJS.Platform,
+  seatbeltSelfCheckOk: boolean,
+  windowsHelperOk: boolean,
+): "seatbelt" | "helper" | "fallback" {
+  if (platform === "darwin") return seatbeltSelfCheckOk ? "seatbelt" : "fallback";
+  if (platform === "win32") return windowsHelperOk ? "helper" : "fallback";
+  return "fallback";
 }

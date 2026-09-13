@@ -29,8 +29,10 @@ export interface SandboxRuntime {
   readonly policy: SandboxPolicy;
   /** profile 文件落盘目录（.helix 下会话无关目录即可；懒写、内容寻址）。 */
   readonly profileDir: string;
-  /** 执行器形态：seatbelt = macOS 内核级；fallback = 全平台规则级（静态判定）。 */
-  readonly enforcer: "seatbelt" | "fallback";
+  /** 执行器形态：seatbelt = macOS 内核级；helper = Windows 受限 token（exe）；fallback = 全平台规则级（静态判定）。 */
+  readonly enforcer: "seatbelt" | "helper" | "fallback";
+  /** helper.exe 绝对路径（仅 enforcer=helper 时消费；探测见 sandboxSetup）。 */
+  readonly helperPath?: string;
 }
 
 /** 包装目标的最小结构面（NodeExecutionEnv 的 exec/写方法/absolutePath 切片）。 */
@@ -102,6 +104,21 @@ export function wrapEnvForSandbox<T extends SandboxEnvTarget>(base: T, runtime: 
         return { ok: true as const, value: { stdout: "", stderr: fallbackDeniedMessage(verdict.violations), exitCode: 126 } };
       }
       return base.exec(command, options);
+    }
+    if (runtime.enforcer === "helper") {
+      // Windows 受限 token 执行器（U0c 二期②）：与 seatbelt 同构的命令改写——
+      // pi 引擎 Windows 亦用 bash（Git Bash/MSYS2 探测），包装形态不变；
+      // helper 走 PATH 解析（pi 已确保 bash 在 PATH 是既定前提）。
+      const writables = policy.writableRoots.map((r) => `--writable ${shellQuote(r)}`).join(" ");
+      const wrapped = `${shellQuote(runtime.helperPath ?? "helix-sandbox-helper.exe")} ${writables} -- bash -c ${shellQuote(command)}`;
+      const result = await base.exec(wrapped, options);
+      if (result.ok) {
+        const v = classifyBashOutput(result.value.exitCode, result.value.stderr);
+        if (v.isViolation) {
+          return { ok: true, value: { ...result.value, stderr: `${result.value.stderr}\n${v.message}` } };
+        }
+      }
+      return result;
     }
     const profileFile = await ensureProfileFile(runtime);
     const shell =

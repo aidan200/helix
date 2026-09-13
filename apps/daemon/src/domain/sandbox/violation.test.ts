@@ -8,7 +8,7 @@ describe("classifyBashOutput", () => {
     expect(v.isViolation).toBe(true);
     if (v.isViolation) {
       expect(v.reason).toBe("operation_not_permitted");
-      expect(v.message).toContain("Seatbelt");
+      expect(v.message).toContain("helix 沙箱");
       expect(v.message).toContain("write/edit");
     }
   });

@@ -146,7 +146,7 @@ describe("wrapEnvForSandbox on 态", () => {
     const w = wrapEnvForSandbox(env, runtime());
     const r = await w.exec("x");
     expect(r.ok && r.value.stderr).toContain("Operation not permitted"); // 原始保留
-    expect(r.ok && r.value.stderr).toContain("Seatbelt"); // 引导追加
+    expect(r.ok && r.value.stderr).toContain("helix 沙箱"); // 引导追加
   });
 });
 
@@ -200,5 +200,28 @@ describe("wrapEnvForSandbox fallback 态（规则级执行器——U0c 二期）
     const w = wrapEnvForSandbox(env, fallbackRuntime());
     expect((await w.writeFile("/etc/hosts", "x")).ok).toBe(false);
     expect(env.writeCalls).toEqual([]);
+  });
+});
+
+describe("wrapEnvForSandbox helper 态（Windows 受限 token——U0c 二期②接线）", () => {
+  const helperRt = (): SandboxRuntime => ({ ...fallbackRuntime(), enforcer: "helper", helperPath: "C:\\tools\\helix-sandbox-helper.exe" });
+
+  test("exec 改写为 helper 调用（--writable 逐根 + bash -c 原命令）", async () => {
+    const env = mockEnv();
+    const w = wrapEnvForSandbox(env, helperRt());
+    await w.exec("echo x > out.txt");
+    const call = env.execCalls[0] ?? "";
+    expect(call).toContain("helix-sandbox-helper.exe");
+    expect(call).toContain("--writable");
+    expect(call).toContain("-- bash -c");
+    expect(call).toContain("echo x > out.txt");
+  });
+
+  test("violation 归一附加（helper 非零 + Operation not permitted → 引导文案）", async () => {
+    const env = mockEnv();
+    env.exec = async () => ({ ok: true as const, value: { stdout: "", stderr: "Access is denied. (os error 5)", exitCode: 1 } });
+    const w = wrapEnvForSandbox(env, helperRt());
+    const r = await w.exec("echo x > C:\\Windows\\evil.txt");
+    expect(r.ok && r.value.stderr).toContain("helix 沙箱");
   });
 });

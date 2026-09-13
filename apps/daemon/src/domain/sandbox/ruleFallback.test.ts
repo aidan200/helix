@@ -79,13 +79,16 @@ describe("fallbackDeniedMessage（出路文案）", () => {
 
 describe("resolveEnforcer（执行器形态决策）", () => {
   test("darwin + 自检过 → seatbelt", () => {
-    expect(resolveEnforcer("darwin", true)).toBe("seatbelt");
+    expect(resolveEnforcer("darwin", true, false)).toBe("seatbelt");
   });
-  test("darwin + 自检败 → fallback", () => {
-    expect(resolveEnforcer("darwin", false)).toBe("fallback");
+  test("darwin + 自检败 → fallback（helper 无关）", () => {
+    expect(resolveEnforcer("darwin", false, true)).toBe("fallback");
   });
-  test("win32 / linux → fallback（无 seatbelt）", () => {
-    expect(resolveEnforcer("win32", true)).toBe("fallback");
-    expect(resolveEnforcer("linux", true)).toBe("fallback");
+  test("win32 + helper 可用 → helper；缺失/自检败 → fallback", () => {
+    expect(resolveEnforcer("win32", false, true)).toBe("helper");
+    expect(resolveEnforcer("win32", false, false)).toBe("fallback");
+  });
+  test("linux → 恒 fallback", () => {
+    expect(resolveEnforcer("linux", true, true)).toBe("fallback");
   });
 });

@@ -60,10 +60,38 @@ function selfCheck(profileText: string, cacheKey: string): boolean {
   return ok;
 }
 
+/** Windows helper 探测：env 显式覆盖 > 仓库内开发态产物。打包态资源路径由打包批接入。 */
+function locateWindowsHelper(): string | undefined {
+  const fromEnv = process.env.HELIX_SANDBOX_HELPER;
+  if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
+  // 开发态：crate 的交叉构建产物（打包批后补 bundle resources 位）
+  const devPath = path.resolve(__dirname, "../../../resources/win-sandbox-helper/target/x86_64-pc-windows-msvc/release/helix-sandbox-helper.exe");
+  try {
+    accessSync(devPath, constants.X_OK);
+    return devPath;
+  } catch {
+    return undefined;
+  }
+}
+
+/** helper 自检：真跑一次最小命令（受限 token + grant 链全通验证）。失败降级 fallback。 */
+function windowsHelperSelfCheck(helperPath: string): boolean {
+  try {
+    const res = spawnSync(helperPath, ["--writable", tmpdir(), "--", "bash", "-c", "exit 0"], {
+      encoding: "utf-8",
+      timeout: 30_000,
+    });
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 装配 SandboxRuntime。enabled=false → undefined
  * （CoreToolExecutor 未注入 = 纯透传，行为零差）；enabled=true →
- * seatbelt（darwin 且自检过）或 fallback（其余——规则级降级）。
+ * seatbelt（darwin 且自检过）或 helper（win32 且可用且自检过）或
+ * fallback（其余——规则级降级）。
  */
 export function readSandboxRuntime(enabled: boolean, helixHome: string, workspaceRoot: string): SandboxRuntime | undefined {
   if (!enabled) return undefined;
@@ -89,13 +117,17 @@ export function readSandboxRuntime(enabled: boolean, helixHome: string, workspac
   const cacheKey = policy.writableRoots.join("\u0000");
   const seatbeltOk =
     process.platform === "darwin" && selfCheck(buildSeatbeltProfile(policy), cacheKey);
-  const enforcer = resolveEnforcer(process.platform, seatbeltOk);
+  const helperPath = process.platform === "win32" ? locateWindowsHelper() : undefined;
+  const helperOk = helperPath !== undefined && windowsHelperSelfCheck(helperPath);
+  const enforcer = resolveEnforcer(process.platform, seatbeltOk, helperOk);
   if (enforcer === "fallback") {
     console.warn(
       process.platform === "darwin"
         ? `[helix-sandbox] seatbelt 自检失败——降级为规则级防护（bash 写候选静态判定 + 工具写判定；不可判定命令靠写事实感知对账）。`
-        : `[helix-sandbox] 本平台（${process.platform}）无 seatbelt——启用规则级防护（bash 写候选静态判定 + 工具写判定）。`,
+        : process.platform === "win32"
+          ? `[helix-sandbox] helper 不可用（${helperPath ?? "未探测到"}）——降级为规则级防护（bash 写候选静态判定 + 工具写判定）。`
+          : `[helix-sandbox] 本平台（${process.platform}）无原生执行器——启用规则级防护（bash 写候选静态判定 + 工具写判定）。`,
     );
   }
-  return { policy, profileDir, enforcer };
+  return { policy, profileDir, enforcer, ...(helperPath !== undefined ? { helperPath } : {}) };
 }
