@@ -22,12 +22,15 @@ import { FileError, type Result } from "@earendil-works/pi-agent-core/node";
 import { buildSeatbeltProfile } from "../../../domain/sandbox/seatbeltProfile";
 import { isPathWritable, writeDeniedMessage, type SandboxPolicy } from "../../../domain/sandbox/SandboxPolicy";
 import { classifyBashOutput } from "../../../domain/sandbox/violation";
+import { classifyBashWrites, fallbackDeniedMessage } from "../../../domain/sandbox/ruleFallback";
 
 /** 沙箱运行时注入面（装配层构造；CoreToolExecutor 可选槽）。 */
 export interface SandboxRuntime {
   readonly policy: SandboxPolicy;
   /** profile 文件落盘目录（.helix 下会话无关目录即可；懒写、内容寻址）。 */
   readonly profileDir: string;
+  /** 执行器形态：seatbelt = macOS 内核级；fallback = 全平台规则级（静态判定）。 */
+  readonly enforcer: "seatbelt" | "fallback";
 }
 
 /** 包装目标的最小结构面（NodeExecutionEnv 的 exec/写方法/absolutePath 切片）。 */
@@ -91,6 +94,15 @@ export function wrapEnvForSandbox<T extends SandboxEnvTarget>(base: T, runtime: 
   const w = wrapped as T & SandboxEnvTarget;
 
   w.exec = async (command: string, options?: Record<string, unknown>) => {
+    if (runtime.enforcer === "fallback") {
+      // 规则级执行器：静态写候选判定（U0c 二期——Windows / 自检失败降级）。
+      // 拒绝形态 = ok:true + exitCode 126 + 出路文案（与 violation 归一兼容）。
+      const verdict = classifyBashWrites(command, base.cwd, policy);
+      if (!verdict.allowed) {
+        return { ok: true as const, value: { stdout: "", stderr: fallbackDeniedMessage(verdict.violations), exitCode: 126 } };
+      }
+      return base.exec(command, options);
+    }
     const profileFile = await ensureProfileFile(runtime);
     const shell =
       process.env.SHELL !== undefined && process.env.SHELL.startsWith("/") ? process.env.SHELL : "/bin/bash"; // macOS 26 实测：/bin/sh 在沙箱内 abort，bash/zsh 正常

@@ -23,8 +23,11 @@ function tokenize(segment: string): readonly string[] {
 /** 写目标形态：非 fd 重定向（排除 >&N / &>N / 2>&1 类；设备 /dev/null 排除）。 */
 const REDIRECT_RE = /(?:\d?>>?|&>>?)\s*([^\s<>&;|]+)|(?:\d?>>?|&>>?)([^\s<>&;|]+)/g;
 
-/** 单参写命令（参数即目标：tee/rm/rmdir/touch/truncate——取首个非 flag 参数）。 */
+/** 单参写命令（参数即目标：tee/rmdir/touch/truncate——取首个非 flag 参数）。 */
 const ONE_ARG_WRITERS = new Set(["tee", "rmdir", "touch"]);
+
+/** 多参写命令（全部非 flag 参数都是目标——删除面：rm/unlink）。 */
+const MULTI_ARG_WRITERS = new Set(["rm", "unlink"]);
 
 /** 双参写命令（第二参数为目标：cp/mv/mkdir——mkdir -p dir 的 dir 是首个非 flag）。 */
 const TWO_ARG_WRITERS = new Set(["cp", "mv", "ln", "install"]);
@@ -85,7 +88,13 @@ function segmentWriteTokens(segment: string): readonly string[] {
     }
     return out;
   }
-  // 3) tee [-a]：首个非 flag 参数
+  // 3) tee [-a]：首个非 flag 参数；rm/unlink：全部非 flag 参数（删除面）
+  if (MULTI_ARG_WRITERS.has(head)) {
+    for (const t of tokens.slice(1)) {
+      if (!t.startsWith("-")) out.push(t);
+    }
+    return out;
+  }
   if (ONE_ARG_WRITERS.has(head)) {
     const arg = tokens.slice(1).find((t) => !t.startsWith("-"));
     if (arg !== undefined) out.push(arg);

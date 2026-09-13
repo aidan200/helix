@@ -7,9 +7,11 @@
  * spawn 时（父进程读 KV → HELIX_SANDBOX env 透传）。off（false）→
  * undefined（失败安全：不沙箱不锁死）。
  *
- * 自检（enabled=true 时，模块级缓存——daemon 进程内一次）：
+ * 自检（enabled=true 且 darwin 时，模块级缓存——daemon 进程内一次）：
  * ① /usr/bin/sandbox-exec 存在且可执行；② 试跑 profile 包裹 bash -c true
- * 成功。任一失败 → console.warn + 返回 undefined（自动降级透传，不锁死）。
+ * 成功。任一失败 / 非 darwin 平台 → 降级为 **fallback 执行器**（规则级静态
+ * 判定，U0c 二期）——不再裸奔透传：bash 写候选起 writableRoots 硬阻断、
+ * 工具写 TS 判定照常生效。
  */
 
 import { accessSync, constants, realpathSync } from "node:fs";
@@ -19,6 +21,7 @@ import { spawnSync } from "node:child_process";
 
 import { parseSandboxConfig } from "../../../domain/sandbox/SandboxPolicy";
 import { buildSeatbeltProfile } from "../../../domain/sandbox/seatbeltProfile";
+import { resolveEnforcer } from "../../../domain/sandbox/ruleFallback";
 import type { SandboxRuntime } from "./SandboxEnvWrap";
 
 /** 自检结果缓存（roots 指纹 → 可用性）。 */
@@ -53,18 +56,14 @@ function selfCheck(profileText: string, cacheKey: string): boolean {
       ok = false;
     }
   }
-  if (!ok) {
-    console.warn(
-      `[helix-sandbox] 自检失败：sandbox-exec 不可用或 profile 试跑未通过——本进程沙箱自动降级为关闭（bash/文件写不受限，仅记录警示）。`,
-    );
-  }
   selfCheckCache.set(cacheKey, true === ok);
   return ok;
 }
 
 /**
- * 装配 SandboxRuntime。enabled=false / 自检失败 → undefined
- * （CoreToolExecutor 未注入 = 纯透传，行为零差）。
+ * 装配 SandboxRuntime。enabled=false → undefined
+ * （CoreToolExecutor 未注入 = 纯透传，行为零差）；enabled=true →
+ * seatbelt（darwin 且自检过）或 fallback（其余——规则级降级）。
  */
 export function readSandboxRuntime(enabled: boolean, helixHome: string, workspaceRoot: string): SandboxRuntime | undefined {
   if (!enabled) return undefined;
@@ -88,6 +87,15 @@ export function readSandboxRuntime(enabled: boolean, helixHome: string, workspac
   };
   const profileDir = path.join(helixHome, "sandbox");
   const cacheKey = policy.writableRoots.join("\u0000");
-  if (!selfCheck(buildSeatbeltProfile(policy), cacheKey)) return undefined;
-  return { policy, profileDir };
+  const seatbeltOk =
+    process.platform === "darwin" && selfCheck(buildSeatbeltProfile(policy), cacheKey);
+  const enforcer = resolveEnforcer(process.platform, seatbeltOk);
+  if (enforcer === "fallback") {
+    console.warn(
+      process.platform === "darwin"
+        ? `[helix-sandbox] seatbelt 自检失败——降级为规则级防护（bash 写候选静态判定 + 工具写判定；不可判定命令靠写事实感知对账）。`
+        : `[helix-sandbox] 本平台（${process.platform}）无 seatbelt——启用规则级防护（bash 写候选静态判定 + 工具写判定）。`,
+    );
+  }
+  return { policy, profileDir, enforcer };
 }

@@ -57,7 +57,11 @@ function mockEnv(): SandboxEnvTarget & {
 }
 
 function runtime(): SandboxRuntime {
-  return { policy: parseSandboxConfig({ enabled: true }, WS, HOME), profileDir: "/tmp/sandbox-test-profiles" };
+  return { policy: parseSandboxConfig({ enabled: true }, WS, HOME), profileDir: "/tmp/sandbox-test-profiles", enforcer: "seatbelt" };
+}
+
+function fallbackRuntime(): SandboxRuntime {
+  return { ...runtime(), enforcer: "fallback" };
 }
 
 describe("wrapEnvForSandbox 透传语义（零侵入保证）", () => {
@@ -68,7 +72,7 @@ describe("wrapEnvForSandbox 透传语义（零侵入保证）", () => {
 
   test("mode=off → 原 env 引用", () => {
     const env = mockEnv();
-    const off = { policy: parseSandboxConfig(null, WS, HOME), profileDir: "/tmp/x" };
+    const off = { policy: parseSandboxConfig(null, WS, HOME), profileDir: "/tmp/x", enforcer: "seatbelt" as const };
     expect(wrapEnvForSandbox(env, off)).toBe(env);
   });
 });
@@ -143,5 +147,58 @@ describe("wrapEnvForSandbox on 态", () => {
     const r = await w.exec("x");
     expect(r.ok && r.value.stderr).toContain("Operation not permitted"); // 原始保留
     expect(r.ok && r.value.stderr).toContain("Seatbelt"); // 引导追加
+  });
+});
+
+describe("wrapEnvForSandbox fallback 态（规则级执行器——U0c 二期）", () => {
+  test("重定向写 workspace 外 → 拒执行（exitCode 126 + 出路文案，不透传）", async () => {
+    const env = mockEnv();
+    const w = wrapEnvForSandbox(env, fallbackRuntime());
+    const r = await w.exec("echo x > /etc/hosts");
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.exitCode).toBe(126);
+      expect(r.value.stderr).toContain("规则级防护");
+      expect(r.value.stderr).toContain("/etc/hosts");
+      expect(r.value.stderr).toContain("write/edit");
+    }
+    expect(env.execCalls).toEqual([]); // 未执行
+  });
+
+  test("workspace 内重定向 → 放行原样透传（命令未改写）", async () => {
+    const env = mockEnv();
+    const w = wrapEnvForSandbox(env, fallbackRuntime());
+    const r = await w.exec("echo x > out.txt");
+    expect(r.ok && r.value.exitCode).toBe(0);
+    expect(env.execCalls).toEqual(["echo x > out.txt"]); // 无 sandbox-exec 改写
+  });
+
+  test("cd-aware 相对路径越界（cd /etc && touch hosts）→ 拒", async () => {
+    const env = mockEnv();
+    const w = wrapEnvForSandbox(env, fallbackRuntime());
+    const r = await w.exec("cd /etc && echo x > hosts");
+    expect(r.ok && r.value.exitCode).toBe(126);
+    expect(env.execCalls).toEqual([]);
+  });
+
+  test("不可判定类（python -c / make / test）→ 无候选放行", async () => {
+    const env = mockEnv();
+    const w = wrapEnvForSandbox(env, fallbackRuntime());
+    expect((await w.exec("python3 -c 'open(\"/etc/x\",\"w\")'")).ok).toBe(true);
+    expect(env.execCalls.length).toBe(1); // 放行（L2 感知对账兜底——明知的取舍）
+  });
+
+  test("只读命令零候选 → 放行", async () => {
+    const env = mockEnv();
+    const w = wrapEnvForSandbox(env, fallbackRuntime());
+    await w.exec("ls -la | grep foo; cat README.md");
+    expect(env.execCalls.length).toBe(1);
+  });
+
+  test("工具写判定与 seatbelt 同构（fallback 下写方法族照常）", async () => {
+    const env = mockEnv();
+    const w = wrapEnvForSandbox(env, fallbackRuntime());
+    expect((await w.writeFile("/etc/hosts", "x")).ok).toBe(false);
+    expect(env.writeCalls).toEqual([]);
   });
 });
