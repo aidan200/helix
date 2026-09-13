@@ -618,6 +618,18 @@ function applyHandshakeBinding(frame: EventEnvelope): void {
   }
 }
 
+
+/**
+ * accept-即-open 语义（daemon WS 服务端镜像）：真实 daemon accept 连接后
+ * 即 OPEN 收发。fake socket 的 CONNECTING 初态是为 smoke 类 spec 提供
+ * 「connecting 态可测」的驱动面——但 mock 主动发帧 = 服务端已就绪，
+ * CONNECTING 期自动 fireOpen（W3 fireMessage OPEN 门控的配套半边镜像，
+ * 缺此则重连剧本的 emit 进 CONNECTING socket 被门控吞、永卡 connecting）。
+ */
+function ensureAccepted(inst: FakeSocket): void {
+  if (inst.readyState === FakeSocket.CONNECTING) inst.fireOpen();
+}
+
 const mockApi: HelixMockApi = {
   async open() {
     (await registry.nextActive()).fireOpen();
@@ -626,10 +638,13 @@ const mockApi: HelixMockApi = {
     applyHandshakeBinding(frame);
     if (!registry.passTierFilter(frame)) return; // monitor 档白名单过滤（契约 §2.2）
     registry.trackScenarioSession(frame);
-    (await registry.nextActive()).fireMessage(frame);
+    const inst = await registry.nextActive();
+    ensureAccepted(inst);
+    inst.fireMessage(frame);
   },
   async emitAll(frames) {
     const inst = await registry.nextActive();
+    ensureAccepted(inst);
     for (const f of frames) {
       applyHandshakeBinding(f);
       if (!registry.passTierFilter(f)) continue; // monitor 档白名单过滤
