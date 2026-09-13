@@ -36,6 +36,7 @@ use windows_sys::Win32::Security::SetTokenInformation;
 use windows_sys::Win32::Security::ACL;
 use windows_sys::Win32::Security::SID_AND_ATTRIBUTES;
 use windows_sys::Win32::Security::TOKEN_DUPLICATE;
+use windows_sys::Win32::Security::TOKEN_ADJUST_DEFAULT;
 use windows_sys::Win32::Security::TOKEN_QUERY;
 use windows_sys::Win32::Security::TOKEN_USER;
 use windows_sys::Win32::Security::TokenDefaultDacl;
@@ -277,10 +278,18 @@ pub unsafe fn create_sandbox_token(base_token: HANDLE, cap_sid: &[u8]) -> Result
 /// # Safety
 /// 调用方负责关闭返回句柄。
 pub unsafe fn current_process_token() -> Result<HANDLE> {
+    // 权限面照 codex get_current_token_for_restriction：CreateRestrictedToken
+    // 从 base 继承句柄权限——base 缺 ADJUST_DEFAULT 则产出 token 无法
+    // SetTokenInformation(TokenDefaultDacl)（CI 首轮实测 error 5 的根因）。
+    use windows_sys::Win32::Security::TOKEN_ADJUST_PRIVILEGES;
+    use windows_sys::Win32::Security::TOKEN_ADJUST_SESSIONID;
+    use windows_sys::Win32::Security::TOKEN_ASSIGN_PRIMARY;
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
     use windows_sys::Win32::System::Threading::OpenProcessToken;
+    let desired =
+        TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID | TOKEN_ADJUST_PRIVILEGES;
     let mut token: HANDLE = std::ptr::null_mut();
-    if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &mut token) == 0 {
+    if OpenProcessToken(GetCurrentProcess(), desired, &mut token) == 0 {
         return Err(anyhow!("OpenProcessToken failed: {}", GetLastError()));
     }
     Ok(token)
