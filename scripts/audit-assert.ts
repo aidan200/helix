@@ -160,6 +160,11 @@ async function main(): Promise<void> {
   // node_modules 排除（三方依赖不受本仓治理面约束）。
   const SIZE_EXEMPT: Array<{ file: string; reason: string }> = [
     // 豁免唯一通道：仓库根相对 posix 路径精确匹配 + 一行理由；本期预期空，演示登记后须还原。
+    {
+      file: "apps/daemon/src/infrastructure/assembly/buildSessionStack.ts",
+      reason:
+        "组合根接线密集期：协调系列（U0a-U7：写事实/护栏/占用/注入）与沙箱系列（seatbelt/helper/fallback）六批接线集中于此；待组合根按域分组重构后撤销豁免",
+    },
   ];
 
   for (const { file, reason } of SIZE_EXEMPT) {

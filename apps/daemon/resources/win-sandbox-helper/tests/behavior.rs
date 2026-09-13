@@ -66,7 +66,16 @@ fn write_outside_root_denied() {
         &denied, // cwd 在拒绝区——相对路径写
         "echo escape > escape.txt",
     );
-    assert_ne!(code, 0, "root 外写必须非零退出");
+    if code == 0 {
+        // CI 盲调取证：dump 目标 ACL + 被沙箱进程 token 视角（helper --diagnose）
+        let acl = Command::new("icacls").arg(&denied).output().ok();
+        let acl_txt = acl.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+        let diag = Command::new(HELPER).arg("--diagnose").arg(denied.to_string_lossy().as_ref()).output().ok();
+        let diag_txt = diag
+            .map(|o| format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)))
+            .unwrap_or_default();
+        panic!("root 外写未被拒（exit 0）\n== icacls ==\n{acl_txt}\n== diagnose ==\n{diag_txt}");
+    }
     assert!(!target.exists(), "root 外文件必须未被创建");
 }
 

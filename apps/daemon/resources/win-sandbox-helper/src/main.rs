@@ -64,6 +64,12 @@ fn parse_args(args: &[String]) -> Result<(Vec<PathBuf>, String)> {
 }
 
 fn run(args: &[String]) -> Result<i32> {
+    // 诊断模式：--diagnose <path>——被沙箱进程内跑 whoami/icacls 取证（CI 盲调：
+    // 根外写未拒类问题需要 token 视角 + ACL 面事实，日志一轮拿全）
+    if let Some(path) = args.first().filter(|a| a.as_str() == "--diagnose").and(args.get(1)) {
+        let target = path.clone();
+        return run_diagnose(&target);
+    }
     let (writables, command) = parse_args(args)?;
 
     // 根必须存在（不存在则 grant ACE 无处落——拒跑优于建目录：helper 不应制造目录）
@@ -92,6 +98,22 @@ fn run(args: &[String]) -> Result<i32> {
             .context("受限进程启动失败")?;
         windows_sys::Win32::Foundation::CloseHandle(sandboxed);
         Ok(code)
+    }
+}
+
+
+/// 诊断模式：受限 token 视角下跑 whoami /groups + icacls（stdout 透传回测试）。
+fn run_diagnose(target: &str) -> Result<i32> {
+    unsafe {
+        let cap_sid_str = acl::random_cap_sid();
+        let cap_sid = token::sid_from_string(&cap_sid_str)?;
+        let base = token::current_process_token()?;
+        let sandboxed = token::create_sandbox_token(base, &cap_sid)?;
+        windows_sys::Win32::Foundation::CloseHandle(base);
+        let cmd = format!("whoami /user & whoami /groups & icacls \"{target}\"");
+        let r = spawn::spawn_as_user_and_wait(sandboxed, &cmd);
+        windows_sys::Win32::Foundation::CloseHandle(sandboxed);
+        r
     }
 }
 
