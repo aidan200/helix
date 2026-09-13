@@ -20,7 +20,9 @@ export interface SandboxPolicy {
   readonly writableRoots: readonly string[];
 }
 
-/** 解析 workspace 级开关配置载荷（<workspace>/.helix/sandbox.json）。 */
+/** 解析沙箱开关配置载荷（KV sandbox_config 布尔载荷 {enabled}——沙箱开关批
+ * 2026-09-12 起开关存 db 单键；第一版 <home>/sandbox.json 文件开关已由
+ * bootPrelude.migrateLegacySandboxConfig 一次性迁移退役）。 */
 export function parseSandboxConfig(raw: unknown, workspaceRoot: string, helixHomeDir: string): SandboxPolicy {
   const obj = (raw ?? {}) as Record<string, unknown>;
   const enabled = obj["enabled"] === true;
