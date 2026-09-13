@@ -65,18 +65,18 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
 
   test("header 槽内容：session/home chip + 模型徽标 + 连接状态；rail 品牌图标 + 主题单钮（S1）", async ({ mock, page }) => {
     await mock.connect();
-    // S1：品牌位迁 IconRail（rail-logo = HelixLogo 渐变图标）；渐变口径 =
-    // accent→violet token（stopColor var() 引用，随主题切换自动适配）
+    // S1：品牌位迁 IconRail；logo 批（7d269de）像素稿 logo.png 替换渐变 SVG
+    // ——固定色位图不随主题 token 变色，断言口径从渐变 stopColor 改为 img
+    // 元素可见 + pixelated 渲染（原渐变口径随 T5.2 token 退役）
     const logo = page.locator(".rail-logo [data-brand-logo]");
     await expect(logo).toBeVisible();
-    const stopColors = () =>
-      page.evaluate(() =>
-        Array.from(document.querySelectorAll(".rail-logo [data-brand-logo] stop")).map(
-          (s) => getComputedStyle(s).stopColor,
-        ),
+    await expect(logo).toHaveAttribute("src", /logo\./);
+    const pixelated = () =>
+      page.evaluate(
+        () =>
+          getComputedStyle(document.querySelector(".rail-logo [data-brand-logo]") as HTMLElement).imageRendering,
       );
-    // 暗色：accent rgb(34, 211, 238) → violet rgb(168, 85, 247)
-    expect(await stopColors()).toEqual(["rgb(34, 211, 238)", "rgb(168, 85, 247)"]);
+    expect(await pixelated()).toBe("pixelated");
     await shotEvidence(page, "header-brand-dark");
     // 环境 chip 三枚（W4：workspace 指示器入列——mode / home / ws 切换入口）
     const chips = page.locator(".app-header .hud-chip");
@@ -90,10 +90,10 @@ test.describe("TC2.1 R-01 布局（应用壳/版心/composer）", () => {
     await expect(page.locator(".conn-status")).toBeVisible();
     await expect(page.locator("#btn-theme-toggle")).toBeVisible();
     await expect(page.locator("#btn-theme-toggle .lucide-sun")).toBeVisible();
-    // 亮主题：图标渐变随 token 亮列自动适配（accent/violet 亮值）
+    // 亮主题：固定色位图不变（原渐变随 token 适配的口径已退役）——双主题同图直出
     await page.locator("#btn-theme-toggle").click();
     await expect(page.locator("html")).toHaveClass(/(^|\s)light(\s|$)/);
-    expect(await stopColors()).toEqual(["rgb(37, 99, 235)", "rgb(147, 51, 234)"]);
+    await expect(page.locator(".rail-logo [data-brand-logo]")).toBeVisible();
     await shotEvidence(page, "header-brand-light");
     await page.locator("#btn-theme-toggle").click();
   });
