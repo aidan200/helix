@@ -249,6 +249,9 @@ export async function createDaemon(options: DaemonOptions = {}): Promise<Daemon>
  * 本函数只做装配不做形态决断（async：重启恢复需读盘）。
  */
 export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> {
+  /** 本代 daemon 启动时刻（恢复链幽灵实例判据：agent_lifecycle 行 updated_at
+   * 早于此 = 上代遗留——task-efd68911 事故：非优雅退出后非终态投影行无人收口）。 */
+  const bootedAtMs = Date.now();
   // ── 装配序步 1：装配级事件总线（零依赖 pub/sub，最先构造——循环边解耦锚点，
   //    architecture §4.2.2/§4.2.3）：resources.changed 的唯一通道，
   // 不进 WS/不落盘/不进 fan-out（负断言面）。──
@@ -417,6 +420,13 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
     // 链 A（⑤）：批次实例调度态读面（任务页 parked 徽标数据源）——晚绑闭包
     // 读 scheduler 现值（sessionStack 在本块之后建，构造窗口零调用）
     instanceStateOf: (agentId) => schedulerLate?.status(agentId)[0]?.state,
+    // 恢复链幽灵实例收口（task-efd68911 事故）：agent_lifecycle 非终态上代
+    // 遗留行 → failed/cancelled + agent.failed 补发；events 晚绑 fanout
+    //（fanoutPublisher 在本块之后构造，recoverOnStartup 在装配末尾触发，
+    // 调用时刻恒晚于声明时刻——同 lateStarter 晚绑模式）
+    agentProjections: persistence.repository,
+    bootedAtMs,
+    events: { publish: (event) => fanoutPublisher.publish(event) },
     // F3.6 级联扩展：任务报告目录（批次报告 md/findings 旁路/summary.md）
     // 随任务同灭——force:true 幂等（目录不存在不炸），库级联成功后调用
     removeTaskReportDir: (jobId) => rm(path.join(paths.home, "reports", `task:${jobId}`), { recursive: true, force: true }),

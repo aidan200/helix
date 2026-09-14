@@ -5,6 +5,7 @@ import type {
   ClosureRecordData,
   DomainEventQuery,
   InstanceState,
+  OrphanInstanceLifecycleRow,
   PendingSyncRowData,
   PersistedDomainState,
   SessionMetadataRow,
@@ -174,6 +175,20 @@ export class SqliteSessionRepository implements SessionRepositoryPort {
       .prepare("SELECT instance_id, state, updated_at FROM agent_lifecycle WHERE session_id = ? ORDER BY rowid")
       .all(sessionId) as { instance_id: string; state: string; updated_at: string }[];
     return rows.map((r) => ({ instanceId: r.instance_id, state: r.state, updatedAt: r.updated_at }));
+  }
+
+  /** 幽灵实例行全库扫描（恢复链专用；判据见端口注释）。 */
+  async queryOrphanInstanceLifecycles(bootedAtIso: string): Promise<readonly OrphanInstanceLifecycleRow[]> {
+    const rows = this.queue.database
+      .prepare(
+        `SELECT session_id, instance_id, state, updated_at FROM agent_lifecycle
+         WHERE instance_id LIKE 'agent-%'
+           AND state IN ('queued', 'running', 'parked')
+           AND updated_at < ?
+         ORDER BY updated_at`,
+      )
+      .all(bootedAtIso) as { session_id: string; instance_id: string; state: string; updated_at: string }[];
+    return rows.map((r) => ({ sessionId: r.session_id, instanceId: r.instance_id, state: r.state, updatedAt: r.updated_at }));
   }
 
   // ── W2-D pending_sync 变更追踪（R13/R22） ─────────────────

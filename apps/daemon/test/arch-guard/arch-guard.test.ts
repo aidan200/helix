@@ -457,6 +457,9 @@ describe("AG-08：与环境变量无缘（apiKeys 只来自 auth.json）", () =>
       // 沙箱 helper 批：helper.exe 路径显式覆盖口（打包资源位接入前的
       // 测试/开发通道——探测非配置源，键级登记）
       [path.join("adapters", "driven", "tools", "sandboxSetup.ts"), ["HELIX_SANDBOX_HELPER"]],
+      // 崩溃留痕批（5f3198a）：进程级崩溃钩子对测试 runner 的让位判别
+      //（BUN_TEST=1 不接管 crash 日志/退出码——探测非配置源，键级登记）
+      [path.join("infrastructure", "lifecycle.ts"), ["BUN_TEST"]],
     ];
     for (const rel of listFiles(srcRoot)) {
       if (whitelistRoots.some((root) => rel.startsWith(root))) continue;

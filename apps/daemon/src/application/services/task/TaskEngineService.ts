@@ -11,6 +11,9 @@ import type { WorkLedgerPort } from "../../ports/outbound/WorkLedgerPort";
 import type { TaskSkillRegistryPort } from "../../ports/outbound/TaskSkillRegistryPort";
 import type { TaskOrchestratorStarterPort } from "../../ports/outbound/TaskOrchestratorStarterPort";
 import type { ClockPort } from "../../ports/outbound/ClockPort";
+import type { AgentProjectionStore } from "../../ports/outbound/SessionRepositoryPort";
+import type { EventPublisherPort } from "../../ports/outbound/EventPublisherPort";
+import type { AgentFailedPayload } from "../../../domain/events/DomainEvent";
 
 /**
  * TaskEngineService —— 任务引擎（architecture §4，实现 TaskEnginePort）。
@@ -72,6 +75,18 @@ export interface TaskEngineServiceDeps {
    * 现有测试以假实例 id 直落章，零破坏过渡）。
    */
   readonly instanceStateOf?: (agentId: string) => string | undefined;
+  /**
+   * 实例生命周期投影族（恢复链幽灵收口；组合根接 persistence.repository，
+   * 缺省不装配——纯引擎测试形态零依赖）。
+   */
+  readonly agentProjections?: Pick<AgentProjectionStore, "queryOrphanInstanceLifecycles" | "saveAgentLifecycle">;
+  /** 领域事件出口（幽灵收口补发 agent.failed；缺省不发——纯引擎测试形态）。 */
+  readonly events?: Pick<EventPublisherPort, "publish">;
+  /**
+   * 本代 daemon 启动时刻（ms；幽灵判据：行 updated_at 早于此 = 上代遗留）。
+   * 缺省不收口（与 agentProjections 二选一缺省即零行为，双注入才启用）。
+   */
+  readonly bootedAtMs?: number;
 }
 
 export class TaskEngineService implements TaskEnginePort {
@@ -628,6 +643,7 @@ export class TaskEngineService implements TaskEnginePort {
   // ── 启动恢复扫描（§4.4，F2.3） ────────────────────────────
 
   async recoverOnStartup(): Promise<{ resumedJobIds: readonly string[] }> {
+    await this.settleOrphanInstances(); // 幽灵实例收口先于任何重派 spawn（task-efd68911 事故）
     const resumed: string[] = [];
     // running 一并扫（pending 视为待接管；paused 不自动续）
     for (const status of ["running", "pending"] as const) {
@@ -652,6 +668,58 @@ export class TaskEngineService implements TaskEnginePort {
     if (now === undefined || isTerminalJob(now.status)) return;
     await this.deps.starter.startOrchestrator(job.id);
     this.recoveredJobIds.add(job.id); // 种子集合收口（幂等双防护）
+  }
+
+  /**
+   * 幽灵实例收口（task-efd68911 事故）：daemon 非优雅退出后，任务 SubAgent
+   * 的 agent_lifecycle 投影行停留非终态——批次层已被 recoverJob 对账重派，
+   * 实例行无人收口，trace/观测面永远显示活跃。本代内存不可能持有上代实例
+   * （行 updated_at < bootedAt 即证），按 TR-35 分态收口：running/parked →
+   * failed + 补发 agent.failed（daemon_restarted，新收口事实非重放）；
+   * queued → cancelled（无 closure 记录不发事件，与重启清队语义一致）。
+   * 幂等：行终态后不再命中。行级隔离：单行失败不断恢复主流程。
+   */
+  private async settleOrphanInstances(): Promise<void> {
+    const { agentProjections, events, bootedAtMs, clock } = this.deps;
+    if (agentProjections === undefined || bootedAtMs === undefined) return; // 缺省零行为（纯引擎测试形态）
+    const bootedAtIso = new Date(bootedAtMs).toISOString();
+    let orphans: readonly { sessionId: string; instanceId: string; state: string }[];
+    try {
+      orphans = await agentProjections.queryOrphanInstanceLifecycles(bootedAtIso);
+    } catch (error) {
+      this.deps.warn?.(`[recover] 幽灵实例扫描失败（跳过收口）：${(error as Error).message}`);
+      return;
+    }
+    let settled = 0;
+    for (const row of orphans) {
+      const isQueued = row.state === "queued";
+      try {
+        await agentProjections.saveAgentLifecycle(row.sessionId, row.instanceId, isQueued ? "cancelled" : "failed");
+        settled += 1;
+      } catch (error) {
+        this.deps.warn?.(`[recover] 幽灵实例 ${row.instanceId} 行收口失败（跳过）：${(error as Error).message}`);
+        continue; // 行级隔离：单行失败不断恢复主流程
+      }
+      if (isQueued) continue; // cancelled 无 closure 记录不发事件（TR-35）
+      try {
+        events?.publish({
+          type: "agent.failed",
+          sessionId: row.sessionId, // 事件归属 = 实例归属会话（多会话口径，同 ClosureRecorder）
+          instanceId: row.instanceId,
+          payload: {
+            agentId: row.instanceId,
+            error: "daemon 重启：实例无优雅收口（daemon_restarted）",
+            closure: { status: "failed", summary: "daemon_restarted：上代实例随进程消失，恢复扫描统一收口" },
+          } satisfies AgentFailedPayload,
+          occurredAt: clock.now(),
+        });
+      } catch {
+        // 事件面异常静默（投影行收口是事实源，事件是可观测增强）
+      }
+    }
+    if (settled > 0) {
+      this.deps.warn?.(`[recover] 幽灵实例收口 ${settled} 行（上代遗留非终态投影行 → failed/cancelled）`);
+    }
   }
 
   // ── 内部工具 ──────────────────────────────────────────────

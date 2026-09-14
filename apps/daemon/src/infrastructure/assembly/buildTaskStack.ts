@@ -16,6 +16,8 @@ import type {
 import type { TaskOrchestratorStarterPort } from "../../application/ports/outbound/TaskOrchestratorStarterPort";
 import type { TaskStorePort } from "../../application/ports/outbound/TaskStorePort";
 import type { ClockPort } from "../../application/ports/outbound/ClockPort";
+import type { AgentProjectionStore } from "../../application/ports/outbound/SessionRepositoryPort";
+import type { EventPublisherPort } from "../../application/ports/outbound/EventPublisherPort";
 import type { TaskManifest } from "../../domain/task/types";
 
 /**
@@ -86,6 +88,16 @@ export interface BuildTaskStackDeps {
    *  task:<jobId>/ 整目录 rm）；缺省跳过（隔离测试形态零 fs）。
    */
   readonly removeTaskReportDir?: (jobId: string) => Promise<void> | void;
+  /**
+   * 实例生命周期投影族（恢复链幽灵收口，task-efd68911 事故）：透传
+   * TaskEngineService——组合根接 persistence.repository；缺省不装配
+   * （隔离测试形态零依赖）。
+   */
+  readonly agentProjections?: Pick<AgentProjectionStore, "queryOrphanInstanceLifecycles" | "saveAgentLifecycle">;
+  /** 领域事件出口（幽灵收口补发 agent.failed）：组合根晚绑闭包接 fanout。 */
+  readonly events?: Pick<EventPublisherPort, "publish">;
+  /** 本代 daemon 启动时刻（幽灵判据：行 updated_at 早于此 = 上代遗留）。 */
+  readonly bootedAtMs?: number;
 }
 
 export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStack> {
@@ -111,6 +123,15 @@ export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStac
     // 迟到接线守卫（task-efd68911）：与 query DTO 同源读面（组合根接
     // scheduler.status 晚绑闭包）——终态实例接线转失败收口/查无拒绝
     ...(deps.instanceStateOf !== undefined ? { instanceStateOf: deps.instanceStateOf } : {}),
+    // 恢复链幽灵收口（task-efd68911 事故）：投影族 + 事件出口 + 启动时刻
+    // 三依赖同注同缺（缺任一 = 引擎恢复扫描零行为，兼容隔离测试形态）
+    ...(deps.agentProjections !== undefined && deps.bootedAtMs !== undefined
+      ? {
+          agentProjections: deps.agentProjections,
+          bootedAtMs: deps.bootedAtMs,
+          ...(deps.events !== undefined ? { events: deps.events } : {}),
+        }
+      : {}),
     warn: (m) => deps.logger.warn(m),
   });
   const query = new TaskQueryService({

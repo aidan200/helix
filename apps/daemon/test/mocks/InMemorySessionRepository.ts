@@ -9,6 +9,10 @@ import type {
   SessionRepositoryPort,
 } from "../../src/application/ports/outbound/SessionRepositoryPort";
 import type { DomainEvent, InstanceClosurePayload } from "../../src/domain/events/DomainEvent";
+import type { OrphanInstanceLifecycleRow } from "../../src/application/ports/outbound/SessionRepositoryPort";
+
+/** 实例终态集合（六态减 queued/running/parked；与生产 SQL 白名单口径互补）。 */
+const TERMINAL_INSTANCE_STATES = new Set(["done", "failed", "cancelled"]);
 
 /**
  * InMemorySessionRepository —— SessionRepositoryPort 的内存假实现
@@ -138,6 +142,26 @@ export class InMemorySessionRepository implements SessionRepositoryPort {
         state,
         updatedAt: new Date(0).toISOString(),
       }));
+  }
+
+  async queryOrphanInstanceLifecycles(bootedAtIso: string): Promise<readonly OrphanInstanceLifecycleRow[]> {
+    // 内存 mock：updatedAt 恒为 epoch（永远早于 bootedAt）——判据退化为
+    // agent-* 形态 + 非终态，与生产 SQL 口径一致。
+    return [...this.lifecycles]
+      .filter(([key, state]) => {
+        const instanceId = key.slice(key.indexOf("/") + 1);
+        return instanceId.startsWith("agent-") && !TERMINAL_INSTANCE_STATES.has(state);
+      })
+      .map(([key, state]) => {
+        const sep = key.indexOf("/");
+        return {
+          sessionId: key.slice(0, sep),
+          instanceId: key.slice(sep + 1),
+          state,
+          updatedAt: new Date(0).toISOString(),
+        };
+      })
+      .filter((row) => row.updatedAt < bootedAtIso);
   }
 
   queryClosureRecords(sessionId: string, agentId?: string): readonly ClosureRecordData[] {

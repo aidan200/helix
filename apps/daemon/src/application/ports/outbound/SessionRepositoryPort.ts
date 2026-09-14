@@ -71,6 +71,23 @@ export interface AgentProjectionStore {
    * 留实现自由度）待 M4 拆分一并处理，本批不动签名。
    */
   queryAgentLifecycles(sessionId: string): Promise<readonly AgentLifecycleRowData[]>;
+  /**
+   * 幽灵实例行全库扫描（恢复链专用：daemon 非优雅退出后，任务 SubAgent
+   * 的 agent_lifecycle 投影行停留非终态——批次层已被 recoverJob 对账重派，
+   * 实例行无人收口，观测面永远显示活跃）。过滤三判据：
+   * instance_id 为 agent-* 形态（main 行归会话恢复链管辖）+ state 非终态
+   * （queued/running/parked）+ updated_at 早于 bootedAtIso（本代 daemon
+   * 启动时刻——防误伤本代新 spawn 实例）。
+   */
+  queryOrphanInstanceLifecycles(bootedAtIso: string): Promise<readonly OrphanInstanceLifecycleRow[]>;
+}
+
+/** 幽灵实例行（恢复链收口数据源；含归属会话——收口事件归属 = 实例归属会话）。 */
+export interface OrphanInstanceLifecycleRow {
+  readonly sessionId: string;
+  readonly instanceId: string;
+  readonly state: string;
+  readonly updatedAt: string;
 }
 
 /** closure 产物族：closure 记录行 + 任务报告文件产物的写读面。 */
