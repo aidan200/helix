@@ -99,7 +99,7 @@ export interface SteerPayload {
 }
 
 export interface TurnCompletedPayload {
-  readonly reason: "done" | "aborted" | "steerDrained";
+  readonly reason: "done" | "aborted" | "steerDrained" | "daemon_restarted";
   readonly replyEntryId?: string;
 }
 

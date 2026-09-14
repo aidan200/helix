@@ -560,6 +560,16 @@ export class SessionRegistry implements SessionDirectoryPort {
       ...(restored.thinkingOverride !== undefined ? { thinkingOverride: restored.thinkingOverride } : {}),
     });
     this.register(runtime);
+    // 悬挂轮收口可见化（M）：恢复收口了 open turn（上次 daemon 未正常退出
+    // 或收口未及落盘）→ WARN 留痕 + 补发 turn.interrupted 标记事件（新事件非
+    // 历史重放；live 订阅者收到 chat.turn.completed(aborted)，事件行落盘可追溯；
+    // 发后投影 write-through 重写快照——收口持久化，下次冷加载不再重复发布）。
+    if (restored.collapsedTurn !== undefined) {
+      this.deps.logger?.warn(
+        `会话 ${sessionId} 恢复：悬挂轮 ${restored.collapsedTurn.id} 收口为 interrupted（上次 daemon 未正常退出），可发消息继续`,
+      );
+      runtime.chatService.publishRestoreInterrupted(restored.collapsedTurn.id);
+    }
     return runtime;
   }
 

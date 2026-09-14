@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -147,6 +147,22 @@ describe("TP-CL8-6 强杀变体：kill -9 → 恢复到最后一致里程碑", (
       expect(snap.session.pendingSteer).toEqual(crashed!.session.pendingSteer); // steer 队列随会话保留
       expect(daemon.system.getStatus().agentState).toBe("idle"); // 重启后无 run 在飞
       expect(snap.toolCalls).toEqual([]); // 本现场无工具轮：工具记录面为空
+
+      // M 崩溃可观测面：① 悬挂轮收口补发 turn.interrupted 标记事件（reason=
+      // daemon_restarted，与用户 abort 区分；事件行落盘可追溯）② 非正常退出
+      // 接管 WARN + 悬挂轮 WARN 落日志（按天拆分文件）
+      const { Database } = await import("bun:sqlite");
+      const db = new Database(path.join(home, "helix.db"), { readonly: true });
+      const marker = db
+        .query("SELECT payload FROM domain_events WHERE session_id = ? AND type = 'turn.interrupted' ORDER BY id DESC LIMIT 1")
+        .get(crashed!.session.sessionId) as { payload: string } | undefined;
+      db.close();
+      expect(marker).toBeDefined();
+      expect(JSON.parse(marker!.payload).reason).toBe("daemon_restarted");
+      const day = new Date().toISOString().slice(0, 10);
+      const logText = readFileSync(path.join(home, "logs", `daemon-${day}.log`), "utf8");
+      expect(logText).toContain("检测到上次 daemon 非正常退出");
+      expect(logText).toContain("悬挂轮");
 
       // 活会话：收口后的会话可继续对话（open turn 已收口不阻塞新输入）
       const outcome = await daemon.chat.sendMessage("强杀重启后的新问题");

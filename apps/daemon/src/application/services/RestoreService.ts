@@ -31,6 +31,9 @@ import { applyCompaction, applyUsage, emptyUsageLedger, type UsageLedgerData } f
  * 【悬挂收口】重启时不可能有引擎 run 在飞：快照中残留的 open turn
  * （generating/toolRunning）一律收口为 interrupted——崩溃丢当前流、
  * 恢复到最后一致里程碑（AD-16 §5.3：半截流式本就未落盘，已完成条目保留）。
+ * 收口事实经 RestoredDomainState.collapsedTurn 透出（id 供调用方补发
+ * turn.interrupted 标记事件——注册表驱动；不违「恢复不重放铁律」：那是
+ * 新标记事件非历史重放）。
  *
  * 【恢复语义边界】agent 生命周期不回注（进程重启自然从 idle 起，库内
  * 最后状态仅作观测/trace）；未消费 steer 随快照 pendingSteer 保留在
@@ -97,6 +100,10 @@ export interface RestoredDomainState {
   readonly usage: UsageLedgerData;
   /** thinking 覆盖恢复值（thinking 批③，AD-4③：agent.thinking.changed 回放末值；缺省 = 无覆盖）。 */
   readonly thinkingOverride?: string;
+  /** 悬挂轮收口事实（M：可见化）：恢复时快照残留 open turn 被收口为 interrupted
+   *  ——携带轮次 id 供注册表发 WARN + 补发 turn.interrupted 事件（可追溯）；
+   *  无悬挂轮为 undefined（正常收口过）。 */
+  readonly collapsedTurn?: { readonly id: string };
 }
 
 /** agent_lifecycle 行中 SubAgent 实例的可恢复状态集（main 行不在此列）。 */
@@ -116,7 +123,9 @@ export class RestoreService {
     // P1 T3：恢复侧 mode 归一（消费单点）——旧行无值/未知 → default，
     // 重建后 Session.mode 与建会话链同构恒为注册表成员 id（快照等价不断层）
     const session = Session.restoreFrom({ ...state.session, mode: resolveModeId(state.session.mode) });
+    let collapsedTurn: { id: string } | undefined;
     if (session.openTurn) {
+      collapsedTurn = { id: session.openTurn.id };
       session.interruptTurn(this.deps.clock.now()); // 悬挂收口：重启无 run 在飞
     }
     const instances = await this.restoreInstances(sessionId, session);
@@ -131,6 +140,7 @@ export class RestoreService {
       instances: instances.list,
       usage: this.restoreUsageLedger(sessionId, session.mainInstanceId),
       thinkingOverride: this.restoreThinkingOverride(sessionId),
+      ...(collapsedTurn !== undefined ? { collapsedTurn } : {}),
     };
   }
 

@@ -161,6 +161,13 @@ export class ChatService implements ChatPort {
       this.session.mainInstanceId,
     );
   }
+  /** 悬挂轮收口标记（M：崩溃恢复可见化——RestoreService 收口 open turn 后由
+   * 注册表补发；turnId 显式携带——此时聚合 openTurn 已收 null，不能走缺省回
+   * 落）。reason=daemon_restarted 与用户主动 abort 区分（wire 面统一映射 aborted，
+   * 领域事件行自描述可追溯）。 */
+  publishRestoreInterrupted(turnId: string): void {
+    this.publish<TurnCompletedPayload>("turn.interrupted", { reason: "daemon_restarted" }, turnId);
+  }
   /** 运行期换模（AD-2：AgentEnginePort.setModel 域内扩面，下一 turn 生效；不支持即抛错；AD-6 契约 v0.4 §3：成功同点发布 agent.model.changed——from 缺省回退全局默认，只落盘不广播）。 */
   setModel(modelId: string): void {
     if (this.deps.engine.setModel === undefined) {

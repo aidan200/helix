@@ -33,7 +33,7 @@ import { scanWorkspaceProjects, existingKgProjects } from "../adapters/driven/wo
 import type { ClosureFindingsSink } from "../application/services/scheduler/ClosureRecorder";
 import { rm, readFile } from "node:fs/promises";
 import { createFileLogger, type Logger } from "./logging";
-import { acquireSingletonLock, type SingletonLock } from "./lifecycle";
+import { acquireSingletonLock, installCrashLogging, type SingletonLock } from "./lifecycle";
 import { buildPersistence } from "./assembly/buildPersistence";
 import type { SessionRunStateLike } from "../domain/agent/ObservabilityState";
 import { buildModelStack } from "./assembly/buildModelStack";
@@ -263,6 +263,17 @@ export async function assembleDaemon(deps: AssembleDaemonDeps): Promise<Daemon> 
   paths.ensureHome();
   const lock = deps.lock;
   const logger = createFileLogger(paths.logsDir());
+  // 进程级崩溃钩子（留痕兑底：崩溃先落 ERROR 再退出——2026-09-14 事故教训）
+  // + 陈锁接管检测（遗留锁+死 pid = 上次未优雅退出的签名，供追溯）。
+  installCrashLogging(logger);
+  if (lock?.previousCrash !== undefined) {
+    logger.warn(
+      `检测到上次 daemon 非正常退出（pid=${lock.previousCrash.pid}` +
+        `${lock.previousCrash.startedAt !== "" ? `，startedAt=${lock.previousCrash.startedAt}` : ""}` +
+        `）——未执行优雅关闭，锁为崩溃遗留，本次启动已接管；` +
+        `上次运行末尾见同日 daemon-*.log。`,
+    );
+  }
   const config = deps.config;
   const legacy = deps.legacy;
 
