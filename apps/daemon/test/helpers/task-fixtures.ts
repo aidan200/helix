@@ -191,6 +191,8 @@ export function buildTaskEngineEnv(over: TaskEnvOverrides = {}): TaskEngineEnv {
       reportDirRemoved.push(jobId);
     },
     ...(over.onAssemblyDone !== undefined ? { onAssemblyDone: over.onAssemblyDone } : {}),
+    // 迟到接线守卫（task-efd68911）：注入时启用（引擎测试面）；缺省不装配零破坏
+    ...(over.instanceStateOf !== undefined ? { instanceStateOf: over.instanceStateOf } : {}),
   });
   const query = new TaskQueryService({
     store,

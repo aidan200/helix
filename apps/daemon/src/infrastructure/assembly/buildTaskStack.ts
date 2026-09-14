@@ -108,6 +108,9 @@ export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStac
     ...(deps.onTaskChanged !== undefined ? { onTaskChanged: deps.onTaskChanged } : {}),
     ...(deps.onAssemblyDone !== undefined ? { onAssemblyDone: deps.onAssemblyDone } : {}),
     ...(deps.removeTaskReportDir !== undefined ? { removeTaskReportDir: deps.removeTaskReportDir } : {}),
+    // 迟到接线守卫（task-efd68911）：与 query DTO 同源读面（组合根接
+    // scheduler.status 晚绑闭包）——终态实例接线转失败收口/查无拒绝
+    ...(deps.instanceStateOf !== undefined ? { instanceStateOf: deps.instanceStateOf } : {}),
     warn: (m) => deps.logger.warn(m),
   });
   const query = new TaskQueryService({

@@ -144,6 +144,12 @@ export interface TaskOrchestratorServiceDeps {
   readonly onJobTerminal?: (jobId: string, status: JobData["status"]) => void;
   /** 卡装配修复：info 面（驱动开始/完成可观测）+ warn 面（异常/重试链）。 */
   readonly logger?: { info(message: string): void; warn(message: string): void };
+  /**
+   * 推进检查延迟窗（毫秒，缺省 30s）：驱动收场后静置此刻仍无事件驱动才判
+   * 死局（重驱/failJob）。测试注入短窗（50ms）确定性触发；生产缺省长窗——
+   * 插行收场/装配轮间隙等合法短暂收场不被误杀。
+   */
+  readonly progressCheckDelayMs?: number;
 }
 
 /** 单任务编排循环态（会话 + 派发 brief 登记簿 + 驱动中标记）。 */
@@ -178,9 +184,33 @@ interface LoopState {
    * 循环收口照常落库（done 行保留，人工重试不重跑）。
    */
   drain: boolean;
+  /**
+   * 对账扫描防重入位（task-efd68911）：startOrchestrator/resume 与驱动回合
+   * 结束点都触发 sweepBatches，异步并发双扫会双派——置位期间后续触发跳过
+   * （failBatch running 断言兜底竞态，此处前置消解）。
+   */
+  sweeping: boolean;
+  /**
+   * 推进检查重驱位（task-efd68911 第二重事故）：编排会话收场且无在跑实例
+   * 但任务存在未完批次/阶段 → 重驱一次提示推进；置位后再次检测仍此态 →
+   * failJob 收口（有界：防网络持续断/LLM 持续不推进时永久 running）。
+   */
+  progressRedriven: boolean;
+  /** 推进检查定时器（收场后延迟窗；新收场重置，循环满退/停摆清理）。 */
+  progressTimer?: ReturnType<typeof setTimeout>;
 }
 
 const RESUME_NOTICE = "【恢复通知】任务已恢复（running）——按现场摘要与任务 skill SOP 续跑。";
+
+/** 推进检查重驱文案（收场后无在跑实例 + 未完批次：提示 LLM 推进或收口）。 */
+const PROGRESS_CHECK_NOTICE = [
+  "【推进检查】驱动收场后系统检测：无在跑实例但任务存在未完批次/阶段。",
+  "请按任务 skill SOP 与批次行现场继续推进：派发 pending 批次（spawn 后立即 task_dispatch_batch 接线）、聚合已收口阶段产物、或申报任务完成/失败。",
+  "若无实质推进动作，系统将把任务失败收口（failJob）。",
+].join("\n");
+
+/** 推进检查延迟窗缺省（毫秒）：收场后静置此刻仍无事件驱动才判死局——插行收场/装配轮间隙等合法短暂收场不被误杀。 */
+const PROGRESS_CHECK_DELAY_MS = 30_000;
 
 export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
   private readonly loops = new Map<string, LoopState>();
@@ -202,7 +232,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     const existing = this.loops.get(jobId);
     if (existing !== undefined && !existing.stopped) {
       // B3：补派先落行再唤醒——RESUME_NOTICE 与补派注入的现场一致（LLM 不重复派）
-      await this.sweepRetries(jobId);
+      await this.sweepBatches(jobId);
       this.wake(existing, RESUME_NOTICE);
       return;
     }
@@ -215,13 +245,15 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       backingOff: false,
       parked: false,
       drain: false,
+      sweeping: false,
+      progressRedriven: false,
       stashedWakes: [],
     };
     this.loops.set(jobId, loop);
     // B3（resume 双派竞态）：补派先落行——kickoff 快照含已补派批次的新实例号，
     // 编排 LLM 看到 running+实例号即不自行重派（历史 void 异步曾致 LLM 快照读旧
     // failed 态后自派重复实例，产物无法接线全部丢弃）
-    await this.sweepRetries(jobId); // 暂停期失败未重派的批次补派（§4.5）
+    await this.sweepBatches(jobId); // 暂停期失败未重派的批次补派（§4.5）
     this.wake(loop, await this.kickoffPrompt(job)); // fire-and-forget：循环已启动即 resolve
   }
 
@@ -231,6 +263,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     const spawned = loop !== undefined ? [...loop.briefs.keys()] : [];
     if (loop !== undefined) {
       loop.stopped = true;
+      this.clearProgressTimer(loop); // 推进检查定时器随停循环清理
       loop.stashedWakes.length = 0; // 终止丢弃暂存唤醒（cancel 语义：无回放）
       loop.session.abort();
       this.loops.delete(jobId);
@@ -255,6 +288,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     if (loop === undefined || loop.drain) return; // 幂等：无循环（未开编排/已收口）或已停摆
     loop.stopped = true; // wake 全丢（closureNotice 不再驱动编排回合）
     loop.drain = true; // locate 放行：收口继续落库
+    this.clearProgressTimer(loop); // 推进检查定时器随停摆清理
     loop.stashedWakes.length = 0;
     loop.session.abort(); // 中断当前 LLM 回合（防停摆后回合内继续 spawn）
     for (const agentId of loop.briefs.keys()) {
@@ -385,6 +419,17 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
         loop.running = false;
         loop.backingOff = false;
         this.reapIfTerminal(loop.jobId); // run 收口后顺带清扫终态任务
+        // 迟到接线/断链对账兑底（task-efd68911）：任何驱动回合结束点扫一遍挂死
+        // 批次（running 挂终态实例）——failBatch 补收口 + 按余量重派/上浮
+        if (!loop.stopped && !loop.parked && !loop.drain) {
+          await this.sweepBatches(loop.jobId).catch((err) =>
+            this.warn(`驱动结束对账异常（任务 ${loop.jobId}）：${(err as Error).message}`),
+          );
+          // 推进检查（第二重事故兑底，延迟窗）：对账后仍无在跑实例 + 任务存在
+          // 未完批次/阶段 + 无暂存唤醒（事件驱动不在场）→ 静置一个延迟窗仍此态
+          // 才判死局（重驱一次/再不推进 failJob）——插行收场等合法间隙零误杀
+          this.scheduleProgressCheck(loop);
+        }
         // 退避窗/挂起期暂存唤醒回放：未挂起未停摆则驱动（resume 回放同构）；
         // 仍挂起 → 留给 resume；stopped/drain → 丢弃（cancel/halt 语义）
         const stashed = loop.stashedWakes.splice(0);
@@ -404,6 +449,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       const loop = this.loops.get(jobId);
       if (loop !== undefined && !loop.drain) {
         loop.stopped = true;
+        this.clearProgressTimer(loop); // 推进检查定时器随循环退场清理
         this.loops.delete(jobId);
         // W2-D R13 job 完成提示点：扫描 pending_sync 归组合根（本层只报终态事实）
         this.deps.onJobTerminal?.(jobId, job.status);
@@ -488,7 +534,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       );
       this.wake(
         loop,
-        `【派发纠偏】实例 ${agentId} 已收口但未接线任何批次行，产物已丢弃。失败批次重派由引擎自动负责——不要自行 agent_spawn 同范围另派；新批次必须 insertBatch 落行后立即 task_dispatch_batch 接线。`,
+        `【派发纠偏】实例 ${agentId} 已收口但未接线任何批次行，产物已丢弃。若你正准备对该实例 task_dispatch_batch：机械面会拦截终态实例接线并把批次自动转失败收口、由引擎重派新实例——不要再对该实例操作；后续新批次请 spawn 后立即 task_dispatch_batch 接线。`,
       );
       return;
     }
@@ -550,24 +596,145 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
   }
 
   /**
-   * 恢复扫描面重派补漏：暂停期/停循环期失败的批次（retry 有余量）在唤醒时补派。
-   * 人工重试（task.retry）归零的 failed 批次同口补派——retryCount===0 的 failed
-   * 批次只会由人工重试预算重置产生（cancel 路径产出的归零 failed 批次属 cancelled
-   * 终态任务，上方 job.status 闸已拦）。
+   * 恢复扫描面（原 sweepRetries，task-efd68911 扩为对账面）双类扫描：
+   * ① failed 批次预算内补派（原语义）：暂停期/停循环期失败的批次在唤醒时
+   * 补派；人工重试（task.retry）归零的 failed 批次同口补派。
+   * ② running 挂终态实例补收口（对账兜底）：收口链断链（注入回调断/迟到
+   * 接线漏网）时批次永无人收口——failBatch 补收口 + 按余量重派/上浮。
+   * 触发点：startOrchestrator（启动/幂等唤醒）+ resume（经 startOrchestrator）
+   * + 驱动回合结束点（driveLoop finally——编排任何一次收场即对账）。
+   * sweeping 防重入（异步并发双扫会双派）；failBatch running 断言兜底竞态。
    */
-  private async sweepRetries(jobId: string): Promise<void> {
+  private async sweepBatches(jobId: string): Promise<void> {
     const loop = this.loops.get(jobId);
-    if (loop === undefined || loop.stopped) return;
+    if (loop === undefined || loop.stopped || loop.sweeping) return;
     const job = this.deps.store.getJob(jobId);
     if (job === undefined || job.status !== "running") return;
-    for (const batch of this.allBatches(jobId)) {
-      if (batch.status !== "failed" || batch.retryCount >= MAX_BATCH_RETRY) continue;
-      const current = this.deps.store.getBatch(batch.id);
-      if (current === undefined || current.status !== "failed") continue; // 并发迁移守卫
-      const agentId = await this.reDispatch(loop, current);
-      if (agentId !== null) {
-        this.wake(loop, `【重派补漏】批次 #${batch.stageSeq}.${batch.seq}「${batch.scope}」已补派新实例 ${agentId}（前序失败 ${batch.retryCount} 次）。`);
+    loop.sweeping = true;
+    try {
+      for (const batch of this.allBatches(jobId)) {
+        if (batch.status === "failed") {
+          if (batch.retryCount >= MAX_BATCH_RETRY) continue;
+          const current = this.deps.store.getBatch(batch.id);
+          if (current === undefined || current.status !== "failed") continue; // 并发迁移守卫
+          const agentId = await this.reDispatch(loop, current);
+          if (agentId !== null) {
+            this.wake(
+              loop,
+              `【重派补漏】批次 #${batch.stageSeq}.${batch.seq}「${batch.scope}」已补派新实例 ${agentId}（前序失败 ${batch.retryCount} 次）。`,
+            );
+          }
+          continue;
+        }
+        // ② running 挂终态实例（对账兜底，task-efd68911）：实例已终态但批次滞留
+        // running——收口链断链（closure 注入未达/迟到接线漏网），永无人再收口
+        if (batch.status === "running" && batch.instanceId !== null) {
+          const outcome = this.deps.instanceOutcome(batch.instanceId);
+          const state = outcome?.state;
+          if (this.isLiveInstanceState(state)) continue; // 活实例在跑/排队/挂起：非挂死
+          try {
+            const { retryScheduled } = await this.deps.taskEngine.failBatch(
+              batch.id,
+              `对账补收口：running 批次实例 ${batch.instanceId} 已终态（${state}${outcome?.summary !== undefined ? `：${outcome.summary}` : ""}）——收口链断链兑底`,
+            );
+            let redispatched: string | null = null;
+            if (retryScheduled) redispatched = await this.reDispatch(loop, batch);
+            this.wake(
+              loop,
+              `【批次对账】批次 #${batch.stageSeq}.${batch.seq}「${batch.scope}」实例 ${batch.instanceId} 已终态但批次滞留 running——已机械补收口${
+                redispatched !== null ? `并自动重派新实例 ${redispatched}` : "（重试耗尽已上浮任务失败）"
+              }。`,
+            );
+          } catch (err) {
+            // 竞态（对账与他路收口并发）：failBatch running 断言拒——warn 可观测不阻断其余批次
+            this.warn(`对账补收口异常（任务 ${jobId} 批次 ${batch.id}）：${(err as Error).message}`);
+          }
+        }
       }
+    } finally {
+      loop.sweeping = false;
+    }
+  }
+
+  // ── 内部：推进检查（收场点兑底，task-efd68911 第二重事故）──
+
+  /** 实例调度态是否仍在推进（queued/running/parked——非终态且未查无）。 */
+  private isLiveInstanceState(state: string | undefined): boolean {
+    return state === "queued" || state === "running" || state === "parked";
+  }
+
+  /**
+   * 推进检查排程（延迟窗）：每次驱动收场重置定时器——窗内出现新事件驱动
+   * （收口/生命周期/新回合）则到点检查自然跳过（状态判定现拍）；窗到点仍
+   * 无事件驱动才判死局。循环退场/停摆时清理（clearProgressTimer）。
+   */
+  private scheduleProgressCheck(loop: LoopState): void {
+    if (loop.stopped || loop.parked || loop.drain || loop.running) return;
+    if (loop.stashedWakes.length > 0) return; // 待回放唤醒在场：事件驱动优先
+    this.clearProgressTimer(loop);
+    const timer = setTimeout(() => {
+      loop.progressTimer = undefined;
+      void this.checkProgressAfterDrive(loop).catch((err) =>
+        this.warn(`推进检查异常（任务 ${loop.jobId}）：${(err as Error).message}`),
+      );
+    }, this.deps.progressCheckDelayMs ?? PROGRESS_CHECK_DELAY_MS);
+    timer.unref?.(); // 不挂住进程退出（测试 dispose 后触发也不阻退场）
+    loop.progressTimer = timer;
+  }
+
+  private clearProgressTimer(loop: LoopState): void {
+    if (loop.progressTimer !== undefined) {
+      clearTimeout(loop.progressTimer);
+      loop.progressTimer = undefined;
+    }
+  }
+
+  /**
+   * 推进检查（延迟窗到点，sweepBatches 之后）：无在跑实例 + 任务存在
+   * 未完批次/阶段 + 无暂存唤醒（事件驱动不在场）→ 有界重驱一次；已重驱
+   * 仍此态 → failJob。事故形态：编排会话收场（如网络错误收场）后无任何
+   * wake 源（无在跑实例 = 无 closure 通知），剩余 pending 批次/stage 永无人
+   * 推进，job 永久 running。有界 = progressRedriven 单次位（网络持续断时
+   * 重驱轮同样收场 → 再静置一窗 → failJob 快速失败，不无限循环）。
+   */
+  private async checkProgressAfterDrive(loop: LoopState): Promise<void> {
+    if (loop.stopped || loop.parked || loop.drain || loop.running) return;
+    if (loop.stashedWakes.length > 0) return; // 待回放唤醒在场：事件驱动优先，不接管
+    // 到点先对账：延迟窗内死亡的实例（收场后才终态且收口链断链）在此补收口
+    // ——sweep 内的收口/重派 wake 会驱动新轮，后续推进判定自然跳过
+    await this.sweepBatches(loop.jobId);
+    if (loop.stopped || loop.parked || loop.drain || loop.running) return; // 对账后重验（wake 可能已开新轮）
+    if (loop.stashedWakes.length > 0) return;
+    const job = this.deps.store.getJob(loop.jobId);
+    if (job === undefined || job.status !== "running") return;
+    const stages = this.deps.store.getStages(loop.jobId);
+    const batches = this.allBatches(loop.jobId);
+    const unfinished =
+      batches.some((b) => b.status !== "done") || stages.some((s) => s.status !== "done");
+    if (!unfinished) return; // 全部完成：收口归收口通知轮（无未完面）
+    const inFlight = [...loop.briefs.keys()].some((id) =>
+      this.isLiveInstanceState(this.deps.instanceOutcome(id)?.state),
+    );
+    if (inFlight) return; // 有在跑/排队实例：等收口事件驱动
+    if (!loop.progressRedriven) {
+      loop.progressRedriven = true;
+      this.warn(
+        `推进检查（任务 ${loop.jobId}）：驱动收场后无在跑实例但存在未完批次/阶段——重驱一次提示推进（再不推进将 failJob）`,
+      );
+      this.wake(loop, PROGRESS_CHECK_NOTICE);
+      return;
+    }
+    // 已重驱过仍此态：failJob 收口（引擎仅 running 可收口；停摆复用 haltJob
+    // 语义——无在跑实例无可摘，幂等安全）
+    try {
+      await this.deps.taskEngine.failJob(
+        loop.jobId,
+        "编排会话收场且无在跑实例，任务无法推进（推进检查重驱一次后仍未推进）——failJob 收口",
+      );
+      this.warn(`推进检查（任务 ${loop.jobId}）：重驱后仍无法推进——任务已失败收口`);
+      this.haltJob(loop.jobId);
+    } catch (err) {
+      this.warn(`推进检查 failJob 异常（任务 ${loop.jobId}）：${(err as Error).message}`);
     }
   }
 
@@ -672,7 +839,7 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
       "",
       "【接管与推进说明】本任务当前 pending=待接管：task_insert_batch / task_advance_stage / task_stage_artifact 任一动作即接管激活（pending→running）——不存在人审门；skill 的 confirm 字段是「开启前对话确认」语义（发起侧已完成），不是执行中的门。阶段按冻结序推进：前序阶段全部 done 后才可对后续阶段插批/推进/聚合（机械守卫，越序会被拒）。",
       "",
-      "【派发纪律】running/failed 批次已由引擎派发或自动重派（上表实例号即证据）——不要对它们自行另派实例；新批次须 insertBatch 落行、spawn 后立即 task_dispatch_batch 接线，未接线实例的产物会被丢弃。",
+      "【派发纪律】running/failed 批次已由引擎派发或自动重派（上表实例号即证据）——不要对它们自行另派实例；新批次须 insertBatch 落行、spawn 后立即 task_dispatch_batch 接线，未接线实例的产物会被丢弃；接线已终态实例会被机械转失败收口并由引擎重派，无需你另派。",
       "",
       "【任务 skill 全文】",
       skillText ?? `（skill "${job.type}" 全文不可得——按任务类型名与阶段行自行组织批次划分，或申报任务失败。）`,

@@ -992,3 +992,153 @@ describe("B3 resume 补派回归：暂停期失败未重派批次在 resume 后�
     });
   });
 });
+
+// ── 迟到接线与挂死批次对账（task-efd68911 事故收敛）──
+
+/**
+ * 事故形态：spawn 与 task_dispatch_batch 之间网络故障打死实例 → 收口先到
+ * 被判游离丢弃 → 迟到 dispatch 把 running 批次接到终态实例 → 永无人再收口
+ * → 批次/job 永久滞留 running。收敛面：引擎守卫转化 + 对账扫描 + 推进检查。
+ */
+describe("迟到接线与挂死批次对账（task-efd68911 事故收敛）", () => {
+  test("收口先于接线（游离丢弃）+ 迟到 dispatch → 引擎守卫转失败收口 + 自动重派新实例 → 任务照常完成", async () => {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
+      spawnEntry(BRIEF_1),
+      { kind: "reply", text: "已 spawn，等收口。" }, // 本轮收场不 dispatch——窗口形成
+      dispatchEntry(0, 2), // 下一轮（游离纠偏注入唤醒）迟到接线
+      { kind: "reply", text: "已接线。" },
+      { kind: "reply", text: "收到重派通知。" },
+      { kind: "tool", toolName: "task_stage_artifact", args: { stageSeq: 1, summary: "L0 层建成。" } },
+      { kind: "tool", toolName: "task_complete_job", args: {} },
+    ];
+    await withOrchestratorEnv({ script }, async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "fake-task",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      // 第一轮：插行 + spawn，不接线（窗口形成）——等第一轮驱动收场
+      await env.until(() => env.recorder.calls.length === 1);
+      await env.until(
+        () => env.orchestratorLog.filter((l) => l.includes("驱动完成")).length >= 1,
+      );
+      // 网络打死实例：收口先到（批次未接线 → 游离丢弃 + 纠偏注入）
+      const dead = env.recorder.call(1).agentId;
+      env.recorder.outcomes.set(dead, { state: "failed", summary: "engine 收口失败（engine: Connection error.）" });
+      env.orchestrator.handleInstanceClosure(dead);
+      await env.until(() => env.orchestratorLog.some((l) => l.includes("游离实例收口被丢弃")));
+      // 迟到 dispatch：引擎守卫转失败收口 + starter 嵤醒 sweep 重派新实例
+      await env.until(() => env.recorder.calls.length === 2);
+      const batch = env.store.getBatches(jobId, 1)[0]!;
+      expect(batch).toMatchObject({ status: "running", retryCount: 1, instanceId: env.recorder.call(2).agentId });
+      expect(batch.retryNote).toContain("已终态");
+      // 新实例正常收口 → 聚合 → 完成（事故场景收敛到正常终态）
+      await settleInstance(env, env.recorder.call(2).agentId, { closure: "done", plan: "resolved" });
+      await env.until(() => env.store.getJob(jobId)?.status === "done");
+      // 静默锚
+      await env.until(() =>
+        env.orchestratorLog.filter((l) => l.includes("驱动完成")).length ===
+        env.orchestratorLog.filter((l) => l.includes("驱动开始")).length,
+      );
+    });
+  });
+
+  test("收口链断链（running 批次挂终态实例）→ 驱动回合结束对账补收口 + 重派，不再永久滞留", async () => {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
+      spawnEntry(BRIEF_1),
+      dispatchEntry(0, 2),
+      { kind: "reply", text: "已派发。" },
+      { kind: "reply", text: "收到对账通知。" },
+      { kind: "tool", toolName: "task_stage_artifact", args: { stageSeq: 1, summary: "L0 层建成。" } },
+      { kind: "tool", toolName: "task_complete_job", args: {} },
+    ];
+    await withOrchestratorEnv({ script, progressCheckDelayMs: 50 }, async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "fake-task",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      await env.until(
+        () => env.store.getBatches(jobId, 1).length === 1 && env.store.getBatches(jobId, 1).every((b) => b.status === "running"),
+      );
+      // 收口链断链：实例终态但 closure 通知未达编排（注入回调断）——批次挂死实例
+      const dead = env.recorder.call(1).agentId;
+      env.recorder.outcomes.set(dead, { state: "failed", summary: "engine 收口失败（engine: Connection error.）" });
+      // 不调 handleInstanceClosure（断链模拟）——收场点对账（实例死亡先于收场）
+      // 或延迟窗到点对账（死亡晚于收场）双触发兜底
+      await env.until(() => env.recorder.calls.length === 2); // 对账重派新实例
+      const batch = env.store.getBatches(jobId, 1)[0]!;
+      expect(batch).toMatchObject({ status: "running", retryCount: 1, instanceId: env.recorder.call(2).agentId });
+      expect(env.orchestratorLog.some((l) => l.includes("对账"))).toBe(true);
+      await settleInstance(env, env.recorder.call(2).agentId, { closure: "done", plan: "resolved" });
+      await env.until(() => env.store.getJob(jobId)?.status === "done");
+      await env.until(() =>
+        env.orchestratorLog.filter((l) => l.includes("驱动完成")).length ===
+        env.orchestratorLog.filter((l) => l.includes("驱动开始")).length,
+      );
+    });
+  });
+});
+
+// ── 编排会话收场后推进检查（无在跑实例 + 未完批次的有界重驱）──
+
+describe("编排收场推进检查（drive 结束点：无在跑实例 + 未完批次 → 重驱一次，仍不推进 failJob）", () => {
+  test("LLM 收场未派发（pending 批次无实例）→ 推进检查重驱 → 剧本续跑派发 → 正常完成", async () => {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
+      { kind: "reply", text: "已划批，稍后派发。" }, // 收场未 spawn——无 wake 源
+      spawnEntry(BRIEF_1),
+      dispatchEntry(0, 2),
+      { kind: "reply", text: "已派发。" },
+      { kind: "tool", toolName: "task_stage_artifact", args: { stageSeq: 1, summary: "L0 层建成。" } },
+      { kind: "tool", toolName: "task_complete_job", args: {} },
+    ];
+    await withOrchestratorEnv({ script, progressCheckDelayMs: 50 }, async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "fake-task",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      // 第一轮收场（无在跑实例 + pending 批次）→ 推进检查重驱
+      await env.until(() => env.sessionLog.some((e) => e.kind === "drive" && e.text.includes("推进检查")));
+      // 重驱轮剧本派发 → 正常链路完成
+      await settleInstance(env, env.recorder.call(1).agentId, { closure: "done", plan: "resolved" });
+      await env.until(() => env.store.getJob(jobId)?.status === "done");
+      await env.until(() =>
+        env.orchestratorLog.filter((l) => l.includes("驱动完成")).length ===
+        env.orchestratorLog.filter((l) => l.includes("驱动开始")).length,
+      );
+    });
+  });
+
+  test("重驱后仍不推进（剧本只 reply）→ failJob 收口，job 不再永久 running", async () => {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
+      { kind: "reply", text: "已划批。" },
+      { kind: "reply", text: "仍不派发。" }, // 重驱轮仍不推进
+    ];
+    await withOrchestratorEnv({ script, progressCheckDelayMs: 50 }, async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "fake-task",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      await env.until(() => env.store.getJob(jobId)?.status === "failed");
+      expect(env.store.getJob(jobId)!.error).toContain("无法推进");
+      await env.until(() =>
+        env.orchestratorLog.filter((l) => l.includes("驱动完成")).length ===
+        env.orchestratorLog.filter((l) => l.includes("驱动开始")).length,
+      );
+    });
+  });
+});

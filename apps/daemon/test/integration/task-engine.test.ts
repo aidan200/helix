@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { withTaskEnv, launchRunningJob, childLedger } from "../helpers/task-fixtures";
+import { withTaskEnv, launchRunningJob, childLedger, type TaskEngineEnv } from "../helpers/task-fixtures";
 import { TaskError } from "../../src/application/services/task/TaskError";
 
 /**
@@ -838,6 +838,92 @@ describe("接管激活对称与阶段顺序守卫（B 批：激活放宽 + O-2 �
       await env.engine.advanceStage(jobId, 2); // 幂等 no-op（已随首批次机械推 running）
       expect(env.store.getStages(jobId).find((s) => s.seq === 2)!.status).toBe("running");
     });
+  });
+});
+
+/**
+ * dispatchBatch 实例终态守卫（task-efd68911 迟到接线事故收敛）：
+ * 事故链：spawn 与 task_dispatch_batch 是两个独立事件，网络故障恰在窗口内
+ * 打死实例 → 收口先到被判「游离」丢弃 → 迟到 dispatch 把 running 批次接到
+ * 终态实例上 → 永远无人再收口 → 批次/job 永久滞留 running。
+ * 守卫面（instanceStateOf 装配时生效）：终态实例 → 不落 running，转
+ * failBatch 失败收口（重派归编排 sweepRetries，经 starter.startOrchestrator
+ * 幂等唤醒触发）；查无实例（幽灵 id）→ 拒绝（防接线不存在的实例同样死锁）。
+ */
+describe("dispatchBatch 实例终态守卫（task-efd68911 迟到接线事故）", () => {
+  const statesOf =
+    (map: Record<string, string>): ((agentId: string) => string | undefined) =>
+    (agentId) =>
+      map[agentId];
+
+  async function setupJob(env: TaskEngineEnv) {
+    const { jobId } = await env.engine.createTask({
+      type: "kg-bootstrap",
+      projects: ["demo"],
+      params: { projectRoot: "/tmp/demo" },
+      createdBy: "page",
+    });
+    const { batchId } = await env.engine.insertBatch({ jobId, stageSeq: 1, scope: "批次 1：探索" });
+    await env.engine.advanceStage(jobId, 1);
+    return { jobId, batchId };
+  }
+
+  test("接线终态实例 → 不落 running：转失败收口（failed+retryCount=1+note）+ 唤醒编排补派", async () => {
+    await withTaskEnv({ instanceStateOf: statesOf({ "agent-dead": "failed" }) }, async (env) => {
+      const { jobId, batchId } = await setupJob(env);
+      const out = await env.engine.dispatchBatch(batchId, "agent-dead");
+      expect(out).toMatchObject({ status: "converted-failed", retryScheduled: true });
+      const batch = env.store.getBatch(batchId)!;
+      expect(batch.status).toBe("failed"); // 未进 running
+      expect(batch.instanceId).toBeNull(); // 未接线死实例
+      expect(batch.retryCount).toBe(1);
+      expect(batch.retryNote).toContain("已终态");
+      // 转化后重派归编排：starter 幂等唤醒（existing loop → sweepRetries 补派）
+      expect(env.starter.starts).toContain(jobId);
+    });
+  });
+
+  test("转化路径重试耗尽同口上浮：job failed + haltJob 停摆", async () => {
+    await withTaskEnv(
+      { instanceStateOf: statesOf({ "inst-live": "queued", "agent-dead": "failed" }) },
+      async (env) => {
+        const { jobId, batchId } = await setupJob(env);
+        // 两轮正常失败收口（retryCount=2，预算内）
+        await env.engine.dispatchBatch(batchId, "inst-live");
+        await env.engine.failBatch(batchId, "第一轮失败");
+        await env.engine.dispatchBatch(batchId, "inst-live");
+        await env.engine.failBatch(batchId, "第二轮失败");
+        // 第三次接线终态实例 → 转化路径 retryCount=3 ≥ 上限 → 上浮
+        const out = await env.engine.dispatchBatch(batchId, "agent-dead");
+        expect(out).toMatchObject({ status: "converted-failed", retryScheduled: false });
+        expect(env.store.getJob(jobId)!.status).toBe("failed");
+        expect(env.starter.halts).toContain(jobId);
+      },
+    );
+  });
+
+  test("接线查无实例（幽灵 id）→ task.invalid_state 拒绝，批次留 pending 不接线", async () => {
+    await withTaskEnv({ instanceStateOf: () => undefined }, async (env) => {
+      const { batchId } = await setupJob(env);
+      await expect(env.engine.dispatchBatch(batchId, "agent-ghost")).rejects.toMatchObject({
+        code: "task.invalid_state",
+      });
+      const batch = env.store.getBatch(batchId)!;
+      expect(batch.status).toBe("pending");
+      expect(batch.instanceId).toBeNull();
+    });
+  });
+
+  test("queued/running 实例照常接线（守卫不误伤正常派发）", async () => {
+    await withTaskEnv(
+      { instanceStateOf: statesOf({ "inst-live": "queued", "inst-run": "running" }) },
+      async (env) => {
+        const { batchId } = await setupJob(env);
+        const out = await env.engine.dispatchBatch(batchId, "inst-live");
+        expect(out).toMatchObject({ status: "dispatched" });
+        expect(env.store.getBatch(batchId)!).toMatchObject({ status: "running", instanceId: "inst-live" });
+      },
+    );
   });
 });
 

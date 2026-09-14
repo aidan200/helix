@@ -215,6 +215,12 @@ export interface OrchestratorEnvOverrides {
   readonly failFirstDrives?: number;
   /** kill 面覆盖（fail-stop 停摆/取消清场断言；缺省记录到 killLog）。 */
   readonly killInstance?: (agentId: string) => void;
+  /**
+   * 推进检查延迟窗（毫秒；task-efd68911 兑底）：缺省生产 30s 长窗——既有用例
+   * （插行收场/装配轮间隙等合法短暂收场）不被误杀；推进检查用例注入短窗
+   * 确定性触发。
+   */
+  readonly progressCheckDelayMs?: number;
 }
 
 export interface OrchestratorEnv {
@@ -282,6 +288,12 @@ export async function withOrchestratorEnv(
     starter: starterProxy,
     workLedger: workLedgerParent,
     clock,
+    // 迟到接线守卫（task-efd68911）：与编排器 instanceOutcome 同源——终态实例
+    // 接线被机械转失败收口；查无拒绝（剧本链路全真走引擎守卫面）
+    instanceStateOf: (agentId) =>
+      over.instanceOutcome !== undefined
+        ? over.instanceOutcome(agentId)?.state
+        : (recorder.outcomes.get(agentId)?.state ?? "running"),
   });
 
   const recorder = new FakeSpawnRecorder((jobId) =>
@@ -355,6 +367,7 @@ export async function withOrchestratorEnv(
       info: (m: string) => orchestratorLog.push(`[INFO] ${m}`),
       warn: (m: string) => orchestratorLog.push(`[WARN] ${m}`),
     },
+    ...(over.progressCheckDelayMs !== undefined ? { progressCheckDelayMs: over.progressCheckDelayMs } : {}),
     ...(over.onJobTerminal !== undefined ? { onJobTerminal: over.onJobTerminal } : {}),
   });
   orchestratorRef = orchestrator;

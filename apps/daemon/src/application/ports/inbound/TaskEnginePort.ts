@@ -34,6 +34,17 @@ export interface CreateTaskInput {
 }
 
 /**
+ * dispatchBatch 结果（迟到接线守卫，task-efd68911 事故收敛）：
+ * - dispatched：正常落章（pending/failed → running）；
+ * - converted-failed：接线目标实例已终态——批次转失败收口（failBatch
+ *   既有语义：重试判定/超限上浮），retryScheduled=true 时引擎已轻量唤醒
+ *   编排（sweepRetries 补派）。
+ */
+export type DispatchBatchOutcome =
+  | { readonly status: "dispatched" }
+  | { readonly status: "converted-failed"; readonly retryScheduled: boolean };
+
+/**
  * 任务引擎端口。接口规模观察项（清单 #2.3）：本端口现承 WS 命令族
  * （createTask/pause/resume/cancel/retry/deleteTask）+ 编排回口族
  * （insertBatch 等 9 方法）+ 启动恢复（recoverOnStartup）双消费面——当前
@@ -90,8 +101,14 @@ export interface TaskEnginePort {
   /**
    * 派发批次（行已插入、spawn 已回 instanceId 后落章）：pending/failed →
    * running + instanceId 落列（failed→running = 自动重派路径，AF-1.3/§4.5）。
+   *
+   * 迟到接线守卫（task-efd68911 事故收敛，instanceStateOf 装配时生效）：
+   * 实例已终态（done/failed/killed/cancelled）→ 不落 running，转失败收口
+   * （返回 converted-failed；重派归编排 sweepRetries——retryScheduled 时引擎
+   * 经 starter.startOrchestrator 幂等唤醒触发补派）；查无实例（幽灵 id）→
+   * task.invalid_state 拒绝（接线不存在的实例同样会永久滞留 running）。
    */
-  dispatchBatch(batchId: string, instanceId: string): Promise<void>;
+  dispatchBatch(batchId: string, instanceId: string): Promise<DispatchBatchOutcome>;
   /** 批次收口成功（running→done；pause 下照常落库，不触发推进）。 */
   completeBatch(batchId: string): Promise<void>;
   /**

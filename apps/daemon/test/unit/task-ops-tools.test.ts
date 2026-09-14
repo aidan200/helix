@@ -22,7 +22,7 @@ function rig(): { deps: TaskOpsToolDeps; artifacts: RecordedArtifact[] } {
     jobId: "job-1",
     taskEngine: {
       insertBatch: async () => ({ batchId: "batch-1" }),
-      dispatchBatch: async () => {},
+      dispatchBatch: async () => ({ status: "dispatched" } as const),
       advanceStage: async () => {},
       writeStageArtifact: async (jobId: string, stageSeq: number, artifact: StageArtifact) => {
         artifacts.push({ jobId, stageSeq, artifact });
@@ -89,7 +89,7 @@ describe("task_assembly_done 工具（A 批：装配完成申报薄壳）", () =
       jobId: "job-9",
       taskEngine: {
         insertBatch: async () => ({ batchId: "batch-1" }),
-        dispatchBatch: async () => {},
+        dispatchBatch: async () => ({ status: "dispatched" } as const),
         advanceStage: async () => {},
         writeStageArtifact: async () => {},
         assemblyDone: async (jobId: string, stageSeq: number) => {

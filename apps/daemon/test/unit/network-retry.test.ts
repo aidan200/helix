@@ -129,6 +129,14 @@ describe("classifyLlmError", () => {
     expect(classifyLlmError("error", "connect ETIMEDOUT 10.0.0.1:443")).toBe("transient");
   });
 
+  test("Anthropic SDK 连接失败文案（task-efd68911 事故形态）→ 瞬时", () => {
+    // 2026-09-14 事故：三个批次实例首 turn 即 "Connection error." 快速失败——
+    // 该文案是 SDK 传输层连接失败（未拿到接口响应），按 2026-09-08 裁决本意属
+    // 可重试瞬时类，此前未入枚举被 fail-fast 缺省吞掉
+    expect(classifyLlmError("error", "Connection error.")).toBe("transient");
+    expect(classifyLlmError("error", "Connection error")).toBe("transient");
+  });
+
   test("LLM 接口返回（消息含 HTTP 状态码）→ 一律永久快速失败（裁决 2026-09-08）", () => {
     // GLM 429+code 1308（5 小时限额）真实事故形态——不再吃 10/30/60 退避
     expect(

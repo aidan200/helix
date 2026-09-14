@@ -3,7 +3,7 @@ import { isTerminalJob, isTerminalStage, assertBatchTransition } from "../../../
 import { resolveStagePlan, stageKindOfManifest, validateTaskParams } from "../../../domain/task/manifest";
 import { MAX_BATCH_RETRY, nextRetryCount, shouldRetryBatch } from "../../../domain/task/retry";
 import type { StageKind, StagePlan } from "../../../domain/task/types";
-import type { TaskEnginePort, CreateTaskInput } from "../../ports/inbound/TaskEnginePort";
+import type { TaskEnginePort, CreateTaskInput, DispatchBatchOutcome } from "../../ports/inbound/TaskEnginePort";
 import { TaskError } from "./TaskError";
 import { taskSessionIdOf } from "./TaskOrchestratorService";
 import type { TaskStorePort, BatchData, JobData, StageData, StageArtifact, TaskDeleteCounts } from "../../ports/outbound/TaskStorePort";
@@ -65,6 +65,13 @@ export interface TaskEngineServiceDeps {
    * 零迁移——阶段已随首批次机械推 running，本钩子只驱动轮次边界。
    */
   readonly onAssemblyDone?: (jobId: string, stageSeq: number, batchCount: number) => void;
+  /**
+   * 实例调度态读面（迟到接线守卫，task-efd68911 事故收敛）：agentId →
+   * queued/running/parked/终态（done/failed/killed/cancelled）或 undefined
+   * （查无）。组合根接 scheduler.status 映射；缺省不守卫（纯引擎测试形态——
+   * 现有测试以假实例 id 直落章，零破坏过渡）。
+   */
+  readonly instanceStateOf?: (agentId: string) => string | undefined;
 }
 
 export class TaskEngineService implements TaskEnginePort {
@@ -361,11 +368,43 @@ export class TaskEngineService implements TaskEnginePort {
     return { batchId };
   }
 
-  async dispatchBatch(batchId: string, instanceId: string): Promise<void> {
+  async dispatchBatch(batchId: string, instanceId: string): Promise<DispatchBatchOutcome> {
     const batch = this.mustBatch(batchId);
     const job = this.mustJob(batch.jobId);
     if (job.status !== "running") {
       throw new TaskError("task.invalid_state", `任务 ${batch.jobId} 当前状态 ${job.status}，不派发批次`);
+    }
+    // 迟到接线守卫（task-efd68911）：spawn 与 dispatch 是两个独立事件，网络故障
+    // 可在窗口内打死实例——收口先到被判游离丢弃后，迟到 dispatch 若照常落章
+    // 会把 running 批次接到终态实例上（永无人再收口 → 批次/job 永久滞留）。
+    // 装配 instanceStateOf 时机械拦截：终态 → 转失败收口；查无 → 拒绝。
+    const stateOf = this.deps.instanceStateOf;
+    if (stateOf !== undefined) {
+      const state = stateOf(instanceId);
+      if (state === undefined) {
+        throw new TaskError(
+          "task.invalid_state",
+          `实例 ${instanceId} 查无调度态（不存在或已清理）——不可接线；请核实实例 id，或对新批次重新 spawn 派发`,
+        );
+      }
+      if (state !== "queued" && state !== "running" && state !== "parked") {
+        // 桥接 running（failBatch 断言要求 + 状态机 pending→failed 仅 cancel 出边）：
+        // 同一调用内落定 failed，观察者只见终值；instanceId 保持 null（不接线死实例）
+        await this.deps.store.updateBatch({
+          ...batch,
+          status: "running",
+          instanceId: null,
+          updatedAt: this.deps.clock.now(),
+        });
+        const note = `迟到接线转化：实例 ${instanceId} 已终态（${state}）——接线前实例已收口，批次转失败收口`;
+        const { retryScheduled } = await this.failBatch(batchId, note);
+        if (retryScheduled) {
+          // 重派归编排（spawn 通路在编排器）：starter 幂等唤醒——existing loop
+          // → sweepRetries 补派本批次；无 loop（恢复期）→ kickoff 全现场重建
+          await this.deps.starter.startOrchestrator(batch.jobId);
+        }
+        return { status: "converted-failed", retryScheduled };
+      }
     }
     // pending→running 首派 / failed→running 自动重派（AF-1.3/§4.5）；domain 守卫
     // 经整行替换前判定（updateBatch 无守卫，此处显式断言迁移合法性）
@@ -377,6 +416,7 @@ export class TaskEngineService implements TaskEnginePort {
       updatedAt: this.deps.clock.now(),
     });
     this.notify({ jobId: batch.jobId, changed: "batch", status: "running" });
+    return { status: "dispatched" };
   }
 
   async completeBatch(batchId: string): Promise<void> {

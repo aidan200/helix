@@ -178,12 +178,26 @@ export function createTaskOpsTools(deps: TaskOpsToolDeps): AgentHarnessTool<Exec
       label: "task_dispatch_batch",
       description:
         "批次派发落章（批次号 + 实例 id；仅 pending/failed 批次可派发——failed→running 为自动重派路径）。" +
-        "在插行与派发之后调用，完成派发三步。",
+        "在插行与派发之后调用，完成派发三步。接线已终态实例会被机械拦截：批次自动转失败收口并由引擎重派。",
       parameters: dispatchBatchParameters as any,
       async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
         void toolCallId;
         const { batchId, instanceId } = params as { batchId: string; instanceId: string };
-        await engineCall(() => deps.taskEngine.dispatchBatch(batchId, instanceId));
+        const out = await engineCall(() => deps.taskEngine.dispatchBatch(batchId, instanceId));
+        if (out.status === "converted-failed") {
+          return text(
+            JSON.stringify({
+              ok: true,
+              converted: true,
+              batchId,
+              instanceId,
+              retryScheduled: out.retryScheduled,
+              note:
+                `实例 ${instanceId} 已终态（接线被机械拦截）——批次已转失败收口；` +
+                (out.retryScheduled ? "引擎将自动重派新实例，勿自行另派。" : "重试预算耗尽已上浮任务失败。"),
+            }),
+          );
+        }
         return text(JSON.stringify({ ok: true, batchId, instanceId }));
       },
     },

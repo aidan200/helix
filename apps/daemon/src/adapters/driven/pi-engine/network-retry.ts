@@ -51,7 +51,7 @@ const TRANSPORT_MESSAGE_PATTERNS: readonly RegExp[] = [
   /fetch failed|failed to fetch/i, // Node fetch TypeError
   /ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|EPIPE|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ENOTFOUND/i, // errno 族
   /socket hang up|socket error|socket connection was closed/i, // node:http / undici UND_ERR_SOCKET
-  /connection reset|connection refused|connection closed|connection terminated|other side closed/i,
+  /connection error|connection reset|connection refused|connection closed|connection terminated|other side closed/i,
   /Headers Timeout Error|Body Timeout Error|Connect Timeout Error/i, // undici UND_ERR_*_TIMEOUT
   /\bterminated\b/i, // undici UND_ERR_TERMINATED
   /network (?:error|timeout)|request timed? ?out|timed out|timeout/i,
