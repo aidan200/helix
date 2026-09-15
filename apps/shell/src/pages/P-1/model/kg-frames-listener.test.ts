@@ -12,7 +12,7 @@ import type { EventEnvelope } from "@helix/protocol";
 import { createKgViewState, type KgAction, type KgViewState } from "./kg-model";
 import { createKgFramesListener, type KgFramesListenerDeps } from "./kg-frames-listener";
 
-function setup(opts: { sel?: string | null; settleResult?: boolean } = {}) {
+function setup(opts: { sel?: string | null; settleResult?: boolean; detailSendOk?: boolean } = {}) {
   const state: KgViewState = { ...createKgViewState(), sel: opts.sel ?? null };
   const dispatched: KgAction[] = [];
   const toasts: { kind: string; text: string }[] = [];
@@ -26,7 +26,7 @@ function setup(opts: { sel?: string | null; settleResult?: boolean } = {}) {
       settle: vi.fn(() => opts.settleResult ?? true),
       notifyError: vi.fn(),
     },
-    sendKgNodeDetail: vi.fn(() => true),
+    sendKgNodeDetail: vi.fn(() => opts.detailSendOk ?? true),
     sendKgList: vi.fn(() => true),
     sendKgChangeReport: vi.fn(() => true),
     sendKgIndexStatus: vi.fn(() => true),
@@ -104,5 +104,21 @@ describe("createKgFramesListener（M9 #2.31）", () => {
     expect(dispatched).toHaveLength(1);
     expect(dispatched[0]).toMatchObject({ type: "list-result", initialSel: "E-1" });
     expect(deps.sendKgNodeDetail).toHaveBeenCalledWith({ project: "helix", id: "E-1" });
+  });
+});
+
+describe("code-review 族A：confirm 后 detail 重发失败收口（TR-84）", () => {
+  it("sendKgNodeDetail 返 false（未发出）→ detail-failed 清骨架（防永挂）", () => {
+    const { listener, dispatched } = setup({ sel: "TR-1", detailSendOk: false });
+    listener(frame("kg.node.confirm.result", { node: { id: "TR-1", name: "n", status: "confirmed" } }));
+    expect(dispatched).toContainEqual({ type: "confirm-applied", id: "TR-1", status: "confirmed" });
+    // 现行红：重发返回值未消费——detailLoading 永挂（同节点重选不重拉）
+    expect(dispatched).toContainEqual({ type: "detail-failed", id: "TR-1" });
+  });
+
+  it("重发成功 → 无 detail-failed（回归面）", () => {
+    const { listener, dispatched } = setup({ sel: "TR-1" });
+    listener(frame("kg.node.confirm.result", { node: { id: "TR-1", name: "n", status: "confirmed" } }));
+    expect(dispatched.some((a) => a.type === "detail-failed")).toBe(false);
   });
 });

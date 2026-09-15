@@ -87,7 +87,11 @@ export function createKgFramesListener(deps: KgFramesListenerDeps): (e: EventEnv
       case "kg.node.confirm.result": {
         // 翻转后状态回读：列表行刷新 + 重发 detail（daemon 已落转正日志）
         dispatch({ type: "confirm-applied", id: e.payload.node.id, status: e.payload.node.status });
-        deps.sendKgNodeDetail({ project: projectName, id: e.payload.node.id });
+        // code-review 族A（TR-84）：重发返回值必消费——confirm-applied 已置
+        // detailLoading，重发未发出（断连窗口）则清骨架防永挂（同节点重选不重拉）
+        if (deps.sendKgNodeDetail({ project: projectName, id: e.payload.node.id }) === false) {
+          dispatch({ type: "detail-failed", id: e.payload.node.id });
+        }
         deps.sendKgList({ project: projectName });
         toast.push("ok", t("pj.kg.promoteToast", { name: e.payload.node.name }));
         return;

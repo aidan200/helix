@@ -27,6 +27,7 @@ const STATUS_KEY = {
 
 export default function KgCandidatesPanel({
   loading,
+  failed,
   rows,
   total,
   filter,
@@ -37,6 +38,8 @@ export default function KgCandidatesPanel({
 }: {
   /** 拉取进行中（骨架文案）。 */
   loading: boolean;
+  /** 拉取失败（code-review 族A 两态区分：「加载失败」不报为事实空——重进 tab 重试）。 */
+  failed: boolean;
   rows: readonly KgCandidateRowDto[];
   /** 过滤后全集计数（回执 total——分页不改变，本面板全量拉取）。 */
   total: number;
@@ -70,6 +73,10 @@ export default function KgCandidatesPanel({
       {loading ? (
         <div className="kgv-empty" data-kg-cand="loading">
           <div className="kgv-empty-t">{t("pj.cand.loading")}</div>
+        </div>
+      ) : failed ? (
+        <div className="kgv-empty" data-kg-cand="failed">
+          <div className="kgv-empty-t">{t("pj.cand.loadFail")}</div>
         </div>
       ) : rows.length === 0 ? (
         <div className="kgv-empty" data-kg-cand="empty">

@@ -80,6 +80,7 @@ export type KgAction =
   | { type: "select-node"; id: string }
   | { type: "detail-loading"; id: string }
   | { type: "detail-result"; detail: KgNodeDetailDto }
+  | { type: "detail-failed"; id: string }
   | { type: "tab"; tab: KgTab }
   | { type: "report-result"; report: KgChangeReportDto }
   | { type: "idx-result"; idx: KgIndexStatusDto }
@@ -155,6 +156,11 @@ export function kgReducer(state: KgViewState, action: KgAction): KgViewState {
     case "detail-result":
       if (state.sel !== action.detail.id) return state; // 迟到结果丢弃
       return { ...state, detail: action.detail, detailLoading: false };
+    case "detail-failed":
+      // code-review 族A：confirm 后 detail 重发失败（断连窗口）——清骨架防永挂
+      //（confirm-applied 已置 detailLoading；同节点重选不重拉（select-node 同 id
+      // 无操作），失败清位后切节点再切回即可重拉）
+      return state.sel === action.id ? { ...state, detailLoading: false } : state;
     case "tab":
       return { ...state, tab: action.tab };
     case "report-result":

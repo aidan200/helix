@@ -27,6 +27,7 @@ import type {
 } from "@helix/protocol";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
+import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
 import { useArmedConfirm } from "./settings-hooks";
 
@@ -44,6 +45,7 @@ type TestState =
 
 const McpSettingsSection = function McpSettingsSection() {
   const { t } = useI18n();
+  const toast = useToast();
   const {
     sendMcpServersList,
     sendMcpServersAdd,
@@ -74,6 +76,9 @@ const McpSettingsSection = function McpSettingsSection() {
     setAddPending(v);
   };
   const [test, setTest] = useState<TestState>({ kind: "idle" });
+  // 族A：testing 在途位 ref 镜像（订阅 effect 真挂载一次——listener 读 ref 不进 deps）
+  const testingRef = useRef(false);
+  testingRef.current = test.kind === "testing";
   /** 删除两段式：normal|armed（armed 2.5s 超时复原）——M10 批⑤ hook 单点承载。 */
   const { armed: armedDelete, confirm: confirmDelete } = useArmedConfirm();
 
@@ -135,12 +140,31 @@ const McpSettingsSection = function McpSettingsSection() {
           );
           return;
         }
-        if (type === "connection.error" && addPendingRef.current) {
-          markAddPending(false);
-          setFormError(t("chat.settings.mcp.addFailed"));
+        if (type === "connection.error") {
+          // code-review 族A（TR-144/145）：命令尾缀归因（WsServerAdapter.commandError
+          // 「（命令 <type>）」单一构造点；无尾缀旧 daemon 容忍按可能本族处理）+
+          // 按在途 kind 收口——原只清 addPending，testing 永挂/remove 静默失败
+          const p = (frame as { payload?: { message?: string } }).payload;
+          const message = p?.message ?? "connection.error";
+          const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+          if (cmd !== undefined && !cmd.startsWith("mcp.servers.")) return; // 非本族不消费
+          if (addPendingRef.current) {
+            markAddPending(false);
+            setFormError(t("chat.settings.mcp.addFailed"));
+            return;
+          }
+          if (testingRef.current) {
+            setTest({ kind: "fail", error: message }); // testing 收口：行内失败态交代
+            return;
+          }
+          if (cmd === "mcp.servers.remove") {
+            // remove 无本地在途位（fire-and-forget + 回执重拉对账）——尾缀辨识后 toast 交代
+            toast.push("err", t("chat.settings.mcp.removeFailed", { message }));
+          }
+          return;
         }
       }),
-    [subscribeMcpFrames, sendMcpServersList, t],
+    [subscribeMcpFrames, sendMcpServersList, t, toast],
   );
 
   /**
@@ -248,7 +272,12 @@ function parseArgs(input: string): string[] {
 
   /** 两段式删除：首击 armed（2.5s 复原），二击执行。 */
   const onDelete = (serverName: string): void => {
-    confirmDelete(serverName, () => sendMcpServersRemove({ name: serverName }));
+    // 族A（TR-168）：send 返回值必消费——false（未连接）即 err toast 交代，不静默
+    confirmDelete(serverName, () => {
+      if (sendMcpServersRemove({ name: serverName }) === false) {
+        toast.push("err", t("chat.settings.mcp.sendFail"));
+      }
+    });
   };
 
   /** 五态徽标类名（running 绿 / error 红 / 其余弱化）。 */

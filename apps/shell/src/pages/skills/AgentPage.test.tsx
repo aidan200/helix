@@ -1130,3 +1130,87 @@ describe("智能体页 MCP 服务分组区（server 级配置面）", () => {
     expect(document.querySelector('[data-mcp-server-row="fake"]')).toBeNull();
   });
 });
+
+describe("code-review 族A：skill content 重连补发 + connection.error 尾缀归因", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mock.revision = 0;
+    mock.catalog = null;
+    mock.auth = {};
+    mock.authLoaded = false;
+    mock.sentList = 0;
+    mock.sendOk = true;
+    mock.sentSetEnabled = [];
+    mock.sentBasePromptGet = [];
+    mock.sentSkillContentGet = [];
+    mock.conn = "connected";
+  });
+
+  /** conn 翻转重渲（上方 describe 局部 rerenderWith 同构——本 describe 自含）。 */
+  function rerenderWithConn(view: { rerender: (ui: React.ReactNode) => void }) {
+    view.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <AgentPage path="/skills" />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+  }
+
+  it("skill content 在途回执随断连丢失 → 重连补发（M50 同构，查看钮不永锁）", () => {
+    const view = ui();
+    act(() => feedList());
+    act(() => {
+      fireEvent.click(document.querySelector('[data-skill-content-toggle="hello-skill"]')!);
+    });
+    expect(mock.sentSkillContentGet).toEqual(["hello-skill"]);
+    // 回执未达先断连 → 重连（mountedListRef 已置位）
+    act(() => {
+      mock.conn = "disconnected";
+      rerenderWithConn(view);
+    });
+    act(() => {
+      mock.conn = "connected";
+      rerenderWithConn(view);
+    });
+    // 现行红：重连补发只覆盖 basePromptPending——skillContentPending 未含（永挂）
+    expect(mock.sentSkillContentGet).toEqual(["hello-skill", "hello-skill"]);
+  });
+
+  it("TR-145 尾缀归因：写面在途收他命令尾缀 connection.error 不清在途不误弹；本族尾缀才收口", async () => {
+    const view = ui();
+    act(() => feedList());
+    act(() => selectAgent("main-session"));
+    const bashSwitch = document.querySelector('[data-switch="bash"]') as HTMLButtonElement;
+    fireEvent.click(bashSwitch);
+    expect(bashSwitch.disabled).toBe(true); // 写面在途（单飞锁）
+    // 他命令尾缀错误帧——现行红：无尾缀辨识，误清在途 + 误弹 toast
+    act(() =>
+      feed({
+        v: "0.12",
+        sessionId: "__system__",
+        channel: "notification",
+        type: "connection.error",
+        payload: { code: "daemon.internal", message: "追踪查询失败（命令 trace.query）" },
+      } as EventEnvelope),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText(/写入失败/)).toBeNull();
+    expect((document.querySelector('[data-switch="bash"]') as HTMLButtonElement).disabled).toBe(true); // 在途保持
+    // 本族尾缀帧 → 定向收口
+    act(() =>
+      feed({
+        v: "0.12",
+        sessionId: "__system__",
+        channel: "notification",
+        type: "connection.error",
+        payload: { code: "daemon.internal", message: "写入被拒（命令 agent.config.set_enabled）" },
+      } as EventEnvelope),
+    );
+    const toast = await screen.findByText(/写入失败/);
+    expect(toast.textContent).toContain("写入被拒");
+    expect((document.querySelector('[data-switch="bash"]') as HTMLButtonElement).disabled).toBe(false);
+    void view;
+  });
+});

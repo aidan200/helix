@@ -224,6 +224,23 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
     setKeyErr(false);
   };
 
+  // code-review 族A（M47 同构）：设为默认 ok toast 等结果帧——setDefaultInflight
+  // 非空→null 转换才弹，点击不即弹（send 成功 ≠ daemon 接受；拒绝经 writeError
+  // 交代，不再出现 ok→err 矛盾序列）。send 失败回滚转换经 defaultAbortedRef 抑制。
+  const defaultAbortedRef = useRef(false);
+  const prevDefaultInflightRef = useRef<string | null>(mc.setDefaultInflight);
+  useEffect(() => {
+    const prev = prevDefaultInflightRef.current;
+    prevDefaultInflightRef.current = mc.setDefaultInflight;
+    if (prev === null || mc.setDefaultInflight !== null) return;
+    if (defaultAbortedRef.current) {
+      defaultAbortedRef.current = false; // send 失败路：err toast 已交代
+      return;
+    }
+    if (mc.writeError !== null) return; // connection.error 拒绝路：err 由 writeError effect 交代
+    toast.push("ok", t("chat.modelsConfig.defaultUpdatedToast", { model: prev }));
+  }, [mc.setDefaultInflight, mc.writeError, toast, t]);
+
   /** 两段式删除（F(3.4).2：首击 armed → 按钮变「确认删除？」2.5s 复原；二击发命令）。 */
   // M47 对齐：删除成功 toast 等结果帧——auth.delete_key.result 消费清
   // deleteKeyInflight（非空→null 转换）才弹；发送即弹属乐观假反馈。两失败路
@@ -489,13 +506,11 @@ const ModelsSettingsSection = function ModelsSettingsSection() {
                                     onClick={() => {
                                       if (!setDefaultModel(m.id)) {
                                         // F5 批 #1：send 失败（未连接）——乐观值已回滚
+                                        defaultAbortedRef.current = true; // 回滚转换不弹 ok（族A 同构）
                                         toast.push("err", t("chat.modelsConfig.sendFailToast"));
                                         return;
                                       }
-                                      toast.push(
-                                        "ok",
-                                        t("chat.modelsConfig.defaultUpdatedToast", { model: m.id }),
-                                      );
+                                      // 族A：ok toast 归 setDefaultInflight 转换效应（上方），点击不即弹
                                     }}
                                   >
                                     {t("chat.modelsConfig.setAsDefault")}

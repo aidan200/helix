@@ -116,9 +116,14 @@ const ModelSwitchMenu = function ModelSwitchMenu({ onClose }: ModelSwitchMenuPro
   // F(3.3).3：会话模型 ≠ 全局默认才显示重置入口（相等隐藏）
   const showReset = mc.defaultModel !== "" && !sameModel(currentModel, mc.defaultModel);
 
-  /** F(3.3).2 选中即切：发 model.set + toast 交代；选中即关（T9，B 方案）。 */
+  /** F(3.3).2 选中即切：发 model.set + toast 交代；选中即关（T9，B 方案）。
+   *  code-review 族A（TR-168）：send false（未连接）→ err toast 交代且不关
+   *  菜单（不产假反馈）；ok toast 文案为「已请求」（非完成态声明）。 */
   const pick = (model: string) => {
-    setSessionModel(model);
+    if (setSessionModel(model) === false) {
+      toast.push("err", t("chat.modelSwitch.sendFailToast"));
+      return;
+    }
     toast.push("ok", t("chat.modelSwitch.switchedToast", { model }));
     onClose();
   };

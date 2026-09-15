@@ -318,6 +318,8 @@ export const enUS = {
         sendFail: "Not connected to daemon; action not sent",
         connectFailed: "Connection failed (config kept, retry available)",
         addFailed: "Add failed",
+
+        removeFailed: "Remove failed · {message}",
         loading: "Loading…",
         empty: "No MCP servers yet — add one to get started (e.g. shadcn / magicui official MCP)",
         delete: "Delete",
@@ -403,6 +405,7 @@ export const enUS = {
       noProviderTitle: "No available models",
       noProviderSub: "Configure an API key for a provider on the settings page",
       switchedToast: "Requested switch to {model} · effective next turn",
+      sendFailToast: "Not connected to daemon — switch request not sent; retry shortly",
     },
     modelsConfig: {
       defaultLabel: "Global fallback model",
@@ -764,6 +767,7 @@ export const enUS = {
     health: {
       tab: "Health",
       loading: "Loading health data…",
+      loadFail: "Failed to load health data — switch tabs and come back to retry",
       healthyTitle: "Structurally healthy",
       healthySub: "No conflicts or orphans detected — all five read faces green. Semantic drift (stale content) is checked by the kg-review task.",
       conflictsTitle: "Conflicts",
@@ -797,6 +801,7 @@ export const enUS = {
     cand: {
       panelTitle: "Candidates ledger",
       loading: "Loading candidates…",
+      loadFail: "Failed to load candidates — switch tabs and come back to retry",
       empty: "No candidates yet",
       filterAll: "All",
       countLine: "{total} entries",

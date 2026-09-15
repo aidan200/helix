@@ -230,11 +230,16 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
           // F5 批 #2：set_enabled 写面 daemon 失败回执（走 connection.error 而非
           // *.result）——定向清 lastWriteRef 在途 + err toast（单飞门控：非本页
           // 写面在途的 connection.error 不消费，trace/workspace 先例）
+          // code-review 族A（TR-145 尾缀归因）：daemon commandError 尾缀「（命令
+          // <type>）」辨识——本族写面（agent.config.set_enabled）或无尾缀（旧
+          // daemon 容忍）才定向清；他命令尾缀不消费（写面在途期不误伤）
           const w = lastWriteRef.current;
           if (w !== null) {
+            const msg = (e as { payload?: { message?: string } }).payload?.message ?? "connection.error";
+            const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(msg)?.[1];
+            if (cmd !== undefined && cmd !== "agent.config.set_enabled") return; // 他命令错误帧不消费
             lastWriteRef.current = null;
             dispatch({ type: "toggle-settled", ...w });
-            const msg = (e as { payload?: { message?: string } }).payload?.message ?? "connection.error";
             toast.push("err", t("agents.writeFailToast", { message: msg }));
           }
         }
@@ -283,8 +288,13 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
       for (const kind of st.basePromptPending) {
         if (st.basePrompts[kind] === null) sendAgentBasePromptGet({ profileKind: kind });
       }
+      // code-review 族A（M50 同构补全）：skill content 在途同语义补发——
+      // 回执随断连丢失时 pending 永挂（ProfileCard 查看钮永久 disabled）
+      for (const name of st.skillContentPending) {
+        if (st.skillContents[name] === undefined) sendAgentSkillContentGet({ name });
+      }
     }
-  }, [conn, runList, requestModelConfig, requestAuthList, sendAgentBasePromptGet]);
+  }, [conn, runList, requestModelConfig, requestAuthList, sendAgentBasePromptGet, sendAgentSkillContentGet]);
 
   /** 写面单飞：pending 非空不再发（结果帧无回显，同刻至多一条在途）。 */
   const onToggle = useCallback(

@@ -249,3 +249,15 @@ describe("kg-model graph 态", () => {
     expect(s.detailLoading).toBe(true);
   });
 });
+
+describe("code-review 族A：detail-failed 清骨架（kg-model）", () => {
+  it("sel 匹配才清 detailLoading；非当前选中不清", () => {
+    let s = kgReducer(createKgViewState(), { type: "select-node", id: "TR-1" });
+    expect(s.detailLoading).toBe(true);
+    s = kgReducer(s, { type: "detail-failed", id: "TR-1" });
+    expect(s.detailLoading).toBe(false); // 现行红：无此 action（type 不落）
+    let s2 = kgReducer(createKgViewState(), { type: "select-node", id: "TR-2" });
+    s2 = kgReducer(s2, { type: "detail-failed", id: "TR-9" });
+    expect(s2.detailLoading).toBe(true); // 非当前选中不清
+  });
+});

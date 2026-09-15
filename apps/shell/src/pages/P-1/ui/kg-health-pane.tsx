@@ -97,6 +97,7 @@ function TaskBlock({
 export default function KgHealthPane({
   health,
   loading,
+  failed,
   nodeCount,
   reviewBusy,
   reviewLaunched,
@@ -113,6 +114,8 @@ export default function KgHealthPane({
   /** kg.health 回执（null = 未拉取/读取中）。 */
   health: KgHealthDto | null;
   loading: boolean;
+  /** 拉取失败（code-review 族A 两态区分：「加载失败」非「永挂加载中」——重进 tab 重试）。 */
+  failed: boolean;
   /** 知识节点计数（kg.projects 行 nodeCount；缺省 = 未知 → —）。 */
   nodeCount: number | undefined;
   /** kg.review.create 在途（发起钮禁用；单飞锁在 KgViewer）。 */
@@ -135,6 +138,13 @@ export default function KgHealthPane({
   onOpenTasks: () => void;
 }) {
   if (loading || health === null) {
+    if (failed && !loading) {
+      return (
+        <div className="kgv-empty" data-kg-health="failed">
+          <div className="kgv-empty-t">{t("pj.health.loadFail")}</div>
+        </div>
+      );
+    }
     return (
       <div className="kgv-empty" data-kg-health="loading">
         <div className="kgv-empty-t">{t("pj.health.loading")}</div>

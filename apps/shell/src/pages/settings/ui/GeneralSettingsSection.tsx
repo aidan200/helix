@@ -36,7 +36,7 @@ const LANG_OPTIONS: { id: Lang; labelKey: string }[] = [
 
 const GeneralSettingsSection = function GeneralSettingsSection() {
   const { t, lang, setLang } = useI18n();
-  const { topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig } = useSession();
+  const { topology, requestCompactionConfig, setCompactionConfig, requestSchedulingConfig, setSchedulingConfig, requestPortConfig, setPortConfig, requestSandboxConfig, setSandboxConfig, subscribeConfigFrames } = useSession();
   const compaction = topology.modelConfig.compaction;
   const scheduling = topology.modelConfig.scheduling;
   const portCfg = topology.modelConfig.port;
@@ -67,6 +67,21 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
     }
     setSandboxError(null);
   };
+
+  // code-review 族A：沙箱开关 daemon 拒绝交代——开关无在途位（结果帧驱动），
+  // connection.error 以命令尾缀归因辨识本写面（「（命令 <type>）」单一构造点；
+  // 无尾缀旧 daemon 容忍也交代——宁误交代不静默）；其他 config 命令尾缀不消费。
+  useEffect(
+    () =>
+      subscribeConfigFrames((e) => {
+        if (e.type !== "connection.error") return;
+        const message = (e.payload as { message?: string } | undefined)?.message ?? "connection.error";
+        const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+        if (cmd !== undefined && cmd !== "config.set_sandbox") return;
+        setSandboxError(message);
+      }),
+    [subscribeConfigFrames],
+  );
 
   // 进入分区拉取现值（未请求态才发）
   useEffect(() => {

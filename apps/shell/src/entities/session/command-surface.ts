@@ -307,17 +307,19 @@ export const COMMAND_SURFACE = {
   // ── model / auth 命令面板（契约 C；T3.3 P-3/P-4）──
   // 命令发送同刻 dispatch started action（in-flight 锁定 + 乐观面；结果帧
   // 到达由 model-config 消费者接管）
-  /** 会话模型运行期切换（P-3 选中即切 / 重置为默认；下一 turn 生效）。 */
+  /** 会话模型运行期切换（P-3 选中即切 / 重置为默认；下一 turn 生效）。
+   *  返回值（code-review 族A，TR-168）：send 返回值透传（false=未发出）；
+   *  草稿本地暂存恒 true。 */
   setSessionModel: (deps) =>
-    (model: string) => {
+    (model: string): boolean => {
       const { sessionId } = deps.getTopology().active;
       if (sessionId === null) {
         // 草稿无会话上下文（T3，bug4）：本地暂存（ui/set-draft-model）——
         // 徽标即时反映，随首条 chat.send{draft:true, model} 上送生效
         deps.dispatch({ type: "ui/set-draft-model", model });
-        return;
+        return true;
       }
-      deps.send(modelSetCommand(model, sessionId));
+      return deps.send(modelSetCommand(model, sessionId));
     },
   /** 会话 thinking 档覆盖（thinking 批①，T2.1 P-1 滑块选档；下一 turn 生效；
    *  草稿态本地暂存——draft-model 先例对齐，快照建会话后补发 thinking.set）。 */

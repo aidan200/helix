@@ -26,6 +26,8 @@ const consumeModelConfigError = vi.fn();
 let mockRefreshing = false;
 /** F5 批 #3：写面失败交代可变位（connection.error 清在途 → err toast 测试）。 */
 let mockWriteError: { message: string; ts: number } | null = null;
+/** code-review 族A：setDefault 在途可变位（结果帧驱动 toast 测试，M47 同构）。 */
+let mockDefaultInflight: string | null = null;
 
 function model(id: string, providerId: string): CatalogModel {
   return {
@@ -74,7 +76,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   return {
     ...orig,
     useSession: () => ({
-      topology: { modelConfig: { ...mc, catalogRefreshing: mockRefreshing, writeError: mockWriteError } },
+      topology: { modelConfig: { ...mc, catalogRefreshing: mockRefreshing, writeError: mockWriteError, setDefaultInflight: mockDefaultInflight } },
       requestModelConfig: vi.fn(),
       requestAuthList: vi.fn(),
       refreshModelCatalog,
@@ -94,6 +96,7 @@ afterEach(() => {
   cleanup();
   mockRefreshing = false;
   mockWriteError = null;
+  mockDefaultInflight = null;
   vi.clearAllMocks();
 });
 
@@ -227,5 +230,38 @@ describe("F5 批 #1/#3：send 失败 err 交代 + connection.error 失败交代"
     const zone = document.querySelector(".toast-zone")!.textContent!;
     expect(zone).toContain("操作失败 · refresh failed");
     expect(zone).not.toContain("模型目录已刷新");
+  });
+});
+
+describe("code-review 族A：设为默认 ok toast 结果帧驱动（M47 同构）", () => {
+  it("点击不即弹——setDefaultInflight 非空→null 转换才弹「已更新」", () => {
+    const view = ui();
+    fireEvent.click(document.querySelector('[data-prov="anthropic"] [data-prov-toggle]')!);
+    fireEvent.click(document.querySelector<HTMLButtonElement>('[data-set-default="anthropic/claude-b"]')!);
+    // 点击（send 成功）不即弹——现行行为红：onClick 立即弹「已更新」（daemon 拒绝
+    // 时后续 writeError err toast 形成 ok→err 矛盾序列）
+    expect(document.querySelector(".toast-zone")!.textContent ?? "").not.toContain("已更新");
+    // started 帧：在途置位（不弹）
+    mockDefaultInflight = "anthropic/claude-b";
+    view.rerender(element());
+    expect(document.querySelector(".toast-zone")!.textContent ?? "").not.toContain("已更新");
+    // 结果帧：在途清位 → 弹 ok（M47 转换效应）
+    mockDefaultInflight = null;
+    view.rerender(element());
+    expect(document.querySelector(".toast-zone")!.textContent).toContain("全局兜底模型已更新为 anthropic/claude-b");
+  });
+
+  it("拒绝路不弹 ok（writeError 清在途的转换被守卫）", () => {
+    const view = ui();
+    fireEvent.click(document.querySelector('[data-prov="anthropic"] [data-prov-toggle]')!);
+    fireEvent.click(document.querySelector<HTMLButtonElement>('[data-set-default="anthropic/claude-b"]')!);
+    mockDefaultInflight = "anthropic/claude-b";
+    view.rerender(element());
+    // daemon 拒绝：writeError 到达 + 在途清位同帧——err 由 writeError effect 交代，ok 不弹
+    mockWriteError = { message: "daemon 拒绝", ts: 1 };
+    mockDefaultInflight = null;
+    view.rerender(element());
+    expect(document.querySelector(".toast-zone")!.textContent).toContain("操作失败 · daemon 拒绝");
+    expect(document.querySelector(".toast-zone")!.textContent).not.toContain("已更新");
   });
 });

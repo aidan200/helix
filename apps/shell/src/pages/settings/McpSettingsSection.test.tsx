@@ -270,3 +270,49 @@ describe("code-review H9：send false → 在途不置 + 行内交代（不永�
     expect((document.querySelector("[data-mcp-test-fail]") as HTMLElement | null)?.textContent).toContain("未连接");
   });
 });
+
+describe("code-review 族A：connection.error 按在途 kind 归因收口（TR-144/145）", () => {
+  it("testing 在途 + connection.error（尾缀 mcp.servers.test）→ fail 行内交代，不永挂 testing", async () => {
+    ui();
+    fireEvent.click(document.querySelector("[data-mcp-add-toggle]")!);
+    fireEvent.change(document.querySelector("[data-mcp-name]")!, { target: { value: "probe" } });
+    fireEvent.change(document.querySelector("[data-mcp-command]")!, { target: { value: "npx" } });
+    sendMcpServersTest.mockReturnValueOnce(true); // H9 消费面：true=已发出才进 testing
+    fireEvent.click(document.querySelector("[data-mcp-test]")!);
+    expect(document.querySelector("[data-mcp-test]")!.hasAttribute("disabled")).toBe(true); // testing 在途
+    feed("connection.error", { message: "连接测试失败：spawn 被拒（命令 mcp.servers.test）" });
+    // 现行红：connection.error 只清 addPending——testing 永挂
+    await waitFor(() => {
+      expect(document.querySelector("[data-mcp-test-fail]")!.textContent).toContain("spawn 被拒");
+      expect(document.querySelector("[data-mcp-test]")!.hasAttribute("disabled")).toBe(false);
+    });
+  });
+
+  it("尾缀非本族的 connection.error → 本族在途不误伤（addPending 保持）", async () => {
+    ui();
+    fireEvent.click(document.querySelector("[data-mcp-add-toggle]")!);
+    fireEvent.change(document.querySelector("[data-mcp-name]")!, { target: { value: "magicui" } });
+    fireEvent.change(document.querySelector("[data-mcp-command]")!, { target: { value: "npx" } });
+    sendMcpServersAdd.mockReturnValueOnce(true); // H9 消费面：true=已发出才进 addPending
+    fireEvent.click(document.querySelector("[data-mcp-submit]")!);
+    expect(document.querySelector("[data-mcp-submit]")!.hasAttribute("disabled")).toBe(true); // addPending
+    feed("connection.error", { message: "追踪查询失败（命令 trace.query）" });
+    // 不误伤：addPending 保持、无 formError
+    await waitFor(() => {
+      expect(document.querySelector("[data-mcp-submit]")!.hasAttribute("disabled")).toBe(true);
+      expect(document.querySelector("[data-mcp-form-error]")).toBeNull();
+    });
+  });
+
+  it("remove send false（未连接）→ err toast 交代（不静默）", async () => {
+    sendMcpServersRemove.mockReturnValueOnce(false);
+    ui();
+    feed("mcp.servers.list.result", LIST_FRAME);
+    await waitFor(() => expect(document.querySelector('[data-mcp-delete="shadcn"]')).not.toBeNull());
+    const btn = document.querySelector('[data-mcp-delete="shadcn"]')!;
+    fireEvent.click(btn); // 首击 armed
+    fireEvent.click(btn); // 二击执行
+    // 现行红：send 返回值未消费——静默失败零交代
+    await waitFor(() => expect(document.querySelector(".toast.err")!.textContent).toContain("未连接"));
+  });
+});

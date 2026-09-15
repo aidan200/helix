@@ -328,6 +328,7 @@ export const zhCN = {
         sendFail: "未连接 daemon，操作未发出",
         connectFailed: "连接失败（配置已保留，可重试）",
         addFailed: "添加失败",
+        removeFailed: "移除失败 · {message}",
         loading: "加载中…",
         empty: "暂无 MCP server——新增一个开始接入（如 shadcn / magicui 官方 MCP）",
         delete: "删除",
@@ -414,6 +415,7 @@ export const zhCN = {
       noProviderTitle: "暂无可用模型",
       noProviderSub: "到配置页为 provider 配置 API key 后即可选用",
       switchedToast: "已请求切换至 {model} · 下一 turn 生效",
+      sendFailToast: "未连接 daemon——切换未发出，请稍后重试",
     },
     modelsConfig: {
       defaultLabel: "全局兜底模型",
@@ -776,6 +778,7 @@ export const zhCN = {
     health: {
       tab: "体检",
       loading: "读取体检数据…",
+      loadFail: "体检数据加载失败——切换标签页后重进重试",
       healthyTitle: "结构健康",
       healthySub: "未发现逻辑冲突或孤儿节点——五项读面全绿。语义层（内容是否过期）由语义体检任务复核。",
       conflictsTitle: "逻辑冲突",
@@ -809,6 +812,7 @@ export const zhCN = {
     cand: {
       panelTitle: "候选台账",
       loading: "读取候选台账…",
+      loadFail: "候选台账加载失败——切换标签页后重进重试",
       empty: "暂无候选条目",
       filterAll: "全部",
       countLine: "共 {total} 条",

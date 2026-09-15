@@ -148,3 +148,28 @@ describe("目录未到达加载空态（catalog===null；2026-09-13 菜单静默
     expect(container.querySelector("[data-model-item]")!.getAttribute("data-model-item")).toBe("anthropic/claude-a");
   });
 });
+
+describe("code-review 族A：model.set 发送失败交代（TR-168）", () => {
+  it("setSessionModel 返 false（断连未发出）→ err toast + 菜单不关（假反馈消除）", () => {
+    setup({ catalog: [catalogModel("anthropic/claude-a")], authLoaded: true, configured: ["anthropic"] });
+    // 非草稿路径：active.sessionId 置位（走 send 分支）
+    topologyRef.current = {
+      ...topologyRef.current,
+      active: { ...topologyRef.current.active, sessionId: "s1", conn: "disconnected" },
+    };
+    setSessionModel.mockReturnValue(false); // 未发出
+    const onClose = vi.fn();
+    const { container } = render(
+      <I18nProvider>
+        <ToastProvider>
+          <ModelSwitchMenu onClose={onClose} />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    fireEvent.click(container.querySelector("[data-model-item='anthropic/claude-a']")!);
+    // 现行行为红：pick 不消费返回值——ok toast 假反馈 + 菜单照关
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.querySelector(".toast.err")).not.toBeNull();
+    expect(document.querySelector(".toast.ok")).toBeNull();
+  });
+});

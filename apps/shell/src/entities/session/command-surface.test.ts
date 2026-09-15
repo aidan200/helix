@@ -326,3 +326,15 @@ describe("COMMAND_SURFACE steerInstance 先 send 后 echo（code-review M，TR-1
     expect(topoGood().active.entries.length).toBe(1); // echo 在场（双投影其一）
   });
 });
+
+describe("COMMAND_SURFACE setSessionModel 返回值（code-review 族A，TR-168）", () => {
+  it("会话态透传 send 返回值（false=未发出）；草稿态本地暂存恒 true", () => {
+    const bad = submitDeps(false, { sessionId: "s1", generating: false });
+    // 现行行为红：返回 void（undefined）——send 返回值被丢弃
+    expect(COMMAND_SURFACE.setSessionModel(bad.deps)("anthropic/claude-x")).toBe(false);
+    const good = submitDeps(true, { sessionId: "s1", generating: false });
+    expect(COMMAND_SURFACE.setSessionModel(good.deps)("anthropic/claude-x")).toBe(true);
+    const draft = submitDeps(false, { sessionId: null, generating: false });
+    expect(COMMAND_SURFACE.setSessionModel(draft.deps)("anthropic/claude-x")).toBe(true); // 草稿本地暂存恒成
+  });
+});

@@ -100,7 +100,7 @@ const KgViewer = function KgViewer({
     onTimeout: (kind) => toast.push("err", t(WRITE_FAIL_KEY[kind], { message: t("pj.kg.flightTimeout") })),
   });
   /** 体检面板数据面（W2-E；首进 health tab 拉一次）。 */
-  const [healthView, setHealthView] = useState<{ loading: boolean; data: KgHealthDto | null }>({ loading: false, data: null });
+  const [healthView, setHealthView] = useState<{ loading: boolean; data: KgHealthDto | null; failed: boolean }>({ loading: false, data: null, failed: false });
   const healthFetchedRef = useRef(false);
   const [reviewLaunched, setReviewLaunched] = useState(false);
   const [codeReviewLaunched, setCodeReviewLaunched] = useState(false);
@@ -112,7 +112,9 @@ const KgViewer = function KgViewer({
     total: number;
     filter: CandFilter;
     sel: string | null;
-  }>({ loading: false, rows: [], total: 0, filter: "all", sel: null });
+    /** 拉取失败标记（code-review 族A：「加载失败」与「空」两态区分——原假空态把拉取失败误报为事实空）。 */
+    failed: boolean;
+  }>({ loading: false, rows: [], total: 0, filter: "all", sel: null, failed: false });
 
   // 进入 graph 即新数据面：列表骨架 + 详情骨架 + 报告/索引面板并行拉取。
   // 连接转换驱动（M40：首挂已连即拉 + 断线重连重发——读面幂等，ProjectPage
@@ -147,13 +149,17 @@ const KgViewer = function KgViewer({
           projectDispatch,
           toast,
           t,
-          onHealthResult: (data) => setHealthView({ loading: false, data }),
+          onHealthResult: (data) => setHealthView({ loading: false, data, failed: false }),
           onCandidatesResult: (rows, total) =>
-            setCandView((v) => ({ loading: false, rows: [...rows], total, filter: v.filter, sel: v.sel })),
+            setCandView((v) => ({ loading: false, rows: [...rows], total, filter: v.filter, sel: v.sel, failed: false })),
           // M9 #2.31：connection.error 兜底清两个读面 loading（不恒真无报错）
+          // code-review 族A：清 loading 同时置 failed（两态区分）。注意不复位
+          // healthFetchedRef——同步复位会让 health 拉取 effect 在同一断连会话内
+          // 自激循环（effect 重跑→send false→setState→重渲→effect 重跑…）；
+          // 重试通道归「离开再进 tab」的 ref 复位（见下方 health 拉取 effect）。
           clearReadLoading: () => {
-            setHealthView((v) => (v.loading ? { loading: false, data: v.data } : v));
-            setCandView((v) => (v.loading ? { ...v, loading: false } : v));
+            setHealthView((v) => (v.loading ? { loading: false, data: v.data, failed: true } : v));
+            setCandView((v) => (v.loading ? { ...v, loading: false, failed: true } : v));
           },
           markReviewLaunched: () => setReviewLaunched(true),
           markCodeReviewLaunched: () => setCodeReviewLaunched(true),
@@ -181,9 +187,13 @@ const KgViewer = function KgViewer({
 
   const onConfirm = useCallback(
     (id: string) => {
-      sendKgNodeConfirm({ project: project.name, id }); // 页面唯一写入口（F5.4）
+      // code-review 族A（TR-84）：页面唯一写面 send 返回值必消费——未连接时
+      // err toast 交代（原静默失败）
+      if (sendKgNodeConfirm({ project: project.name, id }) === false) {
+        toast.push("err", t("pj.boot.sendFail"));
+      }
     },
-    [project.name, sendKgNodeConfirm],
+    [project.name, sendKgNodeConfirm, toast, t],
   );
 
   const onFilterQ = useCallback((q: string) => dispatch({ type: "filter-q", q }), []);
@@ -222,14 +232,22 @@ const KgViewer = function KgViewer({
   // loading + err toast（体检 tab 与台账面板不恒 loading 无报错）。
   const tab = state.tab;
   useEffect(() => {
-    if (tab !== "health" || healthFetchedRef.current) return;
+    // code-review 族A：离开 tab 即复位首进锁存（重进 tab = 重试通道——原锁存
+    // 致 send 失败后离开再进永不重拉）。复位只在 tab 转换这一离散事件做，
+    // send false 时【不】同步复位——否则 effect 在断连会话内自激循环
+    // （send false→setState/toast→重渲→ref 已复位→再进入→再 send→…）。
+    if (tab !== "health") {
+      healthFetchedRef.current = false;
+      return;
+    }
+    if (healthFetchedRef.current) return;
     healthFetchedRef.current = true;
-    setHealthView({ loading: true, data: null });
-    setCandView((v) => ({ ...v, loading: true }));
+    setHealthView({ loading: true, data: null, failed: false });
+    setCandView((v) => ({ ...v, loading: true, failed: false }));
     const okHealth = sendKgHealth({ project: project.name });
     const okCand = sendKgCandidatesList({ project: project.name });
-    if (!okHealth) setHealthView({ loading: false, data: null });
-    if (!okCand) setCandView((v) => ({ ...v, loading: false }));
+    if (!okHealth) setHealthView({ loading: false, data: null, failed: true });
+    if (!okCand) setCandView((v) => ({ ...v, loading: false, failed: true }));
     if (!(okHealth && okCand)) toast.push("err", t("pj.boot.sendFail"));
   }, [tab, project.name, sendKgHealth, sendKgCandidatesList, toast, t]);
 
@@ -516,6 +534,7 @@ const KgViewer = function KgViewer({
                   <KgHealthPane
                     health={healthView.data}
                     loading={healthView.loading}
+                    failed={healthView.failed}
                     nodeCount={project.nodeCount}
                     reviewBusy={flight !== null}
                     reviewLaunched={reviewLaunched}
@@ -531,6 +550,7 @@ const KgViewer = function KgViewer({
                   />
                   <KgCandidatesPanel
                     loading={candView.loading}
+                    failed={candView.failed}
                     rows={candView.rows}
                     total={candView.total}
                     filter={candView.filter}

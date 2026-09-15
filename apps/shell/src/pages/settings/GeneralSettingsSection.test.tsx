@@ -330,3 +330,21 @@ describe("code-review H8：send false（未发出）→ 不置在途 + 行内交
     expect(setCompactionConfig).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("code-review 族A：沙箱开关 daemon 拒绝交代（connection.error 尾缀归因）", () => {
+  it("connection.error（尾缀 config.set_sandbox）→ 行内错误交代（现行红：不订阅零反馈）", () => {
+    setSandboxConfig.mockReturnValueOnce(true); // 已发出
+    const { container } = ui();
+    fireEvent.click(container.querySelector<HTMLElement>('[data-sandbox-option="on"]')!);
+    feedConnError("沙箱配置非法（命令 config.set_sandbox）");
+    expect(container.querySelector("[data-sandbox-save-error]")!.textContent).toContain("沙箱配置非法");
+  });
+
+  it("尾缀非 sandbox 的 connection.error → 不误挂 sandbox 错误（其他卡写面不受影响）", () => {
+    setSandboxConfig.mockReturnValueOnce(true);
+    const { container } = ui();
+    fireEvent.click(container.querySelector<HTMLElement>('[data-sandbox-option="on"]')!);
+    feedConnError("端口配置非法（命令 config.set_port）");
+    expect(container.querySelector("[data-sandbox-save-error]")).toBeNull();
+  });
+});
