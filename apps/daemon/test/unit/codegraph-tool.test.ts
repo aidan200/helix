@@ -117,16 +117,16 @@ describe("codegraph 工具：索引缺失短路（absent 先例——读面绝�
 describe("codegraph 工具：W-R2 worktree 读穿透（D8——查询路由主仓索引，绝不建副本）", () => {
   test("worktree 根路径作 projectPath → 引擎收到主仓 projectRoot（状态也报主仓）+ 输出附透传注记", async () => {
     const { tool, calls } = makeTool({ result: "{\"initialized\":true}" });
-    const out = await run(tool, { op: "status", projectPath: "/ws/.worktrees/helix-d8-x" });
+    const out = await run(tool, { op: "status", projectPath: "/ws/helix/.worktrees/agent-d8-x" });
     expect(calls[0]!.projectRoot).toBe("/ws/helix");
     expect(out).toContain("initialized");
     expect(out).toContain("worktree"); // 透传注记（agent 可见：路由主仓而非建副本）
     expect(out).toContain("/ws/helix");
   });
 
-  test("worktree 深层路径 → 主仓等价路径（保尾段，resolveMainRepoPath 同源口径）", async () => {
+  test("worktree 深层路径 → 主仓等价路径（resolveMainRepoPath 同源口径——尾段行为新旧一致，工具层以基座形验收）", async () => {
     const { tool, calls } = makeTool();
-    await run(tool, { op: "search", projectPath: "/ws/.worktrees/helix-d8-x", pattern: "Foo" });
+    await run(tool, { op: "search", projectPath: "/ws/helix/.worktrees/agent-d8-x", pattern: "Foo" });
     expect(calls[0]!.projectRoot).toBe("/ws/helix");
   });
 
@@ -143,10 +143,10 @@ describe("codegraph 工具：W-R2 worktree 读穿透（D8——查询路由主�
     const dir = mkdtempSync(path.join(tmpdir(), "codegraph-wt-"));
     try {
       mkdirSync(path.join(dir, "proj", ".codegraph"), { recursive: true }); // 主仓索引存根
-      mkdirSync(path.join(dir, ".worktrees", "proj-slug"), { recursive: true }); // worktree（无 .codegraph）
+      mkdirSync(path.join(dir, "proj", ".worktrees", "agent-slug"), { recursive: true }); // 仓内 worktree（无 .codegraph）
       const { engine, calls } = stubEngine();
       const tool = createCodegraphTool({ engine, workspaceRoot: dir });
-      await run(tool, { op: "status", projectPath: path.join(dir, ".worktrees", "proj-slug") });
+      await run(tool, { op: "status", projectPath: path.join(dir, "proj", ".worktrees", "agent-slug") });
       expect(calls).toHaveLength(1);
       expect(calls[0]!.projectRoot).toBe(path.join(dir, "proj"));
     } finally {
@@ -157,9 +157,12 @@ describe("codegraph 工具：W-R2 worktree 读穿透（D8——查询路由主�
   test("worktree 且主仓也无索引 → 短路提示指向主仓路径（不引导在 worktree 建索引）", async () => {
     const { engine, calls } = stubEngine();
     const tool = createCodegraphTool({ engine, workspaceRoot: "/nonexistent-ws-42" });
-    const out = await run(tool, { op: "status", projectPath: "/nonexistent-ws-42/.worktrees/ghost-x" });
+    const out = await run(tool, {
+      op: "status",
+      projectPath: "/nonexistent-ws-42/ghost/.worktrees/agent-x",
+    });
     expect(out).toContain("请先构建索引");
-    expect(out).toContain("/nonexistent-ws-42/ghost"); // 提示主仓路径（ghost = ghost-x 首个 - 前缀）
+    expect(out).toContain("/nonexistent-ws-42/ghost"); // 提示主仓（仓根）路径
     expect(calls).toHaveLength(0);
   });
 });

@@ -69,7 +69,7 @@ describe("WriteFactRegistry", () => {
   test("projectFootprint：一级目录归约 + worktree 归主仓 + 根外剔除", () => {
     const r = makeRegistry("/ws");
     r.record({ instanceId: "m", sessionId: "s", path: "/ws/helix/src/a.ts", at: 1, confidence: "precise" });
-    r.record({ instanceId: "m", sessionId: "s", path: "/ws/.worktrees/helix-foo/src/b.ts", at: 2, confidence: "inferred" });
+    r.record({ instanceId: "m", sessionId: "s", path: "/ws/helix/.worktrees/agent-foo/src/b.ts", at: 2, confidence: "inferred" });
     r.record({ instanceId: "m", sessionId: "s", path: "/tmp/scratch.txt", at: 3, confidence: "precise" });
     r.record({ instanceId: "m", sessionId: "s", path: "/ws/docs/note.md", at: 4, confidence: "precise" }); // 排除段
     expect(r.projectFootprint("s")).toEqual(["/ws/helix"]);

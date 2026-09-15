@@ -9,9 +9,14 @@ import { kgReadProjects } from "../../src/adapters/driven/workspace-scan";
  * D8 W-R2/W-R3：worktree 读穿透路径归一单测。
  *
  * - resolveMainRepoPath（domain 纯函数，零 IO）：路径含 /.worktrees/ 段 →
- *   主仓等价路径（<段前>/<主仓名>，深层路径保留 worktree 内相对尾段）；
- *   不含 → 原样返回（逐字节不变）。W-R1 落点口径：
- *   <workspaceRoot>/.worktrees/{project}-{slug}。
+ *   剥该段归一回 git 仓根（+保留尾段）。W-R1 落点口径（权威 =
+ *   GitWorktreeProvisioner 头注）：仓根 `.worktrees/<slug>`——生产
+ *   isolated worktree 形如 `<ws>/<project>/.worktrees/agent-<hex>`，
+ *   归一目标 = 拥有它的仓根（<ws>/<project>）。历史注记（code-review H1）：
+ *   旧实现按幻影口径 `<workspaceRoot>/.worktrees/{project}-{slug}` 拆
+ *   project 前缀——provisioner 从未落过该形态，仓内 slug（agent-<hex>/
+ *   lowfix-w1）被拆成 `<仓根>/agent` 幻影路径，kgReadProjects 穿透空集、
+ *   CodegraphTool 误报无索引、附着锚永不命中（三通道静默失效）。
  * - kgReadProjects（driven 读面项目域）：基座在 .worktrees 下 → 主仓有库即
  *   [主仓]（读面绝不新建库文件），无库空集；普通 workspace → 既有口径。
  */
@@ -26,50 +31,57 @@ describe("resolveMainRepoPath：worktree 路径 → 主仓归一（纯函数）"
     expect(resolveMainRepoPath("")).toBe("");
   });
 
-  test("worktree 根 → 主仓 projectRoot（W-R1 命名 {project}-{slug}，首个 - 前为 project）", () => {
-    expect(resolveMainRepoPath("/ws/.worktrees/helix-foo")).toBe("/ws/helix");
-    // slug 自身含连字符：首个 - 前为 project（实际 worktree 名形如 helix-d8-read-passthrough）
-    expect(resolveMainRepoPath("/ws/.worktrees/helix-d8-read-passthrough")).toBe("/ws/helix");
+  test("生产仓内形态（W-R1 权威口径）：worktree 根 → git 仓根", () => {
+    // SubagentLauncher provision(id)：slug = agent-<hex32>
+    expect(resolveMainRepoPath("/ws/helix/.worktrees/agent-3f2a9b8c1d4e5f6")).toBe("/ws/helix");
+    // slug 自身含连字符（任意 slug 形态，如手工/任务命名）
+    expect(resolveMainRepoPath("/ws/helix/.worktrees/lowfix-w1")).toBe("/ws/helix");
+    // 单项目工作区（daemon 直绑 git 仓自身）：仓根 = 工作区根
+    expect(resolveMainRepoPath("/ws/.worktrees/agent-1a2b3c")).toBe("/ws");
   });
 
-  test("worktree 深层路径 → 主仓等价路径（保留 worktree 内相对尾段——附着/文件语义）", () => {
-    expect(resolveMainRepoPath("/ws/.worktrees/helix-foo/apps/daemon/src/x.ts")).toBe(
+  test("worktree 深层路径 → 仓根等价路径（保留尾段——附着/文件语义）", () => {
+    expect(resolveMainRepoPath("/ws/helix/.worktrees/agent-x/apps/daemon/src/x.ts")).toBe(
       "/ws/helix/apps/daemon/src/x.ts",
     );
   });
 
-  test("尾斜杠：worktree 根/深层路径尾斜杠归一去尾（/ws/helix 形态）", () => {
-    expect(resolveMainRepoPath("/ws/.worktrees/helix-foo/")).toBe("/ws/helix");
-    expect(resolveMainRepoPath("/ws/.worktrees/helix-foo/apps/")).toBe("/ws/helix/apps");
+  test("尾斜杠：worktree 根/深层路径尾斜杠归一去尾", () => {
+    expect(resolveMainRepoPath("/ws/helix/.worktrees/agent-x/")).toBe("/ws/helix");
+    expect(resolveMainRepoPath("/ws/helix/.worktrees/agent-x/apps/")).toBe("/ws/helix/apps");
   });
 
-  test("命名不合 W-R1 契约 → 原样返回（无 - / - 打头 / .worktrees 直结尾）", () => {
-    expect(resolveMainRepoPath("/ws/.worktrees/backup")).toBe("/ws/.worktrees/backup"); // 无 project/slug 分隔
-    expect(resolveMainRepoPath("/ws/.worktrees/-foo")).toBe("/ws/.worktrees/-foo"); // 主仓名空
-    expect(resolveMainRepoPath("/ws/.worktrees/")).toBe("/ws/.worktrees/"); // 无 worktree 目录名
-    expect(resolveMainRepoPath("/ws/.worktrees")).toBe("/ws/.worktrees"); // 无尾段
+  test(".worktrees 直结尾（无 worktree 目录名）→ 原样返回", () => {
+    expect(resolveMainRepoPath("/ws/.worktrees/")).toBe("/ws/.worktrees/");
+    expect(resolveMainRepoPath("/ws/.worktrees")).toBe("/ws/.worktrees"); // 无尾段（marker 不含尾斜杠）
   });
 
   test("嵌套 .worktrees：首个 /.worktrees/ 段生效（外层 worktree 管辖）", () => {
-    expect(resolveMainRepoPath("/ws/.worktrees/helix-foo/.worktrees/other-x/y.ts")).toBe(
-      "/ws/helix/.worktrees/other-x/y.ts",
+    expect(resolveMainRepoPath("/ws/helix/.worktrees/agent-x/.worktrees/other-y/z.ts")).toBe(
+      "/ws/helix/.worktrees/other-y/z.ts",
     );
   });
 
-  test("workspace 根为 /（.worktrees 紧贴根）→ /{project} 形态", () => {
-    expect(resolveMainRepoPath("/.worktrees/helix-foo")).toBe("/helix");
+  test("workspace 根为 /（.worktrees 紧贴根）→ 仓根 = /", () => {
+    expect(resolveMainRepoPath("/.worktrees/agent-foo")).toBe("/");
+    expect(resolveMainRepoPath("/.worktrees/agent-foo/a.ts")).toBe("/a.ts");
+  });
+
+  test("历史 workspace 级目录名（{project}-{slug} 形态遗留）→ 按仓内形态剥整段（归一为段前路径）", () => {
+    // 遗留目录（如历史实验落点）目录名恰含连字符——不再拆 project 前缀：
+    // 归一为 marker 前路径，按普通 workspace 扫描（无幻影 <ws>/agent 路径）
+    expect(resolveMainRepoPath("/ws/.worktrees/helix-foo")).toBe("/ws");
+    expect(resolveMainRepoPath("/ws/.worktrees/helix-d8-read-passthrough/apps/x.ts")).toBe("/ws/apps/x.ts");
   });
 
   test("win32 原生反斜杠路径（TR-95 目标平台集含 win32）：marker 命中归一，输出 POSIX 分隔符", () => {
     // 调用方传 path.join 原生反斜杠路径时不得静默失效（读穿透/附着穿透）
-    expect(resolveMainRepoPath("C:\\ws\\.worktrees\\helix-foo")).toBe("C:/ws/helix");
-    expect(resolveMainRepoPath("C:\\ws\\.worktrees\\helix-foo\\apps\\daemon\\x.ts")).toBe(
+    expect(resolveMainRepoPath("C:\\ws\\helix\\.worktrees\\agent-x")).toBe("C:/ws/helix");
+    expect(resolveMainRepoPath("C:\\ws\\helix\\.worktrees\\agent-x\\apps\\daemon\\x.ts")).toBe(
       "C:/ws/helix/apps/daemon/x.ts",
     );
     // 非 worktree win32 路径原样返回（逐字节不变，含分隔符）
     expect(resolveMainRepoPath("C:\\ws\\helix")).toBe("C:\\ws\\helix");
-    // 命名不合契约的 win32 worktree 段同样原样返回
-    expect(resolveMainRepoPath("C:\\ws\\.worktrees\\backup")).toBe("C:\\ws\\.worktrees\\backup");
   });
 });
 
@@ -86,24 +98,25 @@ describe("kgReadProjects：kg 读面项目域（W-R3 读穿透 + 既有口径不
     }
   });
 
-  test("worktree 基座 → 读穿透主仓：主仓有 kg.db → [主仓]", () => {
+  test("生产仓内形态基座 → 读穿透主仓：主仓有 kg.db → [主仓]（code-review H1 通道①）", () => {
     const root = mkdtempSync(path.join(tmpdir(), "worktree-kg-read-b-"));
     try {
       mkdirSync(path.join(root, "helix", ".helix-kg"), { recursive: true });
       writeFileSync(path.join(root, "helix", ".helix-kg", "kg.db"), "stub");
-      mkdirSync(path.join(root, ".worktrees", "helix-d8-x"), { recursive: true });
-      expect(kgReadProjects(path.join(root, ".worktrees", "helix-d8-x"))).toEqual([path.join(root, "helix")]);
+      mkdirSync(path.join(root, "helix", ".worktrees", "agent-d8-x"), { recursive: true });
+      expect(kgReadProjects(path.join(root, "helix", ".worktrees", "agent-d8-x"))).toEqual([
+        path.join(root, "helix"),
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("worktree 基座 + 主仓无 kg.db → 空集（读面绝不新建库文件——零建库副作用）", () => {
+  test("仓内形态基座 + 主仓无 kg.db → 空集（读面绝不新建库文件——零建库副作用）", () => {
     const root = mkdtempSync(path.join(tmpdir(), "worktree-kg-read-c-"));
     try {
-      mkdirSync(path.join(root, "helix"), { recursive: true });
-      mkdirSync(path.join(root, ".worktrees", "helix-d8-x"), { recursive: true });
-      const base = path.join(root, ".worktrees", "helix-d8-x");
+      const base = path.join(root, "helix", ".worktrees", "agent-d8-x");
+      mkdirSync(base, { recursive: true });
       expect(kgReadProjects(base)).toEqual([]);
       // 零建库副作用：主仓与 worktree 内均未凭空产生 kg.db
       expect(existsSync(path.join(root, "helix", ".helix-kg", "kg.db"))).toBe(false);
@@ -113,11 +126,12 @@ describe("kgReadProjects：kg 读面项目域（W-R3 读穿透 + 既有口径不
     }
   });
 
-  test("worktree 基座 + 主仓目录不存在 → 空集", () => {
+  test("仓内形态基座（仓根无任何库痕迹）→ 空集", () => {
     const root = mkdtempSync(path.join(tmpdir(), "worktree-kg-read-d-"));
     try {
-      mkdirSync(path.join(root, ".worktrees", "ghost-x"), { recursive: true });
-      expect(kgReadProjects(path.join(root, ".worktrees", "ghost-x"))).toEqual([]);
+      const base = path.join(root, "ghost-proj", ".worktrees", "ghost-x");
+      mkdirSync(base, { recursive: true });
+      expect(kgReadProjects(base)).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

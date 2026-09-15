@@ -69,17 +69,21 @@ export function projectRootOfAbs(workspaceRoot: string, absPath: string): string
 /**
  * worktree 路径 → 主仓归一（D8 W-R2/W-R3 读穿透，零 IO 纯函数）。
  *
- * W-R1 落点口径：worktree 统一住 `<workspaceRoot>/.worktrees/{project}-{slug}`
- * ——worktree 内无 .codegraph/.helix-kg（绝不建副本索引/库），读面一律穿透
- * 主仓。本函数是唯一归一点：
+ * W-R1 落点口径（权威 = GitWorktreeProvisioner 头注）：仓根
+ * `.worktrees/<slug>`——生产 isolated worktree 形如
+ * `<ws>/<project>/.worktrees/agent-<hex>`，归一目标 = 拥有它的 git 仓根。
+ * 本函数是唯一归一点：
  *
- * - 路径含 `/.worktrees/{project}-{slug}` 段 → 主仓等价路径——根形态
- *   `/ws/.worktrees/helix-foo` → `/ws/helix`（首个 `-` 前为 project，slug
- *   可含 `-`）；深层形态保留尾段（`/ws/.worktrees/helix-foo/a/b.ts` →
- *   `/ws/helix/a/b.ts`，附着/文件语义消费）；尾斜杠归一去尾。
- * - 不含该段 / 目录名不合 {project}-{slug} 契约（无 `-`、`-` 打头、空名）/
- *   `.worktrees` 直结尾 → 原样返回（逐字节不变——非 worktree 场景零影响）。
+ * - 路径含 `/.worktrees/<slug>` 段 → 剥该段回仓根（尾段保留：
+ *   `/ws/helix/.worktrees/agent-x/a/b.ts` → `/ws/helix/a/b.ts`，附着/
+ *   文件语义消费）；尾斜杠归一去尾；目录名任意形态（slug 可含 `-`）。
+ * - 不含该段 / `.worktrees` 直结尾（无目录名）→ 原样返回（逐字节不变
+ *   ——非 worktree 场景零影响）。
  * - 多段嵌套取首个 `/.worktrees/`（外层 worktree 管辖）。
+ * - 历史 workspace 级目录名（`{project}-{slug}` 形态遗留，provisioner
+ *   从未落过的幻影口径）不再拆 project 前缀——按仓内形态剥整段归一
+ *   为段前路径（消 `<仓根>/agent` 幻影路径，code-review H1：三读通道
+ *   ——kgReadProjects 穿透/CodegraphTool 索引路由/附着锚命中——曾全静默失效）。
  * - win32 原生路径（TR-95 目标平台集含 win32-x64）：调用方传 path.join
  *   反斜杠路径时先归一 POSIX 分隔符再判定——命中 worktree 段的归一输出
  *   统一 POSIX 形态；不命中（非 worktree）原样返回逐字节不变（含分隔符）。
@@ -89,14 +93,13 @@ export function resolveMainRepoPath(input: string): string {
   const marker = "/.worktrees/";
   const idx = normalized.indexOf(marker);
   if (idx < 0) return input;
-  const before = normalized.slice(0, idx); // idx=0（/.worktrees 紧贴根）→ ""，模板拼出 /{project}
+  const before = normalized.slice(0, idx); // idx=0（/.worktrees 紧贴根）→ ""，仓根 = /
   const tail = normalized.slice(idx + marker.length);
   const stripped = tail.endsWith("/") && tail.length > 1 ? tail.slice(0, -1) : tail;
   const segments = stripped.split("/");
-  const dir = segments[0] ?? "";
-  const dash = dir.indexOf("-");
-  if (dir === "" || dash <= 0) return input; // 不合 {project}-{slug} 契约 → 不归一
-  const project = dir.slice(0, dash);
+  if ((segments[0] ?? "") === "") return input; // .worktrees 直结尾（无 worktree 目录名）→ 不归一
   const rest = segments.slice(1).join("/");
-  return rest === "" ? `${before}/${project}` : `${before}/${project}/${rest}`;
+  const root = before === "" ? "/" : before;
+  if (rest === "") return root;
+  return root === "/" ? `/${rest}` : `${root}/${rest}`;
 }

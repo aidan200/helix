@@ -155,8 +155,8 @@ describe("② KgQueryService.residentRulesSection", () => {
     expect(multiOut).toContain(`kg get ${a}（project: projA）`);
     expect(multiOut).toContain(`kg get ${b}（project: projB）`);
     // U7：worktree 足迹路径归主仓后匹配（normalizeRoot 内 resolveMainRepoPath
-    //——worktree 是 workspace 级契约：<root>/.worktrees/{project}-{slug}）
-    expect(single.residentRulesSection([path.join(f.root, ".worktrees", "projA-x1")])).toContain("kg get " + a);
+    //——W-R1 仓内口径：<仓根>/.worktrees/<slug>，归一 = 仓根）
+    expect(single.residentRulesSection([path.join(f.root, "projA", ".worktrees", "x1")])).toContain("kg get " + a);
   });
 
   test("空项目集（无图谱 workspace）→ null；未建库项目不进查询面", () => {

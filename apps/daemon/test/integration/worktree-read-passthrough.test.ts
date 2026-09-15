@@ -29,7 +29,7 @@ import type { AnchorDeclaration, SymbolBatch } from "../../src/domain/kg/types";
 interface Fixture {
   readonly root: string; // workspace 根
   readonly proj: string; // 主仓 projectRoot（.helix-kg 持有者）
-  readonly worktree: string; // <root>/.worktrees/{proj}-d8-x（W-R1 落点形态）
+  readonly worktree: string; // <root>/helix/.worktrees/agent-d8-x（W-R1 仓内落点形态——仓根 .worktrees/<slug>）
   readonly database: KgDatabase;
   readonly store: SqliteKnowledgeStore;
   readonly write: KgWriteService;
@@ -49,7 +49,7 @@ afterAll(() => {
 function makeFixture(): Fixture {
   const root = mkdtempSync(path.join(tmpdir(), "worktree-it-"));
   const proj = path.join(root, "helix");
-  const worktree = path.join(root, ".worktrees", "helix-d8-x");
+  const worktree = path.join(root, "helix", ".worktrees", "agent-d8-x");
   mkdirSync(path.join(proj, "src"), { recursive: true });
   mkdirSync(path.join(worktree, "src"), { recursive: true }); // worktree 同构检出（项目相对路径一致）
   const database = new KgDatabase();
@@ -164,7 +164,7 @@ describe("W-R3 附着穿透：worktree 内 edit → 命中主仓锚（projectRoo
     writeFileSync(featWt, "// header\nexport function handler() {\n  const cache = handlerCache();\n  return cache;\n}\n// tail\n");
     const env = new NodeExecutionEnv({ cwd: f.root });
     const tool = createEditTool(buildEditToolDeps({ workspaceRoot: f.root, attachment: f.attachment, sessionId: "sess-wt" }));
-    const r = await run(tool, { path: ".worktrees/helix-d8-x/src/feat.ts", edits: [{ oldText: "const cache = handlerCache();", newText: "const cache = handlerCache() ?? null;" }] }, env);
+    const r = await run(tool, { path: "helix/.worktrees/agent-d8-x/src/feat.ts", edits: [{ oldText: "const cache = handlerCache();", newText: "const cache = handlerCache() ?? null;" }] }, env);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const block = r.text.slice(r.text.indexOf("📎"));
