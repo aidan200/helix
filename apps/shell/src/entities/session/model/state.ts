@@ -603,6 +603,8 @@ export type SessionAction =
   /** 默认模型选择：乐观更新 defaultModel + in-flight（set_default.result 清） */
   | { type: "model/set-default-started"; model: string }
   | { type: "model/set-thinking-default-started"; level: string | null }
+  /** send false 回滚（code-review M：未发出即复原乐观值——TR-168 消费纪律）。 */
+  | { type: "model/set-thinking-default-aborted"; level: string | null }
   /** 刷新目录：置 catalogRefreshing（catalog_refresh.result 到达即清） */
   | { type: "model/catalog-refresh-started" }
   // ── F5 批：send 失败回滚族（TR-84——send 返回 false 即收口在途态，不假反馈）──

@@ -22,6 +22,8 @@ localStorage.setItem("helix-lang", "zh-CN");
 const stateRef: { current: SessionState } = { current: createInitialSessionState() };
 const sent: { payload: { live?: boolean; turnId?: string } }[] = [];
 let frameSink: ((e: EventEnvelope) => void) | null = null;
+/** sendDiffGet 返回开关（code-review M：send false 交代）——缺省 true。 */
+let sendOk = true;
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
   return {
@@ -30,7 +32,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       state: stateRef.current,
       sendDiffGet: (payload: { live?: boolean; turnId?: string }) => {
         sent.push({ payload });
-        return true;
+        return sendOk;
       },
       subscribeDiffFrames: (cb: (e: EventEnvelope) => void) => {
         frameSink = cb;
@@ -48,6 +50,7 @@ afterEach(() => {
   cleanup();
   sent.length = 0;
   frameSink = null;
+  sendOk = true;
 });
 
 const FILES = [
@@ -190,5 +193,23 @@ describe("DiffOverlay 交互与错误态", () => {
     act(() => frameSink!({ v: 0, type: "connection.error", payload: { message: "boom" } } as unknown as EventEnvelope));
     expect(container.querySelector(".diff-error")).not.toBeNull();
     expect(container.querySelector(".diff-error")!.textContent).toContain("boom");
+  });
+});
+
+// ── code-review M 族（TR-168）：send 消费 + connection.error 单飞门控。──
+describe("DiffOverlay：code-review M（send 消费 + 单飞门控）", () => {
+  it("sendDiffGet 返回 false（断线窗口）→ failed 态交代（不永挂 pending）", () => {
+    sendOk = false;
+    render(<I18nProvider><DiffOverlay onClose={() => {}} /></I18nProvider>);
+    expect(document.querySelector('[data-testid="diff-error"]')).not.toBeNull();
+  });
+
+  it("connection.error 单飞门控：done 视图不被无关 error 帧误判（头注释自称单飞——现补上实现）", () => {
+    stateRef.current = createInitialSessionState();
+    ui();
+    act(() => frameSink!(resultFrame()));
+    expect(document.querySelector('[data-testid="diff-error"]')).toBeNull(); // done 视图
+    act(() => frameSink!({ type: "connection.error", payload: { message: "无关命令失败" } } as unknown as EventEnvelope));
+    expect(document.querySelector('[data-testid="diff-error"]')).toBeNull(); // 不消费（无 pending）
   });
 });

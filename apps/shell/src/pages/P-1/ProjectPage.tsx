@@ -144,13 +144,17 @@ const ProjectPage = function ProjectPage({
   /** 页面发起的 kg.index.status 目标项目（回执无 project 回显——关联靠此 ref）。 */
   const idxReqRef = useRef<string | null>(null);
 
-  // kg.projects 首拉/重连重拉（读面幂等；首挂已连也拉——prev=null 占位）
+  // kg.projects 首拉/重连重拉（读面幂等；首挂已连也拉——prev=null 占位）；
+  // send false（断线窗口，code-review M/TR-168）→ 清骨架 + toast 交代（不永挂）
   const prevConnRef = useRef<string | null>(null);
   useEffect(() => {
     const prev = prevConnRef.current;
     prevConnRef.current = conn;
-    if (conn === "connected" && prev !== "connected") sendKgProjects();
-  }, [conn, sendKgProjects]);
+    if (conn === "connected" && prev !== "connected" && sendKgProjects() === false) {
+      dispatch({ type: "list-send-failed" });
+      toast.push("err", t("pj.listSendFail"));
+    }
+  }, [conn, sendKgProjects, t, toast]);
 
   // workspace_changed 刷新链（W4；按连接转换重拉同款既有模式接）：换绑后
   // 项目域整体作废——页面状态复位到首拉态 + 重拉 kg.projects（kg 视图随

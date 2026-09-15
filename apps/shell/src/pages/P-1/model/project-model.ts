@@ -93,6 +93,8 @@ export function createProjectPageState(): ProjectPageState {
 export type ProjectAction =
   | { type: "list-loading" }
   | { type: "list-result"; projects: KgProjectRow[] }
+  /** send false（断线窗口）清骨架——骨架永挂即假在途（code-review M，TR-168）。 */
+  | { type: "list-send-failed" }
   /** workspace_changed（W4 刷新链）：项目域整体复位到首拉态（选中/主区/kgToken
    *  随新工作空间作废——旧选中在新域可能不存在，残影零泄漏）；重拉由页面
    *  effect 接手（sendKgProjects）。 */
@@ -135,6 +137,8 @@ export function projectReducer(state: ProjectPageState, action: ProjectAction): 
   switch (action.type) {
     case "list-loading":
       return state.listLoading ? state : { ...state, listLoading: true };
+    case "list-send-failed":
+      return state.listLoading ? { ...state, listLoading: false } : state;
     case "list-result":
       return { ...state, projects: action.projects, listLoading: false };
     case "workspace-reset":

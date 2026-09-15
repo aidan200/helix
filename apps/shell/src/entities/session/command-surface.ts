@@ -289,15 +289,19 @@ export const COMMAND_SURFACE = {
    *  instanceId 定向寻址 + 本地 echo 双投影（主轴细条 + 实例 channel 标记）；
    *  发送即清空无阻塞态——失败回执（connection.error）走既有错误提示通道 */
   steerInstance: (deps) =>
-    (raw: string, instanceId: string) => {
-      // echo 先进共享 store（双处立即可见）再发出站帧；草稿无会话上下文 =
-      // 零帧零动作（抽屉在正常流中不会处于草稿态，防御分支）
+    (raw: string, instanceId: string): boolean => {
+      // 先 send 后 echo（code-review M，TR-168——M9 submit 同定式）：未发出
+      // 零本地 echo（幽灵回显永久残留直至下次快照）；失败回执（connection.error）
+      // 走既有错误提示通道。草稿无会话上下文 = 零帧零动作（抽屉在正常流中
+      // 不会处于草稿态，防御分支）
       const text = raw.trim();
-      if (text === "") return;
+      if (text === "") return false;
       const { sessionId } = deps.getTopology().active;
-      if (sessionId === null) return;
+      if (sessionId === null) return false;
+      const ok = deps.send(chatSteerCommand(text, sessionId, instanceId));
+      if (!ok) return false;
       deps.dispatch({ type: "ui/steer-instance", text, instanceId, ts: Date.now() });
-      deps.send(chatSteerCommand(text, sessionId, instanceId));
+      return true;
     },
 
   // ── model / auth 命令面板（契约 C；T3.3 P-3/P-4）──
@@ -362,12 +366,17 @@ export const COMMAND_SURFACE = {
       if (!ok) deps.dispatch({ type: "model/set-default-aborted", model: prev });
       return ok;
     },
-  /** R7：全局默认推理强度（null = 清除）。 */
+  /** R7：全局默认推理强度（null = 清除）。send 消费 + aborted 回滚
+   *  （code-review M，TR-168——setDefaultModel 先例；断连窗口乐观值
+   *  不残留成假反馈）。 */
   setThinkingDefault: (deps) =>
-    (level: string | null) => {
+    (level: string | null): boolean => {
       // R7 全局兜底批：null = 清除回未配置态
+      const prev = deps.getTopology().modelConfig.defaultThinking;
       deps.dispatch({ type: "model/set-thinking-default-started", level });
-      deps.send(modelSetThinkingDefaultCommand(level));
+      const ok = deps.send(modelSetThinkingDefaultCommand(level));
+      if (!ok) deps.dispatch({ type: "model/set-thinking-default-aborted", level: prev });
+      return ok;
     },
   /** 压缩参数拉取（通用配置分区进入；未请求态才发）。 */
   requestCompactionConfig: (deps) =>

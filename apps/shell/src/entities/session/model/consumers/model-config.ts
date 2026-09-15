@@ -206,6 +206,9 @@ export function applyModelConfigAction(mc: ModelConfigState, action: SessionActi
     case "model/set-thinking-default-started":
       // R7 乐观更新（null = 清除）
       return { ...mc, defaultThinking: action.level };
+    case "model/set-thinking-default-aborted":
+      // code-review M：send false 回滚乐观值（action.level = 发送前旧值）
+      return { ...mc, defaultThinking: action.level };
     case "model/catalog-refresh-started":
       return { ...mc, catalogRefreshing: true };
     // ── F5 批：send 失败回滚族（TR-84——未发出即复原在途态/乐观值）──

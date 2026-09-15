@@ -300,3 +300,29 @@ describe("COMMAND_SURFACE config 设值面 send 返回值（code-review H8）", 
     expect(COMMAND_SURFACE.setSandboxConfig(good)(true)).toBe(true);
   });
 });
+
+// ── code-review M 族：setThinkingDefault 乐观值回滚 + steerInstance 先 send
+//    后 echo（TR-168 挂靠——send 返回值必消费；setDefaultModel/submit 先例）。──
+describe("COMMAND_SURFACE setThinkingDefault send 消费（code-review M，TR-168）", () => {
+  it("send false → aborted 回滚乐观值 + 返回 false；send true → 乐观值保持", () => {
+    const { deps, topo } = fakeDeps(false);
+    deps.dispatch({ type: "model/set-thinking-default-started", level: "low" }); // 基线默认档
+    expect(COMMAND_SURFACE.setThinkingDefault(deps)("high")).toBe(false);
+    expect(topo().modelConfig.defaultThinking).toBe("low"); // 回滚（未发出不留假反馈）
+    const { deps: good, topo: topoGood } = fakeDeps(true);
+    expect(COMMAND_SURFACE.setThinkingDefault(good)("high")).toBe(true);
+    expect(topoGood().modelConfig.defaultThinking).toBe("high"); // 乐观保持（回执确认）
+  });
+});
+
+describe("COMMAND_SURFACE steerInstance 先 send 后 echo（code-review M，TR-168）", () => {
+  it("send false → 零幽灵 echo（entries 不变）+ 返回 false；send true → echo 投影在场", () => {
+    const { deps, topo } = submitDeps(false, { sessionId: "s1", generating: false });
+    const before = topo().active.entries.length;
+    expect(COMMAND_SURFACE.steerInstance(deps)("定向指令", "agent-x")).toBe(false);
+    expect(topo().active.entries.length).toBe(before); // 未发出零投影（幽灵回声消除）
+    const { deps: good, topo: topoGood } = submitDeps(true, { sessionId: "s1", generating: false });
+    expect(COMMAND_SURFACE.steerInstance(good)("定向指令", "agent-x")).toBe(true);
+    expect(topoGood().active.entries.length).toBe(1); // echo 在场（双投影其一）
+  });
+});

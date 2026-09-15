@@ -40,7 +40,9 @@ function reduceView(s: ViewState, a: Action): ViewState {
     case "result":
       return { status: "done", files: a.files, summary: a.summary, selected: 0 };
     case "failed":
-      return { status: "error", message: a.reason };
+      // 单飞门控（code-review M，TR-84 同纪律）：仅在途（pending）消费——
+      // send false 挂载即失败亦出自 pending；done 视图不被无关 connection.error 误判
+      return s.status === "pending" ? { status: "error", message: a.reason } : s;
     case "select":
       return s.status === "done" ? { ...s, selected: a.index } : s;
   }
@@ -59,9 +61,11 @@ const DiffOverlay = function DiffOverlay({ onClose }: DiffOverlayProps) {
   // 开窗时轮相位定格（live 旗标只随开窗时刻，不随后续帧漂移）
   const openPhase = state.diff?.phase;
 
-  // 挂载即查（单飞）：active 轮 → live:true 实时视图；否则冻结视图
+  // 挂载即查（单飞）：active 轮 → live:true 实时视图；否则冻结视图；
+  // send false（断线窗口，code-review M/TR-168）→ failed 态交代（不永挂 pending）
   useEffect(() => {
-    sendDiffGet(openPhase === "active" ? { live: true } : {});
+    const ok = sendDiffGet(openPhase === "active" ? { live: true } : {});
+    if (ok === false) dispatch({ type: "failed", reason: t("chat.diff.loadFail") });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -76,6 +80,8 @@ const DiffOverlay = function DiffOverlay({ onClose }: DiffOverlayProps) {
           const p = (e as unknown as { payload: DiffGetResultPayload }).payload;
           dispatch({ type: "result", files: p.files, summary: p.summary });
         } else if (et === "connection.error") {
+          // 单飞门控（code-review M：头注释自称「无 pending 忽略」——由 reducer
+          // 落：failed 仅 pending 在途生效，done/其它视图不被无关错误帧误判）
           const msg = (e as { payload: { message?: string } }).payload?.message ?? "connection.error";
           dispatch({ type: "failed", reason: msg });
         }

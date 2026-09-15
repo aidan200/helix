@@ -624,6 +624,8 @@ export const zhCN = {
   },
   // ── P-1 项目域+知识图谱查看（单页 master-detail；T5.4 F5.0~F5.5）──
   pj: {
+    /** code-review M：kg.projects send false（未发出）toast 交代。 */
+    listSendFail: "未连接 daemon，项目列表拉取未发出",
     title: "项目",
     workspace: "workspace · {name}",
     workspacePlain: "workspace",

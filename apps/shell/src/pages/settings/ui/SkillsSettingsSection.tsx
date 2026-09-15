@@ -226,8 +226,13 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
     }
     setOpen(name);
     if (contents[name] === undefined && !pending.has(name)) {
+      // code-review M（TR-168）：send false（未发出）→ 不置 pending（查看钮
+      // 不永锁）+ 错误面交代；仅发出成功才入在途对账
+      if (sendAgentSkillContentGet({ name }) === false) {
+        setContentError(t("chat.settings.skills.sendFail"));
+        return;
+      }
       setPending((prev) => new Set(prev).add(name));
-      sendAgentSkillContentGet({ name });
     }
   };
 

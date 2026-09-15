@@ -32,7 +32,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendAgentSkillContentGet: (call: { name: string }) => {
         mock.sentContentGet.push(call.name);
-        return true;
+        return mock.contentGetOk;
       },
       sendAgentSkillCreate: (call: { content: string }) => {
         mock.sentCreate.push(call.content);
@@ -52,6 +52,8 @@ const mock = vi.hoisted(() => ({
   sentCreate: [] as string[],
   /** create 命令 send 开关（code-review H10：send false 在途不置）——缺省 true。 */
   createSendOk: true,
+  /** content.get 命令 send 开关（code-review M：onToggleContent 在途不置）。 */
+  contentGetOk: true,
   listener: ((_frame: EventEnvelope) => {}) as (frame: EventEnvelope) => void,
 }));
 
@@ -66,6 +68,7 @@ afterEach(() => {
   mock.sentContentGet = [];
   mock.sentCreate = [];
   mock.createSendOk = true;
+  mock.contentGetOk = true;
 });
 
 const listPayload: AgentConfigListResultPayload = {
@@ -349,5 +352,22 @@ describe("code-review H10：send false → addPending 不置 + 行内交代（�
     // 未发出 → 不置 addPending（钮不锁，可重提）+ 行内错误交代
     expect((document.querySelector("[data-skills-submit]") as HTMLButtonElement).disabled).toBe(false);
     expect((document.querySelector("[data-skills-form-error]") as HTMLElement | null)?.textContent).toContain("未连接");
+  });
+});
+
+describe("code-review M（TR-168）：onToggleContent send false → pending 不置 + 错误面交代（查看钮不永锁）", () => {
+  it("懒查询未发出 → 查看钮立即可用 + 正文区错误交代", async () => {
+    mount();
+    mock.listener(frameOf("agent.config.list.result", listPayload));
+    await waitFor(() => {
+      expect(document.querySelector('[data-skill-row="hello-skill"]')).not.toBeNull();
+    });
+
+    mock.contentGetOk = false; // 断线窗口：content.get 未发出
+    fireEvent.click(document.querySelector('[data-skill-content-toggle="hello-skill"]')!);
+    expect(mock.sentContentGet).toEqual(["hello-skill"]);
+    // 未发出 → 不置 pending（钮不锁）+ 错误面交代（非永久 loading）
+    expect((document.querySelector('[data-skill-content-toggle="hello-skill"]') as HTMLButtonElement).disabled).toBe(false);
+    expect((document.querySelector("[data-skill-content-error]") as HTMLElement | null)?.textContent).toContain("未连接");
   });
 });

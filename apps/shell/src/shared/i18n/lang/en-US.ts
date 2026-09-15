@@ -613,6 +613,7 @@ export const enUS = {
   },
   // ── P-1 project domain + knowledge graph viewer (T5.4 F5.0~F5.5)──
   pj: {
+    listSendFail: "Not connected to daemon; project list request not sent",
     title: "Projects",
     workspace: "workspace · {name}",
     workspacePlain: "workspace",

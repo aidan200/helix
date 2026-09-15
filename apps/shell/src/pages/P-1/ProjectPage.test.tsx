@@ -104,6 +104,8 @@ let listeners: ((e: EventEnvelope) => void)[] = [];
 let wsListeners: ((e: EventEnvelope) => void)[] = [];
 /** M40/M41：连接态与读面 send 结果可变位（断线重连重发 / 发送失败 toast 测试驱动）。 */
 let mockConn: "connected" | "connecting" | "disconnected" = "connected";
+/** kg.projects send 开关（code-review M：send false → listLoading 不永挂）。 */
+let kgProjectsSendOk = true;
 let kgReadSendOk = true;
 /** M9 #2.31：体检/台账读面 send 结果可变位（false → 清 loading + err toast）。 */
 let kgHealthSendOk = true;
@@ -116,7 +118,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       state: { conn: mockConn, sessionId: null },
       sendKgProjects: () => {
         sent.projects += 1;
-        return true;
+        return kgProjectsSendOk;
       },
       sendKgList: (payload: KgListPayload) => {
         sent.list.push(payload);
@@ -254,6 +256,7 @@ afterEach(() => {
   sent.codeReviewCreate = [];
   sent.candidatesList = [];
   mockConn = "connected";
+  kgProjectsSendOk = true;
   kgReadSendOk = true;
   kgHealthSendOk = true;
   resetRememberedProjectForTest();
@@ -1131,5 +1134,17 @@ describe("M9 #2.31 写面单飞收敛（一次一个在途 + kind 归因）", ()
     feed("connection.error", { code: "daemon.internal", message: "内部错误" });
     expect(qs(".toast-zone")!.textContent).toContain("代码评审任务发起失败");
     expect(qs(".toast-zone")!.textContent).not.toContain("体检任务发起失败");
+  });
+});
+
+// ── code-review M（TR-168）：首拉/重连重拉 send false → listLoading 不永挂
+//    （骨架清 + toast 交代）。──
+describe("code-review M：sendKgProjects 消费（send false → 骨架清 + toast）", () => {
+  it("首拉 send false → 骨架清（不永挂）+ err toast", () => {
+    kgProjectsSendOk = false;
+    render(element());
+    expect(sent.projects).toBe(1); // 已尝试发出
+    expect(document.querySelectorAll(".kg-skel-row").length).toBe(0); // 骨架清
+    expect(document.body.textContent).toContain("未连接"); // toast 交代
   });
 });
