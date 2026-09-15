@@ -46,7 +46,7 @@ import {
   SubAgentCodeReviewerProfile,
 } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentCodeReviewerProfile";
 import { OrchestratorProfile } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
-import { assemblyBasePromptOf } from "../../adapters/driven/pi-engine/runtime/profiles/assemblyBase";
+import { assemblyBasePromptOf } from "./assemblyBase";
 import { isTaskSessionId, TASK_SESSION_PREFIX } from "../../application/services/task/TaskOrchestratorService";
 import type { McpRegistry } from "../../adapters/driven/mcp/McpRegistry";
 import { createMcpDiscoverTools, createMcpTools } from "../../adapters/driven/mcp/mcp-tool";
@@ -217,7 +217,7 @@ export interface BuildSessionStackDeps {
    * rg 二进制定格路径（code-review H7 修复）：组合根启动定格产物
    * （bootPrelude freeze——bundle env 优先、config.json rgPath 兑底）
    * 透传 SubagentLauncher → 子进程 env HELIX_RG_PATH。显式钉传为覆盖
-   * 语义（launcher env 面该键在 ...process.env 之后）：bundle 级与继承
+   * 语义（launcher env 面该键排在继承展开之后）：bundle 级与继承
    * 同值（no-op）；config 级是唯一通道——子进程 grep 只吃 env（ChildMain
    * 不重读 config.json），缺此透传则 chat 会话 spawn 的 SubAgent 子进程
    * grep 响亮失败（任务栈 buildTaskOrchestrator 同构接线）。缺省/

@@ -1,9 +1,9 @@
-import type { ProfileKind } from "../../../../../application/ports/outbound/ResourceStatePort";
-import { MainSessionProfile } from "./MainSessionProfile";
-import { SubAgentProfile } from "./SubAgentProfile";
-import { OrchestratorProfile } from "./OrchestratorProfile";
-import { SubAgentKgWriterProfile } from "./SubAgentKgWriterProfile";
-import { SubAgentCodeReviewerProfile } from "./SubAgentCodeReviewerProfile";
+import type { ProfileKind } from "../../application/ports/outbound/ResourceStatePort";
+import { MainSessionProfile } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
+import { SubAgentProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import { OrchestratorProfile } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
+import { SubAgentKgWriterProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile";
+import { SubAgentCodeReviewerProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentCodeReviewerProfile";
 
 /**
  * 提示组装 base 段单源（code-review H6）：五 kind 全覆盖 Record——

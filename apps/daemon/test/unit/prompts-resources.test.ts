@@ -56,7 +56,7 @@ describe("prompts-as-resources：全局纪律与角色文件", () => {
 //    及 buildDrivingAdapters basePrompts 五 kind 口径矛盾）。──
 describe("assemblyBasePromptOf（提示组装 base 段五 kind 单源，code-review H6）", () => {
   test("kg-writer/code-reviewer → 各自 profile systemPrompt（SUBAGENT base + 专属后缀）", async () => {
-    const { assemblyBasePromptOf } = await import("../../src/adapters/driven/pi-engine/runtime/profiles/assemblyBase");
+    const { assemblyBasePromptOf } = await import("../../src/infrastructure/assembly/assemblyBase");
     const { SubAgentKgWriterProfile } = await import("../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile");
     const { SubAgentCodeReviewerProfile } = await import("../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentCodeReviewerProfile");
     expect(assemblyBasePromptOf("subagent-kg-writer")).toBe(SubAgentKgWriterProfile.systemPrompt);
@@ -65,7 +65,7 @@ describe("assemblyBasePromptOf（提示组装 base 段五 kind 单源，code-rev
     expect(assemblyBasePromptOf("subagent-code-reviewer")).toContain(SUBAGENT_SYSTEM_PROMPT);
   });
   test("main/worker/orchestrator 口径不变（与既有三目行为等价）", async () => {
-    const { assemblyBasePromptOf } = await import("../../src/adapters/driven/pi-engine/runtime/profiles/assemblyBase");
+    const { assemblyBasePromptOf } = await import("../../src/infrastructure/assembly/assemblyBase");
     expect(assemblyBasePromptOf("main-session")).toBe(MAIN_SESSION_SYSTEM_PROMPT);
     expect(assemblyBasePromptOf("subagent-worker")).toBe(SUBAGENT_SYSTEM_PROMPT);
     expect(assemblyBasePromptOf("orchestrator")).toBe(ORCHESTRATOR_SYSTEM_PROMPT);
