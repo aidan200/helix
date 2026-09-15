@@ -113,9 +113,9 @@ export function validateKnowledgeWriteOp(op: unknown): KgWriteError | null {
     case "declareAnchors":
       return validateDeclareAnchors(candidate);
     case "addEdge":
-      return validateAddEdge(candidate);
+      return validateEdgeTriple(candidate);
     case "removeEdge":
-      return validateRemoveEdge(candidate);
+      return validateEdgeTriple(candidate);
     case "batchCreateNodes":
       return validateBatchCreateNodes(candidate);
     case "proposeCandidate":
@@ -295,16 +295,9 @@ function validateDeclareAnchors(op: Record<string, unknown>): KgWriteError | nul
   return validateAnchorDeclarations(op.anchors, "op.anchors");
 }
 
-function validateAddEdge(op: Record<string, unknown>): KgWriteError | null {
-  const srcError = requireNodeId(op.srcId);
-  if (srcError !== null) return withPath(srcError, "op.srcId");
-  const dstError = requireNodeId(op.dstId);
-  if (dstError !== null) return withPath(dstError, "op.dstId");
-  return validateEdgeVerb(op.verb);
-}
-
-/** removeEdge 校验与 addEdge 同构（三元组形状同源）；存在性归 store 事务内（零行删除 = KG_E_ID）。 */
-function validateRemoveEdge(op: Record<string, unknown>): KgWriteError | null {
+/** addEdge/removeEdge 共用三元组校验（srcId/dstId/verb 形状同源，code-review L
+ * 逐字重复收口）；存在性归 store 事务内（零行删除 = KG_E_ID）。 */
+function validateEdgeTriple(op: Record<string, unknown>): KgWriteError | null {
   const srcError = requireNodeId(op.srcId);
   if (srcError !== null) return withPath(srcError, "op.srcId");
   const dstError = requireNodeId(op.dstId);

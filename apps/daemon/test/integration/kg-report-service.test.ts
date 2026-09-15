@@ -187,6 +187,21 @@ describe("KgReportService：变化报告数据面（I 层，按迭代聚合）",
     expect(supersedeEntry.refs.nodes.map((n) => n.name)).toContain("旧写路径规则");
   });
 
+  test("⑤b supersede 存量行 reason 缺失（NULL）→ 叙述省略「以…为由」空括号分句（code-review L，对齐 logEventText 空 reason 处理）", () => {
+    const s = freshStack();
+    seed(s);
+    // 写面 reason 必填是后加不变式——存量行（NULL）叙述面兑底：不产「以「」为由」空括号句
+    s.database
+      .knowledgeConnection(s.root)
+      .prepare("UPDATE change_log SET reason = NULL WHERE op = 'supersede'")
+      .run();
+    const changes = s.report.buildChangeReport(s.root, ITER).entries.filter((e) => e.kind === "knowledge_change");
+    const supersedeEntry = changes.find((e) => e.body.includes("推翻了"))!;
+    expect(supersedeEntry.body).not.toContain("以「");
+    expect(supersedeEntry.body).toContain("推翻了");
+    expect(supersedeEntry.body.endsWith("。")).toBe(true);
+  });
+
   test("⑥ 迭代隔离 + 空迭代：他迭代日志不串；无日志迭代只含检查类条目", () => {
     const s = freshStack();
     seed(s);

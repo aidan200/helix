@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { KnowledgeGraphPort } from "../../src/application/ports/outbound/KnowledgeGraphPort";
 import type { KnowledgeStorePort } from "../../src/application/ports/outbound/KnowledgeStorePort";
-import { KgSyncService } from "../../src/application/services/kg/KgSyncService";
+import { KgSyncService, MAX_SYNC_FAILURE_RETRIES } from "../../src/application/services/kg/KgSyncService";
 import type {
   AnchorReverseHit,
   AttachmentSnapshot,
@@ -150,6 +150,7 @@ function makeService(opts: {
   store?: AuditStore;
   graph?: StubGraph;
   retryBackoffMs?: number;
+  logger?: { warn(msg: string): void };
 } = {}): { service: KgSyncService; store: AuditStore; graph: StubGraph; engine: CodegraphEngineFake } {
   const store = opts.store ?? new AuditStore();
   const graph = opts.graph ?? new StubGraph();
@@ -165,6 +166,7 @@ function makeService(opts: {
     engine,
     debounceMs: opts.debounceMs ?? 12,
     retryBackoffMs: opts.retryBackoffMs ?? 5,
+    ...(opts.logger !== undefined ? { logger: opts.logger } : {}),
   });
   return { service, store, graph, engine };
 }
@@ -311,6 +313,21 @@ describe("KgSyncService：单飞互斥（AD-15）", () => {
     // 未回填则事件永丢：重试跑空窗口，batches 为空或批内无该文件
     expect(store.batches.length).toBe(1);
     expect(store.batches[0]!.files.map((f) => f.path)).toEqual(["src/a.ts"]);
+  });
+
+  test("⑧c failCount 超限停排自动重试 → logger.warn 留痕（code-review L：静默放弃不可见）", async () => {
+    const warnings: string[] = [];
+    const store = new AuditStore();
+    store.failFirst = 99; // 永失败：连续手动触发推高 failCount 直至超限
+    const { service } = makeService({ store, logger: { warn: (m) => warnings.push(m) } });
+    active.push(service);
+    for (let i = 0; i < MAX_SYNC_FAILURE_RETRIES + 2; i += 1) {
+      await expect(service.triggerManual(ROOT)).rejects.toThrow("注入故障");
+    }
+    // 超限后每次失败 warn 一条（含项目根与上限，不再静默停排）
+    expect(warnings.length).toBeGreaterThanOrEqual(1);
+    expect(warnings[0]!).toContain(ROOT);
+    expect(warnings[0]!).toContain(String(MAX_SYNC_FAILURE_RETRIES));
   });
 });
 

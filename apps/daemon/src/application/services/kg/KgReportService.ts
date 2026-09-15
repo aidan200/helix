@@ -162,8 +162,11 @@ export class KgReportService {
       case "updateNode":
         return `本迭代更新了${label}「${node.name}」（${node.digestFirstLine}）——既有知识随事实演进完成修订。`;
       case "supersede": {
-        const reason = entry.reason ?? "";
-        return `本迭代以「${reason}」为由推翻了${label}「${node.name}」——旧知识进入取代链，不再约束后续实现。`;
+        // 空 reason 省略「以…为由」分句（对齐 createNode 分支/logEventText 空
+        // 值处理，code-review L：空括号叙述不可读）
+        const reason = entry.reason?.trim();
+        const by = reason === undefined || reason === "" ? "" : `以「${reason}」为由`;
+        return `本迭代${by}推翻了${label}「${node.name}」——旧知识进入取代链，不再约束后续实现。`;
       }
       case "declareAnchors":
         return `本迭代为${label}「${node.name}」声明了锚点作用域——知识锚定到具体代码位置，可随符号同步自动维护。`;

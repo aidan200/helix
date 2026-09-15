@@ -25,7 +25,8 @@
  * 的 kg-bootstrap 任务时拒绝（kg.graph.purge_blocked）——防 done 任务悬挂
  * 引用，亦防 paused 任务在清库（含发号计数器清零）后恢复写入破坏 E-8
  * 「id 永不复用」不变式（code-review H4：原门禁仅 running/pending，paused
- * 可穿透）。判定口径 = hasActiveJob 同口径（job-activity 单源）。
+ * 可穿透）。判定口径 = hasActiveJob（job-activity 单源，与 bootstrap/review
+ * create 准入同源）。
  *
  * 【index-delete 范围】删除 .codegraph（引擎 deleteIndex）+ kg 索引态
  * 复位 absent（store.resetIndexFace：清符号面同步基准，**知识层不动**——
@@ -44,8 +45,7 @@ import type { TaskStorePort } from "../../ports/outbound/TaskStorePort";
 import type { KgFsWatchService } from "./KgFsWatchService";
 import type { KgProjectService } from "./KgProjectService";
 import type { KgSyncService } from "./KgSyncService";
-import { isTerminalJob } from "../../../domain/task/job";
-import { projectNameOf } from "./job-activity";
+import { hasActiveJob, projectNameOf } from "./job-activity";
 
 // ── 结果形状（应用层视图；协议 DTO 由 driving 层逐字段映射） ──
 
@@ -75,8 +75,6 @@ export interface KgMaintenanceError {
 
 export type KgMaintenanceResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: KgMaintenanceError };
 
-/** purge 门禁覆盖的任务状态（code-review H4 起与 hasActiveJob 同口径：非终态即拒绝，含 paused）。 */
-
 export interface KgMaintenanceServiceDeps {
   /** 项目解析/存在性（§3.5 单点；hasIndex = .helix-kg/kg.db 存在性探测）。 */
   readonly project: KgProjectService;
@@ -84,8 +82,9 @@ export interface KgMaintenanceServiceDeps {
   readonly store: KnowledgeStorePort;
   /** sync 定时器/内存态清理（结构面子集——只消费 dispose）。 */
   readonly sync: Pick<KgSyncService, "dispose">;
-  /** watcher 停止接缝（结构面子集——只消费 stopWatching，B3）。 */
-  readonly fsWatch: Pick<KgFsWatchService, "stopWatching">;
+  /** watcher 停止接缝（结构面子集——只消费 stopWatching/isWatching，B3；
+   * isWatching 供 deleteIndex 回执 watcherStopped 前置判定）。 */
+  readonly fsWatch: Pick<KgFsWatchService, "stopWatching" | "isWatching">;
   /** 引擎索引目录删除（结构面子集——只消费 deleteIndex；TP-2.3a④ 命名避让）。 */
   readonly codegraph: Pick<CodegraphEnginePort, "deleteIndex">;
   /** purge 门禁数据源（结构面子集——只消费 listJobs）。 */
@@ -106,13 +105,10 @@ export class KgMaintenanceService {
     if (!resolved.ok) return resolved;
     const projectRoot = resolved.value;
 
-    // 安全门禁：非终态（!isTerminalJob，含 paused）kg-bootstrap 任务存在时拒绝
+    // 安全门禁：非终态（含 paused）kg-bootstrap 任务存在时拒绝——hasActiveJob
+    // 单源（与 bootstrap/review create 准入同口径，code-review L 消双实现）
     const projectName = projectNameOf(projectRoot);
-    const blocking = this.deps.taskStore
-      .listJobs()
-      .filter((j) => j.type === "kg-bootstrap" && !isTerminalJob(j.status) && j.projects.includes(projectName))
-      .sort((a, b) => a.id.localeCompare(b.id))[0];
-    if (blocking !== undefined) {
+    if (hasActiveJob(this.deps.taskStore.listJobs(), "kg-bootstrap", projectName)) {
       return {
         ok: false,
         error: {
@@ -140,14 +136,17 @@ export class KgMaintenanceService {
     if (!resolved.ok) return resolved;
     const projectRoot = resolved.value;
 
-    // 联动顺序：先截事件源（watcher + sync 定时器）再删目录再复位状态
+    // 联动顺序：先截事件源（watcher + sync 定时器）再删目录再复位状态；
+    // watcherStopped 按前置 isWatching 判定（code-review L：恒 true 的回执
+    // 对未挂 watcher 的项目说谎——停了设停过，没挂就没停）
+    const watcherStopped = this.deps.fsWatch.isWatching(projectRoot);
     this.deps.fsWatch.stopWatching(projectRoot);
     this.deps.sync.dispose(projectRoot);
     await this.deps.codegraph.deleteIndex(projectRoot);
     if (this.deps.project.hasIndex(projectRoot)) {
       this.deps.store.resetIndexFace(projectRoot); // 知识层不动（与 purge 分层）
     }
-    return { ok: true, value: { deleted: true, state: "absent", watcherStopped: true } };
+    return { ok: true, value: { deleted: true, state: "absent", watcherStopped } };
   }
 
   // ── 内部 ────────────────────────────────────────────────

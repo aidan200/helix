@@ -398,6 +398,12 @@ describe("kg 维护批（C1）：kg.graph.purge / kg.index.delete I 层", () => 
     expect(blockedRunning.ok).toBe(false);
     expect(blockedRunning.error?.code).toBe("kg.graph.purge_blocked");
 
+    // paused 态同样拒绝（hasActiveJob 单源口径：非终态即拒，code-review H4）
+    await rig.taskStore.updateJobStatus(jobId, "paused");
+    const blockedPaused = await rig.client.kg("kg.graph.purge", { project: "beta" });
+    expect(blockedPaused.ok).toBe(false);
+    expect(blockedPaused.error?.code).toBe("kg.graph.purge_blocked");
+
     // 他项目任务不阻断本项目 purge（项目作用域隔离）
     const other = await rig.client.kg("kg.graph.purge", { project: "alpha" });
     expect(other.ok).toBe(true);
@@ -481,5 +487,13 @@ describe("kg 维护批（C1）：kg.graph.purge / kg.index.delete I 层", () => 
     expect(rig.graph.getSyncBaseline(rig.alpha).files.length).toBeGreaterThanOrEqual(1);
     // sync 成功经 onSynced 钩子自动重挂 watcher
     expect(rig.fsWatch.isWatching(rig.alpha)).toBe(true);
+  });
+
+  test("⑥ 未挂 watcher 项目的 index.delete：watcherStopped=false（回执不再说谎，code-review L）", async () => {
+    // delta 永远 absent、从未挂 watcher——回执应如实报告「没停过 watcher」
+    expect(rig.fsWatch.isWatching(rig.delta)).toBe(false);
+    const del = await rig.client.kg("kg.index.delete", { project: "delta" });
+    expect(del.ok).toBe(true);
+    expect(del.result).toEqual({ deleted: true, state: "absent", watcherStopped: false });
   });
 });
