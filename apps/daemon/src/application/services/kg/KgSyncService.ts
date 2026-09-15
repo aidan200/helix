@@ -1,8 +1,9 @@
 /**
  * KgSyncService —— sync 管道编排（T2.2，CL-2 F2.1/F2.2，AD-15 定论）。
  *
- * 双源汇队列（自写工具写后通知 + fs-watch 兜底）→ (path,hash) 去重 →
- * 去抖窗口批量 → 单飞（running 标志+合并等待）→ 四步单事务：
+ * 双源汇队列（自写工具写后通知 + fs-watch 兜底）→ path 级去重（同文件
+ * 窗口内多事件合并为一次处理；hash 不存队列——增量判定以引擎面
+ * mtime/hash 为准）→ 去抖窗口批量 → 单飞（running 标志+合并等待）→ 四步单事务：
  * ① ensure-symbols（CodegraphEnginePort 被动构建；不可用 → degraded 标记
  *   + docs-only 锚：path 声明 × 上一基准文件面物化、symbol 声明跳过；
  *   degraded 不丢窗口事件——refillWindow 回填重放 + 恢复后首次 sync 强制
@@ -28,8 +29,8 @@
 import type { CodegraphEnginePort } from "../../ports/outbound/CodegraphEnginePort";
 import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort";
 import type { KnowledgeStorePort } from "../../ports/outbound/KnowledgeStorePort";
-import { relative } from "node:path";
 import { anchorKey, materializeAnchors } from "../../../domain/kg/anchor-materialize";
+import { relPathOf } from "./rel-path";
 import type {
   EngineSymbol,
   IndexStatus,
@@ -65,20 +66,25 @@ export interface KgSyncServiceDeps {
    * 每次 sync 成功都调，watchProject 幂等吸收重复挂接）。
    */
   readonly onSynced?: (projectRoot: string) => void;
+  /**
+   * 可观测日志（结构面；组合根注入 Logger，测试缺省无日志）。failCount
+   * 超限停排自动重试时 warn 留痕（code-review L：静默放弃不可见）。
+   */
+  readonly logger?: { warn(msg: string): void };
 }
 
 /** fs-watch 事件归一形态（B3 现行挂接：KgFsWatchService per-project watcher →
  *  onFsEvent 归一入口；write=存在类变更，remove=消失）。 */
 export type FsEventKind = "write" | "remove";
 
-/** 一次 sync 的结果（triggerManual/onStartup 返回；orphanedAnchors=失效信号供 T5.1 入队）。 */
+/** 一次 sync 的结果（triggerManual/onStartup 返回；失效锚信号走库——applySync
+ * 落库时标记 orphan 保留行，读面（T5.1 验证/附着快照）自足，不经返回面携带）。 */
 export interface SyncResult {
   readonly projectRoot: string;
   readonly baseline: string;
   readonly degraded: boolean;
   readonly importedFiles: number;
   readonly deletedFiles: number;
-  readonly orphanedAnchors: readonly MaterializedAnchor[];
   readonly syncedAt: string;
 }
 
@@ -95,7 +101,9 @@ export interface KgIndexStatus {
 
 /** per-project 运行态（队列/去抖/单飞按项目根隔离，AD-15）。 */
 interface ProjectRunState {
-  readonly queue: Map<string, string | null>; // relPath → 最新 hash（watch 事件无 hash=null）
+  /** relPath 去重集合（path 级：窗口内同文件多事件合并为一次处理；
+   * hash 不存——watch 事件本就无 hash，增量判定以引擎面 mtime/hash 为准）。 */
+  readonly queue: Set<string>;
   readonly deleted: Set<string>; // relPath（remove 事件）
   debounceTimer: ReturnType<typeof setTimeout> | null;
   retryTimer: ReturnType<typeof setTimeout> | null;
@@ -132,11 +140,13 @@ export class KgSyncService {
   // ── 触发面 ────────────────────────────────────────────────
 
   /** 写后通知（自写 edit 工具落盘后投递；微秒级入队，不在写路径跑 sync）。 */
-  notifyWrite(projectRoot: string, path: string, hash: string): void {
+  notifyWrite(projectRoot: string, path: string, _hash: string): void {
+    // hash 不入队（path 级去重；sync 侧增量判定以引擎面 mtime/hash 为准）——
+    // 形参保留维持既有调用面签名（edit 工具接线/测试不感知）
     const state = this.stateOf(projectRoot);
     const rel = relPathOf(projectRoot, path);
     state.deleted.delete(rel);
-    state.queue.set(rel, hash);
+    state.queue.add(rel);
     this.scheduleDebounce(projectRoot, state);
   }
 
@@ -149,7 +159,7 @@ export class KgSyncService {
       state.deleted.add(rel);
     } else {
       state.deleted.delete(rel);
-      state.queue.set(rel, null); // watch 事件无 hash；sync 侧以引擎面为准
+      state.queue.add(rel); // path 级去重；内容判定以引擎面为准
     }
     this.scheduleDebounce(projectRoot, state);
   }
@@ -249,7 +259,6 @@ export class KgSyncService {
       degraded: true,
       importedFiles: 0,
       deletedFiles: 0,
-      orphanedAnchors: [],
       syncedAt: new Date().toISOString(),
     };
   }
@@ -272,12 +281,20 @@ export class KgSyncService {
       return result;
     } catch (error) {
       state.failCount += 1;
-      if (this.isLive(projectRoot, state) && state.failCount <= MAX_SYNC_FAILURE_RETRIES) {
-        const backoff = Math.min(this.retryBackoffMs * 2 ** (state.failCount - 1), RETRY_BACKOFF_MAX_MS);
-        state.retryTimer = setTimeout(() => {
-          state.retryTimer = null;
-          this.scheduleRun(projectRoot, state);
-        }, backoff);
+      if (this.isLive(projectRoot, state)) {
+        if (state.failCount <= MAX_SYNC_FAILURE_RETRIES) {
+          const backoff = Math.min(this.retryBackoffMs * 2 ** (state.failCount - 1), RETRY_BACKOFF_MAX_MS);
+          state.retryTimer = setTimeout(() => {
+            state.retryTimer = null;
+            this.scheduleRun(projectRoot, state);
+          }, backoff);
+        } else {
+          // 超限留痕（code-review L：不再自动重试——静默放弃不可见；后续
+          // 任意触发（手动/事件）重新起算 failCount 成功路径清零）
+          this.deps.logger?.warn(
+            `sync 连续失败 ${state.failCount} 次超过上限 ${MAX_SYNC_FAILURE_RETRIES}，停排自动重试（${projectRoot}）：${String(error)}`,
+          );
+        }
       }
       throw error;
     } finally {
@@ -403,7 +420,6 @@ export class KgSyncService {
         degraded,
         importedFiles: importFiles.length,
         deletedFiles: deletedFiles.length,
-        orphanedAnchors,
         syncedAt,
       };
     } catch (error) {
@@ -416,7 +432,7 @@ export class KgSyncService {
 
   private drainWindow(state: ProjectRunState): Map<string, FsEventKind> {
     const window = new Map<string, FsEventKind>();
-    for (const [path] of state.queue) {
+    for (const path of state.queue) {
       window.set(path, "write");
       // 无 deleted 清理防御（清单 #2.6 删）：两条入队路径（notifyWrite/onFsEvent
       // write 分支）均在入队时已清 deleted——drain 时不存在同键双集合残留
@@ -430,7 +446,7 @@ export class KgSyncService {
   private refillWindow(state: ProjectRunState, window: ReadonlyMap<string, FsEventKind>): void {
     for (const [path, kind] of window) {
       if (kind === "remove") state.deleted.add(path);
-      else state.queue.set(path, null);
+      else state.queue.add(path);
     }
   }
 
@@ -449,7 +465,7 @@ export class KgSyncService {
     const cached = this.states.get(projectRoot);
     if (cached !== undefined) return cached;
     const state: ProjectRunState = {
-      queue: new Map(),
+      queue: new Set(),
       deleted: new Set(),
       debounceTimer: null,
       retryTimer: null,
@@ -500,10 +516,4 @@ function projectContains(symbolSet: SymbolSet, importDomain: ReadonlySet<string>
     out.push({ file: inner.filePath, outerSymbol, innerSymbol: inner.name });
   }
   return out;
-}
-
-/** 事件路径归一：绝对路径 → 相对 projectRoot（引擎面相对语义同源）。 */
-function relPathOf(projectRoot: string, path: string): string {
-  if (!path.startsWith("/")) return path;
-  return relative(projectRoot, path) || path;
 }

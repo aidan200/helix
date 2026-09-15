@@ -20,12 +20,12 @@
  * 排除——裸 id 键空间下项目 A 已到达的 TR-n 会误排项目 B 的同 id 节点）。
  */
 
-import { relative } from "node:path";
 import type { KnowledgeGraphPort } from "../../ports/outbound/KnowledgeGraphPort";
 import type { AttachmentSnapshot } from "../../../domain/kg/types";
 import { matchAnchors } from "../../../domain/kg/attachment/scope-matcher";
 import { applyBudget, ATTACHMENT_TOKEN_BUDGET, seenKeyOf } from "../../../domain/kg/attachment/budget";
 import { renderAttachment } from "../../../domain/kg/attachment/render";
+import { relPathOf } from "./rel-path"; // 事件路径归一单源（锚表/符号表相对语义与 KgSyncService 同源）
 import type { InjectedNodeRef } from "./KgQueryService";
 
 export interface KgAttachmentServiceDeps {
@@ -155,9 +155,3 @@ export class KgAttachmentService {
 
 /** absent 项目空快照（常量复用，零分配）。 */
 const EMPTY_SNAPSHOT: AttachmentSnapshot = { nodes: [], fileAnchors: [], symbolAnchors: [], contains: [] };
-
-/** 事件路径归一：绝对路径 → 相对 projectRoot（锚表/符号表相对语义同源，KgSyncService 同款）。 */
-function relPathOf(projectRoot: string, filePath: string): string {
-  if (!filePath.startsWith("/")) return filePath;
-  return relative(projectRoot, filePath) || filePath;
-}

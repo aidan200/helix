@@ -116,7 +116,13 @@ export function buildKnowledgeStack(deps: {
   // fsWatch 已赋值，闭包窗口零触发）。
   let fsWatchRef: KgFsWatchService | undefined;
   // 单行构造：组合根 arch-guard（TP-2.3a④）禁行首 engine: 声明形态
-  const syncService = new KgSyncService({ store, graph, engine: codegraphEngine, onSynced: (root) => fsWatchRef?.watchProject(root) });
+  const syncService = new KgSyncService({
+    store,
+    graph,
+    engine: codegraphEngine,
+    onSynced: (root) => fsWatchRef?.watchProject(root),
+    ...(deps.logger !== undefined ? { logger: deps.logger } : {}), // failCount 超限停排重试 warn 留痕
+  });
   const fsWatch = new KgFsWatchService({
     sync: syncService,
     watcher: new FsWatchAdapter({ isIgnoredSegment: isIgnoredWatchSegment }),

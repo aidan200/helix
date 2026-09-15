@@ -4,7 +4,8 @@
  * 直喂 sync 队列链路最短、不推翻 AF-2 被动抽取器、跨平台可控）。
  *
  * 链路：FsWatchPort 事件 → 忽略面过滤 → KgSyncService.onFsEvent（归一入口）
- * → 既有 (path,hash) 去重 → 3s 去抖 → 单飞 sync 管道（本服务不重实现）。
+ * → 既有 path 级去重（同文件窗口内多事件合并）→ 3s 去抖 → 单飞 sync
+ * 管道（本服务不重实现）。
  *
  * 挂接时机两路：
  * ① 索引建成（absent→building→synced）后——KgSyncService.onSynced 钩子
@@ -18,12 +19,14 @@
  * 分层不下钻**（Linux 兜底源头无 watcher）双层落实。
  *
  * 生命周期：workspace 切换/daemon 退出经 KnowledgeStack.dispose → dispose()
- * 全停；stopWatching(projectRoot) 是后续 index-delete 任务的消费接缝
- * （本任务不做 delete 命令）。watchProject 幂等（重复挂接 = no-op）。
+ * 全停；stopWatching(projectRoot) 已落地为消费接缝——kg.index.delete /
+ * kg.graph.purge（KgMaintenanceService，M7② 联动停 watcher）先截事件源
+ * 再变更库/索引态；重建后经 onSynced 钩子自动重挂。watchProject 幂等
+ * （重复挂接 = no-op）。
  */
-import { relative } from "node:path";
 import type { FsWatchHandle, FsWatchPort } from "../../ports/outbound/FsWatchPort";
 import type { KgSyncService } from "./KgSyncService";
+import { isOutsideRootRel, relPathOf } from "./rel-path";
 
 /**
  * 监控忽略段（路径任一段命中即忽略）：kg/codegraph 自身产物（自激励防护）
@@ -72,8 +75,11 @@ export class KgFsWatchService {
       const handle = this.deps.watcher.watch(
         projectRoot,
         (event) => {
-          const rel = relative(projectRoot, event.path);
-          if (rel === "" || rel.startsWith("..")) return; // 根外事件防御
+          const rel = relPathOf(projectRoot, event.path);
+          // 根外精确判定（code-review L：startsWith("..") 会误杀 `..foo` 同前缀
+          // 合法文件）——仅 ../ ..\ 前缀或 .. 本身为根外；relPathOf 根自身回退
+          // 原绝对路径，同样不入队
+          if (isOutsideRootRel(rel) || rel === event.path) return;
           if (isIgnoredWatchRelPath(rel)) return; // 自激励防护权威面（全平台）
           this.deps.sync.onFsEvent(projectRoot, event.path, event.kind);
         },

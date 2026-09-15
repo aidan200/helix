@@ -271,6 +271,18 @@ describe("KgFsWatchService：事件 → onFsEvent → 去抖 → sync 链路", (
     ]);
   });
 
+  test("③b 根外事件精确过滤（code-review L）：../ 前缀拒，`..foo` 同前缀合法文件不误杀；根自身事件拒", () => {
+    const fake = new FakeWatchPort();
+    const spy = new SyncSpy();
+    const svc = new KgFsWatchService({ sync: spy, watcher: fake });
+    activeWatches.push(svc);
+    svc.watchProject(ROOT);
+    fake.emit(ROOT, "/tmp/outside-root.ts", "write"); // relative=../outside-root.ts → 根外拒
+    fake.emit(ROOT, "/tmp", "write"); // 根自身（relative=""回退原路径）→ 拒
+    fake.emit(ROOT, `${ROOT}/..dot-file.ts`, "write"); // 旧 startsWith("..") 会误杀
+    expect(spy.events).toEqual([{ root: ROOT, path: `${ROOT}/..dot-file.ts`, kind: "write" }]);
+  });
+
   test("④ 索引建成（onSynced）→ watcher 挂接；改源文件 → 去抖后 sync 触发", async () => {
     let chain!: ReturnType<typeof makeChain>;
     chain = makeChain({ onSynced: (root) => chain.fsWatch.watchProject(root) });
