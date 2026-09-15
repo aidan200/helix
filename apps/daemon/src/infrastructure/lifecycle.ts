@@ -21,12 +21,15 @@ export interface SingletonLock {
   release(): void;
 }
 
+/** 信号 0 存活探测：ESRCH=不存在（false）；EPERM=存在但无权发信号（true，
+ *  存活）——对齐 parent-watchdog defaultAliveOf 口径，防「活着但无权探测」的
+ *  锁持有者被误判已死而遭接管击穿单例。 */
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0); // 信号 0 = 只探测存活，不实际发送
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
@@ -39,8 +42,11 @@ export function acquireSingletonLock(lockPath: string): SingletonLock {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const fd = openSync(lockPath, "wx");
-      writeFileSync(fd, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }), "utf8");
-      closeSync(fd);
+      try {
+        writeFileSync(fd, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }), "utf8");
+      } finally {
+        closeSync(fd); // 写失败（如磁盘满）也必须关 fd，否则泄漏
+      }
       let released = false;
       return {
         lockPath,

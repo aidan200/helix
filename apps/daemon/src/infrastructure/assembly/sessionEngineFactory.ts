@@ -247,8 +247,6 @@ export function buildMainEngineFactory(ctx: MainEngineFactoryCtx): SessionEngine
       // workspaceRoot 取 toolCwdOf（buildSessionStack L345 同源口径）
       ...(ctx.sandboxOf !== undefined ? { sandbox: ctx.sandboxOf() } : {}),
       // T2 turn diff：env.writeFile 写前快照钩子（闭包绑 mainInstanceId
-      // ——该 executor 每会话一个；hook 内部读旧内容落基线，异常吞咽）
-      // T2 turn diff：env.writeFile 写前快照钩子（闭包绑 mainInstanceId
       // ——该 executor 每会话一个；hook 内部读旧内容落基线，异常吞咽）。
       // U0a 并联：同一钩子先记写事实（跨轮持久——diff 是轮窗口语义，
       // registry 是 daemon 生命周期累积面；相对路径按 executor cwd 归一）

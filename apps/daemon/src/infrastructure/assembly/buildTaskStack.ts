@@ -106,10 +106,23 @@ export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStac
   const starter: TaskOrchestratorStarterPort =
     deps.starterOverride ?? placeholderStarter(deps.logger);
   let skills: TaskSkillRegistryPort = EMPTY_SKILL_REGISTRY;
+  // skill 全文缓存（registry 装载同窗一次性读齐）：builtin 层随仓不可变
+  //（文件头「无重扫面」口径），skillTextOf 直查内存——编排 kickoff 零重扫零 IO。
+  // 同名先到先得（与旧逐次扫描 find() 首中语义一致）；读失败跳过——该名全文
+  // 缺席，skillTextOf 返 undefined（同旧 readFile 失败语义）。
+  const skillTexts = new Map<string, string>();
   if (deps.skillSource !== undefined) {
     const registry = new TaskSkillRegistry({ skills: deps.skillSource, warn: (m) => deps.logger.warn(m) });
     await registry.load();
     skills = registry;
+    for (const skill of (await deps.skillSource.scan()).skills) {
+      if (skillTexts.has(skill.name)) continue;
+      try {
+        skillTexts.set(skill.name, await readFile(skill.filePath, "utf8"));
+      } catch {
+        // 跳过（见上注释）
+      }
+    }
   }
   const engine = new TaskEngineService({
     store,
@@ -142,18 +155,9 @@ export async function buildTaskStack(deps: BuildTaskStackDeps): Promise<TaskStac
     ...(deps.instanceStateOf !== undefined ? { instanceStateOf: deps.instanceStateOf } : {}),
   });
   // T2.2 编排服务任务域依赖面：台账读面（父进程不持写面，O-1 表分域）+
-  // skill 全文取数（扫描 → 文件读取；组合根 fs 职责，服务层零 IO）
+  // skill 全文取数（装配期扫描缓存 → 内存直查；组合根 fs 职责，服务层零 IO）
   const ledger = new WorkLedgerService({ reader: workLedger });
-  const skillTextOf = async (type: string): Promise<string | undefined> => {
-    if (deps.skillSource === undefined) return undefined;
-    const hit = (await deps.skillSource.scan()).skills.find((s) => s.name === type);
-    if (hit === undefined) return undefined;
-    try {
-      return await readFile(hit.filePath, "utf8");
-    } catch {
-      return undefined;
-    }
-  };
+  const skillTextOf = async (type: string): Promise<string | undefined> => skillTexts.get(type);
   return { taskEngine: engine, query, orchestratorCore: { store, taskEngine: engine, ledger, skills, skillTextOf } };
 }
 
