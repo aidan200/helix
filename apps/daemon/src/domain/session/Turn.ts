@@ -24,6 +24,9 @@ export interface TurnData {
 }
 
 export class Turn {
+  /** 状态词表（重建路径 fail-fast 断言源——AgentInstance.restore INSTANCE_STATES 先例）。 */
+  private static readonly STATUSES: readonly TurnStatus[] = ["generating", "toolRunning", "completed", "interrupted"];
+
   private constructor(
     readonly id: string,
     readonly inputEntryId: string,
@@ -33,6 +36,12 @@ export class Turn {
   ) {}
 
   static create(data: TurnData): Turn {
+    // code-review M：重建路径状态词表断言——Session.restoreFrom 以快照数据直调，
+    // 脏行 status 静默进聚合后迁移守卫恒抛且定位困难；此处 fail-fast 对齐
+    // AgentInstance.restore / ToolCallRecord.restore 先例。
+    if (!Turn.STATUSES.includes(data.status)) {
+      throw new DomainError(`Turn ${data.id} 状态非法：${String(data.status)}`);
+    }
     return new Turn(data.id, data.inputEntryId, data.status, data.startedAt, data.endedAt);
   }
 

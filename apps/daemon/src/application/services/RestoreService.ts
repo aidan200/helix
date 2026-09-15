@@ -222,7 +222,13 @@ export class RestoreService {
     if (subEvents.length === 0) return persistedToolCalls;
 
     const knownEntryIds = new Set(session.entryList().map((e) => e.id));
-    const knownToolIds = new Set(persistedToolCalls.map((t) => t.id));
+    // code-review M：复合键（${instanceId}:${toolCallId}）——并发 SubAgent 实例
+    // 各自子进程 toolCallId 可重号，裸 id 键互踩覆盖/结果错回填；与
+    // SessionProjection F3 修复同口径（主实例记录以会话 mainInstanceId 归位）。
+    const toolKey = (instanceId: string, toolCallId: string): string => `${instanceId}:${toolCallId}`;
+    const knownToolIds = new Set(
+      persistedToolCalls.map((t) => toolKey(t.instanceId ?? session.mainInstanceId, t.id)),
+    );
     /** 重放态工具记录（未配对 result = running，交恢复收口链收口 failed）。 */
     const replayedTools = new Map<string, ToolCallRecordData>();
 
@@ -258,8 +264,8 @@ export class RestoreService {
         }
         case "tool.call.started": {
           const p = event.payload as Partial<ToolCallPayload>;
-          if (p?.toolCallId === undefined || knownToolIds.has(p.toolCallId)) break;
-          replayedTools.set(p.toolCallId, {
+          if (p?.toolCallId === undefined || knownToolIds.has(toolKey(instanceId, p.toolCallId))) break;
+          replayedTools.set(toolKey(instanceId, p.toolCallId), {
             id: p.toolCallId,
             toolName: p.toolName ?? "(unknown)",
             args: p.args,
@@ -271,9 +277,9 @@ export class RestoreService {
         }
         case "tool.call.result": {
           const p = event.payload as Partial<ToolResultPayload>;
-          if (p?.toolCallId === undefined || knownToolIds.has(p.toolCallId)) break;
-          const started = replayedTools.get(p.toolCallId);
-          replayedTools.set(p.toolCallId, {
+          if (p?.toolCallId === undefined || knownToolIds.has(toolKey(instanceId, p.toolCallId))) break;
+          const started = replayedTools.get(toolKey(instanceId, p.toolCallId));
+          replayedTools.set(toolKey(instanceId, p.toolCallId), {
             id: p.toolCallId,
             toolName: started?.toolName ?? p.toolName ?? "(unknown)",
             args: started?.args ?? p.args,
