@@ -33,9 +33,8 @@ import { WriteManifestStore, manifestDir } from "../../application/services/Writ
 import { walkWorkspaceStats } from "../../adapters/driven/workspace-stat-walk";
 import { generateUnifiedPatch } from "../../adapters/driven/tools/edit/kernel/edit-diff";
 import { readFile } from "node:fs/promises";
-import { MAIN_SESSION_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/MainSessionProfile";
 import { DEFAULT_COMPACTION, type CompactionSettings } from "../../adapters/driven/pi-engine/runtime/AgentProfile";
-import { SubAgentProfile, SUBAGENT_SYSTEM_PROMPT } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
+import { SubAgentProfile } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentProfile";
 import {
   SUBAGENT_KG_WRITER_EXTRA_TOOLS,
   SUBAGENT_KG_WRITER_PROMPT_SUFFIX,
@@ -46,10 +45,8 @@ import {
   SUBAGENT_CODE_REVIEWER_REMOVED_TOOLS,
   SubAgentCodeReviewerProfile,
 } from "../../adapters/driven/pi-engine/runtime/profiles/SubAgentCodeReviewerProfile";
-import {
-  OrchestratorProfile,
-  ORCHESTRATOR_SYSTEM_PROMPT,
-} from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
+import { OrchestratorProfile } from "../../adapters/driven/pi-engine/runtime/profiles/OrchestratorProfile";
+import { assemblyBasePromptOf } from "../../adapters/driven/pi-engine/runtime/profiles/assemblyBase";
 import { isTaskSessionId, TASK_SESSION_PREFIX } from "../../application/services/task/TaskOrchestratorService";
 import type { McpRegistry } from "../../adapters/driven/mcp/McpRegistry";
 import { createMcpDiscoverTools, createMcpTools } from "../../adapters/driven/mcp/mcp-tool";
@@ -515,12 +512,10 @@ export async function buildSessionStack(deps: BuildSessionStackDeps): Promise<Se
   // resource_state 读面同步读不受此限——已知边界：无 toggle 的技能文件增删要
   // 下次 toggle/重启才进提示，§六「profile 全集变更不触发运行期刷新」同族）。
   const promptAssembler = new SystemPromptAssembler({ toolSnippets: TOOL_PROMPT_SNIPPETS });
-  const assemblyBase = (kind: ProfileKind): string =>
-    kind === "main-session"
-      ? MAIN_SESSION_SYSTEM_PROMPT
-      : kind === "subagent-worker"
-        ? SUBAGENT_SYSTEM_PROMPT
-        : ORCHESTRATOR_SYSTEM_PROMPT; // orchestrator（T2.2）：与 MainAgent 消费 skill 同构的三段组装
+  // base 段五 kind 单源（code-review H6）：profiles/assemblyBase.ts Record
+  // 映射——kg-writer/code-reviewer 不再回落 ORCHESTRATOR（与
+  // buildDrivingAdapters basePrompts 同源；漏 kind 即编译期错误）
+  const assemblyBase = assemblyBasePromptOf;
   // 技能段五 kind 同构注入（终态：orchestrator 亦无豁免——SOP 只是使用层
   // 要求它读技能清单，装配层照常注入自身生效集；omitSkills 机制已退役）。
   const computeAssembly = async (

@@ -50,3 +50,24 @@ describe("prompts-as-resources：全局纪律与角色文件", () => {
     }
   });
 });
+
+// ── code-review H6：assemblyBase 五 kind 单源映射——kg-writer/code-reviewer
+//    不得回落 ORCHESTRATOR（缺陷：三目 else 兜底静默错配，与 profile 声明面
+//    及 buildDrivingAdapters basePrompts 五 kind 口径矛盾）。──
+describe("assemblyBasePromptOf（提示组装 base 段五 kind 单源，code-review H6）", () => {
+  test("kg-writer/code-reviewer → 各自 profile systemPrompt（SUBAGENT base + 专属后缀）", async () => {
+    const { assemblyBasePromptOf } = await import("../../src/adapters/driven/pi-engine/runtime/profiles/assemblyBase");
+    const { SubAgentKgWriterProfile } = await import("../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentKgWriterProfile");
+    const { SubAgentCodeReviewerProfile } = await import("../../src/adapters/driven/pi-engine/runtime/profiles/SubAgentCodeReviewerProfile");
+    expect(assemblyBasePromptOf("subagent-kg-writer")).toBe(SubAgentKgWriterProfile.systemPrompt);
+    expect(assemblyBasePromptOf("subagent-kg-writer")).toContain(SUBAGENT_SYSTEM_PROMPT); // base 在场
+    expect(assemblyBasePromptOf("subagent-code-reviewer")).toBe(SubAgentCodeReviewerProfile.systemPrompt);
+    expect(assemblyBasePromptOf("subagent-code-reviewer")).toContain(SUBAGENT_SYSTEM_PROMPT);
+  });
+  test("main/worker/orchestrator 口径不变（与既有三目行为等价）", async () => {
+    const { assemblyBasePromptOf } = await import("../../src/adapters/driven/pi-engine/runtime/profiles/assemblyBase");
+    expect(assemblyBasePromptOf("main-session")).toBe(MAIN_SESSION_SYSTEM_PROMPT);
+    expect(assemblyBasePromptOf("subagent-worker")).toBe(SUBAGENT_SYSTEM_PROMPT);
+    expect(assemblyBasePromptOf("orchestrator")).toBe(ORCHESTRATOR_SYSTEM_PROMPT);
+  });
+});
