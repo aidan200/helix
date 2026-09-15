@@ -23,8 +23,6 @@ import type {
   KgNodeDetailDto,
   KgNodeListRow,
   KgProjectRow,
-  KgProduceGroupDto,
-  KgProduceNodeDto,
 } from "@helix/protocol";
 
 const ITER = "iter-20260825-11fo";
@@ -248,75 +246,12 @@ function resolveProjectName(project: unknown, projects: KgProjectRow[]): KgProje
   return projects.find((p) => p.name === project);
 }
 
-// ── bootstrap 产出 mock 数据（T3.2；契约 ProduceNodeDto 形状——AD-4② 人类可读投影）──
-
-const INITIAL_PRODUCE_NODES: KgProduceNodeDto[] = [
-  {
-    nodeId: "TR-B1",
-    name: "连接私有读面不进会话 store",
-    kind: "rule",
-    status: "confirmed",
-    digest: "页面私有数据面（任务/图谱/产出）走连接级听众转发，dispatcher 零写入。\n第二行：完整 digest 在展开态可见。",
-    body: "页面私有数据面（任务/图谱/产出）走连接级听众转发，dispatcher 零写入；会话 store 只持会话维状态。kg 族先例即本形态。",
-    anchors: [
-      { symbol: "kgListenersRef", path: "apps/shell/src/entities/session/SessionContext.tsx", line: 306 },
-      { symbol: "subscribeKgFrames", path: "apps/shell/src/entities/session/SessionContext.tsx", line: 646 },
-    ],
-    rationale: "会话 store 与页面读面解耦，避免任务/图谱帧污染会话快照。",
-    origin: { taskTitle: "helix 知识图谱创建", batchScope: "批次：架构基线与全局规范" },
-  },
-  {
-    nodeId: "E-B2",
-    name: "知识图谱查看器",
-    kind: "entity",
-    status: "confirmed",
-    digest: "graph 态单页 master-detail 组件：左列节点列表 + 右区详情/报告/产出三 tab。",
-    body: "graph 态单页 master-detail 组件：左列节点列表（三路过滤）+ 右区节点详情/变化报告/产出呈现三 tab；每次进入 graph 由 kgToken 强制重挂。",
-    anchors: [{ symbol: "KgViewer", path: "apps/shell/src/pages/P-1/kg-viewer.tsx", line: 44 }],
-    rationale: "V-3 单页裁决：/project 唯一路由页，图谱为组件非路由。",
-    origin: { taskTitle: "helix 知识图谱创建", batchScope: "批次：会话域" },
-  },
-  {
-    nodeId: "E-B3",
-    name: "bootstrap 产出呈现区",
-    kind: "entity",
-    status: "confirmed",
-    digest: "KgViewer 第三 tab：三级分组呈现 + 事后修正（update/supersede）+ 连带标记。",
-    body: "产出按 任务→阶段→批次 分组，节点条目展开四段（正文/锚点/为什么存在/来源）；修正走 kg.node.update / supersede，连带走 impact 只读推导。",
-    anchors: [{ symbol: "KgProducePane", path: "apps/shell/src/pages/P-1/ui/kg-produce-pane.tsx", line: 1 }],
-    rationale: "CL-4 产出呈现与事后修正的宿主面（V-1：无 draft 无转正）。",
-    origin: { taskTitle: "helix 知识图谱创建", batchScope: "批次：会话域" },
-  },
-  {
-    nodeId: "E-B4",
-    name: "kg 写面单事务入口",
-    kind: "entity",
-    status: "confirmed",
-    digest: "知识层全部写操作经 KgWriteService.write 单 op 单事务进入，五 op 联合校验后落盘。",
-    body: "知识层全部写操作经 KgWriteService.write 单 op 单事务进入：五 op（upsert/supersede/edge/log/rebuild）联合校验后一次事务落盘，任何一步失败整体回滚。",
-    anchors: [
-      { symbol: "KgWriteService.write", path: "apps/daemon/src/services/kg/KgWriteService.ts", line: 88 },
-      // 契约 KgProduceNodeDto anchors[].line: number|null 变体采样（D-3）：
-      // 无法定位行号时 null（索引降级 → 锚点精度降为路径级）——渲染形态 = 仅路径无 :行号
-      { symbol: "kgWriteTransaction", path: "apps/daemon/src/services/kg/KgWriteService.ts", line: null },
-    ],
-    rationale: "写面唯一入口防止多路径写导致的图谱不一致；单事务保证落盘原子性。",
-    origin: { taskTitle: "helix 知识图谱创建", batchScope: "批次：实体与契约锚定" },
-  },
-];
-
 export class KgMockStore {
   private projects: KgProjectRow[] = initialProjects();
   private nodes: KgNodeDetailDto[] = structuredClone(INITIAL_NODES);
   private report: KgChangeReportDto = initialReport();
   /** rebuild 时基（project → startedAt）。 */
   private buildingSince = new Map<string, number>();
-  /** bootstrap 产出节点（T3.2 mock；update/supersede 可变镜像）。 */
-  private produceNodes = new Map<string, KgProduceNodeDto>(
-    INITIAL_PRODUCE_NODES.map((n) => [n.nodeId, structuredClone(n)]),
-  );
-  /** 产出节点引用边（impact 推导数据源：target → 引用方 source 集）。 */
-  private produceEdges = new Map<string, string[]>([["E-B2", ["E-B3"]]]);
   /** bootstrap job 序号（create 计数）。 */
   private jobSeq = 1;
 
@@ -354,17 +289,11 @@ export class KgMockStore {
       }
       case "kg.index.status":
         return this.replyIndex(p);
-      // ── kg-bootstrap 批五命令（T3.2；契约 kg-bootstrap-api.md 镜像）──
+      // ── kg-bootstrap 准入命令（T3.2；契约 kg-bootstrap-api.md 镜像）。
+      // produce/update/supersede/impact 四命令的 mock 应答已随「产出呈现」
+      // tab 移除剪除（2026-09 裁决，E-118：daemon 侧命令保留、无 UI 消费者）──
       case "kg.bootstrap.create":
         return this.replyBootstrapCreate(p);
-      case "kg.bootstrap.produce":
-        return this.replyBootstrapProduce(p);
-      case "kg.node.update":
-        return this.replyNodeUpdate(p);
-      case "kg.node.supersede":
-        return this.replyNodeSupersede(p);
-      case "kg.bootstrap.impact":
-        return this.replyBootstrapImpact(p);
       // ── kg 维护批两命令（C1；PROTOCOL-CHANGELOG.md §22 镜像）──
       case "kg.graph.purge":
         return this.replyGraphPurge(p);
@@ -408,95 +337,7 @@ export class KgMockStore {
     return this.frame("kg.bootstrap.create.result", { ok: true, jobId: `job-mock-${this.jobSeq}` });
   }
 
-  /** kg.bootstrap.produce：helix 项目回内置三级分组；其余空 groups。 */
-  private replyBootstrapProduce(p: Record<string, unknown>): EventEnvelope {
-    const row = resolveProjectName(p.project, this.projects);
-    if (row === undefined) return this.paramError();
-    if (row.name !== "helix") return this.frame("kg.bootstrap.produce.result", { groups: [] });
-    const groups: KgProduceGroupDto[] = [
-      {
-        jobId: "job-mock-1",
-        title: "helix 知识图谱创建",
-        stages: [
-          {
-            layer: "L0",
-            name: "L0 核心层",
-            batches: [{ batchId: "b-mock-1", scope: "批次：架构基线与全局规范", nodes: [this.produceNodes.get("TR-B1")!] }],
-          },
-          {
-            layer: "L1",
-            name: "L1 领域层",
-            batches: [
-              {
-                batchId: "b-mock-2",
-                scope: "批次：会话域",
-                nodes: [this.produceNodes.get("E-B2")!, this.produceNodes.get("E-B3")!],
-              },
-            ],
-          },
-          // 契约 layer 三值枚举 L2 变体采样（D-3；L2 实体层分组渲染面）
-          {
-            layer: "L2",
-            name: "L2 实体层",
-            batches: [
-              {
-                batchId: "b-mock-3",
-                scope: "批次：实体与契约锚定",
-                nodes: [this.produceNodes.get("E-B4")!],
-              },
-            ],
-          },
-        ],
-      },
-    ];
-    return this.frame("kg.bootstrap.produce.result", { groups });
-  }
-
-  /** kg.node.update：digest/body 至少其一 → 原位改（保持 confirmed）。 */
-  private replyNodeUpdate(p: Record<string, unknown>): EventEnvelope {
-    const row = resolveProjectName(p.project, this.projects);
-    if (row === undefined) return this.paramError();
-    const n = this.produceNodes.get(String(p.nodeId ?? ""));
-    if (n === undefined) return this.errorFrame("kg.node.not_found", `节点 ${String(p.nodeId)} 不存在`);
-    const digest = typeof p.digest === "string" ? p.digest : undefined;
-    const body = typeof p.body === "string" ? p.body : undefined;
-    if ((digest === undefined || digest === "") && (body === undefined || body === ""))
-      return this.errorFrame("task.validation_failed", "空更新：digest 与 body 至少携带其一");
-    if (digest !== undefined && digest !== "") n.digest = digest;
-    if (body !== undefined && body !== "") n.body = body;
-    return this.frame("kg.node.update.result", { ok: true, node: { ...n } });
-  }
-
-  /** kg.node.supersede：理由必填 → 留史降档。 */
-  private replyNodeSupersede(p: Record<string, unknown>): EventEnvelope {
-    const row = resolveProjectName(p.project, this.projects);
-    if (row === undefined) return this.paramError();
-    const n = this.produceNodes.get(String(p.nodeId ?? ""));
-    if (n === undefined) return this.errorFrame("kg.node.not_found", `节点 ${String(p.nodeId)} 不存在`);
-    const reason = typeof p.reason === "string" ? p.reason.trim() : "";
-    if (reason === "") return this.errorFrame("task.validation_failed", "supersede 需要填写理由");
-    n.status = "superseded";
-    n.supersedeReason = reason;
-    return this.frame("kg.node.supersede.result", { ok: true });
-  }
-
-  /** kg.bootstrap.impact：内置引用边推导（E-B3 → E-B2；superseded 引用方排除）。 */
-  private replyBootstrapImpact(p: Record<string, unknown>): EventEnvelope {
-    const row = resolveProjectName(p.project, this.projects);
-    if (row === undefined) return this.paramError();
-    const target = String(p.nodeId ?? "");
-    const affected = [...this.produceEdges.get(target)?.map((id) => this.produceNodes.get(id)) ?? []]
-      .filter((n): n is KgProduceNodeDto => n !== undefined && n.status !== "superseded")
-      .map((n) => ({
-        nodeId: n.nodeId,
-        name: n.name,
-        kind: n.kind,
-        digestFirstLine: (n.digest.split("\n")[0] ?? n.digest).trim(),
-      }));
-    return this.frame("kg.bootstrap.impact.result", { affected, count: affected.length });
-  }
-
-  /** kg.graph.purge：清空 mock 图谱镜像（节点/报告/产出清零 + 索引态复位 absent）。 */
+  /** kg.graph.purge：清空 mock 图谱镜像（节点/报告清零 + 索引态复位 absent）。 */
   private replyGraphPurge(p: Record<string, unknown>): EventEnvelope {
     const row = resolveProjectName(p.project, this.projects);
     if (row === undefined) return this.paramError();
@@ -504,8 +345,6 @@ export class KgMockStore {
     const symbolsRemoved = row.symbolCount ?? 0;
     this.nodes = [];
     this.report = { iterationId: ITER, entries: [] };
-    this.produceNodes.clear();
-    this.produceEdges.clear();
     Object.assign(row, { status: "absent" as const, symbolCount: undefined, nodeCount: undefined, syncedAt: undefined, degradedNote: undefined });
     return this.frame("kg.graph.purge.result", { purged: true, nodesRemoved, symbolsRemoved, filesRemoved: symbolsRemoved > 0 ? 1 : 0 });
   }
@@ -667,9 +506,9 @@ export function isKgCommand(type: string): boolean {
   return (
     type === "kg.projects" || type === "kg.list" || type === "kg.node.detail" ||
     type === "kg.change.report" || type === "kg.node.confirm" || type === "kg.index.status" ||
-    // kg-bootstrap 批五命令（T3.2；mock daemon 镜像同轨）
-    type === "kg.bootstrap.create" || type === "kg.bootstrap.produce" ||
-    type === "kg.node.update" || type === "kg.node.supersede" || type === "kg.bootstrap.impact" ||
+    // kg-bootstrap 准入命令（T3.2；produce/update/supersede/impact 四命令的
+    // mock 应答已随「产出呈现」tab 移除剪除——E-118：无 UI 消费者）
+    type === "kg.bootstrap.create" ||
     // kg 维护批两命令（C1；mock daemon 镜像同轨）
     type === "kg.graph.purge" || type === "kg.index.delete" ||
     // 体检/台账/评审发起批四命令（M39；mock daemon 镜像同轨）

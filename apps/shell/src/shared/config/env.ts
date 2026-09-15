@@ -7,7 +7,7 @@
 
 function resolvePort(): number {
   const raw = import.meta.env.VITE_HELIX_PORT as unknown;
-  const n = typeof raw === "string" ? Number(raw) : Number(raw ?? 0);
+  const n = Number(raw ?? 0);
   return Number.isFinite(n) && n > 0 ? n : 7333;
 }
 

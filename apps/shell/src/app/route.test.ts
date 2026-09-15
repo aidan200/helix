@@ -27,6 +27,15 @@ describe("TP-CL4-1 routeOfPath 路径映射", () => {
     expect(routeOfPath("/settings")).toBe(ROUTE_SETTINGS);
   });
 
+  it("尾斜杠规范化：带尾斜杠路径与裸路径同路由（不静默回落工作台）", () => {
+    expect(routeOfPath("/skills/")).toBe(ROUTE_SKILLS);
+    expect(routeOfPath("/trace/")).toBe(ROUTE_TRACE);
+    expect(routeOfPath("/project//")).toBe(ROUTE_PROJECT);
+    expect(routeOfPath("/tasks///")).toBe(ROUTE_TASKS);
+    expect(routeOfPath("/settings/")).toBe(ROUTE_SETTINGS);
+    expect(routeOfPath("//")).toBe(ROUTE_WORKBENCH); // "/" 剥空 → 回落工作台，语义不变
+  });
+
   it("未知路径回落工作台（F-9 既有语义）", () => {
     expect(routeOfPath("/nope")).toBe(ROUTE_WORKBENCH);
     expect(routeOfPath("/models/extra")).toBe(ROUTE_WORKBENCH);

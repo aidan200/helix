@@ -26,6 +26,10 @@ export function useRunningElapsed(
       return;
     }
     setMountAnchor((prev) => prev ?? Date.now());
+    // 取舍（钉死）：不按页面可见性/活跃路由门控本 interval——now 仅驱动显示
+    // 刷新，耗时精度由真实锚点（startedAtMs/baseMs）保证，隐藏期空转的 1s
+    // timer 无精度损失；门控需接 visibilitychange + 路由活跃面，复杂度大于
+    // 收益（低危保守取舍：单 timer 级成本可忽略）。
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [active]);

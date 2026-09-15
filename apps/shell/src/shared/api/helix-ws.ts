@@ -257,8 +257,16 @@ export class HelixWsClient {
     this.emitFrame(frame);
   }
 
-  private handleClose(_info: { code?: number; reason?: string }): void {
+  private handleClose(info: { code?: number; reason?: string }): void {
     if (this.phase === "stopped") return; // stop() 主动关闭
+    // close code/reason 记入 lastErrorMessage 供展示面消费（gave-up message
+    // 消费）：异常断开（如 1006）无 connection.error 帧可依赖，这是唯一可见
+    // 信号；但 error 帧已记的根因 message 优先，不被收尾事实覆盖
+    if (this.lastErrorMessage === null) {
+      const reason = typeof info.reason === "string" ? info.reason.trim() : "";
+      const code = info.code ?? "unknown";
+      this.lastErrorMessage = reason === "" ? `ws closed (code ${code})` : `ws closed (code ${code}): ${reason}`;
+    }
     if (this.phase === "connected") {
       // 已连接过的断线：先交代 disconnected，再启动自动重连序列
       this.emitConn({ kind: "disconnected" });

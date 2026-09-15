@@ -16,11 +16,15 @@ describe("fmtTokens 档位格式化（F3.3 徽标；T4.2 消费）", () => {
     expect(fmtTokens(1_216_000)).toBe("1.2M");
   });
 
-  it("1k..1M：k 档四舍五入（32_000 → 32k；460_000 → 460k；1_500 → 2k）", () => {
+  it("1k..1M：k 档四舍五入（32_000 → 32k；460_000 → 460k；1_500 → 2k）；取整跨 1000 升 M 档", () => {
     expect(fmtTokens(32_000)).toBe("32k");
     expect(fmtTokens(460_000)).toBe("460k");
     expect(fmtTokens(1_500)).toBe("2k");
     expect(fmtTokens(1_000)).toBe("1k");
+    // 取整结果 ≥1000 升 M 档：n∈[999500,1000000) 渲染 "1.0M" 而非 "1000k"
+    expect(fmtTokens(999_499)).toBe("999k");
+    expect(fmtTokens(999_500)).toBe("1.0M");
+    expect(fmtTokens(999_999)).toBe("1.0M");
   });
 
   it("<1k：原值（999 → 999；0 → 0）", () => {

@@ -86,6 +86,9 @@ function AppRoutes() {
     if (ok === false) toast.push("err", t("chat.modelsConfig.sendFailToast"));
     return ok;
   }, [sendWebStart, toast, t]);
+  // 主题切换提取 useCallback（stopWeb/startWeb 同规）：IconRail 常驻壳上
+  // 组件，内联箭头每次渲染新建 props 引用
+  const onToggleTheme = useCallback(() => setTheme(theme === "dark" ? "light" : "dark"), [theme, setTheme]);
   const onWorkbench = route === ROUTE_WORKBENCH;
   return (
     <>
@@ -95,7 +98,7 @@ function AppRoutes() {
           active={route}
           onNavigate={navigate}
           theme={theme}
-          onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onToggleTheme={onToggleTheme}
           webStatus={topology.webStatus}
           onStopWeb={stopWeb}
           onStartWeb={startWeb}
