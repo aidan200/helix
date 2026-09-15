@@ -24,6 +24,7 @@ import { selectModeSlot } from "@/entities/session/model/consumers/agent-config"
 import { selectActiveRunState } from "@/entities/session/model/topology";
 import { useWorkspace } from "@/entities/workspace/WorkspaceContext";
 import { cn } from "@/shared/lib/cn";
+import { useDismissOnOutside } from "@/shared/lib/useDismissOnOutside";
 import { StatsBadge } from "./SessionStats";
 
 /** 连接 dot 类名（F(7).4 四态：绿常亮/黄脉冲/红脉冲/红常亮）。 */
@@ -50,8 +51,9 @@ function modeLabelOf(t: (key: string) => string, mode: string): string {
  *  注册表数据驱动；切换 = setDraftMode 本地 action，reducer 内同步丢弃
  *  draft model/thinking 暂存——零 daemon 交互，mode 随首条
  *  chat.send{draft:true, mode} 上送）；已建会话 = 只读显示（快照/welcome
- *  回带定格值，缺省 default；锁定 = 无第二条写路径）。本期仅 1 个选项，
- *  交互从简（chip 内嵌下拉，无 popover 装配层协作）。 */
+ *  回带定格值，缺省 default；锁定 = 无第二条写路径）。注册表单选项
+ *  （MODES.length===1，code-review 低危组9）时草稿态同降级只读 chip——单
+ *  选项下拉零选择面；P2 增模式后自动恢复选择器形态。 */
 function ModeChip() {
   const { t } = useI18n();
   const { state, setDraftMode } = useSession();
@@ -59,27 +61,13 @@ function ModeChip() {
   const isDraft = state.sessionId === null;
   const label = modeLabelOf(t, state.mode);
 
-  // 点外 pointerdown / Escape 关闭（open 态才挂监听；trigger 点击开合归自身）
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: Event) => {
-      const target = e.target as Element | null;
-      if (target && typeof target.closest === "function" && target.closest(".mode-chip-wrap")) return;
-      setOpen(false);
-    };
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  // 点外 pointerdown / Escape 关闭（open 态才挂监听；trigger 点击开合归自身；
+  // 共享 hook，code-review 低危组9 三处同构收拢——pointerdown 事件形态保持，
+  // 菜单项点击不误触关闭）
+  useDismissOnOutside(open, ".mode-chip-wrap", () => setOpen(false), { event: "pointerdown" });
 
-  if (!isDraft) {
-    // 已建会话：只读显示（快照/welcome 回带；title 交代锁定语义）
+  if (!isDraft || MODES.length === 1) {
+    // 已建会话 / 注册表单选项：只读显示（快照/welcome 回带；title 交代锁定语义）
     return (
       <span className="hud-chip" data-mode-chip title={t("chat.header.modeTitle")}>
         {label}

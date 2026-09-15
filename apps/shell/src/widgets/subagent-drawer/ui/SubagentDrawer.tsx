@@ -206,6 +206,11 @@ const SubagentDrawer = memo(function SubagentDrawer({ agentId, onClose }: Subage
         <div className="d-task">
           <div className="d-seclabel">{t("chat.drawer.task")}</div>
           <div className="task-text">{card.task}</div>
+          {/* code-review 低危组9 #14：deferred——删本静态演示行会孤儿化
+              chat.drawer.instanceMeta 词条（i18n 死 key 扫描红），键回收需改
+              shared/i18n 既有文件（本组硬边界禁改）；DTO 亦无真实 spawn 元数据
+              可替换（instanceId/profile/model 已在头部呈现）。待 owning 组同批
+              删行+收键。 */}
           <div className="task-meta">{t("chat.drawer.instanceMeta")}</div>
         </div>
 

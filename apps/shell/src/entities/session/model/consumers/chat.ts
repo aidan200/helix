@@ -90,7 +90,7 @@ function drainSteer(s: SessionState, entryId: string, source?: SteerSource): Ses
   return { ...s, steerQueue, entries };
 }
 
-export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: number): SessionState {
+export function applyChatEvent(s: SessionState, event: EventEnvelope, ts?: number): SessionState {
   switch (event.type) {
     case "chat.stream.delta": {
       const { messageId, delta } = event.payload;
@@ -111,8 +111,8 @@ export function applyChatEvent(s: SessionState, event: EventEnvelope, _ts?: numb
       }
       const streaming =
         s.streaming && s.streaming.messageId === messageId
-          ? { messageId, text: s.streaming.text + delta }
-          : { messageId, text: delta };
+          ? { messageId, text: s.streaming.text + delta, ts: s.streaming.ts }
+          : { messageId, text: delta, ts: ts ?? 0 };
       // 主线 delta 到达 = 重试已成功、流恢复 → 清网络重试状态卡（P2 ⑦）；
       // T-glm-stream：正文 delta 即最近通道切 chat（GLM 同消息 thinking→正文
       // 连流，thinking.completed 迟至 message_end——phase 派生按此信号判段）

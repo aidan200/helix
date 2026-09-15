@@ -12,39 +12,48 @@ import { useI18n } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import type { ErrorEntryDto } from "@helix/protocol";
 
+/** 内部展示子组件（code-review 低危组9：两消费面 head/body/hint 同构结构
+ *  收拢）——瞬态卡与落盘红条共享红系 danger 视觉（ee-* 族单一实现）。 */
+function ErrorShell({ title, body, hint }: { title: string; body: string; hint: string }) {
+  return (
+    <div className="msg engine-error-card" role="alert">
+      <div className="ee-head">
+        <span className="ee-dot" aria-hidden />
+        {title}
+      </div>
+      <div className="ee-body">{body}</div>
+      <div className="ee-hint">{hint}</div>
+    </div>
+  );
+}
+
 const EngineErrorCard = function EngineErrorCard() {
   const { t } = useI18n();
   const { state } = useSession();
   if (state.engineError === null) return null;
   return (
-    <div className="msg engine-error-card" role="alert">
-      <div className="ee-head">
-        <span className="ee-dot" aria-hidden />
-        {t("chat.engineError.title")}
-      </div>
-      <div className="ee-body">{state.engineError.message}</div>
-      <div className="ee-hint">{t("chat.engineError.hint")}</div>
-    </div>
+    <ErrorShell
+      title={t("chat.engineError.title")}
+      body={state.engineError.message}
+      hint={t("chat.engineError.hint")}
+    />
   );
 };
 
 /**
  * 错误条目原位红条（error entry 批）：EntryDto kind="error" 变体的 EntryView
- * 分支——视觉复用本卡红系 danger 样式（ee-head/ee-body 族，同一设计语言）。
- * 数据源 = entries 序列（落盘条目）：刷新/切换后经快照原位可见；与瞬态卡
+ * 分支——视觉复用本卡红系 danger 样式（ee-head/ee-body 族，ErrorShell 单一
+ * 实现）。数据源 = entries 序列（落盘条目）：刷新/切换后经快照原位可见；与瞬态卡
  * 互斥（error.entry 帧到达即清瞬态卡，同一错误不双显）。
  */
 export const ErrorEntryBar = function ErrorEntryBar({ entry }: { entry: ErrorEntryDto }) {
   const { t } = useI18n();
   return (
-    <div className="msg engine-error-card" role="alert">
-      <div className="ee-head">
-        <span className="ee-dot" aria-hidden />
-        {t("chat.engineError.title")}
-      </div>
-      <div className="ee-body">{entry.message}</div>
-      <div className="ee-hint">{t("chat.engineError.hint")}</div>
-    </div>
+    <ErrorShell
+      title={t("chat.engineError.title")}
+      body={entry.message}
+      hint={t("chat.engineError.hint")}
+    />
   );
 };
 

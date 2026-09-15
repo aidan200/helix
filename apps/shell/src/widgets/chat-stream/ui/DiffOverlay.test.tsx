@@ -213,3 +213,68 @@ describe("DiffOverlay：code-review M（send 消费 + 单飞门控）", () => {
     expect(document.querySelector('[data-testid="diff-error"]')).toBeNull(); // 不消费（无 pending）
   });
 });
+
+// ── code-review 低危组9：result 帧保留 selected + 尾空行剥离。──
+describe("DiffOverlay：code-review 低危组9", () => {
+  it("后续 result 帧保留原 selected（live 多帧不闪回首项）；files 收缩越界钳到末项", () => {
+    stateRef.current = createInitialSessionState();
+    const { container } = ui();
+    act(() => frameSink!(resultFrame()));
+    // 选第 2 个文件（b.ts）
+    fireEvent.click(container.querySelectorAll(".diff-file")[1]!);
+    expect(container.querySelector(".diff-view")!.textContent).toContain("entire");
+    // 同长度刷新帧：选中保持
+    act(() => frameSink!(resultFrame()));
+    expect(container.querySelector(".diff-view")!.textContent).toContain("entire");
+    // 收缩到 1 文件的刷新帧：越界钳到末项（首项 a.ts）
+    act(() =>
+      frameSink!({
+        v: 0,
+        type: "diff.get.result",
+        sessionId: "s1",
+        payload: { files: [FILES[0]!], summary: { adds: 10, dels: 2 } },
+      } as unknown as EventEnvelope),
+    );
+    expect(container.querySelector(".diff-view")!.textContent).toContain("@@ -1,3 +1,4 @@");
+    // 空文件表：钳到 0 不崩
+    act(() =>
+      frameSink!({
+        v: 0,
+        type: "diff.get.result",
+        sessionId: "s1",
+        payload: { files: [], summary: { adds: 0, dels: 0 } },
+      } as unknown as EventEnvelope),
+    );
+    expect(container.querySelector(".diff-empty")).not.toBeNull();
+  });
+
+  it("尾空行只剥末尾（正文空行保留）：diff 文本尾部多换行不产生多余空行，上下文空行仍在", () => {
+    stateRef.current = createInitialSessionState();
+    const { container } = ui();
+    act(() =>
+      frameSink!({
+        v: 0,
+        type: "diff.get.result",
+        sessionId: "s1",
+        payload: {
+          files: [
+            {
+              path: "/w/src/c.ts",
+              status: "modified" as const,
+              adds: 1,
+              dels: 0,
+              // hunk 头 + 一行上下文 + 空上下文行（正文空行）+ 新增行 + 尾部三连换行
+              diff: "@@ -1,2 +1,3 @@\n ctx\n\n+add\n\n\n\n",
+              agents: ["main"],
+            },
+          ],
+          summary: { adds: 1, dels: 0 },
+        },
+      } as unknown as EventEnvelope),
+    );
+    const lines = Array.from(container.querySelectorAll(".diff-view > span"));
+    // 每行 span 尾渲染 \n（源码 {l}{"\n"}）——断言前剥行尾换行
+    // split 后行序：hunk / " ctx" / ""（正文空行保留）/ "+add" ——尾部三连换行仅产生零空行
+    expect(lines.map((l) => l.textContent?.replace(/\n$/, ""))).toEqual(["@@ -1,2 +1,3 @@", " ctx", "", "+add"]);
+  });
+});

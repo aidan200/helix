@@ -63,6 +63,20 @@ vi.mock("@/entities/workspace/WorkspaceContext", () => ({
   }),
 }));
 
+// ── MODES 注册表 mock（code-review 低危组9：单选项降级只读后，菜单行为面
+// 需双选项注册表才能覆盖——mock 两项保选择器路径；单选项降级面另见
+// P-1-top-bar.single-mode.test.tsx（真实注册表，当前仅 default 一项））──
+vi.mock("@helix/protocol", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("@helix/protocol")>();
+  return {
+    ...orig,
+    MODES: [
+      { id: "default", kind: "single", profileKind: "main-session" },
+      { id: "plan", kind: "single", profileKind: "main-session" },
+    ] as unknown as typeof orig.MODES,
+  };
+});
+
 import { TopBarActions, TopBarInfo } from "./P-1-top-bar";
 
 function catalogModel(id: string): CatalogModel {
@@ -305,12 +319,12 @@ describe("P-1 header 模式 chip（P1 T4：草稿选择器 / 已建只读）", (
     expect(chip.tagName).toBe("BUTTON");
     expect(chip.textContent).toContain("默认模式"); // chat.mode.default 词条（zh-CN 事实源）
     expect(chip.getAttribute("aria-haspopup")).toBe("menu");
-    // 点击展开：选项 = MODES 数据驱动（本期仅 default 一项，选项序同注册表）
+    // 点击展开：选项 = MODES 数据驱动（mock 双选项，选项序同注册表）
     fireEvent.click(chip);
     const menu = document.querySelector("[data-mode-menu]");
     expect(menu).not.toBeNull();
     const items = menu!.querySelectorAll("[data-mode-item]");
-    expect(items.length).toBe(1); // MODES.length（P2 增模式零改动断言面）
+    expect(items.length).toBe(2); // mock 注册表两项（真实单选项降级面见 single-mode 测试）
     expect(items[0]!.getAttribute("aria-checked")).toBe("true"); // 当前项选中
   });
 

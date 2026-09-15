@@ -79,6 +79,11 @@ export type ConnState = "connecting" | "connected" | "disconnected" | "error";
 export interface StreamingState {
   messageId: string;
   text: string;
+  /** 首 delta 到达时刻（流开始定格，后续 delta 不漂移）——MessageFlow 合成
+   *  streaming entry 的 ts 消费：气泡 meta 时间戳稳定为流开始时刻（原先
+   *  Date.now() 每渲染漂移，code-review 低危组9）。帧到达 ts 入参，AG-14
+   *  纯函数纪律不破（消费者内零 Date.now）。 */
+  ts: number;
 }
 
 /** 恢复 toast（重连成功后由快照条数填满，UI 消费后置空）。 */
@@ -493,9 +498,9 @@ export interface SessionState {
   attachments: string[];
   /** 本地 steer echo 序号（确定性 id，保证重放幂等） */
   nextLocalSeq: number;
-  /** steer 队列坞（drain 落盘语义：queued 期间的可观测面——本地 echo 与
+  /** steer 队列坞（drain 落盘语义：queued 期间的可观测面——本地 echo与
    *  daemon steer.queued 确认对账；steer.drained/快照重建移除；渲染归
-   *  SteerQueueDock 左下角浮动坞） */
+   *  ChatStatusBar 状态行左槽 SteerQueueDock 行内形态） */
   steerQueue: SteerQueueDockItem[];
   /** SubAgent 卡片投影（agent.* 事件族 + 快照 instances；v0.1） */
   instances: InstanceCardState[];

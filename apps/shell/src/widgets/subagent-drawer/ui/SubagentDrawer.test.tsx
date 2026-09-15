@@ -191,7 +191,7 @@ describe("抽屉载体（P-2 布局）", () => {
     expect(onClose).toHaveBeenCalledTimes(3);
   });
 
-  it("头部四要素：实例 id·profile / 模型 chip / 状态 chip / 任务段与 instanceId meta", () => {
+  it("头部四要素：实例 id·profile / 模型 chip / 状态 chip / 任务段与 instanceId meta（#14 deferred：静态行保留——删行孤儿化 i18n 键，键回收超出本组 shared/ 冻结边界）", () => {
     stateRef.current = play(runningScenario());
     ui("agent-run");
     expect(document.querySelector(".d-id")!.textContent).toContain("agent-run");
@@ -199,7 +199,7 @@ describe("抽屉载体（P-2 布局）", () => {
     expect(screen.getByText("provider/haiku")).toBeTruthy();
     expect(document.querySelector(".d-status.running")).toBeTruthy();
     expect(screen.getByText("task agent-run")).toBeTruthy();
-    expect(screen.getByText(/agent_spawn/)).toBeTruthy(); // drawer.instanceMeta
+    expect(screen.getByText(/agent_spawn/)).toBeTruthy(); // drawer.instanceMeta（deferred 同因）
   });
 });
 

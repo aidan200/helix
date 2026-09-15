@@ -355,7 +355,7 @@ describe("流式 delta 投影", () => {
       [ev({ v: 0, type: "chat.stream.delta", payload: { messageId: "t1", delta: "lo" } })],
       s1,
     );
-    expect(s2.streaming).toEqual({ messageId: "t1", text: "Hello" });
+    expect(s2.streaming).toEqual({ messageId: "t1", text: "Hello", ts: 0 }); // ts = 首 delta 帧到达 ts（缺省 0），续 delta 不漂移
 
     const s3 = run(
       [ev({ v: 0, type: "chat.message.completed", payload: { entry: msg("m2", "assistant", "Hello", 2) } })],

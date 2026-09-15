@@ -149,8 +149,8 @@ export const PASSTHROUGH_EVENT_TYPES = [
   // 台账读面三件套：kg.candidates.list 回执——同规：真消费归 /project 页
   // 候选台账面板（KgViewer 常驻 listener）
   "kg.candidates.list.result",
-  // diff.get.result（v0.3.1 §29 起移出本清单→真消费 consumers/diff：回执
-  // 摘要落 state.diff——会话切回 rehydrate；文件明细仍经 SessionContext
+  // diff.get.result：v0.3.1 §29 起移出本清单，真消费归 consumers/diff——回执
+  // 摘要落 state.diff（会话切回 rehydrate）；文件明细仍经 SessionContext
   // 转发层 subscribeDiffFrames 归 DiffOverlay 私有 reducer，转发链不受
   // dispatcher 注册表影响（两链平行）
   // workspace 族（W3 门禁读/写面 + W4 changed 广播；连接私有回执/广播）：

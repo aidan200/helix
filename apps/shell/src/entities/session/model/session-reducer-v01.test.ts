@@ -328,12 +328,12 @@ describe("instanceId 分流（§7 主线/实例分流）", () => {
 
   it("main（缺省/显式）delta 与消息照旧进主消息流（既有行为不回归）", () => {
     const implicit = run([mainDelta("t1", "Hel")], base());
-    expect(implicit.streaming).toEqual({ messageId: "t1", text: "Hel" });
+    expect(implicit.streaming).toEqual({ messageId: "t1", text: "Hel", ts: 0 }); // ts = 首 delta 帧到达 ts（缺省 0）
     const explicit = run(
       [ev({ v: 0, type: "chat.stream.delta", instanceId: "main", payload: { messageId: "t1", delta: "Hel" } })],
       base(),
     );
-    expect(explicit.streaming).toEqual({ messageId: "t1", text: "Hel" });
+    expect(explicit.streaming).toEqual({ messageId: "t1", text: "Hel", ts: 0 }); // ts = 首 delta 帧到达 ts（缺省 0）
   });
 
   it("T10c 两钉：新形态（kind=main + agent-<hex> id）分流主流；legacy 形态（缺省/字面 \"main\"）仍主流", () => {
@@ -371,18 +371,18 @@ describe("instanceId 分流（§7 主线/实例分流）", () => {
     expect(news.entries.map((e) => e.id)).toEqual(["m-1", "m-2", "th-m1", "th-m2"]);
     expect(news.instanceChannels[mainId]).toBeUndefined(); // 主实例无 channel
     // 事件面：main delta 照旧进主 streaming（不因显式携带 id 被误分流）
-    expect(news.streaming).toEqual({ messageId: "t1", text: "Hel" });
+    expect(news.streaming).toEqual({ messageId: "t1", text: "Hel", ts: 0 }); // ts = 首 delta 帧到达 ts（缺省 0）
     expect(news.channelStreams[mainId]).toBeUndefined();
 
     // legacy 形态：无 instances 快照 → mainInstanceId 保持 legacy 字面；
     // 缺省 / 字面 "main" 事件照旧主流（读侧推断保留，既有行为钉）
     const legacy = run([mainDelta("t2", "lo")]);
     expect(legacy.mainInstanceId).toBe("main");
-    expect(legacy.streaming).toEqual({ messageId: "t2", text: "lo" });
+    expect(legacy.streaming).toEqual({ messageId: "t2", text: "lo", ts: 0 }); // ts = 首 delta 帧到达 ts（缺省 0）
     const legacyExplicit = run(
       [ev({ v: 0, type: "chat.stream.delta", instanceId: "main", payload: { messageId: "t3", delta: "Hel" } })],
     );
-    expect(legacyExplicit.streaming).toEqual({ messageId: "t3", text: "Hel" });
+    expect(legacyExplicit.streaming).toEqual({ messageId: "t3", text: "Hel", ts: 0 }); // ts = 首 delta 帧到达 ts（缺省 0）
   });
 
   it("终态实例的迟到 delta 被吸收（摘要保持定稿）", () => {

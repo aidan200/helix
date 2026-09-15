@@ -357,7 +357,7 @@ describe("MessageFlow 回底驻留吸附（1s dwell）", () => {
     sessionId,
     view: "ready",
     entries: ids.map((id) => msg(id)),
-    streaming: streaming === null ? null : { messageId: "sm-1", text: streaming },
+    streaming: streaming === null ? null : { messageId: "sm-1", text: streaming, ts: 1 },
     history: { hasMore: true, nextCursor: "cursor-1", loading: false, total: 99, paged: true },
   });
   const flowEl = () => document.querySelector<HTMLElement>(".msg-flow")!;
@@ -566,7 +566,7 @@ describe("MessageFlow 生成中占位卡（切回仍生成会话的尾部呼吸�
   it("② streaming 气泡出现 → 占位让位消失（条件互斥派生）", () => {
     stateRef.current = stateWith({
       agentState: "running",
-      streaming: { messageId: "m1", text: "半截回复" },
+      streaming: { messageId: "m1", text: "半截回复", ts: 1 },
     });
     ui(<MessageFlow />);
     expect(placeholder()).toBeNull();

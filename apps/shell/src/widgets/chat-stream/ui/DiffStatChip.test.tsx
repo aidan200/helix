@@ -167,4 +167,39 @@ describe("DiffStatChip rehydrate（v0.3.1 §29：会话切回补拉）", () => {
     );
     expect(sendDiffGet).not.toHaveBeenCalled();
   });
+
+  // code-review 低危组9 / TR-168：send 返回值必消费——false 一次性失败态，
+  // conn 腿变化清标记重试（不重复发、不静默吞）
+  it("sendDiffGet 返回 false（断线窗口）→ 一次性失败态停拉；conn 变化重试", async () => {
+    sendDiffGet.mockReturnValue(false);
+    stateRef.current = { ...createInitialSessionState(), sessionId: "s1", conn: "connected" };
+    const { rerender } = render(
+      <I18nProvider>
+        <DiffStatChip onOpen={() => {}} />
+      </I18nProvider>,
+    );
+    expect(sendDiffGet).toHaveBeenCalledTimes(1); // 发了一次，返回 false
+    // 同条件重渲染（非 conn 变化）→ 失败标记停拉，不重复发
+    rerender(
+      <I18nProvider>
+        <DiffStatChip onOpen={() => {}} />
+      </I18nProvider>,
+    );
+    expect(sendDiffGet).toHaveBeenCalledTimes(1);
+    // conn 腿变化（断连→重连）→ 清失败标记重试
+    stateRef.current = { ...createInitialSessionState(), sessionId: "s1", conn: "disconnected" };
+    rerender(
+      <I18nProvider>
+        <DiffStatChip onOpen={() => {}} />
+      </I18nProvider>,
+    );
+    stateRef.current = { ...createInitialSessionState(), sessionId: "s1", conn: "connected" };
+    sendDiffGet.mockReturnValue(true);
+    rerender(
+      <I18nProvider>
+        <DiffStatChip onOpen={() => {}} />
+      </I18nProvider>,
+    );
+    expect(sendDiffGet).toHaveBeenCalledTimes(2); // 重连后补拉一次
+  });
 });

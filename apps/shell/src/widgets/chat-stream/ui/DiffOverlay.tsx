@@ -16,7 +16,7 @@
  * 说明）+ 右 unified diff 渲染（daemon 已算好文本——前端纯着色：+行 add /
  * −行 del / @@ hunk 头）。
  */
-import { useEffect, useMemo, useReducer } from "react";
+import { useEffect, useMemo, useReducer, useRef } from "react";
 import { useSession } from "@/entities/session/SessionContext";
 import { useI18n } from "@/shared/i18n";
 import type { DiffFileDto, EventEnvelope, DiffGetResultPayload } from "@helix/protocol";
@@ -37,8 +37,13 @@ type Action =
 
 function reduceView(s: ViewState, a: Action): ViewState {
   switch (a.type) {
-    case "result":
-      return { status: "done", files: a.files, summary: a.summary, selected: 0 };
+    case "result": {
+      // result 帧保留原 selected（code-review 低危组9）：live 视图多帧到达时
+      // 用户已选文件不闪回首项；新 files 长度收缩时越界钳制到末项（空表 → 0）
+      const prev = s.status === "done" ? s.selected : 0;
+      const max = Math.max(0, a.files.length - 1);
+      return { status: "done", files: a.files, summary: a.summary, selected: Math.min(prev, max) };
+    }
     case "failed":
       // 单飞门控（code-review M，TR-84 同纪律）：仅在途（pending）消费——
       // send false 挂载即失败亦出自 pending；done 视图不被无关 connection.error 误判
@@ -57,6 +62,13 @@ const DiffOverlay = function DiffOverlay({ onClose }: DiffOverlayProps) {
   const { state, sendDiffGet, subscribeDiffFrames } = useSession();
   const { t } = useI18n();
   const [view, dispatch] = useReducer(reduceView, { status: "pending" } as ViewState);
+
+  // onClose ref 定格（code-review 低危组9）：调用方内联箭头每渲染新引用，
+  // Esc 监听不随调用方重渲染反复解绑/重挂（最新闭包经 ref 转发）
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   // 开窗时轮相位定格（live 旗标只随开窗时刻，不随后续帧漂移）
   const openPhase = state.diff?.phase;
@@ -89,19 +101,21 @@ const DiffOverlay = function DiffOverlay({ onClose }: DiffOverlayProps) {
     [subscribeDiffFrames],
   );
 
-  // Esc 关闭
+  // Esc 关闭（onClose 经 ref 定格——监听器恒挂载一次）
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") onClose();
+      if (ev.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   const selected = view.status === "done" ? view.files[view.selected] : undefined;
-  // unified diff 逐行着色（daemon 产文本，前端纯渲染）
+  // unified diff 逐行着色（daemon 产文本，前端纯渲染）。先去尾空行再 split
+  // （code-review 低危组9）：只剥末尾换行产生的空串，正文内空行（上下文空
+  // 行）保留——旧 filter 会连正文空行一并抹掉，hunk 间距失真
   const lines = useMemo(
-    () => (selected?.diff ?? "").split("\n").filter((l) => l !== ""),
+    () => (selected?.diff ?? "").replace(/\n+$/, "").split("\n"),
     [selected],
   );
 

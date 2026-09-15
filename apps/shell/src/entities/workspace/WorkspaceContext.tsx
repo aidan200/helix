@@ -57,9 +57,13 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
 export function WorkspaceProvider({ deps, children }: { deps: WorkspaceDeps; children: ReactNode }) {
   const [state, dispatch] = useReducer(workspaceReducer, undefined, createInitialWorkspaceState);
-  // 帧消费面读点（connection.error 的 opening 单飞门控判据）
+  // 帧消费面读点（connection.error 的 opening 单飞门控判据）——渲染体不写
+  // ref（SessionContext 纪律同构：并发渲染废弃腿不再可能写入陈旧值；提交后
+  // effect 同步，读点（帧事件处理器）均在 effect 之后执行，滞后一个提交可接受）
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   // 连接就绪 → 自动 workspace.get 一次（重连重发；webStatus 先例）：
   // get-started 同时重置 open 在途/行内错误（断连期回执永不达防卡死）

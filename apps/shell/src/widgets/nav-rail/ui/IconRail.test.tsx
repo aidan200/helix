@@ -36,7 +36,7 @@ const CONNECTED: WebStatusPayload = {
   ],
 };
 
-function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void; webStatus?: WebStatusPayload | null; onStopWeb?: () => void; onStartWeb?: () => void } = {}) {
+function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void; webStatus?: WebStatusPayload | null; onStopWeb?: () => boolean; onStartWeb?: () => boolean } = {}) {
   // jsdom navigator.language 默认 en-US：钉 zh-CN（产品断言语言，AG-14 白名单键）
   localStorage.setItem("helix-lang", "zh-CN");
   return render(
@@ -48,8 +48,8 @@ function ui(props: { theme?: "dark" | "light"; onToggleTheme?: () => void; webSt
         theme={props.theme ?? "dark"}
         onToggleTheme={props.onToggleTheme ?? (() => {})}
         webStatus={props.webStatus ?? null}
-        onStopWeb={props.onStopWeb ?? (() => {})}
-        onStartWeb={props.onStartWeb ?? (() => {})}
+        onStopWeb={props.onStopWeb ?? (() => true)}
+        onStartWeb={props.onStartWeb ?? (() => true)}
       />
     </I18nProvider>,
   );
