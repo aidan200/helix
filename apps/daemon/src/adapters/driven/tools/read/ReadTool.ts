@@ -93,7 +93,10 @@ export function createReadTool(): AgentHarnessTool<ExecutionToolContext, any, an
       if (offset !== undefined && startLine >= totalLines) {
         throw new Error(`Offset ${offset} is beyond end of file (${totalLines} lines total)`);
       }
-      const userEnd = limit !== undefined ? Math.min(startLine + limit, totalLines) : totalLines;
+      // limit<1 鉗制为 1（code-review 低危）：0/负数若重接会产出空结果，
+      // 违反「首行必含——不产出空结果」的截断纪律——与预算截断同款防御
+      const effectiveLimit = limit !== undefined && limit < 1 ? 1 : limit;
+      const userEnd = effectiveLimit !== undefined ? Math.min(startLine + effectiveLimit, totalLines) : totalLines;
       const rendered: string[] = [];
       let usedBytes = 0;
       let lineNo = startLine + 1;

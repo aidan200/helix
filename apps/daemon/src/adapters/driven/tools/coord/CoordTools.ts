@@ -32,11 +32,18 @@ interface ScopeParam {
 }
 
 function toScope(param: ScopeParam): LeaseScope {
-  if (param.projectRoot !== undefined && param.projectRoot.trim() !== "") {
-    return { kind: "project", projectRoot: param.projectRoot };
+  const projectRoot = param.projectRoot !== undefined && param.projectRoot.trim() !== "" ? param.projectRoot : undefined;
+  const paths = param.paths !== undefined && param.paths.length > 0 ? param.paths : undefined;
+  // 同传抛错（code-review 低危）：两者同给时静默取 projectRoot 会把 LLM 的
+  // paths 面窄化丢弃——语义歧义响亮化，不猜
+  if (projectRoot !== undefined && paths !== undefined) {
+    throw new Error("scope 的 projectRoot 与 paths 不可同传（二选一——同传时以哪个为准有歧义，不会静默取其一）");
   }
-  if (param.paths !== undefined && param.paths.length > 0) {
-    return { kind: "paths", patterns: param.paths };
+  if (projectRoot !== undefined) {
+    return { kind: "project", projectRoot };
+  }
+  if (paths !== undefined) {
+    return { kind: "paths", patterns: paths };
   }
   throw new Error("scope 需要给出 projectRoot 或 paths（至少一项）");
 }

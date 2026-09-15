@@ -38,8 +38,8 @@ export function lineSimilarity(a: string, b: string): number {
     const gram = a.slice(i, i + 2);
     counts.set(gram, (counts.get(gram) ?? 0) + 1);
   }
-  let totalA = 0;
-  for (const n of counts.values()) totalA += n;
+  // totalA 恒等于 a 的 bigram 总数（上面循环逐个 +1，无别处增减）——直取
+  const totalA = a.length - 1;
   let totalB = 0;
   let overlap = 0;
   for (let i = 0; i < b.length - 1; i++) {

@@ -77,7 +77,10 @@ export async function probeRgVersion(
       new Response(stderrStream).text(),
       proc.exited,
     ]);
-    if (timedOut) return { ok: false, reason: `探针超时（>${timeoutMs}ms），已终止` };
+    // 超时竞态守卫（对齐 rg-backend.ts 同款）：exitCode===0 = rg 已成功退出
+    // （timer 的 kill 打在已退出的进程上无效，timedOut 误置）——优先按成功处理，
+    // 不误报探针超时
+    if (timedOut && exitCode !== 0) return { ok: false, reason: `探针超时（>${timeoutMs}ms），已终止` };
     if (exitCode !== 0) return { ok: false, reason: `rg --version 退出码 ${exitCode}：${stderr.trim()}` };
     return { ok: true, reason: "" };
   } catch (e) {

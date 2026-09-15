@@ -10,6 +10,7 @@ import { MAX_IMAGE_BYTES } from "../../src/application/services/images";
  * read 图片大小上限（M8 修复红→绿）：detectImageMimeType 命中后不再无条件
  * base64 全量进工具结果——超 MAX_IMAGE_BYTES（2MB，与 BrowserTools.readShot
  * oversize 守卫同上限）回纯文本提示而非 image 块，防大图片一次性注入模型上下文。
+ * 另辖 limit<1 鉗制（code-review 低危）：0/负数重接不再产出空结果（首行必含）。
  */
 
 let dir: string | undefined;
@@ -57,5 +58,27 @@ describe("read 图片路径：MAX_IMAGE_BYTES 上限", () => {
     );
     const blocks = result.content as Array<{ type: string; mimeType?: string }>;
     expect(blocks.some((b) => b.type === "image" && b.mimeType === "image/png")).toBe(true);
+  });
+});
+
+describe("read 文本路径：limit<1 鉗制为 1（首行必含）", () => {
+  test("limit=0 / 负数 → 鉗制为 1 行，不产出空结果", async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "helix-read-limit-clamp-"));
+    writeFileSync(path.join(dir, "a.txt"), "line1\nline2\nline3\n");
+    const env = new NodeExecutionEnv({ cwd: dir });
+    for (const limit of [0, -3]) {
+      const result = await createReadTool().execute(
+        "tc-clamp",
+        { path: "a.txt", limit } as never,
+        undefined,
+        undefined,
+        { env },
+      );
+      const text = (result.content as Array<{ type: string; text?: string }>).map((b) => b.text ?? "").join("");
+      expect(text).toContain("     1\tline1");
+      expect(text).not.toContain("line2");
+      // 续读指针仍指向第 2 行（鉗制不截断后续可达性）
+      expect(text).toContain("offset=2");
+    }
   });
 });

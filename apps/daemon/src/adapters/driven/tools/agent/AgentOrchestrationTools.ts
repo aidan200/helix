@@ -76,13 +76,13 @@ const inspectParameters = {
   additionalProperties: false,
 } as const;
 
-/** park/resume 共用参数（单实例 id；挂起原因归系统——chat 域恒 user）。 */
+/** park/resume 共用参数（单实例 id；参数名与同族 send/status/inspect 一致用 agentId；挂起原因归系统——chat 域恒 user）。 */
 const instanceParameters = {
   type: "object",
   properties: {
-    instanceId: { type: "string", description: "目标实例 id（agent-N）" },
+    agentId: { type: "string", description: "目标实例 id（agent-N）" },
   },
-  required: ["instanceId"],
+  required: ["agentId"],
   additionalProperties: false,
 } as const;
 
@@ -176,7 +176,7 @@ export function createAgentInspectTool(
     description:
       "核实 SubAgent 实例的真实执行轨迹：返回状态/静默时长/累计工具调用数/最近 20 条轨迹" +
       "（工具名、assistant 文本尾部）。用于周期进展报告连续零增量时判断实例是否死循环；" +
-      "确无进展可终止该实例（kill）后重派。实例不存在时返回 null。",
+      "确无进展时向用户报告并建议终止重派（kill 为用户操作面——工具面无终止通道，勿自行尝试）。实例不存在时返回 null。",
     parameters: inspectParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
@@ -203,8 +203,8 @@ export function createAgentParkTool(
     parameters: instanceParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
-      const { instanceId } = params as { instanceId: string };
-      return textResult(JSON.stringify(orchestration.park(instanceId)));
+      const { agentId } = params as { agentId: string };
+      return textResult(JSON.stringify(orchestration.park(agentId)));
     },
   };
 }
@@ -222,8 +222,8 @@ export function createAgentResumeTool(
     parameters: instanceParameters as any,
     async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
       void toolCallId;
-      const { instanceId } = params as { instanceId: string };
-      return textResult(JSON.stringify(orchestration.resume(instanceId)));
+      const { agentId } = params as { agentId: string };
+      return textResult(JSON.stringify(orchestration.resume(agentId)));
     },
   };
 }

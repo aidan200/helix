@@ -39,7 +39,7 @@ function seatbeltAvailable(): boolean {
   }
 }
 
-/** 试跑：沙箱内执行 /bin/sh -c true（profile 真实生效性验证——行为漂移探测）。 */
+/** 试跑：沙箱内执行 /bin/bash -c true（profile 真实生效性验证——行为漂移探测）。 */
 function selfCheck(profileText: string, cacheKey: string): boolean {
   const cached = selfCheckCache.get(cacheKey);
   if (cached !== undefined) return cached;
@@ -56,7 +56,7 @@ function selfCheck(profileText: string, cacheKey: string): boolean {
       ok = false;
     }
   }
-  selfCheckCache.set(cacheKey, true === ok);
+  selfCheckCache.set(cacheKey, ok);
   return ok;
 }
 

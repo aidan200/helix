@@ -194,49 +194,59 @@ export function createEditTool(
       const absoluteResult = await env.absolutePath(filePath, signal);
       if (!absoluteResult.ok) throw absoluteResult.error;
       const absolutePath = absoluteResult.value;
-      return withFileMutationQueue(env, absolutePath, async () => {
-        if (signal?.aborted) throw new Error("Operation aborted");
-        const info = await env.fileInfo(absolutePath, signal);
-        if (!info.ok) throw editAccessError(filePath, info.error);
-        if (info.value.kind !== "file" && info.value.kind !== "symlink") {
-          throw new Error(`Could not edit file: ${filePath}. Path is not a file.`);
-        }
-        const readResult = await env.readTextFile(absolutePath, signal);
-        if (!readResult.ok) throw editAccessError(filePath, readResult.error);
-        if (signal?.aborted) throw new Error("Operation aborted");
-        const { bom, text: content } = stripBom(readResult.value);
-        const originalEnding = detectLineEnding(content);
-        const normalizedContent = normalizeToLF(content);
-        let baseContent: string;
-        let newContent: string;
-        try {
-          ({ baseContent, newContent } = applyEditsToNormalizedContent(normalizedContent, edits, filePath));
-        } catch (error) {
-          throw decorateNotFoundError(
-            error instanceof Error ? error : new Error(String(error)),
-            normalizedContent,
-            edits,
-            filePath,
-          );
-        }
-        if (signal?.aborted) throw new Error("Operation aborted");
-        const finalContent = bom + restoreLineEndings(newContent, originalEnding);
-        const writeResult = await env.writeFile(absolutePath, finalContent, signal);
-        if (!writeResult.ok) throw editAccessError(filePath, writeResult.error);
-        // M23：写后不再查 abort（对齐 EditLinesTool 写前查一次即可）——文件已落盘，
-        // 写后 abort 抛错会跳过 notifyWrite/kg 同步 hooks 并吞掉成功结果（事实与回执分裂）
-        const attachment = await deliverHooks(deps, absolutePath, finalContent, newContent, baseContent, edits);
-        const diffResult = generateDiffString(baseContent, newContent);
-        const summary = `Successfully replaced ${edits.length} block(s) in ${filePath}.`;
-        return {
-          content: [{ type: "text", text: attachment === "" ? summary : `${summary}\n\n${attachment}` }],
-          details: {
-            diff: diffResult.diff,
-            patch: generateUnifiedPatch(filePath, baseContent, newContent),
-            firstChangedLine: diffResult.firstChangedLine,
-          },
-        };
-      });
+      // 临界区（withFileMutationQueue）：只包「读 → 编辑 → 写」——同文件 mutation
+      // 串行化所需的最小窗口。挂点投递（deliverHooks）与 diff 计算在临界区外
+      // （code-review 低危）：文件已落盘、挂点只消费既定内容，与同文件后续
+      // 读改写无需互斥；onEditApplied 附着计算涉及 kg 查询，占在临界区内会
+      // 无谓拉长同文件后续编辑的排队延迟
+      const { baseContent, newContent, finalContent } = await withFileMutationQueue(
+        env,
+        absolutePath,
+        async (): Promise<{ baseContent: string; newContent: string; finalContent: string }> => {
+          if (signal?.aborted) throw new Error("Operation aborted");
+          const info = await env.fileInfo(absolutePath, signal);
+          if (!info.ok) throw editAccessError(filePath, info.error);
+          if (info.value.kind !== "file" && info.value.kind !== "symlink") {
+            throw new Error(`Could not edit file: ${filePath}. Path is not a file.`);
+          }
+          const readResult = await env.readTextFile(absolutePath, signal);
+          if (!readResult.ok) throw editAccessError(filePath, readResult.error);
+          if (signal?.aborted) throw new Error("Operation aborted");
+          const { bom, text: content } = stripBom(readResult.value);
+          const originalEnding = detectLineEnding(content);
+          const normalizedContent = normalizeToLF(content);
+          let baseContent: string;
+          let newContent: string;
+          try {
+            ({ baseContent, newContent } = applyEditsToNormalizedContent(normalizedContent, edits, filePath));
+          } catch (error) {
+            throw decorateNotFoundError(
+              error instanceof Error ? error : new Error(String(error)),
+              normalizedContent,
+              edits,
+              filePath,
+            );
+          }
+          if (signal?.aborted) throw new Error("Operation aborted");
+          const finalContent = bom + restoreLineEndings(newContent, originalEnding);
+          const writeResult = await env.writeFile(absolutePath, finalContent, signal);
+          if (!writeResult.ok) throw editAccessError(filePath, writeResult.error);
+          return { baseContent, newContent, finalContent };
+        },
+      );
+      // M23：写后不再查 abort（对齐 EditLinesTool 写前查一次即可）——文件已落盘，
+      // 写后 abort 抛错会跳过 notifyWrite/kg 同步 hooks 并吞掉成功结果（事实与回执分裂）
+      const attachment = await deliverHooks(deps, absolutePath, finalContent, newContent, baseContent, edits);
+      const diffResult = generateDiffString(baseContent, newContent);
+      const summary = `Successfully replaced ${edits.length} block(s) in ${filePath}.`;
+      return {
+        content: [{ type: "text", text: attachment === "" ? summary : `${summary}\n\n${attachment}` }],
+        details: {
+          diff: diffResult.diff,
+          patch: generateUnifiedPatch(filePath, baseContent, newContent),
+          firstChangedLine: diffResult.firstChangedLine,
+        },
+      };
     },
   };
 }

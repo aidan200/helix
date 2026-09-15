@@ -86,4 +86,12 @@ describe("coord 工具族", () => {
     const tool = createCoordClaimTool({ service: svc, sessionId: "sess-a", instanceId: "main-a" });
     expect(run(tool, { scope: {}, intent: "x" })).rejects.toThrow("projectRoot 或 paths");
   });
+
+  test("claim 参数校验：projectRoot 与 paths 同传 → 响亮报错（消除静默窄化，code-review 低危）", async () => {
+    const { svc } = service();
+    const tool = createCoordClaimTool({ service: svc, sessionId: "sess-a", instanceId: "main-a" });
+    expect(
+      run(tool, { scope: { projectRoot: "/ws/projA", paths: ["src/**"] }, intent: "x" }),
+    ).rejects.toThrow("不可同传");
+  });
 });

@@ -112,7 +112,7 @@ const DONE_CLOSURE = (summary: string) => ({
 /** spawn 一个实例并驱动到 parked（park 工具 + 子进程 parked 上行确认）。 */
 async function spawnParked(h: Harness, task = "链 C 挂起任务"): Promise<string> {
   const spawned = JSON.parse((await runTool(h, "agent_spawn", { task })).content) as { agentId: string };
-  const park = JSON.parse((await runTool(h, "agent_park", { instanceId: spawned.agentId })).content);
+  const park = JSON.parse((await runTool(h, "agent_park", { agentId: spawned.agentId })).content);
   if (!park.parked) throw new Error(`park 被拒：${park.error}`);
   h.runner.reportParked(spawned.agentId, { progress: "做到一半", next: "继续实现" });
   return spawned.agentId;
@@ -152,7 +152,7 @@ describe("② 工具全链：agent_park → parked → agent_status 可见 → a
     const agentId = spawned.agentId;
 
     // park 工具：秒回受理（不等待子进程确认——协议=完成当前工具调用后挂起）
-    const park = await runTool(h, "agent_park", { instanceId: agentId });
+    const park = await runTool(h, "agent_park", { agentId: agentId });
     expect(park.isError).not.toBe(true);
     expect(JSON.parse(park.content)).toEqual({ parked: true });
     // 协议指令经既有 steer 通道注入（文本 = 协议单点常量）
@@ -168,7 +168,7 @@ describe("② 工具全链：agent_park → parked → agent_status 可见 → a
     expect(status[0]).toMatchObject({ agentId, state: "parked", parkedReason: "user" });
 
     // resume 工具：同实例同会话从断点继续
-    const resume = await runTool(h, "agent_resume", { instanceId: agentId });
+    const resume = await runTool(h, "agent_resume", { agentId: agentId });
     expect(resume.isError).not.toBe(true);
     expect(JSON.parse(resume.content)).toEqual({ resumed: true, queued: false });
     expect(h.scheduler.instance(agentId)?.state).toBe("running");
@@ -183,13 +183,13 @@ describe("② 工具全链：agent_park → parked → agent_status 可见 → a
     const h = (current = makeHarness());
     const agentId = await spawnParked(h);
 
-    const again = await runTool(h, "agent_park", { instanceId: agentId });
+    const again = await runTool(h, "agent_park", { agentId: agentId });
     expect(JSON.parse(again.content)).toEqual({ parked: true }); // 已挂起 no-op
     expect(h.runner.sent.filter((s) => s.text === PARK_INSTRUCTION_TEXT)).toHaveLength(1); // 不重发
 
-    const resume = await runTool(h, "agent_resume", { instanceId: agentId });
+    const resume = await runTool(h, "agent_resume", { agentId: agentId });
     expect(JSON.parse(resume.content)).toEqual({ resumed: true, queued: false });
-    const resumeAgain = JSON.parse((await runTool(h, "agent_resume", { instanceId: agentId })).content);
+    const resumeAgain = JSON.parse((await runTool(h, "agent_resume", { agentId: agentId })).content);
     expect(resumeAgain.resumed).toBe(false); // running 未挂起，无需 resume
   });
 });
@@ -197,10 +197,10 @@ describe("② 工具全链：agent_park → parked → agent_status 可见 → a
 describe("③ 错误径：族内形态（JSON outcome 携可读中文 error）", () => {
   test("实例不存在：park/resume 均拒绝且附原因", async () => {
     const h = (current = makeHarness());
-    const park = JSON.parse((await runTool(h, "agent_park", { instanceId: "agent-不存在" })).content);
+    const park = JSON.parse((await runTool(h, "agent_park", { agentId: "agent-不存在" })).content);
     expect(park.parked).toBe(false);
     expect(park.error).toContain("不存在");
-    const resume = JSON.parse((await runTool(h, "agent_resume", { instanceId: "agent-不存在" })).content);
+    const resume = JSON.parse((await runTool(h, "agent_resume", { agentId: "agent-不存在" })).content);
     expect(resume.resumed).toBe(false);
     expect(resume.error).toContain("不存在");
   });
@@ -212,10 +212,10 @@ describe("③ 错误径：族内形态（JSON outcome 携可读中文 error）",
     h.runner.reportClosure(agentId, { result: "done", closure: DONE_CLOSURE("挂起后自然完成") });
     expect(h.scheduler.instance(agentId)?.state).toBe("done");
 
-    const park = JSON.parse((await runTool(h, "agent_park", { instanceId: agentId })).content);
+    const park = JSON.parse((await runTool(h, "agent_park", { agentId: agentId })).content);
     expect(park.parked).toBe(false);
     expect(park.error).toContain("已终态");
-    const resume = JSON.parse((await runTool(h, "agent_resume", { instanceId: agentId })).content);
+    const resume = JSON.parse((await runTool(h, "agent_resume", { agentId: agentId })).content);
     expect(resume.resumed).toBe(false);
     expect(resume.error).toContain("终态");
   });
@@ -225,7 +225,7 @@ describe("③ 错误径：族内形态（JSON outcome 携可读中文 error）",
     const spawned = JSON.parse((await runTool(h, "agent_spawn", { task: "正常运行中" })).content) as {
       agentId: string;
     };
-    const resume = JSON.parse((await runTool(h, "agent_resume", { instanceId: spawned.agentId })).content);
+    const resume = JSON.parse((await runTool(h, "agent_resume", { agentId: spawned.agentId })).content);
     expect(resume.resumed).toBe(false);
     expect(resume.error).toContain("未挂起");
   });

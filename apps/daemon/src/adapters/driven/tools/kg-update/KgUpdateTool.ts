@@ -294,16 +294,7 @@ function execSupersede(deps: KgUpdateToolDeps, args: Record<string, unknown>): s
   const nodeId = requireString(args, "nodeId", "（取自 kg search 返回行或 📎 附着块指针）") as NodeId;
   const reason = requireString(args, "reason", "（推翻理由入审计链）");
   // 目标定位：跨项目全命中——写操作不猜（多命中/零命中均结构化报错）
-  const hits = deps.query.locate(nodeId);
-  if (hits.length === 0) {
-    throw new Error(`节点 ${nodeId} 不存在（先 kg search 确认；id 取自返回行指针）`);
-  }
-  if (hits.length > 1) {
-    throw new Error(
-      `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，请人工确认目标项目`,
-    );
-  }
-  const { project } = hits[0]!;
+  const project = locateUnique(deps, nodeId, "节点");
   const iterationId = resolveIterationId(deps, args, project);
   const context = deps.taskContext?.();
   const draft = draftOf(args["replacement"]);
@@ -333,15 +324,20 @@ function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): 
   if (kind !== "rule" && kind !== "entity") {
     throw new Error(`kind 应为 rule / entity（收到 "${kind}"——笔误防御，不静默按 rule 落账）`);
   }
+  // 可选字段单次取值（收敛双调用模式——code-review 低危）
+  const body = optionalString(args, "body");
+  const domain = optionalEnum<NodeDomain>(args, "domain");
+  const layer = optionalEnum<NodeLayer>(args, "layer");
+  const status = optionalEnum<DraftStatus>(args, "status");
   const draft: NodeDraft = {
     kind,
     name: requireString(args, "name", "（节点名）"),
     digest: requireString(args, "digest", "（≤2 行摘要）"),
     scene: requireString(args, "scene", "（R23 沉淀必填——「本规则适用于：改动 X 类文件 / 做 Y 类决策前」）"),
-    ...(optionalString(args, "body") !== undefined ? { body: optionalString(args, "body")! } : {}),
-    ...(optionalEnum<NodeDomain>(args, "domain") !== undefined ? { domain: optionalEnum<NodeDomain>(args, "domain")! } : {}),
-    ...(optionalEnum<NodeLayer>(args, "layer") !== undefined ? { layer: optionalEnum<NodeLayer>(args, "layer")! } : {}),
-    ...(optionalEnum<DraftStatus>(args, "status") !== undefined ? { status: optionalEnum<DraftStatus>(args, "status")! } : {}),
+    ...(body !== undefined ? { body } : {}),
+    ...(domain !== undefined ? { domain } : {}),
+    ...(layer !== undefined ? { layer } : {}),
+    ...(status !== undefined ? { status } : {}),
   };
   const anchors = anchorsOf(args["anchors"]);
   const project = resolveTargetProject(deps, args);
@@ -376,16 +372,7 @@ function execCreateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): 
  */
 function execUpdateNode(deps: KgUpdateToolDeps, args: Record<string, unknown>): string {
   const nodeId = requireString(args, "nodeId", "（取自 kg search 返回行 / 附着块指针）") as NodeId;
-  const hits = deps.query.locate(nodeId);
-  if (hits.length === 0) {
-    throw new Error(`节点 ${nodeId} 不存在（先 kg search 确认；id 取自返回行指针）`);
-  }
-  if (hits.length > 1) {
-    throw new Error(
-      `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，请人工确认目标项目`,
-    );
-  }
-  const { project } = hits[0]!;
+  const project = locateUnique(deps, nodeId, "节点");
   const iterationId = resolveIterationId(deps, args, project);
   // patch 整体透传（薄壳零自判——空/未知字段/枚举越界均由服务层校验前置拒绝）
   const patch = args["patch"] as NodePatch;
@@ -400,16 +387,7 @@ function execDeclareAnchors(deps: KgUpdateToolDeps, args: Record<string, unknown
   if (anchors === null || anchors.length === 0) {
     throw new Error("declareAnchors 需要 anchors（非空数组 [{scopeKind, pattern}]——path→glob；symbol→path#symbol；global 不携带 pattern）");
   }
-  const hits = deps.query.locate(nodeId);
-  if (hits.length === 0) {
-    throw new Error(`节点 ${nodeId} 不存在（先 kg search 确认；id 取自返回行指针）`);
-  }
-  if (hits.length > 1) {
-    throw new Error(
-      `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，请人工确认目标项目`,
-    );
-  }
-  const { project } = hits[0]!;
+  const project = locateUnique(deps, nodeId, "节点");
   const iterationId = resolveIterationId(deps, args, project);
   writeOrThrow(deps, project, createOp(deps, args, { kind: "declareAnchors", iterationId, nodeId, anchors }));
   return `已声明锚 ${nodeId}（${anchors.length} 条，幂等去重；审计行已入 change_log）`;
@@ -444,16 +422,7 @@ function execPrune(deps: KgUpdateToolDeps, args: Record<string, unknown>): strin
   const nodeId = optionalString(args, "nodeId") as NodeId | undefined;
   let project: string;
   if (nodeId !== undefined) {
-    const hits = deps.query.locate(nodeId);
-    if (hits.length === 0) {
-      throw new Error(`节点 ${nodeId} 不存在（先 kg search 确认；id 取自返回行指针）`);
-    }
-    if (hits.length > 1) {
-      throw new Error(
-        `节点 ${nodeId} 在多个项目命中（${hits.map((h) => projectName(h.project)).join("、")}）——不支持跨项目猜测，请人工确认目标项目`,
-      );
-    }
-    project = hits[0]!.project;
+    project = locateUnique(deps, nodeId, "节点");
   } else {
     project = resolveTargetProject(deps, args);
   }
@@ -498,7 +467,8 @@ function execAddEdge(deps: KgUpdateToolDeps, args: Record<string, unknown>): str
   return `已建边 ${srcId} —${verb}→ ${dstId}（project: ${projectName(project)}，幂等去重；审计行已入 change_log）`;
 }
 
-/** addEdge 端点定位：locate 全命中唯一项目（零命中/多命中均结构化报错，不猜）。 */
+/** 目标定位唯一化（原 addEdge 端点定位，令全 op 共用）：locate 全命中唯一项目
+ * （零命中/多命中均结构化报错，不猜）——label 为报错前缀（节点/边起点/边终点）。 */
 function locateUnique(deps: KgUpdateToolDeps, nodeId: NodeId, label: string): string {
   const hits = deps.query.locate(nodeId);
   if (hits.length === 0) {
@@ -551,6 +521,9 @@ function execProposeCandidate(deps: KgUpdateToolDeps, args: Record<string, unkno
   const iterationId = resolveIterationId(deps, args, project);
   const context = deps.taskContext?.();
   const sourceTaskId = optionalString(args, "taskId") ?? context?.taskId;
+  // 可选字段单次取值（收敛双调用模式——code-review 低危）
+  const body = optionalString(args, "body");
+  const targetNode = optionalString(args, "targetNode");
   const result = writeOrThrow(
     deps,
     project,
@@ -559,8 +532,8 @@ function execProposeCandidate(deps: KgUpdateToolDeps, args: Record<string, unkno
       iterationId,
       candidateKind: candidateKind as "sediment",
       title,
-      ...(optionalString(args, "body") !== undefined ? { body: optionalString(args, "body")! } : {}),
-      ...(optionalString(args, "targetNode") !== undefined ? { targetNode: optionalString(args, "targetNode")! } : {}),
+      ...(body !== undefined ? { body } : {}),
+      ...(targetNode !== undefined ? { targetNode } : {}),
       ...(sourceTaskId !== undefined ? { sourceTaskId } : {}),
       // P0 ④：无迭代归属时省略（溯源列可空；主锚 task_id）
       ...(iterationId !== null ? { sourceIterationId: iterationId } : {}),
@@ -578,6 +551,10 @@ function execDecideCandidate(deps: KgUpdateToolDeps, args: Record<string, unknow
   const decision = requireString(args, "decision", "（applied / discarded / deferred）");
   const project = resolveTargetProject(deps, args);
   const iterationId = resolveIterationId(deps, args, project);
+  // 可选字段单次取值（收敛双调用模式——code-review 低危）
+  const reason = optionalString(args, "reason");
+  const formalId = optionalString(args, "formalId");
+  const appliedNodeId = optionalString(args, "appliedNodeId");
   const result = writeOrThrow(
     deps,
     project,
@@ -586,9 +563,9 @@ function execDecideCandidate(deps: KgUpdateToolDeps, args: Record<string, unknow
       iterationId,
       candidateId,
       decision: decision as "applied" | "discarded" | "deferred",
-      ...(optionalString(args, "reason") !== undefined ? { reason: optionalString(args, "reason")! } : {}),
-      ...(optionalString(args, "formalId") !== undefined ? { formalId: optionalString(args, "formalId")! } : {}),
-      ...(optionalString(args, "appliedNodeId") !== undefined ? { appliedNodeId: optionalString(args, "appliedNodeId")! } : {}),
+      ...(reason !== undefined ? { reason } : {}),
+      ...(formalId !== undefined ? { formalId } : {}),
+      ...(appliedNodeId !== undefined ? { appliedNodeId } : {}),
     }),
   );
   const warning = result.warning !== undefined ? `；警告：${result.warning}` : "";

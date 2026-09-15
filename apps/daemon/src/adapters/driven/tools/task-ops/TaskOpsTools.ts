@@ -123,7 +123,7 @@ const failJobParameters = {
 const planReadParameters = {
   type: "object",
   properties: {
-    instanceId: { type: "string", description: "批次执行实例 id（读该实例的工作台账；不传 = 提示需指定实例）" },
+    instanceId: { type: "string", description: "批次执行实例 id（读该实例的工作台账）" },
   },
   required: ["instanceId"],
   additionalProperties: false,
@@ -132,7 +132,7 @@ const planReadParameters = {
 // ── 工具族装配 ─────────────────────────────────────────────
 
 /**
- * 任务引擎回口工具族（六工具）+ 编排者台账读工具（编排者 plan_read 变体：
+ * 任务引擎回口工具族（七工具）+ 编排者台账读工具（编排者 plan_read 变体：
  * 按实例 id 参数读批次台账——与 SubAgent 本实例变体同名不同形，装配面
  * 互斥：本族只进编排会话 executor）。
  */
@@ -248,7 +248,7 @@ export function createTaskOpsTools(deps: TaskOpsToolDeps): AgentHarnessTool<Exec
     {
       name: "task_fail_job",
       label: "task_fail_job",
-      description: "申报任务失败（附失败理由，如实呈现；job → failed 终态，不可恢复）。",
+      description: "申报任务失败（附失败理由，如实呈现；job → failed（仅人工 task.retry 可复活；编排面无恢复通道））。",
       parameters: failJobParameters as any,
       async execute(toolCallId, params): Promise<AgentToolResult<undefined>> {
         void toolCallId;
