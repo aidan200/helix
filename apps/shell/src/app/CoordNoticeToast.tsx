@@ -24,7 +24,10 @@ export default function CoordNoticeToast() {
       const p = e.payload as CoordChangedPayload;
       // escalated = 同对冲突反复无动作（留给人裁决的信号）→ warn 提级；其余 info 语义
       //（ToastKind 词表无 info——用 ok 档承载轻通知）
-      toast.push(p.escalated === true ? "warn" : "ok", p.text);
+      // text 守卫（TaskSyncHintToast 先例）：非 string/空串不入 toast（防御
+      // 非契约载荷/字段缺失时渲染空气泡）
+      if (typeof p.text === "string" && p.text !== "")
+        toast.push(p.escalated === true ? "warn" : "ok", p.text);
     });
   }, [subscribeCoordFrames, toast]);
 

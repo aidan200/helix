@@ -28,7 +28,13 @@ export function formatDuration(ms: number): string {
 /** token 档位格式化（F3.3 统计徽标；T4.2 消费）：≥1M 一位小数 M；≥1k 取整 k；否则原值。 */
 export function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  if (n >= 1_000) {
+    const k = Math.round(n / 1_000);
+    // 取整结果 ≥1000（n∈[999500,1000000)）升 M 档：渲染 "1.0M" 而非 "1000k"
+    // ——四舍五入跨过档位边界时以显示档位为准，避免出现 4 字符伪档
+    if (k >= 1_000) return `${(k / 1_000).toFixed(1)}M`;
+    return `${k}k`;
+  }
   return String(n);
 }
 

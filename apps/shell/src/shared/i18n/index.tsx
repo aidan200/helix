@@ -31,6 +31,8 @@ function detectLang(): Lang {
   } catch {
     /* localStorage 不可用时退回探测 */
   }
+  // zh-TW/zh-HK 等繁体同样落 zh-CN 简体——词表无繁体面，取舍钉死（非疏
+  // 漏）：繁体用户读简体优于读英文；将来若引入 zh-Hant 词条再分叉
   return navigator.language.startsWith("zh") ? "zh-CN" : "en-US";
 }
 

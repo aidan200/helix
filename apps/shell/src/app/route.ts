@@ -29,9 +29,13 @@ export type AppRoute =
   | typeof ROUTE_TASKS
   | typeof ROUTE_SETTINGS;
 
-/** pathname → 路由（未知路径——含退役 /models 与旧 /settings/models——回落工作台，F-9 既有语义）。 */
+/** pathname → 路由（未知路径——含退役 /models 与旧 /settings/models——回落工作台，F-9 既有语义）；
+ * 尾斜杠先行规范化（"/skills/" 与 "/skills" 同路由，不再静默回落工作台）。 */
 export function routeOfPath(pathname: string): AppRoute {
-  switch (pathname) {
+  // 尾斜杠规范化：外部链接/手输常带尾斜杠，剥到无（"/" 剥空后走 default
+  // 回落，与工作台常量语义一致不变）
+  const normalized = pathname.replace(/\/+$/, "");
+  switch (normalized) {
     case ROUTE_SKILLS:
       return ROUTE_SKILLS;
     case ROUTE_TRACE:

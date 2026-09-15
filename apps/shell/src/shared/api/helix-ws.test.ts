@@ -163,6 +163,37 @@ describe("HelixWsClient", () => {
     expect(conn.some((c) => c.kind === "gave-up")).toBe(false);
   });
 
+  it("握手期异常 close（无 error 帧）→ close code 记入错误信息（gave-up message 可见）", async () => {
+    const { transports, conn } = await setup();
+    transports[0]!.netClose(); // attempt 1 失败（code 1006，无 error 帧可依赖）
+    await vi.advanceTimersByTimeAsync(100);
+    transports[1]!.netClose(); // attempt 2
+    await vi.advanceTimersByTimeAsync(200);
+    transports[2]!.netClose(); // attempt 3 → 耗尽 gave-up
+    await vi.advanceTimersByTimeAsync(400);
+    const gaveUp = conn.find((c) => c.kind === "gave-up");
+    expect(gaveUp).toMatchObject({ kind: "gave-up", attempts: 3 });
+    expect(gaveUp?.message).toBe("ws closed (code 1006)");
+  });
+
+  it("error 帧先行的 close 不被 close code 覆盖根因 message（展示面优先根因）", async () => {
+    const { transports, conn } = await setup();
+    for (let i = 0; i < 2; i++) {
+      transports[i]!.open();
+      transports[i]!.receive({
+        v: 0,
+        type: "connection.error",
+        payload: { code: "auth.invalid_token", message: "token mismatch" },
+      });
+      transports[i]!.netClose();
+      await vi.advanceTimersByTimeAsync(i === 0 ? 100 : 200);
+    }
+    transports[2]!.netClose(); // attempt 3 无 error 帧——根因已记，保留不覆盖
+    await vi.advanceTimersByTimeAsync(400);
+    const gaveUp = conn.find((c) => c.kind === "gave-up");
+    expect(gaveUp?.message).toBe("token mismatch");
+  });
+
   it("stop() 后不再重连（用户主动关闭语义）", async () => {
     const { client, transports } = await setup();
     transports[0]!.open();
