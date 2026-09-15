@@ -38,6 +38,12 @@ export const AGENT_KINDS: readonly AgentKind[] = ["main-session", "subagent-work
 /** 只读系统三 kind 固定序（协议 system 块序同构；orchestrator 在前）。 */
 export const SYSTEM_AGENT_KINDS: readonly SystemAgentKind[] = ["orchestrator", "subagent-kg-writer", "subagent-code-reviewer"];
 
+/** 系统三 kind 判别（SYSTEM_AGENT_KINDS 单源——AgentPage readOnly / ProfileCard
+ *  isSystem 消费；新增系统 kind 只改 SYSTEM_AGENT_KINDS 一处，比较点零漂移）。 */
+export function isSystemAgentKind(id: AgentId): id is SystemAgentKind {
+  return (SYSTEM_AGENT_KINDS as readonly AgentId[]).includes(id);
+}
+
 export interface AgentPageState {
   /** 读面状态（idle → loading → ready / error 互斥；静默重拉保 ready） */
   status: "idle" | "loading" | "ready" | "error";

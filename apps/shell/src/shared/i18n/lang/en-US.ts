@@ -86,6 +86,7 @@ export const enUS = {
       disabledNote: "The current model does not support reasoning; thinking level is not adjustable. Requests fall back to provider defaults.",
       clampedHint: "{override} → {effective} (clamped by model capability)",
       capabilityLoading: "Fetching model capability…",
+      setFail: "Set failed: daemon connection unavailable, thinking level not sent, please retry later",
       off: "OFF",
     },
     attach: {

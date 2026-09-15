@@ -21,7 +21,8 @@
  *   态才发（ModelSwitchMenu 先例），效应依赖连接态——握手前发送被
  *   HelixWsClient 静默丢弃，conn 迁移 connected 后补拉（AgentPage 先例）；
  * - 选档 → setSessionThinking(level)（SessionContext 发 thinking.set；
- *   草稿态本地暂存，draft-model 先例）。
+ *   草稿态本地暂存，draft-model 先例）；返回值消费（TR-168/TR-84，
+ *   code-review 低危组11）：=== false（未连接未发出）→ err toast 交代。
  *
  * 草稿基准换源（P1 T4，mode-framework-p1 D3/D4）：草稿态（sessionId===null）
  * 刻度/显示基准 = 当前模式槽位（agentConfig.slots，selectModeSlot 解析）
@@ -39,6 +40,7 @@
  */
 import { useEffect, useState } from "react";
 import { useI18n } from "@/shared/i18n";
+import { useToast } from "@/shared/ui/Toast";
 import { useSession } from "@/entities/session/SessionContext";
 import { selectModeSlot } from "@/entities/session/model/consumers/agent-config";
 import { cn } from "@/shared/lib/cn";
@@ -47,6 +49,7 @@ import ThinkingLevelSlider from "./ThinkingLevelSlider";
 
 const ComposerThinkingPicker = function ComposerThinkingPicker() {
   const { t } = useI18n();
+  const toast = useToast();
   const { state, topology, setSessionThinking, requestModelConfig } = useSession();
   const [open, setOpen] = useState(false);
   const mc = topology.modelConfig;
@@ -151,7 +154,13 @@ const ComposerThinkingPicker = function ComposerThinkingPicker() {
               // 位（槽位未拉取/未配 → off，默认关）；非草稿恒 off 位
               ghostValue={isDraft ? draftSlot?.thinking ?? "off" : "off"}
               peak={peak}
-              onSelect={setSessionThinking}
+              onSelect={(level) => {
+                // TR-168/TR-84：send 返回值必消费——false（未连接）不静默，
+                // err toast 交代（覆盖未落，重试即可）
+                if (setSessionThinking(level) === false) {
+                  toast.push("err", t("chat.thinking.setFail"));
+                }
+              }}
               ariaLabel={t("chat.thinking.sliderLabel")}
             />
           ) : (

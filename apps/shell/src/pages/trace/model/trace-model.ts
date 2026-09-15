@@ -25,12 +25,29 @@ import type {
   TraceQueryFilterEcho,
   TraceQueryPayload,
 } from "@helix/protocol";
+// 千分位单源（code-review 低危）：本文件行摘要与 ui 层展示共用 ui/format
+// 既有导出（format.ts 零 import，无环）。
+import { fmtNum } from "../ui/format";
 
 /** 查询分页步进（契约缺省 limit=50 同值；显式发送保证 filterEcho 可比对）。 */
 export const TRACE_PAGE_SIZE = 50;
 
-/** 时间范围档位（秒；null = 全部时间）。 */
-export const TRACE_RANGE_OPTIONS: readonly (number | null)[] = [null, 3600, 900, 300];
+/** 时间范围档位（秒；null = 全部时间）+ 词条键同槽（code-review 低危：
+ *  value+labelKey 合一单源——原 model 值数组与 ui 层 RANGE_LABEL_KEYS 双平行
+ *  数组按索引对位，加档/调序即漂移；同槽后结构性免疫）。 */
+export interface TraceRangeOption {
+  /** 秒；null = 全部时间。 */
+  value: number | null;
+  /** i18n 词条键（ui 层 t() 消费；纯字符串常量，不破坏 model 纯度纪律）。 */
+  labelKey: string;
+}
+
+export const TRACE_RANGE_OPTIONS: readonly TraceRangeOption[] = [
+  { value: null, labelKey: "trace.controls.rangeAll" },
+  { value: 3600, labelKey: "trace.controls.range1h" },
+  { value: 900, labelKey: "trace.controls.range15m" },
+  { value: 300, labelKey: "trace.controls.range5m" },
+];
 
 // ── 类型 chips（原型 8 类目 → 真实 DomainEventType 映射）────
 
@@ -184,9 +201,13 @@ export type TraceCategoryKey =
   | "lifecycle"
   | "engine.error"
   | "compaction"
-  | "model";
+  | "model"
+  | "unknown";
 
-/** 事件类型 → 展示类目（tt 徽标着色 / chip 词汇同源）。 */
+/** 事件类型 → 展示类目（tt 徽标着色 / chip 词汇同源）。default 分支按
+ *  前缀分派（agent./turn./steer. 生命周期族——新增生命周期事件类型零漂移
+ *  落 lifecycle）；其余未知类型 → unknown（不混入 lifecycle 徽标，新事件
+ *  类型可见可发现；code-review 低危）。 */
 export function categoryOfType(type: string): TraceCategoryKey {
   switch (type) {
     case "message.completed":
@@ -205,7 +226,10 @@ export function categoryOfType(type: string): TraceCategoryKey {
     case "agent.model.changed":
       return "model";
     default:
-      return "lifecycle";
+      if (type.startsWith("agent.") || type.startsWith("turn.") || type.startsWith("steer.")) {
+        return "lifecycle";
+      }
+      return "unknown";
   }
 }
 
@@ -216,10 +240,6 @@ const asNum = (v: unknown): number | null => (typeof v === "number" && Number.is
 
 function truncateText(s: string, max = 80): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
-}
-
-function fmtNum(n: number): string {
-  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 /** 行摘要（原型 summaryHtml 的数据驱动版；纯文本，着色归类目徽标）。 */

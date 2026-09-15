@@ -93,6 +93,7 @@ export const zhCN = {
       disabledNote: "当前模型不支持 reasoning，推理强度不可调；请求将按 provider 默认行为发送。",
       clampedHint: "{override} → {effective}（模型能力所限）",
       capabilityLoading: "正在获取模型能力信息…",
+      setFail: "设置失败：与 daemon 的连接不可用，推理档位未发出，请稍后重试",
       off: "OFF",
     },
     attach: {

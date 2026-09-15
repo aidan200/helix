@@ -108,34 +108,28 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer({ f
         ? t("chat.composer.placeholderConnecting")
         : t("chat.composer.placeholderWaiting");
 
-  // 发送提交（trim 门控共享）。T9 附件载荷契约（测试钉死两种调用形态）：
+  // 发送提交（trim 门控共享）。T9 附件载荷契约（code-review 低危组11 单一
+  // 形态收口：原按钮/Alt+Enter 双形态 submit(text, undefined) vs submit(text)
+  // 已统一——两路径同形，测试契约不再分叉）：
   // - 携带附件 → submit(text, images)；
-  // - 无附件 → 点击钮路径 submit(text, undefined)（显式第二参）；
-  //   Alt+Enter 路径 submit(text)（单参旧形态，T8 语义零变更）。
+  // - 无附件 → submit(text, undefined)（显式第二参，两路径一致）。
   // M9（#2.18，TR-84）：submit 返回 false（未连接发送失败）→ err toast 交代
   //（草稿由 command-surface 保留未清，重试即可）。
-  const trySend = useCallback(
-    (explicitImagesArg: boolean) => {
-      // 纯空白草稿（含换行/空格）不发送（canSend 语义之外的前置 trim 门控）
-      if (!canSend || state.draft.trim() === "") return;
-      const ok =
-        state.attachments.length > 0
-          ? submit(state.draft, state.attachments)
-          : explicitImagesArg
-            ? submit(state.draft, undefined)
-            : submit(state.draft);
-      if (!ok) toast.push("err", t("chat.composer.sendFail"));
-    },
-    [canSend, state.attachments, state.draft, submit, toast, t],
-  );
+  const trySend = useCallback(() => {
+    // 纯空白草稿（含换行/空格）不发送（canSend 语义之外的前置 trim 门控）
+    if (!canSend || state.draft.trim() === "") return;
+    const ok =
+      state.attachments.length > 0 ? submit(state.draft, state.attachments) : submit(state.draft, undefined);
+    if (!ok) toast.push("err", t("chat.composer.sendFail"));
+  }, [canSend, state.attachments, state.draft, submit, toast, t]);
 
-  const onSend = useCallback(() => trySend(true), [trySend]);
+  const onSend = useCallback(() => trySend(), [trySend]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Alt+Enter（mac Option）发送；Enter / Shift+Enter / Cmd+Enter 不拦截（原生换行）
     if (e.key === "Enter" && e.altKey) {
       e.preventDefault();
-      trySend(false);
+      trySend();
     }
   };
 

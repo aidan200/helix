@@ -22,6 +22,7 @@ import type {
 import {
   ALL_TRACE_TYPES,
   TRACE_PAGE_SIZE,
+  TRACE_RANGE_OPTIONS,
   TRACE_TYPE_CATEGORIES,
   buildTimelineRows,
   buildTraceQuery,
@@ -368,6 +369,26 @@ describe("5. 上下文卡（AD-6 双段数据源 fold）", () => {
     expect(categoryOfType("agent.model.changed")).toBe("model");
     expect(categoryOfType("tool.call.result")).toBe("tool");
     expect(categoryOfType("agent.spawned")).toBe("lifecycle");
+  });
+
+  it("categoryOfType default 分支：生命周期族前缀分派，其余未知类型 → unknown", () => {
+    // 前缀族（与 TRACE_TYPE_CATEGORIES lifecycle 桶同族——新增类型零漂移）
+    expect(categoryOfType("turn.started")).toBe("lifecycle");
+    expect(categoryOfType("agent.future.queued")).toBe("lifecycle"); // 未列举的生命周期新类型
+    expect(categoryOfType("steer.drained")).toBe("lifecycle");
+    // 未知前缀 → unknown（不混入 lifecycle；新事件类型可见可发现）
+    expect(categoryOfType("task.dispatched")).toBe("unknown");
+    expect(categoryOfType("mcp.server.added")).toBe("unknown");
+    expect(categoryOfType("")).toBe("unknown");
+  });
+
+  it("TRACE_RANGE_OPTIONS 单源同槽：value+labelKey 成对（顺序 = 全部/1h/15m/5m）", () => {
+    expect(TRACE_RANGE_OPTIONS).toEqual([
+      { value: null, labelKey: "trace.controls.rangeAll" },
+      { value: 3600, labelKey: "trace.controls.range1h" },
+      { value: 900, labelKey: "trace.controls.range15m" },
+      { value: 300, labelKey: "trace.controls.range5m" },
+    ]);
   });
 
   it("快照降级：snapshotMissing=true 的记录 fold 不 throw（timeline/名称均可用）", () => {

@@ -51,6 +51,7 @@ import {
   SYSTEM_AGENT_KINDS,
   agentPageReducer,
   createAgentPageState,
+  isSystemAgentKind,
   selectAgentPageView,
   type AgentId,
   type AgentKind,
@@ -59,7 +60,7 @@ import {
 } from "./model/agent-config-model";
 import ProfileCard, { agentTitleOf } from "./ui/ProfileCard";
 
-/** 写面载荷（resourceType 收窄于协议四值，页面只发这四类）。 */
+/** 写面载荷（resourceType 收窄于协议五值，页面只发这五类）。 */
 type WriteResource = AgentWriteResource;
 
 /**
@@ -486,11 +487,7 @@ const AgentPage = function AgentPage({ path }: { path: string }) {
                 skillContentPending={state.skillContentPending}
                 skillContentOpen={state.skillContentOpen}
                 onSkillContentToggle={onSkillContentToggle}
-                readOnly={
-                  state.selected === "orchestrator" ||
-                  state.selected === "subagent-kg-writer" ||
-                  state.selected === "subagent-code-reviewer"
-                }
+                readOnly={isSystemAgentKind(state.selected)}
                 pinnedTools={
                   state.selected === "subagent-kg-writer"
                     ? state.system["subagent-kg-writer"]?.pinnedTools

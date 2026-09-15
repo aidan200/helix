@@ -2,8 +2,9 @@
  * P-1 TracePage 展示格式化（组件层纯函数；原型 P-1-trace.html fmtTime/
  * fmtClock/fmtDur/fmtNum/timeLine 口径对齐）。
  *
- * 与 model/trace-model.ts 的分工：model 管状态与 fold（无展示格式），
- * 本文件管展示文本（时间/时长/计数/实例起止行）。
+ * 与 model/trace-model.ts 的分工：model 管状态与 fold，本文件管展示文本
+ * （时间/时长/计数/实例起止行）；fmtNum 为双面共用导出（model 行摘要
+ * summarizeTraceEvent 复用，code-review 单源）。
  */
 
 const pad = (n: number, len = 2): string => String(n).padStart(len, "0");

@@ -153,6 +153,20 @@ describe("P2ThinkingField · on/off 开关形态（T3）", () => {
     expect(u.field.querySelector(".tl-note")!.textContent).toContain("不支持 reasoning");
   });
 
+  it("reasoning=true 但 thinkingLevels 空：开关 disabled（无档可写不静默）+ 无滑块 + 点击零写命令", () => {
+    const { field, switchEl, onSelect, onClear } = setup({
+      thinkingLevel: null,
+      capability: cap("odd/no-levels-model", true, []),
+    });
+    expect(switchEl.disabled).toBe(true); // 置灰交代（原形态：点击静默无操作）
+    expect(switchEl.getAttribute("aria-checked")).toBe("false");
+    expect(field.querySelector(".tl-track")).toBeNull(); // 滑块不渲染
+    expect(field.classList.contains("disabled")).toBe(false); // 非 reasoningOff 主禁用态
+    fireEvent.click(switchEl);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onClear).not.toHaveBeenCalled();
+  });
+
   it("能力位未判明（capability=undefined）：开关 disabled + capabilityLoading 提示位", () => {
     const { field, switchEl } = setup({ thinkingLevel: null, capability: undefined });
     expect(switchEl.disabled).toBe(true);

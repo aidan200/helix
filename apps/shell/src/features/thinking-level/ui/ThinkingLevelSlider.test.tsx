@@ -112,6 +112,26 @@ describe("ThinkingLevelSlider · 选档三通道（F1.1）", () => {
     fireEvent.keyDown(max.track, { key: "ArrowUp" }); // 边界钳制：不发令
     expect(max.onSelect).not.toHaveBeenCalled();
   });
+
+  it("ghost 模式边界键：钳制终点 = 预览位时不发令（防 ghost 意外转显式设置）；离位键正常发令", () => {
+    // P-1 消费形态：刻度含 UI 合成 OFF 第 0 位（ghost 常态停 off，默认关）
+    const OFF_SIX = ["off", ...SIX];
+    // ghost 停 off（第 0 位）：ArrowLeft 钳制回 off 位 → 不发令（原缺陷：转显式 set("off")）
+    const g0 = setup(OFF_SIX, null, { ghostValue: "off" });
+    fireEvent.keyDown(g0.track, { key: "ArrowLeft" });
+    expect(g0.onSelect).not.toHaveBeenCalled();
+    cleanup();
+    // ghost 停 low：ArrowRight → medium（离预览位）→ 发令；不误发预览位档
+    const gm = setup(OFF_SIX, null, { ghostValue: "low" });
+    fireEvent.keyDown(gm.track, { key: "ArrowRight" });
+    expect(gm.onSelect).toHaveBeenCalledWith("medium");
+    expect(gm.onSelect).not.toHaveBeenCalledWith("low");
+    cleanup();
+    // ghost 停最高位：ArrowRight 钳制回原位 → 不发令
+    const gx = setup(OFF_SIX, null, { ghostValue: "max" });
+    fireEvent.keyDown(gx.track, { key: "ArrowRight" });
+    expect(gx.onSelect).not.toHaveBeenCalled();
+  });
 });
 
 describe("ThinkingLevelSlider · 修饰态", () => {
