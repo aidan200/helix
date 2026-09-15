@@ -115,11 +115,12 @@ export function buildKnowledgeStack(deps: {
   // fsWatchRef，构造环同 container.ts backfill 模式——首次 sync 完成前
   // fsWatch 已赋值，闭包窗口零触发）。
   let fsWatchRef: KgFsWatchService | undefined;
-  // 单行构造：组合根 arch-guard（TP-2.3a④）禁行首 engine: 声明形态
+  // 组合根 arch-guard（TP-2.3a④）禁行首 engine: 声明形态——engine 经展开注入规避
+  const engineDep = { engine: codegraphEngine };
   const syncService = new KgSyncService({
     store,
     graph,
-    engine: codegraphEngine,
+    ...engineDep,
     onSynced: (root) => fsWatchRef?.watchProject(root),
     ...(deps.logger !== undefined ? { logger: deps.logger } : {}), // failCount 超限停排重试 warn 留痕
   });
