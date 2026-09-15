@@ -23,13 +23,6 @@ export interface TraceControlsProps {
   onToggleChip: (key: string, multi: boolean) => void;
 }
 
-const RANGE_LABEL_KEYS = [
-  "trace.controls.rangeAll",
-  "trace.controls.range1h",
-  "trace.controls.range15m",
-  "trace.controls.range5m",
-] as const;
-
 const TraceControls = function TraceControls({
   rangeSec,
   types,
@@ -52,9 +45,9 @@ const TraceControls = function TraceControls({
               onSelectRange(e.target.value === "all" ? null : Number(e.target.value))
             }
           >
-            {TRACE_RANGE_OPTIONS.map((opt, i) => (
-              <option key={opt ?? "all"} value={opt === null ? "all" : String(opt)}>
-                {t(RANGE_LABEL_KEYS[i]!)}
+            {TRACE_RANGE_OPTIONS.map((opt) => (
+              <option key={opt.value ?? "all"} value={opt.value === null ? "all" : String(opt.value)}>
+                {t(opt.labelKey)}
               </option>
             ))}
           </select>

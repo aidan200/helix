@@ -12,7 +12,8 @@
  * - 能力位驱动：刻度数 = levels.length（CatalogModel.thinkingLevels 防腐字段
  *   消费，不硬编码六档；单档 pct 防除零）；
  * - 选档三通道：拖动（pointerdown/move 最近刻度吸附，同档去重不重发，up 收束）
- *   / 点刻度 / 方向键（ArrowRight/Up 升、ArrowLeft/Down 降，边界钳制不发令）；
+ *   / 点刻度 / 方向键（ArrowRight/Up 升、ArrowLeft/Down 降，边界钳制不发令
+ *   ——ghost 预览位同理：钳制终点 = 预览位时不发令，防边界键意外转显式设置）；
  * - value = 生效档（强调位）；ghostValue = 未配置兜底预览位（P-1 默认关：
  *   空心 thumb + 刻度去强调，仅预览不可提交语义由消费方定）；
  * - disabled → 三通道全不响应 + 不可聚焦；peak → .peak class（thumb 辉光）。
@@ -119,7 +120,10 @@ const ThinkingLevelSlider = function ThinkingLevelSlider({
     else if (e.key === "ArrowLeft" || e.key === "ArrowDown") next = Math.max(0, base - 1);
     else return;
     e.preventDefault();
-    if (next !== curIdx) fireSelect(levels[next]!); // 边界钳制：无变化不发令
+    // 边界钳制：无变化不发令——next === curIdx（已显式配置该档）或
+    // next === shownIdx（ghost 预览位恰为钳制终点：边界键不把 ghost 预览
+    // 意外转显式设置，code-review 低危组11）
+    if (next !== curIdx && next !== shownIdx) fireSelect(levels[next]!);
   };
 
   return (

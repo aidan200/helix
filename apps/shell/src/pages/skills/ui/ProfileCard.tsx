@@ -29,15 +29,16 @@ import { cn } from "@/shared/lib/cn";
 import { filterAvailableModels } from "@/features/model-switch/model/available-models";
 import { resolveThinkingCapability } from "@/features/thinking-level/model/thinking-capability";
 import type { AuthProviderEntry } from "@/entities/session/model/state";
-import type {
-  AgentId,
-  AgentKind,
-  AgentWriteResource,
-  SystemAgentKind,
+import {
+  isSystemAgentKind,
+  type AgentId,
+  type AgentKind,
+  type AgentWriteResource,
+  type SystemAgentKind,
 } from "../model/agent-config-model";
 import P2ThinkingField from "./P-2-ThinkingField";
 
-/** 写面载荷（resourceType 收窄于协议四值，页面只发这四类）。 */
+/** 写面载荷（resourceType 收窄于协议五值，页面只发这五类）。 */
 type WriteResource = AgentWriteResource;
 
 /** M49：ProfileCard 派生——S3a 可用性过滤后按 provider 分组（P-4 optgroup
@@ -213,7 +214,8 @@ export default function ProfileCard({
 }) {
   const { t } = useI18n();
   const isMain = kind === "main-session";
-  const isSystem = kind === "orchestrator" || kind === "subagent-kg-writer" || kind === "subagent-code-reviewer";
+  // 单源判别（SYSTEM_AGENT_KINDS.includes；code-review：三字面量比较漂移面收敛）
+  const isSystem = isSystemAgentKind(kind);
   const selId = `sel-model-${kind}`;
   /** S3a 可用性口径（与 chat P-3 同一过滤函数、同一数据源）：configured
    * provider join + 当前槽位模型兜底（provider 未配置仍保留，防下拉里

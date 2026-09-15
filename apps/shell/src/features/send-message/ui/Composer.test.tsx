@@ -132,7 +132,8 @@ describe("T8 · Alt+Enter 发送 / Enter 换行（textarea 化）", () => {
     const ta = document.querySelector("#msg-input")!;
     expect(fireEvent.keyDown(ta, { key: "Enter", altKey: true })).toBe(false);
     expect(submit).toHaveBeenCalledTimes(1);
-    expect(submit).toHaveBeenCalledWith("多行\n消息");
+    // 单一形态契约（低危组11）：无附件恒 submit(text, undefined)（显式第二参）
+    expect(submit).toHaveBeenCalledWith("多行\n消息", undefined);
   });
 
   it("纯空白草稿（含换行）Alt+Enter 不发送", () => {
@@ -328,11 +329,14 @@ describe("T9 · 发送载荷（带图提交）", () => {
     expect(submit).toHaveBeenCalledWith("看这张图", ["data:image/png;base64,AAAA"]);
   });
 
-  it("无附件时 submit(text, undefined)（旧行为零变更）", async () => {
+  it("无附件时两路径同形 submit(text, undefined)（按钮与 Alt+Enter 单一形态契约）", async () => {
     stateRef.current = connectedReady([{ type: "ui/set-draft", text: "纯文本" }]);
     ui();
     fireEvent.click(document.querySelector("#btn-send")!);
     expect(submit).toHaveBeenCalledWith("纯文本", undefined);
+    submit.mockClear();
+    fireEvent.keyDown(document.querySelector("#msg-input")!, { key: "Enter", altKey: true });
+    expect(submit).toHaveBeenCalledWith("纯文本", undefined); // 与按钮路径同形（原单参旧形态已统一）
   });
 });
 

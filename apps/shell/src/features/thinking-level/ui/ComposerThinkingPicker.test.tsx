@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import type { CatalogModel } from "@helix/protocol";
 import { I18nProvider } from "@/shared/i18n";
+import { ToastProvider } from "@/shared/ui/Toast";
 import {
   createInitialSessionState,
   type SessionState,
@@ -102,7 +103,9 @@ function setup(opts: {
   topologyRef.current = topo;
   return render(
     <I18nProvider>
-      <ComposerThinkingPicker />
+      <ToastProvider>
+        <ComposerThinkingPicker />
+      </ToastProvider>
     </I18nProvider>,
   );
 }
@@ -146,14 +149,18 @@ describe("ComposerThinkingPicker · trigger chip 落位与显示（review §2-1�
     topologyRef.current = createInitialTopologyState();
     const view = render(
       <I18nProvider>
-        <ComposerThinkingPicker />
+        <ToastProvider>
+          <ComposerThinkingPicker />
+        </ToastProvider>
       </I18nProvider>,
     );
     expect(requestModelConfig).not.toHaveBeenCalled();
     stateRef.current = { ...stateRef.current, conn: "connected" };
     view.rerender(
       <I18nProvider>
-        <ComposerThinkingPicker />
+        <ToastProvider>
+          <ComposerThinkingPicker />
+        </ToastProvider>
       </I18nProvider>,
     );
     expect(requestModelConfig).toHaveBeenCalled();
@@ -267,6 +274,23 @@ describe("ComposerThinkingPicker · 选档命令链（F1.1）", () => {
     fireEvent.click(document.querySelector<HTMLButtonElement>('.tl-tick[data-level="xhigh"]')!);
     expect(setSessionThinking).toHaveBeenCalledWith("xhigh");
   });
+
+  it("setSessionThinking 返回 false（未连接）→ err toast 交代；true → 零 toast（TR-168/TR-84）", () => {
+    // false：send 未发出——err toast（chat.thinking.setFail）
+    setSessionThinking.mockReturnValue(false);
+    setup();
+    fireEvent.click(trigger());
+    fireEvent.click(document.querySelector<HTMLButtonElement>('.tl-tick[data-level="xhigh"]')!);
+    expect(setSessionThinking).toHaveBeenCalledWith("xhigh");
+    expect(document.body.textContent).toContain("推理档位未发出");
+    cleanup();
+    // true：正常收口零 toast
+    setSessionThinking.mockReturnValue(true);
+    setup();
+    fireEvent.click(trigger());
+    fireEvent.click(document.querySelector<HTMLButtonElement>('.tl-tick[data-level="max"]')!);
+    expect(document.body.textContent).not.toContain("推理档位未发出");
+  });
 });
 
 describe("ComposerThinkingPicker · 覆盖 vs 生效分离（F1.3）", () => {
@@ -287,7 +311,9 @@ describe("ComposerThinkingPicker · 覆盖 vs 生效分离（F1.3）", () => {
     stateRef.current = { ...stateRef.current, thinking: { override: "high", effective: "high" } };
     view.rerender(
       <I18nProvider>
-        <ComposerThinkingPicker />
+        <ToastProvider>
+          <ComposerThinkingPicker />
+        </ToastProvider>
       </I18nProvider>,
     );
     expect(document.querySelector(".tp-hint")).toBeNull();
@@ -362,7 +388,9 @@ function draftSetup(opts: {
   topologyRef.current = topo;
   return render(
     <I18nProvider>
-      <ComposerThinkingPicker />
+      <ToastProvider>
+        <ComposerThinkingPicker />
+      </ToastProvider>
     </I18nProvider>,
   );
 }
@@ -446,7 +474,9 @@ describe("ComposerThinkingPicker · 草稿基准换源（P1 T4）", () => {
     topologyRef.current = topo;
     render(
       <I18nProvider>
-        <ComposerThinkingPicker />
+        <ToastProvider>
+          <ComposerThinkingPicker />
+        </ToastProvider>
       </I18nProvider>,
     );
     expect(trigger().querySelector(".tp-level")!.textContent).toBe("LOW");

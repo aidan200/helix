@@ -322,9 +322,11 @@ export const COMMAND_SURFACE = {
       return deps.send(modelSetCommand(model, sessionId));
     },
   /** 会话 thinking 档覆盖（thinking 批①，T2.1 P-1 滑块选档；下一 turn 生效；
-   *  草稿态本地暂存——draft-model 先例对齐，快照建会话后补发 thinking.set）。 */
+   *  草稿态本地暂存——draft-model 先例对齐，快照建会话后补发 thinking.set）。
+   *  返回值（TR-168，code-review 低危组11）：send 返回值透传（false=未发出，
+   *  调用方 err toast 交代）；草稿本地暂存恒 true。 */
   setSessionThinking: (deps) =>
-    (level: string) => {
+    (level: string): boolean => {
       // 仿 setSessionModel 三段先例——命令发送（thinkingSetCommand 信封
       // sessionId）+ 草稿本地暂存（ui/set-draft-thinking；chat.send 零字段 →
       // 转正补发见 provider onFrame 快照分支）+ 生效回执 thinking.changed
@@ -332,9 +334,9 @@ export const COMMAND_SURFACE = {
       const { sessionId } = deps.getTopology().active;
       if (sessionId === null) {
         deps.dispatch({ type: "ui/set-draft-thinking", level });
-        return;
+        return true;
       }
-      deps.send(thinkingSetCommand(level, sessionId));
+      return deps.send(thinkingSetCommand(level, sessionId));
     },
   /** 目录 + 全局默认拉取（P-3 打开 / P-4 进入；未请求态才发，重复打开零重发）。 */
   requestModelConfig: (deps) =>

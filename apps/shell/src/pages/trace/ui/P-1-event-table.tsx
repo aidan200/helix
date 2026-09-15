@@ -23,7 +23,8 @@ import {
 } from "../model/trace-model";
 import { fmtTimeMs } from "./format";
 
-/** 类型徽标类目类（原型 TT_CLASS 映射的 p1- 前缀版）。 */
+/** 类型徽标类目类（原型 TT_CLASS 映射的 p1- 前缀版；unknown 复用
+ *  lifecycle 中性弱化样式——未知类型不抢 error/accent 语汇，零 CSS 增面）。 */
 const TT_CLASS: Record<TraceCategoryKey, string> = {
   message: "p1-tt-message",
   tool: "p1-tt-tool",
@@ -33,6 +34,7 @@ const TT_CLASS: Record<TraceCategoryKey, string> = {
   "engine.error": "p1-tt-engineerr",
   compaction: "p1-tt-usage",
   model: "p1-tt-lifecycle",
+  unknown: "p1-tt-lifecycle",
 };
 
 export interface EventTableProps {

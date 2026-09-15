@@ -1,6 +1,6 @@
 /**
  * P-2 profile 推理级别字段（pages/skills/ui；挂点 = AgentPage ProfileCard
- * 模型槽位正下方，双 kind 卡各一实例）。thinking 批 T3 重构为 on/off 开关
+ * 模型槽位正下方，五 kind 卡各一实例）。thinking 批 T3 重构为 on/off 开关
  * 形态（用户决策：「think 等级是有 on/off 的开关的，on 的时候获取当前模型
  * 最新的支持的档位列表，然后再渲染滑块组件」）：
  *
@@ -20,6 +20,9 @@
  * - on → off：既有 onClear 清槽位（清除钮 .tl-clear 随开关承担 off 后移除）。
  *
  * 边界态（沿用既有判据，不新增逻辑）：
+ * - reasoning=true 但 thinkingLevels 空（目录异常/模型无档位申报）：开关
+ *   disabled（off→on 无档可写——defaultLevelFor 无中位档，静默无操作比
+ *   置灰更糟，code-review 低危：倾向 disabled）；
  * - reasoning=false（槽位模型不支持推理）：开关 disabled + disabledNote
  *   说明行保留（唯一存留 note；noteUnset 与 noteConfigured 两族四条
  *   说明文案已按用户决策删除）；已有配置保留不可改（徽标仍示配置档）；
@@ -101,6 +104,9 @@ const P2ThinkingField = function P2ThinkingField({
   const capabilityKnown = capability !== undefined;
   const reasoningOff = capabilityKnown && !capability.reasoning;
   const levels = capability?.thinkingLevels ?? [];
+  // reasoning=true 但档位空：off→on 无档可写（defaultLevelFor 无中位档）——
+  // 开关置灰交代（点击静默无操作是隐性死区；code-review 低危）
+  const levelsEmpty = capabilityKnown && !reasoningOff && levels.length === 0;
 
   // 生效展示位：配置档按槽位模型能力向下钳制（仅展示位——配置值本体不改写，
   // spawn 解析权威在 daemon）
@@ -130,7 +136,7 @@ const P2ThinkingField = function P2ThinkingField({
         )}
         <ThinkingSwitch
           checked={configured}
-          disabled={disabled || !capabilityKnown || reasoningOff}
+          disabled={disabled || !capabilityKnown || reasoningOff || levelsEmpty}
           onToggle={onSwitchToggle}
         />
       </div>
