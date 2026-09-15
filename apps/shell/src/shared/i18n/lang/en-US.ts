@@ -285,6 +285,7 @@ export const enUS = {
         addConfirm: "Create",
         adding: "Creating…",
         formInvalid: "Name, description and body are required",
+        sendFail: "Not connected to daemon; action not sent",
         requestFailed: "Request failed: {message}",
         createFail: {
           "invalid-name": "Invalid skill name (must start alphanumeric; only . _ - allowed)",
@@ -314,6 +315,7 @@ export const enUS = {
         testOk: "Connected, {count} tools discovered",
         testFail: "Connection failed",
         formInvalid: "Name and command are required",
+        sendFail: "Not connected to daemon; action not sent",
         connectFailed: "Connection failed (config kept, retry available)",
         addFailed: "Add failed",
         loading: "Loading…",
@@ -332,6 +334,7 @@ export const enUS = {
       },
       general: {
         title: "General",
+        sendFail: "Not connected to daemon; action not sent",
         groupLanguage: "Language",
         groupWorkspace: "Workspace",
         groupCompaction: "Context compaction",

@@ -376,11 +376,10 @@ export const COMMAND_SURFACE = {
         deps.send(configGetCompactionCommand());
       }
     },
-  /** 压缩参数写入（通用配置分区；result 帧驱动更新，无乐观更新）。 */
+  /** 压缩参数写入（通用配置分区；result 帧驱动更新，无乐观更新）。send 返回值透传（code-review H8：false = 未发出，submit 面消费不置在途）。 */
   setCompactionConfig: (deps) =>
-    (reserveTokens: number, keepRecentTokens: number) => {
-      deps.send(configSetCompactionCommand(reserveTokens, keepRecentTokens));
-    },
+    (reserveTokens: number, keepRecentTokens: number): boolean =>
+      deps.send(configSetCompactionCommand(reserveTokens, keepRecentTokens)),
   /** 调度预算拉取（通用配置分区进入；未请求态才发；config 瘦身批）。 */
   requestSchedulingConfig: (deps) =>
     () => {
@@ -388,11 +387,10 @@ export const COMMAND_SURFACE = {
         deps.send(configGetSchedulingCommand());
       }
     },
-  /** 调度预算写入（下一次预算判定即生效，无需重启）。 */
+  /** 调度预算写入（下一次预算判定即生效，无需重启）。send 返回值透传（code-review H8）。 */
   setSchedulingConfig: (deps) =>
-    (maxConcurrent: number, maxQueued: number) => {
-      deps.send(configSetSchedulingCommand(maxConcurrent, maxQueued));
-    },
+    (maxConcurrent: number, maxQueued: number): boolean =>
+      deps.send(configSetSchedulingCommand(maxConcurrent, maxQueued)),
   /** 端口配置拉取（通用配置分区进入；未请求态才发；config 瘦身批）。 */
   requestPortConfig: (deps) =>
     () => {
@@ -400,11 +398,9 @@ export const COMMAND_SURFACE = {
         deps.send(configGetPortCommand());
       }
     },
-  /** 端口写入（下次启动生效；argv --port 本次运行优先）。 */
+  /** 端口写入（下次启动生效；argv --port 本次运行优先）。send 返回值透传（code-review H8）。 */
   setPortConfig: (deps) =>
-    (port: number) => {
-      deps.send(configSetPortCommand(port));
-    },
+    (port: number): boolean => deps.send(configSetPortCommand(port)),
   /** 沙箱开关拉取（通用配置分区进入；未请求态才发；沙箱开关批）。 */
   requestSandboxConfig: (deps) =>
     () => {
@@ -412,11 +408,9 @@ export const COMMAND_SURFACE = {
         deps.send(configGetSandboxCommand());
       }
     },
-  /** 沙箱开关写入（新会话/新任务生效——装配期定格，无热切换）。 */
+  /** 沙箱开关写入（新会话/新任务生效——装配期定格，无热切换）。send 返回值透传（code-review H8）。 */
   setSandboxConfig: (deps) =>
-    (enabled: boolean) => {
-      deps.send(configSetSandboxCommand(enabled));
-    },
+    (enabled: boolean): boolean => deps.send(configSetSandboxCommand(enabled)),
   /** 连通验证（P-4 测试连通；started 先清旧态）。send 失败清 in-flight +
    *  恢复发送前凭据条目 + 返回 false。 */
   verifyProvider: (deps) =>

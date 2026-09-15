@@ -307,3 +307,26 @@ describe("沙箱开关卡（沙箱开关批）", () => {
     expect(container.querySelector<HTMLElement>('[data-sandbox-option="off"]')?.getAttribute("aria-pressed")).toBe("false");
   });
 });
+
+describe("code-review H8：send false（未发出）→ 不置在途 + 行内交代（不永锁、不假已保存）", () => {
+  it("压缩卡：setCompactionConfig 返回 false → saveError 行内 + 无「已保存」+ 可立即重提", () => {
+    mockCompaction = { reserveTokens: 96000, keepRecentTokens: 32000 };
+    setCompactionConfig.mockReturnValue(false); // 断线窗口：命令未发出
+    ui();
+    fireEvent.change(document.querySelector<HTMLInputElement>("[data-compaction-reserve]")!, {
+      target: { value: "120000" },
+    });
+    fireEvent.click(document.querySelector("[data-compaction-save]")!);
+    expect(setCompactionConfig).toHaveBeenCalledWith(120000, 32000);
+    // 未发出 → 行内交代（非静默）+ 不假「已保存」
+    expect(document.querySelector("[data-compaction-save-error]")!.textContent).toContain("未连接");
+    expect(document.querySelector("[data-compaction-saved]")).toBeNull();
+    // 不永锁：未置在途 → 修正后可立即重提（无 pending 残留误吞后续回执）
+    setCompactionConfig.mockReturnValue(true);
+    fireEvent.change(document.querySelector<HTMLInputElement>("[data-compaction-reserve]")!, {
+      target: { value: "96000" },
+    });
+    fireEvent.click(document.querySelector("[data-compaction-save]")!);
+    expect(setCompactionConfig).toHaveBeenCalledTimes(2);
+  });
+});

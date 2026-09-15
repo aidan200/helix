@@ -242,3 +242,31 @@ describe("MCP 设置分区：导入配置 JSON（统一启停批配套）", () =
     expect((document.querySelector("[data-mcp-args]") as HTMLInputElement).value).toBe("mcp-server");
   });
 });
+
+// ── code-review H9：send 返回值消费——send false（断线窗口）不得永锁在途
+//    （addPending 钮永久 disabled / test 永挂 testing）。──
+describe("code-review H9：send false → 在途不置 + 行内交代（不永锁）", () => {
+  it("submitAdd send false → 提交钮不锁 + 表单错误交代", () => {
+    ui();
+    fireEvent.click(document.querySelector("[data-mcp-add-toggle]")!);
+    fireEvent.change(document.querySelector("[data-mcp-name]")!, { target: { value: "srv" } });
+    fireEvent.change(document.querySelector("[data-mcp-command]")!, { target: { value: "npx" } });
+    sendMcpServersAdd.mockReturnValue(false);
+    fireEvent.click(document.querySelector("[data-mcp-submit]")!);
+    // 未发出 → 不置 addPending（钮不锁，可修正重提）+ 行内错误
+    expect((document.querySelector("[data-mcp-submit]") as HTMLButtonElement).disabled).toBe(false);
+    expect((document.querySelector("[data-mcp-form-error]") as HTMLElement | null)?.textContent).toContain("未连接");
+  });
+
+  it("submitTest send false → 不进 testing（钮不锁）+ fail 态错误交代", () => {
+    ui();
+    fireEvent.click(document.querySelector("[data-mcp-add-toggle]")!);
+    fireEvent.change(document.querySelector("[data-mcp-name]")!, { target: { value: "srv" } });
+    fireEvent.change(document.querySelector("[data-mcp-command]")!, { target: { value: "npx" } });
+    sendMcpServersTest.mockReturnValue(false);
+    fireEvent.click(document.querySelector("[data-mcp-test]")!);
+    // 未发出 → 不永挂 testing（钮立即可用）+ fail 行内交代
+    expect((document.querySelector("[data-mcp-test]") as HTMLButtonElement).disabled).toBe(false);
+    expect((document.querySelector("[data-mcp-test-fail]") as HTMLElement | null)?.textContent).toContain("未连接");
+  });
+});

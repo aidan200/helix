@@ -36,7 +36,7 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
       },
       sendAgentSkillCreate: (call: { content: string }) => {
         mock.sentCreate.push(call.content);
-        return true;
+        return mock.createSendOk;
       },
       subscribeAgentConfigFrames: (listener: (frame: EventEnvelope) => void) => {
         mock.listener = listener;
@@ -50,6 +50,8 @@ const mock = vi.hoisted(() => ({
   sentList: 0,
   sentContentGet: [] as string[],
   sentCreate: [] as string[],
+  /** create 命令 send 开关（code-review H10：send false 在途不置）——缺省 true。 */
+  createSendOk: true,
   listener: ((_frame: EventEnvelope) => {}) as (frame: EventEnvelope) => void,
 }));
 
@@ -63,6 +65,7 @@ afterEach(() => {
   mock.sentList = 0;
   mock.sentContentGet = [];
   mock.sentCreate = [];
+  mock.createSendOk = true;
 });
 
 const listPayload: AgentConfigListResultPayload = {
@@ -323,5 +326,28 @@ describe("M10 批①：协议层失败回执（connection.error）清在途 + �
     expect(document.querySelector("[data-skills-form-error]")).toBeNull();
     // 查看钮仍可用（未被误清/误锁）
     expect((document.querySelector('[data-skill-content-toggle="hello-skill"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+// ── code-review H10：send 返回值消费——send false（断线窗口）不得永锁
+//    addPending（提交钮永久 disabled 且零反馈）。──
+describe("code-review H10：send false → addPending 不置 + 行内交代（不永锁）", () => {
+  it("submitCreate send false → 提交钮不锁 + 表单错误交代", async () => {
+    mount();
+    mock.listener(frameOf("agent.config.list.result", listPayload));
+    await waitFor(() => {
+      expect(document.querySelector('[data-skill-row="hello-skill"]')).not.toBeNull();
+    });
+
+    fireEvent.click(document.querySelector("[data-skills-add-toggle]")!);
+    fireEvent.change(document.querySelector("[data-skills-name]")!, { target: { value: "my-skill" } });
+    fireEvent.change(document.querySelector("[data-skills-desc]")!, { target: { value: "描述" } });
+    fireEvent.change(document.querySelector("[data-skills-body]")!, { target: { value: "## 正文" } });
+    mock.createSendOk = false; // 断线窗口：create 命令未发出
+    fireEvent.click(document.querySelector("[data-skills-submit]")!);
+    expect(mock.sentCreate.length).toBe(1);
+    // 未发出 → 不置 addPending（钮不锁，可重提）+ 行内错误交代
+    expect((document.querySelector("[data-skills-submit]") as HTMLButtonElement).disabled).toBe(false);
+    expect((document.querySelector("[data-skills-form-error]") as HTMLElement | null)?.textContent).toContain("未连接");
   });
 });

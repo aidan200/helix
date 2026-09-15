@@ -21,7 +21,7 @@
  * 失败走 connection.error（无结果帧），hook 内清 pending + 行内错误交代
  * （M10 批②：不假「已保存」、在途不永锁致后续读帧被误当保存回执）。
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useI18n, type Lang } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 import { cn } from "@/shared/lib/cn";
@@ -58,6 +58,15 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
   const [reserve = "", keepRecent = ""] = compactionField.inputs;
   const [maxConcurrent = "", maxQueued = ""] = schedulingField.inputs;
   const portInput = portField.inputs[0] ?? "";
+  /** 沙箱开关 send 失败交代（code-review H8：断线窗口不静默——结果帧驱动的开关无在途态，行内错误即全部反馈面）。 */
+  const [sandboxError, setSandboxError] = useState<string | null>(null);
+  const toggleSandbox = (enabled: boolean): void => {
+    if (setSandboxConfig(enabled) === false) {
+      setSandboxError(t("chat.settings.general.sendFail"));
+      return;
+    }
+    setSandboxError(null);
+  };
 
   // 进入分区拉取现值（未请求态才发）
   useEffect(() => {
@@ -264,7 +273,7 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
               className={cn("hud-btn sm", sandboxCfg?.enabled === true ? "hud-btn-cyan" : "hud-btn-ghost")}
               data-sandbox-option="on"
               aria-pressed={sandboxCfg?.enabled === true}
-              onClick={() => setSandboxConfig(true)}
+              onClick={() => toggleSandbox(true)}
             >
               {t("chat.settings.general.sandboxOn")}
             </button>
@@ -273,11 +282,16 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
               className={cn("hud-btn sm", sandboxCfg?.enabled === false ? "hud-btn-cyan" : "hud-btn-ghost")}
               data-sandbox-option="off"
               aria-pressed={sandboxCfg?.enabled === false}
-              onClick={() => setSandboxConfig(false)}
+              onClick={() => toggleSandbox(false)}
             >
               {t("chat.settings.general.sandboxOff")}
             </button>
           </div>
+          {sandboxError !== null && (
+            <span className="mcp-err" data-sandbox-save-error role="alert">
+              {sandboxError}
+            </span>
+          )}
         </div>
         <span className="ag-note">{t("chat.settings.general.sandboxNote")}</span>
       </div>

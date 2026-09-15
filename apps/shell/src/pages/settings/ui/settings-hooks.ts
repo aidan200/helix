@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EventEnvelope } from "@helix/protocol";
+import { useI18n } from "@/shared/i18n";
 import { useSession } from "@/entities/session/SessionContext";
 
 /** config 族输入卡控制器（输入文本组 + 保存反馈 + 在途失败交代）。 */
@@ -24,8 +25,9 @@ export interface ConfigFieldController {
   /** 在途失败交代（connection.error 清 pending 后行内展示；再输入/再保存清）。 */
   readonly saveError: string | null;
   /**
-   * 保存入口：send = 校验通过后的命令发送（显式返回 false = 未连接未发出；
-   *  既有 config 设值面返回 void 视为已发——与原置在途行为等价）。
+   * 保存入口：send = 校验通过后的命令发送（显式返回 false = 未连接未发出
+   *  ——不置在途 + saveError 行内交代，code-review H8：不假「已保存」、
+   *  不永锁在途致后续读帧被误当保存回执；既有 void 返回视为已发）。
    * 仅发送成功才置在途——未发出不锁对账（F5 批 TR-84 同纪律）。
    */
   readonly submit: (send: () => unknown) => boolean;
@@ -46,6 +48,7 @@ export function useConfigField<T>(
   toInputs: (config: T) => readonly string[],
 ): ConfigFieldController {
   const { subscribeConfigFrames } = useSession();
+  const { t } = useI18n();
   const [inputs, setInputs] = useState<readonly string[]>([]);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -102,13 +105,22 @@ export function useConfigField<T>(
     });
   }, []);
 
-  const submit = useCallback((send: () => unknown): boolean => {
-    if (send() === false) return false; // 未发出（未连接）——不置在途（发送方既有的 send 失败交代面承担）
-    pendingRef.current = true;
-    setSaved(false);
-    setSaveError(null);
-    return true;
-  }, []);
+  const submit = useCallback(
+    (send: () => unknown): boolean => {
+      if (send() === false) {
+        // 未发出（未连接）——不置在途 + 行内交代（code-review H8：不静默、
+        // 不假「已保存」、不永锁在途致后续读帧被误当保存回执）
+        setSaved(false);
+        setSaveError(t("chat.settings.general.sendFail"));
+        return false;
+      }
+      pendingRef.current = true;
+      setSaved(false);
+      setSaveError(null);
+      return true;
+    },
+    [t],
+  );
 
   return { inputs, setInput, saved, saveError, submit };
 }

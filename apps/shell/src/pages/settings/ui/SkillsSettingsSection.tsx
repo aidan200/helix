@@ -268,8 +268,13 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
       setFormError(t("chat.settings.skills.formInvalid"));
       return;
     }
+    // code-review H10：send false（未发出）→ 不置 addPending（钮不永锁，
+    // 可修正重提）+ 行内错误交代；仅发出成功才入在途对账
+    if (sendAgentSkillCreate({ content }) === false) {
+      setFormError(t("chat.settings.skills.sendFail"));
+      return;
+    }
     setAddPending(true);
-    sendAgentSkillCreate({ content });
   };
 
   return (

@@ -282,3 +282,21 @@ describe("COMMAND_SURFACE agent 实例三命令（M9 #2.18：构造器收编零�
     ]);
   });
 });
+
+// ── code-review H8（shell #8）：config 四设值面吞 send false → 在途永锁
+//    （useConfigField.submit 把未发出当已发置 pending）——设值面必须回传
+//    boolean（setProviderKey 先例），false 由 submit 面消费。──
+describe("COMMAND_SURFACE config 设值面 send 返回值（code-review H8）", () => {
+  it("setCompaction/Scheduling/Port/Sandbox：send false → false；send true → true", () => {
+    const { deps: bad } = fakeDeps(false);
+    expect(COMMAND_SURFACE.setCompactionConfig(bad)(1000, 2000)).toBe(false);
+    expect(COMMAND_SURFACE.setSchedulingConfig(bad)(4, 8)).toBe(false);
+    expect(COMMAND_SURFACE.setPortConfig(bad)(7333)).toBe(false);
+    expect(COMMAND_SURFACE.setSandboxConfig(bad)(true)).toBe(false);
+    const { deps: good } = fakeDeps(true);
+    expect(COMMAND_SURFACE.setCompactionConfig(good)(1000, 2000)).toBe(true);
+    expect(COMMAND_SURFACE.setSchedulingConfig(good)(4, 8)).toBe(true);
+    expect(COMMAND_SURFACE.setPortConfig(good)(7333)).toBe(true);
+    expect(COMMAND_SURFACE.setSandboxConfig(good)(true)).toBe(true);
+  });
+});

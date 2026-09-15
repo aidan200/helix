@@ -292,6 +292,8 @@ export const zhCN = {
         addConfirm: "创建",
         adding: "创建中…",
         formInvalid: "请填写技能名、描述与正文",
+        /** code-review H10：send false（未发出）行内交代。 */
+        sendFail: "未连接 daemon，操作未发出",
         /** M10 批①：connection.error 在途失败交代（create/content.get 协议层失败，daemon message 透传）。 */
         requestFailed: "操作失败：{message}",
         createFail: {
@@ -322,6 +324,8 @@ export const zhCN = {
         testOk: "连接成功，发现 {count} 个工具",
         testFail: "连接失败",
         formInvalid: "名称与命令必填",
+        /** code-review H9：send false（未发出）行内交代。 */
+        sendFail: "未连接 daemon，操作未发出",
         connectFailed: "连接失败（配置已保留，可重试）",
         addFailed: "添加失败",
         loading: "加载中…",
@@ -340,6 +344,8 @@ export const zhCN = {
       },
       general: {
         title: "通用配置",
+        /** code-review H8：send false（未发出）行内交代（useConfigField.submit / 沙箱开关共用）。 */
+        sendFail: "未连接 daemon，操作未发出",
         groupLanguage: "语言",
         groupWorkspace: "工作空间",
         groupCompaction: "上下文压缩",

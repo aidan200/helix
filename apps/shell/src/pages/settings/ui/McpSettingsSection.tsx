@@ -228,13 +228,22 @@ function parseArgs(input: string): string[] {
       setFormError(t("chat.settings.mcp.formInvalid"));
       return;
     }
+    // code-review H9：send false（未发出）→ 不置 addPending（钮不永锁，
+    // 可修正重提）+ 行内错误交代；仅发出成功才入在途对账
+    if (sendMcpServersAdd(formInput()) === false) {
+      setFormError(t("chat.settings.mcp.sendFail"));
+      return;
+    }
     markAddPending(true);
-    sendMcpServersAdd(formInput());
   };
 
   const submitTest = (): void => {
+    // code-review H9：send false → 不进 testing（钮不永挂）+ fail 态行内交代
+    if (sendMcpServersTest(formInput()) === false) {
+      setTest({ kind: "fail", error: t("chat.settings.mcp.sendFail") });
+      return;
+    }
     setTest({ kind: "testing" }); // 重测先清旧态
-    sendMcpServersTest(formInput());
   };
 
   /** 两段式删除：首击 armed（2.5s 复原），二击执行。 */
