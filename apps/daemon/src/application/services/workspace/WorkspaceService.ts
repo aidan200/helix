@@ -107,8 +107,8 @@ export interface WorkspaceSnapshot {
   readonly notice?: string;
 }
 
-/** 结构化错误码（协议 ErrorCode 子集；driving 层映射 connection.error）。 */
-export type WorkspaceErrorCode = "WORKSPACE_E_INVALID_ROOT" | "WORKSPACE_E_ACTIVE_AGENT";
+/** 结构化错误码（协议 ErrorCode 子集；driving 层映射 connection.error）。daemon.internal = 内建栈/后台同步失败（bind 半途态已回退，非用户输入错）。 */
+export type WorkspaceErrorCode = "WORKSPACE_E_INVALID_ROOT" | "WORKSPACE_E_ACTIVE_AGENT" | "daemon.internal";
 
 export interface WorkspaceOpenError {
   readonly code: WorkspaceErrorCode;
@@ -221,7 +221,8 @@ export class WorkspaceService {
 
   /**
    * 显式绑定：校验 → 活跃 agent 门禁 → rebind → 置 current → KV 持久化
-   * （current + recents MRU 去重上限 8）→ 广播 changed。
+   * （current + recents MRU 去重上限 8）→ 广播 changed。内建栈/后台同步
+   * 失败归一结构化 outcome（daemon.internal，不裸抛）。
    * 幂等：同 root 重复 open = 状态零变（不重建不重写 KV）+ 仍广播一次
    * changed（前端对齐用）。
    */
@@ -244,7 +245,20 @@ export class WorkspaceService {
       this.deps.broadcast(checked.root);
       return { ok: true, root: checked.root, projects: this.bound.projectService.listProjects() };
     }
-    this.bind(checked.root);
+    try {
+      this.bind(checked.root);
+    } catch (err) {
+      // 内建栈/后台同步失败归一结构化 outcome（code-review 低危：原裸抛经
+      // handler 兑底 catch 错标 command.invalid_payload——绑定失败非用户输入错；
+      // bind 半途态防御已回退未绑定态并置 notice，get 读面仍可感知降级）
+      return {
+        ok: false,
+        error: {
+          code: "daemon.internal",
+          message: `工作空间绑定失败（已回退未绑定态）：${(err as Error).message}`,
+        },
+      };
+    }
     this.notice = undefined; // 换绑成功清除降级说明
     this.recents = [
       { root: checked.root, name: basenameOf(checked.root), lastUsedAt: this.deps.clock.now() },
@@ -392,7 +406,11 @@ export class WorkspaceService {
       if (!Array.isArray(parsed)) return [];
       return parsed.filter(
         (e): e is WorkspaceRecentEntry =>
-          typeof e === "object" && e !== null && typeof (e as WorkspaceRecentEntry).root === "string",
+          typeof e === "object" &&
+          e !== null &&
+          typeof (e as WorkspaceRecentEntry).root === "string" &&
+          typeof (e as WorkspaceRecentEntry).name === "string" &&
+          typeof (e as WorkspaceRecentEntry).lastUsedAt === "string",
       );
     } catch {
       return [];

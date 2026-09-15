@@ -164,6 +164,23 @@ describe("T3-A 周期进展报告（机械 Δ）", () => {
     expect(next).toContain("Δ轮次=+1");
   });
 
+  test("②b 未预留帧不计 Δ（乱序/非 assistant 的 message_update 丢弃——计数在预留检查之后，code-review 低危）", async () => {
+    h = makeHarness();
+    const out = h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);
+    const agentId = (out as { agentId: string }).agentId;
+    await waitEnvelopes(h.envelopes, 1);
+
+    // 无 message_start(assistant) 前导（未预留 entry id）的 update 帧：丢弃且不计入
+    // Δ输出字符（旧实现先计数后判丢弃，丢弃帧虚高 T3-A Δ）
+    h.runner.emit(agentId, { type: "message_update", delta: "abcde" });
+
+    const before = h.envelopes.length;
+    await waitEnvelopes(h.envelopes, before + 1);
+    const next = h.envelopes[h.envelopes.length - 1];
+    expect(next).toContain("Δ输出=+0字符");
+    expect(next).not.toContain("Δ输出=+5字符");
+  });
+
   test("③ 终态清定时器：done 收口后信封数冻结", async () => {
     h = makeHarness();
     const out = h.scheduler.spawn(SESSION_ID, "长任务", undefined, undefined, 20);

@@ -189,7 +189,7 @@ export class SessionProjection implements EventPublisherPort {
         const record = this.subToolCalls.get(`${event.instanceId}:${p.toolCallId}`); // 同复合键取本实例记录
         if (record === undefined || record.status !== "running") return; // 幂等/迟到收口
         if (p.isError) record.fail(p.result, event.occurredAt);
-        else record.complete(p.result, event.occurredAt);
+        else record.complete(p.result, event.occurredAt, p.images); // images 对齐主线（ChatService 同点三参）：SubAgent 工具截图随记录落盘
         return;
       }
       default:

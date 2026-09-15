@@ -429,7 +429,7 @@ export class ChatService implements ChatPort {
     if (run !== null) await run;
   }
 
-  // ── 引擎事件回流：薄路由（12 case 按四关注点分族私有方法，本体无业务逻辑） ──
+  // ── 引擎事件回流：薄路由（按四关注点分族私有方法，本体无业务逻辑；case 数随事件面增减不计数化） ──
 
   private onEngineEvent(e: AgentEngineEvent): void {
     switch (e.type) {

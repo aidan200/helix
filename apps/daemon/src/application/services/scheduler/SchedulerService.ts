@@ -16,6 +16,7 @@ import type {
 } from "../../../domain/events/DomainEvent";
 import { PARK_INSTRUCTION_TEXT, RESUME_INSTRUCTION_TEXT } from "./parkProtocol";
 import type { EventPublisherPort } from "../../ports/outbound/EventPublisherPort";
+import { DEFAULT_PROFILE_KIND } from "../../ports/outbound/ResourceStatePort"; // profileKind 缺省单源（Q-6=A；与编排层 dispatchProfileKindOf 缺省同值）
 import type { ClockPort } from "../../ports/outbound/ClockPort";
 import type { SessionRepositoryPort } from "../../ports/outbound/SessionRepositoryPort";
 import type { AgentEngineEvent } from "../../ports/outbound/AgentEnginePort";
@@ -87,9 +88,6 @@ export type { SpawnOutcome };
 // ParkOutcome/ResumeOutcome 单源在 AgentOrchestrationPort（⑤ 链 C 工具面
 // 接入；结构同前——本地双源消除）
 export type { ParkOutcome, ResumeOutcome };
-
-/** profileKind 缺省值（Q-6=A：单一通用 worker）。 */
-const DEFAULT_PROFILE_KIND = "subagent-worker";
 
 export interface SchedulerServiceDeps {
   /** 调度策略工厂（每次判定现拍：maxConcurrent/maxQueued 运行期可调——装配层闭 KV 读现值；stalled 阈值由此携带）。 */
@@ -256,6 +254,7 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     });
     const poll = deps.stalledPollMs ?? Math.max(1, Math.floor(deps.policy().stalledThresholdMs / 2));
     this.monitor = setInterval(() => this.checkStalled(), poll);
+    this.monitor.unref?.(); // 不挂住进程退出（stop 显式清；与进展报告定时器同口径）
   }
 
   /** 停 stalled 监视定时器 + 全部进展报告定时器（daemon shutdown / 测试收尾；幂等）。stop 同段清报告面三 Map（与 clearProgressReporting 全清语义一致——终态无可投递对象，不残留登记）。 */
@@ -800,10 +799,9 @@ export class SchedulerService implements Omit<AgentOrchestrationPort, "spawn"> {
     if (interval !== undefined) {
       this.reportSeqs.set(instance.instanceId, 0);
       this.lastReportedMetrics.set(instance.instanceId, { toolCalls: 0, assistantChars: 0, turns: 0 });
-      this.reportTimers.set(
-        instance.instanceId,
-        setInterval(() => this.emitProgressReport(instance.instanceId), interval),
-      );
+      const timer = setInterval(() => this.emitProgressReport(instance.instanceId), interval);
+      timer.unref?.(); // 不挂住进程退出（stop/收口清；与 stalled monitor 同口径）
+      this.reportTimers.set(instance.instanceId, timer);
     }
     this.deps.runner.launch(instance, this.tasks.get(instance.instanceId) ?? "");
   }

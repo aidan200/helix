@@ -223,11 +223,12 @@ export class SessionRegistry implements SessionDirectoryPort {
 
   async listSessions(): Promise<readonly SessionMetaView[]> {
     const rows = await this.deps.repository.listSessionMetadata();
+    const rowIds = new Set(rows.map((r) => r.sessionId)); // Set 判存（some 线扫 → O(1)，会话量大时热路径）
     const metas: SessionMetaView[] = rows.map((row) => this.metaFromRow(row));
     for (const [sessionId, record] of this.sessions) {
       const runtime = record.runtime;
       if (runtime === undefined) continue; // 冷删除占位不进清单（原不在 runtimes）
-      if (rows.some((r) => r.sessionId === sessionId)) continue;
+      if (rowIds.has(sessionId)) continue;
       // 零条目热草稿不可见（未落盘内存草稿不进清单——bug1 泄漏面封堵，
       // 与 sealAll 跳过零条目会话同哲学：空草稿自然消亡不污染清单）；
       // 有内容的热未落库会话仍合并（回归）。
