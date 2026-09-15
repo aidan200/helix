@@ -468,12 +468,15 @@ export class TaskOrchestratorService implements TaskOrchestratorStarterPort {
     }
     const { loop, batch } = hit;
     if (batch.status !== "running") return; // 迟到收口幂等（cancel 已标 failed 等）
-    const outcome = this.deps.instanceOutcome(agentId);
-    const summary = outcome?.summary ?? "（无 closure 摘要）";
-    const resolution = this.deps.ledger.isFullyResolved(agentId);
     let verdict: string;
     let redispatched: string | null = null;
     try {
+      // code-review M：判据读面（instanceOutcome/isFullyResolved 含 DB 读）并入
+      // try——try 外抛错逃逸为 unhandled rejection（入口 void 调用），下方兜底
+      // failBatch 链不触发，批次滞留 running（恰是该兜底要防的事故形态）。
+      const outcome = this.deps.instanceOutcome(agentId);
+      const summary = outcome?.summary ?? "（无 closure 摘要）";
+      const resolution = this.deps.ledger.isFullyResolved(agentId);
       if (outcome === undefined || outcome.state !== "done") {
         // ① closure 缺失/失败（killed 同判失败——单一终态语义）
         const note = `closure ${outcome === undefined ? "缺失" : outcome.state}：${summary}`;

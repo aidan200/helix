@@ -227,6 +227,7 @@ export class KgSyncService {
    */
   private async awaitTurnAndRun(projectRoot: string, state: ProjectRunState): Promise<SyncResult> {
     for (;;) {
+      if (!this.isLive(projectRoot, state)) return this.disposedResult(projectRoot); // code-review M：出册即醒转退出，不在旧 state 上重跑
       if (!state.running) return await this.runSync(projectRoot, state, true);
       const current = state.currentRun;
       if (current !== null) await current.catch(() => {});
@@ -240,17 +241,38 @@ export class KgSyncService {
     return run;
   }
 
+  /** code-review M 作废结果：dispose 出册后的在途/等待运行以此收口（不落库、基准不推进、零变更）。 */
+  private disposedResult(projectRoot: string): SyncResult {
+    return {
+      projectRoot,
+      baseline: this.deps.graph.getIndexStatus(projectRoot).baseline ?? "0",
+      degraded: true,
+      importedFiles: 0,
+      deletedFiles: 0,
+      orphanedAnchors: [],
+      syncedAt: new Date().toISOString(),
+    };
+  }
+
+  /** 出册判定（code-review M）：dispose 后 state 对象出册——在途运行持旧引用，身份比对即作废令牌。 */
+  private isLive(projectRoot: string, state: ProjectRunState): boolean {
+    return this.states.get(projectRoot) === state;
+  }
+
   private async runNow(projectRoot: string, state: ProjectRunState, full: boolean): Promise<SyncResult> {
     state.running = true;
     try {
       const result = await this.syncOnce(projectRoot, state, full);
-      state.failCount = 0;
-      state.lastSyncedAt = result.syncedAt;
-      this.deps.onSynced?.(projectRoot); // B3：索引建成/刷新 → watcher 挂接点
+      if (this.isLive(projectRoot, state)) {
+        // code-review M：出册运行不触回调/基准推进（onSynced 会重挂 watcher）
+        state.failCount = 0;
+        state.lastSyncedAt = result.syncedAt;
+        this.deps.onSynced?.(projectRoot); // B3：索引建成/刷新 → watcher 挂接点
+      }
       return result;
     } catch (error) {
       state.failCount += 1;
-      if (state.failCount <= MAX_SYNC_FAILURE_RETRIES) {
+      if (this.isLive(projectRoot, state) && state.failCount <= MAX_SYNC_FAILURE_RETRIES) {
         const backoff = Math.min(this.retryBackoffMs * 2 ** (state.failCount - 1), RETRY_BACKOFF_MAX_MS);
         state.retryTimer = setTimeout(() => {
           state.retryTimer = null;
@@ -261,7 +283,7 @@ export class KgSyncService {
     } finally {
       state.running = false;
       state.currentRun = null;
-      if (state.pendingRerun) {
+      if (state.pendingRerun && this.isLive(projectRoot, state)) {
         state.pendingRerun = false;
         // 事件流合并重跑：窗口域（失败回填保真）；失败自行退避
         this.runSync(projectRoot, state, false).catch(() => {});
@@ -364,6 +386,10 @@ export class KgSyncService {
         degraded,
       };
       try {
+        // code-review M：dispose 破窗防护——本 state 已出册（dispose/purge/
+        // deleteIndex 清库后）时携旧基准戳 applySync 落库即破窗回写。跳过落库
+        // 返回作废结果；runNow 收口与重试/重跑调度同被出册检查截停。
+        if (this.states.get(projectRoot) !== state) return this.disposedResult(projectRoot);
         await this.deps.store.applySync(projectRoot, batch);
       } catch (error) {
         // 失败回填：本批域回窗口（write=引擎面在册/remove=删除），由外层 catch 统一 refill

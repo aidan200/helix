@@ -208,3 +208,83 @@ describe("B 收口清账：turn 收口时 domain SteerQueue 残留按 source 分
     expect(discarded).toBeUndefined();
   });
 });
+
+/**
+ * code-review M：drain 暂存 steer 的 abort 窗口兜底（settleRunEnd）。
+ * 缺陷现场：pi 事件序 message_start(user, steer-drain) 先于 message_end(assistant)
+ * ——drain 时旧轮回复未落盘，steer 暂存 pendingDrainSteerItem 待
+ * recordAssistantMessage 延迟落盘；abort/引擎错误窗口（message_end 永不到达）下
+ * 暂存项残留至下一轮 recordAssistantMessage → landDrainedSteer 在已有 openTurn 上
+ * 调 beginTurn → TR-25 防重入 DomainError。兜底语义：run 收口时只落盘条目
+ * （drain 落盘语义保住用户输入事实），不开新轮（run 已终结，无回复对象）。
+ */
+class DrainThenAbortEngine implements AgentEnginePort {
+  readonly steered: string[] = [];
+  private listener: AgentEngineListener | null = null;
+  private streaming = false;
+  private aborted = false;
+
+  async start(_input: string, listener: AgentEngineListener): Promise<void> {
+    this.listener = listener;
+    this.streaming = true;
+    this.aborted = false; // 每轮重置：第二轮走正常路径
+    this.emit({ type: "agent_start" });
+    this.emit({ type: "turn_start" });
+    this.emit({ type: "message_start", role: "assistant", source: "prompt" });
+    this.emit({ type: "message_update", delta: "正在生成回复……" });
+    await new Promise((r) => setTimeout(r, 20)); // 窗口：steer drain + abort
+    if (!this.aborted) {
+      this.emit({ type: "message_end", role: "assistant", text: "正在生成回复……", stopReason: "stop" });
+      this.emit({ type: "turn_end", toolResultCount: 0 });
+    }
+    // abort 窗口：无 message_end(assistant) 直接 agent_end（pi abort 不保证补发）
+    this.emit({ type: "agent_end", messageCount: 1 });
+    this.streaming = false;
+    this.listener = null;
+  }
+
+  steer(text: string): void {
+    this.steered.push(text);
+    // pi 事件序：steer-drain 先于 message_end(assistant)——旧轮回复未落盘，
+    // ChatService 走延迟落盘分支（pendingDrainSteerItem 暂存）
+    this.emit({ type: "message_start", role: "user", source: "steer-drain" });
+  }
+  abort(): void {
+    this.aborted = true;
+  }
+  isStreaming(): boolean {
+    return this.streaming;
+  }
+  private emit(e: AgentEngineEvent): void {
+    this.listener?.(e);
+  }
+}
+
+describe("code-review M：drain 暂存 steer 遇 abort 窗口 → settleRunEnd 兜底落盘", () => {
+  test("steer 已 drain 广播但回复未落盘即 abort → 收口兜底落条目 + 下一轮不触 TR-25 防重入 DomainError", async () => {
+    const engine = new DrainThenAbortEngine();
+    const { chat, publisher, domainEvents } = makeChat(engine);
+
+    const run = chat.sendMessage("主线任务");
+    await until(() => publisher.deltas.length >= 1);
+    await chat.steer("打断注入"); // drain（steer.drained 广播）→ 暂存待 recordAssistantMessage 落盘
+    chat.abort(); // abort 窗口：message_end(assistant) 永不到达
+    await run;
+    await until(() => chat.agentState === "idle");
+
+    expect(domainEvents.some((e) => e.type === "steer.drained")).toBe(true);
+    // 兜底落盘：steer 文本进时间轴（message.completed user drained）——现行行为红：暂存项残留不落盘
+    expect(
+      domainEvents.some(
+        (e) => e.type === "message.completed" && String((e.payload as { text?: string }).text).includes("打断注入"),
+      ),
+    ).toBe(true);
+    expect(chat.sessionSnapshot.pendingSteer).toHaveLength(0);
+
+    // 事故形态回归：下一轮正常开跑收口（修复前此处 landDrainedSteer 触 TR-25 DomainError）
+    const run2 = chat.sendMessage("下一轮消息");
+    await run2;
+    await until(() => chat.agentState === "idle");
+    expect(domainEvents.some((e) => e.type === "turn.completed")).toBe(true);
+  });
+});

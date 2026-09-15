@@ -1142,3 +1142,56 @@ describe("编排收场推进检查（drive 结束点：无在跑实例 + 未完�
     });
   });
 });
+
+describe("code-review M：收口判据读面异常并入 try（兜底 failBatch 链不旁路）", () => {
+  test("instanceOutcome 读面抛错 → 不逃逸 unhandled rejection，走同一兜底 failBatch + 重派", async () => {
+    const script: ScriptEntry[] = [
+      insertBatchEntry(1, "批次 1：探索 A 模块"),
+      { kind: "tool", toolName: "task_advance_stage", args: { stageSeq: 1 } },
+      spawnEntry(BRIEF_1),
+      dispatchEntry(0, 2),
+      { kind: "reply", text: "已派发。" },
+    ];
+    // 条件抛错注入：spawn 迟到接线守卫（fixture 内部）也调 instanceOutcome——
+    // 派发期须正常返回，仅在收口时刻抛错（ref 委托切换）
+    const outcomeRef: { fn: (id: string) => { state: string; summary?: string } | undefined } = {
+      fn: () => ({ state: "running" }),
+    };
+    await withOrchestratorEnv({ script, instanceOutcome: (id) => outcomeRef.fn(id) }, async (env) => {
+      const { jobId } = await env.engine.createTask({
+        type: "fake-task",
+        projects: ["demo"],
+        params: { projectRoot: "/tmp/demo" },
+        createdBy: "page",
+      });
+      await env.until(
+        () => env.store.getBatches(jobId, 1).length === 1 && env.store.getBatches(jobId, 1)[0]?.status === "running",
+      );
+      const first = env.recorder.call(1).agentId;
+      outcomeRef.fn = (id) => env.recorder.outcomes.get(id) ?? { state: "running" };
+
+      // 收口时刻读面抛错（模拟调度器 status 读面 DB 故障）——原行为：settleInstance
+      // 判据读面在 try 外，异常逃逸为 unhandled rejection，兜底 failBatch 不触发，
+      // 批次滞留 running（恰是 M5 兜底要防的事故形态）。只对本实例抛——重派
+      // spawn 的迟到接线守卫也调 instanceOutcome，其他 id 须正常返回。
+      outcomeRef.fn = (id) => {
+        if (id === first) throw new Error("注入：closure 判据读面故障（DB 断连）");
+        return env.recorder.outcomes.get(id) ?? { state: "running" };
+      };
+      env.recorder.outcomes.set(first, { state: "done", summary: "批次完成" });
+      env.orchestrator.handleInstanceClosure(first);
+
+      // 修复后：读面异常落入同一 catch——退避 5s 兜底 failBatch + 按 retryScheduled 重派
+      await env.until(
+        () =>
+          env.recorder.calls.length >= 2 &&
+          env.store.getBatches(jobId, 1)[0]?.status === "running" &&
+          env.store.getBatches(jobId, 1)[0]?.instanceId !== first,
+        15000, // 兜底退避 5s + 重派链
+      );
+      expect(env.orchestratorLog.some((m) => m.includes("兜底重试一次 failBatch"))).toBe(true);
+      const batch = env.store.getBatches(jobId, 1)[0]!;
+      expect(batch.retryNote).toContain("closure 判据读面故障");
+    });
+  }, 30000);
+});

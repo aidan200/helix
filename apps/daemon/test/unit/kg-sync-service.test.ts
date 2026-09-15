@@ -13,6 +13,7 @@ import type {
   NodeDetail,
   NodeDigestRow,
   SymbolBatch,
+  SymbolSet,
   SyncBaselineView,
   VerifyView,
 } from "../../src/domain/kg/types";
@@ -441,5 +442,45 @@ describe("KgSyncService：degraded 收敛与无基准全量域（code-review M7�
     await waitFor(() => store.batches.length === 1);
     // 全量域：未被触的 b.ts 同样导入——不会只导入 a.ts 就推进基准戳
     expect(store.batches[0]!.files.map((f) => f.path).sort()).toEqual(["src/a.ts", "src/b.ts"]);
+  });
+});
+
+/** code-review M 破窗防护用 gated 引擎：exportSymbols 等待手动放行（dispose 窗口注入点）。 */
+class GatedEngine extends CodegraphEngineFake {
+  entered = false;
+  private gateResolve: () => void = () => {};
+  private readonly gate: Promise<void> = new Promise((r) => {
+    this.gateResolve = r;
+  });
+  override async exportSymbols(projectRoot: string): Promise<SymbolSet> {
+    this.entered = true;
+    await this.gate;
+    return super.exportSymbols(projectRoot);
+  }
+  release(): void {
+    this.gateResolve();
+  }
+}
+
+describe("code-review M：dispose 截停在途 sync（破窗回写防护）", () => {
+  test("dispose 后在途 sync 的 applySync 不落库、不排重跑（purge/deleteIndex 同点安全）", async () => {
+    const engine = new GatedEngine({
+      files: [{ path: "src/a.ts", contentHash: "h1", modifiedAt: 100, indexedAt: 100 }],
+      symbols: [],
+    });
+    const { service, store } = makeService({ engine });
+    active.push(service);
+
+    const p = service.triggerManual(ROOT);
+    await waitFor(() => engine.entered); // 在途运行推进到 exportSymbols 窗口
+    service.dispose(ROOT); // purge/deleteIndex 同点：截停在途运行
+    engine.release();
+    await p; // 作废结果正常收口（不抛错——手动触发调用面不受 dispose 牵连）
+
+    // 现行行为红：dispose 不截停在途运行，旧基准戳 applySync 照常落库（破窗回写）
+    expect(store.batches).toHaveLength(0);
+    await sleep(60); // 出册运行不排重试/重跑（窗口观察）
+    expect(store.batches).toHaveLength(0);
+    expect(engine.calls.filter((c) => c.method === "exportSymbols").length).toBe(1); // 无重跑
   });
 });

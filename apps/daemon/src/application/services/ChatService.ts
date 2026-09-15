@@ -563,6 +563,17 @@ export class ChatService implements ChatPort {
     if (this.lifecycle.current !== "idle" && this.lifecycle.canTransition("idle")) {
       this.setLifecycle("idle");
     }
+    // code-review M：drain 暂存 steer 兜底（abort/引擎错误窗口：steer 已 drain
+    // 广播、回复未落盘即收口）——recordAssistantMessage 的消费机会永久消失，
+    // 残留至下一轮 landDrainedSteer 会在已有 openTurn 上调 beginTurn（TR-25
+    // 防重入 DomainError）。此处只落盘条目（drain 落盘语义保住用户输入事实），
+    // 不开新轮（run 已终结，无回复对象；下轮正常 beginTurn）。
+    if (this.pendingDrainSteerItem) {
+      const item = this.pendingDrainSteerItem;
+      this.pendingDrainSteerItem = null;
+      const entry = this.session.appendSteerEntryAtDrain(item, this.now());
+      this.publishMessageCompleted(entry.id, "user", item.text, true, undefined, item.source, "drained");
+    }
     // B 收口清账（task-20260824 steer_queue 孤儿）：run 收尾后双通道的引擎侧
     // 消费机会已永久消失（pi run 收尾不消费残留 pending，现场 00386a2c）——
     // domain 队列残留若不清即孤儿（永久滞留 steer_queue 表，下次发消息还可能
