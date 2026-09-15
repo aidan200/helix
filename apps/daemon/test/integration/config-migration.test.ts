@@ -189,3 +189,64 @@ describe("skipConfig 判定新语义（T2.3 定稿：engine 注入与否）", ()
     }
   });
 });
+
+// ── code-review M-迁移窗口：第一批（KV 迁移）不再重写 config.json——两批之间
+//    崩溃曾留「legacy 已清、apiKeys 未迁」的用户密钥永久丢失窗口；瘦身重写
+//    统一收编第二批尾部（legacy 非空即重写一次）。──
+describe("code-review M-迁移窗口：第一批不重写 config.json（崩溃零数据丢失）", () => {
+  test("migrateLegacyRuntimeConfig 迁 KV 后盘上仍保留 model/apiKeys/port（重写归第二批）", async () => {
+    const { migrateLegacyRuntimeConfig } = await import("../../src/infrastructure/assembly/bootPrelude");
+    const { loadConfig } = await import("../../src/infrastructure/config");
+    const home = tmpHome();
+    const cfgPath = path.join(home, "config.json");
+    writeFileSync(
+      cfgPath,
+      JSON.stringify({ model: "anthropic/claude-haiku-4-5", apiKeys: { anthropic: "sk-x" }, port: 7500 }),
+      "utf8",
+    );
+    const { config, legacy } = loadConfig(cfgPath);
+    const kvWrites: Record<string, string> = {};
+    await migrateLegacyRuntimeConfig({
+      legacy,
+      config,
+      paths: { home, configPath: () => cfgPath } as never,
+      persistence: {
+        runtimeConfig: { set: async (k: string, v: string) => { kvWrites[k] = v; } },
+        schedulingConfig: { current: () => ({ maxConcurrent: 2, maxQueued: 8 }), set: async () => {} },
+        mcpConfig: { replaceAll: async () => {} },
+      } as never,
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    });
+    expect(kvWrites["daemon_port"]).toBe("7500"); // KV 迁移发生
+    const onDisk = JSON.parse(readFileSync(cfgPath, "utf8")) as Record<string, unknown>;
+    // 崩溃窗口语义：盘上原样保留全部 legacy 字段（含 model/apiKeys——数据安全面）
+    expect(onDisk.model).toBe("anthropic/claude-haiku-4-5");
+    expect(onDisk.apiKeys).toEqual({ anthropic: "sk-x" });
+    expect(onDisk.port).toBe(7500);
+  });
+
+  test("migrateLegacyModelConfig 尾部统一重写瘦身（legacy 仅剩 port 也重写——两批合并的终态口径不变）", async () => {
+    const { migrateLegacyModelConfig } = await import("../../src/infrastructure/assembly/bootPrelude");
+    const { loadConfig } = await import("../../src/infrastructure/config");
+    const home = tmpHome();
+    const cfgPath = path.join(home, "config.json");
+    writeFileSync(cfgPath, JSON.stringify({ port: 7500, staticDir: "/tmp/static-x" }), "utf8");
+    const { config, legacy } = loadConfig(cfgPath);
+    await migrateLegacyModelConfig({
+      legacy,
+      config,
+      paths: { home, configPath: () => cfgPath } as never,
+      persistence: {
+        runtimeConfig: { set: async () => {} },
+        schedulingConfig: { current: () => ({ maxConcurrent: 2, maxQueued: 8 }), set: async () => {} },
+        mcpConfig: { replaceAll: async () => {} },
+      } as never,
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      modelStack: { authStore: { setKey: async () => {} } } as never,
+    });
+    const onDisk = JSON.parse(readFileSync(cfgPath, "utf8")) as Record<string, unknown>;
+    // 第二批尾部统一重写：port 消失（第一批已迁 KV），staticDir（合法引导参数）保留
+    expect(onDisk.port).toBeUndefined();
+    expect(onDisk.staticDir).toBe("/tmp/static-x");
+  });
+});

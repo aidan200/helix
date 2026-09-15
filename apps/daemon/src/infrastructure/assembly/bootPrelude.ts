@@ -102,8 +102,11 @@ export interface LegacyMigrationCtx {
 /**
  * config 瘦身批迁移第一批（一次性，幂等；先于端口解析与 MCP 预热）：旧
  * config.json 含 port/maxConcurrent/maxQueued/mcpServers → 写新位
- *（KV daemon_port / KV scheduling_config / mcp_server 表）+ config.json
- * 重写瘦身形态。model/apiKeys 迁移在模型栈就绪后（migrateLegacyModelConfig）。
+ *（KV daemon_port / KV scheduling_config / mcp_server 表）。**本批不重写
+ * config.json**（code-review M-迁移窗口：两批间隔长链装配 await，第一批
+ * 重写会把盘上未迁的 model/apiKeys 提前抹除——窗口内崩溃 = 用户密钥永久
+ * 丢失）；瘦身重写统一收编第二批尾部（migrateLegacyModelConfig：legacy
+ * 任一字段存在即重写一次）。
  */
 export async function migrateLegacyRuntimeConfig(ctx: LegacyMigrationCtx): Promise<void> {
   const { legacy, persistence, paths, config, logger } = ctx;
@@ -130,8 +133,7 @@ export async function migrateLegacyRuntimeConfig(ctx: LegacyMigrationCtx): Promi
       await persistence.mcpConfig.replaceAll(legacy.mcpServers);
       migrated.push(`mcpServers → mcp_server 表（${legacy.mcpServers.length} 项）`);
     }
-    writeConfig(paths.configPath(), config); // 重写瘦身形态（旧字段不再出现）
-    logger.info(`已迁移旧配置（config 瘦身批）：${migrated.join("；")}；config.json 已重写瘦身形态`);
+    logger.info(`已迁移旧配置（config 瘦身批）：${migrated.join("；")}；config.json 瘦身重写归第二批尾部`);
   }
   await migrateLegacySandboxConfig(paths, persistence, logger);
 }
@@ -178,11 +180,23 @@ export async function migrateLegacyModelConfig(ctx: LegacyMigrationCtx & { reado
       await modelStack.authStore.setKey(providerId, apiKey);
     }
     if (legacy.model !== undefined) await persistence.defaultModel.set(legacy.model);
-    writeConfig(paths.configPath(), config);
     logger.info(
       `已迁移旧配置：model → SQLite 默认模型表（${legacy.model ?? "无"}）；` +
-        `apiKeys → ${paths.authPath()}（${Object.keys(legacy.apiKeys ?? {}).length} 项）；config.json 已重写瘦身形态`,
+        `apiKeys → ${paths.authPath()}（${Object.keys(legacy.apiKeys ?? {}).length} 项）`,
     );
+  }
+  // 瘦身重写统一在本批尾部（code-review M-迁移窗口）：legacy 任一字段存在
+  // （含第一批已迁 KV 的 port/调度/mcpServers）即重写一次——此刻全部旧字段
+  // 均已落新位，重写零数据丢失面
+  if (
+    legacy.model !== undefined ||
+    legacy.apiKeys !== undefined ||
+    legacy.port !== undefined ||
+    legacy.maxConcurrent !== undefined ||
+    legacy.maxQueued !== undefined ||
+    legacy.mcpServers !== undefined
+  ) {
+    writeConfig(paths.configPath(), config);
   }
 }
 
