@@ -13,7 +13,7 @@ import type { GrepMatch, GrepQuery } from "./contract";
  * GrepTool —— grep 工具门面（AD-10；CL-3 域目录化，architecture §5.1）。
  *
  * 对引擎暴露的接口形状不变：AgentHarnessTool 形态、手写参数 schema
- * （pattern/path/glob/ignoreCase 四键）、输出格式 `path:行号: 行内容` /
+ * （pattern/path/glob/ignoreCase/regex 五键）、输出格式 `path:行号: 行内容` /
  * `(no matches for "...")` 文案——既有工具契约零变化。
  *
  * 门面只做后端接线与输出格式化，不含匹配逻辑。**rg 单后端**（TS 内置

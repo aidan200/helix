@@ -3,6 +3,7 @@ import type {
   AgentToolResult,
   ExecutionToolContext,
 } from "@earendil-works/pi-agent-core/node";
+import { BROWSER_UA } from "./shared";
 
 /**
  * WebSearchTool —— 静态联网搜索工具（动态层 browser action=open/eval 属
@@ -108,9 +109,7 @@ const searchParameters = {
   additionalProperties: false,
 } as const;
 
-/** 浏览器伪装 UA（静态抓取防风控的最低限度伪装）。 */
-const BROWSER_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+// BROWSER_UA（浏览器伪装 UA）下沉 shared.ts 单源共享（code-review 低危：与 WebFetchTool 逐字重复双源漂移风险）——web_fetch 同口径
 
 /** 引擎清单：DDG html 版为主、Bing 兜底（无 Google——v1 实证基本失效）。 */
 const SEARCH_ENGINES = [

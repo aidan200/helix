@@ -7,8 +7,8 @@
  * 编排面 task_* 七工具与 plan 三工具同在表内——具体某 kind 进哪些 snippet
  * 由 ResourceService.getEffectiveTools(kind) 生效集决定，本表只管
  * 「名 → 中文一句话」映射）；全集形状（profile 工具计数与 snippet 总条数）
- * 以契约测试锚定（tool-prompt-snippets.test.ts①：main 23 / subagent 14 /
- * kg-writer 14，snippet 表 29 条）——不在此处另记一套计数，防双源漂移。
+ * 以契约测试锚定（tool-prompt-snippets.test.ts ①②）——计数以测试为准，
+ * 本头注不抄录数字，防双源漂移。
  *
  * snippet 约束：中文一句话、单行（进 system prompt 的清单行——多行破坏
  * 扁平清单格式）；组装器不做任何状态联动（读 关不删技能引导句，裁决见
