@@ -414,13 +414,19 @@ export class EventStream implements EventPublisherPort {
       this.push(frame);
       return;
     }
+    // chat 通道 wire 归属归一（code-review L，thinking 通道同法）：主实例归属
+    //（缺省/会话主实例 hex/legacy "main"）按 chat 线形状省略 instanceId——与
+    // message.completed 同编码（判别走 TR-39 单点 isWireMainAttribution，防
+    // 内联漂移致 R4 槽位键错位）；SubAgent 携带原值（前端路由至实例 channel）。
+    const raw = delta.instanceId;
+    const mainId = this.deps.mainInstanceIdFor?.(sessionId);
+    const isMain = isWireMainAttribution(raw, mainId ?? WIRE_LEGACY_MAIN_ID);
     const frame: ChatStreamDeltaEvent = {
       v: PROTOCOL_VERSION,
       sessionId,
       channel: "chat",
       type: "chat.stream.delta",
-      // SubAgent 流式：帧携带实例维（前端路由至实例 channel；主实例缺省语义）
-      ...(delta.instanceId !== undefined ? { instanceId: delta.instanceId } : {}),
+      ...(raw !== undefined && !isMain ? { instanceId: raw } : {}),
       payload: { messageId: delta.messageId, delta: delta.delta },
     };
     this.push(frame);

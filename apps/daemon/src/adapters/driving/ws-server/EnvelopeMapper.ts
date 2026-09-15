@@ -447,10 +447,11 @@ function buildEnvelope(event: DomainEvent, ctx?: EventMapContext): EventEnvelope
     case "coord.conflict": {
       const p = event.payload as CoordLeasePayload;
       const kind = event.type.slice("coord.".length) as "claimed" | "released" | "settled" | "undeclared" | "conflict";
+      // sessionId/channel 不在此设（code-review L 死赋值删除）：统一由
+      // domainEventToEnvelope 出口盖印（coord.* → SYSTEM_SESSION_ID 全局帧
+      // + EVENT_CHANNELS 判别 channel），内层设了也会被覆写。
       const frame: CoordChangedEvent = {
         v: PROTOCOL_VERSION,
-        sessionId: SYSTEM_SESSION_ID, // daemon 级全局帧：冲突双方用户都要知晓，不按订阅过滤
-        channel: "notification",
         type: "coord.changed",
         payload: {
           kind,

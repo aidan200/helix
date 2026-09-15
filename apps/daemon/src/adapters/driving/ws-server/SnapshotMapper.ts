@@ -177,7 +177,12 @@ export function historyPage(
     throw new Error(`游标 ${beforeEntryId} 不在会话 ${snapshot.sessionId} 主时间轴内`);
   }
   const earlier = mainAxis.slice(0, cursorIndex); // 严格早于游标（升序）
-  const size = Math.min(Math.max(1, Math.floor(limit)), HISTORY_PAGE_MAX);
+  // 钳制前守卫（code-review L）：非有限值（NaN/Infinity）会滑出 Math 链
+  //（Math.max/min 遇 NaN 恒 NaN，slice(NaN) 视同 0 → 整段返回未截断）。
+  // 入口已校验正整数（handlers/session.ts），此处纯防御兑底：回落缺省页宽。
+  const size = Number.isFinite(limit)
+    ? Math.min(Math.max(1, Math.floor(limit)), HISTORY_PAGE_MAX)
+    : HISTORY_PAGE_DEFAULT;
   const page = earlier.length > size ? earlier.slice(earlier.length - size) : earlier;
   const hasMore = earlier.length > page.length;
   return {
