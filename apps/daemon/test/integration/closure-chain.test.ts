@@ -6,6 +6,7 @@ import { Database } from "bun:sqlite";
 import { PassThrough } from "node:stream";
 import type { Model } from "@earendil-works/pi-ai";
 import { createTestDaemon } from "../helpers/createTestDaemon";
+import { TASK_SLICE_HEADER } from "../../src/domain/kg/attachment/task-slice";
 import type { TestDaemonOptions } from "../helpers/createTestDaemon";
 import type { Daemon } from "../../src/infrastructure/container";
 import type { InstanceRunner, InstanceRunnerCallbacks, InstanceClosureOutcome } from "../../src/application/services/InstanceRunner";
@@ -286,7 +287,10 @@ describe("③ 用户 steer 与 closure 注入混序 FIFO（同队列按序 drain
     await until(() => daemon.system.getStatus().agentState === "idle", 10000, "主线 run 结束");
     const drainedUserTexts = engine.events
       .filter((e) => e.type === "message_end" && e.role === "user")
-      .map((e) => (e as { text: string }).text);
+      .map((e) => (e as { text: string }).text)
+      // 首轮开工切片注入与本用例正交（W2-D R9/R10：idle 首轮一次性 kg 约束切片
+      // 拼入首条用户消息；切片命中随真图演进变化）——剥离切片段后断言 FIFO
+      .map((t, i) => (i === 0 ? t.split(TASK_SLICE_HEADER)[0]!.trimEnd() : t));
     expect(drainedUserTexts).toEqual([
       "开始调研",
       "用户补充：注意边界情况", // FIFO：用户 steer 在前

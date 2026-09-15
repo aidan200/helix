@@ -45,8 +45,19 @@ interface LauncherDepsView {
   readonly deps: { readonly rgPath?: string };
 }
 
+/** bundle 级 env 洗涮（测试环境泄漏防护）：两例都假定无 HELIX_RG_PATH（bundle 级
+ *  优先于 config 级——不洗涮则冻结定格值被宿主环境污染，①②双双假红）。 */
+function scrubBundleRgEnv(): () => void {
+  const saved = process.env.HELIX_RG_PATH;
+  delete process.env.HELIX_RG_PATH;
+  return () => {
+    if (saved !== undefined) process.env.HELIX_RG_PATH = saved;
+  };
+}
+
 describe("code-review H7：rg 定格路径会话栈接线（config 级唯一通道）", () => {
   test("① config.json rgPath → 冻结定格 → 会话栈 launcher deps.rgPath（整链透传）", async () => {
+    const restoreEnv = scrubBundleRgEnv();
     const rg = hostRg();
     const home = mkHome();
     writeFileSync(path.join(home, "config.json"), JSON.stringify({ rgPath: rg }), "utf8");
@@ -63,10 +74,12 @@ describe("code-review H7：rg 定格路径会话栈接线（config 级唯一通�
       expect(launcher!.deps.rgPath).toBe(rg); // config 级定格值到达会话栈 launcher
     } finally {
       await daemon.shutdown();
+      restoreEnv();
     }
   });
 
   test("② 无 config rgPath（洗涮态无 bundle env）→ freeze unavailable → deps.rgPath 不注入", async () => {
+    const restoreEnv = scrubBundleRgEnv();
     const home = mkHome();
     const daemon = await createTestDaemon({
       home,
@@ -81,6 +94,7 @@ describe("code-review H7：rg 定格路径会话栈接线（config 级唯一通�
       expect(launcher!.deps.rgPath).toBeUndefined(); // unavailable 定格 → 不注入键，子进程靠继承面
     } finally {
       await daemon.shutdown();
+      restoreEnv();
     }
   });
 });
