@@ -9,6 +9,7 @@ import { AgentRuntime } from "../../src/adapters/driven/pi-engine/runtime/AgentR
 import { textOfContent } from "../../src/adapters/driven/pi-engine/mappers/SessionMapper";
 import type { AgentProfile } from "../../src/adapters/driven/pi-engine/runtime/AgentProfile";
 import { MinimalHooks } from "../../src/adapters/driven/pi-engine/runtime/hooks/MinimalHooks";
+import { SteerHooks } from "../../src/adapters/driven/pi-engine/runtime/hooks/SteerHooks";
 import { PiAgentEngineAdapter } from "../../src/adapters/driven/pi-engine/PiAgentEngineAdapter";
 import { CoreToolExecutor } from "../../src/adapters/driven/tools/CoreToolExecutor";
 
@@ -231,5 +232,83 @@ describe("AgentRuntime initialMessages（恢复回填）", () => {
     await runtime.drive("只有新问题");
     expect(seen).toHaveLength(1);
     expect(seen[0]!.map((m) => m.role)).toEqual(["user"]);
+  });
+});
+
+describe("steer-drain 判别：同文 prompt 误标回归（code-review 低危）", () => {
+  /** SteerHooks 通道 + 零工具（豁免装配期 resolveTools 守卫）的测试 profile。 */
+  const SteerProfile: AgentProfile = {
+    kind: "test-steer-drain",
+    systemPrompt: "x",
+    tools: [],
+    lifecycle: { mode: "single-shot" },
+    hooks: [SteerHooks],
+  };
+
+  function assistant(text: string): AssistantMessage {
+    return {
+      role: "assistant",
+      content: [{ type: "text", text }],
+      api: "anthropic-messages",
+      provider: "anthropic",
+      model: "fake-model",
+      usage: {
+        input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
+        totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    } as unknown as AssistantMessage;
+  }
+
+  test("run 间隙排队 steer + 同文 start：首条 user 恒 prompt，drain 不错位", async () => {
+    // 剧本两轮回复（prompt 轮 + drain 轮——one-at-a-time 下队列注入独占 turn）
+    const scripts = ["第一答", "第二答"];
+    const streamFn: StreamFn = () => {
+      const stream = createAssistantMessageEventStream();
+      const final = assistant(scripts.shift() ?? "（耗尽）");
+      void (async () => {
+        stream.push({ type: "start", partial: final });
+        stream.push({ type: "text_end", contentIndex: 0, content: "ok", partial: final });
+        stream.push({ type: "done", reason: "stop", message: final });
+      })();
+      return stream;
+    };
+    const engine = new PiAgentEngineAdapter({
+      profile: SteerProfile,
+      model: fakeModel,
+      apiKeys: { anthropic: "sk-test" },
+      streamFnOverride: streamFn,
+    });
+    // run 间隙 steer 排队（pi 队列 + steeredTexts 镜像）→ 同文 prompt start：
+    // 修复前 prompt 消息吃掉队头被误标 steer-drain、真 drain 反判 prompt（双错位）
+    engine.steer("再看看");
+    const userStarts: Array<{ source?: string }> = [];
+    await engine.start("再看看", (e) => {
+      if (e.type === "message_start" && e.role === "user") userStarts.push({ source: e.source });
+    });
+    expect(userStarts.map((s) => s.source)).toEqual(["prompt", "steer-drain"]);
+  });
+});
+
+describe("装配期 resolveTools 守卫（code-review 低危：声明工具不静默空集）", () => {
+  test("profile 声明工具 + 未注入 resolveTools → 装配期 fail-fast（组合根接线遗漏即时暴露）", () => {
+    expect(
+      () =>
+        new AgentRuntime(TestProfile, {
+          streamFn: makeCapturingLLM([]),
+          model: fakeModel,
+          getApiKey: () => "k",
+        }),
+    ).toThrow(/声明了 2 个工具但未注入 resolveTools/);
+  });
+
+  test("profile.tools 空数组 → 豁免（零工具无可解析物，纯测试形态零注入合法）", () => {
+    const runtime = new AgentRuntime({ ...TestProfile, tools: [] }, {
+      streamFn: makeCapturingLLM([]),
+      model: fakeModel,
+      getApiKey: () => "k",
+    });
+    expect(runtime).toBeDefined();
   });
 });

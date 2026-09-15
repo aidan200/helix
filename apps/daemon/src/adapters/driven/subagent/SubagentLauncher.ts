@@ -33,8 +33,10 @@ export interface SubagentFileWriteMeta {
  *
  * 每个 SubAgent 实例 = 一个独立子进程（bun run ChildMain.ts，detached
  * 独立进程组）：launch 秒回（spawn 不 await 收口——closure 经
- * InstanceRunnerCallbacks 异步上报，AD-8）；崩溃检测 = exit 非 0 且未回传
- * closure → failed 收口；kill = O-6 序列（transport 承载）。
+ * InstanceRunnerCallbacks 异步上报，AD-8）；崩溃检测 = exit 后未回传
+ * closure → failed 收口（不判别退出码——exit 0 未收口同判异常退出：
+ * 子进程承诺正常路径必回传 closure 后才退出）；kill = O-6 序列
+ * （transport 承载）。
  *
  * 与 InstanceRunner 接口的对接说明：接口成员 =
  * launch/setCallbacks/send?/kill?（send/kill 原为接口外扩展方法，
@@ -208,6 +210,14 @@ const ENTRY_CLEANUP_MS = 60_000;
 export class SubagentLauncher implements InstanceRunner {
   private callbacks: InstanceRunnerCallbacks | undefined;
   private readonly children = new Map<string, ChildEntry>();
+  /**
+   * isolated 档 launch 去重窗占位（code-review 低危）：provision 是 async
+   * 前置，children entry 在 doLaunch 才登记——占位先钉住同 id 的第二发
+   * launch（否则 provision 窗口内重复 provision/spawn 双子进程）；
+   * 落成真 entry（doLaunch 后）或失败收口后即清。非 isolated 同步直达
+   * 无窗口，不入占位。
+   */
+  private readonly launching = new Set<string>();
 
   constructor(private readonly deps: SubagentLauncherDeps) {}
 
@@ -260,14 +270,16 @@ export class SubagentLauncher implements InstanceRunner {
     return this.profileNow(profileKind).thinkingLevel;
   }
 
-  /** 启动实例执行（秒回：spawn + 接线，不 await 收口）。同一实例不重复 launch。 */
+  /** 启动实例执行（秒回：spawn + 接线，不 await 收口）。同一实例不重复 launch
+   *（children entry 存在期 + isolated 档 provisioning 占位窗）。 */
   launch(instance: AgentInstance, task: string): void {
     const id = instance.instanceId;
-    if (this.children.has(id)) return;
+    if (this.children.has(id) || this.launching.has(id)) return;
     // U3 isolated 档：async 前置（git worktree provision，毫秒级）后再真
     // spawn——launch 秒回语义保持（provision 失败经 closure 收口链可见，
     // AD-8 异步交付）。非 isolated 同步直达（零额外延迟）。
     if (instance.writeMode === "isolated") {
+      this.launching.add(id); // 去重窗占位：provision 落成真 entry 前 this.launching 钉住同 id
       void this.launchIsolated(instance, task);
       return;
     }
@@ -279,40 +291,44 @@ export class SubagentLauncher implements InstanceRunner {
     return typeof this.deps.toolCwd === "function" ? this.deps.toolCwd() : this.deps.toolCwd;
   }
 
-  /** U3 isolated 档 async 前置：provision → 登记 → doLaunch（toolCwd 钉 worktree）。 */
+  /** U3 isolated 档 async 前置：provision → 登记 → doLaunch（toolCwd 钉 worktree）。finally 清 launch 占位：成功路径 children 已有真 entry（去重交棒）、失败路径已收口 failed（同 id 可重试）。 */
   private async launchIsolated(instance: AgentInstance, task: string): Promise<void> {
     const id = instance.instanceId;
-    if (this.deps.worktreeProvisioner === undefined) {
-      // 未装配 provisioner（组合根缺接线）：诚实报因收口（配置缺失非任务失败）
-      this.callbacks?.onInstanceClosure(id, {
-        result: "failed",
-        closure: failedClosure("isolated 档未装配 WorktreeProvisioner（daemon 组合根缺接线）"),
-        error: "worktree provisioner missing",
-      });
-      return;
-    }
-    let provisioned: WorktreeProvisionResult;
     try {
-      provisioned = await this.deps.worktreeProvisioner.provision(id, this.currentToolCwd());
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      this.callbacks?.onInstanceClosure(id, {
-        result: "failed",
-        closure: failedClosure(`isolated worktree 创建异常：${detail}`),
-        error: `worktree provision error: ${detail}`,
-      });
-      return;
+      if (this.deps.worktreeProvisioner === undefined) {
+        // 未装配 provisioner（组合根缺接线）：诚实报因收口（配置缺失非任务失败）
+        this.callbacks?.onInstanceClosure(id, {
+          result: "failed",
+          closure: failedClosure("isolated 档未装配 WorktreeProvisioner（daemon 组合根缺接线）"),
+          error: "worktree provisioner missing",
+        });
+        return;
+      }
+      let provisioned: WorktreeProvisionResult;
+      try {
+        provisioned = await this.deps.worktreeProvisioner.provision(id, this.currentToolCwd());
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.callbacks?.onInstanceClosure(id, {
+          result: "failed",
+          closure: failedClosure(`isolated worktree 创建异常：${detail}`),
+          error: `worktree provision error: ${detail}`,
+        });
+        return;
+      }
+      if ("error" in provisioned) {
+        this.callbacks?.onInstanceClosure(id, {
+          result: "failed",
+          closure: failedClosure(`isolated worktree 创建失败：${provisioned.error}`),
+          error: provisioned.error,
+        });
+        return;
+      }
+      this.deps.onWorktreeProvisioned?.(id, provisioned);
+      this.doLaunch(instance, task, provisioned.path);
+    } finally {
+      this.launching.delete(id);
     }
-    if ("error" in provisioned) {
-      this.callbacks?.onInstanceClosure(id, {
-        result: "failed",
-        closure: failedClosure(`isolated worktree 创建失败：${provisioned.error}`),
-        error: provisioned.error,
-      });
-      return;
-    }
-    this.deps.onWorktreeProvisioned?.(id, provisioned);
-    this.doLaunch(instance, task, provisioned.path);
   }
 
   private doLaunch(instance: AgentInstance, task: string, toolCwdOverride?: string): void {

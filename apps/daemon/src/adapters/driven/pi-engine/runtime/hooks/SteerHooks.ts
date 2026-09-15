@@ -31,6 +31,12 @@ export class SteerHooks implements HookSet, SteerCapable {
       if (event.type === "agent_start") {
         this.controller = new AbortController();
       }
+      // agent_end 置空（code-review 低危）：对齐 signal getter「run 外
+      // undefined」注释——run 结束后旧 controller 残留会让 signal 暴露
+      // 已作废的旧 run signal（abort() 也只会对死 controller 打空）
+      if (event.type === "agent_end") {
+        this.controller = null;
+      }
     });
   }
 

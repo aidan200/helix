@@ -8,7 +8,7 @@
  * 的既有纪律——DTO 映射归 handler）。
  */
 
-/** MCP server 配置（DaemonConfig.mcpServers[] 行；config 声明面）。 */
+/** MCP server 配置（helix.db mcp_server 表行——config 列 JSON 载体，声明面已从 config.json mcpServers 段迁表）。 */
 export interface McpServerConfig {
   /** server 标识键——同时是工具命名空间前缀（`${name}__${tool}`）。 */
   name: string;

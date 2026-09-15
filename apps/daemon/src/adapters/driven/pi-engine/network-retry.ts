@@ -54,8 +54,12 @@ const TRANSPORT_MESSAGE_PATTERNS: readonly RegExp[] = [
   /connection error|connection reset|connection refused|connection closed|connection terminated|other side closed/i,
   /Headers Timeout Error|Body Timeout Error|Connect Timeout Error/i, // undici UND_ERR_*_TIMEOUT
   /\bterminated\b/i, // undici UND_ERR_TERMINATED
-  /network (?:error|timeout)|request timed? ?out|timed out|timeout/i,
+  /network (?:error|timeout)|request timed? ?out|timed out/i,
 ];
+// （code-review 低危：末尾原裸 `|timeout` 兜底已剔除——任何含 "timeout"
+// 字样的 provider 散文都会被误判瞬时，违反本表「有限可枚举库常量」纪律；
+// 真实库常量形态已尽列于上（errno ETIMEDOUT / undici Headers·Body·Connect
+// Timeout Error / request timed out 族），裸字样无独立库常量来源。）
 
 /**
  * 独立三位数 HTTP 状态码提取（"429: …"/"(503) …"/"HTTP 500 …" 等嵌入形态）。

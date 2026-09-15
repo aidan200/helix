@@ -149,7 +149,17 @@ export class SkillScanner implements SkillSourcePort {
       /* 不存在 = 可创建（继续） */
     }
     await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, content, "utf8");
+    // 原子排他（code-review 低危）：wx flag 防 TOCTOU——预检与落盘间的并发
+    // 同名创建窗口由内核层拒绝，EEXIST 映射同款 already-exists（预检仅是
+    // 快路径，不是正确性依赖）
+    try {
+      await writeFile(filePath, content, { encoding: "utf8", flag: "wx" });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+        return { status: "skipped", reason: "already-exists" };
+      }
+      throw err;
+    }
     return { status: "applied", name };
   }
 }

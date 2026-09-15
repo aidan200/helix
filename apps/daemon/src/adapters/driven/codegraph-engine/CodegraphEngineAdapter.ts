@@ -111,10 +111,10 @@ export class CodegraphEngineAdapter implements CodegraphEnginePort {
     return truncateQueryOutput(stdout);
   }
 
-  /** 二进制不可达（resolve 三级全 miss）→ degraded 第一入口。 */
+  /** 二进制不可达（resolve 单级 bundle miss：HELIX_CODEGRAPH_PATH 未注入/指向不存在——config 级与 PATH 级均已砍，见 E-137）→ degraded 第一入口。 */
   private requireBinary(): string {
     if (this.binaryPath === null) {
-      throw new EngineUnavailableError("codegraph 二进制不可达（resolve 三级全 miss）");
+      throw new EngineUnavailableError("codegraph 二进制不可达（resolve 单级 bundle miss：HELIX_CODEGRAPH_PATH 未注入）");
     }
     return this.binaryPath;
   }

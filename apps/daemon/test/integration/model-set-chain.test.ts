@@ -69,6 +69,9 @@ function makeRecordingEngine(seen: string[], firstChunkDelayMs = 20): PiAgentEng
     apiKeys: { anthropic: "sk-test" },
     models,
     streamFnOverride: recordingStreamFn(seen, firstChunkDelayMs),
+    // 本测试只观测 model 切换链——装配期 resolveTools fail-fast（声明工具
+    // 即要求注入）用空解析器满足，工具面不在断言面
+    resolveTools: () => [],
   });
 }
 

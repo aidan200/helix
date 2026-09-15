@@ -2,11 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   agentMessageOfEntry,
-  entryDataOf,
   seedMessagesOf,
   textOfContent,
   textOfMessage,
-  userMessage,
 } from "../../src/adapters/driven/pi-engine/mappers/SessionMapper";
 import type { EntryData } from "../../src/domain/session/Entry";
 import type { SessionEntryData } from "../../src/domain/session/SessionSnapshot";
@@ -19,8 +17,11 @@ import type { AssistantMessage, UserMessage } from "@earendil-works/pi-ai";
  * 架构 §5.5），SessionMapper 的 pi 侧映射保持 T1.4 现状，往返面以现有
  * user/assistant 文本映射为口径。
  */
+/** seedMessagesOf 同款模型元数据（回填 assistant 消息的元数据补齐面）。 */
+const META = { api: "anthropic-messages", provider: "anthropic", model: "claude-fake" } as const;
+
 describe("TP-CL8-4：SessionMapper 往返 roundtrip", () => {
-  test("user EntryData → pi UserMessage → EntryData 语义等价", () => {
+  test("user EntryData → agentMessageOfEntry → 文本抽取语义等价（恢复回填真往返）", () => {
     const data: EntryData = {
       id: "e1",
       role: "user",
@@ -30,25 +31,24 @@ describe("TP-CL8-4：SessionMapper 往返 roundtrip", () => {
       instanceId: "main",
       createdAt: "2024-01-01T00:00:01.000Z",
     };
-    const msg = userMessage(data.text);
-    const back = entryDataOf(msg, data.turnId)!;
-    expect(back.role).toBe("user");
-    expect(back.text).toBe(data.text); // 语义核心：文本无损
-    expect(back.turnId).toBe(data.turnId);
-    expect(textOfMessage(msg)).toBe(data.text);
+    const msg = agentMessageOfEntry(data, META)!;
+    expect((msg as { role: string }).role).toBe("user");
+    expect(textOfMessage(msg)).toBe(data.text); // 语义核心：文本无损
   });
 
-  test("assistant 内容块 → 纯文本 → EntryData 语义等价", () => {
-    const assistant = {
+  test("assistant EntryData → agentMessageOfEntry → 文本抽取语义等价", () => {
+    const data: EntryData = {
+      id: "e2",
       role: "assistant",
-      content: [
-        { type: "text", text: "第一段。" },
-        { type: "text", text: "第二段。" },
-      ],
-    } as unknown as AgentMessage;
-    const back = entryDataOf(assistant, "t1")!;
-    expect(back.role).toBe("assistant");
-    expect(back.text).toBe("第一段。第二段。");
+      text: "第一段。第二段。",
+      turnId: "t1",
+      isSteer: false,
+      instanceId: "main",
+      createdAt: "2024-01-01T00:00:02.000Z",
+    };
+    const msg = agentMessageOfEntry(data, META)!;
+    expect((msg as { role: string }).role).toBe("assistant");
+    expect(textOfContent((msg as { content: unknown }).content)).toBe("第一段。第二段。");
     expect(textOfContent([{ type: "text", text: "abc" }])).toBe("abc");
   });
 

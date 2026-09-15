@@ -80,11 +80,21 @@ export class AgentRuntime {
     // SteerHooks.bind 绑 agent 引用，共享实例即跨 runtime 串台（P0）。
     // extraHooks（park/resume 批）为已实例化钩子（运行期状态注入面）直接追加。
     const hooks = [...profile.hooks.map((H) => new H()), ...compaction, ...(deps.extraHooks ?? [])];
+    // 装配期 fail-fast（code-review 低危）：profile 声明了工具而未注入
+    // resolveTools = 组合根接线遗漏（静默 tools:[] 会让 agent 零工具裸奔，
+    // 与 setTools 运行期守卫同哲学）；profile.tools 空数组豁免（零工具声明
+    // 无可解析物——纯测试形态零注入合法）。
+    if (profile.tools.length > 0 && deps.resolveTools === undefined) {
+      throw new Error(
+        `profile "${profile.kind}" 声明了 ${profile.tools.length} 个工具但未注入 resolveTools 装配面` +
+          `（AgentRuntimeDeps.resolveTools）——组合根接线遗漏，拒绝静默空工具集装配`,
+      );
+    }
     this.agent = new Agent({
       initialState: {
         systemPrompt: profile.systemPrompt,
         model: deps.model,
-        tools: deps.resolveTools ? deps.resolveTools(profile.tools) : [],
+        tools: deps.resolveTools !== undefined ? deps.resolveTools(profile.tools) : [],
         // 恢复回填：mainAgent 实例窗口销毁重建后回填它自己的历史（恢复回填批）；
         // 空/缺省 = 新实例（新建会话/阶段切换新实例）无历史。
         ...(deps.initialMessages !== undefined && deps.initialMessages.length > 0

@@ -133,6 +133,9 @@ function buildRuntime(streamFn: StreamFn): AgentRuntime {
     model: fakeModel,
     models,
     getApiKey: () => "explicit-key",
+    // 本测试不驱动工具轮（FakeLLM 剧本纯文本）——装配期 resolveTools
+    // fail-fast（声明工具即要求注入）用空解析器满足，hooks 隔离不受影响
+    resolveTools: () => [],
   });
 }
 
@@ -212,5 +215,27 @@ describe("T1（P0）：同一常量 profile 的两个 runtime —— steer/abort
     expect(endsB.length).toBe(1);
     expect(endsB[0]!.stopReason).toBe("stop");
     expect(userTextsOf(eventsB)).toEqual(["B 的第一问"]);
+  });
+});
+
+describe("SteerHooks controller 生命周期（code-review 低危：agent_end 置空）", () => {
+  test("run 中 signal 可见（abort 可及）；run 结束后 signal 回 undefined（对齐 getter 注释）", async () => {
+    const runtime = buildRuntime(makeFakeLLM(["流式回复中。".repeat(20)], 8).streamFn);
+    const steerHook = (runtime as unknown as { steerHook?: { signal?: AbortSignal } }).steerHook;
+    expect(steerHook).toBeDefined();
+    expect(steerHook!.signal).toBeUndefined(); // 尚未驱动：无 run
+
+    const events: AgentEvent[] = [];
+    runtime.subscribe((e) => events.push(e));
+    const drive = runtime.drive("第一问");
+    await until(() => events.some((e) => e.type === "message_update"));
+    const signalDuringRun = steerHook!.signal; // run 中：abort 通道可见
+    expect(signalDuringRun).toBeDefined();
+    expect(signalDuringRun!.aborted).toBe(false);
+    await drive;
+
+    // agent_end 后 controller 置空——signal 不再暴露已作废的旧 run signal
+    expect(events.some((e) => e.type === "agent_end")).toBe(true);
+    expect(steerHook!.signal).toBeUndefined();
   });
 });

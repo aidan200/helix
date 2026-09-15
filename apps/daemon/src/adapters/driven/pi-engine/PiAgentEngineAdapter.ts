@@ -86,6 +86,16 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
   private listener: AgentEngineListener | null = null;
   /** 已 steer 的文本（FIFO）：drain 边界的 user 消息据此判别来源。 */
   private readonly steeredTexts: string[] = [];
+  /**
+   * 本 run 输入形态（code-review 低危：同文 prompt 误标 steer-drain）：
+   * start 的 run 首条 user 消息恒 prompt（prompt 消息只在 run 开头出现）
+   * 不参与 drain 匹配——run 间隙排队的 steer 与同文 prompt 不再互串；
+   * continueRun 的 run 首条 user 消息恰是队列 drain 产物（末消息
+   * assistant 时以暂存注入为新 run 输入），正常参与匹配。
+   */
+  private runInputIsPrompt = true;
+  /** 本 run 是否已见过 user 消息（首条豁免判别的计数位；agent_start 重置）。 */
+  private seenUserInRun = false;
   /** setModel 解析面（catalog 活解析优先，静态 models 兑底）。 */
   private readonly resolveById: (modelId: string) => Model<any>;
   /** thinking 解析读面（§3.5 注入器同源 getter；currentThinking 生效档计算复用）。 */
@@ -145,6 +155,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
 
   async start(input: string, listener: AgentEngineListener, images?: readonly string[]): Promise<void> {
     this.listener = listener;
+    this.runInputIsPrompt = true; // run 首条 user 消息恒 prompt（drain 判别豁免，见字段注）
     try {
       await this.runtime.drive(input, images);
     } finally {
@@ -160,6 +171,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
    */
   async continueRun(listener: AgentEngineListener): Promise<void> {
     this.listener = listener;
+    this.runInputIsPrompt = false; // run 首条 user 消息是队列 drain 产物（正常参与匹配）
     try {
       await this.runtime.continueRun();
     } finally {
@@ -258,6 +270,7 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
     const emit = (e: AgentEngineEvent) => this.listener?.(e);
     switch (event.type) {
       case "agent_start":
+        this.seenUserInRun = false; // run 边界重置（首条 user 判别计数位）
         return emit({ type: "agent_start" });
       case "agent_end":
         return emit({ type: "agent_end", messageCount: event.messages.length });
@@ -268,9 +281,13 @@ export class PiAgentEngineAdapter implements AgentEnginePort {
       case "message_start": {
         const role = event.message.role as "user" | "assistant" | "toolResult";
         // drain 判别：run 中出现的 user 消息且文本与最早的 steer 注入一致
-        //（prompt 的 user 消息只在 run 开头出现，注入消息出现在 turn 边界）
+        //（注入消息出现在 turn 边界；prompt 的 user 消息只在 run 开头出现）。
+        // 首条 user 豁免（start 形态）：run 间隙排队的 steer 与同文 prompt 不再互串
+        //（prompt 吃掉队头 → 后续真 drain 错判 prompt 的双错位）。
+        const firstUserInRun = role === "user" && !this.seenUserInRun;
+        if (role === "user") this.seenUserInRun = true;
         let source: "prompt" | "steer-drain" = "prompt";
-        if (role === "user" && this.steeredTexts.length > 0) {
+        if (role === "user" && !(firstUserInRun && this.runInputIsPrompt) && this.steeredTexts.length > 0) {
           const text = textOfMessage(event.message);
           if (text === this.steeredTexts[0]) {
             source = "steer-drain";
