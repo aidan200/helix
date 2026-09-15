@@ -43,6 +43,33 @@ import { PROTOCOL_VERSION, SYSTEM_SESSION_ID } from "@helix/protocol";
 // AG-12：ws-server 对 domain 仅 type-only——normalize 校验收口在 driven
 // adapter 入口（architecture.md §3.5b「调仓储前」）
 import type { ServerWebSocket } from "bun";
+
+/** 单连接发送缓冲上限（code-review M 背压）：token 级流式 delta 发慢客户端时
+ *  缓冲无监测可无限堆积（内存注入面）；超阈值断开（客户端重连经快照收敛现值）。 */
+export const WS_BUFFER_LIMIT_BYTES = 8 * 1024 * 1024;
+
+/** 原始发送面工厂（code-review M 背压守护，单测缝）：缓冲超阈值 → 断连慢客户端
+ * （4000 = 应用自定义关闭码），不发送不堆积；onDrop 供观测（adapter 接 console.warn）。 */
+export function createRawSender(
+  ws: {
+    readonly readyState: number;
+    send(data: string): unknown;
+    getBufferedAmount(): number;
+    close(code?: number, reason?: string): void;
+  },
+  onDrop?: (buffered: number) => void,
+): FrameSender {
+  return (frame: EventEnvelope) => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    const buffered = ws.getBufferedAmount();
+    if (buffered > WS_BUFFER_LIMIT_BYTES) {
+      onDrop?.(buffered);
+      ws.close(4000, "发送缓冲超限（背压断连，重连经快照收敛）");
+      return;
+    }
+    ws.send(JSON.stringify(frame));
+  };
+}
 import { EventStream, type FrameSender } from "./EventStream";
 import { toSnapshotDto, TAIL_WINDOW_SIZE } from "./DtoMapper";
 import type { SessionStateView } from "../../../application/ports/inbound/SessionPort";
@@ -637,9 +664,9 @@ export class WsServerAdapter {
 
   /** 构造连接的协议帧发送端（readyState 守卫：关闭中的连接静默丢弃）。 */
   private rawSender(ws: ServerWebSocket<ConnState>): FrameSender {
-    return (frame: EventEnvelope) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
-    };
+    return createRawSender(ws, (buffered) =>
+      console.warn(`[ws] 发送缓冲超限（${buffered}B > ${WS_BUFFER_LIMIT_BYTES}B）——背压断连慢客户端（重连经快照收敛）`),
+    );
   }
 
   private sendNow(sender: FrameSender, frame: EventEnvelope): void {

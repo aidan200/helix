@@ -99,7 +99,8 @@ export class EventStream implements EventPublisherPort {
   private readonly connections = new Map<FrameSender, ConnProjection>();
   /** 多会话：轮次上下文按会话分仓（turn id 序号各会话独立递增）。 */
   private readonly lastTurnIds = new Map<string, string>();
-  /** 工具耗时上下文（起止差值）；键 `${sessionId}:${toolCallId}`（跨会话 toolCallId 可重号）。 */
+  /** 工具耗时上下文（起止差值）；键 `${sessionId}:${instanceId ?? "main"}:${toolCallId}`
+   * （code-review M：并发 SubAgent 同会话 toolCallId 可重号——缺实例段互踩覆盖起点）。 */
   private readonly toolStartedAt = new Map<string, number>();
 
   constructor(private readonly deps: EventStreamDeps = {}) {}
@@ -434,19 +435,18 @@ export class EventStream implements EventPublisherPort {
         this.lastTurnIds.set(event.sessionId, (event.payload as { turnId: string }).turnId);
         break;
       case "tool.call.started":
-        this.toolStartedAt.set(
-          `${event.sessionId}:${(event.payload as { toolCallId: string }).toolCallId}`,
-          Date.parse(event.occurredAt),
-        );
+        this.toolStartedAt.set(this.toolKeyOf(event), Date.parse(event.occurredAt));
         break;
       case "turn.completed":
       case "turn.interrupted":
         // turn 收口兜底清理：run 结束后在飞工具不会再有 tool.call.result
-        //（abort 路径不补 result 时起止条目常驻泄漏）——按会话前缀清
-        // toolStartedAt；正常收口路径已由 takeDuration 读后即删，此处幂等
-        // 兜底。lastTurnIds 单键/会话由 turn.started 覆写，不累积不清。
+        //（abort 路径不补 result 时起止条目常驻泄漏）——按会话+实例分仓清
+        // toolStartedAt（code-review M：原按会话前缀清会误清同会话其他实例
+        // 在飞工具起点致 durationMs 缺席）；正常收口路径已由 takeDuration
+        // 读后即删，此处幂等兜底。lastTurnIds 单键/会话由 turn.started 覆写，
+        // 不累积不清。
         for (const key of [...this.toolStartedAt.keys()]) {
-          if (key.startsWith(`${event.sessionId}:`)) this.toolStartedAt.delete(key);
+          if (key.startsWith(`${event.sessionId}:${event.instanceId ?? "main"}:`)) this.toolStartedAt.delete(key);
         }
         break;
       default:
@@ -454,13 +454,19 @@ export class EventStream implements EventPublisherPort {
     }
   }
 
+  /** 工具起点键（code-review M：`${sessionId}:${instanceId ?? "main"}:${toolCallId}`——
+   *  并发 SubAgent 同会话 toolCallId 可重号，缺实例段会互踩覆盖起点致 durationMs 错算）。 */
+  private toolKeyOf(event: DomainEvent): string {
+    const id = (event.payload as { toolCallId: string }).toolCallId;
+    return `${event.sessionId}:${event.instanceId ?? "main"}:${id}`;
+  }
+
   /** 取出 tool.call.result 的 durationMs（读后即删，防泄漏；非 result 事件无值。
    * 前提：result 必达路径由 takeDuration 收口；abort 不补 result 的残余条目
    * 由 trackProjectionContext 的 turn.completed/interrupted 兜底清理）。 */
   private takeDuration(event: DomainEvent): { durationMs?: number } {
     if (event.type !== "tool.call.result") return {};
-    const id = (event.payload as { toolCallId: string }).toolCallId;
-    const key = `${event.sessionId}:${id}`;
+    const key = this.toolKeyOf(event);
     const started = this.toolStartedAt.get(key);
     if (started === undefined) return {};
     this.toolStartedAt.delete(key);
