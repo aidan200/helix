@@ -136,3 +136,42 @@ describe("恢复链幽灵实例收口（task-efd68911 事故）", () => {
     }
   });
 });
+
+// ── code-review H2：恢复扫描行级隔离——单个毒 job（恢复路径抛错）不得
+//    中断全量扫描（后续 running/pending 无人接管，重启后确定性复现卡死）。
+describe("code-review H2：毒 job 行级隔离（warn 续扫）", () => {
+  test("jobA startOrchestrator 抛错 → 不上抛 + warn 记账 + jobB 照常接管", async () => {
+    const env = buildTaskEngineEnv();
+    try {
+      const clock = { now: () => new Date().toISOString(), nowMs: () => Date.now() };
+      const origStart = env.starter.startOrchestrator.bind(env.starter);
+      let poisonArmed = false;
+      let jobA = "";
+      env.starter.startOrchestrator = async (jobId: string) => {
+        if (poisonArmed && jobId === jobA) throw new Error("毒 job：编排启动失败（注入）");
+        return origStart(jobId);
+      };
+      const warns: string[] = [];
+      const engine = new TaskEngineService({
+        store: env.store,
+        skills: env.skills,
+        starter: env.starter,
+        workLedger: env.workLedger,
+        clock,
+        warn: (m: string) => warns.push(m),
+      });
+      const a = await engine.createTask({ type: "kg-bootstrap", projects: ["demo"], params: { projectRoot: "/tmp/demo", scope: "core" }, createdBy: "page" });
+      const b = await engine.createTask({ type: "kg-bootstrap", projects: ["demo"], params: { projectRoot: "/tmp/demo", scope: "core" }, createdBy: "page" });
+      jobA = a.jobId;
+      poisonArmed = true; // 恢复路径武装：jobA 重开编排即抛
+
+      const { resumedJobIds } = await engine.recoverOnStartup(); // 不上抛（现状：整扫中断）
+      expect(resumedJobIds).toContain(b.jobId); // jobB 照常接管
+      expect(resumedJobIds).not.toContain(a.jobId); // 毒 job 未恢复成
+      expect(warns.length).toBe(1);
+      expect(warns[0]).toContain(a.jobId);
+    } finally {
+      await env.dispose();
+    }
+  });
+});

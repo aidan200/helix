@@ -649,7 +649,16 @@ export class TaskEngineService implements TaskEnginePort {
     for (const status of ["running", "pending"] as const) {
       for (const job of this.deps.store.listJobs({ status })) {
         if (this.recoveredJobIds.has(job.id)) continue;
-        await this.recoverJob(job);
+        // 行级隔离（code-review H2）：单个毒 job 的恢复异常不得中断全量扫描
+        // ——否则后续 running/pending 无人接管且重启确定性复现卡死（同文件
+        // settleOrphanInstances 行级隔离同构）；warn 续扫，毒 job 留待人工/
+        // 下轮重启重试
+        try {
+          await this.recoverJob(job);
+        } catch (err) {
+          this.deps.warn?.(`task 恢复失败（job=${job.id}）：${(err as Error).message}`);
+          continue;
+        }
         if (this.recoveredJobIds.has(job.id)) resumed.push(job.id);
       }
     }
