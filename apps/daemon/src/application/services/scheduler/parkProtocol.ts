@@ -76,3 +76,15 @@ export function isParkInstruction(text: string): boolean {
 export function isResumeInstruction(text: string): boolean {
   return text.trimStart().startsWith(RESUME_INSTRUCTION_MARKER);
 }
+
+/**
+ * park/resume 循环续跑判定（code-review M）：continueRun 以 engine_error 收场时
+ * message_end stopReason=error 不更新 lastAssistantText，残留旧 PARK 标记会被
+ * 重复识别→再次挂起，engine 错误被吞、failed 收口不可达（直到外部 stalled/kill）。
+ * engine_error 收场直走收口判定链（buildClosureOutcome 判 failed），不再按残留
+ * 标记重复挂起。
+ */
+export function parkLoopContinues(terminated: boolean, lastEngineError: string | undefined): boolean {
+  // engine_error 收场不续——错误直走收口判定链；未终止且无错误才按 PARK 标记挂起
+  return !terminated && lastEngineError === undefined;
+}

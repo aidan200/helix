@@ -4,6 +4,7 @@ import {
   isResumeInstruction,
   PARK_INSTRUCTION_TEXT,
   parseParkBlock,
+  parkLoopContinues,
   RESUME_INSTRUCTION_TEXT,
 } from "../../src/application/services/scheduler/parkProtocol";
 
@@ -64,5 +65,17 @@ describe("指令判别（stdin 行 → park/resume 通道分派）", () => {
     expect(isResumeInstruction("继续执行任务")).toBe(false);
     expect(isParkInstruction(RESUME_INSTRUCTION_TEXT)).toBe(false);
     expect(isResumeInstruction(PARK_INSTRUCTION_TEXT)).toBe(false);
+  });
+});
+
+describe("code-review M：park 循环续跑判定（engine_error 收场不重复挂起）", () => {
+  test("engine_error 收场 → 循环不续（残留 PARK 标记不再吞错误，直走收口判 failed）", () => {
+    expect(parkLoopContinues(false, "LLM 调用失败")).toBe(false);
+  });
+  test("正常收场（无错误未终止）→ 循环可续（按 PARK 标记挂起）", () => {
+    expect(parkLoopContinues(false, undefined)).toBe(true);
+  });
+  test("terminated → 循环不续（SIGTERM 走 failed terminated 收口）", () => {
+    expect(parkLoopContinues(true, undefined)).toBe(false);
   });
 });

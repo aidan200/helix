@@ -54,7 +54,8 @@ export class GitWorktreeProvisioner implements WorktreeProvisionerPort {
       }
     }
     if (!added) {
-      // 既有 worktree（重试/残留）：目录在且分支对 → 复用；否则报错
+      // 既有 worktree（重试/残留）：路径在册 + 分支对 → 复用；路径不在册但分支滞留
+      // → 陈旧分支死锁自愈；否则报错
       let listed: string | undefined;
       try {
         const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], {
@@ -65,10 +66,45 @@ export class GitWorktreeProvisioner implements WorktreeProvisionerPort {
       } catch {
         listed = undefined;
       }
-      if (listed === undefined || !listed.split("\n").includes(`worktree ${worktreePath}`)) {
-        return { error: `git worktree add 失败（目标 ${worktreePath}）` };
+      // porcelain 块（空行分隔）定位本路径条目
+      const entry = listed
+        ?.split("\n\n")
+        .find((block) => block.split("\n").includes(`worktree ${worktreePath}`));
+      if (entry !== undefined) {
+        // code-review M：复用前校验检出分支（原代码只校验路径在册——旧基分支
+        // 残留 worktree 被静默复用即基线漂移事故；注释曾声称「分支对」但从不校验）
+        const branchLine = entry.split("\n").find((l) => l.startsWith("branch "));
+        if (branchLine !== `branch refs/heads/${branch}`) {
+          return {
+            error: `worktree 复用校验失败（${worktreePath} 检出 ${branchLine ?? "detached"} ≠ refs/heads/${branch}）——请人工清理该 worktree 后重试`,
+          };
+        }
+        // 复用：分支已检出的树不动（软链补齐即可）
+      } else {
+        // code-review M：陈旧分支死锁自愈——git worktree remove 不删分支，分支存在
+        // 且无 worktree 时 add -b 必失败、同 slug 重试永久失败。删陈旧分支重试一次。
+        let branchExists = false;
+        try {
+          await execFileAsync("git", ["show-ref", "--verify", `refs/heads/${branch}`], {
+            cwd: root,
+            timeout: GIT_TIMEOUT_MS,
+          });
+          branchExists = true;
+        } catch {
+          branchExists = false;
+        }
+        if (branchExists) {
+          try {
+            await execFileAsync("git", ["branch", "-D", branch], { cwd: root, timeout: GIT_TIMEOUT_MS });
+            added = await this.gitOk(addArgs, root);
+          } catch {
+            /* 删分支失败走下方报错 */
+          }
+        }
+        if (!added) {
+          return { error: `git worktree add 失败（目标 ${worktreePath}）` };
+        }
       }
-      // 复用：分支已检出的树不动（软链补齐即可）
     }
     // TR-143：四处软链（主仓 → worktree；已存在跳过——软链 untracked 幂等）
     const linkTargets = [

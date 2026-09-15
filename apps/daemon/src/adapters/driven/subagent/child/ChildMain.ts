@@ -40,6 +40,7 @@ import {
   isParkInstruction,
   isResumeInstruction,
   parseParkBlock,
+  parkLoopContinues,
 } from "../../../../application/services/scheduler/parkProtocol";
 import { loadFakeEngineScript, makeScriptedStreamFn } from "./scriptedEngine";
 import type { FakeEngineScript } from "./scriptedEngine";
@@ -546,6 +547,9 @@ async function main(): Promise<void> {
   //（工具缺席优于整个 spawn 失败）。
   const mcpJson = process.env.HELIX_MCP_SERVERS_JSON;
   const mcpRegistry = new McpRegistry();
+  // code-review M：登记 crash 清场面——runChildMainEntry 的 crash 捕获路径经此
+  // best-effort 收尾 MCP 子进程（正常路径走 main 尾部 stopAll；两路径同一源）。
+  crashCleanup = () => mcpRegistry.stopAll();
   // 配置 server 集（F4 修复：过滤条件锚配置集而非 running 集——全部启动
   // 失败（running=0）时过滤也必须执行，否则 spawn 快照里死命名空间工具名
   // 残留而 executor 无 mcp 注入，resolveTools 硬校验抛错致子进程整崩）
@@ -723,7 +727,9 @@ async function main(): Promise<void> {
   // 层）。挂起等待不收口不退出（进程驻留、上下文在内存、零 token）；RESUME
   // 唤醒后 continueRun 从断点续跑（PARK 摘要已在对话历史，暂存 steer 随 run
   // drain）。可多次挂起/恢复；无标记/terminated → 走收口路径。
-  while (!terminated) {
+  // code-review M：parkLoopContinues——engine_error 收场不再按残留 PARK 标记
+  // 重复挂起（错误直走收口判定链判 failed，不被吞到外部 stalled/kill）。
+  while (parkLoopContinues(terminated, lastEngineError)) {
     const parked = parseParkBlock(lastAssistantText);
     if (parked === undefined) break; // 无挂起标记：正常收口
     writeLine({ type: "parked", instanceId, summary: parked });
@@ -795,6 +801,9 @@ async function main(): Promise<void> {
  * 守卫）或经 main.ts `--child-main` argv 分发；compile 产物 = 内嵌 main.ts
  * 分发（main.ts 与本文件同 bundle，spawn 自身产物重入）。
  */
+/** crash 路径清场面（code-review M）：main() 装配后登记（MCP stopAll）；crash 捕获路径 best-effort 调用。 */
+let crashCleanup: (() => void) | undefined;
+
 export function runChildMainEntry(): void {
   main().catch((err) => {
     process.stdout.write(
@@ -804,6 +813,15 @@ export function runChildMainEntry(): void {
         error: err instanceof Error ? err.message : String(err),
       } satisfies ChildOutboundLine),
     );
+    // code-review M：crash 路径补 MCP 清场——正常路径 mcpRegistry.stopAll()
+    // 防孤儿 npx 进程（main 尾部），crash 路径原样 exit(1) 会把 MCP stdio 子
+    // 进程留成孤儿常驻（McpClient spawn 非 detached，crash 自行 exit 不经父侧
+    // O-6 组杀）。best-effort 收尾，失败不遮 crash 主信息。
+    try {
+      crashCleanup?.();
+    } catch {
+      /* best-effort：清场失败不遮 crash 主信息 */
+    }
     process.exit(1);
   });
 }

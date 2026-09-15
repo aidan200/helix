@@ -93,3 +93,54 @@ describe("GitWorktreeProvisioner", () => {
     }
   });
 });
+
+describe("code-review M：陈旧分支死锁自愈 + 复用分支校验（TR-83 注释口径对齐）", () => {
+  test("worktree remove 不删分支——同 slug 重 provision 自愈（删陈旧分支重试一次）", async () => {
+    const repo = await mkRepo();
+    try {
+      const p = new GitWorktreeProvisioner();
+      const r1 = await p.provision("agent-stale", repo);
+      if ("error" in r1) throw new Error(r1.error);
+      // 模拟残留现场：worktree 移除但分支滞留（生产 remove 路径不删分支）
+      await run(["git", "worktree", "remove", "--force", r1.path], repo);
+      // 现行行为红：git worktree add -b helix/agent-stale 必失败（分支已存在）且无自愈通道
+      const r2 = await p.provision("agent-stale", repo);
+      if ("error" in r2) throw new Error(`自愈失败：${r2.error}`);
+      expect(r2.branch).toBe("helix/agent-stale");
+      expect(await Bun.file(join(r2.path, "a.ts")).exists()).toBe(true);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("复用校验：路径已是 worktree 但检出分支不符 → 报错不静默复用（旧基分支漂移事故面）", async () => {
+    const repo = await mkRepo();
+    try {
+      const p = new GitWorktreeProvisioner();
+      // 占位：预期落点已被别的分支的 worktree 占用（旧基残留形态）
+      const occPath = join(repo, ".worktrees", "agent-reuse");
+      await run(["git", "worktree", "add", "-b", "helix/other-base", occPath], repo);
+      const r = await p.provision("agent-reuse", repo);
+      // 现行行为红：只校验路径在册即静默复用（注释声称「分支对」但从不校验）
+      expect("error" in r).toBe(true);
+      if ("error" in r) expect(r.error).toContain("复用校验失败");
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("复用正例：路径在册且分支对 → 照常复用成功（回归面）", async () => {
+    const repo = await mkRepo();
+    try {
+      const p = new GitWorktreeProvisioner();
+      const r1 = await p.provision("agent-reuse-ok", repo);
+      if ("error" in r1) throw new Error(r1.error);
+      // 同 slug 二次 provision：add 失败（路径已注册）→ 复用分支校验通过 → 成功
+      const r2 = await p.provision("agent-reuse-ok", repo);
+      if ("error" in r2) throw new Error(`复用正例失败：${r2.error}`);
+      expect(r2.branch).toBe("helix/agent-reuse-ok");
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+});
