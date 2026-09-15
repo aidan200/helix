@@ -2,7 +2,8 @@
  * fetch-codegraph 单测（bundle-only 定位改造，镜像 fetch-rg.test.ts 面）。
  *
  * RED 面：
- * - sha256 不匹配即失败删档（不落位、不残留）；
+ * - sha256 不匹配即失败（不落位；坏档归调用方处置——骨架不擅删，
+ *   内部路径 finally 兑底）；
  * - `--from` 源缺 vendored node / node 非 arm64 / 缺 launcher / 缺 lib/dist
  *   即拒绝（三锚守护）；
  * - 幂等：已存在且守护通过则跳过。
@@ -57,25 +58,25 @@ afterEach(() => {
 });
 
 describe("fetch-codegraph：sha256 校验", () => {
-  test("sha256 不符即失败删档，bundle 不落位", async () => {
+  test("sha256 不符即失败，坏档归调用方保留，bundle 不落位", async () => {
     const dir = tmp();
     const tarball = join(dir, "fake.tar.gz");
     writeFileSync(tarball, "not-the-real-codegraph-tarball");
     const dest = join(dir, "codegraph");
 
     await expect(installFromArchive(tarball, dest)).rejects.toThrow(/sha256/);
-    expect(existsSync(tarball)).toBe(false); // 删档
+    expect(existsSync(tarball)).toBe(true); // 档归调用方，骨架不擅删
     expect(existsSync(dest)).toBe(false); // 不落位
   });
 
-  test("sha256 不符即失败删档（windows 档走 win pin）", async () => {
+  test("sha256 不符即失败（windows 档走 win pin）", async () => {
     const dir = tmp();
     const zip = join(dir, "fake.zip");
     writeFileSync(zip, "not-the-real-codegraph-zip");
     const dest = join(dir, "codegraph");
 
     await expect(installFromArchive(zip, dest, "windows-x64")).rejects.toThrow(/sha256/);
-    expect(existsSync(zip)).toBe(false);
+    expect(existsSync(zip)).toBe(true);
     expect(existsSync(dest)).toBe(false);
   });
 });

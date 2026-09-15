@@ -21,10 +21,10 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { platformSpec, resolvePlatformArg, type DesktopPlatform } from "./desktop-platform";
-import { assertArm64Only, assertPeX64 } from "./fetch-rg";
+import { assertArm64Only, assertPeX64 } from "./binary-assert";
 
 const root = join(import.meta.dir, "..");
 
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   const platform = resolvePlatformArg(process.argv, process.env);
   const spec = platformSpec(platform);
   const outPath = compiledDaemonPath(platform);
-  mkdirSync(join(outPath, ".."), { recursive: true });
+  mkdirSync(dirname(outPath), { recursive: true });
   const proc = Bun.spawn({
     cmd: [
       process.execPath, // bun 自身

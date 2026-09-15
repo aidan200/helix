@@ -32,7 +32,7 @@ export interface UsageLedgerData {
   readonly compaction: UsageDto;
   /**
    * 上下文水位（instanceId → 该实例最后一条 turn 源用量的 totalTokens，
-   * 即最近一次调用的窗口占用；观察面 TR-59——账目累计只增，水位只覆写）。
+   * 即最近一次调用的窗口占用；观察面 TR-60——账目累计只增，水位只覆写）。
    * turn 入账覆写；compaction 摘要入账不覆写（其 input 是压缩前全文，
    * 不代表压缩后窗口）；compaction.completed 重置为 tokensAfter
    * （applyCompaction）。重启恢复 = 事件重放同规则重建（终态实例也精确）。
@@ -104,7 +104,7 @@ export function applyUsage(
 
 /**
  * compaction.completed → 水位重置（窗口被摘要替换为 tokensAfter；与 shell
- * 活路径消费语义同构，TR-59 双面口径）。账目面不动（compaction 入账走
+ * 活路径消费语义同构，TR-60 双面口径）。账目面不动（compaction 入账走
  * applyUsage 的独立 usage.recorded 事件——事件序：completed 先、摘要入账后）。
  */
 export function applyCompaction(

@@ -9,13 +9,13 @@
  * HELIX_RG_PATH 注入，daemon resolve-rg ①bundle 级消费（T1.1）。
  *
  * 两种获取形态（安装骨架单点 install-skeleton.ts，差异经 spec 注入——
- * 本文件承载 rg 特有面：资产 pin/平台断言/落位形态）：
+ * 本文件承载 rg 特有面：资产 pin/落位形态；平台断言单点 binary-assert.ts）：
  * - 默认：GitHub releases 固定版本下载（pin 版本号 + 分平台 sha256 校验，
- *   校验失败即删档报错）→ 解压（tar.gz / zip 统一走 bsdtar `tar -xf`，
+ *   校验失败即报错，下载暂存目录 finally 清理）→ 解压（tar.gz / zip 统一走 bsdtar `tar -xf`，
  *   mac 与 Windows 10+ 系统 tar 均支持 zip）→ chmod +x（仅 darwin 档）；
  * - `--from <path>`：本地 rg 直接拷贝（离线/加速场景），同样过平台断言。
  *
- * 双重守护按平台分档（反向断言）：
+ * 双重守护按平台分档（反向断言，单点 binary-assert.ts 经 re-export 消费）：
  * - darwin-arm64：落位后 `lipo -info` 断言 arm64 单架构——拒绝 x86_64
  *   切片 / universal / 非 Mach-O；
  * - windows-x64：PE 头断言 x64（assertPeX64：MZ 魔数 → PE\0\0 → Machine
@@ -29,10 +29,11 @@
  *   bun scripts/fetch-rg.ts [--platform darwin-arm64|windows-x64]  # 固定版本下载
  *   bun scripts/fetch-rg.ts --from <path> [--platform <档>]        # 本地拷贝
  */
-import { chmodSync, copyFileSync, existsSync, openSync, readSync, closeSync, rmSync, statSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { platformSpec, type DesktopPlatform } from "./desktop-platform";
+import { assertBinaryForPlatform } from "./binary-assert";
 import {
   makeInstallers,
   runInstallMain,
@@ -40,10 +41,12 @@ import {
   type InstallSkeletonSpec,
 } from "./install-skeleton";
 
-// 下载面/校验工具单点已迁 install-skeleton.ts（W4 归一）——此处 re-export
-// 保既有消费面（fetch-codegraph import、fetch-rg.test.ts、TR-104 文档锚）。
+// 下载面/校验工具单点在 install-skeleton.ts（W4 归一），架构断言单点在
+// binary-assert.ts——此处两道 re-export 保既有消费面（fetch-rg.test.ts；
+// fetch-codegraph 下载面已直引 install-skeleton，断言面仍经本文件）。
 export { downloadToFile, sha256OfFile, type DownloadOptions } from "./install-skeleton";
 export type { InstallResult } from "./install-skeleton";
+export { assertArm64Only, assertPeX64, assertBinaryForPlatform } from "./binary-assert";
 
 const root = join(import.meta.dir, "..");
 
@@ -77,7 +80,7 @@ export function rgAsset(platform: DesktopPlatform): RgAsset {
   };
 }
 
-/** mac 档资产常量（darwin-arm64 缺省档兼容面；既有测试/dev-desktop 消费）。 */
+/** mac 档资产常量（darwin-arm64 缺省档兼容面；RG_TARBALL_SHA256 仅测试引用，RG_URL 现无消费方）。 */
 export const RG_ASSET_NAME = rgAsset("darwin-arm64").name;
 export const RG_URL = rgAsset("darwin-arm64").url;
 export const RG_TARBALL_SHA256 = rgAsset("darwin-arm64").sha256;
@@ -89,73 +92,6 @@ export function rgDest(platform: DesktopPlatform): string {
 
 /** mac 档落位常量（darwin-arm64 缺省档兼容面；dev-desktop 消费）。 */
 export const RG_DEST = rgDest("darwin-arm64");
-
-/**
- * lipo -info 断言 arm64 单架构（darwin 档反向断言）。
- * 非 Mach-O（lipo 非零退出）/ 含 x86_64 切片 / 缺 arm64 → 抛错。
- */
-export async function assertArm64Only(path: string): Promise<void> {
-  const proc = Bun.spawn({
-    cmd: ["lipo", "-info", path],
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [out, err, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (code !== 0) {
-    throw new Error(`lipo -info 失败（非 Mach-O 二进制？）：${path}：${err.trim() || out.trim()}`);
-  }
-  const info = out.trim().toLowerCase();
-  if (!info.includes("arm64") || info.includes("x86_64")) {
-    throw new Error(`arm64 单架构断言失败（AD-6）：${path} → ${out.trim()}`);
-  }
-}
-
-/**
- * PE x64 断言（windows-x64 档反向断言，lipo 的 Windows 等价物）：
- * MZ 魔数 → e_lfanew(0x3C) → "PE\0\0" 签名 → Machine 字段必须 0x8664（x64）。
- * 非 PE / 截断头 / 非 x64（x86=0x014C、arm64=0xAA64）→ 抛错。同步只读头 6 字节级。
- */
-export function assertPeX64(path: string): void {
-  const fd = openSync(path, "r");
-  try {
-    const dos = Buffer.alloc(0x40);
-    if (readSync(fd, dos, 0, 0x40, 0) < 0x40 || dos.toString("latin1", 0, 2) !== "MZ") {
-      throw new Error(`PE 断言失败（非 PE 二进制，缺 MZ 魔数）：${path}`);
-    }
-    const peOffset = dos.readUInt32LE(0x3c);
-    const pe = Buffer.alloc(6);
-    if (
-      readSync(fd, pe, 0, 6, peOffset) < 6 ||
-      pe.toString("latin1", 0, 4) !== "PE\0\0"
-    ) {
-      throw new Error(`PE 断言失败（缺 PE\\0\\0 签名）：${path}`);
-    }
-    const machine = pe.readUInt16LE(4);
-    if (machine !== 0x8664) {
-      throw new Error(
-        `PE x64 断言失败（TR-95 win32-x64 only）：${path} → Machine=0x${machine.toString(16)}（期望 0x8664）`,
-      );
-    }
-  } finally {
-    closeSync(fd);
-  }
-}
-
-/** 平台分档二进制断言单点（lipo 仅 mac；windows 走 PE x64）。 */
-export async function assertBinaryForPlatform(
-  path: string,
-  platform: DesktopPlatform,
-): Promise<void> {
-  if (platformSpec(platform).isWindows) {
-    assertPeX64(path);
-  } else {
-    await assertArm64Only(path);
-  }
-}
 
 /** 幂等判据：已存在且平台断言通过。 */
 export async function isInstalled(
@@ -222,8 +158,9 @@ const installers = makeInstallers(rgSpec);
  */
 export const installFromLocal: InstallerSet["installFromLocal"] = installers.installFromLocal;
 /**
- * 校验 + 解压安装（tar.gz / zip 双格式）：sha256 不符即删档抛错；通过则
- * 解出 rg 走 installFromLocal 同一落位面（chmod + 平台断言 + 幂等）。
+ * 校验 + 解压安装（tar.gz / zip 双格式）：sha256 不符即抛错（坏档归调用方
+ * 处置，骨架不擅删）；通过则解出 rg 走 installFromLocal 同一落位面
+ * （chmod + 平台断言 + 幂等）。
  */
 export const installFromArchive: InstallerSet["installFromArchive"] = installers.installFromArchive;
 /** 默认形态：固定版本下载 → sha256 校验 → 解压落位（downloadToFile 带超时/停滞/重试）。 */

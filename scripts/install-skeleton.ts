@@ -236,7 +236,7 @@ export interface InstallSkeletonSpec {
 export interface InstallerSet {
   /** `--from <path>` 形态：本地源拷贝 → 守护断言 → 落位（幂等跳过）。 */
   installFromLocal(src: string, dest?: string, platform?: DesktopPlatform): Promise<InstallResult>;
-  /** 校验 + 解压安装：sha256 不符即删档抛错；通过则解出源走 installFromLocal 同一落位面。 */
+  /** 校验 + 解压安装：sha256 不符即抛错（archive 归调用方处置）；通过则解出源走 installFromLocal 同一落位面。 */
   installFromArchive(archive: string, dest?: string, platform?: DesktopPlatform): Promise<InstallResult>;
   /** 默认形态：固定版本下载（downloadToFile 带超时/停滞/重试）→ sha256 → 解压落位（幂等跳过）。 */
   installFromRelease(dest?: string, platform?: DesktopPlatform): Promise<InstallResult>;
@@ -265,7 +265,15 @@ export function makeInstallers(spec: InstallSkeletonSpec): InstallerSet {
     rmSync(tmp, { recursive: true, force: true }); // 同名 tmp 残留预清（同 pid 复用窗口）
     await spec.place(src, tmp, platform);
     if (spec.destIsTree) rmSync(dest, { recursive: true, force: true }); // 目录树：旧落位整体替换
-    renameSync(tmp, dest);
+    try {
+      renameSync(tmp, dest);
+    } catch (e) {
+      rmSync(tmp, { recursive: true, force: true }); // 失败清理 tmp，不残留半成品落位
+      throw new Error(
+        `落位失败（rename ${tmp} → ${dest}）：${e instanceof Error ? e.message : String(e)}` +
+          (spec.destIsTree ? "；旧落位已随替换删除，请重跑安装恢复" : "；dest 未被替换，可直接重试"),
+      );
+    }
     console.log(`✓ ${spec.label}: --from 拷贝完成：${src} → ${dest}`);
     return { skipped: false, path: dest };
   }
@@ -278,9 +286,10 @@ export function makeInstallers(spec: InstallSkeletonSpec): InstallerSet {
     const asset = spec.assetFor(platform);
     const actual = sha256OfFile(archive);
     if (actual !== asset.sha256) {
-      rmSync(archive, { force: true });
+      // archive 归调用方所有，骨架不擅删（内部路径 installFromRelease 的
+      // finally 暂存目录清理已兑底；外部调用方可留坏档诊断后自处置）。
       throw new Error(
-        `sha256 校验失败（已删除 ${archive}）：期望 ${asset.sha256}，实际 ${actual}`,
+        `sha256 校验失败：期望 ${asset.sha256}，实际 ${actual}（${archive} 归调用方处置）`,
       );
     }
     const extractDir = mkdtempSync(join(tmpdir(), `${spec.tmpPrefix}extract-`));

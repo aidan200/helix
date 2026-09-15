@@ -125,7 +125,7 @@ import type {
 } from "./workspace";
 import type { TaskChangedEvent } from "../types/task";
 import type { DiffChangedEvent } from "./diff";
-import type { CoordChangedEvent, CoordChangedPayload } from "./coord";
+import type { CoordChangedEvent } from "./coord";
 import type {
   McpServersListResultEvent,
   McpServersAddResultEvent,

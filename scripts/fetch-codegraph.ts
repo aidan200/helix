@@ -18,7 +18,7 @@
  * 两种获取形态（安装骨架单点 install-skeleton.ts，差异经 spec 注入——
  * 本文件承载 codegraph 特有面：资产 pin/三锚守护/目录树落位）：
  * - 默认：GitHub releases 固定版本下载（pin 版本号 + 分平台 sha256 校验，
- *   校验失败即删档报错）→ 解压整树（tar.gz / zip 统一走 bsdtar `tar -xf`）；
+ *   校验失败即报错，下载暂存目录 finally 清理）→ 解压整树（tar.gz / zip 统一走 bsdtar `tar -xf`）；
  * - `--from <dir>`：本地 bundle 目录直接拷贝（离线/加速场景），同样过守护。
  *
  * 守护面（单文件 rg 的架构断言在目录树形态下的等价物，按平台分档）：
@@ -191,8 +191,9 @@ const installers = makeInstallers(codegraphSpec);
  */
 export const installFromLocal: InstallerSet["installFromLocal"] = installers.installFromLocal;
 /**
- * 校验 + 解压安装（tar.gz / zip 双格式）：sha256 不符即删档抛错；通过则
- * 解出 bundle 树走 installFromLocal 同一落位面（三锚守护 + 幂等）。
+ * 校验 + 解压安装（tar.gz / zip 双格式）：sha256 不符即抛错（archive
+ * 归调用方处置，骨架不擅删）；通过则解出 bundle 树走 installFromLocal
+ * 同一落位面（三锚守护 + 幂等）。
  */
 export const installFromArchive: InstallerSet["installFromArchive"] = installers.installFromArchive;
 /** 默认形态：固定版本下载（downloadToFile 带超时/停滞/重试）→ sha256 校验 → 解压落位。 */
