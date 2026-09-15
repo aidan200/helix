@@ -15,15 +15,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { KgNodeDetailDto, KgNodeListRow } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
+import { fmtIsoDate } from "@/shared/lib/format";
 import { KindBadge, NodeRef, resolveRefsToMd, StatusBadge } from "./kg-refs";
-
-/** 变更日志日期（ISO → YYYY-MM-DD；非法原样）。 */
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const p2 = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
-}
 
 function DetailSkeleton() {
   return (
@@ -232,7 +225,7 @@ const KgDetailPane = function KgDetailPane({
         <div className="kgv-sec-h">{t("pj.kg.secLog")}</div>
         {detail.log.map((l, i) => (
           <div className="kg-log-row" key={i}>
-            <span className="kg-log-d">{fmtDate(l.date)}</span>
+            <span className="kg-log-d">{fmtIsoDate(l.date)}</span>
             {l.taskId != null && <span className="kg-log-it">{l.taskId}</span>}
             {l.iterationId != null && <span className="kg-log-it">{l.iterationId}</span>}
             <span className="kg-log-t">{l.eventText}</span>

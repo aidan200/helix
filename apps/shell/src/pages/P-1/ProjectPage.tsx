@@ -36,9 +36,6 @@ import KgViewer from "./kg-viewer";
 import { ProgressFill } from "./ui/kg-progress";
 import { KG_INDEX_POLL_MS } from "./model/project-model";
 
-/** building 轮询间隔（O-6：500ms-1s 由前端定；上收 project-model 单一常量）。 */
-const INDEX_POLL_MS = KG_INDEX_POLL_MS;
-
 /**
  * P-1 当前项目会话内记忆（模块级内存态）：最近一次选中项目名。路由切换
  * 不丢（离开再进免重选），浏览器刷新即丢（刻意内存态不落盘）；
@@ -51,16 +48,13 @@ export function resetRememberedProjectForTest(): void {
   rememberedProject = null;
 }
 
-/** ISO → 「MM-DD HH:mm」短格式（次行完成时间；shared/lib/format 上收单一实现）。 */
-function fmtSyncedAt(iso: string | undefined): string {
-  return fmtShortDateTime(iso);
-}
-
-/** workspace 名派生（首行绝对路径的父目录名；失败回落裸 workspace）。 */
+/** workspace 名派生（首行绝对路径的父目录名；失败回落裸 workspace）。
+ *  双分隔符形态（code-review 低危）：POSIX / 前缀与 win32 盘符形态
+ *  （C:\foo / C:/foo）均可派生——daemon 侧路径形态不唯一，识别两态。 */
 function workspaceNameOf(projects: readonly KgProjectRow[]): string | null {
   const first = projects[0]?.path;
-  if (first === undefined || !first.startsWith("/")) return null;
-  const parts = first.split("/").filter((s) => s !== "");
+  if (first === undefined || !/^(?:\/|[A-Za-z]:[\\/])/.test(first)) return null;
+  const parts = first.split(/[\\/]/).filter((s) => s !== "");
   return parts.length >= 2 ? (parts[parts.length - 2] ?? null) : null;
 }
 
@@ -115,7 +109,7 @@ function projectDataLine(
   t: ReturnType<typeof useI18n>["t"],
 ): string {
   if (row.status === "synced")
-    return t("pj.dataLine.synced", { symbols: row.symbolCount ?? 0, nodes: row.nodeCount ?? 0, at: fmtSyncedAt(row.syncedAt) });
+    return t("pj.dataLine.synced", { symbols: row.symbolCount ?? 0, nodes: row.nodeCount ?? 0, at: fmtShortDateTime(row.syncedAt) });
   if (row.status === "degraded") return row.degradedNote ?? "";
   if (row.status === "building")
     return progress === null || progress.total === 0
@@ -159,16 +153,21 @@ const ProjectPage = function ProjectPage({
   // workspace_changed 刷新链（W4；按连接转换重拉同款既有模式接）：换绑后
   // 项目域整体作废——页面状态复位到首拉态 + 重拉 kg.projects（kg 视图随
   // 选中清空卸载，新选中后按新域重挂；daemon 侧会话已随重绑卸载，见
-  // SessionRegistry.unloadAll）。
+  // SessionRegistry.unloadAll）。次级拉取同消费 send 返回值（code-review
+  // 低危，首拉 M41 同构轻量处理）：false 时收口骨架 + toast——危害低于
+  // 首拉但同不静默。
   useEffect(
     () =>
       subscribeWorkspaceFrames((e) => {
         if (e.type !== "workspace_changed") return;
         rememberedProject = null; // 新工作空间：旧选中记忆随项目域作废
         dispatch({ type: "workspace-reset" });
-        sendKgProjects();
+        if (sendKgProjects() === false) {
+          dispatch({ type: "list-send-failed" });
+          toast.push("err", t("pj.listSendFail"));
+        }
       }),
-    [subscribeWorkspaceFrames, sendKgProjects],
+    [subscribeWorkspaceFrames, sendKgProjects, toast, t],
   );
 
   // kg 族点对点回执消费（页面私有 reducer；AG-15 不进 session store）
@@ -195,7 +194,9 @@ const ProjectPage = function ProjectPage({
             (status.state === "synced" || status.state === "degraded")
           ) {
             toast.push("ok", t("pj.main.buildDoneToast", { name, symbols: status.symbolCount ?? 0 }));
-            sendKgProjects(); // 左栏徽章与次行权威刷新
+            // 左栏徽章与次行权威刷新（次级拉取同消费 send 返回值——旧清单
+            // 仍在无骨架可收，toast 交代即全部反馈面，code-review 低危）
+            if (sendKgProjects() === false) toast.push("err", t("pj.listSendFail"));
           }
         }
       }),
@@ -212,7 +213,7 @@ const ProjectPage = function ProjectPage({
     const timer = setInterval(() => {
       idxReqRef.current = selected;
       sendKgIndexStatus({ project: selected });
-    }, INDEX_POLL_MS);
+    }, KG_INDEX_POLL_MS);
     return () => clearInterval(timer);
   }, [mainMode, selected, sendKgIndexStatus]);
 
@@ -328,7 +329,11 @@ const ProjectPage = function ProjectPage({
                               : 0
                           }
                           waiting={
-                            state.buildProgress === null || state.buildProgress.total === 0
+                            // 与 pct 同口径（code-review 低危）：进度仅选中行
+                            // 持有——非选中行恒不确定态，不显假 0%
+                            (state.selected !== row.name ||
+                              state.buildProgress === null ||
+                              state.buildProgress.total === 0)
                           }
                           t={t}
                         />

@@ -3,8 +3,9 @@
  * 壳：header 全宽置顶 + 侧栏/主区/抽屉竖条同处 header 之下）内无损迁入
  * 既有聊天/抽屉装配。主区 .app = conn-banner → 消息流（含连接覆盖层/
  * 失败卡/恢复骨架）→ chat 状态行（T1 常驻三槽：左 SteerQueueDock /
- * 中 diff 预留 / 右 WorkPhaseDot）→ composer；data-conn / data-session /
- * data-view / data-drawer 驱动全部状态表象（四态互斥 CSS 门控）；恢复
+ * 中 diff 统计 chip（DiffStatChip +N/−N，点击开详情窗）/ 右 WorkPhaseDot）
+ * → composer；data-conn / data-session / data-view / data-drawer 驱动全部
+ * 状态表象（四态互斥 CSS 门控）；恢复
  * toast 由 restoreToast 投影触发。scanline 氛围层上提 App.tsx 全局单份（S1）。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -111,8 +112,9 @@ const ChatPage = function ChatPage() {
             <RestoreSkeleton />
           </MessageFlow>
           {/* T1 chat 状态行：消息流与 composer 之间的常驻条（高度恒定、无条件
-              渲染）；三槽收拢原浮动钉位件——左 SteerQueueDock / 中 diff 预留 /
-              右 WorkPhaseDot（E-89：位于滚动容器之外） */}
+              渲染）；三槽收拢原浮动钉位件——左 SteerQueueDock / 中 diff 统计
+              chip（DiffStatChip +N/−N，E-129）/ 右 WorkPhaseDot（E-89：位于
+              滚动容器之外） */}
           <ChatStatusBar onOpenDiff={() => setDiffOverlayOpen(true)} />
           {/* P-1 composer + foot 右侧推理强度 picker（thinking 批 T2.1；
               pages 层装配注入——AG-15 FSD 同层禁互引） */}

@@ -19,7 +19,9 @@
  * 三卡状态机单点（M10 批⑤）：dirty/pending/saved 三件套 + 结果帧对账 +
  * 在途失败收口归 useConfigField（settings-hooks.ts）——config.set_* daemon
  * 失败走 connection.error（无结果帧），hook 内清 pending + 行内错误交代
- * （M10 批②：不假「已保存」、在途不永锁致后续读帧被误当保存回执）。
+ * （M10 批②：不假「已保存」、在途不永锁致后续读帧被误当保存回执）；
+ * 本地校验失败（空串/非整数/越界）的行内提示归本组件三卡独立位，
+ * 输入变更即清（code-review 低危：不再静默 return）。
  */
 import { useEffect, useState } from "react";
 import { useI18n, type Lang } from "@/shared/i18n";
@@ -91,27 +93,55 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
     requestSandboxConfig();
   }, [requestCompactionConfig, requestSchedulingConfig, requestPortConfig, requestSandboxConfig]);
 
+  // 本地校验失败行内提示（code-review 低危：空串/非整数/越界不再静默
+  // return）；三卡各自独立位——提示随本卡输入变更/保存成功清，与
+  // saveError（在途失败/未发出）分通道
+  const [compactionInvalid, setCompactionInvalid] = useState<string | null>(null);
+  const [schedulingInvalid, setSchedulingInvalid] = useState<string | null>(null);
+  const [portInvalid, setPortInvalid] = useState<string | null>(null);
+
   const save = () => {
     // M45：显式拒空串（Number("")===0 过整数校验会静默写 0）
-    if (reserve.trim() === "" || keepRecent.trim() === "") return;
+    if (reserve.trim() === "" || keepRecent.trim() === "") {
+      setCompactionInvalid(t("chat.settings.general.invalidNonNegInt"));
+      return;
+    }
     const r = Number(reserve);
     const k = Number(keepRecent);
-    if (!Number.isInteger(r) || !Number.isInteger(k) || r < 0 || k < 0) return;
+    if (!Number.isInteger(r) || !Number.isInteger(k) || r < 0 || k < 0) {
+      setCompactionInvalid(t("chat.settings.general.invalidNonNegInt"));
+      return;
+    }
+    setCompactionInvalid(null);
     compactionField.submit(() => setCompactionConfig(r, k));
   };
 
   const saveScheduling = () => {
-    if (maxConcurrent.trim() === "" || maxQueued.trim() === "") return;
+    if (maxConcurrent.trim() === "" || maxQueued.trim() === "") {
+      setSchedulingInvalid(t("chat.settings.general.invalidSchedBudget"));
+      return;
+    }
     const c = Number(maxConcurrent);
     const q = Number(maxQueued);
-    if (!Number.isInteger(c) || !Number.isInteger(q) || c < 1 || q < 0) return;
+    if (!Number.isInteger(c) || !Number.isInteger(q) || c < 1 || q < 0) {
+      setSchedulingInvalid(t("chat.settings.general.invalidSchedBudget"));
+      return;
+    }
+    setSchedulingInvalid(null);
     schedulingField.submit(() => setSchedulingConfig(c, q));
   };
 
   const savePort = () => {
-    if (portInput.trim() === "") return;
+    if (portInput.trim() === "") {
+      setPortInvalid(t("chat.settings.general.invalidPort"));
+      return;
+    }
     const p = Number(portInput);
-    if (!Number.isInteger(p) || p < 0 || p > 65535) return;
+    if (!Number.isInteger(p) || p < 0 || p > 65535) {
+      setPortInvalid(t("chat.settings.general.invalidPort"));
+      return;
+    }
+    setPortInvalid(null);
     portField.submit(() => setPortConfig(p));
   };
 
@@ -158,7 +188,10 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             min={0}
             value={reserve}
             data-compaction-reserve
-            onChange={(e) => compactionField.setInput(0, e.target.value)}
+            onChange={(e) => {
+              setCompactionInvalid(null);
+              compactionField.setInput(0, e.target.value);
+            }}
           />
         </div>
         <div className="fld">
@@ -172,7 +205,10 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             min={0}
             value={keepRecent}
             data-compaction-keep-recent
-            onChange={(e) => compactionField.setInput(1, e.target.value)}
+            onChange={(e) => {
+              setCompactionInvalid(null);
+              compactionField.setInput(1, e.target.value);
+            }}
           />
         </div>
         <button type="button" className="hud-btn hud-btn-cyan" data-compaction-save onClick={save}>
@@ -186,6 +222,11 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
         {compactionField.saveError !== null && (
           <span className="mcp-err" data-compaction-save-error role="alert">
             {compactionField.saveError}
+          </span>
+        )}
+        {compactionInvalid !== null && (
+          <span className="mcp-err" data-compaction-invalid role="alert">
+            {compactionInvalid}
           </span>
         )}
       </div>
@@ -204,7 +245,10 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             min={1}
             value={maxConcurrent}
             data-sched-max-concurrent
-            onChange={(e) => schedulingField.setInput(0, e.target.value)}
+            onChange={(e) => {
+              setSchedulingInvalid(null);
+              schedulingField.setInput(0, e.target.value);
+            }}
           />
         </div>
         <div className="fld">
@@ -218,7 +262,10 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             min={0}
             value={maxQueued}
             data-sched-max-queued
-            onChange={(e) => schedulingField.setInput(1, e.target.value)}
+            onChange={(e) => {
+              setSchedulingInvalid(null);
+              schedulingField.setInput(1, e.target.value);
+            }}
           />
         </div>
         <button type="button" className="hud-btn hud-btn-cyan" data-sched-save onClick={saveScheduling}>
@@ -232,6 +279,11 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
         {schedulingField.saveError !== null && (
           <span className="mcp-err" data-sched-save-error role="alert">
             {schedulingField.saveError}
+          </span>
+        )}
+        {schedulingInvalid !== null && (
+          <span className="mcp-err" data-sched-invalid role="alert">
+            {schedulingInvalid}
           </span>
         )}
         <span className="ag-note">{t("chat.settings.general.schedNote")}</span>
@@ -253,7 +305,10 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
             value={portInput}
             placeholder="7333"
             data-ws-port
-            onChange={(e) => portField.setInput(0, e.target.value)}
+            onChange={(e) => {
+              setPortInvalid(null);
+              portField.setInput(0, e.target.value);
+            }}
           />
         </div>
         <button type="button" className="hud-btn hud-btn-cyan" data-port-save onClick={savePort}>
@@ -267,6 +322,11 @@ const GeneralSettingsSection = function GeneralSettingsSection() {
         {portField.saveError !== null && (
           <span className="mcp-err" data-port-save-error role="alert">
             {portField.saveError}
+          </span>
+        )}
+        {portInvalid !== null && (
+          <span className="mcp-err" data-port-invalid role="alert">
+            {portInvalid}
           </span>
         )}
         <span className="ag-note">{t("chat.settings.general.portNote")}</span>

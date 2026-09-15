@@ -7,7 +7,7 @@
  * vi.mock SessionContext 先例（TracePage.test.tsx）：kg 六命令发送面捕获
  * + subscribeKgFrames 帧注入回放（页面私有链）。中文断言语言钉 zh-CN。
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { EventEnvelope, KgProjectRow } from "@helix/protocol";
 import type {
@@ -532,7 +532,7 @@ describe("graph 态 F5.1~F5.5", () => {
     // 重新构建 → rebuild:true + 形态转 building（后续轮询帧 project-only）
     fireEvent.click(within(panel).getByText("重新构建"));
     expect(sent.index.some((p) => p.project === "feifei" && p.rebuild === true)).toBe(true);
-    expect(qs('[data-kg-index-panel')!.getAttribute("data-kg-index-panel")).toBe("building");
+    expect(qs("[data-kg-head] [data-kg-index-panel]")!.getAttribute("data-kg-index-panel")).toBe("building");
     // 重建回执未带 progress 前 → 不确定态（仅徽章，无假「0 / 0」）
     expect(qs('[data-kg-index-panel]')!.textContent).toContain("构建中…");
     expect(qs('[data-kg-index-panel]')!.textContent).not.toMatch(/0\s*\/\s*0/);
@@ -1146,5 +1146,79 @@ describe("code-review M：sendKgProjects 消费（send false → 骨架清 + toa
     expect(sent.projects).toBe(1); // 已尝试发出
     expect(document.querySelectorAll(".kg-skel-row").length).toBe(0); // 骨架清
     expect(document.body.textContent).toContain("未连接"); // toast 交代
+  });
+});
+
+// ── code-review 低危组10：次级 sendKgProjects 消费（workspace_changed /
+//    构建完成刷新）+ ProjectBadge 非选中行 waiting 与 pct 同口径 +
+//    workspaceNameOf 双分隔符形态（POSIX+win32）。──
+describe("code-review 低危组10（shell pages P-1）", () => {
+  beforeEach(() => {
+    kgProjectsSendOk = true; // 上游 M41 用例的 false 泄漏隔离
+  });
+
+  it("workspace_changed 次级重拉 send false → 复位后骨架清（不永挂）+ err toast", () => {
+    ui();
+    feedProjects();
+    expect(document.querySelectorAll(".pj-row").length).toBe(PROJECTS.length);
+    kgProjectsSendOk = false;
+    feedWorkspace("workspace_changed", { root: "/ws/two" });
+    // workspace-reset 置骨架后 send false 收口：骨架清（不永挂）+ toast 交代
+    expect(document.querySelectorAll(".kg-skel-row").length).toBe(0);
+    expect(document.body.textContent).toContain("未连接");
+  });
+
+  it("构建完成的权威刷新 send false → err toast 交代（旧清单保留不清）", () => {
+    ui();
+    feedProjects();
+    // 选 absent 项目走 B1 冷启动 → building（页面发起的 index.status 轮询锚在）
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("codegraph").closest(".pj-row")!);
+    fireEvent.click(qs("[data-build-cta]")!);
+    expect(qs("[data-pj-main]").getAttribute("data-pj-main")).toBe("building");
+    kgProjectsSendOk = false;
+    feed("kg.index.status.result", { state: "synced", symbolCount: 40, syncedAt: "2026-08-25T16:00:00+08:00" });
+    // 完成 toast（ok）与刷新失败 toast（err）同场；左栏旧清单保留（展开折叠轨后可验）
+    expect(document.body.textContent).toContain("索引构建完成");
+    expect(document.body.textContent).toContain("未连接");
+    fireEvent.click(qs('[data-pj-rail="collapsed"] .pj-rail-name')!); // 展开（选中后自动折叠）
+    expect(document.querySelectorAll(".pj-row").length).toBe(PROJECTS.length);
+  });
+
+  it("选中行有真实进度时非选中 building 行恒「构建中…」（与 pct 同口径，不显假 0%）", () => {
+    ui();
+    feed("kg.projects.result", {
+      projects: [
+        { name: "aa", path: "/ws/aa", status: "building" },
+        { name: "bb", path: "/ws/bb", status: "building" },
+      ],
+    } satisfies KgProjectsResultPayload);
+    fireEvent.click(within(qs('[aria-label="项目列表"]')!).getByText("aa").closest(".pj-row")!);
+    feed("kg.index.status.result", { state: "building", progress: { done: 8, total: 44 } });
+    fireEvent.click(qs('[data-pj-rail="collapsed"] .pj-rail-name')!); // 展开（选中后自动折叠）
+    // 选中行：真实进度 8/44 → 18%；非选中行：无行自持进度 → 恒不确定态
+    expect(qs('.pj-row[data-name="aa"] .hud-badge')!.textContent).toContain("18%");
+    const bbBadge = qs('.pj-row[data-name="bb"] .hud-badge')!.textContent;
+    expect(bbBadge).toContain("构建中…");
+    expect(bbBadge).not.toContain("%");
+  });
+
+  it("workspace 名派生双分隔符：win32 盘符反斜杠形态（C:\\Users\\foo\\bar）取父目录名", () => {
+    ui();
+    feed("kg.projects.result", {
+      projects: [
+        { name: "bar", path: "C:\\Users\\foo\\bar", status: "synced", symbolCount: 1, nodeCount: 1, syncedAt: "2026-08-25T14:32:00+08:00" },
+      ],
+    } satisfies KgProjectsResultPayload);
+    expect(screen.getByText("workspace · foo")).toBeTruthy();
+  });
+
+  it("workspace 名派生双分隔符：win32 盘符正斜杠形态（C:/Users/foo/baz）取父目录名", () => {
+    ui();
+    feed("kg.projects.result", {
+      projects: [
+        { name: "baz", path: "C:/Users/foo/baz", status: "synced", symbolCount: 1, nodeCount: 1, syncedAt: "2026-08-25T14:32:00+08:00" },
+      ],
+    } satisfies KgProjectsResultPayload);
+    expect(screen.getByText("workspace · foo")).toBeTruthy();
   });
 });

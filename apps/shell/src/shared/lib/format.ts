@@ -75,3 +75,20 @@ export function prettyJsonArgs(args: string): string {
 export function extractExitCode(result: string): string | undefined {
   return /exited with code (\d+)/.exec(result)?.[1] ?? /exit (\d+)/.exec(result)?.[1];
 }
+
+/** ISO 字符串 → 「YYYY-MM-DD」（kg 变更日志行；非法输入原样返回——可诊断
+ * 不吞错，fmtShortDateTime 同纪律）。 */
+export function fmtIsoDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
+/** ISO/null → 本地 locale 长形时间（P-1 体检最近同步）；null/非法 → —
+ * （空态占位与展示缺省同形）。 */
+export function fmtLocaleDateTime(iso: string | null | undefined): string {
+  if (iso == null) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+}

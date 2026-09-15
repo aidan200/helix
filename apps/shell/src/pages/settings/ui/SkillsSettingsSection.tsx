@@ -39,6 +39,16 @@ interface UserSkillRow {
   readonly enabledSub: boolean;
 }
 
+/** createFail 文案已覆盖的 reason 码（daemon SkillScanner 四因码）；未知
+ *  reason（daemon 新增码/异常值）回落 generic 文案——不渲染裸 i18n key
+ *  （code-review 低危）。 */
+const SKILL_CREATE_FAIL_REASONS: ReadonlySet<string> = new Set([
+  "invalid-name",
+  "missing-description",
+  "already-exists",
+  "bad-frontmatter",
+]);
+
 /** 剥离 SKILL.md frontmatter（--- 块）：正文 md 渲染只消费文档体。 */
 export function stripFrontmatter(raw: string): string {
   const normalized = raw.replace(/\r\n/g, "\n");
@@ -149,9 +159,14 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
   const [contentError, setContentError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   /** connection.error 单飞门控判据（本组件在途才消费——其他域错误不误清，
-   *  trace/workspace 先例；state 镜像 ref 免重订阅）。 */
+   *  trace/workspace 先例）。addPending 位走 markAddPending 包装翻转
+   *  （MCP 区同模式——渲染期不裸写 ref）；pending 集仍 state 镜像（Set 新引用
+   *  翻转处均经 setPending，镜像无窗口）。 */
   const addPendingRef = useRef(false);
-  addPendingRef.current = addPending;
+  const markAddPending = (v: boolean): void => {
+    addPendingRef.current = v;
+    setAddPending(v);
+  };
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
 
@@ -183,7 +198,7 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
         }
         if (frame.type === "agent.skill.create.result") {
           const payload = frame.payload as { status: string; name?: string; reason?: string };
-          setAddPending(false);
+          markAddPending(false);
           if (payload.status === "applied") {
             // 创建成功：收表单 + 清空 + 重拉清单（扫描现拍即见，无广播）
             setFormOpen(false);
@@ -195,7 +210,14 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
             setMode("form");
             sendAgentConfigList();
           } else {
-            setFormError(t(`chat.settings.skills.createFail.${payload.reason ?? "bad-frontmatter"}`));
+            // 已知 reason 码 → 专属文案；未知 reason 回落 generic（reason 透传
+            // 可诊断，不渲染裸 i18n key）
+            const reason = payload.reason ?? "bad-frontmatter";
+            setFormError(
+              SKILL_CREATE_FAIL_REASONS.has(reason)
+                ? t(`chat.settings.skills.createFail.${reason}`)
+                : t("chat.settings.skills.requestFailed", { message: reason }),
+            );
           }
           return;
         }
@@ -205,7 +227,7 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
           // 不再永久 disabled）+ 行内错误交代；单飞门控：本组件无在途不消费
           const msg = (frame.payload as { message?: string } | undefined)?.message ?? "connection.error";
           if (addPendingRef.current) {
-            setAddPending(false);
+            markAddPending(false);
             setFormError(t("chat.settings.skills.requestFailed", { message: msg }));
           }
           if (pendingRef.current.size > 0) {
@@ -279,7 +301,7 @@ const SkillsSettingsSection = function SkillsSettingsSection() {
       setFormError(t("chat.settings.skills.sendFail"));
       return;
     }
-    setAddPending(true);
+    markAddPending(true);
   };
 
   return (
