@@ -220,6 +220,12 @@ function instanceChannels(entries: readonly EntryDto[], instance: InstanceSnapsh
     else if (entry.kind === "thinking") (channels.thinking ??= []).push(entry);
     else if (entry.kind === "tool-call") (channels.tools ??= []).push(entry);
     // compaction：会话级里程碑（仅主实例产生），不进实例通道
+    // error（code-review M 钉样，全抑制口径）：SubAgent error 条目实时帧
+    // error.entry 按 SubAgent 抑制（EnvelopeMapper：shell 主聊天流无 instanceId
+    // 分流，不抑制会错位弹主流）、快照主轴经 isMainAxisEntry 排除、本通道
+    // 三槽词表亦不收——SubAgent 引擎错误的终态可见面 = 实例卡 closure failed
+    // 状态。缺口记录：若未来要通道内错误红条，需协议 InstanceChannelHistory
+    // 加 errors 槽 + 抽屉渲染面（跨包改动，产品决策点）。
   }
   return channels;
 }

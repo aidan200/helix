@@ -544,3 +544,39 @@ describe("③ agent.* 编排生命周期族 → 协议事件帧（T2.3，契约 
     expect(mainline?.instanceId).toBeUndefined(); // 缺省 = 主实例（契约 §1）
   });
 });
+
+describe("code-review M：SubAgent error 条目 wire 语义钉样（全抑制口径文档化）", () => {
+  test("SubAgent error 条目：主轴 DTO 携带 instanceId（shell 判别排除主流）+ 实例通道三槽不收 error", () => {
+    const dto = toSnapshotDto(
+      {
+        ...view({
+          entries: [
+            { id: "m1", role: "assistant", text: "部分结果", turnId: "tx", isSteer: false, instanceId: "agent-x", createdAt: "2026-08-15T00:00:01.000Z" },
+            { kind: "error", id: "err1", instanceId: "agent-x", message: "LLM 429 限流", turnId: "tx", createdAt: "2026-08-15T00:00:02.000Z" },
+          ],
+        }),
+        instances: [
+          {
+            instanceId: "agent-x",
+            kind: "subagent",
+            profileKind: "subagent-worker",
+            sessionId: "s-1",
+            state: "failed",
+            createdAt: "2026-08-15T00:00:00.500Z",
+          },
+        ],
+      },
+      "m",
+      "idle",
+    );
+    // 主轴 DTO：SubAgent error 条目不进主轴（isMainAxisEntry 过滤——非 main 且非
+    // compaction/定向 steer），与实时帧 error.entry SubAgent 抑制同口径
+    expect(dto.entries.find((e) => e.id === "err1")).toBeUndefined();
+    // 实例通道：三槽词表（message/thinking/tool-call）——error 不入通道（钉样现行
+    // 口径；若未来要通道内错误红条，需协议 InstanceChannelHistory 加 errors 槽 +
+    // 抽屉渲染面，见 SnapshotMapper.instanceChannels 注释）
+    const inst = dto.instances?.find((i) => i.instanceId === "agent-x");
+    expect(inst?.channels?.messages?.map((m) => m.id)).toEqual(["m1"]);
+    expect(JSON.stringify(inst?.channels ?? {})).not.toContain("err1");
+  });
+});
