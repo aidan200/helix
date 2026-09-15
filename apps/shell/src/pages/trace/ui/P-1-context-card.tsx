@@ -21,7 +21,7 @@ import {
   type TraceCompactionMilestone,
 } from "../model/trace-model";
 import { fmtClock, fmtNum } from "./format";
-import { instanceTimeLine } from "./P-1-instance-panel";
+import { displayKeyOf, instanceTimeLine } from "./P-1-instance-panel";
 
 export interface ContextCardProps {
   record: TraceInstanceRecord;
@@ -33,13 +33,6 @@ export interface ContextCardProps {
   events: readonly TraceEventRow[];
   refMs: number;
 }
-
-const STATUS_KEY = {
-  running: "trace.panel.statusRunning",
-  completed: "trace.panel.statusCompleted",
-  failed: "trace.panel.statusFailed",
-  killed: "trace.panel.statusKilled",
-} as const;
 
 const ContextCard = function ContextCard({
   record,
@@ -101,7 +94,9 @@ const ContextCard = function ContextCard({
             </span>
             <span className={cn("st-badge", `st-${record.status}`)}>
               <span className="hud-dot" aria-hidden="true" />
-              {t(STATUS_KEY[record.status])}
+              {/* code-review 族B：徽标走 displayKeyOf（displayState 优先，E-154
+                  与 instance-panel 单源同口径——原只看 status，main 空闲误显「运行中」） */}
+              {t(displayKeyOf(record))}
             </span>
             <span className="ctx-iid">{record.instanceId}</span>
             <span className="ctx-dur">{instanceTimeLine(record, refMs, t)}</span>

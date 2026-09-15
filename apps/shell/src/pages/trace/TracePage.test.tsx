@@ -103,6 +103,8 @@ interface MockSession {
   taskListeners: ((e: EventEnvelope) => void)[];
   /** M42：会话清单可变位（空清单 → requestSessionList 请求路径测试）。 */
   list: typeof SESSIONS;
+  /** code-review 族B：sendTaskList 发送计数（多依赖重发断言面）。 */
+  taskListSent: number;
 }
 
 const mock: MockSession = {
@@ -113,6 +115,7 @@ const mock: MockSession = {
   listeners: [],
   taskListeners: [],
   list: SESSIONS,
+  taskListSent: 0,
 };
 const requestSessionList = vi.fn();
 const retry = vi.fn();
@@ -137,7 +140,10 @@ vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
         };
       },
       // 任务会话清单面（B：trace 纳入 task:<jobId> 会话）——mock 零任务形态
-      sendTaskList: () => true,
+      sendTaskList: () => {
+        mock.taskListSent += 1;
+        return true;
+      },
       subscribeTaskFrames: (cb: (e: EventEnvelope) => void) => {
         mock.taskListeners.push(cb);
         return () => {
@@ -204,6 +210,7 @@ afterEach(() => {
   mock.listeners = [];
   mock.taskListeners = [];
   mock.list = SESSIONS;
+  mock.taskListSent = 0;
   vi.clearAllMocks();
 });
 
@@ -500,5 +507,25 @@ describe("M42 会话清单请求位（requestedListRef）失败/断连恢复", (
       </I18nProvider>,
     );
     expect(requestSessionList).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+describe("code-review 族B：会话清单 effect 仅转换发 sendTaskList（B3）", () => {
+  it("清单到达（topology.list.length 变化）触发 effect 重跑不重发——首挂/重连转换才发", () => {
+    mock.taskListSent = 0;
+    const r = ui();
+    expect(mock.taskListSent).toBe(1); // 首挂转换发一次
+    act(() => {
+      mock.list = [...SESSIONS, { ...SESSIONS[0]!, sessionId: "ses_extra" }];
+    });
+    r.rerender(
+      <I18nProvider>
+        <ToastProvider>
+          <TracePage path="/trace" />
+        </ToastProvider>
+      </I18nProvider>,
+    );
+    expect(mock.taskListSent).toBe(1); // ← 缺陷：effect 重跑无条件 sendTaskList → 2
   });
 });

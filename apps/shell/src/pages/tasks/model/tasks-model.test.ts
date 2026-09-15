@@ -404,3 +404,21 @@ describe("⑧ artifacts-failed（M43：在途失败清骨架 + 归属标记防 w
     expect(s).toBe(before);
   });
 });
+
+describe("code-review 族B：delete-result 清 artifacts 在途位（B1）", () => {
+  it("删除挂着 artifacts 拉取的 job → artifactsLoading 一并清（迟到回执被丢弃后不再永真骨架）", () => {
+    let s = tasksReducer(createTasksPageState(), { type: "list-loading" });
+    s = tasksReducer(s, { type: "list-result", tasks: mixedTasks() });
+    s = tasksReducer(s, { type: "select-task", jobId: "j-run-1" });
+    s = tasksReducer(s, { type: "artifacts-loading", jobId: "j-run-1" }); // 在途归属=selected
+    expect(s.artifactsLoading).toBe(true);
+    s = tasksReducer(s, { type: "delete-result", jobId: "j-run-1" }); // 删在途发起者
+    expect(s.artifactsLoading).toBe(false); // ← 缺陷：原实现不清，迟到回执按新 selected 丢弃后永真
+    let s2 = tasksReducer(createTasksPageState(), { type: "list-loading" });
+    s2 = tasksReducer(s2, { type: "list-result", tasks: mixedTasks() });
+    s2 = tasksReducer(s2, { type: "select-task", jobId: "j-run-1" });
+    s2 = tasksReducer(s2, { type: "artifacts-loading", jobId: "j-run-1" });
+    s2 = tasksReducer(s2, { type: "delete-result", jobId: "j-done-new" }); // 删非在途 job
+    expect(s2.artifactsLoading).toBe(true); // 在途不受影响
+  });
+});

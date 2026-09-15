@@ -301,3 +301,35 @@ describe("model-config connection.error 在途失败消费（F5 批 #3）", () =
     expect(next.modelConfig.writeError).toBeNull();
   });
 });
+
+
+describe("code-review 族B：applyModelConfigConnError 尾缀归因（B5；General/WorkspaceContext 先例）", () => {
+  it("尾缀=别族命令（config.set_sandbox）→ 不消费（本族在途不误清、不误弹 writeError）", () => {
+    const topo = { ...createInitialTopologyState(), modelConfig: inflightMc() };
+    const next = dispatchFrame(
+      topo,
+      frame("connection.error", { code: "invalid_payload", message: "沙箱策略非法（命令 config.set_sandbox）" }),
+      1,
+    );
+    expect(next.modelConfig).toBe(topo.modelConfig); // ← 缺陷：原实现有任一在途即全清+交代
+    expect(next.modelConfig.verifyInflight).not.toBeNull();
+    expect(next.modelConfig.writeError).toBeNull();
+  });
+
+  it("尾缀=本族命令（auth.set_key）→ 消费（清位 + writeError）", () => {
+    const topo = { ...createInitialTopologyState(), modelConfig: inflightMc() };
+    const next = dispatchFrame(
+      topo,
+      frame("connection.error", { code: "invalid_payload", message: "provider 未知（命令 auth.set_key）" }),
+      9,
+    );
+    expect(next.modelConfig.setKeyInflight).toBeNull();
+    expect(next.modelConfig.writeError).toEqual({ message: "provider 未知（命令 auth.set_key）", ts: 9 });
+  });
+
+  it("无尾缀（旧 daemon 容忍）→ 宁误交代不静默（现有行为保留）", () => {
+    const topo = { ...createInitialTopologyState(), modelConfig: inflightMc() };
+    const next = dispatchFrame(topo, frame("connection.error", { code: "x", message: "key 无效" }), 3);
+    expect(next.modelConfig.writeError).toEqual({ message: "key 无效", ts: 3 });
+  });
+});

@@ -38,13 +38,15 @@ interface Sent {
 
 const sent: Sent = { list: 0, subscribe: 0, detail: [], artifacts: [], pause: [], resume: [], cancel: [], retry: [], delete: [] };
 let listeners: ((e: EventEnvelope) => void)[] = [];
+/** 连接态可变换档（code-review 族B B2 重连场景；缺省 connected 保持存量用例口径）。 */
+let mockConn: string = "connected";
 
 vi.mock("@/entities/session/SessionContext", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/entities/session/SessionContext")>();
   return {
     ...orig,
     useSession: () => ({
-      state: { conn: "connected", sessionId: null },
+      state: { conn: mockConn, sessionId: null },
       sendTaskList: () => {
         sent.list += 1;
         return true;
@@ -186,6 +188,7 @@ afterEach(() => {
   sent.cancel = [];
   sent.retry = [];
   sent.delete = [];
+  mockConn = "connected";
 });
 
 // ── 用例 ───────────────────────────────────────────────────
@@ -765,5 +768,36 @@ describe("M43：artifacts 在途 connection.error 同查（清骨架 + 清 FIFO 
     expect(qs("[data-tk-artifacts-error]")).toBeNull();
     feed("task.artifacts.result", { artifacts: { stages: [{ seq: 1, name: "L0", status: "done", artifact: { summary: "重试产物" } }] } });
     expect(screen.queryByText("重试产物")).not.toBeNull();
+  });
+});
+
+
+describe("code-review 族B：重连清 artifacts 在途不挑 tab（B2）", () => {
+  it("progress tab 下挂着 artifacts 在途时断连重连 → 在途位清（回 result tab 可重拉，不永真骨架）", () => {
+    mockConn = "connected";
+    const r = ui();
+    feed("task.list.result", { tasks: [row("j1", "running", iso(1))] });
+    fireEvent.click(qs('.tk-row[data-id="j1"]'));
+    // 进 result tab → 发起 artifacts 拉取（在途）
+    fireEvent.click(qs('[data-tk-tab="result"]'));
+    expect(sent.artifacts).toEqual([{ jobId: "j1" }]);
+    // 切回 progress tab（在途未落）
+    fireEvent.click(qs('[data-tk-tab="progress"]'));
+    // 断连 → 重连
+    act(() => { mockConn = "disconnected"; });
+    r.rerender(
+      <ThemeProvider><I18nProvider><ToastProvider>
+        <TasksPage path="/tasks" onOpenProject={() => {}} />
+      </ToastProvider></I18nProvider></ThemeProvider>,
+    );
+    act(() => { mockConn = "connected"; });
+    r.rerender(
+      <ThemeProvider><I18nProvider><ToastProvider>
+        <TasksPage path="/tasks" onOpenProject={() => {}} />
+      </ToastProvider></I18nProvider></ThemeProvider>,
+    );
+    // 重连后回 result tab → 在途位已清 → 重拉（缺陷：仅 tab==="result" 才 reset，progress 态永真不重拉）
+    fireEvent.click(qs('[data-tk-tab="result"]'));
+    expect(sent.artifacts.filter((a) => a.jobId === "j1").length).toBe(2);
   });
 });

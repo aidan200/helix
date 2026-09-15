@@ -183,7 +183,9 @@ const TracePage = function TracePage({ path }: { path: string }) {
 
   // 会话清单拉取（未请求态才发）+ 进页/重连自动查询
   const requestedListRef = useRef(false);
-  const prevConnRef = useRef(conn);
+  // code-review 族B：初值 null（TasksPage 先例）——首挂 connected 也构成
+  // 「进入 connected」转换，sendTaskList 挂转换条件后首挂不丢
+  const prevConnRef = useRef<string | null>(null);
   const autoStartedRef = useRef<string | null>(null); // 进页自动单飞去重（StrictMode 双效应）
   useEffect(() => {
     const prevConn = prevConnRef.current;
@@ -196,7 +198,10 @@ const TracePage = function TracePage({ path }: { path: string }) {
       return;
     }
     if (topology.list.length > 0) requestedListRef.current = false; // M42：拉取成功复位（后续清空可重拉）
-    sendTaskList(); // 任务会话清单（首挂/重连重拉）
+    // code-review 族B：sendTaskList 挂连接转换条件——本 effect deps 含
+    // topology.list.length/runQuery 等，清单到达也会重跑；原无条件发送致
+    // 清单回执自身触发重复请求（与「首挂/重连重拉」注释口径不符）
+    if (prevConn !== "connected") sendTaskList(); // 任务会话清单（首挂/重连重拉）
     if (resolvedSessionId === null) {
       // 解析后仍无会话（chat+任务均空）才 early return——旧实现只看
       // topology.list：工作空间零 chat 会话但有任务会话时（mergedSessions

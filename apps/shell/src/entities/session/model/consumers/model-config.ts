@@ -281,16 +281,32 @@ export function clearModelConfigInflight(mc: ModelConfigState): ModelConfigState
  * 无 in-flight 原样返回（单飞门控：非本族在途的 connection.error 不消费，
  * trace/workspace 先例）。
  */
+/** 本族写面命令集（code-review 族B 尾缀归因面；「（命令 <type>）」单一构造点
+ *  WsServerAdapter）。 */
+const MODEL_CONFIG_COMMANDS: ReadonlySet<string> = new Set([
+  "model.set_default",
+  "model.set_thinking_default",
+  "model.catalog_refresh",
+  "auth.set_key",
+  "auth.delete_key",
+  "auth.verify",
+]);
+
 export function applyModelConfigConnError(
   topo: TopologyState,
   frame: EventEnvelope,
   ts?: number,
 ): TopologyState {
   const mc = topo.modelConfig;
-  const cleared = clearModelConfigInflight(mc);
-  if (cleared === mc) return topo; // 无在途——不消费
   const message =
     (frame.payload as { message?: string } | undefined)?.message ?? "connection.error";
+  // code-review 族B（尾缀归因，General 沙箱/WorkspaceContext 先例）：带命令
+  // 尾缀时仅本族写面命令消费——别族（mcp/sandbox 等）拒绝不误清本族在途、
+  // 不误弹 writeError toast；无尾缀旧 daemon 容忍也交代（宁误交代不静默）。
+  const cmd = /\uFF08\u547D\u4EE4 ([\w.]+)\uFF09\s*$/.exec(message)?.[1];
+  if (cmd !== undefined && !MODEL_CONFIG_COMMANDS.has(cmd)) return topo;
+  const cleared = clearModelConfigInflight(mc);
+  if (cleared === mc) return topo; // 无在途——不消费（单飞门控）
   return {
     ...topo,
     modelConfig: { ...cleared, writeError: { message, ts: ts ?? 0 } },

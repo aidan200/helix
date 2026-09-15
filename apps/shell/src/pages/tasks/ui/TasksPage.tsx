@@ -112,8 +112,12 @@ const TasksPage = function TasksPage({ path, onOpenProject }: { path: string; on
         sendTaskDetail({ jobId });
       }
       // 结果 tab 已加载（artifactsJob===选中）时清归属触发重拉：断连期间
-      // 完成的阶段产物不显现（watcher 条件不满足不重发），需切任务再切回
-      if (stateRef.current.tab === "result") dispatch({ type: "artifacts-reset" });
+      // 完成的阶段产物不显现（watcher 条件不满足不重发），需切任务再切回。
+      // code-review 族B：在途位（artifactsLoading）同样清——原仅 result tab
+      // 才 reset，progress 态下断连死在途 → 回 result tab 重拉守卫永跳过（骨架永挂）
+      if (stateRef.current.tab === "result" || stateRef.current.artifactsLoading) {
+        dispatch({ type: "artifacts-reset" });
+      }
     }
   }, [conn, sendTaskSubscribe, sendTaskList, sendTaskDetail]);
 

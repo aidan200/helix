@@ -314,6 +314,13 @@ export function tasksReducer(state: TasksPageState, action: TasksAction): TasksP
         artifacts: state.artifactsJob === action.jobId ? null : state.artifacts,
         artifactsJob: state.artifactsJob === action.jobId ? null : state.artifactsJob,
         artifactsError: state.artifactsJob === action.jobId ? false : state.artifactsError,
+        // code-review 族B：在途位一并清——在途归属=selected（artifacts-loading
+        // 守卫），数据归属=artifactsJob；两位任一命中被删 job 即清，否则迟到
+        // 回执按回落后的新 selected 丢弃、artifactsLoading 永真、结果 tab 永久骨架
+        artifactsLoading:
+          state.artifactsLoading && (state.artifactsJob === action.jobId || state.selected === action.jobId)
+            ? false
+            : state.artifactsLoading,
       };
     }
     case "lifecycle-failed":

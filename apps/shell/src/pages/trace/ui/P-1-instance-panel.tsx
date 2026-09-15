@@ -59,7 +59,9 @@ const DISPLAY_KEY = {
   cancelled: "trace.panel.displayCancelled",
 } as const;
 
-const displayKeyOf = (rec: TraceInstanceRecord): string =>
+/** U2 徽标词表决议（displayState 优先，旧数据降级 status）——E-154 单源：
+ * context-card 与 instance-panel 共用（code-review 族B 收敛双份漂移）。 */
+export const displayKeyOf = (rec: TraceInstanceRecord): string =>
   rec.displayState !== undefined ? DISPLAY_KEY[rec.displayState] : STATUS_KEY[rec.status];
 
 const InstancePanel = function InstancePanel({
