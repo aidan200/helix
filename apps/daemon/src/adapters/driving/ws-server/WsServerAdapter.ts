@@ -300,12 +300,21 @@ export class WsServerAdapter {
       ws.close(); // error 帧先入发送队列，close 控制帧随后（契约 §2：先发帧再 close）
     };
 
-    // 首帧必须是 hello（非 hello = 未出示 token）
+    // 首帧必须是 hello（非 hello = 未出示 token）；payload 非对象形状
+    // （null/字符串——code-review H4）同拒：null 属性访问抛 TypeError →
+    // unhandled rejection → 不发拒绝帧不 close 连接悬挂（E-54 先发帧再 close）
     const payload = (envelope.type === "hello" ? envelope.payload : undefined) as
       | { token?: unknown; protocolVersion?: unknown }
-      | undefined;
+      | undefined
+      | null;
 
-    if (payload === undefined || typeof payload.token !== "string" || payload.token === "") {
+    if (
+      payload === undefined ||
+      payload === null ||
+      typeof payload !== "object" ||
+      typeof payload.token !== "string" ||
+      payload.token === ""
+    ) {
       reject("auth.missing_token", "握手缺少 token（首帧应为携带 token 的 hello）");
       return;
     }

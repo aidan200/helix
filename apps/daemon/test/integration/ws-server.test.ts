@@ -640,3 +640,39 @@ describe("session.subscribe / unsubscribe（v0 保通路语义）", () => {
     }
   }, 12000);
 });
+
+// ── code-review H4：hello payload 非对象形状（null/字符串）不悬挂 ──
+// 缺陷：payload=null 绕过 undefined 判定 → payload.token 抛 TypeError →
+// unhandled rejection：不发 connection.error、不 close、连接悬挂（E-54
+// 「先发帧再 close」契约失守）。
+describe("code-review H4：hello payload=null → 拒绝帧 + close（不悬挂）", () => {
+  test("payload=null → auth.missing_token + 连接关闭", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: null });
+      const err = await client.expect("connection.error");
+      expect(err.payload.code).toBe("auth.missing_token");
+      await client.expectClosed();
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+
+  test("payload=字符串（非对象形状）→ auth.missing_token + 连接关闭", async () => {
+    const rig = await makeRig();
+    const client = new TestClient(rig.url);
+    try {
+      await client.open();
+      client.send({ v: PROTOCOL_VERSION, type: "hello", payload: "token-as-string" });
+      const err = await client.expect("connection.error");
+      expect(err.payload.code).toBe("auth.missing_token");
+      await client.expectClosed();
+    } finally {
+      await client.close();
+      await rig.dispose();
+    }
+  });
+});
