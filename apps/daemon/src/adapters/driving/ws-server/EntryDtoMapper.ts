@@ -49,7 +49,9 @@ export function isMainAxisEntry(entry: EntryDto): boolean {
 }
 
 /** 单条 SessionEntryData → 对应 EntryDto（message/thinking/compaction/error
- *  分派；thinking/compaction/error 变体 createdAt 保持 ISO 字符串，契约 §6.1）。 */
+ *  分派；thinking/compaction/error 变体 createdAt 保持 ISO 字符串，契约 §6.1）。
+ *  kind 分派显式穷尽（code-review L：原「非 thinking/error 即 compaction」兜底
+ *  会把新增 kind 静默误落 compaction 变体）——never 守卫兜底运行时防御。 */
 export function sessionEntryDto(
   entry: SessionEntryData,
   queuedSteer: Set<string>,
@@ -58,9 +60,27 @@ export function sessionEntryDto(
   if ("kind" in entry) {
     if (entry.kind === "thinking") return [thinkingEntryDto(entry, mainInstanceId)];
     if (entry.kind === "error") return [errorEntryDto(entry, mainInstanceId)];
-    return [compactionEntryDto(entry, mainInstanceId)];
+    if (entry.kind === "compaction") return [compactionEntryDto(entry, mainInstanceId)];
+    return unreachableEntryKind(entry);
   }
   return messageEntryDto(entry, queuedSteer, mainInstanceId);
+}
+
+/** never 穷尽保护（sessionEntryDto 分派）：SessionEntryData 联合新增 kind 未接
+ *  分派时，上面四分支后的 entry 收窄为 never——本函数参数类型即编译红钉住；
+ *  运行时（类型体操逃逸/JS 直调）防御抛错不产错形帧。 */
+function unreachableEntryKind(entry: never): never {
+  throw new Error(`未知 SessionEntryData kind：${JSON.stringify((entry as { kind?: string }).kind)}`);
+}
+
+/** wire 实例归属编码（TR-39 单点收敛，code-review L：原 thinking/error/
+ *  compaction 三变体内联三元三处重复，漂移即编码错位）：主实例归属 →
+ *  legacy "main" 字面（协议类型必填位）；SubAgent → 原值。 */
+function wireInstanceId(instanceId: string | undefined, mainInstanceId: string): string {
+  // undefined 只可能是主归属（isWireMainAttribution 缺省判真）——显式判空双保险
+  //归 "main"，同时让 false 分支收窄回 string（三元无法穿透函数调用窄化）。
+  if (instanceId === undefined) return WIRE_LEGACY_MAIN_ID;
+  return isWireMainAttribution(instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : instanceId;
 }
 
 /** domain ThinkingEntryData → ThinkingEntryDto（全字段同形；实例归属经
@@ -72,7 +92,7 @@ export function thinkingEntryDto(
   return {
     kind: "thinking",
     id: entry.id,
-    instanceId: isWireMainAttribution(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
+    instanceId: wireInstanceId(entry.instanceId, mainInstanceId),
     text: entry.text,
     durationMs: entry.durationMs,
     createdAt: entry.createdAt,
@@ -88,7 +108,7 @@ export function errorEntryDto(
   return {
     kind: "error",
     id: entry.id,
-    instanceId: isWireMainAttribution(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
+    instanceId: wireInstanceId(entry.instanceId, mainInstanceId),
     message: entry.message,
     turnId: entry.turnId,
     createdAt: entry.createdAt,
@@ -104,7 +124,7 @@ export function compactionEntryDto(
   return {
     kind: "compaction",
     id: entry.id,
-    instanceId: isWireMainAttribution(entry.instanceId, mainInstanceId) ? WIRE_LEGACY_MAIN_ID : entry.instanceId,
+    instanceId: wireInstanceId(entry.instanceId, mainInstanceId),
     tokensBefore: entry.tokensBefore,
     tokensAfter: entry.tokensAfter,
     summary: entry.summary,
@@ -144,9 +164,9 @@ function messageEntryDto(
 }
 
 /** 单条 ToolCallRecordData → ToolCallEntryDto（D-1：快照侧工具条目）。
- *  三态映射与事件侧（tool.call.started/result）口径一致；result 恒发、
- *  isError 区分——completed→result、failed→error 文案（无 error 回退
- *  result）、running 无；durationMs 仅起止齐备时携带。 */
+ *  三态映射与事件侧（tool.call.started/result）口径一致；result 有值才发
+ *  （completed→result 有值才携带、failed→error 文案（无 error 回退 result，
+ *  两者皆缺省不带键）、running 无）、isError 区分；durationMs 仅起止齐备时携带。 */
 export function toolCallEntryDto(
   record: ToolCallRecordData,
   mainInstanceId: string = WIRE_LEGACY_MAIN_ID,
@@ -157,6 +177,10 @@ export function toolCallEntryDto(
     name: record.toolName,
     args: safeJson(record.args),
     state: record.status === "completed" ? "done" : record.status === "failed" ? "error" : "running",
+    // ts 起止双缺兜底 0（防御位，保留评估：ToolCallRecord 生命周期保证 start
+    // 即落 startedAt，双缺只可能来自异常行）：0 令其沉主时间轴底端
+    // （entrySortKey 升序）不扰正常序——不用 Date.now()（非确定值会让快照/
+    // 翻页排序随读时漂移，副作用更大）；endedAt 单缺同理用 startedAt 主判。
     ts: record.startedAt !== undefined
       ? Date.parse(record.startedAt)
       : record.endedAt !== undefined

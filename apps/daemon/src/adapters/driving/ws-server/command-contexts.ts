@@ -1,8 +1,9 @@
 /**
  * 命令上下文构造面（WsServerAdapter 依赖注入域拆分）：
  * - WsServerAdapterDeps / McpCommandDeps——适配器依赖接口（组合根注入契约）；
- * - createCommandContexts——十一族命令 context 构造器（routeCommand 逐族
- *   注入依赖面到 handlers/*，只转发不决策，E-19/E-55）。
+ * - createCommandContexts——全命令族 context 构造器（routeCommand 逐族
+ *   注入依赖面到 handlers/*，只转发不决策，E-19/E-55；族清单以返回对象
+ *   为准不在此计数——计数化注释会随族增删漂移，code-review L）。
  *
  * 语义 = 原 WsServerAdapter 同名私有方法，机械迁出零行为差（this.deps →
  * deps；连接绑定回调经 ContextHelpers 注入——commandError/rawSender/
@@ -233,6 +234,15 @@ export interface ContextHelpers {
   snapshotFrame(view: SessionStateView, model: string, agentState: AgentStateDto): SessionSnapshotEvent;
 }
 
+/** kg 族服务面解析（kgContext 专用，code-review L 四处三元收敛）：直接
+ *  注入形态（stub 测试 rig）或解析器形态（生产面读 workspace 现值 stack，
+ *  W1 重绑后自动跟随）→ 现值；未装配 → undefined。 */
+function resolveService<T>(dep: T | (() => T | undefined) | undefined): T | undefined {
+  if (dep === undefined) return undefined;
+  if (typeof dep === "function") return (dep as () => T | undefined)();
+  return dep as T;
+}
+
 /**
  * 模型/认证命令错误映射（契约 C §4 语义；专用错误码微批已登记）：
  * ModelNotFoundError → model_not_found；ProviderNotFoundError →
@@ -249,7 +259,7 @@ export function modelErrorCode(err: Error): ConnectionErrorEvent["payload"]["cod
   return "command.invalid_payload";
 }
 
-/** 十一族命令 context 构造器（routeCommand 分发用；只组装不决策）。 */
+/** 全命令族 context 构造器（routeCommand 分发用；只组装不决策；返回对象即族清单）。 */
 export function createCommandContexts(deps: WsServerAdapterDeps, helpers: ContextHelpers) {
   const commandContext = (
     ws: ServerWebSocket<ConnState>,
@@ -378,30 +388,13 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
       type,
       payload,
       kg: deps.kg ?? deps.workspace?.stack()?.viewerService,
-      bootstrap:
-        deps.kgBootstrap === undefined
-          ? undefined
-          : typeof deps.kgBootstrap === "function"
-            ? deps.kgBootstrap()
-            : deps.kgBootstrap,
-      maintenance:
-        deps.kgMaintenance === undefined
-          ? undefined
-          : typeof deps.kgMaintenance === "function"
-            ? deps.kgMaintenance()
-            : deps.kgMaintenance,
-      review:
-        deps.kgReview === undefined
-          ? undefined
-          : typeof deps.kgReview === "function"
-            ? deps.kgReview()
-            : deps.kgReview,
-      codeReview:
-        deps.codeReview === undefined
-          ? undefined
-          : typeof deps.codeReview === "function"
-            ? deps.codeReview()
-            : deps.codeReview,
+      // kg 族四服务面（bootstrap/maintenance/review/codeReview）同一解析
+      // 形态（code-review L：原 typeof 三元四处重复）——直接注入（stub
+      // rig）或解析器（生产面读 workspace 现值）→ 现值；未装配 → undefined。
+      bootstrap: resolveService(deps.kgBootstrap),
+      maintenance: resolveService(deps.kgMaintenance),
+      review: resolveService(deps.kgReview),
+      codeReview: resolveService(deps.codeReview),
       workspaceUnbound: deps.workspace !== undefined && !deps.workspace.isBound(),
       commandError: (cmdType, code, message) => helpers.commandError(ws, cmdType, code, message),
       rawSender: () => helpers.rawSender(ws),
@@ -485,9 +478,9 @@ export function createCommandContexts(deps: WsServerAdapterDeps, helpers: Contex
   };
 
   /**
-   * diff 族命令处理上下文（T3+T4 轮次 diff 协议与 UI 闭环，第十一族）：
-   * 查询面（registry peek + TurnDiffService）+ 共享辅助（会话作用域——
-   * sessionId 路由位在信封，handler 内校验必填）。
+   * diff 族命令处理上下文（T3+T4 轮次 diff 协议与 UI 闭环；同族去计数化，
+   * code-review L）：查询面（registry peek + TurnDiffService）+ 共享辅助
+   *（会话作用域——sessionId 路由位在信封，handler 内校验必填）。
    */
   const diffContext = (
     ws: ServerWebSocket<ConnState>,
