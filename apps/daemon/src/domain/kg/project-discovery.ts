@@ -37,13 +37,17 @@ export interface ProjectDirEntry {
 /**
  * project 参数单点解析：项目名（workspace 一级目录名）或绝对路径 →
  * projectRoot；不在扫描全集内 → undefined（调用方回 KG_E_PARAM）。
- * 绝对路径直用、名称按扫描产物映射——本函数零 join（路径拼接归 IO 侧）。
+ * 绝对路径直用、名称按扫描产物映射——本函数零 join（路径拼接归 IO 侧）；
+ * 绝对路径比对前做分隔符/尾斜杠归一（对齐同文件 projectRootOfAbs
+ * 先例：win32 反斜杠/尾斜杠形态不因字面失配）。
  */
 export function resolveProjectArg(entries: readonly ProjectDirEntry[], project: string): string | undefined {
   const trimmed = project.trim();
   if (trimmed === "") return undefined;
+  const normalize = (p: string): string => p.replaceAll("\\", "/").replace(/\/+$/, "");
+  const wanted = normalize(trimmed);
   for (const entry of entries) {
-    if (entry.name === trimmed || entry.path === trimmed) return entry.path;
+    if (entry.name === trimmed || normalize(entry.path) === wanted) return entry.path;
   }
   return undefined;
 }

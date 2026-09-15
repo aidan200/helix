@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resolveMainRepoPath } from "../../src/domain/kg/project-discovery";
+import { resolveMainRepoPath, resolveProjectArg } from "../../src/domain/kg/project-discovery";
 import { kgReadProjects } from "../../src/adapters/driven/workspace-scan";
 
 /**
@@ -17,6 +17,9 @@ import { kgReadProjects } from "../../src/adapters/driven/workspace-scan";
  *   project 前缀——provisioner 从未落过该形态，仓内 slug（agent-<hex>/
  *   lowfix-w1）被拆成 `<仓根>/agent` 幻影路径，kgReadProjects 穿透空集、
  *   CodegraphTool 误报无索引、附着锚永不命中（三通道静默失效）。
+ * - resolveProjectArg（domain 纯函数）：project 参数解析——绝对路径
+ *   比对前做分隔符/尾斜杠归一（对齐同文件 projectRootOfAbs 先例，
+ *   code-review 低危修复：win32 反斜杠/尾斜杠形态不因字面失配）。
  * - kgReadProjects（driven 读面项目域）：基座在 .worktrees 下 → 主仓有库即
  *   [主仓]（读面绝不新建库文件），无库空集；普通 workspace → 既有口径。
  */
@@ -135,5 +138,32 @@ describe("kgReadProjects：kg 读面项目域（W-R3 读穿透 + 既有口径不
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("resolveProjectArg：project 参数解析（纯函数）", () => {
+  const entries = [
+    { name: "helix", path: "/ws/helix" },
+    { name: "demo", path: "/ws/demo" },
+  ];
+
+  test("项目名与绝对路径命中（返回条目原生路径）", () => {
+    expect(resolveProjectArg(entries, "helix")).toBe("/ws/helix");
+    expect(resolveProjectArg(entries, "/ws/demo")).toBe("/ws/demo");
+  });
+
+  test("绝对路径比对前归一：尾斜杠不因字面失配（对齐 projectRootOfAbs 先例）", () => {
+    expect(resolveProjectArg(entries, "/ws/helix/")).toBe("/ws/helix");
+    expect(resolveProjectArg(entries, "/ws/helix///")).toBe("/ws/helix");
+  });
+
+  test("win32 反斜杠形态命中（归一后比对，返回仍为条目 POSIX 原生路径）", () => {
+    expect(resolveProjectArg(entries, "\\ws\\helix")).toBe("/ws/helix");
+  });
+
+  test("全集外/空白 → undefined（调用方回 KG_E_PARAM）", () => {
+    expect(resolveProjectArg(entries, "ghost")).toBeUndefined();
+    expect(resolveProjectArg(entries, "/ws/ghost")).toBeUndefined();
+    expect(resolveProjectArg(entries, "   ")).toBeUndefined();
   });
 });

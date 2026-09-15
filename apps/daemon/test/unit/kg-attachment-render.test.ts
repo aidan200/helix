@@ -68,14 +68,15 @@ describe("renderAttachment：块结构", () => {
     expect(ATTACHMENT_PROTOCOL_LINE).toBe("若本次改动推翻此节点，随改动提交 supersede（kg-update）");
   });
 
-  test("digest 多行（≤2 行）完整保留", () => {
+  test("digest 多行（≤2 行）折单行渲染（换行折为空格，不打穿条目结构）", () => {
     const twoLine: MatchedAnchor = {
       ...A1,
       digest: "第一行摘要。\n第二行摘要。",
     };
     const out = renderAttachment(sel([twoLine]));
-    expect(out).toContain("第一行摘要。");
-    expect(out).toContain("第二行摘要。");
+    // 内容完整保留，但折为单行（scene 段/指针行的换行结构不被 digest 裸换行打穿）
+    expect(out).toContain("第一行摘要。 第二行摘要。");
+    expect(out).toContain("kg get TR-AD-77");
   });
 });
 

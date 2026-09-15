@@ -16,6 +16,7 @@ import { SqliteSessionRepository } from "../../src/adapters/driven/sqlite-sessio
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { Session } from "../../src/domain/session/Session";
+import { LEGACY_MAIN_INSTANCE_ID } from "../../src/domain/agent/AgentInstance";
 import { ToolCallRecord } from "../../src/domain/tools/ToolCallRecord";
 
 /**
@@ -336,7 +337,7 @@ describe("W2-D 闭环 pending_sync 记录点（R13/R22：tool_calls 机械判定
     const repo = new SqliteSessionRepository(h.writeQueue);
     const session = Session.create(sessionId, FIXED_NOW);
     const toolCalls = tools.map((t) => {
-      const record = ToolCallRecord.create(t.id, t.name, { path: "/x" });
+      const record = ToolCallRecord.create(t.id, t.name, { path: "/x" }, LEGACY_MAIN_INSTANCE_ID);
       record.markRunning(FIXED_NOW);
       if (t.ok) record.complete("ok", FIXED_NOW);
       else record.fail("boom", FIXED_NOW);

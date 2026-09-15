@@ -7,6 +7,7 @@ import { WriteQueue } from "../../../src/adapters/driven/sqlite-session/WriteQue
 import type { DomainEvent } from "../../../src/domain/events/DomainEvent";
 import type { PersistedDomainState } from "../../../src/application/ports/outbound/SessionRepositoryPort";
 import { Session } from "../../../src/domain/session/Session";
+import { LEGACY_MAIN_INSTANCE_ID } from "../../../src/domain/agent/AgentInstance";
 import { ToolCallRecord } from "../../../src/domain/tools/ToolCallRecord";
 
 /**
@@ -236,7 +237,7 @@ describe("M2：多语句写 job 事务包裹（崩溃窗口不留部分投影）
       // 先落一份完整投影（含 1 条 tool_call 行）
       const session = Session.create("s-tx", "2024-01-01T00:00:00.000Z");
       session.appendUserEntry("问", "2024-01-01T00:00:01.000Z");
-      const tool = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" });
+      const tool = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID);
       tool.markRunning("2024-01-01T00:00:02.000Z");
       tool.complete("hi", "2024-01-01T00:00:03.000Z");
       await queue.saveState({ session: session.toSnapshot(), agentState: "running", toolCalls: [tool.toData()] });
@@ -275,7 +276,7 @@ describe("WriteQueue 状态保存（saveState 投影行）", () => {
       const queue = new WriteQueue(dbPath);
       const session = Session.create("s-proj", "2024-01-01T00:00:00.000Z");
       session.appendUserEntry("问", "2024-01-01T00:00:01.000Z");
-      const tool = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" });
+      const tool = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID);
       tool.markRunning("2024-01-01T00:00:02.000Z");
       tool.complete("hi", "2024-01-01T00:00:03.000Z");
       await queue.saveState({ session: session.toSnapshot(), agentState: "steering", toolCalls: [tool.toData()] });

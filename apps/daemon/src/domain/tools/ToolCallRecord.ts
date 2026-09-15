@@ -1,6 +1,6 @@
 import { DomainError } from "../DomainError";
-// 实例归属 legacy 缺省（"main" 字面只读兼容：旧载荷/旧行无 instanceId 时回填；
-// 新记录归属由调用方（ChatService）显式携带会话主实例 id）
+// 实例归属 legacy 缺省（"main" 字面只读兼容：restore 旧载荷/旧行无
+// instanceId 时回填；create 强制显式传参——新记录归属由调用方携带）
 import { LEGACY_MAIN_INSTANCE_ID } from "../agent/AgentInstance";
 
 /**
@@ -43,7 +43,7 @@ export class ToolCallRecord {
     private _endedAt?: string,
   ) {}
 
-  static create(id: string, toolName: string, args: unknown, instanceId: string = LEGACY_MAIN_INSTANCE_ID): ToolCallRecord {
+  static create(id: string, toolName: string, args: unknown, instanceId: string): ToolCallRecord {
     return new ToolCallRecord(id, toolName, args, instanceId, "pending");
   }
 

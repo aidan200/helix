@@ -4,8 +4,8 @@
  * WriteQueue 单写通道 AG-06 全局链；读面共用 writeQueue.database 连接）。
  *
  * 语义边界：
- * - 配置单元 = profile kind（main-session / subagent-worker / orchestrator，
- *   T2.2 additive 扩第三值）；
+ * - 配置单元 = profile kind（词表与扩值史见下方 ProfileKind 类型注释
+ *   单源，此处不重复枚举）；
  * - 资源类型 ∈ {tool, skill, model, thinking}（thinking = thinking 批扩值）；
  * - **缺省无记录 = 启用**（零配置兼容现状，存量零迁移）——本表只存用户
  *   显式选择过的差异行，全集（profile tools 声明 / 扫描技能）与「无记录

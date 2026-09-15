@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { AgentLifecycle, type AgentLifecycleState } from "../../src/domain/agent/AgentLifecycle";
 import { SteerQueue } from "../../src/domain/agent/SteerQueue";
+import { LEGACY_MAIN_INSTANCE_ID } from "../../src/domain/agent/AgentInstance";
 import { ToolCallRecord } from "../../src/domain/tools/ToolCallRecord";
 
 /**
@@ -101,7 +102,7 @@ function forceState(lc: AgentLifecycle, target: AgentLifecycleState): void {
 
 describe("ToolCallRecord（TP-CL4-1 ③）", () => {
   test("pending→running→completed，结果附加", () => {
-    const rec = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" });
+    const rec = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID);
     expect(rec.status).toBe("pending");
 
     rec.markRunning();
@@ -114,7 +115,7 @@ describe("ToolCallRecord（TP-CL4-1 ③）", () => {
   });
 
   test("pending→running→failed，错误附加", () => {
-    const rec = ToolCallRecord.create("tc-2", "bash", {});
+    const rec = ToolCallRecord.create("tc-2", "bash", {}, LEGACY_MAIN_INSTANCE_ID);
     rec.markRunning();
     rec.fail("exit 1");
     expect(rec.status).toBe("failed");
@@ -122,11 +123,11 @@ describe("ToolCallRecord（TP-CL4-1 ③）", () => {
   });
 
   test("非法迁移：pending→completed / completed→running 抛错", () => {
-    const rec = ToolCallRecord.create("tc-3", "read", {});
+    const rec = ToolCallRecord.create("tc-3", "read", {}, LEGACY_MAIN_INSTANCE_ID);
     expect(() => rec.complete("x")).toThrow(); // 未 running 不可完成
     expect(() => rec.fail("x")).toThrow();
 
-    const rec2 = ToolCallRecord.create("tc-4", "read", {});
+    const rec2 = ToolCallRecord.create("tc-4", "read", {}, LEGACY_MAIN_INSTANCE_ID);
     rec2.markRunning();
     rec2.complete("done");
     expect(() => rec2.markRunning()).toThrow(); // 终态不可再迁移

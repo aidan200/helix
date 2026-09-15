@@ -12,6 +12,7 @@
  * NodeRef 携带 id 仅供详情链接。零写路径（纯函数）。
  */
 
+import { kindLabelOf } from "./labels";
 import { EDGE_VERBS, toNodeRef as toNodeRefOf } from "../types";
 import type { KnowledgeNode, NodeId, NodeRef, RawEdgeRow } from "../types";
 
@@ -33,10 +34,6 @@ export interface ConflictScanInput {
 }
 
 const VERB_VOCABULARY = new Set<string>(EDGE_VERBS);
-
-function kindLabelOf(kind: KnowledgeNode["kind"]): string {
-  return kind === "rule" ? "规则" : "实体";
-}
 
 function refOf(nodesById: ReadonlyMap<NodeId, KnowledgeNode>, id: NodeId): NodeRef | null {
   const node = nodesById.get(id);

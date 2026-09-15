@@ -66,10 +66,12 @@ export function normalizeScopePath(p: string): string {
   return s;
 }
 
-/** 目录前缀包含（归一后）：root === path 或 path 位于 root 下。 */
+/** 目录前缀包含（归一后）：root === path 或 path 位于 root 下；root 为根目录时覆盖一切。 */
 function isUnder(root: string, path: string): boolean {
   const r = normalizeScopePath(root);
   const p = normalizeScopePath(path);
+  // 根特判：r === "/" 时 r + "/" 即 "//"，对归一后的 p 恒假——无特判则根租约零覆盖。
+  if (r === "/") return true;
   return r === p || p.startsWith(r + "/");
 }
 

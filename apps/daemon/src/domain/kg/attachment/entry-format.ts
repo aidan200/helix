@@ -17,8 +17,11 @@ export function renderKnowledgeEntry(fields: {
   readonly digest: string;
   readonly scene: string;
 }, pointer: string): string {
+  // digest 折单行：digest 允许多行（≤2 行摘要），裸渲染会打穿条目的
+  // 换行结构（scene 段/指针行的缩进锚点断裂）——渲染前统一折为空格。
+  const digest = fields.digest.replace(/\r?\n/g, " ");
   const sceneLine = fields.scene !== "" ? `\n  适用：${fields.scene}` : "";
-  return `- **${fields.name}** [${fields.kind}] — ${fields.digest}${sceneLine}\n  ↳ ${pointer}`;
+  return `- **${fields.name}** [${fields.kind}] — ${digest}${sceneLine}\n  ↳ ${pointer}`;
 }
 
 /**
