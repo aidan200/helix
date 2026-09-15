@@ -25,7 +25,7 @@
  * 主线 thinking 流式块（F2.3 streaming 态）插在 entries 之后、streaming 气泡
  * 之前；SubAgent 实例 thinking 流式槽位归抽屉消费（F1.6 实例分流）。
  */
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, Fragment, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, Fragment, type ReactNode } from "react";
 import type { EntryDto, UsageDto } from "@helix/protocol";
 import { isMainChannel } from "@/entities/session/model/session-reducer";
 import { selectIsEmpty, useSession } from "@/entities/session/SessionContext";
@@ -255,19 +255,24 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
   // ── CL-1 v0.3 时间轴内联：按 DTO spawn 锚点把卡片交织进 entries 序列 ──
   // head = 流首锚点（null）；byAnchor = entry id → 该 entry 之后渲染的卡；
   // 锚 entry ∉ 当前装载窗口（尾窗截断/翻页出窗）→ 不进任何桶，卡片不渲染。
-  const headCards: InstanceCardState[] = [];
-  const byAnchor = new Map<string, InstanceCardState[]>();
-  const entryIds = new Set(state.entries.map((e) => e.id));
-  for (const card of state.instances) {
-    if (card.anchorEntryId === null) {
-      headCards.push(card);
-    } else if (entryIds.has(card.anchorEntryId)) {
-      const list = byAnchor.get(card.anchorEntryId) ?? [];
-      list.push(card);
-      byAnchor.set(card.anchorEntryId, list);
+  // useMemo 收拢（code-review 低危组9）：仅随 entries/instances 变化重分桶，
+  // 流式 chunk 等无关渲染零重算。
+  const { headCards, byAnchor } = useMemo(() => {
+    const head: InstanceCardState[] = [];
+    const byAnchorMap = new Map<string, InstanceCardState[]>();
+    const entryIds = new Set(state.entries.map((e) => e.id));
+    for (const card of state.instances) {
+      if (card.anchorEntryId === null) {
+        head.push(card);
+      } else if (entryIds.has(card.anchorEntryId)) {
+        const list = byAnchorMap.get(card.anchorEntryId) ?? [];
+        list.push(card);
+        byAnchorMap.set(card.anchorEntryId, list);
+      }
+      // else：锚出窗 → 卡片不渲染（无兜底桶）
     }
-    // else：锚出窗 → 卡片不渲染（无兜底桶）
-  }
+    return { headCards: head, byAnchor: byAnchorMap };
+  }, [state.entries, state.instances]);
   const renderCard = (card: InstanceCardState) => (
     <SubAgentCard key={card.instanceId} card={card} onOpenDrawer={onOpenInstance} />
   );
@@ -303,7 +308,9 @@ const MessageFlow = forwardRef<MessageFlowHandle, MessageFlowProps>(function Mes
                 id: `streaming-${state.streaming.messageId}`,
                 role: "assistant",
                 content: "",
-                ts: Date.now(),
+                // ts 定格为流开始时刻（streaming 槽携带首 delta ts，code-review
+                // 低危组9）——气泡 meta 时间戳不再随渲染漂移
+                ts: state.streaming.ts,
               }}
               streaming
               streamingText={state.streaming.text}

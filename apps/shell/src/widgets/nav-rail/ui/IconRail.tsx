@@ -20,12 +20,13 @@
  * store、不读 ThemeContext、不感知 URL 机制（popover 开合为组件本地 UI
  * 态，与外部数据面零耦合）。
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Globe, Moon, Sun } from "lucide-react";
 import type { WebStatusPayload } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
+import { useDismissOnOutside } from "@/shared/lib/useDismissOnOutside";
 import HelixLogo from "@/shared/ui/HelixLogo";
 import type { Theme } from "@/shared/ui/theme";
 
@@ -51,10 +52,13 @@ export interface IconRailProps<T extends string = string> {
   onToggleTheme: () => void;
   /** CDP 联网状态（app 层注入 topology.webStatus；null = 未收到任何状态帧 → 灰态）。 */
   webStatus: WebStatusPayload | null;
-  /** 停止并清理回调（纯 props 注入；app 层发 web.stop 命令帧）。 */
-  onStopWeb: () => void;
-  /** 显式启动回调（T7，纯 props 注入；app 层发 web.start 命令帧）。 */
-  onStartWeb: () => void;
+  /** 停止并清理回调（纯 props 注入；app 层发 web.stop 命令帧）。返回
+   *  boolean（command-surface send 族：false = 未连接未发出——TR-168，
+   *  code-review 低危组9：纯展示组件不消费，装配层负责 false → err toast）。 */
+  onStopWeb: () => boolean;
+  /** 显式启动回调（T7，纯 props 注入；app 层发 web.start 命令帧）。返回
+   *  boolean（同 onStopWeb，TR-168 send 返回值经装配层收口）。 */
+  onStartWeb: () => boolean;
 }
 
 const IconRail = function IconRail<T extends string>({
@@ -142,8 +146,8 @@ function WebStatusButton({
   onStartWeb,
 }: {
   webStatus: WebStatusPayload | null;
-  onStopWeb: () => void;
-  onStartWeb: () => void;
+  onStopWeb: () => boolean;
+  onStartWeb: () => boolean;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -161,24 +165,9 @@ function WebStatusButton({
       ? `${t("chat.web.button")}：${t("chat.web.connectedTitle", { browser: webStatus.browser.label, count: webStatus.tabCount })}`
       : `${t("chat.web.button")}：${stateText}`;
 
-  // 点外关闭 / Esc（model-switch popover 先例；钮自身点击归 toggle 不在此误关）
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      const target = e.target as Element | null;
-      if (target && typeof target.closest === "function" && target.closest("#btn-web-status, .web-pop")) return;
-      setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("click", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("click", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  // 点外关闭 / Esc（共享 hook，code-review 低危组9 三处同构收拢；钮自身
+  // 与 popover 内容免误关；model-switch popover 先例）
+  useDismissOnOutside(open, "#btn-web-status, .web-pop", () => setOpen(false));
 
   return (
     <div className="rail-web">

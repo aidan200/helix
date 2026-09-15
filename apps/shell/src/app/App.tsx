@@ -20,9 +20,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, FolderKanban, Layers, ListTodo, MessageSquare, Settings } from "lucide-react";
-import { I18nProvider } from "@/shared/i18n";
+import { I18nProvider, useI18n } from "@/shared/i18n";
 import { ThemeProvider } from "@/shared/ui/theme";
-import { ToastProvider } from "@/shared/ui/Toast";
+import { ToastProvider, useToast } from "@/shared/ui/Toast";
 import { SessionProvider } from "@/entities/session/SessionContext";
 import { useSession } from "@/entities/session/SessionContext";
 import { WorkspaceProvider, useWorkspace } from "@/entities/workspace/WorkspaceContext";
@@ -62,6 +62,8 @@ const RAIL_ITEMS: readonly IconRailItem<AppRoute>[] = [
 function AppRoutes() {
   const { route, navigate } = useAppRoute();
   const { theme, setTheme } = useTheme();
+  const { t } = useI18n();
+  const toast = useToast();
   // 页内指路出口（T3.1/T3.2）：P-2 任务页 → /project；P-1 bootstrap 入口卡与
   // 产出分组 → /tasks（页面间闭环流转，review.md §页面间闭环）
   const goProject = useCallback(() => navigate(ROUTE_PROJECT), [navigate]);
@@ -70,6 +72,20 @@ function AppRoutes() {
   // + 停止写面（web.stop 命令帧）→ IconRail props 注入（IconRail 纯展示）；
   // T7 显式启动写面（web.start，v0.9）同链注入
   const { topology, sendWebStop, sendWebStart } = useSession();
+  // T4/T7 web 双写面 send 返回值消费（TR-84/TR-168，code-review 低危组9）：
+  // false（断线窗口未发出）err toast 交代——IconRail 纯展示零反馈面，收口
+  // 归装配层；文案复用 modelsConfig.sendFailToast 通用「未连接 daemon」面
+  //（新增 i18n 键超出本组 shared/ 冻结边界）
+  const stopWeb = useCallback((): boolean => {
+    const ok = sendWebStop();
+    if (ok === false) toast.push("err", t("chat.modelsConfig.sendFailToast"));
+    return ok;
+  }, [sendWebStop, toast, t]);
+  const startWeb = useCallback((): boolean => {
+    const ok = sendWebStart();
+    if (ok === false) toast.push("err", t("chat.modelsConfig.sendFailToast"));
+    return ok;
+  }, [sendWebStart, toast, t]);
   const onWorkbench = route === ROUTE_WORKBENCH;
   return (
     <>
@@ -81,8 +97,8 @@ function AppRoutes() {
           theme={theme}
           onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
           webStatus={topology.webStatus}
-          onStopWeb={sendWebStop}
-          onStartWeb={sendWebStart}
+          onStopWeb={stopWeb}
+          onStartWeb={startWeb}
         />
         <div className="page-area">
           {/* 工作台常驻 DOM：非工作台路由 display:none（状态/WS 全保留） */}

@@ -9,8 +9,11 @@
  * - hud-corners 四角描线 = HUD 一等实体签名（::before/::after CSS 几何）；
  * - violet 28px「SA」头像跨态不变（Agent 角色身份槽位，05 节）；
  * - 状态语言与工具卡同源（StatusDot + 边框 + 角标变色）；
- * - 整卡 `<a>` 语义键盘可达（Tab 聚焦 + Enter/Space 开抽屉；抽屉本体 T4.3，
- *   经 onOpenDrawer 回调接线，当前由调用方占位）。
+ * - 整卡 `<a>` 无 href 非链接——语义为动作钮（开抽屉）：role="button"
+ *   键盘可达（Tab 聚焦 + Enter/Space 触发；抽屉本体 T4.3，经 onOpenDrawer
+ *   回调接线，当前由调用方占位）。code-review 低危组9：原 role="link"
+ *   误标导航语义（无 href 无导航）——本卡是控件非链接；sa-card 样式在
+ *   shared/ui/styles（本组不动），button 元素改造面留待样式面同批。
  *
  * 视图本地态（非投影）：running 态 elapsed 计时、终态收口时间捕获——协议
  * DTO 不携带 startedAt/closure 时间戳，此处为展示层 best-effort（快照重建
@@ -109,7 +112,7 @@ const SubAgentCard = memo(function SubAgentCard({ card, onOpenDrawer }: SubAgent
   return (
     <a
       className={cn("sa-card", card.state)}
-      role="link"
+      role="button"
       tabIndex={0}
       data-instance={card.instanceId}
       aria-label={`${card.instanceId} · ${card.task}`}

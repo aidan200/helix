@@ -61,7 +61,7 @@ describe("dispatcher 帧路由（v0.2 信封 sessionId）", () => {
   it("活跃会话帧 → 完整 store 消费（chat.stream.delta 进 streaming）", () => {
     const topo = connectedTopology();
     const next = dispatchFrame(topo, frame("chat.stream.delta", { messageId: "m1", delta: "Hel" }, { sessionId: A, channel: "chat" }), 0);
-    expect(next.active.streaming).toEqual({ messageId: "m1", text: "Hel" });
+    expect(next.active.streaming).toEqual({ messageId: "m1", text: "Hel", ts: 0 }); // ts = 帧 ts 入参（首 delta 定格）
     // 后台/清单面不受影响
     expect(next.background).toEqual(topo.background);
   });
@@ -76,7 +76,7 @@ describe("dispatcher 帧路由（v0.2 信封 sessionId）", () => {
   it("缺省信封 sessionId（v0/v0.1 兼容帧）→ 活跃 store 消费", () => {
     const topo = connectedTopology();
     const next = dispatchFrame(topo, frame("chat.stream.delta", { messageId: "m1", delta: "旧帧" }), 0);
-    expect(next.active.streaming).toEqual({ messageId: "m1", text: "旧帧" });
+    expect(next.active.streaming).toEqual({ messageId: "m1", text: "旧帧", ts: 0 });
   });
 
   it("后台会话帧 → 轻量 store 消费：runState 徽标更新、活跃 store 不动；白名单外帧（delta）不计未读（存量对账批）", () => {

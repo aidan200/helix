@@ -1,6 +1,6 @@
 /**
  * chat 状态行（T1）：消息流与输入框之间的常驻条——三槽 flex 布局
- * （左 SteerQueueDock / 中 diff 预留空占位 / 右 WorkPhaseDot）。
+ * （左 SteerQueueDock / 中 DiffStatChip / 右 WorkPhaseDot）。
  *
  * 常驻占位纪律：高度恒定（height:28px + flex-shrink:0）、无条件渲染——
  * 内容有无不影响布局（对话气泡卡片与输入框间距恒定）。

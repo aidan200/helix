@@ -23,6 +23,7 @@ import { useI18n } from "@/shared/i18n";
 import { useToast } from "@/shared/ui/Toast";
 import { cn } from "@/shared/lib/cn";
 import { relativeTimeSpan } from "@/shared/lib/format";
+import { readPersistedFlag, writePersistedFlag } from "@/shared/lib/persisted-flag";
 import { useSession } from "@/entities/session/SessionContext";
 import { selectActiveRunState } from "@/entities/session/model/topology";
 import SessionCard from "./P-2-session-card";
@@ -30,21 +31,9 @@ import SessionCard from "./P-2-session-card";
 /** 侧栏折叠记忆键（AG-14 白名单：纯 UI 布局偏好，非业务状态）。 */
 const SIDEBAR_KEY = "helix-sidebar-collapsed";
 
-function readCollapsed(): boolean {
-  try {
-    return window.localStorage.getItem(SIDEBAR_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeCollapsed(v: boolean): void {
-  try {
-    window.localStorage.setItem(SIDEBAR_KEY, v ? "1" : "0");
-  } catch {
-    /* 无痕/受限环境：记忆失效不阻断交互 */
-  }
-}
+/** 折叠记忆读写（shared/lib/persisted-flag 收拢；缺省 = 展开）。 */
+const readCollapsed = (): boolean => readPersistedFlag(SIDEBAR_KEY, false);
+const writeCollapsed = (v: boolean): void => writePersistedFlag(SIDEBAR_KEY, v);
 
 const SessionSidebar = function SessionSidebar({ onFocusInput }: { onFocusInput?: () => void }) {
   const { t } = useI18n();

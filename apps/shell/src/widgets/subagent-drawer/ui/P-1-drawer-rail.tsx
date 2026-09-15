@@ -17,6 +17,7 @@ import { useState } from "react";
 import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useI18n } from "@/shared/i18n";
 import { useRunningElapsed } from "@/shared/lib/useRunningElapsed";
+import { readPersistedFlag, writePersistedFlag } from "@/shared/lib/persisted-flag";
 import { useSession } from "@/entities/session/SessionContext";
 import type { InstanceCardState } from "@/entities/session/model/session-reducer";
 import { ACTIVITY_TYPES } from "../model/activity-types";
@@ -28,21 +29,9 @@ export interface DrawerRailProps {
 /** 折叠记忆键（AG-14 白名单；缺省 = 折叠，显式 "0" = 展开）。 */
 const RAIL_KEY = "helix-activity-rail-collapsed";
 
-function readCollapsed(): boolean {
-  try {
-    return window.localStorage.getItem(RAIL_KEY) !== "0";
-  } catch {
-    return true; // 无痕/受限环境：缺省折叠，记忆失效不阻断交互
-  }
-}
-
-function writeCollapsed(v: boolean): void {
-  try {
-    window.localStorage.setItem(RAIL_KEY, v ? "1" : "0");
-  } catch {
-    /* 无痕/受限环境：记忆失效不阻断交互 */
-  }
-}
+/** 折叠记忆读写（shared/lib/persisted-flag 收拢；缺省 = 折叠）。 */
+const readCollapsed = (): boolean => readPersistedFlag(RAIL_KEY, true);
+const writeCollapsed = (v: boolean): void => writePersistedFlag(RAIL_KEY, v);
 
 /** 活跃判据（用户裁决 Q2）：仅 queued+running 上条；终态立即离开。 */
 const isActive = (c: InstanceCardState) => c.state === "queued" || c.state === "running";

@@ -5,7 +5,7 @@
  * dispatchFrame（纯函数）：帧 → 解析信封（sessionId/channel/type）→ 按
  * sessionId 路由 → 按 type 交消费者：
  *
- * ⓪ 拓扑级模型/厂商配置族（model/auth 9 类 *.result）→ modelConfig 面
+ * ⓪ 拓扑级模型/厂商配置族（model/auth/config 族 *.result）→ modelConfig 面
  *    ——先于后台路由：model.get.result 等结果帧信封 sid=目标会话，草稿态
  *    （activeId=null）下若先过后台守卫会被误吞进后台路径；拓扑级消费提前安全；
  * ① 后台会话帧（信封 sessionId 命中后台轻量 store）→ 轻量消费（运行态徽标
@@ -51,7 +51,8 @@ export function dispatchFrame(topo: TopologyState, frame: EventEnvelope, ts?: nu
   }
   const sid = frame.sessionId;
   const activeId = topo.active.sessionId;
-  // ⓪ 拓扑级模型/厂商配置族（model/auth 9 类 *.result；T3.3 前置——含
+  // ⓪ 拓扑级模型/厂商配置族（model/auth/config 族 *.result，注册表
+  //    MODEL_CONFIG_EVENT_TYPES 驱动——成员增减免改此处口径；T3.3 前置——含
   //    model.get.result（信封 sessionId=目标会话）。先于后台路由：草稿态
   //    （activeId=null）下结果帧若先过后台守卫会被误吞进后台路径；model 配置
   //    族是拓扑级消费，提前安全；全局数据不入会话 store）

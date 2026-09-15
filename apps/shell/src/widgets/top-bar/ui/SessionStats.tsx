@@ -21,6 +21,7 @@ import { useI18n } from "@/shared/i18n";
 import { resolveCatalogMatch } from "@/shared/lib/catalog-match";
 import { fmtPct, fmtTokens } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
+import { useDismissOnOutside } from "@/shared/lib/useDismissOnOutside";
 import { selectIsGenerating, useSession } from "@/entities/session/SessionContext";
 import type { SessionState } from "@/entities/session/model/session-reducer";
 
@@ -57,12 +58,6 @@ export interface UsageRow {
   action?: { type: "drawer"; instanceId: string } | { type: "compaction" };
 }
 
-/** 账目行投影（F3.4）：main 行 + instances 卡片行（spawn 时序）+ compaction
- *  独立行（usage.compaction 小计 + 最近里程碑 before→after 归属说明 sub）。
- * 合计 = state.usage.total = Σ行（reducer addUsage 结构保证，数字自洽）。
- * catalog = 模型目录（TopologyState.modelConfig.catalog——拓扑级状态，调用方
- * 显式注入保持纯函数；未拉取/缺省 = 上下文占用比全行降级。 */
-
 /** 上下文窗口占用比（0–100）= ctxTokens ÷ ctxWindow（行模型目录解析；
  * 目录缺失/水位未知 → 空）。徽标（main）与 popover 行共用同一口径单源。 */
 export function ctxRatioOf(
@@ -77,6 +72,11 @@ export function ctxRatioOf(
   return { pct: (ctxTokens / ctxWindow) * 100, ctxTokens, ctxWindow };
 }
 
+/** 账目行投影（F3.4）：main 行 + instances 卡片行（spawn 时序）+ compaction
+ *  独立行（usage.compaction 小计 + 最近里程碑 before→after 归属说明 sub）。
+ * 合计 = state.usage.total = Σ行（reducer addUsage 结构保证，数字自洽）。
+ * catalog = 模型目录（TopologyState.modelConfig.catalog——拓扑级状态，调用方
+ * 显式注入保持纯函数；未拉取/缺省 = 上下文占用比全行降级。 */
 export function deriveUsageRows(s: SessionState, catalog: CatalogModel[] = []): UsageRow[] {
   const rows: UsageRow[] = [];
   // 上下文占用比：水位（ctxByInstance）÷ 行模型目录窗口；目录缺失/水位未知 →
@@ -259,24 +259,11 @@ export const UsagePopover = memo(function UsagePopover({
   const { state, topology } = useSession();
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  // 开合状态机（F3.4）：点外部（popover 与徽标之外）/ Esc 关闭；popover 内部
-  // 点击不关（行尾动作自带 onClose），徽标自身点击交给 toggle 不在此关
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      const target = e.target as Element | null;
-      if (target && typeof target.closest === "function" && target.closest(".stats-btn, .stats-pop")) return;
-      onClose();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("click", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("click", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
+  // 开合状态机（F3.4）：点外部（popover 与徽标之外）/ Esc 关闭（共享 hook，
+  // code-review 低危组9 三处同构收拢）；popover 内部点击不关（行尾动作自带
+  // onClose），徽标自身点击交给 toggle 不在此关。open 恒 true：开合由父层
+  // 条件渲染承载（组件即开态）
+  useDismissOnOutside(true, ".stats-btn, .stats-pop", onClose);
 
   const rows = deriveUsageRows(state, topology.modelConfig.catalog?.models ?? []);
   const total = state.usage.total;
