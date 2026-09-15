@@ -6,6 +6,7 @@
  * 的 roots（normalizeRoots 已去尾分隔符）。
  */
 
+import { DomainError } from "../DomainError";
 import {
   SEATBELT_BASE_POLICY,
   SEATBELT_NETWORK_ALLOW_ALL,
@@ -23,7 +24,7 @@ function sbplLiteral(value: string): string {
 /** 生成完整 Seatbelt profile 文本。 */
 export function buildSeatbeltProfile(policy: SandboxPolicy): string {
   if (policy.mode !== "on" || policy.writableRoots.length === 0) {
-    throw new Error("buildSeatbeltProfile 仅在 mode=on 且 writableRoots 非空时可用");
+    throw new DomainError("buildSeatbeltProfile 仅在 mode=on 且 writableRoots 非空时可用");
   }
   const dynamic = policy.writableRoots
     .map((root) => `(allow file-read* file-test-existence file-write* (subpath "${sbplLiteral(root)}"))`)

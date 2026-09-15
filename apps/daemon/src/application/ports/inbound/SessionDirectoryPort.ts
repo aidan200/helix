@@ -1,5 +1,4 @@
 import type { SessionStateView } from "./SessionPort";
-import type { SendOutcome } from "./ChatPort";
 
 /**
  * 会话目录入口端口（inbound，architecture.md §3.4；AD-4）。

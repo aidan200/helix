@@ -17,6 +17,7 @@
  * 叙述面（summary）遵守 AD-16：节点 name 叙述，无裸 id。零写路径。
  */
 
+import { anchorLabel, kindLabelOf } from "./labels";
 import { toNodeRef } from "../types";
 import type {
   AnchorDeclRow,
@@ -62,15 +63,17 @@ export interface OrphanScanInput {
   readonly now: number;
 }
 
-function kindLabelOf(kind: KnowledgeNode["kind"]): string {
-  return kind === "rule" ? "规则" : "实体";
-}
-
-/** 锚叙述名：符号锚 path#symbol；文件锚 path。 */
-function anchorLabel(anchor: MaterializedAnchor): string {
-  return anchor.anchorSymbol === null || anchor.anchorSymbol === ""
-    ? anchor.anchorPath
-    : `${anchor.anchorPath}#${anchor.anchorSymbol}`;
+/**
+ * draft 新建宽限 + createdAt NaN 防御谓词（②③ 共用，口径完全对齐）：
+ * 非 draft 恒过；draft 需已过宽限期，createdAt 不可解析（NaN）防御跳过
+ * 不列（对齐 activity-mismatch 容错口径——NaN 参与比较恒 false，会穿透
+ * 宽限把新近草稿误报为孤儿，M1 批增补）。
+ */
+function passesDraftGrace(node: KnowledgeNode, now: number): boolean {
+  if (node.status !== "draft") return true;
+  const createdMs = Date.parse(node.createdAt);
+  if (Number.isNaN(createdMs)) return false;
+  return now - createdMs >= ORPHAN_DRAFT_GRACE_MS;
 }
 
 function deadAnchorSummary(anchor: MaterializedAnchor, ref: NodeRef): string {
@@ -119,14 +122,7 @@ export function findOrphanItems(input: OrphanScanInput): OrphanItem[] {
     .filter((n) => !anchoredNodeIds.has(n.id))
     .filter((n) => !edgedNodeIds.has(n.id))
     .filter((n) => !declaredNodeIds.has(n.id))
-    // M1：createdAt 不可解析（NaN）→ 防御跳过不列（对齐 activity-mismatch 同目录口径；
-    // NaN 参与比较恒 false，会穿透宽限把新近草稿误报为孤儿）
-    .filter((n) => {
-      if (n.status !== "draft") return true;
-      const createdMs = Date.parse(n.createdAt);
-      if (Number.isNaN(createdMs)) return false;
-      return now - createdMs >= ORPHAN_DRAFT_GRACE_MS;
-    })
+    .filter((n) => passesDraftGrace(n, now))
     .filter((n) => n.status !== "superseded")
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const node of orphanCandidates) {
@@ -146,12 +142,7 @@ export function findOrphanItems(input: OrphanScanInput): OrphanItem[] {
     .filter((n) => !anchoredNodeIds.has(n.id))
     .filter((n) => !declaredNodeIds.has(n.id))
     .filter((n) => edgedNodeIds.has(n.id))
-    .filter((n) => {
-      if (n.status !== "draft") return true;
-      const createdMs = Date.parse(n.createdAt);
-      if (Number.isNaN(createdMs)) return false;
-      return now - createdMs >= ORPHAN_DRAFT_GRACE_MS;
-    })
+    .filter((n) => passesDraftGrace(n, now))
     .filter((n) => n.status !== "superseded")
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const node of unanchoredCandidates) {

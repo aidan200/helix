@@ -4,8 +4,8 @@
  * 为什么存在：实例窗口态（InstanceState）的 running 只声明调度位置
  * （非排队非挂起），main 恒 running——零信息量展示等于没展示，用户
  * 自行脑补成「正在干活」。观测面需要的是「此刻在干嘛」：main 编译会话
- * 运行态（SessionRunState——SessionRegistry.runStateOf 已消化的五态
- * 词汇），subagent 编译窗口态。domain 状态机零改动——本文件只是投影层。
+ * 运行态（SessionRunState——SessionRegistry.runStateOf 已消化的三值
+ * 词汇：idle/streaming/subagent_running），subagent 编译窗口态。domain 状态机零改动——本文件只是投影层。
  *
  * 词表单源：active/idle/queued/parked/done/failed/cancelled——
  * trace 面板（TraceQuery）与 agent_status（SchedulerService.toStatus）
@@ -63,7 +63,7 @@ export type TraceLifecycleStatus = "running" | "completed" | "failed" | "killed"
 /**
  * trace 面板观测态编译（事件回放面——无实时窗口态/运行态，输入是
  * lifecycle 事件折叠的 status；main 的实时性经 mainSessionRun 注入
- * 补偿——事件行不含会话五态）。
+ * 补偿——事件行不含会话运行态）。
  *
  * main：sessionRun 同 displayStateOf；subagent：status 直译
  * （running→active；completed→done；failed→failed；killed→cancelled）。

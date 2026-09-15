@@ -25,7 +25,7 @@ export type NodeStatus = "draft" | "confirmed" | "superseded";
 /** 知识域（AD-16：tech/business 降为属性，不进 id）。 */
 export type NodeDomain = "tech" | "business";
 
-/** bootstrap 分层（AD-11：L0 核心层 / L1 领域层 / L2 实体层；下迭代消费，schema 先定形）。 */
+/** bootstrap 分层（AD-11：L0 核心层 / L1 领域层 / L2 实体层）——已消费：写面 kg-update createNode/updateNode 可携带，读面随节点行投影（kg get/search 等呈现 layer=Lx）。 */
 export type NodeLayer = "L0" | "L1" | "L2";
 
 /** 节点 id（系统 join 键：TR-n / E-n；id 永不做人类界面语汇，AD-16）。 */

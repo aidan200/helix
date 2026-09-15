@@ -1,5 +1,5 @@
 import type { ProfileKind, ResourceType } from "../outbound/ResourceStatePort";
-import type { SkillScanDiagnostic, SkillDescriptor, SkillSource } from "../outbound/SkillSourcePort";
+import type { SkillScanDiagnostic, SkillDescriptor } from "../outbound/SkillSourcePort";
 
 /**
  * 资源配置命令面（inbound，契约 v0.6 agent.config 族）：profile kind

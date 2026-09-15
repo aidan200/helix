@@ -9,6 +9,7 @@ import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue"
 import { SqliteSessionRepository } from "../../src/adapters/driven/sqlite-session/SqliteSessionRepository";
 import { FakeAgentEngine } from "../mocks/FakeAgentEngine";
 import { Session } from "../../src/domain/session/Session";
+import { LEGACY_MAIN_INSTANCE_ID } from "../../src/domain/agent/AgentInstance";
 import { ToolCallRecord } from "../../src/domain/tools/ToolCallRecord";
 import type { DomainEvent } from "../../src/domain/events/DomainEvent";
 import type { PersistedDomainState } from "../../src/application/ports/outbound/SessionRepositoryPort";
@@ -61,11 +62,11 @@ describe("TP-CL8-1：四类状态经 repository 存取重建", () => {
       session.beginTurn("e1", "2024-01-01T00:00:02.000Z");
       session.applySteer("改用 grep", "2024-01-01T00:00:03.000Z", "closure"); // pendingSteer 挂起（T11a：来源随队列入账）
 
-      const ok = ToolCallRecord.create("tc-ok", "bash", { command: "echo hi" });
+      const ok = ToolCallRecord.create("tc-ok", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID);
       ok.markRunning("2024-01-01T00:00:04.000Z");
       // H6：下行图片随 completed 入账，restore 往返必须保真（读点漏 SELECT images 会抹除）
       ok.complete("hi", "2024-01-01T00:00:05.000Z", ["data:image/png;base64,AAAA"]);
-      const bad = ToolCallRecord.create("tc-bad", "read", { path: "/x" });
+      const bad = ToolCallRecord.create("tc-bad", "read", { path: "/x" }, LEGACY_MAIN_INSTANCE_ID);
       bad.markRunning("2024-01-01T00:00:06.000Z");
       bad.fail("no such file", "2024-01-01T00:00:07.000Z");
 

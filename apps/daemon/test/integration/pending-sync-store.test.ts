@@ -5,6 +5,7 @@ import path from "node:path";
 import { WriteQueue } from "../../src/adapters/driven/sqlite-session/WriteQueue";
 import { SqliteSessionRepository } from "../../src/adapters/driven/sqlite-session/SqliteSessionRepository";
 import { Session } from "../../src/domain/session/Session";
+import { LEGACY_MAIN_INSTANCE_ID } from "../../src/domain/agent/AgentInstance";
 import { ToolCallRecord } from "../../src/domain/tools/ToolCallRecord";
 import type { PersistedDomainState } from "../../src/application/ports/outbound/SessionRepositoryPort";
 
@@ -23,14 +24,14 @@ function tmpHome(): string {
 }
 
 function completedTool(id: string, toolName: string) {
-  const record = ToolCallRecord.create(id, toolName, { path: "/x" });
+  const record = ToolCallRecord.create(id, toolName, { path: "/x" }, LEGACY_MAIN_INSTANCE_ID);
   record.markRunning("2024-01-01T00:00:01.000Z");
   record.complete("ok", "2024-01-01T00:00:02.000Z");
   return record.toData();
 }
 
 function failedTool(id: string, toolName: string) {
-  const record = ToolCallRecord.create(id, toolName, { path: "/x" });
+  const record = ToolCallRecord.create(id, toolName, { path: "/x" }, LEGACY_MAIN_INSTANCE_ID);
   record.markRunning("2024-01-01T00:00:01.000Z");
   record.fail("boom", "2024-01-01T00:00:02.000Z");
   return record.toData();

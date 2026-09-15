@@ -7,7 +7,7 @@ import type { PersistedDomainState } from "../../../src/application/ports/outbou
 import { Session } from "../../../src/domain/session/Session";
 import type { SessionSnapshot } from "../../../src/domain/session/SessionSnapshot";
 import type { SessionUsageSummary } from "../../../src/domain/session/SessionSnapshot";
-import type { AgentInstanceData } from "../../../src/domain/agent/AgentInstance";
+import { LEGACY_MAIN_INSTANCE_ID, type AgentInstanceData } from "../../../src/domain/agent/AgentInstance";
 import { ToolCallRecord } from "../../../src/domain/tools/ToolCallRecord";
 import type { DomainEvent } from "../../../src/domain/events/DomainEvent";
 
@@ -27,13 +27,13 @@ function richState(): PersistedDomainState {
   session.applySteer("运行中注入", "2024-01-01T00:00:06.000Z"); // pendingSteer 非空
   void steerTurn;
 
-  const completed = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" });
+  const completed = ToolCallRecord.create("tc-1", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID);
   completed.markRunning("2024-01-01T00:00:07.000Z");
   completed.complete("hi", "2024-01-01T00:00:08.000Z");
-  const failed = ToolCallRecord.create("tc-2", "read", { path: "/x" });
+  const failed = ToolCallRecord.create("tc-2", "read", { path: "/x" }, LEGACY_MAIN_INSTANCE_ID);
   failed.markRunning("2024-01-01T00:00:09.000Z");
   failed.fail("no such file", "2024-01-01T00:00:10.000Z");
-  const running = ToolCallRecord.create("tc-3", "grep", { pattern: "a" });
+  const running = ToolCallRecord.create("tc-3", "grep", { pattern: "a" }, LEGACY_MAIN_INSTANCE_ID);
   running.markRunning("2024-01-01T00:00:11.000Z");
 
   return {
@@ -153,10 +153,10 @@ describe("TP-CL8-5：RowMapper 往返等价", () => {
 
   test("T9 图片：ToolCallRecord images 经 tool_calls.images JSON 列往返不丢（持久化一致性专项）", () => {
     const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-    const withImages = ToolCallRecord.create("tc-img", "browser", { action: "screenshot" });
+    const withImages = ToolCallRecord.create("tc-img", "browser", { action: "screenshot" }, LEGACY_MAIN_INSTANCE_ID);
     withImages.markRunning("2024-01-01T00:00:07.000Z");
     withImages.complete('{"saved":"/tmp/s.png"}', "2024-01-01T00:00:08.000Z", [dataUrl]);
-    const withoutImages = ToolCallRecord.create("tc-plain", "bash", { command: "echo hi" });
+    const withoutImages = ToolCallRecord.create("tc-plain", "bash", { command: "echo hi" }, LEGACY_MAIN_INSTANCE_ID);
     withoutImages.markRunning("2024-01-01T00:00:09.000Z");
     withoutImages.complete("hi", "2024-01-01T00:00:10.000Z");
 

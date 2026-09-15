@@ -44,13 +44,6 @@ export interface McpToolSummary {
 
 export type McpStatusListener = (status: McpServerStatusInfo) => void;
 
-/** add/update/remove 写面回执（与协议 McpMutationResultPayload 内核同形）。 */
-export interface McpMutationOutcome {
-  readonly status: "applied" | "connect_failed";
-  readonly server?: McpServerStatusInfo;
-  readonly error?: string;
-}
-
 export interface McpServerPort {
   /** 新增/覆盖 server：连接 → 发现 → running；失败降级 error（配置保留可重试）。 */
   addServer(config: McpServerConfigInput): Promise<McpServerStatusInfo>;

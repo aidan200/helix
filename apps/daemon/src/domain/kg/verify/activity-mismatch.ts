@@ -14,6 +14,7 @@
  * 在人。零写路径（纯函数）。
  */
 
+import { anchorLabel, kindLabelOf } from "./labels";
 import { toNodeRef } from "../types";
 import type { KnowledgeNode, MaterializedAnchor, NodeRef } from "../types";
 
@@ -44,10 +45,6 @@ export interface ActivitySortOptions {
   readonly staleGapMs?: number;
 }
 
-function kindLabelOf(kind: KnowledgeNode["kind"]): string {
-  return kind === "rule" ? "规则" : "实体";
-}
-
 /** 滞后时长的人类叙述（<1 天显示「不足 1 天」）。 */
 function lagLabel(lagMs: number): string {
   const days = Math.floor(lagMs / (24 * 60 * 60 * 1000));
@@ -76,7 +73,7 @@ export function sortActivityMismatch(
     const lagMs = fileMtime - updatedAtMs;
     if (lagMs < staleGapMs) continue; // 知识未显著滞后于代码
     const ref = toNodeRef(node);
-    const label = anchor.anchorSymbol === null || anchor.anchorSymbol === "" ? anchor.anchorPath : `${anchor.anchorPath}#${anchor.anchorSymbol}`;
+    const label = anchorLabel(anchor);
     candidates.push({
       node: ref,
       anchor,

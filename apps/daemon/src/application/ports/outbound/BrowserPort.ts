@@ -6,7 +6,8 @@
  * （adapters/driven/cdp/CdpConnectionManager），工具层零 CDP 知识
  * 纯薄转投，状态协议直接消费 onStatusChange 事件源。
  *
- * 方法面：核心连接面 11 方法 + 状态订阅 + 交互方法 5 个
+ * 方法面：连接与状态（含订阅）+ tab 操作 + owner 回收三族——分节与
+ * 计数以接口体为准（目录即真相源）；交互五族
  *（click/clickAt/setFiles/scroll/screenshot， additive 补齐，逻辑
  * 移植自 web-access/scripts/cdp-proxy.mjs 对应端点）。
  *
