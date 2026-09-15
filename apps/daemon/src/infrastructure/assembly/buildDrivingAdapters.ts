@@ -103,6 +103,44 @@ export function buildCliDriving(deps: CliDrivingDeps): CliDriving {
 
 // ── 阶段二：system + 编排/模型门面 + WS（initialize/恢复扫描之后） ────
 
+/**
+ * 当前会话绑定编排门面纯工厂（可测化抽出——buildWsDriving 本体有
+ * ensureDevToken 写盘等副作用，窄测试只打本工厂）。
+ *
+ * spawn 携带当前会话归属 + 两级链解析模型透传（AgentInstanceDto.model
+ * 填充链；T12 起不取会话当前模型）；kill/send/status 按 agentId 全局寻址。
+ *
+ * 坑因登记（code-review 低危波次实测）：port 签名的第 4 参 options
+ * （U3 writes 写面声明）曾在本适配层被整个丢弃——少参箭头函数赋多参
+ * 接口在 TS 协变下合法，静默退化 shared（isolated 声明不到 launcher，
+ * provisioner 零参与，实例 bash 自建散乱 worktree）。options 透传必须
+ * 显式书写，测试钉死（orchestration-facade.test.ts）。
+ */
+export function buildOrchestrationFacade(deps: {
+  readonly registry: SessionRegistry;
+  readonly scheduler: SchedulerService;
+  readonly resolveSubagentModelId: SessionStack["resolveSubagentModelId"];
+}): AgentOrchestrationPort {
+  const { registry, scheduler } = deps;
+  return {
+    spawn: (task, profileKind, reportIntervalMs, options) =>
+      scheduler.spawn(
+        registry.currentSessionId(),
+        task,
+        profileKind,
+        deps.resolveSubagentModelId(profileKind),
+        reportIntervalMs, // T3-A：进展报告间隔透传
+        options, // U3：writes 写面声明透传（漏参即静默退化 shared——见工厂头注）
+      ),
+    send: (agentId, message) => scheduler.send(agentId, message),
+    status: (agentId) => scheduler.status(agentId),
+    kill: (agentId) => scheduler.kill(agentId),
+    inspect: (agentId) => scheduler.inspect(agentId), // T3-B
+    park: (agentId) => scheduler.park(agentId), // ⑤ 链 C：reason 缺省 user（chat 域入口）
+    resume: (agentId) => scheduler.resume(agentId), // ⑤ 链 C
+  };
+}
+
 export interface WsDrivingDeps {
   readonly registry: SessionRegistry;
   readonly scheduler: SchedulerService;
@@ -231,25 +269,13 @@ export function buildWsDriving(deps: WsDrivingDeps): WsDriving {
   const token = ensureDevToken(paths.devTokenPath());
   const staticDir = deps.staticDir ?? config.staticDir;
   const staticServe = new StaticServe(staticDir);
-  // 当前会话绑定编排门面：Daemon.orchestration / WS 编排命令共用——
-  // spawn 携带当前会话归属 + 两级链解析模型透传（AgentInstanceDto.model
-  // 填充链；T12 起不取会话当前模型）；kill/send/status 按 agentId 全局寻址
-  const currentOrchestration: AgentOrchestrationPort = {
-    spawn: (task, profileKind, reportIntervalMs) =>
-      scheduler.spawn(
-        registry.currentSessionId(),
-        task,
-        profileKind,
-        deps.resolveSubagentModelId(profileKind),
-        reportIntervalMs, // T3-A：进展报告间隔透传
-      ),
-    send: (agentId, message) => scheduler.send(agentId, message),
-    status: (agentId) => scheduler.status(agentId),
-    kill: (agentId) => scheduler.kill(agentId),
-    inspect: (agentId) => scheduler.inspect(agentId), // T3-B
-    park: (agentId) => scheduler.park(agentId), // ⑤ 链 C：reason 缺省 user（chat 域入口）
-    resume: (agentId) => scheduler.resume(agentId), // ⑤ 链 C
-  };
+  // 当前会话绑定编排门面：Daemon.orchestration / WS 编排命令共用（门面装配
+  // 抽出为 buildOrchestrationFacade 纯工厂——可测化，见下方导出）。
+  const currentOrchestration = buildOrchestrationFacade({
+    registry,
+    scheduler,
+    resolveSubagentModelId: deps.resolveSubagentModelId,
+  });
   // 模型/认证管理门面（AD-2）：WS model.*/auth.* 命令族回口；
   // model.changed 经 EventStream 广播（channel=model，订阅路由）
   const modelService = new ModelService({
