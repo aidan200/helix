@@ -38,9 +38,6 @@ import KgBootstrapEntry from "./ui/kg-bootstrap-entry";
 import KgHealthPane from "./ui/kg-health-pane";
 import KgCandidatesPanel, { type CandFilter } from "./ui/kg-candidates-panel";
 
-/** 面板重建轮询间隔（O-6：上收 project-model KG_INDEX_POLL_MS 单一常量）。 */
-const REBUILD_POLL_MS = KG_INDEX_POLL_MS;
-
 /** 写面失败 toast 文案键（单飞 kind → 既有 fail 文案；超时兜底复用同键 +
  *  flightTimeout 作 message——M9 #2.31 统一 hook 一处收口）。 */
 const WRITE_FAIL_KEY: Record<KgWriteKind, string> = {
@@ -172,7 +169,7 @@ const KgViewer = function KgViewer({
   const idxRebuilding = state.idxRebuilding;
   useEffect(() => {
     if (!idxRebuilding) return;
-    const timer = setInterval(() => sendKgIndexStatus({ project: project.name }), REBUILD_POLL_MS);
+    const timer = setInterval(() => sendKgIndexStatus({ project: project.name }), KG_INDEX_POLL_MS);
     return () => clearInterval(timer);
   }, [idxRebuilding, project.name, sendKgIndexStatus]);
 

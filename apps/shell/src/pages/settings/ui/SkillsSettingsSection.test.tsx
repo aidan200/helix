@@ -258,6 +258,29 @@ describe("SkillsSettingsSection 添加表单（skills 添加批：两渠道创�
     });
     expect(document.querySelector("[data-skills-form]")).not.toBeNull(); // skipped 不收表单（可修正重试）
   });
+
+  it("⑦ 未知 reason 码 → 回落 generic 文案透传 reason（不渲染裸 i18n key，code-review 低危）", async () => {
+    mount();
+    mock.listener(frameOf("agent.config.list.result", listPayload));
+    await waitFor(() => {
+      expect(document.querySelector('[data-skill-row="hello-skill"]')).not.toBeNull();
+    });
+
+    fireEvent.click(document.querySelector("[data-skills-add-toggle]")!);
+    fireEvent.change(document.querySelector("[data-skills-name]")!, { target: { value: "my-skill" } });
+    fireEvent.change(document.querySelector("[data-skills-desc]")!, { target: { value: "测试技能" } });
+    fireEvent.change(document.querySelector("[data-skills-body]")!, { target: { value: "## 正文" } });
+    fireEvent.click(document.querySelector("[data-skills-submit]")!);
+
+    // daemon 新增/异常 reason 值：不在 createFail 词条集内 → generic 文案带 reason 可诊断
+    mock.listener(frameOf("agent.skill.create.result", { status: "skipped", reason: "future-new-code" }));
+    await waitFor(() => {
+      const err = (document.querySelector("[data-skills-form-error]") as HTMLElement | null)?.textContent ?? "";
+      expect(err).toContain("future-new-code");
+      expect(err).not.toContain("createFail"); // 不渲染裸 key
+    });
+    expect(document.querySelector("[data-skills-form]")).not.toBeNull(); // 不收表单（可修正重试）
+  });
 });
 
 describe("M10 批①：协议层失败回执（connection.error）清在途 + 行内错误交代", () => {

@@ -11,7 +11,7 @@
  *
  * 文案走 i18n（AG-16 前端半）；『』包裹形态保留（引用视觉锚，跨语言同形）。
  */
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import type { KgNodeKindDto, KgNodeListRow, KgNodeStatusDto } from "@helix/protocol";
 import { useI18n } from "@/shared/i18n";
 
@@ -92,7 +92,9 @@ export function fmtNarrative(
   });
 }
 
-/** id 替换切分：{{TR-n}} 标记与裸 TR-n/E-n（可解析时）。 */
+/** id 替换切分：{{TR-n}} 标记与裸 TR-n/E-n（可解析时）。数组 key 策略统一：
+ *  文本片段包 Fragment key（t 前缀）/ 节点引用元素 r 前缀——同一计数器
+ *  保证全数组唯一（字符串裸片段无 key 的隐式位置键不稳定）。 */
 function splitRefs(
   text: string,
   byId: ReadonlyMap<string, KgNodeListRow>,
@@ -107,13 +109,13 @@ function splitRefs(
     const id: string = m[1] ?? m[2] ?? "";
     const node = byId.get(id);
     if (node === undefined) continue; // 不可解析：原样保留（daemon 数据层纪律兜底）
-    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m.index > last) out.push(<Fragment key={`t${key++}`}>{text.slice(last, m.index)}</Fragment>);
     out.push(
       <NodeRef key={`r${key++}`} id={node.id} name={node.name} kind={node.kind} onGoto={onGoto} />,
     );
     last = m.index + m[0].length;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) out.push(<Fragment key={`t${key++}`}>{text.slice(last)}</Fragment>);
   return out;
 }
 

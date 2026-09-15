@@ -13,15 +13,9 @@
  * 发送/回执消费/单飞锁归 KgViewer 常驻 listener，本组件只回调。
  */
 import type { KgHealthDto } from "@helix/protocol";
+import { fmtLocaleDateTime } from "@/shared/lib/format";
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
-
-/** 同步时间戳（ISO/null）→ 本地人读；null/非法 → —。 */
-function formatDateTime(iso: string | null | undefined): string {
-  if (iso == null) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
-}
 
 /** 任务块（kg-review / code-review 近同构——参数化单组件；d = data 前缀
  *  与 e2e 断言锚（review / code-review），文案键/三态由调用方注入）。 */
@@ -173,7 +167,7 @@ export default function KgHealthPane({
           </div>
           <div className="kg-health-stat" data-stat="syncedAt">
             <span className="kg-health-stat-k">{t("pj.health.statLastSync")}</span>
-            <span className="kg-health-stat-v">{formatDateTime(health.index.syncedAt)}</span>
+            <span className="kg-health-stat-v">{fmtLocaleDateTime(health.index.syncedAt)}</span>
           </div>
           <div className="kg-health-stat" data-stat="issues">
             <span className="kg-health-stat-k">{t("pj.health.statIssues")}</span>

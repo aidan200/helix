@@ -166,6 +166,35 @@ describe("M44/M45/M46 压缩参数保存链路", () => {
     expect(setCompactionConfig).not.toHaveBeenCalled();
   });
 
+  it("code-review 低危：校验失败行内提示（空串/非整数/越界不再静默 return），输入变更即清", () => {
+    ui();
+    // 压缩卡：空串 → 行内提示
+    const { reserve, keep, save } = inputs();
+    fireEvent.change(reserve, { target: { value: "" } });
+    fireEvent.click(save);
+    expect(document.querySelector("[data-compaction-invalid]")!.textContent).toContain("非负整数");
+    expect(setCompactionConfig).not.toHaveBeenCalled();
+    // 输入变更 → 提示清（重新校验窗口交给下次保存）
+    fireEvent.change(reserve, { target: { value: "96000" } });
+    expect(document.querySelector("[data-compaction-invalid]")).toBeNull();
+    // 非整数（小数）同样提示
+    fireEvent.change(keep, { target: { value: "1.5" } });
+    fireEvent.click(save);
+    expect(document.querySelector("[data-compaction-invalid]")!.textContent).toContain("非负整数");
+
+    // 调度卡：maxConcurrent=0 越下界 → 行内提示（需 ≥1）
+    fireEvent.change(document.querySelector("[data-sched-max-concurrent]")!, { target: { value: "0" } });
+    fireEvent.click(document.querySelector("[data-sched-save]")!);
+    expect(document.querySelector("[data-sched-invalid]")!.textContent).toContain("≥1");
+    expect(setSchedulingConfig).not.toHaveBeenCalled();
+
+    // 端口卡：越上界（65536）→ 行内提示
+    fireEvent.change(document.querySelector("[data-ws-port]")!, { target: { value: "65536" } });
+    fireEvent.click(document.querySelector("[data-port-save]")!);
+    expect(document.querySelector("[data-port-invalid]")!.textContent).toContain("0-65535");
+    expect(setPortConfig).not.toHaveBeenCalled();
+  });
+
   it("M44：「已保存」由 set_compaction.result 结果帧驱动（非乐观置位）", () => {
     const view = ui();
     const { reserve, keep, save } = inputs();

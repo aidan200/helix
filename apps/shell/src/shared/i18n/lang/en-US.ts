@@ -338,6 +338,10 @@ export const enUS = {
       general: {
         title: "General",
         sendFail: "Not connected to daemon; action not sent",
+        /** Local validation failure inline note (code-review low: no more silent return). */
+        invalidNonNegInt: "Invalid input: non-negative integers required",
+        invalidSchedBudget: "Invalid input: max concurrent must be an integer ≥ 1; max queued must be a non-negative integer",
+        invalidPort: "Invalid input: port must be an integer in 0-65535",
         groupLanguage: "Language",
         groupWorkspace: "Workspace",
         groupCompaction: "Context compaction",

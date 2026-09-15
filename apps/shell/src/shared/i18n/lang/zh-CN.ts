@@ -348,6 +348,10 @@ export const zhCN = {
         title: "通用配置",
         /** code-review H8：send false（未发出）行内交代（useConfigField.submit / 沙箱开关共用）。 */
         sendFail: "未连接 daemon，操作未发出",
+        /** 本地校验失败行内提示（code-review 低危：不再静默 return）。 */
+        invalidNonNegInt: "输入无效：需为非负整数",
+        invalidSchedBudget: "输入无效：并发上限需为 ≥1 的整数，队列上限需为非负整数",
+        invalidPort: "输入无效：端口需为 0-65535 的整数",
         groupLanguage: "语言",
         groupWorkspace: "工作空间",
         groupCompaction: "上下文压缩",

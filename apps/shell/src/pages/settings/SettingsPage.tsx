@@ -22,7 +22,7 @@ import SettingsNav, {
 
 const SettingsPage = function SettingsPage({ path }: { path: string }) {
   const { t } = useI18n();
-  // 首分区缺省选中（列表非空由编译期字面量保证；S2 仅一项）
+  // 首分区缺省选中（列表非空由编译期字面量保证；首项 = 模型设置）
   const [section, setSection] = useState<SettingsSectionId>(
     SETTINGS_SECTIONS[0]!.id,
   );
